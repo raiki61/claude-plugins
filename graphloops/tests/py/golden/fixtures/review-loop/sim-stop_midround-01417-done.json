@@ -57,7 +57,7 @@
  "config": {},
  "input": {
   "out.txt": {
-   "<text-file>": "{\"constraints\": [{\"text\": \"呼び出し元は 1 箇所\", \"measured_how\": \"grep -c 'f(' src/\", \"measured_output\": \"src/a.py:1\", \"kind\": \"実測\"}]}"
+   "<text-file>": "{\"constraints\": [{\"text\": \"呼び出し元は 1 箇所\", \"measured_how\": \"grep -c 'f(' src/\", \"measured_output\": \"src/a.py:1\", \"kind\": \"measured\"}]}"
   }
  },
  "git": {}

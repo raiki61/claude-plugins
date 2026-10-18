@@ -60,7 +60,7 @@
       "string",
       "null"
      ],
-     "description": "目的の出典が R2 に使えない理由（目的不明・狭めている。使えるなら null）"
+     "description": "目的の出典が R2 に使えない理由のキー（unknown＝目的不明・narrows＝狭めている。使えるなら null）"
     }
    }
   },
@@ -182,7 +182,21 @@
       "lost": {
        "type": "array",
        "items": {
-        "type": "string"
+        "type": "object",
+        "required": [
+         "text"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "text": {
+          "type": "string",
+          "minLength": 1
+         },
+         "same_as": {
+          "type": "string",
+          "minLength": 1
+         }
+        }
        }
       },
       "note": {
@@ -193,8 +207,21 @@
     "policy_conflicts": {
      "type": "array",
      "items": {
-      "type": "string",
-      "minLength": 1
+      "type": "object",
+      "required": [
+       "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "text": {
+        "type": "string",
+        "minLength": 1
+       },
+       "same_as": {
+        "type": "string",
+        "minLength": 1
+       }
+      }
      }
     },
     "surfaced": {

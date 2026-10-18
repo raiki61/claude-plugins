@@ -817,6 +817,9 @@ expect_output 0 "連続 2 ラウンド" "2 ラウンド続けて阻害なしな�
 expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "素材 prior_decisions: round 1 の判定を流用（2 ラウンド前）" "持ち越しは実際に見たラウンドと古さを見せる" \
     "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 '"exit": 0, "stop": null, "text": "' "--json は exit 0 で stop が null" "$PY_BIN" "$RECORD" --json "$WORK/hist"
+expect_output 1 '"exit": 1, "stop": null, "text": "収束を妨げるもの' "--json は仕事が残る周で stop が null、人向けの文は text に入れる" \
+    "$PY_BIN" "$RECORD" --json "$WORK/tmpl-1"
 
 
 # 記録が不正（exit 2）。1 と混ざると「非収束」と誤読され、収束を永久に宣言できなくなる。
@@ -857,6 +860,8 @@ bad-scalars-type|'scalars' が object でない
 null-scalars|'scalars' が object でない
 unhashable-status|想定外の例外（TypeError）
 CASES
+expect_output 2 '"exit": 2, "stop": null, "text": ' "--json は不正な記録でも exit 2 と stop null の JSON を出す" \
+    "$PY_BIN" "$RECORD" --json "$WORK/drop-base"
 
 expect_output 2 "想定外の例外（TypeError）" "前ラウンドの key が unhashable でも 1 と区別して落ちる" \
     "$PY_BIN" "$RECORD" "$WORK/unhashable-key"
@@ -987,6 +992,11 @@ expect_output 1 "残る阻害要因は保留の問いに帰属するものだけ
     "$PY_BIN" "$RECORD" "$WORK/q-depends"
 expect_output 1 "前提不成立が確定（escalate）" "premise の escalate は他の阻害の帰属を問わず「聞く時」" \
     "$PY_BIN" "$RECORD" "$WORK/q-premise-escalate"
+# --json は止める訳を ASCII のキーで出す（graphloops の review-loop は文言でなくこのキーで周の分岐を決める）
+expect_output 1 '"exit": 1, "stop": "premise_escalate", "text": ' "--json は前提不成立の確定を stop のキーで出す" \
+    "$PY_BIN" "$RECORD" --json "$WORK/q-premise-escalate"
+expect_output 1 '"exit": 1, "stop": "work_exhausted", "text": ' "--json は答え無しに進める仕事が無いことを stop のキーで出す" \
+    "$PY_BIN" "$RECORD" --json "$WORK/q-depends"
 expect_output 2 "2 ラウンド連続の残存＝stuck）のに問いの台帳に無い: R2" \
     "unit の key が R の名前と同じでも、別の域の問いはそのユニットを指したことにならない" \
     "$PY_BIN" "$RECORD" "$WORK/domain-separation"
@@ -1156,7 +1166,7 @@ MUT = {
     "rr-na-without-reason": lambda r: r.update(sampling={"status": "not_applicable"}),
     "rr-number-without-source": lambda r: r["numbers"][0].pop("source"),
     "rr-origin-missing": lambda r: r["constraints"][0].pop("origin"),
-    "rr-heavy-without-cartographer": lambda r: r.update(thickness="重厚"),
+    "rr-heavy-without-cartographer": lambda r: r.update(thickness="heavy"),
     "rr-stopped-without-reason": lambda r: r["convergence"].update(outcome="stopped"),
     "rr-load-zero-undeclared": all_unloaded,
     "rr-decisions-empty": lambda r: r.update(
@@ -1167,7 +1177,7 @@ MUT = {
     # 発行の阻害（exit 1）——記録としては正しいが、収束を名乗ったまま出してはいけない状態
     "rr-overturned": lambda r: r["sampling"].update(overturned=1),
     "rr-rederiver-fail": lambda r: r["gates"]["rederiver"].update(verdict="redesign-needed"),
-    "rr-unrefuted-disagreement": lambda r: r["claims"][1].update(verdict="相違"),
+    "rr-unrefuted-disagreement": lambda r: r["claims"][1].update(verdict="contradicted"),
     "rr-coldreader-fail": lambda r: r["gates"]["cold_reader"].update(
         rounds=[
             {"verdict": "redesign-needed", "findings": 8},
@@ -1292,8 +1302,8 @@ base = json.loads((root / "convergence-loops" / "templates/doctor-record.example
 UNVERIFIED = {
     "key": "断面から生えた新候補（次ラウンド対象）",
     "height": 1,
-    "verdict": "未検証",
-    "confidence": "仮説",
+    "verdict": "unverified",
+    "confidence": "hypothesis",
     "weight": None,
     "parent": None,
     "evidence": "走査の断面で観測",
@@ -1311,7 +1321,7 @@ MUT = {
         key="log_service/logger 置換案: 例外の握り潰しを logger 化する"
     ),
     "dr-votes-two": lambda r: r["oneshot"].update(votes=["票1", "票2"]),
-    "dr-escalation-stale": lambda r: r["nodes"][0].update(weight="ライブラリ級"),
+    "dr-escalation-stale": lambda r: r["nodes"][0].update(weight="library"),
     "dr-modcheck-restored-without-note": lambda r: r.update(mod_check={"status": "restored"}),
     "dr-rescan-empty": lambda r: r["rescan"].update(coverage=" "),
     # 発行の阻害（exit 1）——飽和を名乗ったまま出してはいけない状態
@@ -1657,6 +1667,9 @@ expect_output 0 "追加行 4 / 注釈 3 (75%)" "Python と C 系の注釈を数�
     bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' '$BASE'"
 expect_output 0 "scalars: added_lines=4 comment_lines=3 comment_ratio_pct=75" "規模の数値を名前つきで出す（写す側が名付けない）" \
     bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' '$BASE'"
+expect_output 0 '{"scalars": {"added_lines": 4, "comment_lines": 3, "comment_ratio_pct": 75}, "unmeasured": []}' \
+    "--json はプログラムが読む JSON の 1 個だけを出す（graphloops の review-loop が読む）" \
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' --json '$BASE'"
 
 # 対象言語の追加行が無い正常系。**$ROOT でなく使い捨てリポジトリで測る**——$ROOT だと
 # 開発中の未コミット変更の有無で結果が変わり、検査が環境依存になる。
@@ -2382,7 +2395,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=734
+EXPECTED_CHECKS=740
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

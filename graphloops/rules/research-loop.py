@@ -66,9 +66,9 @@ def claims_needing_refute(b, nid):
     for c in b.record["claims"]:
         if c.get("refuted"):
             continue
-        if c.get("verdict") == "相違":
+        if c.get("verdict") == "contradicted":
             mode = "dispute"
-        elif c.get("verdict") == "確証" and c.get("load_bearing"):
+        elif c.get("verdict") == "confirmed" and c.get("load_bearing"):
             mode = "confirm"
         else:
             continue
@@ -109,7 +109,7 @@ RANDOM_FAN = ("sampling_pick",)
 @cond_reads("record.constraints")
 def constraints_self_written(v):
     rows = v("record.constraints", [])
-    n = sum(1 for x in rows if isinstance(x, dict) and x.get("origin") == "surveyor自書") if isinstance(rows, list) else 0
+    n = sum(1 for x in rows if isinstance(x, dict) and x.get("origin") == "surveyor_written") if isinstance(rows, list) else 0
     return bool(n), f"surveyor が自書した問い・制約は {n} 件"
 
 
@@ -299,15 +299,15 @@ def count_check(b, nid):
         if len(judged) + len(deferred) != cl["claims_submitted"]:
             problems.append(f"クラスタ '{cl['key']}' は {cl['claims_submitted']} 件だが判定は {len(judged)} 件（次の周へ回す未照合 {len(deferred)} 件を除く）")
     for c in rec["claims"]:
-        if c.get("verdict") == "相違" and not c.get("refuted"):
+        if c.get("verdict") == "contradicted" and not c.get("refuted"):
             problems.append(f"相違 '{c['id']}' が反証を経ていない")
-        if c.get("verdict") == "確証" and c.get("load_bearing") and not c.get("refuted"):
+        if c.get("verdict") == "confirmed" and c.get("load_bearing") and not c.get("refuted"):
             problems.append(f"荷重の確証 '{c['id']}' が反証を経ていない")
     if problems:
         return {"ok": False, "problems": problems}
     new, stuck = [], b.loop_state.setdefault("stuck_ids", [])
     for c in rec["claims"]:
-        if c.get("verdict") == "相違":
+        if c.get("verdict") == "contradicted":
             first = c.get("first_discrepant_round")
             if first is None:
                 c["first_discrepant_round"] = b.round
@@ -341,11 +341,16 @@ def gate_failures(b):
             fails.append(f"cold_reader: {rounds[last_bad]['verdict']}（{rounds[last_bad]['round']} 周目の要求が未解消）")
         elif rounds[-1]["verdict"] != "pass":
             fails.append(f"cold_reader: {rounds[-1]['verdict']}")
-    if th == "重厚":
+    if th == "heavy":
         v = g["cartographer"]
         if v.get("status") == "not_applicable" or v.get("verdict") != "pass" or v.get("new_blind_spots", 1) > 0:
             fails.append(f"cartographer: {v.get('verdict', '未実行')}・新規盲点 {v.get('new_blind_spots', '?')}")
     return fails
+
+
+def th_label(b, th):
+    """段のキーを人に見せる語へ（graph の thickness.labels。無ければキーのまま）"""
+    return (((getattr(b, "graph", None) or {}).get("thickness") or {}).get("labels") or {}).get(th, th)
 
 
 def stop(b, reason):
@@ -373,7 +378,7 @@ def converge(b, nid):
     fails = gate_failures(b) if zero else ["この周に新規の相違がある（ゲートは回していない）"]
     pending = [c["id"] for c in rec["claims"] if c.get("verdict") is None or c.get("recheck")]
 
-    if th == "軽量":
+    if th == "light":
         return stop(b, "軽量段: 1 ラウンドで打ち切り（収束の宣言はしない。判定の集計と結論・残件だけを出す）")
     # 主張が 0 件の周は収束を名乗らせない——空集合に対する全称条件は全部真になるので、
     # 「何も検証していない周」が『新規相違ゼロ・ゲート pass・pending 空』で収束に見える。
@@ -387,7 +392,7 @@ def converge(b, nid):
     if zero and not fails and not unchecked and conv["consecutive_zero"] >= 2 and not overturned and not pending:
         conv["outcome"] = "converged"
         conv.pop("stopped_reason", None)
-        why = f"連続 {conv['consecutive_zero']} 周で新規相違ゼロ、{th} 段のゲートは全部 pass"
+        why = f"連続 {conv['consecutive_zero']} 周で新規相違ゼロ、{th_label(b, th)} 段のゲートは全部 pass"
         # 開いた問いは収束を止めない（待たない設計）が、『収束』の一語で依頼者に調べ尽くしたと読ませない。
         # 記録が知っているのは P0 で挙がったことだけなので、ループの外で扱ったかまでは言わない
         oq = rec["process"].get("open_questions") or []
@@ -459,10 +464,10 @@ BUILTINS = {"count_check": count_check, "converge": converge}
 # ---------------------------------------------------------------- ノードごとの整合
 def refuter_consistency(b, nid, out, item):
     m, up, v = out["mode"], out["upheld"], out["verdict"]
-    if m == "dispute" and up != (v == "相違"):
-        raise Reject(f"refuter の整合: mode=dispute では upheld={up} と verdict={v} が食い違う（相違が本物なら upheld=true・verdict=相違）")
-    if m == "confirm" and up != (v == "確証"):
-        raise Reject(f"refuter の整合: mode=confirm では upheld={up} と verdict={v} が食い違う（確証が崩れなければ upheld=true・verdict=確証）")
+    if m == "dispute" and up != (v == "contradicted"):
+        raise Reject(f"refuter の整合: mode=dispute では upheld={up} と verdict={v} が食い違う（相違が本物なら upheld=true・verdict=contradicted）")
+    if m == "confirm" and up != (v == "confirmed"):
+        raise Reject(f"refuter の整合: mode=confirm では upheld={up} と verdict={v} が食い違う（確証が崩れなければ upheld=true・verdict=confirmed）")
     if item and out["id"] != item["id"]:
         raise Reject(f"refuter が別の主張 id を返した: {out['id']}（項目は {item['id']}）")
 
@@ -839,7 +844,7 @@ def check_record(b, nid=None):
         for need in (V.VERDICT_FIELDS[v].fields if v in V.VERDICT_FIELDS else ()):
             if not (isinstance(c.get(need), str) and c[need].strip()):
                 errs.append(f"主張 '{c['id']}'（{v}）に '{need}' が無い")
-        if v != "検証不能" and not (isinstance(c.get("sources"), list) and c["sources"] and all(isinstance(s, str) and s.strip() for s in c["sources"])):
+        if v != "unverifiable" and not (isinstance(c.get("sources"), list) and c["sources"] and all(isinstance(s, str) and s.strip() for s in c["sources"])):
             errs.append(f"主張 '{c['id']}'（{v}）の sources が空——出典なしの判定は認めない")
     return errs
 
@@ -884,9 +889,9 @@ def finalize(b):
     for k in ("rederiver", "cold_reader", "cartographer"):
         if g[k].get("status") != "not_applicable":
             continue
-        if k == "cartographer" and th != "重厚":
+        if k == "cartographer" and th != "heavy":
             continue  # 重厚だけ必須。下の腕が「この段では走らせない」の理由を付ける
-        if th == "軽量":
+        if th == "light":
             g[k]["reason"] = "軽量段では走らせない（厚みの三段の表が正本）"
         elif stopped:
             # **収束せず停止した run は報告できなければならない。** 以前はここが軽量段しか触らず status も動かさなかったので、
@@ -897,8 +902,8 @@ def finalize(b):
             g[k]["status"] = "not_run"
             g[k]["reason"] = ("収束しないまま報告の仕上げに来たので走らせる周が来なかった（このゲートは新規相違ゼロの周にだけ走る）"
                               "——飛ばした事実として記録に残す。緑と数えない")
-    if g["cartographer"].get("status") == "not_applicable" and th != "重厚":
-        g["cartographer"]["reason"] = f"{th} 段では走らせない（重厚だけ。厚みの三段の表が正本）"
+    if g["cartographer"].get("status") == "not_applicable" and th != "heavy":
+        g["cartographer"]["reason"] = f"{th_label(b, th)} 段では走らせない（重厚だけ。厚みの三段の表が正本）"
     if rec["sampling"].get("status") == "not_applicable":
         rec["sampling"]["reason"] = "再ラウンドの検証対象が空集合になった周が無かった（抜き取りの条件に当たらない）"
     proc = rec["process"]

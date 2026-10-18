@@ -105,22 +105,97 @@ def agent_def(agent_type):
     f = find_plugin_path(f"agents/{role}.md", plugin)
     if not f:
         return None
-    parts = pathlib.Path(f).read_text(encoding="utf-8").split("---")
-    fm = parts[1] if len(parts) > 2 else ""
-    body = "---".join(parts[2:]).strip() if len(parts) > 2 else ""
+    try:
+        fm, body = frontmatter(pathlib.Path(f).read_text(encoding="utf-8"))
+    except ValueError as e:
+        # 読めない形を読み飛ばすと、役が黙ってツール無し・既定のモデルで起動する（標準の決まり 4・5）
+        die(f"{f}: 役の定義の frontmatter が読めない（{e}）")
 
-    def field(name):
-        m = re.search(rf"^{name}:\s*(.*)$", fm, re.M)
-        return m.group(1).strip() if m else None
+    def scalar(name):
+        v = fm.get(name)
+        if isinstance(v, list):
+            die(f"{f}: frontmatter の {name} は 1 つの値で書け（リストを受け取った: {v}）")
+        return v or None
 
-    tools = field("tools")
+    tools = fm.get("tools")
+    if isinstance(tools, str):
+        tools = [t.strip() for t in tools.split(",") if t.strip()]   # Claude Code の書き方「tools: Read, Grep」
     return {
         "file": str(f),
-        "tools": ["*"] if tools is None else [t.strip() for t in tools.strip("[] ").split(",") if t.strip()],
-        "model": field("model"),
-        "effort": field("effort"),
+        "tools": ["*"] if tools is None else tools,
+        "model": scalar("model"),
+        "effort": scalar("effort"),
         "body": body,
     }
+
+
+_FM_KEY = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*))?$")
+
+
+def _fm_scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        return v[1:-1]
+    return v
+
+
+def frontmatter(text):
+    """役の定義（agents/<役>.md）の YAML frontmatter を (フィールドの辞書, 本文) に読む。標準ライブラリに YAML が無いので、
+    役の定義が使う形だけをここ 1 か所で読み（標準 docs/standards/machine-readable-values.md の決まり 5）、知らない形は ValueError で止める。
+
+    読む形: 頭の行の `key: 値`（引用符は外す）・`key: [a, b]`（流れの形のリスト）・`key:` の次の行から続く `  - a`（ブロックの形の
+    リスト）・`key: |` か `key: >` の次の字下げした行（ブロックの文字列）・`#` で始まる注記の行と空行。区切りは 1 行目と、次の `---`
+    だけの行。frontmatter の無い定義は ({}, 本文)。
+    """
+    text = text.removeprefix("\ufeff")   # BOM 付きで保存した定義を「frontmatter 無し」（ツール全部）と読まない
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text.strip()
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        raise ValueError("閉じる --- の行が無い")
+    fm, key, block = {}, None, None
+
+    def close_block():
+        fm[key] = ("\n" if block == "|" else " ").join(fm[key]).strip()
+
+    for n, raw in enumerate(lines[1:end], start=2):
+        line = raw.rstrip()
+        if block is not None:
+            if not line or line[0] in " \t":
+                fm[key].append(line.strip())
+                continue
+            close_block()
+            block = None
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line[0] in " \t":
+            item = line.strip()
+            if key is None or not isinstance(fm.get(key), list) or not (item == "-" or item.startswith("- ")):
+                raise ValueError(f"{n} 行目の字下げした行を読めない: {item!r}（読めるのはブロックの形のリストの「- 値」だけ）")
+            fm[key].append(_fm_scalar(item[1:]))
+            continue
+        m = _FM_KEY.match(line)
+        if not m:
+            raise ValueError(f"{n} 行目を「key: 値」として読めない: {line!r}")
+        key, v = m.group(1), (m.group(2) or "").strip()
+        if key in fm:
+            raise ValueError(f"{n} 行目: {key} が 2 度ある")
+        if not v:
+            fm[key] = []                # 次の行から「- 値」が続く（続かなければ空のリスト）
+        elif v in ("|", ">", "|-", ">-"):
+            fm[key], block = [], v[0]
+        elif v.startswith("["):
+            if not v.endswith("]"):
+                raise ValueError(f"{n} 行目: {key} のリストが同じ行で閉じていない: {v!r}")
+            fm[key] = [_fm_scalar(x) for x in v[1:-1].split(",") if x.strip()]
+        elif v[0] in "{&*!|>":
+            raise ValueError(f"{n} 行目: {key} の値の形を読めない: {v!r}（読めるのは文字列・リスト・ブロックの文字列）")
+        else:
+            fm[key] = _fm_scalar(v)
+    if block is not None:
+        close_block()
+    return fm, "\n".join(lines[end + 1:]).strip()
 
 
 def agent_tools(agent_type):
@@ -142,18 +217,32 @@ def deliver_mode(agent_type, path_tools, tools=None, paste_roles=()):
 
 
 def run_validator(b, target=None):
-    """検証器を回す。target を省くと graph の record.validator_arg（file か dir）に従う。"""
+    """検証器を回す。target を省くと graph の record.validator_arg（file か dir）に従う。
+    graph の record.validator_output が "json" なら検証器に --json を渡し、標準出力の JSON（exit・stop・text）の stop を返りの stop に入れる
+    ——rules は分岐を stop のキーで読み、人向けの文（out）を読まない。JSON として読めない・exit が終了コードと食い違うときは
+    exit を None（検査が成立しなかった）にする"""
     v = b.state.get("validator")
     if not v:
         return {"exit": None, "out": "検証器が見つからない（init --validator で渡すか、graph の plugin の置き場を " + (env_root(b.plugin) if b.plugin else "<PLUGIN>_ROOT") + " で指す）"}
     if target is None:
         arg = b.graph.get("record", {}).get("validator_arg", "file")
         target = b.dir / ("rounds" if arg == "dir" else "record.json")
+    as_json = b.graph.get("record", {}).get("validator_output") == "json"
     try:
-        r = subprocess.run([sys.executable, v, str(target)], capture_output=True, text=True, encoding="utf-8", timeout=VALIDATOR_TIMEOUT)
+        r = subprocess.run([sys.executable, v, *(["--json"] if as_json else []), str(target)], capture_output=True, text=True,
+                           encoding="utf-8", timeout=VALIDATOR_TIMEOUT)
     except subprocess.TimeoutExpired:
         return {"exit": None, "out": f"検証器が {VALIDATOR_TIMEOUT} 秒で終わらない（{v}）", "validator": v}
-    return {"exit": r.returncode, "out": (r.stdout + r.stderr).strip(), "validator": v}
+    if not as_json:
+        return {"exit": r.returncode, "out": (r.stdout + r.stderr).strip(), "validator": v}
+    try:
+        res = json.loads(r.stdout)
+    except ValueError as e:
+        return {"exit": None, "out": f"検証器の --json の出力が JSON でない（{e}。convergence-loops の版が古く --json を知らないかもしれない——0.50.0 以上が要る）: {(r.stdout + r.stderr).strip()[-1500:]}", "validator": v}
+    if not isinstance(res, dict) or res.get("exit") != r.returncode or not isinstance(res.get("text"), str):
+        return {"exit": None, "out": f"検証器の --json の出力の形が違う（exit・text が要り、exit は終了コード {r.returncode} と同じ）: "
+                                     f"{r.stdout.strip()[-1500:]}", "validator": v}
+    return {"exit": r.returncode, "out": (res["text"] + r.stderr).strip(), "stop": res.get("stop"), "validator": v}
 
 
 # **engine が積む痕跡のフィールドは、名前を 1 か所で持つ。** （記録のフィールド → state の鍵）。

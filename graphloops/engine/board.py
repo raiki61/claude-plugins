@@ -353,7 +353,8 @@ class Board:
         n = self.nodes[nid]
         tiers = n.get("active_in")
         if tiers and self.state["thickness"] not in tiers:
-            return f"active_in: {self.state['thickness']} 段では走らせない（{'/'.join(tiers)} だけ）"
+            label = ((self.graph.get("thickness") or {}).get("labels") or {}).get   # 段はキーで比べ、理由は表示の語で書く
+            return f"active_in: {label(self.state['thickness'], self.state['thickness'])} 段では走らせない（{'/'.join(label(t, t) for t in tiers)} だけ）"
         if n.get("cond") is not None:
             ok, why = self.cond(n["cond"])
             if not ok:

@@ -46,12 +46,12 @@
     {
      "text": "_s5_xxxxxxx",
      "source": "依頼文",
-     "origin": "独立出典",
+     "origin": "independent",
      "breaks_if_false": "_s12_x"
     }
    ],
-   "thickness": "標準",
-   "thickness_decider": "既定",
+   "thickness": "standard",
+   "thickness_decider": "default",
    "thickness_reason": "_s11_xx"
   },
   "out/r1/p0.terms.json": {
@@ -79,7 +79,7 @@
    "claims": [
     {
      "id": "D",
-     "verdict": "確証",
+     "verdict": "confirmed",
      "sources": [
       "_s6_xxxxxxx"
      ],
@@ -144,7 +144,7 @@
      "new_discrepancies": 0
     }
    ],
-   "thickness": "標準",
+   "thickness": "standard",
    "inputs": {
     "document": "<REPO>/mitate.md"
    },

@@ -22,7 +22,7 @@
   "out/r1/p0.premises.json": {},
   "out/r1/p0.prior_decisions.json": {},
   "out/r1/p0.purpose.json": {
-   "source": "①PR 説明"
+   "source": "pr_description"
   },
   "out/r1/p1.consistency_bypass.json": {},
   "out/r1/p1.external_standards.json": {},
@@ -123,7 +123,7 @@
  "config": {},
  "input": {
   "out.txt": {
-   "<text-file>": "{\"verdict\": \"一部採る\", \"new_facts\": \"回す側が挙げた行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る\", \"reason\": \"片方は現物に当たって確かめた（検査用）\", \"units\": [{\"key\": \"f に上限が無い\", \"label\": \"block\", \"disposition\": \"do-now\"}]}"
+   "<text-file>": "{\"verdict\": \"partial\", \"new_facts\": \"回す側が挙げた行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る\", \"reason\": \"片方は現物に当たって確かめた（検査用）\", \"units\": [{\"key\": \"f に上限が無い\", \"label\": \"block\", \"disposition\": \"do-now\"}]}"
   }
  },
  "git": {}

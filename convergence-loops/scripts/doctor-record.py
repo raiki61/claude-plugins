@@ -42,27 +42,48 @@ for _stream in (sys.stdout, sys.stderr):
 
 # ここが正本で、手順書は列挙を持たない（二重管理を避ける）。
 # 「未検証」は判定の不在（フィールドの初期値）——停止した実行でだけ記録に残ってよい。
-NODE_VERDICTS = ("推奨", "条件付き", "棄却", "検証不能", "事実誤り", "既決着", "判定不一致", "未検証")
+NODE_VERDICTS = ("recommended", "conditional", "rejected", "unverifiable", "factually_wrong", "already_settled", "split_verdict", "unverified")
 # 判定ごとに追加で要求するフィールド。成立条件のない条件付き・理由のない棄却・
 # 確認手段のない検証不能・決着先のない既決着は、いずれも不完全な判定。
 VERDICT_FIELDS = {
-    "推奨": (),
-    "条件付き": ("condition",),
-    "棄却": ("reason",),
-    "検証不能": ("needs",),
-    "事実誤り": ("reason",),
-    "既決着": ("settled_by",),
-    "判定不一致": ("reason",),
-    "未検証": (),
+    "recommended": (),
+    "conditional": ("condition",),
+    "rejected": ("reason",),
+    "unverifiable": ("needs",),
+    "factually_wrong": ("reason",),
+    "already_settled": ("settled_by",),
+    "split_verdict": ("reason",),
+    "unverified": (),
 }
-CONFIDENCES = ("確実", "有力", "仮説")
-WEIGHTS = ("機械検証可能・小", "振る舞いに触れる・中", "ライブラリ級", "構成変更級")
-ESCALATION_WEIGHTS = ("ライブラリ級", "構成変更級")  # 増し掛け（独立 3 票）の対象
-THICKNESS = ("軽量", "標準", "重厚")
-DECIDERS = ("依頼者指定", "既定")
+CONFIDENCES = ("certain", "likely", "hypothesis")
+WEIGHTS = ("mechanical_small", "behavior_medium", "library", "architecture")
+ESCALATION_WEIGHTS = ("library", "architecture")  # 増し掛け（独立 3 票）の対象
+THICKNESS = ("light", "standard", "heavy")
+DECIDERS = ("requester", "default")
 GATE_VERDICTS = ("pass", "redesign-needed", "unverifiable")
 OUTCOMES = ("saturated", "stopped")
-FEASIBILITY = ("高", "中", "低")
+FEASIBILITY = ("high", "medium", "low")
+# **値は ASCII のキーで持ち、比べる。** 日本語の語は人に見せる表示で、キーから引く（docs/standards/machine-readable-values.md の
+# 決まり 3）。以前は値そのものが日本語の語（推奨・軽量など）で、文言を直すと記録と検証器の比較が黙って割れた
+LABELS = {
+    "recommended": "推奨", "conditional": "条件付き", "rejected": "棄却", "unverifiable": "検証不能",
+    "factually_wrong": "事実誤り", "already_settled": "既決着", "split_verdict": "判定不一致", "unverified": "未検証",
+    "certain": "確実", "likely": "有力", "hypothesis": "仮説",
+    "mechanical_small": "機械検証可能・小", "behavior_medium": "振る舞いに触れる・中", "library": "ライブラリ級",
+    "architecture": "構成変更級",
+    "light": "軽量", "standard": "標準", "heavy": "重厚", "requester": "依頼者指定", "default": "既定",
+    "high": "高", "medium": "中", "low": "低",
+}
+_missing = [k for k in (*NODE_VERDICTS, *CONFIDENCES, *WEIGHTS, *THICKNESS, *DECIDERS, *FEASIBILITY) if k not in LABELS]
+if _missing:
+    fail(f"表示の語の表 LABELS にキーが無い: {_missing}")
+
+
+def choices(keys):
+    """許す値の一覧を、キーと表示の語の組で（診断の文に出す）"""
+    return "/".join(f"{k}（{LABELS[k]}）" if k in LABELS else k for k in keys)
+
+
 REQUIRED = (
     "area",
     "thickness",
@@ -100,7 +121,7 @@ def validate(rec, path):
 
     require_str(rec, "area", path)
     if rec["thickness"] not in THICKNESS:
-        fail(f"{path}: 'thickness' が不正: {rec['thickness']!r}（{'/'.join(THICKNESS)}）")
+        fail(f"{path}: 'thickness' が不正: {rec['thickness']!r}（{choices(THICKNESS)}）")
     if rec["thickness_decider"] not in DECIDERS:
         fail(f"{path}: 'thickness_decider' が不正: {rec['thickness_decider']!r}")
 
@@ -146,7 +167,7 @@ def validate(rec, path):
         for field in VERDICT_FIELDS[verdict]:
             require_str(n, field, f"{path}: ノード '{key}'（verdict={verdict}）")
         if n.get("confidence") not in CONFIDENCES:
-            fail(f"{path}: ノード '{key}' の confidence が不正（{'/'.join(CONFIDENCES)}）")
+            fail(f"{path}: ノード '{key}' の confidence が不正（{choices(CONFIDENCES)}）")
         require_str(n, "evidence", f"{path}: ノード '{key}'")
         # 重さは scout が付けるフィールド。prospector 生成の親は null でよい（増し掛けの対象外）。
         w = n.get("weight")
@@ -154,7 +175,7 @@ def validate(rec, path):
             fail(f"{path}: ノード '{key}' の weight が不正: {w!r}")
         if w in ESCALATION_WEIGHTS:
             escalation_targets += 1
-        if verdict in ("推奨", "条件付き"):
+        if verdict in ("recommended", "conditional"):
             adoptable += 1
             # 採用一覧に載るノードは検証計画と固定化案を欠かせない（「検証済み」は名乗れない）。
             require_str(n, "verification_plan", f"{path}: ノード '{key}'")
@@ -172,12 +193,12 @@ def validate(rec, path):
         if okey not in keys:
             fail(f"{path}: oneshot のノード '{okey}' が nodes に無い")
         target = next(n for n in rec["nodes"] if n["key"] == okey)
-        if target["verdict"] not in ("推奨", "条件付き"):
+        if target["verdict"] not in ("recommended", "conditional"):
             fail(f"{path}: 一撃に選べるのは推奨・条件付きのノードだけ（'{okey}' は {target['verdict']}）")
         require_int(one, "descendants", f"{path}: oneshot")
         require_int(one, "descendants_with_unverifiable", f"{path}: oneshot")
         if one.get("feasibility") not in FEASIBILITY:
-            fail(f"{path}: oneshot の feasibility が不正（{'/'.join(FEASIBILITY)}）")
+            fail(f"{path}: oneshot の feasibility が不正（{choices(FEASIBILITY)}）")
         votes = one.get("votes")
         if not isinstance(votes, list) or len(votes) != 3 or not all(
             isinstance(v, str) and v.strip() for v in votes
@@ -234,9 +255,9 @@ def validate(rec, path):
         if not_applicable(v):
             # 省略が許される段は「厚みの三段」の表が正本: cartographer の突合と
             # cold-reader は標準以上で必須、rederiver の突合は重厚のみ必須。
-            if g in ("cartographer_comparison", "cold_reader") and rec["thickness"] != "軽量":
+            if g in ("cartographer_comparison", "cold_reader") and rec["thickness"] != "light":
                 fail(f"{path}: {rec['thickness']} 段でゲート '{g}' を省略している")
-            if g == "rederiver_comparison" and rec["thickness"] == "重厚":
+            if g == "rederiver_comparison" and rec["thickness"] == "heavy":
                 fail(f"{path}: 重厚段で rederiver の突合を省略している")
             continue
         if not isinstance(v, dict):
@@ -301,7 +322,7 @@ def blockers(rec):
 
     out = []
     for n in rec["nodes"]:
-        if n["verdict"] == "未検証":
+        if n["verdict"] == "unverified":
             out.append(f"ノード '{n['key']}' が未検証のまま——飽和は全ノードに判定が付いてから")
 
     smp = rec["sampling"]
@@ -317,7 +338,7 @@ def blockers(rec):
         out.append(f"cartographer の突合が pass していないのに飽和を名乗っている（{cart['verdict']}）")
 
     red = rec["gates"]["rederiver_comparison"]
-    if rec["thickness"] == "重厚" and not not_applicable(red) and red["verdict"] != "pass":
+    if rec["thickness"] == "heavy" and not not_applicable(red) and red["verdict"] != "pass":
         out.append(f"rederiver の突合が pass していないのに飽和を名乗っている（{red['verdict']}）")
 
     cr = rec["gates"]["cold_reader"]

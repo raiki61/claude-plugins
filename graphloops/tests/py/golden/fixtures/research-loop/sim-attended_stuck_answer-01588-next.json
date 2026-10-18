@@ -43,12 +43,12 @@
     {
      "text": "_s2_xxxxxxx",
      "source": "依頼文",
-     "origin": "独立出典",
+     "origin": "independent",
      "breaks_if_false": "_s7_xx"
     }
    ],
-   "thickness": "標準",
-   "thickness_decider": "既定",
+   "thickness": "standard",
+   "thickness_decider": "default",
    "thickness_reason": "_s6_xxx"
   },
   "out/r1/p0.terms.json": {
@@ -93,7 +93,7 @@
      "instances": {}
     }
    ],
-   "thickness": "重厚",
+   "thickness": "heavy",
    "inputs": {},
    "outputs": {
     "p0.question": {

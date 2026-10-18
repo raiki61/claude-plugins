@@ -33,7 +33,7 @@
      }
     }
    ],
-   "thickness": "軽量",
+   "thickness": "light",
    "inputs": {
     "document": "<REPO>/mitate.md"
    },

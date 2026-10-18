@@ -78,7 +78,7 @@ def test_reply_outside_the_schema_is_rejected(wave):
 @moved("回す側の降格は exit 1")
 def test_runner_cannot_lower_the_thickness(wave):
     w = wave("research/neg/q")
-    rejected(w.run.done(w.pending()["p0.question"]["id"], {**std(w.run, "p0.question"), "thickness": "軽量"}), "下げようとしている")
+    rejected(w.run.done(w.pending()["p0.question"]["id"], {**std(w.run, "p0.question"), "thickness": "light"}), "下げようとしている")
 
 
 @pytest.mark.medium
@@ -268,7 +268,7 @@ def test_schema_note_tells_the_role_to_escape_quotes(wave):
 @moved("扇の被覆: 渡した項目に無い id を返すと exit 1")
 def test_checker_returning_an_id_it_was_not_given_is_rejected(wave):
     run = wave("research/neg/w5").run
-    rejected(run.done("p1.checker[c1]", {"cluster": "c1", "findings": [{"id": "Z", "verdict": "確証", "evidence": "e", "sources": ["https://x"],
+    rejected(run.done("p1.checker[c1]", {"cluster": "c1", "findings": [{"id": "Z", "verdict": "confirmed", "evidence": "e", "sources": ["https://x"],
                                                                          "conditions": "c"}]}), "項目に無い")
 
 
@@ -304,7 +304,7 @@ def test_reissued_checker_and_refuter_share_a_wave(wave):
 @pytest.mark.medium
 @moved("refuter の upheld と verdict の食い違いは exit 1")
 def test_refuter_upheld_and_verdict_must_agree(wave):
-    r = wave("research/neg/w6").run.done("p1.refuter[A]", {"id": "A", "mode": "confirm", "upheld": True, "verdict": "相違",
+    r = wave("research/neg/w6").run.done("p1.refuter[A]", {"id": "A", "mode": "confirm", "upheld": True, "verdict": "contradicted",
                                                          "refuter_reasoning": "x", "sources": ["https://x"], "correction": "y"})
     rejected(r, "整合")
 
@@ -312,7 +312,7 @@ def test_refuter_upheld_and_verdict_must_agree(wave):
 @pytest.mark.medium
 @moved("相違に correction が無いと exit 1")
 def test_discrepancy_without_correction_is_rejected(wave):
-    r = wave("research/neg/w6").run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "相違", "evidence": "e",
+    r = wave("research/neg/w6").run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "contradicted", "evidence": "e",
                                                                                               "sources": ["https://x"]}]})
     rejected(r, "correction")
 

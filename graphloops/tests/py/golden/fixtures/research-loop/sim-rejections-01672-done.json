@@ -49,7 +49,7 @@
      }
     }
    ],
-   "thickness": "標準",
+   "thickness": "standard",
    "inputs": {},
    "outputs": {}
   }
@@ -61,7 +61,7 @@
    "id": "A",
    "mode": "confirm",
    "upheld": true,
-   "verdict": "相違",
+   "verdict": "contradicted",
    "refuter_reasoning": "x",
    "sources": []
   }

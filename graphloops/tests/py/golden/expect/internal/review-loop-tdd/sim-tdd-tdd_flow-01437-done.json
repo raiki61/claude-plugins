@@ -160,7 +160,7 @@
  "outputs": {
   "out/r1/p0.base.json": {
    "base_sha": "e2e303838f308a70b0c6ce1569fd53de4b628d4e",
-   "method": "3 HEAD~1",
+   "method": "head_parent",
    "commits": 1,
    "merge_commit": false,
    "intent_to_add": [],

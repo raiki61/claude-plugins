@@ -16,7 +16,7 @@
   "out/r1/p0.premises.json": {},
   "out/r1/p0.prior_decisions.json": {},
   "out/r1/p0.purpose.json": {
-   "source": "②計画・タスク記述"
+   "source": "plan"
   },
   "out/r1/p1.worktree_after.json": {},
   "out/r1/p1.worktree_before.json": {},

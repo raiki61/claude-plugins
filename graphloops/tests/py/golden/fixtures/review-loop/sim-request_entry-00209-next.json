@@ -9,7 +9,7 @@
  "files": {
   "out/r1/p0.base.json": {
    "base_sha": "_s14_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-   "method": "3 HEAD~1",
+   "method": "head_parent",
    "commits": 1,
    "merge_commit": false,
    "intent_to_add": [],
@@ -33,7 +33,7 @@
   "out/r1/p0.prior_decisions.json": {},
   "out/r1/p0.purpose.json": {
    "purpose_text": "_s23_xxxxxxxxxxxx",
-   "source": "①PR 説明",
+   "source": "pr_description",
    "known_weaknesses": [],
    "source_files": []
   },

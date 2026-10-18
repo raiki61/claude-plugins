@@ -56,7 +56,7 @@
   },
   "process.base": {
    "base_sha": "01bb8891e04fbae1add2170b7200cbfa6cd1f5ca",
-   "method": "3 HEAD~1",
+   "method": "head_parent",
    "commits": 1,
    "merge_commit": false,
    "intent_to_add": [],

@@ -55,10 +55,10 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 # ここが正本で、手順書は列挙を持たない（二重管理を避ける）。
-VERDICTS = ("確証", "相違", "留保", "検証不能")
+VERDICTS = ("confirmed", "contradicted", "qualified", "unverifiable")
 # **一次情報に到達できた判定**（検証不能は届かなかった側）。抜き取りの母数はここから取る
 # ——「検証不能を除く」を読む側が手で並べていたので、判定語を足した周にその 1 語だけ母数から落ちた。
-CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "検証不能")
+CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "unverifiable")
 # 判定ごとに追加で要求するフィールド。適用条件のない確証・訂正のない相違/留保・
 # 「何が確認できれば判定できるか」のない検証不能は、いずれも不完全な判定。
 # **note は飾りではなく、役に貼る本文の正本**（PROMPT_TABLES が組み立てる）。判定語の意味が散文の
@@ -74,20 +74,35 @@ CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "検証不能")
 
 Verdict = collections.namedtuple("Verdict", "fields note")
 VERDICT_FIELDS = _rows("判定語", Verdict, {
-    "確証": (("conditions",), "一次情報が主張どおり。conditions に適用条件・限界を必ず書く"
+    "confirmed": (("conditions",), "一次情報が主張どおり。conditions に適用条件・限界を必ず書く"
                           "（適用条件のない確証は不完全で、後段の適応で使えない）"),
-    "相違": (("correction",), "一次情報と食い違う。correction に文書へ書くべき正しい記述"),
-    "留保": (("correction",), "概ね正しいが重要な限定・精密化が要る。correction に限定を書く"),
-    "検証不能": (("needs",), "一次情報に到達できない。needs に「何が確認できれば判定できるか」"),
+    "contradicted": (("correction",), "一次情報と食い違う。correction に文書へ書くべき正しい記述"),
+    "qualified": (("correction",), "概ね正しいが重要な限定・精密化が要る。correction に限定を書く"),
+    "unverifiable": (("needs",), "一次情報に到達できない。needs に「何が確認できれば判定できるか」"),
 })
-THICKNESS = ("軽量", "標準", "重厚")
+THICKNESS = ("light", "standard", "heavy")
 # **収束ゲート（rederiver / cold-reader）を走らせる段。** 「軽量でない」を読む側が 2 語で並べていたので、
 # 段を足した周にその 1 段だけゲートを課されないまま緑になる。厚みの三段の表がここの正本。
-GATED_THICKNESS = tuple(t for t in THICKNESS if t != "軽量")
-DECIDERS = ("依頼者指定", "既定")
+GATED_THICKNESS = tuple(t for t in THICKNESS if t != "light")
+DECIDERS = ("requester", "default")
 # 制約の出典の独立性（P0-1/P0-5）。surveyor 自書は rederiver の扱いが変わるため、
 # 自由文字列でなく二値で申告させる。
-ORIGINS = ("独立出典", "surveyor自書")
+ORIGINS = ("independent", "surveyor_written")
+# **値は ASCII のキーで持ち、比べる。** 日本語の語は人と役に見せる表示で、キーから引く（docs/standards/machine-readable-values.md の
+# 決まり 3）。以前は値そのものが日本語の語（確証・軽量など）で、文言を直すと記録とスキーマと rules の比較が黙って割れた
+LABELS = {
+    "confirmed": "確証", "contradicted": "相違", "qualified": "留保", "unverifiable": "検証不能",
+    "light": "軽量", "standard": "標準", "heavy": "重厚",
+    "requester": "依頼者指定", "default": "既定",
+    "independent": "独立出典", "surveyor_written": "surveyor 自書",
+}
+
+
+def label(key):
+    """キー（確証なら confirmed）を人に見せる語で。表に無いキーはキーのまま（読めない値を黙って別の語に化かさない）"""
+    return f"{LABELS[key]}（{key}）" if key in LABELS else key
+
+
 GATE_VERDICTS = ("pass", "redesign-needed", "unverifiable")
 OUTCOMES = ("converged", "stopped")
 
@@ -95,15 +110,18 @@ OUTCOMES = ("converged", "stopped")
 # 直した周に写しだけが古くなり、しかも役は写しの方を読む（実測 2026-09-13: research の prompt 6 本が
 # 検証器の名前表を 13 か所で並べ直していた——review 側で同じ形を閉じた直後に、こちらは手つかずだった）。
 # **engine はこの dict の中身を知らない**——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
+_missing = [k for k in (*VERDICTS, *THICKNESS, *DECIDERS, *ORIGINS) if k not in LABELS]
+if _missing:
+    fail(f"表示の語の表 LABELS にキーが無い: {_missing}")
 PROMPT_TABLES = _tables("プロンプトの表", lambda: {
         # **必須フィールドは全部並べる。** 先頭 1 つだけを貼っていたので、判定語に 2 つ目の必須フィールドを足しても
     # 役に渡る本文には現れなかった（review 側は同じ表を全要素で並べており、写しどうしが割れていた）
-    "verdicts": "／".join(f"{k}（" + "・".join(f"{f} が要る" for f in v.fields) + f"）: {v.note}"
+    "verdicts": "／".join(f"{k}（{LABELS[k]}。" + "・".join(f"{f} が要る" for f in v.fields) + f"）: {v.note}"
                          for k, v in VERDICT_FIELDS.items()),
-        "checked_verdicts": "／".join(CHECKED_VERDICTS),
+        "checked_verdicts": "／".join(map(label, CHECKED_VERDICTS)),
         "gate_verdicts": "／".join(GATE_VERDICTS),
-        "origins": "／".join(ORIGINS),
-        "thickness": "／".join(THICKNESS),
+        "origins": "／".join(map(label, ORIGINS)),
+        "thickness": "／".join(map(label, THICKNESS)),
 })
 # 記録の必須フィールド。terms（語彙定義）・numbers（数値と出所の組）が空配列でもフィールド自体は要る——
 # 「定義すべき語・出所を書くべき数値は無かった」の明示と、フィールドごと忘れた欠落を区別するため。
@@ -222,7 +240,7 @@ def validate(rec, path):
         if cl["load_bearing"]:
             load_bearing_count += 1
         sources = cl.get("sources")
-        if verdict != "検証不能":
+        if verdict != "unverifiable":
             if not isinstance(sources, list) or not sources or not all(
                 isinstance(s, str) and s.strip() for s in sources
             ):
@@ -275,7 +293,7 @@ def validate(rec, path):
         v = gates[g]
         # ゲートの省略が許される段は「厚みの三段」の表が正本:
         # rederiver / cold-reader は標準以上で必須、cartographer は重厚のみ必須。
-        required = rec["thickness"] == "重厚" if g == "cartographer" else rec["thickness"] in GATED_THICKNESS
+        required = rec["thickness"] == "heavy" if g == "cartographer" else rec["thickness"] in GATED_THICKNESS
         if not_applicable(v):
             if required:
                 what = ("重厚段で cartographer を省略している——これ無しで盲点ゼロを名乗るな" if g == "cartographer"
@@ -373,7 +391,7 @@ def blockers(rec):
     out = []
     for cl in rec["claims"]:
         # 相違は敵対検証を経て初めて確定（P1 の規律）。未反証の相違を載せた収束は発行できない。
-        if cl["verdict"] == "相違" and not cl["refuted"]:
+        if cl["verdict"] == "contradicted" and not cl["refuted"]:
             out.append(f"相違 '{cl['id']}' が反証を経ていない（相違は敵対検証を経て確定）")
 
     smp = rec["sampling"]

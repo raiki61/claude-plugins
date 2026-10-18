@@ -27,7 +27,7 @@
    "findings": [
     {
      "id": "B",
-     "verdict": "確証",
+     "verdict": "confirmed",
      "evidence": "再検証",
      "sources": [
       "_s4_xxxxxxx"

@@ -1,7 +1,7 @@
 """並行 PR の交差を数える（review-loop の p0.parallel_pr を engine が走らせるときの語。engine に同梱）。
 
 手順の正本は prompts/review-loop/p0.parallel_pr.md の 2〜5 段（1 段の owner/repo の解決は rules が済ませて --repo で渡す）:
-自分の PR を headRefOid で除外し、--limit 100 の打ち切りを見て、残った PR の変更ファイルと --changed の集合の交差を取る。
+自分の PR を headRefOid で除外し、--limit 100 の打ち切りを見て、残った PR の変更ファイル（全部。切れたら exit 1）と --changed の集合の交差を取る。
 6 段（交差した hunk を読んで担当の PR に申し送る）は判断なのでここではしない——交差があれば rules が任せ先のノードに回す。
 gh は必ず -R で呼ぶ（cwd の remote から解決させない）。読むだけで、書き込みはしない。
 
@@ -27,6 +27,19 @@ def gh(*args):
     return r.stdout
 
 
+def pr_files(repo, pr):
+    """PR の変更ファイルの全部。`gh pr view --json files` は 100 件で黙って切れるので、REST の一覧をページ送りで読む
+    （REST も 3000 件で切れる）。読めた数が PR の changedFiles に足りなければ、交差を確かめられないので exit 1 で止める"""
+    n = str(pr["number"])
+    out = gh("api", "--paginate", f"repos/{repo}/pulls/{n}/files?per_page=100", "--jq", ".[].filename")
+    files = {ln for ln in out.splitlines() if ln}
+    want = pr.get("changedFiles")
+    if not isinstance(want, int) or len(files) < want:
+        sys.stderr.write(f"PR #{n} の変更ファイルを全部読めない（読めた {len(files)} 件・PR の changedFiles {want!r}）——交差を確かめられない\n")
+        sys.exit(1)
+    return files
+
+
 def main():
     for s in (sys.stdout, sys.stderr):   # 印字は UTF-8 に固定する（Windows の既定コーデックに依らない。loop.py と同じ）
         if hasattr(s, "reconfigure"):
@@ -42,12 +55,11 @@ def main():
     GH = shutil.which("gh") or "gh"
     with open(a.changed, encoding="utf-8") as f:
         mine = {ln.strip() for ln in f if ln.strip()}
-    prs = json.loads(gh("pr", "list", "-R", a.repo, "--limit", str(LIMIT), "--json", "number,headRefName,headRefOid"))
+    prs = json.loads(gh("pr", "list", "-R", a.repo, "--limit", str(LIMIT), "--json", "number,headRefName,headRefOid,changedFiles"))
     others = [pr for pr in prs if pr.get("headRefOid") != a.head]
     conflicts = []
     for pr in others:
-        files = {ln.strip() for ln in gh("pr", "view", str(pr["number"]), "-R", a.repo, "--json", "files",
-                                         "--jq", ".files[].path").splitlines() if ln.strip()}
+        files = pr_files(a.repo, pr)
         hit = sorted(files & mine)
         if hit:
             conflicts.append({"pr": str(pr["number"]), "files": hit})

@@ -42,7 +42,7 @@
  "config": {},
  "input": {
   "out.txt": {
-   "<text-file>": "{\"base_sha\": \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"method\": \"3 HEAD~1\", \"commits\": 1, \"merge_commit\": false, \"intent_to_add\": [], \"touches_gates\": false, \"touches_external_seams\": false, \"touches_user_path\": false, \"touches_security_surface\": false, \"material\": {\"status\": \"clean\", \"checked\": \"HEAD~1 で決めた。BASE=e2e3038。対象差分は 1 コミット分\"}}"
+   "<text-file>": "{\"base_sha\": \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"method\": \"head_parent\", \"commits\": 1, \"merge_commit\": false, \"intent_to_add\": [], \"touches_gates\": false, \"touches_external_seams\": false, \"touches_user_path\": false, \"touches_security_surface\": false, \"material\": {\"status\": \"clean\", \"checked\": \"HEAD~1 で決めた。BASE=e2e3038。対象差分は 1 コミット分\"}}"
   }
  },
  "git": {

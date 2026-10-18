@@ -21,7 +21,7 @@ def cond(name, ctx):
 
 
 def test_constraints_self_written_skips_rows_that_are_not_objects():
-    assert cond("constraints_self_written", {"record": {"constraints": ["文字列の行", {"origin": "surveyor自書"}]}}) == \
+    assert cond("constraints_self_written", {"record": {"constraints": ["文字列の行", {"origin": "surveyor_written"}]}}) == \
         (True, "surveyor が自書した問い・制約は 1 件")
 
 
@@ -60,9 +60,9 @@ def truth(name, ctx):
 
 TRUTH = {
     "constraints_self_written": [({}, False), ({"record": {"constraints": []}}, False),
-                                 ({"record": {"constraints": [{"origin": "人"}, {"origin": "surveyor自書"}]}}, True),
+                                 ({"record": {"constraints": [{"origin": "人"}, {"origin": "surveyor_written"}]}}, True),
                                  ({"record": {"constraints": [{"origin": "人"}]}}, False),
-                                 ({"record": {"constraints": {"origin": "surveyor自書"}}}, False)],
+                                 ({"record": {"constraints": {"origin": "surveyor_written"}}}, False)],
     "generation_due": [({}, True), ({"round": 2}, False), ({"round": 2, "loop": {"stuck_hint": True}}, True),
                        ({"round": 2, "loop": {"stuck_hint": False}}, False)],
     "no_new_discrepancies": [({"rd": {"new_discrepancies": 0}}, True), ({"rd": {"new_discrepancies": 2}}, False), ({}, "die")],

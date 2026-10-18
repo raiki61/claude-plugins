@@ -36,12 +36,12 @@
     {
      "text": "_s4_xxxxxxx",
      "source": "依頼文",
-     "origin": "独立出典",
+     "origin": "independent",
      "breaks_if_false": "_s8_xx"
     }
    ],
-   "thickness": "軽量",
-   "thickness_decider": "依頼者指定",
+   "thickness": "light",
+   "thickness_decider": "requester",
    "thickness_reason": "_s7_xxx"
   },
   "out/r1/p0.terms.json": {
@@ -91,7 +91,7 @@
      "new_discrepancies": 1
     }
    ],
-   "thickness": "軽量",
+   "thickness": "light",
    "inputs": {
     "document": "<REPO>/mitate.md"
    },

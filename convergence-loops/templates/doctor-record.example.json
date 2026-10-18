@@ -1,7 +1,7 @@
 {
   "area": "services/log_service（コード+README）×レンズ: 減らす・縛りの余地×層: 計器+scout",
-  "thickness": "標準",
-  "thickness_decider": "既定",
+  "thickness": "standard",
+  "thickness_decider": "default",
   "scouts": [
     { "area": "services/log_service", "lens": "減らす", "candidates_returned": true, "diagnosis_returned": true },
     { "area": "services/log_service", "lens": "縛りの余地", "candidates_returned": true, "diagnosis_returned": true }
@@ -11,9 +11,9 @@
     {
       "key": "log_service/requirements.txt: どこからも参照されない依存一覧",
       "height": 1,
-      "verdict": "推奨",
-      "confidence": "確実",
-      "weight": "機械検証可能・小",
+      "verdict": "recommended",
+      "confidence": "certain",
+      "weight": "mechanical_small",
       "parent": null,
       "evidence": "Dockerfile と CI は pyproject.toml を読む（grep で参照ゼロを確認）",
       "verification_plan": "削除後に build と全テストを実行",
@@ -22,9 +22,9 @@
     {
       "key": "log_service/境界値: inputSchema の min/max に回帰テストが無い",
       "height": 1,
-      "verdict": "条件付き",
-      "confidence": "有力",
-      "weight": "振る舞いに触れる・中",
+      "verdict": "conditional",
+      "confidence": "likely",
+      "weight": "behavior_medium",
       "parent": "横展開: 検査の先例が 1 サービスで止まる",
       "condition": "assert は inputSchema の値に対して書く（実装値への直書きは腐る）",
       "evidence": "兄弟サービスに先例あり・当該サービスに無し（テスト一覧の突合）",
@@ -34,9 +34,9 @@
     {
       "key": "log_service/logger 置換案: 例外の握り潰しを logger 化する",
       "height": 1,
-      "verdict": "棄却",
-      "confidence": "確実",
-      "weight": "機械検証可能・小",
+      "verdict": "rejected",
+      "confidence": "certain",
+      "weight": "mechanical_small",
       "parent": null,
       "reason": "握り潰しを静かにするだけ——except の撤去が本筋",
       "evidence": "当該 except 句の実装読解と呼び出し元の突合"
@@ -44,8 +44,8 @@
     {
       "key": "横展開: 検査の先例が 1 サービスで止まる",
       "height": 2,
-      "verdict": "既決着",
-      "confidence": "有力",
+      "verdict": "already_settled",
+      "confidence": "likely",
       "weight": null,
       "parent": null,
       "settled_by": "共有基底への移設が既存 issue で進行中（完全 URL は散文の報告に記載）",
@@ -56,7 +56,7 @@
     "key": "log_service/境界値: inputSchema の min/max に回帰テストが無い",
     "descendants": 2,
     "descendants_with_unverifiable": 3,
-    "feasibility": "高",
+    "feasibility": "high",
     "votes": ["条件付き（統合は正当・別の親は不成立）", "条件付き（既実装なし）", "条件付き（読み違いなし）"]
   },
   "triage": {

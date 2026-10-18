@@ -833,8 +833,8 @@
    "title": "規模の数値を名前つきで出す（5）",
    "file": "convergence-loops/scripts/comment-ratio.sh",
    "suite": "root",
-   "old": "    print(f\"scalars: added_lines={total}",
-   "new": "    print(f\"scalar: added_lines={total}",
+   "old": "    scalars = {\"added_lines\": total, \"comment_lines\": annotated}",
+   "new": "    scalars = {\"added_line\": total, \"comment_lines\": annotated}",
    "expect": "規模の数値を名前つきで出す"
   },
   {
@@ -1307,8 +1307,8 @@
    "title": "記録: 同じ key は 1 件",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "\"faces_created_by_prev_fix\": len({x.get(\"key\") for x in hist.get(\"reburn_causes\") or []\n                                                            if isinstance(x, dict) and x.get(\"cause\") == \"前の周の修正\"})}",
-   "new": "\"faces_created_by_prev_fix\": len([x.get(\"key\") for x in hist.get(\"reburn_causes\") or []\n                                                            if isinstance(x, dict) and x.get(\"cause\") == \"前の周の修正\"])}",
+   "old": "\"faces_created_by_prev_fix\": len({x.get(\"key\") for x in hist.get(\"reburn_causes\") or []\n                                                            if isinstance(x, dict) and x.get(\"cause\") == \"prev_fix\"})}",
+   "new": "\"faces_created_by_prev_fix\": len([x.get(\"key\") for x in hist.get(\"reburn_causes\") or []\n                                                            if isinstance(x, dict) and x.get(\"cause\") == \"prev_fix\"])}",
    "expect": "2 周目の記録に faces_created_by_prev_fix=1 が載る",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -1545,7 +1545,7 @@
    "id": "A28",
    "title": "面の数は原因が『前の周の修正』の行だけ",
    "file": "graphloops/rules/review-loop.py",
-   "old": " and x.get(\"cause\") == \"前の周の修正\"})}",
+   "old": " and x.get(\"cause\") == \"prev_fix\"})}",
    "new": "})}",
    "expect": "2 周目の記録に faces_created_by_prev_fix=1 が載る",
    "suite": "graphloops",
@@ -7005,8 +7005,8 @@
    "title": "人が continue で通したゲートの行（同じ ID）は後の周で聞き直さない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    rows = [r for r in HUMAN_GATES[nid](b) if not set(r[2]) & ids and _gate_body(r[1]) not in bodies]",
-   "new": "    rows = [r for r in HUMAN_GATES[nid](b) if _gate_body(r[1]) not in bodies]",
+   "old": "    rows = [r for r in HUMAN_GATES[nid](b) if not set(r[2]) & ids]",
+   "new": "    rows = list(HUMAN_GATES[nid](b))",
    "expect": "test_policy_gate.py::test_gate_rows_passed_once_are_not_reasked_in_any_round_or_gate",
    "tests": {
     "graphloops/tests/py": [
@@ -7100,15 +7100,15 @@
   },
   {
    "id": "DR19",
-   "title": "ゲートの行の頭は当たらなくなるまで剥がす（R4 が頭ごと写した行）",
+   "title": "R4 が same_as で名指した、人が前に通した行の ID を、行の ID の組に足す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        row = row[m.end():]",
-   "new": "        return row[m.end():]",
-   "expect": "test_policy_gate.py::test_r4_copies_of_rows_passed_before_the_fix_are_not_reasked",
+   "old": "*([x[\"same_as\"]] if x.get(\"same_as\") else [])",
+   "new": "*()",
+   "expect": "test_policy_gate.py::test_r4_rows_naming_rows_passed_before_the_fix_are_not_reasked",
    "tests": {
     "graphloops/tests/py": [
-     "test_policy_gate.py::test_r4_copies_of_rows_passed_before_the_fix_are_not_reasked"
+     "test_policy_gate.py::test_r4_rows_naming_rows_passed_before_the_fix_are_not_reasked"
     ]
    }
   },

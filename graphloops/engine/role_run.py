@@ -39,6 +39,7 @@ import threading
 import time
 
 from . import checks_cache
+from .launch_words import JSON_SCHEMA
 from .util import LANE_FAILED, lone_surrogate_at, waiting
 
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
@@ -1044,8 +1045,12 @@ def stop_group(pgid_file):
     return "; ".join(whys) or None
 
 
-def unwrap(stdout):
+def unwrap(stdout, structured=False):
     """標準出力を解く。返すのは (本文, 要約, 読めない理由)。
+
+    structured は子に --json-schema でノードの schema を渡したか。渡した子の本文は包みの structured_output（claude が schema で検めた
+    返答。公式の headless 文書の「Get structured output」）を JSON に直した物で、result の文から JSON を探さない。structured_output の無い
+    包み・包みでない出力は読めない理由にする——result の文に黙って倒すと、子の側の照合を通らなかった返答が受け付けに回る。
 
     **包みかどうかは出力の形で見る**（起動した語の --output-format は見ない）: type が result の object だけが
     `--output-format json` の包み（公式の headless 文書・SDKResultMessage）。盤面は init の時の graph の語で役を
@@ -1064,6 +1069,8 @@ def unwrap(stdout):
     except ValueError:
         env = None
     if not (isinstance(env, dict) and env.get("type") == "result"):
+        if structured:
+            return None, {"envelope": False}, "--json-schema で起動したのに標準出力が --output-format json の包みでない"
         return text, {"envelope": False}, None
     summary = {"envelope": True, **{k: env[k] for k in SUMMARY_KEYS if k in env}}
     denied = env.get("permission_denials") or []
@@ -1073,6 +1080,10 @@ def unwrap(stdout):
         errors = env.get("errors")
         said = "; ".join(map(str, errors)) if isinstance(errors, list) and errors else env.get("result", "result も errors も無し")
         return None, summary, f"役が誤りで終わった（{env.get('subtype')}: {str(said)[:160]}）"
+    if structured:
+        if "structured_output" not in env:
+            return None, summary, f"--json-schema で起動したのに包みに structured_output が無い（subtype={env.get('subtype')}）"
+        return json.dumps(env["structured_output"], ensure_ascii=False), summary, None
     if "result" not in env:
         return None, summary, f"包みに result が無い（subtype={env.get('subtype')}）"
     return env["result"] if isinstance(env["result"], str) else json.dumps(env["result"], ensure_ascii=False), summary, None
@@ -1175,7 +1186,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
             except Superseded:
                 got.update(superseded=True, why=SUPERSEDED)
                 break
-            text, summary, bad = unwrap(out)
+            text, summary, bad = unwrap(out, structured=JSON_SCHEMA in cur)
             if summary.get("session_id"):
                 got["session_id"] = summary["session_id"]
             run = {"turn": turn + 1, "kind": "first" if turn == 0 else "resume", "exit": rc,

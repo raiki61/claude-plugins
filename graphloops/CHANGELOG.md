@@ -6,6 +6,30 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- **convergence-loops 0.50.0 以上が要る**（`dependencies` の下限を上げた）。下の 2 つが、convergence-loops の検証器 `review-record.py` と `comment-ratio.sh` に足した `--json` を呼ぶため。古い convergence-loops のままだと、周の記録が検証器を通らずに止まる。
+- review-loop の周（レビューと直しの 1 回分）の行き先（収束・仕事が残る・前提不成立で止める・答え無しに進める仕事が無い）を、`review-record.py --json` が返す `stop`（ASCII のキー）で決める。前は人向けの出力から止める訳の文言の行を探しており、文言を直すと黙って「仕事が残る」に倒れた。`stop` が無い・知らないキーのときは、周を進めずに訳を返す。graph の `record.validator_output` が `json` のとき、engine は検証器に `--json` を渡す。
+- review-loop の書いた行の割合の数（`scalars`）を、`comment-ratio.sh --json` から読む。数でない値・知らないキーを黙って捨てていたのをやめ、要る値（added_lines・comment_lines）が欠けたら数を書かずに訳を残す。数えられなかったファイル（`unmeasured`）が在れば、数は書いたうえで訳にも残す。
+- 前の周の判定を据え置いたレビューの行の印を、reason の末尾の添え書きでなく `held_from`（据え置いた元の周の番号）のフィールドで持つ。`held_from` の無い前の版の記録だけは、今までどおり末尾の添え書きで見分ける（版を上げる前に始めた run を続けるときと、品質の台帳 quality-ledger.py が過去の記録を数えるとき）。
+- 修正の後のレビュー（R4）が人に問う行（消えた能力と、人の方針とのぶつかり）のうち、人が前に通した行を、モデルが写した文の一致でなく `same_as`（前に人に問うた行の ID）のフィールドで見分ける。R4 の返答の 2 つの配列（`capability_inventory.lost`・`policy_conflicts`）の要素は文字列から `{text, same_as}` の object にした。前の版の返答（要素が文字列）と `same_as` の無い行は、もう一度人に問う（安全な側）。
+- グラフ（`graphs/*.json`）とブロックの出口の schema の、選んで書く値（列挙）を日本語の語から ASCII のキーに変えた（docs/standards/machine-readable-values.md の決まり 3）。例は、厚み 軽量/標準/重厚→light/standard/heavy・決めた人 依頼者指定/既定→requester/default・反証の判定 確証/反証→confirmed/contradicted・事実の種類 実測/仮説→measured/hypothesis・目的の出典 PR 説明→pr_description・再燃の原因 規約→convention。プロンプトはキーを書くよう指す。人に見せる文言は表示の語の表（research-loop の `thickness.labels`）から引くので、止まる理由などの文は変わらない。`loop.py init` の `--thickness`・`--decider` と `thicken --to` は、キーと表示の語のどちらでも受ける。前の版の語で書いた盤面・記録は schema に通らない。
+- engine が起動する役の返答を、`--json-schema` でノードの schema を渡し、包みの `structured_output` で受けるようにした（engine だけが読む `note`・`x-reducer` は外して渡す）。schema の無いノードと背景の任せ先は今までどおり `result` で受ける。`--json-schema` で起動したのに `structured_output` が無い回は、`result` に倒さずに読めない理由で止める。
+- 起動する語（argv・resume・前置の層）を graph から外し、engine の `engine/launch_words.py` の 1 か所に置いた。チェックの許可表も同じ所から組む。graph の `launch.<形>` は前置きの文・モデルなどだけを持ち、`argv`・`resume`・`via` を書くと graphcheck が落とす。
+- 前置の層（`scripts/with-auth.py`）は、足した認証の段を環境変数 `GRAPHLOOPS_AUTH_NOTE` が名指すファイルに JSON で書く。engine の `launch` の行の `cause` はこの段で決め、標準エラーの文は読まない。行に `auth`（段。読めなければ null）を足した。
+- sandbox の確かめの子の返答も `--json-schema` で受け、sandbox の初期化の失敗の文は返答の `error` のフィールドと子の出力にだけ当てる。
+
+### Added
+
+- graphcheck が `thickness.labels` を検査する。キーは厚みの段と decider の値ちょうどで、表示の語は空でなく、重ならず、キーとかぶらない。
+
+### Fixed
+
+- 役の定義（agents/<役>.md）の frontmatter を、YAML のブロックの形のリスト（`tools:` の次の行の `  - Read`）でも読むようにした。前は 1 行の形しか読めず、ツールの一覧が空になって役が黙ってツール無しで起動した。読めない形の frontmatter は止まる。
+- loop.py run の回し手（ループを回すプロセス）は、自分が起動した launch ごとに、どの試行を起動したかを書いたファイル（盤面の `runner-launch/<pid>.json`）を置く。前は、このファイルが壊れていると黙って待ち続けるか、ファイルを消して先へ進み、中の試行を誰も拾い直さなかった。今はファイルを残し、訳を添えて `stuck` で終わる（ファイルを確かめて消してから run を打ち直す）。loop.py run が最後に出す JSON は、読めなかった record.json・runner.json を `unreadable` に出す。
+- 並行 PR の数え（review-loop の p0.parallel_pr）が、変更ファイルが 100 件を超える PR で一覧を黙って切っていたのを、全部を読み、読み切れなければ確かめられなかったと返すようにした。
+- 読み記録のフック（hooks/record-read.py）が、linked worktree の `.git` の相対の `gitdir:` を解くようにした。
+
 ## [0.36.0] - 2026-10-19
 
 ### Deprecated

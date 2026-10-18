@@ -45,7 +45,7 @@ const FINDINGS = {
         required: ['claim', 'verdict', 'evidence', 'sources'],
         properties: {
           claim: { type: 'string', description: '検証対象の主張（要約可）' },
-          verdict: { type: 'string', enum: ['確証', '相違', '留保', '検証不能'] },
+          verdict: { type: 'string', enum: ['confirmed', 'contradicted', 'qualified', 'unverifiable'], description: 'キーで返す。confirmed=確証・contradicted=相違・qualified=留保・unverifiable=検証不能' },
           evidence: { type: 'string', description: '一次情報で確認した内容' },
           sources: { type: 'array', items: { type: 'string' }, description: '出典 URL' },
           conditions: { type: 'string', description: '確証の場合: この主張が成立する適用条件・限界（必須で書く）' },
@@ -71,7 +71,7 @@ const VERDICT = {
 const COMMON = [
   'あなたは設計文書のファクトチェッカー。ウェブ検索と取得で必ず一次情報（公式ドキュメント・標準文書・原典・公式リポジトリ）に当たり、以下の各主張を検証しろ。',
   'ファイルの作成・編集・削除を自らに禁じる。Bash は読み取りにだけ使え。',
-  '判定基準: 確証=一次情報が主張どおり（conditions に適用条件・限界を必ず書く。適用条件のない確証は不完全）／相違=一次情報と食い違う（correction に正しい記述を書く）／留保=概ね正しいが重要な限定・精密化が要る（correction に限定を書く）／検証不能=一次情報に到達できない。',
+  '判定基準（verdict はキーで返す）: confirmed（確証）=一次情報が主張どおり（conditions に適用条件・限界を必ず書く。適用条件のない確証は不完全）／contradicted（相違）=一次情報と食い違う（correction に正しい記述を書く）／qualified（留保）=概ね正しいが重要な限定・精密化が要る（correction に限定を書く）／unverifiable（検証不能）=一次情報に到達できない。',
   '引用は文脈込みで当たれ: 切り出す一文の前後、その文書自身の問い・対象・条件・限定節（limitations）を確認し、主張への転用が原文の射程内かを判定しろ。都合のよい断片だけの切り出し（文脈剥ぎ取り引用）を禁ずる。evidence と conditions には原文の射程（誰が・何を対象に・どの条件で言っているか）を書け。',
   '重要: 主張を好意的に読み替えるな。書かれた文言がそのまま正しいかを判定しろ。二次ブログしか根拠が見つからないなら verdict を下げろ。数値・年号・固有名詞は特に厳密に。クラスタ内の全主張に1件ずつ必ず判定を返せ（検証不能も明示しろ・無言の省略を禁ずる）。主張に【荷重】印が付いていたら loadBearing=true を返せ。sources は URL。全て日本語で書け。',
 ].join('\n')
@@ -88,8 +88,8 @@ const results = await pipeline(
   }),
   (res, c) => {
     if (!res) return null
-    const disputed = res.findings.filter(f => f.verdict === '相違')
-    const loaded = res.findings.filter(f => f.verdict === '確証' && f.loadBearing)
+    const disputed = res.findings.filter(f => f.verdict === 'contradicted')
+    const loaded = res.findings.filter(f => f.verdict === 'confirmed' && f.loadBearing)
     if (!disputed.length && !loaded.length) return res
     const refute = (f, mode) => () =>
       agent([

@@ -16,14 +16,15 @@ from . import pointers
 from . import hist as histmod
 from . import declared
 from . import intake
+from . import launch_words
 from .advance import (ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, narrowed_def, node_appends,
                       open_next_round, runner_form, skip_node)
 from .board import Board, empty_round
 from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
-from .schema import graph_text, load_graph, validate_schema
-from .util import (ANSWER_ACTIONS, HANDOFF_DEFECTS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, claude_auth, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS,
+from .schema import cli_schema, graph_text, load_graph, validate_schema
+from .util import (ANSWER_ACTIONS, HANDOFF_DEFECTS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS,
                    copy_worktree, defects_only, die, dump, find_attempt, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain,
                    protected_paths, read_input_json,
                    read_json, repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json, write_lane_failed)
@@ -247,7 +248,7 @@ def cmd_next(a):
                 "Agent ツールで起動するな（CLAUDE.md と git status が注入される——Agent の子の git status は止められない。engine はツールゼロの子をリポジトリの外で起動する。返答の本文が回す側に入る）。"
                 "launch は 1 件ずつ ok と why を返す——ok でないノードは why を読み、拒否が続いた・子が落ちたなら "
                 "loop.py relaunch --node <id> --reason <理由> で起動し直してから launch（relaunch は新しい試行を書いてから前の試行の子を木ごと止める）。"
-                "cause が launch_auth なら認証が足りていない、launch_child_failed なら役の側、launch_auth_unread なら段が読めなかった（stderr の with-auth: の行で確かめよ）。"
+                "cause が launch_auth なら認証が足りていない、launch_child_failed なら役の側、launch_auth_unread なら前置の層の書いた段が無かった（行の auth が null。stderr の with-auth: の行で確かめよ）。"
                 "engine が起動できないノード（why が『前置ではない』『旗が無い』『権限の形』"
                 "『定義が読めない』『claude が無い』）は迂回を組まず人に渡せ。"
                 "unlaunched を持つノードは engine が起動できない理由を持つ——迂回せず理由を人に見せよ（回し役なしの run は loop.py run が 14 で出す）。"
@@ -289,21 +290,36 @@ def cmd_next(a):
 #         （--permission-prompts none）・渡すツール（--tools）が役の定義のツールと一致し、ファイルを書くツールを含まない・権限の形
 #         （--permission-mode）と先に許すツール（--allowedTools）と設定（--settings。sandbox の形）が engine の決めた値
 #         （role_run.tooled_permission）と一致する。graph は権限を配れない——graph の書き換えで起動できる物が広がらない
-ISOLATED_FLAGS = ("-p", "--resume", "--model", "--effort", "--tools", "--setting-sources", "--append-system-prompt-file",
-                  "--output-format")
-TOOLED_FLAGS = ISOLATED_FLAGS + ("--allowedTools", "--permission-mode", "--permission-prompts", "--settings")
-ISOLATED_READ_FLAGS = ISOLATED_FLAGS + ("--allowedTools", "--permission-mode", "--permission-prompts")
+#   旗の並びは起動する側と同じ engine/launch_words.py から組む（graph は起動する語を持たない）
+ISOLATED_FLAGS = launch_words.flags("isolated")
+TOOLED_FLAGS = launch_words.flags("tooled")
+ISOLATED_READ_FLAGS = launch_words.flags("isolated_read")
 # 任せ先（delegate）の旗: ツールつきの役の旗から --effort を除いた物（任せ先はモデルだけを graph の delegate.model で名指す）
-DELEGATE_FLAGS = tuple(f for f in TOOLED_FLAGS if f != "--effort")
+DELEGATE_FLAGS = launch_words.flags("delegate")
+RUNNER_FLAGS = launch_words.flags("runner")
 BARE_FLAGS = ("-p",)          # 値を取らない旗
-OPTIONAL_FLAGS = ("--resume",)  # 無くてよい旗（続ける会話の無い起動）
+# 無くてよい旗: 続ける会話の無い起動（--resume）と、schema を持たないノードの子（--json-schema）
+OPTIONAL_FLAGS = (launch_words.RESUME[0], launch_words.JSON_SCHEMA)
 # 起動する役に依らない値
 FIXED_VALUES = {"--setting-sources": "", "--permission-prompts": "none", "--output-format": "json"}
 
 
 def launch_prefix():
-    """engine が起動してよい前置（自分のインタプリタ＋同梱の層）。graph の via と一致するのが正常。"""
-    return [sys.executable, str(PLUGIN_ROOT / "scripts" / "with-auth.py")]
+    """engine が起動してよい前置（自分のインタプリタ＋同梱の層）。起動する側と同じ launch_words.VIA を埋めた物"""
+    return [a.format(python=sys.executable, plugin_root=str(PLUGIN_ROOT)) for a in launch_words.VIA]
+
+
+def _json_schema_refusal(value):
+    """--json-schema の値が返答の形だけを運ぶか（よければ None）。JSON の object で、engine だけが読む語（schema.ENGINE_ONLY_KEYWORDS）を
+    含まない形（schema.cli_schema で変わらない）であること。値はノードの schema と突き合わせない——この旗は子の権限を広げず、受け付けの正本は
+    done の validate_schema（graph のノードの schema）のままなので、値を違えても通るのは子の側の照合だけ"""
+    try:
+        got = json.loads(value)
+    except ValueError:
+        return f"{launch_words.JSON_SCHEMA} が JSON として読めない（{value[:60]!r}）"
+    if not isinstance(got, dict) or cli_schema(got) != got:
+        return f"{launch_words.JSON_SCHEMA} が engine の組む形（JSON Schema の object。engine だけが読む語を外した物）でない（{value[:60]!r}）"
+    return None
 
 
 def _norm(path):
@@ -411,7 +427,7 @@ def _argv_refusal(argv, inst, d, perm, resume=False, read=None):
     """1 本の argv が起動してよい形か（よければ None）。d は起動する時に読み直した役の定義、perm は engine が決めた権限の形。"""
     want_prefix = launch_prefix()
     if [_norm(a) for a in argv[:len(want_prefix)]] != [_norm(w) for w in want_prefix]:
-        return (f"engine が起動してよい前置ではない（graph の launch の via が {want_prefix} を指していない）"
+        return (f"engine が起動してよい前置ではない（前置が engine の層 {want_prefix} でない）"
                 f"——先頭は {argv[:2]}")
     role_tools = d["tools"]
     if role_tools and ("*" in role_tools or any(x in WRITE_TOOLS for x in role_tools)):
@@ -424,7 +440,9 @@ def _argv_refusal(argv, inst, d, perm, resume=False, read=None):
     for flag, val in got.items():
         if flag in BARE_FLAGS:
             continue
-        if flag == "--settings":
+        if flag == launch_words.JSON_SCHEMA:
+            why = _json_schema_refusal(val)
+        elif flag == "--settings":
             why = _settings_refusal(val, perm["settings"])
         elif flag == "--append-system-prompt-file":
             try:
@@ -502,15 +520,17 @@ def _runner_refusal(inst, launch, cwd, board, denied):
         if not words:
             continue
         if [_norm(a) for a in words[:len(head)]] != [_norm(w) for w in head]:
-            return f"engine が起動してよい前置ではない（graph の launch の via が {head} を指していない）——先頭は {words[:2]}"
-        got, why = _parse_flags(words[len(head) + 1:], TOOLED_FLAGS)
+            return f"engine が起動してよい前置ではない（前置が engine の層 {head} でない）——先頭は {words[:2]}"
+        got, why = _parse_flags(words[len(head) + 1:], RUNNER_FLAGS)
         if why:
             return f"回す側のノードの argv: {why}"
         for flag, val in got.items():
             if flag in BARE_FLAGS or flag == "--append-system-prompt-file":
                 continue   # 前置きの文（graph の preamble）は権限を運ばない
             why = None
-            if flag == "--settings":
+            if flag == launch_words.JSON_SCHEMA:
+                why = _json_schema_refusal(val)
+            elif flag == "--settings":
                 why = _settings_refusal(val, perm["settings"])
             elif flag == "--resume":
                 sid = inst.get("session_id")
@@ -549,14 +569,16 @@ def _delegate_refusal(inst, launch, board, denied, unfenced=False):
         if not words:
             continue
         if [_norm(a) for a in words[:len(head)]] != [_norm(w) for w in head]:
-            return f"engine が起動してよい前置ではない（graph の launch の via が {head} を指していない）——先頭は {words[:2]}"
+            return f"engine が起動してよい前置ではない（前置が engine の層 {head} でない）——先頭は {words[:2]}"
         got, why = _parse_flags(words[len(head) + 1:], DELEGATE_FLAGS)
         if why:
             return f"任せ先の argv: {why}"
         for flag, val in got.items():
             if flag in BARE_FLAGS or flag == "--append-system-prompt-file":
                 continue   # 前置きの文（graph の preamble）は権限を運ばない
-            if flag == "--settings":
+            if flag == launch_words.JSON_SCHEMA:
+                why = _json_schema_refusal(val)
+            elif flag == "--settings":
                 why = _settings_refusal(val, settings)
             elif flag == "--resume":
                 sid = inst.get("session_id")
@@ -874,6 +896,13 @@ PROBE_RAN = "gl-probe-ran"     # 作業ディレクトリの直下（Bash が走
 PROBE_PROMPT = (f"Bash を 1 回だけ呼び、touch \"$PWD/{PROBE_RAN}\" \"$TMPDIR/{PROBE_FILE}\" を走らせよ。ほかには何もするな。"
                 "Bash が誤りを返したら、その誤りの文を 1 字も変えずに error に写せ。"
                 "返答は JSON {\"made\": true か false, \"error\": \"Bash の誤りの文（無ければ空）\"} だけ")
+# 確かめの子の返答の形（--json-schema で渡し、包みの structured_output で受ける）。error は Bash の誤りの文の写しで、機械が読むのは下の
+# SANDBOX_INIT_FAILED を当てる所だけ
+PROBE_SCHEMA = {"type": "object", "properties": {"made": {"type": "boolean"}, "error": {"type": "string"}},
+                "required": ["made", "error"], "additionalProperties": False}
+# sandbox の初期化の失敗の文。Claude Code の Bash ツールが返す英語の文で、機械向けの形（終了コード・JSON のフィールド）を持たない
+# ——機械の読める形の無い外のツールの出力だけは文を読む（docs/standards/machine-readable-values.md の決まり 2）。字は Claude Code が組む文で
+# 利用者の言語の設定（LC_ALL）では変わらない。当てるのは返答の error のフィールド（子が写した Bash の誤りの文）と、子の標準出力・標準エラーだけ
 SANDBOX_INIT_FAILED = re.compile(r"sandbox[^\n]{0,80}fail(?:ed)? to initiali[sz]e", re.I)
 PROBE_LOCK = threading.Lock()
 
@@ -881,18 +910,19 @@ PROBE_LOCK = threading.Lock()
 def _probe_argv(argv):
     """起動する子の語から、確かめの子の語を作る——モデルを替え、ツールを Bash だけにし（先に許すツールの旗は外す）、effort（安いモデルが
     受けない値）と役の前置き（局所レビューの子の前置きはレンズを起動せよと言う）を外す。sandbox の形と権限の形は起動する子と同じ。
-    Bash だけにするのは、ファイルの印を作れるのを Bash だけにするため——書くツールが残ると、Bash が落ちた後に Write で印を作れた"""
+    Bash だけにするのは、ファイルの印を作れるのを Bash だけにするため——書くツールが残ると、Bash が落ちた後に Write で印を作れた。
+    返答の形はノードの schema を外し、確かめの子の形（PROBE_SCHEMA）を --json-schema で渡す"""
     out, skip = [], 0
     for i, a in enumerate(argv):
         if skip:
             skip -= 1
             continue
-        if a in ("--effort", "--append-system-prompt-file", "--allowedTools"):
+        if a in ("--effort", "--append-system-prompt-file", "--allowedTools", launch_words.JSON_SCHEMA):
             skip = 1
             continue
         prev = argv[i - 1] if i else None
         out.append(PROBE_MODEL if prev == "--model" else "Bash" if prev == "--tools" else a)
-    return out
+    return out + [launch_words.JSON_SCHEMA, json.dumps(PROBE_SCHEMA)]
 
 
 def _sandboxed(argv):
@@ -976,9 +1006,8 @@ def _probe_child_tmp(d, inst):
         if made or ran:
             return {"sandbox": True, "writable": made, "at": now(),
                     "why": None if made else "Bash は走ったが、専用の置き場にファイルが無い"}
-        reply = (work / "out.json").read_text(encoding="utf-8", errors="replace") if (work / "out.json").is_file() else ""
-        said = SANDBOX_INIT_FAILED.search("\n".join([reply] + [f"{x.get('stdout_head') or ''}\n{x.get('stderr') or ''}"
-                                                              for x in r.get("runs") or []]))
+        said = SANDBOX_INIT_FAILED.search("\n".join([_probe_error(work / "out.json")] + [f"{x.get('stdout_head') or ''}\n{x.get('stderr') or ''}"
+                                                                                       for x in r.get("runs") or []]))
         if said:
             return {"sandbox": False, "writable": None, "at": now(),
                     "why": f"確かめの子の Bash が sandbox の初期化で落ちた（{said.group(0)[:200]}）"}
@@ -991,6 +1020,15 @@ def _probe_child_tmp(d, inst):
         for p in (work, tmp):
             if p:
                 shutil.rmtree(p, ignore_errors=True)
+
+
+def _probe_error(path):
+    """確かめの子の返答（structured_output を JSON に直した物）の error のフィールド。返答が無い・形に合わない回は空（決まらない側に倒れる）"""
+    try:
+        got = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return got["error"] if isinstance(got, dict) and isinstance(got.get("error"), str) else ""
 
 
 def _note_unmeasured_bash(d, inst, down):
@@ -1082,6 +1120,10 @@ def launch_one(d, inst, max_resumes, cwd=None, state=None):
             child_tmp = None
         else:
             env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(child_tmp), "TMPDIR": str(child_tmp)}
+    # 前置の層が足した認証の段は、層がこのファイルに JSON で書く（標準エラーの人向けの行は読まない）。試行ごとの一時ファイルで、読んだら消す
+    fd, auth_path = tempfile.mkstemp(prefix="graphloops-auth-", suffix=".json")
+    os.close(fd)
+    env = {**(os.environ if env is None else env), launch_words.AUTH_NOTE_ENV: auth_path}
     r = None
     try:
         r = run_role(launch["argv"], launch["stdin"], out_path,
@@ -1090,6 +1132,7 @@ def launch_one(d, inst, max_resumes, cwd=None, state=None):
                      meta={"instance": inst["id"], "node": inst["node"], "agent_type": inst.get("agent_type"),
                            "attempt": inst.get("attempts", 1), "form": launch.get("form")})
     finally:
+        auth = _auth_note(auth_path)
         if work:
             for part in ("work", "tmp"):
                 shutil.rmtree(work / part, ignore_errors=True)
@@ -1116,7 +1159,19 @@ def launch_one(d, inst, max_resumes, cwd=None, state=None):
             "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg if accept else None,
             "cost_usd": _attempt_cost(d, inst),
             "permission_denials": sum(len(x.get("permission_denials") or []) for x in r["runs"]),
-            "stderr": "" if r["ok"] else (last.get("stderr") or "")}
+            "stderr": "" if r["ok"] else (last.get("stderr") or ""), "auth": auth}
+
+
+def _auth_note(path):
+    """前置の層が書いた認証の段（{"stage", "added"}）。無い・読めない・形が違うなら None（launch_cause が launch_auth_unread と出す）。読んだら消す"""
+    try:
+        got = json.loads(pathlib.Path(path).read_text(encoding="utf-8") or "null")
+    except (OSError, ValueError):
+        got = None
+    finally:
+        pathlib.Path(path).unlink(missing_ok=True)
+    ok = isinstance(got, dict) and isinstance(got.get("stage"), str) and isinstance(got.get("added"), bool)
+    return {"stage": got["stage"], "added": got["added"]} if ok else None
 
 
 def _attempt_cost(d, inst):
@@ -1136,14 +1191,10 @@ def launch_cause(r, kind):
         return "launch_refused", "commands.launch_refusal"
     if r["rejections"]:
         return "launch_rejected", "role_run.run_role"
-    stage = AUTH_STAGE.search(r.get("stderr") or "")
-    if stage is None:
+    auth = r.get("auth")   # 前置の層が書いた段（_auth_note）。無ければ層まで届かなかったか、書けなかった
+    if not auth:
         return "launch_auth_unread", "role_run.run_role"
-    return ("launch_child_failed" if claude_auth().added(stage.group(1)) else "launch_auth"), "role_run.run_role"
-
-
-# 前置の層が標準エラーに書く段の名前: 頭の行と、子が落ちた回の末尾の行（運ばれるのは末尾の 600 字なので、頭が切れても末尾に残る）
-AUTH_STAGE = re.compile(r"with-auth: (?:auth=|子が rc=-?\d+ で落ちた。認証は )(\S+)")
+    return ("launch_child_failed" if auth["added"] else "launch_auth"), "role_run.run_role"
 
 
 @intake.quiet
@@ -1283,7 +1334,7 @@ def _launch_marked(d, mark, picked):
                         "why が『起動し直された古い試行』の行は次の手が要らない（起動し直しなら新しい試行の launch を待て。人が止めた試行なら次は next）。"
                         "env を持つ行は環境の予定どおりの止まり（why が外し方を名指す——当ててから relaunch --reprobe）。"
                         "cause が launch_auth なら認証が足りていない、launch_child_failed なら認証は足りていて役の側、"
-                        "launch_auth_unread なら標準エラーから段が読めなかった（stderr の with-auth: の行で確かめよ）。"
+                        "launch_auth_unread なら前置の層の書いた段が無かった（行の auth が null。stderr の with-auth: の行で確かめよ）。"
                         "返答は out_path に在る（読むのは要る所だけ。会話が引き取るなら、自分の返答は別のファイルに書いて done --output）。"
                         "engine が起動できないノード（why が『前置ではない』『旗が無い』"
                         "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ。"
@@ -1970,9 +2021,16 @@ def max_rounds_for(graph, thickness):
     return graph["round"].get("max_rounds_by_thickness", {}).get(thickness, graph["round"]["max_rounds"])
 
 
+def thickness_key(graph, word):
+    """人が打った段・decider（init --thickness・--decider、thicken --to）をキーに直す。キーはそのまま、graph の thickness.labels の
+    表示の語（軽量など）は引いたキーへ。どちらでもない語はそのまま返し、呼び元がキーの一覧と比べて拒む（決まり 3: 英語のキーでも日本語でも受ける）"""
+    labels = (graph.get("thickness") or {}).get("labels") or {}
+    return next((k for k, w in labels.items() if w == word), word)
+
+
 def cmd_thicken(a):
     b = Board(resolve_dir(a))
-    thicken(b, a.to, a.reason, by="thicken")
+    thicken(b, thickness_key(b.graph, a.to), a.reason, by="thicken")
     b.save()
     print(f"ok 段を {a.to} に上げた。この周から {a.to} のノードが有効になる（次の next で出る）")
 
@@ -2390,12 +2448,12 @@ def cmd_init(a):
     # 注記が「die しても空の盤面を残さない」と名乗っているので、名乗りの側でなく実装の側を合わせる
     tcfg = g.get("thickness", {})
     tiers, default = tcfg.get("tiers") or [], tcfg.get("default")
-    th = a.thickness or default
+    th = thickness_key(g, a.thickness) if a.thickness else default
     if th and th not in tiers:
-        die(f"段 '{th}' はこの loop の段（{tiers}）に無い")
+        die(f"段 '{th}' はこの loop の段（{tiers}。表示の語 {tcfg.get('labels') or {}} でも受ける）に無い")
     deciders = tcfg.get("deciders", {})
-    decider = a.decider or deciders.get("default")
-    if a.decider and a.decider not in deciders.values():
+    decider = thickness_key(g, a.decider) if a.decider else deciders.get("default")
+    if a.decider and decider not in deciders.values():
         die(f"--decider '{a.decider}' はこの loop の値（{sorted(deciders.values())}）に無い")
     if th and default in tiers and tiers.index(th) < tiers.index(default) and decider != deciders.get("downgrade"):
         die(f"{th} は依頼者が明示に指定した場合だけ——依頼者がそう言ったときに限り --decider {deciders.get('downgrade')} を添えて init する")

@@ -173,8 +173,8 @@ def _s_w5b(run, v):
 
 
 # 主張 A だけに判定を返す checker の返答（B が欠けて p1.checker[c1]#2 が出る）
-CHECKER_A_ONLY = {"cluster": "c1", "findings": [{"id": "A", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]}
-CHECKER_B_CORRECTED = {"cluster": "c1", "findings": [{"id": "B", "verdict": "相違", "evidence": "e", "sources": ["https://x"], "correction": "c"}]}
+CHECKER_A_ONLY = {"cluster": "c1", "findings": [{"id": "A", "verdict": "confirmed", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]}
+CHECKER_B_CORRECTED = {"cluster": "c1", "findings": [{"id": "B", "verdict": "contradicted", "evidence": "e", "sources": ["https://x"], "correction": "c"}]}
 
 
 def _s_w7(run, v):

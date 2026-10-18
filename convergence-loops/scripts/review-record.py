@@ -12,7 +12,12 @@
 R1 で、ここではない。記録に載らない懸念の有無も今も人が見る。
 
 使い方:
-    python3 review-record.py <記録のディレクトリ>
+    python3 review-record.py [--json] <記録のディレクトリ>
+
+`--json` を付けると、標準出力に JSON の 1 個だけを出す（プログラムが読む口。graphloops の review-loop が使う）:
+`{"exit": <終了コード>, "stop": <止める訳のキー か null>, "text": <付けないときに出す人向けの文>}`。
+stop は STOP_KEYS のキー（"premise_escalate"・"work_exhausted"）で、人向けの文から拾わせない——文言を直すと読む側の
+行き先が黙って変わる（docs/standards/machine-readable-values.md の決まり 1）。終了コードと stderr は付けないときと同じ。
 
 **入口はこれ 1 つ。** 以前はファイル 1〜2 個を渡す入口も在ったが、隣り合う 1 ラウンドしか
 見ないので、**1 ラウンド書かずに飛ばすだけで defer 台帳と過去の [block] の縛りが外れた**。手順書は
@@ -203,14 +208,18 @@ LABELS = ("block", "suggest", "nit", "question", "info")
 # 域: unit=units の key ／ material=素材名 ／ review=R1〜R4 ／ none=出どころを持たない。
 # 「聞く時」の分岐を外のツール（graphloops の rules 等）が読めるように定数で持つ。**文言を直すときはここを直す**
 # ——本文に生リテラルで書くと、読む側が部分一致で写しを持ち、文言を変えた周に分岐が黙って倒れる。
+# 止める訳のキー → 人向けの文。**読む側は --json の stop（キー）を読み、文を読まない**——文言はここで自由に直してよい。
 STOP_PREMISE = "前提不成立が確定（escalate）"
 STOP_WORK_EXHAUSTED = "答え無しに進める仕事は無い"
+STOP_KEYS = {"premise_escalate": STOP_PREMISE, "work_exhausted": STOP_WORK_EXHAUSTED}
+_stop = None   # main が決めた止める訳のキー（--json の stop に出す）
 
 
 def bullet(s):
     """1 項目を `  - ` の行として組む。**役の自由文が何行でも、2 行目以降は字下げして続ける。**
 
-    読む側（graphloops の rules の stop_branch）は「行頭が空白でない行」だけを判定行として読む。
+    以前は読む側（graphloops の rules の stop_branch）が「行頭が空白でない行」だけを判定行として読んでいた（今は --json の stop を読む）。
+    人が読む出力でも、項目の自由文が見出しの行に見えないように字下げは続ける。
     その成立条件は「印字に埋まる自由文が行頭を作らないこと」で、**条件を満たす場所はここ 1 か所**
     ——書く側（記録に文字列を置く 19 のノード）を 1 つずつ覆う形では、覆いの外が残る（実測 2026-09-13:
     書く側の覆いは judge の 2 ノードだけで、materials[].reason・reviews[].reason・questions[].resolution・
@@ -686,7 +695,7 @@ FAIL_LAYERS = {
     "question_origins_exist": "未決の問いの出どころの実在。judge_output が targets で units と defer 台帳に当てる",
     "load_dir": "記録のディレクトリの名前と連番。記録を書くのは engine（周の記録の段）で、判定役は書かない",
     "main": "引数の形と、3 周続く [block] の振り分け（stuck_unlisted。履歴を読む判定のノードで当てる）",
-    "<module>": "想定外の例外を exit 2 に写す境界（規則ではない）",
+    "_run": "想定外の例外を exit 2 に写す境界（規則ではない）",
 }
 
 
@@ -1182,13 +1191,16 @@ def main():
         # 人を止める。遅すぎることは無い（帰属しない阻害が 0 になった瞬間に出る）。
         waiting = sum(1 for _, a in found if a)
         work = len(found) - waiting
+        global _stop
         if any(q["kind"] == "premise" and q["status"] == "escalate" for q in rec["questions"]):
             # 「再審で」と書くな——この短絡は持ち越しを条件にしないので、問いが立った
             # その周にも発火する（手順書がそう設計している。premise だけの例外）。同じ出力に
             # 「今ラウンドに立った問い——再審は次の周」と並ぶと、読み手には矛盾にしか見えない。
+            _stop = "premise_escalate"
             print(f"{STOP_PREMISE}——残る仕事は全てその答えに従属する。"
                   "ここで止めて聞け（最終報告の冒頭）。")
         elif waiting and not work:
+            _stop = "work_exhausted"
             print(f"残る阻害要因は保留の問いに帰属するものだけ（{waiting} 件）——"
                   f"{STOP_WORK_EXHAUSTED}。ここで止めて聞け（最終報告の冒頭）。")
         elif waiting:
@@ -1212,7 +1224,7 @@ def main():
     )
 
 
-if __name__ == "__main__":
+def _run():
     # **終了コードの契約を担保するのはここ 1 箇所**（理由は冒頭 docstring）。
     try:
         main()
@@ -1220,3 +1232,25 @@ if __name__ == "__main__":
         raise
     except Exception as e:
         fail(f"想定外の例外（{type(e).__name__}）: {e}")
+
+
+def _run_json():
+    """--json の口。人向けの文は捕まえて text に入れ、止める訳はキーで stop に入れる。exit 2（記録が不正）でも、それまでに
+    出した文を落とさない（落とす前に診断を出し切る main の約束を、JSON の口でも保つ）"""
+    import contextlib
+    import io
+    buf, code = io.StringIO(), 0
+    try:
+        with contextlib.redirect_stdout(buf):
+            _run()
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 2)
+    print(json.dumps({"exit": code, "stop": _stop if code == 1 else None, "text": buf.getvalue()}, ensure_ascii=False))
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["--json"]:
+        del sys.argv[1]
+        _run_json()
+    _run()

@@ -25,7 +25,7 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
    返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
 
-   `--request` は文字列でもよい。段は既定で標準。**軽量にしてよいのは依頼者がそう言ったときだけ**で、そのときに限り `--thickness 軽量 --decider 依頼者指定` を添える（回す側の判断で下げる道は無い。engine が拒む）。N 周目の締めの後で次の周を開かずに止めるなら `--stop-after-round N`（`status` が stopped、`halted` が `by: stop_after_round`。止めた後の `next` はノードを出さない。次の周へ進めるなら `loop.py resume --reason "<理由>" --stop-after-round <次に止める周>`（止めずに回すなら `--no-stop-after-round`）——続けられるのは周の数で止めた run だけで、盤面を直に書き換える `loop.py patch` で開けるな）。無人で走るなら `--unattended`（人に聞くターンになったら保守的に止まり、聞きたかったことを報告に載せる）。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
+   `--request` は文字列でもよい。段は既定で標準。**軽量にしてよいのは依頼者がそう言ったときだけ**で、そのときに限り `--thickness light --decider requester` を添える（段と decider はキー。表示の語〔軽量・依頼者指定〕で打っても engine がキーに直す）（回す側の判断で下げる道は無い。engine が拒む）。N 周目の締めの後で次の周を開かずに止めるなら `--stop-after-round N`（`status` が stopped、`halted` が `by: stop_after_round`。止めた後の `next` はノードを出さない。次の周へ進めるなら `loop.py resume --reason "<理由>" --stop-after-round <次に止める周>`（止めずに回すなら `--no-stop-after-round`）——続けられるのは周の数で止めた run だけで、盤面を直に書き換える `loop.py patch` で開けるな）。無人で走るなら `--unattended`（人に聞くターンになったら保守的に止まり、聞きたかったことを報告に載せる）。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
 
 2. **回す**。`loop.py run` を**前景で**打つ（Bash の timeout は最大に）。engine が起動できるノード（役・走らせるだけのノード・sandbox の中で起動する任せ先〔下請けの子〕）は、回し手（run が会話の Bash から切り離して立てる engine の背景プロセス）が起動して受け付けまで進め、run は止まる所でだけ戻る。回し手は 1 つの run に 1 本だけで（盤面の置き場の錠で決まる。2 本目の run は回し手を立てずに付き添う）、見守りの run が Bash の上限に当たって止められても背景へ移されても、回し手と役は止まらない:
 

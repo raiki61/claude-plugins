@@ -104,10 +104,11 @@ class Verdicts:
             return {"why": f"検証器が import できない（{type(e).__name__}）"}
         if not hasattr(V, "REVIEWS"):
             return {"why": "このループの検証器は周の判定を持たない"}
-        # 据え置きの句は rules の述語（hist_last_review が使う物）をそのまま引く——写さない
-        tail = getattr(rules, "_CARRIED_REVIEW_TAIL", None)
-        return {"reviews": V.REVIEWS, "status": V.REVIEW_STATUS, "tail": tail,
-                "why": None if tail else "据え置きの句を rules から引けない（据え置きの行を除けていない）"}
+        # 据え置きの述語は rules の物（hist_last_review が使う物）をそのまま引く——写さない。印のフィールドが無かった版の過去の
+        # 盤面も、同じ述語が reason の末尾の句で見分ける
+        held = getattr(rules, "is_held_review", None)
+        return {"reviews": V.REVIEWS, "status": V.REVIEW_STATUS, "held": held,
+                "why": None if held else "据え置きの述語を rules から引けない（据え置きの行を除けていない）"}
 
 
 # ---------------------------------------------------------------- 盤面を探す・読む
@@ -232,7 +233,7 @@ def _read_run(d, where, verdicts, now):
                 st = vd["status"].get(status) if vd.get("reviews") and isinstance(status, str) else None
                 if name not in (vd.get("reviews") or ()) or st is None:
                     uncountable[str(name)][status if isinstance(status, str) else str(status)] += 1
-                elif st.machine_written or (vd["tail"] and vd["tail"].search(str(rv.get("reason") or ""))):
+                elif st.machine_written or (vd["held"] and vd["held"](rv)):
                     held += 1
                 else:
                     real[name] = status

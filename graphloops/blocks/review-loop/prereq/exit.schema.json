@@ -26,10 +26,10 @@
     "method": {
      "type": "string",
      "enum": [
-      "1 未コミット変更あり→HEAD",
-      "2 上流との分岐点",
-      "3 HEAD~1",
-      "4 依頼者の名指し"
+      "uncommitted_head",
+      "merge_base",
+      "head_parent",
+      "named"
      ]
     },
     "commits": {
@@ -113,10 +113,10 @@
     "source": {
      "type": "string",
      "enum": [
-      "①PR 説明",
-      "②計画・タスク記述",
-      "③writer の要約",
-      "目的不明"
+      "pr_description",
+      "plan",
+      "writer_summary",
+      "unknown"
      ]
     },
     "known_weaknesses": {

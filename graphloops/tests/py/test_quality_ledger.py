@@ -100,12 +100,14 @@ def test_machine_written_and_carried_review_rows_are_not_verdicts(tmp_path):
           rounds={1: {"reviews": {"R1": {"status": "pass", "reason": "x"}, "R2": {"status": "redesign-needed", "reason": "y"},
                                   "R3": {"status": "not_applicable", "reason": "z"}}},
                   2: {"reviews": {"R1": {"status": "carried_over", "from_round": 1, "reason": "x"},
-                                  "R2": {"status": "redesign-needed", "reason": "y" + carried}}}})
+                                  "R2": {"status": "redesign-needed", "reason": "y" + carried, RULES.HELD_FROM: 1}}},
+                  # 印のフィールドが無かった版の記録（reason の末尾の句だけで見分ける）
+                  3: {"reviews": {"R2": {"status": "redesign-needed", "reason": "y" + carried}}}})
     agg = ql.aggregate(list(rows_of(tmp_path).values()))
     assert agg["0.21.0"]["reviews"] == {"R1": {"pass": 1}, "R2": {"redesign-needed": 1}}
     assert agg["0.21.0"]["held_review_rows"] == 1
     assert agg["0.21.1"]["reviews"] == {}
-    assert agg["0.21.1"]["held_review_rows"] == 2
+    assert agg["0.21.1"]["held_review_rows"] == 3
     assert agg["0.21.1"]["runs"] == 1 and agg["0.21.1"]["mixed_versions"] == 1
 
 
@@ -163,7 +165,9 @@ def test_real_verdicts_match_rules_hist_last_review_round_by_round(tmp_path):
     carried = RULES.CARRIED_REVIEW.format(round=1)
     cases = [{"R1": {"status": "pass", "reason": "x"}, "R2": {"status": "carried_over", "from_round": 1, "reason": "x"}},
              {"R1": {"status": "old-word", "reason": "x"}, "R3": {"status": "not_applicable", "reason": "z"}},
-             {"R2": {"status": "unverifiable", "reason": "y" + carried}, "R4": {"status": "not_run", "reason": "w"}},
+             {"R2": {"status": "unverifiable", "reason": "y" + carried, RULES.HELD_FROM: 1}, "R4": {"status": "not_run", "reason": "w"}},
+             {"R2": {"status": "unverifiable", "reason": "据え置きの印のフィールドだけ", RULES.HELD_FROM: 1}},
+             {"R2": {"status": "unverifiable", "reason": "y" + carried}},  # 印のフィールドが無かった版の行（句だけ）
              {"R1": {"status": "redesign-needed", "reason": "x"}, "R2": {"status": "premise-invalid", "reason": "p"}}]
     vd = ql.Verdicts().for_graph(None, "review-loop")
     V = types.SimpleNamespace(REVIEWS=vd["reviews"], REVIEW_STATUS=vd["status"])

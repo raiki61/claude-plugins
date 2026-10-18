@@ -69,8 +69,8 @@ def main():
     s.add_argument("--request", required=True, help="依頼文（@file で読む）")
     s.add_argument("--document", help="対象の文書")
     s.add_argument("--input", action="append", help="ループ固有の入力 k=v（何度でも）")
-    s.add_argument("--thickness", help="段（graph の thickness.tiers のどれか）")
-    s.add_argument("--decider", help="段を誰が決めたか（graph の thickness.deciders の default か downgrade）")
+    s.add_argument("--thickness", help="段（graph の thickness.tiers のキーのどれか。thickness.labels の表示の語でも受ける）")
+    s.add_argument("--decider", help="段を誰が決めたか（graph の thickness.deciders の default か downgrade の値。表示の語でも受ける）")
     s.add_argument("--unattended", action="store_true")
     s.add_argument("--stop-after-round", type=int, help="この周の締め（記録・収束の判定）の後で、次の周を開かずに止める（1 以上）")
     s.add_argument("--dir")
@@ -158,7 +158,7 @@ def main():
 
     s = sub.add_parser("thicken")
     s.add_argument("--dir")
-    s.add_argument("--to", required=True, help="上げる先の段（graph の thickness.tiers のどれか。engine が下げる向きを拒む）")
+    s.add_argument("--to", required=True, help="上げる先の段（graph の thickness.tiers のキーのどれか。表示の語でも受ける。engine が下げる向きを拒む）")
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_thicken)
 

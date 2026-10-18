@@ -58,102 +58,10 @@
  },
  "launch": {
   "isolated": {
-   "argv": [
-    "claude",
-    "-p",
-    "--model",
-    "{model}",
-    "--effort",
-    "{effort}",
-    "--tools",
-    "",
-    "--setting-sources",
-    "",
-    "--append-system-prompt-file",
-    "{role_file}",
-    "--output-format",
-    "json"
-   ],
-   "resume": [
-    "claude",
-    "-p",
-    "--resume",
-    "{session_id}",
-    "--model",
-    "{model}",
-    "--effort",
-    "{effort}",
-    "--tools",
-    "",
-    "--setting-sources",
-    "",
-    "--append-system-prompt-file",
-    "{role_file}",
-    "--output-format",
-    "json"
-   ],
-   "via": [
-    "{python}",
-    "{plugin_root}/scripts/with-auth.py"
-   ],
-   "why": "ツールゼロの役（遮断系）を Agent ツールで起動すると、ハーネスが CLAUDE.md 階層と git status を注入する。CLAUDE.md は役の定義の frontmatter の omitClaudeMd で省けるが（組織管理の分は残る）、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-25 取得: 『Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field to skip the user, project, and local CLAUDE.md files.』『You can't change which subagents receive git status. Only Explore and Plan skip it.』）。役の定義は convergence-loops が配る物で、ツールゼロの役の遮断をその定義の 1 フィールドに預けない。engine が起動するツールゼロの子は、Git リポジトリの外の一時ディレクトリを作業ディレクトリにして起動するので git status の写しは入らず（公式: 『Absent outside a Git repository』）、--setting-sources \"\" で CLAUDE.md も読まない。実測 2026-09-12: ツールゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T セクション。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文（result）だけを out_path に書き、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
+   "why": "ツールゼロの役（遮断系）を Agent ツールで起動すると、ハーネスが CLAUDE.md 階層と git status を注入する。CLAUDE.md は役の定義の frontmatter の omitClaudeMd で省けるが（組織管理の分は残る）、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-25 取得: 『Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field to skip the user, project, and local CLAUDE.md files.』『You can't change which subagents receive git status. Only Explore and Plan skip it.』）。役の定義は convergence-loops が配る物で、ツールゼロの役の遮断をその定義の 1 フィールドに預けない。engine が起動するツールゼロの子は、Git リポジトリの外の一時ディレクトリを作業ディレクトリにして起動するので git status の写しは入らず（公式: 『Absent outside a Git repository』）、--setting-sources \"\" で CLAUDE.md も読まない。実測 2026-09-12: ツールゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T セクション。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は engine の前置の層（scripts/with-auth.py）を通す（起動する語の正本は engine/launch_words.py で、チェックの許可表も同じ所から組む。graph は語を持たない）——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文だけを out_path に書き（schema を持つノードは schema を --json-schema で渡し、本文は包みの structured_output。schema の無いノードは result）、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
   },
   "tooled": {
-   "argv": [
-    "claude",
-    "-p",
-    "--model",
-    "{model}",
-    "--effort",
-    "{effort}",
-    "--tools",
-    "{tools}",
-    "--allowedTools",
-    "{allowed_tools}",
-    "--permission-mode",
-    "{permission_mode}",
-    "--settings",
-    "{settings}",
-    "--permission-prompts",
-    "none",
-    "--setting-sources",
-    "",
-    "--append-system-prompt-file",
-    "{role_file}",
-    "--output-format",
-    "json"
-   ],
-   "resume": [
-    "claude",
-    "-p",
-    "--resume",
-    "{session_id}",
-    "--model",
-    "{model}",
-    "--effort",
-    "{effort}",
-    "--tools",
-    "{tools}",
-    "--allowedTools",
-    "{allowed_tools}",
-    "--permission-mode",
-    "{permission_mode}",
-    "--settings",
-    "{settings}",
-    "--permission-prompts",
-    "none",
-    "--setting-sources",
-    "",
-    "--append-system-prompt-file",
-    "{role_file}",
-    "--output-format",
-    "json"
-   ],
-   "via": [
-    "{python}",
-    "{plugin_root}/scripts/with-auth.py"
-   ],
-   "why": "ツールつきの役（investigator・inspector・judge）も engine が claude -p で起動する（loop.py launch）。argv・resume・via は review-loop.json の launch.tooled と同じ語で、理由の正本もそちらの why（中継の AI を挟んだときの事故の実測・--agents の定義ファイルを採らない理由・権限は engine が役の定義のツールから決める・CLAUDE.md を読ませない理由・コマンドを走らせる役に読むだけの gh を明示で許す形・計器を OS の sandbox の中でだけ動かす形と sandbox を使えない環境で落とす先）——理由をここに写すと片方だけが古くなるので写さない。2 つの graph の launch の語が揃っていることは、このリポジトリの検査が突き合わせる。"
+   "why": "ツールつきの役（investigator・inspector・judge）も engine が claude -p で起動する（loop.py launch）。起動する語は engine が持ち（engine/launch_words.py。review-loop と同じ語）、理由の正本は review-loop.json の launch.tooled の why（中継の AI を挟んだときの事故の実測・--agents の定義ファイルを採らない理由・権限は engine が役の定義のツールから決める・CLAUDE.md を読ませない理由・コマンドを走らせる役に読むだけの gh を明示で許す形・計器を OS の sandbox の中でだけ動かす形と sandbox を使えない環境で落とす先）——理由をここに写すと片方だけが古くなるので写さない。"
   },
   "resume_on_reject": 2,
   "resume_note": "受け付けの検査（done の中身）が返答を拒んだとき、同じ会話に理由を渡して出し直させる回数の上限。続きを頼むのは役に返せば直る拒否（読めない・型に合わない・記録の整合・項目の過不足）だけで、作業ツリーが変わった・前段が済んでいない等は続きを頼まずに回す側へ上げる",
@@ -194,19 +102,27 @@
  },
  "thickness": {
   "tiers": [
-   "軽量",
-   "標準",
-   "重厚"
+   "light",
+   "standard",
+   "heavy"
   ],
-  "default": "標準",
+  "default": "standard",
   "deciders": {
-   "default": "既定",
-   "downgrade": "依頼者指定"
+   "default": "default",
+   "downgrade": "requester"
   },
-  "rule": "軽量への降格は依頼者が明示に指定した場合のみ（init --thickness 軽量 --decider 依頼者指定）。回す側の p0.question が init より低い段を返したら駆動器が拒む。昇格は自律で自由（loop.py thicken。相違が結論の芯に刺さった・stuck が出たら義務）。省略した機構は駆動器が process.skipped と gates の not_applicable に載せる",
-  "軽量": "P0-1/2/3 ＋ P1 一巡。ゲートなし・1 ラウンドで打ち切り（outcome は stopped で理由に軽量と書く。収束は名乗らない）",
-  "標準": "P0 全部 ＋ P1〜P4。ゲートは rederiver と cold-reader",
-  "重厚": "全機構——P0-7 の断面生成・cartographer・荷重確証の反証まで"
+  "labels": {
+   "light": "軽量",
+   "standard": "標準",
+   "heavy": "重厚",
+   "default": "既定",
+   "requester": "依頼者指定"
+  },
+  "labels_note": "段と decider は ASCII のキー（tiers・deciders の値）で持ち、比べる。labels はキーから引く表示の語で、init --thickness・--decider と thicken --to は表示の語でも受けてキーに直す（docs/standards/machine-readable-values.md の決まり 3）",
+  "rule": "light（軽量）への降格は依頼者が明示に指定した場合のみ（init --thickness light --decider requester）。回す側の p0.question が init より低い段を返したら駆動器が拒む。昇格は自律で自由（loop.py thicken。相違が結論の芯に刺さった・stuck が出たら義務）。省略した機構は駆動器が process.skipped と gates の not_applicable に載せる",
+  "light": "P0-1/2/3 ＋ P1 一巡。ゲートなし・1 ラウンドで打ち切り（outcome は stopped で理由に軽量と書く。収束は名乗らない）",
+  "standard": "P0 全部 ＋ P1〜P4。ゲートは rederiver と cold-reader",
+  "heavy": "全機構——P0-7 の断面生成・cartographer・荷重確証の反証まで"
  },
  "round": {
   "unit": "P1→P2 を 1 周（ゲート P3 は新規相違ゼロの周にだけ、P2 の後に同じ周で回す）",
@@ -240,7 +156,7 @@
    "各判定者の生の verdict と理由は out/ に残り、report のノードに全部渡される（要約で丸めない）"
   ],
   "max_rounds_by_thickness": {
-   "軽量": 1
+   "light": 1
   }
  },
  "stop": {
@@ -578,9 +494,9 @@
         "status": {
          "type": "string",
          "enum": [
-          "確立語",
-          "社内造語",
-          "未確認"
+          "established",
+          "coined",
+          "unverified"
          ]
         },
         "nearest_standard": {
@@ -635,8 +551,8 @@
      "verdict": {
       "type": "string",
       "enum": [
-       "問題なし",
-       "狭めている"
+       "ok",
+       "narrows"
       ]
      },
      "reason": {
@@ -668,8 +584,8 @@
    "fresh_context": true,
    "once": true,
    "active_in": [
-    "標準",
-    "重厚"
+    "standard",
+    "heavy"
    ],
    "deps": [
     "p0.question"
@@ -704,7 +620,7 @@
    "run_by": "surveyor",
    "optional": true,
    "active_in": [
-    "重厚"
+    "heavy"
    ],
    "cond": "generation_due",
    "deps": [
@@ -831,10 +747,10 @@
         "verdict": {
          "type": "string",
          "enum": [
-          "確証",
-          "相違",
-          "留保",
-          "検証不能"
+          "confirmed",
+          "contradicted",
+          "qualified",
+          "unverifiable"
          ]
         },
         "evidence": {
@@ -950,10 +866,10 @@
      "verdict": {
       "type": "string",
       "enum": [
-       "確証",
-       "相違",
-       "留保",
-       "検証不能"
+       "confirmed",
+       "contradicted",
+       "qualified",
+       "unverifiable"
       ]
      },
      "refuter_reasoning": {
@@ -1050,8 +966,8 @@
    "fresh_context": true,
    "once": true,
    "active_in": [
-    "標準",
-    "重厚"
+    "standard",
+    "heavy"
    ],
    "deps": [
     "p0.question"
@@ -1353,8 +1269,8 @@
    "fresh_context": true,
    "once": true,
    "active_in": [
-    "標準",
-    "重厚"
+    "standard",
+    "heavy"
    ],
    "deps": [
     "p0.question"
@@ -1421,8 +1337,8 @@
    "run_by": "blind-judge",
    "fresh_context": true,
    "active_in": [
-    "標準",
-    "重厚"
+    "standard",
+    "heavy"
    ],
    "cond": "rederiver_compare_due",
    "deps": [
@@ -1463,7 +1379,7 @@
    "fresh_context": true,
    "once": true,
    "active_in": [
-    "重厚"
+    "heavy"
    ],
    "deps": [
     "p0.question"
@@ -1535,7 +1451,7 @@
    "run_by": "blind-judge",
    "fresh_context": true,
    "active_in": [
-    "重厚"
+    "heavy"
    ],
    "cond": "no_new_discrepancies",
    "deps": [
@@ -1583,8 +1499,8 @@
    "run_by": "cold-reader",
    "fresh_context": true,
    "active_in": [
-    "標準",
-    "重厚"
+    "standard",
+    "heavy"
    ],
    "cond": "no_new_discrepancies",
    "deps": [
@@ -1665,10 +1581,10 @@
         "verdict": {
          "type": "string",
          "enum": [
-          "確証",
-          "相違",
-          "留保",
-          "検証不能"
+          "confirmed",
+          "contradicted",
+          "qualified",
+          "unverifiable"
          ]
         },
         "evidence": {

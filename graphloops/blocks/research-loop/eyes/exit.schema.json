@@ -74,12 +74,12 @@
        "kind": {
         "type": "string",
         "enum": [
-         "再現不能",
-         "前提の省略",
-         "経緯の混入",
-         "断定調の仮説",
-         "冗長",
-         "未定義語"
+         "not_reproducible",
+         "missing_premise",
+         "history_mixed_in",
+         "asserted_hypothesis",
+         "redundant",
+         "undefined_term"
         ]
        },
        "where": {
@@ -125,8 +125,8 @@
        "kind": {
         "type": "string",
         "enum": [
-         "構造",
-         "表現"
+         "structural",
+         "wording"
         ]
        },
        "text": {

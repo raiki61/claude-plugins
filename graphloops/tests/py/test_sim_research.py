@@ -24,7 +24,7 @@ def test_converges(gl_script):
     check(rec["gates"]["rederiver"]["verdict"] == "pass", "rederiver は比較係の pass")
     check(rec["gates"]["cartographer"].get("status") == "not_applicable", "標準では cartographer は not_applicable")
     check(rec["sampling"]["status"] == "done" and rec["sampling"]["overturned"] == 0, f"抜き取りが走り覆り 0: {rec['sampling']}")
-    check(next(c for c in rec["claims"] if c["id"] == "B")["verdict"] == "確証", "B は再照合で確証に戻った")
+    check(next(c for c in rec["claims"] if c["id"] == "B")["verdict"] == "confirmed", "B は再照合で確証に戻った")
     check(next(c for c in rec["claims"] if c["id"] == "A")["refuted"] is True, "荷重の確証 A は反証を経た")
     check([c["no"] for c in rec["corrections"]] == [1, 2], f"訂正の番号は機械が連番で振る: {[c['no'] for c in rec['corrections']]}")
     check((run.dir / "report.md").is_file(), "report.md が保存された")

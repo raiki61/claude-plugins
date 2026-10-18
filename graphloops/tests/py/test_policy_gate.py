@@ -79,18 +79,39 @@ def asked(b, nid, monkeypatch):
     return got["ask"]["items"] if got.get("decision") == "ask" else []
 
 
+def rows(*texts):
+    return [{"text": t} for t in texts]
+
+
 def test_r4_gate_does_not_reask_passed_rows(tmp_path, monkeypatch):
-    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["X", "Y"]}, "policy_conflicts": ["P", "Q"]}}
-    passed = [{"answer": "continue", "asked": ["R4 が BASE から消えたと見た能力: X", "R4 が見た人の方針とのぶつかり: P"]},
-              {"answer": "stop", "asked": ["R4 が BASE から消えたと見た能力: Y", "R4 が見た人の方針とのぶつかり: Q"]}]
+    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": rows("X", "Y")}, "policy_conflicts": rows("P", "Q")}}
+    rid = lambda field, x: RULES._gate_row_id("r4", field, x)   # noqa: E731
+    passed = [{"answer": "continue", "asked": ["R4 が BASE から消えたと見た能力: X", "R4 が見た人の方針とのぶつかり: P"],
+               "asked_ids": [rid("lost", "X"), rid("policy_conflicts", "P")]},
+              {"answer": "stop", "asked": ["R4 が BASE から消えたと見た能力: Y", "R4 が見た人の方針とのぶつかり: Q"],
+               "asked_ids": [rid("lost", "Y"), rid("policy_conflicts", "Q")]}]
     got = asked(board(tmp_path, outs=outs, human_items=passed), "r4.human_gate", monkeypatch)
     assert got == ["R4 が BASE から消えたと見た能力: Y", "R4 が見た人の方針とのぶつかり: Q"]
 
 
+def test_answers_without_ids_are_asked_again(tmp_path, monkeypatch):
+    """ID を持たない旧い盤面の答え（asked_ids の無い行）は本文で照合せず、もう一度聞く（聞き直すのが安全側）"""
+    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": rows("X")}}}
+    legacy = [{"answer": "continue", "asked": ["R4 が BASE から消えたと見た能力: X"]}]
+    assert asked(board(tmp_path, outs=outs, human_items=legacy), "r4.human_gate", monkeypatch) == ["R4 が BASE から消えたと見た能力: X"]
+
+
+def test_r4_rows_of_the_old_string_form_are_asked_not_crashed(tmp_path, monkeypatch):
+    """前の版の R4 の返答（行が文字列。周の途中で版を上げた盤面）は same_as の無い行として読み、落ちずに聞く"""
+    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["X"]}, "policy_conflicts": ["P"]}}
+    assert asked(board(tmp_path, outs=outs), "r4.human_gate", monkeypatch) == ["R4 が BASE から消えたと見た能力: X",
+                                                                               "R4 が見た人の方針とのぶつかり: P"]
+
+
 def test_gate_rows_passed_once_are_not_reasked_in_any_round_or_gate(tmp_path, monkeypatch):
     """人が continue で一度通した行は、周とゲートを問わず聞き直さない（人のゲート round 2 の答え）——出どころの ID（修正案の狭めは単位と
-    what、事前審査の穴は語と key）が同じなら言い回し（why・本文）が変わっても聞かず、本文が同じ行（R4 が写した狭め・ID の無い旧い盤面の行）
-    も聞かない。what が変わった狭め・key が変わった穴は新しい行として聞く"""
+    what、事前審査の穴は語と key）が同じなら言い回し（why・本文）が変わっても聞かず、R4 が same_as で同じ行と名指した行も聞かない。
+    what が変わった狭め・key が変わった穴は新しい行として聞く"""
     plan = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "能力 A", "why": "理由"}]}]},
             "p2.plan_review": {"faces": [{"kind": "regression", "key": "k: 含む", "why": "後退の本文"}]}}
     b1 = board(tmp_path, outs=plan)
@@ -110,34 +131,32 @@ def test_gate_rows_passed_once_are_not_reasked_in_any_round_or_gate(tmp_path, mo
     # 本文が同じでも単位の違う狭めは別の中身——聞く
     assert asked(b2, "p2.human_gate", monkeypatch) == ["修正案 1 が狭める能力: 能力 B——新しい理由", "修正案 2 が狭める能力: 能力 A——理由",
                                                        "事前審査の穴 [policy] 「別の穴」: w"]
-    legacy = [{"round": 0, "node": "p2.human_gate", "answer": "continue", "asked": first}]   # asked_ids の無い旧い盤面の行
-    r4 = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["能力 A——理由", "後退の本文", "新しい"]}}}
-    assert asked(board(tmp_path, outs=r4, human_items=legacy), "r4.human_gate", monkeypatch) == ["R4 が BASE から消えたと見た能力: 新しい"]
+    a, f = items[0]["asked_ids"]
+    r4 = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": [{"text": "能力 A——理由", "same_as": a},
+                                                                              {"text": "後退の本文", "same_as": f}, {"text": "新しい"}]}}}
+    assert asked(board(tmp_path, outs=r4, human_items=items), "r4.human_gate", monkeypatch) == ["R4 が BASE から消えたと見た能力: 新しい"]
 
 
-def test_r4_copies_of_rows_passed_before_the_fix_are_not_reasked(tmp_path, monkeypatch):
-    """R4 は修正前のゲートで人が通した狭め・穴を頭ごと写す（『修正案 N が狭める能力: X——Y』）——頭を剥がし切った本文が前の周までの修正案・
-    事前審査の行と同じなら、写した元の ID を持たせて照合する（人のゲート round 2 の r4.human_gate の答え: ここで再掲されること自体が後退）"""
+def test_r4_rows_naming_rows_passed_before_the_fix_are_not_reasked(tmp_path, monkeypatch):
+    """R4 が修正前のゲートで人が通した狭め・穴と同じ能力を見たら、その行の ID を same_as で返す——人が通した ID なら聞かない（人のゲート
+    round 2 の r4.human_gate の答え: ここで再掲されること自体が後退）。人が通していない ID・知らない ID を名指しても聞く（安全側）"""
     plan = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "能力 A——途中に区切り", "why": "理由"}]}]},
             "p2.plan_review": {"faces": [{"kind": "regression", "key": "k", "why": "後退の本文"}]}}
     b1 = board(tmp_path, outs=plan)
     ph = {"node": "p2.human_gate", **RULES.human_gate(b1, "p2.human_gate")["ask"]} if asked(b1, "p2.human_gate", monkeypatch) else None
     RULES.human_gate_answered(b1, ph, "continue")
-    lost = ["修正案 1 が狭める能力: 能力 A——途中に区切り——理由", "事前審査の穴 [regression] 「k」: 後退の本文", "能力 A——途中に区切り——理由",
-            "新しく消えた能力"]
+    a, f = b1.record["process"]["human_items"][0]["asked_ids"]
+    lost = [{"text": "修正案 1 の狭めと同じ", "same_as": a}, {"text": "事前審査の穴と同じ", "same_as": f}, {"text": "知らない ID", "same_as": "face:x"},
+            {"text": "新しく消えた能力"}]
     b2 = board(tmp_path, outs={**plan, "r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": lost}}},
                human_items=b1.record["process"]["human_items"])
-    assert asked(b2, "r4.human_gate", monkeypatch) == ["R4 が BASE から消えたと見た能力: 新しく消えた能力"]
+    assert asked(b2, "r4.human_gate", monkeypatch) == ["R4 が BASE から消えたと見た能力: 知らない ID", "R4 が BASE から消えたと見た能力: 新しく消えた能力"]
     ph = {"node": "r4.human_gate", **RULES.human_gate(b2, "r4.human_gate")["ask"]}
     RULES.human_gate_answered(b2, ph, "continue")
     b3 = board(tmp_path, outs={**plan, "r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": lost}}},
                human_items=b2.record["process"]["human_items"])
     b3.round = 2
-    assert asked(b3, "r4.human_gate", monkeypatch) == []   # 後の周も、どの写しも聞き直さない
-    # ID を持たない旧い盤面の行は本文で照合する——R4 の頭と修正案の頭を剥がし切った本文が通した行の本文と同じなら聞かない
-    legacy = [{"round": 1, "node": "p2.human_gate", "answer": "continue", "asked": ["修正案 1 が狭める能力: 能力 A——途中に区切り——理由"]}]
-    b4 = board(tmp_path, outs={"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": lost[:1]}}}, human_items=legacy)
-    assert asked(b4, "r4.human_gate", monkeypatch) == []
+    assert asked(b3, "r4.human_gate", monkeypatch) == []   # 後の周も、同じ行は聞き直さない
 
 
 WHAT = "入れ子の場で書くノードを会話に返す"
@@ -240,7 +259,7 @@ def test_human_kinds_are_face_kinds():
 
 def test_r4_gate_tolerates_answers_without_asked(tmp_path, monkeypatch):
     """人の答えの行に asked が無くても（手で直した記録）、聞く行の突合で落ちない"""
-    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["X"]}}}
+    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": rows("X")}}}
     got = asked(board(tmp_path, outs=outs, human_items=[{"answer": "continue"}]), "r4.human_gate", monkeypatch)
     assert got == ["R4 が BASE から消えたと見た能力: X"]
 

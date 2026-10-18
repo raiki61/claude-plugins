@@ -19,7 +19,7 @@
   "out": {
    "status": "running",
    "round": 3,
-   "thickness": "標準",
+   "thickness": "standard",
    "run_id": "_s3_xxxxxxxxxxx",
    "ready": [
     {

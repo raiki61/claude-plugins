@@ -21,7 +21,7 @@
   "out/r1/p0.parallel_pr.json": {},
   "out/r1/p0.premises.json": {},
   "out/r1/p0.purpose.json": {
-   "source": "①PR 説明"
+   "source": "pr_description"
   },
   "out/r1/p2.fix_plan.json": {},
   "out/r1/p2.plan_review.json": {},

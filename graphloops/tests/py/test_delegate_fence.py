@@ -184,7 +184,7 @@ def test_delegate_launch_spec_needs_the_graph_words(tmp_path):
 def test_delegate_launch_spec_resolves_claude_on_path(repo, tmp_path, monkeypatch):
     """起動する語の claude は PATH で引いた実体に置き換える（前置の層の後ろ）。引けなければ missing に名前を残す"""
     from engine import advance
-    spec = {"argv": ["claude", "-p", "--model", "{model}"], "via": ["{python}", "{plugin_root}/scripts/with-auth.py"], "preamble": "p"}
+    spec = {"preamble": "p"}
     b = _delegate_board(tmp_path, {"launch": {"delegate": spec}})
     inst = {"id": "p4.ci", "prompt_file": str(tmp_path / "p.md"), "out_path": str(tmp_path / "o.json")}
     import shutil
@@ -218,38 +218,50 @@ def test_delegate_launch_spec_is_none_without_launch_delegate(repo, tmp_path):
 
 def test_delegate_launch_spec_writes_the_preamble_and_fills_the_holes(repo, tmp_path):
     from engine import advance
-    spec = {"argv": [sys.executable, "--model", "{model}", "--settings", "{settings}"], "preamble": "前置きの文\n",
-            "via": ["{python}"]}
+    spec = {"preamble": "前置きの文\n"}
     got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), {"delegate": {"model": "haiku"}}, {})
     role = tmp_path / "board" / "roles" / "delegate.txt"
     assert role.read_text(encoding="utf-8") == "前置きの文\n"
-    assert got["argv"][0] == sys.executable and got["argv"][2:4] == ["--model", "haiku"]
-    assert json.loads(got["argv"][5])["sandbox"]["filesystem"]["denyWrite"] == util.protected_paths([tmp_path / "board"])
+    a = got["argv"]
+    assert a[0] == sys.executable and a[a.index("--model") + 1] == "haiku" and a[a.index("--append-system-prompt-file") + 1] == str(role)
+    assert json.loads(a[a.index("--settings") + 1])["sandbox"]["filesystem"]["denyWrite"] == util.protected_paths([tmp_path / "board"])
     assert "unprotected" not in got and "missing" not in got and "background" not in got
+    assert "--json-schema" not in a   # schema の無いノードは result の文で受ける
 
 
-def test_delegate_launch_spec_without_preamble_via_or_model(repo, tmp_path):
-    """前置き・via・model を持たない graph でも落ちない（空の役の文・前置きの層なし・空の model）"""
+def test_delegate_launch_spec_passes_the_node_schema_but_not_to_background_lanes(repo, tmp_path):
+    """schema を持つ任せ先には --json-schema で渡す（engine だけが読む note は外す）。背景の線は受領の形でなく結果を書くので渡さない"""
     from engine import advance
-    spec = {"argv": [sys.executable, "--model", "{model}"]}
-    got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), {"delegate": {}}, {})
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean", "note": "engine だけが読む"}}, "required": ["ok"]}
+    n = {"delegate": {"model": "haiku"}, "schema": schema}
+    a = advance.delegate_launch_spec(_board(tmp_path, {"preamble": ""}), _inst(tmp_path), n, {})["argv"]
+    assert json.loads(a[a.index("--json-schema") + 1]) == {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+    n = {"delegate": {"background": True, "result_to": "loop.lane.result"}, "schema": schema}
+    got = advance.delegate_launch_spec(_board(tmp_path, {"preamble": ""}), _inst(tmp_path), n, {"loop": {"lane": {"result": "/r.json"}}})
+    assert "--json-schema" not in got["argv"]
+
+
+def test_delegate_launch_spec_without_preamble_or_model(repo, tmp_path):
+    """前置き・model を持たない graph でも落ちない（空の役の文・空の model）"""
+    from engine import advance
+    got = advance.delegate_launch_spec(_board(tmp_path, {"why": "x"}), _inst(tmp_path), {"delegate": {}}, {})
     assert (tmp_path / "board" / "roles" / "delegate.txt").read_text(encoding="utf-8") == ""
-    assert got["argv"] == [shutil.which(sys.executable), "--model", ""]
+    assert got["argv"][got["argv"].index("--model") + 1] == ""
 
 
 def test_delegate_launch_spec_marks_unprotected_and_missing(repo, tmp_path, monkeypatch):
     """守る場所を git から引けない・起動するコマンドが無い、を launch に書く（launch_refusal と回す側が読む）"""
     from engine import advance
     monkeypatch.setattr(advance, "protected_paths", lambda extra=(): None)
-    spec = {"argv": ["graphloops-no-such-command-x", "-p"]}
-    got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), {"delegate": {}}, {})
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    got = advance.delegate_launch_spec(_board(tmp_path, {"why": "x"}), _inst(tmp_path), {"delegate": {}}, {})
     assert "守る場所" in got["unprotected"]
-    assert got["missing"] == "graphloops-no-such-command-x"
+    assert got["missing"] == "claude"
 
 
 def test_delegate_launch_spec_background_needs_a_result_place(repo, tmp_path):
     from engine import advance
-    spec = {"argv": [sys.executable]}
+    spec = {"why": "x"}
     n = {"delegate": {"background": True, "result_to": "loop.lane.result"}}
     got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), n, {"loop": {"lane": {"result": "/r.json"}}})
     assert got["background"] is True and got["result_path"] == "/r.json" and "receipt" not in got   # 受領の形の無い旧い graph
@@ -414,10 +426,10 @@ def test_graphcheck_background_delegate_without_reads_is_ng_not_a_crash(tmp_path
 def test_delegate_launch_spec_resolves_the_command_and_the_resume_words(repo, tmp_path):
     """起動する語の頭は PATH で引いた実体に置き換え（チェックの突き合わせと子の起動が同じ実体を指す）、resume の語も同じく組む"""
     from engine import advance
-    spec = {"argv": ["git", "-p"], "resume": ["git", "--resume", "{session_id}"]}
-    got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), {"delegate": {}}, {})
-    assert got["argv"] == [shutil.which("git"), "-p"]
-    assert got["resume_argv"] == [shutil.which("git"), "--resume", "{session_id}"]
+    got = advance.delegate_launch_spec(_board(tmp_path, {"why": "x"}), _inst(tmp_path), {"delegate": {}}, {})
+    head = shutil.which("claude") or "claude"
+    assert got["argv"][2:4] == [head, "-p"] and "--resume" not in got["argv"]
+    assert got["resume_argv"][2:6] == [head, "-p", "--resume", "{session_id}"]
 
 
 def test_delegate_refusal_needs_the_engine_prefix(repo, tmp_path):

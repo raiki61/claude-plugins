@@ -261,7 +261,7 @@ class Run:
 
 
 # ---------------------------------------------------------------- 台本
-def constraints(origin="独立出典"):
+def constraints(origin="independent"):
     return [{"text": "対象は 1 リポジトリ", "source": "依頼文", "origin": origin, "breaks_if_false": "範囲が変わる"}]
 
 
@@ -277,16 +277,16 @@ def base_answers(run, scenario):
         for c in item["claims"]:
             cid = c["id"]
             if cid == "B" and rnd == 1:
-                out.append({"id": cid, "verdict": "相違", "evidence": "一次情報は逆", "sources": ["https://x/b"], "correction": "B は逆"})
+                out.append({"id": cid, "verdict": "contradicted", "evidence": "一次情報は逆", "sources": ["https://x/b"], "correction": "B は逆"})
             elif cid == "B" and scenario == "stuck":
-                out.append({"id": cid, "verdict": "相違", "evidence": "まだ逆", "sources": ["https://x/b"], "correction": "B は逆"})
+                out.append({"id": cid, "verdict": "contradicted", "evidence": "まだ逆", "sources": ["https://x/b"], "correction": "B は逆"})
             elif cid == "C":
-                out.append({"id": cid, "verdict": "留保", "evidence": "概ね", "sources": ["https://x/c"], "correction": "限定を付ける"})
+                out.append({"id": cid, "verdict": "qualified", "evidence": "概ね", "sources": ["https://x/c"], "correction": "限定を付ける"})
             elif cid == "E":
-                out.append({"id": cid, "verdict": "検証不能", "evidence": "到達できず", "sources": [], "needs": "原典"})
+                out.append({"id": cid, "verdict": "unverifiable", "evidence": "到達できず", "sources": [], "needs": "原典"})
             else:
                 # 実物の checker が返す任意フィールド（source_grade）も台本に持つ——代役が実物より薄いと、そのフィールドの扱いが検査の外に落ちる
-                out.append({"id": cid, "verdict": "確証", "evidence": "一致", "sources": [f"https://x/{cid.lower()}"], "conditions": "条件つき", "source_grade": "公式一次"})
+                out.append({"id": cid, "verdict": "confirmed", "evidence": "一致", "sources": [f"https://x/{cid.lower()}"], "conditions": "条件つき", "source_grade": "公式一次"})
         return {"cluster": item["key"], "findings": out}
 
     def sampler(item):
@@ -294,13 +294,13 @@ def base_answers(run, scenario):
         for c in item["claims"]:
             v = claim_verdict(c["id"])["verdict"]
             f = {"id": c["id"], "verdict": v, "evidence": "再検証", "sources": ["https://x/s"]}
-            f[{"確証": "conditions", "相違": "correction", "留保": "correction", "検証不能": "needs"}[v]] = "同じ"
+            f[{"confirmed": "conditions", "contradicted": "correction", "qualified": "correction", "unverifiable": "needs"}[v]] = "同じ"
             out.append(f)
         return {"findings": out}
 
     return {
         "p0.question": lambda it, r: {"question": "この見立ては正しいか", "domain": "設計文書の校正", "constraints": constraints(),
-                                       "thickness": scenario_thickness(scenario), "thickness_decider": "既定", "thickness_reason": "後戻りが中程度",
+                                       "thickness": scenario_thickness(scenario), "thickness_decider": "default", "thickness_reason": "後戻りが中程度",
                                        "open_questions": ["選択肢の洗い出し"] if scenario == "open" else []},
         # 読了の確かめは返答のフィールドでなく session の転写で見る（post_check claims_intake）——返答に印のフィールドは無い
         "p0.claims": lambda it, r: {"claims": [{"id": "A", "claim": "A は X", "load_bearing": True}, {"id": "B", "claim": "B は Y", "load_bearing": False},
@@ -311,29 +311,29 @@ def base_answers(run, scenario):
                                     "open_questions": ["選択肢の洗い出し（P1 では解けない）"] if scenario == "open" else [],
                                    },
         "p0.clusters": lambda it, r: {"clusters": [{"key": "c1", "claim_ids": ["A", "B"]}, {"key": "c2", "claim_ids": ["C", "D"]}]},
-        "p0.terms": lambda it, r: {"terms": [{"term": "見立て", "definition": "設計の仮説", "status": "社内造語"}],
+        "p0.terms": lambda it, r: {"terms": [{"term": "見立て", "definition": "設計の仮説", "status": "coined"}],
                                    },
         "p0.prior_decisions": lambda it, r: {"checked": True, "searched": ["GitHub の issue・PR（gh）", "docs/", "git log"], "settled_points": [], "overlaps": [], "reopen_proposals": []},
-        "p0.independence_review": lambda it, r: {"verdict": "問題なし", "reason": "狭めていない", "findings": []},
+        "p0.independence_review": lambda it, r: {"verdict": "ok", "reason": "狭めていない", "findings": []},
         "p0.generation": lambda it, r: {"claims": [{"id": "G1", "cluster": "c1", "claim": "生成した主張", "load_bearing": False, "heuristic": "逆転"}]},
         "p5.internal": lambda it, r: {"facts": [{"constraint_text": "対象は 1 リポジトリ", "verified": True, "actual": "1 つ", "location": ".git"}],
                                        "corrections": [{"text": "内部の実態の訂正"}]},
         "p1.checker": lambda it, r: checker(it, r),
-        "p1.refuter": lambda it, r: ({"id": it["id"], "mode": "dispute", "upheld": True, "verdict": "相違", "refuter_reasoning": "本物", "sources": ["https://x/r"], "correction": "B は逆（確定）"}
+        "p1.refuter": lambda it, r: ({"id": it["id"], "mode": "dispute", "upheld": True, "verdict": "contradicted", "refuter_reasoning": "本物", "sources": ["https://x/r"], "correction": "B は逆（確定）"}
                                      if it["mode"] == "dispute" else
-                                     {"id": it["id"], "mode": "confirm", "upheld": True, "verdict": "確証", "refuter_reasoning": "崩れない", "sources": ["https://x/r"], "conditions": "条件つき"}),
+                                     {"id": it["id"], "mode": "confirm", "upheld": True, "verdict": "confirmed", "refuter_reasoning": "崩れない", "sources": ["https://x/r"], "conditions": "条件つき"}),
         "p2.integrate": lambda it, r: {"root_causes": [], "corrections": [{"text": f"{r} 周目の訂正", "claim_ids": ["B"]}] if r == 1 else [],
                                         "applied": [{"claim_id": "B", "stable_key": "B:逆", "where": "mitate.md"}] if r == 1 else [],
                                         "numbers": [{"value": "4 件", "source": "記録"}] if r == 1 else [], "terms": [],
                                         "new_claims": [{"id": "E", "cluster": "c2", "claim": "E は V", "load_bearing": False, "origin": "対抗仮説"}] if (scenario == "newclaim" and r == 1) else [],
                                         "recheck_ids": [], "claim_updates": [{"id": "B", "claim": "B は逆"}] if r == 1 else [], "document_changed": r == 1},
         "p3.rederiver": lambda it, r: {"question_stands": True, "verdict": "pass", "reason": "問いは立っている", "derivation": "固定: 問い／派生: 手段"},
-        "p3.rederiver_compare": lambda it, r: ({"verdict": "redesign-needed", "reason": "問いの立て方が違う", "differences": [{"kind": "構造", "text": "固定と派生が逆"}]}
+        "p3.rederiver_compare": lambda it, r: ({"verdict": "redesign-needed", "reason": "問いの立て方が違う", "differences": [{"kind": "structural", "text": "固定と派生が逆"}]}
                                                if scenario == "rederiver_fail" else
-                                               {"verdict": "pass", "reason": "構造は一致", "differences": [{"kind": "表現", "text": "語が違う"}]}),
+                                               {"verdict": "pass", "reason": "構造は一致", "differences": [{"kind": "wording", "text": "語が違う"}]}),
         "p3.cartographer": lambda it, r: {"map": [{"aspect": "費用", "components": ["時間"], "depends_on": []}]},
         "p3.cartographer_compare": lambda it, r: {"verdict": "pass", "reason": "盲点なし", "spots": []},
-        "p3.cold_reader": lambda it, r: ({"verdict": "redesign-needed", "findings": [{"kind": "未定義語", "where": "冒頭", "text": "見立てが未定義"}]}
+        "p3.cold_reader": lambda it, r: ({"verdict": "redesign-needed", "findings": [{"kind": "undefined_term", "where": "冒頭", "text": "見立てが未定義"}]}
                                          if ((r == 2 and scenario != "stuck") or scenario == "coldfail") else {"verdict": "pass", "findings": []}),
         "p3.sampling": lambda it, r: sampler(it),
         "p5.adapt": lambda it, r: {"decide_now": [{"text": "今決める", "basis": "確証×制約", "premortem": ["前提が偽"], "tripwire": "数が変わる"}],
@@ -344,7 +344,7 @@ def base_answers(run, scenario):
 
 
 def scenario_thickness(s):
-    return "重厚" if s == "heavy" else "標準"
+    return "heavy" if s == "heavy" else "standard"
 
 
 def drive(run, scenario, max_steps=60, hook=None, stop_at=None):
@@ -458,7 +458,7 @@ def test_attended_stuck_answer():
     r = run.cmd("answer", "--text", "escalate")
     check(r.returncode == 0, "answer escalate が通る")
     st = run.status()
-    check(st["thickness"] == "重厚" and st["round"] == 3, f"重厚で 3 周目に入る: {st['thickness']} r{st['round']}")
+    check(st["thickness"] == "heavy" and st["round"] == 3, f"重厚で 3 周目に入る: {st['thickness']} r{st['round']}")
     nx = run.next()
     check(any(i["node"] == "p0.generation" for i in nx["ready"]), "stuck 後の重厚では断面の生成が開く")
     check(any(i["node"] == "p3.cartographer" for i in nx["ready"]), "重厚に上がると cartographer が序盤に出る")
@@ -468,11 +468,11 @@ def test_attended_stuck_answer():
 
 def test_light():
     print("台本: 軽量は 1 周で打ち切り")
-    r = Run("light-bad", thickness="軽量")
+    r = Run("light-bad", thickness="light")
     check(r.init.returncode == 2, "軽量は --decider 依頼者指定 が無いと init を拒む")
     rm(r.tmp)
-    run = Run("light", thickness="軽量", decider="依頼者指定")
-    answers_patch = lambda run_, inst, out: ({**out, "thickness": "軽量", "thickness_decider": "依頼者指定"} if inst["node"] == "p0.question" else out)
+    run = Run("light", thickness="light", decider="requester")
+    answers_patch = lambda run_, inst, out: ({**out, "thickness": "light", "thickness_decider": "requester"} if inst["node"] == "p0.question" else out)
     last = drive(run, "light", hook=answers_patch)
     rec = run.record()
     check(last["status"] == "stopped" and "軽量" in rec["convergence"]["stopped_reason"], "軽量は stopped（収束を名乗らない）")
@@ -498,7 +498,7 @@ def test_rejections():
     check(q["node"] == "p0.question" and q["mode"] == "runner", "最初のノードは p0.question（回す側）")
     r = run.done(q["id"], {"question": "x"})
     check(r.returncode == 1 and "必須のフィールド" in r.stderr, "型に合わない返答は exit 1")
-    r = run.done(q["id"], {**base_answers(run, "std")["p0.question"](None, 1), "thickness": "軽量"})
+    r = run.done(q["id"], {**base_answers(run, "std")["p0.question"](None, 1), "thickness": "light"})
     check(r.returncode == 1 and "下げようとしている" in r.stderr, "回す側の降格は exit 1")
     r = run.done(q["id"], base_answers(run, "std")["p0.question"](None, 1))
     check(r.returncode == 0, "正しい返答は通る")
@@ -624,22 +624,22 @@ def test_rejections():
     # 予防側（役に引用符をエスケープさせる断り）は、上の body が捨てる側に落ちる。ここで尾を見る
     # ——診断側だけを覆う検査は、直しの半分を文言ごと消しても色が変わらない（実測 2026-09-15）。
     check('\\"' in tail and "エスケープ" in tail, "役へ渡す schema の断りに、引用符をエスケープしろの 1 行が付く")
-    r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "Z", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
+    r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "Z", "verdict": "confirmed", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 1 and "項目に無い" in r.stderr, "扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕）")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "たぶん", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 1 and "型に合わない" in r.stderr, "語彙に無い判定語はノードの schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1")
-    r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
+    r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "confirmed", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 0 and "欠けた" in r.stdout and "p1.checker[c1]#2" in r.stdout, "判定が欠けた主張は欠けた分だけ出し直す")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": []})
     check(r.returncode == 1, "済んだ instance にはもう done できない")
     nx = run.next()
     ids = [i["id"] for i in nx["ready"]]
     check("p1.checker[c1]#2" in ids and "p1.refuter[A]" in ids, f"欠けた分の checker と、返った分の refuter が同じ波に出る（pipeline）: {ids}")
-    r = run.done("p1.refuter[A]", {"id": "A", "mode": "confirm", "upheld": True, "verdict": "相違", "refuter_reasoning": "x", "sources": ["https://x"], "correction": "y"})
+    r = run.done("p1.refuter[A]", {"id": "A", "mode": "confirm", "upheld": True, "verdict": "contradicted", "refuter_reasoning": "x", "sources": ["https://x"], "correction": "y"})
     check(r.returncode == 1 and "整合" in r.stderr, "refuter の upheld と verdict の食い違いは exit 1")
-    r = run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "相違", "evidence": "e", "sources": ["https://x"]}]})
+    r = run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "contradicted", "evidence": "e", "sources": ["https://x"]}]})
     check(r.returncode == 1 and "correction" in r.stderr, "相違に correction が無いと exit 1（検証器の規則を先取り）")
-    r = run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "相違", "evidence": "e", "sources": ["https://x"], "correction": "c"}]})
+    r = run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "contradicted", "evidence": "e", "sources": ["https://x"], "correction": "c"}]})
     check(r.returncode == 0, "フィールドが揃えば通る")
     # 記録の手当ては痕跡が残る
     (run.tmp / "p.json").write_text('"x"', encoding="utf-8")
@@ -963,9 +963,9 @@ def test_hook_evidence_passes_gate_without_transcript():
     loop("next")
     (d / "out" / "r1").mkdir(parents=True, exist_ok=True)
     (d / "out" / "r1" / "p0.question.json").write_text(json.dumps(
-        {"question": "q", "domain": "d", "thickness": "標準", "thickness_decider": "既定",
+        {"question": "q", "domain": "d", "thickness": "standard", "thickness_decider": "default",
          "thickness_reason": "既定のまま",
-         "constraints": [{"text": "t", "source": "s", "origin": "surveyor自書", "breaks_if_false": "b"}]},
+         "constraints": [{"text": "t", "source": "s", "origin": "surveyor_written", "breaks_if_false": "b"}]},
         ensure_ascii=False), encoding="utf-8")
     loop("done", "--node", "p0.question"); loop("next")
     (d / "out" / "r1" / "p0.claims.json").write_text(json.dumps(
@@ -986,7 +986,7 @@ def test_hook_evidence_passes_gate_without_transcript():
     check((d / "reads.jsonl").is_file(), "記録は盤面の隣に落ちる（利用者ごとの置き場に溜めない）")
     loop("next")
     (d / "out" / "r1" / "p0.terms.json").write_text(json.dumps(
-        {"terms": [{"term": "t", "definition": "d", "status": "社内造語"}]}, ensure_ascii=False), encoding="utf-8")
+        {"terms": [{"term": "t", "definition": "d", "status": "coined"}]}, ensure_ascii=False), encoding="utf-8")
     r2 = loop("done", "--node", "p0.terms")
     check(r2.returncode == 0 and "確かめられなかった" not in r2.stdout,
           f"**フックの記録が在れば、転写 0 本でも通る**（{r2.stdout.strip()[-60:]}）")
@@ -1068,11 +1068,10 @@ def test_graphcheck():
     broken(lambda b: b.pop("runners"), "runners", "runners の無い graph は落ちる")
     broken(lambda b: b.__setitem__("agent_prefix", "x"), "agent_prefix", "廃止した agent_prefix を持つ graph は落ちる")
     broken(lambda b: b.__setitem__("plugin", "no-such-plugin"), "役割 agent の定義", "役の定義が見つからない plugin を指す graph は落ちる")
-    broken(lambda b: b.pop("launch"), "launch.isolated.argv", "ツールゼロの役を使うのに起動方法を宣言しない graph は落ちる")
-    # 前置（via）は起動した瞬間にしか落ちない——python が「そんなファイルは無い」で止まり、返答が空のまま done が拒む
+    broken(lambda b: b.pop("launch"), "launch.isolated が無い", "ツールゼロの役を使うのに起動方法を宣言しない graph は落ちる")
+    # 起動する語（argv・resume・via）は engine が持つ（engine/launch_words.py）——graph に書いても効かないので、書いた graph は落ちる
     broken(lambda b: b["launch"]["isolated"].__setitem__("via", ["{python}", "{plugin_root}/scripts/no-such.py"]),
-           "同梱されていない", "via が同梱していない実体を指す graph は落ちる（実行時にしか出ない落ち方を静的に見る）")
-    broken(lambda b: b["launch"]["isolated"].__setitem__("via", "scripts/with-auth.py"), "文字列の配列", "via が配列でない graph は落ちる")
+           "は書けない", "launch.isolated に via を書いた graph は落ちる（前置の層は engine が持つ）")
     # skills の要素は object。名前を独立のフィールドにしておかないと、宣言と返答の
     # 突合に誰も決めていない正規化規則が要る（実測 2026-09-15: 宣言『/simplify（指摘だけ）』に対し返答の綴りが 4 本に分裂した）
     def skills(v):
@@ -1123,8 +1122,8 @@ def test_graphcheck():
             (lambda b: b["nodes"]["stop.premise_check"].__setitem__("cond", "bad_record_sub"), "を書く宣言が無い", "記録の writes.to の下のフィールドの綴り違い（pick に無い）は落ちる"),
             # graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている
             (lambda b: b["nodes"]["p0.local_checks"]["schema"]["properties"]["material"]["properties"]["status"]["enum"].append("maybe"), "丸ごと含まれない", "素材の status の enum が検証器の語彙からはみ出す graph は落ちる（写しのずれ）"),
-            # 遮断系の起動の穴は engine が埋める語だけ——知らない穴は実行時の format で KeyError にしかならなかった
-            (lambda b: b["launch"]["isolated"]["argv"].append("{nope}"), "埋められない", "launch.isolated.argv に engine が埋められない穴を書いた graph は落ちる（遮断系の不変条件を die にだけ置かない）"))):
+            # 遮断系の起動する語は engine が持つ——graph の argv は効かないので、書いた graph は落ちる
+            (lambda b: b["launch"]["isolated"].__setitem__("argv", ["claude", "{nope}"]), "は書けない", "launch.isolated に argv を書いた graph は落ちる（起動する語は engine/launch_words.py）"))):
         badr = json.loads(json.dumps(rg))
         mut(badr)
         pr = tmp / "graphs" / f"badreview{i}.json"
@@ -1136,6 +1135,9 @@ def test_graphcheck():
     # 段名の正本は thickness.tiers——キーの集合から導かない
     broken(lambda b: b["thickness"].__setitem__("default", "超重厚"), "超重厚", "thickness.default が段に無い graph は落ちる")
     broken(lambda b: b["nodes"]["p0.generation"].__setitem__("active_in", ["deciders"]), "deciders", "thickness のキー名（deciders）を段として使う graph は落ちる")
+    # 段と decider はキーで持ち、表示の語は thickness.labels から引く——引けない段・語から戻せない表は落とす
+    broken(lambda b: b["thickness"]["labels"].pop("heavy"), "thickness.labels", "段の表示の語が欠けた graph は落ちる")
+    broken(lambda b: b["thickness"]["labels"].__setitem__("light", "標準"), "thickness.labels", "表示の語が重なる graph は落ちる（語からキーへ一意に戻せない）")
     # 検証器のフィールドとの突合は省略で通さない
     broken(lambda b: b["record"].__setitem__("validator_path", "scripts/no-such-record.py"), "見つからない", "検証器のパスが解決できない graph は落ちる（第 2 引数なし）", validator=None)
     broken(lambda b: None, "必須フィールドが 1 つも拾えない", "必須フィールドを持たないファイルを検証器として渡すと落ちる（0 個の突合を合格にしない）", validator=str(PLUGIN / "engine" / "util.py"))
@@ -1415,12 +1417,11 @@ def test_research_tooled_launch():
               and "--agents" not in argv and L.get("stdin") == inst["prompt_file"],
               f"{inst['node']}（{role}）は tooled の形: 定義のツール・engine が決めた権限と設定・聞く先無し・設定を読まない・材料は stdin（{L.get('form')} {argv[2:]}）")
     rm(run.tmp)
-    # 起動する語は review-loop の graph と同じ（理由の正本は review-loop の why。語がずれたら片方だけが古い）
-    here = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))["launch"]
-    there = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))["launch"]
-    for kind in ("isolated", "tooled"):
-        for k in ("argv", "resume", "via"):
-            check(here.get(kind, {}).get(k) == there.get(kind, {}).get(k), f"launch.{kind}.{k} は review-loop の graph と同じ語")
+    # 起動する語はどちらの graph も持たない（engine/launch_words.py が 1 か所で持つので、2 つの graph の語はずれようがない）
+    for name in ("research-loop.json", "review-loop.json"):
+        launch = json.loads((PLUGIN / "graphs" / name).read_text(encoding="utf-8"))["launch"]
+        for kind in ("isolated", "tooled"):
+            check(not {"argv", "resume", "via"} & set(launch.get(kind, {})), f"{name} の launch.{kind} は起動する語を持たない")
 
 
 def _fake_claude(bindir, body):
@@ -2822,7 +2823,7 @@ def test_stopped_gates_all_thicknesses():
         rules.finalize(b)
         return rec["gates"]
 
-    for th, want in (("軽量", ()), ("標準", ("rederiver", "cold_reader")), ("重厚", gates)):
+    for th, want in (("light", ()), ("standard", ("rederiver", "cold_reader")), ("heavy", gates)):
         g = stopped_record(th)
         for k in want:
             check(g[k].get("status") == "not_run",
@@ -2836,7 +2837,7 @@ def test_stopped_gates_all_thicknesses():
                 check(g[k].get("status") == "not_applicable",
                       f"{th}: {k} はこの段では走らせない（飛ばしたと名乗らない）——{g[k].get('status')}")
     # 対の腕: 収束した記録では finalize が『飛ばした』を書かない（止まった事実の読み違いで収束を汚さない）
-    g = stopped_record("標準", outcome="converged")
+    g = stopped_record("standard", outcome="converged")
     check(all(g[k].get("status") != "not_run" for k in gates),
           f"収束した記録のゲートを『飛ばした』と書かない——{[g[k].get('status') for k in gates]}")
 
@@ -2849,13 +2850,13 @@ def test_stopped_before_gates_reports():
     走らない）で止める——標準は人が stop と答え、重厚は無人の保守的な停止。
     """
     print("台本: ゲートが走る前に止まった標準・重厚の run も report まで届く")
-    for th, unattended in (("標準", False), ("重厚", True)):
+    for th, unattended in (("standard", False), ("heavy", True)):
         run = Run(f"stop-early-{th}", thickness=th, unattended=unattended)
         one = run.tmp / "one.json"
         one.write_text("1", encoding="utf-8")
         r = run.cmd("patch", "--path", "state.max_rounds", "--file", str(one), "--reason", "1 周目で止める筋を作る")
         check(r.returncode == 0, f"{th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}）")
-        scenario = "heavy" if th == "重厚" else "std"
+        scenario = "heavy" if th == "heavy" else "std"
 
         def drive_to_end():
             # report の前で検証器に落とされると next が exit 1 になる——例外で台本ごと抜けず、赤の 1 件として数える
@@ -2875,10 +2876,10 @@ def test_stopped_before_gates_reports():
         v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(v.returncode == 0 and "停止（未収束）の申告つき" in v.stdout, f"{th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.stderr).strip()[-120:]}）")
         g = rec["gates"]
-        skipped = ("cold_reader", "cartographer") if th == "重厚" else ("cold_reader",)
+        skipped = ("cold_reader", "cartographer") if th == "heavy" else ("cold_reader",)
         for k in skipped:
             check(g[k].get("status") == "not_run" and bool(g[k].get("reason")), f"{th}: {k} は『飛ばした』と理由つきで残る——{g[k]}")
-        if th == "標準":
+        if th == "standard":
             check(g["cartographer"].get("status") == "not_applicable" and bool(g["cartographer"].get("reason")),
                   f"標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']}")
         check(g["rederiver"].get("status") == "not_run" and (g["rederiver"].get("provisional") or {}).get("verdict") == "pass"
@@ -3264,7 +3265,7 @@ def test_concurrent_save():
 
     run = Run("concurrent")
     a = Board(run.dir)  # A が読む（まだ書かない）
-    r = run.cmd("thicken", "--to", "重厚", "--reason", "別プロセスが盤面を進める")
+    r = run.cmd("thicken", "--to", "heavy", "--reason", "別プロセスが盤面を進める")
     check(r.returncode == 0, f"B（別プロセス）の書き込みは通る（rc={r.returncode}）")
     before = (run.dir / "state.json").read_text(encoding="utf-8")
     a.state["書かれてはいけないフィールド"] = True

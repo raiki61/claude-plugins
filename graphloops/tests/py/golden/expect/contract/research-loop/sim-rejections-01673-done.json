@@ -19,7 +19,7 @@
  "command": {
   "exit": 1,
   "out": "",
-  "err": "NG 記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:\n  - 主張 'B'（相違）に 'correction' が無い\n"
+  "err": "NG 記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:\n  - 主張 'B'（contradicted）に 'correction' が無い\n"
  },
  "record": {},
  "board": {}

@@ -16,7 +16,7 @@
   "out/r1/p0.local_checks.json": {},
   "out/r1/p0.premises.json": {},
   "out/r1/p0.purpose.json": {
-   "source": "①PR 説明"
+   "source": "pr_description"
   },
   "out/r1/spec.approve.json": {
    "pending": {

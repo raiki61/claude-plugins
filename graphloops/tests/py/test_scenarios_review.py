@@ -351,8 +351,8 @@ roles("gate",
       rule("p3.fix", round=1, before=[prompt(mark="fix"), write("repo", POLICY, WRITER_POLICY + "\n")]),
       rule("p3.delta_review", once="delta", before=[done("@", merge={"faces": [{
           "key": "後退: 呼び元の経路", "kind": "regression", "where": "src/a.py", "cite": "limit", "why": "呼び元の上限なしの経路が消えた（検査用）"}]}, mark="delta")]),
-      rule("r4.hidden_scope", reply=merged({"capability_inventory": {"fired": True, "lost": ["呼び元の上限なしの経路（検査用 LOST-1）"]},
-                                            "policy_conflicts": ["期限を足した（検査用 CONFLICT-1）"]})),
+      rule("r4.hidden_scope", reply=merged({"capability_inventory": {"fired": True, "lost": [{"text": "呼び元の上限なしの経路（検査用 LOST-1）"}]},
+                                            "policy_conflicts": [{"text": "期限を足した（検査用 CONFLICT-1）"}]})),
       base="std")
 history("review/gate", init("gate"), until("gate", mark="asked1"),
         cmd("answer", "--text", "continue", "--note", "呼び元の経路は残せ（検査用 KEEP-NOTE）", mark="answer1"), until("gate", mark="asked2"),

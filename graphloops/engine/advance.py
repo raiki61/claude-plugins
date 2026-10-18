@@ -1,13 +1,14 @@
 """進行——機械のノードを走らせ、扇を広げ、回す側に渡すノード（instance）を発行する。"""
+import json
 import os
 import pathlib
 import sys
 
-from . import effects, intake, pointers
+from . import effects, intake, launch_words, pointers
 from .board import runner_node
 from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
-from .schema import graph_text, validate_schema
+from .schema import cli_schema, graph_text, validate_schema
 from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, defects_only, die, dump, get_path, note_unevaluable, now, protected_paths,
                    read_json, repo_root, safe_name, sha, write_json)
 from .role_run import (COMMAND_TOOLS, DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path,
@@ -15,15 +16,14 @@ from .role_run import (COMMAND_TOOLS, DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_T
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # ノードの pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
-# launch.isolated / launch.tooled の argv・resume・via の穴。engine が埋められるのはこの語だけ——graphcheck が import して知らない穴と、
-# 役の定義に無い model / effort を静的に落とす（以前は起動する関数の die と format の KeyError でしか出なかった）。
-# python / plugin_root は役でも graph でもなく **engine 自身しか知らない事実**（自分を走らせているインタプリタと、
-# 自分が入っている場所）。「起動の語は graph が宣言する」線は動かさない——graph が使うと書いたときだけ埋まる。
+# 起動する語（engine/launch_words.py）の穴。起動する側（launch_spec・delegate_launch_spec・runner_launch_spec）が埋める。
+# python / plugin_root は役でも graph でもなく **engine 自身しか知らない事実**（自分を走らせているインタプリタと、自分が入っている場所）。
 # tools / allowed_tools / permission_mode はツールつきの役と任せ先の分（役の定義のツールと role_run.tooled_permission、任せ先は
 # role_run.delegate_permission から埋める）。settings は任せ先の sandbox の設定（role_run.delegate_settings）。
 # session_id は同じ会話を続ける語（--resume）の穴で、続ける会話が決まるまでは '{session_id}' のまま残す（role_run が埋める）。
+# json_schema はノードの schema を --json-schema に渡す形（schema.cli_schema）で、schema を持つノードの子にだけ付く
 LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root",
-                "tools", "allowed_tools", "permission_mode", "settings", "session_id")
+                "tools", "allowed_tools", "permission_mode", "settings", "session_id", "json_schema")
 LAUNCH_MAY_BE_EMPTY = ("session_id",)  # 空でも起動できる穴（続ける会話がまだ無い）
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parents[1]  # engine/ の親＝プラグインのルート（scripts/ の隣）
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残すフィールドの上限（直列化した UTF-8 のバイト）。
@@ -101,6 +101,35 @@ def grant_read(ctx, ref, pfile):
     return str(dst), None
 
 
+def claude_words(kind, sub, resume=False, schema=None):
+    """形 kind の子を起動する語（engine/launch_words.py の語の穴を sub で埋め、前置の層を足した物）——{argv, resume_argv[, missing]}。
+    resume は argv を同じ会話を続ける語にするか（resume_argv は常に続ける語）。schema はノードの schema（None なら --json-schema を付けない）。
+    前置の層を argv の中に混ぜず前に分けてあるのは、claude の PATH 解決と `missing` の報せを前置が隠さないため。
+    PATH を引いて絶対パスに替える（起動する時の曖昧さを 1 つ減らす）。**見つからなくても落とさない**——next は計画を出す所で、起動するのは
+    回す側の環境である。ここで die にしたら、子を一度も起動しない場（台本の検査・別の機械での再開・記録を読むだけの用）まで動かなくなった
+    （実測 2026-09-12: CI の 3 OS が全部赤。手元には claude が在るので緑だった）。実際に起動できないことは、launch が起動する瞬間に分かる"""
+    import shutil  # 起動するノードでだけ要る（全サブコマンドの起動に掛けない）
+    if schema is not None:
+        sub = {**sub, "json_schema": json.dumps(cli_schema(schema), ensure_ascii=False, separators=(",", ":"))}
+    via = [a.format(**sub) for a in launch_words.VIA]
+
+    def resolve(again):
+        argv = [a.format(**sub) for a in launch_words.argv(kind, resume=again, schema=schema is not None)]
+        found = shutil.which(argv[0])
+        return via + (([found] + argv[1:]) if found else argv), found
+
+    argv, found = resolve(resume)
+    out = {"argv": argv, "resume_argv": resolve(True)[0]}
+    if not found:
+        out["missing"] = argv[len(via)]  # この環境では起動できない。回す側と記録に見えるようにしておく
+    return out
+
+
+def node_schema(b, inst):
+    """instance のノードの schema（無ければ None。本文を返すノード）"""
+    return ((b.graph.get("nodes") or {}).get(inst.get("node")) or {}).get("schema") or None
+
+
 def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
     """役を engine の中で起動する語（argv・続きの語・材料）。起動できない役なら None（回す側が Agent で起動する）。
 
@@ -118,13 +147,11 @@ def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
     **権限に関わる事実を全部 argv に置く**（--agents の定義ファイルは permissionMode や hooks を持てるので、チェックの読まない
     ファイルに権限が移る）。子はプラグインを読まない（--setting-sources ""）ので、プラグインの名前でも役は解決しない。
 
-    起動の語（コマンド名・フラグ）は graph が宣言する——engine はハーネスの語彙を持たない。
-    `via` は、解決した argv の**前に**置く語（既定は空）。子は対話の claude の認証を継がないので、graph はここに
-    薄い層（scripts/with-auth.py）を宣言して認証だけを足す。**argv の中に混ぜず前置に分けてある**のは、`argv[0]` の
-    PATH 解決と `missing` の報せを前置が隠さないため。
+    起動の語（コマンド名・フラグ・前置の層）は engine が持つ（engine/launch_words.py。チェックの許可表と同じ 1 か所）。graph は形ごとに
+    起動するか（launch.<形> を書くか）だけを決める。子は対話の claude の認証を継がないので、前置の層（scripts/with-auth.py）が認証だけを足す。
+    schema を持つノードの子には、その schema を --json-schema で渡す（返答は包みの structured_output で受ける。role_run.unwrap）。
 
-    resume_sid を渡すと、同じ会話を続ける語（spec の resume）で起動する（same_context_as のノード）。続ける語を graph が
-    宣言しない形なら None（続けられない）。
+    resume_sid を渡すと、同じ会話を続ける語で起動する（same_context_as のノード）。
     """
     isolated = d["tools"] == []
     kind = ("isolated_read" if read_grant else "isolated") if isolated else "tooled"
@@ -133,8 +160,6 @@ def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
         if isolated:
             die(f"{inst['id']}: ツールゼロの役 '{inst['agent_type']}' を起動するのに graph の launch.isolated が無い"
                 "（Agent ツールで起動すると CLAUDE.md が注入され、遮断が名ばかりになる）")
-        return None
-    if resume_sid and not spec.get("resume"):
         return None
     role = safe_name(inst["agent_type"])
     rdir = b.dir / "roles"
@@ -159,25 +184,12 @@ def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
         form = perm["form"]
         sub.update(tools=",".join(tools), allowed_tools=",".join(perm["allowed_tools"]),
                    permission_mode=perm["permission_mode"], settings=perm["settings"])
-    words = list(spec["argv"]) + list(spec.get("resume") or []) + list(spec.get("via") or [])
+    words = launch_words.argv(kind, resume=True)
     for k, v in sub.items():
         if not v and k not in LAUNCH_MAY_BE_EMPTY and any("{" + k + "}" in a for a in words):
             die(f"{inst['id']}: 起動に要る '{k}' が役の定義（{d['file']}）に無い")
-    # PATH を引いて絶対パスに替える（起動する時の曖昧さを 1 つ減らす）。**見つからなくても落とさない**——
-    # next は計画を出す所で、起動するのは回す側の環境である。ここで die にしたら、遮断系を一度も起動しない場
-    # （台本の検査・別の機械での再開・記録を読むだけの用）まで動かなくなった（実測 2026-09-12: CI の 3 OS が
-    # 全部赤。手元には claude が在るので緑だった）。実際に起動できないことは、launch が起動する瞬間に分かる。
-    import shutil  # 起動するノードでだけ要る（全サブコマンドの起動に掛けない）
-    via = [a.format(**sub) for a in (spec.get("via") or [])]
-
-    def resolve(words):
-        argv = [a.format(**sub) for a in words]
-        found = shutil.which(argv[0])
-        return via + (([found] + argv[1:]) if found else argv), found
-
-    argv, found = resolve(spec["resume"] if resume_sid else spec["argv"])
-    launch = {"kind": kind, "argv": argv, "stdin": inst["prompt_file"],
-              "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None}
+    launch = {"kind": kind, "stdin": inst["prompt_file"],
+              **claude_words(kind, sub, resume=bool(resume_sid), schema=node_schema(b, inst))}
     if read_grant:
         launch["read_file"] = read_grant
     if tools:
@@ -186,8 +198,6 @@ def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
     if d.get("narrowed"):
         # 狭めた値（チェックは起動する瞬間に役の定義を読み直し、この値が narrowed_def の上限の中に在るときだけ当てて突き合わせる）
         launch["narrowed"] = {"tools": tools, "model": d["model"], "effort": d["effort"], "from": d["narrowed"]}
-    if not found:
-        launch["missing"] = argv[len(via)]  # この環境では起動できない。回す側と記録に見えるようにしておく
     return launch
 
 
@@ -199,7 +209,8 @@ def delegate_launch_spec(b, inst, n, ctx):
     『作業ツリーのファイルを変えるな』と書いた任せ先が本物の作業ツリーで git checkout と git reset --hard を打ち、回す側の
     未コミットの修正を消した（2026-09-25）。そこで役のノードと同じ起動路（claude -p）で起動し、書ける範囲を OS の sandbox で縛る:
     denyWrite は起動する瞬間に git から引いた守る場所（util.protected_paths）、作業ディレクトリは本物の写し（launch_one が作る）。
-    権限の値（ツール・許すツール・権限の形・sandbox）は engine が決め、graph は語の並びと前置きの文（preamble）だけを持つ。
+    権限の値（ツール・許すツール・権限の形・sandbox）と起動する語は engine が決め、graph は前置きの文（preamble）だけを持つ。
+    背景のノードの返答は受け付けに回さず置き場に置くので、--json-schema は付けない。
     人が init --unfenced-delegates でチェックを外した回し役なしの run では、sandbox を持たない形（role_run.unfenced_delegate_permission）で起動する
     ——会話に Agent で起動させるターンを持たない。外した事実は盤面（state.unfenced_delegates と instance の unfenced）に残る"""
     spec = b.graph.get("launch", {}).get("delegate")
@@ -220,22 +231,11 @@ def delegate_launch_spec(b, inst, n, ctx):
     sub.update(model=delegate.get("model") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
                out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
                tools=",".join(DELEGATE_TOOLS), allowed_tools=",".join(allowed), permission_mode=mode, settings=settings)
-    import shutil  # 起動するノードでだけ要る
-    via = [a.format(**sub) for a in (spec.get("via") or [])]
-
-    def resolve(words):
-        argv = [a.format(**sub) for a in words]
-        found = shutil.which(argv[0])
-        return via + (([found] + argv[1:]) if found else argv), found
-
-    argv, found = resolve(spec["argv"])
-    launch = {"kind": "delegate", "argv": argv, "stdin": inst["prompt_file"],
-              "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None,
+    launch = {"kind": "delegate", "stdin": inst["prompt_file"],
+              **claude_words("delegate", sub, schema=None if delegate.get("background") else n.get("schema") or None),
               "tools": list(DELEGATE_TOOLS)}
     if protected is None:
         launch["unprotected"] = "守る場所（git rev-parse --show-toplevel / --absolute-git-dir / --git-common-dir・worktree list）を引けない"
-    if not found:
-        launch["missing"] = argv[len(via)]
     if delegate.get("background"):
         # 背景のノードは受領を done した後に起動する（cmd_launch）。子の返答は受け付けに回さず、graph が名指す置き場（ctx の path）に
         # engine が置く——置き場は盤面の下（sandbox が拒む場所）に在ってよい。書くのは sandbox の外の engine だけ
@@ -298,8 +298,8 @@ def runner_launch_spec(b, inst, n):
     skill を持つノード（局所レビュー）は Skill と Agent を持つ読むだけの子（role_run.skill_permission。sandbox の形だけ）で起動し、前置きは
     graph の launch.runner.skill_preamble とレンズの定義の置き場（lens_files）だけで組む（理由の正本は graph の launch.runner.why）。
     子は盤面の inputs.cwd（本物の作業ツリー）で起動し、修正は会話の writer と同じくそこに入る——作業ツリーの前後の突合と修正の
-    前後の数え方はそのまま効く。入れ子の sandbox は起動する瞬間に commands.launch_one が測る。権限の値は engine が決め、graph は
-    語の並び・前置きの文・モデルと effort だけを持つ（launch.delegate と同じ線）"""
+    前後の数え方はそのまま効く。入れ子の sandbox は起動する瞬間に commands.launch_one が測る。権限の値と起動する語は engine が決め、graph は
+    前置きの文・モデルと effort だけを持つ（launch.delegate と同じ線）"""
     spec = b.graph.get("launch", {}).get("runner")
     if not spec or not b.state.get("engine_runners") or n.get("delegate") or n.get("engine_run"):
         return None
@@ -334,23 +334,11 @@ def runner_launch_spec(b, inst, n):
                out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
                tools=",".join(perm["tools"]), allowed_tools=",".join(perm["allowed_tools"]),
                permission_mode=perm["permission_mode"], settings=perm["settings"])
-    import shutil  # 起動するノードでだけ要る
-    via = [a.format(**sub) for a in (spec.get("via") or [])]
-
-    def resolve(words):
-        argv = [a.format(**sub) for a in words]
-        found = shutil.which(argv[0])
-        return via + (([found] + argv[1:]) if found else argv), found
-
-    argv, found = resolve(spec["argv"])
-    launch = {"kind": "runner", "argv": argv, "stdin": inst["prompt_file"],
-              "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None,
+    launch = {"kind": "runner", "stdin": inst["prompt_file"], **claude_words("runner", sub, schema=n.get("schema") or None),
               "tools": perm["tools"], "form": perm["form"], "edits": edits,
               "model": spec.get("model") or "", "effort": spec.get("effort") or ""}
     if skill:
         launch["skill"] = True
-    if not found:
-        launch["missing"] = argv[len(via)]
     return launch
 
 

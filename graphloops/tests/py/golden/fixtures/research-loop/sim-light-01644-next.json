@@ -37,12 +37,12 @@
     {
      "text": "_s6_xxxxxxx",
      "source": "依頼文",
-     "origin": "独立出典",
+     "origin": "independent",
      "breaks_if_false": "_s15_x"
     }
    ],
-   "thickness": "軽量",
-   "thickness_decider": "依頼者指定",
+   "thickness": "light",
+   "thickness_decider": "requester",
    "thickness_reason": "_s14_xx"
   },
   "out/r1/p0.terms.json": {
@@ -56,13 +56,13 @@
   "out/r1/p5.adapt.json": {},
   "record.json": {
    "question": "_s11_xxxxx",
-   "thickness": "軽量",
-   "thickness_decider": "依頼者指定",
+   "thickness": "light",
+   "thickness_decider": "requester",
    "constraints": [
     {
      "text": "_s6_xxxxxxx",
      "source": "依頼文",
-     "origin": "独立出典",
+     "origin": "independent",
      "breaks_if_false": "_s15_x"
     }
    ],
@@ -82,7 +82,7 @@
      "claim": "_s19_",
      "load_bearing": true,
      "cluster": "c1",
-     "verdict": "確証",
+     "verdict": "confirmed",
      "sources": [
       "_s7_xxxxxxx"
      ],
@@ -94,7 +94,7 @@
      "claim": "_s23_",
      "load_bearing": false,
      "cluster": "c1",
-     "verdict": "相違",
+     "verdict": "contradicted",
      "sources": [
       "_s8_xxxxxxx"
      ],
@@ -107,7 +107,7 @@
      "claim": "_s20_",
      "load_bearing": false,
      "cluster": "c2",
-     "verdict": "留保",
+     "verdict": "qualified",
      "sources": [
       "_s9_xxxxxxx"
      ],
@@ -119,7 +119,7 @@
      "claim": "_s18_",
      "load_bearing": false,
      "cluster": "c2",
-     "verdict": "確証",
+     "verdict": "confirmed",
      "sources": [
       "_s10_xxxxxx"
      ],
@@ -200,7 +200,7 @@
      "new_discrepancies": 1
     }
    ],
-   "thickness": "軽量",
+   "thickness": "light",
    "inputs": {
     "lang": "依頼文の言語（利用者の言語）"
    },

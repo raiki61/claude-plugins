@@ -6,6 +6,15 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Added
+
+- `review-record.py --json` を足した。終了コード（exit）・止める訳のキー（stop: `premise_escalate`・`work_exhausted`・null）・人向けの文（text）を 1 つの JSON で標準出力に出す。graphloops の review-loop はこれで周の分岐を決め、文言を読まない。
+- `comment-ratio.sh --json` を足した。数（scalars）と測れなかった物（unmeasured）を JSON で出す。人向けの出力は変えていない。
+
+### Changed
+
+- 記録の検証器（`scripts/doctor-record.py`・`research-record.py`・`firstread-record.py`）と記録の例（`templates/`）の、選んで書く値（列挙）を日本語の語から ASCII のキーに変えた（docs/standards/machine-readable-values.md の決まり 3）。例は、firstread の `tax_verdict` 通す/置き場が違う/省略（依頼者の指定）→pass/wrong_place/skipped_by_requester、research の判定と厚みの値も同じ形。検証器はキーから表示の語を引く表を持ち、拒む文言には表示の語を添える。前の版の語で書いた記録は通らない。research-loop の p1-calibrate.md と firstread-loop の fix.md もキーを書くよう直した。
+
 ## [0.49.0] - 2026-10-19
 
 ### Changed

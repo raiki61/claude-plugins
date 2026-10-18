@@ -102,9 +102,9 @@ def test_unreadable_inputs_exit_2(tmp_path):
 
 # ---------------------------------------------------------------- done と同じ鎖（3-6 の 1 本目の gl は空・被覆・段を写し落としていた）
 RESEARCH_GRAPH_PATH = PLUGIN / "graphs" / "research-loop.json"
-QUESTION = {"question": "q", "domain": "d", "constraints": [{"text": "t", "source": "s", "origin": "独立出典", "breaks_if_false": "b"}],
-            "thickness": "軽量", "thickness_decider": "既定", "thickness_reason": "r"}
-FINDING = lambda cid: {"id": cid, "verdict": "確証", "evidence": "e", "sources": ["https://example.org"], "conditions": "c"}   # noqa: E731
+QUESTION = {"question": "q", "domain": "d", "constraints": [{"text": "t", "source": "s", "origin": "independent", "breaks_if_false": "b"}],
+            "thickness": "light", "thickness_decider": "default", "thickness_reason": "r"}
+FINDING = lambda cid: {"id": cid, "verdict": "confirmed", "evidence": "e", "sources": ["https://example.org"], "conditions": "c"}   # noqa: E731
 
 
 def pending(nid, iid=None, item=None):
@@ -139,7 +139,7 @@ CASES = {
     "cover_extra": (lambda t: research_board(t, {"p1.checker[c]": pending("p1.checker", "p1.checker[c]", {"key": "c", "claims": [{"id": "a"}]})}),
                     "p1.checker[c]", json.dumps({"cluster": "c", "findings": [FINDING("z")]}), "項目に無い id"),
     # 段の降格
-    "downgrade": (lambda t: research_board(t, {"p0.question": pending("p0.question")}, thickness="重厚"),
+    "downgrade": (lambda t: research_board(t, {"p0.question": pending("p0.question")}, thickness="heavy"),
                   "p0.question", json.dumps(QUESTION, ensure_ascii=False), "下げようとしている"),
 }
 
@@ -234,9 +234,9 @@ def test_exit_strips_the_note_keyword_but_keeps_fields_named_note(tmp_path):
 
 def test_accept_upgrading_the_tier_writes_nothing_beside_the_board(tmp_path):
     """段の昇格は写しの盤面にだけ当たる——昇格の痕跡（trace.jsonl の行）も盤面の置き場に書かない"""
-    b = research_board(tmp_path / "b", {"p0.question": pending("p0.question")}, thickness="軽量")
+    b = research_board(tmp_path / "b", {"p0.question": pending("p0.question")}, thickness="light")
     reply = tmp_path / "q.json"
-    reply.write_text(json.dumps({**QUESTION, "thickness": "重厚"}, ensure_ascii=False), encoding="utf-8")
+    reply.write_text(json.dumps({**QUESTION, "thickness": "heavy"}, ensure_ascii=False), encoding="utf-8")
     before = files(b.dir)
     code, got = gl("accept", "--dir", b.dir, "--node", "p0.question", "--reply", reply)
     assert code == 0 and got["ok"] and files(b.dir) == before

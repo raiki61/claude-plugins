@@ -60,7 +60,7 @@ def test_values_come_from_closed_round_records(tmp_path):
     r1 = rec(1, [U("a", "block"), U("d", "suggest", disposition="defer")],
              {"R1": {"status": "redesign-needed", "reason": "直せ"}}, {"hygiene": SEEN})
     r2 = rec(2, [U("a", "info"), U("b", "block")],
-             {"R1": {"status": "redesign-needed", "reason": "直せ" + "（round 1 と同じ。持ち越せない値なので今も諮っている記録として書く）"},
+             {"R1": {"status": "redesign-needed", "reason": "直せ" + "（round 1 と同じ。持ち越せない値なので今も諮っている記録として書く）", "held_from": 1},
               "R2": {"status": "carried_over", "from_round": 1, "reason": "x"}},
              {"hygiene": {"status": "carried_over", "from_round": 1, "reason": "x"}}, [{"key": "q", "kind": "fork", "status": "held"}])
     cur = {"materials": {"hygiene": {"status": "found", "count": 1, "detail": "今の周"}}, "units": [], "questions": [], "process": {}}
@@ -136,18 +136,18 @@ def test_rejudge_from_the_fix_reply_until_settled(tmp_path):
     outs = {("p3.fix", 1): {"rejudge_requested": "返答で出した異議"}}
     b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs, loop={"rejudge_requested": {"round": 1, "text": "旧い loop の異議"}})
     assert b.hist("prev_rejudge") == {"round": 1, "text": "返答で出した異議"}
-    outs[("p2.rejudge", 1)] = {"verdict": "退ける"}
+    outs[("p2.rejudge", 1)] = {"verdict": "reject"}
     assert make(tmp_path / "settled", 2, [rd(1), rd(2)], outs=outs).hist("prev_rejudge") is None
 
 
 @pytest.mark.parametrize("trail, want", [
-    ({("p2.rejudge", 1): "一部採る"}, "1 回目"),                                                   # 再異議の口が走らなかった——未決
-    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): None}, None),                        # 取り下げた——決着
-    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "採る"}, None),
-    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "一部採る",
-      ("p3.rejudge_reply2", 1): "3 回目", ("p2.rejudge3", 1): "一部採る", ("p2.rejudge_third", 1): "一部採る"}, "3 回目"),
-    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "一部採る",
-      ("p3.rejudge_reply2", 1): "3 回目", ("p2.rejudge3", 1): "一部採る", ("p2.rejudge_third", 1): "退ける"}, None),
+    ({("p2.rejudge", 1): "partial"}, "1 回目"),                                                   # 再異議の口が走らなかった——未決
+    ({("p2.rejudge", 1): "partial", ("p3.rejudge_reply", 1): None}, None),                        # 取り下げた——決着
+    ({("p2.rejudge", 1): "partial", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "accept"}, None),
+    ({("p2.rejudge", 1): "partial", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "partial",
+      ("p3.rejudge_reply2", 1): "3 回目", ("p2.rejudge3", 1): "partial", ("p2.rejudge_third", 1): "partial"}, "3 回目"),
+    ({("p2.rejudge", 1): "partial", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "partial",
+      ("p3.rejudge_reply2", 1): "3 回目", ("p2.rejudge3", 1): "partial", ("p2.rejudge_third", 1): "reject"}, None),
 ])
 def test_rejudge_trail_carries_the_last_unsettled_objection(tmp_path, trail, want):
     """往復は 3 回まで（REJUDGE_PASSES）。次の周へ届くのは、決着しなかった周の最後の異議だけ"""

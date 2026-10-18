@@ -2,7 +2,7 @@
  "applicable": {
   "p0.parallel_pr": "cond parallel_pr_due: 入口の印（process.request_entry）が無い——通常の run",
   "p0.prior_decisions": "cond prior_decisions_due: 初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
-  "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+  "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が pr_description——監査するのは writer が要約した目的（③）だけ",
   "p1.consistency_bypass": null,
   "p1.external_standards": "cond external_standards_due: 初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
   "p1.gate_efficacy": "cond gate_efficacy_due: 変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）",

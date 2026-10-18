@@ -84,10 +84,10 @@ def test_view_refuses_undeclared_fields(tmp_path, capsys):
 def test_post_check_turns_ok_false_into_answer_reject_and_checks_the_reply(tmp_path, capsys, monkeypatch):
     b = make(tmp_path, 1, [rd(1)])
     nid = "p0.premises"
-    good = {"constraints": [{"text": "t", "measured_how": "m", "kind": "仮説"}]}
+    good = {"constraints": [{"text": "t", "measured_how": "m", "kind": "hypothesis"}]}
     assert commands.post_check(b, nid, good, None) == (good, [], [])
     with pytest.raises(AnswerReject, match="measured_output"):
-        commands.post_check(b, nid, {"constraints": [{"text": "t", "measured_how": "m", "kind": "実測"}]}, None)
+        commands.post_check(b, nid, {"constraints": [{"text": "t", "measured_how": "m", "kind": "measured"}]}, None)
     # 補った返答はノードの schema で照合し直す（合わない補いは rules の欠陥として止める）
     monkeypatch.setitem(b.rules.POST_CHECKS, "measured_needs_output", b.rules.cond_reads()(lambda v, *a: {"ok": True, "reply": {"x": 1}}))
     assert "補った返答がノード" in die_msg(lambda: commands.post_check(b, nid, good, None), capsys)

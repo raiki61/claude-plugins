@@ -587,7 +587,8 @@ def test_graph_declares_the_runner_words_and_the_narrow_values():
     assert all(g["nodes"][x]["run_by"] in g["runners"] for x in spec["edits"])
     assert set(g["launch"]["tooled"]["narrow"]["tools"]) <= set(advance.NARROW_TOOLS)
     tdd = load_graph(PLUGIN / "graphs" / "review-loop-tdd.json")[0]
-    assert "p3.tdd_tests" in tdd["launch"]["runner"]["edits"] and tdd["launch"]["runner"]["argv"] == spec["argv"]
+    # 起動する語は engine が持つ（engine/launch_words.py）——どちらの graph の runner も語を持たない
+    assert "p3.tdd_tests" in tdd["launch"]["runner"]["edits"] and not {"argv", "resume", "via"} & (set(spec) | set(tdd["launch"]["runner"]))
 
 
 # ---------------------------------------------------------------- 回し手・記録

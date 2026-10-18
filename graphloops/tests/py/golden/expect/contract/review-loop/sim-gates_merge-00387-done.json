@@ -2,7 +2,7 @@
  "applicable": {
   "p0.parallel_pr": null,
   "p0.prior_decisions": null,
-  "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+  "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が pr_description——監査するのは writer が要約した目的（③）だけ",
   "p1.consistency_bypass": null,
   "p1.external_standards": null,
   "p1.gate_efficacy": "cond gate_efficacy_due: 変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）",

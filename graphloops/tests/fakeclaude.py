@@ -5,6 +5,9 @@
               error（is_error の包み）／error_noresult（result の無い誤りの包み。subtype は error_max_turns で errors を持つ）／
               text（包まずに FAKE_OUT の中身だけを書く——--output-format text の形）／sleep（SIGTERM を 1 秒遅れて処理する孫を立てて、台本が握るロック FAKE_HOLD が離れるまで眠る。孫の pid を FAKE_PID に書く）／
               seen（届いた材料のバイト数と argv）
+  --json-schema を受けたら、実物と同じく本文を包みの structured_output にも載せる（本文が JSON として読めなければ、実物が
+  照合に通らなかった時の誤りの包み error_max_structured_output_retries を返す）。bad_then_answer の初回は structured_output が
+  空の object（claude の照合の後で engine の受け付けが拒む返答の代わり）
   FAKE_OUT    返答の本文のファイル
   FAKE_EXIT   書き終えた後の終了コード（既定 0）
   FAKE_KEEP   在れば、engine が渡す GRAPHLOOPS_KEEP の置き場にこの名前のファイルを書く（任せ先が残す物）
@@ -35,9 +38,16 @@ if os.environ.get("FAKE_KEEP") and os.environ.get("GRAPHLOOPS_KEEP"):   # 任せ
     with open(os.path.join(os.environ["GRAPHLOOPS_KEEP"], os.environ["FAKE_KEEP"]), "w", encoding="utf-8") as f:
         f.write("kept\n")
 
+structured = "--json-schema" in argv
+
 def out(result, **kw):
     env = {"type": "result", "subtype": "success", "is_error": False, "result": result, "session_id": sid,
            "num_turns": 2, "duration_ms": 10, "total_cost_usd": 0.001, "usage": {"input_tokens": 1, "output_tokens": 1}}
+    if structured and not kw.get("is_error") and "structured_output" not in kw:
+        try:
+            env["structured_output"] = json.loads(result)
+        except ValueError:
+            env.update(subtype="error_max_structured_output_retries", is_error=True)
     env.update(kw)
     sys.stdout.write(json.dumps(env, ensure_ascii=False))
 
@@ -69,7 +79,7 @@ elif mode == "sleep":
         f.write(str(child.pid))
     os.execv(sys.executable, [sys.executable, "-c", hold, os.environ["FAKE_HOLD"]])   # 同じ pid のまま待つ側に替わる
 elif mode == "bad_then_answer" and not resumed:
-    out("判定は次のとおりです（散文）")
+    out("判定は次のとおりです（散文）", **({"structured_output": {}} if structured else {}))
 else:
     out(answer(), permission_denials=[{"tool_name": "WebFetch", "tool_use_id": "t1", "tool_input": {}}] if resumed else [])
 sys.exit(int(os.environ.get("FAKE_EXIT", "0")))

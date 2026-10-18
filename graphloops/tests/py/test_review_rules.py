@@ -136,7 +136,7 @@ def test_scalars_without_cut_or_base_records_why(tmp_path):
 def test_scalars_records_why_when_numstat_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(RULES, "git", fake_git({}))   # _repo_root も git の diff も引けない
     b = board(tmp_path, record={"base": "b" * 40}, outputs={"p3.gates_cut": {"ok": True, "rev": "c" * 40}},
-              inputs={"scripts_dir": script(tmp_path, "echo 'scalars: added_lines=3 comment_lines=1 comment_ratio_pct=33'\n")})
+              inputs={"scripts_dir": script(tmp_path, """echo '{"scalars": {"added_lines": 3, "comment_lines": 1, "comment_ratio_pct": 33}, "unmeasured": []}'\n""")})
     got = RULES.scalars(b, "p4.scalars")
     assert got["scalars"] == {"added_lines": 3, "comment_lines": 1, "comment_ratio_pct": 33}
     assert got["unmeasured"] == [f"git diff --numstat {'b' * 12} {'c' * 12} が取れない（doc_lines）"]
@@ -152,6 +152,36 @@ def test_comment_ratio_failure_with_empty_stderr_shows_stdout(tmp_path, monkeypa
     monkeypatch.setattr(RULES, "_repo_root", lambda: str(tmp_path))
     b = board(tmp_path, inputs={"scripts_dir": script(tmp_path, "echo 標準出力の末尾; exit 3\n")})
     assert RULES._comment_ratio(b, "b" * 40, "c" * 40) == ({}, "comment-ratio.sh が exit 3: 標準出力の末尾")
+
+
+@pytest.mark.parametrize("out, why", [
+    ('{"scalars": {"added_lines": 3, "comment_lines": "1", "comment_ratio_pct": 33}, "unmeasured": []}', "comment_lines"),   # 数でない値
+    ('{"scalars": {"added_lines": 3, "comment_lines": 1, "comment_ratio_pct": 33, "x": 1}, "unmeasured": []}', "x"),        # 知らない名前
+    ('{"scalars": {"added_lines": 3, "comment_lines": 1}, "unmeasured": []}', "comment_ratio_pct"),                         # 追加行が在るのに割合が無い
+    ('{"scalars": {"comment_lines": 0}, "unmeasured": []}', "added_lines"),                                                 # 要る名前が無い
+    ("scalars: added_lines=3 comment_lines=1", "JSON"),                                                    # 人向けの行は読まない
+    ('{"scalars": {"added_lines": 0, "comment_lines": 0}}', "unmeasured"),                               # 数えられなかった物の配列が無い
+])
+def test_comment_ratio_bad_json_is_unmeasured_not_dropped(tmp_path, monkeypatch, out, why):
+    """数でない値・知らない名前・欠けた名前を黙って捨てず、何も書かずに測れなかった理由にする"""
+    monkeypatch.setattr(RULES, "_repo_root", lambda: str(tmp_path))
+    b = board(tmp_path, inputs={"scripts_dir": script(tmp_path, f"cat <<'EOF'\n{out}\nEOF\n")})
+    got, err = RULES._comment_ratio(b, "b" * 40, "c" * 40)
+    assert got == {} and why in err
+
+
+def test_comment_ratio_keeps_numbers_and_names_the_files_it_could_not_count(tmp_path, monkeypatch):
+    """unmeasured（数えられなかったファイル）が在る数は、数を書いたうえで漏れを理由に残す（全部を数えた数と見分ける）"""
+    monkeypatch.setattr(RULES, "_repo_root", lambda: str(tmp_path))
+    b = board(tmp_path, inputs={"scripts_dir": script(tmp_path, """echo '{"scalars": {"added_lines": 0, "comment_lines": 0}, "unmeasured": ["new.py"]}'\n""")})
+    got, err = RULES._comment_ratio(b, "b" * 40, "c" * 40)
+    assert got == {"added_lines": 0, "comment_lines": 0} and "1 件" in err and "new.py" in err
+
+
+def test_comment_ratio_zero_added_lines_has_no_ratio(tmp_path, monkeypatch):
+    monkeypatch.setattr(RULES, "_repo_root", lambda: str(tmp_path))
+    b = board(tmp_path, inputs={"scripts_dir": script(tmp_path, """echo '{"scalars": {"added_lines": 0, "comment_lines": 0}, "unmeasured": []}'\n""")})
+    assert RULES._comment_ratio(b, "b" * 40, "c" * 40) == ({"added_lines": 0, "comment_lines": 0}, None)
 
 
 # ---------------------------------------------------------------- CI を engine が走らせた返答（checks_reply）
@@ -433,7 +463,7 @@ def test_history_rules_only_where_history_is_read(tmp_path):
 
 def test_rejudge_rejects_reopened_defer(tmp_path):
     b = board(tmp_path, hist=LEDGER, rnd=2)
-    out = {"new_facts": "回す側が出した事実を、作業ツリーの現物を読み直して自分で確かめた", "verdict": "採る", **reopened_block()}
+    out = {"new_facts": "回す側が出した事実を、作業ツリーの現物を読み直して自分で確かめた", "verdict": "accept", **reopened_block()}
     got = call(b, RULES.rejudge_output, "p2.rejudge", out, None)
     assert got["ok"] is False and "reopen_evidence が無い: u1" in got["reason"]
     out["units"][0]["reopen_evidence"] = "新しい実測"
@@ -755,3 +785,12 @@ def test_writer_traces_carry_outside_tmp_and_unmeasured_rows_of_the_round():
     assert got["outside_tmp"] == [{"instance": "p3.fix", "measured": False, "files": 0, "bytes": 0, "sample": [], "note": "空"}]
     assert got["unmeasured"] == [{"trigger": "p3.fix.declared_files", "why": "木が無い"}, {"trigger": "child_tmp_probe", "why": "確かめられない"}]
     assert RULES._writer_traces({}, 1) == {}
+
+
+def test_held_review_is_read_from_the_field_and_old_rows_from_the_tail():
+    """据え置きの行は held_from のフィールドで見分け、フィールドの無い前の版の行だけ reason の末尾の句で見る"""
+    tail = RULES.CARRIED_REVIEW.format(round=1)
+    assert RULES.is_held_review({"status": "pass", "reason": "x", RULES.HELD_FROM: 1})
+    assert not RULES.is_held_review({"status": "pass", "reason": "x" + tail, RULES.HELD_FROM: None})
+    assert RULES.is_held_review({"status": "pass", "reason": "x" + tail})
+    assert not RULES.is_held_review({"status": "pass", "reason": "x"})

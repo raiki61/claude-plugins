@@ -2,10 +2,14 @@
 """子の claude に認証だけを足して起動する前置。`with-auth.py <コマンド> [引数...]` を受け、
 標準入力・標準出力・標準エラーはそのまま子に継がせ、子の終了コードをそのまま返す。
 
-graph の `launch.isolated.via` がこれを argv の前に置く。**認証の段そのものは持たない**
+engine が起動する語の前置（engine/launch_words.py の VIA）としてこれを argv の前に置く。**認証の段そのものは持たない**
 ——隣の `claude_auth.py`（複数のプラグインに写しで在る共有の本文）が持つ。ここに在るのは
 「前置として起動する」殻だけで、なぜ層が要るか・段がどう決まるかは `claude_auth.py` の冒頭に在る。
+
+足した段は、環境変数 GRAPHLOOPS_AUTH_NOTE が名指すファイルに JSON（`{"stage": 段, "added": 足せたか}`）で書く。
+engine はこれを読み、標準エラーの人向けの行は読まない（docs/standards/machine-readable-values.md の決まり 1）。
 """
+import json
 import os
 import pathlib
 import subprocess
@@ -31,6 +35,22 @@ import claude_auth  # noqa: E402
 # 「claude を認証付きで起こしてよい」に留まる（逃げ道の環境変数は置かない——同じコマンド行で立てられる）。
 ALLOWED = ("claude",)
 
+# 段を書く先を名指す環境変数（engine/launch_words.py の AUTH_NOTE_ENV と同じ名前。この層は engine を読まない薄い殻なので名前だけ写し、
+# 揃っていることは試験が突き合わせる）
+AUTH_NOTE_ENV = "GRAPHLOOPS_AUTH_NOTE"
+
+
+def write_note(path, note):
+    """足した段を path に JSON で書く（書きかけを読ませないよう、隣に書いてから置き換える）。書けなければ標準エラーに 1 行を出して続ける
+    ——子の起動は止めない。読む側（engine）は、ファイルが無い・読めないのを「段が読めなかった」（launch_auth_unread）として出す"""
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"stage": note, "added": claude_auth.added(note)}, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError as e:
+        sys.stderr.write("with-auth: 段を %s に書けない（%s）\n" % (path, e))
+
 
 def main(argv):
     if not argv:
@@ -43,6 +63,9 @@ def main(argv):
         return 2
     env, note = claude_auth.auth_env(os.environ, service=os.environ.get("GL_KEYCHAIN_SERVICE"))
     sys.stderr.write("with-auth: auth=%s config-dir=%s\n" % (note, env["CLAUDE_CONFIG_DIR"]))
+    note_path = env.pop(AUTH_NOTE_ENV, None)   # 子の claude には渡さない（engine と層の間の取り決めで、子は使わない）
+    if note_path:
+        write_note(note_path, note)
     if not claude_auth.added(note):
         # 足せなかったことは**起動する前に**分かる。後から出力を覗く作りにはしない
         # ——子の返答は数百 KB になり得て、この層で溜める理由が無い

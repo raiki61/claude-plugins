@@ -10,7 +10,7 @@
   "out/r1/converge.json": {},
   "out/r1/p0.base.json": {
    "base_sha": "e2e303838f308a70b0c6ce1569fd53de4b628d4e",
-   "method": "3 HEAD~1",
+   "method": "head_parent",
    "commits": 1,
    "merge_commit": false,
    "intent_to_add": [],
@@ -33,7 +33,7 @@
   },
   "out/r1/p0.purpose.json": {
    "purpose_text": "_s67_xxxxxxxxxxxx",
-   "source": "①PR 説明",
+   "source": "pr_description",
    "known_weaknesses": [],
    "source_files": []
   },
@@ -343,7 +343,7 @@
       "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
       "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
       "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
-      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が pr_description——監査するのは writer が要約した目的（③）だけ",
       "p0.parallel_pr": "cond parallel_pr_due: 入口の印（process.request_entry）が無い——通常の run",
       "p2.fix_plan": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
       "p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",

@@ -15,9 +15,9 @@
     "verdict": {
      "type": "string",
      "enum": [
-      "採る",
-      "退ける",
-      "一部採る"
+      "accept",
+      "reject",
+      "partial"
      ]
     },
     "new_facts": {
@@ -103,9 +103,9 @@
     "verdict": {
      "type": "string",
      "enum": [
-      "採る",
-      "退ける",
-      "一部採る"
+      "accept",
+      "reject",
+      "partial"
      ]
     },
     "new_facts": {
@@ -209,9 +209,9 @@
     "verdict": {
      "type": "string",
      "enum": [
-      "採る",
-      "退ける",
-      "一部採る"
+      "accept",
+      "reject",
+      "partial"
      ]
     },
     "new_facts": {
@@ -315,9 +315,9 @@
     "verdict": {
      "type": "string",
      "enum": [
-      "採る",
-      "退ける",
-      "一部採る"
+      "accept",
+      "reject",
+      "partial"
      ]
     },
     "new_facts": {

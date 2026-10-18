@@ -21,7 +21,7 @@
    "id": "A",
    "mode": "confirm",
    "upheld": true,
-   "verdict": "確証",
+   "verdict": "confirmed",
    "refuter_reasoning": "_s16_",
    "sources": [
     "_s6_xxxxxxx"

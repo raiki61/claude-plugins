@@ -9,7 +9,7 @@
  "files": {
   "out/r1/p0.base.json": {
    "base_sha": "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-   "method": "4 依頼者の名指し",
+   "method": "named",
    "commits": 0,
    "merge_commit": false,
    "intent_to_add": [],
@@ -33,7 +33,7 @@
   "out/r1/p0.prior_decisions.json": {},
   "out/r1/p0.purpose.json": {
    "purpose_text": "_s12_xxxxxxxxxxxx",
-   "source": "①PR 説明",
+   "source": "pr_description",
    "known_weaknesses": [],
    "source_files": []
   },
@@ -85,7 +85,7 @@
       "p1.test_double_fidelity": "cond test_double_fidelity_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起動しない",
       "p1.main_path_observation": "cond main_path_observation_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起動しない",
       "p1.provenance": "cond provenance_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起動しない",
-      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が pr_description——監査するのは writer が要約した目的（③）だけ",
       "p1.consistency_bypass": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起動しない",
       "p1.external_standards": "cond external_standards_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起動しない"
      },

@@ -21,7 +21,7 @@
   "out": {
    "status": "running",
    "round": 1,
-   "thickness": "標準",
+   "thickness": "standard",
    "run_id": "_s5_xxxxxxxxxxx",
    "ready": [
     {
@@ -65,7 +65,7 @@
      "mode": "agent",
      "item": {
       "id": "A",
-      "verdict": "確証",
+      "verdict": "confirmed",
       "evidence": "e",
       "sources": [
        "_s10_xxxx"

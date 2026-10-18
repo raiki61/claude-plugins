@@ -400,19 +400,19 @@ def answers(run, scenario, rnd):
     fixed_now = [r["key"] for r in rec["process"].get("delta_fix") or [] if r["handled"] == "fixed"] if opened else []
     prev_decl = run.hist().get("prev_declared_faces") or []
     table = {
-        "p0.base": lambda it: {"base_sha": base, "method": "3 HEAD~1", "commits": 1, "merge_commit": False, "intent_to_add": [],
+        "p0.base": lambda it: {"base_sha": base, "method": "head_parent", "commits": 1, "merge_commit": False, "intent_to_add": [],
                                "touches_gates": scenario == "gates", "touches_external_seams": False, "touches_user_path": scenario == "awaiting",
                                "touches_security_surface": False,
                                "material": CLEAN(f"HEAD~1 で決めた。BASE={base[:7]}。対象差分は 1 コミット分")},
         "p0.local_checks": lambda it: {"material": CLEAN("python -m pytest（緑）")},
         "p0.premises": lambda it: {"constraints": [{"text": "呼び出し元は 1 箇所", "measured_how": "grep -c 'f(' src/",
-                                                    "measured_output": "src/a.py:1", "kind": "実測"}]},
-        "p0.purpose": lambda it: ({"purpose_text": "（PR 説明も計画も無く目的を取れない）", "source": "目的不明", "known_weaknesses": [], "source_files": []} if scenario == "nopurpose" else
-                                  {"purpose_text": "f に上限を付ける（writer の要約）", "source": "③writer の要約", "known_weaknesses": [], "source_files": ["README.md"]} if scenario == "narrowed" else
-                                  {"purpose_text": "f に上限を付けて過大な値を抑える", "source": "①PR 説明", "known_weaknesses": [], "source_files": ["README.md"]}),
+                                                    "measured_output": "src/a.py:1", "kind": "measured"}]},
+        "p0.purpose": lambda it: ({"purpose_text": "（PR 説明も計画も無く目的を取れない）", "source": "unknown", "known_weaknesses": [], "source_files": []} if scenario == "nopurpose" else
+                                  {"purpose_text": "f に上限を付ける（writer の要約）", "source": "writer_summary", "known_weaknesses": [], "source_files": ["README.md"]} if scenario == "narrowed" else
+                                  {"purpose_text": "f に上限を付けて過大な値を抑える", "source": "pr_description", "known_weaknesses": [], "source_files": ["README.md"]}),
         # **指摘は作業ツリーで引ける根拠を連れて来る**（cite を engine が数え直す）。この台本の repo に
         # 実在する字列（src/a.py の limit）を使う——実在しない字列を使う腕は test_purpose_cite が別に測る
-        "p0.purpose_review": lambda it: {"verdict": "狭めている" if scenario == "narrowed" else "問題なし",
+        "p0.purpose_review": lambda it: {"verdict": "narrows" if scenario == "narrowed" else "ok",
                                           "reason": "目的が実装した範囲に合わせて狭い（検査用）",
                                           "findings": [{"text": "呼び出し元の上限に触れていない", "cite": "min(x, limit)", "hits": 1}] if scenario == "narrowed" else []},
         "p0.parallel_pr": lambda it: {"material": CLEAN("gh pr list 0 件（打ち切りなし）"), "repo": "t/demo", "listed": 0, "truncated": False, "conflicts": []},
@@ -505,8 +505,8 @@ def answers(run, scenario, rnd):
         "r2.design": lambda it: ({"question_stands": False, "reason": "既存機構で自明", "premise_invalid_reason": "呼び出し元が既に上限を持つ", "design": ""} if (scenario == "premise" or (scenario == "premise_resolved" and rnd == 1)) else
                                  {"question_stands": True, "reason": "問いは立っている", "design": "上限は入口 1 箇所で掛ける"}),
         "r2.compare": lambda it: ({"status": "redesign-needed", "reason": "独立設計と継ぎ目の置き方が違う（検査用）",
-                                   "differences": [{"kind": "構造", "text": "上限を入口でなく各呼び出し元に置いている"},
-                                                   {"kind": "表現", "text": "語が違うだけの差"}]}
+                                   "differences": [{"kind": "structural", "text": "上限を入口でなく各呼び出し元に置いている"},
+                                                   {"kind": "wording", "text": "語が違うだけの差"}]}
                                   if scenario == "rnonpass" else
                                   {"status": "pass", "reason": "構造は一致", "differences": []}),
         "r3.coherence": lambda it: ({"status": "unverifiable", "reason": "横断の材料が取れない（検査用）"}
@@ -522,17 +522,17 @@ def answers(run, scenario, rnd):
                                            "verdict": "escalate", "reason": "人でないと決められない"}),
         # 同じ周の往復。**台本は 1 度も通していなかった**（p2.rejudge / p2.rejudge_third の判定語彙は
         # 12 値とも到達 0 回）——異議は engine の外の会話で起きていて、盤面を通る経路が検査されていなかった
-        "p2.rejudge": lambda it: {"verdict": "一部採る", "new_facts": "回す側が挙げた行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る",
+        "p2.rejudge": lambda it: {"verdict": "partial", "new_facts": "回す側が挙げた行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る",
                                   "reason": "片方は現物に当たって確かめた（検査用）",
                                   "units": [{"key": "f に上限が無い", "label": "block", "disposition": "do-now"}]},
         # 決着しない回の再異議（回す側）と、2・3 回目の擦り合わせ。台本は 3 回とも決着させず、第三の目まで通す
         "p3.rejudge_reply": lambda it: {"reason": "判定役が確かめていない行を現物で示す（検査用）", "rejudge_requested": "2 回目の異議: 別の入口も塞いでいない"},
         "p3.rejudge_reply2": lambda it: {"reason": "判定役が確かめていない行を現物で示す（検査用）", "rejudge_requested": "3 回目の異議: 3 つ目の入口も塞いでいない"},
-        "p2.rejudge2": lambda it: {"verdict": "一部採る", "new_facts": "2 回目の異議が挙げた行を自分で読み、片方だけ現物で確かめられた。争点が残る",
+        "p2.rejudge2": lambda it: {"verdict": "partial", "new_facts": "2 回目の異議が挙げた行を自分で読み、片方だけ現物で確かめられた。争点が残る",
                                    "reason": "2 回目（検査用）", "units": [{"key": "f に上限が無い", "label": "block", "disposition": "do-now"}]},
-        "p2.rejudge3": lambda it: {"verdict": "一部採る", "new_facts": "3 回目の異議が挙げた行を自分で読み、片方だけ現物で確かめられた。争点が残る",
+        "p2.rejudge3": lambda it: {"verdict": "partial", "new_facts": "3 回目の異議が挙げた行を自分で読み、片方だけ現物で確かめられた。争点が残る",
                                    "reason": "3 回目（検査用）", "units": [{"key": "f に上限が無い", "label": "block", "disposition": "do-now"}]},
-        "p2.rejudge_third": lambda it: {"verdict": "退ける", "new_facts": "往復の材料を読み直したが、回す側が挙げた事実は現物で再現しなかった",
+        "p2.rejudge_third": lambda it: {"verdict": "reject", "new_facts": "往復の材料を読み直したが、回す側が挙げた事実は現物で再現しなかった",
                                         "reason": "第三の目として判定した（検査用）",
                                         "units": [{"key": "f に上限が無い", "label": "suggest", "disposition": "defer", "reason": "処方が共有面（キャッシュ層）に及ぶ（検査用）"}]},
         # TDD 版（graphs/review-loop-tdd.json）だけが出すノード: [block] は先に落ちるテストで、do-now は理由つきで今の流れへ
@@ -731,8 +731,8 @@ def test_engine_run_parallel_pr():
                 "a = sys.argv[1:]\n"
                 "if a[:2] == ['pr', 'list']:\n"
                 "    assert a[a.index('-R') + 1] == 't/demo'\n"
-                "    print(json.dumps([{'number': 7, 'headRefName': 'x', 'headRefOid': 'f' * 40}]))\n"
-                "elif a[:2] == ['pr', 'view']:\n"
+                "    print(json.dumps([{'number': 7, 'headRefName': 'x', 'headRefOid': 'f' * 40, 'changedFiles': 1}]))\n"
+                "elif a[:2] == ['api', '--paginate'] and a[2].startswith('repos/t/demo/pulls/7/files'):\n"
                 f"    print({'src/a.py' if conflict else 'other.txt'!r})\n"
                 "else:\n"
                 "    sys.exit(9)\n")
@@ -980,10 +980,10 @@ def test_new_guards():
     by = {i["node"]: i for i in nx["ready"]}
     t = answers(run, "std", 1)
     # kind=実測 は再現の形（コマンドと出力）を持て——『実測』の札だけが検算なしで信頼値に昇格しない
-    bad = {"constraints": [{"text": "呼び出し元は 1 箇所", "measured_how": "grep した", "kind": "実測"}]}
+    bad = {"constraints": [{"text": "呼び出し元は 1 箇所", "measured_how": "grep した", "kind": "measured"}]}
     r = run.done(by["p0.premises"]["id"], bad)
     check(r.returncode == 1 and "measured_output" in r.stderr, "kind=実測 に measured_output が無いと exit 1")
-    r = run.done(by["p0.premises"]["id"], {"constraints": [{**bad["constraints"][0], "kind": "仮説"}]})
+    r = run.done(by["p0.premises"]["id"], {"constraints": [{**bad["constraints"][0], "kind": "hypothesis"}]})
     check(r.returncode == 0, "仮説なら再現の形は要らない")
     rm(run.tmp)
 
@@ -1093,9 +1093,9 @@ def test_prev_fix_faces_scalar():
         if inst["node"] == "p2.history" and isinstance(out, dict) and out.get("router") and not seen:
             seen.append(inst["id"])   # 2 周目の 1 回だけ（3 周目は 0 件に戻ることも見る）
             k = out["router"][0]["key"]   # 同じ key を 2 度書いても 1 件と数える
-            return {**out, "reburn_causes": [{"key": k, "cause": "前の周の修正", "note": "検査用"},
-                                             {"key": k, "cause": "前の周の修正", "note": "検査用（重複）"},
-                                             {"key": k + "（別）", "cause": "コード", "note": "原因が別なら数えない"}]}
+            return {**out, "reburn_causes": [{"key": k, "cause": "prev_fix", "note": "検査用"},
+                                             {"key": k, "cause": "prev_fix", "note": "検査用（重複）"},
+                                             {"key": k + "（別）", "cause": "code", "note": "原因が別なら数えない"}]}
     seen, prompts = [], {}
     drive(run, "std", hook=hook)
     own = prompts.get("history_prompt", "").split("前の周の修正役が自分で当たった先行例", 1)[-1][:600]
@@ -1118,7 +1118,7 @@ def test_prev_fix_faces_scalar():
         if inst["node"] == "p2.history" and isinstance(out, dict):
             seen2.append(inst["id"])
             if len(seen2) == 1:
-                return {**out, "reburn_causes": [{"key": out["router"][0]["key"], "cause": "前の周の修正", "note": "検査用"}]}
+                return {**out, "reburn_causes": [{"key": out["router"][0]["key"], "cause": "prev_fix", "note": "検査用"}]}
             return {"__skip__": "検査用に省く"}
     drive(run, "std", hook=hook2)
     r2, r3 = run.round_file(2), run.round_file(3)
@@ -2258,15 +2258,15 @@ def test_graphcheck_review_shapes():
            "graphcheck: 役のノードに任せ先は書けない")
     broken(lambda b: b["nodes"]["p1.local_review"].__setitem__("delegate", {"model": "sonnet", "why": "検査用"}), "skills を持つノードに delegate は書けない",
            "graphcheck: skill を呼ぶノードを任せ先に渡せない（入れ子の委任は完了の知らせが届かない）")
-    broken(lambda b: b["launch"].pop("delegate"), "launch.delegate.argv が無い", "graphcheck: 任せ先を縛って起動する語が無い graph は落ちる")
+    broken(lambda b: b["launch"].pop("delegate"), "launch.delegate が無い", "graphcheck: 任せ先を縛って起動する形が無い graph は落ちる")
     broken(lambda b: b["nodes"]["p3.delta_fix"].pop("declared_files"), "launch.runner.edits のノードに declared_files が無い",
            "graphcheck: 作業ツリーを書き換えるノードの申告のフィールドが無い")
     broken(lambda b: b["nodes"]["p3.fix"].__setitem__("declared_files", "changes.0.files"), "は回す側のノードの schema の文字列の葉を指せ",
            "graphcheck: 受け付けの読み手が空を読む申告のフィールドの綴り")
     broken(lambda b: b["nodes"]["p3.delta_gates"]["delegate"].pop("result_to"), "delegate.result_to",
            "graphcheck: 背景の任せ先が返答の置き場を名指ししない")
-    broken(lambda b: b["launch"]["delegate"]["argv"].append("{sandbox_json}"), "を engine は埋められない",
-           "graphcheck: 任せ先の起動の語の知らない穴")
+    broken(lambda b: b["launch"]["delegate"].__setitem__("argv", ["claude", "{sandbox_json}"]), "は書けない",
+           "graphcheck: 任せ先の起動する語は engine が持つ（graph に書けない）")
     broken(lambda b: b["nodes"]["p3.delta_gates"]["delegate"].__setitem__("background", "yes"), "delegate.background は真偽",
            "graphcheck: 背景の任せ先の旗が真偽でない")
     broken(lambda b: b["nodes"]["p4.ci"]["deps"].append("p3.delta_gates"), "背景のノード（delegate.background）を",
@@ -2859,7 +2859,7 @@ def test_premise_resolved():
     check(any(i["node"] == "r2.design" for i in st["rounds"][1]["instances"].values()) and r2["reviews"]["R2"]["status"] == "pass", f"2 周目: R2 が回し直され pass（{r2['reviews']['R2']['status']}）")
     check(any(q["kind"] == "premise" and q["status"] == "resolved" for q in r2["questions"]), "2 周目: judge が回し直した R2 を見て premise を resolved に確定")
     cons = run.record()["process"].get("constraints", [])
-    check(any("上限を持たない" in c["text"] and c["kind"] == "実測" for c in cons), "検算の実測が制約に足されている（facts_to_add の行き先）")
+    check(any("上限を持たない" in c["text"] and c["kind"] == "measured" for c in cons), "検算の実測が制約に足されている（facts_to_add の行き先）")
     # 強制再発火の旗は前の周の検算の出力だけから作る——以前は loop の旗を条件式の最右で pop していたので、周 2 で機構が変わる
     # （左が真）と短絡で pop に届かず、周 3（何も変わらない）でも R2 を回し直した
     check(run.hist().get("r2_refire_forced") is False, "強制再発火の旗は周 2 にだけ効き、周 3 には効かない（前の周の検算の出力から作る）")
@@ -3101,7 +3101,7 @@ def test_purpose_review_reruns_when_unvetted():
     check("purpose_review_unvetted" in mod.purpose_review_due.reads or set(mod.purpose_review_unvetted.reads) <= set(mod.purpose_review_due.reads),
           "目的監査の条件（purpose_review_due）がこの部品の読むフィールドを宣言している")
 
-    def b(findings, verdict="狭めている"):
+    def b(findings, verdict="narrows"):
         pr = {"verdict": verdict}
         if findings is not None:
             pr["findings"] = findings
@@ -3113,7 +3113,7 @@ def test_purpose_review_reruns_when_unvetted():
     check(f(b([{"text": "x", "cite": "a"}, {"text": "y", "hits": 2}])), "1 件でもチェックを通っていなければ走り直す")
     check(not f(b([{"text": "x", "cite": "a", "hits": 1}])), "**チェックを通った判定は走り直さない**（不利な判定の引き直しを作らない）")
     check(not f(b(None, verdict=None)), "まだ一度も走っていないなら、この引き金では走らせない（round==1 の側が拾う）")
-    check(not f(b([], verdict="問題なし")), "findings が空の『問題なし』は走り直さない")
+    check(not f(b([], verdict="ok")), "findings が空の『問題なし』は走り直さない")
     # **式の正本は 1 か所**——assemble が別の式を持っていると、チェックを締めた周に片方だけ古くなる
     src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
     check(src.count('r.get("cite") for r in rows') == 1,
@@ -3326,7 +3326,7 @@ def test_purpose_findings_cited():
         if target:
             break
     check(target is not None, "目的の監査のノードが出る")
-    base = {"verdict": "狭めている", "reason": "目的が実装した範囲に合わせて狭い（検査用）"}
+    base = {"verdict": "narrows", "reason": "目的が実装した範囲に合わせて狭い（検査用）"}
     # ① 実在しない字列は受け取らない（棄却を判定者の手間として毎周繰り返さない）
     r = run.done(target, {**base, "findings": [
         {"text": "document_tail の自己申告が残っている", "cite": "document_tail", "hits": 4}]})
@@ -3386,7 +3386,7 @@ def test_purpose_cite_counts_frozen_revision():
     live = subprocess.run(["git", "-C", str(run.repo), "grep", "-F", "-c", "--", "min(x, limit)"],
                           capture_output=True, text=True, encoding="utf-8", timeout=120)
     check(live.returncode != 0, f"生きた木からは引用が消えている（対照。rc={live.returncode}）")
-    r = run.done(target, {"verdict": "狭めている", "reason": "検査用",
+    r = run.done(target, {"verdict": "narrows", "reason": "検査用",
                           "findings": [{"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 1}]})
     check(r.returncode == 0,
           f"固定した版に在る引用は、生きた木から消えていても通る（rc={r.returncode}: {r.stderr[-90:]}）")
@@ -3414,7 +3414,7 @@ def test_purpose_verdict_needs_vetted_evidence():
 
     # ① 根拠 0 件の『狭めている』は受け取らない
     try:
-        raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review", {"verdict": "狭めている", "findings": []}, None)
+        raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review", {"verdict": "narrows", "findings": []}, None)
         got = "通った"
     except RuntimeError as e:
         got = str(e)
@@ -3422,7 +3422,7 @@ def test_purpose_verdict_needs_vetted_evidence():
     # ② 旧形（素の文字列）の findings も受け取らない
     try:
         raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review",
-                                   {"verdict": "狭めている", "findings": ["document_tail が残っている"]}, None)
+                                   {"verdict": "narrows", "findings": ["document_tail が残っている"]}, None)
         got = "通った"
     except RuntimeError as e:
         got = str(e)
@@ -3432,7 +3432,7 @@ def test_purpose_verdict_needs_vetted_evidence():
     # **判定は本物のループに下させる**（台本側で再現していたとき、rules の分岐を消しても緑だった
     #  ——実測 r9: 腕 i5。今周の判定 4 件目『腕が engine の返す値でなく手で組んだ 1 組を食わせる』そのもの）。
     # 記録を古い形（裏取りを通っていない findings）に手当てしてから assemble を走らせる
-    for rows, want in (([{"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 1}], "狭めている"),
+    for rows, want in (([{"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 1}], "narrows"),
                        (["document_tail が残っている"], None)):
         run2 = Run("vetted", unattended=True)
         target = None
@@ -3449,7 +3449,7 @@ def test_purpose_verdict_needs_vetted_evidence():
         check(target is not None, "p3.fix が出る所まで回る（この腕の前提）")
         # 記録の側を古い形に差し替える（engine の手当ての口を使う——痕跡が残る）
         f = run2.tmp / "pr.json"
-        f.write_text(json.dumps({"verdict": "狭めている", "findings": rows}, ensure_ascii=False), encoding="utf-8")
+        f.write_text(json.dumps({"verdict": "narrows", "findings": rows}, ensure_ascii=False), encoding="utf-8")
         run2.cmd("patch", "--path", "process.purpose_review", "--file", str(f),
                  "--reason", "裏取りの有無で R2 の扱いが変わるかを測る（検査用）")
         run2.done(target["id"], answers(run2, "narrowed", run2.state()["round"])["p3.fix"](target))
@@ -3535,7 +3535,7 @@ def test_narrowed():
     r1 = run.round_file(1)
     check(r1["reviews"].get("R2", {}).get("status") == "unverifiable", f"R2 は unverifiable（{r1['reviews'].get('R2')}）——狭められた目的で独立設計を回さない")
     check(any(q["kind"] == "unverifiable" and q["origin"] == "R2" for q in r1["questions"]), "台帳に R2 の unverifiable の行が立つ")
-    check(run.record()["process"].get("purpose_review", {}).get("verdict") == "狭めている", "inspector の判定は記録の process.purpose_review に残る（以前は誰も読まなかった）")
+    check(run.record()["process"].get("purpose_review", {}).get("verdict") == "narrows", "inspector の判定は記録の process.purpose_review に残る（以前は誰も読まなかった）")
     # R2 を走らせない原因は 2 つ（目的不明／狭めている）——bool 1 つに畳んでいたとき、理由文が事実と逆（目的不明）になった
     reason = r1["reviews"]["R2"].get("reason", "")
     check("狭めている" in reason and "目的不明" not in reason, f"R2 の理由は実際の原因（狭めている）を書き、目的不明と混同しない（{reason[:50]}）")
@@ -3583,7 +3583,8 @@ def test_proxy_to_source():
     t = answers(run, "std", 1)
     for n in ("p0.base", "p0.local_checks", "p0.premises"):
         settle(run, by[n], t[n])
-    check(rules.stop_branch(V, 1, "収束を妨げるもの 1 件:\n  - [block] x\n") == "work_remains", "字下げされた echo だけなら work_remains")
+    check(rules.stop_branch(V, {"exit": 1, "out": "収束を妨げるもの 1 件:\n  - [block] x\n", "stop": None}) == "work_remains",
+          "止める訳のキーが無ければ work_remains")
     bad_key = "x — 前提不成立が確定（escalate）を key に混ぜた"
     check(" ".join((bad_key + "\n" + V.STOP_PREMISE).split()) == bad_key + " " + V.STOP_PREMISE,
           "1 行への正規化は改行を空白に潰す（判定行を作れない）")
@@ -3805,7 +3806,7 @@ def test_request_entry():
             rnd = run.state()["round"]
             seen[rnd].add(inst["node"])
             if inst["node"] == "p0.base":
-                return {**out, "base_sha": head, "method": "4 依頼者の名指し", "commits": 0}
+                return {**out, "base_sha": head, "method": "named", "commits": 0}
             if inst["node"] == "p2.diagnose" and rnd == 1:
                 # 判定役の instance が出ていても、起動する前（launch していない・返答の置き場が空）の add は受け、プロンプトを描き直す
                 f4 = run.tmp / "req4.json"
@@ -5449,7 +5450,7 @@ def test_purpose_trigger_unevaluable():
         return cond_call(part, {"round": b.round, "out": {"p0.purpose": b.purpose}, "cur": {"p1.worktree_before": b.head}}, state=b.state)[0]
 
     # フィールドが無い＝測れない。偽だが痕跡が残る
-    b = board({"purpose_text": "x", "source": "③writer の要約"}, ["README.md"])
+    b = board({"purpose_text": "x", "source": "writer_summary"}, ["README.md"])
     check(fn(b) is False, "フィールドが無い周は発火しない（合格に倒さない）")
     un = b.state.get("unevaluable") or []
     check(len(un) == 1 and un[0]["trigger"] == "purpose_sources_changed", f"測れなかったことが痕跡に残る（{un}）")
@@ -5537,46 +5538,59 @@ def test_rejudge_edge():
           "異議が無ければ往復のノードはどれも開かない（常設しない）")
     cur = {"p3.fix": {"rejudge_requested": "今の周の異議"}}
     check(held("rejudge_open", cur) and not held("rejudge_reply_due", cur), "今の周の異議で 1 回目の擦り合わせが開く")
-    for verdict in ("採る", "退ける"):
+    for verdict in ("accept", "reject"):
         check(not held("rejudge_reply_due", {**cur, "p2.rejudge": {"verdict": verdict}}), f"1 回目が {verdict} で決着すれば再異議の口は開かない")
-    cur["p2.rejudge"] = {"verdict": "一部採る"}
+    cur["p2.rejudge"] = {"verdict": "partial"}
     check(held("rejudge_reply_due", cur) and not held("rejudge2_open", cur), "1 回目が決着しなければ再異議の口が開く（2 回目は再異議が出てから）")
     check(not held("rejudge2_open", {**cur, "p3.rejudge_reply": {"reason": "新しい事実が無いので取り下げる"}}), "再異議を取り下げれば 2 回目は開かない")
     cur["p3.rejudge_reply"] = {"reason": "新しい事実を示す", "rejudge_requested": "2 回目の異議"}
-    cur["p2.rejudge2"] = {"verdict": "一部採る"}
+    cur["p2.rejudge2"] = {"verdict": "partial"}
     cur["p3.rejudge_reply2"] = {"reason": "新しい事実を示す", "rejudge_requested": "3 回目の異議"}
     check(held("rejudge2_open", cur) and held("rejudge_reply2_due", cur) and held("rejudge3_open", cur) and not held("rejudge_exhausted", cur),
           "決着しない回ごとに再異議の口と次の擦り合わせが開く（3 回目が答えるまで第三の目は立たない）")
-    check(held("rejudge_exhausted", {**cur, "p2.rejudge3": {"verdict": "一部採る"}}) and not held("rejudge_exhausted", {**cur, "p2.rejudge3": {"verdict": "採る"}}),
+    check(held("rejudge_exhausted", {**cur, "p2.rejudge3": {"verdict": "partial"}}) and not held("rejudge_exhausted", {**cur, "p2.rejudge3": {"verdict": "accept"}}),
           f"3 回（{len(rules.REJUDGE_PASSES)}）とも決着しなければ第三の目が開き、3 回目で決着すれば開かない")
 
     # 確かめずに採る／退ける返答は拒む（依頼者の条件 1: 反論は新しい事実を伴うときだけ）
     b = types.SimpleNamespace(round=3, loop_state={}, hist=lambda name: rules.HIST_ABSENT)
     for bad in ("", "なし", "確認した"):
         try:
-            raising(rules, checks["rejudge_output"])(b, "p2.rejudge", {"verdict": "採る", "new_facts": bad, "units": []}, None)
+            raising(rules, checks["rejudge_output"])(b, "p2.rejudge", {"verdict": "accept", "new_facts": bad, "units": []}, None)
             check(False, f"new_facts が空同然（{bad!r}）でも通った")
         except Exception as e:  # rules に差し込まれた Reject は別の module 実体になりうる——型名で見る
             check(type(e).__name__ == "Reject" and "new_facts" in str(e),
                   f"new_facts が空同然（{bad!r}）なら拒む（{type(e).__name__}）")
-    raising(rules, checks["rejudge_output"])(b, "p2.rejudge", {"verdict": "退ける", "new_facts": "現物に当たって再現を試みたが、回す側が挙げた事実は再現しなかったので退ける", "units": []}, None)
-    outs = {("p3.fix", 3): {"rejudge_requested": "x"}, ("p2.rejudge", 3): {"verdict": "退ける"}}
+    raising(rules, checks["rejudge_output"])(b, "p2.rejudge", {"verdict": "reject", "new_facts": "現物に当たって再現を試みたが、回す側が挙げた事実は再現しなかったので退ける", "units": []}, None)
+    outs = {("p3.fix", 3): {"rejudge_requested": "x"}, ("p2.rejudge", 3): {"verdict": "reject"}}
     h = types.SimpleNamespace(round=4, output=lambda nid, n: outs.get((nid, n)))
     check(b.loop_state == {} and rules.hist_prev_rejudge(h) is None,
           "採る／退けるで決着すれば、異議は次の周へ届かない（受け付けは盤面を書かない）")
 
 
 def test_stop_branch():
-    print("周の分岐: 検証器の判定行だけを見る（台帳の echo に停止文言が載っても分岐が化けない）")
+    print("周の分岐: 検証器の --json の stop（キー）だけを見る（人向けの文に停止文言が載っても分岐が化けない）")
     sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     rules = load_rules(PLUGIN / "graphs" / "review-loop.json", json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8")))
-    V = types.SimpleNamespace(STOP_PREMISE="前提不成立が確定（escalate）", STOP_WORK_EXHAUSTED="答え無しに進める仕事は無い")
-    echo = "収束を妨げるもの 1 件:\n  - [block] x — judge の key に『前提不成立が確定（escalate）』と書いた\n  - 台帳: 答え無しに進める仕事は無い、と書いた reason\n"
-    check(rules.stop_branch(V, 1, echo) == "work_remains", "字下げされた echo の行に停止文言が在っても work_remains（以前は全文の部分一致で premise_escalate に化けた）")
-    check(rules.stop_branch(V, 1, echo + V.STOP_PREMISE + "——残る仕事は全てその答えに従属する。\n") == "premise_escalate", "行頭の判定行なら premise_escalate")
-    check(rules.stop_branch(V, 1, echo + "残る阻害要因は保留の問いに帰属するものだけ（1 件）——" + V.STOP_WORK_EXHAUSTED + "。\n") == "work_exhausted", "行頭の判定行なら work_exhausted")
-    check(rules.stop_branch(V, 0, echo) == "converged", "exit 0 は出力に依らず converged")
+    V = types.SimpleNamespace(STOP_KEYS={"premise_escalate": "前提不成立が確定（escalate）", "work_exhausted": "答え無しに進める仕事は無い"})
+    text = "前提不成立が確定（escalate）——残る仕事は全てその答えに従属する。\n答え無しに進める仕事は無い\n"
+    check(rules.stop_branch(V, {"exit": 1, "out": text, "stop": None}) == "work_remains",
+          "人向けの文に停止文言が在っても、stop が null なら work_remains（以前は文の行を探して分岐した）")
+    check(rules.stop_branch(V, {"exit": 1, "out": "", "stop": "premise_escalate"}) == "premise_escalate", "stop のキーで premise_escalate")
+    check(rules.stop_branch(V, {"exit": 1, "out": "", "stop": "work_exhausted"}) == "work_exhausted", "stop のキーで work_exhausted")
+    check(rules.stop_branch(V, {"exit": 0, "out": text, "stop": None}) == "converged", "exit 0 は出力に依らず converged")
+    try:
+        rules.stop_branch(V, {"exit": 1, "out": "", "stop": "premise"})
+        unknown = None
+    except ValueError as e:
+        unknown = e
+    check(unknown is not None, "知らない stop のキーは止める（黙って work_remains に倒さない）")
+    try:
+        rules.stop_branch(V, {"exit": 1, "out": text})
+        missing = None
+    except ValueError as e:
+        missing = e
+    check(missing is not None, "stop の無い結果（--json で回していない）は止める（文を読んで推し量らない）")
 
 
 def test_ci_red_runaway():
@@ -5788,13 +5802,13 @@ def test_cond_truth_tables():
         "request_entry": [(c(), False), (c(entry=True), True), (c(entry=True, loop={"request_fixed_at": 1}), False),
                           ({"record": {"process": {"request_entry": "文字列"}}}, False)],
         "not_request_entry": [(c(), True), (c(entry=True), False), (c(entry=True, loop={"request_fixed_at": 1}), True)],
-        "purpose_review_due": [(c(), "die"), (c(purpose={"source": "②計画・タスク記述"}), False),
-                               (c(purpose={"source": "③writer の要約"}), True), (c(2, purpose={"source": "③writer の要約", "source_files": []}), False),
-                               (c(2, head=["d.md"], purpose={"source": "③writer の要約", "source_files": ["d.md"]}), True),
+        "purpose_review_due": [(c(), "die"), (c(purpose={"source": "plan"}), False),
+                               (c(purpose={"source": "writer_summary"}), True), (c(2, purpose={"source": "writer_summary", "source_files": []}), False),
+                               (c(2, head=["d.md"], purpose={"source": "writer_summary", "source_files": ["d.md"]}), True),
                                # 周の頭の出力にフィールドの無い旧い盤面は、出典を触った側（監査を走り直す側）に倒す
-                               (c(2, cur={"p1.worktree_before": {"ok": True}}, purpose={"source": "③writer の要約", "source_files": ["d.md"]}), True),
-                               (c(2, purpose={"source": "③writer の要約", "source_files": []},
-                                  record={"process": {"purpose_review": {"verdict": "狭めている", "findings": ["素の文字列"]}}}), True)],
+                               (c(2, cur={"p1.worktree_before": {"ok": True}}, purpose={"source": "writer_summary", "source_files": ["d.md"]}), True),
+                               (c(2, purpose={"source": "writer_summary", "source_files": []},
+                                  record={"process": {"purpose_review": {"verdict": "narrows", "findings": ["素の文字列"]}}}), True)],
         "prior_decisions_due": [(c(), True), (c(2), False), (c(2, fix={"decision_records_changed": True}), True),
                                 (c(2, **touched), True), (c(2, loop={"escalated": {"round": 2}}), True), (c(2, loop={"escalated": []}), False)],
         "external_standards_due": [(c(), True), (c(entry=True), False), (c(2), False), (c(2, fix={"mechanism_changed": True}), True),
@@ -5898,12 +5912,12 @@ def test_cond_truth_tables():
         "rejudge_open": [(c(3), False), (c(3, cur={"p3.fix": {"rejudge_requested": "異議"}}), True),
                          (c(3, out={"p3.fix": {"rejudge_requested": "前の周の異議"}}), False),
                          (c(3, loop={"rejudge_requested": {"round": 3, "text": "旧い loop の異議"}}), False)],
-        "rejudge_reply_due": [(c(3, cur={"p2.rejudge": {"verdict": "一部採る"}}), True), (c(3, cur={"p2.rejudge": {"verdict": "退ける"}}), False), (c(3), False)],
+        "rejudge_reply_due": [(c(3, cur={"p2.rejudge": {"verdict": "partial"}}), True), (c(3, cur={"p2.rejudge": {"verdict": "reject"}}), False), (c(3), False)],
         "rejudge2_open": [(c(3, cur={"p3.rejudge_reply": {"rejudge_requested": "再異議"}}), True), (c(3, cur={"p3.rejudge_reply": {"reason": "取り下げ"}}), False)],
-        "rejudge_reply2_due": [(c(3, cur={"p2.rejudge2": {"verdict": "一部採る"}}), True), (c(3, cur={"p2.rejudge2": {"verdict": "採る"}}), False)],
+        "rejudge_reply2_due": [(c(3, cur={"p2.rejudge2": {"verdict": "partial"}}), True), (c(3, cur={"p2.rejudge2": {"verdict": "accept"}}), False)],
         "rejudge3_open": [(c(3, cur={"p3.rejudge_reply2": {"rejudge_requested": "再異議"}}), True), (c(3), False)],
         "rejudge_exhausted": [(c(3, cur={"p3.fix": {"rejudge_requested": "異議"}}), False),
-                              (c(3, cur={"p2.rejudge3": {"verdict": "一部採る"}}), True), (c(3, cur={"p2.rejudge3": {"verdict": "退ける"}}), False)],
+                              (c(3, cur={"p2.rejudge3": {"verdict": "partial"}}), True), (c(3, cur={"p2.rejudge3": {"verdict": "reject"}}), False)],
         "touches_procedures": [(c(**changed(["scripts/x.py"])), True), (c(**changed(["a.py"])), False), (c(), False)],
         "gates_touched": [(c(base={"touches_gates": True}), True), (c(base={"touches_gates": False}, fix={"gates_changed": True}), True),
                           (c(base={"touches_gates": False}), False)],
@@ -6645,8 +6659,8 @@ def test_human_gate():
             r = run_.done(inst["id"], bad)
             seen["delta"] = (r.returncode, r.stderr)
         if inst["node"] == "r4.hidden_scope":
-            return {**out, "capability_inventory": {"fired": True, "lost": ["呼び元の上限なしの経路（検査用 LOST-1）"]},
-                    "policy_conflicts": ["期限を足した（検査用 CONFLICT-1）"]}
+            return {**out, "capability_inventory": {"fired": True, "lost": [{"text": "呼び元の上限なしの経路（検査用 LOST-1）"}]},
+                    "policy_conflicts": [{"text": "期限を足した（検査用 CONFLICT-1）"}]}
         return None
 
     last = drive(run, "std", hook=hook)

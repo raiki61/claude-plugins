@@ -1,18 +1,18 @@
 {
   "question": "LLM が実行する手順書の手続き規則を、散文からスクリプト・報告スキーマ・実走記録へ移す構成変更は、信頼性と保守性を上げるか",
-  "thickness": "標準",
-  "thickness_decider": "既定",
+  "thickness": "standard",
+  "thickness_decider": "default",
   "constraints": [
     {
       "text": "対象は手順書 3 本（171〜316 行の散文）。機械実行部は 1 箇所のみ",
       "source": "2026-08-16 に wc -l で実測（doctor-loop 254・research-loop 316・review-loop 171）",
-      "origin": "独立出典",
+      "origin": "independent",
       "breaks_if_false": "処方の対象自体が変わる"
     },
     {
       "text": "実走で観測した失敗は欠落型（必須フィールド・数値の出所・語彙定義）で、初見検査の再検査が上限に到達",
       "source": "2026-08-15/16 の実走記録",
-      "origin": "独立出典",
+      "origin": "independent",
       "breaks_if_false": "失敗が別の型なら処方（スキーマによる欠落の可視化）が変わる"
     }
   ],
@@ -25,7 +25,7 @@
       "id": "L1",
       "cluster": "llm-limits",
       "claim": "長い入力の中間に置かれた情報の利用は性能が著しく下がる（Lost in the Middle）",
-      "verdict": "確証",
+      "verdict": "confirmed",
       "load_bearing": true,
       "refuted": true,
       "sources": ["https://arxiv.org/abs/2307.03172"],
@@ -35,7 +35,7 @@
       "id": "L2",
       "cluster": "llm-limits",
       "claim": "同時に課す制約の数が増えるほど全制約の同時充足率が下がる（IFEval が実測）",
-      "verdict": "留保",
+      "verdict": "qualified",
       "load_bearing": true,
       "refuted": false,
       "sources": ["https://arxiv.org/abs/2310.20410"],
@@ -45,7 +45,7 @@
       "id": "S1",
       "cluster": "structured-agents",
       "claim": "公式ガイダンスはワークフロー（事前定義のコード経路）とエージェントを区別し、明確なタスクには前者を推奨",
-      "verdict": "確証",
+      "verdict": "confirmed",
       "load_bearing": true,
       "refuted": true,
       "sources": ["https://www.anthropic.com/engineering/building-effective-agents"],

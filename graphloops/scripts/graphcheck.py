@@ -32,15 +32,14 @@
      hist. は rules の HIST と graph の hist_schema の木で最後のフィールドまで
      ——state_schema の無い graph は鍵の 1 段目だけ。条件の関数の本体が読んだ値を添字で辿る所は照合しない。rd. は周の鍵、record. は
      記録を書く宣言、inputs. は graph の inputs の宣言・init の旗・cwd で下のフィールドを持たない）、same_context_as の役が一致し遮断系でない、
-     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated / launch.tooled / launch.delegate の argv・resume・via の
-     穴が engine の埋める語（LAUNCH_HOLES）だけで、resume は {session_id} を持ち、model / effort は遮断系の役の定義に在り、
-     via が指す実体が同梱されている、resume_on_reject が 0 以上の整数
+     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.<形> が起動する語（argv・resume・via）を持たない
+     （語の正本は engine/launch_words.py）、model / effort が遮断系の役の定義に在り、前置の層の実体が同梱されている、resume_on_reject が 0 以上の整数
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
  14. 回す側の任せ先（delegate）: delegate は回す側のノードにだけ・skills を持つノードには書けない（入れ子の委任）。
      走らせるだけのノード（engine_run）は回す側のノードにだけ・名前が rules の ENGINE_RUNS に在り plan と reply を持つ。
      background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景のノードをほかのノードが待たない（deps・instance_deps）。
      {{node.<フィールド>}} は engine が埋めるフィールド（skills）だけ
-     背景のノードは delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つノードが在れば launch.delegate.argv が在る。
+     背景のノードは delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つノードが在れば launch.delegate が在る。
      delegate.receipt（背景のノードの受領の形）は、{result_path} を埋めた値がノードの schema に合う object。
      launch.append の段は当て先の語（APPEND_TO）と在るファイルで書き、段の穴は当たるノードの本文と reads に入ってノードの穴と同じ照合に
      通る（advance.node_appends・render.node_prompt の segs）。段と同じファイルをノードの prompt_append に書かない（重ねて貼らない）。
@@ -94,8 +93,9 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of, runner_node  # noqa: E402
 from engine.effects import REDUCER_KEY, REDUCERS, declares_reducers  # noqa: E402
 from engine.hist import LOOKUP_HEADS as HIST_LOOKUP_HEADS  # noqa: E402
-from engine.advance import (APPEND_TO, ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS, agent_type_in, fill_receipt, narrowed_def, node_appends,  # noqa: E402
+from engine.advance import (APPEND_TO, ENGINE_PRE, NARROW_TOOLS, agent_type_in, fill_receipt, narrowed_def, node_appends,  # noqa: E402
                             node_reads, tooled_launchable)
+from engine import launch_words  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import DOC_NODE_KEYS, ENGINE_NODE_KEYS, extends_path, end_anchored, load_graph, schema_at, unknown_keywords, walk_schema  # noqa: E402
 DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
@@ -949,6 +949,15 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         if th.get("default") not in tiers:
             ok, bad5 = False, True
             emit(f"NG thickness.default '{th.get('default')}' が tiers に無い")
+        # 表示の語の表（labels）は、段と decider のキーをちょうど覆い、語が 1 つのキーにだけ戻る（init と thicken が語をキーに直す）
+        labels = th.get("labels")
+        if labels is not None:
+            keys = set(tiers) | set((th.get("deciders") or {}).values())
+            words = list(labels.values()) if isinstance(labels, dict) else []
+            if (not isinstance(labels, dict) or set(labels) != keys or not all(isinstance(w, str) and w for w in words)
+                    or len(set(words)) != len(words) or keys & set(words)):
+                ok, bad5 = False, True
+                emit(f"NG thickness.labels は段と decider のキー {sorted(keys)} ちょうどから、重ならない表示の語へ引く表")
         if not bad5:
             emit(f"ok  段名は thickness.tiers {tiers} の中（active_in・max_rounds_by_thickness・default）")
 
@@ -1049,8 +1058,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             # skill（/simplify・/code-review）は中でさらに役を背景で起動する。任せ先の役越しに呼ぶと、孫の完了の知らせが
             # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
             errs.append(f"ノード {k}: skills を持つノードに delegate は書けない——skill は回す側（最上位のセッション）が自分で呼ぶ（入れ子の委任は完了の知らせが届かない）")
-    if any(isinstance(v.get("delegate"), dict) for v in nodes.values()) and not (g.get("launch", {}).get("delegate") or {}).get("argv"):
-        errs.append("任せ先（delegate）を持つノードが在るのに launch.delegate.argv が無い——任せ先を sandbox で縛って起動できない"
+    if any(isinstance(v.get("delegate"), dict) for v in nodes.values()) and not (g.get("launch") or {}).get("delegate"):
+        errs.append("任せ先（delegate）を持つノードが在るのに launch.delegate が無い——任せ先を sandbox で縛って起動できない"
                     "（Agent ツールで起動すると本物の作業ツリーと .git に書ける）")
     pr = g.get("deliver", {}).get("paste_roles")
     if pr is not None and not (isinstance(pr, list) and all(isinstance(t, str) and ":" in t for t in pr)):
@@ -1064,8 +1073,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     # CLAUDE.md 階層を注入し、止める設定が公式に無い——遮断が名ばかりになる（実測 2026-09-12）。
     isolated = sorted(r for r in agents if agent_tools(f"{g.get('plugin')}:{r}") == [])
     used = {v.get("run_by") for v in nodes.values()} | {v.get("agent_type", "").rpartition(":")[2] for v in nodes.values()}
-    if isolated and (used & set(isolated)) and not (g.get("launch", {}).get("isolated", {}).get("argv")):
-        errs.append(f"ツールゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
+    if isolated and (used & set(isolated)) and not (g.get("launch") or {}).get("isolated"):
+        errs.append(f"ツールゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated が無い"
                     "——Agent ツールで起動すると CLAUDE.md が注入され、遮断が成立しない")
     launch = g.get("launch") or {}
     runner_spec = launch.get("runner") or {}
@@ -1102,43 +1111,33 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         tools = narrow.get("tools") if isinstance(narrow, dict) else None
         if not (isinstance(tools, list) and tools and set(tools) <= set(NARROW_TOOLS)) or not narrow.get("model") or not narrow.get("effort"):
             errs.append(f"launch.tooled.narrow は {{tools（{list(NARROW_TOOLS)} の中）, model, effort}}——engine の上限の外の値は狭める形として使われない")
-    for kind in ("isolated", "isolated_read", "tooled", "delegate", "runner"):
-        spec = launch.get(kind) or {}
-        if not spec:
+    for a in launch_words.VIA:
+        # 前置の層の実体が同梱されているか。**実行時にしか出ない落ち方**——launch が起動した瞬間に
+        # python が「そんなファイルは無い」で落ち、役の返答が空のまま拒まれるだけになる。
+        # plugin_root しか穴が無い語は検査の時点で埋まる（{python} は実行時にしか決まらないので触らない）
+        if "{plugin_root}" in a and "{" not in a.replace("{plugin_root}", ""):
+            p = pathlib.Path(a.format(plugin_root=PLUGIN_ROOT))
+            if not p.is_file():
+                errs.append(f"engine の前置の層 {p} が無い（プラグインに同梱されていない）")
+    for kind in launch_words.KINDS:
+        spec = launch.get(kind)
+        if spec is None:
             continue
-        via = spec.get("via")
-        if via is not None and not (isinstance(via, list) and all(isinstance(a, str) for a in via)):
-            errs.append(f"launch.{kind}.via は解決した argv の前に置く語の一覧（文字列の配列）")
-            via = None
-        for a in via or []:
-            # via が指す実体が同梱されているか。**実行時にしか出ない落ち方**——launch が起動した瞬間に
-            # python が「そんなファイルは無い」で落ち、役の返答が空のまま拒まれるだけになる。
-            # plugin_root しか穴が無い語は検査の時点で埋まる（他の穴を含む語は実行時にしか決まらないので触らない）
-            if "{plugin_root}" in a and "{" not in a.replace("{plugin_root}", ""):
-                p = pathlib.Path(a.format(plugin_root=PLUGIN_ROOT))
-                if not p.is_file():
-                    errs.append(f"launch.{kind}.via が指す {p} が無い（プラグインに同梱されていない）")
-        for part in ("argv", "resume"):
-            words = spec.get(part)
-            if words is None and part == "resume":
-                continue
-            if not (isinstance(words, list) and words and all(isinstance(a, str) for a in words)):
-                errs.append(f"launch.{kind}.{part} は起動する語の一覧（空でない文字列の配列）")
-                continue
-            # 起動の穴は engine の launch_spec が埋める語だけ（LAUNCH_HOLES）。知らない穴は format の KeyError
-            holes = {m.group(1) for a in words + list(via or []) for m in re.finditer(r"\{(\w+)\}", a)}
-            unknown = holes - set(LAUNCH_HOLES)
-            if unknown:
-                errs.append(f"launch.{kind}.{part} / via の穴 {sorted(unknown)} を engine は埋められない（埋めるのは {list(LAUNCH_HOLES)}）")
-            if part == "resume" and "session_id" not in holes:
-                errs.append(f"launch.{kind}.resume に {{session_id}} が無い——続ける会話を名指ししない語は同じ会話を続けない")
-            if kind in ("isolated", "isolated_read") and isolated and (used & set(isolated)):
-                # model / effort は役の定義から埋めるので定義に無ければ die——実行時にしか出ない不変条件を静的に見る
-                for r in sorted(used & set(isolated)):
-                    d = agent_def(f"{g.get('plugin')}:{r}") or {}
-                    for k in ("model", "effort"):
-                        if k in holes and not d.get(k):
-                            errs.append(f"遮断系の役 {r} の定義に '{k}' が無いが launch.{kind}.{part} が {{{k}}} を使う（実行時の die を静的にも見る）")
+        if not isinstance(spec, dict):
+            errs.append(f"launch.{kind} は object（形ごとの前置きの文・モデルなど。起動する語は engine が持つ）")
+            continue
+        # 起動する語は engine が 1 か所で持つ（engine/launch_words.py。チェックの許可表も同じ所から組む）——graph に書いても効かない
+        held = sorted(k for k in ("argv", "resume", "via") if k in spec)
+        if held:
+            errs.append(f"launch.{kind} の {held} は書けない——起動する語は engine が持つ（engine/launch_words.py）。graph の語は効かない")
+        if kind in ("isolated", "isolated_read") and isolated and (used & set(isolated)):
+            # model / effort は役の定義から埋めるので定義に無ければ die——実行時にしか出ない不変条件を静的に見る
+            holes = {m.group(1) for a in launch_words.argv(kind) for m in re.finditer(r"\{(\w+)\}", a)}
+            for r in sorted(used & set(isolated)):
+                d = agent_def(f"{g.get('plugin')}:{r}") or {}
+                for k in ("model", "effort"):
+                    if k in holes and not d.get(k):
+                        errs.append(f"遮断系の役 {r} の定義に '{k}' が無いが launch.{kind} の起動する語が {{{k}}} を使う（実行時の die を静的にも見る）")
     ror = launch.get("resume_on_reject", 0)
     if not (isinstance(ror, int) and not isinstance(ror, bool) and ror >= 0):
         errs.append(f"launch.resume_on_reject は 0 以上の整数（{ror!r}）")
@@ -1174,8 +1173,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         if not (loop_ok or (isinstance(rf, str) and _hist_field(rf))):
             errs.append(f"{nid}: read_file {rf!r} は盤面の loop の鍵 1 つ（loop.<state_schema の鍵>）か、履歴から作る値のフィールド 1 つ"
                         "（hist.<hist_schema の名>.<その形が宣言するフィールド>）——写すファイルの置き場はそこから引く")
-        if not (launch.get("isolated_read") or {}).get("argv"):
-            errs.append(f"{nid}: read_file を宣言するのに launch.isolated_read.argv が無い")
+        if not launch.get("isolated_read"):
+            errs.append(f"{nid}: read_file を宣言するのに launch.isolated_read が無い")
     rules = load_rules(gpath, g)
     rules_unreadable = isinstance(rules, str)
     if rules_unreadable:

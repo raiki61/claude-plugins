@@ -72,3 +72,24 @@ def test_success_envelope_without_result_is_broken():
     raw = json.dumps({"type": "result", "subtype": "success", "session_id": "s-3"}).encode("utf-8")
     text, summary, bad = unwrap(raw)
     assert text is None and bad == "包みに result が無い（subtype=success）" and summary["session_id"] == "s-3"
+
+
+# --- --json-schema で起動した子: 本文は structured_output で、result の文は読まない
+def test_structured_output_is_the_body_not_the_result_text():
+    text, summary, bad = unwrap(envelope(result="判定は次のとおり", structured_output={"findings": [], "注": "日本語"}), structured=True)
+    assert bad is None and json.loads(text) == {"findings": [], "注": "日本語"} and summary["session_id"] == "s-1"
+
+
+@pytest.mark.parametrize("raw,want", [
+    pytest.param(envelope(), "--json-schema で起動したのに包みに structured_output が無い（subtype=success）", id="no-structured"),
+    pytest.param(b'{"findings": []}', "--json-schema で起動したのに標準出力が --output-format json の包みでない", id="not-envelope"),
+])
+def test_structured_launch_without_structured_output_is_not_a_body(raw, want):
+    text, _summary, bad = unwrap(raw, structured=True)
+    assert text is None and bad == want
+
+
+def test_structured_retries_exhausted_is_an_error():
+    raw = envelope(subtype="error_max_structured_output_retries", is_error=True, errors=["schema mismatch"])
+    text, _summary, bad = unwrap(raw, structured=True)
+    assert text is None and "error_max_structured_output_retries" in bad

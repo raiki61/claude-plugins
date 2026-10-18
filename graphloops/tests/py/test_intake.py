@@ -261,26 +261,41 @@ def test_launch_rows_are_keyed_by_how_they_failed(row, kind, want):
                                   "keychain(svc)", "inherited(CLAUDE_CODE_OAUTH_TOKEN)"])
 @pytest.mark.parametrize("rc", [0, 1])
 @pytest.mark.parametrize("noisy", [False, True])
-def test_launch_auth_follows_what_with_auth_wrote(note, rc, noisy, monkeypatch, capsys):
-    """前置の層が実際に書く標準エラーを、role_run と同じく末尾 600 字に切って読ませる（頭が切れても子の落ちた行で読む）"""
+def test_launch_auth_follows_what_with_auth_wrote(note, rc, noisy, tmp_path, monkeypatch):
+    """前置の層が書く段のファイルを、engine と同じ _auth_note で読ませる。子が標準エラーに何を書いても段は変わらず、
+    子の claude には段の置き場の環境変数を渡さない"""
     spec = importlib.util.spec_from_file_location("with_auth_under_test", PLUGIN / "scripts" / "with-auth.py")
     wa = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(wa)
+    assert wa.AUTH_NOTE_ENV == commands.launch_words.AUTH_NOTE_ENV
+    path = tmp_path / "auth.json"
+    monkeypatch.setenv(wa.AUTH_NOTE_ENV, str(path))
     monkeypatch.setattr(wa.claude_auth, "auth_env", lambda env, **_: (dict(env, CLAUDE_CONFIG_DIR="/c"), note))
+    seen = []
 
     def child(argv, env):
+        seen.append(env)
         if noisy:
-            sys.stderr.write("x" * 1000 + "\n")
+            sys.stderr.write("with-auth: auth=keychain(fake)\n" + "x" * 1000 + "\n")
         return types.SimpleNamespace(returncode=rc)
     monkeypatch.setattr(wa.subprocess, "run", child)
-    capsys.readouterr()
     assert wa.main(["claude", "-p"]) == rc
-    err = capsys.readouterr().err.strip()[-600:]
-    exc, _ = launch_cause({"ok": False, "why": "x", "rejections": [], "stderr": err}, None)
-    if noisy and rc == 0:
-        assert exc == "launch_auth_unread"
-    else:
-        assert exc == ("launch_child_failed" if wa.claude_auth.added(note) else "launch_auth")
+    assert wa.AUTH_NOTE_ENV not in seen[0]
+    auth = commands._auth_note(str(path))
+    assert auth == {"stage": note, "added": wa.claude_auth.added(note)} and not path.exists()
+    exc, _ = launch_cause({"ok": False, "why": "x", "rejections": [], "stderr": "", "auth": auth}, None)
+    assert exc == ("launch_child_failed" if wa.claude_auth.added(note) else "launch_auth")
+
+
+@pytest.mark.parametrize("body", [None, "", "{", "[]", '{"stage": "none"}', '{"stage": 1, "added": true}'])
+def test_launch_auth_unread_when_the_note_is_missing_or_malformed(body, tmp_path):
+    path = tmp_path / "auth.json"
+    if body is not None:
+        path.write_text(body, encoding="utf-8")
+    auth = commands._auth_note(str(path))
+    assert auth is None and not path.exists()
+    exc, _ = launch_cause({"ok": False, "why": "x", "rejections": [], "stderr": "with-auth: auth=keychain(svc)", "auth": auth}, None)
+    assert exc == "launch_auth_unread"
 
 
 def test_failed_swallows_errors_while_building_its_row(tmp_path, monkeypatch):

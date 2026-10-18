@@ -65,7 +65,8 @@ def boards(cwd):
                 return []
             if not line.startswith("gitdir:"):
                 return []
-            g = pathlib.Path(line.split(":", 1)[1].strip())
+            # 相対の gitdir:（`worktree add --relative-paths`・worktree.useRelativePaths が書く）は .git のファイルの在る所から解く
+            g = d / pathlib.Path(line.split(":", 1)[1].strip())
         out = []
         try:
             for cur in sorted((g / "graphloops").glob("*/current")):

@@ -38,7 +38,7 @@
    "claims": [
     {
      "id": "B",
-     "verdict": "確証",
+     "verdict": "confirmed",
      "sources": [
       "_s3_xxxxxxx"
      ],
@@ -81,7 +81,7 @@
      "new_discrepancies": 0
     }
    ],
-   "thickness": "標準",
+   "thickness": "standard",
    "inputs": {},
    "outputs": {
     "p3.rederiver": {
@@ -98,7 +98,7 @@
    "findings": [
     {
      "id": "B",
-     "verdict": "確証",
+     "verdict": "confirmed",
      "evidence": "再検証",
      "sources": [
       "_s4_xxxxxxx"

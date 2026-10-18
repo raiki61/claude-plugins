@@ -195,10 +195,10 @@ def test_concurrent_writers_lose_nothing(review, tmp_path):
     repo, d = review
     assert loop(repo, "run", "--foreground", "--dir", str(d)).returncode == 13
     head = git(repo, "rev-parse", "HEAD").strip()
-    base = done_file(tmp_path, "base", {"base_sha": head, "method": "4 依頼者の名指し", "commits": 0, "merge_commit": False, "intent_to_add": [],
+    base = done_file(tmp_path, "base", {"base_sha": head, "method": "named", "commits": 0, "merge_commit": False, "intent_to_add": [],
                                         "touches_gates": False, "touches_external_seams": False, "touches_user_path": False,
                                         "touches_security_surface": False, "material": {"status": "clean", "checked": "検査"}})
-    prem = done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "仮説"}]})
+    prem = done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "hypothesis"}]})
     add = done_file(tmp_path, "add", [{"where": "a.py", "text": "検査の依頼"}])
     rev0 = json.loads((d / "state.json").read_text(encoding="utf-8"))["rev"]
     cmds = [["done", "--node", "p0.base", "--output", str(base)], ["done", "--node", "p0.premises", "--output", str(prem)],
@@ -218,11 +218,11 @@ def test_done_and_emit_stamp_the_board_revision_they_read(review, tmp_path):
     （commands._in_interval）"""
     repo, d = review
     assert loop(repo, "run", "--foreground", "--dir", str(d)).returncode == 13
-    base = done_file(tmp_path, "base", {"base_sha": git(repo, "rev-parse", "HEAD").strip(), "method": "4 依頼者の名指し", "commits": 0,
+    base = done_file(tmp_path, "base", {"base_sha": git(repo, "rev-parse", "HEAD").strip(), "method": "named", "commits": 0,
                                         "merge_commit": False, "intent_to_add": [], "touches_gates": False, "touches_external_seams": False,
                                         "touches_user_path": False, "touches_security_surface": False,
                                         "material": {"status": "clean", "checked": "検査"}})
-    prem = done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "仮説"}]})
+    prem = done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "hypothesis"}]})
     rev0 = json.loads((d / "state.json").read_text(encoding="utf-8"))["rev"]
     for node, f in (("p0.base", base), ("p0.premises", prem)):
         r = loop(repo, "done", "--node", node, "--output", str(f), "--dir", str(d))
@@ -347,6 +347,28 @@ def test_runner_hands_the_same_try_to_human_when_launch_marks_nothing(fake):
     put(d, state(inst("a", launch=ROLE)))
     kind, r = runner.run_as_runner(d)
     assert kind == "stuck" and "起動せずに終わった" in r.detail
+
+
+@pytest.mark.parametrize("body", ["{", '{"pgid": 1}', '{"pgid": 1, "ids": "a"}'])
+def test_runner_stops_on_an_unreadable_launch_mark_without_erasing_it(fake, body):
+    """読めない回し手の印（壊れた JSON・ids の無い印）は、待ち続けも消しもせず、印を残して止まる——消すと中の試行を誰も拾い直さない"""
+    d, _ = fake
+    put(d, state(inst("a")))
+    marks = d / runner.MARKS
+    marks.mkdir()
+    (marks / "999999.json").write_text(body, encoding="utf-8")
+    kind, r = runner.run_as_runner(d)
+    assert kind == "stuck" and "読めない" in r.detail and (marks / "999999.json").is_file()
+
+
+def test_report_shows_an_unreadable_record_instead_of_reading_it_as_empty(fake, capsys):
+    """壊れた record.json は空の記録として読まず、報告の unreadable に出す"""
+    d, _ = fake
+    put(d, state(inst("a")))
+    (d / "record.json").write_text("{", encoding="utf-8")
+    runner.report(d, "stuck", runner.classify(runner.read_state(d)))
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert len(out["unreadable"]) == 1 and "record.json" in out["unreadable"][0]
 
 
 def test_runner_picks_up_a_crashed_launch(fake):

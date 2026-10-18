@@ -19,7 +19,7 @@
  "command": {
   "exit": 1,
   "out": "",
-  "err": "NG refuter の整合: mode=confirm では upheld=True と verdict=相違 が食い違う（確証が崩れなければ upheld=true・verdict=確証）\n"
+  "err": "NG refuter の整合: mode=confirm では upheld=True と verdict=contradicted が食い違う（確証が崩れなければ upheld=true・verdict=confirmed）\n"
  },
  "record": {},
  "board": {}

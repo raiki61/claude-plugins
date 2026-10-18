@@ -390,6 +390,30 @@ ENGINE_NODE_KEYS = frozenset({
 DOC_NODE_KEYS = frozenset({"note", "does", "source", "stage"})
 
 
+# engine だけが読む語（JSON Schema の語彙に無い）。役の子へ --json-schema で渡すときは外す（cli_schema）
+ENGINE_ONLY_KEYWORDS = frozenset({"note", "x-reducer"})
+
+
+def cli_schema(schema):
+    """ノードの schema を、claude の --json-schema に渡す形にした写し——engine だけが読む語（ENGINE_ONLY_KEYWORDS）を外す。
+    claude は渡された schema を JSON Schema として検め、読めない schema では起動しない（公式の headless 文書の「Get structured output」）。
+    外すのは schema の語の位置だけで、properties・patternProperties の下のフィールドの名前（note という名のフィールド）は残す。
+    受け付けの正本は engine の validate_schema のままで（minLength は前後の空白を除いて測るなど、engine の読みの方が厳しい所がある）、
+    子の側の照合は返答の形を先に揃えるだけ"""
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for k, v in schema.items():
+        if k in ENGINE_ONLY_KEYWORDS:
+            continue
+        if k in ("properties", "patternProperties") and isinstance(v, dict):
+            v = {name: cli_schema(sub) for name, sub in v.items()}
+        elif k in ("items", "additionalProperties") and isinstance(v, dict):
+            v = cli_schema(v)
+        out[k] = v
+    return out
+
+
 def unknown_keywords(schema, path="$"):
     """schema の中で engine が読まない語を列挙する（空なら全部効く語）。"""
     return [f"{p}: '{k}'" for p, s in walk_schema(schema, path) for k in s if k not in KNOWN_KEYWORDS]

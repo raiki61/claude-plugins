@@ -162,7 +162,9 @@ def material_name_typo(g, sandbox):
                  id="read-file-typo"),
     pytest.param(lambda g, s: g["nodes"]["p1.hygiene"].__setitem__("read_file", "loop.diff_file"), "read_file 'loop.diff_file' は",
                  id="read-file-undeclared-loop-key"),
-    pytest.param(lambda g, s: g["launch"].pop("isolated_read"), "launch.isolated_read.argv が無い", id="read-file-no-launch"),
+    pytest.param(lambda g, s: g["launch"].pop("isolated_read"), "launch.isolated_read が無い", id="read-file-no-launch"),
+    pytest.param(lambda g, s: g["launch"]["isolated"].__setitem__("argv", ["claude", "-p"]), "は書けない——起動する語は engine が持つ",
+                 id="graph-holds-launch-words"),
     pytest.param(lambda g, s: g["launch"].__setitem__("read_room_bytes", g["launch"]["input_budget_bytes"]), "read_room_bytes は",
                  id="read-room-eats-budget"),
 ])

@@ -129,8 +129,8 @@
        "origin": {
         "type": "string",
         "enum": [
-         "独立出典",
-         "surveyor自書"
+         "independent",
+         "surveyor_written"
         ]
        },
        "breaks_if_false": {
@@ -146,16 +146,16 @@
     "thickness": {
      "type": "string",
      "enum": [
-      "軽量",
-      "標準",
-      "重厚"
+      "light",
+      "standard",
+      "heavy"
      ]
     },
     "thickness_decider": {
      "type": "string",
      "enum": [
-      "依頼者指定",
-      "既定"
+      "requester",
+      "default"
      ]
     },
     "thickness_reason": {

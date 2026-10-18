@@ -20,7 +20,7 @@
   "out": {
    "status": "stopped",
    "round": 2,
-   "thickness": "標準",
+   "thickness": "standard",
    "run_id": "_s3_xxxxxxxxxxx",
    "ready": [
     {

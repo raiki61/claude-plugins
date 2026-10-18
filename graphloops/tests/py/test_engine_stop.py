@@ -73,14 +73,14 @@ def research_board(outcome=None, status="running", halted=None, rederiver=None, 
         "rederiver": rederiver or {"status": "not_applicable"}, "cold_reader": {"status": "not_applicable"},
         "cartographer": {"status": "not_applicable"}}, "sampling": {"status": "not_applicable"}, "process": {},
         "decisions": {"decide_now": ["d"], "poc": [], "human_only": []}, "convergence": {"outcome": outcome}, **rec_over}
-    state = {"thickness": "標準", "status": status}
+    state = {"thickness": "standard", "status": status}
     if halted:
         state["halted"] = halted
     return types.SimpleNamespace(record=rec, state=state, loop_state={}, round=1, nodes=RESEARCH["nodes"], latest_output=lambda nid: None)
 
 
 def test_research_initial_record_is_undecided():
-    conv = RULES.init_record("標準", "既定")["convergence"]
+    conv = RULES.init_record("standard", "default")["convergence"]
     assert conv["outcome"] is None and "stopped_reason" not in conv
 
 
@@ -104,7 +104,7 @@ def test_research_finalize_while_running_writes_nothing_until_the_board_stops():
 def test_research_load_zero_reason_comes_from_the_clusters_output():
     """荷重の主張が 0 件の理由は p0.clusters の返答が正本——仕上げはその出力から写し、loop に残った旧い写しは読まない"""
     b = research_board(outcome="stopped", status="stopped", halted={"by": "stop", "reason": "検査用"},
-                       claims=[{"id": "C1", "cluster": "k", "claim": "c", "load_bearing": False, "verdict": "確証"}],
+                       claims=[{"id": "C1", "cluster": "k", "claim": "c", "load_bearing": False, "verdict": "confirmed"}],
                        clusters=[{"key": "k", "claims_submitted": 1}])
     b.loop_state["load_zero_reason"] = "旧い写し"
     RULES.finalize(b)

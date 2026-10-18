@@ -18,8 +18,12 @@
 # 現れない（`git ls-files --others --exclude-standard` の守備範囲）。**「漏れがあれば必ず
 # 止まる」ではない**——止まるのは上の 1 条件だけで、それ以外は列挙で見せる。
 #
-# 使い方: bash comment-ratio.sh <BASE の SHA> [<比較先の ref>]
+# 使い方: bash comment-ratio.sh [--json] <BASE の SHA> [<比較先の ref>]
 #   比較先を省略すると作業ツリーと比べる。
+#   --json を付けると、標準出力に JSON の 1 個だけを出す（プログラムが読む口。graphloops の review-loop が使う）:
+#   {"scalars": {"added_lines": N, "comment_lines": N[, "comment_ratio_pct": N]}, "unmeasured": [未計測のファイル]}
+#   comment_ratio_pct は追加行が 0 のときだけ無い。付けないときの `scalars: k=v` の行は人と手順書の writer が読む物で、
+#   プログラムに読ませない（docs/standards/machine-readable-values.md の決まり 1）。
 #
 # 終了コード: 0 測れた / 2 測れなかった。**計測不成立を 0 で返すな**——「注釈 0%」と
 # 区別が付かず、測れていない数字がラウンド間の比較に混じる。
@@ -27,8 +31,13 @@ set -euo pipefail
 
 # `${1:?...}` は使わない——bash の既定で **exit 1** になり、下の「0 測れた / 2 測れなかった」の
 # 契約から外れる（引数が違うのは計測不成立であって、1 は契約に無い値）。
+JSON=0
+if [ "${1:-}" = "--json" ]; then
+    JSON=1
+    shift
+fi
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-    echo "comment-ratio: usage: comment-ratio.sh <BASE-sha> [<ref>]" >&2
+    echo "comment-ratio: usage: comment-ratio.sh [--json] <BASE-sha> [<ref>]" >&2
     exit 2
 fi
 BASE="$1"
@@ -39,8 +48,8 @@ REF="${2:-}"
 PY_BIN=$(command -v python3 || command -v python || true)
 [ -n "$PY_BIN" ] || { echo "comment-ratio: python3 / python が PATH に無い" >&2; exit 2; }
 
-"$PY_BIN" - "$BASE" "$REF" <<'PY'
-import re, subprocess, sys, io, tokenize
+"$PY_BIN" - "$BASE" "$REF" "$JSON" <<'PY'
+import json, re, subprocess, sys, io, tokenize
 
 # Windows の既定コンソール（cp932 等）では本文の記号を encode できずに落ちるため、
 # 出力を UTF-8 に固定する。落ちた場合の終了コードが、測れなかったことを示す 2 と
@@ -49,7 +58,7 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8")
 
-base, ref = sys.argv[1], sys.argv[2]
+base, ref, as_json = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
 
 # 認証待ちで固まる git 操作（credential helper のプロンプト等）で無制限に待たない。
 # 待ち続けると P4 が進まないまま止まる。メッセージからも参照するので定数で持つ。
@@ -215,13 +224,19 @@ def main():
                 "追加行が無いが未追跡の対象言語ファイルが在り、計測漏れと区別できない"
                 "（`git add -N` で載せてから測れ）: " + " ".join(missed)
             )
-        print(f"対象言語（{' '.join(EXTS)}）のファイルに追加行なし")
-        print("scalars: added_lines=0 comment_lines=0")
-        return
-    print(f"追加行 {total} / 注釈 {annotated} ({annotated * 100 // total}%)")
     # **規模の数値の名前もここが決める。** 名前を出さなかった頃は、写す側が周ごとにその場で名付け、同じ量が
-    # 3 回改名されて周の間の推移が作れなかった（実走の申し送り）。写す側はこの行の名前と値をそのまま使う
-    print(f"scalars: added_lines={total} comment_lines={annotated} comment_ratio_pct={annotated * 100 // total}")
+    # 3 回改名されて周の間の推移が作れなかった（実走の申し送り）。写す側はこの名前と値をそのまま使う
+    scalars = {"added_lines": total, "comment_lines": annotated}
+    if total:
+        scalars["comment_ratio_pct"] = annotated * 100 // total
+    if as_json:
+        print(json.dumps({"scalars": scalars, "unmeasured": missed}, ensure_ascii=False))
+        return
+    if total == 0:
+        print(f"対象言語（{' '.join(EXTS)}）のファイルに追加行なし")
+    else:
+        print(f"追加行 {total} / 注釈 {annotated} ({annotated * 100 // total}%)")
+    print("scalars: " + " ".join(f"{k}={v}" for k, v in scalars.items()))
     if missed:
         # 数えられているので止めない。ただし黙るな——この列挙が無いと、漏れのある数字と
         # 完全な数字が同じ出力になる（ラウンド間で比べる値なので差が意味を持つ）。

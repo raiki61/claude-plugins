@@ -63,10 +63,38 @@ def read_state(d):
 
 
 def _read_json(p, default):
+    """無いファイルだけを default に読む。在るのに読めない・壊れたファイルは BrokenFile で止める——壊れた印や記録を既定値に
+    読むと、「読めなかった」が「何も無かった」と同じに見える（標準 docs/standards/machine-readable-values.md の決まり 4）"""
     try:
-        return json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = pathlib.Path(p).read_text(encoding="utf-8")
+    except FileNotFoundError:
         return default
+    except (OSError, ValueError) as e:
+        raise BrokenFile(p, e) from e
+    try:
+        return json.loads(text)
+    except ValueError as e:
+        raise BrokenFile(p, e) from e
+
+
+class BrokenFile(Exception):
+    def __init__(self, path, err):
+        super().__init__(f"{path} が読めない（{type(err).__name__}: {err}）")
+        self.path = path
+
+
+_ABSENT = object()
+
+
+def _mark_ids(mark):
+    """回し手の印（spawn_launch が書く {pgid, ids}）の試行の一覧。印が無ければ None、形が違えば BrokenFile"""
+    m = _read_json(mark, _ABSENT)
+    if m is _ABSENT:
+        return None
+    ids = m.get("ids") if isinstance(m, dict) else None
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        raise BrokenFile(mark, ValueError(f"ids が文字列のリストでない: {ids!r}"))
+    return ids
 
 
 def _last(i, key):
@@ -183,6 +211,7 @@ class _Runner:
         self.signum = None
         self.recovered = set()   # この回し手が一度起動し直した instance（同じ物が 2 度落ちたら人に渡す）
         self.detail = None
+        self.broken = None       # 読めない回し手の印（inherited が見つけたら、拾い直さずに止める）
         self.attempts = {}       # 立てた launch に渡した試行の番号（launch の後も同じ番号のまま印が無ければ、起動していない）
         self.lanes = []          # 切り離して立てた線の launch（待たない。終わった物は回収だけする）
 
@@ -197,7 +226,8 @@ class _Runner:
             p = subprocess.Popen([sys.executable, str(LOOP), "launch", "--dir", str(self.d)], stdin=subprocess.DEVNULL,
                                  stdout=log, stderr=log, **_detached())
         mark = self.marks / f"{p.pid}.json"
-        mark.write_text(json.dumps({"pgid": p.pid, "ids": ids}), encoding="utf-8")   # 形は role_run.probe_group が読む印と同じ
+        # 形は role_run.probe_group が読む印と同じ。途中で落ちても半端な印を残さないよう、一時ファイルから置き換える
+        _write_atomic(mark, {"pgid": p.pid, "ids": ids})
         self.child = (p, ids, mark)
         _trace(self.d, "launch", child=p.pid, ids=ids)
 
@@ -281,11 +311,20 @@ class _Runner:
         for mark in sorted(self.marks.glob("*.json")):
             if self.child and mark == self.child[2]:
                 continue
+            # 試行の一覧は生死を確かめる前に読む——確かめる側（role_run._probe）は番号が再利用されていた印を消すので、後で読むと
+            # 一覧が空に見え、落ちた試行を誰も拾い直さない
+            try:
+                ids = _mark_ids(mark)
+            except BrokenFile as e:
+                # 読めない印を待ち続けても、消して進んでも、中の試行が分からないまま。消さずに止めて人に渡す（標準の決まり 4）
+                self.broken = f"回し手の印 {e}——どの試行を起動した印かが分からないので拾い直さない。印を確かめて消してから run を打ち直せ"
+                return False
+            if ids is None:
+                continue      # 確かめている間に別の回し手が片付けた
             alive = group_alive(mark)
             if alive is not False:
                 wait = True   # 生きている（か確かめられない）——止めずに待つ
                 continue
-            ids = _read_json(mark, {}).get("ids") or []
             mark.unlink(missing_ok=True)
             for inst in self.orphans(ids):
                 why = self.recover(inst)
@@ -297,9 +336,12 @@ class _Runner:
         """回し手の印を持たない running の試行（会話が打った launch）。起動した子の印（.pgid）が生きていれば待つ。
         印が無ければ、読み直してもまだ running のときだけ人に渡す（続きの往復の合間は印が無い）——(待つか, 人に渡す理由)"""
         mine = set(self.child[1]) if self.child else set()
-        for mark in self.marks.glob("*.json") if self.marks.is_dir() else ():
-            mine |= set(_read_json(mark, {}).get("ids") or [])
         wait, whys = False, []
+        for mark in self.marks.glob("*.json") if self.marks.is_dir() else ():
+            try:
+                mine |= set(_mark_ids(mark) or ())
+            except BrokenFile as e:
+                whys.append(f"回し手の印 {e}——どの試行の印かが分からない")
         for inst in c["running"]:
             if inst["id"] in mine:
                 continue
@@ -327,6 +369,9 @@ class _Runner:
             if self.inherited():
                 time.sleep(POLL_S)
                 continue
+            if self.broken:
+                self.detail = self.broken
+                return "stuck"
             if self.signum:
                 return "signal"
             rc, _out, err = _cli(self.d, "next")
@@ -440,8 +485,16 @@ def report(d, kind, c, detail=None, code=None):
     """標準出力の最後の 1 行の JSON（会話が読む物）。役の返答の本文は出さない"""
     d = pathlib.Path(d)
     st = read_state(d)
-    rec = _read_json(d / "record.json", {})
-    info = _read_json(d / RUNNER_JSON, {})
+    unreadable = []   # 報告は読めた物で続ける（一覧の表示）が、読めなかった事は出力に出す（標準の決まり 4）
+
+    def read(p):
+        try:
+            return _read_json(p, {})
+        except BrokenFile as e:
+            unreadable.append(str(e))
+            return {}
+    rec = read(d / "record.json")
+    info = read(d / RUNNER_JSON)
     strip = lambda i: {k: v for k, v in i.items() if k != "tree_before"}   # noqa: E731
     out = {"stop": kind, "code": CODES.get(kind, code), "status": st.get("status"), "round": st.get("round"),
            "run_id": st.get("run_id"), "dir": str(d), "halted": st.get("halted"),
@@ -452,6 +505,7 @@ def report(d, kind, c, detail=None, code=None):
            "lanes_failed": lanes_failed(st),
            "cost_usd": trace_costs(d / "trace.jsonl"),
            "engine": st.get("engine"), "runner": {k: info.get(k) for k in ("pid", "started_at")}, "detail": detail,
+           "unreadable": unreadable,
            "how": HOW.get(kind, "回し手が信号で止まった（一時停止）——続けるなら run を打ち直せ")}
     print(json.dumps(out, ensure_ascii=False))
 

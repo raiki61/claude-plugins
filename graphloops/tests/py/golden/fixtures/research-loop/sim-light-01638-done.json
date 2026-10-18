@@ -41,7 +41,7 @@
      "load_bearing": false,
      "kind": "事実",
      "cluster": "c1",
-     "verdict": "相違",
+     "verdict": "contradicted",
      "evidence": "_s7_xx",
      "sources": [
       "_s3_xxxxxxx"
@@ -57,7 +57,7 @@
      "load_bearing": false,
      "kind": "事実",
      "cluster": "c2",
-     "verdict": "留保",
+     "verdict": "qualified",
      "evidence": "概ね",
      "sources": [
       "_s4_xxxxxxx"
@@ -73,7 +73,7 @@
      "load_bearing": false,
      "kind": "事実",
      "cluster": "c2",
-     "verdict": "確証",
+     "verdict": "confirmed",
      "evidence": "一致",
      "sources": [
       "_s5_xxxxxxx"
@@ -107,7 +107,7 @@
      }
     }
    ],
-   "thickness": "軽量",
+   "thickness": "light",
    "inputs": {},
    "outputs": {}
   }
@@ -119,7 +119,7 @@
    "id": "A",
    "mode": "confirm",
    "upheld": true,
-   "verdict": "確証",
+   "verdict": "confirmed",
    "refuter_reasoning": "_s16_",
    "sources": [
     "_s6_xxxxxxx"

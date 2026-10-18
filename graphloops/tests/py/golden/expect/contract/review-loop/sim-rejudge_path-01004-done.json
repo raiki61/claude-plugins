@@ -2,7 +2,7 @@
  "applicable": {
   "p0.parallel_pr": null,
   "p0.prior_decisions": null,
-  "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+  "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が pr_description——監査するのは writer が要約した目的（③）だけ",
   "p1.consistency_bypass": null,
   "p1.external_standards": null,
   "p1.gate_efficacy": "cond gate_efficacy_due: 差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 0 件）",
@@ -74,7 +74,7 @@
  "record": {
   "process.rejudge": [
    {
-    "verdict": "一部採る",
+    "verdict": "partial",
     "new_facts": "回す側が挙げた行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る",
     "reason": "片方は現物に当たって確かめた（検査用）",
     "units": [

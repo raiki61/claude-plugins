@@ -483,8 +483,9 @@ def test_launch_one_probes_once_and_falls_back_to_the_shared_tmp(tmp_path, monke
     probes, writers = [c for c in calls if c["probe"]], [c for c in calls if not c["probe"]]
     assert len(probes) == 1 and len(writers) == 2
     # ツールは Bash だけ（印を作れるのは Bash だけ）。sandbox の形は起動する子と同じ
+    # 返答の形は確かめの子の形（PROBE_SCHEMA）を --json-schema で渡し、包みの structured_output で受ける
     assert probes[0]["argv"] == ["claude", "-p", "--model", commands.PROBE_MODEL, "--tools", "Bash", "--settings", SANDBOXED,
-                                 "--output-format", "json"]
+                                 "--output-format", "json", "--json-schema", json.dumps(commands.PROBE_SCHEMA)]
     assert probes[0]["cwd"] != str(tmp_path)
     assert ProbeBoard.state["child_tmp_probe"]["writable"] is writable and ProbeBoard.state["child_tmp_probe"]["sandbox"] is True
     rows = ProbeBoard.state["git_mismatches"]

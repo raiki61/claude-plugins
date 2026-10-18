@@ -61,7 +61,7 @@
     "text": "呼び出し元は 1 箇所",
     "measured_how": "grep -c 'f(' src/",
     "measured_output": "src/a.py:1",
-    "kind": "実測"
+    "kind": "measured"
    }
   ]
  },

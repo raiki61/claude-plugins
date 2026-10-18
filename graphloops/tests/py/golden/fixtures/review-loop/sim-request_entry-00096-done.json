@@ -28,7 +28,7 @@
   "out/r1/p0.premises.json": {},
   "out/r1/p0.prior_decisions.json": {},
   "out/r1/p0.purpose.json": {
-   "source": "①PR 説明"
+   "source": "pr_description"
   },
   "out/r1/p1.worktree_after.json": {},
   "out/r1/p1.worktree_before.json": {},

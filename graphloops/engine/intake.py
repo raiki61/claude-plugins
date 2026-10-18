@@ -36,6 +36,9 @@ def quiet(fn):
             return fn(*args, **kwargs)
         except KeyboardInterrupt:
             raise
+        # 黙らせるのは決めた事（記録器は呼び元の終了コードと出力を変えない）。Exception でなく BaseException なのは、盤面を読む
+        # util.die が SystemExit を上げるため——壊れた盤面の下で記録器が SystemExit を通すと、exit 1 の拒否が 2 に化ける
+        # （test_intake の test_unreadable_board_under_dir_keeps_reject_exit）
         except BaseException:
             return None
     return guarded

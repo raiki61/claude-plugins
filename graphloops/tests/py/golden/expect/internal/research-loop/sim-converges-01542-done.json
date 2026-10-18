@@ -27,7 +27,7 @@
    "verdict": "redesign-needed",
    "findings": [
     {
-     "kind": "未定義語",
+     "kind": "undefined_term",
      "where": "冒頭",
      "text": "_s1_xxx"
     }

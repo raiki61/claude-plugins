@@ -27,8 +27,8 @@ FIXED_GIT_DATE = "2026-01-01T00:00:00+0000"   # 2 つの口で commit の sha �
 # （research の標準は抜き取りの項目を run の番号から引くので、run の番号が違う 2 回では盤面が揃わない）
 SCENARIOS = {
     "review-std": ("review", "std", {}, None, "converged"),
-    "research-light": ("research", "light", {"thickness": "軽量", "decider": "依頼者指定"},
-                       lambda run, inst, out: ({**out, "thickness": "軽量", "thickness_decider": "依頼者指定"}
+    "research-light": ("research", "light", {"thickness": "軽量", "decider": "依頼者指定"},   # init は表示の語でも受けてキーに直す
+                       lambda run, inst, out: ({**out, "thickness": "light", "thickness_decider": "requester"}
                                                if inst["node"] == "p0.question" else out), "stopped"),
 }
 

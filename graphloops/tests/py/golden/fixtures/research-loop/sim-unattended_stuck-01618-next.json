@@ -47,12 +47,12 @@
     {
      "text": "_s5_xxxxxxx",
      "source": "依頼文",
-     "origin": "独立出典",
+     "origin": "independent",
      "breaks_if_false": "_s11_x"
     }
    ],
-   "thickness": "標準",
-   "thickness_decider": "既定",
+   "thickness": "standard",
+   "thickness_decider": "default",
    "thickness_reason": "_s10_xx"
   },
   "out/r1/p0.terms.json": {
@@ -128,7 +128,7 @@
      "new_discrepancies": 0
     }
    ],
-   "thickness": "標準",
+   "thickness": "standard",
    "max_rounds": 4,
    "unattended": true,
    "inputs": {

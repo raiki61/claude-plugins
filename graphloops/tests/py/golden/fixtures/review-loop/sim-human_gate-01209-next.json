@@ -9,7 +9,7 @@
  "files": {
   "out/r1/p0.base.json": {
    "base_sha": "_s5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-   "method": "3 HEAD~1",
+   "method": "head_parent",
    "commits": 1,
    "merge_commit": false,
    "intent_to_add": [],
@@ -33,7 +33,7 @@
   "out/r1/p0.prior_decisions.json": {},
   "out/r1/p0.purpose.json": {
    "purpose_text": "_s10_xxxxxxxxxxxx",
-   "source": "①PR 説明",
+   "source": "pr_description",
    "known_weaknesses": [],
    "source_files": []
   },
@@ -109,7 +109,7 @@
       "p1.gate_efficacy": "cond gate_efficacy_due: 差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 0 件）",
       "p1.test_double_fidelity": "cond test_double_fidelity_due: 差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 0 件）",
       "p1.main_path_observation": "cond main_path_observation_due: 差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 0 件）",
-      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が pr_description——監査するのは writer が要約した目的（③）だけ",
       "p2.history": "cond after_first_round: round=1"
      },
      "skipped": {},

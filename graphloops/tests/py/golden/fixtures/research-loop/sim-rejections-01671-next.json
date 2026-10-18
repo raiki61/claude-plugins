@@ -52,12 +52,12 @@
     {
      "text": "_s8_xxxxxxx",
      "source": "依頼文",
-     "origin": "独立出典",
+     "origin": "independent",
      "breaks_if_false": "_s14_x"
     }
    ],
-   "thickness": "標準",
-   "thickness_decider": "既定",
+   "thickness": "standard",
+   "thickness_decider": "default",
    "thickness_reason": "_s13_xx"
   },
   "out/r1/p0.terms.json": {
@@ -79,7 +79,7 @@
     {
      "id": "A",
      "load_bearing": true,
-     "verdict": "確証",
+     "verdict": "confirmed",
      "evidence": "e",
      "sources": [
       "_s10_xxxx"
@@ -159,7 +159,7 @@
      "item_counts": {}
     }
    ],
-   "thickness": "標準",
+   "thickness": "standard",
    "inputs": {},
    "outputs": {},
    "done_ever": {}

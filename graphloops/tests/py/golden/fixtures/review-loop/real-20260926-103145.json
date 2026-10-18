@@ -13,7 +13,7 @@
   "out/r1/p0.local_checks.json": {},
   "out/r1/p0.premises.json": {},
   "out/r1/p0.purpose.json": {
-   "source": "②計画・タスク記述"
+   "source": "plan"
   },
   "out/r2/converge.json": {},
   "out/r2/p0.parallel_pr.json": {},
