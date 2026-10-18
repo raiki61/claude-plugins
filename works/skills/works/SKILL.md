@@ -7,7 +7,7 @@ description: 人の修正依頼を、直しを出荷する工場 darkfactory（w
 
 works は直しを出荷する工場 darkfactory に、人の修正依頼を今いるリポジトリを対象にして回す。
 
-流れ: 入れる（1 回だけ）→ 依頼の JSON を書く → 対象リポジトリで起動する → 関所で答える → 報告を読む → 差分を対象へ取り込む。
+流れ: 入れる（1 回だけ）→ 依頼の JSON を書く → 対象で起動する → 関所で答える → 報告を読む → 差分を取り込む。
 回すと費用が掛かる（AI を起こすのは `start` と、関所で進めた後だけ）。
 
 ## 先に守ること（踏むと壊れる所）
@@ -18,7 +18,7 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 - 対象に remote の `origin` が無いと起動できない。あなたは自分で remote を足さず、預ける先の URL か手元の裸のリポジトリかを依頼者に決めてもらう。
 - `WORKS_USE_ALLOW_TESTCMD=1`（対象の手元の環境を指し、直しの正誤に依らず緑になる test_cmd を通す）・`WORKS_USE_ALLOW_DELETE=1`（ファイルを消す差分を当てる）・`WORKS_USE_ALLOW_STOPPED=1`（止めた run の差分を当てる）は、依頼者が決めた時だけ前に付ける（自分で付けない）。
 - `approve`・`answer`・関所で待つ run の `stop` はすぐ戻る。成否は `wait` を前景で打って見る。
-- 関所の全文の問いに載る「測り方」の命令は AI の役が書いた物なので、打つ前に読み、読み取りだけの測りの時だけ打つ。
+- 関所の全文の問いに載る、手元で測る命令（測り方）は AI の役が書いた物なので、打つ前に読み、読み取りだけの測りの時だけ打つ。
 
 ## 命令
 
@@ -29,7 +29,7 @@ claude plugin marketplace add anthropics/claude-plugins-official   # 登録済�
 claude plugin marketplace add raiki61/claude-plugins               # 登録済みなら: claude plugin marketplace update raiki61
 claude plugin install works@raiki61                                 # 依存の gates・pr-review-toolkit も入る
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" check <対象リポジトリ>         # AI を起こさずに確かめる（費用なし）
-sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--spec] [--rounds <N> [--budget-usd <X>]] [--] [<対象リポジトリ>] <依頼の JSON か -> ["<test_cmd>" [<tdd_suite>]]
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <枝か commit> | --pr <番号>] [--spec] [--rounds <N> [--budget-usd <X>]] [--] [<対象リポジトリ>] <依頼の JSON か -> ["<test_cmd>" [<tdd_suite>]]
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" answer <対象リポジトリ> <run-id> continue "<通す範囲と条件>" "<答えた者>"
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" wait <対象リポジトリの根> <run-id>
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" show <対象リポジトリの根> [<run-id か鎖の id>]
@@ -54,7 +54,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/report.sh" <run-id>          # 取り消した run
 
 ## 語（別ファイルにも出る語）
 
-- darkfactory: works の生産ライン（線）。Archon（AI の工程を順に回す外の実行基盤）の上で動く。線は節（工程の 1 段）をつないだ物で、ブロック（`blk-*`）は節をまとめた部品。pack は線を Archon に読ませる一式。
+- darkfactory: works の生産ライン（線）。Archon（工程を順に回す外の基盤）の上で動く。線は節（工程の 1 段）をつないだ物で、ブロック（`blk-*`）は節をまとめた部品。pack は線を Archon に読ませる一式。
 - run: 線を 1 回回した物で、run id で名指す。`--rounds` でつないだ何本かの run が鎖（1 本が 1 周）で、鎖の id で名指す。
 - 対象リポジトリ（の根）: 直したいリポジトリ。下のフォルダを渡しても、その git の最上位で回す。
 - 殻: 起動の殻 `dev/use.sh`。Archon を起こし、次に打つ行を出す。
