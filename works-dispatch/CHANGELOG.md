@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-10-18
+
 ### Fixed
 
 - このプラグインの試験（`dispatch/tests/test_calls.py`）が子の処理の出力を文字で読む所に、`encoding="utf-8"` を足した。Windows の既定の文字コード（cp1252 など）に依らずに読むためで、リポジトリの根の試験の柵（子の出力を文字で読む呼びは encoding を明示している）の赤を直す。動きは変わらず、使う人がすることは無い。
