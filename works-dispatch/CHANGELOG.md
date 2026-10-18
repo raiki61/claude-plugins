@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Changed
 
-- 写しの `dispatch/vendor/whose-turn.py`・`dispatch/vendor/lib/outfile.py` を attention の正本に揃えた（文を IT の定着語にした分。`--out` が返す行番号の行は `セクション（Read の offset）: …` になった）。判定は変わらない。
+- 写しの `dispatch/vendor/whose-turn.py`・`dispatch/vendor/lib/outfile.py` を attention の正本に揃えた（文を IT 業界で定着した言い方〔節→セクション・番→ターンなど〕にした分。`--out` が返す行番号の行は `セクション（Read の offset）: …` になった）。判定は変わらない。
 
 ## [0.70.1] - 2026-10-19
 
