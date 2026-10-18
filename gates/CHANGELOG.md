@@ -6,6 +6,10 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Added
+
+- `hooks/claude_auth.py`（ルートの scripts/claude_auth.py の写し）に、子の claude の認証が黙って切れるのを見つける関数を足した。`expiry_note` は、利用者が作った Keychain の項目のトークン（`claude setup-token` の物で寿命は 1 年）が、書いた日から 335 日を過ぎたら作り直しを促す 1 行を返す。`auth_failed` は、JSON を返すはずの子の出力が、短い 1 行の JSON でない文か、認証の失敗を言う `is_error` の結果なら真を返す（認証切れは終了コード 0 で返るため）。まだどこからも呼ばないので、今の動きは変わらない。
+
 ## [0.34.0] - 2026-10-19
 
 ### Changed
