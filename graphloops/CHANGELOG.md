@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- `/review-graph` の手順書の本文を 5,000 字以下に収める（スキルの標準の決まり 1。main の CI の赤）。
+
 ## [0.33.0] - 2026-10-19
 
 ### Changed
