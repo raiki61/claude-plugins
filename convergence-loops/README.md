@@ -99,7 +99,7 @@ If you put a `REVIEW.md` at the root of the target repository, the perspectives 
 /doctor-loop                         when you want to dig up improvement candidates from the current state, without waiting for a change
 /firstread-loop <the reader's task>  after finishing a document, when you want to check it gets through
 
-/review-graph                        the same review, run by a machine (engine) that holds the board
+/review-graph                        the same review, run by a machine (engine) that keeps the run's state on disk
 /research-graph <what to look into>  the executable version of the same research
 ```
 
