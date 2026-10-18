@@ -1,6 +1,7 @@
 # スキルの書き方の標準（本文の長さ・別ファイルへの分け方・description）
 
 スキル（`skills/<名前>/SKILL.md`）とコマンド（`commands/<名前>.md`）の本文をどれだけの長さにし、詳しい手順をどう別ファイルに分け、`description` をどう書くか。
+今のずれ: 2026-10-18 に、17 本のうち 11 本が決まり 1 の長さを超えていて、長い会話で圧縮が起きると後ろの手順を失ったまま動く（今起きうる。直しは [README](README.md) の台帳の 2 回目で各担当に頼む）。
 読むのは、スキルやコマンドを新しく書く・直すエージェントと人（直す前に読む）と、この標準を機械で守らせる検査を書く点検（CI と根の `tests/` を受け持つ部署）。
 
 Claude Code ではコマンドとスキルは同じ物として動く（[Extend Claude with skills](https://code.claude.com/docs/en/skills)「Custom commands have been merged into skills.」）。違いはスキルが別ファイルを置くフォルダを持つことだけなので、この標準は両方に当てる。以下「スキル」は両方を指す。
