@@ -3575,7 +3575,7 @@ git("switch", "-q", "-c", "feat")
 git("add", ".")
 git("commit", "-q", "-m", "feat")
 
-# 1) 枝が変えた old.md は書き換えた節だけ、足した new.md は全体を読む。生成物・短い文書・枝が触っていない文書は読まない。
+# 1) 枝が変えた old.md は書き換えた節だけ、足した new.md は全体を読む(移した行は題と冒頭だけで、抜き出しが 8 割を超える)。生成物・短い文書・枝が触っていない文書は読まない。
 #    詰まりが在るので 1。詰まりの行に作業ツリーの根からのパスが付き、末尾の行に件数と全文の場所が出る
 rc, out = check()
 got = prompts()
@@ -3611,7 +3611,6 @@ git("commit", "-q", "-m", "drop")
 # 5) 枝が足した文書のうち、枝が消した・変えた文書の分かれ目の版に在った行は移しただけとして読まない(スキルの本文の節を
 #    references/ へ移す分け)。見出しの深さが変わっても移した行。新しく書いた行を含む節だけを読み、全部が移した行なら読まない
 before = len(prompts())
-base_old = (repo / "old.md").read_text(encoding="utf-8")
 (repo / "old.md").write_text(doc(("A", "")), encoding="utf-8")   # 節 B・C を old.md から削った
 (repo / "moved.md").write_text("# 移した先\n\n移した節。\n\n" + "".join("### 節%s\n\n%s\n" % (k, "".join("印%s の %d 行目。\n" % (k, i) for i in range(40)))
                                                            for k in "BC") + "印MOVEDNEW を足した。\n", encoding="utf-8")
@@ -3623,6 +3622,16 @@ got = prompts()[before:]
 assert rc == 0 and len(got) == 2, (rc, len(got), out)   # old.md(削った所)と moved.md(新しい行の節)。copied.md は読まない
 moved = next(p for p in got if "印MOVEDNEW" in p)
 assert "印C の 39 行目" in moved and "印B の 39 行目" not in moved, "moved.md の新しい行の節だけを読んでいない"
+
+# 6) 移した元を消した(diff の D。リネームもここ)ときも同じ。移した行が 1 つも無い足した文書は全体を読む
+before = len(prompts())
+git("mv", "untouched.md", "renamed.md")
+(repo / "fresh.md").write_text("# 別\n\n" + "".join("印F の %d 行目。\n" % i for i in range(40)), encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "rename")
+rc, out = check()
+got = prompts()[before:]
+assert rc == 0 and len(got) == 1 and "印F の 0 行目" in got[0] and "印F の 39 行目" in got[0], (rc, len(got), out)   # renamed.md は読まない
 print("DOCS_BRANCH_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。
