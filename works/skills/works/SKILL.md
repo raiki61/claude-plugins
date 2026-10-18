@@ -16,7 +16,7 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 - 依頼の `text` には問題と目的を書き、解き方は書かない（考えが在れば「案（工場が定石と比べて疑う）: …」と分けて添える）。
 - `--pr`・`--base` は変更の全体の審査を足し、費用が増える。依頼の指摘を直したいだけなら付けない。
 - 対象に remote の `origin` が無いと起動できない。あなたは自分で remote を足さず、預ける先の URL か手元の裸のリポジトリかを依頼者に決めてもらう。
-- `WORKS_USE_ALLOW_TESTCMD=1`（手元を走らせる形の test_cmd を通す）・`WORKS_USE_ALLOW_DELETE=1`（ファイルを消す差分を当てる）・`WORKS_USE_ALLOW_STOPPED=1`（止めた run の差分を当てる）は、依頼者が決めた時だけ前に付ける（自分で付けない）。
+- `WORKS_USE_ALLOW_TESTCMD=1`（対象の手元の環境を指し、直しの正誤に依らず緑になる test_cmd を通す）・`WORKS_USE_ALLOW_DELETE=1`（ファイルを消す差分を当てる）・`WORKS_USE_ALLOW_STOPPED=1`（止めた run の差分を当てる）は、依頼者が決めた時だけ前に付ける（自分で付けない）。
 - `approve`・`answer`・関所で待つ run の `stop` はすぐ戻る。成否は `wait` を前景で打って見る。
 - 関所の全文の問いに載る「測り方」の命令は AI の役が書いた物なので、打つ前に読み、読み取りだけの測りの時だけ打つ。
 
@@ -47,7 +47,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/report.sh" <run-id>          # 取り消した run
 1 つの場面で読むのは 1〜2 本。
 - 初めて入れる時と、`check` か `start` が足りない物を並べて止まった時: [references/install.md](references/install.md)（要る物・認証の拾い方・`check` の出力の読み方・入れ直し方）
 - 依頼の JSON を書く時と、前の run の `next-request.json` から次の依頼を作る時: [references/request.md](references/request.md)（`findings` の欄・`pr`・`issue`・`answers`・`prior_failures`・CI の赤の運び方）
-- `start` を打つ前: [references/start.md](references/start.md)（入口と旗・対象の条件・手元の変更・`origin`・`test_cmd` の形・`.review-checks.json`・`.works-checks.json`・`tdd_suite`・最後の関所の既定・環境変数・無人の run・周の鎖）
+- `start` を打つ前: [references/start.md](references/start.md)（入口と旗（`--spec` は仕様の段を挟む・`tdd_suite` は TDD の実行器）・対象の条件・手元の変更・`origin`・`test_cmd` の形・`.review-checks.json`・`.works-checks.json`・`tdd_suite`・最後の関所の既定・環境変数・無人の run・周の鎖）
 - 関所で止まった時と、`approve`・`answer` の後に `wait` を打つ時: [references/gates.md](references/gates.md)（3 つの関所ごとの答え方・保留の問い・`wait` の終了コード）
 - run が終わって報告を読む時と、`apply`・`clean` を打つ時: [references/report.md](references/report.md)（`show` の出力・報告と次の依頼の下書き・結末の名・差分の当て方と止まる訳・片付け）
 - run を止める・取り消す・続ける時: [references/stop.md](references/stop.md)（止め札・取り消し・`abandon`・`resume`・止めた run の報告の組み方）
