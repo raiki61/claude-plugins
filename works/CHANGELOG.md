@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-19
+
 ### Changed
 
 - `/works` スキルの本文（`skills/works/SKILL.md`）を 22,704 字から約 4,900 字に薄くし、詳しい手順を場面ごとの別ファイル `skills/works/references/`（入れ方・依頼の JSON・起動・関所・報告と取り込み・止め方）に分けた。本文には、守ること（人が決める関所を自分で通さない・remote を自分で足さない・`WORKS_USE_ALLOW_*` を自分で付けないなど）・命令の一覧・語の意味・どの場面でどの別ファイルを読むか・依頼者への聞き方を残した。Claude Code は会話の圧縮の後にスキルの頭の 5,000 トークンしか付け直さないので、長い run の途中でも守ることが残る。命令と振る舞いは変わらない。
