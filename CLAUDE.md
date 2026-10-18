@@ -13,7 +13,7 @@
 - works は graphloops の review-graph の上位互換を作る。設計は review-graph と能力で比べ、同等か上位互換なら推しで進める。移し替え・作り替えでよく起きる失敗は、元にあった能力を気づかずに削ってしまうこと。削る・置き換える時は、元の能力（keep-essence の 12 の仕組み〔works/docs/keep-essence.md〕と、review-graph の同じ場面）が残るかを先に照らす。残るなら「目的を満たし、全体がより簡潔か」で決めて進め、台帳に残す。元の能力が落ちる物だけ先に聞く。
 - 本流の写しにしない。先に works 自身の事実（配る先・OS・負荷・何が壊れうるか）から要るかを導き、その後で本流と比べる。
 - 外への書き込み（公開・PR や issue への書き込み・ほかのリポジトリへの push）と取り消せない操作は持ち主に聞く。このリポジトリの部署の枝の push と、main へ入れることは聞かない。main へは works-dispatch の `--land`（部署の枝を main に入れる命令。会社の形 `.claude/company.toml` の `[land]` の `check` を関門に回し、緑なら早送りで push する）で入れる（持ち主 2026-10-16。docs/specs/2026-10-16-company-shape-design.md の 8・docs/releasing.md）。費用のかかる試し・実走は聞かずに回してよい。
-- タグは作らない（持ち主 2026-09-29「タグはつくりません」）。出荷は main への push で終わり、CI は待たない（持ち主 2026-10-16。CI は main に入った後の赤を見つけ、赤なら最初の手は入れた commit を git revert で戻すこと。docs/adr/0073-land-bumps-and-no-tags.md）。
+- タグは作らない（持ち主 2026-09-29「タグはつくりません」）。出荷は main への push で終わり、CI は待たない（持ち主 2026-10-16。CI は main に入った後に回って赤を出す。赤を直すのは点検〔CI と根の tests/ の受け持ちの部署〕で、最初の手は入れた commit を git revert で戻すこと。docs/adr/0073-land-bumps-and-no-tags.md）。
 
 ## プラグインを作る・直す
 
@@ -41,7 +41,7 @@
 1. 手元の試験は「試験」の節と同じく速い段と根の柵まで（重い段は main に入った後の CI に任せる）。根の柵は VERSION_BUMP_STRICT=1 を付けて回す（`VERSION_BUMP_STRICT=1 bash tests/run.sh`。版上げの順の検査は main・release/* の CI でだけ厳しくなるため）。
 2. CHANGELOG の Unreleased を版に。
 3. **版上げ（works の plugin.json・marketplace）を最後の commit にする。** 版上げの後に works を変える commit を積むと main の CI が赤になる（0.2.2 で実測）。
-4. push で終わり、CI は待たない（「判断の線」の持ち主 2026-10-16 の決め）。main の CI が後で赤になったら、最初の手は入れた commit を git revert で戻すこと。
+4. push で終わり、CI は待たない（「判断の線」の持ち主 2026-10-16 の決め）。main の CI が後で赤になったら、点検が最初の手として入れた commit を git revert で戻す。
 
 ## darkfactory を Claude Code から回す
 
