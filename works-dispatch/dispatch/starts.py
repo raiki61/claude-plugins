@@ -7,9 +7,9 @@
   頼みも納品も来ない間も刻みたい人は、手元の OS の予定（macOS の launchd・Linux の cron か systemd の timer・Windows のタスク
   スケジューラ）に、例えば 10 分ごとに --due を打たせる。
 
-起動するのは orders.ask と同じ宛て方（宛先「会社/受け持ちの役」、部署の名前は受け持ちの名前）: その名前の常設の部署が在ればその
+起動するのは orders.ask と同じ宛て方（宛先「会社/受け持ちの役」、部署の名前は受け持ちの名前）: その名前の永続の部署が在ればその
 順番待ちに積み、無ければその名前の部署を立てる。納品の返り先（頼み元の属性）は起動した者でなく report_to。
-一度きりの受け持ち（役が常設でない）で、前の回の部署がまだ立っている（納品していない・畳まれていない）なら起動しない
+一度きりの受け持ち（役が永続でない）で、前の回の部署がまだ立っている（納品していない・畳まれていない）なら起動しない
 （Kubernetes の CronJob の concurrencyPolicy: Forbid と同じ。同じ名前の部署が 2 つ立つと、名前で宛てられなくなる）。
 起動したかどうかは、会社の受付箱の台帳に kind start の行で残す（周期の数えもこの行で）。--due が同じ間に 2 つ走っても（頼みと納品が
 続けて通る）、会社ごとの錠を持つ方だけが数えて起動し、もう一方はその会社を待たずに飛ばすので、同じ受け持ちを 2 度起動しない。
@@ -78,7 +78,7 @@ def fire(company, companies, skill, by, ports, a, task, settings):
     if the_role is None or the_role.get("machine"):
         return 2, [f"止めた: 受け持ち「{name}」の役「{skill['role']}」が会社の形に無いか、AI の部署を持たない役"]
     running = [d for d in company["departments"] if d["attrs"].get("name") == name]
-    if running and not the_role.get("resident") and running[0]["attrs"].get("residency") != "resident":
+    if running and not the_role.get("persistent") and running[0]["attrs"].get("lifecycle") != gitx.PERSISTENT:
         return 2, [f"起動しなかった: 受け持ち「{name}」の前の回の部署がまだ立っている（{running[0]['path']}）。"
                    "納品して畳まれて（--done・--clean --apply）から起動する"]
     text, why = _text(company["root"], info, st)
@@ -95,7 +95,7 @@ def fire(company, companies, skill, by, ports, a, task, settings):
                    f"- 頼みの本文の頭: {start.body(name, by, text).splitlines()[0]}"]
     brief = deliver.put(inbox, f"{ask_id}-start.md", start.body(name, by, text))
     ns = argparse.Namespace(**{**vars(a), "ask": f"{company['name']}/{skill['role']}", "text": None, "brief": brief,
-                               "task": name, "branch": start.branch(skill, ask_id), "role": None, "resident": False,
+                               "task": name, "branch": start.branch(skill, ask_id), "role": None, "persistent": False,
                                "ask_id": ask_id, "from_boss": boss, "forward": False, "title": f"受け持ち「{name}」の起動（{by}）"})
     rc = orders.ask(ns, ports, company["root"], task)
     deliver.log(inbox, {"kind": "start", "skill": name, "id": ask_id, "by": by, "report_to": st["report_to"],

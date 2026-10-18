@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""--retire <部署>（retire）: 都度の部署の会話を止めてから、部屋（作業場・worktree・会話・手元のブランチ）を --clean と同じ決まりで片付ける。
+"""--retire <部署>（retire）: エフェメラルの部署の会話を止めてから、部屋（作業場・worktree・会話・手元のブランチ）を --clean と同じ決まりで片付ける。
 
-都度の部署は、納品してメインブランチに入れ終えた後も会話が生きたまま残り、--clean は「会話がまだ動いている」と見て残す。終わったかを機械が
+エフェメラルの部署は、納品してメインブランチに入れ終えた後も会話が生きたまま残り、--clean は「会話がまだ動いている」と見て残す。終わったかを機械が
 推し量るのは難しいので、部署が自分で終わりの印（--done。属性 company.finished）を打ち、そのターンの終わりに待ち受け（wake_hook.py）が
 このコマンドを会話から切り離して裏で走らせる。印の無い部屋は、段取りが --clean の一覧で残った訳を見て、止めると決めたらこのコマンドを打つ。
 
 順:
-1. 部署を名前で探す（--move と同じ deliver.find_target）。窓口・常設の部署は畳まない。
+1. 部署を名前で探す（--move と同じ deliver.find_target）。窓口・永続の部署は畳まない。
 2. 止める前に確かめる: 受けた頼みを納品している・順番待ちに頼みが無い・--clean の部署の決まり（clean.departments）で、会話が止まったとみなしたときに
    残す訳が無い（未コミットの変更・手元にしか無い commit・メインブランチに入っていないブランチなど）。訳が有れば何も止めない。
 3. 会話が動いていれば、窓の attach の画面をシェルに戻し（launch.to_shell。attach が開いたままだと会話を再開させる）、claude stop で
@@ -47,7 +47,7 @@ def retire(a, ports, cwd, rows, reasons):
         return 2
     company, dept = target["company"], target["department"]
     if dept is None or dept.get("head_office"):
-        print("\n".join(notes + [f"止めた: 「{a.retire}」という部署が無い（畳むのは --task が立てた都度の部署。窓口は畳まない）"]))
+        print("\n".join(notes + [f"止めた: 「{a.retire}」という部署が無い（畳むのは --task が立てたエフェメラルの部署。窓口は畳まない）"]))
         return 2
     if cfg is None:
         print("\n".join(notes + ["止めた: 畳むには、読める dispatch の設定が要る（会話を止めるアカウントを読む）"]))

@@ -182,11 +182,21 @@ def root_of(common):
 
 
 ATTR = "company."
+# 部署の寿命（属性 company.lifecycle の値）。永続の部署は片付けで畳まず、エフェメラルの部署は頼みを済ませたら畳む（会社の形の設計 4.10 の 1）
+PERSISTENT, EPHEMERAL = "persistent", "ephemeral"
+FORMER_LIFECYCLE = {"resident": PERSISTENT, "per-task": EPHEMERAL}   # 前の版の company.residency の値 → 今の値
+FORMER_RESIDENCY = {v: k for k, v in FORMER_LIFECYCLE.items()}
 
 
-def worktree_attrs(cwd, runner=_default_runner):
+def lifecycle_attrs(lifecycle):
+    """寿命を書くときの属性。前の版の company.residency にも同じ値を書く（版の混ざる間、前の版の --clean・--land が
+    company.residency の無い部署をエフェメラルとみなして、永続の部署を畳まないように）。"""
+    return {"lifecycle": lifecycle, "residency": FORMER_RESIDENCY[lifecycle]}
+
+
+def worktree_attrs(cwd, runner=_default_runner, former=True):
     """その worktree の git の設定 company.<名前> を {名前: 値} で（名前は git が小文字にそろえる）。
-    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。
+    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。former が偽なら、前の版の属性を読み替えずに返す。
     -z で読む（1 件は「鍵 改行 値 NUL」。-z 無しの「鍵 空白 値 改行」は、改行を含む値〔--wait の訳など〕で次の行を別の鍵と読む）。"""
     p = runner(["git", "-C", cwd, "config", "--worktree", "-z", "--get-regexp", r"^company\."])
     attrs = {}
@@ -194,6 +204,10 @@ def worktree_attrs(cwd, runner=_default_runner):
         key, _, value = item.partition("\n")
         if key.startswith(ATTR):
             attrs[key[len(ATTR):]] = value
+    # 前の版の属性 company.residency（resident・per-task）が有れば、その値を寿命として読む。今の版は 2 つを同じ値で書くので、
+    # 食い違うのは前の版（company.residency だけを書く）が後から寿命を替えたとき
+    if former and attrs.get("residency") in FORMER_LIFECYCLE:
+        attrs["lifecycle"] = FORMER_LIFECYCLE[attrs["residency"]]
     return attrs
 
 

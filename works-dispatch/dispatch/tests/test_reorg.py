@@ -26,7 +26,7 @@ class Reorg(unittest.TestCase):
         self.src = gitx_source(self.cfg)
         self.place = str(pathlib.Path(self.root) / "dept")
         git("-C", self.src, "worktree", "add", "-q", "-b", "work/dispatch", self.place, "origin/main")
-        provision.mark(self.place, self.src, {"role": "担当", "residency": "resident", "account": "a1", "name": "振り分け",
+        provision.mark(self.place, self.src, {"role": "担当", "lifecycle": "persistent", "account": "a1", "name": "振り分け",
                                               "session": "s-a", "boss": "窓口", "boss-session": "s-desk", "boss-pane": "P9"}, gitx)
         self.ports = FakePorts([])
         self.ports.herdr = CompanyHerdr(self.src)
@@ -53,7 +53,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("割り振り", ["振り分け"]))
         self.assertEqual(self.ports.herdr.writes, [
             ("rename_workspace", self.ws(self.pane), "割り振り"),
-            ("report_workspace_metadata", self.ws(self.pane), {"kind": "常設・持ち越し"}, []),
+            ("report_workspace_metadata", self.ws(self.pane), {"kind": "永続・引き継ぎ"}, []),
             ("rename_pane", self.pane, "割り振り"),
             ("report_pane_metadata", self.pane, "担当", "割り振り", {"role": "担当", "account": "a1", "boss": "窓口"}, [])])
         self.assertIn("company.name: 振り分け → 割り振り", out)
@@ -68,12 +68,13 @@ class Reorg(unittest.TestCase):
     def test_role_residency_and_boss_are_replaced(self):
         push = pathlib.Path(self.src, ".claude")
         push.mkdir()
-        (push / "company.toml").write_text('[[roles]]\nname = "担当"\nresident = true\n[[roles]]\nname = "作業"\n',
+        (push / "company.toml").write_text('[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n',
                                            encoding="utf-8")
-        rc, out = self.main("--reorg", "--role", "作業", "--per-task", "--boss", "割り振り", "--boss-account", "a1")
+        rc, out = self.main("--reorg", "--role", "作業", "--per-task", "--boss", "割り振り", "--boss-account", "a1")   # 前の版の旗の名前（今は --ephemeral）
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
-        self.assertEqual((attrs["role"], attrs["residency"], attrs["boss"], attrs["boss-account"]), ("作業", "per-task", "割り振り", "a1"))
+        attrs = gitx.worktree_attrs(self.place, former=False)   # 前の版の属性も同じ値で書く（読み替えずに見る）
+        self.assertEqual((attrs["role"], attrs["lifecycle"], attrs["residency"], attrs["boss"], attrs["boss-account"]),
+                         ("作業", "ephemeral", "per-task", "割り振り", "a1"))
         # 前の頼み元の会話の id とペインは消す（納品は新しい頼み元を名前で引く）
         self.assertNotIn("boss-session", attrs)
         self.assertNotIn("boss-pane", attrs)
@@ -93,7 +94,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual(self.ports.herdr.writes, [])
 
     def test_wrong_uses_stop(self):
-        for argv, said in ((["--reorg"], "替える物"), (["--reorg", "--resident", "--per-task"], "一緒に使えない"),
+        for argv, said in ((["--reorg"], "替える物"), (["--reorg", "--persistent", "--ephemeral"], "一緒に使えない"),
                            (["--name", "x"], "--reorg と一緒にだけ"), (["--reorg", "--desk"], "一緒に使えない")):
             with self.subTest(argv=argv):
                 rc, out = self.main(*argv)
@@ -123,12 +124,12 @@ class Reorg(unittest.TestCase):
         self.ports.herdr.add_pane(self.ws(self.office_pane), self.src, agent="claude")
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.src)
-        self.assertEqual({k: attrs.get(k) for k in ("role", "residency", "name", "account", "session")},
-                         {"role": "窓口", "residency": "resident", "name": "窓口", "account": "a1", "session": "s-desk"})
+        attrs = gitx.worktree_attrs(self.src, former=False)
+        self.assertEqual({k: attrs.get(k) for k in ("role", "lifecycle", "residency", "name", "account", "session")},
+                         {"role": "窓口", "lifecycle": "persistent", "residency": "resident", "name": "窓口", "account": "a1", "session": "s-desk"})
         self.assertEqual(self.ports.herdr.writes, [
             ("rename_workspace", self.ws(self.office_pane), os.path.basename(self.src)),
-            ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "常設・持ち越し"}, []),
+            ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "永続・引き継ぎ"}, []),
             ("rename_pane", self.office_pane, "窓口"),
             ("report_pane_metadata", self.office_pane, "窓口", "窓口", {"role": "窓口", "account": "a1"}, ["boss"])])
         # 部署の場所で打つと、部署の名前を窓口にせず止める
@@ -162,7 +163,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual({k: attrs.get(k) for k in ("role", "name", "session", "pid")},
                          {"role": "段取り", "name": "段取り", "session": "s-desk", "pid": "4242"})
         self.assertNotIn("former-names", attrs)
-        # 前の役の名前で宛てても、今の役の常設の場所（本社の段取り）に当たる
+        # 前の役の名前で宛てても、今の役の永続の場所（本社の段取り）に当たる
         self.ports._cwd = self.place
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}   # 頼むのは部署の会話（窓口の会話が自分に頼むのは止まる）
         rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--text", "形を見て", "--dry-run")
@@ -259,7 +260,7 @@ class Reorg(unittest.TestCase):
 class FormerNames(unittest.TestCase):
     def test_ask_target_finds_a_department_by_its_former_name_after_the_current_names(self):
         def row(name, former=(), path="/r/w"):
-            attrs = {"name": name, "role": "担当", "residency": "resident"}
+            attrs = {"name": name, "role": "担当", "lifecycle": "persistent"}
             if former:
                 attrs["former-names"] = json.dumps(list(former), ensure_ascii=False)
             return {"branch": "b", "path": path, "attrs": attrs, "panes": []}
@@ -269,9 +270,9 @@ class FormerNames(unittest.TestCase):
         self.assertEqual(deliver.find_target(companies, "/r", "振り分け")["department"]["path"], "/r/w")
 
     def test_role_with_a_task_name_goes_to_that_department_not_to_another_resident(self):
-        # --ask 会社/担当 --task 点検: 名前違いの常設の担当（割り振り）が 1 つだけ居ても、そこへは届けず、点検を新しく立てる
+        # --ask 会社/担当 --task 点検: 名前違いの永続の担当（割り振り）が 1 つだけ居ても、そこへは届けず、点検を新しく立てる
         def row(name, path):
-            return {"branch": "b", "path": path, "attrs": {"name": name, "role": "担当", "residency": "resident"}, "panes": []}
+            return {"branch": "b", "path": path, "attrs": {"name": name, "role": "担当", "lifecycle": "persistent"}, "panes": []}
         companies = [{"name": "c", "root": "/r", "departments": [row("割り振り", "/r/w")]}]
         got = deliver.find_target(companies, "/r", "c/担当", "点検")
         self.assertEqual((got["department"], got["role"]), (None, "担当"))

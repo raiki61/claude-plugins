@@ -82,11 +82,17 @@ def _skills(raw, where, problems):
             got["effort"] = s["effort"]
         # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
-        # standing = false: 常設の部署を置かず、頼まれたときだけその受け持ちの名前の都度の部署を立てる（--ask が立て、--done で畳む）
-        got["standing"] = s.get("standing", True)
-        if not isinstance(got["standing"], bool):
-            problems.append(f"{where}: skills[{i}]（{s['name']}）の standing は true か false。外して常設で扱う")
-            got["standing"] = True
+        # on_demand = true（オンデマンド）: 永続の部署を置かず、頼まれたときだけその受け持ちの名前のエフェメラルの部署を立てる（--ask が
+        # 立て、--done で畳む）。前の版の standing = false も同じ意味で読む（on_demand が有ればそちら）
+        if "on_demand" in s:
+            key, flag = "on_demand", s["on_demand"]
+        else:
+            key, flag = "standing", s.get("standing", True)
+            flag = not flag if isinstance(flag, bool) else flag
+        if not isinstance(flag, bool):
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の {key} は true か false。外して永続で扱う")
+            flag = False
+        got["on_demand"] = flag
         out.append({"model": None, "effort": None, **got})
     return out
 
@@ -272,7 +278,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
                            "agent_status": x.get("agent_status"),
                            "agent_session": session_of(x)} for x in mine],
                 "attrs": a,
-                "role": a.get("role"), "residency": a.get("residency"), "fresh": bool(a.get("fresh")),
+                "role": a.get("role"), "lifecycle": a.get("lifecycle"), "fresh": bool(a.get("fresh")),
                 "account": a.get("account") or (main or {}).get("account"),
                 "name": a.get("name") or (main or {}).get("name"), "boss": a.get("boss"),
             })
@@ -288,16 +294,16 @@ def contacts(company, shape):
     外の会社の部署も中の部署も、仕事が決まれば受ける仕事の宛先へ、決まらない件と部署をまたぐ件は窓口へ頼む。窓口は会社の部署すべてを
     見渡す本社の会話で、部署をまたぐ件の上げ先を関わる部署すべてを見渡す段とする組織論の原典（Galbraith 1974）と、外の入口を 1 つに
     する形（ITIL のサービスデスク）に当たる。受ける仕事ごとの宛先は働きごとに宛先を分ける形（RFC 2142）に当たる。
-    宛先の決まりは deliver.find_target と同じ: 常設の役の受け持ちは部署の名前（＝受け持ちの名前。役を足すフックが同じ名前で結ぶ）で
-    宛て、その部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。都度の役は役で宛てて --task に
+    宛先の決まりは deliver.find_target と同じ: 永続の役の受け持ちとオンデマンドの受け持ちは部署の名前（＝受け持ちの名前。役を足す
+    フックが同じ名前で結ぶ）で宛て、永続の役の部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。エフェメラルの役は役で宛てて --task に
     部署の名前を添える。立てるときはブランチ（--branch）も要る（orders.ask）。頼み元（属性 company.boss）は納品の返し先で、ここでは使わない。"""
     plain = company["name"]
     named = {d["attrs"].get("name") for d in company["departments"]}
     for s in company["skills"]:
         r = shape["roles"].get(role.current(shape, s["role"])) if s.get("role") else None
         s["ask"] = (None if r is None or r["machine"] else
-                    f"--ask {plain}/{s['name']}" if s.get("standing") is False or r["resident"] and s["name"] in named else
-                    f"--ask {plain}/{r['name']} --task {s['name']} --branch <ブランチ>" if r["resident"] else
+                    f"--ask {plain}/{s['name']}" if s.get("on_demand") or r["persistent"] and s["name"] in named else
+                    f"--ask {plain}/{r['name']} --task {s['name']} --branch <ブランチ>" if r["persistent"] else
                     f"--ask {plain}/{r['name']} --task <部署の名前> --branch <ブランチ>")
     head = next((d for d in company["departments"] if d["head_office"] and d["attrs"].get("name")), None)
     if head is not None:
@@ -335,7 +341,7 @@ def lines(companies):
                           f"、{s['start']['report_to']} に返す" if s.get("start") else "")
                        + (f"（前 {_at(s.get('last_started'))}・次 {_at(s.get('next_start'))}）"
                           if "next_start" in s else "")
-                       + ("  頼まれたときだけ立てる" if s.get("standing") is False else "")
+                       + ("  オンデマンド" if s.get("on_demand") else "")
                        + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
         if c.get("desk"):
             desk = c["desk"]   # model・effort はこの会社の本社の窓口だけ（ほかの会社が兼ねる窓口は、その会社の行に出る）
@@ -354,7 +360,7 @@ def lines(companies):
             fields = [STATES[d["state"]] + (f"（会話 {d['sessions']}）" if d["sessions"] > 1 else "")]
             if d["name"]:
                 fields.append(f"会話 {d['name']}")
-            fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat_label(d['residency'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
+            fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat_label(d['lifecycle'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
             if d.get("queue"):
                 stuck = "渡す待ち受けが居ない" if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None)

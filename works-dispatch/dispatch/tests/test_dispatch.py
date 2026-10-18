@@ -732,7 +732,7 @@ class Preflight(unittest.TestCase):
         self.assertIn("catchup", "\n".join(problems))
 
     def test_spaces_rows_without_kind_stop_the_department_run_with_the_rows_to_add(self):
-        # 部署の作業場の行に常設か都度かの印（$kind）を出すのは herdr の設定の前提。無ければ部署の回は止め、足す行を出す。
+        # 部署の作業場の行に永続かエフェメラルかの印（$kind）を出すのは herdr の設定の前提。無ければ部署の回は止め、足す行を出す。
         # ほかの回（PR を開く）では注記にとどめる
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})

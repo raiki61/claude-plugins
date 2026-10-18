@@ -25,7 +25,7 @@ session_id）。そのとき部署の属性 company.session を新しい id に�
 書き直す（rename_role）。
 
 UserPromptSubmit（`--prompt`）: ターンが始まるたび、その場所の役に今足す文を作り、この会話に前に足した文（会話ごとの控え。TMPDIR の
-works-dispatch-role-<会話の id>）と違えば、今の文を足す（会社の形の名前・役・本文を替えたことを、会話を持ち越している部署と本社に
+works-dispatch-role-<会話の id>）と違えば、今の文を足す（会社の形の名前・役・本文を替えたことを、会話を引き継いでいる部署と本社に
 届ける。会話を空にしないので、持ち主との話は消えない）。同じなら何も出さない。控えが無い（この版より前に始まった会話）ときも足す。
 待ち受けが会話を再開させるとき（wake_hook.py）も、同じ物を再開させる字の頭に足す（changed）。
 
@@ -175,7 +175,7 @@ def text_for(cwd, env=os.environ, attrs=None):
     name = role.current(shape, attrs["role"])
     company = info.get("name") or os.path.basename(os.path.normpath(root))
     duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None)
-    text = role.context(name, shape["roles"].get(name), company, duty, gitx.is_main_worktree(cwd) is True, attrs.get("residency"))
+    text = role.context(name, shape["roles"].get(name), company, duty, gitx.is_main_worktree(cwd) is True, attrs.get("lifecycle"))
     problems = info.get("problems", []) + shape["problems"]
     if problems:
         text += f"\n（会社の形を読めない所がある: {problems[0]}）"

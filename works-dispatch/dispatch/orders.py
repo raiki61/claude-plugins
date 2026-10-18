@@ -622,12 +622,12 @@ def _ask(a, ports, cwd, task, sent):
         return 0 if status == "sent" else 1
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。ブランチの名前は頼む側が渡す）
     if target.get("on_demand"):
-        # 頼まれたときだけ立てる受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
-        # 部署は都度の部署で立ち（dispatch._task が受け持ちの standing を見る）、納品してメインブランチに入れたら --done で畳まれる
+        # オンデマンドの受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
+        # 部署はエフェメラルの部署で立ち（dispatch._task が受け持ちの on_demand を見る）、納品してメインブランチに入れたら --done で畳まれる
         a = argparse.Namespace(**{**vars(a), "task": target["on_demand"], "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
-        notes.append(f"{target['on_demand']} は頼まれたときだけ立てる受け持ちなので、部署 {a.task}（ブランチ {a.branch}）を立てる")
+        notes.append(f"{target['on_demand']} はオンデマンドの受け持ち（頼まれたときだけ立てる）なので、部署 {a.task}（ブランチ {a.branch}）を立てる")
     if not (a.task and a.task.strip() and a.branch):
-        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の常設の部署が無いので新しく立てる。"
+        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の永続の部署が無いので新しく立てる。"
                                  "部署の名前を --task <名前>、ブランチを --branch <ブランチ> で渡す"]))
         return 2
     if cfg is None:
@@ -1203,21 +1203,21 @@ def rest_here(a, ports, cwd):
 
 
 def finish_here(a, ports, cwd):
-    """--done。都度の部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
+    """--done。エフェメラルの部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
-    断るのは、部署でない・窓口・常設・会話の id が無い・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
+    断るのは、部署でない・窓口・永続・会話の id が無い・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
     commit が在る・ブランチがメインブランチ（origin の既定のブランチの手元の控え）に入っていない時（commit の無い部署は入っているとみなす）。前の --retire が
     残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
-        print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりは都度の部署の場所で印す")
+        print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりはエフェメラルの部署の場所で印す")
         return 2
     common, place = ports.git.common_dir(cwd), ports.git.git_dir(cwd)
     if not common or not place or os.path.realpath(place) == os.path.realpath(common):
         print("止めた: 窓口は畳まない。会話を空にしてよい区切りなら --rest で印す")
         return 2
-    if attrs.get("residency") == "resident":
-        print("止めた: 常設の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
+    if attrs.get("lifecycle") == gitx.PERSISTENT:
+        print("止めた: 永続の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
         return 2
     if not attrs.get("session"):
         print("止めた: 部署の属性に会話の id（company.session）が無いので、機械が会話を止めて畳めない。--clean で並べて手で片付ける")
@@ -1270,9 +1270,9 @@ def asked_open(inbox, attrs, cwd):
 
 def leftover(cwd, attrs, g=gitx):
     """受けた頼みを納品し終えた部署が、ターンを終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
-    受付の並び）・unlanded（ブランチの先頭がメインブランチ〔origin の既定のブランチの手元の控え〕に入っていない。中身はメインブランチの名前）・finish（都度の
+    受付の並び）・unlanded（ブランチの先頭がメインブランチ〔origin の既定のブランチの手元の控え〕に入っていない。中身はメインブランチの名前）・finish（エフェメラルの
     部署で、ブランチもメインブランチに入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
-    順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・常設の部署でブランチが入っている、ときは None。
+    順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・永続の部署でブランチが入っている、ときは None。
     --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
     --land が止まって入れ損ねた部署が、残った疑問に「担当者: 段取り」と書いただけで段取りに頼まず、1 日残った。--clean はこれを、
     返事を待つだけの部署と同じ一行で出していた。"""
@@ -1295,7 +1295,7 @@ def leftover(cwd, attrs, g=gitx):
         return None
     if not g.is_merged(root, f"refs/remotes/origin/{main}"):
         return "unlanded", main
-    return None if attrs.get("residency") == "resident" else ("finish", main)
+    return None if attrs.get("lifecycle") == gitx.PERSISTENT else ("finish", main)
 
 
 def stop_after(payload, cwd, attrs, count, settings, g=gitx):
@@ -1313,7 +1313,7 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx):
     name = attrs.get("name") or attrs.get("branch") or "<部署>"
     limit = f"（この差し戻しは {deliver.STOP_LIMIT} 回まで。{count + 1} 回目）"
     if kind == "finish":
-        return (f"頼み（受付 {attrs['ask']}）は納品済みで、ブランチもメインブランチに入っている。都度の部署なので、{RUN} --done でターンを終える（会話を"
+        return (f"頼み（受付 {attrs['ask']}）は納品済みで、ブランチもメインブランチに入っている。エフェメラルの部署なので、{RUN} --done でターンを終える（会話を"
                 f"止めて部屋を片付けるのは機械がする）。持ち主と話している途中なら、印さずにターンを終えてよい{limit}")
     root = gitx.root_of(g.common_dir(cwd))
     info = tree.read_info(root, settings)
@@ -1554,7 +1554,7 @@ def show_waiting(payload, cwd, attrs, tmp_dir, shells, h):
 
 def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=claudex.background_shells, h=herdr):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
-    納品し終えた後も、ブランチをメインブランチに入れていないか、都度の部署が終わりの印を打っていなければ差し戻す（stop_after）。
+    納品し終えた後も、ブランチをメインブランチに入れていないか、エフェメラルの部署が終わりの印を打っていなければ差し戻す（stop_after）。
     部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。in_flight）を待っている間は、herdr の表示名に
     「裏の処理待ち」を出し、差し戻さない（裏の処理が終わると Claude Code が会話を再開させるので、納品はその後でよい。差し戻すと待つだけの
     ターンを回数の上限まで繰り返した。裏のサブエージェントは 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。
@@ -1578,7 +1578,7 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
         count = 0
     reason = deliver.stop_verdict(payload, attrs, count, RUN)
     if reason is None and attrs.get("delivered") == attrs["ask"]:
-        # 納品の後: ブランチをメインブランチに入れずに、か都度の部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
+        # 納品の後: ブランチをメインブランチに入れずに、かエフェメラルの部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
         path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", f"{attrs['ask']}-after")
         try:
             count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)

@@ -21,7 +21,7 @@ def shape_text(command, fallback='fallback_role = "調べ役"', machine="machine
     return f"""
 [[roles]]
 name = "調べ役"
-resident = true
+persistent = true
 
 [[roles]]
 name = "配布"
@@ -102,14 +102,14 @@ class CompanyRoot(unittest.TestCase):
 
 
 class Call(unittest.TestCase):
-    """--call を入口から。会社の形は本社のファイル。回す先は Flow の常設の部署「調べ」（役 調べ役）。"""
+    """--call を入口から。会社の形は本社のファイル。回す先は Flow の永続の部署「調べ」（役 調べ役）。"""
 
     Flow = test_deliver.Flow
     setUp, main, prompts, shape = Flow.setUp, Flow.main, Flow.prompts, Flow.shape
     del Flow
 
     def use(self, command, **kw):
-        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
         self.shape(shape_text(command, **kw))
 
     def script(self, body):
@@ -246,7 +246,7 @@ class Call(unittest.TestCase):
         miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
         self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
         self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
-        (w,) = self.prompts()   # 常設の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
+        (w,) = self.prompts()   # 永続の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
         self.assertIn("-ask.md を読んで", w[2])
         brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
         self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
@@ -266,7 +266,7 @@ class Call(unittest.TestCase):
     def test_fire_after_land_hands_over_with_the_landers_boss(self):
         self.use(self.script("raise SystemExit(1)"))
         a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
-                               brief=None, task=None, branch=None, role=None, resident=False)
+                               brief=None, task=None, branch=None, role=None, persistent=False)
         lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None,
                            {"boss": "窓口", "boss-account": "a1", "boss-inbox": self.inbox})
         self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")

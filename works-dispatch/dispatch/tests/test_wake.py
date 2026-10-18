@@ -506,7 +506,7 @@ class Hook(unittest.TestCase):
         self.assertEqual([e[0] for e in here], ["20261018-000001-cccccc", "20261018-000003-dddddd", "20261018-000005-aaaaaa"])
 
     def test_no_ring_when_a_department_on_the_way_carries_its_conversation_over(self):
-        # 会話を持ち越す部署は、納品し終えれば順番待ちを渡すので、止まっていると見ない
+        # 会話を引き継ぐ部署は、納品し終えれば順番待ちを渡すので、止まっていると見ない
         held = {"role": "担当", "fresh": role.FRESH}
         provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
         other = self.dept("dept/b", role="担当", name="点検", ask="b0", delivered="b0")
@@ -517,7 +517,7 @@ class Hook(unittest.TestCase):
 
     def test_a_ring_through_three_departments_with_an_undelivered_one_in_the_middle_is_found_from_each(self):
         # 割り振りは今の頼みを納品せずに点検への c1 の返事を待ち、点検は見直しへの c2 を、見直しは割り振りへの c3 を待つ（10-18 の
-        # claude-plugins。輪の途中に、納品していない常設の担当が入る）
+        # claude-plugins。輪の途中に、納品していない永続の担当が入る）
         held = {"role": "担当", "fresh": role.FRESH}
         provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)   # 納品していない
         check_ = self.dept("dept/b", **held, name="点検", ask="b0")
@@ -622,7 +622,7 @@ class Hook(unittest.TestCase):
         out.write("納品です（受付 d1）\n")
         self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
         self.assertTrue(wake_hook.must_clear(stop, gitx.worktree_attrs(self.place)))   # 起動されたターンの終わりに空にする
-        provision.mark(self.place, self.src, {"cleared": "a0", "fresh": None}, gitx)   # 会話を持ち越す役では外さない
+        provision.mark(self.place, self.src, {"cleared": "a0", "fresh": None}, gitx)   # 会話を引き継ぐ役では外さない
         wake_hook.woken(self.plan())
         self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
 
@@ -729,7 +729,7 @@ class Hook(unittest.TestCase):
                                      (stop, {**attrs, wake.RESTART_KEPT: opus}, opus),   # 前に起動し直さなかった値
                                      (stop, attrs, None),   # 会社の形を読めない
                                      ({**stop, "background_tasks": [{"id": "b"}]}, attrs, opus),
-                                     (stop, {**attrs, "fresh": None}, opus),   # 会話を持ち越す部署
+                                     (stop, {**attrs, "fresh": None}, opus),   # 会話を引き継ぐ部署
                                      (stop, {**attrs, wake.RESTARTING: got["session"]}, opus)):   # この会話の起動し直しが走っている
             self.assertIsNone(wake_hook.restart_due(got, payload, attrs_, key_of=lambda cwd, a: key))
         # 前の会話の id の印は残り物（/clear の後）。起動し直してよい
@@ -935,7 +935,7 @@ class Hook(unittest.TestCase):
         self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)   # 渡すのは空にした後の待ち受け
 
     def test_a_resident_talk_is_cleared_at_the_end_of_the_turn_it_marked_a_break(self):
-        # 会話を持ち越す部署と窓口は、会話が自分で区切りと印した（--rest）ターンの終わりに、機械が窓に /clear を打つ（持ち主が手で打たない）
+        # 会話を引き継ぐ部署と窓口は、会話が自分で区切りと印した（--rest）ターンの終わりに、機械が窓に /clear を打つ（持ち主が手で打たない）
         provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
         self.put("a1")
         w = self.emptied()
@@ -953,7 +953,7 @@ class Hook(unittest.TestCase):
         got = self.plan()
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus, at_rest=True), opus)
-        self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus))   # 区切りでなければ持ち越す
+        self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus))   # 区切りでなければ引き継ぐ
         self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: role.launch_key(None), at_rest=True))
         tried, w = [], Window(self.place)
         check = wake_hook.checker(got, stop, h=w, now=lambda: 5, me=lambda: ME,
@@ -1020,7 +1020,7 @@ class Hook(unittest.TestCase):
         return seen, spawn
 
     def test_a_finished_department_starts_retire_apart_from_the_talk_at_the_end_of_the_turn(self):
-        # 都度の部署が終わりと印した（--done）ターンの終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
+        # エフェメラルの部署が終わりと印した（--done）ターンの終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH, wake.FINISHED: "s1"}, gitx)
         seen, spawn = self.spawner()

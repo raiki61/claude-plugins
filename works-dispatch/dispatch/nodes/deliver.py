@@ -4,7 +4,7 @@
 
 - 宛先: 「会社/役」か部署の名前か会社の名前。会社を省けば頼む側の会社。部署の名前（属性 company.name）が先に当たる。会社の名前
   だけなら、その会社の窓口（本社の、--desk で名付けた会話）に届ける。役で宛てたときは、その役の
-  常設の部署（company.residency=resident）に届け、無ければ新しく立てる（4.10 の 1・2。都度の部署は頼みごとに立てる）。
+  永続の部署（company.lifecycle=persistent）に届け、無ければ新しく立てる（4.10 の 1・2。エフェメラルの部署は頼みごとに立てる）。
 - 頼み元の窓: 部署の属性 company.boss-session（頼んだ会話の id）、無ければ company.boss と company.boss-account から会話の一覧で
   引いた会話を、herdr のペインと結ぶ。結び方は、その会話を持つ部署の窓、ペインの会話の印（agent_session）と場所が合うもの、
   頼んだときのペイン（company.boss-pane）の順。ペインの会話の印は裏の会話の attach の窓では別の会話の id を指すことがある
@@ -89,8 +89,8 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。会社を書かずに会社の名前（会社の形の在る会社だけ）
     だけで宛てれば、その会社の本社の名付いた会話（窓口）に届け、名付いていなければ、会社の形の desk に書いたほかの会社の窓口に
     届け（返しに via を添える）、それも無ければ止める。頼む側の会社の役の名前より先に当たる。役で宛てて task（--task の部署の名前）を
-    渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の常設の部署が名前違いで居ても
-    使わない）。task が無く、役で宛てて常設の部署が無ければ department は None（新しく立てる）。"""
+    渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の永続の部署が名前違いで居ても
+    使わない）。task が無く、役で宛てて永続の部署が無ければ department は None（新しく立てる）。"""
     company_name, name = parse_target(target)
     if company_name is None:
         pool = companies
@@ -146,7 +146,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     else:
         company = one_company(pool, company_name)
     if task:
-        # 役で宛てて部署の名前（--task）も渡したときは、その名前の部署に届け、無ければ新しく立てる。同じ役の常設の部署が名前違いで
+        # 役で宛てて部署の名前（--task）も渡したときは、その名前の部署に届け、無ければ新しく立てる。同じ役の永続の部署が名前違いで
         # 1 つ居ても、そこへは届けない（受け持ちごとに担当が居る形で、ほかの受け持ちの担当に届いてしまうため）
         mine = [d for d in company["departments"] if d["attrs"].get("name") == task] or \
             [d for d in company["departments"] if task in gitx.former_names(d["attrs"])]
@@ -155,19 +155,19 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                                f"（{'、'.join(d['branch'] or d['path'] for d in mine)}）")
         return {"company": company, "department": mine[0] if mine else None,
                 "role": current(company, mine[0]["attrs"].get("role") or name if mine else name)}
-    duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("standing") is False), None)
+    duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("on_demand")), None)
     if duty and duty.get("role"):
-        # 頼まれたときだけ立てる受け持ち（standing = false）で、その名前の部署が今は無い: その名前の都度の部署を立てる（orders.ask が
+        # オンデマンドの受け持ち（on_demand = true）で、その名前の部署が今は無い: その名前のエフェメラルの部署を立てる（orders.ask が
         # 部署の名前とブランチを決める）。同じ受け持ちで立つ部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む
         return {"company": company, "department": None, "role": current(company, duty["role"]), "on_demand": duty["name"]}
     name = current(company, name)
-    resident = [d for d in company["departments"]
+    persistent = [d for d in company["departments"]
                 if d["attrs"].get("role") and current(company, d["attrs"]["role"]) == name
-                and d["attrs"].get("residency") == "resident"]
-    if len(resident) > 1:
-        raise DeliverError(f"{company['name']} に役「{name}」の常設の部署が 2 つ以上ある"
-                           f"（{'、'.join(d['attrs'].get('name') or d['branch'] for d in resident)}）。部署の名前で宛てる")
-    return {"company": company, "department": resident[0] if resident else None, "role": name}
+                and d["attrs"].get("lifecycle") == gitx.PERSISTENT]
+    if len(persistent) > 1:
+        raise DeliverError(f"{company['name']} に役「{name}」の永続の部署が 2 つ以上ある"
+                           f"（{'、'.join(d['attrs'].get('name') or d['branch'] for d in persistent)}）。部署の名前で宛てる")
+    return {"company": company, "department": persistent[0] if persistent else None, "role": name}
 
 
 def window(dept):

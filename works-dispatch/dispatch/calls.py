@@ -3,7 +3,7 @@
 （会社の形の [[land.after]]）から呼ぶ。ツールの中身（入力の確かめ・回す頼みの字）は nodes/tools.py、ツールの定義を読むのは role ノード。
 
 --call <会社/役> <ツール>（call）: ツールを origin の既定のブランチの中身（一時の worktree。tools.place）のルートで走らせ、入力の JSON を標準入力に渡す。終了の値 0 なら片づいた（答えを出して
-0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の常設の部署が
+0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の永続の部署が
 在ればその順番待ちに積み、無ければ一度きりの部署を自動で立てる）。回したら受付番号を出して 3 で終わる。
 合図（fire）: --land がメインブランチへ push し終えた後に、[[land.after]] の並びの順に同じ走らせ方で呼ぶ。回した頼みの頼み元は、メインブランチに入れた
 部署の頼み元。
@@ -107,7 +107,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
     ns = argparse.Namespace(**{**vars(a), "ask": f"{company}/{to}", "text": None, "brief": brief, "dry_run": False,
                                "task": tools.auto_name(role_name, tool) if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,
-                               "role": None, "resident": False, "ask_id": ask_id, "from_boss": boss,
+                               "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss,
                                "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
     head = f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）。{to} に回した"
     rc = orders.ask(ns, ports, cwd, task)

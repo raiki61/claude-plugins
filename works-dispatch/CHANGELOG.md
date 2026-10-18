@@ -6,6 +6,26 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 部署の寿命の呼び名を、エンジニアになじみのある語にそろえた（受付 311e99）。常設 → 永続（persistent）、都度 → エフェメラル（ephemeral）。永続の部署の会話の扱いは、毎回空 → 毎回クリア、持ち越し → 引き継ぎ。頼まれたときだけ立てる受け持ち → オンデマンドの受け持ち。GitHub Actions の persistent・ephemeral のランナーと、Claude Code の `/clear`（空のコンテキストで新しい会話を始めるコマンド）に寄せた。名前の替わった物:
+  - 旗: `--resident` → `--persistent`、`--per-task` → `--ephemeral`
+  - 部署の属性: `company.residency`（`resident`・`per-task`）→ `company.lifecycle`（`persistent`・`ephemeral`）
+  - 会社の形の役のキー: `resident = true` → `persistent = true`
+  - 会社の形の受け持ちのキー: `standing = false` → `on_demand = true`
+  - 席の種類のキー（0.73.0 で ASCII にした、機械が比べ・並べる値）: `resident-carry`・`resident-fresh`・`per-task` → `persistent-carry`・`persistent-fresh`・`ephemeral`
+  - `--tree` の表示と herdr の作業場の印: `常設・毎回空`・`常設・持ち越し`・`都度` → `永続・毎回クリア`・`永続・引き継ぎ`・`エフェメラル`。`--tree --json` の部署のフィールド `residency` → `lifecycle`、受け持ちのフィールド `standing` → `on_demand`（真偽が逆になる）
+  - オンデマンドの受け持ちの部署の会話の始まりに足す文: 「この受け持ちはオンデマンド（頼まれたときだけ立てる）で、この部署はエフェメラルの部署（頼みを済ませたら畳まれる）。」
+
+### Deprecated
+
+- 前の名前も受け付けるので、今ある会社の形と立っている部署は直さなくても動く。受け付けるのは、旗の `--resident`・`--per-task`、会社の形のキーの `resident`・`standing`（新しいキーが有ればそちら）、部署の属性の `company.residency`。
+- 前の版の works-dispatch と混ざって動く間のために、部署の寿命を書くとき（`--task`・`--reorg`・`--desk`）は `company.lifecycle` と前の属性 `company.residency` の両方に同じ値を書く（前の版は `company.residency` の無い部署をエフェメラルとみなし、永続の部署を `--clean`・`--land` で畳むため）。2 つが食い違えば `company.residency` を読む（食い違うのは、前の版が `company.residency` だけを書き換えたとき）。`--sync` は、2 つの属性の片方しか無いか食い違う部署で、2 つとも同じ値にそろえる。`company.residency` を消すのは、前の版が使われなくなってから。claude-plugins の `.claude/company.toml` も、同じ間は前のキー（`resident = true`・`standing = false`）を新しいキーと並べて書く（前の版は前のキーしか読まず、担当をエフェメラルの部署で立ててしまうため）。
+
+### Added
+
+- 語の一覧（`dispatch/terms.py`。定着語でない言い方を見つけて、置き換える語を示す一覧）に前の呼び名を足し、指示ファイル・スキルの文と、部署が返す納品の要約に戻ってこないようにした（main へ入れるゲートの `scripts/terms.py` と、納品の検査が止める）。当てるのは部署の話の形（常設の部署・都度の部署・常設・毎回空 など）だけで、「その都度」「毎回空振り」「常設の展示」などのふつうの言い方は当てない。
+
 ## [0.78.0] - 2026-10-19
 
 ### Changed

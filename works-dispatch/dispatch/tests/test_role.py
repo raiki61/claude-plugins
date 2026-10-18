@@ -59,7 +59,7 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "settings": None,
-                                                 "deliver": None, "deliver_check": None, "resident": False, "fresh": False, "machine": False, "tools": [],
+                                                 "deliver": None, "deliver_check": None, "persistent": False, "fresh": False, "machine": False, "tools": [],
                                                  "holders": None, "ask_holders": None, "ask_check": None})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
@@ -114,15 +114,18 @@ deliver_check = ""
         self.assertEqual(role.pick(role.load(None), "何か", True), (None, None))
 
     def test_default_role_and_resident_are_read_and_checked(self):
-        got = role.load(write(f"{self.d}/d.toml", 'default_role = "b"\n[[roles]]\nname = "a"\nresident = true\n[[roles]]\nname = "b"\n'))
-        self.assertEqual((got["default_role"], got["roles"]["a"]["resident"], got["roles"]["b"]["resident"], got["problems"]),
+        got = role.load(write(f"{self.d}/d.toml", 'default_role = "b"\n[[roles]]\nname = "a"\npersistent = true\n[[roles]]\nname = "b"\n'))
+        self.assertEqual((got["default_role"], got["roles"]["a"]["persistent"], got["roles"]["b"]["persistent"], got["problems"]),
                          ("b", True, False, []))
         self.assertEqual(role.default(got, "作業"), ("b", None))
-        got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\nresident = "yes"\n'
+        # 前の版の鍵 resident も同じ意味で読む（persistent が有ればそちら）
+        got = role.load(write(f"{self.d}/r.toml", '[[roles]]\nname = "a"\nresident = true\n[[roles]]\nname = "b"\nresident = true\npersistent = false\n'))
+        self.assertEqual((got["roles"]["a"]["persistent"], got["roles"]["b"]["persistent"], got["problems"]), (True, False, []))
+        got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\npersistent = "yes"\n'
                                                   '[[roles]]\nname = "c"\n'))
         self.assertIsNone(got["default_role"])
         self.assertEqual(list(got["roles"]), ["c"])
-        self.assertIn("resident の形が違う", got["problems"][0])
+        self.assertIn("persistent の形が違う", got["problems"][0])
         self.assertIn("default_role の役 無い が [[roles]] に無い", got["problems"][1])
         name, why = role.default(got, "作業")   # 会社の形に無い既定の役は止める（英語の役の名前の会社で、役の無い部署を立てない）
         self.assertEqual(name, "作業")
@@ -164,18 +167,18 @@ deliver_check = ""
 class Seat(unittest.TestCase):
     def test_fresh_is_read_and_shown_with_residency(self):
         d = tempfile.mkdtemp()
-        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "担当"\nresident = true\nfresh = true\n'
-                                             '[[roles]]\nname = "相談"\nresident = true\n[[roles]]\nname = "変"\nfresh = "yes"\n'))
+        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "担当"\npersistent = true\nfresh = true\n'
+                                             '[[roles]]\nname = "相談"\npersistent = true\n[[roles]]\nname = "変"\nfresh = "yes"\n'))
         self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
         self.assertNotIn("変", got["roles"])
-        self.assertIn("resident・fresh・machine は true か false", got["problems"][0])
-        # herdr の作業場の印 kind に、常設か都度かと、会話を持ち越すか毎回空にするかを出す。ペインの表示名は役だけ
+        self.assertIn("persistent・resident・fresh・machine は true か false", got["problems"][0])
+        # herdr の作業場の印 kind に、永続かエフェメラルかと、会話を引き継ぐか毎回クリアするかを出す。ペインの表示名は役だけ
         from nodes import sync
-        self.assertEqual(sync.kind({"role": "担当", "residency": "resident", "fresh": "true"}), "常設・毎回空")
-        self.assertEqual(sync.kind({"role": "相談", "residency": "resident"}), "常設・持ち越し")
-        self.assertEqual(sync.kind({"role": "作業", "residency": "per-task"}), "都度")
+        self.assertEqual(sync.kind({"role": "担当", "lifecycle": "persistent", "fresh": "true"}), "永続・毎回クリア")
+        self.assertEqual(sync.kind({"role": "相談", "lifecycle": "persistent"}), "永続・引き継ぎ")
+        self.assertEqual(sync.kind({"role": "作業", "lifecycle": "ephemeral"}), "エフェメラル")
         self.assertIsNone(sync.kind({}))
-        self.assertEqual(sync.op("p", {"role": "担当", "residency": "resident", "name": "割り振り"}, False)["display_agent"], "担当")
+        self.assertEqual(sync.op("p", {"role": "担当", "lifecycle": "persistent", "name": "割り振り"}, False)["display_agent"], "担当")
 
 
 class ModelAndEffort(unittest.TestCase):
@@ -210,7 +213,7 @@ class ModelAndEffort(unittest.TestCase):
         self.assertIn("CLAUDE_EFFORT が無い", note)
 
     def test_launch_key_keeps_inherit_unresolved_and_takes_the_duty_first(self):
-        # 毎回空にする部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）
+        # 毎回クリアする部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）
         r = {"name": "担当", "model": "opus", "effort": "inherit"}
         self.assertEqual(json.loads(role.launch_key(r)), {"model": "opus", "effort": "inherit"})
         self.assertEqual(json.loads(role.launch_key(r, {"name": "割り振り", "model": "sonnet", "effort": None})),
@@ -220,11 +223,11 @@ class ModelAndEffort(unittest.TestCase):
     def test_flow_rank_puts_carry_over_then_standing_by_the_duties_then_per_task_then_the_rest(self):
         # herdr の作業場の並びと --tree の部署の並びが同じ鍵を使う（持ち主 2026-10-17 の案 A）
         duties = ["ノートの手入れ", "調べもの"]
-        rows = {"社長室": {"role": "相談", "name": "社長室", "residency": "resident"},
-                "調べもの": {"role": "担当", "name": "調べもの", "residency": "resident", "fresh": "true"},
-                "ノートの手入れ": {"role": "担当", "name": "ノートの手入れ", "residency": "resident", "fresh": "true"},
-                "新しい担当": {"role": "担当", "name": "新しい担当", "residency": "resident", "fresh": "true"},
-                "作業：1": {"role": "作業", "name": "作業：1", "residency": "per-task"}, "手で開いた": {}}
+        rows = {"社長室": {"role": "相談", "name": "社長室", "lifecycle": "persistent"},
+                "調べもの": {"role": "担当", "name": "調べもの", "lifecycle": "persistent", "fresh": "true"},
+                "ノートの手入れ": {"role": "担当", "name": "ノートの手入れ", "lifecycle": "persistent", "fresh": "true"},
+                "新しい担当": {"role": "担当", "name": "新しい担当", "lifecycle": "persistent", "fresh": "true"},
+                "作業：1": {"role": "作業", "name": "作業：1", "lifecycle": "ephemeral"}, "手で開いた": {}}
         self.assertEqual(sorted(rows, key=lambda n: role.flow_rank(rows[n], duties)),
                          ["社長室", "ノートの手入れ", "調べもの", "新しい担当", "作業：1", "手で開いた"])
 

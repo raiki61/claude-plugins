@@ -60,7 +60,7 @@ class Move(unittest.TestCase):
         return seen, task
 
     def test_a_department_is_stopped_and_started_again_on_the_other_account_keeping_its_asker(self):
-        provision.mark(self.place, self.src, {"residency": "resident", "ask": "q1", "boss": "desk", "boss-inbox": self.inbox,
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "ask": "q1", "boss": "desk", "boss-inbox": self.inbox,
                                               "job": "d"}, gitx)
         seen, task = self.fake_task()
         with mock.patch.object(dispatch, "_task", task):
@@ -71,7 +71,7 @@ class Move(unittest.TestCase):
         self.assertEqual([k[2] for k in keys], ["ctrl+z", "escape"])   # 窓の attach の画面をシェルに戻す（d7d50c の 1）
         (got,) = seen
         self.assertEqual((got["ns"].task, got["ns"].branch, got["ns"].only_account, got["ns"].role), ("調べ", "dept/a", "a2", "調べ役"))
-        self.assertTrue(got["ns"].resident)
+        self.assertTrue(got["ns"].persistent)
         self.assertEqual(got["extra"]["boss"], "desk")   # 頼み元はそのまま（納品は元の頼み元へ）
         self.assertIn("受付 q1", got["brief"])
         self.assertIn("アカウント a1", got["brief"])
@@ -83,7 +83,7 @@ class Move(unittest.TestCase):
     def test_an_ask_handed_to_the_old_talk_just_before_it_stopped_is_handed_again_in_the_first_text(self):
         # 読んだ後、止めるまでの間に前の会話の待ち受けが順番待ちの頼みを渡した（属性を書き替えた）。渡した字は止めた会話と消えるので、
         # 最初の文でその頼みを渡し、頼み元も今の物を残す（my_notes の受付 4bae53 と同じ重なりの、--move の側）
-        provision.mark(self.place, self.src, {"residency": "resident", "ask": "q0", "delivered": "q0", "boss": "desk",
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "ask": "q0", "delivered": "q0", "boss": "desk",
                                               "boss-inbox": self.inbox, "job": "d"}, gitx)
         stop = self.ports.stop_session
 
@@ -102,7 +102,7 @@ class Move(unittest.TestCase):
         self.assertIn("--deliver", got["tail"])
 
     def test_a_department_that_does_not_start_again_is_attached_back_only_when_no_new_talk_rose(self):
-        provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "session": "s-dept", "account": "a1"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "session": "s-dept", "account": "a1"}, gitx)
         seen, task = self.fake_task(rc=1)
         listed = self.ports.list_sessions
         with mock.patch.object(dispatch, "_task", task):
@@ -151,8 +151,8 @@ class Move(unittest.TestCase):
         self.assertIn("accounts に無い", out)
 
     def test_naming_the_present_account_starts_the_department_again_on_it(self):
-        # 区切りを印さない会話を持ち越す部署（my_notes の社長室）を、持ち主が起動し直してよいと答えたとき（受付 93d98b）
-        provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "account": "a1"}, gitx)
+        # 区切りを印さない会話を引き継ぐ部署（my_notes の社長室）を、持ち主が起動し直してよいと答えたとき（受付 93d98b）
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "account": "a1"}, gitx)
         rc, out = self.main(self.src, "--move", "調べ", "--account", "a1", "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertIn("アカウント a1 のまま起動し直す", out)
@@ -172,7 +172,7 @@ class Move(unittest.TestCase):
     def test_a_department_talking_in_its_window_is_not_stopped_and_is_told_why(self):
         # 部署の窓で持ち主と話す会話も、窓口と同じくターンの途中と打ちかけの字の上からは止めない。会話の外から打った --move なら、
         # 止めた訳をその会話に台帳の知らせで渡す（入力フィールドには打たない）
-        provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "account": "a1"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "account": "a1"}, gitx)
         h = self.ports.herdr
         h.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
         seen, task = self.fake_task()
@@ -186,7 +186,7 @@ class Move(unittest.TestCase):
             self.assertEqual(rc, move.NOT_NOW, out)
             self.assertIn("入力フィールドに字（「打ちかけ」）が在るので止めない", out)
             # 会社の形の起動の設定で起動し直す待ち受けの --if-changed は、出力で訳を見るので知らせない
-            test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\nresident = true\nmodel = "opus"\n')
+            test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\npersistent = true\nmodel = "opus"\n')
             provision.mark(self.place, self.src, {wake.REST: "1"}, gitx)
             rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
             self.assertEqual(rc, move.NOT_NOW, out)
@@ -213,9 +213,9 @@ class Move(unittest.TestCase):
         self.assertEqual(self.stopped, [("c1", "d")])
 
     def changed_world(self, launched):
-        # 毎回空にする部署。会社の形の model は opus、起動したときは launched
-        test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\nresident = true\nfresh = true\nmodel = "opus"\n')
-        provision.mark(self.place, self.src, {"residency": "resident", "fresh": role.FRESH, "ask": "q1", "delivered": "q1",
+        # 毎回クリアする部署。会社の形の model は opus、起動したときは launched
+        test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\npersistent = true\nfresh = true\nmodel = "opus"\n')
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "fresh": role.FRESH, "ask": "q1", "delivered": "q1",
                                               "boss": "desk", "boss-inbox": self.inbox, "job": "d", "launched": launched,
                                               wake.RESTARTING: "s-dept"}, gitx)
 
@@ -383,10 +383,10 @@ class LimitHook(unittest.TestCase):
 
     def test_only_resident_departments_and_the_desk_move_on_a_rate_limit(self):
         base = {"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"}
-        self.assertIsNone(limit_hook.plan(base))   # 頼みを受けていない都度の部署
-        provision.mark(self.place, self.src, {"ask": "q1"}, gitx)   # 頼みの途中の都度の部署（頼まれたときだけ立てる受け持ち）は移す
+        self.assertIsNone(limit_hook.plan(base))   # 頼みを受けていないエフェメラルの部署
+        provision.mark(self.place, self.src, {"ask": "q1"}, gitx)   # 頼みの途中のエフェメラルの部署（オンデマンドの受け持ち）は移す
         self.assertEqual(limit_hook.plan(base)[0][2:4], ["--move", "調べ"])
-        provision.mark(self.place, self.src, {"ask": None, "residency": "resident"}, gitx)
+        provision.mark(self.place, self.src, {"ask": None, "lifecycle": "persistent"}, gitx)
         argv, cwd, out = limit_hook.plan(base)
         self.assertEqual(argv[2:5], ["--move", "調べ", "--if-limited"])
         self.assertEqual(cwd, self.place)
@@ -396,7 +396,7 @@ class LimitHook(unittest.TestCase):
         self.assertEqual(limit_hook.plan({"cwd": self.src, "session_id": "s-desk", "error": "rate_limit"})[0][3], "窓口")
 
     def test_main_spawns_once_within_the_quiet_time(self):
-        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
         spawned = []
         payload = json.dumps({"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"})
         for _ in range(2):

@@ -46,7 +46,7 @@ QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受け�
 NOTE = "note"       # 今受けている頼みへの足し（--note）。納品と同じに text をそのまま渡す（ターンの途中なら、ターンの終わりの待ち受けが渡す）
 REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
                     # ターンの終わりの待ち受けが窓に /clear を打って消す。人の文でターンが始まると外れる
-FINISHED = "finished"   # 都度の部署の属性 company.finished: 会話が自分で「終わった、片付けてよい」と印した（--done）。値は印した時の
+FINISHED = "finished"   # エフェメラルの部署の属性 company.finished: 会話が自分で「終わった、片付けてよい」と印した（--done）。値は印した時の
                         # 会話の id。ターンの終わりの待ち受けが印を外して --retire を裏で走らせる。人の文でターンが始まると外れる
 RETIRE_KEPT = "retire-kept"   # 部署の属性: --retire が片付けずに残した訳（--clean の一覧に出す）
 LAUNCHED = "launched"   # 部署と窓口の属性: 起動したときの会社の形の model・effort・起動の設定（role.launch_key の字。--task と --move が書く）

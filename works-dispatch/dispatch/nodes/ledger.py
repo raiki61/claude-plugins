@@ -54,7 +54,7 @@ KINDS = {
     "knot": "id",         # 返事待ちの輪をほどくため、輪の頼みを --take で回した
     "start": "id",        # 起動方法の有る受け持ちを起動した（--start・--due）
     "moved": None,        # 部署の会話を別のアカウントで起動し直した（--move）
-    "retired": None,      # 都度の部署を畳んだ（--retire）
+    "retired": None,      # エフェメラルの部署を畳んだ（--retire）
     "call": None,         # 機械窓口のツールを呼んで片づいた（--call）
     "miss": None,         # 機械窓口のツールが片づかなかった
 }
@@ -184,7 +184,7 @@ def build(rows, title_of=None, questions_of=None):
         if t["closed"] is None and (t["state"] in FINAL or t["state"] == "forwarded"):
             t["closed"] = at
     # 親: 回した行が先、次に頼みの行の cause、どちらも無い古い行は打った場所と名前から（その場所がその時受けていて、まだ閉じて
-    # いない頼み。窓口のように頼みを受けては返す常設の会話が、閉じた前の頼みの子として頼みを出したと読まない）
+    # いない頼み。窓口のように頼みを受けては返す永続の部署の会話が、閉じた前の頼みの子として頼みを出したと読まない）
     for r in rows:
         if r.get("kind") == "forwarded" and r.get("id") in tasks and r.get("child") in tasks:
             _link(tasks, r["id"], r["child"], "forwarded")

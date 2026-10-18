@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""StopFailure のフック（matcher は rate_limit）: 常設の会話が使用上限で止まったら、ほかのアカウントで起動し直す（37f8b1）。
+"""StopFailure のフック（matcher は rate_limit）: 永続の部署の会話が使用上限で止まったら、ほかのアカウントで起動し直す（37f8b1）。
 
 Claude Code は、API の誤りでターンが終わると Stop の代わりに StopFailure を走らせ、誤りの種類を error に渡す（使用上限は rate_limit）。
-会話の場所が常設の部署（属性 company.residency が resident）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
+会話の場所が永続の部署（属性 company.lifecycle が persistent）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
 dispatch.py --move <名前> --if-limited を、この会話から切り離して（POSIX は nodes/wake.py の detached の殻で、親を init に替えて）裏で走らせる（--move はこの会話を止めてから起動し直すので、
-この会話の子として待たない）。都度の部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
+この会話の子として待たない）。エフェメラルの部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
 同じ場所で 10 分の間に 2 度は走らせない（上限の後の自動の続き〔autoContinueAtUsageLimit〕で、同じ誤りが続けて来ることがある）。
 走らせた出力は受付箱の moves/ に残す。何も出さず、0 で終わる（StopFailure はフックの出力を読まない）。
 """
@@ -43,8 +43,8 @@ def plan(payload, attrs_of=gitx.worktree_attrs):
     head = provision.desk_seat(here, common, attrs)
     if head and attrs.get("session") != payload.get("session_id"):
         return None   # 窓口の席（本社か、本社の属性が写った作業場）の、窓口でない会話
-    if not head and attrs.get("residency") != "resident" and not (attrs.get("ask") and attrs.get("delivered") != attrs["ask"]):
-        return None   # 都度の部署は、頼みを受けている間だけ移す（頼まれたときだけ立てる受け持ちの部署は、頼みの途中で枠が尽きうる）
+    if not head and attrs.get("lifecycle") != gitx.PERSISTENT and not (attrs.get("ask") and attrs.get("delivered") != attrs["ask"]):
+        return None   # エフェメラルの部署は、頼みを受けている間だけ移す（オンデマンドの受け持ちの部署は、頼みの途中で枠が尽きうる）
     argv = [sys.executable, DISPATCH_PY, "--move", name, "--if-limited"] + (["--config", attrs["config"]] if attrs.get("config") else [])
     out = os.path.join(deliver.inbox_of(common), MOVES, f"{''.join(c for c in name if c.isalnum())}-{int(time.time())}.log")
     return argv, cwd, out

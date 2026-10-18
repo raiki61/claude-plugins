@@ -185,10 +185,10 @@ class InitCompany(unittest.TestCase):
         # 窓口は組織の決まり（担当は自分で --land する・ブランチの名前・受け持ちの中は担当に頼む）を役の本文で受ける
         for rule in ("自分で --land", "fix/", "作業に直に頼まない"):
             self.assertIn(rule, shape["roles"]["窓口"]["instructions"])
-        # 役は担当（受け持ちに常設）と作業（一度きり。--role を省いたときの役）。受け持ちは受ける仕事の項目で、役は担当
+        # 役は担当（受け持ちごとに永続）と作業（一度きり。--role を省いたときの役）。受け持ちは受ける仕事の項目で、役は担当
         self.assertEqual([(s["name"], s["role"]) for s in info["skills"]], [("<受け持ち>", "担当"), ("一度きりの作業", "作業")])
         self.assertEqual((shape["default_role"], dispatch.DEFAULT_ROLE), ("作業", "作業"))
-        self.assertEqual((shape["roles"]["担当"]["resident"], shape["roles"]["作業"]["resident"]), (True, False))
+        self.assertEqual((shape["roles"]["担当"]["persistent"], shape["roles"]["作業"]["persistent"]), (True, False))
         company = os.path.basename(self.src)
         self.assertIn(f"--ask {company}/作業 に --task <受け持ち>：<何をするか>", shape["roles"]["担当"]["instructions"])
         self.assertIn("--ask <受け持ち>", shape["roles"]["担当"]["instructions"])

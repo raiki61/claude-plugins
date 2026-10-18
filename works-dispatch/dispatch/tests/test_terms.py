@@ -34,6 +34,18 @@ class Fix(unittest.TestCase):
         for before, after in cases.items():
             self.assertEqual(terms.fix_line(before), after, before)
 
+    def test_former_names_of_department_lifetimes_are_fixed_but_ordinary_words_are_not(self):
+        cases = {"常設の部署": "永続の部署", "都度の部署": "エフェメラルの部署", "常設・毎回空": "永続・毎回クリア",
+                 "担当は常設で 1 人": "担当は永続で 1 人", "常設か都度か": "永続かエフェメラルか", "その都度の部署": "その都度の部署",
+                 "その都度確かめる": "その都度確かめる", "常設の展示": "常設の展示",
+                 "チェックが毎回空振りする": "チェックが毎回空振りする", "常設の会話": "永続の会話",
+                 "常設でない部署": "永続でない部署", "都度とみなす": "エフェメラルとみなす", "常設の役員": "常設の役員",
+                 "席が毎回空く": "席が毎回空く", "タンクが毎回空になる": "タンクが毎回空になる", "常設・仮設": "常設・仮設",
+                 "常設の席": "常設の席"}
+        for before, after in cases.items():
+            self.assertEqual(terms.fix_line(before), after, before)
+        self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "毎回クリア")])
+
     def test_a_word_whose_meaning_splits_is_found_but_not_fixed(self):
         # 網 は通信ならネットワーク、検出の範囲（網に掛かる）ならゲートかテストで、機械では決められない
         self.assertEqual(terms.line_problems("回帰の網に掛かる"), [("網", "ネットワーク（検出の範囲の意味ならゲートかテスト）")])

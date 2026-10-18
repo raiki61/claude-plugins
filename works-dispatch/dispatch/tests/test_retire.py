@@ -1,4 +1,4 @@
-"""終わりの印（--done。orders.finish_here）と、都度の部署を止めて畳む --retire（retire.py）と、納品し終えた部署がターンを終えて残る訳
+"""終わりの印（--done。orders.finish_here）と、エフェメラルの部署を止めて畳む --retire（retire.py）と、納品し終えた部署がターンを終えて残る訳
 （orders.leftover・stop_after）。git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
 
 import io
@@ -17,7 +17,7 @@ GIT_ID = ["-c", "user.name=o", "-c", "user.email=o@o"]
 
 
 class Retire(unittest.TestCase):
-    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。部署「調べ」は origin/main から切った都度の部署。"""
+    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。部署「調べ」は origin/main から切ったエフェメラルの部署。"""
 
     Flow = test_deliver.Flow
     main, shape = Flow.main, Flow.shape
@@ -99,10 +99,10 @@ class Retire(unittest.TestCase):
         rc, out = self.main(self.src, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("窓口は畳まない", out)
-        provision.mark(self.place, self.src, {"residency": "resident", wake.FINISHED: None}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", wake.FINISHED: None}, gitx)
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
-        self.assertIn("常設の部署は畳まない", out)
+        self.assertIn("永続の部署は畳まない", out)
 
     def test_retire_stops_the_talk_then_removes_the_room_like_clean(self):
         rc, out = self.main(self.src, "--retire", "調べ")
@@ -208,7 +208,7 @@ class Retire(unittest.TestCase):
 
     def test_a_resident_department_is_sent_back_only_for_an_unlanded_branch(self):
         self.shape(self.LAND)
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "residency": "resident"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "lifecycle": "persistent"}, gitx)
         self.assertIsNone(self.after())
         test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
         self.assertIn("ブランチがメインブランチ（origin/main の手元の控え）に入っていない", self.after())
@@ -234,8 +234,8 @@ class Retire(unittest.TestCase):
         wake.take(self.inbox, gitx.git_dir(self.place))
         provision.mark(self.place, self.src, {wake.FINISHED: "s-dept"}, gitx)
         self.assertIsNone(self.after())
-        provision.mark(self.place, self.src, {wake.FINISHED: None, "residency": "resident"}, gitx)
-        self.assertIsNone(self.after())   # 常設の部署は畳まない
+        provision.mark(self.place, self.src, {wake.FINISHED: None, "lifecycle": "persistent"}, gitx)
+        self.assertIsNone(self.after())   # 永続の部署は畳まない
         self.assertIsNone(orders.stop_after({"session_id": "s-desk"}, self.src, {"role": "窓口", "name": "desk", "ask": "q1",
                                                                                 "delivered": "q1"}, 0, os.path.dirname(self.cfg)))
 
