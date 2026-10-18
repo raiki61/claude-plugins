@@ -29,7 +29,9 @@
 区切りの印の無い、会話を持ち越す部署と窓口は起こし直さない（持ち主と話している途中の会話を切らない。区切りの印は、人がその
 会話に打つと外れる）。区切りで起こし直しても、/clear で空にするのと比べて失う物は無い。前の会話を止めたら、待ち受けが付けた印
 （属性 company.restarting）と区切りの印を外す。待ち受けは --if-changed が終わるのを待ち、印が残っていれば（前の会話を止めずに終わった）、
-頼みを前の会話に渡す（wake_hook.restart_first）。
+頼みを前の会話に渡す（wake_hook.restart_first）。窓口の会話が番の途中か入力欄に打ちかけの字が在って /exit を打たなかったときは
+NOT_NOW（75）で終わり、待ち受けは今の値を残さずに次の区切りで試し直す。入力欄の薄字（Claude Code の次の文の候補）は打ちかけと
+数えない（deliver.typed）。
 """
 
 import argparse
@@ -55,6 +57,7 @@ NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この�
 KEEP = ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")
 # 前の裏の会話が止まったのを会話の一覧で見る回数（1 回ごとに ports.pause）
 STOP_LOOKS = 20
+NOT_NOW = wake.NOT_NOW   # 今は起こし直さない（番の途中・打ちかけの字）。待ち受けが次の区切りで試し直す
 BUSY = ("working", "blocked")   # herdr が会話が番の途中（動いている・確かめの画面で待つ）と見る状態。/exit を打たない
 
 
@@ -261,14 +264,14 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
         return 1, "窓口の会話の居るペインが分からない（属性の会話 company.session の居るペインが無い）"
     try:
         status = (ports.herdr.agent(pane) or {}).get("agent_status")
-        box = deliver.input_box(ports.herdr.read(pane, 40))
+        box = deliver.typed(ports.herdr.read(pane, 40, ansi=True))
     except herdr.HerdrError as e:
         return 1, f"窓口の窓 {pane} を読めない（{e}）"
     if status in BUSY:
-        return 1, (f"窓口の会話が番の途中（{status or '-'}）なので /exit を打たない（窓口の会話の中から打ったなら、区切りで --rest を"
+        return NOT_NOW, (f"窓口の会話が番の途中（{status or '-'}）なので /exit を打たない（窓口の会話の中から打ったなら、区切りで --rest を"
                    "打てば番の終わりに待ち受けが起こし直す。アカウントを移すなら、番を終えてから会話の外で打つ）")
-    if box and box.lstrip("❯").strip():
-        return 1, f"窓口の窓 {pane} の入力欄に字が在るので /exit を打たない（持ち主が打ちかけの字を消さない）"
+    if box:
+        return NOT_NOW, f"窓口の窓 {pane} の入力欄に字（「{box[:20]}」）が在るので /exit を打たない（持ち主が打ちかけの字を消さない）"
     the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
     warn = None
     try:

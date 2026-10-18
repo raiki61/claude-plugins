@@ -7,6 +7,8 @@
   間を置いて空にするのを試し直す（会話が前の会話の中身で次の頼みを書き直さない）。
   会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）番の終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
+  区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力欄の薄字
+  （Claude Code の次の文の候補）は打ちかけの字と数えない（deliver.typed）。
   区切りの番の終わりに、会社の形の起動の設定（model・effort・[roles.settings]）が起こしたとき（属性 company.launched）と違えば、
   /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起こし直す（空にするのと失う物は同じ。持ち主の手で起こし直さない）。
   都度の部署が終わりと印した（--done。属性 company.finished）番の終わりには、印を外して dispatch.py --retire <部署> を会話から
@@ -126,9 +128,11 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
             return no("この会話の居る窓を 1 つに確かめられない（部署の窓で attach を開けば続く）")
         if (h.agent(pane) or {}).get("agent_status") not in IDLE:
             return no("会話がまだ動いている")   # ほかの止まる前のフックが番を続けさせたなど
-        box = deliver.input_box(h.read(pane, 40))
-        if box is None or box.lstrip("❯").strip():
-            return no("窓の入力欄が見えないか、字が在る")   # 頭の ❯ は入力欄の印
+        box = deliver.typed(h.read(pane, 40, ansi=True))
+        if box is None:
+            return no("窓の入力欄が見えない")
+        if box:
+            return no(f"窓の入力欄に打ちかけの字が在る（「{box[:20]}」。薄字の候補は数えない）")
     except h.HerdrError as e:
         return no(f"herdr を読めない（{e}）")
 
@@ -242,7 +246,8 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False)
 def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sleep, parent=os.getppid, detach=None):
     """dispatch.py --move <会社/部署> --if-changed を会話から切り離して走らせ、終わるまで待つ。--move がこの会話を止めて起こし直したら
     True（新しい会話の待ち受けが頼みを渡す）。止めずに終わったら（起こし直さない・起こせない）、印を外して今の値を
-    company.restart-kept に残し、False（この会話に頼みを渡す。前の model・effort のまま受ける）。待つ間も印の更新の時刻を進め、
+    company.restart-kept に残し、False（この会話に頼みを渡す。前の model・effort のまま受ける）。--move が今は起こし直さない
+    （wake.NOT_NOW。番の途中・打ちかけの字）で終わったときは今の値を残さない（次の区切りでまた試す）。待つ間も印の更新の時刻を進め、
     会話の処理が替わる（止められた）か待ち受けが替わったら True。detach（既定は POSIX で本物の Popen のとき）なら detached の殻で
     走らせ、殻の書く終わりの値のファイルで終わりを見る（--move は前の会話を止めても走り続け、起こし直すか、起こせなければ訳を台帳に書く）。"""
     attrs = gitx.worktree_attrs(got["cwd"])
@@ -259,7 +264,7 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
         if detach:
             spawn(wake.detached(argv, out, done), cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                   stderr=subprocess.DEVNULL, start_new_session=True).wait()
-            proc = None if os.path.exists(done) else _DoneFile(done)
+            proc = _DoneFile(done)
         else:
             with open(out, "w", encoding="utf-8") as f:
                 proc = spawn(argv, cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
@@ -275,18 +280,26 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
         pause(wake.POLL)
     if not gitx.worktree_attrs(got["cwd"]).get(wake.RESTARTING):
         return True   # --move が前の会話を止めた
-    provision.mark(got["cwd"], got["root"], {wake.RESTARTING: None, wake.RESTART_KEPT: key}, gitx)
+    # 今は起こし直さない（番の途中・打ちかけの字）で終わったなら、今の値を残さない（次の区切りで試し直す）
+    later = proc is not None and proc.poll() == wake.NOT_NOW
+    provision.mark(got["cwd"], got["root"], {wake.RESTARTING: None, **({} if later else {wake.RESTART_KEPT: key})}, gitx)
     return False
 
 
 class _DoneFile:
-    """切り離して走らせた命令の終わりを、殻が書く終わりの値のファイルで見る（Popen の poll と同じ形）。"""
+    """切り離して走らせた命令の終わりを、殻が書く終わりの値のファイルで見る（Popen の poll と同じ形。数でない値は 1）。"""
 
     def __init__(self, path):
         self.path = path
 
     def poll(self):
-        return 0 if os.path.exists(self.path) else None
+        try:
+            text = pathlib.Path(self.path).read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if not text:
+            return None   # 殻が書いている途中
+        return int(text) if text.isdigit() else 1
 
 
 def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
@@ -329,12 +342,13 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
                                            "session": got["session"], "detail": f"前の会話を空にできないので渡さずに待つ（{why[0]}）"})
             return wake.HOLD
+        unrested = []   # 区切りで空にできなかった訳（次を渡すときに会話と台帳に添える。黙って前の会話のまま渡さない）
         if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and attrs[wake.REST] in (got["session"], "1"):
             # 区切りの印はこの会話が打った物だけ見る（前の会話の印が残っていても、持ち主と話している今の会話を起こし直さない）
             key = restart_due(got, payload, attrs, key_of, at_rest=True)
             if key and restart(got, key):
                 return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起こし直した。起こし直した会話の待ち受けが、次を渡す
-            if clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me):
+            if clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me, why=unrested):
                 return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
         key = restart_due(got, payload, attrs, key_of)
         if key and restart(got, key):
@@ -349,8 +363,13 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
             # 次の頼みを受けたら、前の終わりの印は外す（終わりは、受けた頼みを済ませてから --done で印し直す）
             provision.mark(got["cwd"], got["root"], {**(item.get("marks") or {}), wake.FINISHED: None}, gitx)
         deliver.log(got["inbox"], {"id": item.get("id"), "kind": "handed", "at": now(), "place": got["cwd"],
-                                   "session": got["session"]})
-        return "wake", item.get("line") or wake.wake_text([item])
+                                   "session": got["session"], **({"unrested": unrested[0]} if unrested else {})})
+        text = item.get("line") or wake.wake_text([item])
+        if unrested:
+            # 2026-10-18 に my_notes の段取りが、空にできない訳を知らないまま 1 時間に 12 回、前の会話のまま受けた
+            text = (f"（区切り〔--rest〕で会話を空にできなかったので、前の会話のまま渡す: {unrested[0]}。区切りの印は残してあり、"
+                    "次の番の終わりにまた空にするのを試す）\n" + text)
+        return "wake", text
     return check
 
 

@@ -111,15 +111,15 @@ def reload_when_free(pane, h, pause, hold=lambda: False):
             if state not in IDLE:
                 status = "busy" if state in BUSY else "unseen"
                 continue
-            box = deliver.input_box(h.read(pane, 40))
+            box = deliver.typed(h.read(pane, 40, ansi=True))
         except h.HerdrError:
             status = "unseen"
             continue
         if box is None:
             status = "unseen"
             continue
-        if box.lstrip("❯").strip():
-            return "typing"   # 人が書いている文を壊さない（頭の ❯ は入力欄の印）
+        if box:
+            return "typing"   # 人が書いている文を壊さない（薄字の候補は数えない）
         try:
             h.prompt(pane, RELOAD, False)
         except h.HerdrError:

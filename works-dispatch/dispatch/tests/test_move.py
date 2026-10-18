@@ -245,14 +245,25 @@ class Move(unittest.TestCase):
         h = self.ports.herdr
         h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
-        self.assertEqual(rc, 1, out)
+        self.assertEqual(rc, move.NOT_NOW, out)   # 訳がすぐ替わる（待ち受けは起こし直さなかった値を残さない）
         self.assertIn("番の途中", out)
         h.agent = lambda pane: {"agent": "claude", "agent_status": "idle"}
         h.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
-        self.assertEqual(rc, 1, out)
-        self.assertIn("入力欄に字が在る", out)
+        self.assertEqual(rc, move.NOT_NOW, out)
+        self.assertIn("入力欄に字（「打ちかけ」）が在る", out)
         self.assertFalse([w for w in h.writes if w[1] == self.desk and w[0] in ("prompt", "run")])
+
+    def test_the_desk_is_exited_over_a_faint_prompt_suggestion(self):
+        # 入力欄の薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補「消していいよ」を
+        # 打ちかけと見て、区切りの起こし直しを 1 時間打たなかった
+        self.desk_world()
+        h = self.ports.herdr
+        h.screen = "\x1b[38;2;136;136;136m" + "─" * 20 + " 窓口 ─\x1b[0m\n❯\xa0\x1b[0m\x1b[2m消していいよ\x1b[0m\n" + "─" * 20
+        self.assertEqual(deliver.typed(h.screen), "")
+        self.assertEqual(deliver.typed(h.screen.replace("\x1b[2m", "")), "消していいよ")   # 人が打った字は薄字でない
+        self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertIn(("prompt", self.desk, deliver.EXIT), [w[:3] for w in h.writes])
 
 class LimitHook(unittest.TestCase):
     Flow = test_deliver.Flow

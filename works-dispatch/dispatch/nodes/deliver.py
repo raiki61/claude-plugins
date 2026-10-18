@@ -577,6 +577,50 @@ def input_box(screen):
     return " ".join(" ".join(lines[rules[-2] + 1:rules[-1]]).split())
 
 
+_ESC = re.compile(r"\x1b\[([0-9;:?<=>]*)[ -/]*([@-~])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|[\x0e\x0f]")
+
+
+def _solid(screen):
+    """ANSI の画面の字を、行ごとに (制御の字を除いた字, そのうち薄字〔SGR 2〕でない字) の組にする。薄字は Claude Code が入力欄に
+    出す次の文の候補と、空の入力欄の例の字（打てば消える。https://code.claude.com/docs/en/interactive-mode#prompt-suggestions ）。
+    人が打った字と貼った字（[Pasted text …]）は薄字でない（2026-10-18 に claude を端末で起こして見た）。"""
+    out, faint = [], False
+    for line in (screen or "").splitlines():
+        plain, solid, at = [], [], 0
+        for m in _ESC.finditer(line):
+            piece = line[at:m.start()]
+            plain.append(piece)
+            if not faint:
+                solid.append(piece)
+            at = m.end()
+            if m.group(2) == "m":
+                codes = (m.group(1) or "0").split(";")
+                while codes:
+                    code = codes.pop(0)
+                    if code in ("38", "48", "58"):   # 色の指定の続き（5;n か 2;r;g;b）は薄字の 2 と読まない
+                        del codes[:2 if codes[:1] == ["5"] else 4]
+                    elif code in ("", "0", "22"):
+                        faint = False
+                    elif code == "2":
+                        faint = True
+        plain.append(line[at:])
+        if not faint:
+            solid.append(line[at:])
+        out.append(("".join(plain), "".join(solid)))
+    return out
+
+
+def typed(screen):
+    """会話の画面（herdr.read の ansi の字）の入力欄に、人が打った字（薄字の候補と頭の ❯ を除く）。入力欄が空なら ""、
+    罫線が 2 本無ければ None（字を受けられる形でない）。打ちかけの字を消さないための見分け（/clear・/exit・1 行を打つ前に見る）。
+    2026-10-18 に my_notes の段取りで、入力欄の候補「消していいよ」を打ちかけと見て、区切りの /clear と起こし直しを 1 時間打たなかった。"""
+    rows = _solid(screen)
+    rules = [i for i, (x, _) in enumerate(rows) if _rule(x)]
+    if len(rules) < 2:
+        return None
+    return " ".join(" ".join(x for _, x in rows[rules[-2] + 1:rules[-1]]).split()).lstrip("❯").strip()
+
+
 def ready(screen):
     """会話の画面が字を受けられる形か（入力欄が出ている）。"""
     return input_box(screen) is not None

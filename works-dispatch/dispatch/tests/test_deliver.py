@@ -196,6 +196,28 @@ class Summary(unittest.TestCase):
         self.assertNotIn("\n", line)
 
 
+class TypedBox(unittest.TestCase):
+    """入力欄の、人が打った字（deliver.typed）。薄字（SGR 2）は Claude Code の次の文の候補と空の入力欄の例の字で、数えない。"""
+
+    def box(self, inner):
+        rule = "\x1b[38;2;136;136;136m" + "─" * 20 + "\x1b[0m"
+        return deliver.typed(f"上の字\n{rule}\n❯\xa0{inner}\n{rule}\n  足元")
+
+    def test_faint_text_is_not_typed_but_colored_text_is(self):
+        self.assertEqual(self.box("\x1b[0m\x1b[2m消していいよ\x1b[0m"), "")
+        self.assertEqual(self.box("\x1b[2mTry \"edit <filepath> to...\"\x1b[0m"), "")
+        self.assertEqual(self.box("打ちかけ"), "打ちかけ")
+        self.assertEqual(self.box("[Pasted text #1 +30 lines]"), "[Pasted text #1 +30 lines]")
+        # 色の指定の中の 2（38;2;r;g;b・38;5;n）は薄字でない（色の付いた打ちかけを消さない）
+        self.assertEqual(self.box("\x1b[38;2;253;93;177m! ls\x1b[39m"), "! ls")
+        self.assertEqual(self.box("\x1b[38;5;2m緑\x1b[0m"), "緑")
+        self.assertEqual(self.box("\x1b[0;2m候補\x1b[22m打った"), "打った")
+        self.assertEqual(self.box(""), "")
+        self.assertEqual(self.box("\x1b[4:3m波線\x1b[0m\x1b[0 q"), "波線")   # コロン区切りと中間の字の付いた制御も字に数えない
+        self.assertIsNone(deliver.typed("罫線の無い画面"))
+        self.assertEqual(deliver.typed("─" * 20 + "\n❯ 字だけの画面\n" + "─" * 20), "字だけの画面")   # 色の無い画面は全部を数える
+
+
 class BossWindow(unittest.TestCase):
     def test_department_window_then_matching_mark_then_the_pane_at_ask_time(self):
         boss_dept = dept_row(session="s-boss", panes=[{"pane_id": "P9", "agent": "claude"}])

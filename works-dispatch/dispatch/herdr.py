@@ -209,10 +209,10 @@ def report_workspace_metadata(workspace, source, tokens, clear_tokens=(), runner
     _call(argv, runner, quiet_ok=True)
 
 
-def read(pane, lines, runner=_default_runner):
+def read(pane, lines, runner=_default_runner, ansi=False):
     """ペインの画面の終わりの lines 行（読むだけ。起こせなかった訳を報告に添えるのに使う）。JSON でなく画面の字のまま返る
-    （2026-10-16 に herdr 0.9.3 で見た）。"""
-    argv = ["herdr", "pane", "read", pane, "--lines", str(lines)]
+    （2026-10-16 に herdr 0.9.3 で見た）。ansi なら色と薄字の制御の字（SGR）を付けたまま返す（deliver.typed が薄字を見分ける）。"""
+    argv = ["herdr", "pane", "read", pane, "--lines", str(lines)] + (["--ansi"] if ansi else [])
     p = runner(argv)
     if p.returncode != 0:
         raise HerdrError(argv, _error_code(p.stdout) or (p.stderr or p.stdout).strip()[:300])

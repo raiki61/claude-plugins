@@ -140,7 +140,7 @@ class FakeHerdr(WorktreeHerdr):
     def send_keys(self, pane, *keys):
         self.writes.append(("send_keys", pane, *keys))
 
-    def read(self, pane, lines):
+    def read(self, pane, lines, ansi=False):
         return self.screen
 
     def wait_ready(self, pane):

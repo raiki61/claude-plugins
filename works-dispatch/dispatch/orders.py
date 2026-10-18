@@ -724,10 +724,10 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
         return [f"{head}。訳がすぐ替わる物なので打たなかった（待ち受けが 5 秒ごとに試し直す）"]
     try:
         status = (ports.herdr.agent(pane) or {}).get("agent_status")
-        box = deliver.input_box(ports.herdr.read(pane, 40))
+        box = deliver.typed(ports.herdr.read(pane, 40, ansi=True))
     except herdr.HerdrError as e:
         return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。--nudge {dept['attrs'].get('name') or where} で打ち直す"]
-    if status not in ("idle", "done") or box is None or box.lstrip("❯").strip():
+    if status not in ("idle", "done") or box is None or box:
         return [f"{head}。会話が動いているか入力欄に字が在るので打たなかった（番の終わりに待ち受けが張り直す。止まったままなら "
                 f"--nudge {dept['attrs'].get('name') or where} で打ち直す）"]
     keep = {k: dept["attrs"][k] for k in KEPT_MARKS if dept["attrs"].get(k)}

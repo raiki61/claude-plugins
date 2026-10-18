@@ -48,6 +48,9 @@ LAUNCHED = "launched"   # 部署と窓口の属性: 起こしたときの会社�
 LAUNCHING = "launching"   # 窓口の属性: --move が company.launched を書いて起こした会話が、まだ --desk を打っていない（--desk が外す）
 RESTARTING = "restarting"   # 部署と窓口の属性: 待ち受けが --move --if-changed を走らせている間、その会話の id（--move が前の会話を止めたら外す）
 RESTART_KEPT = "restart-kept"   # 部署と窓口の属性: 起こし直さずに残した今の値（role.launch_key の字）。同じ値では起こし直しを試し直さない
+# --move --if-changed が「今は起こし直さない」で終わる値（会話が番の途中・入力欄に打ちかけの字）。訳がすぐ替わるので、待ち受けは
+# 今の値を RESTART_KEPT に残さず、次の区切りで試し直す。sysexits の EX_TEMPFAIL（https://man.freebsd.org/cgi/man.cgi?query=sysexits ）
+NOT_NOW = 75
 
 
 def address(company, name):

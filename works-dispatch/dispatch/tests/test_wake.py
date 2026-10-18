@@ -248,7 +248,7 @@ class Window:
     def agent(self, pane):
         return {"agent": "claude", "agent_status": self.status}
 
-    def read(self, pane, lines):
+    def read(self, pane, lines, ansi=False):
         return f"{'─' * 20}\n❯ {self.box}\n{'─' * 20}\n"
 
     def prompt(self, pane, text, wait):
@@ -507,6 +507,15 @@ class Hook(unittest.TestCase):
             return Done()
         self.assertTrue(wake_hook.restart_first(got, opus, spawn=stopped, now=lambda: 5))
 
+        class Later:   # --move が今は起こし直さない（番の途中・打ちかけの字）で終わった
+            def poll(self):
+                return wake.NOT_NOW
+        provision.mark(self.place, self.src, {wake.RESTART_KEPT: None}, gitx)
+        self.assertFalse(wake_hook.restart_first(got, opus, spawn=lambda argv, **kw: Later(), now=lambda: 5))
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertNotIn(wake.RESTARTING, attrs)
+        self.assertNotIn(wake.RESTART_KEPT, attrs)   # 次の区切りでまた試す
+
     def test_the_move_runs_detached_from_the_talk_and_writes_its_output_and_end(self):
         # 会話を止めると Claude Code はフックの子孫も止める。--move は切り離して走らせ、前の会話を止めても最後まで走る
         d = tempfile.mkdtemp()
@@ -521,6 +530,10 @@ class Hook(unittest.TestCase):
         self.assertEqual(pathlib.Path(log).read_text(encoding="utf-8").strip(), "動いた")
         self.assertIsNone(wake_hook._DoneFile(log + ".x").poll())
         self.assertEqual(wake_hook._DoneFile(done).poll(), 0)
+        pathlib.Path(done).write_text("75\n")
+        self.assertEqual(wake_hook._DoneFile(done).poll(), wake.NOT_NOW)   # 終わりの値を読む（今は起こし直さない、を見分ける）
+        pathlib.Path(done).write_text("")
+        self.assertIsNone(wake_hook._DoneFile(done).poll())   # 殻が書いている途中
 
     def test_a_break_marked_by_an_earlier_talk_does_not_restart_this_one(self):
         # 区切りの印は打った会話の id。前の会話の印が残っていても、今の会話（持ち主と話している）を起こし直さない（16:03 の段取り）
@@ -624,6 +637,28 @@ class Hook(unittest.TestCase):
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(check(), ("end", None))
         self.assertEqual(w.writes[0], deliver.CLEAR)
+
+    def test_a_break_clears_over_a_faint_suggestion_and_says_why_when_it_hands_without_clearing(self):
+        # 入力欄の薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補を打ちかけと見て
+        # 区切りの /clear を 1 時間打たず、訳を残さないまま前の会話に 12 回渡した
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        self.put("a1")
+        stop = {"hook_event_name": "Stop", "session_id": "s1"}
+        w = self.emptied()
+        w.box = "\x1b[0m\x1b[2m消していいよ\x1b[0m"
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(self.checker(stop, w)(), ("end", None))
+        self.assertEqual(w.writes[0], deliver.CLEAR)
+        # 人の打ちかけの字は消さない。前の会話のまま渡すなら、空にできなかった訳を会話と台帳に添える
+        provision.mark(self.place, self.src, {wake.REST: "s1"}, gitx)
+        w = Window(self.place, box="打ちかけ")
+        kind, text = self.checker(stop, w)()
+        self.assertEqual((kind, w.writes), ("wake", []))
+        self.assertTrue(text.startswith("（区切り〔--rest〕で会話を空にできなかったので、前の会話のまま渡す: 窓の入力欄に打ちかけの字が在る（「打ちかけ」"), text)
+        self.assertTrue(text.endswith("頼みです（受付 a1）"), text)
+        handed = [r for r in deliver.records(self.inbox) if r["kind"] == "handed"]
+        self.assertIn("打ちかけ", handed[-1]["unrested"])
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s1")   # 印は残る（次の番の終わりにまた試す）
 
     def test_a_break_is_not_cleared_with_an_open_ask_typed_text_or_outside_stop(self):
         provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
