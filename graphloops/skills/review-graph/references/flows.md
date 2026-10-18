@@ -48,7 +48,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop review-loop --reques
 
 ## 合流の線引き（run の成果を重ねるとき）
 
-複数の run の枝を 1 本に重ねるときの決まり（決定の正本は [設計の文書](../../../../docs/graphloops-rearchitecture.md#7b-運用の決定2026-09-25人) の 7b・7c）:
+複数の run の枝を 1 本に重ねるときの決まり（決定の正本は [設計の文書](https://github.com/raiki61/claude-plugins/blob/main/docs/graphloops-rearchitecture.md#7b-運用の決定2026-09-25人) の 7b・7c）:
 
 - **後から追いつかせる変更は並行の線に置く**——テストの書き足しと変異の検算は、ほかの作業を待たせずに線で回し、合流した版の最後の関門（`p4.final_gates`）で合わせる。
 - **振る舞いを変える変更は次の工程の前に合流させる**——後の run の判定と修正が、重ねた後の振る舞いを見るように。

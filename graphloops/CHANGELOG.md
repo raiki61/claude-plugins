@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+
+- `/review-graph` の別ファイル 3 本（`references/flows.md`・`conversation-run.md`・`judgment-entry.md`）が、プラグインの外（リポジトリの `docs/graphloops-rearchitecture.md` と `convergence-loops/REVIEW.md`）を相対リンクで指していたのを、GitHub の URL に替えた。marketplace から入れた利用者の手元にはプラグインの中だけが写されるので、相対リンクの先が無かった。`judgment-entry.md` には、指した先の「零処方」の中身（削除で解く・既存のフラグか機構 1 つで解く・主張を狭めて解く）を書き足した
+
 ## [0.28.0] - 2026-10-18
 
 ### Changed
