@@ -2,6 +2,8 @@
 - 自分が作者でレビュアーの付いていない PR は、一覧からは開かない（--pr で指せば開く）
 - 会話の開いている PR は、自分以外の動きが前に送った時より後に有り、会話が手すきで手元の作業も無ければ、会話を終えてペインを畳み、
   同じ場所（checkout）に新しい作業場と会話を立てて /catchup から送り直す
+- 自分の番でなくなった開いている PR は、dispatch が一覧の回で送った会話が手すきで手元の作業も無ければ、会話を終えて作業場を閉じる
+  （worktree は残す）
 - 閉じた PR のブランチの場所は、会話が手すきで手元の作業も無ければ会話を終えて消す。元の clone の linked worktree だけを見る
 - 1 ターン目の終わりは Claude Code 自身の状態で見る（herdr の画面の見立てだけに頼らない）
 """
@@ -217,7 +219,7 @@ class Flow(unittest.TestCase):
         run_main(self.cfg, ports, "--no-second")   # --no-second の回も控えを書く
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
         first = next(i for i, w in enumerate(ports.herdr.writes) if w[0] == "prompt" and w[2] == f"{CATCHUP} 1")
-        self.assertEqual(sent["o/r#1"], {"at": float(first), "head": gitx.head_sha(path)})   # 1 ターン目を送る直前
+        self.assertEqual(sent["o/r#1"], {"at": float(first), "head": gitx.head_sha(path), "via": "listing"})   # 1 ターン目を送る直前
 
     def test_old_send_record_with_only_a_time_is_still_read(self):
         path = self.place(1)
@@ -497,6 +499,128 @@ class Flow(unittest.TestCase):
         self.assertIn("#5 feat/5: 閉じた PR なので片付ける", out)
         self.assertTrue(pathlib.Path(path).exists())
         self.assertEqual(ports.herdr.writes, [])
+
+
+    def off_turn(self, n=3, started=100.0, record=None):
+        """自分の番でない開いている PR（一覧に無い）の場所に、dispatch が前に送った会話が開いている形。"""
+        path = self.place(n)
+        ports = FakePorts([])
+        pane = self.talking_in(ports, path, started=started)
+        ports.branch_prs = {f"feat/{n}": {"number": n, "state": "OPEN", "head_sha": gitx.head_sha(path)}}
+        self.sent({f"o/r#{n}": record or {"at": 200.0, "head": gitx.head_sha(path), "via": "listing"}})
+        return path, ports, pane
+
+    def test_off_turn_pr_with_an_idle_clean_session_is_closed_and_the_worktree_kept(self):
+        path, ports, pane = self.off_turn()
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）", out)
+        self.assertEqual(ports.herdr.writes, [("prompt", pane["pane_id"], "/exit", False),
+                                              ("close_workspace", pane["workspace_id"])])
+        self.assertTrue(pathlib.Path(path).exists())
+        self.assertIn("feat/3", git("-C", self.src, "branch", "--list", "feat/3"))
+
+    def test_off_turn_pr_with_a_busy_session_or_local_work_is_kept_and_named(self):
+        for status, local in (("busy", None), ("idle", "commit"), ("idle", "file")):
+            with self.subTest(status=status, local=local):
+                self.setUp()
+                path, ports, _ = self.off_turn()
+                ports.agents = [{**x, "status": status} for x in ports.agents]
+                if local == "commit":
+                    git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+                if local == "file":
+                    pathlib.Path(path, "draft.py").write_text("x\n")
+                rc, out = run_main(self.cfg, ports)
+                self.assertIn("#3 feat/3: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した", out)
+                self.assertEqual(ports.herdr.writes, [])
+
+    def test_off_turn_conversations_dispatch_did_not_open_are_left_alone(self):
+        # 控えが無い・一覧の回の印が無い（--pr で送った物か前の版の物）・送った後に起動した（持ち主が自分で開いた）・起動の時刻が
+        # 分からない・会話が 2 つ、のどれも触らない
+        for started, record, extra in ((100.0, {}, False), (100.0, {"at": 200.0}, False), (300.0, None, False),
+                                       (None, None, False), (100.0, None, True)):
+            with self.subTest(started=started, record=record, extra=extra):
+                self.setUp()
+                path, ports, _ = self.off_turn(started=started or 100.0, record=record)
+                if started is None:
+                    ports.agents = [{k: v for k, v in x.items() if k != "startedAt"} for x in ports.agents]
+                if record == {}:
+                    self.sent({})
+                if extra:
+                    ports.agents = list(ports.agents) + [{"cwd": path, "status": "idle", "startedAt": 100000}]
+                rc, out = run_main(self.cfg, ports)
+                self.assertEqual(ports.herdr.writes, [])
+                self.assertNotIn("#3", out)
+
+    def test_on_turn_pr_is_not_closed_as_off_turn(self):
+        path, ports, _ = self.off_turn()
+        ports._prs = [pr(3)]   # 自分の番に居る（相手の新しい返事は無い）
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 3).endswith("no_news"), out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_off_turn_conversations_are_not_closed_without_the_full_list(self):
+        # whose-turn を読めなければ止まり、--pr・--issue の回は一覧を読まないので、自分の番でない会話を閉じない
+        path, ports, _ = self.off_turn()
+
+        def boom(repo):
+            raise dispatch.prs.PrsError("whose-turn --json（o/r）が読めない: boom")
+        ports.fetch_prs = boom
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 1)
+        self.assertEqual(ports.herdr.writes, [])
+        path, ports, _ = self.off_turn(n=4)
+        ports.pr_info = lambda repo, n: {**pr(n), "state": "OPEN", "fork": False}
+        rc, out = run_main(self.cfg, ports, "--pr", "1")
+        self.assertNotIn("#4", out)
+        self.assertFalse([w for w in ports.herdr.writes if w[0] == "close_workspace"])
+
+    def test_dry_run_names_the_off_turn_conversation_and_closes_nothing(self):
+        path, ports, _ = self.off_turn()
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じる（worktree は残す）", out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_only_a_listing_send_is_marked_as_closable_later(self):
+        ports = FakePorts([pr(1)])
+        run_main(self.cfg, ports)
+        ports = FakePorts([])
+        ports.pr_info = lambda repo, n: {**pr(n), "state": "OPEN", "fork": False}
+        run_main(self.cfg, ports, "--pr", "2")
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
+        self.assertEqual(sent["o/r#1"].get("via"), "listing")
+        self.assertNotIn("via", sent["o/r#2"])
+
+    def test_off_turn_stash_on_the_branch_keeps_the_conversation(self):
+        # HEAD が送った時の head のままでも、そのブランチの stash は手元の作業
+        path, ports, _ = self.off_turn()
+        pathlib.Path(path, "draft.py").write_text("x\n")
+        git("-C", path, "stash", "push", "-q", "-u", "-m", "wip")
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#3 feat/3: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した", out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_off_turn_branch_force_pushed_by_the_author_is_not_local_work(self):
+        # 作者の force-push で、手元の HEAD（送った時の head）が origin に無くなった。送り直しと同じく、手元で積んだ commit とは見分ける
+        from .test_provision import advance
+        advance(self.src, "feat/3")
+        path, ports, pane = self.off_turn()
+        old = gitx.head_sha(path)
+        rewritten = git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", f"{old}^{{tree}}",
+                        "-p", f"{old}^", "-m", "rewritten")
+        git("-C", self.src, "push", "-q", "--force", "origin", f"{rewritten}:refs/heads/feat/3")
+        git("-C", self.src, "fetch", "-q", "origin")
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）", out)
+
+    def test_off_turn_workspace_with_another_busy_pane_is_named(self):
+        path, ports, pane = self.off_turn()
+        extra = ports.herdr.add_pane(pane["workspace_id"], path)
+        ports.herdr.busy.add(extra["pane_id"])
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#3 feat/3: 自分の番でない PR の会話を終えたが、作業場を閉じられなかった", out)
+        self.assertNotIn(("close_workspace", pane["workspace_id"]), ports.herdr.writes)
+        self.assertTrue(pathlib.Path(path).exists())
 
 
 if __name__ == "__main__":

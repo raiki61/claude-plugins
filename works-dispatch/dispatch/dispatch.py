@@ -14,7 +14,8 @@
 一覧で回すとき（--pr・--issue 無し）は、2 の fresh で、自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める。
 会話の開いていない PR も、前に送った控えが有って、その後に自分以外の動きも head の変化も無ければ開かない（no_news）。
 送り直す PR は、provision の前に古い会話を終えて（turn.close_session）ペインの作業場を畳み（clean.release）、同じ場所に立て直す。
-最後に、閉じた PR の場所を片付ける（_tidy。--dry-run は並べるだけ）。
+最後に、自分の番でなくなった PR の、dispatch が開いた会話を終えて作業場を閉じ（_step_back。worktree は残す）、閉じた PR の場所を片付ける
+（_tidy。--dry-run は並べるだけ）。
 
 片付け（--clean）は、元の clone の linked worktree のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
 
@@ -525,10 +526,11 @@ def _key(repo, number):
 
 
 def _sent_record(v):
-    """dispatch-sent.json の 1 件を {at, head} にする。前の版は時刻だけを書いた。"""
+    """dispatch-sent.json の 1 件を {at, head, listed} にする。前の版は時刻だけを書いた。listed は一覧の回で送った印（via が listing）。
+    印の無い控え（--pr・--issue で送った物と、印を書く前の版の物）は、出どころを言い切れないので listed を偽にする。"""
     if isinstance(v, (int, float)):
-        return {"at": v, "head": None}
-    return {"at": (v or {}).get("at"), "head": (v or {}).get("head")}
+        return {"at": v, "head": None, "listed": False}
+    return {"at": (v or {}).get("at"), "head": (v or {}).get("head"), "listed": (v or {}).get("via") == "listing"}
 
 
 def _pane_at(h, path):
@@ -819,6 +821,7 @@ def main(argv=None, ports=None):
         print("\n".join(report.lines([_held_row(my_prs[0], "issue_closed", {}, kind="issue")], {}, notes)))
         return 0
     places = _branch_places(found)
+    turn_numbers = {p["number"] for p in my_prs}   # 自分の番の PR（片付けで、自分の番でない PR の会話を見分ける）
     sess = sessions.collect(listed, ports.branch, ports.origin)
     # 自分が作者でレビュアーの付いていない PR は、開くが /catchup だけ送る（2 ターン目の文はレビューの進め方なので送らない）
     held, acts, catchup_only = [], {}, set()
@@ -953,7 +956,9 @@ def main(argv=None, ports=None):
         notes.extend(f"#{r['number']}: 自分が作者でレビュアーの付いていない PR なので、/catchup だけ送った"
                      for r, _ in ready if r["number"] in catchup_only and not a.no_second)
         # 送った時刻は 1 ターン目を送る直前（その後の動きを「新しい返事」と見る）、head はその時の場所の head（force-push の見分け）
-        stamp = {r["number"]: {"at": ports.now(), "head": ports.head_sha(r["path"])} for r, _ in ready}
+        # 自分の番でなくなった PR の会話を閉じる（_step_back）のは、一覧の回で送った物だけなので、その印を付けておく
+        stamp = {r["number"]: {"at": ports.now(), "head": ports.head_sha(r["path"]), **({"via": "listing"} if listing else {})}
+                 for r, _ in ready}
         if ready:
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
                 futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane, second[r["number"]], ports.herdr,
@@ -980,7 +985,7 @@ def main(argv=None, ports=None):
                 notes.append(opened)
 
     if listing:
-        notes += _tidy(cfg, repo, ports, a.dry_run, found)
+        notes += _tidy(cfg, repo, ports, a.dry_run, found, turn_numbers, sent)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
 
@@ -1026,11 +1031,13 @@ def _changed(repo):
     return lambda path: clean.changed_copies(path, config.copy_root(repo), repo.copy_files)
 
 
-def _tidy(cfg, repo, ports, dry_run, found):
+def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None):
     """閉じた PR（MERGED・CLOSED）のブランチの場所を片付ける（一覧で回すときだけ）。元の clone の linked worktree だけを見る（clean.candidates）。
     会話が 1 つだけ開いていて、手すきで手元の作業も無ければ、会話を終え、会話の一覧を取り直して居ないことを確かめてから消す。
     作業中・会話が 2 つ以上・手元の作業の有る場所は残して名指す。返すのは報告の頭に置く行。読めない・終えられない物は、その場所の
-    行にして続ける。"""
+    行にして続ける。
+    開いている PR で自分の番（turn_numbers。whose-turn の一覧。読めなければ main がその前に止まる）でない物は、_step_back で会話を終えて
+    作業場を閉じる（worktree は残す）。"""
     try:
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
     except claudex.ClaudeError as e:
@@ -1041,6 +1048,9 @@ def _tidy(cfg, repo, ports, dry_run, found):
                             ports.is_clean, ports.stashed, ports.head_sha, source=repo.source, changed=changed)
     out = []
     for r in rows:
+        if r["reason"] == "pr_open" and turn_numbers is not None and r["number"] not in turn_numbers:
+            out += _step_back(repo, ports, dry_run, r, sess, sent or {})
+            continue
         finished = r["state"] in clean.FINISHED
         if r["reason"] == "session" and finished:
             mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
@@ -1084,6 +1094,35 @@ def _tidy(cfg, repo, ports, dry_run, found):
         out.append(f"{_where(r)}: " + ("片付けた" if got["removed"] and got["branch_deleted"] else
                                        f"片付けた（{got['detail']}）" if got["removed"] else f"片付けられなかった（{got['detail']}）"))
     return out
+
+
+def _step_back(repo, ports, dry_run, r, sess, sent):
+    """自分の番でなくなった開いている PR の場所で、dispatch が開いた会話を終えて herdr の作業場を閉じる（worktree は残す。自分の番に戻れば、
+    一覧の回が同じ場所に新しい会話を立てる）。送り直し（fresh.decide の refresh）と同じく、会話が 1 つだけで手すき・未コミットの変更も
+    手元にしか無い commit も無いときだけ。加えて、dispatch が一覧の回で送った会話（控えに一覧の回の印が有り、会話の起動が送った時より前）
+    だけを閉じる。持ち主が自分で開いた会話と、--pr・--issue で開いた会話と、印を書く前の版の控えの会話には触らない。返すのは報告の行。"""
+    rec = _sent_record(sent.get(_key(repo, r["number"])))
+    mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
+    if not mine or not isinstance(rec["at"], (int, float)) or not rec["listed"]:
+        return []
+    if len(mine) > 1 or not isinstance(mine[0]["started"], (int, float)) or mine[0]["started"] > rec["at"]:
+        return []   # dispatch が開いた会話と言い切れない
+    path = r["path"]
+    local = (ports.stashed(path, r["branch"]) if rec["head"] and ports.head_sha(path) == rec["head"]
+             else ports.unpushed(path))
+    if mine[0]["status"] != "idle" or not ports.is_clean(path) or local:
+        return [f"{_where(r)}: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した"]
+    if dry_run:
+        return [f"{_where(r)}: 自分の番でない PR なので、会話を終えて作業場を閉じる（worktree は残す）"]
+    closed, why = _end_conversation(ports, path)
+    if closed != "closed":
+        return [f"{_where(r)}: 自分の番でない PR の会話を終えられなかったので残した（{why}）"]
+    rel = clean.release(repo.source, path, ports.herdr)
+    if rel["status"] == "close_failed":
+        return [f"{_where(r)}: 自分の番でない PR の会話を終えたが、作業場を閉じられなかった（{rel['detail']}）"]
+    if rel["status"] == "none":
+        return [f"{_where(r)}: 自分の番でない PR なので会話を終えた（herdr の作業場は開いていなかった）"]
+    return [f"{_where(r)}: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）"]
 
 
 def _contact(caller, account):
