@@ -883,6 +883,7 @@ class Departments(unittest.TestCase):
         self.assertEqual((kept / "tools" / "measure.py").read_text(encoding="utf-8"), "x\n")
         self.assertEqual(len(self.removed), 1)
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "名前付きパイプ（mkfifo）は Windows に無い")
     def test_job_tmp_copy_finishes_when_a_former_copy_stopped_halfway(self):
         # 前の回の写しが読み取り専用のファイル（git の objects）とリンクを残しても、打ち直せば写し終える（2026-10-17 の
         # --retire 点検は Errno 13 と 17 で止まり続けた）
@@ -912,6 +913,7 @@ class Departments(unittest.TestCase):
         self.assertEqual(pathlib.Path(dest, "link", "in").read_text(encoding="utf-8"), "in\n")
         self.assertEqual(pathlib.Path(dest, "repo").read_text(encoding="utf-8"), "now a file\n")
 
+    @unittest.skipIf(os.name == "nt", "Windows の chmod は読み取りの権限を外せない（書き込みの可否だけを切り替える）")
     def test_job_tmp_copy_stops_on_a_folder_it_cannot_read(self):
         # 読めないフォルダを飛ばして「写した」とすると、claude rm が中身ごと消す
         tmp = pathlib.Path(tempfile.mkdtemp())

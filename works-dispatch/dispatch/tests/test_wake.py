@@ -807,6 +807,7 @@ class Hook(unittest.TestCase):
         self.assertNotIn(wake.RESTARTING, attrs)
         self.assertNotIn(wake.RESTART_KEPT, attrs)   # 次の区切りでまた試す
 
+    @unittest.skipIf(os.name == "nt", "切り離しは /bin/sh の殻で、Windows では使わない（wake_hook・limit_hook は Windows で切り離さずに起動する）")
     def test_the_move_runs_detached_from_the_talk_and_writes_its_output_and_end(self):
         # 会話を止めると Claude Code はフックの子孫も止める。--move は切り離して走らせ、前の会話を止めても最後まで走る
         d = tempfile.mkdtemp()
@@ -1178,6 +1179,9 @@ class WakeFlow(unittest.TestCase):
     def listen(self, name, place, owner=None):
         to = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg)), name)
         wake.claim(self.inbox, place, [to], "s", owner or os.getpid(), "t", time.time())
+        if owner:   # 居ない会話の印は古くもする（Windows は処理の番号でなく印の更新の新しさで居るかを見る）
+            old = time.time() - wake.FRESH - 60
+            os.utime(wake.mark_path(self.inbox, place), (old, old))
         return to
 
     def dept_place(self):
@@ -1197,6 +1201,7 @@ class WakeFlow(unittest.TestCase):
         self.assertNotIn("ask", gitx.worktree_attrs(self.place))   # 属性は待ち受けが渡すときに書く
         self.assertIn("順番待ちに積んだ（1 件目。待ち受けが渡す）", out)
 
+    @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
     def test_ask_to_a_stopped_department_without_a_running_waiter_says_so(self):
         self.listen("調べ", self.dept_place())
         mark = wake.read_mark(self.inbox, self.dept_place())

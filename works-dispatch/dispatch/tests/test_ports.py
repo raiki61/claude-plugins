@@ -477,7 +477,8 @@ class Claude(unittest.TestCase):
         other = self.trust_world({"/src/r": {"hasTrustDialogAccepted": True}})
         self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7", [other]), "inherited")
         got = json.load(open(f))["projects"]
-        self.assertTrue(got[os.path.realpath("/src/r")]["hasTrustDialogAccepted"])
+        # 鍵の区切りは、在った鍵（/src/r-pr-7）に揃う（Windows では realpath がドライブを付けるので D:/src/r）
+        self.assertTrue(got[claudex._key_like("/src/r-pr-7", os.path.realpath("/src/r"))]["hasTrustDialogAccepted"])
         self.assertEqual(got["/src/r-pr-7"], {"lastCost": 1, "hasTrustDialogAccepted": True})
 
     def test_source_trusted_by_no_account_writes_nothing(self):

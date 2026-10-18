@@ -11,11 +11,11 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 - 置き場（グラフ・engine・rules がそれぞれ何を持つか）は [references/rules.md](references/rules.md) の頭
 
-このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（ここはスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルのコマンドに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、このファイルのフォルダの 2 つ上、graphloops のルート）に読み替えて打て。
+このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（読み込み時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルのコマンドに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、このファイル（`skills/review-graph/SKILL.md`）のフォルダの 2 つ上、graphloops のルート）に読み替えて打て。
 
 旗の無い `init` は**回し役（ノードを自分でこなす会話）の要らない回し方**になる（下の「[早見](#早見)」）: writer のノード（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill のノードも engine が `claude -p` の子として起動し、背景の線（周と並べて走らせる変異の検算）も回し手（`run` が背景に立てる engine のプロセス）が立てる。あなたは起動・`run` の打ち直し・人のゲートへの答えと、人に渡ったノード（`run` の終了コード 14）の手当てだけをする（終了コード 13 は engine の不具合）。`init --no-engine-runners` の run は今までどおり**会話で回す**（持ち主の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（ノードのこなし方は [references/conversation-run.md](references/conversation-run.md)）。どちらの run でも、**ラベル確定（指摘を阻害とするかの判定）・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
 
-役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起動する（役の定義を読んで起動するので、あなたは役の名前を扱わない）。engine が起動できない役だけ、`next` が返すノードの `agent_type` の値をそのまま Agent の `subagent_type` に渡す。モデル・ツールは役の定義が正本で、この手順書にもグラフにも書かない。
+役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起動する（役の定義を読んで起動するので、あなたは役の名前を扱わない）。engine が起動できない役だけ、`next` が返すノードの `agent_type` の値をそのまま Agent の `subagent_type` に渡す。モデル・ツールは役の定義が正本（ここにもグラフにも無い）。
 
 ## 早見
 
@@ -46,5 +46,5 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 ## どのターンでも
 
-- 会話が圧縮されて場所を見失ったら `loop.py status --dir <DIR>` → `loop.py next --dir <DIR>`。盤面はディスクにある。
+- 場所を見失ったら `loop.py status --dir <DIR>` → `loop.py next --dir <DIR>`。盤面はディスクにある。
 - 済んだノードに `done` し直さない（同じ周で採点役を回し直して有利な判定を採らない。やり直しは次の周）。

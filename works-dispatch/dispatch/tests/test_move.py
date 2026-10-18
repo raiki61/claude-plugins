@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import time
 import unittest
 from unittest import mock
@@ -13,7 +14,14 @@ import dispatch
 import gitx
 import limit_hook
 import move
-from nodes import deliver, provision, role, wake
+from nodes import deliver, launch, provision, role, wake
+
+
+Q = "'" if os.name != "nt" else '"'   # 起動の 1 行で文を囲む引用符（launch._quote の形。Windows のシェルは二重引用符）
+
+
+def q(text):
+    return re.escape(launch._quote(text, os.name != "nt"))
 
 
 class Move(unittest.TestCase):
@@ -251,7 +259,7 @@ class Move(unittest.TestCase):
         writes = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
         self.assertEqual(writes[0][:3], ("prompt", self.desk, "/exit"))
         self.assertEqual(writes[1][0], "run")
-        self.assertRegex(writes[1][2], r"^claude-a2 --name '窓口' '.*--move.*--desk 窓口")
+        self.assertRegex(writes[1][2], rf"^claude-a2 --name {q('窓口')} {Q}.*--move.*--desk 窓口")
 
     def test_the_desk_that_does_not_start_again_resumes_its_former_talk(self):
         # 新しい会話が立たなければ、前の会話を同じペインに --resume で戻し、訳を台帳に残す（窓口を消したままにしない）
@@ -283,7 +291,7 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         (run,) = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] == "run"]
         path = os.path.join(gitx.git_dir(self.src), "company-settings.json")
-        self.assertRegex(run[2], r"^claude-a2 --name '窓口' --settings \S*company-settings.json '.*--desk 窓口")
+        self.assertRegex(run[2], rf"^claude-a2 --name {q('窓口')} --settings \S*company-settings.json\S* {Q}.*--desk 窓口")
         self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
 
 
@@ -308,7 +316,7 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         writes = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
         self.assertEqual(writes[0][:3], ("prompt", self.desk, "/exit"))
-        self.assertRegex(writes[1][2], r"^claude-a1 --name '窓口' --model opus --effort high --settings \S*company-settings.json '.*--desk 窓口")
+        self.assertRegex(writes[1][2], rf"^claude-a1 --name {q('窓口')} --model {q('opus')} --effort {q('high')} --settings \S*company-settings.json\S* {Q}.*--desk 窓口")
         attrs = gitx.worktree_attrs(self.src)
         shape = role.load(os.path.join(self.src, ".claude", "company.toml"),
                           pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8"))

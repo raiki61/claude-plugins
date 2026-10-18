@@ -17,7 +17,9 @@ class Installed(unittest.TestCase):
     def setUp(self):
         self.root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
         self.old = self.put("0.23.0", "print('old')")
-        self.new = self.put("0.25.0", "import os, sys; print('new', sys.argv[1:], os.environ.get('WORKS_DISPATCH_HOPPED'))")
+        # dispatch.py と同じく標準出力を UTF-8 にする（Windows の既定の符号では日本語の引数を print できない）
+        self.new = self.put("0.25.0", "import os, sys; sys.stdout.reconfigure(encoding='utf-8'); "
+                                      "print('new', sys.argv[1:], os.environ.get('WORKS_DISPATCH_HOPPED'))")
 
     def put(self, version, body):
         script = self.root / "cache" / "raiki61" / "works-dispatch" / version / "dispatch" / "dispatch.py"

@@ -75,7 +75,7 @@ class Fields(unittest.TestCase):
                    {"path": "/w/dept/tree", "locked": None}, {"path": f"/tmp/{tools.PREFIX}x/other", "locked": None}]
         got = tools.leftovers(entries, alive=lambda pid: pid == 10, exists=lambda d: d.endswith(("making", "odd", "old")))
         self.assertEqual(got, [t("dead"), t("oldgone"), t("gone")])
-        self.assertFalse(tools._alive(10 ** 30))   # 大きすぎる pid で落ちない
+        self.assertFalse(tools._alive(10 ** 30, posix=True))   # 大きすぎる pid で落ちない
         self.assertTrue(tools._alive(os.getpid(), posix=False))   # Windows は確かめずに居るとみなす（消さない）
 
     def test_land_after_is_read(self):
@@ -147,6 +147,7 @@ class Call(unittest.TestCase):
         gitx.add_detached(self.src, path, gitx.rev(self.src, "HEAD"), lock=owner)
         return path
 
+    @unittest.skipIf(os.name == "nt", "Windows では作った処理が居るかを確かめない（os.kill は 0 を渡しても処理を止める）ので、殺された処理の場所を消す振る舞いが無い")
     def test_places_left_by_killed_runs_are_swept_by_the_next_call_and_by_clean(self):
         # 2026-10-17 に my_notes で、消えずに残ったツールの場所と、場所が無いのに鍵だけ残った行が --tree に「（ブランチ無し）」で並んだ
         self.use("true")
@@ -177,6 +178,7 @@ class Call(unittest.TestCase):
         self.assertIn("消した", out)
         self.assertEqual(listed(), set())
 
+    @unittest.skipIf(os.name == "nt", "Windows では作った処理が居るかを確かめない（os.kill は 0 を渡しても処理を止める）ので、殺された処理の場所を消す振る舞いが無い")
     def test_a_commit_only_in_a_left_place_is_kept_and_a_dirty_place_is_left(self):
         # 2026-10-17 に my_notes に残ったツールの場所には、push できないまま殺された写しのツールの commit が載っていた
         made = self.leave()

@@ -4,6 +4,7 @@ herdr と claude の会話の一覧は偽物で回す。"""
 import json
 import os
 import pathlib
+import re
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -12,7 +13,11 @@ from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
 from .test_provision import git
 import gitx
 import landing
-from nodes import deliver, provision, role, wake
+from nodes import deliver, launch, provision, role, wake
+
+
+def q(text):
+    return launch._quote(text, os.name != "nt")   # 起動の 1 行の 1 語の形（Windows のシェルは二重引用符）
 
 
 class Reorg(unittest.TestCase):
@@ -161,7 +166,8 @@ class Reorg(unittest.TestCase):
         self.ports._cwd = self.place
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}   # 頼むのは部署の会話（窓口の会話が自分に頼むのは止まる）
         rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--text", "形を見て", "--dry-run")
-        self.assertIn(f"宛先の部署 {os.path.basename(self.src)}/段取り（main）", out)
+        # 窓に会話が見えなければ止めた行の、見えれば（Windows は前のプロセスを見ない）頼む先の行の宛先に出る
+        self.assertRegex(out, rf"(宛先の部署|頼む先:) {re.escape(os.path.basename(self.src))}/段取り[（ ]")
 
     def test_desk_writes_the_settings_of_its_role_and_shows_the_command_to_start_with_them(self):
         # 持ち主が手で起動する窓口に [roles.settings] を届ける口: --desk が設定のファイルを書き、起動するコマンドを出す
@@ -184,14 +190,14 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--desk")   # 属性は替わらなくても、コマンドは出す
         self.assertEqual(rc, 0, out)
         self.assertIn("付け替える物は無い", out)
-        self.assertIn(f"claude-a1 --name '窓口' --settings {path}", out)
+        self.assertIn(f"claude-a1 --name {q('窓口')} --settings {q(str(path))}", out)
         self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
         # 役の model・effort は、--move と同じく旗で付ける（effort の inherit は窓口に引き継ぐ会話が無いので付けない）
         shape.write_text('[[roles]]\nname = "窓口"\nmodel = "opus"\neffort = "inherit"\n[roles.settings]\neffortLevel = "low"\n'
                          '[[roles]]\nname = "担当"\n', encoding="utf-8")
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"claude-a1 --name '窓口' --model opus --settings {path}", out)
+        self.assertIn(f"claude-a1 --name {q('窓口')} --model {q('opus')} --settings {q(str(path))}", out)
 
     def test_desk_does_not_take_the_seat_while_the_desk_talk_runs(self):
         # 窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が --desk で席を取ると、納品がそちらに届く（53d5d1・6be241）

@@ -401,6 +401,7 @@ class StopVerdict(unittest.TestCase):
         self.assertEqual(json.loads(stop({}, shells=lambda: None))["decision"], "block", "動いているのを確かめられなければ差し戻す")
         self.assertIn("ターンを終えてよい", json.loads(stop({"background_tasks": []}))["reason"])
 
+    @unittest.skipIf(os.name == "nt", "ps の無い Windows では数えない（None を返し、Stop フックは裏の処理の一覧で見る）")
     def test_background_shells_are_the_claude_childs_bash_tool_shells(self):
         # 会話のプロセス（claude）の子のうち、Bash のツールのシェル（シェルの写しを読み込む物）を数える。フック自身の祖先は数えない
         ps = "\n".join([
@@ -503,6 +504,8 @@ class Flow(unittest.TestCase):
         self.assertEqual(orders.revive({"attrs": {}, "path": self.place, "panes": []}, [], self.ports, {})[1][:30],
                          "部署の属性に会話の id（company.session）が無く、会話の一覧にも部署の場所の裏の"[:30])
 
+    @unittest.skipIf(os.name == "nt", "Windows では前に居るプロセスを見る口が当てにならないので見ず、画面の exited の行で見分ける"
+                                      "（test_exited_line_on_the_screen_counts_as_fallen）")
     def test_window_back_at_the_shell_counts_as_fallen_even_if_herdr_keeps_the_mark(self):
         # attach の画面が終わってシェルに戻っても、herdr はペインの会話の印を残す。前に居るのがシェルなら落ちたと見て戻す
         self.fall(keep_mark=True)
@@ -588,7 +591,8 @@ class Flow(unittest.TestCase):
     def test_newest_talk_is_the_last_written_record_of_the_folder(self):
         home = tempfile.mkdtemp()
         cwd = "/w/a.b"
-        d = pathlib.Path(home, "projects", "-w-a-b")
+        # Windows では abspath がドライブを付ける（D:\w\a.b → D--w-a-b）
+        d = pathlib.Path(home, "projects", "-w-a-b" if os.name != "nt" else re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
         d.mkdir(parents=True)
         self.assertIsNone(claudex.newest_talk(home, cwd))
         for name, t in (("x.jsonl", 10), ("y.jsonl", 20), ("z.txt", 30)):

@@ -26,7 +26,7 @@ def iso(t):
 class Node(unittest.TestCase):
     def test_installed_file_is_beside_the_cache_the_plugin_was_read_from(self):
         root = os.path.join("/c", "plugins", "cache", "m", "works-dispatch", "0.34.0")
-        self.assertEqual(refresh.installed_file(root), os.path.join("/c", "plugins", "installed_plugins.json"))
+        self.assertEqual(refresh.installed_file(root), os.path.normpath(os.path.join("/c", "plugins", "installed_plugins.json")))
         self.assertIsNone(refresh.installed_file("/src/claude-plugins/works-dispatch"))   # リポジトリの checkout から読んだ物
 
     def test_newest_update_counts_user_plugins_and_projects_containing_the_place(self):

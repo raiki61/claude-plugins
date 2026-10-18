@@ -333,7 +333,7 @@ class HerdrConfig(unittest.TestCase):
         snap = d / "lim" / "accounts.json"
         self.assertEqual([a.name for a in limits.read_snapshot(snap)[0]], ["p1"])
         command = tomllib.loads(out.stdout)["tab_bar_right"][0]["command"]
-        self.assertIn(f"--accounts {shlex.quote(str(snap))}", command)
+        self.assertIn(f"--accounts {shlex.quote(snap.as_posix())}", command)   # bash が読むので / 区切り
 
     def test_show_and_probe_run_where_tomllib_is_missing(self):
         d = pathlib.Path(tempfile.mkdtemp())
