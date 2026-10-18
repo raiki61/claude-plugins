@@ -395,6 +395,26 @@ def _pick(tmp):
     return "PICK_OK" if got == want else f"PICK_NG {got}"
 
 
+@case("prompt-sources")
+def _sources(tmp):
+    """人の発言の見分けは /reflect と共用（transcript.prompt_source）。Claude Code が足した suggestion_accepted
+    （出された次の発言の候補を人が受けて送った物）も依頼に数え、sdk・system は数えない。知らない値は数えずに
+    注記で知らせ、返答が有るのに依頼が 0 件のときも知らせる"""
+    def said(text, source):
+        return {**ask(text), "promptSource": source}
+    build(tmp, [said("打った依頼", "typed"), reply("はい"), said("候補を受けた依頼", "suggestion_accepted"),
+                reply("続けます"), said("裏の知らせ", "system"), said("声の依頼", "voice_input"), reply("ok")])
+    out = run()
+    want = {"suggestion_counted": "候補を受けた依頼" in out, "system_not_counted": "裏の知らせ" not in out,
+            "unknown_not_counted": "声の依頼" not in out, "unknown_told": "voice_input 1 件" in out,
+            "two_turns": "やり取り 2 往復" in out}
+    build(tmp, [said("x", "keyboard"), reply("ok")], work="none-human")
+    zero = run()
+    want["zero_told"] = "打った発言が 0 件" in zero and "keyboard 1 件" in zero
+    bad = [k for k, v in want.items() if not v]
+    return "SOURCES_OK" if not bad else "SOURCES_NG " + ",".join(bad) + "\n" + out + "\n---\n" + zero
+
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: what-am-i-doing-case.py <" + "|".join(CASES) + ">")

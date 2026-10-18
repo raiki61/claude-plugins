@@ -119,6 +119,8 @@ dl.facts dt { color: var(--fgColor-muted); font-size: 13px; }
 dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 .body { margin: 6px 0 0; }
 .muted { color: var(--fgColor-muted); font-size: 13px; }
+.gaps { background: var(--bgColor-attention-muted); border: 1px solid var(--borderColor-attention-muted); border-radius: 6px; padding: 8px 12px; margin: 12px 0; }
+.gaps ul { margin: 4px 0 0; padding-left: 20px; }
 .note { margin: 8px 0 0; padding: 8px 12px; border-radius: 6px; background: var(--bgColor-attention-muted); font-size: 13px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--borderColor-default); vertical-align: top; }
@@ -183,6 +185,10 @@ ul.plain { margin: 6px 0 0; padding-left: 20px; }
       el("li", null, el("b", null, byModel(c.human_output_by_model)), "出力トークン（人の会話）"),
       el("li", null, el("b", null, byModel(c.background_output_by_model)), "出力トークン（裏の会話）")),
     el("p", { class: "headline" }, fields.headline || ""));
+  // 見た範囲の欠け（GitHub の上限・消えた会話の記録・読んでいない設定のフォルダ・知らない記録の形）。数の読み方が変わるので頭に出す
+  const gaps = (data.coverage || {}).notes || [];
+  if (gaps.length) app.append(el("div", { class: "gaps" }, el("b", null, "見た範囲が欠けている"),
+    el("ul", null, gaps.map((g) => el("li", null, g)))));
 
   // 改善の提案
   const props = fields.proposals || [];
@@ -253,7 +259,12 @@ ul.plain { margin: 6px 0 0; padding-left: 20px; }
   for (const g of data.github || []) gd.append(el("p", null, el("b", null, `${g.login}（${g.count} 件）`), " ",
       el("span", { class: "muted" }, Object.entries(g.kinds || {}).map(([k, n]) => `${k} ${n}`).join("・"))),
     el("ul", { class: "plain" }, (g.events || []).slice(0, 60).map((e) => el("li", null,
-      el("span", { class: "muted mono" }, (e.at || "").slice(5, 16).replace("T", " ")), " ", `${e.type} ${e.action || ""} ${e.repo || ""}${e.number ? " #" + e.number : ""} ${e.title || ""}`))));
+      el("span", { class: "muted mono" }, (e.at || "").slice(5, 16).replace("T", " ")), " ", `${e.type} ${e.action || ""} ${e.repo || ""}${e.number ? " #" + e.number : ""} ${e.title || ""}`))),
+    // 素の append は null を文字の "null" にするので、無いときは何も渡さない
+    ...(g.search ? [el("p", { class: "muted" }, `検索で補った PR・issue（期間に更新のあった物。全 ${num(g.search.total)} 件）`),
+      el("ul", { class: "plain" }, (g.search.items || []).slice(0, 60).map((it) => el("li", null,
+        el("span", { class: "muted mono" }, (it.at || "").slice(5, 16).replace("T", " ")), " ",
+        `${it.kind === "pr" ? "PR" : "issue"} ${it.state || ""} ${it.repo || ""}${it.number ? " #" + it.number : ""} ${it.title || ""}`)))] : []));
   app.append(section("材料", null, sd, cd, gd));
 
   const unseen = [...(fields.unseen || []), ...(data.unseen || [])];

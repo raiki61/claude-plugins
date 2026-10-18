@@ -475,5 +475,159 @@ class Description(unittest.TestCase):
             self.assertIn("読めなかった", rf.first_line(pathlib.Path(d) / "none.md"))
 
 
+FIXTURE = ROOT / "tests" / "fixtures" / "reflect-prompt-sources.jsonl"
+
+
+def real_lines(**change):
+    """実物の会話の記録から採った行（2026-10-19。id・文・作業フォルダだけ差し替えた）を、DAY の時刻にして返す。
+    promptSource は typed・queued・suggestion_accepted（人）と sdk・system（人でない）の 5 つ、最後の行は返答"""
+    rows = [json.loads(line) for line in FIXTURE.read_text(encoding="utf-8").splitlines() if line.strip()]
+    for i, r in enumerate(rows):
+        r["timestamp"] = at(9, i)
+        for key, value in change.items():
+            if key in r:
+                if value is None:
+                    del r[key]
+                elif r["type"] == "user":
+                    r[key] = value
+    return rows
+
+
+class PromptSources(unittest.TestCase):
+    """人の発言の見分けは promptSource の値で決める。外の形（Claude Code が足した値・消した印）が変わったら知らせる"""
+
+    def run_on(self, rows):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = pathlib.Path(tmp) / "cfg"
+            write_jsonl(cfg / "projects" / "p" / "s.jsonl", rows)
+            start, end = rf.bounds(DAY, DAY)
+            human, background = rf.sessions([cfg], start, end)
+            return human, background, rf.source_notes(human, background)
+
+    def test_the_real_record_counts_three_human_asks_and_says_nothing(self):
+        human, _, notes = self.run_on(real_lines())
+        self.assertEqual(human[0]["asks"], ["typed の発言", "queued の発言", "suggestion_accepted の発言"])
+        self.assertEqual(notes, [])
+
+    def test_an_unknown_value_is_counted_apart_and_told(self):
+        rows = real_lines()
+        rows[2]["promptSource"] = "voice_input"
+        human, _, notes = self.run_on(rows)
+        self.assertEqual(human[0]["asks"], ["typed の発言", "queued の発言"])
+        self.assertTrue(any("voice_input 1 件" in n for n in notes), notes)
+
+    def test_a_record_without_any_prompt_source_is_told(self):
+        _, background, notes = self.run_on(real_lines(promptSource=None))
+        self.assertEqual(len(background), 1)
+        self.assertTrue(any("1 つも無い" in n for n in notes), notes)
+
+    def test_renamed_human_values_are_told_even_as_unknown(self):
+        rows = real_lines()
+        for r in rows[:3]:
+            r["promptSource"] = "keyboard"
+        _, _, notes = self.run_on(rows)
+        self.assertTrue(any("keyboard 3 件" in n for n in notes), notes)
+        self.assertTrue(any("人の発言が 0 件" in n for n in notes), notes)
+
+
+class Coverage(unittest.TestCase):
+    """見た範囲の欠け（消えた会話の記録・読んでいない設定のフォルダ）を、黙って飛ばさずに出す"""
+
+    def test_records_newer_than_the_period_start_are_told(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = pathlib.Path(tmp) / "cfg"
+            write_jsonl(cfg / "projects" / "p" / "s.jsonl", [user("x", at(9))])
+            newest = dt.datetime.combine(DAY, dt.time(9)).astimezone().timestamp()
+            os.utime(cfg / "projects" / "p" / "s.jsonl", (newest, newest))
+            rows, notes = rf.records_from([cfg], rf.bounds(DAY - dt.timedelta(29), DAY)[0])
+            self.assertEqual(rows[0]["from"][:10], DAY.isoformat())
+            self.assertTrue(any(f"{DAY.isoformat()} 09:00 から" in n for n in notes), notes)
+            _, none = rf.records_from([cfg], rf.bounds(DAY, DAY)[1])
+            self.assertEqual(none, [])
+
+    def test_missing_and_unread_config_dirs_are_told(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = pathlib.Path(tmp)
+            for name in (".claude", ".claude-a", ".claude-b"):
+                (home / name / "projects").mkdir(parents=True)
+            (home / ".claude-empty").mkdir()  # 会話の記録を持たないフォルダは数えない
+            env = {"HOME": tmp, rf.DIRS_ENV: os.pathsep.join([str(home / ".claude-a"), str(home / ".claude-gone")])}
+            dirs = rf.config_dirs(env)
+            notes = rf.dir_notes(env, dirs)
+            self.assertEqual(dirs, [home / ".claude", home / ".claude-a"])
+            self.assertTrue(any(".claude-gone" in n and "無い" in n for n in notes), notes)
+            unread = [n for n in notes if "読んでいない" in n]
+            self.assertEqual(len(unread), 1)
+            self.assertIn(".claude-b", unread[0])
+            self.assertNotIn(".claude-empty", unread[0])
+
+
+class GitHubSearch(unittest.TestCase):
+    """events が期間の頭まで届かなければ、取れた時刻を出し、検索の API で期間の PR・issue を補う"""
+
+    def fake(self, search_raw):
+        status = json.dumps({"hosts": {"github.com": [{"login": "a", "state": "success"}]}})
+        late = at(20)
+        page = [{"type": "PushEvent", "created_at": late, "repo": {"name": "o/r"}, "payload": {}, "public": True}] * 100
+        calls = []
+
+        def fake(args, cwd=None, env=None):
+            calls.append(args)
+            if args[:3] == ["gh", "auth", "status"]:
+                return status
+            if args[:3] == ["gh", "auth", "token"]:
+                return "tok"
+            if "search/issues" in args:
+                return search_raw
+            return json.dumps(page)
+        return fake, calls
+
+    def collect(self, search_raw):
+        fake, calls = self.fake(search_raw)
+        orig = rf.run
+        rf.run = fake
+        try:
+            start, end = rf.bounds(DAY, DAY)
+            unseen = []
+            out = rf.github(start, end, unseen)
+        finally:
+            rf.run = orig
+        return out, unseen, calls
+
+    def test_cut_events_are_told_and_searched(self):
+        found = {"total_count": 2, "incomplete_results": False, "items": [
+            {"number": 5, "title": "t", "state": "open", "updated_at": at(8), "pull_request": {},
+             "repository_url": "https://api.github.com/repos/o/r"},
+            {"number": 6, "title": "u", "state": "closed", "updated_at": at(7),
+             "repository_url": "https://api.github.com/repos/o/s"}]}
+        out, unseen, calls = self.collect(json.dumps(found))
+        g = out[0]
+        self.assertTrue(g["truncated"])
+        self.assertEqual(g["from"][:16], dt.datetime.combine(DAY, dt.time(20)).astimezone().isoformat()[:16])
+        self.assertEqual([(i["kind"], i["repo"], i["number"]) for i in g["search"]["items"]],
+                         [("pr", "o/r", 5), ("issue", "o/s", 6)])
+        q = next(a for a in calls if "search/issues" in a)
+        self.assertTrue(any(x.startswith("q=involves:a updated:") for x in q), q)
+        notes = rf.github_notes(out)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("検索で 2 件補った", notes[0])
+        self.assertEqual(unseen, [])
+        priv = rf.privacy([], out, ask=lambda label: label == "o/s")
+        self.assertEqual((priv["repos"], priv["numbers"]), (["o/s"], [6]))
+
+    def test_an_unreadable_search_is_said(self):
+        out, unseen, _ = self.collect(None)
+        self.assertIsNone(out[0]["search"])
+        self.assertTrue(any("検索" in u and "読めなかった" in u for u in unseen), unseen)
+        self.assertEqual(len(rf.github_notes(out)), 1)
+
+
+class CoverageOnThePage(unittest.TestCase):
+    def test_the_template_shows_the_gaps_at_the_top(self):
+        html = (ROOT / "attention" / "templates" / "reflect.html").read_text(encoding="utf-8")
+        self.assertIn("(data.coverage || {}).notes", html)
+        self.assertLess(html.index("(data.coverage || {}).notes"), html.index("// 改善の提案"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

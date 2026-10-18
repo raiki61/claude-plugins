@@ -2397,7 +2397,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=750
+EXPECTED_CHECKS=751
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -5195,7 +5195,7 @@ expect_output 0 "OK" "catchup_html: フィールドの検査・雛形への差�
 
 # ---- attention/reflect: ある期間を振り返り、改善の提案と気づきを 1 枚の HTML に出す ----
 # 本物の会話の記録・GitHub・VS Code には触らない。設定のフォルダ・git・台帳・日記は一時の階層に作る
-expect_output 0 "OK" "reflect: 期間・人と裏の会話の見分け・トークンを返答ごとに 1 回・起動した元ごとのまとめ・commit の引き方・GitHub の絞り方・フィールドの検査・台帳（却下は落とす）・日記のセクションの置き換え・持ち主の値を書かない（unittest）" \
+expect_output 0 "OK" "reflect: 期間・人と裏の会話の見分け・トークンを返答ごとに 1 回・起動した元ごとのまとめ・commit の引き方・GitHub の絞り方・GitHub が切れたら時刻を出して検索で補う・人の発言の見分け（実物から採った見本・知らない promptSource の値を知らせる）・見た範囲の欠け（消えた記録・読んでいない設定のフォルダ）・フィールドの検査・台帳（却下は落とす）・日記のセクションの置き換え・持ち主の値を書かない（unittest）" \
     "$PY_BIN" "$ROOT/tests/reflect-suite.py"
 
 # ---- scripts/spread-plugins.py: 会社の形の役「配布」のツール（全アカウントに配る） ----
@@ -5303,6 +5303,9 @@ expect_output 0 "TOPIC_OK" \
 expect_output 0 "UNSEEN_OK" \
     "what-am-i-doing: 見ていないものを実際の状態に合わせる（省いた・外した往復は件数と見落としうるものを書く）" \
     "$PY_BIN" "$WAI_CASE" unseen-wording
+expect_output 0 "SOURCES_OK" \
+    "what-am-i-doing: 人の発言の見分けを /reflect と共用し、suggestion_accepted を数え、知らない promptSource の値と依頼の 0 件を知らせる" \
+    "$PY_BIN" "$WAI_CASE" prompt-sources
 expect_output 0 "STANCE_OK" \
     "what-am-i-doing: 立場の判定は /catchup と共用の純関数。送ったレビューも数え、「どちらでもない」とは言わない" \
     "$PY_BIN" "$WAI_CASE" stance

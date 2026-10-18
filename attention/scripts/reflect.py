@@ -43,7 +43,6 @@ TITLE_SLOT = "<title>reflect</title>"
 
 DIRS_ENV = "ATTENTION_REFLECT_CONFIG_DIRS"
 DIARY_ENV = "ATTENTION_REFLECT_DIARY_DIR"
-TYPED = {"typed", "queued"}
 PASTED = re.compile(r"</?pasted_content[^>]*>")  # 貼り付けの囲み。中身は人の発言として残し、印だけ外す
 COMMAND = re.compile(r"<command-name>(.*?)</command-name>(?:.*?<command-args>(.*?)</command-args>)?", re.S)
 
@@ -51,7 +50,8 @@ ASK_CHARS = 300          # 発言 1 件の上限
 ASKS_KEEP = 6            # 1 会話の発言は前と後ろからこの数ずつ
 FIRST_PROMPT_KEY = 40    # 裏の会話を起動した元を見分ける依頼文の頭
 COMMITS_PER_REPO = 60
-EVENT_PAGES = 3          # GitHub の events は 1 ページ 100 件・300 件まで
+EVENT_PAGES = 3          # GitHub の events は 1 ページ 100 件・300 件まで（4 ページ目は 422。2026-10-19 実測）
+SEARCH_PAGES = 3         # events で期間の頭が切れたときに補う検索の API のページ数（1 ページ 100 件）
 GIT_TIMEOUT_SEC = 20     # 外部コマンドを無制限に待たない（catchup.py と同じ秒）
 PROPOSALS_CAP = 7
 INSIGHTS_CAP = 7
@@ -122,6 +122,77 @@ def config_dirs(env, extra=()):
     return out
 
 
+def dir_notes(env, dirs, extra=()):
+    """読む設定のフォルダの欠け。足すと言われたのに無いフォルダと、在るのに読んでいないフォルダの注記の文。
+
+    在るのに読んでいないフォルダは、ホームの `.claude*` のうち会話の記録（projects/）を持つ物。アカウントを
+    足しても ATTENTION_REFLECT_CONFIG_DIRS を書き足し忘れると、その会話が黙って数えられない"""
+    notes = []
+    named = [p.strip() for p in (env.get(DIRS_ENV) or "").split(os.pathsep) if p.strip()] + list(extra)
+    gone = [p for p in named if not pathlib.Path(os.path.expanduser(p)).is_dir()]
+    if gone:
+        notes.append("読むと言われた設定のフォルダが無い: " + "・".join(home_short(os.path.expanduser(p)) for p in gone))
+    home = pathlib.Path(env.get("HOME") or os.path.expanduser("~"))
+    read = set()
+    for d in dirs:
+        try:
+            read.add(d.resolve())
+        except OSError:
+            pass
+    unread = []
+    for p in sorted(home.glob(".claude*")):
+        try:
+            if p.is_dir() and (p / "projects").is_dir() and p.resolve() not in read:
+                unread.append(p)
+        except OSError:
+            continue
+    if unread:
+        notes.append("会話の記録を持つのに読んでいない設定のフォルダ: " + "・".join(home_short(str(p)) for p in unread)
+                     + f"（読むなら {DIRS_ENV} か --config-dir で足す）")
+    return notes
+
+
+def records_from(dirs, start):
+    """設定のフォルダごとの、残っている一番古い会話の記録の時刻（ファイルを最後に書いた時刻）と、期間の始まりより
+    新しければその注記。Claude Code は最後の動きから cleanupPeriodDays（既定 30 日）を過ぎた記録を消すので、
+    それより前に終わった会話は、記録に無いまま数えられない"""
+    rows, notes = [], []
+    for d in dirs:
+        oldest = None
+        for path in (d / "projects").glob("*/*.jsonl"):
+            try:
+                t = path.stat().st_mtime
+            except OSError:
+                continue
+            oldest = t if oldest is None or t < oldest else oldest
+        when_ = dt.datetime.fromtimestamp(oldest).astimezone() if oldest is not None else None
+        rows.append({"config_dir": d.name, "from": when_.isoformat(timespec="minutes") if when_ else None})
+        if when_ is None:
+            notes.append(f"会話の記録: {home_short(str(d))} に会話の記録が 1 つも無い")
+        elif when_ > start:
+            notes.append(f"会話の記録: {home_short(str(d))} は {when_:%Y-%m-%d %H:%M} から"
+                         "（それより前に終わった会話は残っていない。Claude Code は古い記録を消す）")
+    return rows, notes
+
+
+def source_notes(human, background):
+    """人の発言の見分けが外の形の変化で崩れたかの注記。知らない promptSource の値と、記録の形の変わった見込み。"""
+    every = human + background
+    unknown = collections.Counter()
+    for s in every:
+        unknown.update(s["unknown_sources"])
+    notes = [n for n in [transcript.unknown_sources_note(dict(unknown))] if n]
+    replies = sum(len(s["out"]) for s in every)
+    if replies and not any(s["sourced"] for s in every):
+        notes.append(f"返答が {replies} 件あるのに、promptSource（発言の出どころ）の付いた行が 1 つも無い。"
+                     "Claude Code が記録の形を変えたかもしれない（人の発言はコマンドの行しか数えていない）")
+    elif not human and any(s["interactive"] and s["out"] for s in background):
+        n = sum(1 for s in background if s["interactive"] and s["out"])
+        notes.append(f"手で開いた会話（entrypoint が cli）が {n} 本あり返答もあるのに、人の発言が 0 件だった。"
+                     "Claude Code が promptSource の値を変えたかもしれない")
+    return notes
+
+
 # ---- 会話 ------------------------------------------------------------------------
 
 
@@ -147,7 +218,7 @@ def human_ask(entry, text):
     m = COMMAND.search(text)
     if m:
         return f"{m.group(1).strip()} {(m.group(2) or '').strip()}".strip()
-    if entry.get("promptSource") in TYPED:
+    if transcript.prompt_source(entry) == "human":
         return PASTED.sub("", text).strip()
     return None
 
@@ -155,7 +226,8 @@ def human_ask(entry, text):
 def scan(path, start, end):
     """1 つの会話の記録から期間の中の分を数える。期間に 1 行も無ければ None。"""
     s = {"id": path.stem, "cwd": None, "first": None, "last": None, "asks": [], "first_prompt": None,
-         "tools": collections.Counter(), "marks": collections.Counter(), "out": {}, "models": {}, "errors": 0}
+         "tools": collections.Counter(), "marks": collections.Counter(), "out": {}, "models": {}, "errors": 0,
+         "unknown_sources": collections.Counter(), "sourced": 0, "interactive": False}
     try:
         f = open(path, encoding="utf-8", errors="replace")
     except OSError:
@@ -176,6 +248,12 @@ def scan(path, start, end):
             s["last"] = t
             kind = o.get("type")
             if kind == "user":
+                source = transcript.prompt_source(o)
+                if source is not None:
+                    s["sourced"] += 1
+                if source == "unknown":
+                    s["unknown_sources"][o["promptSource"]] += 1
+                s["interactive"] = s["interactive"] or o.get("entrypoint") == "cli"
                 text = text_of(o)
                 ask = human_ask(o, text)
                 if ask is not None:
@@ -432,9 +510,57 @@ def github(start, end, unseen=None):
                 full = False
                 break
         kinds = collections.Counter(r["type"] for r in rows)
+        truncated = full and bool(oldest) and oldest >= start
         out.append({"login": login, "count": len(rows), "kinds": dict(kinds), "events": rows[:200],
-                    "truncated": full and bool(oldest) and oldest >= start})
+                    "truncated": truncated, "from": local(oldest.isoformat()) if oldest else None,
+                    "search": search(login, start, end, env, unseen) if truncated else None})
     return out
+
+
+def search(login, start, end, env, unseen):
+    """events が期間の頭まで届かなかったときの補い。期間に更新のあった、login が関わる PR・issue を検索の API で
+    引く（events の 300 件は部署の push で 1 日ほどで埋まる。2026-10-19 実測）。更新の時刻は最後の 1 回だけなので、
+    何をしたかまでは分からない。読めなかったら unseen に訳を足して None"""
+    q = f"involves:{login} updated:{start.isoformat(timespec='seconds')}..{end.isoformat(timespec='seconds')}"
+    items, total, incomplete = [], 0, False
+    for page in range(1, SEARCH_PAGES + 1):
+        raw = run(["gh", "api", "-X", "GET", "search/issues", "-f", f"q={q}", "-f", "sort=updated",
+                   "-f", "per_page=100", "-f", f"page={page}"], env=env)
+        try:
+            got = json.loads(raw) if raw is not None else None
+        except ValueError:
+            got = None
+        if not isinstance(got, dict) or not isinstance(got.get("items"), list):
+            unseen.append(f"GitHub の動き: {login} の検索（期間の頭の補い）の {page} ページ目を読めなかった"
+                          "（gh api が失敗したか、形が違う）。そこから先は補っていない")
+            if page == 1:
+                return None
+            break
+        total, incomplete = int(got.get("total_count") or 0), incomplete or bool(got.get("incomplete_results"))
+        for it in got["items"]:
+            repo = (it.get("repository_url") or "").split("/repos/", 1)[-1] or None
+            items.append({"kind": "pr" if it.get("pull_request") is not None else "issue", "repo": repo,
+                          "number": it.get("number"), "title": clip(it.get("title") or "", 120),
+                          "state": it.get("state"), "at": local(it.get("updated_at"))})
+        if len(got["items"]) < 100:
+            break
+    return {"total": total, "items": items, "incomplete": incomplete}
+
+
+def github_notes(rows):
+    """GitHub の動きの見た範囲の注記。events が期間の頭まで届かなかったアカウントごとに 1 行"""
+    notes = []
+    for g in rows:
+        if not g.get("truncated"):
+            continue
+        line = (f"GitHub の動き: {g['login']} の出来事は {(g.get('from') or '?').replace('T', ' ')[:16]} からしか無い"
+                f"（GitHub が返すのは新しい {EVENT_PAGES * 100} 件まで）")
+        found = g.get("search")
+        if found:
+            line += (f"。期間に更新のあった、{g['login']} が関わる PR・issue を検索で {len(found['items'])} 件補った"
+                     f"（全 {found['total']} 件{'・検索が途中で切れた' if found['incomplete'] else ''}）")
+        notes.append(line)
+    return notes
 
 
 # ---- /insights の控えと持ち物 --------------------------------------------------------
@@ -603,8 +729,15 @@ def privacy(commit_rows, gh_rows, ask=repo_private):
         if c["repo"] not in known:
             known[c["repo"]] = ask(c["repo"])
         c["private"] = known[c["repo"]]
+    # 検索の API の項目は公開・非公開の印を持たないので、リポジトリごとに問い合わせる
+    found = [it for g in gh_rows for it in ((g.get("search") or {}).get("items") or [])]
+    for it in found:
+        if it.get("repo") and it["repo"] not in known:
+            known[it["repo"]] = ask(it["repo"])
+        it["private"] = known.get(it.get("repo"), True)
     repos = sorted(k for k, v in known.items() if v)
     numbers = {r["number"] for g in gh_rows for r in g["events"] if r.get("private") and r.get("number")}
+    numbers |= {it["number"] for it in found if it["private"] and it.get("number")}
     numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in REF.findall(x["subject"])}
     return {"repos": repos, "numbers": sorted(numbers)}
 
@@ -652,6 +785,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     start, end = bounds(first, last)
     dirs = config_dirs(env, extra_dirs)
     human, background = sessions(dirs, start, end)
+    records, record_notes = records_from(dirs, start)
     cwds = sorted({s["cwd"] for s in human if s["cwd"]})
     asks, cmds = repeats(human)
     gh_unseen = []
@@ -684,6 +818,12 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
         "assets": assets(dirs, cwds),
         "ledger": ledger["proposals"],
         "diary_dir": env.get(DIARY_ENV) or None,
+        # 見た範囲の欠け。ページの頭に出す（AI が unseen に写さなくても読み手に届くように）
+        "coverage": {
+            "records": records,
+            "notes": [*dir_notes(env, dirs, extra_dirs), *record_notes, *source_notes(human, background),
+                      *github_notes(gh)],
+        },
         "unseen": [
             "サブエージェントの記録は、親の会話のトークンに足していない",
             *([ledger_error] if ledger_error else []),

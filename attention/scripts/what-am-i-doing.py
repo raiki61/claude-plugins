@@ -38,9 +38,6 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-# 依頼者が自分で打った発言だけを拾う印。tool_result も user レコードとして落ちるので、
-# これで絞らないとツールの出力が依頼に化ける（実測: 219 件中 189 件が tool_result）
-TYPED = {"typed", "queued"}
 
 
 def pick_reference(asks):
@@ -135,8 +132,13 @@ def read(path):
     """記録を 1 度なめて、題と往復の並びを組み立てる。
 
     往復は「依頼者が打った発言」から次の発言までを 1 つとして数える。返答もツールの使用も
-    その区間に属させる——どの依頼に対して何をしたかが、ここで結びつく。"""
+    その区間に属させる——どの依頼に対して何をしたかが、ここで結びつく。
+
+    依頼者の発言は promptSource で拾う（tool_result も user レコードとして落ちるので、これで絞らないと
+    ツールの出力が依頼に化ける。実測: 219 件中 189 件が tool_result）。見分け方は /reflect と共用の
+    transcript.prompt_source で、知らない値と、返答が有るのに依頼が 0 件のことは注記の並びで返す。"""
     title, first_ts, turns = None, None, []
+    unknown, replies = {}, 0
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             try:
@@ -149,12 +151,16 @@ def read(path):
 
             if kind == "ai-title" and o.get("aiTitle"):
                 title = o["aiTitle"]
-            elif kind == "user" and o.get("promptSource") in TYPED:
+            elif kind == "user" and transcript.prompt_source(o) == "human":
                 body = text_of(o.get("message", {}).get("content"))
                 if body.strip():
                     turns.append({"at": o.get("timestamp"), "ask": body.strip(),
                                   "reply": "", "tools": {}, "marks": []})
-            elif kind == "assistant" and turns:
+            elif kind == "user" and transcript.prompt_source(o) == "unknown":
+                unknown[o["promptSource"]] = unknown.get(o["promptSource"], 0) + 1
+            if kind == "assistant":
+                replies += 1
+            if kind == "assistant" and turns:
                 turn = turns[-1]
                 content = o.get("message", {}).get("content", [])
                 said = text_of(content)
@@ -170,7 +176,11 @@ def read(path):
                         for key in transcript.landmarks((b.get("input") or {}).get("command")):
                             if key not in turn["marks"]:
                                 turn["marks"].append(key)
-    return title, turns, first_ts, dt.datetime.fromtimestamp(path.stat().st_mtime)
+    notes = [n for n in [transcript.unknown_sources_note(unknown)] if n]
+    if replies and not turns:
+        notes.append(f"返答が {replies} 件あるのに、打った発言が 0 件だった。コマンドだけの会話でなければ、"
+                     "Claude Code が記録の形（promptSource の値）を変えたかもしれない")
+    return title, turns, first_ts, dt.datetime.fromtimestamp(path.stat().st_mtime), notes
 
 
 def about(turn, phrase):
@@ -363,9 +373,9 @@ def report(a):
     if not path:
         sys.exit(f"このディレクトリ（{cwd}）のセッション記録が見つからない: {note}")
 
-    title, turns, first, touched = read(path)
+    title, turns, first, touched, notes = read(path)
     print(render(title, turns, stamp(first) or touched, touched, cwd, a.full, a.limit,
-                 topic=topic, note=note))
+                 topic=topic, note="。".join(n for n in [note, *notes] if n) or None))
     return 0
 
 

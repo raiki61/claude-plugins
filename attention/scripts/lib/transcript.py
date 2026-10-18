@@ -22,6 +22,34 @@ LANDMARK_LABELS = {"commit": "コミット", "push": "push", "rebase": "rebase",
                    "review_comment": "レビュー・コメント", "ci": "CI 確認", "test": "テスト実行"}
 
 
+# user の行の promptSource（その発言の出どころ）。人が打った物と、人でない物（`claude -p` と SDK の sdk・
+# ハーネスが差し込む system）を分ける。どちらにも無い値は、Claude Code が足した新しい種類として数えて出す——
+# 黙ってどちらかに混ぜると、人の発言が落ちても数が減るだけで誰も気づかない（2026-10-19、
+# suggestion_accepted〔出された提案の文を人が受けて送った物〕を知らずに 6 件落としていた）。
+# 2026-10-19 に 5 つのアカウントの直近 3 日の記録で見た値は、この 5 つだけ
+HUMAN_SOURCES = frozenset({"typed", "queued", "suggestion_accepted"})
+OTHER_SOURCES = frozenset({"sdk", "system"})
+
+
+def prompt_source(entry):
+    """user の行の出どころのキー: "human"・"other"・"unknown"（知らない値）・None（promptSource が無い）。"""
+    src = entry.get("promptSource")
+    if src is None:
+        return None
+    if src in HUMAN_SOURCES:
+        return "human"
+    return "other" if src in OTHER_SOURCES else "unknown"
+
+
+def unknown_sources_note(counts):
+    """知らない promptSource の値の注記の文。counts は値ごとの件数で、空なら None。"""
+    if not counts:
+        return None
+    return ("会話の記録に、知らない promptSource（発言の出どころ）の値があった: "
+            + "・".join(f"{k} {n} 件" for k, n in sorted(counts.items()))
+            + "。人の発言かどうか決められないので、人の発言に数えていない")
+
+
 def landmarks(command):
     """コマンドの文字列に当たる区切りのキー（LANDMARKS の順）。文字列でなければ空。"""
     if not isinstance(command, str):
