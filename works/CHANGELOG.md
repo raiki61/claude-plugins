@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-19
+
 ### Changed
 
 - `.shared/core/claude_auth.py`（ルートの scripts/claude_auth.py の写し）の `account_token` が、設定のフォルダの `.credentials.json` を使わなかった訳を、探した所の並びに `file-miss`（無い）・`file-error`（読めない）・`file-malformed`（在るがトークンの形でない）で出す。前は無いときと同じに見えた。トークンを渡すかどうかは変えていない。
