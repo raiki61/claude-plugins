@@ -2639,7 +2639,8 @@ expect_output 0 "--body" "ゲートから漏れた投稿は旗の綴りだけ mi
 CR_STUB_FILL='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "guess=障害は今起きていると読んだ"'
 CR_STUB_BLOCK_FILL='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck=F3 が何か本文で解決できない" "guess=障害は今起きていると読んだ"'
 # 決めた形(JSON の findings)でない答えは、地の文で「無い」と書いてあっても「指摘ゼロ」と読まない
-CR_STUB_PROSE='cat >/dev/null; printf "詰まりは無い。本文は将来の話をしている。\n"'
+# 2 行の地の文(短い 1 行の JSON でない答えは、認証の失敗か使用枠の上限の形として別に止める。下の CR_STUB_AUTHFAIL)
+CR_STUB_PROSE='cat >/dev/null; printf "詰まりは無い。\n本文は将来の話をしている。\n"'
 expect_output 0 "推測で埋めた箇所" "補完のみなら通り、埋めた中身が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FILL" "$CR_POST"
 expect_output 0 "補完: 障害は今起きている" "補完は deny の指摘にも載る(直す機会があるのは deny の側)" \
@@ -2892,7 +2893,7 @@ assert loaded(COLDREAD_DOC_EFFORT="low")[1] == "low", "COLDREAD_DOC_EFFORT で�
 # 実際に読み手へ渡る引数も見る(read_doc が effort を渡し忘れても、上の値の検査だけでは通る)。起動と認証は差し替える
 pick = lambda a, flag: a[a.index(flag) + 1]
 seen_argv, saved = [], (g.subprocess.run, g.claude_auth.auth_env, os.environ.pop("COLDREAD_READER_CMD", None))
-g.claude_auth.auth_env = lambda env, **kw: (dict(env), None)
+g.claude_auth.auth_env = lambda env, **kw: (dict(env), "none")
 g.subprocess.run = lambda argv, **kw: (seen_argv.append(argv), subprocess.CompletedProcess(argv, 0, json.dumps(
     {"type": "result", "is_error": False, "structured_output": {"findings": []}}).encode("utf-8"), b""))[1]
 try:
@@ -4469,11 +4470,57 @@ CR_STUB_TRACED='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "echo=「ニアバイし
 expect_output 0 "自分の言葉に直せば通る" "相手の言い回しを地の文に写した箇所(なぞり)は投稿を止め、直し方は説明を足すことではないと言う" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_AUTHFAIL='cat >/dev/null; printf "Failed to authenticate: OAuth session expired and could not be refreshed\n"'
-expect_output 0 "決めた形" "認証切れの 1 行(終了コード 0・JSON でない)は allow にせず止める(実測 2026-09-15 の形)" \
+expect_output 0 "認証の失敗か使用枠の上限" "認証切れの 1 行(終了コード 0・JSON でない)は allow にせず、読み手が読めなかったとして止める(実測 2026-09-15 の形)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_AUTHFAIL" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_IS_ERROR='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" --error "Failed to authenticate"'
-expect_output 0 "エラーを返した" "is_error の答え(JSON の形の認証切れ)も allow にせず止める" \
+expect_output 0 "認証の失敗か使用枠の上限" "is_error の答え(JSON の形の認証切れ)も allow にせず、読み手が読めなかったとして止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_IS_ERROR" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_IS_ERROR_OTHER='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" --error "overloaded"'
+expect_output 0 "エラーを返した" "認証でない is_error の答えも allow にせず止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_IS_ERROR_OTHER" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+# 読み手の認証の期限の注記は、Keychain の段で起動したときに決まり、同じ項目は 1 日に 1 度だけ、持ち主の画面と
+# モデルへの理由に出す。認証の失敗は、書き手への訳でも形の違いと分けて言う
+expect_output 0 "AUTH_EXPIRY_OK" "読み手の認証のトークンの期限が近ければ 1 日に 1 度だけ持ち主の画面に出し、認証の失敗は読めなかった訳で名指す" \
+    "$PY_BIN" - "$ROOT" "$WORK/auth-expiry" <<'PY'
+import contextlib, importlib.util, io, json, os, pathlib, sys
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+os.environ["CLAUDE_CONFIG_DIR"] = str(work / "cfg")
+spec = importlib.util.spec_from_file_location("g", root / "gates/hooks/coldread-gate.py")
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+asked = []
+g.claude_auth.expiry_note = lambda svc: asked.append(svc) or "Keychain の項目 %s のトークンは 340 日前に書いた物" % svc
+g.VERSION_NOTE = ""
+g._expiry("item-a", today="2026-10-19")
+g._expiry("item-a", today="2026-10-19")   # 1 回の起動では security を 1 度だけ引く
+assert asked == ["item-a"], asked
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    try:
+        g.deny("x")
+    except SystemExit:
+        pass
+out = json.loads(buf.getvalue())
+assert "item-a" in out.get("systemMessage", "") and "item-a" in out["hookSpecificOutput"]["permissionDecisionReason"], out
+g._EXPIRY.clear()
+g._expiry("item-a", today="2026-10-19")   # 同じ日の次の起動では出さない
+assert not any(g._EXPIRY.values()) and g.notices() == "", g._EXPIRY
+g._EXPIRY.clear()
+g._expiry("item-a", today="2026-10-20")   # 次の日はまた出す
+assert "item-a" in g.notices(), g._EXPIRY
+g._EXPIRY.clear()
+g.claude_auth.expiry_note = lambda svc: None
+g._expiry("item-b", today="2026-10-21")
+assert g.notices() == "", "期限が遠いのに注記を出した"
+# 認証の失敗は、形の違い(reader-shape)でなく読めなかった物として、書き手に訳を言う
+os.environ["COLDREAD_READER_CMD"] = "cat >/dev/null; echo 'Failed to authenticate: OAuth session expired and could not be refreshed'"
+try:
+    g.run_reader("p", g.reader_schema(g.COLD_KINDS))
+    raise AssertionError("認証の失敗の 1 行を答えとして読んだ")
+except g.ReaderAuth as exc:
+    assert not isinstance(exc, g.ReaderShape) and "認証が切れたか使用枠が尽きた" in g._down_reason(exc), g._down_reason(exc)
+print("AUTH_EXPIRY_OK")
+PY
 # structured_output の無い答え(--json-schema の効かない版の claude)と、text の空の指摘も指摘ゼロと読まない
 CR_STUB_NO_STRUCT='cat >/dev/null; printf "%s\n" "{\"type\": \"result\", \"subtype\": \"success\", \"is_error\": false, \"result\": \"指摘なし\"}"'
 expect_output 0 "structured_output が無い" "structured_output の無い答えは止める" \

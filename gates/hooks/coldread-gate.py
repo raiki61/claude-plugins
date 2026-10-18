@@ -73,7 +73,7 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
 
 記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 4 本と、置き場 2 つ:
   denies.log  allow / deny の別(deny はタブ区切りで種別も。maxlen・parse-fail・
-              blocked・reader-down・reader-shape・finding)。finding と allow には本文の長さと読み方
+              blocked・reader-down・reader-auth・reader-shape・finding)。finding と allow には本文の長さと読み方
               (screen=スレッドの画面を渡した / new=新しい PR・issue の画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
               どれだけ膨れたかを示すため。blocked には止めた理由(why=)が付く。各行の末尾に sid=(session id の先頭 8 字)
               v=(このゲートの版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)、本文を読んだ deny には
@@ -111,6 +111,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
@@ -1943,6 +1944,11 @@ class ReaderShape(RuntimeError):
     """読み手の答えが決めた形をしていない(検査できていない)。起動の失敗(reader-down)と分けて記録する。"""
 
 
+class ReaderAuth(RuntimeError):
+    """読み手が認証の失敗か使用枠の上限の形で返した(claude_auth.auth_failed。検査できていない)。答えの形の違い
+    (reader-shape)と分けて、読み手が読めなかった物として扱い、採った認証の段を添えて人に返す。"""
+
+
 def reader_schema(kinds):
     """読み手に返させる答えの JSON Schema(claude -p --json-schema)。種類はキーで選ばせる(決まり 3)。"""
     return {
@@ -2025,11 +2031,18 @@ def allow() -> None:
     sys.exit(0)
 
 
+def notices():
+    """人に知らせる注記(版のずれと、読み手の認証のトークンの期限)。無ければ空文字。読み手を起動した後に呼ぶ
+    (期限の注記は、読み手の起動が Keychain の段を採ったときに決まる。_expiry)。"""
+    return "\n".join(filter(None, (VERSION_NOTE, *(n for _, n in sorted(_EXPIRY.items()) if n))))
+
+
 def owner_note():
     """持ち主の画面に出す注記(フックの出力の systemMessage。モデルの文脈に入る理由・文脈とは別に、人に見える)。
     無ければ {}。版のずれはモデルに言うだけでは持ち主に届かず、古い版の会話が開いたまま検査し続けた
     (2026-10-18 の denies.log に v=0.25.0 と v=0.31.0。標準 docs/standards/breakage-detection.md の決まり 1・4)。"""
-    return {"systemMessage": VERSION_NOTE} if VERSION_NOTE else {}
+    shown = notices()
+    return {"systemMessage": shown} if shown else {}
 
 
 def deny(reason: str) -> None:
@@ -2037,7 +2050,7 @@ def deny(reason: str) -> None:
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": "\n".join(filter(None, (reason, VERSION_NOTE))),
+            "permissionDecisionReason": "\n".join(filter(None, (reason, notices()))),
         },
         **owner_note(),
     }, ensure_ascii=False))
@@ -2199,6 +2212,49 @@ VERSION_NOTE = ("この検査は gates %s で走った(入っている版は %s�
                 "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _INSTALLED)) if _INSTALLED else ""
 
 
+# 読み手の認証のトークンの期限の注記。読み手を Keychain の段で起動したとき、その項目の書き換えた日から決める
+# (claude_auth.expiry_note。setup-token のトークンは 1 年で切れ、切れると読み手は黙って 0 で終わる)。gates は
+# works-dispatch の受付(--ask・--todo)に頼らずに配るので、知らせの口は版のずれと同じ notices(持ち主の画面と、
+# モデルへの理由・文脈)にする。同じ項目は 1 日に 1 度だけ出す(EXPIRY_TOLD に出した日を覚える)
+EXPIRY_TOLD = os.path.join(STATE_DIR, "expiry-told.json")
+_EXPIRY = {}   # 項目の名 → この起動で出す注記(出さなければ None)。1 回の起動で security を 1 度だけ引く
+_EXPIRY_LOCK = threading.Lock()   # 読み手は並べて起動する(DOC_WORKERS)
+
+
+def _expiry(service, today=None):
+    """Keychain の項目 service のトークンの期限が近ければ、今日まだ出していない限り _EXPIRY に注記を置く。"""
+    with _EXPIRY_LOCK:
+        if service in _EXPIRY:
+            return
+        _EXPIRY[service] = None
+        note = claude_auth.expiry_note(service)
+        if not note:
+            return
+        today = today or time.strftime("%Y-%m-%d")
+        with _locked(EXPIRY_TOLD):
+            try:
+                with open(EXPIRY_TOLD, encoding="utf-8") as f:
+                    told = json.load(f)
+            except FileNotFoundError:
+                told = {}
+            except (OSError, ValueError) as exc:
+                _lost("期限を知らせた日を読めない(%s。今日も知らせる)" % EXPIRY_TOLD, exc)
+                told = {}
+            if not isinstance(told, dict):
+                told = {}
+            if told.get(service) == today:
+                return
+            told[service] = today
+            try:
+                tmp = "%s.%d.tmp" % (EXPIRY_TOLD, os.getpid())
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(told, f, ensure_ascii=False)
+                os.replace(tmp, EXPIRY_TOLD)
+            except OSError as exc:
+                _lost("期限を知らせた日を書けない(%s。次の起動でも知らせる)" % EXPIRY_TOLD, exc)
+        _EXPIRY[service] = "coldread の読み手の認証(持ち主に 1 行で伝える): " + note
+
+
 def reader_argv(claude_bin, schema, model=None, effort=None):
     """読み役(headless claude)の起動引数。テストから読めるように関数にしてある。
 
@@ -2264,6 +2320,8 @@ def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIME
         # 取れなくても claude 自身の保存済み認証で動く場合があるため、足せなくても進む。
         env, note = claude_auth.auth_env(
             os.environ, service=os.environ.get("COLDREAD_KEYCHAIN_SERVICE"))
+        if note.startswith("keychain("):
+            _expiry(note[len("keychain("):-1])
         env["COLDREAD_IN_READER"] = "1"
         claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
         os.makedirs(STATE_DIR, exist_ok=True)
@@ -2276,6 +2334,11 @@ def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIME
     if not out:
         why = (_child_text(proc.stderr, strict=False) or "empty output")[:200]
         raise RuntimeError(why if note is None else "%s(認証: %s)" % (why, note))
+    # 認証の失敗と使用枠の上限は、終了コード 0 の短い 1 行(JSON でない)か、is_error の JSON で返る。形の違う答えと
+    # 分けて、読み手が読めなかった物にする(どちらかは決めつけず、出力の頭を添える)
+    if claude_auth.auth_failed(out):
+        raise ReaderAuth("読み手が認証の失敗か使用枠の上限の形で返した: %r%s"
+                         % (out[:150], "" if note is None else "(認証: %s)" % note))
     try:
         return reader_reply(out)
     except ReaderShape as exc:
@@ -2585,6 +2648,11 @@ def main() -> None:
     kinds = tuple(KINDS) if mode == "screen" else COLD_KINDS
     try:
         found = sort_findings(run_reader(prompt + body, reader_schema(kinds)), kinds)
+    except ReaderAuth as exc:
+        stop("reader-auth\t%d" % len(body),
+             "外部投稿ゲート: coldreader(文脈ゼロの読み手)が読めなかった(%s)。\n" % str(exc)[:200]
+             + "検査できていないので止めた。認証が切れたなら `claude setup-token` で作り直す。使用枠なら空くまで待つ。\n"
+             + OWNER_NOTE, len(body), fp)
     except ReaderShape as exc:
         # **形の違う答えを「指摘ゼロ」と読まない**(認証切れはこの形で出る。reader_reply)
         stop("reader-shape\t%d" % len(body),
@@ -2611,7 +2679,7 @@ def main() -> None:
             SCOPE_NOTE,
             skip_note,
             screen_note,
-            VERSION_NOTE,
+            notices(),
             section("coldreader が推測で埋めた箇所——意図と違うなら投稿を編集して直すこと:", fills),
             section("画面に有るものを本文で説明している箇所(削ってよい。投稿を編集して短くできる):", redundant),
             section("投稿は通したが、coldreader(初見の読み手)に残った疑問"
@@ -3959,6 +4027,8 @@ def _down_reason(exc):
     """読めなかった訳を、書き手に返す短い言葉にする。"""
     if isinstance(exc, subprocess.TimeoutExpired):
         return "読み手が %d 秒で時間切れ" % exc.timeout
+    if isinstance(exc, ReaderAuth):
+        return "読み手の認証が切れたか使用枠が尽きた(%s)" % str(exc)[:120].replace("\n", " ")
     return "読み手を起動できなかった(%s)" % str(exc)[:80].replace("\n", " ")
 
 
@@ -4147,7 +4217,7 @@ def docs_check(payload, background=False):
     # 物が残り、1 日の後に残り物として知らされる)
     notes, counts, down, later = _read_pending(session, agent, DOC_READ_MAX if agent or background else None)
     left = "" if agent else _left_behind()
-    if not notes and not down and not left and not later:
+    if not notes and not down and not left and not later and not any(_EXPIRY.values()):   # 期限の注記は今日の 1 度きりなので落とさない
         return
     event = payload.get("hook_event_name") or ("SubagentStop" if agent else "Stop")
     turn = "直前のターン" if background else "このターン"
@@ -4161,7 +4231,7 @@ def docs_check(payload, background=False):
         head = (reader + "が、この役が書いた文書を読んだ。"
                 + ("詰まった箇所を直すこと(直した文書はこの役の終わりにまた読まれる。直さずに残すと判断したものは、"
                    "そのまま終えてよい——同じ中身は読み直さない):" if notes else ""))
-        context = "\n\n".join(filter(None, (head, *notes, tail, VERSION_NOTE)))
+        context = "\n\n".join(filter(None, (head, *notes, tail, notices())))
     else:
         context = tail
         if notes:
@@ -4189,14 +4259,14 @@ def docs_check(payload, background=False):
             else:
                 # 書き出せないときは全文を返す(指摘を落とすより文脈を食うほうがまし)
                 context = "\n\n".join(filter(None, (reader + "が、%sで書いた文書を読んだ。詰まった箇所を直すこと:" % turn, *notes, tail)))
-        context = "\n\n".join(filter(None, (context, left, VERSION_NOTE)))
+        context = "\n\n".join(filter(None, (context, left, notices())))
     # 裏の口(asyncRewake)は終了コード 2 と標準エラーで返し、systemMessage を出せない(標準エラーはモデルにだけ渡る)。残り物は
     # 文の中の「持ち主に 1 行で伝え」でモデルに伝えさせ、版の注記はモデルにだけ届く(持ち主の画面に直に出すのは待って読む口だけ)
     if background:
         sys.stderr.write(context + "\n")
         sys.stderr.flush()
         sys.exit(2)
-    shown = "\n".join(filter(None, (left, VERSION_NOTE)))   # 持ち主の画面にも出す(モデルの文脈だけでは届かない)
+    shown = "\n".join(filter(None, (left, notices())))   # 持ち主の画面にも出す(モデルの文脈だけでは届かない)
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": context},
                       **({"systemMessage": shown} if shown else {})}, ensure_ascii=False))
 
@@ -4590,6 +4660,8 @@ def branch_check(argv):
               % (os.path.abspath(__file__), "・".join(down)))
     if unread:
         print("開けなかった文書(UTF-8 の文書として開けない。文書でなければ拡張子を変える): %s" % "・".join(unread))
+    for note in (n for _, n in sorted(_EXPIRY.items()) if n):
+        print(note)
     print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件%s・推測で埋めた箇所 %d 件%s。%s"
           % (len(picked), fresh, counts["stuck"],
              "(ほかにメインブランチの版にも在った詰まり %d 件は止めない)" % counts["carried"] if counts["carried"] else "",
