@@ -8,8 +8,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ### Changed
 
-- 段 0 で Claude Code のログインも見る（`claude auth status --json` の `loggedIn`。前は `claude --version` が通るかだけを見て、ログインが切れていても段 0 を通した）。段 2 の起動コマンドも、`claude` 以外はそのアカウントでログイン済みかを見る。答えの JSON が読めないときも通さない。
-- herdr の server が動いているかを `herdr status server --json` の `running` で見る（前は人向けの出力の「status: running」の行を正規表現で読んでいた）。答えが読めないときは、読めないと出して通さない。
+tiers は、プラグインが要る外のツールがこの PC にそろっているかを点検するプラグイン。段は、点検するツールの組を少ない方から並べた段階で、段 0 は Claude Code だけ、段 2 は herdr（端末の画面を作業ごとに分けて Claude Code の会話を並べるツール）とアカウントの起動コマンドまで。下の「足りない」は、点検の結果でその項目を足りない物として出し、終了コードを 1 にすること。
+
+- 段 0 で、Claude Code にログインしているかも見る。見るのは `claude auth status --json` が返す JSON の `loggedIn`。前は `claude --version` が通るかだけを見たので、ログインが切れていても段 0 はそろっていると出した。段 2 の起動コマンドも、`claude` 以外はそのアカウントでログインしているかを見る。`claude auth status --json` の返した字が JSON として読めないときも、足りないと出す。
+- herdr の server が動いているかを、`herdr status server --json` が返す JSON の `running` で見る。前は、人が読むための出力の「status: running」の行を正規表現で探していた。返した字が JSON として読めないときは、読めなかったことと終了コードを出し、足りないと出す。
 
 ## [0.6.0] - 2026-10-19
 
