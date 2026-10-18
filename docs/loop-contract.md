@@ -1,5 +1,7 @@
 # 収束ループの契約——構造を変えるときに壊してはいけないもの
 
+**読む人**: `convergence-loops` の 4 本のループの構造（グラフ・手順書・検証器）を変える人と、隣に新しいコマンドを作る人だけ。構造を変えないなら読む必要は無い。決めてほしいことは無く、構造を変える前に引く参照の一覧である（することは下の「読み手にしてほしいこと」）。
+
 `convergence-loops` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）で、4 本のコマンド——`/review-loop`（コード変更のレビュー）・`/research-loop`（見立ての一次情報での校正）・`/doctor-loop`（リポジトリの現状診断）・`/firstread-loop`（文書が初見の人に通じるかの検証）——を持つ。この文書は、その 4 本が今何を保証しているかを、手順書（`commands/<コマンド名>.md`）と検証器（記録を検査する Python `scripts/<コマンド名>-record.py`）の両方から拾い上げた一覧である。
 
 **仕様はループごとに `graphloops/graphs/<loop>.json` に 1 本ずつ書く**（各ループの規律はそこに自己完結で載る。機械——`graphloops/scripts/graphcheck.py` と graphloops の engine——が読む正本はこの JSON で、`docs/loop-graph/<loop>.md` は同じグラフを図と散文に写した人が読む側。読み方は `docs/loop-graph/README.md`）。この文書は 4 本を横断して拾い上げたときの**作業記録**で、ループをまたぐ共通点と、どのループが機械で守りどのループが散文だけかの対照表として残す。新しいランタイムの設計書ではない。
@@ -19,6 +21,7 @@
 - **記録** — 各周の実行記録 JSON。review は `round-<N>.json`、firstread は周ごと、research / doctor は 1 実行 1 記録
 - **検証器** — 記録を読んで阻害要因を列挙し終了コードで返す Python。exit 0 ＝ 阻害なし、1 ＝ 阻害あり、2 ＝ 記録が不正
 - **ラウンド** — review は P1→P4 を 1 周、research は P1→P2、doctor は P1→P3、firstread は用事の数だけ読み役を立てて手順 2〜4 を通すこと
+- **R1〜R4** — review の P-R（収束を宣言する前の俯瞰）で回す 4 つのレビュー役。R1＝冗長と最小性（問いの台帳の監査を含む）、R2＝ゼロベースの再導出（独立設計の役と比較役の 2 体）、R3＝全体整合、R4＝見えていないスコープ。見るのはループ開始からの累積差分。R1・R2 は P4 で前倒しに走り、再発火条件に当たらない周は前の結果を持ち越す（記録の上では `carried_over`）。正本は `convergence-loops/skills/review-loop/references/p-r-overview.md`
 - **問いの台帳** — review 0.28 以降の記録の `questions` フィールド。人に聞く候補を載せた周には聞かず、次の周の採点役が再審する
 - **ハーネス** — Claude Code 本体。subagent の起動・ツールの許可・フック（ツールの呼び出しの前後に挟まる検査。`hooks.json`）・context の圧縮（会話が長くなると要約に置き換わる）を司る
 - **Workflow** — Claude Code の、複数 subagent を JavaScript の script で回すツール。research の P1 が使う
@@ -349,7 +352,7 @@
 
 ## 2026-09-16 の作業記録: windows-latest の赤 15 件を塞いだ（3 OS とも緑）
 
-run 35052256573（1646b4e）の windows-latest は FAIL 15 行で、macOS / ubuntu は緑だった（少なくとも 2026-09-12 から連続で赤）。原因は 6 つで、緑になったのは run 35055659788（a188485）:
+run 35052256573（1646b4e）の windows-latest は FAIL 15 行で、macOS / ubuntu は緑だった（少なくとも 2026-09-12 から連続で赤）。原因は 6 つで、緑になったのは run 35055659788（a188485）。以下と 2026-09-26 の作業記録で言う「面」は、1 つの落ち方を生んでいる原因を 1 つずつ数えた単位で、各面は「どのプロセスのどの境界で何が変わったか」（どこで改行が化けたか、など）で言い表す。1 行の FAIL が 2 つの面を持つことがあり（下の 3）、その行は両方の面を直して初めて緑になる:
 
 1. **remote URL の末尾を `/` 固定で読んでいた**（catchup --switch の 6 行）。Windows の checkout は remote が `C:\...\o\r.git` の形で来るので末尾が取れず、origin が当のリポジトリでも「手元の origin が o/r でない」と読んで --switch が何もしなかった。`changemap.py` の `REPO_TAIL` の区切りに `\` を数え、owner と name の間の区切りは group に取って `swap_repo` が同じ字で書き戻す。回帰は OS に依らない純関数の腕（tests/changemap-suite.py の Remote）。**同じ規則の写しがもう 1 つ在った**——gates の dest-gate.py の `owner_repo` も `/` 固定で、Windows の checkout では宛先を特定できず「宛先不明」で deny していた（止まる側なので気づきにくい）。そちらも区切りを揃え、`\` 区切りの remote を置いた回帰を destgate の腕に足した
 2. **engine の起動のチェックが綴りの等値で見ていた**（graphloops の 3 行）。graph の via は `{plugin_root}/scripts/with-auth.py` と書かれているので、埋めた後の argv は Windows で区切りが混ざり、同梱の層そのものを指していても撥ねていた。`_same_path`（normcase / normpath）で比べる——揃うのは区切りと大小だけなので `..` で外へ出た綴りは別物のまま。回帰は `.` を挟んだ綴りと `..` の綴りの対（graphloops/tests/simulate.py）
