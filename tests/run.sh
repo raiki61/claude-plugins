@@ -2355,7 +2355,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=716
+EXPECTED_CHECKS=718
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4210,6 +4210,14 @@ expect_output 0 "検査を通過" "「詰まり: なし」は詰まりに数え�
 CR_STUB_NONE_ONLY='cat >/dev/null; printf "詰まり: なし\n"'
 expect_output 0 "検査を通過" "「詰まり: なし」だけの出力は CLEAN と同じに通る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NONE_ONLY" "$CR_POST"
+# 読み手が「詰まり: 」と書き出して同じ行の終わりで取り消した行も止めない(2026-10-19 に実測: ブランチのゲートの
+# 読み手が詰まり 4 件のうち 3 件をこの形で出し、--land が止まった)。疑問に回して残し、本物の詰まりは取り消しの行と並んでも止める
+CR_STUB_RETRACT='cat >/dev/null; printf "詰まり: (語) 「F3」は本文内で説明されているので意味は取れる。詰まりなし。\n詰まり: (指す先) 「既定」は例から推測可能。詰まりとしては扱わない。\n"'
+expect_output 0 "検査を通過" "取り消した詰まりの行だけの出力は通る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_RETRACT" "$CR_POST"
+CR_STUB_RETRACT_REAL='cat >/dev/null; printf "詰まり: (語) 「F3」は本文内で説明されているので意味は取れる。詰まりなし。\n詰まり: (筋) 「詰まりなし」と書いたセクションの後の文が何を言っているかが取れない。\n"'
+expect_output 0 "何を言っているかが取れない" "取り消した行と並んでも、本物の詰まりは止める(途中に「詰まりなし」を含んでも)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_RETRACT_REAL" "$CR_POST"
 # 読み役は利用者の CLAUDE.md を読まない(--setting-sources を空で起動)。2026-09-06 に実測: 無しだと
 # 利用者の CLAUDE.md の見出しをそのまま引用し、有りだと NONE。CI に claude は無いので起動引数で縛る。
 # **本文が argv に戻らないことも形で見る**——Windows のコマンドラインは 32,767 字が上限で、超えると
