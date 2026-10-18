@@ -171,13 +171,14 @@ class Task(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["role"], attrs["residency"]), ("担当", "per-task"))
 
-    def test_default_role_missing_from_the_shape_is_noted_not_stopped(self):
+    def test_default_role_missing_from_the_shape_stops(self):
+        # 役の名前を英語で書いた会社などで、どの役でもない「作業」の部署を、役の本文も起動の設定も無いまま立てない
         push_shape(gitx_source(self.cfg), SHAPE)   # 役は調べ役だけで、default_role も無い
         ports = self.ports()
         rc, out = self.run_task(ports)
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place(ports))["role"], "作業")
-        self.assertIn("--role を省いたので役は既定の 作業 だが、会社の形に無い", out)
+        self.assertEqual(rc, 2, out)
+        self.assertFalse([w for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["branch"] == "task/fix"])
+        self.assertIn("止めた: --role を省いたので役は既定の 作業 だが、会社の形に無い", out)
         self.assertIn("default_role", out)
 
     def test_branch_on_origin_is_made_from_origin_not_the_default_branch(self):

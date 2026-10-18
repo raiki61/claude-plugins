@@ -35,6 +35,7 @@ The skill's and command's instructions and descriptions are written in Japanese.
    ```
    要るツールの点検（段 0〜2）
     ok  段 0 Claude Code: 2.1.301 (Claude Code)
+ ok  段 0 Claude Code のログイン: ログイン済み（oauth_token）
     ok  段 1 gh: gh version 2.102.0 (2026-09-30)
     ok  段 1 gh のログイン: gh auth status が通る
     ok  段 2 herdr: herdr 0.9.3
@@ -47,9 +48,9 @@ The skill's and command's instructions and descriptions are written in Japanese.
 
 A higher-numbered tier includes the lower ones (checking tier 2 also checks tier 0 and tier 1). If the calling plugin has a way of use that does not need tier 1's gh, that check leaves it out on its own side (example: works-dispatch's `--check` only adds a note about missing gh for people who use only its departments, the separate per-task Claude Code sessions it starts, and not its PR features).
 
-- Tier 0: Claude Code only. Whether `claude --version` succeeds.
+- Tier 0: Claude Code only. Whether `claude --version` succeeds and Claude Code is logged in (`loggedIn` in the JSON from `claude auth status --json`, run in the user's login shell so that a token the shell sets is seen).
 - Tier 1: gh (the GitHub CLI). Whether it is installed (`gh --version`) and logged in (`gh auth status`).
-- Tier 2: herdr (a tool that splits the terminal into one workspace per task and lets you operate the AI sessions inside from outside). Whether it is installed (`herdr --version`) and its server is running (`status: running` from `herdr status server`). Also, whether the command that starts each account (passed with the `--launcher` option of `tiers`, described under the usage below; `claude` if omitted) can be found in the user's login shell (on Linux and macOS it is looked up with `command -v` in the login shell, which also counts shell functions and aliases; on Windows it is looked up on PATH, and if not found, functions (and aliases) defined in `$PROFILE`, the file PowerShell reads at startup, are looked up with PowerShell's `Get-Command`).
+- Tier 2: herdr (a tool that splits the terminal into one workspace per task and lets you operate the AI sessions inside from outside). Whether it is installed (`herdr --version`) and its server is running (`running` in the JSON from `herdr status server --json`). Also, whether the command that starts each account (passed with the `--launcher` option of `tiers`, described under the usage below; `claude` if omitted) can be found in the user's login shell and whether that account is logged in (the same `auth status --json`, for each launcher other than `claude`) (on Linux and macOS it is looked up with `command -v` in the login shell, which also counts shell functions and aliases; on Windows it is looked up on PATH, and if not found, functions (and aliases) defined in `$PROFILE`, the file PowerShell reads at startup, are looked up with PowerShell's `Get-Command`).
 - Tier 3: Archon (a tool that runs AI workflows step by step). Whether `archon` is on PATH.
 
 For each missing tool, it returns install steps. The install commands were copied from the install section of each tool's official README (read on 2026-10-16; per OS: macOS, Linux, Windows). For tier 2, so that a first-time user can set things up alone, it also returns guidance (`guide`: supplements to herdr's per-OS install steps, how to install the herdr–Claude Code integration, and how to create the start commands) in addition to the install commands. The content of the guidance and its sources are in the "段 2 の案内" (tier 2 guidance) section of [docs/design.md](docs/design.md).

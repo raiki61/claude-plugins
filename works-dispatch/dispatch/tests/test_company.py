@@ -169,8 +169,11 @@ class HerdrPorts(unittest.TestCase):
         with self.assertRaises(real_herdr.HerdrError) as got:
             real_herdr._request("workspace.move", {}, env=env, connect=bad)
         self.assertEqual(got.exception.detail, "workspace_not_found")
-        run = fake_runner("client:\n  version: 0.9.3\nserver:\n  socket: /c/herdr.sock\n")
-        self.assertEqual(real_herdr._socket_path({}, run), "/c/herdr.sock")   # herdr の外からは herdr status で引く
+        run = fake_runner(json.dumps({"status": "running", "running": True, "socket": "/c/herdr.sock"}))
+        self.assertEqual(real_herdr._socket_path({}, run), "/c/herdr.sock")   # herdr の外からは herdr status server --json で引く
+        self.assertEqual(run.calls, [["herdr", "status", "server", "--json"]])
+        with self.assertRaises(real_herdr.HerdrError):
+            real_herdr._socket_path({}, fake_runner("server:\n  socket: /c/herdr.sock\n"))   # 人向けの文は読まない
 
     def test_rename_workspace_passes_the_label_as_one_argument(self):
         run = fake_runner(json.dumps({"result": {"type": "workspace_info"}}))

@@ -380,14 +380,19 @@ def remove_worktree(source, path, label, runner=_default_runner):
 
 
 def _socket_path(env=os.environ, runner=_default_runner):
-    """herdr のソケットの場所。herdr のペインの中なら環境変数 HERDR_SOCKET_PATH（herdr が渡す）、無ければ herdr status の socket の行。"""
+    """herdr のソケットの場所。herdr のペインの中なら環境変数 HERDR_SOCKET_PATH（herdr が渡す）、無ければ herdr status server --json の
+    socket（0.9.3 で見た形: {"status": …, "running": …, "socket": "<パス>"}。人向けの「socket:」の行は読まない）。"""
     if env.get("HERDR_SOCKET_PATH"):
         return env["HERDR_SOCKET_PATH"]
-    p = runner(["herdr", "status", "server"])
-    for line in (p.stdout or "").splitlines():
-        if line.strip().startswith("socket:"):
-            return line.split(":", 1)[1].strip()
-    raise HerdrError(["herdr", "status", "server"], "ソケットの場所が分からない")
+    argv = ["herdr", "status", "server", "--json"]
+    p = runner(argv)
+    try:
+        sock = json.loads(p.stdout or "").get("socket")
+    except (ValueError, AttributeError):
+        sock = None
+    if not isinstance(sock, str) or not sock:
+        raise HerdrError(argv, f"ソケットの場所が分からない（答えの JSON に socket が無い: {(p.stdout or p.stderr or '').strip()[:200]}）")
+    return sock
 
 
 def _request(method, params, env=os.environ, runner=_default_runner, connect=None):

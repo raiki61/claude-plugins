@@ -15,6 +15,7 @@ docs/specs/2026-10-17-reception-design.md の 3・4 章）。人の打つ入力�
 - 1 つの場所に待ち受けは 1 つ: 新しい待ち受けが印の token を書き替え、前の待ち受けはそれを見て 0 で終わる。新しい物は GRACE 秒
   待ってから台帳を読み始める（前の物が読み終えた所から続ける）。読んだ所は wake/<場所の鍵>.pos（台帳の何バイト目まで）。初めての
   場所は、待ち受けを張った時の台帳の終わりから読む。読んだ所のファイルが在ること（has_history）が、その場所に待ち受けが居た跡。
+  台帳に読めない行が在れば、読んだ所はその行の頭で止め、会話に 1 度だけ知らせる（知らせた行の頭は wake/<場所の鍵>.bad）。
 - 順番待ち: 受付箱の queue/<場所の鍵>/<受付番号>.json に 1 件 1 ファイル（enqueue）。受付番号は時刻で始まるので、名前の順が
   積んだ順。先頭に回した件（front。--first）は、回した時刻の新しい順にその前に並ぶ。取るのは待ち受けの入口だけ（take）。
 - 頼みの錠: 部署の受けている頼み（属性 company.ask と頼み元）を書き換える道（待ち受けの take・--ask の窓への打ち込み・--take）は、
@@ -27,6 +28,8 @@ import json
 import os
 import time
 import uuid
+
+import filex
 
 WAKE_DIR = "wake"   # 受付箱の下の、待ち受けの印と読んだ所の置き場
 QUEUE_DIR = "queue"  # 受付箱の下の、部署ごとの順番待ちの置き場
@@ -80,13 +83,14 @@ def pos_path(inbox, place):
     return os.path.join(_dir(inbox), key(place) + ".pos")
 
 
+def bad_path(inbox, place):
+    """待ち受けが会話に知らせた、台帳の読めない行の頭（バイト）を覚えるファイル（同じ行を 2 度知らせない）。"""
+    return os.path.join(_dir(inbox), key(place) + ".bad")
+
+
 def _replace(path, text):
     """書きかけを読ませない（一時のファイルに書いてから差し替える）。"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-    os.replace(tmp, path)
+    filex.replace(path, text)
 
 
 def read_mark(inbox, place):
@@ -121,32 +125,8 @@ def ask_lock(inbox, place, pause=time.sleep):
     if not (inbox and place):
         yield
         return
-    path = os.path.join(_dir(inbox), key(place) + ".lock")
-    os.makedirs(_dir(inbox), exist_ok=True)
-    with open(path, "a+b") as f:
-        if os.name == "nt":
-            import msvcrt
-            f.seek(0)
-            while True:
-                try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-                    break
-                except OSError as e:
-                    if e.errno not in (13, 36):   # EACCES・EDEADLOCK はほかが持っている。ほかの誤りは待たずに投げる
-                        raise
-                    pause(0.2)
-            try:
-                yield
-            finally:
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    with filex.lock(os.path.join(_dir(inbox), key(place) + ".lock"), pause=pause):
+        yield
 
 
 def pending(attrs):
@@ -216,21 +196,18 @@ def held(inbox, cwd, place, attrs=None):
     if not queued(inbox, place) or not mark or not watching(inbox, place):
         return None
     here, last = os.path.realpath(cwd), None
+    path = os.path.join(inbox, LOG)
     try:
-        with open(os.path.join(inbox, LOG), encoding="utf-8") as f:
-            for line in f:
-                if '"held"' not in line and '"handed"' not in line:
-                    continue
-                try:
-                    got = json.loads(line)
-                except ValueError:
-                    continue
-                at = os.path.realpath(got.get("place") or "")
-                if (got.get("kind") in ("held", "handed") and got.get("place") and (at == here or at.startswith(here + os.sep))
-                        and got.get("session") == mark.get("session")):
-                    last = got
+        read = filex.read_jsonl(path)
     except OSError:
         return None
+    if read.bad:
+        filex.warn("注記: " + filex.bad_text(path, read.bad) + "（その行を飛ばして読んだ）")
+    for got in read.rows:
+        at = os.path.realpath(got.get("place") or "")
+        if (got.get("kind") in ("held", "handed") and got.get("place") and (at == here or at.startswith(here + os.sep))
+                and got.get("session") == mark.get("session")):
+            last = got
     return (last.get("detail") or "渡さずに待っている") if last and last.get("kind") == "held" else None
 
 
@@ -288,21 +265,30 @@ def queued(inbox, place):
     return listed(queue_dir(inbox, place))
 
 
+def _item(path):
+    """順番待ちの 1 件のファイルを読む。無ければ None。読めない・JSON の物でなければ、標準エラーに知らせて None（積むのは
+    _replace なので書きかけは無く、読めないのは壊れた物。黙って飛ばすと、その頼みが順番待ちからも --todo からも消えて見える）。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            got = json.load(f)
+    except FileNotFoundError:
+        return None   # 読む間にほかが取った
+    except (OSError, ValueError) as e:
+        filex.warn(f"注記: 順番待ちの {path} が読めない（{e}）。この頼みを飛ばした。直すか、要らなければ消す")
+        return None
+    if not isinstance(got, dict):
+        filex.warn(f"注記: 順番待ちの {path} が JSON の物でない（{type(got).__name__}）。この頼みを飛ばした。直すか、要らなければ消す")
+        return None
+    return {**got, "path": path}
+
+
 def listed(d):
     """順番待ちの置き場 d（queue/<場所の鍵>）の並び（queued と同じ順）。"""
     try:
         names = sorted(n for n in os.listdir(d) if n.endswith(".json"))
-    except OSError:
+    except FileNotFoundError:
         return []
-    out = []
-    for n in names:
-        try:
-            with open(os.path.join(d, n), encoding="utf-8") as f:
-                got = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if isinstance(got, dict):
-            out.append({**got, "path": os.path.join(d, n)})
+    out = [x for x in (_item(os.path.join(d, n)) for n in names) if x]
     out.sort(key=lambda q: (0, -float(q["front"])) if isinstance(q.get("front"), (int, float)) else (1, 0))
     return out
 
@@ -315,14 +301,9 @@ def find(inbox, ask_id):
     except OSError:
         return None
     for k in keys:
-        path = os.path.join(root, k, f"{ask_id}.json")
-        try:
-            with open(path, encoding="utf-8") as f:
-                got = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if isinstance(got, dict):
-            return {**got, "path": path}
+        got = _item(os.path.join(root, k, f"{ask_id}.json"))
+        if got:
+            return got
     return None
 
 
@@ -370,25 +351,14 @@ def mine(record, names):
 
 
 def read_new(log, pos):
-    """台帳の pos バイト目から先の、書き終わった行（改行まで）の並びと、読み終えた所。"""
+    """台帳の pos バイト目から先の、書き終わった行（改行まで）の並びと、読み終えた所と、読めない行の並び（filex.read_jsonl の bad）。
+    読めない行が在れば、その前の行までを返し、読み終えた所はその行の頭で止める（先へ進めると、その行の知らせが誰にも気づかれずに
+    消える）。行を直すか消せば、次に読むときにその行から続く。"""
     try:
-        with open(log, "rb") as f:
-            f.seek(pos)
-            data = f.read()
+        got = filex.read_jsonl(log, pos, stop=True)
     except OSError:
-        return [], pos
-    end = data.rfind(b"\n")
-    if end < 0:
-        return [], pos
-    out = []
-    for line in data[:end + 1].splitlines():
-        try:
-            got = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            continue
-        if isinstance(got, dict):
-            out.append(got)
-    return out, pos + end + 1
+        return [], pos, []
+    return got.rows, got.pos, got.bad
 
 
 def wake_text(records):
@@ -399,6 +369,23 @@ def wake_text(records):
         lines.append(text or f"{KINDS.get(r.get('kind'), r.get('kind') or '知らせ')}です（受付 {r.get('id') or '-'}）: "
                              f"{r.get('file') or '-'} を読む")
     return "\n".join(lines)
+
+
+def _bad_news(inbox, place, log, bad):
+    """台帳の読めない行（read_new の bad）を会話に渡す字。読んだ所はその行の頭で止まり、直すか消すまで先の知らせも渡らないので、
+    黙らずに会話へ 1 度だけ知らせる（知らせた行の頭を bad_path に覚え、同じ行では空を返す）。"""
+    if not bad:
+        return ""
+    at = str(bad[0]["at"])
+    try:
+        with open(bad_path(inbox, place), encoding="utf-8") as f:
+            if f.read().strip() == at:
+                return ""
+    except OSError:
+        pass
+    _replace(bad_path(inbox, place), at)
+    return ("works-dispatch の待ち受け: " + filex.bad_text(log, bad)
+            + "。直すまで、この行より後の知らせはこの会話に渡らない")
 
 
 def _finish(verdict, err):
@@ -469,17 +456,18 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
         if size < pos:
             pos = size   # 台帳を作り直した
         if size > pos:
-            records, pos = read_new(log, pos)
+            records, pos, bad = read_new(log, pos)
             hits = [r for r in records if mine(r, names)]
             _replace(pos_path(inbox, place), str(pos))   # 出す前に進める（同じ行で 2 度起動しない）
             said = [r for r in hits if r.get("kind") != QUEUED]
+            broken = _bad_news(inbox, place, log, bad)
             # 知らせ（said）が在れば先に会話へ渡し、順番待ちはそのターンの終わりに見る（同じ回に見ると、知らせを受ける前に空にしうる）
             verdict = check() if check and hits and not said else None
             holding = holding or verdict == HOLD
             if verdict and verdict[0] == "end" and not said:
                 return 0
-            text = "\n".join(x for x in [wake_text(said) if said else "", verdict[1] if verdict and verdict[0] == "wake" else ""]
-                             if x)
+            text = "\n".join(x for x in [wake_text(said) if said else "", broken,
+                                          verdict[1] if verdict and verdict[0] == "wake" else ""] if x)
             if text:
                 return _finish(("wake", text), err)
         if now() - beat >= BEAT:

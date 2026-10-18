@@ -284,7 +284,10 @@ def publish(source, sha, ref, g):
 
 def ci_on(root, gate):
     """ゲートのブランチの頭（release/* なら release/）を、root の GitHub Actions の設定（.github/workflows）のどれかが書いているか。
-    書いていなければ、ゲートのブランチに push しても run が起きないので待たない（待つ回数に上限を置かないため、先に確かめる）。"""
+    書いていなければ、ゲートのブランチに push しても run が起きないので待たない（待つ回数に上限を置かないため、先に確かめる）。
+    YAML を読まずに字の一致で見る。標準ライブラリに YAML を読む物が無く、どのワークフローが起きるかを答える GitHub の API も無い
+    （on: の解釈は GitHub の側にしか無い）ため。外れ方は 2 つで、書いていないと読み違えれば止める側（--land が止まり訳を出す）、
+    書いていると読み違えれば run を待ち続ける側（待つ間は「ゲートに出した」と出ている）。"""
     head = gate.split("*", 1)[0]
     flows = pathlib.Path(root, ".github", "workflows")
     files = sorted(flows.glob("*.yml")) + sorted(flows.glob("*.yaml")) if flows.is_dir() else []

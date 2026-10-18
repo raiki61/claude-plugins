@@ -17,6 +17,9 @@ import pathlib
 import statistics
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+import filex  # noqa: E402
+
 # Windows の既定の標準出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -56,23 +59,29 @@ def estimate(history):
     return {**got, "runs": max(len(history.get(w) or []) for w in WINDOWS)}
 
 
+class CostError(ValueError):
+    """覚えるファイルが読めない（壊れている）。空として読んで上書きすると、覚えた回が消える。"""
+
+
 def load(path):
+    """覚えた値。ファイルが無ければ空。読めない・形が違えば CostError（前は空として読み、次の save が上書きした）。"""
     try:
         raw = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-        return {w: [float(x) for x in raw.get(w, []) if isinstance(x, (int, float))] for w in WINDOWS}
-    except (OSError, ValueError, AttributeError, TypeError):
+    except FileNotFoundError:
         return _empty()
+    except (OSError, ValueError) as e:
+        raise CostError(f"PR 1 件あたりの使用率の控え {path} が読めない（{e}）。直すか、消して測り直す") from e
+    if not (isinstance(raw, dict) and all(isinstance(raw.get(w, []), list) for w in WINDOWS)):
+        raise CostError(f"PR 1 件あたりの使用率の控え {path} の形が違う（枠ごとの数の並びでない）。直すか、消して測り直す")
+    return {w: [float(x) for x in raw.get(w, []) if isinstance(x, (int, float))] for w in WINDOWS}
 
 
 def save(path, new):
-    """new の値を足し、枠ごとに新しい KEEP 回ぶんだけ残して書く。"""
+    """new の値を足し、枠ごとに新しい KEEP 回ぶんだけ残して書く。今のファイルが読めなければ書かずに CostError。"""
     path = pathlib.Path(path)
     old = load(path)
     data = {"schema": 1, **{w: (old[w] + list(new.get(w) or []))[-KEEP:] for w in WINDOWS}}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    filex.replace(path, json.dumps(data, ensure_ascii=False))
 
 
 def main(argv=None):

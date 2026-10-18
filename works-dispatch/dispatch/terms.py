@@ -11,7 +11,7 @@
 （コマンド・パス・コード）と、コードブロック（``` か ~~~ で囲んだ所）の中。
 
 使い方:
-    python3 terms.py <ファイル>...                  # 当たった行を出す（当たれば 1 で終わる）
+    python3 terms.py <ファイル>...                  # 当たった行を出す（当たれば 1、読めないファイルが在れば 2 で終わる）
     python3 terms.py --fix [--main 語] <ファイル>...  # 活用ごとの置き換えで直し、直せなかった行を出す
     python3 terms.py --deliver                      # 納品の検査（会社の形の役の deliver_check）として、標準入力の JSON の summary を見る
 
@@ -219,12 +219,15 @@ def main(argv):
                 return 2
         else:
             paths.append(x)
-    bad = 0
+    bad, unread = 0, 0
     for p in paths:
         path = pathlib.Path(p)
         try:
             text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            # 無いパス・読めないファイルを飛ばして 0 で終わると、打ち損じたパスが「当たり無し」と読める
+            print(f"{p}: 読めない（{e}）", file=sys.stderr)
+            unread += 1
             continue
         if fix:
             fixed = fix_text(text, word, quoted)
@@ -234,7 +237,7 @@ def main(argv):
         for n, found, expected in text_problems(text):
             print(f"{p}:{n}: 「{found}」は IT の定着語でない。「{expected}」と書く")
             bad = 1
-    return bad
+    return 2 if unread else bad
 
 
 if __name__ == "__main__":

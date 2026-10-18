@@ -54,6 +54,8 @@ import re
 import shlex
 import tomllib
 
+from nodes import tools
+
 # 役の effort に書ける値（CLI の文書の --effort の Options）と、頼み元と同じ値で起動する印
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultracode")
 INHERIT = "inherit"
@@ -67,15 +69,25 @@ DEFAULT = "作業"
 FIXED = {"worktree": {"bgIsolation": "none"}}
 
 
+# 部署の席の種類のキー（機械が比べ・並べる値）と、人に見せる語（herdr の作業場の印 kind と --tree に役の後ろへ添える字）。
+# 語は表示にだけ使い、比べない（語を言い換えても、並びと判定が替わらない）
+SEAT_LABELS = {"resident-carry": "常設・持ち越し", "resident-fresh": "常設・毎回空", "per-task": "都度"}
+
+
 def seat(residency, fresh):
-    """部署の席の見え方（herdr の表示名と --tree に役の後ろへ添える字）。常設なら会話の持ち越し方も添える。"""
+    """部署の席の種類のキー（SEAT_LABELS の鍵）。常設なら会話の持ち越し方も分ける。"""
     if residency == "resident":
-        return "常設・毎回空" if fresh else "常設・持ち越し"
-    return "都度"
+        return "resident-fresh" if fresh else "resident-carry"
+    return "per-task"
 
 
-# 部署を並べる仕事の流れの順（席の見え方 seat の値 → 順。持ち主 2026-10-17 の案 A）。役の無い場所は最後
-FLOW = ("常設・持ち越し", "常設・毎回空", "都度")
+def seat_label(residency, fresh):
+    """部署の席の見え方（人に見せる語）。"""
+    return SEAT_LABELS[seat(residency, fresh)]
+
+
+# 部署を並べる仕事の流れの順（席の種類 seat のキー → 順。持ち主 2026-10-17 の案 A）。役の無い場所は最後
+FLOW = ("resident-carry", "resident-fresh", "per-task")
 
 
 def flow_rank(attrs, duties):
@@ -86,7 +98,7 @@ def flow_rank(attrs, duties):
     seat_ = seat(attrs.get("residency"), attrs.get("fresh")) if attrs.get("role") else None
     rank = FLOW.index(seat_) if seat_ in FLOW else len(FLOW)
     names = list(duties)
-    duty = names.index(attrs["name"]) if rank == 1 and attrs.get("name") in names else len(names)
+    duty = names.index(attrs["name"]) if seat_ == "resident-fresh" and attrs.get("name") in names else len(names)
     return rank, duty
 
 
@@ -115,6 +127,12 @@ def _tools(r, where, problems):
         if not (isinstance(t.get("command"), str) and t["command"].strip()):
             bad.append("command（空でない文字列）")
         bad += [k for k in ("title", "description", "fallback_role") if k in t and not (isinstance(t[k], str) and t[k].strip())]
+        if not bad:
+            unchecked = tools.schema_problems(schema)
+            if unchecked:
+                problems.append(f"{at}: inputSchema の {', '.join(unchecked)} は入力の検査が確かめない（書いた制約が黙って効かない）ので外す。"
+                                f"使えるのは {', '.join(sorted(tools.SCHEMA_KEYS))} と、各鍵の {', '.join(sorted(tools.PROPERTY_KEYS))}")
+                continue
         if bad:
             problems.append(f"{at}: {', '.join(bad)} の形が違うので外す")
             continue
@@ -256,12 +274,13 @@ def current(shape, name):
 
 
 def default(shape, builtin):
-    """--role を省いたときの役の名前と注記。会社の形の default_role を先に、無ければ builtin。会社の形に役が書かれていて、
-    その役が無ければ注記にする（止めない。役の本文と起動の設定が付かないことを知らせる）。"""
+    """--role を省いたときの役の名前と、止める訳。会社の形の default_role を先に、無ければ builtin。会社の形に役が書かれていて、
+    その役が無ければ止める訳を返す（前は注記だけで、役の名前を英語で書いた会社では、どの役でもない「作業」の部署が役の本文も
+    起動の設定も無いまま立った）。役を書いていない会社は builtin のまま止めない。"""
     name = shape.get("default_role") or builtin
     if shape["roles"] and name not in shape["roles"]:
-        return name, (f"--role を省いたので役は既定の {name} だが、会社の形に無いので、役の本文と起動の設定が付かない"
-                      f"（--role で名指すか、会社の形の頭に default_role = \"<役>\" を書く。在る役: {', '.join(shape['roles'])}）")
+        return name, (f"--role を省いたので役は既定の {name} だが、会社の形に無い（--role で名指すか、会社の形の頭に "
+                      f"default_role = \"<役>\" を書く。在る役: {', '.join(shape['roles'])}）")
     return name, None
 
 

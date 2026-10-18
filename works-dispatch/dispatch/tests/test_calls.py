@@ -194,8 +194,8 @@ class Call(unittest.TestCase):
         self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
         self.assertFalse(os.path.exists(made))
         self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
-        (path, why), = tools.sweep(self.src, gitx)[1]
-        self.assertEqual((os.path.realpath(path), why), (os.path.realpath(dirty), "未コミットの変更が在る"))
+        (path, reason, why), = tools.sweep(self.src, gitx)[1]
+        self.assertEqual((os.path.realpath(path), reason, why), (os.path.realpath(dirty), tools.DIRTY, "未コミットの変更が在る"))
 
     def test_sweep_with_a_gone_owner_keeps_a_lone_commit_and_leaves_a_dirty_place(self):
         # 居るかの見方を渡して、消し方そのものを OS に依らずに見る（Windows の既定の見方は「居る」で消さない）

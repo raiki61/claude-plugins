@@ -323,12 +323,21 @@ class Gh(unittest.TestCase):
         with self.assertRaises(ghx.GhError):
             ghx.pr_for_branch("o/r", "x", runner=Fake((1, "", "HTTP 502")))
 
-    def test_issue_branches_reads_one_branch_per_line(self):
-        f = Fake((0, "12-fix-login\thttps://github.com/o/r/tree/12-fix-login\nmore\thttps://github.com/o/r/tree/more\n", ""))
+    def test_issue_branches_reads_the_linked_branches_as_json(self):
+        def answer(*names):
+            nodes = [{"ref": {"name": n} if n else None} for n in names]
+            return json.dumps({"data": {"repository": {"issue": {"linkedBranches": {"nodes": nodes}}}}})
+        f = Fake((0, answer("12-fix-login", None, "more"), ""))   # 消えたブランチ（ref が null）は並べない
         self.assertEqual(ghx.issue_branches("o/r", 12, runner=f), ["12-fix-login", "more"])
-        self.assertEqual(f.calls[0][0], ["gh", "issue", "develop", "--list", "12", "--repo", "o/r"])
-        self.assertEqual(ghx.issue_branches("o/r", 12, runner=Fake((0, "BRANCH  URL\nx  u\n", ""))), ["x"])
-        self.assertEqual(ghx.issue_branches("o/r", 12, runner=Fake((0, "", ""))), [])
+        argv = f.calls[0][0]
+        self.assertEqual(argv[:3], ["gh", "api", "graphql"])
+        self.assertIn("owner=o", argv)
+        self.assertIn("name=r", argv)
+        self.assertIn("number=12", argv)
+        self.assertEqual(ghx.issue_branches("o/r", 12, runner=Fake((0, answer(), ""))), [])
+        for broken in ("", "BRANCH  URL\nx  u\n", json.dumps({"data": {"repository": {"issue": None}}})):
+            with self.assertRaises(ghx.GhError):   # 人向けの表や、issue の無い答えを空として読まない
+                ghx.issue_branches("o/r", 12, runner=Fake((0, broken, "")))
 
     def test_issue_develop_makes_the_branch_from_the_base_with_the_given_env(self):
         f = Fake((0, "github.com/o/r/tree/12-fix-login\n", ""))

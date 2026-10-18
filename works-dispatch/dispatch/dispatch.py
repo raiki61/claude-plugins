@@ -74,6 +74,7 @@ import tomllib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import claudex  # noqa: E402
 import config  # noqa: E402
+import filex  # noqa: E402
 import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
@@ -466,18 +467,21 @@ class Ports:
         return ghx.pr_activity(repo.repo, number, self._me, env=env)
 
     def load_sent(self, limits_dir):
+        """前に送った時刻の控え {PR の鍵: 時刻}。ファイルが無ければ空。読めない・表でなければ ValueError（空として読んで
+        save_sent が上書きすると、前に送った時刻が全部消える）。"""
+        path = pathlib.Path(limits_dir) / SENT_FILE
         try:
-            got = jsonio_load(pathlib.Path(limits_dir) / SENT_FILE)
-        except (OSError, ValueError):
+            got = jsonio_load(path)
+        except FileNotFoundError:
             return {}
-        return got if isinstance(got, dict) else {}
+        except (OSError, ValueError) as e:
+            raise ValueError(f"前に送った時刻の控え {path} が読めない（{e}）") from e
+        if not isinstance(got, dict):
+            raise ValueError(f"前に送った時刻の控え {path} が JSON の表でない（{type(got).__name__}）")
+        return got
 
     def save_sent(self, limits_dir, sent):
-        path = pathlib.Path(limits_dir) / SENT_FILE
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(sent, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, path)
+        filex.replace(pathlib.Path(limits_dir) / SENT_FILE, json.dumps(sent, ensure_ascii=False, indent=1, sort_keys=True))
 
     def state(self, config_dir, path):
         """そのフォルダの中の会話の状態を Claude Code 自身に問う（claude agents --json の status。idle・busy など）。
@@ -834,7 +838,11 @@ def main(argv=None, ports=None):
             if p["number"] in acts and fresh.own_unreviewed(p, acts[p["number"]]):
                 catchup_only.add(p["number"])
     # ブランチの場所の中で会話が開いている PR: 自分以外の動きが前に送った時より後に有れば、会話とペインを畳んで新しく立て直す
-    sent = ports.load_sent(cfg.limits_dir)
+    try:
+        sent, sent_ok = ports.load_sent(cfg.limits_dir), True
+    except ValueError as e:
+        sent, sent_ok = {}, False
+        notes.append(f"{e}。前に送った時刻が無いものとして読み、控えは書き直さない（直すか消すと、次の回から使う）")
     refresh, verdicts = {}, {}
     quiet = set()
     keys = sessions.open_keys(sess)
@@ -879,7 +887,11 @@ def main(argv=None, ports=None):
     before = ports.read_limits(cfg.limits_dir, metered)
     ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now(), accounts.count_running(listed),
                            cfg.reset_soon_hours)
-    est = cost.estimate(ports.load_cost(cfg.limits_dir))
+    try:
+        est = cost.estimate(ports.load_cost(cfg.limits_dir))
+    except cost.CostError as e:
+        est = None
+        notes.append(f"{e}（まだ測っていないものとして割り振る）")
     the_plan = assign.plan(repo, my_prs, sessions.open_keys(staying), {s["cwd"] for s in staying if s["cwd"]}, ranked,
                            cfg.limit_percent, est, places)
     if any(r["outcome"] in ("assigned", "no_account") for r in the_plan):
@@ -979,13 +991,17 @@ def main(argv=None, ports=None):
                     sent[_key(repo, r["number"])] = stamp[r["number"]]
                     if r["number"] in refresh:
                         results[r["number"]] = "refreshed"
-            ports.save_sent(cfg.limits_dir, sent)
+            if sent_ok:
+                ports.save_sent(cfg.limits_dir, sent)
             # 1 件あたりの使用率は、/catchup の終わりまで待った件だけで測る（待たずに送った件は、測る時にまだ使っていない）
             counts = collections.Counter(r["account"]["name"] for r, _ in ready if second[r["number"]] is not None)
             measured = [n for n in counts if n in metered]
             if measured:
                 ports.refresh_limits(cfg, measured)
-                ports.save_cost(cfg.limits_dir, cost.samples(before, ports.read_limits(cfg.limits_dir, measured), counts))
+                try:
+                    ports.save_cost(cfg.limits_dir, cost.samples(before, ports.read_limits(cfg.limits_dir, measured), counts))
+                except cost.CostError as e:
+                    notes.append(f"{e}（この回の測った値は書かなかった）")
             # 起動した会話には /catchup のページを開かせていない（launch の ATTENTION_CATCHUP_OPEN=0）。送り終えた件だけ、ここで 1 回開く
             opened = ports.open_pages(repo, [r["number"] for r, _ in ready
                                              if r["kind"] == "pr" and results.get(r["number"]) in ("sent", "refreshed")])
@@ -1176,8 +1192,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     fetched = None if a.dry_run or refreshed else provision.refresh_shape(repo.source, ports.git)
     info = tree.read_info(repo.source, os.path.dirname(cfg_path))
     shape = role.load(info["path"], info["text"])
-    role_name, default_note = (a.role, None) if a.role else role.default(shape, DEFAULT_ROLE)
-    the_role, why = role.pick(shape, role_name, a.role is not None)
+    role_name, why = (a.role, None) if a.role else role.default(shape, DEFAULT_ROLE)
+    the_role, why = (None, why) if why else role.pick(shape, role_name, a.role is not None)
     if why:
         print(f"止めた: {why}")
         return 2
@@ -1197,7 +1213,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     problems, notes = ports.preflight(cfg, task=True)
     notes = (list(cfg.notes) + [n for n in [fetched] if n] + info["notes"] + shape["problems"]
              + [p for p in info["problems"] if p not in shape["problems"]]
-             + [n for n in [gh_note, default_note, flags_note] if n]
+             + [n for n in [gh_note, flags_note] if n]
              + role.warnings(the_role) + notes)
     if problems:
         print("止めた（始める前の確かめで足りない物）:")
@@ -1317,7 +1333,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             if attrs["residency"] == RESIDENT and a.branch:
                 # 常設の部署の最初のブランチも、入れたブランチと同じに記録する。頼みごとにブランチを移るので、入れずに移った最初のブランチ（--brief で
                 # 立てただけのブランチなど）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す
-                first = {**clean.landed_of(ports.attrs(prov["path"])), a.branch: ports.git.rev(prov["path"], "HEAD")}
+                first = {**clean.landed_of(ports.attrs(prov["path"]), strict=True), a.branch: ports.git.rev(prov["path"], "HEAD")}
                 provision.mark(prov["path"], repo.source, {clean.LANDED_BRANCHES: json.dumps(first, ensure_ascii=False)}, ports.git)
         except (gitx.GitError, OSError) as e:
             notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・頼み元が出ず、--sync で札を付け直せず、--clean が部署を片付けない")
@@ -1909,7 +1925,7 @@ def _tool_places(repo, ports, apply):
                   + f" git -C {repo.source} worktree remove -f -f {e['path']} で消す）")
             continue
         got = tools.judge(e, ports.git, repo.source)
-        removable = removable or not got["why"]
+        removable = removable or not got["reason"]
         print(f"ツールの一時の場所 {e['path']}  " + (
             f"残す（作った処理はもう居ないが、{got['why']}。中を見て、要らなければ git -C {repo.source} worktree remove -f -f {e['path']}）"
             if got["why"] else "消せる（作った処理がもう居ない" + (f"。どのブランチにも無い先頭の commit を {tools.KEPT_REF}{got['keep']} に残してから消す"
@@ -1919,9 +1935,9 @@ def _tool_places(repo, ports, apply):
     done, bad = tools.sweep(repo.source, ports.git)
     for got in done:
         print(f"ツールの一時の場所 {got['path']} 消した" + (f"（先頭の commit を {tools.KEPT_REF}{got['keep']} に残した）" if got["keep"] else ""))
-    for path, why in bad:
+    for path, _, why in bad:
         print(f"ツールの一時の場所 {path} 消せなかった: {why}")
-    return sum(1 for _, why in bad if why != "未コミットの変更が在る"), True
+    return sum(1 for _, reason, _ in bad if reason != tools.DIRTY), True
 
 
 def _clean(cfg, repo, apply, ports):

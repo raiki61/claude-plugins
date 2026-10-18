@@ -236,7 +236,7 @@ class Watch(unittest.TestCase):
     def test_half_written_line_waits_for_its_end(self):
         with open(self.log, "w", encoding="utf-8") as f:
             f.write('{"to": "co/調べ"')
-        self.assertEqual(wake.read_new(self.log, 0), ([], 0))
+        self.assertEqual(wake.read_new(self.log, 0), ([], 0, []))
 
     def test_addresses_take_the_name_then_former_names(self):
         self.assertEqual(wake.addresses("co", {"name": "調べ"}, ["前", "調べ"]), ["co/調べ", "co/前"])

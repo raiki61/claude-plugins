@@ -6,6 +6,11 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Changed
+
+- 段 0 で Claude Code のログインも見る（`claude auth status --json` の `loggedIn`。前は `claude --version` が通るかだけを見て、ログインが切れていても段 0 を通した）。段 2 の起動コマンドも、`claude` 以外はそのアカウントでログイン済みかを見る。答えの JSON が読めないときも通さない。
+- herdr の server が動いているかを `herdr status server --json` の `running` で見る（前は人向けの出力の「status: running」の行を正規表現で読んでいた）。答えが読めないときは、読めないと出して通さない。
+
 ## [0.6.0] - 2026-10-19
 
 ### Changed

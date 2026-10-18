@@ -11,8 +11,9 @@ import json
 import os
 import re
 import subprocess
-import tempfile
 import time
+
+import filex
 
 
 class ClaudeError(Exception):
@@ -154,17 +155,7 @@ def inherit_trust(path_of_file, source, clone, vouchers=()):
         # 鍵は効いた。2026-10-16 に 2.1.301 で確かめた）を、Claude Code が書いた区切りに揃えて書く
         key = mine or _key_like(found, os.path.realpath(clone))
         projects[key] = {**(have or {}), "hasTrustDialogAccepted": True}
-    mode = os.stat(path_of_file).st_mode & 0o777
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path_of_file), prefix=".claude.json.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.chmod(tmp, mode)
-        os.replace(tmp, path_of_file)
-    except OSError:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+    filex.replace(path_of_file, json.dumps(data, ensure_ascii=False, indent=2))   # 前のファイルの権限を引き継ぐ
     return "inherited"
 
 

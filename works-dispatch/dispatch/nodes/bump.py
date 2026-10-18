@@ -159,14 +159,36 @@ def plan(root, g):
     return rows, (old, raise_version(old, "minor" if any(r["level"] == "minor" for r in rows) else "patch"))
 
 
+def _set_version(rel, text, pattern, new, where):
+    """text（JSON）の版のフィールドを、字の置き換えで new に替えた字。置き換えた後を JSON として読み直し、where（鍵の並び）の
+    版だけが new に替わって、ほかは前と同じことを確かめる（違えば BumpError。字の置き換えは並びと字下げを崩さないためで、
+    当たる所を取り違えたら書かずに止める）。"""
+    got, hits = pattern.subn(lambda m: m.group(1) + new + m.group(5), text, count=1)
+    if hits != 1:
+        raise BumpError(f"{rel} に版のフィールド（{'.'.join(where)}）が見つからない")
+    try:
+        want, after = json.loads(text), json.loads(got)
+    except ValueError as e:
+        raise BumpError(f"{rel} が JSON として読めない（{e}）") from e
+    node = want
+    for k in where[:-1]:
+        node = node.get(k) if isinstance(node, dict) else None
+    if not isinstance(node, dict) or where[-1] not in node:
+        raise BumpError(f"{rel} に {'.'.join(where)} が無い")
+    node[where[-1]] = new
+    if after != want:
+        raise BumpError(f"{rel} の版の書き換えが {'.'.join(where)} 以外の所に当たった（書かずに止めた）")
+    return got
+
+
 def apply(root, rows, market, date):
     """plan の結果をファイルに書き、commit の件名を返す。"""
     for r in rows:
         pj = posixpath.join(r["source"], PLUGIN)
-        _write(root, pj, _VERSION.sub(lambda m: m.group(1) + r["new"] + m.group(5), _read(root, pj), count=1))
+        _write(root, pj, _set_version(pj, _read(root, pj), _VERSION, r["new"], ["version"]))
         cl = posixpath.join(r["source"], "CHANGELOG.md")
         _write(root, cl, move_unreleased(_read(root, cl), r["new"], date))
-    _write(root, MARKETPLACE, _META.sub(lambda m: m.group(1) + market[1] + m.group(5), _read(root, MARKETPLACE), count=1))
+    _write(root, MARKETPLACE, _set_version(MARKETPLACE, _read(root, MARKETPLACE), _META, market[1], ["metadata", "version"]))
     names = ", ".join(r["name"] for r in rows)
     versions = " / ".join(f"{r['name']} {r['new']}" for r in rows)
     return f"chore({names}): 版を上げる（{versions} / marketplace {market[1]}）"

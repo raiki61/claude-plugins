@@ -51,6 +51,37 @@ def _typed(value, kind):
     return want is None or isinstance(value, want)
 
 
+# check_input が確かめる inputSchema の keyword。ここに無い keyword（enum・pattern・minimum など）を書いたツールは、書いた制約が
+# 黙って効かないので、会社の形を読むとき（role._tools）に外す。JSON Schema の検査の全部は標準ライブラリに無く、要るのは
+# 鍵の有る無しと型だけなので、自作の検査を広げず、受ける keyword を絞る
+SCHEMA_KEYS = {"type", "properties", "required", "additionalProperties", "title", "description", "$schema"}
+PROPERTY_KEYS = {"type", "description", "title"}
+
+
+def schema_problems(schema):
+    """inputSchema のうち check_input が確かめない書き方の並び（空なら全部確かめる）。"""
+    out = [f"keyword {k}" for k in schema if k not in SCHEMA_KEYS]
+    req = schema.get("required", [])
+    if not (isinstance(req, list) and all(isinstance(k, str) for k in req)):
+        out.append("required（文字列の並び）")
+    if not isinstance(schema.get("additionalProperties", True), bool):
+        out.append("additionalProperties（true か false）")
+    props = schema.get("properties", {})
+    if not isinstance(props, dict):
+        return out + ["properties（表）"]
+    known = set(TYPES) | {"integer", "number", "null"}
+    for name, p in props.items():
+        if not isinstance(p, dict):
+            out.append(f"properties.{name}（表）")
+            continue
+        out += [f"properties.{name} の keyword {k}" for k in p if k not in PROPERTY_KEYS]
+        kind = p.get("type")
+        kinds = kind if isinstance(kind, list) else [kind] if kind is not None else []
+        if not all(isinstance(x, str) and x in known for x in kinds):
+            out.append(f"properties.{name} の type（{'・'.join(sorted(known))} のどれか）")
+    return out
+
+
 def check_input(schema, value):
     """入力がツールの inputSchema に合わない訳の並び（空なら合う）。"""
     if not isinstance(value, dict):
@@ -129,33 +160,39 @@ def leftovers(entries, alive=_alive, exists=os.path.exists):
     return out
 
 
+# 残り物の場所を消さない・消せなかった訳のキー（呼ぶ側は文でなくこれで比べる。文は語の置き換えで替わりうる）
+DIRTY = "dirty"   # 未コミットの変更か git に足していないファイルが在る
+GIT_FAILED = "git"   # 消す git のコマンドが失敗した
+
+
 def judge(entry, g, root):
-    """残り物の場所 1 つの扱い。{path, keep, why}。keep は消す前に KEPT_REF に残す commit（無ければ None）、why は消さない訳
-    （消すなら None）。未コミットの変更か git に足していないファイルが在れば消さない（.gitignore に当たる物は数えない）。"""
+    """残り物の場所 1 つの扱い。{path, keep, reason, why}。keep は消す前に KEPT_REF に残す commit（無ければ None）、reason は消さない訳の
+    キー（DIRTY。消すなら None）、why はその人向けの文。未コミットの変更か git に足していないファイルが在れば消さない
+    （.gitignore に当たる物は数えない）。"""
     path, head = entry["path"], entry.get("head")
     if os.path.isdir(path) and not g.is_clean(path):
-        return {"path": path, "keep": None, "why": "未コミットの変更が在る"}
+        return {"path": path, "keep": None, "reason": DIRTY, "why": "未コミットの変更が在る"}
     keep = head if head and not g.on_some_ref(root, head) else None
-    return {"path": path, "keep": keep, "why": None}
+    return {"path": path, "keep": keep, "reason": None, "why": None}
 
 
 def sweep(root, g, alive=_alive):
     """leftovers を消す（git の worktree の記録と、親の一時のフォルダ）。先頭の commit がどのブランチにも無ければ KEPT_REF に残してから消す。
-    (消した judge の並び, 消せなかった (パス, 訳) の並び)。書く口。"""
+    (消した judge の並び, 消せなかった (パス, 訳のキー〔DIRTY・GIT_FAILED〕, 人向けの訳) の並び)。書く口。"""
     done, failed = [], []
     entries = g.listed_worktrees(root)
     stale = set(leftovers(entries, alive))
     for e in (e for e in entries if e["path"] in stale):
         got = judge(e, g, root)
-        if got["why"]:
-            failed.append((got["path"], got["why"]))
+        if got["reason"]:
+            failed.append((got["path"], got["reason"], got["why"]))
             continue
         try:
             if got["keep"]:
                 g.keep_commit(root, KEPT_REF + got["keep"], got["keep"])
             g.remove_detached(root, got["path"])
         except g.GitError as err:
-            failed.append((got["path"], str(err)))
+            failed.append((got["path"], GIT_FAILED, str(err)))
             continue
         shutil.rmtree(os.path.dirname(got["path"]), ignore_errors=True)
         done.append(got)

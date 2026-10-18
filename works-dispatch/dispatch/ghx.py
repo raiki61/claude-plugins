@@ -101,14 +101,25 @@ def issue_info(repo, number, runner=_default_runner, env=None):
     return {"number": got["number"], "title": got["title"], "url": got.get("url"), "state": got.get("state"), "prs": prs}
 
 
+# issue に結んだブランチ（GitHub の GraphQL の Issue.linkedBranches。`gh issue develop --list` が読むのと同じ物）
+LINKED_BRANCHES = ("query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) "
+                   "{ issue(number: $number) { linkedBranches(first: 100) { nodes { ref { name } } } } } }")
+
+
 def issue_branches(repo, number, runner=_default_runner, env=None):
-    """issue に結んだブランチの名前の並び（`gh issue develop --list`）。読めなければ GhError。
-    端末でないときの gh の表は、見出しを付けずに 1 行 1 ブランチを「ブランチ<TAB>URL」で出す。見出し（BRANCH）が来ても読み飛ばす。"""
-    p = runner(["gh", "issue", "develop", "--list", str(number), "--repo", repo], env=env)
+    """issue に結んだブランチの名前の並び（gh api graphql の Issue.linkedBranches を JSON で読む。前は `gh issue develop --list` の
+    人向けの表を列で切っていた）。読めない・issue が無ければ GhError。消えたブランチ（ref が null）は並べない。"""
+    owner, _, name = repo.partition("/")
+    p = runner(["gh", "api", "graphql", "-f", f"query={LINKED_BRANCHES}", "-f", f"owner={owner}", "-f", f"name={name}",
+                "-F", f"number={int(number)}"], env=env)
     if p.returncode != 0:
         raise GhError(f"{repo} の issue #{number} に結んだブランチを読めない: {(p.stderr or p.stdout).strip()[:200]}")
-    names = [line.split()[0] for line in p.stdout.splitlines() if line.strip()]
-    return [n for n in names if n != "BRANCH"]
+    try:
+        issue = json.loads(p.stdout)["data"]["repository"]["issue"]
+        nodes = issue["linkedBranches"]["nodes"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise GhError(f"{repo} の issue #{number} に結んだブランチの答えの形が違う（{type(e).__name__}: {e}）: {p.stdout.strip()[:200]}")
+    return [n["ref"]["name"] for n in nodes if n and n.get("ref") and n["ref"].get("name")]
 
 
 def issue_develop(repo, number, base, runner=_default_runner, env=None):

@@ -33,6 +33,7 @@ import time
 import tomllib
 import uuid
 
+import filex
 import gitx
 
 INBOX = ("company", "inbox")      # 共通の .git の下の受付箱
@@ -251,29 +252,18 @@ def put(inbox, name, text):
 
 
 def log(inbox, record):
-    """受付箱の台帳（log.jsonl）に 1 行足す。"""
-    os.makedirs(inbox, exist_ok=True)
-    with open(os.path.join(inbox, LOG), "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    """受付箱の台帳（log.jsonl）に 1 行足す（ロックを持って足す。filex.append_line）。"""
+    filex.append_line(os.path.join(inbox, LOG), json.dumps(record, ensure_ascii=False, sort_keys=True))
 
 
 def records(inbox):
-    """受付箱の台帳の行の並び。読めない行（書きかけの最後の行など）は飛ばす（待ち受けが読む間に書かれることがある）。"""
-    out = []
-    try:
-        with open(os.path.join(inbox, LOG), encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                try:
-                    got = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(got, dict):
-                    out.append(got)
-    except FileNotFoundError:
-        return []
-    return out
+    """受付箱の台帳の行の並び。書きかけの最後の行（改行の前）は読まない（待ち受けが読む間に書かれることがある）。読めない行は飛ばし、
+    標準エラーに知らせる（filex.read_jsonl。黙って飛ばすと、その行の頼みや納品が無かったのと同じに見える）。"""
+    path = os.path.join(inbox, LOG)
+    got = filex.read_jsonl(path)
+    if got.bad:
+        filex.warn("注記: " + filex.bad_text(path, got.bad) + "（その行を飛ばして読んだ）")
+    return got.rows
 
 
 def closed_ids(records):

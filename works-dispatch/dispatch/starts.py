@@ -21,6 +21,7 @@ import os
 import sys
 import time
 
+import filex
 import gitx
 import herdr
 import orders
@@ -158,27 +159,8 @@ def _due_lock(inbox):
     if not inbox:
         yield True
         return
-    os.makedirs(inbox, exist_ok=True)
-    with open(os.path.join(inbox, DUE_LOCK), "a+b") as f:
-        try:
-            if os.name == "nt":
-                import msvcrt
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            yield False
-            return
-        try:
-            yield True
-        finally:
-            if os.name == "nt":
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    with filex.lock(os.path.join(inbox, DUE_LOCK), wait=False) as got:
+        yield got
 
 
 def due_all(a, ports, task):

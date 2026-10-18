@@ -484,7 +484,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         if row["branch"]:
             try:
                 # 書くのは部署のブランチの先頭（版を上げる commit はメインブランチの側にだけ在り、部署のブランチの先頭と違う）
-                landed_map = {**clean.landed_of(ports.attrs(path)), row["branch"]: ports.git.rev(path, "HEAD")}
+                landed_map = {**clean.landed_of(ports.attrs(path), strict=True), row["branch"]: ports.git.rev(path, "HEAD")}
                 provision.mark(path, repo.source, {clean.LANDED_BRANCHES: json.dumps(landed_map, ensure_ascii=False)}, ports.git)
             except (gitx.GitError, OSError) as e:
                 later = f"入れたブランチを書けなかった（{e}）ので、手元のブランチ {row['branch']} は手で消す"
@@ -525,7 +525,7 @@ def sweep_branches(repo, ports, found, apply):
     for r in rows:
         if r["status"] != "open":
             out.append(f"常設の部署 {r['name'] or r['path']} の入れ終えたブランチ {r['branch']}: {SWEEP_SAID[r['status']]}")
-        if apply and r["path"] not in written and clean.landed_of(ports.attrs(r["path"])) != r["keep"]:
+        if apply and r["path"] not in written and clean.landed_of(ports.attrs(r["path"]), strict=True) != r["keep"]:
             written.add(r["path"])
             try:
                 provision.mark(r["path"], repo.source,

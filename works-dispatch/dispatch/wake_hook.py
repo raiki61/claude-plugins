@@ -58,6 +58,7 @@ try:
     import gitx  # noqa: E402
     import role_hook  # noqa: E402
     import herdr  # noqa: E402
+    import filex  # noqa: E402
     from nodes import deliver, provision, role, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # 待ち受けは裏で走るので、古い Python（tomllib の無い 3.10 以前）でも会話を止めない。知らせは止まる前のフック
@@ -285,20 +286,14 @@ def _read_part(got):
     pos = wake._read_pos(got["inbox"], got["place"])
     if pos is None:
         return None
+    path = os.path.join(got["inbox"], wake.LOG)
     try:
-        with open(os.path.join(got["inbox"], wake.LOG), "rb") as f:
-            data = f.read(pos)
+        read = filex.read_jsonl(path, end=pos)
     except OSError:
         return None
-    out = []
-    for line in data.splitlines():
-        try:
-            got_ = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            continue
-        if isinstance(got_, dict):
-            out.append(got_)
-    return out
+    if read.bad:
+        filex.warn("注記: " + filex.bad_text(path, read.bad) + "（その行を飛ばして読んだ）")
+    return read.rows
 
 
 TAKES = "takes"   # 受付箱の下の、輪をほどく --take を走らせた出力の置き場
@@ -397,13 +392,18 @@ def knot(got, attrs, children, records=None):
     return [(c, names[node], names[dest], dest) for c, node, dest in [first] + path[::-1]]
 
 
+class UntieError(Exception):
+    """untie が回す先（会社と既定の役）を決められない。訳は待ち受けが台帳に残す（loose）。"""
+
+
 def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os.environ):
     """返事待ちの輪（knot の返り）をほどく: 先頭の頼みを、積まれた部署の会社に、積まれた部署の受け持ちの名前を付けた作業の部署を
     立てて、dispatch.py --take <受付> --ask <会社>/<既定の役> --task <受け持ち>：<受付の末尾> --branch work/ask-<受付の末尾> で回す
     （段取りが手で打っていた物。受付番号と頼み元はそのまま）。会社と既定の役は、積まれた部署の会社の会社の形から読み、--take は
     その会社の代表の clone で打つ（回す頼みの本文の写しをその会社の受付箱に置く）。会話から切り離して走らせ、終わりを待たない
     （--take は herdr を読んで部署を立てる。取り合いは --take が順番待ちのファイルを消す所で 1 つに決まる）。出力は輪を見つけた部署の
-    受付箱の takes/ に残し、台帳に kind knot の行を足す。走らせたら (回した受付, 終わりの値を書くファイル)、走らせられなければ None。"""
+    受付箱の takes/ に残し、台帳に kind knot の行を足す。走らせたら (回した受付, 終わりの値を書くファイル)、走らせられなければ None。
+    会社の形を読めない・既定の役が会社の形に無いときは、回さずに UntieError を投げる。"""
     ask_id, _, owner, where = edges[0]
     attrs = gitx.worktree_attrs(got["cwd"])
     common = gitx.common_dir(where)
@@ -411,12 +411,12 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
     try:
         info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
         company = tree.company_name(root, info)
-    except Exception:  # 会社の形を読めなくても、場所の名前の会社で回す
-        info, company = None, got["company"] if root == got["root"] else os.path.basename(root)
-    try:
-        crew = role.default(role.load(info["path"], info["text"]), role.DEFAULT)[0]
-    except Exception:  # 会社の形を読めなくても、既定の役で回す
-        crew = role.DEFAULT
+        crew, why = role.default(role.load(info["path"], info["text"]), role.DEFAULT)
+    except Exception as e:
+        # 前は場所の名前の会社と既定の役（作業）に倒して回し、役の名前を英語で書いた会社では役の無い部署を立てえた
+        raise UntieError(f"{root} の会社の形を読めない（{type(e).__name__}: {e}）") from e
+    if why:
+        raise UntieError(why)
     chain = [edges[0][1]] + [e[2] for e in edges]
     note = (f"（待ち受けが回した頼み: 部署どうしが互いに出した頼みの返事を待ち、順番待ちが渡らない輪になっていた（{' → '.join(chain)}。"
             f"矢印は、左の部署が出した頼みが右の部署の順番待ちに積まれたまま）。止まらないよう、この頼みを {owner} の順番待ちから"
@@ -539,13 +539,24 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
     # 順番待ちに次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--nudge で動かせる）
     told, untied = set(), {}
 
+    def trouble(what, e):
+        why = str(e) if isinstance(e, UntieError) else f"{type(e).__name__}: {e}"
+        try:
+            waiting = wake.queued(got["inbox"], got["place"])
+            if waiting and (waiting[0].get("id"), what, why) not in told:
+                told.add((waiting[0].get("id"), what, why))
+                deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
+                                           "session": got["session"], "detail": f"{what}（{why}）"})
+        except Exception as e2:  # 台帳に書けなくても待ち受けは止めない。訳は待ち受けの出力に残す
+            filex.warn(f"注記: {what}（{why}）。台帳にも書けない（{type(e2).__name__}: {e2}）")
+
     def loose(attrs):
         # 納品していない頼みを持ったまま止まっている間に、返事待ちが部署をまたいで輪になっていれば（knot）、輪の頼みを 1 つ作業の
         # 部署へ回す（untie）。輪の部署はどれも、今の頼みを納品するまで順番待ちを渡さないので、誰も動かない（2026-10-18 に claude-plugins
         # の割り振り・点検・見直しと、my_notes の調べもの・ノートの手入れで、段取りが --take でほどくまで 2〜6 時間止まった）。同じ頼みを回すのは、
         # 前に回した --take が 0 以外で終わった（ほかの待ち受けと取り合って負けた・頼み直せずに順番待ちへ戻した）ときだけ、
         # 最初の回を含めて UNTIE_TRIES 回まで。輪を読めないなど何が起きても、待ち受けは止めない（止めると渡す待ち受けが居なく
-        # なる）
+        # なる）。ただし黙らず、訳を順番待ちの先頭の頼みの held の行で台帳に 1 度だけ残す（段取りが --tree と台帳で見る）
         try:
             if not wake.queued(got["inbox"], got["place"]):
                 return
@@ -558,11 +569,12 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
             tries = untied.get(edges[0][0], [])
             if tries and (len(tries) >= UNTIE_TRIES or tries[-1] and _exit_of(tries[-1]) in (None, 0)):
                 return
-        except Exception:
-            return
+        except Exception as e:
+            return trouble("返事待ちの輪を確かめられない", e)
         try:
             ran = unknot(got, edges)
-        except Exception:
+        except Exception as e:
+            trouble(f"返事待ちの輪（受付 {edges[0][0]}）をほどけない", e)
             ran = None
         untied[edges[0][0]] = tries + [ran and ran[1]]   # 走らせられなかった回・落ちた回（None）も数え、次の確かめで回し直す
 

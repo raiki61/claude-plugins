@@ -3,9 +3,10 @@
 段は、プラグインが要る外のツールで分ける（設計: docs/specs/2026-10-16-company-shape-design.md の 4.11）。
 上の段は下の段を含む（段 2 を点検すると、段 0 と段 1 も点検する）。
 
-- 段 0: Claude Code だけ（claude が起動できるか）
+- 段 0: Claude Code だけ（claude が起動できるか、ログイン済みか）
 - 段 1: gh（GitHub の CLI。入っているか、ログイン済みか）
-- 段 2: herdr（入っているか、動いているか）と、アカウントの起動コマンド（--launcher で渡す。省けば claude）
+- 段 2: herdr（入っているか、動いているか）と、アカウントの起動コマンド（--launcher で渡す。省けば claude。在るか、そのアカウントで
+  ログイン済みか）
 - 段 3: Archon（archon が在るか）
 
 ここに書くツールは、どれも利用者が手で入れる物（OS のツール・ログイン・シェルの設定）なので、点検は入れ方を示して止まる。
@@ -29,11 +30,11 @@ herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install H
 import argparse
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 
 SCHEMA = 1
 TOP = 3
@@ -101,6 +102,44 @@ class Probe:
     def run(self, argv):
         return _run(argv)
 
+    def auth_status(self, cmd):
+        """cmd auth status --json の (終了コード, 出力の JSON の字)。起動コマンドはシェルの関数のことが多く、ログインの鍵もシェルの
+        設定が渡すことがある（CLAUDE_CODE_OAUTH_TOKEN）ので、shell_has と同じシェルで打つ。出力は一時のファイルに書かせて読む
+        （シェルの設定ファイルが標準出力に出す字を JSON に混ぜない）。起動できなければ (None, 訳)。"""
+        fd, out = tempfile.mkstemp(prefix="tiers-auth-", suffix=".json")
+        os.close(fd)
+        try:
+            shell = _posix_shell(self.env, self.platform)
+            if shell is not None:
+                code, text = _run([shell, "-lic", f"{shlex.quote(cmd)} auth status --json > {shlex.quote(out)}"])
+            else:
+                code, text = None, f"{cmd} を起動できる PowerShell が無い"
+                quoted, target = ("'" + x.replace("'", "''") + "'" for x in (cmd, out))
+                for ps in ("pwsh", "powershell"):
+                    exe = self.which(ps)
+                    if exe:
+                        code, text = _run([exe, "-NoLogo", "-NonInteractive", "-Command",
+                                           f"& {quoted} auth status --json | Out-File -FilePath {target} -Encoding utf8; "
+                                           "exit $LASTEXITCODE"])
+                        break
+                else:
+                    path = self.which(cmd)
+                    if path:
+                        code, text = _run([path, "auth", "status", "--json"])
+                        return code, text
+            if code is None:
+                return code, text
+            with open(out, encoding="utf-8-sig") as f:   # Windows PowerShell 5 の utf8 は BOM を付ける
+                got = f.read()
+            return code, got if got.strip() else text   # 何も書かなければ、シェルの出した訳（コマンドが無いなど）を返す
+        except OSError as e:
+            return None, str(e)
+        finally:
+            try:
+                os.unlink(out)
+            except OSError:
+                pass
+
     def shell_has(self, cmd):
         """ログインかつ対話のシェル（-lic）でそのコマンドが見つかるか。シェルの関数と別名も数える。
         アカウントの起動コマンドは、シェルの設定に書いた関数であることが多く、PATH を探すだけでは見つからないため。
@@ -147,8 +186,26 @@ def _installed(probe, tier, cmd, label, version_args, guide=()):
     return _item(tier, label, found=_first_line(out) or path), path
 
 
+def _login(probe, tier, cmd, label):
+    """cmd（claude か起動コマンド）でログインしているか（claude auth status --json の loggedIn）の点検の項目。答えの JSON が読めない
+    ときも通さない（前は claude --version しか見ず、ログインが切れていても段 0 を通した）。"""
+    code, text = probe.auth_status(cmd)
+    fix = [f"{cmd} を起動して /login を打つ（か {cmd} auth login）"]
+    try:
+        got = json.loads(text or "")
+    except ValueError:
+        got = None
+    if not isinstance(got, dict) or not isinstance(got.get("loggedIn"), bool):
+        return _item(tier, label, problem=f"{cmd} auth status --json の答えが読めない（終了コード {code}）: {_first_line(text)[:200]}",
+                     fix=fix)
+    if not got["loggedIn"]:
+        return _item(tier, label, problem=f"{cmd} でログインしていない（{cmd} auth status --json の loggedIn が false）", fix=fix)
+    return _item(tier, label, found=f"ログイン済み（{got.get('authMethod') or '方法は不明'}）")
+
+
 def check_claude(probe):
-    return [_installed(probe, 0, "claude", "Claude Code", ["--version"])[0]]
+    item, path = _installed(probe, 0, "claude", "Claude Code", ["--version"])
+    return [item] + ([_login(probe, 0, "claude", "Claude Code のログイン")] if path else [])
 
 
 def check_gh(probe):
@@ -164,8 +221,6 @@ def check_gh(probe):
     return out
 
 
-RUNNING = re.compile(r"^\s*status:\s*running\s*$", re.M)
-SOCKET = re.compile(r"^\s*socket:\s*(\S.*)$", re.M)   # herdr status server が出す、見た socket の行
 
 
 def herdr_link_guide(os_key):
@@ -238,20 +293,29 @@ def check_herdr(probe, launchers):
     item, path = _installed(probe, 2, "herdr", "herdr", ["--version"], guide=herdr_install_guide(os_key))
     out = [item]
     if path:
-        # herdr status server の server のセクション（0.9.3 で読んだ形: 「status: running」の行）
-        code, text = probe.run([path, "status", "server"])
-        if code == 0 and RUNNING.search(text):
+        # herdr status server --json（0.9.3 で読んだ形: {"status": "running", "running": true, …, "socket": "<パス>"}。動いていなければ
+        # status は not_running、running は false）。人向けの「status: running」の行を読まない
+        code, text = probe.run([path, "status", "server", "--json"])
+        try:
+            got = json.loads(text) if code == 0 else None
+        except ValueError:
+            got = None
+        if isinstance(got, dict) and got.get("running") is True:
             out.append(_item(2, "herdr の動き", found="herdr の server が動いている"))
         else:
-            # どこの socket を見たか（herdr status server の「socket:」の行）を添える。HOME や XDG_CONFIG_HOME が違うと、別の
-            # 置き場の server を見ていることがある（まっさらな環境での 1 回目の試しの 8）
-            sock = SOCKET.search(text or "")
-            where = f"（見た socket: {sock.group(1).strip()}）" if sock else ""
-            out.append(_item(2, "herdr の動き", problem=f"herdr の server が動いていない{where}: {_first_line(text)[:200]}",
+            # どこの socket を見たか（答えの socket）を添える。HOME や XDG_CONFIG_HOME が違うと、別の置き場の server を見ていることが
+            # ある（まっさらな環境での 1 回目の試しの 8）
+            sock = got.get("socket") if isinstance(got, dict) else None
+            where = f"（見た socket: {sock}）" if isinstance(sock, str) and sock else ""
+            said = (f"herdr の server が動いていない{where}" if isinstance(got, dict)
+                    else f"herdr status server --json の答えが読めない（終了コード {code}）: {_first_line(text)[:200]}")
+            out.append(_item(2, "herdr の動き", problem=said,
                              fix=["作業するフォルダで herdr を起動する: herdr"], guide=herdr_start_guide(os_key)))
     for cmd in launchers:
         if probe.shell_has(cmd):
             out.append(_item(2, f"起動コマンド {cmd}", found=f"{cmd} がシェルで見つかる"))
+            if cmd != "claude":   # claude のログインは段 0 で見た
+                out.append(_login(probe, 2, cmd, f"起動コマンド {cmd} のログイン"))
         else:
             out.append(_item(2, f"起動コマンド {cmd}", problem=f"アカウントの起動コマンド {cmd} がシェルで見つからない",
                              fix=[f"シェルの設定に {cmd} を足す（中身は、そのアカウントの CLAUDE_CONFIG_DIR を決めて claude を起動する関数か別名）。"

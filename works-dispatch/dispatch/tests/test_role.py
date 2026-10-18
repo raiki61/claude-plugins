@@ -124,9 +124,9 @@ deliver_check = ""
         self.assertEqual(list(got["roles"]), ["c"])
         self.assertIn("resident の形が違う", got["problems"][0])
         self.assertIn("default_role の役 無い が [[roles]] に無い", got["problems"][1])
-        name, note = role.default(got, "作業")
+        name, why = role.default(got, "作業")   # 会社の形に無い既定の役は止める（英語の役の名前の会社で、役の無い部署を立てない）
         self.assertEqual(name, "作業")
-        self.assertIn("在る役: c", note)
+        self.assertIn("在る役: c", why)
         self.assertEqual(role.default(role.load(None), "作業"), ("作業", None))   # 役を書いていない会社では注記を出さない
 
     def test_settings_keep_the_role_keys_and_the_fixed_keys_win(self):

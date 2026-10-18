@@ -45,6 +45,7 @@ import stat
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+import filex  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
 
@@ -317,13 +318,22 @@ def _safe_list(h, source):
 LANDED_BRANCHES = "landed-branches"   # 常設の部署の属性: 入れたブランチ → 入れた commit（JSON）
 
 
-def landed_of(attrs):
-    """属性 company.landed-branches の {ブランチ: commit}。読めなければ空。"""
+def landed_of(attrs, strict=False):
+    """属性 company.landed-branches の {ブランチ: commit}。読めない（JSON でない・文字列から文字列への表でない）とき、strict なら
+    gitx.AttrError（書き足す道が、空として上書きして前に入れたブランチの記録を消さない）、ほかは標準エラーに知らせて空。"""
+    raw = attrs.get(LANDED_BRANCHES) or "{}"
     try:
-        got = json.loads(attrs.get(LANDED_BRANCHES) or "{}")
+        got = json.loads(raw)
+        ok = isinstance(got, dict) and all(isinstance(b, str) and isinstance(c, str) for b, c in got.items())
     except ValueError:
-        return {}
-    return {b: c for b, c in got.items() if isinstance(b, str) and isinstance(c, str)} if isinstance(got, dict) else {}
+        ok = False
+    if ok:
+        return got
+    why = f"部署 {attrs.get('name') or '?'} の属性 company.{LANDED_BRANCHES} が文字列の JSON の表でない（{raw[:120]}）"
+    if strict:
+        raise gitx.AttrError(why + f"。git config --worktree company.{LANDED_BRANCHES} で直してから打ち直す")
+    filex.warn(f"注記: {why}。入れたブランチの記録は無いものとして読んだ")
+    return {}
 
 
 def sweep_landed(places, attrs_of, source, apply, g=gitx):

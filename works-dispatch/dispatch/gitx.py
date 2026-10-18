@@ -19,6 +19,8 @@ import os
 import re
 import subprocess
 
+import filex
+
 # git@host:o/r.git・ssh://git@host/o/r.git・https://host/o/r(.git)・手元のパス（Windows では C:\…\o\r.git）の末尾 2 つを OWNER/NAME として取る
 _REPO = re.compile(r"[:/\\]([^/:\\]+)[/\\]([^/\\]+?)(?:\.git)?[/\\]?$")
 
@@ -29,6 +31,10 @@ def _default_runner(argv, env=None):
 
 class GitError(Exception):
     pass
+
+
+class AttrError(GitError):
+    """git の設定に入れた属性の値（JSON）が読めない。書き足す道は、読めないまま空として上書きせずに止める。"""
 
 
 def _git(cwd, args, runner):
@@ -180,23 +186,34 @@ ATTR = "company."
 
 def worktree_attrs(cwd, runner=_default_runner):
     """その worktree の git の設定 company.<名前> を {名前: 値} で（名前は git が小文字にそろえる）。
-    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。"""
-    out = _git(cwd, ["config", "--worktree", "--get-regexp", r"^company\."], runner)
+    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。
+    -z で読む（1 件は「鍵 改行 値 NUL」。-z 無しの「鍵 空白 値 改行」は、改行を含む値〔--wait の訳など〕で次の行を別の鍵と読む）。"""
+    p = runner(["git", "-C", cwd, "config", "--worktree", "-z", "--get-regexp", r"^company\."])
     attrs = {}
-    for line in (out or "").splitlines():
-        key, _, value = line.partition(" ")
+    for item in (p.stdout or "").split("\0") if p.returncode == 0 else []:
+        key, _, value = item.partition("\n")
         if key.startswith(ATTR):
             attrs[key[len(ATTR):]] = value
     return attrs
 
 
-def former_names(attrs):
-    """部署の前の名前の並び（属性 company.former-names。--reorg と --desk が名前を替えたときに JSON の並びで書く）。読めなければ空。"""
+def former_names(attrs, strict=False):
+    """部署の前の名前の並び（属性 company.former-names。--reorg と --desk が名前を替えたときに JSON の並びで書く）。
+    読めない（JSON でない・空でない文字列の並びでない）とき、strict なら AttrError（書き足す道が、空として上書きして前の名前を
+    消さない）、ほかは標準エラーに知らせて空。"""
+    raw = attrs.get("former-names") or "[]"
     try:
-        got = json.loads(attrs.get("former-names") or "[]")
+        got = json.loads(raw)
+        ok = isinstance(got, list) and all(isinstance(n, str) and n for n in got)
     except ValueError:
-        return []
-    return [n for n in got if isinstance(n, str) and n] if isinstance(got, list) else []
+        ok = False
+    if ok:
+        return got
+    why = f"部署 {attrs.get('name') or '?'} の属性 company.former-names が空でない文字列の JSON の並びでない（{raw[:120]}）"
+    if strict:
+        raise AttrError(why + "。git config --worktree company.former-names で直してから打ち直す")
+    filex.warn(f"注記: {why}。前の名前は無いものとして読んだ")
+    return []
 
 
 def untracked(cwd, runner=_default_runner):

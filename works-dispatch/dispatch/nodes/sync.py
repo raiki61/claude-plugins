@@ -55,7 +55,7 @@ def op(pane, attrs, many_accounts, current_label=None):
 
 def kind(attrs):
     """作業場の印 kind の値。役を持つ部署の席の見え方（常設・毎回空、常設・持ち越し、都度）。役が無ければ None。"""
-    return role.seat(attrs.get("residency"), attrs.get("fresh")) if attrs.get("role") else None
+    return role.seat_label(attrs.get("residency"), attrs.get("fresh")) if attrs.get("role") else None
 
 
 def kind_op(workspace, attrs):

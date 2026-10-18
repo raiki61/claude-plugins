@@ -40,6 +40,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import filex  # noqa: E402
 from vendor import claude_auth  # noqa: E402
 
 # 写しから読んだアカウント。dispatch の設定の Account と同じ名前のフィールドを持つ（config は tomllib を引くので、ここでは import しない）
@@ -71,17 +72,16 @@ BODY = json.dumps({"model": "claude-haiku-4-5-20251001", "max_tokens": 0,
 HEADER_PREFIX = "anthropic-ratelimit-unified-"
 
 
-def from_headers(text, now):
-    """応答ヘッダの文字列から控えを作る。ratelimit のヘッダが 1 つも枠にならなければ None。
+def from_headers(headers, now):
+    """応答ヘッダ（鍵 → 値の表。fetch の返り）から控えを作る。ratelimit のヘッダが 1 つも枠にならなければ None。
 
     弾かれた（status=rejected）枠に自分のヘッダが無いときは、弾いた枠（representative-claim）を 100% として、
     全体の戻り時刻（reset）で埋める。埋めないと、弾かれる前の値が出続ける。
     """
     h = {}
-    for line in text.splitlines():
-        k, sep, v = line.partition(":")
-        k = k.strip().lower()
-        if sep and k.startswith(HEADER_PREFIX):
+    for k, v in headers.items():
+        k = k.lower()   # HTTP のヘッダの名前は大文字と小文字を区別しない（RFC 9110 の 5.1）
+        if k.startswith(HEADER_PREFIX):
             h[k[len(HEADER_PREFIX):]] = v.strip()
 
     def num(k):
@@ -293,10 +293,7 @@ def _read(path):
 
 
 def _write(path, data):
-    path = pathlib.Path(path)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}")
-    tmp.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    filex.replace(path, json.dumps(data, ensure_ascii=False) + "\n")
 
 
 def _log(d, text):
@@ -309,12 +306,9 @@ def _log(d, text):
         log.write_text("\n".join(lines[-200:]) + "\n", encoding="utf-8")
 
 
-def _header_text(headers):
-    return "".join(f"{k}: {v}\n" for k, v in headers.items())
-
-
 def fetch(tok):
-    """API に出力 0 トークンの要求を 1 回投げ、応答ヘッダを文字列で返す。枠切れの 429 でもヘッダは付くので、状態は見ない。
+    """API に出力 0 トークンの要求を 1 回投げ、応答ヘッダを {名前: 値} で返す（前は 1 つの文に直してから from_headers が行に
+    切り直していた）。枠切れの 429 でもヘッダは付くので、状態は見ない。
 
     プロキシは環境変数（HTTPS_PROXY）に従う（urllib の既定）。通信の失敗は OSError で上がる。
     """
@@ -326,9 +320,9 @@ def fetch(tok):
     })
     try:
         with urllib.request.urlopen(req) as r:
-            return _header_text(r.headers)
+            return dict(r.headers.items())
     except urllib.error.HTTPError as e:
-        return _header_text(e.headers)
+        return dict(e.headers.items())
 
 
 def probe_env(env):
@@ -409,7 +403,17 @@ def herdr_entries(accounts, script, snapshot_path):
         # パスは / 区切りで書く（bash が読む。Windows の \ 区切りは引用符と \\ に化けた。activity.settings と同じ形）
         return fill(pathlib.PurePath(p).as_posix())
     q = {"script": path(script), "accounts": path(snapshot_path), "picker": path(PICKER)}
-    return [show.format(name=fill(a.name), **q) for a in shown] + [probe.format(**q)]
+    lines = [show.format(name=fill(a.name), **q) for a in shown] + [probe.format(**q)]
+    # 組んだ行を TOML として読み直して確かめる（エスケープの漏れで herdr が設定ごと読めなくなるのを、書く前に止める）。
+    # herdr-config は設定の TOML を読む道なので 3.11 以上で走る（tomllib はここでだけ読み込む。show・probe は 3.9 でも走る）
+    import tomllib
+    try:
+        got = tomllib.loads("x = [\n" + "\n".join(lines) + "\n]")["x"]
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"herdr のタブバーの行が TOML として読めない（{e}）: {lines}") from e
+    if len(got) != len(lines) or not all(isinstance(x, dict) and isinstance(x.get("command"), str) for x in got):
+        raise ValueError(f"herdr のタブバーの行が 1 行 1 つの command の表になっていない: {lines}")
+    return lines
 
 
 def main(argv=None, env=os.environ, stdin=sys.stdin):

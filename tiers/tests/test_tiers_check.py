@@ -13,17 +13,19 @@ import tiers_check  # noqa: E402
 
 
 class FakeProbe:
-    """have: 在るコマンドの名前。runs: (コマンドの名前, 引数の頭) → (終了コード, 出力)。shell: シェルで見つかるコマンド。"""
+    """have: 在るコマンドの名前。runs: (コマンドの名前, 引数の頭) → (終了コード, 出力)。shell: シェルで見つかるコマンド。
+    auth: 起動コマンド → auth status --json の (終了コード, 出力)。無い物はログイン済みと答える。"""
 
-    def __init__(self, have=("claude", "gh", "herdr", "archon"), runs=None, shell=("claude",), platform="linux"):
+    def __init__(self, have=("claude", "gh", "herdr", "archon"), runs=None, shell=("claude",), platform="linux", auth=None):
         self.have = set(have)
         self.runs = {("claude", "--version"): (0, "2.1.301 (Claude Code)\n"),
                      ("gh", "--version"): (0, "gh version 2.102.0\n"),
                      ("gh", "auth"): (0, "github.com\n  ✓ Logged in\n"),
                      ("herdr", "--version"): (0, "herdr 0.9.3\n"),
-                     ("herdr", "status"): (0, "server:\n  status: running\n  version: 0.9.3\n"),
+                     ("herdr", "status"): (0, '{"status": "running", "running": true, "socket": "/tmp/h/herdr.sock"}'),
                      **(runs or {})}
         self.shell = set(shell)
+        self.auth = auth or {}
         self.platform = platform
         self.called = []
 
@@ -37,6 +39,9 @@ class FakeProbe:
     def shell_has(self, cmd):
         return cmd in self.shell
 
+    def auth_status(self, cmd):
+        return self.auth.get(cmd, (0, '{"loggedIn": true, "authMethod": "oauth_token"}'))
+
 
 def names(result, ok=None):
     return [x["name"] for x in result["checks"] if ok is None or x["ok"] == ok]
@@ -46,19 +51,19 @@ class Tiers(unittest.TestCase):
     def test_tier_0_checks_only_claude(self):
         r = tiers_check.check(0, probe=FakeProbe())
         self.assertTrue(r["ok"])
-        self.assertEqual(names(r), ["Claude Code"])
+        self.assertEqual(names(r), ["Claude Code", "Claude Code のログイン"])
 
     def test_upper_tier_includes_lower_ones(self):
         r = tiers_check.check(3, probe=FakeProbe())
         self.assertTrue(r["ok"], r)
-        self.assertEqual([x["tier"] for x in r["checks"]], [0, 1, 1, 2, 2, 2, 3])
+        self.assertEqual([x["tier"] for x in r["checks"]], [0, 0, 1, 1, 2, 2, 2, 3])
 
     def test_missing_gh_gives_install_for_the_os_and_skips_login(self):
         for platform, word in (("darwin", "brew install gh"), ("win32", "winget"), ("linux", "apt")):
             r = tiers_check.check(1, probe=FakeProbe(have=("claude",), platform=platform))
             self.assertFalse(r["ok"])
             self.assertEqual(r["missing"], 1)
-            gh = r["checks"][1]
+            gh = r["checks"][2]
             self.assertEqual(gh["name"], "gh")
             self.assertIn(word, gh["fix"][0])
             self.assertTrue(gh["manual"])
@@ -72,15 +77,18 @@ class Tiers(unittest.TestCase):
         self.assertIn("not logged", bad["problem"])
 
     def test_herdr_not_running(self):
-        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (0, "server:\n  status: not running\n")}))
-        self.assertEqual(names(r, ok=False), ["herdr の動き"])
-        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (1, "error: connect refused\n")}))
-        self.assertEqual(names(r, ok=False), ["herdr の動き"])
+        # 動いていない・起動の誤り・人向けの文（JSON でない）・running の無い JSON は、どれも通さない
+        for answer in ((0, '{"status": "not_running", "running": false}'), (1, "error: connect refused\n"),
+                       (0, "server:\n  status: running\n"), (0, '{"status": "running"}')):
+            probe = FakeProbe(runs={("herdr", "status"): answer})
+            r = tiers_check.check(2, probe=probe)
+            self.assertEqual(names(r, ok=False), ["herdr の動き"], answer)
+            self.assertIn(["/bin/herdr", "status", "server", "--json"], probe.called)
 
     def test_launchers_are_looked_up_in_the_shell(self):
         r = tiers_check.check(2, ["claude-a", "claude-b"], probe=FakeProbe(shell=("claude-a",)))
         self.assertEqual(names(r, ok=False), ["起動コマンド claude-b"])
-        self.assertIn("claude-a", names(r, ok=True)[-1])
+        self.assertIn("起動コマンド claude-a のログイン", names(r, ok=True))
 
     def test_without_launchers_claude_is_looked_up(self):
         r = tiers_check.check(2, probe=FakeProbe(shell=()))
@@ -91,7 +99,7 @@ class Tiers(unittest.TestCase):
                                 ("darwin", ("HERDR_INSTALL_DIR", "mise use -g herdr", 'CLAUDE_CONFIG_DIR="$HOME/.claude-p2"')),
                                 ("linux", ("HERDR_INSTALL_DIR", "herdr update"))):
             r = tiers_check.check(2, probe=FakeProbe(have=("claude", "gh"), platform=platform))
-            herdr = r["checks"][3]
+            herdr = r["checks"][4]
             self.assertEqual(herdr["name"], "herdr")
             self.assertIn("herdr.dev/install", herdr["fix"][0])
             text = "\n".join(herdr["guide"])
@@ -100,8 +108,8 @@ class Tiers(unittest.TestCase):
                 self.assertIn(w, text, platform)
 
     def test_herdr_not_running_guides_the_claude_link(self):
-        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (0, "server:\n  status: not running\n")}))
-        run = r["checks"][4]
+        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (0, '{"status": "not_running", "running": false}')}))
+        run = r["checks"][5]
         self.assertEqual(run["name"], "herdr の動き")
         self.assertIn("herdr integration install claude", "\n".join(run["guide"]))
 
@@ -203,9 +211,32 @@ class RealProbe(unittest.TestCase):
 
 
 
+class Login(unittest.TestCase):
+    def test_claude_logged_out_stops_tier_0(self):
+        r = tiers_check.check(0, probe=FakeProbe(auth={"claude": (1, '{"loggedIn": false, "authMethod": "none"}')}))
+        self.assertFalse(r["ok"])
+        [item] = [x for x in r["checks"] if not x["ok"]]
+        self.assertEqual(item["name"], "Claude Code のログイン")
+        self.assertIn("claude auth login", item["fix"][0])
+
+    def test_unreadable_answer_does_not_pass(self):
+        for answer in ((127, "bash: claude: command not found"), (0, ""), (0, '{"loggedIn": "yes"}'), (0, "[]")):
+            r = tiers_check.check(0, probe=FakeProbe(auth={"claude": answer}))
+            self.assertEqual(names(r, ok=False), ["Claude Code のログイン"], answer)
+
+    def test_each_launcher_is_checked_for_login(self):
+        r = tiers_check.check(2, ["claude-a", "claude-b"], probe=FakeProbe(
+            shell=("claude-a", "claude-b"), auth={"claude-b": (1, '{"loggedIn": false}')}))
+        self.assertEqual(names(r, ok=False), ["起動コマンド claude-b のログイン"])
+
+    def test_no_login_check_when_claude_cannot_start(self):
+        r = tiers_check.check(0, probe=FakeProbe(have=()))
+        self.assertEqual(names(r), ["Claude Code"])
+
+
 class HerdrSocket(unittest.TestCase):
     def test_not_running_names_the_socket_it_looked_at(self):
-        text = "server:\n  status: not running\n  socket: /tmp/h/.config/herdr/herdr.sock\n"
+        text = '{"status": "not_running", "running": false, "socket": "/tmp/h/.config/herdr/herdr.sock"}'
         r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (0, text)}))
         [item] = [x for x in r["checks"] if x["name"] == "herdr の動き"]
         self.assertIn("見た socket: /tmp/h/.config/herdr/herdr.sock", item["problem"])

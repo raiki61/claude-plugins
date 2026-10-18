@@ -24,13 +24,9 @@ def win(p, reset, at=NOW):
     return {"used_percentage": p, "resets_at": reset, "updated_at": at}
 
 
-HEADERS = """HTTP/2 200\r
-anthropic-ratelimit-unified-5h-utilization: 0.38\r
-anthropic-ratelimit-unified-5h-reset: 1800003840\r
-anthropic-ratelimit-unified-7d-utilization: 0.32\r
-Anthropic-Ratelimit-Unified-7d-Reset: 1800187200\r
-anthropic-ratelimit-unified-status: allowed\r
-"""
+HEADERS = {"anthropic-ratelimit-unified-5h-utilization": "0.38", "anthropic-ratelimit-unified-5h-reset": "1800003840",
+           "anthropic-ratelimit-unified-7d-utilization": "0.32", "Anthropic-Ratelimit-Unified-7d-Reset": "1800187200",
+           "anthropic-ratelimit-unified-status": "allowed", "content-type": "application/json"}
 
 
 class Headers(unittest.TestCase):
@@ -41,15 +37,14 @@ class Headers(unittest.TestCase):
         self.assertEqual(snap["source"], "probe")
 
     def test_rejected_window_without_its_own_header_is_full(self):
-        text = ("anthropic-ratelimit-unified-status: rejected\n"
-                "anthropic-ratelimit-unified-representative-claim: five_hour\n"
-                "anthropic-ratelimit-unified-reset: 1800000900\n")
-        snap = limits.from_headers(text, NOW)
+        snap = limits.from_headers({"anthropic-ratelimit-unified-status": "rejected",
+                                    "anthropic-ratelimit-unified-representative-claim": "five_hour",
+                                    "anthropic-ratelimit-unified-reset": "1800000900"}, NOW)
         self.assertEqual(snap["five_hour"], win(100, 1800000900))
         self.assertIsNone(snap["seven_day"])
 
     def test_no_ratelimit_headers_is_none(self):
-        self.assertIsNone(limits.from_headers("HTTP/2 401\r\n", NOW))
+        self.assertIsNone(limits.from_headers({"content-type": "application/json"}, NOW))
 
 
 class NeedProbe(unittest.TestCase):

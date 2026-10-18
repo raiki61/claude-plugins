@@ -45,11 +45,16 @@ class Estimate(unittest.TestCase):
 
 
 class Store(unittest.TestCase):
-    def test_missing_or_broken_file_is_empty(self):
+    def test_missing_file_is_empty_and_a_broken_one_is_not_overwritten(self):
         d = pathlib.Path(tempfile.mkdtemp())
         self.assertEqual(cost.load(d / "none.json"), {"seven_day": [], "five_hour": []})
-        (d / "bad.json").write_text("{", encoding="utf-8")
-        self.assertEqual(cost.load(d / "bad.json"), {"seven_day": [], "five_hour": []})
+        for raw in ("{", "[1]", '{"seven_day": 3}'):
+            (d / "bad.json").write_text(raw, encoding="utf-8")
+            with self.assertRaises(cost.CostError):   # 空として読まない
+                cost.load(d / "bad.json")
+            with self.assertRaises(cost.CostError):   # 壊れたまま上書きしない
+                cost.save(d / "bad.json", {"seven_day": [1.0], "five_hour": []})
+            self.assertEqual((d / "bad.json").read_text(encoding="utf-8"), raw)
 
     def test_save_appends_and_keeps_only_the_newest(self):
         d = pathlib.Path(tempfile.mkdtemp())

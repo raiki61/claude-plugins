@@ -42,11 +42,12 @@ def _same(a, b):
 
 
 def _renamed(attrs, new_name):
-    """名前を替えるときに書く former-names の値（JSON の並び。前の名前を足し、新しい名前は外す）。替えないなら None。"""
+    """名前を替えるときに書く former-names の値（JSON の並び。前の名前を足し、新しい名前は外す）。替えないなら None。
+    今の値が読めなければ gitx.AttrError（読めないまま空として上書きすると、前の名前で宛てた頼みが届かなくなる）。"""
     old = attrs.get("name")
     if not new_name or new_name == old:
         return None
-    names = [n for n in gitx.former_names(attrs) + ([old] if old else []) if n != new_name]
+    names = [n for n in gitx.former_names(attrs, strict=True) + ([old] if old else []) if n != new_name]
     return json.dumps(list(dict.fromkeys(names)), ensure_ascii=False)
 
 
@@ -179,7 +180,11 @@ def reorg(a, ports, cwd):
             print(f"止めた: 「{a.name}」という名前の部署がもう在る（{clash}）。宛先が 1 つに決まらないので、別の名前にする")
             return 2
         changes["name"] = a.name
-        former = _renamed(attrs, a.name)
+        try:
+            former = _renamed(attrs, a.name)
+        except gitx.AttrError as e:
+            print(f"止めた: {e}")
+            return 2
         if former:
             changes["former-names"] = former
     if a.boss:
@@ -245,7 +250,11 @@ def desk(a, ports, cwd):
         changes.update({"account": account, "session": session, "pid": str(pid) if pid else None})
         if session != attrs.get("session"):
             changes.update({wake.LAUNCHING: None, **({} if attrs.get(wake.LAUNCHING) else {wake.LAUNCHED: None})})
-    former = _renamed(attrs, name)
+    try:
+        former = _renamed(attrs, name)
+    except gitx.AttrError as e:
+        print(f"止めた: {e}")
+        return 2
     if former:
         changes["former-names"] = former
     held_by = account or attrs.get("account")
