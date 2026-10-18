@@ -6297,6 +6297,10 @@ def fake_group(argv, cwd, env=None, failfast=False, sub=""):
     # 偽の出力の FAILED・ERROR の行を同じ形の JSON に写す（node id に :: の在る物は落ちたテスト、無い物は集められなかったファイル）
     ids = [ln.split()[1] for ln in seen["ret"][1].splitlines() if ln.split()[:1] in (["FAILED"], ["ERROR"])]
     if env and env.get("PYTEST_NODES_OUT"):
+        # 結果を書く口（-p pytest_nodes と、その置き場を足した PYTHONPATH）を落とすと、本物の子は JSON を書かない
+        assert any(argv[i:i + 2] == ["-p", "pytest_nodes"] for i in range(len(argv))), argv
+        assert env["PYTHONPATH"].split(os.pathsep)[0] == str(mutate.PYTEST_NODES), env["PYTHONPATH"]
+    if env and env.get("PYTEST_NODES_OUT") and not seen.get("nojson"):
         pathlib.Path(env["PYTEST_NODES_OUT"]).write_text(json.dumps(
             {"collected": [], "deselected": 0, "failed": [i for i in ids if "::" in i], "errors": [i for i in ids if "::" not in i]}), encoding="utf-8")
     return seen["ret"]
@@ -6308,6 +6312,10 @@ for ret in ((1, "x\nFAILED test_a.py::t1 - AssertionError: y\nERROR test_b.py::u
     seen["ret"] = ret
     r = mutate.run_pytest(pathlib.Path("."), ["test_a.py::t1"], failfast=True)
     reads.append(f"{r['rc']}:{','.join(r['failed'])}")
+# 結果の JSON が書かれなかった回（起動の失敗など）は、rc が 1 で FAILED の行が出ていても赤と数えない
+seen.update(ret=(1, "FAILED test_a.py::t1 - AssertionError: y\n"), nojson=True)
+assert mutate.run_pytest(pathlib.Path("."), ["test_a.py::t1"], failfast=True)["rc"] == "no-test", "結果を読めない回を赤と数えた"
+del seen["nojson"]
 del os.environ[mutate.PYTEST_MARK]
 n_nodes, x_nodes, mark_env = "-n" in seen["argv"], "-x" in seen["argv"], mutate.PYTEST_MARK in seen["env"]
 mutate.run_pytest(pathlib.Path("."), [mutate.WHOLE])
