@@ -222,7 +222,7 @@ def _unlink(path):
 
 def _again_writable(func, path, err):
     """shutil.rmtree の失敗の受け口（err は 3.12 からの onexc なら例外、前の onerror なら sys.exc_info の組）: 読み取り専用で
-    消せなかった物を、書ける印にしてから消し直す（_unlink と同じ訳）。"""
+    消せなかった物を、書ける印にしてから消し直す（_unlink と同じ訳。使用中で消せない物は、消し直しでもう一度 PermissionError になって止まる）。"""
     err = err[1] if isinstance(err, tuple) else err
     if os.name != "nt" or not isinstance(err, PermissionError):
         raise err
@@ -242,7 +242,7 @@ def _copy_over(src, dest):
     for root, dirs, files in os.walk(src, onerror=stop):
         here = os.path.join(dest, os.path.relpath(root, src))
         if os.path.islink(here) or (os.path.lexists(here) and not os.path.isdir(here)):
-            os.unlink(here)
+            _unlink(here)
         os.makedirs(here, exist_ok=True)
         for name in dirs + files:
             s, d = os.path.join(root, name), os.path.join(here, name)

@@ -901,6 +901,15 @@ class Departments(unittest.TestCase):
         (tmp / "repo").write_text("now a file\n", encoding="utf-8")
         clean.keep_tmp(str(tmp), self.src, "ro", gitx)
         self.assertEqual(pathlib.Path(dest, "repo").read_text(encoding="utf-8"), "now a file\n")
+        # 逆の向き: 写し先に読み取り専用で写ったファイルが、写し元でフォルダに替わった
+        (tmp / "repo").chmod(0o444)
+        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        (tmp / "repo").chmod(0o644)
+        (tmp / "repo").unlink()
+        (tmp / "repo").mkdir()
+        (tmp / "repo" / "in").write_text("in\n", encoding="utf-8")
+        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        self.assertEqual(pathlib.Path(dest, "repo", "in").read_text(encoding="utf-8"), "in\n")
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "名前付きパイプ（mkfifo）は Windows に無い（Windows でも起きる部分は上の試験で見る）")
     def test_job_tmp_copy_finishes_when_a_former_copy_stopped_halfway(self):
