@@ -10,3 +10,6 @@ works/dev/canary-fixture-units/** -text linguist-generated
 # works の写しの台帳（COPIED_FROM.<名>。拡張子が写しの名なので、試験の選び works/.shared/core/impact.py が読めないコードと
 # 見ないように文書と宣言する）
 works/.shared/core/COPIED_FROM.* linguist-documentation
+# graphloops の台本の移し先の台帳（graphloops/tests/py/ledger.py が刷った塊を貼る。中身が今の台帳と同じかは test_ledger.py が見る）。
+# 塊は元の台本の check の説明の写しなので、初見読みは書き換えのたびに台本の語で詰まりを出す。ほかの検査が受け持つ文書として外す
+graphloops/tests/py/MIGRATION.md -coldread
