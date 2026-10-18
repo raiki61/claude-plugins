@@ -23,6 +23,13 @@ linked worktree の盤面（<共有>/worktrees/<名>/graphloops/<loop>/<run_id>/
   （頭の句は、絶対パス・家の置き場・ログイン名を伏せてから切って束ねる——パスだけ違う頭は 1 つに束ねられる）
 - 費用: role_run の total_cost_usd は会話の累計なので、engine の role_run.session_costs（会話ごとの前の最大との差を足す）で数える
 - 時間: 経過（trace の最初と最後の時刻の差。人待ち・止めた間を含む）と、役の実行の合計（role_run の wall_s の和）
+- 宣言の一式の使い回し（engine/checks_cache.py）: 引いた回ごとの控え（runs/<周>/<instance>.a<試行>/ の
+  checks_cache.NOTE_NAME）の当たりと外れと、外れの訳のキー（causes）をそのまま数える。表示の語は checks_cache.cause_label から
+  引く。控えを書く前の engine の盤面は数えない——record.json の段の行の cache は人向けの文で、各ノードの最後の 1 回しか残らない
+- 確かめられなかった読了（research-loop の state.read_through_unchecked）: 痕跡の 1 件ずつを、その周の版に why の頭の句で数える
+  （転写の形が変わると run ごとには 1 件ずつしか出ないので、run をまたいで数えて初めて続いていると分かる）
+- 包みの欠け（engine の role_run.envelope_gaps）: 包みなのに engine が読むフィールドを欠いた role_run の行を、フィールドごとに数える
+  （claude の出力の形が変わった印。費用が実際より少なく出る）
 - 走っている run: status が running でも生きているとは限らないので、最後の痕跡（trace の最後の時刻）からの経過を出す
 
 読めない盤面（state.json が無い・JSON でない・形が違う）は落とさずに「読めない」と数え、run の中の一部のファイル・行が
@@ -49,6 +56,7 @@ PLUGIN = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN))
 
 from engine.intake import version_key  # noqa: E402
+from engine import checks_cache as checks_cache_mod  # noqa: E402
 from engine import schema as schema_mod  # noqa: E402
 from engine import role_run as role_run_mod  # noqa: E402
 from engine import rules as rules_mod  # noqa: E402
@@ -60,6 +68,7 @@ UNREAD_VERSION = "版が読めない"
 UNREADABLE = "読めない盤面"
 HEAD_MAX = 60
 NOT_DICT = "（行が辞書でない）"
+NO_CAUSE = "no_cause"   # 外れの控えに訳のキーが無い
 NO_STATUS = "（status のフィールドが無い）"
 
 
@@ -296,8 +305,40 @@ def _read_run(d, where, verdicts, now):
         if row["status"] == "running":
             now = now or datetime.datetime.now(max(times).tzinfo)
             row["since_last_trace_min"] = round((now - max(times)).total_seconds() / 60, 1)
+    row["checks_cache"] = _cache_outcomes(d, parts)
+    unchecked = collections.defaultdict(collections.Counter)
+    for u in state.get("read_through_unchecked") or []:
+        n = u.get("round") if isinstance(u, dict) else None
+        unchecked[version_at(n) if isinstance(n, int) else last][head_of(u.get("why")) if isinstance(u, dict) else NOT_DICT] += 1
+    row["read_through_unchecked"] = {v: dict(c) for v, c in unchecked.items()}
+    by_version = collections.defaultdict(list)
+    for r in role_rows:
+        by_version[r["_version"]].append(r)
+    row["envelope_gaps"] = {v: g for v, rs in by_version.items() for g in [role_run_mod.envelope_gaps(rs)] if g}
     row["unreadable_parts"] = parts
     return row
+
+
+def _cache_outcomes(d, parts):
+    """宣言の一式を使い回しの置き場から引いた回の当たり外れ（docstring の『宣言の一式の使い回し』）。引いた回が無ければ None"""
+    hit, miss, causes = 0, 0, collections.Counter()
+    notes = sorted(d.glob(f"runs/*/*/{checks_cache_mod.NOTE_NAME}"))
+    for f in notes:
+        try:
+            n = _read_json(f)
+            if not isinstance(n, dict) or not isinstance(n.get("hit"), bool):
+                raise ValueError("形が違う")
+        except (OSError, ValueError) as e:
+            parts.append(f"{f.relative_to(d).as_posix()}（{type(e).__name__}）")
+            continue
+        if n["hit"]:
+            hit += 1
+        else:
+            miss += 1
+            causes.update(str(c) for c in (n.get("causes") or [NO_CAUSE]))
+    if not hit + miss:
+        return None
+    return {"hit": hit, "miss": miss, "causes": dict(causes.most_common())}
 
 
 # ---------------------------------------------------------------- 版ごとに束ねる
@@ -310,7 +351,9 @@ def aggregate(rows):
         "uncountable_reviews": collections.defaultdict(collections.Counter), "uncountable_review_rows": 0,
         "answers": collections.Counter(), "answer_kinds": collections.Counter(), "accepted": collections.Counter(),
         "reject_heads": collections.Counter(), "relaunched": 0, "launch_not_ok": collections.Counter(),
-        "role_wall_s": 0.0, "cost_usd": 0.0, "unreadable_parts": 0, "review_filter": set()})
+        "role_wall_s": 0.0, "cost_usd": 0.0, "unreadable_parts": 0, "review_filter": set(),
+        "cache_hit": 0, "cache_miss": 0, "cache_causes": collections.Counter(),
+        "read_through_unchecked": collections.Counter(), "envelope_gaps": collections.Counter()})
     for r in rows:
         if "unreadable" in r:
             a = agg[UNREADABLE]
@@ -327,6 +370,11 @@ def aggregate(rows):
         a["unreadable_parts"] += bool(r["unreadable_parts"])
         if r.get("review_filter"):
             a["review_filter"].add(r["review_filter"])
+        cc = r.get("checks_cache")
+        if cc:
+            a["cache_hit"] += cc["hit"]
+            a["cache_miss"] += cc["miss"]
+            a["cache_causes"].update(cc["causes"])
         for k in ("elapsed_min", "since_last_trace_min"):
             if k in r:
                 a[k].append(r[k])
@@ -347,6 +395,9 @@ def aggregate(rows):
             b["role_wall_s"] += e["role_wall_s"]
         for v, c in r["cost_usd"].items():
             agg[v]["cost_usd"] += c
+        for k in ("read_through_unchecked", "envelope_gaps"):
+            for v, c in r.get(k, {}).items():
+                agg[v][k].update(c)
     out = {}
     for v, a in agg.items():
         out[v] = {k: (sorted(x) if isinstance(x, set) else {n: dict(c) for n, c in sorted(x.items())} if k in ("reviews", "uncountable_reviews")
@@ -389,7 +440,18 @@ def render(agg, total, roots_note):
         el, idle = a["elapsed_min"], a["since_last_trace_min"]
         lines.append(f"時間: 経過の中央値 {el['median']} 分（{el['n']} 本。人待ち・止めた間を含む）・役の実行の合計 "
                      f"{round(a['role_wall_s'] / 3600, 1)} 時間・running の最後の痕跡からの経過の中央値 {idle['median']} 分（{idle['n']} 本）")
+        looked = a["cache_hit"] + a["cache_miss"]
+        if looked:
+            causes = {checks_cache_mod.cause_label(k): n for k, n in a["cache_causes"].items()}
+            lines.append(f"宣言の一式の使い回し: 引いた {looked} 回のうち当たり {a['cache_hit']}（当たりの率 "
+                         f"{round(100 * a['cache_hit'] / looked)}%）・外れの訳（多い順 5）: {_c(causes, 5)}")
+        if a["read_through_unchecked"]:
+            lines.append(f"読了を確かめられなかった周 {sum(a['read_through_unchecked'].values())}（訳の頭、多い順 5: "
+                         f"{_c(a['read_through_unchecked'], 5)}）")
         lines.append(f"費用: {a['cost_usd']} USD（engine が起動した子の会話の累計の増え分の和）")
+        if a["envelope_gaps"]:
+            lines.append(f"注意: claude の出力の包みに engine が読むフィールドが無い行（フィールドと行数: {_c(a['envelope_gaps'])}）"
+                         "——費用は実際より少ない。claude --version と graphloops/tests/py/cli_contract.py --live で確かめる")
         if a["unreadable_parts"]:
             lines.append(f"一部が読めない run: {a['unreadable_parts']}（--runs の unreadable_parts）")
     return "\n".join(lines)

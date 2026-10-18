@@ -680,6 +680,8 @@ def test_hook_evidence():
     _td, tmp = parallel.workspace("gl-hookev-")
     repo = tmp / "repo"; (repo / ".git" / "graphloops" / "research-loop").mkdir(parents=True)
     board = tmp / "board"; board.mkdir()
+    # フックは回っている run（state.json の status が終わりの値でない）にだけ書く——偽の盤面にも status を持たせる
+    (board / "state.json").write_text(json.dumps({"status": "running"}), encoding="utf-8")
     doc = tmp / "doc.md"
     doc.write_text("aaa" + chr(10) + "bbb" + chr(10) + "ccc" + chr(10), encoding="utf-8")
     hook = PLUGIN / "hooks" / "record-read.py"

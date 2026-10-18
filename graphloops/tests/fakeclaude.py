@@ -42,7 +42,8 @@ structured = "--json-schema" in argv
 
 def out(result, **kw):
     env = {"type": "result", "subtype": "success", "is_error": False, "result": result, "session_id": sid,
-           "num_turns": 2, "duration_ms": 10, "total_cost_usd": 0.001, "usage": {"input_tokens": 1, "output_tokens": 1}}
+           "num_turns": 2, "duration_ms": 10, "total_cost_usd": 0.001, "usage": {"input_tokens": 1, "output_tokens": 1},
+           "permission_denials": []}   # engine が読むフィールド（role_run.ENVELOPE_READS）は実物の包みと同じく全部持つ
     if structured and not kw.get("is_error") and "structured_output" not in kw:
         try:
             env["structured_output"] = json.loads(result)
@@ -62,7 +63,8 @@ elif mode == "error":
 elif mode == "error_noresult":
     sys.stdout.write(json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True, "session_id": sid,
                                  "errors": ["Reached maximum number of turns (9)"], "num_turns": 9, "duration_ms": 10,
-                                 "total_cost_usd": 0.002, "usage": {"input_tokens": 1, "output_tokens": 1}}, ensure_ascii=False))
+                                 "total_cost_usd": 0.002, "usage": {"input_tokens": 1, "output_tokens": 1},
+                                 "permission_denials": []}, ensure_ascii=False))
 elif mode == "text":
     sys.stdout.write(answer())
 elif mode == "sleep":

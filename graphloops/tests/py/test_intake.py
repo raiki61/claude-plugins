@@ -135,16 +135,89 @@ def _cached(tmp_path, ver, name="graphloops"):
     return root
 
 
-def test_newer_installed_names_a_later_version_beside_the_running_one(tmp_path):
-    old, _new, _older, _other = _cached(tmp_path, "0.9.0"), _cached(tmp_path, "0.10.0"), _cached(tmp_path, "0.2.0"), _cached(tmp_path, "1.0.0", "gates")
-    assert intake.newer_installed(old) == "0.10.0"          # 版は数で並べる（字で並べると 0.2.0 が勝つ）
-    assert intake.newer_installed(tmp_path / "plugins" / "cache" / "mkt" / "graphloops" / "0.10.0") is None
-    assert intake.newer_installed(PLUGIN) is None           # checkout から走る回は比べない
+def _ledger_row(path, scope="user", project=None):
+    """台帳の 1 行。形は実物（~/.claude-p3/plugins/installed_plugins.json、2026-10-19）から採った——version 2 の台帳で、
+    鍵は <plugin>@<marketplace>、値は行の配列。project の行だけ projectPath を持つ"""
+    row = {"scope": scope, "installPath": str(path), "version": pathlib.Path(path).name, "installedAt": "2026-09-17T01:34:17.746Z",
+           "lastUpdated": "2026-10-18T23:00:06.887Z", "gitCommitSha": "03172b6be3a93fd207ed73180cfab6e67d8b0810"}
+    return {**row, "projectPath": str(project)} if project else row
+
+
+def _ledger(tmp_path, plugins):
+    f = tmp_path / "plugins" / intake.LEDGER
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"version": 2, "plugins": plugins}), encoding="utf-8")
+    return tmp_path / "plugins"
+
+
+def _orphan(root):
+    (root / ".orphaned_at").write_text("1792062845530", encoding="utf-8")   # 実物の中身（作った時刻のミリ秒）
+    return root
+
+
+def test_installed_roots_reads_install_path_not_the_largest_folder_name(tmp_path):
+    """版はフォルダの名前の大小で選ばない——commit の名前のフォルダ（字で比べると版の番号より上）と、.orphaned_at の付いた外れた版を拾わない"""
+    cur, _sha, _gone = _cached(tmp_path, "0.36.0"), _cached(tmp_path, "ea10b213686c"), _orphan(_cached(tmp_path, "0.99.0"))
+    assert intake.version_key("ea10b213686c") > intake.version_key("0.99.0") > intake.version_key("0.36.0")   # 名前で選ぶと外れる
+    plugins = _ledger(tmp_path, {"graphloops@mkt": [_ledger_row(cur)], "gates@mkt": [_ledger_row(tmp_path / "x")]})
+    assert intake.installed_roots(plugins, "graphloops", cwd=tmp_path) == ({"mkt": cur.resolve()}, [])
+
+
+def test_installed_roots_prefers_the_project_row_for_this_place_and_refuses_orphans(tmp_path):
+    user, pinned = _cached(tmp_path, "0.49.0"), _cached(tmp_path, "0.45.0")
+    here, other = tmp_path / "repo", tmp_path / "elsewhere"
+    (here / "sub").mkdir(parents=True)
+    (here / ".git").mkdir()
+    plugins = _ledger(tmp_path, {"graphloops@mkt": [_ledger_row(user), _ledger_row(pinned, "project", here)]})
+    assert intake.installed_roots(plugins, "graphloops", cwd=here / "sub")[0] == {"mkt": pinned.resolve()}   # git のルートで当てる
+    assert intake.installed_roots(plugins, "graphloops", cwd=other)[0] == {"mkt": user.resolve()}             # ほかの場所の行は効かない
+    _orphan(pinned)
+    roots, why = intake.installed_roots(plugins, "graphloops", cwd=here)
+    assert roots == {} and ".orphaned_at" in why[0]   # 効く行が外れた版なら、広い scope の行（user）に黙って倒さない
+    plugins = _ledger(tmp_path, {"graphloops@mkt": [_ledger_row(user), {**_ledger_row(user), "scope": "managed"}]})
+    roots, why = intake.installed_roots(plugins, "graphloops", cwd=other)
+    assert roots == {"mkt": user.resolve()} and "知らない scope 'managed'" in why[0]
+    (plugins / intake.LEDGER).unlink()
+    assert intake.installed_roots(plugins, "graphloops") == ({}, [f"台帳 {plugins / intake.LEDGER} が無い"])
+
+
+def test_find_plugin_path_takes_the_installed_version_and_stops_when_it_cannot_tell(tmp_path, monkeypatch):
+    from engine import validator
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    assert validator.find_plugin_path("agents/x.md", "fakeplug") is None   # 入っていない
+    cur, newer_name = _cached(tmp_path, "0.36.0", "fakeplug"), _cached(tmp_path, "ea10b213686c", "fakeplug")
+    for r in (cur, newer_name):
+        (r / "agents").mkdir()
+        (r / "agents" / "x.md").write_text(r.name, encoding="utf-8")
+    (newer_name / "agents" / "only-old.md").write_text("old", encoding="utf-8")
+    with pytest.raises(SystemExit):   # キャッシュに在るのに台帳が無い——名前の大小で選ばずに止める
+        validator.find_plugin_path("agents/x.md", "fakeplug")
+    _ledger(tmp_path, {"fakeplug@mkt": [_ledger_row(cur)]})
+    assert validator.find_plugin_path("agents/x.md", "fakeplug") == str((cur / "agents" / "x.md").resolve())
+    assert validator.find_plugin_path("agents/only-old.md", "fakeplug") is None   # 入っている版に無ければ、ほかの版の物を読まない
+    _orphan(cur)
+    with pytest.raises(SystemExit):
+        validator.find_plugin_path("agents/x.md", "fakeplug")
+    _orphan(newer_name)
+    (tmp_path / "plugins" / intake.LEDGER).unlink()
+    assert validator.find_plugin_path("agents/x.md", "fakeplug") is None   # 外れた版だけ残っている＝入っていない
+
+
+def test_install_drift_compares_the_running_root_with_the_ledger(tmp_path):
+    old, new = _cached(tmp_path, "0.9.0"), _cached(tmp_path, "0.10.0")
+    _ledger(tmp_path, {"graphloops@mkt": [_ledger_row(new)]})
+    assert intake.install_drift(old, cwd=tmp_path) == {"installed": str(new.resolve()), "version": "0.10.0", "why": ""}
+    assert intake.install_drift(new, cwd=tmp_path) is None
+    assert intake.install_drift(PLUGIN) is None           # checkout から走る回は比べない
+    _orphan(new)
+    got = intake.install_drift(new, cwd=tmp_path)          # 動いている版が外れた版になった
+    assert got["installed"] is None and ".orphaned_at" in got["why"]
 
 
 def test_init_notices_name_a_missing_declaration_and_a_newer_version(tmp_path, monkeypatch):
     g = {"nodes": {"p4.ci": {"engine_run": {"builtin": "x"}}, "p0.base": {}}}
-    monkeypatch.setattr(intake, "newer_installed", lambda: None)
+    monkeypatch.setattr(intake, "install_drift", lambda: None)
+    monkeypatch.setattr(intake, "backlog", lambda: None)
     root = str(tmp_path)
     assert any(".review-checks.json が無い" in n for n in commands.init_notices(g, root))
     (tmp_path / ".review-checks.json").write_text("{壊れた", encoding="utf-8")
@@ -152,8 +225,10 @@ def test_init_notices_name_a_missing_declaration_and_a_newer_version(tmp_path, m
     (tmp_path / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "t", "argv": ["x"]}]}), encoding="utf-8")
     assert commands.init_notices(g, root) == []
     assert commands.init_notices({"nodes": {"p0.base": {}}}, root) == []   # 走らせるだけのノードを持たない graph には言わない
-    monkeypatch.setattr(intake, "newer_installed", lambda: "9.9.9")
-    assert any("新しい版 9.9.9" in n for n in commands.init_notices(g, root))
+    monkeypatch.setattr(intake, "install_drift", lambda: {"installed": "/x/9.9.9", "version": "9.9.9", "why": ""})
+    assert any("9.9.9（/x/9.9.9）が入っている" in n for n in commands.init_notices(g, root))
+    monkeypatch.setattr(intake, "install_drift", lambda: {"installed": None, "version": "", "why": "台帳が無い"})
+    assert any("確かめられない（台帳が無い）" in n for n in commands.init_notices(g, root))
 
 
 def test_init_reads_the_declaration_from_the_board_cwd_not_a_leftover_git_cwd(tmp_path, monkeypatch):
@@ -343,3 +418,129 @@ def test_quiet_swallows_errors_but_lets_keyboard_interrupt_through():
     assert intake.quiet(boom)(SystemExit(3)) is None
     with pytest.raises(KeyboardInterrupt):
         intake.quiet(boom)(KeyboardInterrupt())
+
+
+def test_unhanded_rows_are_named_on_init_and_status_until_seen(tmp_path):
+    """記録を書くだけでは誰も読まない——まだ手渡していない行の数・置き場・手渡す手を init と status が毎回出し、--seen で止まる"""
+    data, env = tmp_path / "data", {"CLAUDE_PLUGIN_DATA": str(tmp_path / "data")}
+    for _ in range(2):
+        loop("next", "--dir", str(tmp_path / "none"), env=env)
+    loop("intake", "--what", "判定が揺れた", "--data-dir", str(data))
+    board = tmp_path / "st"
+    r = loop("init", "--loop", "review-loop", "--request", "検査", "--dir", str(board), "--no-engine-runners",
+             "--validator", str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py"), env=env, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    [note] = [n for n in json.loads(r.stdout)["notes"] if "失敗の記録" in n]
+    assert "3 件" in note and str(data / intake.LOG) in note and "loop.py next SystemExit ×2" in note and "手で残した 1 行 ×1" in note
+    assert "--export" in note and "--seen" in note and note in r.stderr
+    st = json.loads(loop("status", "--dir", str(board), env=env).stdout)
+    assert st["intake"] == note
+    r = loop("intake", "--seen", "--data-dir", str(data))
+    assert r.returncode == 0 and "3 件を手渡し済みにした" in r.stdout
+    assert "intake" not in json.loads(loop("status", "--dir", str(board), env=env).stdout)
+    assert len(rows(data)) == 3   # 既読にしても行は消さない（--export --all で読める）
+    assert "intake" not in json.loads(loop("status", "--dir", str(board)).stdout)   # 置き場の決まらない回（checkout から直に走る）は出さない
+
+
+def test_log_is_capped_and_rows_dropped_before_handing_over_are_named(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    monkeypatch.setattr(intake, "CAP", 3)
+    for i in range(5):
+        intake.record("manual", "loop.py intake", what=f"w{i}", given_dir=str(data))
+    assert [r["what"] for r in rows(data)] == ["w2", "w3", "w4"]
+    b = intake.backlog(str(data))
+    assert b["pending"] == 3 and b["lost"] == 2
+    _, total = intake.pending(data)
+    intake.handed(data, total)
+    assert intake.backlog(str(data)) is None
+    intake.record("manual", "loop.py intake", what="w5", given_dir=str(data))   # 手渡した後に切っても、手渡した所はずれない
+    assert [r["what"] for r in intake.pending(data)[0]] == ["w5"] and intake.backlog(str(data))["lost"] == 0
+
+
+def test_old_cursor_and_broken_lines_still_count(tmp_path):
+    """前の版の印（数 1 つ）を読み、壊れた行は読めない印の行として数える——飛ばすと印がずれ、落とすと書き出しも知らせも止まる"""
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / intake.LOG).write_text('{"kind": "manual", "what": "a"}\n{壊れた\n{"kind": "manual", "what": "b"}\n', encoding="utf-8")
+    (data / intake.CURSOR).write_text("1", encoding="utf-8")
+    got, total = intake.pending(data)
+    assert total == 3 and [r["kind"] for r in got] == ["unreadable", "manual"] and got[0]["line"] == "{壊れた"
+    assert intake.backlog(str(data))["pending"] == 2
+
+
+def test_notice_material_failures_are_named_on_stderr(monkeypatch, capsys):
+    """知らせの材料が落ちても止めないが、黙らない——関数の名前と例外の型を標準エラーに 1 行出す"""
+    def boom(*a, **k):
+        raise RuntimeError("検査用")
+    monkeypatch.setattr(intake, "data_dir", boom)
+    monkeypatch.setattr(intake, "_installed", boom)
+    assert intake.backlog() is None and intake.install_drift() is None
+    err = capsys.readouterr().err
+    assert "intake.backlog が RuntimeError" in err and "intake.install_drift が RuntimeError" in err
+
+
+def test_pending_reads_rows_and_cursor_under_the_lock(tmp_path, monkeypatch):
+    """行と印は足す・切る・手渡すと同じ錠の中で読む——間に切られると、通し番号の終わりがずれて見ていない行を手渡し済みにする"""
+    from engine import filelock
+    data = tmp_path / "data"
+    intake.record("manual", "loop.py intake", what="w", given_dir=str(data))
+    held, real = [], intake._rows
+
+    def spy(d):
+        h = filelock.try_hold(d / intake.LOCK)   # 錠が持たれていれば取れない
+        held.append(h is None)
+        filelock.release(h)
+        return real(d)
+    monkeypatch.setattr(intake, "_rows", spy)
+    intake.pending(data)
+    intake.backlog(str(data))   # 錠を入れ子にしない（入れ子は自分を待って止まる）
+    assert held == [True, True]
+
+
+def test_seen_counts_only_what_it_newly_hands_over_even_with_all(tmp_path):
+    data = tmp_path / "data"
+    for w in ("a", "b"):
+        intake.record("manual", "loop.py intake", what=w, given_dir=str(data))
+    intake.handed(data, intake.pending(data)[1])
+    intake.record("manual", "loop.py intake", what="c", given_dir=str(data))
+    r = loop("intake", "--seen", "--all", "--data-dir", str(data))
+    assert r.returncode == 0 and "1 件を手渡し済みにした" in r.stdout, r.stdout
+
+
+def test_notice_quotes_the_data_dir_and_says_what_hands_over(monkeypatch):
+    monkeypatch.setattr(intake, "backlog", lambda: {"dir": "/tmp/a b", "file": "/tmp/a b/intake.jsonl", "pending": 1, "oldest": None,
+                                                    "lost": 0, "top": [("手で残した 1 行", 1)]})
+    note = commands.intake_notice()
+    assert "--data-dir '/tmp/a b' --seen" in note and "届け先が未設定の --send は進めない" in note
+
+
+def test_project_row_of_the_main_clone_counts_in_its_linked_worktree(tmp_path, monkeypatch):
+    """Claude Code は主の clone で入れた行の projectPath に主の clone を書く——linked worktree で回しても、その行が効く"""
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    g = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    main, wt = tmp_path / "main", tmp_path / "wt"
+    main.mkdir()
+    subprocess.run([*g, "-C", str(main), "init", "-q"], check=True)
+    subprocess.run([*g, "-C", str(main), "commit", "-q", "--allow-empty", "-m", "x"], check=True)
+    subprocess.run([*g, "-C", str(main), "worktree", "add", "-q", str(wt)], check=True, capture_output=True)
+    (wt / "sub").mkdir()
+    user, pinned = _cached(tmp_path, "0.49.0"), _cached(tmp_path, "0.45.0")
+    plugins = _ledger(tmp_path, {"graphloops@mkt": [_ledger_row(user), _ledger_row(pinned, "project", main)]})
+    assert intake.installed_roots(plugins, "graphloops", cwd=wt / "sub")[0] == {"mkt": pinned.resolve()}
+    other = tmp_path / "other"
+    other.mkdir()
+    assert intake.installed_roots(plugins, "graphloops", cwd=other)[0] == {"mkt": user.resolve()}
+
+
+def test_find_plugin_path_names_each_ledger_warning_once(tmp_path, monkeypatch, capsys):
+    """find_plugin_path は役ごとに引かれる——同じ台帳の警告をプロセスで 1 度だけ出す"""
+    from engine import validator
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(validator, "_WARNED", set())
+    cur = _cached(tmp_path, "0.36.0", "fakeplug")
+    (cur / "agents").mkdir()
+    for n in ("a", "b"):
+        (cur / "agents" / f"{n}.md").write_text(n, encoding="utf-8")
+    _ledger(tmp_path, {"fakeplug@mkt": [_ledger_row(cur), {**_ledger_row(cur), "scope": "managed"}]})
+    assert validator.find_plugin_path("agents/a.md", "fakeplug") and validator.find_plugin_path("agents/b.md", "fakeplug")
+    assert capsys.readouterr().err.count("知らない scope 'managed'") == 1

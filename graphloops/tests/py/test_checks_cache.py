@@ -238,3 +238,129 @@ def test_checks_reply_names_reuse_with_time_and_run(tmp_path):
     assert reused["at"] in m["checked"] and reused["from"] in m["checked"] and "1200.5 秒" in m["checked"]
     c = b.record["process"]["checks"]["p4.ci"]
     assert c["reused"] is True and c["runs"][0]["reused"] == reused
+
+
+def _session_env(base, pane, job, version, mise, path):
+    """Claude Code の会話の中（herdr のペイン・mise を入れた殻）で launch した engine の環境の形。2026-10-19 に置き場の 27 件の
+    material.env を突き合わせて会話ごとに値の違った名前（CLAUDE_CODE_EXECPATH・AI_AGENT・__MISE_*・PATH）と、会話・ペインごとの識別子"""
+    return {**base, "PATH": path, "HERDR_PANE_ID": pane, "HERDR_TAB_ID": f"tab-{pane}", "HERDR_WORKSPACE_ID": f"ws-{pane}",
+            "HERDR_SOCKET_PATH": "/Users/u/.config/herdr/herdr.sock", "HERDR_ENV": "1",
+            "CLAUDE_JOB_DIR": f"/Users/u/.claude-p3/jobs/{job}", "CLAUDE_CODE_SESSION_ID": f"{job}-session",
+            "CLAUDE_CODE_EXECPATH": f"/Users/u/.local/share/claude/versions/{version}",
+            "AI_AGENT": f"claude-code_{version.replace('.', '-')}_agent", "CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli",
+            "CLAUDE_CONFIG_DIR": "/Users/u/.claude-p3",
+            "__MISE_SESSION": f"eJzt{mise}", "__MISE_DIFF": f"eJyr{mise}", "__MISE_ORIG_PATH": path, "__MISE_EXE": "/opt/mise/bin/mise"}
+
+
+@pytest.mark.skipif(os.name != "posix", reason="SKIP posix-mode: PATH の意味の指紋（フォルダの表）は POSIX の物。Windows は文字列のまま持つ")
+def test_two_conversation_environments_share_the_fingerprint(tmp_path, monkeypatch):
+    """会話を替えて launch しても（ペイン・会話の一時の置き場・Claude Code の版・mise の控え・PATH の並びが違う）同じ指紋になる"""
+    repo, steps, mark = setup(tmp_path)
+    bins = [tmp_path / n for n in ("mise-installs", "local-bin", "brew-bin")]
+    for i, d in enumerate(bins):
+        d.mkdir()
+        (d / f"tool{i}").write_text("#!/bin/sh\n", encoding="utf-8")
+        (d / f"tool{i}").chmod(0o755)
+    py = os.path.dirname(sys.executable)
+    base = {k: v for k, v in os.environ.items() if k != checks_cache.RERUN_ENV and not k.startswith(("HERDR_", "CLAUDE", "__MISE_"))}
+    one = os.pathsep.join([str(bins[0]), str(bins[1]), str(bins[2]), py, "/usr/bin", "/bin"])
+    two = os.pathsep.join([str(bins[1]), str(bins[0]), py, str(bins[2]) + "/", "/usr/bin", "/bin", str(bins[1])])   # 並べ替え・重複・末尾の /
+    plans = []
+    for env in (_session_env(base, "p1-17", "19a5ca5b", "2.1.300", "AAAA", one),
+                _session_env(base, "p3-02", "b7e671aa", "2.1.302", "BBBB", two)):
+        monkeypatch.setattr(os, "environ", env)
+        plans.append(checks_cache.plan(steps, str(repo))[0])
+    assert plans[0]["key"] == plans[1]["key"], checks_cache._differs(plans[0]["material"], plans[1]["material"])[1]
+    # 走らせる道でも当たる（会話 1 で書いた緑を会話 2 が使い回す）
+    monkeypatch.setattr(os, "environ", _session_env(base, "p1-17", "19a5ca5b", "2.1.300", "AAAA", one))
+    run_steps(steps, str(repo), tmp_path / "log1")
+    monkeypatch.setattr(os, "environ", _session_env(base, "p3-02", "b7e671aa", "2.1.302", "BBBB", two))
+    second = run_steps(steps, str(repo), tmp_path / "log2")
+    assert ran(mark) == 1 and second[0].get("reused")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="SKIP posix-mode: 段のツールを PATH のフォルダに置く形は POSIX の物")
+@pytest.mark.parametrize("change", ["shadow", "new_dir"])
+def test_path_change_that_can_change_resolution_misses(tmp_path, monkeypatch, change):
+    """並びの違いを同じとみなしても、どれかの名前の引き先が変わる並べ替え・フォルダの足し引きは外れる"""
+    a, b = tmp_path / "a", tmp_path / "b"
+    for d in (a, b):
+        d.mkdir()
+        (d / "python3").write_text("#!/bin/sh\n", encoding="utf-8")
+        (d / "python3").chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(a), str(b), os.environ["PATH"]]))
+    repo, steps, mark = setup(tmp_path)
+    run_steps(steps, str(repo), tmp_path / "log1")
+    if change == "shadow":   # 同じ名前を持つ 2 つのフォルダの前後を入れ替える——python3 の引き先が変わる
+        monkeypatch.setenv("PATH", os.pathsep.join([str(b), str(a), os.environ["PATH"].split(os.pathsep, 2)[2]]))
+    else:   # 実行できる物の無いフォルダでも、足せば外れる（検査が後でそこに書いて呼ぶことがある）
+        (tmp_path / "empty").mkdir()
+        monkeypatch.setenv("PATH", os.environ["PATH"] + os.pathsep + str(tmp_path / "empty"))
+    second = run_steps(steps, str(repo), tmp_path / "log2")
+    note = json.loads((tmp_path / "log2" / checks_cache.NOTE_NAME).read_text(encoding="utf-8"))
+    assert ran(mark) == 2 and "reused" not in second[0] and note["causes"] == ["env:PATH"] and "PATH" in second[0]["cache"]
+
+
+def test_stripped_env_is_not_passed_to_suite(tmp_path, monkeypatch):
+    """指紋から外す会話ごとの変数は、子にも渡さない——子が読めないので、外しても偽の緑にならない"""
+    seen = tmp_path / "seen"
+    names = [*sorted(checks_cache.STRIPPED_ENV), "__MISE_DIFF"]
+    for n in names:
+        monkeypatch.setenv(n, "conversation-1")
+    code = f"; import os; open({str(seen)!r}, 'w').write(repr(sorted(k for k in os.environ if k in {names!r})))"
+    repo, steps, mark = setup(tmp_path, [step(tmp_path / "mark", code)])
+    run_steps(steps, str(repo), tmp_path / "log1")
+    assert seen.read_text(encoding="utf-8") == "[]"
+    for n in names:
+        monkeypatch.setenv(n, "conversation-2")
+    second = run_steps(steps, str(repo), tmp_path / "log2")
+    assert ran(mark) == 1 and second[0].get("reused")
+
+
+def test_miss_names_differing_env_without_values(tmp_path, monkeypatch):
+    """同じ作業ツリーの中身と段の記録が在る外れは、違った環境変数の名前を出す（値は出さない）"""
+    monkeypatch.setenv("GL_CACHE_KNOB", "value-one-7d1e")
+    monkeypatch.delenv("GL_CACHE_ADDED", raising=False)
+    repo, steps, mark = setup(tmp_path)
+    run_steps(steps, str(repo), tmp_path / "log1")
+    monkeypatch.setenv("GL_CACHE_KNOB", "value-two-7d1e")
+    monkeypatch.setenv("GL_CACHE_ADDED", "value-three-7d1e")
+    second = run_steps(steps, str(repo), tmp_path / "log2")
+    why = second[0]["cache"]
+    assert ran(mark) == 2 and "GL_CACHE_ADDED" in why and "GL_CACHE_KNOB" in why and "value-" not in why
+    note = json.loads((tmp_path / "log2" / checks_cache.NOTE_NAME).read_text(encoding="utf-8"))
+    assert note["hit"] is False and note["causes"] == ["env:GL_CACHE_ADDED", "env:GL_CACHE_KNOB"] and note["stored"]
+    assert "value-" not in json.dumps(note)
+
+
+def test_miss_says_tree_or_steps_differ(tmp_path):
+    """同じ作業ツリーの中身の記録が無い外れは、そう言う（環境変数のせいと読ませない）"""
+    repo, steps, mark = setup(tmp_path)
+    run_steps(steps, str(repo), tmp_path / "log1")
+    (repo / "a.txt").write_text("b\n", encoding="utf-8")
+    second = run_steps(steps, str(repo), tmp_path / "log2")
+    third = run_steps(steps, str(repo), tmp_path / "log3")
+    notes = [json.loads((tmp_path / f"log{i}" / checks_cache.NOTE_NAME).read_text(encoding="utf-8")) for i in (1, 2, 3)]
+    assert [(n["hit"], n["causes"]) for n in notes] == [(False, ["steps"]), (False, ["tree"]), (True, [])]
+    assert checks_cache.cause_label("tree") in second[0]["cache"] and "env" not in json.dumps(notes[1]["causes"])
+    assert third[0].get("reused") and ran(mark) == 2
+
+
+def test_broken_entry_that_cannot_be_moved_aside_is_not_reported_stored(tmp_path, monkeypatch):
+    """壊れた記録を脇へ退けられなければ、書けたと言わない——在る final を自分が書いた物と読み違えると、壊れた記録が残ったまま「書いた」になる"""
+    repo, steps, _mark = setup(tmp_path)
+    first = run_steps(steps, str(repo), tmp_path / "log1")
+    entry = pathlib.Path(first[0]["cache"].split("書いた: ", 1)[1])
+    (entry / "entry.json").write_text("{", encoding="utf-8")
+    real = os.rename
+
+    def stuck(src, dst, *a, **k):
+        if pathlib.Path(dst).name == "old":
+            raise PermissionError("検査用")
+        return real(src, dst, *a, **k)
+    monkeypatch.setattr(checks_cache.os, "rename", stuck)
+    second = run_steps(steps, str(repo), tmp_path / "log2")
+    assert "退けられない" in second[0]["cache"] and "書いた: " not in second[0]["cache"]
+    note = json.loads((tmp_path / "log2" / checks_cache.NOTE_NAME).read_text(encoding="utf-8"))
+    assert note["stored"] is None and "退けられない" in note["not_stored"]
+    assert (entry / "entry.json").read_text(encoding="utf-8") == "{"   # 壊れた記録はそのまま（次も外れとして回す）

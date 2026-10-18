@@ -6,7 +6,9 @@ import os
 import pathlib
 import posixpath
 import re
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -2196,6 +2198,8 @@ def cmd_status(a):
                        "pending_instances": [{"id": i["id"], **liveness(i)} for i in b.rd["instances"].values() if i["status"] == "pending"]},
         "pending_human": st.get("pending_human"), "validator": st.get("validator"),
         "cost_usd": trace_costs(b.dir / "trace.jsonl"),
+        **({"notes": [w]} if (w := worktree_board_notice(b.dir)) else {}),
+        **({"intake": n} if (n := intake_notice()) else {}),   # まだ作者へ手渡していない失敗の記録（init も出す）
     }))
 
 
@@ -2336,7 +2340,8 @@ def retire_out(old, n):
 
 # ---------------------------------------------------------------- intake
 def cmd_intake(a):
-    """手の口: 1 行を残す（--what）・まだ手渡していない行を書き出す（--export）・届け先へ送る（--send）・届け先を決める（--set-url）。"""
+    """手の口: 1 行を残す（--what）・まだ手渡していない行を書き出す（--export）・届け先へ送る（--send）・書き出さずに手渡し済みにする（--seen）・
+    届け先を決める（--set-url）。"""
     d = intake.data_dir(a.data_dir)
     if d is None:
         raise Reject("残す置き場が決まらない——手順書の本文から --data-dir \"${CLAUDE_PLUGIN_DATA}\" を渡せ"
@@ -2359,7 +2364,13 @@ def cmd_intake(a):
         intake.set_url(d, a.set_url)
         print(f"ok 届け先を {'設定した' if a.set_url else '消した（手元に残すだけ）'}（{d / intake.CONFIG}）")
         return
-    rows, total = intake.pending(d, everything=a.all, with_detail=a.with_stderr)
+    seen = getattr(a, "seen", False)
+    # --seen は --all を見ない——出す件数は今回新しく手渡し済みにした数（--all だと残っている全部を数えて、多く言う）
+    rows, total = intake.pending(d, everything=a.all and not seen, with_detail=a.with_stderr)
+    if seen:
+        intake.handed(d, total)
+        print(f"ok {len(rows)} 件を手渡し済みにした（書き出していない・送っていない。行は {d / intake.LOG} に残る）")
+        return
     if a.export:
         out = pathlib.Path(a.export)
         out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
@@ -2381,11 +2392,29 @@ def cmd_intake(a):
     print(f"ok {len(rows)} 件を送った（HTTP {status}）")
 
 
+def intake_notice():
+    """まだ作者へ手渡していない失敗の記録（engine/intake.py の intake.jsonl）の知らせの文。init と status が毎回出す——記録を書くだけでは
+    誰も読まず、手渡した所の印も無いまま溜まっていた（実測 2026-10-19: 3 つのアカウントで 68 行、印はどこにも無い）。
+    何が溜まったか・置き場・手渡す手と、渡さずに止める手（--seen）を 1 文に入れる。無ければ None"""
+    b = intake.backlog()
+    if not b:
+        return None
+    name = intake.plugin_meta()[0] or "graphloops"
+    cmd = f"python3 {shlex.quote(str(PLUGIN_ROOT / 'scripts' / 'loop.py'))} intake --data-dir {shlex.quote(b['dir'])}"
+    top = "、".join(f"{k} ×{n}" for k, n in b["top"])
+    lost = f"。上限 {intake.CAP} 行を超えて、手渡す前に古い {b['lost']} 件を捨てた" if b["lost"] else ""
+    return (f"{name} の engine が利用者の環境に残した失敗の記録が {b['pending']} 件、まだ作者へ渡していない"
+            f"（一番古い物 {b['oldest'] or '?'}。多い順: {top or '無し'}。置き場 {b['file']}{lost}）"
+            f"——作者へ渡すなら `{cmd} --export <書き出し先>` で 1 ファイルに書き出して渡す（届け先を決めてあれば `{cmd} --send`）。"
+            f"渡さないなら `{cmd} --seen` で手渡し済みにする。書き出す・送れた・手渡し済みにする、のどれかで手渡した所が進み、"
+            "次の init・status からは数えない（届け先が未設定の --send は進めない）")
+
+
 # ---------------------------------------------------------------- init
 def init_notices(g, root):
     """init で利用者に知らせる事実（止めない）——走らせるだけのノードを持つ graph なのに、対象リポジトリの宣言が無い・読めない、と、
-    Claude Code の置き場にこの run の engine より新しい版が入っている、の 2 つ。root は盤面の inputs.cwd の作業ツリーのルート
-    （プロセスの状態——前に置かれた util.GIT_CWD——に依らない）"""
+    この run の engine が Claude Code の台帳で今入っている版と違う、と、まだ作者へ手渡していない失敗の記録が在る、の 3 つ。
+    root は盤面の inputs.cwd の作業ツリーのルート（プロセスの状態——前に置かれた util.GIT_CWD——に依らない）"""
     out = []
     if any(isinstance(n.get("engine_run"), dict) for n in (g.get("nodes") or {}).values()):
         decl = declared.read(root) if root else None
@@ -2393,12 +2422,133 @@ def init_notices(g, root):
             out.append(f"対象リポジトリのルートに {declared.DECL_NAME} が" + ("無い" if decl is None else f"読めない（{decl['error']}）")
                        + "——テスト一式と CI のノードは engine が走らせず任せ先の自己申告になり、収束の前に確かめていない CI を人に聞く。"
                          f"書式の正本は {PLUGIN_ROOT / 'engine' / 'declared.py'}")
-    newer = intake.newer_installed()
-    if newer:
+    drift = intake.install_drift()
+    if drift:
         name, ver = intake.plugin_meta()
-        out.append(f"{name} の新しい版 {newer} が入っている——この run は {ver}（{PLUGIN_ROOT}）で回る。"
-                   "新しい版で回すなら Claude Code を開き直してから init し直せ")
+        if drift["installed"]:
+            out.append(f"{name} は {drift['version'] or '?'}（{drift['installed']}）が入っている——この run は {ver}（{PLUGIN_ROOT}）で回る。"
+                       "入っている版で回すなら Claude Code を開き直してから init し直せ")
+        else:
+            out.append(f"この run の {name} {ver}（{PLUGIN_ROOT}）が、Claude Code の台帳で今入っている版か確かめられない（{drift['why']}）"
+                       f"——Claude Code で {name} を入れ直してから init し直せ")
+    n = intake_notice()
+    if n:
+        out.append(n)
     return out
+
+
+HOOK_PROBE_ID = "graphloops-init-selfcheck"   # init の試し書きの行の印（session_id と tool_use_id）。ハーネスが振る値と重ならない
+
+
+def hook_selfcheck(board, cwd):
+    """読了のフック（hooks/record-read.py）がこの run の盤面に書くかを、init で 1 度だけ確かめる——合わなければ知らせの文、合えば None。
+
+    **フックが動いているかを誰も知らなかった。** 読了のチェックは reads.jsonl が無ければ転写の走査へ黙って落ちる（hook_evidence の none）
+    ので、フックが登録から外れても、盤面を見つけられなくても、外からは区別が付かない。確かめるのは 2 つ:
+      1. 動くか——hooks.json に登録した語そのものを、ハーネスと同じ形の入力（PostToolUse の Read）で、一時の置き場に作った
+         偽の盤面に向けて 1 回走らせ、行が落ちるかを見る（登録の語・bash・python の在り処・フックの本体を覆う）
+      2. この盤面を見つけるか——フックの本体の boards() を読み込んで、cwd から辿った盤面の一覧にこの盤面が入るかを見る
+    **本物の盤面には試しの行を書かない。** reads.jsonl が在るだけで、hook_evidence は「フックが入っていない（none）」から「読みの記録が
+    無い（absent）」に変わる。ハーネスがフックを呼ばない run（engine が起動した子・disableAllHooks）で試しの行が作った記録は、
+    この区別を偽にする。ハーネスがフックを呼ぶか、設定の disableAllHooks・--settings で切られたかは、ここでは測れない。
+    待つ上限は hooks.json の登録の timeout（今は 15 秒。ハーネスがフックに掛ける上限と同じ値。登録に無いときだけハーネスの既定の 60 秒）。
+    試しそのものが落ちた（一時の置き場に書けないなど）ときも、止めずに知らせの文を返す——init は盤面と current を書いた後に呼ぶ"""
+    try:
+        return _hook_selfcheck(board, cwd)
+    except Exception as e:   # noqa: BLE001 — 何で落ちても「確かめられない」の知らせにする（init を止めない）
+        return f"読了のフックが動くかを確かめる試しが落ちた（{type(e).__name__}: {e}）——この run の読了の記録が残るかは確かめていない"
+
+
+def _hook_selfcheck(board, cwd):
+    """hook_selfcheck の中身（例外は hook_selfcheck が知らせの文にする）"""
+    lost = "——この run の読了の記録は残らず、読了のチェックは転写の走査だけになる"
+    hooks_json = PLUGIN_ROOT / "hooks" / "hooks.json"
+    try:
+        spec = json.loads(hooks_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return f"読了のフックの登録（{hooks_json}）を読めない（{e}）{lost}"
+    entry = None
+    for m in ((spec.get("hooks") or {}).get("PostToolUse") or []) if isinstance(spec, dict) else []:
+        pat = m.get("matcher") if isinstance(m, dict) else None
+        try:
+            hit = pat in (None, "", "*") or re.fullmatch(pat, "Read")
+        except (re.error, TypeError):
+            hit = False
+        for h in (m.get("hooks") or []) if hit else []:
+            if isinstance(h, dict) and h.get("type") == "command" and "record-read.py" in str(h.get("command")):
+                entry = h
+    if entry is None:
+        return f"{hooks_json} に、Read の後で hooks/record-read.py を呼ぶ登録（PostToolUse）が無い{lost}"
+    bash = shutil.which("bash")
+    if not bash:
+        return f"bash が PATH に無い（読了のフックの登録は shell: bash）{lost}"
+    limit = entry.get("timeout") if isinstance(entry.get("timeout"), (int, float)) and entry.get("timeout") > 0 else 60
+    with tempfile.TemporaryDirectory(prefix="gl-hookprobe-") as td:
+        top = pathlib.Path(td).resolve()
+        fake = top / "board"
+        fake.mkdir()
+        write_json(fake / "state.json", {"status": "running"})
+        (top / ".git" / "graphloops" / "probe").mkdir(parents=True)
+        (top / ".git" / "graphloops" / "probe" / "current").write_text(str(fake) + "\n", encoding="utf-8")
+        payload = {"hook_event_name": "PostToolUse", "session_id": HOOK_PROBE_ID, "tool_use_id": HOOK_PROBE_ID, "tool_name": "Read",
+                   "cwd": str(top), "tool_input": {"file_path": str(fake / "state.json")},
+                   "tool_response": {"type": "text", "file": {"filePath": str(fake / "state.json")}}}
+        try:
+            r = subprocess.run([bash, "-c", entry["command"]], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", cwd=str(top), timeout=limit, env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(PLUGIN_ROOT)})
+            why = f"終了コード {r.returncode}" + (f"・{r.stderr.strip()[-200:]}" if r.stderr.strip() else "")
+        except subprocess.TimeoutExpired:
+            why = f"{limit} 秒で終わらない"
+        except OSError as e:
+            why = f"起動できない（{e}）"
+        try:
+            landed = HOOK_PROBE_ID in (fake / "reads.jsonl").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            landed = False
+    if not landed:
+        return f"読了のフックを登録の語（{entry['command']}）のとおりに試しで走らせたが、行を書かない（{why}）{lost}"
+    import importlib.util
+    try:
+        spec_ = importlib.util.spec_from_file_location("graphloops_record_read", PLUGIN_ROOT / "hooks" / "record-read.py")
+        mod = importlib.util.module_from_spec(spec_)
+        spec_.loader.exec_module(mod)
+        found = [pathlib.Path(x).resolve() for x in mod.boards(str(cwd))]
+    except Exception as e:                      # noqa: BLE001 — 何で落ちても「確かめられない」は同じ扱い
+        return f"読了のフックがこの盤面を見つけるかを確かめられない（{type(e).__name__}: {e}）{lost}"
+    if pathlib.Path(board).resolve() not in found:
+        return (f"読了のフックは cwd {cwd} から .git を辿って盤面を探すが、この盤面 {board} に行き着かない"
+                f"（行き着く盤面: {[str(x) for x in found] or 'なし'}）{lost}")
+    return None
+
+
+def worktree_board_notice(board):
+    """盤面が linked worktree の git ディレクトリ（`<共有の .git>/worktrees/<名前>/`）の下に在れば、その worktree を外すと盤面も消えることを
+    知らせる文——無ければ None。init と status が出す（graphloops は外す側を知らないので、外す前に人と会話が見る所に出す）。
+
+    git は呼ばない。git の linked worktree の置き場は `<共有の .git>/worktrees/<名前>/` で、中に `commondir`（共有の .git への道）と
+    `gitdir`（作業ツリーの .git ファイルの在り処）を持つ（git-worktree の文書の DETAILS）ので、盤面の親を辿って見分ける。
+
+    **盤面を共有の .git へ移さなかった理由**は、次の 3 つ。
+    (1) current がループごとに 1 つなので、置き場を共有すると別の worktree の run を --dir 無しの next が拾う。避けるには置き場を
+    worktree ごとに分けることになり、resolve_dir・init・フックの盤面を探す道の 3 か所が同時に変わる。
+    (2) worktree を外すことが、今は盤面の唯一の片付けになっている（1 つの盤面で 1〜7 MB）。共有の .git に移すと、片付ける持ち主の無い物が
+    溜まり続ける。
+    (3) 盤面の置き場を名指す文書とツール（README・skills の rules.md・loop.py・tests/replay_boards.py の glob）が今の置き場を前提にしている。
+    消える前に写す先は、既に使われている退避の形（`<共有の .git>/graphloops/boards-archive/<名前>/graphloops/`。tests/replay_boards.py の
+    既定の glob が拾う）に合わせる"""
+    b = pathlib.Path(board).resolve()
+    for p in b.parents:
+        if p.parent.name == "worktrees" and (p / "commondir").is_file() and (p / "gitdir").is_file():
+            try:
+                common = (p / (p / "commondir").read_text(encoding="utf-8").strip()).resolve()
+                tree = pathlib.Path((p / "gitdir").read_text(encoding="utf-8").strip()).parent
+            except (OSError, ValueError):
+                return None
+            dest = common / "graphloops" / "boards-archive" / p.name
+            return (f"盤面 {b} は linked worktree（{tree}）の git ディレクトリ {p} の下に在り、git worktree remove でその worktree と一緒に消える"
+                    f"（記録・費用・読了の記録ごと。消える前に知らせる仕組みは無い）——残すなら外す前に"
+                    f" mkdir -p {dest} && cp -R {p / 'graphloops'} {dest}/ で共有の git ディレクトリへ写せ")
+    return None
 
 
 def cmd_init(a):
@@ -2529,6 +2679,14 @@ def cmd_init(a):
     # 書くのは入口が全部通った後（拒まれた run を指したまま残さない）
     if not a.dir:
         (d.parent / "current").write_text(str(d) + "\n", encoding="utf-8")
+        # 試し書きは current を書いた後（フックは current から盤面を辿る）。--dir の run は current を書かないのでフックは書かない（上の注記）
+        late = [hook_selfcheck(d, inputs["cwd"])]
+    else:
+        late = []
+    late = [n for n in (*late, worktree_board_notice(d)) if n]
+    for n in late:
+        print(f"注意: {n}", file=sys.stderr)
+    notes = [*notes, *late]
     print(dump({"dir": str(d), "run_id": run_id, "loop": loop, "thickness": th, "thickness_decider": decider, "max_rounds": state["max_rounds"],
                 "validator": validator or ("見つからない（report の前に init --validator で渡すか " + (env_root(g["plugin"]) if g.get("plugin") else "graph の plugin") + "）"),
                 "overview": g.get("overview", ""), **({"notes": notes} if notes else {}),

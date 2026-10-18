@@ -232,3 +232,65 @@ def test_unreadable_plugin_graph_is_a_note_not_a_crash(tmp_path, monkeypatch, ca
     util_mod.LAST_DIE = "前の graph の文面"
     why = ql.Verdicts._load("broken.json", "review-loop")["why"]
     assert "RuntimeError" in why and "前の graph の文面" not in why
+
+
+
+def test_checks_cache_hit_rate_from_notes(tmp_path, capsys):
+    """宣言の一式の使い回しの当たりの率: 引いた回ごとの控え（runs/ の下の NOTE_NAME）を数える。読めない控えは一部が読めないに
+    出し、控えの無い盤面（控えを書く前の engine の run）は数えない"""
+    from engine import checks_cache
+    new = board(tmp_path, "graphloops/review-loop/20261019-000000", state={"engine": engine("0.37.0")})
+    notes = {"r1/p0.local_checks.a1": {"hit": False, "causes": ["tree"]},
+             "r1/p4.ci.a1": {"hit": False, "causes": ["env:PATH", "env:GL_X"]},
+             "r2/p4.ci.a1": {"hit": True, "causes": []}, "r3/p4.ci.a1": {"hit": True, "causes": []}}
+    for rel, n in notes.items():
+        (new / "runs" / rel).mkdir(parents=True)
+        (new / "runs" / rel / checks_cache.NOTE_NAME).write_text(json.dumps(n), encoding="utf-8")
+    (new / "runs" / "r4" / "p4.ci.a1").mkdir(parents=True)
+    (new / "runs" / "r4" / "p4.ci.a1" / checks_cache.NOTE_NAME).write_text("{", encoding="utf-8")
+    board(tmp_path, "graphloops/review-loop/20261002-000000", state={"engine": engine("0.37.0")})
+    rows = rows_of(tmp_path)
+    got = rows["graphloops/review-loop/20261019-000000"]
+    assert got["checks_cache"] == {"hit": 2, "miss": 2, "causes": {"tree": 1, "env:PATH": 1, "env:GL_X": 1}}
+    assert any(checks_cache.NOTE_NAME in p for p in got["unreadable_parts"])
+    assert rows["graphloops/review-loop/20261002-000000"]["checks_cache"] is None
+    agg = ql.aggregate(list(rows.values()))["0.37.0"]
+    assert (agg["cache_hit"], agg["cache_miss"]) == (2, 2)
+    assert ql.main([str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    line = next(x for x in out.splitlines() if " 50%" in x and checks_cache.cause_label("env:PATH") in x)
+    assert all(checks_cache.cause_label(k) in line for k in ("tree", "env:GL_X"))
+
+
+def test_unchecked_read_throughs_and_envelope_gaps_add_up_across_runs(tmp_path, capsys):
+    """確かめられなかった読了（state.read_through_unchecked）は周の版に訳の頭で、包みの欠け（role_run.envelope_gaps）は
+    trace の行の版にフィールドで、run をまたいで数える——1 本の run では 1 件ずつでも、続いているかが版ごとの数に出る"""
+    t = "2026-10-19T00:00:00+09:00"
+    changes = [{"round": 1, "from": None, "to": engine("0.36.0")}, {"round": 2, "from": engine("0.36.0"), "to": engine("0.37.0")}]
+    lost = {"t": t, "op": "role_run", "envelope": True, "session_id": "s1", "subtype": "success", "is_error": False,
+            "missing": ["total_cost_usd"]}
+    for i, (tp, rounds) in enumerate([("/x/a.jsonl", (1, 2)), ("/y/b.jsonl", (2,))]):
+        board(tmp_path, f"graphloops/research-loop/2026101900000{i}",
+              state={"engine": engine("0.37.0"), "engine_changes": changes,
+                     "read_through_unchecked": [{"node": "p2.read", "round": n,
+                                                 "why": f"転写 {tp} にツールの結果が 1 つも無い（転写の形が変わった疑い）"} for n in rounds]},
+              trace=[{"t": t, "op": "engine_changed", "version": "0.37.0"}, lost,
+                     {**lost, "missing": [], "total_cost_usd": 0.1, "permission_denials": []}])
+    board(tmp_path, "graphloops/research-loop/20261019000009", state={"engine": engine("0.37.0"), "read_through_unchecked": ["壊れた"]})
+    rows = rows_of(tmp_path)
+    assert rows["graphloops/research-loop/20261019000000"]["read_through_unchecked"] == {
+        "0.36.0": {"転写 <絶対パス> にツールの結果が 1 つも無い": 1}, "0.37.0": {"転写 <絶対パス> にツールの結果が 1 つも無い": 1}}
+    assert rows["graphloops/research-loop/20261019000000"]["envelope_gaps"] == {"0.37.0": {"total_cost_usd": 1}}
+    agg = ql.aggregate(list(rows.values()))
+    assert agg["0.37.0"]["read_through_unchecked"] == {"転写 <絶対パス> にツールの結果が 1 つも無い": 2, ql.NOT_DICT: 1}
+    assert agg["0.36.0"]["read_through_unchecked"] == {"転写 <絶対パス> にツールの結果が 1 つも無い": 1}
+    assert agg["0.37.0"]["envelope_gaps"] == {"total_cost_usd": 2}
+    assert ql.main([str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "読了を確かめられなかった周 3（" in out and "読了を確かめられなかった周 1（" in out
+    assert "フィールドと行数: total_cost_usd 2" in out and "cli_contract.py --live" in out
+    # 痕跡も欠けも無い run の版には行を出さない
+    board(tmp_path / "clean", "graphloops/research-loop/20261019000000", state={"engine": engine("0.37.0")})
+    assert ql.main([str(tmp_path / "clean")]) == 0
+    out = capsys.readouterr().out
+    assert "読了を確かめられなかった" not in out and "フィールドと行数" not in out

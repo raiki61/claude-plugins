@@ -432,6 +432,11 @@ def install_stop_handlers():
 # 包みのフィールドのうち要約に残すもの（--output-format json の result の行）。本文（result）は残さない
 SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
                 "subtype", "is_error", "stop_reason")
+# 包みのフィールドのうち engine が読んで振る舞いを決める物。**無いと黙って既定に落ちる**——費用は 0、誤りの種類は success、
+# 拒まれたツールは無し、会話の番号が無ければ続きを頼まない。Claude Code の版が名前を変えても、どれも落ちずに静かに狭くなる。
+# そこで包みに無かった物は要約の missing に名を残し、trace_costs が数えて status・run の報告（cost_usd.unknown）に出す。
+# 実物の形は tests/py/cli/ の見本（claude -p --output-format json の出力）で試験が見る（test_cli_contract.py）
+ENVELOPE_READS = ("session_id", "subtype", "is_error", "total_cost_usd", "permission_denials")
 
 
 def session_costs(rows, group=lambda row: None):
@@ -475,14 +480,40 @@ def trace_rows(trace_path):
 
 def trace_costs(trace_path):
     """盤面の trace.jsonl から、engine が起動した子の費用 ——{usd, by_node, skipped, what}（session_costs をノードごとに）。読めない行は
-    数えずに skipped に件数を出し、trace が無ければ None。status と run の報告が見せる"""
+    数えずに skipped に件数を出し、trace が無ければ None。包みに engine が読むフィールドが無かった行が在れば unknown に
+    {fields: {フィールド: 行数}, why} を足す（envelope_gaps。黙って 0 に数えない）。status と run の報告が見せる"""
     got = trace_rows(trace_path)
     if got is None:
         return None
     rows, skipped = got
     by = session_costs(rows, group=lambda r: str(r.get("node")))
-    return {"usd": round(sum(by.values()), 4), "by_node": {k: round(v, 4) for k, v in sorted(by.items())}, "skipped": skipped,
-            "what": COST_WHAT}
+    out = {"usd": round(sum(by.values()), 4), "by_node": {k: round(v, 4) for k, v in sorted(by.items())}, "skipped": skipped,
+           "what": COST_WHAT}
+    gaps = envelope_gaps(rows)
+    if gaps:
+        out["unknown"] = {"fields": gaps, "why": GAPS_WHY}
+    return out
+
+
+GAPS_WHY = ("engine が起動した子の包み（claude -p --output-format json）に、engine が読むフィールドが無かった行の数（フィールドごと）——"
+            "Claude Code の版で包みの形が変わった疑い。無い値は既定に落ちる（費用は usd に入らず少なく出る、誤りの種類は success、"
+            "拒まれたツールは無し）ので、claude --version と graphloops/tests/py/cli_contract.py --live で形を確かめよ")
+
+
+def envelope_gaps(rows):
+    """trace の op=role_run の行のうち、包み（envelope が真）なのに engine が読むフィールド（ENVELOPE_READS）を欠いた行の数え
+    ——{フィールド: 行数}（欠けが無ければ空）。欠けは要約の missing（unwrap が書く）から読み、missing を書く前の版の行は要約に写る
+    フィールド（SUMMARY_KEYS）の有無で見る。total_cost_usd は在っても数でなければ欠けに数える（session_costs が数えない値）"""
+    gaps = collections.Counter()
+    for r in rows:
+        if r.get("op") != "role_run" or r.get("envelope") is not True:
+            continue
+        lost = set(r.get("missing") or ()) | {k for k in ENVELOPE_READS if k in SUMMARY_KEYS and k not in r}
+        cost = r.get("total_cost_usd")
+        if "total_cost_usd" in r and not (isinstance(cost, (int, float)) and not isinstance(cost, bool)):
+            lost.add("total_cost_usd")
+        gaps.update(lost)
+    return dict(sorted(gaps.items()))
 
 
 def pgid_path(out_path):
@@ -1073,6 +1104,9 @@ def unwrap(stdout, structured=False):
             return None, {"envelope": False}, "--json-schema で起動したのに標準出力が --output-format json の包みでない"
         return text, {"envelope": False}, None
     summary = {"envelope": True, **{k: env[k] for k in SUMMARY_KEYS if k in env}}
+    lost = [k for k in ENVELOPE_READS if k not in env]
+    if lost:
+        summary["missing"] = lost
     denied = env.get("permission_denials") or []
     if denied:
         summary["permission_denials"] = [str((d or {}).get("tool_name")) for d in denied if isinstance(d, dict)]

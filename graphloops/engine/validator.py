@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 
-from .intake import version_key
+from .intake import installed_roots
 from .rules import hook
 from .util import PLUGIN_ROOT, claude_config_dir, die
 
@@ -45,8 +45,11 @@ def _sibling(plugin):
         return None
 
 
+_WARNED = set()   # find_plugin_path が出した台帳の警告（同じ物を役ごとに繰り返さない）
+
+
 def find_plugin_path(rel, plugin, explicit=None, kind="file"):
-    """plugin の中のファイルかディレクトリを順に探す: 明示 → <PLUGIN>_ROOT → 同じリポジトリに並ぶ plugin → インストール済みキャッシュの最新版。
+    """plugin の中のファイルかディレクトリを順に探す: 明示 → <PLUGIN>_ROOT → 同じリポジトリに並ぶ plugin → Claude Code の台帳が今の場で効かせる版。
     plugin が無ければ明示だけ。**先の候補で見つかれば後の候補は見ない**——キャッシュの曖昧さ（同名 plugin が複数の
     出所に在る）で落とすのはキャッシュを実際に引くときだけ。以前は明示や同梱が在っても先に die して、案内した
     --validator がその場で効かず、agents/<役>.md の経路には回避策自体が無かった（実測 2026-09-12: 2 出所を置くと
@@ -71,20 +74,27 @@ def find_plugin_path(rel, plugin, explicit=None, kind="file"):
     # キャッシュは**実行中のプロファイル 1 つ**だけ見る（CLAUDE_CONFIG_DIR、既定は ~/.claude）。
     # 以前は ~/.claude* を横断していたので、別プロファイル・別マーケットプレイスの同名プラグインが
     # 版の大小だけで選ばれ、動いている出所と無関係なコードが importlib でこのプロセスに読み込まれた。
-    cfg = pathlib.Path(claude_config_dir())
-    hits = glob.glob(str(cfg / "plugins" / "cache" / "*" / plugin / "*" / rel))
-    depth = len(pathlib.Path(rel).parts)
-
-    hits.sort(key=lambda p: version_key(pathlib.Path(p).parents[depth - 1].name), reverse=True)
+    # 版はキャッシュのフォルダの名前で選ばず、台帳（installed_plugins.json）の installPath を読む（intake.installed_roots）。
+    # 以前は名前の大小で最大の物を選んだので、commit の名前のフォルダが版の番号より上に来て、.orphaned_at の付いた外れた版も拾った
+    plugins = pathlib.Path(claude_config_dir()) / "plugins"
+    roots, why = installed_roots(plugins, plugin)
+    left = [v for v in glob.glob(str(plugins / "cache" / "*" / plugin / "*")) if not (pathlib.Path(v) / ".orphaned_at").exists()]
+    if not roots and not left:
+        return None   # 入っていない（外れた版だけ残っているのも同じ）
     # 出所（マーケットプレイス）が複数に跨がったら選ばない——明示を求める
-    origins = {pathlib.Path(h).parents[depth].parent.name for h in hits}
-    if len(origins) > 1:
-        die(f"{plugin} の {rel} が複数の出所に在る（{sorted(origins)}）——どれを使うか明示しろ"
+    if len(roots) > 1:
+        die(f"{plugin} が複数の出所に入っている（{sorted(roots)}）——どれを使うか明示しろ"
             f"（検証器は --validator。役の定義は同じリポジトリに並べるか {env_root(plugin)} で指す）")
-    for h in hits:
-        if ok(pathlib.Path(h)):
-            return str(pathlib.Path(h).resolve())
-    return None
+    if not roots:
+        # キャッシュに在るのに台帳から置き場が決まらない——名前の大小で別の版に倒さずに止める
+        die(f"{plugin} はキャッシュに在るが、Claude Code の台帳から今入っている置き場が決まらない（{'; '.join(why) or '台帳に載っていない'}）"
+            f"——Claude Code で {plugin} を入れ直すか、{env_root(plugin)} で置き場を指せ")
+    for w in why:   # 役ごとに引かれるので、同じ警告はプロセスで 1 度だけ出す
+        if w not in _WARNED:
+            _WARNED.add(w)
+            print(f"警告: {w}", file=sys.stderr)
+    p = next(iter(roots.values())) / rel
+    return str(p.resolve()) if ok(p) else None   # 入っている版に無ければ無い（古い版の物を読まない）
 
 
 def find_validator(loop, plugin, explicit=None):

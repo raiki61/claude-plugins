@@ -25,7 +25,7 @@ engine は「どこまで読みに行くか」を未決のまま抱えていた�
 参照した実装（spotify/portal-ai-plugins の shunt、Apache-2.0）のフックは**ディスクに 1 バイトも
 書かず**、一時ファイルを使う所は `trap … EXIT` で必ず消し、README にも「何も残らない」と明記している。
 盤面の隣に書けば寿命は run の寿命になり、保持期限も削除処理も上限も要らなくなる——**溜めないので、
-消す仕掛けが要らない**。run が無ければ何も書かない。
+消す仕掛けが要らない**。run が無ければ何も書かない。終わった run（state.json の status が converged / stopped）にも書かない。
 
 **残す証拠は「その時のファイルの sha」と「部分読みか」。** 読んだ中身そのものを残さないのは、
 文書の本文をこちらのディスクへ写すことになるため。engine は後から同じファイルの sha を取って
@@ -71,12 +71,28 @@ def boards(cwd):
         try:
             for cur in sorted((g / "graphloops").glob("*/current")):
                 b = pathlib.Path(cur.read_text(encoding="utf-8").strip())
-                if b.is_dir():
+                if b.is_dir() and live(b):
                     out.append(b)
         except OSError:
             return []
         return out
     return []
+
+
+TERMINAL_STATUS = ("converged", "stopped")  # engine/util.py の TERMINAL_STATUS の写し（一致は tests/py/test_hook_liveness.py が見る）
+
+
+def live(board):
+    """盤面の run が終わっていないか（state.json の status が終わりの値でない）。state.json が無い・読めない盤面は run でないので書かない。
+
+    **current は run が終わっても消えない**——`--dir` 無しの status・record が終わった run を引くのに使うので、消さずにここで見分ける。
+    フォルダが在るかだけ見ていたとき、終わった run（20260924-081523。report の done が 09-25 10:44）の reads.jsonl に、
+    その後の 3 日で別の作業の読みが 1,310 行溜まった（2026-10-19 に実物で数えた）"""
+    try:
+        st = json.loads((board / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(st, dict) and st.get("status") not in TERMINAL_STATUS
 
 
 READ_CAP = 4_000_000  # engine/util.py の READ_CAP の写し（根拠はあちらの注記。一致は simulate.py の腕が見る）

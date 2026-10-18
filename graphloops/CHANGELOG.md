@@ -6,12 +6,29 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+壊れても誰にも知らせが来なかった所を、ループを回している人に見える形にした（ルートの `docs/standards/breakage-detection.md` の決まり 1「ログに書くだけは知らせではない」・3「外の形に頼る所は、実物から採った見本で試験し、知らない値を起動時に知らせる」・4「入っている版とずれた物を見つける」・5「足し続ける物は、上限か片付けの持ち主を決める」に合わせた）。この節の語: engine はループを回す本体（`scripts/loop.py`）、run はループの 1 回の実行、盤面は run ごとの状態を置くディレクトリ（`$(git rev-parse --git-dir)/graphloops/<ループ>/<run の番号>/`）、作者は graphloops の作者。
+
+### Added
+- `loop.py init` と `loop.py status` が、engine の失敗の記録（`intake.jsonl`）のうち、まだ作者へ手渡していない行の件数・一番古い日・多い種類・ファイルの場所と、書き出すか既読にする打ち方を出す。これまでは書くだけで読む所が無く、作者の手元の Claude Code の 3 つのアカウントに 68 行が誰にも渡らずに溜まっていた。既読にする口 `loop.py intake --seen`（`/graphloops:intake seen`）を足した。既読にしても行は消えず、`intake.jsonl` に残る（次の `init`・`status` から数えないだけ）。記録は 1,000 行までにし、超えたら古い行から捨てる（捨てた行の数も知らせに出る）。
+- `loop.py init` が、Read の記録のフック（`hooks/record-read.py`。Claude Code の Read の後に走り、何を読んだかを盤面に書く）が、`hooks/hooks.json` に登録した形のまま動いて、この run の盤面を見つけて行を書けるかを確かめ、だめなら `init` の出力の JSON の `notes`（利用者への知らせの欄）と標準エラーで知らせる。盤面の置き場を `--dir` で決めた run では確かめない（フックは既定の置き場の盤面だけを探すため）。
+- 盤面が linked worktree（`git worktree add` で足した作業ツリー）の git の置き場（`<共有の git ディレクトリ>/worktrees/<名前>/`）に在るときは、`init` と `status` が「`git worktree remove` で盤面も消える」ことと、消す前に盤面を共有の git ディレクトリ（`<共有の git ディレクトリ>/graphloops/boards-archive/`）へ写す `cp -R` のコマンドを出す。
+- 子の claude（engine が `claude -p` で起動する claude）の JSON の出力に、engine が読むフィールド（`total_cost_usd`・`session_id`・`subtype`・`is_error`・`permission_denials`）が無いときは、盤面の `trace.jsonl` のその子の行に欠けたフィールドの名前（`missing`）を残し、費用の集計（`status` と、run の最後に出る報告）の `cost_usd.unknown` に出す。これまでは費用を黙って 0 と数えていた。
+- `scripts/quality-ledger.py` が、試験結果の控え（checks-cache）の当たりの率と外れの訳、読み通しの検査（research-loop で、資料を読む役（engine が起動する子の claude）が資料を最後まで読んだかを先頭・中間・末尾の標本で確かめる検査）が成り立たなかった数、子の出力に欠けたフィールドの数を、版ごとに出す。
+- 試験: graphloops が `claude` に渡すオプション（`--output-format` などの旗）とその値・設定のキーと、読む出力のフィールドを、実物から採った見本（Claude Code 2.1.303 の `claude --help` と `claude -p --output-format json` の出力。`tests/py/cli/`）と照合する。claude を入れ替えたら `python3 tests/py/cli_contract.py --live` で入っている claude と照合し、要れば `--capture` で見本を採り直す。
+
+### Changed
+- 試験結果の控えの照合の鍵（指紋）から、会話ごとに変わる環境変数を外した。端末・接続・会話ごとの識別子（`HERDR_PANE_ID`・`TMUX_PANE`・`SSH_CONNECTION`・`CLAUDE_CODE_SESSION_ID` など。全部の名前は `engine/checks_cache.py` の `IGNORED_ENV`）は鍵に入れず（試験のコマンドには渡す）、`CLAUDE_CODE_EXECPATH`・`AI_AGENT`・`CLAUDE_JOB_DIR`・`__MISE_*` は試験のコマンドに渡さない（渡さないので、鍵から外しても違う環境の結果を使い回さない）。`PATH` は並びの順や重複でなく、コマンドがどこで見つかるかで比べる。控えの形の版を 3 に上げたので、前の控えは当たらない。外れたときは、同じ作業ツリーと手順の控えとの違う環境変数の名前（値は出さない）か、作業ツリーや手順が違うことを出す。
+- graphloops が自分の検査の部品（validator・役の定義など）を引く版を選ぶとき、`plugins/cache` のフォルダ名の大きい物でなく、Claude Code の `installed_plugins.json` の `installPath` を読む。消す印 `.orphaned_at` の付いた場所は使わない。台帳でプロジェクトの範囲（scope が `project` か `local`）の行が別の版を指すリポジトリでは、その版を使う。台帳（`installed_plugins.json`）から決まらなければ止めて訳を出す。
+
+### Fixed
+- Read の記録のフックが、止めた run と、収束して（結果が変わらなくなって）終わった run の盤面にも書いていた（止まった後に、関係の無い会話の行が 1,310 行書かれていた）。動いている run にだけ書く。
+
 ## [0.37.0] - 2026-10-19
 
 ### Changed
 
 - **convergence-loops 0.50.0 以上が要る**（`dependencies` の下限を上げた）。下の 2 つが、convergence-loops の検証器 `review-record.py` と `comment-ratio.sh` に足した `--json` を呼ぶため。古い convergence-loops のままだと、周の記録が検証器を通らずに止まる。
-- review-loop の周（レビューと直しの 1 回分）の行き先（収束・仕事が残る・前提不成立で止める・答え無しに進める仕事が無い）を、`review-record.py --json` が返す `stop`（ASCII のキー）で決める。前は人向けの出力から止める訳の文言の行を探しており、文言を直すと黙って「仕事が残る」に倒れた。`stop` が無い・知らないキーのときは、周を進めずに訳を返す。graph の `record.validator_output` が `json` のとき、engine は検証器に `--json` を渡す。
+- review-loop の周（レビューと直しの 1 回分）の行き先（収束・仕事が残る・前提不成立で止める・残る阻害〔収束を止める指摘〕がどれも人への問いの答え待ちで、答えを待たずに進められる仕事が無い）を、`review-record.py --json` が返す `stop`（ASCII のキー）で決める。前は人向けの出力から止める訳の文言の行を探しており、文言を直すと黙って「仕事が残る」に倒れた。`stop` が無い・知らないキーのときは、周を進めずに訳を返す。graph の `record.validator_output` が `json` のとき、engine は検証器に `--json` を渡す。
 - review-loop の書いた行の割合の数（`scalars`）を、`comment-ratio.sh --json` から読む。数でない値・知らないキーを黙って捨てていたのをやめ、要る値（added_lines・comment_lines）が欠けたら数を書かずに訳を残す。数えられなかったファイル（`unmeasured`）が在れば、数は書いたうえで訳にも残す。
 - 前の周の判定を据え置いたレビューの行の印を、reason の末尾の添え書きでなく `held_from`（据え置いた元の周の番号）のフィールドで持つ。`held_from` の無い前の版の記録だけは、今までどおり末尾の添え書きで見分ける（版を上げる前に始めた run を続けるときと、品質の台帳 quality-ledger.py が過去の記録を数えるとき）。
 - 修正の後のレビュー（R4）が人に問う行（消えた能力と、人の方針とのぶつかり）のうち、人が前に通した行を、モデルが写した文の一致でなく `same_as`（前に人に問うた行の ID）のフィールドで見分ける。R4 の返答の 2 つの配列（`capability_inventory.lost`・`policy_conflicts`）の要素は文字列から `{text, same_as}` の object にした。前の版の返答（要素が文字列）と `same_as` の無い行は、もう一度人に問う（安全な側）。

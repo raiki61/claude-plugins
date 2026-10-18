@@ -11,7 +11,7 @@ from engine.role_run import SUMMARY_KEYS, unwrap
 
 def envelope(**kw):
     env = {"type": "result", "subtype": "success", "is_error": False, "result": '{"ok": 1}', "session_id": "s-1",
-           "num_turns": 2, "duration_ms": 10, "total_cost_usd": 0.001}
+           "num_turns": 2, "duration_ms": 10, "total_cost_usd": 0.001, "permission_denials": []}
     env.update(kw)
     return json.dumps(env, ensure_ascii=False).encode("utf-8")
 
@@ -47,7 +47,7 @@ def test_success_envelope_gives_result_and_summary():
     text, summary, bad = unwrap(envelope())
     assert text == '{"ok": 1}' and bad is None
     assert summary["envelope"] is True and summary["session_id"] == "s-1" and summary["total_cost_usd"] == 0.001
-    assert set(summary) <= set(SUMMARY_KEYS) | {"envelope", "permission_denials"}
+    assert set(summary) <= set(SUMMARY_KEYS) | {"envelope", "permission_denials"}   # 読むフィールドが揃えば missing は付かない
 
 
 def test_error_envelope_without_result_names_subtype_and_errors():

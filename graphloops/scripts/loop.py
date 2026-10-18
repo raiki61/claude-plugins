@@ -20,7 +20,7 @@
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
     loop.py patch  --path <[record.]記録のフィールド | state.<盤面のフィールド> | out.<ノード>.<フィールド>> (--file <json> | --delete) --reason   # 記録（既定）か盤面かノードの最新の出力の手当て——書くか消す（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
-    loop.py intake (--what <1 行> [--dir] | --export <file> [--all] [--with-stderr] | --send | --set-url <URL>) [--data-dir]
+    loop.py intake (--what <1 行> [--dir] | --export <file> [--all] [--with-stderr] | --send | --seen | --set-url <URL>) [--data-dir]
                                                      # 踏んだ問題を利用者の環境に残す手の口（非 0 の終わりは engine が自動で残す）
 
 置き場（--dir 省略時）: `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外
@@ -183,6 +183,7 @@ def main():
     m.add_argument("--export", metavar="FILE", help="まだ手渡していない行を 1 ファイル（JSONL）に書き出す")
     m.add_argument("--send", action="store_true", help="まだ手渡していない行を届け先へ送る（届け先が無ければ手元に残すだけ）")
     m.add_argument("--set-url", metavar="URL", help="届け先を設定する（空で消す）")
+    m.add_argument("--seen", action="store_true", help="まだ手渡していない行を、書き出さず送らずに手渡し済みにする（init・status の知らせが止まる）")
     s.add_argument("--dir", help="--what に run の番号・周を添える盤面")
     s.add_argument("--all", action="store_true", help="--export で、手渡した行も含めて全部を書き出す")
     s.add_argument("--with-stderr", action="store_true", help="--export で標準エラーの頭（残していれば）も書き出す")
