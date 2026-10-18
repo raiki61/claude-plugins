@@ -324,6 +324,24 @@ def ask_title(path, width=60):
     return head if head is None or len(head) <= width else head[:width] + "…"
 
 
+OWNER_WORDS_HEAD = re.compile(r"^#+\s*持ち主の言葉")
+
+
+def task_title(path, width=60):
+    """頼みの木（--todo）に出す題。本文に持ち主の言葉の節（## 持ち主の言葉）が在れば、その最初の言葉（「」を外す）。無ければ ask_title。
+    窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような定型で、題にならないため。読めなければ None。"""
+    try:
+        lines = [x.strip() for x in pathlib.Path(path).read_text(encoding="utf-8").splitlines()]
+    except (OSError, UnicodeDecodeError, TypeError):
+        return None
+    at = next((i for i, x in enumerate(lines) if OWNER_WORDS_HEAD.match(x)), None)
+    head = next((x for x in lines[at + 1:] if x and not x.startswith("#")), None) if at is not None else None
+    if head is None:
+        return ask_title(path, width)
+    head = ITEM_RE.sub("", head, count=1).strip().strip("「」")
+    return head if len(head) <= width else head[:width] + "…"
+
+
 # ---- 残った疑問の持ち手（役の holders。my_notes の tools/deliver_check.py の holder_problems から移した）----
 
 OPEN = "残った疑問"
@@ -393,6 +411,23 @@ def holder_problems(text, relays=()):
         holder = re.sub(r"\s+", "", found.group(1)).replace("(", "（").replace(")", "）")
         if holder.startswith(OWNER_WORDS + tuple(relays)) and not holder.startswith(OWNER_OK):
             out.append(f"持ち手が持ち主（か持ち主への中継）で、「持ち主（価値で選ぶ）」か「持ち主（確認してからやる）」と示していない: {head}")
+    return out
+
+
+ASK_ID_RE = re.compile(r"\b\d{8}-\d{6}-[0-9a-f]{6}\b")
+
+
+def open_holders(text):
+    """残った疑問（text）の 1 件ごとの持ち手の並び [{"holder": 持ち手の字, "ask": 持ち手の字の中の受付番号か None}]（納品の台帳の行の
+    holders の欄。持ち手の受付を、台帳の射影が頼みの続きに結ぶ。docs/ledger.md）。持ち手の無い件と「無し」は数えない。"""
+    text = (text or "").strip()
+    out = []
+    for item in open_items(text) if text else []:
+        found = HOLDER_RE.search(item)
+        if found and not _none(item):
+            holder = found.group(1).strip()
+            got = ASK_ID_RE.search(holder)
+            out.append({"holder": holder, "ask": got.group(0) if got else None})
     return out
 
 

@@ -205,13 +205,13 @@ def asks_of(companies):
 
 def fire(after, root, ports, a, task, attrs):
     """--land の合図: 本流に入れた後に [[land.after]] の道具を順に呼ぶ。出す行の並び（終了の値は --land に響かせない）。
-    attrs は本流に入れた部署の属性で、その頼み元を回す頼みの頼み元にする。"""
+    attrs は本流に入れた部署の属性で、その頼み元を回す頼みの頼み元に、その頼み（ask）を回す頼みの親（台帳の cause）にする。"""
     if not after:
         return []
     info = tree.read_info(root, os.path.dirname(config.path_of(a.config, os.environ)))
     company = tree.company_name(root, info)
     shape = role.load(info["path"], info["text"])
-    boss = {k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")}
+    boss = {k: attrs.get(k) for k in ("ask", "boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")}
     lines = []
     for x in after:
         rc, out = invoke(root, company, role.current(shape, x["role"]), x["tool"], x.get("input") or {}, shape["roles"], ports, a, task, boss=boss)

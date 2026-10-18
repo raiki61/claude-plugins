@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "required": ["schema", "rows"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["ask", "queued", "handed", "held", "taken", "reordered", "withdrawn", "forwarded", "deliver",
+                                              "note", "waiting", "resumed", "nudged", "knot", "start", "moved", "retired", "call", "miss"]},
+          "id": {"type": ["string", "null"]},
+          "at": {"type": "number"},
+          "status": {"type": ["string", "null"]},
+          "cause": {"type": ["string", "null"]},
+          "ask": {"type": ["string", "null"]},
+          "child": {"type": "string"},
+          "for": {"type": "string"},
+          "why": {"type": "string"},
+          "file": {"type": ["string", "null"]},
+          "holders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["holder", "ask"],
+              "properties": {"holder": {"type": "string"}, "ask": {"type": ["string", "null"]}}
+            }
+          }
+        }
+      }
+    }
+  }
+}

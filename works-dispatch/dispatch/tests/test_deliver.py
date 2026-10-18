@@ -24,7 +24,7 @@ import claudex
 import herdr as real_herdr
 import orders
 import wake_hook
-from nodes import deliver, provision, wake
+from nodes import deliver, ledger, provision, wake
 
 
 def dept_row(name=None, role=None, residency=None, session=None, panes=(), branch="b", path="/x"):
@@ -897,6 +897,11 @@ class Flow(unittest.TestCase):
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s-dept"})
         attrs = gitx.worktree_attrs(self.place)
         self.assertNotIn("waiting", attrs)
+        # 答え待ちと外れたことは台帳にも残り、台帳の射影がその頼みを答え待ち→動いているに読む（同じ受付箱には 1 行ずつ）
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") in ("waiting", "resumed")]
+        self.assertEqual([(r["kind"], r["id"]) for r in rows], [("waiting", attrs["ask"]), ("resumed", attrs["ask"])])
+        self.assertEqual(rows[0]["why"], "持ち主の答え（どちらの案にするか）")
+        self.assertEqual(ledger.build(ledger.merge(deliver.records(self.inbox)))["tasks"][attrs["ask"]]["state"], "working")
         self.assertIn("受付", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
         # 納品でも外れる
         self.assertEqual(self.main(self.place, "--wait", "持ち主の答え")[0], 0)

@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": ["schema", "inboxes", "forest"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "inboxes": {"type": "array", "items": {"type": "string"}},
+    "forest": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task", "kids", "follows"],
+        "properties": {
+          "kids": {"type": "array"},
+          "follows": {"type": "array", "items": {"type": "string"}},
+          "task": {
+            "type": "object",
+            "required": ["id", "title", "state", "label", "progress", "open", "created", "updated", "parent", "parent_by",
+                         "children", "follows", "questions", "notes", "from", "to", "file", "why"],
+            "properties": {
+              "id": {"type": "string"},
+              "title": {"type": ["string", "null"]},
+              "state": {"type": "string", "enum": ["queued", "working", "waiting", "done", "dropped", "failed"]},
+              "label": {"type": "string"},
+              "progress": {"type": "string", "enum": ["needs-action", "in-process", "completed", "failed", "cancelled"]},
+              "open": {"type": "boolean"},
+              "created": {"type": ["number", "null"]},
+              "updated": {"type": ["number", "null"]},
+              "closed": {"type": ["number", "null"]},
+              "parent": {"type": ["string", "null"]},
+              "parent_by": {"type": ["string", "null"], "enum": ["forwarded", "cause", "inferred", null]},
+              "children": {"type": "array", "items": {"type": "string"}},
+              "follows": {"type": "array", "items": {"type": "string"}},
+              "questions": {
+                "type": "array",
+                "items": {"type": "object", "required": ["holder", "ask"],
+                          "properties": {"holder": {"type": ["string", "null"]}, "ask": {"type": ["string", "null"]}}}
+              },
+              "notes": {"type": "integer"},
+              "forwarded": {"type": "boolean"},
+              "from": {"type": ["string", "null"]},
+              "to": {"type": "object"},
+              "file": {"type": ["string", "null"]},
+              "why": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

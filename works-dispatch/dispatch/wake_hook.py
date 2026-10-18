@@ -284,6 +284,7 @@ def _read_part(got):
 
 
 TAKES = "takes"   # 受付箱の下の、輪をほどく --take を走らせた出力の置き場
+RESUMED = "resumed"   # 台帳の種類: 人の文で答え待ちの印が外れた（id は答え待ちだった頼み）
 KNOT = "knot"     # 台帳の種類: 返事待ちの輪を見つけ、輪の頼みを --take で回した（chain に輪の部署の名前、edges に輪の頼み）
 
 
@@ -623,10 +624,11 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
     return check
 
 
-def resume_from_wait(payload, attrs_of=gitx.worktree_attrs):
+def resume_from_wait(payload, attrs_of=gitx.worktree_attrs, now=time.time):
     """人の文で番が始まった: 部署の会話が --wait で印した答え待ちを外す（答えを受けたので、止まる前のフックがまた納品を促す）。
     --rest の区切りの印と --done の終わりの印も外す（人と話している途中の会話を空にも畳みもしない）。印を外すのは、場所の属性の会話（company.session）が文を
-    受けたときだけ（同じ場所のほかの会話の文では外さない）。"""
+    受けたときだけ（同じ場所のほかの会話の文では外さない）。答え待ちを外したら、場所の会社と頼み元の受付箱の台帳に kind resumed を
+    足す（頼みの状態を台帳から読めるように。docs/ledger.md）。"""
     cwd = payload.get("cwd") or os.getcwd()
     attrs = attrs_of(cwd)
     if not (attrs.get("waiting") or attrs.get(wake.REST) or attrs.get(wake.FINISHED)) \
@@ -635,6 +637,10 @@ def resume_from_wait(payload, attrs_of=gitx.worktree_attrs):
     common = gitx.common_dir(cwd)
     if common:
         provision.mark(cwd, gitx.root_of(common), {"waiting": None, "waiting-why": None, wake.REST: None, wake.FINISHED: None}, gitx)
+        if attrs.get("waiting"):
+            record = {"id": attrs["waiting"], "kind": RESUMED, "at": now(), "place": cwd, "session": payload.get("session_id")}
+            for inbox in dict.fromkeys(x for x in (deliver.inbox_of(common), attrs.get("boss-inbox")) if x and os.path.isdir(x)):
+                deliver.log(inbox, record)
 
 
 def resume_here(payload):

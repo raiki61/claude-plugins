@@ -1409,6 +1409,8 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("回した元の受付 a0 を閉じた", out)
         (item,) = wake.queued(self.inbox, self.dept_place())
         self.assertEqual(item["marks"]["boss"], "desk")   # 回した先の納品は、回した側（窓口）に返る
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
+        self.assertEqual((row["id"], row["cause"]), (item["id"], "a0"))   # 頼みの行の親は、打った場所が受けていた頼み
         (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]   # 同じ受付箱には 1 行だけ
         self.assertEqual((link["id"], link["child"], link["to"]["name"], link["boss"]["name"]), ("a0", item["id"], "調べ", "社長室"))
         self.assertEqual([r["to"] for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)], [to])   # 社長室への知らせは無い
@@ -1417,6 +1419,17 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "別の頼み", "--forward")
         self.assertEqual(rc, 2, out)
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
+        # 回して閉じた頼みへの足しは、回した先の頼みに届く（「もう納品した」で止めない）
+        rc, out = self.main(self.src, "--note", "a0", "--text", "範囲に B も足す")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"回した先の受付 {item['id']} に足す", out)
+        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "note"]
+        self.assertEqual(rec["ask"], item["id"])
+        # 回した先も閉じたら止める
+        deliver.log(self.inbox, {"id": "f", "kind": "deliver", "ask": item["id"], "at": 9e9, "status": "sent"})
+        rc, out = self.main(self.src, "--note", "a0", "--text", "まだ足す")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("回した先もみな閉じた", out)
 
     def test_forward_to_a_window_without_a_waiter_closes_the_held_ask_once_the_line_is_sent(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, gitx)

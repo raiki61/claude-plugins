@@ -89,6 +89,7 @@ import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
 import starts  # noqa: E402
+import todo  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -618,7 +619,12 @@ def main(argv=None, ports=None):
     ap.add_argument("--resident", action="store_true",
                     help="--task と一緒に: 常設の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば都度の部署）")
     ap.add_argument("--tree", action="store_true", help="herdr に開いている会社ごとに、会社の情報と部署の様子を出す")
-    ap.add_argument("--json", action="store_true", help="--tree と一緒に: JSON で出す")
+    ap.add_argument("--json", action="store_true", help="--tree か --todo と一緒に: JSON で出す")
+    ap.add_argument("--todo", metavar="受付", nargs="?", const="",
+                    help="受付箱の台帳から頼みの木（頼み → 回した先・出した頼み、と残った疑問の続き）を作って出す。済んだ枝は出さない"
+                         "（受付を渡せばその頼みから下を全部。誰の番かは出さない。作った物は保存せず、開くたびに作り直す）")
+    ap.add_argument("--all", action="store_true", help="--todo と一緒に: 済んだ枝も出す")
+    ap.add_argument("--html", metavar="ファイル", help="--todo と一緒に: 1 枚の HTML の頁に書く（--all も受付も無ければ済んだ枝を初めは隠し、頁の中で出せる）")
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署か、会社の名前だけならその会社の窓口に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
     ap.add_argument("--text", help="--ask か --note と一緒に: 頼みか足しの文（長い物は --brief のファイルで渡す）")
@@ -696,6 +702,11 @@ def main(argv=None, ports=None):
     if a.for_ask is not None and a.deliver is None:
         print("止めた: --for は --deliver と一緒にだけ使う")
         return 2
+    if (a.all or a.html) and a.todo is None:
+        print("止めた: --all と --html は --todo と一緒にだけ使う")
+        return 2
+    if a.todo is not None:
+        return todo.todo(a, ports, os.getcwd())
     if a.take is not None:
         return orders.take(a, ports, os.getcwd(), _task)
     if a.withdraw is not None:
