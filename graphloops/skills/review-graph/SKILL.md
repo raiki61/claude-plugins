@@ -15,7 +15,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 この手順書は、あなたが engine をどう呼ぶかだけを書く。このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（スキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダの中にある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は Bash の環境変数には無いので、この置き場に読み替えて打て。
 
-旗の無い `init` は**回し役の要らない回し方**になる（下の「[早見](#早見)」）: writer の節（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill の節も engine が `claude -p` の子として起こし、背景の線も回し手が立てる。あなたは起動・`run` の打ち直し・人の関所への答えと、人に渡った節（14）の手当てだけをする（13 は engine の不具合）。`init --no-engine-runners` の run は今までどおり**会話で回す**（人の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（節のこなし方は [references/conversation-run.md](references/conversation-run.md)）。どちらの run でも、**ラベル確定・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
+旗の無い `init` は**回し役の要らない回し方**になる（下の「[早見](#早見)」）: writer の節（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill の節も engine が `claude -p` の子として起こし、背景の線〔変異の検算〕も回し手が立てる。あなたは起動・`run` の打ち直し・人の関所への答えと、人に渡った節（14）の手当てだけをする（13 は engine の不具合）。`init --no-engine-runners` の run は今までどおり**会話で回す**（人の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（節のこなし方は [references/conversation-run.md](references/conversation-run.md)）。どちらの run でも、**ラベル確定・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
 
 役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。定義が道具の一覧を持たない役（`pr-review-toolkit:comment-analyzer`）も、graph の `launch.tooled.narrow` の値で読むだけ（Read・Glob・Grep と読むだけの Bash）に狭めて engine が起こす。engine が起こせない役だけ、`agent_type` をそのまま Agent の `subagent_type` に渡す。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
 
