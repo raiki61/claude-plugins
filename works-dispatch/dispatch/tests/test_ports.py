@@ -351,6 +351,14 @@ class Gh(unittest.TestCase):
         self.assertEqual(ghx.default_branch("o/r", runner=f), "main")
         self.assertEqual(f.calls[0][0][:4], ["gh", "repo", "view", "o/r"])
 
+    def test_can_read(self):
+        self.assertTrue(ghx.can_read("o/r", runner=Fake((0, '{"name": "r"}', ""))))
+        self.assertFalse(ghx.can_read("o/r", runner=Fake((1, "", "Could not resolve to a Repository"))))
+
+        def no_gh(argv, env=None):
+            raise FileNotFoundError("gh")
+        self.assertFalse(ghx.can_read("o/r", runner=no_gh))
+
 
 class GitWorktree(unittest.TestCase):
     """fetch・早送り・手元の枝を消す、を本物の git で。"""

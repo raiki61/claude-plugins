@@ -46,6 +46,20 @@ class EachFenceCatches(unittest.TestCase):
     def test_d3_node_imports_node(self):
         self.assertCaught(fences.d3_nodes_blind, {"nodes/a.py": "import b\n", "nodes/b.py": "X = 1\n"})
         self.assertCaught(fences.d3_nodes_blind, {"nodes/a.py": "from b import X\n", "nodes/b.py": "X = 1\n"})
+        # パッケージの名前を通す形も、読む物の名前で見る（前の柵はここを通していた）
+        for form in ("from nodes import b\n", "import nodes.b\n", "from nodes.b import X\n", "from . import b\n"):
+            with self.subTest(form=form):
+                self.assertCaught(fences.d3_nodes_blind, {"nodes/a.py": form, "nodes/b.py": "X = 1\n"})
+
+    def test_d3_node_imports_the_flow_side(self):
+        for form in ("import dispatch\n", "import orders as o\n", "from wake_hook import plan\n"):
+            with self.subTest(form=form):
+                self.assertCaught(fences.d3_nodes_blind, {"nodes/a.py": form})
+
+    def test_d3_known_breaches_pass_and_a_fixed_one_must_leave_the_list(self):
+        files = {"nodes/a.py": "from nodes import b\n", "nodes/b.py": "X = 1\n", "nodes/c.py": "X = 2\n"}
+        self.assertEqual(fences.d3_nodes_blind(tree(files), {("nodes/a.py", "b")}), [])
+        self.assertCaught(lambda root: fences.d3_nodes_blind(root, {("nodes/a.py", "b"), ("nodes/c.py", "b")}), files)
 
     def test_d4_subprocess_outside_ports(self):
         self.assertCaught(fences.d4_outward, {"nodes/assign.py": "import subprocess\n"})

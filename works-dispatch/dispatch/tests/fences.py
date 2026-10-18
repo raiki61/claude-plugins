@@ -20,7 +20,7 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 # landing.py は入口 dispatch.py の --land の流れを分けた物で、手元の検証のコマンドを回す
 # calls.py は入口 dispatch.py の --call と --land の合図の流れを分けた物で、会社の形に書かれた道具のコマンドを回す
 # installed.py は入口 dispatch.py が前の版の置き場で打たれたとき、今入っている版の dispatch.py を起こす
-# orders.py は入口 dispatch.py の --ask・--deliver の流れを分けた物で、会社の形に書かれた納品の検査（deliver_check）のコマンドを回す
+# orders.py は入口 dispatch.py の --ask・--deliver の流れを分けた物で、会社の形に書かれた頼みと納品の検査（ask_check・deliver_check）のコマンドを回す
 # limit_hook.py は上限で止まった会話から切り離して --move を起こす（会話の子として待たない）
 # wake_hook.py は終わりと印した（--done）部署の会話から切り離して --retire を起こす（同じく、会話を止めるので子として待たない）
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py",
@@ -112,21 +112,49 @@ def d2_no_sh(root):
     return [f"D2 {rel}: シェルの台本を置かない" for rel, _ in _files(root, "*.sh")]
 
 
-def d3_nodes_blind(root):
+# D3: ノードが流れを知らないよう、ノードから読んではいけない物。ほかのノードと、流れを持つ側（入口・入口から分けた流れ・フック）
+UPWARD = {"dispatch", "orders", "landing", "calls", "move", "reorg", "retire", "starts", "installed"}
+# D3 を破っていると分かっていて、まだ直していない読み（ノード, 読む物）。増やさない。直したら消す（消し忘れは柵が誤りにする）
+# - refresh・tree・sync が読むのは、役の名前と並べ方（role）・属性の名前（wake.REST）・入力欄の読み方（deliver.typed）・起こし方の欄
+#   （start.parse）で、どれも流れではなく共有の読み取り。ノードの外の共有の置き場に出すまで外す
+# - accounts は単独で呼ばれたときの口の束を、入口の dispatch.Ports から借りる。口の束を入口の外に出すまで外す
+D3_KNOWN = {("nodes/refresh.py", "deliver"), ("nodes/refresh.py", "role"), ("nodes/refresh.py", "wake"),
+            ("nodes/tree.py", "role"), ("nodes/tree.py", "start"), ("nodes/sync.py", "role"),
+            ("nodes/accounts.py", "dispatch")}
+
+
+def _imported(node):
+    """import の 1 文が読むモジュールの名前（nodes の中の物は nodes を外した名前）。`from nodes import x`・`import nodes.x`・
+    `from . import x` の形も、読む物の名前で返す。"""
+    if isinstance(node, ast.Import):
+        names = [a.name for a in node.names]
+    elif isinstance(node, ast.ImportFrom):
+        if node.module in (None, "nodes"):
+            return [a.name for a in node.names]
+        names = [node.module]
+    else:
+        return []
+    return [n.split(".")[1] if n.startswith("nodes.") else n.split(".")[0] for n in names]
+
+
+def d3_nodes_blind(root, known=D3_KNOWN):
     nodes = pathlib.Path(root) / "nodes"
     names = {p.stem for p in nodes.glob("*.py")} if nodes.is_dir() else set()
-    out = []
+    out, seen = [], set()
     for rel, p in _files(root, "nodes/*.py"):
         me = p.stem
         for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
-            mods = []
-            if isinstance(node, ast.Import):
-                mods = [a.name.split(".")[0] for a in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                mods = [node.module.split(".")[0]]
-            for m in mods:
-                if m in names and m != me:
-                    out.append(f"D3 {rel}: ほかのノード {m} を import している（流れは dispatch.py だけが持つ）")
+            for m in _imported(node):
+                what = "ほかのノード" if m in names and m != me else "流れを持つ側" if m in UPWARD or m.endswith("_hook") else None
+                if what is None:
+                    continue
+                if (rel, m) in known:
+                    seen.add((rel, m))
+                    continue
+                out.append(f"D3 {rel}: {what} {m} を import している（流れは入口と流れの側だけが持つ）")
+    if pathlib.Path(root).joinpath("nodes").is_dir():
+        out += [f"D3 {rel}: {m} はもう import していないので、柵の外す一覧 D3_KNOWN から消す"
+                for rel, m in sorted(known - seen) if pathlib.Path(root, rel).is_file()]
     return out
 
 

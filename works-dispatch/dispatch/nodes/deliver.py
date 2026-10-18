@@ -459,7 +459,7 @@ GATE_TAIL = 20   # 納品の検査が通らなかったとき、部署に返す�
 def gate(command, place, payload, runner):
     """納品の検査。command（シェルの字）を place（部署の作業場の根）で走らせ、payload（role・ask・branch・place・items・summary・version）を
     JSON で標準入力に渡す。(終了の値, 標準出力と標準エラーの終わりの GATE_TAIL 行)。0 なら通った、0 以外なら送らない。
-    runner は subprocess.run（ノードは subprocess を持たないので、流れの orders.py が渡す）。"""
+    runner は subprocess.run（このノードは subprocess を持たないので、流れの orders.py が渡す）。"""
     p = runner(command, shell=True, cwd=place, input=json.dumps(payload, ensure_ascii=False), capture_output=True,
                text=True, encoding="utf-8", errors="replace")
     both = (p.stdout or "") + (p.stderr or "")

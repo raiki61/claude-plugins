@@ -79,7 +79,7 @@ def confirmed_pane(cwd, sid, env=os.environ):
 
 
 def pane_of(payload, tmp, find=None):
-    """この会話の居るペイン（herdr.own_pane の決め方。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがあるので使わない）。
+    """この会話の居るペイン（confirmed_pane。herdr.talk_window の決め方。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがあるので使わない）。
     決まったら会話の id ごとの控えに残し、次からは herdr を読まない。ツールの呼び出し（PreToolUse）では控えだけを見て、決まって
     いなければ印を送らない（ツールのたびに herdr を待たせない）。"""
     sid = payload.get("session_id")

@@ -125,15 +125,6 @@ def _shell_has(cmd, env=os.environ, runner=subprocess.run, which=shutil.which, p
     return p.returncode == 0
 
 
-def _gh_ok(repo, env=None):
-    """gh がそのリポジトリを読めるか。ログインしていても、有効なアカウントが読めないリポジトリはある。"""
-    try:
-        return subprocess.run(["gh", "repo", "view", repo, "--json", "name"],
-                              capture_output=True, text=True, encoding="utf-8", errors="replace", env=env).returncode == 0
-    except FileNotFoundError:
-        return False
-
-
 # タブ欄の行とサイドバーのフックが指す、このプラグインのスクリプト。プラグインを更新すると、入った場所（版ごとのフォルダ）が変わる
 PLUGIN_SCRIPT = re.compile(r"""[^\s"'=]+[/\\]dispatch[/\\](?:limits|activity)\.py""")
 
@@ -233,7 +224,7 @@ class Ports:
         self._login_config_dir = login_config_dir or (lambda: _login_config_dir(self.env))
         self._account_env = None
         self._shell_has = shell_has or _shell_has
-        self._gh_ok = gh_ok or _gh_ok
+        self._gh_ok = gh_ok or ghx.can_read
         self.env = os.environ if env is None else env
         self._gh_env = gh_env
         self._gh_envs = {}
@@ -340,7 +331,7 @@ class Ports:
                 continue
             if task:
                 continue   # 部署の回は GitHub を読まない（本流の枝の名前は手元の origin/HEAD から。手元の bare リポジトリでも立つ）
-            if not self._gh_ok(repo.repo, env):
+            if not self._gh_ok(repo.repo, env=env):
                 problems.append(f"gh が {repo.repo} を読めない。whose-turn が自分の番の PR を集められない"
                                 "（gh auth status で、このリポジトリを読めるアカウントが有効かを確かめる）")
         return problems, notes

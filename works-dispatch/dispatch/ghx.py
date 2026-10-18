@@ -65,6 +65,14 @@ def pr_for_branch(repo, branch, runner=_default_runner, env=None):
                                       "head_sha": pick.get("headRefOid")}
 
 
+def can_read(repo, runner=_default_runner, env=None):
+    """gh がそのリポジトリを読めるか。ログインしていても、有効なアカウントが読めないリポジトリはある。gh が無ければ False。"""
+    try:
+        return runner(["gh", "repo", "view", repo, "--json", "name"], env=env).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
 def default_branch(repo, runner=_default_runner, env=None):
     """リポジトリの既定の枝の名前。読めなければ GhError。"""
     p = runner(["gh", "repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], env=env)
