@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-10-19
+
 ### Changed
 
 - 部署の寿命の呼び名を、エンジニアになじみのある語にそろえた（受付 311e99）。常設 → 永続（persistent）、都度 → エフェメラル（ephemeral）。永続の部署の会話の扱いは、毎回空 → 毎回クリア、持ち越し → 引き継ぎ。頼まれたときだけ立てる受け持ち → オンデマンドの受け持ち。GitHub Actions の persistent・ephemeral のランナーと、Claude Code の `/clear`（空のコンテキストで新しい会話を始めるコマンド）に寄せた。名前の替わった物:
