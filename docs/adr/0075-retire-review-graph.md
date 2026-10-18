@@ -1,14 +1,14 @@
-# 0075. /review-graph を退役させる（graphloops の /review-graph を使う人は 2026-11-18 までに /works-factory へ移る。入口のスキルは見直しの部署が早くて 2026-11-18 に消す）
+# 0075. /review-graph を退役させる（使う人は /works-factory へ移る。graphloops を受け持つ部署「見直し」が 2026-11-18 以降に /review-graph のスキルを消す）
 
 - 状態: 採用
 - 日付: 2026-10-18
-- 決めた人: 人（持ち主。2026-10-18 の「なら一旦reviewgraphだけまずは退役させるか」「それをworksfactoryにがっつり置き換えたらいいと思う」と、消すのは works-factory の issue #712 が直ってから・予告は今始めてよい・案内先は `/works-factory` の答え「ok」）。[0002](0002-backward-compatibility.md)（今ある能力と使い方を減らさない）の例外として持ち主が決めた。予告の形・消す日・消す手順は、見直し（graphloops を受け持つ部署）の担当が持ち主の決めと [0073](0073-land-bumps-and-no-tags.md) から導いた
+- 決めた人: 人（このリポジトリの持ち主。2026-10-18 の「なら一旦reviewgraphだけまずは退役させるか」「それをworksfactoryにがっつり置き換えたらいいと思う」〔reviewgraph は `/review-graph`、worksfactory は `/works-factory` のこと〕と、消すのは works-factory の issue #712 が直ってから・予告は今始めてよい、の決めと、予告で案内する先を `/works-factory` にする案への持ち主の答え「ok」）。[0002](0002-backward-compatibility.md)（今ある能力と使い方を減らさない）の例外として持ち主が決めた。予告の形・消す日・消す手順は、graphloops を受け持つ部署「見直し」の担当が持ち主の決めと [0073](0073-land-bumps-and-no-tags.md) から導いた
 - 実装: 一部（予告は 2026-10-19 に入れた。`/review-graph` を使っている人は、2026-11-18 までに `/works-factory` へ移る。消すのは 2026-11-18 以降）
 
 ## 文脈
 
-- 語: works は、このリポジトリの works プラグイン（`/works`。工場 darkfactory を回す今の入口）。works-factory は、別のリポジトリ raiki61/works-factory の新しい工場で、このリポジトリからは works-factory プラグイン（`/works-factory`）の薄い入口で配る。2 つは別の物で、退役の代わりは works-factory。
-- graphloops の `/review-graph`（コードの変更のレビューと人の修正依頼を、engine が段ごとに回す入口のスキル `graphloops/skills/review-graph/`）の役目は、置き換え先の works-factory（修正の工場。claude-plugins の marketplace で `/works-factory` の薄い入口として配っている。工場の中身は raiki61/works-factory）が引き継ぎつつある。残すと、2 つの仕組みを保守し続けることになる。
+- 語: graphloops は、このリポジトリのプラグインの 1 つで、`/review-graph` と `/research-graph` と、その 2 つの段を回す engine を持つ。works は、このリポジトリの works プラグイン（`/works`。工場 darkfactory を回す今の入口）。works-factory は、別のリポジトリ raiki61/works-factory の新しい工場で、このリポジトリからは works-factory プラグイン（`/works-factory`）の薄い入口で配る。2 つは別の物で、退役の代わりは works-factory。
+- graphloops のスキル `/review-graph`（コードの変更のレビューと人の修正依頼を、engine が段ごとに回す入口。フォルダは `graphloops/skills/review-graph/`）の役目は、置き換え先の works-factory（修正の工場。claude-plugins の marketplace で `/works-factory` の薄い入口として配っている。工場の中身は raiki61/works-factory）が引き継ぎつつある。残すと、2 つの仕組みを保守し続けることになる。
 - リポジトリは公開で、世の中に使っている人がいるかもしれない。入れた人の数を作者が知る仕組みは Claude Code に無い。いきなり消すと、その人を困らせる。
 - [0002](0002-backward-compatibility.md) は、今ある能力と使い方を減らさないと決めている。入口を消すのは使い方を減らすことなので、持ち主が例外として決めた。
 - 2026-10-18 に、works-factory の本物の run 4 本が、最後の報告を書くノードで模型の提供元の安全の判定に止められていた（works-factory の issue #712）。直る前に消すと、移った人が最後の報告で止まる。#712 は 2026-10-18 に PR #718 の後の本物の run で確かめて閉じた。
@@ -19,13 +19,13 @@
 - `/review-graph` を退役させる。退役させるのは `/review-graph` だけで、`/review-loop`（convergence-loops）は退役させず、予告も出さない。`/research-graph` と engine は残す。
 - 予告は 2026-10-19 に入れた（この ADR を足した commit と同じ）。`/review-graph` のスキルの description と本文の頭に「退役予定・消す日・代わりは `/works-factory`」を書き、呼ばれたら手を動かす前に利用者に見せさせる。graphloops の README と CHANGELOG（Deprecated）にも書く。
 - 消す日は、予告を入れた日（2026-10-19）から 30 日の後の 2026-11-18 以降で、かつ works-factory の #712 が閉じたままであること。#712 は 2026-10-18 に閉じたので、今の見込みは 2026-11-18。
-- 消すのは入口のスキルのフォルダ `graphloops/skills/review-graph/` だけにする。review-loop のグラフ・rules・prompts・blocks（`graphs/review-loop*.json` など）は残す。engine の試験の多く（`graphloops/tests/` の 136 のファイル）が review-loop のグラフを材料に使い、`/research-graph` もそれと同じ engine の上で動くから。グラフまで消すかは、この ADR の外で別に決める。
+- 消すのはスキル `/review-graph` のフォルダ `graphloops/skills/review-graph/` だけにする。review-loop のグラフ・rules・prompts・blocks（`graphs/review-loop*.json` など）は残す。engine の試験の多く（`graphloops/tests/` の 136 のファイル）が review-loop のグラフを材料に使い、`/research-graph` もそれと同じ engine の上で動くから。グラフまで消すかは、この ADR の外で別に決める。
 - 置き場のフォルダは作らず、git の履歴をアーカイブにする。tag は作らない（[0073](0073-land-bumps-and-no-tags.md)。持ち主 2026-09-29「タグはつくりません」）。代わりに、消す commit の 1 つ前の main の commit の id を、graphloops の CHANGELOG の Removed と、この ADR の実装の欄に書く。その commit の `https://github.com/raiki61/claude-plugins/tree/<commit>/graphloops/skills/review-graph` で、最後の形をいつでも開ける。
 - 人の方針の置き場の説明（`graphloops/skills/review-graph/references/policy.md` の「## 人の方針」）は、`/research-graph` も使うので、消すときに `graphloops/skills/research-graph/references/policy.md` へ移し、指しているリンクを全部張り替える。
 
 ## 消すときの手順
 
-消すのは見直し（graphloops を受け持つ部署。[0074](0074-graphloops-edits-by-desk-and-land.md)）で、--land（部署のブランチを main に入れる works-dispatch のコマンド）で main に入れる。
+消すのは graphloops を受け持つ部署「見直し」（[0074](0074-graphloops-edits-by-desk-and-land.md)）で、--land（部署のブランチを main に入れる works-dispatch のコマンド）で main に入れる。
 
 1. 今日が 2026-11-18 以降かを見る。前なら消さない。
 2. `gh issue view 712 -R raiki61/works-factory --json state -q .state` が `CLOSED` かを見る。開き直されていたら、閉じるまで消さない。

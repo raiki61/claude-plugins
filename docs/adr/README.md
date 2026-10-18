@@ -121,4 +121,4 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0072](0072-works-post-fix-lens-block.md) | works の修正の後の局所レビューは、レンズを 1 本ずつ独立の節にしたブロック blk-lens に置く | 採用 | 2026-10-01 |
 | [0073](0073-land-bumps-and-no-tags.md) | 版は --land が上げて手元の関門で main に入れ、tag は作らず、CI は入った後に回す | 採用 | 2026-10-16 |
 | [0074](0074-graphloops-edits-by-desk-and-land.md) | graphloops の直しは受け持ちの担当が当てて --land で入れ、review-graph の run は持ち主が頼んだときだけ回す | 採用 | 2026-10-16 |
-| [0075](0075-retire-review-graph.md) | /review-graph を退役させる（graphloops の /review-graph を使う人は 2026-11-18 までに /works-factory へ移る。入口のスキルは見直しの部署が早くて 2026-11-18 に消す） | 採用 | 2026-10-18 |
+| [0075](0075-retire-review-graph.md) | /review-graph を退役させる（使う人は /works-factory へ移る。graphloops を受け持つ部署「見直し」が 2026-11-18 以降に /review-graph のスキルを消す） | 採用 | 2026-10-18 |
