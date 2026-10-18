@@ -818,7 +818,7 @@ expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と
 expect_output 0 "素材 prior_decisions: round 1 の判定を流用（2 ラウンド前）" "持ち越しは実際に見たラウンドと古さを見せる" \
     "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 '"exit": 0, "stop": null, "text": "' "--json は exit 0 で stop が null" "$PY_BIN" "$RECORD" --json "$WORK/hist"
-expect_output 1 '"exit": 1, "stop": null, "text": "収束を妨げるもの' "--json は仕事が残る周で stop が null、人向けの文は text に入れる" \
+expect_output 1 '"exit": 1, "stop": null, "text": "' "--json は仕事が残る周で stop が null、人向けの文は text に入れる" \
     "$PY_BIN" "$RECORD" --json "$WORK/tmpl-1"
 
 

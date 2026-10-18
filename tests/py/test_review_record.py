@@ -33,6 +33,8 @@ def work(tmp_path_factory):
 
 
 def resolve(arg, work):
+    if arg == "--json":
+        return arg
     return str(REPO / arg[len("repo:"):]) if arg.startswith("repo:") else str(work / arg)
 
 
@@ -66,8 +68,10 @@ def check(case, code, out, err):
     if case.want != ANY:
         # 空の期待は部分一致が恒真になる（台本の expect_output の頭の番人と同じ）
         assert case.want.strip(), f"期待の文言が空（表の行の want。見ないなら ANY）: {case.id}"
-        stream = err if case.exit == 2 else out
-        assert case.want in stream, f"{'標準エラー' if case.exit == 2 else '標準出力'}に '{case.want}' が無い: {shown}"
+        # --json は終了コードによらず結果の JSON を標準出力に出す（exit 2 の診断は標準エラーにも出る）
+        on_err = case.exit == 2 and "--json" not in case.args
+        stream = err if on_err else out
+        assert case.want in stream, f"{'標準エラー' if on_err else '標準出力'}に '{case.want}' が無い: {shown}"
 
 
 @pytest.mark.parametrize("case", [c for c in CASES if c.where == "inproc"], ids=lambda c: c.id)

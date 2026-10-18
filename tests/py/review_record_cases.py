@@ -2,9 +2,9 @@
 
 1 行が tests/run.sh の review-record.py のセクションの ok 行 1 件に当たる。フィールド:
 - id: pytest の id（行の並べ順に依らない名前。同じ記録を複数の行が読むときは、何を見るかの接尾辞を付ける）
-- args: 検証器に渡す引数。素の名前は壊した記録の置き場（broken_records.write_all の <work>）の下、repo: で始まる物はリポジトリのルートの下
+- args: 検証器に渡す引数。`--json` は旗としてそのまま渡す。素の名前は壊した記録の置き場（broken_records.write_all の <work>）の下、repo: で始まる物はリポジトリのルートの下
 - exit: 期待する終了コード（0 = 阻害なし / 1 = 阻害あり / 2 = 記録が不正）
-- want: 出力に在るべき文言（ANY は終了コードだけを見る）。exit 2 は標準エラー、0 と 1 は標準出力に在ることを求める
+- want: 出力に在るべき文言（ANY は終了コードだけを見る）。exit 2 は標準エラー、0 と 1 は標準出力に在ることを求める（`--json` は exit 2 でも標準出力）
 - was: 台本の検査の説明文。台帳（ledger.py）が台本の行と ledger.Row（exit・want・was・args）の多重集合で突き合わせる
 - where: inproc（同じプロセス）か smoke（子プロセス。再帰の深さが環境で変わる 1 件）
 
@@ -32,12 +32,18 @@ CASES = [
          "阻害なしを収束と名乗らない"),
     Case("hist-carry-age", ("hist",), 0, "素材 prior_decisions: round 1 の判定を流用（2 ラウンド前）",
          "持ち越しは実際に見たラウンドと古さを見せる"),
+    Case("hist-json", ("--json", "hist"), 0, '"exit": 0, "stop": null, "text": "',
+         "--json は exit 0 で stop が null"),
+    Case("tmpl-1-json", ("--json", "tmpl-1"), 1, '"exit": 1, "stop": null, "text": "',
+         "--json は仕事が残る周で stop が null、人向けの文は text に入れる"),
     Case("drop-material", ("drop-material",), 2, "素材 'hygiene' の返答が無い",
          "不正な記録は 1 と区別して落ちる: drop-material"),
     Case("drop-defer-reason", ("drop-defer-reason",), 2, "defer に構造的理由が無い",
          "不正な記録は 1 と区別して落ちる: drop-defer-reason"),
     Case("drop-base", ("drop-base",), 2, "必須のフィールド 'base' が無い",
          "不正な記録は 1 と区別して落ちる: drop-base"),
+    Case("drop-base-json", ("--json", "drop-base"), 2, '"exit": 2, "stop": null, "text": ',
+         "--json は不正な記録でも exit 2 と stop null の JSON を出す"),
     Case("drop-round", ("drop-round",), 2, "必須のフィールド 'round' が無い",
          "不正な記録は 1 と区別して落ちる: drop-round"),
     Case("bad-base", ("bad-base",), 2, "base が違う",
@@ -238,6 +244,10 @@ CASES = [
          "depends に挙げたユニットの阻害も問いに帰属する"),
     Case("q-premise-escalate", ("q-premise-escalate",), 1, "前提不成立が確定（escalate）",
          "premise の escalate は他の阻害の帰属を問わず「聞く時」"),
+    Case("q-premise-escalate-json", ("--json", "q-premise-escalate"), 1, '"exit": 1, "stop": "premise_escalate", "text": ',
+         "--json は前提不成立の確定を stop のキーで出す"),
+    Case("q-depends-json", ("--json", "q-depends"), 1, '"exit": 1, "stop": "work_exhausted", "text": ',
+         "--json は答え無しに進める仕事が無いことを stop のキーで出す"),
     Case("domain-separation", ("domain-separation",), 2, "2 ラウンド連続の残存＝stuck）のに問いの台帳に無い: R2",
          "unit の key が R の名前と同じでも、別の域の問いはそのユニットを指したことにならない"),
     Case("q-new-r1-carried", ("q-new-r1-carried",), 2, "台帳の未決の問いが前ラウンドから変わったのに R1 が carried_over",

@@ -12,6 +12,8 @@
 | 0 | 2 ラウンド続けて阻害なしなら exit 0 | 連続 2 ラウンド | hist | test_review_record.py::test_validator[hist-two-rounds] |
 | 0 | 阻害なしを収束と名乗らない | これは収束の宣言ではない | hist | test_review_record.py::test_validator[hist-not-convergence] |
 | 0 | 持ち越しは実際に見たラウンドと古さを見せる | 素材 prior_decisions: round 1 の判定を流用（2 ラウンド前） | hist | test_review_record.py::test_validator[hist-carry-age] |
+| 0 | --json は exit 0 で stop が null | "exit": 0, "stop": null, "text": " | --json hist | test_review_record.py::test_validator[hist-json] |
+| 1 | --json は仕事が残る周で stop が null、人向けの文は text に入れる | "exit": 1, "stop": null, "text": " | --json tmpl-1 | test_review_record.py::test_validator[tmpl-1-json] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-material | 素材 'hygiene' の返答が無い | drop-material | test_review_record.py::test_validator[drop-material] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-defer-reason | defer に構造的理由が無い | drop-defer-reason | test_review_record.py::test_validator[drop-defer-reason] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-base | 必須のフィールド 'base' が無い | drop-base | test_review_record.py::test_validator[drop-base] |
@@ -43,6 +45,7 @@
 | 2 | 不正な記録は 1 と区別して落ちる: bad-scalars-type | 'scalars' が object でない | bad-scalars-type | test_review_record.py::test_validator[bad-scalars-type] |
 | 2 | 不正な記録は 1 と区別して落ちる: null-scalars | 'scalars' が object でない | null-scalars | test_review_record.py::test_validator[null-scalars] |
 | 2 | 不正な記録は 1 と区別して落ちる: unhashable-status | 想定外の例外（TypeError） | unhashable-status | test_review_record.py::test_validator[unhashable-status] |
+| 2 | --json は不正な記録でも exit 2 と stop null の JSON を出す | "exit": 2, "stop": null, "text":  | --json drop-base | test_review_record.py::test_validator[drop-base-json] |
 | 2 | 前ラウンドの key が unhashable でも 1 と区別して落ちる | 想定外の例外（TypeError） | unhashable-key | test_review_record.py::test_validator[unhashable-key] |
 | 2 | 初回ラウンドに持ち越しは書けない | 今ラウンド（1）より前でない | r1-carry | test_review_record.py::test_validator[r1-carry] |
 | 2 | 前ラウンドとの突合: carry-chain-broken | 持ち越しが連鎖していない | carry-chain-broken | test_review_record.py::test_validator[carry-chain-broken] |
@@ -115,6 +118,8 @@
 | 1 | do-now の行は [block] と別の見出しで出る | [suggest] do-now 未対応 | tmpl-1 | test_review_record.py::test_validator[tmpl-1-do-now-heading] |
 | 1 | depends に挙げたユニットの阻害も問いに帰属する | 残る阻害要因は保留の問いに帰属するものだけ（2 件） | q-depends | test_review_record.py::test_validator[q-depends] |
 | 1 | premise の escalate は他の阻害の帰属を問わず「聞く時」 | 前提不成立が確定（escalate） | q-premise-escalate | test_review_record.py::test_validator[q-premise-escalate] |
+| 1 | --json は前提不成立の確定を stop のキーで出す | "exit": 1, "stop": "premise_escalate", "text":  | --json q-premise-escalate | test_review_record.py::test_validator[q-premise-escalate-json] |
+| 1 | --json は答え無しに進める仕事が無いことを stop のキーで出す | "exit": 1, "stop": "work_exhausted", "text":  | --json q-depends | test_review_record.py::test_validator[q-depends-json] |
 | 2 | unit の key が R の名前と同じでも、別の域の問いはそのユニットを指したことにならない | 2 ラウンド連続の残存＝stuck）のに問いの台帳に無い: R2 | domain-separation | test_review_record.py::test_validator[domain-separation] |
 | 2 | 問いが載った周に R1 を持ち越した記録は不正 | 台帳の未決の問いが前ラウンドから変わったのに R1 が carried_over | q-new-r1-carried | test_review_record.py::test_validator[q-new-r1-carried] |
 | 2 | 同じ key のまま中身を総取り替えした周も、R1 を持ち越せない | 台帳の未決の問いが前ラウンドから変わったのに R1 が carried_over | q-swap-r1-carried | test_review_record.py::test_validator[q-swap-r1-carried] |

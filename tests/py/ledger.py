@@ -42,6 +42,9 @@ def args_of(argv):
         raise SystemExit(f"台本のセクションの検査が検証器を \"$PY_BIN\" \"$RECORD\" で起動していない: {argv}")
     out = []
     for a in argv[2:]:
+        if a == "--json":   # 検証器の旗はそのまま写す（記録の置き場でない）
+            out.append(a)
+            continue
         for mark, to in (("@WORK@/", ""), ("@ROOT@/", "repo:")):
             if a.startswith(mark):
                 out.append(to + a[len(mark):])
