@@ -1,6 +1,6 @@
 # review-graph（graphloops）の残タスク
 
-graphloops の review-graph（`graphs/review-loop.json` を engine で回すレビューループ）について、まだ片づいていない作業の一覧。
+graphloops の review-graph（`graphs/review-loop.json` を engine で回すレビューループ）について、まだ片づいていない作業の一覧。続きの作業を拾う人が、どれが残っていてどこまで進んだかを知り、次に手を付ける物を選ぶための控え（各節の見出しの括弧に今の状態を書く）。
 散文版の `/review-loop`（convergence-loops）の話ではない（検証器 `scripts/review-record.py` と REVIEW.md は両方が共有するので、
 そこに触るタスクは姉妹プラグインにも効く——各タスクに書く）。
 
@@ -278,7 +278,7 @@ false_positive_if）で `loop.py patch process.procedure_findings` に置いた�
 （この節の語: run は review-graph を 1 回起こして閉じるまで、周はその中のレビューと修正の 1 巡。P1 は差分を多くの役で読む
 素材集めの段、P2 は判定役（judge の役）が素材から直す物を決める判定の段。graph は節と線を書いた `graphs/review-loop.json`、
 cond は節を起こすかの条件、rules はループの算術を書いた `rules/review-loop.py`、`process.request_findings` などは run の記録の欄。
-REVIEW.md はレビューの共通規約〔convergence-loops/REVIEW.md〕。5 周目は上で依頼 4 件を仮の手当て〔入口が無いので手順トレースの欄を借りた渡し方〕で試した周。）
+REVIEW.md はレビューの共通規約〔convergence-loops/REVIEW.md〕。5 周目は上で依頼 4 件を仮の手当て〔入口が無いので、手順トレース（手順書・スクリプト・CI の欠陥を挙げる観点。REVIEW.md の「手順トレース観点」）の素材の欄 `process.procedure_findings` に依頼を `patch` で書き込んで渡した形〕で試した周。）
 
 **入口を作るなら（入口を足す前に書いた案。足した形は下の「足した入口」）。** 判定から始める run（P1 を飛ばし、人の依頼を判定の素材として渡す）を足す。依頼は既存の
 findings の型で受け、出どころ（人の依頼）を欄で持たせる。使い分けの線（どの依頼を判定から入れ、どれを直接直すか）は REVIEW.md「処方の最小性」の

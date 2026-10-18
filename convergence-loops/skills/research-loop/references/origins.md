@@ -35,3 +35,7 @@
 | 型への還流 | AAR（米陸軍の事後検証）／かいぜん・ふりかえり |
 | 厚みの統治（降格は依頼者のみ・昇格は自由） | graded approach（原子力 ── 安全重要度に応じた等級の**事前定義**）／職務分離（作業者に自分の検査水準を決めさせない）／フェイルセーフ既定 |
 | 確認ラウンドの抜き取り検査 | 受入抜き取り検査（AQL・MIL-STD-105 系）／test-retest 信頼性 |
+
+## 引いた公式文書の原文
+
+本文の「役割分担」が「道具を持たない役にも CLAUDE.md 階層が注入される」の根拠に引く公式文書（code.claude.com/docs/en/sub-agents、2026-09-12 取得）の原文: 『Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.』

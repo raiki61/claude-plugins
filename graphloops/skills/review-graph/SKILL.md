@@ -13,17 +13,17 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 - **engine**（このプラグインの `scripts/loop.py`）—— グラフを読んで盤面を持つ機械。どの節が終わったか・同時に走らせてよい組・各節に渡してよいもの（グラフの `reads` の宣言に無いものはプロンプトに貼らない）・作業ツリーの前後突合・走らせなかった素材の欄・R1/R2 の再発火・周の記録の組み立て・検証器の 3 分岐の読み取り・周の上限
 - **rules**（このプラグインの `rules/review-loop.py`）—— グラフに書けない算術。記録の欄と語彙は検証器の定数を写さず import する
 
-この手順書は、あなたが engine をどう呼ぶかだけを書く。このプラグインの置き場（この SKILL.md があるフォルダの 2 つ上）は `${CLAUDE_PLUGIN_ROOT}` である（ここはスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパスに読み替えて打て。
+この手順書は、あなたが engine をどう呼ぶかだけを書く。このプラグインの置き場（この SKILL.md があるフォルダの 2 つ上）は `${CLAUDE_PLUGIN_ROOT}` である（ここはスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、この SKILL.md の 2 つ上のフォルダ）に読み替えて打て。
 
-旗の無い `init` は**回し役の要らない回し方**になる（下の「[早見](#早見)」）: writer の節（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill の節も engine が `claude -p` の子として起こし、背景の線〔変異の検算〕も回し手が立てる。あなたは起動・`run` の打ち直し・人の関所への答えと、人に渡った節（`run` の終了コード 14）の手当てだけをする（終了コード 13 は engine の不具合）。`init --no-engine-runners` の run は今までどおり**会話で回す**（人の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（節のこなし方は [references/conversation-run.md](references/conversation-run.md)）。どちらの run でも、**ラベル確定・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
+旗の無い `init` は**回し役（節を自分でこなす会話）の要らない回し方**になる（下の「[早見](#早見)」）: writer の節（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill の節も engine が `claude -p` の子として起こし、背景の線（周と並べて走らせる変異の検算）も回し手（`run` が背景に立てる engine のプロセス）が立てる。あなたは起動・`run` の打ち直し・人の関所への答えと、人に渡った節（`run` の終了コード 14）の手当てだけをする（終了コード 13 は engine の不具合）。`init --no-engine-runners` の run は今までどおり**会話で回す**（持ち主の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（節のこなし方は [references/conversation-run.md](references/conversation-run.md)）。どちらの run でも、**ラベル確定（指摘を阻害とするかの判定）・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
 
-役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。定義が道具の一覧を持たない役（`pr-review-toolkit:comment-analyzer`）も、graph の `launch.tooled.narrow` の値で読むだけ（Read・Glob・Grep と読むだけの Bash）に狭めて engine が起こす。engine が起こせない役だけ、`agent_type` をそのまま Agent の `subagent_type` に渡す。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
+役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type` をそのまま Agent の `subagent_type` に渡す。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
 
 ## 早見
 
 回し役なしの run（旗の無い `init`）の会話の手番はこれで足りる——手番の手引きはここ 1 か所で、値の表の正本は engine の `runner.CODES`・`HOW`。細部は下の「場面ごとに読むファイル」の別ファイルに在る。
 
-1. `init` する（要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[references/judgment-entry.md](references/judgment-entry.md)）。run の間ずっと省く optional の節（engine が走らせる CI の節など）は、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手は節が出た瞬間に起こすので、出た後の `skip` では間に合わない。CI の節を省いた run は、収束の手前で CI の問いを 1 度だけ人に聞き、答えた後は聞き直さずに、残る阻害が CI 未確認だけの周で止まる（盤面の `stop_reason` が `ci_unverified_stopped`）——省けば回り切るわけではない。
+1. `init` する（要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[references/judgment-entry.md](references/judgment-entry.md)）。run の間ずっと省く optional の節（engine が走らせる CI の節など）は、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手は節が出た瞬間に起こすので、出た後の `skip` では間に合わない。CI の節を省いた run の止まり方は [references/rules.md](references/rules.md)——省けば回り切るわけではない。
 2. `loop.py run --dir <DIR>` を前景で打ち（540 秒で必ず戻る。完了の知らせに頼らない。端末・CI・台本なら `run --foreground` が止まるまで戻らない）、終了コードで次の手を決める:
    - **20**: 何もせずにもう一度 `run`
    - **13**: engine の不具合（盤面の矛盾——engine が子を起こす命令の語も、起こせない理由も持たない節）。記録器に残る。`handoff` の各行を、その行の `handoff_why` のとおりにこなし（返答は別のファイルに書いて `done --node <id> --output <file>`）、もう一度 `run`。前の版の engine で始めた盤面と `--no-engine-runners` の run では、今までどおり会話がこなす節で 13 が返る（[references/runnerless.md](references/runnerless.md)）
