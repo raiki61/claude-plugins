@@ -2,7 +2,7 @@
 
 ## 役の起こし方
 
-役割 agent は convergence-loops に同梱の `agents/*.md` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type`（`convergence-loops:investigator` のような値）をそのまま Agent の `subagent_type` に渡す（[references/nodes.md](references/nodes.md) の「`launch` を持たない agent」）。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
+役割 agent は convergence-loops に同梱の `agents/*.md` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type`（`convergence-loops:investigator` のような値）をそのまま Agent の `subagent_type` に渡す（下の「`launch` を持たない agent」）。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
 
 手順の 2（回す）の続き。
 
