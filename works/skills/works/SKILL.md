@@ -12,17 +12,17 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 
 ## 先に守ること（踏むと壊れる所）
 
-- **人が決める関所（修正の前の関所と最後の関所）は、あなた（/works を回す Claude）が自分で通さない。** 必ず依頼者に聞き、依頼者の言葉をそのまま一言にして、答えた者の名を最後に付けて `answer` を打つ（答えた者が空だと殻が拒む）。
+- **人が決める関所（修正の前の関所と最後の関所）は、あなた（/works を回す Claude）が自分で通さない。** 必ず依頼者に聞き、依頼者の言葉をそのまま一言にして、答えた者（決めた依頼者）の名を最後に付けて `answer` を打つ（答えた者が空だと殻が拒む）。起動の関所は人が決める関所ではなく、下の `approve` の行であなたが越えてよい。
 - 依頼の `text` には問題と目的を書き、解き方は書かない（考えが在れば「案（工場が定石と比べて疑う）: …」と分けて添える）。
 - `--pr`・`--base` は変更の全体の審査を足し、費用が増える。依頼の指摘を直したいだけなら付けない。
 - 対象に remote の `origin` が無いと起動できない。あなたは自分で remote を足さず、預ける先の URL か手元の裸のリポジトリかを依頼者に決めてもらう。
 - `WORKS_USE_ALLOW_TESTCMD=1`（手元を走らせる形の test_cmd を通す）・`WORKS_USE_ALLOW_DELETE=1`（ファイルを消す差分を当てる）・`WORKS_USE_ALLOW_STOPPED=1`（止めた run の差分を当てる）は、依頼者が決めた時だけ前に付ける（自分で付けない）。
 - `approve`・`answer`・関所で待つ run の `stop` はすぐ戻る。成否は `wait` を前景で打って見る。
-- 関所の問いの「測り方」の命令は AI の役が書いた物なので、打つ前に読み、読み取りだけの測りの時だけ打つ。
+- 関所の全文の問いに載る「測り方」の命令は AI の役が書いた物なので、打つ前に読み、読み取りだけの測りの時だけ打つ。
 
 ## 命令
 
-下の `use.sh`・`stop.sh`・`report.sh` のパスは、Claude Code がこのスキルを読む時に、入れたプラグインの置き場の絶対パス（`~/.claude/plugins/cache/raiki61/works/<版>/` の形。設定の置き場を変えていればその下）へ置き換えてある。元の文はプラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT で、Bash の環境変数には無い。手で打つ時は、その置き場のパスで打つ。別ファイルの命令の頭の `<works の置き場>` も、この置き場（下の `use.sh` の行の `/dev/` の手前）で読み替えて打つ。
+下の `${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのスキルを読む時に、入れたプラグインの置き場の絶対パス（`~/.claude/plugins/cache/raiki61/works/<版>/` の形。設定の置き場を変えていればその下）へ置き換える字で、Bash の環境変数には無い。字のまま見えた時や手で打つ時は、その置き場のパスで打つ。別ファイルの命令の頭の `<works の置き場>` も、この置き場（下の `use.sh` の行の `/dev/` の手前）で読み替えて打つ。
 
 ```
 claude plugin marketplace add anthropics/claude-plugins-official   # 登録済みなら要らない
@@ -34,13 +34,13 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" answer <対象リポジトリ> <run-id> co
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" wait <対象リポジトリの根> <run-id>
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" show <対象リポジトリの根> [<run-id か鎖の id>]
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" apply <対象リポジトリの根> <run-id か鎖の id>
-sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" clean <対象リポジトリの根> <run-id か鎖の id>
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" clean <対象リポジトリの根> <run-id か鎖の id>   # 取り込んだ後に worktree・控えを消す
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" stop <対象リポジトリ> <run-id> "<理由>"
 sh "${CLAUDE_PLUGIN_ROOT}/dev/stop.sh" <run-id> "<理由>"     # 走っている run の中に止め札を置く
 sh "${CLAUDE_PLUGIN_ROOT}/dev/report.sh" <run-id>          # 取り消した run の報告を盤面から組む
 ```
 
-起動の関所は `start` が出す「殻で進める」の行（`use.sh approve <対象リポジトリ> <run-id>`）で越える。打つ行は殻が出した物をそのまま使う（`show` でいつでも出し直せる）。
+起動の関所は `start` が出す「殻で進める」の行（`use.sh approve <対象リポジトリ> <run-id>`）で越える。`answer` の動詞は `continue` か `stop`。打つ行は殻が出した物をそのまま使う（`show` でいつでも出し直せる）。
 
 ## 場面ごとに読む別ファイル
 
@@ -52,9 +52,24 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/report.sh" <run-id>          # 取り消した run
 - run が終わって報告を読む時と、`apply`・`clean` を打つ時: [references/report.md](references/report.md)（`show` の出力・報告と次の依頼の下書き・結末の名・差分の当て方と止まる訳・片付け）
 - run を止める・取り消す・続ける時: [references/stop.md](references/stop.md)（止め札・取り消し・`abandon`・`resume`・止めた run の報告の組み方）
 
+## 語（別ファイルにも出る語）
+
+- darkfactory: works の生産ライン（線）。Archon（AI の工程を順に回す外の実行基盤）の上で動く。線は節（工程の 1 段）をつないだ物で、ブロック（`blk-*`）は節をまとめた部品。pack は線を Archon に読ませる一式。
+- run: 線を 1 回回した物で、run id で名指す。`--rounds` でつないだ何本かの run が鎖（1 本が 1 周）で、鎖の id で名指す。
+- 対象リポジトリ（の根）: 直したいリポジトリ。下のフォルダを渡しても、その git の最上位で回す。
+- 殻: 起動の殻 `dev/use.sh`。Archon を起こし、次に打つ行を出す。
+- 役: run の中で工程を受け持つ AI（判定の役・修正役・独立の目 R1〜R4 など）。
+- 関所: run が止まって答えを待つ所。起動 `launch`・修正の前 `policy-gate`・最後 `final-gate` の 3 つ。
+- 盤面: run の記録の置き場（関所の全文・`report.md`・`next-request.json`）。`show` が置き場を出す。
+- 利用の家（`<家>`）: 殻が pack・Archon の状態・差分・ログを置くフォルダ。`WORKS_USE_HOME`（既定 `~/.local/state/works/use-<対象の clone のパスの sha256 の頭 8 字>`）。`stop.sh`・`report.sh` は同じフォルダを `WORKS_DEV_HOME` で受ける。
+- 差分: run の直し。利用の家の `diffs/run-<id>.diff` に書かれ、`apply` で対象に当てる。直しは commit されない。
+- 止め札: 走っている run の盤面に置く「止めて」の印。次の境の節（止め札を見る節）で止まる。
+- 報告の冒頭 1・2・3: `report.md` の頭の節「1. 人が決めること」「2. 入口・段・決めた人」「3. 止めたか」。
+- 次の依頼の下書き: 盤面の `next-request.json`。`draft: true` と出どころ `source` の印の付いた行は、そのままでは依頼の入口が拒む。
+
 ## 依頼者に聞く・伝える時の書き方
 
-関所で聞く時も、報告を読んで結果を伝える時も同じ。聞く物を増やす決まりではなく、聞くと決まった時・伝える時の書き方で、自明な分かれ目は今どおり推しで決める。
+関所で聞く時も、報告を読んで結果を伝える時も同じ。聞く物を増やす決まりではなく、聞くと決まった時・伝える時の書き方で、自明な分かれ目は聞かずにあなたの推しで決める。
 
 - 依頼者はこの run も会話の前の文脈も見ていない前提で、初見で決められるように書く。決めてほしい事が在れば、それを最初に置く。
 - 決めてほしい事は 1 件ずつ、次の順に書く。
