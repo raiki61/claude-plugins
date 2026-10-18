@@ -40,11 +40,11 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
 ## 場面ごとに読むファイル
 
-この本文は始め方・回し方の手番と読むファイルだけを持つ。**場面に当たったら、そのファイルを読んでから手を動かせ。**
+このスキルの本文（この SKILL.md）は始め方・回し方の手番と読むファイルだけを持つ。**下の場面（`run` の終了コードが 13 や 10 で戻った・ループの外へ出る・人が止める・終わる など）に当たったら、そのファイルを読んでから手を動かせ。**
 
-このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は Bash の環境変数には無いので、この置き場に読み替えて打て。
+このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（スキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダの中にある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は Bash の環境変数には無いので、この置き場に読み替えて打て。
 
-- `run` の出力の中身・`next` で回すとき・`handoff` の節の種類ごとのこなし方（`launch` を持つ節・持たない agent・runner）・`done`: [references/nodes.md](references/nodes.md)
+- `run` の出力の中身・`next`（次に回せる節を出す命令）で回すとき・`handoff` の節の種類ごとのこなし方（`launch` を持つ節・持たない agent・runner）・`done`（節の返答を engine に返す命令）: [references/nodes.md](references/nodes.md)
 - 人に聞く番（`answer` と聞き方）・人が途中で止める・run の子の残り: [references/human.md](references/human.md)
 - 開いた問いを deep-research に回す・段を上げる・節を省く・終わり（報告）: [references/exits.md](references/exits.md)
 - 人の方針の文書・版を上げたとき・作業ツリーの突合・報告の言語: [references/rules.md](references/rules.md)

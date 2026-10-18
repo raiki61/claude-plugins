@@ -19,19 +19,19 @@ allowed-tools: Bash, Agent, Workflow, Read, Grep, Glob, WebSearch, WebFetch
 
 ## 段ごとに読むファイル
 
-この本文は段の順と読むファイルだけを持ち、手順の中身は持たない。**段に入るたびに、その段のファイルを読んでから手を動かせ。** 会話が圧縮されて前に読んだ手順が見えなくなったら、今いる段のファイルを読み直せ。
+この本文は段（P0〜P4 の工程）の順と読むファイルだけを持ち、手順の中身は持たない。**段に入るたびに、その段のファイルを読んでから手を動かせ。** 会話が圧縮されて前に読んだ手順が見えなくなったら、今いる段のファイルを読み直せ。
 
-このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である。別ファイルの命令やパスに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は Bash の環境変数には無いので、この置き場に読み替えて使え。
+このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（スキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダの中にある。別ファイルの命令やパスに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は Bash の環境変数には無いので、この置き場に読み替えて使え。
 
 1. 始める前に 1 度: [references/tools.md](references/tools.md)（役の起こし方と渡し方・計器の扱い・守備範囲の外・漏斗と並走の原理）と [references/tree.md](references/tree.md)（根本の木の節の欄・高さ・展開・刈り込み・手詰まりの手筋・提案の重さの 4 段）
-2. P0 範囲と厚みの固定: [references/p0-scope.md](references/p0-scope.md)（厚みの三段と昇格・降格、面積×レンズ、面積の分割、ドメイン地図、先行議論と死んだ試み、ホットスポット）
+2. P0 範囲と厚みの固定: [references/p0-scope.md](references/p0-scope.md)（厚みの三段〔軽量・標準・重厚。どこまで深く走査するか〕と昇格・降格、面積×レンズ、面積の分割、ドメイン地図、先行議論と死んだ試み、ホットスポット）
 3. P1 発見: [references/p1-discovery.md](references/p1-discovery.md)（計器、レンズ別の scout と指示、返答の突合、読解の盲点）
-4. P2 検証と刈り込み: [references/p2-verify.md](references/p2-verify.md)（判定の語彙、P2a 事実照合、P2b 敵対検証と `judge` の出動条件、増し掛け、回し直しの禁止）
+4. P2 検証と刈り込み: [references/p2-verify.md](references/p2-verify.md)（判定の語彙、P2a 事実照合、P2b 敵対検証と `judge`〔覆せない判定を下す上位の役〕の出動条件、増し掛け、回し直しの禁止）
 5. P3 木と一撃: [references/p3-tree.md](references/p3-tree.md)（節を張る・領域診断の突き合わせ・上への展開・一撃の計算・3 票・構成変更級）
-6. P4 ラウンドと飽和: [references/p4-saturation.md](references/p4-saturation.md)（2 ラウンド目以降の規律、飽和の三条件、抜き取り検査、cartographer、止める条件と暴走ガード）
-7. 重厚の段のとき（P1 と並走）: [references/heavy.md](references/heavy.md)（独立再導出と模範照合）
-8. 無人で走るとき: [references/unattended.md](references/unattended.md)（諮る事態の読み替え）
-9. 最終報告: [references/report.md](references/report.md)（段ごとの減免は p0-scope.md の厚みの三段の表に従うので読み直す。記録の検証、散文だけの義務、自己検査、cold-reader の報告ゲート、型への還流）
+6. P4 ラウンドと飽和: [references/p4-saturation.md](references/p4-saturation.md)（2 ラウンド目以降の規律、飽和の三条件、抜き取り検査、cartographer〔走査に要る観点を別に挙げ、被覆の欠けを突き合わせる役〕、止める条件と暴走ガード）
+7. 厚みが重厚のとき（P0 で決める。P1 と並走）: [references/heavy.md](references/heavy.md)（独立再導出と模範照合）
+8. 無人で走るとき: [references/unattended.md](references/unattended.md)（人に諮る〔確かめる〕事態の読み替え）
+9. 最終報告: [references/report.md](references/report.md)（段ごとの減免〔厚みに応じて省く手順〕は p0-scope.md の厚みの三段の表に従うので読み直す。記録の検証、散文だけの義務、自己検査、cold-reader の報告ゲート、型〔このループの手順〕への還流）
 10. 型の由来や限界を確かめたいとき: [references/origins.md](references/origins.md)
 
 1 ラウンド＝P1→P3 の 1 周。P4 の判定で次のラウンドか最終報告へ進む。
