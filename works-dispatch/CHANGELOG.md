@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.59.3] - 2026-10-18
+
 ### Fixed
 
 - 0.59.1 の項の文を書き直した（動きは変わらない）。薄字の見分けを使う 4 か所を、それぞれ何を打つ所かが分かる言い方にした。`company.restart-kept` が残っているかを確かめる命令（`git config --worktree --get company.restart-kept`）を書き足した。
