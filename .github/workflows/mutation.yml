@@ -1,18 +1,18 @@
 name: mutation
 
-# 変異の関門。人の方針（変異テスト）: 手元の機械では撃たず、この workflow だけで撃つ。pytest を中心にし、3 OS で撃ち、mutmut も載せる。
-# 起こすのは schedule（週 1 回の全腕）と workflow_dispatch（入力で腕の一覧・--auto の基点・--changed-since の基点を渡す）だけで、
-# push では起こさない——push のたびに test.yml の関門と同時実行の枠（Free: 全体 20・macOS 5。https://docs.github.com/en/actions/reference/limits）を
+# 変異のゲート。人の方針（変異テスト）: 手元の機械では撃たず、この workflow だけで撃つ。pytest を中心にし、3 OS で撃ち、mutmut も載せる。
+# 起動するのは schedule（週 1 回の全腕）と workflow_dispatch（入力で腕の一覧・--auto の基点・--changed-since の基点を渡す）だけで、
+# push では起動しない——push のたびに test.yml のゲートと同時実行の枠（Free: 全体 20・macOS 5。https://docs.github.com/en/actions/reference/limits）を
 # 奪い合わない（依頼 2026-09-28 の (4)。schedule・dispatch の回が test.yml と重なれば、枠を超えた job は待つ）。
 # 腕は OS ごとの job で組に分けて撃ち、OS ごとに組の報告を和の検算に通して 1 本にまとめる（mutation-report-<OS>。まとめる段の終了コードが
-# 関門。組と和の検算の正本は tests/mutate.py の --shard・--merge）。k と n は strategy.job-index・job-total から受ける（手で n を書かないので、
+# ゲート。組と和の検算の正本は tests/mutate.py の --shard・--merge）。k と n は strategy.job-index・job-total から受ける（手で n を書かないので、
 # 組の一覧と n が食い違わない）。組の数は ubuntu 5・windows 8・macOS 4（Windows が一番遅い。macOS は mutmut と合わせて 5、全部で 20）。
 # 組ごとの秒は未実測——効き目の報告（graphloops/tests/py/MIGRATION.md の「CI の組ごとの秒と CPU 時間」）で取って見直す。
 # 期限（timeout-minutes）は書かない（人の方針: 期限を足さない。土台の job の上限が効く）。
 # 週 1 回の全腕は、持ち越し（--reuse）が拾えない腕を拾う——ただし schedule は、60 日間リポジトリに活動が無いと GitHub が止め（public の
 # リポジトリ）、誰にも通知されない。戻すのは手で: gh workflow enable mutation.yml。止まっている間の取りこぼしは gh workflow run mutation.yml
 # （入力なし＝全腕）で拾う。
-# SKIP_ALLOW の値の正本は test.yml の matrix.include の skip_allow（pytest の柵 fence.py は許しに無い宣言つきの見送りを失敗に数える）。
+# SKIP_ALLOW の値の正本は test.yml の matrix.include の skip_allow（pytest のチェック fence.py は許しに無い宣言つきの見送りを失敗に数える）。
 # ここは workflow の頭の 1 つと、Windows の組の job の上書き 1 つ（env は狭い所の値が勝つ）。形の検査は graphloops/tests/py/test_mutate_shard.py。
 on:
   schedule:
@@ -24,7 +24,7 @@ on:
         required: false
         default: ""
       auto:
-        description: "--auto の基点の版（空なら差分から自動の腕を作らない。与えると cosmic-ray の撃ち比べも起こす）"
+        description: "--auto の基点の版（空なら差分から自動の腕を作らない。与えると cosmic-ray の撃ち比べも起動する）"
         required: false
         default: ""
       changed_since:
@@ -58,7 +58,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # tests/mutate.py の PYTEST（uv run --no-project --with pytest==… ）を起こす。無いと pytest の段が撃てない（no-test）まま台本だけで撃つ
+      # tests/mutate.py の PYTEST（uv run --no-project --with pytest==… ）を起動する。無いと pytest の段が撃てない（no-test）まま台本だけで撃つ
       # v8 から動くメジャーのタグ（@v10）は無い。完全な版で固定する（v10.1.0 から uv のダウンロードを astral-sh/versions のチェックサムで確かめる）
       - &setup_uv
         uses: astral-sh/setup-uv@v10.2.0
@@ -68,7 +68,7 @@ jobs:
       # 入力は env で受けて形を確かめてから配列で組む（${{ }} を run に直に展開しない——入力がそのままシェルの本文になる）
       - &shoot
         name: tests/mutate.py の組
-        # 組の赤（生き残り）は job を止めずに報告へ残し、関門の判定はまとめる job の 1 か所で行う（欠け・撃ち切っていない組はまとめる側の和の検算が赤にする）
+        # 組の赤（生き残り）は job を止めずに報告へ残し、ゲートの判定はまとめる job の 1 か所で行う（欠け・撃ち切っていない組はまとめる側の和の検算が赤にする）
         continue-on-error: true
         shell: bash
         env:
@@ -156,7 +156,7 @@ jobs:
         with:
           name: mutation-report-Linux
       - name: 写しの使い回しと腕ごとの作り直しの撃ち比べ
-        # まとめる段が赤でも撃ち比べる（関門の赤と使い回しの食い違いは別の事実）。腕の選び方と比べ方の正本は tests/mutate.py の
+        # まとめる段が赤でも撃ち比べる（ゲートの赤と使い回しの食い違いは別の事実）。腕の選び方と比べ方の正本は tests/mutate.py の
         # same_as_pick・same_as_diff。まとめた報告が無い・途中の版・使い回していない・和の検算が外れた回は、比べる意味が無いので赤
         if: always()
         shell: bash
@@ -169,12 +169,12 @@ jobs:
           path: fresh-report.json
 
   # pytest が覆うモジュールを差分に依らず丸ごと撃つ mutmut（設定は graphloops/setup.cfg）。生き残りの数で落とす形は作れない（文言だけの
-  # 変異が残る）ので、生き残りは結果を成果物に残して次の run への依頼として返し（graphloops/README.md の「Checks」節）、job は道具の失敗だけで
+  # 変異が残る）ので、生き残りは結果を成果物に残して次の run への依頼として返し（graphloops/README.md の「Checks」セクション）、job はツールの失敗だけで
   # 赤にする——mutmut 3.8.0 の mutmut/__main__.py の _run は、生き残りが在っても普通に戻り、exit(1) は変異の無いテストが赤（Failed to run
   # clean test）・強制の失敗の確かめ・設定の誤りのとき。
   # Linux と macOS の 2 OS だけ: mutmut は fork を前提にし、Windows では WSL の中でしか動かない（mutmut 3.8.0 の README
   # https://github.com/boxed/mutmut#readme の "Mutmut must be run on a system with `fork` support. This means that if you want to run on
-  # windows, you must run inside WSL."）。手書きの腕（上の組）は 3 OS で撃つ（人の関所 2026-09-28 の条件 6。親の推しで通した）
+  # windows, you must run inside WSL."）。手書きの腕（上の組）は 3 OS で撃つ（人のゲート 2026-09-28 の条件 6。親の推しで通した）
   mutmut:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -207,9 +207,9 @@ jobs:
   # cli.py・tools/filters/git.py で確かめた。timeout は設定の必須の鍵なので、人の方針の例外の 20 日を書く。
   # exec の前に baseline（変異の無い木でテストが緑か。赤なら 1 で抜ける——cli.py の baseline）を置く: 赤の木では全部の変異が殺したことに
   # なり、撃ち比べの結論が逆になる（公式の tutorials/intro）。報告は別の段で if: always() に書き、途中で落ちた回も cr.sqlite ごと残す。
-  # 網は test-command の 1 本（graphloops/tests/py）なので、対象はその網が読むファイル——graphloops/ の下と tests/mutate.py——に絞り、
-  # 外した対象は cosmic-ray-outside.txt に残す（網の届かない変異が生き残りに混ざると cosmic-ray が弱く見える）。絞るのはファイルの
-  # 粒度で、届くファイルの中の網が走らない行は cosmic-ray では生き残りに、--auto では NoCoverage に入る——比べるときはその偏りを読む
+  # テストは test-command の 1 本（graphloops/tests/py）なので、対象はそのテストが読むファイル——graphloops/ の下と tests/mutate.py——に絞り、
+  # 外した対象は cosmic-ray-outside.txt に残す（テストの届かない変異が生き残りに混ざると cosmic-ray が弱く見える）。絞るのはファイルの
+  # 粒度で、届くファイルの中のテストが走らない行は cosmic-ray では生き残りに、--auto では NoCoverage に入る——比べるときはその偏りを読む
   cosmic-ray:
     if: github.event_name == 'workflow_dispatch' && inputs.auto != ''
     runs-on: ubuntu-latest
@@ -229,7 +229,7 @@ jobs:
           reach='^(graphloops/|tests/mutate\.py$)'
           { grep -Ev "$reach" <<< "$targets" || true; } > cosmic-ray-outside.txt
           targets=$(grep -E "$reach" <<< "$targets" || true)
-          if [ -z "$targets" ]; then echo "網（graphloops/tests/py）の読む対象に差分が足した .py の行が無い——撃たない" > cosmic-ray-report.txt; exit 0; fi
+          if [ -z "$targets" ]; then echo "テスト（graphloops/tests/py）の読む対象に差分が足した .py の行が無い——撃たない" > cosmic-ray-report.txt; exit 0; fi
           mapfile -t mods <<< "$targets"
           python -m pip install cosmic-ray==8.7.0 pytest==9.1.1 pytest-xdist==3.8.0
           python - "$base" "${mods[@]}" > cr.toml <<'PY'

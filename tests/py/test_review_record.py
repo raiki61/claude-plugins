@@ -1,8 +1,8 @@
-"""記録の検証器 scripts/review-record.py の検査（tests/run.sh の review-record.py の節を同じプロセスへ移した物）。
+"""記録の検証器 scripts/review-record.py の検査（tests/run.sh の review-record.py のセクションを同じプロセスへ移した物）。
 
 - test_validator: 表（review_record_cases.CASES）の 1 行 = 台本の検査 1 件。検証器を runpy で __main__ として走らせるので、
   終了コードの契約の境界（__main__ の段の try/except。想定外の例外を exit 2 に倒す）まで同じプロセスで通る
-- test_validator_in_child: 表の where が smoke の行（再帰の深さが同じプロセスでは pytest の分だけ浅い）を子プロセスで起こし（cli）、
+- test_validator_in_child: 表の where が smoke の行（再帰の深さが同じプロセスでは pytest の分だけ浅い）を子プロセスで起動し（cli）、
   test_validator と同じ check() で終了コード・標準出力・標準エラーを検める
 - test_cli_smoke_*: 子プロセスでしか見えない物（終了コードそのもの・標準出力のバイト列の文字コード）だけを数件
 - test_ledger_*: 台帳（ledger.py）が台本の行を 1 件も落とさずに表へ対応づけ、行き先が集めたテストに在ること
@@ -39,7 +39,7 @@ def resolve(arg, work):
 def run_validator(args, monkeypatch, capsys):
     """検証器を __main__ として同じプロセスで走らせる ——（終了コード, 標準出力, 標準エラー）
 
-    record_common は sys.modules から外して毎回読み直させる（子プロセスで起こす台本と同じく、import の時の行も毎回通る）。
+    record_common は sys.modules から外して毎回読み直させる（子プロセスで起動する台本と同じく、import の時の行も毎回通る）。
     検証器が sys.path の先頭に足す scripts/ と argv は monkeypatch が戻す。
     """
     monkeypatch.setattr(sys, "argv", [str(VALIDATOR), *args])
@@ -81,7 +81,7 @@ def test_check_rejects_empty_want():
 
 
 def cli(*args, env=None):
-    """子プロセスで検証器を起こす。出力はバイトのまま受ける（文字コードを見る検査があるので、復号はテストの側でする）"""
+    """子プロセスで検証器を起動する。出力はバイトのまま受ける（文字コードを見る検査があるので、復号はテストの側でする）"""
     return subprocess.run([sys.executable, str(VALIDATOR), *args], capture_output=True,
                           env={**os.environ, **(env or {})})
 
@@ -156,7 +156,7 @@ def test_ledger_stray_catches(pairs, collected_ids, breaks):
 
 
 def test_ledger_dest_deselects_one(pairs):
-    """台帳の行き先を、赤の腕と同じ起こし方（cwd はリポジトリの根）で --deselect に渡すと、ちょうど 1 件外れる"""
+    """台帳の行き先を、赤の腕と同じ起動方法（cwd はリポジトリのルート）で --deselect に渡すと、ちょうど 1 件外れる"""
     got = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
                           "--deselect", pairs[0][1], str(HERE)], capture_output=True, cwd=REPO)
     assert got.returncode == 0, got

@@ -1,7 +1,7 @@
 """記録の検証器 review-record.py に渡す「壊した記録」を作る。作り方は tests/run.sh の write_broken_records の heredoc を読む。
 
 写しを持たないのは、新旧の検査が同じ入力を読むことを作りで縛るため（写しは食い違っても何も赤くならない）。
-区切りが引用付き（<<'PY'）なので本文は字のままの Python で、bash を通さずに起こせる。関数の形が変わったら、
+区切りが引用付き（<<'PY'）なので本文は字のままの Python で、bash を通さずに起動できる。関数の形が変わったら、
 黙って別の物を読まずに止める（ledger.py の SECTION と同じ流儀）。
 """
 import pathlib

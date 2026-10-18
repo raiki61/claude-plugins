@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""上位互換の証明（被覆の包含）: tests/run.sh の review-record.py の節が検証器の中で通した行が、この置き場
+"""上位互換の証明（被覆の包含）: tests/run.sh の review-record.py のセクションが検証器の中で通した行が、この置き場
 （python3 -m pytest tests/py）が通した行の和に含まれるかを coverage.py で測る。
 
 使い方: python3 tests/py/coverage_proof.py <置き場> [--coverage-from <coverage.py の在る置き場>] [--only-new] [-- <pytest に足す引数>…]
-- 旧い側は、台本の頭から節の終わりまでを本物の bash で回す（expect_output が "$@" を展開して検証器を起こす形も、冒頭の
+- 旧い側は、台本の頭からセクションの終わりまでを本物の bash で回す（expect_output が "$@" を展開して検証器を起動する形も、冒頭の
   unset PYTHONOPTIMIZE などの環境もそのまま）。台帳（ledger.py）の読み取りは使わない——使うと、台帳の突合が緑なら
   包含も作りの上で成り立ち、何も測らない。新しい側は pytest を回す。どちらも python の起動ごとに sitecustomize から
-  coverage.py を始め（COVERAGE_PROCESS_START）、子プロセス（台本の検査・煙テスト）も測る。旧い側は、この道具を動かす python を
+  coverage.py を始め（COVERAGE_PROCESS_START）、子プロセス（台本の検査・煙テスト）も測る。旧い側は、このツールを動かす python を
   PATH の先頭に置いて回し、台本が選ぶ python がそれと違えば止める（両側を同じ解釈系で測る）
-- --only-new: 旧い側を回し直さず、<置き場>/old の測りを使う（台本の節を手元で回すのは人が許した回数に限るため）。測った時の入力
-  （検証器・台本の節の終わりまで・templates/・python と coverage.py の版）のハッシュが今と違えば止める
+- --only-new: 旧い側を回し直さず、<置き場>/old の測りを使う（台本のセクションを手元で回すのは人が許した回数に限るため）。測った時の入力
+  （検証器・台本のセクションの終わりまで・templates/・python と coverage.py の版）のハッシュが今と違えば止める
 - -- の後の引数は、新しい側から検査を選び外すためだけに渡す（赤の腕）。pytest の要約に「N deselected」が無ければ止める
-- 撃つのは CI の手で起こす job（.github/workflows/cover-moved.yml の段 root cover）。engine の子の中では tests/run.sh の入口が撃ちを拒む
-- 終了: 0 = 含まれる / 1 = はみ出た行がある（行と、それを通した台本の検査の引数を出す）/ 2 = 空振りか道具の不備
-  （どちらかの側が赤・測った行が 0・台本が実際に起こした引数の集合が台帳の読み取りと違う・何も選び外していない・旧い側の測りの
+- 撃つのは CI の手で起動する job（.github/workflows/cover-moved.yml の段 root cover）。engine の子の中では tests/run.sh の入口が撃ちを拒む
+- 終了: 0 = 含まれる / 1 = はみ出た行がある（行と、それを通した台本の検査の引数を出す）/ 2 = 空振りかツールの不備
+  （どちらかの側が赤・測った行が 0・台本が実際に起動した引数の集合が台帳の読み取りと違う・何も選び外していない・旧い側の測りの
   版違い・想定外の例外）
 """
 import argparse
@@ -32,7 +32,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 TARGETS = [REPO / "convergence-loops" / "scripts" / "review-record.py", REPO / "convergence-loops" / "scripts" / "record_common.py"]
 # 先に sys.path の後ろの sitecustomize を走らせる（Homebrew の python はそれで site-packages を足す。覆うと pytest が消える）。
-# 検証器の起動だけに、読む記録の引数で文脈の名前を付ける（台帳の Row.args と同じ形: <work> の下は素の名前・根の下は repo:）
+# 検証器の起動だけに、読む記録の引数で文脈の名前を付ける（台帳の Row.args と同じ形: <work> の下は素の名前・ルートの下は repo:）
 SITE = r'''import importlib.machinery, importlib.util, os, sys
 _here = os.path.dirname(os.path.abspath(__file__))
 _next = importlib.machinery.PathFinder.find_spec(
@@ -88,10 +88,10 @@ def inputs_digest(root, extra):
 
 def run_old(out, env):
     env = {**env, "PATH": os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])}
-    # 台本は PATH の python3（無ければ python）で検証器を起こす
+    # 台本は PATH の python3（無ければ python）で検証器を起動する
     picked = shutil.which("python3", path=env["PATH"]) or shutil.which("python", path=env["PATH"])
     if not picked or not os.path.samefile(picked, sys.executable):
-        stop(f"台本が選ぶ python（{picked}）がこの道具を動かす {sys.executable} と違う——両側を同じ解釈系で測れない")
+        stop(f"台本が選ぶ python（{picked}）がこのツールを動かす {sys.executable} と違う——両側を同じ解釈系で測れない")
     lines = (REPO / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
     a, b = ledger.bounds(lines)
     text = [*lines[:a], 'export COVPROOF_WORK="$WORK" COVPROOF_ROOT="$ROOT"', *lines[a:b], 'exit "$fail"', ""]
@@ -112,7 +112,7 @@ def deselected(pytest_args, summary):
     m = re.search(r"(\d+) deselected", summary)
     n = int(m.group(1)) if m else 0
     if pytest_args and not n:
-        stop(f"-- の後の引数 {pytest_args} で新しい側から何も選び外していない（node id は tests/py を根に書く）: {summary[-2000:]}")
+        stop(f"-- の後の引数 {pytest_args} で新しい側から何も選び外していない（node id は tests/py をルートに書く）: {summary[-2000:]}")
     return n
 
 
@@ -165,7 +165,7 @@ def main():
         got = run_old(out, env_for(out, "old", a.coverage_from))
         (out / "old.log").write_bytes(got.stdout + got.stderr)
         if got.returncode != 0:
-            stop(f"旧い側（台本の節）が赤で終わった（終了 {got.returncode}）——包含を言える状態でない", got)
+            stop(f"旧い側（台本のセクション）が赤で終わった（終了 {got.returncode}）——包含を言える状態でない", got)
         mark.write_text(digest, encoding="utf-8")
     got = run_new(env_for(out, "new", a.coverage_from), a.pytest_args)
     (out / "new.log").write_bytes(got.stdout + got.stderr)
@@ -181,7 +181,7 @@ def judge(old, new, want):
     """旧い側の行が新しい側の行に含まれるかを出し、はみ出た行の数を返す（want は台帳が読んだ検証器の引数の文脈の集合）"""
     seen = {c.split("|", 1)[1] for c in old.measured_contexts() if "|argv:" in c}
     if seen != want:
-        stop(f"台本が実際に起こした引数の集合が台帳の読み取りと違う——台本にだけ在る: {sorted(seen - want)} / "
+        stop(f"台本が実際に起動した引数の集合が台帳の読み取りと違う——台本にだけ在る: {sorted(seen - want)} / "
              f"台帳にだけ在る: {sorted(want - seen)}")
     print(f"旧い側の検証器の起動の引数 {len(seen)} 通り（台帳と一致）")
     excess = 0

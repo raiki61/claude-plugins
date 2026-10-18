@@ -415,7 +415,7 @@ class PrBalls(unittest.TestCase):
         self.assertEqual(t(["レビュー"], 1, True), 3)
         self.assertEqual(t(["レビュー"], 2, True), 3)
         self.assertEqual(t(["再依頼"], 1, True), 3)
-        # 相手にも返す番が残っているなら、その人が全部片づけても PR は終わらない
+        # 相手にも返すターンが残っているなら、その人が全部片づけても PR は終わらない
         self.assertEqual(t(["再確認 2 件"], 1, False, True), 1)
         self.assertEqual(t(["スレッド返答 1 件"], 1, False, True), 1)
         # 渡していない PR は誰も待っていないが、動かせるのは本人だけ。相手待ちより上
@@ -510,7 +510,7 @@ class WaitingOnOthers(unittest.TestCase):
         rows = flow.merge_rows(flow.pr_balls(p))
         self.assertEqual(rows["alice"][0], ["再依頼"])
         self.assertTrue(flow.waiting_on_others(p, "alice", rows["alice"][0]))
-        # 同じ PR でも、確認する番のスレッドを持つ側は待っていない
+        # 同じ PR でも、確認するターンのスレッドを持つ側は待っていない
         self.assertFalse(flow.waiting_on_others(p, "bob", rows["bob"][0]))
 
     def test_reviewer_who_asked_a_question_is_waiting(self):
@@ -533,13 +533,13 @@ class WaitingOnOthers(unittest.TestCase):
         self.assertFalse(flow.waiting_on_others(p, "alice", kinds))
 
     def test_authors_unrelated_comment_does_not_take_back_the_ball(self):
-        """自分が立てたスレッドに作者が未返信なら、作者が別件で喋っても作者の番"""
+        """自分が立てたスレッドに作者が未返信なら、作者が別件で喋っても作者のターン"""
         p = pr(
             reviewThreads=conn(thread(comment(user("bob"), T1, "ここが変"))),
             comments=conn(comment(user("alice"), T3, "別件のメモです")),
         )
         self.assertTrue(flow.waiting_on_others(p, "bob", ["レビュー"]))
-        # 作者の側は逆で、返す番があるので相手待ちではない
+        # 作者の側は逆で、返すターンがあるので相手待ちではない
         self.assertFalse(flow.waiting_on_others(p, "alice", ["スレッド返答 1 件"]))
 
     def test_reviewer_who_has_not_spoken_is_not_waiting(self):
@@ -670,7 +670,7 @@ class PrFacts(unittest.TestCase):
     def test_silence_names_who_owes_a_turn_not_who_spoke_last(self):
         """通りすがりに発言した人を催促の宛先にすると、実際に止めている相手が隠れる"""
         p = pr(
-            # alice が返す番のスレッド。alice の最後の発言は T1 で、その後に carol が通りすがる
+            # alice が返すターンのスレッド。alice の最後の発言は T1 で、その後に carol が通りすがる
             reviewThreads=conn(
                 thread(
                     comment(user("bob"), T0),
@@ -809,7 +809,7 @@ class Pending(unittest.TestCase):
     def test_pending_does_not_hand_the_ball_to_the_other_side(self):
         p = self.draft()
         flow.drop_pending(p)
-        # 下書きは carol の指摘を隠さない。作者が答える番のままで、bob には移らない
+        # 下書きは carol の指摘を隠さない。作者が答えるターンのままで、bob には移らない
         self.assertEqual(
             [c["body"] for _, c in flow.turn_threads(p, "alice")], ["送信済みの指摘"]
         )
@@ -903,12 +903,12 @@ class UnverifiedReplies(unittest.TestCase):
         )
 
     def test_a_call_with_no_reply_is_not_counted(self):
-        """それは呼びかけの節が拾う。ここは『返したことになっている』分だけ"""
+        """それは呼びかけのセクションが拾う。ここは『返したことになっている』分だけ"""
         p = pr(comments=conn(comment(user("bob"), T1, "@alice ここどうしますか")))
         self.assertEqual(flow.unverified_replies(p, "alice"), [])
 
     def test_thread_comments_are_not_counted(self):
-        """スレッドは返信が紐づくので機械が誰の番か決められる"""
+        """スレッドは返信が紐づくので機械が誰のターンか決められる"""
         p = pr(
             reviewThreads=conn(
                 thread(
@@ -934,7 +934,7 @@ class TurnThreads(unittest.TestCase):
             comment(user("bob"), T1), comment(user("alice"), T2), resolved=True
         )
         p = pr(reviewThreads=conn(answered, unanswered_t, own, done))
-        # 相手が答えたスレッドは立てた人が再確認する番、答えていないスレッドは作者の番
+        # 相手が答えたスレッドは立てた人が再確認するターン、答えていないスレッドは作者のターン
         self.assertEqual(
             [(t["path"], c["body"]) for t, c in flow.turn_threads(p, "bob")],
             [("a.py", "d151bbee で直しました")],
@@ -950,7 +950,7 @@ class TurnThreads(unittest.TestCase):
         self.assertEqual(flow.turn_threads(p, "bob"), [])
 
     def test_a_second_reviewer_adds_a_turn_instead_of_taking_one(self):
-        """レビュアーが 2 人入ると番は 2 人に載る。1 人に潰すと、潰した側の指摘が黙って落ちる"""
+        """レビュアーが 2 人入るとターンは 2 人に載る。1 人に潰すと、潰した側の指摘が黙って落ちる"""
         p = pr(
             reviewThreads=conn(
                 thread(
@@ -960,12 +960,12 @@ class TurnThreads(unittest.TestCase):
                 )
             )
         )
-        # bob は作者の修正を再確認する番。carol の発言では消えない
+        # bob は作者の修正を再確認するターン。carol の発言では消えない
         self.assertEqual(
             [c["body"] for _, c in flow.turn_threads(p, "bob")],
             ["d151bbee で直しました"],
         )
-        # 作者は carol に答える番。渡る材料は bob の指摘ではなく carol の発言
+        # 作者は carol に答えるターン。渡る材料は bob の指摘ではなく carol の発言
         self.assertEqual(
             [c["body"] for _, c in flow.turn_threads(p, "alice")],
             ["別ケースだと戻りませんか"],
@@ -983,12 +983,12 @@ class TurnThreads(unittest.TestCase):
                 ("carol", "返答待ち 1 件", T2),
             ],
         )
-        # 再確認する番の bob は今日動ける。答えを待っている carol は作者待ち
+        # 再確認するターンの bob は今日動ける。答えを待っている carol は作者待ち
         self.assertFalse(flow.waiting_on_others(p, "bob", ["再確認 1 件"]))
         self.assertTrue(flow.waiting_on_others(p, "carol", ["返答待ち 1 件"]))
 
     def test_a_third_party_does_not_take_over_the_original_turn(self):
-        """相槌でも番は増えるだけ。立てた人の再確認が消えて材料が相槌に化けてはいけない"""
+        """相槌でもターンは増えるだけ。立てた人の再確認が消えて材料が相槌に化けてはいけない"""
         p = pr(
             reviewThreads=conn(
                 thread(
@@ -1291,7 +1291,7 @@ def report(*prs, issues=(), who="bob", args=()):
 
 
 class Buckets(unittest.TestCase):
-    """報告は段を出さず「自分の番 / 相手の番」の 2 節に分ける。段は並びの鍵としてだけ残る。"""
+    """報告は段を出さず「自分の番 / 相手の番」の 2 つのセクションに分ける。段は並びの鍵としてだけ残る。"""
 
     def render(self, *prs, who="bob", args=()):
         return report(*prs, who=who, args=args)
@@ -1311,7 +1311,7 @@ class Buckets(unittest.TestCase):
                 thread(comment(user("bob"), T2)),
             )
         )
-        # 相手にも返す番があっても、自分の分は今日できる。待ちには落とさない
+        # 相手にも返すターンがあっても、自分の分は今日できる。待ちには落とさない
         for who in ("bob", "alice"):
             self.assertEqual(self.bucket(self.render(p, who=who)), "自分の番", who)
 
@@ -1454,7 +1454,7 @@ class Links(unittest.TestCase):
     def test_pr_rows_carry_the_url_right_under_the_number(self):
         mine = pr(number=1, reviewRequests=requests(user("bob")))
         theirs = pr(number=2, reviewThreads=conn(thread(comment(user("bob"), T2))))
-        # bob には #1 が自分の番、#2 が相手の番。どちらの節でも番号の次の行が URL
+        # bob には #1 が自分の番、#2 が相手の番。どちらのセクションでも番号の次の行が URL
         lines = self.render(prs=[mine, theirs], who="bob")
         self.assertEqual(
             self.line_after(lines, "  #1 "), "    https://example.invalid/pull/1"
@@ -1482,7 +1482,7 @@ class Links(unittest.TestCase):
         )
 
 class Json(unittest.TestCase):
-    """--json は「自分の番」の節と同じ集合・同じ順を、機械が読む形で出す（works の dispatch が読む）"""
+    """--json は「自分の番」のセクションと同じ集合・同じ順を、機械が読む形で出す（works の dispatch が読む）"""
 
     def test_json_lists_my_turn_prs_with_head_and_role(self):
         mine = pr(number=7, title="直す", headRefName="feat/7", author={"login": "bob"}, isDraft=True)

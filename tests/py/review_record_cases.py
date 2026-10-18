@@ -1,8 +1,8 @@
 """記録の検証器 scripts/review-record.py の検査の表（期待は手で書く。検証器を走らせた出力から作らない）。
 
-1 行が tests/run.sh の review-record.py の節の ok 行 1 件に当たる。欄:
+1 行が tests/run.sh の review-record.py のセクションの ok 行 1 件に当たる。フィールド:
 - id: pytest の id（行の並べ順に依らない名前。同じ記録を複数の行が読むときは、何を見るかの接尾辞を付ける）
-- args: 検証器に渡す引数。素の名前は壊した記録の置き場（broken_records.write_all の <work>）の下、repo: で始まる物はリポジトリの根の下
+- args: 検証器に渡す引数。素の名前は壊した記録の置き場（broken_records.write_all の <work>）の下、repo: で始まる物はリポジトリのルートの下
 - exit: 期待する終了コード（0 = 阻害なし / 1 = 阻害あり / 2 = 記録が不正）
 - want: 出力に在るべき文言（ANY は終了コードだけを見る）。exit 2 は標準エラー、0 と 1 は標準出力に在ることを求める
 - was: 台本の検査の説明文。台帳（ledger.py）が台本の行と ledger.Row（exit・want・was・args）の多重集合で突き合わせる
@@ -25,7 +25,7 @@ CASES = [
     Case("tmpl-1-fresh-mark", ("tmpl-1",), 1, "（今ラウンドに立った問い——再審は次の周）",
          "問いが立った周には帰属せず、印だけが付く"),
     Case("tmpl-12-grown-scalars", ("tmpl-12",), 1, "増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:\n  - scalar 'doc_lines': 120 → 135\n  - scalar 'comment_ratio_pct': 18 → 21\n持ち越し",
-         "増えた scalar だけを、増えた scalar の節に出す"),
+         "増えた scalar だけを、増えた scalar のセクションに出す"),
     Case("hist-two-rounds", ("hist",), 0, "連続 2 ラウンド",
          "2 ラウンド続けて阻害なしなら exit 0"),
     Case("hist-not-convergence", ("hist",), 0, "これは収束の宣言ではない",
@@ -295,9 +295,9 @@ CASES = [
     Case("badenc", ("badenc",), 2, "UTF-8 として読めない",
          "UTF-8 でない記録は「開けない」「JSON でない」と別の診断で落ちる"),
     Case("checked-false", ("checked-false",), 2, "が空（何を見たかを書け）",
-         "縮退値（false / [] / {}）で明示返答の欄を埋められない"),
+         "縮退値（false / [] / {}）で明示返答のフィールドを埋められない"),
     Case("checked-number", ("checked-number",), 2, "が空（何を見たかを書け）",
-         "文を要求する欄に数を書いても「埋まっている」にならない"),
+         "文を要求するフィールドに数を書いても「埋まっている」にならない"),
     Case("ledger-gap", ("ledger-gap",), 2, "reopen_evidence が無い",
          "1 ラウンド記録から落としても、台帳は全ラウンドの和なので再審を止める"),
     Case("hist-history", ("hist",), 0, "履歴（round 1〜3",

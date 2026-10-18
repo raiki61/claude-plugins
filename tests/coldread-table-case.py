@@ -124,7 +124,7 @@ WRAPPER_CASES = [
     ("timeout", "timeout -s KILL -k 5 180 gh issue comment 1 --body %s" % TEXT),
     ("gtimeout", "gtimeout --signal=TERM 2m gh issue comment 1 --body %s" % TEXT),
 ]
-# シェルの予約語 1 メンバー = ここ 1 行。( gh … ) は元から網に入るのに { gh …; } は抜ける、
+# シェルの予約語 1 メンバー = ここ 1 行。( gh … ) は元からゲートに掛かるのに { gh …; } は抜ける、
 # という「書き方だけで片方が抜ける」状態だったので、全メンバーを実際に発火させて突合する
 RESERVED_CASES = [
     ("{", "{ gh issue comment 1 --body %s; }" % TEXT),
@@ -161,7 +161,7 @@ QUIET = [
 ]
 
 # 本文ファイルの倒れ先を発火させる実物のファイル(一時フォルダに置き、終わりに消す)。コマンドに埋めるパスは / で区切る——
-# Windows の Bash の道具は Git Bash なので、C:\Users\… の \ は引用しないとシェルに落とされる(C:/Users/… は Git Bash でも読める)
+# Windows の Bash のツールは Git Bash なので、C:\Users\… の \ は引用しないとシェルに落とされる(C:/Users/… は Git Bash でも読める)
 _tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
 OK_FILE = pathlib.Path(_tmp.name, "ok.md").as_posix()
 BIG = pathlib.Path(_tmp.name, "big.md").as_posix()
@@ -277,14 +277,14 @@ for command, why in QUIET + [(c, str(k)) for k, c in NOT_BODY_CASES + NON_POSTIN
         failures.append("%s: 素通しのはずが反応した (bodies=%s blocked=%s)"
                         % (why, [len(b) for b in bodies], blocked))
 
-# graphql の mutation からは body: の欄の値だけを取り出す。丸ごと取り出すと body 以外のフィールドに
+# graphql の mutation からは body: のフィールドの値だけを取り出す。丸ごと取り出すと body 以外のフィールドに
 # 書かれた値(ID・トークン・設定値)まで読み役へ渡る。deny になるかどうかでは検出できないので、候補の中身を見る
 SECRET = "DB_PASSWORD=hunter2"
 MUTATION = ("gh api graphql -f query='mutation { u(input:{subjectId: \"\"\"%s%s\"\"\", "
             "body: \"\"\"%s\"\"\"}) }'" % (SECRET, PAD, BODY))
 mutation_candidates = gate.posting_bodies(MUTATION)[0]
 if any(SECRET in c for c in mutation_candidates) or not any(BODY in c for c in mutation_candidates):
-    failures.append("graphql mutation から body: の欄だけを取り出していない(非 body の値が読み役へ渡るか、本文を落とす) — %s"
+    failures.append("graphql mutation から body: のフィールドだけを取り出していない(非 body の値が読み役へ渡るか、本文を落とす) — %s"
                     % [c[:40] for c in mutation_candidates])
 
 # 倒れ先: 理由ごとに、その理由で実際に止まることを確かめる

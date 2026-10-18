@@ -3,11 +3,11 @@
 
 GitHub には触らない。PR の node は固定の材料（headRefName・headRepository・head の oid）で、git だけ本物。
 「読むより動かす」——guard（追跡の未コミットで止まる・別 worktree で止まる・ignored を上書きしない）は、
-git 自身が止めない状態で組んで、guard を消したら赤くなる形にする（枝で中身が違うファイルで汚すと、guard を
+git 自身が止めない状態で組んで、guard を消したら赤くなる形にする（ブランチで中身が違うファイルで汚すと、guard を
 消しても git が拒んで緑のまま＝恒真）。合否は行の文言だけでなく git の状態（branch --show-current・
 status --porcelain・for-each-ref）で見る。
 
-網の外: main の配線（fetch の後・render の前に呼ぶ、this と --switch 無しでは呼ばない、地図は移った後の
+テストの外: main の配線（fetch の後・render の前に呼ぶ、this と --switch 無しでは呼ばない、地図は移った後の
 HEAD で描く）。数行なのでレビューで読む。run.sh は --help に --switch が出ることだけ固定する。
 status-none（git status が読めない）は git を決定的に失敗させる方法が無いので、純関数 tree_blocker で見る。
 
@@ -47,8 +47,8 @@ def git(repo, *args):
 
 
 def git_runs_sh(tmp):
-    """git が sh で命令を起こせるか（hook と GIT_SSH_COMMAND は git が sh で起こす）。OS の名前で推し量らず、git に sh の
-    別名を 1 回起こさせて確かめる——Git for Windows は同梱の sh で起こすので、PATH に sh が在るかとも別の問い"""
+    """git が sh でコマンドを起動できるか（hook と GIT_SSH_COMMAND は git が sh で起動する）。OS の名前で推し量らず、git に sh の
+    別名を 1 回起動させて確かめる——Git for Windows は同梱の sh で起動するので、PATH に sh が在るかとも別の問い"""
     try:
         return subprocess.run([*GIT, "-C", tmp, "-c", "alias.shprobe=!exit 0", "shprobe"],
                               capture_output=True).returncode == 0
@@ -70,7 +70,7 @@ def read(repo, rel):
 
 
 def make_repo(tmp):
-    """main に 2 file の commit、origin は o/r、head の枝 feat/1569-x は main と同じ先端。"""
+    """main に 2 file の commit、origin は o/r、head のブランチ feat/1569-x は main と同じ先端。"""
     repo = os.path.join(tmp, "r")
     os.makedirs(repo)
     git(repo, "init", "-q")
@@ -85,7 +85,7 @@ def make_repo(tmp):
 
 def make_origin(tmp, repo, owner="o", name="r"):
     """origin を、その場に作った bare リポジトリに向ける（path の末尾が owner/name.git なので origin_is が
-    通る）。手元に無い枝を fetch する検査用——GitHub には触らない。戻り値は bare の path。"""
+    通る）。手元に無いブランチを fetch する検査用——GitHub には触らない。戻り値は bare の path。"""
     bare = os.path.join(tmp, owner, f"{name}.git")
     os.makedirs(os.path.dirname(bare), exist_ok=True)
     git(tmp, "init", "-q", "--bare", bare)
@@ -94,7 +94,7 @@ def make_origin(tmp, repo, owner="o", name="r"):
 
 
 def new_commit(repo, parent, msg):
-    """parent の子 commit を、木はそのままで作る（枝は動かさない）。"""
+    """parent の子 commit を、木はそのままで作る（ブランチは動かさない）。"""
     return git(repo, "commit-tree", git(repo, "write-tree"), "-p", parent, "-m", msg)
 
 
@@ -149,8 +149,8 @@ def _moved(tmp):
 
 @case("dirty")
 def _dirty(tmp):
-    """追跡ファイルの未コミット（両枝で中身が同じ file の変更 + staged の追加）では移らず、変更もそのまま。
-    枝で中身が違う file だと guard を消しても git が拒んで緑のままなので、同じ file で汚す。"""
+    """追跡ファイルの未コミット（両ブランチで中身が同じ file の変更 + staged の追加）では移らず、変更もそのまま。
+    ブランチで中身が違う file だと guard を消しても git が拒んで緑のままなので、同じ file で汚す。"""
     repo = make_repo(tmp)
     write(repo, "same.txt", "same\nedited\n")
     write(repo, "new.txt", "n\n")
@@ -175,7 +175,7 @@ def _untracked(tmp):
 
 @case("ignored")
 def _ignored(tmp):
-    """ignored の file を対象の枝が追跡していれば、上書きせずに止まる（--no-overwrite-ignore）。
+    """ignored の file を対象のブランチが追跡していれば、上書きせずに止まる（--no-overwrite-ignore）。
     邪魔している path が行に出る（拒否文の 1 行目は総称で、path は 2 行目以降）。"""
     repo = make_repo(tmp)
     git(repo, "switch", "-q", HEAD_REF)
@@ -194,7 +194,7 @@ def _ignored(tmp):
 
 @case("already")
 def _already(tmp):
-    """既に居れば移らず、居る扱い（手元の節が付く）。"""
+    """既に居れば移らず、居る扱い（手元のセクションが付く）。"""
     repo = make_repo(tmp)
     git(repo, "switch", "-q", HEAD_REF)
     out, on = call(repo)
@@ -204,7 +204,7 @@ def _already(tmp):
 
 @case("worktree")
 def _worktree(tmp):
-    """別の worktree に checkout 済みの枝には移らず、機械の言葉でその旨（git の fatal を出さない）。
+    """別の worktree に checkout 済みのブランチには移らず、機械の言葉でその旨（git の fatal を出さない）。
     その worktree の dir が消えていれば（prune 前）「そこで続ける」とは言わず、prune を案内する。"""
     repo = make_repo(tmp)
     wt = os.path.join(tmp, "wt")
@@ -221,8 +221,8 @@ def _worktree(tmp):
 
 @case("branch-name")
 def _branch_name(tmp):
-    """ブランチ名で呼ばれたときの switch_to_branch: 手元の枝へ移る／origin にだけ有る枝は origin/<名前> を追跡する
-    枝を作って移る／既に居ればその旨／追跡 file に未コミットがあれば移らず理由と今の位置。移った枝で
+    """ブランチ名で呼ばれたときの switch_to_branch: 手元のブランチへ移る／origin にだけ有るブランチは origin/<名前> を追跡する
+    ブランチを作って移る／既に居ればその旨／追跡 file に未コミットがあれば移らず理由と今の位置。移ったブランチで
     ahead_of_default が既定ブランチより先の commit の変更（木と枠）を出し、main では何も出さない。"""
     repo = make_repo(tmp)
     bare = make_origin(tmp, repo)
@@ -230,12 +230,12 @@ def _branch_name(tmp):
     old = git(repo, "rev-parse", "HEAD")
     git(repo, "push", "-q", "origin", "main")
     git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-    # origin にだけ有る枝（main より 1 commit 先。a.txt を変えた）
+    # origin にだけ有るブランチ（main より 1 commit 先。a.txt を変えた）
     git(repo, "switch", "-q", "-c", "tmp-work")
     write(repo, "a.txt", "a\nb\n")
     # 1 file の上限（300 行）を超える新規 file: 枠は「残り 1 枠」の案内だけになって何も伝えないので、
     # 先頭と骨組みを出す（実測: 346 行の仕様書）
-    write(repo, "docs/big.md", "# 題\n\n" + "\n".join(f"## 節 {i}\n本文 {i}" for i in range(170)) + "\n")
+    write(repo, "docs/big.md", "# 題\n\n" + "\n".join(f"## セクション {i}\n本文 {i}" for i in range(170)) + "\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-am", "ahead")
     new = git(repo, "rev-parse", "HEAD")
@@ -245,7 +245,7 @@ def _branch_name(tmp):
     exists = catchup.changemap.branch_exists("only-origin", cwd=repo)
     local_exists = catchup.changemap.branch_exists(HEAD_REF, cwd=repo)
     none_exists = catchup.changemap.branch_exists("nope", cwd=repo)
-    git(repo, "remote", "set-head", "origin", "main")   # origin/HEAD が有っても HEAD・HEAD~1 は枝ではない
+    git(repo, "remote", "set-head", "origin", "main")   # origin/HEAD が有っても HEAD・HEAD~1 はブランチではない
     not_a_branch = not any(catchup.changemap.branch_exists(t, cwd=repo) for t in ("HEAD", "HEAD~1", "main~1"))
     on_main = catchup.ahead_of_default(cwd=repo)
     lines1, on1 = catchup.switch_to_branch("only-origin", cwd=repo)   # origin から作って移る
@@ -253,7 +253,7 @@ def _branch_name(tmp):
     upstream1 = git(repo, "rev-parse", "--symbolic-full-name", "only-origin@{upstream}")
     ahead = "\n".join(catchup.ahead_of_default(cwd=repo))
     lines2, on2 = catchup.switch_to_branch("only-origin", cwd=repo)   # 既に居る
-    lines3, on3 = catchup.switch_to_branch(HEAD_REF, cwd=repo)        # 手元の枝へ
+    lines3, on3 = catchup.switch_to_branch(HEAD_REF, cwd=repo)        # 手元のブランチへ
     write(repo, "a.txt", "dirty\n")
     lines4, on4 = catchup.switch_to_branch("only-origin", cwd=repo)   # 追跡 file が汚れている → 移らない
     return verdict({
@@ -267,7 +267,7 @@ def _branch_name(tmp):
         "ahead": "## origin/main より先の commit 1 件の変更（材料。枝全体の差。未コミットは含まない）" in ahead
         and "a.txt" in ahead and "飛び先 a.txt:" in ahead and "git diff -W" in ahead,
         "big_new_is_head_and_outline": "=== docs/big.md （新規。342 行。先頭と骨組みだけ——全文は git diff -W" in ahead
-        and "    飛び先 docs/big.md:1" in ahead and "    | ## 節 3" in ahead and "    | 本文 100" not in ahead
+        and "    飛び先 docs/big.md:1" in ahead and "    | ## セクション 3" in ahead and "    | 本文 100" not in ahead
         and "残り 1 枠" not in ahead,
         "already": lines2 == ["ブランチ only-origin: 既に居る"] and on2 is True,
         "local": f"ブランチ {HEAD_REF}: only-origin から移った" in "\n".join(lines3) and on3 is True
@@ -279,9 +279,9 @@ def _branch_name(tmp):
 
 @case("remote-only")
 def _remote_only(tmp):
-    """origin にだけある枝は、その 1 本を fetch して作り、移る（名前・追跡先は gh pr checkout と同じ）。手元の
-    origin/<枝> の追跡 ref が古くても、fetch した先端で作る（fetch せずに手元の ref から作ると古い枝になる）。
-    手元にある枝（main・feat）は動かない。"""
+    """origin にだけあるブランチは、その 1 本を fetch して作り、移る（名前・追跡先は gh pr checkout と同じ）。手元の
+    origin/<ブランチ> の追跡 ref が古くても、fetch した先端で作る（fetch せずに手元の ref から作ると古いブランチになる）。
+    手元にあるブランチ（main・feat）は動かない。"""
     repo = make_repo(tmp)
     make_origin(tmp, repo)
     # 追跡先は --track で明示的に付ける（既定の autoSetupMerge が付けるのに頼らない）。origin のタグは取らない
@@ -290,14 +290,14 @@ def _remote_only(tmp):
     new = new_commit(repo, old, "pushed-from-elsewhere")
     git(repo, "push", "-q", "origin", f"{new}:refs/heads/pr-head", f"{new}:refs/tags/v9")
     git(repo, "update-ref", "refs/remotes/origin/pr-head", old)  # 手元の追跡 ref は古い
-    git(repo, "update-ref", "refs/heads/origin/pr-head", old)  # 短縮名 origin/pr-head を曖昧にする同名の枝
+    git(repo, "update-ref", "refs/heads/origin/pr-head", old)  # 短縮名 origin/pr-head を曖昧にする同名のブランチ
     write(repo, "stray.txt", "u\n")
     out, on = call(repo, node(repo, headRefName="pr-head", head={"nodes": [{"commit": {"oid": new}}]}))
     return verdict({"line": "ブランチ pr-head: 手元に無かったので origin/pr-head から作って main から移った"
                     "（未追跡 1 件は持ち越した）" in out and "gh pr checkout" not in out,
                     "branch": current(repo) == "pr-head", "on": on == "pr-head",
                     "tip": git(repo, "rev-parse", "HEAD") == new,
-                    # 同名の枝で短縮名が曖昧なので完全名で見る（--abbrev-ref は remotes/origin/pr-head に伸びる）
+                    # 同名のブランチで短縮名が曖昧なので完全名で見る（--abbrev-ref は remotes/origin/pr-head に伸びる）
                     "upstream": git(repo, "rev-parse", "--symbolic-full-name", "pr-head@{upstream}")
                     == "refs/remotes/origin/pr-head",
                     "no_tags": git(repo, "tag", "-l") == "",
@@ -307,8 +307,8 @@ def _remote_only(tmp):
 
 @case("remote-dirty")
 def _remote_dirty(tmp):
-    """手元に無い枝でも guard は先——追跡ファイルに未コミットがあれば fetch もせず止まる（古い追跡 ref が
-    そのまま＝fetch していない証拠）。枝は作らない。止まった行に今どこに居るかが添う。"""
+    """手元に無いブランチでも guard は先——追跡ファイルに未コミットがあれば fetch もせず止まる（古い追跡 ref が
+    そのまま＝fetch していない証拠）。ブランチは作らない。止まった行に今どこに居るかが添う。"""
     repo = make_repo(tmp)
     make_origin(tmp, repo)
     old = git(repo, "rev-parse", "HEAD")
@@ -317,7 +317,7 @@ def _remote_dirty(tmp):
     git(repo, "update-ref", "refs/remotes/origin/pr-head", old)
     write(repo, "same.txt", "same\nedited\n")
     out, on = call(repo, node(repo, headRefName="pr-head", head={"nodes": [{"commit": {"oid": new}}]}))
-    # 片付けた後の一手は「もう一度 /catchup」——git switch pr-head は枝が無いので失敗するか、古い追跡 ref から作る
+    # 片付けた後の一手は「もう一度 /catchup」——git switch pr-head はブランチが無いので失敗するか、古い追跡 ref から作る
     return verdict({"line": "未コミットの変更 1 件" in out and "（手元は main のまま）" in out
                     and f"→ もう一度 /catchup {NUM}" in out and "git switch pr-head" not in out,
                     "branch": current(repo) == "main", "not_on": not on,
@@ -328,7 +328,7 @@ def _remote_dirty(tmp):
 @case("remote-ignored")
 def _remote_ignored(tmp):
     """origin から作るときも ignored の file を上書きしない（switch -c にも --no-overwrite-ignore）。拒まれたら
-    枝は作られず、手元の file もそのまま。"""
+    ブランチは作られず、手元の file もそのまま。"""
     repo = make_repo(tmp)
     make_origin(tmp, repo)
     git(repo, "switch", "-q", HEAD_REF)
@@ -350,9 +350,9 @@ def _remote_ignored(tmp):
 
 @case("none")
 def _none(tmp):
-    """手元にも origin にも無ければそう言い、枝は作らない——merge 済みで枝が削除された PR ならその旨と、
+    """手元にも origin にも無ければそう言い、ブランチは作らない——merge 済みでブランチが削除された PR ならその旨と、
     refs/pull/N/head からの取り方。origin に届かなければ（認証・URL 違い）git の言い分を添える。どちらも
-    手元の origin/<枝> の古い ref からは作らない。"""
+    手元の origin/<ブランチ> の古い ref からは作らない。"""
     repo = make_repo(tmp)
     make_origin(tmp, repo)
     git(repo, "update-ref", "refs/remotes/origin/nope", "HEAD")  # 古い追跡 ref だけ残っている
@@ -367,14 +367,14 @@ def _none(tmp):
         git(repo, "remote", "set-url", "origin", "ssh://nowhere.invalid/o/r.git")
         slow = write(tmp, "slow-ssh", "#!/bin/sh\nsleep 5\n")
         os.chmod(slow, 0o755)
-        # git は GIT_SSH_COMMAND を sh の命令として読むので、Windows の逆斜線の path は前向きに直して引用する
+        # git は GIT_SSH_COMMAND を sh のコマンドとして読むので、Windows の逆斜線の path は前向きに直して引用する
         os.environ["GIT_SSH_COMMAND"] = shlex.quote(slow.replace(os.sep, "/"))
         saved, catchup.FETCH_TIMEOUT = catchup.FETCH_TIMEOUT, short
         out3, on3 = call(repo, node(repo, headRefName="nope"))
         catchup.FETCH_TIMEOUT = saved
         del os.environ["GIT_SSH_COMMAND"]
     else:
-        print("  ok   応答の無い origin は FETCH_TIMEOUT 秒で切る # SKIP sh: git が ssh の代役の script を起こす sh が無い")
+        print("  ok   応答の無い origin は FETCH_TIMEOUT 秒で切る # SKIP sh: git が ssh の代役の script を起動する sh が無い")
     return verdict({"gone": "origin にももう無い（PR は merge 済みで、枝は削除済み）" in out
                     and f"git fetch origin refs/pull/{NUM}/head" in out and "（手元は main のまま）" in out,
                     "unreachable": "origin から取れなかった（git fetch が失敗）" in out2
@@ -386,7 +386,7 @@ def _none(tmp):
 
 @case("fork-remote")
 def _fork_remote(tmp):
-    """fork の PR の枝が手元に無ければ origin の refs/pull/N/head から作って移る。追跡先は gh pr checkout と
+    """fork の PR のブランチが手元に無ければ origin の refs/pull/N/head から作って移る。追跡先は gh pr checkout と
     同じ——既定は origin の refs/pull/N/head（pull は効き、push は上流名が違うので git が拒む）、PR が
     maintainer の push を許していれば fork の URL の refs/heads/<head>。"""
     repo = make_repo(tmp)
@@ -396,7 +396,7 @@ def _fork_remote(tmp):
     n = node(repo, headRefName="fork-feat", headRepository={"nameWithOwner": "other/r"},
              head={"nodes": [{"commit": {"oid": head}}]})
     def again(over=None):
-        """main に戻して枝を消してから、もう一度呼ぶ（毎回「手元に無い」状態から始める）。"""
+        """main に戻してブランチを消してから、もう一度呼ぶ（毎回「手元に無い」状態から始める）。"""
         git(repo, "switch", "-q", "main")
         git(repo, "branch", "-q", "-D", "fork-feat")
         return call(repo, dict(n, **over) if over else n)
@@ -473,7 +473,7 @@ def _status_none(tmp):
 
 @case("fork")
 def _fork(tmp):
-    """fork の PR は名前だけでは移らない。手元の同名の枝が head の commit を含めば移る（手元が先でも）。
+    """fork の PR は名前だけでは移らない。手元の同名のブランチが head の commit を含めば移る（手元が先でも）。
     含まなければ（無関係・手元が head より古い）移らない。head の commit を持っていなければ照合できない。
     逆向きだけ（手元の先端が head の先祖）で移ると、head が main の fork PR で手元の main に移る。"""
     repo = make_repo(tmp)
@@ -505,7 +505,7 @@ def _fork(tmp):
 
 @case("fork-main")
 def _fork_main(tmp):
-    """head が main の fork PR: 手元の main は候補にしない（base 側の枝で、fork の main とは別物）。gh pr checkout が
+    """head が main の fork PR: 手元の main は候補にしない（base 側のブランチで、fork の main とは別物）。gh pr checkout が
     付ける <fork の owner>/main の名前が手元に無ければ refs/pull/N/head からその名前で作って移り、あればそれに
     移る。既定ブランチ名が node に無ければ（取れなかったとき）従来どおり手元の main を照合して「含まない」で
     止まる。fork が消えている（headRepository null）PR は名前だけでは移らず、head が既定ブランチ名なら作る名前を
@@ -553,7 +553,7 @@ def _triangular(tmp):
 @case("hook")
 def _hook(tmp):
     """post-checkout hook が非 0 でも HEAD は移っているので、移った扱い（終了コードで判定しない）。
-    hook の言い分は行に添える（git が hook の sh を起こせない環境では、そこは見ない。global の
+    hook の言い分は行に添える（git が hook の sh を起動できない環境では、そこは見ない。global の
     core.hooksPath は main() で読ませないようにしてある）。"""
     repo = make_repo(tmp)
     os.chmod(write(repo, os.path.join(".git", "hooks", "post-checkout"),
@@ -561,7 +561,7 @@ def _hook(tmp):
     out, on = call(repo)
     runs_sh = git_runs_sh(tmp)
     if not runs_sh:
-        print("  ok   hook の言い分を行に添える # SKIP sh: git が hook を起こす sh が無い")
+        print("  ok   hook の言い分を行に添える # SKIP sh: git が hook を起動する sh が無い")
     return verdict({"line": f"ブランチ {HEAD_REF}: main から移った" in out,
                     "branch": current(repo) == HEAD_REF, "on": on,
                     "note": not runs_sh or "hook-said-no" in out}, out)
@@ -579,7 +579,7 @@ def _lock(tmp):
 
 @case("tag-shadow")
 def _tag_shadow(tmp):
-    """同名のタグがあっても枝を見失わない（%(refname:short) は heads/x になる）。"""
+    """同名のタグがあってもブランチを見失わない（%(refname:short) は heads/x になる）。"""
     repo = make_repo(tmp)
     git(repo, "tag", HEAD_REF)
     out, on = call(repo)
@@ -588,7 +588,7 @@ def _tag_shadow(tmp):
 
 @case("dash-name")
 def _dash_name(tmp):
-    """- で始まる枝名をオプションと取り違えない（--）。"""
+    """- で始まるブランチ名をオプションと取り違えない（--）。"""
     repo = make_repo(tmp)
     git(repo, "update-ref", "refs/heads/-foo", "HEAD")
     out, on = call(repo, node(repo, headRefName="-foo"))
@@ -603,7 +603,7 @@ def _detached(tmp):
     git(repo, "switch", "-q", "--detach")
     git(repo, "commit", "-q", "--allow-empty", "-m", "stray")
     write(repo, "same.txt", "same\nedited\n")
-    out_stay, on_stay = call(repo)  # 止まった行の末尾は、枝名が無いので detached HEAD と書く
+    out_stay, on_stay = call(repo)  # 止まった行の末尾は、ブランチ名が無いので detached HEAD と書く
     git(repo, "checkout", "-q", "--", "same.txt")
     out, on = call(repo)
     return verdict({"stay": out_stay.endswith("（手元は detached HEAD のまま）") and not on_stay,
@@ -650,7 +650,7 @@ def _merge(tmp):
 
 @case("issue")
 def _issue(tmp):
-    """issue は名前に番号を持つ手元の枝が 1 本のときだけ移る。0 本・2 本以上は理由（候補名）を出す。"""
+    """issue は名前に番号を持つ手元のブランチが 1 本のときだけ移る。0 本・2 本以上は理由（候補名）を出す。"""
     repo = make_repo(tmp)
     git(repo, "branch", "chore/1513-a")
     issue = {"__typename": "Issue"}
@@ -668,7 +668,7 @@ def _issue(tmp):
 
 @case("behind")
 def _behind(tmp):
-    """手元の節: 手元が PR の head より後ろなら数える。head の commit を持っていなければそう言う。"""
+    """手元のセクション: 手元が PR の head より後ろなら数える。head の commit を持っていなければそう言う。"""
     repo = make_repo(tmp)
     git(repo, "switch", "-q", HEAD_REF)
     git(repo, "commit", "-q", "--allow-empty", "-m", "pushed-elsewhere")

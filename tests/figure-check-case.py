@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """figure-check.py（絵の幅と縦線の検査）を固定の図で叩く。run.sh から case 名で呼ぶ。
 
-gh にも git にも触らない。通る図は /what-am-i-doing の命令書の例（14 行。仕様で検査済み）をそのまま使い、
+gh にも git にも触らない。通る図は /what-am-i-doing のコマンドの本文の例（14 行。仕様で検査済み）をそのまま使い、
 崩し方は「1 行だけ 1 桁ずらす」「1 行だけ幅を超える」のように、目視では見落とす形にする。
 合否は落ちる／通るだけでなく、**行と桁が出力に出ること**で見る（どこを直すかを AI に返す
 のが目的なので、位置が無い出力は役に立たない）。
@@ -28,7 +28,7 @@ spec = importlib.util.spec_from_file_location("figure_check", SCRIPT)
 fc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fc)
 
-# 命令書の例をそのまま使う（写しを別に持つと、例を直したときに検査だけ古い図を守り続ける）。
+# コマンドの本文の例をそのまま使う（写しを別に持つと、例を直したときに検査だけ古い図を守り続ける）。
 # 縦線の列は 4, 15, 31, 45（0 始まり）。最終行に改行を付けて file / heredoc の形に揃える
 # /catchup は図を HTML の箱で描くようになったので、端末の絵を描くのは /what-am-i-doing だけ
 _DOC = (ROOT / "attention" / "commands" / "what-am-i-doing.md").read_text(encoding="utf-8")

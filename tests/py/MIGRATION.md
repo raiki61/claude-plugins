@@ -1,6 +1,6 @@
 # ルートの台本から pytest への移し替えの台帳
 
-## 台帳（review-record.py の節）
+## 台帳（review-record.py のセクション）
 
 <!-- ledger:begin -->
 | 終了 | 台本の検査（説明文） | 期待の文言 | 読む記録 | 移した先 |
@@ -8,7 +8,7 @@
 | 1 | round-1 だけの記録は、比較の欠落を阻害要因に数える | 前ラウンドの記録が無い | tmpl-1 | test_review_record.py::test_validator[tmpl-1-no-prev] |
 | 1 | 解消した直後のラウンドは連続 2 ラウンドの 1 ラウンド目 | 前ラウンドに阻害要因が 4 件あった | tmpl-12 | test_review_record.py::test_validator[tmpl-12-prev-blockers] |
 | 1 | 問いが立った周には帰属せず、印だけが付く | （今ラウンドに立った問い——再審は次の周） | tmpl-1 | test_review_record.py::test_validator[tmpl-1-fresh-mark] |
-| 1 | 増えた scalar だけを、増えた scalar の節に出す | 増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:⏎  - scalar 'doc_lines': 120 → 135⏎  - scalar 'comment_ratio_pct': 18 → 21⏎持ち越し | tmpl-12 | test_review_record.py::test_validator[tmpl-12-grown-scalars] |
+| 1 | 増えた scalar だけを、増えた scalar のセクションに出す | 増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:⏎  - scalar 'doc_lines': 120 → 135⏎  - scalar 'comment_ratio_pct': 18 → 21⏎持ち越し | tmpl-12 | test_review_record.py::test_validator[tmpl-12-grown-scalars] |
 | 0 | 2 ラウンド続けて阻害なしなら exit 0 | 連続 2 ラウンド | hist | test_review_record.py::test_validator[hist-two-rounds] |
 | 0 | 阻害なしを収束と名乗らない | これは収束の宣言ではない | hist | test_review_record.py::test_validator[hist-not-convergence] |
 | 0 | 持ち越しは実際に見たラウンドと古さを見せる | 素材 prior_decisions: round 1 の判定を流用（2 ラウンド前） | hist | test_review_record.py::test_validator[hist-carry-age] |
@@ -143,8 +143,8 @@
 | 2 | 存在しないラウンド 0 からの流用を落とす（外すと素材を一度も見ずに収束できる） | from_round が 1 以上でない | from-round-zero | test_review_record.py::test_validator[from-round-zero] |
 | 1 | 連鎖が 2 周ぶんなら、3 周の窓では台帳への記載を要求しない（窓の幅を測る） | （残存——過去のラウンドにも在った） | stuck-window-width | test_review_record.py::test_validator[stuck-window-width] |
 | 2 | UTF-8 でない記録は「開けない」「JSON でない」と別の診断で落ちる | UTF-8 として読めない | badenc | test_review_record.py::test_validator[badenc] |
-| 2 | 縮退値（false / [] / {}）で明示返答の欄を埋められない | が空（何を見たかを書け） | checked-false | test_review_record.py::test_validator[checked-false] |
-| 2 | 文を要求する欄に数を書いても「埋まっている」にならない | が空（何を見たかを書け） | checked-number | test_review_record.py::test_validator[checked-number] |
+| 2 | 縮退値（false / [] / {}）で明示返答のフィールドを埋められない | が空（何を見たかを書け） | checked-false | test_review_record.py::test_validator[checked-false] |
+| 2 | 文を要求するフィールドに数を書いても「埋まっている」にならない | が空（何を見たかを書け） | checked-number | test_review_record.py::test_validator[checked-number] |
 | 2 | 1 ラウンド記録から落としても、台帳は全ラウンドの和なので再審を止める | reopen_evidence が無い | ledger-gap | test_review_record.py::test_validator[ledger-gap] |
 | 0 | ディレクトリを渡すと全ラウンドの履歴を出す | 履歴（round 1〜3 | hist | test_review_record.py::test_validator[hist-history] |
 | 0 | 台帳の問いは阻害要因にせず、人に聞く候補として出す | 問いの台帳（人に聞く候補。載せた周には聞かない | hist | test_review_record.py::test_validator[hist-question-ledger] |
@@ -165,37 +165,37 @@
 
 ## 上位互換の証明
 
-台本の節（tests/run.sh の review-record.py の節）が見ていたものを、この置き場が全部見ていることを 3 段で示す。
+台本のセクション（tests/run.sh の review-record.py のセクション）が見ていたものを、この置き場が全部見ていることを 3 段で示す。
 
 1. **行の対応**: 台本の検査 1 件ごとに行き先がある。`test_ledger_matches_script` が、台本の行と表（`review_record_cases.CASES`）を
    `ledger.Row`（終了コード・期待の文言・説明文・読む記録）の多重集合で突き合わせる（同じ説明文の行が 2 つあるので、集合にすると
    片方を落としても通る。読む記録まで見るので、期待が同じ行どうしで読む記録を入れ替えても赤になる）。行き先（台帳の「移した先」）は
-   pytest が集めたテストの node id と照らし、集まっていない・ほかの行と重なる行き先があれば赤になる（表の where の誤記・id の重複）
+   pytest が集めたテストの node id と照合し、集まっていない・ほかの行と重なる行き先があれば赤になる（表の where の誤記・id の重複）
 2. **入力の一致**: [broken_records.py](broken_records.py) は壊した記録の作り方を写さず、tests/run.sh の `write_broken_records` の
    heredoc を読んで走らせる
-3. **被覆の包含**: 台本の節が検証器（scripts/review-record.py・scripts/record_common.py）の中で通した行が、この置き場が通した行の
-   和に含まれる。測る道具は [coverage_proof.py](coverage_proof.py)（使い方と終了コードは道具の docstring）
+3. **被覆の包含**: 台本のセクションが検証器（scripts/review-record.py・scripts/record_common.py）の中で通した行が、この置き場が通した行の
+   和に含まれる。測るツールは [coverage_proof.py](coverage_proof.py)（使い方と終了コードはツールの docstring）
 
-2 までで言えるのは「同じ引数・同じ入力で同じ検証器を走らせる」ところまでで、起こし方の違い（台本は子プロセスで `"$@" 2>&1`、
+2 までで言えるのは「同じ引数・同じ入力で同じ検証器を走らせる」ところまでで、起動方法の違い（台本は子プロセスで `"$@" 2>&1`、
 ここは `runpy` で同じプロセス）が通る行を変えないことは言えない。3 はそこを実測で埋める。
 
 ### 被覆の包含の測り方
 
-- 台本が実際に起こした引数の集合が台帳の読み取り（`ledger.script_rows`）と違えば、道具は終了 2 で止まる。台帳の `args_of` の
+- 台本が実際に起動した引数の集合が台帳の読み取り（`ledger.script_rows`）と違えば、ツールは終了 2 で止まる。台帳の `args_of` の
   読み違いもここで出る
 - **赤の腕**: `--only-new` で旧い側を回し直さずに新しい側だけを回し、`-- --deselect "test_review_record.py::test_validator[<id>]"`
-  で 1 件を外す。id は台帳の表の「移した先」の列の値をそのまま渡す（node id は tests/py を根に作る。`tests/py/` を頭に付けると
-  何も外れない）。何も外れなければ、道具は pytest の要約の「N deselected」を見て終了 2 で止まる。外した検査だけが通していた行が
+  で 1 件を外す。id は台帳の表の「移した先」の列の値をそのまま渡す（node id は tests/py をルートに作る。`tests/py/` を頭に付けると
+  何も外れない）。何も外れなければ、ツールは pytest の要約の「N deselected」を見て終了 2 で止まる。外した検査だけが通していた行が
   あれば終了 1 になる。どの 1 件で赤になるかは、旧い側の測りを取った回に決めてここに書く
-- 限り: 測るのは行だけで、枝は測らない。新しい側の同じプロセスの行は 1 つの文脈（`new`）にまとまる
+- 限り: 測るのは行だけで、分岐は測らない。新しい側の同じプロセスの行は 1 つの文脈（`new`）にまとまる
 
-**結果: 包含は未実施（2026-09-28 の周も）。** 撃つ口は CI の手で起こす job（[.github/workflows/cover-moved.yml](../../.github/workflows/cover-moved.yml) の段
-root cover）だが、回す側の token では起こせない（dispatch が 403）。engine の子の中では tests/run.sh の入口が旧い側の節の回しを拒み、
-coverage_proof.py は本物の bash で台本の節を回すので、手元でも書く子の中でも撃たない（人の方針）。測るのは起こせる人の
-`gh workflow run cover-moved.yml` だけで、成果物 cover-moved の cover-root.txt（道具の出力と終了コードの 1 行）を読んで結果をここに書く。赤の腕は、その回の cover-root/old を置き場に戻して `--only-new` と
-`-- --deselect` で撃つ（外す 1 件はその回の出力から決める）。包含が立つまで台本の review-record.py の節は消さない（台本を消す条件の 4 は必須——
+**結果: 包含は未実施（2026-09-28 の周も）。** 撃つ口は CI の手で起動する job（[.github/workflows/cover-moved.yml](../../.github/workflows/cover-moved.yml) の段
+root cover）だが、回す側の token では起動できない（dispatch が 403）。engine の子の中では tests/run.sh の入口が旧い側のセクションの回しを拒み、
+coverage_proof.py は本物の bash で台本のセクションを回すので、手元でも書く子の中でも撃たない（人の方針）。測るのは起動できる人の
+`gh workflow run cover-moved.yml` だけで、成果物 cover-moved の cover-root.txt（ツールの出力と終了コードの 1 行）を読んで結果をここに書く。赤の腕は、その回の cover-root/old を置き場に戻して `--only-new` と
+`-- --deselect` で撃つ（外す 1 件はその回の出力から決める）。包含が立つまで台本の review-record.py のセクションは消さない（台本を消す条件の 4 は必須——
 [docs/adr/0067 の台本を消す条件](../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#台本を消す条件)）。
-graphloops の台本の 6 関数を消した周（2026-09-28）も、台本の review-record.py の節は第二の網として残した（人の関所 2026-09-28 の round 3）。
+graphloops の台本の 6 関数を消した周（2026-09-28）も、台本の review-record.py のセクションは第二の検査として残した（人のゲート 2026-09-28 の round 3）。
 
 ### 変異の腕（CI で撃つ手順）
 
@@ -204,12 +204,12 @@ graphloops の台本の 6 関数を消した周（2026-09-28）も、台本の r
 
 - **手書きの腕**: [tests/mutations.json](../mutations.json) で scripts/review-record.py を壊す腕は n01・n02（suite は root。expect は
   `graphloops: graphcheck`）と OA1（suite は graphloops。層 2 の node id が落とす——落としていた台本の関数は 2026-09-28 に消し、台本の鍵を外した）の
-  3 本。どれも節の検査で落ちる腕ではないので、台本の節を消しても付け替えは要らない。腕の実行器 [tests/mutate.py](../mutate.py) の手書きの腕が
+  3 本。どれもセクションの検査で落ちる腕ではないので、台本のセクションを消しても付け替えは要らない。腕の実行器 [tests/mutate.py](../mutate.py) の手書きの腕が
   名指せる pytest の置き場は graphloops/tests/py だけで、この置き場（tests/py）の node id を名指す腕を足すなら、その口を広げる変更が要る
 - **mutmut**: この置き場のテストのままでは、pytest の側の mutmut は review-record.py の変異を拾えない。mutmut の trampoline は、
   変異の名前の module と、呼ばれた関数の `__module__` を突き合わせ、違えば元の関数を呼ぶ（mutmut の
   [src/mutmut/mutation/trampoline.py](https://github.com/boxed/mutmut/blob/main/src/mutmut/mutation/trampoline.py)）。検証器は
-  `runpy.run_path(run_name="__main__")` で（子プロセスでも `__main__` として）起こすので、関数の `__module__` は `__main__` になり、
+  `runpy.run_path(run_name="__main__")` で（子プロセスでも `__main__` として）起動するので、関数の `__module__` は `__main__` になり、
   変異は効かず、どのテストにも結び付かない。載せる job を作る run が選ぶ道は次の 2 つ:
   - 本体を import できるモジュールへ移し、scripts/review-record.py を薄い殻にする（scripts/ を触る）
   - テストの側で、検証器を mutmut が付ける module の名前のまま読み込み、`__main__` の段の境界（想定外の例外を 2 に倒す）は子プロセスの
@@ -227,9 +227,9 @@ pytest の job の段 root pytest（test の job と同じ OS）と、[.review-c
 ### 台本の側を消す run でやること
 
 - ledger.py と、それを見る検査（`test_ledger_*`）を同じ変更で消す。coverage_proof.py とその検査（`test_coverage_proof_*`）は消さない——
-  以後の削除で包含を測り直す道具（人の関所 2026-09-28 の round 2 の条件 4。親の推しで通した）
+  以後の削除で包含を測り直すツール（人のゲート 2026-09-28 の round 2 の条件 4。親の推しで通した）
 - **生成の正本の向きを逆にする。** 今は壊した記録の作り方の正本が台本の `write_broken_records` に在り、broken_records.py がそれを読む。
-  台本の review-record.py の節を消しても、research-record.py・doctor-record.py の節が同じ記録を使うので、生成は残る。その run
+  台本の review-record.py のセクションを消しても、research-record.py・doctor-record.py のセクションが同じ記録を使うので、生成は残る。その run
   （か、fork が「tests/py の外を触ってよい」と答えた周）で、heredoc の本文を broken_records.py へ移し、台本の `write_broken_records` が
-  `python3 tests/py/broken_records.py <ROOT> <WORK>` を起こす形にする。broken_records.py の関数の形の検め（HEAD・TAIL）も、そこで消える
+  `python3 tests/py/broken_records.py <ROOT> <WORK>` を起動する形にする。broken_records.py の関数の形の検め（HEAD・TAIL）も、そこで消える
 - この置き場の件数の定数（conftest.py の `EXPECTED_ITEMS`）と台本の件数の定数（`EXPECTED_CHECKS`）を、消した分だけ直す

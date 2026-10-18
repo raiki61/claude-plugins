@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""台帳: tests/run.sh の review-record.py の節の検査（ok 行 1 件）ごとに、移した先の pytest の検査を 1 行で示す。
+"""台帳: tests/run.sh の review-record.py のセクションの検査（ok 行 1 件）ごとに、移した先の pytest の検査を 1 行で示す。
 
-台本の行は、節（`echo "review-record.py"` から `echo "research-record.py"` の手前まで）を bash に読ませて取る。
-expect_output・expect_exit を「引数を書き出すだけ」の関数に差し替え、検証器は起こさない——表のループ（CASES）の
-展開も bash 自身がするので、読み違えない。行き先は pytest が集めたテストの node id（rootdir は tests/py）と照らす。
+台本の行は、セクション（`echo "review-record.py"` から `echo "research-record.py"` の手前まで）を bash に読ませて取る。
+expect_output・expect_exit を「引数を書き出すだけ」の関数に差し替え、検証器は起動しない——表のループ（CASES）の
+展開も bash 自身がするので、読み違えない。行き先は pytest が集めたテストの node id（rootdir は tests/py）と照合する。
 
 `python3 tests/py/ledger.py` で tests/py/MIGRATION.md の台帳の表を書き直す（表は手で直さない）。
 """
@@ -37,7 +37,7 @@ Row = collections.namedtuple("Row", "exit want was args")
 
 def args_of(argv):
     if list(argv[:2]) != ["@PY@", VALIDATOR]:
-        raise SystemExit(f"台本の節の検査が検証器を \"$PY_BIN\" \"$RECORD\" で起こしていない: {argv}")
+        raise SystemExit(f"台本のセクションの検査が検証器を \"$PY_BIN\" \"$RECORD\" で起動していない: {argv}")
     out = []
     for a in argv[2:]:
         for mark, to in (("@WORK@/", ""), ("@ROOT@/", "repo:")):
@@ -45,7 +45,7 @@ def args_of(argv):
                 out.append(to + a[len(mark):])
                 break
         else:
-            raise SystemExit(f"台本の節の検査の引数が $WORK/ でも $ROOT/ でもない: {a!r}（{argv}）")
+            raise SystemExit(f"台本のセクションの検査の引数が $WORK/ でも $ROOT/ でもない: {a!r}（{argv}）")
     return tuple(out)
 
 
@@ -55,12 +55,12 @@ def bounds(lines):
     except ValueError:
         a = b = None
     if a is None or b < a:
-        raise SystemExit(f"tests/run.sh に節の境目 {SECTION} がこの順で無い——台本の節を動かしたら、この道具も直せ")
+        raise SystemExit(f"tests/run.sh にセクションの境目 {SECTION} がこの順で無い——台本のセクションを動かしたら、このツールも直せ")
     return a, b
 
 
 def script_rows(root=REPO):
-    """台本の節の検査を Row の並びで返す（台本の順）"""
+    """台本のセクションの検査を Row の並びで返す（台本の順）"""
     lines = (root / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
     a, b = bounds(lines)
     bash = shutil.which("bash") or "bash"
@@ -69,9 +69,9 @@ def script_rows(root=REPO):
     out, err = got.stdout.decode("utf-8"), got.stderr.decode("utf-8", "replace")
     body, sep, ran = out.rpartition("\x1c")
     if got.returncode != 0 or err or not sep:
-        raise SystemExit(f"台本の節を読み切れない（終了 {got.returncode}。STUB に無い関数・未定義の変数か）: {err[-2000:]}")
+        raise SystemExit(f"台本のセクションを読み切れない（終了 {got.returncode}。STUB に無い関数・未定義の変数か）: {err[-2000:]}")
     if ran != "0":
-        raise SystemExit(f"台本の節に expect_output・expect_exit を通らない検査が在る（ran={ran}）——台帳が拾えない")
+        raise SystemExit(f"台本のセクションに expect_output・expect_exit を通らない検査が在る（ran={ran}）——台帳が拾えない")
     rows = [r.split("\x1e")[:-1] for r in body.split("\x1d") if r]
     return [Row(int(e), w, d, args_of(argv)) for e, w, d, *argv in rows]
 
@@ -82,7 +82,7 @@ def collected(here=HERE):
                          cwd=here, capture_output=True)
     out = got.stdout.decode("utf-8", "replace")
     if got.returncode != 0:
-        raise SystemExit(f"テストを集められない（終了 {got.returncode}。件数の柵 EXPECTED_ITEMS の更新漏れもここに出る）: "
+        raise SystemExit(f"テストを集められない（終了 {got.returncode}。件数のチェック EXPECTED_ITEMS の更新漏れもここに出る）: "
                          f"{out[-2000:]}{got.stderr.decode('utf-8', 'replace')[-2000:]}")
     return {line for line in out.splitlines() if "::" in line}
 

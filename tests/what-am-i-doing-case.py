@@ -33,8 +33,8 @@ def ask(text, at=T0):
             "message": {"content": text}, "sessionId": SESSION}
 
 
-def tool_result(text="道具の出力"):
-    """道具の出力も user レコードとして落ちる。依頼に数えてはいけない。"""
+def tool_result(text="ツールの出力"):
+    """ツールの出力も user レコードとして落ちる。依頼に数えてはいけない。"""
     return {"type": "user", "message": {"content": [
         {"type": "tool_result", "content": text}]}, "sessionId": SESSION}
 
@@ -98,7 +98,7 @@ def _pairs(tmp):
 
 @case("ignores-tool-results")
 def _ignores(tmp):
-    """道具の出力も user レコードとして落ちる。依頼に数えると往復数が壊れる。"""
+    """ツールの出力も user レコードとして落ちる。依頼に数えると往復数が壊れる。"""
     build(tmp, [ask("ほんとうの依頼"), tool_result(), tool_result(),
                 reply("やりました")])
     return run()
@@ -115,7 +115,7 @@ def _landmarks(tmp):
 
 @case("tool-counts")
 def _tools(tmp):
-    """何の道具を何回使ったかを添える。作業の重さの手がかりになる。"""
+    """何のツールを何回使ったかを添える。作業の重さの手がかりになる。"""
     build(tmp, [ask("調べて"), reply("調べます", tools=[("Bash", "ls"),
                                                         ("Bash", "cat x"),
                                                         ("WebSearch", None)])])

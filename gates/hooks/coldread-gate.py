@@ -34,7 +34,7 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 読み手が持つ文脈は投稿先で変える。PR/issue のスレッドへ付く返信・編集は、題・番号・
 file と行・元の指摘・これまでの返信が同じ画面に見えている状態で読まれるので、フックが
 gh でその「画面」を取り、読み手に既知として渡す。新しい PR・issue も、GitHub が本文の周りに出すもの
-(題・リポジトリ・枝・変更ファイル・本文が指す #番号 の題)を渡す(release・gist・discussion の新規作成は
+(題・リポジトリ・ブランチ・変更ファイル・本文が指す #番号 の題)を渡す(release・gist・discussion の新規作成は
 文脈ゼロのまま)。画面を渡さずに読ませると、@相手の名前・PR 番号・相手が付けた印・
 相手自身の語まで詰まりに出て、書き手がそれを直すと宛先本人に本人の名前と自分の指摘の
 意味を説明する返信になる(2026-09-06 に PR 1583 で実測: 1 本の返信が 39 回止まり、
@@ -46,7 +46,7 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
 指して答えるのは既知)。画面をスレッドの語彙の辞書にすると、スレッドの癖のある書き方に読み手が
 引っ張られ、本文がその癖を写す向きに働く。写した箇所は「なぞり」として詰まりと同じく止める(直し方は
 説明を足すことではなく、自分の言葉に置き換える)。詰まりの条件文に「相手の語で書けば詰まり」と埋めた
-形は実物の読み手に 1 件も拾われなかったが、独立の欄として問うと 3 語とも拾い、引用して指す返信は
+形は実物の読み手に 1 件も拾われなかったが、独立のフィールドとして問うと 3 語とも拾い、引用して指す返信は
 拾わなかった(2026-09-07 に北極星・ニアバイ・クロージングで実測)。
 
 読み手に渡す画面は、参加者が実際に見ているものまで広げる: 題・番号・状態(open/merged/draft)・
@@ -76,13 +76,13 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
               blocked・reader-down・reader-shape・finding)。finding と allow には本文の長さと読み方
               (screen=スレッドの画面を渡した / new=新しい PR・issue の画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
               どれだけ膨れたかを示すため。blocked には止めた理由(why=)が付く。各行の末尾に sid=(session id の先頭 8 字)
-              v=(この門番の版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)、本文を読んだ deny には
+              v=(このゲートの版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)、本文を読んだ deny には
               fp=(本文の指紋。本文を写さずに、同じ投稿の書き直しかを比べる)
   skip.log    効かせなかった逃げ道(refused)と、読み役の中で発火した呼び出しのコマンド先頭
   misses.log  本文旗の綴りが在るのに候補も blocked も空だった単純コマンドの、旗の綴りと先頭の語
-              =網から落ちた疑い。「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
+              =ゲートから漏れた疑い。「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
   stuck.log   STUCK_MARK 回続けて止まった投稿の、会話・版・宛先の種類・止めた回数と理由の並び・本文の長さの並び
-              (本文は写さない)。関所か書き方のどちらかがおかしい合図なので、後で直す材料にする
+              (本文は写さない)。ゲートか書き方のどちらかがおかしい合図なので、後で直す材料にする
   rounds/     書き直しの前の回の本文と指摘(書き手と投稿先の組ごとに 1 つ。通ったら消す。FOLLOWUP_NOTE)
 
 環境変数:
@@ -91,7 +91,7 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
                              sh -c 実行。$1 以降に gh の引数列)。テスト用
   COLDREAD_MODEL             既定 sonnet
   COLDREAD_EFFORT            既定 medium
-  (手元の文書の読み手の環境変数 COLDREAD_DOC_* は、下の「手元の文書」の節の冒頭)
+  (手元の文書の読み手の環境変数 COLDREAD_DOC_* は、下の「手元の文書」のセクションの冒頭)
   COLDREAD_MAX_LEN           これを超えるコマンドは解析せず deny。既定 100000
   COLDREAD_IN_READER=1       読み役の中であることの印(自動で付く)。入れ子の再発火を防ぐ
   COLDREAD_KEYCHAIN_SERVICE  macOS Keychain の OAuth トークンのサービス名(未指定なら
@@ -119,7 +119,7 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-# 認証の段は隣の共有の本文が持つ(複数のプラグインに写しで在り、同一性は tests/run.sh の柵が見る)。
+# 認証の段は隣の共有の本文が持つ(複数のプラグインに写しで在り、同一性は tests/run.sh のチェックが見る)。
 # **`sys.path[0]` に頼らない**——検査は importlib でパスから読み込むので、自分の在り処から明示で足す。
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import claude_auth  # noqa: E402
@@ -180,7 +180,7 @@ LONG_FLAG_NOT_BODY = {("--comment", ("pr", "review"))}
 # discussion create・edit -c=--category / run download -n=--name / workflow run -F=--field /
 # pr review -c=--comment(レビュー種別を選ぶ真偽旗で値を取らない)。
 # そこで短縮形は「その綴りが本文を意味するサブコマンド」の中でだけ本文と見る。長い旗の側は
-# 一般のままなので、gh が投稿サブコマンドを増やしても --body 等で書かれていれば網に入る。
+# 一般のままなので、gh が投稿サブコマンドを増やしても --body 等で書かれていればゲートに掛かる。
 SHORT_TEXT_FLAGS = {
     "-b": ("text", {("issue", "comment"), ("issue", "create"), ("issue", "edit"),
                     ("pr", "comment"), ("pr", "create"), ("pr", "edit"),
@@ -228,7 +228,7 @@ VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
 ENV_PREFIX_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # 前段の粗選別。部分文字列だと highlight・through 等の語で解析に入ってしまう
 GH_WORD_RE = re.compile(r"\bgh\b")
-# 網から落ちたことの検出だけに使う綴り(判定には使わない)。本文旗が単純コマンドの語にあるのに
+# ゲートから漏れたことの検出だけに使う綴り(判定には使わない)。本文旗が単純コマンドの語にあるのに
 # 候補も blocked も空なら、投稿でないのではなく解析が取りこぼした疑いがある(当て方は analyze())。
 # 権威表から導出する——手で 2 本目の綴り表を持つと、旗を足したとき計器だけが黙り、
 # 最も新しい=最も取りこぼしやすい旗のところで数えられなくなる(表と検査の突合は
@@ -333,7 +333,7 @@ def normalize_shell(text):
     どちらも「gh は実行されるのにゲートには見えない」= 無検査・無記録の素通しになる。
     1 パスなら両方が自然に出る——注釈の判定に使う直前の 1 文字を、入力側ではなく
     出力側(prev)で見るため。行継続を落としても prev を据え置くので前後の語が連結し、
-    注釈を落とす枝は行末までしか進まないので次の行は残る。
+    注釈を落とす分岐は行末までしか進まないので次の行は残る。
 
     落とすもの:
       行継続 …… 引用の外と二重引用の中の `\`+改行。空白に置換せず削除する
@@ -512,7 +512,7 @@ def simple_commands(tokens):
 
 
 def command_start(tokens):
-    """単純コマンドの命令名の位置。前置(環境変数の代入・env/timeout 等とその旗と値)を読み飛ばす。無ければ len(tokens)。
+    """単純コマンドのコマンド名の位置。前置(環境変数の代入・env/timeout 等とその旗と値)を読み飛ばす。無ければ len(tokens)。
 
     gh_args と wants_skip の両方がここを通る——読み飛ばす範囲を 2 か所に書くと、片方だけ外れる。
     """
@@ -609,7 +609,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         return candidates, blocked  # 投稿でないので本文検出も検査もしない
     is_api = sub[:1] == ("api",)
     is_graphql = sub == ("api", "graphql")
-    gql_fields = {}   # graphql の -f/-F の欄(名前 → (型付きか, 値))。query と変数を後でまとめて見る
+    gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る
 
     def file_failed(why):
         """本文ファイルを読まなかった理由を blocked へ積む(理由ごとに直し方が違うので語を分ける)。"""
@@ -643,7 +643,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         積まないのは「本文でないと確かめた」ときだけで、それは not_body で明示する。
         main() は候補も blocked も無い状態を「投稿でない」と読んで allow するので、
         積み忘れは取り損ねを黙って素通しにする——`--input -` でヒアドキュメントを
-        取り損ねた投稿が実際にこの形で allow に落ちていた(回帰網は tests/run.sh)。
+        取り損ねた投稿が実際にこの形で allow に落ちていた(回帰テストは tests/run.sh)。
         """
         mark = len(candidates) + len(blocked)
         not_body = False
@@ -730,7 +730,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
                         if is_graphql:
                             gql_fields[key] = (typed, fval)
                         elif key == "body" or key.endswith("[body]"):
-                            # comments[][body] は review の行コメント(gh api の配列の欄の書き方)
+                            # comments[][body] は review の行コメント(gh api の配列のフィールドの書き方)
                             if typed and fval.startswith("@"):
                                 add("file", "@-" if fval == "@-" else fval[1:])
                             else:
@@ -779,8 +779,8 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
             typed, qv = gql_fields.pop("query")
             query = read_file(qv[1:]) if typed and qv.startswith("@") and qv != "@-" else qv
         if query and re.search(r"\bmutation\b", query):
-            # mutation が本文を運ぶのは body(と readme)の欄だけ。欄の値だけを抜き、ほかの欄(ID・トークン・
-            # 設定値)は読み役へ送らない。欄を持たない mutation(resolveReviewThread など)は投稿でない——
+            # mutation が本文を運ぶのは body(と readme)のフィールドだけ。フィールドの値だけを抜き、ほかのフィールド(ID・トークン・
+            # 設定値)は読み役へ送らない。フィールドを持たない mutation(resolveReviewThread など)は投稿でない——
             # 一律で止めていた頃は、これが往復の 57 件を生んでいた。
             texts = graphql_bodies(query, gql_fields, read_file)
             if texts is None:
@@ -791,16 +791,16 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     return candidates, blocked
 
 
-# graphql の mutation で本文を運ぶ欄。`$body:`(変数の宣言)は欄ではないので、直前の $ と語の字を除く
+# graphql の mutation で本文を運ぶフィールド。`$body:`(変数の宣言)はフィールドではないので、直前の $ と語の字を除く
 GQL_BODY_FIELD_RE = re.compile(r"""(?<![\w$])(?:body|readme)\s*:\s*""")
 GQL_STRING_RE = re.compile(r'"""(.*?)"""|"((?:[^"\\]|\\.)*)"|\$([A-Za-z_]\w*)', re.S)
 
 
 def graphql_bodies(query, fields, read_file):
-    """mutation の本文の欄の値の列。値が決まらない欄が 1 つでも在れば None(止める)。
+    """mutation の本文のフィールドの値の列。値が決まらないフィールドが 1 つでも在れば None(止める)。
 
-    値はブロック文字列・文字列・変数($名前 は -f/-F の同じ名前の欄)。変数として使われなかった
-    body・…[body] の欄(input[body]= のように入れ物ごと渡す形)も本文として読む。
+    値はブロック文字列・文字列・変数($名前 は -f/-F の同じ名前のフィールド)。変数として使われなかった
+    body・…[body] のフィールド(input[body]= のように入れ物ごと渡す形)も本文として読む。
     """
     texts, used = [], set()
     for m in GQL_BODY_FIELD_RE.finditer(query):
@@ -890,20 +890,20 @@ def json_has_long_text(obj, limit=200):
 # 読むのは gh がそのファイルを読むときに同じ中身だと静的に言えるときだけで、言えなければ止める:
 #   - パスは字のまま・同じコマンドの中で代入した変数・cwd(フックの入力)からの相対・`cd <絶対パス> &&` の先の
 #     相対まで解く。それ以外(解けない変数・~・グロブ・`;` で続く cd の後の相対)は止める
-#   - 同じコマンドの中で本文ファイルを書く命令が在れば、`cat > f <<EOF` 1 本だけならそのヒアドキュメントを
+#   - 同じコマンドの中で本文ファイルを書く単純コマンドが在れば、`cat > f <<EOF` 1 本だけならそのヒアドキュメントを
 #     読む(フックの時点のファイルは古い中身)。それ以外の書き手(cp・mv・sed・tee・>…)が在れば止める
 #   - 開くのは O_NONBLOCK で、開いた後に fstat で通常のファイルかを見る(FIFO が書き手を待ってフックを止めると、
 #     フックの timeout で無検査で通る)。上限(COLDREAD_MAX_LEN 字)を超える・UTF-8 でないものは止める
 # 残る穴: フックが読んだ後、gh が読むまでの間に別のプロセスが書き換える余地(チェックと実行の間。gates/README.md)。
 WRITE_OPS = {">", ">>", ">|", "&>", "&>>"}
-# 本文ファイルの名前を引数に持っていても、ファイルを書き換えない命令(書くリダイレクトは別に見る)
+# 本文ファイルの名前を引数に持っていても、ファイルを書き換えないコマンド(書くリダイレクトは別に見る)
 READ_ONLY_CMDS = {"cat", "wc", "head", "tail", "ls", "test", "[", "stat", "file", "grep", "diff", "less",
                   "jq", "echo", "printf", "cd"}
 _SEQUENTIAL = (";", "&&", "\n")   # 前のコマンドの効果(代入・cd)が後ろへ届く区切り
 _RUNS_BEFORE = ("", ";", "\n")     # 直前の区切りがこれなら、そのコマンドは前の成否に関わらず必ず走る
 CD_WORDS = {"cd", "pushd", "popd", "chdir"}
 CONDITIONAL_WORDS = {"if", "then", "else", "elif", "fi", "case", "esac", "while", "until", "for", "do", "done", "select"}
-# 変数を入れ直しうる命令(引数に名前を取る)。この名前は同じコマンドの中の代入から解かない
+# 変数を入れ直しうるコマンド(引数に名前を取る)。この名前は同じコマンドの中の代入から解かない
 REASSIGN_CMDS = {"read", "printf", "declare", "typeset", "local", "readonly", "mapfile", "readarray", "for",
                  "select", "unset", "let", "getopts"}
 _APPEND_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\+=")
@@ -938,7 +938,7 @@ _native_cache = {}
 def native_path(p):
     """コマンドに書かれたパスを、フックの Python が開ける形にする。直せなければ None(止める側)。
 
-    Windows の Claude Code は Bash の道具を Git Bash(MSYS2)で走らせるので、コマンドの中のパスは `/c/Users/…`・
+    Windows の Claude Code は Bash のツールを Git Bash(MSYS2)で走らせるので、コマンドの中のパスは `/c/Users/…`・
     `/tmp/…` の POSIX 形で書かれうる。フックの Python はネイティブの Windows で動き、その形を開けない(`/tmp/x` は
     `C:\\tmp\\x` と読まれる)。MSYS2 が同梱する cygpath(`-w` で Windows の形を出す)で直し、cygpath が無ければ
     ドライブの形(`/c/…` → `C:\\…`)だけを直す。`/tmp` などの割り当ては Git の入れ場所で変わるので推し量らない。
@@ -970,13 +970,13 @@ class BodyFiles:
 
     def __init__(self, cmds, cwd, heredoc_bodies, norm, tokens=()):
         self.cmds, self.heredocs, self.norm = cmds, heredoc_bodies, norm
-        # if・case・繰り返しの中の命令は、区切りが ; でも走るとは限らない(予約語は単純コマンドから落ちるので、語の列で見る)
+        # if・case・繰り返しの中のコマンドは、区切りが ; でも走るとは限らない(予約語は単純コマンドから落ちるので、語の列で見る)
         self.conditional = any(t in CONDITIONAL_WORDS for t in tokens)
         self.cwd = cwd if cwd and os.path.isabs(cwd) else None
         self.k, self.moved = 0, False
         self._assigned = None
         self._sq = None
-        # 繰り返し・関数の中では、gh の後に書いた命令も次の gh の前に走る
+        # 繰り返し・関数の中では、gh の後に書いたコマンドも次の gh の前に走る
         self.looped = any(c.args[:1] in (["done"], ["}"]) for c in cmds)
 
     def at(self, k, prefix):
@@ -1073,7 +1073,7 @@ class BodyFiles:
     def cwd_here(self, k=None):
         """k 番目(既定は gh)のコマンドが走る cwd。決まらなければ None。
 
-        cwd を変える命令(cd・pushd・popd を語のどこかに持つもの。`if cd x`・`builtin cd x` も)が前に在れば、
+        cwd を変えるコマンド(cd・pushd・popd を語のどこかに持つもの。`if cd x`・`builtin cd x` も)が前に在れば、
         `cd <絶対パス>` が必ず走り、そこから k まで && だけで続く形でだけ、その先を cwd と見る。
         """
         k = self.k if k is None else k
@@ -1096,7 +1096,7 @@ class BodyFiles:
         """本文ファイルの実パス(k 番目のコマンドの cwd で解く)。字のまま決まらなければ None。"""
         v = self.var(value)
         if v and v.startswith("~/") and "HOME" not in self.assigned() and os.environ.get("HOME"):
-            # `~/` はシェルが HOME で開く。フックは Bash と同じ利用者・同じ HOME で起こされる(コマンドの中で HOME を
+            # `~/` はシェルが HOME で開く。フックは Bash と同じ利用者・同じ HOME で起動される(コマンドの中で HOME を
             # 入れ直していなければ)。`~user/` の形は開かない
             v = os.path.join(os.environ["HOME"], v[2:])
         if not v or v.startswith("~") or "__HEREDOC" in v or any(ch in v for ch in "*?["):
@@ -1124,12 +1124,12 @@ class BodyFiles:
         return self._runs(j, ("&&",)) and self._between(j, self.k, ("&&",), below_ok=True)
 
     def writer(self, target):
-        """同じコマンドの中で target を書く命令。無ければ None、`cat > f <<EOF` 1 本ならその本文、ほかは "writer"。"""
+        """同じコマンドの中で target を書く単純コマンド。無ければ None、`cat > f <<EOF` 1 本ならその本文、ほかは "writer"。"""
         base = os.path.basename(target)
         found = []
         for j, c in enumerate(self.cmds):
             if not self.looped and j > self.k and self._between(self.k, j, _SEQUENTIAL + ("||",), below_ok=True):
-                continue   # gh が終わった後に走る命令(`gh … --body-file f && rm f` の後片付け)は gh の読む中身を変えない
+                continue   # gh が終わった後に走るコマンド(`gh … --body-file f && rm f` の後片付け)は gh の読む中身を変えない
             # gh 自身のリダイレクト(`gh … --body-file f > f`)も書き手に数える: シェルが gh より先に f を空にする
             for op, dest in c.redirects:
                 if op not in WRITE_OPS:
@@ -1265,10 +1265,10 @@ def analyze(command, cwd=None):
             out.calls.append((sub, args, cands, blk, here.cwd_here()))
             out.candidates.extend(cands)
             out.blocked.extend(blk)
-        # 素通しの理由が「投稿でない」なのか「網から落ちた」なのかを後から数える。本文旗の綴りが単純コマンドに
+        # 素通しの理由が「投稿でない」なのか「ゲートから漏れた」なのかを後から数える。本文旗の綴りが単純コマンドに
         # 在るのに、その単純コマンドが候補も止めた理由も出さなかったら、解析の取りこぼしの疑いがある。
         # 見るのはヒアドキュメントを印に置き換えた後の語(本文の中の綴りは数えない)。gh の語を含む単純コマンドに
-        # 限り、当たった旗と先頭の語(sh・python3・echo …)を残す——誤検知(別の道具の旗・文書の中の綴り)を後から分ける
+        # 限り、当たった旗と先頭の語(sh・python3・echo …)を残す——誤検知(別のツールの旗・文書の中の綴り)を後から分ける
         if not cands and not blk and sub not in NON_POSTING:
             joined = " ".join(c.args)
             hit = BODY_FLAG_RE.search(joined)
@@ -1289,12 +1289,12 @@ def posting_bodies(command, cwd=None):
 # 読ませると、画面に有るもの(相手の名前・PR 番号・相手の印・相手の語)が全部詰まりに出る
 # (経緯は冒頭の docstring)。そこで投稿先がスレッドなら gh で画面の中身を取って渡す。
 # 新規の PR・issue も読み手は本文だけを見ているのではない。GitHub は本文の周りに題・リポジトリ・
-# (PR なら)取り込む先と元の枝・変更ファイル・本文が指す #番号 の題を出す(閉じる issue は PR の横に題ごと並ぶ)。
+# (PR なら)取り込む先と元のブランチ・変更ファイル・本文が指す #番号 の題を出す(閉じる issue は PR の横に題ごと並ぶ)。
 # それを渡さずに読ませると、本文 1 行目の「Closes #660」まで「何の issue か分からない」と止まった
 # (2026-10-17 に実測。works-factory の新しい PR 3 本の本文が、合わせて 7 回止まった)。そこで new_item_screen が
 # その分だけを組んで渡す。release・gist・discussion の create は今までどおり文脈ゼロ。
 # 取れなかったときは文脈ゼロに倒して検査は走らせ、その旨を書き手に伝える。
-# 画面の中身は他人の文章なので読み手への指示が混ざりうるが、読み手は道具を持たず(--tools "")、
+# 画面の中身は他人の文章なので読み手への指示が混ざりうるが、読み手はツールを持たず(--tools "")、
 # 出力は詰まりの有無にしか効かない。
 # 読み手(sonnet)は入力が 3〜4 万字でも所要はほぼ変わらない。旧上限(全体 9,000・本文 800・
 # 1 コメント 1,500)は #1429 の本文 10,150 字の 8%、相手の返信 4,698 字の 32% しか見せず、
@@ -1555,7 +1555,7 @@ def screen_for(dest, cwd, body=""):
         root_id = c.get("in_reply_to_id") or c["id"]
         num = str(c["pull_request_url"]).rstrip("/").rsplit("/", 1)[-1]
         pr = g.json(["api", "repos/%s/pulls/%s" % (repo, num)])
-        # 同じ根に連なるものだけ。一覧に根が無ければ(ページの外)、直接取った c を根として置く
+        # 同じ元の指摘に連なるものだけ。一覧に元の指摘が無ければ(ページの外)、直接取った c を元の指摘として置く
         thread = [t for t in g.pages("repos/%s/pulls/%s/comments" % (repo, num))
                   if t.get("id") == root_id or t.get("in_reply_to_id") == root_id]
         if not any(t.get("id") == root_id for t in thread) and c["id"] == root_id:
@@ -1568,7 +1568,7 @@ def screen_for(dest, cwd, body=""):
         hunk = (c.get("diff_hunk") or "").splitlines()
         if hunk:
             head += ["[指摘が付いた差分の末尾]"] + hunk[-SCREEN_HUNK_LINES:]
-        # 根(元の指摘)は body の位置に置いて落とさず、返信だけを予算で落とす対象にする
+        # 元の指摘は body の位置に置いて落とさず、返信だけを予算で落とす対象にする
         root, replies = thread[:1], thread[1:]
         root_text = ""
         if root:
@@ -1632,9 +1632,9 @@ def create_flags(args, sub):
 
 def new_item_screen(sub, args, cwd, body):
     """新しく作る PR/issue を開いた読み手に、GitHub が本文の周りに出すものを返す (画面の文, 取れなかった物)。
-    題・-R・-B・-H はコマンドから読み、省かれた分(リポジトリ・既定の枝・今の枝)は gh と git で引く。
-    cwd はその gh が走る場所で、決まらない(None)ときは cwd に頼る引き方(リポジトリ・今の枝)をしない——
-    `cd 別の場所 && gh pr create` で、フックの場所の枝の中身を画面として渡さないため。
+    題・-R・-B・-H はコマンドから読み、省かれた分(リポジトリ・既定のブランチ・今のブランチ)は gh と git で引く。
+    cwd はその gh が走る場所で、決まらない(None)ときは cwd に頼る引き方(リポジトリ・今のブランチ)をしない——
+    `cd 別の場所 && gh pr create` で、フックの場所のブランチの中身を画面として渡さないため。
     1 つ取れなくても残りで組む。何も組めなければ画面は None(文脈ゼロで読む)。"""
     g = Screen(cwd)
     missed = []
@@ -1659,12 +1659,12 @@ def new_item_screen(sub, args, cwd, body):
         if not head and g.cwd:
             out = _git(["rev-parse", "--abbrev-ref", "HEAD"], g.cwd)
             head = out.decode("utf-8", "replace").strip() if out else None
-            head = None if head == "HEAD" else head  # 枝の無い状態(detached)では gh も枝を決められない
+            head = None if head == "HEAD" else head  # ブランチの無い状態(detached)では gh もブランチを決められない
         if base and head:
-            lines.append("[取り込む先 ← 元の枝] %s ← %s" % (base, head))
+            lines.append("[取り込む先 ← 元のブランチ] %s ← %s" % (base, head))
         try:
             if not (repo and base and head):
-                raise RuntimeError("比べる枝が分からない")
+                raise RuntimeError("比べるブランチが分からない")
             cmp = g.json(["api", "repos/%s/compare/%s...%s" % (repo, base, head)])
             lines += files_lines([f.get("filename") for f in cmp.get("files") or []])
         except Exception:
@@ -1680,7 +1680,7 @@ def new_item_screen(sub, args, cwd, body):
 
 # ---- 読み役 ----------------------------------------------------------------
 # 観点と報告の形式は 2 つの依頼文で共通。違うのは読み手の立ち位置(文脈ゼロ/画面を見ている)と、
-# 画面モードにだけ在る「冗長」欄——画面に有るものを本文で説明した箇所を、止めずに書き手へ返す。
+# 画面モードにだけ在る「冗長」フィールド——画面に有るものを本文で説明した箇所を、止めずに書き手へ返す。
 # 文脈ゼロの依頼文には冗長を置かない(画面が無いので、冗長かどうかを読み手が決められない)。
 _FORMAT_COMMON = """- (1)〜(4) に該当し、その箇所で意味が取れず次の文へ読み進められなかったもの → 1 行 1 件、行頭に「詰まり: 」。
   詰まりは次の 3 つのどれかだけ。「詰まり: 」の直後に (語) (指す先) (筋) のどれかを書く:
@@ -1696,7 +1696,7 @@ _FORMAT_COMMON = """- (1)〜(4) に該当し、その箇所で意味が取れず
 """
 # 依頼文の終わりの、本文の始まりの印。手元の文書の抜き出しは、この印の手前に補足を差し込む(doc_prompt)
 BODY_MARK = "--- 本文 ---\n"
-_RULES = """規則: 点数・総評・文体の好み・軽微な言い換え提案は書かない。読めば分かることへの確認は書かない。該当の無い欄は「詰まり: なし」のように書かず、行ごと省く。日本語で。
+_RULES = """規則: 点数・総評・文体の好み・軽微な言い換え提案は書かない。読めば分かることへの確認は書かない。該当の無いフィールドは「詰まり: なし」のように書かず、行ごと省く。日本語で。
 
 """ + BODY_MARK
 # 初見の観点。(3) の「何と合わせて解くか」だけが、文脈ゼロと新しい PR/issue(画面あり)で違う
@@ -1716,7 +1716,7 @@ COLD_PROMPT = """あなたはこの文章について何も知らない初見の
 
 """ + _COLD_VIEWS % "本文の中だけでは"
 # 新しい PR/issue を開いた読み手が、本文の周りに見ているもの(new_item_screen が組む物)
-NEW_SCREEN_ITEMS = {"PR": "題・リポジトリ・取り込む先と元の枝・変更ファイルの一覧・本文が参照している番号の題と状態",
+NEW_SCREEN_ITEMS = {"PR": "題・リポジトリ・取り込む先と元のブランチ・変更ファイルの一覧・本文が参照している番号の題と状態",
                     "issue": "題・リポジトリ・本文が参照している番号の題と状態"}
 NEW_PROMPT = """あなたはこの {noun} を初めて開いた読者です。会話の経緯もリポジトリの中身も見ていません。
 ただし GitHub はこの {noun} の本文の周りに次のものを表示していて、あなたはそれを見ています。
@@ -1746,7 +1746,7 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 - 画面に見えているもの(""" + SCREEN_ITEMS + """)は「何を指しているか分かっている」ものとして読む。それらが本文で説明されていなくても詰まりにしない
 - 画面は語彙の辞書ではない。相手の言い回し・業界の外では通じない横文字・比喩(例: 北極星・ニアバイ・クロージング)を、本文が自分の地の文として使っている箇所は「なぞり: 」として報告する——画面に同じ語が有っても、画面を持たずにこのスレッドを後から読む人には解けない。定着した技術用語・製品名・file 名・相手が付けた印は含めない。相手の語を引用して指す(「reviewer_x さんの言う『ニアバイ』は」「[block] の 2 件目は」)のはなぞりではない
 - 参照されている番号の題は、その番号の側の物で、本文の書き手には直せない。その題の中の語が分からなくても詰まりにしない(本文がその語を自分の言葉として使っているときだけ、本文の側の詰まりにする)
-- 本文が、画面に見えているものを改めて説明している箇所(誰宛か・何番の PR か・PR が何をするものか・相手の印や語の意味・相手が何を書いたか)は「冗長: 」として報告する(読み手は既に見ている)
+- 本文が、画面に見えているものを改めて説明している箇所(誰宛か・どの番号の PR か・PR が何をするものか・相手の印や語の意味・相手が何を書いたか)は「冗長: 」として報告する(読み手は既に見ている)
 
 見る観点:
 (1) この返信があなたに求めていること(何を確認し・何を返せばよいか)が言えるか
@@ -1808,11 +1808,11 @@ FOLLOWUP_DIFF_MAX = 8000   # 差分の上限(字)。超えた分は切る(本文
 
 
 def carried_only(found, prev, changed):
-    """CARRY_ONLY_ROUND 回目からの仕分け。止める欄の行は、ラベルの直後に前の回から残った印(CARRY_MARK)が有る物だけにし、
+    """CARRY_ONLY_ROUND 回目からの仕分け。止めるフィールドの行は、ラベルの直後に前の回から残った印(CARRY_MARK)が有る物だけにし、
     ほかは疑問に移す。印の後ろが「無い」の意味だけの行は落とす。止める行の数は、本文を直していれば前の回の止めた数より
     1 つ少ない数までにし(多い分は疑問に移す)、直していなければ前の回の数までにする。
 
-    読み手が依頼文に従わず新しい物を印付きで書いても、止める数は直すたびに減り、0 になれば通る——関門が自分で収まる
+    読み手が依頼文に従わず新しい物を印付きで書いても、止める数は直すたびに減り、0 になれば通る——ゲートが自分で収まる
     (持ち主 2026-10-17「ある程度出たと判断したら進む形にしよう」「人からパスを売ってもらう運用はやめて」)。
     直さずに打ち直した本文では減らさない(打ち直すだけで通る口にしない)。"""
     prev_found = prev.get("found", {})
@@ -1858,16 +1858,16 @@ def followup_prompt(prompt, prev, body):
 
 
 # 読み役のラベルと、投稿を止めるかどうか。依頼文が指示する綴りと 1 対 1 なので隣に置く——
-# 欄を増やすときに、指示と仕分けと止める/止めないが同じ画面で目に入る形にしておく。
+# フィールドを増やすときに、指示と仕分けと止める/止めないが同じ画面で目に入る形にしておく。
 # 「なぞり」(相手の言い回しを地の文に写した箇所)は画面モードにだけ在り、詰まりと同じく投稿を止める——
 # 画面が既知にするのは指す先であって語彙ではない。詰まりの条件文の中に「相手の語で書けば詰まり」と
 # 埋めた形は、実物の読み手(sonnet)に 1 件も拾われなかった(2026-09-07 に実測: 北極星・ニアバイ・
-# クロージングを地の文に写した返信が詰まり 0 件)。独立の欄として問う
+# クロージングを地の文に写した返信が詰まり 0 件)。独立のフィールドとして問う
 LABELS = {"詰まり": True, "なぞり": True, "疑問": False, "補完": False, "冗長": False}
 LABEL_RE = re.compile("(%s)\\s*[:：]" % "|".join(LABELS))
-# ラベルの後ろが「無い」の意味だけの行は、その欄の 0 件であって 1 件ではない。依頼文で「行ごと省け」と
+# ラベルの後ろが「無い」の意味だけの行は、そのフィールドの 0 件であって 1 件ではない。依頼文で「行ごと省け」と
 # 言っても読み手は書く(2026-09-06 に実測: 画面モードの読み手が「詰まり: なし」と書き、837 字の
-# 返信が詰まり 1 件として止まった)。ここで落とさないと、無い欄が投稿を止める
+# 返信が詰まり 1 件として止まった)。ここで落とさないと、無いフィールドが投稿を止める
 NONE_RE = re.compile(r"^(?:なし|無し|ない|無い|特になし|特に無し|該当なし|該当無し|ありません|0\s*件|ゼロ|none)"
                      r"\s*(?:[（(][^）)]*[）)])?\s*[。．.]?\s*$", re.I)
 
@@ -1893,7 +1893,7 @@ def sort_findings(out):
 
 
 def section(head: str, items: list) -> str:
-    """見出し付きの節。中身が無ければ空文字("".join の側で節ごと落ちる)。"""
+    """見出し付きのセクション。中身が無ければ空文字("".join の側でセクションごと落ちる)。"""
     return head + "\n" + "\n".join(items) if items else ""
 
 
@@ -2029,17 +2029,17 @@ def reader_argv(claude_bin, model=None, effort=None):
     **本文は argv に載せない**(依頼文+本文は stdin で渡す)。載せていた頃は 2 つ問題が在った:
     Windows のコマンドラインは 32,767 字が上限で、画面つきの依頼文(本文だけで最大 SCREEN_MAX 字)
     が超えると起動そのものが落ち、ゲートは「読み役の起動に失敗」で投稿を全部止める(理由は面を
-    教えない)。もう 1 つは、差し替えの枝(COLDREAD_READER_CMD。CI が唯一叩く枝)だけが stdin で
+    教えない)。もう 1 つは、差し替えの分岐(COLDREAD_READER_CMD。CI が唯一叩く分岐)だけが stdin で
     渡していたので、テストが実運用の渡し方を覆っていなかった。
     stdin で足りることは実測済み: 2026-09-16 にこの環境(macOS・claude 2.1.273)で、同じ旗と
-    claude_auth の認証のまま `-p` を引数なしで起こし、stdin の依頼に返答が返った。大きさの先例は
-    graphloops の graph(774,021 バイトを stdin で通した実測。docs/loop-contract.md の T 節)。
+    claude_auth の認証のまま `-p` を引数なしで起動し、stdin の依頼に返答が返った。大きさの先例は
+    graphloops の graph(774,021 バイトを stdin で通した実測。docs/loop-contract.md の T セクション)。
     """
     return [claude_bin, "-p",
             "--model", model or os.environ.get("COLDREAD_MODEL", "sonnet"),
             "--effort", effort or os.environ.get("COLDREAD_EFFORT", "medium"),
-            # 読み役は本文を読んで報告するだけで道具は要らない。検査対象の文章そのものを
-            # 渡すので、本文に紛れた指示で読み役が動く経路をここで断つ("" で全道具を無効化)。
+            # 読み役は本文を読んで報告するだけでツールは要らない。検査対象の文章そのものを
+            # 渡すので、本文に紛れた指示で読み役が動く経路をここで断つ("" で全ツールを無効化)。
             "--tools", "",
             # 利用者の CLAUDE.md(と settings)を読ませない。cwd を state 側にしてもユーザー階層の
             # CLAUDE.md は載る——2026-09-06 に実測: この引数無しだと利用者の CLAUDE.md の見出しを
@@ -2062,11 +2062,11 @@ def _child_text(raw, strict=True):
 def run_reader(prompt: str, model=None, effort=None, timeout=READER_TIMEOUT):
     """読み役を起動して出力文字列を返す。prompt は依頼文+本文。model・effort・timeout は既定(投稿の読み役)を替えるときだけ渡す。失敗は例外。"""
     override = os.environ.get("COLDREAD_READER_CMD")
-    note = None  # 採った認証の段。差し替えの枝では認証に触らないので None のまま
+    note = None  # 採った認証の段。差し替えの分岐では認証に触らないので None のまま
     if override:
         # POSIX シェル文字列として sh -c で実行する。shell=True だと Windows では
         # cmd.exe に渡ってしまい、/dev/null 等が解決できない(GitHub Actions windows-latest で実測)。
-        # **本文は bytes で渡す**(下の実運用の枝も同じ)。encoding= を付けて str を渡すと、text mode の
+        # **本文は bytes で渡す**(下の実運用の分岐も同じ)。encoding= を付けて str を渡すと、text mode の
         # 改行変換が働いて本文の \n が Windows で \r\n に化け、「書かれたとおり」読み役へ渡らない
         # (subprocess には newline を指定する口が無い。実測 2026-09-16: windows-latest だけで、
         # 単一引用の中の改行を保つ 1 件が赤かった——読み役には行末に \r が付いた本文が届いていた)。
@@ -2130,11 +2130,11 @@ SCOPE_NOTE = (
 )
 
 # 往復の上限は置かず、持ち主に通させもしない(持ち主 2026-10-17「上限はいらないわ」「人からパスを売ってもらう運用はやめて」)。
-# 関門が自分で収まる: 2 回目の読み手は前の回の指摘と直しを見て、解けていない物と直しが持ち込んだ物だけで止め(FOLLOWUP_OPEN)、
+# ゲートが自分で収まる: 2 回目の読み手は前の回の指摘と直しを見て、解けていない物と直しが持ち込んだ物だけで止め(FOLLOWUP_OPEN)、
 # CARRY_ONLY_ROUND 回目からは前の回から残った物だけで止める(FOLLOWUP_CARRY・carried_only)。止める物は回を追って減る。
 # 持ち主の決め「ある程度出たと判断したら進む形にしよう」(2026-10-17)。前は持ち主が「coldread-pass <番号>」を打って通す口を
 # 置いたが、持ち主が会話で「通していい」と言っても機械が受け取れず、書き手が止まった(works-factory の PR #677、5 回)。
-# 同じ投稿がこの回数続けて止まったら、収まらない合図として stuck.log に残す(関門の側を直す材料)。3 にしたのは、denies.log
+# 同じ投稿がこの回数続けて止まったら、収まらない合図として stuck.log に残す(ゲートの側を直す材料)。3 にしたのは、denies.log
 # (2026-09〜10 の 4 profile)の連続の分布から: 1 回止まった後の次で通ったのは 301 本中 178 本、2 回止まった後の次で
 # 通ったのは 94 本中 49 本、3 回止まった後の次で通ったのは 33 本中 2 本だった(前の回を知らない読み手のときの数)。
 STUCK_MARK = 3
@@ -2226,8 +2226,8 @@ def main() -> None:
     except Exception:
         allow()
 
-    # 手元の文書の門番: Bash が書いた文書を後で拾うために、走る前の文書の状態を控える(投稿の判定とは独立。
-    # 失敗しても投稿の門番を落とさない)
+    # 手元の文書のゲート: Bash が書いた文書を後で拾うために、走る前の文書の状態を控える(投稿の判定とは独立。
+    # 失敗しても投稿のゲートを落とさない)
     try:
         docs_snapshot(payload)
     except Exception:
@@ -2241,9 +2241,9 @@ def main() -> None:
     def record(text, extra=""):
         log_line(DENY_LOG, "%s\tsid=%s\tv=%s\tto=%s%s" % (text, sid, GATE_VERSION, target, extra))
 
-    # 読み役の中で自分がもう一度発火すると、読み役が読み役を起こす入れ子になる
+    # 読み役の中で自分がもう一度発火すると、読み役が読み役を起動する入れ子になる
     # (深さぶんの待ち時間になり、外側はフックのタイムアウトで無検査のまま通る)。
-    # 読み役の道具を殺す --tools "" とは別の機構にしてある——あちらは「読み役が本文中の
+    # 読み役のツールを殺す --tools "" とは別の機構にしてある——あちらは「読み役が本文中の
     # 指示で動かない」ための処置で、起動の仕方(差し替えの読み役)に依存する。こちらは
     # 起動の仕方に関わらず入れ子を止める。allow に落ちる以上、記録を残す。
     if os.environ.get("COLDREAD_IN_READER") == "1":
@@ -2316,7 +2316,7 @@ def main() -> None:
              + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
              "引用を直して再実行すること。\n" + OWNER_NOTE)
 
-    # 素通しの疑いは判定より前に残す(止める枝・通す枝のどちらに進んでも数える)。残すのは当たった旗の綴りと
+    # 素通しの疑いは判定より前に残す(止める分岐・通す分岐のどちらに進んでも数える)。残すのは当たった旗の綴りと
     # 先頭の語だけで、コマンドの抜粋は残さない——`gh secret set --body <値>` のような値は秘密そのもので、
     # 抜粋にすると平文で溜まる。狙いは押し出しの量を測ることなので綴りで足りる。
     for flag, head in analysis.misses:
@@ -2342,7 +2342,7 @@ def main() -> None:
 
     # 投稿先がスレッドなら、読み手が画面で既に見ているものを取って渡す。取れなければ
     # 文脈ゼロに倒す——検査は走らせ、画面に有るものへの詰まりは無視してよいと書き手に伝える
-    # 投稿先の解釈で例外が出ても門番を落とさない(落ちるとフックのクラッシュ=無検査で通る)。
+    # 投稿先の解釈で例外が出てもゲートを落とさない(落ちるとフックのクラッシュ=無検査で通る)。
     # 解釈できないときは文脈ゼロ側(厳しい側)へ倒れる
     try:
         target, dest = analysis.target_of(body)
@@ -2363,7 +2363,7 @@ def main() -> None:
                 "文脈ゼロで読んだ。画面に有るもの(PR/issue 番号・相手の名前・元の指摘)への詰まりは無視してよい。"
                 % screen_error)
     elif noun:
-        # 新しい PR/issue。画面を組む途中の失敗で門番を落とさない(落ちると無検査で通る)
+        # 新しい PR/issue。画面を組む途中の失敗でゲートを落とさない(落ちると無検査で通る)
         try:
             screen, missed = new_item_screen(sub, sub_args, sub_cwd, body)
         except Exception as exc:
@@ -2375,7 +2375,7 @@ def main() -> None:
     mode = ("new" if noun else "screen") if screen else "cold"
 
     # 同じ投稿の書き直しなら、前の回の指摘と直しを読み手に渡す(FOLLOWUP_NOTE)
-    # 記録の読みで例外が出ても門番を落とさない(落ちると無検査で通る)。1 回目の読み方に戻す
+    # 記録の読みで例外が出てもゲートを落とさない(落ちると無検査で通る)。1 回目の読み方に戻す
     prompt = reader_prompt(screen, noun)
     try:
         prev = load_round(sid, target, fp)
@@ -2387,14 +2387,14 @@ def main() -> None:
     try:
         out = run_reader(prompt + body)
     except Exception as exc:
-        # 読み役を起こせないときも止める。逃げ道は無いので、直らなければ持ち主に渡す
+        # 読み役を起動できないときも止める。逃げ道は無いので、直らなければ持ち主に渡す
         stop("reader-down\t%d" % len(body),
              "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
              + "検査できていないので止めた。手で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
              + OWNER_NOTE, len(body), fp)
 
     # **報告の形をしていない出力を「詰まりゼロ」と読まない。** 認証落ちは例外にならない——
-    # 実測 2026-09-15: 素で起こした claude は『Failed to authenticate: OAuth session expired and
+    # 実測 2026-09-15: 素で起動した claude は『Failed to authenticate: OAuth session expired and
     # could not be refreshed』の 1 行を**標準出力に・終了コード 0 で**返した。rc も空出力も踏まないので
     # ここまで素通りし、ラベルが 1 つも無いまま allow に落ちていた(＝検査せずに投稿が出る fail-open)。
     # 依頼文が許す出力は CLEAN かラベル行の 2 種類だけなので、どちらでもなければ「検査できない」として止める。
@@ -2412,7 +2412,7 @@ def main() -> None:
 
     # 詰まりとなぞりの有無だけで決める。以前は「最終行が CLEAN なら」も allow の条件だったが、
     # それだと詰まりを列挙した後に CLEAN と書かれた出力が通ってしまう。読み役に本文の
-    # 説明以外を書かせる欄(補完)を足したぶん、末尾が CLEAN で終わる形は出やすくなっている。
+    # 説明以外を書かせるフィールド(補完)を足したぶん、末尾が CLEAN で終わる形は出やすくなっている。
     if not any(found[label] for label, stops in LABELS.items() if stops):
         record("allow\t%d\t%s" % (len(body), mode))
         drop_round(sid, target)
@@ -2483,7 +2483,7 @@ def main() -> None:
 
 # ---- 手元の文書(書いた後に記録し、書いた役の終わりにまとめて読む) -----------------------------
 # gh への投稿は出したら取り消せないので、書く前に止める(上の main)。手元の文書は書いた後でも直せるので止めない。
-# 書くたびに読み手を起こすと、Edit のたびに待たされ、同じ文書を何度も読む(Vale も書いた後に走らせ、止めずに指摘を返す)。
+# 書くたびに読み手を起動すると、Edit のたびに待たされ、同じ文書を何度も読む(Vale も書いた後に走らせ、止めずに指摘を返す)。
 # だから書いた後(PostToolUse)は書いた文書の名前を記録するだけにし、書いた役が終わるときに、その役が書いた
 # 文書を 1 本 1 回だけ読ませる。読み手と観点は投稿と同じ COLD_PROMPT で、正本はこの 1 か所。
 #
@@ -2495,36 +2495,36 @@ def main() -> None:
 #   additionalContext はその役を続けさせる)。前は親の Stop で読んでいたので、指摘が親に届き、親は書いた役へ送り直すしか
 #   なく、親の文脈を食った。書き手が書き終える前の書きかけを読む空振りもした。
 # - 親(agent_id が無い)が書いた文書は親の Stop で読むが、指摘の全文は親の文脈に積まない。ファイルに書き出し、本数・件数・
-#   ファイルの場所と、新しい作業役に渡して直させるという短い知らせだけを返す。親の Stop はサブエージェントの記録を読まない。
+#   ファイルの場所と、新しいサブエージェントに渡して直させるという短い知らせだけを返す。親の Stop はサブエージェントの記録を読まない。
 # 直した文書は次の終わりにまた読まれ、同じ中身はハッシュで読み直さないので、直さなければ終わる(Claude Code も連続 8 回で打ち切る)。
 # 投稿より読む数が多いので、読み手は速く安いモデル(既定 haiku)を effort high で走らせる。Anthropic の Effort の文書は
 # Haiku 5.5 に「Use high for knowledge work, longer agent tasks, and strict instruction following. Use xhigh or max only
 # where your evals show a quality gain」と書く(https://platform.claude.com/docs/en/build-with-claude/effort)。初見読みは
 # 決まった書式の指示に従って文書を読む知識の仕事なので high。手元の測りでは決めない(持ち主の決まり)。
 #
-# 前から在る文書は、書き換えた所を含む節だけを読ませる(新しく作った文書は全体)。全体を読ませていた頃は、約 200 行の
-# 設計の文書に数行足しただけで読み手が時間切れ(210 秒)になり、AGENTS.md の 1 文を直すたびに直していない節の前からの
-# 疑問が 6〜14 件返って、直させる作業役が「対象の文に指摘なし」で終わった(2026-10-16 に持ち主の会話で実測)。
+# 前から在る文書は、書き換えた所を含むセクションだけを読ませる(新しく作った文書は全体)。全体を読ませていた頃は、約 200 行の
+# 設計の文書に数行足しただけで読み手が時間切れ(210 秒)になり、AGENTS.md の 1 文を直すたびに直していないセクションの前からの
+# 疑問が 6〜14 件返って、直させるサブエージェントが「対象の文に指摘なし」で終わった(2026-10-16 に持ち主の会話で実測)。
 # 前の版は、書いた役のその回で最初に記録したときの、書く前の中身にする(Write・Edit は PostToolUse の tool_response の
 # originalFile。2026-10-16 に claude 2.1.300 で実測: Edit と Write の上書きは文字列、Write の新規は null と type "create")。
-# 取れない道具(Bash・MCP)は、書く前の HEAD の版を指す(Bash は走る前の控えの HEAD)。HEAD に無い文書は新しい文書として全体を読む。
+# 取れないツール(Bash・MCP)は、書く前の HEAD の版を指す(Bash は走る前の控えの HEAD)。HEAD に無い文書は新しい文書として全体を読む。
 # 人が書いていない文書(.gitattributes の linguist-generated。GitHub Linguist の印で、Graphite も AI のレビューから外すのに
 # 使う)は読まない。スクリプトがウェブから取った原文の写しを読んで、時間切れと指摘を出していた(2026-10-16 の docs.log)。
-# 人が書いた文書でも、ほかの検査が受け持つ所(原文と照らす写しのノートなど)は .gitattributes の -coldread で外せる。
+# 人が書いた文書でも、ほかの検査が受け持つ所(原文と照合する写しのノートなど)は .gitattributes の -coldread で外せる。
 # 生成物の印は意味が違うので付けさせない。my_notes の reference/primary/ は 5 時間で 799 本読まれていた(2026-10-17 の測り)。
 #
-# 書いた役を起こす(続けさせる・会話を起こす)のは詰まりが在るときだけ。推測で埋めた箇所と疑問だけなら返さず、docs.log に
-# 件数だけ残す(投稿の門番も本流に入れる前の関門も、止めるのは詰まりだけで、手元の文書の門番だけが推測で埋めた箇所でも
-# 起こしていた)。読み手は推測で埋めた箇所を理解を妨げなくても書くので、ほとんどの文書が CLEAN にならず、直すたびに直した
-# 節がまた読まれた(2026-10-17 の 5 時間で、詰まり 12 件に推測で埋めた箇所 395 件。直す回りが全体の使う量の 17%)。
-# 詰まりが在るときは、推測で埋めた箇所と疑問も一緒に返す(直す番は起きているので、誤読を知る機会は残る)。
+# 書いた役を呼び起こす(続けさせる・会話を呼び起こす)のは詰まりが在るときだけ。推測で埋めた箇所と疑問だけなら返さず、docs.log に
+# 件数だけ残す(投稿のゲートもメインブランチに入れる前のゲートも、止めるのは詰まりだけで、手元の文書のゲートだけが推測で埋めた箇所でも
+# 呼び起こしていた)。読み手は推測で埋めた箇所を理解を妨げなくても書くので、ほとんどの文書が CLEAN にならず、直すたびに直した
+# セクションがまた読まれた(2026-10-17 の 5 時間で、詰まり 12 件に推測で埋めた箇所 395 件。直す回りが全体の使う量の 17%)。
+# 詰まりが在るときは、推測で埋めた箇所と疑問も一緒に返す(書いた役はどのみち呼び起こされるので、誤読を知る機会は残る)。
 DOC_EXTS = (".md", ".mdx", ".adoc", ".asciidoc", ".rst", ".txt")
 DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未満の文書は読まない(字)
 DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
 DOC_EFFORT = os.environ.get("COLDREAD_DOC_EFFORT", "high")
 DOC_WORKERS = 4      # 1 回の終わりに読む文書を並べる数
-# 手元の文書の読み役 1 回の上限。裏で読む口も待って読む口(作業役の終わり・claude -p の終わり・手の read・枝の関門)も同じにする。
-# 待って読む口だけ投稿の読み役と同じ 210 秒で切っていた頃は、xhigh の読みが 210 秒を超える文書を作業役が何度書き直しても
+# 手元の文書の読み役 1 回の上限。裏で読む口も待って読む口(サブエージェントの終わり・claude -p の終わり・手の read・ブランチのゲート)も同じにする。
+# 待って読む口だけ投稿の読み役と同じ 210 秒で切っていた頃は、xhigh の読みが 210 秒を超える文書をサブエージェントが何度書き直しても
 # 時間切れで指摘が出なかった(2026-10-17 に my_notes の約 8 千字のメモで、待って読む口は 210 秒で 6 回続けて切れ、裏の口は
 # 同じメモを 299 秒・333 秒で読み終えた。docs.log の時間切れ 95 件は全部 210 秒の上限で、読み終えた読みの最長は 412 秒)。
 # hooks.json の Stop・SubagentStop の timeout(900s)に、DOC_WORKERS 本ずつ 2 巡で収める
@@ -2536,35 +2536,35 @@ DOC_LOG = os.path.join(STATE_DIR, "docs.log")
 DOC_SEEN = os.path.join(DOC_DIR, "seen")
 DOC_FINDINGS = os.path.join(DOC_DIR, "findings")
 # 1 行目にこの印が在る文書は読まない(書き手が意図して置く逃げ道。印がファイルに残るので記録は要らない)。
-# coldwrite(このゲートに移る前の、書く前に止める門番)の印もそのまま効かせる
+# coldwrite(このゲートに移る前の、書く前に止めるゲート)の印もそのまま効かせる
 DOC_SKIP_MARKS = ("coldread:skip", "coldwrite:skip")
 DOC_BASE_DIR = os.path.join(DOC_DIR, "base")   # 書いた役ごとの、文書の前の版(またはその在り処)の控え
 DOC_CONTEXT = 5        # 見出しの無い文書で、変えた行の前後に添える行数(さらに段落の切れ目まで広げる)
 DOC_LEAD_MAX = 30      # 何の文書かを知るために添える冒頭(題と最初の段落)の行数の上限
 DOC_WHOLE_RATIO = 0.8  # 抜き出しが全体の行数のこの割合以上なら、抜き出さずに全体を読ませる
-# 書き換えた所を含む節(またぐなら、どれか 1 つの節)がこの字数を超えるなら、節を丸ごとでなく、節の見出しと、書き換えた段落・箇条だけを読ませる。
-# 長い節を丸ごと読ませていた頃は、約 1 万 4 千字の節(works-dispatch の SKILL.md の「頼む・納品する」)の 2〜3 か所を
-# 直しただけで、枝の関門が回すたびに同じ節の書き換えていない箇条から新しい詰まりを 1〜2 件出し、6 回目でやっと通った
-# (2026-10-17。読み手の haiku は回ごとに拾う所が替わる)。2000 字はこのリポジトリの文書の節の 9 割が収まる長さ
-# (2026-10-17 の測り: 3956 節の中央 380 字・9 割 2019 字)で、短い節は今までどおり丸ごと読ませる
+# 書き換えた所を含むセクション(またぐなら、どれか 1 つのセクション)がこの字数を超えるなら、セクションを丸ごとでなく、セクションの見出しと、書き換えた段落・箇条だけを読ませる。
+# 長いセクションを丸ごと読ませていた頃は、約 1 万 4 千字のセクション(works-dispatch の SKILL.md の「頼む・納品する」)の 2〜3 か所を
+# 直しただけで、ブランチのゲートが回すたびに同じセクションの書き換えていない箇条から新しい詰まりを 1〜2 件出し、6 回目でやっと通った
+# (2026-10-17。読み手の haiku は回ごとに拾う所が替わる)。2000 字はこのリポジトリの文書のセクションの 9 割が収まる長さ
+# (2026-10-17 の測り: 3956 個のセクションの中央値 380 字・9 割 2019 字)で、短いセクションは今までどおり丸ごと読ませる
 DOC_SECTION_MAX = 2000
 GENERATED_ATTR = "linguist-generated"
 SKIP_ATTR = "coldread"   # .gitattributes で -coldread(unset)にした文書は読まない
 # 抜き出しを読ませるときに、依頼文の本文の印の手前に足す補足。観点(COLD_PROMPT)は変えず、読む範囲だけを言う。
-# 省いた節で説明されている語まで詰まりに出すと、直していない所の前からの疑問が毎回返る形に戻るので、疑問に回させる
+# 省いたセクションで説明されている語まで詰まりに出すと、直していない所の前からの疑問が毎回返る形に戻るので、疑問に回させる
 DOC_LEAD_LABEL = "【冒頭】"
-DOC_HEAD_LABEL = "【節の見出し】"
+DOC_HEAD_LABEL = "【セクションの見出し】"
 DOC_PART_LABEL = "【書き換えた所】"
 DOC_FOCUS_NOTE = ("補足: この本文は、長い文書のうち今回書き換えた所だけを抜き出したもの。「" + DOC_LEAD_LABEL
                   + "」の下は、何の文書かを知るために添えた文書の頭で、「" + DOC_HEAD_LABEL
-                  + "」の下は、長い節から書き換えた段落・箇条だけを抜いたときに、どの節かを知るために添えた見出し。"
+                  + "」の下は、長いセクションから書き換えた段落・箇条だけを抜いたときに、どのセクションかを知るために添えた見出し。"
                   "どちらへの指摘も書かない。「" + DOC_PART_LABEL
                   + "」の下だけについて報告する。「(略)」は省いた所。省いた所で説明されているかもしれない語や参照が"
                   "分からないときは、詰まりではなく疑問にする。\n\n")
 
 
 def docs_off():
-    """手元の文書の門番だけを切る(投稿の門番は残す)。"""
+    """手元の文書のゲートだけを切る(投稿のゲートは残す)。"""
     return os.environ.get("COLDREAD_DOCS_OFF") == "1"
 
 
@@ -2586,17 +2586,17 @@ def _who(payload):
     return str(payload.get("session_id") or ""), str(payload.get("agent_id") or "")
 
 
-# Bash・MCP の道具で書いた文書も拾う(持ち主の方針「防ぐより、ひっかける幅を増やす」)。Write・Edit の記録だけでは、
+# Bash・MCP のツールで書いた文書も拾う(持ち主の方針「防ぐより、ひっかける幅を増やす」)。Write・Edit の記録だけでは、
 # cat > x.md <<EOF・tee・sed -i・python で書く文書が 1 本も読まれなかった。
-# - Bash: 走る前(PreToolUse。投稿の門番の main が呼ぶ)に、cwd の git の作業ツリーの変更一覧のうち文書の (mtime, 大きさ) を
+# - Bash: 走る前(PreToolUse。投稿のゲートの main が呼ぶ)に、cwd の git の作業ツリーの変更一覧のうち文書の (mtime, 大きさ) を
 #   控え、走った後(PostToolUse・PostToolUseFailure)に取り直して、増えた・変わった文書を記録に載せる。git の外と、git が
 #   見ない文書(.gitignore の中)のために、中身をコマンドの字面に持つ書き込み先(ヒアドキュメント・echo・printf の行き先、
-#   sed -i)も静的に拾う。ほかの命令の出力のリダイレクト先と cp/mv の行き先は写しなので、git の中の差からも外す(下の AUTHOR_CMDS)
-# - MCP の道具: 名前が書く道具らしいもの(write・edit・create…)の入力の path の欄を拾う
+#   sed -i)も静的に拾う。ほかのコマンドの出力のリダイレクト先と cp/mv の行き先は写しなので、git の中の差からも外す(下の AUTHOR_CMDS)
+# - MCP のツール: 名前が書くツールらしいもの(write・edit・create…)の入力の path のフィールドを拾う
 # 同じ checkout を並行の会話が触っていると、その間の他人の書き込みも拾いうる。読むのは中身のハッシュで 1 回だけなので、
 # 同じ中身を 2 つの会話が読むことは無いが、先に終わった方に指摘が返る(gates/README.md の射程)。
 DOC_SNAP_DIR = os.path.join(DOC_DIR, "snap")
-DOC_SNAP_KEEP = 24 * 3600   # 控えを残す秒数。投稿の門番に止められた Bash は後のフックが走らないので、古い控えを消す
+DOC_SNAP_KEEP = 24 * 3600   # 控えを残す秒数。投稿のゲートに止められた Bash は後のフックが走らないので、古い控えを消す
 GIT_TIMEOUT = 5             # git 1 回の上限(秒)。PostToolUse のフックの timeout(10s)に収める。超えたら静的な読みだけにする
 MCP_WRITE_RE = re.compile(r"write|edit|create|update|save|put|append|move|copy|rename|replace|insert", re.I)
 PATH_KEYS = ("file_path", "path", "filePath", "notebook_path", "filename", "destination", "target")
@@ -2621,7 +2621,7 @@ def _git_docs(root):
     for ent in out.decode("utf-8", "replace").split("\0"):
         if len(ent) < 4 or not ent[3:].lower().endswith(DOC_EXTS) or ent[:2] in UNMERGED:
             continue
-        full = os.path.realpath(os.path.join(root, ent[3:]))   # porcelain のパスは作業ツリーの根から
+        full = os.path.realpath(os.path.join(root, ent[3:]))   # porcelain のパスは作業ツリーのルートから
         try:
             st = os.stat(full)
         except OSError:
@@ -2635,21 +2635,21 @@ def _snap_file(payload):
     return os.path.join(DOC_SNAP_DIR, _safe(str(payload.get("tool_use_id") or "")) + ".json")
 
 
-# 書いた役が書いた文書と、git が作業ツリーに持ち込んだ文書(載せ直し・merge・pull・checkout など)を分ける。
-# フックの入力は道具の入力と出力だけで、Bash が変えたファイルは載らない(公式の hooks の文書の入力の欄)。だから git の記録で分ける:
-# HEAD の移動の記録(reflog)の 1 件ごとの見出しは、移した命令が書く。git commit は「commit」「commit (initial)」
+# 書いた役が書いた文書と、git が作業ツリーに持ち込んだ文書(リベース・merge・pull・checkout など)を分ける。
+# フックの入力はツールの入力と出力だけで、Bash が変えたファイルは載らない(公式の hooks の文書の入力のフィールド)。だから git の記録で分ける:
+# HEAD の移動の記録(reflog)の 1 件ごとの見出しは、移したコマンドが書く。git commit は「commit」「commit (initial)」
 # 「commit (amend)」で、merge の後の commit は「commit (merge)」、cherry-pick・rebase の途中の commit は「commit (cherry-pick)」
-# 「commit (rebase)」、rebase・pull・checkout などは呼んだ命令の名前(GIT_REFLOG_ACTION。git 2.50.1 の builtin/commit.c)。
+# 「commit (rebase)」、rebase・pull・checkout などは呼んだコマンドの名前(GIT_REFLOG_ACTION。git 2.50.1 の builtin/commit.c)。
 # 書いた役の書いた物と見るのは、前の 3 つの見出しの commit が変えた文書だけにする。前(0.18.0 まで)は走る前と後の HEAD の差を
-# 丸ごと拾ったので、origin/main の上に載せ直すと本流から入った文書 6 本まで書いた文書として読み、書いていない役に直せない
-# 指摘が積もった(2026-10-16 に割り振りの部署で実測。15 本のうち 6 本)。git が作業ツリーに書く命令(下の GIT_TREE_CMDS)を
+# 丸ごと拾ったので、origin/main の上にリベースするとメインブランチから入った文書 6 本まで書いた文書として読み、書いていない役に直せない
+# 指摘が積もった(2026-10-16 に割り振りの部署で実測。15 本のうち 6 本)。git が作業ツリーに書くコマンド(下の GIT_TREE_CMDS)を
 # 走らせたか、HEAD を commit 以外で動かしたコマンドでは、変更一覧の差も git の持ち込みと見て拾わない(字面に中身の在る書き込み先は拾う)。
 # 衝突して止まった文書(変更一覧の印 UU・AA など)は、いつも拾わない。書いた役が直して git add した後に、変わった文書として拾う
 OWN_COMMIT_MSGS = ("commit", "commit (initial)", "commit (amend)")
 GIT_TREE_CMDS = ("checkout", "restore", "reset", "rebase", "merge", "pull", "cherry-pick", "revert", "am", "apply", "stash")
 GIT_VALUE_OPTS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env")   # 値を次の語に取る git の旗
 UNMERGED = ("DD", "AU", "UD", "UA", "DU", "AA", "UU")   # git status --porcelain の衝突の印(git-status の文書の Short Format)
-REFLOG_MAX = 500   # 1 回のコマンドの間に足された移動を探す上限(長い載せ直しでも 1 commit に 1 件と数件)
+REFLOG_MAX = 500   # 1 回のコマンドの間に足された移動を探す上限(長いリベースでも 1 commit に 1 件と数件)
 
 
 def _reflog(root, n):
@@ -2669,7 +2669,7 @@ def _head_moves(snap):
     """走った間の HEAD の移動を ([(前, 後, 後の時刻, 前の時刻) — 書いた役の commit], commit 以外の移動が在ったか) に分ける。
 
     走る前の記録の頭(控えの reflog)より新しい分だけを見る。頭が見つからない(記録を消した・上限を超えた)ときは、
-    分けられないので commit は拾わず、commit 以外の移動が在ったと見る(本流の文書を読むより、読まない側に倒す)。
+    分けられないので commit は拾わず、commit 以外の移動が在ったと見る(メインブランチの文書を読むより、読まない側に倒す)。
     """
     root, top = snap.get("root"), snap.get("reflog")
     rows = _reflog(root, REFLOG_MAX + 1)
@@ -2690,7 +2690,7 @@ def _head_moves(snap):
 
 
 def _git_subcommand(args):
-    """git の単純コマンドの引数(命令名の後)から、下位の命令の名前。無ければ ""。"""
+    """git の単純コマンドの引数(コマンド名の後)から、下位のコマンドの名前。無ければ ""。"""
     i = 0
     while i < len(args):
         a = args[i]
@@ -2704,12 +2704,12 @@ def _git_subcommand(args):
 
 
 # ---- 並べた役の書き分け ----
-# 同じ checkout で役(同じ会話の作業役どうし・親・並行の会話)が並んで動くと、ある役の Bash が走る間に、ほかの役が書いた
-# 文書も変更一覧の差に出る。差で拾った物をそのまま走った役の物にしていた頃は、作業役 7 本を並べた調べものの部署で、3 分
-# かかる検査(python3 tools/check.py)を走らせた作業役に、その間にほかの 4〜5 本が書いたノートの指摘が届き、受けた役は
-# 受け持ちの外として直さずに終えた(2026-10-17 の docs.log と作業役の記録で実測)。差は誰が書いたかを持たないので、二つの
+# 同じ checkout で役(同じ会話のサブエージェントどうし・親・並行の会話)が並んで動くと、ある役の Bash が走る間に、ほかの役が書いた
+# 文書も変更一覧の差に出る。差で拾った物をそのまま走った役の物にしていた頃は、サブエージェント 7 本を並べた調べものの部署で、3 分
+# かかる検査(python3 tools/check.py)を走らせたサブエージェントに、その間にほかの 4〜5 本が書いたノートの指摘が届き、受けた役は
+# 受け持ちの外として直さずに終えた(2026-10-17 の docs.log とサブエージェントの記録で実測)。差は誰が書いたかを持たないので、二つの
 # 帳面で見分ける:
-# - 書いた印(DOC_CLAIMS): 記録に載せるたびに、役・文書・時刻を残す。Write・Edit・MCP の道具・字面に書き込み先の在る
+# - 書いた印(DOC_CLAIMS): 記録に載せるたびに、役・文書・時刻を残す。Write・Edit・MCP のツール・字面に書き込み先の在る
 #   Bash は書いた役が確かな印、差で拾って下の見分けを通った物も印にする
 # - Bash の窓(DOC_WINDOWS と、走っている間の控え DOC_SNAP_DIR): 役・走り始めと終わり・字面に現れた文書の名前・
 #   git commit を含むか
@@ -2765,7 +2765,7 @@ def _named(command):
 
 
 def _windows(root):
-    """root で走った・走っている Bash の窓。走っている窓のうち、同じ役が後から走り始めて終えた窓が在るもの(投稿の門番に
+    """root で走った・走っている Bash の窓。走っている窓のうち、同じ役が後から走り始めて終えた窓が在るもの(投稿のゲートに
     止められて後のフックが来なかった控え。役が終われば _drop_snaps が消す)は外す。"""
     done = [w for w in _ledger(DOC_WINDOWS) if w.get("root") == root]
     later = {}
@@ -2787,7 +2787,7 @@ def _windows(root):
 
 
 def _drop_snaps(role):
-    """終わった役の走る前の控えを消す。後のフックが来なかった控え(投稿の門番や利用者に止められた Bash)を、走っている窓と
+    """終わった役の走る前の控えを消す。後のフックが来なかった控え(投稿のゲートや利用者に止められた Bash)を、走っている窓と
     見続けないため。"""
     try:
         for e in os.scandir(DOC_SNAP_DIR):
@@ -2824,7 +2824,7 @@ def _theirs(snap, role, items, now):
 
 
 def docs_snapshot(payload):
-    """PreToolUse(Bash): 走る前の、cwd の git の変更一覧の文書の状態を控える。git の外なら根は None で、静的な読みだけになる。"""
+    """PreToolUse(Bash): 走る前の、cwd の git の変更一覧の文書の状態を控える。git の外ならルートは None で、静的な読みだけになる。"""
     if docs_off() or payload.get("tool_name") != "Bash" or not payload.get("tool_use_id"):
         return
     t0 = time.time()   # 変更一覧を取る前の時刻。差に出る書き込みは、この後に起きている
@@ -2851,8 +2851,8 @@ def docs_snapshot(payload):
 
 
 # Bash の書き込み先のうち、人(書いた役)が書いた文書と見るのは、中身がコマンドの字面に在るものだけにする:
-# ヒアドキュメント・ヒア文字列を受けた命令の書き込み先、echo・printf の書き込み先、それらをパイプで受けた tee・cat の行き先、
-# sed -i の書き換え。ほかの命令の出力をリダイレクトした先(`sed -n … ci.log > x.txt`・`git log > x.txt`)と cp・mv・install の
+# ヒアドキュメント・ヒア文字列を受けたコマンドの書き込み先、echo・printf の書き込み先、それらをパイプで受けた tee・cat の行き先、
+# sed -i の書き換え。ほかのコマンドの出力をリダイレクトした先(`sed -n … ci.log > x.txt`・`git log > x.txt`)と cp・mv・install の
 # 行き先は、中身がコマンドの外から来る写しなので読まない。git の作業ツリーの中でも、変更一覧の差から外す。
 # 前(0.14.0)は書き込み先を全部拾い、CI のログの抜粋を一時の置き場に書いた .txt を読み手が文書として読んで、詰まりを返した
 # (2026-10-16 に窓口の会話で実測)。字面に書き込み先が現れない書き方(python の中で書く)は、git の中の差でだけ拾う
@@ -2861,7 +2861,7 @@ PASS_CMDS = ("cat", "tee")         # 受けた中身をそのまま書く
 
 
 def _written_by_command(command, cwd):
-    """コマンドの書き込み先の文書の実パスを、(書いた文書, 外から来た中身の写し, git が作業ツリーを書く命令が在るか) に分ける。
+    """コマンドの書き込み先の文書の実パスを、(書いた文書, 外から来た中身の写し, git が作業ツリーを書くコマンドが在るか) に分ける。
 
     書いた文書は在るものだけ。
     """
@@ -2872,7 +2872,7 @@ def _written_by_command(command, cwd):
     cmds = split_commands(tokens)
     files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
     wrote, copied, git_tree = [], [], False
-    authored_prev = False   # パイプの前の命令が、中身を字面に持つ命令だったか
+    authored_prev = False   # パイプの前のコマンドが、中身を字面に持つコマンドだったか
     for k, c in enumerate(cmds):
         at = command_start(c.args)
         f = files.at(k, c.args[:at])
@@ -2925,7 +2925,7 @@ def _bash_docs(payload):
             found += [p for p, st in now.items() if before.get(p) != st]
             items += [(p, now[p][0] / 1e9, snap.get("t0") or 0, False) for p in found]
         # 同じコマンドの中で書いて commit した文書は、変更一覧から消えている。HEAD が動いたなら、動いた間の書いた役の
-        # commit ごとの差の文書も拾う(載せ直し・merge・checkout などで動いた分は拾わない)
+        # commit ごとの差の文書も拾う(リベース・merge・checkout などで動いた分は拾わない)
         head = _git(["rev-parse", "--verify", "-q", "HEAD"], snap["root"])
         if (head or b"").decode("ascii", "replace").strip() != (snap.get("head") or "") or snap.get("reflog") is None:
             steps, moved = _head_moves(snap)
@@ -2968,7 +2968,7 @@ def _bash_docs(payload):
 
 
 def _tool_docs(payload):
-    """Write・Edit・NotebookEdit と MCP の書く道具の入力の path の欄。"""
+    """Write・Edit・NotebookEdit と MCP の書くツールの入力の path のフィールド。"""
     tool = str(payload.get("tool_name") or "")
     ti = payload.get("tool_input") or {}
     if tool.startswith("mcp__") and not MCP_WRITE_RE.search(tool.rsplit("__", 1)[-1]):
@@ -3105,7 +3105,7 @@ def _seen_list():
 
 
 def _tmp_roots():
-    """一時の置き場の根の集合(正規化した綴りと実パスの両方)。
+    """一時の置き場のルートの集合(正規化した綴りと実パスの両方)。
 
     既定は Python の tempfile が一時フォルダを選ぶ候補(環境変数 TMPDIR・TEMP・TMP と OS の決まった場所。最後の候補の
     カレントディレクトリは除く)と、実際に選んだ tempfile.gettempdir()。gettempdir() だけでは足りない: macOS では
@@ -3130,8 +3130,8 @@ def _job_tmp(p, jobs_roots):
 
     場所の決まりは公式の文書(agent-view「Where state is stored」の `~/.claude/jobs/<id>/tmp/`「Per-session scratch
     directory」と、env-vars の CLAUDE_JOB_DIR。2026-10-16 に確認)。jobs は設定の置き場(CLAUDE_CONFIG_DIR)の下。
-    0.16.0 の一時の置き場の根はこれを含まず、部署が納品のために書く要約(jobs/<id>/tmp/summary.md など)を読んでいた
-    (2026-10-16 の docs.log)。会話の id ごとに置き場が在るので、根の集合でなく形で見る。
+    0.16.0 の一時の置き場のルートはこれを含まず、部署が納品のために書く要約(jobs/<id>/tmp/summary.md など)を読んでいた
+    (2026-10-16 の docs.log)。会話の id ごとに置き場が在るので、ルートの集合でなく形で見る。
     """
     for jobs in jobs_roots:
         try:
@@ -3147,7 +3147,7 @@ def _job_tmp(p, jobs_roots):
 def _scratch(path):
     """git の作業ツリーの外で、一時の置き場の下に在るファイルか(書いた役が自分のために置いた写し・頼みの文書。読まない)。"""
     roots = _tmp_roots()
-    job_dir = os.environ.get("CLAUDE_JOB_DIR")   # 会話が jobs の外に置かれても、その会話の分は根として見る
+    job_dir = os.environ.get("CLAUDE_JOB_DIR")   # 会話が jobs の外に置かれても、その会話の分はルートとして見る
     if job_dir:
         roots |= {os.path.normcase(f(os.path.join(job_dir, "tmp"))) for f in (os.path.abspath, os.path.realpath)}
     jobs = os.path.join(CONFIG_DIR, "jobs")
@@ -3203,10 +3203,10 @@ def read_doc(text, focus=False, timeout=DOC_READ_TIMEOUT):
 
 
 # ---- 書き換えた所の抜き出し ----
-# 節は見出しから次の見出しの手前まで(深さは見ない。いちばん内側の節)。見出しの書き方は拡張子で決める:
+# セクションは見出しから次の見出しの手前まで(深さは見ない。いちばん内側のセクション)。見出しの書き方は拡張子で決める:
 # md・mdx は ATX(# 〜 ######。コードの囲みと冒頭の frontmatter の中は見ない)、adoc は = 〜 ======、rst は下線
 # (と上線)付きの行。txt と、見出しの無い文書は、変えた行の前後 DOC_CONTEXT 行を段落の切れ目まで広げる。
-# DOC_SECTION_MAX 字を超える節は、節の見出しと、変えた行を含む段落・箇条だけにする(_block)
+# DOC_SECTION_MAX 字を超えるセクションは、セクションの見出しと、変えた行を含む段落・箇条だけにする(_block)
 _MD_HEAD = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 _MD_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _ADOC_HEAD = re.compile(r"={1,6}[ \t]+\S")
@@ -3224,7 +3224,7 @@ def _front_end(lines):
 
 
 def _sections(lines, ext):
-    """(節の始まりの行の並び, 見出しを成す行の集まり)。"""
+    """(セクションの始まりの行の並び, 見出しを成す行の集まり)。"""
     starts, marks = [], set()
     if ext in (".md", ".mdx"):
         fence = None
@@ -3279,7 +3279,7 @@ def _paragraph(lines, a, b):
 
 
 def _block(lines, marks, a, b, sa, sb):
-    """節 [sa, sb) の中で、書き換えた行 [a, b) を含む段落・箇条の範囲。見出し・字下げの無い箇条の頭と、空行の後の
+    """セクション [sa, sb) の中で、書き換えた行 [a, b) を含む段落・箇条の範囲。見出し・字下げの無い箇条の頭と、空行の後の
     字下げの無い行で切る(空行の後でも字下げした行は、前の箇条の続き)。コードの囲みの中では切らない。"""
     starts, fence, cut = [], None, True
     for k in range(sa, sb):
@@ -3313,7 +3313,7 @@ def _lead(lines, marks):
 
 
 def doc_excerpt(path, text, base):
-    """前の版 base から書き換えた所を含む節(長い節は節の見出しと書き換えた段落・箇条)と冒頭を抜き出した本文。全体を読ませるなら None、書き換えが無ければ ""。"""
+    """前の版 base から書き換えた所を含むセクション(長いセクションはセクションの見出しと書き換えた段落・箇条)と冒頭を抜き出した本文。全体を読ませるなら None、書き換えが無ければ ""。"""
     if not base:
         return None
     lines, base_lines = text.split("\n"), base.replace("\r\n", "\n").split("\n")
@@ -3322,16 +3322,16 @@ def doc_excerpt(path, text, base):
         return ""
     n = len(lines)
     starts, marks = _sections(lines, os.path.splitext(path)[1].lower())
-    spans = []   # (始め, 終わり, 種類)。種類は 0 が冒頭、1 が節の見出し、2 が書き換えた所
+    spans = []   # (始め, 終わり, 種類)。種類は 0 が冒頭、1 がセクションの見出し、2 が書き換えた所
     for a, b in touched:
-        if starts:   # 範囲の頭の行が入る節の始めから、尻の行が入る節の終わりまで
+        if starts:   # 範囲の頭の行が入るセクションの始めから、尻の行が入るセクションの終わりまで
             i, j = bisect.bisect_right(starts, a) - 1, bisect.bisect_right(starts, b - 1) - 1
             sa, sb = starts[i] if i >= 0 else 0, starts[j + 1] if j + 1 < len(starts) else n
             bounds = [sa] + [s for s in starts if sa < s < sb] + [sb]
             if max(len("\n".join(lines[x:y])) for x, y in zip(bounds, bounds[1:])) <= DOC_SECTION_MAX:
                 spans.append((sa, sb, 2))
                 continue
-            # 長い節は、書き換えた段落・箇条と、どの節かを知るための見出しだけ(上の DOC_SECTION_MAX)
+            # 長いセクションは、書き換えた段落・箇条と、どのセクションかを知るための見出しだけ(上の DOC_SECTION_MAX)
             spans.append(_block(lines, marks, a, b, sa, sb) + (2,))
             hb = sa
             while hb < sb and hb in marks:
@@ -3343,7 +3343,7 @@ def doc_excerpt(path, text, base):
     la, lb = _lead(lines, marks)
     if lb > la:
         spans.append((la, lb, 0))
-    parts = []   # 重なるか接する範囲を合わせる。合わせた範囲の種類は、書き換えた所・節の見出し・冒頭の順に強い物
+    parts = []   # 重なるか接する範囲を合わせる。合わせた範囲の種類は、書き換えた所・セクションの見出し・冒頭の順に強い物
     for a, b, kind in sorted(spans):
         if parts and a <= parts[-1][1]:
             parts[-1] = [parts[-1][0], max(parts[-1][1], b), max(parts[-1][2], kind)]
@@ -3437,11 +3437,11 @@ def _generated(paths):
 
 
 def doc_feedback(path, found, focus=False):
-    """1 本の文書の指摘を、直してほしい順の節にする(詰まりも補完も無ければ空)。focus は書き換えた所だけを読ませたとき。"""
+    """1 本の文書の指摘を、直してほしい順のセクションにする(詰まりも補完も無ければ空)。focus は書き換えた所だけを読ませたとき。"""
     if not (found["詰まり"] or found["補完"]):
         return ""
     return "\n".join(filter(None, (
-        "■ %s%s" % (path, "(書き換えた節だけを読んだ)" if focus else ""),
+        "■ %s%s" % (path, "(書き換えたセクションだけを読んだ)" if focus else ""),
         section("詰まり(直す):", found["詰まり"]),
         section("coldreader が推測で埋めた箇所(意図と違うなら直す):", found["補完"]),
         section("残った疑問(反映するかは判断してよい):", found["疑問"]),
@@ -3452,7 +3452,7 @@ def _down_reason(exc):
     """読めなかった訳を、書き手に返す短い言葉にする。"""
     if isinstance(exc, subprocess.TimeoutExpired):
         return "読み手が %d 秒で時間切れ" % exc.timeout
-    return "読み手を起こせなかった(%s)" % str(exc)[:80].replace("\n", " ")
+    return "読み手を起動できなかった(%s)" % str(exc)[:80].replace("\n", " ")
 
 
 def _timed_read(text, focus, timeout):
@@ -3466,7 +3466,7 @@ def _timed_read(text, focus, timeout):
 
 
 def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
-    """書いた役の待ちの一覧を読んで消し、読ませる文書を読ませる。(指摘の節, 件数, 読めなかった文書) を返す。"""
+    """書いた役の待ちの一覧を読んで消し、読ませる文書を読ませる。(指摘のセクション, 件数, 読めなかった文書) を返す。"""
     pending = _pending(session, agent)
     try:
         with open(pending, encoding="utf-8") as f:
@@ -3524,9 +3524,9 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
             down.append("%s: %s" % (path, _down_reason(exc)))
             unread.append(digest)
             continue
-        # 書いた役を起こすのは詰まりが在るときだけ(上の「書いた役を起こす」)。推測で埋めた箇所だけなら guess で件数を残す
+        # 書いた役を呼び起こすのは詰まりが在るときだけ(上の「書いた役を呼び起こす」)。推測で埋めた箇所だけなら guess で件数を残す
         note = doc_feedback(path, found, part is not None) if found["詰まり"] else ""
-        # 長さの欄は読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
+        # 長さのフィールドは読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
         size = "%d" % len(text) if part is None else "%d/%d" % (len(part), len(text))
         kind = "finding" if note else "guess=%d" % len(found["補完"]) if found["補完"] else "clean"
         # e= は読み手の effort。アカウントごとに effort を替えて、詰まりの在る文書の割合を同じ時期の記録で比べるために残す
@@ -3558,7 +3558,7 @@ def _write_findings(session, body):
 # 親の Stop で読み終えるまで待たせていた頃は、ターンの終わりごとに持ち主と部署が読み役 1 回ぶん(xhigh で数十秒〜210 秒)
 # 待った(持ち主 2026-10-16「coldreadがながいな」)。対話の会話では、Stop のフックを asyncRewake(公式の hooks の文書
 # 「runs in the background and wakes Claude on exit code 2. The hook's stderr … is shown to Claude as a system reminder」)
-# で裏で走らせ、ターンは待たずに終える。指摘が在れば終了コード 2 と標準エラーで会話を起こして返す。2026-10-16 に
+# で裏で走らせ、ターンは待たずに終える。指摘が在れば終了コード 2 と標準エラーで会話を呼び起こして返す。2026-10-16 に
 # claude 2.1.301 で実測: Stop の asyncRewake のフックが 8 秒後に 2 で終わると、終えたターンの後に会話が起きて標準エラーの
 # 文に答えた。
 # 画面の無い会話(claude -p)では、裏のフックは終わりに切られる(同じ文書「kills any async hook still running at
@@ -3566,9 +3566,9 @@ def _write_findings(session, body):
 # 対話と agent view の会話は cli、-p は sdk-cli)。無いか sdk で始まるときは待って読む側に倒す(読み落とすより待つ)。
 # hooks.json の Stop には同じ読みを 2 つの口(待つ docs-check と裏の docs-check-async)で置き、この見分けでどちらか
 # 片方だけが読む。サブエージェントの終わり(SubagentStop)は、指摘をその役に返して直させるので待って読む
-# 裏の読みの間に /clear が打たれると、読み終えた知らせは /clear の後の空の会話を起こす(公式の hooks の文書の asyncRewake は
-# 窓の会話を起こす)。受けた会話は書いたときの意図を持たないのに、自分が書いた物かが分からず、意図と照らせない推測の扱いに迷う
-# (2026-10-17 10:35 ごろに my_notes の本社で、前の会話が書いた 2 本の指摘を受けた会話が、意図を確かめずに作業役へ任せた)。
+# 裏の読みの間に /clear が打たれると、読み終えた知らせは /clear の後の空の会話を呼び起こす(公式の hooks の文書の asyncRewake は
+# 窓の会話を呼び起こす)。受けた会話は書いたときの意図を持たないのに、自分が書いた物かが分からず、意図と照合できない推測の扱いに迷う
+# (2026-10-17 10:35 ごろに my_notes の本社で、前の会話が書いた 2 本の指摘を受けた会話が、意図を確かめずにサブエージェントへ任せた)。
 # /clear で終わる会話は SessionEnd のフック(reason が clear)で覚え、その会話の分の知らせには、前の会話の id と、意図を
 # 確かめられない推測の扱いを書く
 DOC_CLEARED = os.path.join(DOC_DIR, "cleared")   # /clear で終わった会話の帳面
@@ -3595,7 +3595,7 @@ def docs_check(payload, background=False):
     """Stop・SubagentStop: 終わろうとしている役が書いた文書を 1 本 1 回だけ読ませ、指摘が在れば止めずに返して直させる。
 
     サブエージェント(agent_id が有る)には指摘の全文を返す。親には全文をファイルに書き、短い知らせだけを返す。
-    background は Stop の裏の口(asyncRewake)。知らせは標準エラーに書いて 2 で終わり、終えたターンの後に会話を起こす。
+    background は Stop の裏の口(asyncRewake)。知らせは標準エラーに書いて 2 で終わり、終えたターンの後に会話を呼び起こす。
     """
     session, agent = _who(payload)
     _drop_snaps(_role(session, agent))
@@ -3628,7 +3628,7 @@ def docs_check(payload, background=False):
                 context = "\n\n".join(filter(None, ((
                     "%sが、/clear で終わった前の会話(id %s)が書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。"
                     "この会話が書いた物ではなく、書いたときの意図はこの会話に無い。全文は %s 。"
-                    "新しい作業役(サブエージェント)にこのファイルを渡して詰まりを直させ、全文をこの会話に読み込まない(詰まりは意図が無くても直せる)。"
+                    "新しいサブエージェントにこのファイルを渡して詰まりを直させ、全文をこの会話に読み込まない(詰まりは意図が無くても直せる)。"
                     "推測で埋めた箇所は、文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、"
                     "確かめられないものは直さずに残す(推測を別の推測で書き換えない)。"
                     "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
@@ -3636,8 +3636,8 @@ def docs_check(payload, background=False):
             elif where:
                 context = "\n\n".join(filter(None, ((
                     "%sが、%sで書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。全文は %s 。"
-                    "新しい作業役(サブエージェント)にこのファイルを渡して直させ、全文をこの会話に読み込まない。"
-                    "推測で埋めた箇所のうち書き手の意図と違うものだけは、この会話で見て、正しい意図を作業役に伝える。"
+                    "新しいサブエージェントにこのファイルを渡して直させ、全文をこの会話に読み込まない。"
+                    "推測で埋めた箇所のうち書き手の意図と違うものだけは、この会話で見て、正しい意図をサブエージェントに伝える。"
                     "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
                     % (reader, turn, len(notes), counts["詰まり"], counts["補完"], where)), tail)))
             else:
@@ -3651,21 +3651,21 @@ def docs_check(payload, background=False):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}, ensure_ascii=False))
 
 
-# ---- 本流に入れる前の関門: 枝が書いた文書を読む ----
-# 部署はターンの中で本流に入れる命令(works-dispatch の --land)まで済ませ、上の手元の文書の読みはターンの終わりに裏で
-# 走るので、指摘はいつも本流に入った後に届いた(2026-10-17 に 8 件。担当の決まり「初見読みの指摘は入れる前に直す」が
-# 守れなかった)。この口は --land の関門(会社の形の [land] の check)から、入れる候補の commit を置いた一時の作業ツリーで
-# 呼ばれ、本流(既定は origin/HEAD の指す枝)と枝の分かれ目から枝が足した・変えた文書を、手元の文書と同じ読み手と観点で読む。
-# 前から在る文書は分かれ目の版と比べて書き換えた節だけを読ませる。詰まりが 1 件でもあれば 1 で終わって止め、推測で埋めた
-# 箇所と疑問だけなら通す(手元の文書の門番と同じ重さ: 直すのは詰まり、推測は意図と違うときだけ)。読めなかった文書が在っても
-# 1 で終わる(読まずに通すと、関門が黙って空になる)。指摘の全文は findings/ に書き、--land が部署の窓に返す末尾の行に
-# 詰まりと全文の場所を出す。本流が先に進むたびに載せ直して打ち直すので、同じ依頼文の判定は branch/ に覚えて読み直さない
+# ---- メインブランチに入れる前のゲート: ブランチが書いた文書を読む ----
+# 部署はターンの中でメインブランチに入れるコマンド(works-dispatch の --land)まで済ませ、上の手元の文書の読みはターンの終わりに裏で
+# 走るので、指摘はいつもメインブランチに入った後に届いた(2026-10-17 に 8 件。担当の決まり「初見読みの指摘は入れる前に直す」が
+# 守れなかった)。この口は --land のゲート(会社の形の [land] の check)から、入れる候補の commit を置いた一時の作業ツリーで
+# 呼ばれ、メインブランチ(既定は origin/HEAD の指すブランチ)とブランチの分かれ目からブランチが足した・変えた文書を、手元の文書と同じ読み手と観点で読む。
+# 前から在る文書は分かれ目の版と比べて書き換えたセクションだけを読ませる。詰まりが 1 件でもあれば 1 で終わって止め、推測で埋めた
+# 箇所と疑問だけなら通す(手元の文書のゲートと同じ重さ: 直すのは詰まり、推測は意図と違うときだけ)。読めなかった文書が在っても
+# 1 で終わる(読まずに通すと、ゲートが黙って空になる)。指摘の全文は findings/ に書き、--land が部署の窓に返す末尾の行に
+# 詰まりと全文の場所を出す。メインブランチが先に進むたびにリベースして打ち直すので、同じ依頼文の判定は branch/ に覚えて読み直さない
 DOC_BRANCH = os.path.join(DOC_DIR, "branch")   # 依頼文のハッシュごとの判定(読み直さない)
 DOC_BRANCH_KEEP = 2000   # 覚える判定の数(古いものから消す)
 
 
 def _branch_docs(root, base):
-    """(分かれ目の commit, [(作業ツリーの根からのパス, 実パス)])。枝が足した・変えた文書だけ。分かれ目が取れなければ None。"""
+    """(分かれ目の commit, [(作業ツリーのルートからのパス, 実パス)])。ブランチが足した・変えた文書だけ。分かれ目が取れなければ None。"""
     mb = _git(["merge-base", "HEAD", base], root)
     if not mb:
         return None
@@ -3675,18 +3675,18 @@ def _branch_docs(root, base):
     return mb, [(r, os.path.join(root, r)) for r in rels if os.path.isfile(os.path.join(root, r))]
 
 
-# 枝が足した文書のうち、枝が消した・変えた文書の分かれ目の版に在った行は、移しただけの行として読み直さない(git の copy の
-# 検出を行の単位でする形)。スキルの書き方の標準(docs/standards/skill-authoring.md)で SKILL.md の節を字を変えずに
-# references/ へ移すと、前から本流に在った文が新しい文書として丸ごと読まれ、元の本文の前の節で説明していた語が 1 本だけでは
+# ブランチが足した文書のうち、ブランチが消した・変えた文書の分かれ目の版に在った行は、移しただけの行として読み直さない(git の copy の
+# 検出を行の単位でする形)。スキルの書き方の標準(docs/standards/skill-authoring.md)で SKILL.md のセクションを字を変えずに
+# references/ へ移すと、前からメインブランチに在った文が新しい文書として丸ごと読まれ、元の本文の前のセクションで説明していた語が 1 本だけでは
 # 取れないという詰まりが、読むたびに別の文書へ移りながら出続けた(2026-10-18、works-dispatch の dispatch の分けで
 # references/ の 12 本に約 70 件。convergence-loops・graphloops の 6 本は .gitattributes の -coldread で逃がしていた)。
-# 行は前後の空白と見出しの # を除いて比べる(移すと節の深さが変わる)。新しく書いた行(題・書き換えた指し先)を含む節は読む
+# 行は前後の空白と見出しの # を除いて比べる(移すとセクションの深さが変わる)。新しく書いた行(題・書き換えた指し先)を含むセクションは読む
 def _line_key(line):
     return line.strip().lstrip("#").strip()
 
 
 def _moved_lines(root, mb):
-    """枝が消した・変えた文書の、分かれ目の版の行(_line_key で比べる形)の集まり。"""
+    """ブランチが消した・変えた文書の、分かれ目の版の行(_line_key で比べる形)の集まり。"""
     out = _git(["diff", "--name-only", "-z", "--no-renames", "--diff-filter=DM", mb, "HEAD", "--"], root) or b""
     rels = [r for r in out.decode("utf-8", "replace").split("\0") if r.lower().endswith(DOC_EXTS)]
     keys = set()
@@ -3724,7 +3724,7 @@ def _branch_verdict(key, body, focus):
 
 
 def branch_check(argv):
-    """--land の関門: 枝が書いた文書を読み、詰まりが在れば 1、読めない文書が在れば 1、無ければ 0。"""
+    """--land のゲート: ブランチが書いた文書を読み、詰まりが在れば 1、読めない文書が在れば 1、無ければ 0。"""
     base = argv[argv.index("--base") + 1] if "--base" in argv[:-1] else None
     top = _git(["rev-parse", "--show-toplevel"], os.getcwd())
     if not top:
@@ -3736,7 +3736,7 @@ def branch_check(argv):
         base = head.decode("utf-8", "replace").strip() if head else "origin/main"
     got = _branch_docs(root, base)
     if got is None:
-        print("coldread branch-check: %s との分かれ目が取れない(--base <本流の ref> で渡す)" % base)
+        print("coldread branch-check: %s との分かれ目が取れない(--base <メインブランチの ref> で渡す)" % base)
         return 2
     mb, docs = got
     generated = _generated([full for _, full in docs]) if docs else set()
@@ -3779,14 +3779,14 @@ def branch_check(argv):
         for label in counts:
             counts[label] += len(found[label])
     _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, _, _, _ in picked])   # ターンの終わりの読みと重ねない
-    where = _write_findings("branch", "\n\n".join(("coldread が、本流に入れる前に枝の文書を読んだ指摘(分かれ目 %s)。" % mb[:8], *notes))) \
+    where = _write_findings("branch", "\n\n".join(("coldread が、メインブランチに入れる前にブランチの文書を読んだ指摘(分かれ目 %s)。" % mb[:8], *notes))) \
         if notes else None
     for line in stuck:
         print(line)
     if down:
-        print("読めなかった文書(読み手を起こせない。手で読ませるなら python3 %s read <パス>): %s"
+        print("読めなかった文書(読み手を起動できない。手で読ませるなら python3 %s read <パス>): %s"
               % (os.path.abspath(__file__), "・".join(down)))
-    print("coldread branch-check: 枝の文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件・推測で埋めた箇所 %d 件%s。%s"
+    print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件・推測で埋めた箇所 %d 件%s。%s"
           % (len(picked), fresh, counts["詰まり"], counts["補完"], "・読めなかった %d 本" % len(down) if down else "",
              ("全文: " + where) if where else "指摘なし"))
     return 1 if stuck or down else 0
@@ -3836,6 +3836,6 @@ if __name__ == "__main__":
         sys.stdout.flush()
         sys.stdout.buffer.write(COLD_PROMPT.encode("utf-8"))
     elif MODE:
-        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | branch-check [--base <ref>] | read <パス> | prompt](引数なしは投稿の門番)")
+        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | branch-check [--base <ref>] | read <パス> | prompt](引数なしは投稿のゲート)")
     else:
         main()

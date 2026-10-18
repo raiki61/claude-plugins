@@ -113,7 +113,7 @@ class Outline(unittest.TestCase):
         self.assertEqual(cm.outline("s.sh", ["my-func() {", "function other-one {", "x=1"]), ["my-func() {", "function other-one {"])
         self.assertEqual(cm.outline("t.bats", ['@test "a" {', "  run x"]), ['@test "a" {'])
         self.assertEqual(cm.outline("b.hcl", ['target "x" {', "  tags = []", 'group "default" {']), ['target "x" {', 'group "default" {'])
-        self.assertEqual(cm.outline("d.adoc", ["== 節", "本文", "=== 小節"]), ["== 節", "=== 小節"])
+        self.assertEqual(cm.outline("d.adoc", ["== セクション", "本文", "=== 小セクション"]), ["== セクション", "=== 小セクション"])
         self.assertEqual(cm.outline("z.unknown", ["a", "b"]), [])
 
     def test_fence_lang_is_a_highlightjs_name_or_plaintext(self):
@@ -167,7 +167,7 @@ class Tree(unittest.TestCase):
         self.assertIn("docs-check.yml", text)
         self.assertIn("frontend-checks.yml", text)   # checks / check を同じ語に数える
         self.assertRegex(text, r"workflows/  … ほか 2")  # 7 − 変更 1 − 表示 4
-        # 途中の階層（.github）も周辺（actions）を薄く出す。根は 6 件全部が出るので「ほか」が無い
+        # 途中の階層（.github）も周辺（actions）を薄く出す。ルートは 6 件全部が出るので「ほか」が無い
         self.assertIn("actions", text)
         self.assertNotRegex(text, r"repo/  … ほか")
 

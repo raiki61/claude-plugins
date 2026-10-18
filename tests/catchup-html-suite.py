@@ -2,11 +2,11 @@
 """attention/scripts/lib/catchup_html.py（/catchup の報告を 1 枚の HTML に描く部品）と、catchup.py の
 --render・HTML の材料の規則を固定する。GitHub にも git にも VS Code にも触らない。
 
-固定するのは: AI の欄の検査（直す所を日本語で 1 件 1 行）、雛形への差し込み（`</script>` で閉じない）、
+固定するのは: AI のフィールドの検査（直す所を日本語で 1 件 1 行）、雛形への差し込み（`</script>` で閉じない）、
 置き場と index の組み直し（頭の行だけを読む・消えたページは落とす・新しい順）、差分の抜粋、
 VS Code の socket の選び方（新しい順・生きているものだけ・全部で開く・0 で開かない）、Machine の設定の
-足し方（他の key を消さない・控えを置く・注記の有る file は書かない）、PR の材料の番と止めているもの、
-雛形の作り（発言の Markdown を固定した版で描き生の HTML を描かない・番の動きは会話の流れの形・持ち主の値が無い）。
+足し方（他の key を消さない・控えを置く・注記の有る file は書かない）、PR の材料のターンと止めているもの、
+雛形の作り（発言の Markdown を固定した版で描き生の HTML を描かない・ターンの動きは会話の流れの形・持ち主の値が無い）。
 """
 
 import importlib.util
@@ -434,7 +434,7 @@ class TemplateTest(unittest.TestCase):
         self.assertNotIn("</script", self.TPL.split("marked 15.0.12 marked.min.js", 1)[1].split("埋め込みここまで", 1)[0])
 
     def test_turn_history_is_a_folded_log_inside_the_turn_section(self):
-        # 番の動きは、いまの番の節の中に畳んだ記録として置く（別の節の縦の流れは、同じことを文と 2 回言って読みにくかった）
+        # ターンの動きは、いまのターンのセクションの中に畳んだ記録として置く（別のセクションの縦の流れは、同じことを文と 2 回言って読みにくかった）
         self.assertIn('class: "evlog"', self.TPL)
         self.assertNotIn('class: "timeline"', self.TPL)
         self.assertNotIn("laneFigure", self.TPL)

@@ -1,5 +1,5 @@
 {
- "about": "変異の腕の一覧。1 本ずつ写しに当てて台本を走らせ、赤になることを見る（実行器は tests/mutate.py）。old は file の中に 1 か所だけ在る字列で、new に置き換える。json は graph の欄を消す・値を抜く。expect は赤のときに落ちるはずの検査の名前の頭（当たりの証拠は、pytest の段で落ちたテストが名指しの node id かその parametrize であること、そうでなければ実際に落ちた検査 killedBy に expect が在ること。頭の 16 字は台本の本文に字面で在ること。台本の土台が例外で抜けた行（test_… が例外で抜けた）は関数名で見る。expect は腕が最後に撃つ道の証拠の名前で、台本の名指しを持つ腕は台本の検査名、台本の名指しの無い pytest だけの腕は名指しのどれかに当たる node id（:: を含み、graphloops/tests/py に在る））。tests は撃つ検査の名指し: 台本（graphloops/tests/simulate.py・simulate_review.py）の鍵には台本に在る関数名、pytest の置き場 graphloops/tests/py の鍵にはそこから見た node id（pytest を先に撃ち、落ちたテストが名指しかその parametrize なら当たりの証拠——名指しのファイルの収集の ERROR は証拠の文を分ける。当たらない赤は、台本の名指しが在れば台本の道で決める。規則の正本は tests/mutate.py の docstring）。marker は守る行を通ったことを見る印の置き場（after＝old の 1 行目の次の行、before＝前の行。cond はその行で真になる式）。python_max はその版より新しい Python では撃てない腕（実行器は撃たずに status を Ignored にし、要約の『撃てない』はその status から引く）。dropped は外した腕と理由",
+ "about": "変異の腕の一覧。1 本ずつ写しに当てて台本を走らせ、赤になることを見る（実行器は tests/mutate.py）。old は file の中に 1 か所だけ在る字列で、new に置き換える。json は graph のフィールドを消す・値を抜く。expect は赤のときに落ちるはずの検査の名前の頭（当たりの証拠は、pytest の段で落ちたテストが名指しの node id かその parametrize であること、そうでなければ実際に落ちた検査 killedBy に expect が在ること。頭の 16 字は台本の本文に字面で在ること。台本の土台が例外で抜けた行（test_… が例外で抜けた）は関数名で見る。expect は腕が最後に撃つ道の証拠の名前で、台本の名指しを持つ腕は台本の検査名、台本の名指しの無い pytest だけの腕は名指しのどれかに当たる node id（:: を含み、graphloops/tests/py に在る））。tests は撃つ検査の名指し: 台本（graphloops/tests/simulate.py・simulate_review.py）の鍵には台本に在る関数名、pytest の置き場 graphloops/tests/py の鍵にはそこから見た node id（pytest を先に撃ち、落ちたテストが名指しかその parametrize なら当たりの証拠——名指しのファイルの収集の ERROR は証拠の文を分ける。当たらない赤は、台本の名指しが在れば台本の道で決める。規則の正本は tests/mutate.py の docstring）。marker は守る行を通ったことを見る印の置き場（after＝old の 1 行目の次の行、before＝前の行。cond はその行で真になる式）。python_max はその版より新しい Python では撃てない腕（実行器は撃たずに status を Ignored にし、要約の『撃てない』はその status から引く）。dropped は外した腕と理由",
  "dropped": [
   {
    "id": "d02",
@@ -7,7 +7,7 @@
   },
   {
    "id": "f15",
-   "why": "柵ではない: hook_evidence が渡されたバイト列を使うのはファイルを 2 度開かない費用の違いで、判定を変えない"
+   "why": "チェックではない: hook_evidence が渡されたバイト列を使うのはファイルを 2 度開かない費用の違いで、判定を変えない"
   },
   {
    "id": "A9",
@@ -41,7 +41,7 @@
     "A23",
     "A24"
    ],
-   "why": "F1 で役の 1 行を字句解析して段ごとの許可表で見張る形を消した（how は欄で受け、argv は engine が組む）。守っていた行ごと無い"
+   "why": "F1 で役の 1 行を字句解析して段ごとの許可表で見張る形を消した（how はフィールドで受け、argv は engine が組む）。守っていた行ごと無い"
   },
   {
    "ids": [
@@ -69,7 +69,7 @@
    "ids": [
     "PJ1"
    ],
-   "why": "判定者の行を採った印を共有の verdict の値（judge_row）から precedent の欄（from_judge_row）へ移した（2026-09-24 の review-graph 3 周目・修正案の事前審査の別案）。型が許して柵が拒む値が無くなり、判定者の行に judge_row を拒む柵ごと消えた"
+   "why": "判定者の行を採った印を共有の verdict の値（judge_row）から precedent のフィールド（from_judge_row）へ移した（2026-09-24 の review-graph 3 周目・修正案の事前審査の別案）。型が許してチェックが拒む値が無くなり、判定者の行に judge_row を拒むチェックごと消えた"
   },
   {
    "ids": [
@@ -100,11 +100,11 @@
   },
   {
    "id": "EJ8",
-   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
+   "why": "同じ変異になった: 深さの 3 ノードの条件を工場 _deep_due に畳んだので、入口の周に起動しない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
   },
   {
    "id": "EJ9",
-   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
+   "why": "同じ変異になった: 深さの 3 ノードの条件を工場 _deep_due に畳んだので、入口の周に起動しない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
   },
   {
    "id": "DL1",
@@ -116,7 +116,7 @@
   },
   {
    "id": "LN3",
-   "why": "柵ごと取り下げた: 線と最後の関門の返答の suite（テスト一式の自己申告）を読まない——一式の緑は engine が走らせた p4.ci が正本（2026-09-25、手順 3b）"
+   "why": "チェックごと取り下げた: 線と最後のゲートの返答の suite（テスト一式の自己申告）を読まない——一式の緑は engine が走らせた p4.ci が正本（2026-09-25、手順 3b）"
   },
   {
    "ids": [
@@ -135,7 +135,7 @@
     "CW9",
     "CW10"
    ],
-   "why": "柵の外になった（2026-10-09 の掃除）: CI_LINT_OK は works の job の段の並びを丸ごと写して見るのをやめ、要の 3 つ（全履歴・FAIL_ON_SKIP=1・組の数と WORKS_SHARD の「/N」）だけを見る。許しの一覧の出どころ・uv と python と依存の版・os の一覧は見ない"
+   "why": "チェックの外になった（2026-10-09 の掃除）: CI_LINT_OK は works の job の段の並びを丸ごと写して見るのをやめ、要の 3 つ（全履歴・FAIL_ON_SKIP=1・組の数と WORKS_SHARD の「/N」）だけを見る。許しの一覧の出どころ・uv と python と依存の版・os の一覧は見ない"
   }
  ],
  "arms": [
@@ -442,7 +442,7 @@
   },
   {
    "id": "e17",
-   "title": "where を必須の欄にする",
+   "title": "where を必須のフィールドにする",
    "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
@@ -510,7 +510,7 @@
   },
   {
    "id": "e20",
-   "title": "wrote_refs を必須の欄にする",
+   "title": "wrote_refs を必須のフィールドにする",
    "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
@@ -586,7 +586,7 @@
   },
   {
    "id": "f03",
-   "title": "kind を必須の欄にする（schema）",
+   "title": "kind を必須のフィールドにする（schema）",
    "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "old": "      \"required\": [\n       \"kind\",\n       \"target\",\n       \"where\"\n      ],",
@@ -770,7 +770,7 @@
   },
   {
    "id": "n01",
-   "title": "表: 状態ごとに要る欄を貼る（1）",
+   "title": "表: 状態ごとに要るフィールドを貼る（1）",
    "file": "convergence-loops/scripts/review-record.py",
    "suite": "root",
    "old": "        \"question_status\": \"／\".join(",
@@ -816,7 +816,7 @@
   },
   {
    "id": "n05",
-   "title": "text 節の out_path は .md（3）",
+   "title": "text ノードの out_path は .md（3）",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
    "old": "(\".md\" if n.get(\"text\") else \".json\")",
@@ -1403,7 +1403,7 @@
   },
   {
    "id": "EG1",
-   "title": "engine が走らせる節の結果を done で書かせない",
+   "title": "engine が走らせるノードの結果を done で書かせない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    if inst.get(\"mode\") == \"engine_run\":\n        raise Reject(",
@@ -1445,7 +1445,7 @@
   },
   {
    "id": "EG4",
-   "title": "突き合わせる宣言は盤面の欄でなく対象リポジトリのルートから読む",
+   "title": "突き合わせる宣言は盤面のフィールドでなく対象リポジトリのルートから読む",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    root = repo_root()\n    why = engine_run_refusal(inst, root)",
@@ -1614,7 +1614,7 @@
   },
   {
    "id": "C01",
-   "title": "how の知らない欄は拒む",
+   "title": "how の知らないフィールドは拒む",
    "file": "graphloops/engine/util.py",
    "suite": "graphloops",
    "old": "    \"type\": \"object\", \"required\": [\"patterns\", \"paths\", \"count\"], \"additionalProperties\": False,",
@@ -2340,7 +2340,7 @@
   },
   {
    "id": "RW2",
-   "title": "撃ち直しは条件外の節も測り直す",
+   "title": "撃ち直しは条件外のノードも測り直す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "撃ち直し: 条件外にした節も条件を測り直す",
@@ -2634,7 +2634,7 @@
   },
   {
    "id": "RB2",
-   "title": "撃ち直しは set の欄だけ外す",
+   "title": "撃ち直しは set のフィールドだけ外す",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
    "old": "                    if w.get(\"op\") != \"set\" or not w.get(\"to\"):",
@@ -2648,7 +2648,7 @@
   },
   {
    "id": "RB3",
-   "title": "条件外の節は印だけ外す",
+   "title": "条件外のノードは印だけ外す",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
    "old": "            if ran:\n                for iid",
@@ -2662,7 +2662,7 @@
   },
   {
    "id": "RB4",
-   "title": "機械の節は戻さない",
+   "title": "機械のノードは戻さない",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
    "old": "            if n.get(\"run_by\") == \"driver\":\n                die(f\"rewind: 機械の節",
@@ -2690,7 +2690,7 @@
   },
   {
    "id": "PS1",
-   "title": "precedents を宣言しない節を拒む",
+   "title": "precedents を宣言しないノードを拒む",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "        errs.append(f\"{nid} の schema に precedents が無い",
@@ -2891,7 +2891,7 @@
   },
   {
    "id": "SE1",
-   "title": "書く側の柵: ファイルに書く形の埋め込み script から標準出力の encoding の直しを消す",
+   "title": "書く側のチェック: ファイルに書く形の埋め込み script から標準出力の encoding の直しを消す",
    "file": "tests/run.sh",
    "suite": "root",
    "old": "cat > \"$WORK/mut-eval.py\" <<'PYEVAL'\nimport sys\nfor _s in (sys.stdout, sys.stderr):\n    if hasattr(_s, \"reconfigure\"):\n        _s.reconfigure(encoding=\"utf-8\")\n",
@@ -2900,7 +2900,7 @@
   },
   {
    "id": "SE2",
-   "title": "書く側の柵: 標準入力で渡す埋め込み script から標準出力の encoding の直しを消す",
+   "title": "書く側のチェック: 標準入力で渡す埋め込み script から標準出力の encoding の直しを消す",
    "file": "tests/run.sh",
    "suite": "root",
    "old": "<<'PYENTRY'\nimport re, sys, pathlib\nfor _s in (sys.stdout, sys.stderr):\n    if hasattr(_s, \"reconfigure\"):\n        _s.reconfigure(encoding=\"utf-8\")\n",
@@ -2940,7 +2940,7 @@
   },
   {
    "id": "DG3",
-   "title": "役の節に任せ先を書かせない",
+   "title": "役のノードに任せ先を書かせない",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "        if v.get(\"run_by\") not in set(g.get(\"runners\", [])):",
@@ -3024,7 +3024,7 @@
   },
   {
    "id": "RT1",
-   "title": "rewound が節の名前の一覧でない返りは止める",
+   "title": "rewound がノードの名前の一覧でない返りは止める",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
    "old": "            if not (isinstance(back, list) and all(isinstance(x, str) and x in b.nodes for x in back)):",
@@ -3038,7 +3038,7 @@
   },
   {
    "id": "RT2",
-   "title": "撃ち直しはまだ書かれていない欄を飛ばす",
+   "title": "撃ち直しはまだ書かれていないフィールドを飛ばす",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
    "old": "                        continue   # まだ書かれていない欄",
@@ -3481,7 +3481,7 @@
   },
   {
    "id": "EN2",
-   "title": "空差分の柵の例外は入口の周だけ",
+   "title": "空差分のチェックの例外は入口の周だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    if not raw_diff.strip() and not b.cond(ENTRY_BUILTIN)[0]:",
@@ -3509,7 +3509,7 @@
   },
   {
    "id": "EN4",
-   "title": "別の条件でも外れる節は本当の理由のまま",
+   "title": "別の条件でも外れるノードは本当の理由のまま",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    return b.cond(c, overlay=ENTRY_OFF)[0]",
@@ -3537,7 +3537,7 @@
   },
   {
    "id": "EN6",
-   "title": "入口を外した文脈の重ね書きが条件の読む欄に効く（条件の書き方に依らず入口で外れたと分かる）",
+   "title": "入口を外した文脈の重ね書きが条件の読むフィールドに効く（条件の書き方に依らず入口で外れたと分かる）",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
    "old": "        over = [(k, val) for k, val in self.__overlay.items() if path == k or path.startswith(k + \".\")]",
@@ -3551,7 +3551,7 @@
   },
   {
    "id": "EN7",
-   "title": "入口の項を持たない節は入口で外れたと数えない",
+   "title": "入口の項を持たないノードは入口で外れたと数えない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    if not c or not b.cond(ENTRY_BUILTIN)[0] or b.cond(c)[0]:\n        return False",
@@ -3579,7 +3579,7 @@
   },
   {
    "id": "EN9",
-   "title": "昇格した周は深さの 3 節が入口より勝つ",
+   "title": "昇格した周は深さの 3 ノードが入口より勝つ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "入口: 昇格した周は深さの 3 節",
@@ -3677,7 +3677,7 @@
   },
   {
    "id": "EJ1",
-   "title": "p1.local_review は入口の周に起こさない",
+   "title": "p1.local_review は入口の周に起動しない",
    "file": "graphloops/graphs/review-loop.json",
    "suite": "graphloops",
    "json": {
@@ -3696,7 +3696,7 @@
   },
   {
    "id": "EJ2",
-   "title": "p1.consistency_bypass は入口の周に起こさない",
+   "title": "p1.consistency_bypass は入口の周に起動しない",
    "file": "graphloops/graphs/review-loop.json",
    "suite": "graphloops",
    "json": {
@@ -3715,7 +3715,7 @@
   },
   {
    "id": "EJ3",
-   "title": "p1.hygiene は入口の周に起こさない",
+   "title": "p1.hygiene は入口の周に起動しない",
    "file": "graphloops/graphs/review-loop.json",
    "suite": "graphloops",
    "json": {
@@ -3734,7 +3734,7 @@
   },
   {
    "id": "EJ4",
-   "title": "p1.external_standards は入口の周に起こさない",
+   "title": "p1.external_standards は入口の周に起動しない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "入口: 他の条件が全部真でも",
@@ -3748,7 +3748,7 @@
   },
   {
    "id": "EJ5",
-   "title": "p1.provenance は入口の周に起こさない",
+   "title": "p1.provenance は入口の周に起動しない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "入口: 他の条件が全部真でも",
@@ -3762,7 +3762,7 @@
   },
   {
    "id": "EJ6",
-   "title": "p1.main_path_observation は入口の周に起こさない",
+   "title": "p1.main_path_observation は入口の周に起動しない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "入口: 他の条件が全部真でも",
@@ -3776,7 +3776,7 @@
   },
   {
    "id": "EJ7",
-   "title": "深さの 3 節（p1.procedure_trace・p1.gate_efficacy・p1.test_double_fidelity）は入口の周に起こさない",
+   "title": "深さの 3 ノード（p1.procedure_trace・p1.gate_efficacy・p1.test_double_fidelity）は入口の周に起動しない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "入口: 他の条件が全部真でも",
@@ -3927,7 +3927,7 @@
   },
   {
    "id": "DL2",
-   "title": "起こし直しは試行の回数を刻む",
+   "title": "起動し直しは試行の回数を刻む",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    new = emit_instance(b, nid, item, suffix=suffix, attempt=n + 1)",
@@ -3941,7 +3941,7 @@
   },
   {
    "id": "DL3",
-   "title": "起こし直した試行は置き場を分ける",
+   "title": "起動し直した試行は置き場を分ける",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
    "old": "(f\".a{attempt}\" if attempt > 1 else \"\")",
@@ -3955,7 +3955,7 @@
   },
   {
    "id": "DL4",
-   "title": "起こし直しは作業ツリーの基準点を引き継ぐ",
+   "title": "起動し直しは作業ツリーの基準点を引き継ぐ",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "            new[k] = prev[k]",
@@ -3969,7 +3969,7 @@
   },
   {
    "id": "DL5",
-   "title": "起こし直しは前の試行の子を確かめてから（確かめられない試行の上に新しい試行を作らない）",
+   "title": "起動し直しは前の試行の子を確かめてから（確かめられない試行の上に新しい試行を作らない）",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        _pgid, why = probe_group(m)\n        if why:\n            raise Reject(",
@@ -3983,7 +3983,7 @@
   },
   {
    "id": "DL6",
-   "title": "skills を持つ節を任せ先に渡さない",
+   "title": "skills を持つノードを任せ先に渡さない",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "        if v.get(\"skills\"):\n            # skill（",
@@ -3997,7 +3997,7 @@
   },
   {
    "id": "TF1",
-   "title": "道具つきの子は利用者の設定を読まない",
+   "title": "ツールつきの子は利用者の設定を読まない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        if flag in BARE_FLAGS:\n            continue\n",
@@ -4011,7 +4011,7 @@
   },
   {
    "id": "TF2",
-   "title": "道具つきの子は聞く先を持たない",
+   "title": "ツールつきの子は聞く先を持たない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        if flag in BARE_FLAGS:\n            continue\n",
@@ -4025,7 +4025,7 @@
   },
   {
    "id": "TF3",
-   "title": "許可表に無い語（権限を外す旗・別名・=綴り）を持つ子は起こさない",
+   "title": "許可表に無い語（権限を外す旗・別名・=綴り）を持つ子は起動しない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        if w not in table:\n",
@@ -4039,7 +4039,7 @@
   },
   {
    "id": "TF4",
-   "title": "道具と権限の形は engine が決めた値だけ",
+   "title": "ツールと権限の形は engine が決めた値だけ",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "            why = None if val == want[flag] else f\"{flag} が {val!r}——engine が決めた値は {want[flag]!r}\"",
@@ -4053,7 +4053,7 @@
   },
   {
    "id": "TF5",
-   "title": "続きを頼む語にも柵を当てる",
+   "title": "続きを頼む語にもチェックを当てる",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    for words, resume in ((argv, False), (launch.get(\"resume_argv\"), True)):",
@@ -4067,7 +4067,7 @@
   },
   {
    "id": "TF6",
-   "title": "ファイルを書く道具を持つ役は engine が起こさない",
+   "title": "ファイルを書くツールを持つ役は engine が起動しない",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
    "old": "    return (\"*\" not in d[\"tools\"] and not any(x in WRITE_TOOLS for x in d[\"tools\"])",
@@ -4095,7 +4095,7 @@
   },
   {
    "id": "TF8",
-   "title": "同じ旗を 2 度渡す子は起こさない（CLI が和を取るか後勝ちかに依らない）",
+   "title": "同じ旗を 2 度渡す子は起動しない（CLI が和を取るか後勝ちかに依らない）",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        if w in got:\n",
@@ -4109,7 +4109,7 @@
   },
   {
    "id": "TF9",
-   "title": "要る旗を落とした子は起こさない",
+   "title": "要る旗を落とした子は起動しない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    missing = [f for f in table if f not in got and f not in OPTIONAL_FLAGS]",
@@ -4151,7 +4151,7 @@
   },
   {
    "id": "TF12",
-   "title": "守る場所は起こす時に引き直した集合を全部含む",
+   "title": "守る場所は起動する時に引き直した集合を全部含む",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    if lack:",
@@ -4277,7 +4277,7 @@
   },
   {
    "id": "LA2",
-   "title": "起こした試行は 2 度起こさない",
+   "title": "起動した試行は 2 度起動しない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "            if i.get(\"launched_at\"):",
@@ -4305,7 +4305,7 @@
   },
   {
    "id": "LA4",
-   "title": "同じ役を続ける節は記録した会話の番号で再開する",
+   "title": "同じ役を続けるノードは記録した会話の番号で再開する",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
    "old": "            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get(\"session_id\"), read_grant=read_grant)",
@@ -4319,7 +4319,7 @@
   },
   {
    "id": "LA5",
-   "title": "子はレビュー対象の作業ツリーで起こす",
+   "title": "子はレビュー対象の作業ツリーで起動する",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "run_cwd, env, work = _isolated_cwd(d, inst) or cwd, None, None",
@@ -4347,7 +4347,7 @@
   },
   {
    "id": "LN2",
-   "title": "最後の関門は作業ツリーに書かない",
+   "title": "最後のゲートは作業ツリーに書かない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    if final and (added or out.get(\"patch\")):",
@@ -4403,7 +4403,7 @@
   },
   {
    "id": "LN7",
-   "title": "最後の関門: 等価でない見逃しが残れば通らない",
+   "title": "最後のゲート: 等価でない見逃しが残れば通らない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    probs = [f\"{r['key']} が {r['handled']}（{r['how'][:80]}）\" for r in out[\"handled\"] if r[\"handled\"] != \"equivalent\"]",
@@ -4417,7 +4417,7 @@
   },
   {
    "id": "LN8",
-   "title": "最後の関門: 撃った版の後にコードが変われば古い",
+   "title": "最後のゲート: 撃った版の後にコードが変われば古い",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    if tree is None or now_tree is None or tree.strip() != now_tree:",
@@ -4431,7 +4431,7 @@
   },
   {
    "id": "LN9",
-   "title": "収束は関門が通ったときだけ",
+   "title": "収束はゲートが通ったときだけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    will_converge = gate == []",
@@ -4445,7 +4445,7 @@
   },
   {
    "id": "LN10",
-   "title": "線の閉じなかった見逃しは周の頭の節の出力から判定へ",
+   "title": "線の閉じなかった見逃しは周の頭のノードの出力から判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    return _declared_faces(h.output, h.round - 1) + ((h.output(\"p1.worktree_before\", h.round) or {}).get(\"lane_rows\") or [])",
@@ -4459,7 +4459,7 @@
   },
   {
    "id": "LN11",
-   "title": "関門が見つけた見逃しは次の周の判定へ",
+   "title": "ゲートが見つけた見逃しは次の周の判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "             for r in (out_of(\"p4.final_gates\", rnd) or {}).get(\"handled\") or [] if r[\"handled\"] != \"equivalent\"]",
@@ -4501,7 +4501,7 @@
   },
   {
    "id": "LN14",
-   "title": "背景の節を待つ節は置けない",
+   "title": "背景のノードを待つノードは置けない",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "                if waiters:",
@@ -4719,7 +4719,7 @@
   },
   {
    "id": "q05",
-   "title": "P0 の後の add は、起こす前の節を描き直して範囲に入れる",
+   "title": "P0 の後の add は、起動する前のノードを描き直して範囲に入れる",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    redraw = [i[\"id\"] for i in readers if not own(i) and not _started(b, i)]",
@@ -4869,52 +4869,52 @@
   },
   {
    "id": "TN1",
-   "title": "道具名の柵: 指示書に実行器の引数が紛れ込めば赤",
+   "title": "ツール名のチェック: 指示書に実行器の引数が紛れ込めば赤",
    "file": "graphloops/prompts/review-loop/p3.delta_gates.md",
    "suite": "root",
    "old": "その腕だけを撃ち直して（実行器の撃つ腕を名指しで絞る口で）赤を見た",
    "new": "その腕だけを撃ち直して（`--only <腕>`）赤を見た",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "TN2",
-   "title": "道具名の柵: グラフの注記に実行器の引数が紛れ込めば赤",
+   "title": "ツール名のチェック: グラフの注記に実行器の引数が紛れ込めば赤",
    "file": "graphloops/blocks/review-loop/check/exit.schema.json",
    "suite": "root",
    "old": "実行器の返答の形を組む口が組んだ腕の行をそのまま",
    "new": "実行器の --gate-efficacy が組んだ腕の行をそのまま",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "TN3",
-   "title": "道具名の柵: graphloops の手順書にテストのパスが紛れ込めば赤",
+   "title": "ツール名のチェック: graphloops の手順書にテストのパスが紛れ込めば赤",
    "file": "graphloops/skills/review-graph/references/steps.md",
    "suite": "root",
    "old": "2. **回す**。",
    "new": "2. **回す**（緑は graphloops/tests/run.sh で見る）。",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "TN4",
-   "title": "道具名の柵: 配布する観点（REVIEW.md）に腕の一覧の名前が紛れ込めば赤",
+   "title": "ツール名のチェック: 配布する観点（REVIEW.md）に腕の一覧の名前が紛れ込めば赤",
    "file": "convergence-loops/REVIEW.md",
    "suite": "root",
    "old": "**腕の一覧と実行器を持つリポジトリでは、それで撃て**",
    "new": "**腕の一覧（tests/mutations.json）と実行器を持つリポジトリでは、それで撃て**",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "TN5",
-   "title": "道具名の柵: engine が役へ渡す値に引数の綴りを組めば赤",
+   "title": "ツール名のチェック: engine が役へ渡す値に引数の綴りを組めば赤",
    "file": "graphloops/rules/review-loop.py",
    "suite": "root",
    "old": "    cut = {\"from\": frm, \"rev\": snap, \"files\": files, \"result\": str(d / f\"{tag}.json\")}",
    "new": "    cut = {\"from\": f\"--auto {frm}\", \"rev\": snap, \"files\": files, \"result\": str(d / f\"{tag}.json\")}",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "TN6",
-   "title": "宣言の件数の柵: CONTRIBUTING.md の宣言からラチェットの名前が落ちれば赤",
+   "title": "宣言の件数のチェック: CONTRIBUTING.md の宣言からラチェットの名前が落ちれば赤",
    "file": "CONTRIBUTING.md",
    "suite": "root",
    "old": "`EXPECTED_TESTS`・`VOCAB_REACHED`",
@@ -4923,7 +4923,7 @@
   },
   {
    "id": "TN7",
-   "title": "宣言の件数の柵: CONTRIBUTING.md の宣言の見出しが変われば赤（黙って突合を外さない）",
+   "title": "宣言の件数のチェック: CONTRIBUTING.md の宣言の見出しが変われば赤（黙って突合を外さない）",
    "file": "CONTRIBUTING.md",
    "suite": "root",
    "old": "### review-loop が読む検証の道具（このリポジトリの宣言）",
@@ -4932,7 +4932,7 @@
   },
   {
    "id": "CF2",
-   "title": "入れ物の内部の欄は自然な綴り（v._ctx）で読めない",
+   "title": "入れ物の内部のフィールドは自然な綴り（v._ctx）で読めない",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
    "expect": "入れ物: 内部の欄 v.",
@@ -4946,7 +4946,7 @@
   },
   {
    "id": "GC9",
-   "title": "プロンプトの record.<欄> と loop.<…> の穴を記録を書く宣言・loop の形の宣言で照らす",
+   "title": "プロンプトの record.<フィールド> と loop.<…> の穴を記録を書く宣言・loop の形の宣言で照合する",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "expect": "graphcheck: プロンプトの穴",
@@ -4960,7 +4960,7 @@
   },
   {
    "id": "GC10",
-   "title": "rules が読めない回は record. の穴を照らさない",
+   "title": "rules が読めない回は record. の穴を照合しない",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "expect": "graphcheck: rules が読めない回",
@@ -5219,7 +5219,7 @@
   },
   {
    "id": "RR4",
-   "title": "起こした子のグループの番号を置き場の隣に書く",
+   "title": "起動した子のグループの番号を置き場の隣に書く",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
    "old": "            pathlib.Path(pgid_file).write_text(json.dumps({\"pgid\": p.pid, \"owner\": os.getpid()}), encoding=\"utf-8\")",
@@ -5247,7 +5247,7 @@
   },
   {
    "id": "RR6",
-   "title": "起こした直後に起こし直されていたら自分で止める",
+   "title": "起動した直後に起動し直されていたら自分で止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
    "old": "        if still_mine is not None and not still_mine():\n            raise Superseded\n        out, err",
@@ -5261,7 +5261,7 @@
   },
   {
    "id": "GN1",
-   "title": "engine が埋めない node の欄の穴は graph の検査で落とす",
+   "title": "engine が埋めない node のフィールドの穴は graph の検査で落とす",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "            if core.startswith(\"node.\") and core != \"node.skills\":",
@@ -5275,7 +5275,7 @@
   },
   {
    "id": "DL7",
-   "title": "起こし直しは新しい試行を書いた後に前の試行の子を止める",
+   "title": "起動し直しは新しい試行を書いた後に前の試行の子を止める",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    whys = [w for w in (stop_group(m) for m in marks) if w]",
@@ -5359,7 +5359,7 @@
   },
   {
    "id": "SP18",
-   "title": "周の途中の問いの選択肢は立てる時点で照らす",
+   "title": "周の途中の問いの選択肢は立てる時点で照合する",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
    "old": "        can = IN_ROUND_ACTIONS if out[\"ask\"].get(\"in_round\") else ANSWER_ACTIONS",
@@ -5373,7 +5373,7 @@
   },
   {
    "id": "LN16",
-   "title": "最後の関門は撃てた腕 0 本を通さず人に諮る",
+   "title": "最後のゲートは撃てた腕 0 本を通さず人に諮る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    if not out.get(\"arms\") and (tree or \"\").strip() != b.loop_state.get(\"final_gate_empty_ok\"):",
@@ -5460,7 +5460,7 @@
   },
   {
    "id": "RC4",
-   "title": "add の後に起こす前の instance を描き直す",
+   "title": "add の後に起動する前の instance を描き直す",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    for iid in redraw:",
@@ -5613,7 +5613,7 @@
   },
   {
    "id": "RR11",
-   "title": "起こした子は生きている子の集合に載せる",
+   "title": "起動した子は生きている子の集合に載せる",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
    "old": "    with _LIVE_LOCK:\n        LIVE.add(p)\n    if _STOPPING.is_set():",
@@ -5669,7 +5669,7 @@
   },
   {
    "id": "FG1",
-   "title": "最後の関門の 0 本は人に諮る",
+   "title": "最後のゲートの 0 本は人に諮る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    if gate == [FINAL_GATE_EMPTY]:",
@@ -5683,7 +5683,7 @@
   },
   {
    "id": "FG2",
-   "title": "人が認めた木なら 0 本の関門を通す",
+   "title": "人が認めた木なら 0 本のゲートを通す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "            write_loop(b, \"final_gate_empty_ok\", \"overwrite\", (tree or \"\").strip() or None)",
@@ -5711,7 +5711,7 @@
   },
   {
    "id": "DL9",
-   "title": "読んでいる間に起こし直されていたら作らない",
+   "title": "読んでいる間に起動し直されていたら作らない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        if prev[\"out_path\"] != str(old):",
@@ -5800,7 +5800,7 @@
   },
   {
    "id": "RR13",
-   "title": "止め始めた後に起こした子はすぐ止める",
+   "title": "止め始めた後に起動した子はすぐ止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
    "old": "    if _STOPPING.is_set():   # 止める信号の後に起こした子",
@@ -6010,7 +6010,7 @@
   },
   {
    "id": "IS1",
-   "title": "道具ゼロの役はリポジトリの外で起こす",
+   "title": "ツールゼロの役はリポジトリの外で起動する",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    if d_ is None or d_[\"tools\"] != []:\n        return None",
@@ -6094,12 +6094,12 @@
   },
   {
    "id": "ES1",
-   "title": "review-graph の description が入口の節を名指しする",
+   "title": "review-graph の description が入口のセクションを名指しする",
    "file": "graphloops/skills/review-graph/SKILL.md",
    "suite": "root",
    "old": "（同梱の手順の「判定から入る（人の修正依頼）」）。起動するのは",
    "new": "。起動するのは",
-   "expect": "review-graph の description が判定から入る入口の節を名指しする"
+   "expect": "review-graph の description が判定から入る入口のセクションを名指しする"
   },
   {
    "id": "ES2",
@@ -6261,7 +6261,7 @@
   },
   {
    "id": "NT3",
-   "title": "宣言外で探した実行器の知らせは撃つ節が出た run だけ",
+   "title": "宣言外で探した実行器の知らせは撃つノードが出た run だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    if md and not md.get(\"declared\") and _mutation_ran(b):",
@@ -6275,30 +6275,30 @@
   },
   {
    "id": "FN3",
-   "title": "道具名の柵が宣言の語の拡張子を大小を畳んで見る",
+   "title": "ツール名のチェックが宣言の語の拡張子を大小を畳んで見る",
    "file": "tests/run.sh",
    "suite": "root",
    "old": "            elif \"/\" in a or re.search(r\"\\.[A-Za-z]{1,4}$\", a):",
    "new": "            elif \"/\" in a or re.search(r\"\\.[a-z]{1,4}$\", a):",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "FN1",
-   "title": "道具名の柵が宣言の --with の語を禁止語に導く",
+   "title": "ツール名のチェックが宣言の --with の語を禁止語に導く",
    "file": "tests/run.sh",
    "suite": "root",
    "old": "            elif prev == \"--with\":",
    "new": "            elif False:",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "FN2",
-   "title": "道具名の柵が名前と引数をつないだ綴りを拾う",
+   "title": "ツール名のチェックが名前と引数をつないだ綴りを拾う",
    "file": "tests/run.sh",
    "suite": "root",
    "old": "END = rf\"(?![{A}]|-(?!-))\"",
    "new": "END = rf\"(?![{A}-])\"",
-   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+   "expect": "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない"
   },
   {
    "id": "CL1",
@@ -6329,7 +6329,7 @@
   },
   {
    "id": "DS1",
-   "title": "機械の節の返りを節の schema で照らす",
+   "title": "機械のノードの返りをノードの schema で照合する",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
    "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
@@ -6343,7 +6343,7 @@
   },
   {
    "id": "PO1",
-   "title": "節の出力の手当ては節の schema に合わない値を書かない",
+   "title": "ノードの出力の手当てはノードの schema に合わない値を書かない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
@@ -6399,7 +6399,7 @@
   },
   {
    "id": "GD1",
-   "title": "作業ツリーを書き換える節は申告の欄を持つ",
+   "title": "作業ツリーを書き換えるノードは申告のフィールドを持つ",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "            if nid in (runner_spec.get(\"edits\") or []):",
@@ -6413,7 +6413,7 @@
   },
   {
    "id": "GD2",
-   "title": "申告の欄の綴りは受け付けの読み手と同じ口で引く",
+   "title": "申告のフィールドの綴りは受け付けの読み手と同じ口で引く",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "        leaf = pointers._schema_at(v.get(\"schema\") or {}, at) if isinstance(at, str) else None",
@@ -6504,21 +6504,21 @@
   },
   {
    "id": "VH1",
-   "title": "記録の見出しの柵: 見出しを探さずに通せば赤",
+   "title": "記録の見出しのチェック: 見出しを探さずに通せば赤",
    "file": "tests/run.sh",
    "suite": "root",
    "old": "    if not _re.search(rf\"^## \\[{_re.escape(version)}\\] - \\d{{4}}-\\d{{2}}-\\d{{2}}(?: \\[YANKED\\])?[ \\t]*$\", text, _re.M):",
    "new": "    if False and not _re.search(rf\"^## \\[{_re.escape(version)}\\] - \\d{{4}}-\\d{{2}}-\\d{{2}}(?: \\[YANKED\\])?[ \\t]*$\", text, _re.M):",
-   "expect": "marketplace.json / plugin.json が必須の欄を持つ"
+   "expect": "marketplace.json / plugin.json が必須のフィールドを持つ"
   },
   {
    "id": "VH2",
-   "title": "記録の見出しの柵: 行頭に錨を置かなければ赤",
+   "title": "記録の見出しのチェック: 行頭に錨を置かなければ赤",
    "file": "tests/run.sh",
    "suite": "root",
    "old": "rf\"^## \\[{_re.escape(version)}",
    "new": "rf\"## \\[{_re.escape(version)}",
-   "expect": "marketplace.json / plugin.json が必須の欄を持つ"
+   "expect": "marketplace.json / plugin.json が必須のフィールドを持つ"
   },
   {
    "id": "SK4",
@@ -6720,7 +6720,7 @@
   },
   {
    "id": "CO1",
-   "title": "CI の突合: test.yml が枝を絞らずに push のたびに走れば赤",
+   "title": "CI の突合: test.yml がブランチを絞らずに push のたびに走れば赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
    "old": "  push:\n    branches: [main, \"release/**\"]\n",
@@ -6729,7 +6729,7 @@
   },
   {
    "id": "CO2",
-   "title": "CI の突合: test.yml が手で起こせなければ赤",
+   "title": "CI の突合: test.yml が手で起動できなければ赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
    "old": "    branches: [main, \"release/**\"]\n  workflow_dispatch:\n",
@@ -6876,7 +6876,7 @@
   },
   {
    "id": "DR34",
-   "title": "回し役なしの盤面では、起こせない理由を持つ節を人に渡す（会話に返さない）",
+   "title": "回し役なしの盤面では、起動できない理由を持つノードを人に渡す（会話に返さない）",
    "file": "graphloops/engine/runner.py",
    "suite": "graphloops",
    "old": "    unlaunched = [i for i in pending if not i.get(\"launch\") and i.get(\"unlaunched\")] if defects_only(st) else []",
@@ -6890,7 +6890,7 @@
   },
   {
    "id": "DR3",
-   "title": "線の締めは、起こした周の試行で引く（周が進んでも superseded と読まない）",
+   "title": "線の締めは、起動した周の試行で引く（周が進んでも superseded と読まない）",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "            i = find_attempt(b.state[\"rounds\"], r[\"id\"], r[\"out_path\"])   # 背景の線は周をまたいで走る",
@@ -6932,7 +6932,7 @@
   },
   {
    "id": "DR6",
-   "title": "入れ子の sandbox と測った run では、書き換える子・skill の子・任せ先を起こさずに止める",
+   "title": "入れ子の sandbox と測った run では、書き換える子・skill の子・任せ先を起動せずに止める",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    if down and (launch.get(\"edits\") or launch.get(\"skill\") or launch.get(\"kind\") == \"delegate\"):",
@@ -6946,7 +6946,7 @@
   },
   {
    "id": "DR7",
-   "title": "宣言の deny が読めなければ、柵の入口が任せ先を起こさない",
+   "title": "宣言の deny が読めなければ、チェックの入口が任せ先を起動しない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        return bad or _delegate_refusal(inst, launch, board_dir, denied, unfenced=bool((state or {}).get(\"unfenced_delegates\")))",
@@ -6974,7 +6974,7 @@
   },
   {
    "id": "DR9",
-   "title": "graphcheck は、段と同じファイルを節の prompt_append に書くことを拒む",
+   "title": "graphcheck は、段と同じファイルをノードの prompt_append に書くことを拒む",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "        if dup:\n            errs.append(f\"節 {nid}: prompt_append の {dup}",
@@ -6988,7 +6988,7 @@
   },
   {
    "id": "DR10",
-   "title": "graphcheck は、当たる段を節の本文と reads に入れて節の検査に通す",
+   "title": "graphcheck は、当たる段をノードの本文と reads に入れてノードの検査に通す",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "old": "        segs = appended(g, v)[0]",
@@ -7002,7 +7002,7 @@
   },
   {
    "id": "DR11",
-   "title": "人が continue で通した関所の行（同じ ID）は後の周で聞き直さない",
+   "title": "人が continue で通したゲートの行（同じ ID）は後の周で聞き直さない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "    rows = [r for r in HUMAN_GATES[nid](b) if not set(r[2]) & ids and _gate_body(r[1]) not in bodies]",
@@ -7100,7 +7100,7 @@
   },
   {
    "id": "DR19",
-   "title": "関所の行の頭は当たらなくなるまで剥がす（R4 が頭ごと写した行）",
+   "title": "ゲートの行の頭は当たらなくなるまで剥がす（R4 が頭ごと写した行）",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "        row = row[m.end():]",
@@ -7128,7 +7128,7 @@
   },
   {
    "id": "DR21",
-   "title": "依頼を出どころにする名指しは init の依頼の本文だけで照らす",
+   "title": "依頼を出どころにする名指しは init の依頼の本文だけで照合する",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "old": "        return len(quote) >= NAMED_QUOTE_MIN and quote in (b.state[\"inputs\"].get(\"request\") or \"\")",
@@ -7142,7 +7142,7 @@
   },
   {
    "id": "DR22",
-   "title": "確かめの子は sandbox の中で走る語の前でだけ起こす",
+   "title": "確かめの子は sandbox の中で走る語の前でだけ起動する",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "    probe = _sandbox_probe(d, inst) if _sandboxed(launch[\"argv\"]) else {}",
@@ -7156,7 +7156,7 @@
   },
   {
    "id": "DR23",
-   "title": "確かめの子の道具は Bash だけ（書く道具で印を作らせない）",
+   "title": "確かめの子のツールは Bash だけ（書くツールで印を作らせない）",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
    "old": "        out.append(PROBE_MODEL if prev == \"--model\" else \"Bash\" if prev == \"--tools\" else a)",
@@ -7170,7 +7170,7 @@
   },
   {
    "id": "DR24",
-   "title": "run_role が起こす子の環境に engine の子の印を足す",
+   "title": "run_role が起動する子の環境に engine の子の印を足す",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
    "old": "    env = {**(os.environ if env is None else env), ENGINE_CHILD_ENV: \"1\"}",
@@ -7212,7 +7212,7 @@
   },
   {
    "id": "DR27",
-   "title": "同じ会話を続ける節の費用は、前の最大との差をその節に付ける",
+   "title": "同じ会話を続けるノードの費用は、前の最大との差をそのノードに付ける",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
    "old": "            out[group(r)] += max(0, cost - prev)",
@@ -7269,7 +7269,7 @@
   },
   {
    "id": "DR31",
-   "title": "起こして終わった試行を会話に返すのは前の版の盤面だけ",
+   "title": "起動して終わった試行を会話に返すのは前の版の盤面だけ",
    "file": "graphloops/engine/runner.py",
    "suite": "graphloops",
    "old": "    return not defects_only(st) and (",
@@ -7437,7 +7437,7 @@
   },
   {
    "id": "NM9",
-   "title": "名指しの pytest を起こせない回は撃たずに理由を言う",
+   "title": "名指しの pytest を起動できない回は撃たずに理由を言う",
    "file": "tests/mutate.py",
    "suite": "root",
    "old": "            why = pytest_ready() if nodes else \"\"",
@@ -7661,7 +7661,7 @@
   },
   {
    "id": "NH2",
-   "title": "pytest は置き場を cwd に起こし、要約の行を名指しと同じ形で読む",
+   "title": "pytest は置き場を cwd に起動し、要約の行を名指しと同じ形で読む",
    "file": "tests/mutate.py",
    "suite": "root",
    "old": "rc, body = run_group(argv, repo, env=env, sub=PYDIR)",
@@ -7718,7 +7718,7 @@
   },
   {
    "id": "NH6",
-   "title": "名指しの在りかは pytest の収集を渡せばそれで照らす",
+   "title": "名指しの在りかは pytest の収集を渡せばそれで照合する",
    "file": "tests/mutate.py",
    "suite": "root",
    "old": "    if nodes is not None:\n",
@@ -7774,7 +7774,7 @@
   },
   {
    "id": "SH16",
-   "title": "組の数の欄は和でまとめる",
+   "title": "組の数のフィールドは和でまとめる",
    "file": "tests/mutate.py",
    "suite": "root",
    "old": "        return sum(vals)",

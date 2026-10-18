@@ -2,8 +2,8 @@ name: cover-moved
 
 # 層 2 へ移した台本を消す条件の 4（被覆の包含）と、層 2 の効き目（旧い側の cli・inproc の口と層 2 の所要・子の数）・元の関数の
 # Run の盤面との突き合わせを撃つ（graphloops/tests/py/cover_moved.py。規範は docs/adr/0067）。ルートの tests/run.sh の review-record.py の
-# 節を tests/py へ移した分の被覆の包含も同じ job で撃つ（tests/py/coverage_proof.py。台本の節を本物の bash で回すので、engine の子の中
-# では撃てない）。移した台本の関数を全部回すので重く、手で起こす（gh workflow run cover-moved.yml）。手元で撃つのは名指しの数件だけ（人の方針）
+# セクションを tests/py へ移した分の被覆の包含も同じ job で撃つ（tests/py/coverage_proof.py。台本のセクションを本物の bash で回すので、engine の子の中
+# では撃てない）。移した台本の関数を全部回すので重く、手で起動する（gh workflow run cover-moved.yml）。手元で撃つのは名指しの数件だけ（人の方針）
 on:
   workflow_dispatch:
 

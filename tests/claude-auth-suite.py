@@ -60,7 +60,7 @@ class AccountToken(unittest.TestCase):
         self.assertEqual((tok, note), (TOK, f"keychain({own})"))
 
     def test_default_folder_uses_the_plain_item(self):
-        # CLAUDE_CONFIG_DIR を入れずに起こす claude は、名前に足し書きの無い項目を使う
+        # CLAUDE_CONFIG_DIR を入れずに起動する claude は、名前に足し書きの無い項目を使う
         self.assertEqual(claude_auth.claude_code_items(None), ["Claude Code-credentials"])
         # 既定のフォルダを名指したときだけ、足し書きの無い項目も試す
         self.assertEqual(claude_auth.claude_code_items("/h/.claude", home="/h")[1:], ["Claude Code-credentials"])

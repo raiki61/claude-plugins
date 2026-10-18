@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """catchup.py の判定を、GitHub に触らず固定の材料で回す。
 
-網に載せるのは「材料 → 出力」の規則だけ。取得（gh / GraphQL）は対象外で、ここで
+テストに載せるのは「材料 → 出力」の規則だけ。取得（gh / GraphQL）は対象外で、ここで
 モックしても検査になるのは自分で書いたモックの方になる。"""
 
 import datetime as dt
@@ -11,7 +11,7 @@ import sys
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
 # cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
-# 報告そのものが日本語なので、落ちると道具が丸ごと使えない。UTF-8 に固定する
+# 報告そのものが日本語なので、落ちるとツールが丸ごと使えない。UTF-8 に固定する
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -188,13 +188,13 @@ def _ask_prefers_text():
 
 @case("waiting")
 def _waiting():
-    """依頼も担当も無ければ私の番ではない。誰待ちかを出す。"""
+    """依頼も担当も無ければ「私の番」ではない。誰待ちかを出す。"""
     return render(pr(reviewRequests=conn([{"requestedReviewer": user("someone")}])))
 
 
 @case("ci-unknown-conclusion")
 def _ci_unknown():
-    """知らない conclusion は赤に倒す。作者が自分なら私の番の理由になる。"""
+    """知らない conclusion は赤に倒す。作者が自分なら「私の番」の理由になる。"""
     return render(pr(author=user(ME), head=checks(
         check_run("lint", "SUCCESS"), check_run("deploy", "ACTION_REQUIRED"))))
 
@@ -325,7 +325,7 @@ def _refs_not_events():
 
 @case("assignee-own-pr")
 def _assignee_own_pr():
-    """自分の PR で assignee にもなっているのは普通の運用で、それだけでは私の番にならない
+    """自分の PR で assignee にもなっているのは普通の運用で、それだけでは「私の番」にならない
     （レビュー依頼を出していれば相手待ち）。"""
     return render(pr(author=user(ME), assignees=conn([user(ME)]),
                      reviewRequests=conn([{"requestedReviewer": user("someone")}])))
@@ -333,7 +333,7 @@ def _assignee_own_pr():
 
 @case("issue-assignee")
 def _issue_assignee():
-    """issue では担当が手番の根拠。立場も「担当」。"""
+    """issue では担当がターンの根拠。立場も「担当」。"""
     return render(issue(assignees=conn([user(ME)])))
 
 
@@ -507,7 +507,7 @@ def _threads_material():
 
 @case("threads-since")
 def _threads_since():
-    """私が返す番で相手が私の発言の後に返している件は、私の発言以降のこの file の変更を今の姿に帯で出し（-U0 の
+    """私が返すターンで相手が私の発言の後に返している件は、私の発言以降のこの file の変更を今の姿に帯で出し（-U0 の
     hunk を head の関数の範囲に重ねる）、今の姿だけの行は重ねない。file が変わっていない・関数が変わっていない・
     diff が取れないはそれぞれそう言う。行の無い指摘は変わった所ごとにその関数。私が未発言の件は今の姿で、共通の
     字下げを落として見出しに桁数を書き、代入の文字列リテラルの中は畳む。字下げのある def も関数の境目。"""
@@ -546,7 +546,7 @@ def _threads_since():
               reviewThreads=conn([replied("app/main.py"), replied("app/util.py"), replied("app/other.py"),
                                   replied("app/nogit.py"), whole, deep, sql]))
     out = catchup.render_threads(node, ME, lambda p: files.get(p), diff_since=lambda p, b, h: diffs.get(p))
-    seg = {blk.split("\n", 1)[0].split()[0]: blk for blk in out.split("=== ")[1:]}   # "n/N" → 節
+    seg = {blk.split("\n", 1)[0].split()[0]: blk for blk in out.split("=== ")[1:]}   # "n/N" → セクション
     main, util, other, nogit, whole_s, deep_s, sql_s = (seg[f"{i}/7"] for i in range(1, 8))
     want = {
         "framed": f"私の発言（{catchup.hhmm(catchup.ts(T2))}）以降のこの file の変更（作者側の commit 1 本）" in main
@@ -584,7 +584,7 @@ def _branch_number():
 
 @case("branch-line")
 def _branch_line():
-    """--switch の結果の行は見出しの URL の直下（命令書が「URL は見出しの下の行から写す」で位置に依存する）。
+    """--switch の結果の行は見出しの URL の直下（コマンドの本文が「URL は見出しの下の行から写す」で位置に依存する）。
     無ければ何も足さない。"""
     def draw(**flags):
         node = pr()
@@ -604,7 +604,7 @@ def _branch_line():
 
 @case("issue-branch")
 def _issue_branch():
-    """issue の移る先（純関数）。名前に番号を持つ手元の枝が 1 本のときだけ。0 本・2 本以上は理由に候補名。
+    """issue の移る先（純関数）。名前に番号を持つ手元のブランチが 1 本のときだけ。0 本・2 本以上は理由に候補名。
     版の数字（python3.12）は候補外。PR は head の名前の有無だけなので純関数を持たない。"""
     local = {"feat/12-a": "", "fix/12-b": "", "chore/python3.12": "", "chore/1513-x": "", "main": ""}
     one, two, zero = (catchup.issue_branch(n, local) for n in (1513, 12, 99))
@@ -651,8 +651,8 @@ def _ci_material():
 
 @case("stacked")
 def _stacked():
-    """取り込み先が既定ブランチでなければ、その枝と枝の PR（同じリポジトリのものだけ。fork の同名の枝は
-    出さない）を出す。この枝を base にする open PR（上に積む）は main() が取って渡す。4 件目があれば
+    """取り込み先が既定ブランチでなければ、そのブランチとブランチの PR（同じリポジトリのものだけ。fork の同名のブランチは
+    出さない）を出す。このブランチを base にする open PR（上に積む）は main() が取って渡す。4 件目があれば
     「他にもある」と言う（数は分からない）。"""
     node = pr(author=user(ME), baseRefName="feat/x",
               baseRef=assoc(base_pr(1590, cross=False), base_pr(1591, cross=True, author="forker")))
@@ -660,7 +660,7 @@ def _stacked():
     four = render(node, stacked=[{"number": n, "title": f"PR {n}"} for n in (1601, 1602, 1603, 1604)])
     gone = render(pr(baseRefName="feat/x", baseRef=None))
     none = render(pr(baseRefName="feat/x", baseRef=assoc()))
-    # 同じ枝の PR が 4 件（古い→新しい）。新しい順に 3 件で、私のものは「作者 私」。総数 9 なら残りを断る
+    # 同じブランチの PR が 4 件（古い→新しい）。新しい順に 3 件で、私のものは「作者 私」。総数 9 なら残りを断る
     many = render(pr(baseRefName="feat/x", baseRef=assoc(
         base_pr(1580, cross=False), base_pr(1585, cross=False, author=ME, state="MERGED", decision=None),
         base_pr(1590, cross=False), base_pr(1595, cross=False), total=9)))
@@ -791,7 +791,7 @@ def _since_review():
 @case("since-approx")
 def _since_approx():
     """基準が本文コメント（commit 無し）なら、その時刻以前の最新の commit で置く（近似）。見出しと
-    「見ていないもの」に近似の断り。発言が最初の commit より前なら基準を置けず、節は出ない。"""
+    「見ていないもの」に近似の断り。発言が最初の commit より前なら基準を置けず、セクションは出ない。"""
     node = pr(allCommits=_SINCE_COMMITS, comments=conn([comment(T2, ME, "ここまで見た")]))
     since = anchored(node, get_gh=lambda sha: _SINCE_FILES.get(sha))
     out = render(node, since=since)
@@ -1041,7 +1041,7 @@ def _commit():
     try:
         target = catchup.resolve_target("2971ea2", None)
         digits = catchup.resolve_target("1234567", None)   # 数字だけでも 7 桁以上で commit に解ければ commit
-        branch = catchup.resolve_target("feat/x", None)     # 枝の名前は commit より先に「移る」対象
+        branch = catchup.resolve_target("feat/x", None)     # ブランチの名前は commit より先に「移る」対象
         out = catchup.render_commit("2971ea2f")
         one = catchup.render_commit("2971ea2f", frame="src/a.py")
     finally:
@@ -1074,7 +1074,7 @@ def _commit():
 
 @case("main-wiring")
 def _main_wiring():
-    """main() の受け口の配線。commit・PR も番号も無い枝（none）で、焦点の断りは人の語（指摘・地図・CI）で
+    """main() の受け口の配線。commit・PR も番号も無いブランチ（none）で、焦点の断りは人の語（指摘・地図・CI）で
     出て内部 key（threads / map / ci）は出ない、commit の 地図 は出ているので断らない、none の --frame は
     PR か commit に案内して止まる、commit の --switch は移る先が無いと言う。描く関数は差し替えて、配線だけ見る。"""
     import contextlib

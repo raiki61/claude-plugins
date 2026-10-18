@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""scripts/spread-plugins.py（役「配布」の道具）を、claude・herdr・git を偽物の runner にして回す。
+"""scripts/spread-plugins.py（役「配布」のツール）を、claude・herdr・git を偽物の runner にして回す。
 
 使い方: python3 tests/spread-plugins-case.py <場合>
-- only-company-talks: /reload-plugins は部署と窓口の会話（company.role の在る場所）にだけ打ち、入力欄に字の在る会話と手元の
+- only-company-talks: /reload-plugins は部署と窓口の会話（company.role の在る場所）にだけ打ち、入力フィールドに字の在る会話と手元の
   設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、
-  それでも落ちても入った版が全部本流とそろえば失敗に数えない
-- local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
-- broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版が本流（origin/main）とそろわなければ
-  失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える。本流は全アカウントに配った後に読み、
-  版のずれたアカウントだけ 1 回配り直して照らし直す（配る間に本流が進んだとき）
+  それでも落ちても入った版が全部メインブランチとそろえば失敗に数えない
+- local-accounts: 手元の設定の accounts（部署を起動しないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
+- broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版がメインブランチ（origin/main）とそろわなければ
+  失敗に数え、失敗の行を出力の終わりに並べ直す。メインブランチの版を読めなくても失敗に数える。メインブランチは全アカウントに配った後に読み、
+  版のずれたアカウントだけ 1 回配り直して照合し直す（配る間にメインブランチが進んだとき）
 - mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す
 """
 
@@ -45,9 +45,9 @@ def plugin_dir(whole=True):
 
 
 def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky=()):
-    """(runner, 打った命令の並び)。flaky は最初の 1 回だけ落ちる命令。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
-    version は入った版（関数なら、その設定のフォルダで打った plugin update の数から版を返す）、main は本流（origin/main）の
-    plugin.json の版（None なら本流を読めない）。"""
+    """(runner, 打ったコマンドの並び)。flaky は最初の 1 回だけ落ちるコマンド。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
+    version は入った版（関数なら、その設定のフォルダで打った plugin update の数から版を返す）、main はメインブランチ（origin/main）の
+    plugin.json の版（None ならメインブランチを読めない）。"""
     calls = []
     installed = installed or plugin_dir()
     panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "agent_status": "idle", "cwd": "/dept"},
@@ -121,12 +121,12 @@ def only_company_talks():
     rc, out = run(runner, {})
     assert rc == 0, out
     prompts = [a[3] for a, _ in calls if a[:3] == ["herdr", "agent", "prompt"]]
-    assert prompts == ["a:1"], prompts   # 手の空いた部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペイン・番の途中は飛ばす）
+    assert prompts == ["a:1"], prompts   # 手の空いた部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペイン・ターンの途中は飛ばす）
     updates = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
     assert updates == [(f"a@{MARKET}", None), (f"a@{MARKET}", "/c/p1")], updates
     assert "点検（c:1）: 入力フィールドに字が在るので飛ばす" in out and "plugins1（d:1）: 手元の設定で除く" in out, out
     assert "説明書（f:1）: ターンの途中なので飛ばす（ターンの終わりに替わる）" in out, out
-    assert not [a for a, _ in calls if a[:4] == ["herdr", "pane", "read", "f:1"]], calls   # 番の途中の画面は読みもしない
+    assert not [a for a, _ in calls if a[:4] == ["herdr", "pane", "read", "f:1"]], calls   # ターンの途中の画面は読みもしない
     print("ONLY_COMPANY_TALKS_OK")
 
 
@@ -142,7 +142,7 @@ def failure_is_nonzero():
     rc, out = run(runner, {})
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
     assert rc == 0 and len(tries) == 4 and "main: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない" in out, (rc, out, tries)
-    runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"}, main=None)   # 本流を読めなければそろったと言えない
+    runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"}, main=None)   # メインブランチを読めなければそろったと言えない
     rc, out = run(runner, {})
     assert rc == 1 and "- main: claude plugin marketplace update" in out, (rc, out)
     runner, calls = world(flaky={f"claude plugin marketplace update {MARKET}"})   # 別の会話の取り直しとぶつかった
@@ -174,7 +174,7 @@ def broken_copy():
     tail = out.strip().splitlines()
     assert rc == 1 and tail[-3] == "失敗 2 件:", (rc, out)
     assert all("版が main とそろわない: 入った版 1.0.0・main 1.1.0" in x for x in tail[-2:]), out
-    runner, calls = world(version=lambda n: "1.1.0" if n >= 2 else "1.0.0", main="1.1.0")   # 配る間に本流が進んだ
+    runner, calls = world(version=lambda n: "1.1.0" if n >= 2 else "1.0.0", main="1.1.0")   # 配る間にメインブランチが進んだ
     rc, out = run(runner, {})
     updates = [env for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
     assert rc == 0 and updates == [None, "/c/p1", None, "/c/p1"], (rc, out, updates)   # ずれたアカウントだけ 1 回配り直す
@@ -185,17 +185,17 @@ def broken_copy():
     runner, _ = world()
     rc, out = run(runner, {})
     assert rc == 0 and out.count(f"claude plugin update a@{MARKET} 済（1.0.0）") == 2, out
-    runner, calls = world()   # 本流は全アカウントに配った後に読む（配る間に本流へ入った版を、入った版が新しいのにそろわないと数えない）
+    runner, calls = world()   # メインブランチは全アカウントに配った後に読む（配る間にメインブランチへ入った版を、入った版が新しいのにそろわないと数えない）
     run(runner, {})
     seq = [i for i, (a, _) in enumerate(calls) if a[:2] == ["claude", "plugin"] and a[2] in ("update", "marketplace")
            and "list" not in a]
     reads = [i for i, (a, _) in enumerate(calls) if a[:1] == ["git"] and a[2] == str(sp.ROOT)]
     assert reads and min(reads) > max(seq), calls
-    runner, calls = world(main=None)   # 本流の版を読めなければ、照らせないので失敗に数える
+    runner, calls = world(main=None)   # メインブランチの版を読めなければ、照合できないので失敗に数える
     rc, out = run(runner, {})
     assert rc == 1 and "main の版を読めない" in out.strip().splitlines()[-1], out
     runner, calls = world(main=None)
-    rc, out = run(runner, {"dry_run": True})   # 空打ちでは本流を読みに行かない
+    rc, out = run(runner, {"dry_run": True})   # 空打ちではメインブランチを読みに行かない
     assert rc == 0 and not [a for a, _ in calls if a[:1] == ["git"] and a[2] == str(sp.ROOT)], out
     print("BROKEN_COPY_OK")
 

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""全部のプラグインのスキルと命令の本文が、スキルの書き方の標準（docs/standards/skill-authoring.md）の決まり 1・4・5 を守るかを見る。
+"""全部のプラグインのスキルとコマンドの本文が、スキルの書き方の標準（docs/standards/skill-authoring.md）の決まり 1・4・5 を守るかを見る。
 
 本文は呼ばれたときに丸ごと会話に載り、自動の圧縮の後は頭の 5,000 トークンだけが付け直される（https://code.claude.com/docs/en/skills）。
 長すぎる本文は、圧縮の後に後ろの手順を失ったまま動く。指した別ファイルが無いと、読みに行った所で止まるか推測で埋める。
 
 使い方: python3 tests/skill-body-case.py <場合>
 - tree: marketplace に載る全部のプラグイン（.claude-plugin/marketplace.json の source）の skills/*/SKILL.md と commands/**/*.md を見る。
-  プラグインの根より深い所の物（works の .shared/borrow/ に写した第三者のスキルなど）は Claude Code のスキルとして読み込まれないので見ない
-- arms: 下の検査の 1 つずつが、壊した例で落ち、壊していない例で通ることを見る（柵が空振りしていないか）
+  プラグインのルートより深い所の物（works の .shared/borrow/ に写した第三者のスキルなど）は Claude Code のスキルとして読み込まれないので見ない
+- arms: 下の検査の 1 つずつが、壊した例で落ち、壊していない例で通ることを見る（チェックが空振りしていないか）
 
 見ること:
 - 長さ（決まり 1）: 本文（頭の YAML の後ろ）が 5,000 字以下、かつ 500 行未満
 - 無い先（決まり 4）: 本文から相対パスの Markdown のリンクで指した先が在る。コードの中（``` の塊と ` の中）のリンクの形は見ない
-- 根の外（決まり 4）: 指した先がプラグインの根の中に在る。marketplace から入れたプラグインは根の中だけが手元に写され、
-  根の外のファイルは利用者の手元に無い（https://code.claude.com/docs/en/plugins/loading#in-place-and-copied-plugins）
+- ルートの外（決まり 4）: 指した先がプラグインのルートの中に在る。marketplace から入れたプラグインはルートの中だけが手元に写され、
+  ルートの外のファイルは利用者の手元に無い（https://code.claude.com/docs/en/plugins/loading#in-place-and-copied-plugins）
 - 目次（決まり 5）: スキルのフォルダの中の .md の別ファイルで 100 行を超える物は、頭の 20 行以内の箇条書きに、そのファイルの
   見出し（##）を全部並べる。スクリプトは読まずに走らせる物なので見ない
 
@@ -122,13 +122,13 @@ def check_file(path, plugin_root, kind):
     chars, lines = len(body), len(body.splitlines())
     if chars > BODY_CHARS_MAX or lines >= BODY_LINES_LIMIT:
         bad.append(("長さ", f"本文が {chars} 字・{lines} 行（{BODY_CHARS_MAX} 字以下かつ {BODY_LINES_LIMIT} 行未満。決まり 1）"))
-    # 根の中かは、書いたパスの .. を畳んで見る（シンボリックリンクは辿らない。marketplace の中の繋ぎは写すときに扱われる）
+    # ルートの中かは、書いたパスの .. を畳んで見る（シンボリックリンクは辿らない。marketplace の中の繋ぎは写すときに扱われる）
     root = os.path.normpath(os.path.abspath(plugin_root))
     for t in link_targets(body):
         dest = pathlib.Path(os.path.normpath(os.path.join(os.path.abspath(path.parent), t)))
         if not dest.is_relative_to(root):
-            bad.append(("根の外", f"リンク {t} がプラグインの根の外を指す。入れた利用者の手元には根の中だけが写されるので、"
-                                  "根の中に写すか、GitHub の URL で指す（決まり 4）"))
+            bad.append(("ルートの外", f"リンク {t} がプラグインのルートの外を指す。入れた利用者の手元にはルートの中だけが写されるので、"
+                                  "ルートの中に写すか、GitHub の URL で指す（決まり 4）"))
         elif not dest.exists():
             bad.append(("無い先", f"リンク {t} の先が無い（決まり 4）"))
     if kind == "skill":
@@ -143,7 +143,7 @@ def check_file(path, plugin_root, kind):
 
 
 def targets(root):
-    """(ファイル, プラグインの根, kind) の list と、走査そのものの食い違いの list を返す。"""
+    """(ファイル, プラグインのルート, kind) の list と、走査そのものの食い違いの list を返す。"""
     market = json.loads((root / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     found, bad = [], []
     for plugin in market["plugins"]:
@@ -152,12 +152,12 @@ def targets(root):
         declared = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
         custom = [k for k in CUSTOM_PATHS if k in declared]
         if custom:
-            bad.append(f"{plugin['name']}: plugin.json が置き場（{', '.join(custom)}）を変えている。この柵の走査も合わせて直す")
+            bad.append(f"{plugin['name']}: plugin.json が置き場（{', '.join(custom)}）を変えている。このチェックの走査も合わせて直す")
         mine = ([(f, src, "skill") for f in sorted(src.glob("skills/*/SKILL.md"))]
                 + [(f, src, "command") for f in sorted(src.glob("commands/**/*.md"))])
         found += mine
     if not found:
-        bad.append("スキルも命令も 1 つも見つからない（走査が空回りしている）")
+        bad.append("スキルもコマンドも 1 つも見つからない（走査が空回りしている）")
     return found, bad
 
 
@@ -173,7 +173,7 @@ def scan(root, exempt):
         cleared = sorted(allowed - {rule for rule, _ in got})
         if cleared:
             bad.append(f"{rel}: 決まり「{'」「'.join(cleared)}」を満たしたので、tests/skill-body-case.py の EXEMPT から消す")
-    bad += [f"{rel}: EXEMPT に載っているが、スキルにも命令にも無い（EXEMPT から消す）" for rel in sorted(set(exempt) - seen)]
+    bad += [f"{rel}: EXEMPT に載っているが、スキルにもコマンドにも無い（EXEMPT から消す）" for rel in sorted(set(exempt) - seen)]
     return found, bad
 
 
@@ -194,7 +194,7 @@ def arms():
 def _arms(d):
 
     def probe(files, kind="skill"):
-        """files は {プラグインの根からの相対パス: 中身}。最初の物を見る。"""
+        """files は {プラグインのルートからの相対パス: 中身}。最初の物を見る。"""
         r = d / f"p{len(list(d.iterdir()))}"
         for rel, body in files.items():
             (r / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -213,18 +213,18 @@ def _arms(d):
     must("5,001 字", ["長さ"], {sk: head + "あ" * (BODY_CHARS_MAX + 1)})
     must("499 行", [], {sk: head + "a\n" * (BODY_LINES_LIMIT - 1)})
     must("500 行", ["長さ"], {sk: head + "a\n" * BODY_LINES_LIMIT})
-    must("頭の YAML の無い命令も本文を測る", ["長さ"], {"commands/c.md": "あ" * (BODY_CHARS_MAX + 1)}, kind="command")
-    must("在る先", [], {sk: head + "[手順](references/a.md#節) と [別名][r]\n\n[r]: <references/b c.md>\n",
+    must("頭の YAML の無いコマンドも本文を測る", ["長さ"], {"commands/c.md": "あ" * (BODY_CHARS_MAX + 1)}, kind="command")
+    must("在る先", [], {sk: head + "[手順](references/a.md#セクション) と [別名][r]\n\n[r]: <references/b c.md>\n",
                        "skills/x/references/a.md": "a\n", "skills/x/references/b c.md": "b\n"})
     must("%20 の先", [], {sk: head + "[b](references/b%20c.md)\n", "skills/x/references/b c.md": "b\n"})
     must("無い先", ["無い先"], {sk: head + "[手順](references/none.md)\n"})
     must("参照の形の無い先", ["無い先"], {sk: head + "[r]: references/none.md\n"})
     must("画像の無い先", ["無い先"], {sk: head + "![図](fig.svg)\n"})
     must("プラグインの中の別の所", [], {sk: head + "[r](../../README.md)\n", "README.md": "r\n"})
-    must("命令から隣の命令", [], {"commands/c.md": head + "[d](d.md)\n", "commands/d.md": "d\n"}, kind="command")
-    must("根の外", ["根の外"], {sk: head + "[r](../../../outside.md)\n"})
+    must("コマンドから隣のコマンド", [], {"commands/c.md": head + "[d](d.md)\n", "commands/d.md": "d\n"}, kind="command")
+    must("ルートの外", ["ルートの外"], {sk: head + "[r](../../../outside.md)\n"})
     must("URL・ページの中・絶対パス・変数は見ない", [],
-         {sk: head + "[a](https://x.example/a.md) [b](#節) [c](/abs.md) [d](mailto:a@b) [e](${CLAUDE_SKILL_DIR}/x.md)\n"})
+         {sk: head + "[a](https://x.example/a.md) [b](#セクション) [c](/abs.md) [d](mailto:a@b) [e](${CLAUDE_SKILL_DIR}/x.md)\n"})
     must("コードの中のリンクの形は見ない", [],
          {sk: head + "`[#番号](URL)` の形\n```\n[a](none.md)\n```\n~~~~\n[b](none.md)\n```\n~~~~\n"})
     must("閉じの無い塊の後ろは見ない", [], {sk: head + "```\n[a](none.md)\n"})
@@ -250,7 +250,7 @@ def _arms(d):
     must("コードの中の ## は見出しでない", [],
          {sk: head, "skills/x/references/r.md": "- 一\n## 一\n```\n## 例\n```\n" + "a\n" * 120})
     must("スクリプトは目次を見ない", [], {sk: head, "skills/x/scripts/s.py": "a = 1\n" * 200})
-    must("命令はフォルダを持たないので目次を見ない", [],
+    must("コマンドはフォルダを持たないので目次を見ない", [],
          {"commands/c.md": head, "commands/r.md": "a\n" * 200}, kind="command")
 
     # 走査と外す一覧: 外した決まりは通し、満たした物・無い物は消させる。外していない決まりは落とす
@@ -281,7 +281,7 @@ def _arms(d):
     empty = d / "empty"
     (empty / ".claude-plugin").mkdir(parents=True)
     (empty / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": []}), encoding="utf-8")
-    assert scan(empty, {})[1] == ["スキルも命令も 1 つも見つからない（走査が空回りしている）"], "空回りを落とさない"
+    assert scan(empty, {})[1] == ["スキルもコマンドも 1 つも見つからない（走査が空回りしている）"], "空回りを落とさない"
     print("SKILL_BODY_ARMS_OK")
     return 0
 

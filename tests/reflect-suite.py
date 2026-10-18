@@ -2,9 +2,9 @@
 """attention/scripts/reflect.py（/reflect の機械の側）を固定する。本物の会話の記録・GitHub・VS Code には触らない。
 
 固定するのは: 期間の読み方、人の会話と裏の会話の見分け（コマンドの行・貼り付けの囲み）、トークンを返答ごとに
-1 回だけ数えること、裏の会話を起こした元ごとにまとめること、繰り返しの数え方、読む設定のフォルダの決め方、
+1 回だけ数えること、裏の会話を起動した元ごとにまとめること、繰り返しの数え方、読む設定のフォルダの決め方、
 commit を会話の作業フォルダから引くこと（git subrepo の ref を数えない）、GitHub の動きの絞り方、/insights の
-控えと持ち物の拾い方、欄の検査、提案の並べ方と台帳（却下は落とす・状態は --decide だけが変える）、日記の節の
+控えと持ち物の拾い方、フィールドの検査、提案の並べ方と台帳（却下は落とす・状態は --decide だけが変える）、日記のセクションの
 置き換え（手で書いた行に触らない）、配布物に持ち主の環境の値を書かないこと。
 """
 
@@ -301,7 +301,7 @@ class InsightsAndAssets(unittest.TestCase):
             (cfg / "usage-data" / "report.html").write_text("<html>", encoding="utf-8")
             plug = pathlib.Path(tmp) / "plug"
             (plug / "commands").mkdir(parents=True)
-            (plug / "commands" / "go.md").write_text("---\ndescription: 行く命令\n---\n本文", encoding="utf-8")
+            (plug / "commands" / "go.md").write_text("---\ndescription: 行くコマンド\n---\n本文", encoding="utf-8")
             (plug / "skills" / "s").mkdir(parents=True)
             (plug / "skills" / "s" / "SKILL.md").write_text("---\nname: s\ndescription: 技\n---\n", encoding="utf-8")
             (cfg / "plugins").mkdir()
@@ -312,7 +312,7 @@ class InsightsAndAssets(unittest.TestCase):
             self.assertEqual([f["brief_summary"] for f in ins["facets"]], ["要約"])
             self.assertEqual(len(ins["reports"]), 1)
             a = rf.assets([cfg], [])
-            self.assertEqual(a["plugins"][0]["commands"], [{"name": "go", "about": "行く命令"}])
+            self.assertEqual(a["plugins"][0]["commands"], [{"name": "go", "about": "行くコマンド"}])
             self.assertEqual(a["plugins"][0]["skills"], [{"name": "s", "about": "技"}])
             self.assertEqual(len(a["instructions"]), 1)
 
@@ -356,7 +356,7 @@ class LedgerAndRender(unittest.TestCase):
         self.assertEqual(code, 0)
         page = (self.dir / "out" / "2026-10-15_2026-10-15.html").read_text(encoding="utf-8")
         self.assertNotIn(rf.DATA_SLOT, page)
-        self.assertNotIn("</script><b>", page)  # 欄の文字で script を閉じない
+        self.assertNotIn("</script><b>", page)  # フィールドの文字で script を閉じない
         led = rf.ledger_path(self.env)
         self.assertEqual({p["id"]: p["status"] for p in rf.read_ledger(led)["proposals"]},
                          {"small-one": "open", "big-one": "open", "unknown-one": "open"})
