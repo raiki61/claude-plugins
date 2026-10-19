@@ -37,8 +37,9 @@
 あわせて、元の関数の Run ごとに、同じ Run の列を端まで打った物と突き合わせる（列が元の関数の出来事を落としていれば赤）:
 loop.py の呼び出しの列（inproc の口の回だけ。語・引数・渡したファイルの中身・標準入力）と、最後の盤面（glharness.normalize_board と
 first_difference）。盤面は世界の手と返答の中身の違いを、呼び出しの列は盤面を書かない手（拒まれた done・止めた run への next と status）の
-落としを見る。作業場ごとに変わる物（git の commit の sha・道を本文に含むプロンプトの大きさ）は比べる前に伏せる。run_id は伏せずに
-そろえる——抜き取りの種なので、列の init を元の関数の Run と同じ run_id で打たせる（same_clock）。
+落としを見る。作業場ごとに変わる物（git の commit の sha・道を本文に含むプロンプトの大きさ）は比べる前に伏せる。run_id は盤面では
+伏せるが、抜き取りの種なので、列の init を元の関数の Run と同じ run_id で打たせてそろえる（same_clock。そろわなければ抜き取った id の
+違いとして盤面に出る）。
 """
 import argparse
 import contextlib
@@ -355,7 +356,7 @@ def old_run_ids(names, made):
         if len(olds) != 1:
             continue
         f = olds[0] / "state" / "state.json"
-        if not f.exists():
+        if not f.is_file():
             continue
         try:
             out[n] = json.loads(f.read_text(encoding="utf-8"))["run_id"]
@@ -489,7 +490,7 @@ def main(argv):
         print(f"印を集める段が {code} で終わった", file=sys.stderr)
         return 1
     # 集める段（同じプロセスの pytest）が GNU readline を読み込むと、readline がプロセスの環境（C の environ）に COLUMNS と LINES を
-    # 書く（os.environ には載らない）。cli の口の旧い側で env を渡さずに loop.py を起こす台本（review の Run）の子はそれを継ぎ、engine の
+    # 書く（os.environ には載らない）。cli の口の旧い側で env を渡さずに loop.py を起動する台本（review の Run）の子はそれを継ぎ、engine の
     # 検査結果の控えの指紋（子に渡る環境変数。checks_cache の注記）が、os.environ を見る inproc の列の Run と割れる（実測 2026-10-18:
     # run 39173245893 の timing cli。Linux だけ——macOS の Python の readline は libedit で、環境を書かない）
     for name in ("COLUMNS", "LINES"):
