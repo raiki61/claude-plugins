@@ -39,6 +39,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 - 片付ける `--clean`・部署の会話を止める・エフェメラルの部署の終わり `--done` と畳む `--retire`: [references/clean.md](references/clean.md)
 - 部署を立てる `--task`・会社のツリー図 `--tree`・オンデマンドの受け持ち（頼まれたときだけ立てる。`on_demand = true`）・会社の形をどこから読むか（origin の既定のブランチ。変えた会社の形は既定のブランチに入れてから効く）: [references/department.md](references/department.md)
 - 会社の形（`.claude/company.toml`）の役 `[[roles]]`・受け持ちごとの model と effort・`gh_user`・`fresh`・`settings`・`default_role`・`desk_role`・`former_names`・`machine`（「役の中身と起動方法」）: [references/roles.md](references/roles.md)
+- 部署を立てる前に `model`・`effort` の値を選ぶ（今の世代のモデルの格と effort の段ごとの成績・費用。原典の URL と確かめた日つき。重み付けは書かない）: [references/models.md](references/models.md)
 - herdr の表示を付け直す `--sync`・組み直す `--reorg` と `--desk`・手で会話を立てるときにアカウントを 1 つ選ぶ `accounts.py --pick`（`dispatch.py` と同じフォルダの `nodes/accounts.py`。打ち方は別ファイルに在る）: [references/reorg.md](references/reorg.md)
 - ほかのアカウントで起動し直す `--move`（使用上限や会社の形の起動の設定が替わったときの自動の起動し直しも）: [references/move.md](references/move.md)
 - 頼む `--ask`（宛先・待ち受け・順番待ち・`--take`・`--withdraw`・`--first`・`--nudge`・`--note`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・落ちた部署の会話・受付箱）: [references/ask.md](references/ask.md)

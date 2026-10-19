@@ -16,11 +16,11 @@ desk = "my_notes/段取り"
 default_role = "作業"   # --task で --role を省いたときの役
 
 # 受け持ちごとの model・effort（2026-10-17。持ち主「雑用っぽい部署はsonnetでいい」「全部がopus highで都度も常設も動いてるのもあるのでは」）。
-# 手元の測りでは決めず、公開の指針で決める（my_notes の AGENTS.md の「モデル」、その写しは my_notes の reference/primary/ai/claude-model-choice.md）。
+# 手元の測りでは決めず、公開の指針で決める（my_notes の AGENTS.md の「モデル」。仕事ごとの格と effort の成績・費用の目安は works-dispatch/skills/dispatch/references/models.md）。
 # - 安いモデル（Sonnet）は、正確に言い表せる決まった仕事だけ（"Pick a smaller model when the work is routine."）。
 # - プラグインのコードを直す受け持ちは Opus・high（"Long-horizon coding is where effort genuinely buys accuracy."）。
 #   アカウントの既定は high（main・p1・p2）と medium（p3。Opus 5.5 の既定）で割れるので、high を書いてそろえる。
-# - 文書と判断の受け持ちは Opus・medium（調べものと知識の仕事の計測で "medium matched the default's accuracy"）。
+# - 文書と判断の受け持ちは Opus・medium（調べものと知識の仕事の計測で "medium matched the default's accuracy"。Fable 5 での測り。5.5 では未測定）。
 #   原文の照合と規約の判断は能力の高い側のモデルに残し、下げるのは effort だけにする。
 # - ただし model は受け持ちに書かず、役（担当・作業）のフィールドに model = "opus" と書く（受け持ちに model が無ければ役の値で起動する）。書かないと、
 #   部署はアカウントの既定のモデル（/model で替わり、そのアカウントの新しい会話の既定として保存される）で起き、会社の形を読んでも決まらない。
