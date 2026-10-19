@@ -98,10 +98,10 @@ def test_gate_arms(scene, name, at, expect):
 
 S = "simulate.test_stopped_before_gates_reports"
 ONE_ROUND = ("--path", "state.max_rounds", "--file", file("one.json", 1), "--reason", "1 周目で止める筋を作る")
-history("research/early-std", init("stop-early-標準", thickness="standard", unattended=False), cmd("patch", *ONE_ROUND, mark="patch"),
+history("research/early-std", init("stop-early-standard", thickness="standard", unattended=False), cmd("patch", *ONE_ROUND, mark="patch"),
         until("std", catch=True, mark="asked"), cmd("answer", "--text", "stop", mark="answer"), until("std", catch=True, mark="end"),
         validate(mark="validate"))
-history("research/early-heavy", init("stop-early-重厚", thickness="heavy", unattended=True), cmd("patch", *ONE_ROUND, mark="patch"),
+history("research/early-heavy", init("stop-early-heavy", thickness="heavy", unattended=True), cmd("patch", *ONE_ROUND, mark="patch"),
         until("heavy", catch=True, mark="end"), validate(mark="validate"))
 TH = {"std": "research/early-std", "heavy": "research/early-heavy"}
 

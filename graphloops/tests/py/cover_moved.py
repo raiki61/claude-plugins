@@ -346,14 +346,17 @@ def run_old(script, workdir, driver):
 
 def old_run_ids(names, made):
     """列ごとの、元の関数の Run の run_id ——({列: run_id}, 問題)。盤面は台本の Run の置き場（tmp/state。compare_runs と同じ道）から
-    名指しで読む（台本は同じ tmp の下に別の盤面を作ることがある）。Run が 1 個でない列は compare_runs が赤にするので数えず、Run が
-    1 個なのに盤面の読めない列は問題にする（黙って時計に戻すと、抜き取りの種が割れて赤と緑が回ごとに揺れる）"""
+    名指しで読む（台本は同じ tmp の下に別の盤面を作ることがある）。Run が 1 個でない列と、盤面の無い列（init が拒む列。盤面の有無の
+    食い違いは compare_runs が赤にする）は数えず、盤面が在るのに run_id の読めない列は問題にする（黙って時計に戻すと、抜き取りの種が
+    割れて赤と緑が回ごとに揺れる）"""
     out, problems = {}, []
     for n in names:
         olds = [p for pre, p in made if pre == run_prefix(scenes.HISTORIES[n])]
         if len(olds) != 1:
             continue
         f = olds[0] / "state" / "state.json"
+        if not f.exists():
+            continue
         try:
             out[n] = json.loads(f.read_text(encoding="utf-8"))["run_id"]
         except (OSError, ValueError, KeyError) as e:
