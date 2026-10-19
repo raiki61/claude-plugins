@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-10-19
+
 ### Fixed
 
 - claude の起動の形を確かめる台本（`tests/py/cli_contract.py`）が、Windows で claude の出力を既定の cp1252 で読み、日本語を書くと落ちうるので、子の出力を UTF-8 で読み、自分の標準出力も UTF-8 に直す。
