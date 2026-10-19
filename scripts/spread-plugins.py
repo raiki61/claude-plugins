@@ -118,7 +118,8 @@ def mend_clone(name, market, env, dry, runner=run):
     """その設定のフォルダの marketplace の clone で、作業ツリーから消えた tracked のファイルを index から戻す。step の並び。
     clone のやり直しが途中で切れると、作業ツリーが欠けたまま marketplace update は済になり、その後の plugin update は
     欠けた写しを入れるか（plugin.json の無い写しは版でなく commit の名前の版で入る）「destination is empty after copy」で
-    失敗する（2026-10-17 に p2 で実測）。marketplace update は欠けを戻さないので、ここで戻す。"""
+    失敗する（2026-10-17 に p2 で実測）。marketplace update は欠けを戻さないので、ここで戻す。clone の置き場そのものが
+    無いときは戻さずに進む（plugin.json の無い写しと main より古い版は、入った写しの検査と版の照合が失敗に数える）。"""
     code, out = runner(["claude", "plugin", "marketplace", "list", "--json"], env)
     try:
         loc = next((m.get("installLocation") for m in json.loads(out) if isinstance(m, dict) and m.get("name") == market),
@@ -128,6 +129,10 @@ def mend_clone(name, market, env, dry, runner=run):
     if not loc:
         return []   # 戻せないときも、入った写しの検査（update_account）が欠けを失敗に数える
     code, out = runner(["git", "-C", loc, "ls-files", "--deleted"])
+    if code != 0 and not pathlib.Path(loc).is_dir():
+        # 同じ設定のフォルダの別の会話が marketplace を取り直している間は、clone の置き場がいったん消える（2026-10-19 に p1 で実測。
+        # 後で見ると取り直した clone が在った）。確かめる物が無いので失敗に数えず、入った写しの plugin.json と版の検査に任せる
+        return [step(name, "mend", f"{name}: marketplace の clone が無いので欠けを確かめずに進む（別の会話が取り直している間か）", False)]
     if code != 0:
         return [step(name, "mend", f"{name}: marketplace の clone の欠けを確かめられない 失敗（{out.strip()[:200]}）", True)]
     gone = out.splitlines()

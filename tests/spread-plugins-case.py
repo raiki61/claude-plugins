@@ -11,7 +11,8 @@
 - broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版がメインブランチ（origin/main）とそろわなければ
   失敗に数え、失敗の行を出力の終わりに並べ直す。メインブランチの版を読めなくても失敗に数える。メインブランチは全アカウントに配った後に読み、
   版のずれたアカウントだけ 1 回配り直して照合し直す（配る間にメインブランチが進んだとき）
-- mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す
+- mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す。clone の置き場が無いとき
+  （別の会話が取り直している間）は失敗に数えずに進む
 - real-shapes: claude plugin list --json と herdr pane list の実物から採った見本（tests/fixtures/spread-plugins/）で、使うフィールドが
   読めて配れる（Claude Code 2.1.303・herdr 0.9.3 で採った。版が上がって形が変わったら採り直す）
 - shape-changed: 外のツールの形が変わったら（id の名前・この marketplace の物が 0 件・claude の窓が 0 件・知らない状態）、何も
@@ -256,6 +257,22 @@ def mend_clone():
     runner, calls = world(gone="a\n")
     rc, out = run(runner, {"dry_run": True})
     assert rc == 0 and "無いので戻す（空打ち）" in out and not [a for a, _ in calls if "checkout" in a], out
+    # 別の会話が取り直している間で clone の置き場が無いときは、失敗に数えずに進む。置き場が在って git が落ちたときは失敗に数える
+    missing = tempfile.mkdtemp()
+    os.rmdir(missing)   # どの機械でも無い置き場
+    for where, code, installed in ((missing, 0, None), (plugin_dir(), 1, None), (missing, 1, plugin_dir(whole=False))):
+        runner, calls = world(installed=installed)
+        def lost(argv, env=None):
+            if argv[:4] == ["claude", "plugin", "marketplace", "list"]:
+                return 0, json.dumps([{"name": MARKET, "installLocation": where}])
+            if argv[:4] == ["git", "-C", where, "ls-files"]:
+                return 128, f"fatal: cannot change to '{where}': No such file or directory"
+            return runner(argv, env)
+        rc, out = run(lost, {})
+        assert rc == code and ("clone が無いので欠けを確かめずに進む" in out) == (where == missing), (where, out)
+        assert ("clone の欠けを確かめられない 失敗" in out) == (where != missing), (where, out)
+        assert ("plugin.json が無い" in out) == bool(installed), (where, out)   # 置き場が無くても欠けた写しは失敗に数える
+        assert [a for a, _ in calls if a[:3] == ["claude", "plugin", "update"]], calls   # どちらでもプラグインの更新は打つ
     print("MEND_CLONE_OK")
 
 
