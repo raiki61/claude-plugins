@@ -17,7 +17,7 @@
   python3 limits.py [--config <パス> | --accounts <写し>] record        … statusline の JSON を標準入力から読んで控えに取り込む
   python3 limits.py [--config <パス>] herdr-config  … アカウントの写しと版に依らない入口を書き、herdr の config.toml の [ui] に置く
                                                     tab_bar_right を出す
-  python3 limits.py [--config <パス>] plan [--json] … アカウントごとの契約の段（Max 20x など）を出す。引けないアカウントは理由を出す
+  python3 limits.py [--config <パス>] plan [--json] … アカウントごとのプラン（Max 20x など）を出す。引けないアカウントは理由を出す
 
 アカウントの写し（<limits_dir>/accounts.json）は、herdr-config が dispatch の設定から書く JSON。herdr のタブバーから呼ぶ道は
 設定の TOML を読まずにこれを読む。herdr がタブバーのコマンドに渡す PATH の python3 は、macOS では OS に付いてくる 3.9 のことがあり、
@@ -291,13 +291,13 @@ def account_for(accounts, env):
     return None
 
 
-# 契約の段が引けないときの理由。setup-token のトークンはモデルへの要求しかできず（Claude Code の文書の「Generate a long-lived
-# token」）、契約の段を返す口（/api/oauth/profile）は user:profile の権限が要ると 403 で断る（2026-10-18 に p2・p3 の鍵で確かめた）。
-# 応答ヘッダ（anthropic-ratelimit-unified-*）にも段は出ない。そのため Claude Code がログインのときに書く記録だけを読む。
+# プランが引けないときの理由。setup-token のトークンはモデルへの要求しかできず（Claude Code の文書の「Generate a long-lived
+# token」）、プランを返す口（/api/oauth/profile）は user:profile の権限が要ると 403 で断る（2026-10-18 に p2・p3 の鍵で確かめた）。
+# 応答ヘッダ（anthropic-ratelimit-unified-*）にもプランは出ない。そのため Claude Code がログインのときに書く記録だけを読む。
 # 一度ログインしたフォルダは、その後 setup-token の鍵で動かしても記録が残る（2026-10-18 に p3 で見た。setup-token の鍵を環境変数で渡すと、
 # ログインより先に使われる。Claude Code の文書の「Authentication precedence」）
-NO_PLAN = ("{record} から契約の段（Claude Code のログインの記録 oauthAccount の organizationRateLimitTier）が読めない。"
-           "setup-token や API キーだけで入るアカウントはこの記録を作らず、setup-token の鍵では契約の段を問い合わせられないので、"
+NO_PLAN = ("{record} からプラン（Claude Code のログインの記録 oauthAccount の organizationRateLimitTier）が読めない。"
+           "setup-token や API キーだけで入るアカウントはこの記録を作らず、setup-token の鍵ではプランを問い合わせられないので、"
            "ツールからは引けない。引けるようにするには、同じアカウントでそのフォルダに一度ログインする（{login}。"
            "書かれるのはそのフォルダのログインだけ）")
 
@@ -311,16 +311,16 @@ def plan_record(account, env):
 
 
 def plan_of(account, env):
-    """1 アカウントの契約の段。{"name", "tier", "type", "fetched_at", "record", "reason"}。tier が None なら reason に訳を書く。
+    """1 アカウントのプラン。{"name", "tier", "type", "fetched_at", "record", "reason"}。tier が None なら reason に訳を書く。
 
     tier は Claude Code が記録する organizationRateLimitTier（例 default_claude_max_20x）、type は organizationType（例 claude_max）。
-    fetched_at は Claude Code が段を問い合わせた時刻（手元の時差を付けた ISO 8601。記録に無いか読めなければ None）。記録は Claude Code が問い合わせ直す
+    fetched_at は Claude Code がプランを問い合わせた時刻（手元の時差を付けた ISO 8601。記録に無いか読めなければ None）。記録は Claude Code が問い合わせ直す
     まで古いまま（setup-token の鍵で動かしているアカウントは問い合わせ直せない）なので、契約を変えた後は時点を見る。
     """
     record = plan_record(account, env)
     out = {"name": account.name, "tier": None, "type": None, "fetched_at": None, "record": record, "reason": None}
     if not account.limits:
-        out["reason"] = "使用率の枠の無いアカウント（設定の limits = false）で、契約の段は無い"
+        out["reason"] = "使用率の枠の無いアカウント（設定の limits = false）で、プランは無い"
         return out
     o = (_read(record) or {}).get("oauthAccount")
     tier = o.get("organizationRateLimitTier") if isinstance(o, dict) else None

@@ -46,6 +46,20 @@ class Fix(unittest.TestCase):
             self.assertEqual(terms.fix_line(before), after, before)
         self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "毎回クリア")])
 
+    def test_a_plan_written_as_a_step_is_fixed_but_steps_and_layers_are_not(self):
+        # サブスクのプランの意味の 段 だけを当てる（my_notes の tools/checks/terms.py と同じ形）
+        cases = {"アカウントごとの契約の段（Max 20x など）": "アカウントごとのプラン（Max 20x など）",
+                 "契約の段が引けない": "プランが引けない", "Max 20x の段で動く": "Max 20x のプランで動く",
+                 "Max 5X/20X の段": "Max 5X/20X のプラン", "段（Pro・Max）を返す": "プラン（Pro・Max）を返す",
+                 "段 (Proの値)": "プラン (Proの値)", "サブスクの段": "サブスクのプラン"}
+        for before, after in cases.items():
+            self.assertEqual(terms.line_problems(before)[0][1], "プラン", before)
+            self.assertEqual(terms.fix_line(before), after, before)
+        for ok in ("3 段で書く", "段ごとに回す", "tiers の段 2", "段 0〜3 に分けて点検する", "段取り", "契約の段落",
+                   "Pro の段階", "料金の段差", "値段と手段", "段（tier）", "段 (Production)"):
+            self.assertEqual(terms.line_problems(ok), [], ok)
+            self.assertEqual(terms.fix_line(ok), ok, ok)
+
     def test_a_word_whose_meaning_splits_is_found_but_not_fixed(self):
         # 網 は通信ならネットワーク、検出の範囲（網に掛かる）ならゲートかテストで、機械では決められない
         self.assertEqual(terms.line_problems("回帰の網に掛かる"), [("網", "ネットワーク（検出の範囲の意味ならゲートかテスト）")])
