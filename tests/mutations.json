@@ -6097,8 +6097,8 @@
    "title": "review-graph の description が入口のセクションを名指しする",
    "file": "graphloops/skills/review-graph/SKILL.md",
    "suite": "root",
-   "old": "（同梱の手順の「判定から入る（人の修正依頼）」）。起動するのは",
-   "new": "。起動するのは",
+   "old": "のセクション「判定から入る（人の修正依頼）」。すぐ後の文",
+   "new": "のセクション。すぐ後の文",
    "expect": "review-graph の description が判定から入る入口のセクションを名指しする"
   },
   {
@@ -6180,8 +6180,8 @@
    "title": "graph に宣言の無い --input の鍵を効かないと知らせる",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "        print(f\"注意: {n}\", file=sys.stderr)",
-   "new": "        pass",
+   "old": "    for n in notes:\n        print(f\"注意: {n}\", file=sys.stderr)",
+   "new": "    for n in notes:\n        pass",
    "expect": "宣言に無い鍵",
    "tests": {
     "graphloops/tests/simulate_review.py": [
