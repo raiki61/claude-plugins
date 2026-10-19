@@ -7,7 +7,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ## [Unreleased]
 
 ### Fixed
-- 変異テストの mutmut（CI の `.github/workflows/mutation.yml` の mutmut の job）が、試験を集める所で毎回落ちていた（09-28・10-05・10-12 の 3 回）。mutmut が試験を走らせる写し（`graphloops/mutants/`）に `blocks/` が写らず、graph の `$ref` が解けなかったため。`graphloops/setup.cfg` の `also_copy` に `blocks/` を足し、写しの中でもリポジトリのルートと隣の convergence-loops を見つけられるように試験を直した。同じ漏れは `graphloops/tests/py/test_mutmut_config.py` が手元の試験で止める
+- 開発の側の直しで、graphloops を使う側の振る舞いは変わらない。変異テストのツール mutmut（engine のコードをわざと壊した版を作り、試験が落ちるかで試験の強さを測る。CI の `.github/workflows/mutation.yml` の mutmut の job で週 1 回撃つ）が、2026-09-28・10-05・10-12 の 3 回とも、試験を集める所で落ちて 1 本も撃てていなかった。mutmut は graphloops/ の中身のうち、設定ファイル `graphloops/setup.cfg` の `also_copy`（写しに一緒に写す置き場の一覧）に並べた物だけを写し（`graphloops/mutants/`）に写して試験を走らせる。graph（ループの段とつなぎを書いた JSON）は `$ref`（別のファイルの定義を指す参照）で `blocks/` を指すが、`blocks/` が一覧に無く、写しの中で graph が読めなかった。`also_copy` に `blocks/` を足した。あわせて、写しの中でもリポジトリのルートと、同じリポジトリに並ぶプラグイン convergence-loops（graphloops の試験が使う、役の定義と記録の検証器を持つ）を見つけられるように試験を直した。一覧から置き場が抜けることと、試験がルートを graphloops の 1 つ上と決め打ちすることは、新しい試験 `graphloops/tests/py/test_mutmut_config.py` が手元の試験で赤にする
 
 ## [0.39.0] - 2026-10-19
 
