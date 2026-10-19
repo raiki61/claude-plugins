@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-10-19
+
 ### Changed
 
 - 中の作りだけの変更で、出力・コマンド・設定のフィールドは変えていない。移り変わりの激しい 2 つのツール（herdr と Claude Code）を、口（port。ツールに頼む操作と、ツールの決まりの字〔コマンド・環境変数など〕を、ツールの名前を出さずに目的の名前で呼べるようにした関数と値の組）の向こうに閉じた。口は、端末の口 `term`（作業場・ペイン・worktree を作る・読む・打ち込む）と会話の口 `chat`（会話を起動する・止める・消す、会話の決まりの字）の 2 つ。どのアダプタ（口の形どおりにツールを呼ぶモジュール。今は `herdr.py`・`claudex.py`）を差すかは `dispatch/ports.py` の 1 か所で決め、ほかのファイルはツールの名前・コマンド・環境変数・フックのフィールドの名前を書かず、口の値（`term.NAME`・`chat.COMMAND`・`chat.CLEAR` など）を使う。部署の窓（部署の会話を映す herdr のペイン）を選ぶ決まり（どのペインがその部署の会話の物かを決め、`/clear` を打ってよい打ち先を確かめる）は、どのペインに打ち込んでよいかが works-dispatch の決まりでツールの物ではないので、`herdr.py` から `dispatch/windows.py` へ移した。入力フィールドの読み方は `nodes/deliver.py` から `claudex.py` へ、口の束 `Ports`（端末・会話・git・GitHub などの口をまとめて流れに渡す 1 つの値）は入口の `dispatch.py` から組み立ての 1 か所 `dispatch/wiring.py` へ移した。ツールを替えるときに直す所は口の中だけになる。試験のチェック D9（`dispatch/tests/fences.py`）は、口の外（アダプタと `ports.py`・`wiring.py` などの許したファイルと、試験を除く `dispatch/` の中）の名前と文字列（docstring は除く）のうち、ツールの名前・コマンド・環境変数・フックのフィールドの名前を含む所を数え、ファイルごとの知っている数 `D9_KNOWN` と違えば止める。数えた所は 498 か所（27 ファイル。commit 860eb06f）から 8 か所に減った。残りの 8 か所は、どれも口へ移せない訳を `D9_KNOWN` に書いた例外で、使う人の設定のフィールドの名前 `hide_claude_dir`（使う人の設定に書いてあるので替えない。3 か所）、写しの `vendor/claude_auth.py` の名前（2 か所）、口を import できない所（標準ライブラリしか読まない `installed.py` と、口を import できなかったときに `shape_hook.py` が出す文。1 か所ずつ）、会社の形の置き場 `.claude/company.toml`（works-dispatch が決めた置き場。1 か所）。設計は `docs/specs/2026-10-19-ports-design.md`。出どころは、my_notes（持ち主の、このリポジトリとは別のノートのリポジトリ）の受付箱に届いた頼み（部署への仕事の依頼）の受付番号 f0a028 で、持ち主の言葉は設計の冒頭の「出所」に引いてある（2026-10-19）。
