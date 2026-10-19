@@ -172,12 +172,13 @@ class Seat(unittest.TestCase):
         self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
         self.assertNotIn("変", got["roles"])
         self.assertIn("persistent・resident・fresh・machine は true か false", got["problems"][0])
-        # herdr の作業場の印 kind に、永続かエフェメラルかと、会話を引き継ぐか毎回クリアするかを出す。ペインの表示名は役だけ
+        # herdr の作業場の印に、永続かエフェメラルかと、会話を引き継ぐか毎回クリアするかを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
         from nodes import sync
-        self.assertEqual(sync.kind({"role": "担当", "lifecycle": "persistent", "fresh": "true"}), "永続・毎回クリア")
-        self.assertEqual(sync.kind({"role": "相談", "lifecycle": "persistent"}), "永続・引き継ぎ")
-        self.assertEqual(sync.kind({"role": "作業", "lifecycle": "ephemeral"}), "エフェメラル")
-        self.assertIsNone(sync.kind({}))
+        self.assertEqual(sync.seat_of({"role": "担当", "lifecycle": "persistent", "fresh": "true"}), "persistent-fresh")
+        self.assertEqual(sync.seat_of({"role": "相談", "lifecycle": "persistent"}), "persistent-carry")
+        self.assertEqual(sync.seat_of({"role": "作業", "lifecycle": "ephemeral"}), "ephemeral")
+        self.assertIsNone(sync.seat_of({}))
+        self.assertEqual(sync.seat_tokens("persistent-fresh"), {"kind": "永続・毎回クリア", "seat": "persistent-fresh"})
         self.assertEqual(sync.op("p", {"role": "担当", "lifecycle": "persistent", "name": "割り振り"}, False)["display_agent"], "担当")
 
 

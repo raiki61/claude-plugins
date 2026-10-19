@@ -141,7 +141,7 @@ def _inside(at, root):
 
 
 def _short(asks, h):
-    """担当者の字の 6 桁の短い受付番号を、頼みの受付に引く（ちょうど 1 つに当たるときだけ）。"""
+    """担当者の字の 6 桁の短い受付番号を、頼みの受付に引く（ちょうど 1 つに当たるときだけ）。holders のフィールドの無い古い納品の行にだけ使う。"""
     for m in SHORT_ID.findall(h):
         hits = [i for i in asks if i.endswith("-" + m)]
         if len(hits) == 1:
@@ -236,10 +236,14 @@ def build(rows, title_of=None, questions_of=None):
     for r in rows:
         if r.get("kind") != "deliver" or isinstance(r.get("to"), str) or r.get("ask") not in tasks or r.get("status") == "failed":
             continue
-        qs = r.get("holders") if isinstance(r.get("holders"), list) else (questions_of(r) if questions_of else [])
+        field = isinstance(r.get("holders"), list)
+        qs = r["holders"] if field else (questions_of(r) if questions_of else [])
         t = tasks[r["ask"]]
         for q in qs or []:
-            got = q.get("ask") or _short(tasks, q.get("holder") or "")
+            # 6 桁の短い受付番号を担当者の字から拾うのは、holders のフィールドの無い古い行（要約の文から読んだ担当者）だけ。フィールドの
+            # 担当者は頭書きの holder（受付番号は ask に入る）で、名前の中の 16 進の 6 字を受付と取り違えない（2026-10-19 の 4 つの受付箱で、
+            # 拾えたのは古い行の 21 件だけで、フィールドの行は 0 件。受付 0715c5）
+            got = q.get("ask") or (None if field else _short(tasks, q.get("holder") or ""))
             entry = {"holder": q.get("holder"), "ask": got if got in tasks else None}
             t["questions"].append(entry)
             if entry["ask"] and entry["ask"] != t["id"] and entry["ask"] not in t["follows"]:

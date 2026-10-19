@@ -106,6 +106,9 @@ class Projection(unittest.TestCase):
         old = [ask(A, 1), ask(B, 2, frm={"name": "x", "place": "/x"}), {"id": "f", "kind": "deliver", "ask": A, "at": 3, "status": "sent"}]
         got = build(old, questions_of=lambda r: [{"holder": "段取り（受付 bbbbbb）", "ask": None}])
         self.assertEqual(got[A]["follows"], [B])
+        # holders のフィールドの担当者（頭書きの holder）からは、古い行なら拾える字でも 6 桁を拾わない（名前の中の 16 進の字を受付と取り違えない。受付 0715c5）
+        old[-1]["holders"] = [{"holder": "段取り（受付 bbbbbb）", "ask": None}]
+        self.assertEqual(build(old)[A]["follows"], [])
 
     def test_follows_in_a_loop_do_not_hang(self):
         rows = [ask(A, 1), ask(B, 2, frm={"name": "x", "place": "/x"}),

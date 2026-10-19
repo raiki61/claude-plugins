@@ -132,7 +132,7 @@ class Task(unittest.TestCase):
         # 表示名と札、作業場の印は、書いた属性から付ける（名前は起動するときに付けたので付け直さない）
         self.assertEqual(ports.term.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
-        self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "エフェメラル"}))
+        self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "エフェメラル", "seat": "ephemeral"}))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(gitx.branch(src), "main")
 

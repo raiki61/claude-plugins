@@ -53,7 +53,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("割り振り", ["振り分け"]))
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.pane), "割り振り"),
-            ("report_workspace_metadata", self.ws(self.pane), {"kind": "永続・引き継ぎ"}, []),
+            ("report_workspace_metadata", self.ws(self.pane), {"kind": "永続・引き継ぎ", "seat": "persistent-carry"}, []),
             ("rename_pane", self.pane, "割り振り"),
             ("report_pane_metadata", self.pane, "担当", "割り振り", {"role": "担当", "account": "a1", "boss": "窓口"}, [])])
         self.assertIn("company.name: 振り分け → 割り振り", out)
@@ -129,7 +129,7 @@ class Reorg(unittest.TestCase):
                          {"role": "窓口", "lifecycle": "persistent", "residency": "resident", "name": "窓口", "account": "a1", "session": "s-desk"})
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.office_pane), os.path.basename(self.src)),
-            ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "永続・引き継ぎ"}, []),
+            ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "永続・引き継ぎ", "seat": "persistent-carry"}, []),
             ("rename_pane", self.office_pane, "窓口"),
             ("report_pane_metadata", self.office_pane, "窓口", "窓口", {"role": "窓口", "account": "a1"}, ["boss"])])
         # 部署の場所で打つと、部署の名前を窓口にせず止める

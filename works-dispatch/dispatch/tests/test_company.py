@@ -546,13 +546,13 @@ class Sync(unittest.TestCase):
         shared = [{**self.dept({"name": n, "role": "作業"}, [], branch=f"dept/{n}"), "workspace": "wS"} for n in ("c", "d")]
         bare = {**self.dept({}, [], branch="dept/e"), "workspace": "wE"}
         got = sync.workspace_ops(self.company(office, same, kinded, *shared, bare), [
-            {"workspace_id": "wX", "label": "mynotes"}, {"workspace_id": "wB", "label": "調べ", "tokens": {"kind": "エフェメラル"}},
-            {"workspace_id": "wK", "label": "割り振り", "tokens": {"kind": "永続・引き継ぎ"}},
+            {"workspace_id": "wX", "label": "mynotes"}, {"workspace_id": "wB", "label": "調べ", "tokens": {"kind": "前の言い方", "seat": "ephemeral"}},
+            {"workspace_id": "wK", "label": "割り振り", "tokens": {"kind": "永続・毎回クリア"}},
             {"workspace_id": "wS", "label": "x"}, {"workspace_id": "wE", "label": "y"}])
         # 本社の作業場は herdr の木の親なので会社の名前。名前と印が今と同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の
-        # 無い場所の作業場は触らない
-        self.assertEqual(got, [{"workspace": "wX", "label": "r", "kind": "永続・引き継ぎ"},
-                               {"workspace": "wK", "label": None, "kind": "永続・毎回クリア"}])
+        # 無い場所の作業場は触らない。印は見せる語（kind）でなく席の種類のキー（seat）で比べ、seat の無い前の版の作業場には付け直す（受付 0715c5）
+        self.assertEqual(got, [{"workspace": "wX", "label": "r", "seat": "persistent-carry"},
+                               {"workspace": "wK", "label": None, "seat": "persistent-fresh"}])
 
     def test_apply_keeps_going_after_a_failure(self):
         class H:
@@ -755,7 +755,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", ws, "調べ"),
-            ("report_workspace_metadata", ws, {"kind": "エフェメラル"}, []),
+            ("report_workspace_metadata", ws, {"kind": "エフェメラル", "seat": "ephemeral"}, []),
             ("rename_pane", self.pane, "調べ"),
             ("report_pane_metadata", self.pane, "調べ役", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
 

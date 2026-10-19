@@ -13,8 +13,10 @@
   名前は親の作業場にだけ出し、部署の名前には付けない。持ち主 2026-10-16）。今の名前と同じなら付け直さず、属性を持つ場所が
   2 つ以上居る作業場は触らない。
 - 作業場には、席の見え方（永続・毎回クリア、永続・引き継ぎ、エフェメラル）を印 kind として付ける（サイドバーの作業場の行に herdr の設定の
-  $kind で出す。会話の行でなく作業場の行で見せる。持ち主 2026-10-16・17）。名前と同じく、今の値と同じなら付け直さず、属性を持つ
-  場所が 2 つ以上居る作業場は触らない。
+  $kind で出す。会話の行でなく作業場の行で見せる。持ち主 2026-10-16・17）。見せる語と並べて、席の種類のキー（role.seat の
+  persistent-fresh など）を印 seat に付け、今の値と比べるのは seat で行う（見せる語は言い方を変えれば変わるので、機械の比べに使わない。
+  docs/standards/machine-readable-values.md の決まり 3。受付 0715c5）。名前と同じく、今の値と同じなら付け直さず、属性を持つ
+  場所が 2 つ以上居る作業場は触らない。seat の無い前の版の作業場には、次の --sync で一度だけ kind と seat を付け直す。
 - 会社ごとの部署の作業場（元の clone の linked worktree の作業場）は、仕事の流れの順に並べる（flow_order。順の鍵は role.flow_rank で、
   --tree の部署の並びと同じ。持ち主 2026-10-17 の案 A）。
   永続・引き継ぎ（相談の社長室など）、永続・毎回クリア（担当。この中は会社の形の [[skills]] の書き順）、エフェメラル（作業。この中は今の並び。
@@ -53,14 +55,19 @@ def op(pane, attrs, many_accounts, current_label=None):
             "tokens": {k: attrs[k] for k in TOKENS if attrs.get(k)}, "clear_tokens": [k for k in TOKENS if not attrs.get(k)]}
 
 
-def kind(attrs):
-    """作業場の印 kind の値。役を持つ部署の席の見え方（永続・毎回クリア、永続・引き継ぎ、エフェメラル）。役が無ければ None。"""
-    return role.seat_label(attrs.get("lifecycle"), attrs.get("fresh")) if attrs.get("role") else None
+def seat_of(attrs):
+    """作業場の印 seat の値。役を持つ部署の席の種類のキー（role.seat。persistent-fresh・persistent-carry・ephemeral）。役が無ければ None。"""
+    return role.seat(attrs.get("lifecycle"), attrs.get("fresh")) if attrs.get("role") else None
+
+
+def seat_tokens(seat):
+    """作業場に付ける印: 比べる seat（キー）と、サイドバーに出す kind（見せる語）。"""
+    return {"kind": role.SEAT_LABELS[seat], "seat": seat}
 
 
 def kind_op(workspace, attrs):
-    """1 つの作業場に印 kind だけを付ける物（名前は付け直さない。部署を立てたとき・開き直したときに、--sync と同じ値を付ける）。"""
-    return {"workspace": workspace, "label": None, "kind": kind(attrs)}
+    """1 つの作業場に印 kind と seat だけを付ける物（名前は付け直さない。部署を立てたとき・開き直したときに、--sync と同じ値を付ける）。"""
+    return {"workspace": workspace, "label": None, "seat": seat_of(attrs)}
 
 
 def _target(dept):
@@ -96,30 +103,30 @@ def plan(companies, many_accounts):
 
 
 def workspace_ops(companies, workspaces):
-    """作業場に付ける物の並び。1 件は {workspace, label, kind}（付け直さない物は None）。workspaces は herdr の作業場の並び
-    （1 件は {workspace_id, label, tokens}。今の名前と印 kind を比べる）。"""
-    now = {w["workspace_id"]: (w.get("label"), (w.get("tokens") or {}).get("kind")) for w in workspaces}
+    """作業場に付ける物の並び。1 件は {workspace, label, seat}（付け直さない物は None）。workspaces は herdr の作業場の並び
+    （1 件は {workspace_id, label, tokens}。今の名前と印 seat を比べる）。"""
+    now = {w["workspace_id"]: (w.get("label"), (w.get("tokens") or {}).get("seat")) for w in workspaces}
     claims = {}
     for c in companies:
         for d in c["departments"]:
             if d["attrs"] and d.get("workspace"):
                 # 本社（元の clone）の作業場は herdr の木の親なので、会社の名前にする（会社の名前は親の作業場にだけ出す）
                 name = c["name"] if d.get("head_office") else d["attrs"].get("name")
-                claims.setdefault(d["workspace"], []).append((name, kind(d["attrs"])))
+                claims.setdefault(d["workspace"], []).append((name, seat_of(d["attrs"])))
     out = []
     for ws, got in claims.items():
         if len(got) != 1 or ws not in now:
             continue
-        (name, want), (label, kind_now) = got[0], now[ws]
-        o = {"workspace": ws, "label": name if name and label != name else None, "kind": want if want and kind_now != want else None}
-        if o["label"] or o["kind"]:
+        (name, want), (label, seat_now) = got[0], now[ws]
+        o = {"workspace": ws, "label": name if name and label != name else None, "seat": want if want and seat_now != want else None}
+        if o["label"] or o["seat"]:
             out.append(o)
     return out
 
 
 def workspace_line(o):
     """作業場に付ける物の 1 行（--sync・--reorg の報告と --dry-run）。"""
-    return f"作業場 {o['workspace']}: 名前 {o['label'] or 'そのまま'}  印 {o['kind'] or 'そのまま'}"
+    return f"作業場 {o['workspace']}: 名前 {o['label'] or 'そのまま'}  印 {role.SEAT_LABELS[o['seat']] if o['seat'] else 'そのまま'}"
 
 
 def apply_workspaces(ops, h):
@@ -129,8 +136,8 @@ def apply_workspaces(ops, h):
         try:
             if o["label"]:
                 h.rename_workspace(o["workspace"], o["label"])
-            if o["kind"]:
-                h.report_workspace_metadata(o["workspace"], SOURCE, {"kind": o["kind"]})
+            if o["seat"]:
+                h.report_workspace_metadata(o["workspace"], SOURCE, seat_tokens(o["seat"]))
             out.append({"workspace": o["workspace"], "status": "done", "detail": None})
         except h.Error as e:
             out.append({"workspace": o["workspace"], "status": "failed", "detail": str(e)})
