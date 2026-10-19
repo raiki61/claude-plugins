@@ -248,6 +248,22 @@ class Plan(unittest.TestCase):
         self.assertIsNone(missing["tier"])
         self.assertTrue(missing["reason"])
 
+    def test_told_plan_fills_in_only_when_the_record_has_none(self):
+        # 持ち主が教えたプラン（設定の plan）は、記録が読めないときだけ使い、記録から引いた値と分けて出す
+        p2 = config.Account("p2", "claude-p2", str(self.home / ".claude-p2"), plan="default_claude_max_20x")
+        self.record(".claude-p2/.claude.json", {"projects": {}})
+        got = limits.plan_of(p2, {"HOME": str(self.home)})
+        self.assertEqual((got["tier"], got["source"], got["told"], got["reason"]),
+                         ("default_claude_max_20x", "told", "default_claude_max_20x", None))
+        self.assertIn("設定の plan に書いた値", limits.render_plan(got))
+        # 後でログインして記録が書かれたら、記録の値を採る。食い違えば添える
+        self.record(".claude-p2/.claude.json", {"oauthAccount": {"organizationRateLimitTier": "default_claude_max_5x"}})
+        got = limits.plan_of(p2, {"HOME": str(self.home)})
+        self.assertEqual((got["tier"], got["source"]), ("default_claude_max_5x", "record"))
+        self.assertIn("設定の plan の default_claude_max_20x と違う", limits.render_plan(got))
+        self.record(".claude-p2/.claude.json", {"oauthAccount": {"organizationRateLimitTier": "default_claude_max_20x"}})
+        self.assertEqual(limits.render_plan(limits.plan_of(p2, {"HOME": str(self.home)})), "p2 default_claude_max_20x")
+
     def test_account_without_usage_window_has_no_tier(self):
         p = limits.plan_of(config.Account("ollama", "claude-ollama", None, None, False), {"HOME": str(self.home)})
         self.assertIsNone(p["tier"])
@@ -257,17 +273,20 @@ class Plan(unittest.TestCase):
         self.record(".claude-a0/.claude.json", {"oauthAccount": {"organizationRateLimitTier": "default_claude_max_20x"}})
         snapshot = self.home / "accounts.json"
         limits.write_snapshot(snapshot, tuple(config.Account(f"a{i}", f"claude-a{i}", str(self.home / f".claude-a{i}"))
-                                              for i in range(2)), str(self.home))
+                                              for i in range(2)) + (config.Account("a2", "claude-a2", None, plan="told_tier"),),
+                              str(self.home))
         def run(*extra):
             out = subprocess.run([sys.executable, str(DISPATCH / "limits.py"), "--accounts", str(snapshot), "plan", *extra],
                                  capture_output=True, text=True, encoding="utf-8", env={"HOME": str(self.home)})
             self.assertEqual(out.returncode, 0, out.stderr)
             return out.stdout
         got = json.loads(run("--json"))
-        self.assertEqual([(p["name"], p["tier"]) for p in got], [("a0", "default_claude_max_20x"), ("a1", None)])
+        self.assertEqual([(p["name"], p["tier"], p["source"]) for p in got],
+                         [("a0", "default_claude_max_20x", "record"), ("a1", None, None), ("a2", "told_tier", "told")])
         lines = run().splitlines()
         self.assertEqual(lines[0], "a0 default_claude_max_20x")
         self.assertTrue(lines[1].startswith("a1 分からない: "))
+        self.assertIn("設定の plan に書いた値", lines[2])
 
 
 class HerdrConfig(unittest.TestCase):

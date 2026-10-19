@@ -17,7 +17,8 @@
   python3 limits.py [--config <パス> | --accounts <写し>] record        … statusline の JSON を標準入力から読んで控えに取り込む
   python3 limits.py [--config <パス>] herdr-config  … アカウントの写しと版に依らない入口を書き、herdr の config.toml の [ui] に置く
                                                     tab_bar_right を出す
-  python3 limits.py [--config <パス>] plan [--json] … アカウントごとのプラン（Max 20x など）を出す。引けないアカウントは理由を出す
+  python3 limits.py [--config <パス>] plan [--json] … アカウントごとのプラン（Max 20x など）を出す。ログインの記録から引けないアカウントは、
+                                                    設定の plan に書いた値をそう分かるように出し、それも無ければ理由を出す
 
 アカウントの写し（<limits_dir>/accounts.json）は、herdr-config が dispatch の設定から書く JSON。herdr のタブバーから呼ぶ道は
 設定の TOML を読まずにこれを読む。herdr がタブバーのコマンドに渡す PATH の python3 は、macOS では OS に付いてくる 3.9 のことがあり、
@@ -48,7 +49,7 @@ import filex  # noqa: E402
 from vendor import claude_auth  # noqa: E402
 
 # 写しから読んだアカウント。dispatch の設定の Account と同じ名前のフィールドを持つ（config は tomllib を引くので、ここでは import しない）
-Snap = collections.namedtuple("Snap", "name command config_dir keychain_service limits")
+Snap = collections.namedtuple("Snap", "name command config_dir keychain_service limits plan")
 SNAPSHOT_NAME = "accounts.json"
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
@@ -299,7 +300,8 @@ def account_for(accounts, env):
 NO_PLAN = ("{record} からプラン（Claude Code のログインの記録 oauthAccount の organizationRateLimitTier）が読めない。"
            "setup-token や API キーだけで入るアカウントはこの記録を作らず、setup-token の鍵ではプランを問い合わせられないので、"
            "ツールからは引けない。引けるようにするには、同じアカウントでそのフォルダに一度ログインする（{login}。"
-           "書かれるのはそのフォルダのログインだけ）")
+           "書かれるのはそのフォルダのログインだけ）か、ログインしないなら dispatch の設定のそのアカウントに plan を書く"
+           "（例 plan = \"default_claude_max_20x\"。教わった値として出す）")
 
 
 def plan_record(account, env):
@@ -311,20 +313,27 @@ def plan_record(account, env):
 
 
 def plan_of(account, env):
-    """1 アカウントのプラン。{"name", "tier", "type", "fetched_at", "record", "reason"}。tier が None なら reason に訳を書く。
+    """1 アカウントのプラン。{"name", "tier", "type", "fetched_at", "source", "told", "record", "reason"}。tier が None なら reason に訳を書く。
 
     tier は Claude Code が記録する organizationRateLimitTier（例 default_claude_max_20x）、type は organizationType（例 claude_max）。
     fetched_at は Claude Code がプランを問い合わせた時刻（手元の時差を付けた ISO 8601。記録に無いか読めなければ None）。記録は Claude Code が問い合わせ直す
     まで古いまま（setup-token の鍵で動かしているアカウントは問い合わせ直せない）なので、契約を変えた後は時点を見る。
+    source は tier の出どころ。"record" はログインの記録（Anthropic から引いた値）、"told" は設定の plan（持ち主が教えた値）で、
+    記録が読めないときだけ使う。told は設定の plan をそのまま写す（記録が読めても入れ、記録と食い違えば render_plan が添える）。
     """
     record = plan_record(account, env)
-    out = {"name": account.name, "tier": None, "type": None, "fetched_at": None, "record": record, "reason": None}
+    told = account.plan
+    out = {"name": account.name, "tier": None, "type": None, "fetched_at": None, "source": None, "told": told,
+           "record": record, "reason": None}
     if not account.limits:
         out["reason"] = "使用率の枠の無いアカウント（設定の limits = false）で、プランは無い"
         return out
     o = (_read(record) or {}).get("oauthAccount")
     tier = o.get("organizationRateLimitTier") if isinstance(o, dict) else None
     if not tier or not isinstance(tier, str):
+        if told:
+            out.update(tier=told, source="told")
+            return out
         login = (f"CLAUDE_CONFIG_DIR={account.config_dir} " if account.config_dir else "") + "claude auth login"
         out["reason"] = NO_PLAN.format(record=record, login=login)
         return out
@@ -333,7 +342,7 @@ def plan_of(account, env):
         fetched = datetime.datetime.fromtimestamp(at / 1000).astimezone().isoformat(timespec="seconds") if _num(at) else None
     except (OverflowError, OSError, ValueError):
         fetched = None   # 壊れた時刻で、ほかのアカウントの行まで落とさない
-    out.update(tier=tier, type=o.get("organizationType"), fetched_at=fetched)
+    out.update(tier=tier, type=o.get("organizationType"), fetched_at=fetched, source="record")
     return out
 
 
@@ -341,9 +350,12 @@ def render_plan(p):
     """plan_of の 1 件を 1 行にする。例: "p1 default_claude_max_20x（claude_max） 2026-10-15T09:00:00+09:00 時点"。"""
     if not p["tier"]:
         return f"{p['name']} 分からない: {p['reason']}"
+    if p["source"] == "told":
+        return f"{p['name']} {p['tier']}（設定の plan に書いた値。ログインの記録から読めないので、Anthropic から引いた値でない）"
     kind = f"（{p['type']}）" if p["type"] else ""
     when = f" {p['fetched_at']} 時点" if p["fetched_at"] else ""
-    return f"{p['name']} {p['tier']}{kind}{when}"
+    differs = f"。設定の plan の {p['told']} と違う（設定を直すか消す）" if p["told"] and p["told"] != p["tier"] else ""
+    return f"{p['name']} {p['tier']}{kind}{when}{differs}"
 
 
 def _read(path):
@@ -455,14 +467,15 @@ def write_snapshot(path, accounts, limits_dir):
     path.parent.mkdir(parents=True, exist_ok=True)
     _write(path, {"schema": 1, "limits_dir": str(limits_dir),
                   "accounts": [{"name": a.name, "command": a.command, "config_dir": a.config_dir,
-                                "keychain_service": a.keychain_service, "limits": a.limits} for a in accounts]})
+                                "keychain_service": a.keychain_service, "limits": a.limits, "plan": a.plan} for a in accounts]})
 
 
 def read_snapshot(path):
     """(アカウントの並び, limits_dir)。写しが読めなければ ValueError。"""
     try:
         raw = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-        accts = tuple(Snap(a["name"], a.get("command"), a.get("config_dir"), a.get("keychain_service"), a.get("limits", True))
+        accts = tuple(Snap(a["name"], a.get("command"), a.get("config_dir"), a.get("keychain_service"), a.get("limits", True),
+                           a.get("plan"))
                       for a in raw["accounts"])
         return accts, raw["limits_dir"]
     except (OSError, ValueError, KeyError, TypeError) as e:

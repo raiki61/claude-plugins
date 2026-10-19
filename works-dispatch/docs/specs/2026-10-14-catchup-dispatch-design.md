@@ -213,11 +213,14 @@ limits_dir = "~/.cache/claude-limits"   # 使用率の控えの置き場
 # config_dir はそのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダ（会話を集めるのと、信頼の記録と attention を
 # 探すのに使う。入れないコマンドなら書かない。そのときは、作業場のペインで新しく開くログインのシェルが持つ CLAUDE_CONFIG_DIR の値、それも無ければ ~/.claude）。
 # keychain_service は鍵を置いた Keychain の項目の名前（省けば共通の scripts/claude_auth.py の決まりで探す）。
-# limits = false は使用率の枠の無いアカウント（Ollama・Foundry など）で、控えを読まず使用率で外さない
+# limits = false は使用率の枠の無いアカウント（Ollama・Foundry など）で、控えを読まず使用率で外さない。
+# plan は持ち主が教えたプラン（Claude Code のログインの記録〔config_dir の .claude.json の oauthAccount〕の organizationRateLimitTier と同じ形）。
+# アカウントごとのプランを出す limits.py plan は、その記録からプランを読む。setup-token（claude setup-token で作る長く使える鍵）だけで動くアカウント（例の p2）は記録を持たず、
+# プランを読めないので書く。記録が読めるときは記録を採る。limits = false のアカウントには書かない（設定の誤りになる）
 accounts = [
   { name = "main", command = "claude" },
   { name = "p1",   command = "claude-p1", config_dir = "~/.claude-p1" },
-  { name = "p2",   command = "claude-p2", config_dir = "~/.claude-p2" },
+  { name = "p2",   command = "claude-p2", config_dir = "~/.claude-p2", plan = "default_claude_max_20x" },
   { name = "p3",   command = "claude-p3", config_dir = "~/.claude-p3" },
   { name = "local", command = "claude-ollama", config_dir = "~/.claude-ollama", limits = false },
 ]

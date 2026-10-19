@@ -10,6 +10,7 @@
 """
 
 import os
+import re
 import tomllib
 
 from vendor import claude_auth
@@ -36,6 +37,7 @@ class Account(NamedTuple):
     config_dir: str | None = None  # Claude Code の設定のフォルダ。None は既定のフォルダ
     keychain_service: str | None = None  # 鍵を置いた Keychain の項目の名前。None は共通の決まり（scripts/claude_auth.py）で探す
     limits: bool = True  # 使用率の枠があるか。false は Ollama・Foundry のような枠の無いアカウントで、控えを読まず使用率で外さない
+    plan: str | None = None  # 持ち主が教えたプラン（例 default_claude_max_20x）。ログインの記録からプランが読めないときだけ limits.plan_of が使う
 
 
 class Repo(NamedTuple):
@@ -129,7 +131,14 @@ def load(path=None, env=os.environ, missing_ok=False):
         if not isinstance(has_limits, bool):
             problems.append(f"{where}: limits が true か false で無い")
             has_limits = True
-        accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits))
+        plan = a.get("plan")
+        if plan is not None and (not isinstance(plan, str) or not re.fullmatch(r"[a-z0-9_]+", plan)):
+            problems.append(f"{where}: plan がログインの記録と同じ形（英小文字・数字・_ の語。例 default_claude_max_20x）で無い")
+            plan = None
+        elif plan is not None and not has_limits:
+            problems.append(f"{where}: limits = false のアカウントにはプランが無いので、plan は書かない")
+            plan = None
+        accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan))
     if not raw.get("accounts"):
         accounts = [Account("default", "claude", None)]
 

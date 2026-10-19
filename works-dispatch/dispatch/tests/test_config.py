@@ -134,6 +134,19 @@ class Load(unittest.TestCase):
         self.assertIn("keychain_service", str(e.exception))
         self.assertIn("limits", str(e.exception))
 
+    def test_plan_is_told_per_account(self):
+        # ログインの記録からプランが読めないアカウント（setup-token の鍵だけで動く物）に、持ち主が教えたプランを書く
+        repo = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
+        body = 'accounts = [{ name = "p2", command = "claude-p2", plan = "default_claude_max_20x" }]\n' + repo
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual(cfg.accounts[0].plan, "default_claude_max_20x")
+        for bad, word in (('plan = ""', "plan"), ("plan = 20", "plan"), ('plan = "Max 20x"', "default_claude_max_20x"), ('plan = "x", limits = false', "limits = false")):
+            with self.subTest(bad=bad):
+                body = f'accounts = [{{ name = "a", command = "c", {bad} }}]\n' + repo
+                with self.assertRaises(config.ConfigError) as e:
+                    config.load(write(self.d, "c.toml", body), env={})
+                self.assertIn(word, str(e.exception))
+
     def test_tilde_is_expanded(self):
         body = ('[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'%s/second.md\'\n'
                 'source = "~/x"\ncopy_from = "~/y"\n') % self.d
