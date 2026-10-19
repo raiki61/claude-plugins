@@ -126,6 +126,36 @@ class Load(unittest.TestCase):
         ))
         self.assertTrue(cfg.accounts[0].limits)
 
+    def test_hours_need_the_time_base_and_may_cross_midnight(self):
+        # CheapestInference の Europe 枠（UTC 08:00〜16:00、日本時間 17:00〜翌 1:00）。受付 c66192
+        self.assertEqual(config.parse_hours("08:00-16:00 UTC"), config.Hours(480, 480, "UTC", "08:00-16:00 UTC"))
+        self.assertEqual(config.parse_hours("17:00-25:00 Asia/Tokyo")[:3], (1020, 480, "Asia/Tokyo"))
+        self.assertEqual(config.parse_hours("17:00-01:00 Asia/Tokyo")[:3], (1020, 480, "Asia/Tokyo"))
+        self.assertEqual(config.parse_hours("00:00-24:00 UTC")[:2], (0, 1440))
+        for bad, word in (("08:00-16:00", "時刻の基準"), ("8-16 UTC", "時刻の基準"), ("08:00-16:00 JST", "JST"), ("08:00-16:00 EST", "EST"),
+                          ("08:00-16:00 Japan", "Japan"), ("08:00-16:00 asia/tokyo", "asia/tokyo"),
+                          ("24:00-02:00 UTC", "範囲"), ("08:00-08:00 UTC", "長さ"), ("08:00-33:00 UTC", "長さ"), (8, "時刻の基準")):
+            got = config.parse_hours(bad)
+            self.assertIsInstance(got, str, bad)
+            self.assertIn(word, got, bad)
+
+    def test_hours_and_the_margin_are_read_and_checked(self):
+        repos = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
+        body = 'accounts = [{ name = "cheap", command = "claude-cheapest", limits = false, hours = "08:00-16:00 UTC" }]\n' + repos
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual(cfg.accounts[0].hours, config.Hours(480, 480, "UTC", "08:00-16:00 UTC"))
+        self.assertEqual(cfg.hours_margin_minutes, 30)
+        self.assertEqual(config.load(write(self.d, "c.toml", "hours_margin_minutes = 10\n" + body), env={}).hours_margin_minutes, 10)
+        with self.assertRaises(config.ConfigError) as e:
+            config.load(write(self.d, "c.toml", body.replace(" UTC", "")), env={})
+        self.assertIn("accounts[0]: hours", str(e.exception))
+        with self.assertRaises(config.ConfigError) as e:
+            config.load(write(self.d, "c.toml", "hours_margin_minutes = -1\n" + body), env={})
+        self.assertIn("hours_margin_minutes", str(e.exception))
+        with self.assertRaises(config.ConfigError) as e:   # 余裕が時間帯の長さ以上だと、一度も選ばれない
+            config.load(write(self.d, "c.toml", "hours_margin_minutes = 480\n" + body), env={})
+        self.assertIn("一度も選ばれない", str(e.exception))
+
     def test_account_field_types_are_checked(self):
         body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
                 f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')

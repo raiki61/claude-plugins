@@ -486,7 +486,7 @@ def main(argv=None, ports=None):
         ports.refresh_limits(cfg, metered)
     before = ports.read_limits(cfg.limits_dir, metered)
     ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now(), accounts.count_running(listed),
-                           cfg.reset_soon_hours)
+                           cfg.reset_soon_hours, cfg.hours_margin_minutes)
     try:
         est = cost.estimate(ports.load_cost(cfg.limits_dir))
     except cost.CostError as e:
@@ -864,13 +864,13 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                      "そのアカウントを避けて振る")
         pool = free
     ranked = accounts.rank(pool, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
-                           accounts.count_running(listed), cfg.reset_soon_hours)
+                           accounts.count_running(listed), cfg.reset_soon_hours, cfg.hours_margin_minutes)
     row = assign.plan(repo, [{"number": None, "kind": "task", "title": a.task, "head": a.branch}], sessions.open_keys(sess),
                       {s["cwd"] for s in sess if s["cwd"]}, ranked, cfg.limit_percent, None, _branch_places(found))[0]
     row["label"] = a.task
     if row["outcome"] != "assigned":
         why = {"already_open": "そのブランチの場所で会話がもう開いている（会話を閉じるのは持ち主だけ）",
-               "no_account": "使用率が上限に届かないアカウントが無い"}[row["outcome"]]
+               "no_account": "使用率が上限に届かず、使える時間帯の中のアカウントが無い"}[row["outcome"]]
         print("\n".join(notes + [f"部署 {a.task}  {a.branch}  -  {row['outcome']}（{why}）"]))
         return 0
     account = row["account"]["name"]

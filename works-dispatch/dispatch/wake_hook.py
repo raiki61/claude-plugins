@@ -465,15 +465,16 @@ def must_clear(payload, attrs):
 
 
 def early_due(got, attrs, env=os.environ, now=time.time):
-    """区切りで早めにほかのアカウントへ移すか（accounts.early）。使用率の控えは取り直さずに読む（取り直すのは --move --if-changed）。
+    """区切りで早めにほかのアカウントへ移すか（accounts.early。使用率の目安のほか、今のアカウントが使える時間帯の外か終わる手前のときも移す）。使用率の控えは取り直さずに読む（取り直すのは --move --if-changed）。
     移る先が在るか、--move の名指し（company.move-to）が在れば真（名指しの先が上限に達していても --if-changed に渡し、訳を台帳に
     残して印を外させる）。目安に達したのに移さない（移る先が無い・達した枠がすぐ戻る）ときは偽で、訳を台帳に kind moved・
-    status skipped で残す（同じアカウントの同じ種類の訳は、属性 company.move-skipped で 1 度だけ）。設定や控えを読めなければ偽（頼みは渡す）。"""
+    status skipped で残す（使える時間帯の終わる手前で移る先の無いときも同じ。同じアカウントの同じ種類の訳は、属性 company.move-skipped で 1 度だけ）。設定や控えを読めなければ偽（頼みは渡す）。"""
     try:
         cfg = config.load(attrs.get("config"), env, missing_ok=True)
         metered = [x.name for x in cfg.accounts if x.limits]
         at = now()
-        rows = accounts.rank(cfg.accounts, accounts.read_limits(cfg.limits_dir, metered), cfg.limit_percent, at, None, cfg.reset_soon_hours)
+        rows = accounts.rank(cfg.accounts, accounts.read_limits(cfg.limits_dir, metered), cfg.limit_percent, at, None,
+                             cfg.reset_soon_hours, cfg.hours_margin_minutes)
         got_ = accounts.early(rows, attrs.get("account"), cfg.early_percent, cfg.early_reset_hours, at, attrs.get(wake.MOVE_TO),
                               attrs.get(wake.MOVE_KEPT))
         if got_ and not got_["to"] and not attrs.get(wake.MOVE_TO):

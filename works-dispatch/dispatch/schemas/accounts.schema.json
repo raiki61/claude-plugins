@@ -18,6 +18,8 @@
                         "properties": {"used": {"type": ["number", "null"]}, "resets_at": {"type": ["integer", "null"]}}},
           "known": {"type": "boolean"},
           "stale": {"type": "boolean"},
+          "hours": {"type": ["string", "null"]},
+          "shut": {"type": "boolean"},
           "eligible": {"type": "boolean"},
           "reason": {"type": ["string", "null"]},
           "soon": {"type": "boolean"},

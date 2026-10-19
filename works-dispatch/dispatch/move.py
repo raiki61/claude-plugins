@@ -26,8 +26,8 @@
 （区切りまで待って移す口。2026-10-19 に p3 の 5 部署を手で移そうとして、5 つともターンの途中で止まった）。
 知らせは待ち受けが入力フィールドに打たずに会話へ渡すので、持ち主はその会話の窓で訳を見る（打ちかけの字は消えない）。
 
---if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達していなければ
-（一時の混み合いの rate_limit）、移さずに終わる。移したことは会社の受付箱の台帳に kind moved で残す。
+--if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達しておらず、
+使える時間帯（設定の hours）の中でもあれば（一時の混み合いの rate_limit）、移さずに終わる。移したことは会社の受付箱の台帳に kind moved で残す。
 
 --if-changed は、待ち受け（wake_hook.py）が付ける。毎回クリアする部署（役が fresh）では次の頼みを渡す前（6bdc72）、会話を引き継ぐ
 部署と本社の窓口では、会話が自分で区切りと印した（--rest）ターンの終わりに、/clear の代わりに走らせる。/clear は会話を空にしても
@@ -36,7 +36,7 @@
 （role.launch_key。origin の既定のブランチを取り直してから読む）が、起動したときの値（属性 company.launched）と違えば起動し直す。
 アカウントは、今のアカウントの使用率が上限に届かなければ同じアカウント、届けば空いているほかの物。どれも無ければ起動し直さない。
 起動の設定が同じでも、使用上限に当たる前の区切りで、空いているアカウントへ早めに移す（accounts.early）。移すのは、--move の名指し
-（company.move-to）が在るときと、今のアカウントの 5 時間か週の枠が設定の move_early_percent（既定 90%）に達し、達した枠のどれかが
+（company.move-to）が在るときと、今のアカウントが使える時間帯の外か、終わりまで設定の hours_margin_minutes（既定 30 分）を切ったときと、今のアカウントの 5 時間か週の枠が設定の move_early_percent（既定 90%）に達し、達した枠のどれかが
 move_early_reset_hours（既定 1 時間）より先まで戻らないとき。移る先は、使用率の高い方の枠が move_early_percent に届かないほかの
 アカウントのうち、使用率の順の頭。移る先が無いなどで移さなかった訳は、台帳に kind moved・status skipped で残す。
 区切りの印の無い、会話を引き継ぐ部署と窓口は起動し直さない（持ち主と話している途中の会話を切らない。区切りの印は、人がその
@@ -63,6 +63,7 @@ from nodes import accounts, deliver, launch, provision, role  # noqa: E402
 from nodes import wake  # noqa: E402
 
 LIMITED = "使用上限に当たった"   # 台帳の why（--if-limited で移したとき）
+CLOSED = "使える時間帯の外か終わる手前で止まった"   # 台帳の why（--if-limited で、今のアカウントが時間帯で選べないので移したとき）
 CHANGED = "会社の形の起動の設定（model・effort・settings）が替わった"   # 台帳の why（--if-changed で起動し直したとき）
 SAME = "持ち主か窓口が同じアカウントのまま起動し直した"   # 台帳の why（--account に今のアカウントを名指したとき）
 EARLY = wake.EARLY   # 台帳の why（--if-changed で、使用率の目安か --move の名指しで移したとき・移さなかったとき）
@@ -105,7 +106,7 @@ def move(a, ports, cwd, task):
     if not a.dry_run:
         ports.refresh_limits(cfg, metered)
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
-                           accounts.count_running(sessions_), cfg.reset_soon_hours)
+                           accounts.count_running(sessions_), cfg.reset_soon_hours, cfg.hours_margin_minutes)
     mine = next((r for r in ranked if r["name"] == old), None)
     if a.if_limited and mine and (mine["known"] or mine.get("stale")) and mine["eligible"] and not mine.get("stale_over"):
         print("\n".join(notes + [f"移さない: アカウント {old} の使用率は上限 {cfg.limit_percent}% に達していない（一時の混み合いと見る）"]))
@@ -115,17 +116,21 @@ def move(a, ports, cwd, task):
             print(f"止めた: --account の {a.account} が設定の accounts に無い（{', '.join(names)}）")
             return 2
         chosen = a.account
+        row = next(r for r in ranked if r["name"] == chosen)
+        if row["shut"]:
+            print("\n".join(notes + [f"止めた: アカウント {chosen} は{row['reason']}（時間帯の外では要求が断られる）"]))
+            return 2
     else:
         chosen = next((r["name"] for r in ranked if r["name"] != old and r["eligible"]), None)
         if chosen is None:
-            print("\n".join(notes + [f"止めた: 移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かないアカウントが無い）"]))
+            print("\n".join(notes + [f"止めた: 移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かず、使える時間帯の中のアカウントが無い）"]))
             return 2
     if chosen == old and a.if_limited:
         print(f"止めた: {a.move} はもうアカウント {old} で動いている（--if-limited は使用上限で移すので、今のアカウントを名指さない）")
         return 2
     head = bool(dept.get("head_office"))
     where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
-    why = LIMITED if a.if_limited else SAME if chosen == old else "持ち主か窓口が移した"
+    why = (CLOSED if mine and mine["shut"] else LIMITED) if a.if_limited else SAME if chosen == old else "持ち主か窓口が移した"
     if a.dry_run:
         to = f"{chosen} のまま" if chosen == old else f"{old or '-'} から {chosen} へ"
         print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {to}起動し直す（{why}）"]))
@@ -220,7 +225,7 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
         ports.refresh_limits(cfg, metered)
     now = ports.now()
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, now,
-                           accounts.count_running(sessions_), cfg.reset_soon_hours)
+                           accounts.count_running(sessions_), cfg.reset_soon_hours, cfg.hours_margin_minutes)
     # 使用上限に当たる前の区切りで、空いているアカウントへ早めに移す（上限で移す --if-limited はターンの途中で切られ、そのターンの作業が消える）
     early = accounts.early(ranked, old, cfg.early_percent, cfg.early_reset_hours, now, attrs.get(wake.MOVE_TO), attrs.get(wake.MOVE_KEPT))
     if early and early["to"] is None and not a.dry_run:
@@ -238,7 +243,7 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
     roomy = [r["name"] for r in ranked if r["eligible"]]
     if not roomy:
         # 上限に達したアカウントで起動すると、--task が起動せずに終わり、前の会話だけが止まる。前の会話に渡させる
-        print("\n".join(notes + [f"起動し直さない: 使用率が上限に届かないアカウントが無い（{where} は前の起動の設定のまま続ける）"]))
+        print("\n".join(notes + [f"起動し直さない: 使用率が上限に届かず、使える時間帯の中のアカウントが無い（{where} は前の起動の設定のまま続ける）"]))
         return 0
     chosen, why = (early["to"], EARLY) if early and early["to"] else (old if old in roomy else roomy[0], CHANGED)
     if a.dry_run:
@@ -255,9 +260,10 @@ def _first_text(attrs, dept, old, chosen, why, head):
     pending = ask and attrs.get("delivered") != ask
     file = os.path.join(attrs.get("boss-inbox") or "", f"{ask}-ask.md") if pending else None
     head_line = (f"前の会話（アカウント {old or '-'}）が使用上限に当たったので、アカウント {chosen} で起動し直した。" if why == LIMITED else
+                 f"前の会話（アカウント {old or '-'}）が使える時間帯の外か終わる手前で止まったので、アカウント {chosen} で起動し直した。" if why == CLOSED else
                  f"{CHANGED}ので、アカウント {chosen} で起動し直した。" if why == CHANGED else
                  f"前の会話を、同じアカウント {chosen} のまま、会社の形の今の起動の設定で起動し直した（--move）。" if why == SAME else
-                 f"前の会話（アカウント {old or '-'}）を、使用上限に当たる前の区切りで、アカウント {chosen} へ移して起動し直した。" if why == EARLY else
+                 f"前の会話（アカウント {old or '-'}）を、使用上限か使える時間帯の終わりに当たる前の区切りで、アカウント {chosen} へ移して起動し直した。" if why == EARLY else
                  f"前の会話（アカウント {old or '-'}）を、アカウント {chosen} へ移して起動し直した（--move）。") + "前の会話の記憶は引き継いでいない。"
     if head:
         head_line += (f" まず、この会話の中から works-dispatch の --desk {attrs.get('name') or ''} を打って、窓口の席をこの会話に移す。"

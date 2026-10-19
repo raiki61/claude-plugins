@@ -9,9 +9,11 @@
 書かなければ 2 ターン目の文は空（PR を開く回は始める前の確かめが止める）。
 """
 
+import datetime
 import os
 import re
 import tomllib
+import zoneinfo
 
 from ports import chat
 from vendor import claude_auth
@@ -26,10 +28,23 @@ DEFAULT_LIMITS_DIR = "~/.cache/claude-limits"
 # 先まで戻らなければ、使用率がこれに届かないほかのアカウントへ移す。limit_percent より手前で、上限に当たってターンの途中で切られる前に移す
 DEFAULT_EARLY_PERCENT = 90
 DEFAULT_EARLY_RESET_HOURS = 1.0   # 達した枠がこの時間以内に戻るなら移さない（移すと会話の記憶を失い、移る先の週の枠も使う）
+# 使える時間帯（アカウントの hours）の終わりのこの分数より手前から、そのアカウントを選ばず、区切りでほかへ移す。終わりで要求が断られ、
+# ターンの途中で切られる前に移すため
+DEFAULT_HOURS_MARGIN_MINUTES = 30
+HOURS_FORM = re.compile(r"(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2}) +(\S+)")
+HOURS_EXAMPLE = 'hours = "08:00-16:00 UTC" か hours = "17:00-25:00 Asia/Tokyo"'
 
 
 class ConfigError(Exception):
     """設定が読めない・形が違う。足りない物を全部 1 つの文にして持つ。"""
+
+
+class Hours(NamedTuple):
+    """アカウントの使える時間帯。毎日 start 分（0 時からの分）から length 分の間。zone は時刻の基準（UTC か IANA の地域の名前）。"""
+    start: int
+    length: int
+    zone: str
+    text: str  # 設定に書いた字のまま（表示と訳に使う）
 
 
 class Account(NamedTuple):
@@ -39,6 +54,7 @@ class Account(NamedTuple):
     keychain_service: str | None = None  # 鍵を置いた Keychain の項目の名前。None は共通の決まり（scripts/claude_auth.py）で探す
     limits: bool = True  # 使用率の枠があるか。false は Ollama・Foundry のような枠の無いアカウントで、控えを読まず使用率で外さない
     plan: str | None = None  # 持ち主が教えたプラン（例 default_claude_max_20x）。ログインの記録からプランが読めないときだけ limits.plan_of が使う
+    hours: Hours | None = None  # 使える時間帯。None は一日中使える。外では部署の起動にも移し先にも選ばない（accounts.rank）
 
 
 class Repo(NamedTuple):
@@ -59,6 +75,7 @@ class Config(NamedTuple):
     reset_soon_hours: float = DEFAULT_RESET_SOON_HOURS
     early_percent: int = DEFAULT_EARLY_PERCENT
     early_reset_hours: float = DEFAULT_EARLY_RESET_HOURS
+    hours_margin_minutes: float = DEFAULT_HOURS_MARGIN_MINUTES
 
 
 def _path(v):
@@ -71,6 +88,40 @@ def _str(d, key, where, problems):
         problems.append(f"{where}: {key} が文字列で無い")
         return None
     return v
+
+
+def zone_of(name):
+    """時刻の基準の名前の tzinfo。UTC は地域の表（tzdata）の無い環境〔Windows など〕でも読めるよう、表を引かない。読めなければ None。"""
+    if name == "UTC":
+        return datetime.timezone.utc
+    # 地域の名前（「/」を含み、表にちょうど同じ字で在る物）だけ受ける。EST・Japan のような略や別名は、夏時間の有無などで書き手の思う
+    # 基準とずれうる。大文字と小文字の違う名前は、macOS では通り Linux では止まるので、表の字と比べて揃える
+    if "/" not in name or name not in zoneinfo.available_timezones():
+        return None
+    try:
+        return zoneinfo.ZoneInfo(name)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+        return None   # 表に在っても読めない物は、読めない基準として呼び手が止める
+
+
+def parse_hours(text):
+    """「HH:MM-HH:MM <時刻の基準>」を Hours にする。形が違えば、直し方を添えた訳の文（str）を返す。
+    時刻の基準は書き落としを許さない（日本時間か UTC かを書き手が取り違えないため）。終わりが始まり以下か 24:00 を超えれば、翌日にまたぐ。"""
+    m = HOURS_FORM.fullmatch(text.strip()) if isinstance(text, str) else None
+    if not m:
+        return f"hours が「HH:MM-HH:MM <時刻の基準>」の形で無い（時刻の基準は UTC か Asia/Tokyo などの地域の名前を必ず書く。例 {HOURS_EXAMPLE}）"
+    sh, sm, eh, em, zone = int(m[1]), int(m[2]), int(m[3]), int(m[4]), m[5]
+    if sh > 23 or sm > 59 or em > 59 or eh > 48:
+        return f"hours の時刻が範囲の外（始まりは 00:00〜23:59、終わりは 48:00 まで。例 {HOURS_EXAMPLE}）"
+    start, end = sh * 60 + sm, eh * 60 + em
+    length = end - start if end > start else end + 24 * 60 - start if end < start else 0   # 同じ時刻は長さ 0（一日中は 00:00-24:00）
+    if not 0 < length <= 24 * 60:
+        return f"hours の長さが 0 分か 24 時間を超える（例 {HOURS_EXAMPLE}）"
+    if zone_of(zone) is None:
+        if not zoneinfo.available_timezones():
+            return f"hours の時刻の基準 {zone} を読めない（この機械には地域の時刻の表〔tzdata〕が無いので、UTC で書く）"
+        return f"hours の時刻の基準 {zone} を読めない（UTC か Asia/Tokyo などの IANA の地域の名前を書く。JST・EST のような略は読まない）"
+    return Hours(start, length, zone, text.strip())
 
 
 def path_of(path=None, env=os.environ):
@@ -112,6 +163,10 @@ def load(path=None, env=os.environ, missing_ok=False):
     if not isinstance(early_hours, (int, float)) or isinstance(early_hours, bool) or early_hours < 0:
         problems.append("move_early_reset_hours が 0 以上の数で無い")
         early_hours = DEFAULT_EARLY_RESET_HOURS
+    margin = raw.get("hours_margin_minutes", DEFAULT_HOURS_MARGIN_MINUTES)
+    if not isinstance(margin, (int, float)) or isinstance(margin, bool) or margin < 0:
+        problems.append("hours_margin_minutes が 0 以上の数で無い")
+        margin = DEFAULT_HOURS_MARGIN_MINUTES
 
     accounts = []
     for i, a in enumerate(raw.get("accounts", [])):
@@ -139,7 +194,15 @@ def load(path=None, env=os.environ, missing_ok=False):
         elif plan is not None and not has_limits:
             problems.append(f"{where}: limits = false のアカウントにはプランが無いので、plan は書かない")
             plan = None
-        accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan))
+        hours = a.get("hours")
+        if hours is not None:
+            hours = parse_hours(hours)
+            if isinstance(hours, str):
+                problems.append(f"{where}: {hours}")
+                hours = None
+        if hours is not None and hours.length < 24 * 60 and margin >= hours.length:
+            problems.append(f"{where}: hours_margin_minutes（{margin:g} 分）が hours の長さ以上なので、このアカウントは一度も選ばれない")
+        accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan, hours))
     if not raw.get("accounts"):
         accounts = [Account("default", chat.COMMAND, None)]
 
@@ -177,7 +240,7 @@ def load(path=None, env=os.environ, missing_ok=False):
                           _path(copy_from) if copy_from else None, gh_user or None))
     if problems:
         raise ConfigError(f"設定の形が違う（{path}）: " + "／".join(problems))
-    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes), soon, early, early_hours)
+    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes), soon, early, early_hours, margin)
 
 
 def pick_repo(cfg, name):

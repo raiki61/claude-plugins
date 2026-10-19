@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""StopFailure のフック（matcher は rate_limit）: 永続の部署の会話が使用上限で止まったら、ほかのアカウントで起動し直す（37f8b1）。
+"""StopFailure のフック: 永続の部署の会話が使用上限で止まったら、ほかのアカウントで起動し直す（37f8b1）。
 
 Claude Code は、API の誤りでターンが終わると Stop の代わりに StopFailure を走らせ、誤りの種類を error に渡す（使用上限は rate_limit）。
+使用上限のほかの誤りでも、会話のアカウントが使える時間帯（設定の hours）の外か終わる手前なら、同じに移す（時間帯の外の要求を
+提供元がどの誤りで断るかは決まっていないので、誤りの種類で絞らない。matcher は空で、誤りの種類はここで見る）。
 会話の場所が永続の部署（属性 company.lifecycle が persistent）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
 dispatch.py --move <名前> --if-limited を、この会話から切り離して（POSIX は nodes/wake.py の detached の殻で、親を init に替えて）裏で走らせる（--move はこの会話を止めてから起動し直すので、
 この会話の子として待たない）。エフェメラルの部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
@@ -18,8 +20,9 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
+    import config  # noqa: E402
     import gitx  # noqa: E402
-    from nodes import deliver, provision, wake  # noqa: E402
+    from nodes import accounts, deliver, provision, wake  # noqa: E402
 except (ImportError, SyntaxError):
     sys.exit(0)
 
@@ -28,15 +31,27 @@ AGAIN = 600   # 同じ場所で続けて走らせない秒数
 MOVES = "moves"   # 受付箱の下の、走らせた出力の置き場
 
 
-def plan(payload, attrs_of=gitx.worktree_attrs):
+def closed(attrs, now=time.time, env=os.environ):
+    """会話のアカウント（属性 company.account）が、使える時間帯の外か終わる手前か。設定を読めなければ偽（使用上限の外の誤りでは移さない）。"""
+    try:
+        cfg = config.load(attrs.get("config"), env, missing_ok=True)
+    except (config.ConfigError, OSError, ValueError):
+        return False   # 設定を読めなければ、時間帯で止まったとは言えない。移さない（使用上限の誤りは設定に依らず移す）
+    acc = next((x for x in cfg.accounts if x.name == attrs.get("account")), None)
+    return bool(acc and acc.hours and accounts.shut(acc.hours, now(), cfg.hours_margin_minutes))
+
+
+def plan(payload, attrs_of=gitx.worktree_attrs, closed_of=closed):
     """走らせるコマンドの並びと、走らせる場所と出力の置き場の (argv, cwd, 出力のファイル)。移さないなら None。"""
-    if payload.get("error") != "rate_limit":
+    if not payload.get("error"):
         return None
     cwd = payload.get("cwd") or os.getcwd()
     attrs = attrs_of(cwd)
     name = attrs.get("name")
     if not (attrs.get("role") and name):
         return None
+    if payload["error"] != "rate_limit" and not closed_of(attrs):
+        return None   # 使用上限でも時間帯でもない誤り（混み合い・要求の誤りなど）は、アカウントを替えても直らない
     here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
     if not here or not common:
         return None

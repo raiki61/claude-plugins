@@ -10,6 +10,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from . import DISPATCH  # noqa: F401
 from . import schemacheck
 import claudex
+import config
 from config import Account
 from nodes import accounts
 
@@ -352,6 +353,53 @@ class ReadLimits(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Hours(unittest.TestCase):
+    """使える時間帯（設定の hours）。CheapestInference の Europe 枠（UTC 08:00〜16:00、日本時間 17:00〜翌 1:00）。受付 c66192。"""
+
+    # 日本時間の 2026-10-19 20:23（枠の中）・10-20 00:40（終わりの 20 分前）・01:00（終わり）・09:00（枠の外）
+    inside, closing, end, outside = 1792408980, 1792424400, 1792425600, 1792454400
+    cheap = Account("cheap", "claude-cheapest", limits=False, hours=config.parse_hours("17:00-25:00 Asia/Tokyo"))
+
+    def test_the_window_opens_and_closes_across_midnight(self):
+        utc = config.parse_hours("08:00-16:00 UTC")
+        for at in (self.inside, self.closing):
+            self.assertEqual(accounts.opening(self.cheap.hours, at), {"open": True, "closes_at": self.end, "opens_at": None})
+            self.assertEqual(accounts.opening(utc, at), accounts.opening(self.cheap.hours, at))   # 同じ枠を日本時間と UTC で書いた
+        self.assertEqual(accounts.opening(self.cheap.hours, self.end), {"open": False, "closes_at": None, "opens_at": self.end + 16 * 3600})
+        self.assertFalse(accounts.opening(utc, self.outside)["open"])
+        self.assertIsNone(accounts.shut(config.parse_hours("00:00-24:00 UTC"), 1792454400 - 600, 30))   # 一日中は日の境目の手前でも選ぶ
+
+    def test_rank_skips_the_account_outside_or_near_the_end_of_its_hours(self):
+        accts = (Account("p1", "c1"), self.cheap)
+        lim = {"p1": {"seven_day": {"used_percentage": 99, "resets_at": self.inside + 86400 * 3}, "five_hour": {"used_percentage": 1}}}
+        rows = accounts.rank(accts, lim, 95, self.inside)
+        self.assertEqual(names(rows), ["cheap", "p1"])   # 使用率の分からないアカウントでも、時間帯の中なら上限のアカウントより前
+        self.assertTrue(by(rows, "cheap")["eligible"])
+        self.assertEqual((by(rows, "cheap")["hours"], by(rows, "cheap")["shut"]), ("17:00-25:00 Asia/Tokyo", False))
+        for at, word in ((self.closing, "20 分後に終わる"), (self.outside, "外（次は 17:00 Asia/Tokyo に始まる）")):
+            row = by(accounts.rank(accts, lim, 95, at), "cheap")
+            self.assertEqual((row["eligible"], row["shut"]), (False, True))
+            self.assertIn(word, row["reason"])
+        self.assertTrue(by(accounts.rank(accts, lim, 95, self.closing, margin_minutes=10), "cheap")["eligible"])
+        self.assertEqual(schemacheck.check({"schema": 1, "accounts": rows}, schemacheck.schema("accounts")), [])
+
+    def test_early_moves_off_the_account_before_its_hours_end(self):
+        accts = (Account("p1", "c1"), self.cheap)
+        lim = {"p1": {"seven_day": {"used_percentage": 50}, "five_hour": {"used_percentage": 1}}}
+        self.assertIsNone(accounts.early(accounts.rank(accts, lim, 95, self.inside), "cheap", 90, 1, self.inside))
+        got = accounts.early(accounts.rank(accts, lim, 95, self.closing), "cheap", 90, 1, self.closing)
+        self.assertEqual((got["to"], got["kind"]), ("p1", "hours"))
+        self.assertIn("20 分後に終わる", got["why"])
+        full = {"p1": {"seven_day": {"used_percentage": 99}, "five_hour": {"used_percentage": 1}}}
+        got = accounts.early(accounts.rank(accts, full, 95, self.closing), "cheap", 90, 1, self.closing)
+        self.assertEqual((got["to"], got["kind"]), (None, "hours_none"))
+        got = accounts.early(accounts.rank(accts, lim, 95, self.outside), "p1", 90, 1, self.outside, wish="cheap")
+        self.assertEqual((got["to"], got["kind"]), (None, "bad"))   # 名指しの先が時間帯の外
+        self.assertIn("使える時間帯の外", got["why"])
+        got = accounts.early(accounts.rank(accts, lim, 95, self.closing), "cheap", 90, 1, self.closing, wish="p9")
+        self.assertEqual((got["to"], got["kind"]), ("p1", "hours"))   # 名指しが使えなくても、終わる手前ならほかへ移す
 
 
 class Early(unittest.TestCase):

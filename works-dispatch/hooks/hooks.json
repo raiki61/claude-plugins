@@ -72,7 +72,7 @@
     ],
     "StopFailure": [
       {
-        "matcher": "rate_limit",
+        "matcher": "",
         "hooks": [
           {
             "type": "command",

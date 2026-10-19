@@ -8,6 +8,8 @@
   1. 週の枠の切り替わりが近い（設定の reset_soon_hours 以内。既定 24 時間。ちょうども含む）ものを先に、切り替わりの近い順。使わずに切り替わる分を無駄にしないため。
   2. それ以外は、5 時間の枠と週の枠のうち高い方の使用率の低い順。週の切り替わりが十数時間早いだけのアカウントに寄せて、その 5 時間の枠を先に食い潰さないため。
   3. 同じなら、そのアカウントで動いている会話の数の少ない順、次に設定の順。
+- 使える時間帯（設定の hours）の外のアカウントと、時間帯の終わりまで設定の hours_margin_minutes（既定 30 分。ちょうども含む）を切ったアカウントは選ばない。
+  終わりで要求が断られ、ターンの途中で切られるため。日をまたぐ時間帯は始まった日の物として見る。
 - 控えが無い・読めないアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（D7）。
 - 使用率の枠の無いアカウント（設定の limits = false。Ollama・Foundry など）は控えを読まず、控えの無いものと同じに扱う。
 - 動いている会話は、`claude agents --json` の 1 件のうち、背景の会話は state が working・blocked のもの、state の無い対話の会話は status が busy のもの。
@@ -21,6 +23,7 @@
 """
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -53,6 +56,32 @@ def _window(raw, now):
             "resets_at": int(at) if isinstance(at, (int, float)) else None}
 
 
+def opening(hours, now):
+    """使える時間帯 hours（config.Hours）の今 now の様子。{"open": 中か, "closes_at": 中なら終わりの Unix 時刻, "opens_at": 外なら次の始まり}。"""
+    tz = config.zone_of(hours.zone)
+    day = datetime.datetime.fromtimestamp(now, tz).date()
+    starts = [datetime.datetime(d.year, d.month, d.day, tzinfo=tz) + datetime.timedelta(minutes=hours.start)
+              for d in (day - datetime.timedelta(days=1), day, day + datetime.timedelta(days=1))]
+    for s in starts:
+        begin, end = s.timestamp(), (s + datetime.timedelta(minutes=hours.length)).timestamp()
+        if begin <= now < end:
+            return {"open": True, "closes_at": int(end), "opens_at": None}
+    return {"open": False, "closes_at": None, "opens_at": int(next(s.timestamp() for s in starts if s.timestamp() > now))}
+
+
+def shut(hours, now, margin_minutes):
+    """使える時間帯の外か、終わりまで margin_minutes を切ったなら、訳の文。ほかは None。"""
+    if hours is None or hours.length >= 24 * 60:
+        return None   # 一日中（00:00-24:00）は、日の境目で終わらない
+    got = opening(hours, now)
+    if not got["open"]:
+        at = datetime.datetime.fromtimestamp(got["opens_at"], config.zone_of(hours.zone)).strftime("%H:%M")
+        return f"使える時間帯（{hours.text}）の外（次は {at} {hours.zone} に始まる）"
+    if got["closes_at"] - now <= margin_minutes * 60:
+        return f"使える時間帯（{hours.text}）が {_left(got['closes_at'] - now)}後に終わる（終わりの {margin_minutes:g} 分前からは選ばない）"
+    return None
+
+
 def is_running(item):
     """`claude agents --json` の 1 件が動いている会話か。背景の会話は state、state の無い対話の会話は status で見る。"""
     state = item.get("state")
@@ -78,8 +107,10 @@ def gather_running(accounts, list_sessions):
     return count_running(listed), notes
 
 
-def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.DEFAULT_RESET_SOON_HOURS):
+def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.DEFAULT_RESET_SOON_HOURS,
+         margin_minutes=config.DEFAULT_HOURS_MARGIN_MINUTES):
     """running は名 → 動いている会話の数（無い名は 0）。soon_hours は、週の枠の切り替わりを「近い」とみなす時間。
+    margin_minutes は、使える時間帯の終わりの何分前から選ばないか。時間帯で選ばないアカウントは shut を真にする。
     控えが古い（limits.stale）アカウントは stale にし、known を偽にする（古い値で選ばない）。stale_over は、古い控えの最後の値で
     上限に達していたか（--move --if-limited が、取り直せない間も移るかを最後の値で決める。一時の混み合いで移さない）。"""
     running = running or {}
@@ -93,6 +124,8 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
         used = [w[k]["used"] for k in WINDOWS if w[k]["used"] is not None]
         last = [_window(raw.get(k), now)["used"] for k in WINDOWS] if old else []
         at = w["seven_day"]["resets_at"]
+        closed = shut(a.hours, now, margin_minutes)
+        why_not = [f"{k} が {w[k]['used']}% で上限 {limit_percent}% に達した" for k in over] + ([closed] if closed else [])
         rows.append({
             "name": a.name,
             "command": a.command,
@@ -102,8 +135,10 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
             "known": known,
             "stale": old,
             "stale_over": any(u is not None and u >= limit_percent for u in last),
-            "eligible": not over,
-            "reason": "、".join(f"{k} が {w[k]['used']}% で上限 {limit_percent}% に達した" for k in over) or None,
+            "eligible": not why_not,
+            "reason": "、".join(why_not) or None,
+            "hours": a.hours.text if a.hours else None,
+            "shut": closed is not None,
             "soon": known and at is not None and at - now <= soon_hours * 3600,
             "peak": max(used) if used else None,
             "running": running.get(a.name, 0),
@@ -126,17 +161,27 @@ def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
     """区切りで早めに移すか（--move --if-changed と待ち受け）。rows は rank の並び、old は今のアカウント、wish は持ち主か窓口が
     --move で名指したが、ターンの途中で移せなかったアカウント（属性 company.move-to）。avoid は前に早めに移そうとして起動できなかった
     アカウント（属性 company.move-kept。選び直すと区切りのたびに止めて戻すのを繰り返す）。
-    {"to": 移る先か None, "why": 移す訳か移さない訳, "kind": move・wish・soon・none・bad}。移す訳の無いとき（まだ目安に届かない・控えが無い）は None。
-    - wish が在れば、それが上限に届かず今のアカウントと違えば移る先にする（使用率の目安を待たない）。
+    {"to": 移る先か None, "why": 移す訳か移さない訳, "kind": move・wish・soon・none・bad・hours・hours_none}。移す訳の無いとき（まだ目安に届かない・控えが無い）は None。
+    - wish が在れば、それが選べて（上限に届かず、使える時間帯の中で）今のアカウントと違えば移る先にする（使用率の目安を待たない）。
+    - 今のアカウントが使える時間帯の外か終わる手前（rank の shut）なら、選べるほかのアカウントのうち rank の順の頭へ移す（kind hours）。
     - 今のアカウントの 5 時間か週の枠が early_percent に達し、達した枠のどれかが reset_hours より先まで戻らなければ、
       使用率が分かり、高い方の枠が early_percent に届かないほかのアカウントのうち、rank の順の頭へ移す。"""
     if wish and wish != old:
         row = next((r for r in rows if r["name"] == wish), None)
         if row and row["eligible"] and wish != avoid:
             return {"to": wish, "why": f"--move で名指したアカウント {wish} へ、区切りまで待って移す", "kind": "wish"}
-        bad = "設定に無い" if row is None else "前に起動できなかった" if wish == avoid else "使用率が上限に達した"
-        return {"to": None, "why": f"--move で名指したアカウント {wish} は{bad}ので移さない", "kind": "bad"}
+        bad = ("設定に無い" if row is None else "前に起動できなかった" if wish == avoid
+               else "使える時間帯の外か終わる手前な" if row.get("shut") else "使用率が上限に達した")
+        mine = next((r for r in rows if r["name"] == old), None)
+        if not (mine and mine.get("shut")):   # 今のアカウントが時間帯で選べないなら、名指しが使えなくても下でほかへ移す
+            return {"to": None, "why": f"--move で名指したアカウント {wish} は{bad}ので移さない", "kind": "bad"}
     mine = next((r for r in rows if r["name"] == old), None)
+    if mine and mine.get("shut"):
+        # 使える時間帯の外になる前に移す。移る先は rank の順の頭（使用率の分からないアカウントも、目安を見ずに選べる）
+        to = next((r["name"] for r in rows if r["name"] not in (old, avoid) and r["eligible"]), None)
+        if to is None:
+            return {"to": None, "why": f"アカウント {old} は{mine['reason']}が、選べるほかのアカウントが無いので移さない", "kind": "hours_none"}
+        return {"to": to, "why": f"アカウント {old} は{mine['reason']}（時間帯の外になる前に、区切りで移す）", "kind": "hours"}
     if not mine or not mine["known"]:
         return None
     hot = [k for k in WINDOWS if mine[k]["used"] is not None and mine[k]["used"] >= early_percent]
@@ -220,7 +265,7 @@ def main(argv=None, env=os.environ, ports=None):
         ports.refresh_limits(cfg, metered, force=False)
     running, notes = gather_running(cfg.accounts, ports.list_sessions)
     rows = rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, now, running,
-                cfg.reset_soon_hours)
+                cfg.reset_soon_hours, cfg.hours_margin_minutes)
     if not a.pick:
         jsonio.dump({"accounts": rows, "notes": notes}, a.out)
         return 0

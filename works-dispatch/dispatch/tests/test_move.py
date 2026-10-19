@@ -273,7 +273,7 @@ class Move(unittest.TestCase):
             provision.mark(self.place, self.src, {"launched": role.launch_key(None)}, gitx)
             rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
             self.assertEqual(rc, 0, out)
-            self.assertIn("使用率が上限に届かないアカウントが無い", out)
+            self.assertIn("使用率が上限に届かず、使える時間帯の中のアカウントが無い", out)
             provision.mark(self.place, self.src, {"fresh": None}, gitx)
             rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
             self.assertEqual(rc, 2, out)
@@ -494,6 +494,19 @@ class LimitHook(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk"}, gitx)
         self.assertIsNone(limit_hook.plan({"cwd": self.src, "session_id": "s-other", "error": "rate_limit"}))
         self.assertEqual(limit_hook.plan({"cwd": self.src, "session_id": "s-desk", "error": "rate_limit"})[0][3], "窓口")
+
+    def test_other_errors_move_only_when_the_account_is_outside_its_hours(self):
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        base = {"cwd": self.place, "session_id": "s-dept", "error": "unknown"}
+        self.assertIsNone(limit_hook.plan(base, closed_of=lambda attrs: False))
+        self.assertEqual(limit_hook.plan(base, closed_of=lambda attrs: True)[0][2:5], ["--move", "調べ", "--if-limited"])
+        self.assertIsNone(limit_hook.plan({**base, "error": None}, closed_of=lambda attrs: True))
+        cfg = pathlib.Path(self.src) / "hours.toml"
+        cfg.write_text('accounts = [{ name = "cheap", command = "c", limits = false, hours = "08:00-16:00 UTC" }]\n', encoding="utf-8")
+        attrs = {"account": "cheap", "config": str(cfg)}
+        self.assertTrue(limit_hook.closed(attrs, now=lambda: 1792454400))    # UTC 00:00（枠の外）
+        self.assertFalse(limit_hook.closed(attrs, now=lambda: 1792497600))   # UTC 12:00（枠の中）
+        self.assertFalse(limit_hook.closed({**attrs, "account": "p1"}, now=lambda: 1792454400))
 
     def test_main_spawns_once_within_the_quiet_time(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
