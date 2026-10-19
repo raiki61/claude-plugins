@@ -14,7 +14,7 @@
 - 使う各アカウントに、attention プラグインがアカウント全体（user）に入っている。
 - 部署の回は、herdr の設定（`~/.config/herdr/config.toml`）の作業場の行（`[ui.sidebar.spaces]` の `rows`）のどこかに `{ token = "$kind" }` がある。部署の作業場の行に、永続・毎回クリア／永続・引き継ぎ／エフェメラルの印を出すため（`$kind` は dispatch が部署の作業場に付ける herdr の印の名前）。無ければ `--check` が足す行を出し、部署を立てる回は止める（PR を開く回は注記だけ）。足したら `herdr server reload-config` を打つ。
 - gh でそのリポジトリを読める（PR を開く回だけ。部署の回は GitHub を読まない）。普段の gh のアカウントで読めなければ、設定の `gh_user` に読めるアカウントを書く。
-- リポジトリごとに代表の clone（ブランチごとの worktree を作る元にする、ふつうの clone。設定の `source` に書く）がある。どれか 1 つのアカウントで一度そこで Claude Code を起動し、フォルダを信頼しておく（dispatch がほかのアカウントにも信頼の印を広げる）。どのアカウントも信頼していないと、ブランチごとの作業場で毎回、信頼の確認が出る。代表の clone は既定のブランチ（main など）に置いておく。linked worktree（`git worktree add` で作った側）は代表の clone にできない（`--check` が止める）。代表の clone が開いているブランチの PR は、作業場を作れない（`branch_busy`）。
+- リポジトリごとに代表の clone（ブランチごとの worktree を作る元にする、ふつうの clone。設定の `source` に書く）がある。どれか 1 つのアカウントで一度そこで Claude Code を起動し、フォルダを信頼しておく（dispatch がほかのアカウントにも信頼の印を広げる）。どのアカウントも信頼していないと、ブランチごとの作業場で毎回、信頼の確認が出る。画面で Claude Code を起動できない会話（人の居ない会話）からは、どれか 1 つのアカウントの `.claude.json`（`CLAUDE_CONFIG_DIR` を入れるアカウントは `<そのフォルダ>/.claude.json`）の `projects["<代表の clone の絶対パス>"].hasTrustDialogAccepted` を `true` にする（パスはシンボリックリンクを解いた形。macOS の `/tmp/…` なら `/private/tmp/…`。そのアカウントの会話が動いている間に書くと、その会話が古い中身で書き戻して消えることがあるので、消えたら書き直す。Claude Code の文書が手で信頼する形として書く物で、CLI に信頼を付ける口は無い。https://code.claude.com/docs/en/permissions#project-allow-rules-and-workspace-trust ）。信頼すると、その clone の `.claude` の設定とフックが確かめ無しに効くので、中身を信頼できる clone だけにする。代表の clone は既定のブランチ（main など）に置いておく。linked worktree（`git worktree add` で作った側）は代表の clone にできない（`--check` が止める）。代表の clone が開いているブランチの PR は、作業場を作れない（`branch_busy`）。
 
 ## 初めて: `/works-dispatch:dispatch setup`
 

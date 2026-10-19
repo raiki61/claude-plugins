@@ -6,6 +6,15 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- 会社の形（`.claude/company.toml`）のトップレベルに、任意のキー `shared_instructions`（会社の共通の本文）を足した。works-dispatch のフック（SessionStart と UserPromptSubmit）が、どの役の部署（会社の形の役を持って動く別の会話）の会話にも、「この会話は会社「…」の部署で、役は「…」。」の 1 行の後・その役の本文（`instructions`）の前に足す。本社の窓口（代表の clone で `--desk` を付けて名付けた、部署に仕事を頼む会話）には足さない。窓口は部署に頼む側で、部署の決まりには従わないためで、窓口に要る決まりは窓口の役の `instructions` に書く。役をまたいで同じ決まり（試験の回し方・手元のパスを書かないことなど）を、役ごとの `instructions` に写さず 1 か所に書ける。前は works-factory（works-dispatch で回しているほかのリポジトリの会社）で 6 つの役に同じ文を写し、直すときに 6 か所を同時に直す要が出ていた。直した `shared_instructions` は、役の本文を直したときと同じく、動いている会話にも次のターンから届く。キーを書かない会社は今までどおり動き、役ごとに写した文を移すかは任意。`--init-company` の下書きと `references/roles.md` に書き方を足した。
+
+### Changed
+
+- `--check` の「どのアカウントも <代表の clone> を信頼していない」の注記（代表の clone は、部署や PR の worktree を作る元のふつうの clone）に、人が見ていない会話など、Claude Code の対話の画面を開けない会話からの手として、1 つのアカウントの `.claude.json`（`~/.claude.json`。`CLAUDE_CONFIG_DIR` を入れて起動するアカウントは `<CLAUDE_CONFIG_DIR>/.claude.json`）の `projects["<代表の clone のパス>"].hasTrustDialogAccepted` を `true` にする形を足した。Claude Code の文書（https://code.claude.com/docs/en/permissions#project-allow-rules-and-workspace-trust ）が手で信頼する形として書く物で、CLI に信頼を付けるコマンドは無い。1 つのアカウントに書けば、ほかのアカウントと worktree には dispatch が広げる。あわせて、信頼するとその clone の `.claude` の設定とフックが確かめ無しに効くので、中身を信頼できる clone だけを信頼することを足した。dispatch は今までどおり、どのアカウントも信頼していない clone に自分から信頼を付けない。`references/setup.md` と `docs/prerequisites.md` にも同じことを書いた。
+- `--init-company` の下書きの窓口のコメントを直した。部署に頼む会話を代表の clone でないほかの clone で起動して頼んだときのことを、前は「後で窓口を本社（代表の clone）に移しても、部署ごとの頼み元の付け替えが要る」と書いていた。実際は、頼みの本文と納品はその clone の受付箱（`.git/company/inbox`）に置かれ、置き先を付け替えるコマンドは無いので、窓口を本社に移しても、その clone から頼んだ頼みが全部納品されるまでその clone を消せない。コメントをそう直した。
+
 ## [0.97.0] - 2026-10-20
 
 ### Changed

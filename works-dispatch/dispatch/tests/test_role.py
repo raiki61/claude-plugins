@@ -63,7 +63,7 @@ class Shape(unittest.TestCase):
                                                  "holders": None, "ask_holders": None, "ask_check": None, "odd": []})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
-        self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "desk_role": None,
+        self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None,
                                                  "former": {}, "problems": []})
         got = role.load(write(f"{self.d}/c.toml", '''gh_user = 3
 [[roles]]
@@ -162,6 +162,19 @@ deliver_check = ""
     def test_context_is_one_line_when_the_role_has_no_text(self):
         self.assertEqual(role.context("調べ役", {"instructions": "短く"}, "会社"), "この会話は会社「会社」の部署で、役は「調べ役」。\n短く")
         self.assertEqual(role.context("x", None, "会社"), "この会話は会社「会社」の部署で、役は「x」。")
+
+    def test_shared_text_goes_before_every_role_text_but_not_to_the_head_office(self):
+        # 役をまたぐ会社の決まりを、役ごとに写さず 1 か所に書く（works-factory の会社で 6 つの役に同じ文を写した。受付 6ea42d）
+        shape = role.load(write(f"{self.d}/c.toml", 'shared_instructions = """\n試験は触った所だけ。\n"""\n' + SHAPE))
+        self.assertEqual((shape["problems"], shape["shared"]), ([], "試験は触った所だけ。"))
+        self.assertEqual(role.context("調べ役", shape["roles"]["調べ役"], "会社", shared=shape["shared"]),
+                         "この会話は会社「会社」の部署で、役は「調べ役」。\n試験は触った所だけ。\n結論と原典の一句を返す。")
+        self.assertEqual(role.context("x", None, "会社", shared=shape["shared"]), "この会話は会社「会社」の部署で、役は「x」。\n試験は触った所だけ。")
+        self.assertEqual(role.context("窓口", None, "会社", head_office=True, shared=shape["shared"]),
+                         "この会話は会社「会社」の本社の会話で、役は「窓口」。")
+        bad = role.load(write(f"{self.d}/d.toml", "shared_instructions = 1\n" + SHAPE))
+        self.assertIsNone(bad["shared"])
+        self.assertIn("shared_instructions が文字列で無い", bad["problems"][0])
 
 
 class Seat(unittest.TestCase):
@@ -312,6 +325,14 @@ class Hook(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口"}, gitx)     # --desk で名付けた本社の窓口は、部署と書かない
         self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
         self.assertIsNone(role_hook.text_for(tempfile.mkdtemp(), self.env))   # git でない
+
+    def test_shared_text_reaches_departments_but_not_the_head_office_desk(self):
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", 'shared_instructions = "試験は触った所だけ。"\n' + SHAPE)
+        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        self.assertEqual(role_hook.text_for(self.place, self.env),
+                         "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n試験は触った所だけ。\n結論と原典の一句を返す。")
+        provision.mark(self.src, self.src, {"role": "窓口"}, gitx)
+        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
 
     def test_role_text_comes_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
         from .test_company import publish

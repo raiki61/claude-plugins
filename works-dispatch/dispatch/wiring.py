@@ -273,7 +273,11 @@ class Ports:
         for repo in cfg.repos:
             if not any(chat.is_trusted(chat.trust_file(a.config_dir, self.account_env), repo.source) for a in cfg.accounts):
                 notes.append(f"どのアカウントも {repo.source} を信頼していない（ブランチごとの作業場で毎回フォルダの信頼の確認が出る。"
-                             f"どれか 1 つのアカウントで一度 {repo.source} に Claude Code を起動し、信頼すると、ほかのアカウントにも広げて出なくなる）")
+                             f"どれか 1 つのアカウントで一度 {repo.source} に Claude Code を起動し、信頼すると、ほかのアカウントにも広げて出なくなる。"
+                             f"画面で起動できない会話（人の居ない会話）からは、{chat.trust_file(cfg.accounts[0].config_dir, self.account_env) if cfg.accounts else '.claude.json'}"
+                             f" の projects[\"{os.path.realpath(repo.source)}\"].hasTrustDialogAccepted を true にする（鍵はシンボリックリンクを解いたパス。"
+                             "そのアカウントの会話が動いていると、古い中身で書き戻されて消えることがある）。Claude Code の文書が手で信頼する形として書く物で、"
+                             "信頼すると、その clone の .claude の設定・フックが確かめ無しに効く。中身を信頼できる clone だけにする）")
         herdr_toml = herdr_config_path(self.env)
         if not spaces_show_kind(herdr_toml):
             task_only.append(f"herdr の設定 {herdr_toml} の作業場の行（[ui.sidebar.spaces] の rows）に $kind が無い（部署の作業場の行に、"

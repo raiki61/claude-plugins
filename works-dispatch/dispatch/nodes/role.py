@@ -44,6 +44,9 @@
 役ごとの項目を名前で引く表（[roles."役"]）の形は読まず、[[roles]] に移すよう problems に書く（TOML では同じ鍵 roles を
 表の並びと表の両方で書けず、二つの形を混ぜると片方が黙って効かないため）。
 会社の形の頭の gh_user は、その会社の gh のアカウント（部署の会話の Bash に GH_TOKEN として入れる。env_line）。
+会社の形の頭の shared_instructions は、どの役の部署の会話にも、役の本文の前に足す会社の共通の本文（試験の回し方など、役をまたいで
+同じ決まり。役ごとに同じ文を写すと、直すときに全部の役を同時に直す要が出る。works-factory の会社で 6 つの役に写した。受付 6ea42d）。
+本社（--desk で名付けた窓口）の会話には足さない（窓口は部署の決まりで動かない）。
 会社の形の頭の default_role は、--task で --role を省いたときの役（[[roles]] のどれかの name）。省けば入口の既定（作業）。
 会社の形の頭の desk_role は、本社（代表の clone）で持ち主と話す会話の役（--desk で --role を省いたときの役。[[roles]] のどれかの name）。
 
@@ -149,11 +152,11 @@ def _tools(r, where, problems):
 
 
 def _empty():
-    return {"roles": {}, "gh_user": None, "default_role": None, "desk_role": None, "former": {}, "problems": []}
+    return {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None, "former": {}, "problems": []}
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, deliver_check, persistent, fresh, odd}, gh_user, default_role, problems}。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, deliver_check, persistent, fresh, odd}, gh_user, shared, default_role, desk_role, former, problems}。
     path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
@@ -174,6 +177,11 @@ def load(path, text=None):
         out["problems"].append(f"{path}: gh_user が文字列で無い")
     elif gh_user:
         out["gh_user"] = gh_user
+    shared = raw.get("shared_instructions")
+    if shared is not None and not isinstance(shared, str):
+        out["problems"].append(f"{path}: shared_instructions が文字列で無い")
+    elif shared and shared.strip():
+        out["shared"] = shared.strip()
     roles = raw.get("roles", [])
     if isinstance(roles, dict):
         out["problems"].append(f"{path}: 役を [roles.\"役\"] の形で書いている（{', '.join(roles)}）。この形は読まないので、"
@@ -402,16 +410,18 @@ def gh_user(repo_user, shape):
     return repo_user or company, None
 
 
-def context(role_name, role, company, duty=None, head_office=False, lifecycle=None):
+def context(role_name, role, company, duty=None, head_office=False, lifecycle=None, shared=None):
     """フックが部署の会話の指示に足す文。会社と役の 1 行に、受け持ち（duty。部署の名前と同じ name の受ける仕事 [[skills]] の項目が
-    有れば）と、役の本文（会社の形に役の項目と本文が有れば）を続ける。受け持ちを足すのは、役を 1 つ（担当）にして、受け持ちごとの
+    有れば）と、会社の共通の本文（shared。会社の形の shared_instructions。部署の会話だけ）と、役の本文（会社の形に役の項目と本文が
+    有れば）を続ける。受け持ちを足すのは、役を 1 つ（担当）にして、受け持ちごとの
     中身を部署の名前で引くため。head_office は代表の clone（--desk で名付けた窓口）の会話で、部署ではないので部署と書かない。"""
     head = f"この会話は会社「{company}」の{'本社の会話' if head_office else '部署'}で、役は「{role_name}」。"
     if duty and duty.get("description"):
         head += f"受け持ちは「{duty['name']}」（{duty['description']}）。"
     if duty and duty.get("on_demand") and not head_office and lifecycle != gitx.PERSISTENT:
         head += "この受け持ちはオンデマンド（頼まれたときだけ立てる）で、この部署はエフェメラルの部署（頼みを済ませたら畳まれる）。"
-    return head + (f"\n{role['instructions']}" if role and role["instructions"] else "")
+    return (head + (f"\n{shared}" if shared and not head_office else "")
+            + (f"\n{role['instructions']}" if role and role["instructions"] else ""))
 
 
 SETTINGS_FILE = "company-settings.json"
