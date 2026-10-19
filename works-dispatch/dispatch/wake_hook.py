@@ -17,6 +17,8 @@
   納品していない頼みを持つ会話の記録にその受付番号が無ければ（渡した字が届かなかった）、頼みを 1 度だけ渡し直す（unseen）。
   区切りのターンの終わりに、会社の形の起動の設定（model・effort・[roles.settings]）が起動したとき（属性 company.launched）と違えば、
   /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起動し直す（空にするのと失う物は同じ。持ち主の手で起動し直さない）。
+  起動の設定が同じでも、今のアカウントの使用率が早めに移す目安に達したか、--move の名指し（company.move-to）が在れば同じく走らせ、
+  上限に当たる前の区切りでほかのアカウントへ移す（early_due）。
   エフェメラルの部署が終わりと印した（--done。属性 company.finished）ターンの終わりには、印を外して dispatch.py --retire <部署> を会話から
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
@@ -59,7 +61,7 @@ try:
     import role_hook  # noqa: E402
     import herdr  # noqa: E402
     import filex  # noqa: E402
-    from nodes import deliver, provision, role, tree, wake  # noqa: E402
+    from nodes import accounts, deliver, provision, role, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # 待ち受けは裏で走るので、古い Python（tomllib の無い 3.10 以前）でも会話を止めない。知らせは止まる前のフック
     # （orders.py stop）が会話ごとに 1 回出す
@@ -462,10 +464,36 @@ def must_clear(payload, attrs):
     return not (payload.get("hook_event_name") == "SessionStart" and payload.get("source") in EMPTY_STARTS)
 
 
-def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False):
+def early_due(got, attrs, env=os.environ, now=time.time):
+    """区切りで早めにほかのアカウントへ移すか（accounts.early）。使用率の控えは取り直さずに読む（取り直すのは --move --if-changed）。
+    移る先が在るか、--move の名指し（company.move-to）が在れば真（名指しの先が上限に達していても --if-changed に渡し、訳を台帳に
+    残して印を外させる）。目安に達したのに移さない（移る先が無い・達した枠がすぐ戻る）ときは偽で、訳を台帳に kind moved・
+    status skipped で残す（同じアカウントの同じ種類の訳は、属性 company.move-skipped で 1 度だけ）。設定や控えを読めなければ偽（頼みは渡す）。"""
+    try:
+        cfg = config.load(attrs.get("config"), env, missing_ok=True)
+        metered = [x.name for x in cfg.accounts if x.limits]
+        at = now()
+        rows = accounts.rank(cfg.accounts, accounts.read_limits(cfg.limits_dir, metered), cfg.limit_percent, at, None, cfg.reset_soon_hours)
+        got_ = accounts.early(rows, attrs.get("account"), cfg.early_percent, cfg.early_reset_hours, at, attrs.get(wake.MOVE_TO),
+                              attrs.get(wake.MOVE_KEPT))
+        if got_ and not got_["to"] and not attrs.get(wake.MOVE_TO):
+            seen = f"{attrs.get('account')}/{got_['kind']}"
+            if attrs.get(wake.MOVE_SKIPPED) != seen:
+                deliver.log(got["inbox"], {"kind": "moved", "at": at, "name": attrs.get("name"), "path": got["cwd"],
+                                           "from": attrs.get("account"), "to": None, "why": wake.EARLY, "status": "skipped", "detail": got_["why"]})
+                provision.mark(got["cwd"], got["root"], {wake.MOVE_SKIPPED: seen}, gitx)
+        elif got_ is None and attrs.get(wake.MOVE_SKIPPED):
+            provision.mark(got["cwd"], got["root"], {wake.MOVE_SKIPPED: None}, gitx)   # 目安を下回った。次に達したらまた残す
+    except Exception:  # 設定を読めなくても、頼みは渡す
+        return False
+    return bool(got_ and (got_["to"] or attrs.get(wake.MOVE_TO)))
+
+
+def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False, early_of=early_due):
     """毎回クリアする部署が次の頼みを受ける前に（at_rest なら、会話を引き継ぐ部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
     起動し直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起動したときの --model・--effort・--settings を
-    残すので、会社の形の起動の設定を替えたら、空にするのでなく起動し直す（6bdc72）。
+    残すので、会社の形の起動の設定を替えたら、空にするのでなく起動し直す（6bdc72）。値が同じでも、使用上限に当たる前の区切りで
+    ほかのアカウントへ早めに移すとき（early_of。early_due）は起動し直す（上限に当たってから移ると、ターンの途中で切られて作業が消える）。
     裏の処理が残る・（at_rest でなければ）順番待ちが空・今の値が起動したとき（company.launched）か、前に起動し直さなかった値（company.restart-kept）と
     同じ・会社の形を読めない・この会話の起動し直しがもう走っている（company.restarting がこの会話の id。人が打って待ち受けが
     替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）ときは起動し直さない。"""
@@ -477,7 +505,11 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False)
         key = key_of(got["cwd"], attrs)
     except Exception:  # 会社の形を読めなくても、頼みは渡す
         return None
-    return None if key is None or key in (attrs.get(wake.LAUNCHED) or NO_FLAGS, attrs.get(wake.RESTART_KEPT)) else key
+    if key is None:
+        return None
+    if key not in (attrs.get(wake.LAUNCHED) or NO_FLAGS, attrs.get(wake.RESTART_KEPT)):
+        return key
+    return key if early_of(got, attrs) else None
 
 
 def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sleep, parent=os.getppid, detach=None):

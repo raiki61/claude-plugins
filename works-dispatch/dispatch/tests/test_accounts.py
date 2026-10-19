@@ -352,3 +352,38 @@ class ReadLimits(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Early(unittest.TestCase):
+    """区切りで早めに移すか（accounts.early）。受付 215886 の 2026-10-19 09:05 の控え（p3 は 5 時間 77%・週 98%、週の枠は 3 時間 56 分で戻る）。"""
+
+    now = 1792368333
+
+    def rows(self, **more):
+        lim = {"main": {"five_hour": {"used_percentage": 7, "resets_at": 1792375200}, "seven_day": {"used_percentage": 81, "resets_at": 1792724400}},
+               "p1": {"five_hour": {"used_percentage": 9, "resets_at": 1792384200}, "seven_day": {"used_percentage": 85, "resets_at": 1792760400}},
+               "p2": {"five_hour": {"used_percentage": 0, "resets_at": 1792383600}, "seven_day": {"used_percentage": 98, "resets_at": 1792670400}},
+               "p3": {"five_hour": {"used_percentage": 77, "resets_at": 1792373400}, "seven_day": {"used_percentage": 98, "resets_at": 1792382400}},
+               **more}
+        return accounts.rank(ACCTS, lim, 95, self.now)
+
+    def test_the_hot_account_moves_to_the_head_of_the_order_below_the_mark(self):
+        got = accounts.early(self.rows(), "p3", 90, 1, self.now)
+        self.assertEqual(got["to"], "main")   # p2 は上限、main（81%）と p1（85%）のうち使用率の順の頭
+        self.assertIn("週の枠 98%", got["why"])
+
+    def test_no_move_under_the_mark_or_when_the_hot_window_resets_soon_or_without_a_roomy_account(self):
+        self.assertIsNone(accounts.early(self.rows(), "p1", 90, 1, self.now))   # 目安に届かない
+        self.assertIsNone(accounts.early(self.rows(), "p9", 90, 1, self.now))   # 控えの無いアカウント
+        got = accounts.early(self.rows(), "p3", 90, 4, self.now)   # 週の枠は 3 時間 56 分で戻る
+        self.assertIsNone(got["to"])
+        self.assertIn("4 時間以内に戻る", got["why"])
+        got = accounts.early(self.rows(), "p3", 80, 1, self.now)   # main 81%・p1 85% も目安に達する
+        self.assertIsNone(got["to"])
+        self.assertIn("ほかのアカウントが無い", got["why"])
+
+    def test_the_named_account_is_taken_unless_it_is_over_its_limit(self):
+        self.assertEqual(accounts.early(self.rows(), "p3", 90, 1, self.now, wish="p1")["to"], "p1")
+        self.assertEqual(accounts.early(self.rows(), "main", 90, 1, self.now, wish="p1")["to"], "p1")   # 目安を待たない
+        self.assertIsNone(accounts.early(self.rows(), "p3", 90, 1, self.now, wish="p2")["to"])   # 上限に達した
+        self.assertIsNone(accounts.early(self.rows(), "p3", 90, 1, self.now, wish="p9")["to"])

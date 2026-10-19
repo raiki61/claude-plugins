@@ -100,6 +100,17 @@ class Load(unittest.TestCase):
                 config.load(write(self.d, "c.toml", f"reset_soon_hours = {bad}\n" + body), env={})
             self.assertIn("reset_soon_hours", str(e.exception))
 
+    def test_move_early_values_are_read_and_checked(self):
+        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual((cfg.early_percent, cfg.early_reset_hours), (90, 1.0))
+        cfg = config.load(write(self.d, "c.toml", "move_early_percent = 80\nmove_early_reset_hours = 2\n" + body), env={})
+        self.assertEqual((cfg.early_percent, cfg.early_reset_hours), (80, 2))
+        for key, bad in (("move_early_percent", '"90"'), ("move_early_percent", "true"), ("move_early_reset_hours", "-1")):
+            with self.assertRaises(config.ConfigError) as e:
+                config.load(write(self.d, "c.toml", f"{key} = {bad}\n" + body), env={})
+            self.assertIn(key, str(e.exception))
+
     def test_account_kinds(self):
         # アカウントの持ち方は人で違う。claude そのまま／設定のフォルダ＋自分で作った Keychain の項目／使用率の枠の無いもの（Ollama・Foundry など）
         body = (f'accounts = [\n'

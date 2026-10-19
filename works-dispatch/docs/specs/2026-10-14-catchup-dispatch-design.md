@@ -205,6 +205,8 @@ PR が複数あるときは、provision と launch を PR ごとに順に全部�
 ```toml
 limit_percent = 95                      # 使用率がこれに達したアカウントは選ばない
 reset_soon_hours = 24                   # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（省けば 24）
+move_early_percent = 90                 # 区切りで、今のアカウントの枠がこの使用率に達していれば、空いているアカウントへ早めに移す（省けば 90）
+move_early_reset_hours = 1              # 達した枠がこの時間以内に戻るなら移さない（省けば 1）
 limits_dir = "~/.cache/claude-limits"   # 使用率の控えの置き場
 
 # name は使用率の控えのファイル名、command はそのアカウントで claude を起こすシェルのコマンド、

@@ -259,6 +259,85 @@ class Move(unittest.TestCase):
             self.assertIn("区切りの印（--rest）も無い", out)
         self.assertEqual((seen, self.stopped), ([], []))
 
+    def test_if_changed_moves_early_at_the_break_when_the_account_nears_its_limit(self):
+        # 起動の設定は同じでも、今のアカウントの枠が早めに移す目安（既定 90%）に達し、すぐ戻らなければ、空いているアカウントへ移す
+        # （上限に当たってから移ると、ターンの途中で切られて作業が消える。受付 215886）
+        self.changed_world(role.launch_key({"model": "opus"}))
+        provision.mark(self.place, self.src, {"account": "a1"}, gitx)
+        far = 10 * 3600
+        self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 92, "resets_at": far}, "seven_day": {"used_percentage": 50}},
+                                  "a2": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 40}}}]
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        (got,) = seen
+        self.assertEqual(got["ns"].only_account, "a2")
+        self.assertIn("使用上限に当たる前の区切りで", got["brief"])
+        (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual((moved["from"], moved["to"], moved["why"], moved["status"]), ("a1", "a2", move.EARLY, "done"))
+        self.assertIn("5 時間の枠 92%", moved["detail"])
+
+    def test_an_early_move_that_cannot_start_is_not_tried_again_on_the_same_account(self):
+        # 起動できずに前の会話へ戻したら、同じ先へは区切りのたびに止めて戻すのを繰り返さない
+        self.changed_world(role.launch_key({"model": "opus"}))
+        provision.mark(self.place, self.src, {"account": "a1"}, gitx)
+        hot = {"five_hour": {"used_percentage": 92, "resets_at": 10 * 3600}, "seven_day": {"used_percentage": 50}}
+        cool = {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 40}}
+        self.ports.limits_seq = [{"a1": hot, "a2": cool}, {"a1": hot, "a2": cool}]
+        seen, task = self.fake_task(rc=1)
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 1, out)
+            self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_KEPT], "a2")
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("移さない", out)
+        self.assertEqual(len(seen), 1)
+
+    def test_if_changed_does_not_move_early_without_a_roomy_account_or_when_the_window_resets_soon(self):
+        # 移る先が目安に届く・達した枠がすぐ戻るときは移さず、訳を台帳に status skipped で残す
+        self.changed_world(role.launch_key({"model": "opus"}))
+        provision.mark(self.place, self.src, {"account": "a1"}, gitx)
+        hot = {"five_hour": {"used_percentage": 92, "resets_at": 10 * 3600}, "seven_day": {"used_percentage": 50}}
+        soon = {"five_hour": {"used_percentage": 92, "resets_at": 1800}, "seven_day": {"used_percentage": 50}}
+        cool = {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 40}}
+        self.ports.limits_seq = [{"a1": hot, "a2": {"five_hour": {"used_percentage": 91}, "seven_day": {"used_percentage": 1}}},
+                                 {"a1": soon, "a2": cool}]
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("ほかのアカウントが無いので移さない", out)
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("1 時間以内に戻るので移さない", out)
+        self.assertEqual((seen, self.stopped), ([], []))
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual([(r["status"], r["to"], r["why"]) for r in rows], [("skipped", None, move.EARLY)] * 2)
+
+    def test_a_move_stopped_mid_turn_marks_the_account_and_the_break_moves_there(self):
+        # 手で打った --move がターンの途中で止まったら（2026-10-19 に p3 の 5 部署）、移す先を印し、区切りの --if-changed がそこへ移す
+        self.changed_world(role.launch_key({"model": "opus"}))
+        provision.mark(self.place, self.src, {"account": "a1"}, gitx)
+        h = self.ports.herdr
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
+        rc, out = self.main(self.src, "--move", "調べ", "--account", "a2")
+        self.assertEqual(rc, move.NOT_NOW, out)
+        self.assertIn("区切りで移すよう印した", out)
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a2")
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "idle"}
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")   # 使用率は分からなくても、名指しで移す
+        self.assertEqual(rc, 0, out)
+        (got,) = seen
+        self.assertEqual(got["ns"].only_account, "a2")
+        self.assertNotIn(wake.MOVE_TO, got["attrs"])
+        moved = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual([(r["to"], r["why"], r["status"]) for r in moved],
+                         [("a2", "持ち主か窓口が移した", "failed"), ("a2", move.EARLY, "done")])
+
     def test_the_desk_exits_and_starts_again_named_in_the_same_pane(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
         for p in self.ports.herdr._panes:

@@ -20,6 +20,10 @@ ENV = "WORKS_DISPATCH_CONFIG"
 DEFAULT_LIMIT = 95
 DEFAULT_RESET_SOON_HOURS = 24  # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（accounts ノード）
 DEFAULT_LIMITS_DIR = "~/.cache/claude-limits"
+# 区切りで早めに移す（--move --if-changed）目安。今のアカウントの 5 時間か週の枠がこの使用率に達し、その枠が DEFAULT_EARLY_RESET_HOURS より
+# 先まで戻らなければ、使用率がこれに届かないほかのアカウントへ移す。limit_percent より手前で、上限に当たってターンの途中で切られる前に移す
+DEFAULT_EARLY_PERCENT = 90
+DEFAULT_EARLY_RESET_HOURS = 1.0   # 達した枠がこの時間以内に戻るなら移さない（移すと会話の記憶を失い、移る先の週の枠も使う）
 
 
 class ConfigError(Exception):
@@ -50,6 +54,8 @@ class Config(NamedTuple):
     repos: tuple[Repo, ...]
     notes: tuple[str, ...] = ()  # 止めはしないが、書いた人に伝える事（外した鍵が書かれているなど）
     reset_soon_hours: float = DEFAULT_RESET_SOON_HOURS
+    early_percent: int = DEFAULT_EARLY_PERCENT
+    early_reset_hours: float = DEFAULT_EARLY_RESET_HOURS
 
 
 def _path(v):
@@ -95,6 +101,14 @@ def load(path=None, env=os.environ, missing_ok=False):
     if not isinstance(soon, (int, float)) or isinstance(soon, bool) or soon < 0:
         problems.append("reset_soon_hours が 0 以上の数で無い")
         soon = DEFAULT_RESET_SOON_HOURS
+    early = raw.get("move_early_percent", DEFAULT_EARLY_PERCENT)
+    if not isinstance(early, int) or isinstance(early, bool):
+        problems.append("move_early_percent が整数で無い")
+        early = DEFAULT_EARLY_PERCENT
+    early_hours = raw.get("move_early_reset_hours", DEFAULT_EARLY_RESET_HOURS)
+    if not isinstance(early_hours, (int, float)) or isinstance(early_hours, bool) or early_hours < 0:
+        problems.append("move_early_reset_hours が 0 以上の数で無い")
+        early_hours = DEFAULT_EARLY_RESET_HOURS
 
     accounts = []
     for i, a in enumerate(raw.get("accounts", [])):
@@ -153,7 +167,7 @@ def load(path=None, env=os.environ, missing_ok=False):
                           _path(copy_from) if copy_from else None, gh_user or None))
     if problems:
         raise ConfigError(f"設定の形が違う（{path}）: " + "／".join(problems))
-    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes), soon)
+    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes), soon, early, early_hours)
 
 
 def pick_repo(cfg, name):

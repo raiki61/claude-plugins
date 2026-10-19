@@ -122,6 +122,39 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
     return rows
 
 
+def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
+    """区切りで早めに移すか（--move --if-changed と待ち受け）。rows は rank の並び、old は今のアカウント、wish は持ち主か窓口が
+    --move で名指したが、ターンの途中で移せなかったアカウント（属性 company.move-to）。avoid は前に早めに移そうとして起動できなかった
+    アカウント（属性 company.move-kept。選び直すと区切りのたびに止めて戻すのを繰り返す）。
+    {"to": 移る先か None, "why": 移す訳か移さない訳, "kind": move・wish・soon・none・bad}。移す訳の無いとき（まだ目安に届かない・控えが無い）は None。
+    - wish が在れば、それが上限に届かず今のアカウントと違えば移る先にする（使用率の目安を待たない）。
+    - 今のアカウントの 5 時間か週の枠が early_percent に達し、達した枠のどれかが reset_hours より先まで戻らなければ、
+      使用率が分かり、高い方の枠が early_percent に届かないほかのアカウントのうち、rank の順の頭へ移す。"""
+    if wish and wish != old:
+        row = next((r for r in rows if r["name"] == wish), None)
+        if row and row["eligible"] and wish != avoid:
+            return {"to": wish, "why": f"--move で名指したアカウント {wish} へ、区切りまで待って移す", "kind": "wish"}
+        bad = "設定に無い" if row is None else "前に起動できなかった" if wish == avoid else "使用率が上限に達した"
+        return {"to": None, "why": f"--move で名指したアカウント {wish} は{bad}ので移さない", "kind": "bad"}
+    mine = next((r for r in rows if r["name"] == old), None)
+    if not mine or not mine["known"]:
+        return None
+    hot = [k for k in WINDOWS if mine[k]["used"] is not None and mine[k]["used"] >= early_percent]
+    if not hot:
+        return None
+    use = "・".join(f"{'週' if k == 'seven_day' else '5 時間'}の枠 {mine[k]['used']:g}%" for k in hot)
+    lasting = [k for k in hot if mine[k]["resets_at"] is None or mine[k]["resets_at"] - now > reset_hours * 3600]
+    if not lasting:
+        return {"to": None, "why": f"アカウント {old} の{use}は目安 {early_percent}% に達したが、{reset_hours:g} 時間以内に戻るので移さない",
+                "kind": "soon"}
+    to = next((r["name"] for r in rows if r["name"] not in (old, avoid) and r["eligible"] and r["known"]
+               and r["peak"] is not None and r["peak"] < early_percent), None)
+    if to is None:
+        return {"to": None, "why": f"アカウント {old} の{use}が目安 {early_percent}% に達したが、使用率がそれに届かないほかのアカウントが無いので移さない",
+                "kind": "none"}
+    return {"to": to, "why": f"アカウント {old} の{use}が目安 {early_percent}% に達した（上限に当たる前に、区切りで移す）", "kind": "move"}
+
+
 def _pct(v):
     return "不明" if v is None else f"{v:g}%"
 

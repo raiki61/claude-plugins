@@ -746,6 +746,38 @@ class Hook(unittest.TestCase):
                                   restart=lambda got_, key: False, key_of=lambda cwd, a: opus)
         self.assertEqual(check(), ("wake", "頼みです（受付 a1）"))   # 起動し直せなければ、前の会話に渡す
 
+    def test_fresh_department_restarts_before_the_next_ask_to_move_early_off_a_hot_account(self):
+        # 起動の設定が同じでも、上限に当たる前の区切りで移すときは起動し直す（受付 215886）
+        same = role.launch_key(None)
+        attrs = self.fresh_dept(launched=same, account="a1")
+        got = self.plan()
+        stop = {"hook_event_name": "Stop"}
+        self.put("a1")
+        self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: same, early_of=lambda g, a: False))
+        self.assertEqual(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: same, early_of=lambda g, a: True), same)
+        # 早めに移す目安は、設定と使用率の控えから読む（控えは取り直さない）
+        d = tempfile.mkdtemp()
+        cfg = os.path.join(d, "c.toml")
+        pathlib.Path(cfg).write_text(f"limits_dir = '{d}'\naccounts = [{{ name = \"a1\", command = \"c1\" }}, "
+                                     f"{{ name = \"a2\", command = \"c2\" }}]\n", encoding="utf-8")
+        hot = {"five_hour": {"used_percentage": 92, "resets_at": 10 ** 10}, "seven_day": {"used_percentage": 50}}
+        cool = {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 40}}
+        for name, raw in (("a1", hot), ("a2", cool)):
+            pathlib.Path(d, f"{name}.json").write_text(json.dumps(raw), encoding="utf-8")
+        here = {**attrs, "config": cfg}
+        self.assertTrue(wake_hook.early_due(got, here, env={}))
+        self.assertFalse(wake_hook.early_due(got, {**here, "account": "a2"}, env={}))   # 移る先の側は目安に届かない
+        self.assertTrue(wake_hook.early_due(got, {**here, "account": "a2", wake.MOVE_TO: "a1"}, env={}))   # 名指し
+        self.assertFalse(wake_hook.early_due(got, {**here, "config": os.path.join(d, "無い.toml")}, env={}))   # 設定が無ければ控えも無い
+        self.assertFalse(wake_hook.early_due(got, {**here, wake.MOVE_KEPT: "a2"}, env={}))   # 前に起動できなかった先は選ばない
+        # 目安に達したのに移す先が無ければ、訳を台帳に 1 度だけ残す
+        provision.mark(self.place, self.src, {"config": cfg}, gitx)
+        for _ in range(2):
+            self.assertFalse(wake_hook.early_due(got, {**gitx.worktree_attrs(self.place), wake.MOVE_KEPT: "a2"}, env={}))
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual((row["status"], row["to"], row["why"]), ("skipped", None, wake.EARLY))
+        self.assertIn("ほかのアカウントが無い", row["detail"])
+
     def test_a_just_started_background_talk_is_unready_until_its_transcript_exists(self):
         path = os.path.join(self.place, "t.jsonl")
         start = {"hook_event_name": "SessionStart", "source": "startup", "transcript_path": path}
