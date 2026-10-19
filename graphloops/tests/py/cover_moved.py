@@ -289,6 +289,9 @@ def cover(found):
             problems.append(f"{script}: 名乗る node id が新しい側の run の文脈に 1 つも無い（node id の綴りか測りの取り違え）")
         mine = set().union(*(used.get(n, set()) for n in nodeids))
         per_script[script] = compare({c: v for c, v in old_ctx.items() if c == f"old:{script}"}, select_new(new_ctx, built_ctx, nodeids, mine))
+        # 1 度目にだけ通った行（台本ごとの包含から外し、全体の包含で見る行）。プロセスで 1 度だけ走る行のはずなので、目で確かめられるよう出す
+        per_script[script]["only_first_pass_lines"] = sorted(
+            f"{f}:{n}" for f, n in old_ctx.get(f"first:{script}", set()) - old_ctx.get(f"old:{script}", set()))
     result = {"core": os.environ.get("COVERAGE_CORE"), "coverage": coverage.__version__, "old_runs": old_runs, "built_run": built_run,
               "new_run": new_run, "all": compare(old_ctx, new_ctx), "per_script": per_script, "phases": sorted(phases(new_ctx))}
     if not {RUN, SETUP} <= set(result["phases"]):
@@ -342,14 +345,20 @@ def run_old(script, workdir, driver):
 
 
 def old_run_ids(names, made):
-    """列ごとの、元の関数の Run の run_id（{列: run_id}。Run が 1 個に決まらない列は入れない——compare_runs が赤にする）"""
-    out = {}
+    """列ごとの、元の関数の Run の run_id ——({列: run_id}, 問題)。盤面は台本の Run の置き場（tmp/state。compare_runs と同じ道）から
+    名指しで読む（台本は同じ tmp の下に別の盤面を作ることがある）。Run が 1 個でない列は compare_runs が赤にするので数えず、Run が
+    1 個なのに盤面の読めない列は問題にする（黙って時計に戻すと、抜き取りの種が割れて赤と緑が回ごとに揺れる）"""
+    out, problems = {}, []
     for n in names:
         olds = [p for pre, p in made if pre == run_prefix(scenes.HISTORIES[n])]
-        states = sorted(olds[0].glob("*/state.json")) if len(olds) == 1 else []
-        if len(states) == 1:
-            out[n] = json.loads(states[0].read_text(encoding="utf-8"))["run_id"]
-    return out
+        if len(olds) != 1:
+            continue
+        f = olds[0] / "state" / "state.json"
+        try:
+            out[n] = json.loads(f.read_text(encoding="utf-8"))["run_id"]
+        except (OSError, ValueError, KeyError) as e:
+            problems.append(f"列 {n}: 元の関数の Run の run_id が読めない（{f}: {type(e).__name__}）")
+    return out, problems
 
 
 @contextlib.contextmanager
@@ -452,10 +461,11 @@ def timing(scripts, driver):
         for script in scripts:
             work = pathlib.Path(tempfile.mkdtemp(prefix="w-", dir=td))
             old, made, old_calls = run_old(script, work, driver)
-            names = sorted({n for n, _ in scenes.ROWS.get(script, ())})
-            new, built, new_calls = run_new(script, work, old_run_ids(names, made))
+            run_ids, id_problems = old_run_ids(sorted({n for n, _ in scenes.ROWS.get(script, ())}), made)
+            new, built, new_calls = run_new(script, work, run_ids)
             runs = compare_runs(new["histories"], made, built, old_calls, new_calls)
             result[script] = {"old": old, "new": new, "runs": runs}
+            problems += [f"{script}: {x}" for x in id_problems]
             problems += [f"{script}: 元の関数の check が落ちた: {old['fails'][:3]}"] if old["fails"] else []
             problems += [f"{script}: 列 {n} が元の関数の Run と違う: {d}" for n, d in runs.items() if d]
     return result, problems
@@ -476,8 +486,9 @@ def main(argv):
         print(f"印を集める段が {code} で終わった", file=sys.stderr)
         return 1
     # 集める段（同じプロセスの pytest）が GNU readline を読み込むと、readline がプロセスの環境（C の environ）に COLUMNS と LINES を
-    # 書く（os.environ には載らない）。cli の口の旧い側の子はそれを継ぎ、engine の検査結果の控えの指紋（環境変数の全部）が、os.environ
-    # を見る inproc の列の Run と割れる（実測 2026-10-18: run 39173245893 の timing cli。Linux だけ——macOS の Python は libedit）
+    # 書く（os.environ には載らない）。cli の口の旧い側で env を渡さずに loop.py を起こす台本（review の Run）の子はそれを継ぎ、engine の
+    # 検査結果の控えの指紋（子に渡る環境変数。checks_cache の注記）が、os.environ を見る inproc の列の Run と割れる（実測 2026-10-18:
+    # run 39173245893 の timing cli。Linux だけ——macOS の Python の readline は libedit で、環境を書かない）
     for name in ("COLUMNS", "LINES"):
         if name not in os.environ:
             os.unsetenv(name)
