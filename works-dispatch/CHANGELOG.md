@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.84.3] - 2026-10-19
+
 ### Fixed
 
 - `limits.py plan`（アカウントごとのサブスクのプラン〔Pro・Max 5x・Max 20x〕を出すコマンド）の説明・出力・内部の文書で、プランを「契約の段」「段」と書いていたのを「プラン」にした。出力の文言では、プランが読めないときの理由（`--json` の `reason`）が変わる（例:「契約の段は無い」→「プランは無い」）。キー（`tier`・`type` など）と引数は変えていない。
