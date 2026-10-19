@@ -4648,6 +4648,18 @@ assert "入っている版は 0.2.0" in note(mine, rows=[(v1, "user", None), (v2
 assert note(mine, rows=[(v2, "user", None), (v1, "project", here)]) == ["", None], "user の行を project の行より先に取った"
 assert "入っている版は 0.2.0" in note(mine, rows=[(v1, "project", here), (v2, "local", here)])[0], "local の行が project の行より先に効いていない"
 assert note(mine, rows=[(v2, None, None)]) == ["", None], "scope の無い行を数えた"
+# 狭い行の場所に消す印が付いていても、広い行の版に倒さない
+(cache / "0.10.0/.orphaned_at").write_text("1", encoding="utf-8")
+try:
+    assert note(mine, rows=[(v2, "user", None), (cache / "0.10.0", "project", here)]) == ["", None], "消す印の付いた狭い行から広い行に倒した"
+finally:
+    (cache / "0.10.0/.orphaned_at").unlink()
+# CLAUDE_PROJECT_DIR の行も効く(作業フォルダがプロジェクトの外でも)
+env["CLAUDE_PROJECT_DIR"] = str(other)
+try:
+    assert "入っている版は 0.2.0" in note(mine, rows=[(v1, "user", None), (v2, "project", other)])[0], "CLAUDE_PROJECT_DIR の project の行が効いていない"
+finally:
+    del env["CLAUDE_PROJECT_DIR"]
 # linked worktree の会話には、主の clone で入れた行(projectPath は主の clone)が効く
 main_tree, wt = cache.parents[3] / "main", cache.parents[3] / "wt"
 (main_tree / ".git/worktrees/wt").mkdir(parents=True, exist_ok=True)

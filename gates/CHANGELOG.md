@@ -8,7 +8,7 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ### Fixed
 
-- 初見読みの「入っている版は X」の注記が、別のプロジェクトにだけ入れた版（`installed_plugins.json` の scope が project・local で、projectPath が今のプロジェクトでない行）も数えていた。今のプロジェクトに効く行（user の行と、projectPath が今の作業フォルダ・その git の作業ツリー・linked worktree の主の作業ツリーに当たる project・local の行）だけを見て、狭い scope（local・project・user の順）の行の版で決める。
+- 初見読みの「入っている版は X」の注記が、別のプロジェクトにだけ入れた版（`installed_plugins.json` の scope が project・local で、projectPath が今のプロジェクトでない行）も数えていた。今のプロジェクトに効く行（user の行と、projectPath が今の作業フォルダ・その git の作業ツリー・linked worktree の主の作業ツリー・CLAUDE_PROJECT_DIR に当たる project・local の行）だけを見て、狭い scope（local・project・user の順）の行の版で決める。狭い行の場所が無いか消す印が付いていれば、広い行の版には倒さずに注記を出さない。
 
 ## [0.37.0] - 2026-10-19
 

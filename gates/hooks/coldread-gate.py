@@ -2239,21 +2239,21 @@ def installed_elsewhere():
     except (OSError, ValueError, AttributeError):
         return None
     places = _here()
+    plugin_dir = os.path.dirname(here)
+    rows = entries.get("%s@%s" % (os.path.basename(plugin_dir), os.path.basename(os.path.dirname(plugin_dir))))
     live = []
-    for rows in entries.values():
-        for row in rows if isinstance(rows, list) else []:
-            if not isinstance(row, dict):
-                continue
-            path = os.path.realpath(str(row.get("installPath") or ""))
-            if os.path.normcase(os.path.dirname(path)) != os.path.normcase(os.path.dirname(here)):
-                continue   # ほかのプラグイン
-            scope = row.get("scope")
-            if scope == "user" or (scope in SCOPES and row.get("projectPath")
-                                   and os.path.normcase(os.path.realpath(str(row["projectPath"]))) in places):
-                live.append((SCOPES.index(scope), path, row))
+    for row in rows if isinstance(rows, list) else []:
+        scope = row.get("scope") if isinstance(row, dict) else None
+        if scope == "user" or (scope in SCOPES and row.get("projectPath")
+                               and os.path.normcase(os.path.realpath(str(row["projectPath"]))) in places):
+            live.append((SCOPES.index(scope), row))
     if not live:
         return None
-    _, path, row = min(live, key=lambda t: t[0])
+    # 狭い行の場所が無い・消す印が付いていても、広い行の版には倒さない(その場所は今の場で効いていない)
+    _, row = min(live, key=lambda t: t[0])
+    if not row.get("installPath"):
+        return None
+    path = os.path.realpath(str(row["installPath"]))
     if os.path.normcase(path) == os.path.normcase(here) or os.path.exists(os.path.join(path, ".orphaned_at")):
         return None   # 自分が効いている版か、消す印の付いた場所
     if not os.path.isfile(os.path.join(path, "hooks", os.path.basename(__file__))):
