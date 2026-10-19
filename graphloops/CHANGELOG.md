@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-19
+
 ### Added
 - 子の claude（engine が `claude -p` で起動する claude）に足す認証を Keychain の項目から読んだとき、その項目のトークンの切れる日が近い（30 日前から）か過ぎていれば、`loop.py next` の `notes`・`loop.py status` と `loop.py run` の出力の `auth_expiry`・`loop.py launch` の行の `auth.expiry` に、作り直し方（`claude setup-token`）と一緒に出す。トークンは書き換えた日から 1 年で切れる見込みとして数える。認証を足す前置の層（`scripts/with-auth.py`）も標準エラーに同じ 1 行を出す。
 
