@@ -456,3 +456,27 @@ class Breakage(unittest.TestCase):
         entry.mkdir()   # 読めない写しは、違うと言わずに黙らない
         self.assertEqual(len(limits.entry_drift(self.dir)), 1)
         self.assertIn("limits-entry.py（読めない", limits.entry_drift(self.dir)[0])
+
+    def test_drifted_entry_is_copied_again_from_the_version_the_entry_runs(self):
+        self.assertEqual(limits.sync_entry(self.dir), [])
+        self.assertFalse((self.dir / "limits-entry.py").exists())   # 写していなければ写さない
+        entry, picker = limits.copy_entry(self.dir)
+        entry.write_text("# 前の版\n", encoding="utf-8")
+        self.assertEqual(limits.sync_entry(self.dir), [])   # 入口の起動する版が見つからなければ、この版から写し直す
+        self.assertEqual(entry.read_text(encoding="utf-8"), limits.ENTRY.read_text(encoding="utf-8"))
+        # 入口が起動する版（入れた物の控えの置き場）が在れば、打った版でなくその版に揃える。版の違う dispatch どうしで写し合わない
+        root, conf = self.dir / "plugin", self.dir / "conf"
+        for rel, text in (("dispatch/limits.py", ""), ("dispatch/limits_entry.py", "# 起動する版\n"), ("hooks/run-python.sh", "# sh\n")):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text, encoding="utf-8")
+        (conf / "plugins").mkdir(parents=True)
+        (conf / "plugins" / "installed_plugins.json").write_text(json.dumps(
+            {"plugins": {"works-dispatch@m": [{"scope": "user", "installPath": str(root)}]}}), encoding="utf-8")
+        (self.dir / limits.SNAPSHOT_NAME).write_text(json.dumps({"accounts": [{"name": "a", "config_dir": str(conf)}]}), encoding="utf-8")
+        self.assertEqual(limits.entry_drift(self.dir), ["limits-entry.py", "run-python.sh"])
+        self.assertEqual(limits.sync_entry(self.dir), [])
+        self.assertEqual(entry.read_text(encoding="utf-8"), "# 起動する版\n")
+        self.assertEqual(picker.read_text(encoding="utf-8"), "# sh\n")
+        entry.unlink()
+        entry.mkdir()   # 写し直せない物は、違うと言い続ける
+        self.assertIn("limits-entry.py（読めない", limits.sync_entry(self.dir)[0])

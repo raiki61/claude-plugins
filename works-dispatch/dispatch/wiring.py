@@ -88,7 +88,7 @@ def herdr_config_path(env):
 def plugin_notes(herdr_toml, config_dirs, limits_dir=None):
     """herdr の設定とアカウントの settings.json が、使えない版のこのプラグインを指していれば、その注記の並び。入れた物の控えが
     消えた置き場を指していれば、それも足す。設定が指す写した入口（limits-entry.py・run-python.sh）が無ければ、それも足す。limits_dir に写した
-    タブバーの入口（limits.py herdr-config）が今の版とずれていれば、それも足す。--check と --tree が出す。"""
+    タブバーの入口（limits.py herdr-config）が今の版とずれていれば写し直し、写し直せなかった物を足す。--check と --tree が出す。"""
     files = [herdr_toml] + [pathlib.Path(d) / "settings.json" for d in config_dirs]
     installed = [x for d in config_dirs for x in limits_entry.install_paths(os.path.expanduser(d))]
     texts = [s for f in files for s in setting_strings(f)]
@@ -105,9 +105,9 @@ def plugin_notes(herdr_toml, config_dirs, limits_dir=None):
                          + "、".join(f"{n}（{s}）" for n, s, _ in gone)
                          + "（どの項目が効くかが分からない。要らなければ CLAUDE_CONFIG_DIR を合わせて claude plugin uninstall <名前> --scope <範囲> を、"
                            "project の範囲はそのフォルダで打つ。tiers --config-dir でも見られる）")
-    drift = limits.entry_drift(limits_dir) if limits_dir else []
+    drift = limits.sync_entry(limits_dir) if limits_dir else []   # 違えば写し直す。写し直せなかった物だけ言う
     if drift:
-        notes.append(f"{limits_dir} に写したタブバーの入口（{'・'.join(drift)}）が今の版と違う（limits.py herdr-config を打ち直す）")
+        notes.append(f"{limits_dir} に写したタブバーの入口（{'・'.join(drift)}）が今の版と違い、写し直せなかった（limits.py herdr-config を打ち直す）")
     return notes
 
 

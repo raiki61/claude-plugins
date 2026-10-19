@@ -46,6 +46,7 @@ import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import filex  # noqa: E402
+import limits_entry  # noqa: E402
 from vendor import claude_auth  # noqa: E402
 
 # 写しから読んだアカウント。dispatch の設定の Account と同じ名前のフィールドを持つ（config は tomllib を引くので、ここでは import しない）
@@ -537,19 +538,50 @@ def copy_entry(limits_dir):
     return d / "limits-entry.py", d / "run-python.sh"
 
 
+def entry_sources(limits_dir):
+    """limits_dir に写した入口の、比べる元: 写した入口が今起動する版（limits_entry.target）の中のファイル。その版が見つからなければ
+    この版の中のファイル。版の違う dispatch を打っても同じ元に揃うので、版どうしで写し合わない。"""
+    snapshot = pathlib.Path(limits_dir) / SNAPSHOT_NAME
+    try:
+        # 設定のフォルダを書いていないアカウントは、タブバー（herdr）と同じく CLAUDE_CONFIG_DIR の無い既定（~/.claude）で読む。
+        # 打った会話のアカウントの CLAUDE_CONFIG_DIR で読むと、アカウントごとに元の版が変わり、写し合う
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+        script = limits_entry.target(str(snapshot), env) if snapshot.is_file() else None
+    except (OSError, ValueError, AttributeError):
+        script = None
+    if not script:
+        return ENTRY_COPIES
+    root = pathlib.Path(script).parent.parent
+    return {"limits-entry.py": root / "dispatch" / "limits_entry.py", "run-python.sh": root / "hooks" / "run-python.sh"}
+
+
 def entry_drift(limits_dir):
-    """limits_dir に写した入口のうち、今の版の元と中身の違うファイルの名前の並び（写していなければ空）。"""
+    """limits_dir に写した入口のうち、元（entry_sources）と中身の違うファイルの名前の並び（写していなければ空）。"""
     d = pathlib.Path(limits_dir)
     out = []
-    for name, src in ENTRY_COPIES.items():
+    for name, src in entry_sources(d).items():
         try:
             if (d / name).read_text(encoding="utf-8") != src.read_text(encoding="utf-8"):
                 out.append(name)
         except FileNotFoundError:
-            continue   # 写していない（herdr-config を打っていない）。元（このプラグインの中）が無ければ、写す copy_entry が先に落ちる
+            continue   # 写していない（herdr-config を打っていない）か、元の版がこのファイルを持たない
         except OSError as e:
             out.append(f"{name}（読めない: {e.strerror or e}）")
     return out
+
+
+def sync_entry(limits_dir):
+    """limits_dir に写した入口が元（entry_sources）と違えば写し直し、写し直した後も違う物を entry_drift の形で返す。
+    入口は版に依らない物で、プラグインを上げるたびに中身だけ変わる。人が herdr-config を打ち直すのを待つと、打つまで注記が出続けた
+    （2026-10-19、my_notes の受付 50f263）。写していない物は写さない（タブバーに入口を置くかは herdr-config で人が決める）。"""
+    d = pathlib.Path(limits_dir)
+    for name, src in entry_sources(d).items():
+        try:
+            if (d / name).read_text(encoding="utf-8") != (text := src.read_text(encoding="utf-8")):
+                filex.replace(str(d / name), text)
+        except OSError:
+            continue   # 写していないか、読めない・書けない。残った違いは entry_drift が言う
+    return entry_drift(d)
 
 
 def main(argv=None, env=os.environ, stdin=sys.stdin):
