@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 変異テストの mutmut（CI の `.github/workflows/mutation.yml` の mutmut の job）が、試験を集める所で毎回落ちていた（09-28・10-05・10-12 の 3 回）。mutmut が試験を走らせる写し（`graphloops/mutants/`）に `blocks/` が写らず、graph の `$ref` が解けなかったため。`graphloops/setup.cfg` の `also_copy` に `blocks/` を足し、写しの中でもリポジトリのルートと隣の convergence-loops を見つけられるように試験を直した。同じ漏れは `graphloops/tests/py/test_mutmut_config.py` が手元の試験で止める
+
 ## [0.39.0] - 2026-10-19
 
 ### Added
