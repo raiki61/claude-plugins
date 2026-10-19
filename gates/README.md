@@ -23,13 +23,13 @@ If there are "blockers" (詰まり: places that prevent understanding), it puts 
 "Questions" (疑問: things the reader understood but whose answer is not in the text) do not stop it; they are passed along.
 
 The same hook also reads, before they are sent, the texts that works-dispatch (the plugin in this repository that hands requests to per-task sessions and returns their results) delivers to another session:
-the summary file of `--deliver` (a result returned to the session that asked) and the request text of `--text` and `--brief` (with `--ask`, `--note`, and `--task`).
+the summary file of `--deliver` (a result returned to the session that asked) and the request text of `--text` and `--brief` (the text of a request sent with `--ask`, `--note`, or `--task`; those three flags choose the kind of send and carry no text themselves).
 The command it looks for starts with `dispatch.py` itself or with `python`/`py`/`bash`/`sh`/`run-python.sh` (the wrapper the works-dispatch skill writes) and has `dispatch.py` as a later word, with any flags in between (`python3 -X utf8`, `run-python.sh --min 3.11`); prefixes of these flags that argparse accepts (`--deli`) count too. `--help` and `--dry-run` send nothing and are not read.
 These texts cannot be fixed once they arrive. Before this, they were read only by the local-document check at the end of the turn (below), that is, after they had been sent,
-and its blockers could no longer be acted on (2026-10-19: 5 blockers on a summary that had already been delivered). The reader has zero context, as for new releases.
+and its blockers could no longer be acted on (2026-10-19: 5 blockers on a summary that had already been delivered). The reader reads these texts with zero context: nothing is shown around them (unlike replies and new PRs, which get the screen described in the next paragraph).
 The checks for files, variables, and stdin are the same as for `gh` (a text the hook cannot read stops the command), and destgate does not check these commands (they have no GitHub destination).
 **A text that passed a full zero-context read is remembered as read**: the local-document check at the end of the turn does not read the same content again (this also applies to `--body-file` and other body files of `gh` posts read with zero context).
-A text read with the thread or new-item screen, or passed in a round that stops only on what earlier rounds left, is not remembered, and a file changed after it was sent is read as before.
+Reads that are more lenient are not remembered: a text read with the screen around it (for a reply or edit, the PR/issue thread the hook fetches with gh; for a new PR or issue, what its page will show; see the next paragraph), and a text passed on the 3rd or later read of the same post after it was stopped and rewritten, where only blockers left over from earlier reads stop it (see "From the 3rd round" below). A file changed after it was sent is read as before.
 
 The context the reader has depends on where the post goes. Replies and edits attached to an existing PR/issue thread are read with the title, number,
 file and line, the original comment, and the earlier replies all visible on the same screen, so **the hook fetches
