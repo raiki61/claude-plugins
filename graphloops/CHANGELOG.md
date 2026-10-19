@@ -6,6 +6,14 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 開発の側の直しで、graphloops を使う側の振る舞いは変わらない。手で起動する CI の `.github/workflows/cover-moved.yml`（`graphloops/tests/py/cover_moved.py` を回し、層 2 の試験へ移した台本〔`tests/simulate.py`・`tests/simulate_review.py` の関数〕と、元の関数の被覆・盤面を突き合わせる）が、初めて回した 2026-10-18 に cover・timing inproc・timing cli の 3 段とも赤だった（https://github.com/raiki61/claude-plugins/actions/runs/39173245893 ）。突き合わせは緩めずに、次の 5 つを直した。
+  - 層 2 の列の init を、元の関数の Run と同じ run_id で打たせる。research-loop の抜き取りの種が run_id で、起動した秒が違うと抜き取る id が割れていた。
+  - プロセスで 1 度だけ走る行（検証器の読み込みなど）を、台本ごとの包含から外して全体の包含で見る。
+  - Linux の GNU readline が C の環境に書く `COLUMNS`・`LINES` を外す。cli の子がそれを継ぎ、検査結果の控えの指紋が割れていた。
+  - 列が渡すファイルの書き方（ASCII への逃がし・中身）を、元の関数と同じにする。
+  - 止まった run の列の名前を、厚みの値を ASCII にした台本の Run の名前（`stop-early-standard`・`stop-early-heavy`）にそろえる。
+
 ## [0.41.0] - 2026-10-19
 
 ### Added
