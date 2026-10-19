@@ -194,16 +194,62 @@ def lifecycle_attrs(lifecycle):
     return {"lifecycle": lifecycle, "residency": FORMER_RESIDENCY[lifecycle]}
 
 
-def worktree_attrs(cwd, runner=_default_runner, former=True):
-    """その worktree の git の設定 company.<名前> を {名前: 値} で（名前は git が小文字にそろえる）。
-    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。former が偽なら、前の版の属性を読み替えずに返す。
-    -z で読む（1 件は「鍵 改行 値 NUL」。-z 無しの「鍵 空白 値 改行」は、改行を含む値〔--wait の訳など〕で次の行を別の鍵と読む）。"""
-    p = runner(["git", "-C", cwd, "config", "--worktree", "-z", "--get-regexp", r"^company\."])
+# 属性を書いた worktree の id（git の worktree の管理の場所 .git/worktrees/<id> の <id>。本社〔代表の clone〕は "."）。部署の属性を
+# 書くとき（provision.mark）に一緒に書き、読むとき（worktree_attrs）に、読んだ設定の置き場の id と違えば写しとみて空として読む
+OWN_ID = "worktree-id"
+MAIN_ID = "."
+
+
+def _id_of(admin):
+    """worktree の管理の場所（git の git-dir）から、その worktree の id。管理の場所の中に commondir（共通の場所を指すファイル）が
+    在るのは linked の worktree だけで、本社の .git には無い。"""
+    return os.path.basename(os.path.normpath(admin)) if os.path.isfile(os.path.join(admin, "commondir")) else MAIN_ID
+
+
+def worktree_id(cwd, runner=_default_runner):
+    """その worktree の id（OWN_ID に書く値）。読めなければ None。"""
+    admin = _git(cwd, ["rev-parse", "--absolute-git-dir"], runner)
+    return _id_of(admin) if admin else None
+
+
+def _read_attrs(cwd, runner):
+    """その worktree の company.* を ({名前: 値}, 設定の置き場の worktree の id) で。置き場は --show-origin（linked の worktree なら
+    絶対のパスの .git/worktrees/<id>/config.worktree、本社なら -C で中のフォルダを指しても相対のパスの .git/config.worktree）から。
+    読めなければ ({}, None)。
+    -z で読む（1 件は「置き場 NUL 鍵 改行 値 NUL」。-z 無しの「鍵 空白 値 改行」は、改行を含む値〔--wait の訳など〕で次の行を別の鍵と読む）。"""
+    p = runner(["git", "-C", cwd, "config", "--worktree", "--show-origin", "-z", "--get-regexp", r"^company\."])
     attrs = {}
-    for item in (p.stdout or "").split("\0") if p.returncode == 0 else []:
+    origin = None
+    items = (p.stdout or "").split("\0") if p.returncode == 0 else []
+    for where, item in zip(items[0::2], items[1::2]):
+        origin = origin or where
         key, _, value = item.partition("\n")
         if key.startswith(ATTR):
             attrs[key[len(ATTR):]] = value
+    if not (origin and origin.startswith("file:")):
+        return attrs, None
+    here = origin[len("file:"):]
+    return attrs, _id_of(os.path.dirname(here)) if os.path.isabs(here) else MAIN_ID
+
+
+def _copy_of(attrs, here):
+    """読んだ属性が、ほかの worktree から git の worktree add で写った物か（書いた worktree の id OWN_ID が、置き場の id と違う）。"""
+    return bool(attrs.get(OWN_ID)) and here is not None and attrs[OWN_ID] != here
+
+
+def worktree_attrs(cwd, runner=_default_runner, former=True, copies=False):
+    """その worktree の git の設定 company.<名前> を {名前: 値} で（名前は git が小文字にそろえる）。
+    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。former が偽なら、前の版の属性を読み替えずに返す。
+    属性の worktree の id（OWN_ID）が設定の置き場の id と違えば、git の worktree add が別の worktree の属性を写した物なので、空として
+    読む（copies が真なら、写しもそのまま返す。写しを消す側〔add_detached〕が使う）。git は extensions.worktreeConfig のとき、作った
+    元の worktree の config.worktree を新しい worktree に写す。部署が自分の作業場から試しの一時の worktree を切ると、部署の属性が全部
+    そのまま載り、名前で部署を探す --move・--ask・--land が「同じ名前の部署が 2 つ以上ある」で止まった（2026-10-19、説明書の部署の
+    value-rules を回す一時の worktree。受付 7d0ac0）。id を書く前の版で書いた属性（OWN_ID が無い）は今までどおり読む。
+    返す属性に OWN_ID は含めない。"""
+    attrs, here = _read_attrs(cwd, runner)
+    if not copies and _copy_of(attrs, here):
+        return {}
+    attrs.pop(OWN_ID, None)   # 読む側だけが見る印なので、呼ぶ側には渡さない（属性を写し直す --reorg などが、ほかの場所の id を書かない）
     # 前の版の属性 company.residency（resident・per-task）が有れば、その値を寿命として読む。今の版は 2 つを同じ値で書くので、
     # 食い違うのは前の版（company.residency だけを書く）が後から寿命を替えたとき
     if former and attrs.get("residency") in FORMER_LIFECYCLE:
@@ -292,6 +338,15 @@ def unset_worktree_attr(cwd, name, runner=_default_runner):
     p = runner(argv)
     if p.returncode not in (0, 5):
         raise GitError(f"{' '.join(argv[:4])}: {(p.stderr or p.stdout).strip()[:300]}")
+
+
+def drop_copied_attrs(cwd, runner=_default_runner):
+    """その worktree の company.* が、ほかの worktree から写った物（worktree_attrs が空と読む物）なら、丸ごと消す。書く口。
+    消したら真。写しの上に属性を書くと、書いた id が写しの残りまでこの worktree の物に見せる（provision.mark が書く前に呼ぶ）。"""
+    if not _copy_of(*_read_attrs(cwd, runner)):
+        return False
+    _must(["git", "-C", cwd, "config", "--worktree", "--remove-section", "company"], runner)
+    return True
 
 
 def set_worktree_attr(cwd, name, value, runner=_default_runner):
@@ -489,7 +544,7 @@ def add_detached(source, path, sha, runner=_default_runner, lock=None):
     if (_git(path, ["config", "--local", "--type=bool", "--get", "extensions.worktreeConfig"], runner) or "") != "true":
         return
     p = runner(["git", "-C", path, "config", "--worktree", "--remove-section", "company"])
-    if p.returncode != 0 and worktree_attrs(path, runner):   # セクションが無いとき（終了の値 128）は消す物が無い
+    if p.returncode != 0 and worktree_attrs(path, runner, copies=True):   # セクションが無いとき（終了の値 128）は消す物が無い
         runner(["git", "-C", source, "worktree", "remove", "--force", "--force", path])   # 部署に見える場所を残さない
         raise GitError(f"git -C {path} config --worktree --remove-section company: {(p.stderr or p.stdout).strip()[:300]}")
 

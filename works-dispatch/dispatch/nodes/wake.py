@@ -57,6 +57,10 @@ MOVE_TO = "move-to"   # 部署と窓口の属性: 持ち主か窓口が --move �
 EARLY = "使用上限に当たる前の区切りで移す"   # 台帳の moved の行の why（--if-changed と待ち受けが、早めに移した・移さなかった）
 MOVE_KEPT = "move-kept"   # 部署と窓口の属性: 区切りで早めに移そうとして起動できなかったアカウント。早めに移す先に選ばない（起動し直すと外れる）
 MOVE_SKIPPED = "move-skipped"   # 部署と窓口の属性: 早めに移さなかった訳の種類（<アカウント>/<種類>）。同じ訳では台帳に重ねて書かない
+# 部署か窓口の会話が、起動し直す前に書く引継ぎ（済んだこと・次の手）のファイル。作業場の git の場所（git rev-parse --git-dir）に置く。
+# 起動し直した会話への最初の文（--move の move-brief.md）が、在れば指す（2026-10-19 に調べもの・割り振りが書いたのに最初の文が触れず、
+# 移った先の会話が読み落としえた。受付 20261019-004101-f39d00 の困りごと）
+HANDOFF = "handoff.md"
 # --move --if-changed が「今は起動し直さない」で終わる値（会話がターンの途中・入力フィールドに打ちかけの字）。訳がすぐ替わるので、待ち受けは
 # 今の値を RESTART_KEPT に残さず、次の区切りで試し直す。sysexits の EX_TEMPFAIL（https://man.freebsd.org/cgi/man.cgi?query=sysexits ）
 NOT_NOW = 75

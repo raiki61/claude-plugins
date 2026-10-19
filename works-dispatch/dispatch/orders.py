@@ -1187,8 +1187,11 @@ def rest_here(a, ports, cwd):
         print(f"止めた: {cwd} は部署でも窓口でもない（git の設定 company.role と company.name が無い）。区切りは部署か窓口の場所で印す")
         return 2
     ask = attrs.get("ask")
-    if ask and attrs.get("delivered") != ask:
-        print(f"止めた: 納品していない頼み（受付 {ask}）が在る。区切りは、受けた頼みを納品で閉じてから印す")
+    pending = ask and attrs.get("delivered") != ask
+    moving = attrs.get(wake.MOVE_TO) and attrs[wake.MOVE_TO] != attrs.get("account")
+    if pending and not moving:
+        print(f"止めた: 納品していない頼み（受付 {ask}）が在る。区切りは、受けた頼みを納品で閉じてから印す（--move がほかのアカウントへ"
+              f"移す印 company.{wake.MOVE_TO} を付けた会話だけは、納品の前でも印せる）")
         return 2
     common = ports.git.common_dir(cwd)
     try:
@@ -1196,6 +1199,14 @@ def rest_here(a, ports, cwd):
     except (gitx.GitError, OSError) as e:
         print(f"止めた: 区切りの印を書けなかった（{e}）")
         return 1
+    if pending:
+        # --move が移す印を付けたが、会話がターンの途中で移せなかった。区切りの印が納品の後にしか打てないと、頼みが長いと移す時が
+        # 来ない（2026-10-19、p3 の週の枠が尽きる前に移そうとした部署。受付 20261019-004101-f39d00 の困りごと）
+        print(f"区切りと印した。このターンの終わりに、待ち受けがこの会話をアカウント {attrs[wake.MOVE_TO]} へ移して起動し直し、"
+              f"新しい会話に受付 {ask} を渡す（会話は空にしない。移せなければ印を外し、この会話のまま続ける）。新しい会話は前の会話の"
+              f"記憶を持たないので、印す前に、作業場の git の場所の {wake.HANDOFF}（{os.path.join(ports.git.git_dir(cwd), wake.HANDOFF)}）に"
+              "引継ぎ（済んだこと・次の手）を書いておく。新しい会話への最初の文がそのファイルを指す")
+        return 0
     print("区切りと印した。このターンの終わりに、窓の入力フィールドが空なら、機械がこの会話の窓に /clear を打って空にする"
           "（空にした後の会話の始まりに役の本文が足される。会社の形の起動の設定が起動したときと違えば、/clear の代わりに"
           "その設定で起動し直す）。人がこの会話に打つと印が外れる")

@@ -51,6 +51,7 @@ import argparse
 import os
 import pathlib
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import claudex  # noqa: E402
@@ -180,7 +181,8 @@ def _tell(inbox, company_name, dept, old, chosen, said, ports):
     else:
         text = (f"知らせ（返事は要らない）: この会話を --move でアカウント {chosen} へ移して起動し直そうとしたが、止めた（{said}）。"
                 "区切り（毎回クリアする部署は次の頼みを渡す前、ほかはこの会話で dispatch.py --rest を打ったターンの終わり）で、"
-                f"待ち受けがアカウント {chosen} へ移す")
+                f"待ち受けがアカウント {chosen} へ移す。頼みの途中でも、区切りのよい所で作業場の git の場所の {wake.HANDOFF} に"
+                "引継ぎ（済んだこと・次の手）を書いて --rest を打てば、そのターンの終わりに移り、新しい会話が頼みを続ける")
     try:
         deliver.log(inbox, wake.notice(to, None, wake.NOTE, None, text, ports.now()))
     except OSError as e:
@@ -267,6 +269,15 @@ def _first_text(attrs, dept, old, chosen, why, head):
     return head_line
 
 
+def _handoff_line(path):
+    """前の会話が書いた引継ぎ（wake.HANDOFF）が在れば、最初の文に足す一文。前の頼みのときに書いた物が残りうるので、書いた時刻を添える。"""
+    try:
+        at = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(path)))
+    except OSError:
+        return ""   # 引継ぎを書いていない
+    return f" 前の会話が書いた引継ぎ {path}（{at} に書いた）が在る。今の頼みの物なら、続きを再開する前に読む。"
+
+
 def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, settings):
     """部署の裏の会話を止め、--task と同じ道で移る先のアカウントの会話を起動する。(終了の値, 言葉)。text_of は属性から最初の文を作る。"""
     attrs = dept["attrs"]
@@ -311,7 +322,8 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
                                                    wake.MOVE_TO: None, wake.MOVE_KEPT: None, wake.MOVE_SKIPPED: None,
                                                    **({"cleared": ask} if done else {})}, ports.git)
     brief = os.path.join(ports.git.git_dir(dept["path"]), "move-brief.md")
-    pathlib.Path(brief).write_text(text_of(attrs) + "\n", encoding="utf-8")
+    pathlib.Path(brief).write_text(text_of(attrs) + _handoff_line(os.path.join(ports.git.git_dir(dept["path"]), wake.HANDOFF)) + "\n",
+                                   encoding="utf-8")
     pending = ask and attrs.get("delivered") != ask
     the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
     tail = deliver.tail(deliver.required_items(the_role), orders.RUN) if pending else None

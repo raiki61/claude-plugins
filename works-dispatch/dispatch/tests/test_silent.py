@@ -90,7 +90,8 @@ class WakeReads(unittest.TestCase):
 
 class Attrs(unittest.TestCase):
     def test_worktree_attrs_reads_values_with_newlines(self):
-        out = "company.name\n調べ\0company.wait\n一行目\n二行目\0"
+        where = "file:/r/.git/worktrees/x/config.worktree\0"   # --show-origin の置き場
+        out = f"{where}company.name\n調べ\0{where}company.wait\n一行目\n二行目\0"
 
         def run(argv, env=None):
             return subprocess.CompletedProcess(argv, 0, out, "")

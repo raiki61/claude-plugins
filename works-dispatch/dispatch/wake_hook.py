@@ -629,6 +629,15 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 deliver.log(got["inbox"], {"id": ask, "kind": "handed", "at": now(), "place": got["cwd"], "session": got["session"],
                                            "again": "会話の記録に受付番号が無い（渡した字が届かなかった）"})
                 return "wake", again_text(attrs, RUN)
+            if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.MOVE_TO) and attrs.get(wake.REST)
+                    and attrs[wake.REST] in (got["session"], "1")):
+                # --move がほかのアカウントへ移す印を付け、会話が納品の前に区切りと印した（--rest）。移して起動し直し、新しい会話が
+                # 頼みを続ける（--move の最初の文が頼みを渡す）。頼みの途中の会話は空にしない。移せなければ印を外し、この会話のまま続ける
+                key = restart_due(got, payload, attrs, key_of, at_rest=True)
+                if key and restart(got, key):
+                    return "end", None
+                if not payload.get("background_tasks"):   # 裏の処理が残る間は、終わった後のターンの終わりでまた試す
+                    provision.mark(got["cwd"], got["root"], {wake.REST: None}, gitx)
             if not payload.get("background_tasks"):
                 # 納品の前に子の返事を待ってターンを終えた部署（永続の担当なども）も、輪の途中に入りうる
                 loose(attrs)

@@ -1034,6 +1034,26 @@ class Hook(unittest.TestCase):
         self.assertEqual(w.writes, [])
         self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s1")
 
+    def test_a_break_before_delivery_moves_the_talk_marked_to_move_and_never_clears_it(self):
+        # --move がターンの途中で移せずに移す印（company.move-to）を付けても、区切り（--rest）は納品の後にしか打てず、頼みが長いと移す時が
+        # 来なかった（受付 f39d00）。印の在る会話は納品の前でも区切りで移り、新しい会話が頼みを続ける。頼みの途中の会話は空にしない
+        opus = role.launch_key({"model": "opus"})
+        provision.mark(self.place, self.src, {"role": "担当", "name": "割り振り", "session": "s1", "ask": "a0", wake.REST: "s1",
+                                              wake.MOVE_TO: "a2", wake.LAUNCHED: opus}, gitx)
+        stop = {"hook_event_name": "Stop", "session_id": "s1"}
+        got = self.plan()
+        tried, w = [], Window(self.place)
+        check = wake_hook.checker(got, stop, h=w, now=lambda: 5, me=lambda: ME,
+                                  restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: opus)
+        with mock.patch.object(wake_hook, "early_due", lambda got_, attrs: bool(attrs.get(wake.MOVE_TO))):
+            self.assertEqual(check(), ("end", None))
+            self.assertEqual((tried, w.writes), ([opus], []))
+            check = wake_hook.checker(got, stop, h=w, now=lambda: 5, me=lambda: ME, restart=lambda got_, key: False,
+                                      key_of=lambda cwd, a: opus)
+            self.assertIsNone(check())   # 移せなければ、空にせず、この会話のまま続ける
+        self.assertEqual(w.writes, [])
+        self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))
+
     def test_a_typed_prompt_takes_the_break_mark_off(self):
         # 人の文でターンが始まったら、区切りの印を外す（人と話している途中の会話を空にしない）
         provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)

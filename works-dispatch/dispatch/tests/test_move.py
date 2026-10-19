@@ -101,6 +101,20 @@ class Move(unittest.TestCase):
         self.assertEqual(got["extra"]["boss"], "段取り")
         self.assertIn("--deliver", got["tail"])
 
+    def test_the_first_text_points_to_the_handoff_the_old_talk_wrote(self):
+        # 前の会話が作業場の git の場所に書いた引継ぎ（handoff.md）に、最初の文が触れず、移った先の会話が読み落としえた（受付 f39d00）
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "ask": "q1", "boss-inbox": self.inbox, "job": "d"}, gitx)
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            self.assertEqual(self.main(self.src, "--move", "調べ")[0], 0)
+        self.assertNotIn(wake.HANDOFF, seen[0]["brief"])   # 書いていなければ触れない
+        handoff = os.path.join(gitx.git_dir(self.place), wake.HANDOFF)
+        pathlib.Path(handoff).write_text("# 引継ぎ\n", encoding="utf-8")
+        provision.mark(self.place, self.src, {"job": "d"}, gitx)
+        with mock.patch.object(dispatch, "_task", task):
+            self.assertEqual(self.main(self.src, "--move", "調べ")[0], 0)
+        self.assertIn(f"前の会話が書いた引継ぎ {handoff}（", seen[1]["brief"])
+
     def test_a_department_that_does_not_start_again_is_attached_back_only_when_no_new_talk_rose(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "session": "s-dept", "account": "a1"}, gitx)
         seen, task = self.fake_task(rc=1)

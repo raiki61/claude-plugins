@@ -397,6 +397,47 @@ class Build(unittest.TestCase):
         self.assertTrue(dept["head_office"])
         self.assertEqual(next(d for d in c["departments"] if d["path"] == place)["attrs"], {})
 
+    def test_a_worktree_a_department_cut_from_its_own_place_is_not_a_department(self):
+        # 部署が自分の作業場から git worktree add で試しの一時の worktree を切ると、部署の属性（base も）が全部写り、--move・--ask・--land が
+        # 「2 つ以上ある」で止まった（2026-10-19、説明書の value-rules を回す一時の worktree。受付 7d0ac0）。属性を書いた worktree の id で見分ける
+        from nodes import deliver
+        src, root = make_world()
+        place = str(pathlib.Path(root) / "dept")
+        git("-C", str(src), "worktree", "add", "-q", "-b", "dept/a", place, "origin/main")
+        provision.mark(place, str(src), {"name": "説明書", "role": "担当", "base": "abc", "session": "s-a"}, gitx)
+        provision.mark(str(src), str(src), {"name": "段取り", "role": "段取り"}, gitx)
+        own = lambda there: git("-C", there, "config", "--worktree", "company." + gitx.OWN_ID).strip()
+        self.assertEqual((own(str(src)), own(place)), (gitx.MAIN_ID, "dept"))
+        os.makedirs(os.path.join(src, "sub"), exist_ok=True)   # 本社の中のフォルダから読んでも、本社の属性（写しと見ない）
+        self.assertEqual(gitx.worktree_attrs(os.path.join(src, "sub")), {"name": "段取り", "role": "段取り"})
+        copy = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="vrwt-")), "vrwt")
+        self.addCleanup(shutil.rmtree, os.path.dirname(copy), True)
+        git("-C", place, "worktree", "add", "-q", "--detach", copy, "HEAD")
+        nested = copy + "-2"   # 写しからもう一度切っても
+        self.addCleanup(shutil.rmtree, nested, True)
+        git("-C", copy, "worktree", "add", "-q", "--detach", nested, "HEAD")
+        for there in (copy, nested):
+            self.assertEqual(gitx.worktree_attrs(there, copies=True)["name"], "説明書")   # git が写した
+            self.assertEqual(gitx.worktree_attrs(there), {})
+        self.assertEqual(gitx.worktree_attrs(place)["name"], "説明書")
+        places = [{"path": os.path.realpath(e["path"]), "branch": e["branch"], "linked": os.path.realpath(e["path"]) != str(src)}
+                  for e in gitx.listed_worktrees(str(src))]
+        [c] = tree.build([str(src)], {str(src): places}, [], gitx.worktree_attrs,
+                         lambda root: {"source": None, "name": None, "skills": [], "problems": []})
+        self.assertEqual(deliver.find_target([c], str(src), "説明書")["department"]["path"], os.path.realpath(place))
+        from landing import _find
+        self.assertEqual([p["path"] for p, _ in _find(places, "説明書", gitx.worktree_attrs)], [os.path.realpath(place)])
+        # 写しの場所に部署を立てる（属性を書く）と、写しの残りを先に消し、書いた物だけが残る
+        provision.mark(copy, str(src), {"name": "試し", "role": "作業"}, gitx)
+        self.assertEqual(gitx.worktree_attrs(copy), {"name": "試し", "role": "作業"})
+        self.assertEqual(own(copy), "vrwt")
+        # id を書く前の版の属性（id が無い）は、今までどおりそのまま読む
+        git("-C", place, "config", "--worktree", "--unset", "company." + gitx.OWN_ID)
+        former = copy + "-3"
+        self.addCleanup(shutil.rmtree, former, True)
+        git("-C", place, "worktree", "add", "-q", "--detach", former, "HEAD")
+        self.assertEqual(gitx.worktree_attrs(former)["name"], "説明書")
+
     def test_a_department_set_up_by_provision_is_not_a_copy(self):
         office = {"name": "段取り", "role": "段取り", "session": "s-h"}
         self.assertTrue(tree.copied_from(office, {"name": "段取り", "role": "段取り", "session": "s-old"}))

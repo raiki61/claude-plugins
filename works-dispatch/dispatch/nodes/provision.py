@@ -226,7 +226,9 @@ def copied(office, here, keep=()):
     値（名前 → None）。keep の名前（これから書く属性）は消さない。git worktree add は、extensions.worktreeConfig のとき、作った元の
     worktree（本社）の config.worktree を新しい worktree に写す（2026-10-16 に git 2.50 と 2.56.0.windows.2 で見た）。本社に --desk が
     書いた窓口の属性が PR の作業場に写って残ると、その場所で起動した PR の会話が役を足すフックから窓口の本文を受け、窓口として振る舞った
-    （guided-resolver の PR #1987 の作業場で、自分の居るブランチに部署を立てようとした。my_notes の受付 3d3ccc）。"""
+    （guided-resolver の PR #1987 の作業場で、自分の居るブランチに部署を立てようとした。my_notes の受付 3d3ccc）。
+    本社の属性に書いた worktree の id（gitx.OWN_ID）が在れば、here は写しを空と読み、写しは mark が丸ごと消す。これは id を書く前の版の
+    本社から写った属性のための物。"""
     return {k: None for k, v in here.items() if k not in keep and office.get(k) == v}
 
 
@@ -242,13 +244,19 @@ def desk_seat(place, common, attrs):
 def mark(path, source, attrs, g=gitx):
     """部署の属性を、その場所（worktree）の git の設定 company.<名前> に書く。値が None（か空）の属性は、前の回の値が残っていれば消す
     （使い直した場所に、前の回の gh のアカウントや設定の場所が残って効き続けないように）。書けなければ GitError。
-    元の clone に extensions.worktreeConfig が無ければ先に入れる（部署ごとの設定は、これが無いと書けない）。"""
+    元の clone に extensions.worktreeConfig が無ければ先に入れる（部署ごとの設定は、これが無いと書けない）。
+    その場所の属性がほかの worktree から写った物（書いた worktree の id が違う）なら、先に丸ごと消す（gitx.drop_copied_attrs）。"""
     g.enable_worktree_config(source)
+    g.drop_copied_attrs(path)
     for name, value in attrs.items():
         if value:
             g.set_worktree_attr(path, name, value)
         else:
             g.unset_worktree_attr(path, name)
+    # 属性を書いた worktree の id も書く。git の worktree add がここから写した物を、読む側（gitx.worktree_attrs）が写しと見分ける
+    own = g.worktree_id(path) if any(attrs.values()) else None
+    if own:
+        g.set_worktree_attr(path, g.OWN_ID, own)
 
 
 # 元の clone の .git/info/exclude（commit されない、手元だけの無視の決まり。worktree と共有）に足す物

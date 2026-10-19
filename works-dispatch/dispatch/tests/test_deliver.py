@@ -968,6 +968,18 @@ class Flow(unittest.TestCase):
         self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s-dept")
         self.assertEqual(self.main(self.src, "--rest")[0], 2)   # 部署でも窓口でもない所
 
+    def test_rest_marks_a_break_before_delivery_when_a_move_waits_for_one(self):
+        # --move がほかのアカウントへ移す印（company.move-to）を付けた会話は、納品の前でも区切りを印せる（受付 f39d00）
+        self.ask_then_summary(GOOD)
+        provision.mark(self.place, self.src, {"account": "a1", wake.MOVE_TO: "a1"}, gitx)
+        self.assertEqual(self.main(self.place, "--rest")[0], 2)   # 今のアカウントを名指した印は移さない
+        provision.mark(self.place, self.src, {wake.MOVE_TO: "a2"}, gitx)
+        rc, out = self.main(self.place, "--rest")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("アカウント a2 へ移して起動し直し", out)
+        self.assertIn(os.path.join(gitx.git_dir(self.place), wake.HANDOFF), out)
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s-dept")
+
     def test_deliver_with_missing_items_sends_nothing_and_names_them(self):
         summary = self.ask_then_summary("結論: 直した\n")
         rc, out = self.main(self.place, "--deliver", summary)

@@ -452,7 +452,7 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0, out)
         place = next(w["path"] for w in ports.herdr.worktrees(src) if w["linked"])
-        self.assertEqual(gitx.worktree_attrs(place), {})
+        self.assertEqual(gitx.worktree_attrs(place, copies=True), {})   # 写しは読み飛ばすだけでなく、消す
         self.assertEqual(gitx.worktree_attrs(src)["role"], "窓口")
 
     def test_untrusted_source_still_launches_and_says_the_dialog_will_show(self):

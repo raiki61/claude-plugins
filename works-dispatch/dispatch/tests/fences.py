@@ -67,6 +67,7 @@ WRITES = {
     "enable_worktree_config": {"nodes/provision.py"},
     "set_worktree_attr": {"nodes/provision.py"},
     "unset_worktree_attr": {"nodes/provision.py"},
+    "drop_copied_attrs": {"nodes/provision.py"},
     "exclude": {"nodes/provision.py"},
     # claude: 裏の会話を消す（claude rm）
     "remove_session": {"nodes/clean.py"},
