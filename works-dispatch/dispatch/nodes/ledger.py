@@ -325,6 +325,26 @@ def forwarded_open(view, i):
     return out
 
 
+def awaited(view, i):
+    """i の答えがまだ出ていないか。i から、回した先（forwarded の線）と、納品の残った疑問の担当者の頼み（続き）だけを先へたどり、
+    自分がまだ終わっていない頼みの受付の並びを返す（無ければ空。i を知らなければ空）。子の頼み（cause）はたどらない。受けた部署が
+    頼みの途中で出した別の仕事で、i の答えを待つ物ではない（開いているか〔open〕は子もたどるので、持ち主への中継のように頼みを受けたまま
+    別の頼みを出し続ける部署の先では、いつまでも閉じない。2026-10-19 の my_notes の受付 22e6bf）。"""
+    tasks = view["tasks"]
+    out, stack, seen = [], [i] if i in tasks else [], set()
+    while stack:
+        j = stack.pop()
+        if j in seen:
+            continue
+        seen.add(j)
+        t = tasks[j]
+        if t["state"] not in FINAL + ("failed",):
+            out.append(j)
+            continue
+        stack += [c for c in reversed(t["children"]) if tasks[c]["parent_by"] == "forwarded"] + list(reversed(t["follows"]))
+    return out
+
+
 def select(view, top=None, everything=False):
     """見せる頼みの木 [{"task", "kids", "follows"}]。top を渡せばその頼みから下だけ。everything でなければ、開いているブランチだけ。"""
     tasks = view["tasks"]

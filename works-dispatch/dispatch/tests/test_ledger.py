@@ -138,6 +138,24 @@ class Projection(unittest.TestCase):
         self.assertEqual(ledger.forwarded_open(view, A), [])    # C は済み。C が出した D へは回していないのでたどらない
         self.assertEqual(ledger.forwarded_open(view, D), [D])
 
+    def test_awaited_follows_forwarded_links_and_holders_but_not_children(self):
+        # 2026-10-19 の my_notes: 部署が段取りに入れるのを頼み（A）、段取りは持ち主への問い（B。社長室が受けた）を担当者に書いて返した。
+        # 社長室は B を受けたまま別件（D）を出し続けたので、子までたどる open は B が閉じた後も閉じなかった（受付 2a2001）
+        desk = {"name": "社長室", "place": "/co/desk"}
+        rows = [ask(A, 1), ask(B, 2, frm={"name": "段取り", "place": "/co"}),
+                {"id": "f", "kind": "deliver", "ask": A, "at": 3, "status": "sent", "holders": [{"holder": B, "ask": B}]},
+                ask(D, 4, frm=desk, cause=B)]
+        view = ledger.build(ledger.merge(rows))
+        self.assertEqual(ledger.awaited(view, A), [B])
+        rows.append({"id": "g", "kind": "deliver", "ask": B, "at": 5, "status": "sent"})
+        view = ledger.build(ledger.merge(rows))
+        self.assertEqual(ledger.awaited(view, A), [])
+        self.assertTrue(view["tasks"][A]["open"])   # --todo は B の子の D まで開いていると出す
+        # 回して閉じた頼みは回した先をたどる。知らない受付は空
+        rows = [ask(A, 1), {"id": A, "kind": "forwarded", "at": 2, "child": B}, ask(B, 2)]
+        self.assertEqual(ledger.awaited(ledger.build(ledger.merge(rows)), A), [B])
+        self.assertEqual(ledger.awaited(ledger.build(ledger.merge(rows)), "x"), [])
+
     def test_the_page_is_one_file_with_its_own_style_and_script(self):
         rows = [ask(A, 1), {"id": "f", "kind": "deliver", "ask": A, "at": 2, "status": "sent", "holders": [{"holder": B, "ask": B}]},
                 ask(B, 3, frm={"name": "x", "place": "/x"})]

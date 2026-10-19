@@ -1602,6 +1602,9 @@ def _running_note(d, attrs):
         return ""
     if got[0] == "waiting":
         return f"。頼みは納品済みで、この部署が頼んだ返事を待っている（受付 {'・'.join(got[1])}）"
+    if got[0] == "handed":
+        return (f"。頼みは納品済みだが、ブランチがメインブランチに入っていない。この部署が頼みを受けてから出した頼みの答えがまだ出ていない"
+                f"（受付 {'・'.join(got[1])}。--todo で追える。入れる手を預けたのでなければ --land {name}）")
     if got[0] == "unlanded":
         return (f"。頼みは納品済みだが、ブランチがメインブランチ（origin/{got[1]}）に入っていない（入れ損ねか、入れる手を待っている。消すと成果を失う）。"
                 f"入れるなら --land {name}")

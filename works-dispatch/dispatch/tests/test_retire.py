@@ -4,6 +4,7 @@
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -240,6 +241,64 @@ class Retire(unittest.TestCase):
         self.assertIsNone(self.after())
         rc, out = self.main(self.src, "--clean")
         self.assertIn("頼みは納品済みで、この部署が頼んだ返事を待っている（受付 c1）", out)
+
+    def test_a_department_that_handed_the_landing_to_an_open_ask_is_not_sent_back(self):
+        # 2026-10-19 に my_notes で、--land が CI の赤で止まった部署が段取りに入れるのを頼み（c1）、段取りが持ち主への問い（c2）を
+        # 担当者に書いて返した後も、3 回差し戻された（受付 2a2001）。c2 が閉じても入っていなければ、また差し戻す
+        self.shape(self.LAND)
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
+        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        dept = {"name": "調べ", "place": self.place}
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "sent", "at": 1, "cause": "q1", "from": dept, "to": {"name": "段取り"}})
+        deliver.log(self.inbox, {"kind": "ask", "id": "c2", "status": "sent", "at": 2, "from": {"name": "段取り"}, "to": {"name": "社長室"}})
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent", "at": 3, "holders": [{"holder": "c2", "ask": "c2"}]})
+        self.assertIsNone(self.after())
+        self.assertEqual(orders.leftover(self.place, gitx.worktree_attrs(self.place)), ("handed", ["c1"]))
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("頼みは納品済みだが、ブランチがメインブランチに入っていない。この部署が頼みを受けてから出した頼みの答えがまだ出ていない"
+                      "（受付 c1。--todo で追える。入れる手を預けたのでなければ --land 調べ）", out)
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d2", "ask": "c2", "status": "sent", "at": 4})
+        self.assertIn("--land '調べ'", self.after())
+        # 預け先として数えるのは、今の頼み（q1）を受けてから出した頼みだけ（前の頼みの子や、ほかの部署の頼みを担当者に書いても外れない）
+        deliver.log(self.inbox, {"kind": "ask", "id": "c3", "status": "sent", "at": 5, "cause": "q0", "from": dept, "to": {"name": "段取り"}})
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d3", "ask": "c3", "status": "sent", "at": 6, "holders": [{"holder": "c4", "ask": "c4"}]})
+        deliver.log(self.inbox, {"kind": "ask", "id": "c4", "status": "sent", "at": 5, "from": {"name": "段取り"}, "to": {"name": "社長室"}})
+        self.assertIn("--land '調べ'", self.after())
+
+    def test_an_ask_sent_after_delivery_without_a_cause_counts_as_handed_and_rearms_the_limit(self):
+        # 差し戻しの文が勧める形: 納品の後に --ask で入れるのを頼む（--ask は納品の後には cause を書かない）
+        self.shape(self.LAND)
+        # 今の頼みの納品の行は頼み元の受付箱（ここでは別の会社の物）に在る
+        boss = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, boss, True)
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "config": self.cfg, "boss-inbox": boss}, gitx)
+        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        dept = {"name": "調べ", "place": self.place}
+        deliver.log(self.inbox, {"kind": "ask", "id": "c0", "status": "sent", "at": 1, "cause": None, "from": dept, "to": {"name": "段取り"}})
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d0", "ask": "c0", "status": "sent", "at": 2})
+        deliver.log(boss, {"kind": "deliver", "id": "dq", "ask": "q1", "status": "sent", "at": 3, "to": {"name": "頼み元"}})
+        payload = json.dumps({"session_id": "s-dept", "cwd": self.place, "background_tasks": []})
+        with tempfile.TemporaryDirectory() as tmp:
+            def stop():
+                out = io.StringIO()
+                orders.stop_hook(io.StringIO(payload), out, tmp_dir=tmp)
+                return json.loads(out.getvalue())["reason"] if out.getvalue() else None
+            got = [stop() for _ in range(deliver.STOP_LIMIT + 1)]
+            self.assertEqual([x is not None for x in got], [True] * deliver.STOP_LIMIT + [False], got)   # 納品の前に出した c0 は数えない
+            self.assertIn("--land '調べ'", got[0])
+            deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "sent", "at": 4, "cause": None, "from": dept, "to": {"name": "段取り"}})
+            deliver.log(self.inbox, {"kind": "ask", "id": "c2", "status": "sent", "at": 5, "from": {"name": "段取り"}, "to": {"name": "社長室"}})
+            deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent", "at": 6, "holders": [{"holder": "c2", "ask": "c2"}]})
+            self.assertIsNone(stop())
+            deliver.log(self.inbox, {"kind": "deliver", "id": "d2", "ask": "c2", "status": "sent", "at": 7})
+            self.assertIn("--land '調べ'", stop())   # 上限まで差し戻した後でも、預けた先の答えが出れば、また差し戻す
+            for _ in range(deliver.STOP_LIMIT):
+                stop()
+            # 返事を待つ間（waiting）も回数を 0 に戻す。担当者の無い返事が来れば、また差し戻す
+            deliver.log(self.inbox, {"kind": "ask", "id": "c5", "status": "sent", "at": 8, "cause": None, "from": dept, "to": {"name": "段取り"}})
+            self.assertIsNone(stop())
+            deliver.log(self.inbox, {"kind": "deliver", "id": "d5", "ask": "c5", "status": "sent", "at": 9})
+            self.assertIn("--land '調べ'", stop())
 
     def test_a_resident_department_is_sent_back_only_for_an_unlanded_branch(self):
         self.shape(self.LAND)

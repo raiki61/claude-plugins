@@ -1415,6 +1415,36 @@ def asked_open(inbox, attrs, cwd):
             and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
 
 
+def handed_open(common, attrs, cwd, g=gitx):
+    """この部署が今の頼み（attrs の ask）を受けてから出した頼みのうち、台帳の射影（nodes/ledger）で答えがまだ出ていない物（ledger.awaited）の
+    受付の並び。返事（納品）が来ても、返事の残った疑問の担当者の頼みが終わっていなければ答えは出ていない（--todo にも開いている頼みとして出る）。
+    入れられない訳を別の頼みに預けた部署（--land を窓口や段取りに頼み、その返事が「持ち主の答え待ち」の受付を担当者に書いて返った形）を、
+    預けた先の答えが出るまで差し戻さないのに使う（2026-10-19 に my_notes の写しの部署が、段取りに預けた後も 3 回差し戻された。
+    受付 2a2001）。出した頼みは、頼みの行の cause が今の頼みの物（納品の前に出した物）と、cause が無く、今の頼みを納品した後に出した物
+    （--ask は納品の後には cause を書かない。cause_of）。前の頼みを受けていた間に出した物と、ほかの部署の頼みは数えない。
+    会社をまたいで台帳をたどるので、ブランチが入っていないときだけ呼び、手元の受付箱に出した頼みが無ければたどらない。"""
+    ask = attrs.get("ask")
+
+    def mine(rows):
+        # 今の頼みを納品した時（納品の行は頼み元の受付箱に在る）。cause の無い頼みは、この時より後に出した物だけ数える
+        done = [r.get("at") or 0 for r in rows if r.get("kind") == "deliver" and r.get("ask") == ask and not isinstance(r.get("to"), str)
+                and not r.get("for") and r.get("status") != "failed"]
+        after = min(done) if done else None
+        return [r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and not isinstance(r.get("to"), str)
+                and (r.get("cause") == ask or "cause" in r and r["cause"] is None and after is not None and (r.get("at") or 0) >= after)
+                and (r.get("from") or {}).get("name") == attrs.get("name") and (r.get("from") or {}).get("place")
+                and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
+
+    # 手元と頼み元の受付箱だけで出した頼みが無ければ、会社をまたいでたどらない
+    starts = [x for x in dict.fromkeys([deliver.inbox_of(common), attrs.get("boss-inbox")]) if x and os.path.isdir(x)]
+    if not mine(ledger.merge(*[deliver.records(x) for x in starts])):
+        return []
+    _, rows = todo.inboxes_from(starts, g.common_dir)
+    got = mine(rows)
+    view = ledger.build(rows, questions_of=todo.questions)
+    return [i for i in dict.fromkeys(got) if ledger.awaited(view, i)]
+
+
 def landed(cwd, main, attrs, g=gitx, gh=ghx):
     """部署のブランチの先頭がメインブランチ main に入ったか。origin/<main> の手元の控えの祖先なら入った。祖先でなくても、先頭の commit を
     含む PR が GitHub で main にマージ済みなら入ったとみなす（squash でのマージと、束ねた別の PR で入れた形。どちらも先頭は祖先にならない。
@@ -1434,7 +1464,9 @@ def landed(cwd, main, attrs, g=gitx, gh=ghx):
 
 def leftover(cwd, attrs, g=gitx):
     """受けた頼みを納品し終えた部署が、ターンを終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
-    受付の並び）・unlanded（ブランチの先頭がメインブランチに入っていない〔landed〕。中身はメインブランチの名前）・finish（エフェメラルの
+    受付の並び）・handed（ブランチがメインブランチに入っていないが、この部署が今の頼みを受けてから出した頼みの答えがまだ出ていない
+    〔handed_open〕。中身は受付の並び）・unlanded（ブランチの先頭がメインブランチに入っていない〔landed〕。中身はメインブランチの名前）・
+    finish（エフェメラルの
     部署で、ブランチもメインブランチに入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
     順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・永続の部署でブランチが入っている、ときは None。
     --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
@@ -1458,20 +1490,24 @@ def leftover(cwd, attrs, g=gitx):
     except g.GitError:
         return None
     if not landed(root, main, attrs, g):
-        return "unlanded", main
+        handed = handed_open(common, attrs, root, g)
+        return ("handed", handed) if handed else ("unlanded", main)
     return None if attrs.get("lifecycle") == gitx.PERSISTENT else ("finish", main)
 
 
-def stop_after(payload, cwd, attrs, count, settings, g=gitx):
+def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None):
     """納品し終えた部署のターンの終わりに差し戻す訳（leftover が unlanded か finish のとき）。差し戻さないなら None。count はこの会話・
     この頼みで差し戻した回数（deliver.STOP_LIMIT まで）。unlanded は --land を使う会社（会社の形の [land] の取り込み方が
     ff-after-ci）だけ（PR で入れる会社は、ブランチがメインブランチに入るのを人の見直しが待つ）。残った疑問に担当者を書いただけでは、その担当者が
-    頼みを受けていなければ誰も追わない。"""
+    頼みを受けていなければ誰も追わない。leftover が waiting（頼んだ返事を待つ）か handed（入れる手を別の頼みに預けた）なら、rearm() で
+    差し戻した回数を 0 に戻す（預ける前に上限まで差し戻した部署にも、返事や預けた先の答えが出て入っていなければ、また差し戻す）。"""
     sid = payload.get("session_id")
-    if attrs.get("session") and sid and attrs["session"] != sid or count >= deliver.STOP_LIMIT:
+    if attrs.get("session") and sid and attrs["session"] != sid:
         return None
     got = leftover(cwd, attrs, g)
-    if got is None or got[0] == "waiting":
+    if got is not None and got[0] in ("waiting", "handed") and rearm:
+        rearm()
+    if count >= deliver.STOP_LIMIT or got is None or got[0] in ("waiting", "handed"):
         return None
     kind, main = got
     name = attrs.get("name") or attrs.get("branch") or "<部署>"
@@ -1486,7 +1522,8 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx):
     return (f"頼み（受付 {attrs['ask']}）は納品済みだが、ブランチがメインブランチ（origin/{main} の手元の控え）に入っていない。止まる前に "
             f"{RUN} --land {shlex.quote(name)} で入れる（ほかの会話が入れたなら、git fetch origin してから止まる）。--land が自動の"
             f"権限の判定に止められたなら、打ち直さず、入れてほしいと {RUN} --ask {shlex.quote(tree.company_name(root, info))} で窓口に"
-            f"頼む（頼んだ返事を待つ間は、この差し戻しは出ない）。残った疑問に担当者を書くだけでは、担当者に頼みが届かない。"
+            f"頼む（頼んだ頼みの答えが出るまでは、この差し戻しは出ない。返事が来ても、返事の残った疑問の担当者の頼みが閉じるまでは"
+            f"答えが出ていないと見る。どちらも --todo に出る）。残った疑問に担当者を書くだけでは、担当者に頼みが届かない。"
             f"持ち主と話している途中なら、入れずにターンを終えてよい{limit}")
 
 
@@ -1814,7 +1851,8 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
             count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
         except (OSError, ValueError):
             count = 0
-        reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)))
+        reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)),
+                            rearm=lambda: pathlib.Path(path).unlink(missing_ok=True))
     if reason is None:
         return 0
     os.makedirs(os.path.dirname(path), exist_ok=True)
