@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-10-19
+
 ### Changed
 - claude の形（graphloops が子の claude を起動するときに頼るオプション・設定のキー・返す JSON のフィールド）の確かめ方を、README のセクション「When the claude version changes」1 か所に置いた。graphloops が利用者に出す次の 3 つの知らせは、確かめのコマンドを書かず、このセクションを指す（何を打つかはそのセクションに書いた）: `loop.py init` が出す、手元の claude の版が engine を確かめた claude の版と違うという知らせ（0.41.0 で足した物）、`loop.py status` と run の報告の費用（`cost_usd`）の `unknown.why`（engine が読むフィールドが claude の出力に無かったときだけ出る）、`scripts/quality-ledger.py` の「claude の出力の包みに engine が読むフィールドが無い行」。
   - 理由: 確かめのコマンドは、graphloops を開発するリポジトリ claude-plugins の検証のツール（`tests/` の下のファイル）で、そのリポジトリの clone でしか動かない。claude-plugins の決まりで、engine とスクリプトの中の文字列と、役（子の claude）が読む文には、claude-plugins の検証のツールの名前（`tests/` の下のファイルのパスなど）を書かない（claude-plugins の直下の `tests/run.sh` のチェック。README は人が読む説明なので書いてよい）。知らせの文がそのファイルのパスを書いていたので、main の CI が赤だった。
