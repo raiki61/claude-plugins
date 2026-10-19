@@ -743,7 +743,7 @@ def _suggested():
 
 @case("formal-state")
 def _formal_state():
-    """依頼の一覧が空な自分の PR の分け方（reviewed・dropped・assigned・unrequested）と、reviewDecision が null
+    """依頼の一覧が空な自分の PR の分け方（rerequest・review_requested・assigned・unrequested）と、reviewDecision が null
     でも意見から導かないこと。再依頼の理由を人宛の依頼の記録の有無で言い分けること、Bot 宛と人宛が混ざった依頼の
     出来事。判定が頼る QUERY の選択と、依頼の出来事の窓が切れたか（件数と hasPreviousPage の両方）の申告と、その
     PR の分け方に添える読み違い（#1901）。"""
@@ -767,21 +767,24 @@ def _formal_state():
     bot_event = conn([bot_ev])
     # 実物の形は 依頼 → レビュー → 依頼が外れる。古いレビューの窓（reviews）が空でも人ごとの最新から読む
     reviewed = [mine(latestReviews=rev, requestEvents=asked),
-                mine(latestReviews=rev, requestEvents=asked, reviewDecision=None),
-                mine(latestReviews=rev, requestEvents=asked, assignees=conn([user("rev")]))]
-    # 人宛の依頼の出来事が無いので、再依頼のターンでも候補は出る（担当で渡した相手のレビューだけでも同じ）
+                mine(latestReviews=rev, requestEvents=asked, reviewDecision=None)]
+    # 人宛の依頼の出来事が無いので、再依頼のターンでも候補は出る
     passerby = [mine(latestReviews=rev), mine(latestReviews=rev, reviewDecision=None),
-                mine(latestReviews=rev, requestEvents=bot_event),
-                mine(latestReviews=rev, assignees=conn([user("rev")]))]
+                mine(latestReviews=rev, requestEvents=bot_event)]
     team_event = mine(requestEvents=conn([dict(review_requested(T1, ME, "x"), requestedReviewer=team)]),
                       assignees=conn([user("rev")]))
+    # 担当に渡した PR は、渡す前のレビューや依頼の記録があっても、依頼先を決めるのは担当（/whose-turn と同じ。
+    # 受けた担当のレビューは数えない）
+    handed_before = [mine(latestReviews=rev, requestEvents=asked, assignees=conn([user("rev")])),
+                     mine(latestReviews=rev, assignees=conn([user("rev")])),
+                     mine(requestEvents=asked, assignees=conn([user("rev")])),
+                     mine(latestReviews=conn([review(T1, "carol")]), assignees=conn([user("rev")])),
+                     team_event]
     bot_event_only = mine(requestEvents=bot_event)
     # 依頼先が削除済みのアカウントだと requestedReviewer は null で返る
     null_reviewer = mine(reviewRequests=conn([{"requestedReviewer": None}]),
                          requestEvents=conn([dict(review_requested(T1, ME, "x"), requestedReviewer=None)]))
     kept = [mine(requestEvents=asked),
-            mine(requestEvents=asked, assignees=conn([user("rev")])),
-            team_event,
             mine(latestReviews=conn([review(T1, ME)])),
             mine(latestReviews=conn([review(T1, "copilot", bot=True)])),
             mine(reviewRequests=bot_req),
@@ -836,21 +839,24 @@ def _formal_state():
     handed_red = mine(assignees=conn([user("rev"), copilot]), head=red)
     received_red = render(pr(author=user("alice"), assignees=conn([user(ME)]), head=red))
     third = render(pr(author=user("alice"), assignees=conn([user("rev")])))
-    forked_by = [dict(requestEvents=conn([review_requested(T1, "alice", "carol")])),
-                 dict(latestReviews=conn([review(T1, "carol")]))]
-    third_forked = [render(pr(author=user("alice"), assignees=conn([user("rev")]), **kw)) for kw in forked_by]
-    third_forked_red = render(pr(author=user("alice"), assignees=conn([user("rev")]), head=red, **forked_by[0]))
-    third_deleted_forked = render(pr(author=None, assignees=conn([user("rev")]), **forked_by[1]))
-    # 依頼の記録がある渡した PR は作者が依頼先を決めるターンのまま。CI 赤は担当の人が持つ
-    fork_side_red = mine(requestEvents=asked, assignees=conn([user("rev")]), head=red)
+    before = [dict(requestEvents=conn([review_requested(T1, "alice", "carol")])),
+              dict(latestReviews=conn([review(T1, "carol")]))]
+    third_before = [render(pr(author=user("alice"), assignees=conn([user("rev")]), **kw)) for kw in before]
+    third_before_red = render(pr(author=user("alice"), assignees=conn([user("rev")]), head=red, **before[0]))
+    third_deleted_before = render(pr(author=None, assignees=conn([user("rev")]), **before[1]))
+    # 依頼の記録がある渡した PR も、依頼先を決めるのと CI 赤は担当の人が持つ
+    before_red = mine(requestEvents=asked, assignees=conn([user("rev")]), head=red)
 
     def received(**over):
         return render(pr(**{"author": user("alice"), "assignees": conn([user(ME)]), **over}))
     received_asking = received(reviewRequests=conn([{"requestedReviewer": user("carol")}]))
     received_unasked = received()
     cut_received = received(requestEvents=events(bots, True))
-    received_forked = [received(latestReviews=conn([review(T1, ME)])),
+    # 受けた担当の私のレビューは数えない。渡す前の依頼は、外れたままなら依頼先を決め直すのは私
+    received_before = [received(latestReviews=conn([review(T1, ME)])),
                        received(requestEvents=conn([review_requested(T1, "alice", "carol")]))]
+    # 受付 e199f8 の例: 作者 alice・担当の私・依頼は無し・carol のコメントのレビューが 1 件
+    received_reviewed = received(latestReviews=conn([review(T1, "carol")]))
     received_draft_conflict = received(isDraft=True, mergeable="CONFLICTING")
     handed_draft_conflict = mine(assignees=conn([user("rev")]), isDraft=True, mergeable="CONFLICTING")
     received_changes = received(reviewDecision="CHANGES_REQUESTED",
@@ -865,7 +871,7 @@ def _formal_state():
                       render(pr(author=None, head=red))]
     deleted_handed = render(pr(author=None, assignees=conn([user(ME)]),
                                latestReviews=conn([dict(review(T1, "x"), author=None)])))
-    deleted_forked = render(pr(author=None, assignees=conn([user(ME)]), latestReviews=conn([review(T1, "carol")])))
+    deleted_reviewed = render(pr(author=None, assignees=conn([user(ME)]), latestReviews=conn([review(T1, "carol")])))
     co_assignee = render(pr(author=user("alice"), assignees=conn([user("alice"), user(ME)])))
     issue_waits = [render(issue(author=user("alice"), assignees=conn([user("bob")]))),
                    render(issue(author=user(ME), assignees=conn([user("bob")])))]
@@ -879,6 +885,7 @@ def _formal_state():
     legacy_third = legacy(pr(author=user("alice"), assignees=conn([{"login": "bob"}])))
     legacy_third_red = legacy(pr(author=user("alice"), assignees=conn([{"login": "bob"}]), head=red))
     legacy_unassigned = [legacy(pr(author=user(ME))), legacy(pr(author=user(ME), assignees=conn([{"login": ME}])))]
+    legacy_cut = legacy(pr(author=user(ME), assignees=conn([{"login": "rev"}]), requestEvents=events(bots, True)))
     kinds_line = "  - assignee が人か Bot か（この GitHub は assignedActors を返さない。"
     opinions_line = "  - 人ごとの意見の残り 30 件（31 件中、1 件だけ取った）。変更要求の全員に依頼し直したかを見ずに"
     query = catchup.QUERY
@@ -888,7 +895,7 @@ def _formal_state():
         "passerby": all(norec in h and rereq not in h and reason not in h and "依頼先の候補" in h
                         for h in passerby),
         "mixed_events": all(rereq in h and norec not in h and "依頼先の候補" not in h for h in mixed_reviewed)
-        and all(reason in h and "依頼先の候補" in h and "担当 rev 待ち" not in h for h in mixed_assigned),
+        and all("○ 待ち — 担当 rev 待ち" in h and "依頼先の候補" not in h for h in mixed_assigned),
         "null_is_rereq": rereq in approved_on_null and merge not in approved_on_null
         and "要修正が付いている（指摘対応は私）" not in approved_on_null
         and "  承認: 承認・要修正の判定なし" in approved_on_null,
@@ -914,7 +921,11 @@ def _formal_state():
         and "私が担当（assignee）" not in received_asking,
         "received_unasked": f"● 私の番 — {reason}" in received_unasked and cand in received_unasked
         and "私が担当（assignee）" not in received_unasked,
-        "received_forked": all("● 私の番 — 私が担当（assignee）" in h and cand not in h for h in received_forked),
+        "received_before": all(f"● 私の番 — {reason}" in h and cand in h and "私が担当（assignee）" not in h
+                               for h in received_before)
+        and f"● 私の番 — {norec}" in received_reviewed and cand in received_reviewed,
+        "handed_before": all("○ 待ち — 担当 rev 待ち" in h and "● 私の番" not in h and cand not in h
+                             for h in handed_before),
         "received_draft_conflict": all(r in received_draft_conflict
                                        for r in ("● 私の番", "下書きのまま（渡すのは私）", "衝突の解消は担当（私）"))
         and "○ 待ち — 担当 rev 待ち" in handed_draft_conflict
@@ -925,14 +936,14 @@ def _formal_state():
         and f"● 私の番 — {reason}" in two_with_me[0] and cand in two_with_me[0]
         and "CI 赤は担当（私）しか外せない" in two_with_me[1],
         "deleted_author": all("○ 待ち — 作者 （不明） 待ち" in h for h in deleted_author)
-        and f"● 私の番 — {reason}" in deleted_handed and "● 私の番 — 私が担当（assignee）" in deleted_forked,
+        and f"● 私の番 — {reason}" in deleted_handed and f"● 私の番 — {norec}" in deleted_reviewed,
         "co_assignee": "● 私の番 — 私が担当（assignee）" in co_assignee,
         "issue_waits": "○ 待ち — 起票者 alice 待ち" in issue_waits[0]
         and "○ 待ち — 待っている相手は記録に無い" in issue_waits[1],
         "third_party": "○ 待ち — 担当 rev 待ち" in third and "○ 待ち — 作者 other 待ち" in render(pr()),
-        "third_forked": all("○ 待ち — 作者 alice 待ち" in h and "担当 rev 待ち" not in h for h in third_forked)
-        and "○ 待ち — 担当 rev 待ち" in third_forked_red and "○ 待ち — 担当 rev 待ち" in third_deleted_forked,
-        "fork_side_red": reason in fork_side_red and cand in fork_side_red and "CI 赤は" not in fork_side_red,
+        "third_before": all("○ 待ち — 担当 rev 待ち" in h for h in third_before + [third_before_red, third_deleted_before]),
+        "before_red": "○ 待ち — 担当 rev 待ち" in before_red and all(
+            r not in before_red for r in (reason, cand, "CI 赤は")),
         "legacy": "○ 待ち — 担当 copilot 待ち" in legacy_handed and cand not in legacy_handed
         and "CI 赤は作者（私）しか外せない" in legacy_red
         and "○ 待ち — 担当 bob 待ち" in legacy_third and "○ 待ち — 作者 alice 待ち" in legacy_third_red
@@ -952,9 +963,9 @@ def _formal_state():
         and all(cap_line not in h for h in not_cut),
         "cap_note": cap_line in cut_rereq and f"{note}再依頼のターンで、出している依頼先の候補は要らない" in cut_rereq
         and norec in cut_rereq and "依頼先の候補" in cut_rereq
-        and cap_line in cut_assigned and f"{note}、担当に渡したと分けたのは誤り" in cut_assigned
-        and cap_line in cut_received and f"{note}、依頼先を決めるのは作者で、私は担当" in cut_received
+        and cap_line in legacy_cut and f"{note}、担当に渡したと分けたのは誤り" in legacy_cut
         and cand in cut_received
+        and all(cap_line in h and note not in h for h in (cut_assigned, cut_received))
         and all(cap_line in h and note not in h for h in (cut_asked, cut_others, full_window))
         and rereq in cut_asked,
         "thread_turn": "未解決スレッド 1 件で相手が返している（私が返すターン）" in thread_turn,
@@ -964,10 +975,11 @@ def _formal_state():
         reviewed + passerby + kept + assigned + mixed_reviewed + mixed_assigned + cut + not_cut
         + [team_req, thread_turn, approved_on_null, bot_left, full_window, cut_rereq, cut_assigned, cut_asked,
            cut_others, rerequested] + partly + not_people
-        + [handed_red, received_red, third] + third_forked + [third_forked_red, third_deleted_forked]
-        + [fork_side_red, received_asking, received_unasked, cut_received] + received_forked
+        + [handed_red, received_red, third] + third_before + [third_before_red, third_deleted_before]
+        + [before_red, received_asking, received_unasked, cut_received, received_reviewed, legacy_cut]
+        + received_before + handed_before
         + [received_draft_conflict, handed_draft_conflict, received_changes, received_merge]
-        + two_assignees + two_with_me + deleted_author + [deleted_handed, deleted_forked, co_assignee] + issue_waits
+        + two_assignees + two_with_me + deleted_author + [deleted_handed, deleted_reviewed, co_assignee] + issue_waits
         + [legacy_handed, legacy_red, legacy_issue, legacy_third, legacy_third_red] + legacy_unassigned)
 
 

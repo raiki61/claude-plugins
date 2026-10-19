@@ -2487,5 +2487,66 @@ class Json(unittest.TestCase):
         finally:
             os.unlink(path)
 
+class AgreesWithCatchup(unittest.TestCase):
+    """依頼が残っていない PR で、依頼先を決めるターンの持ち主と種別を、/catchup と同じに出す（受付 e199f8）。
+    同じ材料を両方の形に直して当てる。/catchup は人ごとの最新のレビュー（latestReviews）と依頼の出来事だけの窓
+    （requestEvents）を読み、/whose-turn は reviews と timelineItems を読む"""
+
+    KINDS = ("rerequest", "review_requested", "unrequested")
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("catchup", ROOT / "attention" / "scripts" / "catchup.py")
+        cls.catchup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.catchup)
+
+    def as_catchup(self, p):
+        latest = {}
+        for r in sorted(p["reviews"]["nodes"], key=lambda r: r["submittedAt"] or ""):
+            latest[flow.login(r["author"])] = r
+        events = [e for e in p["timelineItems"]["nodes"] if e["__typename"] == "ReviewRequestedEvent"]
+        return dict(p, __typename="PullRequest", mergeable="MERGEABLE",
+                    latestReviews=conn(*latest.values()), requestEvents=conn(*events))
+
+    def both(self, p):
+        whose = {who: kind for who, kind, _ in flow.pr_balls(p) if kind in self.KINDS}
+        node = self.as_catchup(p)
+        kinds, _ = self.catchup.formal_state(node)
+        held = {who: kind for who, kind in kinds.items() if kind in self.KINDS}
+        # 理由の表で、担当の印でない理由（ターンの根拠）を持つ人も同じ
+        table = self.catchup.reason_table(node, False)
+        owes = {who for who, rs in table.items() if any(r != self.catchup.ASSIGNED for r in rs)}
+        return whose, held, owes
+
+    def test_the_owner_is_the_same_on_both(self):
+        carol_review = conn(review(user("carol"), "COMMENTED", T2))
+        asked_carol = conn(requested(user("carol"), T1))
+        for name, kw, want in (
+            # 受付 e199f8 の例: 作者 alice・担当 bob・依頼は無し・carol のコメントのレビューが 1 件
+            ("handed_reviewed", dict(assignees=conn(user("bob")), reviews=carol_review), {"bob": "rerequest"}),
+            ("handed_asked", dict(assignees=conn(user("bob")), timelineItems=asked_carol),
+             {"bob": "review_requested"}),
+            ("handed_both", dict(assignees=conn(user("bob")), reviews=carol_review, timelineItems=asked_carol),
+             {"bob": "rerequest"}),
+            ("handed_own_review", dict(assignees=conn(user("bob")), reviews=conn(review(user("bob"), "COMMENTED", T2))),
+             {"bob": "unrequested"}),
+            ("handed_two", dict(assignees=conn(user("bob"), user("dave")), reviews=carol_review),
+             {"bob": "rerequest", "dave": "rerequest"}),
+            ("kept", dict(reviews=carol_review), {"alice": "rerequest"}),
+            ("co_assigned", dict(assignees=conn(user("alice"), user("bob")), timelineItems=asked_carol),
+             {"alice": "review_requested"}),
+            ("bot_assigned", dict(assignees=conn(bot("Copilot")), reviews=carol_review), {"alice": "rerequest"}),
+            ("bot_review", dict(assignees=conn(user("bob")), reviews=conn(review(bot(), "COMMENTED", T2))),
+             {"bob": "unrequested"}),
+            ("legacy", dict(assignees=conn({"login": "bob"}), reviews=carol_review, assigneeKindsUnknown=True),
+             {"alice": "rerequest"}),
+        ):
+            with self.subTest(name):
+                whose, held, owes = self.both(pr(**kw))
+                self.assertEqual(whose, want)
+                self.assertEqual(held, want)
+                self.assertEqual(owes, set(want))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

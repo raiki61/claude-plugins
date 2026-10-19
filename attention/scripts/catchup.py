@@ -574,7 +574,7 @@ def reason_table(node, red):
     """形式上の理由の表 {login: [理由]}。見る人に依らない——my_turn は自分の分を、waiting_on は待ち先を読む。
 
     持ち主は /whose-turn と同じ turn.owners: 作者が自分を入れずに人を assignee に付けた PR は、下書き・CI 赤・衝突・
-    指摘対応・マージのターンが担当へ移る。依頼先を決めるターンは formal_state の分け方に従う。"""
+    指摘対応・マージ・依頼先を決めるターンが担当へ移る。"""
     author = turn.login(node["author"])
     table = {}
     if node["__typename"] != "PullRequest":
@@ -599,19 +599,18 @@ def reason_table(node, red):
         table.setdefault(o, []).extend(owned)
     kinds, asked = formal_state(node)
     for who, kind in kinds.items():
-        if kind in ("unrequested", "dropped"):
+        if kind in ("unrequested", "review_requested"):
             # 誰にも渡していない PR は、渡すまで誰も動けない。ここを「待ち」に落とすと、
             # 自分が止めている件が相手のターンに見える
             table.setdefault(who, []).append("レビュー依頼が誰にも出ていない（依頼先を決めるのは私）")
-        elif kind == "reviewed":
+        elif kind == "rerequest":
             table.setdefault(who, []).append(
                 "作者以外の人のレビューが付き、依頼は残っていない（再依頼か指摘対応は私）" if asked else
                 "作者以外の人のレビューが付いた。人宛のレビュー依頼を出した記録は無い（依頼先を決めるか指摘対応は私）")
-    # 作者が assignee にもなっているのは普通の運用で、それだけではターンの理由にならない。持ち主でない assignee と、
-    # 依頼先を決めるターンが作者に残った渡した PR（formal_state）の受けた人は、担当がターンの根拠
-    forked = author not in holders and kinds.get(author) in ("reviewed", "dropped")
+    # 作者が assignee にもなっているのは普通の運用で、それだけではターンの理由にならない。持ち主でない assignee は、
+    # 担当がターンの根拠
     for a in (a["login"] for a in node["assignees"]["nodes"]):
-        if a != author and (a not in holders or forked):
+        if a != author and a not in holders:
             table.setdefault(a, []).append(ASSIGNED)
     return table
 
@@ -641,23 +640,13 @@ def request_window_cut(node):
         and (req.get("pageInfo") or {}).get("hasPreviousPage") is not False
 
 
-def by_others(reviews, author):
-    # 作者がスレッドに返信すると作者名義の COMMENTED レビューができる。数えると誰にも頼んでいない PR が化ける。
-    # 退会済みは login が None で、作者も退会済みなら同じ人と見る（見分けられない）
-    return [r for r in reviews["nodes"] if turn.login(r["author"]) != author and not is_bot(r["author"])]
-
-
 def formal_state(node):
     """今の依頼が無い PR を、人ごとに、もう渡したかで分けた {login: 分け方} と、人宛のレビュー依頼を出したか（asked）の組。
-    対象外（issue・下書き・依頼が残る・要修正・承認済み）は ({}, None)。分け方のキー:
-    reviewed（作者以外の人のレビューが付いた）・dropped（人に依頼したが、レビューが付かないまま外れた）・
-    assigned（依頼は無く、作者以外の人だけが担当）・unrequested（誰にも渡していない）。
+    対象外（issue・下書き・依頼が残る・要修正・承認済み）は ({}, None)。分け方のキーは、持ち主（turn.owners）に立つ
+    依頼先を決めるターンの種別（turn.request_kind。/whose-turn と同じ判定で、rerequest・review_requested・
+    unrequested）と、渡し終えた作者の assigned（依頼先を決めるのは担当で、作者のターンは無い）。
     今の依頼の一覧だけで見ないのは、レビューを送った人を GitHub が依頼から外すため（#1901）。レビューは人ごとの
-    最新（latestReviews）から、依頼は依頼の出来事だけの窓（requestEvents）から読み、他の出来事と窓を取り合わない。
-
-    作者が自分を入れずに人を assignee に付けた PR（turn.owners が担当を持ち主にする形）は、作者以外の人（担当を
-    含む）のレビューか人宛の依頼の記録があれば、依頼先を決めるターンを作者に残す（reviewed・dropped）。どちらも
-    無ければ作者は assigned で、受けた担当が unrequested（依頼先を決めるのは担当）。"""
+    最新（latestReviews）から、依頼は依頼の出来事だけの窓（requestEvents）から読み、他の出来事と窓を取り合わない。"""
     if not (node["__typename"] == "PullRequest"
             and not node["isDraft"] and not requested_reviewers(node)
             and node["reviewDecision"] not in ("CHANGES_REQUESTED", "APPROVED")):
@@ -667,14 +656,13 @@ def formal_state(node):
         or (None if request_window_cut(node) else False)
     author = turn.login(node["author"])
     holders = turn.owners(node)
-    if by_others(node["latestReviews"], author):
-        return {author: "reviewed"}, asked
-    if asked:
-        return {author: "dropped"}, asked
+    kind = turn.request_kind(node, node["latestReviews"]["nodes"], asked)
     if author not in holders:
-        return {author: "assigned", **{o: "unrequested" for o in holders}}, asked
-    # 作者が持ち主のまま人へ渡した PR（assignee の種別が取れない GitHub）
-    return {author: "assigned" if turn.author_holds_handed(node) else "unrequested"}, asked
+        return {author: "assigned", **{o: kind for o in holders}}, asked
+    # 作者が持ち主のまま人へ渡した、まだ誰も依頼もレビューもしていない PR（assignee の種別が取れない GitHub）
+    if kind == "unrequested" and turn.author_holds_handed(node):
+        return {author: "assigned"}, asked
+    return {author: kind}, asked
 
 
 def shows_candidates(node, me):
@@ -682,24 +670,22 @@ def shows_candidates(node, me):
     人宛の依頼の記録が無いままレビューだけ付いた。my_turn の理由と、端末と HTML の候補が同じ述語を見る。"""
     kinds, asked = formal_state(node)
     kind = kinds.get(me)
-    return kind in ("unrequested", "dropped") or (kind == "reviewed" and not asked)
+    return kind in ("unrequested", "review_requested") or (kind == "rerequest" and not asked)
 
 
 def request_cap_line(node, me):
     """依頼の出来事の窓が切れた PR の「見ていないもの」の 1 項（切れていなければ None）。私の分け方が、前に人へ
-    依頼していれば変わるときだけ、その読み違いを添える（作者が持つ PR の unrequested は、前に依頼していても dropped
-    と同じ出力なので添えない）。"""
+    依頼していれば変わるときだけ、その読み違いを添える（unrequested は、前に依頼していても review_requested と同じ
+    出力なので添えない）。"""
     if not request_window_cut(node):
         return None
     kinds, asked = formal_state(node)
     kind = kinds.get(me)
     note = ""
-    if asked is None and kind == "reviewed":
+    if asked is None and kind == "rerequest":
         note = "。前に人へ依頼していれば再依頼のターンで、出している依頼先の候補は要らない"
-    elif asked is None and kind == "assigned":
+    elif asked is None and kind == "assigned" and turn.author_holds_handed(node):
         note = "。前に人へ依頼していれば、担当に渡したと分けたのは誤りで、依頼先を決めるのは私（依頼先の候補も出していない）"
-    elif asked is None and kind == "unrequested" and kinds.get(turn.login(node["author"])) == "assigned":
-        note = "。前に人へ依頼していれば、依頼先を決めるのは作者で、私は担当（出している依頼先の候補は要らない）"
     return (f"レビュー依頼の出来事の古い方（新しい {REQUEST_WINDOW} 件で窓が埋まり、それより前が有りうる。件数は"
             "読めない。Bot 宛の依頼もこの数に入る）。私宛の依頼がそこにだけあれば見落とす" + note)
 

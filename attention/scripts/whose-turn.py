@@ -436,18 +436,20 @@ def formal_rows(pr):
         # 瞬間に REVIEW_REQUIRED になる（実測 2026-08-23・IL-SW-AI/guided-resolver: レビュー 0 件の
         # #1478 は null、Copilot の COMMENTED だけ付いた #1476 は REVIEW_REQUIRED）。null を
         # unclassified に落とすと、立てたばかりの PR が unrequested ではなく最上段に出る
+        # 種別と、どのレビューを数えるかは /catchup と同じ turn.request_kind で決める
         elif pr["reviewDecision"] in ("REVIEW_REQUIRED", None, ""):
-            human = last_review(lambda r: not is_bot(r["author"]))
             asked = latest(
                 e["createdAt"]
                 for e in events
                 if e["__typename"] == "ReviewRequestedEvent"
                 and reviewer(e.get("requestedReviewer"))
             )
-            if human:
-                rows.append((author, "rerequest", human))
-            elif asked:
-                rows.append((author, "review_requested", asked))
+            kind = turn.request_kind(pr, pr["reviews"]["nodes"], asked)
+            if kind == "rerequest":
+                human = latest(r["submittedAt"] for r in turn.reviews_by_others(pr, pr["reviews"]["nodes"]))
+                rows.append((author, kind, human))
+            elif kind == "review_requested":
+                rows.append((author, kind, asked))
             else:
                 # 誰にも頼んでいない PR には待たせている相手がいない。作成日から数えると、書きかけを
                 # 寝かせた期間まで「待ち」に入る（実測: #1276 は作成 21 日前・最後の push は 3 日前で、

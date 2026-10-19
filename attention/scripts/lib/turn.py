@@ -9,6 +9,8 @@
 # この本文は複数のプラグインに写しで在る。正本は attention/scripts/lib/turn.py、写しは works-dispatch/dispatch/vendor/lib/turn.py。
 # 直すのは正本だけで、配るのは python3 scripts/shared-copies.py --sync attention/scripts/lib/turn.py。
 
+from ghtext import is_bot
+
 # 人ごとの最新の意見（APPROVED・CHANGES_REQUESTED・DISMISSED）。reviews の窓から人ごとに出すと、作者が
 # スレッドに返すたびにできる COMMENTED で窓が埋まり、窓の外の変更要求を見落としてターンを誤って外す
 OPINIONS = "latestOpinionatedReviews(first: 30) { totalCount nodes { state author { __typename login } } }"
@@ -98,3 +100,24 @@ def owes_change_requests(pr):
     changes = {login(r["author"]) for r in opinions["nodes"] if r["state"] == "CHANGES_REQUESTED"}
     asked = {a for rq in pr["reviewRequests"]["nodes"] if (a := answerable(rq["requestedReviewer"]))}
     return not changes or bool(changes - asked)
+
+
+def reviews_by_others(pr, reviews):
+    """持ち主の側（作者と持ち主）でも Bot でもない人のレビュー。持ち主の側がスレッドに返すと、その人の名義の
+    COMMENTED レビューができる。数えると、誰にも頼んでいない PR が再依頼に化ける。担当に渡した PR では、受けた
+    担当のレビューも数えない。退会済み（login が None）は、作者も退会済みなら同じ人と見る（見分けられない）"""
+    side = owner_side(pr)
+    return [r for r in reviews if login(r["author"]) not in side and not is_bot(r["author"])]
+
+
+def request_kind(pr, reviews, asked):
+    """依頼が残っていない（要修正・承認済みでもない）PR で、持ち主（owners）に立つ依頼先を決めるターンの種別:
+    rerequest（持ち主の側でない人のレビューが付き、依頼が消えたまま）・review_requested（人宛に依頼したが、
+    レビューが付かないまま依頼も消えた）・unrequested（人宛に依頼したことが無い）。asked は人宛の依頼の記録の有無。
+
+    ターンは種別に依らず持ち主に立てる。作者が自分を入れずに人を assignee に付けた PR は、渡す前に人のレビューや
+    依頼の記録があっても、受けた担当が決め直す。作者に残すと、/catchup が作者、/whose-turn が担当と、持ち主が
+    割れていた（受付 e199f8）"""
+    if reviews_by_others(pr, reviews):
+        return "rerequest"
+    return "review_requested" if asked else "unrequested"
