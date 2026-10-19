@@ -12,7 +12,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ### Fixed
 - 利用者の動きは変わらない直し。main の CI で赤だった次の 3 つを直した（はじめの 2 つは試験だけの直し）。
-  - `test_delegate_fence.py` の 1 本が、claude の無い機械（CI）で落ちていた。claude を引けたことにしてから見る形にした。
+  - `test_delegate_fence.py` の 1 本が、claude（Claude Code のコマンド）が PATH に無い機械（CI）で落ちていた。engine は claude を PATH で探し、見つからないと起動の指定に「claude が無い」印（`missing`）を付ける。この試験はその印が無いことも確かめていたので、試験の中で PATH の探しを差し替え、claude が見つかったことにしてから確かめる形にした（見つからないときの印は別の試験が見る）。
   - `test_review_rules.py` の 1 本が、Windows だけで落ちていた。試験が置く代わりの検証器が、和文を既定の文字コード（cp1252）で書こうとして落ちていた。本物の検証器と同じく、標準出力を UTF-8 にしてから書く形にした。
   - `scripts/graphcheck.py` が、遮断系の役（ツールを持たない役）の起動の種類（kind）の名前 2 つ（`isolated`・`isolated_read`）を手で並べていた。`engine/launch_words.py` に `ISOLATED_KINDS` を置き、そこから読む形にした（engine の表に在る名前をほかの所で文字列で並べ直すと、表に名前を足したときに並べた側だけ古く残るので、claude-plugins の直下の `tests/run.sh` のチェックが赤にする）。
 
