@@ -4,7 +4,7 @@ A Claude Code plugin that checks whether the external tools a plugin needs (Clau
 
 It also ships an opt-in status line (see "Status line" below) that shows 「⧖ バックグラウンド作業中 N 本」 ("background work running: N") while a session waits for its background work, and makes herdr show that session as working.
 
-tiers adds nothing to the context of every session: the skill is for people only (`disable-model-invocation`), and the hook and the status line print nothing into the conversation.
+tiers adds nothing to the context of every session: the skill is for people only (`disable-model-invocation`), and the hook and the status line print nothing into the conversation. (`claude plugin details` still shows an estimate of about 30 tokens, because the estimate ignores `disable-model-invocation`. To see what is really loaded, look for `tiers:check` in the `skill_listing` rows of a session transcript under `<config>/projects/`.)
 
 The skill's and command's instructions and descriptions are written in Japanese.
 
@@ -79,9 +79,9 @@ tiers --tier <0〜3> [--launcher <コマンド> ...] [--config-dir <フォルダ
 
 ## Status line
 
-An opt-in Claude Code status line (`statusline/statusline.sh`). Besides the usual model and usage lines, inside herdr it prints 「⧖ バックグラウンド作業中 N 本」 while the session has background work that will end (`run_in_background` Bash, Monitor, and background subagents; a command marked `herdr:ignore` is not counted). When a session ends its turn and waits for that work, herdr would otherwise show it as done. A herdr detection rule (`statusline/claude-rule.toml`) makes herdr show it as working instead. macOS and Linux only; it needs `jq` and Python 3.
+An opt-in Claude Code status line (`statusline/statusline.sh`). It prints the model and usage lines. Inside herdr (a terminal workspace manager that shows the state of the AI sessions in its panes), it also prints 「⧖ バックグラウンド作業中 N 本」 while the session has background work that will end (`run_in_background` Bash, Monitor, and background subagents). A watcher that never ends is not counted if its command line contains the text `herdr:ignore`. When a session ends its turn and waits for that work, herdr would otherwise show it as done. A herdr detection rule (`statusline/claude-rule.toml`) makes herdr show it as working instead. Inside herdr it also sends the pane's sidebar tokens (branch, open PR via `gh pr list`, context and usage) with `herdr pane report-metadata`, and keeps the account's usage in `~/.cache/claude-limits/<account>.json`. macOS and Linux only; it needs bash, `ps`, `jq`, and Python 3.11 or later (`setup` and `refresh` read TOML with `tomllib`).
 
-Set it up per account (the folder you set as `CLAUDE_CONFIG_DIR`). Inside a Claude Code session `tiers-statusline` is on PATH like `tiers`; from a terminal, run it from the plugin folder (`<config>/plugins/cache/raiki61/tiers/<version>/bin/tiers-statusline`).
+Set it up per account (the folder you set as `CLAUDE_CONFIG_DIR`; without `--config-dir`, `CLAUDE_CONFIG_DIR` or `~/.claude`). Before setup, tiers must be installed at user scope in that account, and herdr must have run once so that its downloaded rules (`~/.local/state/herdr/agent-detection/remote/claude.toml`) exist; otherwise setup says what to do and exits with 1. The new `statusLine` takes effect in sessions started after setup. Inside a Claude Code session `tiers-statusline` is on PATH like `tiers`; from a terminal, run it from the plugin folder (`<config>/plugins/cache/raiki61/tiers/<version>/bin/tiers-statusline`).
 
 ```bash
 tiers-statusline setup --config-dir ~/.claude --config-dir ~/.claude-p2
@@ -91,6 +91,7 @@ tiers-statusline setup --config-dir ~/.claude --config-dir ~/.claude-p2
 - `statusLine` points to `<config>/plugins/data/tiers-raiki61/current/statusline/statusline.sh`. The `current` link is pointed at the installed version by the plugin's `SessionStart` hook at every session start, so plugin updates need no new setup.
 - It builds herdr's local override `~/.config/herdr/agent-detection/claude.toml` as herdr's downloaded rules plus `claude-rule.toml`, and runs `herdr server reload-agent-manifests`. A local override replaces herdr's rules as a whole and always wins ([herdr agents docs](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/agents.mdx)), so a hand-copied override goes stale when herdr updates its rules. The status line therefore runs `tiers-statusline refresh` in the background whenever herdr's downloaded rules or the rule file are newer than the override. An override not written by tiers is replaced only by `setup` (and kept as `.bak`); `refresh` leaves it alone.
 - `tiers --tier 2 --config-dir <folder>` checks this for each account whose `statusLine` points to tiers.
+- To undo: copy `settings.json.bak.<date>-tiers` back to `settings.json` (or put your own `statusLine` back), delete `~/.config/herdr/agent-detection/claude.toml` (or restore its `.bak.<date>-tiers`), and run `herdr server reload-agent-manifests`. The `current` link under `plugins/data/tiers-raiki61/` can stay; the hook only re-points it and nothing else reads it.
 
 ## More detail
 

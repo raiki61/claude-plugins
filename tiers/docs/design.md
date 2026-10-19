@@ -42,7 +42,7 @@ tiers（プラグインが要る外のツールがそろっているかを点検
 
 持ち主の「tiers は全部うまいことコンテキストを食べずに設定できるか」を受けて、スキル `check` に `disable-model-invocation: true` を付けた。tiers が持つスキルは `check` 1 つで、コマンドもエージェントも持たないので、全部の会話に常に載るのはこのスキルの説明だけだった。Claude Code の文書の表（[Skills](https://code.claude.com/docs/en/skills) の「Control who invokes a skill」）は、この指定のスキルを「人は呼べる・Claude は自分では呼ばない・説明は文脈に載らない」とする。Claude Code 2.1.303 の本体でも、会話に載るスキルの一覧を作る所がこの指定の物を外していた。人は今までどおり `/tiers:check` で打てる。ほかのプラグインは `bin/tiers` を呼ぶので（このリポジトリの別のプラグイン works-dispatch〔作業ごとに Claude Code の会話を別に立てて仕事を頼むプラグイン〕の `dispatch/tierx.py`）、スキルの説明が無くても困らない。会話の中で点検が要るときは、Bash のツールで `tiers --tier N` を打つ（works-dispatch の `--check` が止まったときの案内にも、この形を書いた）。
 
-`claude plugin details tiers@raiki61` が出す「Always-on」（常に載る文脈）の見積もりは、0 にならない（付けた後の見積もりは約 30 tok）。2.1.303 の見積もりはこの指定を見ず、名前と説明の長さだけから数えるためで、2.1.303 の本体で計算の所を読んだ。本当に載っているかは、会話の記録（`~/.claude*/projects/` の下の `.jsonl`）の `skill_listing` の行に `tiers:check` が在るかで見る。
+`claude plugin details tiers@raiki61` が出す「Always-on」（常に載る文脈）の見積もりは、0 にならない（付けた後の見積もりは約 30 トークン。実際に載る量ではない。付ける前は約 47 トークン）。2.1.303 の見積もりはこの指定を見ず、名前と説明の長さだけから数えるためで、2.1.303 の本体で計算の所を読んだ。本当に載っているかは、会話の記録（`~/.claude*/projects/` の下の `.jsonl`）の `skill_listing` の行に `tiers:check` が在るかで見る。
 
 採らなかった形:
 
