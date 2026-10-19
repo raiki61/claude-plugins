@@ -18,7 +18,7 @@ def parse_on(text):
         try:
             return time.mktime(time.strptime(text.strip(), f))
         except ValueError:
-            continue
+            continue   # 次の形で読む。どの形でも読めなければ None を返し、呼ぶ側（--remind）が止める
     return None
 
 

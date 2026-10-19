@@ -125,28 +125,27 @@ class Flow(unittest.TestCase):
     def test_todo_shows_the_due_ones_and_done_closes_them(self):
         self.call(reminds.put, remind="gh で PR を見る", on="2026-01-01")
         self.call(reminds.put, remind="まだ先", on="2099-01-01")
-        a = argparse.Namespace(todo="", all=False, json=False, html=None)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            todo.todo(a, self.ports, str(self.root))
-        self.now = time.time()
-        lines = [x for x in buf.getvalue().splitlines() if x.startswith("- [見る時]") or x.startswith("- [待ち]")]
-        self.assertEqual(len(lines), 0, buf.getvalue())   # self.now=1000 は 1970 年なので、どれもまだ来ていない
-        for everything, want in ((False, ["見る時"]), (True, ["見る時", "待ち"])):
+        early, late = [r["id"] for r in self.rows()]
+
+        def listed(everything, as_json):
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
-                todo.todo(argparse.Namespace(todo="", all=everything, json=False, html=None), self.ports, str(self.root))
-            self.assertEqual([x.split("]")[0][3:] for x in buf.getvalue().splitlines() if x.startswith("- [") and "担当者" in x], want)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            todo.todo(argparse.Namespace(todo="", all=False, json=True, html=None), self.ports, str(self.root))
-        got = json.loads(buf.getvalue())
+                todo.todo(argparse.Namespace(todo="", all=everything, json=as_json, html=None), self.ports, str(self.root))
+            return buf.getvalue()
+
+        self.assertNotIn(early, listed(False, False))   # self.now=1000 は 1970 年なので、どれもまだ来ていない
+        self.now = time.time()
+        text = listed(False, False)
+        self.assertIn(early, text)
+        self.assertNotIn(late, text)
+        got = json.loads(listed(True, True))
         self.assertEqual(schemacheck.check(got, schemacheck.schema("todo")), [])
-        rid = got["reminders"][0]["id"]
-        rc, out = self.call(reminds.close, remind_done=rid[-6:])
+        self.assertEqual([(r["id"], r["due"] is not None) for r in got["reminders"]], [(early, True), (late, False)])
+        self.assertEqual([r["id"] for r in json.loads(listed(False, True))["reminders"]], [early])
+        rc, out = self.call(reminds.close, remind_done=early[-6:])
         self.assertEqual(rc, 0, out)
         self.assertEqual(reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now), [])   # 閉じた物は知らせない
-
+        self.assertNotIn(early, listed(False, False))
 
 if __name__ == "__main__":
     unittest.main()
