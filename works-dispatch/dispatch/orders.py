@@ -40,6 +40,7 @@ try:
     from ports import chat, term  # noqa: E402
     import windows  # noqa: E402
     import config  # noqa: E402
+    import ghx  # noqa: E402
     import gitx  # noqa: E402
     import todo  # noqa: E402
     from nodes import deliver, land, launch, ledger, provision, role, sync, tools, tree, wake  # noqa: E402
@@ -1291,7 +1292,7 @@ def finish_here(a, ports, cwd):
     """--done。エフェメラルの部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
     断るのは、部署でない・窓口・永続・会話の id が無い・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
-    commit が在る・ブランチがメインブランチ（origin の既定のブランチの手元の控え）に入っていない時（commit の無い部署は入っているとみなす）。前の --retire が
+    commit が在る・ブランチがメインブランチに入っていない（landed。マージ済みの PR に入った物も入ったとみなす）時（commit の無い部署は入っているとみなす）。前の --retire が
     残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
@@ -1322,18 +1323,19 @@ def finish_here(a, ports, cwd):
     if not ports.is_clean(cwd):
         print("止めた: 未コミットの変更か、git に足していないファイルが在る（片付けると消える）。commit するか消してから印す")
         return 2
-    if ports.unpushed(cwd):
-        print("止めた: 手元にしか無い commit か stash が在る（片付けると消える）。メインブランチに入れてから印す")
-        return 2
     root = gitx.root_of(common)
     try:
         main = gitx.default_branch(root)
-        merged = gitx.is_merged(cwd, f"refs/remotes/origin/{main}")
     except gitx.GitError as e:
         print(f"止めた: ブランチがメインブランチに入っているかを読めない（{e}）")
         return 1
+    merged = landed(cwd, main, attrs)
+    if ports.unpushed(cwd, landed=lambda: merged):
+        print("止めた: 手元にしか無い commit か stash が在る（片付けると消える）。メインブランチに入れてから印す")
+        return 2
     if not merged:
-        print(f"止めた: ブランチがメインブランチ（origin/{main} の手元の控え）に入っていない。--land で入れてから印す"
+        print(f"止めた: ブランチがメインブランチ（origin/{main} の手元の控え）に入っておらず、先頭の commit を含む PR も {main} に"
+              "マージされていない。--land で入れるか、PR で入れる会社なら PR がマージされてから印す"
               "（ほかの会話が入れたなら、git fetch してから打ち直す）")
         return 2
     try:
@@ -1353,9 +1355,26 @@ def asked_open(inbox, attrs, cwd):
             and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
 
 
+def landed(cwd, main, attrs, g=gitx, gh=ghx):
+    """部署のブランチの先頭がメインブランチ main に入ったか。origin/<main> の手元の控えの祖先なら入った。祖先でなくても、先頭の commit を
+    含む PR が GitHub で main にマージ済みなら入ったとみなす（squash でのマージと、束ねた別の PR で入れた形。どちらも先頭は祖先にならない。
+    2026-10-19 に works-factory の #776・#789・#790 で、マージ済みの部署が --done・--retire・--clean で止まった）。gh に問う鍵は部署の
+    属性 company.gh-user（無ければこの処理の環境のまま）。origin が GitHub でない・gh で読めないときは入っていないとみなす（消さない側に倒す）。"""
+    if g.is_merged(cwd, f"refs/remotes/origin/{main}"):
+        return True
+    repo, sha = g.origin_repo(cwd), g.head_sha(cwd)
+    if not repo or not sha:
+        return False
+    try:
+        env = gh.env_for(attrs["gh-user"], dict(os.environ)) if attrs.get("gh-user") else None
+        return gh.merged_pr_of(repo, sha, main, env=env) is not None
+    except (gh.GhError, OSError):
+        return False
+
+
 def leftover(cwd, attrs, g=gitx):
     """受けた頼みを納品し終えた部署が、ターンを終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
-    受付の並び）・unlanded（ブランチの先頭がメインブランチ〔origin の既定のブランチの手元の控え〕に入っていない。中身はメインブランチの名前）・finish（エフェメラルの
+    受付の並び）・unlanded（ブランチの先頭がメインブランチに入っていない〔landed〕。中身はメインブランチの名前）・finish（エフェメラルの
     部署で、ブランチもメインブランチに入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
     順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・永続の部署でブランチが入っている、ときは None。
     --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
@@ -1378,7 +1397,7 @@ def leftover(cwd, attrs, g=gitx):
         main = g.default_branch(gitx.root_of(common))
     except g.GitError:
         return None
-    if not g.is_merged(root, f"refs/remotes/origin/{main}"):
+    if not landed(root, main, attrs, g):
         return "unlanded", main
     return None if attrs.get("lifecycle") == gitx.PERSISTENT else ("finish", main)
 

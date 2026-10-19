@@ -65,6 +65,21 @@ def pr_for_branch(repo, branch, runner=_default_runner, env=None):
                                       "head_sha": pick.get("headRefOid")}
 
 
+def merged_pr_of(repo, sha, base, runner=_default_runner, env=None):
+    """commit sha を含み、base のブランチにマージ済みの、このリポジトリの PR の番号。無ければ None。読めなければ GhError。
+    GitHub の「commit に結び付く PR」（GET /repos/{owner}/{repo}/commits/{sha}/pulls）を読む。squash でマージした PR の元の commit も、
+    束ねた別の PR（その commit を含むブランチを head にした PR）でマージした commit も、その PR を返す。"""
+    p = runner(["gh", "api", f"repos/{repo}/commits/{sha}/pulls"], env=env)
+    try:
+        got = json.loads(p.stdout) if p.returncode == 0 else None
+    except ValueError:
+        got = None
+    if not isinstance(got, list):
+        raise GhError(f"{repo} の commit {sha[:12]} の PR を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    return next((x.get("number") for x in got if isinstance(x, dict) and x.get("merged_at")
+                 and (x.get("base") or {}).get("ref") == base), None)
+
+
 def can_read(repo, runner=_default_runner, env=None):
     """gh がそのリポジトリを読めるか。ログインしていても、有効なアカウントが読めないリポジトリはある。gh が無ければ False。"""
     try:

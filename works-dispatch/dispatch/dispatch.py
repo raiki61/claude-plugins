@@ -1444,11 +1444,12 @@ def _init_company(a, ports, cwd):
 
 def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
     """部署（--task が立てた worktree）の片付けの候補（clean.departments）。会話は全アカウントの一覧（終わった物も）で引く。
-    メインブランチは origin の既定のブランチの手元の控え。読めなければ、部署は並べない（消さない側に倒す）。assume_stopped の会話の id
+    メインブランチは origin の既定のブランチの手元の控え。ブランチが入ったかは orders.landed で見る（マージ済みの PR も入ったとみなす）。
+    読めなければ、部署は並べない（消さない側に倒す）。assume_stopped の会話の id
     （sessionId）は、止まった物とみなす（--retire が、止める前に会話のほかに残す訳が無いかを見る）。"""
     try:
         listed = {acc.name: (acc, ports.list_sessions(acc.config_dir, include_done=True)) for acc in cfg.accounts}
-        target = f"refs/remotes/origin/{ports.default_branch(repo)}"
+        main = ports.default_branch(repo)
     except (chat.Error, ghx.GhError, gitx.GitError) as e:
         notes.append(f"部署の片付けを飛ばした（会話の一覧か既定のブランチを読めない: {e}）")
         return []
@@ -1461,8 +1462,16 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
         common, place = ports.git.common_dir(path), ports.git.git_dir(path)
         return bool(common and place and wake.queued(deliver.inbox_of(common), place))
 
-    return clean.departments(found, ports.attrs, session_of, ports.is_clean, ports.unpushed,
-                             lambda path: gitx.is_merged(path, target), ports.head_sha, source=repo.source, queued=queued)
+    merged = {}
+
+    def landed(path):   # gh に問うことがあるので、部署の場所ごとに 1 度だけ
+        if path not in merged:
+            merged[path] = orders.landed(path, main, ports.attrs(path))
+        return merged[path]
+
+    return clean.departments(found, ports.attrs, session_of, ports.is_clean,
+                             lambda path: ports.unpushed(path, landed=lambda: landed(path)), landed, ports.head_sha,
+                             source=repo.source, queued=queued)
 
 
 DEPT_REASONS = {"persistent": "永続の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",

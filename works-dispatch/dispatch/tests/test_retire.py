@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from . import test_deliver
+import ghx
 import gitx
 import orders
 import retire
@@ -25,9 +26,10 @@ class Retire(unittest.TestCase):
 
     def setUp(self):
         test_deliver.Flow.setUp(self)
-        self.state = "working"
+        self.state, self.pid = "working", 4242   # 動く処理の有る会話は、一覧に処理の番号（pid）が有る
         self.ports.list_sessions = lambda cdir, include_done=False: [
-            {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": self.state}]
+            {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": self.state,
+             **({"pid": self.pid} if self.pid else {})}]
         self.stopped = []
 
         def stop(cdir, job):
@@ -168,6 +170,39 @@ class Retire(unittest.TestCase):
         self.assertTrue(os.path.exists(self.place))
         self.assertEqual(self.removed, [])
 
+    def test_a_record_left_working_without_a_process_is_retired_after_stop(self):
+        # 2026-10-19 に works-factory で、予約した繰り返しの仕事を残して終わった会話が、claude stop の後も一覧で working のまま
+        # （処理の番号は無い）出続け、--retire が 7 回残した
+        self.pid = None
+        self.ports.stop_session = lambda cdir, job: self.stopped.append(job) or (True, "stopped d")
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, ["d"])
+        self.assertFalse(os.path.exists(self.place))
+        self.assertEqual([r["status"] for r in self.retired()], ["done"])
+
+    def test_a_branch_landed_by_a_squashed_pr_is_done_and_retired(self):
+        # 2026-10-19 に works-factory で、squash でマージした PR（#776・#789・#790）のブランチが main の祖先にならず、--done・--retire・
+        # --clean が「メインブランチに入っていない」で止まった。マージの後に head のブランチが消え、手元の控えも消えた形でも畳める
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "gh-user": "someone"}, gitx)
+        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/dept/a")
+        test_deliver.git("-C", self.place, "update-ref", "-d", "refs/remotes/origin/dept/a")
+        head, asked = gitx.head_sha(self.place), []
+        real = gitx.origin_repo, ghx.merged_pr_of, ghx.env_for
+        gitx.origin_repo = lambda cwd, runner=None: "o/r"
+        ghx.env_for = lambda user, base_env, runner=None: {**base_env, "GH_TOKEN": f"token-of-{user}"}
+        ghx.merged_pr_of = lambda repo, sha, base, runner=None, env=None: asked.append((repo, sha, base, env["GH_TOKEN"])) or (
+            7 if (repo, sha, base) == ("o/r", head, "main") else None)
+        self.addCleanup(lambda: (setattr(gitx, "origin_repo", real[0]), setattr(ghx, "merged_pr_of", real[1]),
+                                 setattr(ghx, "env_for", real[2])))
+        rc, out = self.main(self.place, "--done")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(("o/r", head, "main", "token-of-someone"), asked)
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(self.place))
+
     def test_a_talk_that_does_not_stop_is_left_and_clean_lists_the_reason(self):
         self.ports.stop_session = lambda cdir, job: (False, "No job matching")
         rc, out = self.main(self.src, "--retire", "調べ")
@@ -260,6 +295,68 @@ class Retire(unittest.TestCase):
             out = io.StringIO()
             orders.stop_hook(io.StringIO(payload), out, tmp_dir=tmp)
         self.assertIn("--land '調べ'", json.loads(out.getvalue())["reason"])
+
+
+class Landed(unittest.TestCase):
+    """orders.landed（祖先か、マージ済みの PR に入ったか）と ghx.merged_pr_of。git と gh は偽物。"""
+
+    class G:
+        GitError = gitx.GitError
+
+        def __init__(self, ancestor, repo="o/r"):
+            self.ancestor, self.repo = ancestor, repo
+
+        def is_merged(self, cwd, target):
+            return self.ancestor
+
+        def origin_repo(self, cwd):
+            return self.repo
+
+        def head_sha(self, cwd):
+            return "h" * 40
+
+    class Gh:
+        GhError = ghx.GhError
+
+        def __init__(self, got):
+            self.got, self.asked = got, []
+
+        def env_for(self, user, base_env):
+            return {"GH_TOKEN": user}
+
+        def merged_pr_of(self, repo, sha, base, env=None):
+            self.asked.append((repo, sha, base, env))
+            if isinstance(self.got, Exception):
+                raise self.got
+            return self.got
+
+    def test_an_ancestor_is_landed_without_asking_github(self):
+        gh = self.Gh(None)
+        self.assertTrue(orders.landed("/w", "main", {}, self.G(True), gh))
+        self.assertEqual(gh.asked, [])
+
+    def test_a_merged_pr_counts_and_anything_unreadable_does_not(self):
+        gh = self.Gh(7)
+        self.assertTrue(orders.landed("/w", "main", {"gh-user": "u"}, self.G(False), gh))
+        self.assertEqual(gh.asked, [("o/r", "h" * 40, "main", {"GH_TOKEN": "u"})])
+        self.assertFalse(orders.landed("/w", "main", {}, self.G(False), self.Gh(None)))
+        self.assertFalse(orders.landed("/w", "main", {}, self.G(False), self.Gh(ghx.GhError("no"))))
+        self.assertFalse(orders.landed("/w", "main", {}, self.G(False, repo=None), self.Gh(7)))   # origin が GitHub でない
+
+    def test_merged_pr_of_reads_only_prs_merged_into_the_base(self):
+        class P:
+            def __init__(self, stdout, returncode=0):
+                self.stdout, self.returncode, self.stderr = stdout, returncode, ""
+        rows = [{"number": 5, "merged_at": None, "base": {"ref": "main"}},
+                {"number": 6, "merged_at": "2026-10-19T05:22:25Z", "base": {"ref": "wf/bundle"}},
+                {"number": 7, "merged_at": "2026-10-19T05:22:25Z", "base": {"ref": "main"}}]
+        argv = []
+        got = ghx.merged_pr_of("o/r", "abc", "main", runner=lambda a, env=None: argv.append(a) or P(json.dumps(rows)))
+        self.assertEqual(got, 7)
+        self.assertEqual(argv, [["gh", "api", "repos/o/r/commits/abc/pulls"]])
+        self.assertIsNone(ghx.merged_pr_of("o/r", "abc", "main", runner=lambda a, env=None: P(json.dumps(rows[:2]))))
+        with self.assertRaises(ghx.GhError):
+            ghx.merged_pr_of("o/r", "abc", "main", runner=lambda a, env=None: P("Not Found", 1))
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@
 2. 止める前に確かめる: 受けた頼みを納品している・順番待ちに頼みが無い・--clean の部署の決まり（clean.departments）で、会話が止まったとみなしたときに
    残す訳が無い（未コミットの変更・手元にしか無い commit・メインブランチに入っていないブランチなど）。訳が有れば何も止めない。
 3. 会話が動いていれば、窓の attach の画面をシェルに戻し（launch.to_shell。attach が開いたままだと会話を再開させる）、claude stop で
-   止め、--move と同じ回数だけ止まったかを読み戻す。
+   止め、--move と同じ回数だけ止まったかを読み戻す。一覧に処理の番号（pid）の無い会話は、動く処理が無いので止まったとみなす。
 4. --clean と同じ部品（clean.retire）で片付ける。
 
 止められなかった・消せなかったときは、そのまま残し、残った訳を部署の属性 company.retire-kept に書く（--clean の一覧に出る）。
@@ -96,6 +96,14 @@ def retire(a, ports, cwd, rows, reasons):
             except term.Error as e:
                 return kept(f"会話を止めた後に worktree を読めない: {e}")
             if r is None or r["reason"] != "running":
+                break
+            if not r.get("pid"):
+                # 一覧に処理の番号が無い: 動く処理は無く、記録の state だけが working のまま残った（2026-10-19、2.1.303。予約した
+                # 繰り返しの仕事〔session_cron〕を残して終わった会話は、claude stop の後も working と出続け、7 回残された）
+                try:
+                    r = row([attrs["session"]])
+                except term.Error as e:
+                    return kept(f"会話を止めた後に worktree を読めない: {e}")
                 break
             ports.pause()
         if r is None:

@@ -336,8 +336,8 @@ class Ports:
     def is_clean(self, cwd):
         return gitx.is_clean(cwd)
 
-    def unpushed(self, cwd):
-        return gitx.unpushed(cwd)
+    def unpushed(self, cwd, landed=None):
+        return gitx.unpushed(cwd, landed=landed)
 
     def pr_info(self, repo, number):
         return ghx.pr_info(repo.repo, number, env=self.gh_env(repo))

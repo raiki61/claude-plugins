@@ -139,14 +139,16 @@ def stashed(cwd, branch, runner=_default_runner):
     return any(line.startswith((f"WIP on {branch}: ", f"On {branch}: ")) for line in out.splitlines())
 
 
-def unpushed(cwd, runner=_default_runner):
+def unpushed(cwd, runner=_default_runner, landed=None):
     """その worktree に、手元にしか無い作業があるか。読めない時は、有るとみなす（消さない側に倒す）。
 
     HEAD の上の、どの remote のブランチにも入っていない commit（ブランチに乗っていない HEAD も同じ）と、今のブランチの上で作った stash を数える。
     ほかのブランチ（元の clone のブランチなど）は数えない。worktree はブランチと stash を元の clone と共有するため。
+    landed（引数なしで呼ぶ関数）が真を返せば、その commit は数えない（マージ済みの PR に入った commit は GitHub に残る。マージの後に head の
+    ブランチが消され、手元の origin/<ブランチ> の控えも fetch --prune で消えると、remote のどのブランチにも入っていない形になる）。
     """
     out = _git(cwd, ["rev-list", "-n", "1", "HEAD", "--not", "--remotes"], runner)
-    if out is None or out != "":
+    if out is None or out != "" and not (landed and landed()):
         return True
     return stashed(cwd, branch(cwd, runner) or "(no branch)", runner)
 
@@ -328,7 +330,8 @@ def exclude(source, pattern, runner=_default_runner):
 
 
 def is_merged(cwd, target, runner=_default_runner):
-    """その場所の HEAD が target（例: refs/remotes/origin/main）に入っているか。読めなければ偽（消さない側に倒す）。"""
+    """その場所の HEAD が target（例: refs/remotes/origin/main）の祖先か。読めなければ偽（消さない側に倒す）。squash でマージした PR の
+    ブランチは祖先にならない。部署のブランチが入ったかは orders.landed で見る（マージ済みの PR も見る）。"""
     return _is_ancestor(cwd, "HEAD", target, runner)
 
 

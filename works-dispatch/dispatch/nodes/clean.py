@@ -150,8 +150,8 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
     config_dir}）か、一覧に無ければ None。merged(場所) はブランチの先頭がメインブランチに入っているか。queued(場所) は部署の
     順番待ちに頼みが在るか（在る部署を消すと、積まれた頼みを渡す者が居なくなり、頼み元が返事を待ち続ける。2026-10-18 に点検の
     部署が順番待ちの 2 件を残して消え、見渡しが半日返事を待った）。
-    返す 1 行は {path, branch, name, account, session, config_dir, state, pr_head, removable, reason}（pr_head は消す時に
-    手元のブランチの先頭と比べる commit で、今の先頭）。reason は persistent・running・queued・dirty・unpushed・not_merged・no_branch。"""
+    返す 1 行は {path, branch, name, account, session, config_dir, state, pid, pr_head, removable, reason}。pid は会話の一覧の処理の番号で、
+    動く処理の無い会話には無い。pr_head は消す時に手元のブランチの先頭と比べる commit で、今の先頭。reason は persistent・running・queued・dirty・unpushed・not_merged・no_branch。"""
     rows = []
     for place in sorted((p for p in places if p.get("linked") and not p.get("prunable")), key=lambda p: p.get("path") or ""):
         path, branch = place["path"], place.get("branch")
@@ -163,7 +163,7 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
         s = session_of(attrs)
         row = {"path": path, "branch": branch, "name": attrs.get("name"), "account": attrs.get("account"),
                "session": (s or {}).get("id") or (s or {}).get("sessionId"), "config_dir": (s or {}).get("config_dir"),
-               "state": (s or {}).get("state") or (s or {}).get("status") or "gone", "pr_head": head_sha(path),
+               "state": (s or {}).get("state") or (s or {}).get("status") or "gone", "pid": (s or {}).get("pid"), "pr_head": head_sha(path),
                "removable": False, "reason": None}
         rows.append(row)
         if attrs.get("lifecycle") == gitx.PERSISTENT:
