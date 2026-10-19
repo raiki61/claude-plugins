@@ -720,6 +720,8 @@ def cause_boss_of(a, here, ports, cause):
             return None
         if boss.get("ask") != cause:
             return None
+    if not (boss.get("boss") or boss.get("boss-session")):
+        return None   # 頼み元の分からない頼み: 中身の無い写しを書かない（--for は元の頼みの行から引き直す）
     return {"name": boss.get("boss"), "session": boss.get("boss-session"), "account": boss.get("boss-account"),
             "pane": boss.get("boss-pane"), "inbox": boss.get("boss-inbox")}
 
@@ -1421,12 +1423,15 @@ def caused_ask(rows, ask_id):
     回した物）。ask_id が子の受付（kind ask の行の id）か、子を出した元の受付（その行の cause）なら、子の行の cause_boss（--ask が
     書く）か、それが無ければ元の受付の kind ask の行（頼み元の受付箱の台帳に在る。頼み元が部署でない会話でも、別の会社でも在る）から
     頼み元を組み立て、forwarded の行と同じ形（id と boss）で返す。無ければ None。rows は会社をまたいでたどった台帳の行（todo.inboxes_from）。"""
-    children = [r for r in rows if r.get("kind") == "ask" and r.get("cause") and ask_id in (r.get("id"), r.get("cause"))]
+    asks = [r for r in rows if r.get("kind") == "ask" and r.get("cause")]
+    # 子の受付に当たる行を先に見る（cause で当てると、子がさらに回した孫の行を拾う）。同じ受付の行が何本も在れば最初の行
+    # （--take で回し直した行は、回し直した部署が受けている頼みを cause に書く）
+    children = [r for r in asks if r.get("id") == ask_id] or [r for r in asks if r.get("cause") == ask_id]
     if not children:
         return None
-    origin = children[-1]["cause"]
-    if isinstance(children[-1].get("cause_boss"), dict):
-        return {"id": origin, "boss": children[-1]["cause_boss"]}
+    origin = children[0]["cause"]
+    if isinstance(children[0].get("cause_boss"), dict):
+        return {"id": origin, "boss": children[0]["cause_boss"]}
     # cause_boss を書く前の版の行: 元の頼みの行の頼み元（台帳の行のファイルの置き場や作業場からたどれた受付箱に在る物だけ）
     asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") == origin and r.get("file") and r.get("from")]
     if not asks:
@@ -1455,7 +1460,13 @@ def deliver_summary(a, ports, cwd):
         common = ports.git.common_dir(cwd)
         record = forwarded_ask(deliver.inbox_of(common), for_ask) if common else None
         if not record and common:
-            record = caused_ask(todo.inboxes_from([deliver.inbox_of(common)], ports.git.common_dir)[1], for_ask)
+            rows = todo.inboxes_from([deliver.inbox_of(common)], ports.git.common_dir)[1]
+            record = caused_ask(rows, for_ask)
+            if record and record["id"] not in deliver.closed_ids(rows):
+                # 頼み元への知らせの行は元の受付を閉じたと読まれる。元の頼みを受けている部署がまだ納品していないなら、その納品で返す
+                print(f"止めた: 受付 {for_ask} の元の頼み（受付 {record['id']}）がまだ納品されていない。--for は元の頼みを納品した後に"
+                      "届いた子の頼みの答えを返す口なので、答えは元の頼みの納品に含めて返す")
+                return 2
         if not record:
             print(f"止めた: 受付 {for_ask} を回した行が台帳に無い（この会社の受付箱の kind forwarded の行も、cause 付きの kind ask の行と"
                   "その元の頼みの行も無い）。--for には、--ask … --forward で回した元の受付か回した先の受付、または cause 付きの --ask で"

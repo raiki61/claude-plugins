@@ -1681,11 +1681,14 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "残った疑問を調べて")[0], 0)
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask" and r.get("cause") == "a0"]
         self.assertEqual((row["cause_boss"]["name"], row["cause_boss"]["session"]), ("社長室", "s-boss"))
-        provision.mark(self.src, self.src, {"delivered": "a0"}, gitx)
-        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
         boss = self.listen("社長室", "/elsewhere/.git")
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text(test_deliver.GOOD, encoding="utf-8")
+        rc, out = self.main(self.src, "--deliver", str(summary), "--for", row["id"])   # a0 をまだ納品していない
+        self.assertEqual(rc, 2, out)
+        self.assertIn("まだ納品されていない", out)
+        self.assertEqual(self.main(self.src, "--deliver", str(summary))[0], 0)   # a0 の納品
+        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
         for key in ("a0", row["id"]):   # 元の受付でも、子の受付でも引ける
             rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
             self.assertEqual(rc, 0, out)
@@ -1705,6 +1708,10 @@ class WakeFlow(unittest.TestCase):
             got = orders.caused_ask(rows, key)
             self.assertEqual((got["id"], got["boss"]["name"], got["boss"]["session"], got["boss"]["inbox"]), ("a0", "fc", "s-fc", theirs))
         self.assertIsNone(orders.caused_ask(rows, "nope"))
+        # 子が回した孫の行（cause が子）と、--take で回し直した子の行（cause が回し直した部署の頼み）が後に在っても、子の最初の行で引く
+        later = rows + [{"kind": "ask", "id": "g1", "cause": "c1", "cause_boss": {"name": "調べもの"}},
+                        {"kind": "ask", "id": "c1", "cause": "b9", "cause_boss": {"name": "ほか"}}]
+        self.assertEqual(orders.caused_ask(later, "c1")["id"], "a0")
         self.assertIsNone(orders.caused_ask(rows[1:], "c1"))   # 元の頼みの行が読めなければ引けない
 
     def test_a_machine_role_cannot_be_asked(self):
