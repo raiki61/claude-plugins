@@ -323,6 +323,10 @@ def check_all(root):
 if __name__ == "__main__":
     # python3 tests/fences.py --lockin [ファイル…]: D9 が数える所を行ごとに出す（ファイルを省けば、口の外の全部の数）
     import sys
+    # 出すパスと語に日本語が混ざりうるので、Windows の既定のコードページ（cp1252 など）に依らず UTF-8 で書く
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     here = pathlib.Path(__file__).resolve().parent.parent
     args = [a for a in sys.argv[1:] if a != "--lockin"]
     if not args:

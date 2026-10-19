@@ -252,7 +252,7 @@ class Shell(Base):
             if called.exists():
                 called.unlink()
             subprocess.run(["bash", str(top / "statusline" / "statusline.sh")], input='{"model": {"display_name": "Opus"}}',
-                           env=env, capture_output=True, text=True, check=True)
+                           env=env, capture_output=True, text=True, encoding="utf-8", check=True)
             for _ in range(50):   # 裏で起動するので、少し待つ
                 if called.exists():
                     return True
@@ -316,4 +316,8 @@ class Check(Base):
 
 
 if __name__ == "__main__":
+    # 試験の失敗の訳が日本語なので、Windows の既定のコードページ（cp1252 など）に依らず UTF-8 で書く
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     unittest.main()

@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -49,11 +50,12 @@ class FakeProbe:
         self.called.append((argv, config_dir))
         return (0, self.links.get(config_dir, "claude: current (v10) (/h/hooks/herdr-agent-state.sh)\n"), "")
 
+    # 本物の Probe は os.path.join でパスを作るので、Windows では区切りが \ になる。ファイルの系と同じく / と \ を同じに見る
     def read(self, path):
-        return self.files.get(path)
+        return {os.path.normpath(k): v for k, v in self.files.items()}.get(os.path.normpath(path))
 
     def isdir(self, path):
-        return path in self.dirs
+        return os.path.normpath(path) in {os.path.normpath(d) for d in self.dirs}
 
     def auth_status(self, cmd):
         return self.auth.get(cmd, (0, '{"loggedIn": true, "authMethod": "oauth_token"}'))
