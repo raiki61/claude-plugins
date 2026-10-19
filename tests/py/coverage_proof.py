@@ -41,7 +41,7 @@ if _next is not None:
     _next.loader.exec_module(importlib.util.module_from_spec(_next))
 if os.environ.get("COVERAGE_PROCESS_START"):
     import coverage
-    # pip で入れた coverage.py（7.13 から）は site-packages の .pth が先に process_startup を呼ぶので、ここでの呼びは None を返す
+    # pip で入れた coverage.py（7.13 から）は site-packages の .pth が先に process_startup を呼ぶので、ここでの呼び出しは None を返す
     cov = coverage.process_startup() or coverage.Coverage.current()
     if cov is not None and sys.argv[0].replace("\\", "/").endswith("/scripts/review-record.py"):
         marks = [(os.environ.get(k, "\0") + "/", to) for k, to in (("COVPROOF_WORK", ""), ("COVPROOF_ROOT", "repo:"))]
