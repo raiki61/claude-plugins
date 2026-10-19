@@ -19,7 +19,6 @@ from nodes import deliver, ledger, wake
 from nodes import remind
 
 A = "20261019-000001-aaaaaa"
-DAY = 86400
 
 
 def ask(i, at, status="sent"):
