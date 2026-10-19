@@ -48,6 +48,7 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 - 人に聞くターン（`answer` と聞き方）・人が途中で止める・run の子（engine が起動した `claude -p`）の残りを止める: [references/human.md](references/human.md)
 - 開いた問いを deep-research に回す・段を上げる・ノードを省く・終わり（報告）: [references/exits.md](references/exits.md)
 - 人の方針の文書・版を上げたとき・作業ツリーの突合・報告の言語: [references/rules.md](references/rules.md)
+- 人の方針の置き場・どのノードに届くか・人が文書を書き換えたときの扱いを確かめるとき: [references/policy.md](references/policy.md)
 
 ## どのターンでも
 

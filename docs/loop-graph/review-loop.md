@@ -113,7 +113,7 @@ flowchart TB
 - 検証器が塞ぐ「聞く時」の帰属は 1 周で通る経路だけ。2 周かければ帰属を作れると検証器自身が書いている。守るのは「台帳を書くのが judge であること」と「R1 が台帳を監査すること」の 2 枚
 - 担当 PR へのコメント申し送り（`gh` の投稿）には、`gates` プラグインを入れている環境でそのゲートが掛かる
 
-## 実行版（`/review-graph`）
+## 実行版（review-loop のグラフ。`/review-graph` は 2026-10-19 に消した）
 
 このグラフは 2026-09-12 に実行用のフィールド（ノードごとの prompt_file・schema・reads・writes・cond）を足され、graphloops の engine（`graphloops/scripts/loop.py`）で回せる。手順書は `https://github.com/raiki61/claude-plugins/tree/58c6d08b/graphloops/skills/review-graph/`、ループの算術は `graphloops/rules/review-loop.py`（検証器の定数を写さず import する）。散文版（手順書 `convergence-loops/skills/review-loop/` が書く `/review-loop` の手順。この文書の冒頭で正本と呼んだ側）と違う点が 3 つある: P4 の記録のノードは機械のノード 2 つ（`p4.assemble` が [block]（修正必須の指摘のラベル。REVIEW.md）の数と R1/R2（P-R 俯瞰の 4 つのレビューのうち、R1 最小性〔累積差分が最小か〕と R2 目的からの独立再設計〔目的だけから設計し直して実装と比べる〕。上の「用語」の P-R）の再発火〔前に通った R1/R2 を、再発火条件 `refire_when` に当たったので回し直すこと〕を数え、`p4.record` が周の記録を組んで検証器にディレクトリを渡す）に割れ、P1 の前後の作業ツリー突合と走らせなかった素材のフィールドの穴埋めも機械のノードが持つ。R2 の独立設計と比較役は別のノードで、`premise-invalid`（前提不成立。目的の前提そのものが成り立たないという R2 の判定）は、比較役のノードでなく設計のノード（`r2.design`）が返す。3 つ目に、P2 の判定（`p2.diagnose`）と履歴との突合（`p2.history`）が別のノードに分かれた。散文版の手順書では、P2 の judge が指摘の判定を確定した後に、同じ judge へ履歴〔過去の周の記録の推移〕と問いの台帳を渡し、今回の判定と突き合わせさせる（手順書 `references/p2-diagnosis.md` の 8）。実行版はこれを 2 つのノードにしたうえで、後のノードも前のノードと同じ judge の会話で続ける（`same_context_as`。engine が agent の id を持ち回る）。
 

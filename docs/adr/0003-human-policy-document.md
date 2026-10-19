@@ -20,7 +20,7 @@
 
 ## 理由
 
-- 採った置き場（作業ツリーの外の git の共通ディレクトリ）の利点: 作業ツリーの外に置くと、採点する版にも差分にも、engine が節の前後で作業ツリーの姿を比べる突合にも入らず、run（engine が review-graph を 1 回回す単位）の途中の書き足しが P1（周の最初の段。局所レビューと採点役を起こして素材を集める）の撃ち直しにならない。同じリポジトリの worktree の run が全部同じ文書を読む（[手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）。
+- 採った置き場（作業ツリーの外の git の共通ディレクトリ）の利点: 作業ツリーの外に置くと、採点する版にも差分にも、engine が節の前後で作業ツリーの姿を比べる突合にも入らず、run（engine が review-graph を 1 回回す単位）の途中の書き足しが P1（周の最初の段。局所レビューと採点役を起こして素材を集める）の撃ち直しにならない。同じリポジトリの worktree の run が全部同じ文書を読む（[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）。
 
 ## 結果
 
