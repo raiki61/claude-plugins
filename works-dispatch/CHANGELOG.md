@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-10-20
+
 ### Added
 
 - 会社の形（`.claude/company.toml`）のトップレベルに、任意のキー `shared_instructions`（会社の共通の本文）を足した。works-dispatch のフック（SessionStart と UserPromptSubmit）が、どの役の部署（会社の形の役を持って動く別の会話）の会話にも、「この会話は会社「…」の部署で、役は「…」。」の 1 行の後・その役の本文（`instructions`）の前に足す。本社の窓口（代表の clone で `--desk` を付けて名付けた、部署に仕事を頼む会話）には足さない。窓口は部署に頼む側で、部署の決まりには従わないためで、窓口に要る決まりは窓口の役の `instructions` に書く。役をまたいで同じ決まり（試験の回し方・手元のパスを書かないことなど）を、役ごとの `instructions` に写さず 1 か所に書ける。前は works-factory（works-dispatch で回しているほかのリポジトリの会社）で 6 つの役に同じ文を写し、直すときに 6 か所を同時に直す要が出ていた。直した `shared_instructions` は、役の本文を直したときと同じく、動いている会話にも次のターンから届く。キーを書かない会社は今までどおり動き、役ごとに写した文を移すかは任意。`--init-company` の下書きと `references/roles.md` に書き方を足した。
