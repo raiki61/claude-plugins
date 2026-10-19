@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.39.1] - 2026-10-19
+
 ### Fixed
 - 開発の側の直しで、graphloops を使う側の振る舞いは変わらない。変異テストのツール mutmut（engine のコードをわざと壊した版を作り、試験が落ちるかで試験の強さを測る。CI の `.github/workflows/mutation.yml` の mutmut の job で週 1 回撃つ）が、2026-09-28・10-05・10-12 の 3 回とも、試験を集める所で落ちて 1 本も撃てていなかった。mutmut は graphloops/ の中身のうち、設定ファイル `graphloops/setup.cfg` の `also_copy`（写しに一緒に写す置き場の一覧）に並べた物だけを写し（`graphloops/mutants/`）に写して試験を走らせる。graph（ループの段とつなぎを書いた JSON）は `$ref`（別のファイルの定義を指す参照）で `blocks/` を指すが、`blocks/` が一覧に無く、写しの中で graph が読めなかった。`also_copy` に `blocks/` を足した。あわせて、写しの中でもリポジトリのルートと、同じリポジトリに並ぶプラグイン convergence-loops（graphloops の試験が使う、役の定義と記録の検証器を持つ）を見つけられるように試験を直した。同じ壊れ方が戻らないように、試験 `graphloops/tests/py/test_mutmut_config.py` を足した。この試験は、試験が読む置き場が `also_copy` に無いときと、試験がリポジトリのルートを graphloops の 1 つ上と決め打ちしているときに落ちる。ふつうの pytest の実行で落ちるので、CI の mutmut を待たずに気づける
 
