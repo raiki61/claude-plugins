@@ -710,7 +710,7 @@ def _stacked_default():
 def _suggested():
     """依頼先の候補（GitHub の suggestedReviewers）は、持ち主の PR でレビュー依頼が今は誰にも出ておらず、人に依頼した
     ことが無いか、依頼が外れてレビューが付いていないときに出す。根拠（発言あり・commit 者）を添え、空なら「なし」。
-    依頼が出ている・依頼した後にレビューが付いた、なら出さない。作者以外の人だけが担当でレビューがまだ無い PR では、
+    依頼が出ている・依頼した後にレビューが付いた、なら出さない。作者以外の人だけが担当の PR では、
     作者でなく担当の人に出す。"""
     sugg = [{"isAuthor": False, "isCommenter": True, "reviewer": user("enj")},
             {"isAuthor": True, "isCommenter": False, "reviewer": user("pmengelbert")},
