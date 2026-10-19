@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-10-19
+
 ### Fixed
 
 - 初見読みのゲート（投稿の前に、文脈を持たない読み手に文を読ませるフック）は、入っている gates の版が動いている版と違うと、「入っている版は X」の注記を出す。この版 X を決めるとき、別のプロジェクトにだけ入れた版も数えていた。今は Claude Code の `installed_plugins.json` の各エントリのうち、今のプロジェクトに効く物だけを見る。効くのは、scope が user のエントリと、scope が project・local で projectPath が次のどれかに当たるエントリ: 今の作業フォルダ、その git の作業ツリー、linked worktree の主の作業ツリー、環境変数 `CLAUDE_PROJECT_DIR`（Claude Code がフックに渡すプロジェクトのフォルダ）。効くエントリが複数あれば、scope の狭い物（local・project・user の順）の版を入っている版とする。その一番狭いエントリの installPath のフォルダが無いか、フォルダに `.orphaned_at`（Claude Code が消す予定の版に置くファイル）が在れば、広い scope のエントリの版を代わりに使わず、注記を出さない。
