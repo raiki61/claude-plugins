@@ -223,7 +223,8 @@ def cmd_next(a):
     if down:
         notes = [*notes, f"書き換えるノード・skill のノード・任せ先は子を起動せずに止まる（読むだけの子は起動し、Bash で測れていないことを残す）: {down}"]
     if b.state.get("auth_expiry"):
-        notes = [*notes, f"認証: {b.state['auth_expiry']['note']}（{b.state['auth_expiry']['stage']}）"]
+        x = b.state["auth_expiry"]
+        notes = [*notes, f"認証: {x['note']}（最後に Keychain から足した {x['at']} の時点。段 {x['stage']}）"]
     if b.state.get("unfenced_delegates"):
         u = b.state["unfenced_delegates"]
         notes = [*notes, f"任せ先のチェック（sandbox）を外した run（{u['at']}・理由: {u['reason']}）——" + (
@@ -1186,13 +1187,13 @@ def _auth_note(path):
 
 def note_auth_expiry(state, auth):
     """前置の層が Keychain から足した段なら、トークンの切れる日の知らせ（auth.expiry）を盤面の auth_expiry に控える（next・status・run の
-    報告が出す）。Keychain の段で知らせが無ければ控えを消す（作り直した後）。ほかの段（継いだ・足せなかった）の回は触らない"""
+    報告が出す）。同じ Keychain の項目の段で知らせが無ければ控えを消す（作り直した後）。ほかの段（継いだ・足せなかった）の回は触らない"""
     if not auth or not auth["stage"].startswith("keychain("):
         return
     if auth.get("expiry"):
         state["auth_expiry"] = {"stage": auth["stage"], "note": auth["expiry"], "at": now()}
-    else:
-        state.pop("auth_expiry", None)
+    elif (state.get("auth_expiry") or {}).get("stage") == auth["stage"]:
+        state.pop("auth_expiry")   # 同じ項目を作り直した後。別の項目の起動では消さない
 
 
 def _attempt_cost(d, inst):
@@ -1210,11 +1211,12 @@ def launch_cause(r, kind):
         return ("launch_engine_run_accept", "commands.launch_engine_run") if "runs" in r else ("launch_refused", "commands.engine_run_refusal")
     if "rejections" not in r:
         return "launch_refused", "commands.launch_refusal"
+    auth = r.get("auth")   # 前置の層が書いた段（_auth_note）。無ければ層まで届かなかったか、書けなかった
+    if r.get("short_line"):
+        # 最後の回が短い 1 行（続きの回で使用枠の上限に当たる形も、拒否の後に来る）。認証を足せなかった段なら、まずそちらを名指す
+        return ("launch_auth" if auth and not auth["added"] else "launch_short_line"), "role_run.unwrap"
     if r["rejections"]:
         return "launch_rejected", "role_run.run_role"
-    if r.get("short_line"):
-        return "launch_short_line", "role_run.unwrap"
-    auth = r.get("auth")   # 前置の層が書いた段（_auth_note）。無ければ層まで届かなかったか、書けなかった
     if not auth:
         return "launch_auth_unread", "role_run.run_role"
     return ("launch_child_failed" if auth["added"] else "launch_auth"), "role_run.run_role"
@@ -1315,6 +1317,7 @@ def _launch_marked(d, mark, picked):
 
     def settle(b):
         for r in results:
+            note_auth_expiry(b.state, r.get("auth"))   # 試行の行き先（起動し直された・止めた・任せ先に回した）に関わらず、層が読んだ項目の知らせ
             i = find_attempt(b.state["rounds"], r["id"], r["out_path"])   # 背景の線は周をまたいで走る
             if r.get("fell_back"):
                 continue   # 任せ先のノードとして出し直した（新しい試行は _engine_fallback が書いた）——why はそのまま返す
@@ -1333,9 +1336,8 @@ def _launch_marked(d, mark, picked):
             # 起動し直しの回数と理由: 拒まれて同じ会話に続きを頼んだ（resume）・拒まれたまま上限に達した（rejected）
             for j, why in enumerate(r.get("rejections") or []):
                 log.append({"at": now(), "kind": "resume" if j < r["resumes"] else "rejected", "reason": why})
-            if not r["ok"] and r.get("why") and not r.get("rejections"):
+            if not r["ok"] and r.get("why") and (not r.get("rejections") or r.get("short_line")):
                 log.append({"at": now(), "kind": "failed", "reason": r["why"], **({"env": True} if r.get("env") else {})})
-            note_auth_expiry(b.state, r.get("auth"))
             b.trace("launched", id=r["id"], ok=r["ok"], why=r.get("why"), session_id=r.get("session_id"),
                     resumes=r.get("resumes"), stderr=(r.get("stderr") or "")[-200:])
 

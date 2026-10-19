@@ -1106,7 +1106,7 @@ def unwrap(stdout, structured=False, expect_json=False):
     if not (isinstance(env, dict) and env.get("type") == "result"):
         if expect_json and claude_auth().auth_failed(text):
             return None, {"envelope": False, "short_line": True}, (
-                f"JSON の包みを待つ起動なのに、子の標準出力が JSON でない短い 1 行だった（頭: {text[:120]!r}）——認証切れ・"
+                f"JSON の包みを待つ起動なのに、子の標準出力が包み（type=result）でない短い出力だった（頭: {text[:120]!r}）——認証切れ・"
                 "使用枠の上限の類が多い（終了コードが 0 でも済んでいない）")
         if structured:
             return None, {"envelope": False}, "--json-schema で起動したのに標準出力が --output-format json の包みでない"

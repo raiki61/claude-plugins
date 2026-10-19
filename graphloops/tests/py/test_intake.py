@@ -384,6 +384,8 @@ def test_with_auth_passes_keychain_expiry_to_the_engine(note, want, tmp_path, mo
     if want:
         assert auth["expiry"] == "svc は 3 日後に切れる見込み" and "svc は 3 日後に切れる見込み" in capsys.readouterr().err
         assert state["auth_expiry"]["note"] == auth["expiry"] and state["auth_expiry"]["stage"] == note
+        commands.note_auth_expiry(state, {**auth, "stage": "keychain(other)", "expiry": None})
+        assert state["auth_expiry"]["note"] == auth["expiry"]   # 別の項目の起動では消さない
         commands.note_auth_expiry(state, {**auth, "expiry": None})
     assert "auth_expiry" not in state
     if not want:
@@ -392,10 +394,13 @@ def test_with_auth_passes_keychain_expiry_to_the_engine(note, want, tmp_path, mo
         assert state["auth_expiry"]["note"] == "x"
 
 
-def test_short_line_is_its_own_cause():
-    exc, func = launch_cause({"ok": False, "why": "x", "rejections": [], "short_line": True,
-                              "auth": {"stage": "keychain(svc)", "added": True, "expiry": None}}, None)
-    assert (exc, func) == ("launch_short_line", "role_run.unwrap")
+@pytest.mark.parametrize("rejections", [[], ["拒否"]])
+@pytest.mark.parametrize("stage, added, want", [("keychain(svc)", True, "launch_short_line"), ("keychain-miss(svc)", False, "launch_auth")])
+def test_short_line_is_its_own_cause(rejections, stage, added, want):
+    """最後の回が短い 1 行なら、拒否の後の続きの回でも short_line。認証を足せなかった段なら、まず認証を名指す"""
+    exc, func = launch_cause({"ok": False, "why": "x", "rejections": rejections, "short_line": True,
+                              "auth": {"stage": stage, "added": added, "expiry": None}}, None)
+    assert (exc, func) == (want, "role_run.unwrap")
 
 
 @pytest.mark.parametrize("body", [None, "", "{", "[]", '{"stage": "none"}', '{"stage": 1, "added": true}'])

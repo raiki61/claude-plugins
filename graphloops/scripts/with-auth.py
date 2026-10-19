@@ -72,7 +72,11 @@ def main(argv):
     env, note = claude_auth.auth_env(os.environ, service=os.environ.get("GL_KEYCHAIN_SERVICE"))
     sys.stderr.write("with-auth: auth=%s config-dir=%s\n" % (note, env["CLAUDE_CONFIG_DIR"]))
     note_path = env.pop(AUTH_NOTE_ENV, None)   # 子の claude には渡さない（engine と層の間の取り決めで、子は使わない）
-    soon = expiry(note)
+    try:
+        soon = expiry(note)
+    except Exception as e:   # 書き換えた日の形が読めない等——知らせが出せないだけで、子の起動は止めない
+        sys.stderr.write("with-auth: Keychain の項目の切れる日を読めない（%s）\n" % e)
+        soon = None
     if soon:
         # 切れたトークンでも子は終了コード 0 で短い 1 行を返すので、切れる前に知らせる。engine は段のファイルの expiry を盤面に控え、
         # next・status・run の報告に出す（標準エラーのこの行は人が直に打ったときのため）

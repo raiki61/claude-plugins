@@ -407,6 +407,40 @@ def test_launch_settle_logs_failed_only_without_rejections(tmp_path, monkeypatch
     assert len(launched) == 1 and launched[0]["stderr"] == "e" * 200   # 標準エラーの末尾を trace に残す
 
 
+def _settle_one(tmp_path, monkeypatch, row, state=None):
+    """偽の launch_one が返す 1 行で cmd_launch の締めまで回し、(試行, 盤面の state, 印字した JSON) を返す"""
+    inst = {"id": "p1.x", "node": "p1.x", "status": "pending", "out_path": "o", "launch": {"kind": "cli"}}
+    fb = FakeBoard(instances={"p1.x": inst})
+    fb.state["rounds"] = [fb.rd]
+    fb.state.update(state or {})
+    monkeypatch.setattr(commands, "Board", lambda d: fb)
+    monkeypatch.setattr(commands, "_board_update", lambda d, fn, **k: fn(fb))
+    monkeypatch.setattr(commands, "kill_all", lambda: None)
+    monkeypatch.setattr(signal, "signal", lambda *a: None)
+    monkeypatch.setattr(commands, "launch_one", lambda d, i, m, cwd, state=None: {"id": "p1.x", "out_path": "o", **row})
+    commands.cmd_launch(argparse.Namespace(dir=str(tmp_path), node=None))
+    return inst, fb.state
+
+
+def test_short_line_after_rejections_is_logged_as_failed(tmp_path, monkeypatch, capsys):
+    """拒否の後の続きの回で短い 1 行（使用枠の上限の類）が返った試行は、resume・rejected の行に埋めず failed の行も残し、cause は short_line"""
+    inst, _ = _settle_one(tmp_path, monkeypatch, {
+        "ok": False, "why": "JSON の包みを待つ起動なのに…", "rejections": ["x"], "resumes": 1, "stderr": "", "short_line": True,
+        "auth": {"stage": "keychain(svc)", "added": True, "expiry": None}})
+    assert [x["kind"] for x in inst["attempt_log"]] == ["resume", "failed"]
+    assert json.loads(capsys.readouterr().out)["launched"][0]["cause"] == "launch_short_line"
+
+
+def test_launch_keeps_the_keychain_expiry_even_for_a_superseded_attempt(tmp_path, monkeypatch, capsys):
+    """層が段のファイルに書いた切れる日の知らせを、締めが盤面の auth_expiry に控える（next の notes・status・run の報告が読む）。
+    起動し直された古い試行の行でも控える"""
+    _, st = _settle_one(tmp_path, monkeypatch, {
+        "ok": False, "why": "x", "rejections": [], "resumes": 0, "stderr": "",
+        "auth": {"stage": "keychain(svc)", "added": True, "expiry": "svc のトークンは 3 日後に切れる見込み"}},
+        state={"rounds": []})
+    assert st["auth_expiry"]["note"] == "svc のトークンは 3 日後に切れる見込み" and st["auth_expiry"]["stage"] == "keychain(svc)"
+
+
 def test_argv_refusal_compares_tools_as_sets(tmp_path):
     """--tools・--allowedTools は並びを問わない（役の定義の並びと engine の並びが違っても同じツール）"""
     body = tmp_path / "role.txt"
