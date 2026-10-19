@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-10-19
+
 ### Added
 
 - dispatch の設定のアカウントに `plan`（持ち主が教えたサブスクのプラン。例 `plan = "default_claude_max_20x"`）を書けるようにした。setup-token の鍵だけで動くアカウントは、Claude Code のログインの記録を持たず、鍵でもプランを問い合わせられないので、`limits.py plan` が「分からない」と出していた（2026-10-18、p2。持ち主は Max 20x と答えた）。`plan` を書いたアカウントは、記録が読めないときだけその値を出し、記録から引いた値と分ける（行の末尾に「設定の plan に書いた値」と添え、`--json` は新しいキー `source` を `told` にする。記録から引いた値は `record`）。後でログインして記録が読めるようになれば記録を採り、`plan` と食い違えばそう添える（`--json` の新しいキー `told` に `plan` の値を写す）。`limits = false` のアカウントに `plan` を書くと設定の誤りとして止める（2026-10-19、my_notes の受付箱の頼み 7fcd7f）。
