@@ -4486,6 +4486,9 @@ expect_output 0 "エラーを返した" "認証でない is_error の答えも a
 expect_output 0 "AUTH_EXPIRY_OK" "読み手の認証のトークンの期限が近ければ 1 日に 1 度だけ持ち主の画面に出し、認証の失敗は読めなかった訳で名指す" \
     "$PY_BIN" - "$ROOT" "$WORK/auth-expiry" <<'PY'
 import contextlib, importlib.util, io, json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 os.environ["CLAUDE_CONFIG_DIR"] = str(work / "cfg")
 os.environ.pop("CLAUDE_CODE_ENTRYPOINT", None)   # 親の Stop を待って読む口(claude -p)にする
@@ -5761,6 +5764,9 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "PATH",
                   # プロキシの環境変数（works-dispatch の limits.py の問い合わせが urllib の既定で従う）
                   "HTTPS_PROXY",
+                  # 端末・接続・会話ごとに外のツールが渡す識別子（Claude Code の AI_AGENT・tmux の TMUX_PANE・ssh の SSH_CONNECTION）。
+                  # graphloops の試験結果の控えの指紋がこれらを外すと書く（engine/checks_cache.py は字の並びの一覧で持つ）
+                  "AI_AGENT", "TMUX_PANE", "SSH_CONNECTION",
                   # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
                   "WORKS_DISPATCH_CONFIG",
                   # attention の /reflect が読む環境変数（読む設定のフォルダを足す・日記の置き場。同じく os.environ から読む）

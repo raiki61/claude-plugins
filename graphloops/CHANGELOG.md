@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+
+- claude の起動の形を確かめる台本（`tests/py/cli_contract.py`）が、Windows で claude の出力を既定の cp1252 で読み、日本語を書くと落ちうるので、子の出力を UTF-8 で読み、自分の標準出力も UTF-8 に直す。
+
 ## [0.38.0] - 2026-10-19
 
 壊れても誰にも知らせが来なかった所を、ループを回している人に見える形にした（ルートの `docs/standards/breakage-detection.md` の決まり 1「ログに書くだけは知らせではない」・3「外の形に頼る所は、実物から採った見本で試験し、知らない値を起動時に知らせる」・4「入っている版とずれた物を見つける」・5「足し続ける物は、上限か片付けの持ち主を決める」に合わせた）。この節の語: engine はループを回す本体（`scripts/loop.py`）、run はループの 1 回の実行、盤面は run ごとの状態を置くディレクトリ（`$(git rev-parse --git-dir)/graphloops/<ループ>/<run の番号>/`）、作者は graphloops の作者。

@@ -241,7 +241,7 @@ def run_probes(exe):
         out = []
         for argv in probe_argvs(str(role)):
             r = subprocess.run([str(exe)] + argv[1:], cwd=tmp, env=_probe_env(pathlib.Path(tmp) / "cfg"), capture_output=True,
-                               text=True, timeout=120, stdin=subprocess.DEVNULL)
+                               text=True, encoding="utf-8", timeout=120, stdin=subprocess.DEVNULL)
             out.append(([a.replace(tmp, "<一時>") for a in argv], r.returncode, r.stdout, r.stderr))
         return out
 
@@ -266,8 +266,8 @@ def check_probe(argv, rc, stdout, stderr):
 def live(exe):
     """手元の claude と見本の突き合わせ ——不合格の理由の一覧"""
     probs = []
-    version = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60).stdout.strip()
-    text = subprocess.run([str(exe), "--help"], capture_output=True, text=True, timeout=60).stdout
+    version = subprocess.run([str(exe), "--version"], capture_output=True, text=True, encoding="utf-8", timeout=60).stdout.strip()
+    text = subprocess.run([str(exe), "--help"], capture_output=True, text=True, encoding="utf-8", timeout=60).stdout
     pinned = json.loads(VERSIONS.read_text(encoding="utf-8"))["help"]["claude"]
     print(f"手元の claude: {version}（{exe}）。見本: {pinned}")
     defined, mentioned = help_flags(text)
@@ -294,8 +294,8 @@ def live(exe):
 
 def capture(exe):
     """help の全文と起動の確かめの包みを見本に書き直す（本物の 1 往復の包み claude-result-success.json は書き換えない）"""
-    version = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60).stdout.strip()
-    HELP.write_text(subprocess.run([str(exe), "--help"], capture_output=True, text=True, timeout=60).stdout, encoding="utf-8")
+    version = subprocess.run([str(exe), "--version"], capture_output=True, text=True, encoding="utf-8", timeout=60).stdout.strip()
+    HELP.write_text(subprocess.run([str(exe), "--help"], capture_output=True, text=True, encoding="utf-8", timeout=60).stdout, encoding="utf-8")
     probes = run_probes(exe)
     bad = [(a, why) for a, rc, out, err in probes for why in [check_probe(a, rc, out, err)] if why]
     if bad:
@@ -333,4 +333,8 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Windows の既定の標準出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     sys.exit(main())
