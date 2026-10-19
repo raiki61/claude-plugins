@@ -316,6 +316,9 @@ How findings are returned depends on the writing role:
   `--land` runs the check in a temporary worktree with no branch checked out (a detached HEAD, with the version bump commit on top of the branch);
   there the gate looks for a local branch whose latest commit is in HEAD's history and comes after the split point (the commit where the branch left the mainline); the mainline and other branches whose latest commit is at or before the split point do not match.
   Normally this is exactly one branch, the branch being merged, because the temporary worktree is that branch plus the version bump commit; the gate then uses that branch's last run.
+  When HEAD is ahead of that branch's latest commit (the version bump commit on top), the gate reads each document as it is in the branch's latest commit, not as it is in the worktree,
+  and keeps that version. The bump is added by `--land`, not written by the author. If the gate kept the bumped version, a rerun in the branch's own worktree (before the bump) would see the moved headings
+  (such as `## [Unreleased]` becoming a version heading in a CHANGELOG) as the only rewrite. The reader would get only those headings and report that it cannot read any content (2026-10-19).
   If zero or several local branches match, it uses no last run and reads from the split point as before.
   This is because fixing one line made the reader read the unfixed paragraphs of the same extract again, and the reader picks different places on each read,
   so new blockers kept coming from paragraphs that were not touched (2026-10-19: 10 → 2 → about 10 → 7 blockers over 4 `--land` runs while splitting a works skill).

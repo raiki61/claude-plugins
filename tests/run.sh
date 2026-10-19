@@ -4027,11 +4027,14 @@ rc, out = check()
 assert rc == 0 and "新しく読んだ 0 本" in out and len(prompts()) == before + 1, (rc, out)
 git("switch", "-q", "--detach")
 (repo / "VERSION").write_text("1\n", encoding="utf-8")
-git("add", "VERSION")
+(repo / "inc.md").write_text((repo / "inc.md").read_text(encoding="utf-8").replace("## セクションY", "## セクションY 1"), encoding="utf-8")
+git("add", "VERSION", "inc.md")
 git("commit", "-q", "-m", "bump")
 rc, out = check()
-assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 版上げの commit を足した候補でも feat の前の回を使う
+assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 版上げの commit を足した候補でも feat の前の回を使い、版上げで動いた見出しは読まない
 git("switch", "-q", "feat")
+rc, out = check()
+assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 一時の作業場の回はブランチの頭の版を控えたので、打ち直しても見出しだけを読ませない(受付 9d73b4)
 # スキルの別ファイルの詰まりは、前提の SKILL.md を直せば、別ファイルを読み直さずに今の前提で問い直す
 (skill / "references/c.md").write_text("# 詰まる別ファイル\n\n" + lines("RC") + "印STUCK を足した。\n", encoding="utf-8")
 git("add", ".")

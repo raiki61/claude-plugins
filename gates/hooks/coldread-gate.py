@@ -4535,17 +4535,34 @@ def _still_stuck(stuck, text, premise=""):
 
 
 def _branch_where(root, mb):
-    """前の回の控えを分ける鍵: 共通の .git の場所と、今のブランチの名前。ブランチに居ない HEAD(--land は版を上げた一時の作業場で
-    回す)は、HEAD から辿れて分かれ目(mb)から辿れないブランチが 1 本だけなら、そのブランチ(候補はその頭か、頭に版上げの commit を
-    足した物)。取れなければ None(前の回を使わず、分かれ目から読む)。"""
+    """(前の回の控えを分ける鍵, 文書を読む commit)。鍵は共通の .git の場所と、今のブランチの名前。ブランチに居ない HEAD(--land は版を
+    上げた一時の作業場で回す)は、HEAD から辿れて分かれ目(mb)から辿れないブランチが 1 本だけなら、そのブランチ(候補はその頭か、頭に
+    版上げの commit を足した物)。鍵が取れなければ None(前の回を使わず、分かれ目から読む)。文書を読む commit は、HEAD がそのブランチの頭より
+    先に居るとき(版上げの commit を足した一時の作業場)だけ頭の名前で、ほかは None(作業ツリーから読む)。"""
     common = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root)
     if not common:
-        return None
+        return None, None
     name = _git(["symbolic-ref", "-q", "--short", "HEAD"], root)
-    if name is None:
+    detached = name is None
+    if detached:
         name = _git(["for-each-ref", "--format=%(refname:short)", "--merged", "HEAD", "--no-merged", mb, "refs/heads/"], root)
     names = name.decode("utf-8", "replace").split() if name else []
-    return "%s\0%s" % (common.decode("utf-8", "replace").strip(), names[0]) if len(names) == 1 else None
+    if len(names) != 1:
+        return None, None
+    tip = None
+    if detached:
+        heads = _git(["rev-parse", "HEAD", names[0]], root)
+        tip = names[0] if heads and len(set(heads.split())) == 2 else None
+    return "%s\0%s" % (common.decode("utf-8", "replace").strip(), names[0]), tip
+
+
+def _tip_text(root, tip, rel):
+    """ブランチの頭(tip)の文書(rel)の字。tip に無い・UTF-8 でなければ None(作業ツリーから読む)。"""
+    got = _git(["show", "%s:%s" % (tip, rel)], root)
+    try:
+        return got.decode("utf-8").replace("\r\n", "\n") if got is not None else None
+    except UnicodeDecodeError:
+        return None   # 作業ツリーから読み、読めなければ開けなかった文書に数える
 
 
 def _last_path(where, rel):
@@ -4668,14 +4685,19 @@ def branch_check(argv):
         print("coldread branch-check: %s との分かれ目が取れない(--base <メインブランチの ref> で渡す)" % base)
         return 2
     mb, docs = got
-    where = _branch_where(root, mb)
+    where, tip = _branch_where(root, mb)
     generated = _generated([full for _, full in docs]) if docs else set()
     moved = _moved_lines(root, mb) if docs else set()
     picked, unread = [], []
     for rel, full in docs:
+        # 版上げの commit を足した一時の作業場では、ブランチの頭の版を読んで控える。版上げした版を控えると、ブランチの作業場で打ち直した
+        # 回が版上げで動いた見出しだけを書き換えとして読ませ、読み手が「見出しだけで中身が読めない」と詰まりにした(2026-10-19、受付 9d73b4。
+        # CHANGELOG の [Unreleased] が版の見出しに替わった)。版上げは --land が機械で足す物で、書き手の書いた所はブランチの頭に在る
+        text = _tip_text(root, tip, rel) if tip else None
         try:
-            with open(full, encoding="utf-8") as f:
-                text = f.read()
+            if text is None:
+                with open(full, encoding="utf-8") as f:
+                    text = f.read()
         except FileNotFoundError:
             continue   # ブランチが書いた後に作業ツリーで消した文書(main へは入らない)
         except (OSError, UnicodeDecodeError) as exc:
