@@ -3,7 +3,7 @@
 
 今ある物を一度に直せないので、ファイルごとの数を基準（tests/value-rules-baseline.json）に控え、増えたら止める。減ったときも、
 基準を書き直すまで止める（減った分をそのまま残すと、後で同じ数まで増やせてしまう。scripts/terms.py と同じ形。betterer の CI の回と
-同じ考え: https://phenomnomnominal.github.io/betterer/docs/running-betterer-in-ci ）。数え方は標準の「守らせ方」のとおりで、
+同じ考え: https://phenomnomnominal.github.io/betterer/docs/running-betterer ）。数え方は標準の「守らせ方」のとおりで、
 Python の構文木（ast）と注記の字句（tokenize）だけで決める。
 
 - 見るファイル: attention・convergence-loops・gates・graphloops・tiers・works-dispatch と、ルートの scripts/・tests/ の、git に載った .py。
