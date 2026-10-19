@@ -294,7 +294,7 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         (got,) = seen
         self.assertEqual(got["ns"].only_account, "a2")
-        self.assertIn("使用上限に当たる前の区切りで", got["brief"])
+        self.assertIn("使用上限か使える時間帯の終わりに当たる前の区切りで", got["brief"])
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((moved["from"], moved["to"], moved["why"], moved["status"]), ("a1", "a2", move.EARLY, "done"))
         self.assertIn("5 時間の枠 92%", moved["detail"])
