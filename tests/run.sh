@@ -2954,6 +2954,12 @@ summary.write_text("+++\nopen = []\n+++\n" + "例の件を直して main に入�
 got = bash("%s --deliver %s" % (D, summary.as_posix()), FIND)
 assert got and got["permissionDecision"] == "deny" and "例の件" in got["permissionDecisionReason"], got
 assert read() == 1 and "例の件を直して" in (calls / "0.txt").read_text(encoding="utf-8"), "読み手に要約の本文が届いていない"
+# 頭書き（送るツールが読む +++ の TOML）は、納品の受け手に届く形（「残った疑問」の項目）に替えて読ませる。ファイルは替えない（頼み 063afa）。
+# tomllib の無い Python（3.10 以前）では外すだけ
+toml = sys.version_info >= (3, 11)
+seen = (calls / "0.txt").read_text(encoding="utf-8")
+assert "+++" not in seen and "open = []" not in seen and ("## 残った疑問\nなし" in seen) == toml, f"頭書きを頭書きのまま読ませた: {seen[-300:]}"
+assert summary.read_text(encoding="utf-8").startswith("+++\nopen = []\n+++\n"), "要約のファイルの頭書きを替えた"
 # 直して通した要約は、ターンの終わりの手元の文書の読みが読み直さない
 summary.write_text("+++\nopen = []\n+++\n" + "受付 5bb988 の直しを main に入れた。" * 30, encoding="utf-8")
 got = bash("%s --deliver %s" % (D, summary.as_posix()), CLEAN)
@@ -2986,6 +2992,23 @@ assert got and got["permissionDecision"] == "allow" and read() == 8, (got, read(
 hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(late)}}, None, "docs-record")
 assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, CLEAN, "docs-check") == "" and read() == 9, \
     "前の回から残った物だけで止める回に通した本文を、全体を読んだ扱いにした"
+# 残った疑問の在る頭書きは、1 件ずつ疑問の文と担当者の字にして読ませる。題（title）は見出しにする。読めない頭書きは替えない
+opened = work / "opened.md"
+opened.write_text('+++\n[[open]]\nquestion = "次の版で何を直すかを決める"\nholder = "owner:choose"\n[[open]]\nquestion = "CI の赤を戻す"\n'
+                  'holder = "20261019-211527-dea487"\n+++\n' + "残りの直しを分けて回した。" * 30, encoding="utf-8")
+got = bash("%s --deliver %s" % (D, opened.as_posix()), CLEAN)
+seen = (calls / ("%d.txt" % (read() - 1))).read_text(encoding="utf-8")
+assert got and got["permissionDecision"] == "allow" and "[[open]]" not in seen and "holder =" not in seen \
+    and (not toml or "## 残った疑問\n- 次の版で何を直すかを決める 担当者: 持ち主（価値で選ぶ）\n- CI の赤を戻す 担当者: 20261019-211527-dea487" in seen), seen[-300:]
+brief = work / "brief.md"
+brief.write_text('+++\ntitle = "頭書きの読み方を直す"\n+++\n' + "頼みの文。" * 60, encoding="utf-8")
+got = bash("%s --ask claude-plugins/点検 --brief %s" % (D, brief.as_posix()), CLEAN)
+seen = (calls / ("%d.txt" % (read() - 1))).read_text(encoding="utf-8")
+assert got and got["permissionDecision"] == "allow" and "+++" not in seen and ("# 頭書きの読み方を直す\n\n頼みの文。" in seen) == toml, seen[-300:]
+if toml:
+    brief.write_text('+++\ntitle = "閉じの引用符が無い\n+++\n' + "頼みの文。" * 60 + "読めない頭書き。", encoding="utf-8")
+    got = bash("%s --ask claude-plugins/点検 --brief %s" % (D, brief.as_posix()), CLEAN)
+    assert '+++\ntitle = "閉じの引用符が無い' in (calls / ("%d.txt" % (read() - 1))).read_text(encoding="utf-8"), "読めない頭書きを替えた"
 # dispatch.py を走らせる形と読めないコマンド（知らない起動の口）は通るが、取りこぼしの記録に旗と先頭の語を残す
 assert bash("uv run /p/dispatch.py --deli %s" % summary.as_posix(), FIND) is None
 rows = [l.split("\t")[1:] for l in (cfg / "coldread-gate/misses.log").read_text(encoding="utf-8").splitlines()]

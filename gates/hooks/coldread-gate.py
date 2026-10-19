@@ -132,6 +132,10 @@ try:
     import fcntl
 except ImportError:   # Windows(msvcrt で閉じる。_locked)
     fcntl = None
+try:
+    import tomllib
+except ImportError:   # 3.10 以前(works-dispatch の頭書きを字に替えず、外して読ませる。dispatch_view)
+    tomllib = None
 import contextlib
 
 
@@ -313,6 +317,45 @@ BODY_FLAG_RE = re.compile(
 DISPATCH_BODY_FLAGS = {"--deliver": "file", "--text": "text", "--brief": "file"}
 DISPATCH_SCRIPT = "dispatch.py"
 DISPATCH_SUB = "works-dispatch"   # Analysis.calls のサブコマンドの頭(gh のサブコマンドと分ける。destgate は宛先を問わない)
+DISPATCH_FRONT = "+++"   # works-dispatch の頭書きの 1 行目と閉じの行(works-dispatch/dispatch/nodes/deliver.py の FRONT)
+# 残った疑問の担当者のうち、受け手に別の字で見せる値(deliver.py の OWNER_KEYS)
+DISPATCH_OWNERS = {"owner:choose": "持ち主（価値で選ぶ）", "owner:confirm": "持ち主（確認してからやる）"}
+
+
+def dispatch_view(body):
+    """works-dispatch に送る本文の、読み手に渡す形。
+
+    頭書き(1 行目と閉じの行が +++ の TOML。題の title・頼みの種類の type・残った疑問の open)は送るツールが読むフィールドで、
+    納品の受け手には「残った疑問」の項目として届き、頼みの題は受付の一覧に出る。頭書きのまま読ませると、読み手が「冒頭の +++ open = [] +++ が何か
+    分からない」を詰まりに挙げ、残った疑問の無い納品を 3 回続けて止めた(2026-10-20、頼み 063afa)。そこで題は見出しに、残った疑問は
+    納品の受け手に届く形の字に替えて読ませる。残った疑問の文と担当者は読ませたまま残す(届く文なので、通じるかを見る)。ファイルは替えない
+    (頭書きは送るツールが読む)。替え方は works-dispatch の deliver.py の render_open・holder_text に合わせる。知らないフィールド・読めない
+    頭書きは替えない(送るツールが送らずに返す)。tomllib の無い Python(3.10 以前)では頭書きを外すだけにする。
+    """
+    lines = body.lstrip("\ufeff").splitlines(keepends=True)
+    if not lines or lines[0].strip() != DISPATCH_FRONT:
+        return body
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == DISPATCH_FRONT), None)
+    if end is None:
+        return body
+    rest = "".join(lines[end + 1:]).lstrip("\n")
+    if tomllib is None:
+        return rest
+    try:
+        data = tomllib.loads("".join(lines[1:end]))
+    except tomllib.TOMLDecodeError:
+        return body
+    questions = data.get("open")
+    if set(data) - {"title", "type", "open"} or not isinstance(data.get("title", ""), str) or not (
+            questions is None or isinstance(questions, list) and all(isinstance(q, dict) for q in questions)):
+        return body
+    head = "# %s\n\n" % data["title"].strip() if data.get("title", "").strip() else ""
+    if questions is None:
+        return head + rest
+    items = ["- " + " ".join(str(q.get("question") or "").split())
+             + (" 担当者: %s" % DISPATCH_OWNERS.get(str(q["holder"]).strip(), str(q["holder"]).strip()) if str(q.get("holder") or "").strip() else "")
+             for q in questions]
+    return head + rest.rstrip("\n") + "\n\n## 残った疑問\n" + ("\n".join(items) or "なし") + "\n"
 # dispatch.py を引数に取って走らせるコマンド名(`git add …/dispatch.py` のような、名前を書くだけのコマンドと分ける)。
 # この名前で始まるコマンドは、間に旗(python3 -X utf8・run-python.sh --min 3.11)が在っても dispatch.py の語まで探す
 INTERPRETER_RE = re.compile(r"(?:python[0-9.]*|py|bash|sh|run-python\.sh)(?:\.exe)?\Z")
@@ -2802,17 +2845,19 @@ def main() -> None:
 
     # 同じ投稿の書き直しなら、前の回の指摘と直しを読み手に渡す(FOLLOWUP_NOTE)
     # 記録の読みで例外が出てもゲートを落とさない(落ちると無検査で通る)。1 回目の読み方に戻す
+    # works-dispatch の頭書きは、題の見出しと残った疑問の項目の字に替えて読ませる(dispatch_view)。覚える中身・指紋は送る本文のまま
+    text = dispatch_view(body) if sub and sub[0] == DISPATCH_SUB else body
     prompt = reader_prompt(screen, noun)
     try:
         prev = load_round(sid, target, fp)
         if prev:
-            prompt = followup_prompt(prompt, prev, body)
+            prompt = followup_prompt(prompt, prev, text)
     except Exception:
         prev, prompt = None, reader_prompt(screen, noun)
     round_no = prev["round"] + 1 if prev else 1
     kinds = tuple(KINDS) if mode == "screen" else COLD_KINDS
     try:
-        found = sort_findings(run_reader(prompt + body, reader_schema(kinds)), kinds)
+        found = sort_findings(run_reader(prompt + text, reader_schema(kinds)), kinds)
     except ReaderAuth as exc:
         stop("reader-auth\t%d" % len(body),
              "外部投稿ゲート: coldreader(文脈ゼロの読み手)が読めなかった(%s)。\n" % str(exc)[:200]
@@ -2832,7 +2877,7 @@ def main() -> None:
              + OWNER_NOTE, len(body), fp)
 
     if round_no >= CARRY_ONLY_ROUND:
-        found = carried_only(found, prev, body != prev.get("body"))
+        found = carried_only(found, prev, text != prev.get("body"))
     blocking, questions, fills, redundant, traced = (
         finding_lines(found, kind) for kind in ("stuck", "question", "guess", "redundant", "echo"))
 
@@ -2905,7 +2950,7 @@ def main() -> None:
     if prev:
         howto = ("直し方: 挙がった所だけを直す(次の回の読み手は、この回の指摘が解けたかと、直した所だけを見る。"
                  "直していない所で新しく気づいた物では止めない)。") + howto
-    save_round(sid, target, fp, body, found, round_no)
+    save_round(sid, target, fp, text, found, round_no)
     stop("finding\t%d\t%s" % (len(body), mode),
          head + "\n\n" + detail[:1500]
          + "\n\n" + howto + "詳細は skill『coldread』。\n" + SCOPE_NOTE
