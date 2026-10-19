@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.83.1] - 2026-10-19
+
 ### Fixed
 
 - 部署（会社の役を持つ会話と、その作業場〔部署ごとの git worktree〕）が自分の作業場から `git worktree add` で一時の worktree（試しの場所など）を切ると、名前で部署を指す `--move`・`--ask`・`--land`（部署のブランチを main に入れるコマンド）が「部署の名前が 2 つ以上ある」で止まっていた。git は `extensions.worktreeConfig` のとき、作った元の worktree の worktree ごとの設定（`config.worktree`）を新しい worktree に写すので、部署の属性（`git config --worktree` で書く `company.*`）が全部そのまま載り、元の部署と同じ名前の部署が 2 つに見えていた（2026-10-19、文書を受け持つ部署「説明書」が、値の決まりの試験 `tests/value-rules.py` を回すために切った一時の worktree）。前の直し（0.63.1 の、写った属性を部署に数えない直し）は、`--call`（会社の形〔`.claude/company.toml`。役や部署を書く会社の設定ファイル〕に書いた台本を走らせるコマンド）や `--land` など、このツールが自分で作る一時の worktree だけを見ていた。今回から、属性を書くときに書いた worktree の id（`.git/worktrees/<id>` の `<id>`。main worktree〔代表の clone〕は `.`）を `company.worktree-id` に書き、読むときは、`company.worktree-id` の値（属性を書いた worktree の id）と、今読んでいる worktree の id（git が値を読んだ設定ファイル `config.worktree` のパスから分かる）を比べ、違えば、ほかの worktree から写った属性として、無いと読む。このツールが新しい worktree に部署（や PR の作業場）を立てるときは、写った `company.*` を先に丸ごと消してから書く。この直しより前の版で書いた属性（`company.worktree-id` が無い）は今までどおり読むので、id は、このツールがその部署の属性を次に書いたとき（頼み〔頼み元が `--ask` で部署に渡した仕事〕を受ける・納品する〔頼み元へ結果を返す〕など）に付く。id が付く前に切った worktree は、前と同じく部署に見え、「2 つ以上ある」で止まりうる。
