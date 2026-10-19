@@ -16,7 +16,8 @@
 - **旧い側**: 印が名乗る台本の関数を 1 本ずつ、glharness.driven(台本, "inproc") の下でこのプロセスで回して測る——loop.py は
   同じプロセスの loop.cli() に回るので、子プロセスを測る設定（coverage の patch = subprocess）なしで engine の行が数えられる。
   cli の口のまま測ると旧い側が同じプロセスで呼ぶ部品の行だけになり、包含が恒真になる。台本と engine の import の行は印を集める段で
-  済んでいるので、旧い側に入らない
+  済んでいるので、旧い側に入らない。全部の台本を 2 度回し、台本ごとの包含は 2 度目（old:）だけで比べる——プロセスで 1 度だけ走る
+  行は 1 度目（first:）に入り、全体の包含で見る（measure_old）
 - **新しい側**: 印を持つファイルを pytest-cov の --cov-context=test で測る。文脈は node id と段（setup・run・teardown）。
   --gl-prebuild-waves で T1 の波と層 2 の前置き（given）を最初のテストの setup に作らせ、各行の when は検査の本体（run）で打つ
 - **前置きの作り**: T1 の波（wave:<名前>）と層 2 の列の接頭辞（given:<列>@<位置>）を、このプロセスで 1 つずつ作って文脈を分けて測る。
@@ -36,7 +37,8 @@
 あわせて、元の関数の Run ごとに、同じ Run の列を端まで打った物と突き合わせる（列が元の関数の出来事を落としていれば赤）:
 loop.py の呼び出しの列（inproc の口の回だけ。語・引数・渡したファイルの中身・標準入力）と、最後の盤面（glharness.normalize_board と
 first_difference）。盤面は世界の手と返答の中身の違いを、呼び出しの列は盤面を書かない手（拒まれた done・止めた run への next と status）の
-落としを見る。作業場ごとに変わる物（git の commit の sha・道を本文に含むプロンプトの大きさ）は比べる前に伏せる。
+落としを見る。作業場ごとに変わる物（git の commit の sha・道を本文に含むプロンプトの大きさ）は比べる前に伏せる。run_id は伏せずに
+そろえる——抜き取りの種なので、列の init を元の関数の Run と同じ run_id で打たせる（same_clock）。
 """
 import argparse
 import contextlib
@@ -49,6 +51,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import xml.etree.ElementTree as ET
 from unittest import mock
 
@@ -110,25 +113,31 @@ def children():
 # ---- 被覆の測り -----------------------------------------------------------------------------------------------------------
 
 def measure_old(out_dir, workdir, scripts):
-    """台本の関数を 1 本ずつ同じプロセスで回し、文脈 old:<台本の関数> で測る（台本ごとに別のデータのファイル） ——{台本: {ran, fails, wall_s, core}}"""
+    """台本の関数を 1 本ずつ同じプロセスで回して測る。全部を 2 度回す: 1 度目は文脈 first:<台本の関数>、2 度目は old:<台本の関数>
+    （台本ごとに別のデータのファイル） ——{台本: {ran, fails, wall_s, core}}（2 度目の回の値。落ちた check は両方の回の物）。
+    プロセスで 1 度だけ走る行（検証器の読み込み・loop.py の読み込み・形の検査の写しの控え）は、1 度目に最初に通った台本の文脈に
+    だけ入り、台本ごとの包含では、たまたま最初に回った台本の『含まれない行』に落ちる（実測 2026-10-18: run 39173245893 で
+    test_attended_stuck_answer に 75 行・test_awaiting に 13 行）。台本ごとは 2 度目だけで比べ、全体は両方の回の和で比べる"""
     import coverage
     got = {}
-    for script in scripts:
-        mod_name, fn = script.split(".")
-        cov = coverage.Coverage(data_file=str(out_dir / f"old-{mod_name}-{fn}.cov"), source=SOURCES, context=f"old:{script}")
-        mod = importlib.import_module(mod_name)
-        ran0, fails0 = mod.ran, len(mod.fails)
-        with _in_workdir(workdir):
-            t0 = time.monotonic()
-            cov.start()
-            core = dict(cov.sys_info()).get("core")
-            try:
-                with glharness.driven(mod, "inproc"):
-                    getattr(mod, fn)()
-            finally:
-                cov.stop()
-                cov.save()
-        got[script] = {"ran": mod.ran - ran0, "fails": mod.fails[fails0:], "wall_s": round(time.monotonic() - t0, 1), "core": core}
+    for phase in ("first", "old"):
+        for script in scripts:
+            mod_name, fn = script.split(".")
+            cov = coverage.Coverage(data_file=str(out_dir / f"{phase}-{mod_name}-{fn}.cov"), source=SOURCES, context=f"{phase}:{script}")
+            mod = importlib.import_module(mod_name)
+            ran0, fails0 = mod.ran, len(mod.fails)
+            with _in_workdir(workdir):
+                t0 = time.monotonic()
+                cov.start()
+                core = dict(cov.sys_info()).get("core")
+                try:
+                    with glharness.driven(mod, "inproc"):
+                        getattr(mod, fn)()
+                finally:
+                    cov.stop()
+                    cov.save()
+            fails = got.get(script, {}).get("fails", []) + mod.fails[fails0:]
+            got[script] = {"ran": mod.ran - ran0, "fails": fails, "wall_s": round(time.monotonic() - t0, 1), "core": core}
     return got
 
 
@@ -266,8 +275,8 @@ def cover(found):
         work.mkdir()
         old_runs = measure_old(old_dir, work, sorted(by_script))
         old_ctx = {}
-        for f in sorted(old_dir.glob("old-*.cov")):
-            old_ctx.update({c: ls for c, ls in lines_by_context(f).items() if c.startswith("old:")})
+        for f in sorted(old_dir.glob("*.cov")):
+            old_ctx.update({c: ls for c, ls in lines_by_context(f).items() if c.startswith(("first:", "old:"))})
         built_run = measure_built(pathlib.Path(td) / "built.cov", work)
         built_ctx = {c: ls for c, ls in lines_by_context(pathlib.Path(td) / "built.cov").items() if c.startswith(("wave:", "given:"))}
         junit = pathlib.Path(td) / "new.xml"
@@ -332,11 +341,48 @@ def run_old(script, workdir, driver):
             made, calls)
 
 
-def run_new(script, workdir):
-    """その台本の行が使う列を、控えの置き場で端まで 1 度ずつ作る ——(所要と子の数, 控え, loop.py の呼び出し)"""
+def old_run_ids(names, made):
+    """列ごとの、元の関数の Run の run_id（{列: run_id}。Run が 1 個に決まらない列は入れない——compare_runs が赤にする）"""
+    out = {}
+    for n in names:
+        olds = [p for pre, p in made if pre == run_prefix(scenes.HISTORIES[n])]
+        states = sorted(olds[0].glob("*/state.json")) if len(olds) == 1 else []
+        if len(states) == 1:
+            out[n] = json.loads(states[0].read_text(encoding="utf-8"))["run_id"]
+    return out
+
+
+@contextlib.contextmanager
+def same_clock(run_ids):
+    """列の init を、元の関数の Run と同じ run_id で打たせる。run_id は init の時計の秒で、research の抜き取り（sampling_pick）の
+    種になる——時計のままだと、元の関数の Run と列の Run が別の項目を抜き取り、盤面が振る舞いと関係なく割れる（実測 2026-10-18:
+    run 39173245893 の research/coldfail ほか 4 列）。固めるのは engine.commands の時計だけ（使うのは run_id を作る 1 か所）"""
+    import datetime
+    from engine import commands
+
+    def init(d, ev, inst, out):
+        rid = run_ids.get(next((n for n, h in scenes.HISTORIES.items() if h.events[0] is ev), None))
+        if rid is None:
+            return real(d, ev, inst, out)
+        at = datetime.datetime.strptime(rid[:15], "%Y%m%d-%H%M%S")
+
+        class Frozen(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return at
+        with mock.patch.object(commands, "datetime", types.SimpleNamespace(datetime=Frozen)):
+            return real(d, ev, inst, out)
+    real = scenes.EVENTS["init"]
+    with mock.patch.dict(scenes.EVENTS, {"init": init}):
+        yield
+
+
+def run_new(script, workdir, run_ids):
+    """その台本の行が使う列を、控えの置き場で端まで 1 度ずつ作る ——(所要と子の数, 控え, loop.py の呼び出し)。
+    run_ids の列は元の関数の Run と同じ run_id で init する（same_clock）"""
     names = sorted({n for n, _ in scenes.ROWS.get(script, ())})
     built = scenes.Scenes(tempfile.mkdtemp(prefix="gl-scenes-", dir=workdir))
-    with _in_workdir(workdir), children() as box, loop_calls() as calls:
+    with _in_workdir(workdir), same_clock(run_ids), children() as box, loop_calls() as calls:
         t0 = time.monotonic()
         for n in names:
             built.build(n, len(scenes.HISTORIES[n].events))
@@ -406,7 +452,8 @@ def timing(scripts, driver):
         for script in scripts:
             work = pathlib.Path(tempfile.mkdtemp(prefix="w-", dir=td))
             old, made, old_calls = run_old(script, work, driver)
-            new, built, new_calls = run_new(script, work)
+            names = sorted({n for n, _ in scenes.ROWS.get(script, ())})
+            new, built, new_calls = run_new(script, work, old_run_ids(names, made))
             runs = compare_runs(new["histories"], made, built, old_calls, new_calls)
             result[script] = {"old": old, "new": new, "runs": runs}
             problems += [f"{script}: 元の関数の check が落ちた: {old['fails'][:3]}"] if old["fails"] else []
@@ -428,6 +475,12 @@ def main(argv):
         print(log[-2000:], file=sys.stderr)
         print(f"印を集める段が {code} で終わった", file=sys.stderr)
         return 1
+    # 集める段（同じプロセスの pytest）が GNU readline を読み込むと、readline がプロセスの環境（C の environ）に COLUMNS と LINES を
+    # 書く（os.environ には載らない）。cli の口の旧い側の子はそれを継ぎ、engine の検査結果の控えの指紋（環境変数の全部）が、os.environ
+    # を見る inproc の列の Run と割れる（実測 2026-10-18: run 39173245893 の timing cli。Linux だけ——macOS の Python は libedit）
+    for name in ("COLUMNS", "LINES"):
+        if name not in os.environ:
+            os.unsetenv(name)
     for f in sorted({e["file"] for e in found}):   # 列を登録する（集める段が読んだモジュールと同じ物）
         importlib.import_module(pathlib.Path(f).stem)
     if a.no_cov:

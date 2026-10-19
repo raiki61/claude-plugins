@@ -202,7 +202,7 @@ def test_final_gate_empty_asks_human(scene, name, at, expect):
 S = "simulate_review.test_stop_midround"
 AT_FIX_PLAN = {"ready": "p2.fix_plan"}
 history("review/stop-mid", init("stop-mid"), until("std", stop=AT_FIX_PLAN), cmd("stop", "--reason", " ", mark="empty"),
-        cmd("stop", "--reason", "検査: 修正案の前で止める", mark="stop"), done("p2.fix_plan", {}, mark="late"),
+        cmd("stop", "--reason", "検査: 修正案の前で止める", mark="stop"), cmd("done", "--node", "p2.fix_plan", "--output", file("late.json", {}), mark="late"),
         cmd("stop", "--reason", "二度目", mark="second"), nxt(mark="next"), until("std", mark="end"))
 history("review/stop-stale", init("stop-stale"), until("std", stop=AT_FIX_PLAN), write("dir", "rounds/round-1.json", '{"stale": true}'),
         cmd("stop", "--reason", "検査: 負けた試行の残したファイルの上で止める", mark="stop"))
@@ -370,9 +370,9 @@ roles("gate-exclude",
       base="std")
 history("review/gate-exclude", init("gate-exclude"), until("gate-exclude", mark="asked"),
         cmd("answer", "--text", "continue", "--note", "通す（検査用）", "--detail",
-            file("bad.json", {"exclude": [{"unit": "義務に無い単位（検査用）", "why": "外す（検査用）"}]}), mark="bad"),
+            file("bad.json", {"exclude": [{"unit": "義務に無い単位（検査用）", "why": "外す（検査用）"}]}, ascii=True), mark="bad"),
         look(mark="after_bad"),
-        cmd("answer", "--text", "continue", "--note", "通す（検査用）", "--detail", file("good.json", {"exclude": [{"unit": 1, "why": EXCLUDE_WHY}]}),
+        cmd("answer", "--text", "continue", "--note", "通す（検査用）", "--detail", file("good.json", {"exclude": [{"unit": 1, "why": EXCLUDE_WHY}]}, ascii=True),
             mark="good"),
         until("gate-exclude", stop={"got": "fix"}, mark="to_fix"))
 roles("gate-unattended", rule("p2.fix_plan", reply=merged({"narrows": [{"what": "検査用の狭め", "why": "無人で止まるか（検査用）"}]}, at=("plan", 0))),

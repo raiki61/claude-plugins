@@ -56,9 +56,10 @@ def cmd(*args, mark=None):
     return _ev("cmd", mark, args=list(args))
 
 
-def file(name, value=None, ref=None):
-    """cmd の引数に置く JSON のファイル。ref は (列, 印, "state"|"record", 道...) ——別の列のその印の盤面から値を読む"""
-    return {"file": name, **({"ref": list(ref)} if ref else {"json": value})}
+def file(name, value=None, ref=None, ascii=False):
+    """cmd の引数に置く JSON のファイル。ref は (列, 印, "state"|"record", 道...) ——別の列のその印の盤面から値を読む。
+    ascii は ASCII でない字を \\uXXXX で書く（元の関数が json.dumps の既定で書いたファイルを、同じ中身で渡す）"""
+    return {"file": name, **({"ref": list(ref)} if ref else {"json": value}), **({"ascii": True} if ascii else {})}
 
 
 def done(node, value=None, merge=None, agent_id=None, mark=None):
@@ -357,7 +358,7 @@ def _cmd(d, ev, inst, out):
         if isinstance(a, dict):
             files[a["file"]] = d.value(a)
             p = d.run.tmp / a["file"]
-            p.write_text(json.dumps(files[a["file"]], ensure_ascii=False), encoding="utf-8")
+            p.write_text(json.dumps(files[a["file"]], ensure_ascii=bool(a.get("ascii"))), encoding="utf-8")
             a = str(p)
         args.append(a)
     return {**_stored(d.run.cmd(*args)), **({"files": files} if files else {})}
