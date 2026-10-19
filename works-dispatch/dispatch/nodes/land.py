@@ -4,7 +4,8 @@
 会社の形の設計の 8 章（検証をどこで回すかも会社の形に書く）と 4.10 の 1（部署の畳み方と成果の取り込み）に当たる。
 入口の --land（landing.py）が、この順で呼ぶ。
 1. 決まりを読む（read_rules）。会社の形のファイル（`.claude/company.toml`、無ければ設定の置き場の companies/）の [land] の表。
-   無ければ取り込み方は none（何もしない。前の版と同じ動き）。役ごとに [land.roles.<役>] でフィールドを替えられる。
+   無ければ取り込み方は none（何もしない。前の版と同じ動き）。役ごとに [land.roles.<役>] でフィールドを替えられる。知らない鍵と外した鍵
+   （一覧は known_keys）は problems に書き、取り込みを止める（ゲートの鍵を書き間違えて、黙って緩いゲートで入れないため）。
 2. メインブランチが部署のブランチの祖先でなければ（ほかの部署が先に入れた）、部署の場所で git でリベースする（auto_rebase）。機械で解けないぶつかりが
    残れば、リベースを元に戻して、部署にリベースを頼む（ask）。
 3. ゲートに出す。ゲートが CI のブランチの形（例 release/*。* に部署の名前）なら、そのブランチへ候補の commit を push し（publish）、その commit の
@@ -20,6 +21,7 @@ import pathlib
 import re
 import tomllib
 
+import known_keys
 from ports import chat
 
 MODES = ("ff-after-ci", "pr", "none")
@@ -66,6 +68,7 @@ def read_rules(path, role=None, text=None):
     if not isinstance(raw, dict):
         out["problems"].append(f"{path}: land が表で無い")
         return out
+    out["problems"] += known_keys.land(raw, path, role)
     out["after"] = _after(raw.get("after", []), path, out["problems"])
     layers = [raw]
     roles = raw.get("roles", {})

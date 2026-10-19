@@ -2,7 +2,9 @@
 """role ノード: 会社の形のファイル（tree.read_info が見つけた物）から、役の項目と gh のアカウントを読み、部署に渡す物を組み立てる。書くのは、部署を起動するときの設定のファイル 1 つ（write_settings）だけ。
 
 会社の形の設計（docs/specs/2026-10-16-company-shape-design.md）の 4.7（役ごとに起動時の文脈を絞る）と 4.8（役の渡し方）に当たる。
-役は会社の形の [[roles]] に 1 つずつ書く。フィールドは次のとおりで、知らないフィールドは読み飛ばす。
+役は会社の形の [[roles]] に 1 つずつ書く。フィールドは次のとおり（一覧は known_keys.COMPANY）。知らないフィールドと外したフィールドは
+読まず、役の項目の odd に名前を残す（注記は tree.read_info が出す）。odd の有る役へは、--deliver も --ask も送らない（その役の納品と頼みの
+ゲート〔deliver_check・holders・ask_check・ask_holders〕の鍵を書き間違えたか、鍵が版で消えたかもしれず、黙って通すと検査を緩めるため。orders.gate_keys）。
 - name: 役の名前（部署の属性 company.role と同じ字）
 - instructions: 部署の会話の指示に足す役の本文。SessionStart のフックが毎回の起動で足すので短くし、AGENTS.md と同じことは書かない
 - model: 部署を起動するときの --model。省けばそのアカウントの既定のまま起動する。受け持ち（[[skills]]）に model が有れば、
@@ -56,6 +58,7 @@ import shlex
 import tomllib
 
 import gitx
+import known_keys
 from ports import chat
 
 # 役の effort に書ける値（CLI の文書の --effort の Options）と、頼み元と同じ値で起動する印
@@ -150,7 +153,7 @@ def _empty():
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, deliver_check, persistent, fresh}, gh_user, default_role, problems}。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, deliver_check, persistent, fresh, odd}, gh_user, default_role, problems}。
     path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
@@ -223,7 +226,8 @@ def load(path, text=None):
                                    "ask_check": (r.get("ask_check") or "").strip() or None,
                                    "persistent": r.get("persistent", r.get("resident")) is True, "fresh": r.get("fresh") is True,
                                    "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"]),
-                                   "holders": _holders(r.get("holders")), "ask_holders": _holders(r.get("ask_holders"))}
+                                   "holders": _holders(r.get("holders")), "ask_holders": _holders(r.get("ask_holders")),
+                                   "odd": [k for k, _ in known_keys.odd("roles", r)]}
         olds = r.get("former_names", [])
         if not (isinstance(olds, list) and all(isinstance(x, str) and x.strip() for x in olds)):
             out["problems"].append(f"{where}（{r['name']}）: former_names が空でない文字列の並びで無いので外す")

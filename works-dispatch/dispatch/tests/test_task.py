@@ -361,7 +361,7 @@ class Task(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        self.assertIn("task_cwd は使わなくなったので無視した", out)
+        self.assertIn("外した鍵 task_cwd は読まない（0.5.0 で外した", out)
         self.assertFalse([w for w in ports.term.writes if w[0] == "run" and w[2].startswith("cd ")])
 
     def test_dry_run_writes_nothing_and_shows_the_plan_and_the_first_text(self):

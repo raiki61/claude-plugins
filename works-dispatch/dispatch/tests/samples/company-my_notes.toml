@@ -1,0 +1,94 @@
+# my_notes の会社の形（origin/main fe7a7d8c）から採った鍵の骨組み。文は x に、コマンドは true に置き換えた。試験 test_known_keys が読む
+
+name = "my_notes"
+description = "x"
+gh_user = "x"
+default_role = "作業"
+desk_role = "段取り"
+
+[[roles]]
+name = "担当"
+model = "opus"
+effort = "medium"
+holders = ["社長室"]
+instructions = "x"
+persistent = true
+resident = true
+fresh = true
+deliver_check = "true"
+[roles.settings]
+
+[[roles]]
+name = "作業"
+model = "opus"
+effort = "medium"
+holders = ["社長室"]
+instructions = "x"
+deliver_check = "true"
+[roles.settings]
+
+[[roles]]
+name = "写し"
+machine = true
+[[roles.tools]]
+name = "collect"
+title = "x"
+description = "x"
+inputSchema = { type = "object" }
+command = "true"
+fallback_role = "作業"
+
+[[roles]]
+name = "相談"
+ask_check = "true"
+ask_holders = ["社長室"]
+instructions = "x"
+deliver = ["結論", "持ち主の言葉"]
+persistent = true
+resident = true
+model = "opus"
+effort = "high"
+[roles.settings]
+
+[[roles]]
+name = "段取り"
+former_names = ["窓口"]
+instructions = "x"
+deliver = ["結論", "残った疑問"]
+holders = ["社長室"]
+deliver_check = "true"
+[roles.settings]
+
+[[skills]]
+id = "research"
+name = "調べもの"
+description = "x"
+role = "担当"
+[skills.start]
+every = "30d"
+report_to = "段取り"
+by = ["段取り"]
+text = "x"
+
+[[skills]]
+id = "upkeep"
+name = "ノートの手入れ"
+description = "x"
+role = "担当"
+
+[[skills]]
+id = "reform"
+name = "業務改革"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+[skills.start]
+report_to = "社長室"
+by = ["社長室"]
+text = "x"
+
+[land]
+mode = "ff-after-ci"
+gate = "check"
+check = "true"

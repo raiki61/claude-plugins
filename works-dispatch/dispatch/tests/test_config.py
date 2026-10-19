@@ -68,7 +68,7 @@ class Load(unittest.TestCase):
                 cfg = config.load(write(self.d, "c.toml", FULL.format(d=self.d) + f"task_cwd = {value}\n"), env={})
                 self.assertFalse(hasattr(cfg.repos[0], "task_cwd"))
                 [note] = cfg.notes
-                self.assertIn("task_cwd は使わなくなったので無視した", note)
+                self.assertIn("repos[0]（o/r）: 外した鍵 task_cwd は読まない（0.5.0 で外した", note)
 
     def test_pick_repo_by_name_or_by_the_source_clone_path(self):
         cfg = config.load(write(self.d, "c.toml", FULL.format(d=self.d)), env={})
@@ -186,11 +186,25 @@ class Load(unittest.TestCase):
 
     def test_clone_root_left_from_the_previous_version_is_ignored(self):
         # 前の版は PR ごとの clone を <clone_root>/<名前>-pr-<番号> に作った。今は herdr の worktree の置き場に任せるので読まない。
-        # 知らない鍵はほかと同じく読み飛ばす（止めない）
+        # 外した鍵として、知らない鍵と分けた注記を出して読み飛ばす（止めない）
         body = (f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\n'
                 'source = "s"\nclone_root = "~/src"\n')
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertFalse(hasattr(cfg.repos[0], "clone_root"))
+        [note] = cfg.notes
+        self.assertIn("repos[0]（o/r）: 外した鍵 clone_root は読まない（0.3.0 で外した", note)
+        self.assertNotIn("知らない鍵", note)
+
+    def test_unknown_keys_are_noted_without_stopping(self):
+        # 書き間違えた鍵（limit_percnt・comand・gh_usr）は読み飛ばす前に注記に出す。止めはしない（ゲートを持たない設定なので）
+        body = FULL.format(d=self.d).replace("limit_percent = 95", "limit_percnt = 95").replace(
+            'name = "a1",   command', 'name = "a1", comand = "x", command') + 'gh_usr = "me"\n'
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual(cfg.limit_percent, config.DEFAULT_LIMIT)
+        self.assertEqual(len(cfg.notes), 3, cfg.notes)
+        self.assertIn(": 知らない鍵 limit_percnt（読まない", cfg.notes[0])
+        self.assertIn("accounts[1]: 知らない鍵 comand（読まない", cfg.notes[1])
+        self.assertIn("repos[0]（o/r）: 知らない鍵 gh_usr（読まない", cfg.notes[2])
 
     def test_missing_second_prompt_file_names_the_path(self):
         body = '[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "/nope/second.md"\nsource = "s"\n'

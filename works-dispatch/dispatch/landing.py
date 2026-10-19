@@ -110,7 +110,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)))
     rules = land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))
     for n in info["notes"]:
-        print(f"注記: {n}")
+        if n not in rules["problems"]:   # [land] の知らない鍵は、下の止めた訳に出す
+            print(f"注記: {n}")
     if rules["problems"]:
         print("止めた（取り込みの決まりが読めない）:\n" + "\n".join(f"- {p}" for p in rules["problems"]))
         return 2

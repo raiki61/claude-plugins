@@ -1,8 +1,8 @@
 """dispatch の設定（TOML）を読む。持ち主の環境の値（アカウント・起動のコマンド・置き場）はここから入り、コードには書かない（設計書 D6）。
 
 置き場は、引数 → 環境変数 WORKS_DISPATCH_CONFIG → ~/.config/works-dispatch/dispatch.toml の順。形は設計書のセクション 5。
-知らない鍵は読み飛ばす（前の版の clone_root が残っていても止めない）。
-外した鍵のうち、書いた人の思う動きと違ってしまう物（task_cwd）は、止めずに注記（Config.notes）を出して無視する。
+知らない鍵（書き間違いなど）と外した鍵（前の版の clone_root・task_cwd）は、止めずに注記（Config.notes）を出して読み飛ばす。
+読む鍵と外した鍵の一覧は known_keys.CONFIG・CONFIG_RETIRED。
 アカウントを書かなければ、`claude` 1 つだけのアカウントとして扱う（D7。普通の利用者の環境でもそのまま動く）。
 [[repos]] は PR を開く回（pick_repo）にだけ要る。部署の回（--task・--ask・--land・--tree）は、代表の clone の場所から会社を決め
 （repo_at）、設定の [[repos]] は gh_user・copy_files などを上書きしたいときだけ書く。second_prompt_file も PR を開く回だけの物で、
@@ -15,6 +15,7 @@ import re
 import tomllib
 import zoneinfo
 
+import known_keys
 from ports import chat
 from vendor import claude_auth
 from typing import NamedTuple
@@ -90,6 +91,11 @@ def _str(d, key, where, problems):
     return v
 
 
+def _odd(table, d, where):
+    """設定の表 d の、知らない鍵と外した鍵の注記（止めない。前の版の鍵が残っていても動く）。"""
+    return [known_keys.say(where, k, g) for k, g in known_keys.odd(table, d, known_keys.CONFIG, known_keys.CONFIG_RETIRED)]
+
+
 def zone_of(name):
     """時刻の基準の名前の tzinfo。UTC は地域の表（tzdata）の無い環境〔Windows など〕でも読めるよう、表を引かない。読めなければ None。"""
     if name == "UTC":
@@ -144,6 +150,7 @@ def load(path=None, env=os.environ, missing_ok=False):
         raise ConfigError(f"設定のファイルを TOML として読めない: {path}（{e}）")
 
     problems = []
+    notes = _odd("", raw, path)
     limit = raw.get("limit_percent", DEFAULT_LIMIT)
     if not isinstance(limit, int) or isinstance(limit, bool):
         problems.append("limit_percent が整数で無い")
@@ -174,6 +181,7 @@ def load(path=None, env=os.environ, missing_ok=False):
         if not isinstance(a, dict):
             problems.append(f"{where} が表で無い")
             continue
+        notes += _odd("accounts", a, f"{path}: {where}")
         name, command = _str(a, "name", where, problems), _str(a, "command", where, problems)
         cdir = a.get("config_dir")
         if cdir is not None and not isinstance(cdir, str):
@@ -206,10 +214,11 @@ def load(path=None, env=os.environ, missing_ok=False):
     if not raw.get("accounts"):
         accounts = [Account("default", chat.COMMAND, None)]
 
-    repos, notes = [], []
+    repos = []
     for i, r in enumerate(raw.get("repos", [])):
         where = f"repos[{i}]"
         name = _str(r, "repo", where, problems)
+        notes += _odd("repos", r, f"{path}: {where}（{name}）")
         pfile = r.get("second_prompt_file")
         prompt = ""
         if pfile is not None and not (isinstance(pfile, str) and pfile):
@@ -233,9 +242,6 @@ def load(path=None, env=os.environ, missing_ok=False):
         if gh_user is not None and not isinstance(gh_user, str):
             problems.append(f"{where}: gh_user が文字列で無い")
             gh_user = None
-        if "task_cwd" in r:
-            # サブエージェントは自分の作業場で起動する（その会社の AGENTS.md・CLAUDE.md とフックを効かせるため。会社の形の設計 4.1）
-            notes.append(f"{where}（{name}）: task_cwd は使わなくなったので無視した（サブエージェントは自分の作業場で起動する）。設定から消してよい")
         repos.append(Repo(name, prompt, _path(source) if source else None, tuple(copy),
                           _path(copy_from) if copy_from else None, gh_user or None))
     if problems:

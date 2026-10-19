@@ -1177,6 +1177,27 @@ class Flow(unittest.TestCase):
         self.assertIn("納品の検査が通った", out)
         self.assertEqual(len(self.prompts()), 1)
 
+    def test_an_unknown_key_of_the_role_stops_deliver_and_ask(self):
+        # 見本は my_notes の今の会社の形の骨組み。役「担当」の deliver_check を書き間違えると、ゲートが黙って外れる代わりに止まる（de978e）
+        good = (pathlib.Path(__file__).parent / "samples" / "company-my_notes.toml").read_text(encoding="utf-8")
+        self.shape(good)
+        provision.mark(self.place, self.src, {"role": "担当"}, gitx)
+        summary = self.ask_then_summary(GOOD)
+        self.shape(good.replace("deliver_check =", "deliver_chek =", 1))
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("roles[0]（担当）: 知らない鍵 deliver_chek（読まない", out)
+        self.assertIn("送らなかった: 役「担当」の会社の形に、この版の読まない鍵 deliver_chek があるので送らなかった", out)
+        self.assertEqual(self.prompts(), [])
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "もう 1 つ", "--dry-run")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("止めた: 役「担当」の会社の形に、この版の読まない鍵 deliver_chek があるので頼まなかった", out)
+        self.shape(good)
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("納品の検査が通った: true", out)
+        self.assertNotIn("知らない鍵", out)
+
     def test_a_check_script_missing_in_the_workplace_says_to_rebase(self):
         # 会社の形はメインブランチから読むが、検査は作業場で走る。台本の入る前のメインブランチから切ったブランチでは台本が無いので、リベースするよう言う
         self.shape(f'[[roles]]\nname = "調べ役"\ndeliver_check = {json.dumps(f'"{pathlib.Path(sys.executable).as_posix()}" tools/check.py')}\n')

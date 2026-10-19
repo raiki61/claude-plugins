@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 会社の形（`.claude/company.toml`）と dispatch の設定（`dispatch.toml`）の、この版の読まない鍵を、黙って読み飛ばさずに注記に出す。読む鍵と外した鍵の一覧は `dispatch/known_keys.py` の 1 か所に置いた（前は tree・role・land・config が別々に読み、どの鍵を知っているかの一覧が無かった）。知らない鍵（書き間違い・新しい版の鍵）は「知らない鍵 X（読まない…）」、外した鍵（dispatch の設定の `[[repos]]` の `clone_root`・`task_cwd`）は「外した鍵 X は読まない（いつ外したか・どうするか）」と分けて出す。`[roles.settings]`・ツールの `inputSchema`・`[[land.after]]` の `input` の中は見ない。止めるのは 2 つだけで、`[[roles]]` の項目に読まない鍵（どの鍵でも）が有れば、その役の部署からの `--deliver` とその役あての `--ask` を、何も送らずに鍵の名前を出して止め、`[land]`・その役の `[land.roles.<役>]`・`[[land.after]]` の読まない鍵は `--land` を止める。ゲート（`deliver_check`・`holders`・`ask_check`・`ask_holders`）の鍵を書き間違えたり、版で鍵の名前が変わったりすると、前は検査が黙って外れた。ほかの所は注記だけで、前の版の鍵を残しても止めない（docs/standards/breakage-detection.md の決まり 3。Kubernetes のフィールドの検査の Strict と Warn、https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation 。受付 de978e）。
+
 ## [0.92.0] - 2026-10-19
 
 ### Added

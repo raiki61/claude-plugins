@@ -140,6 +140,18 @@ def shape_role(root, settings, name):
     return shape["roles"].get(role.current(shape, name)), info["notes"] + shape["problems"]
 
 
+def gate_keys(the_role, what):
+    """役の項目に知らない鍵か外した鍵（role.load の odd）が有れば、その役の --deliver・--ask を止める訳。無ければ None。
+    その役の納品と頼みのゲート（deliver_check・holders・ask_check・ask_holders）の鍵を書き間違えたか、鍵が版で消えたかもしれず、
+    黙って通すと検査を緩めるため（Kubernetes のフィールドの検査の Strict に当たる。ゲートを持たない表は注記だけ）。"""
+    odd = (the_role or {}).get("odd")
+    if not odd:
+        return None
+    return (f"役「{the_role['name']}」の会社の形に、この版の読まない鍵 {'・'.join(odd)} があるので{what}（ゲートの鍵の書き間違いか、"
+            f"版で消えた鍵なら、検査をせずに通してしまうため）。会社の形の役の鍵を直してメインブランチに入れるか、works-dispatch の版を"
+            f"会社の形に合わせてから打ち直す")
+
+
 # 頼みごとに空の会話で受ける部署の属性の値（ask の中では role が役の名前の字なので、ここで写す）
 FRESH = role.FRESH
 
@@ -450,6 +462,10 @@ def _ask(a, ports, cwd, task, sent):
     the_role, problems = shape_role(company["root"], settings, role)
     required = deliver.required_items(the_role)
     notes += problems
+    why = gate_keys(the_role, "頼まなかった")
+    if why:
+        print("\n".join(notes + [f"止めた: {why}"]))
+        return 2
     relays = (the_role or {}).get("ask_holders")
     ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
     check = (the_role or {}).get("ask_check")
@@ -1564,6 +1580,10 @@ def deliver_summary(a, ports, cwd):
         items[deliver.BRANCH_ITEM] = branch
     missing = deliver.check(items, required)
     notes = list(problems)
+    why = gate_keys(the_role, "送らなかった")
+    if why:
+        print("\n".join(notes + [f"送らなかった: {why}"]))
+        return 2
     if missing:
         print("\n".join(notes + ["送らなかった: 要約に足りない項目がある: " + "、".join(missing),
                                  f"- 必須の項目（{attrs['role']}）: " + "・".join(required)

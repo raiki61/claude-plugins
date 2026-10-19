@@ -18,7 +18,7 @@
   origin/HEAD が無い clone では既定のブランチを決められないので、作業ツリーから読み、直し方（HEAD_FIX）を注記に出す（head_note）。
   書き方は TOML で、フィールドの名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
   role と、その受け持ちの部署を起動するときの model・effort（役の値より先に効く）と、起動方法の start（start ノード）だけをここで
-  足した。知らないフィールドは読み飛ばす。
+  足した。知らないフィールドと外したフィールドは、読み飛ばす前に注記（notes）に出す（一覧は known_keys。read_info）。
 
 入口の dispatch.py --tree が、herdr・git・claude から読んだ物を渡して build を呼び、lines で人の読む形にする。
 """
@@ -30,6 +30,7 @@ import tomllib
 import urllib.parse
 
 import gitx
+import known_keys
 from nodes import role, start
 from ports import term
 
@@ -121,7 +122,7 @@ def head_note(root, g=gitx):
 
 def _blank(source=None, path=None, notes=()):
     return {"source": source, "path": path, "text": None, "name": None, "description": None, "desk": None, "skills": [],
-            "problems": [], "notes": list(notes)}
+            "problems": [], "notes": list(notes), "keys": []}
 
 
 def company_name(root, info):
@@ -134,7 +135,8 @@ def read_info(root, settings_dir, committed=committed_info):
     決めるのはこの 1 か所で、読む順は origin の既定のブランチに commit された物（committed。path は ref:パス の札）、元の clone の作業
     ツリーの物、設定の置き場の物。text は読んだ中身（role.load・land.read_rules に渡す。同じ物を読み直さない）。
     読めない・形の違うファイルは problems に書き、そこで止める（次の置き場へ落とさない。書いた物が効いていないことを隠さない）。
-    notes は、止めずに知らせる事（origin/HEAD が無い clone の直し方。head_note）。"""
+    notes は、止めずに知らせる事（origin/HEAD が無い clone の直し方〔head_note〕と、会社の形の知らない鍵・外した鍵〔keys にも入れる。
+    --tree の会社の注記に出す〕）。知らない鍵で止めるのは、ゲートを持つ所（役の項目〔role.load の odd〕と [land]〔land.read_rules〕）だけ。"""
     got = committed(root)
     notes = []
     if got:
@@ -173,6 +175,8 @@ def read_info(root, settings_dir, committed=committed_info):
     elif "desk" in raw:
         out["problems"].append(f"{path}: desk は「会社/名前」の文字列で書く（ほかの会社の窓口が兼ねるとき）")
     out["skills"] = _skills(raw.get("skills", []), path, out["problems"])
+    out["keys"] = known_keys.company(raw, path)
+    out["notes"] += out["keys"]
     return out
 
 
@@ -286,7 +290,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
         companies.append({"root": root, "name": company_name(root, info),
                           "info_source": info.get("source"), "info_path": info.get("path"),
                           "description": info.get("description"), "skills": info.get("skills", []), "desk_of": info.get("desk"),
-                          "problems": info.get("problems", []), "departments": rows})
+                          "problems": info.get("problems", []) + info.get("keys", []), "departments": rows})
     return companies
 
 

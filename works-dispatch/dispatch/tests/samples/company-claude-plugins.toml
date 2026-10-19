@@ -1,0 +1,147 @@
+# claude-plugins の会社の形（origin/main c65a257f）から採った鍵の骨組み。文は x に、コマンドは true に置き換えた。試験 test_known_keys が読む
+
+name = "claude-plugins"
+description = "x"
+gh_user = "x"
+desk = "my_notes/段取り"
+default_role = "作業"
+
+[[roles]]
+name = "担当"
+model = "opus"
+persistent = true
+resident = true
+fresh = true
+holders = ["社長室"]
+deliver_check = "true"
+instructions = "x"
+[roles.settings]
+
+[[roles]]
+name = "作業"
+model = "opus"
+effort = "medium"
+holders = ["社長室"]
+deliver_check = "true"
+instructions = "x"
+[roles.settings]
+
+[[roles]]
+name = "配布"
+machine = true
+[[roles.tools]]
+name = "spread-plugins"
+title = "x"
+description = "x"
+inputSchema = { type = "object" }
+command = "true"
+fallback_role = "作業"
+
+[[roles]]
+name = "CI の見張り"
+machine = true
+[[roles.tools]]
+name = "ci-watch"
+title = "x"
+description = "x"
+inputSchema = { type = "object" }
+command = "true"
+fallback_role = "点検"
+
+[[skills]]
+id = "plugin-fix"
+name = "一度きりの直し"
+description = "x"
+role = "作業"
+
+[[skills]]
+id = "dispatch"
+name = "割り振り"
+description = "x"
+role = "担当"
+effort = "high"
+
+[[skills]]
+id = "gates"
+name = "点検"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+effort = "high"
+
+[[skills]]
+id = "convergence"
+name = "見直し"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+effort = "high"
+
+[[skills]]
+id = "attention"
+name = "見渡し"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+effort = "high"
+
+[[skills]]
+id = "docs"
+name = "説明書"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+effort = "medium"
+
+[[skills]]
+id = "standards"
+name = "標準"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+effort = "medium"
+[skills.start]
+report_to = "my_notes/社長室"
+by = ["社長室"]
+text = "x"
+
+[[skills]]
+id = "reform"
+name = "業務改革"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+effort = "medium"
+[skills.start]
+report_to = "my_notes/社長室"
+by = ["社長室"]
+text = "x"
+
+[[skills]]
+id = "trials"
+name = "試し"
+on_demand = true
+standing = false
+description = "x"
+role = "担当"
+effort = "high"
+
+[land]
+mode = "ff-after-ci"
+gate = "check"
+check = "true"
+bump = "marketplace"
+
+[[land.after]]
+role = "配布"
+tool = "spread-plugins"
+
+[[land.after]]
+role = "CI の見張り"
+tool = "ci-watch"
