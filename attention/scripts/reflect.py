@@ -123,7 +123,8 @@ def config_dirs(env, extra=()):
 
 
 def dir_notes(env, dirs, extra=()):
-    """読む設定のフォルダの欠け。足すと言われたのに無いフォルダと、在るのに読んでいないフォルダの注記の文。
+    """読む設定のフォルダの欠け。足すと言われたのに無いフォルダと、在るのに読んでいないフォルダと、読んでいるかを
+    確かめられなかったフォルダの注記の文。
 
     在るのに読んでいないフォルダは、ホームの `.claude*` のうち会話の記録（projects/）を持つ物。アカウントを
     足しても ATTENTION_REFLECT_CONFIG_DIRS を書き足し忘れると、その会話が黙って数えられない"""
@@ -137,18 +138,21 @@ def dir_notes(env, dirs, extra=()):
     for d in dirs:
         try:
             read.add(d.resolve())
-        except OSError:
+        except OSError:  # 既定の resolve はパスが無くても投げず、投げるのは symlink のループなど。外したフォルダは「読んでいない」側に多めに出るだけで、黙って欠けない
             pass
-    unread = []
+    unread, unknown = [], []
     for p in sorted(home.glob(".claude*")):
         try:
             if p.is_dir() and (p / "projects").is_dir() and p.resolve() not in read:
                 unread.append(p)
         except OSError:
-            continue
+            unknown.append(p)
     if unread:
         notes.append("会話の記録を持つのに読んでいない設定のフォルダ: " + "・".join(home_short(str(p)) for p in unread)
                      + f"（読むなら {DIRS_ENV} か --config-dir で足す）")
+    if unknown:
+        notes.append("読んでいるかを確かめられなかった設定のフォルダ: " + "・".join(home_short(str(p)) for p in unknown)
+                     + "（権限などで調べられなかった。中を確かめる）")
     return notes
 
 
@@ -158,13 +162,18 @@ def records_from(dirs, start):
     それより前に終わった会話は、記録に無いまま数えられない"""
     rows, notes = [], []
     for d in dirs:
-        oldest = None
+        oldest, unreadable = None, 0
         for path in (d / "projects").glob("*/*.jsonl"):
             try:
                 t = path.stat().st_mtime
+            except FileNotFoundError:  # glob の後に消えた記録は、もう残っていないので「残っている一番古い記録」の対象から外れる
+                continue
             except OSError:
+                unreadable += 1
                 continue
             oldest = t if oldest is None or t < oldest else oldest
+        if unreadable:
+            notes.append(f"会話の記録: {home_short(str(d))} の {unreadable} 件は時刻を読めず、一番古い時刻に入っていない")
         when_ = dt.datetime.fromtimestamp(oldest).astimezone() if oldest is not None else None
         rows.append({"config_dir": d.name, "from": when_.isoformat(timespec="minutes") if when_ else None})
         if when_ is None:

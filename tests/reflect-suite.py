@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -560,6 +561,27 @@ class Coverage(unittest.TestCase):
             self.assertEqual(len(unread), 1)
             self.assertIn(".claude-b", unread[0])
             self.assertNotIn(".claude-empty", unread[0])
+
+    def test_config_dir_that_cannot_be_checked_is_told(self):
+        """読んでいるかを確かめる途中で OSError になったフォルダは、黙って落とさずに注記に出す"""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = pathlib.Path(tmp)
+            for name in (".claude", ".claude-b"):
+                (home / name / "projects").mkdir(parents=True)
+            env = {"HOME": tmp}
+            dirs = rf.config_dirs(env)
+            real = pathlib.Path.resolve
+
+            def resolve(self, *a, **k):
+                if self.name == ".claude-b":
+                    raise PermissionError(self)
+                return real(self, *a, **k)
+
+            with mock.patch.object(pathlib.Path, "resolve", resolve):
+                notes = rf.dir_notes(env, dirs)
+            self.assertEqual(len(notes), 1, notes)
+            self.assertIn(".claude-b", notes[0])
+            self.assertNotIn(rf.DIRS_ENV, notes[0])  # 「読んでいない」の注記（足し方の案内付き）でない
 
 
 class GitHubSearch(unittest.TestCase):
