@@ -7579,6 +7579,7 @@ NOT_RATCHET = {
     "BODY_LINES_LIMIT": "tests/skill-body-case.py の本文の行数の上限（スキルの書き方の標準の決まり 1）。件数の突合ではない",
     "TOC_OVER": "tests/skill-body-case.py が別ファイルに目次を求める行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
     "TOC_HEAD": "tests/skill-body-case.py が目次を探す頭の行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
+    "RUNS": "tests/ci-watch.py が workflow ごとに読む run の数（この中に緑が無ければ最後の緑を別に引く）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []
@@ -8037,11 +8038,14 @@ for r in rules:
     checked += used
 if bad:
     sys.exit(1)
-if not checked:
-    print("NG 行頭で読む rules が 1 本も見つからない（走査が空回り——このチェックは何も測っていない）")
+# 行頭で読む rules が無いのは、周の分岐が検証器の --json の stop（キー）を読む形のとき（graphloops 3f5a6a82 から。行頭を作る
+# 偽造は形の上で起きない）。そのときは分岐がキーを読んでいることを見る——どちらも見つからなければ走査が空回りしている
+keyed = [r.stem for r in rules if re.search(r"""\bv\[["']stop["']\]""", r.read_text(encoding="utf-8"))]
+if not checked and not keyed:
+    print("NG 行頭で読む rules も、検証器の --json の stop を読む rules も 1 本も見つからない（走査が空回り——このチェックは何も測っていない）")
     sys.exit(1)
 print(f"STDOUT_SHAPE_OK（rules {len(rules)} 本のうち行頭で読む {len(reads)} 本を突合"
-      f"・bullet の呼び {checked} か所／対象外 {len(skipped)} 本={skipped}: 行頭で読む消費者が無い）")
+      f"・bullet の呼び {checked} か所・--json の stop を読む {keyed}／対象外 {len(skipped)} 本={skipped}: 行頭で読む消費者が無い）")
 STDOUTSHAPE
 expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループは、その検証器に行頭の偽造を塞ぐ印字口を持つ" \
     "$PY_BIN" "$WORK/stdout-shape.py" "$ROOT"
