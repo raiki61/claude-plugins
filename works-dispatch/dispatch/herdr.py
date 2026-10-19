@@ -11,9 +11,10 @@ report_activity で、
 呼んでよいノードはチェック（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 
 読む口が返す値は、herdr の JSON をそのまま渡さず、ここで works-dispatch の形に組み直す（口の外は herdr の JSON の形を知らない）。
-herdr がフィールドの名前や入れ子を変えても、直すのはこの組み直し（_pane・agent・front_processes・workspaces・_place・_opened）だけ。
-形（鍵の名前は、--tree --json の出力の形 schemas/tree.schema.json のペインと同じ名前にそろえた。herdr の名前と同じ字の鍵も、
-herdr から読んだ値をここで 1 つずつ入れた物で、herdr の JSON の素通しではない）:
+herdr がフィールドの名前や入れ子を変えても、直すのはこのファイルの中だけ（組み直す _pane・agent・front_processes・workspaces・
+_place・_opened と、herdr の答えのフィールドを中で読む wait_ready・prompt・shell_in_front・foreground・workspace_labels・remove_worktree）。
+形（鍵の名前は、--tree --json が部署のペインを出す名前〔nodes/tree.py の build が組む pane_id・label・agent・agent_status・
+agent_session〕にそろえた。herdr の名前と同じ字の鍵も、herdr から読んだ値をここで 1 つずつ入れた物で、herdr の JSON の素通しではない）:
 - ペイン（panes）: pane_id・workspace_id・cwd・label・agent（ペインで動く会話のツールの名前。会話の口の AGENT と比べる。無ければ
   None）・agent_status（会話の状態。idle・working・blocked・done・unknown）・agent_session（ペインに居る会話の id の字。無ければ None）
 - 会話の情報（agent）: agent・agent_status（ペインと同じ意味）
@@ -108,7 +109,7 @@ def workspaces(runner=_default_runner):
 
 def agent(target, runner=_default_runner):
     """1 つのペインの会話の情報（口の形の {agent, agent_status}）。読む口。"""
-    got = _call(["herdr", "agent", "get", target], runner).get("agent", {})
+    got = _call(["herdr", "agent", "get", target], runner).get("agent") or {}
     return {"agent": got.get("agent"), "agent_status": got.get("agent_status")}
 
 
