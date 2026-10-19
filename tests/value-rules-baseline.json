@@ -214,6 +214,9 @@
  "tests/figure-check-case.py": {
   "rule3": 8
  },
+ "tests/land-check.py": {
+  "rule3": 1
+ },
  "tests/mutate.py": {
   "rule3": 3,
   "rule4": 6
