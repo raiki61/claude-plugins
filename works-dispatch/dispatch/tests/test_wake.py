@@ -1659,7 +1659,7 @@ class WakeFlow(unittest.TestCase):
         summary.write_text(test_deliver.GOOD, encoding="utf-8")
         rc, out = self.main(self.src, "--deliver", str(summary), "--for", "nope")
         self.assertEqual(rc, 2, out)
-        self.assertIn("受付 nope を回して閉じた行", out)
+        self.assertIn("受付 nope を回した行が台帳に無い", out)
         for key in ("a0", child):   # 回した元の受付でも、回した先の受付でも引ける
             rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
             self.assertEqual(rc, 0, out)
@@ -1671,6 +1671,41 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--for", "a0")
         self.assertEqual(rc, 2, out)
         self.assertIn("--for は --deliver と一緒にだけ使う", out)
+
+    def test_deliver_for_returns_a_child_asks_answer_to_the_asker_of_the_ask_it_came_from(self):
+        # 受けた頼み（a0）を閉じずに cause 付きの --ask で回した子の頼みの答えを、a0 の頼み元へ返す。a0 を納品し、次の頼み（a1）を
+        # 受けた後でも、子の行に残した頼み元（cause_boss）へ届く（my_notes の受付 20261019-005554-1f3389）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
+                                            "boss-inbox": self.inbox}, gitx)
+        self.listen("調べ", self.dept_place())
+        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "残った疑問を調べて")[0], 0)
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask" and r.get("cause") == "a0"]
+        self.assertEqual((row["cause_boss"]["name"], row["cause_boss"]["session"]), ("社長室", "s-boss"))
+        provision.mark(self.src, self.src, {"delivered": "a0"}, gitx)
+        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
+        boss = self.listen("社長室", "/elsewhere/.git")
+        summary = pathlib.Path(self.root).parent / "summary.md"
+        summary.write_text(test_deliver.GOOD, encoding="utf-8")
+        for key in ("a0", row["id"]):   # 元の受付でも、子の受付でも引ける
+            rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
+            self.assertEqual(rc, 0, out)
+            notice, rec = deliver.records(self.inbox)[-2:]
+            self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
+            self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
+        attrs = gitx.worktree_attrs(self.src)
+        self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "持ち主"))   # 今の頼みはそのまま
+
+    def test_a_child_ask_without_cause_boss_finds_the_asker_in_the_original_asks_row(self):
+        # cause_boss を書く前の版の行: 元の頼みの行（頼み元の受付箱の台帳に在る）の from と本文の置き場から頼み元を組み立てる
+        theirs = os.path.join("/x", "other", ".git", "company", "inbox")
+        rows = [{"kind": "ask", "id": "a0", "file": os.path.join(theirs, "a0-ask.md"), "cause": None,
+                 "from": {"name": "fc", "session": "s-fc", "account": "p1", "place": "/x/other"}},
+                {"kind": "ask", "id": "c1", "cause": "a0", "file": "/y/.git/company/inbox/c1-ask.md", "from": {"name": "調べもの"}}]
+        for key in ("a0", "c1"):
+            got = orders.caused_ask(rows, key)
+            self.assertEqual((got["id"], got["boss"]["name"], got["boss"]["session"], got["boss"]["inbox"]), ("a0", "fc", "s-fc", theirs))
+        self.assertIsNone(orders.caused_ask(rows, "nope"))
+        self.assertIsNone(orders.caused_ask(rows[1:], "c1"))   # 元の頼みの行が読めなければ引けない
 
     def test_a_machine_role_cannot_be_asked(self):
         self.shape('[[roles]]\nname = "配布"\nmachine = true\n')

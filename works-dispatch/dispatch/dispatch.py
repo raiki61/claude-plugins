@@ -704,7 +704,7 @@ def main(argv=None, ports=None):
                     "（--ask と --deliver が通るたびに裏で打つ。手で打ってもよい）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--for", dest="for_ask", metavar="受付", help="--deliver と一緒に: --ask … --forward で回して閉じた頼み（回した元か"
-                    "回した先の受付）の頼み元へ返す（今受けている頼みは閉じない）")
+                    "回した先の受付）か、cause 付きの --ask で回した子の頼み（子かその元の受付）の、元の頼み元へ返す（今受けている頼みは閉じない）")
     ap.add_argument("--wait", metavar="訳", help="部署の場所から、今の頼みを人の答え待ちと印す（止まる前のフックが納品を促さない。"
                     "人がその会話に打つか、納品すると外れる）")
     ap.add_argument("--rest", action="store_true", help="部署か窓口の場所から、今は会話を空にしてよい区切りと印す（このターンの終わりに、"

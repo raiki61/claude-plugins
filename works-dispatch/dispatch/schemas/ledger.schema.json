@@ -15,6 +15,7 @@
           "at": {"type": "number"},
           "status": {"type": ["string", "null"]},
           "cause": {"type": ["string", "null"]},
+          "cause_boss": {"type": "object"},
           "ask": {"type": ["string", "null"]},
           "child": {"type": "string"},
           "for": {"type": "string"},

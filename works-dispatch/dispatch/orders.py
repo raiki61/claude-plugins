@@ -16,7 +16,8 @@ boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の�
 役に納品の検査（会社の形の deliver_check）が在れば走らせ（0 以外で終われば送らずに検査の出力を返す。deliver.gate）、
 頼み元の受付箱に置き、頼み元（「頼み元の会社/company.boss」。引けなければ company.boss-session の会話）の待ち受けが居ればその
 台帳に知らせの 1 行を足し、居なければ頼み元の窓に 1 行を打ち込み、属性に納品済み（company.delivered）を書く。
---for <受付> を添えれば、--forward で回して閉じた頼みの頼み元（台帳の forwarded の行）へ返し、今受けている頼みは閉じない。
+--for <受付> を添えれば、--forward で回して閉じた頼みの頼み元（台帳の forwarded の行）か、cause 付きの --ask で回した子の頼みの
+元の頼みの頼み元（元の頼みの kind ask の行）へ返し、今受けている頼みは閉じない。
 
 `python3 orders.py stop`（stop_hook）: プラグインの Stop フック。部署でない場所では何もしない。
 """
@@ -510,6 +511,7 @@ def _ask(a, ports, cwd, task, sent):
     if not boss.get("boss"):
         notes.append("頼み元が分からないので、この頼みの納品の返り先が無い（会話の中から打つか --from-name を渡す）")
     cause = cause_of(a, here, ports)
+    cause_boss = cause_boss_of(a, here, ports, cause)
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if (the_role or {}).get("machine"):
         print("\n".join(notes + [f"止めた: 役「{role}」は機械だけの役（AI の部署を持たない）なので頼めない。ツールを --call で呼ぶ"
@@ -533,7 +535,7 @@ def _ask(a, ports, cwd, task, sent):
         def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
                              {"id": ask_id, "sender": sender, "body": body, "title": title, "inbox": inbox, "required": required, "boss": boss,
-                              "fresh": fresh, "cause": cause, "from": {"name": name, "account": account,
+                              "fresh": fresh, "cause": cause, "cause_boss": cause_boss, "from": {"name": name, "account": account,
                               "session": boss["boss-session"], "place": cwd}, "company": company["name"], "role": role},
                              accounts_, sessions_, company["root"], sent)
         if to and dest_inbox and place_dir and (heard or (pending or mid_turn) and wake.has_history(dest_inbox, place_dir)):
@@ -612,6 +614,7 @@ def _ask(a, ports, cwd, task, sent):
                                      f"{now.get('boss') or '-'}）を受けた。納品を待つか、別の部署に頼む"]))
             return 2
         deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, "cause": cause,
+                            **({"cause_boss": cause_boss} if cause_boss else {}),
                             "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                             "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
                                    "branch": dept["branch"], "path": dept["path"], "pane": pane}, "file": path, "title": title})
@@ -664,7 +667,7 @@ def _ask(a, ports, cwd, task, sent):
     status = "sent" if attrs.get("ask") == ask_id and attrs.get("session") else "failed"
     deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status,
                         "detail": None if status == "sent" else (why_not(said.getvalue()) or f"rc={rc}"),
-                        "cause": cause,
+                        "cause": cause, **({"cause_boss": cause_boss} if cause_boss else {}),
                         "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
                                "path": got and got["path"], "pane": None}, "file": path, "title": title})
@@ -704,6 +707,23 @@ def cause_of(a, here, ports):
     return held if held and attrs.get("delivered") != held else None
 
 
+def cause_boss_of(a, here, ports, cause):
+    """頼みの行の cause_boss（cause の頼みの頼み元。forwarded の行の boss と同じ形）か None。子の頼みの答えを --deliver --for で
+    元の頼み元へ返すときに引く（元の頼みの頼み元は、部署の属性が次の頼みで書き替わると、ほかに残らない）。"""
+    if not cause:
+        return None
+    boss = getattr(a, "from_boss", None) or {}
+    if boss.get("ask") != cause:
+        try:
+            boss = ports.attrs(here) or {}
+        except (gitx.GitError, OSError):
+            return None
+        if boss.get("ask") != cause:
+            return None
+    return {"name": boss.get("boss"), "session": boss.get("boss-session"), "account": boss.get("boss-account"),
+            "pane": boss.get("boss-pane"), "inbox": boss.get("boss-inbox")}
+
+
 def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, digest, ask, accounts_, sessions_, source, sent):
     """待ち受けの居る部署への --ask: 順番待ちに積み（同じ中身が積まれていればその受付番号を返す）、宛先の会社の台帳に知らせを
     足す。渡すのは部署の待ち受け（wake_hook.py）。会話が落ちていれば attach で戻す（戻った会話の始まりの待ち受けが渡す）。
@@ -738,7 +758,8 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     n = len(wake.queued(dest_inbox, place_dir))
     detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
     deliver.log(ask["inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
-                               "cause": ask.get("cause"), "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
+                               "cause": ask.get("cause"), **({"cause_boss": ask["cause_boss"]} if ask.get("cause_boss") else {}),
+                               "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
                                                           "role": ask["role"], "branch": dept["branch"], "path": dept["path"],
                                                           "pane": None, "wake": to}, "file": path, "title": ask.get("title")})
     sent.update(id=ask["id"], to=dest)
@@ -1395,6 +1416,26 @@ def forwarded_ask(inbox, ask_id):
     return rows[-1] if rows else None
 
 
+def caused_ask(rows, ask_id):
+    """--deliver --for の 2 つ目の引き当て: cause 付きの --ask で回した子の頼み（受けた頼みを閉じずに、残った疑問などをほかの部署へ
+    回した物）。ask_id が子の受付（kind ask の行の id）か、子を出した元の受付（その行の cause）なら、子の行の cause_boss（--ask が
+    書く）か、それが無ければ元の受付の kind ask の行（頼み元の受付箱の台帳に在る。頼み元が部署でない会話でも、別の会社でも在る）から
+    頼み元を組み立て、forwarded の行と同じ形（id と boss）で返す。無ければ None。rows は会社をまたいでたどった台帳の行（todo.inboxes_from）。"""
+    children = [r for r in rows if r.get("kind") == "ask" and r.get("cause") and ask_id in (r.get("id"), r.get("cause"))]
+    if not children:
+        return None
+    origin = children[-1]["cause"]
+    if isinstance(children[-1].get("cause_boss"), dict):
+        return {"id": origin, "boss": children[-1]["cause_boss"]}
+    # cause_boss を書く前の版の行: 元の頼みの行の頼み元（台帳の行のファイルの置き場や作業場からたどれた受付箱に在る物だけ）
+    asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") == origin and r.get("file") and r.get("from")]
+    if not asks:
+        return None
+    sender = asks[-1]["from"]
+    return {"id": origin, "boss": {"name": sender.get("name"), "session": sender.get("session"), "account": sender.get("account"),
+                                   "pane": None, "inbox": os.path.dirname(asks[-1]["file"])}}
+
+
 def for_attrs(attrs, record):
     """回して閉じた頼みへ納品するときの属性: 受けた頼みと頼み元を forwarded の行の物に替える（ほかの属性は今の場所の物）。"""
     boss = record.get("boss") or {}
@@ -1403,8 +1444,8 @@ def for_attrs(attrs, record):
 
 
 def deliver_summary(a, ports, cwd):
-    """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。--for <受付> なら、--forward で回して閉じた頼みの頼み元へ
-    返し、今受けている頼み（company.ask）は閉じない。"""
+    """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。--for <受付> なら、--forward で回して閉じた頼みか、cause
+    付きの --ask で回した子の頼みの元の頼みの頼み元へ返し、今受けている頼み（company.ask）は閉じない。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role"):
         print(f"止めた: {cwd} は部署でない（git の設定 company.role が無い）。納品は頼まれた部署の場所から返す")
@@ -1413,9 +1454,12 @@ def deliver_summary(a, ports, cwd):
     if for_ask:
         common = ports.git.common_dir(cwd)
         record = forwarded_ask(deliver.inbox_of(common), for_ask) if common else None
+        if not record and common:
+            record = caused_ask(todo.inboxes_from([deliver.inbox_of(common)], ports.git.common_dir)[1], for_ask)
         if not record:
-            print(f"止めた: 受付 {for_ask} を回して閉じた行（kind forwarded）が、この会社の受付箱の台帳に無い。"
-                  "--for には --ask … --forward で回した元の受付か、回した先の受付を渡す")
+            print(f"止めた: 受付 {for_ask} を回した行が台帳に無い（この会社の受付箱の kind forwarded の行も、cause 付きの kind ask の行と"
+                  "その元の頼みの行も無い）。--for には、--ask … --forward で回した元の受付か回した先の受付、または cause 付きの --ask で"
+                  "回した子の受付かその元の受付を渡す")
             return 2
         attrs = for_attrs(attrs, record)
     try:
