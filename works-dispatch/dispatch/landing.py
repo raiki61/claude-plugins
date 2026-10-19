@@ -29,11 +29,10 @@ import subprocess
 import tempfile
 import time
 
-import claudex
+from ports import chat, term
 import config
 import ghx
 import gitx
-import herdr
 from nodes import bump, clean, deliver, land, provision, role, tree, wake
 
 RUN_PAUSE_S = 10  # ゲートのブランチに push した後、run が現れるのを見に行く間
@@ -51,13 +50,13 @@ def run_check(command, cwd):
 def _ask(ports, place, text):
     """部署の窓に打ち込む。窓が無い・打ち込めなければ、文を出して呼んだ側に渡させる。"""
     try:
-        pane = land.pane_of(ports.herdr.panes(), place)
+        pane = land.pane_of(ports.term.panes(), place)
         if pane:
-            land.ask(pane, text, ports.herdr)
+            land.ask(pane, text, ports.term)
             return f"部署の窓 {pane} に頼んだ: {text}"
-    except herdr.HerdrError as e:
+    except term.Error as e:
         return f"部署の窓に打ち込めなかった（{e}）。次の文を部署に渡す: {text}"
-    return f"部署の窓が herdr に無いので打ち込めなかった。次の文を部署に渡す: {text}"
+    return f"部署の窓が {term.NAME} に無いので打ち込めなかった。次の文を部署に渡す: {text}"
 
 
 def _sweep(place, made):
@@ -96,7 +95,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     g, out = ports.git, []
     try:
         found = ports.places(repo)
-    except herdr.HerdrError as e:
+    except term.Error as e:
         print(f"止めた: 元の clone の worktree を読めない（{e}）")
         return 1
     hits = _find(found, name, ports.attrs)
@@ -333,8 +332,8 @@ def _tell_desk(source, info, main, candidate, local, err=None):
 def _company_roots():
     """herdr に開いている会社の代表の clone の並び（ほかの会社の窓口の受付箱を引く）。読めなければ空。"""
     try:
-        return [w["repo_root"] for w in herdr.workspaces() if w.get("repo_root")]
-    except (herdr.HerdrError, OSError):   # herdr が入っていない（FileNotFoundError）も、知らせを自分の会社の台帳に置く
+        return [w["repo_root"] for w in term.workspaces() if w.get("repo_root")]
+    except (term.Error, OSError):   # herdr が入っていない（FileNotFoundError）も、知らせを自分の会社の台帳に置く
         return []
 
 
@@ -475,7 +474,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
             print(f"部署は残し、入れた印（company.landed）を書く（{reasons[row['reason']]}）")
         code = 0
     elif row["removable"]:
-        got = clean.retire(row, repo.source, provision.label(repo, row["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
+        got = clean.retire(row, repo.source, provision.label(repo, row["branch"]), ports.term, ports.git, chat, ports.account_env)
         print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
         code = 0 if got["removed"] else 1
     elif row["reason"] == "persistent":
@@ -505,7 +504,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         if dry_run:
             print(f"前の --land で残した部署 {who} も片付ける")
             continue
-        got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
+        got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git, chat, ports.account_env)
         print(f"前の --land で残した部署 {who} を片付けた" if got["removed"]
               else f"前の --land で残した部署 {who} を片付けられなかった: {got['detail']}")
     if not dry_run:

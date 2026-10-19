@@ -13,6 +13,7 @@ import os
 import re
 import tomllib
 
+from ports import chat
 from vendor import claude_auth
 from typing import NamedTuple
 
@@ -140,7 +141,7 @@ def load(path=None, env=os.environ, missing_ok=False):
             plan = None
         accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan))
     if not raw.get("accounts"):
-        accounts = [Account("default", "claude", None)]
+        accounts = [Account("default", chat.COMMAND, None)]
 
     repos, notes = [], []
     for i, r in enumerate(raw.get("repos", [])):

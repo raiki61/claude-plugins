@@ -31,6 +31,7 @@ import urllib.parse
 
 import gitx
 from nodes import role, start
+from ports import term
 
 INFO_FILE = (".claude", "company.toml")  # リポジトリの中の会社の情報（commit する側）
 SETTINGS_DIR = "companies"  # 設定の置き場の下の、リポジトリの外の会社の情報（commit しない側）
@@ -326,7 +327,7 @@ def _at(t):
 def lines(companies):
     """人の読む形。会社ごとに、頭の行・受ける仕事（と宛て方）・窓口・本社・部署の行。"""
     if not companies:
-        return ["herdr に開いている会社（git のリポジトリ）も、裏の会話も無い"]
+        return [f"{term.NAME} に開いている会社（git のリポジトリ）も、裏の会話も無い"]
     out = []
     for c in companies:
         where = {"origin": "既定のブランチ", "repo": "リポジトリの中", "settings": "設定の置き場"}.get(c["info_source"])

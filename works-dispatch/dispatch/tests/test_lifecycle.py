@@ -22,6 +22,7 @@ from .test_launch_turn import FakeHerdr as TurnHerdr
 from .test_provision import git, make_world
 import claudex
 import dispatch
+import wiring
 import ghx
 import gitx
 import herdr as real_herdr
@@ -164,14 +165,14 @@ class Flow(unittest.TestCase):
 
     def talking_in(self, ports, path, status="idle", started=100.0):
         """その場所で会話が開いている形を作る（herdr のペインと claude agents の行）。"""
-        pane = ports.herdr.open_at(path, agent="claude")
-        ports.herdr.talking.add(pane["pane_id"])
+        pane = ports.term.open_at(path, agent="claude")
+        ports.term.talking.add(pane["pane_id"])
         ports.agents = list(ports.agents) + [{"cwd": path, "status": status, "startedAt": started * 1000,
                                               "pane": pane["pane_id"]}]
         return pane
 
     def linked(self, ports):
-        return [w for w in ports.herdr.worktrees(self.src) if w["linked"]]
+        return [w for w in ports.term.worktrees(self.src) if w["linked"]]
 
     def test_own_pr_without_reviewers_is_opened_with_catchup_only(self):
         ports = FakePorts([pr(1)])
@@ -179,7 +180,7 @@ class Flow(unittest.TestCase):
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 0, out)
         self.assertTrue(line(out, 1).endswith("sent"), out)
-        self.assertEqual([x[2] for x in ports.herdr.writes if x[0] == "prompt"], [f"{CATCHUP} 1"])  # 2 ターン目は送らない
+        self.assertEqual([x[2] for x in ports.term.writes if x[0] == "prompt"], [f"{CATCHUP} 1"])  # 2 ターン目は送らない
         self.assertIn("/catchup だけ", out)
 
     def test_naming_the_pr_opens_it_even_without_reviewers(self):
@@ -188,7 +189,7 @@ class Flow(unittest.TestCase):
         ports.pr_info = lambda repo, n: pr(n)
         rc, out = run_main(self.cfg, ports, "--pr", "1")
         self.assertTrue(line(out, 1).endswith("sent"), out)
-        self.assertEqual([x[2] for x in ports.herdr.writes if x[0] == "prompt"], [f"{CATCHUP} 1"])
+        self.assertEqual([x[2] for x in ports.term.writes if x[0] == "prompt"], [f"{CATCHUP} 1"])
 
     def test_news_in_an_idle_clean_session_reopens_it_in_the_same_place(self):
         path = self.place(1)
@@ -198,16 +199,16 @@ class Flow(unittest.TestCase):
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 0, out)
         self.assertTrue(line(out, 1).endswith("refreshed"), out)
-        w = ports.herdr.writes
+        w = ports.term.writes
         self.assertEqual(w[0], ("prompt", old["pane_id"], "/exit", False))
         self.assertEqual(w[1], ("close_workspace", old["workspace_id"]))
         self.assertEqual(w[2], ("open_worktree", path, "r/feat/1"))   # checkout は残し、同じ場所を開き直す
-        new = ports.herdr.panes()[0]["pane_id"]
+        new = ports.term.panes()[0]["pane_id"]
         self.assertNotEqual(new, old["pane_id"])
         self.assertIn(("run", new, typed("claude-a1")), w)
         self.assertEqual([x[2] for x in w if x[0] == "prompt"][1:], [f"{CATCHUP} 1", "二手目"])
         self.assertEqual([x["path"] for x in self.linked(ports)], [path])
-        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
         self.assertIn("o/r#1", sent)
 
     def test_refresh_records_the_send_time_before_the_first_turn_and_the_head(self):
@@ -215,10 +216,10 @@ class Flow(unittest.TestCase):
         ports = FakePorts([pr(1)])
         self.talking_in(ports, path)
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
-        ports.now = lambda: float(len(ports.herdr.writes))   # 時計を「それまでに外へ書いた数」にする
+        ports.now = lambda: float(len(ports.term.writes))   # 時計を「それまでに外へ書いた数」にする
         run_main(self.cfg, ports, "--no-second")   # --no-second の回も控えを書く
-        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
-        first = next(i for i, w in enumerate(ports.herdr.writes) if w[0] == "prompt" and w[2] == f"{CATCHUP} 1")
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
+        first = next(i for i, w in enumerate(ports.term.writes) if w[0] == "prompt" and w[2] == f"{CATCHUP} 1")
         self.assertEqual(sent["o/r#1"], {"at": float(first), "head": gitx.head_sha(path), "via": "listing"})   # 1 ターン目を送る直前
 
     def test_old_send_record_with_only_a_time_is_still_read(self):
@@ -228,7 +229,7 @@ class Flow(unittest.TestCase):
         ports.acts = {1: {"reviewers": True, "last_other": 150.0}}
         limits = pathlib.Path(self.root).parent / "limits"
         limits.mkdir(exist_ok=True)
-        (limits / dispatch.SENT_FILE).write_text(json.dumps({"o/r#1": 200.0}))
+        (limits / wiring.SENT_FILE).write_text(json.dumps({"o/r#1": 200.0}))
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(line(out, 1).endswith("no_news"), out)
 
@@ -246,7 +247,7 @@ class Flow(unittest.TestCase):
         git("-C", self.src, "fetch", "-q", "origin")   # 持ち主が取った後でも、手元だけの commit とはみなさない
         limits = pathlib.Path(self.root).parent / "limits"
         limits.mkdir(exist_ok=True)
-        (limits / dispatch.SENT_FILE).write_text(json.dumps({"o/r#1": {"at": 100.0, "head": old}}))
+        (limits / wiring.SENT_FILE).write_text(json.dumps({"o/r#1": {"at": 100.0, "head": old}}))
         ports = FakePorts([pr(1)])
         self.talking_in(ports, path, started=50.0)
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
@@ -259,25 +260,25 @@ class Flow(unittest.TestCase):
         path = self.place(1)
         ports = FakePorts([pr(1)])
         old = self.talking_in(ports, path)
-        extra = ports.herdr.add_pane(old["workspace_id"], path)
-        ports.herdr.busy.add(extra["pane_id"])
+        extra = ports.term.add_pane(old["workspace_id"], path)
+        ports.term.busy.add(extra["pane_id"])
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(line(out, 1).endswith("close_failed"), out)
-        self.assertNotIn(("close_workspace", old["workspace_id"]), ports.herdr.writes)
-        self.assertFalse([w for w in ports.herdr.writes if w[0] in ("run", "open_worktree", "create_worktree")])
+        self.assertNotIn(("close_workspace", old["workspace_id"]), ports.term.writes)
+        self.assertFalse([w for w in ports.term.writes if w[0] in ("run", "open_worktree", "create_worktree")])
 
     def test_conversation_outside_herdr_is_not_closed_for_refresh(self):
         # 会話は herdr の外（VS Code の端末など）に居て、herdr のその場所にはシェルだけがある
         path = self.place(1)
         ports = FakePorts([pr(1)])
-        ports.herdr.open_at(path)
+        ports.term.open_at(path)
         ports.agents = [{"cwd": path, "status": "idle", "startedAt": 100000}]
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(line(out, 1).endswith("close_failed"), out)
         self.assertIn("herdr の外の会話は終えない", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_unreadable_herdr_panes_make_the_pr_close_failed_not_a_traceback(self):
         path = self.place(1)
@@ -286,8 +287,8 @@ class Flow(unittest.TestCase):
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
 
         def boom():
-            raise real_herdr.HerdrError(["herdr", "pane", "list"], "server_unreachable")
-        ports.herdr.panes = boom
+            raise real_herdr.Error(["herdr", "pane", "list"], "server_unreachable")
+        ports.term.panes = boom
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 0)
         self.assertTrue(line(out, 1).endswith("close_failed"), out)
@@ -296,7 +297,7 @@ class Flow(unittest.TestCase):
     def sent(self, record):
         limits = pathlib.Path(self.root).parent / "limits"
         limits.mkdir(exist_ok=True)
-        (limits / dispatch.SENT_FILE).write_text(json.dumps(record))
+        (limits / wiring.SENT_FILE).write_text(json.dumps(record))
 
     def test_without_a_conversation_an_earlier_send_without_news_is_not_reopened(self):
         # 持ち主の決め（2026-10-15）: 返事待ちの PR は、持ち主が会話を閉じただけでは開き直さない
@@ -319,7 +320,7 @@ class Flow(unittest.TestCase):
                 rc, out = run_main(self.cfg, ports, "--dry-run", *argv)
                 self.assertEqual(rc, 0, out)
                 self.assertTrue(line(out, 1).endswith(want), out)
-                self.assertEqual(ports.herdr.writes, [])
+                self.assertEqual(ports.term.writes, [])
 
     def test_no_news_pr_takes_no_account_and_makes_no_place(self):
         self.sent({"o/r#1": {"at": 100.0, "head": "a" * 40}})
@@ -346,7 +347,7 @@ class Flow(unittest.TestCase):
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
         rc, out = run_main(self.cfg, ports, "--dry-run")
         self.assertTrue(line(out, 1).endswith("refresh"), out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_sessions_without_news_or_with_work_are_left_alone(self):
         for status, dirty, news, want in (("idle", False, None, "no_news"), ("busy", False, 500.0, "busy"),
@@ -361,7 +362,7 @@ class Flow(unittest.TestCase):
                 ports.acts = {1: {"reviewers": True, "last_other": news}}
                 rc, out = run_main(self.cfg, ports)
                 self.assertTrue(line(out, 1).endswith(want), out)
-                self.assertEqual(ports.herdr.writes, [])
+                self.assertEqual(ports.term.writes, [])
 
     def merged(self, ports, n, path, state="MERGED"):
         ports.branch_prs = {f"feat/{n}": {"number": n, "state": state, "head_sha": gitx.head_sha(path)}}
@@ -375,7 +376,7 @@ class Flow(unittest.TestCase):
         self.assertIn("#5 feat/5: 片付けた", out)
         self.assertFalse(pathlib.Path(path).exists())
         self.assertEqual(git("-C", self.src, "branch", "--list", "feat/5"), "")
-        self.assertEqual(ports.herdr.writes, [("prompt", old["pane_id"], "/exit", False), ("remove_worktree", path)])
+        self.assertEqual(ports.term.writes, [("prompt", old["pane_id"], "/exit", False), ("remove_worktree", path)])
 
     def test_closed_pr_with_a_busy_session_or_local_work_is_kept_and_named(self):
         for status, local, want in (("busy", None, "会話が作業中か手元の作業が有るので残した"),
@@ -395,7 +396,7 @@ class Flow(unittest.TestCase):
                 rc, out = run_main(self.cfg, ports)
                 self.assertIn(f"#5 feat/5: 閉じた PR だが、{want}", out)
                 self.assertTrue(pathlib.Path(path).exists())
-                self.assertEqual(ports.herdr.writes, [])
+                self.assertEqual(ports.term.writes, [])
 
     def test_closed_pr_with_two_conversations_is_kept(self):
         path = self.place(5)
@@ -405,18 +406,18 @@ class Flow(unittest.TestCase):
         self.merged(ports, 5, path)
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#5 feat/5: 閉じた PR だが、会話が 2 つ開いているので残した", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_closed_pr_whose_conversation_is_outside_herdr_is_kept(self):
         path = self.place(5)
         ports = FakePorts([])
-        ports.herdr.open_at(path)   # herdr にはシェルだけ
+        ports.term.open_at(path)   # herdr にはシェルだけ
         ports.agents = [{"cwd": path, "status": "idle"}]
         self.merged(ports, 5, path)
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#5 feat/5: 閉じた PR の会話を終えられなかったので残した", out)
         self.assertTrue(pathlib.Path(path).exists())
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_closed_pr_whose_conversation_is_still_listed_after_exit_is_kept(self):
         # /exit の後に会話の一覧を取り直し、その場所にまだ会話が見えれば消さない
@@ -459,7 +460,7 @@ class Flow(unittest.TestCase):
         def flaky(config_dir):
             calls.append(1)
             if len(calls) > 1:   # 1 回目（流れの始め）は読めて、片付けの時に読めない
-                raise claudex.ClaudeError("claude agents --json（x）: boom")
+                raise claudex.Error("claude agents --json（x）: boom")
             return []
         ports.list_sessions = flaky
         rc, out = run_main(self.cfg, ports)
@@ -472,7 +473,7 @@ class Flow(unittest.TestCase):
         ports = FakePorts([])
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(pathlib.Path(path).exists())
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
         self.assertNotIn("feat/5", out)
 
     def test_other_repos_and_the_previous_versions_clones_are_never_touched(self):
@@ -488,7 +489,7 @@ class Flow(unittest.TestCase):
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(pathlib.Path(other).exists())
         self.assertTrue(pathlib.Path(old_clone).exists())
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
         self.assertNotIn("#6", out)
 
     def test_dry_run_names_what_it_would_tidy_and_removes_nothing(self):
@@ -498,7 +499,7 @@ class Flow(unittest.TestCase):
         rc, out = run_main(self.cfg, ports, "--dry-run")
         self.assertIn("#5 feat/5: 閉じた PR なので片付ける", out)
         self.assertTrue(pathlib.Path(path).exists())
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
 
     def off_turn(self, n=3, started=100.0, record=None):
@@ -515,7 +516,7 @@ class Flow(unittest.TestCase):
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 0, out)
         self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）", out)
-        self.assertEqual(ports.herdr.writes, [("prompt", pane["pane_id"], "/exit", False),
+        self.assertEqual(ports.term.writes, [("prompt", pane["pane_id"], "/exit", False),
                                               ("close_workspace", pane["workspace_id"])])
         self.assertTrue(pathlib.Path(path).exists())
         self.assertIn("feat/3", git("-C", self.src, "branch", "--list", "feat/3"))
@@ -532,7 +533,7 @@ class Flow(unittest.TestCase):
                     pathlib.Path(path, "draft.py").write_text("x\n")
                 rc, out = run_main(self.cfg, ports)
                 self.assertIn("#3 feat/3: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した", out)
-                self.assertEqual(ports.herdr.writes, [])
+                self.assertEqual(ports.term.writes, [])
 
     def test_off_turn_conversations_dispatch_did_not_open_are_left_alone(self):
         # 控えが無い・一覧の回の印が無い（--pr で送った物か前の版の物）・送った後に起動した（持ち主が自分で開いた）・起動の時刻が
@@ -549,7 +550,7 @@ class Flow(unittest.TestCase):
                 if extra:
                     ports.agents = list(ports.agents) + [{"cwd": path, "status": "idle", "startedAt": 100000}]
                 rc, out = run_main(self.cfg, ports)
-                self.assertEqual(ports.herdr.writes, [])
+                self.assertEqual(ports.term.writes, [])
                 self.assertNotIn("#3", out)
 
     def test_off_turn_pr_whose_materials_hit_the_scan_limit_is_kept_and_named(self):
@@ -562,21 +563,21 @@ class Flow(unittest.TestCase):
                 rc, out = run_main(self.cfg, ports, *(["--dry-run"] if dry_run else []))
                 self.assertEqual(rc, 0, out)
                 self.assertIn("#3 feat/3: 自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので会話を残した", out)
-                self.assertEqual(ports.herdr.writes, [])
+                self.assertEqual(ports.term.writes, [])
 
     def test_off_turn_pr_is_closed_when_only_another_pr_hit_the_scan_limit(self):
         path, ports, pane = self.off_turn()
         ports._limited = {4}
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）", out)
-        self.assertIn(("close_workspace", pane["workspace_id"]), ports.herdr.writes)
+        self.assertIn(("close_workspace", pane["workspace_id"]), ports.term.writes)
 
     def test_on_turn_pr_is_not_closed_as_off_turn(self):
         path, ports, _ = self.off_turn()
         ports._prs = [pr(3)]   # 自分の番に居る（相手の新しい返事は無い）
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(line(out, 3).endswith("no_news"), out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_off_turn_conversations_are_not_closed_without_the_full_list(self):
         # whose-turn を読めなければ止まり、--pr・--issue の回は一覧を読まないので、自分の番でない会話を閉じない
@@ -587,18 +588,18 @@ class Flow(unittest.TestCase):
         ports.fetch_prs = boom
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 1)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
         path, ports, _ = self.off_turn(n=4)
         ports.pr_info = lambda repo, n: {**pr(n), "state": "OPEN", "fork": False}
         rc, out = run_main(self.cfg, ports, "--pr", "1")
         self.assertNotIn("#4", out)
-        self.assertFalse([w for w in ports.herdr.writes if w[0] == "close_workspace"])
+        self.assertFalse([w for w in ports.term.writes if w[0] == "close_workspace"])
 
     def test_dry_run_names_the_off_turn_conversation_and_closes_nothing(self):
         path, ports, _ = self.off_turn()
         rc, out = run_main(self.cfg, ports, "--dry-run")
         self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じる（worktree は残す）", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_only_a_listing_send_is_marked_as_closable_later(self):
         ports = FakePorts([pr(1)])
@@ -606,7 +607,7 @@ class Flow(unittest.TestCase):
         ports = FakePorts([])
         ports.pr_info = lambda repo, n: {**pr(n), "state": "OPEN", "fork": False}
         run_main(self.cfg, ports, "--pr", "2")
-        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
         self.assertEqual(sent["o/r#1"].get("via"), "listing")
         self.assertNotIn("via", sent["o/r#2"])
 
@@ -617,7 +618,7 @@ class Flow(unittest.TestCase):
         git("-C", path, "stash", "push", "-q", "-u", "-m", "wip")
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#3 feat/3: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_off_turn_branch_force_pushed_by_the_author_is_not_local_work(self):
         # 作者の force-push で、手元の HEAD（送った時の head）が origin に無くなった。送り直しと同じく、手元で積んだ commit とは見分ける
@@ -634,11 +635,11 @@ class Flow(unittest.TestCase):
 
     def test_off_turn_workspace_with_another_busy_pane_is_named(self):
         path, ports, pane = self.off_turn()
-        extra = ports.herdr.add_pane(pane["workspace_id"], path)
-        ports.herdr.busy.add(extra["pane_id"])
+        extra = ports.term.add_pane(pane["workspace_id"], path)
+        ports.term.busy.add(extra["pane_id"])
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#3 feat/3: 自分の番でない PR の会話を終えたが、作業場を閉じられなかった", out)
-        self.assertNotIn(("close_workspace", pane["workspace_id"]), ports.herdr.writes)
+        self.assertNotIn(("close_workspace", pane["workspace_id"]), ports.term.writes)
         self.assertTrue(pathlib.Path(path).exists())
 
 

@@ -34,7 +34,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 import ghx  # noqa: E402
 import gitx  # noqa: E402
-import herdr  # noqa: E402
+from ports import chat, term  # noqa: E402
 import jsonio  # noqa: E402
 
 
@@ -88,7 +88,7 @@ def _copy(repo, path):
     return notes
 
 
-def prepare(row, repo, h=herdr, g=gitx):
+def prepare(row, repo, h=term, g=gitx):
     branch = row.get("head")
     out = {"number": row["number"], "branch": branch, "path": None, "pane": None, "workspace": None,
            "created": False, "status": "provision_failed", "detail": None}
@@ -124,7 +124,7 @@ def prepare(row, repo, h=herdr, g=gitx):
             else:
                 notes.append(f"ブランチ {branch} に手元にしか無い commit が有るので、origin の head へ fast-forward しなかった")
         seen = find(h.worktrees(repo.source), branch)
-    except (gitx.GitError, h.HerdrError, OSError) as e:
+    except (gitx.GitError, h.Error, OSError) as e:
         out["detail"] = "／".join(notes + [str(e)])
         return out
     return _read_back(out, made, seen, branch, notes, g)
@@ -134,7 +134,7 @@ def _read_back(out, made, seen, branch, notes, g):
     """作った・開いた場所を、herdr の worktree の並び（seen）と git から読み戻して、out を ready にするか、外れを detail に書く。"""
     misses = []
     if seen is None or not seen.get("workspace"):
-        misses.append(f"作った後の読み戻しで、ブランチ {branch} の場所の作業場が herdr に見えない")
+        misses.append(f"作った後の読み戻しで、ブランチ {branch} の場所の作業場が {term.NAME} に見えない")
     elif os.path.realpath(seen["path"]) != os.path.realpath(made["path"]):
         misses.append(f"作った後の読み戻しで、ブランチ {branch} の場所が {seen['path']}（{made['path']} のはず）")
     elif g.branch(made["path"]) != branch:
@@ -147,7 +147,7 @@ def _read_back(out, made, seen, branch, notes, g):
     return out
 
 
-def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
+def prepare_task(row, repo, default_branch, h=term, g=gitx):
     """サブエージェント（入口の --task）の場所を用意する。row は {head: ブランチ, label: 作業の名前}。PR の場所と同じく、ブランチの場所が在れば開き直し、
     無ければ herdr に作らせる（置き場は herdr の worktrees.directory）。元の clone 自身がそのブランチを開いていれば branch_busy。
 
@@ -181,13 +181,13 @@ def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
         else:
             made = h.open_worktree(repo.source, place["path"], name)
         seen = find(h.worktrees(repo.source), branch)
-    except (gitx.GitError, h.HerdrError, OSError) as e:
+    except (gitx.GitError, h.Error, OSError) as e:
         out["detail"] = "／".join(notes + [str(e)])
         return out
     return _read_back(out, made, seen, branch, notes, g)
 
 
-def reopen(source, path, name, h=herdr):
+def reopen(source, path, name, h=term):
     """閉じた部署の作業場（ペインを閉じると作業場も閉じる）を herdr に開き直し、(新しいペイン, 作業場) を返す。書く口（herdr の
     作業場）。開けなければ HerdrError。"""
     got = h.open_worktree(source, path, name)
@@ -268,7 +268,7 @@ def drop_copies(path, g=gitx):
 
 # 元の clone の .git/info/exclude（commit されない、手元だけの無視の決まり。worktree と共有）に足す物
 LOCAL_EXCLUDES = (
-    ".claude/settings.local.json",   # 部署の会話が書く許可の記録（会社の形の設計 9.1 で確かめた）。.claude/ を丸ごと隠すと、exclude は
+    chat.LOCAL_SETTINGS,             # 部署の会話が書く許可の記録（会社の形の設計 9.1 で確かめた）。.claude/ を丸ごと隠すと、exclude は
                                      # 全 worktree で共有なので、.claude/ の下に新しく作ったフックの台本などが未追跡に出ず、
                                      # commit し忘れに気づけない（my_notes で見つかった）。Claude Code の手元のファイルは Claude Code が
                                      # 自分で exclude に足す（# claude-code-runtime の行）

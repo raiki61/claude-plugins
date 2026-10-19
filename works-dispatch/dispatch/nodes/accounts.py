@@ -28,7 +28,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import claudex  # noqa: E402
+from ports import chat  # noqa: E402
 import config  # noqa: E402
 import jsonio  # noqa: E402
 import limits as limits_  # noqa: E402
@@ -72,7 +72,7 @@ def gather_running(accounts, list_sessions):
     for a in accounts:
         try:
             listed[a.name] = list_sessions(a.config_dir)
-        except (claudex.ClaudeError, OSError) as e:
+        except (chat.Error, OSError) as e:
             listed[a.name] = []
             notes.append(f"アカウント {a.name} の動いている会話を数えられない（{e}）。0 件とみなした")
     return count_running(listed), notes
@@ -193,10 +193,10 @@ def read_limits(limits_dir, names):
 
 
 def _default_ports(env):
-    """会話の一覧・控えの取り直しの口。入口（dispatch.py）の口をそのまま使う。config_dir の無いアカウントの会話は、
-    このコマンドを打った会話のアカウントでなく、作業場のペインで新しく起きるログインのシェルのフォルダで読むため（dispatch.Ports.account_env）。"""
-    import dispatch as entry
-    return entry.Ports(env=env)
+    """会話の一覧・控えの取り直しの口。入口（dispatch.py）と同じ口の束（wiring.Ports）を使う。config_dir の無いアカウントの会話は、
+    このコマンドを打った会話のアカウントでなく、作業場のペインで新しく起きるログインのシェルのフォルダで読むため（wiring.Ports.account_env）。"""
+    import wiring
+    return wiring.Ports(env=env)
 
 
 def main(argv=None, env=os.environ, ports=None):

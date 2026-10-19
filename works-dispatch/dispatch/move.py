@@ -44,7 +44,7 @@ move_early_reset_hours（既定 1 時間）より先まで戻らないとき。�
 （属性 company.restarting）と区切りの印を外す。待ち受けは --if-changed が終わるのを待ち、印が残っていれば（前の会話を止めずに終わった）、
 頼みを前の会話に渡す（wake_hook.restart_first）。窓口か部署の会話がターンの途中か窓の入力フィールドに打ちかけの字が在って止めなかったときは
 NOT_NOW（75）で終わり、待ち受けは今の値を残さずに次の区切りで試し直す。入力フィールドの薄字（Claude Code の次の文の候補）は打ちかけと
-数えない（deliver.typed）。
+数えない（claudex.typed）。
 """
 
 import argparse
@@ -54,10 +54,9 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import claudex  # noqa: E402
+from ports import chat, term  # noqa: E402
 import config  # noqa: E402
 import gitx  # noqa: E402
-import herdr  # noqa: E402
 import orders  # noqa: E402
 import role_hook  # noqa: E402
 from nodes import accounts, deliver, launch, provision, role  # noqa: E402
@@ -84,8 +83,8 @@ def move(a, ports, cwd, task):
     try:
         cfg, accounts_, sessions_, _, companies, settings, notes = orders.survey(a.config, ports)
         target = deliver.find_target(companies, gitx.root_of(common) if common else None, a.move)
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     except deliver.DeliverError as e:
         print(f"止めた: {e}")
@@ -296,11 +295,11 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
         # 使用上限で止まった会話は、待っても動かないので移す
         try:
             held = _held(talk, ports, "部署", "止めない")
-        except herdr.HerdrError as e:
+        except term.Error as e:
             return 1, f"部署の窓 {talk} を読めない（{e}）"
         if held:
             return NOT_NOW, held
-    if pane and not launch.to_shell(pane, ports.herdr, ports.pause):
+    if pane and not launch.to_shell(pane, ports.term, ports.pause):
         return 1, f"部署の窓 {pane} をシェルに戻せない（attach の画面を手で閉じてから打ち直す）"
     job = attrs.get("job") or attrs.get("session")
     if job:
@@ -310,7 +309,7 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
         for _ in range(STOP_LOOKS):
             try:
                 items = ports.list_sessions(old_acc.config_dir if old_acc else None)
-            except claudex.ClaudeError:
+            except chat.Error:
                 break
             if not any(s.get("name") == attrs.get("name") and s.get("state") not in ("done", "failed", "stopped") for s in items):
                 break
@@ -347,12 +346,12 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
     try:
         risen = any(x.get("name") == attrs.get("name") and x.get("state") not in ("done", "failed", "stopped")
                     for x in ports.list_sessions(next((c.config_dir for c in cfg.accounts if c.name == chosen), None)))
-    except claudex.ClaudeError:
+    except chat.Error:
         risen = True   # 確かめられなければ戻さない
     if risen:
         back = "移る先のアカウントに同じ名前の会話が立っているか、確かめられないので戻さない"
     elif pane and job:
-        back = launch.bring_back(pane, f"{old_acc.command if old_acc else 'claude'} attach {job}", ports.herdr)
+        back = launch.bring_back(pane, chat.attach_command(old_acc.command if old_acc else None, job), ports.term)
     else:
         back = "戻す窓か会話の id が無い"
     if back is None:
@@ -368,8 +367,8 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
     if pane is None:
         return 1, "窓口の会話の居るペインが分からない（属性の会話 company.session の居るペインが無い）"
     try:
-        held = _held(pane, ports, "窓口", "/exit を打たない")
-    except herdr.HerdrError as e:
+        held = _held(pane, ports, "窓口", f"{chat.EXIT} を打たない")
+    except term.Error as e:
         return 1, f"窓口の窓 {pane} を読めない（{e}）"
     if held:
         return NOT_NOW, held
@@ -380,19 +379,19 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
     except (gitx.GitError, OSError, TypeError) as e:
         conf, warn = None, f"役 {attrs.get('role')} の設定を書けなかったので、役の設定なしで起動した（{e}）"
     model, effort = role.desk_flags(the_role)
-    if not deliver.exit_talk(pane, ports.herdr, ports.pause):
+    if not deliver.exit_talk(pane, ports.term, ports.pause):
         return 1, f"窓口の窓 {pane} に /exit を打ったが、シェルに戻らない"
     # 前の会話は終わった。起動する値を書き（設定を書けなければ、起動した値を知らないと見る）、待ち受けと区切りの印を外す
     provision.mark(company["root"], company["root"], {wake.LAUNCHED: None if warn else role.launch_key(the_role), wake.LAUNCHING: "1",
                                                       wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None, wake.MOVE_TO: None,
                                                       wake.MOVE_KEPT: None, wake.MOVE_SKIPPED: None},
                    ports.git)
-    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.herdr, settings=conf, model=model, effort=effort)
+    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.term, settings=conf, model=model, effort=effort)
     if got["status"] == "ready":
         return 0, warn
     # 新しい会話が立たなかった: 前の会話を --resume で同じペインに戻す（窓口を消したままにしない。2026-10-17 に段取りが 22 分消えた）
     provision.mark(company["root"], company["root"], {wake.LAUNCHED: attrs.get(wake.LAUNCHED), wake.LAUNCHING: None}, ports.git)
-    back = launch.bring_back(pane, f"{(old_acc or acc).command} --resume {sid}", ports.herdr)
+    back = launch.bring_back(pane, f"{(old_acc or acc).command} --resume {sid}", ports.term)
     if back is None and not warn:
         # 戻した会話は前の設定のまま。同じ値で区切りのたびに起動し直しと戻しを繰り返さない（会社の形が替われば試し直す）
         provision.mark(company["root"], company["root"], {wake.RESTART_KEPT: role.launch_key(the_role)}, ports.git)
@@ -401,11 +400,11 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
 
 def _held(pane, ports, who, act):
     """窓の会話がターンの途中（herdr の状態が working か blocked）か、入力フィールドに人の打ちかけの字（薄字の候補は数えない）が在れば、
-    今は止めない訳。ほかは None。窓を読めなければ herdr.HerdrError。"""
-    status = (ports.herdr.agent(pane) or {}).get("agent_status")
+    今は止めない訳。ほかは None。窓を読めなければ term.Error。"""
+    status = (ports.term.agent(pane) or {}).get("agent_status")
     if status in BUSY:
         return f"{who}の会話がターンの途中（{status}）なので{act}"
-    box = deliver.typed(ports.herdr.read(pane, 40, ansi=True))
+    box = chat.typed(ports.term.read(pane, 40, ansi=True))
     if box:
         return f"{who}の窓 {pane} の入力フィールドに字（「{box[:20]}」）が在るので{act}（持ち主が打ちかけの字を消さない）"
     return None

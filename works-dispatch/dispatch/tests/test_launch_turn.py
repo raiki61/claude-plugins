@@ -9,7 +9,7 @@ from nodes import launch, turn
 
 
 class FakeHerdr:
-    HerdrError = real_herdr.HerdrError
+    Error = real_herdr.Error
 
     def __init__(self, agent=None, run_error=None, prompts=None, prompt_error=None, shell=True, ready="idle", rename_error=None):
         self.calls = []
@@ -24,7 +24,7 @@ class FakeHerdr:
     def run(self, pane, command):
         self.calls.append(("run", pane, command))
         if self._run_error:
-            raise real_herdr.HerdrError(["herdr", "pane", "run"], self._run_error)
+            raise real_herdr.Error(["herdr", "pane", "run"], self._run_error)
 
     def shell_in_front(self, pane):
         """shell が並びなら、呼ばれるたびに頭から 1 つずつ返す（最後の 1 つは返し続ける）。"""
@@ -44,12 +44,12 @@ class FakeHerdr:
     def rename_pane(self, pane, label):
         self.calls.append(("rename_pane", pane, label))
         if self._rename_error:
-            raise real_herdr.HerdrError(["herdr", "pane", "rename"], self._rename_error)
+            raise real_herdr.Error(["herdr", "pane", "rename"], self._rename_error)
 
     def prompt(self, target, text, wait, until=()):
         self.calls.append(("prompt", target, text, wait) + ((tuple(until),) if until else ()))
         if self._prompt_error:
-            raise real_herdr.HerdrError(["herdr", "agent", "prompt"], self._prompt_error)
+            raise real_herdr.Error(["herdr", "agent", "prompt"], self._prompt_error)
         return self._prompts.pop(0) if self._prompts else ("idle" if wait else "sent")
 
 

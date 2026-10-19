@@ -1,7 +1,7 @@
-"""設計書のセクション 4 の決まり D1〜D6・D8 を照合するチェック。各関数は照合するルート（`works-dispatch/dispatch` か、試験の一時の木）を受け、誤りの文の一覧を返す。
+"""設計書のセクション 4 の決まり D1〜D6・D8 と、外のツールの口の決まり D9 を照合するチェック。各関数は照合するルート（`works-dispatch/dispatch` か、試験の一時の木）を受け、誤りの文の一覧を返す。
 
 `tests/` と `vendor/`（attention から写した whose-turn）は照合しない。試験は破った例を字で持ち、写しは正本の決まりに従うため。
-字で探すのは D1・D2・D5・D6 だけで、構造の決まり（D3・D4）は Python の構文木で見る。
+字で探すのは D1・D2・D5・D6 だけで、構造の決まり（D3・D4・D9）は Python の構文木で見る。
 書く関数は、口を引数で渡されて呼ぶ形（h.run(...)）も名前で数える。字の書き方を変えても逃げられないようにするため。
 """
 
@@ -24,8 +24,9 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 # limit_hook.py は上限で止まった会話から切り離して --move を起動する（会話の子として待たない）
 # wake_hook.py は終わりと印した（--done）部署の会話から切り離して --retire を起動する（同じく、会話を止めるので子として待たない）
 # limits_entry.py は herdr のタブバーが呼ぶ版に依らない入口で、今入っている版の limits.py を起動する（limits_dir に写して動くので、ほかを import しない）
+# wiring.py は入口の口の束（Ports）を組み立てる所で、始める前の確かめが作業場のシェルを起動して読む
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py",
-                 "calls.py", "installed.py", "orders.py", "limit_hook.py", "wake_hook.py", "limits_entry.py"}
+                 "calls.py", "installed.py", "orders.py", "limit_hook.py", "wake_hook.py", "limits_entry.py", "wiring.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照合しない。subprocess.run は herdr の run ではないので数えない
 WRITES = {
@@ -117,12 +118,10 @@ def d2_no_sh(root):
 # D3: ノードが流れを知らないよう、ノードから読んではいけない物。ほかのノードと、流れを持つ側（入口・入口から分けた流れ・フック）
 UPWARD = {"dispatch", "orders", "landing", "calls", "move", "reorg", "retire", "starts", "installed"}
 # D3 を破っていると分かっていて、まだ直していない読み（ノード, 読む物）。増やさない。直したら消す（消し忘れはチェックが誤りにする）
-# - refresh・tree・sync が読むのは、役の名前と並べ方（role）・属性の名前（wake.REST）・入力フィールドの読み方（deliver.typed）・起動方法のフィールド
+# - refresh・tree・sync が読むのは、役の名前と並べ方（role）・属性の名前（wake.REST）・起動方法のフィールド
 #   （start.parse）で、どれも流れではなく共有の読み取り。ノードの外の共有の置き場に出すまで外す
-# - accounts は単独で呼ばれたときの口の束を、入口の dispatch.Ports から借りる。口の束を入口の外に出すまで外す
-D3_KNOWN = {("nodes/refresh.py", "deliver"), ("nodes/refresh.py", "role"), ("nodes/refresh.py", "wake"),
-            ("nodes/tree.py", "role"), ("nodes/tree.py", "start"), ("nodes/sync.py", "role"),
-            ("nodes/accounts.py", "dispatch")}
+D3_KNOWN = {("nodes/refresh.py", "role"), ("nodes/refresh.py", "wake"),
+            ("nodes/tree.py", "role"), ("nodes/tree.py", "start"), ("nodes/sync.py", "role")}
 
 
 def _imported(node):
@@ -210,6 +209,96 @@ def d8_schemas(root):
     return out
 
 
+# D9: 移り変わりの激しい外のツール（端末の herdr・会話の Claude Code）の名前は、口（ports.py が束ねるアダプタ）と口の束の組み立て
+# （wiring.py）の中だけに書く。口の外（流れ・ノード・フック）は口の名前（ports.term・ports.chat）で呼び、使う人に見せる文はツールの
+# 名前を口の NAME で差し込む。数えるのは、名前（変数・関数・属性・引数・import）と文字列（docstring は除く。説明は直さなくても
+# 振る舞いが変わらない）のうち、ツールの名前・コマンド・環境変数・フックのフィールドの名前を含む物。設計は
+# docs/specs/2026-10-19-ports-design.md
+LOCKIN_NAME = re.compile(r"(?i)herdr|claude")
+LOCKIN_TEXT = re.compile(
+    r"(?i:herdr)|(?<![\w.~/-])claude(?![\w./-])|Claude Code|CLAUDE_[A-Z]|transcript_path|hook_event_name|hookSpecificOutput"
+    r"|additionalContext|bgIsolation|installed_plugins|\b(?:SessionStart|UserPromptSubmit|PreToolUse|PostToolUse)\b"
+    r"|^/(?:clear|exit|reload-plugins|catchup|compact)\b|❯"
+    r"|(?<!\w)\.claude(?!/company|-plugin|\w)")   # 設定のフォルダ（~/.claude・.claude.json）。会社の形 .claude/company.toml と
+#   プラグインの置き場 .claude-plugin は、このツールの外の決まりなので数えない
+# 口のアダプタと、口の向こうのツールそのものに付ける部品（ツールの名前を知ってよい所）
+# - limits.py・limits_entry.py は herdr のタブバーに Claude Code の使用率を出す部品、activity.py は herdr のサイドバーに Claude Code の
+#   作業内容を出すフックで、どちらも 2 つのツールをつなぐこと自体が仕事
+LOCKIN_OK = {"herdr.py", "claudex.py", "gitx.py", "ghx.py", "tierx.py", "vscode.py", "ports.py", "wiring.py", "limits.py",
+             "limits_entry.py", "activity.py"}
+# D9 を破っていると分かっていて、まだ口へ移していない所の数（ファイル: 数）。増やさない。減らしたらここも減らす（減らし忘れも
+# チェックが誤りにする。D3_KNOWN と同じ扱い）
+D9_KNOWN = {
+    "config.py": 2,           # 写しの vendor/claude_auth.py（正本はルートの scripts/claude_auth.py。名前は写しの見張りが決める）
+    "dispatch.py": 1,         # 設定のフィールドの名前 hide_claude_dir（使う人の設定に書いてあるので名前を替えない）
+    "landing.py": 1,          # 同じ
+    "nodes/provision.py": 1,  # 同じ
+    "nodes/tree.py": 1,       # 会社の形の置き場 .claude/company.toml（works-dispatch が決めた置き場で、使う人のリポジトリに在る）
+    "installed.py": 1,        # 前の版の置き場で打たれても動くよう、標準ライブラリしか読まない（口を import できない）
+    "shape_hook.py": 1,       # 口を import できなかったときに出す文（口の NAME を読めない）
+}
+
+
+def _docstrings(tree):
+    return {id(n.body[0].value) for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body
+            and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+
+
+def lockin_sites(tree):
+    """構文木の中の、外のツールの名前を書いた所の (行, 字) の並び。"""
+    docs = _docstrings(tree)
+    out = []
+    for n in ast.walk(tree):
+        names = []
+        if isinstance(n, ast.Name):
+            names = [n.id]
+        elif isinstance(n, ast.Attribute):
+            names = [n.attr]
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = [n.name]
+        elif isinstance(n, ast.arg):
+            names = [n.arg]
+        elif isinstance(n, ast.keyword) and n.arg:
+            names = [n.arg]
+        elif isinstance(n, ast.alias):
+            names = [n.name, n.asname or ""]
+        elif isinstance(n, ast.ImportFrom):
+            names = [n.module or ""]
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs:
+            if LOCKIN_TEXT.search(n.value):
+                out.append((getattr(n, "lineno", 0), n.value[:60]))
+            continue
+        out += [(getattr(n, "lineno", 0), x) for x in names if x and LOCKIN_NAME.search(x)]
+    return out
+
+
+def lockin_counts(root):
+    """口の外のファイルごとの、外のツールの名前を書いた所の数（0 の物は出さない）。"""
+    got = {}
+    for rel, p in _files(root, "*.py"):
+        if rel in LOCKIN_OK:
+            continue
+        n = len(lockin_sites(ast.parse(p.read_text(encoding="utf-8"))))
+        if n:
+            got[rel] = n
+    return got
+
+
+def d9_tools_behind_ports(root, known=None):
+    known = D9_KNOWN if known is None else known
+    got = lockin_counts(root)
+    out = []
+    for rel in sorted(set(got) | set(known)):
+        n, k = got.get(rel, 0), known.get(rel, 0)
+        if n > k:
+            out.append(f"D9 {rel}: 外のツール（端末・会話）の名前を口の外に {n} か所書いている（知っている数 {k}。"
+                       "口の名前 ports.term・ports.chat と NAME で書く。どこかは python3 tests/fences.py --lockin <ファイル>）")
+        elif n < k and pathlib.Path(root, rel).is_file():
+            out.append(f"D9 {rel}: 外のツールの名前が {k} から {n} に減ったので、チェックの知っている数 D9_KNOWN を {n} に書き直す")
+    return out
+
+
 def compiles_clean(root):
     """Python が警告を出さずに読める（文字列の中の不正なエスケープなど。今は SyntaxWarning で、先の版で SyntaxError になる）。"""
     out = []
@@ -223,8 +312,22 @@ def compiles_clean(root):
     return out
 
 
-FENCES = (d1_old_works, d2_no_sh, d3_nodes_blind, d4_outward, d5_no_timeout, d6_no_owner_env, d8_schemas, compiles_clean)
+FENCES = (d1_old_works, d2_no_sh, d3_nodes_blind, d4_outward, d5_no_timeout, d6_no_owner_env, d8_schemas, d9_tools_behind_ports,
+          compiles_clean)
 
 
 def check_all(root):
     return [e for f in FENCES for e in f(root)]
+
+
+if __name__ == "__main__":
+    # python3 tests/fences.py --lockin [ファイル…]: D9 が数える所を行ごとに出す（ファイルを省けば、口の外の全部の数）
+    import sys
+    here = pathlib.Path(__file__).resolve().parent.parent
+    args = [a for a in sys.argv[1:] if a != "--lockin"]
+    if not args:
+        for rel, n in sorted(lockin_counts(here).items()):
+            print(f"{rel}: {n}")
+    for a in args:
+        for line, what in lockin_sites(ast.parse(pathlib.Path(a).read_text(encoding="utf-8"))):
+            print(f"{a}:{line}: {what!r}")

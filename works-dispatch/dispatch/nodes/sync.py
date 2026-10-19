@@ -132,7 +132,7 @@ def apply_workspaces(ops, h):
             if o["kind"]:
                 h.report_workspace_metadata(o["workspace"], SOURCE, {"kind": o["kind"]})
             out.append({"workspace": o["workspace"], "status": "done", "detail": None})
-        except h.HerdrError as e:
+        except h.Error as e:
             out.append({"workspace": o["workspace"], "status": "failed", "detail": str(e)})
     return out
 
@@ -146,7 +146,7 @@ def apply(ops, h):
                 h.rename_pane(o["pane"], o["label"])
             h.report_pane_metadata(o["pane"], SOURCE, o["display_agent"], o["title"], o["tokens"], o["clear_tokens"])
             out.append({"pane": o["pane"], "status": "done", "detail": None})
-        except h.HerdrError as e:
+        except h.Error as e:
             out.append({"pane": o["pane"], "status": "failed", "detail": str(e)})
     return out
 
@@ -190,7 +190,7 @@ def apply_order(moves, h):
         try:
             h.move_workspace(o["workspace"], o["index"])
             out.append({"workspace": o["workspace"], "status": "done", "detail": None})
-        except h.HerdrError as e:
+        except h.Error as e:
             failed = str(e)
             out.append({"workspace": o["workspace"], "status": "failed", "detail": failed})
     return out

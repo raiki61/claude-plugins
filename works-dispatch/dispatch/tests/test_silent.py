@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 import dispatch
+import wiring
 import filex
 import gitx
 import terms
@@ -142,7 +143,7 @@ class SentTimes(unittest.TestCase):
         d = tempfile.mkdtemp()
         ports = dispatch.Ports()
         self.assertEqual(ports.load_sent(d), {})   # 無ければ空
-        pathlib.Path(d, dispatch.SENT_FILE).write_text("{", encoding="utf-8")
+        pathlib.Path(d, wiring.SENT_FILE).write_text("{", encoding="utf-8")
         with self.assertRaises(ValueError):
             ports.load_sent(d)   # 空として読むと、次の save_sent が前に送った時刻を全部消す
         ports.save_sent(d, {"pr": 1})

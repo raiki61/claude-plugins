@@ -22,10 +22,9 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import claudex  # noqa: E402
+from ports import chat, term  # noqa: E402
 import config  # noqa: E402
 import gitx  # noqa: E402
-import herdr  # noqa: E402
 import orders  # noqa: E402
 from nodes import clean, deliver, launch, provision, wake  # noqa: E402
 
@@ -39,8 +38,8 @@ def retire(a, ports, cwd, rows, reasons):
     try:
         cfg, _, _, _, companies, _, notes = orders.survey(a.config, ports)
         target = deliver.find_target(companies, gitx.root_of(common) if common else None, a.retire)
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     except deliver.DeliverError as e:
         print(f"止めた: {e}")
@@ -73,7 +72,7 @@ def retire(a, ports, cwd, rows, reasons):
 
     try:
         r, before = row(), row([attrs["session"]] if attrs.get("session") else [])   # before は、会話を止めた後の見立て
-    except herdr.HerdrError as e:
+    except term.Error as e:
         return kept(f"worktree を読めない: {e}")
     ask = attrs.get("ask")
     if r is None or before is None:
@@ -86,7 +85,7 @@ def retire(a, ports, cwd, rows, reasons):
         return kept("順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む）", 2)
     if r["reason"] == "running":
         for pane in dept["panes"]:
-            if not launch.to_shell(pane["pane_id"], ports.herdr, ports.pause):
+            if not launch.to_shell(pane["pane_id"], ports.term, ports.pause):
                 return kept(f"窓 {pane['pane_id']} をシェルに戻せない（窓の前で動いている物を手で閉じてから --retire を打ち直す）")
         ok, said = ports.stop_session(r["config_dir"], r["session"])
         if not ok:
@@ -94,7 +93,7 @@ def retire(a, ports, cwd, rows, reasons):
         for _ in range(STOP_LOOKS):
             try:
                 r = row()
-            except herdr.HerdrError as e:
+            except term.Error as e:
                 return kept(f"会話を止めた後に worktree を読めない: {e}")
             if r is None or r["reason"] != "running":
                 break
@@ -105,7 +104,7 @@ def retire(a, ports, cwd, rows, reasons):
             return kept("会話を止めたが、止める間に順番待ちに頼みが積まれた（部署の会話を起動し直すまで渡らない。--tree の部署の行に件数が出る）")
         if not r["removable"]:
             return kept(f"会話を止めたが、{reasons[r['reason']]}")
-    got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
+    got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git, chat, ports.account_env)
     if not got["removed"]:
         return kept(f"片付けられなかった: {got['detail']}")
     deliver.log(inbox, {"kind": "retired", "at": ports.now(), "name": attrs.get("name"), "path": path, "status": "done",

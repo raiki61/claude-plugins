@@ -166,13 +166,13 @@ class HerdrPorts(unittest.TestCase):
         real_herdr.move_workspace("w3", 1, request=lambda m, p: real_herdr._request(m, p, env=env, connect=ok))
         self.assertEqual((sent[0]["method"], sent[0]["params"]), ("workspace.move", {"workspace_id": "w3", "insert_index": 1}))
         bad = lambda path: Sock(b'{"id":"works-dispatch","error":{"code":"workspace_not_found","message":"x"}}\n')   # noqa: E731
-        with self.assertRaises(real_herdr.HerdrError) as got:
+        with self.assertRaises(real_herdr.Error) as got:
             real_herdr._request("workspace.move", {}, env=env, connect=bad)
         self.assertEqual(got.exception.detail, "workspace_not_found")
         run = fake_runner(json.dumps({"status": "running", "running": True, "socket": "/c/herdr.sock"}))
         self.assertEqual(real_herdr._socket_path({}, run), "/c/herdr.sock")   # herdr の外からは herdr status server --json で引く
         self.assertEqual(run.calls, [["herdr", "status", "server", "--json"]])
-        with self.assertRaises(real_herdr.HerdrError):
+        with self.assertRaises(real_herdr.Error):
             real_herdr._socket_path({}, fake_runner("server:\n  socket: /c/herdr.sock\n"))   # 人向けの文は読まない
 
     def test_rename_workspace_passes_the_label_as_one_argument(self):
@@ -194,7 +194,7 @@ class HerdrPorts(unittest.TestCase):
 
     def test_read_returns_the_screen_text(self):
         self.assertEqual(real_herdr.read("p", 3, runner=fake_runner("a\nb\n")), "a\nb\n")
-        with self.assertRaises(real_herdr.HerdrError):
+        with self.assertRaises(real_herdr.Error):
             real_herdr.read("p", 3, runner=fake_runner("", rc=1))
 
 
@@ -556,12 +556,12 @@ class Sync(unittest.TestCase):
 
     def test_apply_keeps_going_after_a_failure(self):
         class H:
-            HerdrError = real_herdr.HerdrError
+            Error = real_herdr.Error
             calls = []
 
             def rename_pane(self, pane, label):
                 if pane == "bad":
-                    raise real_herdr.HerdrError(["herdr"], "pane_not_found")
+                    raise real_herdr.Error(["herdr"], "pane_not_found")
                 self.calls.append(("rename", pane, label))
 
             def report_pane_metadata(self, pane, source, display_agent, title, tokens, clear_tokens=()):
@@ -618,12 +618,12 @@ class FlowOrder(unittest.TestCase):
 
     def test_apply_order_stops_after_the_first_failure(self):
         class H:
-            HerdrError = real_herdr.HerdrError
+            Error = real_herdr.Error
             seen = []
 
             def move_workspace(self, ws, index):
                 self.seen.append(ws)
-                raise real_herdr.HerdrError(["herdr", "api", "workspace.move"], "workspace_not_found")
+                raise real_herdr.Error(["herdr", "api", "workspace.move"], "workspace_not_found")
         got = sync.apply_order([{"workspace": "p", "index": 2}, {"workspace": "b", "index": 3}], H())
         self.assertEqual([r["status"] for r in got], ["failed", "skipped"])
         self.assertEqual(H.seen, ["p"])
@@ -651,9 +651,9 @@ class Entry(unittest.TestCase):
         git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
         provision.mark(self.place, self.src, {"role": "調べ役", "account": "a1", "name": "調べ", "session": "s-a"}, gitx)
         self.ports = FakePorts([])
-        self.ports.herdr = CompanyHerdr(self.src)
-        self.ports.herdr.open_at(self.src)
-        self.pane = self.ports.herdr.open_at(self.place, agent="claude")["pane_id"]
+        self.ports.term = CompanyHerdr(self.src)
+        self.ports.term.open_at(self.src)
+        self.pane = self.ports.term.open_at(self.place, agent="claude")["pane_id"]
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"id": "a", "sessionId": "s-a", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working"}]
 
@@ -747,13 +747,13 @@ class Entry(unittest.TestCase):
     def test_sync_tags_the_department_pane_and_dry_run_writes_nothing(self):
         rc, out = self.main("--sync", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(self.ports.herdr.writes, [])
+        self.assertEqual(self.ports.term.writes, [])
         self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役  題名 調べ  札 role=調べ役、account=a1", out)
-        ws = next(p["workspace_id"] for p in self.ports.herdr.panes() if p["pane_id"] == self.pane)
+        ws = next(p["workspace_id"] for p in self.ports.term.panes() if p["pane_id"] == self.pane)
         self.assertIn(f"作業場 {ws}: 名前 調べ  印 エフェメラル", out)
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(self.ports.herdr.writes, [
+        self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", ws, "調べ"),
             ("report_workspace_metadata", ws, {"kind": "エフェメラル"}, []),
             ("rename_pane", self.pane, "調べ"),
@@ -767,8 +767,8 @@ class Entry(unittest.TestCase):
 
     def test_herdr_that_cannot_be_read_stops_with_one_line(self):
         def broken():
-            raise real_herdr.HerdrError(["herdr", "pane", "list"], "no socket")
-        self.ports.herdr.panes = broken
+            raise real_herdr.Error(["herdr", "pane", "list"], "no socket")
+        self.ports.term.panes = broken
         rc, out = self.main("--tree")
         self.assertEqual(rc, 1)
         self.assertIn("止めた: herdr を読めない", out)
@@ -786,15 +786,15 @@ class Entry(unittest.TestCase):
         shape.write_text('[[roles]]\nname = "調べ役"\n', encoding="utf-8")
         self.assertEqual(self.hook(), (True, []))   # 控えが無ければ 1 度揃える
         self.assertTrue(pathlib.Path(shape_hook.mark_path(os.path.join(self.src, ".git"))).is_file())
-        self.ports.herdr.writes.clear()
+        self.ports.term.writes.clear()
         self.assertEqual(self.hook(), (False, []))   # 替わっていなければ何もしない
-        self.assertEqual(self.ports.herdr.writes, [])
+        self.assertEqual(self.ports.term.writes, [])
         shape.write_text('[[roles]]\nname = "調べもの"\nformer_names = ["調べ役"]\npersistent = true\nfresh = true\n', encoding="utf-8")
         self.assertEqual(self.hook(), (True, []))
         self.assertEqual(gitx.worktree_attrs(self.place)["role"], "調べもの")
         self.assertEqual(gitx.worktree_attrs(self.place)["fresh"], "true")
         self.assertIn(("report_pane_metadata", self.pane, "調べもの", "調べ", {"role": "調べもの", "account": "a1"}, ["boss"]),
-                      self.ports.herdr.writes)
+                      self.ports.term.writes)
 
     def test_shape_hook_retries_until_everything_is_tagged(self):
         shape = pathlib.Path(self.src, ".claude", "company.toml")
@@ -818,7 +818,7 @@ class Entry(unittest.TestCase):
     def test_sync_of_one_company_leaves_the_others(self):
         lines, rc = dispatch.sync_companies(self.cfg, self.ports, only=tempfile.mkdtemp())
         self.assertEqual((rc, lines), (0, ["付け直す部署は無い（属性を持つ部署が無い）"]))
-        self.assertEqual(self.ports.herdr.writes, [])
+        self.assertEqual(self.ports.term.writes, [])
 
     def test_plugin_declares_the_shape_hook_in_the_background_at_stop(self):
         hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
@@ -841,20 +841,20 @@ class Departments(unittest.TestCase):
             {"id": sid[-1], "sessionId": sid, "state": st} for sid, st in self.state.items()] if include_done else []
 
     def dept(self, branch, session):
-        path = self.ports.herdr.create_worktree(self.src, branch, "origin/main", branch)["path"]
-        self.ports.herdr.writes.clear()
+        path = self.ports.term.create_worktree(self.src, branch, "origin/main", branch)["path"]
+        self.ports.term.writes.clear()
         provision.mark(path, self.src, {"name": branch, "session": session}, gitx)
         return path
 
     def clean(self, *extra):
         import dispatch
-        real = dispatch.claudex.remove_session
-        dispatch.claudex.remove_session = lambda cdir, sid, **kw: (self.removed.append((cdir, sid)) or self.rm_env.append(kw.get("base_env"))
+        real = dispatch.chat.remove_session
+        dispatch.chat.remove_session = lambda cdir, sid, **kw: (self.removed.append((cdir, sid)) or self.rm_env.append(kw.get("base_env"))
                                                                    or (True, "removed"))
         try:
             return run_main(["--config", self.cfg, "--clean", *extra], self.ports)
         finally:
-            dispatch.claudex.remove_session = real
+            dispatch.chat.remove_session = real
 
     def test_finished_merged_department_is_listed_then_removed_with_its_session(self):
         rc, out = self.clean()
@@ -935,7 +935,7 @@ class Departments(unittest.TestCase):
             def job_tmp(cdir, sid, env=None):
                 return "/nowhere"
         got = clean.retire({"path": self.place, "branch": "dept/a", "session": "a", "config_dir": "/c", "pr_head": None},
-                           self.src, "x", self.ports.herdr, gitx, C)
+                           self.src, "x", self.ports.term, gitx, C)
         self.assertFalse(got["removed"])
         self.assertIn("claude rm が断った", got["detail"])
         self.assertTrue(os.path.exists(self.place))
@@ -945,9 +945,9 @@ class Departments(unittest.TestCase):
         tmp = pathlib.Path(tempfile.mkdtemp()) / "jobs" / "a" / "tmp"
         (tmp / "tools").mkdir(parents=True)
         (tmp / "tools" / "measure.py").write_text("x\n", encoding="utf-8")
-        real = dispatch.claudex.job_tmp
-        dispatch.claudex.job_tmp = lambda cdir, sid, env=None: str(tmp)
-        self.addCleanup(setattr, dispatch.claudex, "job_tmp", real)
+        real = dispatch.chat.job_tmp
+        dispatch.chat.job_tmp = lambda cdir, sid, env=None: str(tmp)
+        self.addCleanup(setattr, dispatch.chat, "job_tmp", real)
         rc, out = self.clean()
         self.assertIn("消せる（会話の一時の置き場の 1 件は、共通の .git の company/kept-tmp/ に写してから消す）", out)
         rc, out = self.clean("--apply")
@@ -1046,18 +1046,18 @@ class Departments(unittest.TestCase):
             def common_dir(cwd):
                 return None
         got = clean.retire({"path": self.place, "branch": "dept/a", "session": "a", "config_dir": "/c", "pr_head": None},
-                           self.src, "x", self.ports.herdr, G, C)
+                           self.src, "x", self.ports.term, G, C)
         self.assertFalse(got["removed"])
         self.assertIn("会話の一時の置き場を写せないので消さない", got["detail"])
         self.assertEqual(asked, [])
         self.assertTrue(os.path.exists(self.place))
 
     def test_department_whose_session_is_gone_is_still_judged_by_git(self):
-        rows = clean.departments(self.ports.herdr.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
+        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
                                  gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src)
         self.assertEqual([(r["state"], r["removable"], r["session"]) for r in rows], [("gone", True, None)])
         # 順番待ちに頼みが残る部署は畳まない（畳むと頼みが誰にも渡らない。2026-10-18 の受付 b1109e・526db7）
-        rows = clean.departments(self.ports.herdr.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
+        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
                                  gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src, queued=lambda p: True)
         self.assertEqual([(r["removable"], r["reason"]) for r in rows], [(False, "queued")])
 

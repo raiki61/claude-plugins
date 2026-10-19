@@ -260,11 +260,11 @@ class Summary(unittest.TestCase):
 
 
 class TypedBox(unittest.TestCase):
-    """入力フィールドの、人が打った字（deliver.typed）。薄字（SGR 2）は Claude Code の次の文の候補と空の入力フィールドの例の字で、数えない。"""
+    """入力フィールドの、人が打った字（claudex.typed）。薄字（SGR 2）は Claude Code の次の文の候補と空の入力フィールドの例の字で、数えない。"""
 
     def box(self, inner):
         rule = "\x1b[38;2;136;136;136m" + "─" * 20 + "\x1b[0m"
-        return deliver.typed(f"上の字\n{rule}\n❯\xa0{inner}\n{rule}\n  足元")
+        return claudex.typed(f"上の字\n{rule}\n❯\xa0{inner}\n{rule}\n  足元")
 
     def test_faint_text_is_not_typed_but_colored_text_is(self):
         self.assertEqual(self.box("\x1b[0m\x1b[2m消していいよ\x1b[0m"), "")
@@ -277,8 +277,8 @@ class TypedBox(unittest.TestCase):
         self.assertEqual(self.box("\x1b[0;2m候補\x1b[22m打った"), "打った")
         self.assertEqual(self.box(""), "")
         self.assertEqual(self.box("\x1b[4:3m波線\x1b[0m\x1b[0 q"), "波線")   # コロン区切りと中間の字の付いた制御も字に数えない
-        self.assertIsNone(deliver.typed("罫線の無い画面"))
-        self.assertEqual(deliver.typed("─" * 20 + "\n❯ 字だけの画面\n" + "─" * 20), "字だけの画面")   # 色の無い画面は全部を数える
+        self.assertIsNone(claudex.typed("罫線の無い画面"))
+        self.assertEqual(claudex.typed("─" * 20 + "\n❯ 字だけの画面\n" + "─" * 20), "字だけの画面")   # 色の無い画面は全部を数える
 
 
 class BossWindow(unittest.TestCase):
@@ -416,16 +416,16 @@ class Flow(unittest.TestCase):
         git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
         provision.mark(self.place, self.src, {"role": "調べ役", "account": "a1", "name": "調べ", "session": "s-dept"}, gitx)
         self.ports = FakePorts([])
-        self.ports.herdr = CompanyHerdr(self.src)
-        self.desk = self.ports.herdr.open_at(self.src, agent="claude")["pane_id"]
-        self.window = self.ports.herdr.open_at(self.place, agent="claude")["pane_id"]
-        self.ports.herdr.talking.add(self.window)   # 部署の窓の前には attach の画面（会話）が居る
+        self.ports.term = CompanyHerdr(self.src)
+        self.desk = self.ports.term.open_at(self.src, agent="claude")["pane_id"]
+        self.window = self.ports.term.open_at(self.place, agent="claude")["pane_id"]
+        self.ports.term.talking.add(self.window)   # 部署の窓の前には attach の画面（会話）が居る
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk", "HERDR_PANE_ID": self.desk}
         # 部署の会話は、窓に 1 行が送られると動き出す（status が busy になる）。--ask は送った後にそれを見て、届いたと確かめる
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
             {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
-             "status": "busy" if any(w[0] == "prompt" and w[1] != self.desk for w in self.ports.herdr.writes) else "idle"}]
+             "status": "busy" if any(w[0] == "prompt" and w[1] != self.desk for w in self.ports.term.writes) else "idle"}]
         self.inbox = os.path.join(self.src, ".git", "company", "inbox")
 
     def main(self, cwd, *argv):
@@ -433,32 +433,32 @@ class Flow(unittest.TestCase):
             return run_main(["--config", self.cfg, *argv], self.ports)
 
     def prompts(self):
-        return [w for w in self.ports.herdr.writes if w[0] == "prompt"]
+        return [w for w in self.ports.term.writes if w[0] == "prompt"]
 
     def fall(self, keep_mark=False):
         """部署の窓の会話が落ちた形（PC の再起動などで attach の画面が終わり、ペインにはシェルだけが居る）。keep_mark なら、
         herdr がペインの会話の印を残したままの形（まっさらな環境での 6 回目の試しの 1）。"""
-        self.ports.herdr.talking.discard(self.window)
+        self.ports.term.talking.discard(self.window)
         if not keep_mark:
-            for p in self.ports.herdr._panes:
+            for p in self.ports.term._panes:
                 if p["pane_id"] == self.window:
                     p["agent"] = None
-        real_run = self.ports.herdr.run
+        real_run = self.ports.term.run
 
         def run(pane, command):   # attach を打つと、窓に会話が戻る
             real_run(pane, command)
             if " attach " in command:
-                self.ports.herdr.talking.add(pane)
-                for p in self.ports.herdr._panes:
+                self.ports.term.talking.add(pane)
+                for p in self.ports.term._panes:
                     if p["pane_id"] == pane:
                         p["agent"] = "claude"
-        self.ports.herdr.run = run
+        self.ports.term.run = run
 
     def test_fallen_department_is_attached_again_and_the_ask_goes_through(self):
         self.fall()
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
-        runs = [w for w in self.ports.herdr.writes if w[0] == "run"]
+        runs = [w for w in self.ports.term.writes if w[0] == "run"]
         self.assertEqual(runs, [("run", self.window, "claude-a1 attach d")])   # 会話の一覧の短い id で打つ（長い id は断られる）
         self.assertIn("部署の窓に会話が居なかったので", out)
         self.assertEqual(len(self.prompts()), 1)
@@ -472,7 +472,7 @@ class Flow(unittest.TestCase):
         self.ports.list_sessions = lambda cdir, include_done=False: []
         self.fall()
         self.main(self.src, "--ask", "調べ", "--text", "調べて")
-        self.assertIn(("run", self.window, "claude-a1 attach 8c4a1102"), self.ports.herdr.writes)
+        self.assertIn(("run", self.window, "claude-a1 attach 8c4a1102"), self.ports.term.writes)
 
     def test_fallen_department_without_its_talk_id_is_attached_by_the_talk_at_its_place(self):
         # 属性の会話の id が消えていても（前の版の --move が id を消した直後に止められた。2026-10-17 の割り振り・説明書）、会話の
@@ -480,7 +480,7 @@ class Flow(unittest.TestCase):
         subprocess.run(["git", "-C", self.place, "config", "--worktree", "--unset", "company.session"], check=True)
         self.fall()
         self.main(self.src, "--ask", "調べ", "--text", "調べて")
-        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.herdr.writes)
+        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.term.writes)
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual((attrs["session"], attrs["job"]), ("s-dept", "d"))
         old = {"kind": "background", "sessionId": "s-old", "id": "o", "cwd": self.place, "name": "調べ", "state": "done", "startedAt": 9}
@@ -500,7 +500,7 @@ class Flow(unittest.TestCase):
         self.fall(keep_mark=True)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
-        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.herdr.writes)
+        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.term.writes)
 
     def test_stopped_session_behind_a_stuck_attach_is_ended_and_attached_again(self):
         # Linux: 裏の処理が止まると、窓の attach は「Waking session …」のまま前に残る。会話の一覧が stopped と言えば落ちたと見て、
@@ -508,27 +508,27 @@ class Flow(unittest.TestCase):
         real_list = self.ports.list_sessions
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {**x, "state": "stopped"} if x.get("sessionId") == "s-dept" else x for x in real_list(cdir, include_done)]
-        self.ports.herdr.front[self.window] = ["claude attach d"]
+        self.ports.term.front[self.window] = ["claude attach d"]
         self.fall(keep_mark=True)
-        self.ports.herdr.talking.add(self.window)   # 止まった attach が前に居る（シェルでない）
-        real_keys = self.ports.herdr.send_keys
+        self.ports.term.talking.add(self.window)   # 止まった attach が前に居る（シェルでない）
+        real_keys = self.ports.term.send_keys
 
         def keys(pane, *k):
             real_keys(pane, *k)
             if "ctrl+z" in k:
-                self.ports.herdr.talking.discard(pane)
-                self.ports.herdr.front.pop(pane, None)
+                self.ports.term.talking.discard(pane)
+                self.ports.term.front.pop(pane, None)
                 self.ports.list_sessions = real_list   # 打ち直すと会話が起きる
-        self.ports.herdr.send_keys = keys
+        self.ports.term.send_keys = keys
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
-        writes = [w for w in self.ports.herdr.writes if w[0] in ("send_keys", "run")]
+        writes = [w for w in self.ports.term.writes if w[0] in ("send_keys", "run")]
         self.assertEqual(writes[:2], [("send_keys", self.window, "ctrl+z"), ("run", self.window, "claude-a1 attach d")])
 
     def test_department_whose_pane_was_closed_is_reopened_and_attached(self):
         # ペインを閉じると部署の作業場も閉じる（skills/dispatch/references/clean.md の「部署の会話を止める」の止め方）。作業場を開き直し、その新しいペインで
         # 短い id の attach を打って戻す（まっさらな環境での 8 回目の試しの 2）
-        h = self.ports.herdr
+        h = self.ports.term
         ws = next(p["workspace_id"] for p in h._panes if p["pane_id"] == self.window)
         h.close_workspace(ws)
         real_run = h.run
@@ -555,7 +555,7 @@ class Flow(unittest.TestCase):
     def test_clear_before_ask_sees_the_clear_by_a_new_talk_file_when_the_list_keeps_the_id(self):
         # 裏の会話は /clear の後も会話の一覧の sessionId が替わらないことがある（2026-10-17 の試し）。記録のファイルが替われば空と見る
         class H:
-            HerdrError = real_herdr.HerdrError
+            Error = real_herdr.Error
 
             def prompt(self, pane, text, wait):
                 files.append(("new.jsonl", 2))
@@ -568,7 +568,7 @@ class Flow(unittest.TestCase):
             return False
         busy.found = "s-old"
         files = [("old.jsonl", 1)]
-        ports = argparse.Namespace(herdr=H(), pause=lambda: None)
+        ports = argparse.Namespace(term=H(), pause=lambda: None)
         ok, said = orders.clear_before_ask({"attrs": {}}, "a0", "p1", busy, ports, lambda: files[-1])
         self.assertTrue(ok, said)
         files[:] = [("old.jsonl", 1)]
@@ -594,7 +594,7 @@ class Flow(unittest.TestCase):
         BOX = "──────────── 計算 ─\n❯ {}\n────────────────"
 
         class H:
-            HerdrError = real_herdr.HerdrError
+            Error = real_herdr.Error
 
             def __init__(self, screens):
                 self.screens, self.writes = list(screens), []
@@ -652,7 +652,7 @@ class Flow(unittest.TestCase):
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
             {"id": "e", "sessionId": "s-cleared", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
-             "status": "busy" if any(w[0] == "prompt" and w[1] != self.desk for w in self.ports.herdr.writes) else "idle"}]
+             "status": "busy" if any(w[0] == "prompt" and w[1] != self.desk for w in self.ports.term.writes) else "idle"}]
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.prompts()), 1)
@@ -661,7 +661,7 @@ class Flow(unittest.TestCase):
 
     def test_a_line_left_in_the_input_box_gets_an_enter(self):
         # Windows: attach で戻した直後に送った文が、入力フィールドに入ったまま送信されなかった。残っていれば Enter を足す
-        h = self.ports.herdr
+        h = self.ports.term
         h.screen = "────\n❯ 再開の知らせです: この会話は落ちて戻った。\n────"
         status, detail = deliver.send(self.window, "再開の知らせです: この会話は落ちて戻った。受付 X", h, lambda: None)
         self.assertEqual(status, "sent")
@@ -674,10 +674,10 @@ class Flow(unittest.TestCase):
     def test_exited_line_on_the_screen_counts_as_fallen(self):
         # Windows では前のプロセスを見る口が当てにならないので、画面の「Session … has exited.」でも見分ける
         orders = __import__("orders")
-        self.ports.herdr.screen = "Session d has exited.\nPS C:\\w> "
+        self.ports.term.screen = "Session d has exited.\nPS C:\\w> "
         dept = {"panes": [{"pane_id": self.window, "agent": "claude"}]}
         self.assertIsNone(orders.live_window(dept, self.ports))
-        self.ports.herdr.screen = "> 作業中"
+        self.ports.term.screen = "> 作業中"
         self.assertEqual(orders.live_window(dept, self.ports), self.window)
 
     def test_fallen_department_with_a_pending_ask_is_nudged_to_deliver(self):
@@ -875,7 +875,7 @@ class Flow(unittest.TestCase):
 
     def ask_then_summary(self, text):
         self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "調べて")[0], 0)
-        self.ports.herdr.writes.clear()
+        self.ports.term.writes.clear()
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text(text, encoding="utf-8")
         return str(summary)
@@ -1074,13 +1074,13 @@ class Flow(unittest.TestCase):
             {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
             {"id": "s", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
              "status": "busy" if any(x != "/clear" for x in sent()) else "idle"}]
-        typed = self.ports.herdr.prompt
+        typed = self.ports.term.prompt
 
         def prompt(pane, text, wait):
             if text == "/clear":
                 (records / "new.jsonl").write_text("{}", encoding="utf-8")
             return typed(pane, text, wait)
-        self.ports.herdr.prompt = prompt
+        self.ports.term.prompt = prompt
         provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, gitx)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
@@ -1093,7 +1093,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertNotIn("/clear", sent())
         self.assertIn("まだ納品した頼みが無いので、空にせずに送る", out)
-        self.ports.herdr.writes.clear()
+        self.ports.term.writes.clear()
         sent = self.fresh_world(busy_before=True)
         provision.mark(self.place, self.src, {"delivered": gitx.worktree_attrs(self.place)["ask"]}, gitx)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
@@ -1124,7 +1124,7 @@ class Flow(unittest.TestCase):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         self.assertIn("結論・差分・試験 の項目で", self.prompts()[0][2])
-        self.ports.herdr.writes.clear()
+        self.ports.term.writes.clear()
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text("結論: 直した\n差分: 1 行\n", encoding="utf-8")
         rc, out = self.main(self.place, "--deliver", str(summary))
@@ -1270,7 +1270,7 @@ class Flow(unittest.TestCase):
         # 頼み元の会話が終わって窓が無い: 待っても窓は開かず、部署の順番待ちが止まる（2026-10-17 の点検）。頼み元の名前に宛てた
         # 知らせを台帳に置いて納品済みにする（頼み元の名前の待ち受けが後で張られれば、その知らせで起きる）
         summary = self.ask_then_summary(GOOD)
-        self.ports.herdr._panes = [p for p in self.ports.herdr._panes if p["pane_id"] != self.desk]
+        self.ports.term._panes = [p for p in self.ports.term._panes if p["pane_id"] != self.desk]
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 1, out)   # 頼み元の会話が一覧に居る（生きていて窓を決められないだけ）なら閉じない
         self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
@@ -1290,7 +1290,7 @@ class Flow(unittest.TestCase):
     def test_deliver_whose_send_fails_does_not_close_the_ask(self):
         # 窓は在るが打てなかった（herdr の誤り）: 窓が戻れば打ち直せるので、納品済みにしない
         summary = self.ask_then_summary(GOOD)
-        self.ports.herdr.prompt = lambda *a, **k: (_ for _ in ()).throw(real_herdr.HerdrError(["herdr"], "pane_not_found"))
+        self.ports.term.prompt = lambda *a, **k: (_ for _ in ()).throw(real_herdr.Error(["herdr"], "pane_not_found"))
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 1, out)
         self.assertEqual(deliver.records(self.inbox)[-1]["status"], "failed")

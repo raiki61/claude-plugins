@@ -47,7 +47,7 @@ import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
-    import claudex  # noqa: E402
+    from ports import chat, term  # noqa: E402
     import config  # noqa: E402
     import gitx  # noqa: E402
     from nodes import provision, role, tree  # noqa: E402
@@ -67,12 +67,12 @@ RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable,
 # 部署でない会話に足す、ほかの会社への頼み方（毎回の起動の量に入るので 1 行に保つ）
 HINT = ("works-dispatch: ここは会社「{company}」のリポジトリだが、この会話は部署ではない。ほかの会社に頼むときは SendMessage でなく "
         "`{run} --ask <会社の名前> --text <頼み>` を打つ（その会社の窓口に届き、受付の台帳に頼み元が残って、納品はこの会話の "
-        "herdr の窓に返る。会社と仕事ごとの宛て方は同じコマンドの `--tree`）。")
+        f"{term.NAME} の窓に返る。会社と仕事ごとの宛て方は同じコマンドの `--tree`）。")
 
 
 def put_env(attrs, env):
     """部署の gh のアカウントの鍵を、会話の Bash の GH_TOKEN に入れる 1 行を CLAUDE_ENV_FILE に足す（もう在れば足さない）。"""
-    path = env.get("CLAUDE_ENV_FILE")
+    path = env.get(chat.ENV_FILE)
     if not attrs.get("gh-user") or not path:
         return
     line = role.env_line(attrs["gh-user"])
@@ -90,7 +90,7 @@ def put_env(attrs, env):
 RENEWED = ("clear", "compact", "resume")
 
 
-def refresh_session(payload, cwd, attrs, same=lambda attrs: claudex.in_process(attrs.get("pid"))):
+def refresh_session(payload, cwd, attrs, same=lambda attrs: chat.in_process(attrs.get("pid"))):
     """部署か本社の窓口の会話をやり直して会話の id が変わったら、属性 company.session を書き直す。書いたら新しい id、書かなければ None。"""
     sid = payload.get("session_id")
     if not (attrs.get("role") and sid and payload.get("source") in RENEWED and attrs.get("session") != sid):
@@ -113,8 +113,8 @@ def seated(payload, cwd, attrs, running=None, same=None):
     取った。53d5d1・6be241）。"""
     if not provision.desk_seat(gitx.git_dir(cwd), gitx.common_dir(cwd), attrs):
         return True
-    running = running or claudex.running_claude
-    same = same or (lambda attrs: claudex.in_process(attrs.get("pid")))
+    running = running or chat.running
+    same = same or (lambda attrs: chat.in_process(attrs.get("pid")))
     sid = payload.get("session_id")
     if sid and sid == attrs.get("session") or same(attrs):
         return True
@@ -275,8 +275,7 @@ def prompt(stdin=sys.stdin, env=os.environ):
         print(f"works-dispatch: 役の名前を書き直せなかった（{e}）", file=sys.stderr)
     text = changed(payload, env, attrs) or late_hint(payload, cwd, attrs, env)
     if text:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}},
-                         ensure_ascii=False))
+        print(chat.added_context(chat.PROMPT, text))
     return 0
 
 
@@ -306,8 +305,7 @@ def main(stdin=sys.stdin, env=os.environ):
         text += (f"\n（窓口 {attrs.get('name') or '-'} の席はこの会話に引き継いだ: 属性の会話の id（company.session）をこの会話の id に"
                  "書き直した。--desk を打ち直さなくてよい）")
     if text:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}},
-                         ensure_ascii=False))
+        print(chat.added_context(chat.START, text))
     return 0
 
 

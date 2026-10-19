@@ -24,6 +24,7 @@ try:
     import config  # noqa: E402
     import gitx  # noqa: E402
     from nodes import tree  # noqa: E402
+    from ports import term  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     print(f"works-dispatch: 会社の形の替わりを herdr に揃えるフックを動かせない（Python 3.11 以上が要る: {_e}）", file=sys.stderr)
     sys.exit(0)
@@ -81,7 +82,7 @@ def main(stdin=sys.stdin, env=os.environ):
     except Exception as e:  # フックの誤りで会話を止めない
         lines = [str(e)]
     if lines:
-        print("works-dispatch: 会社の形の替わりを herdr に揃え切れなかった（次のターンの終わりにもう一度揃える。手でなら --sync）: "
+        print(f"works-dispatch: 会社の形の替わりを {term.NAME} に揃え切れなかった（次のターンの終わりにもう一度揃える。手でなら --sync）: "
               + " / ".join(lines), file=sys.stderr)
     return 0
 

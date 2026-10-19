@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 from . import test_deliver
+import claudex
 import dispatch
 import gitx
 import limit_hook
@@ -39,7 +40,7 @@ class Move(unittest.TestCase):
             "accounts = [", f"accounts = [{{ name = \"a2\", command = \"claude-a2\", config_dir = '{d}/c2' }}, "), encoding="utf-8")
         self.stopped = []
         self.ports.stop_session = lambda cdir, job: self.stopped.append((os.path.basename(cdir or ""), job)) or (True, "")
-        h = self.ports.herdr
+        h = self.ports.term
         h.front[self.window] = ["claude-a1", "attach", "d"]
         real_keys = h.send_keys
 
@@ -67,7 +68,7 @@ class Move(unittest.TestCase):
             rc, out = self.main(self.src, "--move", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.stopped, [("c1", "d")])   # 前の会話を前のアカウントで止めてから
-        keys = [w for w in self.ports.herdr.writes if w[0] == "send_keys"]
+        keys = [w for w in self.ports.term.writes if w[0] == "send_keys"]
         self.assertEqual([k[2] for k in keys], ["ctrl+z", "escape"])   # 窓の attach の画面をシェルに戻す（d7d50c の 1）
         (got,) = seen
         self.assertEqual((got["ns"].task, got["ns"].branch, got["ns"].only_account, got["ns"].role), ("調べ", "dept/a", "a2", "調べ役"))
@@ -128,14 +129,14 @@ class Move(unittest.TestCase):
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ")   # 移る先に同じ名前の会話が見える（窓につなぐ所だけ落ちた）
         self.assertEqual(rc, 1, out)
-        self.assertEqual([w for w in self.ports.herdr.writes if w[0] == "run"], [])   # 2 つ立てない
-        self.ports.herdr.writes.clear()
+        self.assertEqual([w for w in self.ports.term.writes if w[0] == "run"], [])   # 2 つ立てない
+        self.ports.term.writes.clear()
         provision.mark(self.place, self.src, {"job": "d", "session": "s-dept", "account": "a1"}, gitx)
         self.ports.list_sessions = lambda cdir, include_done=False: [] if cdir and cdir.endswith("c2") else listed(cdir, include_done)
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ")
         self.assertEqual(rc, 1, out)
-        self.assertEqual([w[2] for w in self.ports.herdr.writes if w[0] == "run"], ["claude-a1 attach d"])
+        self.assertEqual([w[2] for w in self.ports.term.writes if w[0] == "run"], ["claude-a1 attach d"])
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual((attrs["session"], attrs["job"], attrs["account"]), ("s-dept", "d", "a1"))   # 前の会話の値に戻す
         self.assertIn("前の会話を attach で戻した", [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"][-1]["detail"])
@@ -193,7 +194,7 @@ class Move(unittest.TestCase):
         # 部署の窓で持ち主と話す会話も、窓口と同じくターンの途中と打ちかけの字の上からは止めない。会話の外から打った --move なら、
         # 止めた訳をその会話に台帳の知らせで渡す（入力フィールドには打たない）
         provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "account": "a1"}, gitx)
-        h = self.ports.herdr
+        h = self.ports.term
         h.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
         seen, task = self.fake_task()
         with mock.patch.object(dispatch, "_task", task):
@@ -340,7 +341,7 @@ class Move(unittest.TestCase):
         # 手で打った --move がターンの途中で止まったら（2026-10-19 に p3 の 5 部署）、移す先を印し、区切りの --if-changed がそこへ移す
         self.changed_world(role.launch_key({"model": "opus"}))
         provision.mark(self.place, self.src, {"account": "a1"}, gitx)
-        h = self.ports.herdr
+        h = self.ports.term
         h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
         rc, out = self.main(self.src, "--move", "調べ", "--account", "a2")
         self.assertEqual(rc, move.NOT_NOW, out)
@@ -360,13 +361,13 @@ class Move(unittest.TestCase):
 
     def test_the_desk_exits_and_starts_again_named_in_the_same_pane(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
-        for p in self.ports.herdr._panes:
+        for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
                 p["agent_session"] = {"value": "s-desk"}
-        self.ports.herdr.talking.add(self.desk)
+        self.ports.term.talking.add(self.desk)
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, 0, out)
-        writes = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
+        writes = [w for w in self.ports.term.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
         self.assertEqual(writes[0][:3], ("prompt", self.desk, "/exit"))
         self.assertEqual(writes[1][0], "run")
         self.assertRegex(writes[1][2], rf"^claude-a2 --name {q('窓口')} {Q}.*--move.*--desk 窓口")
@@ -374,15 +375,15 @@ class Move(unittest.TestCase):
     def test_the_desk_that_does_not_start_again_resumes_its_former_talk(self):
         # 新しい会話が立たなければ、前の会話を同じペインに --resume で戻し、訳を台帳に残す（窓口を消したままにしない）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
-        for p in self.ports.herdr._panes:
+        for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
                 p["agent_session"] = {"value": "s-desk"}
-        self.ports.herdr.talking.add(self.desk)
+        self.ports.term.talking.add(self.desk)
         failed = {"pane": self.desk, "status": "launch_failed", "detail": "起動できない"}
         with mock.patch.object(move.launch, "start_named", lambda *a, **k: failed):
             rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, 1, out)
-        runs = [w[2] for w in self.ports.herdr.writes if w[1] == self.desk and w[0] == "run"]
+        runs = [w[2] for w in self.ports.term.writes if w[1] == self.desk and w[0] == "run"]
         self.assertEqual(runs, ["claude-a1 --resume s-desk"])   # 前のアカウントで前の会話へ
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual(moved["status"], "failed")
@@ -393,13 +394,13 @@ class Move(unittest.TestCase):
         # 窓口の役の [roles.settings] は、--task の部署と同じく --settings で渡す（部署だけの鍵 worktree.bgIsolation は重ねない）
         test_deliver.Flow.shape(self, '[[roles]]\nname = "窓口"\n[roles.settings]\nenabledPlugins = { "works@m" = false }\n')
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
-        for p in self.ports.herdr._panes:
+        for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
                 p["agent_session"] = {"value": "s-desk"}
-        self.ports.herdr.talking.add(self.desk)
+        self.ports.term.talking.add(self.desk)
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, 0, out)
-        (run,) = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] == "run"]
+        (run,) = [w for w in self.ports.term.writes if w[1] == self.desk and w[0] == "run"]
         path = os.path.join(gitx.git_dir(self.src), "company-settings.json")
         self.assertRegex(run[2], rf"^claude-a2 --name {q('窓口')} --settings {q(os.path.join(gitx.git_dir(self.src), 'company-settings.json'))} {Q}.*--desk 窓口")
         self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
@@ -407,10 +408,10 @@ class Move(unittest.TestCase):
 
     def desk_world(self, **more):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1", **more}, gitx)
-        for p in self.ports.herdr._panes:
+        for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
                 p["agent_session"] = {"value": "s-desk"}
-        self.ports.herdr.talking.add(self.desk)
+        self.ports.term.talking.add(self.desk)
 
     def test_if_changed_restarts_the_desk_at_its_rest_with_the_settings_model_and_effort_of_its_role(self):
         # 窓口の役の起動の設定を替えたら、区切り（--rest）のターンの終わりに、同じアカウントで起動し直す（持ち主の手で起動し直さない）
@@ -420,11 +421,11 @@ class Move(unittest.TestCase):
         rc, out = self.main(self.src, "--move", "窓口", "--if-changed")
         self.assertEqual(rc, 2, out)   # 区切りの印が無い間は起動し直さない（持ち主と話している途中の会話を切らない）
         self.assertIn("区切りの印（--rest）も無い", out)
-        self.assertFalse([w for w in self.ports.herdr.writes if w[1] == self.desk])
+        self.assertFalse([w for w in self.ports.term.writes if w[1] == self.desk])
         provision.mark(self.src, self.src, {wake.REST: "s-desk"}, gitx)
         rc, out = self.main(self.src, "--move", "窓口", "--if-changed")
         self.assertEqual(rc, 0, out)
-        writes = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
+        writes = [w for w in self.ports.term.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
         self.assertEqual(writes[0][:3], ("prompt", self.desk, "/exit"))
         self.assertRegex(writes[1][2], rf"^claude-a1 --name {q('窓口')} --model {q('opus')} --effort {q('high')} --settings {q(os.path.join(gitx.git_dir(self.src), 'company-settings.json'))} {Q}.*--desk 窓口")
         attrs = gitx.worktree_attrs(self.src)
@@ -443,7 +444,7 @@ class Move(unittest.TestCase):
     def test_the_desk_is_not_exited_in_the_middle_of_its_turn_or_over_typed_text(self):
         # ターンの途中に打った /exit はターンの終わりまで待ちの列に回り、起動し直さずに止まった後で効いて、窓口が消えたままになりうる
         self.desk_world()
-        h = self.ports.herdr
+        h = self.ports.term
         h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, move.NOT_NOW, out)   # 訳がすぐ替わる（待ち受けは起動し直さなかった値を残さない）
@@ -466,10 +467,10 @@ class Move(unittest.TestCase):
         # 入力フィールドの薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補「消していいよ」を
         # 打ちかけと見て、区切りの起動し直しを 1 時間打たなかった
         self.desk_world()
-        h = self.ports.herdr
+        h = self.ports.term
         h.screen = "\x1b[38;2;136;136;136m" + "─" * 20 + " 窓口 ─\x1b[0m\n❯\xa0\x1b[0m\x1b[2m消していいよ\x1b[0m\n" + "─" * 20
-        self.assertEqual(deliver.typed(h.screen), "")
-        self.assertEqual(deliver.typed(h.screen.replace("\x1b[2m", "")), "消していいよ")   # 人が打った字は薄字でない
+        self.assertEqual(claudex.typed(h.screen), "")
+        self.assertEqual(claudex.typed(h.screen.replace("\x1b[2m", "")), "消していいよ")   # 人が打った字は薄字でない
         self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertIn(("prompt", self.desk, deliver.EXIT), [w[:3] for w in h.writes])
 

@@ -223,7 +223,7 @@ class Running(unittest.TestCase):
     def test_unreadable_account_counts_as_zero_with_a_note(self):
         def list_sessions(cdir):
             if cdir == "bad":
-                raise claudex.ClaudeError("claude agents --json（bad）: 読めない")
+                raise claudex.Error("claude agents --json（bad）: 読めない")
             if cdir == "gone":
                 raise FileNotFoundError("claude")
             return [{"status": "busy"}]
@@ -299,7 +299,7 @@ source = "s"
         self.assertTrue(out.startswith("p3: c3 — 週の枠が 5 時間 30 分後に切り替わる（24 時間以内"))
 
     def test_json_has_the_pick_every_row_and_notes(self):
-        ports = FakePorts(limits(), {None: [], "d1": [], "d2": claudex.ClaudeError("x"), "d3": []})
+        ports = FakePorts(limits(), {None: [], "d1": [], "d2": claudex.Error("x"), "d3": []})
         code, out, _ = self.run_main(["--pick", "--json", "--no-probe"], ports)
         got = json.loads(out)
         self.assertEqual(code, 0)

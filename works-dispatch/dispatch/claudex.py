@@ -16,8 +16,32 @@ import time
 import filex
 
 
+NAME = "Claude Code"   # 使う人に見せる文で、この口の向こうのツールを呼ぶ名前（口の外の文はこれを差し込み、ツールの名前を書かない）
+COMMAND = "claude"     # アカウントに起動のコマンドを書かないときの、会話を起動するコマンド
+AGENT = "claude"       # 端末の口（herdr）が、ペインの前のこのツールの会話に付ける名前（ペインの agent）
+CLEAR = "/clear"       # 会話を空にする打ち込み
+EXIT = "/exit"         # 前の会話を終えてシェルに戻す打ち込み
+RELOAD = "/reload-plugins"   # 起きている会話にプラグインを読み直させる打ち込み
+CONFIG_ENV = "CLAUDE_CONFIG_DIR"   # アカウントの設定のフォルダを渡す環境変数
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # Bash のツールの子に渡る、打った会話の id
+JOB_ENV = "CLAUDE_JOB_DIR"   # 裏の会話の処理に渡る、その処理の置き場（名前が短い id）
+EFFORT_ENV = "CLAUDE_EFFORT"   # Bash のツールの子に渡る、打った会話の今の effort
+ENV_FILE = "CLAUDE_ENV_FILE"   # SessionStart のフックに渡る、Bash のツールのコマンドごとに先に走らせるシェルのファイル
+PLUGINS_FILE = "installed_plugins.json"   # 設定のフォルダの plugins/ の下の、入れたプラグインの控え
+LIST_COMMAND = "claude agents --json"   # 開いている会話の一覧を読むコマンド（使う人に見せる文で名指す）
+REMOVE_COMMAND = "claude rm"            # 裏の会話を消すコマンド（同じ）
+# 部署の裏の会話の設定に必ず重ねる値（会話に worktree を作らせず、先に作った作業場で働かせる）
+FIXED_SETTINGS = {"worktree": {"bgIsolation": "none"}}
+LOCAL_SETTINGS = ".claude/settings.local.json"   # リポジトリの中の、会話が書く手元だけの設定（許可の記録など。commit しない）
+# フックの入力の、会話の始まり・人の文・ツールの呼び出しの出来事の名前（hook_event_name）
+START, PROMPT, TOOL = "SessionStart", "UserPromptSubmit", "PreToolUse"
+
+
 class ClaudeError(Exception):
     pass
+
+
+Error = ClaudeError   # 口の外が受ける名前（ports.chat.Error）
 
 
 def _default_runner(argv, env=None):
@@ -303,7 +327,7 @@ def ancestors(runner=_default_runner, pid=None):
     return chain
 
 
-def running_claude(pid, runner=_default_runner):
+def running(pid, runner=_default_runner):
     """その番号の処理が今動いている Claude Code か（ps -p でコマンドを読む。番号が使い回されたほかの処理は数えない）。ps が通らない所
     （Windows）では分からないので False。"""
     if not str(pid or "").isdigit():
@@ -413,3 +437,158 @@ def caller(listed, session_id, ancestors=()):
         if s:
             return account, s.get("name") or None
     return None, None
+
+
+def session_of(env):
+    """打った会話の id（SESSION_ENV）。Claude Code の外から打てば None。"""
+    return env.get(SESSION_ENV)
+
+
+def effort_of(env):
+    """打った会話の今の effort（EFFORT_ENV）。分からなければ None。"""
+    return env.get(EFFORT_ENV) or None
+
+
+def job_of(env=os.environ):
+    """この会話の裏の処理の短い id（`claude attach` に渡す物）。Claude Code は裏の会話（claude --bg）の処理に、置き場
+    <設定のフォルダ>/jobs/<短い id> を CLAUDE_JOB_DIR で渡し、フックはそれを継ぐ。短い id は会話の id の頭と同じとは限らない
+    （2026-10-17 に割り振りで、会話 081f72dd を短い id 8c4a1102 の処理が続けていた）。裏の会話でなければ None。"""
+    d = (env.get(JOB_ENV) or "").rstrip("/\\")
+    return os.path.basename(d) or None
+
+
+def attached(argv, jobs):
+    """その処理（起動の argv）が、jobs のどれかの裏の会話を開いた `claude attach <短い id>` か。"""
+    return any(a == "attach" and i + 1 < len(argv) and argv[i + 1] in jobs for i, a in enumerate(argv))
+
+
+def attach_command(command, job):
+    """そのアカウントの起動のコマンド（アカウントが無く None なら COMMAND）で、裏の会話 job を窓に開く 1 行。"""
+    return f"{COMMAND if command is None else command} attach {job}"
+
+
+def config_dirs(home):
+    """home の下の、このツールの設定のフォルダ（入れたプラグインの控え PLUGINS_FILE を持つ ~/.claude*）を ~/ からの名前で並べる。"""
+    return sorted("~/" + n for n in os.listdir(home)
+                  if n.startswith(".claude") and os.path.isfile(os.path.join(home, n, "plugins", PLUGINS_FILE)))
+
+
+def accounts_draft(found):
+    """dispatch の設定の下書き（--init）の、アカウントの書き方の行。found は config_dirs の並び。"""
+    return [
+        "# アカウントを切り替えないなら accounts は書かない（claude を 1 つだけ使う）。",
+        "# 切り替えるなら、名前・そのアカウントで Claude Code を起動するコマンド・そのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダを並べる。",
+        "# 鍵を自分で決めた名前の Keychain の項目に置いたなら keychain_service、使用率の枠の無いアカウント（Ollama など）は limits = false。",
+        "# setup-token の鍵だけで動かすアカウントは、プランを plan に書く（例 plan = \"default_claude_max_20x\"。limits.py plan がログインの記録からプランを読めないため）。",
+        "# CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて claude を起動する人も、そのフォルダを config_dir に書く（書かないと ~/.claude を見る）:",
+        "# accounts = [",
+        '#   { name = "main", command = "claude" },',
+        '#   { name = "sub",  command = "<別のアカウントで起動するコマンド>", config_dir = "~/.claude-sub" },',
+        '#   { name = "mine", command = "<コマンド>", config_dir = "~/.claude-mine", keychain_service = "<Keychain の項目の名前>" },',
+        '#   { name = "local", command = "<Ollama などで起動するコマンド>", limits = false },',
+        "# ]",
+        f"# この機械で見つかった Claude Code の設定のフォルダ: {', '.join(found) or '無し'}",
+    ]
+
+
+def account_env(env, found):
+    """アカウントの設定のフォルダを決めるための環境。CONFIG_ENV だけを found（ペインの新しいログインのシェルの値。無ければ消す）に替える。"""
+    out = {k: v for k, v in env.items() if k != CONFIG_ENV}
+    if found:
+        out[CONFIG_ENV] = os.path.expanduser(found)
+    return out
+
+
+# ---- 会話の画面（端末の口の read の字）の読み方。Claude Code の入力フィールドの描き方に縛られるので、ここに置く ----
+
+def _rule(x):
+    """会話の画面の横の罫線の行か（入力フィールドの上と下に引かれる「────」。上の罫線には部署の名前が入ることがある）。"""
+    return x.count("─") >= 10
+
+
+def input_box(screen):
+    """会話の画面の入力フィールドの字（下から 2 本の罫線の間の行をつないだ物）。罫線が 2 本無ければ None（字を受けられる形でない）。"""
+    lines = (screen or "").splitlines()
+    rules = [i for i, x in enumerate(lines) if _rule(x)]
+    if len(rules) < 2:
+        return None
+    return " ".join(" ".join(lines[rules[-2] + 1:rules[-1]]).split())
+
+
+_ESC = re.compile(r"\x1b\[([0-9;:?<=>]*)[ -/]*([@-~])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|[\x0e\x0f]")
+
+
+def _solid(screen):
+    """ANSI の画面の字を、行ごとに (制御の字を除いた字, そのうち薄字〔SGR 2〕でない字) の組にする。薄字は Claude Code が入力フィールドに
+    出す次の文の候補と、空の入力フィールドの例の字（打てば消える。https://code.claude.com/docs/en/interactive-mode#prompt-suggestions ）。
+    人が打った字と貼った字（[Pasted text …]）は薄字でない（2026-10-18 に claude を端末で起動して見た）。"""
+    out, faint = [], False
+    for line in (screen or "").splitlines():
+        plain, solid, at = [], [], 0
+        for m in _ESC.finditer(line):
+            piece = line[at:m.start()]
+            plain.append(piece)
+            if not faint:
+                solid.append(piece)
+            at = m.end()
+            if m.group(2) == "m":
+                codes = (m.group(1) or "0").split(";")
+                while codes:
+                    code = codes.pop(0)
+                    if code in ("38", "48", "58"):   # 色の指定の続き（5;n か 2;r;g;b）は薄字の 2 と読まない
+                        del codes[:2 if codes[:1] == ["5"] else 4]
+                    elif code in ("", "0", "22"):
+                        faint = False
+                    elif code == "2":
+                        faint = True
+        plain.append(line[at:])
+        if not faint:
+            solid.append(line[at:])
+        out.append(("".join(plain), "".join(solid)))
+    return out
+
+
+def typed(screen):
+    """会話の画面（herdr.read の ansi の字）の入力フィールドに、人が打った字（薄字の候補と頭の ❯ を除く）。入力フィールドが空なら ""、
+    罫線が 2 本無ければ None（字を受けられる形でない）。打ちかけの字を消さないための見分け（/clear・/exit・1 行を打つ前に見る）。
+    2026-10-18 に my_notes の段取りで、入力フィールドの候補「消していいよ」を打ちかけと見て、区切りの /clear と起動し直しを 1 時間打たなかった。"""
+    rows = _solid(screen)
+    rules = [i for i, (x, _) in enumerate(rows) if _rule(x)]
+    if len(rules) < 2:
+        return None
+    return " ".join(" ".join(x for _, x in rows[rules[-2] + 1:rules[-1]]).split()).lstrip("❯").strip()
+
+
+def ready(screen):
+    """会話の画面が字を受けられる形か（入力フィールドが出ている）。"""
+    return input_box(screen) is not None
+
+
+def above_box(screen):
+    """入力フィールドより上の画面の字（会話に届いた字が載る所）。"""
+    lines = (screen or "").splitlines()
+    rules = [i for i, x in enumerate(lines) if _rule(x)]
+    return " ".join(" ".join(lines[:rules[-2]] if len(rules) >= 2 else lines).split())
+
+
+
+def left_in_field(lines, head):
+    """画面の終わりの行（lines）の入力フィールド（行の頭が ❯ の行）に、送った文の頭（head）が残っているか。"""
+    return any(x.startswith("❯") and head in " ".join(x.split()) for x in lines)
+
+
+# ---- フックの入出力（Claude Code のフックが標準入力に渡す JSON と、会話に字を足す答えの形） ----
+
+def event(payload):
+    """フックの出来事の名前（START・PROMPT・TOOL・Stop など）。"""
+    return payload.get("hook_event_name")
+
+
+def transcript(payload):
+    """会話の記録のファイルの場所（無ければ None）。"""
+    return payload.get("transcript_path")
+
+
+def added_context(event_name, text):
+    """会話に text を足すフックの答え（標準出力に 1 行で出す JSON）。"""
+    return json.dumps({"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": text}}, ensure_ascii=False)

@@ -14,6 +14,7 @@ from .test_dispatch import FakePorts, gitx_source, make_cfg, quiet_ports, run_ma
 from .test_provision import git
 import config
 import dispatch
+import wiring
 import gitx
 import landing
 import tierx
@@ -65,7 +66,7 @@ class DepartmentPreflight(unittest.TestCase):
     def test_department_run_does_not_read_github_but_the_pr_run_does(self):
         cfg, _ = make_cfg()
         asked = []
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS | dispatch.TASK_HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS | wiring.TASK_HERDR_METHODS, shell_has=lambda c: True,
                             gh_ok=lambda repo, env=None: asked.append(repo) or False)
         loaded = config.load(cfg, {})
         problems, _ = ports.preflight(loaded, task=True)

@@ -35,6 +35,7 @@ import uuid
 
 import filex
 import gitx
+from ports import chat, term
 
 INBOX = ("company", "inbox")      # 共通の .git の下の受付箱
 LOG = "log.jsonl"
@@ -78,7 +79,7 @@ def one_company(pool, name):
         pool = [c for c in pool if any(d["attrs"].get("role") for d in c["departments"])] or pool
     if len(pool) > 1:
         raise DeliverError(f"会社の名前「{name}」が 2 つ以上ある（{'、'.join(c['root'] for c in pool)}）。"
-                           "部署の名前で宛てるか、要らない方の clone を herdr から閉じる")
+                           f"部署の名前で宛てるか、要らない方の clone を {term.NAME} から閉じる")
     return pool[0]
 
 
@@ -99,7 +100,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                 or os.path.basename(os.path.normpath(c["root"])) == company_name]
         if not pool:
             known = "、".join(c["name"] for c in companies) or "なし"
-            raise DeliverError(f"会社「{company_name}」が herdr に開いていない（開いている会社: {known}）")
+            raise DeliverError(f"会社「{company_name}」が {term.NAME} に開いていない（開いている会社: {known}）")
     named = [(c, d) for c in pool for d in c["departments"] if d["attrs"].get("name") == name]
     if not named:
         # 名前を替えた部署（--reorg・--desk）は、前の名前でも引く（今の名前が先）
@@ -129,7 +130,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                     if d["attrs"].get("name") == far_name or far_name in gitx.former_names(d["attrs"])]
             if len({d["path"] for _, d in hits}) != 1:
                 raise DeliverError(f"会社「{name}」の窓口は会社の形の desk で {whole[0]['desk_of']} と書いてあるが、その窓口が"
-                                   + ("見つからない（その会社が herdr に開いていないか、その名前の窓口が無い）" if not hits else "2 つ以上ある"))
+                                   + (f"見つからない（その会社が {term.NAME} に開いていないか、その名前の窓口が無い）" if not hits else "2 つ以上ある"))
             c, d = hits[0]
             return {"company": c, "department": d, "role": d["attrs"].get("role"), "via": f"{name} の窓口（会社の形の desk）"}
         if head is None:
@@ -140,7 +141,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     if company_name is None:
         home = [c for c in companies if os.path.realpath(c["root"]) == os.path.realpath(here_root)] if here_root else []
         if not home:
-            raise DeliverError(f"「{name}」という部署が無く、頼む側の会社も herdr に開いていないので役で宛てられない"
+            raise DeliverError(f"「{name}」という部署が無く、頼む側の会社も {term.NAME} に開いていないので役で宛てられない"
                                "（「会社/役」で渡す）")
         company = home[0]
     else:
@@ -222,7 +223,7 @@ def boss_window(attrs, sid, entry, panes, companies):
             return hint, "頼んだときのペイン"
     if not sid and not hint:
         return None, "頼み元（company.boss-session か、company.boss とそのアカウントで 1 つに決まる会話）が分からない"
-    return None, "頼み元の会話の居るペインが herdr に見つからない（窓を閉じたか、会話が終わった）"
+    return None, f"頼み元の会話の居るペインが {term.NAME} に見つからない（窓を閉じたか、会話が終わった）"
 
 
 # ---- 受付箱と記録 ----
@@ -755,7 +756,7 @@ def send(pane, line, h, pause=None):
     入力フィールドが空のときの Enter は何もしないので、見誤っても害は無い。"""
     try:
         h.prompt(pane, line, False)
-    except h.HerdrError as e:
+    except h.Error as e:
         return "failed", str(e)
     if pause is not None:
         head = " ".join(line.split())[:20]
@@ -763,12 +764,12 @@ def send(pane, line, h, pause=None):
             pause()
             try:
                 tail = [x.strip() for x in h.read(pane, 12).splitlines() if x.strip()]
-            except h.HerdrError:
+            except h.Error:
                 break
-            if any(x.startswith("❯") and head in " ".join(x.split()) for x in tail[-8:]):
+            if chat.left_in_field(tail[-8:], head):
                 try:
                     h.send_keys(pane, "enter")
-                except h.HerdrError:
+                except h.Error:
                     pass
                 return "sent", "入力フィールドに残っていたので Enter を足した"
     return "sent", None
@@ -777,76 +778,6 @@ def send(pane, line, h, pause=None):
 # 送った 1 行で会話が動き出したかを見る回数（1 回ごとに pause）と、届いていなければ打ち直す回数
 CONFIRM_LOOKS = 8
 SEND_TRIES = 3
-
-
-def _rule(x):
-    """会話の画面の横の罫線の行か（入力フィールドの上と下に引かれる「────」。上の罫線には部署の名前が入ることがある）。"""
-    return x.count("─") >= 10
-
-
-def input_box(screen):
-    """会話の画面の入力フィールドの字（下から 2 本の罫線の間の行をつないだ物）。罫線が 2 本無ければ None（字を受けられる形でない）。"""
-    lines = (screen or "").splitlines()
-    rules = [i for i, x in enumerate(lines) if _rule(x)]
-    if len(rules) < 2:
-        return None
-    return " ".join(" ".join(lines[rules[-2] + 1:rules[-1]]).split())
-
-
-_ESC = re.compile(r"\x1b\[([0-9;:?<=>]*)[ -/]*([@-~])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|[\x0e\x0f]")
-
-
-def _solid(screen):
-    """ANSI の画面の字を、行ごとに (制御の字を除いた字, そのうち薄字〔SGR 2〕でない字) の組にする。薄字は Claude Code が入力フィールドに
-    出す次の文の候補と、空の入力フィールドの例の字（打てば消える。https://code.claude.com/docs/en/interactive-mode#prompt-suggestions ）。
-    人が打った字と貼った字（[Pasted text …]）は薄字でない（2026-10-18 に claude を端末で起動して見た）。"""
-    out, faint = [], False
-    for line in (screen or "").splitlines():
-        plain, solid, at = [], [], 0
-        for m in _ESC.finditer(line):
-            piece = line[at:m.start()]
-            plain.append(piece)
-            if not faint:
-                solid.append(piece)
-            at = m.end()
-            if m.group(2) == "m":
-                codes = (m.group(1) or "0").split(";")
-                while codes:
-                    code = codes.pop(0)
-                    if code in ("38", "48", "58"):   # 色の指定の続き（5;n か 2;r;g;b）は薄字の 2 と読まない
-                        del codes[:2 if codes[:1] == ["5"] else 4]
-                    elif code in ("", "0", "22"):
-                        faint = False
-                    elif code == "2":
-                        faint = True
-        plain.append(line[at:])
-        if not faint:
-            solid.append(line[at:])
-        out.append(("".join(plain), "".join(solid)))
-    return out
-
-
-def typed(screen):
-    """会話の画面（herdr.read の ansi の字）の入力フィールドに、人が打った字（薄字の候補と頭の ❯ を除く）。入力フィールドが空なら ""、
-    罫線が 2 本無ければ None（字を受けられる形でない）。打ちかけの字を消さないための見分け（/clear・/exit・1 行を打つ前に見る）。
-    2026-10-18 に my_notes の段取りで、入力フィールドの候補「消していいよ」を打ちかけと見て、区切りの /clear と起動し直しを 1 時間打たなかった。"""
-    rows = _solid(screen)
-    rules = [i for i, (x, _) in enumerate(rows) if _rule(x)]
-    if len(rules) < 2:
-        return None
-    return " ".join(" ".join(x for _, x in rows[rules[-2] + 1:rules[-1]]).split()).lstrip("❯").strip()
-
-
-def ready(screen):
-    """会話の画面が字を受けられる形か（入力フィールドが出ている）。"""
-    return input_box(screen) is not None
-
-
-def above_box(screen):
-    """入力フィールドより上の画面の字（会話に届いた字が載る所）。"""
-    lines = (screen or "").splitlines()
-    rules = [i for i, x in enumerate(lines) if _rule(x)]
-    return " ".join(" ".join(lines[:rules[-2]] if len(rules) >= 2 else lines).split())
 
 
 def send_confirmed(pane, line, h, pause, busy):
@@ -863,17 +794,17 @@ def send_confirmed(pane, line, h, pause, busy):
     for _ in range(CONFIRM_LOOKS):
         try:
             screen = h.read(pane, 40)
-        except h.HerdrError:
+        except h.Error:
             break
-        if ready(screen):
-            seen = above_box(screen).count(head)
+        if chat.ready(screen):
+            seen = chat.above_box(screen).count(head)
             break
         pause()
     detail = None
     for attempt in range(1 if was_busy else SEND_TRIES):
         try:
             h.prompt(pane, line, False)
-        except h.HerdrError as e:
+        except h.Error as e:
             return "failed", str(e)
         entered = False
         for _ in range(CONFIRM_LOOKS):
@@ -882,18 +813,18 @@ def send_confirmed(pane, line, h, pause, busy):
                 return "sent", detail
             try:
                 screen = h.read(pane, 40)
-            except h.HerdrError:
+            except h.Error:
                 continue
-            if head in (input_box(screen) or ""):
+            if head in (chat.input_box(screen) or ""):
                 if not entered:
                     try:
                         h.send_keys(pane, "enter")
-                    except h.HerdrError:
+                    except h.Error:
                         pass
                     entered, detail = True, "入力フィールドに残っていたので Enter を足した"
-            elif above_box(screen).count(head) > seen:
+            elif chat.above_box(screen).count(head) > seen:
                 return "sent", detail   # 入力フィールドから出て、入力フィールドより上に新しく載った（会話に届いた）
-            elif was_busy and entered and ready(screen):
+            elif was_busy and entered and chat.ready(screen):
                 return "sent", detail   # 入力フィールドに入った字が、Enter で入力フィールドから出た（待ちの列に回った）
         if was_busy:
             return "sent", "動いている会話に 1 回打った（待ちの列に載ったのを画面で見られなかったが、二重に送らないよう打ち直さない）"
@@ -901,7 +832,7 @@ def send_confirmed(pane, line, h, pause, busy):
     return "failed", f"{SEND_TRIES} 回打ったが、会話が動き出さない（部署の窓を見て、入力フィールドに残っていれば Enter を押す）"
 
 
-CLEAR = "/clear"
+CLEAR = chat.CLEAR   # 会話を空にする打ち込み（会話の口の物。前の名前を残す）
 
 
 def clear_talk(pane, h, pause, cleared):
@@ -910,7 +841,7 @@ def clear_talk(pane, h, pause, cleared):
     /clear が付いて届く）。見えなくても打ち直さない（2 度打っても害は無いが、空になったかは一覧でしか分からない）。"""
     try:
         h.prompt(pane, CLEAR, False)
-    except h.HerdrError as e:
+    except h.Error as e:
         return "failed", str(e)
     entered = False
     for _ in range(CONFIRM_LOOKS):
@@ -918,20 +849,20 @@ def clear_talk(pane, h, pause, cleared):
         if cleared():
             return "cleared", None
         try:
-            box = input_box(h.read(pane, 40)) or ""
-        except h.HerdrError:
+            box = chat.input_box(h.read(pane, 40)) or ""
+        except h.Error:
             continue
         if CLEAR in box and not entered:
             try:
                 h.send_keys(pane, "enter")
-            except h.HerdrError:
+            except h.Error:
                 pass
             entered = True
-    return "unconfirmed", "/clear を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
+    return "unconfirmed", f"{CLEAR} を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
 
 # 前の会話を終えるコマンドと、シェルに戻るのを見る回数（1 回ごとに pause）
-EXIT = "/exit"
+EXIT = chat.EXIT
 EXIT_LOOKS = 20
 
 
@@ -939,14 +870,14 @@ def exit_talk(pane, h, pause, looks=EXIT_LOOKS):
     """窓の前の会話（持ち主の前で動く窓口など）に /exit を打ち、シェルが前に戻ったら True。書く口。"""
     try:
         h.prompt(pane, EXIT, False)
-    except h.HerdrError:
+    except h.Error:
         return False
     for _ in range(looks):
         pause()
         try:
             if h.shell_in_front(pane):
                 return True
-        except h.HerdrError:
+        except h.Error:
             return False
     return False
 

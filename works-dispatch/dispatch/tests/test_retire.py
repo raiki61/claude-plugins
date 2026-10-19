@@ -35,7 +35,7 @@ class Retire(unittest.TestCase):
             self.state = "stopped"
             return True, ""
         self.ports.stop_session = stop
-        h = self.ports.herdr
+        h = self.ports.term
         h.front[self.window] = ["claude-a1", "attach", "d"]
         real_keys = h.send_keys
 
@@ -46,11 +46,11 @@ class Retire(unittest.TestCase):
                 h.front.pop(pane, None)
         h.send_keys = keys
         self.removed = []
-        real_rm, real_tmp = retire.claudex.remove_session, retire.claudex.job_tmp
-        retire.claudex.remove_session = lambda cdir, sid, **kw: self.removed.append(sid) or (True, "removed")
-        retire.claudex.job_tmp = lambda cdir, sid, env=None: "/nowhere"
-        self.addCleanup(setattr, retire.claudex, "remove_session", real_rm)
-        self.addCleanup(setattr, retire.claudex, "job_tmp", real_tmp)
+        real_rm, real_tmp = retire.chat.remove_session, retire.chat.job_tmp
+        retire.chat.remove_session = lambda cdir, sid, **kw: self.removed.append(sid) or (True, "removed")
+        retire.chat.job_tmp = lambda cdir, sid, env=None: "/nowhere"
+        self.addCleanup(setattr, retire.chat, "remove_session", real_rm)
+        self.addCleanup(setattr, retire.chat, "job_tmp", real_tmp)
 
     def retired(self):
         return [r for r in deliver.records(self.inbox) if r.get("kind") == "retired"]
@@ -109,7 +109,7 @@ class Retire(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("を畳んだ", out)
         self.assertEqual(self.stopped, ["d"])   # 一覧の短い id で止める
-        self.assertIn(("send_keys", self.window, "ctrl+z"), self.ports.herdr.writes)   # 止める前に attach の画面をシェルに戻す
+        self.assertIn(("send_keys", self.window, "ctrl+z"), self.ports.term.writes)   # 止める前に attach の画面をシェルに戻す
         self.assertEqual(self.removed, ["d"])
         self.assertFalse(os.path.exists(self.place))
         self.assertEqual([r["status"] for r in self.retired()], ["done"])

@@ -70,9 +70,9 @@ class Task(unittest.TestCase):
 
         def listed(cdir, include_done=False):
             got = list((sessions or {}).get(cdir, []))
-            for i, w in enumerate(x for x in ports.herdr.writes if x[0] == "run" and BG.match(x[2])):
+            for i, w in enumerate(x for x in ports.term.writes if x[0] == "run" and BG.match(x[2])):
                 if starts and dirs[BG.match(w[2]).group(1)] == cdir:
-                    cwd = next(p["cwd"] for p in ports.herdr.panes() if p["pane_id"] == w[1])
+                    cwd = next(p["cwd"] for p in ports.term.panes() if p["pane_id"] == w[1])
                     got.append({"id": f"bg{i}", "sessionId": f"bg{i}-full", "name": shlex.split(w[2])[3], "cwd": cwd,
                                 "kind": "background", "state": "working", "startedAt": i})
             return got
@@ -85,10 +85,10 @@ class Task(unittest.TestCase):
 
     def sent(self, ports):
         """裏の会話を起動した打ち込み（最初の文はその最後の語）。"""
-        return [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.match(w[2])]
+        return [w[2] for w in ports.term.writes if w[0] == "run" and BG.match(w[2])]
 
     def place(self, ports, branch="task/fix"):
-        return next(w["path"] for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["branch"] == branch)
+        return next(w["path"] for w in ports.term.worktrees(gitx_source(self.cfg)) if w["branch"] == branch)
 
     def test_creates_the_place_starts_a_background_session_there_and_attaches(self):
         ports = self.ports()
@@ -100,7 +100,7 @@ class Task(unittest.TestCase):
         [command] = self.sent(ports)
         words = shlex.split(command) if os.name != "nt" else None
         # 作業場の名前は作業の名前。アカウントが 1 つなら、ペインの名前にアカウントを添えない。/catchup の窓を閉じる前置きも付けない
-        self.assertEqual(ports.herdr.writes[:5], [
+        self.assertEqual(ports.term.writes[:5], [
             ("create_worktree", "task/fix", "直し"),
             ("trust", "a1", src, path),
             ("rename_pane", "P0", "直し"),
@@ -130,9 +130,9 @@ class Task(unittest.TestCase):
         self.assertNotIn(".claude/", excluded)
         self.assertIn("__pycache__/", excluded)   # 部署が試しに走らせた Python の控えで --land と --clean が止まらない
         # 表示名と札、作業場の印は、書いた属性から付ける（名前は起動するときに付けたので付け直さない）
-        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
+        self.assertEqual(ports.term.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
-        self.assertEqual(ports.herdr.writes[6][0::2], ("report_workspace_metadata", {"kind": "エフェメラル"}))
+        self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "エフェメラル"}))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(gitx.branch(src), "main")
 
@@ -177,7 +177,7 @@ class Task(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 2, out)
-        self.assertFalse([w for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["branch"] == "task/fix"])
+        self.assertFalse([w for w in ports.term.worktrees(gitx_source(self.cfg)) if w["branch"] == "task/fix"])
         self.assertIn("止めた: --role を省いたので役は既定の 作業 だが、会社の形に無い", out)
         self.assertIn("default_role", out)
 
@@ -238,17 +238,17 @@ class Task(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        self.assertEqual(ports.herdr.writes[0][0], "open_worktree")
+        self.assertEqual(ports.term.writes[0][0], "open_worktree")
         self.assertIn("task/fix  a1  started", out)
 
     def test_session_that_does_not_appear_is_launch_failed_with_the_screen(self):
         ports = self.ports(starts=False)
-        ports.herdr.screen = "Error: something\n$ "
+        ports.term.screen = "Error: something\n$ "
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 1, out)   # 起きなかったことを終了の値でも知らせる
         self.assertIn("task/fix  a1  launch_failed", out)
         self.assertIn(f"「直し」の裏の会話が出ない（{dispatch.STARTED_LOOKS} 回見た。画面の終わり: Error: something $）", out)
-        self.assertFalse([w for w in ports.herdr.writes if w[0] == "run" and " attach " in w[2]])
+        self.assertFalse([w for w in ports.term.writes if w[0] == "run" and " attach " in w[2]])
 
     def test_desk_attributes_copied_by_git_worktree_add_are_not_kept(self):
         # git worktree add は本社の config.worktree を新しい worktree に写す。窓口の会話の id や前の名前が部署に残らない
@@ -288,7 +288,7 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
         self.assertIn("task/fix  a1  started", out)
-        self.assertTrue([w for w in ports.herdr.writes if w[0] == "run" and " attach " in w[2]])
+        self.assertTrue([w for w in ports.term.writes if w[0] == "run" and " attach " in w[2]])
 
     def test_same_account_caller_gets_sendmessage_and_becomes_the_boss(self):
         dirs = two_accounts(self.cfg)
@@ -298,7 +298,7 @@ class Task(unittest.TestCase):
         [command] = self.sent(ports)
         self.assertIn("SendMessage で「窓口」へ送る", command)
         # アカウントが 2 つ以上なら、ペインの名前にアカウントの名前を添える
-        self.assertIn(("rename_pane", "P0", "直し a1"), ports.herdr.writes)
+        self.assertIn(("rename_pane", "P0", "直し a1"), ports.term.writes)
         attrs = gitx.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
 
@@ -311,7 +311,7 @@ class Task(unittest.TestCase):
         self.assertIn("task/fix  a2  started", out)
         [command] = self.sent(ports)
         self.assertTrue(command.startswith("claude-a2 --bg "), command)
-        self.assertIn(("run", "P0", "claude-a2 attach bg0"), ports.herdr.writes)
+        self.assertIn(("run", "P0", "claude-a2 attach bg0"), ports.term.writes)
         self.assertIn("この画面に短く書いて止まる", command)
         self.assertIn("「窓口」とはアカウントが違い", command)
         self.assertNotIn("SendMessage で「", command)
@@ -353,7 +353,7 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports, "--from-account", "nobody")
         self.assertEqual(rc, 2)
         self.assertIn("--from-account の nobody が設定の accounts に無い", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_task_cwd_in_the_config_is_noted_and_the_session_starts_in_the_place(self):
         with open(self.cfg, "a", encoding="utf-8") as f:
@@ -362,13 +362,13 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
         self.assertIn("task_cwd は使わなくなったので無視した", out)
-        self.assertFalse([w for w in ports.herdr.writes if w[0] == "run" and w[2].startswith("cd ")])
+        self.assertFalse([w for w in ports.term.writes if w[0] == "run" and w[2].startswith("cd ")])
 
     def test_dry_run_writes_nothing_and_shows_the_plan_and_the_first_text(self):
         ports = self.ports()
         rc, out = self.run_task(ports, "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
         self.assertFalse(hasattr(ports, "refreshed"))
         self.assertIn("部署 直し  task/fix  a1  create", out)
         self.assertIn("- 部署の属性: company.role=作業、company.lifecycle=ephemeral、company.residency=per-task、company.account=a1、company.name=直し", out)
@@ -381,7 +381,7 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 1)
         self.assertIn("「直し」という名前の会話がほかの会社でもう開いていて（アカウント a1）、振れるアカウントがほかに無い", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_a_conversation_with_the_same_name_in_another_company_moves_to_another_account(self):
         # 会社が違えば同じ名前の部署を並べて立てる。SendMessage の宛先はアカウントの中で決まるので、重なったアカウントを避ける
@@ -400,7 +400,7 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 1)
         self.assertIn("「直し」という名前の会話がこの会社にもう開いている（アカウント a1）", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_a_conversation_open_in_the_place_is_already_open(self):
         src = gitx_source(self.cfg)
@@ -410,7 +410,7 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0)
         self.assertIn("already_open", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_a_reused_place_loses_the_desk_process_number_copied_from_the_head_office(self):
         # 前の版で作った PR の作業場には本社の company.pid が写っている。残ると部署が窓口の席と見られ、役の本文を受けない（3d3ccc）
@@ -430,14 +430,14 @@ class Task(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertIn("task/fix  a1  branch_busy", out)
-        self.assertFalse([w for w in ports.herdr.writes if w[0] in ("run", "prompt")])
+        self.assertFalse([w for w in ports.term.writes if w[0] in ("run", "prompt")])
 
     def test_missing_brief_stops_before_anything(self):
         ports = self.ports()
         rc, out = run_main(["--config", self.cfg, "--task", "直し", "--branch", "b", "--brief", "/nowhere/brief.md"], ports)
         self.assertEqual(rc, 2)
         self.assertIn("頼みのファイルが無い", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_task_needs_branch_and_brief_and_takes_no_other_entry(self):
         for argv, said in ((["--task", "直し"], "--branch <ブランチ> と --brief"),
@@ -455,7 +455,7 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 2)
         self.assertIn("--bg を持たない", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_repo_can_be_named_by_its_source_clone_path(self):
         ports = self.ports()

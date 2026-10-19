@@ -20,6 +20,8 @@ import pathlib
 import re
 import tomllib
 
+from ports import chat
+
 MODES = ("ff-after-ci", "pr", "none")
 GATE_CHECK = "check"   # ゲートを CI でなく手元の検証にする印
 BUMPS = ("marketplace",)
@@ -105,7 +107,7 @@ def pane_of(panes, place):
     """部署の窓（herdr のペイン）。部署の作業場の中か、部署の場所の中に居るペインのうち、Claude Code の会話を先に。無ければ None。"""
     mine = [p for p in panes if (place.get("workspace") and p.get("workspace_id") == place["workspace"])
             or (p.get("cwd") and _inside(p["cwd"], place["path"]))]
-    mine.sort(key=lambda p: p.get("agent") != "claude")
+    mine.sort(key=lambda p: p.get("agent") != chat.AGENT)
     return mine[0]["pane_id"] if mine else None
 
 

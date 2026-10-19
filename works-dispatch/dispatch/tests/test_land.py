@@ -114,7 +114,7 @@ class World:
 
 
 class FakeHerdr:
-    HerdrError = real_herdr.HerdrError
+    Error = real_herdr.Error
 
     def __init__(self, world):
         self.world = world
@@ -170,14 +170,14 @@ class FakeGh:
 class Ports:
     def __init__(self, world, gh=None, attrs=None):
         self.world = world
-        self.herdr = FakeHerdr(world)
+        self.term = FakeHerdr(world)
         self.gh = gh or FakeGh()
         self.git = gitx
         self._attrs = attrs or {"name": "a", "session": "s1", "role": "worker"}
         self.account_env = {}   # claude を呼ぶ環境（本物は Ports.account_env）
 
     def places(self, repo):
-        return self.herdr.worktrees(repo.source)
+        return self.term.worktrees(repo.source)
 
     def attrs(self, path):
         return dict(self._attrs) if os.path.realpath(path) == os.path.realpath(self.world.dept) else {}
@@ -230,7 +230,7 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(ports.gh.seen, ("release/a", head))
         self.assertFalse(w.has("release/a"), "入れた後もゲートのブランチが origin に残っている")
         self.assertEqual(git("-C", w.source, "rev-parse", "main"), head, "手元のメインブランチが fast-forward されていない")
-        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(ports.term.prompts, [])
 
     def test_waits_until_the_run_appears(self):
         w = World(self.tmp, CI_FILES)
@@ -276,7 +276,7 @@ class FastForwardAfterCi(LandCase):
             code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertIn("push が断られた", out)
-        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(ports.term.prompts, [])
         self.assertEqual(w.origin("main"), before)
 
     def test_failure_after_the_push_still_finishes_the_landing(self):
@@ -303,7 +303,7 @@ class FastForwardAfterCi(LandCase):
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
         self.assertIn("git でメインブランチの上にリベースした", out)
-        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(ports.term.prompts, [])
         self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
         self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署のブランチもリベースした物
 
@@ -319,10 +319,10 @@ class FastForwardAfterCi(LandCase):
         self.assertFalse(w.has("release/a"), "リベースが要るのにゲートに出した")
         self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "リベースを元に戻していない")
         self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "")
-        self.assertEqual(len(ports.herdr.prompts), 1)
-        self.assertIn("リベースし", ports.herdr.prompts[0][1])
-        self.assertIn("版を上げ直して", ports.herdr.prompts[0][1])
-        self.assertIn("ぶつかるファイル: b.txt", ports.herdr.prompts[0][1])
+        self.assertEqual(len(ports.term.prompts), 1)
+        self.assertIn("リベースし", ports.term.prompts[0][1])
+        self.assertIn("版を上げ直して", ports.term.prompts[0][1])
+        self.assertIn("ぶつかるファイル: b.txt", ports.term.prompts[0][1])
 
     def test_a_changelog_conflict_at_the_top_of_unreleased_is_solved_with_the_department_lines_first(self):
         log = "# 記録\n\n## [Unreleased]\n\n## [0.1.0] - 2026-10-01\n\n- 初め\n"
@@ -356,7 +356,7 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(code, 0, out)
         self.assertIn("リベースしたブランチで、ゲートから回し直す", out)
         self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
-        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(ports.term.prompts, [])
 
     def test_resolve_changelog_leaves_other_conflicts_alone(self):
         d = tempfile.mkdtemp()
@@ -474,15 +474,15 @@ class FastForwardAfterCi(LandCase):
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), before)
-        self.assertEqual(ports.herdr.prompts[0][0], "P1")
-        self.assertIn("AssertionError: 版が据え置き", ports.herdr.prompts[0][1])
-        self.assertNotIn("\n", ports.herdr.prompts[0][1])
+        self.assertEqual(ports.term.prompts[0][0], "P1")
+        self.assertIn("AssertionError: 版が据え置き", ports.term.prompts[0][1])
+        self.assertNotIn("\n", ports.term.prompts[0][1])
 
     def test_no_pane_prints_the_request_for_the_caller(self):
         w = World(self.tmp, CI_FILES)
         w.work()
         ports = Ports(w, FakeGh(conclusion="failure"))
-        ports.herdr._panes = []
+        ports.term._panes = []
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertIn("次の文を部署に渡す", out)
@@ -521,7 +521,7 @@ class Tidy(LandCase):
         def remove_worktree(source, path, label):
             removed.append(path)
             git("-C", source, "worktree", "remove", path)
-        ports.herdr.remove_worktree = remove_worktree
+        ports.term.remove_worktree = remove_worktree
         row = {"path": w.dept, "branch": "feat/a", "removable": True, "reason": None, "session": None, "pr_head": head}
         code, out = self.land(w, ports, rows=lambda *a: [row])
         self.assertEqual(code, 0, out)
@@ -543,7 +543,7 @@ class Leftover(LandCase):
         def remove_worktree(source, path, label):
             removed.append(path)
             git("-C", source, "worktree", "remove", path)
-        self.ports.herdr.remove_worktree = remove_worktree
+        self.ports.term.remove_worktree = remove_worktree
         # 部署 a の属性は試験の表に、入れた印だけ本物の git から足す。部署 b は名前と会話だけ
         self.ports.attrs = lambda path: (
             {**self.ports._attrs, **{k: v for k, v in gitx.worktree_attrs(path).items() if k == "landed"}}
@@ -623,7 +623,7 @@ class OverwriteGate(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
-        [(_, text)] = ports.herdr.prompts
+        [(_, text)] = ports.term.prompts
         self.assertIn("calc.py:3「def div():」", text)
         self.assertIn(self.div[:7], text)
         self.assertIn("div を足す", text)
@@ -660,7 +660,7 @@ class OverwriteGate(LandCase):
         code, out = self.land(w, ports, dry_run=True)
         self.assertEqual(code, 1, out)
         self.assertIn("止まる見立て", out)
-        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(ports.term.prompts, [])
 
 
 class OverwriteGateRenames(LandCase):
@@ -709,7 +709,7 @@ class OverwriteGateRenames(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
-        [(_, text)] = ports.herdr.prompts
+        [(_, text)] = ports.term.prompts
         self.assertIn("calc.py:21「def div():」", text)   # main での古い名前と行番号で示す
         self.assertIn(self.div[:7], text)
         self.assertIn("div を足す", text)
@@ -730,7 +730,7 @@ class OverwriteGateRenames(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
-        [(_, text)] = ports.herdr.prompts
+        [(_, text)] = ports.term.prompts
         self.assertIn("math.py:21「def div():」", text)
         self.assertNotIn("math.py:1「", text, "名前の付け替えで運んだだけの行は、ほかの部署が入れた行と数えない")
 
@@ -785,7 +785,7 @@ class OtherModes(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd: (1, "line1\n壊れた\n"))
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), before)
-        self.assertIn("壊れた", ports.herdr.prompts[0][1])
+        self.assertIn("壊れた", ports.term.prompts[0][1])
 
     def test_python_cache_the_department_made_does_not_stop_the_landing(self):
         # .gitignore の無いリポジトリで、部署が試しに import して作った __pycache__ は、手元だけの無視の決まりで数えない
@@ -940,7 +940,7 @@ class DryRun(LandCase):
         self.assertIn("release/a", out)
         self.assertEqual(self.snapshot(w), before, "空打ちなのに ref か worktree を書いた")
         self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "", "空打ちなのに部署の場所のファイルを書き換えた")
-        self.assertEqual((ports.gh.asked, ports.gh.prs, ports.herdr.prompts), (0, [], []))
+        self.assertEqual((ports.gh.asked, ports.gh.prs, ports.term.prompts), (0, [], []))
 
     def test_main_moved_reports_the_rebase_without_fetching_or_asking(self):
         w = World(self.tmp, CI_FILES)
@@ -952,7 +952,7 @@ class DryRun(LandCase):
         self.assertEqual(code, 1, out)
         self.assertIn("リベースし", out)
         self.assertEqual(self.snapshot(w), before, "空打ちなのにメインブランチを取り直した")
-        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(ports.term.prompts, [])
 
     def test_empty_unreleased_is_reported(self):
         files = marketplace_files()

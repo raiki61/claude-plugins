@@ -47,8 +47,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # herdr への口・会話の手が空いたと見る状態・入力フィールドの打ちかけの見分けは、works-dispatch の物をそのまま使う（写すと割れる。
 # 前は写しで、works-dispatch が Claude Code の薄字の候補を打った字と数えないよう直った後も、こちらは候補の出た会話を飛ばしていた）
 sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
+import claudex  # noqa: E402
 import herdr  # noqa: E402
-from nodes import deliver, refresh  # noqa: E402
+from nodes import refresh  # noqa: E402
 
 DISPATCH_CONFIG = "~/.config/works-dispatch/dispatch.toml"   # works-dispatch の設定の既定の場所（WORKS_DISPATCH_CONFIG で替わる）
 LOCAL = "~/.config/claude-plugins/spread.toml"             # その人だけの配る先の足しと除外
@@ -283,7 +284,7 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
             steps.append(step(None, "talk", f"{where}: ターンの途中なので飛ばす（ターンの終わりに替わる）", False))
             continue
         try:
-            box = deliver.typed(herdr.read(p["pane_id"], 40, herdr_run, ansi=True))   # 薄字の候補は打った字と数えない
+            box = claudex.typed(herdr.read(p["pane_id"], 40, herdr_run, ansi=True))   # 薄字の候補は打った字と数えない
         except (herdr.HerdrError, OSError) as e:
             steps.append(step(None, "talk", f"{where}: 画面を読めない（{e}）", True))
             continue

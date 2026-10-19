@@ -265,7 +265,7 @@ ME = 4242   # 試験の中の、この会話の処理（Claude Code）の番号
 
 class Window:
     """部署の窓の偽物（herdr の口）。"""
-    HerdrError = real_herdr.HerdrError
+    Error = real_herdr.Error
 
     def __init__(self, cwd, status="done", box="", front=None, on_clear=None):
         self.cwd, self.status, self.box, self.writes, self.on_clear = cwd, status, box, [], on_clear
@@ -1288,7 +1288,7 @@ class WakeFlow(unittest.TestCase):
         to = self.listen("調べ", self.dept_place())
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
-        self.assertEqual([w for w in self.ports.herdr.writes if w[0] in ("prompt", "run")], [])
+        self.assertEqual([w for w in self.ports.term.writes if w[0] in ("prompt", "run")], [])
         notice, rec = deliver.records(self.inbox)
         self.assertEqual((notice["to"], notice["kind"], notice["id"]), (to, wake.QUEUED, rec["id"]))
         self.assertEqual((rec["status"], rec["to"]["wake"]), ("queued", to))
@@ -1304,7 +1304,7 @@ class WakeFlow(unittest.TestCase):
         mark = wake.read_mark(self.inbox, self.dept_place())
         with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
             json.dump({**mark, "pid": dead_pid()}, f)   # 会話は生きているが、待ち受けの台本が居ない
-        self.ports.herdr.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"   # 手の空いた窓（入力フィールドが空）
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"   # 手の空いた窓（入力フィールドが空）
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
         self.assertIn("渡す待ち受けが居ない", out)
@@ -1327,20 +1327,20 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((rc, self.prompts()), (1, []), out)   # すぐ替わる訳なら打たない（待ち受けの /clear とぶつけない）
         self.assertIn("訳がすぐ替わる物なので打たなかった", out)
         # 子の返事待ち・裏の処理で止めるのは古い版の待ち受けだけなので、1 行を打って今の版で数え直させる（2026-10-18 の割り振り）
-        self.ports.herdr.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
         for detail in ("子の頼みの返事を待っている（受付 c1）", wake_hook.NOT_CLEARED_BACKGROUND):
             deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": detail})
             rc, out = self.main(self.src, "--nudge", "調べ")
             self.assertEqual(rc, 0, out)
             self.assertEqual([w[2] for w in self.prompts()], [orders.STUCK_LINE])
-            self.ports.herdr.writes.clear()
+            self.ports.term.writes.clear()
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
         provision.mark(self.place, self.src, {"rest": "s"}, gitx)
-        self.ports.herdr.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
+        self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts()), (1, []), out)   # 人の打ちかけの字を壊さない
         self.assertIn("入力フィールドに字が在るので打たなかった", out)
-        self.ports.herdr.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertIn("待ち受けが渡さずに待っている（窓を確かめられない）", out)
@@ -1564,7 +1564,7 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--note", "a0", "--text", "取り下げる。止めて、どこまで済んだかを返す")
         self.assertEqual(rc, 0, out)
         self.assertIn("ターンの終わりに待ち受けが渡す", out)
-        self.assertEqual([w for w in self.ports.herdr.writes if w[0] in ("prompt", "run")], [])
+        self.assertEqual([w for w in self.ports.term.writes if w[0] in ("prompt", "run")], [])
         notice = next(r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str))
         self.assertEqual((notice["to"], notice["kind"]), (to, wake.NOTE))
         self.assertIn("頼みの足しです（受付 a0 への、desk から", notice["text"])
@@ -1723,7 +1723,7 @@ class WakeFlow(unittest.TestCase):
     def test_deliver_to_a_listening_asker_needs_no_window(self):
         summary = self.ask_then_summary(test_deliver.GOOD)
         to = self.listen("desk", gitx.git_dir(self.src))
-        self.ports.herdr._panes = [p for p in self.ports.herdr._panes if p["pane_id"] != self.desk]   # 頼み元の窓が無くても届く
+        self.ports.term._panes = [p for p in self.ports.term._panes if p["pane_id"] != self.desk]   # 頼み元の窓が無くても届く
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.prompts(), [])

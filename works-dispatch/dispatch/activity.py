@@ -71,15 +71,16 @@ def label(payload):
 
 
 def confirmed_pane(cwd, sid, env=os.environ):
-    """この会話の居るペインのうち、窓の前のプロセスにこの会話が居ると確かめた物（/clear の打ち先と同じ確かめ方。herdr.talk_window。wake_hook は tomllib を読むので、下限 3.9 のこのフックからは引かない）。
+    """この会話の居るペインのうち、窓の前のプロセスにこの会話が居ると確かめた物（/clear の打ち先と同じ確かめ方。windows.talk_window。wake_hook は tomllib を読むので、下限 3.9 のこのフックからは引かない）。
     会話の印と場所だけで決めると、前に居た会話や別の部署の会話の窓に札を付けた（2026-10-17、割り振りの窓にほかの会話の作業内容が
     出た。c52730 の 5）。決まらなければ None。"""
     import claudex   # noqa: E402  ここだけで使う（ツールのたびに読み込まない）
-    return herdr.talk_window(cwd, herdr, [claudex.host()[0]], (herdr.job_of(env), claudex.attach_id(None, sid)))
+    import windows   # noqa: E402
+    return windows.talk_window(cwd, herdr, [claudex.host()[0]], (claudex.job_of(env), claudex.attach_id(None, sid)))
 
 
 def pane_of(payload, tmp, find=None):
-    """この会話の居るペイン（confirmed_pane。herdr.talk_window の決め方。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがあるので使わない）。
+    """この会話の居るペイン（confirmed_pane。windows.talk_window の決め方。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがあるので使わない）。
     決まったら会話の id ごとの控えに残し、次からは herdr を読まない。ツールの呼び出し（PreToolUse）では控えだけを見て、決まって
     いなければ印を送らない（ツールのたびに herdr を待たせない）。"""
     sid = payload.get("session_id")

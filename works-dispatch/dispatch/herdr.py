@@ -20,11 +20,18 @@ import time
 STALLED = "agent_prompt_stalled"
 
 
+NAME = "herdr"   # 使う人に見せる文で、この口の向こうのツールを呼ぶ名前（口の外の文はこれを差し込み、ツールの名前を書かない）
+PANE_ENV = "HERDR_PANE_ID"   # ペインの中の処理に渡る、そのペインの id（裏の会話では別のペインを指すことがある）
+
+
 class HerdrError(Exception):
     def __init__(self, argv, detail):
         super().__init__(f"{' '.join(argv[:3])}: {detail}")
         self.argv = argv
         self.detail = detail
+
+
+Error = HerdrError   # 口の外が受ける名前（ports.term.Error）
 
 
 def _default_runner(argv, env=None):
@@ -60,38 +67,6 @@ def panes(runner=_default_runner):
     for p in _call(["herdr", "pane", "list"], runner).get("panes", []):
         out.append({**p, "agent": p.get("agent")})
     return out
-
-
-def place_of(path):
-    """場所のルート（path から上へたどって最初に .git の在るフォルダ。git の作業場のルート）。無ければ path 自身。git を呼ばずに字と
-    ファイルだけで決める（ペインの数だけ呼ぶので）。"""
-    here = os.path.realpath(path)
-    up = here
-    while True:
-        if os.path.exists(os.path.join(up, ".git")):
-            return up
-        parent = os.path.dirname(up)
-        if parent == up:
-            return here
-        up = parent
-
-
-def own_pane(cwd, sid=None, listed=None):
-    """会話の居るペイン。場所のルート（place_of）がこの会話と同じペインのうち、会話の印〔agent_session〕がこの会話の id の物が 1 つなら
-    それ、無ければ場所の同じ物が 1 つならそれ。決まらなければ None。listed は panes() の並び（省けば読む）。
-    場所の違うペインは、印がこの会話の id でも選ばない（herdr の印は前にそのペインに居た会話や別の部署の会話の id のまま残ることが
-    あり、2026-10-17 に my_notes で、ノートの手入れの待ち受けが印の合った調べものの窓に /clear を打った）。
-    環境変数 HERDR_PANE_ID は使わない（裏の会話〔claude --bg〕は前もって起動した控えの処理の値を継ぎ、別のペインを指していた。
-    2026-10-17 に見た）。"""
-    if not cwd:
-        return None
-    here = place_of(cwd)
-    talking = [p for p in (panes() if listed is None else listed) if p.get("agent")]
-    hits = [p for p in talking if p.get("cwd") and place_of(p["cwd"]) == here]
-    mine = [p for p in hits if sid and (p.get("agent_session") or {}).get("value") == sid]
-    if len(mine) == 1:
-        return mine[0]["pane_id"]
-    return hits[0]["pane_id"] if len(hits) == 1 else None
 
 
 def workspace_labels(runner=_default_runner):
@@ -211,7 +186,7 @@ def report_workspace_metadata(workspace, source, tokens, clear_tokens=(), runner
 
 def read(pane, lines, runner=_default_runner, ansi=False):
     """ペインの画面の終わりの lines 行（読むだけ。起動できなかった訳を報告に添えるのに使う）。JSON でなく画面の字のまま返る
-    （2026-10-16 に herdr 0.9.3 で見た）。ansi なら色と薄字の制御の字（SGR）を付けたまま返す（deliver.typed が薄字を見分ける）。"""
+    （2026-10-16 に herdr 0.9.3 で見た）。ansi なら色と薄字の制御の字（SGR）を付けたまま返す（claudex.typed が薄字を見分ける）。"""
     argv = ["herdr", "pane", "read", pane, "--lines", str(lines)] + (["--ansi"] if ansi else [])
     p = runner(argv)
     if p.returncode != 0:
@@ -229,39 +204,6 @@ def front_processes(pane, runner=_default_runner):
     """ペインの前で動いているプロセスの並び（herdr pane process-info の foreground_processes。pid と argv を持つ）。読む口。"""
     info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
     return info.get("foreground_processes") or []
-
-
-def holds_talk(processes, pids, jobs):
-    """ペインの前のプロセス（front_processes）に、この会話が居るか。会話の処理そのもの（pids のどれか。前で開いた会話）か、
-    この会話へ attach した claude（argv の attach の次の字が jobs のどれか。裏の会話〔claude --bg〕を開いた窓）が居れば真。
-    会話の印〔agent_session〕は古いまま残ることがあるので見ない。"""
-    for p in processes:
-        if p.get("pid") in pids:
-            return True
-        argv = p.get("argv") or []
-        if any(a == "attach" and i + 1 < len(argv) and argv[i + 1] in jobs for i, a in enumerate(argv)):
-            return True
-    return False
-
-
-def talk_window(cwd, h, pids=(), jobs=()):
-    """会話を消す打ち込み（/clear）の打ち先。場所がこの会話の場所のペインのうち、前のプロセスにこの会話が居ると確かめられた物
-    （holds_talk。jobs は attach の短い id の候補で、clear_now は属性 company.job・CLAUDE_JOB_DIR の名前・会話の id の頭を渡す）が
-    1 つならそれ、ほかは None。会話の印（agent_session）も、場所だけでの代わりも使わない（印は前に居た会話や
-    別の部署の会話の id のまま残り、2026-10-17 に my_notes で別の部署の窓に /clear を打った。持ち主の決め: 自分の会話だと確かめ
-    られなければ打たずに残す）。"""
-    here = place_of(cwd)
-    hits = [p["pane_id"] for p in h.panes() if p.get("agent") and p.get("cwd") and place_of(p["cwd"]) == here]
-    mine = [x for x in hits if holds_talk(h.front_processes(x), {p for p in pids if p is not None}, {j for j in jobs if j})]
-    return mine[0] if len(mine) == 1 else None
-
-
-def job_of(env=os.environ):
-    """この会話の裏の処理の短い id（`claude attach` に渡す物）。Claude Code は裏の会話（claude --bg）の処理に、置き場
-    <設定のフォルダ>/jobs/<短い id> を CLAUDE_JOB_DIR で渡し、フックはそれを継ぐ。短い id は会話の id の頭と同じとは限らない
-    （2026-10-17 に割り振りで、会話 081f72dd を短い id 8c4a1102 の処理が続けていた）。裏の会話でなければ None。"""
-    d = (env.get("CLAUDE_JOB_DIR") or "").rstrip("/\\")
-    return os.path.basename(d) or None
 
 
 def send_keys(pane, *keys, runner=_default_runner):

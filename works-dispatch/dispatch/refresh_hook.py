@@ -9,7 +9,7 @@
 
 部署か窓口（その場所の git の設定に company.role が在る）でなければ、すぐ 0 で終わる。窓口（代表の clone）では、--desk が書いた
 会話の処理（company.pid）の会話だけを見る（代表の clone には持ち主のほかの会話も居る）。窓は、待ち受けのフックが /clear を打つ窓と
-同じ決め方（herdr.talk_window。場所が同じペインのうち、窓の前のプロセスにこの会話が居ると確かめた物）で 1 つに決め、決まらなければ（herdr の
+同じ決め方（windows.talk_window。場所が同じペインのうち、窓の前のプロセスにこの会話が居ると確かめた物）で 1 つに決め、決まらなければ（herdr の
 外の会話など）何もしない。環境変数 HERDR_PANE_ID は使わない（裏の会話〔claude --bg〕は前もって起動した控えの処理で動き、その値が
 別のペインを指していた。2026-10-17 に見た）。打ったら属性 company.reloaded に処理の番号と時刻を控え、同じ更新で打ち直さない。
 裏で走るのでターンの終わりを待たせない。誤りは stderr に 1 行出し、会話は止めない。
@@ -23,9 +23,9 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
-    import claudex  # noqa: E402
+    from ports import chat, term  # noqa: E402
+    import windows  # noqa: E402
     import gitx  # noqa: E402
-    import herdr  # noqa: E402
     from nodes import provision, refresh  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # 裏で走るので、古い Python でも会話を止めない。知らせは止まる前のフック（orders.py stop）が会話ごとに 1 回出す
@@ -38,7 +38,7 @@ for _s in (sys.stdout, sys.stderr):
 PLUGIN_ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 
 
-def run(payload, env=os.environ, h=herdr, host=claudex.host, same=claudex.in_process, attrs_of=gitx.worktree_attrs,
+def run(payload, env=os.environ, h=term, host=chat.host, same=chat.in_process, attrs_of=gitx.worktree_attrs,
         pause=lambda: time.sleep(1), now=time.time, mark=provision.mark, plugin_root=PLUGIN_ROOT, window=None):
     """古ければ替える。結末の語（refresh.reload_when_free の物）か、見るまでもなければ None。"""
     cwd = payload.get("cwd") or os.getcwd()
@@ -62,9 +62,9 @@ def run(payload, env=os.environ, h=herdr, host=claudex.host, same=claudex.in_pro
         else:
             # 打ち先は、/clear と同じく、窓の前のプロセスにこの会話が居ると確かめた窓だけ（会話の印と場所だけでは、前に居た会話や別の
             # 部署の会話の窓に打ちうる。c52730 の 5）。会話の処理の番号か、この会話の裏の処理へ attach した claude で確かめる
-            jobs = (attrs.get("job"), herdr.job_of(env), claudex.attach_id(None, payload.get("session_id")))
-            pane = herdr.talk_window(cwd, h, [pid], jobs)
-    except h.HerdrError:
+            jobs = (attrs.get("job"), chat.job_of(env), chat.attach_id(None, payload.get("session_id")))
+            pane = windows.talk_window(cwd, h, [pid], jobs)
+    except h.Error:
         return "unseen"
     if not pane:
         return None

@@ -29,9 +29,9 @@ class Reorg(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "担当", "lifecycle": "persistent", "account": "a1", "name": "振り分け",
                                               "session": "s-a", "boss": "窓口", "boss-session": "s-desk", "boss-pane": "P9"}, gitx)
         self.ports = FakePorts([])
-        self.ports.herdr = CompanyHerdr(self.src)
-        self.office_pane = self.ports.herdr.open_at(self.src, agent="claude")["pane_id"]
-        self.pane = self.ports.herdr.open_at(self.place, agent="claude")["pane_id"]
+        self.ports.term = CompanyHerdr(self.src)
+        self.office_pane = self.ports.term.open_at(self.src, agent="claude")["pane_id"]
+        self.pane = self.ports.term.open_at(self.place, agent="claude")["pane_id"]
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-a"}
         self.sessions = [{"id": "a", "sessionId": "s-a", "name": "振り分け", "cwd": self.place, "kind": "background",
                           "state": "working"},
@@ -44,14 +44,14 @@ class Reorg(unittest.TestCase):
         return run_main(["--config", self.cfg, *argv], self.ports)
 
     def ws(self, pane):
-        return next(p["workspace_id"] for p in self.ports.herdr.panes() if p["pane_id"] == pane)
+        return next(p["workspace_id"] for p in self.ports.term.panes() if p["pane_id"] == pane)
 
     def test_rename_keeps_the_old_name_and_renames_the_pane_and_workspace(self):
         rc, out = self.main("--reorg", "--name", "割り振り")
         self.assertEqual(rc, 0, out)
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("割り振り", ["振り分け"]))
-        self.assertEqual(self.ports.herdr.writes, [
+        self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.pane), "割り振り"),
             ("report_workspace_metadata", self.ws(self.pane), {"kind": "永続・引き継ぎ"}, []),
             ("rename_pane", self.pane, "割り振り"),
@@ -91,7 +91,7 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--reorg", "--name", "振り分け")
         self.assertEqual(rc, 0, out)
         self.assertIn("付け替える物は無い", out)
-        self.assertEqual(self.ports.herdr.writes, [])
+        self.assertEqual(self.ports.term.writes, [])
 
     def test_wrong_uses_stop(self):
         for argv, said in ((["--reorg"], "替える物"), (["--reorg", "--persistent", "--ephemeral"], "一緒に使えない"),
@@ -109,7 +109,7 @@ class Reorg(unittest.TestCase):
         other = str(pathlib.Path(self.root) / "other")
         git("-C", self.src, "worktree", "add", "-q", "-b", "work/other", other, "origin/main")
         provision.mark(other, self.src, {"role": "担当", "name": "点検"}, gitx)
-        self.ports.herdr.open_at(other, agent="claude")
+        self.ports.term.open_at(other, agent="claude")
         rc, out = self.main("--reorg", "--name", "点検")
         self.assertEqual(rc, 2, out)
         self.assertIn("「点検」という名前の部署がもう在る", out)
@@ -118,16 +118,16 @@ class Reorg(unittest.TestCase):
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
         # 本社には持ち主のほかの会話も居る。窓口の会話の印のペインだけに付ける
-        for p in self.ports.herdr._panes:
+        for p in self.ports.term._panes:
             if p["pane_id"] == self.office_pane:
                 p["agent_session"] = {"value": "s-desk"}
-        self.ports.herdr.add_pane(self.ws(self.office_pane), self.src, agent="claude")
+        self.ports.term.add_pane(self.ws(self.office_pane), self.src, agent="claude")
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
         attrs = gitx.worktree_attrs(self.src, former=False)
         self.assertEqual({k: attrs.get(k) for k in ("role", "lifecycle", "residency", "name", "account", "session")},
                          {"role": "窓口", "lifecycle": "persistent", "residency": "resident", "name": "窓口", "account": "a1", "session": "s-desk"})
-        self.assertEqual(self.ports.herdr.writes, [
+        self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.office_pane), os.path.basename(self.src)),
             ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "永続・引き継ぎ"}, []),
             ("rename_pane", self.office_pane, "窓口"),
@@ -206,12 +206,12 @@ class Reorg(unittest.TestCase):
         self.sessions[1]["pid"] = 4242
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
-        self.ports.running_claude = lambda pid: pid == "777"
+        self.ports.running_chat = lambda pid: pid == "777"
         rc, out = self.main("--desk")
         self.assertEqual(rc, 2, out)
         self.assertIn("窓口 窓口 の会話（処理 777、会話 s-old）がまだ動いている", out)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-old")
-        self.ports.running_claude = lambda pid: False   # 前の窓口を終えた（アカウントを移すときなど）
+        self.ports.running_chat = lambda pid: False   # 前の窓口を終えた（アカウントを移すときなど）
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")

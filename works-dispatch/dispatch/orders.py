@@ -37,10 +37,10 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
-    import claudex  # noqa: E402
+    from ports import chat, term  # noqa: E402
+    import windows  # noqa: E402
     import config  # noqa: E402
     import gitx  # noqa: E402
-    import herdr  # noqa: E402
     import todo  # noqa: E402
     from nodes import deliver, land, launch, ledger, provision, role, sync, tools, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
@@ -84,35 +84,35 @@ for _s in (sys.stdin, sys.stdout, sys.stderr):
 
 def survey(config_path, ports):
     """herdr に開いている会社と部署を読む（dispatch._company と同じ読み方）。(設定か None, アカウントの並び, 会話の一覧, ペイン,
-    会社の並び, 設定の置き場, 注記)。herdr を読めなければ herdr.HerdrError。"""
+    会社の並び, 設定の置き場, 注記)。herdr を読めなければ term.Error。"""
     notes = []
     path = config.path_of(config_path, os.environ)
     try:
         cfg = config.load(config_path, os.environ, missing_ok=True)
         accounts_ = cfg.accounts
     except config.ConfigError as e:
-        cfg, accounts_ = None, (config.Account("default", "claude"),)
+        cfg, accounts_ = None, (config.Account("default", chat.COMMAND),)
         if os.path.exists(path):
             notes.append(f"dispatch の設定を読めないので、既定のアカウント 1 つとして見る（{e}）")
     sessions_ = {}
     for acc in accounts_:
         try:
             sessions_[acc.name] = ports.list_sessions(acc.config_dir, include_done=True)
-        except claudex.ClaudeError as e:
+        except chat.Error as e:
             notes.append(f"アカウント {acc.name} の会話の一覧を読めないので、そのアカウントの会話を見ない（{e}）")
             continue
-        odd = claudex.unknown_values(sessions_[acc.name])
+        odd = chat.unknown_values(sessions_[acc.name])
         if odd:
-            notes.append(f"アカウント {acc.name} の会話の一覧（claude agents --json）に、読み方を知らない値がある: "
+            notes.append(f"アカウント {acc.name} の会話の一覧（{chat.LIST_COMMAND}）に、読み方を知らない値がある: "
                          f"{', '.join(f'{k} が {n} 件' for k, n in sorted(odd.items()))}（claudex.py の KNOWN_STATUS・KNOWN_STATE と読む所を見直す）")
-    panes = ports.herdr.panes()
-    roots = tree.roots(ports.herdr.workspaces(), panes, ports.common_of,
+    panes = ports.term.panes()
+    roots = tree.roots(ports.term.workspaces(), panes, ports.common_of,
                        list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
     places_of = {}
     for root in roots:
         try:
-            places_of[root] = ports.herdr.worktrees(root)
-        except herdr.HerdrError as e:
+            places_of[root] = ports.term.worktrees(root)
+        except term.Error as e:
             places_of[root] = []
             notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
@@ -194,10 +194,10 @@ def live_window(dept, ports):
         # まっさらな環境での 7 回目の試しの 2）ので、窓の前のプロセスだけでは見分けられない
         return None
     try:
-        if os.name != "nt" and ports.herdr.shell_in_front(pane):
+        if os.name != "nt" and ports.term.shell_in_front(pane):
             return None
-        tail = ports.herdr.read(pane, 6)
-    except herdr.HerdrError:
+        tail = ports.term.read(pane, 6)
+    except term.Error:
         return pane   # 確かめられないときは、居ると見て今までどおり（打ち込んで会話を乱さない側）
     lines = [x for x in (tail or "").splitlines() if x.strip()]
     if lines and EXITED.search("\n".join(lines[-3:])):
@@ -233,51 +233,51 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
         # 割り振り・説明書・ノートの手入れ）: 会話の一覧の、部署の場所の裏の会話で戻し、属性も書き戻す
         account, entry = found
         full = entry["sessionId"]
-        dept = {**dept, "attrs": {**dept["attrs"], "session": full, "job": claudex.attach_id(entry), "account": account}}
+        dept = {**dept, "attrs": {**dept["attrs"], "session": full, "job": chat.attach_id(entry), "account": account}}
     acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
     entry = next((x for items in (sessions_ or {}).values() for x in items if x.get("sessionId") == full), None)
     # attach は短い id で打つ（部署を立てるときと同じ）。一覧に無ければ属性の短い id（company.job。/clear で会話の id が変わっても
     # 変わらない）
-    sid = claudex.attach_id(entry, full) if entry or not dept["attrs"].get("job") else dept["attrs"]["job"]
-    command = f"{acc.command if acc else 'claude'} attach {sid}"
+    sid = chat.attach_id(entry, full) if entry or not dept["attrs"].get("job") else dept["attrs"]["job"]
+    command = chat.attach_command(acc.command if acc else None, sid)
     try:
         if not dept["panes"] and source:
             # ペインを閉じると部署の作業場も閉じる。開き直し、新しいペインのシェルで attach を打つ
-            fresh, ws = provision.reopen(source, dept["path"], dept["attrs"].get("name") or os.path.basename(dept["path"]), ports.herdr)
+            fresh, ws = provision.reopen(source, dept["path"], dept["attrs"].get("name") or os.path.basename(dept["path"]), ports.term)
             if fresh:
                 dept = {**dept, "panes": [{"pane_id": fresh, "agent": None}]}
                 # 開き直したペインにも、部署の名前・表示名・札を --sync と同じに付ける。開き直した作業場は新しいので、印も付け直す
-                sync.apply([sync.op(fresh, dept["attrs"], len(accounts_) > 1)], ports.herdr)
+                sync.apply([sync.op(fresh, dept["attrs"], len(accounts_) > 1)], ports.term)
                 if ws:
-                    sync.apply_workspaces([sync.kind_op(ws, dept["attrs"])], ports.herdr)
+                    sync.apply_workspaces([sync.kind_op(ws, dept["attrs"])], ports.term)
                 for _ in range(REVIVE_LOOKS):
-                    if ports.herdr.shell_in_front(fresh):
+                    if ports.term.shell_in_front(fresh):
                         break
                     ports.pause()
-        pane = next((p["pane_id"] for p in dept["panes"] if ports.herdr.shell_in_front(p["pane_id"])), None)
+        pane = next((p["pane_id"] for p in dept["panes"] if ports.term.shell_in_front(p["pane_id"])), None)
         if pane is None:
             # 止まった attach が窓の前に残っていれば Ctrl+Z（2.1.302 からは続けて Esc）でシェルに戻し、シェルに戻るのを見る
             for p in dept["panes"]:
-                if launch.to_shell(p["pane_id"], ports.herdr, ports.pause, REVIVE_LOOKS):
+                if launch.to_shell(p["pane_id"], ports.term, ports.pause, REVIVE_LOOKS):
                     pane = p["pane_id"]
                     break
-    except herdr.HerdrError as e:
+    except term.Error as e:
         pane = None
         why = str(e)
     else:
-        why = "部署の作業場が herdr に開いていない" if not dept["panes"] else "部署のペインの前にシェルが居ない"
+        why = f"部署の作業場が {term.NAME} に開いていない" if not dept["panes"] else "部署のペインの前にシェルが居ない"
     if pane is None:
         return None, f"部署の会話を戻せなかった（{why}）。部署の作業場のペインで {command} を打って戻す"
-    got = launch.attach({"account": {"command": acc.command if acc else "claude"}}, pane, sid, ports.herdr)
+    got = launch.attach({"account": {"command": acc.command if acc else chat.COMMAND}}, pane, sid, ports.term)
     if got["status"] != "attached":
         return None, f"部署の会話を戻せなかった（{got['detail']}）。部署のペイン {pane} で {command} を打って戻す"
     for look in range(REVIVE_LOOKS):
         ports.pause()
         try:
-            screen = ports.herdr.read(pane, 6)
-            alive = (ports.herdr.agent(pane) or {}).get("agent") and not EXITED.search(screen or "") \
-                and "No job matching" not in (screen or "") and (os.name == "nt" or not ports.herdr.shell_in_front(pane))
-        except herdr.HerdrError:
+            screen = ports.term.read(pane, 6)
+            alive = (ports.term.agent(pane) or {}).get("agent") and not EXITED.search(screen or "") \
+                and "No job matching" not in (screen or "") and (os.name == "nt" or not ports.term.shell_in_front(pane))
+        except term.Error:
             alive = False
         if alive:
             said = f"部署の窓に会話が居なかったので、ペイン {pane} で {command} を打って戻した"
@@ -291,8 +291,8 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
                     said += f"（会話の一覧の部署の場所の会話で戻したが、属性に書き戻せなかった: {e}）"
             return pane, said
     try:
-        screen = ports.herdr.read(pane, 6)
-    except herdr.HerdrError:
+        screen = ports.term.read(pane, 6)
+    except term.Error:
         screen = ""
     if "00~" in screen:
         # attach の画面を強く終わらせると、窓の端末に貼り付けの印（ESC[200~）が残り、打ったコマンドの前後に 00~ と 01~ が付いて
@@ -322,7 +322,7 @@ def busy_check(dept, accounts_, ports):
     def busy():
         try:
             items = ports.list_sessions(acc.config_dir if acc else None)
-        except claudex.ClaudeError:
+        except chat.Error:
             return False
         talk = dept_talk(dept, items)
         if talk:
@@ -350,11 +350,11 @@ def clear_before_ask(dept, held, pane, busy, ports, newest=lambda: None):
         busy()
         now = newest()
         return bool(busy.found) and busy.found != before or bool(now) and bool(talk) and now[0] != talk[0]
-    status, detail = deliver.clear_talk(pane, ports.herdr, ports.pause, cleared)
+    status, detail = deliver.clear_talk(pane, ports.term, ports.pause, cleared)
     if status == "cleared":
         return True, [f"前の頼み（受付 {held}）を納品し終えているので、/clear で会話を空にしてから送る"]
     if talk is None:   # 置き場の名前は Claude Code の作り方を写している（claudex.newest_talk）。作り方が変われば、ここに出る
-        detail += "。部署の場所の会話の記録が見つからなかった（claudex.newest_talk の作る置き場の名前が、Claude Code の物と違うかもしれない）"
+        detail += f"。部署の場所の会話の記録が見つからなかった（claudex.newest_talk の作る置き場の名前が、{chat.NAME} の物と違うかもしれない）"
     return False, [f"会話を空にできなかったので送らなかった（{detail}）。部署の窓を見て、空になっていれば --ask を打ち直す"]
 
 
@@ -435,8 +435,8 @@ def _ask(a, ports, cwd, task, sent):
     try:
         cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
         target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task, current_role(settings))
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     except deliver.DeliverError as e:
         print(f"止めた: {e}")
@@ -458,7 +458,7 @@ def _ask(a, ports, cwd, task, sent):
         try:
             with tools.place(company["root"], ports.git) as (here, said):
                 code, out = deliver.gate(check, here, {"to": a.ask, "role": role, "body": body, "ask": ask_id,
-                                                       "from": ports.env.get("CLAUDE_CODE_SESSION_ID"), "version": own_version()},
+                                                       "from": chat.session_of(ports.env), "version": own_version()},
                                          subprocess.run)
         except (gitx.GitError, OSError) as e:
             code, out, said = 1, str(e), None
@@ -470,8 +470,8 @@ def _ask(a, ports, cwd, task, sent):
             return 2
     found_account, found_name = ports.caller(sessions_)
     inbox = deliver.inbox_of(common)
-    sid = ports.env.get("CLAUDE_CODE_SESSION_ID")
-    # 頼み元の窓は、頼んだ会話の居るペイン（herdr.own_pane。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがある）。
+    sid = chat.session_of(ports.env)
+    # 頼み元の窓は、頼んだ会話の居るペイン（windows.own_pane。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがある）。
     # Claude Code の外から頼んだ（会話の id が無い）なら、頼んだ会話が無いので窓も記録しない
     here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")), cwd)
     account, name = a.from_account or found_account, a.from_name or place_name(here, sid, ports) or found_name
@@ -501,7 +501,7 @@ def _ask(a, ports, cwd, task, sent):
     # 届かなかった。my_notes の受付 20261017-054115-5bc0b0）
     here_common = ports.git.common_dir(here) if here != cwd else common
     boss = {"ask": ask_id, "boss": name, "boss-account": account, "boss-session": sid,
-            "boss-pane": herdr.own_pane(here, sid, panes) if sid else None,
+            "boss-pane": windows.own_pane(here, sid, panes) if sid else None,
             "boss-inbox": deliver.inbox_of(here_common) if here_common else inbox}
     if getattr(a, "from_boss", None):
         # 合図で回した頼み（calls.fire）: 頼み元は、メインブランチに入れた部署の頼み元
@@ -554,7 +554,7 @@ def _ask(a, ports, cwd, task, sent):
         if pending:
             # 部署は頼みを 1 つずつ受ける（頼み元の属性は 1 組なので、上書きすると前の頼み元に納品が返らない）
             if revived:
-                status, detail = deliver.send_confirmed(pane, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.herdr, ports.pause,
+                status, detail = deliver.send_confirmed(pane, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.term, ports.pause,
                                                         busy_check(dept, accounts_, ports))
                 notes.append(f"戻した部署に、受付 {held} の納品を促した（{status}" + (f"。{detail}" if detail else "") + "）")
                 print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
@@ -583,7 +583,7 @@ def _ask(a, ports, cwd, task, sent):
                 # （設定のフォルダを書かないアカウントの部署を、別のアカウントの段取りから頼むと、記録が見つからず止まった。
                 # my_notes の受付 20261017-075753-01991f）
                 ok, said = clear_before_ask(dept, held, pane, busy, ports,
-                                            lambda: claudex.newest_talk(acc.config_dir if acc else None, dept["path"], ports.account_env))
+                                            lambda: chat.newest_talk(acc.config_dir if acc else None, dept["path"], ports.account_env))
                 notes += said
                 if not ok:
                     print("\n".join(notes + [f"止めた: 宛先の部署 {where} は頼みごとに空の会話で受ける役なので、前の会話のままでは送らない"]))
@@ -591,7 +591,7 @@ def _ask(a, ports, cwd, task, sent):
             if not raced:
                 path = deliver.put(inbox, f"{ask_id}-ask.md", body)
                 line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
-                status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy)
+                status, detail = deliver.send_confirmed(pane, line, ports.term, ports.pause, busy)
             if not raced and status == "sent":
                 # 役の fresh を写す（会社の形を後から変えても、次の頼みから herdr の表示が合う）
                 marks = {**boss, "fresh": FRESH if fresh else None, "ask-digest": digest}
@@ -660,7 +660,7 @@ def _ask(a, ports, cwd, task, sent):
         sys.stdout.write(said.getvalue())   # 立てる道が誤りで抜けても、そこまでに書いた物を捨てない
     try:
         got = next((p for p in ports.places(repo) if p.get("branch") == a.branch), None)
-    except herdr.HerdrError as e:
+    except term.Error as e:
         got = None
         notes.append(f"立てた後に部署の場所を読めない（{e}）")
     attrs = ports.attrs(got["path"]) if got else {}
@@ -820,15 +820,15 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
     if any(x in why for x in PASSING):
         return [f"{head}。訳がすぐ替わる物なので打たなかった（待ち受けが 5 秒ごとに試し直す）"]
     try:
-        status = (ports.herdr.agent(pane) or {}).get("agent_status")
-        box = deliver.typed(ports.herdr.read(pane, 40, ansi=True))
-    except herdr.HerdrError as e:
+        status = (ports.term.agent(pane) or {}).get("agent_status")
+        box = chat.typed(ports.term.read(pane, 40, ansi=True))
+    except term.Error as e:
         return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。--nudge {dept['attrs'].get('name') or where} で打ち直す"]
     if status not in ("idle", "done") or box is None or box:
         return [f"{head}。会話が動いているか入力フィールドに字が在るので打たなかった（ターンの終わりに待ち受けが張り直す。止まったままなら "
                 f"--nudge {dept['attrs'].get('name') or where} で打ち直す）"]
     keep = {k: dept["attrs"][k] for k in KEPT_MARKS if dept["attrs"].get(k)}
-    sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
+    sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.term, ports.pause, busy_check(dept, accounts_, ports))
     if keep:
         try:
             provision.mark(dept["path"], gitx.root_of(ports.git.common_dir(dept["path"])), keep, ports.git)
@@ -848,8 +848,8 @@ def nudge(a, ports, cwd):
     try:
         cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
         target = deliver.find_target(companies, gitx.root_of(common) if common else None, a.nudge, None, current_role(settings))
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     except deliver.DeliverError as e:
         print(f"止めた: {e}")
@@ -906,9 +906,9 @@ def _find_queued(ask_id, config_path, ports, cwd, companies=None):
     if companies is None:
         try:
             companies = survey(config_path, ports)[4]
-        except herdr.HerdrError as e:
+        except term.Error as e:
             companies = []
-            notes.append(f"herdr を読めないので、打った場所の会社の順番待ちだけを探した（{e}）")
+            notes.append(f"{term.NAME} を読めないので、打った場所の会社の順番待ちだけを探した（{e}）")
     for c in companies:
         got = ports.git.common_dir(c["root"])
         if got:
@@ -972,7 +972,7 @@ def take(a, ports, cwd, task):
         print(f"受付 {a.take} を {a.ask} に頼み直せなかったので、元の順番待ちの同じ場所に戻した")
         return rc
     _log_taken(item, {"id": item.get("id"), "kind": "taken", "at": ports.now(), "from": os.path.dirname(item["path"]),
-                      "to": {"ask": a.ask}, "name": a.task, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+                      "to": {"ask": a.ask}, "name": a.task, "by": {"session": chat.session_of(ports.env), "place": cwd}})
     return 0
 
 
@@ -1008,7 +1008,7 @@ def _take_locked(a, ports, cwd, common, inbox, place_dir):
         return 2
     provision.mark(cwd, gitx.root_of(common), item.get("marks") or {}, ports.git)
     _log_taken(item, {"id": item.get("id"), "kind": "taken", "at": ports.now(), "from": os.path.dirname(item["path"]),
-                      "to": {"name": attrs.get("name"), "role": attrs.get("role")}, "skipped": skipped, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+                      "to": {"name": attrs.get("name"), "role": attrs.get("role")}, "skipped": skipped, "by": {"session": chat.session_of(ports.env), "place": cwd}})
     print("\n".join([f"受付 {a.take} を順番待ちから取った（先に積まれた {len(skipped)} 件" + (f"〔{'・'.join(skipped)}〕" if skipped else "")
                       + "は順番待ちに残る）。この頼みを今受ける:", item.get("line") or wake.wake_text([item])]))
     return 0
@@ -1020,8 +1020,8 @@ def withdraw(a, ports, cwd):
     出す頼みを、取り下げの行を足して閉じる（_withdraw_stray）。終了の値を返す。"""
     try:
         companies, notes = survey(a.config, ports)[4], []
-    except herdr.HerdrError as e:
-        companies, notes = [], [f"herdr を読めないので、打った場所の会社と、その台帳がたどれる会社だけを探した（{e}）"]
+    except term.Error as e:
+        companies, notes = [], [f"{term.NAME} を読めないので、打った場所の会社と、その台帳がたどれる会社だけを探した（{e}）"]
     item = _find_queued(a.withdraw, a.config, ports, cwd, companies)[0]
     found = rows = None
     if item is None:   # herdr に開いていない会社の順番待ちも、台帳がたどれれば探す
@@ -1036,7 +1036,7 @@ def withdraw(a, ports, cwd):
         print("\n".join(notes + [f"止めた: 受付 {a.withdraw} はほかが先に取った"]))
         return 2
     _log_taken(item, {"id": item.get("id"), "kind": "withdrawn", "at": ports.now(), "from": os.path.dirname(item["path"]),
-                      "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+                      "by": {"session": chat.session_of(ports.env), "place": cwd}})
     print("\n".join(notes + [f"受付 {a.withdraw} を順番待ちから取り下げた（台帳に残した）"]))
     return 0
 
@@ -1073,7 +1073,7 @@ def _withdraw_stray(a, ports, cwd, found, rows, notes):
         # 頼みの行の在る受付箱のそれぞれに足す（頼んだ会社と受けた会社）
         _log_each([x for x in found if any(ledger.subject(r) == i for r in deliver.records(x))],
                   {"id": i, "kind": "withdrawn", "at": ports.now(), "was": t["state"], "why": why,
-                   "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+                   "by": {"session": chat.session_of(ports.env), "place": cwd}})
     print("\n".join(notes + [f"受付 {i} は、{why}ので、台帳で「{t['label']}」と出る頼みを取り下げで閉じた（台帳に行を足した）"]))
     return 0
 
@@ -1095,7 +1095,7 @@ def first(a, ports, cwd):
         return 2
     wake.put_back({**item, "front": ports.now()})
     _log_taken(item, {"id": item.get("id"), "kind": "reordered", "at": ports.now(), "from": os.path.dirname(item["path"]),
-                      "passed": passed, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+                      "passed": passed, "by": {"session": chat.session_of(ports.env), "place": cwd}})
     print("\n".join(notes + [f"受付 {a.first} を順番待ちの先頭に回した（{len(passed)} 件" + (f"〔{'・'.join(passed)}〕" if passed else "")
                               + "を追い越した。台帳に残した）。今の頼みの納品の後に待ち受けが渡す"]))
     return 0
@@ -1131,11 +1131,11 @@ def note(a, ports, cwd):
         return 2
     try:
         cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     inbox = deliver.inbox_of(common)
-    sid = ports.env.get("CLAUDE_CODE_SESSION_ID")
+    sid = chat.session_of(ports.env)
     found_account, found_name = ports.caller(sessions_)
     name = a.from_name or place_name(cwd, sid, ports) or found_name
     sender = name or "名の無い会話"
@@ -1174,7 +1174,7 @@ def note(a, ports, cwd):
                                      "どれに足すかを決めて、その受付で打ち直す"] + [f"  {x}" for x in leaves]))
             return 2
     if not held:
-        print("\n".join(notes + [f"止めた: 受付 {a.note} はどの部署も受けておらず、どの順番待ちにも無い（会社が herdr に開いているか、"
+        print("\n".join(notes + [f"止めた: 受付 {a.note} はどの部署も受けておらず、どの順番待ちにも無い（会社が {term.NAME} に開いているか、"
                                  "受付番号を確かめる）"]))
         return 2
     company, dept = held[0]
@@ -1205,7 +1205,7 @@ def note(a, ports, cwd):
         deliver.log(dest_inbox, wake.notice(to, note_id, wake.NOTE, path, line, ports.now()))
         status, detail = "noticed", ("待ち受けが渡す" if heard else "ターンの終わりに待ち受けが渡す")
     else:
-        status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
+        status, detail = deliver.send_confirmed(pane, line, ports.term, ports.pause, busy_check(dept, accounts_, ports))
     _log_each([inbox, dest_inbox, dept["attrs"].get("boss-inbox")],
               {"id": note_id, "kind": "note", "ask": a.note, "at": ports.now(), "status": status, "detail": detail, "from": by,
                "to": {"company": company["name"], "name": dept["attrs"].get("name"), "path": dept["path"], "pane": pane,
@@ -1543,8 +1543,8 @@ def deliver_summary(a, ports, cwd):
     else:
         try:
             _, _, sessions_, panes, companies, _, more = survey(a.config, ports)
-        except herdr.HerdrError as e:
-            print(f"止めた: herdr を読めない（{e}）")
+        except term.Error as e:
+            print(f"止めた: {term.NAME} を読めない（{e}）")
             return 1
         notes += more
         sid, entry = deliver.boss_session(attrs, sessions_)
@@ -1580,7 +1580,7 @@ def deliver_summary(a, ports, cwd):
         deliver.log(inbox, wake.notice(to, ask_id, "deliver", path, line, ports.now()))
         status, detail = POSTED, f"{how}。{to} への知らせを台帳に置いた（頼み元の待ち受けが張られたら届く）"
     else:
-        status, detail = deliver.send(pane, line, ports.herdr, ports.pause) if pane else ("failed", how)
+        status, detail = deliver.send(pane, line, ports.term, ports.pause) if pane else ("failed", how)
     deliver.log(inbox, {"id": file_id, "kind": "deliver", "ask": ask_id, "at": ports.now(), "status": status, "detail": detail,
                         "from": {"name": attrs.get("name"), "account": attrs.get("account"), "session": attrs.get("session"),
                                  "branch": branch, "place": cwd},
@@ -1631,7 +1631,7 @@ def in_flight(payload, shells):
     return shells()
 
 
-def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=claudex.background_shells):
+def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=chat.background_shells):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
     納品し終えた後も、ブランチをメインブランチに入れていないか、エフェメラルの部署が終わりの印を打っていなければ差し戻す（stop_after）。
     部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。in_flight）を待っている間は差し戻さない（裏の処理が

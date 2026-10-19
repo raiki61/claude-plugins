@@ -25,7 +25,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import herdr  # noqa: E402
+from ports import chat, term  # noqa: E402
 import jsonio  # noqa: E402
 
 
@@ -40,7 +40,7 @@ def _quote(text, posix):
 BUSY = "作業場のペインの前で、シェルではない物が動いている（打ち込まない。そのペインを空けてから打ち直す）"
 
 
-def start(row, pane, h=herdr, posix=None):
+def start(row, pane, h=term, posix=None):
     """PR の会話を、/catchup の窓を開かない前置き（POSIX のシェルだけ）を付けて起動する。"""
     posix = os.name != "nt" if posix is None else posix
     command = row["account"]["command"]
@@ -54,21 +54,21 @@ def start(row, pane, h=herdr, posix=None):
         h.run(pane, command)
         state = h.wait_ready(pane)
         seen = h.agent(pane)
-    except h.HerdrError as e:
+    except h.Error as e:
         result["detail"] = str(e)
         return result
     if state == "blocked":
         result.update(status="blocked", detail="起動した後に確認の画面で止まっている（フォルダの信頼・ログインなど）。"
                                                "そのペインで答えてから最初の文を送る")
         return result
-    if seen.get("agent") != "claude":
+    if seen.get("agent") != chat.AGENT:
         result["detail"] = f"起動した後のペインに会話が見えない（agent={seen.get('agent')}, status={seen.get('agent_status')}）"
         return result
     result["status"] = "ready"
     return result
 
 
-def start_background(row, pane, name, settings, text, h=herdr, posix=None, pause=lambda: time.sleep(1), model=None, effort=None):
+def start_background(row, pane, name, settings, text, h=term, posix=None, pause=lambda: time.sleep(1), model=None, effort=None):
     """部署の会話を裏で起動する: ペインに名前（row の label）を付け、`<アカウントのコマンド> --bg --name <名前> --settings <ファイル>
     [--model <モデル>] [--effort <段>] <最初の文>` を打ち込み、シェルが前に戻る（--bg は起動してすぐ戻る）のを待つ。{pane, status, detail}。status は
     sent（打ち込んで戻った。会話が在るかは入口が会話の一覧で確かめる）・pane_busy・blocked（確認の画面で止まった）・launch_failed。
@@ -88,7 +88,7 @@ def start_background(row, pane, name, settings, text, h=herdr, posix=None, pause
         if row.get("label"):
             try:
                 h.rename_pane(pane, row["label"])
-            except h.HerdrError as e:
+            except h.Error as e:
                 result["detail"] = f"ペインに名前を付けられなかった（{e}）"
         h.run(pane, command)
         pause()
@@ -98,31 +98,31 @@ def start_background(row, pane, name, settings, text, h=herdr, posix=None, pause
                                                        "そのペインで答えると会話が裏で始まる")
                 return result
             pause()
-    except h.HerdrError as e:
+    except h.Error as e:
         result["detail"] = str(e)
         return result
     result["status"] = "sent"
     return result
 
 
-def attach(row, pane, session_id, h=herdr):
+def attach(row, pane, session_id, h=term):
     """同じペインで `<アカウントのコマンド> attach <id>` を打ち込み、裏の会話の画面をペインに出す。ペインを閉じても会話は続く
     （2026-10-16 に試した）。{pane, status: attached|launch_failed, detail}。"""
     try:
         h.run(pane, f"{row['account']['command']} attach {session_id}")
-    except h.HerdrError as e:
+    except h.Error as e:
         return {"pane": pane, "status": "launch_failed", "detail": str(e)}
     return {"pane": pane, "status": "attached", "detail": None}
 
 
-def end_stale_attach(pane, h=herdr):
+def end_stale_attach(pane, h=term):
     """部署の窓の前に残った attach の画面を、Ctrl+Z でシェルに戻す。裏の処理が止まって会話が落ちた後も、attach は「Waking
     session …」のまま前に残る（Linux で見た。まっさらな環境での 7 回目の試しの 2）。`claude attach --help` は「Ctrl+Z drops back
     to your shell. The session keeps running either way.」と書き、Ctrl-C は attach を終わらせない（Linux の 2.1.301 で、生きた
     attach も止まった attach も確かめた。8 回目の試しの 3）。前に居るのが attach のときだけ送る。送ったら True。"""
     try:
         front = h.foreground(pane)
-    except h.HerdrError:
+    except h.Error:
         return False
     if not any(" attach " in f" {c} " for c in front):
         return False
@@ -134,14 +134,14 @@ def end_stale_attach(pane, h=herdr):
 SHELL_LOOKS = 10
 
 
-def to_shell(pane, h=herdr, pause=lambda: time.sleep(1), looks=SHELL_LOOKS):
+def to_shell(pane, h=term, pause=lambda: time.sleep(1), looks=SHELL_LOOKS):
     """窓の前の attach の画面を終わらせ、シェルが前に戻ったら True。Ctrl+Z の後、Claude Code 2.1.302 はシェルでなく会話の一覧の
     画面（claude agents）を出し、そこで Esc を押すとシェルに戻った（d7d50c。2.1.301 までは Ctrl+Z でシェルに戻った）ので、
     シェルが戻らなければ Esc を 1 回足す。前に attach が居なければ、シェルが居るかだけを返す。"""
     try:
         if h.shell_in_front(pane):
             return True
-    except h.HerdrError:
+    except h.Error:
         return False
     if not end_stale_attach(pane, h):
         return False
@@ -154,12 +154,12 @@ def to_shell(pane, h=herdr, pause=lambda: time.sleep(1), looks=SHELL_LOOKS):
             if not escaped and i >= 1:
                 h.send_keys(pane, "escape")
                 escaped = True
-        except h.HerdrError:
+        except h.Error:
             return False
     return False
 
 
-def start_named(command, pane, name, text, h=herdr, posix=None, settings=None, model=None, effort=None):
+def start_named(command, pane, name, text, h=term, posix=None, settings=None, model=None, effort=None):
     """前の会話（持ち主の前で動く会話。窓口など）を、そのペインのシェルで `<アカウントのコマンド> --name <名前> [--model <値>]
     [--effort <値>] [--settings <ファイル>] <最初の文>` で起動する。settings は役の起動の設定のファイル（role.write_desk_settings）、
     model・effort は役の値（None なら旗を付けない）。{pane, status: ready|pane_busy|blocked|launch_failed, detail}。"""
@@ -174,20 +174,20 @@ def start_named(command, pane, name, text, h=herdr, posix=None, settings=None, m
                     + (f"--settings {_quote(settings, posix)} " if settings else "") + _quote(text, posix))
         state = h.wait_ready(pane)
         seen = h.agent(pane)
-    except h.HerdrError as e:
+    except h.Error as e:
         result["detail"] = str(e)
         return result
     if state == "blocked":
         result.update(status="blocked", detail="起動した後に確認の画面で止まっている（フォルダの信頼・ログインなど）")
         return result
-    if seen.get("agent") != "claude":
+    if seen.get("agent") != chat.AGENT:
         result["detail"] = f"起動した後のペインに会話が見えない（agent={seen.get('agent')}, status={seen.get('agent_status')}）"
         return result
     result["status"] = "ready"
     return result
 
 
-def bring_back(pane, command, h=herdr):
+def bring_back(pane, command, h=term):
     """起動し直せなかったとき、ペインのシェルで command（前の会話へ戻るコマンド。`<コマンド> --resume <id>` か `<コマンド> attach <短い id>`）を
     打ち、会話が戻るのを待つ。戻れば None、ほかは訳。"""
     try:
@@ -196,9 +196,9 @@ def bring_back(pane, command, h=herdr):
         h.run(pane, command)
         state = h.wait_ready(pane)
         seen = h.agent(pane)
-    except h.HerdrError as e:
+    except h.Error as e:
         return str(e)
-    if state == "blocked" or seen.get("agent") != "claude":
+    if state == "blocked" or seen.get("agent") != chat.AGENT:
         return f"打った後に会話が見えない（{state}）"
     return None
 

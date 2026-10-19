@@ -18,7 +18,7 @@ import time
 
 import config
 import gitx
-import herdr
+from ports import term
 import orders
 import health
 from nodes import clean, deliver, role, tools, tree, wake
@@ -42,11 +42,11 @@ def _company_root(target, ports, cwd, config_path):
     if sep and company:
         try:
             *_, companies, _, _ = orders.survey(config_path, ports)
-        except herdr.HerdrError as e:
-            return None, f"herdr を読めないので会社「{company}」を探せない（{e}）"
+        except term.Error as e:
+            return None, f"{term.NAME} を読めないので会社「{company}」を探せない（{e}）"
         hit = [c for c in companies if c["name"] == company or os.path.basename(os.path.normpath(c["root"])) == company]
         if not hit:
-            return None, f"会社「{company}」が herdr に開いていない"
+            return None, f"会社「{company}」が {term.NAME} に開いていない"
         try:
             root = deliver.one_company(hit, company)["root"]
         except deliver.DeliverError as e:
@@ -101,7 +101,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
     try:
         *_, companies, _, _ = orders.survey(a.config, ports)
         target = deliver.find_target(companies, root, f"{company}/{to}")
-    except (herdr.HerdrError, deliver.DeliverError) as e:
+    except (term.Error, deliver.DeliverError) as e:
         return 1, [f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）が、{to} に回せなかった（{e}）"]
     ask, task_name = f"{company}/{to}", tools.auto_name(role_name, tool)
     duty = next((s for s in target["company"].get("skills", []) if s.get("name") == to), None)

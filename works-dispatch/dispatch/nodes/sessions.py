@@ -14,7 +14,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import claudex  # noqa: E402
+from ports import chat  # noqa: E402
 import config  # noqa: E402
 import gitx  # noqa: E402
 import jsonio  # noqa: E402
@@ -42,7 +42,7 @@ def open_keys(rows):
     return {(r["repo"], r["branch"]) for r in rows if r["repo"] and r["branch"]}
 
 
-def gather(cfg, list_sessions=claudex.sessions):
+def gather(cfg, list_sessions=chat.sessions):
     return {a.name: list_sessions(a.config_dir) for a in cfg.accounts}
 
 

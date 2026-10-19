@@ -25,7 +25,7 @@ import os
 
 import config
 import gitx
-import herdr
+from ports import chat, term
 import orders
 from nodes import launch, provision, role, sync, tree, wake
 
@@ -68,17 +68,17 @@ def _resync(a, ports, place, notes):
     """その場所の分だけ、herdr の表示を属性から付け直す（--sync と同じ部品）。出す行の並び。"""
     try:
         _, accounts_, _, _, companies, _, more = orders.survey(a.config, ports)
-        workspaces_ = ports.herdr.workspaces()
-    except herdr.HerdrError as e:
-        return [f"herdr を読めないので表示を付け直せなかった（{e}）。herdr が戻ったら --sync を打つ"]
+        workspaces_ = ports.term.workspaces()
+    except term.Error as e:
+        return [f"{term.NAME} を読めないので表示を付け直せなかった（{e}）。{term.NAME} が戻ったら --sync を打つ"]
     notes += more
     mine = [{**c, "departments": [d for d in c["departments"] if _same(d["path"], place)]} for c in companies]
     ops, why = sync.plan(mine, len(accounts_) > 1)
     ws_ops = sync.workspace_ops(mine, workspaces_)
-    done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr)
+    done = sync.apply_workspaces(ws_ops, ports.term) + sync.apply(ops, ports.term)
     lines = [sync.workspace_line(o) for o in ws_ops] + [f"ペイン {o['pane']}: 名前 {o['label'] or 'そのまま'}" for o in ops]
     out = why + [f"- {line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "") for line, r in zip(lines, done)]
-    return out or ["herdr の表示は付け直す物が無かった"]
+    return out or [f"{term.NAME} の表示は付け直す物が無かった"]
 
 
 def _write(a, ports, place, source, before, changes, notes, head, talk_name=None, after=()):
@@ -100,7 +100,7 @@ def _write(a, ports, place, source, before, changes, notes, head, talk_name=None
     if name and name != before.get("name") and before.get("name"):
         out.append(f"前の名前 {before.get('name')} でも --land・--ask で引ける（ブランチの名前でも引ける）")
     if name and name != talk_name:   # 会話の名前がもうその名前なら勧めない（claude --name 窓口 で起動した窓口など）
-        out.append(f"会話の名前は dispatch からは替えられない（Claude Code に外から会話の名前を替える口が無い）。"
+        out.append(f"会話の名前は dispatch からは替えられない（{chat.NAME} に外から会話の名前を替える口が無い）。"
                    f"揃えるなら、その会話で /rename {name} を打つ")
     print("\n".join(notes + out + list(after)))
     return 0
@@ -172,7 +172,7 @@ def reorg(a, ports, cwd):
     if a.name:
         try:
             _, _, sessions_, _, companies, _, _ = orders.survey(a.config, ports)
-        except herdr.HerdrError:
+        except term.Error:
             sessions_, companies = {}, []   # 名前のぶつかりを確かめられないだけ（属性は書ける）
         talk_name = ports.caller(sessions_)[1]
         clash = _clash(companies, cwd, a.name)
@@ -225,15 +225,15 @@ def desk(a, ports, cwd):
                      f"desk_role = \"<役>\" を書くか、--role で名指す。在る役: {', '.join(shape['roles'])}）")
     try:
         cfg, _, sessions_, _, companies, _, more = orders.survey(a.config, ports)
-    except herdr.HerdrError as e:
-        cfg, sessions_, companies, more = None, {}, [], [f"herdr を読めないので、名前のぶつかりと会話のアカウントを確かめられない（{e}）"]
+    except term.Error as e:
+        cfg, sessions_, companies, more = None, {}, [], [f"{term.NAME} を読めないので、名前のぶつかりと会話のアカウントを確かめられない（{e}）"]
     notes += more
     clash = _clash(companies, cwd, name)
     if clash:
         print("\n".join(notes + [f"止めた: 「{name}」という名前の部署がもう在る（{clash}）。別の名前にする"]))
         return 2
     account, talk_name = ports.caller(sessions_)
-    session = ports.env.get("CLAUDE_CODE_SESSION_ID")
+    session = chat.session_of(ports.env)
     if not account:
         notes.append("このコマンドを打った会話が会話の一覧に見えないので、アカウントと会話の id は今の値のまま"
                      "（窓口の会話の中から打てば書く）")
@@ -241,7 +241,7 @@ def desk(a, ports, cwd):
     if account:
         pid = ports.caller_pid(sessions_)
         held = attrs.get("pid")
-        if not linked and held and held != str(pid) and session != attrs.get("session") and ports.running_claude(held):
+        if not linked and held and held != str(pid) and session != attrs.get("session") and ports.running_chat(held):
             # 窓口の席は 1 つ。窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が席を取ると、納品がそちらに届き、
             # 同じ役の会話が 2 つ動く（53d5d1・6be241）
             print("\n".join(notes + [f"止めた: 窓口 {attrs.get('name') or '-'} の会話（処理 {held}、会話 {attrs.get('session') or '-'}）"
@@ -258,6 +258,6 @@ def desk(a, ports, cwd):
     if former:
         changes["former-names"] = former
     held_by = account or attrs.get("account")
-    command = next((x.command for x in (cfg.accounts if cfg else []) if x.name == held_by), "claude")
+    command = next((x.command for x in (cfg.accounts if cfg else []) if x.name == held_by), chat.COMMAND)
     after = _launch_line(a, ports, source, shape, the_role, name, command)
     return _write(a, ports, cwd, source, attrs, changes, notes, f"窓口 {name}（{source}）を名付ける", talk_name, after)

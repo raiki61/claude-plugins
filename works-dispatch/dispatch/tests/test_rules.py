@@ -1,4 +1,4 @@
-"""設計書のセクション 4 の決まり D1〜D6・D8 のチェック。今の木で緑なことと、わざと破った小さな木で各チェックが誤りを返すことを見る。"""
+"""設計書のセクション 4 の決まり D1〜D6・D8 と、外のツールの口の決まり D9 のチェック。今の木で緑なことと、わざと破った小さな木で各チェックが誤りを返すことを見る。"""
 
 import json
 import pathlib
@@ -111,6 +111,26 @@ class EachFenceCatches(unittest.TestCase):
         self.assertCaught(fences.d8_schemas, {"schemas/a.schema.json": "{not json"})
         self.assertCaught(fences.d8_schemas, {"schemas/a.schema.json": json.dumps({"type": "object"})})
         self.assertEqual(fences.d8_schemas(tree({"schemas/a.schema.json": SCHEMA_OK})), [])
+
+    def test_d9_tool_names_outside_ports(self):
+        for body in ("import herdr\n", "import claudex\n", "from herdr import panes\n", "def run_claude():\n    pass\n",
+                     "C = 'claude'\n", "E = 'CLAUDE_CODE_SESSION_ID'\n", "K = 'transcript_path'\n",
+                     "N = 'SessionStart'\n", "D = '~/.claude'\n", "T = '/clear'\n", "M = 'herdr が断った'\n", "B = '❯ '\n"):
+            with self.subTest(body=body):
+                self.assertCaught(lambda root: fences.d9_tools_behind_ports(root, {}), {"nodes/a.py": body})
+
+    def test_d9_allows_ports_docstrings_and_the_port_names(self):
+        files = {"herdr.py": "NAME = 'herdr'\n", "claudex.py": "COMMAND = 'claude'\n",
+                 "ports.py": "import claudex as chat\nimport herdr as term\n",
+                 "nodes/a.py": '"""herdr の口を通して claude を起動する。"""\nfrom ports import chat, term\n'
+                               'M = f"{term.NAME} が断った"\nC = chat.COMMAND\n'}
+        self.assertEqual(fences.d9_tools_behind_ports(tree(files), {}), [])
+
+    def test_d9_known_count_passes_and_must_follow_a_fix(self):
+        files = {"nodes/a.py": "A = 'claude'\nB = 'herdr'\n"}
+        self.assertEqual(fences.d9_tools_behind_ports(tree(files), {"nodes/a.py": 2}), [])
+        self.assertCaught(lambda root: fences.d9_tools_behind_ports(root, {"nodes/a.py": 1}), files)
+        self.assertCaught(lambda root: fences.d9_tools_behind_ports(root, {"nodes/a.py": 3}), files)
 
     def test_tests_and_vendor_are_not_scanned(self):
         files = {"tests/t.py": "import subprocess\nV = 'raiki61 timeout darkfactory'\n",

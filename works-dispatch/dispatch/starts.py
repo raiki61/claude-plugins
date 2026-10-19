@@ -23,14 +23,14 @@ import time
 
 import filex
 import gitx
-import herdr
+from ports import chat, term
 import orders
 from nodes import deliver, role, start, tree
 
 DISPATCH_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch.py")
 DUE_LOG = "due.log"   # 受付箱の下の、頼みと納品が裏で打った --due の出力の置き場（打つたびに書き足す）
 DUE_LOCK = "due.lock"   # 受付箱の下の、--due が会社ごとに掛ける錠（_due_lock）
-CALLER_ENV = ("CLAUDE_CODE_SESSION_ID", "HERDR_PANE_ID")   # 打った会話の印。裏の --due には渡さない（due_later）
+CALLER_ENV = (chat.SESSION_ENV, term.PANE_ENV)   # 打った会話の印。裏の --due には渡さない（due_later）
 
 
 def _skill(info, name):
@@ -59,7 +59,7 @@ def _boss(report_to, company, companies, ports):
     if sep and where:
         hit = [c for c in companies if c["name"] == where or os.path.basename(os.path.normpath(c["root"])) == where]
         if not hit:
-            return None, f"返す先の会社「{where}」が herdr に開いていない"
+            return None, f"返す先の会社「{where}」が {term.NAME} に開いていない"
         company = hit[0]
     common = ports.git.common_dir(company["root"])
     return {"boss": name, "boss-account": None, "boss-session": None, "boss-pane": None,
@@ -107,7 +107,7 @@ def fire(company, companies, skill, by, ports, a, task, settings):
 
 def _caller(a, ports, cwd, sessions_):
     """--start を打った会話の名前。Claude Code の外（会話の id が無い）は None。"""
-    sid = ports.env.get("CLAUDE_CODE_SESSION_ID")
+    sid = chat.session_of(ports.env)
     if not sid:
         return None
     return a.from_name or orders.place_name(cwd, sid, ports) or ports.caller(sessions_)[1] or "名の無い会話"
@@ -117,8 +117,8 @@ def start_now(a, ports, cwd, task):
     """--start。終了の値（0 起動した・1 起動できなかった・2 使い方の誤りか起動しなかった）。"""
     try:
         _, _, sessions_, _, companies, settings, notes = orders.survey(a.config, ports)
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     where, sep, name = a.start.strip().rpartition("/")
     if sep and where:
@@ -128,7 +128,7 @@ def start_now(a, ports, cwd, task):
         here = gitx.root_of(common) if common else None
         pool = [c for c in companies if here and os.path.realpath(c["root"]) == os.path.realpath(here)]
     if not pool:
-        print("\n".join(notes + [f"止めた: 受け持ち「{a.start}」の会社が herdr に開いていない（「会社/受け持ち」で渡すか、会社の場所から打つ）"]))
+        print("\n".join(notes + [f"止めた: 受け持ち「{a.start}」の会社が {term.NAME} に開いていない（「会社/受け持ち」で渡すか、会社の場所から打つ）"]))
         return 2
     try:
         company = deliver.one_company(pool, where or pool[0]["name"])
@@ -171,8 +171,8 @@ def due_all(a, ports, task):
     """--due。周期の来た受け持ちを全部起動する。終了の値（0 起動できなかった物が無い・1 1 つでも起動できなかった）。"""
     try:
         _, _, _, _, companies, settings, notes = orders.survey(a.config, ports)
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     lines, worst, now = list(notes), 0, ports.now()
     for company in companies:

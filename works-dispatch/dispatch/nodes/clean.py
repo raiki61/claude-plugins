@@ -48,7 +48,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import filex  # noqa: E402
 import gitx  # noqa: E402
-import herdr  # noqa: E402
+from ports import chat, term  # noqa: E402
 
 FINISHED = ("MERGED", "CLOSED")
 
@@ -117,7 +117,7 @@ def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha, so
     return rows
 
 
-def release(source, path, h=herdr):
+def release(source, path, h=term):
     """その場所の worktree の作業場（herdr がその場所に返す open_workspace_id）を閉じる（checkout は残す）。
     送り直す前に古い作業場を畳むのに使う。{status, workspace, detail}。status は closed・none（開いていない）・close_failed。
     閉じる前に、その作業場の全部のペインの前がシェルかを確かめ、シェルでない物（会話・エディタ・dev server）が居れば閉じない。
@@ -135,7 +135,7 @@ def release(source, path, h=herdr):
             out["detail"] = f"作業場 {ws} のペイン {', '.join(busy)} の前でシェルでない物が動いている（閉じない）"
             return out
         h.close_workspace(ws)
-    except h.HerdrError as e:
+    except h.Error as e:
         out["detail"] = str(e)
         return out
     out["status"] = "closed"
@@ -311,7 +311,7 @@ def _copy_over(src, dest):
                 shutil.copy2(s, d)
 
 
-def retire(row, source, label, h=herdr, g=gitx, c=None, env=None):
+def retire(row, source, label, h=term, g=gitx, c=None, env=None):
     """部署の 1 行を消す: 会話が一覧に在れば c.remove_session（claude rm）で消し、続けて remove で場所と窓と手元のブランチを消す。
     env は claude を呼ぶ環境で、config_dir を書かないアカウントの置き場をこの環境の CLAUDE_CONFIG_DIR で決める。打った会話の
     環境のままにせず、会話の一覧を読んだのと同じ環境を渡す（2026-10-17 に p2 の会話から打った --clean --apply が、main の会話を
@@ -329,20 +329,20 @@ def retire(row, source, label, h=herdr, g=gitx, c=None, env=None):
         ok, said = c.remove_session(row["config_dir"], row["session"], base_env=env)
         if not ok:
             return {"path": row["path"], "branch": row["branch"], "removed": False, "branch_deleted": False,
-                    "detail": f"claude rm が断った（{said}）"}
+                    "detail": f"{chat.REMOVE_COMMAND} が断った（{said}）"}
     out = remove(row, source, label, h, g)
     if note:
         out["detail"] = f"{note}。{out['detail']}" if out["detail"] else note
     return out
 
 
-def remove(row, source, label, h=herdr, g=gitx):
+def remove(row, source, label, h=term, g=gitx):
     """候補の 1 行の場所を消し、手元のブランチも消す。{path, branch, removed, branch_deleted, detail}。"""
     path = row["path"]
     out = {"path": path, "branch": row["branch"], "removed": False, "branch_deleted": False, "detail": None}
     try:
         h.remove_worktree(source, path, label)
-    except (h.HerdrError, OSError) as e:
+    except (h.Error, OSError) as e:
         out["detail"] = str(e)
     out["removed"] = not os.path.exists(path) and all(not _same(p.get("path"), path) for p in _safe_list(h, source))
     if not out["removed"]:
@@ -360,7 +360,7 @@ def remove(row, source, label, h=herdr, g=gitx):
 def _safe_list(h, source):
     try:
         return h.worktrees(source)
-    except h.HerdrError:
+    except h.Error:
         return []
 
 

@@ -8,6 +8,7 @@ import unittest
 from . import DISPATCH  # noqa: F401
 import activity  # noqa: E402
 import herdr  # noqa: E402
+import windows  # noqa: E402
 
 
 class Label(unittest.TestCase):
@@ -42,7 +43,7 @@ class Handle(unittest.TestCase):
 
     def find(self, cwd, sid):
         self.looked.append(sid)
-        return herdr.own_pane(cwd, sid, self.panes)
+        return windows.own_pane(cwd, sid, self.panes)
 
     def handle(self, payload, env=None):
         activity.handle(json.dumps({"session_id": "s1", "cwd": "/a", **payload}), self.env if env is None else env,

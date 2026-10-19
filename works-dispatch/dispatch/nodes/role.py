@@ -56,6 +56,7 @@ import shlex
 import tomllib
 
 import gitx
+from ports import chat
 
 # 役の effort に書ける値（CLI の文書の --effort の Options）と、頼み元と同じ値で起動する印
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultracode")
@@ -67,7 +68,7 @@ FRESH = "true"
 DEFAULT = "作業"
 
 # 部署を起動するときに必ず効かせる設定の鍵。役の設定より強い（裏の会話が自分で worktree を作らず、先に作った作業場で働くため）
-FIXED = {"worktree": {"bgIsolation": "none"}}
+FIXED = chat.FIXED_SETTINGS
 
 
 # 部署の席の種類のキー（機械が比べ・並べる値）と、人に見せる語（herdr の作業場の印 kind と --tree に役の後ろへ添える字）。
@@ -344,11 +345,11 @@ def launch_flags(role, env, duty=None):
     model, effort = launch_spec(role, duty)
     if effort != INHERIT:
         return model, effort, None
-    if env.get("CLAUDE_EFFORT"):
-        return model, env["CLAUDE_EFFORT"], None
+    if chat.effort_of(env):
+        return model, chat.effort_of(env), None
     who = f"部署 {duty['name']}" if duty.get("effort") else f"役 {role['name']}"
-    return model, None, (f"{who} の effort は inherit だが、呼んだ会話の effort が分からない（CLAUDE_EFFORT が無い。"
-                         f"Claude Code の外から打ったか、頼み元のモデルが effort を持たない）ので、アカウントの既定の effort で起動する")
+    return model, None, (f"{who} の effort は inherit だが、呼んだ会話の effort が分からない（{chat.EFFORT_ENV} が無い。"
+                         f"{chat.NAME} の外から打ったか、頼み元のモデルが effort を持たない）ので、アカウントの既定の effort で起動する")
 
 
 def _merge(base, top):

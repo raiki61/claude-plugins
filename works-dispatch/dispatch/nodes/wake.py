@@ -29,7 +29,7 @@ import os
 import time
 import uuid
 
-import claudex
+from ports import chat
 import filex
 
 WAKE_DIR = "wake"   # 受付箱の下の、待ち受けの印と読んだ所の置き場
@@ -191,7 +191,7 @@ def watching(inbox, place, now=None, posix=os.name != "nt"):
         return False
     if not posix:
         return alive({**got, "_mtime": mtime}, now, posix)
-    return alive({"owner": got.get("pid"), "since": got.get("since")}, now, posix, claudex.start_times())
+    return alive({"owner": got.get("pid"), "since": got.get("since")}, now, posix, chat.start_times())
 
 
 def stalled(inbox, place, attrs, now=None, posix=os.name != "nt"):
@@ -253,7 +253,7 @@ def _living(inbox, now, posix, starts=None):
     except OSError:
         return
     if posix and starts is None:
-        starts = claudex.start_times()
+        starts = chat.start_times()
     for n in names:
         if not n.endswith(".json"):
             continue

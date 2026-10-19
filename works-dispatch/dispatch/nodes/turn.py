@@ -28,7 +28,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import herdr  # noqa: E402
+from ports import chat, term  # noqa: E402
 import jsonio  # noqa: E402
 
 FINISHED = ("idle", "done")
@@ -38,11 +38,11 @@ POLL_S = 5                         # 1 ターン目の終わりを Claude Code �
 CLOSE_TRIES, CLOSE_PAUSE_S = 30, 1  # /exit の後にシェルが前に戻るのを見る回数と間
 
 
-def send(pane, text, wait, h=herdr, until=()):
+def send(pane, text, wait, h=term, until=()):
     try:
         status = h.prompt(pane, text, wait, until=until) if until else h.prompt(pane, text, wait)
         return {"pane": pane, "status": status, "detail": None}
-    except h.HerdrError as e:
+    except h.Error as e:
         return {"pane": pane, "status": "failed", "detail": str(e)}
 
 
@@ -73,7 +73,7 @@ def _turn_end(pane, h, state, pause):
         pause()
 
 
-def catchup_then_second(number, pane, second, h=herdr, *, catchup, state=None, pause=lambda: time.sleep(POLL_S)):
+def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pause=lambda: time.sleep(POLL_S)):
     """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。
     catchup は送るコマンドの名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。
     state() は、その会話の状態を Claude Code 自身に問う口（idle・busy・None）。None を渡すと、終わりも herdr の見立てで待つ。"""
@@ -91,14 +91,14 @@ def catchup_then_second(number, pane, second, h=herdr, *, catchup, state=None, p
     return "sent" if second_result["status"] == "sent" else "send_failed"
 
 
-def close_session(pane, h=herdr, tries=CLOSE_TRIES, pause=lambda: time.sleep(CLOSE_PAUSE_S)):
+def close_session(pane, h=term, tries=CLOSE_TRIES, pause=lambda: time.sleep(CLOSE_PAUSE_S)):
     """会話を終えて、ペインの前をシェルに戻す。closed・close_failed のどちらか。前がもうシェルなら何も送らない。"""
     try:
         if h.shell_in_front(pane):
             return "closed"
-        h.prompt(pane, "/exit", False)
+        h.prompt(pane, chat.EXIT, False)
         return "closed" if _until(lambda: h.shell_in_front(pane), tries, pause) else "close_failed"
-    except h.HerdrError:
+    except h.Error:
         return "close_failed"
 
 

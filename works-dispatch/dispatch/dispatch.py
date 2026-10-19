@@ -63,21 +63,18 @@ import json
 import os
 import pathlib
 import re
-import shlex
-import shutil
-import subprocess
 import sys
 import tempfile
 import time
 import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import claudex  # noqa: E402
+from ports import chat, term  # noqa: E402
+import wiring  # noqa: E402
+from wiring import Ports  # noqa: E402,F401  口の束は wiring が組み立てる（試験と shape_hook は dispatch.Ports で取る）
 import config  # noqa: E402
-import filex  # noqa: E402
 import ghx  # noqa: E402
 import gitx  # noqa: E402
-import herdr  # noqa: E402
 import installed  # noqa: E402
 import jsonio  # noqa: E402
 import calls  # noqa: E402
@@ -86,9 +83,7 @@ import move  # noqa: E402
 import retire  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
-import limits_entry  # noqa: E402
 import tierx  # noqa: E402
-import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, deliver, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
 import starts  # noqa: E402
@@ -99,470 +94,7 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 
-# 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）。PR を開く道が使う物。
-# pane.process_info はコマンドを打つ前にペインの前がシェルかを見る口（herdr pane process-info）
-HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "pane.process_info", "workspace.list",
-                 "workspace.close", "worktree.list", "worktree.create", "worktree.open", "worktree.remove"}
-# 部署（--task・--ask・--sync）にだけ要るメソッド（ペインと作業場に名前と札を付ける・画面を読む・入力フィールドに残った字に Enter を足し、
-# 止まった attach を Ctrl+Z で戻す）
-TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read", "pane.send_keys", "workspace.rename"}
 DEFAULT_ROLE = role.DEFAULT   # --role を渡さず、会社の形に default_role も無いときの役
-
-
-def _posix_shell(env, posix=None):
-    """作業場のペインと同じログインのシェル。POSIX のシェルの無い所（Windows の native の herdr）では None。"""
-    if not (os.name != "nt" if posix is None else posix):
-        return None
-    return env.get("SHELL") or "/bin/sh"
-
-
-def _shell_has(cmd, env=os.environ, runner=subprocess.run, which=shutil.which, posix=None):
-    """作業場と同じ種類のシェル（利用者のログインかつ対話のシェル。-lic）で、そのコマンドが見つかるか。シェルの関数も数える。
-    POSIX のシェルが無ければ、PATH の上で探す。"""
-    shell = _posix_shell(env, posix)
-    if shell is None:
-        return which(cmd) is not None
-    p = runner([shell, "-lic", f"command -v {shlex.quote(cmd)}"], capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return p.returncode == 0
-
-
-# タブバーの行とサイドバーのフックが指す、このプラグインのスクリプト。プラグインを更新すると、入った場所（版ごとのフォルダ）が変わる
-PLUGIN_SCRIPT = re.compile(r"""[^\s"'=]+[/\\]dispatch[/\\](?:limits|activity)\.py""")
-ENTRY_SCRIPT = re.compile(r"""[^\s"'=]+[/\\](?:limits-entry\.py|run-python\.sh)""")   # limits_dir に写した版に依らない入口
-
-
-def gone_plugin_paths(texts, installed=None):
-    """設定の文字列のなかの、このプラグインのスクリプトを指すパスのうち、使えないもの（重なりは 1 つ）の (パス, 訳) の並び。
-    使えないのは、もう無い・版のフォルダに .orphaned_at が付いた（前の版。Claude Code が 14 日で消す）・installed（今入っている
-    場所の並び）を渡したとき、版の置き場（plugins/cache/ の下）に在ってそのどれでもない、の 3 つ。"""
-    found, seen = [], set()
-    roots = {os.path.normcase(os.path.realpath(x)) for x in installed or ()}
-    for text in texts:
-        for m in PLUGIN_SCRIPT.findall(text):
-            path = os.path.expanduser(m)
-            if path in seen:
-                continue
-            seen.add(path)
-            version = pathlib.Path(path).parent.parent
-            if not os.path.isfile(path):
-                found.append((path, "もう無い"))
-            elif (version / limits_entry.ORPHANED).exists():
-                found.append((path, f"前の版（{limits_entry.ORPHANED} が付き、Claude Code が消す）"))
-            elif roots and version.parent.parent.parent.name == "cache" and os.path.normcase(os.path.realpath(version)) not in roots:
-                found.append((path, "今入っていない版"))
-    return found
-
-
-def herdr_config_path(env):
-    home = env.get("HOME") or os.path.expanduser("~")
-    return pathlib.Path(env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")) / "herdr" / "config.toml"
-
-
-def plugin_notes(herdr_toml, config_dirs, limits_dir=None):
-    """herdr の設定とアカウントの settings.json が、使えない版のこのプラグインを指していれば、その注記の並び。入れた物の控えが
-    消えた置き場を指していれば、それも足す。設定が指す写した入口（limits-entry.py・run-python.sh）が無ければ、それも足す。limits_dir に写した
-    タブバーの入口（limits.py herdr-config）が今の版とずれていれば、それも足す。--check と --tree が出す。"""
-    files = [herdr_toml] + [pathlib.Path(d) / "settings.json" for d in config_dirs]
-    installed = [x for d in config_dirs for x in limits_entry.install_paths(os.path.expanduser(d))]
-    texts = [s for f in files for s in setting_strings(f)]
-    notes = [f"herdr の設定かフックが、使えない版のスクリプトを指している: {path}（{why}。プラグインの更新で場所が変わった。"
-             "skills/dispatch/references/setup.md の「任意: herdr の見た目を整える」で行を出し直す）"
-             for path, why in gone_plugin_paths(texts, installed)]
-    lost = sorted({os.path.expanduser(m) for t in texts for m in ENTRY_SCRIPT.findall(t)} - {""})
-    notes += [f"herdr の設定が指すタブバーの入口 {p} が無い（消された。limits.py herdr-config を打ち直すと写し直す）"
-              for p in lost if not os.path.isfile(p)]
-    for d in config_dirs:
-        gone = limits_entry.gone_installs(os.path.expanduser(d))
-        if gone:
-            notes.append(f"{d} の入れたプラグインの控え（plugins/installed_plugins.json）が、消えた置き場を指している: "
-                         + "、".join(f"{n}（{s}）" for n, s, _ in gone)
-                         + "（どの項目が効くかが分からない。要らなければ CLAUDE_CONFIG_DIR を合わせて claude plugin uninstall <名前> --scope <範囲> を、"
-                           "project の範囲はそのフォルダで打つ。tiers --config-dir でも見られる）")
-    drift = limits.entry_drift(limits_dir) if limits_dir else []
-    if drift:
-        notes.append(f"{limits_dir} に写したタブバーの入口（{'・'.join(drift)}）が今の版と違う（limits.py herdr-config を打ち直す）")
-    return notes
-
-
-def _leaves(value):
-    if isinstance(value, dict):
-        value = list(value.values())
-    if isinstance(value, list):
-        return [s for v in value for s in _leaves(v)]
-    return [value] if isinstance(value, str) else []
-
-
-def setting_strings(path):
-    """設定のファイル（.json か .toml）の中の文字列を、書くときのエスケープ（\\ など）を解いて返す。
-    その形で読めなければ中身をそのまま 1 つ、ファイルが無ければ空。"""
-    try:
-        text = pathlib.Path(path).read_text(encoding="utf-8")
-    except OSError:
-        return []
-    try:
-        return _leaves(json.loads(text) if str(path).endswith(".json") else tomllib.loads(text))
-    except ValueError:
-        return [text]
-
-
-# herdr の設定に足す作業場の行（$kind に部署の席の見え方を出す。herdr の既定の行〔state_icon・workspace と branch・git_status〕に足した形）
-SPACES_ROWS = ('[ui.sidebar.spaces]\n'
-               'rows = [\n'
-               '  ["state_icon", "workspace", { token = "$kind" }],\n'
-               '  ["branch", "git_status"],\n'
-               ']')
-
-
-def spaces_show_kind(path):
-    """herdr の設定（config.toml）の作業場の行（[ui.sidebar.spaces] の rows）に $kind が在るか。字のまま（"$kind"）でも
-    表（{ token = "$kind" }）でもよい。ファイルが無い・読めないときも無いとする。"""
-    try:
-        rows = tomllib.loads(pathlib.Path(path).read_text(encoding="utf-8"))["ui"]["sidebar"]["spaces"]["rows"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return False
-    cells = [c for row in rows if isinstance(row, list) for c in row] if isinstance(rows, list) else []
-    return any((c.get("token") if isinstance(c, dict) else c) == "$kind" for c in cells)
-
-
-MARK = "@@CLAUDE_CONFIG_DIR="
-COST_FILE = "dispatch-cost.json"  # 1 件あたりの使用率の測り（cost ノード）。使用率の控えと同じ置き場
-SENT_FILE = "dispatch-sent.json"  # PR ごとに最後に /catchup を送った時刻と、その時の場所の head（送り直しの判断。fresh ノード）
-
-
-def _login_config_dir(env=os.environ, runner=subprocess.run, posix=None):
-    """作業場のペインで新しく起きるログインのシェルが持つ CLAUDE_CONFIG_DIR（無ければ None）。
-
-    config_dir を書かないアカウントは、ペインのシェルで素のまま起きる。dispatch を走らせている会話の CLAUDE_CONFIG_DIR は
-    その会話のアカウントのもので、ペインのものではないので、渡さずにシェルを起動し、シェルの設定が入れる値だけを読む。
-    シェルが起動のときに出す挨拶などと混ざらないよう、印で挟んだ所だけを読む。
-    POSIX のシェルが無い所（Windows）では、ペインのシェルの値を外から読む手が無いので、既定のフォルダ（None）とする。
-    """
-    shell = _posix_shell(env, posix)
-    if shell is None:
-        return None
-    child = {k: v for k, v in env.items() if k != "CLAUDE_CONFIG_DIR"}
-    p = runner([shell, "-lic", f'printf "\\n{MARK}%s@@\\n" "${{CLAUDE_CONFIG_DIR-}}"'], capture_output=True, text=True, encoding="utf-8", errors="replace", env=child)
-    for line in (p.stdout or "").splitlines():
-        if line.startswith(MARK) and line.endswith("@@"):
-            return line[len(MARK):-2] or None
-    return None
-
-
-def env_command(name, value, command, windows=None):
-    """環境変数を 1 つ入れてコマンドを打つ 1 行。Windows（の PowerShell）は `名前=値 コマンド` の形を打てないので、`$env:名前` に入れてから打つ
-    形にする（入れた値はその PowerShell の窓に残る）。"""
-    if os.name == "nt" if windows is None else windows:
-        return f"$env:{name}='{value}'; {command}"
-    return f"{name}={shlex.quote(str(value))} {command}"
-
-
-# 会話から切り離してコマンドを走らせ、出力を書き足す殻（POSIX。nodes/wake.py の DETACH の、終わりの値を書かず出力を書き足す形）
-APPEND_DETACH = 'log=$1; shift; ( "$@" >>"$log" 2>&1 </dev/null ) &'
-
-
-class Ports:
-    """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
-
-    def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None, gh_env=None, herdr_integration=None,
-                 login_config_dir=None, worktrees=None, task_flags=None, tier_check=None):
-        self._herdr_methods = herdr_methods or herdr.methods
-        self._task_flags = task_flags or claudex.missing_flags
-        self._tier_check = tier_check or (lambda launchers: tierx.check(launchers, env=self.env))
-        self._herdr_integration = herdr_integration or (lambda cdir: herdr.claude_integration(cdir, dict(self.env)))
-        self._login_config_dir = login_config_dir or (lambda: _login_config_dir(self.env))
-        self._account_env = None
-        self._shell_has = shell_has or _shell_has
-        self._gh_ok = gh_ok or ghx.can_read
-        self.env = os.environ if env is None else env
-        self._gh_env = gh_env
-        self._gh_envs = {}
-        self._worktrees = worktrees
-        self.herdr = herdr
-        self.git = gitx
-        self.gh = ghx
-
-    @property
-    def account_env(self):
-        """アカウントの設定のフォルダを決めるための環境。CLAUDE_CONFIG_DIR だけを、ペインの新しいログインのシェルの値に替える（_login_config_dir）。"""
-        if self._account_env is None:
-            env = {k: v for k, v in self.env.items() if k != "CLAUDE_CONFIG_DIR"}
-            found = self._login_config_dir()
-            if found:
-                env["CLAUDE_CONFIG_DIR"] = os.path.expanduser(found)
-            self._account_env = env
-        return self._account_env
-
-    def gh_env(self, repo):
-        """そのリポジトリで gh を呼ぶ子の環境。gh_user が無ければ None（このプロセスの環境のまま）。鍵はアカウントごとに 1 度だけ取り出す。"""
-        if self._gh_env:
-            return self._gh_env(repo)
-        if not repo.gh_user:
-            return None
-        if repo.gh_user not in self._gh_envs:
-            self._gh_envs[repo.gh_user] = ghx.env_for(repo.gh_user, dict(self.env))
-        return self._gh_envs[repo.gh_user]
-
-    def preflight(self, cfg, task=False):
-        """始める前の確かめ。(足りない物, 注記)。task はサブエージェント（--task）の回で、/catchup と 2 ターン目の文を見ない代わりに、
-        サブエージェントに要る物（ペインの名前・会話の名前）を足りない物にする。ほかの回では、それらは注記にとどめる。"""
-        problems, notes = [], []
-        task_only = problems if task else notes
-        try:
-            have = self._herdr_methods()
-            missing = HERDR_METHODS - have
-            if missing:
-                problems.append(f"手元の herdr の API に {', '.join(sorted(missing))} が無い（herdr の版を確かめる）")
-            if TASK_HERDR_METHODS - have:
-                task_only.append(f"手元の herdr の API に {', '.join(sorted(TASK_HERDR_METHODS - have))} が無い"
-                                 "（部署（--task）のペインに名前と札を付けられない。herdr を新しくする）")
-        except (herdr.HerdrError, OSError, ValueError) as e:
-            problems.append(f"herdr に届かない: {e}")
-        missing_flags = self._task_flags()
-        if missing_flags:
-            task_only.append(f"PATH の claude が {', '.join(missing_flags)} を持たない（部署（--task）は、名前を付けた裏の会話として、"
-                             "その会話にだけ効く設定を渡して起動する。Claude Code を新しくする）")
-        for repo in cfg.repos:
-            if not task and not (repo.second_prompt or "").strip():
-                problems.append(f"{repo.repo}: 2 ターン目の文が空（設定の [[repos]] の second_prompt_file に書いたファイルに、送る文を書く）")
-        for a in cfg.accounts:
-            if not self._shell_has(a.command):
-                problems.append(f"アカウント {a.name} の起動のコマンド {a.command} がシェルで見つからない")
-            cdir = config.effective_config_dir(a, self.account_env)
-            try:
-                state = self._herdr_integration(cdir)
-            except (herdr.HerdrError, OSError) as e:
-                state = f"読めない（{e}）"
-            if not state.startswith("current"):
-                notes.append(f"アカウント {a.name} に herdr の連携が入っていない: {state}（作業中の判定は無くても動く。"
-                             f"herdr を立ち上げ直したときに会話を戻すのに要る。入れる: {env_command('CLAUDE_CONFIG_DIR', cdir, 'herdr integration install claude')}）")
-            found = claudex.catchup_commands(cdir)
-            if not task and len(found) != 1:
-                problems.append(f"アカウント {a.name}（{cdir}）で /catchup のコマンドが 1 つに決まらない"
-                                f"（skills/catchup/SKILL.md か commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
-            if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
-                notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
-        notes += limits.problems(cfg.accounts, cfg.limits_dir, time.time())
-        # 信頼はアカウントをまたいで広げる（Ports.trust）ので、知らせるのはどのアカウントも信頼していない元の clone だけ
-        for repo in cfg.repos:
-            if not any(claudex.is_trusted(claudex.trust_file(a.config_dir, self.account_env), repo.source) for a in cfg.accounts):
-                notes.append(f"どのアカウントも {repo.source} を信頼していない（ブランチごとの作業場で毎回フォルダの信頼の確認が出る。"
-                             f"どれか 1 つのアカウントで一度 {repo.source} に Claude Code を起動し、信頼すると、ほかのアカウントにも広げて出なくなる）")
-        herdr_toml = herdr_config_path(self.env)
-        if not spaces_show_kind(herdr_toml):
-            task_only.append(f"herdr の設定 {herdr_toml} の作業場の行（[ui.sidebar.spaces] の rows）に $kind が無い（部署の作業場の行に、"
-                             "永続・毎回クリア／永続・引き継ぎ／エフェメラルの印が出ない）。rows のどこかに { token = \"$kind\" } を置く。"
-                             f"[ui.sidebar.spaces] が無ければ、次を足して herdr server reload-config を打つ:\n{SPACES_ROWS}")
-        notes += plugin_notes(herdr_toml, [config.effective_config_dir(a, self.account_env) for a in cfg.accounts], cfg.limits_dir)
-        for repo in cfg.repos:
-            if gitx.origin_repo(repo.source) != repo.repo:
-                problems.append(f"{repo.repo}: 元の clone {repo.source} が、このリポジトリの clone でない")
-            elif not gitx.is_main_worktree(repo.source):
-                problems.append(f"{repo.repo}: 元の clone {repo.source} が linked worktree で、本体の checkout でない"
-                                "（git rev-parse の git-dir と git-common-dir が違う。source には本体の clone を書く）")
-            else:
-                try:
-                    self.places(repo)
-                except (herdr.HerdrError, OSError) as e:
-                    problems.append(f"{repo.repo}: herdr が元の clone {repo.source} の worktree を並べられない（{e}）")
-            for rel in repo.copy_files:
-                if not os.path.isfile(os.path.join(config.copy_root(repo), rel)):
-                    notes.append(f"{repo.repo}: 写すファイルが {config.copy_root(repo)} に無い: {rel}")
-        for repo in cfg.repos:
-            try:
-                env = self.gh_env(repo)
-            except ghx.GhError as e:
-                problems.append(f"{repo.repo}: {e}" + ("。部署の会話に渡す gh のアカウント（会社の形か設定の gh_user）の鍵が要る。"
-                                                       "鍵を GH_TOKEN で渡しているなら gh_user を書かない" if task else ""))
-                continue
-            if task:
-                continue   # 部署の回は GitHub を読まない（メインブランチの名前は手元の origin/HEAD から。手元の bare リポジトリでも立つ）
-            if not self._gh_ok(repo.repo, env=env):
-                problems.append(f"gh が {repo.repo} を読めない。whose-turn が自分の番の PR を集められない"
-                                "（gh auth status で、このリポジトリを読めるアカウントが有効かを確かめる）")
-        return problems, notes
-
-    def tiers(self, launchers):
-        """要るツールの段の点検（tiers プラグイン）の結果。部品が無ければ tierx.TierError。"""
-        return self._tier_check(launchers)
-
-    def fetch_prs(self, repo):
-        """(自分の番の PR の並び, whose-turn の limited の番号の集合)。"""
-        return prs.read(repo.repo, env=self.gh_env(repo))
-
-    def list_sessions(self, config_dir, include_done=False):
-        return claudex.sessions(config_dir, base_env=self.account_env, include_done=include_done)
-
-    def pause(self):
-        """部署の裏の会話を打ち込んだ後に、シェルが前に戻るのを見る間。"""
-        time.sleep(1)
-
-    def department_settings(self):
-        """部署の裏の会話にだけ効かせる設定のファイル（--settings。worktree.bgIsolation を none にし、先に作った作業場で働かせる）。"""
-        return str(pathlib.Path(__file__).resolve().parent / "templates" / "department-settings.json")
-
-    def branch(self, cwd):
-        return gitx.branch(cwd)
-
-    def origin(self, cwd):
-        return gitx.origin_repo(cwd)
-
-    def is_clean(self, cwd):
-        return gitx.is_clean(cwd)
-
-    def unpushed(self, cwd):
-        return gitx.unpushed(cwd)
-
-    def pr_info(self, repo, number):
-        return ghx.pr_info(repo.repo, number, env=self.gh_env(repo))
-
-    def places(self, repo):
-        """元の clone の worktree の並び（herdr アダプタの worktrees。元の clone 自身も linked=False で入る）。"""
-        if self._worktrees:
-            return self._worktrees(repo.source)
-        return self.herdr.worktrees(repo.source)
-
-    def stashed(self, cwd, branch):
-        return gitx.stashed(cwd, branch)
-
-    def head_sha(self, cwd):
-        return gitx.head_sha(cwd)
-
-    def pr_for_branch(self, repo, branch):
-        """そのブランチの PR（{number, state, head_sha}・None）。読めなければ clean.Unknown（片付けは消さない側に倒す）。"""
-        try:
-            return ghx.pr_for_branch(repo.repo, branch, env=self.gh_env(repo))
-        except ghx.GhError as e:
-            raise clean.Unknown(str(e))
-
-    def issue_info(self, repo, number):
-        return ghx.issue_info(repo.repo, number, env=self.gh_env(repo))
-
-    def issue_branches(self, repo, number):
-        return ghx.issue_branches(repo.repo, number, env=self.gh_env(repo))
-
-    def default_branch(self, repo):
-        """メインブランチの名前。GitHub に問わず、代表の clone の手元の origin/HEAD（無ければ origin に問う）から取る（gitx.default_branch。
-        部署の回を手元の bare リポジトリでも動かすため）。読めなければ gitx.GitError。"""
-        return gitx.default_branch(repo.source)
-
-    def read_limits(self, limits_dir, names):
-        return accounts.read_limits(limits_dir, names)
-
-    def refresh_limits(self, cfg, names, force=True):
-        """名指したアカウントの使用率を API に問い合わせて取り直す（出力 0 トークン。失敗は probe.log）。
-        force は控えの古さに依らず全部。偽なら、古いアカウントだけ（limits.py の probe と同じ）。"""
-        limits.probe_all([a for a in cfg.accounts if a.name in names], cfg.limits_dir, self.env, self.now(), force=force)
-
-    def load_cost(self, limits_dir):
-        return cost.load(pathlib.Path(limits_dir) / COST_FILE)
-
-    def save_cost(self, limits_dir, samples):
-        cost.save(pathlib.Path(limits_dir) / COST_FILE, samples)
-
-    def catchup_command(self, config_dir):
-        """そのアカウントで送る catchup のコマンドの名前。始める前の確かめで 1 つに決まることを見てある。"""
-        cdir = config.effective_config_dir(config.Account("", "", config_dir), self.account_env)
-        found = claudex.catchup_commands(cdir)
-        return found[0] if len(found) == 1 else None
-
-    def open_pages(self, repo, numbers):
-        """送り終えた PR の /catchup のページのうち書かれているものを、VS Code の窓にタブで開く（vscode.open_pages）。"""
-        return vscode.open_pages([p for p in (vscode.page_path(repo.repo, n) for n in numbers) if p.is_file()], self.env)
-
-    def trusted(self, account, folder):
-        """そのアカウントがフォルダを信頼済みか（claudex.is_trusted）。"""
-        return claudex.is_trusted(claudex.trust_file(account.get("config_dir"), self.account_env), folder)
-
-    def caller(self, listed):
-        """このコマンドを走らせている会話の (アカウントの名, 会話の名前)。Claude Code の中から走っていなければ (None, None)。"""
-        return claudex.caller(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), claudex.ancestors())
-
-    def caller_pid(self, listed):
-        """このコマンドを走らせている会話の処理（Claude Code）の番号。一覧に見えなければ None。"""
-        return claudex.caller_pid(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), claudex.ancestors())
-
-    def stop_session(self, config_dir, job):
-        """そのアカウントの裏の会話を止める（--move が起動し直す前に）。(止まったか, claude の言葉)。"""
-        return claudex.stop_session(config_dir, job, base_env=self.account_env)
-
-    def same_process(self, pid):
-        """その番号の処理が、このコマンドを走らせている処理の親をたどった中に在るか（claudex.in_process）。"""
-        return claudex.in_process(pid)
-
-    def running_claude(self, pid):
-        """その番号の処理が今動いている Claude Code か（--desk が、窓口の席に座っている会話が動いているかを見る）。"""
-        return claudex.running_claude(pid)
-
-    def trust(self, account, source, clone, others=()):
-        """元の clone をこのアカウントかほかのアカウント（others。設定の accounts）のどれかが信頼済みなら、ブランチの場所（worktree）にも
-        信頼の印を付ける（claudex.inherit_trust）。"""
-        return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone,
-                                     [claudex.trust_file(o.config_dir, self.account_env) for o in others])
-
-    def activity(self, repo, number):
-        """PR の動き（ghx.pr_activity）。自分のログイン名は 1 度だけ問い合わせる。"""
-        env = self.gh_env(repo)
-        if not hasattr(self, "_me"):
-            self._me = ghx.login(env=env)
-        return ghx.pr_activity(repo.repo, number, self._me, env=env)
-
-    def load_sent(self, limits_dir):
-        """前に送った時刻の控え {PR の鍵: 時刻}。ファイルが無ければ空。読めない・表でなければ ValueError（空として読んで
-        save_sent が上書きすると、前に送った時刻が全部消える）。"""
-        path = pathlib.Path(limits_dir) / SENT_FILE
-        try:
-            got = jsonio_load(path)
-        except FileNotFoundError:
-            return {}
-        except (OSError, ValueError) as e:
-            raise ValueError(f"前に送った時刻の控え {path} が読めない（{e}）") from e
-        if not isinstance(got, dict):
-            raise ValueError(f"前に送った時刻の控え {path} が JSON の表でない（{type(got).__name__}）")
-        return got
-
-    def save_sent(self, limits_dir, sent):
-        filex.replace(pathlib.Path(limits_dir) / SENT_FILE, json.dumps(sent, ensure_ascii=False, indent=1, sort_keys=True))
-
-    def state(self, config_dir, path):
-        """そのフォルダの中の会話の状態を Claude Code 自身に問う（claude agents --json の status。idle・busy など）。
-        会話が見えない・読めなければ None。"""
-        try:
-            items = self.list_sessions(config_dir)
-        except claudex.ClaudeError:
-            return None
-        got = [i.get("status") or i.get("state") for i in items if fresh.inside(i.get("cwd") or "", path)]
-        return got[0] if len(got) == 1 else None
-
-    def now(self):
-        return time.time()
-
-    def spawn(self, argv, cwd, log, env):
-        """argv を打った会話から切り離して走らせ、終わりを待たない。出力はファイル log に書き足す。POSIX では外の sh がすぐ終わり、
-        中の処理は init の子になる（会話の処理が止まっても一緒に止まらない。nodes/wake.py の DETACH と同じ形）。"""
-        if os.name != "nt":
-            subprocess.Popen(["/bin/sh", "-c", APPEND_DETACH, "sh", log, *argv], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).wait()
-            return
-        with open(log, "a", encoding="utf-8") as f:
-            subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT)
-
-    def cwd(self):
-        """このコマンドを打った場所（部署の回と --init-company が、--repo の無いときに会社を決める所）。"""
-        return os.getcwd()
-
-    def common_of(self, cwd):
-        """その場所の属するリポジトリの元の clone のルート（git の共通の .git から）。git でなければ None。"""
-        got = gitx.common_dir(cwd)
-        return gitx.root_of(got) if got else None
-
-    def attrs(self, path):
-        """部署（worktree）の git の属性 company.<名前>。"""
-        return gitx.worktree_attrs(path)
-
-
-def jsonio_load(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _key(repo, number):
@@ -580,19 +112,19 @@ def _sent_record(v):
 def _pane_at(h, path):
     """作業フォルダがちょうど path で、herdr が Claude Code の会話を見ているペインの ID（無ければ None）。読めなければ HerdrError。"""
     return next((p["pane_id"] for p in h.panes()
-                 if p.get("agent") == "claude" and os.path.realpath(p.get("cwd") or "") == os.path.realpath(path)), None)
+                 if p.get("agent") == chat.AGENT and os.path.realpath(p.get("cwd") or "") == os.path.realpath(path)), None)
 
 
 def _end_conversation(ports, path):
     """その場所の会話を終える（turn.close_session）。(closed か close_failed, 訳)。herdr に会話のペインが無ければ
     （会話が herdr の外の端末に居るなど）終えない。"""
     try:
-        pane = _pane_at(ports.herdr, path)
-    except herdr.HerdrError as e:
-        return "close_failed", f"herdr のペインを読めない（{e}）"
+        pane = _pane_at(ports.term, path)
+    except term.Error as e:
+        return "close_failed", f"{term.NAME} のペインを読めない（{e}）"
     if not pane:
-        return "close_failed", "その場所に herdr の会話のペインが無い（herdr の外の会話は終えない）"
-    got = turn.close_session(pane, ports.herdr)
+        return "close_failed", f"その場所に {term.NAME} の会話のペインが無い（{term.NAME} の外の会話は終えない）"
+    got = turn.close_session(pane, ports.term)
     return got, None if got == "closed" else f"ペイン {pane} の会話が /exit で終わらなかった"
 
 
@@ -659,20 +191,20 @@ def main(argv=None, ports=None):
     ap.add_argument("--branch", help="--task と一緒に: 部署のブランチ（在れば開き、無ければ作る）")
     ap.add_argument("--brief", help="--task と一緒に: 部署に最初に読ませる頼みのファイル")
     ap.add_argument("--base", help="--task と一緒に: ブランチを新しく作るときの元にする origin のブランチ（省けば既定のブランチ）")
-    ap.add_argument("--from-name", help="--task か --ask と一緒に: 呼んだ会話の名前（Claude Code の中から走らせれば自分で探す）")
+    ap.add_argument("--from-name", help=f"--task か --ask と一緒に: 呼んだ会話の名前（{chat.NAME} の中から走らせれば自分で探す）")
     ap.add_argument("--from-account", help="--task か --ask と一緒に: 呼んだ会話のアカウントの名（同上）")
     ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば会社の形の default_role、無ければ {DEFAULT_ROLE}）")
     ap.add_argument("--persistent", "--resident", dest="persistent", action="store_true",
                     help="--task と一緒に: 永続の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けばエフェメラルの部署。"
                          "--resident は前の版の名前）")
-    ap.add_argument("--tree", action="store_true", help="herdr に開いている会社ごとに、会社の情報と部署の様子を出す")
+    ap.add_argument("--tree", action="store_true", help=f"{term.NAME} に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree か --todo と一緒に: JSON で出す")
     ap.add_argument("--todo", metavar="受付", nargs="?", const="",
                     help="受付箱の台帳から頼みの木（頼み → 回した先・出した頼み、と残った疑問の続き）を作って出す。済んだブランチは出さない"
                          "（受付を渡せばその頼みから下を全部。誰のターンかは出さない。作った物は保存せず、開くたびに作り直す）")
     ap.add_argument("--all", action="store_true", help="--todo と一緒に: 済んだブランチも出す")
     ap.add_argument("--html", metavar="ファイル", help="--todo と一緒に: 1 枚の HTML のページに書く（--all も受付も無ければ済んだブランチを初めは隠し、ページの中で出せる）")
-    ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
+    ap.add_argument("--sync", action="store_true", help=f"部署の属性から、{term.NAME} のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署か、会社の名前だけならその会社の窓口に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
     ap.add_argument("--text", help="--ask か --note と一緒に: 頼みか足しの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--forward", action="store_true", help="--ask と一緒に: 部署か窓口の場所から、受けている頼みをこの頼みで回したとして"
@@ -700,7 +232,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--input", help="--call と一緒に: ツールへの入力（JSON の字か @ファイル。省けば {}）")
     ap.add_argument("--start", metavar="受け持ち", help="会社の形の起動方法（[skills.start]）の有る受け持ちを今起動する（名前か「会社/名前」。"
                     "納品は起動方法の report_to に返る）")
-    ap.add_argument("--due", action="store_true", help="herdr に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起動する"
+    ap.add_argument("--due", action="store_true", help=f"{term.NAME} に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起動する"
                     "（--ask と --deliver が通るたびに裏で打つ。手で打ってもよい）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--for", dest="for_ask", metavar="受付", help="--deliver と一緒に: --ask … --forward で回して閉じた頼み（回した元か"
@@ -717,7 +249,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署がメインブランチを知った後にほかの部署が入れた行を、このブランチが消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
-                    help="今いる部署の名前・役・永続かエフェメラルか・頼み元を付け替え、herdr の表示を付け直す（--name・--role・--persistent か --ephemeral・--boss）")
+                    help=f"今いる部署の名前・役・永続かエフェメラルか・頼み元を付け替え、{term.NAME} の表示を付け直す（--name・--role・--persistent か --ephemeral・--boss）")
     ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
     ap.add_argument("--ephemeral", "--per-task", dest="ephemeral", action="store_true",
                     help="--reorg と一緒に: エフェメラルの部署にする（永続をやめる。--per-task は前の版の名前）")
@@ -725,7 +257,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい頼み元のアカウントの名（省けば名前だけで引く）")
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
                     help="本社で持ち主と話す今の会話を窓口として名付ける（役は --role、会社の形の desk_role、今の役、窓口 の順。"
-                         "名前を省けば今の名前か役の名前）。herdr の表示も付け直す")
+                         f"名前を省けば今の名前か役の名前）。{term.NAME} の表示も付け直す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
     if a.init:
@@ -863,7 +395,7 @@ def main(argv=None, ports=None):
             my_prs, limited = ports.fetch_prs(repo)
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
         found = ports.places(repo)
-    except (prs.PrsError, claudex.ClaudeError, ghx.GhError, herdr.HerdrError) as e:
+    except (prs.PrsError, chat.Error, ghx.GhError, term.Error) as e:
         print(f"止めた: {e}")
         return 1
     if my_prs and my_prs[0].get("closed"):
@@ -969,7 +501,7 @@ def main(argv=None, ports=None):
                     results[r["number"]] = "close_failed"
                     notes.append(f"#{r['number']}: 送り直す前に古い会話を終えられなかった（{why}）")
                     continue
-                rel = clean.release(repo.source, r["path"], ports.herdr)
+                rel = clean.release(repo.source, r["path"], ports.term)
                 if rel["status"] == "close_failed":
                     results[r["number"]] = "close_failed"
                     notes.append(f"#{r['number']}: 古い作業場を閉じられなかった（{rel['detail']}）")
@@ -986,7 +518,7 @@ def main(argv=None, ports=None):
                     notes.append(f"issue #{r['number']}: ブランチを結べなかった（{why}）")
                     continue
                 r["head"] = linked[0]
-            prov = provision.prepare(r, repo, ports.herdr, ports.git)
+            prov = provision.prepare(r, repo, ports.term, ports.git)
             name = _name(r)
             if prov["detail"]:
                 notes.append(f"{name}: {prov['detail']}")
@@ -1011,9 +543,9 @@ def main(argv=None, ports=None):
                 trusted = f"書けない（{e}）"
             if trusted not in ("inherited", "already"):
                 notes.append(f"{name}: どのアカウントも元の clone を信頼していないので、"
-                             "Claude Code がフォルダの信頼の確認を出す" if trusted == "source_untrusted" else
-                             f"{name}: 信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
-            got = launch.start(r, prov["pane"], ports.herdr)
+                             f"{chat.NAME} がフォルダの信頼の確認を出す" if trusted == "source_untrusted" else
+                             f"{name}: 信頼の印を付けられない（{trusted}）。{chat.NAME} がフォルダの信頼の確認を出す")
+            got = launch.start(r, prov["pane"], ports.term)
             if got["status"] == "ready":
                 ready.append((r, prov["pane"]))
             else:
@@ -1030,7 +562,7 @@ def main(argv=None, ports=None):
                  for r, _ in ready}
         if ready:
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
-                futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane, second[r["number"]], ports.herdr,
+                futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane, second[r["number"]], ports.term,
                                                     catchup=ports.catchup_command(r["account"].get("config_dir")),
                                                     state=(lambda r=r: ports.state(r["account"].get("config_dir"), r["path"])))
                            for r, pane in ready}
@@ -1113,7 +645,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
     作業場を閉じる（worktree は残す）。limited（whose-turn の limited）に入った PR は閉じずに名指す。"""
     try:
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
-    except claudex.ClaudeError as e:
+    except chat.Error as e:
         return [f"片付けを飛ばした（開いている会話を読めない: {e}）"]
     sess = sessions.collect(listed, ports.branch, ports.origin)
     changed = _changed(repo)
@@ -1145,7 +677,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
                 continue
             try:
                 left = _sessions_in(cfg, ports, r["path"])
-            except claudex.ClaudeError as e:
+            except chat.Error as e:
                 out.append(f"{_where(r)}: 会話を終えた後の一覧を読めないので残した（{e}）")
                 continue
             if left:
@@ -1163,7 +695,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
         if dry_run:
             out.append(f"{_where(r)}: 閉じた PR なので片付ける")
             continue
-        got = clean.remove(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git)
+        got = clean.remove(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git)
         out.append(f"{_where(r)}: " + ("片付けた" if got["removed"] and got["branch_deleted"] else
                                        f"片付けた（{got['detail']}）" if got["removed"] else f"片付けられなかった（{got['detail']}）"))
     return out
@@ -1193,11 +725,11 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     closed, why = _end_conversation(ports, path)
     if closed != "closed":
         return [f"{_where(r)}: 自分の番でない PR の会話を終えられなかったので残した（{why}）"]
-    rel = clean.release(repo.source, path, ports.herdr)
+    rel = clean.release(repo.source, path, ports.term)
     if rel["status"] == "close_failed":
         return [f"{_where(r)}: 自分の番でない PR の会話を終えたが、作業場を閉じられなかった（{rel['detail']}）"]
     if rel["status"] == "none":
-        return [f"{_where(r)}: 自分の番でない PR なので会話を終えた（herdr の作業場は開いていなかった）"]
+        return [f"{_where(r)}: 自分の番でない PR なので会話を終えた（{term.NAME} の作業場は開いていなかった）"]
     return [f"{_where(r)}: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）"]
 
 
@@ -1213,7 +745,7 @@ def _contact(caller, account):
         why = "呼んだ会話の名前が分からず、SendMessage の宛先を決められない"
     else:
         why = f"呼んだ会話{'「' + caller['name'] + '」' if caller['name'] else ''}とはアカウントが違い、SendMessage が届かない"
-    return f"報告は区切りごとにこの画面に短く書いて止まる（{why}。呼んだ側が herdr でこの画面を読む）。"
+    return f"報告は区切りごとにこの画面に短く書いて止まる（{why}。呼んだ側が {term.NAME} でこの画面を読む）。"
 
 
 def _brief_text(brief, caller, account, tail=None):
@@ -1274,7 +806,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     try:
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
         found = ports.places(repo)
-    except (claudex.ClaudeError, herdr.HerdrError) as e:
+    except (chat.Error, term.Error) as e:
         print(f"止めた: {e}")
         return 1
     # 同じ名前の会話。止めた裏の会話（--move が起動し直す前の会話）は数えない。SendMessage の宛先はアカウントの中で、dispatch の
@@ -1291,7 +823,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     found_account, found_name = ports.caller(listed)
     caller = {"account": a.from_account or found_account, "name": a.from_name or found_name}
     if not caller["account"]:
-        notes.append("呼んだ会話が分からない（Claude Code の外から走らせたか、その会話が一覧に見えない）ので、サブエージェントには画面に報告を"
+        notes.append(f"呼んだ会話が分からない（{chat.NAME} の外から走らせたか、その会話が一覧に見えない）ので、サブエージェントには画面に報告を"
                      "書かせる。SendMessage で受けたいなら --from-name と --from-account で渡す")
     sess = sessions.collect(listed, ports.branch, ports.origin)
     metered = [x.name for x in cfg.accounts if x.limits]
@@ -1351,7 +883,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     except (ghx.GhError, gitx.GitError) as e:
         print(f"止めた: {e}（ブランチを作る元の既定のブランチを読めない。--base で渡す）")
         return 1
-    prov = provision.prepare_task(row, repo, base, ports.herdr, ports.git)
+    prov = provision.prepare_task(row, repo, base, ports.term, ports.git)
     if prov["detail"]:
         notes.append(prov["detail"])
     result = prov["status"]
@@ -1362,9 +894,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         except OSError as e:
             trusted = f"書けない（{e}）"
         if trusted not in ("inherited", "already"):
-            notes.append("どのアカウントも元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す"
+            notes.append(f"どのアカウントも元の clone を信頼していないので、{chat.NAME} がフォルダの信頼の確認を出す"
                          if trusted == "source_untrusted" else
-                         f"信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
+                         f"信頼の印を付けられない（{trusted}）。{chat.NAME} がフォルダの信頼の確認を出す")
         try:
             provision.hide_claude_dir(repo.source, ports.git)
             # 本社の属性が部署に写って残ると、部署が窓口の会話を自分の会話と取り違える（まっさらな環境での 4 回目の試しの 3）。
@@ -1397,7 +929,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             except (OSError, TypeError) as e:
                 notes.append(f"役 {role_name} の設定を書けなかったので、役の設定なしで起動する（{e}）")
         got = launch.start_background(row, pane, a.task, settings, _brief_text(brief, caller, account, tail),
-                                      ports.herdr, pause=ports.pause, model=model, effort=effort)
+                                      ports.term, pause=ports.pause, model=model, effort=effort)
         if got["detail"]:
             notes.append(got["detail"])
         result = got["status"]
@@ -1407,21 +939,21 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 result = "launch_failed"
                 notes.append(why)
             else:
-                sid = claudex.attach_id(talk)
+                sid = chat.attach_id(talk)
                 try:
                     provision.mark(prov["path"], repo.source, {"session": talk["sessionId"], "job": sid}, ports.git)
                 except (gitx.GitError, OSError) as e:
                     notes.append(f"会話の id を属性に書けなかった（{e}）。--clean がこの部署を片付けない")
-                got = launch.attach(row, pane, sid, ports.herdr)
+                got = launch.attach(row, pane, sid, ports.term)
                 result = "started" if got["status"] == "attached" else got["status"]
                 if got["detail"]:
                     notes.append(f"裏の会話 {sid} は始まったが、窓につなげなかった（{got['detail']}）")
                 # 表示名と札は、書いた属性を git から読み戻して付ける（--sync と同じ組み立て。名前は launch が付けた）
                 written = ports.attrs(prov["path"])
-                shown = sync.apply([sync.op(pane, written, many, current_label=pane_label)], ports.herdr)
+                shown = sync.apply([sync.op(pane, written, many, current_label=pane_label)], ports.term)
                 notes += [f"ペインに表示名と札を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
                 if prov.get("workspace"):
-                    shown = sync.apply_workspaces([sync.kind_op(prov["workspace"], written)], ports.herdr)
+                    shown = sync.apply_workspaces([sync.kind_op(prov["workspace"], written)], ports.term)
                     notes += [f"作業場に永続かエフェメラルかの印を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
                     notes += _order_company(repo.source, info["skills"], ports)
                 route += f"（会話 {sid}）"
@@ -1448,14 +980,14 @@ def _started(ports, config_dir, name, path, pane):
             ports.pause()
         try:
             items = ports.list_sessions(config_dir, include_done=True)
-        except claudex.ClaudeError as e:
+        except chat.Error as e:
             return None, f"起動した後に会話の一覧を読めない（{e}）"
         mine = [s for s in items if s.get("name") == name and s.get("cwd") and fresh.inside(s["cwd"], path)]
         if mine:
             return max(mine, key=lambda s: s.get("startedAt") or 0), None
         try:
-            screen = ports.herdr.read(pane, 6)
-        except herdr.HerdrError as e:
+            screen = ports.term.read(pane, 6)
+        except term.Error as e:
             screen = f"画面も読めない（{e}）"
         tail = " ".join(screen.split())[-300:]
         shown = BACKGROUNDED.search(screen)
@@ -1483,8 +1015,8 @@ def _company(a, ports):
         return rc
     try:
         _, _, companies, settings, notes = survey_companies(a.config, ports, plugins=True)
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     calls.annotate(companies, settings, ports.git)
     if a.json:
@@ -1497,8 +1029,8 @@ def _company(a, ports):
 def survey_companies(config_path, ports, only=None, plugins=False):
     """herdr の作業場から会社を出し（tree.roots）、会社ごとに部署（herdr アダプタの worktrees）と属性（git）と会社の情報を読んで
     組み立てる（tree.build）。only を渡せば、その代表の clone の会社だけ。(アカウントの並び, herdr の作業場の並び, 会社の並び,
-    設定の置き場, 注記)。plugins が真なら、注記に plugin_notes（使えない版を指す設定など。--tree だけが出す）も足す。herdr を読めなければ
-    herdr.HerdrError。"""
+    設定の置き場, 注記)。plugins が真なら、注記に wiring.setting_notes（使えない版を指す設定など。--tree だけが出す）も足す。herdr を読めなければ
+    term.Error。"""
     notes = []
     path = config.path_of(config_path, os.environ)
     limits_dir = None
@@ -1506,21 +1038,20 @@ def survey_companies(config_path, ports, only=None, plugins=False):
         cfg = config.load(config_path, os.environ, missing_ok=True)
         accounts_, limits_dir = cfg.accounts, cfg.limits_dir
     except config.ConfigError as e:
-        accounts_ = (config.Account("default", "claude"),)
+        accounts_ = (config.Account("default", chat.COMMAND),)
         if os.path.exists(path):
             notes.append(f"dispatch の設定を読めないので、既定のアカウント 1 つとして見る（{e}）")
     if plugins:
-        notes += plugin_notes(herdr_config_path(os.environ), [config.effective_config_dir(a, os.environ) for a in accounts_],
-                              limits_dir)
+        notes += wiring.setting_notes(os.environ, [config.effective_config_dir(a, os.environ) for a in accounts_], limits_dir)
     if limits_dir:
         notes += limits.problems(accounts_, os.path.expanduser(limits_dir), time.time())
     sessions_ = {}
     for acc in accounts_:
         try:
             sessions_[acc.name] = ports.list_sessions(acc.config_dir, include_done=True)
-        except claudex.ClaudeError as e:
+        except chat.Error as e:
             notes.append(f"アカウント {acc.name} の会話の一覧を読めないので、そのアカウントの会話を見ない（{e}）")
-    panes, workspaces_ = ports.herdr.panes(), ports.herdr.workspaces()
+    panes, workspaces_ = ports.term.panes(), ports.term.workspaces()
     roots = tree.roots(workspaces_, panes, ports.common_of,
                        list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
     if only:
@@ -1528,8 +1059,8 @@ def survey_companies(config_path, ports, only=None, plugins=False):
     places_of = {}
     for root in roots:
         try:
-            places_of[root] = ports.herdr.worktrees(root)
-        except herdr.HerdrError as e:
+            places_of[root] = ports.term.worktrees(root)
+        except term.Error as e:
             places_of[root] = []
             notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
@@ -1545,10 +1076,10 @@ def _order_company(source, skills, ports):
     root = os.path.realpath(source)
     try:
         listed = [w if w.get("repo_root") and os.path.realpath(w["repo_root"]) == root else {**w, "repo_root": None}
-                  for w in ports.herdr.workspaces()]
-    except herdr.HerdrError as e:
-        return [f"作業場を流れの順に並べられなかった（herdr を読めない: {e}）"]
-    done = sync.apply_order(sync.flow_order(listed, ports.attrs, lambda r: skills), ports.herdr)
+                  for w in ports.term.workspaces()]
+    except term.Error as e:
+        return [f"作業場を流れの順に並べられなかった（{term.NAME} を読めない: {e}）"]
+    done = sync.apply_order(sync.flow_order(listed, ports.attrs, lambda r: skills), ports.term)
     return [f"作業場を流れの順に並べられなかった（{x['detail']}）" for x in done if x["status"] == "failed"]
 
 
@@ -1557,8 +1088,8 @@ def sync_companies(config_path, ports, dry_run=False, only=None):
     only を渡せば、その代表の clone の会社だけ（会社の形が替わったときのターンの終わりのフック。shape_hook.py）。(出す行の並び, 終了の値)。"""
     try:
         accounts_, workspaces_, companies, settings, notes = survey_companies(config_path, ports, only)
-    except herdr.HerdrError as e:
-        return [f"止めた: herdr を読めない（{e}）"], 1
+    except term.Error as e:
+        return [f"止めた: {term.NAME} を読めない（{e}）"], 1
     notes += _sync_roles(companies, settings, ports, dry_run)
     ops, why = sync.plan(companies, len(accounts_) > 1)
     ws_ops = sync.workspace_ops(companies, workspaces_)
@@ -1568,7 +1099,7 @@ def sync_companies(config_path, ports, dry_run=False, only=None):
     lines = [sync.workspace_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + [sync.order_line(o) for o in moves]
     if dry_run:
         return notes + lines + none, 0
-    done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr) + sync.apply_order(moves, ports.herdr)
+    done = sync.apply_workspaces(ws_ops, ports.term) + sync.apply(ops, ports.term) + sync.apply_order(moves, ports.term)
     return (notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "") for line, r in zip(lines, done)] + none,
             1 if any(r["status"] != "done" for r in done) else 0)
 
@@ -1658,8 +1189,8 @@ def _check(cfg, ports):
     for acc in cfg.accounts:
         try:
             ports.list_sessions(acc.config_dir)
-        except claudex.ClaudeError as e:
-            problems.append(f"アカウント {acc.name}: {e}（開いている会話を読む claude agents --json が通らない。Claude Code を新しくする）")
+        except chat.Error as e:
+            problems.append(f"アカウント {acc.name}: {e}（開いている会話を読む {chat.LIST_COMMAND} が通らない。{chat.NAME} を新しくする）")
     print("\n".join(notes))
     if problems:
         print("足りない物:")
@@ -1691,8 +1222,7 @@ def _init(a, ports):
     local = [f for f in ports.git.ignored_files(source) if LOCAL_FILE.search(f)]
     second = os.path.join(os.path.dirname(path), "dispatch-second-prompt.md")
     home = ports.env.get("HOME") or os.path.expanduser("~")
-    seen = sorted("~/" + n for n in os.listdir(home)
-                  if n.startswith(".claude") and os.path.isfile(os.path.join(home, n, "plugins", "installed_plugins.json")))
+    seen = chat.config_dirs(home)
     q = json.dumps
     lines = [
         "# works の dispatch の設定（--init が書いた下書き）。直したら --check で確かめる。",
@@ -1702,23 +1232,12 @@ def _init(a, ports):
         "# reset_soon_hours = 24                 # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（使わずに切り替わる分を無駄にしない）",
         '# limits_dir = "~/.cache/claude-limits"   # アカウントごとの使用率の控え（<name>.json）。無ければ使用率は見ない',
         "",
-        "# アカウントを切り替えないなら accounts は書かない（claude を 1 つだけ使う）。",
-        "# 切り替えるなら、名前・そのアカウントで Claude Code を起動するコマンド・そのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダを並べる。",
-        "# 鍵を自分で決めた名前の Keychain の項目に置いたなら keychain_service、使用率の枠の無いアカウント（Ollama など）は limits = false。",
-        "# setup-token の鍵だけで動かすアカウントは、プランを plan に書く（例 plan = \"default_claude_max_20x\"。limits.py plan がログインの記録からプランを読めないため）。",
-        "# CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて claude を起動する人も、そのフォルダを config_dir に書く（書かないと ~/.claude を見る）:",
-        "# accounts = [",
-        '#   { name = "main", command = "claude" },',
-        '#   { name = "sub",  command = "<別のアカウントで起動するコマンド>", config_dir = "~/.claude-sub" },',
-        '#   { name = "mine", command = "<コマンド>", config_dir = "~/.claude-mine", keychain_service = "<Keychain の項目の名前>" },',
-        '#   { name = "local", command = "<Ollama などで起動するコマンド>", limits = false },',
-        "# ]",
-        f"# この機械で見つかった Claude Code の設定のフォルダ: {', '.join(seen) or '無し'}",
+        *chat.accounts_draft(seen),
         "",
         "[[repos]]",
         f"repo = {q(a.repo)}",
         f"second_prompt_file = {q(second)}   # 2 ターン目に送る文。空のままだと --check が止める",
-        f"source = {q(source)}   # 代表の clone。ブランチごとの worktree はここから作る（置き場は herdr の worktrees.directory）",
+        f"source = {q(source)}   # 代表の clone。ブランチごとの worktree はここから作る（置き場は {term.NAME} の worktrees.directory）",
         "copy_files = [   # git が追わない手元だけのファイル。代表の clone で見つかった候補",
         *[f"  {q(f)}," for f in local],
         "]",
@@ -1749,13 +1268,13 @@ COMPANY_DRAFT = """# 会社の形: このリポジトリで部署（作業ごと
 # dispatch の設定の置き場の companies/ に置く（--init-company --local）。両方に在れば、リポジトリの中の物を読む。
 # <…> は置き字なので、受け持ちの名前と中身に直す（受け持ちを増やすなら、[[skills]] の項目を写して足す）。
 
-name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出る。herdr ではリポジトリの親の作業場の名前になる）
+name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出る。{term} ではリポジトリの親の作業場の名前になる）
 description = {description}   # この会社が受ける仕事
 gh_user = {gh_user}   # 部署の会話の gh が使うアカウント{gh_note}
 default_role = "作業"   # --task で --role を省いたときの役
 desk_role = "窓口"   # 本社で持ち主と話す会話の役（--desk で --role を省いたときの役）
 
-# 受け持ち。1 つの受け持ちに担当が永続で 1 人つき、担当の部署の名前（herdr の作業場の名前）は受け持ちの name にする。
+# 受け持ち。1 つの受け持ちに担当が永続で 1 人つき、担当の部署の名前（{term} の作業場の名前）は受け持ちの name にする。
 # 担当の会話の始まりに、部署の名前と同じ name の受け持ちの description が足される。--tree にも出る
 [[skills]]
 id = "duty"
@@ -1789,7 +1308,7 @@ fresh = true
 # model = "opus"   # 部署を起動するときの --model（省けばアカウントの既定）
 # effort = "high"  # 部署を起動するときの --effort（low・medium・high・xhigh・max・ultracode。inherit なら頼んだ会話と同じ。省けば既定）
 # deliver_check = "<納品の検査のコマンド>"   # --deliver が部署の作業場のルートで走らせ、0 以外で終われば送らない（省けば検査しない）
-# 部署の会話にだけ効かせる Claude Code の設定（--settings で渡す。要らないプラグインを切るなどもここ）。
+# 部署の会話にだけ効かせる {chat} の設定（--settings で渡す。要らないプラグインを切るなどもここ）。
 # autoMode.allow は、自動の権限の判定（auto mode の classifier）の組み込みの拒否への例外を文で書く（"$defaults" で組み込みの
 # 決まりを残す）。--land はメインブランチへ fast-forward するので「Merge Without Review」として止められることがある。人のレビューの代わりに
 # 会社の形の [land] のゲートを通す決まりであることを書いて、止めないようにする（https://code.claude.com/docs/en/auto-mode-config）
@@ -1831,8 +1350,8 @@ mode = "none"
 # - 役は 4 つ: 窓口（持ち主と話して頼みを配る、本社の会話。--desk で名付ける）・担当（受け持ちごとに永続で 1 人）・作業（一度きりの
 #   作業をする一時の部署）・相談（持ち主が直接話して考えを詰める会話。要る会社だけ [[roles]] に足す）。同じ受け持ちの直しは担当の
 #   下で順番に進むので、同じファイルの取り合いにならない。
-# - 名前は日本語で、herdr の画面で読んで分かる短い言葉にする。担当の部署の名前は受け持ちの名前（例: 「<受け持ち>」）、作業の部署の
-#   名前は「<受け持ち>：<何をするか>」（作業場の名前になるので 12 字くらいまで）。会社の名前は herdr の親の作業場にだけ出るので、
+# - 名前は日本語で、{term} の画面で読んで分かる短い言葉にする。担当の部署の名前は受け持ちの名前（例: 「<受け持ち>」）、作業の部署の
+#   名前は「<受け持ち>：<何をするか>」（作業場の名前になるので 12 字くらいまで）。会社の名前は {term} の親の作業場にだけ出るので、
 #   部署の名前には付けない。
 # - ブランチの名前は英小文字とハイフンにする（git と GitHub の URL で崩れないため）。直しは fix/…、足すものは feat/…、調べや下書きは work/…。
 # - 担当への頼みは部署の名前で宛てる（--ask <受け持ち>。部署の名前は役より先に当たる）。担当がまだ居ない受け持ちは
@@ -1904,7 +1423,7 @@ def _init_company(a, ports, cwd):
     def q(v):
         return json.dumps(v, ensure_ascii=False)   # TOML の基本の文字列と同じ書き方
     company = os.path.basename(os.path.normpath(root))
-    text = COMPANY_DRAFT.format(name=q(company), description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""),
+    text = COMPANY_DRAFT.format(term=term.NAME, chat=chat.NAME, name=q(company), description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""),
                                 gh_note=gh_note, plain=" ".join(company.split()), duty=q(DRAFT_DUTY.format(company=company)),
                                 work=q(DRAFT_WORK), desk=q(DRAFT_DESK.format(company=company)),
                                 land_allow=q(DRAFT_LAND_ALLOW))
@@ -1930,7 +1449,7 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
     try:
         listed = {acc.name: (acc, ports.list_sessions(acc.config_dir, include_done=True)) for acc in cfg.accounts}
         target = f"refs/remotes/origin/{ports.default_branch(repo)}"
-    except (claudex.ClaudeError, ghx.GhError, gitx.GitError) as e:
+    except (chat.Error, ghx.GhError, gitx.GitError) as e:
         notes.append(f"部署の片付けを飛ばした（会話の一覧か既定のブランチを読めない: {e}）")
         return []
 
@@ -2011,7 +1530,7 @@ def _clean(cfg, repo, apply, ports):
     try:
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
         found = ports.places(repo)
-    except (claudex.ClaudeError, herdr.HerdrError) as e:
+    except (chat.Error, term.Error) as e:
         print(f"止めた: {e}（開いている会話か元の clone の worktree を読めないので、何も消さない）")
         return 1
     notes = []
@@ -2019,7 +1538,7 @@ def _clean(cfg, repo, apply, ports):
     dept_paths = {os.path.realpath(d["path"]) for d in depts}
     swept = landing.sweep_branches(repo, ports, found, apply)
     for d in depts:
-        kept = len(clean.tmp_entries(claudex.job_tmp(d["config_dir"], d["session"], ports.account_env))) if d["removable"] and d["session"] else 0
+        kept = len(clean.tmp_entries(chat.job_tmp(d["config_dir"], d["session"], ports.account_env))) if d["removable"] and d["session"] else 0
         print(f"部署 {d['name'] or '-'} {d['branch'] or '（ブランチ無し）'}  {d['state']}  "
               + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else ""))
                  if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}{_running_note(d, ports.attrs(d['path']))}）"))
@@ -2027,7 +1546,7 @@ def _clean(cfg, repo, apply, ports):
     failed, stale = _tool_places(repo, ports, apply)
     if apply:
         for d in (d for d in depts if d["removable"]):
-            got = clean.retire(d, repo.source, provision.label(repo, d["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
+            got = clean.retire(d, repo.source, provision.label(repo, d["branch"]), ports.term, ports.git, chat, ports.account_env)
             print(f"部署 {d['name'] or '-'} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))
             failed += not got["removed"]
     found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths and not tools.is_place(p.get("path"))]
@@ -2056,7 +1575,7 @@ def _clean(cfg, repo, apply, ports):
             print("消すには --clean --apply を付けて打ち直す")
         return 0
     for r in (r for r in rows if r["removable"]):
-        got = clean.remove(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git)
+        got = clean.remove(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git)
         print(f"{_where(r)} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))
         failed += not got["removed"]
     return 1 if failed else 0

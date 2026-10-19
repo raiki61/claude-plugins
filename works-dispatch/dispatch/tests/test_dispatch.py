@@ -14,6 +14,7 @@ from .test_provision import WorktreeHerdr, git, make_world
 import claudex
 import config
 import dispatch
+import wiring
 import ghx
 import gitx
 import herdr as real_herdr
@@ -122,7 +123,7 @@ class FakeHerdr(WorktreeHerdr):
     def run(self, pane, command):
         self.writes.append(("run", pane, command))
         if pane in self._fail:
-            raise real_herdr.HerdrError(["herdr", "pane", "run"], "pane_not_found")
+            raise real_herdr.Error(["herdr", "pane", "run"], "pane_not_found")
 
     def shell_in_front(self, pane):
         return pane not in self.talking and pane not in self.busy
@@ -191,7 +192,7 @@ class FakePorts(dispatch.Ports):
         self._prs = prs
         self._limited = set()   # whose-turn の limited
         self._problems = list(problems)
-        self.herdr = herdr or FakeHerdr()
+        self.term = herdr or FakeHerdr()
         self.git = gitx
         self.gh = FakeGh(self)
         self.issues = {}
@@ -212,7 +213,7 @@ class FakePorts(dispatch.Ports):
 
     def list_sessions(self, config_dir, include_done=False):
         # 会話の行に "pane" が有れば、そのペインが /exit を受けた後は一覧から消える
-        return [x for x in self.agents if x.get("pane") not in self.herdr.exited]
+        return [x for x in self.agents if x.get("pane") not in self.term.exited]
 
     acts = {}   # 番号 → PR の動き（無ければレビュアーが居て、動きの無い PR）
 
@@ -228,7 +229,7 @@ class FakePorts(dispatch.Ports):
         return got
 
     def places(self, repo):
-        return self.herdr.worktrees(repo.source)
+        return self.term.worktrees(repo.source)
 
     def pr_info(self, repo, number):
         return {**pr(number), "state": "OPEN", "fork": False}
@@ -287,7 +288,7 @@ class FakePorts(dispatch.Ports):
         return "/attention:catchup"
 
     def trust(self, account, source, clone, others=()):
-        self.herdr.writes.append(("trust", account["name"], source, clone))
+        self.term.writes.append(("trust", account["name"], source, clone))
         return self.trust_outcome
 
     trusted_dirs = ()   # 信頼済みのフォルダ（サブエージェントを起動するフォルダの確かめ）
@@ -397,8 +398,8 @@ class Main(unittest.TestCase):
         ports = FakePorts([pr(1), pr(2), pr(3)])
         rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertEqual(rc, 0)
-        self.assertEqual(ports.herdr.writes, [])
-        self.assertEqual(len(ports.herdr.worktrees(src)), 2)
+        self.assertEqual(ports.term.writes, [])
+        self.assertEqual(len(ports.term.worktrees(src)), 2)
         lines = by_number(out)
         self.assertTrue(lines["#1"].endswith("create"))
         self.assertTrue(lines["#2"].endswith("reuse"))
@@ -408,7 +409,7 @@ class Main(unittest.TestCase):
         ports = FakePorts([pr(1)], problems=["herdr に届かない"])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 2)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
         self.assertIn("herdr に届かない", out)
 
     def test_unreadable_prs_stop_with_one_line_not_a_traceback(self):
@@ -420,22 +421,22 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 1)
         self.assertIn("止めた: whose-turn --json（o/r）が読めない", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_no_prs_does_nothing(self):
         ports = FakePorts([])
         rc, out = run_main(["--config", self.cfg], ports)
-        self.assertEqual((rc, ports.herdr.writes), (0, []))
+        self.assertEqual((rc, ports.term.writes), (0, []))
         self.assertIn("自分の番の PR は無い", out)
 
     def test_creates_the_branch_place_then_launches_and_sends_two_turns(self):
         ports = FakePorts([pr(1)])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0)
-        place = [w for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["linked"]]
+        place = [w for w in ports.term.worktrees(gitx_source(self.cfg)) if w["linked"]]
         self.assertEqual([w["branch"] for w in place], ["feat/1"])
         path = place[0]["path"]
-        self.assertEqual(ports.herdr.writes, [
+        self.assertEqual(ports.term.writes, [
             ("create_worktree", "feat/1", "r/feat/1"),
             ("trust", "a1", gitx_source(self.cfg), path),
             ("run", "P0", typed("claude-a1")),
@@ -451,7 +452,7 @@ class Main(unittest.TestCase):
         ports = FakePorts([pr(1)])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0, out)
-        place = next(w["path"] for w in ports.herdr.worktrees(src) if w["linked"])
+        place = next(w["path"] for w in ports.term.worktrees(src) if w["linked"])
         self.assertEqual(gitx.worktree_attrs(place, copies=True), {})   # 写しは読み飛ばすだけでなく、消す
         self.assertEqual(gitx.worktree_attrs(src)["role"], "窓口")
 
@@ -461,13 +462,13 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
         self.assertEqual(rc, 0)
         self.assertIn("#1: どのアカウントも元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す", out)
-        self.assertIn(("run", "P0", typed("claude-a1")), ports.herdr.writes)
+        self.assertIn(("run", "P0", typed("claude-a1")), ports.term.writes)
 
     def test_no_second_sends_only_catchup(self):
         ports = FakePorts([pr(1)])
         rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
         self.assertEqual(rc, 0)
-        self.assertEqual([w for w in ports.herdr.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 1", False)])
+        self.assertEqual([w for w in ports.term.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 1", False)])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
 
     def test_pr_opens_only_the_named_prs_without_whose_turn(self):
@@ -487,7 +488,7 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--pr", "99999"], ports)
         self.assertEqual(rc, 1)
         self.assertIn("止めた: #99999 を読めない", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_fork_pr_from_the_list_is_provision_failed_and_nothing_is_made(self):
         ports = FakePorts([pr(1)])
@@ -495,7 +496,7 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertTrue(by_number(out)["#1"].endswith("provision_failed"), out)
         self.assertIn("fork の PR", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_branch_open_in_the_source_clone_is_branch_busy(self):
         src = gitx_source(self.cfg)
@@ -503,7 +504,7 @@ class Main(unittest.TestCase):
         ports = FakePorts([pr(1)])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertTrue(by_number(out)["#1"].endswith("branch_busy"), out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
         self.assertEqual(gitx.branch(src), "feat/1")
 
     def test_one_launch_failure_does_not_stop_the_other(self):
@@ -513,7 +514,7 @@ class Main(unittest.TestCase):
         lines = by_number(out)
         self.assertTrue(lines["#1"].endswith("launch_failed"))
         self.assertTrue(lines["#2"].endswith("sent"))
-        self.assertIn(("prompt", "P1", "/attention:catchup 2", True), ports.herdr.writes)
+        self.assertIn(("prompt", "P1", "/attention:catchup 2", True), ports.term.writes)
 
 
 class Issue(unittest.TestCase):
@@ -537,7 +538,7 @@ class Issue(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.line(out), "issue #12 ログインを直す  feat/5  a1  sent")
-        self.assertEqual([w for w in ports.herdr.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 12", False)])
+        self.assertEqual([w for w in ports.term.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 12", False)])
         self.assertIn("ほかにも有る（使ったのは feat/5）: feat/6", out)
         self.assertEqual(ports.gh.developed, [])
         self.assertFalse(hasattr(ports, "saved_cost"))   # 待たずに送った件では 1 件あたりの使用率を測らない
@@ -547,7 +548,7 @@ class Issue(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
         self.assertEqual(ports.gh.developed, [("o/r", 12, "main")])
         self.assertEqual(self.line(out), "issue #12 ログインを直す  12-fix  a1  sent")
-        self.assertIn(("create_worktree", "12-fix", "r/12-fix"), ports.herdr.writes)
+        self.assertIn(("create_worktree", "12-fix", "r/12-fix"), ports.term.writes)
 
     def test_branch_replaced_by_its_pr_is_found_through_the_pr(self):
         # issue に結んだブランチから PR を作ると、GitHub はブランチの結びつきを PR に置き換える。ブランチを作り直さず、PR のブランチを使う
@@ -560,7 +561,7 @@ class Issue(unittest.TestCase):
         ports = self.ports()
         rc, out = run_main(["--config", self.cfg, "--issue", "12", "--dry-run"], ports)
         self.assertEqual(ports.gh.developed, [])
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
         self.assertEqual(self.line(out), "issue #12 ログインを直す  -  a1  create")
         self.assertIn("gh issue develop", out)
 
@@ -570,7 +571,7 @@ class Issue(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(self.line(out), "issue #12 ログインを直す  -  -  issue_closed")
         self.assertEqual(ports.gh.developed, [])
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_issue_and_pr_together_stop(self):
         rc, out = run_main(["--config", self.cfg, "--issue", "12", "--pr", "1"], self.ports())
@@ -628,7 +629,7 @@ class RealPorts(unittest.TestCase):
         def run2(a, **kw):
             argv.append(a)
             return run(a, **kw)
-        self.assertEqual(dispatch._login_config_dir({"SHELL": "/bin/zsh", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, run2, posix=True),
+        self.assertEqual(wiring._login_config_dir({"SHELL": "/bin/zsh", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, run2, posix=True),
                          "/h/.claude-x")
         self.assertNotIn("CLAUDE_CONFIG_DIR", seen[0])
         # ペインのシェルと同じく、ログインのシェルの設定（.zprofile・.bash_profile）も、対話のシェルの設定も読ませる
@@ -636,23 +637,23 @@ class RealPorts(unittest.TestCase):
 
         def empty(argv, **kw):
             return subprocess.CompletedProcess(argv, 0, "@@CLAUDE_CONFIG_DIR=@@\n", "")
-        self.assertIsNone(dispatch._login_config_dir({}, empty))
+        self.assertIsNone(wiring._login_config_dir({}, empty))
 
     def test_without_a_posix_shell_commands_are_looked_up_on_path(self):
         # Windows（herdr の native 版）には -lic で起動する POSIX のシェルが無い。PATH の上で探す
         def boom(*a, **kw):
             raise AssertionError("シェルを起動した")
-        self.assertTrue(dispatch._shell_has("claude-p1", env={}, runner=boom, which=lambda c: "C:/bin/" + c, posix=False))
-        self.assertFalse(dispatch._shell_has("claude-p1", env={}, runner=boom, which=lambda c: None, posix=False))
+        self.assertTrue(wiring._shell_has("claude-p1", env={}, runner=boom, which=lambda c: "C:/bin/" + c, posix=False))
+        self.assertFalse(wiring._shell_has("claude-p1", env={}, runner=boom, which=lambda c: None, posix=False))
 
     def test_without_a_posix_shell_the_pane_uses_the_default_folder(self):
         def boom(*a, **kw):
             raise AssertionError("シェルを起動した")
-        self.assertIsNone(dispatch._login_config_dir({"CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, boom, posix=False))
+        self.assertIsNone(wiring._login_config_dir({"CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, boom, posix=False))
 
     def test_gone_plugin_paths_with_backslashes_are_found(self):
         gone = r"C:\Users\me\.claude\plugins\cache\m\works-dispatch\0.1.0\dispatch\limits.py"
-        self.assertEqual(dispatch.gone_plugin_paths([f'command = "py {gone} --accounts x show a"']), [(gone, "もう無い")])
+        self.assertEqual(wiring.gone_plugin_paths([f'command = "py {gone} --accounts x show a"']), [(gone, "もう無い")])
 
     def test_gone_plugin_paths_inside_escaped_json_and_toml_strings_are_read_unescaped(self):
         # settings.json と herdr の TOML は、文字列の中の \ を \\ と書く。書かれた形のままでは、パスが別物になる
@@ -662,10 +663,10 @@ class RealPorts(unittest.TestCase):
         (d / "config.toml").write_text('[ui]\ntab_bar_right = [{ command = "py %s" }]\n' % gone.replace("\\", "\\\\"), encoding="utf-8")
         for f in ("settings.json", "config.toml"):
             with self.subTest(f=f):
-                self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / f)), [(gone, "もう無い")])
+                self.assertEqual(wiring.gone_plugin_paths(wiring.setting_strings(d / f)), [(gone, "もう無い")])
         (d / "broken.toml").write_text(f'{{ command = "py {gone}" }},\n', encoding="utf-8")
-        self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / "broken.toml")), [(gone, "もう無い")])  # 読めない形はそのまま
-        self.assertEqual(dispatch.setting_strings(d / "missing.json"), [])
+        self.assertEqual(wiring.gone_plugin_paths(wiring.setting_strings(d / "broken.toml")), [(gone, "もう無い")])  # 読めない形はそのまま
+        self.assertEqual(wiring.setting_strings(d / "missing.json"), [])
 
     def test_plugin_notes_name_install_records_pointing_at_gone_folders(self):
         # 2026-10-18、~/.claude-p2 の控えに、消えた置き場（gates 0.7.0・attention 0.10.1）を指す project の範囲の項目が残っていた
@@ -676,7 +677,7 @@ class RealPorts(unittest.TestCase):
             "gates@m": [{"scope": "user", "installPath": str(here)},
                         {"scope": "project", "projectPath": "/r/x", "installPath": str(cfg / "plugins" / "cache" / "m" / "gates" / "0.7.0")}]}}),
             encoding="utf-8")
-        notes = dispatch.plugin_notes(cfg / "none.toml", [str(cfg)])
+        notes = wiring.plugin_notes(cfg / "none.toml", [str(cfg)])
         self.assertEqual(len(notes), 1, notes)
         self.assertIn("gates@m（project）", notes[0])
 
@@ -686,7 +687,7 @@ class RealPorts(unittest.TestCase):
         (d / "run-python.sh").write_text("")
         toml = d / "config.toml"
         toml.write_text(f'command = "sh {d / "run-python.sh"} {d / "limits-entry.py"} show a"\n', encoding="utf-8")
-        notes = dispatch.plugin_notes(toml, [])
+        notes = wiring.plugin_notes(toml, [])
         self.assertEqual(len(notes), 1, notes)
         self.assertIn(f"入口 {d / 'limits-entry.py'} が無い", notes[0])
 
@@ -698,16 +699,16 @@ class RealPorts(unittest.TestCase):
             (cache / v / "dispatch" / "limits.py").write_text("")
         (cache / "0.1.3" / ".orphaned_at").write_text("1")
         texts = [f"py {cache / v / 'dispatch' / 'limits.py'}" for v in ("0.1.3", "0.2.0", "0.3.0")]
-        got = dict(dispatch.gone_plugin_paths(texts, installed=[str(cache / "0.3.0")]))
+        got = dict(wiring.gone_plugin_paths(texts, installed=[str(cache / "0.3.0")]))
         self.assertIn("前の版", got[str(cache / "0.1.3" / "dispatch" / "limits.py")])
         self.assertEqual(got[str(cache / "0.2.0" / "dispatch" / "limits.py")], "今入っていない版")
         self.assertNotIn(str(cache / "0.3.0" / "dispatch" / "limits.py"), got)
-        self.assertEqual([p for p, _ in dispatch.gone_plugin_paths(texts)], [str(cache / "0.1.3" / "dispatch" / "limits.py")])  # 入っている場所が分からなければ版では比べない
+        self.assertEqual([p for p, _ in wiring.gone_plugin_paths(texts)], [str(cache / "0.1.3" / "dispatch" / "limits.py")])  # 入っている場所が分からなければ版では比べない
 
     def test_real_ports_carry_the_herdr_and_git_modules(self):
         # 偽物の Ports は herdr と git を自分で持つので、本物から消えても Main の試験は通ってしまう
         ports = dispatch.Ports()
-        self.assertIs(ports.herdr, real_herdr)
+        self.assertIs(ports.term, real_herdr)
         self.assertIs(ports.git, gitx)
 
 
@@ -731,7 +732,7 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         cfg = cfg._replace(repos=tuple(r._replace(second_prompt="") for r in cfg.repos))
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True,
                             gh_ok=lambda repo, env=None: True, task_flags=lambda: ["--bg"])
         problems, notes = ports.preflight(cfg, task=True)
         text = "\n".join(problems)
@@ -753,12 +754,12 @@ class Preflight(unittest.TestCase):
         home = pathlib.Path(root).parent / "home"
         herdr_cfg = home / ".config" / "herdr" / "config.toml"
         herdr_cfg.parent.mkdir(parents=True)
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS | dispatch.TASK_HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS | wiring.TASK_HERDR_METHODS, shell_has=lambda c: True,
                             gh_ok=lambda repo, env=None: True, env={"HOME": str(home)})
         for text in ("", '[ui.sidebar.spaces]\nrows = [["state_icon", "workspace"]]\n'):
             herdr_cfg.write_text(text, encoding="utf-8")
             problems, notes = ports.preflight(cfg, task=True)
-            self.assertIn(dispatch.SPACES_ROWS, "\n".join(problems))
+            self.assertIn(wiring.SPACES_ROWS, "\n".join(problems))
             problems, notes = ports.preflight(cfg)
             self.assertNotIn("$kind", "\n".join(problems))
             self.assertIn("$kind", "\n".join(notes))
@@ -767,9 +768,9 @@ class Preflight(unittest.TestCase):
             problems, notes = ports.preflight(cfg, task=True)
             self.assertNotIn("$kind", "\n".join(problems + notes))
         # 足す行は、そのまま足せば前提を満たす
-        herdr_cfg.write_text(dispatch.SPACES_ROWS + "\n", encoding="utf-8")
-        self.assertTrue(dispatch.spaces_show_kind(herdr_cfg))
-        self.assertFalse(dispatch.spaces_show_kind(home / "missing.toml"))
+        herdr_cfg.write_text(wiring.SPACES_ROWS + "\n", encoding="utf-8")
+        self.assertTrue(wiring.spaces_show_kind(herdr_cfg))
+        self.assertFalse(wiring.spaces_show_kind(home / "missing.toml"))
 
     def test_account_without_usage_window_gets_no_missing_limits_note(self):
         cfg_path, root = make_cfg()
@@ -790,7 +791,7 @@ class Preflight(unittest.TestCase):
         problems, notes = ports.preflight(cfg)
         text = "\n".join(notes)
         cdir = config.effective_config_dir(cfg.accounts[0], {})
-        self.assertIn(dispatch.env_command("CLAUDE_CONFIG_DIR", cdir, "herdr integration install claude"), text)
+        self.assertIn(wiring.env_command("CLAUDE_CONFIG_DIR", cdir, "herdr integration install claude"), text)
         self.assertNotIn("integration", "\n".join(problems))
         self.assertEqual(text.count("integration install"), 1)
 
@@ -811,7 +812,7 @@ class Preflight(unittest.TestCase):
         settings = pathlib.Path(cfg.accounts[0].config_dir) / "settings.json"
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"command": f"python3 {gone}/activity.py"}]}]}}))
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True,
                             gh_ok=lambda repo, env=None: True, env={"HOME": str(home)})
         problems, notes = ports.preflight(cfg)
         text = "\n".join(notes)
@@ -831,7 +832,7 @@ class Preflight(unittest.TestCase):
         (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
             json.dumps({"plugins": {"attention@x": [{"scope": "user", "installPath": str(plugin)}]}}))
         cfg = cfg._replace(accounts=(config.Account("default", "claude", None),))
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True,
                                env={"HOME": str(home)})
         problems, notes = ports.preflight(cfg)
         self.assertNotIn("catchup", "\n".join(problems))
@@ -841,7 +842,7 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         asked = []
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: asked.append(repo) or False)
         problems, _ = ports.preflight(cfg)
         self.assertEqual(asked, ["o/r"])
@@ -852,7 +853,7 @@ class Preflight(unittest.TestCase):
         cfg = config.load(cfg_path, env={})
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(gh_user="me-at-work"),))
         seen = []
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: seen.append(env) or True,
                                gh_env=lambda repo: {"GH_TOKEN": f"token-of-{repo.gh_user}"})
         problems, _ = ports.preflight(cfg)
@@ -866,7 +867,7 @@ class Preflight(unittest.TestCase):
 
         def no_token(repo):
             raise ghx.GhError("gh のアカウント me-at-work の鍵を取り出せない")
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: True, gh_env=no_token)
         problems, _ = ports.preflight(cfg)
         self.assertIn("gh のアカウント me-at-work の鍵を取り出せない", "\n".join(problems))
@@ -879,7 +880,7 @@ class Preflight(unittest.TestCase):
         for cdir in cdirs:
             cdir.mkdir(parents=True, exist_ok=True)
             (cdir / ".claude.json").write_text(json.dumps({"projects": {}}))
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: True)
         _, notes = ports.preflight(cfg)
         self.assertIn(f"どのアカウントも {cfg.repos[0].source} を信頼していない", "\n".join(notes))
@@ -894,7 +895,7 @@ class Preflight(unittest.TestCase):
         empty = pathlib.Path(root).parent / "keep"
         empty.mkdir()
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(copy_from=str(empty)),))
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         _, notes = ports.preflight(cfg)
         self.assertIn(f"写すファイルが {empty} に無い: frontend/.env.local", "\n".join(notes))
 
@@ -903,8 +904,8 @@ class Preflight(unittest.TestCase):
         cfg = config.load(cfg_path, env={})
 
         def broken(source):
-            raise real_herdr.HerdrError(["herdr", "worktree", "list"], "not_a_git_repository")
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+            raise real_herdr.Error(["herdr", "worktree", "list"], "not_a_git_repository")
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True,
                             gh_ok=lambda repo, env=None: True, worktrees=broken)
         problems, _ = ports.preflight(cfg)
         self.assertIn("worktree を並べられない（herdr worktree list: not_a_git_repository）", "\n".join(problems))
@@ -916,7 +917,7 @@ class Preflight(unittest.TestCase):
         subprocess.run(["git", "-C", cfg.repos[0].source, "worktree", "add", "-q", "-b", "feat/1", linked, "origin/feat/1"],
                        check=True, capture_output=True)
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(source=linked),))
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         problems, _ = ports.preflight(cfg)
         self.assertIn("linked worktree で、本体の checkout でない", "\n".join(problems))
 
@@ -924,7 +925,7 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(repo="o/other"),))
-        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
+        ports = quiet_ports(herdr_methods=lambda: wiring.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         problems, _ = ports.preflight(cfg)
         self.assertIn("元の clone", "\n".join(problems))
 
@@ -989,7 +990,7 @@ class Check(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--check"], ports)
         self.assertEqual(rc, 0)
         self.assertIn("足りない物は無い", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_clone_without_origin_head_is_a_note_with_the_fix(self):
         src = gitx_source(self.cfg)
@@ -1007,7 +1008,7 @@ class Check(unittest.TestCase):
         ports = FakePorts([])
 
         def broken(config_dir):
-            raise claudex.ClaudeError("claude agents --json（x）: unknown command")
+            raise claudex.Error("claude agents --json（x）: unknown command")
         ports.list_sessions = broken
         rc, out = run_main(["--config", self.cfg, "--check"], ports)
         self.assertEqual(rc, 2)

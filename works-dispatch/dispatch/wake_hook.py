@@ -11,7 +11,7 @@
   会話を引き継ぐ部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）ターンの終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
   区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力フィールドの薄字
-  （Claude Code の次の文の候補）は打ちかけの字と数えない（deliver.typed）。
+  （Claude Code の次の文の候補）は打ちかけの字と数えない（claudex.typed）。
   起動したばかりの裏の会話（claude --bg。SessionStart の startup）は、会話の記録のファイルができる（最初の文を受ける）まで、台帳を
   読まずに待つ（最初の文の前に Claude Code が会話の処理を殺して起動し直すと、それまでに渡した字は処理と一緒に消える。unready）。
   納品していない頼みを持つ会話の記録にその受付番号が無ければ（渡した字が届かなかった）、頼みを 1 度だけ渡し直す（unseen）。
@@ -55,11 +55,11 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
-    import claudex  # noqa: E402
+    from ports import chat, term  # noqa: E402
+    import windows  # noqa: E402
     import config  # noqa: E402
     import gitx  # noqa: E402
     import role_hook  # noqa: E402
-    import herdr  # noqa: E402
     import filex  # noqa: E402
     from nodes import accounts, deliver, provision, role, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
@@ -72,7 +72,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 
-def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppid, same=claudex.in_process):
+def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppid, same=chat.in_process):
     """待つなら {cwd, root, inbox, place, names, session, owner, adopt, company, job}、待たないなら None。adopt は属性の会話の id を書き直すか。
     company は会社の名前（--retire に宛てる）。job は会話の裏の処理の短い id（環境変数 CLAUDE_JOB_DIR の名前。裏の会話でなければ None）。"""
     cwd = payload.get("cwd") or os.getcwd()
@@ -102,29 +102,29 @@ def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppi
             "adopt": adopt, "company": company, "job": job_of(env)}
 
 
-job_of = herdr.job_of
+job_of = chat.job_of
 
 
 # herdr が会話の手が空いたと見る状態（done はターンを終えたまま見られていない物）
 IDLE = ("idle", "done")
 
 
-def own_window(cwd, h=herdr, sid=None):
+def own_window(cwd, h=term, sid=None):
     """この会話の窓（herdr のペインのうち会話の居る物）。場所がこの会話の場所の物のうち、ペインの会話の印（agent_session）が
     この会話の id の物が 1 つならそれ、無ければ場所の同じ物が 1 つならそれ。1 つに決まらなければ None（本社には持ち主のほかの会話も
-    居るので、印で結ぶ。場所の違う窓は印が合っても選ばない）。決め方は herdr.own_pane（サイドバーの作業内容と頼み元の窓も同じ決め方）。"""
-    return herdr.own_pane(cwd, sid, h.panes())
+    居るので、印で結ぶ。場所の違う窓は印が合っても選ばない）。決め方は windows.own_pane（サイドバーの作業内容と頼み元の窓も同じ決め方）。"""
+    return windows.own_pane(cwd, sid, h.panes())
 
 
-def talk_window(cwd, h=herdr, pids=(), jobs=()):
-    """会話を消す打ち込み（/clear）の打ち先（herdr.talk_window。tomllib の無い Python でも読めるよう herdr に置く）。"""
-    return herdr.talk_window(cwd, h, pids, jobs)
+def talk_window(cwd, h=term, pids=(), jobs=()):
+    """会話を消す打ち込み（/clear）の打ち先（windows.talk_window。tomllib の無い Python でも読めるよう windows に置く）。"""
+    return windows.talk_window(cwd, h, pids, jobs)
 
 
 NOT_CLEARED_BACKGROUND = "裏の処理が残っている"   # clear_now が空にしない訳のうち、checker が前の会話のまま次を渡す物
 
 
-def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None, me=lambda: claudex.host()[0], why=None):
+def clear_now(got, payload, attrs, h=term, pause=lambda: time.sleep(1), marks=None, me=lambda: chat.host()[0], why=None):
     """止まった会話を、自分の窓に /clear を打って空にする。空になった（空にした後の会話の始まりの待ち受けが印を書いた）のを見たら
     True（属性に marks を書く。省けば、納品し終えた fresh の部署の company.cleared）。裏の処理が残る・会話がまだ動いている・窓の
     入力フィールドに字が在る・自分の会話の居る窓だと確かめられない（talk_window。me はこのフックを起動した Claude Code の処理の番号を返す）・
@@ -138,28 +138,28 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
     if payload.get("background_tasks"):
         return no(NOT_CLEARED_BACKGROUND)
     try:
-        jobs = (attrs.get("job"), got.get("job"), claudex.attach_id(None, payload.get("session_id")))
+        jobs = (attrs.get("job"), got.get("job"), chat.attach_id(None, payload.get("session_id")))
         pane = talk_window(got["cwd"], h, [me()], jobs)
         if pane is None:
             return no("この会話の居る窓を 1 つに確かめられない（部署の窓で attach を開けば続く）")
         if (h.agent(pane) or {}).get("agent_status") not in IDLE:
             return no("会話がまだ動いている")   # ほかの止まる前のフックがターンを続けさせたなど
-        box = deliver.typed(h.read(pane, 40, ansi=True))
+        box = chat.typed(h.read(pane, 40, ansi=True))
         if box is None:
             return no("窓の入力フィールドが見えない")
         if box:
             return no(f"窓の入力フィールドに打ちかけの字が在る（「{box[:20]}」。薄字の候補は数えない）")
-    except h.HerdrError as e:
-        return no(f"herdr を読めない（{e}）")
+    except h.Error as e:
+        return no(f"{term.NAME} を読めない（{e}）")
 
     def cleared():   # /clear の後の会話の始まりで張った待ち受けが、新しい会話の id で印を書く
         held = wake.read_mark(got["inbox"], got["place"]) or {}
         return bool(held.get("session")) and held.get("session") != got["session"]
     status, detail = deliver.clear_talk(pane, h, pause, cleared)
     if status == "failed":
-        return no(f"/clear を打てない（{detail}）")
+        return no(f"{chat.CLEAR} を打てない（{detail}）")
     if status != "cleared":
-        return no("/clear を打ったが、会話が空になったのを見られない")   # この待ち受けが続く（次の待ち受けが張られたかが分からない）
+        return no(f"{chat.CLEAR} を打ったが、会話が空になったのを見られない")   # この待ち受けが続く（次の待ち受けが張られたかが分からない）
     provision.mark(got["cwd"], got["root"], marks or {"cleared": attrs["ask"]}, gitx)
     return True
 
@@ -210,9 +210,9 @@ def unready(payload, job, read=None):
     殺されなければ、最初の文の前に渡した字も届く（2026-10-18 の試し。最初の文の 7 秒前に渡した字が、最初のターンの後に届いた）。
     人が端末で起動した会話は daemon が起動し直さず、最初の文を打つまで知らせを止めないよう待たない。記録の場所を知らせない
     Claude Code でも待たない。"""
-    if not job or payload.get("hook_event_name") != "SessionStart" or payload.get("source") != "startup":
+    if not job or chat.event(payload) != chat.START or payload.get("source") != "startup":
         return False
-    path = payload.get("transcript_path")
+    path = chat.transcript(payload)
     if not path:
         return False
     try:
@@ -227,7 +227,7 @@ def unseen(got, payload, attrs, git_dir=gitx.git_dir):
     --move の最初の文（move-brief.md を読ませる）で渡した物でもない。渡した字は会話の処理が殺されると消え（unready の 4bae53）、
     台帳の handed の行だけが残る。最初の文の後に処理が殺されたときも、起動し直した会話の待ち受けがここで見つける。
     確かめられないとき（記録の場所が無い・読めない・頼みの会話がこの会話でない）は届いたと見る（同じ頼みを重ねて渡さない）。"""
-    ask, path = attrs.get("ask"), payload.get("transcript_path")
+    ask, path = attrs.get("ask"), chat.transcript(payload)
     if not ask or not path or attrs.get("session") != got["session"]:
         return False
     try:
@@ -461,7 +461,7 @@ def must_clear(payload, attrs):
     ask = attrs.get("ask")
     if not (ask and attrs.get("fresh") == role.FRESH and attrs.get("delivered") == ask and attrs.get("cleared") != ask):
         return False
-    return not (payload.get("hook_event_name") == "SessionStart" and payload.get("source") in EMPTY_STARTS)
+    return not (chat.event(payload) == chat.START and payload.get("source") in EMPTY_STARTS)
 
 
 def early_due(got, attrs, env=os.environ, now=time.time):
@@ -571,7 +571,7 @@ class _DoneFile:
         return int(text) if text.isdigit() else 1
 
 
-def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
+def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: chat.host()[0],
             spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
     restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
@@ -629,7 +629,7 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 deliver.log(got["inbox"], {"id": ask, "kind": "handed", "at": now(), "place": got["cwd"], "session": got["session"],
                                            "again": "会話の記録に受付番号が無い（渡した字が届かなかった）"})
                 return "wake", again_text(attrs, RUN)
-            if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.MOVE_TO) not in (None, "", attrs.get("account"))
+            if (chat.event(payload) == "Stop" and attrs.get(wake.MOVE_TO) not in (None, "", attrs.get("account"))
                     and attrs.get(wake.REST) in (got["session"], "1")):
                 # --move がほかのアカウントへ移す印を付け、会話が納品の前に区切りと印した（--rest）。移して起動し直し、新しい会話が
                 # 頼みを続ける（--move の最初の文が頼みを渡す）。頼みの途中の会話は空にしない。移せなければ印を外し、この会話のまま続ける
@@ -642,7 +642,7 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 # 納品の前に子の返事を待ってターンを終えた部署（永続の担当なども）も、輪の途中に入りうる
                 loose(attrs)
             return None   # 未納品の頼みを持っている
-        if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
+        if (chat.event(payload) == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
             return "end", None   # エフェメラルの部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         kept = []   # 空にしないまま前の会話で次を渡す訳（渡す字の頭と台帳に添える。黙って前の会話のまま渡さない）
@@ -674,7 +674,7 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 # この待ち受けが持つ payload の裏の処理は、ターンの終わりの時の物で、待つ間に読み直せない
                 kept.append(why[0])
         unrested = []   # 区切りで空にできなかった訳（次を渡すときに会話と台帳に添える。黙って前の会話のまま渡さない）
-        if not kept and payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and attrs[wake.REST] in (got["session"], "1"):
+        if not kept and chat.event(payload) == "Stop" and attrs.get(wake.REST) and attrs[wake.REST] in (got["session"], "1"):
             # 区切りの印はこの会話が打った物だけ見る（前の会話の印が残っていても、持ち主と話している今の会話を起動し直さない）
             key = restart_due(got, payload, attrs, key_of, at_rest=True)
             if key and restart(got, key):

@@ -76,7 +76,7 @@ class Herdr(unittest.TestCase):
 
     def test_other_errors_raise(self):
         err = json.dumps({"id": "x", "error": {"code": "pane_not_found", "message": "gone"}})
-        with self.assertRaises(herdr.HerdrError) as e:
+        with self.assertRaises(herdr.Error) as e:
             herdr.prompt("p", "t", wait=True, runner=Fake((1, err, "")))
         self.assertIn("pane_not_found", str(e.exception))
 
@@ -86,7 +86,7 @@ class Herdr(unittest.TestCase):
         self.assertEqual(f.calls[0][0], ["herdr", "pane", "rename", "w1:p1", "直し p2"])
 
     def test_rename_pane_error_raises(self):
-        with self.assertRaises(herdr.HerdrError):
+        with self.assertRaises(herdr.Error):
             herdr.rename_pane("w1:p1", "x", runner=Fake((1, '{"error": {"code": "pane_not_found"}}', "")))
 
     def test_run_sends_command_line(self):
@@ -122,7 +122,7 @@ class Herdr(unittest.TestCase):
 
     def test_wait_ready_stops_when_the_command_ended_without_a_conversation(self):
         f = Fake(self.NOT_FOUND, self.procs(False), self.NOT_FOUND, self.procs(True))
-        with self.assertRaises(herdr.HerdrError) as e:
+        with self.assertRaises(herdr.Error) as e:
             herdr.wait_ready("p", runner=f, pause=lambda: None)
         self.assertIn("会話が始まらなかった", str(e.exception))
 
@@ -143,7 +143,7 @@ class Herdr(unittest.TestCase):
         self.assertEqual(env, {"PATH": "/bin", "CLAUDE_CONFIG_DIR": "/h/.claude-w"})
         f = Fake((0, "claude: not installed (/h/.claude/hooks/herdr-agent-state.sh)\n", ""))
         self.assertEqual(herdr.claude_integration("/h/.claude", {}, runner=f), "not installed")
-        with self.assertRaises(herdr.HerdrError):
+        with self.assertRaises(herdr.Error):
             herdr.claude_integration("/h/.claude", {}, runner=Fake((0, "pi: current\n", "")))
 
     def test_report_activity_hands_off_the_sidebar_token(self):
@@ -251,7 +251,7 @@ class HerdrWorktree(unittest.TestCase):
         self.assertNotIn("--force", f.calls[1][0])
 
     def test_remove_of_a_dirty_place_raises_with_herdrs_code(self):
-        with self.assertRaises(herdr.HerdrError) as e:
+        with self.assertRaises(herdr.Error) as e:
             herdr.remove_worktree("/s/repo", "/p", "repo/x", runner=Fake(ok(WT_OPEN), WT_DIRTY))
         self.assertEqual(e.exception.detail, "dirty_worktree_requires_force")
 
@@ -585,7 +585,7 @@ class Claude(unittest.TestCase):
         self.assertEqual(claudex.catchup_commands(tempfile.mkdtemp()), [])
 
     def test_non_json_is_an_error(self):
-        with self.assertRaises(claudex.ClaudeError):
+        with self.assertRaises(claudex.Error):
             claudex.sessions(None, runner=Fake((0, "Failed to authenticate", "")))
 
 

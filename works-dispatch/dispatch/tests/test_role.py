@@ -389,7 +389,7 @@ class Hook(unittest.TestCase):
 
         def told(payload, running):
             out = io.StringIO()
-            with mock.patch.object(claudex, "running_claude", lambda pid: running), contextlib.redirect_stdout(out):
+            with mock.patch.object(claudex, "running", lambda pid: running), contextlib.redirect_stdout(out):
                 role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "source": "startup", **payload})), self.env)
             return "頼みを配る。" in out.getvalue()
         self.assertTrue(told({"session_id": "s-desk"}, True))                                  # 窓口の会話
@@ -409,20 +409,20 @@ class Hook(unittest.TestCase):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "窓口"\ninstructions = "頼みを配る。"\n')
         provision.mark(self.place, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "pid": "999999999"}, gitx)
         out = io.StringIO()
-        with mock.patch.object(claudex, "running_claude", lambda pid: True), contextlib.redirect_stdout(out):
+        with mock.patch.object(claudex, "running", lambda pid: True), contextlib.redirect_stdout(out):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-pr", "source": "startup"})), self.env)
             role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-pr2", "source": "clear"})), self.env)
         self.assertNotIn("頼みを配る。", out.getvalue())
         self.assertEqual(gitx.worktree_attrs(self.place)["session"], "s-desk")   # PR の会話の /clear で席を取らない
 
-    def test_running_claude_reads_the_command_of_the_process(self):
+    def test_running_reads_the_command_of_the_process(self):
         import subprocess
         def runner(out, rc=0):
             return lambda argv: subprocess.CompletedProcess(argv, rc, out, "")
-        self.assertTrue(claudex.running_claude("12", runner("/Users/x/.local/share/claude/versions/2.1.302 --name 段取り\n")))
-        self.assertFalse(claudex.running_claude("12", runner("/usr/bin/python3 x.py\n")))   # 番号が使い回された別の処理
-        self.assertFalse(claudex.running_claude("12", runner("", rc=1)))                     # もう居ない
-        self.assertFalse(claudex.running_claude(None, runner("claude")))
+        self.assertTrue(claudex.running("12", runner("/Users/x/.local/share/claude/versions/2.1.302 --name 段取り\n")))
+        self.assertFalse(claudex.running("12", runner("/usr/bin/python3 x.py\n")))   # 番号が使い回された別の処理
+        self.assertFalse(claudex.running("12", runner("", rc=1)))                     # もう居ない
+        self.assertFalse(claudex.running(None, runner("claude")))
 
     def test_a_former_role_name_reads_as_the_current_role_and_is_rewritten(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml",
@@ -460,7 +460,7 @@ class Hook(unittest.TestCase):
         # 部署でない会話（PR のブランチの会話など）が SendMessage で頼み、受付の台帳に頼み元が残らなかった（2026-10-17 の guided-resolver）
         def started(cwd, sid):
             out = io.StringIO()
-            with mock.patch.object(claudex, "running_claude", lambda pid: True), contextlib.redirect_stdout(out):
+            with mock.patch.object(claudex, "running", lambda pid: True), contextlib.redirect_stdout(out):
                 role_hook.main(io.StringIO(json.dumps({"cwd": cwd, "session_id": sid, "source": "startup"})), self.env)
             return json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"] if out.getvalue() else None
         self.assertIsNone(started(self.place, "s-a"))   # 会社でないリポジトリには何も足さない
@@ -491,7 +491,7 @@ class Hook(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "調べ役", "session": "s2"}, gitx)
         self.assertIsNone(prompt("s9"))   # 部署の場所のほかの会話には、役の本文を足した会話と同じく足さない
         provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, gitx)
-        with mock.patch.object(claudex, "running_claude", lambda pid: True):
+        with mock.patch.object(claudex, "running", lambda pid: True):
             self.assertIn("会社「試しの会社」", prompt("s-head", self.src))   # 本社の、窓口でない会話
             got = prompt("s-desk", self.src)   # 窓口の会話には、頼み方でなく役の本文（changed。控えが無いので今足す）
             self.assertTrue(got.startswith(role_hook.CHANGED_HEAD) and "SendMessage" not in got, got)
@@ -525,9 +525,9 @@ class TaskWithRole(unittest.TestCase):
 
         def listed(cdir, include_done=False):
             got = []
-            for i, w in enumerate(x for x in ports.herdr.writes if x[0] == "run" and BG.search(x[2])):
+            for i, w in enumerate(x for x in ports.term.writes if x[0] == "run" and BG.search(x[2])):
                 if dirs[BG.search(w[2]).group(1)] == cdir:
-                    cwd = next(p["cwd"] for p in ports.herdr.panes() if p["pane_id"] == w[1])
+                    cwd = next(p["cwd"] for p in ports.term.panes() if p["pane_id"] == w[1])
                     got.append({"id": f"bg{i}", "sessionId": f"bg{i}-full", "name": "直し", "cwd": cwd, "kind": "background",
                                 "state": "working", "startedAt": i})
             return got
@@ -558,7 +558,7 @@ class TaskWithRole(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役")
         self.assertEqual(rc, 0, out)
-        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         self.assertIn("haiku", command)
 
     def test_role_settings_model_and_gh_user_reach_the_department(self):
@@ -566,7 +566,7 @@ class TaskWithRole(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役")
         self.assertEqual(rc, 0, out)
-        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         path = self.place(ports)
         settings = os.path.join(gitx.git_dir(path), role.SETTINGS_FILE)
         self.assertEqual(json.loads(pathlib.Path(settings).read_text(encoding="utf-8"))["worktree"], {"bgIsolation": "none"})
@@ -588,7 +588,7 @@ class TaskWithRole(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "出荷役")
         self.assertEqual(rc, 0, out)
-        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         if os.name != "nt":
             # 役に設定が無ければ、いつもの部署の設定のファイル
             self.assertEqual(shlex.split(command)[5], ports.department_settings())
@@ -609,7 +609,7 @@ class TaskWithRole(unittest.TestCase):
         self.assertIn("モデル haiku、effort low", out)
         rc, out = self.run_task(ports, "--role", "調べ役")
         self.assertEqual(rc, 0, out)
-        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         self.assertRegex(command, r'--model "?sonnet\b.*--effort "?high\b')
 
     def test_bad_duty_effort_is_said_at_launch_and_the_role_value_is_used(self):
@@ -628,7 +628,7 @@ class TaskWithRole(unittest.TestCase):
         self.assertIn("モデル haiku、effort xhigh", out)
         rc, out = self.run_task(ports, "--role", "調べ役")
         self.assertEqual(rc, 0, out)
-        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         self.assertRegex(command, r'--effort "?xhigh\b')
 
     def test_effort_inherit_without_the_callers_effort_starts_at_the_default_and_says_so(self):
@@ -636,7 +636,7 @@ class TaskWithRole(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役")
         self.assertEqual(rc, 0, out)
-        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         self.assertNotIn("--effort", command)
         self.assertIn("CLAUDE_EFFORT が無い", out)
 
@@ -646,7 +646,7 @@ class TaskWithRole(unittest.TestCase):
         rc, out = self.run_task(ports, "--role", "調べやく")
         self.assertEqual(rc, 2)
         self.assertIn("在る役: 調べ役, 出荷役", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])
 
     def test_dry_run_shows_the_role_settings_and_the_gh_account(self):
         self.shape()
@@ -655,4 +655,4 @@ class TaskWithRole(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("モデル haiku、effort low、--settings の鍵 enabledPlugins, permissions, worktree", out)
         self.assertIn("gh のアカウント: gh-co（会話の Bash がコマンドごとに鍵を取り出し", out)
-        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(ports.term.writes, [])

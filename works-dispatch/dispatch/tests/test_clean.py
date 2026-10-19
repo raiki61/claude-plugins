@@ -274,7 +274,7 @@ class Main(unittest.TestCase):
         ports = self.ports()
 
         def broken(config_dir):
-            raise claudex.ClaudeError("claude agents --json（x）: boom")
+            raise claudex.Error("claude agents --json（x）: boom")
         ports.list_sessions = broken
         rc, out = self.run_clean(["--clean", "--apply"], ports)
         self.assertEqual(rc, 1)

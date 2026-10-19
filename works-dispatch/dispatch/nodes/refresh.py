@@ -22,9 +22,10 @@ import datetime
 import json
 import os
 
-from nodes import deliver, role, wake
+from nodes import role, wake
+from ports import chat
 
-RELOAD = "/reload-plugins"
+RELOAD = chat.RELOAD   # 起きている会話にプラグインを読み直させる打ち込み（会話の口の物）
 ATTR = "reloaded"           # 属性 company.reloaded = "<会話の処理の番号> <打った時刻（秒）>"
 IDLE = ("idle", "done")     # herdr が会話の手が空いたと見る状態（done はターンを終えたまま見られていない物）
 BUSY = ("working", "blocked")
@@ -37,7 +38,7 @@ def installed_file(plugin_root):
     parts = os.path.normpath(plugin_root or "").split(os.sep)
     if len(parts) < 5 or parts[-4] != "cache":
         return None
-    return os.sep.join(parts[:-4] + ["installed_plugins.json"])
+    return os.sep.join(parts[:-4] + [chat.PLUGINS_FILE])
 
 
 def _epoch(text):
@@ -111,8 +112,8 @@ def reload_when_free(pane, h, pause, hold=lambda: False):
             if state not in IDLE:
                 status = "busy" if state in BUSY else "unseen"
                 continue
-            box = deliver.typed(h.read(pane, 40, ansi=True))
-        except h.HerdrError:
+            box = chat.typed(h.read(pane, 40, ansi=True))
+        except h.Error:
             status = "unseen"
             continue
         if box is None:
@@ -122,7 +123,7 @@ def reload_when_free(pane, h, pause, hold=lambda: False):
             return "typing"   # 人が書いている文を壊さない（薄字の候補は数えない）
         try:
             h.prompt(pane, RELOAD, False)
-        except h.HerdrError:
+        except h.Error:
             return "failed"
         return "sent"
     return status
