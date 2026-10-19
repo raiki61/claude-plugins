@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-10-20
+
 ### Changed
 
 - タブバーの入口の写し（`limits.py herdr-config` が `~/.cache/claude-limits/` に写した `limits-entry.py`・`run-python.sh`）が今の版と違うとき、`--tree`・`--check` などで注記を出す代わりに、その場で写し直す（`dispatch/limits.py` の `sync_entry`）。写し直す元は、打った dispatch の版ではなく、写した入口が今起動する版（入れた物の控え `installed_plugins.json` が指す、`.orphaned_at` の無い置き場）の中のファイル（設定のフォルダを書いていないアカウントは、タブバーと同じく `~/.claude` として読む）。どのアカウントの会話から版の違う dispatch を打っても同じ元に揃い、版どうしで写し合わない。写し直せなかったときだけ、今までどおり `limits.py herdr-config` を打ち直す注記を出す。前は、プラグインを上げるたびに、人が `limits.py herdr-config` を打つまで注記が出続けた。写していない入口は写さない。
