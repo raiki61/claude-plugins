@@ -629,8 +629,8 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 deliver.log(got["inbox"], {"id": ask, "kind": "handed", "at": now(), "place": got["cwd"], "session": got["session"],
                                            "again": "会話の記録に受付番号が無い（渡した字が届かなかった）"})
                 return "wake", again_text(attrs, RUN)
-            if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.MOVE_TO) and attrs.get(wake.REST)
-                    and attrs[wake.REST] in (got["session"], "1")):
+            if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.MOVE_TO) not in (None, "", attrs.get("account"))
+                    and attrs.get(wake.REST) in (got["session"], "1")):
                 # --move がほかのアカウントへ移す印を付け、会話が納品の前に区切りと印した（--rest）。移して起動し直し、新しい会話が
                 # 頼みを続ける（--move の最初の文が頼みを渡す）。頼みの途中の会話は空にしない。移せなければ印を外し、この会話のまま続ける
                 key = restart_due(got, payload, attrs, key_of, at_rest=True)

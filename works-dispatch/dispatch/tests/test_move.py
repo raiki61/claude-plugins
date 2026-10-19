@@ -113,7 +113,13 @@ class Move(unittest.TestCase):
         provision.mark(self.place, self.src, {"job": "d"}, gitx)
         with mock.patch.object(dispatch, "_task", task):
             self.assertEqual(self.main(self.src, "--move", "調べ")[0], 0)
-        self.assertIn(f"前の会話が書いた引継ぎ {handoff}（", seen[1]["brief"])
+        kept = [n for n in os.listdir(gitx.git_dir(self.place)) if n.startswith("handoff-")]
+        self.assertEqual(len(kept), 1, kept)   # 指した引継ぎは時刻の名前に退ける
+        self.assertIn(f"前の会話が書いた引継ぎ {os.path.join(gitx.git_dir(self.place), kept[0])}（", seen[1]["brief"])
+        self.assertFalse(os.path.exists(handoff))
+        with mock.patch.object(dispatch, "_task", task):
+            self.assertEqual(self.main(self.src, "--move", "調べ")[0], 0)
+        self.assertNotIn("前の会話が書いた引継ぎ", seen[2]["brief"])   # 後の --move は、前の頼みの引継ぎを指さない
 
     def test_a_department_that_does_not_start_again_is_attached_back_only_when_no_new_talk_rose(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "session": "s-dept", "account": "a1"}, gitx)

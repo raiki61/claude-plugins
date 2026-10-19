@@ -995,10 +995,13 @@ def main(argv=None, ports=None):
             r["path"] = prov["path"]
             if prov["created"]:
                 # 作ったばかりの PR の作業場に本社から写った属性を消す（残ると、そこで起動した PR の会話が窓口の役の本文を受ける）。本社が
-                # worktree の id を書いた属性なら、読む側は写しを空と読み、mark が写しを丸ごと消す。id の無い前の版の属性は、本社と同じ値の物を消す
+                # worktree の id を書いた属性なら、読む側は写しを空と読むので、写しを丸ごと消す（drop_copies）。id の無い前の版の属性は、本社と同じ値の物を消す
                 try:
                     gone = provision.copied(ports.attrs(repo.source), ports.attrs(prov["path"]))
-                    provision.mark(prov["path"], repo.source, gone, ports.git)
+                    if gone:
+                        provision.mark(prov["path"], repo.source, gone, ports.git)
+                    else:
+                        provision.drop_copies(prov["path"], ports.git)
                 except (gitx.GitError, OSError) as e:
                     notes.append(f"{name}: 本社から写った属性を消せなかった（{e}）。この作業場の会話が本社の役の本文を受ける")
             try:

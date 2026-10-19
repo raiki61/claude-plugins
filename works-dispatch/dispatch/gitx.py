@@ -195,7 +195,7 @@ def lifecycle_attrs(lifecycle):
 
 
 # 属性を書いた worktree の id（git の worktree の管理の場所 .git/worktrees/<id> の <id>。本社〔代表の clone〕は "."）。部署の属性を
-# 書くとき（provision.mark）に一緒に書き、読むとき（worktree_attrs）に、読んだ設定の置き場の id と違えば写しとみて空として読む
+# 書くとき（provision.mark）に一緒に書き、読むとき（worktree_attrs）に、git が値を読んだ config.worktree のパスから分かる worktree の id と違えば写しとみて空として読む
 OWN_ID = "worktree-id"
 MAIN_ID = "."
 
@@ -213,10 +213,10 @@ def worktree_id(cwd, runner=_default_runner):
 
 
 def _read_attrs(cwd, runner):
-    """その worktree の company.* を ({名前: 値}, 設定の置き場の worktree の id) で。置き場は --show-origin（linked の worktree なら
+    """その worktree の company.* を ({名前: 値}, 値を読んだ config.worktree のパスから分かる worktree の id) で。パスは --show-origin（linked の worktree なら
     絶対のパスの .git/worktrees/<id>/config.worktree、本社なら -C で中のフォルダを指しても相対のパスの .git/config.worktree）から。
     読めなければ ({}, None)。
-    -z で読む（1 件は「置き場 NUL 鍵 改行 値 NUL」。-z 無しの「鍵 空白 値 改行」は、改行を含む値〔--wait の訳など〕で次の行を別の鍵と読む）。"""
+    -z で読む（1 件は「file:パス NUL 鍵 改行 値 NUL」。-z 無しの「鍵 空白 値 改行」は、改行を含む値〔--wait の訳など〕で次の行を別の鍵と読む）。"""
     p = runner(["git", "-C", cwd, "config", "--worktree", "--show-origin", "-z", "--get-regexp", r"^company\."])
     attrs = {}
     origin = None
@@ -233,14 +233,14 @@ def _read_attrs(cwd, runner):
 
 
 def _copy_of(attrs, here):
-    """読んだ属性が、ほかの worktree から git の worktree add で写った物か（書いた worktree の id OWN_ID が、置き場の id と違う）。"""
+    """読んだ属性が、ほかの worktree から git の worktree add で写った物か（書いた worktree の id OWN_ID が、値を読んだ config.worktree の worktree の id と違う）。"""
     return bool(attrs.get(OWN_ID)) and here is not None and attrs[OWN_ID] != here
 
 
 def worktree_attrs(cwd, runner=_default_runner, former=True, copies=False):
     """その worktree の git の設定 company.<名前> を {名前: 値} で（名前は git が小文字にそろえる）。
     extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。former が偽なら、前の版の属性を読み替えずに返す。
-    属性の worktree の id（OWN_ID）が設定の置き場の id と違えば、git の worktree add が別の worktree の属性を写した物なので、空として
+    属性の worktree の id（OWN_ID）が値を読んだ config.worktree の worktree の id と違えば、git の worktree add が別の worktree の属性を写した物なので、空として
     読む（copies が真なら、写しもそのまま返す。写しを消す側〔add_detached〕が使う）。git は extensions.worktreeConfig のとき、作った
     元の worktree の config.worktree を新しい worktree に写す。部署が自分の作業場から試しの一時の worktree を切ると、部署の属性が全部
     そのまま載り、名前で部署を探す --move・--ask・--land が「同じ名前の部署が 2 つ以上ある」で止まった（2026-10-19、説明書の部署の

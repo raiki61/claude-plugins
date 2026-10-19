@@ -248,15 +248,22 @@ def mark(path, source, attrs, g=gitx):
     その場所の属性がほかの worktree から写った物（書いた worktree の id が違う）なら、先に丸ごと消す（gitx.drop_copied_attrs）。"""
     g.enable_worktree_config(source)
     g.drop_copied_attrs(path)
+    # 属性を書いた worktree の id も書く。git の worktree add がここから写した物を、読む側（gitx.worktree_attrs）が写しと見分ける。
+    # 属性より先に書く（後に書くと、写しの上に書いている間、id の無い属性が前の版の部署に見える）
+    own = g.worktree_id(path) if any(attrs.values()) else None
+    if own:
+        g.set_worktree_attr(path, g.OWN_ID, own)
     for name, value in attrs.items():
         if value:
             g.set_worktree_attr(path, name, value)
         else:
             g.unset_worktree_attr(path, name)
-    # 属性を書いた worktree の id も書く。git の worktree add がここから写した物を、読む側（gitx.worktree_attrs）が写しと見分ける
-    own = g.worktree_id(path) if any(attrs.values()) else None
-    if own:
-        g.set_worktree_attr(path, g.OWN_ID, own)
+
+
+def drop_copies(path, g=gitx):
+    """新しく作った worktree の属性が、ほかの worktree から写った物（書いた worktree の id が違う）なら丸ごと消す（gitx.drop_copied_attrs）。
+    mark と違い、元の clone の設定（extensions.worktreeConfig）には触らない。消したら真。書けなければ GitError。"""
+    return g.drop_copied_attrs(path)
 
 
 # 元の clone の .git/info/exclude（commit されない、手元だけの無視の決まり。worktree と共有）に足す物

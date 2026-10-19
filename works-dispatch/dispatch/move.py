@@ -141,7 +141,9 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
     old = attrs.get("account")
     acc = {x.name: x for x in cfg.accounts}
     if head:
-        rc, said = _move_desk(company, dept, acc[chosen], _first_text(attrs, dept, old, chosen, why, head), ports, settings, acc.get(old))
+        text = _first_text(attrs, dept, old, chosen, why, head) + _handoff_line(
+            os.path.join(ports.git.git_dir(company["root"]), wake.HANDOFF))
+        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings, acc.get(old))
     else:
         rc, said = _move_dept(a, cfg, company, dept, acc.get(old), chosen, lambda at: _first_text(at, dept, old, chosen, why, head),
                               ports, task, settings)
@@ -181,8 +183,8 @@ def _tell(inbox, company_name, dept, old, chosen, said, ports):
     else:
         text = (f"知らせ（返事は要らない）: この会話を --move でアカウント {chosen} へ移して起動し直そうとしたが、止めた（{said}）。"
                 "区切り（毎回クリアする部署は次の頼みを渡す前、ほかはこの会話で dispatch.py --rest を打ったターンの終わり）で、"
-                f"待ち受けがアカウント {chosen} へ移す。頼みの途中でも、区切りのよい所で作業場の git の場所の {wake.HANDOFF} に"
-                "引継ぎ（済んだこと・次の手）を書いて --rest を打てば、そのターンの終わりに移り、新しい会話が頼みを続ける")
+                f"待ち受けがアカウント {chosen} へ移す。頼みの途中でも、区切りのよい所で作業場の git ディレクトリ（git rev-parse --git-dir）の"
+                f" {wake.HANDOFF} に引継ぎ（済んだこと・次の手）を書いて --rest を打てば、そのターンの終わりに移り、新しい会話が頼みを続ける")
     try:
         deliver.log(inbox, wake.notice(to, None, wake.NOTE, None, text, ports.now()))
     except OSError as e:
@@ -270,12 +272,18 @@ def _first_text(attrs, dept, old, chosen, why, head):
 
 
 def _handoff_line(path):
-    """前の会話が書いた引継ぎ（wake.HANDOFF）が在れば、最初の文に足す一文。前の頼みのときに書いた物が残りうるので、書いた時刻を添える。"""
+    """前の会話が書いた引継ぎ（wake.HANDOFF）が在れば、最初の文に足す一文。引継ぎは書いた時刻の名前（handoff-<時刻>.md）に替えて
+    退け、退けた先を指す（残すと、後の頼みの --move がその頼みの物でない引継ぎを指し続ける）。名前を替えられなければ、元の場所を指す。"""
     try:
-        at = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(path)))
+        at = time.localtime(os.path.getmtime(path))
     except OSError:
         return ""   # 引継ぎを書いていない
-    return f" 前の会話が書いた引継ぎ {path}（{at} に書いた）が在る。今の頼みの物なら、続きを再開する前に読む。"
+    kept = os.path.join(os.path.dirname(path), f"handoff-{time.strftime('%Y%m%d-%H%M%S', at)}.md")
+    try:
+        os.replace(path, kept)
+    except OSError:
+        kept = path   # 退けられなくても、引継ぎは指す
+    return f" 前の会話が書いた引継ぎ {kept}（{time.strftime('%Y-%m-%d %H:%M', at)} に書いた）が在る。続きを再開する前に読む。"
 
 
 def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, settings):
