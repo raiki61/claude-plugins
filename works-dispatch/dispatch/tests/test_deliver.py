@@ -156,6 +156,13 @@ class Holders(unittest.TestCase):
         # 頼み元が持ち主への中継なら、頼み元の名前も担当者に書けない
         self.assertEqual(len(deliver.holder_problems([{"question": "q", "holder": "社長室"}], ["社長室"], "社長室")), 1)
 
+    def test_an_ask_id_holder_must_be_in_a_ledger(self):
+        # --ask の出力を待たずに書いた番号は、どの台帳にも無く --todo が追えない（my_notes の受付 20261019-022419-b50f85）
+        qs = [{"question": "回した", "holder": "20261018-224301-4e6a26"}, {"question": "待たずに書いた", "holder": "20261018-224226-c5ec66"},
+              {"question": "選ぶ", "holder": "owner:choose"}]
+        self.assertEqual(deliver.unknown_asks(qs, {"20261018-224301-4e6a26"}),
+                         ["担当者の受付 20261018-224226-c5ec66 は、たどった受付箱の台帳のどれにも無いか、届かなかった頼み（--ask の出力の受付番号を写す）: 待たずに書いた"])
+
     def test_the_front_matter_is_toml_between_plus_lines_and_unknown_fields_stop(self):
         data, body, bad = deliver.front('+++\ntitle = "題"\n[[open]]\nquestion = "q"\nholder = "owner:choose"\n+++\n\n## 結論\nx\n')
         self.assertEqual((data, body, bad), ({"title": "題", "open": [{"question": "q", "holder": "owner:choose"}]}, "## 結論\nx\n", []))
@@ -1254,7 +1261,43 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 2, out)   # 部署の名前は --todo が追えない（受付 b6778d）
         self.assertIn("「割り振り」は 受付番号・owner:choose・owner:confirm", out)
         pathlib.Path(summary).write_text(with_holder.replace("割り振り", "20261018-120448-b6778d"), encoding="utf-8")
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)   # 受付番号の形でも、台帳に無い頼みは --todo が追えない
+        self.assertIn("担当者の受付 20261018-120448-b6778d は、たどった受付箱の台帳のどれにも無いか", out)
+        self.assertEqual(self.prompts(), [])
+        (asked,) = [r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
+        pathlib.Path(summary).write_text(with_holder.replace("割り振り", asked), encoding="utf-8")
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+
+    def test_deliver_with_holders_finds_an_ask_in_another_companys_ledger(self):
+        # 台帳の行が指すほかの会社の受付箱も --todo と同じくたどる（ほかの会社の中で回された頼みも担当者に書ける）
+        self.shape('[[roles]]\nname = "調べ役"\nholders = true\n')
+        other = pathlib.Path(self.root) / "other"
+        git("init", "-q", str(other))
+        theirs = os.path.join(str(other), ".git", "company", "inbox")
+        os.makedirs(theirs)
+        deliver.log(theirs, {"id": "20261018-224301-4e6a26", "kind": "ask", "at": 2, "status": "sent", "to": {"name": "x"}})
+        deliver.log(self.inbox, {"id": "20261018-224300-aaaaaa", "kind": "ask", "at": 1, "status": "sent",
+                                 "to": {"name": "x", "path": str(other)}})
+        summary = self.ask_then_summary(GOOD.replace("open = []", '[[open]]\nquestion = "測り直す"\nholder = "20261018-224301-4e6a26"'))
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+
+    def test_deliver_with_holders_stops_an_ask_in_an_unreached_ledger_or_that_failed(self):
+        # 行が指さない会社の台帳はたどらない。届かなかった頼み（failed）は --todo が閉じた物と見て追わない
+        self.shape('[[roles]]\nname = "調べ役"\nholders = true\n')
+        other = pathlib.Path(self.root) / "other"
+        git("init", "-q", str(other))
+        theirs = os.path.join(str(other), ".git", "company", "inbox")
+        os.makedirs(theirs)
+        deliver.log(theirs, {"id": "20261018-224301-4e6a26", "kind": "ask", "at": 2, "status": "sent", "to": {"name": "x"}})
+        deliver.log(self.inbox, {"id": "20261018-224300-bbbbbb", "kind": "ask", "at": 1, "status": "failed", "to": {"name": "x"}})
+        for holder in ("20261018-224301-4e6a26", "20261018-224300-bbbbbb"):
+            summary = self.ask_then_summary(GOOD.replace("open = []", f'[[open]]\nquestion = "測り直す"\nholder = "{holder}"'))
+            rc, out = self.main(self.place, "--deliver", summary)
+            self.assertEqual(rc, 2, out)
+            self.assertIn(f"担当者の受付 {holder} は", out)
+            self.assertEqual(self.prompts(), [])
 
     def test_deliver_stops_free_text_open_questions_and_text_before_the_first_heading(self):
         for text, said in ((GOOD + "\n## 残った疑問\nなし\n", "頭書きの [[open]] に 1 件ずつ書く"),

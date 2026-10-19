@@ -385,7 +385,7 @@ def holder_problems(questions, relays=(), requester=None):
     出来事が台帳に無く --todo が追えないので書けない（--ask で回して受付番号を書く。受付 b6778d）。"""
     out = []
     for q in questions or []:
-        head = " ".join(str(q.get("question") or "").split())[:40]
+        head = _head(q)
         holder = (q.get("holder") or "").strip()
         if not holder:
             out.append(f"担当者（holder）が無い: {head}")
@@ -393,6 +393,23 @@ def holder_problems(questions, relays=(), requester=None):
             allowed = ["受付番号", *OWNER_KEYS] + ([requester] if requester and requester not in relays else [])
             out.append(f"担当者「{holder}」は {'・'.join(allowed)} のどれでもない: {head}")
     return out
+
+
+def unknown_asks(questions, known):
+    """残った疑問の担当者のうち、受付番号の形なのに known（台帳の、届いた頼みの受付）に無い物の違反の並び（役の holders の検査で、
+    holder_problems の後に見る）。台帳に無い頼みと届かなかった頼みは --todo が追えない（--ask の出力を待たずに番号を書いた納品が送られた。
+    my_notes の受付 20261019-022419-b50f85）。"""
+    out = []
+    for q in questions or []:
+        holder = (q.get("holder") or "").strip()
+        if ASK_ID.fullmatch(holder) and holder not in known:
+            out.append(f"担当者の受付 {holder} は、たどった受付箱の台帳のどれにも無いか、届かなかった頼み（--ask の出力の受付番号を写す）: {_head(q)}")
+    return out
+
+
+def _head(q):
+    """残った疑問の 1 件の、違反の訳に添える頭の字。"""
+    return " ".join(str(q.get("question") or "").split())[:40]
 
 
 OPEN_IN_BODY = "「残った疑問」を本文の見出しで書いた。頭書きの [[open]] に 1 件ずつ書く（疑問が無ければ open = []）"

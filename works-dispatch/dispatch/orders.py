@@ -1576,6 +1576,16 @@ def for_attrs(attrs, record):
             "boss-account": boss.get("account"), "boss-pane": boss.get("pane"), "boss-inbox": boss.get("inbox")}
 
 
+def ledger_asks(attrs, ports, cwd):
+    """台帳の、届いた頼みの受付の集まり（納品の残った疑問の担当者を確かめる）。打った場所の会社と頼み元の受付箱から、--todo と同じく
+    行が指すほかの会社の受付箱へたどる（ほかの会社に回した頼みも担当者に書ける）。届かなかった頼み（failed）は --todo が閉じた物と
+    見て追わないので入れない。"""
+    common = ports.git.common_dir(cwd)
+    starts = ([deliver.inbox_of(common)] if common else []) + ([attrs["boss-inbox"]] if attrs.get("boss-inbox") else [])
+    tasks = ledger.build(todo.inboxes_from(starts, ports.git.common_dir)[1])["tasks"]
+    return {i for i, t in tasks.items() if t["state"] != "failed"}
+
+
 def deliver_summary(a, ports, cwd):
     """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。--for <受付> なら、--forward で回して閉じた頼みか、cause
     付きの --ask で回した子の頼みの元の頼みの頼み元へ返し、今受けている頼み（company.ask）は閉じない。"""
@@ -1653,6 +1663,8 @@ def deliver_summary(a, ports, cwd):
     relays = (the_role or {}).get("holders")
     if relays is not None:
         bad = deliver.holder_problems(questions, relays, attrs.get("boss")) + deliver.unsure_problems(items)
+        if not bad and any(deliver.ASK_ID.fullmatch((q.get("holder") or "").strip()) for q in questions or []):
+            bad = deliver.unknown_asks(questions, ledger_asks(attrs, ports, cwd))
         if bad:
             print("\n".join(notes + ["送らなかった: 残った疑問の担当者が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
                             + [deliver.DELIVER_FORMAT]))
