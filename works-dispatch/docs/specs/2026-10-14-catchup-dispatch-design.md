@@ -205,13 +205,13 @@ PR が複数あるときは、provision と launch を PR ごとに順に全部�
 ```toml
 limit_percent = 95                      # 使用率がこれに達したアカウントは選ばない
 reset_soon_hours = 24                   # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（省けば 24）
-move_early_percent = 90                 # 区切りで、今のアカウントの枠がこの使用率に達していれば、空いているアカウントへ早めに移す（省けば 90）
+move_early_percent = 90                 # 区切り（毎回クリアする部署は次の頼みを渡す前、ほかは --rest を打ったターンの終わり）で、今のアカウントの枠がこの使用率に達していれば、空いているアカウントへ早めに移す（省けば 90）
 move_early_reset_hours = 1              # 達した枠がこの時間以内に戻るなら移さない（省けば 1）
 limits_dir = "~/.cache/claude-limits"   # 使用率の控えの置き場
 
 # name は使用率の控えのファイル名、command はそのアカウントで claude を起こすシェルのコマンド、
 # config_dir はそのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダ（会話を集めるのと、信頼の記録と attention を
-# 探すのに使う。入れないコマンドなら書かない。そのときは作業場のペインの新しいログインのシェルの値か ~/.claude）。
+# 探すのに使う。入れないコマンドなら書かない。そのときは、作業場のペインで新しく開くログインのシェルが持つ CLAUDE_CONFIG_DIR の値、それも無ければ ~/.claude）。
 # keychain_service は鍵を置いた Keychain の項目の名前（省けば共通の scripts/claude_auth.py の決まりで探す）。
 # limits = false は使用率の枠の無いアカウント（Ollama・Foundry など）で、控えを読まず使用率で外さない
 accounts = [
