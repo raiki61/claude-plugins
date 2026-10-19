@@ -15,12 +15,13 @@ import sys
 import tempfile
 import time
 
+import conftest
 import glharness
 import pytest
 import waves
 
 HERE = pathlib.Path(__file__).resolve().parent
-REVIEW_VALIDATOR = glharness.PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py"
+REVIEW_VALIDATOR = conftest.REPO / "convergence-loops" / "scripts" / "review-record.py"
 FIXED_GIT_DATE = "2026-01-01T00:00:00+0000"   # 2 つの口で commit の sha を揃える（盤面は base の sha を持つ）
 
 # (台本, 筋書き, Run の引数, drive の hook, 終わりの status)。review は 3 周で収束する標準、research は 1 周で打ち切る軽量
@@ -342,7 +343,8 @@ def _rmtree_refs(root):
     counts, scanned = collections.Counter(), collections.Counter()
     for top in RMTREE_ROOTS:
         for path in sorted((root / top).rglob("*.py")) + sorted((root / top).rglob("*.sh")):
-            if "__pycache__" in path.parts:
+            # mutmut の写し（graphloops/mutants/）は、mutmut が変異の切り替え口を差し込んだ engine の写しで、正本でない
+            if "__pycache__" in path.parts or path.relative_to(root).as_posix().startswith("graphloops/mutants/"):
                 continue
             rel, text = path.relative_to(root).as_posix(), path.read_text(encoding="utf-8")
             scanned[top] += 1
@@ -370,7 +372,7 @@ def test_rmtree_is_reached_only_from_named_sites():
     同じ関数の中で自分が作った物を消す名指しの所だけ。
     graphloops・tests・scripts の全部を見る——0.21.0 の事故（既定値から計算した親を消した）の層だけにチェックを立てると、
     新しい消す口が守りを素通りする"""
-    counts, scanned = _rmtree_refs(glharness.PLUGIN.parent)
+    counts, scanned = _rmtree_refs(conftest.REPO)
     assert all(scanned[top] for top in RMTREE_ROOTS), f"走査した本数が 0 の置き場がある（ルートの計算がずれた）: {dict(scanned)}"
     assert _rmtree_violations(counts, RMTREE_ALLOWED) == []
 

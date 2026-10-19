@@ -26,6 +26,10 @@ sys.path.insert(0, str(PLUGIN))
 REPO = next((p for p in PLUGIN.parents if (p / "convergence-loops" / "scripts" / "review-record.py").is_file()), None)
 if REPO is None:
     raise RuntimeError(f"{PLUGIN} の上に convergence-loops/scripts/review-record.py が無い——リポジトリのルートが見つからない")
+# mutmut の写し（graphloops/mutants/）の中で走るときは、engine が隣に並ぶ plugin を探す所（engine/validator.py の _sibling。
+# graphloops の親）に convergence-loops が無い。engine の探す順の 1 つ前の <PLUGIN>_ROOT で本物を指す（役の定義と検証器が読める）
+if PLUGIN.parent != REPO:
+    os.environ.setdefault("CONVERGENCE_LOOPS_ROOT", str(REPO / "convergence-loops"))
 
 pytest_plugins = ("pytester", "glharness", "waves", "scenes", "ledger")
 # 止める猶予の環境変数（engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を走らせると値を継ぎ、
@@ -60,7 +64,7 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 2026
+EXPECTED_ITEMS = 2028
 # 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
 EXPECTED_SIM_CHECKS = 28
 EXPECTED_SIM_REACHED = 2

@@ -10,7 +10,7 @@ import types
 
 import pytest
 
-from conftest import PLUGIN
+from conftest import PLUGIN, REPO
 from engine import declared
 from engine.advance import helper_argv, engine_run_entry, plan_engine_run
 from engine.commands import engine_run_refusal
@@ -66,7 +66,7 @@ def test_parse_keeps_the_keep_background_declaration():
 def test_readme_names_every_optional_step_key():
     """段の任意の鍵（逃げ道の宣言）は、宣言のセクション（リポジトリのルートの CONTRIBUTING.md。2026-10-16 にルートの README から移った）に
     綴りのまま載る——載っていなければ宣言できることが伝わらない"""
-    doc = (pathlib.Path(PLUGIN).parent / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    doc = (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert all(f'"{k}"' in doc for k in declared.STEP_OPTIONAL_KEYS)
 
 

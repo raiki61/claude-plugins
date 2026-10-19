@@ -27,7 +27,10 @@ import sys
 import types
 
 PLUGIN = pathlib.Path(__file__).resolve().parents[2]
-ROOT = PLUGIN.parent
+# リポジトリのルートは上へ辿って探す（mutmut は graphloops/ を graphloops/mutants/ に写して走らせるので、graphloops の親がルートとは限らない。conftest.py の REPO と同じ探し方）
+ROOT = next((p for p in PLUGIN.parents if (p / "convergence-loops" / "scripts" / "review-record.py").is_file()), None)
+if ROOT is None:
+    raise RuntimeError(f"{PLUGIN} の上に convergence-loops/scripts/review-record.py が無い——リポジトリのルートが見つからない")
 if str(PLUGIN) not in sys.path:
     sys.path.insert(0, str(PLUGIN))
 

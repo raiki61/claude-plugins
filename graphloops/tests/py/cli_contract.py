@@ -26,7 +26,10 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN = HERE.parents[1]
-REPO = PLUGIN.parent
+# リポジトリのルートは上へ辿って探す（mutmut は graphloops/ を graphloops/mutants/ に写して走らせるので、graphloops の親がルートとは限らない。conftest.py の REPO と同じ探し方）
+REPO = next((p for p in PLUGIN.parents if (p / "convergence-loops" / "scripts" / "review-record.py").is_file()), None)
+if REPO is None:
+    raise RuntimeError(f"{PLUGIN} の上に convergence-loops/scripts/review-record.py が無い——リポジトリのルートが見つからない")
 FIX = HERE / "cli"
 sys.path.insert(0, str(PLUGIN))
 

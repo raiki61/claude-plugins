@@ -13,7 +13,7 @@ import types
 
 import pytest
 
-from conftest import PLUGIN
+from conftest import PLUGIN, REPO
 from engine import commands, intake
 from engine.commands import launch_cause
 
@@ -243,7 +243,7 @@ def test_init_reads_the_declaration_from_the_board_cwd_not_a_leftover_git_cwd(tm
     (elsewhere / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "t", "argv": ["x"]}]}), encoding="utf-8")
     monkeypatch.setattr(util, "GIT_CWD", str(elsewhere))
     r = inproc(["init", "--loop", "review-loop", "--request", "検査", "--dir", str(tmp_path / "st"), "--no-engine-runners",
-                "--validator", str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py")], cwd=here)
+                "--validator", str(REPO / "convergence-loops" / "scripts" / "review-record.py")], cwd=here)
     assert r.returncode == 0, r.stderr
     assert ".review-checks.json が無い" in r.stderr
 
@@ -469,7 +469,7 @@ def test_unhanded_rows_are_named_on_init_and_status_until_seen(tmp_path):
     loop("intake", "--what", "判定が揺れた", "--data-dir", str(data))
     board = tmp_path / "st"
     r = loop("init", "--loop", "review-loop", "--request", "検査", "--dir", str(board), "--no-engine-runners",
-             "--validator", str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py"), env=env, cwd=tmp_path)
+             "--validator", str(REPO / "convergence-loops" / "scripts" / "review-record.py"), env=env, cwd=tmp_path)
     assert r.returncode == 0, r.stderr
     [note] = [n for n in json.loads(r.stdout)["notes"] if "失敗の記録" in n]
     assert "3 件" in note and str(data / intake.LOG) in note and "loop.py next SystemExit ×2" in note and "手で残した 1 行 ×1" in note
