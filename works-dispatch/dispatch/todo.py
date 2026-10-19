@@ -6,7 +6,8 @@
 宛先や打った場所の作業場の会社の物）をたどって全部の台帳を読み、頼みの木を出す（herdr は読まない。会社が開いていなくても
 台帳だけで組む）。受付を渡せば、その頼みから下だけ（短い 6 桁でもよい）。済んだブランチは出さない（--all で出す）。--json は射影を
 JSON で、--html <ファイル> は 1 枚の HTML のページに書く。
-頭に、台帳をたどった受付箱の壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ。health.py）を「!」で出す。
+頭に、台帳をたどった受付箱の壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ。health.py）と、台帳では開いているのに
+順番待ちにも作業場にも無い頼み（strays）を「!」で出す。
 誰のターンかは出さない（部署の様子は --tree）。作った物は保存せず、開くたびに台帳から作り直す。
 """
 
@@ -15,7 +16,7 @@ import time
 
 import health
 import jsonio
-from nodes import deliver, ledger
+from nodes import deliver, ledger, wake
 
 
 def inboxes_from(starts, common_dir, records=deliver.records):
@@ -45,6 +46,21 @@ def questions(row):
     except (OSError, UnicodeDecodeError):
         return []
     return deliver.open_holders(deliver.parse(text, {deliver.OPEN}).get(deliver.OPEN))
+
+
+def strays(view, rows, inboxes, isdir=os.path.isdir):
+    """台帳の射影が開いていると出すのに、順番待ちの件も受けた作業場も無い頼みの注記の並び。順番待ちと出るのに、どの受付箱の順番待ちの置き場にも無い物と、
+    動いている・答え待ちと出るのに、受けた作業場がもう無い物。どちらも台帳に閉じる行が無いまま残った物で、--withdraw で閉じる
+    （渡す物も納品する部署も無いので、ほかの行では閉じない。docs/ledger.md の「台帳と、順番待ち・作業場が食い違うとき」）。"""
+    out = []
+    for i, t in view["tasks"].items():
+        if t["state"] == "queued" and not any(wake.find(x, i) for x in inboxes):
+            out.append(f"受付 {i} は順番待ちと出るが、どの順番待ちの置き場にも無い（--withdraw {i} で閉じる）")
+        elif t["state"] in ("working", "waiting"):
+            place = ledger.received_at(rows, i)
+            if place and not isdir(place):
+                out.append(f"受付 {i} は{t['label']}と出るが、受けた作業場 {place} がもう無い（--withdraw {i} で閉じる）")
+    return out
 
 
 def when(at):
@@ -80,7 +96,7 @@ def todo(a, ports, cwd):
     forest = ledger.select(view, top, everything=a.all or top is not None)
     now = ports.now()
     # 裏の処理の失敗・誰も受けない頼み・台帳の大きさ。受付箱が 2 つ以上なら、どの受付箱の話かを頭に付ける
-    notes = [(f"{x}: " if len(inboxes) > 1 else "") + n for x in inboxes for n in health.inbox_notes(x, now)]
+    notes = [(f"{x}: " if len(inboxes) > 1 else "") + n for x in inboxes for n in health.inbox_notes(x, now)] + strays(view, rows, inboxes)
     if a.json:
         jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "notes": notes, "forest": forest}, None)
         return 0

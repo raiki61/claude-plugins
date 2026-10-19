@@ -1478,7 +1478,35 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"], [first["id"]])
         rc, out = self.main(self.place, "--withdraw", first["id"])
         self.assertEqual(rc, 2, out)
-        self.assertIn("どの順番待ちにも無い", out)
+        self.assertIn("どの順番待ちにも無く、台帳ではもう閉じている（取り下げ）", out)
+
+    def test_withdraw_closes_an_ask_the_ledger_shows_open_with_nothing_behind_it(self):
+        # 2026-10-17 の朝、--withdraw の無かった頃に段取りが順番待ちの件を手で動かし、台帳には順番待ちのまま残った（my_notes の 5b3433 など）
+        first, _ = self.queue_two()
+        os.unlink(first["path"])
+        rc, out = self.main(self.place, "--withdraw", first["id"], "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse([r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"])
+        rc, out = self.main(self.place, "--withdraw", first["id"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("順番待ちの置き場に無いので、台帳で「順番待ち」と出る頼みを取り下げで閉じた", out)
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]
+        self.assertEqual((row["id"], row["was"], row["why"]), (first["id"], "queued", "順番待ちの置き場に無い"))
+        self.assertEqual(self.main(self.place, "--withdraw", first["id"])[0], 2)
+
+    def test_withdraw_does_not_close_an_ask_the_department_still_holds(self):
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
+        self.assertEqual(rc, 0, out)
+        held = gitx.worktree_attrs(self.place)["ask"]
+        rc, out = self.main(self.src, "--withdraw", held)
+        self.assertEqual(rc, 2, out)
+        self.assertIn(f"の部署がまだ受けている（取り下げるなら、その旨を --note {held} で足す）", out)
+        # 部署の属性がほかの頼みに替わった（10-16 の 75aeee は、69 秒後に同じ本文の頼みが別の部署へ出た）なら閉じる
+        provision.mark(self.place, self.src, {"ask": "20261019-000000-ffffff"}, gitx)
+        rc, out = self.main(self.src, "--withdraw", held)
+        self.assertEqual(rc, 0, out)
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]
+        self.assertEqual((row["was"], row["why"]), ("working", f"受けた作業場 {self.place} の部署は、この頼みを受けていない"))
 
     def test_first_moves_a_queued_ask_to_the_head_and_leaves_it_in_the_ledger(self):
         first, urgent = self.queue_two()

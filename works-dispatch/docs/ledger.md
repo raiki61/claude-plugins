@@ -48,7 +48,8 @@
 - `boss`: 頼み元。`boss.inbox` が頼み元の会社の受付箱のパス。
 - `child`: `forwarded` の行の、回した先の頼みの受付番号。
 - `for`: 回して閉じた頼みへの返しの納品の行で、返す先の頼みの受付番号。
-- `why`: `waiting` の行の、答え待ちの訳。
+- `why`: `waiting` の行の、答え待ちの訳。順番待ちに無い頼みを閉じた `withdrawn` の行の、閉じた訳（下の「台帳と、順番待ち・作業場が食い違うとき」）。
+- `was`: 順番待ちに無い頼みを閉じた `withdrawn` の行の、閉じる前の状態（`queued`・`working`・`waiting`）。
 
 ### 種類
 
@@ -147,6 +148,7 @@ JSCalendar の列は Task の progress、iCalendar の列は VTODO の STATUS �
 - `dispatch.py --todo`: 開いているブランチ（頼みの木で、ルートから分かれた部分。git のブランチではない）だけを、ルートを更新の新しい順に、字下げの木で出す。行は `- [状態] 題  受付番号  更新の日時`。更新の日時は、台帳の行のうちその頼みの受付番号についての行（頼み・納品・答え待ちなど）の、最後の行の時刻で、子の頼みの行は含めない。答え待ちには訳を、続き（納品の残った疑問の担当者になった頼み。子の頼みとは別。上の「頼みの木」の続き）には `→ 続き: 受付番号` を添える。
 - `--todo <受付番号>`: その頼みから下だけ（済んだ物も出す）。末尾の 6 文字でもよい。
 - `--all`: 閉じたブランチ（済・取り下げ・届かず）も出す。
+- 頭の「!」の注記: 台帳をたどった受付箱の壊れ（裏の処理の失敗・誰も受けない順番待ち・台帳の大きさ。`health.py`）と、台帳では開いているのに順番待ちの件も受けた作業場も無い頼み（`todo.strays`。下の「台帳と、順番待ち・作業場が食い違うとき」）。
 - `--json`: `todo.schema.json` の形で、読んだ受付箱の並び `inboxes` と、上と同じ絞り込みをした木 `forest` を出す（全部の頼みの辞書は出さない）。
 - `--html <ファイル>`: 1 枚の HTML のページに書く。CSS とスクリプトはページの中に在り、ブランチは HTML の details 要素で畳む。`--all` も受付番号も付けなければ、済んだブランチを初めは隠し、ページの「済んだ物も出す」で出す。続きの印は、ページの中のその頼みへ飛ぶ。
 
@@ -177,6 +179,20 @@ JSCalendar の列は Task の progress、iCalendar の列は VTODO の STATUS �
 読む台帳は、打った作業場の会社と herdr に開いている会社の受付箱から、`--todo` と同じく行が指すほかの会社の受付箱へたどった物（`todo.inboxes_from`）で、開いていない会社にだけ在る回した先も見つける。
 
 `cause` や推した親（`inferred`）の線はたどらない。回した先と違い、子の頼みは元の頼みの代わりではないからである。
+
+## 台帳と、順番待ち・作業場が食い違うとき
+
+台帳だけを読む射影は、台帳に閉じる行の無い頼みを開いている物と出し続ける。2026-10-19 に my_notes から `--todo` を打つと、次の 7 件が実際には順番待ちにも部署にも無いのに、開いている物として出ていた（受付 948ac0）。
+
+- 順番待ちの件が、台帳に行を残さずに消えた: 2026-10-17 の 00:09 ごろ、段取りが調べもの宛ての順番待ちの 6 件（5b3433・0d8bde・edd872・91e2d3・34bd4e・3b9582）を手で受付箱の `withdrawn/` に動かし、同じ本文を臨時の部署に頼み直した（a8e3ec・2041a6・680ec4・4133c1 など）。`--withdraw` が入ったのは同じ日の 11:31 で、それまでは取り下げの行を書く口が無かった。台帳には `ask`（`queued`）の行だけが残り、順番待ちと出た。
+- 受けた作業場が、納品せずに消えた: 2026-10-16 に窓口が 75aeee を my_notes の点検（`work-check-dept`）に送り、69 秒後に同じ本文を claude-plugins の点検へ 71003e として送り直した。71003e は済んだが、75aeee の宛先の作業場は消え、動いていると出た。
+
+閉じ方は、台帳に取り下げ（`withdrawn`）の行を足すことにした。古い行は書き換えない。イベントソーシングの定石で、置き場の出来事は書き換えず、効果を打ち消す補償の出来事を足す。コードを直しても過去の出来事は直らないので、補償の出来事が要る（Microsoft の Event Sourcing pattern）。射影の側で順番待ちの置き場や作業場を見て状態を変える形は採らなかった。正本が台帳と置き場の 2 つになり、置き場が一時に読めないだけで状態が揺れるからである。
+
+- 見つける: `--todo` の頭の「!」の注記（`todo.strays`）。順番待ちと出るのに、読んだどの受付箱の `queue/` にも件が無い物と、動いている・答え待ちと出るのに、最後に受けた作業場（`ledger.received_at`。`ask` の行の `to.path` か `handed` の行の `place` のうち最後の物）のフォルダが無い物を出す。木からは外さない。
+- 閉じる: `--withdraw <受付>`。順番待ちに件が在れば今までどおり取り下げる。どの順番待ちにも無ければ、台帳の状態が開いている（順番待ち・動いている・答え待ち）頼みに限り、`withdrawn` の行に `was`（前の状態）と `why`（訳）を添えて、その頼みの行の在る受付箱のそれぞれに足す。最後に受けた作業場がまだ在り、その部署の属性の頼みがその受付で、まだ納品していなければ、閉じずに止める（部署がまだ受けている頼みは、取り下げを `--note` で足す）。作業場が在っても、部署の属性の頼みがほかに替わっていれば閉じる。
+
+注記は作業場のフォルダの有無だけを見て、部署の属性は読まない（`--todo` は herdr も git も読まずに台帳だけで組む決まりで、作業場ごとに git を打つと遅くなる）。そのため、作業場が在るまま頼みを手放した部署の頼み（属性がほかの頼みに替わった物）は注記に出ない。`--withdraw` は、そうした頼みも閉じられる。
 
 ## 採った物と採らなかった案
 
@@ -236,6 +252,7 @@ my_notes の reference/ のノート（my_notes のコミット 1b116af1 の物�
 - [KurrentDB](https://github.com/raiki61/my_notes/blob/1b116af12b63bfbd0ec00c6916584aea64f46044/reference/primary/architecture/kurrentdb.md)
 - [Python の eventsourcing](https://github.com/raiki61/my_notes/blob/1b116af12b63bfbd0ec00c6916584aea64f46044/reference/primary/architecture/python-eventsourcing-library.md)
 - [Marten](https://github.com/raiki61/my_notes/blob/1b116af12b63bfbd0ec00c6916584aea64f46044/reference/primary/architecture/marten-event-store.md)
+- Microsoft の Event Sourcing pattern（補償の出来事）: https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing
 - [MCP Agent Mail](https://github.com/raiki61/my_notes/blob/1b116af12b63bfbd0ec00c6916584aea64f46044/reference/primary/ai/mcp-agent-mail.md)
 - [Gas Town](https://github.com/raiki61/my_notes/blob/1b116af12b63bfbd0ec00c6916584aea64f46044/reference/primary/ai/gastown.md)
 - [Linear のエージェント](https://github.com/raiki61/my_notes/blob/1b116af12b63bfbd0ec00c6916584aea64f46044/reference/primary/task-management/linear-agents.md)

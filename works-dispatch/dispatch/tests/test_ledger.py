@@ -29,6 +29,13 @@ def build(rows, **kw):
 
 
 class Projection(unittest.TestCase):
+    def test_received_at_is_the_last_place_that_took_the_ask(self):
+        rows = [ask(A, 1, "queued", to={"name": "調べ", "path": "/co/dept"}), {"id": A, "kind": "handed", "at": 2, "place": "/co/dept/sub"},
+                ask(B, 3, "failed", to={"name": "調べ", "path": "/co/gone"})]
+        self.assertEqual(ledger.received_at(rows, A), "/co/dept/sub")
+        self.assertIsNone(ledger.received_at(rows, B))   # 届かなかった頼みは、どこも受けていない
+        self.assertIsNone(ledger.received_at(rows, C))
+
     def test_state_is_the_last_state_row_and_finished_states_stay(self):
         rows = [ask(A, 1, "queued"), {"id": A, "kind": "handed", "at": 2, "place": "/co/dept"},
                 {"id": A, "kind": "waiting", "at": 3, "why": "持ち主の答え"}]
@@ -251,6 +258,10 @@ class Todo(unittest.TestCase):
                                      to={"company": "theirs", "name": "作業", "path": "/w"}) | {"file": str(self.theirs / f"{B}-ask.md")},
                                  {"id": "f", "kind": "deliver", "ask": B, "at": 3, "status": "sent", "file": str(summary)},
                                  ask(C, 4, "queued", frm={"name": "x", "place": "/x"})])
+        self.queued_c = self.theirs / "queue" / "k" / f"{C}.json"   # C は本当に順番待ちに在る
+        self.queued_c.parent.mkdir(parents=True)
+        self.queued_c.write_text(json.dumps({"id": C}), encoding="utf-8")
+        self.root = root
         def common_dir(cwd):
             for name in ("mine", "theirs"):
                 if cwd == str(root / name) or cwd.startswith(str(root / name) + os.sep):
@@ -289,6 +300,18 @@ class Todo(unittest.TestCase):
         rc, out = self.run_todo(todo="bbbbbb")
         self.assertTrue(out.startswith(f"- [済] ブランチを直す  {B}"), out)
         self.assertEqual(self.run_todo(todo="zzzzzz")[0], 2)
+
+    def test_notes_open_asks_with_nothing_behind_them(self):
+        # 台帳では開いているのに、順番待ちの件が手で動かされた物（my_notes の 5b3433 など 6 件）と、受けた作業場が納品せずに
+        # 消えた物（my_notes の 75aeee）。木には今までどおり出し、頭の注記で --withdraw を指す
+        gone = str(self.root / "theirs" / "gone")
+        self.write(self.mine, [ask(D, 6, to={"company": "theirs", "name": "点検", "path": gone})])
+        rc, out = self.run_todo()
+        self.assertEqual([x for x in out.splitlines() if x.startswith("!")],
+                         [f"! 受付 {D} は動いていると出るが、受けた作業場 {gone} がもう無い（--withdraw {D} で閉じる）"])
+        self.queued_c.unlink()
+        rc, out = self.run_todo()
+        self.assertIn(f"! 受付 {C} は順番待ちと出るが、どの順番待ちの置き場にも無い（--withdraw {C} で閉じる）", out)
 
     def test_writes_one_html_page(self):
         page = pathlib.Path(self.tmp.name, "todo.html")

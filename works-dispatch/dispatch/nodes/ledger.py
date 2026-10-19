@@ -44,7 +44,7 @@ KINDS = {
     "held": "id",         # 待ち受けが渡さずに待った（detail に訳）
     "taken": "id",        # 順番待ちから取り出した（--take）
     "reordered": "id",    # 順番待ちの先頭に回した（--first）
-    "withdrawn": "id",    # 順番待ちの頼みを取り下げた（--withdraw）
+    "withdrawn": "id",    # 頼みを取り下げた（--withdraw。順番待ちに無い物は was に前の状態、why に訳）
     "forwarded": "id",    # 受けた頼み（id）を回して閉じた。child が回した先の頼み
     "deliver": "ask",     # 納品した（id は要約のファイルの受付、ask が頼み。for は回して閉じた頼みへの返し）。知らせの行は id が頼み
     "note": "ask",        # 足した（id は足しの受付、ask が頼み）
@@ -108,6 +108,18 @@ def places_in(rows):
             if isinstance(path, str) and path and path not in found:
                 found.append(path)
     return found
+
+
+def received_at(rows, i):
+    """頼み i を最後に受けた（か、受ける）作業場のパス（無ければ None）。宛先の作業場（ask の行の to.path。届かなかった行は除く）と、
+    待ち受けが渡した場所（handed の行の place）のうち、時刻の順で最後の物。"""
+    place = None
+    for r in rows:
+        if r.get("kind") == "ask" and r.get("id") == i and isinstance(r.get("to"), dict) and r.get("status") != "failed":
+            place = r["to"].get("path") or place
+        elif r.get("kind") == "handed" and r.get("id") == i and isinstance(r.get("place"), str):
+            place = r["place"] or place
+    return place
 
 
 def _inside(at, root):

@@ -861,11 +861,16 @@ def _forwarded_to(ask_id, ports, cwd, companies):
     """受付 ask_id が回して閉じた頼み（台帳に kind forwarded の行が在る）なら、回した先をたどった、まだ終わっていない頼みの受付の
     並び（台帳の射影の nodes/ledger。docs/ledger.md）。回していなければ None。台帳は打った場所の会社と herdr に開いている会社の物から、
     --todo と同じく行が指すほかの会社の受付箱へたどる（開いていない会社にだけ在る回した先も見つける）。"""
-    inboxes = [deliver.inbox_of(got) for got in [ports.git.common_dir(cwd)] + [ports.git.common_dir(c["root"]) for c in companies] if got]
-    rows = todo.inboxes_from(inboxes, ports.git.common_dir)[1]
+    rows = _ledger(ports, cwd, companies)[1]
     if not any(r.get("kind") == "forwarded" and r.get("id") == ask_id for r in rows):
         return None
     return [i for i in ledger.forwarded_open(ledger.build(rows), ask_id) if i != ask_id]
+
+
+def _ledger(ports, cwd, companies):
+    """打った場所の会社と herdr に開いている会社の受付箱から、--todo と同じく行が指すほかの会社の受付箱へたどった (受付箱の並び, 全部の行)。"""
+    inboxes = [deliver.inbox_of(got) for got in [ports.git.common_dir(cwd)] + [ports.git.common_dir(c["root"]) for c in companies] if got]
+    return todo.inboxes_from(inboxes, ports.git.common_dir)
 
 
 def _find_queued(ask_id, config_path, ports, cwd, companies=None):
@@ -988,11 +993,19 @@ def _take_locked(a, ports, cwd, common, inbox, place_dir):
 
 def withdraw(a, ports, cwd):
     """--withdraw <受付>。順番待ちの 1 件を取り下げる（渡さずに消し、順番待ちの在る受付箱と頼み元の受付箱の台帳に kind withdrawn で
-    残す。頼み元が取り下げを頼んだときや、段取りが同じ頼みを別の道で出し直したとき）。終了の値を返す。"""
-    item, notes = _find_queued(a.withdraw, a.config, ports, cwd)
+    残す。頼み元が取り下げを頼んだときや、段取りが同じ頼みを別の道で出し直したとき）。順番待ちに無ければ、台帳がまだ開いていると
+    出す頼みを、取り下げの行を足して閉じる（_withdraw_stray）。終了の値を返す。"""
+    try:
+        companies, notes = survey(a.config, ports)[4], []
+    except herdr.HerdrError as e:
+        companies, notes = [], [f"herdr を読めないので、打った場所の会社と、その台帳がたどれる会社だけを探した（{e}）"]
+    item = _find_queued(a.withdraw, a.config, ports, cwd, companies)[0]
+    found = rows = None
+    if item is None:   # herdr に開いていない会社の順番待ちも、台帳がたどれれば探す
+        found, rows = _ledger(ports, cwd, companies)
+        item = next((got for got in (wake.find(x, a.withdraw) for x in found) if got), None)
     if item is None:
-        print("\n".join(notes + [f"止めた: 受付 {a.withdraw} はどの順番待ちにも無い（もう渡ったか、取り下げられた）"]))
-        return 2
+        return _withdraw_stray(a, ports, cwd, found, rows, notes)
     if a.dry_run:
         print("\n".join(notes + [f"受付 {a.withdraw} を順番待ち（{os.path.dirname(item['path'])}）から取り下げる"]))
         return 0
@@ -1002,6 +1015,39 @@ def withdraw(a, ports, cwd):
     _log_taken(item, {"id": item.get("id"), "kind": "withdrawn", "at": ports.now(), "from": os.path.dirname(item["path"]),
                       "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
     print("\n".join(notes + [f"受付 {a.withdraw} を順番待ちから取り下げた（台帳に残した）"]))
+    return 0
+
+
+def _withdraw_stray(a, ports, cwd, found, rows, notes):
+    """順番待ちに無いのに、台帳の射影が開いている（順番待ち・動いている・答え待ち）と出す頼みを、取り下げの行を足して閉じる。
+    台帳に閉じる行の無いまま、順番待ちの件が消えた（--withdraw の無かった 2026-10-17 の朝に、段取りが my_notes の 6 件を手で
+    動かした）か、受けた部署の作業場が納品せずに消えた（my_notes の 75aeee）頼みで、閉じないと --todo に開いている物として残り続ける。
+    古い行は書き換えず、行を足す（docs/ledger.md）。行には前の状態（was）と訳（why）を書く。受けた部署がまだその頼みを受けていれば
+    （属性の頼みがその受付で、まだ納品していない）閉じない。"""
+    i = a.withdraw
+    t = ledger.build(rows)["tasks"].get(i)
+    if t is None:
+        print("\n".join(notes + [f"止めた: 受付 {i} はどの順番待ちにも、読んだ台帳にも無い（長い受付番号で渡す）"]))
+        return 2
+    if t["state"] not in ("queued", "working", "waiting"):
+        print("\n".join(notes + [f"止めた: 受付 {i} はどの順番待ちにも無く、台帳ではもう閉じている（{t['label']}）"]))
+        return 2
+    place = ledger.received_at(rows, i)
+    there = bool(place) and os.path.isdir(place)
+    if there and wake.pending(ports.attrs(place)) == i:
+        print("\n".join(notes + [f"止めた: 受付 {i} は {place} の部署がまだ受けている（取り下げるなら、その旨を --note {i} で足す）"]))
+        return 2
+    why = ("順番待ちの置き場に無い" if t["state"] == "queued" else
+           f"受けた作業場 {place} がもう無い" if place and not there else
+           f"受けた作業場 {place} の部署は、この頼みを受けていない" if place else "受けた作業場が台帳に無い")
+    if a.dry_run:
+        print("\n".join(notes + [f"受付 {i} は、{why}ので、台帳で「{t['label']}」と出る頼みを取り下げで閉じる"]))
+        return 0
+    # 頼みの行の在る受付箱のそれぞれに足す（頼んだ会社と受けた会社）
+    _log_each([x for x in found if any(ledger.subject(r) == i for r in deliver.records(x))],
+              {"id": i, "kind": "withdrawn", "at": ports.now(), "was": t["state"], "why": why,
+               "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+    print("\n".join(notes + [f"受付 {i} は、{why}ので、台帳で「{t['label']}」と出る頼みを取り下げで閉じた（台帳に行を足した）"]))
     return 0
 
 
