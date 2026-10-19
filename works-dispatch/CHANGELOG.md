@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- works-dispatch が worktree を消すとき（`--land` の後の片付け・`--clean --apply`・`--retire`。部署〔`--task` が立てた worktree〕も PR の作業場も）、その worktree の git の置き場（`.git/worktrees/<名前>/`。`<名前>` は git が worktree ごとに作る管理用のフォルダの名前）に graphloops（このリポジトリの別のプラグイン）の run の記録（費用・読んだ記録・判定。盤面と呼ぶ。`graphloops/`）が在れば、消す前に代表の clone の `.git/graphloops/boards-archive/<名前>/graphloops/` に写す。前の版では `git worktree remove` がこれを黙って消していた。写す先は graphloops の `init`・`status` が出す先と同じで、graphloops の `tests/replay_boards.py` と `scripts/quality-ledger.py` が読む。写せなければ何も消さない（部署は会話を消す `claude rm` より前に写すので、写せなければ会話も残る）。`--apply` を付けない `--clean` は、「消せる」の行に写す先を添える。写しの量には上限を置く。works-dispatch は自分が作った写しの `<名前>/` に印のファイル `.works-dispatch-archived`（写しの大きさを書く）を置き、写すたびに、印の有る写しの合計が 2 GiB 以下になるまで、古く写した物から消す。上限を超えた分のほかは消さない（日数では消さない。盤面の再生とエンジンの版ごとの品質の集計に古い盤面も使うため）。同じ名前の写しが印無しで既に在れば（手で写した物）、その中に写すが印は付けず、自動では消さない。消し終えても合計が上限を超えたままなら `--tree` が注記に出す（docs/standards/breakage-detection.md の決まり 5。受付 5f414f）。
+
 ## [0.93.0] - 2026-10-19
 
 ### Changed

@@ -1627,6 +1627,12 @@ def _tool_places(repo, ports, apply):
     return sum(1 for _, reason, _ in bad if reason != tools.DIRTY), True
 
 
+def _boards_note(path, ports):
+    """消せる場所に graphloops の盤面が在れば、写す先を添える注記（無ければ空の字）。"""
+    got = clean.boards_of(path, ports.git)
+    return f"（graphloops の盤面は {got[1]} に写してから消す）" if got else ""
+
+
 def _clean(cfg, repo, apply, ports):
     try:
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
@@ -1641,7 +1647,8 @@ def _clean(cfg, repo, apply, ports):
     for d in depts:
         kept = len(clean.tmp_entries(chat.job_tmp(d["config_dir"], d["session"], ports.account_env))) if d["removable"] and d["session"] else 0
         print(f"部署 {d['name'] or '-'} {d['branch'] or '（ブランチ無し）'}  {d['state']}  "
-              + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else ""))
+              + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else "")
+                  + _boards_note(d["path"], ports))
                  if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}{_running_note(d, ports.attrs(d['path']))}）"))
     print("\n".join(notes + swept) if notes or swept else "", end="\n" if notes or swept else "")
     failed, stale = _tool_places(repo, ports, apply)
@@ -1669,7 +1676,7 @@ def _clean(cfg, repo, apply, ports):
             print("消すには --clean --apply を付けて打ち直す")
         return 1 if failed else 0
     for r in rows:
-        mark = "消せる" if r["removable"] else f"残す（{r['reason']}{': ' + ', '.join(r['files']) if r['files'] else ''}）"
+        mark = ("消せる" + _boards_note(r["path"], ports)) if r["removable"] else f"残す（{r['reason']}{': ' + ', '.join(r['files']) if r['files'] else ''}）"
         print(f"{_where(r)}  {r['state'] or '-'}  {mark}")
     if not apply:
         if removable or any(r["removable"] for r in rows):

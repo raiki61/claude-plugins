@@ -253,6 +253,19 @@ class Main(unittest.TestCase):
         self.assertEqual(self.h.writes, [("remove_worktree", self.paths[1])])
         self.assertTrue(os.path.exists(self.src))
 
+    def test_apply_copies_graphloops_boards_of_a_closed_pr_place_before_removing_it(self):
+        # PR の作業場も、git の置き場の盤面（graphloops/）は git worktree remove で一緒に消えるので、消す前に写す（受付 5f414f）
+        here = pathlib.Path(gitx.git_dir(self.paths[1]))
+        (here / "graphloops" / "review-loop").mkdir(parents=True)
+        (here / "graphloops" / "review-loop" / "trace.jsonl").write_text("{}\n")
+        dest = pathlib.Path(gitx.common_dir(self.src), "graphloops", "boards-archive", here.name, "graphloops")
+        rc, out = self.run_clean(["--clean"], self.ports())
+        self.assertIn(f"#1 feat/1  MERGED  消せる（graphloops の盤面は {dest} に写してから消す）", out)
+        rc, out = self.run_clean(["--clean", "--apply"], self.ports())
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(self.paths[1]))
+        self.assertEqual((dest / "review-loop" / "trace.jsonl").read_text(), "{}\n")
+
     def test_apply_returns_1_when_a_place_could_not_be_removed(self):
         pathlib.Path(self.paths[1], "new.py").write_text("x\n")
         ports = self.ports()

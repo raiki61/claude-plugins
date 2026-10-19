@@ -15,7 +15,8 @@ worktrees が返す、元の clone と中身を共有する worktree なので�
 git が追わないファイルのうち、それ以外（依存・生成物など）は場所と一緒に捨ててよい（作り直せる）。
 パスはリンクを辿った実際のパスで比べる（会話の作業フォルダを見落とさない）。
 消す時は herdr の worktree の口で checkout と作業場を消し（--force は付けない）、消えたことを読み戻してから、手元のブランチも消す
-（先頭が PR の head と同じときだけ）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
+（先頭が PR の head と同じときだけ）。消す前に、場所の git の置き場に graphloops の盤面（run の記録）が在れば、共通の .git の
+graphloops/boards-archive/ に写す（keep_boards。写せなければ消さない。部署を消すときも同じ remove を通る）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
 
 部署（入口の --task が立て、属性 company.session を持つ linked worktree）は、別の決まりで選ぶ（departments・retire）。
 - エフェメラルの部署である（属性 company.lifecycle が persistent の永続の部署は畳まない。属性が無ければエフェメラルとみなす。会社の形の設計 4.10 の 1）
@@ -190,6 +191,12 @@ KEPT_TMP = ("company", "kept-tmp")   # 共通の .git の下の、消した部�
 # 223MB、my_notes に 132MB 溜まった。2026-10-19）。写しは消した部署の一時のファイルを後で拾うための物で、要るかは数日で分かる
 KEPT_DAYS = 14
 KEPT_LIMIT = 1024 * 1024 * 1024
+BOARDS = "graphloops"   # graphloops が linked worktree の git の置き場（.git/worktrees/<名前>）に作る、run の記録（盤面）の置き場
+BOARDS_ARCHIVE = ("graphloops", "boards-archive")   # 共通の .git の下の、消した場所の盤面の写し（graphloops の replay_boards.py と quality-ledger.py が読む）
+ARCHIVED = ".works-dispatch-archived"   # 写しに works-dispatch が置く印。片付けは印の有る写しだけを消し、手で写した物には触らない
+# 盤面の写しの片付け: 写すたびに、印の有る写しの合計が ARCHIVE_LIMIT を超えた分の古い物を消す（年齢では消さない。写しは盤面の再生と
+# engine の版ごとの質の数に使うので、古い版の盤面ほど要る。盤面 1 つは 1〜7 MB〔graphloops の engine/commands.py の測り〕で、2 GiB で数百本）
+ARCHIVE_LIMIT = 2 * 1024 * 1024 * 1024
 
 
 def tmp_entries(path):
@@ -242,20 +249,81 @@ def _tree_size(path):
     return total
 
 
-def prune_kept(kept, now, keep=()):
-    """写しの置き場 kept から、KEPT_DAYS 日より古い物と、合計が KEPT_LIMIT を超えた分の古い物を消す（keep に挙げた物は残す）。
-    消した数。消せなかった物は残し、--tree が古い物の残りとして出す。"""
-    entries = [(t, p, _tree_size(p)) for t, p in kept_entries(kept) if p not in keep]
+def prune_kept(kept, now, keep=(), days=None, limit=None, listed=kept_entries):
+    """写しの置き場 kept から、days 日（既定は KEPT_DAYS。0 なら年齢では消さない）より古い物と、合計が limit（既定は KEPT_LIMIT）を
+    超えた分の古い物を消す（keep に挙げた物は残す）。並べるのは listed（既定は置き場の中の全部）。消した数。消せなかった物は残し、
+    --tree が古い物か大きさの超えとして出す。"""
+    days = KEPT_DAYS if days is None else days
+    limit = KEPT_LIMIT if limit is None else limit
+    entries = [(t, p, _tree_size(p)) for t, p in listed(kept) if p not in keep]
     total = sum(s for _, _, s in entries) + sum(_tree_size(p) for p in keep)
     gone = 0
     for t, p, size in entries:
-        if now - t <= KEPT_DAYS * 86400 and total <= KEPT_LIMIT:
+        if (not days or now - t <= days * 86400) and total <= limit:
             continue
         shutil.rmtree(p, ignore_errors=True)
         if not os.path.exists(p):
             gone += 1
             total -= size
     return gone
+
+
+def archived_entries(archive):
+    """盤面の写しの置き場 archive のうち、works-dispatch が写した物（印 ARCHIVED が有る）の (印の更新の時刻, パス) の古い順。"""
+    try:
+        names = os.listdir(archive)
+    except OSError:
+        return []
+    got = []
+    for n in names:
+        p = os.path.join(archive, n)
+        try:
+            got.append((os.stat(os.path.join(p, ARCHIVED)).st_mtime, p))
+        except OSError:   # 印が無い物は手で写した物（INDEX.md などのファイルも）。片付けの外に置く
+            continue
+    return sorted(got)
+
+
+def archived_size(archive):
+    """盤面の写しの置き場 archive のうち、works-dispatch が写した物の合計の大きさ。写したときに印へ書いた大きさを足す（--tree が
+    打つたびに数百本の盤面を辿らない）。印の中身が読めなければ、その写しだけ辿って測る。"""
+    total = 0
+    for _, p in archived_entries(archive):
+        try:
+            total += int(pathlib.Path(p, ARCHIVED).read_text(encoding="utf-8"))
+        except (OSError, ValueError):   # 印の中身が無い・壊れている。辿って測る
+            total += _tree_size(p)
+    return total
+
+
+def boards_of(path, g=gitx):
+    """場所 path（元の clone の linked worktree）の git の置き場に在る graphloops の盤面の置き場と、写す先の組 (盤面, 写す先)。
+    無ければ None。写す先は <共通の .git>/graphloops/boards-archive/<git の置き場の名前>/graphloops で、graphloops の init と status が
+    出す写し方と同じ先（手で写した物と同じ名前なら、その上に写す。印は付けないので片付けの外のまま）。"""
+    here, common = g.git_dir(path), g.common_dir(path)
+    if not here or not common or os.path.realpath(here) == os.path.realpath(common):
+        return None
+    boards = os.path.join(here, BOARDS)
+    if not os.path.isdir(boards):
+        return None
+    return boards, os.path.join(common, *BOARDS_ARCHIVE, os.path.basename(here), BOARDS)
+
+
+def keep_boards(path, g=gitx):
+    """場所 path の git の置き場に graphloops の盤面（graphloops/）が在れば、git worktree remove が一緒に消す前に共通の .git の
+    boards-archive へ写し、写した先を返す（無ければ None）。写せなければ OSError。graphloops は works-dispatch の無いリポジトリでも
+    動くので、消す側のこちらが写す（2026-10-19、受付 5f414f）。写すたびに印の有る写しを ARCHIVE_LIMIT に収める（標準の決まり 5）。"""
+    got = boards_of(path, g)
+    if not got:
+        return None
+    boards, dest = got
+    top = os.path.dirname(dest)
+    mine = not os.path.lexists(top) or os.path.exists(os.path.join(top, ARCHIVED))   # 手で写した物には印を足さない
+    _copy_over(boards, dest)
+    if mine:
+        pathlib.Path(top, ARCHIVED).write_text(str(_tree_size(top)), encoding="utf-8")   # 大きさは archived_size が読む
+    prune_kept(os.path.dirname(top), time.time(), keep=(top,) if mine else (), days=0, limit=ARCHIVE_LIMIT, listed=archived_entries)
+    return dest
 
 
 def _unlink(path):
@@ -317,8 +385,14 @@ def retire(row, source, label, h=term, g=gitx, c=None, env=None):
     環境のままにせず、会話の一覧を読んだのと同じ環境を渡す（2026-10-17 に p2 の会話から打った --clean --apply が、main の会話を
     p2 の置き場で探して「No job matching」で断られた）。
     rm は会話の一時の置き場（c.job_tmp）も消す。部署はそこに残すと書いた物を置くことがあるので、物が在れば先に keep_tmp で写し、
-    写せなければ消さない。rm が断れば（未 push の commit など）、場所も消さない。{path, branch, removed, branch_deleted, detail}。"""
+    写せなければ消さない。graphloops の盤面も rm の前に写す（keep_boards。写せなければ会話も場所も消さない）。rm が断れば
+    （未 push の commit など）、場所も消さない。{path, branch, removed, branch_deleted, detail}。"""
     note = None
+    try:
+        boards = keep_boards(row["path"], g)
+    except OSError as e:
+        return {"path": row["path"], "branch": row["branch"], "removed": False, "branch_deleted": False,
+                "detail": f"graphloops の盤面を写せないので消さない（{e}）"}
     if row.get("session"):
         try:
             n, dest = keep_tmp(c.job_tmp(row["config_dir"], row["session"], env), source, row["session"], g)
@@ -330,16 +404,26 @@ def retire(row, source, label, h=term, g=gitx, c=None, env=None):
         if not ok:
             return {"path": row["path"], "branch": row["branch"], "removed": False, "branch_deleted": False,
                     "detail": f"{chat.REMOVE_COMMAND} が断った（{said}）"}
-    out = remove(row, source, label, h, g)
+    out = remove(row, source, label, h, g, boards=boards)
     if note:
         out["detail"] = f"{note}。{out['detail']}" if out["detail"] else note
     return out
 
 
-def remove(row, source, label, h=term, g=gitx):
-    """候補の 1 行の場所を消し、手元のブランチも消す。{path, branch, removed, branch_deleted, detail}。"""
+UNCOPIED = object()   # remove の boards の既定: 盤面をまだ写していない
+
+
+def remove(row, source, label, h=term, g=gitx, boards=UNCOPIED):
+    """候補の 1 行の場所を消し、手元のブランチも消す。消す前に graphloops の盤面を写す（keep_boards。写せなければ消さない）。
+    boards は呼び手が先に写した keep_boards の返り値（retire が rm の前に写す）。{path, branch, removed, branch_deleted, detail}。"""
     path = row["path"]
     out = {"path": path, "branch": row["branch"], "removed": False, "branch_deleted": False, "detail": None}
+    if boards is UNCOPIED:
+        try:
+            boards = keep_boards(path, g)
+        except OSError as e:
+            out["detail"] = f"graphloops の盤面を写せないので消さない（{e}）"
+            return out
     try:
         h.remove_worktree(source, path, label)
     except (h.Error, OSError) as e:
@@ -354,6 +438,8 @@ def remove(row, source, label, h=term, g=gitx):
         out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} を消せなかった（{e}）"
     if not out["branch_deleted"] and not out["detail"]:
         out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} の先頭が PR の head と違うので残した"
+    if boards:
+        out["detail"] = f"graphloops の盤面を {boards} に写した" + (f"。{out['detail']}" if out["detail"] else "")
     return out
 
 

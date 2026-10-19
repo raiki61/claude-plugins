@@ -13,6 +13,8 @@ docs/standards/breakage-detection.md）。
   空になった順番待ちの置き場（queue/<場所の鍵>）は、EMPTY_DAYS 日より古い物を読むときに消す。
 - 一時の置き場の控え（kept_tmp）: --clean・--retire が会話の一時の置き場を消す前に写した控え（nodes/clean.py の keep_tmp。写すときに
   古い物を消す）。消せずに clean.KEPT_DAYS 日より古い物が残れば出す。
+- 盤面の写し（boards_archive）: 片付けが場所を消す前に写した graphloops の盤面（nodes/clean.py の keep_boards。写すときに古い物を
+  消す）。works-dispatch が写した物の合計が clean.ARCHIVE_LIMIT を超えて残れば出す。
 - 周期（due）: 会社の形の受け持ちの周期（[skills.start] の every）の、前に起動した時と次の時。次の時を DUE_LATE_MIN 分過ぎても起動して
   いなければ出す（--due は頼みと納品が流れたときにしか打たれない）。
 """
@@ -163,6 +165,15 @@ def kept_tmp(kept, now):
         return []
     return [f"一時の置き場の控え {kept} に {clean.KEPT_DAYS} 日より古い物が {len(old)} つ残っている（--clean か --retire が写すときに消す。"
             "消せていない。中を見て要らなければ消す）"]
+
+
+def boards_archive(archive):
+    """works-dispatch が写した盤面の合計が clean.ARCHIVE_LIMIT を超えていれば、その注記の並び（写すときの片付けが動いていない）。"""
+    size = clean.archived_size(archive)
+    if size <= clean.ARCHIVE_LIMIT:
+        return []
+    return [f"graphloops の盤面の写し {archive} のうち works-dispatch が写した物が {size // (1024 * 1024)} MiB"
+            f"（上限 {clean.ARCHIVE_LIMIT // (1024 * 1024)} MiB）。--land の後の片付け・--clean・--retire が写すときに古い物から消す。消せていない。中を見て要らなければ消す"]
 
 
 def due(skills, records, now):

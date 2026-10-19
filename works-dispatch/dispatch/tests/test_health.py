@@ -93,6 +93,33 @@ class Growth(unittest.TestCase):
         self.assertTrue(any("due.log" in n for n in health.growth(str(inbox))))
 
 
+class BoardsArchive(unittest.TestCase):
+    """盤面の写しの片付け（clean.keep_boards が写すたびに呼ぶ prune_kept）は、works-dispatch が写した物（印の有る物）だけを大きさで消す。"""
+
+    def setUp(self):
+        self.archive = pathlib.Path(tempfile.mkdtemp())
+        limit = clean.ARCHIVE_LIMIT
+        clean.ARCHIVE_LIMIT = 25   # 3 つで 30。古い 1 つを消せば収まる
+        self.addCleanup(setattr, clean, "ARCHIVE_LIMIT", limit)
+
+    def copy(self, name, age, mark=True):
+        d = self.archive / name
+        touch(d / "graphloops" / "f", "x" * 10)
+        if mark:
+            touch(d / clean.ARCHIVED, "")
+            os.utime(d / clean.ARCHIVED, (NOW - age,) * 2)
+        return d
+
+    def test_only_marked_copies_are_pruned_oldest_first_and_age_alone_does_not_prune(self):
+        hand = self.copy("wt-adr", 10 ** 9, mark=False)   # graphloops の持ち主が手で写した物
+        first, second, third = (self.copy(n, age) for n, age in (("a", 10 ** 9), ("b", 200), ("c", 100)))
+        self.assertEqual(len(health.boards_archive(str(self.archive))), 1)
+        clean.prune_kept(str(self.archive), NOW, keep=(str(third),), days=0, limit=clean.ARCHIVE_LIMIT,
+                         listed=clean.archived_entries)
+        self.assertEqual([p.exists() for p in (hand, first, second, third)], [True, False, True, True])
+        self.assertEqual(health.boards_archive(str(self.archive)), [])
+
+
 class KeptTmp(unittest.TestCase):
     def setUp(self):
         self.kept = pathlib.Path(tempfile.mkdtemp())

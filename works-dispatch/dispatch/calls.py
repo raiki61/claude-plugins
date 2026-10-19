@@ -178,7 +178,8 @@ def annotate(companies, settings, g):
         c["inbox"] = inbox
         now = time.time()
         c["health"] = (health.inbox_notes(inbox, now) + health.due(c["skills"], records, now)
-                       + (health.kept_tmp(os.path.join(common, *clean.KEPT_TMP), now) if common else []))
+                       + (health.kept_tmp(os.path.join(common, *clean.KEPT_TMP), now)
+                          + health.boards_archive(os.path.join(common, *clean.BOARDS_ARCHIVE)) if common else []))
         for d in c["departments"]:
             here = g.git_dir(d["path"]) if inbox else None
             d["queue"] = len(wake.queued(inbox, here)) if here else 0

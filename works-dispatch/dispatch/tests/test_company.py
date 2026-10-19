@@ -957,6 +957,45 @@ class Departments(unittest.TestCase):
         self.assertEqual((kept / "tools" / "measure.py").read_text(encoding="utf-8"), "x\n")
         self.assertEqual(len(self.removed), 1)
 
+    def test_graphloops_boards_are_copied_into_the_common_git_before_the_place_goes(self):
+        # graphloops の盤面は場所の git の置き場（.git/worktrees/<名前>/graphloops）に在り、git worktree remove で一緒に消える（受付 5f414f）
+        here = pathlib.Path(gitx.git_dir(self.place))
+        run = here / "graphloops" / "review-loop" / "20261019-000000"
+        run.mkdir(parents=True)
+        (run / "state.json").write_text("{}\n", encoding="utf-8")
+        dest = pathlib.Path(gitx.common_dir(self.src), "graphloops", "boards-archive", here.name, "graphloops")
+        rc, out = self.clean()
+        self.assertIn(f"消せる（graphloops の盤面は {dest} に写してから消す）", out)
+        self.assertFalse(dest.exists(), "見立てだけで写した")
+        rc, out = self.clean("--apply")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"graphloops の盤面を {dest} に写した", out)
+        self.assertEqual((dest / "review-loop" / "20261019-000000" / "state.json").read_text(encoding="utf-8"), "{}\n")
+        self.assertEqual(int((dest.parent / clean.ARCHIVED).read_text(encoding="utf-8")), clean.archived_size(str(dest.parent.parent)))
+        self.assertEqual(len(self.removed), 1)
+
+    def test_boards_copied_over_a_hand_copy_stay_out_of_the_pruning(self):
+        # graphloops の持ち主が手で同じ名前に写した物（印が無い）は、上に写しても印を足さず、片付けで消さない
+        here = pathlib.Path(gitx.git_dir(self.place))
+        (here / "graphloops" / "new").mkdir(parents=True)
+        hand = pathlib.Path(gitx.common_dir(self.src), "graphloops", "boards-archive", here.name)
+        (hand / "graphloops" / "old").mkdir(parents=True)
+        self.assertEqual(clean.keep_boards(self.place, gitx), str(hand / "graphloops"))
+        self.assertTrue((hand / "graphloops" / "old").exists() and (hand / "graphloops" / "new").exists())
+        self.assertFalse((hand / clean.ARCHIVED).exists())
+        self.assertEqual(clean.archived_entries(str(hand.parent)), [])
+
+    def test_place_is_kept_when_the_boards_cannot_be_copied(self):
+        (pathlib.Path(gitx.git_dir(self.place)) / "graphloops").mkdir()
+        real = clean._copy_over
+        clean._copy_over = lambda src, dest: (_ for _ in ()).throw(OSError("disk full"))
+        self.addCleanup(setattr, clean, "_copy_over", real)
+        rc, out = self.clean("--apply")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("graphloops の盤面を写せないので消さない（disk full）", out)
+        self.assertEqual(self.removed, [])   # claude rm も打たない（盤面は rm の前に写す）
+        self.assertTrue(os.path.exists(self.place))
+
     def test_job_tmp_copy_overwrites_a_read_only_file_and_a_folder_turned_into_a_file(self):
         # 下の試験の、Windows でも起きる部分（読み取り専用の git の objects の上書き・フォルダからファイルへの入れ替え）
         tmp = pathlib.Path(tempfile.mkdtemp())
@@ -1044,6 +1083,10 @@ class Departments(unittest.TestCase):
         class G:
             @staticmethod
             def common_dir(cwd):
+                return None
+
+            @staticmethod
+            def git_dir(cwd):
                 return None
         got = clean.retire({"path": self.place, "branch": "dept/a", "session": "a", "config_dir": "/c", "pr_head": None},
                            self.src, "x", self.ports.term, G, C)
