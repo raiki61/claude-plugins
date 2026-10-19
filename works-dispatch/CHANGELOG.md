@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `docs/ledger.md`（受付箱の台帳の形）の `id` の説明で、受付番号が指す物（頼み・納品の要約のファイル・足し）を、種類（`deliver`・`note`）と合わせて書いた。`docs/internals.md`（作りを直す人向けの参照）の冒頭に、誰向けの文書かを書き、層の向き（上の層・読まない）の言い方を補った。初めて読む人が止まった所の直しで、振る舞いは変わらない。
+
 ## [0.88.0] - 2026-10-19
 
 ### Added
