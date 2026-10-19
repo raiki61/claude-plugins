@@ -1,10 +1,13 @@
 """宣言した検査の一式の結果の使い回し（engine/checks_cache.py と role_run.run_steps の入口・出口）。関数を直に呼ぶ。
 段は外の印のファイルに 1 字足すので、印の長さが実際に走った回数になる"""
+import datetime
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -201,6 +204,57 @@ def test_damaged_entry_is_a_miss_and_is_repaired(tmp_path, damage):
     second = run_steps(steps, str(repo), tmp_path / "log2")
     third = run_steps(steps, str(repo), tmp_path / "log3")
     assert ran(mark) == 2 and second[0]["cache"].startswith("外れ") and third[0].get("reused")
+
+
+def _age(entry, days):
+    """記録を days 日前に書いた物にする（entry.json の at を書き換える）"""
+    e = json.loads((entry / "entry.json").read_text(encoding="utf-8"))
+    e["at"] = (datetime.datetime.now().astimezone() - datetime.timedelta(days=days)).isoformat(timespec="seconds")
+    (entry / "entry.json").write_text(json.dumps(e), encoding="utf-8")
+
+
+def test_entry_older_than_the_age_limit_is_not_used_and_is_rewritten(tmp_path):
+    """書いてから MAX_AGE_DAYS 日を過ぎた緑は使わず（外れの訳 old）、回し終えた store が消して書き直す
+    （docs/standards/breakage-detection.md の決まり 2・5）"""
+    repo, steps, mark = setup(tmp_path)
+    first = run_steps(steps, str(repo), tmp_path / "log1")
+    entry = pathlib.Path(first[0]["cache"].split("書いた: ", 1)[1])
+    _age(entry, checks_cache.MAX_AGE_DAYS - 1)
+    assert run_steps(steps, str(repo), tmp_path / "log2")[0].get("reused")   # 上限の内なら使う
+    _age(entry, checks_cache.MAX_AGE_DAYS + 1)
+    third = run_steps(steps, str(repo), tmp_path / "log3")
+    note = json.loads((tmp_path / "log3" / checks_cache.NOTE_NAME).read_text(encoding="utf-8"))
+    assert ran(mark) == 2 and not third[0].get("reused") and note["causes"] == ["old"] and note["pruned"] == 1
+    assert run_steps(steps, str(repo), tmp_path / "log4")[0].get("reused")   # 書き直した記録は使う
+
+
+def test_old_entry_left_by_a_failed_prune_is_rewritten(tmp_path, monkeypatch):
+    """片付けが消し損ねた古い記録（壊れてはいない）も、store が書き直す——残すと毎回 old で外れ続けるのに「書いた」と出る"""
+    repo, steps, mark = setup(tmp_path)
+    entry = pathlib.Path(run_steps(steps, str(repo), tmp_path / "log1")[0]["cache"].split("書いた: ", 1)[1])
+    _age(entry, checks_cache.MAX_AGE_DAYS + 1)
+    monkeypatch.setattr(checks_cache, "prune", lambda root: 0)
+    run_steps(steps, str(repo), tmp_path / "log2")
+    assert ran(mark) == 2 and run_steps(steps, str(repo), tmp_path / "log3")[0].get("reused")
+
+
+def test_store_prunes_old_entries_and_leftover_temp_dirs(tmp_path):
+    """別の指紋の古い記録・読めない記録・残った一時の置き場を、年齢で消す。新しい物は残す"""
+    repo, steps, _mark = setup(tmp_path)
+    first = run_steps(steps, str(repo), tmp_path / "log1")
+    entry = pathlib.Path(first[0]["cache"].split("書いた: ", 1)[1])
+    root, old = entry.parent, entry.parent / ("a" * 64)
+    shutil.copytree(entry, old)
+    _age(old, checks_cache.MAX_AGE_DAYS + 1)
+    stale_tmp, fresh_tmp, unreadable = root / ".tmp-x", root / ".tmp-y", root / ("b" * 64)
+    for d in (stale_tmp, fresh_tmp, unreadable):
+        d.mkdir()
+    (unreadable / "entry.json").write_text("{", encoding="utf-8")
+    past = time.time() - (checks_cache.MAX_AGE_DAYS + 1) * 86400
+    for d in (stale_tmp, unreadable):
+        os.utime(d, (past, past))
+    assert checks_cache.prune(root) == 3
+    assert sorted(d.name for d in root.iterdir()) == sorted([fresh_tmp.name, entry.name])
 
 
 def test_superseded_attempt_does_not_return_reused_rows(tmp_path):

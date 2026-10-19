@@ -6,6 +6,22 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Added
+- `loop.py init`（graphloops の run〔ループの 1 回の実行〕を始めるコマンド）が、手元の claude の版（`claude --version` の出力）を、graphloops の作者が確かめた claude の版と比べ、違えば `注意:` で始まる行で知らせる。作者が確かめたのは、graphloops が claude を起動するときに頼る形——オプション・設定のキー・`claude -p --output-format json` が返す JSON のフィールド——で、確かめた版は `graphloops/tests/py/cli/versions.json` に書いてある。確かめた版は、作者が見本（claude のヘルプの全文と、ログインしていない回に返る JSON。`python3 graphloops/tests/py/cli_contract.py --capture` で採る）を採り直すときに書き換わる。
+  - 知らせには、確かめのコマンド `python3 graphloops/tests/py/cli_contract.py --live` を添える。これは、graphloops を含むリポジトリ claude-plugins の clone のルートで打つ。確かめるのは clone の側の graphloops なので、知らせの行には、今の run が使っている graphloops の版も出す。先に clone を、その版の graphloops が入った commit に切り替えておく。このコマンドは手元の claude を、資格情報の無い空の設定のフォルダ（`CLAUDE_CONFIG_DIR`）を渡してログインしていない状態にしたうえで、graphloops と同じオプションで起動する。そして、オプションと設定が受け付けられるか・返る JSON の形が見本と合うかを見る。ログインしていない claude も、`is_error` が真で `result` が「Not logged in」の JSON を、ログインした回と同じフィールドの形で返す。見本の JSON もログインしていない回に採った物なので、同じ条件で形を比べられる。ログインしていない claude は API を呼ばずに返すので、利用の費用は掛からない。
+  - clone を持たない利用者向けに、知らせの行は別の道も示す。`loop.py intake --what '<1 行の説明>'` を打って、engine（graphloops のループを回す本体。`scripts/loop.py` と `engine/`）の失敗の記録（`intake.jsonl`）に 1 行を足し、その記録を、`init` が出す手順に沿って作者へ渡す道。
+  - 止めずに知らせるだけにした。claude は自動で更新され、版が違っても多くはそのまま動くため。
+  - 比べるのは、Claude Code がプラグインを入れた置き場（`~/.claude/plugins/cache/` などの下）から graphloops が走るときだけで、git の clone から直に走らせる試験・開発のときは比べない。claude が PATH に無いときも知らせない（そのときは graphloops が claude を起動する所で失敗するので、そちらで分かる）。
+- 宣言した検査の一式（`.review-checks.json` の `suite`）が全て通った（緑だった）結果を使い回すキャッシュ（`.git/graphloops/checks-cache/`）に、保存期間の上限（7 日）を付けた。今までは上限が無く、記録が溜まり続けた。
+  - 書いてから 7 日を過ぎた記録は使わずに、検査を回し直す。キャッシュを使わなかった訳は、盤面（run ごとの状態を置くディレクトリ）に置く、検査の一式を回した段（段はループの 1 つの手順）の控え `cache.json` の `causes` に、キー `old`（記録が 7 日より古い）として残る。
+  - キャッシュを使えずに一式を実際に回し終えるたびに（結果が緑でも赤でも。キャッシュを使った回は片付けない）、7 日を過ぎた記録と、同じ置き場に残った一時のディレクトリ（書きかけの記録の `.tmp-` と、壊れた記録の `.broken-` で始まる物）を消す。
+  - 使われなくなったリポジトリの置き場は誰も片付けないので、要らなければ `.git/graphloops/checks-cache/` を丸ごと消す。
+
+### Fixed
+- 開発の側の直しで、graphloops を使う側の振る舞いは変わらない。main で落ちていた pytest の試験 2 本を直した。
+  - `graphloops/tests/py/test_agent_frontmatter.py` の、linked worktree（`git worktree add` で足した作業ツリー）の `.git` ファイルに相対の `gitdir:` が書かれた場合の試験。読了のフック（`hooks/record-read.py`。ループの段を受け持つエージェントが読んだファイルを、いま回っている run の盤面に書く Claude Code のフック）は、commit da5c0619 の直し（0.39.0 に入った）で、まだ終わっていない run（盤面の `state.json` の状態で見分ける）の盤面にだけ書く形に変わった。ところが試験は `state.json` の無い盤面を置いたままだったので、フックがその盤面に書かず、試験が落ちていた。試験が `state.json` に状態「回っている」（`running`）を書くように直した。
+  - `graphloops/tests/py/test_ledger.py`。この試験は、`graphloops/tests/py/MIGRATION.md` の表が今のコードと合っているかを見る。MIGRATION.md には、bash の側の試験の台本から pytest へ移した検査の表（`<!-- ledger:begin -->` と `<!-- ledger:end -->` の間。機械で作る）があり、元の検査が在った `graphloops/tests/simulate.py` の行番号を載せている。その行番号が古いままだったので落ちていた。`python3 graphloops/tests/py/ledger.py` で表を作り直した。
+
 ## [0.40.0] - 2026-10-19
 
 ### Removed

@@ -2440,7 +2440,8 @@ def intake_notice():
 # ---------------------------------------------------------------- init
 def init_notices(g, root):
     """init で利用者に知らせる事実（止めない）——走らせるだけのノードを持つ graph なのに、対象リポジトリの宣言が無い・読めない、と、
-    この run の engine が Claude Code の台帳で今入っている版と違う、と、まだ作者へ手渡していない失敗の記録が在る、の 3 つ。
+    この run の engine が Claude Code の台帳で今入っている版と違う、と、手元の claude が engine の旗を確かめた版と違う、と、
+    まだ作者へ手渡していない失敗の記録が在る、の 4 つ。
     root は盤面の inputs.cwd の作業ツリーのルート（プロセスの状態——前に置かれた util.GIT_CWD——に依らない）"""
     out = []
     if any(isinstance(n.get("engine_run"), dict) for n in (g.get("nodes") or {}).values()):
@@ -2458,6 +2459,17 @@ def init_notices(g, root):
         else:
             out.append(f"この run の {name} {ver}（{PLUGIN_ROOT}）が、Claude Code の台帳で今入っている版か確かめられない（{drift['why']}）"
                        f"——Claude Code で {name} を入れ直してから init し直せ")
+    cd = intake.claude_drift()
+    if cd:
+        name, ver = intake.plugin_meta()
+        got = cd["installed"] or f"版を読めない物（--version の終了コード {cd['exit']}・標準出力が空か失敗）"
+        loop = shlex.quote(str(PLUGIN_ROOT / "scripts" / "loop.py"))
+        out.append(f"手元の claude は {got}（{cd['exe']}）——この run の engine が子の claude の旗・設定のキー・包みの"
+                   f"フィールドを確かめた版は {cd['pinned']}。旗の改名は起動で落ちて見えるが、設定のキーと包みのフィールドの改名は"
+                   "黙って効かなくなる。claude-plugins の clone のルートで `python3 graphloops/tests/py/cli_contract.py --live`"
+                   f"（費用なし）を打って確かめる（確かめるのは clone の engine なので、clone の {name} をこの run の版 {ver} に"
+                   f"そろえて打つ）。clone が無ければ `python3 {loop} intake --what 'claude の版のずれ'` で記録に残し、"
+                   "init が示す手順で作者へ渡す")
     n = intake_notice()
     if n:
         out.append(n)

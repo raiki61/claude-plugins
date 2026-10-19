@@ -21,11 +21,13 @@ import os
 import pathlib
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
 
 from . import filelock
+from . import launch_words
 
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOG = "intake.jsonl"
@@ -37,6 +39,8 @@ SCOPES = ("local", "project", "user")   # 台帳の行の scope。狭い順—�
 CONFIG = "intake-config.json"
 CLIP = 500                    # 人が書く 1 行と標準エラーの頭を切る長さ
 DETAIL_ENV = "GRAPHLOOPS_INTAKE_STDERR"   # 1 のときだけ標準エラーの頭を残す（既定は構造化したフィールドだけ）
+# engine が子の claude の旗・設定のキー・包みのフィールドを確かめた claude の版（tests/py/cli_contract.py --capture が書く見本の控え）
+CLAUDE_PIN = ("tests", "py", "cli", "versions.json")
 
 
 def quiet(fn):
@@ -190,6 +194,27 @@ def install_drift(root=PLUGIN_ROOT, cwd=None):
         return None
     return {"installed": str(got) if got else None, "version": plugin_meta(got)[1] if got else "",
             "why": "" if got else ("; ".join(why) or f"台帳に {name}@{market} の効く行が無い")}
+
+
+@noted
+def claude_drift(root=PLUGIN_ROOT):
+    """root が Claude Code の入れた置き場なら、PATH で引ける claude の `--version` を、root の見本の控え（CLAUDE_PIN の help.claude）と
+    比べる。違えば {"installed": 手元の版（読めなければ None）, "exit": --version の終了コード, "exe": 引いた claude, "pinned": 見本の版}。同じ・checkout から走る回・
+    claude が PATH に無い回（engine が claude を起動する所で失敗して別に見える）は None——止めずに知らせるだけの材料（init_notices が出す）。
+    止めない理由: claude は自動で更新され、版が違っても旗の多くはそのまま通る。止めると、作者が見本を採り直すまで全部の run が
+    止まる（docs/standards/breakage-detection.md の決まり 3 は「止まるか知らせる」）"""
+    if not _installed(root):
+        return None
+    exe = shutil.which(launch_words.CLAUDE)
+    if not exe:
+        return None
+    pinned = json.loads(pathlib.Path(root).joinpath(*CLAUDE_PIN).read_text(encoding="utf-8"))["help"]["claude"]
+    r = subprocess.run([exe, "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       stdin=subprocess.DEVNULL)
+    got = (r.stdout.strip() or None) if r.returncode == 0 else None
+    if got == pinned:
+        return None
+    return {"installed": got, "exit": r.returncode, "exe": exe, "pinned": pinned}
 
 
 def data_dir(given=None):

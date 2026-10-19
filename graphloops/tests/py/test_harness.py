@@ -316,6 +316,7 @@ RMTREE_ALLOWED = {
     ("graphloops/engine/commands.py", "_probe_child_tmp"): (1, "同じ関数が mkdtemp で作った確かめの子の作業場と専用の一時の置き場"),
     ("graphloops/engine/commands.py", "cmd_init"): (1, "同じ関数が exist_ok=False で作ったばかりの盤面（rules の入口が拒んだ回）"),
     ("graphloops/engine/checks_cache.py", "_store"): (2, "同じ関数が置き場の親の下に mkdtemp で作った書きかけと、脇へ退けた壊れた記録"),
+    ("graphloops/engine/checks_cache.py", "prune"): (1, "置き場（git-common-dir の下の graphloops/checks-cache）の直下を iterdir で引いた、上限の日数を過ぎた記録と一時の置き場"),
     ("graphloops/engine/util.py", "worktree_tree"): (1, "同じ関数が mkdtemp で作った一時の置き場"),
     ("tests/catchup-switch-case.py", "_worktree"): (1, "TemporaryDirectory の下に同じ関数が足した worktree"),
     # 特徴づけのテストの固定具と期待値を作る台本（0.21.2 の golden。このチェックより後に入った）

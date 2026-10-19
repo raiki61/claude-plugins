@@ -217,6 +217,7 @@ def test_install_drift_compares_the_running_root_with_the_ledger(tmp_path):
 def test_init_notices_name_a_missing_declaration_and_a_newer_version(tmp_path, monkeypatch):
     g = {"nodes": {"p4.ci": {"engine_run": {"builtin": "x"}}, "p0.base": {}}}
     monkeypatch.setattr(intake, "install_drift", lambda: None)
+    monkeypatch.setattr(intake, "claude_drift", lambda: None)
     monkeypatch.setattr(intake, "backlog", lambda: None)
     root = str(tmp_path)
     assert any(".review-checks.json が無い" in n for n in commands.init_notices(g, root))
@@ -229,6 +230,47 @@ def test_init_notices_name_a_missing_declaration_and_a_newer_version(tmp_path, m
     assert any("9.9.9（/x/9.9.9）が入っている" in n for n in commands.init_notices(g, root))
     monkeypatch.setattr(intake, "install_drift", lambda: {"installed": None, "version": "", "why": "台帳が無い"})
     assert any("確かめられない（台帳が無い）" in n for n in commands.init_notices(g, root))
+
+
+def _claude_on_path(tmp_path, monkeypatch, version, code=0):
+    """--version に version を返す代役の claude を PATH の先頭に置く（標準入力を読まない——読めば init が止まる）"""
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    exe = bindir / "claude"
+    exe.write_text(f"#!/bin/sh\nprintf '%s\\n' '{version}'\nexit {code}\n", encoding="utf-8")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ.get("PATH", ""))
+    return exe
+
+
+@pytest.mark.skipif(os.name == "nt", reason="代役の claude を #! の台本で置く")
+def test_claude_drift_compares_the_claude_on_path_with_the_pinned_version(tmp_path, monkeypatch):
+    """入れた置き場から走る回は、PATH の claude の版を見本の控え（tests/py/cli/versions.json）と比べる——違えば init が知らせる
+    （docs/standards/breakage-detection.md の決まり 3）"""
+    root = _cached(tmp_path, "0.40.0")
+    pin = root.joinpath(*intake.CLAUDE_PIN)
+    pin.parent.mkdir(parents=True)
+    pin.write_text(json.dumps({"help": {"claude": "2.1.303 (Claude Code)"}}), encoding="utf-8")
+    exe = _claude_on_path(tmp_path, monkeypatch, "2.1.303 (Claude Code)")
+    assert intake.claude_drift(root) is None
+    assert intake.claude_drift(PLUGIN) is None                 # checkout から走る回は比べない（試験の出力を手元の claude の版で揺らさない）
+    _claude_on_path(tmp_path, monkeypatch, "2.2.0 (Claude Code)")
+    assert intake.claude_drift(root) == {"installed": "2.2.0 (Claude Code)", "exit": 0, "exe": str(exe),
+                                         "pinned": "2.1.303 (Claude Code)"}
+    _claude_on_path(tmp_path, monkeypatch, "2.1.303 (Claude Code)", code=1)
+    got = intake.claude_drift(root)
+    assert (got["installed"], got["exit"]) == (None, 1)   # 落ちた --version の出力は版として読まない
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert intake.claude_drift(root) is None                    # claude が無い回は起動の行が落ちて見える
+
+
+def test_init_notices_name_a_claude_version_drift_and_the_live_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(intake, "install_drift", lambda: None)
+    monkeypatch.setattr(intake, "backlog", lambda: None)
+    monkeypatch.setattr(intake, "claude_drift", lambda: {"installed": "2.2.0 (Claude Code)", "exit": 0, "exe": "/x/claude",
+                                                         "pinned": "2.1.303 (Claude Code)"})
+    [n] = commands.init_notices({"nodes": {}}, str(tmp_path))
+    assert all(w in n for w in ("2.2.0 (Claude Code)", "/x/claude", "2.1.303 (Claude Code)", "cli_contract.py --live", "intake --what"))
 
 
 def test_init_reads_the_declaration_from_the_board_cwd_not_a_leftover_git_cwd(tmp_path, monkeypatch):

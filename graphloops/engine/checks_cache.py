@@ -53,8 +53,15 @@ scripts/quality-ledger.py がそれを数えて、当たりの率を出す。
 書かない——.gitignore の外に副産物を書く一式は 1 度も書かれないので、そうなった理由は段の行の cache に残す。
 
 **置き場**: `git rev-parse --git-common-dir` の下の graphloops/checks-cache/<鍵>/（worktree から共有される）。消すなら
-その置き場を丸ごと消せばよい（盤面の行は、当たった回も出力を盤面の log_dir に写してあるので切れない）。期限・件数の
-上限は付けない（実測で決めた値が無い）。置き場は宣言の語が走らせるコードからも書ける（declared.py の冒頭の注記）。
+その置き場を丸ごと消せばよい（盤面の行は、当たった回も出力を盤面の log_dir に写してあるので切れない）。置き場は宣言の語が
+走らせるコードからも書ける（declared.py の冒頭の注記）。
+
+**年齢の上限**（2026-10-19。docs/standards/breakage-detection.md の決まり 2・5）: 書いてから MAX_AGE_DAYS 日を過ぎた記録は使わず
+（外れの訳 old）、一式を回し終えるたび（store）に置き場から消す。残った一時の置き場（.tmp-・.broken-）も同じ年齢で消す。
+年齢は記録の at（書いた時刻）で数え、読めない物は置き場の更新時刻で数える。当たった回も時刻を延ばさない——指紋の外の差
+（argv[0] 以外のツールの版など）は日が経つほど溜まるので、古い緑を当たり続けるだけで使い続けない。値の 7 日は Nx の既定
+（7 日アクセスの無い記録を消す）に倣う。使い回しの当たりは同じ土台から並べた run（同じ日のうち）で起き、2026-09-27〜10-03 に
+溜まった 27 件は 6 日で 448 KB だった。
 """
 import datetime
 import hashlib
@@ -89,11 +96,13 @@ STRIPPED_ENV = frozenset({"CLAUDE_CODE_EXECPATH", "AI_AGENT", "CLAUDE_JOB_DIR"})
 STRIPPED_PREFIXES = ("__MISE_",)
 CACHE_PARTS = ("graphloops", "checks-cache")
 FORMAT = 3   # 3: PATH を意味で持ち、STRIPPED_ENV を外した（2 の記録とは指紋が合わない）
+MAX_AGE_DAYS = 7   # 記録を使い・残す日数（上の注記の「年齢の上限」）
 NOTE_NAME = "cache.json"   # 引いた回の当たり外れの控え（盤面の log_dir に書く）
 SHOW_NAMES = 12   # 外れの訳に並べる名前の数の上限（超えた分は数だけ）
 # 外れの訳のキー（控えの causes に書く。機械が比べるのはキーで、表示の語はこの表から引く）。環境変数は "env:<名前>" で持つ
 CAUSES = {"flag": "旗", "steps": "段の定義", "tree": "作業ツリーの中身", "platform": "OS・CPU・カーネルの版",
-          "tools": "argv[0] のツール（実パス・大きさ・更新時刻）", "broken": "記録が壊れている"}
+          "tools": "argv[0] のツール（実パス・大きさ・更新時刻）", "broken": "記録が壊れている",
+          "old": f"記録が {MAX_AGE_DAYS} 日より古い"}
 ENV_CAUSE = "env:"
 
 
@@ -178,6 +187,36 @@ def _tool(argv0, cwd, path):
 
 def _now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _born(d):
+    """記録を書いた時刻（エポック秒）——entry.json の at、読めなければ置き場の更新時刻（一時の置き場・壊れた記録）"""
+    try:
+        return datetime.datetime.fromisoformat(json.loads((d / "entry.json").read_text(encoding="utf-8"))["at"]).timestamp()
+    except (OSError, ValueError, TypeError, KeyError, OverflowError):
+        return d.stat().st_mtime
+
+
+def _too_old(born):
+    return datetime.datetime.now().timestamp() - born > MAX_AGE_DAYS * 86400
+
+
+def prune(root):
+    """置き場 root の中で MAX_AGE_DAYS 日を過ぎた記録と一時の置き場を消す ——消した数。消せない物は次の回に回す"""
+    gone = 0
+    try:
+        dirs = [d for d in pathlib.Path(root).iterdir() if d.is_dir()]
+    except OSError:
+        return 0
+    for d in dirs:
+        try:
+            old = _too_old(_born(d))
+        except OSError:   # 別の run が先に消した
+            continue
+        if old:
+            shutil.rmtree(d, ignore_errors=True)
+            gone += not d.exists()
+    return gone
 
 
 def plan(steps, cwd):
@@ -296,6 +335,12 @@ def _lookup(p, steps, log_dir):
         return None, f"記録が読めない（{err}）——回す", ["broken"]
     if not isinstance(e, dict):
         return None, "記録の形が崩れている——回す", ["broken"]
+    try:
+        born = datetime.datetime.fromisoformat(e["at"]).timestamp()
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None, "記録に書いた時刻（at）が無い・読めない——回す", ["broken"]
+    if _too_old(born):
+        return None, f"記録が {MAX_AGE_DAYS} 日より古い（{e['at']}）——回す", ["old"]
     runs = e.get("runs")
     if (e.get("format") != FORMAT or e.get("material") != p["material"] or not isinstance(runs, list) or len(runs) != len(steps)
             or any(not isinstance(r, dict) or r.get("name") != s["name"] or r.get("argv") != s["argv"] or r.get("exit") != 0
@@ -330,10 +375,11 @@ def _intact(entry, material, n):
 
 
 def store(p, steps, runs, log_dir):
-    """全段が緑で、回す前後の木の id が同じなら置き場に書く ——（書いた置き場か None, 書かない理由）。
-    書いたかを log_dir の NOTE_NAME に足す"""
+    """古い記録を片付けてから、全段が緑で、回す前後の木の id が同じなら置き場に書く ——（書いた置き場か None, 書かない理由）。
+    書いたかと片付けた数を log_dir の NOTE_NAME に足す"""
+    pruned = prune(pathlib.Path(p["entry"]).parent)
     entry, why = _store(p, steps, runs, log_dir)
-    _note(log_dir, stored=entry, not_stored=why)
+    _note(log_dir, stored=entry, not_stored=why, pruned=pruned)
     return entry, why
 
 
@@ -345,8 +391,8 @@ def _store(p, steps, runs, log_dir):
         return None, f"回している間に作業ツリーが変わった（木 {p['material']['tree'][:12]} → {str(tree)[:12]}）ので書かない"
     final = pathlib.Path(p["entry"])
     if final.exists():
-        if _intact(final, p["material"], len(steps)):
-            return str(final), None
+        if _intact(final, p["material"], len(steps)) and not _too_old(_born(final)):
+            return str(final), None   # 古い記録は prune が消し損ねた物——引く側は old で外すので、下で書き直す
         # 壊れた・欠けた記録（引く側は外れとして回した）を、今の緑で置き換える。消すのは脇へ退けてから
         try:
             aside = pathlib.Path(tempfile.mkdtemp(prefix=".broken-", dir=final.parent))

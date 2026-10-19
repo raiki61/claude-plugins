@@ -66,6 +66,7 @@ def test_record_read_resolves_a_relative_gitdir(tmp_path):
     (gitdir / "graphloops" / "run1").mkdir(parents=True)
     board = tmp_path / "board"
     board.mkdir()
+    (board / "state.json").write_text('{"status": "running"}', encoding="utf-8")   # 回っている run の盤面だけを返す（hook.live）
     (gitdir / "graphloops" / "run1" / "current").write_text(str(board), encoding="utf-8")
     wt = tmp_path / "wt"
     wt.mkdir()
