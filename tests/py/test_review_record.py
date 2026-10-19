@@ -234,3 +234,37 @@ def test_coverage_proof_digest_tracks_inputs(tmp_path, change):
     else:
         files[change].write_text("y\n", encoding="utf-8")
     assert (coverage_proof.inputs_digest(tmp_path, ("v",)) != before) == (change != "script-after-end")
+
+
+FAKE_COVERAGE = '''import os
+class Coverage:
+    @classmethod
+    def current(cls):
+        return cls()
+    def switch_context(self, name):
+        with open(os.environ["FAKE_CTX"], "w", encoding="utf-8") as f:
+            f.write(name)
+def process_startup():
+    return Coverage() if os.environ["FAKE_STARTED_BY"] == "site" else None
+'''
+
+
+@pytest.mark.parametrize("started_by", ["site", "pth"])
+def test_coverage_proof_site_names_validator_launch(tmp_path, started_by):
+    """検証器の起動に引数の文脈を付ける。pip で入れた coverage.py は .pth が先に測りを始め、sitecustomize の process_startup は
+    None を返す（pth）。そのときも始まっている測りに付ける"""
+    (tmp_path / "fake").mkdir()
+    (tmp_path / "fake" / "coverage.py").write_text(FAKE_COVERAGE, encoding="utf-8")
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "sitecustomize.py").write_text(coverage_proof.SITE, encoding="utf-8")
+    script = tmp_path / "scripts" / "review-record.py"
+    script.parent.mkdir()
+    script.write_text("", encoding="utf-8")
+    ctx = tmp_path / "ctx"
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(tmp_path / "site"), str(tmp_path / "fake")]),
+           "COVERAGE_PROCESS_START": "x", "COVPROOF_WORK": str(tmp_path / "w"), "COVPROOF_ROOT": str(REPO),
+           "FAKE_CTX": str(ctx), "FAKE_STARTED_BY": started_by}
+    got = subprocess.run([sys.executable, str(script), str(tmp_path / "w" / "hist"), str(REPO / "t.json")],
+                         env=env, capture_output=True)
+    assert got.returncode == 0, got
+    assert ctx.read_text(encoding="utf-8") == "argv:hist repo:t.json"
