@@ -3,6 +3,7 @@
 
 --start <受け持ち>（start_now）: 受け持ちを今起動する（コマンド）。受け持ちは名前か「会社/名前」。会社を省けば打った場所の会社。
 --due（due_all）: herdr に開いている会社の、周期（every）の来た受け持ちを全部起動する。何度打っても、周期の来た物だけを 1 回起動する。
+  見る時の来たリマインダー（--remind）も、担当者に 1 度だけ知らせる（reminds.notify）。
   刻むのは頼みと納品（due_later）: 入口の --ask と --deliver が通るたびに、--due を会話から切り離して裏で打つ（受付の設計の 9 章）。
   頼みも納品も来ない間も刻みたい人は、手元の OS の予定（macOS の launchd・Linux の cron か systemd の timer・Windows のタスク
   スケジューラ）に、例えば 10 分ごとに --due を打たせる。
@@ -25,6 +26,7 @@ import filex
 import gitx
 from ports import chat, term
 import orders
+import reminds
 from nodes import deliver, role, start, tree
 
 DISPATCH_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch.py")
@@ -192,8 +194,15 @@ def due_all(a, ports, task):
                 rc, out = fire(company, companies, skill, f"周期（{st['every']} ごと）", ports, a, task, settings)
                 lines += out
                 worst = max(worst, 1 if rc == 1 else 0)
+            if inbox:
+                # 見る時の来たリマインダーを担当者に知らせる（docs/ledger.md の「リマインダー」。同じ錠の中なので 2 度は知らせない）
+                try:
+                    lines += reminds.notify(inbox, ports.git.common_dir, now, dry_run=a.dry_run)
+                except (OSError, ValueError) as e:
+                    lines.append(f"注記: {company['name']} のリマインダーを知らせられなかった（{e}）")
+                    worst = 1
     if len(lines) == len(notes):
-        lines.append("周期の来た受け持ちは無い")
+        lines.append("周期の来た受け持ちも、見る時の来たリマインダーも無い")
     print("\n".join(lines))
     return worst
 

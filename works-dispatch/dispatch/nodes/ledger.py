@@ -36,7 +36,8 @@ STATES = {
 FINAL = ("done", "dropped")
 
 # 台帳の行の種類（kind）と、行が指す頼みの受付を持つフィールド。None は頼みを指さない行（部署やツールの出来事）。
-# 知らせ（to が字の行。宛先の待ち受けが拾う）の id は、どの種類でも頼みか足しの受付
+# 知らせ（to が字の行。宛先の待ち受けが拾う）の id は、どの種類でも頼みか足しの受付（リマインダーの知らせならリマインダーの受付。
+# 頼みを指さない知らせは None）
 KINDS = {
     "ask": "id",          # 頼んだ（status: sent 届いた・queued 順番待ちに積んだ・failed 届かなかった）。cause は親の頼み
     "queued": "id",       # 知らせ: 順番待ちに積んだ
@@ -57,6 +58,9 @@ KINDS = {
     "retired": None,      # エフェメラルの部署を畳んだ（--retire）
     "call": None,         # 機械窓口のツールを呼んで片づいた（--call）
     "miss": None,         # 機械窓口のツールが片づかなかった
+    "remind": None,       # リマインダーを立てた（--remind。id はリマインダーの受付で、頼みではない。nodes/remind）
+    "reminded": None,     # 見る時の来たリマインダーを担当者に知らせた（--due）
+    "remind-done": None,  # リマインダーを閉じた（--remind-done）
 }
 
 SHORT_ID = re.compile(r"(?<![0-9a-f-])[0-9a-f]{6}(?![0-9a-f])")

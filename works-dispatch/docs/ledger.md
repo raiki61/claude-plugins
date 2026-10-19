@@ -37,7 +37,7 @@
 
 ### よく出るフィールド
 
-- `id`: 受付番号。頼み・要約・足しのどれの受付番号かは種類で違う（下の表と表の補い）。頼みを指さない種類（`moved`・`retired`・`call`・`miss`）の行には無い。
+- `id`: 受付番号。頼み・要約・足しのどれの受付番号かは種類で違う（下の表と表の補い）。頼みを指さない種類（`moved`・`retired`・`call`・`miss`）の行には無い。リマインダーの行（`remind`・`reminded`・`remind-done`）では、リマインダーそのものの受付番号。
 - `kind`: 出来事の種類。
 - `at`: 時刻（UNIX 時刻の秒）。
 - `status`: `ask` の行では結果で、`sent`（届いた）・`queued`（順番待ちに積んだ）・`failed`（届かなかった）。`deliver` の行では `sent`（頼み元に届けた）・`posted`（頼み元の会話が無く、台帳に置いた）・`failed`（届かなかった）。ほかの行にも別の値（`noticed` など）が付くことがあるが、状態には使わない。
@@ -76,10 +76,13 @@
 | retired | 無し | 部署を畳んだ | — |
 | call | 無し | 機械窓口が頼みを片づけた | — |
 | miss | 無し | 機械窓口が片づけられなかった | — |
+| remind | 無し | リマインダーを立てた | — |
+| reminded | 無し | リマインダーの担当者に知らせた | — |
+| remind-done | 無し | リマインダーを閉じた | — |
 
 表の補い:
 
-- 知らせの行は、`to` が文字列の行（上の `to` の説明のとおり、宛先の待ち受けに宛てた行）で、種類のフィールド `kind` とは別に、`to` の形で見分ける。知らせの行は、どの種類でも `id` が頼み（足しの知らせなら足し）の受付番号である（`--land` や `--move` が部署に送る、頼みを指さない知らせでは `null`）。
+- 知らせの行は、`to` が文字列の行（上の `to` の説明のとおり、宛先の待ち受けに宛てた行）で、種類のフィールド `kind` とは別に、`to` の形で見分ける。知らせの行は、どの種類でも `id` が頼み（足しの知らせなら足し、リマインダーの知らせならリマインダー）の受付番号である（`--land` や `--move` が部署に送る、頼みを指さない知らせでは `null`）。リマインダーの知らせは、`id` を「知らせが何についてか」の受付番号とする今の意味のまま使うので、行の形の版は上げない。
 - 知らせでない `deliver` の行は、`id` が要約のファイルの受付番号で、頼みはフィールド `ask` にある（種類の `ask` とは別の物）。知らせでない `note` の行も、`id` が足しの受付番号で、頼みはフィールド `ask` にある。
 - `start` の行の受け持ちは、会社の形（`.claude/company.toml`）の `[[skills]]` に書く、部署ごとの仕事の範囲で、起動方法はその受け持ちに書いた、部署を立てるコマンド（`--start`・`--due` が打つ）。
 - `forwarded` の行は、`id` が回した元の頼み、`child` が回した先の頼みである。
@@ -88,6 +91,7 @@
 - `deliver` の行のうち、ふつうの行（知らせでない行）の届かなかった物（`status: failed`）と、回して閉じた頼みへの返し（`for` の有る行）は当てない。知らせの `deliver` の行は、そのまま済にする。
 - `resumed` は、答え待ちのときだけ動いているに戻す。
 - `note` は状態を変えず、射影のフィールド `notes` に足しの数を数える（終わった頼みへの足しも数える）。
+- `remind`・`reminded`・`remind-done` は頼みの木に入らない。形は下の「リマインダー」。
 
 ### 足したフィールドと種類
 
@@ -198,6 +202,33 @@ JSCalendar の列は Task の progress、iCalendar の列は VTODO の STATUS �
 
 `--withdraw` の確かめと書き込みは、受けた部署の待ち受けと同じ錠（`wake.ask_lock`）の中でする。待ち受けは順番待ちの件を消してから部署の属性を書くので、錠の外で確かめると、渡している最中の頼みを閉じてしまうからである。ただし `--take <受付> --ask <宛先>`（順番待ちの件を取り、ほかの部署へ頼み直す）は、件を消してから頼み直しの `ask` の行を書くまで、部署を立てる数十秒の間がある。その間に同じ受付に `--withdraw` を打つと、頼み直した頼みを取り下げで閉じ、後の納品でも状態は戻らない。`--withdraw` は人か会話が手で打つコマンドで、同じ受付への `--take … --ask`（手で打つか、待ち受けのフックが互いの返事を待ち合う頼みの輪をほどくときに打つ）とその数十秒の間に重なったときだけ起きるので、知った上で残す。
 
+## リマインダー
+
+部署か窓口が、後で見ること（「この日に見る」「この頼みが閉じたら見る」）を台帳に残す形。メモの文（my_notes の段取りの `desk-backlog.md` など）に「次に X が起きたら見る」と書くだけだと、メモを読み直すまで思い出されず、条件が来ても気づかないまま流れる。台帳に持たせると、見る時が来たことを機械が知らせられる。
+
+行の形:
+
+- `remind`（`--remind <何を見るか>`）: `id`（リマインダーの受付番号）・`text`（何を見るか）・`holder`（担当者。知らせを受ける会話の待ち受けの宛先で、`会社/名前`。打った部署か窓口）・`on`（見る日の UNIX 時刻か `null`）・`after`（閉じるのを待つ頼みの受付番号の並び）・`from`（打った会話の `name`・`session`・`place`）。打った場所の会社の受付箱に書く。
+- `reminded`: 見る時が来て担当者に知らせた。`why` に来た訳（見る日が来たか、`after` のどの頼みが閉じたかの文）。同じ受付箱に、担当者に宛てた知らせの行（上の「表の補い」のとおり `to` が文字列の行。ここでは `to` が担当者の `会社/名前`、`kind` が `note`）と並べて書く。
+- `remind-done`（`--remind-done <受付>`）: 閉じた。`by` に打った会話の `session` と `place`。
+
+見る時と知らせ方:
+
+- 見る時は、`on` の日時が過ぎた時と、`after` の頼みのどれかが閉じた時（済・取り下げ・届かず。回した頼みも済になる）の、先に来た方。`--on` は打った機械の現地時刻で読み、日付だけならその日の 0 時。`--after` だけのリマインダーは、その頼みが閉じるまで見る時が来ない。`--on` も `--after` も無いリマインダーは立てられない。条件を文でしか書けない待ち（「次に X が起きたら」「数が 25 件になったら」）は、機械が見分けられないので、見直す日を `--on` に付ける。閉じた頼みを `--after` に渡すと断る（もう見る時なので、今見る）。
+- `--due`（頼みと納品のたびに裏で走る。`skills/dispatch/references/start.md`）が、会社ごとのロック（受付箱の下の `due.lock`。2 つの `--due` が同じ会社を同時に数えないためのもの）を取った中で、見る時が来てまだ知らせていない物を、担当者の待ち受けへ台帳の知らせで渡し、`reminded` の行を書く。知らせの行そのものが知らせた印になる（`reminded` の行を書く前に落ちても、次の `--due` は知らせ直さない）。知らせは 1 度だけで、閉じるまで `--todo` に出続ける。`--due --dry-run` は知らせる物を言うだけで書かない。
+- 頼みも納品も無い間は、`--due` を手元の OS の予定（launchd・cron など。`skills/dispatch/references/start.md`）に打たせていなければ `--due` が走らず、知らせも出ない。works-dispatch はリマインダーのために予定を足さない（持ち主「一旦cronは不要で。」2026-10-18、my_notes の受付 bad118）。その間も、`--todo` を打てば、打ったその時刻で見る時の来た物が出る。
+- `--todo` は、受付番号を渡さないとき、頼みの木（上の「頼みの木」）より前に「リマインダー:」の見出しを付けて、見る時の来た開いた物を出す（`--all` でまだ来ていない物と閉じた物も。`--json` は `reminders`）。`--html` のページには出さない。
+- 見たら `--remind-done` で閉じる。見る日を替えたいときは、閉じて `--remind` で立て直す（行を書き換える種類は持たない）。
+
+採った標準と採らなかった案:
+
+- 見る日と、待つ頼みの閉じを、別々のトリガーとして持ち、先に来た方で鳴らす: JSCalendar（RFC 8984）の alerts に倣った。1 つの項目が複数の Alert を持ち、各 Alert が自分のトリガーで別々に鳴る。
+- 文でしか書けない待ちにも見る日を付けさせる: Taskwarrior の waiting の状態は wait の日時を必ず持つ（Taskwarrior の仕様書 `doc/devel/rfcs/task.md`〔下の出典〕の「MUST」）。見る日の無い待ちは、思い出す時が無いまま残るので、作らせない。
+- 頼みが閉じたら見る（`after`）: Taskwarrior の depends（待つ仕事が済むと、待っていた仕事が ready になる）に当たる。
+- 知らせたら 1 度で印す（知らせの行と `reminded`）: RFC 9074 の ACKNOWLEDGED は「acknowledged (or sent, if acknowledgement is not possible)」で、受けたかを返せない知らせは送った時に印す。RFC 8984 の acknowledged も、同じ知らせを重ねて鳴らさないための値。
+- 自由な条件の文を機械で評価する形: 採らない。条件の書き方を決めても、書き手が決めた書き方の外の言い方をするたびに、それを読むコードを足す要があり、足すまでは、読めない条件のリマインダーが知らせの出ないまま残る。代わりに見直す日を付けさせ、その日が過ぎた後の最初の `--due`（頼みか納品の後に裏で走る）の知らせか、`--todo` で目に入る形にした。
+- cron・launchd で刻む形: 採らない（上の持ち主の決め）。
+
 ## 採った物と採らなかった案
 
 採ったのは、自前の小さな射影（Python の標準ライブラリだけ）である。ツールは借りず、考え方だけを借りた。
@@ -286,6 +317,9 @@ my_notes の reference/ のノート（my_notes のコミット 1b116af1 の物�
 - https://raw.githubusercontent.com/Dicklesworthstone/mcp_agent_mail/fd9c518458daa1ac7cf74500aa37ed7bd72b8dd0/LICENSE
 - https://www.rfc-editor.org/rfc/rfc8984.txt
 - https://www.rfc-editor.org/rfc/rfc5545.txt
+- https://www.rfc-editor.org/rfc/rfc9074.txt
+- https://raw.githubusercontent.com/GothenburgBitFactory/taskwarrior/53a315fa49d72198ddda7f28b9d5d9c25143ae10/doc/devel/rfcs/task.md
+- https://raw.githubusercontent.com/GothenburgBitFactory/taskchampion/01cc8a45b7ad173c884a3664ad57b9765e5d648f/docs/src/tasks.md
 - https://raw.githubusercontent.com/todotxt/todo.txt/1d90c086533a2574f6039a756ada760ec672a53e/README.md
 - https://raw.githubusercontent.com/GothenburgBitFactory/taskwarrior/53a315fa49d72198ddda7f28b9d5d9c25143ae10/doc/man/task-sync.5.in
 - https://raw.githubusercontent.com/cloudevents/spec/v1.0.2/cloudevents/spec.md

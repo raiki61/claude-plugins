@@ -5,6 +5,24 @@
     "schema": {"type": "integer", "enum": [1]},
     "inboxes": {"type": "array", "items": {"type": "string"}},
     "notes": {"type": "array", "items": {"type": "string"}},
+    "reminders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "holder", "on", "after", "created", "reminded", "closed", "due"],
+        "properties": {
+          "id": {"type": "string"},
+          "text": {"type": "string"},
+          "holder": {"type": ["string", "null"]},
+          "on": {"type": ["number", "null"]},
+          "after": {"type": "array", "items": {"type": "string"}},
+          "created": {"type": ["number", "null"]},
+          "reminded": {"type": ["number", "null"]},
+          "closed": {"type": ["number", "null"]},
+          "due": {"type": ["string", "null"]}
+        }
+      }
+    },
     "forest": {
       "type": "array",
       "items": {

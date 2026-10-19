@@ -10,7 +10,8 @@
         "required": ["kind"],
         "properties": {
           "kind": {"type": "string", "enum": ["ask", "queued", "handed", "held", "taken", "reordered", "withdrawn", "forwarded", "deliver",
-                                              "note", "waiting", "resumed", "nudged", "knot", "start", "moved", "retired", "call", "miss"]},
+                                              "note", "waiting", "resumed", "nudged", "knot", "start", "moved", "retired", "call", "miss",
+                                              "remind", "reminded", "remind-done"]},
           "id": {"type": ["string", "null"]},
           "at": {"type": "number"},
           "status": {"type": ["string", "null"]},
@@ -22,6 +23,10 @@
           "why": {"type": "string"}, "was": {"type": "string", "enum": ["queued", "working", "waiting"]},
           "file": {"type": ["string", "null"]},
           "title": {"type": ["string", "null"]},
+          "text": {"type": ["string", "null"]},
+          "holder": {"type": "string"},
+          "on": {"type": ["number", "null"]},
+          "after": {"type": "array", "items": {"type": "string"}},
           "holders": {
             "type": "array",
             "items": {

@@ -88,6 +88,7 @@ from nodes import accounts, assign, clean, cost, deliver, fresh, launch, provisi
 import orders  # noqa: E402
 import starts  # noqa: E402
 import todo  # noqa: E402
+import reminds  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -232,8 +233,15 @@ def main(argv=None, ports=None):
     ap.add_argument("--input", help="--call と一緒に: ツールへの入力（JSON の字か @ファイル。省けば {}）")
     ap.add_argument("--start", metavar="受け持ち", help="会社の形の起動方法（[skills.start]）の有る受け持ちを今起動する（名前か「会社/名前」。"
                     "納品は起動方法の report_to に返る）")
-    ap.add_argument("--due", action="store_true", help=f"{term.NAME} に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起動する"
-                    "（--ask と --deliver が通るたびに裏で打つ。手で打ってもよい）")
+    ap.add_argument("--due", action="store_true", help=f"{term.NAME} に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起動し、"
+                    "見る時の来たリマインダーを担当者に知らせる（--ask と --deliver が通るたびに裏で打つ。手で打ってもよい）")
+    ap.add_argument("--remind", metavar="何を見るか", help="部署か窓口の場所から、後で見ることを台帳にリマインダーとして残す（--on か --after を"
+                    "付ける。見る時が来たら --due がこの会話に知らせ、--todo にも出る）")
+    ap.add_argument("--on", metavar="日時", help="--remind と一緒に: 見る日（手元の時刻の YYYY-MM-DD か YYYY-MM-DDTHH:MM）。"
+                    "条件を文でしか書けない待ちは、見直す日をここに付ける")
+    ap.add_argument("--after", metavar="受付", action="append", help="--remind と一緒に: この頼みが閉じたら見る（何度でも付けられ、"
+                    "--on と合わせて先に来た方で知らせる）")
+    ap.add_argument("--remind-done", metavar="受付", help="見たリマインダーを閉じる")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--for", dest="for_ask", metavar="受付", help="--deliver と一緒に: --ask … --forward で回して閉じた頼み（回した元か"
                     "回した先の受付）か、cause 付きの --ask で回した子の頼み（子かその元の受付）の、元の頼み元へ返す（今受けている頼みは閉じない）")
@@ -265,6 +273,13 @@ def main(argv=None, ports=None):
     if a.input is not None and a.call is None:
         print("止めた: --input は --call と一緒にだけ使う")
         return 2
+    if (a.on is not None or a.after) and a.remind is None:
+        print("止めた: --on と --after は --remind と一緒にだけ使う")
+        return 2
+    if a.remind is not None:
+        return reminds.put(a, ports, os.getcwd())
+    if a.remind_done is not None:
+        return reminds.close(a, ports, os.getcwd())
     if a.call is not None:
         return calls.call(a, ports, os.getcwd(), _task)
     if a.start is not None or a.due:

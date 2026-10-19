@@ -8,6 +8,7 @@
 JSON で、--html <ファイル> は 1 枚の HTML のページに書く。
 頭に、台帳をたどった受付箱の壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ。health.py）と、台帳では開いているのに
 順番待ちにも作業場にも無い頼み（strays）を「!」で出す。
+台帳のリマインダー（--remind）のうち見る時の来た物を、木の前に出す（--all でまだ来ていない物と閉じた物も）。
 誰のターンかは出さない（部署の様子は --tree）。作った物は保存せず、開くたびに台帳から作り直す。
 """
 
@@ -17,6 +18,7 @@ import time
 import health
 import jsonio
 from nodes import deliver, ledger, wake
+from nodes import remind
 
 
 def inboxes_from(starts, common_dir, records=deliver.records):
@@ -97,9 +99,34 @@ def todo(a, ports, cwd):
     now = ports.now()
     # 裏の処理の失敗・誰も受けない頼み・台帳の大きさ。受付箱が 2 つ以上なら、どの受付箱の話かを頭に付ける
     notes = [(f"{x}: " if len(inboxes) > 1 else "") + n for x in inboxes for n in health.inbox_notes(x, now)] + strays(view, rows, inboxes)
+    rems = [] if top else reminders(rows, view, now, everything=a.all)
     if a.json:
-        jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "notes": notes, "forest": forest}, None)
+        jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "notes": notes, "forest": forest, "reminders": rems}, None)
         return 0
     out = ledger.lines(forest, when)
-    print("\n".join([f"! {n}" for n in notes] + (out or ["開いている頼みは無い（済んだ物は --all で出す）"])))
+    print("\n".join([f"! {n}" for n in notes] + reminder_lines(rems)
+                    + (out or ["開いている頼みは無い（済んだ物は --all で出す）"])))
     return 0
+
+
+def reminders(rows, view, now, everything=False):
+    """台帳のリマインダーの並び（立てた順）。開いていて見る時の来た物だけ。everything なら、まだ来ていない物と閉じた物も。
+    各々に、見る時が来た訳 due（来ていなければ None）を添える。"""
+    out = []
+    for r in remind.project(rows).values():
+        why = remind.came(r, view["tasks"], now)
+        if everything or why:
+            out.append({**r, "due": why})
+    return out
+
+
+def reminder_lines(rems):
+    """--todo の頭に出すリマインダーの行。"""
+    if not rems:
+        return []
+    out = ["リマインダー:"]
+    for r in rems:
+        mark = "閉じた" if r["closed"] else "見る時" if r["due"] else "待ち"
+        text = r["text"] if len(r["text"]) <= 60 else r["text"][:60] + "…"
+        out.append(f"- [{mark}] {text}  {r['id']}  担当者 {r['holder'] or '-'}（{r['due'] or remind.waits_for(r)}）")
+    return out + [""]

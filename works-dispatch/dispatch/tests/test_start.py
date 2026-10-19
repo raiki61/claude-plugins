@@ -119,7 +119,7 @@ class Start(unittest.TestCase):
         self.assertIn("周期（1d ごと）", out)
         rc, out = self.main(self.src, "--due")   # 起動したばかりなので、まだ来ていない
         self.assertEqual(rc, 0, out)
-        self.assertIn("周期の来た受け持ちは無い", out)
+        self.assertIn("周期の来た受け持ちも、見る時の来たリマインダーも無い", out)
         self.assertEqual(len(self.starts()), 1)
 
     def test_ask_and_deliver_run_due_in_the_back(self):

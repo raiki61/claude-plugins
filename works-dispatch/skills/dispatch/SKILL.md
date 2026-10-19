@@ -21,7 +21,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 
 - `setup` はスクリプトの引数ではない。`/works-dispatch:dispatch setup` と呼ばれたら、[references/setup.md](references/setup.md) の「初めて」の手順を上から持ち主と進める。
 - PR を開く回（引数なし・`--pr`・`--issue`）と `--land` は、Bash のツールの `run_in_background` で走らせ、終わりの知らせが来てから出力を見せる。PR を開く回は各 PR の `/catchup` が終わるのを待ってから 2 ターン目を送るので数分かかり、`--land` はゲート（CI など）を待つ間は戻らない。前景で（`run_in_background` を付けずに）走らせると、Bash のツールの時間の上限で止められ、2 ターン目も報告も出ない。
-- `--dry-run`・`--check`・`--clean`・`--init`・`--todo` はすぐ終わり、`--task` は部署の会話が起きて attach するまでで終わり、`--ask`・`--deliver`・`--take`・`--withdraw`・`--first`・`--nudge`・`--note` は相手の作業の終わりを待たないので、前景で走らせてよい。
+- `--dry-run`・`--check`・`--clean`・`--init`・`--todo`・`--remind`・`--remind-done` はすぐ終わり、`--task` は部署の会話が起きて attach するまでで終わり、`--ask`・`--deliver`・`--take`・`--withdraw`・`--first`・`--nudge`・`--note` は相手の作業の終わりを待たないので、前景で走らせてよい。
 
 ## 落とし穴
 
@@ -42,7 +42,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 - 部署を立てる前に `model`・`effort` の値を選ぶ（今の世代のモデルの格と effort の段ごとの成績・費用。原典の URL と確かめた日つき。重み付けは書かない）: [references/models.md](references/models.md)
 - herdr の表示を付け直す `--sync`・組み直す `--reorg` と `--desk`・手で会話を立てるときにアカウントを 1 つ選ぶ `accounts.py --pick`（`dispatch.py` と同じフォルダの `nodes/accounts.py`。打ち方は別ファイルに在る）: [references/reorg.md](references/reorg.md)
 - ほかのアカウントで起動し直す `--move`（使用上限や会社の形の起動の設定が替わったときの自動の起動し直しも）: [references/move.md](references/move.md)
-- 頼む `--ask`（宛先・待ち受け・順番待ち・`--take`・`--withdraw`・`--first`・`--nudge`・`--note`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・落ちた部署の会話・受付箱）: [references/ask.md](references/ask.md)
+- 頼む `--ask`（宛先・待ち受け・順番待ち・`--take`・`--withdraw`・`--first`・`--nudge`・`--note`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・後で見ることを残すリマインダー `--remind`・落ちた部署の会話・受付箱）: [references/ask.md](references/ask.md)
 - 納品する `--deliver`（要約の項目・納品の検査 `deliver_check`）・答え待ち `--wait`・区切り `--rest`・止める前の差し戻し: [references/deliver.md](references/deliver.md)
 - 機械窓口 `--call`（頼みを AI でなくスクリプトが受ける）と合図（メインブランチに入れた後などにスクリプトを呼ぶ）（`[[roles.tools]]`）: [references/call.md](references/call.md)
 - 受け持ちを起動する `--start`・`--due`（`[skills.start]`）: [references/start.md](references/start.md)
