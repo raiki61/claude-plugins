@@ -216,8 +216,9 @@ def test_delegate_launch_spec_is_none_without_launch_delegate(repo, tmp_path):
     assert advance.delegate_launch_spec(_board(tmp_path, None), _inst(tmp_path), {"delegate": {"model": "haiku"}}, {}) is None
 
 
-def test_delegate_launch_spec_writes_the_preamble_and_fills_the_holes(repo, tmp_path):
+def test_delegate_launch_spec_writes_the_preamble_and_fills_the_holes(repo, tmp_path, monkeypatch):
     from engine import advance
+    monkeypatch.setattr(shutil, "which", lambda name: f"/opt/bin/{name}")   # claude の無い機械（CI）でも missing を付けない
     spec = {"preamble": "前置きの文\n"}
     got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), {"delegate": {"model": "haiku"}}, {})
     role = tmp_path / "board" / "roles" / "delegate.txt"

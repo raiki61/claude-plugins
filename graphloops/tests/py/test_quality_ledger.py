@@ -288,7 +288,7 @@ def test_unchecked_read_throughs_and_envelope_gaps_add_up_across_runs(tmp_path, 
     assert ql.main([str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "読了を確かめられなかった周 3（" in out and "読了を確かめられなかった周 1（" in out
-    assert "フィールドと行数: total_cost_usd 2" in out and "cli_contract.py --live" in out
+    assert "フィールドと行数: total_cost_usd 2" in out and ql.CLAUDE_CHECK in out
     # 痕跡も欠けも無い run の版には行を出さない
     board(tmp_path / "clean", "graphloops/research-loop/20261019000000", state={"engine": engine("0.37.0")})
     assert ql.main([str(tmp_path / "clean")]) == 0

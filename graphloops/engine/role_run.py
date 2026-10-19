@@ -38,7 +38,7 @@ import sys
 import threading
 import time
 
-from . import checks_cache
+from . import checks_cache, intake
 from .launch_words import JSON_SCHEMA
 from .util import LANE_FAILED, claude_auth, lone_surrogate_at, waiting
 
@@ -497,7 +497,7 @@ def trace_costs(trace_path):
 
 GAPS_WHY = ("engine が起動した子の包み（claude -p --output-format json）に、engine が読むフィールドが無かった行の数（フィールドごと）——"
             "Claude Code の版で包みの形が変わった疑い。無い値は既定に落ちる（費用は usd に入らず少なく出る、誤りの種類は success、"
-            "拒まれたツールは無し）ので、claude --version と graphloops/tests/py/cli_contract.py --live で形を確かめよ")
+            f"拒まれたツールは無し）ので、claude --version を見て、graphloops の README の「{intake.CLAUDE_CHECK}」の手順で形を確かめよ")
 
 
 def envelope_gaps(rows):

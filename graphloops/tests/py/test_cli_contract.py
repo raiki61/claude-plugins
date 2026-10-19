@@ -8,7 +8,7 @@ import json
 import cli_contract as cc
 import pytest
 
-from engine import role_run
+from engine import intake, role_run
 
 HELP = cc.HELP.read_text(encoding="utf-8")
 META = json.loads(cc.VERSIONS.read_text(encoding="utf-8"))
@@ -110,8 +110,17 @@ def test_lost_cost_is_counted_in_the_report_not_summed_as_zero(tmp_path):
     (tmp_path / "trace.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     got = role_run.trace_costs(tmp_path / "trace.jsonl")
     assert got["unknown"]["fields"] == {"total_cost_usd": 3}
-    assert "claude --version" in got["unknown"]["why"]
+    assert "claude --version" in got["unknown"]["why"] and intake.CLAUDE_CHECK in got["unknown"]["why"]
     assert got["usd"] == round(SAMPLES["success"]["total_cost_usd"], 4)
+
+
+def test_the_notices_point_at_a_readme_section_that_names_the_live_check():
+    """知らせの文（init の claude の版のずれ・費用の包みの欠け）は手順を写さず README の見出しを指す——指す見出しが在り、そのセクションが
+    --live の打ち方を書いている（見出しを改めると知らせが空を指す）"""
+    text = (cc.PLUGIN / "README.md").read_text(encoding="utf-8")
+    head = f"\n## {intake.CLAUDE_CHECK}\n"
+    assert head in text
+    assert "python3 graphloops/tests/py/cli_contract.py --live" in text.split(head, 1)[1].split("\n## ", 1)[0]
 
 
 def test_no_unknown_when_every_envelope_is_whole(tmp_path):

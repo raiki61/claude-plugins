@@ -2466,10 +2466,9 @@ def init_notices(g, root):
         loop = shlex.quote(str(PLUGIN_ROOT / "scripts" / "loop.py"))
         out.append(f"手元の claude は {got}（{cd['exe']}）——この run の engine が子の claude の旗・設定のキー・包みの"
                    f"フィールドを確かめた版は {cd['pinned']}。旗の改名は起動で落ちて見えるが、設定のキーと包みのフィールドの改名は"
-                   "黙って効かなくなる。claude-plugins の clone のルートで `python3 graphloops/tests/py/cli_contract.py --live`"
-                   f"（費用なし）を打って確かめる（確かめるのは clone の engine なので、clone の {name} をこの run の版 {ver} に"
-                   f"そろえて打つ）。clone が無ければ `python3 {loop} intake --what 'claude の版のずれ'` で記録に残し、"
-                   "init が示す手順で作者へ渡す")
+                   f"黙って効かなくなる。{PLUGIN_ROOT / 'README.md'} の「{intake.CLAUDE_CHECK}」の手順で確かめる（手順のコマンドは"
+                   f"claude-plugins の clone のルートで打ち、clone の {name} をこの run の版 {ver} にそろえる。費用なし）。clone が無ければ "
+                   f"`python3 {loop} intake --what 'claude の版のずれ'` で記録に残し、init が示す手順で作者へ渡す")
     n = intake_notice()
     if n:
         out.append(n)

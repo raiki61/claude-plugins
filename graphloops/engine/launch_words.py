@@ -37,6 +37,8 @@ FLAGS = {
     "runner": _MODEL + _TOOLED + _TAIL,
 }
 KINDS = tuple(FLAGS)
+# ツールを持たない役（遮断系の役）を起動する形。ノードが read_file を持てば後ろの形（advance.launch_spec が選ぶ）
+ISOLATED_KINDS = ("isolated", "isolated_read")
 
 
 def argv(kind, resume=False, schema=False):

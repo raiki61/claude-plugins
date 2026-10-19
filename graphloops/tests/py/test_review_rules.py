@@ -806,7 +806,8 @@ def test_validator_json_without_a_string_or_null_stop_is_not_read_as_work_remain
     stop を null（仕事が残る）に読み替えない"""
     from engine import validator
     fake = tmp_path / "fake-record.py"
-    fake.write_text(f"import sys\nprint({printed!r})\nsys.exit(1)\n", encoding="utf-8")
+    # 本物の検証器と同じく標準出力を UTF-8 にする（Windows の既定の cp1252 では和文の print が落ち、見たい形の前に JSON でないで止まる）
+    fake.write_text(f"import sys\nsys.stdout.reconfigure(encoding='utf-8')\nprint({printed!r})\nsys.exit(1)\n", encoding="utf-8")
     b = types.SimpleNamespace(state={"validator": str(fake)}, graph={"record": {"validator_output": "json"}}, dir=tmp_path, plugin=None)
     got = validator.run_validator(b)
     assert got["exit"] is None and "stop は文字列か null" in got["out"], got

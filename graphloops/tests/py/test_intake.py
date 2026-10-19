@@ -270,7 +270,7 @@ def test_init_notices_name_a_claude_version_drift_and_the_live_check(tmp_path, m
     monkeypatch.setattr(intake, "claude_drift", lambda: {"installed": "2.2.0 (Claude Code)", "exit": 0, "exe": "/x/claude",
                                                          "pinned": "2.1.303 (Claude Code)"})
     [n] = commands.init_notices({"nodes": {}}, str(tmp_path))
-    assert all(w in n for w in ("2.2.0 (Claude Code)", "/x/claude", "2.1.303 (Claude Code)", "cli_contract.py --live", "intake --what"))
+    assert all(w in n for w in ("2.2.0 (Claude Code)", "/x/claude", "2.1.303 (Claude Code)", intake.CLAUDE_CHECK, "intake --what"))
 
 
 def test_init_reads_the_declaration_from_the_board_cwd_not_a_leftover_git_cwd(tmp_path, monkeypatch):

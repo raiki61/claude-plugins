@@ -1130,7 +1130,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         held = sorted(k for k in ("argv", "resume", "via") if k in spec)
         if held:
             errs.append(f"launch.{kind} の {held} は書けない——起動する語は engine が持つ（engine/launch_words.py）。graph の語は効かない")
-        if kind in ("isolated", "isolated_read") and isolated and (used & set(isolated)):
+        if kind in launch_words.ISOLATED_KINDS and isolated and (used & set(isolated)):
             # model / effort は役の定義から埋めるので定義に無ければ die——実行時にしか出ない不変条件を静的に見る
             holes = {m.group(1) for a in launch_words.argv(kind) for m in re.finditer(r"\{(\w+)\}", a)}
             for r in sorted(used & set(isolated)):

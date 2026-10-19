@@ -55,7 +55,7 @@ sys.dont_write_bytecode = True  # engine・rules・検証器を読むときに p
 PLUGIN = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN))
 
-from engine.intake import version_key  # noqa: E402
+from engine.intake import CLAUDE_CHECK, version_key  # noqa: E402
 from engine import checks_cache as checks_cache_mod  # noqa: E402
 from engine import schema as schema_mod  # noqa: E402
 from engine import role_run as role_run_mod  # noqa: E402
@@ -451,7 +451,7 @@ def render(agg, total, roots_note):
         lines.append(f"費用: {a['cost_usd']} USD（engine が起動した子の会話の累計の増え分の和）")
         if a["envelope_gaps"]:
             lines.append(f"注意: claude の出力の包みに engine が読むフィールドが無い行（フィールドと行数: {_c(a['envelope_gaps'])}）"
-                         "——費用は実際より少ない。claude --version と graphloops/tests/py/cli_contract.py --live で確かめる")
+                         f"——費用は実際より少ない。claude --version を見て、{PLUGIN / 'README.md'} の「{CLAUDE_CHECK}」の手順で確かめる")
         if a["unreadable_parts"]:
             lines.append(f"一部が読めない run: {a['unreadable_parts']}（--runs の unreadable_parts）")
     return "\n".join(lines)

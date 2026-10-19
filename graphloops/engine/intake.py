@@ -41,6 +41,9 @@ CLIP = 500                    # 人が書く 1 行と標準エラーの頭を切
 DETAIL_ENV = "GRAPHLOOPS_INTAKE_STDERR"   # 1 のときだけ標準エラーの頭を残す（既定は構造化したフィールドだけ）
 # engine が子の claude の旗・設定のキー・包みのフィールドを確かめた claude の版（tests/py/cli_contract.py --capture が書く見本の控え）
 CLAUDE_PIN = ("tests", "py", "cli", "versions.json")
+# 子の claude の形を手元の claude で確かめる手順の置き場（README のこの見出し）。知らせの文（init の claude の版のずれ・費用の包みの欠け）は
+# ここを指し、手順は写さない（配布物の文にこのリポジトリの検証のツールの名前を書かない——ルートの tests/run.sh のチェック）
+CLAUDE_CHECK = "When the claude version changes"
 
 
 def quiet(fn):
