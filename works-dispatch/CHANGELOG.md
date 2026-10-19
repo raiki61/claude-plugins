@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.88.1] - 2026-10-19
+
 ### Changed
 
 - 2 つの文書の言い方を、初めて読む人が止まらないように直した（振る舞いは変わらない）。`docs/ledger.md`（受付箱の台帳の形）では、行の `id` の説明に、受付番号が何を指すかを足した。頼みの行なら頼み、納品の行（種類 `deliver`）なら頼み元へ返した要約のファイル、`--note` で頼みに後から足した補足の行（種類 `note`）ならその補足。`docs/internals.md`（works-dispatch の作りを直す人向けの参照）では、冒頭に誰向けの文書かを書き、ファイルの 3 つの組の間で、どの組がどの組を import してよいかの文を補った。
