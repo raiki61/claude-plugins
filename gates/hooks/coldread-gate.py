@@ -1758,6 +1758,8 @@ _FORMAT_COMMON = """- (1)〜(4) に該当し、その箇所で意味が取れず
   詰まりは次の 3 つのどれかだけ。cause に word・referent・flow のどれかを入れる:
   word は語・略語・識別子の意味が取れない / referent は何・誰・どこを指すかが取れない / flow は文と文のつながり・この文が何を言っているかが取れない
   (1)(2) が言えない・掴めないのは flow として書く
+  詰まりは quotes に、詰まった箇所の本文を 1 字も変えずに写した文を 1 つ以上入れる(本文の 1 行の中の続いた 4 字以上。言い換えた文・
+  本文に無い文は入れない)
   この検査が見るのは通じやすさだけで、出してよいか・中身が正しいか・判断に足りるかは見ない。意味は取れたが、
   根拠・裏付け・出所・数字の出どころが欲しい、判断の材料が足りない、本当にそうか・ほかの場合はどうか・実例はあるかを
   確かめたい、というものは詰まりではなく疑問。迷ったら疑問にする
@@ -1968,6 +1970,7 @@ def reader_schema(kinds):
                 "cause": {"type": "string", "enum": list(CAUSES)},
                 "carried": {"type": "boolean"},
                 "text": {"type": "string", "minLength": 1},
+                "quotes": {"type": "array", "items": {"type": "string", "minLength": 1}},
             },
             "required": ["kind", "text"],
             "additionalProperties": False,
@@ -1998,7 +2001,7 @@ def reader_reply(raw):
 
 
 def sort_findings(reply, kinds=tuple(KINDS)):
-    """読み手の答え(structured_output)を種類ごとの指摘の列にする。各指摘は {text, cause, carried}。
+    """読み手の答え(structured_output)を種類ごとの指摘の列にする。各指摘は {text, cause, carried, quotes}。
 
     知らない種類・空の text・形の違う要素は読み飛ばさずに ReaderShape にする(決まり 4)。--json-schema が形を
     守らせるが、差し替えの読み手(COLDREAD_READER_CMD)と schema の外の版の claude はここで止める。"""
@@ -2009,14 +2012,15 @@ def sort_findings(reply, kinds=tuple(KINDS)):
     for item in items:
         if not (isinstance(item, dict) and item.get("kind") in kinds and isinstance(item.get("text"), str)
                 and item["text"].strip() and item.get("cause") in (None, *CAUSES)
-                and isinstance(item.get("carried", False), bool)):
+                and isinstance(item.get("carried", False), bool)
+                and isinstance(item.get("quotes", []), list) and all(isinstance(q, str) and q for q in item.get("quotes", []))):
             raise ReaderShape("指摘の形が違う: %r" % str(item)[:150])
         if item["kind"] in STOP_KINDS and retracted(item["text"]):
             found["question"].append({"text": "(読み手が取り消した%s) %s" % (KINDS[item["kind"]], item["text"].strip()),
-                                      "cause": None, "carried": item.get("carried", False)})
+                                      "cause": None, "carried": item.get("carried", False), "quotes": []})
             continue
         found[item["kind"]].append({"text": item["text"].strip(), "cause": item.get("cause"),
-                                    "carried": item.get("carried", False)})
+                                    "carried": item.get("carried", False), "quotes": item.get("quotes", [])})
     return found
 
 
@@ -2081,7 +2085,7 @@ def _rotate(path):
             if os.path.getsize(path) > LOG_MAX:
                 os.replace(path, path + ".1")
     except FileNotFoundError:
-        pass
+        pass   # ほかの口が先に替えたか消した: 替える物が無い
     except OSError as exc:
         _lost("記録を回せない(%s。書き足しは続ける)" % path, exc)
 
@@ -2916,7 +2920,7 @@ def _take_pending(pending):
         with open(claim, encoding="utf-8") as f:
             lines = f.read().splitlines()
     except FileNotFoundError:
-        pass
+        pass   # 待ちの一覧が無い(ほかの口が先に受けた): 読む物は無い
     except OSError as exc:
         _lost("待ちの一覧を取れない(%s)" % pending, exc)
         return None, []
@@ -2974,7 +2978,7 @@ def _drop_claim(claim):
     try:
         os.remove(claim)
     except FileNotFoundError:
-        pass
+        pass   # もう消えている: 消す物は無い
     except OSError as exc:
         _lost("読みかけを消せない(%s。次の終わりにもう一度読む)" % claim, exc)
 
@@ -2991,7 +2995,7 @@ def _left_behind():
             try:
                 mtime = e.stat().st_mtime
             except OSError:
-                continue
+                continue   # 見ている間に消えた(ほかの口が読み終えた): 残った物に数えない
             if now - mtime > DOC_LEFT_AGE:
                 old.append((mtime, e.path))
     if not old:
@@ -3007,7 +3011,7 @@ def _left_behind():
                 with open(p, encoding="utf-8") as f:
                     _forget(_claim_parts(f.read().splitlines())[1])
             except OSError:
-                continue
+                continue   # 消えたか読めない: 忘れる中身が分からない(覚えは残る)
     shown = [p for _, p in new[:5]]
     return ("初見読みの待ちの一覧 %d 本が、書いた会話が終わったまま読まれずに残っている(一番古い物は %d 日前。ほかの会話か、"
             "切られたサブエージェントの物)。一覧の各行(# で始まる行を除く)が読まれていない文書のパス。読むなら python3 %s read <文書のパス>、要らなければ"
@@ -4454,19 +4458,25 @@ RECHECK_HEAD = """あなたは文書の直しを確かめる係です。前の�
 答えは指定の JSON の形で返し、verdicts に詰まり 1 件ごとに番号(n)と still か fixed(verdict)を入れる。
 """
 RECHECK_WORDS = ("still", "fixed")
-QUOTE_RE = re.compile(r"「([^「」\n]{4,})」")
+QUOTE_MIN = 4   # 引いた文として数える字数の下限(短い語は本文のほかの所にも在り、消えたかの見分けにならない)
 
 
 def _quoted(item, text):
-    """詰まり(item)の text が「」で引いた所が、その詰まりを出した版(text)に字のとおり全部在るか(読み手が言い換えて引いた物は False)。"""
-    quotes = QUOTE_RE.findall(item["text"])
-    return bool(quotes) and all(q in text for q in quotes)
+    """詰まり(item)の quotes(読み手が本文から写した文)が、その詰まりを出した版(text)に字のとおり全部在るか(読み手が言い換えて
+    写した物・短すぎる物・quotes の無い前の版の覚えは False で、問い直しに回る)。"""
+    quotes = item.get("quotes") or []
+    return bool(quotes) and all(len(q) >= QUOTE_MIN and q in text for q in quotes)
+
+
+def _said(item):
+    """詰まりが言った事(同じ詰まりかの見分け)。写した文(quotes)は回ごとに写し方が揺れるので見分けに入れない。"""
+    return item["text"], item.get("cause"), item.get("carried", False)
 
 
 def _rewritten(item, now):
     """字のとおり引いた詰まり(item)の引いた所が、今の版(now)から全部消えたか。消えたなら、その所のセクションは書き換わって今回
     新しく読んだので、問い直さない(2026-10-19、引いた文を書き換えた詰まりに、問う係が「まだ詰まる」と答えた)。一部が残る物は問い直す"""
-    return not any(q in now for q in QUOTE_RE.findall(item["text"]))
+    return not any(q in now for q in item.get("quotes") or [])
 
 
 def _still_stuck(stuck, text, premise=""):
@@ -4553,7 +4563,8 @@ def _branch_verdict(key, body, focus, base, premise="", text=None, last=None):
                                        lambda d: isinstance(d, dict) and all(isinstance(d.get(k), list) for k in COLD_KINDS))
     old, asked = _carried_from_base(found["stuck"], body, base) if found["stuck"] and base is not None else (set(), True)
     quoted = [item for item in found["stuck"] if _quoted(item, text)]
-    prev = [item for item in (last["found"]["stuck"] if last else []) if item not in found["stuck"]   # 読み直した所で同じ字で出た物は 1 件に
+    seen = {_said(item) for item in found["stuck"]}
+    prev = [item for item in (last["found"]["stuck"] if last else []) if _said(item) not in seen   # 読み直した所で同じ字で出た物は 1 件に
             and not (item in last["quoted"] and _rewritten(item, text))]
     if prev and (body is not None or premise != last["premise"]):
         prev, rechecked = _still_stuck(prev, text, premise)

@@ -24,7 +24,7 @@
   "rule4": 1
  },
  "gates/hooks/coldread-gate.py": {
-  "rule3": 4
+  "rule3": 3
  },
  "graphloops/engine/checks_cache.py": {
   "rule4": 1

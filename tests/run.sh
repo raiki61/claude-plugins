@@ -2397,7 +2397,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=753
+EXPECTED_CHECKS=754
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3768,7 +3768,8 @@ def git(*a):
     return subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True).stdout.decode("utf-8").strip()
 
 # 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは指摘ゼロを返す。
-# 「印FRESH」も在れば、その詰まりを印STUCK の詰まりの前に出す。「印QUOTE」が在れば、ほかの印より先に「印QUOTE の文」を「」で引いた詰まりだけを返す。
+# 「印FRESH」も在れば、その詰まりを印STUCK の詰まりの前に出す。「印QUOTE」が在れば、ほかの印より先に「印QUOTE の文」を quotes に写した詰まりだけを返す
+# (「印QUOTEX」なら、text で「」に引くだけで quotes を空にした詰まり。「印QUOTEP」なら本文に無い言い換えを、「印QUOTES」なら 4 字に満たない「印QS」を quotes に写した詰まり)。
 # 前の回の詰まりがまだ詰まるかを問う依頼文(RECHECK_HEAD)は名前の末尾を .recheck にして残し、今の版に印STUCK が在れば全部を still、無ければ全部を fixed と返す。
 # 詰まりをメインブランチの版と比べる依頼文(BASE_CHECK_HEAD)は名前の末尾を .base にして残し、前の版にも印STUCK が在れば印STUCK の詰まりを
 # old と返す(印FRESH の詰まりが 1 番に在れば 1 は new、印STUCK の詰まりは 2 番)
@@ -3779,7 +3780,10 @@ READER = ('R() { "$CR_PY" "$CR_REPLY_PY" "$@"; }; '
           'elif grep -q "2 つの版を比べる係" "$f"; then mv "$f" "$f.base"; '
           'if sed -n "/^--- 前の版 ---$/,\\$p" "$f.base" | grep -q 印STUCK; then '
           'if grep -q "^1\\. 詰まり: 印FRESH" "$f.base"; then R --verdicts 1=new 2=old; else R --verdicts 1=old; fi; else R --verdicts 1=new; fi; '
-          'elif grep -q 印QUOTE "$f"; then R "stuck=「印QUOTE の文」が取れない"; '
+          'elif grep -q 印QUOTEX "$f"; then R "stuck=「印QUOTEX の文」が取れない"; '
+          'elif grep -q 印QUOTEP "$f"; then R "stuck=「印QUOTEP の文」が取れない::印QUOTEP という文"; '
+          'elif grep -q 印QUOTES "$f"; then R "stuck=「印QUOTES の文」が取れない::印QS"; '
+          'elif grep -q 印QUOTE "$f"; then R "stuck=「印QUOTE の文」が取れない::印QUOTE の文"; '
           'elif grep -q 印STUCK "$f"; then if grep -q 印FRESH "$f"; then R "stuck=印FRESH の語が分からない" "stuck=印STUCK の語が分からない"; '
           'else R "stuck=印STUCK の語が分からない"; fi; '
           'elif grep -q 印GUESS "$f"; then R "guess=印GUESS を推測で読んだ"; else R; fi') % calls.as_posix()
@@ -4055,6 +4059,22 @@ rc, out = check()
 assert rc == 0 and len(prompts(".recheck")) == rbefore, (rc, out)
 git("rm", "-q", "quote.md")
 git("commit", "-q", "-m", "drop quote")
+# 写した文は答えの quotes で受ける。text が「」で引いただけの詰まり・本文に字のとおりに無い写し(言い換え)・4 字に満たない写しは、
+# 消えたかを見分けず問い直す(問う係が still なら止める)。場合ごとにファイルを分け、前の場合の控えを持ち越さない
+for mark, first in (("印QUOTEX", "印QUOTEX の文。"), ("印QUOTEP", "印QUOTEP の文。"), ("印QUOTES", "印QUOTES の文。印QS")):
+    name = "q-%s.md" % mark[-1].lower()
+    (repo / name).write_text(doc(("Q", first + "\n"), ("P", ""), ("R", ""), ("S", "印STUCK は前から在る。\n")), encoding="utf-8")
+    git("add", name)
+    git("commit", "-q", "-m", mark)
+    rc, out = check()
+    assert rc == 1 and "%s — 詰まり: 「%s の文」" % (name, mark) in out, (mark, rc, out)
+    rbefore = len(prompts(".recheck"))
+    (repo / name).write_text(doc(("Q", "書き換えた文。\n"), ("P", ""), ("R", ""), ("S", "印STUCK は前から在る。\n")), encoding="utf-8")
+    git("commit", "-q", "-am", mark + " fix")
+    rc, out = check()
+    assert rc == 1 and any(mark in p for p in prompts(".recheck")[rbefore:]), (mark, rc, out)
+    git("rm", "-q", name)
+    git("commit", "-q", "-m", "drop " + mark)
 before = len(prompts())
 git("switch", "-q", "-c", "other")
 rc, out = check()
@@ -4565,6 +4585,9 @@ expect_output 0 "structured_output が無い" "structured_output の無い答え
 CR_STUB_EMPTY_TEXT='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck= "'
 expect_output 0 "指摘の形が違う" "text の空の詰まりは、読み飛ばさずに止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_EMPTY_TEXT" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_QUOTES_STR='cat >/dev/null; printf "%s\n" "{\"type\": \"result\", \"subtype\": \"success\", \"is_error\": false, \"result\": \"\", \"structured_output\": {\"findings\": [{\"kind\": \"stuck\", \"text\": \"x\", \"quotes\": \"本文の文\"}]}}"'
+expect_output 0 "指摘の形が違う" "quotes が文字列の並びでない詰まりは、読み飛ばさずに止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_QUOTES_STR" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 expect_output 0 "相手の語で書かない" "返信の deny の直し方に「相手の語は指してよいが、相手の語で書かない」が在る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 # 予算を超えたら古いコメントから落とす。旧版は組んだ後に末尾を切り、本文を長く見せるほど最新の返信が落ちた
