@@ -331,9 +331,10 @@ e001d7 は割り振りの作業の部署「割り振り：アカウントの使�
 
 ### 測った事（2026-10-20 1:40 の控え）
 
-- 時間帯の外・同時の要求の超過（「Concurrency limit reached for this key」）・利用の抑え（「Rate limit reached for this API key」）は、どれも HTTP 429 で返り、Claude Code の誤りの種類はどれも rate_limit。文でしか分かれない。
+- 時間帯の外（「This subscription's daily active window is 08:00–16:00 UTC.」）・同時の要求の超過（「Concurrency limit reached for this key」）・利用の抑え（「Rate limit reached for this API key」）は、どれも HTTP 429 で返り、Claude Code の誤りの種類はどれも rate_limit。文でしか分かれない（cheapest の会話の記録 `~/.claude-cheapest/projects/` の、誤りで終わったターンの行で確かめた）。
 - 同時の超過では、Claude Code が 5 秒から延ばしながら 10 回まで再試行し（約 3 分 20 秒）、重なりが解けなければターンを誤りで終える（持ち主の guided-resolver の会話の記録、10-19 11:53:24〜11:56:45 UTC）。my_notes の受付 a82b51 の納品の「重なると待ちが延びるだけ」は誤り。
-- cheapest で動いた部署は 0（作業場の company.account と、各社の台帳の moved）。e001d7 の (1) 枠の終わりに部署が移るか、(3) 終わりの 30 分前から選ばない既定で足りるか、は測れていない。次に cheapest で部署が動いた夜の後に測る（e001d7 の納品の `[[open]]`、holder は e001d7）。
+- cheapest（CheapestInference の鍵のアカウント。使える時間帯は 08:00-16:00 UTC）で動いた部署は 0（作業場の属性 company.account と、各社の受付箱の台帳 log.jsonl の kind moved の行で数えた）。そのため e001d7 の 2 つの問い、(1) 時間帯の終わりに cheapest の部署がほかのアカウントへ移るか、(3) 時間帯の終わりの 30 分前から cheapest を選ばない既定（dispatch.toml の hours_margin_minutes = 30）でターンの途中で切られるのを防げるか、は測れていない。
+- 後で測るのは業務改革。e001d7 の納品の残った問い（`[[open]]`）の担当者を e001d7 にしてあるので、`--todo` の続きの行に出る。次に起こされた業務改革は、その行を見たら、log.jsonl の kind moved で from が cheapest の行と、受付箱の `moves/` の出力を読み、行が在れば (1)・(3) を測って e001d7 への納品（`--for 20261019-122030-e001d7`）で返す。行が無ければ続きの行を残す。
 
 ### 見つけた穴と回した先
 
