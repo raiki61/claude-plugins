@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.95.2] - 2026-10-20
+
 ### Fixed
 
 - 試験の道具だけの直し（works-dispatch の動きは変わらない）: `dispatch/tests/fences.py` を直に起動したときに、標準出力を UTF-8 に切り替える（Windows の既定の文字コードで日本語のパスを書くと落ちるので。ルートの `tests/run.sh` の、文字コードの明示の検査が赤にしていた）。

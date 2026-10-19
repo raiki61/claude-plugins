@@ -6,6 +6,8 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-20
+
 ### Fixed
 
 - 試験だけの直し（tiers の動きは変わらない）: Windows の CI で赤だった 2 つを直した。`tests/test_tiers_check.py` の試験の偽物（Probe の代わり）がパスを `/` 区切りの字のまま比べていて、tiers が `os.path.join` で作る `\` 区切りのパスと当たらず、段 0 の点検（Claude Code が入れたプラグインを書き留めるファイル `plugins/installed_plugins.json` が、消えた置き場を指していないか）が 1 件も赤を出さなかった（偽物の側で `/` と `\` を同じに見るようにした）。`tests/test_statusline.py` は、子プロセスの出力を読む所に `encoding="utf-8"` を、直に起動したときの標準出力に UTF-8 への切り替えを足した（Windows の既定の文字コードで日本語が落ちないように）。
