@@ -123,7 +123,8 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
 - Each line of `denies.log` carries the session, version, and destination (grep to find which session on which version posted where).
   If the installed version differs from the one running, one line is added to the check result and is also shown on the owner's screen (the `systemMessage` field of the hook output); the check itself runs as usual.
   The installed version is the `installPath` in Claude Code's `<config>/plugins/installed_plugins.json`; an `installPath` folder that contains a `.orphaned_at` file (Claude Code's mark on a version it will remove) does not count.
-  Only rows that apply to the current project count (`user` rows, and `project`/`local` rows whose `projectPath` is the current folder, its git work tree, the main work tree of a linked worktree, or `CLAUDE_PROJECT_DIR`); the narrowest scope wins (`local`, then `project`, then `user`), and if its folder is missing or marked, no note is shown rather than falling back to a wider row.
+  Only entries that apply to the current project count: `user` entries, and `project`/`local` entries whose `projectPath` is the current folder, its git work tree, the main work tree of a linked worktree, or the `CLAUDE_PROJECT_DIR` environment variable (the project folder Claude Code passes to hooks).
+  Among those, the narrowest scope wins (`local`, then `project`, then `user`). If that entry's `installPath` folder is missing or contains `.orphaned_at`, no note is shown; the gate does not fall back to a wider entry.
   The hook's version is fixed when the session starts, and a session kept open for a long time keeps checking with the old version even after an update
   (measured: it stayed on 0.8.0 for 16 hours)
 - When the reader (`claude -p`) answers with a short single line that is not JSON, or with an `is_error` answer about authentication, the gate treats it as "the reader could not read"
