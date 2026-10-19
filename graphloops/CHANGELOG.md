@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-19
+
 ### Removed
 - `/review-graph` のスキル（`skills/review-graph/`）を消した。2026-11-18 以降に消す予定だったのを、持ち主の答え（2026-10-19「もう退役して置き換えていいよ。」「またずにいますぐ退役してよい。」「以降はarchiveでメンテ不要」）で早めた。代わりは `/works-factory`（同じ marketplace の works-factory プラグイン）。消した後の `/review-graph` は保守しない。最後の形は commit 58c6d08b で、https://github.com/raiki61/claude-plugins/tree/58c6d08b/graphloops/skills/review-graph で開ける（使うなら、その commit の graphloops を自分で入れる）。`/research-graph` と engine（グラフを読んで段を順に回す機械。`scripts/loop.py` と `engine/`）と、engine の試験の材料の review-loop のグラフ（`graphs/review-loop*.json`）・rules・prompts・blocks は残す。人の方針（利用者が書く、どの run にも効く決まりの文書。例: 今ある能力を減らさない）の置き場と届き方の説明は `skills/research-graph/references/policy.md` へ移した。訳と手順はルートの `docs/adr/0075-retire-review-graph.md`（https://github.com/raiki61/claude-plugins/blob/main/docs/adr/0075-retire-review-graph.md ）。
 
