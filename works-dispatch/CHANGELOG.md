@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 写しの `dispatch/vendor/whose-turn.py` と `dispatch/vendor/lib/turn.py` を attention の正本に揃えた。whose-turn の判定のうち、依頼が残っていない PR で依頼先を決めるターンの種別（再依頼・依頼が外れた・未依頼）を、attention の `/catchup` と共用の `turn.request_kind` で決めるようにした。whose-turn の出す番は変わらず、`/works-dispatch:dispatch` が開く「自分の番」の PR も変わらない。鍵の形は変わらない。
+
 ## [0.80.2] - 2026-10-19
 
 ### Fixed
