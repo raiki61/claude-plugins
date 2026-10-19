@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-10-19
+
 ### Fixed
 - 開発の側の直しで、graphloops を使う側の振る舞いは変わらない。graphloops の試験は、古い形の台本（`tests/simulate.py`・`tests/simulate_review.py` の関数。engine を順に呼んで結果を確かめる）を、層 2 の筋書き（`tests/py/scenes.py` の形。engine への呼び出しを「出来事の列」〔以下、列〕としてデータに書き、回し手が打つ。規範はリポジトリのルートの `docs/adr/0067-test-migration-layer2-and-removal-conditions.md`）へ移している。手で起動する CI の `.github/workflows/cover-moved.yml` は `graphloops/tests/py/cover_moved.py` を回し、移した後も能力が落ちていないかを 3 段で確かめる。cover の段は、古い台本が通った行を列の試験も通るか（被覆の包含）を見る。timing inproc と timing cli の段は、古い台本の Run（engine の 1 回の実行）と、同じ Run の列を打った結果の盤面（`state.json` などの実行の記録）を突き合わせる。古い台本が engine を同じプロセスで呼ぶか（inproc）、子プロセスで呼ぶか（cli）で 2 段ある。この 3 段が、初めて回した 2026-10-18 に全部赤だった（https://github.com/raiki61/claude-plugins/actions/runs/39173245893 ）。突き合わせは緩めずに、次の 5 つを直した。
   - 列の init を、古い台本の Run と同じ run_id で打たせる。research-loop（graphloops の調査のループ）が抜き取りに使う乱数の種は run_id から作る。起動した秒が違うと抜き取る id が割れていた。
