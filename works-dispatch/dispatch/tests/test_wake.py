@@ -1310,7 +1310,7 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("渡す待ち受けが居ない", out)
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
         # 持ち主に打たせず、窓に 1 行打ってターンを回す（ターンの終わりに待ち受けが張り直して渡す）
-        self.assertEqual([w[2] for w in self.prompts()], [orders.STUCK_LINE])
+        self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
         self.assertIn("1 行打ってターンを回した", out)
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["why"], r["id"]) for r in nudged], [("渡す待ち受けが居ない", wake.queued(self.inbox, self.dept_place())[0]["id"])])
@@ -1332,7 +1332,7 @@ class WakeFlow(unittest.TestCase):
             deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": detail})
             rc, out = self.main(self.src, "--nudge", "調べ")
             self.assertEqual(rc, 0, out)
-            self.assertEqual([w[2] for w in self.prompts()], [orders.STUCK_LINE])
+            self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
             self.ports.term.writes.clear()
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
         provision.mark(self.place, self.src, {"rest": "s"}, gitx)
@@ -1344,8 +1344,42 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertIn("待ち受けが渡さずに待っている（窓を確かめられない）", out)
-        self.assertEqual([w[2] for w in self.prompts()], [orders.STUCK_LINE])
+        self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
         self.assertEqual(gitx.worktree_attrs(self.place).get("rest"), "s")   # 打った 1 行で外れる区切りの印は残す
+
+    def test_nudge_does_not_type_the_line_when_the_reload_does_not_leave_the_box(self):
+        # 前の版のプラグインのままの会話は、ターンの終わりに前の版の待ち受けが同じ訳でまた止める（2026-10-19 の割り振り）ので、
+        # 1 行の前に読み直させる。読み直しが済んだのを見られなければ、1 行を打たない（/reload-plugins の後ろに続いて届く）
+        self.listen("調べ", self.dept_place())
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        with mock.patch.object(orders.deliver, "reload_talk", return_value=("failed", "見られなかった")) as reload:
+            rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts(), reload.call_count), (1, [], 1), out)
+        self.assertIn("1 行を打たなかった", out)
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
+
+    def test_nudge_does_not_add_the_line_to_text_typed_while_reloading(self):
+        # 読み直しを待つ間に人が打ち始めたら、1 行を人の字に足さない。外れうる区切りの印は書き戻す
+        self.listen("調べ", self.dept_place())
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
+        provision.mark(self.place, self.src, {"rest": "s"}, gitx)
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        real = self.ports.term.prompt
+
+        def typed_meanwhile(target, text, wait, until=()):
+            real(target, text, wait, until)
+            if text == orders.chat.RELOAD:
+                gitx.unset_worktree_attr(self.place, "rest")   # 読み直しで人の文のフックが走り、区切りの印が外れたとする
+                self.ports.term.screen = f"{'─' * 20}\n❯ 人の打ちかけ\n{'─' * 20}\n"
+        with mock.patch.object(self.ports.term, "prompt", typed_meanwhile):
+            rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, [w[2] for w in self.prompts()]), (1, [orders.chat.RELOAD]), out)
+        self.assertIn("1 行を打たなかった", out)
+        self.assertEqual(gitx.worktree_attrs(self.place).get("rest"), "s")
 
     def test_the_same_ask_twice_returns_the_first_number(self):
         self.listen("調べ", self.dept_place())

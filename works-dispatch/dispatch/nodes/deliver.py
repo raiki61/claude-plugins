@@ -866,6 +866,34 @@ def clear_talk(pane, h, pause, cleared):
     return "unconfirmed", f"{CLEAR} を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
 
+def reload_talk(pane, h, pause):
+    """手が空いていて入力フィールドが空と確かめた窓に /reload-plugins を打ち、入力フィールドから出たのを見てから返す。書く口。
+    (sent・failed, 訳)。入力フィールドに残っていれば Enter を 1 回足す。残ったまま次の 1 行を打つと、/reload-plugins の後ろに続いて届くので、
+    出たのを見られなければ failed（次を打たない）。--nudge が 1 行を打つ前に使う（wake_stuck）。"""
+    try:
+        h.prompt(pane, chat.RELOAD, False)
+    except h.Error as e:
+        return "failed", str(e)
+    entered = False
+    for _ in range(CONFIRM_LOOKS):
+        pause()
+        try:
+            box = chat.input_box(h.read(pane, 40))
+        except h.Error:
+            continue   # 読めない回は見直す。最後まで見られなければ failed を返し、次の 1 行を打たない
+        if box is None:
+            continue
+        if chat.RELOAD not in box:
+            return "sent", None
+        if not entered:
+            try:
+                h.send_keys(pane, "enter")
+            except h.Error:
+                pass   # Enter は足しの手。届かなければ入力フィールドに残ったままなので、見直しの末に failed を返す
+            entered = True
+    return "failed", f"{chat.RELOAD} を打ったが、入力フィールドから出たのを見られなかった"
+
+
 # 前の会話を終えるコマンドと、シェルに戻るのを見る回数（1 回ごとに pause）
 EXIT = chat.EXIT
 EXIT_LOOKS = 20

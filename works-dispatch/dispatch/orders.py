@@ -789,22 +789,45 @@ def stuck_why(dest_inbox, place_dir, dept):
 # 待ち受けが渡さずに待つ訳のうち、すぐ替わる物（待ち受けが 5 秒ごとに試し直して自分で抜ける）。この訳では窓に打たない（待ち受けの
 # /clear と打ち込みがぶつからないように）。中身は wake_hook.clear_now の訳の頭（窓の入力フィールドが見えない・打ちかけの字が在る）。
 # 子の頼みの返事待ちと裏の処理は、何時間も替わらないことがあるので入れない（今の版の待ち受けはこの 2 つでは止めずに渡す。台帳にこの
-# 訳が在れば前の版の待ち受けなので、1 行打ってターンを回し、今の版の待ち受けに張り替える。2026-10-18 に claude-plugins の割り振りが
-# 子の頼みの返事待ちで半日止まり、--nudge が「訳がすぐ替わる」で何もしなかった）
+# 訳が在れば前の版の待ち受けなので、プラグインを読み直させてから 1 行打ってターンを回し、今の版の待ち受けに張り替える。2026-10-18 に
+# claude-plugins の割り振りが子の頼みの返事待ちで半日止まり、--nudge が「訳がすぐ替わる」で何もしなかった）
 PASSING = ("会話がまだ動いている", "窓の入力フィールド")
 # 人の文でターンが始まると外れる印（wake_hook.resume_from_wait）。STUCK_LINE は人の文ではないので、打った後に書き戻す
 KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished")
 
 
+def _free(pane, ports):
+    """窓の会話の手が空いていて（idle か done）、入力フィールドが見えて空か。読めなければ term.Error を投げる。"""
+    status = (ports.term.agent(pane) or {}).get("agent_status")
+    return status in ("idle", "done") and chat.typed(ports.term.read(pane, 40, ansi=True)) == ""
+
+
+def _put_back(dept, keep, ports, detail):
+    """窓に打った字で外れうる印（KEPT_MARKS のうち打つ前に在った物 keep）を書き戻す。書き戻せなければその訳を detail に足して返す。"""
+    if not keep:
+        return detail
+    try:
+        provision.mark(dept["path"], gitx.root_of(ports.git.common_dir(dept["path"])), keep, ports.git)
+    except (gitx.GitError, OSError) as e:
+        return f"{detail + '。' if detail else ''}外れた印（{'・'.join(keep)}）を書き戻せなかった（{e}）"
+    return detail
+
+
 def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=None, source=None, moved=None):
     """順番待ちが渡らずに止まった部署（stuck_why）を、人の手なしに動かす。出す注記の並びを返す（止まっていなければ空）。
     - 窓に会話が居なければ（live_window）、attach で戻す（revive。戻った会話の始まりの待ち受けが渡す）。
-    - 窓に会話が居て、手が空いていて（herdr の状態が idle か done）入力フィールドが空なら、STUCK_LINE を 1 行打ってターンを 1 つ回す。ターンの初めに
-      前の待ち受けが止まり（--pause）、ターンの終わりに今の版の待ち受けが張り直して、空にしてから次を渡す。
+    - 窓に会話が居て、手が空いていて（herdr の状態が idle か done）入力フィールドが空なら、プラグインを読み直させ（deliver.reload_talk）、
+      STUCK_LINE を 1 行打ってターンを 1 つ回す。ターンの初めに前の待ち受けが止まり（--pause）、ターンの終わりに今の版の待ち受けが張り直して、
+      空にしてから次を渡す。読み直させるのは、会話が前の版のプラグインのままだと、ターンの終わりに張り直すのも前の版の待ち受けで、同じ訳で
+      また止めるため（2026-10-19 の 06:04 に割り振りへ打った 1 行は、11 秒後に同じ訳で止まった。配るツールが読み直させた後の 06:07 に
+      打ち直して渡った）。読み直しは待っている待ち受けを止めないので、読み直しだけでは足りず、1 行で次のターンを回す。前の版かは外から
+      確かには分からない（窓の前に見えるのは裏の会話へ attach した処理で、裏の会話の処理が起きた時刻が分からない）ので、版を見分けずに
+      毎回打つ（今の版の会話に打っても、ターンを始めず会話も消さず、読み直すだけで害は無い）。読み直しの後は、1 拍おいて手が空いて入力
+      フィールドが空なのをもう一度見てから 1 行を打ち、見られなければ打たない（読み直しを待つ間に人が打ち始めた字に 1 行を足さない）。
     - 会話が動いている・入力フィールドに字が在るとき、待ち受けが渡さない訳がすぐ替わる物（PASSING）のときは打たない（ターンの終わりに待ち受けが
       張り直すか、待ち受けが自分で抜ける。人の打ちかけの字と待ち受けの /clear を壊さない）。
-    打ったか戻したかは受付箱の台帳に kind nudged で残し、動かしたら moved（並び）に True を足す。打った 1 行で外れる印（KEPT_MARKS）は
-    書き戻す。以前は「部署の窓に 1 文打つ」と持ち主に打たせていた（2026-10-17 の割り振り・説明書）。"""
+    打ったか戻したかは受付箱の台帳に kind nudged で残し、動かしたら moved（並び）に True を足す。打った字で外れる印（KEPT_MARKS）は、
+    1 行を打たずに終えたときも書き戻す。以前は「部署の窓に 1 文打つ」と持ち主に打たせていた（2026-10-17 の割り振り・説明書）。"""
     why = stuck_why(dest_inbox, place_dir, dept)
     if not why:
         return []
@@ -820,26 +843,39 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
         return [f"{head}。{said}"]
     if any(x in why for x in PASSING):
         return [f"{head}。訳がすぐ替わる物なので打たなかった（待ち受けが 5 秒ごとに試し直す）"]
+    again = f"--nudge {dept['attrs'].get('name') or where} で打ち直す"
     try:
-        status = (ports.term.agent(pane) or {}).get("agent_status")
-        box = chat.typed(ports.term.read(pane, 40, ansi=True))
+        free = _free(pane, ports)
     except term.Error as e:
-        return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。--nudge {dept['attrs'].get('name') or where} で打ち直す"]
-    if status not in ("idle", "done") or box is None or box:
+        return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。{again}"]
+    if not free:
         return [f"{head}。会話が動いているか入力フィールドに字が在るので打たなかった（ターンの終わりに待ち受けが張り直す。止まったままなら "
-                f"--nudge {dept['attrs'].get('name') or where} で打ち直す）"]
+                f"{again}）"]
     keep = {k: dept["attrs"][k] for k in KEPT_MARKS if dept["attrs"].get(k)}
-    sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.term, ports.pause, busy_check(dept, accounts_, ports))
-    if keep:
+    reloaded, detail = deliver.reload_talk(pane, ports.term, ports.pause)
+    if reloaded == "sent":
+        # 読み直しを待つ間に人が打ち始めたか、会話が動き出したなら、1 行を人の字に足さない（入力フィールドから出たのは受け付けた印でしか
+        # なく、読み直しの済んだ印ではないので、1 拍おいて手が空いて入力フィールドが空なのをもう一度見る）
+        ports.pause()
         try:
-            provision.mark(dept["path"], gitx.root_of(ports.git.common_dir(dept["path"])), keep, ports.git)
-        except (gitx.GitError, OSError) as e:
-            detail = f"{detail + '。' if detail else ''}外れた印（{'・'.join(keep)}）を書き戻せなかった（{e}）"
+            free = _free(pane, ports)
+        except term.Error as e:
+            free, detail = False, str(e)
+        if not free:
+            reloaded, detail = "failed", detail or f"{chat.RELOAD} の後に、会話が動き出したか入力フィールドに字が入った"
+    if reloaded != "sent":
+        detail = _put_back(dept, keep, ports, detail)
+        deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(),
+                                 "place": dept["path"], "pane": pane, "why": why, "status": "failed", "detail": detail})
+        return [f"{head}。窓 {pane} で {chat.RELOAD} の後に手が空いて入力フィールドが空なのを見られないので、1 行を打たなかった（{detail}。"
+                f"部署の窓を見て、{again}）"]
+    sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.term, ports.pause, busy_check(dept, accounts_, ports))
+    detail = _put_back(dept, keep, ports, detail)
     deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(),
                              "place": dept["path"], "pane": pane, "why": why, "status": sent, "detail": detail})
     if sent == "sent" and moved is not None:
         moved.append(True)
-    return [f"{head}。窓 {pane} に 1 行打ってターンを回した（{sent}" + (f"。{detail}" if detail else "") + "）。ターンの終わりに待ち受けが渡す"]
+    return [f"{head}。窓 {pane} で {chat.RELOAD} を打ち、1 行打ってターンを回した（{sent}" + (f"。{detail}" if detail else "") + "）。ターンの終わりに待ち受けが渡す"]
 
 
 def nudge(a, ports, cwd):
@@ -869,7 +905,7 @@ def nudge(a, ports, cwd):
         print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
         return 0
     if a.dry_run:
-        print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。窓に会話が居なければ attach で戻し、居れば 1 行打ってターンを回す"]))
+        print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。窓に会話が居なければ attach で戻し、居ればプラグインを読み直させてから 1 行打ってターンを回す"]))
         return 0
     moved = []
     print("\n".join(notes + wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], moved)))

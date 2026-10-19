@@ -14,7 +14,7 @@ from .test_wake import Window
 import claudex
 import gitx
 import refresh_hook
-from nodes import provision, refresh, role
+from nodes import deliver, provision, refresh, role
 
 T0 = 1_792_200_000.0   # 会話の処理が起きた時刻
 
@@ -62,6 +62,34 @@ class Node(unittest.TestCase):
         for window, status in ((Window("/x", status="working"), "busy"), (Window("/x", box="打ちかけ"), "typing")):
             self.assertEqual(refresh.reload_when_free("p1", window, lambda: None), status)
             self.assertEqual(window.writes, [])   # ターンの途中と、人が書いている途中は打たない
+
+    def test_reload_talk_waits_until_the_command_leaves_the_box(self):
+        # --nudge が 1 行を打つ前に読み直させる。入力フィールドに残ったまま次を打つと、/reload-plugins の後ろに続いて届く
+        w = Window("/x", status="idle")
+        self.assertEqual(deliver.reload_talk("p1", w, lambda: None), ("sent", None))
+        self.assertEqual(w.writes, [refresh.RELOAD])
+        stuck = Window("/x", status="idle", box=refresh.RELOAD)
+        status, detail = deliver.reload_talk("p1", stuck, lambda: None)
+        self.assertEqual((status, stuck.writes), ("failed", [refresh.RELOAD, ("enter",)]))   # Enter は 1 回だけ足す
+        self.assertIn("入力フィールドから出たのを見られなかった", detail)
+
+        class EnterTakes(Window):
+            def send_keys(self, pane, *keys):
+                super().send_keys(pane, *keys)
+                self.box = ""   # 足した Enter で入力フィールドから出た
+        late = EnterTakes("/x", status="idle", box=refresh.RELOAD)
+        self.assertEqual(deliver.reload_talk("p1", late, lambda: None), ("sent", None))
+        self.assertEqual(late.writes, [refresh.RELOAD, ("enter",)])
+
+        class Unseen(Window):
+            def read(self, pane, lines, ansi=False):
+                return "形の見えない画面"   # 入力フィールドが最後まで見えない
+        self.assertEqual(deliver.reload_talk("p1", Unseen("/x"), lambda: None)[0], "failed")
+
+        class Refused(Window):
+            def prompt(self, pane, text, wait):
+                raise self.Error(["herdr"], "受け付けない")
+        self.assertEqual(deliver.reload_talk("p1", Refused("/x"), lambda: None)[0], "failed")
 
     def test_waits_for_the_end_of_the_turn_to_show(self):
         w = Window("/x", status="working")
