@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-10-20
+
 ### Changed
 
 - 端末の口（herdr への窓口 `dispatch/herdr.py`）の読む口のうち、ペインの並び（`panes`）・ペインの会話の情報（`agent`）・ペインの前のプロセス（`front_processes`）が、herdr の答えの JSON をそのまま渡さず、決まった鍵だけを 1 つずつ組み直して渡す。ペインに居る会話の id は、herdr の入れ子 `{"value": …}` でなく字で渡す。herdr がフィールドの名前や入れ子を変えても、直すのは `herdr.py` の中だけになる。`--tree --json` の出力と、使う人に見える動きと文は変わらない。あわせて、herdr が会話の情報を `null` で返しても、ペインの会話の情報を読む所で落ちず、会話が無いとして読む。形と訳は `docs/specs/2026-10-19-ports-design.md` の「herdr の値の形（後の直し）」のセクション。
