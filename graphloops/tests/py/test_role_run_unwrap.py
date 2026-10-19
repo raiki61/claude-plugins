@@ -2,11 +2,12 @@
 object だけが包みで、それ以外は全文が本文になり、受け付け（commands.parse_output）がそれを読めること。子プロセスを
 通す端から端までの形は tests/simulate.py の test_role_run が見る。"""
 import json
+import sys
 
 import pytest
 
 from engine.commands import parse_output
-from engine.role_run import SUMMARY_KEYS, unwrap
+from engine.role_run import SUMMARY_KEYS, run_role, unwrap, wants_json
 
 
 def envelope(**kw):
@@ -93,3 +94,46 @@ def test_structured_retries_exhausted_is_an_error():
     raw = envelope(subtype="error_max_structured_output_retries", is_error=True, errors=["schema mismatch"])
     text, _summary, bad = unwrap(raw, structured=True)
     assert text is None and "error_max_structured_output_retries" in bad
+
+
+# --- JSON の包みを待つ起動（--output-format json）に返った短い 1 行: 認証切れ・使用枠の上限の類は終了コード 0 で返るので、本文にしない
+AUTH_LINE = "Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}"
+
+
+@pytest.mark.parametrize("line", [AUTH_LINE, "Claude AI usage limit reached|1760000000"])
+def test_short_line_to_a_json_launch_is_not_a_body(line):
+    text, summary, bad = unwrap(line.encode("utf-8"), expect_json=True)
+    assert text is None and summary == {"envelope": False, "short_line": True}
+    assert line[:40] in bad and "認証切れ・使用枠の上限の類" in bad
+
+
+def test_short_line_to_a_text_launch_stays_the_body():
+    """前の版の graph（--output-format text）で始めた盤面の素の本文は、今までどおり受け付けに回す"""
+    assert unwrap(AUTH_LINE.encode("utf-8")) == (AUTH_LINE, {"envelope": False}, None)
+
+
+def test_short_bare_json_to_a_json_launch_stays_the_body():
+    """JSON として読める短い本文は auth_failed に当たらない（包みでない JSON は今までどおり受け付けに回す）"""
+    assert unwrap(b'{"findings": []}', expect_json=True) == ('{"findings": []}', {"envelope": False}, None)
+
+
+@pytest.mark.parametrize("argv, want", [
+    (["claude", "-p", "--output-format", "json"], True),
+    (["claude", "-p", "--output-format=json"], True),
+    (["claude", "-p", "--output-format", "text"], False),
+    (["claude", "-p"], False),
+])
+def test_wants_json_reads_the_launch_words(argv, want):
+    assert wants_json(argv) is want
+
+
+def test_run_role_does_not_accept_a_short_line_even_if_the_check_is_lenient(tmp_path):
+    """受け付けが何でも通すノードでも、JSON を待つ起動に返った短い 1 行は済にしない（子の終了コードは 0）"""
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("x", encoding="utf-8")
+    out = tmp_path / "out.txt"
+    argv = [sys.executable, "-c", f"print({AUTH_LINE!r})", "--output-format", "json"]
+    got = run_role(argv, prompt, out, accept=lambda text: None, log_path=tmp_path / "trace.jsonl")
+    assert got["ok"] is False and got["accepted"] is None and not out.exists()
+    assert got["runs"][0]["exit"] == 0 and got["runs"][0]["short_line"] is True and "Failed to authenticate" in got["why"]
+    assert "Failed to authenticate" in got["runs"][0]["stdout_head"]

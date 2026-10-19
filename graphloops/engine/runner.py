@@ -506,6 +506,7 @@ def report(d, kind, c, detail=None, code=None):
            "cost_usd": trace_costs(d / "trace.jsonl"),
            "engine": st.get("engine"), "runner": {k: info.get(k) for k in ("pid", "started_at")}, "detail": detail,
            "unreadable": unreadable,
+           **({"auth_expiry": st["auth_expiry"]} if st.get("auth_expiry") else {}),   # Keychain のトークンの切れる日（commands.note_auth_expiry）
            "how": HOW.get(kind, "回し手が信号で止まった（一時停止）——続けるなら run を打ち直せ")}
     print(json.dumps(out, ensure_ascii=False))
 

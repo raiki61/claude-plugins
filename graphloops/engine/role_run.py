@@ -40,7 +40,7 @@ import time
 
 from . import checks_cache
 from .launch_words import JSON_SCHEMA
-from .util import LANE_FAILED, lone_surrogate_at, waiting
+from .util import LANE_FAILED, claude_auth, lone_surrogate_at, waiting
 
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
@@ -1076,8 +1076,12 @@ def stop_group(pgid_file):
     return "; ".join(whys) or None
 
 
-def unwrap(stdout, structured=False):
+def unwrap(stdout, structured=False, expect_json=False):
     """標準出力を解く。返すのは (本文, 要約, 読めない理由)。
+
+    expect_json は子を `--output-format json` で起動したか。そう起動した子が包みでない短い 1 行（claude_auth.auth_failed の形。
+    認証切れの『Failed to authenticate…』も使用枠の上限の 1 行も、終了コード 0 のまま返る）を返したら、本文にせず読めない理由にする
+    ——受け付けの緩いノードでは、その 1 行が返答として受け付けられ、済に見える。理由は認証と決めつけず、出力の頭を添える。
 
     structured は子に --json-schema でノードの schema を渡したか。渡した子の本文は包みの structured_output（claude が schema で検めた
     返答。公式の headless 文書の「Get structured output」）を JSON に直した物で、result の文から JSON を探さない。structured_output の無い
@@ -1100,6 +1104,10 @@ def unwrap(stdout, structured=False):
     except ValueError:
         env = None
     if not (isinstance(env, dict) and env.get("type") == "result"):
+        if expect_json and claude_auth().auth_failed(text):
+            return None, {"envelope": False, "short_line": True}, (
+                f"JSON の包みを待つ起動なのに、子の標準出力が JSON でない短い 1 行だった（頭: {text[:120]!r}）——認証切れ・"
+                "使用枠の上限の類が多い（終了コードが 0 でも済んでいない）")
         if structured:
             return None, {"envelope": False}, "--json-schema で起動したのに標準出力が --output-format json の包みでない"
         return text, {"envelope": False}, None
@@ -1121,6 +1129,11 @@ def unwrap(stdout, structured=False):
     if "result" not in env:
         return None, summary, f"包みに result が無い（subtype={env.get('subtype')}）"
     return env["result"] if isinstance(env["result"], str) else json.dumps(env["result"], ensure_ascii=False), summary, None
+
+
+def wants_json(argv):
+    """起動の語が子に `--output-format json` を頼んでいるか（unwrap の expect_json）"""
+    return any(a == "--output-format" and b == "json" for a, b in zip(argv, argv[1:])) or "--output-format=json" in argv
 
 
 TAIL_LINES = 20      # 走らせた語の出力のうち、返答に写す末尾の行数（全体は置き場のファイルに残す）
@@ -1220,7 +1233,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
             except Superseded:
                 got.update(superseded=True, why=SUPERSEDED)
                 break
-            text, summary, bad = unwrap(out, structured=JSON_SCHEMA in cur)
+            text, summary, bad = unwrap(out, structured=JSON_SCHEMA in cur, expect_json=wants_json(cur))
             if summary.get("session_id"):
                 got["session_id"] = summary["session_id"]
             run = {"turn": turn + 1, "kind": "first" if turn == 0 else "resume", "exit": rc,

@@ -6,6 +6,12 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Added
+- 子の claude（engine が `claude -p` で起動する claude）に足す認証を Keychain の項目から読んだとき、その項目のトークンの切れる日が近い（30 日前から）か過ぎていれば、`loop.py next` の `notes`・`loop.py status` と `loop.py run` の出力の `auth_expiry`・`loop.py launch` の行の `auth.expiry` に、作り直し方（`claude setup-token`）と一緒に出す。トークンは書き換えた日から 1 年で切れる見込みとして数える。認証を足す前置の層（`scripts/with-auth.py`）も標準エラーに同じ 1 行を出す。
+
+### Fixed
+- `--output-format json` で起動した子が、JSON でない短い 1 行（認証切れの「Failed to authenticate…」や使用枠の上限の 1 行。どちらも終了コード 0 で返る）を返したとき、その 1 行を返答として受け付けていた。受け付けの検査が緩いノードでは、済んでいないのに済に見えた。今は失敗に数え、`loop.py launch` の行の `cause` を `launch_short_line` にして、`why` に出力の頭を添える（認証切れと決めつけない）。
+
 ## [0.38.1] - 2026-10-19
 
 ### Fixed

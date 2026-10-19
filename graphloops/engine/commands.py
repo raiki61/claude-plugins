@@ -222,6 +222,8 @@ def cmd_next(a):
     down = sandbox_down_why(b.state.get("child_tmp_probe"))
     if down:
         notes = [*notes, f"書き換えるノード・skill のノード・任せ先は子を起動せずに止まる（読むだけの子は起動し、Bash で測れていないことを残す）: {down}"]
+    if b.state.get("auth_expiry"):
+        notes = [*notes, f"認証: {b.state['auth_expiry']['note']}（{b.state['auth_expiry']['stage']}）"]
     if b.state.get("unfenced_delegates"):
         u = b.state["unfenced_delegates"]
         notes = [*notes, f"任せ先のチェック（sandbox）を外した run（{u['at']}・理由: {u['reason']}）——" + (
@@ -250,7 +252,8 @@ def cmd_next(a):
                 "Agent ツールで起動するな（CLAUDE.md と git status が注入される——Agent の子の git status は止められない。engine はツールゼロの子をリポジトリの外で起動する。返答の本文が回す側に入る）。"
                 "launch は 1 件ずつ ok と why を返す——ok でないノードは why を読み、拒否が続いた・子が落ちたなら "
                 "loop.py relaunch --node <id> --reason <理由> で起動し直してから launch（relaunch は新しい試行を書いてから前の試行の子を木ごと止める）。"
-                "cause が launch_auth なら認証が足りていない、launch_child_failed なら役の側、launch_auth_unread なら前置の層の書いた段が無かった（行の auth が null。stderr の with-auth: の行で確かめよ）。"
+                "cause が launch_auth なら認証が足りていない、launch_child_failed なら役の側、launch_auth_unread なら前置の層の書いた段が無かった（行の auth が null。stderr の with-auth: の行で確かめよ）、"
+                "launch_short_line なら子が JSON でない短い 1 行を返した（認証切れか使用枠の上限の類。why に出力の頭が在る）。"
                 "engine が起動できないノード（why が『前置ではない』『旗が無い』『権限の形』"
                 "『定義が読めない』『claude が無い』）は迂回を組まず人に渡せ。"
                 "unlaunched を持つノードは engine が起動できない理由を持つ——迂回せず理由を人に見せよ（回し役なしの run は loop.py run が 14 で出す）。"
@@ -1161,11 +1164,13 @@ def launch_one(d, inst, max_resumes, cwd=None, state=None):
             "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg if accept else None,
             "cost_usd": _attempt_cost(d, inst),
             "permission_denials": sum(len(x.get("permission_denials") or []) for x in r["runs"]),
-            "stderr": "" if r["ok"] else (last.get("stderr") or ""), "auth": auth}
+            "stderr": "" if r["ok"] else (last.get("stderr") or ""), "auth": auth,
+            **({"short_line": True} if last.get("short_line") else {})}
 
 
 def _auth_note(path):
-    """前置の層が書いた認証の段（{"stage", "added"}）。無い・読めない・形が違うなら None（launch_cause が launch_auth_unread と出す）。読んだら消す"""
+    """前置の層が書いた認証の段（{"stage", "added", "expiry"}）。無い・読めない・形が違うなら None（launch_cause が launch_auth_unread と出す）。
+    expiry は Keychain のトークンの切れる日が近い・過ぎたときの 1 行（claude_auth.expiry_note）で、無ければ None。読んだら消す"""
     try:
         got = json.loads(pathlib.Path(path).read_text(encoding="utf-8") or "null")
     except (OSError, ValueError):
@@ -1173,7 +1178,21 @@ def _auth_note(path):
     finally:
         pathlib.Path(path).unlink(missing_ok=True)
     ok = isinstance(got, dict) and isinstance(got.get("stage"), str) and isinstance(got.get("added"), bool)
-    return {"stage": got["stage"], "added": got["added"]} if ok else None
+    if not ok:
+        return None
+    expiry = got.get("expiry")
+    return {"stage": got["stage"], "added": got["added"], "expiry": expiry if isinstance(expiry, str) and expiry else None}
+
+
+def note_auth_expiry(state, auth):
+    """前置の層が Keychain から足した段なら、トークンの切れる日の知らせ（auth.expiry）を盤面の auth_expiry に控える（next・status・run の
+    報告が出す）。Keychain の段で知らせが無ければ控えを消す（作り直した後）。ほかの段（継いだ・足せなかった）の回は触らない"""
+    if not auth or not auth["stage"].startswith("keychain("):
+        return
+    if auth.get("expiry"):
+        state["auth_expiry"] = {"stage": auth["stage"], "note": auth["expiry"], "at": now()}
+    else:
+        state.pop("auth_expiry", None)
 
 
 def _attempt_cost(d, inst):
@@ -1193,6 +1212,8 @@ def launch_cause(r, kind):
         return "launch_refused", "commands.launch_refusal"
     if r["rejections"]:
         return "launch_rejected", "role_run.run_role"
+    if r.get("short_line"):
+        return "launch_short_line", "role_run.unwrap"
     auth = r.get("auth")   # 前置の層が書いた段（_auth_note）。無ければ層まで届かなかったか、書けなかった
     if not auth:
         return "launch_auth_unread", "role_run.run_role"
@@ -1314,6 +1335,7 @@ def _launch_marked(d, mark, picked):
                 log.append({"at": now(), "kind": "resume" if j < r["resumes"] else "rejected", "reason": why})
             if not r["ok"] and r.get("why") and not r.get("rejections"):
                 log.append({"at": now(), "kind": "failed", "reason": r["why"], **({"env": True} if r.get("env") else {})})
+            note_auth_expiry(b.state, r.get("auth"))
             b.trace("launched", id=r["id"], ok=r["ok"], why=r.get("why"), session_id=r.get("session_id"),
                     resumes=r.get("resumes"), stderr=(r.get("stderr") or "")[-200:])
 
@@ -1337,6 +1359,8 @@ def _launch_marked(d, mark, picked):
                         "env を持つ行は環境の予定どおりの止まり（why が外し方を名指す——当ててから relaunch --reprobe）。"
                         "cause が launch_auth なら認証が足りていない、launch_child_failed なら認証は足りていて役の側、"
                         "launch_auth_unread なら前置の層の書いた段が無かった（行の auth が null。stderr の with-auth: の行で確かめよ）。"
+                        "launch_short_line なら子が JSON でない短い 1 行を返した（認証切れか使用枠の上限の類。why に出力の頭が在る）。"
+                        "auth.expiry が在れば Keychain のトークンの切れる日が近いか過ぎている（その文のとおりに作り直す）。"
                         "返答は out_path に在る（読むのは要る所だけ。会話が引き取るなら、自分の返答は別のファイルに書いて done --output）。"
                         "engine が起動できないノード（why が『前置ではない』『旗が無い』"
                         "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ。"
@@ -2200,6 +2224,7 @@ def cmd_status(a):
         "cost_usd": trace_costs(b.dir / "trace.jsonl"),
         **({"notes": [w]} if (w := worktree_board_notice(b.dir)) else {}),
         **({"intake": n} if (n := intake_notice()) else {}),   # まだ作者へ手渡していない失敗の記録（init も出す）
+        **({"auth_expiry": st["auth_expiry"]} if st.get("auth_expiry") else {}),   # Keychain のトークンの切れる日（note_auth_expiry）
     }))
 
 

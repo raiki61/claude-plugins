@@ -346,6 +346,7 @@ def test_launch_auth_follows_what_with_auth_wrote(note, rc, noisy, tmp_path, mon
     path = tmp_path / "auth.json"
     monkeypatch.setenv(wa.AUTH_NOTE_ENV, str(path))
     monkeypatch.setattr(wa.claude_auth, "auth_env", lambda env, **_: (dict(env, CLAUDE_CONFIG_DIR="/c"), note))
+    monkeypatch.setattr(wa.claude_auth, "expiry_note", lambda service: None)
     seen = []
 
     def child(argv, env):
@@ -357,9 +358,44 @@ def test_launch_auth_follows_what_with_auth_wrote(note, rc, noisy, tmp_path, mon
     assert wa.main(["claude", "-p"]) == rc
     assert wa.AUTH_NOTE_ENV not in seen[0]
     auth = commands._auth_note(str(path))
-    assert auth == {"stage": note, "added": wa.claude_auth.added(note)} and not path.exists()
+    assert auth == {"stage": note, "added": wa.claude_auth.added(note), "expiry": None} and not path.exists()
     exc, _ = launch_cause({"ok": False, "why": "x", "rejections": [], "stderr": "", "auth": auth}, None)
     assert exc == ("launch_child_failed" if wa.claude_auth.added(note) else "launch_auth")
+
+
+@pytest.mark.parametrize("note, want", [("keychain(svc)", "svc"), ("inherited(CLAUDE_CODE_OAUTH_TOKEN)", None), ("keychain-miss(svc)", None)])
+def test_with_auth_passes_keychain_expiry_to_the_engine(note, want, tmp_path, monkeypatch, capsys):
+    """Keychain から足した段だけ、その項目の切れる日の知らせを標準エラーと段のファイルに出し、engine が盤面に控えて next・status に出す。
+    作り直した後（知らせが無い Keychain の段）の起動は控えを消す"""
+    spec = importlib.util.spec_from_file_location("with_auth_under_test", PLUGIN / "scripts" / "with-auth.py")
+    wa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wa)
+    path = tmp_path / "auth.json"
+    monkeypatch.setenv(wa.AUTH_NOTE_ENV, str(path))
+    monkeypatch.setattr(wa.claude_auth, "auth_env", lambda env, **_: (dict(env, CLAUDE_CONFIG_DIR="/c"), note))
+    asked = []
+    monkeypatch.setattr(wa.claude_auth, "expiry_note", lambda service: asked.append(service) or f"{service} は 3 日後に切れる見込み")
+    monkeypatch.setattr(wa.subprocess, "run", lambda argv, env: types.SimpleNamespace(returncode=0))
+    assert wa.main(["claude", "-p"]) == 0
+    assert asked == ([want] if want else [])
+    auth = commands._auth_note(str(path))
+    state = {}
+    commands.note_auth_expiry(state, auth)
+    if want:
+        assert auth["expiry"] == "svc は 3 日後に切れる見込み" and "svc は 3 日後に切れる見込み" in capsys.readouterr().err
+        assert state["auth_expiry"]["note"] == auth["expiry"] and state["auth_expiry"]["stage"] == note
+        commands.note_auth_expiry(state, {**auth, "expiry": None})
+    assert "auth_expiry" not in state
+    if not want:
+        state["auth_expiry"] = {"stage": "keychain(svc)", "note": "x", "at": "t"}
+        commands.note_auth_expiry(state, auth)   # Keychain でない段の回は、前の控えを消さない
+        assert state["auth_expiry"]["note"] == "x"
+
+
+def test_short_line_is_its_own_cause():
+    exc, func = launch_cause({"ok": False, "why": "x", "rejections": [], "short_line": True,
+                              "auth": {"stage": "keychain(svc)", "added": True, "expiry": None}}, None)
+    assert (exc, func) == ("launch_short_line", "role_run.unwrap")
 
 
 @pytest.mark.parametrize("body", [None, "", "{", "[]", '{"stage": "none"}', '{"stage": 1, "added": true}'])

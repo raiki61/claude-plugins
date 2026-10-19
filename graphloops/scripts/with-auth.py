@@ -6,7 +6,8 @@ engine が起動する語の前置（engine/launch_words.py の VIA）として�
 ——隣の `claude_auth.py`（複数のプラグインに写しで在る共有の本文）が持つ。ここに在るのは
 「前置として起動する」殻だけで、なぜ層が要るか・段がどう決まるかは `claude_auth.py` の冒頭に在る。
 
-足した段は、環境変数 GRAPHLOOPS_AUTH_NOTE が名指すファイルに JSON（`{"stage": 段, "added": 足せたか}`）で書く。
+足した段は、環境変数 GRAPHLOOPS_AUTH_NOTE が名指すファイルに JSON（`{"stage": 段, "added": 足せたか, "expiry": Keychain のトークンの
+切れる日の知らせか null}`）で書く。
 engine はこれを読み、標準エラーの人向けの行は読まない（docs/standards/machine-readable-values.md の決まり 1）。
 """
 import json
@@ -40,13 +41,20 @@ ALLOWED = ("claude",)
 AUTH_NOTE_ENV = "GRAPHLOOPS_AUTH_NOTE"
 
 
-def write_note(path, note):
+def expiry(note):
+    """Keychain から足した段（keychain(<項目>)）なら、その項目のトークンの切れる日の知らせ（claude_auth.expiry_note）。ほかの段と、まだ近くないときは None"""
+    if not note.startswith("keychain(") or not note.endswith(")"):
+        return None
+    return claude_auth.expiry_note(note[len("keychain("):-1])
+
+
+def write_note(path, note, soon=None):
     """足した段を path に JSON で書く（書きかけを読ませないよう、隣に書いてから置き換える）。書けなければ標準エラーに 1 行を出して続ける
     ——子の起動は止めない。読む側（engine）は、ファイルが無い・読めないのを「段が読めなかった」（launch_auth_unread）として出す"""
     tmp = path + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"stage": note, "added": claude_auth.added(note)}, f, ensure_ascii=False)
+            json.dump({"stage": note, "added": claude_auth.added(note), "expiry": soon}, f, ensure_ascii=False)
         os.replace(tmp, path)
     except OSError as e:
         sys.stderr.write("with-auth: 段を %s に書けない（%s）\n" % (path, e))
@@ -64,8 +72,13 @@ def main(argv):
     env, note = claude_auth.auth_env(os.environ, service=os.environ.get("GL_KEYCHAIN_SERVICE"))
     sys.stderr.write("with-auth: auth=%s config-dir=%s\n" % (note, env["CLAUDE_CONFIG_DIR"]))
     note_path = env.pop(AUTH_NOTE_ENV, None)   # 子の claude には渡さない（engine と層の間の取り決めで、子は使わない）
+    soon = expiry(note)
+    if soon:
+        # 切れたトークンでも子は終了コード 0 で短い 1 行を返すので、切れる前に知らせる。engine は段のファイルの expiry を盤面に控え、
+        # next・status・run の報告に出す（標準エラーのこの行は人が直に打ったときのため）
+        sys.stderr.write("with-auth: %s\n" % soon)
     if note_path:
-        write_note(note_path, note)
+        write_note(note_path, note, soon)
     if not claude_auth.added(note):
         # 足せなかったことは**起動する前に**分かる。後から出力を覗く作りにはしない
         # ——子の返答は数百 KB になり得て、この層で溜める理由が無い
