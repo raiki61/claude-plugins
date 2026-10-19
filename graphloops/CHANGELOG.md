@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-10-19
+
 ### Added
 - `loop.py init`（graphloops の run〔ループの 1 回の実行〕を始めるコマンド）が、手元の claude の版（`claude --version` の出力）を、graphloops の作者が確かめた claude の版と比べ、違えば `注意:` で始まる行で知らせる。作者が確かめたのは、graphloops が claude を起動するときに頼る形——オプション・設定のキー・`claude -p --output-format json` が返す JSON のフィールド——で、確かめた版は `graphloops/tests/py/cli/versions.json` に書いてある。確かめた版は、作者が見本（claude のヘルプの全文と、ログインしていない回に返る JSON。`python3 graphloops/tests/py/cli_contract.py --capture` で採る）を採り直すときに書き換わる。
   - 知らせには、確かめのコマンド `python3 graphloops/tests/py/cli_contract.py --live` を添える。これは、graphloops を含むリポジトリ claude-plugins の clone のルートで打つ。確かめるのは clone の側の graphloops なので、知らせの行には、今の run が使っている graphloops の版も出す。先に clone を、その版の graphloops が入った commit に切り替えておく。このコマンドは手元の claude を、資格情報の無い空の設定のフォルダ（`CLAUDE_CONFIG_DIR`）を渡してログインしていない状態にしたうえで、graphloops と同じオプションで起動する。そして、オプションと設定が受け付けられるか・返る JSON の形が見本と合うかを見る。ログインしていない claude も、`is_error` が真で `result` が「Not logged in」の JSON を、ログインした回と同じフィールドの形で返す。見本の JSON もログインしていない回に採った物なので、同じ条件で形を比べられる。ログインしていない claude は API を呼ばずに返すので、利用の費用は掛からない。
