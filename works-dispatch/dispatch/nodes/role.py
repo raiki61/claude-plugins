@@ -308,6 +308,24 @@ def pick(shape, name, explicit):
     return got, None
 
 
+def seat_problem(shape, role_name, role, duties, name):
+    """受け持ちの席の役（persistent = true で、会社の形の受け持ち [[skills]] の role に名指される役。担当）の部署を、その役の
+    受け持ちの名前でない名前で立てようとしたら、止める訳。ほかは None。席の役は、部署の名前が受け持ちの名前のときだけ席なので、
+    「<受け持ち>：<主題>」のような一度きりの仕事の名前で立てると、永続の部署が誰の席でもないまま残る（my_notes の受付 90b7d8。
+    「調べもの：指示の細かさと下位モデルの精度」が担当の永続の部署で立ち、--clean で畳まれず、使用上限で移るフックが起動し直し続けた）。
+    受け持ちに名指されない永続の役（相談の社長室など）は、名前を問わない。"""
+    if not (role and role["persistent"]):
+        return None
+    held = [s["name"] for s in duties if s.get("role") and current(shape, s["role"]) == current(shape, role_name)]
+    if not held or name in held:
+        return None
+    other = shape.get("default_role")
+    to = (f"--role {other}（--ask なら <会社>/{other}）" if other and other != role_name and other in shape["roles"]
+          and not shape["roles"][other]["persistent"] else "persistent でない役")
+    return (f"役 {role_name} は受け持ちごとに 1 つの永続の部署で、部署の名前は受け持ちの名前（{'・'.join(held)}）。"
+            f"「{name}」はどれでもないので、この役で立てると誰の席でもない永続の部署が残る。一度きりの仕事は {to}で頼む")
+
+
 def launch_spec(role, duty=None):
     """会社の形が決める (model, effort)。effort の inherit は解かずにそのまま（launch_flags が呼んだ会話の値に解く）。"""
     duty = duty or {}

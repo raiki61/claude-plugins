@@ -813,6 +813,11 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         return 2
     # 部署の名前と同じ name の受け持ち（[[skills]]）に model・effort が有れば、役の値より先に効く。effort の inherit は、呼んだ会話の今の effort
     duty = next((x for x in info["skills"] if x["name"] == a.task), None)
+    # 受け持ちの席の役（担当）は、受け持ちの名前でしか立てない。--persistent を名指した回（--move の起動し直しなど）は問わない
+    why = None if a.persistent else role.seat_problem(shape, role_name, the_role, info["skills"], a.task)
+    if why:
+        print(f"止めた: {why}")
+        return 2
     # 役の persistent = true は --persistent と同じ。ただし受け持ちが on_demand = true（オンデマンド）ならエフェメラルの部署で立てる
     persistent = a.persistent or (bool(the_role and the_role["persistent"]) and not (duty and duty.get("on_demand")))
     model, effort, flags_note = role.launch_flags(the_role, ports.env, duty)

@@ -171,6 +171,25 @@ class Task(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("担当", "ephemeral"))
 
+    def test_a_duty_role_starts_only_under_a_duty_name(self):
+        # 受け持ちに名指される永続の役（担当）は、受け持ちの名前でない「<受け持ち>：<主題>」では立てない（立てると誰の席でもない
+        # 永続の部署が残る。my_notes の受付 90b7d8）。受け持ちの名前なら永続で立ち、--persistent を名指せば名前を問わない
+        push_shape(gitx_source(self.cfg), 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n'
+                                          '[[roles]]\nname = "作業"\n[[skills]]\nname = "直し"\nrole = "担当"\n')
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "担当", name="直し：題", branch="task/topic")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("止めた: 役 担当 は受け持ちごとに 1 つの永続の部署で、部署の名前は受け持ちの名前（直し）。「直し：題」はどれでもない", out)
+        self.assertIn("--role 作業（--ask なら <会社>/作業）で頼む", out)
+        self.assertFalse(self.sent(ports))
+        self.assertFalse([w for w in ports.term.worktrees(gitx_source(self.cfg)) if w["branch"] == "task/topic"])
+        rc, out = self.run_task(ports, "--role", "担当")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place(ports))["lifecycle"], "persistent")
+        rc, out = self.run_task(ports, "--role", "担当", "--persistent", name="別", branch="task/other")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place(ports, "task/other"))["lifecycle"], "persistent")
+
     def test_default_role_missing_from_the_shape_stops(self):
         # 役の名前を英語で書いた会社などで、どの役でもない「作業」の部署を、役の本文も起動の設定も無いまま立てない
         push_shape(gitx_source(self.cfg), SHAPE)   # 役は調べ役だけで、default_role も無い
