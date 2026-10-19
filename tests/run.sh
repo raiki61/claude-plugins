@@ -2129,33 +2129,9 @@ assert found >= 26, f"引用を {found} 件しか拾えていない（26 件以�
 print(f"DOC_HEADINGS_OK {found}")
 PYHEAD
 
-# 下の 3 つは手順書と役の定義の頭の YAML を YAML の読み手（PyYAML。tests/frontmatter.py）で読む。手元に無ければ見送り、
+# 下の 2 つは手順書と役の定義の頭の YAML を YAML の読み手（PyYAML。tests/frontmatter.py）で読む。手元に無ければ見送り、
 # CI の FAIL_ON_SKIP=1 が SKIP_ALLOW に無い名前（pyyaml）として赤にする（スキルの説明のチェックと同じ）
 if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
-    # **呼ぶ前に見える面が、手順書の入口のセクションを名指しする。** コマンドを選ぶときに見えるのは frontmatter の description
-    # だけで、本文は呼んだ後にしか読まれない（公式: code.claude.com/docs/en/skills）。判定から入る入口が本文のセクションにしか
-    # 無かった版では、別のリポジトリの AI が入口に気づかなかった（人の報告 2026-09-25）。見出しを改名しても description が
-    # 古い名前のままなら赤。
-    expect_output 0 "ENTRY_SURFACE_OK" "review-graph の description が判定から入る入口のセクションを名指しする" \
-        "$PY_BIN" - "$ROOT" <<'PYENTRY'
-import re, sys, pathlib
-for _s in (sys.stdout, sys.stderr):
-    if hasattr(_s, "reconfigure"):
-        _s.reconfigure(encoding="utf-8")
-sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "tests"))
-import frontmatter
-sk = pathlib.Path(sys.argv[1]) / "graphloops/skills/review-graph"
-fm, body = frontmatter.split((sk / "SKILL.md").read_text(encoding="utf-8"))
-desc = fm.get("description")
-assert isinstance(desc, str) and desc.strip(), "review-graph の SKILL.md: description が無い"
-# 入口のセクションは本文か、本文が指す別ファイル（references/）のどこかに 1 つだけ在る
-text = body + "".join(f.read_text(encoding="utf-8") for f in sorted((sk / "references").glob("*.md")))
-heads = re.findall(r"^## (判定から入る.*?)\s*$", text, re.M)
-assert len(heads) == 1, f"review-graph: 判定から入る入口の見出しが 1 つでない（{heads}）"
-assert f"「{heads[0]}」" in desc, f"description が入口のセクション「{heads[0]}」を名指ししていない"
-print(f"ENTRY_SURFACE_OK {heads[0]}")
-PYENTRY
-
     # **重い工程のコマンドは人の指示のときだけ起動する**（人の決定 2026-09-25。トークンをかなり使うので人が決めたときだけ
     # 回す）。AI が起動前に見るのは description だけなので、決定は description に書く（本文には写さない——写しの正本を
     # 1 つにする）。走査の母数は convergence-loops と graphloops の commands/*.md と skills/*/SKILL.md のファイル集合から導く。
@@ -2285,10 +2261,10 @@ orphans = set(agents) - referenced
 assert not orphans, "どの手順書からも使われない役割がある: " + ", ".join(sorted(orphans))
 PY
 else
-    fm_skip="  ok   手順書と役の定義の頭の YAML のチェック（3 件） # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
+    fm_skip="  ok   手順書と役の定義の頭の YAML のチェック（2 件） # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
     echo "$fm_skip"
     note_skips "$fm_skip"
-    ran=$((ran + 3))
+    ran=$((ran + 2))
 fi
 
 expect_exit 0 "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
@@ -2396,8 +2372,9 @@ PY
 # だけで、**検査面を捨てて数を下げるときは、下げた理由をここに残す**こと。数を下げる操作自体は
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
-# 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=754
+# 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
+# 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
+EXPECTED_CHECKS=753
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

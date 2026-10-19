@@ -2903,8 +2903,8 @@
    "title": "書く側のチェック: 標準入力で渡す埋め込み script から標準出力の encoding の直しを消す",
    "file": "tests/run.sh",
    "suite": "root",
-   "old": "<<'PYENTRY'\nimport re, sys, pathlib\nfor _s in (sys.stdout, sys.stderr):\n    if hasattr(_s, \"reconfigure\"):\n        _s.reconfigure(encoding=\"utf-8\")\n",
-   "new": "<<'PYENTRY'\nimport re, sys, pathlib\n",
+   "old": "<<'PYHUMAN'\nimport re, sys, pathlib\nfor _s in (sys.stdout, sys.stderr):\n    if hasattr(_s, \"reconfigure\"):\n        _s.reconfigure(encoding=\"utf-8\")\n",
+   "new": "<<'PYHUMAN'\nimport re, sys, pathlib\n",
    "expect": "子の出力を文字で読む呼びは encoding を明示している"
   },
   {
@@ -4888,7 +4888,7 @@
   {
    "id": "TN3",
    "title": "ツール名のチェック: graphloops の手順書にテストのパスが紛れ込めば赤",
-   "file": "graphloops/skills/review-graph/references/steps.md",
+   "file": "graphloops/skills/research-graph/SKILL.md",
    "suite": "root",
    "old": "2. **回す**。",
    "new": "2. **回す**（緑は graphloops/tests/run.sh で見る）。",
@@ -6091,15 +6091,6 @@
      "test_lane_rules"
     ]
    }
-  },
-  {
-   "id": "ES1",
-   "title": "review-graph の description が入口のセクションを名指しする",
-   "file": "graphloops/skills/review-graph/SKILL.md",
-   "suite": "root",
-   "old": "のセクション「判定から入る（人の修正依頼）」。すぐ後の文",
-   "new": "のセクション。すぐ後の文",
-   "expect": "review-graph の description が判定から入る入口のセクションを名指しする"
   },
   {
    "id": "ES2",
