@@ -1023,30 +1023,34 @@ def _withdraw_stray(a, ports, cwd, found, rows, notes):
     台帳に閉じる行の無いまま、順番待ちの件が消えた（--withdraw の無かった 2026-10-17 の朝に、段取りが my_notes の 6 件を手で
     動かした）か、受けた部署の作業場が納品せずに消えた（my_notes の 75aeee）頼みで、閉じないと --todo に開いている物として残り続ける。
     古い行は書き換えず、行を足す（docs/ledger.md）。行には前の状態（was）と訳（why）を書く。受けた部署がまだその頼みを受けていれば
-    （属性の頼みがその受付で、まだ納品していない）閉じない。"""
+    （属性の頼みがその受付で、まだ納品していない）閉じない。確かめと書き込みは、その部署の待ち受けと同じ錠の中でする（待ち受けは
+    順番待ちの件を消してから属性を書くので、その間に確かめると、渡している最中の頼みを閉じてしまう）。"""
     i = a.withdraw
     t = ledger.build(rows)["tasks"].get(i)
     if t is None:
-        print("\n".join(notes + [f"止めた: 受付 {i} はどの順番待ちにも、読んだ台帳にも無い（長い受付番号で渡す）"]))
+        print("\n".join(notes + [f"止めた: 受付 {i} はどの順番待ちにも、読んだ台帳にも無い（短い 6 桁でなく、長い受付番号で渡す）"]))
         return 2
     if t["state"] not in ("queued", "working", "waiting"):
         print("\n".join(notes + [f"止めた: 受付 {i} はどの順番待ちにも無く、台帳ではもう閉じている（{t['label']}）"]))
         return 2
     place = ledger.received_at(rows, i)
     there = bool(place) and os.path.isdir(place)
-    if there and wake.pending(ports.attrs(place)) == i:
-        print("\n".join(notes + [f"止めた: 受付 {i} は {place} の部署がまだ受けている（取り下げるなら、その旨を --note {i} で足す）"]))
-        return 2
-    why = ("順番待ちの置き場に無い" if t["state"] == "queued" else
-           f"受けた作業場 {place} がもう無い" if place and not there else
-           f"受けた作業場 {place} の部署は、この頼みを受けていない" if place else "受けた作業場が台帳に無い")
-    if a.dry_run:
-        print("\n".join(notes + [f"受付 {i} は、{why}ので、台帳で「{t['label']}」と出る頼みを取り下げで閉じる"]))
-        return 0
-    # 頼みの行の在る受付箱のそれぞれに足す（頼んだ会社と受けた会社）
-    _log_each([x for x in found if any(ledger.subject(r) == i for r in deliver.records(x))],
-              {"id": i, "kind": "withdrawn", "at": ports.now(), "was": t["state"], "why": why,
-               "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+    common = ports.git.common_dir(place) if there else None
+    lock = wake.ask_lock(deliver.inbox_of(common), ports.git.git_dir(place)) if common else contextlib.nullcontext()
+    with lock:
+        if there and wake.pending(ports.attrs(place)) == i:
+            print("\n".join(notes + [f"止めた: 受付 {i} は {place} の部署がまだ受けている（取り下げるなら、その旨を --note {i} で足す）"]))
+            return 2
+        why = ("順番待ちの置き場に無い" if t["state"] == "queued" else
+               f"受けた作業場 {place} がもう無い" if place and not there else
+               f"受けた作業場 {place} の部署は、今はこの頼みを受けていない" if place else "受けた作業場が台帳に無い")
+        if a.dry_run:
+            print("\n".join(notes + [f"受付 {i} は、{why}ので、台帳で「{t['label']}」と出る頼みを取り下げで閉じる"]))
+            return 0
+        # 頼みの行の在る受付箱のそれぞれに足す（頼んだ会社と受けた会社）
+        _log_each([x for x in found if any(ledger.subject(r) == i for r in deliver.records(x))],
+                  {"id": i, "kind": "withdrawn", "at": ports.now(), "was": t["state"], "why": why,
+                   "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
     print("\n".join(notes + [f"受付 {i} は、{why}ので、台帳で「{t['label']}」と出る頼みを取り下げで閉じた（台帳に行を足した）"]))
     return 0
 

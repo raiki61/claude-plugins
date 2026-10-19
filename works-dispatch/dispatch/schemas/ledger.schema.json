@@ -18,7 +18,7 @@
           "ask": {"type": ["string", "null"]},
           "child": {"type": "string"},
           "for": {"type": "string"},
-          "why": {"type": "string"},
+          "why": {"type": "string"}, "was": {"type": "string", "enum": ["queued", "working", "waiting"]},
           "file": {"type": ["string", "null"]},
           "title": {"type": ["string", "null"]},
           "holders": {

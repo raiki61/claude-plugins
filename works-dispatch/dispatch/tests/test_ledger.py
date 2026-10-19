@@ -36,6 +36,14 @@ class Projection(unittest.TestCase):
         self.assertIsNone(ledger.received_at(rows, B))   # 届かなかった頼みは、どこも受けていない
         self.assertIsNone(ledger.received_at(rows, C))
 
+    def test_an_ask_taken_here_is_working_but_one_taken_to_another_place_waits_for_its_ask_row(self):
+        rows = [ask(A, 1, "queued"), {"id": A, "kind": "taken", "at": 2, "to": {"name": "調べ", "role": "担当"},
+                                      "by": {"session": "s", "place": "/co/dept"}},
+                ask(B, 1, "queued"), {"id": B, "kind": "taken", "at": 2, "to": {"ask": "作業"}, "by": {"session": "s", "place": "/desk"}}]
+        tasks = build(rows)
+        self.assertEqual((tasks[A]["state"], tasks[B]["state"]), ("working", "queued"))
+        self.assertEqual((ledger.received_at(rows, A), ledger.received_at(rows, B)), ("/co/dept", "/co/dept"))
+
     def test_state_is_the_last_state_row_and_finished_states_stay(self):
         rows = [ask(A, 1, "queued"), {"id": A, "kind": "handed", "at": 2, "place": "/co/dept"},
                 {"id": A, "kind": "waiting", "at": 3, "why": "持ち主の答え"}]

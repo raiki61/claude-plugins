@@ -1506,7 +1506,29 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--withdraw", held)
         self.assertEqual(rc, 0, out)
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]
-        self.assertEqual((row["was"], row["why"]), ("working", f"受けた作業場 {self.place} の部署は、この頼みを受けていない"))
+        self.assertEqual((row["was"], row["why"]), ("working", f"受けた作業場 {self.place} の部署は、今はこの頼みを受けていない"))
+
+    def test_withdraw_closes_an_ask_whose_worktree_is_gone_and_stops_on_an_unknown_one(self):
+        # 10-16 の 75aeee: 宛先の作業場が納品せずに消えた
+        gone = str(pathlib.Path(self.root) / "gone")
+        i = "20261016-103911-aaaaaa"
+        deliver.log(self.inbox, {"id": i, "kind": "ask", "at": 1, "status": "sent", "file": None,
+                                 "from": {"name": "desk", "place": self.src}, "to": {"name": "点検", "path": gone}})
+        rc, out = self.main(self.src, "--withdraw", i)
+        self.assertEqual(rc, 0, out)
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]
+        self.assertEqual((row["was"], row["why"]), ("working", f"受けた作業場 {gone} がもう無い"))
+        rc, out = self.main(self.src, "--withdraw", "20261016-103911-bbbbbb")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("どの順番待ちにも、読んだ台帳にも無い", out)
+
+    def test_an_ask_taken_here_is_working_and_not_closed_by_withdraw(self):
+        # --take をその場で受けた頼みは taken の行だけを残す。台帳で順番待ちのままに見えると、--todo が置き場に無いと注記した
+        first, _ = self.queue_two()
+        self.assertEqual(self.main(self.place, "--take", first["id"])[0], 0)
+        rc, out = self.main(self.src, "--withdraw", first["id"])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("の部署がまだ受けている", out)
 
     def test_first_moves_a_queued_ask_to_the_head_and_leaves_it_in_the_ledger(self):
         first, urgent = self.queue_two()

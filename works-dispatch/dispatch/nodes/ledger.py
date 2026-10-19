@@ -42,7 +42,7 @@ KINDS = {
     "queued": "id",       # 知らせ: 順番待ちに積んだ
     "handed": "id",       # 待ち受けが順番待ちの頼みを部署の会話に渡した
     "held": "id",         # 待ち受けが渡さずに待った（detail に訳）
-    "taken": "id",        # 順番待ちから取り出した（--take）
+    "taken": "id",        # 順番待ちから取り出した（--take。その場で受けたなら動いている）
     "reordered": "id",    # 順番待ちの先頭に回した（--first）
     "withdrawn": "id",    # 頼みを取り下げた（--withdraw。順番待ちに無い物は was に前の状態、why に訳）
     "forwarded": "id",    # 受けた頼み（id）を回して閉じた。child が回した先の頼み
@@ -119,7 +119,16 @@ def received_at(rows, i):
             place = r["to"].get("path") or place
         elif r.get("kind") == "handed" and r.get("id") == i and isinstance(r.get("place"), str):
             place = r["place"] or place
+        elif r.get("kind") == "taken" and r.get("id") == i and _took_here(r):
+            place = r["by"]["place"]
     return place
+
+
+def _took_here(row):
+    """taken の行が、部署の場所から打った --take でその場で受けた物か（to が受けた部署の名前で、by に打った場所が在る）。"""
+    to, by = row.get("to"), row.get("by")
+    return (isinstance(to, dict) and "ask" not in to and isinstance(by, dict) and isinstance(by.get("place"), str)
+            and bool(by["place"]))
 
 
 def _inside(at, root):
@@ -179,6 +188,10 @@ def build(rows, title_of=None, questions_of=None):
             t["state"] = "working"
             if r.get("place"):
                 received.append((at, r["place"], t["to"].get("name"), i))
+        elif kind == "taken" and t["state"] == "queued" and _took_here(r):
+            # 部署の場所から --take で取り、その場で受けた（--ask で頼み直したときは、頼み直しの ask の行が状態を決める）
+            t["state"] = "working"
+            received.append((at, r["by"]["place"], r["to"].get("name"), i))
         elif kind == "waiting":
             t["state"], t["why"] = "waiting", r.get("why")
         elif kind == "resumed" and t["state"] == "waiting":
