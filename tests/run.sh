@@ -2374,7 +2374,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=753
+EXPECTED_CHECKS=754
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -5945,8 +5945,17 @@ expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実�
 # 期待文字列は「件すべて緑」——「0 件失敗」だと母数 0（台本が 1 本も走らない）でも同じ部分文字列に
 # 当たる。件数の突合（-ne）は graphloops/tests/run.sh が自分の EXPECTED_CHECKS で持ち、ここは
 # 終了コードとその 1 行だけを見る（件数の正本を 2 か所にしない）。
+# メインブランチに入れるゲートの回（TESTS_LAND=1。tests/land-check.py が渡す）は、この 1 件だけを見送る。組に分けない手元では
+# この 1 件で 8 分ほどかかり（CI の 1 組で約 2 分 × 4 組）、残りの検査の全部より長い。CI は今までどおり回す
+if [ "${TESTS_LAND:-}" = 1 ]; then
+    ran=$((ran + 1))
+    land_skip="  ok   graphloops: graphcheck と模擬実行 # SKIP land: メインブランチに入れるゲートの回は回さない（CI が組に分けて回す）"
+    echo "$land_skip"
+    note_skips "$land_skip"
+else
 expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・チェックの腕）が通り、件数が期待どおり" \
     env ${GL_SHARD_ENV[@]+"${GL_SHARD_ENV[@]}"} bash "$ROOT/graphloops/tests/run.sh"
+fi
 
 # **変異の腕の字列が、今の版に 1 か所ずつ在る。** 腕の一覧（tests/mutations.json）はリポジトリに置き、チェックを直す差分が
 # 同じ変更で腕も直す（経緯は tests/mutate.py の docstring）。撃つのは重いので台本では走らせず、字列と証拠の口
@@ -8168,6 +8177,53 @@ VORDER
 # と `_rows: command not found` の 2 行が出た。検査自体は緑のままなので、印字を読まないと気づかない）
 expect_output 0 "VALIDATOR_ORDER_OK" "検証器の fail() が _rows() より前に在る（表の組み立ての失敗が exit 2 で落ちる）" \
     "$PY_BIN" "$WORK/validator-order.py" "$ROOT"
+
+# メインブランチに入れるゲートの照合（tests/land-check.py）: 一覧（tests/land-known-red.txt）に無い赤・一覧に在るのに緑・「 — 」の無い赤の行・
+# 件数の食い違い・最後の行の無い終わり・赤の行の無い失敗で止め、一覧に在る赤と、走らなかった一覧の検査では止めない。一覧の名前は今の tests/run.sh の検査の名前に在る
+expect_output 0 "LAND_CHECK_OK" "メインブランチに入れるゲートが、一覧に無い赤と一覧の古い行で止め、一覧に在る赤では止めない" \
+    "$PY_BIN" - "$ROOT" <<'PY'
+import importlib.util, pathlib, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("land_check", root / "tests/land-check.py")
+lc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(lc)
+known = ["甲の検査", "乙の検査"]
+red = lambda n: "  FAIL %s — exit 0 を期待したが 1（出力は下の行）\n" % n
+ok = lambda n: "  ok   %s\n" % n
+done_red, done_green = "\n9 件のうち失敗あり\n", "\n9 件すべて緑\n"
+# 名前: (出力, 終わりの値, 止める理由に含む文字列。None は止めない)
+cases = {
+    "known red only": (red("甲の検査") + ok("丙の検査") + done_red, 1, None),
+    "new red": (red("甲の検査") + red("丁の検査") + done_red, 1, "一覧に無い赤: 丁の検査"),
+    "known healed": (ok("甲の検査") + ok("乙の検査") + done_green, 0, "一覧に在るのに緑: 甲の検査"),
+    "known not run": (red("甲の検査") + done_red, 1, None),
+    "known skipped is not healed": (red("甲の検査") + "  ok   乙の検査 # SKIP fifo: 理由\n" + done_red, 1, None),
+    "red line without dash": (red("甲の検査") + "  FAIL 壊した記録を作れない\n" + done_red, 1, "「 — 」の無い赤の行が 1 行"),
+    "count mismatch": (red("甲の検査") + "検査が 3 件走った（4 件を期待）——検証の空振りか、件数の更新漏れ\n", 2, "件数のチェックが合わない"),
+    "died after known red": (red("甲の検査") + "tests/run.sh: line 9: X: unbound variable\n", 1, "最後の行を出さずに"),
+    "crashed": ("bash: 何か: command not found\n", 2, "最後の行を出さずに"),
+    "failed without red line": (done_red, 1, "赤の行を出さずに"),
+    "green": (done_green, 0, None),
+}
+for name, (out, rc, want) in cases.items():
+    stop, _ = lc.judge(out, rc, known if name != "green" else [])
+    if want is None:
+        assert not stop, (name, stop)
+    else:
+        assert any(want in s for s in stop), (name, want, stop)
+assert lc.known_red("# 注\n\n甲\n  # 注\n乙\n") == ["甲", "乙"]
+run = (root / "tests/run.sh").read_text(encoding="utf-8")
+listed = lc.known_red((root / "tests/land-known-red.txt").read_text(encoding="utf-8"))
+gone = [n for n in listed if '"%s"' % n not in run]
+assert not gone, "一覧の名前が tests/run.sh の検査の名前に無い（改名したら一覧も直す）: %s" % gone
+# 照合が読む行の形は、tests/run.sh が今出す形と同じ（expect_output の赤と緑の行・最後の行）
+for shape in ('echo "  FAIL $desc — ', 'echo "  ok   $desc"', 'echo "$ran 件すべて緑', 'echo "$ran 件のうち失敗あり"'):
+    assert shape in run, "tests/run.sh の出力の形が tests/land-check.py の読む形と違う: %s" % shape
+print("LAND_CHECK_OK")
+PY
 
 # 数えるだけの回の件数が、全部を回したこの回の件数（下のチェック）と合う。合わなくなるのは、前の検査の結果で検査を足し引きする書き方を
 # 入れたとき（数えるだけの回は結果を作らない）。数えるだけの回では、この検査自身も走らずに 1 件に数える
