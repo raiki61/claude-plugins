@@ -99,11 +99,10 @@ If you put a `REVIEW.md` at the root of the target repository, the perspectives 
 /doctor-loop                         when you want to dig up improvement candidates from the current state, without waiting for a change
 /firstread-loop <the reader's task>  after finishing a document, when you want to check it gets through
 
-/review-graph                        the same review, run by a machine (engine) that keeps the run's state on disk
 /research-graph <what to look into>  the executable version of the same research
 ```
 
-**Which to use**: the 4 above (prose) are the default. The 2 `-graph` commands are versions where a machine runs the same loop, and **the record of the run stays on disk** (it can resume across context compaction; the order of steps, so a step runs only after the steps it depends on; limits; and checks that nothing was silently skipped are enforced by the machine). Use `-graph` if you need any of these: getting a long run through, running the record through the validator afterwards, or several people following the same run. For an everyday check that ends in one pass, the 4 prose commands are enough.
+**Which to use**: the 4 above (prose) are the default. `/research-graph` (graphloops) is a version where a machine runs the same loop, and **the record of the run stays on disk** (it can resume across context compaction; the order of steps, so a step runs only after the steps it depends on; limits; and checks that nothing was silently skipped are enforced by the machine). Use it if you need any of these: getting a long run through, running the record through the validator afterwards, or several people following the same run. For an everyday check that ends in one pass, the 4 prose commands are enough. The machine-run review `/review-graph` (graphloops) was removed on 2026-10-19; for a machine-run review, use `/works-factory`.
 
 
 `/review-loop` is for reviewing code changes, `/research-loop` for calibrating an assessment, and `/firstread-loop` for checking whether a document gets through to its readers. Do not use them the other way around.
@@ -133,12 +132,12 @@ Convergence means, for **2 consecutive rounds**, zero blockers, green CI, and ne
 
 **Required**: `git` / `python3` or `python` (**3.12 or later**. CI pins and measures one minimum version — a lower bound that is not measured is not declared. It used to say 3.9, but when the local python was newer, syntax that fails only on 3.9 slipped past an all-green run and turned CI red on all 3 OSes (measured 2026-09-13). `graphlib`, used by `graphcheck.py`, was added in 3.9, so that is not the reason for the lower bound; the reason is **that the developer's machine and CI read the same syntax**) / `bash`
 
-**What the local review calls** (both `/review-loop` and `/review-graph`; which one calls what is in the Use column):
+**What the local review calls** (both `/review-loop` and graphloops' review-loop graph — the graph that `/review-graph` ran before it was removed, kept for the engine's tests; which one calls what is in the Use column):
 
 | Dependency | Use | When missing |
 |---|---|---|
-| `pr-review-toolkit` plugin | `/review-loop` uses the coordinator `review-pr`. `/review-graph` names the lenses one by one (the source of truth for the list is `p1.local_review.skills` in `graphloops/graphs/review-loop.json`; the machine requires one record row per declared entry) | the "Dependencies and how you obtain them" section above is the source of truth |
-| built-in `/code-review` | local defect review (P1 of `/review-graph`; `/review-loop` stays on `review-pr`) | bundled with Claude Code itself. A plugin with the same name also exists, so in environments that have it installed the names can collide |
+| `pr-review-toolkit` plugin | `/review-loop` uses the coordinator `review-pr`. the review-loop graph names the lenses one by one (the source of truth for the list is `p1.local_review.skills` in `graphloops/graphs/review-loop.json`; the machine requires one record row per declared entry) | the "Dependencies and how you obtain them" section above is the source of truth |
+| built-in `/code-review` | local defect review (P1 of the review-loop graph; `/review-loop` stays on `review-pr`) | bundled with Claude Code itself. A plugin with the same name also exists, so in environments that have it installed the names can collide |
 | built-in `/simplify` | local review for quality (reuse, simplification, efficiency) | bundled with Claude Code itself |
 | built-in `/security-review` | when the change touches authentication, data handling, or external I/O | same as above |
 | `gh` CLI | conflict check against concurrent PRs | on other hosts, substitute the equivalent command. If it cannot be substituted, the loop is made to report "could not check" |

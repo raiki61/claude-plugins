@@ -4270,7 +4270,7 @@ def test_launch_wait_wording():
     # 手順書は本文（skills/<名前>/SKILL.md）と別ファイル（references/）に分けてあるので、繋いで見る
     books = {name: "\n".join(f.read_text(encoding="utf-8") for f in [PLUGIN / "skills" / name / "SKILL.md",
                                                                      *sorted((PLUGIN / "skills" / name / "references").glob("*.md"))])
-             for name in ("review-graph", "research-graph")}
+             for name in ("research-graph",)}
     for name, x in books.items():
         check("loop.py\" run --dir <DIR>" in x and "**20**" in x and "**13**" in x and "ここで初めてターンを終えてよい" in x
               and "seq 1 54" not in x and "run_in_background" not in x and "知らせを待て" not in x,

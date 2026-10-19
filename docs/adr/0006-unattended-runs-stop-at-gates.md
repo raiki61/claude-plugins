@@ -31,5 +31,5 @@
 
 ## 出どころ
 
-- リポジトリの中: [review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)（関所の説明の「無人（--unattended）ではここで止まる」）。
+- リポジトリの中: [review-graph の手順書](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/SKILL.md)（関所の説明の「無人（--unattended）ではここで止まる」）。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: `HANDOFF-log-20260925.md` の 19:40・19:50、計画版の 2 章「能力と方針」。

@@ -27,7 +27,7 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 
 - **作業メモにしか無かった決定**は、この ADR が正本。出どころの節の「記録した時点の出どころ」は、ADR を書いたときに読んだリポジトリの外の作業メモの名前と節で、後から開けるとは限らない。
 - **リポジトリの中の文書にも書かれている決定**（`docs/graphloops-rearchitecture.md`・`docs/graphloops-prior-art.md`・手順書・`README.md`）は、出どころの節にその文書の節へのリンクを置く。ADR は、その決定を 1 か所で洗えるようにした索引で、作業メモにだけあった経緯と理由を足している。両方を直すときは同じ commit で直す。
-- **人の方針**（run〔graphloops の engine で review や research のループを 1 回始めてから終わるまで。`loop.py init` で始まる〕をまたいで効く人の決まり。例: 今ある能力を減らさない・期限を足さない）の正本は、人が書く方針の文書である（置き場は [review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）。この置き場の ADR は、その決まりが決まったときの文脈と理由の記録で、方針の文書の写しではない。食い違えば方針の文書が勝つ。
+- **人の方針**（run〔graphloops の engine で review や research のループを 1 回始めてから終わるまで。`loop.py init` で始まる〕をまたいで効く人の決まり。例: 今ある能力を減らさない・期限を足さない）の正本は、人が書く方針の文書である（置き場は [research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）。この置き場の ADR は、その決まりが決まったときの文脈と理由の記録で、方針の文書の写しではない。食い違えば方針の文書が勝つ。
 - commit の id は、main に入った版の commit だけを書く。作業枝の commit は main に squash で入るので、枝が消えると辿れない。
 - この一覧の状態と日付は、各 ADR の頭の欄の写しである。ADR の状態を変える commit で、この一覧も直す。
 
@@ -121,4 +121,4 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0072](0072-works-post-fix-lens-block.md) | works の修正の後の局所レビューは、レンズを 1 本ずつ独立の節にしたブロック blk-lens に置く | 採用 | 2026-10-01 |
 | [0073](0073-land-bumps-and-no-tags.md) | 版は --land が上げて手元の関門で main に入れ、tag は作らず、CI は入った後に回す | 採用 | 2026-10-16 |
 | [0074](0074-graphloops-edits-by-desk-and-land.md) | graphloops の直しは受け持ちの担当が当てて --land で入れ、review-graph の run は持ち主が頼んだときだけ回す | 採用 | 2026-10-16 |
-| [0075](0075-retire-review-graph.md) | /review-graph を退役させる（使う人は /works-factory へ移る。graphloops を受け持つ部署「見直し」が 2026-11-18 以降に /review-graph のスキルを消す） | 採用 | 2026-10-18 |
+| [0075](0075-retire-review-graph.md) | /review-graph を退役させる（使う人は /works-factory へ移る。graphloops を受け持つ部署「見直し」が 2026-10-19 に /review-graph のスキルを消した） | 採用 | 2026-10-18 |

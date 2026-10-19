@@ -11,7 +11,7 @@
 
 | ループ | 機械が読む側（`graphloops/graphs/`） | 人が読む側（`docs/loop-graph/`） | 実行 |
 |---|---|---|---|
-| review | `review-loop.json` | `review-loop.md` | `/review-graph` |
+| review | `review-loop.json` | `review-loop.md` | （`/review-graph` は 2026-10-19 に消した。代わりは `/works-factory`） |
 | research | `research-loop.json` | `research-loop.md` | `/research-graph` |
 | doctor | （まだ無い） | `doctor-loop.md` | 写しだけ |
 | firstread | （まだ無い） | `firstread-loop.md` | 写しだけ |

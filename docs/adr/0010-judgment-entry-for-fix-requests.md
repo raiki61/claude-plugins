@@ -21,7 +21,7 @@
 ## 理由
 
 - 作業メモに理由の記載なし。
-- 手順書は、機構の新設・共有面の拡大に及ぶ直しは修正でなく設計作業で、零処方からの列挙なしに実装することを REVIEW.md の処方の最小性の観点が禁じている、と添えている（[手順書の「判定から入る」](../../graphloops/skills/review-graph/references/judgment-entry.md#判定から入る人の修正依頼)）。
+- 手順書は、機構の新設・共有面の拡大に及ぶ直しは修正でなく設計作業で、零処方からの列挙なしに実装することを REVIEW.md の処方の最小性の観点が禁じている、と添えている（[手順書の「判定から入る」](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/references/judgment-entry.md#判定から入る人の修正依頼)）。
 
 ## 結果
 
@@ -34,5 +34,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 入口は 0.20.0（5dfb0bf）、使い分けと入口の気づきやすさは 0.20.2（32dfd94）。[手順書の「判定から入る」](../../graphloops/skills/review-graph/references/judgment-entry.md#判定から入る人の修正依頼)。
+- リポジトリの中: 入口は 0.20.0（5dfb0bf）、使い分けと入口の気づきやすさは 0.20.2（32dfd94）。[手順書の「判定から入る」](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/references/judgment-entry.md#判定から入る人の修正依頼)。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: `HANDOFF-log-20260925.md` の 18:20・18:40、計画版の 2 章「起動と安全」。

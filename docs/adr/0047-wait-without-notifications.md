@@ -14,7 +14,7 @@
 
 - 回す側は、完了の知らせに頼らず、前景で出力の置き場を見に行く。
 - 手番を終えてよいのは、人に聞く所か run の終わりだけ。
-- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
+- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 
 ## 比べた案
 
@@ -35,5 +35,5 @@
 
 ## 出どころ
 
-- リポジトリの中: [review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)の launch の待ち方。
+- リポジトリの中: [review-graph の手順書](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/SKILL.md)の launch の待ち方。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: 計画版の 2 章「回し方」・1 章「なぜ作り直すか」、`HANDOFF-log-20260925.md` の 18:40（herdr の件）、`merge-request.md` の C、`HANDOFF-log-20260926.md` の「回し方の決まり」。

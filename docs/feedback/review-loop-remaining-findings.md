@@ -289,7 +289,7 @@ findings の型で受け、出どころ（人の依頼）をフィールドで�
 「機構の新設・共有面の拡大は修正でなく設計作業」に合わせる——共有の仕組み・engine に触る依頼は判定から、
 それ以外は直接直す。5 周目で判定役が 4 件をどう扱ったか（昇格・却下・処方）を、この入口の案の最初の実測として残す。
 （上の使い分けの線は、2026-09-25 の人の決定で「直す依頼はできるだけ判定から入れ、直接直すのは誤字・コメント・文言だけ」に
-改めた。今の線は [review-graph の「判定から入る（人の修正依頼）」セクション](../../graphloops/skills/review-graph/references/judgment-entry.md#判定から入る人の修正依頼) の使い分け。リンク先は review-graph の手順書の、判定から入る run の打ち方を書いた別ファイル。）
+改めた。今の線は [review-graph の「判定から入る（人の修正依頼）」セクション](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/references/judgment-entry.md#判定から入る人の修正依頼) の使い分け。リンク先は review-graph の手順書の、判定から入る run の打ち方を書いた別ファイル。）
 
 5 周目の実測: 判定役は 4 件のうち 3 件を既存の [block]（任せ先の待ち）に昇格し、1 件（REVIEW.md の観点）を split・defer にした。
 却下 0。処方は零処方（入れ子の委任を外す・実行器の部分結果）から並べ、世界の解（Temporal の Start-To-Close Timeout・試行）を足した。
@@ -306,7 +306,7 @@ P1 の頭の機械のノード（`p1.worktree_before`）が「対象差分が空
 engine は触っていない（既存の add フックと cond と素材の穴埋めを、rules の述語 1 本に結んだ。同日の後の run で、cond は rules の条件の関数の名前に移った）。飛ばした素材は入口の理由つきの
 not_applicable、周の頭の空の差分でも止まらない。入口が効くのは修正が入るまでで、次の周からは P1 が修正差分を見る——
 修正前の事前審査が挙げた「述語が run 全体で真だと、修正差分が 1 度も P1 を通らずに収束する」穴を、述語を狭めて閉じた。
-使い方と使い分けの線は graphloops/skills/review-graph/references/judgment-entry.md の「判定から入る」セクション。この入口を作った run では、判定役が、
+使い方と使い分けの線は https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/references/judgment-entry.md の「判定から入る」セクション。この入口を作った run では、判定役が、
 仮の手当てで渡した依頼のうち 1 件を [block]（修正必須）・do-now（この周で直す）に上げ、空差分のチェックの誤爆を別の [block] として挙げた（決着済みの
 「空なら止める」への再開の提案として、例外を入口の周の 1 条件に狭める処方）。
 

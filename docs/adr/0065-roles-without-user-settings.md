@@ -20,7 +20,7 @@
 ## 理由
 
 - 作業メモに理由の記載なし。
-- 手順書は理由を 3 つ挙げる: 役が見る物は graph が宣言した物だけにする／利用者の CLAUDE.md は回す側（run を回す会話の AI。利用者と話す側）に向けた出力の作法で、JSON だけを返す契約とぶつかる／利用者とプラグインのフックが子で発火しないので、読了の記録（どのファイルを読んだかをフックが盤面の `reads.jsonl` に書く記録）が回す側の読みだけになる（[review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)の engine の起こし方）。
+- 手順書は理由を 3 つ挙げる: 役が見る物は graph が宣言した物だけにする／利用者の CLAUDE.md は回す側（run を回す会話の AI。利用者と話す側）に向けた出力の作法で、JSON だけを返す契約とぶつかる／利用者とプラグインのフックが子で発火しないので、読了の記録（どのファイルを読んだかをフックが盤面の `reads.jsonl` に書く記録）が回す側の読みだけになる（[review-graph の手順書](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/SKILL.md)の engine の起こし方）。
 
 ## 結果
 
@@ -32,5 +32,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 0.20.0（5dfb0bf）。[review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)。
+- リポジトリの中: 0.20.0（5dfb0bf）。[review-graph の手順書](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/SKILL.md)。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: 計画版の 3 章の手順 1。

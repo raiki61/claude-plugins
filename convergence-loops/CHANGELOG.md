@@ -6,6 +6,9 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+- graphloops の `/review-graph` を 2026-10-19 に消したので、README の使い方の一覧と、research-loop・review-loop・doctor-loop の手順書の「機械が外す形は graphloops の cli モードに在る」の文から `/review-graph` を外した（残るのは `/research-graph`）。機械が回すレビューの代わりは `/works-factory`。
+
 ## [0.50.0] - 2026-10-19
 
 ### Added

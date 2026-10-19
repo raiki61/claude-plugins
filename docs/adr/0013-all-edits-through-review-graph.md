@@ -13,7 +13,7 @@
 
 - engine・graph・rules・テストの編集は、すべて review-graph の判定から入る run に通す。
 - 使い捨ての実験（spike）のコードは取り込まず、測った事実だけを依頼の材料にする。
-- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
+- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 
 ## 比べた案
 

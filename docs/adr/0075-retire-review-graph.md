@@ -1,9 +1,9 @@
-# 0075. /review-graph を退役させる（使う人は /works-factory へ移る。graphloops を受け持つ部署「見直し」が 2026-11-18 以降に /review-graph のスキルを消す）
+# 0075. /review-graph を退役させる（使う人は /works-factory へ移る。graphloops を受け持つ部署「見直し」が 2026-10-19 に /review-graph のスキルを消した）
 
 - 状態: 採用
 - 日付: 2026-10-18
 - 決めた人: 人（このリポジトリの持ち主。2026-10-18 の「なら一旦reviewgraphだけまずは退役させるか」「それをworksfactoryにがっつり置き換えたらいいと思う」〔reviewgraph は `/review-graph`、worksfactory は `/works-factory` のこと〕と、消すのは works-factory の issue #712 が直ってから・予告は今始めてよい、の決めと、予告で案内する先を `/works-factory` にする案への持ち主の答え「ok」）。[0002](0002-backward-compatibility.md)（今ある能力と使い方を減らさない）の例外として持ち主が決めた。予告の形・消す日・消す手順は、graphloops を受け持つ部署「見直し」の担当が持ち主の決めと [0073](0073-land-bumps-and-no-tags.md) から導いた
-- 実装: 一部（予告は 2026-10-19 に入れた。`/review-graph` を使っている人は、2026-11-18 までに `/works-factory` へ移る。消すのは 2026-11-18 以降）
+- 実装: 消した（2026-10-19。最後の形は 58c6d08b: https://github.com/raiki61/claude-plugins/tree/58c6d08b/graphloops/skills/review-graph ）。予告も同じ 2026-10-19 に入れた。消す日を 2026-11-18 から早めた訳は「消す日を早めた（2026-10-19）」のセクション
 
 ## 文脈
 
@@ -18,10 +18,18 @@
 
 - `/review-graph` を退役させる。退役させるのは `/review-graph` だけで、`/review-loop`（convergence-loops）は退役させず、予告も出さない。`/research-graph` と engine は残す。
 - 予告は 2026-10-19 に入れた（この ADR を足した commit と同じ）。`/review-graph` のスキルの description と本文の頭に「退役予定・消す日・代わりは `/works-factory`」を書き、呼ばれたら手を動かす前に利用者に見せさせる。graphloops の README と CHANGELOG（Deprecated）にも書く。
-- 消す日は、予告を入れた日（2026-10-19）から 30 日の後の 2026-11-18 以降で、かつ works-factory の #712 が閉じたままであること。#712 は 2026-10-18 に閉じたので、今の見込みは 2026-11-18。
+- 消す日は、予告を入れた日（2026-10-19）から 30 日の後の 2026-11-18 以降で、かつ works-factory の #712 が閉じたままであること。#712 は 2026-10-18 に閉じたので、今の見込みは 2026-11-18。（2026-10-19 に、持ち主の答えで日付の条件を外し、#712 の条件だけで消した。下の「消す日を早めた（2026-10-19）」）
 - 消すのはスキル `/review-graph` のフォルダ `graphloops/skills/review-graph/` だけにする。review-loop のグラフ・rules・prompts・blocks（`graphs/review-loop*.json` など）は残す。engine の試験の多く（`graphloops/tests/` の 136 のファイル）が review-loop のグラフを材料に使い、`/research-graph` もそれと同じ engine の上で動くから。グラフまで消すかは、この ADR の外で別に決める。
 - 置き場のフォルダは作らず、git の履歴をアーカイブにする。tag は作らない（[0073](0073-land-bumps-and-no-tags.md)。持ち主 2026-09-29「タグはつくりません」）。代わりに、消す commit の 1 つ前の main の commit の id を、graphloops の CHANGELOG の Removed と、この ADR の実装の欄に書く。その commit の `https://github.com/raiki61/claude-plugins/tree/<commit>/graphloops/skills/review-graph` で、最後の形をいつでも開ける。
 - 人の方針の置き場の説明（`graphloops/skills/review-graph/references/policy.md` の「## 人の方針」）は、`/research-graph` も使うので、消すときに `graphloops/skills/research-graph/references/policy.md` へ移し、指しているリンクを全部張り替える。
+
+## 消す日を早めた（2026-10-19）
+
+- 持ち主の言葉（2026-10-19。my_notes の社長室の受付 20261018-230520-783e24 と、足し 20261018-230540-7fb192・20261018-230551-17474d）: 「もう退役して置き換えていいよ。」「またずにいますぐ退役してよい。」「以降はarchiveでメンテ不要」。
+- その前に持ち主へ出した問い: works-factory が review-graph より狭い所（60 のノードのうち試験の証が無い 7、うち 4 は持ち主が落とすと決めた物。ほかに狭めた所が 7。文脈の「2026-10-19 の時点で」で始まる項目）を受け入れて消すか。持ち主はその狭い所を受け入れた。
+- 前の決め（社長室の足し 20261018-043529-736097）の「予告から 30 日」は、持ち主の言葉ではなく、社長室が頼みの文に足した制約だった。持ち主は外の利用者が移る時間が短くなるのを承知で「またずにいますぐ」と言ったので、この答えで置き換えた。
+- 手順は下の「消すときの手順」をそのまま使い、手順 1（日付を見る）だけを持ち主の答えで置き換えた。手順 2（#712）は省かず、2026-10-19 に `CLOSED` を確かめてから消した。
+- 「以降はarchiveでメンテ不要」は、消した後の `/review-graph` を保守しないことと読んだ。アーカイブの形は「決定」のとおり、置き場のフォルダを作らず git の履歴をアーカイブにし、tag は作らない。残す部品（review-loop のグラフ・rules・prompts・blocks と engine の試験）は、持ち主の言葉が指していないので「決定」の切り分けのまま残した。
 
 ## 消すときの手順
 

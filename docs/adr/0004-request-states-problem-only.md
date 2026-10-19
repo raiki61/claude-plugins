@@ -13,7 +13,7 @@
 
 - run の依頼に書くのは「困っていること（測った事実）・守ること（今ある能力・人の方針）・禁じること」だけ。解き方は判定役に任せる。
 - 人の決定は `loop.py add` で記録に置く。
-- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
+- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 
 ## 比べた案
 

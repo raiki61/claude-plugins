@@ -61,4 +61,4 @@
 
 ## 出どころ
 
-- この run の記録（判定の単位「skill の節と背景の任せ先が engine に起こされず会話に返る」「回し役なしの run でも会話に返す（13）道が残り…」と修正前の関所の答え）。[review-graph の手順書の早見](../../graphloops/skills/review-graph/SKILL.md#早見)と「[回し役なしで回す](../../graphloops/skills/review-graph/references/runnerless.md#回し役なしで回す)」。
+- この run の記録（判定の単位「skill の節と背景の任せ先が engine に起こされず会話に返る」「回し役なしの run でも会話に返す（13）道が残り…」と修正前の関所の答え）。[review-graph の手順書の早見](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/SKILL.md#早見)と「[回し役なしで回す](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/references/runnerless.md#回し役なしで回す)」。

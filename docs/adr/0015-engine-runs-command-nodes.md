@@ -33,5 +33,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 0.21.0（82deb2e）。[review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)の engine_run の説明。
+- リポジトリの中: 0.21.0（82deb2e）。[review-graph の手順書](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/SKILL.md)の engine_run の説明。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: 計画版の 3 章「手順 3b」、`HANDOFF-log-20260925.md` の手順 3b の run の行。

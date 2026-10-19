@@ -13,7 +13,7 @@
 
 - 重い工程（review-graph・research-graph・/review-loop・/research-loop の 4 つ）は人の指示のときだけ起動する。AI は自分の判断で起動せず、提案までにする。
 - 人が言葉で「工程に回して」と頼んだときは、AI が起動できる形を残す（案 B）。この 4 つの工程の本体（それぞれのスキルの SKILL.md）に `disable-model-invocation`（AI からの起動を禁じる設定）は付けない。自分の判断で起動しないことは description と案内で示す。
-- この決まりは run（engine がループを 1 回回す単位）をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
+- この決まりは run（engine がループを 1 回回す単位）をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 
 ## 比べた案
 

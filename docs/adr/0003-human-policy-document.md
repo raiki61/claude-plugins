@@ -20,7 +20,7 @@
 
 ## 理由
 
-- 採った置き場（作業ツリーの外の git の共通ディレクトリ）の利点: 作業ツリーの外に置くと、採点する版にも差分にも、engine が節の前後で作業ツリーの姿を比べる突合にも入らず、run（engine が review-graph を 1 回回す単位）の途中の書き足しが P1（周の最初の段。局所レビューと採点役を起こして素材を集める）の撃ち直しにならない。同じリポジトリの worktree の run が全部同じ文書を読む（[手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）。
+- 採った置き場（作業ツリーの外の git の共通ディレクトリ）の利点: 作業ツリーの外に置くと、採点する版にも差分にも、engine が節の前後で作業ツリーの姿を比べる突合にも入らず、run（engine が review-graph を 1 回回す単位）の途中の書き足しが P1（周の最初の段。局所レビューと採点役を起こして素材を集める）の撃ち直しにならない。同じリポジトリの worktree の run が全部同じ文書を読む（[手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）。
 
 ## 結果
 
@@ -34,5 +34,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 0.21.0（82deb2e）。[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)。
+- リポジトリの中: 0.21.0（82deb2e）。[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: `HANDOFF-log-20260925.md` の 17:40・19:40、計画版の 2 章「能力と方針」、`merge-request.md` の「方針の台帳の run の残り」と「走っている run の途中で届いた人の方針」。

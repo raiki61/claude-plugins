@@ -13,7 +13,7 @@
 
 - graphloops の指示書（prompts・手順書）に特定のリポジトリの道具名を書かない。「対象リポジトリのテスト一式」のようにだけ書く。
 - 具体的なコマンドは、対象リポジトリのルートの宣言 `.review-checks.json` が持つ（`suite` の各段は shell を通さない argv。任意の `mutation` の段は変異の実行器の呼び方と腕の一覧のパス。書式の正本は `graphloops/engine/declared.py`）。
-- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
+- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 
 ## 比べた案
 

@@ -14,7 +14,7 @@
 - 今ある能力と使い方を減らさない。
 - 能力を減らす・狭める修正案と、人の方針に反する修正案は、判定役・審査役が代償として決めず、人に聞く分かれ目（awaiting_human）として並べて人に上げる。
 - 仕組みとして、次の 3 つで能力の減りを見つけ、修正の前と後の関所（p2.human_gate・r4.human_gate）で人に聞く: 修正案に「狭める物」（narrows）の欄を足す。修正案の事前審査が付ける指摘の種類に、後退（regression）と方針（policy）を足す。見えていない範囲の目（R4）が、BASE（レビューする差分の起点の commit）と比べて消えた能力を棚卸しする。
-- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
+- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[research-graph〔graphloops プラグインの調べのループ〕の手順書の「人の方針」](../../graphloops/skills/research-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 
 ## 比べた案
 
@@ -37,5 +37,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 0.21.0（82deb2e）に関所と narrows の欄が入った。手順書の説明は [review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)。
+- リポジトリの中: 0.21.0（82deb2e）に関所と narrows の欄が入った。手順書の説明は [review-graph の手順書](https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/SKILL.md)。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: `HANDOFF-log-20260925.md` の 17:40・19:40、計画版の 2 章「能力と方針」、`MORNING.md` の 21:15。
