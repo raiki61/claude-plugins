@@ -8,7 +8,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- スキルの認証の項目を別ファイル `skills/works-factory/references/auth.md` に分け、API キーで動く人の道を足した: キーを `ANTHROPIC_API_KEY` に置いて起こす・keychain の項目を名指さない・今の殻は `apiKeyHelper` を読まない（直しは raiki61/works-factory の issue #795）。
+- スキルの認証の項目を別ファイル `skills/works-factory/references/auth.md` に分け、API キーで動く人の道を足した（殻の振る舞いは変えていない）: キーを環境変数 `ANTHROPIC_API_KEY` に置いて殻を起こす・`WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` は付けない（付けるとその keychain の項目のログインが先に使われる）・殻は Claude Code の設定 `settings.json` の `apiKeyHelper`（キーを出すコマンドを書く欄）を読まないので、それだけで認証している人はそのキーを `ANTHROPIC_API_KEY` に置く（殻が読むようにする直しは raiki61/works-factory の issue #795 で、まだ入っていない）。
 
 ## [0.1.11] - 2026-10-18
 
