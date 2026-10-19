@@ -8,8 +8,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- `--tree`・`--todo` の注記（`dispatch/health.py`）: 裏の処理の出力の置き場か出力を読めないとき、古い出力か空の順番待ちの置き場を消せないとき、台帳の大きさを読めないときに、その旨を注記に出す。前は、何も無かったときと同じに黙っていた。置き場や台帳がまだ無いときは、今までどおり黙る。
-- `--tree` のタブバーの入口の写しの注記（`dispatch/limits.py` の `entry_drift`）: `limits.py herdr-config` が `~/.cache/claude-limits/` に写したタブバーの入口（`limits-entry.py`・`run-python.sh`）は、今入っている版の元と中身を比べ、違えば注記に出す。この写しを読めないときは、今の版と違うかが分からない旨を注記に出す。前は、写していないときと同じに黙っていた。写していないときは、今までどおり黙る。
+- `--tree`・`--todo` の注記（`dispatch/health.py`）: 裏の処理の出力の置き場か出力を読めないとき、古い出力か空の順番待ちの置き場を消せないとき、受付箱の台帳（頼みと納品を 1 行ずつ足す `log.jsonl` と `due.log`）の大きさを読めないときに、その旨を注記に出す。前は、何も無かったときと同じに黙っていた。置き場や台帳がまだ無いときは、今までどおり黙る。
+- `--tree` のタブバーの入口の写しの注記（`dispatch/limits.py` の `entry_drift`）: `limits.py herdr-config` が `~/.cache/claude-limits/` に写したタブバーの入口（`limits-entry.py`・`run-python.sh`）は、今入っている版の works-dispatch の中の写した元（`dispatch/limits_entry.py`・`hooks/run-python.sh`）と中身を比べ、違えば注記に出す。この写しを読めないときは、今の版と違うかが分からない旨を注記に出す。前は、写していないときと同じに黙っていた。写していないときは、今までどおり黙る。
 - `dispatch/nodes/clean.py`・`dispatch/nodes/wake.py`: 一時の置き場の控えか盤面の写しの時刻・大きさを読めないとき（`--clean`・`--retire`・`--tree`）と、待ち受けの印が壊れて読めないときに、標準エラーに注記を出す。前は黙って飛ばしていた。読む間に消えた物は今までどおり黙る。ほかの、本体が `pass` か `continue` だけの `except` には、その場に黙ってよい訳をコードのコメントで書いた（`docs/standards/machine-readable-values.md` の決まり 4）。
 
 ## [0.95.0] - 2026-10-20
