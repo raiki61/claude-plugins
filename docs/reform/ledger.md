@@ -291,16 +291,16 @@ my_notes の社長室の受付 20261018-040939-dc1271 を段取りが回した�
 
 ## 頼み 0a919c（2026-10-19、モデルと effort の目安の別ファイルが読まれているかを測る、受付 20261019-034156-0a919c）
 
-割り振り（受付 4ec10a の部署）からの頼み。eef0bc31（2026-10-19 12:23 に main）で、今の世代のモデルの格と effort の目安を works-dispatch/skills/dispatch/references/models.md に持たせ、dispatch の SKILL.md の「何をいつ読むか」の 1 行（42 行目）と、会社の形 `.claude/company.toml` のコメント（19 行目）から指した。次に model・effort を選ぶ会話が、この別ファイルを読み、その数を根拠に引いたかを測る。
+割り振り（works-dispatch の受け持ちの部署。受付 4ec10a を片づけた部署）からの頼み。eef0bc31（2026-10-19 12:23 に main）で、仕事の種類ごとに、どのモデルの段（Opus・Sonnet・Haiku のどれか）を使い、effort（考える量の設定。low〜max）をどこにするかの目安を、原典の URL を添えた参照の別ファイル works-dispatch/skills/dispatch/references/models.md（以下 models.md）に持たせた。models.md は、dispatch の SKILL.md の「何をいつ読むか」の 1 行（42 行目）と、会社の形 `.claude/company.toml` のコメント（19 行目）から指してある。次に部署の model・effort を選ぶ会話が、models.md を読み、models.md に書いた目安（段と effort の組み合わせ）か原典の URL を、選んだ根拠に引いたかを測る。
 
 ### 頼みが届いた時の控え（2026-10-19 12:42）
 
 - eef0bc31 の後に会社の形の model・effort を書き替えた commit は 0 件（`git log --since='2026-10-19 12:23' origin/main -- .claude/company.toml` は eef0bc31 だけ）。
-- 受付箱の台帳（claude-plugins の `.git/company/inbox`）で、12:23 の後に届いた頼みは、点検への納品 9bde77 とこの頼みの 2 件だけで、`--task` で model・effort を選んだ頼みは 0 件。
-- 測る機会がまだ無いので、本測りは、その機会が来た後に起こされた業務改革がする。日を決めて起こす口は無い（持ち主 2026-10-17「一旦cronは不要で」）ので、頼み 570e77 と同じく、納品の `[[open]]` の holder にこの頼みの受付番号を書き、`--todo` の「続き」に出す。
+- 受付箱の台帳（claude-plugins の `.git/company/inbox`）で、12:23 の後に届いた頼みは、点検への納品 9bde77 とこの頼みの 2 件だけ。works-dispatch の `--task`（部署を立てて頼みを渡すコマンド）で model・effort を指定した頼みは 0 件。
+- 測る機会がまだ無いので、本測り（機会が来た後に、実際の件を数えて測ること）は、その機会が来た後に起こされた業務改革がする。会社の形には日を決めて部署を自動で起こす仕組み（cron の類）が無い（持ち主 2026-10-17「一旦cronは不要で」）ので、次の業務改革は誰かが起こすまで動かない。そのため、上の頼み 570e77（閾値の本測りを先へ送った頼み）と同じ手で、この頼みを頼み元へ返す納品（`--deliver`。点検への納品 9bde77 とは別）の頭書きの `[[open]]`（後で片づける問いの欄）に「機会が来たら本測りをする」の 1 件を書き、その 1 件の `holder` の欄（その問いを最後まで追う部署を書く欄）に、この頼みの受付番号 20261019-034156-0a919c を書く。`--todo`（残った問いを並べる works-dispatch のコマンド）は、`holder` に業務改革への頼みの受付番号が書かれた問いを「続き」の行として出すので、次に起こされた業務改革はその行を見て本測りをする。
 
 ### 本測りでする事
 
-1. eef0bc31 の後に会社の形の model・effort を変えた commit と、`--task` で model・effort を選んだ頼みを、git log と受付箱の台帳（log.jsonl の ask の行）から拾う。
-2. 1 件ごとに、その部署の会話の記録（`~/.claude-*/projects/` の会話のログ。退いた部署は `.git/company/kept-tmp/`）で、references/models.md を Read したか、決めた根拠（commit の本文・納品の決め手）に models.md の数か原典の URL を引いたかを見る。
-3. 読まれていない件が多ければ、SKILL.md 42 行目の置き場か言い回しが効いていないと書き添えて、割り振りに直しを頼む。機会が 0 件のままなら「測れなかった」と書き、次の回へ送る。
+1. eef0bc31 の後に会社の形の model・effort を変えた commit と、`--task` で model・effort を指定した頼みを、git log と受付箱の台帳（log.jsonl の ask の行）から拾う。
+2. 1 件ごとに、その部署の会話の記録（`~/.claude-*/projects/` の会話のログ。仕事を終えて閉じた部署は `.git/company/kept-tmp/` に残る）で、models.md を Read したか、決めた根拠（commit の本文・納品の決め手）に models.md の目安か原典の URL を引いたかを見る。
+3. 拾った件の半分より多くで models.md が読まれていなければ、SKILL.md 42 行目の置き場か言い回しが効いていないと書き添えて、割り振りに直しを頼む。件数が少なく（2 件以下）割合で決めにくいときは、読まれなかった件ごとに訳を書いて割り振りに渡す。機会が 0 件のままなら「測れなかった」と書き、次の回へ送る。
