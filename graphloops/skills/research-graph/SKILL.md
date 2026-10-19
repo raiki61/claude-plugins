@@ -42,13 +42,13 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
 ## 場面ごとに読むファイル
 
-このスキルの本文（この SKILL.md）は始め方・回し方のターンと読むファイルだけを持つ。**下の場面（`run` の終了コードが 13 や 10 で戻った・ループの外へ出る・人が止める・終わる など）に当たったら、そのファイルを読んでから手を動かせ。**
+この SKILL.md は始め方・回し方と読むファイルだけを持つ。**下の場面（`run` が 13・10 で戻った・ループの外へ出る・人が止める・終わる）に当たったら、そのファイルを読んでから手を動かせ。**
 
 - `run` の出力の中身・`next`（次に回せるノードを出すコマンド）で回すとき・`handoff` のノードの種類ごとのこなし方（`launch` を持つノード・持たない agent・runner）・`done`（ノードの返答を engine に返すコマンド）: [references/nodes.md](references/nodes.md)
 - 人に聞くターン（`answer` と聞き方）・人が途中で止める・run の子（engine が起動した `claude -p`）の残りを止める: [references/human.md](references/human.md)
 - 開いた問いを deep-research に回す・段を上げる・ノードを省く・終わり（報告）: [references/exits.md](references/exits.md)
 - 人の方針の文書・版を上げたとき・作業ツリーの突合・報告の言語: [references/rules.md](references/rules.md)
-- 人の方針の置き場・どのノードに届くか・人が文書を書き換えたときの扱いを確かめるとき: [references/policy.md](references/policy.md)
+- 人の方針の置き場と届く先: [references/policy.md](references/policy.md)
 
 ## どのターンでも
 
