@@ -1334,9 +1334,16 @@ def finish_here(a, ports, cwd):
         print("止めた: 手元にしか無い commit か stash が在る（片付けると消える）。メインブランチに入れてから印す")
         return 2
     if not merged:
+        # 読むだけの部署がほかのブランチを detached で開いたまま打つと、そのブランチの commit で断られる。手を添える（2026-10-19 の
+        # works-factory の会社で、部署が自分で手を考えた）
+        here = gitx.branch(cwd)
         print(f"止めた: ブランチがメインブランチ（origin/{main} の手元の控え）に入っておらず、先頭の commit を含む PR も {main} に"
               "マージされていない。--land で入れるか、PR で入れる会社なら PR がマージされてから印す"
-              "（ほかの会話が入れたなら、git fetch してから打ち直す）")
+              "（ほかの会話が入れたなら、git fetch してから打ち直す）"
+              + ("。今はブランチに乗っていない（detached）。読むためにほかのブランチを開いたなら、自分のブランチ（部署を立てたときのブランチ）を"
+                 "checkout し直してから打ち直す" if not here else
+                 "。自分の commit が無くても、ほかのブランチの上に切ったブランチ（--task の --base）は、そのブランチがメインブランチに入るまで"
+                 "入っていないと見る（入れるのが人の会社なら、--done を打たずに止まり、入った後に窓口が --retire で畳む）"))
         return 2
     try:
         provision.mark(cwd, root, {wake.FINISHED: attrs["session"], wake.RETIRE_KEPT: None}, ports.git)

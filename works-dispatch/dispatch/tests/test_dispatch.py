@@ -992,6 +992,27 @@ class Check(unittest.TestCase):
         self.assertIn("足りない物は無い", out)
         self.assertEqual(ports.term.writes, [])
 
+    def test_clone_not_in_the_settings_checks_the_department_needs_instead_of_stopping(self):
+        # 2026-10-19 の works-factory の会社で「設定の repos に無い」で止まり、要らない [[repos]] を手で書いた
+        other = str(pathlib.Path(self.root).parent / "other")
+        git("clone", "-q", str(pathlib.Path(self.root).parent / "o" / "r.git"), other)
+        ports = FakePorts([])
+        rc, out = run_main(["--config", self.cfg, "--check", "--repo", other], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(ports.preflight_task)
+        self.assertIn(f"{other} は設定の [[repos]] に無いので、部署の回（--task・--ask・--land）の前提だけを確かめた", out)
+        # [[repos]] に有る clone の中のフォルダは、その clone として今まで通りに確かめる（無いとは言わない）
+        sub = pathlib.Path(gitx_source(self.cfg), "sub")
+        sub.mkdir()
+        ports = FakePorts([])
+        rc, out = run_main(["--config", self.cfg, "--check", "--repo", str(sub)], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(ports.preflight_task)
+        self.assertNotIn("[[repos]] に無いので", out)
+        # 名前の打ち間違い（在るフォルダでない）は今まで通り止める
+        rc, out = run_main(["--config", self.cfg, "--check", "--repo", "o/nope"], FakePorts([]))
+        self.assertEqual(rc, 2, out)
+
     def test_clone_without_origin_head_is_a_note_with_the_fix(self):
         src = gitx_source(self.cfg)
         git("-C", src, "remote", "set-head", "origin", "--delete")

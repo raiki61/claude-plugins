@@ -342,8 +342,9 @@ def main(argv=None, ports=None):
     department = a.task is not None or a.land is not None or a.clean
     try:
         cfg = config.load(a.config, os.environ, missing_ok=department or a.check)
+        clone = _clone_of(cfg, a.repo, ports) if a.check and cfg.repos else None
         repo = (_department_repo(cfg, a.repo, ports, ports.cwd()) if department else
-                None if a.check and not cfg.repos else config.pick_repo(cfg, a.repo))
+                None if a.check and (not cfg.repos or clone) else config.pick_repo(cfg, a.repo))
     except config.ConfigError as e:
         print(f"止めた: {e}")
         return 2
@@ -376,6 +377,12 @@ def main(argv=None, ports=None):
     if a.clean:
         return _clean(cfg, repo, a.apply, ports)
     if a.check:
+        if clone and clone not in cfg.repos:
+            # 設定の [[repos]] に無い代表の clone のパス。部署の回は [[repos]] 無しで立つので、その clone の部署の前提を確かめる
+            # （2026-10-19 に works-factory の会社で「設定の repos に無い」で止まり、要らない [[repos]] を手で書いた）
+            return _check(cfg._replace(repos=(clone,)), ports, task=True,
+                          lead=f"{clone.source} は設定の [[repos]] に無いので、部署の回（--task・--ask・--land）の前提だけを確かめた"
+                               "（部署の回は [[repos]] が無くても立つ。PR を開く回も使うなら [[repos]] に足す）")
         return _check(cfg, ports)
     problems, notes = ports.preflight(cfg)
     notes = list(cfg.notes) + notes
@@ -1163,7 +1170,24 @@ def _op_line(o):
     return f"ペイン {o['pane']}: " + "  ".join(shown)
 
 
-def _check(cfg, ports):
+def _clone_of(cfg, name, ports):
+    """--check の --repo が、設定の [[repos]] の名前でも source でもない、git の中のフォルダなら、その代表の clone の repo（[[repos]] の
+    物か、無ければ最小の repo。config.repo_at）。そうでなければ None（今までどおり pick_repo で選ぶか止める）。"""
+    if not name or not os.path.isdir(os.path.expanduser(name)):
+        return None
+    try:
+        config.pick_repo(cfg, name)
+        return None
+    except config.ConfigError:
+        pass   # 名前でも source でもないので、フォルダから代表の clone を引く
+    root = ports.common_of(os.path.expanduser(name))
+    return config.repo_at(cfg, root, ports.origin) if root else None
+
+
+def _check(cfg, ports, task=None, lead=None):
+    """--check。task は部署の回の前提だけを確かめるか（省けば、設定に [[repos]] が無いとき）。lead は注記の先頭に置く 1 行。"""
+    if task is None:
+        task = not cfg.repos
     # 先に要るツールの段（tiers）を点検する。足りなければ、その案内を出して止まる（設計 4.11）。部品が無ければ注記にして、今までの確かめを続ける
     tier_notes = []
     try:
@@ -1172,18 +1196,20 @@ def _check(cfg, ports):
         # 段の点検を回せないまま「足りない物は無い」と言わない（herdr が動いていなくても通ってしまう）
         print(f"足りない物（要るツールの段の点検を回せない）:\n- {e}")
         return 2
-    if tiers is not None and not cfg.repos:
+    if tiers is not None and task:
         tiers, no_gh = tierx.without_gh(tiers)
         tier_notes += [f"{line}（部署の回には要らない。PR を開く回と、gh を使う役の部署に要る）" for line in no_gh]
     if tiers is not None and not tiers.get("ok"):
         print("足りない物（要るツールの段の点検。手で入れてから --check を打ち直す）:")
         print("\n".join(tierx.report(tiers)))
         return 2
-    problems, notes = ports.preflight(cfg, task=not cfg.repos)
+    problems, notes = ports.preflight(cfg, task=task)
     # origin/HEAD が無い元の clone は、会社の形を作業ツリーから読む（止めずに直し方を出す）
     heads = [n for n in dict.fromkeys(tree.head_note(r.source) for r in cfg.repos if r.source) if n]
     notes = list(cfg.notes) + tier_notes + notes + heads
-    if not cfg.repos:
+    if lead:
+        notes.insert(0, lead)
+    elif not cfg.repos:
         notes.insert(0, "設定に [[repos]] が無いので、部署の回（--task・--ask・--land）の前提だけを確かめた"
                         "（PR を開く回も使うなら python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> で下書きを作る）")
     for acc in cfg.accounts:
@@ -1267,6 +1293,7 @@ COMPANY_DRAFT = """# 会社の形: このリポジトリで部署（作業ごと
 # 置き場は 2 つ。リポジトリの中（.claude/company.toml）なら commit すると同じリポジトリを使う人に効く。commit しない物は、
 # dispatch の設定の置き場の companies/ に置く（--init-company --local）。両方に在れば、リポジトリの中の物を読む。
 # <…> は置き字なので、受け持ちの名前と中身に直す（受け持ちを増やすなら、[[skills]] の項目を写して足す）。
+# 役の本文の決まり（ブランチの名前・試験の回し方・メインブランチへの入れ方）は既定の例なので、このリポジトリの決まりに合わせて直す。
 
 name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出る。{term} ではリポジトリの親の作業場の名前になる）
 description = {description}   # この会社が受ける仕事
@@ -1289,6 +1316,23 @@ id = "one-off"
 name = "一度きりの作業"
 description = "受け持ちの無い一度きりの作業と、担当が並べて進めたい作業を、一時の作業の部署で受ける"
 role = "作業"
+
+# 受け持ちで分けるか、役で分けるか: 受け持ち（上の [[skills]]）は、同じフォルダの直しを 1 人の担当の下で順番に進める形。受け持ちの
+# model・effort は、部署の名前が受け持ちの name と同じときだけ効き、同じ名前の部署は 1 つなので、頼みはその順番待ちに積まれて並ばない。
+# 一度きりの仕事を並べて走らせ、仕事の種類（レビュー・直し・下調べなど）でモデルや effort を替えたいなら、受け持ちと担当を消し、
+# 種類ごとに役を足す（--role で選び、部署の名前は自由に付ける）。例（# を外して使う。役の本文には、下の作業と同じく納品と --done まで書く）:
+# [[roles]]
+# name = "レビュー"   # 読むだけの仕事。判断が要るので opus
+# model = "opus"
+# effort = "medium"
+# instructions = "頼まれた所を読んでレビューする。ファイルを直さず、commit もしない。…"
+# deliver = ["結論", "差分", "試験", "残った疑問", "ブランチ"]
+# [[roles]]
+# name = "写し"       # 頼みに書いた機械的な変更だけをする仕事。安いモデルでよい
+# model = "sonnet"
+# effort = "medium"
+# instructions = "頼みに書いた変更だけをする。頼みに無い判断が要る所は変えずに、納品の残った疑問に書く。…"
+# deliver = ["結論", "差分", "試験", "残った疑問", "ブランチ"]
 
 # 役。部署を立てるときに --role で選ぶ（省けば default_role）。instructions は、その役の会話の頭に毎回足す役の本文
 # deliver は納品する要約の必須の項目。担当と作業はコードの直しなので、差分と試験を返させる（省くと既定の 結論・決め手・残った疑問・ブランチ
@@ -1314,15 +1358,19 @@ fresh = true
 # 会社の形の [land] のゲートを通す決まりであることを書いて、止めないようにする（https://code.claude.com/docs/en/auto-mode-config）
 [roles.settings]
 autoMode = {{ allow = ["$defaults", {land_allow}] }}
+permissions = {{ deny = ["AskUserQuestion", "EnterWorktree"] }}   # 部署の画面は誰も見ていないので画面で問わせない。作業場からも出さない
 # enabledPlugins = {{ "<プラグイン>@<マーケットプレイス>" = false }}
 
-# 作業: 一度きりの作業をする一時の部署（頼みごとに立ち、メインブランチに入れたら畳まれる）
+# 作業: 一度きりの作業をする一時の部署（頼みごとに立ち、納品して --done を打つと、そのターンの終わりに畳まれる）。
+# --done は、ブランチがメインブランチに入っていない部署を断る（commit の無い部署は入っているとみなす）。[land] が none の会社で
+# 入れるのが人なら、断られた部署は --done を打たずに止まり、入った後に窓口が --retire で畳む（本文にそう書いてある）
 [[roles]]
 name = "作業"
 instructions = {work}
 deliver = ["結論", "差分", "試験", "残った疑問", "ブランチ"]
 [roles.settings]
 autoMode = {{ allow = ["$defaults", {land_allow}] }}
+permissions = {{ deny = ["AskUserQuestion", "EnterWorktree"] }}   # 部署の画面は誰も見ていないので画面で問わせない。作業場からも出さない
 
 # 相談: 持ち主が直接話して考えを詰める会話。要る会社だけ # を外して足す。永続で、話の流れを引き継ぐ（fresh は書かない）
 # [[roles]]
@@ -1330,7 +1378,8 @@ autoMode = {{ allow = ["$defaults", {land_allow}] }}
 # instructions = "持ち主と話して考えを詰める。決まったことは頼みに書き直して窓口に渡す。"
 # persistent = true
 
-# 窓口: 持ち主と話して頼みを配る、代表の clone の会話（部署ではない）。窓口の会話から --desk を打つと、この役の本文が次の会話の
+# 窓口: 持ち主と話して頼みを配る、代表の clone の会話（部署ではない）。部署に頼む会話は、最初から本社（代表の clone）で起動して
+# --desk で窓口にする（ほかの clone から頼むと、納品はその clone の受付箱に返り、後で本社に移すときに部署ごとの頼み元の付け替えが要る）。窓口の会話から --desk を打つと、この役の本文が次の会話の
 # 始まりから足される（組織の決まりを窓口に届けるため。コメントの決まりは、どの会話にも届かない）。本文を替えると、会話を引き継いで
 # いる部署と窓口にも、次のターンの頭に今の本文が足される
 # 役の名前を替えるときは、前の名前を former_names = ["<前の名前>"] に書く（前の名前で宛てた頼みと、前の名前を持つ部署が今の役に当たる）
@@ -1377,22 +1426,39 @@ DRAFT_DUTY = ("受け持ちを永続で預かる。自分の受け持ちは部�
               "書く（前の頼みで覚えた中身で書かない。覚えた中身で書くと、ほかの部署が入れた変更を消してしまう）。" + DRAFT_COMMIT + "並べて進めたい作業は作業に頼む"
               "（--ask {company}/作業 に --task <受け持ち>：<何をするか> --branch <ブランチ> を添える）。試験は触った所の物だけを回す。"
               + DRAFT_RETURN + DRAFT_DENIED + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
-DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。" + DRAFT_BRANCH + DRAFT_COMMIT + "試験は触った所の物だけを回す。" + DRAFT_RETURN + DRAFT_DENIED
+# エフェメラルの部署の畳み方。書かないと、納品した部署が会話を残したまま並び続ける（2026-10-19 の works-factory の会社で、持ち主が指摘して足した）
+DRAFT_DONE = ("納品し、ブランチがメインブランチに入ったら（commit の無い頼みなら納品の後に）、--done を打ってターンを終える。--done が"
+              "「ブランチがメインブランチに入っていない」と断れば、git fetch origin してから打ち直し、それでも断れば --done を打たずに止まる"
+              "（ブランチがメインブランチに入った後に窓口が --retire で畳む）。")
+DRAFT_WORK = ("一度きりの作業をする。頼まれた所を直す。" + DRAFT_BRANCH + DRAFT_COMMIT + "試験は触った所の物だけを回す。" + DRAFT_RETURN
+              + DRAFT_DENIED + DRAFT_DONE)
 DRAFT_DESK = ("持ち主と話し、仕事を頼みに変えて部署に配る。自分ではファイルを直さない。受け持ちの中の仕事は、その担当に部署の名前で頼む"
               "（--ask <受け持ち>）。担当がまだ居ない受け持ちは --ask {company}/担当 --task <受け持ち> --branch <ブランチ> --text <頼み> で立てる。"
               "受け持ちの無い一度きりの作業だけを作業に頼む（--ask {company}/作業 --task <受け持ち>：<何をするか> --branch <ブランチ>）。"
               "担当の受け持ちの中の作業を、作業に直に頼まない（同じファイルを 2 つの部署が触ると、後から入れた方が前の変更を消す）。"
               + DRAFT_BRANCH + "担当と作業は、メインブランチに入れる決まり（会社の形の [land]）が none でなければ、自分で --land してメインブランチに入れてから"
               "納品する（窓口から頼まなくてよい）。担当や作業が「--land が自動の権限の判定に止められた」と返したら、窓口から "
-              "--land <部署の名前> を打って入れる。納品は要約を読んで持ち主に伝える。")
+              "--land <部署の名前> を打って入れる。納品は要約を読んで持ち主に伝える。納品の後も残っている部署（--clean の一覧に出る）は、"
+              "ブランチがメインブランチに入っていれば --retire <部署の名前> で畳む。")
 
 
-def _draft_gh_user(ports):
-    """下書きに書く gh_user と、その行の注記（1 行）。gh の今のアカウントを読めないか、その鍵を `gh auth token --user` で取り出せない
-    （鍵を GH_TOKEN で渡している人など。部署の会話は gh_user の鍵をそれで取り出す）なら書かず (None, 訳)。注記は TOML の
-    1 行の注記の中に置くので、gh の誤りの文は 1 行に畳む（複数行のまま入れると、2 行目が # の外に出て TOML が壊れる）。"""
+def _draft_gh_user(ports, candidates):
+    """下書きに書く gh_user と、その行の注記（1 行）。candidates は (アカウント, 注記) の先に試す並び（設定の [[repos]] の gh_user・origin の
+    持ち主）で、鍵を `gh auth token --user` で取り出せる最初の物を書く（部署の会話は gh_user の鍵をそれで取り出す。origin の持ち主が組織なら
+    取り出せないので飛ばす）。どれも取り出せなければ gh の今のアカウント。それも読めないか鍵を取り出せない（鍵を GH_TOKEN で渡している人など）
+    なら書かず (None, 訳)。注記は TOML の 1 行の注記の中に置くので、gh の誤りの文は 1 行に畳む（複数行のまま入れると、2 行目が # の外に
+    出て TOML が壊れる）。2026-10-19 に works-factory の会社で、gh の今のアカウント（会社の仕事のアカウント）が入り、リポジトリの持ち主の
+    アカウントに手で直した。"""
     def one_line(e):
         return " ".join(str(e).split())[:160]
+    for user, note in candidates:
+        if not user:
+            continue
+        try:
+            ports.gh.env_for(user, dict(ports.env))
+        except ghx.GhError:
+            continue   # 鍵を取り出せない候補（組織の名前など）は書けないので次へ。どれも駄目なら下の今のアカウントの訳を注記に出す
+        return user, note
     try:
         user = ports.gh.login()
     except ghx.GhError as e:
@@ -1402,7 +1468,8 @@ def _draft_gh_user(ports):
     except ghx.GhError as e:
         return None, (f"。gh の今のアカウント {user} の鍵を gh auth token --user で取り出せないので書かない（GH_TOKEN で鍵を渡している"
                       f"ときなど。{one_line(e)}）。書かなければ、その人の今の gh の設定で動く")
-    return user, "（--init-company を打った時の gh の今のアカウント）"
+    return user, ("（--init-company を打った時の gh の今のアカウント。リポジトリの持ち主のアカウントと違うなら直す）"
+                  if any(u for u, _ in candidates) else "（--init-company を打った時の gh の今のアカウント）")
 
 
 def _init_company(a, ports, cwd):
@@ -1419,10 +1486,19 @@ def _init_company(a, ports, cwd):
         print(f"会社の形はもうある: {path}（上書きしない）")
         return 1
     other = os.path.join(root, *tree.INFO_FILE) if a.local else tree.settings_info_path(settings, root)
-    gh_user, gh_note = _draft_gh_user(ports)
+    # 会社の名前は origin の OWNER/NAME の NAME（clone のフォルダの名前は、同じリポジトリの 2 つ目の clone で works-factory-co のように
+    # 違う）。gh_user は設定の [[repos]] の gh_user、次に origin の持ち主を先に試す（2026-10-19 の works-factory の会社で両方を手で直した）
+    origin = ports.origin(root) or ""
+    owner, _, repo_name = origin.partition("/")
+    try:
+        configured = config.repo_at(config.load(a.config, os.environ, missing_ok=True), root, ports.origin).gh_user
+    except config.ConfigError:
+        configured = None   # 設定が読めなくても下書きは書ける（--check が設定の誤りを出す）。gh_user は origin の持ち主から先を試す
+    gh_user, gh_note = _draft_gh_user(ports, [(configured, "（dispatch の設定の [[repos]] の gh_user）"),
+                                              (owner if repo_name else None, "（origin のリポジトリの持ち主のアカウント）")])
     def q(v):
         return json.dumps(v, ensure_ascii=False)   # TOML の基本の文字列と同じ書き方
-    company = os.path.basename(os.path.normpath(root))
+    company = repo_name or os.path.basename(os.path.normpath(root))
     text = COMPANY_DRAFT.format(term=term.NAME, chat=chat.NAME, name=q(company), description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""),
                                 gh_note=gh_note, plain=" ".join(company.split()), duty=q(DRAFT_DUTY.format(company=company)),
                                 work=q(DRAFT_WORK), desk=q(DRAFT_DESK.format(company=company)),

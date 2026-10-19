@@ -100,7 +100,12 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                 or os.path.basename(os.path.normpath(c["root"])) == company_name]
         if not pool:
             known = "、".join(c["name"] for c in companies) or "なし"
-            raise DeliverError(f"会社「{company_name}」が {term.NAME} に開いていない（開いている会社: {known}）")
+            # 宛先は端末に開いている会社の部署と窓口から引く。会社の作業場は、その会社で最初の部署を --task で立てると開く
+            # （2026-10-19 に works-factory の会社で、最初の頼みを --ask で出して止まり、訳が分からなかった）
+            raise DeliverError(f"会社「{company_name}」が {term.NAME} に開いていない（開いている会社: {known}）。宛先は {term.NAME} に開いている"
+                               "会社の部署と窓口から引く。その会社にまだ部署が無く、最初の部署を立てるなら --task <名前> --branch <ブランチ> "
+                               f"--brief <頼みのファイル> --repo <代表の clone> を打つ（会社の作業場も開く）か、{term.NAME} にその代表の clone の"
+                               "作業場を開いてから打ち直す")
     named = [(c, d) for c in pool for d in c["departments"] if d["attrs"].get("name") == name]
     if not named:
         # 名前を替えた部署（--reorg・--desk）は、前の名前でも引く（今の名前が先）

@@ -166,8 +166,9 @@ class InitCompany(unittest.TestCase):
         path = pathlib.Path(self.src, ".claude", "company.toml")
         self.assertIn(f"書いた: {path}", out)
         info, shape, rules = self.read()
-        self.assertEqual((info["source"], info["name"], info["problems"]), ("repo", os.path.basename(self.src), []))
-        self.assertEqual((shape["gh_user"], list(shape["roles"]), shape["problems"]), ("the-user", ["担当", "作業", "窓口"], []))
+        # 名前は origin（o/r）の NAME、gh_user は origin の持ち主（鍵を取り出せるとき）
+        self.assertEqual((info["source"], info["name"], info["problems"]), ("repo", "r", []))
+        self.assertEqual((shape["gh_user"], list(shape["roles"]), shape["problems"]), ("o", ["担当", "作業", "窓口"], []))
         # 担当と作業はコードの直しなので、納品は差分と試験を返す（決め手の原典の URL を求めない）
         for name in ("担当", "作業"):
             self.assertEqual(shape["roles"][name]["deliver"], ["結論", "差分", "試験", "残った疑問", "ブランチ"])
@@ -178,6 +179,8 @@ class InitCompany(unittest.TestCase):
             allow = shape["roles"][name]["settings"]["autoMode"]["allow"]
             self.assertEqual(allow[0], "$defaults")
             self.assertIn("--land", allow[1])
+            # 部署の画面は誰も見ていないので、画面で問うツールと作業場を出るツールを外す
+            self.assertEqual(shape["roles"][name]["settings"]["permissions"]["deny"], ["AskUserQuestion", "EnterWorktree"])
             self.assertIn("打ち直さず", shape["roles"][name]["instructions"])
             self.assertIn("git add -A", shape["roles"][name]["instructions"])
         self.assertIn("--land <部署の名前> を打って入れる", shape["roles"]["窓口"]["instructions"])
@@ -189,13 +192,17 @@ class InitCompany(unittest.TestCase):
         self.assertEqual([(s["name"], s["role"]) for s in info["skills"]], [("<受け持ち>", "担当"), ("一度きりの作業", "作業")])
         self.assertEqual((shape["default_role"], dispatch.DEFAULT_ROLE), ("作業", "作業"))
         self.assertEqual((shape["roles"]["担当"]["persistent"], shape["roles"]["作業"]["persistent"]), (True, False))
-        company = os.path.basename(self.src)
+        company = "r"
         self.assertIn(f"--ask {company}/作業 に --task <受け持ち>：<何をするか>", shape["roles"]["担当"]["instructions"])
         self.assertIn("--ask <受け持ち>", shape["roles"]["担当"]["instructions"])
         for name in ("担当", "作業"):
             self.assertIn("もう一度納品のコマンドで返す", shape["roles"][name]["instructions"])
+        # 一時の部署の作業は、納品の後に --done で畳む（書かないと納品した部署が残り続ける）。窓口は残った部署を --retire で畳む
+        self.assertIn("--done を打ってターンを終える", shape["roles"]["作業"]["instructions"])
+        self.assertIn("--retire <部署の名前> で畳む", shape["roles"]["窓口"]["instructions"])
         text = path.read_text(encoding="utf-8")
-        for rule in ("窓口", "相談", "「<受け持ち>：<何をするか>」", "部署の名前には付けない", "英小文字とハイフン", "--task には --brief が要る"):
+        for rule in ("窓口", "相談", "「<受け持ち>：<何をするか>」", "部署の名前には付けない", "英小文字とハイフン", "--task には --brief が要る",
+                     "受け持ちで分けるか、役で分けるか", "既定の例なので"):
             self.assertIn(rule, text)
         for gone in ("管理者", "社長室", "作業者"):
             self.assertNotIn(gone, text)
@@ -218,7 +225,9 @@ class InitCompany(unittest.TestCase):
         def broken():
             raise ghx.GhError("gh のログイン名を読めない: To get started with GitHub CLI, please run:  gh auth login\n"
                               "Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.")
-        self.ports.gh = self.gh(login=broken)
+        def no_key(user, env):
+            raise ghx.GhError(f"gh のアカウント {user} の鍵を取り出せない")
+        self.ports.gh = self.gh(login=broken, env_for=no_key)
         rc, out = self.init()
         self.assertEqual(rc, 0, out)
         text = pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8")
@@ -236,6 +245,37 @@ class InitCompany(unittest.TestCase):
         text = pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8")
         self.assertNotIn("gh_user", tomllib.loads(text))
         self.assertIn("GH_TOKEN", text)
+
+    def test_gh_user_prefers_the_configured_account_then_the_origin_owner_then_the_current_one(self):
+        # 2026-10-19 の works-factory の会社で、gh の今のアカウント（会社の仕事のアカウント）が入り、リポジトリの持ち主に手で直した
+        with open(self.cfg, "a", encoding="utf-8") as f:
+            f.write('gh_user = "cfg-user"\n')   # 設定の [[repos]]（o/r）の最後の項目に足す
+        rc, out = self.init()
+        self.assertEqual(rc, 0, out)
+        text = pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8")
+        self.assertEqual(tomllib.loads(text)["gh_user"], "cfg-user")
+        self.assertIn("[[repos]] の gh_user", text)
+
+    def test_origin_owner_whose_key_cannot_be_taken_out_falls_back_to_the_current_account(self):
+        # origin の持ち主が組織なら、その名前の gh のアカウントは無い
+        def only_current(user, env):
+            if user != "the-user":
+                raise ghx.GhError(f"gh のアカウント {user} の鍵を取り出せない")
+            return {**env, "GH_TOKEN": "t"}
+        self.ports.gh = self.gh(env_for=only_current)
+        rc, out = self.init()
+        self.assertEqual(rc, 0, out)
+        text = pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8")
+        self.assertEqual(tomllib.loads(text)["gh_user"], "the-user")
+        self.assertIn("リポジトリの持ち主のアカウントと違うなら直す", text)
+
+    def test_without_origin_the_name_is_the_folder_and_gh_user_the_current_account(self):
+        self.ports.origin = lambda cwd: None
+        rc, out = self.init()
+        self.assertEqual(rc, 0, out)
+        raw = tomllib.loads(pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8"))
+        self.assertEqual((raw["name"], raw["gh_user"]), (os.path.basename(self.src), "the-user"))
+        self.assertNotIn("違うなら直す", pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8"))
 
     def test_outside_git_and_local_alone_stop(self):
         rc, out = run_main(["--config", self.cfg, "--init-company"], self.ports)   # 打った場所（FakePorts.cwd）は git の外
