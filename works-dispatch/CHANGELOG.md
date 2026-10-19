@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-10-20
+
 ### Changed
 
 - スキルの手引き（`references/setup.md` の手順 1）: 受け持ちの `name` と `description` の書き方と、担当の部署の名前を受け持ちの `name` と同じにすると、その `description` が SessionStart のフックで担当の会話の始まりに足されることを書いた。
