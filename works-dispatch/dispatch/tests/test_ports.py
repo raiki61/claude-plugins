@@ -51,6 +51,24 @@ class Herdr(unittest.TestCase):
         self.assertEqual(got[1]["agent"], None)
         self.assertEqual(got[0]["agent"], "claude")
 
+    def test_panes_hand_the_ports_shape_not_herdrs_json(self):
+        # 口の外は herdr の JSON の形を知らない。ほかのフィールドは渡さず、会話の id の入れ子 {value: …} は字にする
+        raw = {"pane_id": "w1:p1", "workspace_id": "w1", "cwd": "/a", "label": "直し", "agent": "claude", "agent_status": "idle",
+               "agent_session": {"value": "s1"}, "focused": True, "tab_id": "w1:t1", "terminal_id": "term_1"}
+        got = herdr.panes(runner=Fake(ok({"id": "x", "result": {"type": "pane_list", "panes": [raw, {"pane_id": "w2:p1"}]}})))
+        self.assertEqual(got, [
+            {"pane_id": "w1:p1", "workspace_id": "w1", "cwd": "/a", "label": "直し", "agent": "claude", "agent_status": "idle",
+             "agent_session": "s1"},
+            {"pane_id": "w2:p1", "workspace_id": None, "cwd": None, "label": None, "agent": None, "agent_status": None,
+             "agent_session": None}])
+
+    def test_agent_and_front_processes_hand_the_ports_shape(self):
+        f = Fake(ok({"id": "x", "result": {"type": "agent_info", "agent": {"agent": "claude", "agent_status": "idle", "pane_id": "p"}}}))
+        self.assertEqual(herdr.agent("p", runner=f), {"agent": "claude", "agent_status": "idle"})
+        f = Fake(ok({"id": "x", "result": {"type": "pane_process_info", "process_info": {"foreground_processes": [
+            {"pid": 21, "argv0": "claude", "argv": ["claude", "attach", "ab"], "cmdline": "claude attach ab"}, {"pid": 22}]}}}))
+        self.assertEqual(herdr.front_processes("p", runner=f), [{"pid": 21, "argv": ["claude", "attach", "ab"]}, {"pid": 22, "argv": []}])
+
     def test_workspace_labels(self):
         self.assertEqual(herdr.workspace_labels(runner=Fake(ok(WORKSPACES))), {"wW": "work0", "wB": "work8"})
 

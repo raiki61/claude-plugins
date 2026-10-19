@@ -297,8 +297,8 @@ class BossWindow(unittest.TestCase):
     def test_department_window_then_matching_mark_then_the_pane_at_ask_time(self):
         boss_dept = dept_row(session="s-boss", panes=[{"pane_id": "P9", "agent": "claude"}])
         self.assertEqual(deliver.boss_window({}, "s-boss", None, [], [company("a", "/r", boss_dept)]), ("P9", "部署の窓"))
-        panes = [{"pane_id": "P1", "agent": "claude", "cwd": "/r/w", "agent_session": {"value": "s-boss"}},
-                 {"pane_id": "P2", "agent": "claude", "cwd": "/r/home", "agent_session": {"value": "s-boss"}}]
+        panes = [{"pane_id": "P1", "agent": "claude", "cwd": "/r/w", "agent_session": "s-boss"},
+                 {"pane_id": "P2", "agent": "claude", "cwd": "/r/home", "agent_session": "s-boss"}]
         # herdr は attach の窓に別の会話の印を付けることがある。場所が会話と合うペインだけを使う
         self.assertEqual(deliver.boss_window({}, "s-boss", {"cwd": "/r/home"}, panes, []), ("P2", "会話の印"))
         self.assertEqual(deliver.boss_window({"boss-pane": "P1"}, "s-x", None, panes, [])[0], "P1")

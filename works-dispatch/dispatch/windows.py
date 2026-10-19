@@ -35,7 +35,7 @@ def own_pane(cwd, sid=None, listed=None):
     here = place_of(cwd)
     talking = [p for p in (term.panes() if listed is None else listed) if p.get("agent")]
     hits = [p for p in talking if p.get("cwd") and place_of(p["cwd"]) == here]
-    mine = [p for p in hits if sid and (p.get("agent_session") or {}).get("value") == sid]
+    mine = [p for p in hits if sid and p.get("agent_session") == sid]
     if len(mine) == 1:
         return mine[0]["pane_id"]
     return hits[0]["pane_id"] if len(hits) == 1 else None

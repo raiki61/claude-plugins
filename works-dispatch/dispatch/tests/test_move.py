@@ -363,7 +363,7 @@ class Move(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
         for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
-                p["agent_session"] = {"value": "s-desk"}
+                p["agent_session"] = "s-desk"
         self.ports.term.talking.add(self.desk)
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, 0, out)
@@ -377,7 +377,7 @@ class Move(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
         for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
-                p["agent_session"] = {"value": "s-desk"}
+                p["agent_session"] = "s-desk"
         self.ports.term.talking.add(self.desk)
         failed = {"pane": self.desk, "status": "launch_failed", "detail": "起動できない"}
         with mock.patch.object(move.launch, "start_named", lambda *a, **k: failed):
@@ -396,7 +396,7 @@ class Move(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
         for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
-                p["agent_session"] = {"value": "s-desk"}
+                p["agent_session"] = "s-desk"
         self.ports.term.talking.add(self.desk)
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, 0, out)
@@ -410,7 +410,7 @@ class Move(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1", **more}, gitx)
         for p in self.ports.term._panes:
             if p["pane_id"] == self.desk:
-                p["agent_session"] = {"value": "s-desk"}
+                p["agent_session"] = "s-desk"
         self.ports.term.talking.add(self.desk)
 
     def test_if_changed_restarts_the_desk_at_its_rest_with_the_settings_model_and_effort_of_its_role(self):

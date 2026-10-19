@@ -50,6 +50,13 @@ herdr や Claude Code が替わっても、直すのは外への口の裏のア�
 
 ## まだ口に閉じていない物
 
-- herdr の JSON のデータの形（`pane_id`・`agent_status`・`agent_session` などのフィールドの名前）は、口の外がまだそのまま読む。口の側で works-dispatch の形に直して渡すのは、この変更の後の別の直しにする（版も時期も決めていない）。今回しない訳: 口の外の 14 本・46 か所が読み、試験の 16 本が偽の herdr の値をこの形で組むので、直すと試験の偽物も全部組み直しになり、今回の「動きを変えない」の確かめ（試験を変えずに緑のまま）が効かなくなる。D9 は文字列の定数を数えるが、これらのフィールドの名前はツールの名前を含まないので数えない。
+- herdr の JSON のデータの形（`pane_id`・`agent_status`・`agent_session` などのフィールドの名前）を口の外がそのまま読んでいた所は、この変更の後の直し（頼み 20261019-082412-dcd5ed、ブランチ `refactor/dispatch-herdr-shape`）で閉じた。下の「herdr の値の形（後の直し）」のセクション。
+
+## herdr の値の形（後の直し）
+
+- 前は、端末の口の読む口のうち `panes`・`agent`・`front_processes` が herdr の JSON をそのまま渡していた（`panes` は `{**p}` で全部のフィールドを素通しし、会話の id は herdr の入れ子 `{"value": …}` のまま）。口の外の `windows.py`・`nodes/deliver.py`・`nodes/tree.py` が入れ子を読み、herdr がフィールドの名前か入れ子を変えると、口の外まで直しが広がった。
+- 今は `herdr.py` が、読んだ値を works-dispatch の形に 1 つずつ組み直して渡す（形の一覧は `herdr.py` の冒頭。ペインは `pane_id`・`workspace_id`・`cwd`・`label`・`agent`・`agent_status`・`agent_session`〔会話の id の字〕、会話の情報は `agent`・`agent_status`、前のプロセスは `pid`・`argv`）。`workspaces`・`worktrees`・`create_worktree` などは前から組み直していた。herdr が形を変えても、直すのは `herdr.py` の組み直しだけになる。
+- 鍵の名前は herdr の名前と同じ字のまま残した。`--tree --json` の出力の形（`dispatch/schemas/tree.schema.json`）が部署のペインを `pane_id`・`agent_status`・`agent_session` で出すと約束していて、口の外が読むペインの値（部署の行の `panes`）はこの出力と同じ物なので、名前を替えると出力が変わる（この直しの縛りは「動きと出力の文は変えない」）。名前が同じでも、値は口が herdr から 1 つずつ入れた物で、herdr の JSON の素通しではない。前に「口の外の 14 本・46 か所が読む」と数えた所は、この形を読む所として残り、直していない。
+- 縛り: `dispatch/tests/test_ports.py` の `test_panes_hand_the_ports_shape_not_herdrs_json` と `test_agent_and_front_processes_hand_the_ports_shape` が、herdr の JSON に形の外のフィールドと入れ子が有っても、口が形の鍵だけを返すことを見る（素通しに戻すと赤）。試験の偽物のうち、会話の id を herdr の入れ子で組んでいた 5 本（`test_activity`・`test_deliver`・`test_move`・`test_reorg`・`test_wake`）は字に直した。D9 の数（8 か所）は変わらない。
 - `herdr.py` の中に、Claude Code を知る所が残る（`claude_integration`・作業内容の出所の名前 `claude-activity`）。herdr が Claude Code と組むための機能そのもので、口の中に在る。
 - `D9_KNOWN` に残った 8 か所（ファイルごとの内訳は `python3 dispatch/tests/fences.py --lockin`）。どれも口へ移せない訳を `D9_KNOWN` に添えた: 使う人の設定のフィールドの名前 `hide_claude_dir`（3 か所。設定に書いてあるので名前を替えない）、写しの `vendor/claude_auth.py` の名前（2 か所。名前は写しの見張り `scripts/shared-copies.py` が正本と揃える）、標準ライブラリしか読まない `installed.py`（1 か所）、口を import できなかったときに `shape_hook.py` が出す文（1 か所）、会社の形の置き場 `.claude/company.toml`（1 か所。works-dispatch が決めた置き場で、使う人のリポジトリに在る）。

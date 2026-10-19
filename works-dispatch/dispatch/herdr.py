@@ -9,6 +9,16 @@ remove_worktree）。ノードは「ブランチの場所」の言葉だけで�
 書く関数は run・prompt・send_keys・rename_pane・rename_workspace・report_pane_metadata・report_workspace_metadata・move_workspace・create_worktree・open_worktree・remove_worktree・close_workspace・
 report_activity で、
 呼んでよいノードはチェック（tests/fences.py の D4 の表 WRITES）が構文木で見る。
+
+読む口が返す値は、herdr の JSON をそのまま渡さず、ここで works-dispatch の形に組み直す（口の外は herdr の JSON の形を知らない）。
+herdr がフィールドの名前や入れ子を変えても、直すのはこの組み直し（_pane・agent・front_processes・workspaces・_place・_opened）だけ。
+形（鍵の名前は、--tree --json の出力の形 schemas/tree.schema.json のペインと同じ名前にそろえた。herdr の名前と同じ字の鍵も、
+herdr から読んだ値をここで 1 つずつ入れた物で、herdr の JSON の素通しではない）:
+- ペイン（panes）: pane_id・workspace_id・cwd・label・agent（ペインで動く会話のツールの名前。会話の口の AGENT と比べる。無ければ
+  None）・agent_status（会話の状態。idle・working・blocked・done・unknown）・agent_session（ペインに居る会話の id の字。無ければ None）
+- 会話の情報（agent）: agent・agent_status（ペインと同じ意味）
+- 前のプロセス（front_processes）: pid・argv
+- 作業場（workspaces）・ブランチの場所（worktrees）・開いた場所（create_worktree・open_worktree）・消した場所（remove_worktree）は、各関数の説明
 """
 
 import json
@@ -62,11 +72,18 @@ def _call(argv, runner, quiet_ok=False):
         raise HerdrError(argv, f"JSON でない出力: {p.stdout[:200]!r}")
 
 
+def _pane(p):
+    """herdr のペインの 1 件を、口の形のペイン（冒頭の「形」）にする。herdr は会話の id を {value: …} の入れ子で持つので、
+    字だけを取り出す。"""
+    session = p.get("agent_session")
+    return {"pane_id": p.get("pane_id"), "workspace_id": p.get("workspace_id"), "cwd": p.get("cwd"), "label": p.get("label"),
+            "agent": p.get("agent"), "agent_status": p.get("agent_status"),
+            "agent_session": session.get("value") if isinstance(session, dict) else None}
+
+
 def panes(runner=_default_runner):
-    out = []
-    for p in _call(["herdr", "pane", "list"], runner).get("panes", []):
-        out.append({**p, "agent": p.get("agent")})
-    return out
+    """ペインの並び（口の形のペイン）。読む口。"""
+    return [_pane(p) for p in _call(["herdr", "pane", "list"], runner).get("panes", [])]
 
 
 def workspace_labels(runner=_default_runner):
@@ -90,8 +107,9 @@ def workspaces(runner=_default_runner):
 
 
 def agent(target, runner=_default_runner):
-    """1 つのペインのエージェントの情報（agent・agent_status など）。"""
-    return _call(["herdr", "agent", "get", target], runner).get("agent", {})
+    """1 つのペインの会話の情報（口の形の {agent, agent_status}）。読む口。"""
+    got = _call(["herdr", "agent", "get", target], runner).get("agent", {})
+    return {"agent": got.get("agent"), "agent_status": got.get("agent_status")}
 
 
 def methods(runner=_default_runner):
@@ -201,9 +219,9 @@ def foreground(pane, runner=_default_runner):
 
 
 def front_processes(pane, runner=_default_runner):
-    """ペインの前で動いているプロセスの並び（herdr pane process-info の foreground_processes。pid と argv を持つ）。読む口。"""
+    """ペインの前で動いているプロセスの並び（herdr pane process-info の foreground_processes を、口の形の {pid, argv} に）。読む口。"""
     info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
-    return info.get("foreground_processes") or []
+    return [{"pid": p.get("pid"), "argv": p.get("argv") or []} for p in info.get("foreground_processes") or []]
 
 
 def send_keys(pane, *keys, runner=_default_runner):

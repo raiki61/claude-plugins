@@ -49,12 +49,6 @@ def inside(cwd, path):
     return c == p or p in c.parents
 
 
-def session_of(pane):
-    """ペインの会話の印（herdr の agent_session の value）。無ければ None。"""
-    got = pane.get("agent_session")
-    return got.get("value") if isinstance(got, dict) else None
-
-
 def settings_info_path(settings_dir, root):
     """設定の置き場の中の、そのリポジトリ（元の clone のルート）の会社の情報のファイル。名前はルートの実際のパスを字の符号にしたもの
     （Windows でもファイル名に使えない字が残らない）。"""
@@ -281,7 +275,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
                 "sessions": len(talks),
                 "panes": [{"pane_id": x["pane_id"], "label": x.get("label"), "agent": x.get("agent"),
                            "agent_status": x.get("agent_status"),
-                           "agent_session": session_of(x)} for x in mine],
+                           "agent_session": x.get("agent_session")} for x in mine],
                 "attrs": a,
                 "role": a.get("role"), "lifecycle": a.get("lifecycle"), "fresh": bool(a.get("fresh")),
                 "account": a.get("account") or (main or {}).get("account"),

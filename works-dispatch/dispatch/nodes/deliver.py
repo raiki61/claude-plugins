@@ -217,7 +217,7 @@ def boss_window(attrs, sid, entry, panes, companies):
             for d in c["departments"]:
                 if d["attrs"].get("session") == sid and window(d):
                     return window(d), "部署の窓"
-        hits = [p for p in panes if (p.get("agent_session") or {}).get("value") == sid and p.get("agent")]
+        hits = [p for p in panes if p.get("agent_session") == sid and p.get("agent")]
         good = [p for p in hits if _same_place(p, cwd)] if cwd else hits
         if len(good) == 1:
             return good[0]["pane_id"], "会話の印"

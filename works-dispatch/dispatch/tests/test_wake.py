@@ -1148,8 +1148,8 @@ class Hook(unittest.TestCase):
         # 本社には持ち主のほかの会話も居るので、ペインの会話の印で窓口の窓を決める
         class Many(Window):
             def panes(self):
-                return [{"pane_id": "p1", "cwd": self.cwd, "agent": "claude", "agent_session": {"value": "s0"}},
-                        {"pane_id": "p2", "cwd": self.cwd, "agent": "claude", "agent_session": {"value": "s1"}}]
+                return [{"pane_id": "p1", "cwd": self.cwd, "agent": "claude", "agent_session": "s0"},
+                        {"pane_id": "p2", "cwd": self.cwd, "agent": "claude", "agent_session": "s1"}]
         self.assertEqual(wake_hook.own_window(self.place, Many(self.place), "s1"), "p2")
         self.assertIsNone(wake_hook.own_window(self.place, Many(self.place), "s7"))   # 結べなければ打たない
         self.assertEqual(wake_hook.own_window(self.place, Window(self.place), "s7"), "p1")   # 場所に 1 つなら、それ
@@ -1159,7 +1159,7 @@ class Hook(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a1", "delivered": "a1", "fresh": role.FRESH,
                                               "job": "abcd1234"}, gitx)
         stranger = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude"]}])
-        stranger.panes = lambda: [{"pane_id": "p1", "cwd": self.place, "agent": "claude", "agent_session": {"value": "s1"}}]
+        stranger.panes = lambda: [{"pane_id": "p1", "cwd": self.place, "agent": "claude", "agent_session": "s1"}]
         self.assertEqual(self.checker(window=stranger)(), wake.HOLD)   # 印が合っても、前に居るのが別の会話なら打たない
         self.assertEqual(stranger.writes, [])
         attached = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude", "attach", "abcd1234"]}])   # 裏の会話を開いた窓
@@ -1193,12 +1193,12 @@ class Hook(unittest.TestCase):
 
         class Stale(Window):
             def panes(self):
-                return [{"pane_id": "p9", "cwd": other, "agent": "claude", "agent_session": {"value": "s1"}},
-                        {"pane_id": "p1", "cwd": self.cwd, "agent": "claude", "agent_session": {"value": "s-old"}}]
+                return [{"pane_id": "p9", "cwd": other, "agent": "claude", "agent_session": "s1"},
+                        {"pane_id": "p1", "cwd": self.cwd, "agent": "claude", "agent_session": "s-old"}]
 
         class Alone(Window):
             def panes(self):
-                return [{"pane_id": "p9", "cwd": other, "agent": "claude", "agent_session": {"value": "s1"}}]
+                return [{"pane_id": "p9", "cwd": other, "agent": "claude", "agent_session": "s1"}]
         self.assertEqual(wake_hook.own_window(self.place, Stale(self.place), "s1"), "p1")
         self.assertIsNone(wake_hook.own_window(self.place, Alone(self.place), "s1"))
         os.makedirs(os.path.join(self.place, "sub"), exist_ok=True)   # 会話が作業場の下のフォルダに居ても、同じ場所と見る

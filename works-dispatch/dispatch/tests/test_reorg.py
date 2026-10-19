@@ -120,7 +120,7 @@ class Reorg(unittest.TestCase):
         # 本社には持ち主のほかの会話も居る。窓口の会話の印のペインだけに付ける
         for p in self.ports.term._panes:
             if p["pane_id"] == self.office_pane:
-                p["agent_session"] = {"value": "s-desk"}
+                p["agent_session"] = "s-desk"
         self.ports.term.add_pane(self.ws(self.office_pane), self.src, agent="claude")
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)

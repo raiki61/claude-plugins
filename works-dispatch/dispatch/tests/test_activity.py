@@ -38,8 +38,8 @@ class Handle(unittest.TestCase):
         self.sent, self.looked = [], []
         # 裏の会話は控えの処理の HERDR_PANE_ID を継ぎ、別のペインを指すことがある（2026-10-17 に見た）。印はそこへ送らない
         self.env = {"HERDR_ENV": "1", "HERDR_PANE_ID": "w9:p9", "TMPDIR": str(self.dir)}
-        self.panes = [{"pane_id": "w9:p9", "agent": "claude", "cwd": "/other", "agent_session": {"value": "s-other"}},
-                      {"pane_id": "w1:p1", "agent": "claude", "cwd": "/a", "agent_session": {"value": "s1"}}]
+        self.panes = [{"pane_id": "w9:p9", "agent": "claude", "cwd": "/other", "agent_session": "s-other"},
+                      {"pane_id": "w1:p1", "agent": "claude", "cwd": "/a", "agent_session": "s1"}]
 
     def find(self, cwd, sid):
         self.looked.append(sid)
