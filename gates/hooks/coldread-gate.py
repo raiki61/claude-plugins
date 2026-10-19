@@ -2032,9 +2032,9 @@ def allow() -> None:
 
 
 def notices():
-    """人に知らせる注記(版のずれと、読み手の認証のトークンの期限)。無ければ空文字。読み手を起動した後に呼ぶ
-    (期限の注記は、読み手の起動が Keychain の段を採ったときに決まる。_expiry)。"""
-    return "\n".join(filter(None, (VERSION_NOTE, *(n for _, n in sorted(_EXPIRY.items()) if n))))
+    """人に知らせる注記(版のずれと、読み手の認証のトークンの期限)。無ければ空文字。読み手を起動した後で、その出力を
+    出す所でだけ呼ぶ(期限の注記は、呼んだときに今日知らせた物として覚える。_expiry_lines)。"""
+    return "\n".join(filter(None, (VERSION_NOTE, *_expiry_lines())))
 
 
 def owner_note():
@@ -2215,44 +2215,55 @@ VERSION_NOTE = ("この検査は gates %s で走った(入っている版は %s�
 # 読み手の認証のトークンの期限の注記。読み手を Keychain の段で起動したとき、その項目の書き換えた日から決める
 # (claude_auth.expiry_note。setup-token のトークンは 1 年で切れ、切れると読み手は黙って 0 で終わる)。gates は
 # works-dispatch の受付(--ask・--todo)に頼らずに配るので、知らせの口は版のずれと同じ notices(持ち主の画面と、
-# モデルへの理由・文脈)にする。同じ項目は 1 日に 1 度だけ出す(EXPIRY_TOLD に出した日を覚える)
+# モデルへの理由・文脈)にする。同じ項目は 1 日に 1 度だけ出す。今日出した事は、出力を出す所(notices)で覚える
+# (読み手を起動した所で覚えると、出力の捨てられる口〔--land のゲートの branch-check は緑なら出力を捨てる〕や、
+# 出す前に切られた読みで、出さずに今日の分が済む)
 EXPIRY_TOLD = os.path.join(STATE_DIR, "expiry-told.json")
-_EXPIRY = {}   # 項目の名 → この起動で出す注記(出さなければ None)。1 回の起動で security を 1 度だけ引く
+_EXPIRY = {}   # 項目の名 → 期限の注記(遠ければ None)。1 回の起動で security を 1 度だけ引く
+_EXPIRY_SHOWN = {}   # 項目の名 → この起動で出す注記(今日もう出していれば None)。同じ出力の中で何度呼んでも同じ物を返す
 _EXPIRY_LOCK = threading.Lock()   # 読み手は並べて起動する(DOC_WORKERS)
 
 
-def _expiry(service, today=None):
-    """Keychain の項目 service のトークンの期限が近ければ、今日まだ出していない限り _EXPIRY に注記を置く。"""
+def _expiry(service):
+    """Keychain の項目 service のトークンの期限が近ければ、_EXPIRY に注記を置く(出すのは notices)。"""
     with _EXPIRY_LOCK:
-        if service in _EXPIRY:
-            return
-        _EXPIRY[service] = None
-        note = claude_auth.expiry_note(service)
-        if not note:
-            return
-        today = today or time.strftime("%Y-%m-%d")
-        with _locked(EXPIRY_TOLD):
+        if service not in _EXPIRY:
             try:
-                with open(EXPIRY_TOLD, encoding="utf-8") as f:
-                    told = json.load(f)
-            except FileNotFoundError:
-                told = {}
-            except (OSError, ValueError) as exc:
-                _lost("期限を知らせた日を読めない(%s。今日も知らせる)" % EXPIRY_TOLD, exc)
-                told = {}
-            if not isinstance(told, dict):
-                told = {}
-            if told.get(service) == today:
-                return
-            told[service] = today
-            try:
-                tmp = "%s.%d.tmp" % (EXPIRY_TOLD, os.getpid())
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(told, f, ensure_ascii=False)
-                os.replace(tmp, EXPIRY_TOLD)
-            except OSError as exc:
-                _lost("期限を知らせた日を書けない(%s。次の起動でも知らせる)" % EXPIRY_TOLD, exc)
-        _EXPIRY[service] = "coldread の読み手の認証(持ち主に 1 行で伝える): " + note
+                note = claude_auth.expiry_note(service)
+            except Exception as exc:   # 期限が分からないだけで、読み手は止めない
+                _lost("Keychain の項目 %s の期限を読めない(注記を出さない)" % service, exc)
+                note = None
+            _EXPIRY[service] = "coldread の読み手の認証(持ち主に 1 行で伝える): " + note if note else None
+
+
+def _expiry_lines(today=None):
+    """今の出力で出す期限の注記の並び。今日まだ出していない項目だけを出し、出した日を EXPIRY_TOLD に覚える。"""
+    with _EXPIRY_LOCK:
+        due = [svc for svc, note in sorted(_EXPIRY.items()) if note and svc not in _EXPIRY_SHOWN]
+        if due:
+            today = today or time.strftime("%Y-%m-%d")
+            with _locked(EXPIRY_TOLD):
+                try:
+                    with open(EXPIRY_TOLD, encoding="utf-8") as f:
+                        told = json.load(f)
+                except FileNotFoundError:
+                    told = {}
+                except (OSError, ValueError) as exc:
+                    _lost("期限を知らせた日を読めない(%s。今日も知らせる)" % EXPIRY_TOLD, exc)
+                    told = {}
+                if not isinstance(told, dict):
+                    told = {}
+                for svc in due:
+                    _EXPIRY_SHOWN[svc] = None if told.get(svc) == today else _EXPIRY[svc]
+                    told[svc] = today
+                try:
+                    tmp = "%s.%d.tmp" % (EXPIRY_TOLD, os.getpid())
+                    with open(tmp, "w", encoding="utf-8") as f:
+                        json.dump(told, f, ensure_ascii=False)
+                    os.replace(tmp, EXPIRY_TOLD)
+                except OSError as exc:
+                    _lost("期限を知らせた日を書けない(%s。次の起動でも知らせる)" % EXPIRY_TOLD, exc)
+        return [note for _, note in sorted(_EXPIRY_SHOWN.items()) if note]
 
 
 def reader_argv(claude_bin, schema, model=None, effort=None):
@@ -2335,8 +2346,8 @@ def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIME
         why = (_child_text(proc.stderr, strict=False) or "empty output")[:200]
         raise RuntimeError(why if note is None else "%s(認証: %s)" % (why, note))
     # 認証の失敗と使用枠の上限は、終了コード 0 の短い 1 行(JSON でない)か、is_error の JSON で返る。形の違う答えと
-    # 分けて、読み手が読めなかった物にする(どちらかは決めつけず、出力の頭を添える)
-    if claude_auth.auth_failed(out):
+    # 分けて、読み手が読めなかった物にする(どちらかは決めつけず、出力の頭を添える)。0 以外で終わった物は起動の失敗(下)
+    if proc.returncode == 0 and claude_auth.auth_failed(out):
         raise ReaderAuth("読み手が認証の失敗か使用枠の上限の形で返した: %r%s"
                          % (out[:150], "" if note is None else "(認証: %s)" % note))
     try:
@@ -4217,7 +4228,7 @@ def docs_check(payload, background=False):
     # 物が残り、1 日の後に残り物として知らされる)
     notes, counts, down, later = _read_pending(session, agent, DOC_READ_MAX if agent or background else None)
     left = "" if agent else _left_behind()
-    if not notes and not down and not left and not later and not any(_EXPIRY.values()):   # 期限の注記は今日の 1 度きりなので落とさない
+    if not notes and not down and not left and not later and not _expiry_lines():   # 期限の注記は今日の 1 度きりなので落とさない
         return
     event = payload.get("hook_event_name") or ("SubagentStop" if agent else "Stop")
     turn = "直前のターン" if background else "このターン"
@@ -4660,8 +4671,6 @@ def branch_check(argv):
               % (os.path.abspath(__file__), "・".join(down)))
     if unread:
         print("開けなかった文書(UTF-8 の文書として開けない。文書でなければ拡張子を変える): %s" % "・".join(unread))
-    for note in (n for _, n in sorted(_EXPIRY.items()) if n):
-        print(note)
     print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件%s・推測で埋めた箇所 %d 件%s。%s"
           % (len(picked), fresh, counts["stuck"],
              "(ほかにメインブランチの版にも在った詰まり %d 件は止めない)" % counts["carried"] if counts["carried"] else "",
@@ -4677,11 +4686,13 @@ def read_now(path):
     try:
         found = read_doc(text, premise=skill_premise(path))
     except Exception as exc:
-        print("読めなかった: %s" % _down_reason(exc))
+        print("\n".join(["読めなかった: %s" % _down_reason(exc), *_expiry_lines()]))
         return 1
     body = doc_feedback(path, found)
     print(body or "CLEAN(詰まりも補完も無い)" + ("\n" + section("残った疑問:", finding_lines(found, "question"))
                                                  if found["question"] else ""))
+    for note in _expiry_lines():
+        print(note)
     return 1 if found["stuck"] else 0
 
 

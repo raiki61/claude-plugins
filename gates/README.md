@@ -126,9 +126,12 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
   The hook's version is fixed when the session starts, and a session kept open for a long time keeps checking with the old version even after an update
   (measured: it stayed on 0.8.0 for 16 hours)
 - When the reader (`claude -p`) answers with a short single line that is not JSON, or with an `is_error` answer about authentication, the gate treats it as "the reader could not read"
-  (an expired login or a used-up usage limit both answer this way, with exit code 0), names it as such to the writer, and logs `reader-auth` for posts.
+  (an expired login or a used-up usage limit both answer this way, with exit code 0), names it as such to the writer, and, for the gate on gh posts to GitHub, logs `reader-auth` in `denies.log`.
   When the reader was started with a token from a Keychain item and that item was written 335 days ago or more (`claude setup-token` tokens last one year),
-  one line asking to remake the token is added the same way as the version line (the owner's screen and the model), at most once a day per item
+  one line asking to remake the token goes out the same two ways as the version-mismatch line above: it is added to the check result the model receives (the hook's reason or context text),
+  and it is shown on the owner's screen through the `systemMessage` field of the hook output. This line appears at most once a day per Keychain item.
+  The line is not shown by the check that `--land` runs before merging (`branch-check`), because `--land` drops that output when the check passes.
+  One exception: the end-of-turn check that runs in the background of an interactive session can only send text back to the model, so there the line reaches the owner only when the model relays it (the line itself asks the model to)
 - `denies.log`, `docs.log`, and the other logs are moved to `<name>.1` when they grow past 2 MB (the previous `.1` is dropped).
   Counting how many times in a row the same post was stopped reads only the last 400 lines of `denies.log`
 

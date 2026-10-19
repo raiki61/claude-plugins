@@ -4470,10 +4470,10 @@ CR_STUB_TRACED='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "echo=「ニアバイし
 expect_output 0 "自分の言葉に直せば通る" "相手の言い回しを地の文に写した箇所(なぞり)は投稿を止め、直し方は説明を足すことではないと言う" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_AUTHFAIL='cat >/dev/null; printf "Failed to authenticate: OAuth session expired and could not be refreshed\n"'
-expect_output 0 "認証の失敗か使用枠の上限" "認証切れの 1 行(終了コード 0・JSON でない)は allow にせず、読み手が読めなかったとして止める(実測 2026-09-15 の形)" \
+expect_output 0 "setup-token" "認証切れの 1 行(終了コード 0・JSON でない)は allow にせず、読み手が読めなかったとして止める(読めない物一般の reader-down でなく、作り直しの手を言う)(実測 2026-09-15 の形)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_AUTHFAIL" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_IS_ERROR='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" --error "Failed to authenticate"'
-expect_output 0 "認証の失敗か使用枠の上限" "is_error の答え(JSON の形の認証切れ)も allow にせず、読み手が読めなかったとして止める" \
+expect_output 0 "setup-token" "is_error の答え(JSON の形の認証切れ)も allow にせず、読み手が読めなかったとして止める(読めない物一般の reader-down でなく、作り直しの手を言う)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_IS_ERROR" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_IS_ERROR_OTHER='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" --error "overloaded"'
 expect_output 0 "エラーを返した" "認証でない is_error の答えも allow にせず止める" \
@@ -4482,18 +4482,30 @@ expect_output 0 "エラーを返した" "認証でない is_error の答えも a
 # モデルへの理由に出す。認証の失敗は、書き手への訳でも形の違いと分けて言う
 expect_output 0 "AUTH_EXPIRY_OK" "読み手の認証のトークンの期限が近ければ 1 日に 1 度だけ持ち主の画面に出し、認証の失敗は読めなかった訳で名指す" \
     "$PY_BIN" - "$ROOT" "$WORK/auth-expiry" <<'PY'
-import contextlib, importlib.util, io, json, os, pathlib, sys
+import contextlib, importlib.util, io, json, os, pathlib, subprocess, sys
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 os.environ["CLAUDE_CONFIG_DIR"] = str(work / "cfg")
+os.environ.pop("CLAUDE_CODE_ENTRYPOINT", None)   # 親の Stop を待って読む口(claude -p)にする
 spec = importlib.util.spec_from_file_location("g", root / "gates/hooks/coldread-gate.py")
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
 asked = []
 g.claude_auth.expiry_note = lambda svc: asked.append(svc) or "Keychain の項目 %s のトークンは 340 日前に書いた物" % svc
 g.VERSION_NOTE = ""
-g._expiry("item-a", today="2026-10-19")
-g._expiry("item-a", today="2026-10-19")   # 1 回の起動では security を 1 度だけ引く
+told = pathlib.Path(g.EXPIRY_TOLD)
+def fresh():   # 次のフックの起動(覚えは EXPIRY_TOLD にだけ残る)
+    g._EXPIRY.clear()
+    g._EXPIRY_SHOWN.clear()
+def reply(code=0, out=json.dumps({"type": "result", "is_error": False, "structured_output": {"findings": []}})):
+    g.subprocess.run = lambda argv, **kw: subprocess.CompletedProcess(argv, code, out.encode("utf-8"), b"")
+# 読み手を Keychain の段で起動すると、その項目の期限を 1 度だけ引く。起動しただけでは今日出した事にしない
+g.claude_auth.auth_env = lambda env, **kw: (dict(env), "keychain(item-a)")
+reply()
+g.read_doc("本文")
+g.read_doc("本文")
 assert asked == ["item-a"], asked
+assert not told.exists(), "読み手を起動しただけで今日知らせた事にした(出力の捨てられる口で注記が消える)"
+# 止める出力では、持ち主の画面(systemMessage)とモデルへの理由の両方に載る
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     try:
@@ -4502,23 +4514,42 @@ with contextlib.redirect_stdout(buf):
         pass
 out = json.loads(buf.getvalue())
 assert "item-a" in out.get("systemMessage", "") and "item-a" in out["hookSpecificOutput"]["permissionDecisionReason"], out
-g._EXPIRY.clear()
-g._expiry("item-a", today="2026-10-19")   # 同じ日の次の起動では出さない
-assert not any(g._EXPIRY.values()) and g.notices() == "", g._EXPIRY
-g._EXPIRY.clear()
-g._expiry("item-a", today="2026-10-20")   # 次の日はまた出す
-assert "item-a" in g.notices(), g._EXPIRY
-g._EXPIRY.clear()
+today = json.loads(told.read_text(encoding="utf-8"))["item-a"]
+fresh()
+g._expiry("item-a")
+assert g._expiry_lines(today) == [], "同じ日の次の起動でも出した"
+fresh()
+g._expiry("item-a")
+assert any("item-a" in n for n in g._expiry_lines("2999-01-01")), "次の日に出さない"
+# 読む文書が無くても、手元の文書の口は期限の注記だけで知らせを出す
+fresh()
+g._expiry("item-a")
+told.write_text("{}", encoding="utf-8")
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    g.docs_check({"session_id": "s-exp", "hook_event_name": "Stop"})
+got = json.loads(buf.getvalue())
+assert "item-a" in got["hookSpecificOutput"]["additionalContext"] and "item-a" in got.get("systemMessage", ""), got
 g.claude_auth.expiry_note = lambda svc: None
-g._expiry("item-b", today="2026-10-21")
+fresh()
+g._expiry("item-b")
 assert g.notices() == "", "期限が遠いのに注記を出した"
-# 認証の失敗は、形の違い(reader-shape)でなく読めなかった物として、書き手に訳を言う
-os.environ["COLDREAD_READER_CMD"] = "cat >/dev/null; echo 'Failed to authenticate: OAuth session expired and could not be refreshed'"
+# 認証の失敗(終了コード 0 の短い 1 行)は、形の違い(reader-shape)でなく読めなかった物として、書き手に訳を言う
+reply(0, "Failed to authenticate: OAuth session expired and could not be refreshed")
 try:
-    g.run_reader("p", g.reader_schema(g.COLD_KINDS))
+    g.read_doc("本文")
     raise AssertionError("認証の失敗の 1 行を答えとして読んだ")
 except g.ReaderAuth as exc:
     assert not isinstance(exc, g.ReaderShape) and "認証が切れたか使用枠が尽きた" in g._down_reason(exc), g._down_reason(exc)
+# 0 以外で終わった短い 1 行は起動の失敗のまま(認証と決めつけない)
+reply(2, "error: unknown option '--json-schema'")
+try:
+    g.read_doc("本文")
+    raise AssertionError("起動の失敗を答えとして読んだ")
+except g.ReaderAuth:
+    raise AssertionError("0 以外で終わった起動の失敗を認証の失敗と言った")
+except RuntimeError:
+    pass
 print("AUTH_EXPIRY_OK")
 PY
 # structured_output の無い答え(--json-schema の効かない版の claude)と、text の空の指摘も指摘ゼロと読まない
