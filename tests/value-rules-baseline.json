@@ -260,20 +260,11 @@
  "works-dispatch/dispatch/dispatch.py": {
   "rule4": 1
  },
- "works-dispatch/dispatch/health.py": {
-  "rule4": 5
- },
  "works-dispatch/dispatch/landing.py": {
   "rule4": 1
  },
- "works-dispatch/dispatch/limits.py": {
-  "rule4": 2
- },
  "works-dispatch/dispatch/move.py": {
   "rule4": 1
- },
- "works-dispatch/dispatch/nodes/clean.py": {
-  "rule4": 2
  },
  "works-dispatch/dispatch/nodes/deliver.py": {
   "rule3": 15,
@@ -281,9 +272,6 @@
  },
  "works-dispatch/dispatch/nodes/tools.py": {
   "rule4": 1
- },
- "works-dispatch/dispatch/nodes/wake.py": {
-  "rule4": 7
  },
  "works-dispatch/dispatch/orders.py": {
   "rule3": 1,
@@ -305,6 +293,9 @@
   "rule3": 2
  },
  "works-dispatch/dispatch/tests/test_dispatch.py": {
+  "rule3": 2
+ },
+ "works-dispatch/dispatch/tests/test_health.py": {
   "rule3": 2
  },
  "works-dispatch/dispatch/tests/test_limits.py": {

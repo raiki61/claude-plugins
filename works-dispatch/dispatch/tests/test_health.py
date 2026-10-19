@@ -57,6 +57,18 @@ class Background(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertFalse(old.with_suffix(".done").exists())
 
+    def test_unreadable_folders_and_outputs_that_cannot_be_removed_are_shown(self):
+        # 読めない・消せないを「何も無かった」にしない（docs/standards/machine-readable-values.md の決まり 4）
+        touch(self.inbox / "takes", "置き場でなくファイル")
+        old = touch(self.inbox / "moves" / f"co-{NOW - (health.KEEP_DAYS * 86400 + 1)}.log", "出力")
+        old.with_suffix(".done").mkdir()   # ファイルとして消せない
+        notes = health.background(str(self.inbox), NOW)
+        self.assertEqual(len(notes), 2, notes)
+        self.assertTrue(any("takes" in n and "読めない" in n for n in notes), notes)
+        self.assertTrue(any(".done" in n and "消せない" in n for n in notes), notes)
+        self.assertTrue(old.exists())   # .done を消せなければ .log も残し、次に読むときもまた出す
+        self.assertEqual(len(health.background(str(self.inbox), NOW)), 2)
+
 
 class Queue(unittest.TestCase):
     def setUp(self):

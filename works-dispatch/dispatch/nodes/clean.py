@@ -233,7 +233,10 @@ def kept_entries(kept):
         p = os.path.join(kept, n)
         try:
             got.append((os.stat(p).st_mtime, p))
-        except OSError:
+        except FileNotFoundError:
+            continue   # 並べた後に消えた（ほかの片付けが先に消した）
+        except OSError as e:
+            filex.warn(f"注記: 写しの置き場の {p} の時刻を読めない（{e}）。古さで消すかと --tree の古い物の数から外した")
             continue
     return sorted(got)
 
@@ -244,7 +247,10 @@ def _tree_size(path):
         for f in files:
             try:
                 total += os.lstat(os.path.join(top, f)).st_size
-            except OSError:
+            except FileNotFoundError:
+                continue   # 歩く間に消えた（消えた物は大きさに入れない）
+            except OSError as e:
+                filex.warn(f"注記: {os.path.join(top, f)} の大きさを読めない（{e}）。写しの大きさの合計から外した")
                 continue
     return total
 

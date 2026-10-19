@@ -452,3 +452,7 @@ class Breakage(unittest.TestCase):
         self.assertEqual(limits.entry_drift(self.dir), [])
         entry.write_text("# 前の版\n", encoding="utf-8")
         self.assertEqual(limits.entry_drift(self.dir), ["limits-entry.py"])
+        entry.unlink()
+        entry.mkdir()   # 読めない写しは、違うと言わずに黙らない
+        self.assertEqual(len(limits.entry_drift(self.dir)), 1)
+        self.assertIn("limits-entry.py（読めない", limits.entry_drift(self.dir)[0])

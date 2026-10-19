@@ -19,6 +19,7 @@ docs/standards/breakage-detection.md）。
   いなければ出す（--due は頼みと納品が流れたときにしか打たれない）。
 """
 
+import errno
 import os
 
 import filex
@@ -62,10 +63,14 @@ def _tail(path, n=160):
 
 
 def _remove(path):
+    """消せなければその注記の文（消せたか、もう無ければ None）。"""
     try:
         os.unlink(path)
-    except OSError:
-        pass
+    except FileNotFoundError:
+        pass   # もう無い（.done を書かない走らせ方の .log だけの跡か、ほかの --tree が先に消した）
+    except OSError as e:
+        return f"古い裏の処理の出力 {path} を消せない（{e.strerror or e}）。中を見て要らなければ消す"
+    return None
 
 
 def background(inbox, now):
@@ -75,7 +80,10 @@ def background(inbox, now):
         d = os.path.join(inbox, kind)
         try:
             names = sorted(n for n in os.listdir(d) if n.endswith(".log"))
-        except OSError:
+        except FileNotFoundError:
+            continue   # この種類の裏の処理はまだ走っていない（置き場は走らせるときに作る）
+        except OSError as e:
+            out.append(f"裏の処理の置き場 {d} を読めない（{e.strerror or e}）。この置き場の失敗と止まった物は出ない")
             continue
         for n in names:
             log = os.path.join(d, n)
@@ -84,12 +92,17 @@ def background(inbox, now):
             if at is None:
                 try:
                     at = os.stat(log).st_mtime
-                except OSError:
+                except FileNotFoundError:
+                    continue   # 並べた後に消えた（ほかの --tree が古い物として先に消した）
+                except OSError as e:
+                    out.append(f"裏の処理の出力 {kind}/{n} を読めない（{e.strerror or e}）。終わり方が分からない")
                     continue
             age = now - at
             if age > KEEP_DAYS * 86400:
-                _remove(log)
-                _remove(done)
+                # .done を先に消し、消せなければ .log も残す（並べるのは .log なので、先に .log を消すと残った .done を二度と見ない）
+                note = _remove(done) or _remove(log)
+                if note:
+                    out.append(note)
                 continue
             if age > RECENT_HOURS * 3600:
                 continue
@@ -122,8 +135,9 @@ def stale_queue(inbox, now):
             try:
                 if now - os.stat(d).st_mtime > EMPTY_DAYS * 86400:
                     os.rmdir(d)   # 空でなければ OS が断る（読んだ後に積まれた物は消さない）
-            except OSError:
-                pass
+            except OSError as e:
+                if e.errno not in (errno.ENOENT, errno.ENOTEMPTY, errno.EEXIST):   # ほかが先に消したか、読んだ後に積まれた: 消さなくてよい
+                    out.append(f"空の順番待ちの置き場 {d} を消せない（{e.strerror or e}）。中を見て要らなければ消す")
             continue
         oldest = min(items, key=lambda q: _mtime(q["path"]))
         age = now - _mtime(oldest["path"])
@@ -146,7 +160,10 @@ def growth(inbox):
     for name in LEDGERS:
         try:
             size = os.path.getsize(os.path.join(inbox, name))
-        except OSError:
+        except FileNotFoundError:
+            continue   # まだ 1 行も書いていない台帳
+        except OSError as e:
+            out.append(f"受付箱の {name} の大きさを読めない（{e.strerror or e}）。上限を超えたかが分からない")
             continue
         if size > LEDGER_LIMIT:
             out.append(f"受付箱の {name} が {size // (1024 * 1024)} MiB（上限の目安 {LEDGER_LIMIT // (1024 * 1024)} MiB）。"

@@ -169,7 +169,7 @@ def alive(mark, now=None, posix=os.name != "nt", starts=None):
         try:
             os.kill(owner, 0)
         except PermissionError:
-            pass
+            pass   # 処理は在り、別の利用者の物（生きている）
         except OSError:
             return False
         since = mark.get("since")
@@ -240,7 +240,7 @@ def release(inbox, place, token):
             try:
                 os.unlink(mark_path(inbox, place))
             except OSError:
-                pass
+                pass   # 残った印は、会話が終われば送る側が待ち受けを探すとき（listening）の _drop_dead が消し、会話が生きていれば次の待ち受けが書き直す（claim）
 
 
 def _living(inbox, now, posix, starts=None):
@@ -262,7 +262,10 @@ def _living(inbox, now, posix, starts=None):
             mtime = os.stat(path).st_mtime
             with open(path, encoding="utf-8") as f:
                 got = json.load(f)
-        except (OSError, ValueError):
+        except FileNotFoundError:
+            continue   # 並べた後に消えた（印は差し替えで書く _replace なので、書きかけは無い）
+        except (OSError, ValueError) as e:
+            filex.warn(f"注記: 待ち受けの印 {path} が読めない（{e}）。居ない待ち受けとした。直すか、要らなければ消す")
             continue
         if not isinstance(got, dict):
             continue
@@ -281,7 +284,7 @@ def _drop_dead(path, token):
             if isinstance(again, dict) and again.get("token") == token:
                 os.unlink(path)   # 閉じてから消す（Windows は開いたファイルを消せない）
     except (OSError, ValueError):
-        pass
+        pass   # 先に消えたか消せない。死んだ会話の印は alive が死んだとし続けるので、次の掃除でまた消す
 
 
 def listening(inbox, to, now=None, posix=os.name != "nt"):
@@ -427,7 +430,7 @@ def _bad_news(inbox, place, log, bad):
             if f.read().strip() == at:
                 return ""
     except OSError:
-        pass
+        pass   # 覚えが無いか読めない: まだ知らせていないとして知らせる（黙る側に倒さない）
     _replace(bad_path(inbox, place), at)
     return ("works-dispatch の待ち受け: " + filex.bad_text(log, bad)
             + "。直すまで、この行より後の知らせはこの会話に渡らない")
@@ -487,7 +490,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
                 try:
                     os.utime(mark_path(inbox, place))
                 except OSError:
-                    pass
+                    pass   # 印が消えたか触れない（消えていれば次の周の read_mark が見て抜ける）
                 beat = now()
             pause(POLL)
             continue
@@ -524,7 +527,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             try:
                 os.utime(mark_path(inbox, place))
             except OSError:
-                pass
+                pass   # 印が消えたか触れない（消えていれば次の周の read_mark が見て抜ける）
             beat = now()
         pause(POLL)
 

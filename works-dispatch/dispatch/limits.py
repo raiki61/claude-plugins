@@ -476,7 +476,7 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=Fal
         try:
             failed.unlink()
         except FileNotFoundError:
-            pass
+            pass   # 前の回も失敗していない（失敗の印が無い）
 
 
 def write_snapshot(path, accounts, limits_dir):
@@ -545,8 +545,10 @@ def entry_drift(limits_dir):
         try:
             if (d / name).read_text(encoding="utf-8") != src.read_text(encoding="utf-8"):
                 out.append(name)
-        except OSError:
-            continue
+        except FileNotFoundError:
+            continue   # 写していない（herdr-config を打っていない）。元（このプラグインの中）が無ければ、写す copy_entry が先に落ちる
+        except OSError as e:
+            out.append(f"{name}（読めない: {e.strerror or e}）")
     return out
 
 
