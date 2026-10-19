@@ -163,6 +163,11 @@ class Holders(unittest.TestCase):
         self.assertIn("閉じの +++", deliver.front("+++\nopen = []\n## 結論")[2][0])
         self.assertIn("TOML として読めない", deliver.front("+++\nopen = [\n+++\n")[2][0])
         self.assertEqual(deliver.front_problems({"open": [], "title": "t"}, deliver.ASK_FIELDS), [])
+        # 頼みの種類（type）は task か question だけ。省けば task（受付 5e6029）
+        self.assertEqual(deliver.front_problems({"title": "t", "type": "question"}, deliver.ASK_FIELDS), [])
+        self.assertIn("type は task・question", deliver.front_problems({"title": "t", "type": "notice"}, deliver.ASK_FIELDS)[0])
+        self.assertIn("type は task・question", deliver.front_problems({"title": "t", "type": ["question"]}, deliver.ASK_FIELDS)[0])
+        self.assertEqual((deliver.ask_type_of({}), deliver.ask_type_of({"type": "question"})), ("task", "question"))
         bad = deliver.front_problems({"title": "t", "holders": 1, "open": [{"question": "", "who": "x", "holder": 3}]},
                                      deliver.DELIVER_FIELDS)
         self.assertEqual(len(bad), 5, bad)   # 納品に title は無い・知らないフィールド holders・件の知らないフィールド who・空の question・文字列でない holder
@@ -1245,18 +1250,19 @@ class Flow(unittest.TestCase):
     def test_an_ask_runs_the_check_of_the_receiving_role_at_the_receiving_company(self):
         # 受ける会社の決まりで、ほかの会社から届く頼みも止める（242baa）。ゲートは受ける会社の代表の clone で走り、本文を JSON で受ける
         script = pathlib.Path(self.src, "gate.py")
+        # 問いだけを受ける役のゲートは、文の語でなく頭書きの type（JSON の type。省けば task）で見分けられる（受付 5e6029）
         script.write_text("import json,sys,os\nd=json.load(sys.stdin)\nopen('seen.txt','w').write(os.getcwd())\n"
-                          "sys.exit(1 if '知らせ' in d['body'] or not d.get('version') else 0)\n", encoding="utf-8")
+                          "sys.exit(1 if d['type'] != 'question' or not d.get('version') else 0)\n", encoding="utf-8")
         self.shape(f'[[roles]]\nname = "調べ役"\nask_check = {json.dumps(pathlib.Path(sys.executable).as_posix() + " gate.py")}\n')
         git("-C", self.src, "add", "gate.py")
         git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "gate")
         git("-C", self.src, "push", "-q", "origin", "HEAD:main")
         git("-C", self.src, "fetch", "-q", "origin")
         script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")   # 作業ツリーの物でなく、origin の既定のブランチの物が走る
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "知らせです", "--dry-run")
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "Question: which one?", "--dry-run")
         self.assertEqual(rc, 2, out)
         self.assertIn("のゲート（役「調べ役」の ask_check", out)
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "問いです", "--dry-run")
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", '+++\ntitle = "Which one?"\ntype = "question"\n+++\nA or B', "--dry-run")
         self.assertEqual(rc, 0, out)
 
     def test_deliver_outside_a_department_stops(self):

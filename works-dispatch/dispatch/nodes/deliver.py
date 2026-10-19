@@ -325,7 +325,12 @@ FRONT = "+++"
 OWNER_KEYS = {"owner:choose": "持ち主（価値で選ぶ）", "owner:confirm": "持ち主（確認してからやる）"}   # 担当者の持ち主の値 → 見せる字
 ASK_ID_RE = re.compile(r"\b\d{8}-\d{6}-[0-9a-f]{6}\b")
 ASK_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
-ASK_FIELDS = ("title", "open")     # 頼みの頭書きのフィールド
+ASK_FIELDS = ("title", "type", "open")     # 頼みの頭書きのフィールド
+# 頼みの種類（頭書きの type）→ 見せる字。省けば task。受ける会社のゲート（役の ask_check）に JSON の type で渡し、問いだけを受ける役
+# （my_notes の社長室の役「相談」など）は文の語でなくこの値で見分ける（言語で崩れない。Zendesk の ticket の type の question・task と同じ値の名前。
+# 受付 5e6029）
+ASK_TYPES = {"task": "仕事を頼む", "question": "答えか判断を求める問い"}
+ASK_TYPE = "task"
 DELIVER_FIELDS = ("open",)         # 納品の頭書きのフィールド
 QUESTION_FIELDS = ("question", "holder")
 
@@ -352,6 +357,8 @@ def front_problems(data, fields):
     out = [f"頭書きに知らないフィールド「{k}」がある（使えるフィールド: {'・'.join(fields)}）" for k in data if k not in fields]
     if "title" in data and not (isinstance(data["title"], str) and data["title"].strip() and "\n" not in data["title"].strip()):
         out.append("頭書きの title は 1 行の空でない文字列にする")
+    if "type" in data and "type" in fields and not (isinstance(data["type"], str) and data["type"] in ASK_TYPES):   # 並びや表は dict を引けない
+        out.append(f"頭書きの type は {'・'.join(ASK_TYPES)} のどれかにする（省けば {ASK_TYPE}）")
     if "open" in data:
         qs = data["open"]
         if not isinstance(qs, list) or not all(isinstance(q, dict) for q in qs):
@@ -364,6 +371,11 @@ def front_problems(data, fields):
                 if "holder" in q and not isinstance(q["holder"], str):
                     out.append(f"頭書きの open の {n} 件目の holder は文字列にする")
     return out
+
+
+def ask_type_of(data):
+    """頼みの頭書き（front の dict）の種類（ASK_TYPES のキー）。省いていれば ASK_TYPE。形は front_problems が先に確かめる。"""
+    return data.get("type", ASK_TYPE)
 
 
 def holder_problems(questions, relays=(), requester=None):
@@ -388,7 +400,9 @@ _OPEN_EXAMPLE = ('[[open]]\n'
                  'question = "…を決める"\n'
                  'holder = "20261018-120448-b6778d"   # 受付番号（--ask で回した頼み）・owner:choose・owner:confirm・頼み元の名前のどれか\n')
 ASK_FORMAT = ("- 頼みの本文の書き方（1 行目と閉じの行が +++ の TOML の頭書きに機械が読むフィールド、その下に本文）:\n"
-              "+++\ntitle = \"一覧に出す題（1 行）\"\n# 宛先の役が問いを受ける役なら、残った疑問をここに:\n" + _OPEN_EXAMPLE
+              "+++\ntitle = \"一覧に出す題（1 行）\"\n"
+              + f"type = \"{ASK_TYPE}\"   # 頼みの種類: " + "・".join(f"{k}（{v}）" for k, v in ASK_TYPES.items())
+              + f"。省けば {ASK_TYPE}\n# 宛先の役が問いを受ける役なら、残った疑問をここに:\n" + _OPEN_EXAMPLE
               + "+++\n## 困りごと\n…")
 DELIVER_FORMAT = ("- 要約の書き方（1 行目と閉じの行が +++ の TOML の頭書きに残った疑問、その下に見出しで項目。見出しは決まった項目の外も"
                   "そのまま送る）:\n+++\n" + _OPEN_EXAMPLE + "# 疑問が無ければ [[open]] の代わりに open = []\n+++\n## 結論\n…\n## 決め手\n… https://…")

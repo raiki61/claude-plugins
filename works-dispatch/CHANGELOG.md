@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- 頼み（`--ask`）の本文の頭書き（1 行目と閉じの行が `+++` の TOML）に、頼みの種類のフィールド `type` を足した。値は `task`（仕事を頼む。省けばこれ）か `question`（答えか判断を求める問い）で、ほかの値なら `--ask` は送らずに止まる。受ける会社（頼みを受ける部署の組）の検査のコマンド（会社の形〔会社ごとの部署と役の設定〕 `.claude/company.toml` の役の `ask_check`）には、この値を標準入力の JSON のいちばん上のキー `type` で渡す（省いた頼みは `"task"`）。my_notes（持ち主のメモのリポジトリ）の社長室（持ち主への中継の部署）への頼みの検査は、本文に「問い」の語が在るかを日本語の正規表現で見ていて、英語で書いた問いを止めていた。種類を表すフィールドが頭書きに無く、0.88.1 までの works-dispatch は頭書きの知らないフィールドを止めるので、my_notes の側だけではフィールドを足せなかった（my_notes の受付箱の頼み 5e6029）。my_notes の検査をこの値を読む形に替えるのは、my_notes の側の直し。値の名前は Zendesk の ticket の `type`（https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/ ）の `question`・`task` に合わせた。
+
 ## [0.89.0] - 2026-10-19
 
 ### Added

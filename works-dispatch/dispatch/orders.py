@@ -459,7 +459,8 @@ def _ask(a, ports, cwd, task, sent):
         try:
             with tools.place(company["root"], ports.git) as (here, said):
                 code, out = deliver.gate(check, here, {"to": a.ask, "role": role, "body": body, "ask": ask_id,
-                                                       "from": chat.session_of(ports.env), "version": own_version()},
+                                                       "type": deliver.ask_type_of(data), "from": chat.session_of(ports.env),
+                                                       "version": own_version()},
                                          subprocess.run)
         except (gitx.GitError, OSError) as e:
             code, out, said = 1, str(e), None

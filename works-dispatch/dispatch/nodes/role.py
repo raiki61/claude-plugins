@@ -23,7 +23,7 @@
   owner:confirm・頼み元の名前（並びの名前を除く）だけ（部署の名前は --todo が追えない）。残った疑問の外の項目の「要確認」も止める。
   欠けていれば送らない（deliver ノードの holder_problems。my_notes の tools/deliver_check.py から移した）。
 - ask_check: この役へ宛てた --ask のゲートのコマンド（シェルの字）。頼む会話がどの会社に居ても、--ask が受ける会社の origin の既定のブランチの
-  中身（一時の worktree）で走らせ、JSON（to・role・body・ask・from・version〔works-dispatch の版〕）を標準入力に渡す。0 以外で終われば頼まない。止める中身は受ける会社の側のスクリプトが持つ。
+  中身（一時の worktree）で走らせ、JSON（to・role・body・ask・type〔頼みの頭書きの type。省けば task〕・from・version〔works-dispatch の版〕）を標準入力に渡す。0 以外で終われば頼まない。止める中身は受ける会社の側のスクリプトが持つ。
   --dry-run（試し打ち）でも走る（通るかを試しで見られるように）（deliver_check の頼みの側。例 my_notes の社長室あての返事の要らない知らせを止める tools/no_notice.py --ask-check）
 - ask_holders: holders と同じ形で、この役へ宛てた --ask の本文の頭書きに [[open]] が在れば、同じ検査を掛ける（頼み元の名前は頼む側の
   名前に読み替える。問いを受ける相談の役に書く）
