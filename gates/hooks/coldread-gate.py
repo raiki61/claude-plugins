@@ -7,6 +7,7 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 初見で読ませ、理解を妨げた「詰まり」が出たら deny の理由にその指摘を載せて止める。
 「疑問」(理解はできたが答えが本文に無いもの)は止めずに申し送る——疑問ゼロの文章は
 ほぼ書けず、疑問で止めるとゲートが厳しすぎて逃げ道が常態化するため。
+works-dispatch の dispatch.py がほかの会話へ送る本文(納品の要約・頼みの文)も、同じく送る前に読む(DISPATCH_BODY_FLAGS の上の注記)。
 
 検査の実行を書き手(モデル)の申告に頼らないので、「検査した印だけ押して通す」穴が
 構造的に無い(自動の振る舞いはフックが実行する、の原則)。再実行のたびに新しい
@@ -301,6 +302,23 @@ BODY_FLAG_RE = re.compile(
 # 短縮形(-b/-c/-n/-F)は入れない。git checkout -b 等と綴りが衝突して誤検知が増え、計器が濁るため。
 # 当てるのはヒアドキュメントを印に置き換え、行継続を畳んだ後の語なので、本文の中の綴りは数えない。
 # 短縮形を数えないことが、この計器が下限しか出さないことの内訳で、押し出しの量は「これ以上」としてしか読めない。
+
+
+# works-dispatch(このリポジトリのプラグイン。部署に頼みを配り、部署が納品を返す)の送るコマンドも、gh の投稿と同じく
+# 送る前に読む。--deliver(納品の要約を頼み元へ返す)と、--text・--brief(--ask・--note・--task の頼みの文)は、打ったら
+# ほかの会話へ届き、届いた物は直せない。前は手元の文書の読み(docs-check)がターンの終わり、つまり送った後に要約の
+# ファイルを読み、直せない指摘を出していた(2026-10-19、受付 5bb988)。旗の綴りは works-dispatch/dispatch/dispatch.py の
+# argparse。argparse は長い旗の頭だけの綴り(--deli)も受けるので、ここに在る旗の 1 つにだけ合う頭もその旗と見る
+# (ほかの旗にも合う頭は argparse が「あいまい」で止めるので、どちらに倒しても送られない)。
+DISPATCH_BODY_FLAGS = {"--deliver": "file", "--text": "text", "--brief": "file"}
+DISPATCH_SCRIPT = "dispatch.py"
+DISPATCH_SUB = "works-dispatch"   # Analysis.calls のサブコマンドの頭(gh のサブコマンドと分ける。destgate は宛先を問わない)
+# dispatch.py を引数に取って走らせるコマンド名(`git add …/dispatch.py` のような、名前を書くだけのコマンドと分ける)。
+# この名前で始まるコマンドは、間に旗(python3 -X utf8・run-python.sh --min 3.11)が在っても dispatch.py の語まで探す
+INTERPRETER_RE = re.compile(r"(?:python[0-9.]*|py|bash|sh|run-python\.sh)(?:\.exe)?\Z")
+DRY_RUN = "--dry-run"   # dispatch.py の送らない試し(頭だけの綴り --dr も argparse は受ける。--d・--du は別の旗と分けられない)
+# 前段の粗選別。gh か dispatch.py の語が無いコマンドは解析しない
+SEND_WORD_RE = re.compile(r"\bgh\b|\bdispatch\.py\b")
 
 
 HEREDOC_MARK = "__HEREDOC%d__"
@@ -606,6 +624,21 @@ def gh_args(tokens):
     return None
 
 
+def dispatch_args(tokens):
+    """単純コマンド 1 件が works-dispatch の dispatch.py を走らせるなら (dispatch.py より前の語, 後の語)、違えば None。
+
+    走らせ方は `python3 <パス>/dispatch.py …` と、スキルが書く `bash <パス>/run-python.sh <パス>/dispatch.py …` の 2 つ。
+    """
+    i = command_start(tokens)
+    base = [re.split(r"[\\/]", t)[-1] for t in tokens[i:]]
+    if not base or not (base[0] == DISPATCH_SCRIPT or INTERPRETER_RE.match(base[0])):
+        return None
+    for j, name in enumerate(base):
+        if name == DISPATCH_SCRIPT:
+            return tokens[:i + j], tokens[i + j + 1:]
+    return None
+
+
 def subcommand(args):
     """引数列の先頭の位置引数(最大 2 語)。旗の意味が api 系かどうかで変わるため先に確定する。
 
@@ -642,34 +675,13 @@ def subcommand(args):
     return tuple(words)
 
 
-def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_variable=True):
-    """gh の引数列から (本文候補, 検査できない本文の説明) を返す。
+def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
+    """本文旗の値を判定して積む口 → (本文候補, 検査できない本文の説明, add, read_file)。
 
-    ctx(BodyFiles)が有れば、本文ファイル・変数で書いた値を同じコマンドの中で静的に解いて読む。無ければ
-    (destgate のように投稿かどうかだけを見る呼び手)、ファイルと変数は今までどおり検査できない側に倒す。
-    live_variable はコマンドの中に展開される $名前 が在るか(無ければ本文の中の $ は字のまま)。
+    gh の引数列(classify)と works-dispatch の送るコマンド(classify_dispatch)が同じ口で積む——ファイル・変数・
+    標準入力の倒れ方を 2 か所に書くと、片方だけ外れる。引数の意味は classify と同じ。
     """
-    heredoc_bodies = own_heredocs(args, heredoc_bodies)
-    # 倒れ先はすべて blocked.append に集める。テスト側が理由の一覧を実装から機械で読み、
-    # 一つずつ実際に発火させて突合するため、ここだけは別経路(return の直書き)を作らない。
-    # 縛れるのは倒れ先だけで、候補(candidates)側の網羅は機械では言えない——抽出した文字列が
-    # 本文かどうかは判定できないので、候補を足す経路は人が読んで守る。
     candidates, blocked = [], []
-    if any(t in HELP_FLAGS for t in (args[:args.index("--")] if "--" in args else args)):
-        # --help・-h・--version は旗がどこに在っても gh が案内を出して終わる(投稿しない)。短いコマンドを解析の前に
-        # 通していた頃は `gh --version` も通っていたので、ここで止めると逆戻りになる
-        return candidates, blocked
-    sub = subcommand(args)
-    if sub is None:
-        # サブコマンドが読めない以上、本文を運ぶ旗があるかも判らない。素通しにすると
-        # 「読めなかった」が「投稿でない」に化けるので、検査できない側に倒す。
-        blocked.append("サブコマンドを特定できない")
-        return candidates, blocked
-    if sub in NON_POSTING:
-        return candidates, blocked  # 投稿でないので本文検出も検査もしない
-    is_api = sub[:1] == ("api",)
-    is_graphql = sub == ("api", "graphql")
-    gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る
 
     def file_failed(why):
         """本文ファイルを読まなかった理由を blocked へ積む(理由ごとに直し方が違うので語を分ける)。"""
@@ -767,6 +779,78 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         if not not_body and len(candidates) + len(blocked) == mark:
             # 引き金は 2 つ: 表に知らない種別が足された・分岐が倒れ先を書き忘れた。
             blocked.append("本文旗の値を判定できない")
+
+    return candidates, blocked, add, read_file
+
+
+def dispatch_flag(tok):
+    """dispatch.py の引数の語 1 つ → (本文を運ぶ旗の正しい綴り, = の後の値か None)。本文の旗でなければ (None, None)。"""
+    if not tok.startswith("--") or tok == "--":
+        return None, None
+    name, val = tok.split("=", 1) if "=" in tok else (tok, None)
+    hits = [f for f in DISPATCH_BODY_FLAGS if f.startswith(name)]
+    return (hits[0], val) if len(hits) == 1 else (None, None)
+
+
+def dispatch_mode(args):
+    """dispatch.py の引数列から、何を送るか("deliver"・"ask"・"note"・"task" と宛先)。log と前の回の記録の鍵に使う。"""
+    for i, tok in enumerate(args):
+        name, val = tok.split("=", 1) if "=" in tok else (tok, None)
+        for mode in ("--deliver", "--ask", "--note", "--task"):
+            if len(name) > 3 and mode.startswith(name):
+                where = val if val is not None else (args[i + 1] if i + 1 < len(args) else "")
+                return (DISPATCH_SUB, mode[2:], os.path.basename(where) if mode == "--deliver" else where)
+    return (DISPATCH_SUB,)
+
+
+def classify_dispatch(args, heredoc_bodies, live_substitution=False, ctx=None, live_variable=True):
+    """works-dispatch の dispatch.py の引数列から (本文候補, 検査できない本文の説明) を返す。引数の意味は classify と同じ。"""
+    heredoc_bodies = own_heredocs(args, heredoc_bodies)
+    candidates, blocked, add, _ = _body_sink(heredoc_bodies, live_substitution, ctx, live_variable)
+    if "--" in args:
+        args = args[:args.index("--")]   # argparse は -- より後を旗と読まない
+    if any(t in ("--help", "-h") or (len(t) > 3 and DRY_RUN.startswith(t)) for t in args):
+        return candidates, blocked   # argparse が案内を出して終わるか、送らずに並べるだけ
+    i = 0
+    while i < len(args):
+        flag, val = dispatch_flag(args[i])
+        if flag:
+            if val is None and i + 1 < len(args):
+                i += 1
+                val = args[i]
+            add(DISPATCH_BODY_FLAGS[flag], val or "")
+        i += 1
+    return candidates, blocked
+
+
+def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_variable=True):
+    """gh の引数列から (本文候補, 検査できない本文の説明) を返す。
+
+    ctx(BodyFiles)が有れば、本文ファイル・変数で書いた値を同じコマンドの中で静的に解いて読む。無ければ
+    (destgate のように投稿かどうかだけを見る呼び手)、ファイルと変数は今までどおり検査できない側に倒す。
+    live_variable はコマンドの中に展開される $名前 が在るか(無ければ本文の中の $ は字のまま)。
+    """
+    heredoc_bodies = own_heredocs(args, heredoc_bodies)
+    # 倒れ先はすべて blocked.append に集める。テスト側が理由の一覧を実装から機械で読み、
+    # 一つずつ実際に発火させて突合するため、ここだけは別経路(return の直書き)を作らない。
+    # 縛れるのは倒れ先だけで、候補(candidates)側の網羅は機械では言えない——抽出した文字列が
+    # 本文かどうかは判定できないので、候補を足す経路は人が読んで守る。
+    candidates, blocked, add, read_file = _body_sink(heredoc_bodies, live_substitution, ctx, live_variable)
+    if any(t in HELP_FLAGS for t in (args[:args.index("--")] if "--" in args else args)):
+        # --help・-h・--version は旗がどこに在っても gh が案内を出して終わる(投稿しない)。短いコマンドを解析の前に
+        # 通していた頃は `gh --version` も通っていたので、ここで止めると逆戻りになる
+        return candidates, blocked
+    sub = subcommand(args)
+    if sub is None:
+        # サブコマンドが読めない以上、本文を運ぶ旗があるかも判らない。素通しにすると
+        # 「読めなかった」が「投稿でない」に化けるので、検査できない側に倒す。
+        blocked.append("サブコマンドを特定できない")
+        return candidates, blocked
+    if sub in NON_POSTING:
+        return candidates, blocked  # 投稿でないので本文検出も検査もしない
+    is_api = sub[:1] == ("api",)
+    is_graphql = sub == ("api", "graphql")
+    gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る
 
     i, n, seen_ddash = 0, len(args), False
     while i < n:
@@ -1271,8 +1355,9 @@ def read_body_file(path):
 
 
 class Analysis:
-    """コマンド 1 本の解析の結果。calls は gh 呼び出しごとの (サブコマンド, 引数列, 本文候補, 止めた理由, cwd)。
-    cwd はその gh が走る場所(前の cd を読んだもの。決まらなければ None)。"""
+    """コマンド 1 本の解析の結果。calls は gh と works-dispatch の dispatch.py の呼び出しごとの
+    (サブコマンド, 引数列, 本文候補, 止めた理由, cwd)。dispatch.py のサブコマンドは dispatch_mode の形(頭が DISPATCH_SUB)。
+    cwd はその呼び出しが走る場所(前の cd を読んだもの。決まらなければ None)。"""
 
     def __init__(self, parsed, candidates=(), blocked=(), calls=(), misses=()):
         self.parsed, self.candidates, self.blocked = parsed, list(candidates), list(blocked)
@@ -1317,11 +1402,18 @@ def analyze(command, cwd=None):
     out = Analysis(True)
     for k, c in enumerate(cmds):
         args = gh_args(c.args)
+        sent = dispatch_args(c.args) if args is None else None
         cands, blk, sub = [], [], None
         if args is not None:
             here = files.at(k, c.args[:len(c.args) - len(args) - 1])
             cands, blk = classify(args, heredoc_bodies, live, here, live_var)
             sub = subcommand(args)
+        elif sent is not None:
+            here = files.at(k, sent[0])
+            args = sent[1]
+            cands, blk = classify_dispatch(args, heredoc_bodies, live, here, live_var)
+            sub = dispatch_mode(args)
+        if args is not None:
             out.calls.append((sub, args, cands, blk, here.cwd_here()))
             out.candidates.extend(cands)
             out.blocked.extend(blk)
@@ -1334,6 +1426,11 @@ def analyze(command, cwd=None):
             hit = BODY_FLAG_RE.search(joined)
             if hit and GH_WORD_RE.search(joined):
                 out.misses.append((hit.group(0), _head_word(c.args)))
+            # dispatch.py の語と本文の旗が在るのに、走らせる形と読めなかった(python3 "$D" --deliver …・sh -c "…")
+            if sent is None and DISPATCH_SCRIPT in joined:
+                flag = next((dispatch_flag(t)[0] for t in c.args if dispatch_flag(t)[0]), None)
+                if flag:
+                    out.misses.append((flag, _head_word(c.args)))
     return out
 
 
@@ -2579,7 +2676,7 @@ def main() -> None:
     # 長さで解析を飛ばさない。前は 400 字未満のコマンドを解析の前に記録も残さず通していて、本文ファイル・
     # 変数を運ぶ短い投稿(直近 14 日で 54 件)が読まれずに出た。短い定型の返信を読み役に回さないのは、
     # 取り出した本文の長さ(200 字未満は通す)で決める。
-    if not GH_WORD_RE.search(command):
+    if not SEND_WORD_RE.search(command):
         allow()
 
     skip_note = ""
@@ -2639,7 +2736,7 @@ def main() -> None:
     if not analysis.parsed:
         stop("parse-fail",
              "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
-             + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
+             + "gh か works-dispatch の dispatch.py を含むため、送るかどうか確かめられないものは通せない。\n"
              "引用を直して再実行すること。\n" + OWNER_NOTE)
 
     # 素通しの疑いは判定より前に残す(止める分岐・通す分岐のどちらに進んでも数える)。残すのは当たった旗の綴りと
@@ -2652,11 +2749,14 @@ def main() -> None:
     # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
     if analysis.blocked:
         target = analysis.target_of()[0]
+        how = (("本文は --deliver・--brief に渡すファイル(<絶対パス>。同じコマンドの中で書き換えない)か、"
+                "--text に字のまま書いた文で渡して再実行すること。\n")
+               if any(blk and sub and sub[0] == DISPATCH_SUB for sub, _, _, blk, _ in analysis.calls) else
+               ("本文はヒアドキュメント(<<'EOF' ... EOF)・本文旗(--body / --notes 等)・本文ファイル(--body-file "
+                "<絶対パス> 等。同じコマンドの中で書き換えない)のどれかで渡して再実行すること。\n"))
         stop("blocked\twhy=%s" % "・".join(sorted(set(analysis.blocked))),
              "外部投稿ゲート: この投稿は本文を取り出せない形をしている(%s)。検査できないものは通せない。\n"
-             "本文はヒアドキュメント(<<'EOF' ... EOF)・本文旗(--body / --notes 等)・本文ファイル(--body-file "
-             "<絶対パス> 等。同じコマンドの中で書き換えない)のどれかで渡して再実行すること。\n"
-             % "・".join(sorted(set(analysis.blocked))) + OWNER_NOTE)
+             % "・".join(sorted(set(analysis.blocked))) + how + OWNER_NOTE)
 
     bodies = [b for b in analysis.candidates if len(b.strip()) >= 200]
     if not bodies:
@@ -2740,6 +2840,13 @@ def main() -> None:
     if not any(found[kind] for kind in STOP_KINDS):
         record("allow\t%d\t%s" % (len(body), mode))
         drop_round(sid, target)
+        # 通した本文は、手元の文書の読み(ターンの終わりの docs-check)が同じ中身を読み直さないよう覚える。本文ファイル
+        # (納品の要約・--body-file)を送った後に読み直すと、届いた物に直せない指摘を出す(受付 5bb988)。覚えるのは
+        # docs-check と同じ文脈ゼロで全体を読んで通したときだけ(画面を添えた読みと、前の回から残った物だけで止める
+        # 回は緩い)。docs-check は改行を LF にそろえて読むので、そろえた中身も覚える
+        if mode == "cold" and round_no < CARRY_ONLY_ROUND:
+            _remember(sorted({hashlib.sha256(b.encode("utf-8")).hexdigest()
+                              for b in (body, body.replace("\r\n", "\n").replace("\r", "\n"))}))
         extra = "\n".join(filter(None, (
             SCOPE_NOTE,
             skip_note,

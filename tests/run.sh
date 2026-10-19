@@ -2374,7 +2374,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=754
+EXPECTED_CHECKS=755
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2906,6 +2906,89 @@ assert "coldread-gate.py\" read" in skill, "skill『coldread』の手で検査�
 r = subprocess.run([sys.executable, str(gate), "prompt"], capture_output=True)
 assert r.stdout.decode("utf-8") == g.COLD_PROMPT, "prompt の口が COLD_PROMPT をそのまま出していない"
 print("DOCS_GATE_OK")
+PY
+
+# works-dispatch の送るコマンド（--deliver・--ask などの本文）は、gh の投稿と同じく送る前に読む。通した本文ファイルは、
+# ターンの終わりの手元の文書の読みが読み直さない（送った後に直せない指摘を出さない。受付 5bb988）。宛先のゲートは問わない
+expect_output 0 "DISPATCH_SEND_OK" "coldread: works-dispatch の納品と頼みの本文を送る前に読み、通した本文ファイルをターンの終わりに読み直さない" \
+    "$PY_BIN" - "$ROOT" "$WORK/dispatch-send" <<'PY'
+import json, os, pathlib, shlex, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate, dest = root / "gates/hooks/coldread-gate.py", root / "gates/hooks/dest-gate.py"
+cfg, calls = work / "cfg", work / "calls"
+calls.mkdir(parents=True)
+(cfg / "destgate").mkdir(parents=True)
+(cfg / "destgate/allowlist").write_text("good/*\n", encoding="utf-8")
+
+def hook(script, payload, reader=None, *args):
+    # 会話の一時の置き場（CLAUDE_JOB_DIR）は継がない: WORK がその下に在ると、文書を一時の物として読まず、読み直さないことが空回りで緑になる。
+    # 入口は sdk-cli にする（対話の会話〔cli〕の親の Stop は、待つ口の docs-check では読まない）
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_") and k != "CLAUDE_JOB_DIR"}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_TMP_DIRS=str(work / "tmp-root"), CLAUDE_CODE_ENTRYPOINT="sdk-cli")
+    if reader:
+        e["COLDREAD_READER_CMD"] = reader
+    r = subprocess.run([sys.executable, str(script), *args], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (script.name, args, r.returncode, r.stderr.decode("utf-8", "replace"))
+    return r.stdout.decode("utf-8")
+
+def bash(command, reader, script=gate):
+    out = hook(script, {"session_id": "d1", "cwd": str(work), "tool_name": "Bash", "tool_input": {"command": command}}, reader)
+    return json.loads(out)["hookSpecificOutput"] if out else None
+
+def stub(*findings):
+    return ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; "$CR_PY" "$CR_REPLY_PY" %s'
+            % (calls, calls, " ".join(shlex.quote(f) for f in findings)))
+FIND, CLEAN = stub("stuck=『例の件』が何か分からない"), stub()
+read = lambda: len(list(calls.iterdir()))
+D = "python3 %s" % (root / "works-dispatch/dispatch/dispatch.py").as_posix()
+summary = work / "deliver.md"
+summary.write_text("+++\nopen = []\n+++\n" + "例の件を直して main に入れた。" * 30, encoding="utf-8")
+
+# 詰まりが在れば送らせない（読み手が本文ファイルの中身を読んだ）
+got = bash("%s --deliver %s" % (D, summary.as_posix()), FIND)
+assert got and got["permissionDecision"] == "deny" and "例の件" in got["permissionDecisionReason"], got
+assert read() == 1 and "例の件を直して" in (calls / "0.txt").read_text(encoding="utf-8"), "読み手に要約の本文が届いていない"
+# 直して通した要約は、ターンの終わりの手元の文書の読みが読み直さない
+summary.write_text("+++\nopen = []\n+++\n" + "受付 5bb988 の直しを main に入れた。" * 30, encoding="utf-8")
+got = bash("%s --deliver %s" % (D, summary.as_posix()), CLEAN)
+assert got and got["permissionDecision"] == "allow" and read() == 2, got
+hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(summary)}}, None, "docs-record")
+assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, FIND, "docs-check") == "" and read() == 2, \
+    "通して送った要約をターンの終わりにまた読んだ（送った後に直せない指摘が出る）"
+# 送っていない中身は今までどおり読む（上の読み直さないが、ターンの終わりの読みが止まっているせいでないことの確かめ）
+summary.write_text(summary.read_text(encoding="utf-8") + "\n送る前に書き足した。", encoding="utf-8")
+hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(summary)}}, None, "docs-record")
+assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, CLEAN, "docs-check") == "" and read() == 3, \
+    "送っていない中身をターンの終わりに読まない"
+# --ask の --text・--brief も読む。読めない形（変数）は送らせない
+ask = "%s --ask claude-plugins/点検 --text '%s'" % (D, "gh の検査の頼みの文。" * 30)
+got = bash(ask, FIND)
+assert got and got["permissionDecision"] == "deny" and read() == 4, got
+got = bash('%s --ask claude-plugins/点検 --brief %s' % (D, summary.as_posix()), CLEAN)
+assert got and got["permissionDecision"] == "allow" and read() == 5, got
+got = bash('%s --note 20261019-000000-abcdef --text "$BODY"' % D, CLEAN)
+assert got and got["permissionDecision"] == "deny" and "変数" in got["permissionDecisionReason"] and "--text" in got["permissionDecisionReason"], got
+assert bash("%s --land 点検" % D, FIND) is None and read() == 5, "本文を運ばないコマンドを読んだ"
+# 宛先の許可制（destgate）は GitHub の宛先を縛るもので、手元の会社の中で届く頼みを止めない（本文に gh の語が在っても）
+assert bash(ask, None, dest) is None, "destgate が works-dispatch の頼みを宛先不明で止めた"
+# 前の回から残った物だけで止める回（3 回目）に通した本文は、全体を読んでの合格でないので覚えず、ターンの終わりに読む
+late = work / "late.md"
+for n in range(3):
+    late.write_text("+++\nopen = []\n+++\n" + "例の件の続きを直した。" * 30 + "直し %d。" % n, encoding="utf-8")
+    got = bash("%s --deliver %s" % (D, late.as_posix()), FIND)
+assert got and got["permissionDecision"] == "allow" and read() == 8, (got, read())
+hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(late)}}, None, "docs-record")
+assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, CLEAN, "docs-check") == "" and read() == 9, \
+    "前の回から残った物だけで止める回に通した本文を、全体を読んだ扱いにした"
+# dispatch.py を走らせる形と読めないコマンド（知らない起動の口）は通るが、取りこぼしの記録に旗と先頭の語を残す
+assert bash("uv run /p/dispatch.py --deli %s" % summary.as_posix(), FIND) is None
+rows = [l.split("\t")[1:] for l in (cfg / "coldread-gate/misses.log").read_text(encoding="utf-8").splitlines()]
+assert ["--deliver", "uv"] in rows, rows
+print("DISPATCH_SEND_OK")
 PY
 
 # 待ちの一覧は読み終えてから消す: 読む口は一覧を読みかけ(<一覧>.<pid>.reading)に替えて取り、読む前に覚えた中身をそこに書き足す。

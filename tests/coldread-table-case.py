@@ -158,6 +158,12 @@ QUIET = [
     ("gh workflow run w.yml -F key=%s" % TEXT, "workflow run -F は field"),
     ("gh pr view 12 --json state # %s" % PAD, "読み取り"),
     ("gh api graphql -f query='query { repository { name } }' # %s" % PAD, "graphql の読み取り"),
+    # works-dispatch(部署に頼みを配るプラグイン)の、送らないコマンドと、dispatch.py の名前を書くだけのコマンド
+    ("python3 /p/dispatch/dispatch.py --deliver /no/such.md --help", "dispatch.py の --help"),
+    ("python3 /p/dispatch/dispatch.py --land 点検 # %s" % PAD, "dispatch.py の本文を運ばない旗"),
+    ("git add works-dispatch/dispatch/dispatch.py --text # %s" % PAD, "dispatch.py を走らせないコマンド"),
+    ("python3 /p/dispatch/dispatch.py --ask x -- --text %s" % TEXT, "dispatch.py の -- より後"),
+    ("python3 /p/dispatch/dispatch.py --deliver /no/such.md --dry", "dispatch.py の --dry-run(頭だけの綴り)"),
 ]
 
 # 本文ファイルの倒れ先を発火させる実物のファイル(一時フォルダに置き、終わりに消す)。コマンドに埋めるパスは / で区切る——
@@ -172,6 +178,26 @@ with open(BIG, "w", encoding="utf-8") as f:
     f.write("x" * (gate.MAX_LEN + 1))
 with open(LATIN, "wb") as f:
     f.write(b"\xff\xfe not utf-8 " + PAD.encode())
+
+# works-dispatch の dispatch.py の本文を運ぶ旗 1 つ = ここ 1 行(鍵は旗の綴り)。実装の DISPATCH_BODY_FLAGS と突き合わせる。
+# 走らせ方は python3 で直に書く形と、スキルが書く run-python.sh を挟む形の両方
+DISPATCH = "python3 /p/works-dispatch/dispatch/dispatch.py"
+DISPATCH_CASES = [
+    ("--deliver", "%s --deliver %s" % (DISPATCH, OK_FILE)),
+    ("--text", "bash /p/hooks/run-python.sh /p/dispatch/dispatch.py --ask claude-plugins/点検 --text %s" % TEXT),
+    ("--brief", "%s --note 20261019-000000-abcdef --brief %s" % (DISPATCH, OK_FILE)),
+]
+# 旗の頭だけの綴り・= で値を付ける形・標準入力(argparse はどれも受ける)・走らせる語と dispatch.py の間に旗が在る形・
+# dispatch.py か run-python.sh を直に打つ形
+DISPATCH_FORMS = [
+    "python3 -X utf8 /p/dispatch/dispatch.py --deliver %s" % OK_FILE,
+    "bash /p/hooks/run-python.sh --min 3.11 /p/dispatch/dispatch.py --deliver %s" % OK_FILE,
+    "./run-python.sh /p/dispatch/dispatch.py --deliver %s" % OK_FILE,
+    "/p/dispatch/dispatch.py --deliver %s" % OK_FILE,
+    "%s --deli=%s --again" % (DISPATCH, OK_FILE),
+    "%s --task t --branch b --bri %s" % (DISPATCH, OK_FILE),
+    "%s --deliver %s" % (DISPATCH, HEREDOC),
+]
 
 # 倒れ先 1 つ = ここ 1 行。実装の blocked.append の文言集合と一致することを下で検査する。
 # 「本文旗の値を判定できない」は表に知らない種別が入ったときの唯一の倒れ先なので、
@@ -202,6 +228,10 @@ BLOCKED_CASES = [
     ("graphql mutation の本文を取り出せない",
      "gh api graphql -f query='mutation($b: String!) { addComment(input:{body: $b}) { x } }' # %s" % PAD),
     ("本文旗の値を判定できない", "gh issue comment 1 %s %s" % (PATCH_FLAG, TEXT)),
+    # works-dispatch の送るコマンドも、gh と同じ口(_body_sink)で倒れる
+    ("別プロセスからの stdin 渡し", "cat /tmp/b.md | %s --deliver - # %s" % (DISPATCH, PAD)),
+    ("本文ファイルのパスが決まらない", "%s --ask x --brief rel/brief.md # %s" % (DISPATCH, PAD)),
+    ("変数・コマンド置換渡し", '%s --ask x --text "$BODY" # %s' % (DISPATCH, PAD)),
 ]
 
 failures = []
@@ -231,6 +261,7 @@ compare_keys("投稿でないサブコマンド", {key for key, _ in NON_POSTING
 compare_keys("前置ラッパー", {key for key, _ in WRAPPER_CASES}, set(gate.WRAPPERS))
 compare_keys("シェルの予約語", {key for key, _ in RESERVED_CASES}, set(gate.RESERVED))
 compare_keys("値を取る global 旗", {key for key, _ in GLOBAL_FLAG_CASES}, set(gate.GLOBAL_VALUE_FLAGS))
+compare_keys("works-dispatch の本文を運ぶ旗", {key for key, _ in DISPATCH_CASES}, set(gate.DISPATCH_BODY_FLAGS))
 
 # 取りこぼし計器(misses.log)の綴りは権威表から導出しているが、導出を手書きに戻されたら
 # 気付けるよう、表の全メンバーを計器に当てて突合する。計器が旗を知らないまま増えると、
@@ -256,7 +287,8 @@ for _key, command in FLAG_CASES:
     bodies, blocked, parsed = bodies_of(command)
     if not bodies:
         failures.append("%s: 本文を拾えていない (blocked=%s parsed=%s)" % (_key, blocked, parsed))
-for command, why in POSTING + [(c, str(k)) for k, c in WRAPPER_CASES + RESERVED_CASES]:
+for command, why in POSTING + [(c, str(k)) for k, c in WRAPPER_CASES + RESERVED_CASES + DISPATCH_CASES] + [
+        (c, "works-dispatch の形") for c in DISPATCH_FORMS]:
     bodies, blocked, parsed = bodies_of(command)
     if not bodies:
         failures.append("%s: 本文を拾えていない (blocked=%s parsed=%s)" % (why, blocked, parsed))

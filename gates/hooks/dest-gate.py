@@ -162,6 +162,8 @@ def main():
     for sub, args, candidates, blocked, cwd in analysis.calls:
         if not candidates and not blocked:
             continue  # 投稿の形をしていない
+        if sub and sub[0] == cr.DISPATCH_SUB:
+            continue  # works-dispatch の納品・頼みは手元の会社の中で届き、GitHub の宛先を持たない(本文は coldread が読む)
         dest = dest_of(args, sub, cwd, gh_repo_env)
         if dest is None:
             cr.log_line(DENY_LOG, "deny 宛先不明: " + command[:150].replace("\n", " "))

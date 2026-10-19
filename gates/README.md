@@ -22,6 +22,15 @@ runs coldreader (a reader with zero context; a headless Claude in a separate pro
 If there are "blockers" (詰まり: places that prevent understanding), it puts those findings in the deny reason and stops the post.
 "Questions" (疑問: things the reader understood but whose answer is not in the text) do not stop it; they are passed along.
 
+The same hook also reads, before they are sent, the texts that works-dispatch (the plugin in this repository that hands requests to per-task sessions and returns their results) delivers to another session:
+the summary file of `--deliver` (a result returned to the session that asked) and the request text of `--text` and `--brief` (with `--ask`, `--note`, and `--task`).
+The command it looks for starts with `dispatch.py` itself or with `python`/`py`/`bash`/`sh`/`run-python.sh` (the wrapper the works-dispatch skill writes) and has `dispatch.py` as a later word, with any flags in between (`python3 -X utf8`, `run-python.sh --min 3.11`); prefixes of these flags that argparse accepts (`--deli`) count too. `--help` and `--dry-run` send nothing and are not read.
+These texts cannot be fixed once they arrive. Before this, they were read only by the local-document check at the end of the turn (below), that is, after they had been sent,
+and its blockers could no longer be acted on (2026-10-19: 5 blockers on a summary that had already been delivered). The reader has zero context, as for new releases.
+The checks for files, variables, and stdin are the same as for `gh` (a text the hook cannot read stops the command), and destgate does not check these commands (they have no GitHub destination).
+**A text that passed a full zero-context read is remembered as read**: the local-document check at the end of the turn does not read the same content again (this also applies to `--body-file` and other body files of `gh` posts read with zero context).
+A text read with the thread or new-item screen, or passed in a round that stops only on what earlier rounds left, is not remembered, and a file changed after it was sent is read as before.
+
 The context the reader has depends on where the post goes. Replies and edits attached to an existing PR/issue thread are read with the title, number,
 file and line, the original comment, and the earlier replies all visible on the same screen, so **the hook fetches
 that screen with gh and gives it to the reader as known**. For new PRs and issues (`gh pr create`, `gh issue create`), the reader is
@@ -166,6 +175,8 @@ The following are accepted as out of scope in principle, or as forms that are st
   a long string outside the text positions (`.body` and a review's `comments[].body`), or the value of a graphql mutation's text field
   cannot be determined — all of these are stopped as "cannot be checked". However, `` ` `` and `$(` inside single quotes are not expanded, so
   they are read as part of the text (so that normal prose containing code fences is not stopped)
+- For works-dispatch, a send whose command does not start as above (`uv run …/dispatch.py`, `sh -c "python3 …/dispatch.py …"`, `dispatch.py` named through a variable) is outside the decision and passes;
+  when its simple command still has the word `dispatch.py` and a body flag, the flag and the first word go to `misses.log`, as for `gh`
 - A heredoc is treated only as the text of the simple command it is attached to. Even if another command's
   heredoc is on the same line, it is not mixed into gh's text
 - **The hook reads body files itself** (`--body-file f`, `--notes-file f`, `-F f`, `-F body=@f`, `--input f`).
