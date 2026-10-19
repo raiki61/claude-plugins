@@ -4,7 +4,7 @@
 語の一覧と見つけ方は works-dispatch/dispatch/terms.py（持ち主の CLAUDE.md の「日本語は IT 業界の定着語を使う」を守らせる辞書）。
 まだ直していないファイルがあるので、ファイルごとの件数を基準（scripts/terms-baseline.json）に控え、基準より増えたら止める。
 減ったときも、基準を書き直すまで止める（減った分をそのまま残すと、後で同じ数まで増やせてしまう。betterer の CI の回と同じ
-考え: https://phenomnomnominal.github.io/betterer/docs/running-betterer-in-ci ）。
+考え: https://phenomnomnominal.github.io/betterer/docs/running-betterer ）。
 
 見ないもの: works/ と works-factory/（誰の受け持ちでもない）、変更の記録（CHANGELOG.md）・ADR（docs/adr/）・日付の付いた記録
 （docs/specs・docs/trials などの 2026-… のファイル）と組織の改善の台帳（docs/reform/ledger.md）は当時の言葉の記録なので書き換えない、写しの部品（vendor/）、
