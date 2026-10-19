@@ -6,6 +6,8 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-19
+
 ### Added
 
 - statusline を足した（`statusline/`。使うかは利用者が決め、`tiers-statusline setup [--config-dir フォルダ ...]` で入れる）。herdr（端末を作業場とペインに分けて並べ、中の AI の会話の状態をサイドバーに見せるツール）の中では、裏の処理（`run_in_background` の Bash・Monitor・裏で立てたサブエージェント）を待つ間、画面の下に「⧖ バックグラウンド作業中 N 本」を出し、herdr が会話の状態を画面の字から見分ける判定ルールに、手元の上書き（`~/.config/herdr/agent-detection/claude.toml`）で規則を 1 つ足し、その会話を作業中に見せる。持ち主の手元の `~/.claude/statusline.sh`・`herdr-bg-hold.sh`・herdr の上書きを移した物。

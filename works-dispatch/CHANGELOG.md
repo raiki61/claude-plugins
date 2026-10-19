@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-10-19
+
 ### Changed
 
 - `dispatch.py --check`（前提を確かめるコマンド）が要るツールの足りないのを出して止まるとき、終わりの 1 行を「詳しい案内は /tiers:check（人が打つ）か tiers --tier 2（会話の Bash のツールで打つ）で見られる」にした。tiers（要るツールを段 0〜3 に分けて点検する、works-dispatch が依存として入れるプラグイン。`tiers --tier 2` は段 2 までを点検する）は、スキル `/tiers:check` の説明が全部の会話の文脈に常に載らないよう、このスキルを会話（Claude）からは呼べなくした（人は今までどおり打てる）。そこで、会話が打てる入口も添える。
