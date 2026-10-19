@@ -89,4 +89,4 @@ python3 graphloops/scripts/graphcheck.py graphloops/graphs/review-loop.json scri
 
 以下のうち「決めた」と付いた行は決着済みで、蒸し返すなら新証拠が要る（2026-09-13 の台帳の再審で、保留していた 9 件のうち 8 件がこの形で決着した——人にしか決められないものは 0 件だった）。「決めた」と付いていない行が人の判断を待っている分。いま下に載っているのは決着済みの 1 件だけで、人の判断を待っている項目はこの文書には無い。
 
-- **正本の宣言（決めた・2026-09-12）**: 散文版（`/review-loop` 等 4 本）の正本は `commands/<loop>.md`（今は `skills/<loop>/`）と `scripts/<loop>-record.py`。グラフ実行版（`/review-graph`・`/research-graph`）の正本は `graphloops/graphs/<loop>.json` で、engine と `graphcheck` が読む。両方を生かす間はズレうる——ズレは同じ対象で両方を回し、共通の検証器に通した記録の差で見る（受け入れ試験）。他の文書はこの宣言を参照して写さない。検証器が守らない規律（暴走ガードの上限・前ラウンドを渡さない・回す側は採点しない・回し直さない）は、グラフ実行版では engine が守る
+- **正本の宣言（決めた・2026-09-12）**: 散文版（`/review-loop` 等 4 本）の正本は `commands/<loop>.md`（今は `skills/<loop>/`）と `scripts/<loop>-record.py`。グラフ実行版（`/research-graph`。`/review-graph` は 2026-10-19 に消した）の正本は `graphloops/graphs/<loop>.json` で、engine と `graphcheck` が読む。両方を生かす間はズレうる——ズレは同じ対象で両方を回し、共通の検証器に通した記録の差で見る（受け入れ試験）。他の文書はこの宣言を参照して写さない。検証器が守らない規律（暴走ガードの上限・前ラウンドを渡さない・回す側は採点しない・回し直さない）は、グラフ実行版では engine が守る

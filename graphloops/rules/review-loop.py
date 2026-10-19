@@ -1984,7 +1984,7 @@ def _take_diff(b, suffix=""):
             why = "BASE を確かめよ（p0.base の base_sha）"
             if entry_opens(b):
                 why += ("。人の修正依頼から始める run なら、BASE はこのままで loop.py add --file <依頼.json> --reason <出どころ> --dir <DIR> で"
-                        "依頼を置けば判定から入る（手順書の「判定から入る（人の修正依頼）」）")
+                        "依頼を置けば判定から入る（2026-10-19 に消した /review-graph の手順書の「判定から入る（人の修正依頼）」。最後の形は https://github.com/raiki61/claude-plugins/blob/58c6d08b/graphloops/skills/review-graph/references/judgment-entry.md ）")
         return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——{why}"]}
     names, ins, dels, nfiles = numstat_totals(numstat)
     f = b.dir / f"diff-r{b.round}{suffix}.patch"

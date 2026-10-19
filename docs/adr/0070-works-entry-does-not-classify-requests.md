@@ -15,7 +15,7 @@
 
 - /works の入口は依頼を分類しない。何を直すか・どう直すかはラインの判定が単位ごとに決める。
 - description は「何をするか」と「いつ使うか」だけにし、ラインの内部の段の列は書かない（正本は darkfactory.yaml と設計の文書）。
-- [0010](0010-judgment-entry-for-fix-requests.md) の使い分け（直接直すのは誤字・コメント・文言だけ）は graphloops の review-graph の手順書に残り、works の入口には掛けない。0010 は置き換えない。
+- [0010](0010-judgment-entry-for-fix-requests.md) の使い分け（直接直すのは誤字・コメント・文言だけ）は graphloops の review-graph の手順書に残っていた（2026-10-19 に消した。最後の形は https://github.com/raiki61/claude-plugins/tree/58c6d08b/graphloops/skills/review-graph ）。works の入口には掛けない。0010 は置き換えない。
 
 ## 比べた案
 
