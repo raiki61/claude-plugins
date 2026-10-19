@@ -134,7 +134,7 @@ def refresh(env=None, force=False, run=None):
     # 動いている herdr に読み直させる。動いていなければ、次に起動したときに読む
     try:
         run(["herdr", "server", "reload-agent-manifests"], capture_output=True)
-    except OSError:
+    except OSError:   # herdr が PATH に無い。上書きは書けたので、herdr を起動したときに読まれる
         pass
     return True, f"{over} を作り直した" + (f"（前の物は {saved}）" if saved else "")
 
