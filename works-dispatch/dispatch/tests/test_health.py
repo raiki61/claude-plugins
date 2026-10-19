@@ -165,7 +165,7 @@ class Entry(unittest.TestCase):
     def test_it_runs_the_found_script_with_the_same_arguments(self):
         self.installed(("user", self.new))
         p = subprocess.run([sys.executable, str(DISPATCH / "limits_entry.py"), "--accounts", str(self.snapshot), "show", "a"],
-                           capture_output=True, text=True, encoding="utf-8")
+                           capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("動いた", p.stdout)
         self.assertIn("show", p.stdout)
@@ -186,6 +186,7 @@ class Reused(unittest.TestCase):
         self.assertFalse(wake.alive(mark, posix=True, starts={os.getpid(): NOW + wake.SLACK + 1}))
         self.assertTrue(wake.alive({"owner": os.getpid(), "since": 0}, posix=True, starts={os.getpid(): NOW}))   # 前の版の印
 
+    @unittest.skipIf(os.name == "nt", "ps の無い Windows では start_times は ps を読まずに空を返す")
     def test_start_times_read_ps_elapsed(self):
         out = "  1 10-02:03:04\n 42 05:06\n bad\n"
         got = claudex.start_times(lambda argv: subprocess.CompletedProcess(argv, 0, out, ""), now=NOW)

@@ -271,10 +271,11 @@ def _living(inbox, now, posix, starts=None):
 def _drop_dead(path, token):
     """死んだ会話の印を消す。読み直した token が同じときだけ（読んでから消すまでに新しい待ち受けが書いた印は残す）。"""
     try:
-        with _mark_lock(path), open(path, encoding="utf-8") as f:
-            again = json.load(f)
+        with _mark_lock(path):
+            with open(path, encoding="utf-8") as f:
+                again = json.load(f)
             if isinstance(again, dict) and again.get("token") == token:
-                os.unlink(path)
+                os.unlink(path)   # 閉じてから消す（Windows は開いたファイルを消せない）
     except (OSError, ValueError):
         pass
 
