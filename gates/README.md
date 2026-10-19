@@ -283,6 +283,8 @@ How findings are returned depends on the writing role:
 - **Documents written by the parent session** are read at the end of the turn (the Stop hook). The full findings are not piled into the parent's context;
   they are written out to files in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` (the newest 200 are kept), and only a short notice is returned with the number of documents, the counts, the file location, and
   「新しいサブエージェントに渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」 ("hand it to a new subagent to fix; only the guesses that differ from the writer's intent are for the parent to look at").
+  The notice also says to pass that subagent the model and effort that the repository's instruction files (CLAUDE.md, AGENTS.md, etc.) prescribe, if any, and to leave them unset otherwise.
+  gates names no model itself; the using repository decides (for example, sending routine wording fixes to a cheaper model).
   In an interactive session it reads in the background, so if /clear is typed while it reads, the notice reaches the session after /clear. A session that ended with /clear is
   remembered by the SessionEnd hook (reason is clear) in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/cleared`, and the notice for that session's documents says
   「/clear で終わった前の会話(id)が書いた文書で、意図はこの会話に無い。詰まりは直させ、推測で埋めた箇所は文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、確かめられないものは残す」

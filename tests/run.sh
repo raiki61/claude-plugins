@@ -2763,6 +2763,8 @@ assert ctx["hookEventName"] == "Stop" and "decision" not in out, f"止めずに�
 note = ctx["additionalContext"]
 assert "例の方針" not in note and "1 本" in note and "詰まり 1 件" in note and "推測で埋めた箇所 1 件" in note, note
 assert "サブエージェント" in note and "意図と違う" in note, f"サブエージェントに渡して直させ、推測で埋めた箇所だけ親が見る、の指示が無い: {note}"
+# 直させるサブエージェントのモデルと effort は使う側の指示ファイルの決まりに従わせる(gates にはモデルの名前を書かない)
+assert g.DOC_FIXER in note and "sonnet" not in g.DOC_FIXER.lower(), f"直させるサブエージェントのモデルと effort の指示が無い: {note}"
 written = list((cfg / "coldread-gate/docs/findings").iterdir())
 assert len(written) == 1 and str(written[0]) in note, (written, note)
 full = written[0].read_text(encoding="utf-8")
@@ -2832,7 +2834,7 @@ assert not (cfg / "coldread-gate/docs/cleared").exists(), "/clear でない終�
 run("docs-session-end", {"session_id": "s5", "hook_event_name": "SessionEnd", "reason": "clear"})
 touch("s5", 9)
 gone = raw("docs-check-async", {"session_id": "s5", "hook_event_name": "Stop"}, FIND, CLAUDE_CODE_ENTRYPOINT="cli").stderr.decode("utf-8")
-assert "/clear で終わった前の会話(id s5)" in gone and "確かめられないものは直さずに残す" in gone and "この会話で見て" not in gone, gone
+assert "/clear で終わった前の会話(id s5)" in gone and "確かめられないものは直さずに残す" in gone and "この会話で見て" not in gone and g.DOC_FIXER in gone, gone
 assert "この会話で見て" in told and "/clear" not in told, "/clear の前でない会話の知らせが変わった"
 for entry in ("sdk-cli", None):
     touch("s6", 3 if entry else 4)

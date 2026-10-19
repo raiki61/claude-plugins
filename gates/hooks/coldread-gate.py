@@ -4354,6 +4354,12 @@ def _write_findings(session, body):
 # 確かめられない推測の扱いを書く
 DOC_CLEARED = os.path.join(DOC_DIR, "cleared")   # /clear で終わった会話の帳面
 
+# 直させるサブエージェントのモデルと作業量(effort)は、使う側のリポジトリが決める(安い後始末は能力の低い側のモデルに回す、など)。
+# 決まりは使う側の指示ファイルに在り、知らせが何も言わないと、止められた会話は自分のモデルをサブエージェントに継がせやすい
+# (2026-10-19 の頼み ca284c)。モデルの名前はここに書かず、直させるその場で、使う側の決まりに従うことだけを言う
+DOC_FIXER = ("そのサブエージェントのモデルと作業量(effort)は、このリポジトリの指示ファイル(CLAUDE.md・AGENTS.md など)に決まりが在れば、"
+             "そのとおりに Agent のツールに渡す(決まりが無ければ指定しない)。")
+
 
 def docs_session_end(payload):
     """SessionEnd: /clear で終わった会話の id を覚える。"""
@@ -4416,18 +4422,18 @@ def docs_check(payload, background=False):
                 context = "\n\n".join(filter(None, ((
                     "%sが、/clear で終わった前の会話(id %s)が書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。"
                     "この会話が書いた物ではなく、書いたときの意図はこの会話に無い。全文は %s 。"
-                    "新しいサブエージェントにこのファイルを渡して詰まりを直させ、全文をこの会話に読み込まない(詰まりは意図が無くても直せる)。"
+                    "新しいサブエージェントにこのファイルを渡して詰まりを直させ、全文をこの会話に読み込まない(詰まりは意図が無くても直せる)。%s"
                     "推測で埋めた箇所は、文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、"
                     "確かめられないものは直さずに残す(推測を別の推測で書き換えない)。"
                     "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
-                    % (reader, session[:8], len(notes), counts["stuck"], counts["guess"], where)), tail)))
+                    % (reader, session[:8], len(notes), counts["stuck"], counts["guess"], where, DOC_FIXER)), tail)))
             elif where:
                 context = "\n\n".join(filter(None, ((
                     "%sが、%sで書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。全文は %s 。"
-                    "新しいサブエージェントにこのファイルを渡して直させ、全文をこの会話に読み込まない。"
+                    "新しいサブエージェントにこのファイルを渡して直させ、全文をこの会話に読み込まない。%s"
                     "推測で埋めた箇所のうち書き手の意図と違うものだけは、この会話で見て、正しい意図をサブエージェントに伝える。"
                     "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
-                    % (reader, turn, len(notes), counts["stuck"], counts["guess"], where)), tail)))
+                    % (reader, turn, len(notes), counts["stuck"], counts["guess"], where, DOC_FIXER)), tail)))
             else:
                 # 書き出せないときは全文を返す(指摘を落とすより文脈を食うほうがまし)
                 context = "\n\n".join(filter(None, (reader + "が、%sで書いた文書を読んだ。詰まった箇所を直すこと:" % turn, *notes, tail)))
