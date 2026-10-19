@@ -50,7 +50,7 @@ class FakeProbe:
         self.called.append((argv, config_dir))
         return (0, self.links.get(config_dir, "claude: current (v10) (/h/hooks/herdr-agent-state.sh)\n"), "")
 
-    # 本物の Probe は os.path.join でパスを作るので、Windows では区切りが \ になる。ファイルの系と同じく / と \ を同じに見る
+    # 本物の Probe は os.path.join でパスを作るので、Windows では区切りが \ になる。Windows のファイルシステムと同じく、/ と \ を同じに見る
     def read(self, path):
         return {os.path.normpath(k): v for k, v in self.files.items()}.get(os.path.normpath(path))
 
