@@ -1,6 +1,6 @@
 # 変更の記録（tiers）
 
-tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に効く違いを新しい順に並べる。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。
+tiers（プラグインが要る外のツールが PC にそろっているかを点検する Claude Code のプラグイン。`/tiers:check` スキルと `bin/tiers`、0.9.0 からは statusline も持つ）の版ごとの、利用者に効く違いを新しい順に並べる。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る。
 
