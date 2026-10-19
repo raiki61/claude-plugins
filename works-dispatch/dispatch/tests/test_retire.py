@@ -246,7 +246,7 @@ class Retire(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for _ in range(deliver.STOP_LIMIT + 1):
                 out = io.StringIO()
-                orders.stop_hook(io.StringIO(payload), out, tmp_dir=tmp, h=self.ports.herdr)
+                orders.stop_hook(io.StringIO(payload), out, tmp_dir=tmp)
                 got.append(json.loads(out.getvalue())["reason"] if out.getvalue() else None)
         self.assertTrue(all("--done" in x for x in got[:-1]), got)
         self.assertIsNone(got[-1])
@@ -258,7 +258,7 @@ class Retire(unittest.TestCase):
         payload = json.dumps({"session_id": "s-dept", "cwd": self.place, "background_tasks": []})
         with tempfile.TemporaryDirectory() as tmp:
             out = io.StringIO()
-            orders.stop_hook(io.StringIO(payload), out, tmp_dir=tmp, h=self.ports.herdr)
+            orders.stop_hook(io.StringIO(payload), out, tmp_dir=tmp)
         self.assertIn("--land '調べ'", json.loads(out.getvalue())["reason"])
 
 

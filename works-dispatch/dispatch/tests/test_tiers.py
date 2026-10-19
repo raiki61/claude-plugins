@@ -57,7 +57,7 @@ class CheckCallsTiers(unittest.TestCase):
         at = lines.index("- 段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）")
         self.assertEqual(lines[at + 1:at + 4], ["  - herdr を入れる前に読む", "  - 入ったかは herdr --version で確かめる",
                                                 "- 段 1 gh: gh が無い（入れ方（手で）: gh を入れる）"])
-        self.assertEqual(lines[at + 4], "詳しい案内は /tiers:check で見られる")
+        self.assertEqual(lines[at + 4], "詳しい案内は /tiers:check（人が打つ）か tiers --tier 2（会話の Bash のツールで打つ）で見られる")
 
     def test_launch_commands_of_the_accounts_are_passed(self):
         ports = self.ports(result())
@@ -124,7 +124,7 @@ class Check(unittest.TestCase):
         self.assertEqual(tierx.problems(got), ["段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）"])
         # guide の無い前の版の tiers（0.1.1 まで）でも、案内の行を出さずに読める
         self.assertEqual(tierx.report(got), ["- 段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）",
-                                             "詳しい案内は /tiers:check で見られる"])
+                                             "詳しい案内は /tiers:check（人が打つ）か tiers --tier 2（会話の Bash のツールで打つ）で見られる"])
         self.assertEqual(tierx.report(result()), [])
 
     def test_not_json_or_other_shape_is_an_error(self):

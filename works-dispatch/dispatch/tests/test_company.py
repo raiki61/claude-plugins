@@ -732,18 +732,6 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("止めた: herdr を読めない", out)
 
-    def test_sync_keeps_the_waiting_mark_of_a_department(self):
-        # ターンの終わりのフックが表示名に添えた「裏の処理待ち」を、付け直し（手の --sync も、会社の形が替わったときのフックも）が消さない
-        real = tempfile.tempdir
-        tempfile.tempdir = tempfile.mkdtemp()
-        try:
-            orders.wait_mark(tempfile.tempdir, "s-a").parent.mkdir(parents=True)
-            orders.wait_mark(tempfile.tempdir, "s-a").write_text("1", encoding="utf-8")
-            rc, out = self.main("--sync", "--dry-run")
-        finally:
-            tempfile.tempdir = real
-        self.assertIn(f"表示名 調べ役・{sync.WAITING}", out)
-
     def hook(self, sync_=None):
         env = {"WORKS_DISPATCH_CONFIG": self.cfg}
         return shape_hook.run({"cwd": self.place}, env,

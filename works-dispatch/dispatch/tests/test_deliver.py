@@ -360,48 +360,26 @@ class StopVerdict(unittest.TestCase):
                                           lambda cwd: {}, tempfile.mkdtemp(), lambda: None), 0)
         self.assertEqual(out.getvalue(), "")
 
-    def test_waiting_for_background_work_shows_on_herdr_and_is_not_sent_back(self):
-        # ターンを終えて裏の処理（run_in_background の Bash。--land など）を待つ部署は、herdr の状態が done になり、終わったように
-        # 見えた。表示名に「裏の処理待ち」を添え、待ち終えたら外す。待っている間は納品を差し戻さない（終われば会話が起きる）
-        class H:
-            HerdrError = real_herdr.HerdrError
-
-            def __init__(self):
-                self.writes = []
-
-            def panes(self):
-                return [{"pane_id": "P1", "agent": "claude", "cwd": "/w"}, {"pane_id": "P2", "agent": None, "cwd": "/w"}]
-
-            def report_pane_metadata(self, pane, source, display_agent, title, tokens, clear_tokens=()):
-                self.writes.append((pane, display_agent))
-        tmp, h = tempfile.mkdtemp(), H()
+    def test_waiting_for_background_work_is_not_sent_back(self):
+        # ターンを終えて裏の処理（run_in_background の Bash。--land など）を待つ部署は、納品を差し戻さない（終われば会話が起きる）。
+        # 待っている印を herdr に出すのは tiers の statusline の受け持ちで、このフックは herdr に書かない（herdr を渡す口も無い）
         attrs = {**self.ATTRS, "lifecycle": "persistent", "fresh": "true", "name": "割り振り"}
 
         def stop(n):
             out = io.StringIO()
-            orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w"})), out, lambda cwd: dict(attrs), tmp,
-                             lambda: n, h)
+            orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w"})), out, lambda cwd: dict(attrs), tempfile.mkdtemp(),
+                             lambda: n)
             return out.getvalue()
         self.assertEqual(stop(1), "")
-        self.assertEqual(h.writes, [("P1", "サブエージェント・裏の処理待ち")])
-        self.assertEqual(stop(2), "")
-        self.assertEqual(len(h.writes), 1, "変わらないときは書き直さない")
-        self.assertEqual(json.loads(stop(0))["decision"], "block")   # 待ち終えた: 表示を戻し、納品していなければ差し戻す
-        self.assertEqual(h.writes[-1], ("P1", "サブエージェント"))
+        self.assertEqual(json.loads(stop(0))["decision"], "block")   # 待ち終えた: 納品していなければ差し戻す
 
     def test_a_running_background_agent_lets_the_turn_end_and_a_finished_one_does_not(self):
         # 裏で立てたサブエージェント（Agent）は会話のプロセスの子に Bash を残さないので、ps では待っているのが見えず、差し戻された
         # （2026-10-17 の割り振り）。Stop フックの入力の background_tasks が在れば、その running の物で見る
-        class NoPanes:   # herdr の窓が見えない（表示名は書かない）。差し戻すかだけを見る
-            HerdrError = real_herdr.HerdrError
-
-            def panes(self):
-                return []
-
         def stop(payload, shells=lambda: 0):
             out = io.StringIO()
             orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w", **payload})), out,
-                             lambda cwd: dict(self.ATTRS), tempfile.mkdtemp(), shells, NoPanes())
+                             lambda cwd: dict(self.ATTRS), tempfile.mkdtemp(), shells)
             return out.getvalue()
         agent = {"id": "a1", "type": "subagent", "status": "running", "agent_type": "convergence-loops:inspector"}
         self.assertEqual(stop({"background_tasks": [agent]}), "")

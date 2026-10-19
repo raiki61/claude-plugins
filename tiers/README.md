@@ -1,6 +1,10 @@
 # tiers
 
-A Claude Code plugin that checks whether the external tools a plugin needs (Claude Code, gh, herdr, Archon, and so on: tools you install on the PC separately from the plugin) are in place, and prints what is missing and how to install it. It installs nothing.
+A Claude Code plugin that checks whether the external tools a plugin needs (Claude Code, gh, herdr, Archon, and so on: tools you install on the PC separately from the plugin) are in place, and prints what is missing and how to install it. The check installs nothing.
+
+It also ships an opt-in status line (see "Status line" below) that shows 「⧖ バックグラウンド作業中 N 本」 ("background work running: N") while a session waits for its background work, and makes herdr show that session as working.
+
+tiers adds nothing to the context of every session: the skill is for people only (`disable-model-invocation`), and the hook and the status line print nothing into the conversation.
 
 The skill's and command's instructions and descriptions are written in Japanese.
 
@@ -8,7 +12,7 @@ The skill's and command's instructions and descriptions are written in Japanese.
 
 - Checks the required tools grouped into tiers (see "Tiers" below). Give it one tier and it checks every tool up to that tier.
 - For each missing tool, prints install steps for the OS (macOS, Linux, Windows), only for the OS it is running on. The install steps were copied from each tool's official README. It only prints them; a person installs by hand.
-- People run it with `/tiers:check`. Other plugins install tiers as a dependency and call the same check when they start (currently connected: works-dispatch, a plugin in the same repository that starts a separate Claude Code session for each task and hands it the work).
+- People run it with `/tiers:check`. Claude itself cannot start this skill (so its description is not loaded into every session); inside a session, Claude runs `tiers --tier N` with the Bash tool instead. Other plugins install tiers as a dependency and call the same check when they start (currently connected: works-dispatch, a plugin in the same repository that starts a separate Claude Code session for each task and hands it the work).
 
 ## Requirements
 
@@ -24,7 +28,7 @@ The skill's and command's instructions and descriptions are written in Japanese.
    claude plugin install tiers@raiki61
    ```
 
-2. In a Claude Code session, have it run the check. You can also just ask 「要るツールがそろっているか見て」 ("check whether the required tools are in place"). (`段 2` means "tier 2".)
+2. In a Claude Code session, type the check. (`段 2` means "tier 2".)
 
    ```
    /tiers:check 段 2
@@ -68,9 +72,25 @@ tiers --tier <0〜3> [--launcher <コマンド> ...] [--config-dir <フォルダ
 - `--config-dir` is the Claude Code settings folder of one account (the folder you set as `CLAUDE_CONFIG_DIR`, such as `~/.claude-p2`). It can be given any number of times. Without `--config-dir`, none of the checks below run. For each folder given:
   - Tier 0 checks every entry in `plugins/installed_plugins.json` (Claude Code's record of installed plugins). Each entry's folder (`installPath`) must still exist and must not carry the old-version mark `.orphaned_at` (Claude Code removes a folder with this mark after 14 days). An entry that fails is reported as missing, with the `claude plugin uninstall` command that removes it. Such entries are typically project-scope ones (installed for one project only), and while they remain it is unclear which entry takes effect.
   - Tier 2 (only when `--tier 2` or higher) checks that herdr's Claude Code integration is current for that folder. It runs `herdr integration status` with `CLAUDE_CONFIG_DIR` set to the folder and reads the `claude` line (herdr 0.9.3 prints `claude: current (v10) (<path>)`; the states are current, outdated, not installed, and unknown). herdr 0.9.3 has no JSON output for this, so a line in an unknown shape or state is reported as missing instead of passed.
+  - Tier 2 also checks the status line (see "Status line" below) for each folder whose `statusLine` points to tiers: that the `current` link exists and that herdr's local override is the one tiers builds from herdr's current rules. A folder that does not use it is reported as fine, with the setup command.
   - A folder that does not exist is reported as missing.
 - Exit codes: 0 = everything is in place, 1 = something is missing, 2 = wrong usage.
 - The `--json` format (`schema` is the format's version number, currently 1; it is raised only for changes that would break callers) is described at the top of [`lib/tiers_check.py`](lib/tiers_check.py). Missing tools are the `checks[]` items with `ok: false`, and they carry `problem` (why it is missing), `fix` (a list of install-step lines), and `guide` (a list of guidance lines; an empty list `[]` if none). Every item carries `tier` (the tier), `name` (the tool's name), `ok`, and `found` (what was found; `null` for missing items). The human-readable output prints the same `guide` lines under 「案内:」 ("guidance:").
+
+## Status line
+
+An opt-in Claude Code status line (`statusline/statusline.sh`). Besides the usual model and usage lines, inside herdr it prints 「⧖ バックグラウンド作業中 N 本」 while the session has background work that will end (`run_in_background` Bash, Monitor, and background subagents; a command marked `herdr:ignore` is not counted). When a session ends its turn and waits for that work, herdr would otherwise show it as done. A herdr detection rule (`statusline/claude-rule.toml`) makes herdr show it as working instead. macOS and Linux only; it needs `jq` and Python 3.
+
+Set it up per account (the folder you set as `CLAUDE_CONFIG_DIR`). Inside a Claude Code session `tiers-statusline` is on PATH like `tiers`; from a terminal, run it from the plugin folder (`<config>/plugins/cache/raiki61/tiers/<version>/bin/tiers-statusline`).
+
+```bash
+tiers-statusline setup --config-dir ~/.claude --config-dir ~/.claude-p2
+```
+
+- It writes `statusLine` into each account's `settings.json` (a plugin cannot set `statusLine` itself: in a plugin's `settings.json` only `agent` and `subagentStatusLine` take effect, per the [plugins reference](https://code.claude.com/docs/en/plugins-reference)). The old file is kept next to it as `settings.json.bak.<date>-tiers`. Other `statusLine` keys (such as `padding`) are kept; `refreshInterval` defaults to 30 seconds.
+- `statusLine` points to `<config>/plugins/data/tiers-raiki61/current/statusline/statusline.sh`. The `current` link is pointed at the installed version by the plugin's `SessionStart` hook at every session start, so plugin updates need no new setup.
+- It builds herdr's local override `~/.config/herdr/agent-detection/claude.toml` as herdr's downloaded rules plus `claude-rule.toml`, and runs `herdr server reload-agent-manifests`. A local override replaces herdr's rules as a whole and always wins ([herdr agents docs](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/agents.mdx)), so a hand-copied override goes stale when herdr updates its rules. The status line therefore runs `tiers-statusline refresh` in the background whenever herdr's downloaded rules or the rule file are newer than the override. An override not written by tiers is replaced only by `setup` (and kept as `.bak`); `refresh` leaves it alone.
+- `tiers --tier 2 --config-dir <folder>` checks this for each account whose `statusLine` points to tiers.
 
 ## More detail
 

@@ -1,0 +1,15 @@
+{
+  "description": "tiers の statusline を tiers-statusline setup で入れたアカウントだけ、${CLAUDE_PLUGIN_DATA}/current を今の版へのリンクに張り替える（リンクが無ければ何もしない。会話に字は出さない）",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"${CLAUDE_PLUGIN_DATA}/current\"; [ -L \"$d\" ] && [ \"$(readlink \"$d\")\" != \"${CLAUDE_PLUGIN_ROOT}\" ] && ln -sfn \"${CLAUDE_PLUGIN_ROOT}\" \"$d\" 2>/dev/null; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -6,6 +6,18 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Added
+
+- statusline を足した（`statusline/`。使うかは利用者が決め、`tiers-statusline setup [--config-dir フォルダ ...]` で入れる）。herdr の中では、裏の処理（`run_in_background` の Bash・Monitor・裏で立てたサブエージェント）を待つ間、画面の下に「⧖ バックグラウンド作業中 N 本」を出し、herdr の判定ルールの手元の上書き（`~/.config/herdr/agent-detection/claude.toml`）でその会話を作業中に見せる。持ち主の手元の `~/.claude/statusline.sh`・`herdr-bg-hold.sh`・herdr の上書きを移した物。
+  - `setup` は、アカウントごとの `settings.json` の `statusLine` を書き（前の物は `settings.json.bak.<日時>-tiers` で残す）、herdr の上書きを作る。プラグインは statusLine を入れられないので、道具で書く。
+  - herdr の上書きは、herdr が配ったルールの後ろに足す規則（`statusline/claude-rule.toml`）を足して作り、配られたルールが替わると statusline が `tiers-statusline refresh` を起こして作り直す。手で写した上書きは herdr の配り直しを隠し続ける（手元の上書きは 2026.09.11.1 のままで、配られた 2026.10.11.1 の規則が効いていなかった）。
+  - SessionStart のフックを足した。会話を始めるたびに `${CLAUDE_PLUGIN_DATA}/current` を今の版へのリンクに張り替える（statusLine はこのリンクの下を指すので、版を上げても書き直さない）。会話に字は出さない。
+- 段 2 の点検（`--config-dir` を渡したとき）で、statusLine が tiers の statusline を指すフォルダだけ、リンクと herdr の上書きがそろっているかを見る。
+
+### Changed
+
+- スキル `check` に `disable-model-invocation: true` を付け、常に載る文脈を 0 にした（前は説明の約 47 tok が毎回の会話に載った）。人は今までどおり `/tiers:check` で打てる。会話からは呼べなくなったので、会話の中の点検は Bash のツールで `tiers --tier N` を打つ。`claude plugin details` の見積もりはこの指定を見ないので、0 と出ない（docs/design.md の「常に載る文脈を 0 にする」）。
+
 ## [0.8.1] - 2026-10-19
 
 ### Changed

@@ -1,0 +1,20 @@
+# herdr の Claude の判定ルールに足す規則（tiers-statusline が、herdr の配った claude.toml の後ろに足して手元の上書きを作る）。
+# statusline.sh は、終わりのあるバックグラウンドが残る間だけ、下の行に「⧖ バックグラウンド作業中 N 本」を出す。ターンを閉じて
+# バックグラウンドを待つ間も、herdr に作業中と見せる。
+# 待機の live_prompt_box（950）より上に置くので、許可待ち（bash_permission_prompt は 850）は下の not で外す
+# （同じ形の配られた規則 background_mcp_task_working と同じ除外。2026-10-13 に手元の上書きで作り、2026-10-19 に tiers へ移した）。
+[[rules]]
+id = "local_bg_wait_mark_working"
+state = "working"
+priority = 960
+region = "bottom_non_empty_lines(12)"
+visible_working = true
+line_regex = ['^\s*⧖ バックグラウンド作業中 [1-9]\d* 本\s*$']
+not = [
+  { contains = ["do you want to proceed?"] },
+  { contains = ["esc to cancel"] },
+  { contains = ["waiting for permission"] },
+  { contains = ["do you want to allow this connection?"] },
+  { contains = ["tab to amend"] },
+  { contains = ["ctrl+e to explain"] },
+]

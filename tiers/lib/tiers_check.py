@@ -17,7 +17,8 @@ herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install H
 --config-dir（アカウントの Claude Code の設定のフォルダ。繰り返して複数）を渡せば、フォルダごとに次も点検する。
 - 段 0: 入れたプラグインの控え（plugins/installed_plugins.json）の installPath が在るか（消えた置き場を指す項目が残ると、どの項目が
   効くかが分からない）
-- 段 2: herdr の Claude Code の連携（herdr integration status を、そのフォルダを CLAUDE_CONFIG_DIR にして打つ）
+- 段 2: herdr の Claude Code の連携（herdr integration status を、そのフォルダを CLAUDE_CONFIG_DIR にして打つ）と、statusLine が tiers の
+  statusline を指すアカウントなら、その印を herdr が見分ける支度（リンクと herdr の判定ルールの上書き。tiers_statusline.py）
 
 使い方:
     tiers [--tier N] [--launcher コマンド ...] [--config-dir フォルダ ...] [--json]
@@ -41,6 +42,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+import tiers_statusline as statusline
 
 SCHEMA = 1
 TOP = 3
@@ -309,6 +312,42 @@ def check_herdr_links(probe, herdr, config_dirs):
     return out
 
 
+def check_statusline(probe, config_dirs):
+    """フォルダごとの、tiers の statusline（印「⧖ バックグラウンド作業中 N 本」を出す）の点検の項目（段 2）。statusLine が tiers の
+    statusline を指すアカウントだけ、印を herdr が作業中と見分ける支度がそろっているかを見る（使うかは利用者が tiers-statusline setup で
+    決める。statusLine はアカウントに 1 つなので、利用者の物を押しのけない）。"""
+    out = []
+    over, remote = statusline.herdr_paths(probe.env)
+    for d in config_dirs:
+        label = f"statusline（{d}）"
+        try:
+            line = json.loads(probe.read(os.path.join(os.path.expanduser(d), "settings.json")) or "{}").get("statusLine")
+        except (OSError, ValueError, AttributeError):
+            line = None   # settings.json が読めないのは、使っていないのと同じに扱う（Claude Code の起動が先に止まる）
+        if not (isinstance(line, dict) and line.get("command") == statusline.command_for(d)):
+            out.append(_item(2, label, found=f"tiers の statusline は使っていない（使うなら tiers-statusline setup --config-dir {shlex.quote(d)}）"))
+            continue
+        setup = f"tiers-statusline setup --config-dir {shlex.quote(d)}"
+        if not probe.isdir(str(statusline.data_link(d))):
+            out.append(_item(2, label, problem=f"statusLine の指すリンク {statusline.data_link(d)} が無い（印もステータスラインも出ない）", fix=[setup]))
+            continue
+        try:
+            cur, base = probe.read(str(over)), probe.read(str(remote))
+            want = statusline.compose(base, statusline.RULE.read_text(encoding="utf-8")) if base is not None else None
+        except (OSError, ValueError) as e:
+            out.append(_item(2, label, problem=f"herdr の判定ルールの上書きを作れない（{e}）", fix=["tiers-statusline refresh を打って訳を見る"]))
+            continue
+        if cur is None or not cur.startswith(statusline.MARK):
+            out.append(_item(2, label, problem=f"herdr の判定ルールの上書き {over} が{'無い' if cur is None else 'tiers の作った物でない'}"
+                             "（印を herdr が作業中と見分けない）", fix=[setup]))
+        elif want is not None and cur != want:
+            out.append(_item(2, label, problem=f"herdr の判定ルールの上書き {over} が、herdr の今の配られたルールから作った物でない"
+                             "（上書きの間は herdr が配り直したルールが効かない）", fix=["tiers-statusline refresh"]))
+        else:
+            out.append(_item(2, label, found="tiers の statusline を使い、印を herdr が見分ける支度がそろっている"))
+    return out
+
+
 def check_gh(probe):
     item, path = _installed(probe, 1, "gh", "gh", ["--version"])
     out = [item]
@@ -414,6 +453,7 @@ def check_herdr(probe, launchers, config_dirs=()):
             out.append(_item(2, "herdr の動き", problem=said,
                              fix=["作業するフォルダで herdr を起動する: herdr"], guide=herdr_start_guide(os_key)))
         out += check_herdr_links(probe, path, config_dirs)
+        out += check_statusline(probe, config_dirs)
     for cmd in launchers:
         if probe.shell_has(cmd):
             out.append(_item(2, f"起動コマンド {cmd}", found=f"{cmd} がシェルで見つかる"))

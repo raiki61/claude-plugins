@@ -1556,7 +1556,7 @@ def sync_companies(config_path, ports, dry_run=False, only=None):
     except herdr.HerdrError as e:
         return [f"止めた: herdr を読めない（{e}）"], 1
     notes += _sync_roles(companies, settings, ports, dry_run)
-    ops, why = sync.plan(companies, len(accounts_) > 1, orders.waiting_of(tempfile.gettempdir()))
+    ops, why = sync.plan(companies, len(accounts_) > 1)
     ws_ops = sync.workspace_ops(companies, workspaces_)
     moves = sync.flow_order(*_flow_inputs(companies, workspaces_))
     notes += why

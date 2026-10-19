@@ -1,6 +1,7 @@
 ---
 name: check
-description: プラグインが要る外のツール（Claude Code・gh・herdr とアカウントの起動コマンド・Archon）が、この PC にそろっているかを段ごとに点検し、足りない物と入れ方を出す。「要るツールがそろっているか見て」「セットアップできているか確かめて」と言われたとき、またはほかのプラグインが点検の案内を出して止まったときに使う。何も入れない。
+description: プラグインが要る外のツール（Claude Code・gh・herdr とアカウントの起動コマンド・Archon）が、この PC にそろっているかを段ごとに点検し、足りない物と入れ方を出す。人が /tiers:check で打つ。何も入れない。
+disable-model-invocation: true
 ---
 
 # 要るツールの段ごとの点検
@@ -24,7 +25,7 @@ tiers --tier <段>
 
 - 段が分からなければ、呼んだプラグインの README の「要る段」を見る。それも無ければ `--tier 3` で全部を見る。
 - 段 2 で、複数のアカウントを別々のコマンド（シェルの関数など）で起動しているなら、コマンドごとに `--launcher <コマンド>` を足す。省けば `claude` だけを見る。
-- アカウントごとに Claude Code の設定のフォルダを分けているなら、フォルダごとに `--config-dir <フォルダ>` を足す。入れたプラグインの控え（Claude Code が入れたプラグインの置き場を書く `plugins/installed_plugins.json`）が、消えたフォルダや前の版の印 `.orphaned_at` の付いたフォルダを指していないか（段 0）と、herdr の連携（herdr が Claude Code の設定に入れるフック。`herdr integration status` が `current` と出すか）が入っているか（段 2）を、フォルダごとに見る。
+- アカウントごとに Claude Code の設定のフォルダを分けているなら、フォルダごとに `--config-dir <フォルダ>` を足す。入れたプラグインの控え（Claude Code が入れたプラグインの置き場を書く `plugins/installed_plugins.json`）が、消えたフォルダや前の版の印 `.orphaned_at` の付いたフォルダを指していないか（段 0）と、herdr の連携（herdr が Claude Code の設定に入れるフック。`herdr integration status` が `current` と出すか）が入っているか（段 2）を、フォルダごとに見る。段 2 では、statusLine が tiers の statusline を指すフォルダだけ、その支度（README の「Status line」）がそろっているかも見る。
 - 機械で読むなら `--json` を足す（形は `lib/tiers_check.py` の頭に在る）。
 - 終了コードは 0 = そろっている、1 = 足りない物がある、2 = 使い方が違う。
 

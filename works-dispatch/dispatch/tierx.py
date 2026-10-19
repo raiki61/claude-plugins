@@ -95,13 +95,14 @@ def problems(result):
 
 def report(result):
     """--check に出す行。足りない物ごとに 1 行（problems）と、その下に tiers の案内（guide。tiers 0.2.0 から。無ければ出さない）を
-    字下げで並べ、終わりに、同じ案内を人の読む形で出すコマンドを 1 行足す。"""
+    字下げで並べ、終わりに、同じ案内を人の読む形で出す入口（人のコマンドと会話のコマンド）を 1 行足す。"""
     out = []
     for line, x in zip(problems(result), (x for x in result["checks"] if not x.get("ok"))):
         out.append(f"- {line}")
         out.extend(f"  - {g}" for g in x.get("guide") or [] if isinstance(g, str) and g.strip())
     if out:
-        out.append("詳しい案内は /tiers:check で見られる")
+        # 会話は /tiers:check を呼べない（tiers は常に載る文脈を 0 にするため disable-model-invocation を付けた）。会話が打てる入口も添える
+        out.append(f"詳しい案内は /tiers:check（人が打つ）か tiers --tier {NEEDED_TIER}（会話の Bash のツールで打つ）で見られる")
     return out
 
 

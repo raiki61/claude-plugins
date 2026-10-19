@@ -37,3 +37,39 @@ tiers（プラグインが要る外のツールがそろっているかを点検
 - 依存先のスキルは、依存する側の会話から `<依存先のプラグイン>:<スキル>`（例 `base:probe`）の名前で一覧に載り、Skill のツールで呼べた。
 
 確かめていないこと（要確認）: GitHub から足した marketplace（キャッシュに写る形）でも同じか。Windows の Claude Code で、拡張子の無い `bin/tiers` を Bash のツール（Git Bash）から名前で起動できるか（Python の台本としては、試験が `python bin/tiers` の形で Windows の CI でも走らせる）。
+
+## 常に載る文脈を 0 にする（2026-10-19）
+
+持ち主の「tiers は全部うまいことコンテキストを食べずに設定できるか」を受けて、スキル `check` に `disable-model-invocation: true` を付けた。tiers が持つスキルは `check` 1 つで、コマンドもエージェントも持たないので、全部の会話に常に載るのはこのスキルの説明だけだった。Claude Code の文書の表（[Skills](https://code.claude.com/docs/en/skills) の「Control who invokes a skill」）は、この指定のスキルを「人は呼べる・Claude は自分では呼ばない・説明は文脈に載らない」とする。Claude Code 2.1.303 の本体でも、会話に載るスキルの一覧を作る所がこの指定の物を外していた。人は今までどおり `/tiers:check` で打てる。ほかのプラグインは `bin/tiers` を呼ぶので（このリポジトリの別のプラグイン works-dispatch〔作業ごとに Claude Code の会話を別に立てて仕事を頼むプラグイン〕の `dispatch/tierx.py`）、スキルの説明が無くても困らない。会話の中で点検が要るときは、Bash のツールで `tiers --tier N` を打つ（works-dispatch の `--check` が止まったときの案内にも、この形を書いた）。
+
+`claude plugin details tiers@raiki61` が出す「Always-on」（常に載る文脈）の見積もりは、0 にならない（付けた後の見積もりは約 30 tok）。2.1.303 の見積もりはこの指定を見ず、名前と説明の長さだけから数えるためで、2.1.303 の本体で計算の所を読んだ。本当に載っているかは、会話の記録（`~/.claude*/projects/` の下の `.jsonl`）の `skill_listing` の行に `tiers:check` が在るかで見る。
+
+採らなかった形:
+
+- コマンド（`commands/`）に移す: コマンドもスキルと同じ一覧に説明が載り、文書もスキルの方を勧めている。
+- スキルを消す: 人が `/tiers:check` で打てなくなる。
+- 説明を短くする: 減るが 0 にならない。
+- works-dispatch のスキルの中に移す: 載る所が移るだけで、0 にならない。
+
+足した部品（statusline・`bin/tiers-statusline`・SessionStart のフック）は、どれも会話に字を出さない（フックは出力が空。`claude plugin details` も hooks を「harness-only — no model context cost」と出す）。
+
+## 裏の処理の印（statusline。2026-10-19）
+
+herdr（端末を作業場とペインに分けて並べ、中の AI の会話の状態を見せるツール）は、会話がターンを閉じて裏の処理（`run_in_background` の Bash・Monitor・裏で立てたサブエージェント）の終わりを待つ間、その会話を done（終わった）と見せる。持ち主は手元の 3 つのファイル（`~/.claude/statusline.sh`・`~/.claude/herdr-bg-hold.sh`・`~/.config/herdr/agent-detection/claude.toml`）で、画面の下に印「⧖ バックグラウンド作業中 N 本」を出し、herdr の判定ルールでその印を作業中と見分けさせていた。これを tiers の `statusline/` に移し、プラグインの版の管理と、直したプラグインを全アカウントに配るスクリプト（ルートの `scripts/spread-plugins.py`）に載せた。tiers に置いたのは、持ち主の「準備用のやつが入ってるとこに入れていい」による（準備用の物＝要るツールの点検と支度を持つプラグインで、それが tiers）。
+
+決めたこと:
+
+- **ツールで入れる。** プラグインは statusLine を入れられない（[plugins reference](https://code.claude.com/docs/en/plugins-reference) の settings: プラグインの `settings.json` で効くのは `agent` と `subagentStatusLine` だけ）。herdr の判定ルールも、手元の上書き（`~/.config/herdr/agent-detection/claude.toml`）に置くしかない。そこで `tiers-statusline setup` が、アカウントごとの `settings.json` の `statusLine` と herdr の上書きを書く。点検（`tiers`）は今までどおり何も入れず、段 2 で支度がそろっているかを見るだけ。
+- **使うかは利用者が決める。** statusLine はアカウントに 1 つなので、プラグインを入れただけでは利用者の statusLine を押しのけない。`setup` を打ったアカウントだけ、前の `settings.json` を `.bak` で残して `statusLine` を書き替える。点検は、statusLine が tiers を指すアカウントだけ見る。
+- **版が上がっても書き直さない。** プラグインの置き場は版ごとに替わり、置き場の名前に commit の印の物も混ざる（持ち主のアカウントの 1 つ p2 では `tiers/922c475075de`）ので、名前の並びで最新を選べない。SessionStart のフックが、会話を始めるたびに `${CLAUDE_PLUGIN_DATA}/current` を今の版（`${CLAUDE_PLUGIN_ROOT}`）へのリンクに張り替え、statusLine はリンクの下を指す（2 つの環境変数は [plugins reference](https://code.claude.com/docs/en/plugins-reference) の「Environment variables」）。`setup` は、リンクが無い間のために、`installed_plugins.json`（Claude Code の、入れたプラグインの記録）で user の範囲（アカウント全体に入れた物。`scope` が `user`）の置き場へ先に張る。
+- **herdr の上書きは作って保つ。** herdr の上書きは配られたルールに足す物でなく丸ごとの置き換えで、在る間は配り直したルールが効かない（[herdr の agents](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/agents.mdx)）。手元の上書きは 2026.09.11.1 のまま、herdr が配った 2026.10.11.1 を隠していて、配られた規則 `live_blocked_form_named_session`（名前を付けた会話の、答えを待つ入力のフィールドを待機と見分ける）が効いていなかった。そこで上書きは、herdr が取ってきた配られたルール（`~/.local/state/herdr/agent-detection/remote/claude.toml`）を写し、その後ろに tiers の足す規則 `statusline/claude-rule.toml` を付けて作る。statusline.sh は、配られたルールか足す規則の方が新しければ `tiers-statusline refresh` を裏で起動して作り直す。tiers の作った上書きは 1 行目の印（`# tiers-statusline が作った herdr の判定ルールの上書き。` で始まる）で見分ける。手で書いた上書きは、`setup` でだけ（`.bak` を残して）置き換える。
+- **works-dispatch の印は外した（DRY）。** works-dispatch の Stop のフックも、部署の会話（works-dispatch が仕事ごとに立てる作業場で動く会話）の herdr の表示名に「・裏の処理待ち」を添えていた。statusline の印は、全部の会話に効く・herdr の状態そのものを作業中にする・30 秒ごとに描き直す・サブエージェントと Monitor も数える。表示名の字は、部署の会話だけ・ターンの終わりにだけ書き替わる。同じ事を 2 か所で出さないよう、表示名の字を外した。Stop のフックには、もう 1 つの働きがある。部署の会話が受けた頼みを納品（頼み元へ結果を返すこと）せずに止まろうとすると、止まるのを差し戻して納品を促す。裏の処理の数を見て、待っている間はこの差し戻しをしない所は残す（印でなく、差し戻すかの判定なので）。
+
+採らなかった形:
+
+- herdr の組み込みの字（「MCP tasks still running」など、配られた規則が作業中と見る字）を statusline に出して真似る: 規則を足さずに済むが、画面に事実でない字が出る。
+- herdr に作業中を報告し続ける（`herdr pane report-agent` の繰り返し。元の `herdr-bg-hold.sh --hook`）: 2026-10-12 から herdr の Claude の連携が、会話の状態の報告元を `herdr:claude`（herdr 自身の Claude の連携）に登録し、報告元が違う報告を捨てる。
+- statusLine のコマンドで、置き場の名前を並べて最新の版を選ぶ: 置き場の名前に commit の印の物が混ざり、古い版を選ぶ。
+- 足す規則だけを配り、上書きは人が手で作る: herdr が配り直すたびに古くなる（今回の不具合の形そのもの）。
+
+手元の 3 つのファイルは、プラグインの版で印が出るのを確かめるまで残す（消すかは持ち主に確かめる）。`~/.claude/herdr-activity.sh`（今見ている PR の番号を控えるフック）は、今回の移し替えの外なので手元に残る。

@@ -29,6 +29,7 @@ class FakeProbe:
         self.platform = platform
         self.called = []
         self.links, self.files, self.dirs = {}, {}, set()   # 設定のフォルダ → herdr integration status の出力・ファイル → 中身・在るフォルダ
+        self.env = {"HOME": "/h"}
 
     def which(self, cmd):
         return f"/bin/{cmd}" if cmd in self.have else None

@@ -63,23 +63,6 @@ def kind_op(workspace, attrs):
     return {"workspace": workspace, "label": None, "kind": kind(attrs)}
 
 
-WAITING = "裏の処理待ち"   # ターンを終えて、裏で走らせた処理の終わりを待っている部署の表示名に添える字
-
-
-def waiting_op(pane, attrs, waiting):
-    """部署の会話のターンの終わりに付け直す物。裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど）を待っていれば、表示名に
-    WAITING を添える。
-    herdr の状態はターンが終わると done になり、裏の処理を待っている会話も終わったように見えた（持ち主が見誤った）。
-    ペインの名前は付け直さない（アカウントの数が分からないので）。"""
-    return _waiting({**op(pane, attrs, False), "label": None}, waiting)
-
-
-def _waiting(o, waiting):
-    if waiting and o["display_agent"]:
-        o["display_agent"] += f"・{WAITING}"
-    return o
-
-
 def _target(dept):
     talking = [p for p in dept["panes"] if p.get("agent")]
     sid = dept["attrs"].get("session")
@@ -93,9 +76,8 @@ def _target(dept):
     return dept["panes"] if len(dept["panes"]) == 1 else []
 
 
-def plan(companies, many_accounts, waiting=lambda attrs: False):
-    """(付ける物の並び, 付けられない部署の注記)。companies は tree ノードの build の結果。waiting は部署の属性を受けて、その会話が
-    裏の処理を待っているか（待っていれば表示名に WAITING を添えたままにする。付け直しでターンの終わりの印を消さない）。"""
+def plan(companies, many_accounts):
+    """(付ける物の並び, 付けられない部署の注記)。companies は tree ノードの build の結果。"""
     ops, notes = [], []
     for c in companies:
         for d in c["departments"]:
@@ -109,7 +91,7 @@ def plan(companies, many_accounts, waiting=lambda attrs: False):
                        "会話の居ないペインが 2 つ以上")
                 notes.append(f"{c['name']} {d['branch'] or d['path']}: 付ける先のペインが無い（{why}）")
                 continue
-            ops += [_waiting(op(p["pane_id"], d["attrs"], many_accounts, p.get("label")), waiting(d["attrs"])) for p in panes]
+            ops += [op(p["pane_id"], d["attrs"], many_accounts, p.get("label")) for p in panes]
     return ops, notes
 
 

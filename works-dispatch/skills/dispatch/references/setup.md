@@ -6,7 +6,7 @@
 
 ## 前提（`--check` が全部確かめる）
 
-`--check` は最初に、要るツール（gh・herdr・アカウントの起動コマンド）を共通の点検の部品 tiers（依存として入るプラグイン）で確かめ、足りなければ入れ方と案内を出して止まる。入れ方は持ち主に見せ、自分では走らせない（詳しい案内は、持ち主が `/tiers:check` で見られる）。tiers は、Claude Code の会話の中では依存の `bin/` が PATH に入るので名前で探し、会話の外から打ったときは、プラグインの置き場の隣（`<マーケットプレイス>/tiers/<版>/bin/tiers` のいちばん新しい版）を探す。見つからなければ、段の点検を飛ばして「足りない物は無い」とは言わず、止まって入れ方を出す。Windows では、herdr の連携を入れるコマンドを PowerShell で打てる形（`$env:CLAUDE_CONFIG_DIR='…'; herdr integration install claude`）で出す。
+`--check` は最初に、要るツール（gh・herdr・アカウントの起動コマンド）を共通の点検の部品 tiers（依存として入るプラグイン）で確かめ、足りなければ入れ方と案内を出して止まる。入れ方は持ち主に見せ、自分では走らせない（詳しい案内は、持ち主が `/tiers:check` で、会話が Bash のツールの `tiers --tier 2` で見られる。`/tiers:check` は会話からは呼べない）。tiers は、Claude Code の会話の中では依存の `bin/` が PATH に入るので名前で探し、会話の外から打ったときは、プラグインの置き場の隣（`<マーケットプレイス>/tiers/<版>/bin/tiers` のいちばん新しい版）を探す。見つからなければ、段の点検を飛ばして「足りない物は無い」とは言わず、止まって入れ方を出す。Windows では、herdr の連携を入れるコマンドを PowerShell で打てる形（`$env:CLAUDE_CONFIG_DIR='…'; herdr integration install claude`）で出す。
 
 
 - [herdr](https://herdr.dev)（端末を作業場ごとに分けて、中の AI の会話を外から操作できるツール）が動いている。
