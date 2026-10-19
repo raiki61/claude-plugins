@@ -47,16 +47,18 @@ class Fix(unittest.TestCase):
         self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "毎回クリア")])
 
     def test_a_plan_written_as_a_step_is_fixed_but_steps_and_layers_are_not(self):
-        # サブスクのプランの意味の 段 だけを当てる（my_notes の tools/checks/terms.py と同じ形）
+        # サブスクのプランの意味の 段 だけを当てる（my_notes の tools/checks/terms.py の項を元にした形）
         cases = {"アカウントごとの契約の段（Max 20x など）": "アカウントごとのプラン（Max 20x など）",
                  "契約の段が引けない": "プランが引けない", "Max 20x の段で動く": "Max 20x のプランで動く",
                  "Max 5X/20X の段": "Max 5X/20X のプラン", "段（Pro・Max）を返す": "プラン（Pro・Max）を返す",
-                 "段 (Proの値)": "プラン (Proの値)", "サブスクの段": "サブスクのプラン"}
+                 "段 (Proの値)": "プラン (Proの値)", "サブスクの段": "サブスクのプラン",
+                 "Free の段": "Free のプラン"}
         for before, after in cases.items():
             self.assertEqual(terms.line_problems(before)[0][1], "プラン", before)
             self.assertEqual(terms.fix_line(before), after, before)
         for ok in ("3 段で書く", "段ごとに回す", "tiers の段 2", "段 0〜3 に分けて点検する", "段取り", "契約の段落",
-                   "Pro の段階", "料金の段差", "値段と手段", "段（tier）", "段 (Production)"):
+                   "Pro の段階", "料金の段差", "値段と手段", "段（tier）", "段 (Production)",
+                   "サブスクを替えて 3 段で書く", "GoPro の段", "アカウントの段ごとに"):
             self.assertEqual(terms.line_problems(ok), [], ok)
             self.assertEqual(terms.fix_line(ok), ok, ok)
 
