@@ -3090,7 +3090,7 @@ for i in range(100):
 assert os.path.getsize(log) <= 1000 + 60 and os.path.exists(log + ".1"), (os.path.getsize(log), os.path.exists(log + ".1"))
 assert open(log, encoding="utf-8").read().splitlines()[-1].endswith("line 099 " + "x" * 20)
 assert locked and set(locked) == {log}, f"回すかをロックの中で決めない: {locked}"
-with open(log, "w", encoding="utf-8") as f:
+with open(log, "w", encoding="utf-8", newline="\n") as f:   # 行末を \n にそろえる(Windows の字の書き込みは \r\n にし、1 行が 10 バイトになって 4000 バイトで 399 行になる。\r\n は下で別に見る)
     f.write("".join("row %04d\n" % i for i in range(5000)))
 got = g.tail_lines(log, 400, chunk=4000)
 assert len(got) == 400 and got[-1] == "row 4999" and all(len(x) == 8 for x in got), got[:2]
@@ -4606,7 +4606,9 @@ mkdir -p "$CR_VCACHE/0.1.0/hooks" "$CR_VCACHE/0.1.0/.claude-plugin" "$CR_VCACHE/
 cp "$ROOT/gates/hooks/coldread-gate.py" "$ROOT/gates/hooks/claude_auth.py" "$CR_VCACHE/0.1.0/hooks/"
 echo '{"name":"gates","version":"0.1.0"}' > "$CR_VCACHE/0.1.0/.claude-plugin/plugin.json"
 : > "$CR_VCACHE/0.2.0/hooks/coldread-gate.py"
-printf '{"version":2,"plugins":{"gates@raiki61":[{"scope":"user","installPath":"%s","version":"0.2.0"}]}}' "$CR_VCACHE/0.2.0" > "$CR_VPLUG/installed_plugins.json"
+# 台帳は Python で書く。Git Bash の printf で書くと /tmp/… の形のまま入り、Windows の Python はその場所を読めない（引数は Git Bash が直して渡す）
+"$PY_BIN" -c 'import json, sys; open(sys.argv[2], "w", encoding="utf-8").write(json.dumps({"version": 2, "plugins": {"gates@raiki61": [{"scope": "user", "installPath": sys.argv[1], "version": "0.2.0"}]}}))' \
+    "$CR_VCACHE/0.2.0" "$CR_VPLUG/installed_plugins.json"
 expect_output 0 "入っている版は 0.2.0" "入っている版(installed_plugins.json の installPath)が違えば検査結果にその旨が載る" \
     env COLDREAD_GATE="$CR_VCACHE/0.1.0/hooks/coldread-gate.py" "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 expect_output 0 "VERSION_PICK_OK" "入っている版は installPath で決め、消す印の付いた場所・本体の無い場所・自分自身・開発 checkout では注記を出さず、注記は持ち主の画面にも出す" \

@@ -301,7 +301,8 @@ def _dirty_tree(tmp):
         "new": any(l.startswith("+") and l[1:].strip().startswith("new.md") and l.rstrip().endswith("新規") for l in lines),
         "mod": any(l.startswith("~") and l[1:].strip().startswith("a.md") and l.rstrip().endswith("+1") for l in lines),
         "sibling": any(l.startswith(" ") and l.strip() == "b.md" for l in lines),
-        "untouched_dir_hidden": not any("src/" in l for l in lines),
+        # 木の行の名前で見る（"src/" を行のどこかで探すと、見出しの一時フォルダの名前〔tmp…src など〕に当たる）
+        "untouched_dir_hidden": not any(l[1:].strip().startswith(("src/", "x.py")) for l in lines),
         "untracked_dir_expanded": any(l.startswith("+") and l[1:].strip().startswith("n.txt") for l in lines),
         "no_nameless_row": not any(l.startswith("+") and l[1:].strip().startswith("新規") for l in lines),
     }
