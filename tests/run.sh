@@ -4617,9 +4617,18 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 cache, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 listing = cache.parents[2] / "installed_plugins.json"
-def note(gate, *paths):
+here = cache.parents[3] / "proj"
+other = cache.parents[3] / "other"
+for d in (here / "sub", other):
+    d.mkdir(parents=True, exist_ok=True)
+(here / ".git").mkdir(exist_ok=True)
+env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+def note(gate, *paths, rows=None, cwd=here / "sub"):
+    # 行は (installPath, scope, projectPath)。既定は user の行
+    rows = rows or [(p, "user", None) for p in paths]
     listing.write_text(json.dumps({"version": 2, "plugins": {"gates@raiki61": [
-        {"installPath": str(p), "version": p.name} for p in paths]}}), encoding="utf-8")
+        {"installPath": str(p), "version": p.name, "scope": sc, **({"projectPath": str(pp)} if pp else {})}
+        for p, sc, pp in rows]}}), encoding="utf-8")
     # 注記と、止めたときにフックが出す JSON の systemMessage(持ち主の画面に出るフィールド)を見る
     code = ("import contextlib,importlib.util,io,json,sys\n"
             "s=importlib.util.spec_from_file_location('g',sys.argv[1]);g=importlib.util.module_from_spec(s);s.loader.exec_module(g)\n"
@@ -4627,10 +4636,26 @@ def note(gate, *paths):
             "with contextlib.redirect_stdout(buf):\n"
             "    try:\n        g.deny('x')\n    except SystemExit:\n        pass\n"
             "print(json.dumps([g.VERSION_NOTE,json.loads(buf.getvalue()).get('systemMessage')],ensure_ascii=False))")
-    r = subprocess.run([sys.executable, "-c", code, str(gate)], capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run([sys.executable, "-c", code, str(gate)], capture_output=True, text=True, encoding="utf-8", cwd=cwd, env=env)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
 mine = cache / "0.1.0/hooks/coldread-gate.py"
+v1, v2 = cache / "0.1.0", cache / "0.2.0"
+# scope: 別のプロジェクトにだけ入れた版は数えない・今の場(git の作業ツリーのルート)の project の行は user の行より先に効く・
+# local は project より先に効く・scope の無い行は数えない
+assert note(mine, rows=[(v2, "project", other), (v1, "user", None)]) == ["", None], "別のプロジェクトにだけ入れた版を数えた"
+assert "入っている版は 0.2.0" in note(mine, rows=[(v1, "user", None), (v2, "project", here)])[0], "今の場の project の行が効いていない"
+assert note(mine, rows=[(v2, "user", None), (v1, "project", here)]) == ["", None], "user の行を project の行より先に取った"
+assert "入っている版は 0.2.0" in note(mine, rows=[(v1, "project", here), (v2, "local", here)])[0], "local の行が project の行より先に効いていない"
+assert note(mine, rows=[(v2, None, None)]) == ["", None], "scope の無い行を数えた"
+# linked worktree の会話には、主の clone で入れた行(projectPath は主の clone)が効く
+main_tree, wt = cache.parents[3] / "main", cache.parents[3] / "wt"
+(main_tree / ".git/worktrees/wt").mkdir(parents=True, exist_ok=True)
+(main_tree / ".git/worktrees/wt/commondir").write_text("../..\n", encoding="utf-8")
+wt.mkdir(exist_ok=True)
+(wt / ".git").write_text(f"gitdir: {main_tree / '.git/worktrees/wt'}\n", encoding="utf-8")
+assert "入っている版は 0.2.0" in note(mine, rows=[(v1, "user", None), (v2, "project", main_tree)], cwd=wt)[0], \
+    "linked worktree で主の clone の project の行が効いていない"
 got = note(mine, cache / "0.2.0")
 assert "入っている版は 0.2.0" in got[0] and got[1] == got[0], got
 assert note(mine, cache / "0.1.0") == ["", None], "自分が入っている版なのに注記を出した"

@@ -2186,6 +2186,37 @@ def plugin_version():
 GATE_VERSION = plugin_version()
 
 
+SCOPES = ("local", "project", "user")   # installed_plugins.json の行の scope。狭い順——狭い scope の行が先に効く
+
+
+def _here():
+    """installed_plugins.json の project・local の行が効く場所: 今の作業フォルダと、それを含む git の作業ツリーのルートと、
+    linked worktree なら主の作業ツリー(Claude Code は主の clone で入れた行の projectPath に主の clone を書く)と、
+    CLAUDE_PROJECT_DIR。git は呼ばない(.git を上へたどり、linked worktree は .git のファイルの gitdir と commondir を読む)"""
+    cur = os.path.realpath(os.getcwd())
+    out = {cur}
+    top = cur
+    while not os.path.exists(os.path.join(top, ".git")) and os.path.dirname(top) != top:
+        top = os.path.dirname(top)
+    dot = os.path.join(top, ".git")
+    if os.path.exists(dot):
+        out.add(top)
+        try:
+            with open(dot, encoding="utf-8") as f:
+                line = f.read().strip()
+            gd = os.path.join(top, line[len("gitdir:"):].strip()) if line.startswith("gitdir:") else None
+            if gd:
+                with open(os.path.join(gd, "commondir"), encoding="utf-8") as f:
+                    common = os.path.realpath(os.path.join(gd, f.read().strip()))
+                if os.path.basename(common) == ".git":
+                    out.add(os.path.dirname(common))
+        except (OSError, ValueError):
+            pass   # .git がフォルダ(主の作業ツリー)か、読めない: 主の作業ツリーは足さない
+    if os.environ.get("CLAUDE_PROJECT_DIR"):
+        out.add(os.path.realpath(os.environ["CLAUDE_PROJECT_DIR"]))
+    return {os.path.normcase(p) for p in out}
+
+
 def installed_elsewhere():
     """入っている gates の版が、この会話のフックの版と違えばその版名。同じか、分からなければ None。
 
@@ -2193,6 +2224,8 @@ def installed_elsewhere():
     古い版で検査し続ける(2026-09-07 に実測: 16 時間 0.8.0 のまま)。入っている版は、Claude Code の控え
     <設定>/plugins/installed_plugins.json の installPath で決める(フォルダの名前の版の大小では決めない。消す印
     .orphaned_at の付いた場所は入っている物に数えない。標準 docs/standards/breakage-detection.md の決まり 4)。
+    効く行は scope が user の行と、project・local で projectPath が今の場(_here)に当たる行で、狭い scope の行を取る
+    (別のプロジェクトにだけ入れた版は、この会話の次のセッションでも効かないので数えない)。
     フックの場所が <設定>/plugins/cache/<marketplace>/<プラグイン>/<版> の形でない(開発 checkout)なら None。
     半端に入った版を拾わないよう、フック本体が在る場所だけを見る。
     """
@@ -2205,18 +2238,27 @@ def installed_elsewhere():
             entries = json.load(f).get("plugins") or {}
     except (OSError, ValueError, AttributeError):
         return None
-    hook = os.path.join("hooks", os.path.basename(__file__))
-    found = []
+    places = _here()
+    live = []
     for rows in entries.values():
         for row in rows if isinstance(rows, list) else []:
-            path = os.path.realpath(str(row.get("installPath") or "")) if isinstance(row, dict) else ""
-            if os.path.normcase(os.path.dirname(path)) != os.path.normcase(os.path.dirname(here)) or os.path.exists(os.path.join(path, ".orphaned_at")):
-                continue   # ほかのプラグイン・消す印の付いた場所
-            if os.path.normcase(path) == os.path.normcase(here):
-                return None
-            if os.path.isfile(os.path.join(path, hook)):
-                found.append(str(row.get("version") or os.path.basename(path)))
-    return "・".join(sorted(set(found))) if found else None   # 場所ごと(ユーザー・プロジェクト)に違う版が入っていれば全部
+            if not isinstance(row, dict):
+                continue
+            path = os.path.realpath(str(row.get("installPath") or ""))
+            if os.path.normcase(os.path.dirname(path)) != os.path.normcase(os.path.dirname(here)):
+                continue   # ほかのプラグイン
+            scope = row.get("scope")
+            if scope == "user" or (scope in SCOPES and row.get("projectPath")
+                                   and os.path.normcase(os.path.realpath(str(row["projectPath"]))) in places):
+                live.append((SCOPES.index(scope), path, row))
+    if not live:
+        return None
+    _, path, row = min(live, key=lambda t: t[0])
+    if os.path.normcase(path) == os.path.normcase(here) or os.path.exists(os.path.join(path, ".orphaned_at")):
+        return None   # 自分が効いている版か、消す印の付いた場所
+    if not os.path.isfile(os.path.join(path, "hooks", os.path.basename(__file__))):
+        return None   # 入りかけ
+    return str(row.get("version") or os.path.basename(path))
 
 
 _INSTALLED = installed_elsewhere()
