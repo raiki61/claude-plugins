@@ -5801,6 +5801,9 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   # Claude Code がプラグインのスキルの本文で置き換える、プラグインの入った場所の変数（スキルがコマンドの中のパスに書く。
                   # https://code.claude.com/docs/en/plugins-reference#environment-variables）
                   "CLAUDE_PLUGIN_ROOT",
+                  # Claude Code がフックに渡す、プロジェクトのフォルダの環境変数（gates の初見読みのゲートが、入っている版を決めるときに読む。
+                  # https://code.claude.com/docs/en/plugins-reference#environment-variables）
+                  "CLAUDE_PROJECT_DIR",
                   # herdr がペインの中の殻に渡す環境変数（works-dispatch は HERDR_SOCKET_PATH を herdr への問い合わせに読み、HERDR_PANE_ID は
                   # 「継いだ値が別のペインを指すことがあるので使わない」と文書で名指す）・OS の PATH
                   "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "PATH",
