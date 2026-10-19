@@ -1,6 +1,6 @@
 {
   "name": "works-dispatch",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "description": "自分の番の PR（attention の whose-turn）を、PR ごとの作業場（clone と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で /catchup と設定の 2 ターン目の文を送る /works-dispatch:dispatch スキル。作業ごとの部署（ブランチの作業場と Claude Code の裏の会話）を立てて herdr に窓を並べ、リポジトリごとの会社のツリー図も出す。AI を使わないスクリプトで、開いている会話は閉じない。",
   "author": {
     "name": "raiki61"

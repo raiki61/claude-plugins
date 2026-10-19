@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-10-19
+
 ### Changed
 
 - herdr（端末の画面を作業場に分けて会話を並べるツール）の作業場に付ける印に、席の種類のキー `seat`（`persistent-carry`・`persistent-fresh`・`ephemeral`）を足した。`--sync`・`--reorg` が印を付け直すかは、この `seat` で比べる。これまでは、サイドバーに出す見せる語の印 `kind`（「永続・毎回クリア」など）どうしで比べていて、見せる語の言い方を変えると、変えた後の最初の付け直しで全部の作業場が「違う」と出て付け直しになった（docs/standards/machine-readable-values.md の決まり 3「言語に依らないキー」。my_notes の受付箱の頼み 0715c5）。`kind` は今までどおり付け、サイドバーの見え方は変わらない。`seat` の無い前の版の作業場には、次の付け直し（`--sync` か `--reorg` を打ったとき。または、会社の形〔`.claude/company.toml` に書く、部署と役の設定〕が替わった後に、会話のターンの終わりに走る Stop のフック `dispatch/shape_hook.py` が付け直したとき。毎ターンではない）で、その作業場ごとに一度だけ `kind` と `seat` を付け直す。
