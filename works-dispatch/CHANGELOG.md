@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.95.1] - 2026-10-20
+
 ### Fixed
 
 - `--tree`・`--todo` の注記（`dispatch/health.py`）: 裏の処理の出力の置き場か出力を読めないとき、古い出力か空の順番待ちの置き場を消せないとき、受付箱の台帳（頼みと納品を 1 行ずつ足す `log.jsonl` と `due.log`）の大きさを読めないときに、その旨を注記に出す。前は、何も無かったときと同じに黙っていた。置き場や台帳がまだ無いときは、今までどおり黙る。
