@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- `--tree` が、アカウントごとに、利用者が Keychain に書いたトークンの期限の近さを注記に出すようにした。`claude setup-token` で作るトークンは 1 年で切れる（https://code.claude.com/docs/en/authentication の「Generate a long-lived token」）。Keychain の項目を書き換えた日から 335 日経つと、「何日後に切れる見込み」か「切れた見込み」と、作り直す手順を 1 行で出す。見る項目は、使用率の取り直しが最初に探す項目（設定の `keychain_service`、無ければ設定のフォルダの名前の `.claude-` の後ろを付けた `claude-code-oauth-<その後ろ>`。既定のフォルダ `~/.claude` なら `claude-code-oauth-default`）。書き換えた日は項目の属性だけを読み、トークンの値は読まない。項目の無いアカウント、使用率の枠の無いアカウント（`limits = false`）、mac でない環境では何も出さない。これまでは、切れてから使用率の取り直しの失敗で初めて分かった（docs/standards/breakage-detection.md の決まり 1・2。受付 dc7de7）。
+
 ## [0.91.0] - 2026-10-19
 
 ### Changed

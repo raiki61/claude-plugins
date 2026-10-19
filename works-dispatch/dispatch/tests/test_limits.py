@@ -412,6 +412,21 @@ class Breakage(unittest.TestCase):
         self.assertFalse(limits.stale({"five_hour": win(100, NOW + 60, old), "seven_day": win(5, NOW + 60, old)}, NOW))
         self.assertFalse(limits.stale(None, NOW))
 
+    def test_expiry_notes_look_at_the_item_the_probe_reads_first(self):
+        seen = []
+
+        def note(service):
+            seen.append(service)
+            return "切れる見込み" if service == "mine" else None
+        accts = accounts(2) + (config.Account("ollama", "claude-o", "/h/.claude-o", limits=False),
+                               config.Account("own", "claude", None, keychain_service="mine"),
+                               config.Account("home", "claude", None))
+        env = {"HOME": "/h", "CLAUDE_KEYCHAIN_SERVICE": "shared"}
+        self.assertEqual(limits.expiry_notes(accts, env, "darwin", note), ["アカウント own: 切れる見込み"])
+        # シェル全体の上書きは外し（全アカウントが同じ項目になる）、使用率の枠の無いアカウントは見ない
+        self.assertEqual(seen, ["claude-code-oauth-a0", "claude-code-oauth-a1", "mine", "claude-code-oauth-default"])
+        self.assertEqual(limits.expiry_notes(accts, env, "linux", note), [])
+
     def test_failed_probe_leaves_a_record_that_tree_and_the_tab_bar_show_until_it_works(self):
         down = {"content-type": "application/json", limits.STATUS: "404", limits.ERROR: "model not found"}
         limits.probe_all(accounts(1), self.dir, {}, NOW, token=lambda c, e: ("tok", "x"), fetch=lambda tok: down)

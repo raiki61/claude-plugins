@@ -1051,8 +1051,8 @@ def _company(a, ports):
 def survey_companies(config_path, ports, only=None, plugins=False):
     """herdr の作業場から会社を出し（tree.roots）、会社ごとに部署（herdr アダプタの worktrees）と属性（git）と会社の情報を読んで
     組み立てる（tree.build）。only を渡せば、その代表の clone の会社だけ。(アカウントの並び, herdr の作業場の並び, 会社の並び,
-    設定の置き場, 注記)。plugins が真なら、注記に wiring.setting_notes（使えない版を指す設定など。--tree だけが出す）も足す。herdr を読めなければ
-    term.Error。"""
+    設定の置き場, 注記)。plugins が真なら、注記に wiring.setting_notes（使えない版を指す設定など）と limits.expiry_notes
+    （Keychain のトークンの期限）も足す（どちらも --tree だけが出す）。herdr を読めなければ term.Error。"""
     notes = []
     path = config.path_of(config_path, os.environ)
     limits_dir = None
@@ -1065,6 +1065,7 @@ def survey_companies(config_path, ports, only=None, plugins=False):
             notes.append(f"dispatch の設定を読めないので、既定のアカウント 1 つとして見る（{e}）")
     if plugins:
         notes += wiring.setting_notes(os.environ, [config.effective_config_dir(a, os.environ) for a in accounts_], limits_dir)
+        notes += limits.expiry_notes(accounts_, os.environ)
     if limits_dir:
         notes += limits.problems(accounts_, os.path.expanduser(limits_dir), time.time())
     sessions_ = {}

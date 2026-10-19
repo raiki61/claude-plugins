@@ -160,6 +160,24 @@ def problems(accounts, limits_dir, now):
     return out
 
 
+def expiry_notes(accounts, env, platform=sys.platform, note=claude_auth.expiry_note):
+    """利用者が Keychain に書いたトークンの、切れる日が近い・過ぎた見込みの注記の並び。--tree が出す。
+
+    見る項目は、取り直し（probe_all）が最初に探す項目（keychain_service の名か、設定のフォルダから導いた名）。
+    書き換えた日しか読まないので、項目が無いアカウントと mac でない環境では何も言わない。"""
+    if platform != "darwin":
+        return []
+    home = env.get("HOME") or str(pathlib.Path.home())
+    out = []
+    for a in accounts:
+        if not a.limits:
+            continue
+        line = note(claude_auth.keychain_service(a.config_dir or os.path.join(home, ".claude"), probe_env(env), a.keychain_service))
+        if line:
+            out.append(f"アカウント {a.name}: {line}")
+    return out
+
+
 def _windows(snap):
     return [w for w in (snap.get("five_hour"), snap.get("seven_day")) if isinstance(w, dict)]
 
