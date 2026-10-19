@@ -39,7 +39,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
                             [--from-name <呼んだ会話の名前>] [--from-account <アカウントの名>] [--role <役>] [--dry-run]
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
         python3 dispatch.py --ask <会社/役 か部署の名前か会社の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <ブランチ>] [--dry-run]
-        python3 dispatch.py --deliver <要約のファイル> [--dry-run]
+        python3 dispatch.py --deliver <要約のファイル> [--for <受付> | --again] [--dry-run]
         python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
         python3 dispatch.py --done（エフェメラルの部署の場所から。納品してメインブランチに入れ終えたので、ターンの終わりに会話を止めて部屋を片付けてよいと印す）
         python3 dispatch.py --retire <部署>（エフェメラルの部署の会話を止めてから、--clean と同じ決まりで片付ける）
@@ -245,6 +245,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--for", dest="for_ask", metavar="受付", help="--deliver と一緒に: --ask … --forward で回して閉じた頼み（回した元か"
                     "回した先の受付）か、cause 付きの --ask で回した子の頼み（子かその元の受付）の、元の頼み元へ返す（今受けている頼みは閉じない）")
+    ap.add_argument("--again", action="store_true", help="--deliver と一緒に: 今受けている頼みを納品した後に、同じ頼みの続き（納品の後に"
+                    "出た、判断の要ること・直し）をもう一度返す（無ければ、納品済みの頼みへの --deliver は止まる）")
     ap.add_argument("--wait", metavar="訳", help="部署の場所から、今の頼みを人の答え待ちと印す（止まる前のフックが納品を促さない。"
                     "人がその会話に打つか、納品すると外れる）")
     ap.add_argument("--rest", action="store_true", help="部署か窓口の場所から、今は会話を空にしてよい区切りと印す（このターンの終わりに、"
@@ -297,6 +299,12 @@ def main(argv=None, ports=None):
         return 2
     if a.for_ask is not None and a.deliver is None:
         print("止めた: --for は --deliver と一緒にだけ使う")
+        return 2
+    if a.again and a.deliver is None:
+        print("止めた: --again は --deliver と一緒にだけ使う")
+        return 2
+    if a.again and a.for_ask is not None:
+        print("止めた: --again と --for は一緒に使わない（--for の返しは今の頼みを閉じないので、--again は要らない）")
         return 2
     if (a.all or a.html) and a.todo is None:
         print("止めた: --all と --html は --todo と一緒にだけ使う")
@@ -1422,11 +1430,11 @@ mode = "none"
 # - 担当への頼みは部署の名前で宛てる（--ask <受け持ち>。部署の名前は役より先に当たる）。担当がまだ居ない受け持ちは
 #   --ask {plain}/担当 --task <受け持ち> --branch <ブランチ> --text <頼み> で、最初の頼みと一緒に立てる。頼んだ部署が頼み元になり、納品はそこに返る。
 # - 担当の受け持ちの中の作業は、担当に頼む（窓口が作業に直に頼まない。同じファイルを 2 つの部署が触ると、後から入れた方が前の変更を消す）。
-# - 納品の後に判断が要ることが出たら、画面に書いて止まらず、もう一度納品のコマンド（--deliver）で返す（画面にだけ書いた問いは届かない）。
+# - 納品の後に判断が要ることが出たら、画面に書いて止まらず、もう一度納品のコマンド（--deliver に --again を付ける）で返す（画面にだけ書いた問いは届かない）。
 """
 # 役の本文の共通の終わり。組織の決まりのうち、部署が守ることを部署の会話に届ける（コメントは部署に届かない）
 DRAFT_RETURN = ("済んだら作業のブランチに push し、要約を納品のコマンド（--deliver）で頼み元に返す。納品の後に判断が要ることが出たら、"
-                "画面に書いて止まらず、もう一度納品のコマンドで返す（画面にだけ書いた問いは頼み元に届かない）。")
+                "画面に書いて止まらず、もう一度納品のコマンドで返す（--again を付ける。画面にだけ書いた問いは頼み元に届かない）。")
 DRAFT_BRANCH = "ブランチの名前は英小文字とハイフンにし、直しは fix/…、足すものは feat/…、調べや下書きは work/… にする。"
 # 自動の権限の判定への例外（役の settings の autoMode.allow）。--land は、ゲートを通した後にメインブランチを fast-forward して push する
 DRAFT_LAND_ALLOW = ("この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分のブランチをメインブランチに入れること。"

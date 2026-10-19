@@ -1687,10 +1687,19 @@ class WakeFlow(unittest.TestCase):
         self.listen("調べ", self.dept_place())
         self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")[0], 0)
         (child,) = [r["child"] for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
-        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
-        boss = self.listen("社長室", "/elsewhere/.git")
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text(test_deliver.GOOD, encoding="utf-8")
+        rc, out = self.main(self.src, "--deliver", str(summary))   # 回して閉じた頼みへ --for を付けずに返そうとした
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--forward で回して閉じた。回した先の結果か問いを返すなら --for a0 を付けて打ち直す", out)
+        # ほかの部署が回した行の受付は渡せない（その部署の頼み元へ届く。受付 b54685）
+        deliver.log(self.inbox, {"id": "f0", "kind": "forwarded", "child": "f1", "from": {"name": "窓口2", "place": "/elsewhere"},
+                                 "boss": {"name": "社長室", "session": "s-boss", "inbox": self.inbox}})
+        rc, out = self.main(self.src, "--deliver", str(summary), "--for", "f1")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("受付 f1 を回したのはこの部署（desk）でなく 窓口2", out)
+        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
+        boss = self.listen("社長室", "/elsewhere/.git")
         rc, out = self.main(self.src, "--deliver", str(summary), "--for", "nope")
         self.assertEqual(rc, 2, out)
         self.assertIn("受付 nope を回した行が台帳に無い", out)
@@ -1711,6 +1720,9 @@ class WakeFlow(unittest.TestCase):
         # 受けた後でも、子の行に残した頼み元（cause_boss）へ届く（my_notes の受付 20261019-005554-1f3389）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
                                             "boss-inbox": self.inbox}, gitx)
+        # a0 はこの部署が受けた頼み（台帳の頼みの行の宛先がこの部署）。受けた頼みでも、子を回した元の受付は --for に渡せる
+        deliver.log(self.inbox, {"id": "a0", "kind": "ask", "cause": None, "from": {"name": "社長室", "place": "/elsewhere"},
+                                 "to": {"name": "desk"}})
         self.listen("調べ", self.dept_place())
         self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "残った疑問を調べて")[0], 0)
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask" and r.get("cause") == "a0"]
@@ -1731,6 +1743,18 @@ class WakeFlow(unittest.TestCase):
             self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
         attrs = gitx.worktree_attrs(self.src)
         self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "持ち主"))   # 今の頼みはそのまま
+        # ほかの部署（点検）が回してこの部署が受けた子の頼み c9 は、子の受付でも元の受付でも渡せない（点検の頼み元へ届く。受付 b54685
+        # の 481db2 は、届け先が割り振り自身に決まった）。誰が閉じたかも出す
+        deliver.log(self.inbox, {"id": "c9", "kind": "ask", "cause": "a9", "from": {"name": "点検", "place": "/elsewhere"},
+                                 "to": {"name": "desk"}, "cause_boss": {"name": "desk", "session": "s-desk", "inbox": self.inbox}})
+        deliver.log(self.inbox, {"id": "d9", "kind": "deliver", "ask": "c9", "status": "sent", "from": {"name": "desk：c9"}})
+        for key in ("c9", "a9"):
+            rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
+            self.assertEqual(rc, 2, out)
+            self.assertIn(f"受付 {key} を回したのはこの部署（desk）でなく 点検", out)
+        self.assertNotIn("納品 d9", out)   # a9 には納品の行が無い
+        rc, out = self.main(self.src, "--deliver", str(summary), "--for", "c9")
+        self.assertIn("- 受付 c9 は、desk：c9 が納品 d9 で返して閉じている", out)
 
     def test_a_child_ask_without_cause_boss_finds_the_asker_in_the_original_asks_row(self):
         # cause_boss を書く前の版の行: 元の頼みの行（頼み元の受付箱の台帳に在る）の from と本文の置き場から頼み元を組み立てる

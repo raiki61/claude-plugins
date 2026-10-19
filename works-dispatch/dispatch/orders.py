@@ -1510,14 +1510,63 @@ def caused_ask(rows, ask_id):
         return None
     origin = children[0]["cause"]
     if isinstance(children[0].get("cause_boss"), dict):
-        return {"id": origin, "boss": children[0]["cause_boss"]}
+        return {"id": origin, "boss": children[0]["cause_boss"], "from": children[0].get("from")}
     # cause_boss を書く前の版の行: 元の頼みの行の頼み元（台帳の行のファイルの置き場や作業場からたどれた受付箱に在る物だけ）
     asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") == origin and r.get("file") and r.get("from")]
     if not asks:
         return None
     sender = asks[-1]["from"]
-    return {"id": origin, "boss": {"name": sender.get("name"), "session": sender.get("session"), "account": sender.get("account"),
+    return {"id": origin, "from": children[0].get("from"),
+            "boss": {"name": sender.get("name"), "session": sender.get("session"), "account": sender.get("account"),
                                    "pane": None, "inbox": os.path.dirname(asks[-1]["file"])}}
+
+
+def sent_elsewhere(record, rows, ask_id, attrs, top):
+    """--deliver --for で引き当てた行（forwarded の行か、cause 付きの子の頼みの行）を書いたのがこの部署でなければ、止める訳を返す。
+    この部署なら None。この部署かは、行の from の名前が属性 company.name と同じか、from の場所がこの作業場（top）の中かで見る（from の
+    無い前の版の行は通す）。ほかの部署が回した頼みの受付を --for に渡すと、その部署の頼み元へ届く（2026-10-18 の割り振り。点検から
+    受けた頼み 481db2 の要約を --for 481db2 で返そうとし、届け先が割り振り自身に決まった。my_notes の段取りの受付 b54685）。"""
+    sender = record.get("from")
+    if not isinstance(sender, dict):
+        return None
+    if attrs.get("name") and sender.get("name") == attrs["name"]:
+        return None
+    place = sender.get("place")
+    if place and top and (os.path.normpath(place) == os.path.normpath(top)
+                          or os.path.normpath(place).startswith(os.path.normpath(top) + os.sep)):
+        return None
+    lines = [f"止めた: 受付 {ask_id} を回したのはこの部署（{attrs.get('name') or top}）でなく {sender.get('name') or place or '-'}。--for は、"
+             "この部署が回した頼みの答えを、この部署の頼み元へ返す口。この部署が受けた頼みの答えは、その頼みを受けている間に --for を"
+             "付けずに --deliver で返す"]
+    done = [r for r in rows if r.get("kind") == "deliver" and r.get("ask") == ask_id and r.get("status") != "failed" and not r.get("for")]
+    if done:
+        lines.append(f"- 受付 {ask_id} は、{(done[-1].get('from') or {}).get('name') or '-'} が納品 {done[-1].get('id')} で返して閉じている。"
+                     "この要約は送らない")
+    return "\n".join(lines)
+
+
+def delivered_already(attrs):
+    """今受けている頼み（company.ask）を納品した後に、--again も --for も無く --deliver を打ったときの、止める訳。前は黙って同じ受付へ
+    2 通目を送り、ほかの頼みの要約が済んだ頼みの納品として頼み元に届いた（2026-10-18 の割り振り。受付 311e99 の納品の 26 秒後に、
+    別の頼み 481db2 の要約を --for を付けずに送った。my_notes の段取りの受付 b54685）。"""
+    ask = attrs["ask"]
+    inbox = attrs.get("boss-inbox")
+    if inbox and os.path.isdir(inbox) and any(r.get("kind") == "forwarded" and r.get("id") == ask for r in deliver.records(inbox)):
+        return (f"止めた: 今の頼み（受付 {ask}）は --forward で回して閉じた。回した先の結果か問いを返すなら --for {ask} を付けて打ち直す"
+                "（--again は要らない）")
+    lines = [f"止めた: 今の頼み（受付 {ask}）はもう納品した。この要約がその頼みの続き（納品の後に出た、判断の要ること・直し）なら、"
+             "下の頼みの本文と送った要約を見比べてから --again を付けて打ち直す。ほかの頼みの答えなら、その頼みの受付を --for に渡す"
+             "（この部署が --forward で回して閉じた頼みか、この部署が頼みを受けている間に --ask で回した頼み）。この部署が前に受けた頼みの要約は送らない"
+             "（その頼みは、受けていた間の納品か、回した先の部署の納品で閉じている）"]
+    if inbox and os.path.isdir(inbox):
+        body = os.path.join(inbox, f"{ask}-ask.md")
+        if os.path.isfile(body):
+            lines.append(f"- 頼みの本文: {body}")
+        sent = [r for r in deliver.records(inbox) if r.get("kind") == "deliver" and r.get("ask") == ask and r.get("file")
+                and not r.get("for") and r.get("status") != "failed"]
+        if sent:
+            lines.append(f"- 送った要約: {sent[-1]['file']}")
+    return "\n".join(lines)
 
 
 def for_attrs(attrs, record):
@@ -1538,9 +1587,13 @@ def deliver_summary(a, ports, cwd):
     if for_ask:
         common = ports.git.common_dir(cwd)
         record = forwarded_ask(deliver.inbox_of(common), for_ask) if common else None
+        rows = todo.inboxes_from([deliver.inbox_of(common)], ports.git.common_dir)[1] if common else []
         if not record and common:
-            rows = todo.inboxes_from([deliver.inbox_of(common)], ports.git.common_dir)[1]
             record = caused_ask(rows, for_ask)
+            why = record and sent_elsewhere(record, rows, for_ask, attrs, ports.git.toplevel(cwd) or cwd)
+            if why:
+                print(why)
+                return 2
             if record and record["id"] not in deliver.closed_ids(rows):
                 # 頼み元への知らせの行は元の受付を閉じたと読まれる。元の頼みを受けている部署がまだ納品していないなら、その納品で返す
                 print(f"止めた: 受付 {for_ask} の元の頼み（受付 {record['id']}）がまだ納品されていない。--for は元の頼みを納品した後に"
@@ -1551,7 +1604,14 @@ def deliver_summary(a, ports, cwd):
                   "その元の頼みの行も無い）。--for には、--ask … --forward で回した元の受付か回した先の受付、または cause 付きの --ask で"
                   "回した子の受付かその元の受付を渡す")
             return 2
+        why = sent_elsewhere(record, rows, for_ask, attrs, ports.git.toplevel(cwd) or cwd)   # forwarded の行（cause の子は上で見た）
+        if why:
+            print(why)
+            return 2
         attrs = for_attrs(attrs, record)
+    elif attrs.get("ask") and attrs.get("delivered") == attrs["ask"] and not getattr(a, "again", False):
+        print(delivered_already(attrs))
+        return 2
     try:
         text = sys.stdin.read() if a.deliver == "-" else \
             pathlib.Path(os.path.expanduser(a.deliver)).read_text(encoding="utf-8")

@@ -902,6 +902,30 @@ class Flow(unittest.TestCase):
         # 納品の後は Stop フックが差し戻さない
         self.assertIsNone(deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
 
+    def test_a_second_deliver_to_the_delivered_ask_stops_until_again(self):
+        # 納品した頼みへ、--again も --for も無い 2 通目は送らない。前は、ほかの頼みの要約が済んだ頼みの納品として届いた（受付 b54685）
+        summary = self.ask_then_summary(GOOD)
+        self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+        ask = gitx.worktree_attrs(self.place)["ask"]
+        (first,) = [r["file"] for r in deliver.records(self.inbox) if r.get("kind") == "deliver"]
+        self.ports.term.writes.clear()
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)
+        self.assertIn(f"今の頼み（受付 {ask}）はもう納品した", out)
+        self.assertIn(f"- 送った要約: {first}", out)
+        self.assertIn(f"- 頼みの本文: {os.path.join(self.inbox, ask + '-ask.md')}", out)
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "deliver"]), 1)
+        rc, out = self.main(self.place, "--deliver", summary, "--again")   # 同じ頼みの続き
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.prompts()), 1)
+        rc, out = self.main(self.place, "--again")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--again は --deliver と一緒にだけ使う", out)
+        rc, out = self.main(self.place, "--deliver", summary, "--again", "--for", ask)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--again と --for は一緒に使わない", out)
+
     def push_from_the_department(self, files):
         """部署が --land を通さずに、部署の作業場から手でメインブランチへ push した形（git push origin HEAD:main）。入れた commit を返す。"""
         for rel, text in files.items():
@@ -1327,7 +1351,7 @@ class Flow(unittest.TestCase):
         summary = self.ask_then_summary(GOOD)
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
         self.ports.now = lambda: 1
-        self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+        self.assertEqual(self.main(self.place, "--deliver", summary, "--again")[0], 0)   # 同じ頼みの続き
         files = [r["file"] for r in deliver.records(self.inbox) if r["kind"] == "deliver"]
         self.assertEqual(len(set(files)), 2)
         self.assertTrue(all(pathlib.Path(f).is_file() for f in files))
