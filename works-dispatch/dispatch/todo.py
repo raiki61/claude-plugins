@@ -6,6 +6,10 @@
 宛先や打った場所の作業場の会社の物）をたどって全部の台帳を読み、頼みの木を出す（herdr は読まない。会社が開いていなくても
 台帳だけで組む）。受付を渡せば、その頼みから下だけ（短い 6 桁でもよい）。済んだブランチは出さない（--all で出す）。--json は射影を
 JSON で、--html <ファイル> は 1 枚の HTML のページに書く。
+--state <状態>（カンマで区切って幾つでも。STATES の名前か画面の字）か --to <宛先>（部署の名前・会社の名前・「会社/名前」）を付けると、
+木にせず、当たった頼みを更新の古い順に平らに並べる（--state を省けば開いている状態〔順番待ち・動いている・答え待ち〕、--all なら全部の状態）。
+どの形でも、注記とリマインダーの後、一覧の前に数え（状態ごとの件数・済の割合・開いている頼みでいちばん動きの無い物）を出す。数えるのは、受付を渡せばその頼みと子をたどった下の頼み、--to を付ければ宛先の当たる頼みの、
+全部の状態の頼み（--state では絞らない。済の割合の分母が要るため）。--json は summary に、--html はページの頭に出す。
 頭に、台帳をたどった受付箱の壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ。health.py）と、台帳では開いているのに
 順番待ちにも作業場にも無い頼み（strays）を「!」で出す。
 台帳のリマインダー（--remind）のうち見る時の来た物を、木の前に出す（--all でまだ来ていない物と閉じた物も）。
@@ -84,28 +88,43 @@ def todo(a, ports, cwd):
             print(f"止めた: 受付 {a.todo} が台帳に" + ("無い" if not hits else f" {len(hits)} 件ある（長い受付番号で渡す）"))
             return 2
         top = hits[0]
+    now = ports.now()
+    states = None
+    if getattr(a, "state", None):
+        states = [ledger.state_of(w.strip()) for w in a.state.split(",") if w.strip()]
+        if not states or None in states:
+            print(f"止めた: --state {a.state} に知らない状態が在る（使える物: "
+                  + "・".join(f"{k}（{v[0]}）" for k, v in ledger.STATES.items()) + "）")
+            return 2
+    to = getattr(a, "to", None)
+    ids = ledger.scope(view, top, to)
+    counted = ledger.tally(view, ids, now)
+    filtering = states is not None or bool(to)
+    if filtering and states is None:
+        states = list(ledger.STATES) if a.all else ["queued", "working", "waiting"]
     if a.html:
-        forest = ledger.select(view, top, everything=True)
-        made = time.strftime("%Y-%m-%d %H:%M", time.localtime(ports.now()))
+        forest = ledger.flat(view, ids, states) if filtering else ledger.select(view, top, everything=True)
+        made = time.strftime("%Y-%m-%d %H:%M", time.localtime(now))
         try:
             with open(os.path.expanduser(a.html), "w", encoding="utf-8") as f:
-                f.write(ledger.page(forest, view, made, when, everything=a.all or top is not None))
+                f.write(ledger.page(forest, view, made, when, everything=filtering or a.all or top is not None, counted=counted,
+                                    flat=filtering))
         except OSError as e:
             print(f"止めた: ページを書けない（{e}）")
             return 1
         print(f"頼みの木のページを書いた: {a.html}（台帳 {len(inboxes)} つから {len(view['tasks'])} 件）")
         return 0
-    forest = ledger.select(view, top, everything=a.all or top is not None)
-    now = ports.now()
+    forest = ledger.flat(view, ids, states) if filtering else ledger.select(view, top, everything=a.all or top is not None)
     # 裏の処理の失敗・誰も受けない頼み・台帳の大きさ。受付箱が 2 つ以上なら、どの受付箱の話かを頭に付ける
     notes = [(f"{x}: " if len(inboxes) > 1 else "") + n for x in inboxes for n in health.inbox_notes(x, now)] + strays(view, rows, inboxes)
     rems = [] if top else reminders(rows, view, now, everything=a.all)
     if a.json:
-        jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "notes": notes, "forest": forest, "reminders": rems}, None)
+        jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "notes": notes, "forest": forest, "reminders": rems,
+                     "summary": {**counted, "filter": {"states": states, "to": to} if filtering else None}}, None)
         return 0
-    out = ledger.lines(forest, when)
-    print("\n".join([f"! {n}" for n in notes] + reminder_lines(rems)
-                    + (out or ["開いている頼みは無い（済んだ物は --all で出す）"])))
+    out = ledger.lines(forest, when, now if filtering else None)
+    empty = "当たる頼みは無い" if filtering else "開いている頼みは無い（済んだ物は --all で出す）"
+    print("\n".join([f"! {n}" for n in notes] + reminder_lines(rems) + [ledger.tally_line(counted), ""] + (out or [empty])))
     return 0
 
 

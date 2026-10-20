@@ -204,6 +204,10 @@ def main(argv=None, ports=None):
                     help="受付箱の台帳から頼みの木（頼み → 回した先・出した頼み、と残った疑問の続き）を作って出す。済んだブランチは出さない"
                          "（受付を渡せばその頼みから下を全部。誰のターンかは出さない。作った物は保存せず、開くたびに作り直す）")
     ap.add_argument("--all", action="store_true", help="--todo と一緒に: 済んだブランチも出す")
+    ap.add_argument("--state", metavar="状態", help="--todo と一緒に: その状態の頼みだけを、木にせず更新の古い順に出す（カンマで区切って幾つでも。"
+                    "queued・working・waiting・done・dropped・failed か、順番待ち・動いている・答え待ち・済・取り下げ・届かず）")
+    ap.add_argument("--to", metavar="宛先", help="--todo と一緒に: 宛先がその部署の名前・会社の名前・「会社/名前」の頼みだけを、木にせず"
+                    "更新の古い順に出す（--state を省けば開いている物だけ、--all で全部の状態）")
     ap.add_argument("--html", metavar="ファイル", help="--todo と一緒に: 1 枚の HTML のページに書く（--all も受付も無ければ済んだブランチを初めは隠し、ページの中で出せる）")
     ap.add_argument("--sync", action="store_true", help=f"部署の属性から、{term.NAME} のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署か、会社の名前だけならその会社の窓口に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
@@ -306,8 +310,8 @@ def main(argv=None, ports=None):
     if a.again and a.for_ask is not None:
         print("止めた: --again と --for は一緒に使わない（--for の返しは今の頼みを閉じないので、--again は要らない）")
         return 2
-    if (a.all or a.html) and a.todo is None:
-        print("止めた: --all と --html は --todo と一緒にだけ使う")
+    if (a.all or a.html or a.state or a.to) and a.todo is None:
+        print("止めた: --all・--html・--state・--to は --todo と一緒にだけ使う")
         return 2
     if a.todo is not None:
         return todo.todo(a, ports, os.getcwd())

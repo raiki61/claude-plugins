@@ -361,12 +361,82 @@ def select(view, top=None, everything=False):
     return [node(i, set()) for i in sorted(roots, key=lambda i: tasks[i]["updated"] or 0, reverse=True)]
 
 
-def lines(forest, when=None):
-    """人の読む形（字下げの木）。when(時刻) は日時の字を返す（省けば出さない）。"""
+def state_of(word):
+    """--state に渡した 1 語（STATES の名前か、画面の字）を状態の名前にする（知らなければ None）。"""
+    if word in STATES:
+        return word
+    return next((k for k, v in STATES.items() if v[0] == word), None)
+
+
+def scope(view, top=None, to=None):
+    """数える頼みの受付の並び。top を渡せばその頼みと、子をたどった下の頼みだけ。to を渡せば宛先の部署の名前・会社の名前・
+    「会社/名前」のどれかが to と同じ物だけ。"""
+    tasks = view["tasks"]
+    if top is None:
+        ids = list(tasks)
+    else:
+        ids, stack = [], [top] if top in tasks else []
+        while stack:
+            i = stack.pop()
+            if i not in ids:
+                ids.append(i)
+                stack += tasks[i]["children"]
+    if to:
+        def hit(t):
+            d = t["to"] or {}
+            return to in (d.get("name"), d.get("company"), f"{d.get('company')}/{d.get('name')}")
+        ids = [i for i in ids if hit(tasks[i])]
+    return ids
+
+
+def flat(view, ids, states):
+    """絞り込みの見せ方: ids のうち状態が states に入る頼みを、木にせず、更新の古い順（動きの無い間の長い順）に並べた forest。"""
+    tasks = view["tasks"]
+    keep = [i for i in ids if tasks[i]["state"] in states]
+    return [{"task": tasks[i], "kids": [], "follows": []} for i in sorted(keep, key=lambda i: tasks[i]["updated"] or 0)]
+
+
+def tally(view, ids, now):
+    """ids の頼みの数え: 状態ごとの件数・済の割合（済 ÷ 届かずを除いた全件。分母が 0 なら None）・開いている頼み（自分が順番待ち・
+    動いている・答え待ち）のうち更新のいちばん古い物と、その更新から now までの秒。"""
+    tasks = view["tasks"]
+    counts = {k: 0 for k in STATES}
+    for i in ids:
+        counts[tasks[i]["state"]] += 1
+    base = len(ids) - counts["failed"]
+    # 時刻の無い頼み（台帳の行に at が無い）は古さを決められないので選ばない
+    live = [i for i in ids if tasks[i]["state"] not in FINAL + ("failed",) and tasks[i]["updated"]]
+    old = min(live, key=lambda i: tasks[i]["updated"]) if live else None
+    return {"counts": counts, "total": len(ids), "done_ratio": round(counts["done"] / base, 3) if base else None,
+            "oldest_open": None if old is None else {"id": old, "updated": tasks[old]["updated"],
+                                                     "age": max(0, now - tasks[old]["updated"])}}
+
+
+def age(sec):
+    """経った秒を「N 日」「N 時間」「N 分」の字に。"""
+    sec = max(0, int(sec or 0))
+    return f"{sec // 86400} 日" if sec >= 86400 else f"{sec // 3600} 時間" if sec >= 3600 else f"{sec // 60} 分"
+
+
+def tally_line(t):
+    """数えの 1 行（--todo の頭と、--html のページの頭）。"""
+    parts = "・".join(f"{STATES[k][0]} {n}" for k, n in t["counts"].items())
+    ratio = "-" if t["done_ratio"] is None else f"{round(t['done_ratio'] * 100)}%"
+    old = t["oldest_open"]
+    tail = f"。開いている頼みでいちばん動きの無い物: {old['id']}（{age(old['age'])}前に更新）" if old else ""
+    return f"件数: {parts}（全 {t['total']} 件、済の割合 {ratio}）{tail}"
+
+
+def lines(forest, when=None, now=None):
+    """人の読む形（字下げの木）。when(時刻) は日時の字を返す（省けば出さない）。now を渡せば、宛先と、更新から now までの古さも添える
+    （絞り込みの見せ方）。"""
     out = []
     def walk(n, depth):
         t = n["task"]
         stamp = f"  {when(t['updated'])}" if when else ""
+        if now is not None:
+            d = t["to"] or {}
+            stamp += f"  宛先 {d.get('company') or '-'}/{d.get('name') or '-'}  " + (f"{age(now - t['updated'])}前" if t["updated"] else "更新の時刻なし")
         out.append(f"{'  ' * depth}- [{t['label']}] {t['title'] or '（題なし）'}  {t['id']}{stamp}")
         if t["state"] == "waiting" and t.get("why"):
             out.append(f"{'  ' * (depth + 1)}答え待ちの訳: {t['why']}")
@@ -407,7 +477,7 @@ body.hide .closed{display:none}
 <h1>やること</h1>
 <div class="bar">開いている %(open)d 件 ・ 全部 %(all)d 件 ・ %(when)s に台帳から作った
 <label><input type="checkbox" id="all"%(checked)s> 済んだ物も出す</label></div>
-<ul>
+%(tally)s<ul>
 %(body)s
 </ul>
 <script>
@@ -427,9 +497,10 @@ reveal();
 """
 
 
-def page(forest, view, made, when=None, everything=False):
+def page(forest, view, made, when=None, everything=False, counted=None, flat=False):
     """頼みの木の 1 枚の HTML。forest は select(view, everything=True) の物を渡し、済んだブランチは class closed で畳む（everything でなければ
-    始めは隠す）。made は作った時刻の字。when(時刻) は日時の字を返す。"""
+    始めは隠す）。made は作った時刻の字。when(時刻) は日時の字を返す。counted は tally の物で、渡せばページの頭に数えの 1 行を出す。
+    flat は絞り込みの見せ方（flat の forest）で、済の印を下の頼みでなく自分の状態で付け、数えの行が絞る前の範囲の物と添える。"""
     tasks = view["tasks"]
     def title(t):
         return html.escape(t["title"] or "（題なし）")
@@ -442,9 +513,10 @@ def page(forest, view, made, when=None, everything=False):
         extra = ""
         if t["state"] == "waiting" and t.get("why"):
             extra += f'<div class="why">答え待ちの訳: {html.escape(t["why"])}</div>'
-        for f in t["follows"]:
+        for f in n["follows"]:
             extra += f'<div class="follow">→ 続き: <a href="#t-{f}">{title(tasks[f])}</a></div>'
-        cls = f'task s-{t["state"]} {"open" if t["open"] else "closed"}'
+        live = t["state"] not in FINAL + ("failed",) if flat else t["open"]
+        cls = f'task s-{t["state"]} {"open" if live else "closed"}'
         if n["kids"]:
             kids = "\n".join(item(k) for k in n["kids"])
             return (f'<li class="{cls}" id="t-{t["id"]}"><details{" open" if t["open"] else ""}><summary>{row(t)}</summary>'
@@ -459,4 +531,5 @@ def page(forest, view, made, when=None, everything=False):
         walk(n)
     return PAGE % {"hide": "" if everything else "hide", "checked": " checked" if everything else "",
                    "open": sum(1 for t in shown if t["state"] not in FINAL + ("failed",)), "all": len(shown),
-                   "when": html.escape(made), "body": "\n".join(item(n) for n in forest)}
+                   "when": html.escape(made),
+                   "tally": f'<div class="bar">{"絞り込む前の範囲の" if flat else ""}{html.escape(tally_line(counted))}</div>\n' if counted else "", "body": "\n".join(item(n) for n in forest)}

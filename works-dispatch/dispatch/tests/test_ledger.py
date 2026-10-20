@@ -306,7 +306,7 @@ class Todo(unittest.TestCase):
             deliver.log(str(inbox), r)
 
     def run_todo(self, **kw):
-        a = argparse.Namespace(**{"todo": "", "all": False, "json": False, "html": None, **kw})
+        a = argparse.Namespace(**{"todo": "", "all": False, "json": False, "html": None, "state": None, "to": None, **kw})
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = todo.todo(a, self.ports, str(pathlib.Path(self.tmp.name, "mine")))
@@ -320,15 +320,58 @@ class Todo(unittest.TestCase):
     def test_prints_the_open_tree_and_json(self):
         rc, out = self.run_todo()
         self.assertEqual(rc, 0, out)
-        lines = [re.sub(r"  \d{8}-\d{6}-[0-9a-f]{6}  .*$", "", x) for x in out.splitlines()]
+        lines = [re.sub(r"  \d{8}-\d{6}-[0-9a-f]{6}  .*$", "", x) for x in out.splitlines()[2:]]
         self.assertEqual(lines, ["- [済] 木を作る", "  - [済] ブランチを直す", "    → 続き: " + C, "- [順番待ち] （題なし）"])
         rc, out = self.run_todo(json=True)
         got = json.loads(out)
         self.assertEqual(schemacheck.check(got, schemacheck.schema("todo")), [])
         self.assertEqual([n["task"]["id"] for n in got["forest"]], [A, C])
         rc, out = self.run_todo(todo="bbbbbb")
-        self.assertTrue(out.startswith(f"- [済] ブランチを直す  {B}"), out)
+        self.assertTrue(out.splitlines()[2].startswith(f"- [済] ブランチを直す  {B}"), out)
         self.assertEqual(self.run_todo(todo="zzzzzz")[0], 2)
+
+    def test_counts_states_done_ratio_and_the_stalest_open_ask(self):
+        self.ports.now = lambda: 4 + 3 * 86400
+        rc, out = self.run_todo()
+        self.assertEqual(out.splitlines()[0], "件数: 順番待ち 1・動いている 0・答え待ち 0・済 2・取り下げ 0・届かず 0（全 3 件、済の割合 67%）"
+                                              f"。開いている頼みでいちばん動きの無い物: {C}（3 日前に更新）")
+        got = json.loads(self.run_todo(json=True)[1])
+        self.assertEqual(schemacheck.check(got, schemacheck.schema("todo")), [])
+        self.assertEqual((got["summary"]["total"], got["summary"]["done_ratio"], got["summary"]["oldest_open"]["id"], got["summary"]["filter"]),
+                         (3, 0.667, C, None))
+        # 受付を渡せば、その頼みと子だけを数える（続きは数えない）
+        got = json.loads(self.run_todo(todo="bbbbbb", json=True)[1])["summary"]
+        self.assertEqual((got["total"], got["counts"]["done"], got["done_ratio"]), (1, 1, 1.0))
+
+    def test_filters_by_state_and_destination_into_a_flat_list(self):
+        self.ports.now = lambda: 5 + 3600
+        def ids(**kw):
+            rc, out = self.run_todo(**kw)
+            self.assertEqual(rc, 0, out)
+            return re.findall(r"^- \[[^]]+\] .*?  (\d{8}-\d{6}-[0-9a-f]{6})  ", out, re.M)
+        self.assertEqual(ids(to="調べ"), [C])                    # --state を省けば開いている物だけ
+        self.assertEqual(ids(to="調べ", all=True), [C, A])       # 更新の古い順
+        self.assertEqual(ids(to="theirs/作業", all=True), [B])
+        self.assertEqual(ids(state="済"), [B, A])
+        self.assertEqual(ids(state="done,queued"), [B, C, A])
+        self.assertEqual(ids(to="nobody"), [])
+        rc, out = self.run_todo(to="調べ", all=True)
+        self.assertIn("件数: 順番待ち 1・動いている 0・答え待ち 0・済 1・", out)   # 数えは宛先で絞った範囲
+        self.assertIn(f"{C}  {todo.when(4)}  宛先 co/調べ  1 時間前", out)
+        got = json.loads(self.run_todo(state="queued", to="調べ", json=True)[1])
+        self.assertEqual(schemacheck.check(got, schemacheck.schema("todo")), [])
+        self.assertEqual(([n["task"]["id"] for n in got["forest"]], got["summary"]["filter"]), ([C], {"states": ["queued"], "to": "調べ"}))
+        rc, out = self.run_todo(state="済,bogus")
+        self.assertEqual(rc, 2)
+        self.assertIn("知らない状態", out)
+        page = pathlib.Path(self.tmp.name, "f.html")
+        self.assertEqual(self.run_todo(state="済", html=str(page))[0], 0)
+        text = page.read_text(encoding="utf-8")
+        self.assertIn("絞り込む前の範囲の件数: 順番待ち 1", text)
+        self.assertIn(f'class="task s-done closed" id="t-{A}"', text)   # 平らな一覧では、続きが開いていても自分の状態で済と出す
+        self.assertNotIn(f'href="#t-{C}"', text)                         # 一覧に無い続きへは飛ばない
+        self.assertIn("ブランチを直す", text)
+        self.assertNotIn('class="hide"', text)
 
     def test_notes_open_asks_with_nothing_behind_them(self):
         # 台帳では開いているのに、順番待ちの件が手で動かされた物（my_notes の 5b3433 など 6 件）と、受けた作業場が納品せずに

@@ -23,6 +23,35 @@
         }
       }
     },
+    "summary": {
+      "type": "object",
+      "required": ["counts", "total", "done_ratio", "oldest_open", "filter"],
+      "properties": {
+        "counts": {
+          "type": "object",
+          "required": ["queued", "working", "waiting", "done", "dropped", "failed"],
+          "properties": {
+            "queued": {"type": "integer"}, "working": {"type": "integer"}, "waiting": {"type": "integer"},
+            "done": {"type": "integer"}, "dropped": {"type": "integer"}, "failed": {"type": "integer"}
+          }
+        },
+        "total": {"type": "integer"},
+        "done_ratio": {"type": ["number", "null"]},
+        "oldest_open": {
+          "type": ["object", "null"],
+          "required": ["id", "updated", "age"],
+          "properties": {"id": {"type": "string"}, "updated": {"type": ["number", "null"]}, "age": {"type": "number"}}
+        },
+        "filter": {
+          "type": ["object", "null"],
+          "required": ["states", "to"],
+          "properties": {
+            "states": {"type": "array", "items": {"type": "string", "enum": ["queued", "working", "waiting", "done", "dropped", "failed"]}},
+            "to": {"type": ["string", "null"]}
+          }
+        }
+      }
+    },
     "forest": {
       "type": "array",
       "items": {
