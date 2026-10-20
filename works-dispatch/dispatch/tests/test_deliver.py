@@ -997,6 +997,39 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("--again と --for は一緒に使わない", out)
 
+    def test_place_bound_commands_read_the_callers_own_department_from_another_place(self):
+        # 部署の会話がシェルで本社へ移って打っても、本社の部署（段取り）の属性でなく、打った会話の部署の頼みを読む。前は本社の
+        # 段取りが回して閉じた頼みを読んで止まり、渡された問いを返せなかった（2026-10-20、my_notes の社長室。受付 7d7f41）
+        summary = self.ask_then_summary(GOOD)
+        ask = self.g.worktree_attrs(self.place)["ask"]
+        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "session": "s-desk", "ask": "x-1", "delivered": "x-1"},
+                       self.g)
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}
+        rc, out = self.main(self.src, "--wait", "持ち主の答え")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"この会話の部署（調べ）の場所 {self.place} で読む", out)
+        self.assertEqual(self.g.worktree_attrs(self.place)["waiting"], ask)
+        self.assertNotIn("waiting", self.g.worktree_attrs(self.src))
+        rc, out = self.main(self.src, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.g.worktree_attrs(self.place)["delivered"], ask)
+        self.assertEqual(self.g.worktree_attrs(self.src)["delivered"], "x-1")
+        self.assertEqual([r["ask"] for r in deliver.records(self.inbox) if r.get("kind") == "deliver"], [ask])
+        self.assertEqual(self.main(self.src, "--rest")[0], 0)
+        self.assertEqual((self.g.worktree_attrs(self.place)[wake.REST], self.g.worktree_attrs(self.src).get(wake.REST)), ("s-dept", None))
+        # 打った会話の部署の候補が 2 つ在れば決めず、打った場所のまま読む
+        twin = str(pathlib.Path(self.root) / "twin")
+        self.g.add_worktree(twin, "dept/b", "origin/main")
+        provision.mark(twin, self.src, {"role": "調べ役", "name": "調べ2", "session": "s-dept"}, self.g)
+        rc, out = self.main(self.src, "--wait", "持ち主の答え")
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("注記: 打った場所", out)
+        # どの部署の会話でもない会話は、打った場所のまま読む
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-none"}
+        rc, out = self.main(self.src, "--wait", "持ち主の答え")
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("注記: 打った場所", out)
+
     def push_from_the_department(self, files):
         """部署が --land を通さずに、部署の作業場から手でメインブランチへ push した形（git push origin HEAD:main）。入れた commit を返す。"""
         fakegit.materialize(self.place, files)

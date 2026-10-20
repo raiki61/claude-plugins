@@ -211,6 +211,32 @@ def place_name(here, sid, ports):
     return attrs["name"] if not desk or (sid and attrs.get("session") == sid) or ports.same_process(attrs.get("pid")) else None
 
 
+def own_place(ports, cwd):
+    """場所に結び付く口（--deliver・--wait・--rest・--compact・--done と --ask の --forward）が読む部署の場所と、読み替えたときの
+    注記（読み替えなければ None）の対。打った場所（cwd）の属性の会話（company.session）が打った会話でなく、同じリポジトリの作業場の
+    うち 1 つだけの部署の属性の会話が打った会話なら、その場所に読み替える。部署の会話がシェルで本社（代表の clone）などへ移って打つと、
+    そこの部署の属性（受けた頼み company.ask）を読み、別の部署の頼みを閉じようとした（2026-10-20、my_notes の社長室が本社で
+    --deliver を打ち、段取りが回して閉じた頼み 1a800c で止まった。渡された問い 2a4396 を返せなかった。受付 7d7f41）。打った会話が
+    分からない・打った場所の会話と同じ・どの部署の会話でもない（/clear の直後で待ち受けがまだ書き直していないなど）なら、打った場所のまま。"""
+    sid = chat.session_of(ports.env)
+    try:
+        attrs = ports.attrs(cwd)
+        common = ports.git.common_dir(cwd)
+        if not sid or attrs.get("session") == sid or not common:
+            return cwd, None
+        here = ports.git.toplevel(cwd) or cwd
+        others = [(e["path"], ports.attrs(e["path"]) or {}) for e in ports.git.listed_worktrees(gitx.root_of(common))
+                  if os.path.normpath(e["path"]) != os.path.normpath(here)]
+    except (gitx.GitError, OSError):
+        return cwd, None
+    found = [(path, x) for path, x in others if x.get("role") and x.get("session") == sid]
+    if len(found) != 1:
+        return cwd, None
+    (path, mine), = found
+    return path, (f"注記: 打った場所 {here} の部署（{attrs.get('name') or '-'}）の会話はこの会話でないので、この会話の部署"
+                  f"（{mine.get('name') or '-'}）の場所 {path} で読む")
+
+
 def live_window(dept, ports):
     """部署の窓（会話の居るペイン）か None。herdr はペインの会話の印を、attach の画面が終わってシェルに戻った後も残すので、
     印だけでは落ちた会話を見分けられない（まっさらな環境での 6 回目の試しの 1）。前に居るのがシェルなら（macOS・Linux）、
@@ -401,7 +427,10 @@ def ask(a, ports, cwd, task):
     回したとして閉じる（forwarded）。"""
     held = None
     if getattr(a, "forward", False):
-        mine = ports.attrs(cwd)
+        at, moved = own_place(ports, cwd)   # 回して閉じるのは、打った会話の部署が受けた頼み（打った場所の部署の物でなく）
+        if moved:
+            print(moved)
+        mine = ports.attrs(at)
         held = mine.get("ask")
         if not mine.get("role") or not held or mine.get("delivered") == held:
             print("止めた: --forward は、受けた頼みをまだ納品していない部署か窓口の場所から打つ（回す元の頼みが無い）")
@@ -412,7 +441,7 @@ def ask(a, ports, cwd, task):
         if a.dry_run:
             print(f"- 回した元: 受付 {held} を閉じ、回した先を台帳に書く（頼み元 {mine.get('boss') or '-'} の会話は起動しない）")
         elif sent:
-            print("\n".join(forwarded(mine, sent, ports, cwd)))
+            print("\n".join(forwarded(mine, sent, ports, at)))
     return rc
 
 
@@ -508,7 +537,9 @@ def _ask(a, ports, cwd, task, sent):
     sid = chat.session_of(ports.env)
     # 頼み元の窓は、頼んだ会話の居るペイン（windows.own_pane。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがある）。
     # Claude Code の外から頼んだ（会話の id が無い）なら、頼んだ会話が無いので窓も記録しない
-    here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")), cwd)
+    # 会話の一覧に見えなければ、打った会話の部署の場所（own_place。--forward で閉じる頼みと、この頼みの cause・頼み元をそろえる）
+    here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")),
+                None) or own_place(ports, cwd)[0]
     account, name = a.from_account or found_account, a.from_name or place_name(here, sid, ports) or found_name
     sender = name or "名の無い会話"
     if relays is not None:

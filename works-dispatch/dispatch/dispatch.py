@@ -364,20 +364,30 @@ def main(argv=None, ports=None):
         return orders.nudge(a, ports, os.getcwd())
     if a.note is not None:
         return orders.note(a, ports, os.getcwd())
-    if a.ask is not None or a.deliver is not None:
+    if a.ask is not None:
         cwd = os.getcwd()
-        rc = orders.ask(a, ports, cwd, _task) if a.ask is not None else orders.deliver_summary(a, ports, cwd)
+        rc = orders.ask(a, ports, cwd, _task)
         if rc == 0 and not a.dry_run:
-            starts.due_later(a, ports, cwd, "頼み" if a.ask is not None else "納品")
+            starts.due_later(a, ports, cwd, "頼み")
+        return rc
+    # 場所に結び付く口は、打った会話の部署の場所で読む（会話がシェルでほかの部署の場所へ移って打っても。orders.own_place）
+    if a.deliver is not None or a.wait is not None or a.rest or a.compact is not None or a.done:
+        cwd, moved = orders.own_place(ports, os.getcwd())
+        if moved:
+            print(moved)
+    if a.deliver is not None:
+        rc = orders.deliver_summary(a, ports, cwd)
+        if rc == 0 and not a.dry_run:
+            starts.due_later(a, ports, cwd, "納品")
         return rc
     if a.wait is not None:
-        return orders.wait_for_input(a, ports, os.getcwd())
+        return orders.wait_for_input(a, ports, cwd)
     if a.rest:
-        return orders.rest_here(a, ports, os.getcwd())
+        return orders.rest_here(a, ports, cwd)
     if a.compact is not None:
-        return orders.compact_here(a, ports, os.getcwd())
+        return orders.compact_here(a, ports, cwd)
     if a.done:
-        return orders.finish_here(a, ports, os.getcwd())
+        return orders.finish_here(a, ports, cwd)
     if a.retire is not None:
         return retire.retire(a, ports, os.getcwd(), _department_rows, DEPT_REASONS)
     if a.text is not None:

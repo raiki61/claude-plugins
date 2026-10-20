@@ -1977,6 +1977,25 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("回した先もみな閉じた", out)
 
+    def test_forward_from_another_place_closes_the_callers_own_ask(self):
+        # 部署の会話が本社へ移って --forward を打っても、本社の部署（段取り）の頼みでなく、打った会話の部署の頼みを閉じ、回した先の
+        # 頼みの親と頼み元もその部署にする（受付 7d7f41）
+        other = str(pathlib.Path(self.root) / "boss")
+        self.g.add_worktree(other, "dept/b", "origin/main")
+        provision.mark(other, self.src, {"role": "相談", "name": "社長室", "session": "s-boss", "ask": "q1", "boss": "段取り"}, self.g)
+        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "session": "s-desk", "ask": "a0", "boss": "持ち主"}, self.g)
+        self.listen("調べ", self.dept_place())
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-boss"}   # 会話の一覧に見えない会話
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("回した元の受付 q1 を閉じた", out)
+        self.assertEqual(self.g.worktree_attrs(other)["delivered"], "q1")
+        self.assertNotIn("delivered", self.g.worktree_attrs(self.src))
+        (item,) = wake.queued(self.inbox, self.dept_place())
+        self.assertEqual(item["marks"]["boss"], "社長室")
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
+        self.assertEqual(row["cause"], "q1")
+
     def test_forward_to_a_window_without_a_waiter_closes_the_held_ask_once_the_line_is_sent(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
@@ -2140,6 +2159,7 @@ class WakeFlow(unittest.TestCase):
         provision.mark(self.src, self.src, {"session": "s-other"}, self.g)   # 属性の会話が頼み元でない場所（本社のほかの会話の頼み）
         self.assertEqual(orders.resting_listener(self.inbox, company, talk, self.ports), [])
         provision.mark(self.src, self.src, {"session": "s-desk"}, self.g)
+        self.ports.env = {**self.ports.env, "CLAUDE_CODE_SESSION_ID": "s-dept"}   # 納品は部署の会話が打つ（orders.own_place）
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.prompts(), [])
@@ -2154,6 +2174,7 @@ class WakeFlow(unittest.TestCase):
         # 待ち受けの居た跡の無い頼み元（フックの無い前の版の会話）には、今までどおり窓に打ち込む
         summary = self.ask_then_summary(test_deliver.GOOD)
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, self.g)
+        self.ports.env = {**self.ports.env, "CLAUDE_CODE_SESSION_ID": "s-dept"}   # 納品は部署の会話が打つ（orders.own_place）
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         (w,) = self.prompts()
