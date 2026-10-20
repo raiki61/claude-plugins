@@ -21,9 +21,10 @@
 --account に今のアカウントを名指すと、同じアカウントのまま、会社の形の今の起動の設定で起動し直す（持ち主が起動し直してよいと
 答えた、区切りを印さない会話を引き継ぐ部署。受付 93d98b）。部署の窓に会話が見えていれば（窓口と同じく）、ターンの途中か入力フィールドに字が
 在るときは止めずに NOT_NOW で終わる（使用上限で移す --if-limited を除く）。会話の外から打った --move がそうして止まったら
-（--if-changed を除く）、起動し直さなかった訳をその会話に台帳の知らせで渡す（同じアカウントのままなら、区切りで --rest を打てばターンの終わりに
-待ち受けが起動し直すことも添える）。ほかのアカウントを名指したときは、移す先を属性 company.move-to に印し、区切りで --if-changed が移す
-（区切りまで待って移す口。2026-10-19 に p3 の 5 部署を手で移そうとして、5 つともターンの途中で止まった）。
+（--if-changed を除く）、起動し直さなかった訳をその会話に台帳の知らせで渡す。--account を名指したときは、そのアカウントを属性
+company.move-to に印し、区切りで --if-changed がそのアカウントで起動し直す（区切りまで待って移す口。2026-10-19 に p3 の 5 部署を手で
+移そうとして、5 つともターンの途中で止まった）。今のアカウントを名指したときも同じく印し、区切りで同じアカウントのまま起動し直す
+（2026-10-20、調べものが自分の会話から同じアカウントで起動し直そうとして、印が残らなかった。受付 c149fa）。
 知らせは待ち受けが入力フィールドに打たずに会話へ渡すので、持ち主はその会話の窓で訳を見る（打ちかけの字は消えない）。
 
 --if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達しておらず、
@@ -44,6 +45,7 @@
 会話の中で /model を打つと、そのアカウントの新しい会話の既定まで替わる（持ち主の会話にも効く）ので打たない。会社の形の今の値
 （role.launch_key。origin の既定のブランチを取り直してから読む）が、起動したときの値（属性 company.launched）と違えば起動し直す。
 アカウントは、今のアカウントの使用率が上限に届かなければ同じアカウント、届けば空いているほかの物。どれも無ければ起動し直さない。
+起動の設定が同じでも、名指し（company.move-to）が今のアカウントなら、同じアカウントのまま起動し直す（SAME）。
 起動の設定が同じでも、使用上限に当たる前の区切りで、空いているアカウントへ早めに移す（accounts.early）。移すのは、--move の名指し
 （company.move-to）が在るときと、今のアカウントが使える時間帯の外か、終わりまで設定の hours_margin_minutes（既定 30 分）を切ったときと、今のアカウントの 5 時間か週の枠が設定の move_early_percent（既定 90%）に達し、達した枠のどれかが
 move_early_reset_hours（既定 1 時間）より先まで戻らないとき。移る先は、使用率の高い方の枠が move_early_percent に届かないほかの
@@ -83,7 +85,8 @@ KEEP = ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")
 STOP_LOOKS = 20
 NOT_NOW = wake.NOT_NOW   # 今は起動し直さない（ターンの途中・打ちかけの字）。待ち受けが次の区切りで試し直す
 # 今は起動し直さないで終わったときに、その会話の中か待ち受けから打った --move の出力に添える案内（外から打てば、訳を知らせで渡す）
-INSIDE = "。その会話の中から打ったなら、区切りで --rest を打てばターンの終わりに待ち受けが起動し直す（ほかのアカウントを名指していれば、そこへ移す）"
+INSIDE = ("。--account を名指して打てば、次の区切り（毎回クリアする部署は次の頼みを渡す前、ほかは頼みを納品した後にその会話で --rest を"
+          "打ったターンの終わり）で、待ち受けがそのアカウントで起動し直すよう印す")
 BUSY = ("working", "blocked")   # herdr が会話がターンの途中（動いている・確かめの画面で待つ）と見る状態。/exit を打たない
 # --if-limited が移さずに待つとき、次に見直すまでの最短と最長の秒。最短はフックが続けて走らない間（limit_hook.AGAIN）と同じにする
 # （待った後に打った 1 行がまた断られたら、フックがまた走って待ち直す）。最長の間で見直すのは、控えの取り直しや設定の替わりで
@@ -356,13 +359,15 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
     if why == EARLY and rc not in (0, NOT_NOW):
         # 起動できずに前の会話へ戻した。同じ先へは早めに移し直さない（区切りのたびに止めて戻すのを繰り返さない）
         provision.mark(dept["path"], company["root"], {wake.MOVE_KEPT: chosen}, ports.git)
-    if rc == NOT_NOW and not (a.if_changed or a.if_limited) and a.account and chosen != old:
-        # 区切りまで待って移す（待ち受けの --if-changed が、毎回クリアする部署は次の頼みを渡す前、ほかは --rest のターンの終わりに移す）
+    if rc == NOT_NOW and not (a.if_changed or a.if_limited) and a.account:
+        # 区切りまで待って移す（待ち受けの --if-changed が、毎回クリアする部署は次の頼みを渡す前、ほかは --rest のターンの終わりに移す。
+        # 今のアカウントを名指したなら、同じアカウントのまま起動し直す）
         provision.mark(dept["path"], company["root"], {wake.MOVE_TO: chosen}, ports.git)
-        said += f"。区切りで移すよう印した（属性 company.{wake.MOVE_TO}）"
+        said += (f"。次の区切り（毎回クリアする部署は次の頼みを渡す前、ほかは" + ("頼みを納品した後に " if chosen == old else "")
+                 + f"その会話で --rest を打ったターンの終わり）で{'起動し直す' if chosen == old else '移す'}よう印した（属性 company.{wake.MOVE_TO}）")
     if rc == NOT_NOW and not (a.if_changed or a.if_limited) and cwd and not deliver.inside(cwd, dept["path"]):
         told = _tell(inbox, company["name"], dept, old, chosen, said, ports)
-    elif rc == NOT_NOW:
+    elif rc == NOT_NOW and not a.account:
         said += INSIDE
     print("\n".join(notes + [f"{'窓口' if head else '部署'} {where}: アカウント {old or '-'} → {chosen}  "
                              + ("起動し直した" if rc == 0 else "起動し直せなかった") + (f"（{said}）" if said else "")]
@@ -378,8 +383,8 @@ def _tell(inbox, company_name, dept, old, chosen, said, ports):
         return f"注記: {to or '名前の無い会話'} には待ち受けの跡が無いので、起動し直さなかった訳を知らせていない"
     if chosen == old:
         text = (f"知らせ（返事は要らない）: この会話を --move で同じアカウント {chosen} のまま起動し直そうとしたが、止めた（{said}）。"
-                "持ち主との話が区切れたら、この会話で dispatch.py --rest を打てば、ターンの終わりに待ち受けが会社の形の今の起動の設定で"
-                "起動し直す（起動し直す値が無ければ、会話を空にするだけ）")
+                "次の区切り（毎回クリアする部署は次の頼みを渡す前、ほかは頼みを納品した後にこの会話で dispatch.py --rest を打ったターンの"
+                f"終わり）で、待ち受けが同じアカウント {chosen} のまま、会社の形の今の起動の設定で起動し直す")
     else:
         text = (f"知らせ（返事は要らない）: この会話を --move でアカウント {chosen} へ移して起動し直そうとしたが、止めた（{said}）。"
                 "区切り（毎回クリアする部署は次の頼みを渡す前、ほかはこの会話で dispatch.py --rest を打ったターンの終わり）で、"
@@ -432,19 +437,27 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
                         {"kind": "moved", "at": now, "name": attrs.get("name"), "path": dept["path"], "from": old, "to": None,
                          "why": EARLY, "status": "skipped", "detail": early["why"]})
         provision.mark(dept["path"], company["root"], {wake.MOVE_TO: None, wake.MOVE_SKIPPED: seen}, ports.git)
-    if not changed and not (early and early["to"]):
+    again = attrs.get(wake.MOVE_TO) == old and old is not None   # --move が今のアカウントを名指したが、ターンの途中で起動し直せなかった
+    if not changed and not again and not (early and early["to"]):
         print("\n".join(notes + [f"起動し直さない: {where} の起動の設定は起動したときと同じ（{now_key}）"
                                  + (f"。{early['why']}" if early else "")]))
         return 0
     roomy = [r["name"] for r in ranked if r["eligible"]]
+    if again and not changed and not (early and early["to"]) and old not in roomy:
+        # 同じアカウントの名指しなのに、そのアカウントが選べない。ほかへ移さず、印を外す（区切りのたびに試し直さない）
+        if not a.dry_run:
+            provision.mark(dept["path"], company["root"], {wake.MOVE_TO: None}, ports.git)
+        print("\n".join(notes + [f"起動し直さない: --move で名指したアカウント {old} は使用率が上限に達したか、使える時間帯の外なので、"
+                                 f"同じアカウントのまま起動し直さない（印 company.{wake.MOVE_TO} を外した）"]))
+        return 0
     if not roomy:
         # 上限に達したアカウントで起動すると、--task が起動せずに終わり、前の会話だけが止まる。前の会話に渡させる
         print("\n".join(notes + [f"起動し直さない: 使用率が上限に届かず、使える時間帯の中のアカウントが無い（{where} は前の起動の設定のまま続ける）"]))
         return 0
-    chosen, why = (early["to"], EARLY) if early and early["to"] else (old if old in roomy else roomy[0], CHANGED)
+    chosen, why = ((early["to"], EARLY) if early and early["to"] else (old if old in roomy else roomy[0], CHANGED if changed else SAME))
     if a.dry_run:
         print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {chosen} で起動し直す（"
-                                 + (f"{EARLY}: {early['why']}" if why == EARLY else
+                                 + (f"{EARLY}: {early['why']}" if why == EARLY else SAME if why == SAME else
                                     f"{CHANGED}: {attrs.get(wake.LAUNCHED) or NO_FLAGS} → {now_key}") + "）"]))
         return 0
     return _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, early_why=early and early["why"])

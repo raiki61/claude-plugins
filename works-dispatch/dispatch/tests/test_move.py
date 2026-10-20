@@ -523,7 +523,7 @@ class Move(unittest.TestCase):
         h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
         rc, out = self.main(self.src, "--move", "調べ", "--account", "a2")
         self.assertEqual(rc, move.NOT_NOW, out)
-        self.assertIn("区切りで移すよう印した", out)
+        self.assertIn("で移すよう印した", out)
         self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a2")
         h.agent = lambda pane: {"agent": "claude", "agent_status": "idle"}
         seen, task = self.fake_task()
@@ -536,6 +536,50 @@ class Move(unittest.TestCase):
         moved = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual([(r["to"], r["why"], r["status"]) for r in moved],
                          [("a2", "持ち主か窓口が移した", "failed"), ("a2", move.EARLY, "done")])
+
+    def test_a_same_account_move_stopped_mid_turn_is_kept_and_the_break_starts_again_on_it(self):
+        # 部署が自分の会話から同じアカウントのまま起動し直そうとして、ターンの途中で止まった（2026-10-20、受付 c149fa）。印を残し、
+        # 起動の設定が同じでも、次の頼みを渡す前の --if-changed が同じアカウントのまま起動し直す
+        opus = role.launch_key({"model": "opus"})
+        self.changed_world(opus)
+        provision.mark(self.place, self.src, {"account": "a1"}, gitx)
+        h = self.ports.term
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
+        rc, out = self.main(self.place, "--move", "調べ", "--account", "a1")
+        self.assertEqual(rc, move.NOT_NOW, out)
+        self.assertIn("起動し直すよう印した", out)
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "idle"}
+        rc, out = self.main(self.src, "--move", "調べ", "--if-changed", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(move.SAME, out)
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        (got,) = seen
+        self.assertEqual(got["ns"].only_account, "a1")
+        self.assertIn("同じアカウント a1 のまま", got["brief"])
+        self.assertNotIn(wake.MOVE_TO, got["attrs"])
+        moved = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual([(r["to"], r["why"], r["status"]) for r in moved], [("a1", move.SAME, "failed"), ("a1", move.SAME, "done")])
+        # 印が無く、起動の設定も同じなら起動し直さない
+        provision.mark(self.place, self.src, {wake.MOVE_TO: None, wake.LAUNCHED: opus}, gitx)
+        rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("起動し直さない", out)
+        # 名指した今のアカウントが上限に達していれば、ほかへ移さず、印を外す（区切りのたびに試し直さない）
+        full = {"five_hour": {"used_percentage": 100, "resets_at": 1800}, "seven_day": {"used_percentage": 50}}
+        cool = {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 40}}
+        self.ports.limits_seq = [{"a1": full, "a2": cool}]
+        provision.mark(self.place, self.src, {wake.MOVE_TO: "a1"}, gitx)
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("同じアカウントのまま起動し直さない", out)
+        self.assertEqual(seen, [])
+        self.assertNotIn(wake.MOVE_TO, gitx.worktree_attrs(self.place))
 
     def test_the_desk_exits_and_starts_again_named_in_the_same_pane(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)

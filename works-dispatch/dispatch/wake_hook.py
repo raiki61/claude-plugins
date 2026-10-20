@@ -19,7 +19,7 @@
   区切りのターンの終わりに、会社の形の起動の設定（model・effort・[roles.settings]）が起動したとき（属性 company.launched）と違えば、
   /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起動し直す（空にするのと失う物は同じ。持ち主の手で起動し直さない）。
   起動の設定が同じでも、今のアカウントの使用率が早めに移す目安に達したか、--move の名指し（company.move-to）が在れば同じく走らせ、
-  上限に当たる前の区切りでほかのアカウントへ移す（early_due）。
+  上限に当たる前の区切りでほかのアカウントへ移す（early_due。名指しが今のアカウントなら、同じアカウントのまま起動し直す）。
   エフェメラルの部署が終わりと印した（--done。属性 company.finished）ターンの終わりには、印を外して dispatch.py --retire <部署> を会話から
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
@@ -473,7 +473,7 @@ def must_clear(payload, attrs):
 def early_due(got, attrs, env=os.environ, now=time.time):
     """区切りで早めにほかのアカウントへ移すか（accounts.early。使用率の目安のほか、今のアカウントが使える時間帯の外か終わる手前のときも移す）。使用率の控えは取り直さずに読む（取り直すのは --move --if-changed）。
     移る先が在るか、--move の名指し（company.move-to）が在れば真（名指しの先が上限に達していても --if-changed に渡し、訳を台帳に
-    残して印を外させる）。目安に達したのに移さない（移る先が無い・達した枠がすぐ戻る）ときは偽で、訳を台帳に kind moved・
+    残して印を外させる。名指しが今のアカウントなら、--if-changed が同じアカウントのまま起動し直す）。目安に達したのに移さない（移る先が無い・達した枠がすぐ戻る）ときは偽で、訳を台帳に kind moved・
     status skipped で残す（使える時間帯の終わる手前で移る先の無いときも同じ。同じアカウントの同じ種類の訳は、属性 company.move-skipped で 1 度だけ）。設定や控えを読めなければ偽（頼みは渡す）。"""
     try:
         cfg = config.load(attrs.get("config"), env, missing_ok=True)
@@ -493,7 +493,7 @@ def early_due(got, attrs, env=os.environ, now=time.time):
             provision.mark(got["cwd"], got["root"], {wake.MOVE_SKIPPED: None}, gitx)   # 目安を下回った。次に達したらまた残す
     except Exception:  # 設定を読めなくても、頼みは渡す
         return False
-    return bool(got_ and (got_["to"] or attrs.get(wake.MOVE_TO)))
+    return bool(attrs.get(wake.MOVE_TO) or got_ and got_["to"])
 
 
 def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False, early_of=early_due):

@@ -801,6 +801,7 @@ class Hook(unittest.TestCase):
         self.assertTrue(wake_hook.early_due(got, here, env={}))
         self.assertFalse(wake_hook.early_due(got, {**here, "account": "a2"}, env={}))   # 移る先の側は目安に届かない
         self.assertTrue(wake_hook.early_due(got, {**here, "account": "a2", wake.MOVE_TO: "a1"}, env={}))   # 名指し
+        self.assertTrue(wake_hook.early_due(got, {**here, "account": "a2", wake.MOVE_TO: "a2"}, env={}))   # 今のアカウントの名指し（そのまま起動し直す）
         self.assertFalse(wake_hook.early_due(got, {**here, "config": os.path.join(d, "無い.toml")}, env={}))   # 設定が無ければ控えも無い
         self.assertFalse(wake_hook.early_due(got, {**here, wake.MOVE_KEPT: "a2"}, env={}))   # 前に起動できなかった先は選ばない
         # 目安に達したのに移す先が無ければ、訳を台帳に 1 度だけ残す
