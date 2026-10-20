@@ -331,7 +331,9 @@ fallback_role = "点検"
 [land]
 mode = "ff-after-ci"
 gate = "check"
-check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 scripts/terms.py && python3 tests/value-rules.py && python3 tests/land-check.py && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
+# 2026-10-20 の 19:45 から、tests/land-check.py（全部のテスト）を外している。検査 1 回が混んだ機械で 45 分かかり、main に 1 時間 20 分入らなかったため
+# （持ち主「一旦テストは全部飛ばしてclaudepluginsはいれましょう。」）。テストと CI と main へ入れる仕組みを組み直すまでの仮の形で、組み直しで戻す
+check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 scripts/terms.py && python3 tests/value-rules.py && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
 bump = "marketplace"
 # 同じ clone で同時に打った --land を、申し出た順に 1 本ずつ通す列（works-dispatch の docs/land.md の queue。2026-10-20 に --land 7 本が取り合った）
 queue = "land-queue"
