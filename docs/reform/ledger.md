@@ -389,3 +389,18 @@ e001d7 は割り振りの作業の部署「割り振り：アカウントの使�
 ### (1) --land の検査（まだ測れない）
 
 頼みが届いた 2026-10-20 20:21 の時点で、[land] の check は軽い検査（共有の写し・用語・値の決まり・初見の読み）だけで、tests/land-check.py は外してある（持ち主「一旦テストは全部飛ばしてclaudepluginsはいれましょう。」、13741c3a）。戻すかはテストと CI と main へ入れる仕組みの組み直しの中で決まる。戻った後に業務改革が、--land の出力か受付箱の台帳から検査 1 回の時間を数回分拾い、そのときの `uptime` の load average と並べ、直す前の 45 分（混んだ機械）と比べる。遅い組は parallel.py が出す「遅い組:」の行（CI では test_move.Move・test_wake.WakeFlow・test_setup.AskWithoutRepos・test_deliver.Flow が 40〜60 秒）から拾う。
+
+## 頼み 6cec43（2026-10-20、claude rm の「No job matching」を消えたとみなす直しが効いているかを測る、受付 20261020-114619-6cec43）
+
+部署「割り振り：取り下げた部署を畳めるように」からの頼み。b2b10c84（2026-10-20 20:40 に main、works-dispatch 0.105.2）で、部署を `--retire` か `--clean --apply` で畳むとき、`claude rm` が「No job matching」（その id の会話が無い）と断っても、消す会話がもう無いとみなして作業場の片付けを続けるようにした（works-dispatch/dispatch/claudex.py の remove_session）。測るのは 2026-10-21 以降。
+
+### 直す前の控え（2026-10-20 21:35、受付箱の台帳 `.git/company/inbox/log.jsonl` の kind retired の行）
+
+- claude-plugins: 10-17〜10-20 に done 110・kept 10。kept のうち detail に「No job matching」を含むのは 1 行（10-20 19:58、会話 6f9684a7。頼みに書かれた部署「割り振り：打ち直しの --call で頼みが増える」）で、直しの前。
+- my_notes: 10-17〜10-20 に done 167・kept 2。「No job matching」を含む行は 0。
+
+### 本測りでする事（2026-10-21 以降の業務改革）
+
+1. 両方の会社の log.jsonl の kind retired で、at が 2026-10-21 以降の行を数える。status kept で detail に「No job matching」を含む行が 1 行でもあれば、直しが効いていない。その行の会話の id と、そのときの works-dispatch の版を添えて割り振りに頼む。
+2. 副作用の確かめ: 同じ期間の status done の行の部署について、会話が残っていないかを、アカウントごとの置き場で `claude agents --json --all` を打って見る（部署を起動したアカウントは作業場の属性 company.account と log.jsonl の行に在る）。畳んだ部署の会話が一覧に残っていれば、記録だけが残る形の副作用として割り振りに頼む。
+3. どちらも出なければ「効いた」とし、この頼みへの納品（`dispatch.py --deliver <要約のファイル> --for 20261020-114619-6cec43`）で返す。畳む機会（retired の行）が 0 なら「測れなかった」と書いて次の回へ送る。
