@@ -147,8 +147,7 @@ def launch_key(cwd, attrs, env=os.environ):
     here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
     if here and common and os.path.realpath(here) == os.path.realpath(common):
         return role.launch_key(the_role)   # 窓口は部署でないので受け持ちを引かない（--move の _move_desk が起動する値と揃える）
-    duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None)
-    return role.launch_key(the_role, duty)
+    return role.launch_key(the_role, role.duty_of(info.get("skills", []), attrs.get("name")))
 
 
 def rename_role(cwd, attrs, env=os.environ):

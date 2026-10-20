@@ -833,15 +833,18 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     if why:
         print(f"止めた: {why}")
         return 2
-    # 部署の名前と同じ name の受け持ち（[[skills]]）に model・effort が有れば、役の値より先に効く。effort の inherit は、呼んだ会話の今の effort
-    duty = next((x for x in info["skills"] if x["name"] == a.task), None)
+    # 部署の名前で引いた受け持ち（[[skills]]。名前が同じ物か、「<受け持ち>：<何をするか>」の受け持ちの物。role.duty_of）に model・effort・
+    # settings が有れば、役の値より先に効く（settings は役の設定の上に重ねる）。effort の inherit は、呼んだ会話の今の effort
+    duty = role.duty_of(info["skills"], a.task)
+    # オンデマンドの受け持ちは、名前が同じ部署だけ（一度きりの名前の部署は役のとおりに立てる）
+    own = duty if duty and duty["name"] == a.task else None
     # 受け持ちの席の役（担当）は、受け持ちの名前でしか立てない。--persistent を名指した回（--move の起動し直しなど）は問わない
     why = None if a.persistent else role.seat_problem(shape, role_name, the_role, info["skills"], a.task)
     if why:
         print(f"止めた: {why}")
         return 2
     # 役の persistent = true は --persistent と同じ。ただし受け持ちが on_demand = true（オンデマンド）ならエフェメラルの部署で立てる
-    persistent = a.persistent or (bool(the_role and the_role["persistent"]) and not (duty and duty.get("on_demand")))
+    persistent = a.persistent or (bool(the_role and the_role["persistent"]) and not (own and own.get("on_demand")))
     model, effort, flags_note = role.launch_flags(the_role, ports.env, duty)
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
     repo = repo._replace(gh_user=gh_user)
@@ -930,7 +933,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             f"- 連絡の道: {route}",
             f"- 会社の形: {info['path'] or '無い'}（--dry-run なので origin を取り直さず、手元の控えで読んだ）",
             f"- 役の起動の設定: モデル {model or '既定'}、effort {effort or '既定'}、--settings の鍵 "
-            + ", ".join(role.settings_for(the_role)),
+            + ", ".join(role.settings_for(the_role, duty))
+            + (f"（受け持ち {duty['name']} の settings を重ねた）" if duty and duty.get("settings") else ""),
             f"- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
             f"- 最初の文: {_brief_text(brief, caller, account, tail)}"]))
         return 0
@@ -980,11 +984,11 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・頼み元が出ず、--sync で札を付け直せず、--clean が部署を片付けない")
         row["label"] = pane_label
         settings = ports.department_settings()
-        if (the_role or {}).get("settings"):
+        if (the_role or {}).get("settings") or (duty or {}).get("settings"):
             try:
-                settings = role.write_settings(ports.git.git_dir(prov["path"]), role.settings_for(the_role))
+                settings = role.write_settings(ports.git.git_dir(prov["path"]), role.settings_for(the_role, duty))
             except (OSError, TypeError) as e:
-                notes.append(f"役 {role_name} の設定を書けなかったので、役の設定なしで起動する（{e}）")
+                notes.append(f"役 {role_name} と受け持ちの設定を書けなかったので、それらの設定なしで起動する（{e}）")
         got = launch.start_background(row, pane, a.task, settings, _brief_text(brief, caller, account, tail),
                                       ports.term, pause=ports.pause, model=model, effort=effort)
         if got["detail"]:
@@ -1364,6 +1368,7 @@ description = "<受け持ちのフォルダかプラグイン>の直し"
 role = "担当"
 # model = "sonnet"   # この受け持ちの部署を起動するときの --model（役の model より優先する。省けば役の値、それも無ければアカウントの既定）
 # effort = "low"     # この受け持ちの部署を起動するときの --effort（役の effort より優先する。書ける値は役の effort と同じ）
+# settings = {{ promptCacheTtl = "5m" }}   # この受け持ちの部署の --settings に、役の [roles.settings] の上から重ねる {chat} の設定
 
 [[skills]]
 id = "one-off"
@@ -1372,7 +1377,8 @@ description = "受け持ちの無い一度きりの作業と、担当が並べ�
 role = "作業"
 
 # 受け持ちで分けるか、役で分けるか: 受け持ち（上の [[skills]]）は、同じフォルダの直しを 1 人の担当の下で順番に進める形。受け持ちの
-# model・effort は、部署の名前が受け持ちの name と同じときだけ効く。同じ名前の部署は 1 つしか立たないので、頼みは同時に走らず、1 件ずつ順に進む。
+# model・effort・settings は、部署の名前が受け持ちの name と同じ部署と、「<受け持ち>：<何をするか>」の名前の一度きりの部署に効く。
+# 同じ名前の部署は 1 つしか立たないので、受け持ちの名前の部署への頼みは同時に走らず、1 件ずつ順に進む。
 # 一度きりの仕事を並べて走らせ、仕事の種類（レビュー・直し・下調べなど）でモデルや effort を替えたいなら、受け持ちと担当を消し、
 # 種類ごとに役を足す（--role で選び、部署の名前は自由に付ける）。例（# を外して使う。役の本文には、下の作業と同じく納品と --done まで書く）:
 # [[roles]]

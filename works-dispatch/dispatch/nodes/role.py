@@ -16,7 +16,8 @@
   （hooks の文書）ので、入口がそれを読む。--effort はその会話にだけ効き、設定の effortLevel・modelSettings より強く、保存されない
   （CLI の文書）。知らない値は claude が注意を 1 行出すだけで既定に戻す（2.1.302 の -p で見た。裏の会話の注意は誰も読まない）ので、読むときに弾く
 - settings: 部署を起動するときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
-  その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない
+  その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない。受け持ち（[[skills]]）の settings が有れば、その部署では
+  上から重ねる（settings_for。受け持ちは部署の名前で duty_of が引く）
 - deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
 - deliver_check: その役の納品の検査のコマンド（シェルの字）。--deliver が項目を確かめた後に部署の作業場のルートで走らせ、0 以外で終われば
   送らない（何を確かめるかは会社の側のスクリプトが持つ。渡す物と終わりの値は deliver ノードの gate）。省けば検査しない
@@ -334,6 +335,21 @@ def seat_problem(shape, role_name, role, duties, name):
             f"「{name}」はどれでもないので、この役で立てると誰の席でもない永続の部署が残る。一度きりの仕事は {to}で頼む")
 
 
+# 一度きりの部署の名前で、受け持ちの名前と何をするかを分ける字（「<受け持ち>：<何をするか>」。--init-company の下書きの役の本文の決まり）
+DUTY_SEP = "："
+
+
+def duty_of(skills, name):
+    """部署の名前（name）で引く受け持ち（[[skills]] の項目）。名前が受け持ちの name と同じ物（永続の部署）を先に、無ければ名前の
+    DUTY_SEP より前（長い方から）が受け持ちの name と同じ物（「<受け持ち>：<何をするか>」の一度きりの部署）。どちらも無ければ None。
+    起動の設定（model・effort・settings）を引くときに使う（launch_flags・launch_key・settings_for）。"""
+    if not name:
+        return None
+    # 受け持ちの名前に DUTY_SEP が入っていても当たるよう、長い頭から順に試す
+    heads = [name] + [name[:i] for i in range(len(name) - 1, 0, -1) if name[i] == DUTY_SEP]
+    return next((x for h in heads for x in skills if x.get("name") == h), None)
+
+
 def launch_spec(role, duty=None):
     """会社の形が決める (model, effort)。effort の inherit は解かずにそのまま（launch_flags が呼んだ会話の値に解く）。"""
     duty = duty or {}
@@ -359,16 +375,17 @@ def desk_spec(role):
 def launch_key(role, duty=None):
     """部署と窓口の属性 company.launched に書く字（起動したときの launch_spec と、役の起動の設定 [roles.settings]）。待ち受けが
     会社の形の今の値と比べ、違えば起動し直す（--move --if-changed。毎回クリアする部署は次の頼みを渡す前、ほかは区切り〔--rest〕の
-    ターンの終わり）。役に設定が無ければ settings のフィールドを書かない（設定のフィールドの無かった版で起動した部署を、違うと見て起動し直さない）。"""
+    ターンの終わり）。settings は役の設定に受け持ちの設定を重ねた物（_layered）。どちらにも設定が無ければ settings のフィールドを書かない
+    （設定のフィールドの無かった版で起動した部署を、違うと見て起動し直さない）。"""
     model, effort = launch_spec(role, duty)
-    settings = (role or {}).get("settings")
+    settings = _layered(role, duty)
     return json.dumps({"model": model, "effort": effort, **({"settings": settings} if settings else {})}, ensure_ascii=False,
                       sort_keys=True)
 
 
 def launch_flags(role, env, duty=None):
     """部署を起動するときの (--model の値, --effort の値, 注記)。値が None なら旗を付けない（アカウントの既定のまま）。
-    決める順はフィールドごとに、部署（duty。部署の名前と同じ name の受け持ち [[skills]] の項目）の値、役の値、アカウントの既定。
+    決める順はフィールドごとに、部署（duty。部署の名前で duty_of が引いた受け持ち [[skills]] の項目）の値、役の値、アカウントの既定。
     役を 1 つ（担当）にして受け持ちを部署の名前で引くので、部署ごとに替えるなら受け持ちに書く。
     effort が inherit なら、呼んだ会話の今の effort（env の CLAUDE_EFFORT）。読めなければ旗を付けず、注記にする（止めない）。"""
     duty = duty or {}
@@ -389,9 +406,16 @@ def _merge(base, top):
     return out
 
 
-def settings_for(role):
-    """部署を起動するときに --settings に渡す設定（dict）。役の設定に、必ず効かせる鍵（FIXED）を上から重ねる。"""
-    return _merge((role or {}).get("settings") or {}, FIXED)
+def _layered(role, duty=None):
+    """役の設定（[roles.settings]）に、受け持ちの設定（[[skills]] の settings）を上から重ねた物（dict）。どちらも無ければ None。"""
+    got = _merge((role or {}).get("settings") or {}, (duty or {}).get("settings") or {})
+    return got or None
+
+
+def settings_for(role, duty=None):
+    """部署を起動するときに --settings に渡す設定（dict）。役の設定に受け持ち（duty。duty_of で引いた項目）の設定を重ね、
+    必ず効かせる鍵（FIXED）を上から重ねる。表は鍵ごとに深く重ね、表でない値（並びを含む）は上の物で置き換える。"""
+    return _merge(_layered(role, duty) or {}, FIXED)
 
 
 def _holders(value):

@@ -7,7 +7,7 @@ docs/standards/breakage-detection.md の決まり 3）。止めるかは読む�
 https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation ）。消えた鍵や書き間違えた鍵がゲートだった場合、黙って
 通すとチェックを緩めるため。
 
-中を見ない表: 役の [roles.settings]（Claude Code に渡す中身）、ツールの inputSchema（JSON Schema）、[[land.after]] の input（ツールに渡す中身）。
+中を見ない表: 役の [roles.settings] と受け持ちの settings（Claude Code に渡す中身）、ツールの inputSchema（JSON Schema）、[[land.after]] の input（ツールに渡す中身）。
 鍵を足す・外すときは、読む側と一緒にここを直す（試験 test_known_keys が今の会社の形の見本で、知らない鍵が 0 件かを確かめる）。
 """
 
@@ -17,7 +17,7 @@ COMPANY = {
     "roles": ("name", "instructions", "model", "effort", "settings", "deliver", "deliver_check", "holders", "ask_check",
               "ask_holders", "persistent", "resident", "fresh", "machine", "tools", "former_names"),
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
-    "skills": ("id", "name", "description", "role", "model", "effort", "start", "on_demand", "standing"),
+    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "start", "on_demand", "standing"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
     "land": ("mode", "gate", "check", "bump", "main", "queue", "roles", "after"),
     "land.roles": ("mode", "gate", "check", "bump", "main"),

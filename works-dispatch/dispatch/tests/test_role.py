@@ -236,6 +236,28 @@ class ModelAndEffort(unittest.TestCase):
                          {"model": "sonnet", "effort": "inherit"})
         self.assertEqual(json.loads(role.launch_key(None)), {"model": None, "effort": None})
 
+    def test_duty_is_found_by_the_same_name_or_by_the_head_of_a_one_off_name(self):
+        # 永続の部署は名前が受け持ちと同じ。一度きりの部署は「<受け持ち>：<何をするか>」。同じ名前の受け持ちが先
+        skills = [{"name": "調べもの"}, {"name": "調べもの：常設"}, {"name": "手入れ"}]
+        self.assertIs(role.duty_of(skills, "調べもの"), skills[0])
+        self.assertIs(role.duty_of(skills, "調べもの：原典の確かめ"), skills[0])
+        self.assertIs(role.duty_of(skills, "調べもの：常設"), skills[1])
+        self.assertIs(role.duty_of(skills, "調べもの：常設：二つ目"), skills[1])
+        for name in ("調べものの続き", "：調べもの", "調べもの:半角", "別の仕事：調べもの", None, ""):
+            self.assertIsNone(role.duty_of(skills, name), name)
+
+    def test_duty_settings_are_laid_over_the_roles_and_keyed_for_restart(self):
+        r = {"name": "作業", "settings": {"permissions": {"deny": ["AskUserQuestion"]}, "promptCacheTtl": "1h"}}
+        duty = {"name": "調べもの", "settings": {"promptCacheTtl": "5m", "permissions": {"allow": ["WebFetch"]},
+                                                  "worktree": {"bgIsolation": "auto"}}}
+        self.assertEqual(role.settings_for(r, duty), {"permissions": {"deny": ["AskUserQuestion"], "allow": ["WebFetch"]},
+                                                      "promptCacheTtl": "5m", "worktree": {"bgIsolation": "none"}})
+        self.assertEqual(role.settings_for(None, duty)["promptCacheTtl"], "5m")
+        self.assertEqual(role.settings_for(r, {"name": "手入れ", "settings": None}), role.settings_for(r))
+        # 待ち受けが比べる字にも重ねた設定が入る（受け持ちの設定を替えれば起動し直す）。どちらにも無ければ settings を書かない
+        self.assertEqual(json.loads(role.launch_key(r, duty))["settings"]["promptCacheTtl"], "5m")
+        self.assertEqual(json.loads(role.launch_key({"name": "作業"}, {"name": "調べもの", "settings": None})), {"model": None, "effort": None})
+
     def test_flow_rank_puts_carry_over_then_standing_by_the_duties_then_per_task_then_the_rest(self):
         # herdr の作業場の並びと --tree の部署の並びが同じ鍵を使う（持ち主 2026-10-17 の案 A）
         duties = ["ノートの手入れ", "調べもの"]
@@ -559,7 +581,7 @@ class TaskWithRole(unittest.TestCase):
 
     setUp, run_task, place = test_task.Task.setUp, test_task.Task.run_task, test_task.Task.place
 
-    def ports(self, sessions=None, starts=True):
+    def ports(self, sessions=None, starts=True, name="直し"):
         ports = test_task.Task.ports(self, sessions, starts)
         d = pathlib.Path(self.cfg).parent
         dirs = {"claude-a1": f"{d}/c1"}
@@ -569,7 +591,7 @@ class TaskWithRole(unittest.TestCase):
             for i, w in enumerate(x for x in ports.term.writes if x[0] == "run" and BG.search(x[2])):
                 if dirs[BG.search(w[2]).group(1)] == cdir:
                     cwd = next(p["cwd"] for p in ports.term.panes() if p["pane_id"] == w[1])
-                    got.append({"id": f"bg{i}", "sessionId": f"bg{i}-full", "name": "直し", "cwd": cwd, "kind": "background",
+                    got.append({"id": f"bg{i}", "sessionId": f"bg{i}-full", "name": name, "cwd": cwd, "kind": "background",
                                 "state": "working", "startedAt": i})
             return got
 
@@ -652,6 +674,27 @@ class TaskWithRole(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         self.assertRegex(command, r'--model "?sonnet\b.*--effort "?high\b')
+
+    def test_duty_settings_reach_its_standing_and_one_off_departments_and_no_other(self):
+        # 受け持ちの settings は、その受け持ちの名前の部署と「<受け持ち>：<何をするか>」の部署の --settings に、役の設定の上から入る。
+        # 同じ役のほかの名前の部署には入らない
+        self.shape(SHAPE + '\n[[skills]]\nname = "調べもの"\nsettings = { promptCacheTtl = "5m" }\n')
+        got = {}
+        for name, branch in (("調べもの", "task/a"), ("調べもの：原典の確かめ", "task/b"), ("直し", "task/c")):
+            ports = self.ports(name=name)
+            rc, out = self.run_task(ports, "--role", "調べ役", name=name, branch=branch)
+            self.assertEqual(rc, 0, out)
+            [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
+            path = os.path.join(gitx.git_dir(self.place(ports, branch)), role.SETTINGS_FILE)
+            self.assertIn(path, command)
+            got[name] = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        for name in ("調べもの", "調べもの：原典の確かめ"):
+            self.assertEqual(got[name]["promptCacheTtl"], "5m", name)
+            self.assertEqual(got[name]["permissions"], {"deny": ["Artifact", "Workflow"]}, name)   # 役の設定も残る
+        self.assertNotIn("promptCacheTtl", got["直し"])
+        rc, out = self.run_task(self.ports(), "--role", "調べ役", "--dry-run", name="調べもの：下調べ", branch="task/d")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("worktree, promptCacheTtl（受け持ち 調べもの の settings を重ねた）", out)
 
     def test_bad_duty_effort_is_said_at_launch_and_the_role_value_is_used(self):
         self.shape(SHAPE + '\n[[skills]]\nname = "直し"\neffort = "hihg"\n')

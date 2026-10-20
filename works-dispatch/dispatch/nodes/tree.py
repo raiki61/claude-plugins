@@ -76,6 +76,11 @@ def _skills(raw, where, problems):
                             f"外して、役の effort で起動する")
         elif "effort" in s:
             got["effort"] = s["effort"]
+        # その部署を起動するときの --settings に、役の [roles.settings] の上から重ねる Claude Code の設定（role.settings_for）。表でなければ外す
+        if "settings" in s and not isinstance(s["settings"], dict):
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の settings は表。外して、役の settings だけで起動する")
+        elif s.get("settings"):
+            got["settings"] = s["settings"]
         # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
         # on_demand = true（オンデマンド）: 永続の部署を置かず、頼まれたときだけその受け持ちの名前のエフェメラルの部署を立てる（--ask が
@@ -89,7 +94,7 @@ def _skills(raw, where, problems):
             problems.append(f"{where}: skills[{i}]（{s['name']}）の {key} は true か false。外して永続で扱う")
             flag = False
         got["on_demand"] = flag
-        out.append({"model": None, "effort": None, **got})
+        out.append({"model": None, "effort": None, "settings": None, **got})
     return out
 
 

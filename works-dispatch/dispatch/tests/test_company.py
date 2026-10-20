@@ -218,7 +218,7 @@ class Info(unittest.TestCase):
         self.assertEqual(os.path.basename(local), urllib.parse.quote(os.path.realpath(self.root), safe="") + ".toml")
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"]), ("settings", "ノート"))
-        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "start": None,
+        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "settings": None, "start": None,
                                           "on_demand": False}])
 
     def test_on_demand_is_read_and_the_former_standing_false_means_the_same(self):
@@ -249,6 +249,16 @@ class Info(unittest.TestCase):
         self.assertEqual(len(got["problems"]), 2)
         self.assertIn("inherit は作っていない", got["problems"][0])
         self.assertIn("effort は low・medium・high・xhigh・max・ultracode・inherit のどれか。外して、役の effort で起動する", got["problems"][1])
+
+    def test_duty_settings_are_read_and_a_non_table_is_dropped(self):
+        write(os.path.join(self.root, ".claude", "company.toml"),
+              '[[skills]]\nname = "調べもの"\nsettings = { promptCacheTtl = "5m" }\n'
+              '[[skills]]\nname = "点検"\nsettings = "5m"\n[[skills]]\nname = "手入れ"\n')
+        got = tree.read_info(self.root, self.settings)
+        self.assertEqual([s["settings"] for s in got["skills"]], [{"promptCacheTtl": "5m"}, None, None])
+        self.assertEqual(len(got["problems"]), 1)
+        self.assertIn("skills[1]（点検）の settings は表。外して", got["problems"][0])
+        self.assertEqual(got["notes"], [])   # 知らない鍵の注記が出ない
 
     def test_broken_file_is_a_problem_and_does_not_fall_back(self):
         write(os.path.join(self.root, ".claude", "company.toml"), "name = \n")
