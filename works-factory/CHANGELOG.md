@@ -6,6 +6,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- `works-factory/PIN` を raiki61/works-factory の e87f40a3 に上げた。本線のグラフを部品に分けて組み直した版（作り直しの #765。PR #794）で、プラグインから起動する run がこの工場で回る。スキルを新しい工場に合わせた: 承認ノードは 4 か所（修正の途中で計画が変わる時が増えた）・最後の承認ノードの開き方 `final_gate`・必ず計画を見せる `design_only`・無人の run は始める時の承認ノードを飛ばす・設計書の置き場は `docs/design/`。`test_cmd` を渡さないと工場が全試験を何度も走らせて遅くなる（実地で 90 分の run が 300 分になった）ことを書いた。
+
 ## [0.2.0] - 2026-10-20
 
 ### Changed
