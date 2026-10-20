@@ -10,12 +10,12 @@ worktrees が返す、元の clone と中身を共有する worktree なので�
 - その場所かその下を作業フォルダにする会話が、どのアカウントにも無い（入口は、閉じた PR の会話が手すきで手元の作業も無ければ、
   先に会話を終え（turn.close_session）、会話の一覧を取り直して無いことを確かめてから消す）
 - 未コミットの変更も、git にまだ足していない新しいファイルも、そのブランチの上の stash も無い
-- 手元のブランチの先頭が PR の head の commit と同じ（手元にしか無い commit が無い）
+- 手元のブランチの先頭が PR の head の commit と同じか、その祖先（origin より遅れているだけで、手元にしか無い commit が無い。in_pr）
 - 設定の copy_files に書いたファイルのうち、写し元と中身が違うもの（その場所で書き換えた手元だけのファイル）が無い
 git が追わないファイルのうち、それ以外（依存・生成物など）は場所と一緒に捨ててよい（作り直せる）。
 パスはリンクを辿った実際のパスで比べる（会話の作業フォルダを見落とさない）。
 消す時は herdr の worktree の口で checkout と作業場を消し（--force は付けない）、消えたことを読み戻してから、手元のブランチも消す
-（先頭が PR の head と同じときだけ）。消す前に、場所の git の置き場に graphloops の盤面（run の記録）が在れば、共通の .git の
+（先頭が候補に選んだ時の先頭と同じときだけ）。消す前に、場所の git の置き場に graphloops の盤面（run の記録）が在れば、共通の .git の
 graphloops/boards-archive/ に写す（keep_boards。写せなければ消さない。部署を消すときも同じ remove を通る）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
 
 部署（入口の --task が立て、属性 company.session を持つ linked worktree）は、別の決まりで選ぶ（departments・retire）。
@@ -77,16 +77,28 @@ def changed_copies(path, copy_root, copy_files):
     return out
 
 
-def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha, source=None, changed=lambda p: []):
+def in_pr(path, pr_head, head_sha, is_ancestor):
+    """手元の先頭が PR の head と同じか、その祖先（origin より遅れているだけ）なら、その先頭の commit。手元にしか無い commit が有る・
+    読めない（PR の head の commit が手元に無いときも含む）なら None（消さない側に倒す）。is_ancestor(場所, a, b) は a が b の祖先か。
+    2026-10-20 に、遅れているだけのマージ済みの PR の手元（behind 10 と 2）を、先頭が PR の head と違うだけで手元の作業と数えて残し続けた。"""
+    head = head_sha(path)
+    if head and pr_head and (head == pr_head or is_ancestor(path, head, pr_head)):
+        return head
+    return None
+
+
+def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha, source=None, changed=lambda p: [],
+               is_ancestor=lambda path, a, b: False):
     """places は herdr.worktrees の並び。pr_for_branch(ブランチ) は {number, state, head_sha}・None（PR が無い）・Unknown を投げる。
-    changed(場所) は、写し元と中身の違う copy_files の並び（changed_copies）。
-    返す 1 行は {path, branch, number, state, pr_head, removable, reason, files}。"""
+    changed(場所) は、写し元と中身の違う copy_files の並び（changed_copies）。is_ancestor は in_pr に渡す。
+    返す 1 行は {path, branch, number, state, pr_head, head, removable, reason, files}。head は、手元の先頭が PR の head と同じかその祖先と
+    確かめた先頭（in_pr）で、消す時に手元のブランチの先頭と比べる。確かめていなければ None。"""
     rows = []
     for place in sorted((p for p in places if p.get("linked")), key=lambda p: p.get("path") or ""):
         path, branch = place["path"], place.get("branch")
         if source and _same(path, source):
             continue
-        row = {"path": path, "branch": branch, "number": None, "state": None, "pr_head": None,
+        row = {"path": path, "branch": branch, "number": None, "state": None, "pr_head": None, "head": None,
                "removable": False, "reason": None, "files": []}
         rows.append(row)
         if not branch:
@@ -107,9 +119,10 @@ def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha, so
             row["reason"] = "session"
         elif not is_clean(path):
             row["reason"] = "dirty"
-        elif stashed(path, branch) or not pr.get("head_sha") or head_sha(path) != pr.get("head_sha"):
+        elif stashed(path, branch) or not (head := in_pr(path, pr.get("head_sha"), head_sha, is_ancestor)):
             row["reason"] = "unpushed"
         else:
+            row["head"] = head
             row["files"] = changed(path)
             if row["files"]:
                 row["reason"] = "local_files"
@@ -423,7 +436,7 @@ UNCOPIED = object()   # remove の boards の既定: 盤面をまだ写してい
 
 
 def remove(row, source, label, h=term, g=gitx, boards=UNCOPIED):
-    """候補の 1 行の場所を消し、手元のブランチも消す。消す前に graphloops の盤面を写す（keep_boards。写せなければ消さない）。
+    """候補の 1 行の場所を消し、手元のブランチも消す（先頭が行の head〔無ければ pr_head〕と同じときだけ）。消す前に graphloops の盤面を写す（keep_boards。写せなければ消さない）。
     boards は呼び手が先に写した keep_boards の返り値（retire が rm の前に写す）。{path, branch, removed, branch_deleted, detail}。"""
     path = row["path"]
     out = {"path": path, "branch": row["branch"], "removed": False, "branch_deleted": False, "detail": None}
@@ -442,11 +455,11 @@ def remove(row, source, label, h=term, g=gitx, boards=UNCOPIED):
         out["detail"] = out["detail"] or "消した後の読み戻しで、場所がまだ在る"
         return out
     try:
-        out["branch_deleted"] = g.delete_branch(source, row["branch"], row["pr_head"]) in ("deleted", "absent")
+        out["branch_deleted"] = g.delete_branch(source, row["branch"], row.get("head") or row["pr_head"]) in ("deleted", "absent")
     except gitx.GitError as e:
         out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} を消せなかった（{e}）"
     if not out["branch_deleted"] and not out["detail"]:
-        out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} の先頭が PR の head と違うので残した"
+        out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} の先頭が片付けを決めた時と違うので残した"
     if boards:
         out["detail"] = f"graphloops の盤面を {boards} に写した" + (f"。{out['detail']}" if out["detail"] else "")
     return out

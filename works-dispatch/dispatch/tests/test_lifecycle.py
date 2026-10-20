@@ -398,6 +398,51 @@ class Flow(unittest.TestCase):
                 self.assertTrue(pathlib.Path(path).exists())
                 self.assertEqual(ports.term.writes, [])
 
+    def test_closed_pr_whose_place_is_only_behind_the_pr_head_is_removed(self):
+        # 2026-10-20: 手元が origin のブランチより遅れているだけ（手元の先頭が PR の head の祖先）なら、手元の作業ではない。
+        # 会話が無くても、手すきの会話が 1 つ開いていても片付け、手元のブランチも消す
+        from .test_provision import advance
+        for talking in (False, True):
+            with self.subTest(talking=talking):
+                self.setUp()
+                path = self.place(5)
+                ports = FakePorts([])
+                if talking:
+                    self.talking_in(ports, path)
+                tip = advance(self.src, "feat/5")
+                ports.branch_prs = {"feat/5": {"number": 5, "state": "MERGED", "head_sha": tip}}
+                rc, out = run_main(self.cfg, ports)
+                self.assertIn("#5 feat/5: 片付けた", out)
+                self.assertFalse(pathlib.Path(path).exists())
+                self.assertEqual(git("-C", self.src, "branch", "--list", "feat/5"), "")
+
+    def test_closed_pr_whose_head_commit_is_not_in_the_clone_is_kept(self):
+        # PR の head の commit が手元に無ければ、手元の先頭がその祖先かを確かめられないので残す
+        path = self.place(5)
+        ports = FakePorts([])
+        ports.branch_prs = {"feat/5": {"number": 5, "state": "MERGED", "head_sha": "f" * 40}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#5 feat/5: 閉じた PR だが、手元の作業が有るので残した", out)
+        self.assertTrue(pathlib.Path(path).exists())
+
+    def test_closed_pr_whose_place_has_its_own_commit_behind_the_pr_head_is_kept(self):
+        # PR の head が先に進んでいても、手元にしか無い commit が有れば（手元の先頭が PR の head の祖先でない）残す
+        from .test_provision import advance
+        for talking, want in ((False, "手元の作業が有るので残した"), (True, "会話が作業中か手元の作業が有るので残した")):
+            with self.subTest(talking=talking):
+                self.setUp()
+                path = self.place(5)
+                ports = FakePorts([])
+                if talking:
+                    self.talking_in(ports, path)
+                tip = advance(self.src, "feat/5")
+                git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "mine")
+                ports.branch_prs = {"feat/5": {"number": 5, "state": "MERGED", "head_sha": tip}}
+                rc, out = run_main(self.cfg, ports)
+                self.assertIn(f"#5 feat/5: 閉じた PR だが、{want}", out)
+                self.assertTrue(pathlib.Path(path).exists())
+                self.assertEqual(ports.term.writes, [])
+
     def test_closed_pr_with_two_conversations_is_kept(self):
         path = self.place(5)
         ports = FakePorts([])
@@ -535,11 +580,14 @@ class Flow(unittest.TestCase):
                 self.assertIn("#3 feat/3: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した", out)
                 self.assertEqual(ports.term.writes, [])
 
-    def test_off_turn_conversations_dispatch_did_not_open_are_left_alone(self):
+    def test_off_turn_conversations_dispatch_did_not_open_are_left_alone_and_named(self):
         # 控えが無い・一覧の回の印が無い（--pr で送った物か前の版の物）・送った後に起動した（持ち主が自分で開いた）・起動の時刻が
-        # 分からない・会話が 2 つ、のどれも触らない
-        for started, record, extra in ((100.0, {}, False), (100.0, {"at": 200.0}, False), (300.0, None, False),
-                                       (None, None, False), (100.0, None, True)):
+        # 分からない・会話が 2 つ、のどれも触らず、触らない訳を 1 行に出す（2026-10-20 に、前の版で送った会話が何も出さずに残った）
+        for started, record, extra, why in ((100.0, {}, False, "送った記録が無い"),
+                                            (100.0, {"at": 200.0}, False, "送った記録に一覧の回の印 via: listing が無い"),
+                                            (300.0, None, False, "記録より後に起動された会話"),
+                                            (None, None, False, "会話の起動の時刻が分からない"),
+                                            (100.0, None, True, "同じ手元に会話が 2 つ開いている")):
             with self.subTest(started=started, record=record, extra=extra):
                 self.setUp()
                 path, ports, _ = self.off_turn(started=started or 100.0, record=record)
@@ -551,7 +599,7 @@ class Flow(unittest.TestCase):
                     ports.agents = list(ports.agents) + [{"cwd": path, "status": "idle", "startedAt": 100000}]
                 rc, out = run_main(self.cfg, ports)
                 self.assertEqual(ports.term.writes, [])
-                self.assertNotIn("#3", out)
+                self.assertIn("#3 feat/3: 自分の番でない PR だが、dispatch が一覧の回で開いた会話と言い切れないので残した（" + why, out)
 
     def test_off_turn_pr_whose_materials_hit_the_scan_limit_is_kept_and_named(self):
         # whose-turn の limited に入った PR は、自分の番でないという判定が取りこぼしの上に立つので閉じない

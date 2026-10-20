@@ -1,5 +1,5 @@
 """片付け（clean ノードと dispatch.py --clean）。消してよいのは、元の clone の linked worktree のうち、ブランチの PR が閉じていて、会話が無く、
-手元の作業も無く、手元のブランチの先頭が PR の head と同じ場所だけ。"""
+手元の作業も無く、手元のブランチの先頭が PR の head と同じかその祖先の場所だけ。"""
 
 import contextlib
 import io
@@ -205,6 +205,21 @@ class Copies(unittest.TestCase):
         rows = clean.candidates([place("/w/a", "a")], lambda b: {"number": 1, "state": "MERGED", "head_sha": SHA}, set(),
                                 lambda p: True, lambda p, b: False, lambda p: SHA, changed=lambda p: [".env.local"])
         self.assertEqual((rows[0]["removable"], rows[0]["reason"], rows[0]["files"]), (False, "local_files", [".env.local"]))
+
+    def test_place_behind_the_pr_head_is_removable_and_one_with_its_own_commit_is_kept(self):
+        # 手元の先頭が PR の head の祖先（origin より遅れているだけ）なら手元の作業は無い。祖先でなければ手元にしか無い commit が有る
+        old = "b" * 40
+        for ancestor, removable, reason, head in ((True, True, None, old), (False, False, "unpushed", None)):
+            with self.subTest(ancestor=ancestor):
+                rows = clean.candidates([place("/w/a", "a")], lambda b: {"number": 1, "state": "MERGED", "head_sha": SHA}, set(),
+                                        lambda p: True, lambda p, b: False, lambda p: old,
+                                        is_ancestor=lambda p, a, b: ancestor and (a, b) == (old, SHA))
+                self.assertEqual((rows[0]["removable"], rows[0]["reason"], rows[0]["head"]), (removable, reason, head))
+
+    def test_place_behind_the_pr_head_with_a_stash_is_kept(self):
+        rows = clean.candidates([place("/w/a", "a")], lambda b: {"number": 1, "state": "MERGED", "head_sha": SHA}, set(),
+                                lambda p: True, lambda p, b: True, lambda p: "b" * 40, is_ancestor=lambda p, a, b: True)
+        self.assertEqual((rows[0]["removable"], rows[0]["reason"]), (False, "unpushed"))
 
     def test_the_source_clone_is_never_a_candidate_even_if_listed_as_linked(self):
         rows = clean.candidates([place("/s/repo", "a"), place("/w/a", "b")], lambda b: None, set(), lambda p: True,

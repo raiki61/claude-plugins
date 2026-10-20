@@ -362,6 +362,9 @@ class Ports:
     def head_sha(self, cwd):
         return gitx.head_sha(cwd)
 
+    def is_ancestor(self, cwd, a, b):
+        return gitx.is_ancestor(cwd, a, b)
+
     def pr_for_branch(self, repo, branch):
         """そのブランチの PR（{number, state, head_sha}・None）。読めなければ clean.Unknown（片付けは消さない側に倒す）。"""
         try:

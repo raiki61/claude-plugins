@@ -684,7 +684,8 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
     sess = sessions.collect(listed, ports.branch, ports.origin)
     changed = _changed(repo)
     rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), {x["cwd"] for x in sess if x["cwd"]},
-                            ports.is_clean, ports.stashed, ports.head_sha, source=repo.source, changed=changed)
+                            ports.is_clean, ports.stashed, ports.head_sha, source=repo.source, changed=changed,
+                            is_ancestor=ports.is_ancestor)
     out = []
     for r in rows:
         if r["reason"] == "pr_open" and turn_numbers is not None and r["number"] not in turn_numbers:
@@ -694,8 +695,8 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
         if r["reason"] == "session" and finished:
             mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
             files = changed(r["path"])
-            local = (not ports.is_clean(r["path"]) or ports.stashed(r["path"], r["branch"])
-                     or ports.head_sha(r["path"]) != r["pr_head"] or files)
+            head = clean.in_pr(r["path"], r["pr_head"], ports.head_sha, ports.is_ancestor)
+            local = (not ports.is_clean(r["path"]) or ports.stashed(r["path"], r["branch"]) or not head or files)
             if len(mine) > 1:
                 out.append(f"{_where(r)}: 閉じた PR だが、会話が {len(mine)} つ開いているので残した")
                 continue
@@ -717,7 +718,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
             if left:
                 out.append(f"{_where(r)}: 会話を終えた後も、その場所に会話が見えるので残した")
                 continue
-            r = {**r, "removable": True, "reason": None}
+            r = {**r, "head": head, "removable": True, "reason": None}
         if finished and r["reason"] in ("dirty", "unpushed"):
             out.append(f"{_where(r)}: 閉じた PR だが、手元の作業が有るので残した")
             continue
@@ -739,14 +740,15 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     """自分の番でなくなった開いている PR の場所で、dispatch が開いた会話を終えて herdr の作業場を閉じる（worktree は残す。自分の番に戻れば、
     一覧の回が同じ場所に新しい会話を立てる）。送り直し（fresh.decide の refresh）と同じく、会話が 1 つだけで手すき・未コミットの変更も
     手元にしか無い commit も無いときだけ。加えて、dispatch が一覧の回で送った会話（控えに一覧の回の印が有り、会話の起動が送った時より前）
-    だけを閉じる。持ち主が自分で開いた会話と、--pr・--issue で開いた会話と、印を書く前の版の控えの会話には触らない。limited（whose-turn が
-    その PR の材料を取り切れなかった）なら、自分の番でないという判定が取りこぼしの上に立つので閉じない。返すのは報告の行。"""
+    だけを閉じる。持ち主が自分で開いた会話と、--pr・--issue で開いた会話と、印を書く前の版の控えの会話には触らず、触らない訳を報告の
+    行に書く（_not_listed_why）。limited（whose-turn がその PR の材料を取り切れなかった）なら、自分の番でないという判定が取りこぼしの上に立つので閉じない。返すのは報告の行。"""
     rec = _sent_record(sent.get(_key(repo, r["number"])))
     mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
-    if not mine or not isinstance(rec["at"], (int, float)) or not rec["listed"]:
+    if not mine:
         return []
-    if len(mine) > 1 or not isinstance(mine[0]["started"], (int, float)) or mine[0]["started"] > rec["at"]:
-        return []   # dispatch が開いた会話と言い切れない
+    why = _not_listed_why(rec, mine)
+    if why:
+        return [f"{_where(r)}: 自分の番でない PR だが、dispatch が一覧の回で開いた会話と言い切れないので残した（{why}）"]
     if limited:
         return [f"{_where(r)}: 自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので会話を残した"]
     path = r["path"]
@@ -765,6 +767,22 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     if rel["status"] == "none":
         return [f"{_where(r)}: 自分の番でない PR なので会話を終えた（{term.NAME} の作業場は開いていなかった）"]
     return [f"{_where(r)}: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）"]
+
+
+def _not_listed_why(rec, mine):
+    """その場所の会話（mine。1 つ以上）が、dispatch が一覧の回で送った会話と言い切れない訳。言い切れれば None。
+    持ち主に閉じない訳が見えるように、_step_back が報告の行に書く（2026-10-20 に、前の版で送った会話が訳を出さずに残った）。"""
+    if len(mine) > 1:
+        return f"同じ手元に会話が {len(mine)} つ開いている"
+    if not isinstance(rec["at"], (int, float)):
+        return "送った記録が無い。持ち主が自分で開いた会話か"
+    if not rec["listed"]:
+        return "送った記録に一覧の回の印 via: listing が無い。--pr・--issue で開いた会話か、印を書く前の版で送った会話"
+    if not isinstance(mine[0]["started"], (int, float)):
+        return "会話の起動の時刻が分からない"
+    if mine[0]["started"] > rec["at"]:
+        return "記録より後に起動された会話。持ち主が自分で開いた会話か"
+    return None
 
 
 def _contact(caller, account):
@@ -1701,7 +1719,7 @@ def _clean(cfg, repo, apply, ports):
             print("消すには --clean --apply を付けて打ち直す")
         return 1 if failed else 0
     rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha,
-                            source=repo.source, changed=_changed(repo))
+                            source=repo.source, changed=_changed(repo), is_ancestor=ports.is_ancestor)
     if not rows:
         if not depts:
             print(f"元の clone {repo.source} の worktree は無い")
