@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
 ### Changed
 
 - `works-factory/PIN`（このプラグインが取ってくる工場の commit）を raiki61/works-factory の e87f40a3 に上げた。工場の流れ（本線のグラフ）を部品に分けて組み直した版（raiki61/works-factory の issue #765・PR #794）で、プラグインから起動する run（工場の 1 回の実行）はこの版で回る。起動の形は変わらない。スキルを新しい工場に合わせた:
