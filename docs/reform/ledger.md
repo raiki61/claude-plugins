@@ -404,3 +404,19 @@ e001d7 は割り振りの作業の部署「割り振り：アカウントの使�
 1. 両方の会社の log.jsonl の kind retired で、at が 2026-10-21 以降の行を数える。status kept で detail に「No job matching」を含む行が 1 行でもあれば、直しが効いていない。その行の会話の id と、そのときの works-dispatch の版を添えて割り振りに頼む。
 2. 副作用の確かめ: 直しは「No job matching」を「会話はもう無い」とみなすので、本当は会話が残っているのに断られた場合（たとえば別のアカウントで立った会話）も、部署を畳んだと記録して会話を残しうる。そこで、同じ期間の status done の行の部署の会話が残っていないかを、部署を起動したアカウントの設定のフォルダを CLAUDE_CONFIG_DIR に入れて `CLAUDE_CONFIG_DIR=~/.claude-<アカウント> claude agents --json --all` を打って見る（works-dispatch の claudex.py も同じ形で打つ。部署のアカウントは log.jsonl の行に在る）。畳んだ部署の会話が一覧に残っていれば、直しが会話を消し損ねたまま畳んだ印なので、残った会話の id とアカウントを添えて、直しの穴として割り振りに頼む。
 3. どちらも出なければ「効いた」とし、この頼みへの納品（`dispatch.py --deliver <要約のファイル> --for 20261020-114619-6cec43`）で返す。畳む機会（retired の行）が 0 なら「測れなかった」と書いて次の回へ送る。
+
+## 頼み 904871（2026-10-20、--land で見送ったテストの赤が main の CI に何回出たかを 1 週間数える、受付 20261020-120322-904871）
+
+- 頼み元: 部署「割り振り：テストと CI と main へ入れる仕組みの組み直し」。ADR 0076（docs/adr/0076-land-runs-affected-tests.md）の「見直す条件」の 2 つ目を測る。--land 1 回の時間は頼み f23713 が測るので、ここでは数えない。
+- 数える期間: --land の検査が変更の当たるテストだけを回す形になった aa389834（2026-10-20 21:17）から 1 週間、2026-10-27 21:17 まで。
+- 頼みを受けた時点（10-20 21:42）の様子:
+  - この形が入った後で走り切った main の CI（.github/workflows/test.yml）の run は、まだ 1 本も無い（2ef99782 が走っている途中）。
+  - main の CI は、この形の前から毎回赤（Windows の works-dispatch の 9 件。頼み f23713 の項）。だから「赤の run の数」を数えると、見送りと関係のない赤まで数えてしまう。数えるのは、前の走り切った run に無かった赤の検査（新しく出た赤）だけにする。
+  - test.yml の concurrency は、走っている run の後ろに待ちを 1 本だけ残し、間の push の run を取り消す（cancelled）。だから 1 本の赤の run が、前の走り切った run からの何本かの --land をまとめて含む。
+- 数え方:
+  1. `gh run list -w test.yml -b main --json databaseId,headSha,conclusion,createdAt` で、期間の中で走り切った run（success か failure）を古い順に並べる。
+  2. 各 run の赤の検査の名前（tests/run.sh の `  FAIL ` の行と、works・graphloops の job の赤）を `gh run view <id> --log-failed` で拾い、前の走り切った run の赤と比べて、新しく出た物だけを残す。
+  3. 新しく出た赤の検査 K ごとに、前の run の headSha から今の run の headSha までの commit を `git log` で並べ、K を赤にした commit C を探す（K の入力のファイルを変えた commit。分からなければ手元で K を回して二分探索）。
+  4. C を入れた --land が K を見送っていたかを見る: C の木で `python3 tests/land-check.py --affected <C の --land の前の main>` が出す「変わったプラグイン」と変わったファイルが、tests/run.sh の K の `scope` に当たらなければ見送っていた。当たらないのに C が K を赤にしたなら、K の scope の宣言が C の変えたファイルを書き落としている（どの scope が漏れたかの答え）。
+  5. 4 で見送っていた赤の数を 1 週間で足す。週に 2 回より多ければ、漏れた scope の宣言と一緒に頼み元へ返す。2 回以下でも、漏れた scope の宣言は名前を添えて返す。
+- 結果: 2026-10-27 21:17 より後に、業務改革が数えてここに書く（結果は `--for 20261020-120322-904871` で返す）。
