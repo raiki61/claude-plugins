@@ -5892,8 +5892,11 @@ for _s in (sys.stdout, sys.stderr):
 root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
-EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_")
+# WORKS_FACTORY_ は外のリポジトリ raiki61/works-factory の殻が読む環境変数で、works-factory プラグインのスキルが名指す（定義はこのリポジトリに無い）
+EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "WORKS_FACTORY_")
 EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                  # Claude Code のゲートウェイの環境変数（works-factory のスキルの認証の手引きが名指す）
+                  "ANTHROPIC_BASE_URL",
                   # Archon がノードと子に渡す環境変数・Archon の設定の環境変数
                   "ARTIFACTS_DIR", "TITLE_GENERATION_MODEL",
                   # 包みが Bash の役の子に向け直す・向け直さない外のツールの環境変数
