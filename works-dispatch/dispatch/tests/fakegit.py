@@ -381,15 +381,18 @@ class FakeGit:
 
     def fast_forward(self, cwd, branch):
         """手元のブランチが origin/<branch> の祖先なら fast-forward だけする（current・updated・local_only）。"""
-        target = self.tracking.get(branch)
-        if self._resolve(cwd, "HEAD") == target:
+        target, head = self.tracking.get(branch), self._resolve(cwd, "HEAD")
+        if head == target:
             return "current"
-        if target is None:   # 本物も origin/<branch> が読めなければ祖先でないとみて動かさない
+        if target is None or head not in self._line(target):   # 手元が先に進んでいる・分かれた・origin/<branch> が読めない
             return "local_only"
-        return self.fast_forward_to(cwd, f"refs/remotes/origin/{branch}")
+        self.local[self.heads[self._place(cwd)]] = target
+        return "updated"
 
     def reset_keep(self, cwd, branch):
         """origin/<branch> へ `git reset --keep` で揃える。未コミットの変更と重なって git が断る形は持たない（本物の git の試験で確かめる）。"""
+        if branch not in self.tracking:
+            raise gitx.GitError(f"{cwd}: origin/{branch} が無い")
         self.local[self.heads[self._place(cwd)]] = self.tracking[branch]
 
     def changed_paths(self, cwd, since, path):
