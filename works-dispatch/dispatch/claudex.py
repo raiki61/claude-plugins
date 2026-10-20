@@ -33,6 +33,8 @@ REMOVE_COMMAND = "claude rm"            # 裏の会話を消すコマンド（�
 # 部署の裏の会話の設定に必ず重ねる値（会話に worktree を作らせず、先に作った作業場で働かせる）
 FIXED_SETTINGS = {"worktree": {"bgIsolation": "none"}}
 LOCAL_SETTINGS = ".claude/settings.local.json"   # リポジトリの中の、会話が書く手元だけの設定（許可の記録など。commit しない）
+# 会話が起動するときにしか読まないファイル（/clear では読み直さない）。.claude/ の下（役の定義・設定・フックなど）と、ルートのこれら
+STARTUP_DIR, STARTUP_FILES = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json")
 # フックの入力の、会話の始まり・人の文・ツールの呼び出しの出来事の名前（hook_event_name）
 START, PROMPT, TOOL = "SessionStart", "UserPromptSubmit", "PreToolUse"
 

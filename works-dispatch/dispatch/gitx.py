@@ -7,7 +7,7 @@
 enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/worktrees/<部署>/config.worktree` に入り、ほかの部署と元の clone に
 混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
 
-書く関数は fetch・fast_forward・catch_up・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude と、
+書く関数は fetch・fast_forward・fast_forward_to・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude と、
 メインブランチに入れる（取り込みのコマンド）ための push・drop_remote・advance_branch・add_detached・remove_detached・commit_all と、メインブランチが先に
 進んだブランチをリベースするための rebase・rebase_continue・rebase_abort・add_path・push_rebased で、
 呼んでよいノードはチェック（tests/fences.py の D4 の表 WRITES）が構文木で見る。
@@ -98,7 +98,7 @@ def fast_forward(cwd, branch, runner=_default_runner):
     return "updated"
 
 
-def catch_up(cwd, ref, runner=_default_runner):
+def fast_forward_to(cwd, ref, runner=_default_runner):
     """worktree（cwd）の今のブランチを、ref（例 refs/remotes/origin/main）の先頭を含むところまで fast-forward だけする。書く口。
     current（もう ref の先頭を含む）・updated（fast-forward した）・local_only（ref に無い commit が有るので動かさない）のどれか。
     未コミットの変更と重なって git が断れば GitError（変更は消さない）。ref が読めなければ GitError。"""

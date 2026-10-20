@@ -521,9 +521,11 @@ def follow_main(got, attrs, catch_up=provision.follow_main):
     if r["status"] != "updated":
         return None
     said = f"作業場のブランチを {main} の先頭へ進めた（{r['behind']} 個の commit を取り込んだ）"
-    if not r["startup"]:
+    # 会社の形（tree.INFO_FILE）は起動の設定（role.launch_key）と役の文（role_hook.changed）が別に見るので、起動し直す訳にしない
+    startup = [x for x in r["startup"] if x != "/".join(tree.INFO_FILE)]
+    if not startup:
         return said
-    files = "・".join(r["startup"][:3]) + (f" ほか {len(r['startup']) - 3} 件" if len(r["startup"]) > 3 else "")
+    files = "・".join(startup[:3]) + (f" ほか {len(startup) - 3} 件" if len(startup) > 3 else "")
     said += f"。会話が起動するときにしか読まないファイル（{files}）が替わった"
     account = attrs.get("account")
     if not account:

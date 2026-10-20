@@ -215,15 +215,10 @@ def refresh_shape(source, g=gitx):
     return None
 
 
-# 会話が起動するときにしか読まないファイル（/clear では読み直さない）。.claude/ の役の定義（agents）・設定（settings）・フックなどと、
-# ルートの CLAUDE.md・.mcp.json（下のフォルダの CLAUDE.md は、そこを読むときに読まれる）。会社の形（.claude/company.toml）は
-# 起動の設定（role.launch_key）と役の文（role_hook.changed）が別に見るので除く
-STARTUP_DIR, STARTUP_FILES, NOT_STARTUP = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json"), (".claude/company.toml",)
-
-
 def read_at_start(rel):
-    """リポジトリのルートからの相対のパス rel が、会話が起動するときにしか読まないファイルか。"""
-    return rel not in NOT_STARTUP and (rel.startswith(STARTUP_DIR) or rel in STARTUP_FILES)
+    """リポジトリのルートからの相対のパス rel が、会話が起動するときにしか読まないファイル（chat.STARTUP_DIR の下と、ルートの
+    chat.STARTUP_FILES。下のフォルダの CLAUDE.md は、そこを読むときに読まれる）か。"""
+    return rel.startswith(chat.STARTUP_DIR) or rel in chat.STARTUP_FILES
 
 
 def follow_main(path, g=gitx):
@@ -238,7 +233,7 @@ def follow_main(path, g=gitx):
     ref = f"refs/remotes/origin/{main}"
     head = g.head_sha(top)
     ahead, behind = (len(g.subjects(top, ref, "HEAD")), len(g.subjects(top, "HEAD", ref)))
-    status = g.catch_up(top, ref)
+    status = g.fast_forward_to(top, ref)
     # 進める前の HEAD を読めなければ（生まれたばかりのブランチなど）、替わったファイルを比べない
     startup = [x for x in g.changed_paths(top, head, ".") if read_at_start(x)] if status == "updated" and head else []
     return {"status": status, "main": main, "ahead": ahead, "behind": behind, "startup": startup}
