@@ -5464,7 +5464,7 @@ expect_output 0 "BAD_CONFIG_OK" \
     "spread-plugins: 設定の accounts と skip に形の違う物が混ざれば、黙って飛ばさずに止める" \
     "$PY_BIN" "$SPREAD_CASE" bad-config
 expect_output 0 "FAILURE_IS_NONZERO_OK" \
-    "spread-plugins: 1 つでも失敗したら 0 以外で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、なお落ちても入った版がメインブランチとそろえば数えない" \
+    "spread-plugins: 1 つでも失敗したら 0 以外で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、なお落ちても入った版がメインブランチとそろえば数えない。プラグインの更新が落ちたアカウントは 1 回だけ配り直す" \
     "$PY_BIN" "$SPREAD_CASE" failure-is-nonzero
 expect_output 0 "LOCAL_ACCOUNTS_OK" \
     "spread-plugins: 手元の設定の accounts（部署を起動しないアカウント）にも配り、同じ設定のフォルダは 1 回だけ" \

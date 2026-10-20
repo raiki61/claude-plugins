@@ -6,7 +6,7 @@
   設定で除いた作業場は飛ばす（薄字の候補だけの入力フィールドは空と見て打つ）。入っている自分の marketplace のプラグインだけ更新する
 - bad-config: 設定の accounts と skip に形の違う物が混ざれば、黙って飛ばさずに 2 で止める
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、
-  それでも落ちても入った版が全部メインブランチとそろえば失敗に数えない
+  それでも落ちても入った版が全部メインブランチとそろえば失敗に数えない。プラグインの更新が落ちたアカウントは 1 回だけ配り直す
 - local-accounts: 手元の設定の accounts（部署を起動しないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
 - broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版がメインブランチ（origin/main）とそろわなければ
   失敗に数え、失敗の行を出力の終わりに並べ直す。メインブランチの版を読めなくても失敗に数える。メインブランチは全アカウントに配った後に読み、
@@ -168,9 +168,26 @@ def bad_config():
 
 
 def failure_is_nonzero():
-    runner, _ = world(fail={f"claude plugin update a@{MARKET}"})
+    runner, calls = world(fail={f"claude plugin update a@{MARKET}"})
     rc, out = run(runner, {})
-    assert rc == 1 and "失敗 2 件" in out, (rc, out)
+    updates = [env for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
+    assert rc == 1 and "失敗 2 件" in out and updates == [None, "/c/p1", None, "/c/p1"], (rc, out, updates)   # 配り直してもなお落ちれば失敗
+    runner, calls = world(flaky={f"claude plugin update a@{MARKET}"})   # 別の会話が clone を取り直している間に打った
+    rc, out = run(runner, {})
+    updates = [env for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
+    assert rc == 0 and updates == [None, "/c/p1", None], (rc, out, updates)   # 落ちたアカウントだけ 1 回配り直す
+    runner, calls = world(flaky={f"claude plugin update a@{MARKET}"})
+    def mid_clone(argv, env=None, runner=runner, calls=calls):   # 取り直しの途中で clone の欠けも戻せなかった
+        first = not [a for a, _ in calls if a[:4] == argv[:4]]
+        if argv[:4] == ["git", "-C", "/m/mine", "ls-files"] and first:
+            calls.append((argv, None))
+            return 0, "a/.claude-plugin/plugin.json\n"
+        if argv[:4] == ["git", "-C", "/m/mine", "checkout"] and first:
+            calls.append((argv, None))
+            return 1, "fatal: index.lock"
+        return runner(argv, env)
+    rc, out = run(mid_clone, {})
+    assert rc == 0 and [a for a, _ in calls if a[:4] == ["git", "-C", "/m/mine", "checkout"]], (rc, out)   # 配り直して通れば、1 回目の clone の欠けの戻し損ねも数えない
     runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"}, version="0.9.0")
     rc, out = run(runner, {})
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
