@@ -4,7 +4,8 @@
 
 --todo [受付]: 打った場所の会社の受付箱から始め、台帳の行が指すほかの会社の受付箱（本文のファイルの置き場・頼み元の受付箱・
 宛先や打った場所の作業場の会社の物）をたどって全部の台帳を読み、頼みの木を出す（herdr は読まない。会社が開いていなくても
-台帳だけで組む）。受付を渡せば、その頼みから下だけ（短い 6 桁でもよい）。済んだブランチは出さない（--all で出す）。--json は射影を
+台帳だけで組む）。受付を渡せば、その頼みから下だけ（短い 6 桁でもよい。リマインダーの受付なら、そのリマインダーと、それを納品の
+残った疑問の担当者に書いた頼み）。済んだブランチは出さない（--all で出す）。--json は射影を
 JSON で、--html <ファイル> は 1 枚の HTML のページに書く。
 --state <状態>（カンマで区切って幾つでも。STATES の名前か画面の字）か --to <宛先>（部署の名前・会社の名前・「会社/名前」）を付けると、
 木にせず、当たった頼みを更新の古い順に平らに並べる（--state を省けば開いている状態〔順番待ち・動いている・答え待ち〕、--all なら全部の状態）。
@@ -80,10 +81,17 @@ def todo(a, ports, cwd):
         print(f"止めた: {cwd} が git でないので、受付箱が決まらない（会社の本社か部署の場所から打つ）")
         return 2
     inboxes, rows = inboxes_from([deliver.inbox_of(common)], ports.git.common_dir)
-    view = ledger.build(rows, title_of=lambda f: deliver.task_title(f, 60), questions_of=questions)
+    view = ledger.build(rows, title_of=lambda f: deliver.task_title(f, 60), questions_of=questions, reminders=remind.project(rows))
     top = None
     if a.todo:
         hits = [i for i in view["tasks"] if i == a.todo or i.endswith("-" + a.todo)]
+        got = [r for i, r in view["reminders"].items() if i == a.todo or i.endswith("-" + a.todo)]
+        if got and not hits and len(got) == 1:
+            if a.html or getattr(a, "state", None) or getattr(a, "to", None):
+                print(f"止めた: 受付 {got[0]['id']} はリマインダーで、--html・--state・--to は頼みにだけ使える（付けずに打ち直す）")
+                return 2
+            return reminder(view, got[0], ports.now(), a.json, inboxes)
+        hits += [r["id"] for r in got]
         if len(hits) != 1:
             print(f"止めた: 受付 {a.todo} が台帳に" + ("無い" if not hits else f" {len(hits)} 件ある（長い受付番号で渡す）"))
             return 2
@@ -125,6 +133,19 @@ def todo(a, ports, cwd):
     out = ledger.lines(forest, when, now if filtering else None)
     empty = "当たる頼みは無い" if filtering else "開いている頼みは無い（済んだ物は --all で出す）"
     print("\n".join([f"! {n}" for n in notes] + reminder_lines(rems) + [ledger.tally_line(counted), ""] + (out or [empty])))
+    return 0
+
+
+def reminder(view, rem, now, as_json, inboxes):
+    """--todo <リマインダーの受付>。リマインダーの 1 行と、それを残った疑問の担当者に書いた納品の頼み（続きとして追う元）を出す。"""
+    rems = [{**rem, "due": remind.came(rem, view["tasks"], now)}]
+    by = [t for t in view["tasks"].values() if rem["id"] in t["reminders"]]
+    if as_json:
+        jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "notes": [], "forest": [], "reminders": rems,
+                     "held_by": [t["id"] for t in by]}, None)
+        return 0
+    print("\n".join(reminder_lines(rems) + (["担当者に書いた納品の頼み:"] + [f"- [{t['label']}] {t['title'] or '（題なし）'}  {t['id']}"
+                                                                     for t in by] if by else [])))
     return 0
 
 

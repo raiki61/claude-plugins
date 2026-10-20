@@ -11,9 +11,10 @@ Marten の Live の射影）。行の形・種類・つなぎ方の決まりは 
 - 親: 頼みの行の cause（その頼みを打った場所が、そのとき受けていた頼み。Marten・KurrentDB の causation id）、--forward で回した
   forwarded の行（回した元が親）。cause のフィールドの無い古い行は、打った場所と名前が同じ部署が、その時より前に最後に受けた頼みを親と見る
   （wake_hook.open_children と同じ見分け。parent_by は inferred）。
-- 続き: 納品の残った疑問の担当者が受付番号なら、その頼みを続き（follows）に結ぶ。担当者が部署や持ち主の物は questions に残すだけで、
-  開いている物には数えない（閉じる行が台帳に無いため）。
-- 開いているか（open）: 自分が終わっていないか、子か続きのどれかが開いている。届かなかった頼み（failed）は、打った会話がその場で
+- 続き: 納品の残った疑問の担当者が受付番号なら、その頼みを続き（follows）に結ぶ。リマインダーの受付なら、リマインダーの続き
+  （reminders。頼みの木には入れない）に結ぶ。担当者が部署や持ち主の物は questions に残すだけで、開いている物には数えない（閉じる行が
+  台帳に無いため）。
+- 開いているか（open）: 自分が終わっていないか、子か続きのどれかが開いているか、続きのリマインダーが閉じていない。届かなかった頼み（failed）は、打った会話がその場で
   知るので、開いている物に数えない。
 """
 
@@ -150,8 +151,10 @@ def _short(asks, h):
     return None
 
 
-def build(rows, title_of=None, questions_of=None):
-    """行の並び（merge した物）から射影 {"schema", "tasks": {受付: 頼み}, "roots": [受付]} を作る。題は頼みの行の title。title_of(本文のファイル) は
+def build(rows, title_of=None, questions_of=None, reminders=None):
+    """行の並び（merge した物）から射影 {"schema", "tasks": {受付: 頼み}, "roots": [受付], "reminders": {受付: リマインダー}} を作る。
+    reminders は同じ行の remind.project の物（{受付: リマインダー}。流れの側が渡す。省けば結ばない）で、頼みの木には入れず、納品の
+    残った疑問の担当者に書かれた物を頼みの reminders に結ぶ。題は頼みの行の title。title_of(本文のファイル) は
     題を返し、title の無い古い行にだけ使う。
     questions_of(納品の行) は残った疑問の担当者の並び [{"holder", "ask"}]（行の holders のフィールドと同じ形）を返す。holders のフィールドの無い古い行に
     だけ使う（どちらも省けば使わない）。"""
@@ -233,7 +236,8 @@ def build(rows, title_of=None, questions_of=None):
                and (tasks[x[3]]["closed"] is None or tasks[x[3]]["closed"] > (t["created"] or 0))]
         if got and frm.get("place"):
             _link(tasks, got[-1][3], t["id"], "inferred")
-    # 続き: 納品の残った疑問の担当者の受付
+    # 続き: 納品の残った疑問の担当者の受付（頼みか、リマインダー）
+    rems = reminders or {}
     for r in rows:
         if r.get("kind") != "deliver" or isinstance(r.get("to"), str) or r.get("ask") not in tasks or r.get("status") == "failed":
             continue
@@ -245,10 +249,11 @@ def build(rows, title_of=None, questions_of=None):
             # 担当者は頭書きの holder（受付番号は ask に入る）で、名前の中の 16 進の 6 字を受付と取り違えない（2026-10-19 の 4 つの受付箱で、
             # 拾えたのは古い行の 21 件だけで、フィールドの行は 0 件。受付 0715c5）
             got = q.get("ask") or (None if field else _short(tasks, q.get("holder") or ""))
-            entry = {"holder": q.get("holder"), "ask": got if got in tasks else None}
+            entry = {"holder": q.get("holder"), "ask": got if got in tasks or got in rems else None}
             t["questions"].append(entry)
-            if entry["ask"] and entry["ask"] != t["id"] and entry["ask"] not in t["follows"]:
-                t["follows"].append(entry["ask"])
+            ties = t["reminders"] if got in rems else t["follows"]
+            if entry["ask"] and entry["ask"] != t["id"] and entry["ask"] not in ties:
+                ties.append(entry["ask"])
     for t in tasks.values():
         if t["state"] == "forwarded":
             t["state"] = "done"
@@ -259,17 +264,17 @@ def build(rows, title_of=None, questions_of=None):
         t.pop("_row", None)
     memo = {}
     for i in tasks:
-        _open(tasks, i, memo, set())
+        _open(tasks, i, memo, set(), rems)
     for i, t in tasks.items():
         t["open"] = memo[i]
         t["label"], t["progress"] = STATES[t["state"]]
     roots = [i for i, t in tasks.items() if not t["parent"]]
-    return {"schema": SCHEMA, "tasks": tasks, "roots": roots}
+    return {"schema": SCHEMA, "tasks": tasks, "roots": roots, "reminders": rems}
 
 
 def _task(i, row, sender, to):
     return {"id": i, "title": row.get("title"), "state": None, "created": row.get("at"), "updated": row.get("at"), "parent": None,
-            "parent_by": None, "children": [], "follows": [], "questions": [], "notes": 0, "from": sender,
+            "parent_by": None, "children": [], "follows": [], "reminders": [], "questions": [], "notes": 0, "from": sender,
             "to": {"company": to.get("company"), "name": to.get("name")}, "file": row.get("file"), "why": None, "closed": None,
             "_row": row}
 
@@ -292,18 +297,23 @@ def _below(tasks, top, i):
     return False
 
 
-def _open(tasks, i, memo, visiting):
+def _open(tasks, i, memo, visiting, rems):
     if i in memo:
         return memo[i]
-    if i in visiting:   # 続きが輪になっている: 輪の中の物は自分の状態だけで見る
-        return tasks[i]["state"] not in FINAL + ("failed",)
-    visiting.add(i)
     t = tasks[i]
-    own = t["state"] not in FINAL + ("failed",)
-    below = [_open(tasks, c, memo, visiting) for c in t["children"] + t["follows"]]
+    own = t["state"] not in FINAL + ("failed",) or held({"reminders": rems}, t)
+    if i in visiting:   # 続きが輪になっている: 輪の中の物は自分の状態（と続きのリマインダー）だけで見る
+        return own
+    visiting.add(i)
+    below = [_open(tasks, c, memo, visiting, rems) for c in t["children"] + t["follows"]]
     memo[i] = own or any(below)
     visiting.discard(i)
     return memo[i]
+
+
+def held(view, t):
+    """頼み t の納品の残った疑問の担当者に、閉じていないリマインダーが在るか（在れば、t は済んでいても開いている物と見る）。"""
+    return any(not view["reminders"][r]["closed"] for r in t["reminders"])
 
 
 def forwarded_open(view, i):
@@ -328,7 +338,7 @@ def forwarded_open(view, i):
 
 def awaited(view, i):
     """i の答えがまだ出ていないか。i から、回した先（forwarded の線）と、納品の残った疑問の担当者の頼み（続き）だけを先へたどり、
-    自分がまだ終わっていない頼みの受付の並びを返す（無ければ空。i を知らなければ空）。子の頼み（cause）はたどらない。受けた部署が
+    自分がまだ終わっていない頼みと、担当者に書かれた閉じていないリマインダーの受付の並びを返す（無ければ空。i を知らなければ空）。子の頼み（cause）はたどらない。受けた部署が
     頼みの途中で出した別の仕事で、i の答えを待つ物ではない（開いているか〔open〕は子もたどるので、持ち主への中継のように頼みを受けたまま
     別の頼みを出し続ける部署の先では、いつまでも閉じない。2026-10-19 の my_notes の受付 22e6bf）。"""
     tasks = view["tasks"]
@@ -342,20 +352,23 @@ def awaited(view, i):
         if t["state"] not in FINAL + ("failed",):
             out.append(j)
             continue
+        out += [r for r in t["reminders"] if not view["reminders"][r]["closed"] and r not in out]
         stack += [c for c in reversed(t["children"]) if tasks[c]["parent_by"] == "forwarded"] + list(reversed(t["follows"]))
     return out
 
 
 def select(view, top=None, everything=False):
-    """見せる頼みの木 [{"task", "kids", "follows"}]。top を渡せばその頼みから下だけ。everything でなければ、開いているブランチだけ。"""
-    tasks = view["tasks"]
+    """見せる頼みの木 [{"task", "kids", "follows", "reminders"}]。top を渡せばその頼みから下だけ。everything でなければ、開いているブランチと
+    閉じていないリマインダーの続きだけ。reminders は続きのリマインダー（remind.project の物）の並び。"""
+    tasks, rems = view["tasks"], view["reminders"]
     keep = (lambda i: True) if everything else (lambda i: tasks[i]["open"])
     def node(i, seen):
         seen = seen | {i}
         t = tasks[i]
         kids = [node(c, seen) for c in sorted(t["children"], key=lambda c: tasks[c]["created"] or 0) if keep(c) and c not in seen]
         follows = [f for f in t["follows"] if keep(f) and f not in seen]
-        return {"task": t, "kids": kids, "follows": follows}
+        return {"task": t, "kids": kids, "follows": follows,
+                "reminders": [rems[r] for r in t["reminders"] if everything or not rems[r]["closed"]]}
     if top is not None:
         return [node(top, set())] if top in tasks else []
     roots = [i for i in view["roots"] if keep(i)]
@@ -394,7 +407,7 @@ def flat(view, ids, states):
     """絞り込みの見せ方: ids のうち状態が states に入る頼みを、木にせず、更新の古い順（動きの無い間の長い順）に並べた forest。"""
     tasks = view["tasks"]
     keep = [i for i in ids if tasks[i]["state"] in states]
-    return [{"task": tasks[i], "kids": [], "follows": []} for i in sorted(keep, key=lambda i: tasks[i]["updated"] or 0)]
+    return [{"task": tasks[i], "kids": [], "follows": [], "reminders": []} for i in sorted(keep, key=lambda i: tasks[i]["updated"] or 0)]
 
 
 def tally(view, ids, now):
@@ -443,6 +456,8 @@ def lines(forest, when=None, now=None):
             out.append(f"{'  ' * (depth + 1)}答え待ちの訳: {t['why']}")
         for f in n["follows"]:
             out.append(f"{'  ' * (depth + 1)}→ 続き: {f}")
+        for r in n["reminders"]:
+            out.append(f"{'  ' * (depth + 1)}→ 続き（リマインダー{'、閉じた' if r['closed'] else ''}）: {r['id']}  {r['text'][:60]}")
         for k in n["kids"]:
             walk(k, depth + 1)
     for n in forest:
@@ -516,6 +531,9 @@ def page(forest, view, made, when=None, everything=False, counted=None, flat=Fal
             extra += f'<div class="why">答え待ちの訳: {html.escape(t["why"])}</div>'
         for f in n["follows"]:
             extra += f'<div class="follow">→ 続き: <a href="#t-{f}">{title(tasks[f])}</a></div>'
+        for r in n["reminders"]:
+            extra += (f'<div class="follow">→ 続き（リマインダー{"、閉じた" if r["closed"] else ""}）: {html.escape(r["text"][:60])}'
+                      f' ・ {r["id"][-6:]}</div>')
         live = t["state"] not in FINAL + ("failed",) if flat else t["open"]
         cls = f'task s-{t["state"]} {"open" if live else "closed"}'
         if n["kids"]:
@@ -531,6 +549,6 @@ def page(forest, view, made, when=None, everything=False, counted=None, flat=Fal
     for n in forest:
         walk(n)
     return PAGE % {"hide": "" if everything else "hide", "checked": " checked" if everything else "",
-                   "open": sum(1 for t in shown if t["state"] not in FINAL + ("failed",)), "all": len(shown),
+                   "open": sum(1 for t in shown if t["state"] not in FINAL + ("failed",) or held(view, t)), "all": len(shown),
                    "when": html.escape(made),
                    "tally": f'<div class="bar">{"絞り込む前の範囲の" if flat else ""}{html.escape(tally_line(counted))}</div>\n' if counted else "", "body": "\n".join(item(n) for n in forest)}

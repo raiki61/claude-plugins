@@ -43,7 +43,7 @@ try:
     import ghx  # noqa: E402
     import gitx  # noqa: E402
     import todo  # noqa: E402
-    from nodes import deliver, land, launch, ledger, provision, role, sync, tools, tree, wake  # noqa: E402
+    from nodes import deliver, land, launch, ledger, provision, remind, role, sync, tools, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
     # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
@@ -1557,7 +1557,7 @@ def handed_open(common, attrs, cwd, g=gitx):
         return []
     _, rows = todo.inboxes_from(starts, g.common_dir)
     got = mine(rows)
-    view = ledger.build(rows, questions_of=todo.questions)
+    view = ledger.build(rows, questions_of=todo.questions, reminders=remind.project(rows))
     return [i for i in dict.fromkeys(got) if ledger.awaited(view, i)]
 
 
@@ -1731,13 +1731,16 @@ def for_attrs(attrs, record):
 
 
 def ledger_asks(attrs, ports, cwd):
-    """台帳の、届いた頼みの受付の集まり（納品の残った疑問の担当者を確かめる）。打った場所の会社と頼み元の受付箱から、--todo と同じく
-    行が指すほかの会社の受付箱へたどる（ほかの会社に回した頼みも担当者に書ける）。届かなかった頼み（failed）は --todo が閉じた物と
-    見て追わないので入れない。"""
+    """台帳の、届いた頼みと閉じていないリマインダーの受付の集まり（納品の残った疑問の担当者を確かめる）。打った場所の会社と頼み元の
+    受付箱から、--todo と同じく行が指すほかの会社の受付箱へたどる（ほかの会社に回した頼みも担当者に書ける）。届かなかった頼み（failed）は
+    --todo が閉じた物と見て追わないので入れない。リマインダーは、後でしか起きない事を追う疑問の担当者に書け、閉じるまで --todo が
+    続きとして追う。閉じたリマインダーは追う物が無いので入れない（my_notes の受付 20261020-195701-cbef3b）。"""
     common = ports.git.common_dir(cwd)
     starts = ([deliver.inbox_of(common)] if common else []) + ([attrs["boss-inbox"]] if attrs.get("boss-inbox") else [])
-    tasks = ledger.build(todo.inboxes_from(starts, ports.git.common_dir)[1])["tasks"]
-    return {i for i, t in tasks.items() if t["state"] != "failed"}
+    rows = todo.inboxes_from(starts, ports.git.common_dir)[1]
+    view = ledger.build(rows, reminders=remind.project(rows))
+    return ({i for i, t in view["tasks"].items() if t["state"] != "failed"}
+            | {i for i, r in view["reminders"].items() if not r["closed"]})
 
 
 def deliver_summary(a, ports, cwd):

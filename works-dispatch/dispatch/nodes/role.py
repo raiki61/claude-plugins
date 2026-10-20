@@ -28,8 +28,8 @@
 - deliver_check: その役の納品の検査のコマンド（シェルの字）。--deliver が項目を確かめた後に部署の作業場のルートで走らせ、0 以外で終われば
   送らない（何を確かめるかは会社の側のスクリプトが持つ。渡す物と終わりの値は deliver ノードの gate）。省けば検査しない
 - holders: 納品の頭書きの [[open]]（残った疑問）の 1 件ごとの holder（担当者）を --deliver が確かめる（true か、持ち主の側と
-  みなす名前の並び〔例 ["社長室"]。持ち主への中継の会話。空の並びは true と同じ〕）。holder に書けるのは、受付番号・owner:choose・
-  owner:confirm・頼み元の名前（並びの名前を除く）だけ（部署の名前は --todo が追えない）。残った疑問の外の項目の「要確認」も止める。
+  みなす名前の並び〔例 ["社長室"]。持ち主への中継の会話。空の並びは true と同じ〕）。holder に書けるのは、受付番号（頼みか、閉じていないリマインダー）・
+  owner:choose・owner:confirm・頼み元の名前（並びの名前を除く）だけ（部署の名前は --todo が追えない）。残った疑問の外の項目の「要確認」も止める。
   欠けていれば送らない（deliver ノードの holder_problems。my_notes の tools/deliver_check.py から移した）。
 - ask_check: この役へ宛てた --ask のゲートのコマンド（シェルの字）。頼む会話がどの会社に居ても、--ask が受ける会社の origin の既定のブランチの
   中身（一時の worktree）で走らせ、JSON（to・role・body・ask・type〔頼みの頭書きの type。省けば task〕・from・version〔works-dispatch の版〕）を標準入力に渡す。0 以外で終われば頼まない。止める中身は受ける会社の側のスクリプトが持つ。

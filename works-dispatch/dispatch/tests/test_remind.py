@@ -51,6 +51,25 @@ class Node(unittest.TestCase):
         for kind in (remind.REMIND, remind.REMINDED, remind.REMIND_DONE):
             self.assertIn(kind, ledger.KINDS)
 
+    def test_a_reminder_held_in_a_delivery_keeps_the_ask_open_until_it_closes(self):
+        # 後でしか起きない事を追う疑問の担当者に、立てたリマインダーを書く（my_notes の受付 20261020-195701-cbef3b）
+        r = "20261020-194429-5a8f86"
+        rows = [ask(A, 1), {"id": r, "kind": "remind", "at": 2, "text": "測りを頼み直す", "holder": "co/段取り", "on": 9e9, "after": []},
+                {"id": "f1", "kind": "deliver", "ask": A, "at": 3, "status": "sent", "holders": [{"holder": r, "ask": r}]}]
+        view = ledger.build(rows, reminders=remind.project(rows))
+        t = view["tasks"][A]
+        self.assertEqual((t["state"], t["follows"], t["reminders"], t["open"]), ("done", [], [r], True))
+        self.assertEqual(list(view["tasks"]), [A])   # 頼みの木には入れない
+        self.assertEqual(ledger.awaited(view, A), [r])
+        (node,) = ledger.select(view)
+        self.assertEqual([x["id"] for x in node["reminders"]], [r])
+        self.assertIn(f"→ 続き（リマインダー）: {r}  測りを頼み直す", "\n".join(ledger.lines([node])))
+        self.assertIn("測りを頼み直す", ledger.page(ledger.select(view, everything=True), view, "now"))
+        rows.append({"id": r, "kind": "remind-done", "at": 4})
+        view = ledger.build(rows, reminders=remind.project(rows))
+        self.assertEqual((view["tasks"][A]["open"], ledger.awaited(view, A), ledger.select(view)), (False, [], []))
+        self.assertIn("リマインダー、閉じた", "\n".join(ledger.lines(ledger.select(view, everything=True))))
+
 
 class Flow(unittest.TestCase):
     def setUp(self):
@@ -145,6 +164,34 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now), [])   # 閉じた物は知らせない
         self.assertNotIn(early, listed(False, False))
+
+    def test_todo_finds_a_reminder_by_its_id_and_a_delivery_may_hold_it_until_it_closes(self):
+        self.call(reminds.put, remind="測りを頼み直す", on="2099-01-01")
+        (r,) = [x["id"] for x in self.rows()]
+        deliver.log(str(self.inbox), ask(A, 1))
+        deliver.log(str(self.inbox), {"id": "f1", "kind": "deliver", "ask": A, "at": 5, "status": "sent",
+                                      "holders": [{"holder": r, "ask": r}]})
+
+        def shown(i, as_json=False, page=None):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = todo.todo(argparse.Namespace(todo=i, all=False, json=as_json, html=page), self.ports, str(self.root))
+            return rc, buf.getvalue()
+
+        rc, out = shown(r[-6:])
+        self.assertEqual(rc, 0, out)   # 前は「台帳に無い」で止めた
+        self.assertIn(f"[待ち] 測りを頼み直す  {r}", out)
+        self.assertIn(A, out)   # 担当者に書いた納品の頼み
+        got = json.loads(shown(r, True)[1])
+        self.assertEqual(schemacheck.check(got, schemacheck.schema("todo")), [])
+        self.assertEqual(([x["id"] for x in got["reminders"]], got["held_by"]), ([r], [A]))
+        self.assertIn(r, orders.ledger_asks(self.attrs, self.ports, str(self.root)))   # 納品の担当者に書ける
+        self.assertEqual(self.call(reminds.close, remind_done=r)[0], 0)
+        self.assertNotIn(r, orders.ledger_asks(self.attrs, self.ports, str(self.root)))   # 閉じた物は今までどおり止める
+        self.assertEqual(shown("ffffff")[0], 2)
+        rc, out = shown(r, page=str(self.root / "p.html"))
+        self.assertEqual(rc, 2, out)   # ページは頼みの木だけ。黙って標準出力に出さない
+        self.assertIn("リマインダーで", out)
 
 if __name__ == "__main__":
     unittest.main()

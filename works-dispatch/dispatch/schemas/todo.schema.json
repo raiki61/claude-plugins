@@ -23,6 +23,7 @@
         }
       }
     },
+    "held_by": {"type": "array", "items": {"type": "string"}},
     "summary": {
       "type": "object",
       "required": ["counts", "total", "done_ratio", "oldest_open", "filter"],
@@ -56,14 +57,16 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["task", "kids", "follows"],
+        "required": ["task", "kids", "follows", "reminders"],
         "properties": {
           "kids": {"type": "array"},
           "follows": {"type": "array", "items": {"type": "string"}},
+          "reminders": {"type": "array", "items": {"type": "object",
+                                                   "required": ["id", "text", "holder", "on", "after", "created", "reminded", "closed"]}},
           "task": {
             "type": "object",
             "required": ["id", "title", "state", "label", "progress", "open", "created", "updated", "parent", "parent_by",
-                         "children", "follows", "questions", "notes", "from", "to", "file", "why"],
+                         "children", "follows", "reminders", "questions", "notes", "from", "to", "file", "why"],
             "properties": {
               "id": {"type": "string"},
               "title": {"type": ["string", "null"]},
@@ -78,6 +81,7 @@
               "parent_by": {"type": ["string", "null"], "enum": ["forwarded", "cause", "inferred", null]},
               "children": {"type": "array", "items": {"type": "string"}},
               "follows": {"type": "array", "items": {"type": "string"}},
+              "reminders": {"type": "array", "items": {"type": "string"}},
               "questions": {
                 "type": "array",
                 "items": {"type": "object", "required": ["holder", "ask"],

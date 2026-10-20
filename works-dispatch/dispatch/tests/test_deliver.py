@@ -164,7 +164,7 @@ class Holders(unittest.TestCase):
         qs = [{"question": "回した", "holder": "20261018-224301-4e6a26"}, {"question": "待たずに書いた", "holder": "20261018-224226-c5ec66"},
               {"question": "選ぶ", "holder": "owner:choose"}]
         self.assertEqual(deliver.unknown_asks(qs, {"20261018-224301-4e6a26"}),
-                         ["担当者の受付 20261018-224226-c5ec66 は、たどった受付箱の台帳のどれにも無いか、届かなかった頼み（--ask の出力の受付番号を写す）: 待たずに書いた"])
+                         ["担当者の受付 20261018-224226-c5ec66 は、たどった受付箱の台帳のどれにも無いか、届かなかった頼みか、閉じたリマインダー（--ask か --remind の出力の受付番号を写す）: 待たずに書いた"])
 
     def test_the_front_matter_is_toml_between_plus_lines_and_unknown_fields_stop(self):
         data, body, bad = deliver.front('+++\ntitle = "題"\n[[open]]\nquestion = "q"\nholder = "owner:choose"\n+++\n\n## 結論\nx\n')

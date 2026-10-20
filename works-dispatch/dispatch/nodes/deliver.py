@@ -380,7 +380,7 @@ def ask_type_of(data):
 
 def holder_problems(questions, relays=(), requester=None):
     """残った疑問（頭書きの open の並び）の 1 件ごとの担当者の違反の並び（役の holders・ask_holders の検査。my_notes の
-    tools/deliver_check.py から移した）。担当者に書けるのは、受付番号（--ask で回した頼み。--todo が追う）・owner:choose・owner:confirm
+    tools/deliver_check.py から移した）。担当者に書けるのは、受付番号（--ask で回した頼みか、--remind で立てたリマインダー。--todo が追う）・owner:choose・owner:confirm
     （持ち主に向ける物）・requester（頼み元が自分で持つ物）の 4 つで、relays（持ち主への中継の会話）は書けない。部署の名前は、閉じる
     出来事が台帳に無く --todo が追えないので書けない（--ask で回して受付番号を書く。受付 b6778d）。"""
     out = []
@@ -396,14 +396,15 @@ def holder_problems(questions, relays=(), requester=None):
 
 
 def unknown_asks(questions, known):
-    """残った疑問の担当者のうち、受付番号の形なのに known（台帳の、届いた頼みの受付）に無い物の違反の並び（役の holders の検査で、
-    holder_problems の後に見る）。台帳に無い頼みと届かなかった頼みは --todo が追えない（--ask の出力を待たずに番号を書いた納品が送られた。
-    my_notes の受付 20261019-022419-b50f85）。"""
+    """残った疑問の担当者のうち、受付番号の形なのに known（台帳の、届いた頼みと閉じていないリマインダーの受付）に無い物の違反の並び
+    （役の holders の検査で、holder_problems の後に見る）。台帳に無い頼み・届かなかった頼み・閉じたリマインダーは --todo が追えない
+    （--ask の出力を待たずに番号を書いた納品が送られた。my_notes の受付 20261019-022419-b50f85）。"""
     out = []
     for q in questions or []:
         holder = (q.get("holder") or "").strip()
         if ASK_ID.fullmatch(holder) and holder not in known:
-            out.append(f"担当者の受付 {holder} は、たどった受付箱の台帳のどれにも無いか、届かなかった頼み（--ask の出力の受付番号を写す）: {_head(q)}")
+            out.append(f"担当者の受付 {holder} は、たどった受付箱の台帳のどれにも無いか、届かなかった頼みか、閉じたリマインダー"
+                       f"（--ask か --remind の出力の受付番号を写す）: {_head(q)}")
     return out
 
 
@@ -415,7 +416,7 @@ def _head(q):
 OPEN_IN_BODY = "「残った疑問」を本文の見出しで書いた。頭書きの [[open]] に 1 件ずつ書く（疑問が無ければ open = []）"
 _OPEN_EXAMPLE = ('[[open]]\n'
                  'question = "…を決める"\n'
-                 'holder = "20261018-120448-b6778d"   # 受付番号（--ask で回した頼み）・owner:choose・owner:confirm・頼み元の名前のどれか\n')
+                 'holder = "20261018-120448-b6778d"   # 受付番号（--ask で回した頼みか --remind のリマインダー）・owner:choose・owner:confirm・頼み元の名前のどれか\n')
 ASK_FORMAT = ("- 頼みの本文の書き方（1 行目と閉じの行が +++ の TOML の頭書きに機械が読むフィールド、その下に本文）:\n"
               "+++\ntitle = \"一覧に出す題（1 行）\"\n"
               + f"type = \"{ASK_TYPE}\"   # 頼みの種類: " + "・".join(f"{k}（{v}）" for k, v in ASK_TYPES.items())
