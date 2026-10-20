@@ -45,6 +45,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
         python3 dispatch.py --done（エフェメラルの部署の場所から。納品してメインブランチに入れ終えたので、ターンの終わりに会話を止めて部屋を片付けてよいと印す）
         python3 dispatch.py --retire <部署>（エフェメラルの部署の会話を止めてから、--clean と同じ決まりで片付ける）
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
+        python3 dispatch.py [--repo 代表の clone] --queue-run -- <コマンド> [<引数> ...]（外のツールが --land と同じ列に並んで走る。queuerun.py）
         python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--persistent | --ephemeral] [--boss <頼み元> [--boss-account <名>]] [--dry-run]
         python3 dispatch.py --desk [<名前>] [--role <役>] [--dry-run]
         python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> | --init-company [--local] [--repo <代表の clone>]
@@ -81,6 +82,7 @@ import jsonio  # noqa: E402
 import calls  # noqa: E402
 import landing  # noqa: E402
 import landorder  # noqa: E402
+import queuerun  # noqa: E402
 import move  # noqa: E402
 import retire  # noqa: E402
 import reorg  # noqa: E402
@@ -171,7 +173,17 @@ def _issue_item(repo, number, ports, notes):
     return {"number": number, "kind": "issue", "title": info["title"], "head": head, "url": info.get("url")}
 
 
+def _split_queue_run(argv):
+    """--queue-run の後ろ（-- から先）は走らせるコマンドなので、argparse に渡す前に切り出す。(dispatch の引数, コマンドか None)。"""
+    if "--queue-run" not in argv:
+        return argv, None
+    i = argv.index("--queue-run")
+    rest = argv[i + 1:]
+    return argv[:i + 1], rest[1:] if rest[:1] == ["--"] else []
+
+
 def main(argv=None, ports=None):
+    argv, command = _split_queue_run(sys.argv[1:] if argv is None else list(argv))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
     ap.add_argument("--repo")
@@ -268,6 +280,10 @@ def main(argv=None, ports=None):
     ap.add_argument("--land-order", nargs="*", metavar="部署",
                     help="メインブランチへ入れる列（会社の形の [land] の queue）を出す。部署の名前かブランチを並べれば、その順に先に入れる"
                          "（判断役が決める。- だけなら指定を消して申し出た順に戻す。決め手は docs/land.md の「入れる順を決める」）")
+    ap.add_argument("--queue-run", action="store_true",
+                    help="-- の後ろのコマンドを、メインブランチへ入れる列（会社の形の [land] の queue）の先頭を取ってから走らせ、"
+                         "終わったら次に渡す（works-dispatch の外のツールが --land と同じ列に並ぶ口。ほかの引数は --queue-run の前に書く。"
+                         "終了の値はコマンドの物で、列に入れなければ 125。docs/land.md の「外のツールが列に並ぶ」）")
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署がメインブランチを知った後にほかの部署が入れた行を、このブランチが消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
@@ -376,7 +392,7 @@ def main(argv=None, ports=None):
     # 部署の回（--task・--land）は、[[repos]] が無くても、代表の clone の場所から会社を決める（_department_repo）
     # --check は、[[repos]] が無ければ部署の回の前提だけを確かめる（_check）
     # --clean も部署の回と同じに決める（設定が無くても、--repo のパスか今いる場所の代表の clone の部署を片付ける）
-    department = a.task is not None or a.land is not None or a.land_order is not None or a.clean
+    department = a.task is not None or a.land is not None or a.land_order is not None or a.queue_run or a.clean
     try:
         cfg = config.load(a.config, os.environ, missing_ok=department or a.check)
         clone = _clone_of(cfg, a.repo, ports) if a.check and cfg.repos else None
@@ -396,6 +412,12 @@ def main(argv=None, ports=None):
     if a.task is None and task_args:
         print(f"止めた: {', '.join(task_args)} は --task と一緒にだけ使う")
         return 2
+    if a.queue_run:
+        if a.land is not None or a.land_order is not None or a.task is not None or a.pr or a.issue is not None or a.clean or a.check \
+                or a.dry_run:
+            print("止めた: --queue-run はほかの入口（--land・--land-order・--task・--pr・--issue・--clean・--check）と --dry-run と一緒に使えない")
+            return 2
+        return queuerun.main(repo, command, ports, a.config)
     if a.land_order is not None:
         if a.land is not None or a.task is not None or a.pr or a.issue is not None or a.clean or a.check:
             print("止めた: --land-order はほかの入口（--land・--task・--pr・--issue・--clean・--check）と一緒に使えない")

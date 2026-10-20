@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import time
 
 import config
@@ -27,10 +28,17 @@ from nodes import clean, deliver, role, tools, tree, wake
 CALLED = 3   # 片づかず AI に回した --call の終了の値
 
 
+def tool_env():
+    """ツールに渡す環境。ツールが works-dispatch を打ち返せるよう（--queue-run で --land と同じ列に並ぶなど）、今走っている dispatch.py の
+    パスを WORKS_DISPATCH に、それを走らせている Python を WORKS_DISPATCH_PYTHON に入れる。"""
+    return {**deliver.child_env(), "WORKS_DISPATCH": str(pathlib.Path(__file__).resolve().with_name("dispatch.py")),
+            "WORKS_DISPATCH_PYTHON": sys.executable}
+
+
 def run_tool(command, cwd, value):
     """ツールを cwd で走らせる（シェルの字）。入力の JSON を標準入力に渡す。(終了の値, 標準出力, 標準出力と標準エラー)。"""
     p = subprocess.run(command, shell=True, cwd=cwd, input=json.dumps(value, ensure_ascii=False), capture_output=True,
-                       text=True, encoding="utf-8", errors="replace", env=deliver.child_env())
+                       text=True, encoding="utf-8", errors="replace", env=tool_env())
     return p.returncode, p.stdout or "", (p.stdout or "") + (p.stderr or "")
 
 

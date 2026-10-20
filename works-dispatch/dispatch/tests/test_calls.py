@@ -97,6 +97,15 @@ class Fields(unittest.TestCase):
         self.assertIn("land.after[1] は role・tool", got["problems"][0])
 
 
+class ToolEnv(unittest.TestCase):
+    def test_tools_get_the_running_dispatch_to_call_back(self):
+        env = calls.tool_env()
+        self.assertTrue(os.path.isfile(env["WORKS_DISPATCH"]), env["WORKS_DISPATCH"])   # ツールが --queue-run で列に並べる
+        self.assertEqual(os.path.basename(env["WORKS_DISPATCH"]), "dispatch.py")
+        self.assertEqual(env["WORKS_DISPATCH_PYTHON"], sys.executable)
+        self.assertEqual(env["PYTHONIOENCODING"], "utf-8")
+
+
 class CompanyRoot(unittest.TestCase):
     def test_two_clones_with_the_same_company_name_stop_unless_one_has_departments(self):
         from unittest import mock

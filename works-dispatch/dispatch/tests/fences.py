@@ -24,9 +24,11 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 # limit_hook.py は上限で止まった会話から切り離して --move を起動する（会話の子として待たない）
 # wake_hook.py は終わりと印した（--done）部署の会話から切り離して --retire を起動する（同じく、会話を止めるので子として待たない）
 # limits_entry.py は herdr のタブバーが呼ぶ版に依らない入口で、今入っている版の limits.py を起動する（limits_dir に写して動くので、ほかを import しない）
+# queuerun.py は入口 dispatch.py の --queue-run の流れを分けた物で、メインブランチへ入れる列の先頭を取ってから外のツールのコマンドを回す
 # wiring.py は入口の口の束（Ports）を組み立てる所で、始める前の確かめが作業場のシェルを起動して読む
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py",
-                 "calls.py", "installed.py", "orders.py", "limit_hook.py", "wake_hook.py", "limits_entry.py", "wiring.py"}
+                 "calls.py", "installed.py", "orders.py", "limit_hook.py", "wake_hook.py", "limits_entry.py", "wiring.py",
+                 "queuerun.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照合しない。subprocess.run は herdr の run ではないので数えない
 WRITES = {
@@ -117,7 +119,7 @@ def d2_no_sh(root):
 
 
 # D3: ノードが流れを知らないよう、ノードから読んではいけない物。ほかのノードと、流れを持つ側（入口・入口から分けた流れ・フック）
-UPWARD = {"dispatch", "orders", "landing", "calls", "move", "reorg", "retire", "starts", "installed"}
+UPWARD = {"dispatch", "orders", "landing", "calls", "move", "reorg", "retire", "starts", "installed", "queuerun"}
 # D3 を破っていると分かっていて、まだ直していない読み（ノード, 読む物）。増やさない。直したら消す（消し忘れはチェックが誤りにする）
 # - refresh・tree・sync が読むのは、役の名前と並べ方（role）・属性の名前（wake.REST）・起動方法のフィールド
 #   （start.parse）で、どれも流れではなく共有の読み取り。ノードの外の共有の置き場に出すまで外す

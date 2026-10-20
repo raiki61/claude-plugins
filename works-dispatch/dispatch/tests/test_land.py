@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -26,6 +27,7 @@ import gitx
 import herdr as real_herdr
 import landing
 import landorder
+import queuerun
 from config import Repo
 from nodes import bump, land, landqueue
 
@@ -1388,3 +1390,131 @@ class Queue(LandCase):
             self.assertTrue(land.read_rules("c.toml", None, QUEUE_RULES.replace('"land-queue"', bad))["problems"], bad)
         on_role = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\n[land.roles.worker]\nqueue = "q"\n'
         self.assertTrue(land.read_rules("c.toml", "worker", on_role)["problems"])
+
+
+class QueueRun(LandCase):
+    """外のツールが --queue-run（queuerun.py）で --land と同じ列に並ぶ。"""
+
+    def setUp(self):
+        super().setUp()
+        poll = mock.patch.object(landqueue, "POLL", 0.01)
+        poll.start()
+        self.addCleanup(poll.stop)
+        self.w = FakeWorld(self.tmp, {".claude/company.toml": QUEUE_RULES})
+        self.w.work()
+        self.repo = Repo("o/r", "", self.w.source, (), None, None)
+        self.queue = os.path.join(self.tmp, "src", ".git", "land-queue")
+
+    def race(self, first):
+        """first（"land" か "queue-run"）を先に申し出させて止めている間に、もう片方を申し出させ、起きた事の並びを返す。"""
+        events, lock, hold = [], threading.Lock(), threading.Event()
+        real_refresh, real_advance = land.refresh, land.advance
+
+        def note(what):
+            with lock:
+                events.append((threading.current_thread().name, what))
+
+        def refresh(source, main, g):
+            note("refresh")
+            return real_refresh(source, main, g)
+
+        def advance(path, main, sha, g):
+            real_advance(path, main, sha, g)
+            note("push")
+
+        def checker(command, cwd):
+            note("gate")
+            if first == "land":
+                hold.wait()
+            return 0, ""
+
+        def command(argv):
+            note("start")
+            if first == "queue-run":
+                hold.wait()
+            note("end")
+            return 0
+        codes = {}
+
+        def run_land():
+            codes["land"] = landing.main(None, self.repo, "a", FakePorts(self.w), no_rows, {"running": "-", "persistent": "-"},
+                                         self.config, pause=lambda: None, checker=checker)
+
+        def run_queue():
+            codes["queue-run"] = queuerun.main(self.repo, ["collect"], FakePorts(self.w), self.config, run=command)
+        threads = {"land": threading.Thread(target=run_land, name="land"),
+                   "queue-run": threading.Thread(target=run_queue, name="queue-run")}
+        second = "queue-run" if first == "land" else "land"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                mock.patch.object(land, "refresh", refresh), mock.patch.object(land, "advance", advance):
+            threads[first].start()
+            while (first, "gate" if first == "land" else "start") not in events:   # 先のほうが列の先頭を持つまで
+                time.sleep(0.01)
+            threads[second].start()
+            time.sleep(0.5)   # 後のほうに、列が無ければ進んでしまうだけの間を与える
+            hold.set()
+            for t in threads.values():
+                t.join()
+        self.assertEqual(codes, {"land": 0, "queue-run": 0}, out.getvalue() + err.getvalue())
+        self.assertEqual(os.listdir(self.queue), ["lock"])   # 札は残らない
+        return events, err.getvalue()
+
+    def test_a_land_waits_until_the_command_run_through_the_queue_ends(self):
+        events, err = self.race("queue-run")
+        self.assertLess(events.index(("queue-run", "end")), events.index(("land", "refresh")), events)
+
+    def test_a_command_run_through_the_queue_waits_until_the_earlier_land_pushes(self):
+        events, err = self.race("land")
+        self.assertLess(events.index(("land", "push")), events.index(("queue-run", "start")), events)
+        self.assertIn("メインブランチへ入れる列", err)   # 待つ間の行は標準エラーに出す（標準出力はコマンドの物）
+
+    @unittest.skipIf(os.name == "nt", "札のロックを子の処理から flock で確かめる")
+    def test_dispatch_runs_the_command_holding_the_queue_and_returns_its_code(self):
+        probe = ("import fcntl, sys\nf = open(sys.argv[1], 'a+b')\ntry:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+                 "except OSError:\n    sys.exit(3)\nsys.exit(10)\n")   # 列の lock が掛かっていれば 3、掛かっていなければ 10
+        argv = ["--repo", self.w.source, "--queue-run", "--", sys.executable, "-c", probe, os.path.join(self.queue, "lock")]
+        ports = FakePorts(self.w)
+        ports.cwd = lambda: self.w.source
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                mock.patch.object(dispatch.config, "load", lambda *a, **k: None), \
+                mock.patch.object(dispatch, "_department_repo", lambda cfg, r, ports, cwd: self.repo):
+            self.assertEqual(dispatch.main(argv, ports=ports), 3)
+        self.assertEqual(os.listdir(self.queue), ["lock"])
+
+    def test_codes_when_the_command_does_not_run_or_dies(self):
+        def run(code=None, error=None):
+            def fake(argv):
+                if error:
+                    raise error
+                return code
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                got = queuerun.main(self.repo, ["tool"], FakePorts(self.w), self.config, run=fake)
+            return got, err.getvalue()
+        self.assertEqual(run(-9)[0], 137)                                         # シグナルで落ちたら 128 + 番号
+        self.assertEqual(run(error=FileNotFoundError(2, "no such file"))[0], 127)  # 見つからない
+        self.assertEqual(run(error=PermissionError(13, "denied"))[0], 126)         # 在るが起動できない
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(queuerun.main(self.repo, [], FakePorts(self.w), self.config), 2)
+        self.assertIn("-- と走らせるコマンド", err.getvalue())
+
+    def test_without_a_queue_the_command_does_not_run(self):
+        w = FakeWorld(os.path.join(self.tmp, "other"), {".claude/company.toml": CI_RULES})
+        ran, err = [], io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = queuerun.main(Repo("o/r", "", w.source, (), None, None), ["tool"], FakePorts(w), self.config, run=ran.append)
+        self.assertEqual((code, ran), (queuerun.QUEUE_FAILED, []))
+        self.assertIn("queue が無い", err.getvalue())
+
+    def test_queue_run_takes_its_command_after_the_double_dash_and_refuses_other_entries(self):
+        self.assertEqual(dispatch._split_queue_run(["--repo", "r", "--queue-run", "--", "git", "--version"]),
+                         (["--repo", "r", "--queue-run"], ["git", "--version"]))
+        self.assertEqual(dispatch._split_queue_run(["--queue-run", "git"]), (["--queue-run"], []))   # -- が無ければコマンド無し
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch.object(dispatch.config, "load", lambda *a, **k: None), \
+                mock.patch.object(dispatch, "_department_repo", lambda cfg, r, ports, cwd: "repo"):
+            self.assertEqual(dispatch.main(["--land", "a", "--queue-run", "--", "true"],
+                                           ports=type("P", (), {"cwd": lambda self: "/"})()), 2)
+        self.assertIn("--queue-run はほかの入口", out.getvalue())

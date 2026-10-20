@@ -19,10 +19,11 @@ import gitx
 from nodes import land, landqueue, tree
 
 SHOWN = 5   # 重なるファイルを名前で出す数
+NO_QUEUE = "会社の形の [land] に queue が無い"
 
 
-def _queue(repo, ports, config_path):
-    """(列の置き場, メインブランチ) か、読めなければ (None, 訳)。"""
+def place(repo, ports, config_path):
+    """(列の置き場, 会社の形に書いたメインブランチ〔無ければ None〕) か、読めなければ (None, 訳)。--queue-run（queuerun.py）も同じ置き場を使う。"""
     g = ports.git
     info = tree.read_info(repo.source, os.path.dirname(config.path_of(config_path, os.environ)),
                           committed=lambda root: tree.committed_info(root, g))
@@ -30,8 +31,8 @@ def _queue(repo, ports, config_path):
     if rules["problems"]:
         return None, "取り込みの決まりが読めない: " + " / ".join(rules["problems"])
     if not rules["queue"]:
-        return None, "会社の形の [land] に queue が無い（列が無いので、入れる順は打った順に決まる）"
-    return os.path.join(g.common_dir(repo.source), rules["queue"]), rules["main"] or ports.default_branch(repo)
+        return None, NO_QUEUE
+    return os.path.join(g.common_dir(repo.source), rules["queue"]), rules["main"]
 
 
 def write(queue, names):
@@ -98,10 +99,11 @@ def main(repo, names, ports, config_path=None):
 
 
 def _main(repo, names, ports, config_path):
-    queue, main_ = _queue(repo, ports, config_path)
+    queue, main_ = place(repo, ports, config_path)
     if queue is None:
-        print(f"止めた: {main_}")
+        print(f"止めた: {main_}" + ("（列が無いので、入れる順は打った順に決まる）" if main_ == NO_QUEUE else ""))
         return 1
+    main_ = main_ or ports.default_branch(repo)
     if names:
         write(queue, [] if names == ["-"] else names)
         print("入れる順を消した（申し出た順に戻した）" if names == ["-"] else f"入れる順を書いた: {' → '.join(names)}（書いていない札はその後に申し出た順）")
