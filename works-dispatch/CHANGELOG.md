@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.100.1] - 2026-10-20
+
 ### Fixed
 
 - 部署（`--task` が立てる、git の worktree 1 つと、そこで裏で動く Claude Code の会話 1 つの組）を立てた直後に、その会話の長い id が部署の属性（worktree の `git config --worktree` に書く値。`company.` は works-dispatch の値に付ける決まった接頭辞）`company.session` に書かれないことがあった。立てた直後は、起動した会話のフック（Claude Code の hook）も同じ設定のファイル（worktree の `config.worktree`）に書く。git config は、書く間に作るロックファイルが既に在ると、待たずに「could not lock config file」で断るので、`company.session` の書き込みが落ちていた。今は、属性を書く git config がロックで断られたら 0.1 秒おきに打ち直す（最初の 1 回を含めて 20 回まで）。
