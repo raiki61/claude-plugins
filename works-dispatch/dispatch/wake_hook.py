@@ -11,7 +11,8 @@
   会話を引き継ぐ部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）ターンの終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
   区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力フィールドの薄字
-  （Claude Code の次の文の候補）は打ちかけの字と数えない（claudex.typed）。
+  （Claude Code の次の文の候補）は打ちかけの字と数えない（claudex.typed）。待ち受けが前に打って送られずに残った /clear も打ちかけと
+  数えず、Enter で送り直す（wake.own_clear）。
   起動したばかりの裏の会話（claude --bg。SessionStart の startup）は、会話の記録のファイルができる（最初の文を受ける）まで、台帳を
   読まずに待つ（最初の文の前に Claude Code が会話の処理を殺して起動し直すと、それまでに渡した字は処理と一緒に消える。unready）。
   納品していない頼みを持つ会話の記録にその受付番号が無ければ（渡した字が届かなかった）、頼みを 1 度だけ渡し直す（unseen）。
@@ -128,7 +129,8 @@ def clear_now(got, payload, attrs, h=term, pause=lambda: time.sleep(1), marks=No
     """止まった会話を、自分の窓に /clear を打って空にする。空になった（空にした後の会話の始まりの待ち受けが印を書いた）のを見たら
     True（属性に marks を書く。省けば、納品し終えた fresh の部署の company.cleared）。裏の処理が残る・会話がまだ動いている・窓の
     入力フィールドに字が在る・自分の会話の居る窓だと確かめられない（talk_window。me はこのフックを起動した Claude Code の処理の番号を返す）・
-    herdr が受け付けない・打ったが空になったのを見られないときは False（印も書かない）。見られないまま True を返すと、この待ち受けは
+    herdr が受け付けない・打ったが空になったのを見られないときは False（印も書かない）。入力フィールドの字が、前に打って送られずに
+    残った /clear（wake.own_clear。打つ直前に属性 company.clear-typed を書く）なら、打ちかけと見ずに Enter で送り直す。見られないまま True を返すと、この待ち受けは
     終わるのに次の待ち受けが張られず、順番待ちを渡す者が居なくなる（2026-10-17 に my_notes のノートの手入れで、別の窓に /clear を
     打った後に約 70 分止まった）。why に並びを渡せば、空にしなかった訳を 1 つ足す。"""
     def no(reason):
@@ -147,7 +149,8 @@ def clear_now(got, payload, attrs, h=term, pause=lambda: time.sleep(1), marks=No
         box = chat.typed(h.read(pane, 40, ansi=True))
         if box is None:
             return no("窓の入力フィールドが見えない")
-        if box:
+        left = bool(box) and wake.own_clear(box, attrs, got["session"])   # 前に打って送られずに残った /clear は送り直す
+        if box and not left:
             return no(f"窓の入力フィールドに打ちかけの字が在る（「{box[:20]}」。薄字の候補は数えない）")
     except h.Error as e:
         return no(f"{term.NAME} を読めない（{e}）")
@@ -155,12 +158,15 @@ def clear_now(got, payload, attrs, h=term, pause=lambda: time.sleep(1), marks=No
     def cleared():   # /clear の後の会話の始まりで張った待ち受けが、新しい会話の id で印を書く
         held = wake.read_mark(got["inbox"], got["place"]) or {}
         return bool(held.get("session")) and held.get("session") != got["session"]
-    status, detail = deliver.clear_talk(pane, h, pause, cleared)
+    if not left:
+        # 打った /clear が送られずに残ったとき（打った直後に会話がまた動き出したなど）、次の試しと --move・--nudge が人の字と見分ける
+        provision.mark(got["cwd"], got["root"], {wake.CLEAR_TYPED: got["session"]}, gitx)
+    status, detail = deliver.clear_talk(pane, h, pause, cleared, left)
     if status == "failed":
         return no(f"{chat.CLEAR} を打てない（{detail}）")
     if status != "cleared":
         return no(f"{chat.CLEAR} を打ったが、会話が空になったのを見られない")   # この待ち受けが続く（次の待ち受けが張られたかが分からない）
-    provision.mark(got["cwd"], got["root"], marks or {"cleared": attrs["ask"]}, gitx)
+    provision.mark(got["cwd"], got["root"], {**(marks or {"cleared": attrs["ask"]}), wake.CLEAR_TYPED: None}, gitx)
     return True
 
 

@@ -641,6 +641,38 @@ class Move(unittest.TestCase):
         self.assertTrue(told["to"].endswith("/窓口"), told)
         self.assertIn("アカウント a2 へ移して", told["text"])
 
+    def test_a_clear_the_watcher_left_unsent_does_not_hold_the_move(self):
+        # 2026-10-20 に my_notes の調べもので、待ち受けが打って送られずに残った /clear を持ち主の打ちかけと見て、--move が起動し直さなかった。
+        # 部署は会話を止めれば字も消える。窓口は /exit をその後ろに続けて打たないよう、字を消してから打つ。人の字は今までどおり止める
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "account": "a1", "session": "s1",
+                                              wake.CLEAR_TYPED: "s0"}, gitx)
+        h = self.ports.term
+        h.screen = "─" * 20 + "\n❯ /clear [name]\n" + "─" * 20
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
+            self.assertEqual(rc, move.NOT_NOW, out)   # 前の会話で打った物は、人の字と同じに見る
+            provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s1"}, gitx)
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, [("c1", "d")])
+        self.desk_world(**{wake.CLEAR_TYPED: "s-desk"})
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")   # Ctrl+U で消えないと、/exit を続けて打たない
+        self.assertEqual(rc, move.NOT_NOW, out)
+        self.assertIn("入力フィールドに字（「/clear [name]」）が在る", out)
+        writes = [w[:3] for w in h.writes if w[1] == self.desk and w[0] in ("prompt", "send_keys")]
+        self.assertEqual(writes, [("send_keys", self.desk, "ctrl+u")])
+        keys = h.send_keys
+
+        def wipe(pane, *k):
+            keys(pane, *k)
+            if k == ("ctrl+u",):
+                h.screen = "─" * 20 + "\n❯ \n" + "─" * 20
+        h.send_keys = wipe
+        self.main(self.src, "--move", "窓口", "--account", "a2")
+        writes = [w[:3] for w in h.writes if w[1] == self.desk and w[0] in ("prompt", "send_keys")]
+        self.assertEqual(writes[1:3], [("send_keys", self.desk, "ctrl+u"), ("prompt", self.desk, deliver.EXIT)])
+
     def test_the_desk_is_exited_over_a_faint_prompt_suggestion(self):
         # 入力フィールドの薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補「消していいよ」を
         # 打ちかけと見て、区切りの起動し直しを 1 時間打たなかった

@@ -871,15 +871,19 @@ def send_confirmed(pane, line, h, pause, busy):
 CLEAR = chat.CLEAR   # 会話を空にする打ち込み（会話の口の物。前の名前を残す）
 
 
-def clear_talk(pane, h, pause, cleared):
+def clear_talk(pane, h, pause, cleared, left=False):
     """窓の会話に /clear を打ち、会話が空になった（cleared() が真。会話の一覧の id が変わった）のを見てから返す。書く口。
     (cleared・unconfirmed・failed, 訳)。入力フィールドに /clear が残っていれば Enter を 1 回足す（残ったまま頼みを打つと、頼みの頭に
-    /clear が付いて届く）。見えなくても打ち直さない（2 度打っても害は無いが、空になったかは一覧でしか分からない）。"""
+    /clear が付いて届く）。見えなくても打ち直さない（2 度打っても害は無いが、空になったかは一覧でしか分からない）。left なら、前に打って
+    入力フィールドに残った /clear（wake.own_clear）を Enter で送るだけで、打ち足さない（打ち足すと /clear/clear になる）。"""
     try:
-        h.prompt(pane, CLEAR, False)
+        if left:
+            h.send_keys(pane, "enter")
+        else:
+            h.prompt(pane, CLEAR, False)
     except h.Error as e:
         return "failed", str(e)
-    entered = False
+    entered = left
     for _ in range(CONFIRM_LOOKS):
         pause()
         if cleared():
@@ -895,6 +899,14 @@ def clear_talk(pane, h, pause, cleared):
                 pass
             entered = True
     return "unconfirmed", f"{CLEAR} を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
+
+
+def wipe_box(pane, h, pause):
+    """待ち受けが打って送られずに残った /clear（wake.own_clear）を Ctrl+U で消し、1 拍おいて読み直した入力フィールドの字を返す（空なら
+    消えた）。書く口。窓を読めなければ h.Error。"""
+    h.send_keys(pane, "ctrl+u")
+    pause()   # 画面の書き直しを待ってから読み直す
+    return chat.typed(h.read(pane, 40, ansi=True))
 
 
 def reload_talk(pane, h, pause):

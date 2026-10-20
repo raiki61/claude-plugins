@@ -249,6 +249,8 @@ def _stay(dept, pane, ports, company, token, notes, where, empty=False):
         print("\n".join(notes + [f"待つのをやめた: {where} の会話はもう動いている（{status}）"]))
         return 0
     box = chat.typed(ports.term.read(pane, 40, ansi=True))
+    if not empty and wake.own_clear(box, dept["attrs"]):
+        box = ""   # 待ち受けが打って残った /clear は、会話を止めれば一緒に消える（1 行を打つときは、その頭に付くので待ち直す）
     if box or empty and box is None:
         now = ports.now()
         print("\n".join(notes + [f"待つ: {where} の窓 {pane} の" + (f"入力フィールドに字（「{box[:20]}」）が在る（持ち主が打ちかけの字を消さない）"
@@ -494,7 +496,7 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
         # 部署の窓で持ち主と話す会話（社長室など）を、ターンの途中や打ちかけの字の上から止めない（窓口の /exit と同じ守り）。
         # 使用上限で止まった会話は、待っても動かないので移す
         try:
-            held = _held(talk, ports, "部署", "止めない")
+            held = _held(talk, ports, "部署", "止めない", attrs)
         except term.Error as e:
             return 1, f"部署の窓 {talk} を読めない（{e}）"
         if held:
@@ -567,7 +569,12 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None, hold=Non
     if pane is None:
         return 1, "窓口の会話の居るペインが分からない（属性の会話 company.session の居るペインが無い）"
     try:
-        held = _held(pane, ports, "窓口", f"{chat.EXIT} を打たない")
+        held = _held(pane, ports, "窓口", f"{chat.EXIT} を打たない", attrs)
+        box = None if held else chat.typed(ports.term.read(pane, 40, ansi=True))
+        if box and wake.own_clear(box, attrs):
+            box = deliver.wipe_box(pane, ports.term, ports.pause)   # 待ち受けが打って残った /clear の後ろに /exit を続けて打たない
+        if box:   # 読み直す間に人が打ち足したか、消えなかった
+            held = f"窓口の窓 {pane} の入力フィールドに字（「{box[:20]}」）が在るので{chat.EXIT} を打たない（持ち主が打ちかけの字を消さない）"
     except term.Error as e:
         return 1, f"窓口の窓 {pane} を読めない（{e}）"
     if held:
@@ -598,13 +605,14 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None, hold=Non
     return 1, (got["detail"] or got["status"]) + ("。前の会話を --resume で戻した" if back is None else f"。前の会話も戻せなかった（{back}）")
 
 
-def _held(pane, ports, who, act):
-    """窓の会話がターンの途中（herdr の状態が working か blocked）か、入力フィールドに人の打ちかけの字（薄字の候補は数えない）が在れば、
-    今は止めない訳。ほかは None。窓を読めなければ term.Error。"""
+def _held(pane, ports, who, act, attrs):
+    """窓の会話がターンの途中（herdr の状態が working か blocked）か、入力フィールドに人の打ちかけの字（薄字の候補と、待ち受けが打って
+    送られずに残った /clear〔wake.own_clear。attrs は部署か窓口の属性〕は数えない）が在れば、今は止めない訳。ほかは None。
+    窓を読めなければ term.Error。"""
     status = (ports.term.agent(pane) or {}).get("agent_status")
     if status in BUSY:
         return f"{who}の会話がターンの途中（{status}）なので{act}"
     box = chat.typed(ports.term.read(pane, 40, ansi=True))
-    if box:
+    if box and not wake.own_clear(box, attrs):
         return f"{who}の窓 {pane} の入力フィールドに字（「{box[:20]}」）が在るので{act}（持ち主が打ちかけの字を消さない）"
     return None

@@ -794,11 +794,14 @@ STUCK_LINE = ("順番待ちの知らせです: この部署の順番待ちが渡
               "途中なら、それを続ける。無ければ何もせずにこのターンを終える（ターンの終わりに待ち受けが張り直して、次の頼みを渡す）。")
 
 
+STALLED = "渡す待ち受けが居ない"   # stuck_why の訳のうち、ターンを終えたのに渡す待ち受けが居ない物
+
+
 def stuck_why(dest_inbox, place_dir, dept):
     """部署の順番待ちが渡らずに止まっていれば、その訳。止まっていなければ None。止まり方は 2 つ: ターンを終えたのに渡す待ち受けが居ない
     （wake.stalled）と、待ち受けは居るが渡さずに待っている（wake.held。台帳の最後の行が held）。"""
     if wake.stalled(dest_inbox, place_dir, dept["attrs"]):
-        return "渡す待ち受けが居ない"
+        return STALLED
     why = wake.held(dest_inbox, dept["path"], place_dir, dept["attrs"])
     return f"待ち受けが渡さずに待っている（{why}）" if why else None
 
@@ -842,7 +845,8 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
       毎回打つ（今の版の会話に打っても、ターンを始めず会話も消さず、読み直すだけで害は無い）。読み直しの後は、1 拍おいて手が空いて入力
       フィールドが空なのをもう一度見てから 1 行を打ち、見られなければ打たない（読み直しを待つ間に人が打ち始めた字に 1 行を足さない）。
     - 会話が動いている・入力フィールドに字が在るとき、待ち受けが渡さない訳がすぐ替わる物（PASSING）のときは打たない（ターンの終わりに待ち受けが
-      張り直すか、待ち受けが自分で抜ける。人の打ちかけの字と待ち受けの /clear を壊さない）。
+      張り直すか、待ち受けが自分で抜ける。人の打ちかけの字と待ち受けの /clear を壊さない）。入力フィールドの字が、待ち受けが打って
+      送られずに残った /clear（wake.own_clear）なら、待ち受けが居ないときは消してから打つ（居れば待ち受けが Enter で送り直す）。
     打ったか戻したかは受付箱の台帳に kind nudged で残し、動かしたら moved（並び）に True を足す。打った字で外れる印（KEPT_MARKS）は、
     1 行を打たずに終えたときも書き戻す。以前は「部署の窓に 1 文打つ」と持ち主に打たせていた（2026-10-17 の割り振り・説明書）。"""
     why = stuck_why(dest_inbox, place_dir, dept)
@@ -862,6 +866,10 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
         return [f"{head}。訳がすぐ替わる物なので打たなかった（待ち受けが 5 秒ごとに試し直す）"]
     again = f"--nudge {dept['attrs'].get('name') or where} で打ち直す"
     try:
+        if why == STALLED and wake.own_clear(chat.typed(ports.term.read(pane, 40, ansi=True)), dept["attrs"]):
+            # 待ち受けが打って送られずに残った /clear（渡す待ち受けが居ないので、送り直す者が居ない）は消してから 1 行を打つ
+            # （後ろに続けて打つと /clear/reload-plugins になる。送って空にすると、空にした印を書く待ち受けが居ない）
+            deliver.wipe_box(pane, ports.term, ports.pause)   # 消えたかは、続く _free が入力フィールドを読んで見る
         free = _free(pane, ports)
     except term.Error as e:
         return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。{again}"]

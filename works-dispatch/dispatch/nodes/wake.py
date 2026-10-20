@@ -26,6 +26,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 
@@ -67,6 +68,20 @@ HANDOFF = "handoff.md"
 # --move --if-changed が「今は起動し直さない」で終わる値（会話がターンの途中・入力フィールドに打ちかけの字）。訳がすぐ替わるので、待ち受けは
 # 今の値を RESTART_KEPT に残さず、次の区切りで試し直す。sysexits の EX_TEMPFAIL（https://man.freebsd.org/cgi/man.cgi?query=sysexits ）
 NOT_NOW = 75
+# 部署と窓口の属性: 待ち受けが窓に /clear を打つ直前に書く、その時の会話の id（own_clear が見分けに使う。空にしたら外す）
+CLEAR_TYPED = "clear-typed"
+
+
+def own_clear(box, attrs, session=None):
+    """窓の入力フィールドの字 box（chat.typed）が、待ち受けが打って送られずに残った /clear か: 字が /clear だけ（後ろに Claude Code の
+    引数の候補の [..] が付いてもよい。候補は薄字〔SGR 2〕でなく描かれ、typed が除けない）で、属性 CLEAR_TYPED がその会話の id
+    （session。省けば属性の会話 company.session）。ほかの字は人の打ちかけと見る（消さない・送らない）。2026-10-20 に my_notes の
+    調べもので、待ち受けが打った /clear が、会話がまた動き出したターンの間に送られずに残り、待ち受けも --move も --nudge もその字を
+    人の打ちかけと見て、順番待ちの 5 件が 3 時間渡らなかった。"""
+    head, _, rest = (box or "").partition(" ")
+    sid = session or attrs.get("session")
+    return (head == chat.CLEAR and (not rest or re.fullmatch(r"\[[^\[\]]*\]", rest))
+            and bool(sid) and attrs.get(CLEAR_TYPED) == sid)
 
 
 def address(company, name):

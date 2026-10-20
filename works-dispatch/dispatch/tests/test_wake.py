@@ -704,12 +704,45 @@ class Hook(unittest.TestCase):
             self.assertEqual(check(), wake.HOLD)   # 終わらない（"end" なら、この待ち受けの後を継ぐ者が居ない）
         self.assertEqual(w.writes[0], deliver.CLEAR)
         self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.CLEAR_TYPED], "s1")   # 打つ前に、打った会話を書く（own_clear）
         held = [r for r in deliver.records(self.inbox) if r["kind"] == "held"]
         self.assertIn("空になったのを見られない", held[0]["detail"])
         w.on_clear = self.emptied().on_clear   # 試し直しで空になった
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(check(), ("end", None))
         self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
+        self.assertNotIn(wake.CLEAR_TYPED, gitx.worktree_attrs(self.place))
+
+    def test_a_clear_the_watcher_typed_but_left_unsent_is_sent_and_not_held_as_typed_text(self):
+        # 2026-10-20 に my_notes の調べもので、待ち受けが打った /clear が、会話がまた動き出したターンの間に送られずに入力フィールドに残り、
+        # 次の試しからはその字（「/clear [name]」。[name] は Claude Code の引数の候補で、薄字で描かれない）を人の打ちかけと見て、
+        # 順番待ちの 5 件が 3 時間渡らなかった。打った会話の印（company.clear-typed）と字が合えば Enter で送り、打ち足さない
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH, "session": "s1"}, gitx)
+        self.put("a1")
+        attrs = {"session": "s1", wake.CLEAR_TYPED: "s1"}
+        self.assertTrue(wake.own_clear("/clear", attrs))
+        self.assertTrue(wake.own_clear("/clear [name]", attrs))
+        self.assertTrue(wake.own_clear("/clear [name]", {wake.CLEAR_TYPED: "s2"}, "s2"))
+        for box, typed_in in (("/clear [name]", None),   # 待ち受けが打った跡が無い（人が打った）
+                              ("/clear [name]", "s0"),   # 前の会話で打った物
+                              ("/clear 覚え書き", "s1"),   # 人が後ろに打ち足した
+                              ("/clear [a] 覚え書き [b]", "s1"),
+                              ("/clearx", "s1")):
+            provision.mark(self.place, self.src, {wake.CLEAR_TYPED: typed_in}, gitx)
+            w = Window(self.place, box=box)
+            self.assertEqual(self.checker(window=w)(), wake.HOLD, box)
+            self.assertEqual(w.writes, [], box)
+        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s1"}, gitx)
+        w = Window(self.place, box="/clear [name]")
+        empty = self.emptied().on_clear
+        w.send_keys = lambda pane, *keys: (w.writes.append(keys), keys == ("enter",) and empty())
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(self.checker(window=w)(), ("end", None))
+        self.assertEqual(w.writes, [("enter",)])   # /clear を打ち足さない（打ち足すと /clear/clear になる）
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual(attrs["cleared"], "a0")
+        self.assertNotIn(wake.CLEAR_TYPED, attrs)
 
     def fresh_dept(self, **more):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
@@ -1357,6 +1390,40 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("待ち受けが渡さずに待っている（窓を確かめられない）", out)
         self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
         self.assertEqual(gitx.worktree_attrs(self.place).get("rest"), "s")   # 打った 1 行で外れる区切りの印は残す
+
+    @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
+    def test_nudge_drops_a_clear_the_gone_watcher_left_unsent_before_typing(self):
+        # 渡す待ち受けが居ないまま、待ち受けが打った /clear が入力フィールドに残った（送り直す者が居ない）: 消してから 1 行を打つ。
+        # 人の打ちかけの字と、前の会話で打った物は消さない。待ち受けが居るとき（渡さずに待っている）は、待ち受けが送り直すので消さない
+        self.listen("調べ", self.dept_place())
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s"}, gitx)
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a0", "line": "a0"})
+        deliver.log(self.inbox, {"id": "a0", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
+        self.ports.term.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
+        self.main(self.src, "--nudge", "調べ")
+        self.assertFalse([w for w in self.ports.term.writes if w[0] == "send_keys" and w[2:] == ("ctrl+u",)])
+        wake.take(self.inbox, self.dept_place())
+        mark = wake.read_mark(self.inbox, self.dept_place())
+        with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
+            json.dump({**mark, "pid": dead_pid()}, f)
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s0"}, gitx)
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+        term_ = self.ports.term
+        term_.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts()), (1, []), out)
+        self.assertFalse([w for w in term_.writes if w[0] == "send_keys"])
+        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s"}, gitx)
+
+        def keys(pane, *k):
+            term_.writes.append(("send_keys", pane, *k))
+            if k == ("ctrl+u",):
+                term_.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        with mock.patch.object(term_, "send_keys", keys):
+            rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([w[2:] for w in term_.writes if w[0] == "send_keys"][0], ("ctrl+u",))
+        self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
 
     def test_nudge_does_not_type_the_line_when_the_reload_does_not_leave_the_box(self):
         # 前の版のプラグインのままの会話は、ターンの終わりに前の版の待ち受けが同じ訳でまた止める（2026-10-19 の割り振り）ので、
