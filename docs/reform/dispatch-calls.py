@@ -18,6 +18,7 @@ import glob
 import json
 import os
 import re
+import sys
 
 CALL = re.compile(r"python[0-9.]*\s+\S*dispatch\.py(\s|$)|\$\{?D\}?\s+--|dispatch\.py\s+--")
 HELP = re.compile(r"\s(--help|-h)(\s|$)")
@@ -78,6 +79,9 @@ def scan(path):
 
 
 def main():
+    for s in (sys.stdout, sys.stderr):   # Windows の既定のコーデックでも日本語を出せるように
+        if hasattr(s, "reconfigure"):
+            s.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", default="2026-10-20T19:44")
     ap.add_argument("--since")

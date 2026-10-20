@@ -6008,6 +6008,8 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "AI_AGENT", "TMUX_PANE", "SSH_CONNECTION",
                   # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
                   "WORKS_DISPATCH_CONFIG",
+                  # works-dispatch の試験を並べて回す数（dispatch/tests/parallel.py が同じく os.environ から読む）
+                  "DISPATCH_TEST_WORKERS",
                   # attention の /reflect が読む環境変数（読む設定のフォルダを足す・日記の置き場。同じく os.environ から読む）
                   "ATTENTION_REFLECT_CONFIG_DIRS", "ATTENTION_REFLECT_DIARY_DIR",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
@@ -7763,6 +7765,7 @@ NOT_RATCHET = {
     "ARGV_MAX": "tests/mutate.py が pytest の node id を並べる引数の字数の上限（超えればテストのファイル単位に落とす）。件数の突合ではない",
     "NOW": "works-dispatch の試験が固定する今の時刻（Unix 時刻）。件数の突合ではない",
     "T0": "works-dispatch の試験が固定する会話の処理が起きた時刻（Unix 時刻）。件数の突合ではない",
+    "CHUNK": "works-dispatch の dispatch/tests/parallel.py が 1 つのプロセスで回す試験の数の上限（速さの寸法）。件数の突合ではない",
     "ME": "works-dispatch の試験の中の、この会話の処理の番号（pid）。件数の突合ではない",
     "SKILL_MAX": "tests/skill-descriptions-case.py の SKILL.md の description の字数の上限（Agent Skills の仕様の 1,024 字）。件数の突合ではない",
     "LISTING_MAX": "tests/skill-descriptions-case.py の description と when_to_use の合わせた字数の上限（Claude Code の一覧の 1,536 字）。件数の突合ではない",
