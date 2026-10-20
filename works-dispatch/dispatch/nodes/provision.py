@@ -43,8 +43,9 @@ import jsonio  # noqa: E402
 
 def label(repo, branch):
     """herdr の作業場の名前: <リポジトリの名前>/<ブランチ>。人が見るためだけで、探すのには使わない。
-    リポジトリの名前で始めるのは、issue の番号で始まるブランチでも、数字で始まらないようにするため（設計書のセクション 3）。"""
-    return f"{repo.repo.split('/')[-1]}/{branch}"
+    リポジトリの名前で始めるのは、issue の番号で始まるブランチでも、数字で始まらないようにするため（設計書のセクション 3）。
+    ブランチに乗っていない場所（branch が None。先頭がメインブランチに入った部署を片付けるとき）は detached と書く。"""
+    return f"{repo.repo.split('/')[-1]}/{branch or 'detached'}"
 
 
 def find(places, branch):

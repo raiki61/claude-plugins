@@ -24,6 +24,7 @@ COMPACT = "/compact"   # 会話を要約に置き換えて続ける打ち込み�
 EXIT = "/exit"         # 前の会話を終えてシェルに戻す打ち込み
 RELOAD = "/reload-plugins"   # 起きている会話にプラグインを読み直させる打ち込み
 CONFIG_ENV = "CLAUDE_CONFIG_DIR"   # アカウントの設定のフォルダを渡す環境変数
+NO_JOB = "No job matching"   # rm・stop・attach が、その id の裏の会話が無いときに返す言葉の頭（2.1.303 で見た）
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # Bash のツールの子に渡る、打った会話の id
 JOB_ENV = "CLAUDE_JOB_DIR"   # 裏の会話の処理に渡る、その処理の置き場（名前が短い id）
 EFFORT_ENV = "CLAUDE_EFFORT"   # Bash のツールの子に渡る、打った会話の今の effort
@@ -276,9 +277,12 @@ def attach_id(entry, session_id=None):
 def remove_session(config_dir, session_id, runner=_default_runner, base_env=None):
     """そのアカウントの裏の会話を消す（`claude rm <id>`）。書く口。(消えたか, claude の言葉)。
     rm は、どのリモートにも無い commit や確かめられないファイルのある worktree なら、消さずに断る（2026-10-16 に 2.1.301 で見た。
-    会話が作った worktree でなければ、worktree は残して会話だけを消した）。鍵は要らず、設定のフォルダだけで通った。"""
+    会話が作った worktree でなければ、worktree は残して会話だけを消した）。鍵は要らず、設定のフォルダだけで通った。
+    rm がその id の会話を見つけない（「No job matching」。2.1.303 で見た言葉）ときは、消す会話がもう無いので消えたとみなす（2026-10-20 に
+    claude-plugins の部署の --retire が、一覧に在った止まった会話をこの言葉で断られて残った）。"""
     p = runner(["claude", "rm", session_id], env=_env(config_dir, base_env))
-    return p.returncode == 0, ((p.stdout or "") + (p.stderr or "")).strip()[:500]
+    said = ((p.stdout or "") + (p.stderr or "")).strip()[:500]
+    return p.returncode == 0 or said.startswith(NO_JOB), said
 
 
 def stop_session(config_dir, job, runner=_default_runner, base_env=None):

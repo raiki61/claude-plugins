@@ -1650,7 +1650,8 @@ def _running_note(d, attrs):
                 f"（受付 {'・'.join(got[1])}。--todo で追える。入れる手を預けたのでなければ --land {name}）")
     if got[0] == "unlanded":
         return (f"。頼みは納品済みだが、ブランチがメインブランチ（origin/{got[1]}）に入っていない（入れ損ねか、入れる手を待っている。消すと成果を失う）。"
-                f"入れるなら --land {name}")
+                f"入れるなら --land {name}。入れずに畳むなら（頼みを取り下げたときなど）、ブランチを origin に push してから --retire {name}"
+                "（ブランチは origin に残る）")
     return f"。頼みは納品済みで、終わりの印（--done）が無い。止めて畳むなら --retire {name}"
 
 

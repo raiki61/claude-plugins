@@ -22,7 +22,7 @@ graphloops/boards-archive/ に写す（keep_boards。写せなければ消さな
 - エフェメラルの部署である（属性 company.lifecycle が persistent の永続の部署は畳まない。属性が無ければエフェメラルとみなす。会社の形の設計 4.10 の 1）
 - 部署の会話が終わっている（state が done・stopped・failed）か、会話の一覧にもう無い
 - 未コミットの変更も git に足していないファイルも、手元にしか無い commit や stash も無い
-- 部署のブランチの先頭がメインブランチ（origin の既定のブランチの手元の控え）に入っている
+- 部署のブランチの先頭がメインブランチ（origin の既定のブランチの手元の控え）に入っている（ブランチに乗っていない部署も、先頭が入っていれば消す）
 消す時は、会話を `claude rm` で消し（会話の worktree は下回りが作ったので、rm は worktree を残す。rm が一緒に消す会話の一時の
 置き場は、物が在れば先に共通の .git の下の company/kept-tmp/<会話の id> に写す）、続けて上と同じく herdr の
 worktree の口で場所と作業場（attach の窓）を消し、手元のブランチも消す。メインブランチに入れる方法は会社ごとに決める（設計の 8 章）ので、
@@ -189,7 +189,9 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
             row["reason"] = "running"
         elif queued(path):
             row["reason"] = "queued"
-        elif not branch:
+        elif not branch and not merged(path):
+            # ブランチに乗っていなくても、先頭がメインブランチに入っていれば失う物は無い（読むために main の commit を開いた
+            # 部署が、そのまま残った。2026-10-19 の claude-plugins の見渡し）
             row["reason"] = "no_branch"
         elif not is_clean(path):
             row["reason"] = "dirty"
@@ -455,7 +457,9 @@ def remove(row, source, label, h=term, g=gitx, boards=UNCOPIED):
         out["detail"] = out["detail"] or "消した後の読み戻しで、場所がまだ在る"
         return out
     try:
-        out["branch_deleted"] = g.delete_branch(source, row["branch"], row.get("head") or row["pr_head"]) in ("deleted", "absent")
+        # ブランチに乗っていない場所は、消す手元のブランチが無い
+        out["branch_deleted"] = not row["branch"] or g.delete_branch(source, row["branch"], row.get("head") or row["pr_head"]) in (
+            "deleted", "absent")
     except gitx.GitError as e:
         out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} を消せなかった（{e}）"
     if not out["branch_deleted"] and not out["detail"]:

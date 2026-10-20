@@ -1463,7 +1463,9 @@ def finish_here(a, ports, cwd):
               + ("。今はブランチに乗っていない（detached）。読むためにほかのブランチを開いたなら、自分のブランチ（部署を立てたときのブランチ）を"
                  "checkout し直してから打ち直す" if not here else
                  "。自分の commit が無くても、ほかのブランチの上に切ったブランチ（--task の --base）は、そのブランチがメインブランチに入るまで"
-                 "入っていないと見る（入れるのが人の会社なら、--done を打たずに止まり、入った後に窓口が --retire で畳む）"))
+                 "入っていないと見る（入れるのが人の会社なら、--done を打たずに止まり、入った後に窓口が --retire で畳む）。"
+                 "頼みを取り下げられて入れないなら、--done を打たずに、ブランチを origin に push して止まる（ブランチは origin に残り、"
+                 "頼み元が --retire で畳む）"))
         return 2
     try:
         provision.mark(cwd, root, {"session": talk, wake.FINISHED: talk, wake.RETIRE_KEPT: None}, ports.git)
@@ -1607,6 +1609,7 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None):
             f"権限の判定に止められたなら、打ち直さず、入れてほしいと {RUN} --ask {shlex.quote(tree.company_name(root, info))} で窓口に"
             f"頼む（頼んだ頼みの答えが出るまでは、この差し戻しは出ない。返事が来ても、返事の残った疑問の担当者の頼みが閉じるまでは"
             f"答えが出ていないと見る。どちらも --todo に出る）。残った疑問に担当者を書くだけでは、担当者に頼みが届かない。"
+            f"頼みを取り下げられて入れないなら、ブランチを origin に push してターンを終える（頼み元が --retire で畳む）。"
             f"持ち主と話している途中なら、入れずにターンを終えてよい{limit}")
 
 

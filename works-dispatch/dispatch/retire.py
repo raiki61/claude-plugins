@@ -9,6 +9,9 @@
 1. 部署を名前で探す（--move と同じ deliver.find_target）。窓口・永続の部署は畳まない。
 2. 止める前に確かめる: 受けた頼みを納品している・順番待ちに頼みが無い・--clean の部署の決まり（clean.departments）で、会話が止まったとみなしたときに
    残す訳が無い（未コミットの変更・手元にしか無い commit・メインブランチに入っていないブランチなど）。訳が有れば何も止めない。
+   ただし、メインブランチに入っていないブランチでも、origin の同じ名前のブランチの先頭が手元の先頭と同じ（origin に問い合わせて確かめる）
+   なら畳む。成果は origin のブランチに残る（取り下げた頼みの部署は、入れずにブランチを残せと頼まれる。--done は入れていない部署を断るので、
+   頼み元が --retire で畳む。2026-10-20 に、origin に push 済みの取り下げた部署が「メインブランチに入っていない」で残った。受付 d28a74）。
 3. 会話が動いていれば、窓の attach の画面をシェルに戻し（launch.to_shell。attach が開いたままだと会話を再開させる）、claude stop で
    止め、--move と同じ回数だけ止まったかを読み戻す。一覧に処理の番号（pid）の無い会話は、動く処理が無いので止まったとみなす。
 4. --clean と同じ部品（clean.retire）で片付ける。
@@ -81,7 +84,12 @@ def retire(a, ports, cwd, rows, reasons):
         return kept("片付けの候補にならない（会話の属性 company.session も company.job も無いか、会話の一覧を読めない）", 2)
     if ask and attrs.get("delivered") != ask:
         return kept(f"納品していない頼み（受付 {ask}）が在る", 2)
-    if not before["removable"]:
+    parked = None   # 入れずに origin に残したブランチ（メインブランチに入っていないが、origin に同じ先頭が在る）
+    if before["reason"] == "not_merged":
+        parked, why = on_origin(before, ports.git)
+        if not parked:
+            return kept(why, 2)
+    elif not before["removable"]:
         return kept(reasons[before["reason"]], 2)
     if wake.queued(inbox, ports.git.git_dir(path)):
         return kept("順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む）", 2)
@@ -112,12 +120,37 @@ def retire(a, ports, cwd, rows, reasons):
             return kept("会話を止めた後、片付けの候補に見えない")
         if wake.queued(inbox, ports.git.git_dir(path)):
             return kept("会話を止めたが、止める間に順番待ちに頼みが積まれた（部署の会話を起動し直すまで渡らない。--tree の部署の行に件数が出る）")
-        if not r["removable"]:
+        same = r["pr_head"] == before["pr_head"] and r["branch"] == before["branch"]
+        if not r["removable"] and not (parked and r["reason"] == "not_merged" and same):
             return kept(f"会話を止めたが、{reasons[r['reason']]}")
+    if r["removable"]:
+        parked = None   # 止める間にメインブランチに入った
+    elif parked:
+        # 止めるのを待つ間に origin のブランチが書き換わっていないかを、消す直前に問い直す（手元の控えとの比べでは分からない）
+        parked, why = on_origin(r, ports.git)
+        if not parked:
+            return kept(f"会話を止めたが、{why}")
     got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git, chat, ports.account_env)
     if not got["removed"]:
         return kept(f"片付けられなかった: {got['detail']}")
+    if parked:
+        note = f"ブランチ {parked} はメインブランチに入れずに origin に残した"
+        got["detail"] = f"{note}。{got['detail']}" if got["detail"] else note
     deliver.log(inbox, {"kind": "retired", "at": ports.now(), "name": attrs.get("name"), "path": path, "status": "done",
                         "detail": got["detail"]})
     print("\n".join(notes + [f"部署 {where} を畳んだ" + (f"（{got['detail']}）" if got["detail"] else "")]))
     return 0
+
+
+def on_origin(row, g):
+    """メインブランチに入っていない部署の行（reason が not_merged）のブランチが、同じ先頭で origin に在るか。(ブランチ, None) か
+    (None, 残す訳)。手元の origin/<ブランチ> の控えは古いことがあるので、origin に問い合わせる（remote_rev）。"""
+    branch = row["branch"]
+    try:
+        there = g.remote_rev(row["path"], branch)
+    except gitx.GitError as e:
+        return None, f"ブランチがメインブランチに入っておらず、origin の {branch} を読めない（{e}）"
+    if there and there == row["pr_head"]:
+        return branch, None
+    return None, (f"ブランチがメインブランチに入っておらず、" + (f"origin の {branch} の先頭も手元と違う" if there else f"origin に {branch} が無い")
+                  + f"。入れずに畳むなら、git push origin {branch} で手元の先頭を origin に残してから打ち直す")

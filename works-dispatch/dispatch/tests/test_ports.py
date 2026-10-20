@@ -636,6 +636,9 @@ class ClaudeName(unittest.TestCase):
         self.assertEqual(f.calls[0][0], ["claude", "rm", "82fbd328"])
         self.assertEqual(f.calls[0][1]["CLAUDE_CONFIG_DIR"], "/c1")
         self.assertTrue(claudex.remove_session(None, "x", runner=Fake((0, "removed x", "")), base_env={})[0])
+        # その id の会話が無ければ、消す物がもう無いので消えたとみなす（2026-10-20 の claude-plugins の --retire）
+        self.assertEqual(claudex.remove_session(None, "6f9684a7", runner=Fake((1, "", "No job matching '6f9684a7'\n")), base_env={}),
+                         (True, "No job matching '6f9684a7'"))
 
     def test_job_tmp_is_under_the_account_folder_by_the_short_id(self):
         self.assertEqual(claudex.job_tmp("/c/p1", "35f0e1c2"), os.path.join("/c/p1", "jobs", "35f0e1c2", "tmp"))
