@@ -1525,7 +1525,7 @@ class QueueRun(LandCase):
                  "print('ready', flush=True)\ntime.sleep(30)\n")   # SIGTERM を受けてから 0.3 秒かけて片付けて終わるコマンド
         script = (f"import sys\nsys.path.insert(0, {os.path.dirname(os.path.abspath(queuerun.__file__))!r})\nimport queuerun\n"
                   f"sys.exit(queuerun._run([sys.executable, '-c', {child!r}]))\n")
-        p = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        p = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True, encoding="utf-8")
         self.assertEqual(p.stdout.readline().strip(), "ready")
         p.terminate()   # 親（--queue-run）に SIGTERM。コマンドに送り直し、コマンドが終わるまで抜けない
         self.assertEqual(p.wait(timeout=10), 7)

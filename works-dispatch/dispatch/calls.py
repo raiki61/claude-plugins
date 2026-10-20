@@ -26,13 +26,15 @@ import health
 from nodes import clean, deliver, role, tools, tree, wake
 
 CALLED = 3   # 片づかず AI に回した --call の終了の値
+# ツールに渡す環境変数の名（ツールが works-dispatch を打ち返すため。docs/land.md の「外のツールが列に並ぶ」）
+WORKS_DISPATCH, WORKS_DISPATCH_PYTHON = "WORKS_DISPATCH", "WORKS_DISPATCH_PYTHON"
 
 
 def tool_env():
     """ツールに渡す環境。ツールが works-dispatch を打ち返せるよう（--queue-run で --land と同じ列に並ぶなど）、今走っている dispatch.py の
     パスを WORKS_DISPATCH に、それを走らせている Python を WORKS_DISPATCH_PYTHON に入れる。"""
-    return {**deliver.child_env(), "WORKS_DISPATCH": str(pathlib.Path(__file__).resolve().with_name("dispatch.py")),
-            "WORKS_DISPATCH_PYTHON": sys.executable}
+    return {**deliver.child_env(), WORKS_DISPATCH: str(pathlib.Path(__file__).resolve().with_name("dispatch.py")),
+            WORKS_DISPATCH_PYTHON: sys.executable}
 
 
 def run_tool(command, cwd, value):
