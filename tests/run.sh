@@ -85,7 +85,7 @@ skip_capability() {
 # **変えた所だけを回す回（メインブランチに入れるゲート。tests/land-check.py が TESTS_AFFECTED と TESTS_CHANGED を渡す）。**
 # scope で入力を宣言した検査は、宣言したプラグイン（TESTS_AFFECTED。変わったプラグインと、それに依存するプラグイン）がどれも無く、
 # 宣言したパス（/ か . を含む語。頭で当てる）に当たる変わったファイル（TESTS_CHANGED。1 行に 1 本）も無ければ、走らせずに見送る。
-# 宣言は次の scope まで続き、引数の無い scope で解く。宣言の無い検査と、渡されない回（CI・手元）は全部を回す。
+# 宣言は次の scope まで続き、引数の無い scope で解く（「# ---- 」の区切りのコメントでは切り替わらない）。宣言の無い検査と、渡されない回（CI・手元）は全部を回す。
 # 宣言は検査が読むプラグインとファイルを全部書く（漏れると、変えた所の赤を main に入った後の CI まで見落とす）。
 # 子に継がせない——写しの上で tests/run.sh や台本を起動する検査（tests/mutate.py の実行器ほか）まで見送りの回になる
 LAND_AFFECTED=${TESTS_AFFECTED-} LAND_CHANGED=${TESTS_CHANGED-} LAND_SCOPED=${TESTS_AFFECTED+1}
@@ -5615,7 +5615,8 @@ expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 193 件。時
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
 
-scope works-dispatch
+# works-dispatch の試験は、このリポジトリの会社の形（.claude/company.toml）の鍵も読む（test_known_keys.py）
+scope works-dispatch .claude/company.toml
 # ---- works-dispatch/dispatch: 自分の番の PR を herdr の作業場に広げるライン ----
 # 旧 works の試験の殻（works/tests/run.sh）には載せない（設計書 works-dispatch/docs/specs/2026-10-14-catchup-dispatch-design.md の D1）。
 # 試験と、設計書のセクション 4 の決まりのチェック（works-dispatch/dispatch/tests/test_rules.py）を 1 本で回す。herdr・gh・claude には触らない
@@ -5627,6 +5628,7 @@ scope tiers
 # 外のツール（claude・gh・herdr・archon）は起動せず、口（Probe）を偽物に替える
 expect_output 0 "OK" "tiers: 段ごとの点検が足りない物と入れ方を返し、--json の形と終了コードを守る" \
     "$PY_BIN" -B -m unittest discover -s "$ROOT/tiers/tests"
+scope
 # --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
 expect_output 0 "OUT_FLAG_OK" \
     "attention 3 本: --out は値を取らず位置引数を吸わない。一時ファイルは 0600。セクションの行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \
@@ -8402,6 +8404,7 @@ assert lc.affected(["tiers/a.py"], g) == {"tiers", "works-dispatch"}
 assert lc.affected(["convergence-loops/a.md"], g) == {"convergence-loops", "graphloops", "works"}
 assert lc.affected(["docs/a.md", "README.md", "scripts/x.py"], g) == set()
 assert lc.affected(["gates/a.py", "tests/run.sh"], g) is None
+assert lc.affected(["gone/x.py"], {"a": ["gone"], "b": []}) == {"a"}, "消したプラグインに依存するプラグインを足していない"
 assert "tiers" in lc.plugins(root)["works-dispatch"], "plugin.json の dependencies を読めていない: %s" % lc.plugins(root)
 # tests/run.sh が出す見送りの印と、照合が数える印が同じ
 assert lc.SCOPE_SKIP.strip(" #") in run.replace("$SKIP_MARK", " # SKIP"), "tests/run.sh の見送りの印が tests/land-check.py の SCOPE_SKIP と違う"

@@ -5,7 +5,7 @@ tests/run.sh を TESTS_LAND=1 で回し（graphloops の模擬実行の 1 件だ
 tests/land-known-red.txt と照合する。
 
 回すのは、この変更が入力に当たる検査だけ（持ち主 2026-10-20「変えたところだけにします」。受付 de7a5b）。メインブランチ（origin/main）との
-分かれ目から変わったファイルを取り、変わったプラグイン（頭のディレクトリに .claude-plugin/plugin.json が在る物）と、それに
+分かれ目から変わったファイル（作業ツリーまで）を取り、変わったプラグイン（頭のディレクトリに .claude-plugin/plugin.json が在る物）と、それに
 plugin.json の dependencies で依存するプラグインを、変わったプラグインに数える（Nx の affected と同じ形。https://nx.dev/ci/features/affected ）。
 tests/run.sh の検査のうち scope で入力を宣言した物は、宣言したプラグインがどれも変わっておらず、宣言したパスの頭に当たる
 変わったファイルも無ければ、走らせずに見送る（scope の無い検査は毎回回す）。tests/run.sh 自身が変わった回と、分かれ目を
@@ -51,7 +51,7 @@ SKIP_MARK = " # SKIP"   # 見送りの行（tests/run.sh の SKIP_MARK）。走�
 COUNT_BAD = "件を期待"   # tests/run.sh の件数のチェックが合わないときの行（「検査が N 件走った（M 件を期待）」）
 DONE = re.compile(r"^\d+ 件(すべて緑|のうち失敗あり)", re.M)   # tests/run.sh が最後まで走ったときだけ出す行
 RUN_ALL = ("tests/run.sh",)   # 変われば全部を回すファイル（全部の検査の定義と scope の宣言を持つ）
-SCOPE_SKIP = " # SKIP unchanged:"   # tests/run.sh が入力の変わっていない検査に出す見送りの印
+SCOPE_SKIP = " # SKIP unchanged:"   # tests/run.sh が入力の変わっていない検査の「  ok   」の行に出す見送りの印
 
 
 def plugins(root):
@@ -67,25 +67,29 @@ def affected(changed, graph):
     """(変わったファイルの並び, plugins() の形) → 変わったプラグインの組（依存する側まで足す）。全部を回す回は None。"""
     if any(c in RUN_ALL for c in changed):
         return None
-    hit = {c.split("/", 1)[0] for c in changed if "/" in c} & set(graph)
+    hit = {c.split("/", 1)[0] for c in changed if "/" in c}   # 今の木に無い頭（消したプラグイン）も、依存する側を足すために残す
     grew = True
     while grew:   # 依存する側を足す（依存の依存も）
         more = {p for p, deps in graph.items() if hit & set(deps)} - hit
         hit |= more
         grew = bool(more)
-    return hit
+    return hit & set(graph)
 
 
 def changed_files(root, base=None):
-    """メインブランチとの分かれ目から HEAD までに変わったファイルの並び。分かれ目を取れなければ None。"""
+    """メインブランチとの分かれ目から作業ツリーまでに変わったファイル（未追跡を含む）の並び。分かれ目を取れなければ None。
+    --land は未コミットの変更の無い場所で回すが、手元で打つと tests/run.sh は作業ツリーの中身で走るので、作業ツリーまでを取る。"""
     git = lambda *a: subprocess.run(["git", "-C", str(root)] + list(a), capture_output=True, text=True, encoding="utf-8")
     if base is None:
         r = git("merge-base", "HEAD", "refs/remotes/origin/main")
         if r.returncode != 0:
             return None
         base = r.stdout.strip()
-    r = git("diff", "--name-only", "--no-renames", "-z", base, "HEAD")
-    return [c for c in r.stdout.split("\0") if c] if r.returncode == 0 else None
+    r = git("diff", "--name-only", "--no-renames", "-z", base)
+    u = git("ls-files", "--others", "--exclude-standard", "-z")
+    if r.returncode != 0 or u.returncode != 0:
+        return None
+    return sorted({c for c in (r.stdout + "\0" + u.stdout).split("\0") if c})
 
 
 def scope_env(root, base=None):
@@ -157,7 +161,7 @@ def main(argv):
     stop, notes = judge(out, rc, known)
     for line in notes + stop:
         print(line)
-    skipped = out.count(SCOPE_SKIP)
+    skipped = sum(1 for n in OK_LINE.findall(out) if SCOPE_SKIP in n)   # 見送りの一覧（report_skips）の行は数えない
     if skipped:
         print("land-check: 入力の変わっていない検査 %d 件を見送った（main に入った後の CI が回す）" % skipped)
     print("land-check: %s" % ("止める物 %d 件" % len(stop) if stop else "tests/run.sh に、一覧の外の赤は無い"))
