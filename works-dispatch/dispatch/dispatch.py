@@ -182,6 +182,19 @@ def _split_queue_run(argv):
     return argv[:i + 1], rest[1:] if rest[:1] == ["--"] else []
 
 
+def _queue_run_others(argv):
+    """--queue-run の前に書いた、--repo と --config のほかの引数（--queue-run はほかの入口と混ぜると、先に読む入口に黙って飲まれるので止める）。"""
+    head, out, i = argv[:-1], [], 0
+    while i < len(head):
+        if head[i] in ("--repo", "--config"):
+            i += 2
+            continue
+        if not head[i].startswith(("--repo=", "--config=")):
+            out.append(head[i])
+        i += 1
+    return out
+
+
 def main(argv=None, ports=None):
     argv, command = _split_queue_run(sys.argv[1:] if argv is None else list(argv))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -298,6 +311,8 @@ def main(argv=None, ports=None):
                          f"名前を省けば今の名前か役の名前）。{term.NAME} の表示も付け直す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
+    if a.queue_run:
+        return _queue_run(a, argv, command, ports)
     if a.init:
         return _init(a, ports)
     if a.input is not None and a.call is None:
@@ -392,7 +407,7 @@ def main(argv=None, ports=None):
     # 部署の回（--task・--land）は、[[repos]] が無くても、代表の clone の場所から会社を決める（_department_repo）
     # --check は、[[repos]] が無ければ部署の回の前提だけを確かめる（_check）
     # --clean も部署の回と同じに決める（設定が無くても、--repo のパスか今いる場所の代表の clone の部署を片付ける）
-    department = a.task is not None or a.land is not None or a.land_order is not None or a.queue_run or a.clean
+    department = a.task is not None or a.land is not None or a.land_order is not None or a.clean
     try:
         cfg = config.load(a.config, os.environ, missing_ok=department or a.check)
         clone = _clone_of(cfg, a.repo, ports) if a.check and cfg.repos else None
@@ -412,12 +427,6 @@ def main(argv=None, ports=None):
     if a.task is None and task_args:
         print(f"止めた: {', '.join(task_args)} は --task と一緒にだけ使う")
         return 2
-    if a.queue_run:
-        if a.land is not None or a.land_order is not None or a.task is not None or a.pr or a.issue is not None or a.clean or a.check \
-                or a.dry_run:
-            print("止めた: --queue-run はほかの入口（--land・--land-order・--task・--pr・--issue・--clean・--check）と --dry-run と一緒に使えない")
-            return 2
-        return queuerun.main(repo, command, ports, a.config)
     if a.land_order is not None:
         if a.land is not None or a.task is not None or a.pr or a.issue is not None or a.clean or a.check:
             print("止めた: --land-order はほかの入口（--land・--task・--pr・--issue・--clean・--check）と一緒に使えない")
@@ -664,6 +673,20 @@ def main(argv=None, ports=None):
         notes += _tidy(cfg, repo, ports, a.dry_run, found, turn_numbers, sent, limited)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
+
+
+def _queue_run(a, argv, command, ports):
+    """--queue-run。会社は部署の回と同じに、--repo か打った場所の代表の clone から決める（_department_repo）。"""
+    others = _queue_run_others(argv)
+    if others:
+        print(f"止めた: --queue-run と一緒に使えるのは --repo と --config だけ（{' '.join(others)} は外す）", file=sys.stderr)
+        return 2
+    try:
+        repo = _department_repo(config.load(a.config, os.environ, missing_ok=True), a.repo, ports, ports.cwd())
+    except config.ConfigError as e:
+        print(f"止めた: メインブランチへ入れる列に入れない: {e}。コマンドは走らせていない", file=sys.stderr)
+        return queuerun.QUEUE_FAILED
+    return queuerun.main(repo, command, ports, a.config)
 
 
 def _department_repo(cfg, name, ports, cwd):

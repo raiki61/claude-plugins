@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Added
 
-- works-dispatch の外のツールが、`--land` と同じメインブランチへ入れる列（会社の形の `[land]` の `queue`）に並んでコマンドを走らせる口 `--queue-run -- <コマンド>` を足した。列の先頭を取ってからコマンドを走らせ、終わったら次に渡し、コマンドの終了の値を返す（列に入れなければ 125）。前は、列のコードが works-dispatch の `dispatch/nodes/landqueue.py` と my_notes の `tools/land_queue.py` の 2 か所に在り、札の形を揃えることで同じ列に並んでいたので、片方だけ直すと札の形がずれて、my_notes の collect と `--land` が互いを見ずに同時に push しえた（my_notes の受付 20261020-113138-d5f293）。`--call` と `[[land.after]]` の合図で走るツールには、`dispatch.py` のパスを `WORKS_DISPATCH` に、それを走らせる Python を `WORKS_DISPATCH_PYTHON` に入れて渡す。使い方は `docs/land.md` の「外のツールが列に並ぶ」。
+- works-dispatch の外のツールが、`--land` と同じメインブランチへ入れる列（会社の形〔`.claude/company.toml`〕の `[land]` に `queue` を書いたときだけ在る）に並んでコマンドを走らせる口 `--queue-run -- <コマンド>` を足した。列の先頭を取ってからコマンドを走らせ、終わったら次に渡し、コマンドの終了の値を返す（列に入れずコマンドを走らせなかったときは `--queue-run` 自身が 125 を返す）。前は、列のコードが works-dispatch の `dispatch/nodes/landqueue.py` と my_notes（持ち主のノートのリポジトリ）の `tools/land_queue.py` の 2 か所に在り、札（列で待つ処理が列のフォルダに作るファイル）の形を揃えることで同じ列に並んでいたので、片方だけ直すと札の形がずれて、my_notes の collect（自分でメインブランチへ push するツール）と `--land` が互いを見ずに同時に push しえた（my_notes の受付 20261020-113138-d5f293）。`--call` と `[[land.after]]` の合図で走るツールには、`dispatch.py` のパスを 環境変数 `WORKS_DISPATCH` に、それを走らせる Python を `WORKS_DISPATCH_PYTHON` に入れて渡す。collect はこれで `--queue-run` を使えば、写しの `tools/land_queue.py` を持たずに済む。使い方は `docs/land.md` の「外のツールが列に並ぶ」。
 
 ## [0.108.0] - 2026-10-20
 

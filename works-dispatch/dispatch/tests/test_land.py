@@ -1512,9 +1512,21 @@ class QueueRun(LandCase):
         self.assertEqual(dispatch._split_queue_run(["--repo", "r", "--queue-run", "--", "git", "--version"]),
                          (["--repo", "r", "--queue-run"], ["git", "--version"]))
         self.assertEqual(dispatch._split_queue_run(["--queue-run", "git"]), (["--queue-run"], []))   # -- が無ければコマンド無し
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), mock.patch.object(dispatch.config, "load", lambda *a, **k: None), \
-                mock.patch.object(dispatch, "_department_repo", lambda cfg, r, ports, cwd: "repo"):
-            self.assertEqual(dispatch.main(["--land", "a", "--queue-run", "--", "true"],
-                                           ports=type("P", (), {"cwd": lambda self: "/"})()), 2)
-        self.assertIn("--queue-run はほかの入口", out.getvalue())
+        for mixed in (["--land", "a"], ["--call", "c/r", "t"], ["--deliver", "s.md"], ["--tree"]):   # 先に読む入口に黙って飲ませない
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                self.assertEqual(dispatch.main([*mixed, "--repo", "r", "--queue-run", "--", "true"], ports=object()), 2, mixed)
+            self.assertIn(f"--queue-run と一緒に使えるのは --repo と --config だけ（{mixed[0]}", err.getvalue())
+
+    @unittest.skipIf(os.name == "nt", "SIGTERM を送り直す形は POSIX だけ")
+    def test_a_terminated_queue_run_keeps_the_queue_until_its_command_ends(self):
+        marker = os.path.join(self.tmp, "child-ended")
+        child = (f"import signal, sys, time\nsignal.signal(signal.SIGTERM, lambda *a: (time.sleep(0.3), open({marker!r}, 'w').close(), sys.exit(7)))\n"
+                 "print('ready', flush=True)\ntime.sleep(30)\n")   # SIGTERM を受けてから 0.3 秒かけて片付けて終わるコマンド
+        script = (f"import sys\nsys.path.insert(0, {os.path.dirname(os.path.abspath(queuerun.__file__))!r})\nimport queuerun\n"
+                  f"sys.exit(queuerun._run([sys.executable, '-c', {child!r}]))\n")
+        p = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(p.stdout.readline().strip(), "ready")
+        p.terminate()   # 親（--queue-run）に SIGTERM。コマンドに送り直し、コマンドが終わるまで抜けない
+        self.assertEqual(p.wait(timeout=10), 7)
+        self.assertTrue(os.path.exists(marker), "コマンドが終わる前に --queue-run が抜けた")
