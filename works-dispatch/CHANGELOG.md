@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 受付箱の台帳の説明（`docs/ledger.md`）の「種類」の表で、`moved` の行の `status` が `skipped` と `waiting` のときの意味（区切りがいつか、待った後に `--move` が自分で何をするか）と、「頼みのフィールド」の列の値がその行のフィールドの名前であることを書き足した。台帳を読んで頼みの状態を決める人と道具が、表だけで読み進められる。
+
 ## [0.99.2] - 2026-10-20
 
 ### Fixed
