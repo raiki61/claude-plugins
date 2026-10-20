@@ -1352,7 +1352,7 @@ def rest_here(a, ports, cwd):
 def finish_here(a, ports, cwd):
     """--done。エフェメラルの部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
-    断るのは、部署でない・窓口・永続・会話の id が無い・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
+    断るのは、部署でない・窓口・永続・会話の id が属性に無く、打った会話が部署の裏の会話とも確かめられない・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
     commit が在る・ブランチがメインブランチに入っていない（landed。マージ済みの PR に入った物も入ったとみなす）時（commit の無い部署は入っているとみなす）。前の --retire が
     残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。"""
     attrs = ports.attrs(cwd)
@@ -1366,8 +1366,14 @@ def finish_here(a, ports, cwd):
     if attrs.get("lifecycle") == gitx.PERSISTENT:
         print("止めた: 永続の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
         return 2
-    if not attrs.get("session"):
-        print("止めた: 部署の属性に会話の id（company.session）が無いので、機械が会話を止めて畳めない。--clean で並べて手で片付ける")
+    # 属性に会話の id（company.session）が無ければ、打ったこの会話が部署の裏の会話（短い id が company.job と同じ）のときだけ、この会話の
+    # id で埋める（部署を立てた直後に会話のフックと書き込みがぶつかり、書かれなかった部署が在った。2026-10-20）。ほかの会話が部署の
+    # 場所で打った id を書くと、部署の会話を見失う
+    own = attrs.get("job") and chat.job_of(ports.env) == attrs["job"]
+    talk = attrs.get("session") or (chat.session_of(ports.env) if own else None)
+    if not talk:
+        print("止めた: 部署の属性に会話の id（company.session）が無く、打ったこの会話が部署の裏の会話（短い id が company.job と同じ）とも"
+              "確かめられないので、機械が会話を止めて畳めない。部署の会話の中から打ち直す")
         return 2
     ask = attrs.get("ask")
     if ask and attrs.get("delivered") != ask:
@@ -1407,7 +1413,7 @@ def finish_here(a, ports, cwd):
                  "入っていないと見る（入れるのが人の会社なら、--done を打たずに止まり、入った後に窓口が --retire で畳む）"))
         return 2
     try:
-        provision.mark(cwd, root, {wake.FINISHED: attrs["session"], wake.RETIRE_KEPT: None}, ports.git)
+        provision.mark(cwd, root, {"session": talk, wake.FINISHED: talk, wake.RETIRE_KEPT: None}, ports.git)
     except (gitx.GitError, OSError) as e:
         print(f"止めた: 終わりの印を書けなかった（{e}）")
         return 1

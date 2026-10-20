@@ -327,5 +327,40 @@ class LinkBranch(unittest.TestCase):
         self.assertEqual(calls, [("develop", "o/r", 12, "main", {"GH_TOKEN": "t"}), ("list", "o/r", 12, {"GH_TOKEN": "t"})])
 
 
+class ConfigLock(unittest.TestCase):
+    """部署の属性を書く git config が、ほかの処理の鍵（config.worktree.lock）で断ったら打ち直す（2026-10-20、部署を立てた直後に会話の
+    フックの書き込みとぶつかり、company.session が書かれなかった）。"""
+
+    def runner(self, fails, code=255, err="error: could not lock config file x/config.worktree: File exists"):
+        calls = []
+
+        def run(argv, env=None):
+            calls.append(argv)
+            bad = len(calls) <= fails
+            return subprocess.CompletedProcess(argv, code if bad else 0, "", err if bad else "")
+        return run, calls
+
+    def test_a_locked_config_is_written_again(self):
+        run, calls = self.runner(3)
+        real = gitx.CONFIG_PAUSE
+        gitx.CONFIG_PAUSE = 0
+        self.addCleanup(setattr, gitx, "CONFIG_PAUSE", real)
+        gitx.set_worktree_attr("/w", "session", "s", runner=run)
+        self.assertEqual(len(calls), 4)
+
+    def test_other_errors_and_a_lock_that_stays_are_errors(self):
+        real = gitx.CONFIG_PAUSE
+        gitx.CONFIG_PAUSE = 0
+        self.addCleanup(setattr, gitx, "CONFIG_PAUSE", real)
+        run, calls = self.runner(1, err="error: invalid key")
+        with self.assertRaises(gitx.GitError):
+            gitx.set_worktree_attr("/w", "session", "s", runner=run)
+        self.assertEqual(len(calls), 1)
+        run, calls = self.runner(99)
+        with self.assertRaises(gitx.GitError):
+            gitx.unset_worktree_attr("/w", "session", runner=run)
+        self.assertEqual(len(calls), gitx.CONFIG_TRIES)
+
+
 if __name__ == "__main__":
     unittest.main()

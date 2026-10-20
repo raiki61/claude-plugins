@@ -1096,11 +1096,11 @@ class Departments(unittest.TestCase):
         self.assertTrue(os.path.exists(self.place))
 
     def test_department_whose_session_is_gone_is_still_judged_by_git(self):
-        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
+        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs, path: None, gitx.is_clean,
                                  gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src)
         self.assertEqual([(r["state"], r["removable"], r["session"]) for r in rows], [("gone", True, None)])
         # 順番待ちに頼みが残る部署は畳まない（畳むと頼みが誰にも渡らない。2026-10-18 の受付 b1109e・526db7）
-        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
+        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs, path: None, gitx.is_clean,
                                  gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src, queued=lambda p: True)
         self.assertEqual([(r["removable"], r["reason"]) for r in rows], [(False, "queued")])
 

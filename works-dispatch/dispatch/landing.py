@@ -464,7 +464,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
     me = os.path.realpath(path)
     row = next((r for r in all_rows if os.path.realpath(r["path"]) == me), None)
     if row is None:
-        print(f"部署は残{'す' if dry_run else 'した'}（片付けの候補にならない。会話の属性 company.session が無い部署は手で片付ける）")
+        print(f"部署は残{'す' if dry_run else 'した'}（片付けの候補にならない。会話の属性 company.session も company.job も無い部署は、部署の会話の中から --done を打つと id が書かれる）")
         code = 0
     elif dry_run:
         if row["removable"]:

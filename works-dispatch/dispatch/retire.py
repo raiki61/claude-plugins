@@ -70,13 +70,15 @@ def retire(a, ports, cwd, rows, reasons):
         print("\n".join(notes + [f"部署 {where} は残した（{why}）"]))
         return code
 
+    # 会話の id。長い id（company.session）が無い部署は短い id（company.job）で見分ける（clean.departments）
+    talk = [attrs.get("session") or attrs.get("job")] if attrs.get("session") or attrs.get("job") else []
     try:
-        r, before = row(), row([attrs["session"]] if attrs.get("session") else [])   # before は、会話を止めた後の見立て
+        r, before = row(), row(talk)   # before は、会話を止めた後の見立て
     except term.Error as e:
         return kept(f"worktree を読めない: {e}")
     ask = attrs.get("ask")
     if r is None or before is None:
-        return kept("片付けの候補にならない（会話の属性 company.session が無いか、会話の一覧を読めない）", 2)
+        return kept("片付けの候補にならない（会話の属性 company.session も company.job も無いか、会話の一覧を読めない）", 2)
     if ask and attrs.get("delivered") != ask:
         return kept(f"納品していない頼み（受付 {ask}）が在る", 2)
     if not before["removable"]:
@@ -101,7 +103,7 @@ def retire(a, ports, cwd, rows, reasons):
                 # 一覧に処理の番号が無い: 動く処理は無く、記録の state だけが working のまま残った（2026-10-19、2.1.303。予約した
                 # 繰り返しの仕事〔session_cron〕を残して終わった会話は、claude stop の後も working と出続け、7 回残された）
                 try:
-                    r = row([attrs["session"]])
+                    r = row(talk)
                 except term.Error as e:
                     return kept(f"会話を止めた後に worktree を読めない: {e}")
                 break

@@ -147,8 +147,9 @@ DONE = ("done", "stopped", "failed")
 
 
 def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_sha, source=None, queued=lambda path: False):
-    """部署ごとに、消してよいか。attrs_of(場所) は部署の git の属性。session_of(属性) は会話の 1 件（{id, sessionId, state, …,
-    config_dir}）か、一覧に無ければ None。merged(場所) はブランチの先頭がメインブランチに入っているか。queued(場所) は部署の
+    """部署ごとに、消してよいか。attrs_of(場所) は部署の git の属性。session_of(属性, 場所) は会話の 1 件（{id, sessionId, state, …,
+    config_dir}）か、一覧に無ければ None。会話は属性の長い id（company.session）で見分け、無ければ短い id（company.job）で見分ける
+    （部署を立てた直後に会話のフックと書き込みがぶつかり、company.session だけが書かれなかった部署が在った）。どちらも無い部署と、短い id の会話が一覧に無い部署は並べない。merged(場所) はブランチの先頭がメインブランチに入っているか。queued(場所) は部署の
     順番待ちに頼みが在るか（在る部署を消すと、積まれた頼みを渡す者が居なくなり、頼み元が返事を待ち続ける。2026-10-18 に点検の
     部署が順番待ちの 2 件を残して消え、見渡しが半日返事を待った）。
     返す 1 行は {path, branch, name, account, session, config_dir, state, pid, pr_head, removable, reason}。pid は会話の一覧の処理の番号で、
@@ -159,9 +160,11 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
         if source and _same(path, source):
             continue
         attrs = attrs_of(path)
-        if not attrs.get("session"):
-            continue
-        s = session_of(attrs)
+        if not (attrs.get("session") or attrs.get("job")):
+            continue   # 会話を見分ける id が無い。止まったかを読めないので並べない（消さない側に倒す）
+        s = session_of(attrs, path)
+        if s is None and not attrs.get("session"):
+            continue   # 短い id の会話が一覧に無い（id が古いか、一覧を読めない）。止まったと決められないので並べない
         row = {"path": path, "branch": branch, "name": attrs.get("name"), "account": attrs.get("account"),
                "session": (s or {}).get("id") or (s or {}).get("sessionId"), "config_dir": (s or {}).get("config_dir"),
                "state": (s or {}).get("state") or (s or {}).get("status") or "gone", "pid": (s or {}).get("pid"), "pr_head": head_sha(path),

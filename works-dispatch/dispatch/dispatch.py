@@ -1559,7 +1559,7 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
     """部署（--task が立てた worktree）の片付けの候補（clean.departments）。会話は全アカウントの一覧（終わった物も）で引く。
     メインブランチは origin の既定のブランチの手元の控え。ブランチが入ったかは orders.landed で見る（マージ済みの PR も入ったとみなす）。
     読めなければ、部署は並べない（消さない側に倒す）。assume_stopped の会話の id
-    （sessionId）は、止まった物とみなす（--retire が、止める前に会話のほかに残す訳が無いかを見る）。"""
+    （sessionId か短い id）は、止まった物とみなす（--retire が、止める前に会話のほかに残す訳が無いかを見る）。"""
     try:
         listed = {acc.name: (acc, ports.list_sessions(acc.config_dir, include_done=True)) for acc in cfg.accounts}
         main = ports.default_branch(repo)
@@ -1567,9 +1567,18 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
         notes.append(f"部署の片付けを飛ばした（会話の一覧か既定のブランチを読めない: {e}）")
         return []
 
-    def session_of(attrs):
-        return next(({**s, "config_dir": acc.config_dir, **({"state": "stopped"} if s.get("sessionId") in assume_stopped else {})}
-                     for acc, items in listed.values() for s in items if s.get("sessionId") == attrs["session"]), None)
+    def entry(acc, s):
+        return {**s, "config_dir": acc.config_dir, **({"state": "stopped"} if {s.get("sessionId"), s.get("id")} & set(assume_stopped) else {})}
+
+    def session_of(attrs, path):
+        if attrs.get("session"):
+            return next((entry(acc, s) for acc, items in listed.values() for s in items if s.get("sessionId") == attrs["session"]), None)
+        # 長い id（company.session）が無い部署は、短い id（company.job。会話の一覧の id）で引く。job は前の裏の会話のまま残りうるので、
+        # 部署の場所でほかの会話が動いていればそちらを返す（動いているとみなして畳まない）
+        here = [entry(acc, s) for acc, items in listed.values() for s in items
+                if s.get("cwd") and os.path.realpath(s["cwd"]) == os.path.realpath(path)]
+        live = [s for s in here if s.get("state") not in clean.DONE]
+        return next(iter(live), None) or next((s for s in here if s.get("id") == attrs.get("job")), None)
 
     def queued(path):
         common, place = ports.git.common_dir(path), ports.git.git_dir(path)

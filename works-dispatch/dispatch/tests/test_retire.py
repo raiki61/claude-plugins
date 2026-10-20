@@ -152,9 +152,56 @@ class Retire(unittest.TestCase):
 
     def test_done_refuses_a_department_without_its_talk_id(self):
         provision.mark(self.place, self.src, {"session": None}, gitx)
+        self.ports.env = {}   # Claude Code の外から打った（この会話の id も読めない）
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("会話の id", out)
+
+    def test_done_fills_a_missing_talk_id_with_its_own(self):
+        # 2026-10-20 に、部署を立てた直後に会話のフックと書き込みがぶつかり（config.worktree の鍵）、company.session が書かれなかった
+        provision.mark(self.place, self.src, {"session": None, "job": "d"}, gitx)
+        # 部署の裏の会話でない会話（短い id が company.job と違う）が部署の場所で打っても、その id は書かない
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-other", "CLAUDE_JOB_DIR": "/c/jobs/x"}
+        rc, out = self.main(self.place, "--done")
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("session", gitx.worktree_attrs(self.place))
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept", "CLAUDE_JOB_DIR": "/c/jobs/d"}
+        rc, out = self.main(self.place, "--done")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["session"], attrs[wake.FINISHED]), ("s-dept", "s-dept"))
+
+    def test_retire_finds_the_talk_by_its_short_id_when_the_long_id_is_missing(self):
+        provision.mark(self.place, self.src, {"session": None, "job": "d"}, gitx)
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("会話がまだ動いている", out)   # 会話が動いている部署は、id が短い物しか無くても畳まない
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, ["d"])
+        self.assertFalse(os.path.exists(self.place))
+
+    def test_a_short_id_left_from_a_former_talk_does_not_hide_a_live_one(self):
+        # company.job は前の裏の会話のまま残りうる。部署の場所でほかの会話が動いていれば、動いているとみなす
+        self.state = "done"
+        provision.mark(self.place, self.src, {"session": None, "job": "d"}, gitx)
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {"id": "d", "sessionId": "s-dept", "cwd": self.place, "kind": "background", "state": "done"},
+            {"id": "e", "sessionId": "s-new", "cwd": self.place, "kind": "background", "state": "working", "pid": 1}]
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("会話がまだ動いている", out)
+        # 短い id の会話が一覧に無ければ、止まったと決められないので並べない
+        provision.mark(self.place, self.src, {"job": "zz"}, gitx)
+        self.ports.list_sessions = lambda cdir, include_done=False: []
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 2, out)
+        self.assertTrue(os.path.exists(self.place))
+
+    def test_retire_leaves_a_department_without_any_talk_id(self):
+        provision.mark(self.place, self.src, {"session": None, "job": None}, gitx)
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("company.job も無い", out)
+        self.assertTrue(os.path.exists(self.place))
 
     def test_a_talk_already_stopped_is_not_stopped_again(self):
         self.state = "stopped"

@@ -18,6 +18,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 import filex
 
@@ -346,12 +347,30 @@ def is_merged(cwd, target, runner=_default_runner):
     return _is_ancestor(cwd, "HEAD", target, runner)
 
 
+# 部署の属性を書く git config が、ほかの処理の書いている間の鍵（config.worktree.lock）で断ったときに打ち直す回数と間（秒）。部署を
+# 立てた直後は、起動した会話のフック（待ち受けなど）が同じ config.worktree に書き、--task が会話の id を書くのとぶつかる。git config は
+# 鍵を待たずに「could not lock config file」で断る（2026-10-20、works-factory：PIN を作り直し後の main へ上げる。company.session が
+# 書かれず、--done も --retire も断った）
+CONFIG_LOCKED = "could not lock config file"
+CONFIG_TRIES = 20
+CONFIG_PAUSE = 0.1
+
+
+def _config_write(argv, runner, ok=(0,), pause=time.sleep):
+    """設定を書く git config を打ち、鍵で断られたら打ち直す（最初の 1 回を含めて CONFIG_TRIES 回まで打つ）。ok の外の終了の値なら GitError。"""
+    for i in range(CONFIG_TRIES):
+        p = runner(argv, env={**os.environ, "LC_ALL": "C"})   # 断りの文を英語で読む（訳された git でも鍵と見分ける）
+        if p.returncode in ok or CONFIG_LOCKED not in (p.stderr or "") or i == CONFIG_TRIES - 1:
+            break
+        pause(CONFIG_PAUSE)
+    if p.returncode not in ok:
+        raise GitError(f"{' '.join(argv[:4])}: {(p.stderr or p.stdout).strip()[:300]}")
+    return p.stdout.strip()
+
+
 def unset_worktree_attr(cwd, name, runner=_default_runner):
     """その worktree の git の設定 company.<名前> を消す。書く口。もともと無ければ何もしない（git config は終了の値 5 を返す）。"""
-    argv = ["git", "-C", cwd, "config", "--worktree", "--unset", f"{ATTR}{name}"]
-    p = runner(argv)
-    if p.returncode not in (0, 5):
-        raise GitError(f"{' '.join(argv[:4])}: {(p.stderr or p.stdout).strip()[:300]}")
+    _config_write(["git", "-C", cwd, "config", "--worktree", "--unset", f"{ATTR}{name}"], runner, ok=(0, 5))
 
 
 def drop_copied_attrs(cwd, runner=_default_runner):
@@ -359,13 +378,13 @@ def drop_copied_attrs(cwd, runner=_default_runner):
     消したら真。写しの上に属性を書くと、書いた id が写しの残りまでこの worktree の物に見せる（provision.mark が書く前に呼ぶ）。"""
     if not _copy_of(*_read_attrs(cwd, runner)):
         return False
-    _must(["git", "-C", cwd, "config", "--worktree", "--remove-section", "company"], runner)
+    _config_write(["git", "-C", cwd, "config", "--worktree", "--remove-section", "company"], runner)
     return True
 
 
 def set_worktree_attr(cwd, name, value, runner=_default_runner):
     """その worktree の git の設定 company.<名前> に値を書く（同じ値なら同じ結果）。書く口。"""
-    _must(["git", "-C", cwd, "config", "--worktree", f"{ATTR}{name}", value], runner)
+    _config_write(["git", "-C", cwd, "config", "--worktree", f"{ATTR}{name}", value], runner)
 
 
 # メインブランチに入れる（取り込みのコマンド --land。nodes/land.py と nodes/bump.py）ための口
