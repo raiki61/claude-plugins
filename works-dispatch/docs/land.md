@@ -46,7 +46,7 @@
   3. 同じファイルを変える部署どうし（`--land-order` の「ほかの待ちと重なる」）は、ほかの部署が土台にしている物を先にする（後の方がリベースで合わせる。土台を後にすると、両方がリベースし直す）。
   4. 残りは申し出た順のまま（`order` に書かない）。
 
-外のツールが列に並ぶ（`--queue-run`）: works-dispatch の外で、同じ clone からメインブランチへ自分で push するツール（my_notes〔持ち主のノートのリポジトリ〕の collect など。collect は今、列のコードの写し `tools/land_queue.py` を持つ）は、`--land` と同じ列（メインブランチへ 1 本ずつ入れるための順番待ち。会社の形〔`.claude/company.toml`〕の `[land]` に `queue` を書いたときだけ在る）に並んでからコマンドを走らせる。列の作りを works-dispatch の側の 1 か所（`dispatch/nodes/landqueue.py`）に持ち、札の形を写して合わせないためにある（写すと、片方だけ直したときに札の形がずれ、互いを見ずに同時に push しうる）。
+外のツールが列に並ぶ（`--queue-run`）: works-dispatch の外で、同じ clone からメインブランチへ自分で push するツール（my_notes〔持ち主のノートのリポジトリ〕の collect など。collect は今、列のコードの写し `tools/land_queue.py` を持つ）は、`--land` と同じ列（メインブランチへ 1 本ずつ入れるための順番待ち。会社の形〔`.claude/company.toml`〕の `[land]` に `queue` を書いたときだけ在る）に並んでからコマンドを走らせる。列の作りを works-dispatch の側の 1 か所（`dispatch/nodes/landqueue.py`）に持ち、札の形を写して合わせないためにある（写すと、片方だけ直したときに札の形がずれ、互いを見ずに同時に push しうる）。この項を読んで手を動かすのは、そういうツールを書く人で、することは 1 つ: ツールの中の、メインブランチを取り直してから push し終えるまでの手を 1 つのコマンドにまとめ、そのコマンドを下の `--queue-run` で包んで走らせる（例 `"$WORKS_DISPATCH_PYTHON" "$WORKS_DISPATCH" --queue-run -- git push origin HEAD:master`）。部署と判断役は何もしなくてよい。
 
 - `python3 dispatch.py [--repo <代表の clone>] --queue-run -- <コマンド> [<引数> ...]` は、打った場所（か `--repo`。worktree の中でもよい）の会社の形の `[land]` の `queue` の列に申し出て、先頭を取ってからコマンドを打った場所で走らせ、終わったら列を抜けて次に渡す。dispatch の引数は `--queue-run` の前に書き、`--` の後ろは全部コマンドとその引数になる。
 - コマンドはシェルを通さずに起動し、標準入出力と環境をそのまま渡す。列で待つ間の行（前に何本居るか）と止めた訳は標準エラーに出す（標準出力はコマンドの物）。
