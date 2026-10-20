@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.100.2] - 2026-10-20
+
 ### Fixed
 
 - 一覧の回（dispatch を引数なしで打つ回）の片付けが、マージ済みの PR の手元（PR のブランチの git worktree）を、手元の作業が有ると誤って残し続けることがあった。手元の作業の有無を、手元の先頭の commit が PR の最後の commit（GitHub の headRefOid）と同じかどうかだけで見ていたので、origin のブランチより遅れているだけの手元も、手元にしか無い commit の有る手元と同じに扱っていた。2026-10-20 に guided-resolver（このツールで PR を開いている別のリポジトリ）の PR 2 件（behind 10 と behind 2）で起きた。今は、手元の先頭が PR の最後の commit と同じか、その祖先（`git merge-base --is-ancestor` が真）なら、先頭の commit の上では手元の作業が無いと見て片付け、手元のブランチも消す。未コミットの変更と stash が有れば、今までどおり残す。手元の先頭が PR の最後の commit の祖先でない（手元にしか無い commit が有る）ときと、PR の最後の commit が手元に無くて祖先かを確かめられないときも残す。会話の開いている閉じた PR の手元（会話を終えてから片付ける道）と `--clean` の一覧も同じ判定にした。
