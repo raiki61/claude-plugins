@@ -164,6 +164,11 @@ QUIET = [
     ("git add works-dispatch/dispatch/dispatch.py --text # %s" % PAD, "dispatch.py を走らせないコマンド"),
     ("python3 /p/dispatch/dispatch.py --ask x -- --text %s" % TEXT, "dispatch.py の -- より後"),
     ("python3 /p/dispatch/dispatch.py --deliver /no/such.md --dry", "dispatch.py の --dry-run(頭だけの綴り)"),
+    # 頼み・足しの文は AI の会話どうしの文なので読まず、読めない形でも止めない(受付 d8829b)
+    ("bash /p/hooks/run-python.sh /p/dispatch/dispatch.py --ask claude-plugins/点検 --text %s" % TEXT, "dispatch.py の --text"),
+    ("python3 /p/dispatch/dispatch.py --task t --branch b --bri /tmp/brief.md # %s" % PAD, "dispatch.py の --brief"),
+    ("python3 /p/dispatch/dispatch.py --ask x --brief rel/brief.md # %s" % PAD, "dispatch.py の --brief の決まらないパス"),
+    ('python3 /p/dispatch/dispatch.py --ask x --text "$BODY" # %s' % PAD, "dispatch.py の --text の変数"),
 ]
 
 # 本文ファイルの倒れ先を発火させる実物のファイル(一時フォルダに置き、終わりに消す)。コマンドに埋めるパスは / で区切る——
@@ -184,8 +189,6 @@ with open(LATIN, "wb") as f:
 DISPATCH = "python3 /p/works-dispatch/dispatch/dispatch.py"
 DISPATCH_CASES = [
     ("--deliver", "%s --deliver %s" % (DISPATCH, OK_FILE)),
-    ("--text", "bash /p/hooks/run-python.sh /p/dispatch/dispatch.py --ask claude-plugins/点検 --text %s" % TEXT),
-    ("--brief", "%s --note 20261019-000000-abcdef --brief %s" % (DISPATCH, OK_FILE)),
 ]
 # 旗の頭だけの綴り・= で値を付ける形・標準入力(argparse はどれも受ける)・走らせる語と dispatch.py の間に旗が在る形・
 # dispatch.py か run-python.sh を直に打つ形
@@ -195,7 +198,6 @@ DISPATCH_FORMS = [
     "./run-python.sh /p/dispatch/dispatch.py --deliver %s" % OK_FILE,
     "/p/dispatch/dispatch.py --deliver %s" % OK_FILE,
     "%s --deli=%s --again" % (DISPATCH, OK_FILE),
-    "%s --task t --branch b --bri %s" % (DISPATCH, OK_FILE),
     "%s --deliver %s" % (DISPATCH, HEREDOC),
 ]
 
@@ -230,8 +232,7 @@ BLOCKED_CASES = [
     ("本文旗の値を判定できない", "gh issue comment 1 %s %s" % (PATCH_FLAG, TEXT)),
     # works-dispatch の送るコマンドも、gh と同じ口(_body_sink)で倒れる
     ("別プロセスからの stdin 渡し", "cat /tmp/b.md | %s --deliver - # %s" % (DISPATCH, PAD)),
-    ("本文ファイルのパスが決まらない", "%s --ask x --brief rel/brief.md # %s" % (DISPATCH, PAD)),
-    ("変数・コマンド置換渡し", '%s --ask x --text "$BODY" # %s' % (DISPATCH, PAD)),
+    ("本文ファイルのパスが決まらない", "%s --deliver rel/summary.md # %s" % (DISPATCH, PAD)),
 ]
 
 failures = []

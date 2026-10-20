@@ -2910,9 +2910,9 @@ assert r.stdout.decode("utf-8") == g.COLD_PROMPT, "prompt の口が COLD_PROMPT 
 print("DOCS_GATE_OK")
 PY
 
-# works-dispatch の送るコマンド（--deliver・--ask などの本文）は、gh の投稿と同じく送る前に読む。通した本文ファイルは、
-# ターンの終わりの手元の文書の読みが読み直さない（送った後に直せない指摘を出さない。受付 5bb988）。宛先のゲートは問わない
-expect_output 0 "DISPATCH_SEND_OK" "coldread: works-dispatch の納品と頼みの本文を送る前に読み、通した本文ファイルをターンの終わりに読み直さない" \
+# works-dispatch の送るコマンドは、納品の要約の持ち主に向けた問いだけを送る前に読み、AI の会話どうしの頼み・足し・納品は止めない。
+# 送った要約のファイルは、ターンの終わりの手元の文書の読みが読み直さない（送った後に直せない指摘を出さない。受付 5bb988）。宛先のゲートは問わない
+expect_output 0 "DISPATCH_SEND_OK" "coldread: works-dispatch の頼み・足し・納品は止めず、納品の持ち主への問いだけを読み、送った要約をターンの終わりに読み直さない" \
     "$PY_BIN" - "$ROOT" "$WORK/dispatch-send" <<'PY'
 import json, os, pathlib, shlex, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
@@ -2947,72 +2947,91 @@ def stub(*findings):
 FIND, CLEAN = stub("stuck=『例の件』が何か分からない"), stub()
 read = lambda: len(list(calls.iterdir()))
 D = "python3 %s" % (root / "works-dispatch/dispatch/dispatch.py").as_posix()
+toml = sys.version_info >= (3, 11)   # tomllib の無い Python（3.10 以前）では頭書きを TOML として読まない
 summary = work / "deliver.md"
 summary.write_text("+++\nopen = []\n+++\n" + "例の件を直して main に入れた。" * 30, encoding="utf-8")
 
-# 詰まりが在れば送らせない（読み手が本文ファイルの中身を読んだ）
+# 納品の要約は AI の会話（頼み元）が読むので、持ち主に向けた問いが無ければ読み手を走らせずに通す（受付 d8829b・c64abc）
 got = bash("%s --deliver %s" % (D, summary.as_posix()), FIND)
-assert got and got["permissionDecision"] == "deny" and "例の件" in got["permissionDecisionReason"], got
-assert read() == 1 and "例の件を直して" in (calls / "0.txt").read_text(encoding="utf-8"), "読み手に要約の本文が届いていない"
-# 頭書き（送るツールが読む +++ の TOML）は、納品の受け手に届く形（「残った疑問」の項目）に替えて読ませる。ファイルは替えない（頼み 063afa）。
-# tomllib の無い Python（3.10 以前）では外すだけ
-toml = sys.version_info >= (3, 11)
-seen = (calls / "0.txt").read_text(encoding="utf-8")
-assert "+++" not in seen and "open = []" not in seen and ("## 残った疑問\nなし" in seen) == toml, f"頭書きを頭書きのまま読ませた: {seen[-300:]}"
-assert summary.read_text(encoding="utf-8").startswith("+++\nopen = []\n+++\n"), "要約のファイルの頭書きを替えた"
-# 直して通した要約は、ターンの終わりの手元の文書の読みが読み直さない
-summary.write_text("+++\nopen = []\n+++\n" + "受付 5bb988 の直しを main に入れた。" * 30, encoding="utf-8")
-got = bash("%s --deliver %s" % (D, summary.as_posix()), CLEAN)
-assert got and got["permissionDecision"] == "allow" and read() == 2, got
+assert got is None and read() == 0, (got, read())
+# 送った要約は、ターンの終わりの手元の文書の読みが読み直さない（送った後に直せない指摘を出さない。受付 5bb988）
 hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(summary)}}, None, "docs-record")
-assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, FIND, "docs-check") == "" and read() == 2, \
-    "通して送った要約をターンの終わりにまた読んだ（送った後に直せない指摘が出る）"
+assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, FIND, "docs-check") == "" and read() == 0, \
+    "送った要約をターンの終わりにまた読んだ（送った後に直せない指摘が出る）"
 # 送っていない中身は今までどおり読む（上の読み直さないが、ターンの終わりの読みが止まっているせいでないことの確かめ）
 summary.write_text(summary.read_text(encoding="utf-8") + "\n送る前に書き足した。", encoding="utf-8")
 hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(summary)}}, None, "docs-record")
-assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, CLEAN, "docs-check") == "" and read() == 3, \
+assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, CLEAN, "docs-check") == "" and read() == 1, \
     "送っていない中身をターンの終わりに読まない"
-# --ask の --text・--brief も読む。読めない形（変数）は送らせない
+# 頼み（--ask・--task）と足し（--note）の文は AI の会話どうしの文なので読まず、読めない形（変数）でも止めない
 ask = "%s --ask claude-plugins/点検 --text '%s'" % (D, "gh の検査の頼みの文。" * 30)
-got = bash(ask, FIND)
-assert got and got["permissionDecision"] == "deny" and read() == 4, got
-got = bash('%s --ask claude-plugins/点検 --brief %s' % (D, summary.as_posix()), CLEAN)
-assert got and got["permissionDecision"] == "allow" and read() == 5, got
-got = bash('%s --note 20261019-000000-abcdef --text "$BODY"' % D, CLEAN)
-assert got and got["permissionDecision"] == "deny" and "変数" in got["permissionDecisionReason"] and "--text" in got["permissionDecisionReason"], got
-assert bash("%s --land 点検" % D, FIND) is None and read() == 5, "本文を運ばないコマンドを読んだ"
+assert bash(ask, FIND) is None and read() == 1, "頼みの文を読んだか止めた"
+assert bash('%s --ask claude-plugins/点検 --brief %s' % (D, summary.as_posix()), FIND) is None and read() == 1
+assert bash('%s --note 20261019-000000-abcdef --text "$BODY"' % D, FIND) is None and read() == 1, "足しを読めない形で止めた"
+assert bash("%s --land 点検" % D, FIND) is None and read() == 1, "本文を運ばないコマンドを読んだ"
 # 宛先の許可制（destgate）は GitHub の宛先を縛るもので、手元の会社の中で届く頼みを止めない（本文に gh の語が在っても）
 assert bash(ask, None, dest) is None, "destgate が works-dispatch の頼みを宛先不明で止めた"
-# 前の回から残った物だけで止める回（3 回目）に通した本文は、全体を読んでの合格でないので覚えず、ターンの終わりに読む
-late = work / "late.md"
-for n in range(3):
-    late.write_text("+++\nopen = []\n+++\n" + "例の件の続きを直した。" * 30 + "直し %d。" % n, encoding="utf-8")
-    got = bash("%s --deliver %s" % (D, late.as_posix()), FIND)
-assert got and got["permissionDecision"] == "allow" and read() == 8, (got, read())
-hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(late)}}, None, "docs-record")
-assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, CLEAN, "docs-check") == "" and read() == 9, \
-    "前の回から残った物だけで止める回に通した本文を、全体を読んだ扱いにした"
-# 残った疑問の在る頭書きは、1 件ずつ疑問の文と担当者の字にして読ませる。題（title）は見出しにする。読めない頭書きは替えない
+# 残った疑問のうち担当者が持ち主（owner:choose・owner:confirm）の物は、持ち主が文脈を持たずに読むので、それだけを文脈ゼロで読む。
+# 要約のほかの所と、ほかの担当者の疑問は読ませない。ファイルは替えない
+front = ('+++\n[[open]]\nquestion = "次の版で何を直すかを決める"\nholder = "owner:choose"\n[[open]]\nquestion = "CI の赤を戻す"\n'
+         'holder = "20261019-211527-dea487"\n+++\n')
 opened = work / "opened.md"
-opened.write_text('+++\n[[open]]\nquestion = "次の版で何を直すかを決める"\nholder = "owner:choose"\n[[open]]\nquestion = "CI の赤を戻す"\n'
-                  'holder = "20261019-211527-dea487"\n+++\n' + "残りの直しを分けて回した。" * 30, encoding="utf-8")
-got = bash("%s --deliver %s" % (D, opened.as_posix()), CLEAN)
+opened.write_text(front + "残りの直しを分けて回した。" * 30, encoding="utf-8")
+got = bash("%s --deliver %s" % (D, opened.as_posix()), FIND)
 seen = (calls / ("%d.txt" % (read() - 1))).read_text(encoding="utf-8")
-assert got and got["permissionDecision"] == "allow" and "[[open]]" not in seen and "holder =" not in seen \
-    and (not toml or "## 残った疑問\n- 次の版で何を直すかを決める 担当者: 持ち主（価値で選ぶ）\n- CI の赤を戻す 担当者: 20261019-211527-dea487" in seen), seen[-300:]
-brief = work / "brief.md"
-brief.write_text('+++\ntitle = "頭書きの読み方を直す"\n+++\n' + "頼みの文。" * 60, encoding="utf-8")
-got = bash("%s --ask claude-plugins/点検 --brief %s" % (D, brief.as_posix()), CLEAN)
-seen = (calls / ("%d.txt" % (read() - 1))).read_text(encoding="utf-8")
-assert got and got["permissionDecision"] == "allow" and "+++" not in seen and ("# 頭書きの読み方を直す\n\n頼みの文。" in seen) == toml, seen[-300:]
-if toml:
-    brief.write_text('+++\ntitle = "閉じの引用符が無い\n+++\n' + "頼みの文。" * 60 + "読めない頭書き。", encoding="utf-8")
-    got = bash("%s --ask claude-plugins/点検 --brief %s" % (D, brief.as_posix()), CLEAN)
-    assert '+++\ntitle = "閉じの引用符が無い' in (calls / ("%d.txt" % (read() - 1))).read_text(encoding="utf-8"), "読めない頭書きを替えた"
+assert got and got["permissionDecision"] == "deny" and read() == 2 and "持ち主" in got["permissionDecisionReason"], got
+assert "残りの直しを分けて回した" not in seen and "CI の赤を戻す" not in seen if toml else 'holder = "owner:choose"' in seen, seen[-400:]
+assert not toml or "## 持ち主への問い\n- 次の版で何を直すかを決める 担当者: 持ち主（価値で選ぶ）\n" in seen, seen[-300:]
+assert opened.read_text(encoding="utf-8").startswith(front), "要約のファイルの頭書きを替えた"
+# 担当者が owner:confirm の問いも読む。形の違う頭書き（open が並びでない・holder が数字・dict でない要素）は落ちずに、読まずに通す
+confirm = work / "confirm.md"
+confirm.write_text('+++\n[[open]]\nquestion = "main に入れてよいか確かめる"\nholder = "owner:confirm"\n+++\n' + "直した。" * 80, encoding="utf-8")
+got = bash("%s --deliver %s" % (D, confirm.as_posix()), CLEAN)
+assert got and got["permissionDecision"] == "allow" and read() == 3, (got, read())
+assert not toml or "main に入れてよいか確かめる 担当者: 持ち主（確認してからやる）" in (calls / "2.txt").read_text(encoding="utf-8")
+for odd in ('open = "なし"', 'open = [1, 2]', '[[open]]\nquestion = 3\nholder = 4'):
+    confirm.write_text("+++\n%s\n+++\n" % odd + "直した。" * 80, encoding="utf-8")
+    assert bash("%s --deliver %s" % (D, confirm.as_posix()), FIND) is None and read() == 3, odd
+# gh の投稿と納品が同じコマンドに並ぶときは、納品の要約のほうが長くても gh の本文を読む（長い要約を添えて gh の本文を素通りさせない）
+got = bash("gh release create v1 --notes '%s' && %s --deliver %s" % ("例の件を出した。" * 30, D, summary.as_posix()), FIND)
+assert got and got["permissionDecision"] == "deny" and read() == 4 and "例の件を出した" in (calls / "3.txt").read_text(encoding="utf-8"), (got, read())
+calls_before = read()
+# 前の回から残った物だけで止める回（3 回目）に通しても、送った要約は覚える（持ち主への問いのほかは読んでいないので、全体を読んだかは問わない）
+for n in (2, 3):
+    opened.write_text(front.replace("決める", "決める（直し %d）" % n) + "残りの直しを分けて回した。" * 30, encoding="utf-8")
+    got = bash("%s --deliver %s" % (D, opened.as_posix()), FIND)
+assert got and got["permissionDecision"] == "allow" and read() == calls_before + 2, (got, read())
+hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(opened)}}, None, "docs-record")
+assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, FIND, "docs-check") == "" and read() == calls_before + 2, \
+    "持ち主への問いを読んで送った要約を、ターンの終わりにまた読んだ"
 # dispatch.py を走らせる形と読めないコマンド（知らない起動の口）は通るが、取りこぼしの記録に旗と先頭の語を残す
 assert bash("uv run /p/dispatch.py --deli %s" % summary.as_posix(), FIND) is None
 rows = [l.split("\t")[1:] for l in (cfg / "coldread-gate/misses.log").read_text(encoding="utf-8").splitlines()]
 assert ["--deliver", "uv"] in rows, rows
+# 持ち主への問いは、要約が短くても読む(長さの足切りは要約の全体でなく、読む問いに掛けない)
+short = work / "short.md"
+short.write_text('+++\n[[open]]\nquestion = "出すかを決める"\nholder = "owner:choose"\n+++\n直した。', encoding="utf-8")
+n = read()
+got = bash("%s --deliver %s" % (D, short.as_posix()), FIND)
+assert got and got["permissionDecision"] == "deny" and read() == n + 1, (got, read())
+# gh の投稿と、持ち主への問いを持つ納品は 1 つのコマンドで送らせない(読み手を走らせず、分けて打つよう止める)
+got = bash("gh release create v2 --notes '%s' && %s --deliver %s" % ("別の件を出した。" * 30, D, short.as_posix()), CLEAN)
+assert got and got["permissionDecision"] == "deny" and "分けて" in got["permissionDecisionReason"] and read() == n + 1, got
+# gh の本文を読んで通したときも、並んだ納品の要約(持ち主への問いが無い・改行が CRLF)は送った物として覚える
+crlf = work / "crlf.md"
+crlf.write_bytes(("+++\r\nopen = []\r\n+++\r\n" + "例の件を片付けて返した。\r\n" * 30).encode("utf-8"))
+got = bash("gh release create v3 --notes '%s' && %s --deliver %s" % ("三つ目の件を出した。" * 30, D, crlf.as_posix()), CLEAN)
+assert got and got["permissionDecision"] == "allow" and read() == n + 2, (got, read())
+hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(crlf)}}, None, "docs-record")
+assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, FIND, "docs-check") == "" and read() == n + 2, \
+    "gh と並べて送った要約(CRLF)をターンの終わりにまた読んだ"
+# 頭書きが TOML でない・知らないフィールドを持つ要約は、読む問いが無いので通す(送るかは works-dispatch が決める)
+for odd in ("open = [", 'title = "x"\n[[open]]\nquestion = "出すかを決める"\nholder = "owner:choose"')[:2 if toml else 1]:
+    short.write_text("+++\n%s\n+++\n" % odd + "直した。" * 80, encoding="utf-8")
+    assert bash("%s --deliver %s" % (D, short.as_posix()), FIND) is None and read() == n + 2, odd
+# 要約のファイルを解けない変数で渡す納品は、持ち主への問いが在るかを確かめられないので止める
+got = bash('%s --deliver "$F"' % D, FIND)
+assert got and got["permissionDecision"] == "deny" and "--deliver に渡すファイル" in got["permissionDecisionReason"] and read() == n + 2, got
 print("DISPATCH_SEND_OK")
 PY
 

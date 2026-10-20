@@ -7,7 +7,7 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 初見で読ませ、理解を妨げた「詰まり」が出たら deny の理由にその指摘を載せて止める。
 「疑問」(理解はできたが答えが本文に無いもの)は止めずに申し送る——疑問ゼロの文章は
 ほぼ書けず、疑問で止めるとゲートが厳しすぎて逃げ道が常態化するため。
-works-dispatch の dispatch.py がほかの会話へ送る本文(納品の要約・頼みの文)も、同じく送る前に読む(DISPATCH_BODY_FLAGS の上の注記)。
+works-dispatch の dispatch.py がほかの会話へ送る本文は、納品の要約のうち持ち主に向けた問いだけを読む(DISPATCH_BODY_FLAGS の上の注記)。
 
 検査の実行を書き手(モデル)の申告に頼らないので、「検査した印だけ押して通す」穴が
 構造的に無い(自動の振る舞いはフックが実行する、の原則)。再実行のたびに新しい
@@ -134,7 +134,7 @@ except ImportError:   # Windows(msvcrt で閉じる。_locked)
     fcntl = None
 try:
     import tomllib
-except ImportError:   # 3.10 以前(works-dispatch の頭書きを字に替えず、外して読ませる。dispatch_view)
+except ImportError:   # 3.10 以前(works-dispatch の頭書きを TOML として読まない。owner_view)
     tomllib = None
 import contextlib
 
@@ -308,13 +308,13 @@ BODY_FLAG_RE = re.compile(
 # 短縮形を数えないことが、この計器が下限しか出さないことの内訳で、押し出しの量は「これ以上」としてしか読めない。
 
 
-# works-dispatch(このリポジトリのプラグイン。部署に頼みを配り、部署が納品を返す)の送るコマンドも、gh の投稿と同じく
-# 送る前に読む。--deliver(納品の要約を頼み元へ返す)と、--text・--brief(--ask・--note・--task の頼みの文)は、打ったら
-# ほかの会話へ届き、届いた物は直せない。前は手元の文書の読み(docs-check)がターンの終わり、つまり送った後に要約の
-# ファイルを読み、直せない指摘を出していた(2026-10-19、受付 5bb988)。旗の綴りは works-dispatch/dispatch/dispatch.py の
-# argparse。argparse は長い旗の頭だけの綴り(--deli)も受けるので、ここに在る旗の 1 つにだけ合う頭もその旗と見る
-# (ほかの旗にも合う頭は argparse が「あいまい」で止めるので、どちらに倒しても送られない)。
-DISPATCH_BODY_FLAGS = {"--deliver": "file", "--text": "text", "--brief": "file"}
+# works-dispatch(このリポジトリのプラグイン。部署に頼みを配り、部署が納品を返す)の送るコマンドのうち、--deliver(納品の要約を
+# 頼み元へ返す)だけを送る前に見る。読むのは要約のうち持ち主に向けた問いだけで(owner_view)、無ければ読まずに通す。--text・--brief
+# (--ask・--note・--task の頼みの文)は AI の会話どうしの文なので見ない(受付 d8829b)。送った要約のファイルは覚え、手元の文書の
+# 読み(docs-check)がターンの終わり、つまり送った後に読み直して直せない指摘を出さないようにする(2026-10-19、受付 5bb988)。
+# 旗の綴りは works-dispatch/dispatch/dispatch.py の argparse。argparse は長い旗の頭だけの綴り(--deli)も受けるので、
+# ここに在る旗の頭もその旗と見る(ほかの旗にも合う頭は argparse が「あいまい」で止めるので、どちらに倒しても送られない)。
+DISPATCH_BODY_FLAGS = {"--deliver": "file"}
 DISPATCH_SCRIPT = "dispatch.py"
 DISPATCH_SUB = "works-dispatch"   # Analysis.calls のサブコマンドの頭(gh のサブコマンドと分ける。destgate は宛先を問わない)
 DISPATCH_FRONT = "+++"   # works-dispatch の頭書きの 1 行目と閉じの行(works-dispatch/dispatch/nodes/deliver.py の FRONT)
@@ -322,40 +322,45 @@ DISPATCH_FRONT = "+++"   # works-dispatch の頭書きの 1 行目と閉じの�
 DISPATCH_OWNERS = {"owner:choose": "持ち主（価値で選ぶ）", "owner:confirm": "持ち主（確認してからやる）"}
 
 
-def dispatch_view(body):
-    """works-dispatch に送る本文の、読み手に渡す形。
+def sent_digests(body):
+    """送った本文を覚える鍵(_remember)。docs-check は改行を LF にそろえて読むので、そろえた中身も覚える。"""
+    return sorted({hashlib.sha256(b.encode("utf-8")).hexdigest()
+                   for b in (body, body.replace("\r\n", "\n").replace("\r", "\n"))})
 
-    頭書き(1 行目と閉じの行が +++ の TOML。題の title・頼みの種類の type・残った疑問の open)は送るツールが読むフィールドで、
-    納品の受け手には「残った疑問」の項目として届き、頼みの題は受付の一覧に出る。頭書きのまま読ませると、読み手が「冒頭の +++ open = [] +++ が何か
-    分からない」を詰まりに挙げ、残った疑問の無い納品を 3 回続けて止めた(2026-10-20、頼み 063afa)。そこで題は見出しに、残った疑問は
-    納品の受け手に届く形の字に替えて読ませる。残った疑問の文と担当者は読ませたまま残す(届く文なので、通じるかを見る)。ファイルは替えない
-    (頭書きは送るツールが読む)。替え方は works-dispatch の deliver.py の render_open・holder_text に合わせる。知らないフィールド・読めない
-    頭書きは替えない(送るツールが送らずに返す)。tomllib の無い Python(3.10 以前)では頭書きを外すだけにする。
+
+def owner_view(body):
+    """納品の要約(--deliver)のうち、持ち主(人)に向けた問い → 読み手に渡す字。無ければ ""(読まずに通す)。
+
+    works-dispatch の頼み(--ask)・足し(--note)・納品(--deliver)を受け取るのは AI の会話で、分からなければ聞き返せる。
+    そこで読み手は走らせない(持ち主 2026-10-20「外部投稿ゲートも全部に出てるので、絞った方がいいかもな」、受付 d8829b)。
+    文脈ゼロで読んでいた頃は、頼み元が自分で書いた語まで詰まりに出し、同じ日の --deliver は通した 253 回に対し止めた 832 回、
+    1 本の納品が 5 回止まって部署が持ち主に手で送ってほしいと書いて止まった(受付 c64abc)。人が読むのは、頭書き(1 行目と
+    閉じの行が +++ の TOML)の残った疑問(open)のうち、担当者(holder)が持ち主の物だけで、持ち主は会話の文脈を持たずに読むので、
+    それを文脈ゼロで読ませる。字は works-dispatch の deliver.py の render_open・holder_text に合わせる。頭書きが無い・読めない・
+    知らないフィールドを持つときは "" を返す(持ち主への問いを書く所が無い。読めない頭書きは送るツールが送らずに返す)。
+    tomllib の無い Python(3.10 以前)では、頭書きに持ち主の担当者が在れば頭書きをそのまま読ませる(厳しい側)。
     """
     lines = body.lstrip("\ufeff").splitlines(keepends=True)
     if not lines or lines[0].strip() != DISPATCH_FRONT:
-        return body
+        return ""
     end = next((i for i in range(1, len(lines)) if lines[i].strip() == DISPATCH_FRONT), None)
     if end is None:
-        return body
-    rest = "".join(lines[end + 1:]).lstrip("\n")
+        return ""
+    front = "".join(lines[1:end])
     if tomllib is None:
-        return rest
+        return front if any(k in front for k in DISPATCH_OWNERS) else ""
     try:
-        data = tomllib.loads("".join(lines[1:end]))
+        data = tomllib.loads(front)
     except tomllib.TOMLDecodeError:
-        return body
+        return ""
     questions = data.get("open")
-    if set(data) - {"title", "type", "open"} or not isinstance(data.get("title", ""), str) or not (
-            questions is None or isinstance(questions, list) and all(isinstance(q, dict) for q in questions)):
-        return body
-    head = "# %s\n\n" % data["title"].strip() if data.get("title", "").strip() else ""
-    if questions is None:
-        return head + rest
-    items = ["- " + " ".join(str(q.get("question") or "").split())
-             + (" 担当者: %s" % DISPATCH_OWNERS.get(str(q["holder"]).strip(), str(q["holder"]).strip()) if str(q.get("holder") or "").strip() else "")
-             for q in questions]
-    return head + rest.rstrip("\n") + "\n\n## 残った疑問\n" + ("\n".join(items) or "なし") + "\n"
+    if set(data) - {"open"} or not isinstance(questions, list):
+        return ""
+    items = ["- " + " ".join(str(q.get("question") or "").split()) + " 担当者: " + DISPATCH_OWNERS[str(q.get("holder") or "").strip()]
+             for q in questions if isinstance(q, dict) and str(q.get("holder") or "").strip() in DISPATCH_OWNERS]
+    return "## 持ち主への問い\n" + "\n".join(items) + "\n" if items else ""
+
+
 # dispatch.py を引数に取って走らせるコマンド名(`git add …/dispatch.py` のような、名前を書くだけのコマンドと分ける)。
 # この名前で始まるコマンドは、間に旗(python3 -X utf8・run-python.sh --min 3.11)が在っても dispatch.py の語まで探す
 INTERPRETER_RE = re.compile(r"(?:python[0-9.]*|py|bash|sh|run-python\.sh)(?:\.exe)?\Z")
@@ -2792,8 +2797,8 @@ def main() -> None:
     # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
     if analysis.blocked:
         target = analysis.target_of()[0]
-        how = (("本文は --deliver・--brief に渡すファイル(<絶対パス>。同じコマンドの中で書き換えない)か、"
-                "--text に字のまま書いた文で渡して再実行すること。\n")
+        how = ("納品の要約は --deliver に渡すファイル(<絶対パス>。同じコマンドの中で書き換えない)で渡して再実行すること"
+               "(持ち主に向けた問いが在るかを読むため)。\n"
                if any(blk and sub and sub[0] == DISPATCH_SUB for sub, _, _, blk, _ in analysis.calls) else
                ("本文はヒアドキュメント(<<'EOF' ... EOF)・本文旗(--body / --notes 等)・本文ファイル(--body-file "
                 "<絶対パス> 等。同じコマンドの中で書き換えない)のどれかで渡して再実行すること。\n"))
@@ -2801,13 +2806,32 @@ def main() -> None:
              "外部投稿ゲート: この投稿は本文を取り出せない形をしている(%s)。検査できないものは通せない。\n"
              % "・".join(sorted(set(analysis.blocked))) + how + OWNER_NOTE)
 
-    bodies = [b for b in analysis.candidates if len(b.strip()) >= 200]
-    if not bodies:
+    # 納品の要約(peers)は AI の会話どうしの文なので、持ち主に向けた問いだけを長さにかかわらず文脈ゼロで読む(owner_view)。
+    # 送った要約は、読み手を走らせたかにかかわらず通すときに覚える(sent。送った後に直せない指摘を出さない。受付 5bb988)
+    def peer(b):
+        return all((sub or ())[:1] == (DISPATCH_SUB,) for sub, _, cands, _, _ in analysis.calls if b in cands)
+    peers = [b for b in analysis.candidates if peer(b)]
+    owner_text = "".join(owner_view(b) for b in peers)
+
+    def sent():
+        _remember([d for b in peers for d in sent_digests(b)])
+    bodies = [b for b in analysis.candidates if not peer(b) and len(b.strip()) >= 200]
+    if bodies and owner_text:
+        # 読み手は 1 回に 1 つの読み方(画面か文脈ゼロ)で読むので、外に出す本文と持ち主への問いを 1 回にまとめない
+        stop("mixed",
+             "外部投稿ゲート: gh の投稿と、持ち主への問いを持つ納品(--deliver)が同じコマンドに在る。"
+             "別々のコマンドに分けて再実行すること(それぞれを読む)。\n" + OWNER_NOTE)
+    if not bodies and not owner_text:
+        if peers:
+            record("allow\t%d\tpeer" % max(map(len, peers)))
+        sent()
         allow()
     # 複数の本文が同居するときは最長を代表として読ませる(全部読ませると読み役の回数と
-    # 待ち時間が本文の数だけ増える)。取りこぼしの受容は gates/README.md「Reach of the net (honest limits)」。
-    body = max(bodies, key=len)
-    fp = fingerprint(body)
+    # 待ち時間が本文の数だけ増える)。取りこぼしの受容は gates/README.md「Reach of the net (honest limits)」
+    owner_only = not bodies
+    body = max([b for b in peers if owner_view(b)] if owner_only else bodies, key=len)
+    text = owner_text if owner_only else body   # 読み手に渡す字
+    fp = fingerprint(text)
 
     # 投稿先がスレッドなら、読み手が画面で既に見ているものを取って渡す。取れなければ
     # 文脈ゼロに倒す——検査は走らせ、画面に有るものへの詰まりは無視してよいと書き手に伝える
@@ -2819,6 +2843,9 @@ def main() -> None:
         target, dest = "-", None
 
     screen, screen_error, screen_note = None, None, ""
+    if owner_only:
+        screen_note = ("読んだのは納品の要約のうち、担当者が持ち主(owner:choose・owner:confirm)の残った疑問だけ。持ち主は会話の文脈を"
+                       "持たずに読むので、直すのはその疑問の文(要約のほかの所は AI の会話が読むので見ていない)。")
     sub, sub_args, sub_cwd = analysis.call_of(body)
     noun = NEW_ITEM_SUBS.get(sub) if dest is None else None
     if dest is not None:
@@ -2845,8 +2872,6 @@ def main() -> None:
 
     # 同じ投稿の書き直しなら、前の回の指摘と直しを読み手に渡す(FOLLOWUP_NOTE)
     # 記録の読みで例外が出てもゲートを落とさない(落ちると無検査で通る)。1 回目の読み方に戻す
-    # works-dispatch の頭書きは、題の見出しと残った疑問の項目の字に替えて読ませる(dispatch_view)。覚える中身・指紋は送る本文のまま
-    text = dispatch_view(body) if sub and sub[0] == DISPATCH_SUB else body
     prompt = reader_prompt(screen, noun)
     try:
         prev = load_round(sid, target, fp)
@@ -2886,12 +2911,12 @@ def main() -> None:
         record("allow\t%d\t%s" % (len(body), mode))
         drop_round(sid, target)
         # 通した本文は、手元の文書の読み(ターンの終わりの docs-check)が同じ中身を読み直さないよう覚える。本文ファイル
-        # (納品の要約・--body-file)を送った後に読み直すと、届いた物に直せない指摘を出す(受付 5bb988)。覚えるのは
+        # (納品の要約・--body-file)を送った後に読み直すと、届いた物に直せない指摘を出す(受付 5bb988)。gh の本文を覚えるのは
         # docs-check と同じ文脈ゼロで全体を読んで通したときだけ(画面を添えた読みと、前の回から残った物だけで止める
-        # 回は緩い)。docs-check は改行を LF にそろえて読むので、そろえた中身も覚える
-        if mode == "cold" and round_no < CARRY_ONLY_ROUND:
-            _remember(sorted({hashlib.sha256(b.encode("utf-8")).hexdigest()
-                              for b in (body, body.replace("\r\n", "\n").replace("\r", "\n"))}))
+        # 回は緩い)。納品の要約は、持ち主への問いだけを読んだときも覚える(AI の会話どうしの文で、送った後は直せない)
+        if mode == "cold" and round_no < CARRY_ONLY_ROUND and not owner_only:
+            _remember(sent_digests(body))
+        sent()
         extra = "\n".join(filter(None, (
             SCOPE_NOTE,
             skip_note,
