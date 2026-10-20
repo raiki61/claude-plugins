@@ -200,6 +200,9 @@ def lifecycle_attrs(lifecycle):
 # 書くとき（provision.mark）に一緒に書き、読むとき（worktree_attrs）に、git が値を読んだ config.worktree のパスから分かる worktree の id と違えば写しとみて空として読む
 OWN_ID = "worktree-id"
 MAIN_ID = "."
+# --desk だけが本社に書く属性（窓口の会話の処理の番号）。--desk はブランチの worktree で止まる（reorg.desk）ので、本社でない worktree に
+# 在れば、本社から写ったか前の版が残した物
+DESK_ONLY = "pid"
 
 
 def _id_of(admin):
@@ -235,8 +238,16 @@ def _read_attrs(cwd, runner):
 
 
 def _copy_of(attrs, here):
-    """読んだ属性が、ほかの worktree から git の worktree add で写った物か（書いた worktree の id OWN_ID が、値を読んだ config.worktree の worktree の id と違う）。"""
-    return bool(attrs.get(OWN_ID)) and here is not None and attrs[OWN_ID] != here
+    """読んだ属性が、ほかの worktree から git の worktree add で写った物か: 書いた worktree の id OWN_ID が、値を読んだ config.worktree の
+    worktree の id と違うか、本社でない worktree の窓口の属性（DESK_ONLY を持つ）で id が無い。id を書く前の版の本社から写った窓口の属性が、
+    guided-resolver の本社でない worktree 2 か所に残っていた。処理の番号が使い回されると、そこで起きた会話が --desk の会話と同じ処理と
+    見られて窓口の席に座りうる（my_notes の受付 20261019-210027-55dd62）。id の在る物は読む（前の版で立てた部署に、本社から写った
+    DESK_ONLY だけが残ることがある。部署の属性を書くたびに id も書くので、部署は id を持つ）。"""
+    if here is None:
+        return False
+    if attrs.get(OWN_ID):
+        return attrs[OWN_ID] != here
+    return here != MAIN_ID and bool(attrs.get(DESK_ONLY))
 
 
 def worktree_attrs(cwd, runner=_default_runner, former=True, copies=False):
@@ -246,7 +257,7 @@ def worktree_attrs(cwd, runner=_default_runner, former=True, copies=False):
     読む（copies が真なら、写しもそのまま返す。写しを消す側〔add_detached〕が使う）。git は extensions.worktreeConfig のとき、作った
     元の worktree の config.worktree を新しい worktree に写す。部署が自分の作業場から試しの一時の worktree を切ると、部署の属性が全部
     そのまま載り、名前で部署を探す --move・--ask・--land が「同じ名前の部署が 2 つ以上ある」で止まった（2026-10-19、説明書の部署の
-    value-rules を回す一時の worktree。受付 7d0ac0）。id を書く前の版で書いた属性（OWN_ID が無い）は今までどおり読む。
+    value-rules を回す一時の worktree。受付 7d0ac0）。id を書く前の版で書いた属性（OWN_ID が無い）は今までどおり読む（窓口の属性は除く。_copy_of）。
     返す属性に OWN_ID は含めない。"""
     attrs, here = _read_attrs(cwd, runner)
     if not copies and _copy_of(attrs, here):

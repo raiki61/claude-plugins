@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shlex
+import shutil
 import tempfile
 import unittest
 import urllib.parse
@@ -21,6 +22,7 @@ import claudex
 import gitx
 import orders
 import role_hook
+import wake_hook
 from nodes import deliver, launch, provision, role
 
 SHAPE = '''
@@ -427,15 +429,32 @@ class Hook(unittest.TestCase):
 
     def test_a_work_place_with_the_desk_attrs_copied_from_the_head_office_does_not_make_its_talk_the_desk(self):
         # git worktree add が本社の窓口の属性（--desk だけが書く company.pid を含む）を PR の作業場に写した。そこで起動した PR の会話が
-        # 窓口の本文を受け、自分の居るブランチに部署を立てようとした（3d3ccc）。写った属性の場所も本社と同じ席の決まりで見る
+        # 窓口の本文を受け、自分の居るブランチに部署を立てようとした（3d3ccc）。属性を書いた worktree の id を書く前の版の本社から写った
+        # 物（id が無い）も写しと見る。処理の番号が使い回されて、そこで起きた会話が --desk の会話と同じ処理に見えても、席に座らない
+        # （guided-resolver の本社でない worktree 2 か所に残っていた。my_notes の受付 20261019-210027-55dd62）
         write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "窓口"\ninstructions = "頼みを配る。"\n')
-        provision.mark(self.place, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "pid": "999999999"}, gitx)
+        gitx.enable_worktree_config(self.src)
+        for k, v in (("role", "窓口"), ("name", "窓口"), ("session", "s-desk"), ("pid", str(os.getpid()))):
+            gitx.set_worktree_attr(self.src, k, v)   # id を書く前の版の --desk（company.worktree-id を書かない）
+        copy = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="works-dispatch-pr-")), "pr")
+        self.addCleanup(shutil.rmtree, os.path.dirname(copy), True)
+        git("-C", self.src, "worktree", "add", "-q", "--detach", copy, "HEAD")
+        self.assertEqual(gitx.worktree_attrs(copy, copies=True)["pid"], str(os.getpid()))   # git が写した
+        self.assertEqual(gitx.worktree_attrs(copy), {})
         out = io.StringIO()
         with mock.patch.object(claudex, "running", lambda pid: True), contextlib.redirect_stdout(out):
-            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-pr", "source": "startup"})), self.env)
-            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-pr2", "source": "clear"})), self.env)
+            role_hook.main(io.StringIO(json.dumps({"cwd": copy, "session_id": "s-pr", "source": "startup"})), self.env)
+            role_hook.main(io.StringIO(json.dumps({"cwd": copy, "session_id": "s-pr2", "source": "clear"})), self.env)
+            self.assertIsNone(wake_hook.plan({"cwd": copy, "session_id": "s-pr2"}))   # 窓口あての頼みを待ち受けない
         self.assertNotIn("頼みを配る。", out.getvalue())
-        self.assertEqual(gitx.worktree_attrs(self.place)["session"], "s-desk")   # PR の会話の /clear で席を取らない
+        self.assertEqual(gitx.worktree_attrs(copy, copies=True)["session"], "s-desk")   # PR の会話の /clear で席を取らない
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):   # 本社の窓口の会話は今までどおり
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-desk", "source": "startup"})), self.env)
+        self.assertIn("頼みを配る。", out.getvalue())
+        # 前の版で立てた部署に、本社から写った company.pid だけが残った物は、部署の属性を書いた id を持つので部署のまま読む
+        provision.mark(self.place, self.src, {"role": "担当", "name": "直し", "session": "s-dept", "pid": "999999999"}, gitx)
+        self.assertEqual(gitx.worktree_attrs(self.place)["name"], "直し")
 
     def test_running_reads_the_command_of_the_process(self):
         import subprocess

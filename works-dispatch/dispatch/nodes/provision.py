@@ -228,14 +228,15 @@ def copied(office, here, keep=()):
     書いた窓口の属性が PR の作業場に写って残ると、その場所で起動した PR の会話が役を足すフックから窓口の本文を受け、窓口として振る舞った
     （guided-resolver の PR #1987 の作業場で、自分の居るブランチに部署を立てようとした。my_notes の受付 3d3ccc）。
     本社の属性に書いた worktree の id（gitx.OWN_ID）が在れば、here は写しを空と読み、写しは mark が丸ごと消す。これは id を書く前の版の
-    本社から写った属性のための物。"""
+    本社から写った属性のための物（そのうち窓口の属性〔company.pid を持つ〕は、here が空と読む。gitx._copy_of）。"""
     return {k: None for k, v in here.items() if k not in keep and office.get(k) == v}
 
 
 def desk_seat(place, common, attrs):
     """その場所が窓口の席か: 本社（代表の clone。git の場所と共通の場所が同じ）か、--desk だけが書く属性 company.pid（窓口の会話の
     処理の番号）を持つ場所。席の場所では、--desk が書いた会話（company.session）か、その会話の処理の中の会話だけを窓口と見る。
-    worktree に本社の属性が写って残っていても（copied の前の版で作った作業場）、その場所の会話を窓口と取り違えない。"""
+    worktree に本社の属性が写って残っていても（copied の前の版で作った作業場）、その場所の会話を窓口と取り違えない。
+    本社でない worktree の窓口の属性は、gitx.worktree_attrs が写しと見て空と読むので、それで読んだ属性ならここには来ない。"""
     if not place or not common:
         return False
     return os.path.realpath(place) == os.path.realpath(common) or bool(attrs.get("pid"))
