@@ -2,7 +2,7 @@
 """メインブランチへ入れる処理を、同じ clone（worktree を含む）で申し出た順に 1 本ずつ通す列（会社の形の [land] の queue）。
 
 --land（landing.py）は、メインブランチの先頭へのリベースに入る直前に列へ申し出て、fast-forward して push し終えるまで列の先頭を持つ。
-札とロックのファイルの形は my_notes の tools/land_queue.py（https://github.com/raiki61/my_notes/blob/master/tools/land_queue.py）と同じにして、
+札とロックのファイルの形は my_notes の tools/land_queue.py と同じにして、
 works-dispatch を import しない処理（my_notes の collect など）とも同じ列に並ぶ。
 - 置き場は共通の .git（git rev-parse --git-common-dir）の下の、queue に書いたフォルダ。
 - 申し出たときに `<time.time_ns() を 20 桁の 0 埋め>-<pid>.ticket` の札を作り、排他のロック（POSIX は flock、Windows は msvcrt.locking）を
