@@ -27,6 +27,8 @@
   渡さずに待つ部署（納品していない頼みが在る）が、子の頼みの宛先をたどって、宛先も同じく止まり、子の頼みが宛先の
   順番待ちに積まれたままこの部署へ戻る輪を見つけたら、輪の一番古い頼みを、それが積まれた部署の会社で dispatch.py --take で既定の役の
   部署へ回す（knot・untie。受付の設計の 4.3。出力は受付箱の takes/、台帳に knot の行）。
+  永続の部署は、次の頼みを渡す前に、作業場のブランチを origin のメインブランチの先頭まで fast-forward する（follow_main。書きかけの
+  commit が在れば動かさない）。会話が起動するときにしか読まないファイルが替われば、今のアカウントの名指し（company.move-to）を印して起動し直させる。
   毎回クリアする部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
   dispatch.py --move <部署> --if-changed で起動し直す（/clear は起動したときの --model・--effort を残すため。restart_due）。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文でターンが始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
@@ -496,6 +498,41 @@ def early_due(got, attrs, env=os.environ, now=time.time):
     return bool(attrs.get(wake.MOVE_TO) or got_ and got_["to"])
 
 
+def follow_main(got, attrs, catch_up=provision.follow_main):
+    """永続の部署（属性 company.lifecycle が persistent）が順番待ちの次の頼みを受ける前に、作業場のブランチを origin のメインブランチの
+    先頭まで fast-forward する（provision.follow_main）。永続の部署の作業場は頼みのたびに作り直さないので、進めないとメインブランチに
+    入れた組織の直しが効かない（2026-10-20 に my_notes の調べものが 20 commit 遅れ、費用を下げる役の定義の直しが効かなかった。受付 72f7e4）。
+    進めて、会話が起動するときにしか読まないファイル（.claude/ の役の定義・設定など。provision.read_at_start）が替わっていれば、
+    今のアカウントの名指し（company.move-to）を印し、区切りの --move --if-changed に同じアカウントのまま起動し直させる（restart_due）。
+    ほかのアカウントへ移す名指しが在れば、そのまま（移す時に起動し直す）。ブランチにメインブランチに無い commit が在れば（書きかけの作業）
+    動かさない。渡す字の頭と台帳の handed の行（followed）に添える文を返す（添える事が無ければ None）。何が起きても頼みは渡す。"""
+    if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
+        return None
+    try:
+        r = catch_up(got["cwd"])
+    except Exception as e:  # 取れない・未コミットの変更と重なるなどでも、頼みは渡す
+        return f"作業場のブランチをメインブランチの先頭へ進められなかったので、この作業場のまま渡す（{type(e).__name__}: {e}）"
+    main = r["main"]
+    if r["status"] == "local_only":
+        return (f"作業場のブランチに {main} に無い commit が {r['ahead']} 個在るので、{main} の先頭（足りない commit {r['behind']} 個）へ"
+                f"進めていない（書き換えない）。前の頼みの書きかけなら --land で入れてから受け、そうでなければ扱いを頼み元に問う")
+    if r["status"] != "updated":
+        return None
+    said = f"作業場のブランチを {main} の先頭へ進めた（{r['behind']} 個の commit を取り込んだ）"
+    if not r["startup"]:
+        return said
+    files = "・".join(r["startup"][:3]) + (f" ほか {len(r['startup']) - 3} 件" if len(r["startup"]) > 3 else "")
+    said += f"。会話が起動するときにしか読まないファイル（{files}）が替わった"
+    account = attrs.get("account")
+    if not account:
+        return said + "が、部署のアカウントが分からないので起動し直さない"
+    if not attrs.get(wake.MOVE_TO):
+        provision.mark(got["cwd"], got["root"], {wake.MOVE_TO: account}, gitx)
+    if attrs.get("fresh") == role.FRESH:
+        return said + "ので、同じアカウントのまま起動し直してから渡す（この文が見えていれば起動し直せなかったので、前の起動のまま受ける）"
+    return said + "ので、次の区切り（頼みを納品した後に --rest を打ったターンの終わり）で、同じアカウントのまま起動し直す"
+
+
 def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False, early_of=early_due):
     """毎回クリアする部署が次の頼みを受ける前に（at_rest なら、会話を引き継ぐ部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
     起動し直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起動したときの --model・--effort・--settings を
@@ -579,10 +616,11 @@ class _DoneFile:
 
 
 def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: chat.host()[0],
-            spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie):
+            spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie, follow=follow_main):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
     restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
-    unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。"""
+    unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。follow は永続の部署の作業場をメインブランチの先頭へ
+    進める口（follow_main。(got, 属性) を受け、渡す字に添える文か None を返す）。"""
     # fresh の部署をすぐ替わる訳で空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。
     # 順番待ちに次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--nudge で動かせる）
     told, untied = set(), {}
@@ -688,6 +726,9 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
                 return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起動し直した。起動し直した会話の待ち受けが、次を渡す
             if clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me, why=unrested):
                 return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
+        followed = follow(got, attrs) if wake.queued(got["inbox"], got["place"]) else None
+        if followed:
+            attrs = attrs_of(got["cwd"])   # 起動し直す名指し（company.move-to）を印したかもしれない
         key = None if kept else restart_due(got, payload, attrs, key_of)   # 起動し直すと、子の返事を受ける会話が居なくなる
         if key and restart(got, key):
             return "end", None   # 会社の形の起動の設定が替わったので起動し直した。起動し直した会話の待ち受けが、次を渡す
@@ -702,11 +743,13 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
             provision.mark(got["cwd"], got["root"], {**(item.get("marks") or {}), wake.FINISHED: None}, gitx)
         deliver.log(got["inbox"], {"id": item.get("id"), "kind": "handed", "at": now(), "place": got["cwd"],
                                    "session": got["session"], **({"unrested": unrested[0]} if unrested else {}),
-                                   **({"kept": kept[0]} if kept else {})})
+                                   **({"kept": kept[0]} if kept else {}), **({"followed": followed} if followed else {})})
         text = item.get("line") or wake.wake_text([item])
         if kept:
             text = (f"（前の頼みを納品した会話を空にしないまま渡す: {kept[0]}。前の頼みで出した子の頼みの返事や裏の処理の知らせが"
                     "届いたら、この会話で受ける。どれも閉じたターンの終わりに空にする）\n" + text)
+        if followed:
+            text = f"（{followed}）\n" + text
         if unrested:
             # 2026-10-18 に my_notes の段取りが、空にできない訳を知らないまま 1 時間に 12 回、前の会話のまま受けた
             text = (f"（区切り〔--rest〕で会話を空にできなかったので、前の会話のまま渡す: {unrested[0]}。区切りの印は残してあり、"

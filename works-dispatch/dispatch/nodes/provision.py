@@ -14,6 +14,9 @@
 - fork の PR（head が別のリポジトリ）は origin にブランチが無いので作らず provision_failed。
 - 最後に、herdr の worktree の並びにそのブランチの場所が在り、作業場が開いていて、checkout がそのブランチに居ることを読み戻してから返す。
 
+永続の部署（頼みを終えても同じ作業場で次の頼みを受ける）の作業場は、待ち受けが次の頼みを渡す前に follow_main が origin のメインブランチの
+先頭まで fast-forward する（メインブランチに無い commit が在れば動かさない）。
+
 サブエージェント（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。部署の属性（役・アカウント・会話の名前・
 頼み元）は mark が、その場所の git の設定 company.<名前> に書く（会社の形の設計 4.2）。部署を立てる前には、refresh_shape が
 origin の既定のブランチを取り直す（会社の形を読む前に。起動するときの設定と、立てた後に役を足すフックが同じ会社の形を読むように）。
@@ -210,6 +213,33 @@ def refresh_shape(source, g=gitx):
     except g.GitError as e:
         return f"origin の既定のブランチを取り直せないので、手元の {ref}（最後に取った時の形）で会社の形を読む（{e}）"
     return None
+
+
+# 会話が起動するときにしか読まないファイル（/clear では読み直さない）。.claude/ の役の定義（agents）・設定（settings）・フックなどと、
+# CLAUDE.md・.mcp.json。会社の形（.claude/company.toml）は起動の設定（role.launch_key）と役の文（role_hook.changed）が別に見るので除く
+STARTUP_DIR, STARTUP_FILES, NOT_STARTUP = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json"), (".claude/company.toml",)
+
+
+def read_at_start(rel):
+    """リポジトリのルートからの相対のパス rel が、会話が起動するときにしか読まないファイルか。"""
+    return rel not in NOT_STARTUP and (rel.startswith(STARTUP_DIR) or os.path.basename(rel) in STARTUP_FILES)
+
+
+def follow_main(path, g=gitx):
+    """永続の部署の作業場（path）のブランチを、origin のメインブランチを取り直してから、その先頭を含むところまで fast-forward する。書く口。
+    {"status": current|updated|local_only, "main": メインブランチ, "ahead": メインブランチに無い commit の数,
+    "behind": 足りない commit の数, "startup": 進めて替わった、会話が起動するときにしか読まないファイル} を返す。
+    ブランチにメインブランチに無い commit が在れば（書きかけの作業）、動かさずに local_only（書き換えない。受けた会話が決める）。
+    取れない・未コミットの変更と重なって git が断ったときは GitError（変更は消さない）。"""
+    top = g.toplevel(path) or path
+    main = g.default_branch(top)
+    g.fetch(top, main)
+    ref = f"refs/remotes/origin/{main}"
+    head = g.head_sha(top)
+    ahead, behind = (len(g.subjects(top, ref, "HEAD")), len(g.subjects(top, "HEAD", ref)))
+    status = g.catch_up(top, ref)
+    startup = [x for x in g.changed_paths(top, head, ".") if read_at_start(x)] if status == "updated" else []
+    return {"status": status, "main": main, "ahead": ahead, "behind": behind, "startup": startup}
 
 
 def renew_session(attrs, sid):

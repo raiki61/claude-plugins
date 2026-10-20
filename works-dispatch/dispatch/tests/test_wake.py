@@ -659,6 +659,79 @@ class Hook(unittest.TestCase):
         self.assertEqual(deliver.records(self.inbox)[-1]["kind"], "handed")
         self.assertIsNone(self.checker()())   # 渡した物は順番待ちから消える
 
+    def with_origin(self):
+        """self.src に origin（手元の bare リポジトリ）を付け、メインブランチを push する。origin に commit を足す関数を返す。"""
+        bare = str(pathlib.Path(self.src).parent / "origin.git")
+        git("init", "-q", "--bare", "-b", "main", bare)
+        git("-C", self.src, "remote", "add", "origin", bare)
+        git("-C", self.src, "push", "-q", "origin", "main")
+        git("-C", self.src, "remote", "set-head", "origin", "main")
+        other = str(pathlib.Path(self.src).parent / "other")
+        git("clone", "-q", bare, other)
+
+        def land(rel, text="x"):
+            f = pathlib.Path(other, rel)
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text, encoding="utf-8")
+            git("-C", other, "add", "-A")
+            git("-C", other, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", rel)
+            git("-C", other, "push", "-q", "origin", "HEAD:main")
+        return land
+
+    def test_a_persistent_department_follows_the_main_branch_before_the_next_ask_and_restarts_for_its_agents(self):
+        # 永続の部署の作業場は頼みのたびに作り直さないので、渡す前にメインブランチの先頭へ進める。役の定義が替われば、
+        # 同じアカウントのまま起動し直す名指しを印す（2026-10-20、my_notes の調べものが 20 commit 遅れた。受付 72f7e4）
+        land = self.with_origin()
+        land("notes.md")
+        same = role.launch_key(None)
+        self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1", launched=same)
+        stop = {"hook_event_name": "Stop"}
+        self.put("a1")
+        check = wake_hook.checker(self.plan(), stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  restart=lambda got_, key: False, key_of=lambda cwd, a: same)
+        verdict, text = check()
+        self.assertEqual(verdict, "wake")
+        followed = deliver.records(self.inbox)[-1]["followed"]   # 進めたことを、渡す字の頭と台帳の handed の行に添える
+        self.assertTrue(text.startswith(f"（{followed}）\n"), text)
+        self.assertIn("1 個の commit を取り込んだ", followed)
+        self.assertEqual(gitx.head_sha(self.place), git("-C", self.src, "rev-parse", "origin/main"))
+        self.assertNotIn(wake.MOVE_TO, gitx.worktree_attrs(self.place))   # 起動するときに読むファイルは替わっていない
+        # 役の定義が替われば、今のアカウントの名指しを印す（区切りの --move --if-changed が同じアカウントのまま起動し直す）
+        land(".claude/agents/調べ.md")
+        provision.mark(self.place, self.src, {"delivered": "a1", "cleared": "a1"}, gitx)
+        self.put("a2")
+        got = wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place))
+        self.assertIn(".claude/agents/調べ.md", got)
+        self.assertIn("同じアカウントのまま起動し直してから渡す", got)
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
+        self.assertIsNone(wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place)))   # もう先頭を含む
+        # 会社の形だけの替わりは、起動の設定と役の文が別に見るので名指ししない
+        provision.mark(self.place, self.src, {wake.MOVE_TO: None}, gitx)
+        land(".claude/company.toml")
+        self.assertNotIn("起動し直", wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place)))
+        self.assertNotIn(wake.MOVE_TO, gitx.worktree_attrs(self.place))
+        # ほかのアカウントへ移す名指しは書き替えない
+        provision.mark(self.place, self.src, {wake.MOVE_TO: "a2"}, gitx)
+        land(".claude/settings.json")
+        wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place))
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a2")
+
+    def test_a_persistent_department_with_commits_not_on_the_main_branch_is_not_moved(self):
+        # 書きかけの作業（メインブランチに無い commit）は書き換えず、受けた会話に訳を渡す
+        land = self.with_origin()
+        land(".claude/agents/調べ.md")
+        git("-C", self.place, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "wip")
+        head = gitx.head_sha(self.place)
+        attrs = self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1")
+        got = wake_hook.follow_main(self.plan(), attrs)
+        self.assertIn("main に無い commit が 1 個在るので", got)
+        self.assertEqual(gitx.head_sha(self.place), head)
+        self.assertNotIn(wake.MOVE_TO, gitx.worktree_attrs(self.place))
+        # 読めなくても頼みは渡す（訳を添える）
+        self.assertIn("進められなかった", wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: 1 / 0))
+        # エフェメラルの部署（頼みごとにメインブランチから切る）と窓口は進めない
+        self.assertIsNone(wake_hook.follow_main(self.plan(), {**attrs, "lifecycle": gitx.EPHEMERAL}))
+
     def test_does_not_hand_the_next_ask_when_one_arrived_after_it_looked(self):
         # 上で属性を読んだ後に、--ask が窓に別の頼みを打って属性を書いた。錠の中で読み直し、渡さずに順番待ちに残す（渡すと、
         # 後に書いた頼み元が前の頼みの頼み元を上書きする。my_notes の受付 20261017-082903-87f45f）
