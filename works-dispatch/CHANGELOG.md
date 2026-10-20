@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.99.5] - 2026-10-20
+
 ### Fixed
 
 - 代表の clone（部署の worktree を作る元のふつうの clone）でない worktree に、窓口（代表の clone で持ち主と話し、部署に仕事を配る会話）の属性（`git config --worktree` で書く値 `company.*`）が残っていると、そこで起動した会話が窓口と見られる余地があった。残っていた属性は、`git worktree add` が代表の clone の属性を新しい worktree に写した物で、属性を書いた worktree の id（`company.worktree-id`）を書く前の版の物なので、写しと見分けられていなかった。2026-10-20 に guided-resolver（このツールで部署を立てている別のリポジトリ）の、代表の clone でない worktree 2 か所で見つかった（窓口と取り違えた会話は 0 件）。そこで起きた会話の Claude Code のプロセス番号（PID）が、たまたま `--desk`（会話を窓口の席に付けるコマンド）を打った会話のプロセス番号（属性 `company.pid`）と同じになると、その会話は、窓口として振る舞うための指示文（会社の形 `.claude/company.toml` に書いた窓口の役の本文）を受け、窓口あての頼みと納品を待ち受け、`/clear` で会話の id が替わったときに窓口の会話の id（属性 `company.session`）を自分の id に書き直して、窓口の席を取りえた。今は、代表の clone でない worktree に在る属性が `company.pid` を持ち、`company.worktree-id` を持たなければ、その worktree の物と見ず、属性が無いのと同じに読む（`--desk` は代表の clone でしか打てないので、写されたか前の版が残した物）。そのため、残っている属性は手で消さなくてよい。そこに部署を立てるときは、その worktree の `company.*` を丸ごと消してから書く（消すのは属性だけで、worktree と中の作業は消さない）。`company.worktree-id` を持つ属性は今までどおり読む。id を書く前の版で、窓口の属性が写った worktree に部署を立てると、写った `company.pid` が部署の属性に残り、その後の版が部署の属性を書いたときに id が付くので、id と `company.pid` の両方を持つ部署がありうる（部署の属性を書くたびに id も書くので、部署は id を持つ）。代表の clone の窓口も今までどおり。
