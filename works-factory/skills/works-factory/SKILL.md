@@ -7,16 +7,16 @@ description: 人の修正依頼を、修正の工場 works-factory（raiki61/wor
 
 works-factory は、直してほしい事（修正依頼か GitHub の issue）を受け取り、確かめ済みの変更と報告を返す工場。今いるリポジトリを対象にして回す。
 
-工場は Archon の上で動く。Archon は、AI の役と機械の確かめを並べたグラフ（ノードとエッジ）を回す外の実行基盤。工場の殻が止めた版の Archon の源を自分で取ってきて起こすので、別に入れなくてよい。
+工場は Archon の上で動く。Archon は、AI の役と機械の確かめを並べたグラフ（ノードとエッジ）を回す外の実行基盤。工場の起動のスクリプト（殻）が止めた版の Archon の源を自分で取ってきて起こすので、別に入れなくてよい。
 
 流れ: 起動する → 承認ノードで答える → 報告を読む → 差分を対象へ当てる。回すと費用が掛かる（AI の役を起こすのは、起動の後と、承認ノードで進めた後）。
 
-今の `/works`（works プラグインの darkfactory）とは別の工場で、並べて置いてある。どちらを使うかは人が選ぶ。
+今の `/works`（works プラグインの darkfactory）とは別の工場。どちらを使うかは人が選ぶ。
 
 ## 0. 要る物
 
 - macOS か Linux、Python 3.12 以上、git、`bun`（Archon の源を起こすのに使う）、Claude Code の `claude`。
-- 足りない物は、殻が入れる命令を 1 行ずつ出して止まる。出た命令を打ってから、もう一度起こす。
+- 足りない物は、殻が入れ方の命令を 1 行ずつ出して止まる。出た命令を打ってから、もう一度起こす。
 - 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）時は、[references/auth.md](references/auth.md) を読む。API キーなら `WORKS_FACTORY_KEYCHAIN_ITEM` は付けない。
 
 ## 1. 殻
