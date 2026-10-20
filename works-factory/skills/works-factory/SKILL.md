@@ -17,7 +17,8 @@ works-factory は、直してほしい事（修正依頼か GitHub の issue）�
 
 - macOS か Linux、Python 3.12 以上、git、`bun`（Archon の源を起こすのに使う）、Claude Code の `claude`。
 - 足りない物は、殻が入れる命令を 1 行ずつ出して止まる。出た命令を打ってから、もう一度起こす。
-- 認証: 普段の `claude` と `gh` のログインのまま動く。keychain の項目でアカウントを選ぶ時・API キーで動く時・殻が「認証が無い」で止まった時は、[references/auth.md](references/auth.md)（認証の道ごとの置き方と止まった時の直し方）を読む。API キーで動く人は `WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` を付けない（付けるとキーが子から外れる）。
+- 認証: 普段の `claude` と `gh` のログインのまま動く。keychain の項目でアカウントを選ぶ時・API キーかゲートウェイか `apiKeyHelper`（設定の、API キーを出すコマンドの欄）で動く時・殻が「認証が無い」で止まった時は、[references/auth.md](references/auth.md)（認証の道ごとの置き方と止まった時の直し方）を読む。API キーで動く人は `WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` を付けない（付けるとキーが工場の中の AI に渡らない）。
+- 同時に受ける要求の数が少ないキーで 429 が返る時は、`WORKS_FACTORY_CLAUDE_CONCURRENCY=<1 以上の整数>` を付けて起こす。上限は消すまで残る。残り方と外し方は [references/auth.md](references/auth.md) の「キーが同時に受ける要求の数が少ない時」。
 
 ## 1. 殻
 

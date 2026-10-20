@@ -6,6 +6,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- `works-factory/PIN`（殻が使う raiki61/works-factory の commit）を 687a6057 に上げ、殻が `apiKeyHelper`（Claude Code の設定の、API キーを出すコマンドの欄）のコマンドを走らせて得たキーで工場の中の AI の役を起動する道と、同時数の上限 `WORKS_FACTORY_CLAUDE_CONCURRENCY`（429 が返る時）をスキルの `references/auth.md` に書いた。API キーとゲートウェイ（API の中継先）の値は殻を起こす環境に置き、設定の `env` に書いた値は工場の中の AI の役に運ばれない、と説明を直した。
+
 ## [0.3.0] - 2026-10-20
 
 ### Changed
