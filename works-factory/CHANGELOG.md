@@ -8,7 +8,14 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- `works-factory/PIN` を raiki61/works-factory の e87f40a3 に上げた。本線のグラフを部品に分けて組み直した版（作り直しの #765。PR #794）で、プラグインから起動する run がこの工場で回る。スキルを新しい工場に合わせた: 承認ノードは 4 か所（修正の途中で計画が変わる時が増えた）・最後の承認ノードの開き方 `final_gate`・必ず計画を見せる `design_only`・無人の run は始める時の承認ノードを飛ばす・設計書の置き場は `docs/design/`。`test_cmd` を渡さないと工場が全試験を何度も走らせて遅くなる（実地で 90 分の run が 300 分になった）ことを書いた。
+- `works-factory/PIN`（このプラグインが取ってくる工場の commit）を raiki61/works-factory の e87f40a3 に上げた。工場の流れ（本線のグラフ）を部品に分けて組み直した版（raiki61/works-factory の issue #765・PR #794）で、プラグインから起動する run（工場の 1 回の実行）はこの版で回る。起動の形は変わらない。スキルを新しい工場に合わせた:
+  - 承認ノード（run が止まって人の答えを待つ所）は 4 か所になった: 始める時・直す前・修正の途中で計画が変わる時（今回増えた）・最後。
+  - 最後の承認ノードをいつ開くかを `--input final_gate=` で選べる: `always`（毎回。人が答える run の既定）・`when_needed`（訳が在る時だけ。無人の run の既定）・`protected_only`（守りのパス〔対象の `.works-protected.json` に書いたファイル〕に当たった時など）。
+  - `--input design_only=true` を付けると、直す前の承認ノードがいつも開き、修正の前に計画を見られる。
+  - 無人の run（`--input unattended=true`）は始める時の承認ノードを飛ばす。最後の承認ノードを開くはずなら止まり、差分は対象に当てない。
+  - 工場の設計書の置き場が `docs/design/` になった。
+  - 走っている run を cancel で止めた後の扱いを `skills/works-factory/references/stop.md` に分けた。
+  - `test_cmd` を渡さないと、工場が全試験を何度も走らせて遅くなる（実地で 90 分の run が 300 分になった）ので、変更に関わる試験だけを走らせるコマンドがあれば渡す、と書いた。
 
 ## [0.2.0] - 2026-10-20
 
