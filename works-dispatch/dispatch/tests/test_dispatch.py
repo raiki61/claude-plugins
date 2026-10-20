@@ -277,6 +277,15 @@ class FakePorts(dispatch.Ports):
     def pause(self):
         pass
 
+    on_sleep = None   # --move --if-limited の待ちの間に起きることを、試験が差し込む（呼ぶたびに待った秒を渡す）
+
+    def sleep(self, seconds):
+        self.slept = getattr(self, "slept", []) + [seconds]
+        if len(self.slept) > 5:
+            raise AssertionError(f"--move --if-limited の待ちが終わらない（待った秒: {self.slept}）")
+        if self.on_sleep:
+            self.on_sleep(seconds)
+
     trust_outcome = "inherited"
     opened = None   # open_pages に渡された番号（呼ばれなければ None）
 

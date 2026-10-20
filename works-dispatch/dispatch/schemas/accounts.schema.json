@@ -22,6 +22,7 @@
           "shut": {"type": "boolean"},
           "eligible": {"type": "boolean"},
           "reason": {"type": ["string", "null"]},
+          "eligible_at": {"type": ["integer", "null"]},
           "soon": {"type": "boolean"},
           "peak": {"type": ["number", "null"]},
           "running": {"type": "integer"}

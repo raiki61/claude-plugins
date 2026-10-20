@@ -728,6 +728,22 @@ def resume_from_wait(payload, attrs_of=gitx.worktree_attrs, now=time.time):
                 deliver.log(inbox, record)
 
 
+def ended_well(payload, attrs_of=gitx.worktree_attrs):
+    """ターンが誤りなく終わった（Stop。誤りで終わったターンでは Stop の代わりに StopFailure が走る）: 使用上限か時間帯で止まった会話を
+    --move --if-limited が待っている印（company.limit-hold）を外す。会話はもう続いて区切れたので、待っている処理は続きの 1 行を打たずに
+    やめる。人の文で外さないのは、その文のターンがまた断られることがあるため（断られたら印を残し、待っている処理が続けさせる。
+    フックは同じ場所で 10 分の間に 2 度は走らないので、そのターンで新しく待ち始める処理は無い）。外すのは、場所の属性の会話がこの会話のときだけ。"""
+    if chat.event(payload) != "Stop":
+        return
+    cwd = payload.get("cwd") or os.getcwd()
+    attrs = attrs_of(cwd)
+    if not attrs.get(wake.LIMIT_HOLD) or attrs.get("session") and attrs["session"] != payload.get("session_id"):
+        return
+    common = gitx.common_dir(cwd)
+    if common:
+        provision.mark(cwd, gitx.root_of(common), {wake.LIMIT_HOLD: None}, gitx)
+
+
 def resume_here(payload):
     """人の文でターンが始まった（--resume。会話が文を読む前に走る）: 答え待ちと区切りの印を外す（resume_from_wait）。"""
     try:
@@ -804,6 +820,10 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
         return resume_here(payload)
     if argv[:1] == ["--pause"]:
         return pause_here(payload)
+    try:
+        ended_well(payload)
+    except (gitx.GitError, OSError) as e:
+        print(f"works-dispatch: 使用上限で止まった会話を待つ印を外せなかった（{e}）", file=err)
     got = plan(payload)
     if not got:
         return 0

@@ -327,6 +327,10 @@ class Ports:
         """部署の裏の会話を打ち込んだ後に、シェルが前に戻るのを見る間。"""
         time.sleep(1)
 
+    def sleep(self, seconds):
+        """--move --if-limited が、移る先が無いか一時の混み合いと見て、次に見直すまで待つ間。"""
+        time.sleep(seconds)
+
     def department_settings(self):
         """部署の裏の会話にだけ効かせる設定のファイル（--settings。worktree.bgIsolation を none にし、先に作った作業場で働かせる）。"""
         return str(pathlib.Path(__file__).resolve().parent / "templates" / "department-settings.json")

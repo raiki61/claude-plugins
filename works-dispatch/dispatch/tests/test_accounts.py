@@ -385,6 +385,26 @@ class Hours(unittest.TestCase):
         self.assertTrue(by(accounts.rank(accts, lim, 95, self.closing, margin_minutes=10), "cheap")["eligible"])
         self.assertEqual(schemacheck.check({"schema": 1, "accounts": rows}, schemacheck.schema("accounts")), [])
 
+    def test_eligible_at_and_the_next_look_of_a_waiting_move(self):
+        # --move --if-limited が移る先も無く待つとき、選べないアカウントがまた選べるようになる時刻まで待つ（受付 e33748）
+        accts = (Account("p1", "c1"), self.cheap)
+        week = self.inside + 86400 * 3
+        lim = {"p1": {"seven_day": {"used_percentage": 99, "resets_at": week}, "five_hour": {"used_percentage": 1}}}
+        opens = self.end + 16 * 3600   # 次の日の 17:00 Asia/Tokyo
+        for at in (self.closing, self.outside):
+            rows = accounts.rank(accts, lim, 95, at)
+            self.assertEqual((by(rows, "p1")["eligible_at"], by(rows, "cheap")["eligible_at"]), (week, opens))
+            self.assertEqual(accounts.next_look(rows, at, 600), opens)   # 早く空く方
+        rows = accounts.rank(accts, lim, 95, self.inside)
+        self.assertIsNone(by(rows, "cheap")["eligible_at"])   # 選べる
+        self.assertEqual(accounts.next_look(rows, self.inside, 600), self.inside + 600)   # 選べるアカウントが在れば最短の間
+        unknown = {"p1": {"seven_day": {"used_percentage": 99}, "five_hour": {"used_percentage": 1}}}
+        rows = accounts.rank(accts, unknown, 95, self.outside)
+        self.assertIsNone(by(rows, "p1")["eligible_at"])   # 切り替わりの時刻が分からない
+        self.assertEqual(accounts.next_look(rows, self.outside, 600), opens)
+        self.assertEqual(accounts.next_look(accounts.rank(accts[:1], unknown, 95, self.outside), self.outside, 600), self.outside + 600)
+        self.assertEqual(schemacheck.check({"schema": 1, "accounts": rows}, schemacheck.schema("accounts")), [])
+
     def test_early_moves_off_the_account_before_its_hours_end(self):
         accts = (Account("p1", "c1"), self.cheap)
         lim = {"p1": {"seven_day": {"used_percentage": 50}, "five_hour": {"used_percentage": 1}}}

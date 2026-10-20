@@ -141,25 +141,202 @@ class Move(unittest.TestCase):
         self.assertEqual((attrs["session"], attrs["job"], attrs["account"]), ("s-dept", "d", "a1"))   # 前の会話の値に戻す
         self.assertIn("前の会話を attach で戻した", [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"][-1]["detail"])
 
-    def test_if_limited_does_not_move_while_the_account_is_under_its_limit(self):
-        self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}]
+    READY = f"{'─' * 20}\n❯ \n{'─' * 20}\n"   # 手の空いた窓（入力フィールドが空）
+
+    def typed_lines(self):
+        return [w[2] for w in self.ports.term.writes if w[0] == "prompt" and w[1] == self.window]
+
+    def ends_well_after(self, seen, starts=1):
+        """--if-limited が起動し直した後の見直しの待ちに、新しい会話のターンが誤りなく終わる（wake_hook.ended_well が待ちの印を外す）
+        のを差し込む。starts 回起動した後の待ちから効く。外す前の印を self.held に残す。"""
+        self.held = []
+
+        def on_sleep(_s):
+            if len(seen) >= starts:
+                self.held.append(gitx.worktree_attrs(self.place).get(wake.LIMIT_HOLD))
+                provision.mark(self.place, self.src, {wake.LIMIT_HOLD: None}, gitx)
+        return on_sleep
+
+    def test_if_limited_waits_while_the_account_is_under_its_limit_then_goes_on_in_the_same_talk(self):
+        # 一時の混み合い（同時の要求の超過など）では移さないが、止まった会話を放っておかず、待ってから同じ会話に続きの 1 行を打つ
+        # （前は「移さない」で終わり、部署が止まったまま残った。受付 e33748 の穴）
+        under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
+        self.ports.limits_seq = [under, under]
+        self.ports.term.screen = self.READY
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "ask": "q1", "rest": "s-dept"}, gitx)
         seen, task = self.fake_task()
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
-        self.assertIn("移さない", out)
         self.assertEqual((seen, self.stopped), ([], []))
+        self.assertEqual(self.ports.slept, [move.WAIT])
+        self.assertEqual(self.typed_lines(), [move.GO_ON.format(account="a1")])
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") in ("moved", "nudged")]
+        self.assertEqual([(r["kind"], r["status"]) for r in rows], [("moved", move.WAITING), ("nudged", "sent")])
+        self.assertEqual((rows[0]["why"], rows[1]["id"]), (move.LIMITED, "q1"))
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertNotIn(wake.LIMIT_HOLD, attrs)
+        self.assertEqual(attrs.get("rest"), "s-dept")   # 打った 1 行で外れうる印は書き戻す
+
+    def test_if_limited_dry_run_only_says_it_would_wait(self):
+        self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}]
+        rc, out = self.main(self.src, "--move", "調べ", "--if-limited", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("移さない", out)
+        self.assertFalse(getattr(self.ports, "slept", []))
 
     def test_if_limited_does_not_move_on_an_old_snapshot_under_the_limit(self):
         # 取り直しが止まって控えが古くても、最後の値が上限の下なら一時の混み合いと見る（古いと「分からない」になり、移っていた）
-        self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 10, "updated_at": 1},
-                                         "seven_day": {"used_percentage": 20, "updated_at": 1}}, "a2": None}]
+        old = {"a1": {"five_hour": {"used_percentage": 10, "updated_at": 1},
+                      "seven_day": {"used_percentage": 20, "updated_at": 1}}, "a2": None}
+        self.ports.limits_seq = [old, old]
         self.ports.now = lambda: 1_800_000_000
+        self.ports.term.screen = self.READY
         seen, task = self.fake_task()
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
-        self.assertIn("移さない", out)
+        self.assertIn("一時の混み合いと見る", out)
+        self.assertEqual((seen, self.typed_lines()), ([], [move.GO_ON.format(account="a1")]))
+
+    def test_if_limited_with_no_other_account_waits_and_moves_once_one_has_room(self):
+        # 移る先が無くても止めたままにせず、ほかのアカウントが空く時刻（ここでは a2 の 5 時間の枠の切り替わり）まで待って移す
+        full = {"five_hour": {"used_percentage": 100, "resets_at": 1_800_007_200}, "seven_day": {"used_percentage": 50}}
+        now = 1_800_000_000
+        self.ports.now = lambda: now
+        self.ports.limits_seq = [{"a1": full, "a2": full}, {"a1": full, "a2": {"five_hour": {"used_percentage": 0}}}]
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d"}, gitx)
+        seen, task = self.fake_task()
+        self.ports.on_sleep = self.ends_well_after(seen)
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("移れるアカウントが無い", out)
+        # 空く時刻が最長の間より先なら、最長の間で見直す。移した後も、新しい会話の初めのターンが断られないかを 1 度見る
+        self.assertEqual(self.ports.slept, [move.LONGEST, move.WAIT])
+        self.assertTrue(self.held[0])
+        self.assertIn("待つのをやめた", out)
+        self.assertEqual([x["ns"].only_account for x in seen], ["a2"])
+        self.assertIn("使用上限に当たった", seen[0]["brief"])
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual([(r["status"], r["to"]) for r in rows], [(move.WAITING, None), ("done", "a2")])
+        self.assertNotIn(wake.LIMIT_HOLD, gitx.worktree_attrs(self.place))
+
+    def test_if_limited_stops_waiting_when_the_wait_mark_changes(self):
+        # 待つ間に、会話のターンが誤りなく終わった（印が外れる）か、後から止まった回の --move が待ちを引き継いだ（印を書き替える）ら、
+        # 打たずにやめる
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        for after in (None, "1-1"):
+            with self.subTest(after=after):
+                self.ports.limits_seq = [{"a1": full, "a2": full}, {"a1": None, "a2": full}]
+                self.ports.slept = []
+                self.ports.term.screen = self.READY
+                self.ports.on_sleep = lambda _s, after=after: provision.mark(self.place, self.src, {wake.LIMIT_HOLD: after}, gitx)
+                rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+                self.assertEqual(rc, 0, out)
+                self.assertIn("待つのをやめた", out)
+                self.assertEqual(self.typed_lines(), [])
+
+    def test_if_limited_waits_again_over_a_typing_window_and_stops_when_the_talk_already_runs(self):
+        # 持ち主の打ちかけの字に 1 行を足さない（待ち直す）。会話がもう動いていれば打たずにやめる
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}, {"a1": None, "a2": full}, {"a1": None, "a2": full}]
+        self.ports.term.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
+        h = self.ports.term
+        busy = []
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "working" if busy else "idle"}
+        self.ports.on_sleep = lambda _s: busy.append(1) if len(self.ports.slept) == 2 else None
+        rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.ports.slept, [move.WAIT, move.WAIT])
+        self.assertIn("入力フィールドに字（「打ちかけ」）が在る", out)
+        self.assertIn("もう動いている", out)
+        self.assertEqual(self.typed_lines(), [])
+
+    def test_if_limited_waits_longer_while_the_lines_it_typed_keep_being_refused(self):
+        # 続きの 1 行がまた断られ続ける（使用率の控えに出ない上限など）なら、打つ間を 2 倍ずつ延ばす（10 分ごとに打ち続けない）
+        now = 1_800_000_000
+        self.ports.now = lambda: now
+        under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
+        self.ports.limits_seq = [under, under]
+        self.ports.term.screen = self.READY
+        for at in (now - 1200, now - 600):
+            deliver.log(self.inbox, {"id": None, "kind": "nudged", "at": at, "place": self.place, "why": move.GONE_ON, "status": "sent"})
+        rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.ports.slept, [move.WAIT * 4])
+        self.assertEqual(self.typed_lines(), [move.GO_ON.format(account="a1")])
+
+    def test_if_limited_does_not_start_again_over_a_talk_that_runs_again_after_the_wait(self):
+        # 待つ間に持ち主が続きを打って会話が動き出したら、ほかのアカウントが空いても止めて起動し直さない
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}, {"a1": full, "a2": {"five_hour": {"used_percentage": 0}}}]
+        self.ports.term.agent = lambda pane: {"agent": "claude", "agent_status": "working" if self.ports.slept else "idle"}
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("もう動いている", out)
+        self.assertEqual((seen, self.stopped), ([], []))
+        self.assertNotIn(wake.LIMIT_HOLD, gitx.worktree_attrs(self.place))
+
+    def test_if_limited_keeps_waiting_over_a_passing_error_and_a_failed_start(self):
+        # 待つ間の一時の誤り（herdr に届かない）と、移す先で起動できなかったときは、待つのをやめずに待ち直す
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        free = {"five_hour": {"used_percentage": 0}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}, {"a1": full, "a2": free}, {"a1": full, "a2": free}]
+        survey, calls = move.orders.survey, []
+
+        def flaky(*args):
+            calls.append(1)
+            if len(calls) == 2:
+                raise move.term.Error(["herdr"], "届かない")
+            return survey(*args)
+        seen, first = self.fake_task(rc=1)
+
+        def task(*args, **kw):
+            return first(*args, **kw) if len(seen) == 0 else first(*args, **kw) and 0   # 初めの起動だけ落ちる
+        self.ports.on_sleep = self.ends_well_after(seen, 2)
+        with mock.patch.object(move.orders, "survey", flaky), mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("見直せなかった", out)
+        self.assertIn("待つ: アカウント a2 で起動し直せなかった", out)
+        self.assertEqual(len(self.ports.slept), 4)
+        self.assertEqual([x["ns"].only_account for x in seen], ["a2", "a2"])   # 起動できなかった後、待ち直して起動した
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual([r["status"] for r in rows][-1], "done")
+        self.assertEqual(sum(r["status"] == move.WAITING for r in rows), 2)
+
+    def test_if_limited_waits_again_when_the_line_does_not_reach_the_talk(self):
+        # 続きの 1 行が届かなかった（herdr の一時の誤りなど）ら、待ちの印を残して待ち直す（止まったまま残さない）
+        under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
+        self.ports.limits_seq = [under, under, under]
+        self.ports.term.screen = self.READY
+        send, tries = move.deliver.send_confirmed, []
+
+        def flaky(*args, **kw):
+            tries.append(1)
+            return ("failed", "届かない") if len(tries) == 1 else send(*args, **kw)
+        with mock.patch.object(move.deliver, "send_confirmed", flaky):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(tries), 2)
+        self.assertEqual(self.ports.slept[0], move.WAIT)
+        self.assertGreater(self.ports.slept[1], move.WAIT)   # 打った回に数えるので、待つ間が延びる
+        self.assertNotIn(wake.LIMIT_HOLD, gitx.worktree_attrs(self.place))
+
+    def test_if_limited_dry_run_with_no_other_account_says_it_would_wait(self):
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}]
+        rc, out = self.main(self.src, "--move", "調べ", "--if-limited", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("待つ: 移れるアカウントが無い", out)
+        self.assertFalse(getattr(self.ports, "slept", []))
+
+    def test_the_wait_is_not_shorter_than_the_hook_guard(self):
+        # 待った後に打った 1 行がまた断られたら、フックがまた走って待ち直す（フックは同じ場所で AGAIN 秒の間は走らない）
+        self.assertGreaterEqual(move.WAIT, limit_hook.AGAIN)
 
     def test_no_other_account_with_room_stops(self):
         full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
@@ -229,6 +406,7 @@ class Move(unittest.TestCase):
             # 使用上限で止まった会話は、待っても動かないので移す
             full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
             self.ports.limits_seq = [{"a1": full, "a2": {"five_hour": {"used_percentage": 1}, "seven_day": {"used_percentage": 1}}}]
+            self.ports.on_sleep = self.ends_well_after(seen)
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.stopped, [("c1", "d")])

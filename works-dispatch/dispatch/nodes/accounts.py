@@ -82,6 +82,12 @@ def shut(hours, now, margin_minutes):
     return None
 
 
+def _reopens(hours, now):
+    """使える時間帯 hours の外か終わる手前なら、次に時間帯が始まる Unix 時刻。"""
+    got = opening(hours, now)
+    return got["opens_at"] if not got["open"] else opening(hours, got["closes_at"])["opens_at"]
+
+
 def is_running(item):
     """`claude agents --json` の 1 件が動いている会話か。背景の会話は state、state の無い対話の会話は status で見る。"""
     state = item.get("state")
@@ -112,7 +118,9 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
     """running は名 → 動いている会話の数（無い名は 0）。soon_hours は、週の枠の切り替わりを「近い」とみなす時間。
     margin_minutes は、使える時間帯の終わりの何分前から選ばないか。時間帯で選ばないアカウントは shut を真にする。
     控えが古い（limits.stale）アカウントは stale にし、known を偽にする（古い値で選ばない）。stale_over は、古い控えの最後の値で
-    上限に達していたか（--move --if-limited が、取り直せない間も移るかを最後の値で決める。一時の混み合いで移さない）。"""
+    上限に達していたか（--move --if-limited が、取り直せない間も移るかを最後の値で決める。一時の混み合いで移さない）。
+    eligible_at は、選べないアカウントがまた選べるようになる時刻（上限に達した枠の切り替わりと、使える時間帯の始まりの遅い方。
+    分からなければ None）。"""
     running = running or {}
     rows = []
     for i, a in enumerate(accounts):
@@ -125,6 +133,7 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
         last = [_window(raw.get(k), now)["used"] for k in WINDOWS] if old else []
         at = w["seven_day"]["resets_at"]
         closed = shut(a.hours, now, margin_minutes)
+        ends = [w[k]["resets_at"] for k in over] + ([_reopens(a.hours, now)] if closed else [])
         why_not = [f"{k} が {w[k]['used']}% で上限 {limit_percent}% に達した" for k in over] + ([closed] if closed else [])
         rows.append({
             "name": a.name,
@@ -137,6 +146,7 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
             "stale_over": any(u is not None and u >= limit_percent for u in last),
             "eligible": not why_not,
             "reason": "、".join(why_not) or None,
+            "eligible_at": max(ends) if why_not and None not in ends else None,
             "hours": a.hours.text if a.hours else None,
             "shut": closed is not None,
             "soon": known and at is not None and at - now <= soon_hours * 3600,
@@ -198,6 +208,16 @@ def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
         return {"to": None, "why": f"アカウント {old} の{use}が目安 {early_percent}% に達したが、使用率がそれに届かないほかのアカウントが無いので移さない",
                 "kind": "none"}
     return {"to": to, "why": f"アカウント {old} の{use}が目安 {early_percent}% に達した（上限に当たる前に、区切りで移す）", "kind": "move"}
+
+
+def next_look(rows, now, wait):
+    """--move --if-limited が、移る先が無いか一時の混み合いと見て待つときに、次に見直す Unix 時刻。選べるアカウントが在れば（待つのは
+    今のアカウントが一時の混み合いのときか、使用率の分からない今のアカウントしか選べないとき）now + wait。無ければ、また選べるように
+    なる時刻（rank の eligible_at）のうち最も早い物で、now + wait より早くしない（分からなければ now + wait）。"""
+    if any(r["eligible"] for r in rows):
+        return now + wait
+    soon = [r["eligible_at"] for r in rows if r.get("eligible_at") is not None]
+    return max(min(soon, default=now + wait), now + wait)
 
 
 def _pct(v):

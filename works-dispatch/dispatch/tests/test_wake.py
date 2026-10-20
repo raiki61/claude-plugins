@@ -1062,6 +1062,17 @@ class Hook(unittest.TestCase):
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
         self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))
 
+    def test_a_turn_that_ends_well_takes_the_limit_wait_mark_off(self):
+        # 使用上限か時間帯で止まった会話のターンが誤りなく終わったら、--move --if-limited の待ちの印を外す（待っている処理は
+        # 続きの 1 行を打たずにやめる）。人の文が始めたターンが断られたとき（Stop でなく StopFailure）は外さない
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.LIMIT_HOLD: "1-1"}, gitx)
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
+        wake_hook.ended_well({"cwd": self.place, "session_id": "s1", "hook_event_name": "StopFailure"})
+        wake_hook.ended_well({"cwd": self.place, "session_id": "s9", "hook_event_name": "Stop"})   # 場所のほかの会話では外さない
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.LIMIT_HOLD], "1-1")
+        wake_hook.ended_well({"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"})
+        self.assertNotIn(wake.LIMIT_HOLD, gitx.worktree_attrs(self.place))
+
     def spawner(self, fail=None):
         seen = []
 

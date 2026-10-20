@@ -27,7 +27,16 @@
 知らせは待ち受けが入力フィールドに打たずに会話へ渡すので、持ち主はその会話の窓で訳を見る（打ちかけの字は消えない）。
 
 --if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達しておらず、
-使える時間帯（設定の hours）の中でもあれば（一時の混み合いの rate_limit）、移さずに終わる。移したことは会社の受付箱の台帳に kind moved で残す。
+使える時間帯（設定の hours）の中でもあれば（一時の混み合いの rate_limit）、移さない。移したことは会社の受付箱の台帳に kind moved で残す。
+移さないときと移る先が無いときは、止まった会話をそのままにせず待つ（止まった会話は待ち受けを張らず、ほかに続けさせる物が無い。受付 e33748）。
+待つ長さは WAIT から LONGEST の間で、選べるアカウントが無ければ一番早く選べるようになる時刻（accounts.next_look）まで。待った後に見直し、
+今のアカウントが使えれば同じ会話に続きの 1 行（GO_ON）を打ち（会話の記憶を残す）、使えずにほかのアカウントが空けば移す。続きの 1 行が
+また断られ続けるときは、待つ間を 2 倍ずつ延ばす（LONGEST まで）。待った後に会話がもう動いていれば何もせずにやめ、窓の入力フィールドに
+打ちかけの字が在れば待ち直す。待つ間の一時の誤り（herdr や git に届かない・設定を読めない）と、移す先で起動できなかったときと、
+続きの 1 行が届かなかったときも待ち直す。部署を移したときも、新しい会話の初めのターンが断られうる（フックは同じ場所で 10 分の間に
+2 度は走らない）ので、印を付けて 1 度見直す。待ちの印
+（属性 company.limit-hold）が替われば（ターンが誤りなく終わった〔wake_hook.ended_well が外す〕・起動し直した・後から止まった回の
+--move が待ちを引き継いだ）、何もせずにやめる。
 
 --if-changed は、待ち受け（wake_hook.py）が付ける。毎回クリアする部署（役が fresh）では次の頼みを渡す前（6bdc72）、会話を引き継ぐ
 部署と本社の窓口では、会話が自分で区切りと印した（--rest）ターンの終わりに、/clear の代わりに走らせる。/clear は会話を空にしても
@@ -76,27 +85,69 @@ NOT_NOW = wake.NOT_NOW   # 今は起動し直さない（ターンの途中・�
 # 今は起動し直さないで終わったときに、その会話の中か待ち受けから打った --move の出力に添える案内（外から打てば、訳を知らせで渡す）
 INSIDE = "。その会話の中から打ったなら、区切りで --rest を打てばターンの終わりに待ち受けが起動し直す（ほかのアカウントを名指していれば、そこへ移す）"
 BUSY = ("working", "blocked")   # herdr が会話がターンの途中（動いている・確かめの画面で待つ）と見る状態。/exit を打たない
+# --if-limited が移さずに待つとき、次に見直すまでの最短と最長の秒。最短はフックが続けて走らない間（limit_hook.AGAIN）と同じにする
+# （待った後に打った 1 行がまた断られたら、フックがまた走って待ち直す）。最長の間で見直すのは、控えの取り直しや設定の替わりで
+# 選べるアカウントが見込みより早く空くことがあるため
+WAIT = 600
+LONGEST = 3600
+GONE_ON = "使用上限か使える時間帯で止まった会話を、待った後に同じアカウントで続けた"   # 台帳の nudged の行の why
+WAITING = "waiting"   # 台帳の moved の行の status: 移さずに待ち始めた（待った後に、起動し直すか、同じ会話に続きの 1 行を打つ）
+# 待った後に、止まった会話へ打つ続きの 1 行（{account} は今のアカウント）
+GO_ON = ("続きの知らせです: 前のターンは、提供元が要求を断った誤り（使用上限・使える時間帯の外・同時の要求の超過など）で途中で止まった。"
+         "アカウント {account} がまた使えるようになったので、止まった所から続ける。もう続けて済ませていれば、何もせずにこのターンを終える")
 
 
 def move(a, ports, cwd, task):
-    """--move。終了の値。"""
+    """--move。終了の値。--if-limited で移さずに待つと決めたら、決めた時刻まで待って見直す（_once が待ちを返す間、繰り返す）。"""
+    token = None
+    while True:
+        try:
+            got = _once(a, ports, cwd, task, token)
+        except Exception as e:   # noqa: BLE001
+            if token is None:
+                raise
+            # 待っている間の誤り（herdr に届かない・git の設定のロック・設定の書き替えの途中など）で待つのをやめない（会話が止まったまま残る）
+            print(f"見直せなかった（{type(e).__name__}: {e}）。{WAIT // 60} 分後に見直す")
+            got = {"until": ports.now() + WAIT, "token": token}
+        if not isinstance(got, dict):
+            return got
+        token = got["token"]
+        ports.sleep(max(got["until"] - ports.now(), 0))
+
+
+def _once(a, ports, cwd, task, token):
+    """--move を 1 度見る。終了の値か、待つなら {"until": 次に見直す Unix 時刻, "token": 待ちの印の字}。token は待った後の見直しなら
+    前に書いた待ちの印の字（初めは None）。"""
     common = ports.git.common_dir(cwd)
     try:
         cfg, accounts_, sessions_, _, companies, settings, notes = orders.survey(a.config, ports)
         target = deliver.find_target(companies, gitx.root_of(common) if common else None, a.move)
     except term.Error as e:
+        if token:
+            raise   # 待っている間は、move が見直しを先へ延ばす
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     except deliver.DeliverError as e:
+        if token:
+            raise
         print(f"止めた: {e}")
         return 2
     company, dept = target["company"], target["department"]
+    if dept is None and token:
+        print(f"待つのをやめた: 「{a.move}」という部署も窓口も無くなった")
+        return 0
     if dept is None:
         print("\n".join(notes + [f"止めた: 「{a.move}」という部署も窓口も無い（起動し直すのは立っている部署か、--desk で名付けた窓口）"]))
         return 2
+    if token and dept["attrs"].get(wake.LIMIT_HOLD) != token:
+        print(f"待つのをやめた: {a.move} の待ちの印（company.{wake.LIMIT_HOLD}）が替わった（会話のターンが誤りなく終わったか、起動し直したか、"
+              "後から止まった回の --move が待ちを引き継いだ）")
+        return 0
     if a.if_changed:
         return _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes)
     if cfg is None:
+        if token:
+            raise RuntimeError("dispatch の設定を読めない")   # 待っている間は、move が見直しを先へ延ばす
         print("\n".join(notes + ["止めた: 起動し直すには、読める dispatch の設定が要る（アカウントと使用率の上限を読む）"]))
         return 2
     attrs = dept["attrs"]
@@ -108,8 +159,17 @@ def move(a, ports, cwd, task):
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
                            accounts.count_running(sessions_), cfg.reset_soon_hours, cfg.hours_margin_minutes)
     mine = next((r for r in ranked if r["name"] == old), None)
-    if a.if_limited and mine and (mine["known"] or mine.get("stale")) and mine["eligible"] and not mine.get("stale_over"):
-        print("\n".join(notes + [f"移さない: アカウント {old} の使用率は上限 {cfg.limit_percent}% に達していない（一時の混み合いと見る）"]))
+    usable = bool(mine and mine["eligible"] and not mine.get("stale_over"))
+    passing = usable and (mine["known"] or mine.get("stale"))   # 使用率の分かる今のアカウントが上限に届かない: 一時の混み合い
+    if a.if_limited and not a.dry_run and (passing or token and usable):
+        if token:
+            # 待った後も今のアカウントが使える: 同じ会話に続きの 1 行を打つ（会話の記憶を残す）
+            return _go_on(ports, accounts_, sessions_, company, dept, mine, notes, token)
+        return _hold(ports, company, dept, ranked, mine, notes, f"アカウント {old} の使用率は上限 {cfg.limit_percent}% に達していない"
+                     "（一時の混み合いと見る）ので移さない", token)
+    if a.if_limited and passing:
+        print("\n".join(notes + [f"移さない: アカウント {old} の使用率は上限 {cfg.limit_percent}% に達していない（一時の混み合いと見る）。"
+                                 f"{WAIT // 60} 分待って、同じ会話に続きの 1 行を打つ"]))
         return 0
     if a.account:
         if a.account not in names:
@@ -122,6 +182,13 @@ def move(a, ports, cwd, task):
             return 2
     else:
         chosen = next((r["name"] for r in ranked if r["name"] != old and r["eligible"]), None)
+        if chosen is None and a.if_limited and not a.dry_run:
+            return _hold(ports, company, dept, ranked, mine, notes, f"移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かず、"
+                         "使える時間帯の中のアカウントが無い）", token)
+        if chosen is None and a.if_limited:
+            print("\n".join(notes + [f"待つ: 移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かず、使える時間帯の中のアカウントが無い）。"
+                                     "待って見直し、ほかのアカウントが空けば移し、今のアカウントが使えれば同じ会話に続きの 1 行を打つ"]))
+            return 0
         if chosen is None:
             print("\n".join(notes + [f"止めた: 移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かず、使える時間帯の中のアカウントが無い）"]))
             return 2
@@ -135,22 +202,149 @@ def move(a, ports, cwd, task):
         to = f"{chosen} のまま" if chosen == old else f"{old or '-'} から {chosen} へ"
         print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {to}起動し直す（{why}）"]))
         return 0
-    return _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, cwd)
+    if token:
+        # 待った後に移す: 待つ間に持ち主が続きを打って会話が動き出したか、窓に打ちかけているなら、止めない（止まった直後に移す
+        # 初めの回と違い、会話はもう止まったままとは限らない）
+        stay = _stay(dept, _pane_of(dept, ports), ports, company, token, notes, where)
+        if stay is not None:
+            return stay
+    # 使用上限で移すときは、起動し直した部署の会話にも待ちの印を付ける。新しい会話の初めのターンも断られうる（移った先も同時の要求の
+    # 超過を返すなど）が、フックは同じ場所で limit_hook.AGAIN 秒の間は走らないので、この処理が 1 度見直す（ターンが誤りなく終われば印が
+    # 外れる）。窓口は見直さない: 新しい窓口の会話は --desk を打つまで属性の会話（company.session）が前の会話のままで、見直しても窓を
+    # 見つけられず、印も外れない（窓口は持ち主の前で動く）
+    watch = f"{os.getpid()}-{int(ports.now())}" if a.if_limited and not head else None
+    try:
+        rc = _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, cwd, hold=watch)
+    except Exception as e:   # noqa: BLE001
+        if not a.if_limited:
+            raise
+        # 前の会話を止めた後の思わぬ誤りで、止まったまま残さない（フックは AGAIN 秒の間は走らない）
+        print(f"起動し直す途中で誤りが出た（{type(e).__name__}: {e}）")
+        rc = 1
+    if a.if_limited and rc != 0:
+        # 起動できなかった（前の会話へ戻した）か、窓口が今は止められなかった: 止まったまま残さず、待つ
+        return _hold(ports, company, dept, ranked, mine, notes, f"アカウント {chosen} で起動し直せなかった", None)
+    if watch:
+        print(f"{WAIT // 60} 分後に、起動し直した会話が誤りで止まっていないかを見る（ターンが誤りなく終われば見ずにやめる）")
+        return {"until": ports.now() + WAIT, "token": watch}
+    return rc
 
 
-def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, cwd=None, early_why=None):
+def _pane_of(dept, ports):
+    """止まった会話の居るペイン。窓口は属性の会話の居るペイン、部署は会話の居る窓（orders.live_window）。無ければ None。"""
+    if dept.get("head_office"):
+        sid = dept["attrs"].get("session")
+        return next((p["pane_id"] for p in dept["panes"] if sid and p.get("agent_session") == sid), None)
+    return orders.live_window(dept, ports)
+
+
+def _stay(dept, pane, ports, company, token, notes, where, empty=False):
+    """待った後に、窓の会話に手を出さない訳が在れば、その終わり方（会話が動いていれば待つのをやめて 0、入力フィールドに字が在れば
+    待ち直す）。手を出してよければ None。empty なら、入力フィールドが見えて空なことまで求める（1 行を打つとき）。窓を読めなければ term.Error。"""
+    if pane is None:
+        return None
+    status = (ports.term.agent(pane) or {}).get("agent_status")
+    if status in BUSY:
+        _unhold(dept, company, token, ports)
+        print("\n".join(notes + [f"待つのをやめた: {where} の会話はもう動いている（{status}）"]))
+        return 0
+    box = chat.typed(ports.term.read(pane, 40, ansi=True))
+    if box or empty and box is None:
+        now = ports.now()
+        print("\n".join(notes + [f"待つ: {where} の窓 {pane} の" + (f"入力フィールドに字（「{box[:20]}」）が在る（持ち主が打ちかけの字を消さない）"
+                                                               if box else "入力フィールドが見えない")
+                                 + f"。{time.strftime('%H:%M', time.localtime(now + WAIT))} に見直す"]))
+        return {"until": now + WAIT, "token": token}
+    return None
+
+
+def _unhold(dept, company, token, ports):
+    """待ちの印がまだこの処理の字なら外す（後から待ち始めた --move の字は消さない）。"""
+    try:
+        now_mark = (ports.attrs(dept["path"]) or {}).get(wake.LIMIT_HOLD)
+    except (gitx.GitError, OSError):
+        return
+    if now_mark == token:
+        provision.mark(dept["path"], company["root"], {wake.LIMIT_HOLD: None}, ports.git)
+
+
+def _tries(inbox, place, now):
+    """この場所で、続きの 1 行を打った最近（LONGEST の 3 倍の間）の回数。続きの 1 行がまた断られ続けるときに、待つ間を延ばす。"""
+    return sum(1 for r in deliver.records(inbox) if r.get("kind") == "nudged" and r.get("why") == GONE_ON
+               and r.get("place") == place and isinstance(r.get("at"), (int, float)) and now - r["at"] < 3 * LONGEST)
+
+
+def _hold(ports, company, dept, ranked, mine, notes, why, token):
+    """--if-limited で移さずに待つ。初めて待つ（token が None）ときは、待ちの印（company.limit-hold）をこの処理の字で書き（前に待って
+    いた処理は、印が替わったのを見てやめる）、台帳に kind moved・status waiting で残す。{"until", "token"}。"""
+    attrs = dept["attrs"]
+    now = ports.now()
+    inbox = deliver.inbox_of(ports.git.common_dir(company["root"]))
+    # 続きの 1 行がまた断られ続ける（使用率の控えに出ない上限など）なら、打つ間を 2 倍ずつ延ばす（LONGEST まで）
+    until = min(max(accounts.next_look(ranked, now, WAIT), now + WAIT * 2 ** _tries(inbox, dept["path"], now)), now + LONGEST)
+    if token is None:
+        token = f"{os.getpid()}-{int(now)}"
+        provision.mark(dept["path"], company["root"], {wake.LIMIT_HOLD: token}, ports.git)
+        deliver.log(inbox,
+                    {"kind": "moved", "at": now, "name": attrs.get("name"), "path": dept["path"], "from": attrs.get("account"),
+                     "to": None, "why": CLOSED if mine and mine["shut"] else LIMITED, "status": WAITING, "detail": why})
+    at = time.strftime("%H:%M", time.localtime(until))
+    print("\n".join(notes + [f"待つ: {why}。{at} に見直す（ほかのアカウントが空けば移し、今のアカウントが使えれば同じ会話に続きの 1 行を打つ）"]))
+    return {"until": until, "token": token}
+
+
+def _go_on(ports, accounts_, sessions_, company, dept, mine, notes, token):
+    """待った後に、止まった会話（部署の窓か、窓口の会話の居るペイン）へ続きの 1 行（GO_ON）を打ち、台帳に kind nudged で残す。
+    部署の窓に会話が居なければ attach で戻す。会話が動いていれば打たずにやめ、入力フィールドに字が在るか見えなければ待ち直す。
+    会話の居るペインが無い（戻せない）ときも待ち直す。終了の値か待ち。"""
+    attrs = dept["attrs"]
+    where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
+    said = None
+    pane = _pane_of(dept, ports)
+    if pane is None and not dept.get("head_office"):
+        pane, said = orders.revive(dept, accounts_, ports, sessions_, company["root"])
+    inbox = deliver.inbox_of(ports.git.common_dir(company["root"]))
+    ask = attrs.get("ask") if attrs.get("ask") and attrs.get("delivered") != attrs.get("ask") else None
+    row = {"id": ask, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane, "why": GONE_ON}
+    if pane is None:
+        said = said or "窓口の会話の居るペインが無い"
+        deliver.log(inbox, {**row, "status": "failed", "detail": said})
+        now = ports.now()
+        print("\n".join(notes + [f"待つ: {where} の止まった会話に続きの 1 行を打てなかった（{said}）。"
+                                 f"{time.strftime('%H:%M', time.localtime(now + LONGEST))} に見直す"]))
+        return {"until": now + LONGEST, "token": token}
+    stay = _stay(dept, pane, ports, company, token, notes, where, empty=True)
+    if stay is not None:
+        return stay
+    keep = {k: attrs[k] for k in orders.KEPT_MARKS if attrs.get(k)}
+    sent, detail = deliver.send_confirmed(pane, GO_ON.format(account=mine["name"]), ports.term, ports.pause,
+                                          orders.busy_check(dept, accounts_, ports))
+    detail = orders._put_back(dept, keep, ports, detail)
+    deliver.log(inbox, {**row, "status": sent, "detail": "。".join(x for x in (said, detail) if x) or None})
+    print("\n".join(notes + [f"{where}: 止まった会話に、アカウント {mine['name']} のまま続きの 1 行を打った（{sent}）"
+                             + (f"。{said}" if said else "") + (f"。{detail}" if detail else "")]))
+    if sent != "sent":
+        # 届かなかった（herdr の一時の誤りなど）: 印を残して待ち直す（打った回に数えるので、待つ間は延びていく）
+        now = ports.now()
+        return {"until": now + min(WAIT * 2 ** _tries(inbox, dept["path"], now), LONGEST), "token": token}
+    _unhold(dept, company, token, ports)
+    return 0
+
+
+def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, cwd=None, early_why=None, hold=None):
     """前の会話を止めて、アカウント chosen で起動し直し、台帳に kind moved で残す。終了の値。cwd は --move を打った場所
-    （その会話の外から打って、今は起動し直さないで終わったら、訳をその会話に知らせる）。early_why は区切りで早めに移す訳（台帳に添える）。"""
+    （その会話の外から打って、今は起動し直さないで終わったら、訳をその会話に知らせる）。early_why は区切りで早めに移す訳（台帳に添える）。
+    hold は起動する前に書く待ちの印（company.limit-hold）の字（None なら外す）。"""
     attrs = dept["attrs"]
     old = attrs.get("account")
     acc = {x.name: x for x in cfg.accounts}
     if head:
         text = _first_text(attrs, dept, old, chosen, why, head) + _handoff_line(
             os.path.join(ports.git.git_dir(company["root"]), wake.HANDOFF))
-        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings, acc.get(old))
+        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings, acc.get(old), hold)
     else:
         rc, said = _move_dept(a, cfg, company, dept, acc.get(old), chosen, lambda at: _first_text(at, dept, old, chosen, why, head),
-                              ports, task, settings)
+                              ports, task, settings, hold)
     inbox = deliver.inbox_of(ports.git.common_dir(company["root"]))
     deliver.log(inbox, {"kind": "moved", "at": ports.now(), "name": attrs.get("name"), "path": dept["path"], "from": old,
                         "to": chosen, "why": why, "status": "done" if rc == 0 else "failed",
@@ -291,7 +485,7 @@ def _handoff_line(path):
     return f" 前の会話が書いた引継ぎ {kept}（{time.strftime('%Y-%m-%d %H:%M', at)} に書いた）が在る。続きを再開する前に読む。"
 
 
-def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, settings):
+def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, settings, hold=None):
     """部署の裏の会話を止め、--task と同じ道で移る先のアカウントの会話を起動する。(終了の値, 言葉)。text_of は属性から最初の文を作る。"""
     attrs = dept["attrs"]
     pane = next((p["pane_id"] for p in dept["panes"]), None)
@@ -332,7 +526,7 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
     ask = attrs.get("ask")
     done = ask and attrs.get("delivered") == ask and attrs.get("fresh") == role.FRESH
     provision.mark(dept["path"], company["root"], {"session": None, "job": None, wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None,
-                                                   wake.MOVE_TO: None, wake.MOVE_KEPT: None, wake.MOVE_SKIPPED: None,
+                                                   wake.MOVE_TO: None, wake.MOVE_KEPT: None, wake.MOVE_SKIPPED: None, wake.LIMIT_HOLD: hold,
                                                    **({"cleared": ask} if done else {})}, ports.git)
     brief = os.path.join(ports.git.git_dir(dept["path"]), "move-brief.md")
     pathlib.Path(brief).write_text(text_of(attrs) + _handoff_line(os.path.join(ports.git.git_dir(dept["path"]), wake.HANDOFF)) + "\n",
@@ -365,7 +559,7 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
     return rc, "--task と同じ道で起動できなかった（上の出力を見る）。" + ("前の会話を attach で戻した" if back is None else f"前の会話も戻せなかった（{back}）")
 
 
-def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
+def _move_desk(company, dept, acc, text, ports, settings, old_acc=None, hold=None):
     """窓口の会話を /exit で終え、同じペインで移る先のアカウントの会話を窓口の名前（と役の起動の設定）で起動する。(終了の値, 言葉)。"""
     attrs = dept["attrs"]
     sid = attrs.get("session")
@@ -390,7 +584,7 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
     # 前の会話は終わった。起動する値を書き（設定を書けなければ、起動した値を知らないと見る）、待ち受けと区切りの印を外す
     provision.mark(company["root"], company["root"], {wake.LAUNCHED: None if warn else role.launch_key(the_role), wake.LAUNCHING: "1",
                                                       wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None, wake.MOVE_TO: None,
-                                                      wake.MOVE_KEPT: None, wake.MOVE_SKIPPED: None},
+                                                      wake.MOVE_KEPT: None, wake.MOVE_SKIPPED: None, wake.LIMIT_HOLD: hold},
                    ports.git)
     got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.term, settings=conf, model=model, effort=effort)
     if got["status"] == "ready":
