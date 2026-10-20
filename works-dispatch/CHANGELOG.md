@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.109.2] - 2026-10-21
+
 ### Fixed
 
 - 部署（works-dispatch が立てる、役を持った Claude Code の会話と、その会話専用の git worktree の組）の会話が、シェルの `cd` でほかの部署の worktree（本社〔代表の clone〕など）へ移ってから打った `--deliver`・`--wait`・`--rest`・`--compact`・`--done` と `--ask` の `--forward` が、自分の部署でなく移った先の worktree の部署の属性を読み、別の部署の頼みを閉じようとしたのを直した。
