@@ -417,6 +417,6 @@ e001d7 は割り振りの作業の部署「割り振り：アカウントの使�
   1. `gh run list -w test.yml -b main --json databaseId,headSha,conclusion,createdAt` で、期間の中で走り切った run（success か failure）を古い順に並べる。
   2. 各 run の赤の検査の名前（tests/run.sh の `  FAIL ` の行と、works・graphloops の job の赤）を `gh run view <id> --log-failed` で拾い、前の走り切った run の赤と比べて、新しく出た物だけを残す。
   3. 新しく出た赤の検査 K ごとに、前の run の headSha から今の run の headSha までの commit を `git log` で並べ、K を赤にした commit C を探す（K の入力のファイルを変えた commit。分からなければ手元で K を回して二分探索）。
-  4. C を入れた --land が K を見送っていたかを見る: C の木で `python3 tests/land-check.py --affected <C の --land の前の main>` が出す「変わったプラグイン」と変わったファイルが、tests/run.sh の K の `scope` に当たらなければ見送っていた。当たらないのに C が K を赤にしたなら、K の scope の宣言が C の変えたファイルを書き落としている（どの scope が漏れたかの答え）。
+  4. C の変えたファイルが K の入力の宣言に当たるかを見る: C の木で `python3 tests/land-check.py --affected C^`（C^ は C の 1 つ前の commit）が出す「変わったプラグイン」と、`git show --name-only C` の変えたファイルを、tests/run.sh の K の `scope` と照らす。当たらないのに C が K を赤にしたなら、K の scope の宣言が C の変えたファイルを書き落としている（どの scope が漏れたかの答え）。そのうえで、C と同じ --land で入ったほかの commit も K の scope に当たらなければ、その --land は K を見送っていた。同じ --land の commit は、`git branch -r --contains C` に出る部署のブランチ（origin/work/...）のうち、先が一番古い物の、前の --land のブランチの先から先までの commit で取る（main は fast-forward でしか進まないので、1 回の --land の commit は main の上で続いて並ぶ）。
   5. 4 で見送っていた赤の数を 1 週間で足す。週に 2 回より多ければ、漏れた scope の宣言と一緒に頼み元へ返す。2 回以下でも、漏れた scope の宣言は名前を添えて返す。
 - 結果: 2026-10-27 21:17 より後に、業務改革が数えてここに書く（結果は `--for 20261020-120322-904871` で返す）。
