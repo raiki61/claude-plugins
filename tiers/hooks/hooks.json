@@ -1,12 +1,12 @@
 {
-  "description": "tiers の statusline を tiers-statusline setup で入れたアカウントだけ、${CLAUDE_PLUGIN_DATA}/current を今の版へのリンクに張り替える（リンクが無ければ何もしない。会話に字は出さない）",
+  "description": "tiers の statusline を使うアカウントだけ、${CLAUDE_PLUGIN_DATA}/current を今の版へのリンクに張り替える（リンクが無く、settings.json の statusLine がこのリンクの下を指すときは作る。指していなければ何もしない。会話に字は出さない）",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "d=\"${CLAUDE_PLUGIN_DATA}/current\"; [ -L \"$d\" ] && [ \"$(readlink \"$d\")\" != \"${CLAUDE_PLUGIN_ROOT}\" ] && ln -sfn \"${CLAUDE_PLUGIN_ROOT}\" \"$d\" 2>/dev/null; exit 0"
+            "command": "d=\"${CLAUDE_PLUGIN_DATA}/current\"; if [ -L \"$d\" ]; then [ \"$(readlink \"$d\")\" != \"${CLAUDE_PLUGIN_ROOT}\" ] && ln -sfn \"${CLAUDE_PLUGIN_ROOT}\" \"$d\" 2>/dev/null; elif [ ! -e \"$d\" ] && grep -qF \"\\\"$d/statusline/statusline.sh\\\"\" \"${CLAUDE_PLUGIN_DATA%/plugins/data/*}/settings.json\" 2>/dev/null; then ln -sfn \"${CLAUDE_PLUGIN_ROOT}\" \"$d\" 2>/dev/null; fi; exit 0"
           }
         ]
       }

@@ -236,6 +236,20 @@ class Shell(Base):
         self.hook(data, new)
         self.assertEqual(list((data / "current").iterdir()), [], "リンクでない物の中にリンクを作らない")
 
+    def test_the_hook_makes_the_link_the_statusline_points_to(self):
+        # 写した settings.json で、statusLine がこのアカウントのリンクを指すのにリンクが無い（新しい設定のフォルダ）
+        config, root = self.home / "config", self.home / "v2"
+        data = config / "plugins" / "data" / sl.DATA_NAME
+        data.mkdir(parents=True)
+        root.mkdir()
+        (config / "settings.json").write_text(json.dumps({"statusLine": {"type": "command", "command": sl.command_for(config)}}), encoding="utf-8")
+        self.hook(data, root)
+        self.assertEqual(os.readlink(data / "current"), str(root))
+        os.unlink(data / "current")
+        (config / "settings.json").write_text(json.dumps({"statusLine": {"type": "command", "command": "/elsewhere/statusline.sh"}}), encoding="utf-8")
+        self.hook(data, root)
+        self.assertFalse(os.path.lexists(data / "current"), "statusLine がほかを指すアカウントには張らない")
+
     @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "jq と bash が要る")
     def test_the_statusline_starts_refresh_only_when_it_would_change_something(self):
         # statusline/ を写し、bin/tiers-statusline を、起動されたら印のファイルを書く偽物にする

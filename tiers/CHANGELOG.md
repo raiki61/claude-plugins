@@ -6,6 +6,10 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Fixed
+
+- 新しく作った設定のフォルダで、`settings.json` の `statusLine` が tiers のリンク（`<設定のフォルダ>/plugins/data/tiers-raiki61/current`）の下を指しているのにリンクが無く、状態の行が出なかった（ほかのフォルダから写した `settings.json` のパスを書き換えたときに起きる。`tiers-statusline setup` を打てば直ったが、打つ手が要った）。SessionStart のフックが、リンクが無く statusLine がそのリンクの下を指すときはリンクを作る。statusLine がほかを指すフォルダには今までどおり作らない。
+
 ## [0.9.1] - 2026-10-20
 
 ### Fixed

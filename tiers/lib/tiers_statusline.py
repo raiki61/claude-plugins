@@ -11,7 +11,8 @@
   ルールが替わるたびに作り直す（statusline.sh が、配られたルールか足す規則の方が新しいのを見て refresh を起動する）。
 - statusLine のコマンドは、プラグインの版が上がっても替わらない場所を指す必要がある（版ごとにフォルダが替わる。キャッシュのフォルダの
   名前には commit の印の物も混ざるので、名前の並びで最新を選べない）。プラグインの SessionStart のフックが、会話を始めるたびに
-  ${CLAUDE_PLUGIN_DATA}/current を今の版（${CLAUDE_PLUGIN_ROOT}）へのリンクに張り替え、statusLine はそのリンクの下を指す。
+  ${CLAUDE_PLUGIN_DATA}/current を今の版（${CLAUDE_PLUGIN_ROOT}）へのリンクに張り替え、statusLine はそのリンクの下を指す。リンクが無くても、
+  settings.json の statusLine がそのリンクの下を指していれば、フックが作る（ほかのフォルダから写した settings.json で、setup を打たずに出るように）。
 
 使い方:
     tiers-statusline setup [--config-dir フォルダ ...]   アカウントごとに statusLine を書き（前の settings.json は .bak で残す）、
