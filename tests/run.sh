@@ -2422,7 +2422,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=756
+EXPECTED_CHECKS=757
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから destgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate
 # ---- coldread ゲート ------------------------------------------------------
@@ -8423,7 +8423,7 @@ expect_output 0 "VALIDATOR_ORDER_OK" "検証器の fail() が _rows() より前�
 
 # メインブランチに入れるゲートの照合（tests/land-check.py）: 一覧（tests/land-known-red.txt）に無い赤・一覧に在るのに緑・「 — 」の無い赤の行・
 # 件数の食い違い・最後の行の無い終わり・赤の行の無い失敗で止め、一覧に在る赤と、走らなかった一覧の検査では止めない。一覧の名前は今の tests/run.sh の検査の名前に在る
-expect_output 0 "LAND_CHECK_OK" "メインブランチに入れるゲートが、一覧に無い赤と一覧の古い行で止め、一覧に在る赤では止めない" \
+expect_output 0 "LAND_CHECK_OK" "メインブランチに入れるゲートが、一覧に無い赤と一覧の古い行で止め、一覧に在る赤では止めず、止めた赤の中で落ちたテストの名前を出す" \
     "$PY_BIN" - "$ROOT" <<'PY'
 import importlib.util, pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -8477,6 +8477,16 @@ assert lc.affected(["gone/x.py"], {"a": ["gone"], "b": []}) == {"a"}, "消した
 assert "tiers" in lc.plugins(root)["works-dispatch"], "plugin.json の dependencies を読めていない: %s" % lc.plugins(root)
 # tests/run.sh が出す見送りの印と、照合が数える印が同じ
 assert lc.SCOPE_SKIP.strip(" #") in run.replace("$SKIP_MARK", " # SKIP"), "tests/run.sh の見送りの印が tests/land-check.py の SCOPE_SKIP と違う"
+# 止めた赤の中で落ちたテストの名前（unittest の 3.11 からの形と前の形・works-dispatch の parallel.py の形・pytest の要約・中の台本の赤の行）を拾い、無ければ NG の行か最後の Error の行を出す
+red = ("  ok   甲\n  FAIL 乙 — exit 0 を期待したが 1（出力は下の行）\nFAIL: test_a (works-dispatch.dispatch.tests.test_land.Queue.test_a)\n"
+       "ERROR: test_b (test_land.Queue)\nFAIL: works-dispatch.dispatch.tests.test_tree.Tree.test_d\nFAILED t/test_c.py::test_c - x\n    FAIL 中の台本 — y\n  FAIL 丙 — z（出力は下の行）\n"
+       "Traceback (most recent call last):\nAssertionError: 形が違う\n2 件のうち失敗あり\n")
+assert lc.inner_fails(red, "乙") == ["works-dispatch.dispatch.tests.test_land.Queue.test_a", "test_land.Queue.test_b", "works-dispatch.dispatch.tests.test_tree.Tree.test_d", "t/test_c.py::test_c", "中の台本"], lc.inner_fails(red, "乙")
+assert lc.inner_fails(red, "丙") == ["AssertionError: 形が違う"], lc.inner_fails(red, "丙")
+ng = "  FAIL 戊 — x\nNG CHUNK（a.py）が FORMS にも無い\nTraceback (most recent call last):\nAssertionError: 1 件\n"
+assert lc.inner_fails(ng, "戊") == ["NG CHUNK（a.py）が FORMS にも無い"], lc.inner_fails(ng, "戊")
+many = "  FAIL 丁 — x\n" + "".join("FAIL: t%d (m.C.t%d)\n" % (i, i) for i in range(12))
+assert lc.show_fails(many, ["丁"]) == ["落ちた: 丁 ← " + ", ".join("m.C.t%d" % i for i in range(lc.NAMES_SHOWN)) + " ほか 4 件"], lc.show_fails(many, ["丁"])
 print("LAND_CHECK_OK")
 PY
 

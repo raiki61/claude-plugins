@@ -11,6 +11,11 @@ tests/run.sh の検査のうち scope で入力を宣言した物は、宣言し
 変わったファイルも無ければ、走らせずに見送る（scope の無い検査は毎回回す）。tests/run.sh 自身が変わった回と、分かれ目を
 取れない回は全部を回す。見送った検査は main に入った後の CI が回す（決まった時刻に走る実行は置かない。持ち主は cron などの
 定期の起動を置かない）。全部を回したいときは TESTS_LAND_ALL=1 を付ける。直す前は全部で 24 分 12 秒（2026-10-20、負荷 10〜37 の機械）。
+どのテストをどこで回すかの決めは docs/adr/0076-land-runs-affected-tests.md。
+
+止めた赤の検査ごとに、中で落ちたテストの名前（unittest・pytest・中の台本の赤）を「落ちた: <検査> ← <テスト>」の 1 行で、
+最後の行のすぐ前に出す。--land は検査の出力の末尾 20 行だけを部署に渡すので、名前がそこに入るようにする（2026-10-20 は出なかった）。
+かかった時間と終わりの load average も出す。
 
 止めるのは次の場合。
 - 一覧に無い赤（この変更か、一覧に足し忘れた赤）
@@ -37,6 +42,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -106,6 +112,53 @@ def scope_env(root, base=None):
             "変わったファイル %d 本・変わったプラグイン（依存する側を含む）: %s" % (len(changed), " ".join(sorted(hit)) or "無し"))
 
 
+INNER = (re.compile(r"^(?:FAIL|ERROR): (\S+) \(([^)\s]+)\)", re.M),   # unittest の赤（名前と、モジュール.クラス。3.11 からはその後ろに .名前）
+         re.compile(r"^(?:FAIL|ERROR): (\S+)$", re.M),                    # works-dispatch/dispatch/tests/parallel.py の赤（試験の id だけ）
+         re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.M),             # pytest の -r の要約の行
+         re.compile(r"^\s*FAIL (.+?) — ", re.M))                          # 中で回した別の台本（tests/run.sh の形）の赤の行
+NAMES_SHOWN, NAMES_CHARS = 8, 400   # 1 つの赤の検査の中の落ちたテストの名前を出す上限（--land は出力の末尾 20 行だけを部署に渡す）
+
+
+def inner_fails(out, name):
+    """tests/run.sh の赤の検査 name の、捕った出力（赤の行の次から、次の検査の行の前まで）から、中で落ちたテストの名前を拾う。
+    unittest・pytest・台本の赤の行が無ければ、最初の AssertionError か Error の行を 1 つ返す（Python のその場の検査の多くはこれで落ちる）。"""
+    lines = out.splitlines()
+    try:
+        at = next(i for i, l in enumerate(lines) if l.startswith("  FAIL %s — " % name))
+    except StopIteration:
+        return []
+    block = []
+    for l in lines[at + 1:]:
+        if l.startswith(("  ok   ", "  FAIL ")) or DONE.match(l):
+            break
+        block.append(l)
+    text = "\n".join(block)
+    names = []
+    for i, pat in enumerate(INNER):
+        for m in pat.finditer(text):
+            n = m.group(1)
+            if i == 0:   # 名前と（モジュール.クラス）の形
+                n = m.group(2) if m.group(2).endswith("." + n) else "%s.%s" % (m.group(2), n)
+            if n not in names:
+                names.append(n)
+    if not names:   # その場の検査の多くは「NG …」の行か、最後の AssertionError などの行で落ちる
+        names = ([l.strip()[:200] for l in block if l.lstrip().startswith("NG ")][:2]
+                 or [l.strip()[:200] for l in block if re.match(r"\s*\w*(Error|Exception)\b", l)][-1:])
+    return names
+
+
+def show_fails(out, names):
+    """赤の検査ごとに 1 行（「落ちた: <検査> ← <中の落ちたテスト>」）。--land が渡す末尾に収まるよう、名前の数と字数を切る。"""
+    rows = []
+    for f in names:
+        inner = inner_fails(out, f)
+        tail = ""
+        if inner:
+            tail = " ← " + ", ".join(inner[:NAMES_SHOWN]) + (" ほか %d 件" % (len(inner) - NAMES_SHOWN) if len(inner) > NAMES_SHOWN else "")
+        rows.append(("落ちた: %s%s" % (f, tail))[:NAMES_CHARS])
+    return rows
+
+
 def known_red(text):
     """一覧の本文 → 検査の名前の並び（# で始まる行と空の行は飛ばす）。"""
     return [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
@@ -138,6 +191,7 @@ def judge(out, rc, known):
 
 
 def main(argv):
+    started, ran = time.monotonic(), not argv
     if argv[:1] == ["--judge"] and len(argv) == 3:
         out, rc = pathlib.Path(argv[1]).read_text(encoding="utf-8"), int(argv[2])
     elif argv[:1] == ["--affected"] and len(argv) <= 2:
@@ -161,9 +215,15 @@ def main(argv):
     stop, notes = judge(out, rc, known)
     for line in notes + stop:
         print(line)
+    for line in show_fails(out, [f for f in FAIL_LINE.findall(out) if f not in known]):
+        print(line)   # 止める物の後ろ、最後の行の前に置く（--land は出力の末尾 20 行を部署に渡す）
     skipped = sum(1 for n in OK_LINE.findall(out) if SCOPE_SKIP in n)   # 見送りの一覧（report_skips）の行は数えない
     if skipped:
         print("land-check: 入力の変わっていない検査 %d 件を見送った（main に入った後の CI が回す）" % skipped)
+    if ran:
+        spent = int(time.monotonic() - started)
+        load = " ".join("%.1f" % x for x in os.getloadavg()) if hasattr(os, "getloadavg") else "取れない"
+        print("land-check: %d 分 %d 秒かかった（終わりの load average %s）" % (spent // 60, spent % 60, load))
     print("land-check: %s" % ("止める物 %d 件" % len(stop) if stop else "tests/run.sh に、一覧の外の赤は無い"))
     return 1 if stop else 0
 
