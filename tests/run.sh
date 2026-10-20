@@ -5578,9 +5578,10 @@ expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義�
 
 # ---- works-dispatch/dispatch: 自分の番の PR を herdr の作業場に広げるライン ----
 # 旧 works の試験の殻（works/tests/run.sh）には載せない（設計書 works-dispatch/docs/specs/2026-10-14-catchup-dispatch-design.md の D1）。
-# 試験と、設計書のセクション 4 の決まりのチェック（works-dispatch/dispatch/tests/test_rules.py）を 1 本で回す。herdr・gh・claude には触らない
+# 試験と、設計書のセクション 4 の決まりのチェック（works-dispatch/dispatch/tests/test_rules.py）を 1 本で回す。herdr・gh・claude には触らない。
+# 試験は git の子のプロセスを待つ時間が長いので、tests/parallel.py がクラスを小さい組に分けて別のプロセスで並べる（中身は unittest discover と同じ）
 expect_output 0 "OK" "works-dispatch/dispatch: ノードの試験と決まりのチェック（D1〜D6・D8）" \
-    "$PY_BIN" -B -m unittest discover -s "$ROOT/works-dispatch/dispatch/tests" -t "$ROOT"
+    "$PY_BIN" -B "$ROOT/works-dispatch/dispatch/tests/parallel.py"
 
 # ---- tiers: 要るツールの段ごとの点検（ほかのプラグインが依存として入れ、使い始めに bin/tiers を呼ぶ）----
 # 外のツール（claude・gh・herdr・archon）は起動せず、口（Probe）を偽物に替える

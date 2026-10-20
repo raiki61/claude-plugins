@@ -1,6 +1,9 @@
 """部署の成果をメインブランチに入れる（入口の --land。landing.py と nodes/land.py・nodes/bump.py）。
 
-git は本物を使う。一時のフォルダに、GitHub に見立てた裸のリポジトリと、それを origin にした元の clone と、部署の worktree を作る。
+判断の筋（ゲートの結果・push の断り・メインブランチが先に進んだ・部署に頼む文など）は、git の偽物（fakegit.FakeGit を ports.git に渡す。
+FakeWorld・FakePorts）で試す。本物の git は、git との境目を確かめる試験（World・Ports）だけで使う: リベースとぶつかりの解き方・
+代表の clone の書きかけとフック・属性の書き読み・片付け・版上げの一時の worktree・diff と blame の字の読み方。境目の試験は、一時の
+フォルダに、GitHub に見立てた裸のリポジトリと、それを origin にした元の clone と、部署の worktree を作る。
 本物の GitHub と本物の main には触らない。herdr と gh は偽物にする（gh の偽物は、ゲートの CI の結果を試験が決める）。
 """
 
@@ -24,6 +27,8 @@ import herdr as real_herdr
 import landing
 from config import Repo
 from nodes import bump, land, landqueue
+
+from . import fakegit
 
 
 def git(*args):
@@ -194,6 +199,50 @@ class Ports:
         return None
 
 
+class FakeWorld:
+    """World と同じ形の世界を、偽物の git の上に作る。部署の場所には、--land がファイルとして読む物（CI の定義など）だけを書く。"""
+
+    def __init__(self, tmp, files=None):
+        self.tmp = tmp
+        files = files or {"README.md": "r\n"}
+        self.g = fakegit.FakeGit(os.path.join(tmp, "src"), files)
+        self.source = self.g.source
+        self.dept = self.g.add_worktree(os.path.join(tmp, "wt", "a"), "feat/a", "origin/main")
+        fakegit.materialize(self.dept, files)
+
+    def work(self, rel="a.txt", text="a\n"):
+        return self.g.commit(self.dept, {rel: text}, "部署の作業")
+
+    def move_main(self, rel="b.txt", text="b\n"):
+        return self.g.push_origin("main", {rel: text}, "ほかの部署")
+
+    def origin(self, ref):
+        return self.g.origin[ref]
+
+    def has(self, ref):
+        return ref in self.g.origin
+
+    def log(self, n):
+        """origin の main の新しい方から n 件の件名。"""
+        return [self.g.commits[s]["subject"] for s in self.g._line(self.g.origin["main"])[:n]]
+
+
+class FakePorts(Ports):
+    """偽物の git を口に持つ Ports。worktree の並びと場所のきれいさも偽物の git から読む。"""
+
+    def __init__(self, world, gh=None, attrs=None):
+        super().__init__(world, gh, attrs)
+        self.git = world.g
+
+    def places(self, repo):
+        g = self.world.g
+        return [{"path": p, "branch": b, "linked": p != g.source, "prunable": False,
+                 "workspace": "W1" if p == self.world.dept else None} for p, b in g.heads.items()]
+
+    def is_clean(self, path):
+        return self.git.is_clean(path)
+
+
 def no_rows(cfg, repo, ports, found, notes):
     return []
 
@@ -223,30 +272,31 @@ CI_FILES = {".claude/company.toml": CI_RULES, FLOW: "on:\n  push:\n    branches:
 
 class FastForwardAfterCi(LandCase):
     def test_green_and_main_is_ancestor_fast_forwards_main_and_drops_the_gate_branch(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         head = w.work()
-        ports = Ports(w)
+        ports = FakePorts(w)
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
         self.assertEqual(ports.gh.seen, ("release/a", head))
         self.assertFalse(w.has("release/a"), "入れた後もゲートのブランチが origin に残っている")
-        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head, "手元のメインブランチが fast-forward されていない")
+        self.assertEqual(w.g.local["main"], head, "手元のメインブランチが fast-forward されていない")
         self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(w.g.attrs[w.dept]["base"], head, "入れた後のメインブランチを、次の書き換えのゲートの位置にする")
 
     def test_waits_until_the_run_appears(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         w.work()
-        ports = Ports(w, FakeGh(appear=3))
+        ports = FakePorts(w, FakeGh(appear=3))
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
         self.assertEqual(ports.gh.asked, 4)
 
     def test_gate_without_ci_for_its_branch_stops_before_pushing(self):
-        w = World(self.tmp, {".claude/company.toml": CI_RULES})
+        w = FakeWorld(self.tmp, {".claude/company.toml": CI_RULES})
         before = w.origin("main")
         w.work()
-        ports = Ports(w)
+        ports = FakePorts(w)
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertIn("CI が起きない", out)
@@ -255,26 +305,26 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(ports.gh.asked, 0)
 
     def test_gate_branch_that_names_the_department_branch_stops(self):
-        w = World(self.tmp, {**CI_FILES, ".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "feat/*"\n'})
+        w = FakeWorld(self.tmp, {**CI_FILES, ".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "feat/*"\n'})
         head = w.work()
-        git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/feat/a")
-        code, out = self.land(w, Ports(w))
+        w.g.push(w.dept, head, "feat/a")
+        code, out = self.land(w, FakePorts(w))
         self.assertEqual(code, 1)
         self.assertIn("部署のブランチと同じ名前", out)
         self.assertEqual(w.origin("feat/a"), head)
 
     def test_refused_push_without_main_moving_stops_without_asking(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         before = w.origin("main")
         w.work()
-        ports = Ports(w)
-        real = gitx.push
+        ports = FakePorts(w)
+        real = w.g.push
 
         def push(cwd, sha, ref, force=False):
             if ref == "main":
                 raise gitx.GitError("protected branch")
             return real(cwd, sha, ref, force)
-        with mock.patch.object(gitx, "push", push):
+        with mock.patch.object(w.g, "push", push):
             code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertIn("push が断られた", out)
@@ -282,14 +332,14 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(w.origin("main"), before)
 
     def test_failure_after_the_push_still_finishes_the_landing(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         head = w.work()
         seen = []
 
         def broken(*a, **k):
             raise gitx.GitError("lock")
-        with mock.patch.object(gitx, "advance_branch", broken):
-            code, out = self.land(w, Ports(w), rows=lambda *a: seen.append(1) or [])
+        with mock.patch.object(w.g, "advance_branch", broken):
+            code, out = self.land(w, FakePorts(w), rows=lambda *a: seen.append(1) or [])
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
         self.assertIn("そろえられなかった", out)
@@ -310,17 +360,18 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署のブランチもリベースした物
 
     def test_main_moved_with_a_conflict_git_cannot_solve_asks_the_department_and_restores_the_branch(self):
-        w = World(self.tmp, CI_FILES)
+        # 本物の git のぶつかりとやめ方は GitRebase（境目の試験）が確かめる
+        w = FakeWorld(self.tmp, CI_FILES)
         head = w.work(rel="b.txt", text="部署の b\n")   # ほかの部署も b.txt を書く
         w.move_main()
         moved = w.origin("main")
-        ports = Ports(w)
+        ports = FakePorts(w)
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), moved)
         self.assertFalse(w.has("release/a"), "リベースが要るのにゲートに出した")
-        self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "リベースを元に戻していない")
-        self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "")
+        self.assertEqual(w.g.rev(w.dept, "HEAD"), head, "リベースを元に戻していない")
+        self.assertFalse(w.g.rebasing(w.dept), "リベースを途中のまま残した")
         self.assertEqual(len(ports.term.prompts), 1)
         self.assertIn("リベースし", ports.term.prompts[0][1])
         self.assertIn("版を上げ直して", ports.term.prompts[0][1])
@@ -345,7 +396,7 @@ class FastForwardAfterCi(LandCase):
         self.assertIn("- ほかの直し", got)
 
     def test_main_moved_while_the_gate_ran_is_rebased_and_the_gate_runs_again(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         w.work()
         moved = []
 
@@ -353,11 +404,12 @@ class FastForwardAfterCi(LandCase):
             if not moved:
                 moved.append(1)
                 w.move_main()
-        ports = Ports(w, FakeGh(on_run=once))
+        ports = FakePorts(w, FakeGh(on_run=once))
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
         self.assertIn("リベースしたブランチで、ゲートから回し直す", out)
-        self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
+        self.assertEqual(w.log(2), ["部署の作業", "ほかの部署"])
+        self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署のブランチもリベースした物
         self.assertEqual(ports.term.prompts, [])
 
     def test_resolve_changelog_leaves_other_conflicts_alone(self):
@@ -416,7 +468,7 @@ class FastForwardAfterCi(LandCase):
 
     def test_land_follows_the_pushed_commit_even_when_fetch_fails_after_the_push(self):
         # push の後の取り直しが一時に落ちても、push した commit は手元に在るので、窓口を起動せずに代表の clone を進める
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         head = w.work()
         real = land.refresh
         calls = []
@@ -427,11 +479,11 @@ class FastForwardAfterCi(LandCase):
                 raise gitx.GitError("ネットワークが無い")
             return real(source, main, g)
         with mock.patch.object(land, "refresh", side_effect=flaky):
-            code, out = self.land(w, Ports(w))
+            code, out = self.land(w, FakePorts(w))
         self.assertEqual(code, 0, out)
         self.assertIn("ネットワークが無い", out)
         self.assertIn("手元の main: updated", out)
-        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head)
+        self.assertEqual(w.g.local["main"], head)
 
     def test_catch_up_brings_the_main_clone_up_to_a_push_that_skipped_land(self):
         # 部署が --land を通さずに手で push した形（push が手元の origin/main も書き換える）。--deliver の後のそろえ（受付 d3f166）
@@ -460,19 +512,19 @@ class FastForwardAfterCi(LandCase):
 
     def test_catch_up_without_the_network_follows_the_local_origin_ref(self):
         # 取り直せなくても、部署の push が書き換えた手元の origin/main まではそろえる
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         head = w.work()
-        git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/main")
+        w.g.push(w.dept, head, "main")
         with mock.patch.object(land, "refresh", side_effect=gitx.GitError("ネットワークが無い")):
-            out = landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx)
+            out = landing.catch_up(w.source, {"name": None, "desk": None}, "main", w.g)
         self.assertIn("ネットワークが無い", out[0])
         self.assertEqual(out[1], f"代表の clone の main をメインブランチ {head[:7]} へ進めた")
 
     def test_red_hands_the_failure_to_the_department(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         before = w.origin("main")
         w.work()
-        ports = Ports(w, FakeGh(conclusion="failure"))
+        ports = FakePorts(w, FakeGh(conclusion="failure"))
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), before)
@@ -481,38 +533,94 @@ class FastForwardAfterCi(LandCase):
         self.assertNotIn("\n", ports.term.prompts[0][1])
 
     def test_no_pane_prints_the_request_for_the_caller(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         w.work()
-        ports = Ports(w, FakeGh(conclusion="failure"))
+        ports = FakePorts(w, FakeGh(conclusion="failure"))
         ports.term._panes = []
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertIn("次の文を部署に渡す", out)
 
     def test_already_landed_goes_straight_to_tidy(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         seen = []
-        code, out = self.land(w, Ports(w), rows=lambda *a: seen.append(1) or [])
+        code, out = self.land(w, FakePorts(w), rows=lambda *a: seen.append(1) or [])
         self.assertEqual(code, 0, out)
         self.assertIn("もうメインブランチ", out)
         self.assertEqual(seen, [1])
 
     def test_dirty_department_stops(self):
-        w = World(self.tmp, CI_FILES)
-        write(os.path.join(w.dept, "x.txt"), "x")
-        code, out = self.land(w, Ports(w))
+        # 書きかけを git が見分けるかは GitBoundary（境目の試験）が確かめる
+        w = FakeWorld(self.tmp, CI_FILES)
+        w.g.dirty.add(w.dept)
+        code, out = self.land(w, FakePorts(w))
         self.assertEqual(code, 1)
         self.assertIn("未コミット", out)
 
 
+class GitBoundary(LandCase):
+    """偽物の git（fakegit.FakeGit）が前提にする、本物の git の振る舞い（gitx の口の返し）。偽物の振る舞いを変えたら、ここも合わせる。"""
+
+    def test_a_file_not_added_makes_the_place_unclean(self):
+        w = World(self.tmp)
+        self.assertTrue(gitx.is_clean(w.dept))
+        write(os.path.join(w.dept, "x.txt"), "x")
+        self.assertFalse(gitx.is_clean(w.dept))
+
+    def test_a_conflicting_rebase_stops_midway_and_abort_restores_the_branch(self):
+        w = World(self.tmp)
+        head = w.work(rel="b.txt", text="部署の b\n")
+        w.move_main()
+        gitx.fetch(w.dept, "main")
+        self.assertEqual(gitx.rebase(w.dept, "refs/remotes/origin/main"), (False, ["b.txt"]))
+        self.assertTrue(gitx.rebasing(w.dept))
+        gitx.rebase_abort(w.dept)
+        self.assertFalse(gitx.rebasing(w.dept))
+        self.assertEqual(gitx.rev(w.dept, "HEAD"), head)
+        self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "")
+
+    def test_push_lease_drop_and_advance(self):
+        w = World(self.tmp)
+        base = w.origin("main")
+        head = w.work()
+        gitx.push(w.dept, head, "release/a")
+        self.assertEqual(gitx.rev(w.source, "refs/remotes/origin/release/a"), head, "push が手元の origin/<ブランチ> を書き換えない")
+        with self.assertRaises(gitx.GitError):
+            gitx.push(w.dept, base, "release/a")   # 戻す push は fast-forward でないので断る
+        gitx.push(w.dept, base, "release/a", force=True)
+        with self.assertRaises(gitx.GitError):
+            gitx.push_rebased(w.dept, "release/a", head, head)   # origin は base なので、head を前提にした上書きは断る
+        self.assertEqual(gitx.drop_remote(w.dept, "release/a"), "deleted")
+        self.assertEqual(gitx.drop_remote(w.dept, "release/a"), "absent")
+        self.assertEqual(gitx.advance_branch(w.source, "nope", head), "absent")
+        self.assertEqual(gitx.advance_branch(w.source, "main", base), "current")
+        self.assertEqual(gitx.advance_branch(w.source, "main", head), "updated")
+        self.assertEqual(gitx.rev(w.source, "refs/heads/main"), head)
+        self.assertEqual(gitx.advance_branch(w.source, "main", base), "local_only")
+
+
 class Tidy(LandCase):
     def test_landed_department_is_kept_when_rows_say_so(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         w.work()
         row = {"path": w.dept, "branch": "feat/a", "removable": False, "reason": "persistent"}
-        code, out = self.land(w, Ports(w), rows=lambda *a: [row])
+        code, out = self.land(w, FakePorts(w), rows=lambda *a: [row])
         self.assertEqual(code, 0, out)
         self.assertIn("永続の部署は畳まない", out)
+
+    def test_resident_department_gets_no_mark(self):
+        w = FakeWorld(self.tmp, CI_FILES)
+        head = w.work()
+        row = {"path": w.dept, "branch": "feat/a", "name": "a", "removable": False, "reason": "persistent", "session": None,
+               "pr_head": head}
+        code, out = self.land(w, FakePorts(w), rows=lambda *a: [row])
+        self.assertEqual(code, 0, out)
+        attrs = w.g.worktree_attrs(w.dept)
+        self.assertNotIn("landed", attrs)
+        self.assertNotIn("次の --land", out)
+        # 永続の部署は作業場を残す。入れたブランチと commit を書き、部署が次のブランチに移った後の --land か --clean --apply が消す
+        self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": head})
+        self.assertIn("入れたブランチは、部署が次のブランチに移った後", out)
 
     def test_landed_department_is_retired_with_the_clean_parts(self):
         w = World(self.tmp, CI_FILES)
@@ -584,17 +692,6 @@ class Leftover(LandCase):
         self.assertEqual(self.removed, [self.w.dept])
         self.assertNotIn("前の --land", out)
 
-    def test_resident_department_gets_no_mark(self):
-        self.w.work()
-        code, out = self.land(self.w, self.ports, rows=lambda *a: [self.row(self.w.dept, "feat/a", False, "persistent")])
-        self.assertEqual(code, 0, out)
-        attrs = gitx.worktree_attrs(self.w.dept)
-        self.assertNotIn("landed", attrs)
-        self.assertNotIn("次の --land", out)
-        # 永続の部署は作業場を残す。入れたブランチと commit を書き、部署が次のブランチに移った後の --land か --clean --apply が消す
-        self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": git("-C", self.w.dept, "rev-parse", "HEAD")})
-        self.assertIn("入れたブランチは、部署が次のブランチに移った後", out)
-
 
 class OverwriteGate(LandCase):
     """書き換えの取り合いのゲート: 部署がメインブランチを知った後にほかの部署がメインブランチへ入れた行を、部署のブランチが消していれば止める。"""
@@ -648,9 +745,12 @@ class OverwriteGate(LandCase):
         self.assertEqual(gitx.worktree_attrs(w.dept).get("base"), head, "入れた後のメインブランチを、次のゲートの位置にする")
 
     def test_department_without_the_known_position_is_noted_and_not_checked(self):
-        w = self.world()
+        w = FakeWorld(self.tmp, {".claude/company.toml": self.RULES, "calc.py": "def add():\n    pass\n"})
+        w.move_main("calc.py", "def add():\n    pass\ndef div():\n    pass\n")
+        w.g.fetch(w.dept, "main")
+        w.g.local["feat/a"] = w.g.rev(w.dept, "origin/main")   # 担当がメインブランチの先頭からブランチを切った
         head = w.work("calc.py", "def add():\n    pass\n")
-        code, out = self.land(w, self.ports(w, base=False), checker=lambda cmd, cwd: (0, ""))
+        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd: (0, ""))
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
         self.assertIn("メインブランチを知った位置（company.base）の記録が無い", out)
@@ -745,18 +845,18 @@ class OverwriteGateRenames(LandCase):
 
 class OtherModes(LandCase):
     def test_no_rules_does_nothing(self):
-        w = World(self.tmp)
+        w = FakeWorld(self.tmp)
         before = w.origin("main")
         w.work()
-        code, out = self.land(w, Ports(w))
+        code, out = self.land(w, FakePorts(w))
         self.assertEqual(code, 0)
         self.assertIn("何もしない", out)
         self.assertEqual(w.origin("main"), before)
 
     def test_pr_mode_pushes_the_branch_and_opens_a_pr(self):
-        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
         head = w.work()
-        ports = Ports(w)
+        ports = FakePorts(w)
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
         self.assertEqual(ports.gh.prs, [("feat/a", "main")])
@@ -764,26 +864,26 @@ class OtherModes(LandCase):
         self.assertIn("https://pr/1", out)
 
     def test_role_override(self):
-        w = World(self.tmp, {**CI_FILES, ".claude/company.toml": CI_RULES + '[land.roles.research]\nmode = "none"\n'})
+        w = FakeWorld(self.tmp, {**CI_FILES, ".claude/company.toml": CI_RULES + '[land.roles.research]\nmode = "none"\n'})
         w.work()
-        code, out = self.land(w, Ports(w, attrs={"name": "a", "role": "research"}))
+        code, out = self.land(w, FakePorts(w, attrs={"name": "a", "role": "research"}))
         self.assertEqual(code, 0)
         self.assertIn("何もしない", out)
 
     def test_local_check_gate(self):
-        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
         head = w.work()
         ran = []
-        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: ran.append((cmd, cwd)) or (0, "ok"))
+        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd: ran.append((cmd, cwd)) or (0, "ok"))
         self.assertEqual(code, 0, out)
         self.assertEqual(ran, [("tools/check", w.dept)])
         self.assertEqual(w.origin("main"), head)
 
     def test_local_check_red(self):
-        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
         before = w.origin("main")
         w.work()
-        ports = Ports(w)
+        ports = FakePorts(w)
         code, out = self.land(w, ports, checker=lambda cmd, cwd: (1, "line1\n壊れた\n"))
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), before)
@@ -801,9 +901,9 @@ class OtherModes(LandCase):
         self.assertEqual(w.origin("main"), head)
 
     def test_bad_rules_stop(self):
-        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\n'})
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\n'})
         w.work()
-        code, out = self.land(w, Ports(w))
+        code, out = self.land(w, FakePorts(w))
         self.assertEqual(code, 2)
         self.assertIn("land.gate", out)
 
@@ -945,15 +1045,15 @@ class DryRun(LandCase):
         self.assertEqual((ports.gh.asked, ports.gh.prs, ports.term.prompts), (0, [], []))
 
     def test_main_moved_reports_the_rebase_without_fetching_or_asking(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         w.work()
         w.move_main()
-        before = self.snapshot(w)
-        ports = Ports(w)
+        before = w.g.snapshot()
+        ports = FakePorts(w)
         code, out = self.land(w, ports, dry_run=True)
         self.assertEqual(code, 1, out)
         self.assertIn("リベースし", out)
-        self.assertEqual(self.snapshot(w), before, "空打ちなのにメインブランチを取り直した")
+        self.assertEqual(w.g.snapshot(), before, "空打ちなのにメインブランチを取り直した")
         self.assertEqual(ports.term.prompts, [])
 
     def test_empty_unreleased_is_reported(self):
@@ -967,33 +1067,33 @@ class DryRun(LandCase):
         self.assertIn("two（two/CHANGELOG.md）", out)
 
     def test_local_check_is_not_run(self):
-        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
         w.work()
-        before = self.snapshot(w)
+        before = w.g.snapshot()
         ran = []
-        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: ran.append(cmd) or (0, ""), dry_run=True)
+        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd: ran.append(cmd) or (0, ""), dry_run=True)
         self.assertEqual(code, 0, out)
         self.assertEqual(ran, [])
         self.assertIn("手元の検証 tools/check", out)
-        self.assertEqual(self.snapshot(w), before)
+        self.assertEqual(w.g.snapshot(), before)
 
     def test_pr_mode_neither_pushes_nor_opens_a_pr(self):
-        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
         w.work()
-        ports = Ports(w)
+        ports = FakePorts(w)
         code, out = self.land(w, ports, dry_run=True)
         self.assertEqual(code, 0, out)
         self.assertEqual(ports.gh.prs, [])
         self.assertFalse(w.has("feat/a"))
 
     def test_already_landed_reports_the_tidy_without_retiring(self):
-        w = World(self.tmp, CI_FILES)
+        w = FakeWorld(self.tmp, CI_FILES)
         head = w.work()
-        git("-C", w.dept, "push", "-q", "origin", f"{head}:refs/heads/main")
+        w.g.push(w.dept, head, "main")
         retired = []
         rows = lambda cfg, repo, ports, found, notes: [{"path": w.dept, "removable": True, "branch": "feat/a"}]  # noqa: E731
         with mock.patch.object(landing.clean, "retire", lambda *a, **k: retired.append(a)):
-            code, out = self.land(w, Ports(w), rows=rows, dry_run=True)
+            code, out = self.land(w, FakePorts(w), rows=rows, dry_run=True)
         self.assertEqual(code, 0, out)
         self.assertIn("もうメインブランチ main に入っている", out)
         self.assertIn("部署を片付ける", out)
@@ -1070,7 +1170,7 @@ class WatchRun(unittest.TestCase):
 QUEUE_RULES = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\nqueue = "land-queue"\n'
 
 
-class TwoPorts(Ports):
+class TwoPorts(FakePorts):
     """部署 a（feat/a）と部署 b（feat/b）の 2 つを持つ。"""
 
     def __init__(self, world, second):
@@ -1094,12 +1194,10 @@ class Queue(LandCase):
 
     def race(self, rules):
         """部署 a のゲートを止めている間に部署 b の --land を打ち、b がメインブランチを取り直したのが a の push の前か後かを返す。"""
-        w = World(self.tmp, {".claude/company.toml": rules})
+        w = FakeWorld(self.tmp, {".claude/company.toml": rules})
         w.work()
-        second = os.path.join(self.tmp, "wt", "b")
-        git("-C", w.source, "worktree", "add", "-q", "-b", "feat/b", second, "origin/main")
-        write(os.path.join(second, "c.txt"), "c\n")
-        commit(second, "部署 b の作業")
+        second = w.g.add_worktree(os.path.join(self.tmp, "wt", "b"), "feat/b", "origin/main")
+        w.g.commit(second, {"c.txt": "c\n"}, "部署 b の作業")
         ports = TwoPorts(w, second)
         repo = Repo("o/r", "", w.source, (), None, None)
         events, lock = [], threading.Lock()

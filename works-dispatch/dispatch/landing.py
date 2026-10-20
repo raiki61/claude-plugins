@@ -119,7 +119,8 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
     if attrs.get("name") != name and place.get("branch") != name:
         print(f"注記: {name} は前の名前。部署の今の名前は {attrs.get('name') or '-'}")
     branch, path, source = place.get("branch"), place["path"], repo.source
-    info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)))
+    info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)),
+                          committed=lambda root: tree.committed_info(root, g))
     rules = land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))
     for n in info["notes"]:
         if n not in rules["problems"]:   # [land] の知らない鍵は、下の止めた訳に出す
@@ -161,7 +162,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
             print(f"PR を出した: {land.offer_pr(source, repo.repo, branch, main, g, ports.gh, env)}")
             return 0
         if rules["queue"]:
-            hold.take(os.path.join(gitx.common_dir(source), rules["queue"]))
+            hold.take(os.path.join(g.common_dir(source), rules["queue"]))
         base = land.refresh(source, main, g)
     except (gitx.GitError, ghx.GhError) as e:
         print(f"止めた: {e}")
@@ -427,7 +428,7 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
         print(f"止めた: origin にメインブランチ {main} が無い")
         return 1
     if rules["queue"]:
-        print(f"列: 本当に打てば、メインブランチを取り直す前に列 {os.path.join(gitx.common_dir(source), rules['queue'])} に並び、"
+        print(f"列: 本当に打てば、メインブランチを取り直す前に列 {os.path.join(g.common_dir(source), rules['queue'])} に並び、"
               "push し終えるまで先頭を持つ（空打ちでは並ばない）")
     known = g.rev(source, base) is not None   # 手元に無い commit なら、メインブランチは手元の知らない所へ進んでいる
     print(f"メインブランチ {main}: origin の先頭 {base[:7]}（origin に問い合わせて読んだ。手元の ref は取り直していない）")

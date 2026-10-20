@@ -98,12 +98,12 @@ def _skills(raw, where, problems):
     return out
 
 
-def committed_info(root):
+def committed_info(root, g=gitx):
     """origin の既定のブランチに commit された INFO_FILE。(場所の札 例 origin/main:.claude/company.toml, 中身) か None。
     手元の ref を読むだけで fetch しない（毎回の会話の始まりに走るフックも通るので、外へ問い合わせない）。"""
-    ref = gitx.origin_head(root)
+    ref = g.origin_head(root)
     rel = "/".join(INFO_FILE)
-    text = gitx.file_at(root, ref, rel) if ref else None
+    text = g.file_at(root, ref, rel) if ref else None
     return (f"{ref}:{rel}", text) if text is not None else None
 
 

@@ -92,4 +92,5 @@
   - D6: 持ち主の環境の値（アカウント名・パスなど）をコードに書かない。
   - D9: herdr と Claude Code の名前・コマンド・環境変数・フックのフィールドの名前を、口（アダプタと `ports.py`・`wiring.py`）の外に書かない（下の「外のツールの口」の項）。
 - attention の `whose-turn.py` と、共通の `scripts/claude_auth.py` は、`dispatch/vendor/` に写して使う。写しは `scripts/shared-copies.py` が正本と同じかを見張る。
-- 試験は `python3 -B -m unittest discover -s works-dispatch/dispatch/tests -t .`（リポジトリのルートから）。ルートの `tests/run.sh` もこれを回す。
+- 試験は `python3 -B works-dispatch/dispatch/tests/parallel.py`（リポジトリのルートから。中身は `python3 -B -m unittest discover -s works-dispatch/dispatch/tests -t .` と同じ試験を、クラスを小さい組に分けて別のプロセスで並べる。`-j` で並べる数、試験の名前〔例 `test_land`〕で絞る）。ルートの `tests/run.sh` もこれを回す。
+- `--land` の判断の筋の試験（`tests/test_land.py` の `FakeWorld`・`FakePorts`）は、git の偽物（`tests/fakegit.py`）を `ports.git` に渡して回す。本物の git は、git との境目を確かめる試験（同じファイルの `World`・`Ports`。偽物が前提にする gitx の返しは `GitBoundary`）だけで起動する。
