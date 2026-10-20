@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-10-20
+
 ### Changed
 
 - 同梱の試験（`dispatch/tests`）を速くした。利用者の操作と `--land` の振る舞いは変えていない。2026-10-20 に、混んだ機械で `python3 -B -m unittest discover` が 1 つのプロセスで 21 分かかり、`--land` の検査（メインブランチへ入れる前に回す検査）が詰まった（頼み〔部署へ渡した作業の依頼〕20261020-101000-41ffe3）。1 つ目に、`--land` の判断（入れるか・止めるか）を確かめる試験を、git の偽物（`tests/fakegit.py`）で回すようにした。偽物は、`--land` が git を呼ぶ口（`ports.git`。`dispatch/wiring.py` の外のツールへの口をまとめた物の 1 つで、ふだんは `gitx.py` が入る）に差し替えて渡す。本物の git を起動する試験は、偽物が前提にする git の振る舞いを確かめる試験（`GitBoundary`）と、本物の git の動きそのものに頼る 5 つの処理（リベースとぶつかりの解き方、代表の clone〔部署の worktree を作る元のふつうの clone〕に残った書きかけのファイルとフックの扱い、worktree の片付け、版の番号を上げる commit、diff の読み取り）を確かめる試験だけにした。そのため、`--land` が会社の形（`.claude/company.toml`）を読む所と、`[land]` の `queue` に書いた列（`--land` を 1 本ずつ通す順番待ち）の置き場のフォルダを求める所も `ports.git` を通すようにした。2 つ目に、試験を並べて回す `tests/parallel.py` を足した（クラスを 8 件までの組に分け、組ごとに別のプロセスで回す。並べる数は `parallel.py` の `-j` か環境変数 `DISPATCH_TEST_WORKERS`、既定は 4）。ルートの `tests/run.sh` はこれで回す。`python3 -B -m unittest discover` も今までどおり使え、回る試験は同じ（1 つのプロセスで順に回るので遅い）。
