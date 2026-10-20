@@ -686,6 +686,15 @@ class Hook(unittest.TestCase):
         same = role.launch_key(None)
         self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1", launched=same)
         stop = {"hook_event_name": "Stop"}
+        # 裏の処理が動いている間は、その足元のファイルを替えない
+        self.put("a0b")
+        busy = {**stop, "background_tasks": [{"id": "b"}]}
+        seen = []
+        check = wake_hook.checker(self.plan(), busy, h=Window(self.place), now=lambda: 5, me=lambda: ME, restart=lambda got_, key: False,
+                                  key_of=lambda cwd, a: same, follow=lambda got_, attrs: seen.append(1))
+        self.assertEqual(check()[0], "wake")
+        self.assertEqual(seen, [])
+        provision.mark(self.place, self.src, {"delivered": "a0b", "cleared": "a0b"}, gitx)
         self.put("a1")
         check = wake_hook.checker(self.plan(), stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
                                   restart=lambda got_, key: False, key_of=lambda cwd, a: same)

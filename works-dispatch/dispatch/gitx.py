@@ -432,8 +432,9 @@ def commits_touching(cwd, path, since=None, runner=_default_runner):
 
 def changed_paths(cwd, since, path, runner=_default_runner):
     """since から HEAD までに変わった、path（cwd からの相対）の下のファイルの並び（リポジトリのルートからの相対）。読めなければ GitError。
-    ASCII でない名前も引用符で囲まずに出させる（持ち主の設定 core.quotePath に依らない）。"""
-    return _must(["git", "-C", cwd, "-c", "core.quotePath=false", "diff", "--name-only", since, "HEAD", "--", path], runner).splitlines()
+    ASCII でない名前も引用符で囲まずに出させ、名前の付け替えは前の名前も出す（持ち主の設定 core.quotePath・diff.renames に依らない）。"""
+    return _must(["git", "-C", cwd, "-c", "core.quotePath=false", "diff", "--no-renames", "--name-only", since, "HEAD", "--", path],
+                 runner).splitlines()
 
 
 def diff_zero(cwd, a, b, runner=_default_runner):

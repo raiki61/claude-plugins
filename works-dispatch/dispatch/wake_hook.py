@@ -505,7 +505,8 @@ def follow_main(got, attrs, catch_up=provision.follow_main):
     進めて、会話が起動するときにしか読まないファイル（.claude/ の役の定義・設定など。provision.read_at_start）が替わっていれば、
     今のアカウントの名指し（company.move-to）を印し、区切りの --move --if-changed に同じアカウントのまま起動し直させる（restart_due）。
     ほかのアカウントへ移す名指しが在れば、そのまま（移す時に起動し直す）。ブランチにメインブランチに無い commit が在れば（書きかけの作業）
-    動かさない。渡す字の頭と台帳の handed の行（followed）に添える文を返す（添える事が無ければ None）。何が起きても頼みは渡す。"""
+    動かさない。渡す字の頭と台帳の handed の行（followed）に添える文を返す（添える事が無ければ None）。何が起きても頼みは渡す。
+    同じアカウントのまま起動し直すのは --move の名指し（受付 c149fa）と同じ道で、子の頼みの返事を待って会話を空にしない間は起動し直さない。"""
     if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
         return None
     try:
@@ -515,7 +516,8 @@ def follow_main(got, attrs, catch_up=provision.follow_main):
     main = r["main"]
     if r["status"] == "local_only":
         return (f"作業場のブランチに {main} に無い commit が {r['ahead']} 個在るので、{main} の先頭（足りない commit {r['behind']} 個）へ"
-                f"進めていない（書き換えない）。前の頼みの書きかけなら --land で入れてから受け、そうでなければ扱いを頼み元に問う")
+                f"進めていない（書き換えない）。この頼みはこのブランチのまま受ける。前の頼みの書きかけなら、その頼み元に確かめてから --land で入れ、"
+                "違うなら扱いを頼み元に問う")
     if r["status"] != "updated":
         return None
     said = f"作業場のブランチを {main} の先頭へ進めた（{r['behind']} 個の commit を取り込んだ）"
@@ -527,7 +529,10 @@ def follow_main(got, attrs, catch_up=provision.follow_main):
     if not account:
         return said + "が、部署のアカウントが分からないので起動し直さない"
     if not attrs.get(wake.MOVE_TO):
-        provision.mark(got["cwd"], got["root"], {wake.MOVE_TO: account}, gitx)
+        try:
+            provision.mark(got["cwd"], got["root"], {wake.MOVE_TO: account}, gitx)
+        except Exception as e:  # 印を書けなくても、頼みは渡す
+            return said + f"が、起動し直す印を書けないので前の起動のまま受ける（{type(e).__name__}: {e}）"
     if attrs.get("fresh") == role.FRESH:
         return said + "ので、同じアカウントのまま起動し直してから渡す（この文が見えていれば起動し直せなかったので、前の起動のまま受ける）"
     return said + "ので、次の区切り（頼みを納品した後に --rest を打ったターンの終わり）で、同じアカウントのまま起動し直す"
@@ -690,6 +695,12 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
         if (chat.event(payload) == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
             return "end", None   # エフェメラルの部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
+        # 空にする・区切りの判定より先に進める（起動するときに読むファイルが替われば、名指しの印で区切りの起動し直しに間に合わせる）。
+        # 裏の処理が動いている間は、その足元のファイルを替えない（次のターンの終わりにまた試す）
+        followed = (follow(got, attrs) if wake.queued(got["inbox"], got["place"]) and not payload.get("background_tasks")
+                    else None)
+        if followed:
+            attrs = attrs_of(got["cwd"])   # 起動し直す名指し（company.move-to）を印したかもしれない
         kept = []   # 空にしないまま前の会話で次を渡す訳（渡す字の頭と台帳に添える。黙って前の会話のまま渡さない）
         if must_clear(payload, attrs):
             children = open_children(got, attrs, read=_read_part(got))
@@ -726,9 +737,6 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
                 return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起動し直した。起動し直した会話の待ち受けが、次を渡す
             if clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me, why=unrested):
                 return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
-        followed = follow(got, attrs) if wake.queued(got["inbox"], got["place"]) else None
-        if followed:
-            attrs = attrs_of(got["cwd"])   # 起動し直す名指し（company.move-to）を印したかもしれない
         key = None if kept else restart_due(got, payload, attrs, key_of)   # 起動し直すと、子の返事を受ける会話が居なくなる
         if key and restart(got, key):
             return "end", None   # 会社の形の起動の設定が替わったので起動し直した。起動し直した会話の待ち受けが、次を渡す
