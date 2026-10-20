@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- `docs/land.md` の、メインブランチへ入れる列（`[land]` の `queue`）の説明を今の事実に合わせた。my_notes（持ち主のノートのリポジトリ）の collect が、列のコードの写し `tools/land_queue.py` をやめて `--queue-run` で並ぶ形に移ったので、「collect は `tools/land_queue.py` を持つ」「`tools/land_queue.py` は順の指定 `order` を読まないので、それを使う処理が `order` で前に出した `--land` より先に通ることがある」という前の説明を消した（受付 20261020-133312-a6cd90）。
+
 ## [0.109.0] - 2026-10-20
 
 ### Added
