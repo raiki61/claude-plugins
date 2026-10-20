@@ -3,6 +3,9 @@
 commit・ブランチ・origin・worktree・部署の属性を辞書で持つ。持つのは --land（landing.py・nodes/land.py）が判断に使う口だけで、
 git の出す字の形（diff -U0・blame・worktree list など）と、git そのものの振る舞い（リベース・push の断り・作業ツリーの書きかけ）は
 test_land の本物の git の試験（境目の試験）が確かめる。偽物の振る舞いは、その境目の試験が確かめた gitx の返しに合わせる。
+偽物で書かない試験: ぶつかりはファイルの単位で決める（本物の git は同じファイルの別の hunk ならマージする）ので、同じファイルの
+別の行を両側で変える試験。commit とリベースは作業ツリーのファイルを書き換えない（--land が作業ツリーから読む CI の定義や
+CHANGELOG は materialize で置く）ので、リベースで作業ツリーのファイルが替わることに頼る試験。どちらも本物の git の試験で書く。
 """
 
 import hashlib
@@ -28,7 +31,6 @@ class FakeGit:
         self.attrs = {}      # worktree の場所 → 部署の属性 company.*
         self.excludes = set()
         self.dirty = set()   # 未コミットの変更が有る場所
-        self.drafts = {}     # 場所 → 書きかけのファイルの名前の集まり（advance_branch が「dirty」を返すかを決める）
         self.rebases = {}    # リベースの途中の場所 → (ブランチ, 元の先頭, 解けていないファイル)
 
     # 試験が世界を作る口
@@ -75,9 +77,12 @@ class FakeGit:
         for prefix, table in (("refs/heads/", self.local), ("refs/remotes/origin/", self.tracking), ("origin/", self.tracking)):
             if ref.startswith(prefix):
                 return table.get(ref[len(prefix):])
-        if ref in self.commits:
-            return ref
+        if ref in self.commits:   # まだ fetch していない commit の id は、本物の rev-parse と同じく引けない
+            return ref if ref in self._reachable() else None
         return self.local.get(ref)
+
+    def _reachable(self):
+        return {s for sha in (*self.local.values(), *self.tracking.values()) for s in self._line(sha)}
 
     def _line(self, sha):
         out = []
@@ -175,15 +180,12 @@ class FakeGit:
             return "current"
         if old not in self._line(sha):
             return "local_only"
-        holder = next((p for p, b in self.heads.items() if b == branch), None)
-        a, b = self.commits[old]["files"], self.commits[sha]["files"]
-        if self.drafts.get(holder, set()) & {f for f in {*a, *b} if a.get(f) != b.get(f)}:
-            return "dirty"
+        # 書きかけとぶつかる「dirty」は返さない（代表の clone の書きかけは本物の git の試験で確かめる）
         self.local[branch] = sha
         return "updated"
 
     def rebase(self, cwd, onto):
-        """git の 3 方向のマージと同じ決め方で、ブランチの commit を onto の上に 1 つずつ載せ直す。ぶつかれば途中のまま返す。"""
+        """git の 3 方向のマージと同じ決め方で、ブランチの commit を 1 つずつ onto の上へリベースする。ぶつかれば途中のまま返す。"""
         cwd = os.path.realpath(cwd)
         branch = self.heads[cwd]
         head, cur = self.local[branch], self._resolve(cwd, onto)

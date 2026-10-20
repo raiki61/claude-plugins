@@ -6,7 +6,9 @@
 プロセスを分けるのは、試験が os.environ を mock.patch.dict で替えるため（スレッドで並べると、ほかの試験の環境が混ざる）。
 1 つの組（同じクラスの、続いた CHUNK 件までの試験）を 1 つのプロセスで順に回す。大きいクラスを分けるのは、1 つのクラスの時間が
 全体の時間の下限になるため（分ける前は test_deliver.Flow の 1 つで 205 秒）。setUpClass と同じモジュールの作り置き（test_provision の
-_template）は、組ごとに作り直す（どの試験も、作り置きの中身に頼らずに通る形で書いてある）。
+_template）は、組ごとに作り直す（どの試験も、作り置きの中身に頼らずに通る形で書いてある）。組ごとに新しいプロセスを起動し
+（max_tasks_per_child=1）、前の組の試験が残したモジュールの状態・patch・cwd を次の組へ持ち越さない。
+読めなかったモジュール（unittest の _FailedTest）は子へ渡さずに親で回し、元の ImportError の文をそのまま出す。
 
 使い方: python3 -B works-dispatch/dispatch/tests/parallel.py [-j N] [試験の名前 ...]
   -j を省けば DISPATCH_TEST_WORKERS、それも無ければ 4（ルートの CLAUDE.md の「並べすぎない」に合わせる）。-j 1 で直列。
@@ -43,20 +45,23 @@ def _cases(suite):
 
 
 def collect(names=()):
-    """([(組の名前（モジュール.クラス）, 試験の id の並び)], 試験の数)。読めなかったモジュールは unittest の _FailedTest として 1 件に数え、子で赤になる。"""
+    """([(組の名前（モジュール.クラス）, 試験の id の並び)], 試験の数, 読めなかったモジュールの試験の並び)。"""
     loader = unittest.TestLoader()
     if names:
         suite = unittest.TestSuite(loader.loadTestsFromName(n if n.startswith(PACKAGE) else f"{PACKAGE}.{n}") for n in names)
     else:
         suite = loader.discover(str(HERE), top_level_dir=str(ROOT))
-    groups = {}
+    groups, broken = {}, []
     for case in _cases(suite):
+        if isinstance(case, unittest.loader._FailedTest):   # id から引き直せないので、親で回す
+            broken.append(case)
+            continue
         key = f"{type(case).__module__}.{type(case).__qualname__}"
         groups.setdefault(key, []).append(case.id())
     chunks = [(k, ids[i:i + CHUNK]) for k, ids in groups.items() for i in range(0, len(ids), CHUNK)]
     # 試験の多い組から先に回す（重い組が最後に残って 1 つだけ走る時間を減らす）
     chunks.sort(key=lambda c: -len(c[1]))
-    return chunks, sum(len(v) for v in groups.values())
+    return chunks, sum(len(v) for v in groups.values()), broken
 
 
 def run_group(ids):
@@ -80,10 +85,13 @@ def main(argv):
     args = p.parse_args(argv)
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    groups, want = collect(args.names)
+    groups, want, broken = collect(args.names)
     start = time.monotonic()
     ran, bad, skipped, slow = 0, [], 0, []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, args.j)) as pool:
+    if broken:
+        result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(unittest.TestSuite(broken))
+        bad += [f"ERROR: {test.id()}\n{text}" for test, text in result.errors + result.failures]
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, args.j), max_tasks_per_child=1) as pool:
         futures = {pool.submit(run_group, ids): name for name, ids in groups}
         for f in concurrent.futures.as_completed(futures):
             name = futures[f]
