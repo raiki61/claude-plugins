@@ -725,6 +725,28 @@ class Hook(unittest.TestCase):
         wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place))
         self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a2")
 
+    def test_a_persistent_department_restarts_on_the_same_account_when_following_changed_its_agents(self):
+        # 進めて役の定義が替わったら、待ち受けは渡す前に、同じアカウントのまま起動し直す（--move の名指しの道。受付 c149fa と 72f7e4）
+        land = self.with_origin()
+        land(".claude/agents/調べ.md")
+        d = tempfile.mkdtemp()
+        cfg = os.path.join(d, "c.toml")
+        pathlib.Path(cfg).write_text(f"limits_dir = '{d}'\naccounts = [{{ name = \"a1\", command = \"c1\" }}]\n", encoding="utf-8")
+        pathlib.Path(d, "a1.json").write_text(json.dumps({"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 10}}),
+                                              encoding="utf-8")
+        same = role.launch_key(None)
+        self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1", launched=same, config=cfg)
+        self.put("a1")
+        tried = []
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: same)
+        self.assertEqual(check(), ("end", None))   # 起動し直した会話の待ち受けが渡す
+        self.assertEqual(tried, [same])
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "followed"]   # 渡す行が無くても、進めたことは残す
+        self.assertIn(".claude/agents/調べ.md", row["detail"])
+        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)
+
     def test_a_persistent_department_with_commits_not_on_the_main_branch_is_not_moved(self):
         # 書きかけの作業（メインブランチに無い commit）は書き換えず、受けた会話に訳を渡す
         land = self.with_origin()

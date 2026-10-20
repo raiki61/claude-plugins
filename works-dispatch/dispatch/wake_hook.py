@@ -505,7 +505,7 @@ def follow_main(got, attrs, catch_up=provision.follow_main):
     進めて、会話が起動するときにしか読まないファイル（.claude/ の役の定義・設定など。provision.read_at_start）が替わっていれば、
     今のアカウントの名指し（company.move-to）を印し、区切りの --move --if-changed に同じアカウントのまま起動し直させる（restart_due）。
     ほかのアカウントへ移す名指しが在れば、そのまま（移す時に起動し直す）。ブランチにメインブランチに無い commit が在れば（書きかけの作業）
-    動かさない。渡す字の頭と台帳の handed の行（followed）に添える文を返す（添える事が無ければ None）。何が起きても頼みは渡す。
+    動かさない。渡す字の頭と台帳（kind followed の行と、handed の行の followed）に添える文を返す（添える事が無ければ None）。何が起きても頼みは渡す。
     同じアカウントのまま起動し直すのは --move の名指し（受付 c149fa）と同じ道で、子の頼みの返事を待って会話を空にしない間は起動し直さない。"""
     if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
         return None
@@ -702,6 +702,8 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
         followed = (follow(got, attrs) if wake.queued(got["inbox"], got["place"]) and not payload.get("background_tasks")
                     else None)
         if followed:
+            # 起動し直すと、この会話は handed の行を書かない（起動し直した会話の待ち受けが渡すときは、もう先頭を含む）ので、先に残す
+            deliver.log(got["inbox"], {"kind": "followed", "at": now(), "place": got["cwd"], "session": got["session"], "detail": followed})
             attrs = attrs_of(got["cwd"])   # 起動し直す名指し（company.move-to）を印したかもしれない
         kept = []   # 空にしないまま前の会話で次を渡す訳（渡す字の頭と台帳に添える。黙って前の会話のまま渡さない）
         if must_clear(payload, attrs):
