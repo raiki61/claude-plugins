@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-10-20
+
 ### Added
 
 - 受け持ち（会社の形 `.claude/company.toml` の `[[skills]]`）に `settings`（表）を書けるようにした。その受け持ちの部署を起動するとき、役の `[roles.settings]` の上から重ねて `--settings` に渡し、同じ役のほかの部署には渡らない。前は `--settings` に渡るのは役の設定だけで、永続の部署はどれも役「担当」、一度きりの部署はどれも役「作業」で起動するので、ある受け持ちの部署だけに設定（例 会話の本体のプロンプトキャッシュの寿命 `promptCacheTtl`）を渡せなかった（my_notes の頼み 20261020-064511-022ea2。調べものの部署だけキャッシュの寿命を 5 分にしたい）。書き方は `settings = { promptCacheTtl = "5m" }`。表でなければ注記を出して外す。
