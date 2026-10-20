@@ -39,14 +39,14 @@ def _skill(info, name):
     return next((s for s in info.get("skills", []) if s["name"] == name), None)
 
 
-def _text(root, info, st):
+def _text(root, info, st, g):
     """頼みの本文の字か、読めない訳。brief は会社の形と同じ所（origin の既定のブランチ、無ければ代表の clone の作業ツリー）から読む。"""
     if st.get("text"):
         return st["text"], None
     rel = st["brief"]
-    ref = gitx.origin_head(root) if info.get("source") == "origin" else None
+    ref = g.origin_head(root) if info.get("source") == "origin" else None
     if ref:
-        got = gitx.file_at(root, ref, rel)
+        got = g.file_at(root, ref, rel)
         return (got, None) if got is not None else (None, f"頼みの本文 {ref}:{rel} が無い")
     try:
         with open(os.path.join(root, rel), encoding="utf-8") as f:
@@ -72,7 +72,7 @@ def fire(company, companies, skill, by, ports, a, task, settings):
     """受け持ちを 1 つ起動する。(終了の値 0 起動した・1 起動できなかった・2 起動しなかった〔形の誤りか前の回が立っている〕, 出す行)。
     by は本文の頭と台帳に書く、起動した者（周期かコマンド）。"""
     name, st = skill["name"], skill["start"]
-    info = tree.read_info(company["root"], settings)
+    info = tree.read_info(company["root"], settings, ports.git)
     if not skill.get("role"):
         return 2, [f"止めた: 受け持ち「{name}」に役（role）が無いので起動できない"]
     shape = role.load(info["path"], info["text"])
@@ -83,7 +83,7 @@ def fire(company, companies, skill, by, ports, a, task, settings):
     if running and not the_role.get("persistent") and running[0]["attrs"].get("lifecycle") != gitx.PERSISTENT:
         return 2, [f"起動しなかった: 受け持ち「{name}」の前の回の部署がまだ立っている（{running[0]['path']}）。"
                    "納品して畳まれて（--done・--clean --apply）から起動する"]
-    text, why = _text(company["root"], info, st)
+    text, why = _text(company["root"], info, st, ports.git)
     if why:
         return 1, [f"止めた: {why}"]
     boss, why = _boss(st["report_to"], company, companies, ports)
@@ -137,7 +137,7 @@ def start_now(a, ports, cwd, task):
     except deliver.DeliverError as e:
         print("\n".join(notes + [f"止めた: {e}"]))
         return 2
-    info = tree.read_info(company["root"], settings)
+    info = tree.read_info(company["root"], settings, ports.git)
     skill = _skill(info, name)
     if skill is None or not skill.get("start"):
         print("\n".join(notes + [f"注記: {p}" for p in info["problems"]]

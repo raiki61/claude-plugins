@@ -134,19 +134,20 @@ def company_name(root, info):
     return info.get("name") or os.path.basename(os.path.normpath(root))
 
 
-def read_info(root, settings_dir, committed=committed_info):
+def read_info(root, settings_dir, g=gitx, committed=None):
     """その会社の情報。{source: origin|repo|settings|None, path, text, name, description, skills, problems, notes}。会社の形を読む場所を
     決めるのはこの 1 か所で、読む順は origin の既定のブランチに commit された物（committed。path は ref:パス の札）、元の clone の作業
     ツリーの物、設定の置き場の物。text は読んだ中身（role.load・land.read_rules に渡す。同じ物を読み直さない）。
     読めない・形の違うファイルは problems に書き、そこで止める（次の置き場へ落とさない。書いた物が効いていないことを隠さない）。
     notes は、止めずに知らせる事（origin/HEAD が無い clone の直し方〔head_note〕と、会社の形の知らない鍵・外した鍵〔keys にも入れる。
-    --tree の会社の注記に出す〕）。知らない鍵で止めるのは、ゲートを持つ所（役の項目〔role.load の odd〕と [land]〔land.read_rules〕）だけ。"""
-    got = committed(root)
+    --tree の会社の注記に出す〕）。知らない鍵で止めるのは、ゲートを持つ所（役の項目〔role.load の odd〕と [land]〔land.read_rules〕）だけ。
+    g は git の口（ports.git）。committed を渡せば、origin の既定のブランチの物をそれで読む（既定は committed_info を g で）。"""
+    got = committed(root) if committed else committed_info(root, g)
     notes = []
     if got:
         source, path, text = "origin", got[0], got[1]
     else:
-        notes = [n for n in [head_note(root)] if n]
+        notes = [n for n in [head_note(root, g)] if n]
         places = [("repo", os.path.join(root, *INFO_FILE))]
         if settings_dir:
             places.append(("settings", settings_info_path(settings_dir, root)))

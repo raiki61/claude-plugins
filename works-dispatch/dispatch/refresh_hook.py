@@ -38,7 +38,12 @@ for _s in (sys.stdout, sys.stderr):
 PLUGIN_ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 
 
-def run(payload, env=os.environ, h=term, host=chat.host, same=chat.in_process, attrs_of=gitx.worktree_attrs,
+def _attrs(cwd):
+    """場所の部署の属性。git の口はこのモジュールの gitx を呼ぶ時に引く（試験は gitx を偽物に替える。tests/fakegit.wire）。"""
+    return gitx.worktree_attrs(cwd)
+
+
+def run(payload, env=os.environ, h=term, host=chat.host, same=chat.in_process, attrs_of=_attrs,
         pause=lambda: time.sleep(1), now=time.time, mark=provision.mark, plugin_root=PLUGIN_ROOT, window=None):
     """古ければ替える。結末の語（refresh.reload_when_free の物）か、見るまでもなければ None。"""
     cwd = payload.get("cwd") or os.getcwd()

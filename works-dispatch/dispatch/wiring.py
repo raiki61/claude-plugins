@@ -285,9 +285,9 @@ class Ports:
                              f"[ui.sidebar.spaces] が無ければ、次を足して herdr server reload-config を打つ:\n{SPACES_ROWS}")
         notes += plugin_notes(herdr_toml, [config.effective_config_dir(a, self.account_env) for a in cfg.accounts], cfg.limits_dir)
         for repo in cfg.repos:
-            if gitx.origin_repo(repo.source) != repo.repo:
+            if self.git.origin_repo(repo.source) != repo.repo:
                 problems.append(f"{repo.repo}: 元の clone {repo.source} が、このリポジトリの clone でない")
-            elif not gitx.is_main_worktree(repo.source):
+            elif not self.git.is_main_worktree(repo.source):
                 problems.append(f"{repo.repo}: 元の clone {repo.source} が linked worktree で、本体の checkout でない"
                                 "（git rev-parse の git-dir と git-common-dir が違う。source には本体の clone を書く）")
             else:
@@ -336,16 +336,16 @@ class Ports:
         return str(pathlib.Path(__file__).resolve().parent / "templates" / "department-settings.json")
 
     def branch(self, cwd):
-        return gitx.branch(cwd)
+        return self.git.branch(cwd)
 
     def origin(self, cwd):
-        return gitx.origin_repo(cwd)
+        return self.git.origin_repo(cwd)
 
     def is_clean(self, cwd):
-        return gitx.is_clean(cwd)
+        return self.git.is_clean(cwd)
 
     def unpushed(self, cwd, landed=None):
-        return gitx.unpushed(cwd, landed=landed)
+        return self.git.unpushed(cwd, landed=landed)
 
     def pr_info(self, repo, number):
         return ghx.pr_info(repo.repo, number, env=self.gh_env(repo))
@@ -357,13 +357,13 @@ class Ports:
         return self.term.worktrees(repo.source)
 
     def stashed(self, cwd, branch):
-        return gitx.stashed(cwd, branch)
+        return self.git.stashed(cwd, branch)
 
     def head_sha(self, cwd):
-        return gitx.head_sha(cwd)
+        return self.git.head_sha(cwd)
 
     def is_ancestor(self, cwd, a, b):
-        return gitx.is_ancestor(cwd, a, b)
+        return self.git.is_ancestor(cwd, a, b)
 
     def pr_for_branch(self, repo, branch):
         """そのブランチの PR（{number, state, head_sha}・None）。読めなければ clean.Unknown（片付けは消さない側に倒す）。"""
@@ -381,7 +381,7 @@ class Ports:
     def default_branch(self, repo):
         """メインブランチの名前。GitHub に問わず、代表の clone の手元の origin/HEAD（無ければ origin に問う）から取る（gitx.default_branch。
         部署の回を手元の bare リポジトリでも動かすため）。読めなければ gitx.GitError。"""
-        return gitx.default_branch(repo.source)
+        return self.git.default_branch(repo.source)
 
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
@@ -490,12 +490,12 @@ class Ports:
 
     def common_of(self, cwd):
         """その場所の属するリポジトリの元の clone のルート（git の共通の .git から）。git でなければ None。"""
-        got = gitx.common_dir(cwd)
-        return gitx.root_of(got) if got else None
+        got = self.git.common_dir(cwd)
+        return self.git.root_of(got) if got else None
 
     def attrs(self, path):
         """部署（worktree）の git の属性 company.<名前>。"""
-        return gitx.worktree_attrs(path)
+        return self.git.worktree_attrs(path)
 
 
 def jsonio_load(path):

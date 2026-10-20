@@ -1,16 +1,16 @@
-"""組み直し（入口の --reorg・--desk）と、前の名前で部署を引くこと（--ask の宛先・--land）。git は本物の一時の clone と worktree、
-herdr と claude の会話の一覧は偽物で回す。"""
+"""組み直し（入口の --reorg・--desk）と、前の名前で部署を引くこと（--ask の宛先・--land）。git（tests/fakegit.py）・
+herdr・claude の会話の一覧は偽物で回す。"""
 
+import contextlib
 import json
 import os
 import pathlib
 import re
 import unittest
 
-from . import DISPATCH  # noqa: F401
+from . import DISPATCH, fakegit  # noqa: F401
 from .test_company import CompanyHerdr
-from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
-from .test_provision import git
+from .test_dispatch import FakePorts, fake_cfg, gitx_source, run_main
 import gitx
 import landing
 from nodes import deliver, launch, provision, role, wake
@@ -22,14 +22,14 @@ def q(text):
 
 class Reorg(unittest.TestCase):
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
         self.src = gitx_source(self.cfg)
-        self.place = str(pathlib.Path(self.root) / "dept")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "work/dispatch", self.place, "origin/main")
+        self.place = self.g.add_worktree(str(pathlib.Path(self.root) / "dept"), "work/dispatch", "origin/main")
         provision.mark(self.place, self.src, {"role": "担当", "lifecycle": "persistent", "account": "a1", "name": "振り分け",
-                                              "session": "s-a", "boss": "窓口", "boss-session": "s-desk", "boss-pane": "P9"}, gitx)
-        self.ports = FakePorts([])
-        self.ports.term = CompanyHerdr(self.src)
+                                              "session": "s-a", "boss": "窓口", "boss-session": "s-desk", "boss-pane": "P9"}, self.g)
+        self.ports = FakePorts([], git=self.g)
+        self.ports.term = CompanyHerdr(self.src, self.g)
         self.office_pane = self.ports.term.open_at(self.src, agent="claude")["pane_id"]
         self.pane = self.ports.term.open_at(self.place, agent="claude")["pane_id"]
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-a"}
@@ -49,7 +49,7 @@ class Reorg(unittest.TestCase):
     def test_rename_keeps_the_old_name_and_renames_the_pane_and_workspace(self):
         rc, out = self.main("--reorg", "--name", "割り振り")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("割り振り", ["振り分け"]))
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.pane), "割り振り"),
@@ -62,7 +62,7 @@ class Reorg(unittest.TestCase):
         # もう一度替えると前の名前が積まれ、戻した名前は前の名前から外れる
         rc, out = self.main("--reorg", "--name", "振り分け")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("振り分け", ["割り振り"]))
 
     def test_role_residency_and_boss_are_replaced(self):
@@ -72,7 +72,7 @@ class Reorg(unittest.TestCase):
                                            encoding="utf-8")
         rc, out = self.main("--reorg", "--role", "作業", "--per-task", "--boss", "割り振り", "--boss-account", "a1")   # 前の版の旗の名前（今は --ephemeral）
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place, former=False)   # 前の版の属性も同じ値で書く（読み替えずに見る）
+        attrs = self.g.worktree_attrs(self.place, former=False)   # 前の版の属性も同じ値で書く（読み替えずに見る）
         self.assertEqual((attrs["role"], attrs["lifecycle"], attrs["residency"], attrs["boss"], attrs["boss-account"]),
                          ("作業", "ephemeral", "per-task", "割り振り", "a1"))
         # 前の頼み元の会話の id とペインは消す（納品は新しい頼み元を名前で引く）
@@ -87,7 +87,7 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--reorg", "--name", "割り振り", "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertIn("空打ち", out)
-        self.assertEqual(gitx.worktree_attrs(self.place)["name"], "振り分け")
+        self.assertEqual(self.g.worktree_attrs(self.place)["name"], "振り分け")
         rc, out = self.main("--reorg", "--name", "振り分け")
         self.assertEqual(rc, 0, out)
         self.assertIn("付け替える物は無い", out)
@@ -107,8 +107,8 @@ class Reorg(unittest.TestCase):
 
     def test_a_name_another_department_has_stops(self):
         other = str(pathlib.Path(self.root) / "other")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "work/other", other, "origin/main")
-        provision.mark(other, self.src, {"role": "担当", "name": "点検"}, gitx)
+        self.g.add_worktree(other, "work/other", "origin/main")
+        provision.mark(other, self.src, {"role": "担当", "name": "点検"}, self.g)
         self.ports.term.open_at(other, agent="claude")
         rc, out = self.main("--reorg", "--name", "点検")
         self.assertEqual(rc, 2, out)
@@ -124,7 +124,7 @@ class Reorg(unittest.TestCase):
         self.ports.term.add_pane(self.ws(self.office_pane), self.src, agent="claude")
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.src, former=False)
+        attrs = self.g.worktree_attrs(self.src, former=False)
         self.assertEqual({k: attrs.get(k) for k in ("role", "lifecycle", "residency", "name", "account", "session")},
                          {"role": "窓口", "lifecycle": "persistent", "residency": "resident", "name": "窓口", "account": "a1", "session": "s-desk"})
         self.assertEqual(self.ports.term.writes, [
@@ -153,20 +153,21 @@ class Reorg(unittest.TestCase):
         shape.parent.mkdir(exist_ok=True)
         shape.write_text('desk_role = "段取り"\n[[roles]]\nname = "段取り"\nformer_names = ["窓口"]\n[[roles]]\nname = "担当"\n',
                          encoding="utf-8")
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り"}, self.g)
         self.sessions[1]["pid"] = 4242
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.src)
+        attrs = self.g.worktree_attrs(self.src)
         self.assertEqual({k: attrs.get(k) for k in ("role", "name", "session", "pid")},
                          {"role": "段取り", "name": "段取り", "session": "s-desk", "pid": "4242"})
         self.assertNotIn("former-names", attrs)
         # 前の役の名前で宛てても、今の役の永続の場所（本社の段取り）に当たる
         self.ports._cwd = self.place
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}   # 頼むのは部署の会話（窓口の会話が自分に頼むのは止まる）
-        rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--text", "形を見て", "--dry-run")
+        with contextlib.chdir(self.place):   # --ask は打った場所（作業ディレクトリ）の会社の受付箱を使う
+            rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--text", "形を見て", "--dry-run")
         # 窓に会話が見えなければ止めた行の、見えれば（Windows は前のプロセスを見ない）頼む先の行の宛先に出る
         self.assertRegex(out, rf"(宛先の部署|頼む先:) {re.escape(os.path.basename(self.src))}/段取り[（ ]")
 
@@ -177,7 +178,7 @@ class Reorg(unittest.TestCase):
         shape.write_text('[[roles]]\nname = "窓口"\n[[roles]]\nname = "担当"\n', encoding="utf-8")
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
-        path = os.path.join(gitx.git_dir(self.src), role.SETTINGS_FILE)
+        path = os.path.join(self.g.git_dir(self.src), role.SETTINGS_FILE)
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
         self.assertNotIn("--settings", out)   # 役に設定が無ければ出さない
@@ -202,7 +203,7 @@ class Reorg(unittest.TestCase):
 
     def test_desk_does_not_take_the_seat_while_the_desk_talk_runs(self):
         # 窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が --desk で席を取ると、納品がそちらに届く（53d5d1・6be241）
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "pid": "777"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "pid": "777"}, self.g)
         self.sessions[1]["pid"] = 4242
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
@@ -210,50 +211,50 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--desk")
         self.assertEqual(rc, 2, out)
         self.assertIn("窓口 窓口 の会話（処理 777、会話 s-old）がまだ動いている", out)
-        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-old")
+        self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-old")
         self.ports.running_chat = lambda pid: False   # 前の窓口を終えた（アカウントを移すときなど）
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")
+        self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-desk")
 
     def test_desk_is_not_taken_in_a_branch_place(self):
         # PR の作業場に座った窓口は、そのブランチへ部署を立てられず、頼みが届かずに終わった（3d3ccc）
         pr_place = str(pathlib.Path(self.root) / "pr")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "feat/1", pr_place, "origin/main")
-        provision.mark(pr_place, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "pid": "777"}, gitx)   # 本社から写った
+        self.g.add_worktree(pr_place, "feat/1", "origin/main")
+        provision.mark(pr_place, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "pid": "777"}, self.g)   # 本社から写った
         self.ports._cwd = pr_place
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
         rc, out = self.main("--desk")
         self.assertEqual(rc, 2, out)
         self.assertIn("窓口は本社（代表の clone", out)
-        self.assertEqual(gitx.worktree_attrs(pr_place)["session"], "s-old")
+        self.assertEqual(self.g.worktree_attrs(pr_place)["session"], "s-old")
 
     def test_desk_keeps_what_move_launched_and_forgets_it_for_a_talk_started_by_hand(self):
         # --move が起動した会話（company.launching）は起動した値を残す。手で起動した会話は、起動した値を知らないので消す
         # （区切りのターンの終わりに、待ち受けが会社の形の設定で起動し直す）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "launched": "k1",
-                                            wake.LAUNCHING: "1"}, gitx)
+                                            wake.LAUNCHING: "1"}, self.g)
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.src)
+        attrs = self.g.worktree_attrs(self.src)
         self.assertEqual((attrs.get("launched"), attrs.get(wake.LAUNCHING)), ("k1", None))
         rc, out = self.main("--desk")   # 同じ会話が打ち直しても残す
-        self.assertEqual(gitx.worktree_attrs(self.src).get("launched"), "k1")
+        self.assertEqual(self.g.worktree_attrs(self.src).get("launched"), "k1")
         self.sessions[1]["sessionId"] = "s-hand"   # 持ち主が手で起動した会話
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-hand"}
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("launched", gitx.worktree_attrs(self.src))
+        self.assertNotIn("launched", self.g.worktree_attrs(self.src))
 
     def test_desk_replaces_a_hand_written_role_and_keeps_the_old_name(self):
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "my_notesの窓口"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "my_notesの窓口"}, self.g)
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
         rc, out = self.main("--desk", "窓口")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.src)
+        attrs = self.g.worktree_attrs(self.src)
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("窓口", ["my_notesの窓口"]))
 
 

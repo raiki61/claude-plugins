@@ -841,7 +841,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     # 役の項目（会社の形の [[roles]]）と gh のアカウント。会社の形は --tree と同じ読み方（会社の形の設計 4.7・4.8）
     cfg_path = config.path_of(a.config, os.environ)
     fetched = None if a.dry_run or refreshed else provision.refresh_shape(repo.source, ports.git)
-    info = tree.read_info(repo.source, os.path.dirname(cfg_path))
+    info = tree.read_info(repo.source, os.path.dirname(cfg_path), ports.git)
     shape = role.load(info["path"], info["text"])
     role_name, why = (a.role, None) if a.role else role.default(shape, DEFAULT_ROLE)
     the_role, why = (None, why) if why else role.pick(shape, role_name, a.role is not None)
@@ -1148,7 +1148,7 @@ def survey_companies(config_path, ports, only=None, plugins=False):
             places_of[root] = []
             notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
-    companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings), sessions_)
+    companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings, ports.git), sessions_)
     for d in (d for c in companies for d in c["departments"]):
         d["tool_place"] = not d["branch"] and tools.is_place(d["path"])   # 機械のツールを走らせる一時の worktree（--tree が「（ブランチ無し）」と分けて出す）
     return accounts_, workspaces_, companies, settings, notes
@@ -1207,13 +1207,13 @@ def _sync_roles(companies, settings, ports, dry_run):
     書く物だけを出す。"""
     out = []
     for c in companies:
-        info = tree.read_info(c["root"], settings)
+        info = tree.read_info(c["root"], settings, ports.git)
         shape = role.load(info["path"], info["text"])
         for d in c["departments"]:
             got = shape["roles"].get(role.current(shape, d["attrs"].get("role")))
             changes, why = {}, []
             if d["attrs"].get("lifecycle") in gitx.FORMER_RESIDENCY and d.get("path"):
-                stored = gitx.worktree_attrs(d["path"], former=False)
+                stored = ports.git.worktree_attrs(d["path"], former=False)
                 for k, v in gitx.lifecycle_attrs(d["attrs"]["lifecycle"]).items():
                     if stored.get(k) != v:
                         changes[k] = v
@@ -1282,7 +1282,7 @@ def _check(cfg, ports, task=None, lead=None):
         return 2
     problems, notes = ports.preflight(cfg, task=task)
     # origin/HEAD が無い元の clone は、会社の形を作業ツリーから読む（止めずに直し方を出す）
-    heads = [n for n in dict.fromkeys(tree.head_note(r.source) for r in cfg.repos if r.source) if n]
+    heads = [n for n in dict.fromkeys(tree.head_note(r.source, ports.git) for r in cfg.repos if r.source) if n]
     notes = list(cfg.notes) + tier_notes + notes + heads
     if lead:
         notes.insert(0, lead)
@@ -1634,7 +1634,7 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
 
     def landed(path):   # gh に問うことがあるので、部署の場所ごとに 1 度だけ
         if path not in merged:
-            merged[path] = orders.landed(path, main, ports.attrs(path))
+            merged[path] = orders.landed(path, main, ports.attrs(path), ports.git, ports.gh)
         return merged[path]
 
     return clean.departments(found, ports.attrs, session_of, ports.is_clean,
@@ -1647,7 +1647,7 @@ DEPT_REASONS = {"persistent": "永続の部署は畳まない", "running": "会�
                 "queued": "順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む。会話が止まっていれば --nudge <部署> で戻す）"}
 
 
-def _running_note(d, attrs):
+def _running_note(d, attrs, ports):
     """会話がまだ動いているので残す部署の訳に足す、段取りが止めるかを決める手がかり（ほかの訳の部署には足さない）。"""
     if d["reason"] != "running":
         return ""
@@ -1656,7 +1656,7 @@ def _running_note(d, attrs):
     if attrs.get(wake.FINISHED):
         return "。終わりの印が有る（このターンの終わりに畳む）"
     name = d["name"] or d["branch"]
-    got = orders.leftover(d["path"], attrs)
+    got = orders.leftover(d["path"], attrs, ports.git, ports.gh)
     if got is None:
         return ""
     if got[0] == "waiting":
@@ -1729,7 +1729,7 @@ def _clean(cfg, repo, apply, ports):
         print(f"部署 {d['name'] or '-'} {d['branch'] or '（ブランチ無し）'}  {d['state']}  "
               + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else "")
                   + _boards_note(d["path"], ports))
-                 if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}{_running_note(d, ports.attrs(d['path']))}）"))
+                 if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}{_running_note(d, ports.attrs(d['path']), ports)}）"))
     print("\n".join(notes + swept) if notes or swept else "", end="\n" if notes or swept else "")
     failed, stale = _tool_places(repo, ports, apply)
     if apply:

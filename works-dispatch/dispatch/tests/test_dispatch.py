@@ -1,4 +1,5 @@
-"""report ノードと入口（dispatch.py）。git は一時のフォルダの本物、herdr・claude・gh は偽物で、流れを回す。"""
+"""report ノードと入口（dispatch.py）。herdr・claude・gh は偽物で、流れを回す。git は、流れの組（Main・Issue）は偽物（tests/fakegit.py）、
+設定と元の clone の読み方を見る組（Preflight・Init・Check など）は一時のフォルダの本物。"""
 
 import contextlib
 import io
@@ -10,6 +11,7 @@ import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
+from . import fakegit
 from .test_provision import WorktreeHerdr, git, make_world
 import claudex
 import config
@@ -93,9 +95,20 @@ class Prs(unittest.TestCase):
                 self.assertIn("limited", str(e.exception))
 
 
-def make_cfg():
-    """(設定のパス, worktree の置き場) を返す。元の clone は gitx_source(設定のパス)。"""
-    src, root = make_world()
+def make_cfg(world=make_world):
+    """(設定のパス, worktree の置き場) を返す。元の clone は gitx_source(設定のパス)。world は元の clone を作る関数（偽物の git の
+    世界は fake_cfg）。"""
+    src, root = world()
+    return _write_cfg(src, root), root
+
+
+def fake_cfg():
+    """make_cfg と同じ形の設定を、偽物の git の世界（fakegit.world）の上に作る。(設定のパス, worktree の置き場, git の偽物)。"""
+    g, src, root = fakegit.world()
+    return _write_cfg(src, root), root, g
+
+
+def _write_cfg(src, root):
     d = pathlib.Path(root).parent
     (d / "second.md").write_text("二手目", encoding="utf-8")
     (d / "c.toml").write_text(f"""
@@ -107,14 +120,14 @@ second_prompt_file = '{d}/second.md'
 source = '{src}'
 copy_files = ["frontend/.env.local"]
 """, encoding="utf-8")
-    return str(d / "c.toml"), root
+    return str(d / "c.toml")
 
 
 class FakeHerdr(WorktreeHerdr):
     """場所の口は本物の git worktree（WorktreeHerdr）、会話の口は手元の表。"""
 
-    def __init__(self, fail_run_for=(), root=None):
-        super().__init__(root)
+    def __init__(self, fail_run_for=(), root=None, g=None):
+        super().__init__(root, g)
         self._fail = set(fail_run_for)
         self.talking = set()   # 前に会話が居るペイン（/exit を受けるとシェルに戻る）
         self.busy = set()      # 前にシェルでない物（エディタ・dev server）が居るペイン
@@ -185,15 +198,16 @@ def quiet_ports(**kw):
 
 
 class FakePorts(dispatch.Ports):
-    """本物の Ports の読む口のうち、claude・gh・whose-turn を偽物にする。git は本物（一時のフォルダ）、herdr は偽物。"""
+    """本物の Ports の読む口のうち、claude・gh・whose-turn を偽物にする。git は本物（一時のフォルダ。git に偽物〔fakegit.FakeGit〕を
+    渡せばその偽物）、herdr は偽物。"""
 
-    def __init__(self, prs, problems=(), herdr=None):
+    def __init__(self, prs, problems=(), herdr=None, git=None):
         super().__init__(herdr_methods=lambda: set(), shell_has=lambda c: True, gh_ok=lambda repo, env=None: True, **QUIET)
         self._prs = prs
         self._limited = set()   # whose-turn の limited
         self._problems = list(problems)
-        self.term = herdr or FakeHerdr()
-        self.git = gitx
+        self.term = herdr or FakeHerdr(g=git)
+        self.git = git or gitx
         self.gh = FakeGh(self)
         self.issues = {}
         self.source = None   # 元の clone（FakeGh が origin にブランチを作るのに使う）
@@ -307,17 +321,29 @@ class FakePorts(dispatch.Ports):
 
 
 class FakeGh:
-    """issue にブランチを結ぶ書く口の偽物。結ぶと、ports.issues のその issue にブランチが 1 本増え、origin にもブランチができる。"""
+    """issue にブランチを結ぶ書く口の偽物。結ぶと、ports.issues のその issue にブランチが 1 本増え、origin にもブランチができる。
+    merged は GitHub で main にマージ済みの PR を持つ commit（merged_pr_of が答える。既定は無し）。"""
+    GhError = ghx.GhError
 
     def __init__(self, ports):
         self.ports = ports
         self.developed = []
+        self.merged = {}   # commit → マージ済みの PR
+
+    def env_for(self, user, base_env):
+        return {**base_env, "GH_TOKEN": f"token-of-{user}"}
+
+    def merged_pr_of(self, repo, sha, base, env=None):
+        return self.merged.get(sha)
 
     def issue_develop(self, repo, number, base, env=None):
         self.developed.append((repo, number, base))
         name = f"{number}-fix"
         self.ports.issues[number].setdefault("branches", []).append(name)
-        src = self.ports.source
+        src, g = self.ports.source, self.ports.git
+        if isinstance(g, fakegit.FakeGit):   # 手元の origin/<base> を origin の新しいブランチに push した形
+            g.origin[name] = g.tracking[base]
+            return
         subprocess.run(["git", "-C", src, "push", "-q", "origin", f"refs/remotes/origin/{base}:refs/heads/{name}"],
                        check=True, capture_output=True)
 
@@ -345,12 +371,20 @@ def by_number(out):
 
 
 class Main(unittest.TestCase):
+    """git（tests/fakegit.py）・herdr・claude・gh は偽物で回す。"""
+
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
+
+    def checkout(self, branch):
+        """元の clone で git checkout -b <branch> origin/<branch> した形。"""
+        self.g.local[branch] = self.g.tracking[branch]
+        self.g.heads[self.g.source] = branch
 
     def test_usage_is_refreshed_before_and_after_and_the_cost_is_learned(self):
         # 全部の PR は同時に走るので、始める前の使用率で件数を決め、/catchup が終わった後の使用率との差で 1 件あたりを覚える
-        ports = FakePorts([pr(1), pr(2)])
+        ports = FakePorts([pr(1), pr(2)], git=self.g)
         win = lambda u: {"used_percentage": u, "resets_at": 10**10}
         ports.limits_seq = [{"a1": {"seven_day": win(40), "five_hour": win(5)}},
                             {"a1": {"seven_day": win(41), "five_hour": win(9)}}]
@@ -362,19 +396,19 @@ class Main(unittest.TestCase):
 
     def test_sent_pages_are_opened_once_after_all_are_sent(self):
         # 起動した会話には開かせない（ATTENTION_CATCHUP_OPEN=0）ので、送り終えた件のページを dispatch が 1 回開く
-        ports = FakePorts([pr(1), pr(2)])
+        ports = FakePorts([pr(1), pr(2)], git=self.g)
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0, out)
         self.assertEqual(sorted(ports.opened), [1, 2])
         self.assertIn("開いた: ", out)
 
     def test_dry_run_opens_nothing(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertIsNone(ports.opened)
 
     def test_measured_cost_is_named_in_the_report(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         ports.cost_history = {"seven_day": [0.5, 0.7, 0.9], "five_hour": [2.0]}
         rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertIn("1 件あたりの使用率の見積もり（3 回の測りの中央値）: 週 0.7%・5 時間 2.0%", out)
@@ -385,7 +419,7 @@ class Main(unittest.TestCase):
         text = pathlib.Path(self.cfg).read_text(encoding="utf-8").replace(
             "accounts = [", f"accounts = [{{ name = \"a0\", command = \"claude-a0\", config_dir = '{d}/c0' }}, ", 1)
         pathlib.Path(self.cfg).write_text(text, encoding="utf-8")
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         busy = {f"{d}/c0": [{"cwd": "/elsewhere", "state": "working"}, {"cwd": "/elsewhere2", "status": "busy"}]}
         ports.list_sessions = lambda cdir: busy.get(cdir, [])
         ports.origin = ports.branch = lambda cwd: None
@@ -394,17 +428,16 @@ class Main(unittest.TestCase):
         self.assertIn(" a1 ", by_number(out)["#1"])
 
     def test_dry_run_does_not_ask_for_fresh_usage(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertFalse(hasattr(ports, "refreshed"))
         self.assertFalse(hasattr(ports, "saved_cost"))
 
     def test_dry_run_writes_nothing_and_says_create_or_reuse(self):
         src = gitx_source(self.cfg)
-        subprocess.run(["git", "-C", src, "worktree", "add", "-q", "-b", "feat/2", f"{self.root}/feat-2", "origin/feat/2"],
-                       check=True, capture_output=True)
-        subprocess.run(["git", "-C", src, "checkout", "-q", "-b", "feat/3", "origin/feat/3"], check=True, capture_output=True)
-        ports = FakePorts([pr(1), pr(2), pr(3)])
+        self.g.add_worktree(f"{self.root}/feat-2", "feat/2", "origin/feat/2")
+        self.checkout("feat/3")
+        ports = FakePorts([pr(1), pr(2), pr(3)], git=self.g)
         rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertEqual(rc, 0)
         self.assertEqual(ports.term.writes, [])
@@ -415,14 +448,14 @@ class Main(unittest.TestCase):
         self.assertTrue(lines["#3"].endswith("branch_busy"))
 
     def test_preflight_problem_stops_before_anything(self):
-        ports = FakePorts([pr(1)], problems=["herdr に届かない"])
+        ports = FakePorts([pr(1)], problems=["herdr に届かない"], git=self.g)
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 2)
         self.assertEqual(ports.term.writes, [])
         self.assertIn("herdr に届かない", out)
 
     def test_unreadable_prs_stop_with_one_line_not_a_traceback(self):
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
 
         def boom(repo):
             raise prs_node.PrsError("whose-turn --json（o/r）が読めない: Could not resolve")
@@ -433,13 +466,13 @@ class Main(unittest.TestCase):
         self.assertEqual(ports.term.writes, [])
 
     def test_no_prs_does_nothing(self):
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual((rc, ports.term.writes), (0, []))
         self.assertIn("自分の番の PR は無い", out)
 
     def test_creates_the_branch_place_then_launches_and_sends_two_turns(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0)
         place = [w for w in ports.term.worktrees(gitx_source(self.cfg)) if w["linked"]]
@@ -457,16 +490,16 @@ class Main(unittest.TestCase):
     def test_a_new_pr_place_drops_the_desk_attrs_git_copied_from_the_head_office(self):
         # git worktree add は本社の config.worktree を写す。残ると、PR の会話が窓口の役の本文を受けて窓口として振る舞った（3d3ccc）
         src = gitx_source(self.cfg)
-        provision.mark(src, src, {"role": "窓口", "name": "窓口", "session": "s-desk", "pid": "777"}, gitx)
-        ports = FakePorts([pr(1)])
+        provision.mark(src, src, {"role": "窓口", "name": "窓口", "session": "s-desk", "pid": "777"}, self.g)
+        ports = FakePorts([pr(1)], git=self.g)
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0, out)
         place = next(w["path"] for w in ports.term.worktrees(src) if w["linked"])
-        self.assertEqual(gitx.worktree_attrs(place, copies=True), {})   # 写しは読み飛ばすだけでなく、消す
-        self.assertEqual(gitx.worktree_attrs(src)["role"], "窓口")
+        self.assertEqual(self.g.worktree_attrs(place, copies=True), {})   # 写しは読み飛ばすだけでなく、消す
+        self.assertEqual(self.g.worktree_attrs(src)["role"], "窓口")
 
     def test_untrusted_source_still_launches_and_says_the_dialog_will_show(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         ports.trust_outcome = "source_untrusted"
         rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
         self.assertEqual(rc, 0)
@@ -474,14 +507,14 @@ class Main(unittest.TestCase):
         self.assertIn(("run", "P0", typed("claude-a1")), ports.term.writes)
 
     def test_no_second_sends_only_catchup(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
         self.assertEqual(rc, 0)
         self.assertEqual([w for w in ports.term.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 1", False)])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
 
     def test_pr_opens_only_the_named_prs_without_whose_turn(self):
-        ports = FakePorts([pr(1), pr(2)])
+        ports = FakePorts([pr(1), pr(2)], git=self.g)
         ports.fetch_prs = lambda repo: self.fail("--pr では whose-turn を呼ばない")
         ports.pr_info = lambda repo, n: pr(n)
         rc, out = run_main(["--config", self.cfg, "--pr", "5", "--dry-run"], ports)
@@ -489,7 +522,7 @@ class Main(unittest.TestCase):
         self.assertEqual(list(by_number(out)), ["#5"])
 
     def test_pr_that_cannot_be_read_stops_with_one_line(self):
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
 
         def no_pr(repo, n):
             raise ghx.GhError(f"#{n} を読めない")
@@ -500,7 +533,7 @@ class Main(unittest.TestCase):
         self.assertEqual(ports.term.writes, [])
 
     def test_fork_pr_from_the_list_is_provision_failed_and_nothing_is_made(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         ports.pr_info = lambda repo, n: {**pr(n), "state": "OPEN", "fork": True}
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertTrue(by_number(out)["#1"].endswith("provision_failed"), out)
@@ -509,15 +542,15 @@ class Main(unittest.TestCase):
 
     def test_branch_open_in_the_source_clone_is_branch_busy(self):
         src = gitx_source(self.cfg)
-        subprocess.run(["git", "-C", src, "checkout", "-q", "-b", "feat/1", "origin/feat/1"], check=True, capture_output=True)
-        ports = FakePorts([pr(1)])
+        self.checkout("feat/1")
+        ports = FakePorts([pr(1)], git=self.g)
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertTrue(by_number(out)["#1"].endswith("branch_busy"), out)
         self.assertEqual(ports.term.writes, [])
-        self.assertEqual(gitx.branch(src), "feat/1")
+        self.assertEqual(self.g.branch(src), "feat/1")
 
     def test_one_launch_failure_does_not_stop_the_other(self):
-        ports = FakePorts([pr(1), pr(2)], herdr=FakeHerdr(fail_run_for={"P0"}))
+        ports = FakePorts([pr(1), pr(2)], herdr=FakeHerdr(fail_run_for={"P0"}, g=self.g), git=self.g)
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0)
         lines = by_number(out)
@@ -527,13 +560,14 @@ class Main(unittest.TestCase):
 
 
 class Issue(unittest.TestCase):
-    """--issue N: issue に結んだブランチの場所を開き、1 ターン目の /catchup N まで送って止める。"""
+    """--issue N: issue に結んだブランチの場所を開き、1 ターン目の /catchup N まで送って止める。git（tests/fakegit.py）も偽物で回す。"""
 
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
 
     def ports(self, **issue):
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         ports.fetch_prs = lambda repo: self.fail("--issue では whose-turn を呼ばない")
         ports.source = gitx_source(self.cfg)
         ports.issues = {12: {"title": "ログインを直す", **issue}}

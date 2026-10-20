@@ -33,6 +33,11 @@ AGAIN = 600   # 同じ場所で続けて走らせない秒数
 MOVES = "moves"   # 受付箱の下の、走らせた出力の置き場
 
 
+def _attrs(cwd):
+    """場所の部署の属性。git の口はこのモジュールの gitx を呼ぶ時に引く（試験は gitx を偽物に替える。tests/fakegit.wire）。"""
+    return gitx.worktree_attrs(cwd)
+
+
 def closed(attrs, now=time.time, env=os.environ):
     """会話のアカウント（属性 company.account）が、使える時間帯の外か終わる手前か。設定を読めなければ偽（使用上限の外の誤りでは移さない）。"""
     try:
@@ -43,7 +48,7 @@ def closed(attrs, now=time.time, env=os.environ):
     return bool(acc and acc.hours and accounts.shut(acc.hours, now(), cfg.hours_margin_minutes))
 
 
-def plan(payload, attrs_of=gitx.worktree_attrs, closed_of=closed):
+def plan(payload, attrs_of=_attrs, closed_of=closed):
     """走らせるコマンドの並びと、走らせる場所と出力の置き場の (argv, cwd, 出力のファイル)。移さないなら None。"""
     if not payload.get("error"):
         return None

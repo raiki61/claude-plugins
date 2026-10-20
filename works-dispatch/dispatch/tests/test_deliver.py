@@ -14,17 +14,20 @@ import tempfile
 import unittest
 from unittest import mock
 
-from . import DISPATCH
+from . import DISPATCH, fakegit
 from .test_company import CompanyHerdr
-from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
+from .test_dispatch import FakePorts, fake_cfg, gitx_source, make_cfg, run_main
 from .test_provision import git
-from .test_task import push_shape
 from . import test_role
 import gitx
 import claudex
 import herdr as real_herdr
 import orders
 import wake_hook
+import role_hook
+import limit_hook
+import refresh_hook
+import shape_hook
 from nodes import deliver, ledger, provision, wake
 
 
@@ -421,14 +424,26 @@ class StopVerdict(unittest.TestCase):
 class Flow(unittest.TestCase):
     """--ask と --deliver を入口から。頼み元（窓口）は元の clone のペイン P0、部署は worktree の窓 P1。"""
 
-    def setUp(self):
-        self.cfg, self.root = make_cfg()
+    def setUp(self, real=False):
+        """git は偽物（tests/fakegit.py。self.g）。real なら一時のフォルダの本物（self.g は gitx。git との境目を確かめる組が使う）。"""
+        if real:
+            self.cfg, self.root = make_cfg()
+            self.g = gitx
+        else:
+            self.cfg, self.root, self.g = fake_cfg()
+            fakegit.wire(self, self.g, orders, wake_hook, role_hook, limit_hook, refresh_hook, shape_hook)
         self.src = gitx_source(self.cfg)
         self.place = str(pathlib.Path(self.root) / "dept")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
-        provision.mark(self.place, self.src, {"role": "調べ役", "account": "a1", "name": "調べ", "session": "s-dept"}, gitx)
-        self.ports = FakePorts([])
-        self.ports.term = CompanyHerdr(self.src)
+        if real:
+            git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
+        else:
+            self.g.add_worktree(self.place, "dept/a", "origin/main")
+        provision.mark(self.place, self.src, {"role": "調べ役", "account": "a1", "name": "調べ", "session": "s-dept"}, self.g)
+        self.ports = FakePorts([], git=None if real else self.g)
+        self.ports.term = CompanyHerdr(self.src, None if real else self.g)
+        patcher = mock.patch.object(orders, "ghx", self.ports.gh)   # フック（orders.stop_hook）が呼ぶ時に引く gh の口も偽物にする
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.desk = self.ports.term.open_at(self.src, agent="claude")["pane_id"]
         self.window = self.ports.term.open_at(self.place, agent="claude")["pane_id"]
         self.ports.term.talking.add(self.window)   # 部署の窓の前には attach の画面（会話）が居る
@@ -443,6 +458,12 @@ class Flow(unittest.TestCase):
     def main(self, cwd, *argv):
         with contextlib.chdir(cwd):
             return run_main(["--config", self.cfg, *argv], self.ports)
+
+    def other_clone(self, path):
+        """ほかのリポジトリの clone（git init しただけ。origin が無い）を path に作り、ports.git が場所で振り分けるようにする。"""
+        other = fakegit.FakeGit(path, {}, url="")
+        self.ports.git = fakegit.Repos(self.g, other)
+        return other
 
     def prompts(self):
         return [w for w in self.ports.term.writes if w[0] == "prompt"]
@@ -480,7 +501,7 @@ class Flow(unittest.TestCase):
     def test_fallen_department_missing_from_the_list_is_attached_by_its_job_id(self):
         # /clear で会話の id が変わっても、裏の会話の短い id（company.job）は変わらない。一覧に見えないときは job で打つ
         # （会話の id の頭の字は /clear の後の id では短い id と合わない）
-        provision.mark(self.place, self.src, {"session": "a5b0bc07-new", "job": "8c4a1102"}, gitx)
+        provision.mark(self.place, self.src, {"session": "a5b0bc07-new", "job": "8c4a1102"}, self.g)
         self.ports.list_sessions = lambda cdir, include_done=False: []
         self.fall()
         self.main(self.src, "--ask", "調べ", "--text", "調べて")
@@ -489,11 +510,11 @@ class Flow(unittest.TestCase):
     def test_fallen_department_without_its_talk_id_is_attached_by_the_talk_at_its_place(self):
         # 属性の会話の id が消えていても（前の版の --move が id を消した直後に止められた。2026-10-17 の割り振り・説明書）、会話の
         # 一覧の、部署の場所の裏の会話で戻し、属性を書き戻す
-        subprocess.run(["git", "-C", self.place, "config", "--worktree", "--unset", "company.session"], check=True)
+        self.g.unset_worktree_attr(self.place, "session")
         self.fall()
         self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.term.writes)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["session"], attrs["job"]), ("s-dept", "d"))
         old = {"kind": "background", "sessionId": "s-old", "id": "o", "cwd": self.place, "name": "調べ", "state": "done", "startedAt": 9}
         talk = {"kind": "background", "sessionId": "s-now", "id": "n", "cwd": self.place, "name": "調べ", "state": "working", "startedAt": 1}
@@ -668,7 +689,7 @@ class Flow(unittest.TestCase):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.prompts()), 1)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs.get("session"), attrs.get("boss")), ("s-cleared", "desk"))
 
     def test_a_line_left_in_the_input_box_gets_an_enter(self):
@@ -694,7 +715,7 @@ class Flow(unittest.TestCase):
 
     def test_fallen_department_with_a_pending_ask_is_nudged_to_deliver(self):
         # 落ちる前の頼みを納品していない部署: 戻して納品を促し、新しい頼みは送らずに止まる（待っても来ない、で止めない）
-        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
         self.fall()
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
         self.assertEqual(rc, 2, out)
@@ -711,15 +732,16 @@ class Flow(unittest.TestCase):
         self.assertEqual((w[1], w[3]), (self.window, False))
         self.assertIn("頼みです（受付 ", w[2])
         self.assertIn("desk から）: これを調べて 終わったら、要約を 結論・決め手・残った疑問・ブランチ の項目で", w[2])
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual({k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane")},
                          {"boss": "desk", "boss-account": "a1", "boss-session": "s-desk", "boss-pane": self.desk})
         self.assertEqual(os.path.realpath(attrs["boss-inbox"]), os.path.realpath(self.inbox))
         (rec,) = deliver.records(self.inbox)
         self.assertEqual((rec["kind"], rec["status"], rec["id"], rec["to"]["name"]), ("ask", "sent", attrs["ask"], "調べ"))
         self.assertEqual(pathlib.Path(rec["file"]).read_text(encoding="utf-8"), "これを調べて\n")
-        # 受付箱は commit されない（共通の .git の中）
-        self.assertEqual(git("-C", self.src, "status", "--porcelain").strip(), "")
+        # 受付箱は commit されない（共通の .git の中。作業ツリーには何も書かない）
+        self.assertTrue(os.path.realpath(self.inbox).startswith(os.path.realpath(self.g.common_dir(self.src)) + os.sep))
+        self.assertEqual(sorted(p.name for p in pathlib.Path(self.src).iterdir()), [".git", ".gitignore", "frontend"])
 
     def test_ask_names_the_asker_from_the_current_process_of_a_resumed_session(self):
         # 窓口を一時停止したまま --resume で開き直し、/rename した。一覧には古い処理（desk）と今の処理（窓口）が並ぶ
@@ -729,48 +751,48 @@ class Flow(unittest.TestCase):
             {"pid": 10**9 + 1, "startedAt": 200, **listed(cdir)[0], "name": "窓口"}, *listed(cdir)[1:]]
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "窓口")
+        self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "窓口")
         self.assertIn("窓口 から）", self.prompts()[0][2])
 
     def test_ask_takes_the_askers_name_and_account_from_the_flags(self):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x", "--from-name", "窓口", "--from-account", "a2")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs.get("boss"), attrs.get("boss-account")), ("窓口", "a2"))
 
     def test_ask_from_a_named_place_names_the_asker_by_the_place_not_the_talk(self):
         # 窓口の待ち受けは場所の名前（company.name）で受ける。会話の一覧の名前（desk）は替わりうるので、頼み元には場所の名前を書く
         # （段取りが会話の名前 my-notes-d7 で頼み、納品が待ち受けに届かなかった。my_notes の受付 20261017-032608-18b5f5）
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-desk"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-desk"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "段取り")
+        self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "段取り")
         self.assertIn("段取り から）", self.prompts()[0][2])
 
     def test_ask_from_the_desk_right_after_clear_names_the_asker_by_the_place(self):
         # 窓口が /clear で会話を空にした直後は、会話の id が company.session と合わない。--desk が書いた処理（company.pid）の中から
         # 頼んだなら、場所の名前を書く（会話の一覧の名前 my-notes-d7 で頼み元を書き続けた。my_notes の受付 20261017-054115-5bc0b0）
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-before-clear", "pid": "4242"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-before-clear", "pid": "4242"}, self.g)
         self.ports.same_process = lambda pid: pid == "4242"
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "段取り")
+        self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "段取り")
 
     def test_ask_typed_in_another_clone_returns_to_the_askers_own_inbox(self):
         # 窓口が別の会社の clone でコマンドを打っても、納品の受付箱は窓口の居る場所の会社の物（段取りが claude-plugins の clone で打ち、
         # 返り先が claude-plugins の受付箱になった。my_notes の受付 20261017-054115-5bc0b0）
         other = str(pathlib.Path(self.root) / "other")
-        git("init", "-q", other)
+        self.other_clone(other)
         rc, out = self.main(other, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(os.path.realpath(gitx.worktree_attrs(self.place).get("boss-inbox")), os.path.realpath(self.inbox))
+        self.assertEqual(os.path.realpath(self.g.worktree_attrs(self.place).get("boss-inbox")), os.path.realpath(self.inbox))
 
     def test_ask_from_another_talk_in_the_head_office_keeps_the_talks_name(self):
         # 本社にはほかの会話も居る。--desk が書いた会話（company.session）でなければ、窓口の名前を名乗らない
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-other"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-other"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "desk")
+        self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "desk")
 
     def test_the_command_handed_to_the_department_is_quoted_with_forward_slashes(self):
         self.assertNotIn("\\", orders.RUN)
@@ -788,15 +810,15 @@ class Flow(unittest.TestCase):
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk", "HERDR_PANE_ID": self.window}
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place).get("boss-pane"), self.desk)
+        self.assertEqual(self.g.worktree_attrs(self.place).get("boss-pane"), self.desk)
 
     def test_a_new_ask_does_not_keep_the_previous_askers_values(self):
         provision.mark(self.place, self.src, {"boss": "前の窓口", "boss-account": "zz", "boss-session": "s-old",
-                                              "boss-pane": "P-old"}, gitx)
+                                              "boss-pane": "P-old"}, self.g)
         self.ports.env = {}   # Claude Code の外から頼んだ（頼む会話が分からない）
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual({k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane")},
                          {"boss": None, "boss-account": None, "boss-session": None, "boss-pane": None})
 
@@ -805,7 +827,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("打ち込む 1 行: 頼みです", out)
         self.assertEqual(self.prompts(), [])
-        self.assertNotIn("ask", gitx.worktree_attrs(self.place))
+        self.assertNotIn("ask", self.g.worktree_attrs(self.place))
         self.assertFalse(os.path.exists(self.inbox))
 
     def test_ask_to_a_duty_raised_only_when_asked_starts_its_department_with_a_branch_of_its_own(self):
@@ -838,8 +860,8 @@ class Flow(unittest.TestCase):
             seen.update(name=ns.task, branch=ns.branch, role=ns.role, brief=ns.brief, attrs=extra_attrs, tail=tail,
                         source=repo.source, refreshed=refreshed)
             path = str(pathlib.Path(self.root) / "new")
-            git("-C", self.src, "worktree", "add", "-q", "-b", ns.branch, path, "origin/main")
-            provision.mark(path, self.src, {**extra_attrs, "role": ns.role, "session": "s-new"}, gitx)
+            self.g.add_worktree(path, ns.branch, "origin/main")
+            provision.mark(path, self.src, {**extra_attrs, "role": ns.role, "session": "s-new"}, self.g)
             return 0
 
         with contextlib.chdir(self.src):
@@ -869,12 +891,12 @@ class Flow(unittest.TestCase):
 
         def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
             path = str(pathlib.Path(self.root) / "new")
-            git("-C", self.src, "worktree", "add", "-q", "-b", ns.branch, path, "origin/main")
-            provision.mark(path, self.src, {**extra_attrs, "role": ns.role}, gitx)
+            self.g.add_worktree(path, ns.branch, "origin/main")
+            provision.mark(path, self.src, {**extra_attrs, "role": ns.role}, self.g)
             print(said)
             return 0
 
-        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "ask": "a-held"}, gitx)
+        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "ask": "a-held"}, self.g)
         with contextlib.chdir(self.src):
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
@@ -891,8 +913,8 @@ class Flow(unittest.TestCase):
         # 部署の属性に頼みを書いたが、会話を起動できなかった（立てる道が 0 以外を返した）。会話の id も無いので届いていない
         def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
             path = str(pathlib.Path(self.root) / "new")
-            git("-C", self.src, "worktree", "add", "-q", "-b", ns.branch, path, "origin/main")
-            provision.mark(path, self.src, {**extra_attrs, "role": ns.role}, gitx)
+            self.g.add_worktree(path, ns.branch, "origin/main")
+            provision.mark(path, self.src, {**extra_attrs, "role": ns.role}, self.g)
             print("部署 出荷  ship/1  p1  launch_failed")
             return 1
 
@@ -910,12 +932,12 @@ class Flow(unittest.TestCase):
             seen.update(tail=tail)
             return 1
 
-        sha = push_shape(self.src, '[[roles]]\nname = "出荷役"\ndeliver = ["結論", "差分"]\n')
+        sha = self.g.push_origin("main", {".claude/company.toml": '[[roles]]\nname = "出荷役"\ndeliver = ["結論", "差分"]\n'}, "shape")
         a = argparse.Namespace(config=self.cfg, ask="出荷役", text="x", brief=None, task="出荷", branch="ship/1",
                                dry_run=False, role=None, persistent=False, base=None, from_name=None, from_account=None)
         with contextlib.chdir(self.src), contextlib.redirect_stdout(io.StringIO()):
             orders.ask(a, self.ports, self.src, task)
-        self.assertEqual(git("-C", self.src, "rev-parse", "origin/main"), sha)
+        self.assertEqual(self.g.rev(self.src, "origin/main"), sha)
         self.assertIn("結論・差分", seen["tail"])
 
     def test_ask_to_a_missing_role_needs_a_name_and_a_branch(self):
@@ -943,7 +965,7 @@ class Flow(unittest.TestCase):
         self.assertIn("納品です（受付 ", w[2])
         self.assertIn("調べ・ブランチ dept/a から）: 【結論】直した。 / 試験は緑。 【決め手】", w[2])
         self.assertIn("【ブランチ】dept/a", w[2])   # ブランチは機械が足す
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual(attrs["delivered"], attrs["ask"])
         recs = deliver.records(self.inbox)
         self.assertEqual([r["kind"] for r in recs], ["ask", "deliver"])
@@ -955,7 +977,7 @@ class Flow(unittest.TestCase):
         # 納品した頼みへ、--again も --for も無い 2 通目は送らない。前は、ほかの頼みの要約が済んだ頼みの納品として届いた（受付 b54685）
         summary = self.ask_then_summary(GOOD)
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
-        ask = gitx.worktree_attrs(self.place)["ask"]
+        ask = self.g.worktree_attrs(self.place)["ask"]
         (first,) = [r["file"] for r in deliver.records(self.inbox) if r.get("kind") == "deliver"]
         self.ports.term.writes.clear()
         rc, out = self.main(self.place, "--deliver", summary)
@@ -977,33 +999,30 @@ class Flow(unittest.TestCase):
 
     def push_from_the_department(self, files):
         """部署が --land を通さずに、部署の作業場から手でメインブランチへ push した形（git push origin HEAD:main）。入れた commit を返す。"""
-        for rel, text in files.items():
-            pathlib.Path(self.place, rel).parent.mkdir(parents=True, exist_ok=True)
-            pathlib.Path(self.place, rel).write_text(text, encoding="utf-8")
-            git("-C", self.place, "add", rel)
-        git("-C", self.place, "-c", "user.name=o", "-c", "user.email=o@o", "commit", "-q", "-m", "部署の作業")
-        git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/main")
-        return git("-C", self.place, "rev-parse", "HEAD")
+        fakegit.materialize(self.place, files)
+        head = self.g.commit(self.place, files, "部署の作業")
+        self.g.push(self.place, head, "main")
+        return head
 
     def test_deliver_brings_the_main_clone_up_to_a_push_that_skipped_land(self):
         # 部署が --land を通さずに手で push した成果も、納品の後に代表の clone のメインブランチへ届く（2026-10-17 の my_notes。部署が
         # git push origin HEAD:master で入れ、代表の clone の master が黙って遅れた。受付 d3f166）
         summary = self.ask_then_summary(GOOD)
-        before = git("-C", self.src, "rev-parse", "main")
+        before = self.g.rev(self.src, "refs/heads/main")
         head = self.push_from_the_department({".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\n'})
-        self.assertEqual(git("-C", self.src, "rev-parse", "main"), before)
+        self.assertEqual(self.g.rev(self.src, "refs/heads/main"), before)
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
-        self.assertEqual(git("-C", self.src, "rev-parse", "main"), head)
+        self.assertEqual(self.g.rev(self.src, "refs/heads/main"), head)
         self.assertIn(f"代表の clone の main をメインブランチ {head[:7]} へ進めた", out)
 
     def test_deliver_leaves_the_main_clone_of_a_company_without_land_alone(self):
         summary = self.ask_then_summary(GOOD)
-        before = git("-C", self.src, "rev-parse", "main")
+        before = self.g.rev(self.src, "refs/heads/main")
         self.push_from_the_department({"a.txt": "a\n"})
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
-        self.assertEqual(git("-C", self.src, "rev-parse", "main"), before)   # --land を使わない会社の代表の clone は動かさない
+        self.assertEqual(self.g.rev(self.src, "refs/heads/main"), before)   # --land を使わない会社の代表の clone は動かさない
         self.assertNotIn("代表の clone", out)
 
     def test_wait_marks_the_ask_until_a_prompt_or_the_delivery(self):
@@ -1012,14 +1031,14 @@ class Flow(unittest.TestCase):
         self.assertEqual(self.main(self.place, "--wait", "")[0], 2)   # 何を待つかが要る
         rc, out = self.main(self.place, "--wait", "持ち主の答え（どちらの案にするか）")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["waiting"], attrs["waiting-why"]), (attrs["ask"], "持ち主の答え（どちらの案にするか）"))
         self.assertIsNone(deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
         # 人が打つと外れ、また促す（ほかの会話の文では外さない）
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s-other"})
-        self.assertIn("waiting", gitx.worktree_attrs(self.place))
+        self.assertIn("waiting", self.g.worktree_attrs(self.place))
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s-dept"})
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn("waiting", attrs)
         # 答え待ちと外れたことは台帳にも残り、台帳の射影がその頼みを答え待ち→動いているに読む（同じ受付箱には 1 行ずつ）
         rows = [r for r in deliver.records(self.inbox) if r.get("kind") in ("waiting", "resumed")]
@@ -1030,7 +1049,7 @@ class Flow(unittest.TestCase):
         # 納品でも外れる
         self.assertEqual(self.main(self.place, "--wait", "持ち主の答え")[0], 0)
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
-        self.assertNotIn("waiting", gitx.worktree_attrs(self.place))
+        self.assertNotIn("waiting", self.g.worktree_attrs(self.place))
         self.assertEqual(self.main(self.place, "--wait", "持ち主の答え")[0], 2)   # 納品した後は待つ頼みが無い
         self.assertEqual(self.main(self.src, "--wait", "持ち主の答え")[0], 2)     # 部署でない所
 
@@ -1043,27 +1062,27 @@ class Flow(unittest.TestCase):
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
         rc, out = self.main(self.place, "--rest")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s-dept")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.REST], "s-dept")
         self.assertEqual(self.main(self.src, "--rest")[0], 2)   # 部署でも窓口でもない所
 
     def test_rest_marks_a_break_before_delivery_when_a_move_waits_for_one(self):
         # --move がほかのアカウントへ移す印（company.move-to）を付けた会話は、納品の前でも区切りを印せる（受付 f39d00）
         self.ask_then_summary(GOOD)
-        provision.mark(self.place, self.src, {"account": "a1", wake.MOVE_TO: "a1"}, gitx)
+        provision.mark(self.place, self.src, {"account": "a1", wake.MOVE_TO: "a1"}, self.g)
         self.assertEqual(self.main(self.place, "--rest")[0], 2)   # 今のアカウントを名指した印は移さない
-        provision.mark(self.place, self.src, {wake.MOVE_TO: "a2"}, gitx)
+        provision.mark(self.place, self.src, {wake.MOVE_TO: "a2"}, self.g)
         rc, out = self.main(self.place, "--rest")
         self.assertEqual(rc, 0, out)
         self.assertIn("アカウント a2 へ移して起動し直し", out)
-        self.assertIn(os.path.join(gitx.git_dir(self.place), wake.HANDOFF), out)
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s-dept")
+        self.assertIn(os.path.join(self.g.git_dir(self.place), wake.HANDOFF), out)
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.REST], "s-dept")
 
     def test_compact_marks_a_break_even_before_delivery_and_the_stop_hook_lets_the_turn_end(self):
         # 頼みの途中でも、同じ仕事の前の部分が済んだ区切りで compact を印せる（compact するのはターンの終わりの待ち受け）
         self.ask_then_summary(GOOD)
         rc, out = self.main(self.place, "--compact", "次は  直しを書く")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs[wake.COMPACT], attrs[wake.COMPACT_FOCUS]), ("s-dept", "次は 直しを書く"))
         self.assertIn("/compact 次は 直しを書く", out)
         self.assertEqual(self.main(self.src, "--compact")[0], 2)   # 部署でも窓口でもない所
@@ -1083,7 +1102,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("送らなかった: 要約に足りない項目がある: 決め手（無いか空）、残った疑問（頭書きの open が無い。疑問が無ければ open = []）", out)
         self.assertEqual(self.prompts(), [])
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn("delivered", attrs)
         self.assertIn("受付", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
 
@@ -1129,7 +1148,7 @@ class Flow(unittest.TestCase):
     def fresh_world(self, busy_before=False):
         """頼みごとに空にする役（fresh）の部署。/clear を打つと会話の id が変わり、頼みを打つと動き出す。"""
         self.shape('[[roles]]\nname = "調べ役"\npersistent = true\nfresh = true\n')
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         sent = lambda: [w[2] for w in self.prompts() if w[1] != self.desk]   # noqa: E731
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
@@ -1141,13 +1160,13 @@ class Flow(unittest.TestCase):
     def test_fresh_role_clears_the_talk_before_the_next_ask_once_the_last_one_is_delivered(self):
         # 担当は永続の席のまま、頼みごとに空の会話で受ける（前の頼みの記憶で書き直すと、ほかの部署が入れた行を消す）
         sent = self.fresh_world()
-        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         self.assertEqual(sent()[0], "/clear")
         self.assertIn("調べて", sent()[1])
         self.assertIn("/clear で会話を空にしてから送る", out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         # 変わった会話の id と、attach に渡す短い id（/clear の前の id の頭）、役の fresh を属性に書く
         self.assertEqual((attrs["session"], attrs["job"], attrs["fresh"]), ("s-new", "s", "true"))
         # herdr の作業場の印にも出る
@@ -1178,7 +1197,7 @@ class Flow(unittest.TestCase):
                 (records / "new.jsonl").write_text("{}", encoding="utf-8")
             return typed(pane, text, wait)
         self.ports.term.prompt = prompt
-        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         self.assertEqual(sent()[0], "/clear")
@@ -1192,7 +1211,7 @@ class Flow(unittest.TestCase):
         self.assertIn("まだ納品した頼みが無いので、空にせずに送る", out)
         self.ports.term.writes.clear()
         sent = self.fresh_world(busy_before=True)
-        provision.mark(self.place, self.src, {"delivered": gitx.worktree_attrs(self.place)["ask"]}, gitx)
+        provision.mark(self.place, self.src, {"delivered": self.g.worktree_attrs(self.place)["ask"]}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
         # 納品し終えた部署が動いていて空にできないなら送らない（打つとターンの後に前の会話のまま届く。my_notes の受付 6f32b7）
         self.assertEqual(rc, 1, out)
@@ -1204,8 +1223,8 @@ class Flow(unittest.TestCase):
         # 空にしてから渡す）
         sent = self.fresh_world(busy_before=True)
         provision.mark(self.place, self.src, {"name": "調べ", "ask": "20261016-000000-aaaaaa",
-                                              "delivered": "20261016-000000-aaaaaa"}, gitx)
-        place_dir = gitx.git_dir(self.place)
+                                              "delivered": "20261016-000000-aaaaaa"}, self.g)
+        place_dir = self.g.git_dir(self.place)
         pos = pathlib.Path(wake.pos_path(self.inbox, place_dir))
         pos.parent.mkdir(parents=True, exist_ok=True)
         pos.write_text("0", encoding="utf-8")
@@ -1253,9 +1272,9 @@ class Flow(unittest.TestCase):
         self.assertIn("送らなかった: 納品の検査が通らなかった（終了の値 1）", out)
         self.assertIn("  reference/ に無い URL: https://example.com/spec", out)
         self.assertEqual(self.prompts(), [])
-        self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
+        self.assertNotIn("delivered", self.g.worktree_attrs(self.place))
         payload = json.loads(got.read_text(encoding="utf-8"))
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((payload["role"], payload["ask"], payload["branch"]), ("調べ役", attrs["ask"], "dept/a"))
         self.assertEqual(os.path.realpath(payload["cwd"]), os.path.realpath(self.place))   # 部署の作業場のルートで走る
         self.assertEqual(payload["place"], payload["cwd"])
@@ -1273,7 +1292,7 @@ class Flow(unittest.TestCase):
         # 見本は my_notes の今の会社の形の骨組み。役「担当」の deliver_check を書き間違えると、ゲートが黙って外れる代わりに止まる（de978e）
         good = (pathlib.Path(__file__).parent / "samples" / "company-my_notes.toml").read_text(encoding="utf-8")
         self.shape(good)
-        provision.mark(self.place, self.src, {"role": "担当"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当"}, self.g)
         summary = self.ask_then_summary(GOOD)
         self.shape(good.replace("deliver_check =", "deliver_chek =", 1))
         rc, out = self.main(self.place, "--deliver", summary)
@@ -1334,7 +1353,7 @@ class Flow(unittest.TestCase):
         # 台帳の行が指すほかの会社の受付箱も --todo と同じくたどる（ほかの会社の中で回された頼みも担当者に書ける）
         self.shape('[[roles]]\nname = "調べ役"\nholders = true\n')
         other = pathlib.Path(self.root) / "other"
-        git("init", "-q", str(other))
+        self.other_clone(str(other))
         theirs = os.path.join(str(other), ".git", "company", "inbox")
         os.makedirs(theirs)
         deliver.log(theirs, {"id": "20261018-224301-4e6a26", "kind": "ask", "at": 2, "status": "sent", "to": {"name": "x"}})
@@ -1348,7 +1367,7 @@ class Flow(unittest.TestCase):
         # 行が指さない会社の台帳はたどらない。届かなかった頼み（failed）は --todo が閉じた物と見て追わない
         self.shape('[[roles]]\nname = "調べ役"\nholders = true\n')
         other = pathlib.Path(self.root) / "other"
-        git("init", "-q", str(other))
+        self.other_clone(str(other))
         theirs = os.path.join(str(other), ".git", "company", "inbox")
         os.makedirs(theirs)
         deliver.log(theirs, {"id": "20261018-224301-4e6a26", "kind": "ask", "at": 2, "status": "sent", "to": {"name": "x"}})
@@ -1403,10 +1422,8 @@ class Flow(unittest.TestCase):
         script.write_text("import json,sys,os\nd=json.load(sys.stdin)\nopen('seen.txt','w').write(os.getcwd())\n"
                           "sys.exit(1 if d['type'] != 'question' or not d.get('version') else 0)\n", encoding="utf-8")
         self.shape(f'[[roles]]\nname = "調べ役"\nask_check = {json.dumps(pathlib.Path(sys.executable).as_posix() + " gate.py")}\n')
-        git("-C", self.src, "add", "gate.py")
-        git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "gate")
-        git("-C", self.src, "push", "-q", "origin", "HEAD:main")
-        git("-C", self.src, "fetch", "-q", "origin")
+        self.g.push(self.src, self.g.commit(self.src, {"gate.py": script.read_text(encoding="utf-8")}, "gate"), "main")
+        self.g.fetch(self.src, "main")
         script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")   # 作業ツリーの物でなく、origin の既定のブランチの物が走る
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "Question: which one?", "--dry-run")
         self.assertEqual(rc, 2, out)
@@ -1428,7 +1445,7 @@ class Flow(unittest.TestCase):
         self.ports.term._panes = [p for p in self.ports.term._panes if p["pane_id"] != self.desk]
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 1, out)   # 頼み元の会話が一覧に居る（生きていて窓を決められないだけ）なら閉じない
-        self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
+        self.assertNotIn("delivered", self.g.worktree_attrs(self.place))
         listed = self.ports.list_sessions
         self.ports.list_sessions = lambda cdir, include_done=False: [s for s in listed(cdir, include_done) if s.get("sessionId") != "s-desk"]
         before = len(self.prompts())
@@ -1439,7 +1456,7 @@ class Flow(unittest.TestCase):
         self.assertEqual((record["status"], record["kind"]), (orders.POSTED, "deliver"))
         self.assertTrue(pathlib.Path(record["file"]).is_file())
         self.assertEqual((notice["kind"], notice["to"], notice["file"]), ("deliver", wake.address("src", "desk"), record["file"]))
-        self.assertEqual(gitx.worktree_attrs(self.place)["delivered"], gitx.worktree_attrs(self.place)["ask"])
+        self.assertEqual(self.g.worktree_attrs(self.place)["delivered"], self.g.worktree_attrs(self.place)["ask"])
         self.assertEqual(len(self.prompts()), before)   # 窓には打たない
 
     def test_deliver_whose_send_fails_does_not_close_the_ask(self):
@@ -1449,7 +1466,7 @@ class Flow(unittest.TestCase):
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 1, out)
         self.assertEqual(deliver.records(self.inbox)[-1]["status"], "failed")
-        self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
+        self.assertNotIn("delivered", self.g.worktree_attrs(self.place))
 
     def test_each_delivery_gets_its_own_file(self):
         summary = self.ask_then_summary(GOOD)

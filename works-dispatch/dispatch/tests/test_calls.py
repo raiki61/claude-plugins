@@ -106,7 +106,7 @@ class CompanyRoot(unittest.TestCase):
         for found, want in (([clone, real], "/x/co"), ([clone, dict(clone, root="/x/co2")], None)):
             with self.subTest(want=want), mock.patch.object(orders, "survey", return_value=([], [], found, None, [])), \
                     mock.patch.object(calls.tree, "read_info", return_value={}):
-                got, why = calls._company_root("co/調べ", None, "/", None)
+                got, why = calls._company_root("co/調べ", mock.Mock(), "/", None)   # 口は survey と read_info を差し替えたので使わない
                 if want:
                     self.assertEqual(got[0], want)
                 else:
@@ -121,7 +121,7 @@ class Call(unittest.TestCase):
     del Flow
 
     def use(self, command, **kw):
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.shape(shape_text(command, **kw))
 
     def script(self, body):
@@ -137,6 +137,135 @@ class Call(unittest.TestCase):
         self.assertEqual(self.prompts(), [])
         (rec,) = deliver.records(self.inbox)
         self.assertEqual((rec["kind"], rec["status"], rec["tool"]), ("call", "done", "spread-plugins"))
+
+    def test_an_unsettled_call_is_counted_and_handed_to_the_ai_role(self):
+        self.use(self.script("import sys; print('p2 で失敗'); sys.exit(4)"))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, calls.CALLED, out)
+        miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
+        self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
+        self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
+        (w,) = self.prompts()   # 永続の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
+        self.assertIn("-ask.md を読んで", w[2])
+        brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
+        self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
+        self.assertIn("p2 で失敗", brief)
+        # 外れは --tree で数えられる
+        companies = [{"root": self.src, "name": "src", "skills": [], "departments": []}]   # tree.build の会社の 1 件の形
+        calls.annotate(companies, os.path.dirname(self.cfg), self.g)
+        self.assertEqual(companies[0]["tools"][0]["misses"], 1)
+
+    def test_a_rerun_inside_the_handed_over_ask_returns_the_miss_instead_of_handing_over_again(self):
+        # 片づかずに回った頼みを受けた部署が、その頼みの中で同じ入力を打ち直しても、同じ頼みをもう 1 つ積まない（my_notes の受付 50f4d5）
+        self.use(self.script("import sys; print('まだ取れない'); sys.exit(4)"))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"dry": true}')
+        self.assertEqual(rc, calls.CALLED, out)
+        (first,) = [r["id"] for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        provision.mark(self.place, self.src, {"ask": first}, self.g)   # 回った頼みを部署が受けている
+        rc, out = self.main(self.place, "--call", "配布", "spread-plugins", "--input", '{"dry":  true}')
+        self.assertEqual(rc, 1, out)
+        self.assertIn(f"この会話が受けている頼み（受付 {first}）が、同じ入力でこのツールが片づかずに回った頼みなので、もう一度は回さない", out)
+        self.assertIn("まだ取れない", out)
+        rows = deliver.records(self.inbox)
+        self.assertEqual([r["id"] for r in rows if r["kind"] == "ask"], [first])
+        self.assertEqual([(r.get("ask"), r.get("rerun_of")) for r in rows if r["kind"] == "miss"], [(first, None), (None, first)])
+        # 別の入力は打ち直しでないので、今までどおり回しに行く（ここでは宛先がこの部署自身で、まだ納品していないので --ask が止める）
+        rc, out = self.main(self.place, "--call", "配布", "spread-plugins", "--input", '{"dry": false}')
+        self.assertIn("調べ役 に回したが、頼みが通らなかった", out)
+        self.assertEqual([r.get("rerun_of") for r in deliver.records(self.inbox) if r["kind"] == "miss"], [None, first, None])
+        # 合図（--land の後に呼ぶ）は打ち直しを見分けず、今までどおり回しに行く
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {"dry": True}}], self.src, self.ports, a, None,
+                   {"ask": first, "boss": "窓口", "boss-inbox": self.inbox})
+        last = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"][-1]
+        self.assertEqual((last.get("rerun_of"), bool(last.get("ask"))), (None, True))
+
+    def test_bad_input_stops_before_running(self):
+        self.use(self.script("raise SystemExit(9)"))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"x": 1}')
+        self.assertEqual(rc, 2, out)
+        self.assertIn("知らない鍵 x", out)
+        self.assertEqual(deliver.records(self.inbox), [])
+
+    def test_the_tree_shows_the_account_the_fallback_role_names(self):
+        # 片づかなかった仕事を回す役の部署は hand_over が立てるので、役の account が効く。--tree のツールの行に出す
+        self.use("true")
+        self.shape(shape_text("true").replace('name = "調べ役"\n', 'name = "調べ役"\naccount = "cheapest"\n', 1))
+        companies = [{"root": self.src, "name": "src", "skills": [], "departments": [], "problems": []}]
+        calls.annotate(companies, os.path.dirname(self.cfg), self.g)
+        self.assertEqual(companies[0]["tools"][0]["account"], "cheapest")
+        companies[0].update(info_source=None, description=None)
+        self.assertIn("片づかなければ 調べ役 に回す（先に使うアカウント cheapest）  外れ 0 回", "\n".join(tree.lines(companies)))
+
+    def test_a_tool_dropped_for_its_fallback_shows_on_the_tree(self):
+        # 外したツールは --land の合図で黙って呼ばれなくなるので、--tree の会社の注記に出す
+        self.use("true", fallback='fallback_role = "見張り"')
+        companies = [{"root": self.src, "name": "src", "skills": [], "departments": [], "problems": []}]
+        calls.annotate(companies, os.path.dirname(self.cfg), self.g)
+        self.assertEqual(companies[0]["tools"], [])
+        self.assertIn("回す先 見張り が会社の形の役にも受け持ちにも無いので外す", companies[0]["problems"][0])
+
+    def test_handing_over_to_an_on_demand_duty_lets_ask_name_its_department(self):
+        # オンデマンドの受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
+        self.use("true", fallback='fallback_role = "見渡し"')
+        with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
+            f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\non_demand = true\n')
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(name=ns.task, role=ns.role)
+            return 1
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False, base=None)
+        info = tree.read_info(self.src, os.path.dirname(self.cfg), self.g)
+        tool = role.load(info["path"], info["text"])["roles"]["配布"]["tools"][0]
+        calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None, self.src)
+        self.assertEqual((seen.get("name"), seen.get("role")), ("見渡し", "調べ役"))
+
+    def test_handing_over_to_a_duty_whose_department_is_down_raises_it_with_the_duty_role(self):
+        # オンデマンドでない受け持ち「調べ物」の部署が立っていなければ（立っているのは別の名前の「調べ」）、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じ形で立てる
+        self.use("true", fallback='fallback_role = "調べ物"')
+        with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
+            f.write('\n[[skills]]\nname = "調べ物"\nrole = "調べ役"\n')
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(name=ns.task, role=ns.role)
+            return 1
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False, base=None)
+        info = tree.read_info(self.src, os.path.dirname(self.cfg), self.g)
+        tool = role.load(info["path"], info["text"])["roles"]["配布"]["tools"][0]
+        calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None, self.src)
+        self.assertEqual((seen.get("name"), seen.get("role")), ("調べ物", "調べ役"))
+
+    def test_fire_after_land_hands_over_with_the_landers_boss(self):
+        self.use(self.script("raise SystemExit(1)"))
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None,
+                           {"boss": "窓口", "boss-account": "a1", "boss-inbox": self.inbox})
+        self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")
+        attrs = self.g.worktree_attrs(self.place)   # 回した頼みの頼み元は、メインブランチに入れた部署の頼み元
+        self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
+        self.assertEqual(len(self.prompts()), 1)
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class ToolPlace(unittest.TestCase):
+    """--call がツールを走らせる一時の場所（メインブランチの先頭に切る detached の worktree。鍵・残った場所の片付け・どのブランチにも無い
+    commit を残す ref）。git の worktree と ref の振る舞いそのものを見るので、git は一時のフォルダの本物（git との境目の組）。"""
+
+    Flow = test_deliver.Flow
+    main, shape = Flow.main, Flow.shape
+    use, script = Call.use, Call.script
+    del Flow
+
+    def setUp(self):
+        test_deliver.Flow.setUp(self, real=True)
 
     def test_the_tool_runs_on_the_default_branch_not_on_what_the_clone_has_open(self):
         self.use("git rev-parse HEAD")
@@ -222,7 +351,7 @@ class Call(unittest.TestCase):
         self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
         self.assertFalse(os.path.exists(made))
         self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
-        (path, reason, why), = tools.sweep(self.src, gitx)[1]
+        (path, reason, why), = tools.sweep(self.src, self.g)[1]
         self.assertEqual((os.path.realpath(path), reason, why), (os.path.realpath(dirty), tools.DIRTY, "未コミットの変更が在る"))
 
     def test_sweep_with_a_gone_owner_keeps_a_lone_commit_and_leaves_a_dirty_place(self):
@@ -251,119 +380,3 @@ class Call(unittest.TestCase):
         shown = pathlib.Path(os.path.realpath(held)).as_posix() if os.name == "nt" else os.path.realpath(held)   # git の並べる字（Windows は / 区切り）
         self.assertIn(f"ツールの一時の場所 {shown}  残す（鍵の訳が「持ち主が調べている」。ツールが走っているかもしれないので", out)
         self.assertTrue(os.path.exists(made) and os.path.exists(held))
-
-    def test_an_unsettled_call_is_counted_and_handed_to_the_ai_role(self):
-        self.use(self.script("import sys; print('p2 で失敗'); sys.exit(4)"))
-        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
-        self.assertEqual(rc, calls.CALLED, out)
-        miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
-        self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
-        self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
-        (w,) = self.prompts()   # 永続の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
-        self.assertIn("-ask.md を読んで", w[2])
-        brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
-        self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
-        self.assertIn("p2 で失敗", brief)
-        # 外れは --tree で数えられる
-        companies = [{"root": self.src, "name": "src", "skills": [], "departments": []}]   # tree.build の会社の 1 件の形
-        calls.annotate(companies, os.path.dirname(self.cfg), gitx)
-        self.assertEqual(companies[0]["tools"][0]["misses"], 1)
-
-    def test_a_rerun_inside_the_handed_over_ask_returns_the_miss_instead_of_handing_over_again(self):
-        # 片づかずに回った頼みを受けた部署が、その頼みの中で同じ入力を打ち直しても、同じ頼みをもう 1 つ積まない（my_notes の受付 50f4d5）
-        self.use(self.script("import sys; print('まだ取れない'); sys.exit(4)"))
-        rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"dry": true}')
-        self.assertEqual(rc, calls.CALLED, out)
-        (first,) = [r["id"] for r in deliver.records(self.inbox) if r["kind"] == "ask"]
-        provision.mark(self.place, self.src, {"ask": first}, gitx)   # 回った頼みを部署が受けている
-        rc, out = self.main(self.place, "--call", "配布", "spread-plugins", "--input", '{"dry":  true}')
-        self.assertEqual(rc, 1, out)
-        self.assertIn(f"この会話が受けている頼み（受付 {first}）が、同じ入力でこのツールが片づかずに回った頼みなので、もう一度は回さない", out)
-        self.assertIn("まだ取れない", out)
-        rows = deliver.records(self.inbox)
-        self.assertEqual([r["id"] for r in rows if r["kind"] == "ask"], [first])
-        self.assertEqual([(r.get("ask"), r.get("rerun_of")) for r in rows if r["kind"] == "miss"], [(first, None), (None, first)])
-        # 別の入力は打ち直しでないので、今までどおり回しに行く（ここでは宛先がこの部署自身で、まだ納品していないので --ask が止める）
-        rc, out = self.main(self.place, "--call", "配布", "spread-plugins", "--input", '{"dry": false}')
-        self.assertIn("調べ役 に回したが、頼みが通らなかった", out)
-        self.assertEqual([r.get("rerun_of") for r in deliver.records(self.inbox) if r["kind"] == "miss"], [None, first, None])
-        # 合図（--land の後に呼ぶ）は打ち直しを見分けず、今までどおり回しに行く
-        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
-                               brief=None, task=None, branch=None, role=None, persistent=False)
-        calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {"dry": True}}], self.src, self.ports, a, None,
-                   {"ask": first, "boss": "窓口", "boss-inbox": self.inbox})
-        last = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"][-1]
-        self.assertEqual((last.get("rerun_of"), bool(last.get("ask"))), (None, True))
-
-    def test_bad_input_stops_before_running(self):
-        self.use(self.script("raise SystemExit(9)"))
-        rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"x": 1}')
-        self.assertEqual(rc, 2, out)
-        self.assertIn("知らない鍵 x", out)
-        self.assertEqual(deliver.records(self.inbox), [])
-
-    def test_the_tree_shows_the_account_the_fallback_role_names(self):
-        # 片づかなかった仕事を回す役の部署は hand_over が立てるので、役の account が効く。--tree のツールの行に出す
-        self.use("true")
-        self.shape(shape_text("true").replace('name = "調べ役"\n', 'name = "調べ役"\naccount = "cheapest"\n', 1))
-        companies = [{"root": self.src, "name": "src", "skills": [], "departments": [], "problems": []}]
-        calls.annotate(companies, os.path.dirname(self.cfg), gitx)
-        self.assertEqual(companies[0]["tools"][0]["account"], "cheapest")
-        companies[0].update(info_source=None, description=None)
-        self.assertIn("片づかなければ 調べ役 に回す（先に使うアカウント cheapest）  外れ 0 回", "\n".join(tree.lines(companies)))
-
-    def test_a_tool_dropped_for_its_fallback_shows_on_the_tree(self):
-        # 外したツールは --land の合図で黙って呼ばれなくなるので、--tree の会社の注記に出す
-        self.use("true", fallback='fallback_role = "見張り"')
-        companies = [{"root": self.src, "name": "src", "skills": [], "departments": [], "problems": []}]
-        calls.annotate(companies, os.path.dirname(self.cfg), gitx)
-        self.assertEqual(companies[0]["tools"], [])
-        self.assertIn("回す先 見張り が会社の形の役にも受け持ちにも無いので外す", companies[0]["problems"][0])
-
-    def test_handing_over_to_an_on_demand_duty_lets_ask_name_its_department(self):
-        # オンデマンドの受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
-        self.use("true", fallback='fallback_role = "見渡し"')
-        with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
-            f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\non_demand = true\n')
-        seen = {}
-
-        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
-            seen.update(name=ns.task, role=ns.role)
-            return 1
-        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
-                               brief=None, task=None, branch=None, role=None, persistent=False, base=None)
-        info = tree.read_info(self.src, os.path.dirname(self.cfg))
-        tool = role.load(info["path"], info["text"])["roles"]["配布"]["tools"][0]
-        calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None, self.src)
-        self.assertEqual((seen.get("name"), seen.get("role")), ("見渡し", "調べ役"))
-
-    def test_handing_over_to_a_duty_whose_department_is_down_raises_it_with_the_duty_role(self):
-        # オンデマンドでない受け持ち「調べ物」の部署が立っていなければ（立っているのは別の名前の「調べ」）、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じ形で立てる
-        self.use("true", fallback='fallback_role = "調べ物"')
-        with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
-            f.write('\n[[skills]]\nname = "調べ物"\nrole = "調べ役"\n')
-        seen = {}
-
-        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
-            seen.update(name=ns.task, role=ns.role)
-            return 1
-        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
-                               brief=None, task=None, branch=None, role=None, persistent=False, base=None)
-        info = tree.read_info(self.src, os.path.dirname(self.cfg))
-        tool = role.load(info["path"], info["text"])["roles"]["配布"]["tools"][0]
-        calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None, self.src)
-        self.assertEqual((seen.get("name"), seen.get("role")), ("調べ物", "調べ役"))
-
-    def test_fire_after_land_hands_over_with_the_landers_boss(self):
-        self.use(self.script("raise SystemExit(1)"))
-        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
-                               brief=None, task=None, branch=None, role=None, persistent=False)
-        lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None,
-                           {"boss": "窓口", "boss-account": "a1", "boss-inbox": self.inbox})
-        self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")
-        attrs = gitx.worktree_attrs(self.place)   # 回した頼みの頼み元は、メインブランチに入れた部署の頼み元
-        self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
-        self.assertEqual(len(self.prompts()), 1)
-
-if __name__ == "__main__":
-    unittest.main()

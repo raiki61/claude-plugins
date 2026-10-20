@@ -78,7 +78,12 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 
-def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppid, same=chat.in_process):
+def _attrs(cwd):
+    """場所の部署の属性。git の口はこのモジュールの gitx を呼ぶ時に引く（試験は gitx を偽物に替える。tests/fakegit.wire）。"""
+    return gitx.worktree_attrs(cwd)
+
+
+def plan(payload, env=os.environ, attrs_of=_attrs, parent=os.getppid, same=chat.in_process):
     """待つなら {cwd, root, inbox, place, names, session, owner, adopt, company, job}、待たないなら None。adopt は属性の会話の id を書き直すか。
     company は会社の名前（--retire に宛てる）。job は会話の裏の処理の短い id（環境変数 CLAUDE_JOB_DIR の名前。裏の会話でなければ None）。"""
     cwd = payload.get("cwd") or os.getcwd()
@@ -101,7 +106,7 @@ def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppi
                 or desk and same(attrs.get("pid"))):
             return None   # 窓口は、--desk が書いた会話の処理（company.pid）の会話なら、印が消えていても続きと見る
         adopt = True
-    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
+    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)), gitx)
     company = tree.company_name(root, info)
     names = wake.addresses(company, attrs, gitx.former_names(attrs))
     return {"cwd": cwd, "root": root, "inbox": inbox, "place": place, "names": names, "session": sid, "owner": parent(),
@@ -318,7 +323,7 @@ def unready(payload, job, read=None):
     return b'"type":"user"' not in seen
 
 
-def unseen(got, payload, attrs, git_dir=gitx.git_dir):
+def unseen(got, payload, attrs, git_dir=None):
     """この会話が持つ納品していない頼み（company.ask）の字が、会話に届いていないか: 会話の記録（transcript_path）に受付番号が無く、
     --move の最初の文（move-brief.md を読ませる）で渡した物でもない。渡した字は会話の処理が殺されると消え（unready の 4bae53）、
     台帳の handed の行だけが残る。最初の文の後に処理が殺されたときも、起動し直した会話の待ち受けがここで見つける。
@@ -335,7 +340,7 @@ def unseen(got, payload, attrs, git_dir=gitx.git_dir):
         return False
     if b"move-brief.md" in seen:
         try:
-            brief = pathlib.Path(git_dir(got["cwd"]) or "", "move-brief.md").read_text(encoding="utf-8")
+            brief = pathlib.Path((git_dir or gitx.git_dir)(got["cwd"]) or "", "move-brief.md").read_text(encoding="utf-8")
         except (OSError, ValueError):
             return False
         return ask not in brief
@@ -514,7 +519,7 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
     common = gitx.common_dir(where)
     root = gitx.root_of(common) if common else got["root"]
     try:
-        info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
+        info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)), gitx)
         if info.get("problems"):
             raise ValueError("; ".join(info["problems"]))
         company = tree.company_name(root, info)
@@ -586,7 +591,7 @@ def early_due(got, attrs, env=os.environ, now=time.time):
     return bool(attrs.get(wake.MOVE_TO) or got_ and got_["to"])
 
 
-def follow_main(got, attrs, catch_up=provision.follow_main):
+def follow_main(got, attrs, catch_up=None):
     """永続の部署（属性 company.lifecycle が persistent）が順番待ちの次の頼みを受ける前に、作業場のブランチを origin のメインブランチの
     先頭まで fast-forward する（provision.follow_main）。永続の部署の作業場は頼みのたびに作り直さないので、進めないとメインブランチに
     入れた組織の直しが効かない（2026-10-20 に my_notes の調べものが 20 commit 遅れ、費用を下げる役の定義の直しが効かなかった。受付 72f7e4）。
@@ -598,7 +603,7 @@ def follow_main(got, attrs, catch_up=provision.follow_main):
     if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
         return None
     try:
-        r = catch_up(got["cwd"])
+        r = (catch_up or (lambda cwd: provision.follow_main(cwd, gitx)))(got["cwd"])
     except Exception as e:  # 取れない・未コミットの変更と重なるなどでも、頼みは渡す
         return f"作業場のブランチをメインブランチの先頭へ進められなかったので、この作業場のまま渡す（{type(e).__name__}: {e}）"
     main = r["main"]
@@ -713,7 +718,7 @@ class _DoneFile:
         return int(text) if text.isdigit() else 1
 
 
-def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: chat.host()[0],
+def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: chat.host()[0],
             spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie, follow=follow_main):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
     restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
@@ -874,7 +879,7 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
     return check
 
 
-def resume_from_wait(payload, attrs_of=gitx.worktree_attrs, now=time.time):
+def resume_from_wait(payload, attrs_of=_attrs, now=time.time):
     """人の文でターンが始まった: 部署の会話が --wait で印した答え待ちを外す（答えを受けたので、止まる前のフックがまた納品を促す）。
     --rest の区切りの印と --done の終わりの印と --compact の区切りの印も外す（人と話している途中の会話を空にも畳みも compact もしない）。印を外すのは、場所の属性の会話（company.session）が文を
     受けたときだけ（同じ場所のほかの会話の文では外さない）。答え待ちを外したら、場所の会社と頼み元の受付箱の台帳に kind resumed を
@@ -896,7 +901,7 @@ def resume_from_wait(payload, attrs_of=gitx.worktree_attrs, now=time.time):
                 deliver.log(inbox, record)
 
 
-def ended_well(payload, attrs_of=gitx.worktree_attrs):
+def ended_well(payload, attrs_of=_attrs):
     """ターンが誤りなく終わった（Stop。誤りで終わったターンでは Stop の代わりに StopFailure が走る）: 使用上限か時間帯で止まった会話を
     --move --if-limited が待っている印（company.limit-hold）を外す。会話はもう続いて区切れたので、待っている処理は続きの 1 行を打たずに
     やめる。人の文で外さないのは、その文のターンがまた断られることがあるため（断られたら印を残し、待っている処理が続けさせる。
@@ -933,7 +938,7 @@ def pause_here(payload):
     return 0
 
 
-def keep_job(got, attrs_of=gitx.worktree_attrs):
+def keep_job(got, attrs_of=_attrs):
     """部署の属性 company.job（落ちた部署を attach で戻すときと、/clear を打つ窓を確かめるときの短い id）を、この会話の裏の処理の
     短い id に合わせる。裏の会話を起動し直すと短い id が替わり、古い id のままだと窓を自分の物と確かめられずに順番待ちを渡さなかった
     （2026-10-17 の割り振り。属性は a5b0bc07、窓は 8c4a1102 に attach していた）。書けなくても待ち受けは続ける。"""
@@ -944,7 +949,7 @@ def keep_job(got, attrs_of=gitx.worktree_attrs):
         pass
 
 
-def woken(got, attrs_of=gitx.worktree_attrs):
+def woken(got, attrs_of=_attrs):
     """待ち受けが会話を再開させる（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、毎回クリアする部署（役が fresh）なら、空にした印
     （company.cleared）を外す。起動されたターンの文脈が会話に残るので、そのターンの終わりに待ち受けがまた空にする（must_clear）。今までは、
     頼みを受けていないターン（社長室の納品で起動された業務改革など）の後も印が残り、次の頼みが前のターンの文脈のまま渡った

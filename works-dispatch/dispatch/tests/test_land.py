@@ -449,7 +449,7 @@ class FastForwardAfterCi(LandCase):
         self.assertIn("手元の main: dirty", out)
         self.assertIn("窓口 src/窓口 に台帳の知らせで渡した", out)
         info = {"name": None, "desk": None}
-        again = landing._tell_desk(w.source, info, "main", w.origin("main"), "dirty")
+        again = landing._tell_desk(w.source, info, "main", w.origin("main"), "dirty", gitx)
         self.assertIn("同じ形は前に窓口へ知らせたので、知らせ直さない", again)   # 進められない間、--land のたびに窓口を起動しない
         self.assertEqual(pathlib.Path(w.source, "a.txt").read_text(encoding="utf-8"), "持ち主の書きかけ\n")   # 書きかけは触らない
         inbox = os.path.join(w.source, ".git", "company", "inbox", "log.jsonl")

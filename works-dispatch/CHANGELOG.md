@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 同梱の試験（`dispatch/tests`）の、頼みと納品（`--ask`・`--deliver`）・部署の立て方（`--task`）・部署の移し替え（`--move`）・片付け（`--clean`・`--retire`）・待ち受けなどのフック・PR ごとの場所の一生の流れを確かめる試験を、0.104.0 の `--land` の試験と同じく git の偽物（`tests/fakegit.py`）で回すようにした。利用者の操作と振る舞いは変えていない。前は、これらの試験が製品のコードから `gitx.py` を直に呼び、一時のフォルダの本物の git を起動していた（`--deliver` を 1 回通す試験で git をおよそ 127 回起動した。頼み 20261020-112109-7c3c7c）。そのため、製品のコードのうち、部署の属性（`git config --worktree` の `company.*`）の読み書きなどで `gitx.py` を直に呼んでいた所を、git の口（`ports.git`。ふだんは `gitx.py`）を通す形にした。フック（`wake_hook.py` など、`ports` を持たない単独の入口）は、呼ぶ時にモジュールの `gitx` を引く形にした（試験はそこを偽物に替える）。本物の git を起動する試験は、git との境目を確かめる組だけにした（`docs/internals.md` の試験の項）。試験の中で本物の `gh`（GitHub の CLI）を起動していた所（納品の後のターンの終わりに、ブランチがマージ済みの PR に入ったかを問う所）も、偽物に替えた。
+
 ## [0.107.0] - 2026-10-20
 
 ### Added

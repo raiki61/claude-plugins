@@ -117,25 +117,25 @@ def survey(config_path, ports):
             places_of[root] = []
             notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
-    companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings), sessions_)
+    companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings, ports.git), sessions_)
     return cfg, accounts_, sessions_, panes, companies, settings, notes
 
 
-def current_role(settings):
+def current_role(settings, g=gitx):
     """find_target に渡す (会社, 役の名前) → 今の役の名前（その会社の形の former_names）。会社ごとに 1 度だけ読む。"""
     shapes = {}
 
     def current(company, name):
         if company["root"] not in shapes:
-            info = tree.read_info(company["root"], settings)
+            info = tree.read_info(company["root"], settings, g)
             shapes[company["root"]] = role.load(info["path"], info["text"])
         return role.current(shapes[company["root"]], name)
     return current
 
 
-def shape_role(root, settings, name):
+def shape_role(root, settings, name, g=gitx):
     """会社の形（--task と同じ読み方。root が None なら無い）からその役の項目と、会社の形の注記（読み方の注記と形の誤り）。"""
-    info = tree.read_info(root, settings) if root else {"path": None, "text": None, "notes": []}
+    info = tree.read_info(root, settings, g) if root else {"path": None, "text": None, "notes": []}
     shape = role.load(info["path"], info["text"])
     return shape["roles"].get(role.current(shape, name)), info["notes"] + shape["problems"]
 
@@ -165,10 +165,10 @@ FALLEN = ("stopped", "failed")
 EXITED = re.compile(r"Session \S+ has exited\.")
 
 
-def inbox_company(inbox, settings):
+def inbox_company(inbox, settings, g=gitx):
     """受付箱の在る会社の名前（宛先の「会社/名前」の会社。待ち受けと同じ読み方）。"""
     root = gitx.root_of(deliver.common_of_inbox(inbox))
-    return tree.company_name(root, tree.read_info(root, settings))
+    return tree.company_name(root, tree.read_info(root, settings, g))
 
 
 def listener(inbox, company_name, name):
@@ -464,7 +464,7 @@ def _ask(a, ports, cwd, task, sent):
         return 2
     try:
         cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
-        target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task, current_role(settings))
+        target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task, current_role(settings, ports.git))
     except term.Error as e:
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
@@ -476,7 +476,7 @@ def _ask(a, ports, cwd, task, sent):
         # 部署を新しく立てる: 納品の項目と起動するときの設定を、立てた後のフックと同じ会社の形で決める（--task と同じ。task には
         # 取り直したことを渡し、2 度は取らない）
         notes += [n for n in [provision.refresh_shape(company["root"], ports.git)] if n]
-    the_role, problems = shape_role(company["root"], settings, role)
+    the_role, problems = shape_role(company["root"], settings, role, ports.git)
     required = deliver.required_items(the_role)
     notes += problems
     why = gate_keys(the_role, "頼まなかった")
@@ -930,7 +930,7 @@ def nudge(a, ports, cwd):
     common = ports.git.common_dir(cwd)
     try:
         cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
-        target = deliver.find_target(companies, gitx.root_of(common) if common else None, a.nudge, None, current_role(settings))
+        target = deliver.find_target(companies, gitx.root_of(common) if common else None, a.nudge, None, current_role(settings, ports.git))
     except term.Error as e:
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
@@ -1445,18 +1445,18 @@ def finish_here(a, ports, cwd):
         return 2
     root = gitx.root_of(common)
     try:
-        main = gitx.default_branch(root)
+        main = ports.git.default_branch(root)
     except gitx.GitError as e:
         print(f"止めた: ブランチがメインブランチに入っているかを読めない（{e}）")
         return 1
-    merged = landed(cwd, main, attrs)
+    merged = landed(cwd, main, attrs, ports.git, ports.gh)
     if ports.unpushed(cwd, landed=lambda: merged):
         print("止めた: 手元にしか無い commit か stash が在る（片付けると消える）。メインブランチに入れてから印す")
         return 2
     if not merged:
         # 読むだけの部署がほかのブランチを detached で開いたまま打つと、そのブランチの commit で断られる。手を添える（2026-10-19 の
         # works-factory の会社で、部署が自分で手を考えた）
-        here = gitx.branch(cwd)
+        here = ports.git.branch(cwd)
         print(f"止めた: ブランチがメインブランチ（origin/{main} の手元の控え）に入っておらず、先頭の commit を含む PR も {main} に"
               "マージされていない。--land で入れるか、PR で入れる会社なら PR がマージされてから印す"
               "（ほかの会話が入れたなら、git fetch してから打ち直す）"
@@ -1547,7 +1547,7 @@ def landed(cwd, main, attrs, g=gitx, gh=ghx):
         return False
 
 
-def leftover(cwd, attrs, g=gitx):
+def leftover(cwd, attrs, g=gitx, gh=ghx):
     """受けた頼みを納品し終えた部署が、ターンを終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
     受付の並び）・handed（ブランチがメインブランチに入っていないが、この部署が今の頼みを受けてから出した頼みの答えがまだ出ていない
     〔handed_open〕。中身は受付の並び）・unlanded（ブランチの先頭がメインブランチに入っていない〔landed〕。中身はメインブランチの名前）・
@@ -1574,13 +1574,13 @@ def leftover(cwd, attrs, g=gitx):
         main = g.default_branch(gitx.root_of(common))
     except g.GitError:
         return None
-    if not landed(root, main, attrs, g):
+    if not landed(root, main, attrs, g, gh):
         handed = handed_open(common, attrs, root, g)
         return ("handed", handed) if handed else ("unlanded", main)
     return None if attrs.get("lifecycle") == gitx.PERSISTENT else ("finish", main)
 
 
-def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None):
+def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None, gh=ghx):
     """納品し終えた部署のターンの終わりに差し戻す訳（leftover が unlanded か finish のとき）。差し戻さないなら None。count はこの会話・
     この頼みで差し戻した回数（deliver.STOP_LIMIT まで）。unlanded は --land を使う会社（会社の形の [land] の取り込み方が
     ff-after-ci）だけ（PR で入れる会社は、ブランチがメインブランチに入るのを人の見直しが待つ）。残った疑問に担当者を書いただけでは、その担当者が
@@ -1589,7 +1589,7 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None):
     sid = payload.get("session_id")
     if attrs.get("session") and sid and attrs["session"] != sid:
         return None
-    got = leftover(cwd, attrs, g)
+    got = leftover(cwd, attrs, g, gh)
     if got is not None and got[0] in ("waiting", "handed") and rearm:
         rearm()
     if count >= deliver.STOP_LIMIT or got is None or got[0] in ("waiting", "handed"):
@@ -1601,7 +1601,7 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None):
         return (f"頼み（受付 {attrs['ask']}）は納品済みで、ブランチもメインブランチに入っている。エフェメラルの部署なので、{RUN} --done でターンを終える（会話を"
                 f"止めて部屋を片付けるのは機械がする）。持ち主と話している途中なら、印さずにターンを終えてよい{limit}")
     root = gitx.root_of(g.common_dir(cwd))
-    info = tree.read_info(root, settings)
+    info = tree.read_info(root, settings, g)
     if land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))["mode"] != "ff-after-ci":
         return None
     return (f"頼み（受付 {attrs['ask']}）は納品済みだが、ブランチがメインブランチ（origin/{main} の手元の控え）に入っていない。止まる前に "
@@ -1753,7 +1753,7 @@ def deliver_summary(a, ports, cwd):
         return 2
     common = ports.git.common_dir(cwd)
     settings = os.path.dirname(config.path_of(a.config, os.environ))
-    the_role, problems = shape_role(gitx.root_of(common) if common else None, settings, attrs["role"])
+    the_role, problems = shape_role(gitx.root_of(common) if common else None, settings, attrs["role"], ports.git)
     required = deliver.required_items(the_role)
     data, body, bad = deliver.front(text)
     bad += deliver.front_problems(data, deliver.DELIVER_FIELDS)
@@ -1809,7 +1809,7 @@ def deliver_summary(a, ports, cwd):
             return 2
         notes.append(f"納品の検査が通った: {check}")
     inbox = attrs.get("boss-inbox")
-    to, heard = listener(inbox, inbox and inbox_company(inbox, settings), attrs.get("boss"))
+    to, heard = listener(inbox, inbox and inbox_company(inbox, settings, ports.git), attrs.get("boss"))
     if not heard and inbox and attrs.get("boss-session"):
         # 頼み元の名前で待ち受けが引けない（前の版は会話の一覧の名前を頼み元に書いた。place_name）: 頼んだ会話の id で引く
         heard = wake.listening_session(inbox, attrs["boss-session"])
@@ -1834,7 +1834,7 @@ def deliver_summary(a, ports, cwd):
             return 1
         pane, how = deliver.boss_window(attrs, sid, entry, panes, companies)
         living = [s for items in sessions_.values() for s in items if s.get("sessionId") == sid and s.get("state") not in FALLEN]
-        names = resting_listener(inbox, inbox_company(inbox, settings), entry if living else None, ports)
+        names = resting_listener(inbox, inbox_company(inbox, settings, ports.git), entry if living else None, ports)
         if names:
             # 頼み元の会話はターンの途中で、その場所に待ち受けの居た跡が在る: 人の文で始まったターンの途中で待ち受けが止まっているだけ。
             # 窓に打ち込まず（持ち主の入力に割り込む）、台帳に置いてターンの終わりに張り直した待ち受けに渡させる（--ask・--note と
@@ -1846,7 +1846,7 @@ def deliver_summary(a, ports, cwd):
             # 会話が生きていて窓を 1 つに決められないだけのときと、頼み元が誰か分からないときは、今までどおり納品済みにしない。待ち続けても
             # 終わった会話の窓は開かず、部署は次の頼みを受けられないまま止まる（2026-10-17 の点検。頼み元 my-notes-ad が終わり、
             # 順番待ちが 5 時間渡らなかった）。頼み元の名前の待ち受けが後で張られれば、台帳の知らせで起きる
-            to, gone = wake.address(inbox_company(inbox, settings), attrs["boss"]), True
+            to, gone = wake.address(inbox_company(inbox, settings, ports.git), attrs["boss"]), True
     ask_id = attrs.get("ask")
     sender = attrs.get("name") or os.path.basename(os.path.normpath(cwd))
     file_id = deliver.new_id(ports.now())   # 納品ごとに別のファイル（打ち直しで前の要約を消さない）
@@ -1893,12 +1893,12 @@ def deliver_summary(a, ports, cwd):
 def follow_main(source, settings, role_name, g):
     """納品の後に、部署の会社の代表の clone のメインブランチを origin のメインブランチにそろえる（そろえられなければ窓口に知らせる。landing.catch_up）。
     --land（取り込み方 ff-after-ci）を使う会社だけ。部署が --land を通さずに手で push しても、成果が代表の clone に届く。出す行の並び。"""
-    info = tree.read_info(source, settings)
+    info = tree.read_info(source, settings, g)
     rules = land.read_rules(info.get("path"), role_name, info.get("text"))
     if rules["mode"] != "ff-after-ci":
         return []
     try:
-        main = rules["main"] or gitx.default_branch(source)
+        main = rules["main"] or g.default_branch(source)
     except gitx.GitError as e:
         return [f"注記: メインブランチの名前を読めないので、代表の clone をそろえていない（{e}）"]
     import landing   # --land の流れは Stop フックでは要らないので、ここで読む（フックが読み込む物を増やさない）
@@ -1916,7 +1916,7 @@ def in_flight(payload, shells):
     return shells()
 
 
-def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=chat.background_shells):
+def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shells=chat.background_shells):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
     納品し終えた後も、ブランチをメインブランチに入れていないか、エフェメラルの部署が終わりの印を打っていなければ差し戻す（stop_after）。
     部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。in_flight）を待っている間は差し戻さない（裏の処理が
@@ -1926,7 +1926,7 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
     （tiers-statusline setup で入れる。全部の会話に効き、30 秒ごとに描き直す）の受け持ちで、ここでは出さない。"""
     payload = json.loads(stdin.read() or "{}")
     cwd = payload.get("cwd") or os.getcwd()
-    attrs = attrs_of(cwd)
+    attrs = (attrs_of or gitx.worktree_attrs)(cwd)   # git の口は呼ぶ時に引く（試験は gitx を偽物に替える。tests/fakegit.wire）
     if not attrs.get("role"):
         return 0
     if not attrs.get("ask") or in_flight(payload, shells):
@@ -1946,8 +1946,8 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
             count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
         except (OSError, ValueError):
             count = 0
-        reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)),
-                            rearm=lambda: pathlib.Path(path).unlink(missing_ok=True))
+        reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), gitx,
+                            rearm=lambda: pathlib.Path(path).unlink(missing_ok=True), gh=ghx)   # gh の口も呼ぶ時に引く（試験は偽物に替える）
     if reason is None:
         return 0
     os.makedirs(os.path.dirname(path), exist_ok=True)

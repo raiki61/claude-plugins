@@ -119,8 +119,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
     if attrs.get("name") != name and place.get("branch") != name:
         print(f"注記: {name} は前の名前。部署の今の名前は {attrs.get('name') or '-'}")
     branch, path, source = place.get("branch"), place["path"], repo.source
-    info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)),
-                          committed=lambda root: tree.committed_info(root, g))
+    info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)), g)
     rules = land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))
     for n in info["notes"]:
         if n not in rules["problems"]:   # [land] の知らない鍵は、下の止めた訳に出す
@@ -270,7 +269,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
         print(n)
     print(f"メインブランチ {main} を {candidate[:7]} へ fast-forward して push した（手元の {main}: {local if err is None else f'そろえられなかった: {err}'}）")
     if local in LAGS:
-        print(_tell_desk(source, info, main, candidate, local, err))
+        print(_tell_desk(source, info, main, candidate, local, g, err))
     if after and rules["after"]:
         for line in after(rules["after"], source, attrs):
             print(line)
@@ -298,7 +297,7 @@ def catch_up(source, info, main, g):
     if local == "updated":
         out.append(f"代表の clone の {main} をメインブランチ {sha[:7]} へ進めた")
     elif local in LAGS:
-        out.append(_tell_desk(source, info, main, sha, local, err))
+        out.append(_tell_desk(source, info, main, sha, local, g, err))
     return out
 
 
@@ -319,7 +318,7 @@ def _follow(source, main, g, sha=None):
         return sha, FAILED, e, notes
 
 
-def _tell_desk(source, info, main, candidate, local, err=None):
+def _tell_desk(source, info, main, candidate, local, g, err=None):
     """代表の clone のメインブランチを進められなかったことを、その会社の窓口（本社の --desk の会話）に台帳の知らせで渡す。窓口の会話のフックと
     決まりは代表の clone の作業ツリーから読まれるので、進まないとメインブランチに入れた物が窓口に効かない（5d75df）。出す行を返す。"""
     why, fix = {"dirty": ("git merge --ff-only が断った（書きかけがメインブランチの変更とぶつかるか、merge・rebase の途中など）",
@@ -328,25 +327,25 @@ def _tell_desk(source, info, main, candidate, local, err=None):
                                f"その commit をメインブランチに入れるか別のブランチに移してから、代表の clone で git merge --ff-only origin/{main} を打つ"),
                 FAILED: (f"git が誤りを返した（{err}）",
                          f"代表の clone で git fetch origin {main} と git merge --ff-only origin/{main} を打つ")}[local]
-    attrs = gitx.worktree_attrs(source)
+    attrs = g.worktree_attrs(source)
     company = tree.company_name(source, info)
     to = wake.address(company, attrs["name"]) if attrs.get("name") else info.get("desk")   # 会社の形の desk: ほかの会社の窓口が兼ねる
     if not to:
         return f"注記: 代表の clone の {main} をメインブランチ {candidate[:7]} に進められなかった（{why}）。窓口が名付けられていないので知らせていない"
-    seen = f"{local} {gitx.rev(source, f'refs/heads/{main}')}"
+    seen = f"{local} {g.rev(source, f'refs/heads/{main}')}"
     if attrs.get("behind") == seen:
         return f"注記: 代表の clone の {main} を進められなかった（{why}）。同じ形は前に窓口へ知らせたので、知らせ直さない"
     text = (f"知らせ（返事は要らない）: {company} の代表の clone（{source}）の {main} をメインブランチ {candidate[:7]} に進められなかった（{why}）。"
             f"代表の clone の作業ツリーから読むフックと会社の形は前の版のまま。{fix}")
     try:
         far, _ = deliver.parse_target(to)
-        inbox = deliver.inbox_of(gitx.common_dir(source))
+        inbox = deliver.inbox_of(g.common_dir(source))
         if far and far != company:
             # ほかの会社の窓口: その窓口の居る会社の受付箱の台帳に置く（待ち受けはその会社の台帳を読む）
-            inbox = next((deliver.inbox_of(gitx.common_dir(p)) for p in _company_roots() if tree.company_name(p, tree.read_info(p, None)) == far),
+            inbox = next((deliver.inbox_of(g.common_dir(p)) for p in _company_roots() if tree.company_name(p, tree.read_info(p, None, g)) == far),
                          inbox)
         deliver.log(inbox, wake.notice(to, None, wake.NOTE, None, text, time.time()))
-        provision.mark(source, source, {"behind": seen}, gitx)
+        provision.mark(source, source, {"behind": seen}, g)
     except (gitx.GitError, OSError) as e:
         return f"注記: 代表の clone の {main} を進められなかった（{why}）。窓口に知らせられなかった（{e}）"
     return f"注記: 代表の clone の {main} を進められなかった（{why}）。窓口 {to} に台帳の知らせで渡した"

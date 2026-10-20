@@ -1,5 +1,5 @@
 """役の渡し方（会社の形の設計 4.7・4.8）: 会社の形の役の項目（role ノード）、部署を起動するときの --settings・--model・--effort と gh の
-アカウントの属性（launch と入口の --task）、役の本文と GH_TOKEN の行を足す SessionStart のフック（role_hook）。git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
+アカウントの属性（launch と入口の --task）、役の本文と GH_TOKEN の行を足す SessionStart のフック（role_hook）。git（tests/fakegit.py）・herdr・claude は偽物で回す。"""
 
 import contextlib
 import io
@@ -14,12 +14,10 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-from . import DISPATCH
+from . import DISPATCH, fakegit
 from .test_dispatch import FakeHerdr, gitx_source
-from .test_provision import git, make_world
 from . import test_task
 import claudex
-import gitx
 import orders
 import role_hook
 import wake_hook
@@ -326,79 +324,80 @@ class Launch(unittest.TestCase):
 
 class Hook(unittest.TestCase):
     def setUp(self):
-        self.src, root = make_world()
-        self.place = str(pathlib.Path(root) / "dept")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
+        self.g, self.src, root = fakegit.world()
+        fakegit.wire(self, self.g, role_hook, orders, wake_hook)
+        self.place = self.g.add_worktree(str(pathlib.Path(root) / "dept"), "dept/a", "origin/main")
         self.env = {"WORKS_DISPATCH_CONFIG": str(pathlib.Path(root).parent / "conf" / "dispatch.toml"),
                     "TMPDIR": tempfile.mkdtemp()}   # 会話に足した文の控えの置き場
 
     def test_clear_compact_and_resume_rewrite_the_department_session_and_keep_the_job(self):
         # /clear で会話の id が変わる。古い id のままだと --ask が動き出しを見られず、Stop フックが部署の会話を見分けなかった。
         # 裏の会話の短い id（attach に渡す）は /clear の後も変わらないので、前の版の部署は古い id の頭を job に残す
-        provision.mark(self.place, self.src, {"role": "担当", "session": "8c4a1102-aaaa", "ask": "X", "boss": "窓口"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "session": "8c4a1102-aaaa", "ask": "X", "boss": "窓口"}, self.g)
         role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "a5b0bc07-bbbb", "source": "clear"})), self.env)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["session"], attrs["job"]), ("a5b0bc07-bbbb", "8c4a1102"))
         # 書き直した後は、Stop フックがこの会話を部署の会話と見て、納品していない頼みを差し戻す
         self.assertIsNotNone(deliver.stop_verdict({"session_id": "a5b0bc07-bbbb"}, attrs, 0, "run"))
         for source in ("compact", "resume"):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": f"s-{source}", "source": source})), self.env)
-            attrs = gitx.worktree_attrs(self.place)
+            attrs = self.g.worktree_attrs(self.place)
             self.assertEqual((attrs["session"], attrs["job"]), (f"s-{source}", "8c4a1102"))
 
     def test_new_talks_and_the_head_office_keep_the_department_session(self):
         # 部署の場所で人が別の会話を起動しても（startup）、本社で持ち主の会話が /clear しても、部署の会話の id は替えない
-        provision.mark(self.place, self.src, {"role": "担当", "session": "s-dept"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "session": "s-dept"}, self.g)
         role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-other", "source": "startup"})), self.env)
-        self.assertEqual(gitx.worktree_attrs(self.place)["session"], "s-dept")
-        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk"}, gitx)
+        self.assertEqual(self.g.worktree_attrs(self.place)["session"], "s-dept")
+        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk"}, self.g)
         role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-mine", "source": "clear"})), self.env)
-        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")
+        self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-desk")
 
     def test_department_gets_its_role_text_and_other_places_get_nothing(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)
         self.assertIsNone(role_hook.text_for(self.place, self.env))   # 役の属性が無い
-        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。")
         self.assertIsNone(role_hook.text_for(self.src, self.env))      # 本社
-        provision.mark(self.src, self.src, {"role": "窓口"}, gitx)     # --desk で名付けた本社の窓口は、部署と書かない
+        provision.mark(self.src, self.src, {"role": "窓口"}, self.g)     # --desk で名付けた本社の窓口は、部署と書かない
         self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
         self.assertIsNone(role_hook.text_for(tempfile.mkdtemp(), self.env))   # git でない
 
     def test_shared_text_reaches_departments_but_not_the_head_office_desk(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", 'shared_instructions = "試験は触った所だけ。"\n' + SHAPE)
-        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertEqual(role_hook.text_for(self.place, self.env),
                          "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n試験は触った所だけ。\n結論と原典の一句を返す。")
-        provision.mark(self.src, self.src, {"role": "窓口"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口"}, self.g)
         self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
 
     def test_role_text_comes_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
-        from .test_company import publish
-        publish(self.src, SHAPE)
-        git("-C", self.src, "checkout", "-q", "-b", "old")   # 元の clone はほかの会話が古いブランチで使っている（会社の形を持たない）
-        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        self.g.push_origin("main", {".claude/company.toml": SHAPE}, "company")   # 会社の形はメインブランチに在る
+        self.g.fetch(self.src, "main")
+        self.g.local["old"] = self.g.local["main"]
+        self.g.heads[self.src] = "old"   # 元の clone はほかの会話が古いブランチで使っている（会社の形を持たない）
+        provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。")
         # --ask・--deliver の読み方（orders.shape_role）も同じ物を読む
-        got, problems = orders.shape_role(self.src, None, "調べ役")
+        got, problems = orders.shape_role(self.src, None, "調べ役", self.g)
         self.assertEqual((got["instructions"], problems), ("結論と原典の一句を返す。", []))
 
     def test_shape_outside_the_repo_is_read_and_a_missing_role_gets_only_the_head_line(self):
         conf = pathlib.Path(self.env["WORKS_DISPATCH_CONFIG"]).parent
         write(conf / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
-        provision.mark(self.place, self.src, {"role": "出荷役"}, gitx)
+        provision.mark(self.place, self.src, {"role": "出荷役"}, self.g)
         self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「出荷役」。")
-        provision.mark(self.place, self.src, {"role": "無い役"}, gitx)
+        provision.mark(self.place, self.src, {"role": "無い役"}, self.g)
         self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「無い役」。")
 
     def test_shape_beside_the_departments_own_config_is_read(self):
         other = pathlib.Path(tempfile.mkdtemp()) / "mine.toml"
         write(other.parent / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
-        provision.mark(self.place, self.src, {"role": "調べ役", "config": str(other)}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役", "config": str(other)}, self.g)
         self.assertIn("結論と原典の一句", role_hook.text_for(self.place, self.env))
 
     def test_gh_user_is_put_into_the_env_file_once_without_the_key(self):
-        provision.mark(self.place, self.src, {"role": "調べ役", "gh-user": "gh-co"}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役", "gh-user": "gh-co"}, self.g)
         envfile = pathlib.Path(tempfile.mkdtemp()) / "env.sh"
         envfile.write_bytes(b"export A=1\n")   # write_text は Windows で \r\n にする
         env = {**self.env, "CLAUDE_ENV_FILE": str(envfile)}
@@ -413,11 +412,11 @@ class Hook(unittest.TestCase):
 
     def test_broken_shape_does_not_stop_the_conversation(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", "[[roles]")
-        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertIn("読めない所がある", role_hook.text_for(self.place, self.env))
 
     def test_main_prints_the_hook_output_only_for_a_department(self):
-        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "hook_event_name": "SessionStart"})), self.env)
@@ -431,22 +430,22 @@ class Hook(unittest.TestCase):
 
     def test_the_head_office_desk_session_follows_a_clear_in_the_same_process_only(self):
         # 段取り（--desk の会話）は区切りで /clear する。--desk が書いた会話の処理の番号の処理なら、新しい id に書き直す
-        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk", "pid": "999999999"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk", "pid": "999999999"}, self.g)
         role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-other", "source": "clear"})), self.env)
-        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")   # 持ち主のほかの会話の /clear
-        provision.mark(self.src, self.src, {"pid": str(os.getpid())}, gitx)   # フックは会話の処理の子で走る（ここではこの処理）
+        self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-desk")   # 持ち主のほかの会話の /clear
+        provision.mark(self.src, self.src, {"pid": str(os.getpid())}, self.g)   # フックは会話の処理の子で走る（ここではこの処理）
         write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "窓口"\ninstructions = "頼みを配る。"\n')
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-new", "source": "clear"})), self.env)
-        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-new")
+        self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-new")
         self.assertIn("席はこの会話に引き継いだ", out.getvalue())   # 窓口は空にした後に --desk を打ち直して確かめなくてよい
         self.assertIsNone(role_hook.changed({"cwd": self.src, "session_id": "s-new"}, self.env))   # 次の発言で役の本文を足し直さない
 
     def test_only_the_desk_seat_gets_the_head_office_role(self):
         # 代表の clone で起きた試しの claude -p（名前が無い）や、窓口が動いている間に起きた会話は、窓口として振る舞わない（53d5d1・6be241）
         write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "段取り"\ninstructions = "頼みを配る。"\n')
-        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "session": "s-desk", "pid": "999999999"}, gitx)
+        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "session": "s-desk", "pid": "999999999"}, self.g)
 
         def told(payload, running):
             out = io.StringIO()
@@ -460,7 +459,7 @@ class Hook(unittest.TestCase):
         self.assertFalse(told({"session_id": "s-probe"}, False))                               # 名前の無い会話は席に座らない
         out = io.StringIO()
         with contextlib.redirect_stdout(out):   # 部署の worktree は今までどおり
-            provision.mark(self.place, self.src, {"role": "段取り"}, gitx)
+            provision.mark(self.place, self.src, {"role": "段取り"}, self.g)
             role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-x", "source": "startup"})), self.env)
         self.assertIn("頼みを配る。", out.getvalue())
 
@@ -470,28 +469,28 @@ class Hook(unittest.TestCase):
         # 物（id が無い）も写しと見る。処理の番号が使い回されて、そこで起きた会話が --desk の会話と同じ処理に見えても、席に座らない
         # （guided-resolver の本社でない worktree 2 か所に残っていた。my_notes の受付 20261019-210027-55dd62）
         write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "窓口"\ninstructions = "頼みを配る。"\n')
-        gitx.enable_worktree_config(self.src)
+        self.g.enable_worktree_config(self.src)
         for k, v in (("role", "窓口"), ("name", "窓口"), ("session", "s-desk"), ("pid", str(os.getpid()))):
-            gitx.set_worktree_attr(self.src, k, v)   # id を書く前の版の --desk（company.worktree-id を書かない）
+            self.g.set_worktree_attr(self.src, k, v)   # id を書く前の版の --desk（company.worktree-id を書かない）
         copy = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="works-dispatch-pr-")), "pr")
         self.addCleanup(shutil.rmtree, os.path.dirname(copy), True)
-        git("-C", self.src, "worktree", "add", "-q", "--detach", copy, "HEAD")
-        self.assertEqual(gitx.worktree_attrs(copy, copies=True)["pid"], str(os.getpid()))   # git が写した
-        self.assertEqual(gitx.worktree_attrs(copy), {})
+        self.g.add_detached(self.src, copy, "HEAD")
+        self.assertEqual(self.g.worktree_attrs(copy, copies=True)["pid"], str(os.getpid()))   # git が写した
+        self.assertEqual(self.g.worktree_attrs(copy), {})
         out = io.StringIO()
         with mock.patch.object(claudex, "running", lambda pid: True), contextlib.redirect_stdout(out):
             role_hook.main(io.StringIO(json.dumps({"cwd": copy, "session_id": "s-pr", "source": "startup"})), self.env)
             role_hook.main(io.StringIO(json.dumps({"cwd": copy, "session_id": "s-pr2", "source": "clear"})), self.env)
             self.assertIsNone(wake_hook.plan({"cwd": copy, "session_id": "s-pr2"}))   # 窓口あての頼みを待ち受けない
         self.assertNotIn("頼みを配る。", out.getvalue())
-        self.assertEqual(gitx.worktree_attrs(copy, copies=True)["session"], "s-desk")   # PR の会話の /clear で席を取らない
+        self.assertEqual(self.g.worktree_attrs(copy, copies=True)["session"], "s-desk")   # PR の会話の /clear で席を取らない
         out = io.StringIO()
         with contextlib.redirect_stdout(out):   # 本社の窓口の会話は今までどおり
             role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-desk", "source": "startup"})), self.env)
         self.assertIn("頼みを配る。", out.getvalue())
         # 前の版で立てた部署に、本社から写った company.pid だけが残った物は、部署の属性を書いた id を持つので部署のまま読む
-        provision.mark(self.place, self.src, {"role": "担当", "name": "直し", "session": "s-dept", "pid": "999999999"}, gitx)
-        self.assertEqual(gitx.worktree_attrs(self.place)["name"], "直し")
+        provision.mark(self.place, self.src, {"role": "担当", "name": "直し", "session": "s-dept", "pid": "999999999"}, self.g)
+        self.assertEqual(self.g.worktree_attrs(self.place)["name"], "直し")
 
     def test_running_reads_the_command_of_the_process(self):
         import subprocess
@@ -505,19 +504,19 @@ class Hook(unittest.TestCase):
     def test_a_former_role_name_reads_as_the_current_role_and_is_rewritten(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml",
               'name = "co"\ndesk_role = "窓口"\n[[roles]]\nname = "段取り"\nformer_names = ["窓口"]\ninstructions = "頼みを配る。"\n')
-        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk"}, self.g)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-desk", "source": "startup"})), self.env)
         self.assertIn("役は「段取り」。\n頼みを配る。", json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"])
-        self.assertEqual(gitx.worktree_attrs(self.src)["role"], "段取り")
+        self.assertEqual(self.g.worktree_attrs(self.src)["role"], "段取り")
         shape = role.load("x", (pathlib.Path(self.src) / ".claude" / "company.toml").read_text(encoding="utf-8"))
         self.assertEqual((shape["desk_role"], role.current(shape, "窓口"), role.current(shape, "作業")), ("段取り", "段取り", "作業"))
 
     def test_a_running_talk_gets_the_new_role_text_once_on_its_next_prompt(self):
         shape = pathlib.Path(self.src) / ".claude" / "company.toml"
         write(shape, '[[roles]]\nname = "相談"\ninstructions = "持ち主と話す。"\n')
-        provision.mark(self.place, self.src, {"role": "相談", "session": "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "session": "s1"}, self.g)
         with contextlib.redirect_stdout(io.StringIO()):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1", "source": "startup"})), self.env)
 
@@ -547,10 +546,10 @@ class Hook(unittest.TestCase):
         self.assertIn("会社「co」", got)
         self.assertIn(f"{role_hook.RUN} --ask <会社の名前> --text <頼み>", got)
         self.assertEqual(len(got.splitlines()), 1)   # 毎回の起動の量に入るので 1 行
-        provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, gitx)
+        provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, self.g)
         self.assertEqual(started(self.src, "s-c"), got)   # 本社の、窓口でない会話
         self.assertEqual(started(self.src, "s-desk"), role_hook.text_for(self.src, self.env))   # 窓口と部署は役の本文だけ（今までどおり）
-        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertEqual(started(self.place, "s-d"), role_hook.text_for(self.place, self.env))
 
     def test_a_talk_running_before_the_repo_became_a_company_gets_the_hint_once_on_its_next_prompt(self):
@@ -566,9 +565,9 @@ class Hook(unittest.TestCase):
         write(conf / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
         self.assertIn("会社「試しの会社」", prompt())
         self.assertIsNone(prompt())   # 足すのは 1 度だけ
-        provision.mark(self.place, self.src, {"role": "調べ役", "session": "s2"}, gitx)
+        provision.mark(self.place, self.src, {"role": "調べ役", "session": "s2"}, self.g)
         self.assertIsNone(prompt("s9"))   # 部署の場所のほかの会話には、役の本文を足した会話と同じく足さない
-        provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, gitx)
+        provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, self.g)
         with mock.patch.object(claudex, "running", lambda pid: True):
             self.assertIn("会社「試しの会社」", prompt("s-head", self.src))   # 本社の、窓口でない会話
             got = prompt("s-desk", self.src)   # 窓口の会話には、頼み方でなく役の本文（changed。控えが無いので今足す）
@@ -619,19 +618,19 @@ class TaskWithRole(unittest.TestCase):
     def test_reused_place_drops_the_attrs_of_the_previous_run(self):
         src = gitx_source(self.cfg)
         place = str(pathlib.Path(self.root) / "reused")
-        git("-C", src, "worktree", "add", "-q", "-b", "task/fix", place, "origin/main")
-        provision.mark(place, src, {"gh-user": "old", "config": "old.toml", "boss": "old-boss"}, gitx)
+        self.g.add_worktree(place, "task/fix", "origin/main")
+        provision.mark(place, src, {"gh-user": "old", "config": "old.toml", "boss": "old-boss"}, self.g)
         rc, out = self.run_task(self.ports())   # 会社の形も gh_user も無い回
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(place)
+        attrs = self.g.worktree_attrs(place)
         self.assertNotIn("gh-user", attrs)
         self.assertNotIn("boss", attrs)
         self.assertEqual(attrs["config"], self.cfg)
 
     def test_role_model_is_read_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
-        from .test_company import publish
         src = gitx_source(self.cfg)
-        publish(src, SHAPE)
+        self.g.push_origin("main", {".claude/company.toml": SHAPE}, "company")   # 会社の形はメインブランチに在る
+        self.g.fetch(src, "main")
         write(pathlib.Path(src) / ".claude" / "company.toml", 'name = "古い形"\n')   # 元の clone の作業ツリーは古い（役が無い）
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役")
@@ -646,18 +645,18 @@ class TaskWithRole(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
         path = self.place(ports)
-        settings = os.path.join(gitx.git_dir(path), role.SETTINGS_FILE)
+        settings = os.path.join(self.g.git_dir(path), role.SETTINGS_FILE)
         self.assertEqual(json.loads(pathlib.Path(settings).read_text(encoding="utf-8"))["worktree"], {"bgIsolation": "none"})
         if os.name != "nt":
             self.assertEqual(shlex.split(command)[:10], ["claude-a1", "--bg", "--name", "直し", "--settings", settings, "--model", "haiku",
                                                          "--effort", "low"])
         self.assertNotIn("GH_TOKEN", command)
         # gh のアカウントは名前だけを部署の属性に書く（鍵はフックが会話の Bash に入れる）。既定の設定の置き場でないので、その場所も
-        attrs = gitx.worktree_attrs(path)
+        attrs = self.g.worktree_attrs(path)
         self.assertEqual((attrs["gh-user"], attrs["config"]), ("gh-co", self.cfg))
         self.assertIn("started", out)
         # 設定のファイルは部署の .git の場所に在り、作業場の git status に出ない
-        self.assertEqual(gitx.is_clean(path), True)
+        self.assertEqual(self.g.is_clean(path), True)
 
     def test_users_own_gh_user_comes_before_the_company_one(self):
         self.shape()
@@ -672,7 +671,7 @@ class TaskWithRole(unittest.TestCase):
             self.assertEqual(shlex.split(command)[5], ports.department_settings())
         self.assertNotIn("--model", command)
         self.assertNotIn("--effort", command)
-        self.assertEqual(gitx.worktree_attrs(self.place(ports))["gh-user"], "me")
+        self.assertEqual(self.g.worktree_attrs(self.place(ports))["gh-user"], "me")
         self.assertIn("gh-co", out)
 
     def test_duty_model_and_effort_come_before_the_roles(self):
@@ -700,7 +699,7 @@ class TaskWithRole(unittest.TestCase):
             rc, out = self.run_task(ports, "--role", "調べ役", name=name, branch=branch)
             self.assertEqual(rc, 0, out)
             [command] = [w[2] for w in ports.term.writes if w[0] == "run" and BG.search(w[2])]
-            path = os.path.join(gitx.git_dir(self.place(ports, branch)), role.SETTINGS_FILE)
+            path = os.path.join(self.g.git_dir(self.place(ports, branch)), role.SETTINGS_FILE)
             self.assertIn(path, command)
             got[name] = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
         for name in ("調べもの", "調べもの：原典の確かめ"):

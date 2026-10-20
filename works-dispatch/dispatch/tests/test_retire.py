@@ -1,5 +1,5 @@
 """終わりの印（--done。orders.finish_here）と、エフェメラルの部署を止めて畳む --retire（retire.py）と、納品し終えた部署がターンを終えて残る訳
-（orders.leftover・stop_after）。git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
+（orders.leftover・stop_after）。git（tests/fakegit.py）・gh・herdr・claude は偽物で回す。"""
 
 import io
 import json
@@ -14,8 +14,6 @@ import gitx
 import orders
 import retire
 from nodes import deliver, provision, wake
-
-GIT_ID = ["-c", "user.name=o", "-c", "user.email=o@o"]
 
 
 class Retire(unittest.TestCase):
@@ -59,30 +57,29 @@ class Retire(unittest.TestCase):
         return [r for r in deliver.records(self.inbox) if r.get("kind") == "retired"]
 
     def test_done_refuses_until_the_department_has_delivered_and_landed(self):
-        provision.mark(self.place, self.src, {"ask": "q1"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("納品していない頼み", out)
-        provision.mark(self.place, self.src, {"delivered": "q1"}, gitx)
-        open(os.path.join(self.place, "note.txt"), "w").close()
+        provision.mark(self.place, self.src, {"delivered": "q1"}, self.g)
+        self.g.dirty.add(self.place)   # 書きかけのファイル
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("未コミットの変更", out)
-        test_deliver.git("-C", self.place, "add", "note.txt")
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "-m", "note")
+        self.g.dirty.discard(self.place)
+        self.g.commit(self.place, {"note.txt": ""}, "note")
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("手元にしか無い commit", out)
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/dept/a")
+        self.g.push(self.place, "HEAD", "dept/a")
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("メインブランチ", out)
-        self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:main")
-        test_deliver.git("-C", self.place, "fetch", "-q", "origin")
+        self.assertNotIn(wake.FINISHED, self.g.worktree_attrs(self.place))
+        self.g.push(self.place, "HEAD", "main")
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.FINISHED], "s-dept")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.FINISHED], "s-dept")
 
     def test_done_refuses_while_an_ask_this_department_made_has_no_answer(self):
         # 業務改革が社長室に問いを回して答えを待つ間に畳むと、答えを受ける会話が居ない（813bb8 の見直しの指摘）
@@ -96,7 +93,7 @@ class Retire(unittest.TestCase):
 
     def test_done_passes_when_the_unanswered_ask_is_a_holder_of_the_delivery(self):
         # 測りの頼みを残った疑問の担当者に書いて納品した部署は、返事を待たずに畳める（--todo がその受付で追う。受付 20261020-054702-182900）
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
                                  "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "業務改革"}})
         deliver.log(self.inbox, {"kind": "ask", "id": "c2", "status": "queued", "at": 2,
@@ -110,21 +107,21 @@ class Retire(unittest.TestCase):
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("返事の来ていない頼みが在る（受付 c2）", out)
-        self.assertEqual(orders.leftover(self.place, gitx.worktree_attrs(self.place)), ("waiting", ["c2"]))
+        self.assertEqual(orders.leftover(self.place, self.g.worktree_attrs(self.place), self.g, self.ports.gh), ("waiting", ["c2"]))
         deliver.log(self.inbox, {"kind": "deliver", "id": "d2", "ask": "q1", "status": "sent", "at": 5,   # --again で c2 も担当者にした
                                  "from": {"name": "調べ", "place": self.place}, "holders": [{"holder": "c2", "ask": "c2"}]})
-        self.assertEqual(orders.leftover(self.place, gitx.worktree_attrs(self.place))[0], "finish")
+        self.assertEqual(orders.leftover(self.place, self.g.worktree_attrs(self.place), self.g, self.ports.gh)[0], "finish")
         self.assertEqual(self.main(self.place, "--done")[0], 0)
 
     def test_done_passes_a_department_without_commits_and_refuses_desks_and_residents(self):
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 0, out)   # commit の無い部署はメインブランチに入っているとみなす
         self.assertEqual(self.main(self.src, "--done")[0], 2)   # 部署でない所
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk"}, self.g)
         rc, out = self.main(self.src, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("窓口は畳まない", out)
-        provision.mark(self.place, self.src, {"lifecycle": "persistent", wake.FINISHED: None}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", wake.FINISHED: None}, self.g)
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("永続の部署は畳まない", out)
@@ -140,25 +137,25 @@ class Retire(unittest.TestCase):
         self.assertEqual([r["status"] for r in self.retired()], ["done"])
 
     def test_retire_stops_nothing_while_work_would_be_lost_and_says_why_in_clean(self):
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        self.g.commit(self.place, {}, "x")
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
         self.assertIn("手元にしか無い commit", out)
         self.assertEqual((self.stopped, self.removed), ([], []))
         self.assertTrue(os.path.exists(self.place))
         self.assertEqual([r["status"] for r in self.retired()], ["kept"])
-        self.assertIn("手元にしか無い commit", gitx.worktree_attrs(self.place)[wake.RETIRE_KEPT])
+        self.assertIn("手元にしか無い commit", self.g.worktree_attrs(self.place)[wake.RETIRE_KEPT])
 
     def test_retire_refuses_an_open_ask(self):
-        provision.mark(self.place, self.src, {"ask": "q1"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
         self.assertIn("納品していない頼み", out)
         self.assertEqual(self.stopped, [])
 
     def test_done_and_retire_refuse_while_an_ask_waits_in_the_queue(self):
-        wake.enqueue(self.inbox, gitx.git_dir(self.place), {"id": "q2", "line": "頼みです（受付 q2）", "marks": {"ask": "q2"}})
+        wake.enqueue(self.inbox, self.g.git_dir(self.place), {"id": "q2", "line": "頼みです（受付 q2）", "marks": {"ask": "q2"}})
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         self.assertIn("順番待ちに頼みが在る", out)
@@ -168,12 +165,12 @@ class Retire(unittest.TestCase):
         self.assertEqual(self.stopped, [])
 
     def test_done_clears_the_reason_a_former_retire_left(self):
-        provision.mark(self.place, self.src, {wake.RETIRE_KEPT: "前の訳"}, gitx)
+        provision.mark(self.place, self.src, {wake.RETIRE_KEPT: "前の訳"}, self.g)
         self.assertEqual(self.main(self.place, "--done")[0], 0)
-        self.assertNotIn(wake.RETIRE_KEPT, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.RETIRE_KEPT, self.g.worktree_attrs(self.place))
 
     def test_done_refuses_a_department_without_its_talk_id(self):
-        provision.mark(self.place, self.src, {"session": None}, gitx)
+        provision.mark(self.place, self.src, {"session": None}, self.g)
         self.ports.env = {}   # Claude Code の外から打った（この会話の id も読めない）
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
@@ -181,20 +178,20 @@ class Retire(unittest.TestCase):
 
     def test_done_fills_a_missing_talk_id_with_its_own(self):
         # 2026-10-20 に、部署を立てた直後に会話のフックと書き込みがぶつかり（config.worktree の鍵）、company.session が書かれなかった
-        provision.mark(self.place, self.src, {"session": None, "job": "d"}, gitx)
+        provision.mark(self.place, self.src, {"session": None, "job": "d"}, self.g)
         # 部署の裏の会話でない会話（短い id が company.job と違う）が部署の場所で打っても、その id は書かない
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-other", "CLAUDE_JOB_DIR": "/c/jobs/x"}
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
-        self.assertNotIn("session", gitx.worktree_attrs(self.place))
+        self.assertNotIn("session", self.g.worktree_attrs(self.place))
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept", "CLAUDE_JOB_DIR": "/c/jobs/d"}
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["session"], attrs[wake.FINISHED]), ("s-dept", "s-dept"))
 
     def test_retire_finds_the_talk_by_its_short_id_when_the_long_id_is_missing(self):
-        provision.mark(self.place, self.src, {"session": None, "job": "d"}, gitx)
+        provision.mark(self.place, self.src, {"session": None, "job": "d"}, self.g)
         rc, out = self.main(self.src, "--clean")
         self.assertIn("会話がまだ動いている", out)   # 会話が動いている部署は、id が短い物しか無くても畳まない
         rc, out = self.main(self.src, "--retire", "調べ")
@@ -205,21 +202,21 @@ class Retire(unittest.TestCase):
     def test_a_short_id_left_from_a_former_talk_does_not_hide_a_live_one(self):
         # company.job は前の裏の会話のまま残りうる。部署の場所でほかの会話が動いていれば、動いているとみなす
         self.state = "done"
-        provision.mark(self.place, self.src, {"session": None, "job": "d"}, gitx)
+        provision.mark(self.place, self.src, {"session": None, "job": "d"}, self.g)
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"id": "d", "sessionId": "s-dept", "cwd": self.place, "kind": "background", "state": "done"},
             {"id": "e", "sessionId": "s-new", "cwd": self.place, "kind": "background", "state": "working", "pid": 1}]
         rc, out = self.main(self.src, "--clean")
         self.assertIn("会話がまだ動いている", out)
         # 短い id の会話が一覧に無ければ、止まったと決められないので並べない
-        provision.mark(self.place, self.src, {"job": "zz"}, gitx)
+        provision.mark(self.place, self.src, {"job": "zz"}, self.g)
         self.ports.list_sessions = lambda cdir, include_done=False: []
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
         self.assertTrue(os.path.exists(self.place))
 
     def test_retire_leaves_a_department_without_any_talk_id(self):
-        provision.mark(self.place, self.src, {"session": None, "job": None}, gitx)
+        provision.mark(self.place, self.src, {"session": None, "job": None}, self.g)
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
         self.assertIn("company.job も無い", out)
@@ -254,18 +251,13 @@ class Retire(unittest.TestCase):
     def test_a_branch_landed_by_a_squashed_pr_is_done_and_retired(self):
         # 2026-10-19 に works-factory で、squash でマージした PR（#776・#789・#790）のブランチが main の祖先にならず、--done・--retire・
         # --clean が「メインブランチに入っていない」で止まった。マージの後に head のブランチが消え、手元の控えも消えた形でも畳める
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "gh-user": "someone"}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/dept/a")
-        test_deliver.git("-C", self.place, "update-ref", "-d", "refs/remotes/origin/dept/a")
-        head, asked = gitx.head_sha(self.place), []
-        real = gitx.origin_repo, ghx.merged_pr_of, ghx.env_for
-        gitx.origin_repo = lambda cwd, runner=None: "o/r"
-        ghx.env_for = lambda user, base_env, runner=None: {**base_env, "GH_TOKEN": f"token-of-{user}"}
-        ghx.merged_pr_of = lambda repo, sha, base, runner=None, env=None: asked.append((repo, sha, base, env["GH_TOKEN"])) or (
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "gh-user": "someone"}, self.g)
+        head = self.g.commit(self.place, {}, "x")
+        self.g.push(self.place, "HEAD", "dept/a")
+        del self.g.tracking["dept/a"]   # マージの後に head のブランチが消え、手元の控えも消えた
+        self.g.url, asked = "https://github.com/o/r.git", []
+        self.ports.gh.merged_pr_of = lambda repo, sha, base, env=None: asked.append((repo, sha, base, env["GH_TOKEN"])) or (
             7 if (repo, sha, base) == ("o/r", head, "main") else None)
-        self.addCleanup(lambda: (setattr(gitx, "origin_repo", real[0]), setattr(ghx, "merged_pr_of", real[1]),
-                                 setattr(ghx, "env_for", real[2])))
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 0, out)
         self.assertIn(("o/r", head, "main", "token-of-someone"), asked)
@@ -273,15 +265,18 @@ class Retire(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertFalse(os.path.exists(self.place))
 
+    def detach(self, sha):
+        """部署の場所をブランチから外して sha に置く（git checkout --detach の形）。"""
+        self.g.heads[os.path.realpath(self.place)] = None
+        self.g.detached[os.path.realpath(self.place)] = sha
+
     def test_retire_folds_a_withdrawn_department_whose_branch_is_on_origin(self):
         # 2026-10-20 に、頼みを取り下げられて入れずにブランチを origin に push した部署が、--retire に「メインブランチに入っていない」で
         # 残された（受付 d28a74）。origin に同じ先頭が在れば畳み、ブランチは origin に残す
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/dept/a")
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "y")
-        head = gitx.head_sha(self.place)
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/other")   # 先頭はほかのブランチにだけ在る
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        self.g.push(self.place, self.g.commit(self.place, {}, "x"), "dept/a")
+        head = self.g.commit(self.place, {}, "y")
+        self.g.push(self.place, head, "other")   # 先頭はほかのブランチにだけ在る
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
         self.assertIn("origin の dept/a の先頭も手元と違う。入れずに畳むなら、git push origin dept/a", out)
@@ -289,29 +284,29 @@ class Retire(unittest.TestCase):
         rc, out = self.main(self.place, "--done")   # 部署が自分で畳むのは、入れてからだけ
         self.assertEqual(rc, 2, out)
         self.assertIn("頼みを取り下げられて入れないなら、--done を打たずに、ブランチを origin に push して止まる", out)
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/dept/a")
+        self.g.push(self.place, head, "dept/a")
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertIn("ブランチ dept/a はメインブランチに入れずに origin に残した", out)
         self.assertEqual(self.stopped, ["d"])
         self.assertFalse(os.path.exists(self.place))
-        self.assertEqual(test_deliver.git("-C", self.src, "ls-remote", "origin", "refs/heads/dept/a").split()[0], head)
-        self.assertEqual(test_deliver.git("-C", self.src, "branch", "--list", "dept/a").strip(), "")   # 手元のブランチは消す
+        self.assertEqual(self.g.origin["dept/a"], head)
+        self.assertNotIn("dept/a", self.g.local)   # 手元のブランチは消す
         self.assertEqual([r["status"] for r in self.retired()], ["kept", "done"])
 
     def test_retire_folds_a_detached_department_whose_head_is_in_main(self):
         # 2026-10-19 に claude-plugins の見渡しが、読むために main の commit を開いたまま（ブランチに乗らずに）残り、--retire が
         # 「ブランチに乗っていない」で残した。先頭がメインブランチに入っていれば失う物は無い
-        test_deliver.git("-C", self.place, "checkout", "-q", "--detach", "origin/main")
+        self.detach(self.g.tracking["main"])
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertFalse(os.path.exists(self.place))
-        self.assertIn("dept/a", test_deliver.git("-C", self.src, "branch", "--list", "dept/a"))   # 乗っていないブランチには触らない
+        self.assertIn("dept/a", self.g.local)   # 乗っていないブランチには触らない
 
     def test_retire_keeps_a_detached_department_with_its_own_commit(self):
-        test_deliver.git("-C", self.place, "checkout", "-q", "--detach")
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/elsewhere")
+        here = self.g.head_sha(self.place)
+        self.detach(self.g._new(here, self.g.files(here), "x"))   # git checkout --detach して commit した形
+        self.g.push(self.place, "HEAD", "elsewhere")
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
         self.assertIn("ブランチに乗っていない", out)
@@ -326,21 +321,22 @@ class Retire(unittest.TestCase):
         self.assertIn("残す（会話がまだ動いている。終わりの印で畳もうとして残った: 会話 d を止められない（No job matching））", out)
 
     def test_clean_points_to_retire_for_a_delivered_talk_without_the_mark(self):
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         rc, out = self.main(self.src, "--clean")
         self.assertIn("残す（会話がまだ動いている。頼みは納品済みで、終わりの印（--done）が無い。止めて畳むなら --retire 調べ）", out)
 
     LAND = '[land]\nmode = "ff-after-ci"\ncheck = "true"\n'
 
     def after(self, count=0):
-        return orders.stop_after({"session_id": "s-dept"}, self.place, gitx.worktree_attrs(self.place), count, os.path.dirname(self.cfg))
+        return orders.stop_after({"session_id": "s-dept"}, self.place, self.g.worktree_attrs(self.place), count, os.path.dirname(self.cfg),
+                                 self.g, gh=self.ports.gh)
 
     def test_a_delivered_but_unlanded_department_is_sent_back_and_clean_tells_it_from_waiting(self):
         # 2026-10-17 に my_notes で、--land が止まった部署が残った疑問に「担当者: 段取り」と書いただけで 1 日残った
         self.shape(self.LAND)
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
-        test_deliver.git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/dept/a")
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        self.g.commit(self.place, {}, "x")
+        self.g.push(self.place, "HEAD", "dept/a")
         got = self.after()
         self.assertIn("ブランチがメインブランチ（origin/main の手元の控え）に入っていない", got)
         self.assertIn("--land '調べ'", got)
@@ -359,14 +355,14 @@ class Retire(unittest.TestCase):
         # 2026-10-19 に my_notes で、--land が CI の赤で止まった部署が段取りに入れるのを頼み（c1）、段取りが持ち主への問い（c2）を
         # 担当者に書いて返した後も、3 回差し戻された（受付 2a2001）。c2 が閉じても入っていなければ、また差し戻す
         self.shape(self.LAND)
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        self.g.commit(self.place, {}, "x")
         dept = {"name": "調べ", "place": self.place}
         deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "sent", "at": 1, "cause": "q1", "from": dept, "to": {"name": "段取り"}})
         deliver.log(self.inbox, {"kind": "ask", "id": "c2", "status": "sent", "at": 2, "from": {"name": "段取り"}, "to": {"name": "社長室"}})
         deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent", "at": 3, "holders": [{"holder": "c2", "ask": "c2"}]})
         self.assertIsNone(self.after())
-        self.assertEqual(orders.leftover(self.place, gitx.worktree_attrs(self.place)), ("handed", ["c1"]))
+        self.assertEqual(orders.leftover(self.place, self.g.worktree_attrs(self.place), self.g, self.ports.gh), ("handed", ["c1"]))
         rc, out = self.main(self.src, "--clean")
         self.assertIn("頼みは納品済みだが、ブランチがメインブランチに入っていない。この部署が頼みを受けてから出した頼みの答えがまだ出ていない"
                       "（受付 c1。--todo で追える。入れる手を預けたのでなければ --land 調べ）", out)
@@ -384,8 +380,8 @@ class Retire(unittest.TestCase):
         # 今の頼みの納品の行は頼み元の受付箱（ここでは別の会社の物）に在る
         boss = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, boss, True)
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "config": self.cfg, "boss-inbox": boss}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "config": self.cfg, "boss-inbox": boss}, self.g)
+        self.g.commit(self.place, {}, "x")
         dept = {"name": "調べ", "place": self.place}
         deliver.log(self.inbox, {"kind": "ask", "id": "c0", "status": "sent", "at": 1, "cause": None, "from": dept, "to": {"name": "段取り"}})
         deliver.log(self.inbox, {"kind": "deliver", "id": "d0", "ask": "c0", "status": "sent", "at": 2})
@@ -415,39 +411,39 @@ class Retire(unittest.TestCase):
 
     def test_a_resident_department_is_sent_back_only_for_an_unlanded_branch(self):
         self.shape(self.LAND)
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "lifecycle": "persistent"}, self.g)
         self.assertIsNone(self.after())
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        self.g.commit(self.place, {}, "x")
         self.assertIn("ブランチがメインブランチ（origin/main の手元の控え）に入っていない", self.after())
 
     def test_an_unlanded_branch_is_not_sent_back_where_the_company_lands_by_pr(self):
         self.shape('[land]\nmode = "pr"\n')
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        self.g.commit(self.place, {}, "x")
         self.assertIsNone(self.after())
-        self.assertEqual(orders.leftover(self.place, gitx.worktree_attrs(self.place))[0], "unlanded")
+        self.assertEqual(orders.leftover(self.place, self.g.worktree_attrs(self.place), self.g, self.ports.gh)[0], "unlanded")
 
     def test_a_landed_one_time_department_is_sent_back_to_mark_done(self):
         self.shape(self.LAND)
-        provision.mark(self.place, self.src, {"ask": "q1"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
         self.assertIsNone(self.after())   # 納品していない頼みは deliver.stop_verdict が差し戻す
-        provision.mark(self.place, self.src, {"delivered": "q1"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "q1"}, self.g)
         self.assertIn("--done でターンを終える", self.after())
         self.assertIsNone(self.after(count=deliver.STOP_LIMIT))
-        self.assertIsNone(orders.stop_after({"session_id": "other"}, self.place, gitx.worktree_attrs(self.place), 0,
-                                            os.path.dirname(self.cfg)))   # 同じ作業場の別の会話
-        wake.enqueue(self.inbox, gitx.git_dir(self.place), {"id": "q2", "line": "頼みです（受付 q2）", "marks": {"ask": "q2"}})
+        self.assertIsNone(orders.stop_after({"session_id": "other"}, self.place, self.g.worktree_attrs(self.place), 0,
+                                            os.path.dirname(self.cfg), self.g))   # 同じ作業場の別の会話
+        wake.enqueue(self.inbox, self.g.git_dir(self.place), {"id": "q2", "line": "頼みです（受付 q2）", "marks": {"ask": "q2"}})
         self.assertIsNone(self.after())   # 順番待ちは待ち受けが渡す
-        wake.take(self.inbox, gitx.git_dir(self.place))
-        provision.mark(self.place, self.src, {wake.FINISHED: "s-dept"}, gitx)
+        wake.take(self.inbox, self.g.git_dir(self.place))
+        provision.mark(self.place, self.src, {wake.FINISHED: "s-dept"}, self.g)
         self.assertIsNone(self.after())
-        provision.mark(self.place, self.src, {wake.FINISHED: None, "lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {wake.FINISHED: None, "lifecycle": "persistent"}, self.g)
         self.assertIsNone(self.after())   # 永続の部署は畳まない
         self.assertIsNone(orders.stop_after({"session_id": "s-desk"}, self.src, {"role": "窓口", "name": "desk", "ask": "q1",
-                                                                                "delivered": "q1"}, 0, os.path.dirname(self.cfg)))
+                                                                                "delivered": "q1"}, 0, os.path.dirname(self.cfg), self.g))
 
     def test_the_stop_hook_sends_back_after_delivery_up_to_the_limit(self):
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         payload = json.dumps({"session_id": "s-dept", "cwd": self.place, "background_tasks": []})
         got = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -460,8 +456,8 @@ class Retire(unittest.TestCase):
 
     def test_the_stop_hook_reads_the_land_mode_and_sends_back_an_unlanded_branch(self):
         self.shape(self.LAND)
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "config": self.cfg}, gitx)
-        test_deliver.git("-C", self.place, *GIT_ID, "commit", "-q", "--allow-empty", "-m", "x")
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "config": self.cfg}, self.g)
+        self.g.commit(self.place, {}, "x")
         payload = json.dumps({"session_id": "s-dept", "cwd": self.place, "background_tasks": []})
         with tempfile.TemporaryDirectory() as tmp:
             out = io.StringIO()

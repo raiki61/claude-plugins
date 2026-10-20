@@ -1,5 +1,6 @@
 """始めの手間を減らす所。部署の回（--task・--ask・--land・--tree）が設定の [[repos]] 無しで、代表の clone の場所から会社を決めること
-（config.repo_at・dispatch._department_repo）と、会社の形の下書き（--init-company）。"""
+（config.repo_at・dispatch._department_repo）と、会社の形の下書き（--init-company）。git は偽物（tests/fakegit.py）で回す
+（--land の組 LandGhUser は test_land の World の本物）。"""
 
 import contextlib
 import io
@@ -9,9 +10,9 @@ import tempfile
 import tomllib
 import unittest
 
-from . import DISPATCH  # noqa: F401
+from . import DISPATCH, fakegit  # noqa: F401
 from . import test_deliver, test_land
-from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
+from .test_dispatch import FakePorts, fake_cfg, gitx_source, run_main
 import config
 import dispatch
 import ghx
@@ -68,12 +69,13 @@ class TaskWithoutRepos(unittest.TestCase):
     """部署の回は、設定に [[repos]] が無くても、--repo のパスか打った場所から会社を決める。"""
 
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
         self.src = gitx_source(self.cfg)
         drop_repos(self.cfg)
         self.brief = str(pathlib.Path(self.root).parent / "brief.md")
         pathlib.Path(self.brief).write_text("頼み", encoding="utf-8")
-        self.ports = FakePorts([])
+        self.ports = FakePorts([], git=self.g)
         self.seen = []
         places = self.ports.places
         self.ports.places = lambda repo: self.seen.append(repo) or places(repo)
@@ -144,9 +146,10 @@ class LandGhUser(test_land.LandCase):
 
 class InitCompany(unittest.TestCase):
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
         self.src = gitx_source(self.cfg)
-        self.ports = FakePorts([])
+        self.ports = FakePorts([], git=self.g)
         self.ports.gh = self.gh()
 
     @staticmethod
@@ -157,7 +160,7 @@ class InitCompany(unittest.TestCase):
         return run_main(["--config", self.cfg, "--init-company", "--repo", self.src, *extra], self.ports)
 
     def read(self):
-        info = tree.read_info(self.src, os.path.dirname(self.cfg), committed=lambda root: None)
+        info = tree.read_info(self.src, os.path.dirname(self.cfg), self.g, committed=lambda root: None)
         return info, role.load(info["path"], info["text"]), land.read_rules(info["path"], "サブエージェント", info["text"])
 
     def test_writes_a_draft_the_readers_accept_and_does_not_overwrite_it(self):

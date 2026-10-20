@@ -66,7 +66,7 @@ class Flow(unittest.TestCase):
                                       git_dir=lambda cwd: common),
             env={}, now=lambda: self.now, attrs=lambda here: self.attrs,
             same_process=lambda pid: False)
-        for patch in (mock.patch.object(orders, "inbox_company", lambda inbox, settings: "co"),
+        for patch in (mock.patch.object(orders, "inbox_company", lambda inbox, settings, g: "co"),
                       mock.patch.object(reminds.chat, "session_of", lambda env: "s1")):
             patch.start()
             self.addCleanup(patch.stop)

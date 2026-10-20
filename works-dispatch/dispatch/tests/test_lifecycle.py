@@ -15,16 +15,14 @@ import pathlib
 import subprocess
 import unittest
 
-from . import DISPATCH  # noqa: F401
-from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg, pr, typed
+from . import DISPATCH, fakegit  # noqa: F401
+from .test_dispatch import FakeHerdr, FakePorts, fake_cfg, gitx_source, pr, typed
 from .test_launch_turn import CATCHUP, SECOND
 from .test_launch_turn import FakeHerdr as TurnHerdr
-from .test_provision import git, make_world
 import claudex
 import dispatch
 import wiring
 import ghx
-import gitx
 import herdr as real_herdr
 from nodes import fresh, turn
 
@@ -153,15 +151,28 @@ def line(out, n):
 
 
 class Flow(unittest.TestCase):
+    """git（tests/fakegit.py）・herdr・claude・gh は偽物で回す。"""
+
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
         self.src = gitx_source(self.cfg)
 
     def place(self, n):
         """そのブランチの場所（元の clone の worktree）を作っておく（前の回が作った形）。"""
-        path = str(pathlib.Path(self.root, f"feat-{n}"))
-        git("-C", self.src, "worktree", "add", "-q", "-b", f"feat/{n}", path, f"origin/feat/{n}")
-        return path
+        return self.g.add_worktree(str(pathlib.Path(self.root, f"feat-{n}")), f"feat/{n}", f"origin/feat/{n}")
+
+    def advance(self, branch):
+        """origin のブランチに、手元に無い commit を 1 つ積む（ほかの人が push した形。手元の origin/<branch> も取った後）。積んだ commit を返す。"""
+        sha = self.g.push_origin(branch, {}, "theirs")
+        self.g.tracking[branch] = sha
+        return sha
+
+    def force_pushed(self, branch, old):
+        """作者が old を書き直して origin の branch に force-push し、持ち主が取った後の形。書き直した commit を返す。"""
+        rewritten = self.g._new(self.g.commits[old]["parent"], self.g.files(old), "rewritten")
+        self.g.origin[branch] = self.g.tracking[branch] = rewritten
+        return rewritten
 
     def talking_in(self, ports, path, status="idle", started=100.0):
         """その場所で会話が開いている形を作る（herdr のペインと claude agents の行）。"""
@@ -175,7 +186,7 @@ class Flow(unittest.TestCase):
         return [w for w in ports.term.worktrees(self.src) if w["linked"]]
 
     def test_own_pr_without_reviewers_is_opened_with_catchup_only(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         ports.acts = {1: {"reviewers": False, "last_other": None}}
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 0, out)
@@ -184,7 +195,7 @@ class Flow(unittest.TestCase):
         self.assertIn("/catchup だけ", out)
 
     def test_naming_the_pr_opens_it_even_without_reviewers(self):
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         ports.acts = {1: {"reviewers": False, "last_other": None}}
         ports.pr_info = lambda repo, n: pr(n)
         rc, out = run_main(self.cfg, ports, "--pr", "1")
@@ -193,7 +204,7 @@ class Flow(unittest.TestCase):
 
     def test_news_in_an_idle_clean_session_reopens_it_in_the_same_place(self):
         path = self.place(1)
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         old = self.talking_in(ports, path)
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
         rc, out = run_main(self.cfg, ports)
@@ -213,18 +224,18 @@ class Flow(unittest.TestCase):
 
     def test_refresh_records_the_send_time_before_the_first_turn_and_the_head(self):
         path = self.place(1)
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         self.talking_in(ports, path)
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
         ports.now = lambda: float(len(ports.term.writes))   # 時計を「それまでに外へ書いた数」にする
         run_main(self.cfg, ports, "--no-second")   # --no-second の回も控えを書く
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
         first = next(i for i, w in enumerate(ports.term.writes) if w[0] == "prompt" and w[2] == f"{CATCHUP} 1")
-        self.assertEqual(sent["o/r#1"], {"at": float(first), "head": gitx.head_sha(path), "via": "listing"})   # 1 ターン目を送る直前
+        self.assertEqual(sent["o/r#1"], {"at": float(first), "head": self.g.head_sha(path), "via": "listing"})   # 1 ターン目を送る直前
 
     def test_old_send_record_with_only_a_time_is_still_read(self):
         path = self.place(1)
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         self.talking_in(ports, path)
         ports.acts = {1: {"reviewers": True, "last_other": 150.0}}
         limits = pathlib.Path(self.root).parent / "limits"
@@ -236,29 +247,24 @@ class Flow(unittest.TestCase):
     def test_force_pushed_branch_is_refreshed_and_reset_to_origin(self):
         # 作者が force-push した: 手元の HEAD は前に送った時の head のまま、origin の祖先ではない。手元で積んだ commit とは見分け、
         # 送り直して origin の head に揃える
-        from .test_provision import advance
-        advance(self.src, "feat/1")
-        path = str(pathlib.Path(self.root, "feat-1"))
-        git("-C", self.src, "worktree", "add", "-q", "-b", "feat/1", path, "origin/feat/1")
-        old = gitx.head_sha(path)
-        rewritten = git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", f"{old}^{{tree}}",
-                        "-p", f"{old}^", "-m", "rewritten")
-        git("-C", self.src, "push", "-q", "--force", "origin", f"{rewritten}:refs/heads/feat/1")
-        git("-C", self.src, "fetch", "-q", "origin")   # 持ち主が取った後でも、手元だけの commit とはみなさない
+        self.advance("feat/1")
+        path = self.place(1)
+        old = self.g.head_sha(path)
+        rewritten = self.force_pushed("feat/1", old)   # 持ち主が取った後でも、手元だけの commit とはみなさない
         limits = pathlib.Path(self.root).parent / "limits"
         limits.mkdir(exist_ok=True)
         (limits / wiring.SENT_FILE).write_text(json.dumps({"o/r#1": {"at": 100.0, "head": old}}))
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         self.talking_in(ports, path, started=50.0)
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(line(out, 1).endswith("refreshed"), out)
-        self.assertEqual(gitx.head_sha(path), rewritten)
+        self.assertEqual(self.g.head_sha(path), rewritten)
         self.assertIn("force-push", out)
 
     def test_refresh_does_not_close_a_workspace_with_another_busy_pane(self):
         path = self.place(1)
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         old = self.talking_in(ports, path)
         extra = ports.term.add_pane(old["workspace_id"], path)
         ports.term.busy.add(extra["pane_id"])
@@ -271,7 +277,7 @@ class Flow(unittest.TestCase):
     def test_conversation_outside_herdr_is_not_closed_for_refresh(self):
         # 会話は herdr の外（VS Code の端末など）に居て、herdr のその場所にはシェルだけがある
         path = self.place(1)
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         ports.term.open_at(path)
         ports.agents = [{"cwd": path, "status": "idle", "startedAt": 100000}]
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
@@ -282,7 +288,7 @@ class Flow(unittest.TestCase):
 
     def test_unreadable_herdr_panes_make_the_pr_close_failed_not_a_traceback(self):
         path = self.place(1)
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         self.talking_in(ports, path)
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
 
@@ -314,7 +320,7 @@ class Flow(unittest.TestCase):
             with self.subTest(name):
                 self.setUp()
                 self.sent(record)
-                ports = FakePorts([{**pr(1), "role": "reviewer"}])
+                ports = FakePorts([{**pr(1), "role": "reviewer"}], git=self.g)
                 ports.pr_info = lambda repo, n: pr(n)
                 ports.acts = {1: {"reviewers": True, **act}}
                 rc, out = run_main(self.cfg, ports, "--dry-run", *argv)
@@ -324,7 +330,7 @@ class Flow(unittest.TestCase):
 
     def test_no_news_pr_takes_no_account_and_makes_no_place(self):
         self.sent({"o/r#1": {"at": 100.0, "head": "a" * 40}})
-        ports = FakePorts([pr(1), pr(2)])
+        ports = FakePorts([pr(1), pr(2)], git=self.g)
         ports.acts = {1: {"reviewers": True, "last_other": None, "head_sha": "a" * 40}}
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(line(out, 1).split()[-2:], ["-", "no_news"])
@@ -333,8 +339,8 @@ class Flow(unittest.TestCase):
 
     def test_open_conversation_with_a_moved_head_is_refreshed(self):
         path = self.place(1)
-        self.sent({"o/r#1": {"at": 1000.0, "head": gitx.head_sha(path)}})
-        ports = FakePorts([pr(1)])
+        self.sent({"o/r#1": {"at": 1000.0, "head": self.g.head_sha(path)}})
+        ports = FakePorts([pr(1)], git=self.g)
         self.talking_in(ports, path)
         ports.acts = {1: {"reviewers": True, "last_other": None, "head_sha": "b" * 40}}
         rc, out = run_main(self.cfg, ports, "--dry-run")
@@ -342,7 +348,7 @@ class Flow(unittest.TestCase):
 
     def test_dry_run_says_refresh_and_touches_nothing(self):
         path = self.place(1)
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         self.talking_in(ports, path)
         ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
         rc, out = run_main(self.cfg, ports, "--dry-run")
@@ -357,7 +363,8 @@ class Flow(unittest.TestCase):
                 path = self.place(1)
                 if dirty:
                     pathlib.Path(path, "draft.py").write_text("x = 1\n")
-                ports = FakePorts([pr(1)])
+                    self.g.dirty.add(path)
+                ports = FakePorts([pr(1)], git=self.g)
                 self.talking_in(ports, path, status=status)
                 ports.acts = {1: {"reviewers": True, "last_other": news}}
                 rc, out = run_main(self.cfg, ports)
@@ -365,17 +372,17 @@ class Flow(unittest.TestCase):
                 self.assertEqual(ports.term.writes, [])
 
     def merged(self, ports, n, path, state="MERGED"):
-        ports.branch_prs = {f"feat/{n}": {"number": n, "state": state, "head_sha": gitx.head_sha(path)}}
+        ports.branch_prs = {f"feat/{n}": {"number": n, "state": state, "head_sha": self.g.head_sha(path)}}
 
     def test_closed_pr_with_an_idle_clean_session_is_closed_and_removed(self):
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         old = self.talking_in(ports, path)
         self.merged(ports, 5, path)
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#5 feat/5: 片付けた", out)
         self.assertFalse(pathlib.Path(path).exists())
-        self.assertEqual(git("-C", self.src, "branch", "--list", "feat/5"), "")
+        self.assertEqual(self.g.local.get("feat/5"), None)
         self.assertEqual(ports.term.writes, [("prompt", old["pane_id"], "/exit", False), ("remove_worktree", path)])
 
     def test_closed_pr_with_a_busy_session_or_local_work_is_kept_and_named(self):
@@ -385,14 +392,15 @@ class Flow(unittest.TestCase):
             with self.subTest(status=status, local=local):
                 self.setUp()
                 path = self.place(5)
-                ports = FakePorts([])
+                ports = FakePorts([], git=self.g)
                 if status:
                     self.talking_in(ports, path, status=status)
                 self.merged(ports, 5, path)
                 if local == "commit":
-                    git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+                    self.g.commit(path, {}, "x")
                 if local == "file":
                     pathlib.Path(path, "draft.py").write_text("x\n")
+                    self.g.dirty.add(path)
                 rc, out = run_main(self.cfg, ports)
                 self.assertIn(f"#5 feat/5: 閉じた PR だが、{want}", out)
                 self.assertTrue(pathlib.Path(path).exists())
@@ -401,25 +409,24 @@ class Flow(unittest.TestCase):
     def test_closed_pr_whose_place_is_only_behind_the_pr_head_is_removed(self):
         # 2026-10-20: 手元が origin のブランチより遅れているだけ（手元の先頭が PR の head の祖先）なら、手元の作業ではない。
         # 会話が無くても、手すきの会話が 1 つ開いていても片付け、手元のブランチも消す
-        from .test_provision import advance
         for talking in (False, True):
             with self.subTest(talking=talking):
                 self.setUp()
                 path = self.place(5)
-                ports = FakePorts([])
+                ports = FakePorts([], git=self.g)
                 if talking:
                     self.talking_in(ports, path)
-                tip = advance(self.src, "feat/5")
+                tip = self.advance("feat/5")
                 ports.branch_prs = {"feat/5": {"number": 5, "state": "MERGED", "head_sha": tip}}
                 rc, out = run_main(self.cfg, ports)
                 self.assertIn("#5 feat/5: 片付けた", out)
                 self.assertFalse(pathlib.Path(path).exists())
-                self.assertEqual(git("-C", self.src, "branch", "--list", "feat/5"), "")
+                self.assertEqual(self.g.local.get("feat/5"), None)
 
     def test_closed_pr_whose_head_commit_is_not_in_the_clone_is_kept(self):
         # PR の head の commit が手元に無ければ、手元の先頭がその祖先かを確かめられないので残す
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         ports.branch_prs = {"feat/5": {"number": 5, "state": "MERGED", "head_sha": "f" * 40}}
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#5 feat/5: 閉じた PR だが、手元の作業が有るので残した", out)
@@ -427,16 +434,15 @@ class Flow(unittest.TestCase):
 
     def test_closed_pr_whose_place_has_its_own_commit_behind_the_pr_head_is_kept(self):
         # PR の head が先に進んでいても、手元にしか無い commit が有れば（手元の先頭が PR の head の祖先でない）残す
-        from .test_provision import advance
         for talking, want in ((False, "手元の作業が有るので残した"), (True, "会話が作業中か手元の作業が有るので残した")):
             with self.subTest(talking=talking):
                 self.setUp()
                 path = self.place(5)
-                ports = FakePorts([])
+                ports = FakePorts([], git=self.g)
                 if talking:
                     self.talking_in(ports, path)
-                tip = advance(self.src, "feat/5")
-                git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "mine")
+                tip = self.advance("feat/5")
+                self.g.commit(path, {}, "mine")
                 ports.branch_prs = {"feat/5": {"number": 5, "state": "MERGED", "head_sha": tip}}
                 rc, out = run_main(self.cfg, ports)
                 self.assertIn(f"#5 feat/5: 閉じた PR だが、{want}", out)
@@ -445,7 +451,7 @@ class Flow(unittest.TestCase):
 
     def test_closed_pr_with_two_conversations_is_kept(self):
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         self.talking_in(ports, path)
         ports.agents = list(ports.agents) + [{"cwd": path + "/backend", "status": "idle"}]
         self.merged(ports, 5, path)
@@ -455,7 +461,7 @@ class Flow(unittest.TestCase):
 
     def test_closed_pr_whose_conversation_is_outside_herdr_is_kept(self):
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         ports.term.open_at(path)   # herdr にはシェルだけ
         ports.agents = [{"cwd": path, "status": "idle"}]
         self.merged(ports, 5, path)
@@ -467,7 +473,7 @@ class Flow(unittest.TestCase):
     def test_closed_pr_whose_conversation_is_still_listed_after_exit_is_kept(self):
         # /exit の後に会話の一覧を取り直し、その場所にまだ会話が見えれば消さない
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         self.talking_in(ports, path)
         ports.agents = [{k: v for k, v in x.items() if k != "pane"} for x in ports.agents]
         self.merged(ports, 5, path)
@@ -480,7 +486,7 @@ class Flow(unittest.TestCase):
         pathlib.Path(path, "frontend").mkdir()
         pathlib.Path(path, "frontend", ".env.local").write_text("CHANGED=1\n")
         pathlib.Path(path, "node_modules").mkdir()   # 依存や生成物は捨ててよい（理由にならない）
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         self.merged(ports, 5, path)
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#5 feat/5: 閉じた PR だが、写したファイルが写し元と違うので残した: frontend/.env.local", out)
@@ -490,7 +496,7 @@ class Flow(unittest.TestCase):
         path = self.place(5)
         pathlib.Path(path, "frontend").mkdir()
         pathlib.Path(path, "frontend", ".env.local").write_text("SECRET=1\n")   # 写し元と同じ
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         self.merged(ports, 5, path)
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#5 feat/5: 片付けた", out)
@@ -498,7 +504,7 @@ class Flow(unittest.TestCase):
 
     def test_unreadable_conversations_skip_tidying_with_a_note(self):
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         self.merged(ports, 5, path)
         calls = []
 
@@ -515,7 +521,7 @@ class Flow(unittest.TestCase):
 
     def test_branch_without_a_pr_is_never_tidied(self):
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(pathlib.Path(path).exists())
         self.assertEqual(ports.term.writes, [])
@@ -524,13 +530,11 @@ class Flow(unittest.TestCase):
     def test_other_repos_and_the_previous_versions_clones_are_never_touched(self):
         # 持ち主の注意（2026-10-15「関係ないリポジトリの Clone を巻き込まないように」）: 見るのは元の clone の linked worktree だけ。
         # 同じ置き場に在る別のリポジトリの worktree も、前の版が作った <名前>-pr-<番号> の clone も並びに入らない
-        other_src, _ = make_world()
-        other = str(pathlib.Path(self.root, "feat-6"))
-        git("-C", other_src, "worktree", "add", "-q", "-b", "feat/6", other, "origin/feat/6")
-        old_clone = str(pathlib.Path(self.root).parent / "r-pr-6")
-        git("clone", "-q", self.src, old_clone)
-        ports = FakePorts([])
-        ports.branch_prs = {"feat/6": {"number": 6, "state": "MERGED", "head_sha": gitx.head_sha(other)}}
+        other_git, _, _ = fakegit.world()
+        other = other_git.add_worktree(str(pathlib.Path(self.root, "feat-6")), "feat/6", "origin/feat/6")
+        old_clone = fakegit.FakeGit(str(pathlib.Path(self.root).parent / "r-pr-6"), {}).source   # 前の版が作った clone
+        ports = FakePorts([], git=fakegit.Repos(self.g, other_git))
+        ports.branch_prs = {"feat/6": {"number": 6, "state": "MERGED", "head_sha": other_git.head_sha(other)}}
         rc, out = run_main(self.cfg, ports)
         self.assertTrue(pathlib.Path(other).exists())
         self.assertTrue(pathlib.Path(old_clone).exists())
@@ -539,7 +543,7 @@ class Flow(unittest.TestCase):
 
     def test_dry_run_names_what_it_would_tidy_and_removes_nothing(self):
         path = self.place(5)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         self.merged(ports, 5, path, "CLOSED")
         rc, out = run_main(self.cfg, ports, "--dry-run")
         self.assertIn("#5 feat/5: 閉じた PR なので片付ける", out)
@@ -550,10 +554,10 @@ class Flow(unittest.TestCase):
     def off_turn(self, n=3, started=100.0, record=None):
         """自分の番でない開いている PR（一覧に無い）の場所に、dispatch が前に送った会話が開いている形。"""
         path = self.place(n)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         pane = self.talking_in(ports, path, started=started)
-        ports.branch_prs = {f"feat/{n}": {"number": n, "state": "OPEN", "head_sha": gitx.head_sha(path)}}
-        self.sent({f"o/r#{n}": record or {"at": 200.0, "head": gitx.head_sha(path), "via": "listing"}})
+        ports.branch_prs = {f"feat/{n}": {"number": n, "state": "OPEN", "head_sha": self.g.head_sha(path)}}
+        self.sent({f"o/r#{n}": record or {"at": 200.0, "head": self.g.head_sha(path), "via": "listing"}})
         return path, ports, pane
 
     def test_off_turn_pr_with_an_idle_clean_session_is_closed_and_the_worktree_kept(self):
@@ -564,7 +568,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(ports.term.writes, [("prompt", pane["pane_id"], "/exit", False),
                                               ("close_workspace", pane["workspace_id"])])
         self.assertTrue(pathlib.Path(path).exists())
-        self.assertIn("feat/3", git("-C", self.src, "branch", "--list", "feat/3"))
+        self.assertIn("feat/3", self.g.local)
 
     def test_off_turn_pr_with_a_busy_session_or_local_work_is_kept_and_named(self):
         for status, local in (("busy", None), ("idle", "commit"), ("idle", "file")):
@@ -573,9 +577,10 @@ class Flow(unittest.TestCase):
                 path, ports, _ = self.off_turn()
                 ports.agents = [{**x, "status": status} for x in ports.agents]
                 if local == "commit":
-                    git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+                    self.g.commit(path, {}, "x")
                 if local == "file":
                     pathlib.Path(path, "draft.py").write_text("x\n")
+                    self.g.dirty.add(path)
                 rc, out = run_main(self.cfg, ports)
                 self.assertIn("#3 feat/3: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した", out)
                 self.assertEqual(ports.term.writes, [])
@@ -650,9 +655,9 @@ class Flow(unittest.TestCase):
         self.assertEqual(ports.term.writes, [])
 
     def test_only_a_listing_send_is_marked_as_closable_later(self):
-        ports = FakePorts([pr(1)])
+        ports = FakePorts([pr(1)], git=self.g)
         run_main(self.cfg, ports)
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         ports.pr_info = lambda repo, n: {**pr(n), "state": "OPEN", "fork": False}
         run_main(self.cfg, ports, "--pr", "2")
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
@@ -662,22 +667,16 @@ class Flow(unittest.TestCase):
     def test_off_turn_stash_on_the_branch_keeps_the_conversation(self):
         # HEAD が送った時の head のままでも、そのブランチの stash は手元の作業
         path, ports, _ = self.off_turn()
-        pathlib.Path(path, "draft.py").write_text("x\n")
-        git("-C", path, "stash", "push", "-q", "-u", "-m", "wip")
+        self.g.stashes.append("On feat/3: wip")   # 書きかけのファイルを stash に入れた（git stash push -u -m wip）
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#3 feat/3: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した", out)
         self.assertEqual(ports.term.writes, [])
 
     def test_off_turn_branch_force_pushed_by_the_author_is_not_local_work(self):
         # 作者の force-push で、手元の HEAD（送った時の head）が origin に無くなった。送り直しと同じく、手元で積んだ commit とは見分ける
-        from .test_provision import advance
-        advance(self.src, "feat/3")
+        self.advance("feat/3")
         path, ports, pane = self.off_turn()
-        old = gitx.head_sha(path)
-        rewritten = git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", f"{old}^{{tree}}",
-                        "-p", f"{old}^", "-m", "rewritten")
-        git("-C", self.src, "push", "-q", "--force", "origin", f"{rewritten}:refs/heads/feat/3")
-        git("-C", self.src, "fetch", "-q", "origin")
+        self.force_pushed("feat/3", self.g.head_sha(path))
         rc, out = run_main(self.cfg, ports)
         self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）", out)
 

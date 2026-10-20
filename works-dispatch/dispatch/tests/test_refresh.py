@@ -9,10 +9,9 @@ import tempfile
 import unittest
 
 from . import DISPATCH
-from .test_provision import git
+from . import fakegit
 from .test_wake import Window
 import claudex
-import gitx
 import refresh_hook
 from nodes import deliver, provision, refresh, role
 
@@ -150,12 +149,15 @@ class Elsewhere(Window):
 
 class Hook(unittest.TestCase):
     def setUp(self):
+        # git は偽物（tests/fakegit.py）。会社 co は origin の無い clone で、部署「dept」はメインブランチから切った worktree
         d = pathlib.Path(tempfile.mkdtemp())
-        self.src = str(d / "co")
-        git("init", "-q", "-b", "main", self.src)
-        git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
-        self.place = str(d / "dept")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place)
+        self.g = fakegit.FakeGit(str(d / "co"), {}, url="")
+        self.g.origin.clear()
+        self.g.tracking.clear()
+        self.g.has_origin_head = False
+        self.src = self.g.source
+        self.place = self.g.add_worktree(str(d / "dept"), "dept/a", "main")
+        fakegit.wire(self, self.g, refresh_hook)
         self.cfg = d / "cfg" / "plugins"
         self.root = str(self.cfg / "cache" / "m" / "works-dispatch" / "0.34.0")
         os.makedirs(self.root)
@@ -173,26 +175,26 @@ class Hook(unittest.TestCase):
         return got, w.writes
 
     def test_reloads_a_department_running_plugins_older_than_the_installed_ones_once(self):
-        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
         self.assertEqual(self.run_hook(), ("sent", [refresh.RELOAD]))
-        self.assertEqual(gitx.worktree_attrs(self.place)[refresh.ATTR], refresh.mark_value(20, T0 + 100))
+        self.assertEqual(self.g.worktree_attrs(self.place)[refresh.ATTR], refresh.mark_value(20, T0 + 100))
         self.assertEqual(self.run_hook(), (None, []))              # 同じ更新では打ち直さない
         self.updated(T0 + 200)
         self.assertEqual(self.run_hook(now=T0 + 300), ("sent", [refresh.RELOAD]))   # 次の更新では打つ
         self.assertEqual(self.run_hook(pid=21, now=T0 + 400), ("sent", [refresh.RELOAD]))   # 控えはほかの処理の物
 
     def test_leaves_fresh_conversations_and_busy_or_typed_windows(self):
-        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
         self.updated(T0 - 1)
         self.assertEqual(self.run_hook(), (None, []))              # 起きた後に更新が無い
         self.updated(T0 + 60)
         self.assertEqual(self.run_hook(window=Window(self.place, status="working", front=[{"pid": 20, "argv": ["claude"]}])), ("busy", []))
         self.assertEqual(self.run_hook(window=Window(self.place, box="打ちかけ", front=[{"pid": 20, "argv": ["claude"]}])), ("typing", []))
-        self.assertNotIn(refresh.ATTR, gitx.worktree_attrs(self.place))   # 打てなければ控えず、次のターンの終わりに見直す
+        self.assertNotIn(refresh.ATTR, self.g.worktree_attrs(self.place))   # 打てなければ控えず、次のターンの終わりに見直す
 
     def test_does_nothing_outside_a_department_herdr_or_the_plugin_cache(self):
         self.assertEqual(self.run_hook(), (None, []))              # 部署でない（持ち主の作業の会話）
-        provision.mark(self.place, self.src, {"role": "担当"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当"}, self.g)
         self.assertEqual(self.run_hook(window=Elsewhere(self.place)), (None, []))   # herdr の外（窓が決まらない）
         got = refresh_hook.run({"cwd": self.place}, self.env, h=Window(self.place), host=lambda: (20, T0),
                                pause=lambda: None, plugin_root="/src/claude-plugins/works-dispatch")
@@ -200,14 +202,14 @@ class Hook(unittest.TestCase):
 
     def test_a_window_where_another_talk_is_in_front_is_not_reloaded(self):
         # 打ち先は、窓の前のプロセスにこの会話が居ると確かめた窓だけ（/clear と同じ確かめ方。c52730 の 5）
-        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
         other = Window(self.place, status="done", front=[{"pid": 99, "argv": ["claude"]}])
         self.assertEqual(self.run_hook(window=other), (None, []))
         attached = Window(self.place, status="done", front=[{"pid": 99, "argv": ["claude", "attach", "s1"]}])
         self.assertEqual(self.run_hook(window=attached), ("sent", [refresh.RELOAD]))   # この会話へ attach した窓
 
     def test_the_desk_reloads_only_its_own_conversation(self):
-        provision.mark(self.src, self.src, {"role": "段取り", "pid": "20"}, gitx)
+        provision.mark(self.src, self.src, {"role": "段取り", "pid": "20"}, self.g)
         self.assertEqual(self.run_hook(cwd=self.src), (None, []))  # 代表の clone の、持ち主のほかの会話
         self.assertEqual(self.run_hook(cwd=self.src, same=lambda pid: pid == "20"), ("sent", [refresh.RELOAD]))
 

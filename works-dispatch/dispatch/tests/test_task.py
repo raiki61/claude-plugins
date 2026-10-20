@@ -1,17 +1,16 @@
-"""サブエージェント（入口の --task）。ブランチの場所は本物の git worktree（WorktreeHerdr）、herdr の会話の口・claude・gh は偽物で回す。"""
+"""サブエージェント（入口の --task）。git（tests/fakegit.py）・herdr の会話の口・claude・gh は偽物で回す。"""
 
 import json
 import os
 import pathlib
 import re
 import shlex
-import subprocess
-import tempfile
 import unittest
+from unittest import mock
 
-from . import DISPATCH  # noqa: F401
-from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
-from .test_provision import WorktreeHerdr, git, make_world
+from . import DISPATCH, fakegit  # noqa: F401
+from .test_dispatch import FakePorts, fake_cfg, gitx_source, run_main
+from .test_provision import WorktreeHerdr
 import dispatch
 import gitx
 from config import Repo
@@ -37,17 +36,10 @@ def over(name):
 BG = re.compile(r"^(claude-a\d) --bg --name ")
 
 
-def push_shape(src, text):
-    """別の clone から origin の main に会社の形を commit して push する（元の clone の origin/main は動かさない。別の所でメインブランチの
-    会社の形を変えて、元の clone では fetch していない形）。"""
-    side = tempfile.mkdtemp(prefix="dispatch-shape-") + "/w"
-    git("clone", "-q", git("-C", src, "remote", "get-url", "origin"), side)
-    pathlib.Path(side, ".claude").mkdir()
-    pathlib.Path(side, ".claude", "company.toml").write_text(text, encoding="utf-8")
-    git("-C", side, "add", ".claude/company.toml")
-    git("-C", side, "-c", "user.name=o", "-c", "user.email=o@o", "commit", "-q", "-m", "company")
-    git("-C", side, "push", "-q", "origin", "HEAD:refs/heads/main")
-    return git("-C", side, "rev-parse", "HEAD")
+def push_shape(g, text):
+    """ほかの clone が origin の main に会社の形を commit して push した形にする（元の clone の origin/main は動かさない。別の所でメイン
+    ブランチの会社の形を変えて、元の clone では fetch していない形）。g は git の偽物（tests/fakegit.py）。"""
+    return g.push_origin("main", {".claude/company.toml": text}, "company")
 
 
 SHAPE = '[[roles]]\nname = "調べ役"\nmodel = "haiku"\n'
@@ -55,14 +47,15 @@ SHAPE = '[[roles]]\nname = "調べ役"\nmodel = "haiku"\n'
 
 class Task(unittest.TestCase):
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
         self.brief = str(pathlib.Path(self.root).parent / "brief.md")
         pathlib.Path(self.brief).write_text("頼み", encoding="utf-8")
 
     def ports(self, sessions=None, starts=True):
         """sessions: 設定のフォルダ → そのアカウントの会話の並び。呼んだ会話の識別子は s-caller。
         starts が真なら、ペインに打ち込んだ `<アカウントのコマンド> --bg --name <名前>` の後に、そのアカウントの一覧に裏の会話が出る。"""
-        ports = FakePorts([])
+        ports = FakePorts([], git=self.g)
         ports.fetch_prs = lambda repo: self.fail("--task では whose-turn を呼ばない")
         ports.env = {"CLAUDE_CODE_SESSION_ID": "s-caller"}
         d = pathlib.Path(self.cfg).parent
@@ -118,14 +111,14 @@ class Task(unittest.TestCase):
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
         # 部署がメインブランチを知った位置（ブランチを作ったときの origin のメインブランチ）も書く（--land の書き換えの取り合いのゲートが使う）
         # 起動したときの会社の形の model・effort も書く（毎回クリアする部署の待ち受けが、今の値と比べる）
-        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業", "lifecycle": "ephemeral", "residency": "per-task", "account": "a1", "name": "直し",
+        self.assertEqual(self.g.worktree_attrs(path), {"role": "作業", "lifecycle": "ephemeral", "residency": "per-task", "account": "a1", "name": "直し",
                                                      "session": "bg0-full", "job": "bg0", "config": self.cfg,
                                                      "launched": '{"effort": null, "model": null}',
-                                                     "base": git("-C", src, "rev-parse", "refs/remotes/origin/main")})
-        self.assertEqual(gitx.worktree_attrs(src), {})
+                                                     "base": self.g.tracking["main"]})
+        self.assertEqual(self.g.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に、部署の会話が書く許可の記録だけが入る（.claude/ を丸ごと隠すと、.claude/ の下に
         # 新しく作ったファイルの commit し忘れに気づけない）
-        excluded = (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines()
+        excluded = self.g.excludes
         self.assertIn(".claude/settings.local.json", excluded)
         self.assertNotIn(".claude/", excluded)
         self.assertIn("__pycache__/", excluded)   # 部署が試しに走らせた Python の控えで --land と --clean が止まらない
@@ -134,47 +127,47 @@ class Task(unittest.TestCase):
                                                  ["boss"]))
         self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "エフェメラル", "seat": "ephemeral"}))
         self.assertIn("部署 直し  task/fix  a1  started", out)
-        self.assertEqual(gitx.branch(src), "main")
+        self.assertEqual(self.g.branch(src), "main")
 
     def test_role_and_residency_are_written_as_given(self):
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役", "--resident")   # 前の版の旗の名前も効く（今は --persistent）
         self.assertEqual(rc, 0, out)
         path = self.place(ports)
-        attrs = gitx.worktree_attrs(path)
+        attrs = self.g.worktree_attrs(path)
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("調べ役", "persistent"))
         # 永続の部署の最初のブランチも、入れたブランチと同じ記録に書く（入れずに次のブランチへ移っても、先頭がそのままなら後で消える）
-        self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": git("-C", path, "rev-parse", "HEAD")})
+        self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": self.g.head_sha(path)})
 
     def test_shape_picks_the_default_role_and_a_role_can_be_resident(self):
         # 会社の形の default_role は --role を省いたときの役、役の resident = true は --persistent と同じ
-        push_shape(gitx_source(self.cfg), 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
+        push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
                                           '[[roles]]\nname = "作業"\n')
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place(ports))
+        attrs = self.g.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("担当", "persistent"))
         self.assertNotIn("既定の", out)
         rc, out = self.run_task(ports, "--role", "作業", name="別", branch="task/other")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place(ports, "task/other"))
+        attrs = self.g.worktree_attrs(self.place(ports, "task/other"))
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("作業", "ephemeral"))
 
     def test_a_duty_raised_only_when_asked_starts_per_task_even_under_a_resident_role(self):
         # 受け持ちの on_demand = true（オンデマンド）は、役が persistent = true でもエフェメラルの部署で立つ（--done で畳まれる）
-        push_shape(gitx_source(self.cfg), 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
+        push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
                                           '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\n')
         ports = self.ports()
         rc, out = self.run_task(ports)   # 部署の名前（直し）が受け持ちの名前
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place(ports))
+        attrs = self.g.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("担当", "ephemeral"))
 
     def test_a_duty_role_starts_only_under_a_duty_name(self):
         # 受け持ちに名指される永続の役（担当）は、受け持ちの名前でない「<受け持ち>：<主題>」では立てない（立てると誰の席でもない
         # 永続の部署が残る。my_notes の受付 90b7d8）。受け持ちの名前なら永続で立ち、--persistent を名指せば名前を問わない
-        push_shape(gitx_source(self.cfg), 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n'
+        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n'
                                           '[[roles]]\nname = "作業"\n[[skills]]\nname = "直し"\nrole = "担当"\n')
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "担当", name="直し：題", branch="task/topic")
@@ -185,14 +178,14 @@ class Task(unittest.TestCase):
         self.assertFalse([w for w in ports.term.worktrees(gitx_source(self.cfg)) if w["branch"] == "task/topic"])
         rc, out = self.run_task(ports, "--role", "担当")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place(ports))["lifecycle"], "persistent")
+        self.assertEqual(self.g.worktree_attrs(self.place(ports))["lifecycle"], "persistent")
         rc, out = self.run_task(ports, "--role", "担当", "--persistent", name="別", branch="task/other")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place(ports, "task/other"))["lifecycle"], "persistent")
+        self.assertEqual(self.g.worktree_attrs(self.place(ports, "task/other"))["lifecycle"], "persistent")
 
     def test_default_role_missing_from_the_shape_stops(self):
         # 役の名前を英語で書いた会社などで、どの役でもない「作業」の部署を、役の本文も起動の設定も無いまま立てない
-        push_shape(gitx_source(self.cfg), SHAPE)   # 役は調べ役だけで、default_role も無い
+        push_shape(self.g, SHAPE)   # 役は調べ役だけで、default_role も無い
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 2, out)
@@ -202,50 +195,49 @@ class Task(unittest.TestCase):
 
     def test_branch_on_origin_is_made_from_origin_not_the_default_branch(self):
         src = gitx_source(self.cfg)
-        sha = git("-C", src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", "origin/main^{tree}", "-p", "origin/main",
-                  "-m", "theirs")
-        git("-C", src, "push", "-q", "origin", f"{sha}:refs/heads/task/old")
+        self.g.origin["task/old"] = self.g.origin["main"]
+        sha = self.g.push_origin("task/old", {}, "theirs")
         ports = self.ports()
         rc, out = self.run_task(ports, branch="task/old")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.head_sha(self.place(ports, "task/old")), sha)
+        self.assertEqual(self.g.head_sha(self.place(ports, "task/old")), sha)
 
     def test_shape_changed_on_origin_is_fetched_before_the_role_is_read(self):
         src = gitx_source(self.cfg)
-        sha = push_shape(src, SHAPE)
+        sha = push_shape(self.g, SHAPE)
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(git("-C", src, "rev-parse", "origin/main"), sha)
+        self.assertEqual(self.g.tracking["main"], sha)
         # 起動するときの設定（model）も、立てた後のフックと同じ新しい会社の形で決まる
         [command] = self.sent(ports)
         self.assertRegex(command, r'--model "?haiku\b')   # POSIX でない殻（Windows）では語を "…" で囲む
         # 起動したときの model・effort を属性に残す（毎回クリアする部署の待ち受けが、会社の形の今の値と比べる）
-        launched = gitx.worktree_attrs(self.place(ports))["launched"]
+        launched = self.g.worktree_attrs(self.place(ports))["launched"]
         self.assertEqual(json.loads(launched), {"model": "haiku", "effort": None})
 
     def test_dry_run_reads_the_shape_without_fetching(self):
         src = gitx_source(self.cfg)
-        before = git("-C", src, "rev-parse", "origin/main")
-        push_shape(src, SHAPE)
+        before = self.g.tracking["main"]
+        push_shape(self.g, SHAPE)
         rc, out = self.run_task(self.ports(), "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(git("-C", src, "rev-parse", "origin/main"), before)
+        self.assertEqual(self.g.tracking["main"], before)
         self.assertIn("- 会社の形: 無い（--dry-run なので origin を取り直さず、手元の控えで読んだ）", out)
 
     def test_refresh_fetches_only_the_default_branch_and_notes_a_failure(self):
         src = gitx_source(self.cfg)
-        sha = push_shape(src, SHAPE)
-        self.assertIsNone(provision.refresh_shape(src, gitx))
-        self.assertEqual(git("-C", src, "rev-parse", "origin/main"), sha)
-        git("-C", src, "remote", "set-url", "origin", str(pathlib.Path(self.root).parent / "gone.git"))
-        self.assertIn("origin の既定のブランチを取り直せないので、手元の origin/main", provision.refresh_shape(src, gitx))
-        git("-C", src, "remote", "set-head", "origin", "--delete")
-        self.assertIsNone(provision.refresh_shape(src, gitx))   # 既定のブランチが分からなければ取りに行かない
+        sha = push_shape(self.g, SHAPE)
+        self.assertIsNone(provision.refresh_shape(src, self.g))
+        self.assertEqual(self.g.tracking["main"], sha)
+        with mock.patch.object(self.g, "fetch", side_effect=gitx.GitError("fatal: '/gone.git' does not appear to be a git repository")):
+            self.assertIn("origin の既定のブランチを取り直せないので、手元の origin/main", provision.refresh_shape(src, self.g))
+            self.g.has_origin_head = False
+            self.assertIsNone(provision.refresh_shape(src, self.g))   # 既定のブランチが分からなければ取りに行かない
 
     def test_clone_without_origin_head_is_told_how_to_fix_it(self):
         src = gitx_source(self.cfg)
-        git("-C", src, "remote", "set-head", "origin", "--delete")
+        self.g.has_origin_head = False
         rc, out = self.run_task(self.ports(), "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertIn(f"git -C {src} remote set-head origin --auto", out)
@@ -253,7 +245,7 @@ class Task(unittest.TestCase):
     def test_existing_place_is_opened_again_and_not_moved(self):
         src = gitx_source(self.cfg)
         elsewhere = str(pathlib.Path(self.root).parent / "hand-made")
-        git("-C", src, "worktree", "add", "-q", "-b", "task/fix", elsewhere, "origin/main")
+        self.g.add_worktree(elsewhere, "task/fix", "origin/main")
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
@@ -272,27 +264,27 @@ class Task(unittest.TestCase):
     def test_desk_attributes_copied_by_git_worktree_add_are_not_kept(self):
         # git worktree add は本社の config.worktree を新しい worktree に写す。窓口の会話の id や前の名前が部署に残らない
         src = gitx_source(self.cfg)
-        provision.mark(src, src, {"role": "窓口", "name": "窓口", "session": "s-desk", "former-names": '["前の窓口"]'}, gitx)
+        provision.mark(src, src, {"role": "窓口", "name": "窓口", "session": "s-desk", "former-names": '["前の窓口"]'}, self.g)
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place(ports))
+        attrs = self.g.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["role"], attrs["name"], attrs["session"]), ("作業", "直し", "bg0-full"))
         self.assertNotIn("former-names", attrs)
-        self.assertEqual(gitx.worktree_attrs(src)["session"], "s-desk", "本社の属性は触らない")
+        self.assertEqual(self.g.worktree_attrs(src)["session"], "s-desk", "本社の属性は触らない")
 
     def test_running_task_again_on_a_standing_department_keeps_its_asker_inbox(self):
         # 立っている部署に --task を打ち直すと、本社と同じ値の頼み元の受付箱（company.boss-inbox）が、写り込んだ物と見て消えていた（d7d50c の 2）
         src = gitx_source(self.cfg)
         inbox = str(pathlib.Path(src) / ".git" / "company" / "inbox")
-        provision.mark(src, src, {"role": "窓口", "name": "窓口", "boss-inbox": inbox}, gitx)
+        provision.mark(src, src, {"role": "窓口", "name": "窓口", "boss-inbox": inbox}, self.g)
         ports = self.ports()
         self.assertEqual(self.run_task(ports)[0], 0)
-        provision.mark(self.place(ports), src, {"boss-inbox": inbox, "ask": "q1"}, gitx)
+        provision.mark(self.place(ports), src, {"boss-inbox": inbox, "ask": "q1"}, self.g)
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place(ports))
+        attrs = self.g.worktree_attrs(self.place(ports))
         self.assertEqual((attrs.get("boss-inbox"), attrs.get("ask")), (inbox, "q1"))
 
     def test_a_session_that_appears_late_is_found_and_attached(self):
@@ -318,7 +310,7 @@ class Task(unittest.TestCase):
         self.assertIn("SendMessage で「窓口」へ送る", command)
         # アカウントが 2 つ以上なら、ペインの名前にアカウントの名前を添える
         self.assertIn(("rename_pane", "P0", "直し a1"), ports.term.writes)
-        attrs = gitx.worktree_attrs(self.place(ports))
+        attrs = self.g.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
 
     def test_other_account_caller_gets_the_screen_route(self):
@@ -347,7 +339,7 @@ class Task(unittest.TestCase):
     def test_the_account_named_by_the_role_is_used_when_it_can_be(self):
         # 会社の形の役の account は、使えれば使用率の順より先（a1 は設定の順で先）。使えなければ使用率の順で選び、訳を注記に出す
         dirs = two_accounts(self.cfg)
-        push_shape(gitx_source(self.cfg), '[[roles]]\nname = "作業"\naccount = "a2"\n')
+        push_shape(self.g, '[[roles]]\nname = "作業"\naccount = "a2"\n')
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
@@ -367,9 +359,8 @@ class Task(unittest.TestCase):
         p.write_text(p.read_text(encoding="utf-8").replace('name = "a1", command = "claude-a1",',
                                                            'name = "a1", command = "claude-a1", hours = "08:00-16:00 UTC",'),
                      encoding="utf-8")
-        src = gitx_source(self.cfg)
-        push_shape(src, '[[roles]]\nname = "作業"\naccount = "a1"\n')
-        git("-C", src, "fetch", "-q", "origin")   # --dry-run は origin を取り直さないので、手元の控えに入れておく
+        push_shape(self.g, '[[roles]]\nname = "作業"\naccount = "a1"\n')
+        self.g.fetch(self.g.source, "main")   # --dry-run は origin を取り直さないので、手元の控えに入れておく
         ports = self.ports()
         rc, out = self.run_task(ports, "--dry-run")
         self.assertEqual(rc, 0, out)
@@ -425,7 +416,7 @@ class Task(unittest.TestCase):
         self.assertIn("部署 直し  task/fix  a1  create", out)
         self.assertIn("- 部署の属性: company.role=作業、company.lifecycle=ephemeral、company.residency=per-task、company.account=a1、company.name=直し", out)
         self.assertIn("- 最初の文: 作業の頼みです。", out)
-        self.assertFalse((pathlib.Path(gitx_source(self.cfg)) / ".git" / "info" / "exclude").read_text(encoding="utf-8").count(".claude/"))
+        self.assertNotIn(".claude/", self.g.excludes)
 
     def test_a_conversation_with_the_same_name_elsewhere_and_no_other_account_stops(self):
         dirs = {"a1": f"{pathlib.Path(self.cfg).parent}/c1"}
@@ -457,7 +448,7 @@ class Task(unittest.TestCase):
     def test_a_conversation_open_in_the_place_is_already_open(self):
         src = gitx_source(self.cfg)
         elsewhere = str(pathlib.Path(self.root).parent / "hand-made")
-        git("-C", src, "worktree", "add", "-q", "-b", "task/fix", elsewhere, "origin/main")
+        self.g.add_worktree(elsewhere, "task/fix", "origin/main")
         ports = self.ports({f"{pathlib.Path(self.cfg).parent}/c1": [{"sessionId": "s1", "name": "別", "cwd": elsewhere}]})
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0)
@@ -468,17 +459,18 @@ class Task(unittest.TestCase):
         # 前の版で作った PR の作業場には本社の company.pid が写っている。残ると部署が窓口の席と見られ、役の本文を受けない（3d3ccc）
         src = gitx_source(self.cfg)
         old = str(pathlib.Path(self.root).parent / "old-pr")
-        git("-C", src, "worktree", "add", "-q", "-b", "task/fix", old, "origin/main")
-        provision.mark(old, src, {"role": "窓口", "name": "窓口", "pid": "777"}, gitx)
+        self.g.add_worktree(old, "task/fix", "origin/main")
+        provision.mark(old, src, {"role": "窓口", "name": "窓口", "pid": "777"}, self.g)
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(old)
+        attrs = self.g.worktree_attrs(old)
         self.assertEqual((attrs.get("pid"), attrs["name"]), (None, "直し"))
 
     def test_branch_open_in_the_source_clone_is_branch_busy(self):
         src = gitx_source(self.cfg)
-        git("-C", src, "checkout", "-q", "-b", "task/fix")
+        self.g.local["task/fix"] = self.g.local["main"]
+        self.g.heads[src] = "task/fix"   # git checkout -b task/fix
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertIn("task/fix  a1  branch_busy", out)
@@ -503,7 +495,7 @@ class Task(unittest.TestCase):
                 self.assertIn(said, out)
 
     def test_preflight_problem_stops(self):
-        ports = FakePorts([], problems=["PATH の claude が --bg を持たない"])
+        ports = FakePorts([], problems=["PATH の claude が --bg を持たない"], git=self.g)
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 2)
         self.assertIn("--bg を持たない", out)
@@ -518,33 +510,34 @@ class Task(unittest.TestCase):
 
 class PrepareTask(unittest.TestCase):
     def setUp(self):
-        self.src, self.root = make_world()
+        self.g, self.src, self.root = fakegit.world()
+        fakegit.forbid_real_git(self)
         self.repo = Repo("o/r", "second", self.src, ("frontend/.env.local",))
 
     def test_new_branch_is_made_from_the_default_branch_with_the_task_name_and_files_copied(self):
-        h = WorktreeHerdr(self.root)
-        got = provision.prepare_task({"head": "task/new", "label": "新しい作業"}, self.repo, "main", h, gitx)
+        h = WorktreeHerdr(self.root, self.g)
+        got = provision.prepare_task({"head": "task/new", "label": "新しい作業"}, self.repo, "main", h, self.g)
         self.assertEqual(got["status"], "ready", got)
         self.assertEqual(h.writes, [("create_worktree", "task/new", "新しい作業")])
-        self.assertEqual(gitx.branch(got["path"]), "task/new")
-        self.assertEqual(gitx.head_sha(got["path"]), git("-C", self.src, "rev-parse", "origin/main"))
+        self.assertEqual(self.g.branch(got["path"]), "task/new")
+        self.assertEqual(self.g.head_sha(got["path"]), self.g.tracking["main"])
         self.assertEqual((pathlib.Path(got["path"]) / "frontend" / ".env.local").read_text(), "SECRET=1\n")
 
     def test_existing_local_branch_is_checked_out_as_it_is(self):
-        git("-C", self.src, "branch", "task/mine", "origin/feat/1")
-        h = WorktreeHerdr(self.root)
-        got = provision.prepare_task({"head": "task/mine", "label": "x"}, self.repo, "main", h, gitx)
+        self.g.local["task/mine"] = self.g.tracking["feat/1"]   # git branch task/mine origin/feat/1
+        h = WorktreeHerdr(self.root, self.g)
+        got = provision.prepare_task({"head": "task/mine", "label": "x"}, self.repo, "main", h, self.g)
         self.assertEqual(got["status"], "ready", got)
-        self.assertEqual(gitx.branch(got["path"]), "task/mine")
+        self.assertEqual(self.g.branch(got["path"]), "task/mine")
 
     def test_unreadable_origin_is_provision_failed(self):
-        subprocess.run(["git", "-C", self.src, "remote", "set-url", "origin", "/nowhere/o/r.git"], check=True)
-        got = provision.prepare_task({"head": "task/new", "label": "x"}, self.repo, "main", WorktreeHerdr(self.root), gitx)
+        with mock.patch.object(self.g, "fetch", side_effect=gitx.GitError("fatal: '/nowhere/o/r.git' does not appear to be a git repository")):
+            got = provision.prepare_task({"head": "task/new", "label": "x"}, self.repo, "main", WorktreeHerdr(self.root, self.g), self.g)
         self.assertEqual(got["status"], "provision_failed")
         self.assertTrue(got["detail"])
 
     def test_no_branch_is_provision_failed(self):
-        got = provision.prepare_task({"head": None, "label": "x"}, self.repo, "main", WorktreeHerdr(self.root), gitx)
+        got = provision.prepare_task({"head": None, "label": "x"}, self.repo, "main", WorktreeHerdr(self.root, self.g), self.g)
         self.assertEqual((got["status"], got["detail"]), ("provision_failed", "ブランチが決まっていない"))
 
 

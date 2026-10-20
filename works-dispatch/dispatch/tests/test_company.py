@@ -1,5 +1,6 @@
 """会社の形（会社の形の設計 4.2・4.4・9.1）: 部署の属性（gitx）、ツリー図（tree ノードと --tree）、herdr の表示の付け直し（sync ノードと
---sync）、部署の片付け（clean.departments・retire と --clean）。git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
+--sync）、部署の片付け（clean.departments・retire と --clean）。git（tests/fakegit.py）・herdr・claude は偽物で回す。git との境目を
+確かめる組（部署の属性の読み書きの Attrs・Build の、git worktree add が属性を写す 2 件・会社の形を origin から読む Source）だけ、git は一時のフォルダの本物。"""
 
 import json
 import os
@@ -12,8 +13,8 @@ import unittest
 import urllib.parse
 
 from . import DISPATCH  # noqa: F401
-from . import schemacheck
-from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg, run_main
+from . import fakegit, schemacheck
+from .test_dispatch import FakeHerdr, FakePorts, fake_cfg, gitx_source, run_main
 from .test_provision import git, make_world
 import dispatch
 import gitx
@@ -655,10 +656,10 @@ class FlowOrder(unittest.TestCase):
 
 
 class CompanyHerdr(FakeHerdr):
-    """FakeHerdr に、作業場の並び（元の clone の作業場と、git の印の無いノートの作業場）を足す。"""
+    """FakeHerdr に、作業場の並び（元の clone の作業場と、git の印の無いノートの作業場）を足す。g は FakeHerdr と同じ（git の偽物）。"""
 
-    def __init__(self, source):
-        super().__init__()
+    def __init__(self, source, g=None):
+        super().__init__(g=g)
         self.source = source
 
     def workspaces(self):
@@ -670,13 +671,13 @@ class Entry(unittest.TestCase):
     """入口の --tree・--json・--sync。dispatch の設定のアカウントの会話の一覧も偽物で渡す。"""
 
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.wire(self, self.g, shape_hook, orders)
         self.src = gitx_source(self.cfg)
-        self.place = str(pathlib.Path(self.root) / "dept")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
-        provision.mark(self.place, self.src, {"role": "調べ役", "account": "a1", "name": "調べ", "session": "s-a"}, gitx)
-        self.ports = FakePorts([])
-        self.ports.term = CompanyHerdr(self.src)
+        self.place = self.g.add_worktree(str(pathlib.Path(self.root) / "dept"), "dept/a", "origin/main")
+        provision.mark(self.place, self.src, {"role": "調べ役", "account": "a1", "name": "調べ", "session": "s-a"}, self.g)
+        self.ports = FakePorts([], git=self.g)
+        self.ports.term = CompanyHerdr(self.src, self.g)
         self.ports.term.open_at(self.src)
         self.pane = self.ports.term.open_at(self.place, agent="claude")["pane_id"]
         self.ports.list_sessions = lambda cdir, include_done=False: [
@@ -688,7 +689,7 @@ class Entry(unittest.TestCase):
     def test_sync_copies_the_roles_fresh_to_every_department(self):
         # 会社の形の役の fresh を変えたら、--sync 1 回で今いる部署の属性 company.fresh と herdr の表示に行き渡る（--ask・
         # --reorg --role を待たない。ノートの手入れの納品で見つかった）
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         shape = pathlib.Path(self.src, ".claude", "company.toml")
         shape.parent.mkdir(exist_ok=True)
         shape.write_text('[[roles]]\nname = "調べ役"\npersistent = true\nfresh = true\n', encoding="utf-8")
@@ -696,42 +697,42 @@ class Entry(unittest.TestCase):
         self.assertIn("company.fresh - → true（役 調べ役 の fresh を写す）", out)
         self.assertIn("印 永続・毎回クリア", out)   # 席の見え方は作業場の印に出す
         self.assertIn("表示名 調べ役  ", out)   # ペインの表示名は役だけ
-        self.assertNotIn("fresh", gitx.worktree_attrs(self.place), "--dry-run が書いた")
+        self.assertNotIn("fresh", self.g.worktree_attrs(self.place), "--dry-run が書いた")
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place)["fresh"], "true")
+        self.assertEqual(self.g.worktree_attrs(self.place)["fresh"], "true")
         shape.write_text('[[roles]]\nname = "調べ役"\npersistent = true\n', encoding="utf-8")   # 引き継ぎに戻す
         rc, out = self.main("--sync")
         self.assertIn("company.fresh true → （消す）", out)
-        self.assertNotIn("fresh", gitx.worktree_attrs(self.place))
+        self.assertNotIn("fresh", self.g.worktree_attrs(self.place))
 
     def test_former_residency_attribute_is_read_and_sync_keeps_both_attributes_in_step(self):
         # 前の版の属性 company.residency（resident・per-task）は寿命として読み、--sync が company.lifecycle を書き足す。
         # 前の版と混ざって動く間は、2 つの属性を同じ値でそろえて残す
-        gitx.set_worktree_attr(self.place, "residency", "resident")
-        gitx.set_worktree_attr(self.place, "role", "調べ役")
-        self.assertEqual(gitx.worktree_attrs(self.place)["lifecycle"], "persistent")
+        self.g.set_worktree_attr(self.place, "residency", "resident")
+        self.g.set_worktree_attr(self.place, "role", "調べ役")
+        self.assertEqual(self.g.worktree_attrs(self.place)["lifecycle"], "persistent")
         rc, out = self.main("--sync", "--dry-run")
         self.assertIn("company.lifecycle - → persistent（寿命の 2 つの属性をそろえる）", out)
         self.assertIn("印 永続・引き継ぎ", out)
-        self.assertNotIn("lifecycle", gitx.worktree_attrs(self.place, former=False), "--dry-run が書いた")
+        self.assertNotIn("lifecycle", self.g.worktree_attrs(self.place, former=False), "--dry-run が書いた")
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place, former=False)
+        attrs = self.g.worktree_attrs(self.place, former=False)
         self.assertEqual((attrs["lifecycle"], attrs["residency"]), ("persistent", "resident"))
         rc, out = self.main("--sync")
         self.assertNotIn("company.lifecycle", out, "2 回目も書いた")
         # 前の版が company.residency だけを書き換えたら、そちらを読み、--sync が company.lifecycle を合わせる（今の版は 2 つを同じ値で書く）
-        gitx.set_worktree_attr(self.place, "residency", "per-task")
-        self.assertEqual(gitx.worktree_attrs(self.place)["lifecycle"], "ephemeral")
+        self.g.set_worktree_attr(self.place, "residency", "per-task")
+        self.assertEqual(self.g.worktree_attrs(self.place)["lifecycle"], "ephemeral")
         rc, out = self.main("--sync")
         self.assertIn("company.lifecycle persistent → ephemeral（寿命の 2 つの属性をそろえる）", out)
-        self.assertEqual(gitx.worktree_attrs(self.place, former=False)["lifecycle"], "ephemeral")
+        self.assertEqual(self.g.worktree_attrs(self.place, former=False)["lifecycle"], "ephemeral")
         # company.lifecycle だけの部署には、前の版が読む company.residency を書き足す
-        gitx.unset_worktree_attr(self.place, "residency")
+        self.g.unset_worktree_attr(self.place, "residency")
         rc, out = self.main("--sync")
         self.assertIn("company.residency - → per-task（寿命の 2 つの属性をそろえる）", out)
-        self.assertEqual(gitx.worktree_attrs(self.place, former=False)["residency"], "per-task")
+        self.assertEqual(self.g.worktree_attrs(self.place, former=False)["residency"], "per-task")
 
     def test_writing_a_lifecycle_also_writes_the_former_attribute(self):
         # 前の版の --clean・--land は company.residency の無い部署をエフェメラルとみなすので、寿命を書くときは両方に書く
@@ -746,7 +747,7 @@ class Entry(unittest.TestCase):
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
         self.assertIn("company.role 調べ役 → 調べもの（役の前の名前を今の名前に）", out)
-        self.assertEqual(gitx.worktree_attrs(self.place)["role"], "調べもの")
+        self.assertEqual(self.g.worktree_attrs(self.place)["role"], "調べもの")
         self.assertIn("表示名 調べもの  ", out)
 
     def test_tree_prints_the_company_and_its_departments(self):
@@ -816,8 +817,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(self.ports.term.writes, [])
         shape.write_text('[[roles]]\nname = "調べもの"\nformer_names = ["調べ役"]\npersistent = true\nfresh = true\n', encoding="utf-8")
         self.assertEqual(self.hook(), (True, []))
-        self.assertEqual(gitx.worktree_attrs(self.place)["role"], "調べもの")
-        self.assertEqual(gitx.worktree_attrs(self.place)["fresh"], "true")
+        self.assertEqual(self.g.worktree_attrs(self.place)["role"], "調べもの")
+        self.assertEqual(self.g.worktree_attrs(self.place)["fresh"], "true")
         self.assertIn(("report_pane_metadata", self.pane, "調べもの", "調べ", {"role": "調べもの", "account": "a1"}, ["boss"]),
                       self.ports.term.writes)
 
@@ -856,9 +857,10 @@ class Departments(unittest.TestCase):
     """部署の片付け: 会話が終わり、手元の作業が無く、ブランチがメインブランチに入った部署だけを、claude rm と一緒に消す。"""
 
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
         self.src = gitx_source(self.cfg)
-        self.ports = FakePorts([])
+        self.ports = FakePorts([], git=self.g)
         self.place = self.dept("dept/a", "s-a")
         self.state = {"s-a": "done"}
         self.removed, self.rm_env = [], []
@@ -868,7 +870,7 @@ class Departments(unittest.TestCase):
     def dept(self, branch, session):
         path = self.ports.term.create_worktree(self.src, branch, "origin/main", branch)["path"]
         self.ports.term.writes.clear()
-        provision.mark(path, self.src, {"name": branch, "session": session}, gitx)
+        provision.mark(path, self.src, {"name": branch, "session": session}, self.g)
         return path
 
     def clean(self, *extra):
@@ -904,7 +906,7 @@ class Departments(unittest.TestCase):
 
     def test_running_unpushed_and_unmerged_departments_are_kept(self):
         self.state["s-a"] = "working"
-        git("-C", self.dept("dept/b", "s-b"), "-c", "user.name=o", "-c", "user.email=o@o", "commit", "-q", "--allow-empty", "-m", "x")
+        self.g.commit(self.dept("dept/b", "s-b"), {}, "x")
         self.state["s-b"] = "done"
         rc, out = self.clean("--apply")
         self.assertIn("部署 dept/a dept/a  working  残す（会話がまだ動いている）", out)
@@ -912,7 +914,7 @@ class Departments(unittest.TestCase):
         self.assertEqual(self.removed, [])
 
     def test_resident_department_is_never_removed(self):
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         rc, out = self.clean("--apply")
         self.assertIn("部署 dept/a dept/a  done  残す（永続の部署は畳まない）", out)
         self.assertEqual(self.removed, [])
@@ -929,25 +931,23 @@ class Departments(unittest.TestCase):
 
     def test_resident_department_branches_it_landed_are_removed_after_it_moves_on(self):
         # 永続の部署は作業場を残し、頼みごとにブランチを移る。--land が書いた「入れたブランチ → commit」のうち、もう開いていないブランチを消す
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
-        old_sha = git("-C", self.place, "rev-parse", "HEAD")
-        git("-C", self.place, "switch", "-q", "-c", "dept/next")             # 次の頼みのブランチに移った
-        git("-C", self.src, "branch", "-q", "dept/moved", old_sha)
-        git("-C", self.src, "branch", "-q", "-f", "dept/moved", git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o",
-                                                                   "commit-tree", f"{old_sha}^{{tree}}", "-p", old_sha,
-                                                                   "-m", "after"))
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
+        old_sha = self.g.head_sha(self.place)
+        self.g.local["dept/next"] = old_sha
+        self.g.heads[self.place] = "dept/next"   # 次の頼みのブランチに移った
+        self.g.local["dept/moved"] = self.g._new(old_sha, self.g.files(old_sha), "after")
         provision.mark(self.place, self.src, {"landed-branches": json.dumps(
-            {"dept/a": old_sha, "dept/next": old_sha, "dept/moved": old_sha})}, gitx)
+            {"dept/a": old_sha, "dept/next": old_sha, "dept/moved": old_sha})}, self.g)
         rc, out = self.clean()
         self.assertIn("入れ終えたブランチ dept/a: 消せる", out)
-        self.assertIn("dept/a", git("-C", self.src, "branch", "--list", "dept/a"), "見立てだけで消した")
+        self.assertIn("dept/a", self.g.local, "見立てだけで消した")
         rc, out = self.clean("--apply")
         self.assertIn("入れ終えたブランチ dept/a: 消した", out)
         self.assertIn("入れ終えたブランチ dept/moved: 入れた後に commit が有るので消さず", out)
-        self.assertEqual(git("-C", self.src, "branch", "--list", "dept/a"), "")
-        self.assertNotEqual(git("-C", self.src, "branch", "--list", "dept/moved"), "")
+        self.assertNotIn("dept/a", self.g.local)
+        self.assertIn("dept/moved", self.g.local)
         # 開いているブランチ（今の頼みのブランチ）だけが記録に残る
-        self.assertEqual(json.loads(gitx.worktree_attrs(self.place)["landed-branches"]), {"dept/next": old_sha})
+        self.assertEqual(json.loads(self.g.worktree_attrs(self.place)["landed-branches"]), {"dept/next": old_sha})
         self.assertTrue(os.path.exists(self.place))
 
     def test_retire_stops_when_rm_refuses(self):
@@ -960,7 +960,7 @@ class Departments(unittest.TestCase):
             def job_tmp(cdir, sid, env=None):
                 return "/nowhere"
         got = clean.retire({"path": self.place, "branch": "dept/a", "session": "a", "config_dir": "/c", "pr_head": None},
-                           self.src, "x", self.ports.term, gitx, C)
+                           self.src, "x", self.ports.term, self.g, C)
         self.assertFalse(got["removed"])
         self.assertIn("claude rm が断った", got["detail"])
         self.assertTrue(os.path.exists(self.place))
@@ -977,18 +977,18 @@ class Departments(unittest.TestCase):
         self.assertIn("消せる（会話の一時の置き場の 1 件は、共通の .git の company/kept-tmp/ に写してから消す）", out)
         rc, out = self.clean("--apply")
         self.assertEqual(rc, 0, out)
-        kept = pathlib.Path(gitx.common_dir(self.src), "company", "kept-tmp", "a")
+        kept = pathlib.Path(self.g.common_dir(self.src), "company", "kept-tmp", "a")
         self.assertIn(f"会話の一時の置き場の 1 件を {kept} に写した", out)
         self.assertEqual((kept / "tools" / "measure.py").read_text(encoding="utf-8"), "x\n")
         self.assertEqual(len(self.removed), 1)
 
     def test_graphloops_boards_are_copied_into_the_common_git_before_the_place_goes(self):
         # graphloops の盤面は場所の git の置き場（.git/worktrees/<名前>/graphloops）に在り、git worktree remove で一緒に消える（受付 5f414f）
-        here = pathlib.Path(gitx.git_dir(self.place))
+        here = pathlib.Path(self.g.git_dir(self.place))
         run = here / "graphloops" / "review-loop" / "20261019-000000"
         run.mkdir(parents=True)
         (run / "state.json").write_text("{}\n", encoding="utf-8")
-        dest = pathlib.Path(gitx.common_dir(self.src), "graphloops", "boards-archive", here.name, "graphloops")
+        dest = pathlib.Path(self.g.common_dir(self.src), "graphloops", "boards-archive", here.name, "graphloops")
         rc, out = self.clean()
         self.assertIn(f"消せる（graphloops の盤面は {dest} に写してから消す）", out)
         self.assertFalse(dest.exists(), "見立てだけで写した")
@@ -1001,17 +1001,17 @@ class Departments(unittest.TestCase):
 
     def test_boards_copied_over_a_hand_copy_stay_out_of_the_pruning(self):
         # graphloops の持ち主が手で同じ名前に写した物（印が無い）は、上に写しても印を足さず、片付けで消さない
-        here = pathlib.Path(gitx.git_dir(self.place))
+        here = pathlib.Path(self.g.git_dir(self.place))
         (here / "graphloops" / "new").mkdir(parents=True)
-        hand = pathlib.Path(gitx.common_dir(self.src), "graphloops", "boards-archive", here.name)
+        hand = pathlib.Path(self.g.common_dir(self.src), "graphloops", "boards-archive", here.name)
         (hand / "graphloops" / "old").mkdir(parents=True)
-        self.assertEqual(clean.keep_boards(self.place, gitx), str(hand / "graphloops"))
+        self.assertEqual(clean.keep_boards(self.place, self.g), str(hand / "graphloops"))
         self.assertTrue((hand / "graphloops" / "old").exists() and (hand / "graphloops" / "new").exists())
         self.assertFalse((hand / clean.ARCHIVED).exists())
         self.assertEqual(clean.archived_entries(str(hand.parent)), [])
 
     def test_place_is_kept_when_the_boards_cannot_be_copied(self):
-        (pathlib.Path(gitx.git_dir(self.place)) / "graphloops").mkdir()
+        (pathlib.Path(self.g.git_dir(self.place)) / "graphloops").mkdir()
         real = clean._copy_over
         clean._copy_over = lambda src, dest: (_ for _ in ()).throw(OSError("disk full"))
         self.addCleanup(setattr, clean, "_copy_over", real)
@@ -1028,25 +1028,25 @@ class Departments(unittest.TestCase):
         obj = tmp / "repo" / "objects" / "ab"
         obj.write_text("blob\n", encoding="utf-8")
         obj.chmod(0o444)
-        n, dest = clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        n, dest = clean.keep_tmp(str(tmp), self.src, "ro", self.g)
         obj.chmod(0o644)
         obj.write_text("blob2\n", encoding="utf-8")
         obj.chmod(0o444)
-        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        clean.keep_tmp(str(tmp), self.src, "ro", self.g)
         self.assertEqual(pathlib.Path(dest, "repo", "objects", "ab").read_text(encoding="utf-8"), "blob2\n")
         obj.chmod(0o644)
         shutil.rmtree(tmp / "repo")
         (tmp / "repo").write_text("now a file\n", encoding="utf-8")
-        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        clean.keep_tmp(str(tmp), self.src, "ro", self.g)
         self.assertEqual(pathlib.Path(dest, "repo").read_text(encoding="utf-8"), "now a file\n")
         # 逆の向き: 写し先に読み取り専用で写ったファイルが、写し元でフォルダに替わった
         (tmp / "repo").chmod(0o444)
-        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        clean.keep_tmp(str(tmp), self.src, "ro", self.g)
         (tmp / "repo").chmod(0o644)
         (tmp / "repo").unlink()
         (tmp / "repo").mkdir()
         (tmp / "repo" / "in").write_text("in\n", encoding="utf-8")
-        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        clean.keep_tmp(str(tmp), self.src, "ro", self.g)
         self.assertEqual(pathlib.Path(dest, "repo", "in").read_text(encoding="utf-8"), "in\n")
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "名前付きパイプ（mkfifo）は Windows に無い（Windows でも起きる部分は上の試験で見る）")
@@ -1060,9 +1060,9 @@ class Departments(unittest.TestCase):
         obj.chmod(0o444)
         (tmp / "link").symlink_to("repo")
         os.mkfifo(tmp / "pipe")
-        clean.keep_tmp(str(tmp), self.src, "half", gitx)
+        clean.keep_tmp(str(tmp), self.src, "half", self.g)
         (tmp / "new").write_text("later\n", encoding="utf-8")
-        n, dest = clean.keep_tmp(str(tmp), self.src, "half", gitx)
+        n, dest = clean.keep_tmp(str(tmp), self.src, "half", self.g)
         self.assertEqual(n, 4)
         self.assertEqual(pathlib.Path(dest, "repo", "objects", "ab").read_text(encoding="utf-8"), "blob\n")
         self.assertEqual(os.readlink(os.path.join(dest, "link")), "repo")
@@ -1074,7 +1074,7 @@ class Departments(unittest.TestCase):
         (tmp / "link" / "in").write_text("in\n", encoding="utf-8")
         shutil.rmtree(tmp / "repo")
         (tmp / "repo").write_text("now a file\n", encoding="utf-8")
-        clean.keep_tmp(str(tmp), self.src, "half", gitx)
+        clean.keep_tmp(str(tmp), self.src, "half", self.g)
         self.assertFalse(os.path.islink(os.path.join(dest, "link")))
         self.assertEqual(pathlib.Path(dest, "link", "in").read_text(encoding="utf-8"), "in\n")
         self.assertEqual(pathlib.Path(dest, "repo").read_text(encoding="utf-8"), "now a file\n")
@@ -1088,7 +1088,7 @@ class Departments(unittest.TestCase):
         (tmp / "locked").chmod(0o300)
         self.addCleanup((tmp / "locked").chmod, 0o700)
         with self.assertRaises(OSError):
-            clean.keep_tmp(str(tmp), self.src, "locked", gitx)
+            clean.keep_tmp(str(tmp), self.src, "locked", self.g)
 
     def test_retire_keeps_everything_when_job_tmp_cannot_be_copied(self):
         tmp = pathlib.Path(tempfile.mkdtemp())
@@ -1121,12 +1121,12 @@ class Departments(unittest.TestCase):
         self.assertTrue(os.path.exists(self.place))
 
     def test_department_whose_session_is_gone_is_still_judged_by_git(self):
-        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs, path: None, gitx.is_clean,
-                                 gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src)
+        rows = clean.departments(self.ports.term.worktrees(self.src), self.g.worktree_attrs, lambda attrs, path: None, self.g.is_clean,
+                                 self.g.unpushed, lambda p: True, self.g.head_sha, source=self.src)
         self.assertEqual([(r["state"], r["removable"], r["session"]) for r in rows], [("gone", True, None)])
         # 順番待ちに頼みが残る部署は畳まない（畳むと頼みが誰にも渡らない。2026-10-18 の受付 b1109e・526db7）
-        rows = clean.departments(self.ports.term.worktrees(self.src), gitx.worktree_attrs, lambda attrs, path: None, gitx.is_clean,
-                                 gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src, queued=lambda p: True)
+        rows = clean.departments(self.ports.term.worktrees(self.src), self.g.worktree_attrs, lambda attrs, path: None, self.g.is_clean,
+                                 self.g.unpushed, lambda p: True, self.g.head_sha, source=self.src, queued=lambda p: True)
         self.assertEqual([(r["removable"], r["reason"]) for r in rows], [(False, "queued")])
 
 

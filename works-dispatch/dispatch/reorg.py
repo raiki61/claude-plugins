@@ -51,12 +51,12 @@ def _renamed(attrs, new_name):
     return json.dumps(list(dict.fromkeys(names)), ensure_ascii=False)
 
 
-def _clash(companies, place, name):
+def _clash(companies, place, name, g):
     """同じ会社のほかの場所が同じ名前（今の名前）を持っていれば、その場所の字。宛先が 1 つに決まらなくなるので止める。ほかの会社の
     同じ名前は「会社/名前」で分けられるので止めない（--task と同じ。0.48.0）。"""
-    here = os.path.realpath(gitx.common_dir(place) or place)
+    here = os.path.realpath(g.common_dir(place) or place)
     for c in companies:
-        if os.path.realpath(gitx.common_dir(c["root"]) or c["root"]) != here:
+        if os.path.realpath(g.common_dir(c["root"]) or c["root"]) != here:
             continue
         for d in c["departments"]:
             if not _same(d["path"], place) and d["attrs"].get("name") == name:
@@ -129,8 +129,8 @@ def _launch_line(a, ports, source, shape, the_role, name, command):
             "終わりに、待ち受けがこの設定で起動し直す（持ち主の手は要らない。会社の形の設定を替えたときも同じ）"]
 
 
-def _shape(source, a):
-    info = tree.read_info(source, os.path.dirname(config.path_of(a.config, os.environ)))
+def _shape(source, a, g):
+    info = tree.read_info(source, os.path.dirname(config.path_of(a.config, os.environ)), g)
     return role.load(info["path"], info["text"]), info["notes"]
 
 
@@ -149,7 +149,7 @@ def reorg(a, ports, cwd):
               f"（本社の会話を窓口として名付けるなら --desk）")
         return 2
     source = gitx.root_of(common)
-    shape, notes = _shape(source, a)
+    shape, notes = _shape(source, a, ports.git)
     notes += shape["problems"]
     the_role = role.current(shape, attrs["role"])
     if a.role:
@@ -175,7 +175,7 @@ def reorg(a, ports, cwd):
         except term.Error:
             sessions_, companies = {}, []   # 名前のぶつかりを確かめられないだけ（属性は書ける）
         talk_name = ports.caller(sessions_)[1]
-        clash = _clash(companies, cwd, a.name)
+        clash = _clash(companies, cwd, a.name, ports.git)
         if clash:
             print(f"止めた: 「{a.name}」という名前の部署がもう在る（{clash}）。宛先が 1 つに決まらないので、別の名前にする")
             return 2
@@ -202,7 +202,7 @@ def desk(a, ports, cwd):
         return 2
     source = gitx.root_of(common)
     attrs = ports.attrs(cwd)
-    shape, notes = _shape(source, a)
+    shape, notes = _shape(source, a, ports.git)
     notes += shape["problems"]
     linked = ports.git.is_main_worktree(cwd) is False   # 部署か PR の作業場（ブランチの worktree）
     if linked and attrs.get("role") and role.current(shape, attrs["role"]) != desk_role(shape, {}, a.role):
@@ -228,7 +228,7 @@ def desk(a, ports, cwd):
     except term.Error as e:
         cfg, sessions_, companies, more = None, {}, [], [f"{term.NAME} を読めないので、名前のぶつかりと会話のアカウントを確かめられない（{e}）"]
     notes += more
-    clash = _clash(companies, cwd, name)
+    clash = _clash(companies, cwd, name, ports.git)
     if clash:
         print("\n".join(notes + [f"止めた: 「{name}」という名前の部署がもう在る（{clash}）。別の名前にする"]))
         return 2

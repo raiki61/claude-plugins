@@ -1,5 +1,5 @@
 """受付の待ち受けと順番待ち（nodes/wake.py・wake_hook.py）と、--ask・--deliver が待ち受けに知らせる道。
-git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
+git（tests/fakegit.py）・herdr・claude は偽物で回す（入口を別の処理として起動する HookProcess だけ、git は一時のフォルダの本物）。"""
 
 import io
 import json
@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 from . import DISPATCH
-from . import test_deliver
+from . import fakegit, test_deliver
 from .test_provision import git
 import gitx
 import health
@@ -297,13 +297,17 @@ class Hook(unittest.TestCase):
     """入口 wake_hook.py: 部署と窓口でだけ待ち、同じ場所の別の会話は待たない。順番待ちを渡し、fresh の部署を空にする。"""
 
     def setUp(self):
+        # git は偽物（tests/fakegit.py）。会社 co は origin の無い clone で、部署「dept」はメインブランチから切った worktree
         d = pathlib.Path(tempfile.mkdtemp())
-        self.src = str(d / "co")
-        git("init", "-q", "-b", "main", self.src)
-        git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
-        self.place = str(d / "dept")
-        git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place)
-        self.inbox = deliver.inbox_of(gitx.common_dir(self.src))
+        self.g = fakegit.FakeGit(str(d / "co"), {}, url="")
+        self.g.origin.clear()
+        self.g.tracking.clear()
+        self.g.has_origin_head = False
+        self.src = self.g.source
+        self.place = self.g.add_worktree(str(d / "dept"), "dept/a", "main")
+        self.repos = fakegit.Repos(self.g)   # フックの git の口（ほかの会社の clone を足せる）
+        fakegit.wire(self, self.repos, wake_hook, role_hook, orders)
+        self.inbox = deliver.inbox_of(self.g.common_dir(self.src))
         self.env = {"WORKS_DISPATCH_CONFIG": "/none/c.toml"}
 
     def plan(self, sid="s1", parent=lambda: 7, cwd=None, same=lambda pid: False):
@@ -311,41 +315,41 @@ class Hook(unittest.TestCase):
 
     def test_waits_only_in_a_named_department_and_names_the_company(self):
         self.assertIsNone(self.plan())
-        provision.mark(self.place, self.src, {"role": "作業"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業"}, self.g)
         self.assertIsNone(self.plan())   # 名前が無ければ宛てられない
-        provision.mark(self.place, self.src, {"name": "調べ", "former-names": '["前"]'}, gitx)
+        provision.mark(self.place, self.src, {"name": "調べ", "former-names": '["前"]'}, self.g)
         got = self.plan()
         self.assertEqual(got["names"], ["co/調べ", "co/前"])
         self.assertEqual(os.path.realpath(got["inbox"]), os.path.realpath(self.inbox))
         self.assertFalse(got["adopt"])
 
     def test_the_desk_needs_its_conversation_id(self):
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
         self.assertIsNone(self.plan(cwd=self.src))   # 代表の clone のほかの会話に横取りさせない
-        provision.mark(self.src, self.src, {"session": "s1"}, gitx)
+        provision.mark(self.src, self.src, {"session": "s1"}, self.g)
         self.assertEqual(self.plan(cwd=self.src)["names"], ["co/窓口"])
 
     def test_another_talk_at_the_place_does_not_wait_but_the_same_process_after_clear_does(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
         self.assertIsNone(self.plan(sid="s9"))   # 同じ場所で開いた別の会話
-        place = gitx.git_dir(self.place)
+        place = self.g.git_dir(self.place)
         wake.claim(self.inbox, place, ["co/調べ"], "s1", 7, "t", 0)
         self.assertIsNone(self.plan(sid="s9", parent=lambda: 8))   # 別の処理の会話
         self.assertTrue(self.plan(sid="s9")["adopt"])   # 同じ処理が /clear で会話の id を替えた
 
     def test_the_desk_follows_a_clear_in_its_own_process_without_the_mark(self):
         # 窓口の /clear で前の待ち受けが TERM を受けて印を消しても、--desk が書いた会話の処理の会話なら続きと見る
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s1", "pid": "7"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s1", "pid": "7"}, self.g)
         self.assertIsNone(self.plan(sid="s9", cwd=self.src))   # 会話の処理が違う（持ち主のほかの会話）
         self.assertTrue(self.plan(sid="s9", cwd=self.src, same=lambda pid: pid == "7")["adopt"])
         # 部署は印で見分ける（部署の場所には会話の処理の番号が無い。--desk は部署の worktree で止まり、写った物は --task が消す）
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
         self.assertIsNone(self.plan(sid="s9", same=lambda pid: True))
 
     def test_a_fresh_department_is_not_cleared_while_an_ask_it_made_has_no_answer(self):
         # 受けた頼みも、そこから出した子の頼みも全部閉じたターンの終わりに空にする（持ち主の承認 dc0aa2。標準 6c364c が子の納品を待つ間）
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH}, gitx)
+                                              "fresh": role.FRESH}, self.g)
         deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
                                  "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "点検"}})
         w = self.emptied()
@@ -360,7 +364,7 @@ class Hook(unittest.TestCase):
         # 子の返事待ちで順番待ちを止めると、子の先が自分の返事待ちのときに輪になり、何時間も止まった（2026-10-18 の割り振り・見渡し）。
         # 空にはせず（子の返事をこの会話で受ける）、次の頼みを渡し、空にしない訳を頭に付ける
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH, "session": "s1"}, gitx)
+                                              "fresh": role.FRESH, "session": "s1"}, self.g)
         deliver.log(self.inbox, {"kind": "handed", "id": "a0", "at": 0, "place": self.place})
         deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
                                  "from": {"name": "調べ", "place": self.place, "session": "s1"}, "to": {"company": "co", "name": "点検"}})
@@ -378,24 +382,24 @@ class Hook(unittest.TestCase):
         self.assertIn("受付 c1", handed[-1]["kept"])
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "held"], [])
         # 次の頼みを受けた後も、同じ会話が前の頼みで出した子は数える
-        self.assertEqual(wake_hook.open_children(self.plan(), gitx.worktree_attrs(self.place)), ["c1"])
-        provision.mark(self.place, self.src, {"session": "s2"}, gitx)   # compact・resume で会話の id が替わっても数える
-        self.assertEqual(wake_hook.open_children(self.plan(sid="s2"), gitx.worktree_attrs(self.place)), ["c1"])
+        self.assertEqual(wake_hook.open_children(self.plan(), self.g.worktree_attrs(self.place)), ["c1"])
+        provision.mark(self.place, self.src, {"session": "s2"}, self.g)   # compact・resume で会話の id が替わっても数える
+        self.assertEqual(wake_hook.open_children(self.plan(sid="s2"), self.g.worktree_attrs(self.place)), ["c1"])
         # 空にしてから渡した頼み（kept の無い handed）より前の物は、前の会話の子なので数えない
         deliver.log(self.inbox, {"kind": "handed", "id": "a2", "at": 9, "place": self.place, "session": "s3"})
-        provision.mark(self.place, self.src, {"session": "s3", "ask": "a2"}, gitx)
-        self.assertEqual(wake_hook.open_children(self.plan(sid="s3"), gitx.worktree_attrs(self.place)), [])
+        provision.mark(self.place, self.src, {"session": "s3", "ask": "a2"}, self.g)
+        self.assertEqual(wake_hook.open_children(self.plan(sid="s3"), self.g.worktree_attrs(self.place)), [])
 
     def test_children_count_only_since_the_ask_and_close_only_in_what_the_waiter_has_read(self):
         attrs = {"name": "調べ", "ask": "a0"}
-        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
         got = self.plan()
         log = lambda r: deliver.log(self.inbox, r)   # noqa: E731
         log({"kind": "ask", "id": "old", "status": "queued", "at": 1, "from": {"name": "調べ", "place": self.place}})   # 前の会話の古い頼み
         log({"kind": "handed", "id": "a0", "at": 5, "place": self.place})
         log({"kind": "ask", "id": "c1", "status": "queued", "at": 6, "from": {"name": "調べ", "place": os.path.join(self.place, "sub")}})
         self.assertEqual(wake_hook.open_children(got, attrs), ["c1"])   # 今の頼みを受けた後の物だけ（作業場の下のフォルダも）
-        place = gitx.git_dir(self.place)
+        place = self.g.git_dir(self.place)
         size = os.path.getsize(os.path.join(self.inbox, wake.LOG))
         os.makedirs(os.path.dirname(wake.pos_path(self.inbox, place)), exist_ok=True)
         pathlib.Path(wake.pos_path(self.inbox, place)).write_text(str(size))   # 待ち受けはここまで読んだ
@@ -407,18 +411,18 @@ class Hook(unittest.TestCase):
     def dept(self, branch, **attrs):
         """同じ会社にもう 1 つ部署を立てる（場所を返す）。"""
         path = os.path.join(os.path.dirname(self.place), branch.replace("/", "-"))
-        git("-C", self.src, "worktree", "add", "-q", "-b", branch, path)
-        provision.mark(path, self.src, attrs, gitx)
+        self.g.add_worktree(path, branch, "main")
+        provision.mark(path, self.src, attrs, self.g)
         return path
 
     def asked(self, ask_id, frm, frm_place, dest, at=2):
         """frm（場所 frm_place）が dest の部署へ頼み、dest の順番待ちに積まれたまま。"""
         deliver.log(self.inbox, {"kind": "ask", "id": ask_id, "status": "queued", "at": at, "from": {"name": frm, "place": frm_place},
                                  "to": {"company": "co", "path": dest}})
-        wake.enqueue(self.inbox, gitx.git_dir(dest), {"id": ask_id, "line": f"頼みです（受付 {ask_id}）", "marks": {"ask": ask_id}})
+        wake.enqueue(self.inbox, self.repos.git_dir(dest), {"id": ask_id, "line": f"頼みです（受付 {ask_id}）", "marks": {"ask": ask_id}})
 
     def listens(self, path, name):
-        wake.claim(self.inbox, gitx.git_dir(path), [f"co/{name}"], f"s-{name}", 7, f"t-{name}", 0)
+        wake.claim(self.inbox, self.g.git_dir(path), [f"co/{name}"], f"s-{name}", 7, f"t-{name}", 0)
 
     @staticmethod
     def ring(edges):
@@ -428,7 +432,7 @@ class Hook(unittest.TestCase):
     def test_two_held_departments_waiting_on_each_other_untie_the_oldest_ask_of_the_ring(self):
         # 調べは点検への c1 の返事を、点検は調べへの q1 の返事を、どちらも今の頼みを納品せずに待ち、順番待ちを渡さない（2026-10-18 の my_notes）
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, self.g)
         other = self.dept("dept/b", **held, name="点検", ask="b0")
         self.asked("20261018-000001-c00001", "調べ", self.place, other)
         self.asked("20261018-000002-q00002", "点検", other, self.place)
@@ -453,7 +457,7 @@ class Hook(unittest.TestCase):
 
     def test_a_failure_while_looking_for_a_ring_does_not_stop_the_listener(self):
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, self.g)
         other = self.dept("dept/b", **held, name="点検", ask="b0")
         self.asked("c1", "調べ", self.place, other)
         self.asked("q1", "点検", other, self.place)
@@ -475,7 +479,7 @@ class Hook(unittest.TestCase):
     def test_a_department_that_only_leads_into_the_ring_is_not_where_the_ring_is_untied(self):
         # 調べ ⇄ 点検 の輪に加え、点検 → 見直し（見直しは調べへ戻らない）。見直しへの頼みが一番古くても、輪の外なので回さない
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, self.g)
         other = self.dept("dept/b", **held, name="点検", ask="b0")
         review = self.dept("dept/c", **held, name="見直し", ask="c0")
         self.asked("20261018-000003-aaaaaa", "調べ", self.place, other)
@@ -483,13 +487,13 @@ class Hook(unittest.TestCase):
         self.asked("20261018-000001-cccccc", "点検", other, review)
         for path, name in ((other, "点検"), (review, "見直し")):
             self.listens(path, name)
-        edges = wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["20261018-000003-aaaaaa"])
+        edges = wake_hook.knot(self.plan(), self.g.worktree_attrs(self.place), ["20261018-000003-aaaaaa"])
         self.assertEqual(self.ring(edges), [("20261018-000002-bbbbbb", "点検", "調べ"), ("20261018-000003-aaaaaa", "調べ", "点検")])
 
     def test_overlapping_rings_pick_the_same_ask_from_every_department(self):
         # 割り振り ⇄ 点検 の輪と、点検 → 見直し → 割り振り の輪が重なる。どの部署から見ても、重なった輪の全体の一番古い頼みを回す
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, self.g)
         check_ = self.dept("dept/b", **held, name="点検", ask="b0")
         review = self.dept("dept/c", **held, name="見直し", ask="c0")
         self.asked("20261018-000005-aaaaaa", "割り振り", self.place, check_)
@@ -498,9 +502,9 @@ class Hook(unittest.TestCase):
         self.asked("20261018-000003-dddddd", "見直し", review, self.place)
         for path, name in ((self.place, "割り振り"), (check_, "点検"), (review, "見直し")):
             self.listens(path, name)
-        here = wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["20261018-000005-aaaaaa"])
+        here = wake_hook.knot(self.plan(), self.g.worktree_attrs(self.place), ["20261018-000005-aaaaaa"])
         got = wake_hook.plan({"cwd": review, "session_id": "s-見直し"}, env=self.env, parent=lambda: 7, same=lambda pid: False)
-        there = wake_hook.knot(got, gitx.worktree_attrs(review), ["20261018-000003-dddddd"])
+        there = wake_hook.knot(got, self.g.worktree_attrs(review), ["20261018-000003-dddddd"])
         self.assertEqual(self.ring(here)[0], ("20261018-000001-cccccc", "点検", "見直し"))
         self.assertEqual(self.ring(there)[0], ("20261018-000001-cccccc", "点検", "見直し"))
         self.assertEqual([e[0] for e in here], ["20261018-000001-cccccc", "20261018-000003-dddddd", "20261018-000005-aaaaaa"])
@@ -508,18 +512,18 @@ class Hook(unittest.TestCase):
     def test_no_ring_when_a_department_on_the_way_carries_its_conversation_over(self):
         # 会話を引き継ぐ部署は、納品し終えれば順番待ちを渡すので、止まっていると見ない
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, self.g)
         other = self.dept("dept/b", role="担当", name="点検", ask="b0", delivered="b0")
         self.asked("c1", "調べ", self.place, other)
         self.asked("q1", "点検", other, self.place)
         self.listens(other, "点検")
-        self.assertIsNone(wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["c1"]))
+        self.assertIsNone(wake_hook.knot(self.plan(), self.g.worktree_attrs(self.place), ["c1"]))
 
     def test_a_ring_through_three_departments_with_an_undelivered_one_in_the_middle_is_found_from_each(self):
         # 割り振りは今の頼みを納品せずに点検への c1 の返事を待ち、点検は見直しへの c2 を、見直しは割り振りへの c3 を待つ（10-18 の
         # claude-plugins。輪の途中に、納品していない永続の担当が入る）
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)   # 納品していない
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, self.g)   # 納品していない
         check_ = self.dept("dept/b", **held, name="点検", ask="b0")
         review = self.dept("dept/c", **held, name="見直し", ask="c0")
         self.asked("20261018-000003-c00001", "割り振り", self.place, check_)
@@ -546,23 +550,22 @@ class Hook(unittest.TestCase):
 
     def test_a_ring_across_two_companies_is_followed_through_each_inbox(self):
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, self.g)
         src2 = os.path.join(os.path.dirname(self.place), "co2")
-        git("init", "-q", "-b", "main", src2)
-        git("-C", src2, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
-        other = os.path.join(os.path.dirname(self.place), "notes")
-        git("-C", src2, "worktree", "add", "-q", "-b", "dept/n", other)
-        provision.mark(other, src2, {**held, "name": "調べもの", "ask": "n0"}, gitx)
-        inbox2 = deliver.inbox_of(gitx.common_dir(src2))
+        g2 = fakegit.FakeGit(src2, {}, url="")
+        self.repos.gits.append(g2)
+        other = g2.add_worktree(os.path.join(os.path.dirname(self.place), "notes"), "dept/n", "main")
+        provision.mark(other, src2, {**held, "name": "調べもの", "ask": "n0"}, g2)
+        inbox2 = deliver.inbox_of(g2.common_dir(src2))
         # 頼みの行は頼んだ側の会社の受付箱に、順番待ちは受ける側の会社の受付箱に在る
         self.asked("c1", "割り振り", self.place, other)
         os.unlink(wake.find(self.inbox, "c1")["path"])
-        wake.enqueue(inbox2, gitx.git_dir(other), {"id": "c1", "marks": {"ask": "c1"}})
+        wake.enqueue(inbox2, g2.git_dir(other), {"id": "c1", "marks": {"ask": "c1"}})
         deliver.log(inbox2, {"kind": "ask", "id": "q1", "status": "queued", "at": 2, "from": {"name": "調べもの", "place": other},
                              "to": {"company": "co", "path": self.place}})
-        wake.enqueue(self.inbox, gitx.git_dir(self.place), {"id": "q1", "marks": {"ask": "q1"}})
-        wake.claim(inbox2, gitx.git_dir(other), ["co2/調べもの"], "s2", 7, "t2", 0)
-        edges = wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["c1"])
+        wake.enqueue(self.inbox, self.g.git_dir(self.place), {"id": "q1", "marks": {"ask": "q1"}})
+        wake.claim(inbox2, g2.git_dir(other), ["co2/調べもの"], "s2", 7, "t2", 0)
+        edges = wake_hook.knot(self.plan(), self.g.worktree_attrs(self.place), ["c1"])
         self.assertEqual(self.ring(edges), [("c1", "割り振り", "調べもの"), ("q1", "調べもの", "割り振り")])
         runs = []
         wake_hook.untie(self.plan(), edges, spawn=lambda argv, **kw: runs.append((argv, kw["cwd"])), now=lambda: 9, detach=False)
@@ -573,16 +576,16 @@ class Hook(unittest.TestCase):
 
     def test_no_ring_once_the_ask_has_been_handed(self):
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, self.g)
         other = self.dept("dept/b", **held, name="点検", ask="b0")
         self.asked("c1", "調べ", self.place, other)
         self.asked("q1", "点検", other, self.place)
         self.listens(other, "点検")
-        wake.take(self.inbox, gitx.git_dir(other))   # 点検が c1 を受けた（動いている）
-        self.assertIsNone(wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["c1"]))
+        wake.take(self.inbox, self.g.git_dir(other))   # 点検が c1 を受けた（動いている）
+        self.assertIsNone(wake_hook.knot(self.plan(), self.g.worktree_attrs(self.place), ["c1"]))
 
     def test_untie_takes_the_ask_to_a_task_named_after_its_owner_and_logs_the_ring(self):
-        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
         runs = []
 
         def spawn(argv, **kw):
@@ -602,7 +605,7 @@ class Hook(unittest.TestCase):
 
     def test_untie_stops_when_the_default_role_is_not_in_the_shape(self):
         # 前は既定の役（作業）に倒して回し、役の名前を英語で書いた会社では役の無い部署を立てえた
-        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
         edges = [("20261018-000001-bbbbbb", "点検", "調べ", self.place)]
         runs = []
         with mock.patch.object(role, "default", return_value=(None, "既定の役 作業 が会社の形に無い")):
@@ -614,17 +617,17 @@ class Hook(unittest.TestCase):
     def test_a_fresh_department_woken_by_a_notice_is_cleared_at_the_end_of_that_turn(self):
         # 頼みを受けていないターン（納品の知らせで起きた）の後も、次の頼みを空の会話で受ける（6a9337）
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
-                                              "fresh": role.FRESH}, gitx)
+                                              "fresh": role.FRESH}, self.g)
         stop = {"hook_event_name": "Stop", "session_id": "s1"}
-        self.assertFalse(wake_hook.must_clear(stop, gitx.worktree_attrs(self.place)))   # 空にした後
+        self.assertFalse(wake_hook.must_clear(stop, self.g.worktree_attrs(self.place)))   # 空にした後
         err = io.StringIO()
         out = wake_hook.WithRole(err, {"session_id": "s1"}, changed=lambda payload: None, woke=lambda: wake_hook.woken(self.plan()))
         out.write("納品です（受付 d1）\n")
-        self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
-        self.assertTrue(wake_hook.must_clear(stop, gitx.worktree_attrs(self.place)))   # 起動されたターンの終わりに空にする
-        provision.mark(self.place, self.src, {"cleared": "a0", "fresh": None}, gitx)   # 会話を引き継ぐ役では外さない
+        self.assertNotIn("cleared", self.g.worktree_attrs(self.place))
+        self.assertTrue(wake_hook.must_clear(stop, self.g.worktree_attrs(self.place)))   # 起動されたターンの終わりに空にする
+        provision.mark(self.place, self.src, {"cleared": "a0", "fresh": None}, self.g)   # 会話を引き継ぐ役では外さない
         wake_hook.woken(self.plan())
-        self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
+        self.assertEqual(self.g.worktree_attrs(self.place)["cleared"], "a0")
 
     def test_the_wake_text_starts_with_the_new_role_text_when_it_changed(self):
         err = io.StringIO()
@@ -642,40 +645,31 @@ class Hook(unittest.TestCase):
 
     def emptied(self):
         """/clear を受けて空になる窓（空にした後の会話の始まりの待ち受けが、新しい会話の id で印を書く）。"""
-        return Window(self.place, on_clear=lambda: wake.claim(self.inbox, gitx.git_dir(self.place), ["co/調べ"], "s-new", 7, "t2", 0))
+        return Window(self.place, on_clear=lambda: wake.claim(self.inbox, self.g.git_dir(self.place), ["co/調べ"], "s-new", 7, "t2", 0))
 
     def put(self, ask_id, **marks):
-        wake.enqueue(self.inbox, gitx.git_dir(self.place), {"id": ask_id, "line": f"頼みです（受付 {ask_id}）",
+        wake.enqueue(self.inbox, self.g.git_dir(self.place), {"id": ask_id, "line": f"頼みです（受付 {ask_id}）",
                                                              "marks": {"ask": ask_id, "boss": "窓口", **marks}})
 
     def test_hands_the_next_ask_only_after_the_last_one_was_delivered(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0"}, self.g)
         self.put("a1", **{"ask-digest": "d1"})
         self.assertIsNone(self.checker()())   # a0 を納品していない
-        provision.mark(self.place, self.src, {"delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
         self.assertEqual(self.checker()(), ("wake", "頼みです（受付 a1）"))
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["ask"], attrs["boss"], attrs["ask-digest"]), ("a1", "窓口", "d1"))
         self.assertEqual(deliver.records(self.inbox)[-1]["kind"], "handed")
         self.assertIsNone(self.checker()())   # 渡した物は順番待ちから消える
 
     def with_origin(self):
-        """self.src に origin（手元の bare リポジトリ）を付け、メインブランチを push する。origin に commit を足す関数を返す。"""
-        bare = str(pathlib.Path(self.src).parent / "origin.git")
-        git("init", "-q", "--bare", "-b", "main", bare)
-        git("-C", self.src, "remote", "add", "origin", bare)
-        git("-C", self.src, "push", "-q", "origin", "main")
-        git("-C", self.src, "remote", "set-head", "origin", "main")
-        other = str(pathlib.Path(self.src).parent / "other")
-        git("clone", "-q", bare, other)
+        """self.src に origin を付け、メインブランチを push する。origin に（ほかの clone から）commit を足す関数を返す。"""
+        self.g.url = str(pathlib.Path(self.src).parent / "origin.git")
+        self.g.origin["main"] = self.g.tracking["main"] = self.g.local["main"]
+        self.g.has_origin_head = True
 
         def land(rel, text="x"):
-            f = pathlib.Path(other, rel)
-            f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(text, encoding="utf-8")
-            git("-C", other, "add", "-A")
-            git("-C", other, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", rel)
-            git("-C", other, "push", "-q", "origin", "HEAD:main")
+            self.g.push_origin("main", {rel: text}, rel)
         return land
 
     def test_a_persistent_department_follows_the_main_branch_before_the_next_ask_and_restarts_for_its_agents(self):
@@ -694,7 +688,7 @@ class Hook(unittest.TestCase):
                                   key_of=lambda cwd, a: same, follow=lambda got_, attrs: seen.append(1))
         self.assertEqual(check()[0], "wake")
         self.assertEqual(seen, [])
-        provision.mark(self.place, self.src, {"delivered": "a0b", "cleared": "a0b"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "a0b", "cleared": "a0b"}, self.g)
         self.put("a1")
         check = wake_hook.checker(self.plan(), stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
                                   restart=lambda got_, key: False, key_of=lambda cwd, a: same)
@@ -703,27 +697,27 @@ class Hook(unittest.TestCase):
         followed = deliver.records(self.inbox)[-1]["followed"]   # 進めたことを、渡す字の頭と台帳の handed の行に添える
         self.assertTrue(text.startswith(f"（{followed}）\n"), text)
         self.assertIn("1 個の commit を取り込んだ", followed)
-        self.assertEqual(gitx.head_sha(self.place), git("-C", self.src, "rev-parse", "origin/main"))
-        self.assertNotIn(wake.MOVE_TO, gitx.worktree_attrs(self.place))   # 起動するときに読むファイルは替わっていない
+        self.assertEqual(self.g.head_sha(self.place), self.g.rev(self.src, "origin/main"))
+        self.assertNotIn(wake.MOVE_TO, self.g.worktree_attrs(self.place))   # 起動するときに読むファイルは替わっていない
         # 役の定義が替われば、今のアカウントの名指しを印す（区切りの --move --if-changed が同じアカウントのまま起動し直す）
         land(".claude/agents/調べ.md")
-        provision.mark(self.place, self.src, {"delivered": "a1", "cleared": "a1"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "a1", "cleared": "a1"}, self.g)
         self.put("a2")
-        got = wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place))
+        got = wake_hook.follow_main(self.plan(), self.g.worktree_attrs(self.place))
         self.assertIn(".claude/agents/調べ.md", got)
         self.assertIn("同じアカウントのまま起動し直してから渡す", got)
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
-        self.assertIsNone(wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place)))   # もう先頭を含む
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
+        self.assertIsNone(wake_hook.follow_main(self.plan(), self.g.worktree_attrs(self.place)))   # もう先頭を含む
         # 会社の形だけの替わりは、起動の設定と役の文が別に見るので名指ししない
-        provision.mark(self.place, self.src, {wake.MOVE_TO: None}, gitx)
+        provision.mark(self.place, self.src, {wake.MOVE_TO: None}, self.g)
         land(".claude/company.toml")
-        self.assertNotIn("起動し直", wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place)))
-        self.assertNotIn(wake.MOVE_TO, gitx.worktree_attrs(self.place))
+        self.assertNotIn("起動し直", wake_hook.follow_main(self.plan(), self.g.worktree_attrs(self.place)))
+        self.assertNotIn(wake.MOVE_TO, self.g.worktree_attrs(self.place))
         # ほかのアカウントへ移す名指しは書き替えない
-        provision.mark(self.place, self.src, {wake.MOVE_TO: "a2"}, gitx)
+        provision.mark(self.place, self.src, {wake.MOVE_TO: "a2"}, self.g)
         land(".claude/settings.json")
-        wake_hook.follow_main(self.plan(), gitx.worktree_attrs(self.place))
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a2")
+        wake_hook.follow_main(self.plan(), self.g.worktree_attrs(self.place))
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.MOVE_TO], "a2")
 
     def test_a_persistent_department_restarts_on_the_same_account_when_following_changed_its_agents(self):
         # 進めて役の定義が替わったら、待ち受けは渡す前に、同じアカウントのまま起動し直す（--move の名指しの道。受付 c149fa と 72f7e4）
@@ -742,28 +736,28 @@ class Hook(unittest.TestCase):
                                   restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: same)
         self.assertEqual(check(), ("end", None))   # 起動し直した会話の待ち受けが渡す
         self.assertEqual(tried, [same])
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "followed"]   # 渡す行が無くても、進めたことは残す
         self.assertIn(".claude/agents/調べ.md", row["detail"])
-        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)
 
     def test_a_persistent_department_with_commits_not_on_the_main_branch_is_not_moved(self):
         # 書きかけの作業（メインブランチに無い commit）は書き換えず、受けた会話に訳を渡す
         land = self.with_origin()
         land(".claude/agents/調べ.md")
-        git("-C", self.place, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "wip")
-        head = gitx.head_sha(self.place)
+        self.g.commit(self.place, {}, "wip")
+        head = self.g.head_sha(self.place)
         attrs = self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1")
         got = wake_hook.follow_main(self.plan(), attrs)
         self.assertIn("main に無い commit が 1 個在るので", got)
-        self.assertEqual(gitx.head_sha(self.place), head)
-        self.assertNotIn(wake.MOVE_TO, gitx.worktree_attrs(self.place))
+        self.assertEqual(self.g.head_sha(self.place), head)
+        self.assertNotIn(wake.MOVE_TO, self.g.worktree_attrs(self.place))
         # 読めなくても頼みは渡す（訳を添える）
         self.assertIn("進められなかった", wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: 1 / 0))
         # エフェメラルの部署（頼みごとにメインブランチから切る）と窓口は進めない
         self.assertIsNone(wake_hook.follow_main(self.plan(), {**attrs, "lifecycle": gitx.EPHEMERAL}))
         # 空にできずに待つ間（5 秒ごとに見直す）も、進めるのと台帳の行は順番待ちの先頭の頼みごとに 1 度
-        provision.mark(self.place, self.src, {"cleared": None}, gitx)   # 前の頼みの後をまだ空にしていない
+        provision.mark(self.place, self.src, {"cleared": None}, self.g)   # 前の頼みの後をまだ空にしていない
         self.put("a1")
         seen = []
         check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place, status="working"), now=lambda: 5,
@@ -779,46 +773,48 @@ class Hook(unittest.TestCase):
         land("notes.md")
         attrs = self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1")
 
+        real = self.g
+
         class G:
             def __getattr__(self, name):
-                return getattr(gitx, name)
+                return getattr(real, name)
 
             def changed_paths(self, *a):
                 raise gitx.GitError("読めない")
         got = wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: provision.follow_main(cwd, G()))
         self.assertIn("比べられなかった", got)
-        self.assertEqual(gitx.head_sha(self.place), git("-C", self.src, "rev-parse", "origin/main"))
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
+        self.assertEqual(self.g.head_sha(self.place), self.g.rev(self.src, "origin/main"))
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
 
     def test_does_not_hand_the_next_ask_when_one_arrived_after_it_looked(self):
         # 上で属性を読んだ後に、--ask が窓に別の頼みを打って属性を書いた。錠の中で読み直し、渡さずに順番待ちに残す（渡すと、
         # 後に書いた頼み元が前の頼みの頼み元を上書きする。my_notes の受付 20261017-082903-87f45f）
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0", "delivered": "a0"}, self.g)
         self.put("a1")
         reads = []
 
         def attrs_of(cwd):
             reads.append(cwd)
             if len(reads) == 2:   # 錠の中の読み直しの前に、ほかの道が頼みを書いた
-                provision.mark(self.place, self.src, {"ask": "b1", "boss": "段取り"}, gitx)
-            return gitx.worktree_attrs(cwd)
+                provision.mark(self.place, self.src, {"ask": "b1", "boss": "段取り"}, self.g)
+            return self.g.worktree_attrs(cwd)
         check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
                                   attrs_of=attrs_of)
         self.assertIsNone(check())
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["ask"], attrs["boss"]), ("b1", "段取り"))
-        self.assertEqual([q["id"] for q in wake.queued(self.inbox, gitx.git_dir(self.place))], ["a1"])
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.g.git_dir(self.place))], ["a1"])
 
     def test_fresh_department_is_cleared_when_it_stops_after_delivering(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH}, gitx)
+                                              "fresh": role.FRESH}, self.g)
         self.put("a1")
         w = self.emptied()
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(self.checker(window=w)(), ("end", None))   # 渡すのは空にした後の会話の始まりの待ち受け
         self.assertEqual(w.writes[0], deliver.CLEAR)
-        self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
-        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)
+        self.assertEqual(self.g.worktree_attrs(self.place)["cleared"], "a0")
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)
         # 空にした後（SessionStart）は渡す
         got = wake_hook.checker(self.plan(), {"hook_event_name": "SessionStart"}, h=Window(self.place), now=lambda: 5)
         self.assertEqual(got(), ("wake", "頼みです（受付 a1）"))
@@ -827,29 +823,29 @@ class Hook(unittest.TestCase):
         # /clear を打っても空になったのを見られなければ、空にした印を書かず、この待ち受けが続いて空にするのを試し直す（空にした
         # つもりで終わると、次の待ち受けが張られず順番待ちが止まる。2026-10-17 に my_notes のノートの手入れで約 70 分止まった）
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH}, gitx)
+                                              "fresh": role.FRESH}, self.g)
         self.put("a1")
         w = Window(self.place)
         check = self.checker(window=w)
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(check(), wake.HOLD)   # 終わらない（"end" なら、この待ち受けの後を継ぐ者が居ない）
         self.assertEqual(w.writes[0], deliver.CLEAR)
-        self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.CLEAR_TYPED], "s1")   # 打つ前に、打った会話を書く（own_clear）
+        self.assertNotIn("cleared", self.g.worktree_attrs(self.place))
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.CLEAR_TYPED], "s1")   # 打つ前に、打った会話を書く（own_clear）
         held = [r for r in deliver.records(self.inbox) if r["kind"] == "held"]
         self.assertIn("空になったのを見られない", held[0]["detail"])
         w.on_clear = self.emptied().on_clear   # 試し直しで空になった
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(check(), ("end", None))
-        self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
-        self.assertNotIn(wake.CLEAR_TYPED, gitx.worktree_attrs(self.place))
+        self.assertEqual(self.g.worktree_attrs(self.place)["cleared"], "a0")
+        self.assertNotIn(wake.CLEAR_TYPED, self.g.worktree_attrs(self.place))
 
     def test_a_clear_the_watcher_typed_but_left_unsent_is_sent_and_not_held_as_typed_text(self):
         # 2026-10-20 に my_notes の調べもので、待ち受けが打った /clear が、会話がまた動き出したターンの間に送られずに入力フィールドに残り、
         # 次の試しからはその字（「/clear [name]」。[name] は Claude Code の引数の候補で、薄字で描かれない）を人の打ちかけと見て、
         # 順番待ちの 5 件が 3 時間渡らなかった。打った会話の印（company.clear-typed）と字が合えば Enter で送り、打ち足さない
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH, "session": "s1"}, gitx)
+                                              "fresh": role.FRESH, "session": "s1"}, self.g)
         self.put("a1")
         attrs = {"session": "s1", wake.CLEAR_TYPED: "s1"}
         self.assertTrue(wake.own_clear("/clear", attrs))
@@ -860,25 +856,25 @@ class Hook(unittest.TestCase):
                               ("/clear 覚え書き", "s1"),   # 人が後ろに打ち足した
                               ("/clear [a] 覚え書き [b]", "s1"),
                               ("/clearx", "s1")):
-            provision.mark(self.place, self.src, {wake.CLEAR_TYPED: typed_in}, gitx)
+            provision.mark(self.place, self.src, {wake.CLEAR_TYPED: typed_in}, self.g)
             w = Window(self.place, box=box)
             self.assertEqual(self.checker(window=w)(), wake.HOLD, box)
             self.assertEqual(w.writes, [], box)
-        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s1"}, gitx)
+        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s1"}, self.g)
         w = Window(self.place, box="/clear [name]")
         empty = self.emptied().on_clear
         w.send_keys = lambda pane, *keys: (w.writes.append(keys), keys == ("enter",) and empty())
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(self.checker(window=w)(), ("end", None))
         self.assertEqual(w.writes, [("enter",)])   # /clear を打ち足さない（打ち足すと /clear/clear になる）
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual(attrs["cleared"], "a0")
         self.assertNotIn(wake.CLEAR_TYPED, attrs)
 
     def fresh_dept(self, **more):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
-                                              "fresh": role.FRESH, "job": "j1", **more}, gitx)
-        return gitx.worktree_attrs(self.place)
+                                              "fresh": role.FRESH, "job": "j1", **more}, self.g)
+        return self.g.worktree_attrs(self.place)
 
     def test_fresh_department_restarts_before_the_next_ask_when_the_shape_changed_its_model(self):
         # /clear は起動したときの --model・--effort を残すので、会社の形の値が起動したときと違えば起動し直す（6bdc72）
@@ -905,7 +901,7 @@ class Hook(unittest.TestCase):
                                   restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: opus)
         self.assertEqual(check(), ("end", None))   # 起動し直した会話の待ち受けが渡す
         self.assertEqual(tried, [opus])
-        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)
         check = wake_hook.checker(got, stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
                                   restart=lambda got_, key: False, key_of=lambda cwd, a: opus)
         self.assertEqual(check(), ("wake", "頼みです（受付 a1）"))   # 起動し直せなければ、前の会話に渡す
@@ -936,9 +932,9 @@ class Hook(unittest.TestCase):
         self.assertFalse(wake_hook.early_due(got, {**here, "config": os.path.join(d, "無い.toml")}, env={}))   # 設定が無ければ控えも無い
         self.assertFalse(wake_hook.early_due(got, {**here, wake.MOVE_KEPT: "a2"}, env={}))   # 前に起動できなかった先は選ばない
         # 目安に達したのに移す先が無ければ、訳を台帳に 1 度だけ残す
-        provision.mark(self.place, self.src, {"config": cfg}, gitx)
+        provision.mark(self.place, self.src, {"config": cfg}, self.g)
         for _ in range(2):
-            self.assertFalse(wake_hook.early_due(got, {**gitx.worktree_attrs(self.place), wake.MOVE_KEPT: "a2"}, env={}))
+            self.assertFalse(wake_hook.early_due(got, {**self.g.worktree_attrs(self.place), wake.MOVE_KEPT: "a2"}, env={}))
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((row["status"], row["to"], row["why"]), ("skipped", None, wake.EARLY))
         self.assertIn("ほかのアカウントが無い", row["detail"])
@@ -959,8 +955,8 @@ class Hook(unittest.TestCase):
         # my_notes の受付 4bae53: 渡した字は殺された会話の処理と消え、起動し直した会話は move-brief.md の「頼みは無い」だけを読んだ
         boss_inbox = tempfile.mkdtemp()
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "q1", "delivered": "q0", "session": "s1",
-                                              "boss": "段取り", "boss-inbox": boss_inbox}, gitx)
-        brief = os.path.join(gitx.git_dir(self.place), "move-brief.md")
+                                              "boss": "段取り", "boss-inbox": boss_inbox}, self.g)
+        brief = os.path.join(self.g.git_dir(self.place), "move-brief.md")
         pathlib.Path(brief).write_text("起動し直した。受けている頼みは無い。次の頼みを待つ。\n", encoding="utf-8")
         talk = os.path.join(self.place, "t.jsonl")
         pathlib.Path(talk).write_text('{"content": "move-brief.md を読んで進めてください。"}\n', encoding="utf-8")
@@ -970,7 +966,7 @@ class Hook(unittest.TestCase):
         self.assertIn("受付 q1、段取り から", text)
         self.assertIn("本文は 段取り に問い合わせる", text)   # 本文のファイルが無ければ、無いパスを指さない
         pathlib.Path(boss_inbox, "q1-ask.md").write_text("頼み", encoding="utf-8")
-        self.assertIn(os.path.join(boss_inbox, "q1-ask.md"), wake_hook.again_text(gitx.worktree_attrs(self.place), "/d.py"))
+        self.assertIn(os.path.join(boss_inbox, "q1-ask.md"), wake_hook.again_text(self.g.worktree_attrs(self.place), "/d.py"))
         self.assertIn("--deliver", text)
         (again,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "handed"]
         self.assertEqual((again["id"], again["session"]), ("q1", "s1"))
@@ -979,21 +975,21 @@ class Hook(unittest.TestCase):
         self.assertIsNone(self.checker({**stop, "transcript_path": None})())   # 記録の場所が無ければ届いたと見る
 
     def test_an_ask_the_talk_saw_is_not_handed_again(self):
-        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "q1", "delivered": "q0", "session": "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "q1", "delivered": "q0", "session": "s1"}, self.g)
         talk = os.path.join(self.place, "t.jsonl")
         stop = {"hook_event_name": "Stop", "transcript_path": talk}
         pathlib.Path(talk).write_text('{"content": "頼みです（受付 q1）"}\n', encoding="utf-8")
         self.assertIsNone(self.checker(stop)())
         # --move の最初の文で渡した頼み（move-brief.md に受付が在る）
         pathlib.Path(talk).write_text('{"content": "move-brief.md を読んで進めてください。"}\n', encoding="utf-8")
-        pathlib.Path(gitx.git_dir(self.place), "move-brief.md").write_text("受け持ちの頼み（受付 q1）を続ける", encoding="utf-8")
+        pathlib.Path(self.g.git_dir(self.place), "move-brief.md").write_text("受け持ちの頼み（受付 q1）を続ける", encoding="utf-8")
         self.assertIsNone(self.checker(stop)())
         # 頼みを持つ会話がこの会話でなければ見ない
         pathlib.Path(talk).write_text("{}\n", encoding="utf-8")
         got = self.plan()
-        self.assertTrue(wake_hook.unseen(got, stop, gitx.worktree_attrs(self.place)))
-        provision.mark(self.place, self.src, {"session": "s9"}, gitx)
-        self.assertFalse(wake_hook.unseen(got, stop, gitx.worktree_attrs(self.place)))
+        self.assertTrue(wake_hook.unseen(got, stop, self.g.worktree_attrs(self.place)))
+        provision.mark(self.place, self.src, {"session": "s9"}, self.g)
+        self.assertFalse(wake_hook.unseen(got, stop, self.g.worktree_attrs(self.place)))
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "handed"], [])
 
     def test_restart_first_waits_for_the_move_and_hands_the_ask_back_when_the_talk_was_not_stopped(self):
@@ -1008,27 +1004,27 @@ class Hook(unittest.TestCase):
 
         def spawn(argv, **kw):
             seen.append((argv, kw["cwd"]))
-            self.assertEqual(gitx.worktree_attrs(self.place)[wake.RESTARTING], "j1")   # 走らせる前に印を付ける
+            self.assertEqual(self.g.worktree_attrs(self.place)[wake.RESTARTING], "j1")   # 走らせる前に印を付ける
             return Done()
         self.assertFalse(wake_hook.restart_first(got, opus, spawn=spawn, now=lambda: 5))
         (argv, cwd), = seen
         self.assertEqual(argv[1:], ["-u", wake_hook.DISPATCH_PY, "--move", "co/調べ", "--if-changed"])
         self.assertEqual(cwd, self.place)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn(wake.RESTARTING, attrs)
         self.assertEqual(attrs[wake.RESTART_KEPT], opus)   # 同じ値では試し直さない
 
         def stopped(argv, **kw):   # --move が前の会話を止めて印を外した
-            provision.mark(self.place, self.src, {wake.RESTARTING: None}, gitx)
+            provision.mark(self.place, self.src, {wake.RESTARTING: None}, self.g)
             return Done()
         self.assertTrue(wake_hook.restart_first(got, opus, spawn=stopped, now=lambda: 5))
 
         class Later:   # --move が今は起動し直さない（ターンの途中・打ちかけの字）で終わった
             def poll(self):
                 return wake.NOT_NOW
-        provision.mark(self.place, self.src, {wake.RESTART_KEPT: None}, gitx)
+        provision.mark(self.place, self.src, {wake.RESTART_KEPT: None}, self.g)
         self.assertFalse(wake_hook.restart_first(got, opus, spawn=lambda argv, **kw: Later(), now=lambda: 5))
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn(wake.RESTARTING, attrs)
         self.assertNotIn(wake.RESTART_KEPT, attrs)   # 次の区切りでまた試す
 
@@ -1055,7 +1051,7 @@ class Hook(unittest.TestCase):
     def test_a_break_marked_by_an_earlier_talk_does_not_restart_this_one(self):
         # 区切りの印は打った会話の id。前の会話の印が残っていても、今の会話（持ち主と話している）を起動し直さない（16:03 の段取り）
         opus = role.launch_key({"model": "opus"})
-        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s0"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s0"}, self.g)
         tried, w = [], Window(self.place)
         check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop", "session_id": "s1"}, h=w, now=lambda: 5, me=lambda: ME,
                                   restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: opus)
@@ -1064,21 +1060,21 @@ class Hook(unittest.TestCase):
 
     def test_fresh_department_is_not_cleared_while_busy_typed_or_waiting_on_background_work(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH}, gitx)
+                                              "fresh": role.FRESH}, self.g)
         for payload, window in (({"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}, Window(self.place)),
                                 ({"hook_event_name": "Stop"}, Window(self.place, status="working")),
                                 ({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ"))):
             self.assertEqual(self.checker(payload, window)(), wake.HOLD)   # 空にせず、空にできるまで待つ
             self.assertEqual(window.writes, [])
-        self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
+        self.assertNotIn("cleared", self.g.worktree_attrs(self.place))
 
     def test_fresh_department_that_cannot_be_cleared_holds_the_next_ask(self):
         # 空にできない間は、前の会話のまま次の頼みを渡さない（my_notes の受付 6f32b7 が 26 万トークンの会話のまま渡った）。
         # 渡さない訳は台帳に 1 度だけ残し、空にできたら次のターンに回す
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH}, gitx)
+                                              "fresh": role.FRESH}, self.g)
         self.put("a1")
-        place = gitx.git_dir(self.place)
+        place = self.g.git_dir(self.place)
         for payload, window in (({"hook_event_name": "Stop"}, Window(self.place, status="working")),
                                 ({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ")),
                                 ({"hook_event_name": "Stop"}, Window(self.place, front=[]))):
@@ -1087,7 +1083,7 @@ class Hook(unittest.TestCase):
             self.assertEqual(check(), wake.HOLD)
             self.assertEqual(window.writes, [])
             self.assertEqual(len(wake.queued(self.inbox, place)), 1)
-            self.assertEqual(gitx.worktree_attrs(self.place)["ask"], "a0")
+            self.assertEqual(self.g.worktree_attrs(self.place)["ask"], "a0")
         held = [r for r in deliver.records(self.inbox) if r["kind"] == "held"]
         self.assertEqual(len(held), 3)   # 訳ごとに 1 度
         self.assertIn("会話がまだ動いている", held[0]["detail"])
@@ -1099,7 +1095,7 @@ class Hook(unittest.TestCase):
         self.assertEqual(kind, "wake")
         self.assertIn(wake_hook.NOT_CLEARED_BACKGROUND, text.splitlines()[0])
         self.assertEqual(tried, [])
-        provision.mark(self.place, self.src, {"delivered": "a1"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "a1"}, self.g)
         self.put("a2")
         # 会話が前の会話を持って始まった（resume・compact）ときも空にしてから。空で始まった時は渡す
         self.assertEqual(self.checker({"hook_event_name": "SessionStart", "source": "resume"}, Window(self.place, status="working"))(),
@@ -1110,7 +1106,7 @@ class Hook(unittest.TestCase):
 
     def test_a_held_watcher_tries_again_each_beat_until_it_can_clear(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH}, gitx)
+                                              "fresh": role.FRESH}, self.g)
         self.put("a1")
         w = Window(self.place, status="working", on_clear=self.emptied().on_clear)
         got = self.plan()
@@ -1128,27 +1124,27 @@ class Hook(unittest.TestCase):
                                                                                     now=lambda: 5, me=lambda: ME))
         self.assertEqual(rc, 0)
         self.assertEqual(w.writes[0], deliver.CLEAR)
-        self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
-        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)   # 渡すのは空にした後の待ち受け
+        self.assertEqual(self.g.worktree_attrs(self.place)["cleared"], "a0")
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)   # 渡すのは空にした後の待ち受け
 
     def test_a_resident_talk_is_cleared_at_the_end_of_the_turn_it_marked_a_break(self):
         # 会話を引き継ぐ部署と窓口は、会話が自分で区切りと印した（--rest）ターンの終わりに、機械が窓に /clear を打つ（持ち主が手で打たない）
-        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, self.g)
         self.put("a1")
         w = self.emptied()
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(self.checker({"hook_event_name": "Stop", "session_id": "s1"}, w)(), ("end", None))
         self.assertEqual(w.writes[0], deliver.CLEAR)
-        self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))   # 印は 1 度で外れる
-        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)   # 次は空にした後の会話に渡す
+        self.assertNotIn(wake.REST, self.g.worktree_attrs(self.place))   # 印は 1 度で外れる
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)   # 次は空にした後の会話に渡す
 
     def test_a_break_restarts_the_talk_instead_of_clearing_it_when_the_shape_changed_its_launch(self):
         # 窓口の役の起動の設定を替えたら、区切りのターンの終わりに /clear でなく起動し直す（順番待ちが空でも。持ち主の手で起動し直さない）
         opus = role.launch_key({"model": "opus"})
-        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, self.g)
         stop = {"hook_event_name": "Stop", "session_id": "s1"}
         got = self.plan()
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus, at_rest=True), opus)
         self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus))   # 区切りでなければ引き継ぐ
         self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: role.launch_key(None), at_rest=True))
@@ -1167,7 +1163,7 @@ class Hook(unittest.TestCase):
     def test_a_break_clears_over_a_faint_suggestion_and_says_why_when_it_hands_without_clearing(self):
         # 入力フィールドの薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補を打ちかけと見て
         # 区切りの /clear を 1 時間打たず、訳を残さないまま前の会話に 12 回渡した
-        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, self.g)
         self.put("a1")
         stop = {"hook_event_name": "Stop", "session_id": "s1"}
         w = self.emptied()
@@ -1176,7 +1172,7 @@ class Hook(unittest.TestCase):
             self.assertEqual(self.checker(stop, w)(), ("end", None))
         self.assertEqual(w.writes[0], deliver.CLEAR)
         # 人の打ちかけの字は消さない。前の会話のまま渡すなら、空にできなかった訳を会話と台帳に添える
-        provision.mark(self.place, self.src, {wake.REST: "s1"}, gitx)
+        provision.mark(self.place, self.src, {wake.REST: "s1"}, self.g)
         w = Window(self.place, box="打ちかけ")
         kind, text = self.checker(stop, w)()
         self.assertEqual((kind, w.writes), ("wake", []))
@@ -1184,27 +1180,27 @@ class Hook(unittest.TestCase):
         self.assertTrue(text.endswith("頼みです（受付 a1）"), text)
         handed = [r for r in deliver.records(self.inbox) if r["kind"] == "handed"]
         self.assertIn("打ちかけ", handed[-1]["unrested"])
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s1")   # 印は残る（次のターンの終わりにまた試す）
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.REST], "s1")   # 印は残る（次のターンの終わりにまた試す）
 
     def test_a_break_is_not_cleared_with_an_open_ask_typed_text_or_outside_stop(self):
-        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, self.g)
         for payload, window in (({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ")),   # 持ち主が打っている途中
                                 ({"hook_event_name": "Stop"}, Window(self.place, status="working")),
                                 ({"hook_event_name": "SessionStart"}, Window(self.place))):
             self.assertIsNone(self.checker(payload, window)())
             self.assertEqual(window.writes, [])
-        provision.mark(self.place, self.src, {"ask": "a0"}, gitx)   # 納品していない頼みが在る
+        provision.mark(self.place, self.src, {"ask": "a0"}, self.g)   # 納品していない頼みが在る
         w = Window(self.place)
         self.assertIsNone(self.checker(window=w)())
         self.assertEqual(w.writes, [])
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s1")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.REST], "s1")
 
     def test_a_break_before_delivery_moves_the_talk_marked_to_move_and_never_clears_it(self):
         # --move がターンの途中で移せずに移す印（company.move-to）を付けても、区切り（--rest）は納品の後にしか打てず、頼みが長いと移す時が
         # 来なかった（受付 f39d00）。印の在る会話は納品の前でも区切りで移り、新しい会話が頼みを続ける。頼みの途中の会話は空にしない
         opus = role.launch_key({"model": "opus"})
         provision.mark(self.place, self.src, {"role": "担当", "name": "割り振り", "session": "s1", "ask": "a0", wake.REST: "s1",
-                                              wake.MOVE_TO: "a2", wake.LAUNCHED: opus}, gitx)
+                                              wake.MOVE_TO: "a2", wake.LAUNCHED: opus}, self.g)
         stop = {"hook_event_name": "Stop", "session_id": "s1"}
         got = self.plan()
         tried, w = [], Window(self.place)
@@ -1217,15 +1213,15 @@ class Hook(unittest.TestCase):
                                       key_of=lambda cwd, a: opus)
             self.assertIsNone(check())   # 移せなければ、空にせず、この会話のまま続ける
         self.assertEqual(w.writes, [])
-        self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.REST, self.g.worktree_attrs(self.place))
 
     def test_a_typed_prompt_takes_the_break_mark_off(self):
         # 人の文でターンが始まったら、区切りの印を外す（人と話している途中の会話を空にしない）
-        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, self.g)
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s9"})   # 場所のほかの会話の文では外さない
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s1")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.REST], "s1")
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
-        self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.REST, self.g.worktree_attrs(self.place))
 
     def transcript(self, tokens):
         path = os.path.join(tempfile.mkdtemp(), "t.jsonl")
@@ -1239,7 +1235,7 @@ class Hook(unittest.TestCase):
         # 会話が --compact で印したターンの終わりに、待ち受けが窓に /compact <焦点> を打つ。compact の後の会話の始まりの待ち受けが
         # 印を外し、続きをさせる 1 行を渡す（頼みの途中の会話は、続きを渡されないと止まったまま）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0",
-                                              wake.COMPACT: "s1", wake.COMPACT_FOCUS: "次は直しを書く"}, gitx)
+                                              wake.COMPACT: "s1", wake.COMPACT_FOCUS: "次は直しを書く"}, self.g)
         stop = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(150000)}
         w = Window(self.place)
         start = {"hook_event_name": "SessionStart", "source": "compact", "session_id": "s1"}
@@ -1249,70 +1245,70 @@ class Hook(unittest.TestCase):
             kind, text = wake_hook.checker(self.plan(), start, h=w, now=lambda: 5, me=lambda: ME)()
             self.assertEqual(kind, "wake")
             self.assertIn("compact した。焦点: 次は直しを書く", text)
-        self.assertEqual(wake_hook.compact_turn(self.plan(), stop, gitx.worktree_attrs(self.place), w, me=lambda: ME,
+        self.assertEqual(wake_hook.compact_turn(self.plan(), stop, self.g.worktree_attrs(self.place), w, me=lambda: ME,
                                                 pause=compacted, looks=1), ("end", None))
-        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
-        self.assertNotIn(wake.COMPACT_FOCUS, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT_FOCUS, self.g.worktree_attrs(self.place))
         # 印が無ければ、compact の後の会話の始まりでも何も渡さない（持ち主が手で打った compact）
-        self.assertIsNone(wake_hook.compact_turn(self.plan(), start, gitx.worktree_attrs(self.place), w, me=lambda: ME))
+        self.assertIsNone(wake_hook.compact_turn(self.plan(), start, self.g.worktree_attrs(self.place), w, me=lambda: ME))
 
     def test_a_compact_break_wakes_the_talk_without_compacting_when_it_is_small_or_cannot_type(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.COMPACT: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.COMPACT: "s1"}, self.g)
         small = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(wake.COMPACT_FLOOR - 1)}
         w = Window(self.place)
         kind, text = self.checker(small, w)()
         self.assertEqual((kind, w.writes), ("wake", []))
         self.assertIn("compact しなかった", text)
-        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
         # 人の打ちかけの字は消さない。打てなければ訳を添えて、この会話のまま続けさせる
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
         big = {**small, "transcript_path": self.transcript(wake.COMPACT_FLOOR)}
         w = Window(self.place, box="打ちかけ")
         kind, text = self.checker(big, w)()
         self.assertEqual((kind, w.writes), ("wake", []))
         self.assertIn("compact できなかった: 窓の入力フィールドに打ちかけの字が在る", text)
-        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
         # 打ったが済んだのを見られなければ、印を外して続けさせる（止まったままにしない）
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
         w = Window(self.place)
-        kind, text = wake_hook.compact_turn(self.plan(), big, gitx.worktree_attrs(self.place), w, me=lambda: ME,
+        kind, text = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME,
                                             pause=lambda: None, looks=2)
         self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
         self.assertIn("済んだのを見られない", text)
         # 打った /compact が入力フィールドに残れば Enter を 1 回だけ足す（残ったまま次の字に連なって届かない）
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
         w = Window(self.place)
         w.prompt = lambda pane, text, wait: (w.writes.append(text), setattr(w, "box", text))
-        wake_hook.compact_turn(self.plan(), big, gitx.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None, looks=3)
+        wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None, looks=3)
         self.assertEqual(w.writes, ["/compact", ("enter",)])
         # ターンの終わりの直後にまだ動いていると見えても、手が空くのを見直してから打つ
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
         w = Window(self.place, status="working")
         w.pause = lambda: setattr(w, "status", "done")
-        kind, _ = wake_hook.compact_turn(self.plan(), big, gitx.worktree_attrs(self.place), w, me=lambda: ME, pause=w.pause, looks=1)
+        kind, _ = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=w.pause, looks=1)
         self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
         # 文脈の大きさを読めなければ打たない（費用の元が取れるかが分からない）
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
         w = Window(self.place)
         kind, text = wake_hook.compact_turn(self.plan(), {**big, "transcript_path": "/none/t.jsonl"},
-                                            gitx.worktree_attrs(self.place), w, me=lambda: ME)
+                                            self.g.worktree_attrs(self.place), w, me=lambda: ME)
         self.assertEqual((kind, w.writes), ("wake", []))
         self.assertIn("文脈の大きさを読めない", text)
         # 区切り（--rest）や終わり（--done）の印が在る・ほかの会話の印・裏の処理が残るときは、compact しない
         for marks, payload in (({wake.REST: "s1"}, big), ({wake.COMPACT: "s0"}, big),
                                ({}, {**big, "background_tasks": [{"id": "b"}]})):
-            provision.mark(self.place, self.src, {wake.COMPACT: "s1", wake.REST: None, **marks}, gitx)
-            self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, gitx.worktree_attrs(self.place), Window(self.place),
+            provision.mark(self.place, self.src, {wake.COMPACT: "s1", wake.REST: None, **marks}, self.g)
+            self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
                                                      me=lambda: ME))
 
     def test_a_typed_prompt_takes_the_compact_mark_off_but_the_typed_compact_does_not(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.COMPACT: "s1",
-                                              wake.COMPACT_FOCUS: "f"}, gitx)
+                                              wake.COMPACT_FOCUS: "f"}, self.g)
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1", "prompt": "/compact f"})
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.COMPACT], "s1")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.COMPACT], "s1")
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1", "prompt": "どう？"})
-        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
-        self.assertNotIn(wake.COMPACT_FOCUS, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT_FOCUS, self.g.worktree_attrs(self.place))
 
     def test_context_of_reads_the_last_usage(self):
         self.assertEqual(wake_hook.context_of(self.transcript(123456)), 123456)
@@ -1326,13 +1322,13 @@ class Hook(unittest.TestCase):
     def test_a_turn_that_ends_well_takes_the_limit_wait_mark_off(self):
         # 使用上限か時間帯で止まった会話のターンが誤りなく終わったら、--move --if-limited の待ちの印を外す（待っている処理は
         # 続きの 1 行を打たずにやめる）。人の文が始めたターンが断られたとき（Stop でなく StopFailure）は外さない
-        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.LIMIT_HOLD: "1-1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.LIMIT_HOLD: "1-1"}, self.g)
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
         wake_hook.ended_well({"cwd": self.place, "session_id": "s1", "hook_event_name": "StopFailure"})
         wake_hook.ended_well({"cwd": self.place, "session_id": "s9", "hook_event_name": "Stop"})   # 場所のほかの会話では外さない
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.LIMIT_HOLD], "1-1")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.LIMIT_HOLD], "1-1")
         wake_hook.ended_well({"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"})
-        self.assertNotIn(wake.LIMIT_HOLD, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.LIMIT_HOLD, self.g.worktree_attrs(self.place))
 
     def spawner(self, fail=None):
         seen = []
@@ -1346,7 +1342,7 @@ class Hook(unittest.TestCase):
     def test_a_finished_department_starts_retire_apart_from_the_talk_at_the_end_of_the_turn(self):
         # エフェメラルの部署が終わりと印した（--done）ターンの終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
-                                              "fresh": role.FRESH, wake.FINISHED: "s1"}, gitx)
+                                              "fresh": role.FRESH, wake.FINISHED: "s1"}, self.g)
         seen, spawn = self.spawner()
         w = Window(self.place)
         got = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=w, now=lambda: 5, spawn=spawn)
@@ -1357,12 +1353,12 @@ class Hook(unittest.TestCase):
         self.assertEqual(os.path.realpath(kw["cwd"]), os.path.realpath(self.src))   # 消える部署の場所の外で走らせる
         self.assertTrue(kw["stdout"].name.startswith(os.path.join(self.inbox, wake_hook.RETIRES)))
         self.assertEqual(w.writes, [], "fresh の部署でも /clear は打たない（空にすると印の会話が居なくなる）")
-        self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))   # 印は 1 度で外れる
+        self.assertNotIn(wake.FINISHED, self.g.worktree_attrs(self.place))   # 印は 1 度で外れる
 
     @unittest.skipIf(os.name == "nt", "切り離す殻は POSIX だけ")
     def test_retire_apart_from_the_talk_writes_its_exit_code(self):
         # 切り離した --retire の終わりの値を .done に書く（0 でなければ --tree と --todo が出す。前は出力のログしか残らなかった）
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
         got = {"company": "co", "inbox": self.inbox, "cwd": self.place, "root": self.src}
 
         def spawn(argv, **kw):   # --retire の代わりに、終わりの値 3 で終わる物を殻で走らせる
@@ -1377,44 +1373,44 @@ class Hook(unittest.TestCase):
         self.assertIn("終わりの値 3", "\n".join(health.background(self.inbox, 8)))
 
     def test_a_finished_mark_waits_for_delivery_background_work_and_the_stop_of_the_turn(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.FINISHED: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.FINISHED: "s1"}, self.g)
         seen, spawn = self.spawner()
 
         def check(payload):
             return wake_hook.checker(self.plan(), payload, h=Window(self.place), now=lambda: 5, spawn=spawn)()
         self.assertIsNone(check({"hook_event_name": "Stop"}))   # a0 を納品していない
-        provision.mark(self.place, self.src, {"delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
         self.assertIsNone(check({"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}))   # 裏の処理が残る
         self.assertIsNone(check({"hook_event_name": "SessionStart"}))   # ターンの終わりでない
         self.assertEqual(seen, [])
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.FINISHED], "s1")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.FINISHED], "s1")
 
     def test_a_queued_ask_is_handed_instead_of_retiring_and_takes_the_mark_off(self):
         # 終わりと印した後に追いの頼みが積まれたら、畳まずに渡す（終わりは、その頼みを済ませてから印し直す）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
-                                              wake.FINISHED: "s1"}, gitx)
+                                              wake.FINISHED: "s1"}, self.g)
         self.put("a1")
         seen, spawn = self.spawner()
         got = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, spawn=spawn)
         self.assertEqual(got(), ("wake", "頼みです（受付 a1）"))
         self.assertEqual(seen, [])
-        self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.FINISHED, self.g.worktree_attrs(self.place))
 
     def test_a_retire_that_cannot_start_leaves_the_room_with_the_reason(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.FINISHED: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.FINISHED: "s1"}, self.g)
         _, spawn = self.spawner(fail=OSError("no python"))
         got = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, spawn=spawn)
         self.assertIsNone(got())
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn(wake.FINISHED, attrs)   # 打ち直しはしない
         self.assertIn("no python", attrs[wake.RETIRE_KEPT])
 
     def test_a_typed_prompt_takes_the_finished_mark_off(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.FINISHED: "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.FINISHED: "s1"}, self.g)
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s9"})
-        self.assertEqual(gitx.worktree_attrs(self.place)[wake.FINISHED], "s1")
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.FINISHED], "s1")
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
-        self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.FINISHED, self.g.worktree_attrs(self.place))
 
     def test_the_window_is_the_pane_of_this_talk_when_the_place_has_several(self):
         # 本社には持ち主のほかの会話も居るので、ペインの会話の印で窓口の窓を決める
@@ -1429,7 +1425,7 @@ class Hook(unittest.TestCase):
     def test_clear_goes_only_to_a_window_where_this_talk_is_seen_running(self):
         # 会話を消す打ち込みは、窓の前のプロセスにこの会話が居ると確かめたときだけ打つ（印も、場所だけの代わりも使わない）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a1", "delivered": "a1", "fresh": role.FRESH,
-                                              "job": "abcd1234"}, gitx)
+                                              "job": "abcd1234"}, self.g)
         stranger = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude"]}])
         stranger.panes = lambda: [{"pane_id": "p1", "cwd": self.place, "agent": "claude", "agent_session": "s1"}]
         self.assertEqual(self.checker(window=stranger)(), wake.HOLD)   # 印が合っても、前に居るのが別の会話なら打たない
@@ -1444,7 +1440,7 @@ class Hook(unittest.TestCase):
         # 裏の会話を起動し直すと短い id が替わる（2026-10-17 の割り振り: 属性は a5b0bc07、窓は 8c4a1102 に attach、会話の id は
         # 081f72dd）。フックが継ぐ CLAUDE_JOB_DIR の名前で窓を確かめ、属性も書き直す
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a1", "delivered": "a1", "fresh": role.FRESH,
-                                              "job": "a5b0bc07"}, gitx)
+                                              "job": "a5b0bc07"}, self.g)
         self.put("a2")
         self.env["CLAUDE_JOB_DIR"] = "/home/u/.claude/jobs/8c4a1102/"
         got = self.plan()
@@ -1455,7 +1451,7 @@ class Hook(unittest.TestCase):
         self.assertEqual(verdict, ("end", None))   # 空にした（空にした後の待ち受けが渡す）
         self.assertEqual(attached.writes, [deliver.CLEAR])
         wake_hook.keep_job(got)
-        self.assertEqual(gitx.worktree_attrs(self.place)["job"], "8c4a1102")
+        self.assertEqual(self.g.worktree_attrs(self.place)["job"], "8c4a1102")
         self.assertIsNone(wake_hook.job_of({}))   # 裏の会話でなければ無い
 
     def test_a_pane_of_another_place_is_not_the_window_even_with_this_talk_mark(self):
@@ -1477,23 +1473,52 @@ class Hook(unittest.TestCase):
         self.assertEqual(wake_hook.own_window(os.path.join(self.place, "sub"), Stale(self.place), "s1"), "p1")
 
     def test_a_typed_prompt_pauses_the_watcher(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a1", "waiting": "a1"}, gitx)
-        place = gitx.git_dir(self.place)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a1", "waiting": "a1"}, self.g)
+        place = self.g.git_dir(self.place)
         wake.claim(self.inbox, place, ["co/調べ"], "s1", os.getppid(), "t", 0)
         with mock.patch.dict(os.environ, self.env):
             wake_hook.main(["--pause"], io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1"})))
         self.assertEqual(wake.read_mark(self.inbox, place)["token"], "paused")
         # 裏で走る --pause は答え待ちの印に触らない（同じターンの中で会話が打った --wait より後に走りうる）
-        self.assertEqual(gitx.worktree_attrs(self.place)["waiting"], "a1")
+        self.assertEqual(self.g.worktree_attrs(self.place)["waiting"], "a1")
 
     def test_a_typed_prompt_takes_the_wait_mark_off_before_the_talk_reads_it(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a1", "waiting": "a1",
-                                              "waiting-why": "持ち主の答え"}, gitx)
+                                              "waiting-why": "持ち主の答え"}, self.g)
         with mock.patch.dict(os.environ, self.env):
             self.assertEqual(wake_hook.main(["--resume"], io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1"}))), 0)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn("waiting", attrs)
         self.assertNotIn("waiting-why", attrs)
+
+    def test_plugin_declares_the_waiter_on_stop_and_session_start_and_the_pause_on_prompts(self):
+        hooks = json.loads((DISPATCH.parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        for event in ("Stop", "SessionStart"):
+            (h,) = [h for g in hooks[event] for h in g["hooks"] if h.get("asyncRewake")]
+            self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py"', h["command"])
+            # 持ち時間の既定（600 秒）では手の空いた会話の待ち受けがすぐ切れるので、長く取る
+            self.assertGreaterEqual(h["timeout"], 86400)
+        prompt = {h["command"].rsplit(" ", 1)[-1]: h for g in hooks["UserPromptSubmit"] for h in g["hooks"]
+                  if "wake_hook.py" in h["command"]}
+        self.assertEqual(set(prompt), {"--resume", "--pause"})
+        # 印を外すのは会話が文を読む前（裏で走らせると、同じターンの中で打った --wait の印を後から外しうる）
+        self.assertFalse(prompt["--resume"].get("async"))
+        self.assertTrue(prompt["--pause"]["async"])   # 待ち受けを止めるのは裏で（人の入力を遅らせない）
+
+
+class HookProcess(unittest.TestCase):
+    """入口 wake_hook.py を別の処理として起動する（ファイルの入口・標準入出力・終了の値の境目）。別の処理には偽物を渡せないので、git は
+    一時のフォルダの本物。"""
+
+    def setUp(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.src = str(d / "co")
+        git("init", "-q", "-b", "main", self.src)
+        git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+        self.place = str(d / "dept")
+        git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place)
+        self.inbox = deliver.inbox_of(gitx.common_dir(self.src))
+        self.env = {"WORKS_DISPATCH_CONFIG": "/none/c.toml"}
 
     def test_hook_process_wakes_on_its_notice_and_is_quiet_elsewhere(self):
         p = subprocess.run([sys.executable, str(DISPATCH / "wake_hook.py")], input=json.dumps({"cwd": tempfile.mkdtemp()}),
@@ -1522,20 +1547,6 @@ class Hook(unittest.TestCase):
         proc.stdout.close()
         proc.stderr.close()
 
-    def test_plugin_declares_the_waiter_on_stop_and_session_start_and_the_pause_on_prompts(self):
-        hooks = json.loads((DISPATCH.parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-        for event in ("Stop", "SessionStart"):
-            (h,) = [h for g in hooks[event] for h in g["hooks"] if h.get("asyncRewake")]
-            self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py"', h["command"])
-            # 持ち時間の既定（600 秒）では手の空いた会話の待ち受けがすぐ切れるので、長く取る
-            self.assertGreaterEqual(h["timeout"], 86400)
-        prompt = {h["command"].rsplit(" ", 1)[-1]: h for g in hooks["UserPromptSubmit"] for h in g["hooks"]
-                  if "wake_hook.py" in h["command"]}
-        self.assertEqual(set(prompt), {"--resume", "--pause"})
-        # 印を外すのは会話が文を読む前（裏で走らせると、同じターンの中で打った --wait の印を後から外しうる）
-        self.assertFalse(prompt["--resume"].get("async"))
-        self.assertTrue(prompt["--pause"]["async"])   # 待ち受けを止めるのは裏で（人の入力を遅らせない）
-
 
 class WakeFlow(unittest.TestCase):
     """--ask と --deliver が、宛先の待ち受けの居る部署には窓に打たずに台帳の知らせで届ける。場の作りは Flow の物を借りる
@@ -1546,7 +1557,7 @@ class WakeFlow(unittest.TestCase):
     del Flow
 
     def listen(self, name, place, owner=None):
-        to = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg)), name)
+        to = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg), self.g), name)
         wake.claim(self.inbox, place, [to], "s", owner or os.getpid(), "t", time.time())
         if owner:   # 居ない会話の印は古くもする（Windows は処理の番号でなく印の更新の新しさで居るかを見る）
             old = time.time() - wake.FRESH - 60
@@ -1554,7 +1565,7 @@ class WakeFlow(unittest.TestCase):
         return to
 
     def dept_place(self):
-        return gitx.git_dir(self.place)
+        return self.g.git_dir(self.place)
 
     def test_ask_to_a_listening_department_queues_and_says_so(self):
         to = self.listen("調べ", self.dept_place())
@@ -1567,7 +1578,7 @@ class WakeFlow(unittest.TestCase):
         (item,) = wake.queued(self.inbox, self.dept_place())
         self.assertIn("desk から）: これを調べて 終わったら、要約を", item["line"])
         self.assertEqual((item["marks"]["ask"], item["marks"]["boss"]), (rec["id"], "desk"))
-        self.assertNotIn("ask", gitx.worktree_attrs(self.place))   # 属性は待ち受けが渡すときに書く
+        self.assertNotIn("ask", self.g.worktree_attrs(self.place))   # 属性は待ち受けが渡すときに書く
         self.assertIn("順番待ちに積んだ（1 件目。待ち受けが渡す）", out)
 
     @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
@@ -1589,7 +1600,7 @@ class WakeFlow(unittest.TestCase):
 
     def test_nudge_moves_a_held_department_and_leaves_a_typing_window_alone(self):
         self.listen("調べ", self.dept_place())
-        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0"}, self.g)
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts()), (0, []), out)
         self.assertIn("順番待ちが空", out)   # 止まっていない
@@ -1607,7 +1618,7 @@ class WakeFlow(unittest.TestCase):
             self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
             self.ports.term.writes.clear()
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
-        provision.mark(self.place, self.src, {"rest": "s"}, gitx)
+        provision.mark(self.place, self.src, {"rest": "s"}, self.g)
         self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts()), (1, []), out)   # 人の打ちかけの字を壊さない
@@ -1617,14 +1628,14 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("待ち受けが渡さずに待っている（窓を確かめられない）", out)
         self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
-        self.assertEqual(gitx.worktree_attrs(self.place).get("rest"), "s")   # 打った 1 行で外れる区切りの印は残す
+        self.assertEqual(self.g.worktree_attrs(self.place).get("rest"), "s")   # 打った 1 行で外れる区切りの印は残す
 
     @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
     def test_nudge_drops_a_clear_the_gone_watcher_left_unsent_before_typing(self):
         # 渡す待ち受けが居ないまま、待ち受けが打った /clear が入力フィールドに残った（送り直す者が居ない）: 消してから 1 行を打つ。
         # 人の打ちかけの字と、前の会話で打った物は消さない。待ち受けが居るとき（渡さずに待っている）は、待ち受けが送り直すので消さない
         self.listen("調べ", self.dept_place())
-        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s"}, self.g)
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a0", "line": "a0"})
         deliver.log(self.inbox, {"id": "a0", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
         self.ports.term.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
@@ -1634,14 +1645,14 @@ class WakeFlow(unittest.TestCase):
         mark = wake.read_mark(self.inbox, self.dept_place())
         with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
             json.dump({**mark, "pid": dead_pid()}, f)
-        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s0"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s0"}, self.g)
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
         term_ = self.ports.term
         term_.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts()), (1, []), out)
         self.assertFalse([w for w in term_.writes if w[0] == "send_keys"])
-        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s"}, gitx)
+        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s"}, self.g)
 
         def keys(pane, *k):
             term_.writes.append(("send_keys", pane, *k))
@@ -1672,20 +1683,20 @@ class WakeFlow(unittest.TestCase):
         self.listen("調べ", self.dept_place())
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
-        provision.mark(self.place, self.src, {"rest": "s"}, gitx)
+        provision.mark(self.place, self.src, {"rest": "s"}, self.g)
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
         real = self.ports.term.prompt
 
         def typed_meanwhile(target, text, wait, until=()):
             real(target, text, wait, until)
             if text == orders.chat.RELOAD:
-                gitx.unset_worktree_attr(self.place, "rest")   # 読み直しで人の文のフックが走り、区切りの印が外れたとする
+                self.g.unset_worktree_attr(self.place, "rest")   # 読み直しで人の文のフックが走り、区切りの印が外れたとする
                 self.ports.term.screen = f"{'─' * 20}\n❯ 人の打ちかけ\n{'─' * 20}\n"
         with mock.patch.object(self.ports.term, "prompt", typed_meanwhile):
             rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, [w[2] for w in self.prompts()]), (1, [orders.chat.RELOAD]), out)
         self.assertIn("1 行を打たなかった", out)
-        self.assertEqual(gitx.worktree_attrs(self.place).get("rest"), "s")
+        self.assertEqual(self.g.worktree_attrs(self.place).get("rest"), "s")
 
     def test_the_same_ask_twice_returns_the_first_number(self):
         self.listen("調べ", self.dept_place())
@@ -1700,7 +1711,7 @@ class WakeFlow(unittest.TestCase):
 
     def test_a_department_busy_with_an_ask_gets_the_next_one_queued(self):
         # 待ち受けの跡は在るが今は会話の処理が見えない。前の頼みを納品していない
-        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
         self.listen("調べ", self.dept_place(), owner=dead_pid())
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次の頼み")
         self.assertEqual(rc, 0, out)
@@ -1717,18 +1728,18 @@ class WakeFlow(unittest.TestCase):
     def test_an_ask_taken_while_the_line_was_being_typed_queues_the_new_one(self):
         # 部署を読んだ時は頼みが無く待ち受けも見えなかったが、打つ前に待ち受けが順番待ちの頼み a1 を渡した。窓に打たずに順番待ちに
         # 積み、a1 の頼み元を残す（2026-10-17 に my_notes の調べもので、後の頼みが前の頼みの頼み元を上書きした。受付 20261017-082903-87f45f）
-        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "boss": "desk"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "boss": "desk"}, self.g)
         self.listen("調べ", self.dept_place(), owner=dead_pid())
         real = orders.live_window
 
         def handed_meanwhile(dept, ports):
-            provision.mark(self.place, self.src, {"ask": "a1", "boss": "段取り"}, gitx)
+            provision.mark(self.place, self.src, {"ask": "a1", "boss": "段取り"}, self.g)
             return real(dept, ports)
         with mock.patch.object(orders, "live_window", handed_meanwhile):
             rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.prompts(), [])
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "段取り"))
         (item,) = wake.queued(self.inbox, self.dept_place())
         self.assertEqual((item["marks"]["boss"], deliver.records(self.inbox)[-1]["status"]), ("desk", "queued"))
@@ -1756,21 +1767,21 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn(urgent["line"], out)
         self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"]])
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["ask"], attrs["boss"]), (urgent["id"], "desk"))   # 待ち受けが渡すときと同じ属性
         taken = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
         self.assertEqual([(r["id"], r["skipped"], r["to"]["name"]) for r in taken], [(urgent["id"], [first["id"]], attrs["name"])])
         # 記録の行で、受けた部署の会話を知らせと取り違えて起動しない（to が字の行だけが知らせ。設計の 3.1）
-        me = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg)), attrs["name"])
+        me = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg), self.g), attrs["name"])
         self.assertFalse([r for r in taken if wake.mine(r, {me})])
 
     def test_take_waits_until_the_current_ask_is_delivered_and_only_takes_its_own_queue(self):
         first, urgent = self.queue_two()
-        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
         rc, out = self.main(self.place, "--take", urgent["id"])
         self.assertEqual(rc, 2, out)
         self.assertIn("受付 a0 をまだ納品していない", out)
-        provision.mark(self.place, self.src, {"delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
         rc, out = self.main(self.src, "--take", urgent["id"])   # 本社（窓口）の順番待ちには無い
         self.assertEqual(rc, 2, out)
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 2)
@@ -1837,12 +1848,12 @@ class WakeFlow(unittest.TestCase):
     def test_withdraw_does_not_close_an_ask_the_department_still_holds(self):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
-        held = gitx.worktree_attrs(self.place)["ask"]
+        held = self.g.worktree_attrs(self.place)["ask"]
         rc, out = self.main(self.src, "--withdraw", held)
         self.assertEqual(rc, 2, out)
         self.assertIn(f"の部署がまだ受けている（取り下げるなら、その旨を --note {held} で足す）", out)
         # 部署の属性がほかの頼みに替わった（10-16 の 75aeee は、69 秒後に同じ本文の頼みが別の部署へ出た）なら閉じる
-        provision.mark(self.place, self.src, {"ask": "20261019-000000-ffffff"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "20261019-000000-ffffff"}, self.g)
         rc, out = self.main(self.src, "--withdraw", held)
         self.assertEqual(rc, 0, out)
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]
@@ -1899,7 +1910,7 @@ class WakeFlow(unittest.TestCase):
 
     def test_note_on_a_held_ask_goes_through_the_ledger_and_not_the_window(self):
         # ターンの途中の部署（待ち受けは居ないが跡は在る）にも、窓に打たずに台帳で届く。ターンの終わりの待ち受けが渡す
-        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
         to = self.listen("調べ", self.dept_place(), owner=dead_pid())
         rc, out = self.main(self.src, "--note", "a0", "--text", "取り下げる。止めて、どこまで済んだかを返す")
         self.assertEqual(rc, 0, out)
@@ -1913,12 +1924,12 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((rec["ask"], rec["status"], rec["to"]["wake"]), ("a0", "noticed", to))
 
     def test_note_without_a_waiter_types_into_the_window_and_stops_once_delivered(self):
-        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
         rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
         self.assertEqual(rc, 0, out)
         (typed,) = self.prompts()
         self.assertIn("頼みの足しです（受付 a0 への", str(typed))
-        provision.mark(self.place, self.src, {"delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
         rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
         self.assertEqual(rc, 2, out)
         self.assertIn("もう納品した", out)
@@ -1933,12 +1944,12 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
         self.assertEqual(rc, 2, out)
         self.assertIn("回す元の頼みが無い", out)
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-inbox": self.inbox}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-inbox": self.inbox}, self.g)
         to = self.listen("調べ", self.dept_place())
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward", "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertIn("回した元: 受付 a0 を閉じ", out)
-        self.assertEqual((deliver.records(self.inbox), gitx.worktree_attrs(self.src).get("delivered")), ([], None))
+        self.assertEqual((deliver.records(self.inbox), self.g.worktree_attrs(self.src).get("delivered")), ([], None))
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
         self.assertEqual(rc, 0, out)
         self.assertIn("回した元の受付 a0 を閉じた", out)
@@ -1949,7 +1960,7 @@ class WakeFlow(unittest.TestCase):
         (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]   # 同じ受付箱には 1 行だけ
         self.assertEqual((link["id"], link["child"], link["to"]["name"], link["boss"]["name"]), ("a0", item["id"], "調べ", "社長室"))
         self.assertEqual([r["to"] for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)], [to])   # 社長室への知らせは無い
-        self.assertEqual(gitx.worktree_attrs(self.src)["delivered"], "a0")
+        self.assertEqual(self.g.worktree_attrs(self.src)["delivered"], "a0")
         # 閉じた後は、もう回す元の頼みが無い
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "別の頼み", "--forward")
         self.assertEqual(rc, 2, out)
@@ -1967,20 +1978,20 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("回した先もみな閉じた", out)
 
     def test_forward_to_a_window_without_a_waiter_closes_the_held_ask_once_the_line_is_sent(self):
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.prompts()), 1)
         (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
-        self.assertEqual(link["child"], gitx.worktree_attrs(self.place)["ask"])
-        self.assertEqual(gitx.worktree_attrs(self.src)["delivered"], "a0")
+        self.assertEqual(link["child"], self.g.worktree_attrs(self.place)["ask"])
+        self.assertEqual(self.g.worktree_attrs(self.src)["delivered"], "a0")
 
     def test_forward_does_not_close_the_held_ask_when_the_ask_did_not_reach(self):
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, gitx)
-        provision.mark(self.place, self.src, {"ask": "a9", "boss": "ほか"}, gitx)   # 待ち受けの居ない部署が前の頼みを納品していない
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, self.g)
+        provision.mark(self.place, self.src, {"ask": "a9", "boss": "ほか"}, self.g)   # 待ち受けの居ない部署が前の頼みを納品していない
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
         self.assertEqual(rc, 2, out)
-        self.assertNotIn("delivered", gitx.worktree_attrs(self.src))
+        self.assertNotIn("delivered", self.g.worktree_attrs(self.src))
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"], [])
         rc, out = self.main(self.src, "--take", "x", "--ask", "調べ", "--forward")
         self.assertEqual(rc, 2, out)
@@ -1989,7 +2000,7 @@ class WakeFlow(unittest.TestCase):
     def test_deliver_for_returns_a_forwarded_ask_to_its_asker_without_closing_the_one_held_now(self):
         # 窓口が回して閉じた頼み（a0）の結果を返すとき、その後に受けた頼み（a1）は閉じない
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
-                                            "boss-inbox": self.inbox}, gitx)
+                                            "boss-inbox": self.inbox}, self.g)
         self.listen("調べ", self.dept_place())
         self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")[0], 0)
         (child,) = [r["child"] for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
@@ -2004,7 +2015,7 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--deliver", str(summary), "--for", "f1")
         self.assertEqual(rc, 2, out)
         self.assertIn("受付 f1 を回したのはこの部署（desk）でなく 窓口2", out)
-        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
+        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, self.g)
         boss = self.listen("社長室", "/elsewhere/.git")
         rc, out = self.main(self.src, "--deliver", str(summary), "--for", "nope")
         self.assertEqual(rc, 2, out)
@@ -2015,7 +2026,7 @@ class WakeFlow(unittest.TestCase):
             notice, rec = deliver.records(self.inbox)[-2:]
             self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
             self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
-        attrs = gitx.worktree_attrs(self.src)
+        attrs = self.g.worktree_attrs(self.src)
         self.assertEqual((attrs["ask"], attrs["delivered"], attrs["boss"]), ("a1", "a0", "持ち主"))   # 今の頼みはそのまま
         rc, out = self.main(self.src, "--for", "a0")
         self.assertEqual(rc, 2, out)
@@ -2025,7 +2036,7 @@ class WakeFlow(unittest.TestCase):
         # 受けた頼み（a0）を閉じずに cause 付きの --ask で回した子の頼みの答えを、a0 の頼み元へ返す。a0 を納品し、次の頼み（a1）を
         # 受けた後でも、子の行に残した頼み元（cause_boss）へ届く（my_notes の受付 20261019-005554-1f3389）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
-                                            "boss-inbox": self.inbox}, gitx)
+                                            "boss-inbox": self.inbox}, self.g)
         # a0 はこの部署が受けた頼み（台帳の頼みの行の宛先がこの部署）。受けた頼みでも、子を回した元の受付は --for に渡せる
         deliver.log(self.inbox, {"id": "a0", "kind": "ask", "cause": None, "from": {"name": "社長室", "place": "/elsewhere"},
                                  "to": {"name": "desk"}})
@@ -2040,14 +2051,14 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("まだ納品されていない", out)
         self.assertEqual(self.main(self.src, "--deliver", str(summary))[0], 0)   # a0 の納品
-        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
+        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, self.g)
         for key in ("a0", row["id"]):   # 元の受付でも、子の受付でも引ける
             rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
             self.assertEqual(rc, 0, out)
             notice, rec = deliver.records(self.inbox)[-2:]
             self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
             self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
-        attrs = gitx.worktree_attrs(self.src)
+        attrs = self.g.worktree_attrs(self.src)
         self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "持ち主"))   # 今の頼みはそのまま
         # ほかの部署（点検）が回してこの部署が受けた子の頼み c9 は、子の受付でも元の受付でも渡せない（点検の頼み元へ届く。受付 b54685
         # の 481db2 は、届け先が割り振り自身に決まった）。誰が閉じたかも出す
@@ -2086,7 +2097,7 @@ class WakeFlow(unittest.TestCase):
 
     def test_deliver_to_a_listening_asker_needs_no_window(self):
         summary = self.ask_then_summary(test_deliver.GOOD)
-        to = self.listen("desk", gitx.git_dir(self.src))
+        to = self.listen("desk", self.g.git_dir(self.src))
         self.ports.term._panes = [p for p in self.ports.term._panes if p["pane_id"] != self.desk]   # 頼み元の窓が無くても届く
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
@@ -2095,16 +2106,16 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((notice["to"], notice["kind"], notice["file"]), (to, "deliver", rec["file"]))
         self.assertIn("【結論】直した。", notice["text"])
         self.assertEqual((rec["status"], rec["to"]["wake"]), ("sent", to))
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual(attrs["delivered"], attrs["ask"])
 
 
     def test_deliver_finds_the_asker_by_its_talk_when_the_name_misses(self):
         # 前の版が会話の一覧の名前（my-notes-d7）を頼み元に書いた部署: 名前では待ち受けが引けないので、頼んだ会話の id で引く
         summary = self.ask_then_summary(test_deliver.GOOD)
-        provision.mark(self.place, self.src, {"boss": "my-notes-d7"}, gitx)
-        to = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg)), "段取り")
-        wake.claim(self.inbox, gitx.git_dir(self.src), [to], "s-desk", os.getpid(), "t", time.time())
+        provision.mark(self.place, self.src, {"boss": "my-notes-d7"}, self.g)
+        to = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg), self.g), "段取り")
+        wake.claim(self.inbox, self.g.git_dir(self.src), [to], "s-desk", os.getpid(), "t", time.time())
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.prompts(), [])
@@ -2116,19 +2127,19 @@ class WakeFlow(unittest.TestCase):
         # 窓に打ち込まず台帳に置き、ターンの終わりに張り直した待ち受けに渡させる（2026-10-20 に works-factory-co の工場窓口で、納品が
         # 持ち主の入力として窓に打ち込まれた）
         summary = self.ask_then_summary(test_deliver.GOOD)
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, gitx)
-        to = self.listen("desk", gitx.git_dir(self.src))
-        wake.release(self.inbox, gitx.git_dir(self.src), "t")
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, self.g)
+        to = self.listen("desk", self.g.git_dir(self.src))
+        wake.release(self.inbox, self.g.git_dir(self.src), "t")
         self.assertIsNone(wake.listening(self.inbox, to))
         listed = self.ports.list_sessions
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {**s, "status": "busy"} if s["sessionId"] == "s-desk" else s for s in listed(cdir, include_done)]
-        company = orders.inbox_company(self.inbox, os.path.dirname(self.cfg))
+        company = orders.inbox_company(self.inbox, os.path.dirname(self.cfg), self.g)
         talk = self.ports.list_sessions(None)[0]
         self.assertEqual(orders.resting_listener(self.inbox, company, {**talk, "status": "idle"}, self.ports), [])   # 手が空いている
-        provision.mark(self.src, self.src, {"session": "s-other"}, gitx)   # 属性の会話が頼み元でない場所（本社のほかの会話の頼み）
+        provision.mark(self.src, self.src, {"session": "s-other"}, self.g)   # 属性の会話が頼み元でない場所（本社のほかの会話の頼み）
         self.assertEqual(orders.resting_listener(self.inbox, company, talk, self.ports), [])
-        provision.mark(self.src, self.src, {"session": "s-desk"}, gitx)
+        provision.mark(self.src, self.src, {"session": "s-desk"}, self.g)
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.prompts(), [])
@@ -2136,13 +2147,13 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((notice["to"], notice["kind"], notice["file"]), (to, "deliver", rec["file"]))
         self.assertEqual((rec["status"], rec["to"]["wake"]), ("sent", to))
         self.assertIn("ターンの終わりに渡す", rec["detail"])
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual(attrs["delivered"], attrs["ask"])
 
     def test_deliver_to_an_asker_without_a_listener_trace_types_into_the_window(self):
         # 待ち受けの居た跡の無い頼み元（フックの無い前の版の会話）には、今までどおり窓に打ち込む
         summary = self.ask_then_summary(test_deliver.GOOD)
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, gitx)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, self.g)
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         (w,) = self.prompts()

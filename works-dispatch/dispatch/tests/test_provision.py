@@ -81,11 +81,13 @@ def _same(a, b):
 
 
 class WorktreeHerdr:
-    """herdr アダプタの場所の口と作業場の口の偽物。worktree は本物の git worktree で作り、作業場とペインは手元の表で持つ。"""
+    """herdr アダプタの場所の口と作業場の口の偽物。worktree は本物の git worktree で作り（g に git の偽物〔fakegit.FakeGit〕を渡せば
+    その偽物の worktree で作り）、作業場とペインは手元の表で持つ。"""
     Error = real_herdr.Error
 
-    def __init__(self, root=None):
+    def __init__(self, root=None, g=None):
         self.root = root or str(pathlib.Path(tempfile.mkdtemp(prefix="dispatch-wt-")).resolve())
+        self.g = g
         self._panes = []
         self._n = 0
         self._wt = {}   # 場所の実際のパス → その worktree の作業場（herdr の open_workspace_id）
@@ -124,6 +126,13 @@ class WorktreeHerdr:
 
     # 場所（git worktree）
     def worktrees(self, source):
+        if self.g is not None:
+            out = []
+            for w in self.g.listed_worktrees(source):
+                ws = self._ws(w["path"])
+                out.append({"path": os.path.normpath(w["path"]), "branch": w["branch"], "prunable": False, "linked": bool(out),
+                            "workspace": ws["workspace_id"] if ws else None})
+            return out
         out, cur = [], None
         for line in git("-C", source, "worktree", "list", "--porcelain").splitlines() + [""]:
             if line.startswith("worktree "):
@@ -143,11 +152,17 @@ class WorktreeHerdr:
 
     def _open(self, path):
         ws = self._ws(path) or self.open_at(path)
-        return {"path": path, "branch": gitx.branch(path), "workspace_id": ws["workspace_id"], "pane_id": ws["pane_id"]}
+        return {"path": path, "branch": (self.g or gitx).branch(path), "workspace_id": ws["workspace_id"], "pane_id": ws["pane_id"]}
 
     def create_worktree(self, source, branch, base, label):
         self.writes.append(("create_worktree", branch, label))
         path = os.path.normpath(os.path.join(self.root, re.sub(r"[^A-Za-z0-9._-]", "-", branch)))
+        if self.g is not None:
+            try:
+                self.g.add_worktree(path, branch, base)
+            except self.g.GitError:
+                raise real_herdr.Error(["herdr", "worktree", "create"], "worktree_create_failed")
+            return self._open(path)
         has = subprocess.run(["git", "-C", source, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
                              capture_output=True).returncode == 0
         p = subprocess.run(["git", "-C", source, "worktree", "add", "-q", *([path, branch] if has else ["-b", branch, path, base])],
@@ -165,9 +180,16 @@ class WorktreeHerdr:
     def remove_worktree(self, source, path, label):
         self.writes.append(("remove_worktree", path))
         ws = self._open(path)["workspace_id"]
-        p = subprocess.run(["git", "-C", source, "worktree", "remove", path], capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if p.returncode != 0:
-            raise real_herdr.Error(["herdr", "worktree", "remove"], "dirty_worktree_requires_force")
+        if self.g is not None:
+            try:
+                self.g.remove_worktree(path)
+            except self.g.GitError:
+                raise real_herdr.Error(["herdr", "worktree", "remove"], "dirty_worktree_requires_force")
+        else:
+            p = subprocess.run(["git", "-C", source, "worktree", "remove", path], capture_output=True, text=True, encoding="utf-8",
+                               errors="replace")
+            if p.returncode != 0:
+                raise real_herdr.Error(["herdr", "worktree", "remove"], "dirty_worktree_requires_force")
         self._panes = [x for x in self._panes if x["workspace_id"] != ws]
         self._wt = {k: v for k, v in self._wt.items() if v != ws}
         return {"path": path, "workspace_id": ws}

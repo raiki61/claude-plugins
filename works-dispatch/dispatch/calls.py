@@ -57,7 +57,7 @@ def _company_root(target, ports, cwd, config_path):
         if not common:
             return None, f"{cwd} が git でないので会社が決まらない（「会社/役」で渡す）"
         root = gitx.root_of(common)
-    info = tree.read_info(root, settings)
+    info = tree.read_info(root, settings, ports.git)
     return (root, tree.company_name(root, info), name, info), None
 
 
@@ -181,7 +181,7 @@ def annotate(companies, settings, g):
     for c in companies:
         common = g.common_dir(c["root"])
         inbox = deliver.inbox_of(common) if common else None
-        info = tree.read_info(c["root"], settings)
+        info = tree.read_info(c["root"], settings, g)
         shape = role.load(info["path"], info["text"])
         # 会社の形の役で外した物（回す先の無いツールなど）も注記に出す。外しただけでは --land の合図が黙って呼ばれなくなるため
         c["problems"] = c.get("problems", []) + [p for p in shape["problems"] if p not in c.get("problems", [])]
@@ -255,7 +255,7 @@ def fire(after, root, ports, a, task, attrs):
     attrs はメインブランチに入れた部署の属性で、その頼み元を回す頼みの頼み元に、その頼み（ask）を回す頼みの親（台帳の cause）にする。"""
     if not after:
         return []
-    info = tree.read_info(root, os.path.dirname(config.path_of(a.config, os.environ)))
+    info = tree.read_info(root, os.path.dirname(config.path_of(a.config, os.environ)), ports.git)
     company = tree.company_name(root, info)
     shape = role.load(info["path"], info["text"])
     boss = {k: attrs.get(k) for k in ("ask", "boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")}

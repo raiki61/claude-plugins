@@ -8,8 +8,8 @@ import pathlib
 import tempfile
 import unittest
 
-from . import DISPATCH  # noqa: F401
-from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg
+from . import DISPATCH, fakegit  # noqa: F401
+from .test_dispatch import FakeHerdr, FakePorts, fake_cfg, gitx_source
 from .test_provision import git, make_world
 import dispatch
 import gitx
@@ -228,10 +228,13 @@ class Copies(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
+    """git（tests/fakegit.py）・herdr・claude・gh は偽物で回す。"""
+
     def setUp(self):
-        self.cfg, self.root = make_cfg()
+        self.cfg, self.root, self.g = fake_cfg()
+        fakegit.forbid_real_git(self)
         self.src = gitx_source(self.cfg)
-        self.h = FakeHerdr(root=self.root)
+        self.h = FakeHerdr(root=self.root, g=self.g)
         self.paths = {n: self.h.create_worktree(self.src, f"feat/{n}", f"origin/feat/{n}", f"r/feat/{n}")["path"]
                       for n in (1, 2, 3)}
         self.h.close_workspace("W0")
@@ -244,9 +247,9 @@ class Main(unittest.TestCase):
         return rc, buf.getvalue()
 
     def ports(self):
-        p = FakePorts([], herdr=self.h)
-        p.branch_prs = {"feat/1": {"number": 1, "state": "MERGED", "head_sha": gitx.head_sha(self.paths[1])},
-                        "feat/2": {"number": 2, "state": "OPEN", "head_sha": gitx.head_sha(self.paths[2])}}
+        p = FakePorts([], herdr=self.h, git=self.g)
+        p.branch_prs = {"feat/1": {"number": 1, "state": "MERGED", "head_sha": self.g.head_sha(self.paths[1])},
+                        "feat/2": {"number": 2, "state": "OPEN", "head_sha": self.g.head_sha(self.paths[2])}}
         return p
 
     def test_clean_without_apply_removes_nothing(self):
@@ -270,10 +273,10 @@ class Main(unittest.TestCase):
 
     def test_apply_copies_graphloops_boards_of_a_closed_pr_place_before_removing_it(self):
         # PR の作業場も、git の置き場の盤面（graphloops/）は git worktree remove で一緒に消えるので、消す前に写す（受付 5f414f）
-        here = pathlib.Path(gitx.git_dir(self.paths[1]))
+        here = pathlib.Path(self.g.git_dir(self.paths[1]))
         (here / "graphloops" / "review-loop").mkdir(parents=True)
         (here / "graphloops" / "review-loop" / "trace.jsonl").write_text("{}\n")
-        dest = pathlib.Path(gitx.common_dir(self.src), "graphloops", "boards-archive", here.name, "graphloops")
+        dest = pathlib.Path(self.g.common_dir(self.src), "graphloops", "boards-archive", here.name, "graphloops")
         rc, out = self.run_clean(["--clean"], self.ports())
         self.assertIn(f"#1 feat/1  MERGED  消せる（graphloops の盤面は {dest} に写してから消す）", out)
         rc, out = self.run_clean(["--clean", "--apply"], self.ports())
@@ -283,6 +286,7 @@ class Main(unittest.TestCase):
 
     def test_apply_returns_1_when_a_place_could_not_be_removed(self):
         pathlib.Path(self.paths[1], "new.py").write_text("x\n")
+        self.g.dirty.add(self.paths[1])
         ports = self.ports()
         ports.is_clean = lambda p: True   # 候補の判定の後に手元の作業が増えた形
         rc, out = self.run_clean(["--clean", "--apply"], ports)

@@ -52,7 +52,7 @@ def run(payload, env=os.environ, sync=_sync):
         return False, []
     root = gitx.root_of(common)
     config_path = gitx.worktree_attrs(cwd).get("config")
-    info = tree.read_info(root, os.path.dirname(config.path_of(config_path, env)))
+    info = tree.read_info(root, os.path.dirname(config.path_of(config_path, env)), gitx)
     if not info.get("text"):
         return False, []
     digest = hashlib.sha256(info["text"].encode("utf-8")).hexdigest()

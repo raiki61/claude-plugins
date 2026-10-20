@@ -547,7 +547,7 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
     pathlib.Path(brief).write_text(text_of(attrs) + _handoff_line(os.path.join(ports.git.git_dir(dept["path"]), wake.HANDOFF)) + "\n",
                                    encoding="utf-8")
     pending = ask and attrs.get("delivered") != ask
-    the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
+    the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"), ports.git)
     tail = deliver.tail(deliver.required_items(the_role), orders.RUN) if pending else None
     ns = argparse.Namespace(**{**vars(a), "task": attrs.get("name"), "branch": dept["branch"], "brief": brief,
                                "role": attrs.get("role"), "persistent": attrs.get("lifecycle") == gitx.PERSISTENT, "from_name": None,
@@ -592,7 +592,7 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None, hold=Non
         return 1, f"窓口の窓 {pane} を読めない（{e}）"
     if held:
         return NOT_NOW, held
-    the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
+    the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"), ports.git)
     warn = None
     try:
         conf = role.write_desk_settings(ports.git.git_dir(company["root"]), the_role)

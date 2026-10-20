@@ -274,7 +274,13 @@ def worktree_attrs(cwd, runner=_default_runner, former=True, copies=False):
     そのまま載り、名前で部署を探す --move・--ask・--land が「同じ名前の部署が 2 つ以上ある」で止まった（2026-10-19、説明書の部署の
     value-rules を回す一時の worktree。受付 7d0ac0）。id を書く前の版で書いた属性（OWN_ID が無い）は今までどおり読む（窓口の属性は除く。_copy_of）。
     返す属性に OWN_ID は含めない。"""
-    attrs, here = _read_attrs(cwd, runner)
+    return shape_attrs(*_read_attrs(cwd, runner), former=former, copies=copies)
+
+
+def shape_attrs(attrs, here, former=True, copies=False):
+    """読んだ属性（{名前: 値}、値を読んだ config.worktree の worktree の id）を、worktree_attrs の返す形にする（写しを空と読む・OWN_ID を外す・
+    前の版の寿命を読み替える）。git を起動しない（試験の git の偽物も同じ決め方で読む）。"""
+    attrs = dict(attrs)
     if not copies and _copy_of(attrs, here):
         return {}
     attrs.pop(OWN_ID, None)   # 読む側だけが見る印なので、呼ぶ側には渡さない（属性を写し直す --reorg などが、ほかの場所の id を書かない）

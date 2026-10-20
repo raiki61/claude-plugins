@@ -1,12 +1,11 @@
 """受け持ちの起動方法（[skills.start]）: フィールドの読み（start ノード・tree）と、--start・--due を入口から。
-git は一時のフォルダの本物、herdr・claude は偽物で回す。部署は test_deliver の Flow の永続の部署「調べ」（役 調べ役）。"""
+git（tests/fakegit.py）・herdr・claude は偽物で回す。部署は test_deliver の Flow の永続の部署「調べ」（役 調べ役）。"""
 
 import os
 import pathlib
 import unittest
 
 from . import test_deliver
-import gitx
 import starts
 from nodes import deliver, provision, start, tree
 
@@ -69,13 +68,13 @@ class Start(unittest.TestCase):
         return [r for r in deliver.records(self.inbox) if r.get("kind") == "start"]
 
     def test_start_asks_the_resident_department_and_reports_to_report_to(self):
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.shape(shape_text('report_to = "社長室"\ntext = "部署の作りを見直す"'))
         rc, out = self.main(self.src, "--start", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertIn("起動した: ", out)
         self.assertEqual(len(self.prompts()), 1)
-        attrs = gitx.worktree_attrs(self.place)
+        attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["boss"], attrs.get("boss-session")), ("社長室", None))   # 起動した会話でなく report_to に返る
         self.assertEqual(attrs["boss-inbox"], self.inbox)
         brief = next(r["file"] for r in deliver.records(self.inbox) if r.get("kind") == "ask")
@@ -111,7 +110,7 @@ class Start(unittest.TestCase):
         self.assertEqual((self.prompts(), self.starts()), ([], []))
 
     def test_due_starts_only_what_is_due(self):
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nevery = "1d"'))
         rc, out = self.main(self.src, "--due")
         self.assertEqual(rc, 0, out)
@@ -148,7 +147,7 @@ class Start(unittest.TestCase):
     def test_due_skips_a_company_another_due_is_counting(self):
         # 裏の --due が 2 つ並ぶと、会社の錠を持つ方だけが数えて起動し、もう一方は待たずにその会社を飛ばす（同じ受け持ちを 2 度
         # 起動せず、待つ処理も積まない）
-        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, gitx)
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nevery = "1d"'))
         with starts._due_lock(self.inbox) as got:
             self.assertTrue(got)

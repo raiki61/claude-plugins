@@ -130,7 +130,7 @@ def _shape_at(cwd, attrs, env):
     if not common:
         return None
     root = gitx.root_of(common)
-    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
+    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)), gitx)
     return root, info, role.load(info["path"], info["text"])
 
 
@@ -189,7 +189,7 @@ def hint_for(cwd, env=os.environ, attrs=None):
         return None
     attrs = gitx.worktree_attrs(cwd) if attrs is None else attrs
     root = gitx.root_of(common)
-    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
+    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)), gitx)
     if not info.get("source"):
         return None
     return HINT.format(company=tree.company_name(root, info), run=RUN)

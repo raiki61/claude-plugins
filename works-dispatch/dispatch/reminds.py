@@ -64,7 +64,7 @@ def put(a, ports, cwd):
             after.append(got)
     # 会社の名前は待ち受けと同じ読み方で決める（wake_hook.plan。設定の置き場の会社の形も読む。違えば知らせが届かない）
     settings = os.path.dirname(config.path_of(ports.attrs(cwd).get("config"), ports.env))
-    holder = wake.address(orders.inbox_company(inbox, settings), name)
+    holder = wake.address(orders.inbox_company(inbox, settings, ports.git), name)
     rid = deliver.new_id(ports.now())
     waits = remind.waits_for({"on": on, "after": after})
     if a.dry_run:
