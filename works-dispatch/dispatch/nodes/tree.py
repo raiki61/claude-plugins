@@ -17,7 +17,7 @@
   頼らない。会社の形を読む所（--tree・--task・--ask・--deliver・--land・役を足すフック）は全部 read_info を通る。origin は在るのに
   origin/HEAD が無い clone では既定のブランチを決められないので、作業ツリーから読み、直し方（HEAD_FIX）を注記に出す（head_note）。
   書き方は TOML で、フィールドの名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
-  role と、その受け持ちの部署を起動するときの model・effort（役の値より先に効く）と、起動方法の start（start ノード）だけをここで
+  role と、その受け持ちの部署を起動するときの model・effort・account（役の値より先に効く）と、起動方法の start（start ノード）だけをここで
   足した。知らないフィールドと外したフィールドは、読み飛ばす前に注記（notes）に出す（一覧は known_keys。read_info）。
 
 入口の dispatch.py --tree が、herdr・git・claude から読んだ物を渡して build を呼び、lines で人の読む形にする。
@@ -76,6 +76,11 @@ def _skills(raw, where, problems):
                             f"外して、役の effort で起動する")
         elif "effort" in s:
             got["effort"] = s["effort"]
+        # その部署を新しく立てるときに先に使うアカウント。役の値より先に効く（role.launch_account）。形が違えば外し、役の値で選ぶ
+        if "account" in s and not (isinstance(s["account"], str) and s["account"].strip()):
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の account は空でないアカウントの名前。外して、役の account で選ぶ")
+        elif "account" in s:
+            got["account"] = s["account"].strip()
         # その部署を起動するときの --settings に、役の [roles.settings] の上から重ねる Claude Code の設定（role.settings_for）。表でなければ外す
         if "settings" in s and not isinstance(s["settings"], dict):
             problems.append(f"{where}: skills[{i}]（{s['name']}）の settings は表。外して、役の settings だけで起動する")
@@ -94,7 +99,7 @@ def _skills(raw, where, problems):
             problems.append(f"{where}: skills[{i}]（{s['name']}）の {key} は true か false。外して永続で扱う")
             flag = False
         got["on_demand"] = flag
-        out.append({"model": None, "effort": None, "settings": None, **got})
+        out.append({"model": None, "effort": None, "settings": None, "account": None, **got})
     return out
 
 
@@ -305,6 +310,8 @@ def contacts(company, shape):
     named = {d["attrs"].get("name") for d in company["departments"]}
     for s in company["skills"]:
         r = shape["roles"].get(role.current(shape, s["role"])) if s.get("role") else None
+        # 先に使うアカウント（受け持ちの値、無ければ役の値。role.launch_account）。--tree の受ける仕事の行に出す
+        s["account_wish"] = role.launch_account(r, s)[0]
         s["ask"] = (None if r is None or r["machine"] else
                     f"--ask {plain}/{s['name']}" if s.get("on_demand") or r["persistent"] and s["name"] in named else
                     f"--ask {plain}/{r['name']} --task {s['name']} --branch <ブランチ>" if r["persistent"] else
@@ -341,6 +348,7 @@ def lines(companies):
             out.append(f"  受ける仕事: {s['name']}" + (f"（{s['description']}）" if s["description"] else "")
                        + (f" → {s['role']}" if s["role"] else "")
                        + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k))
+                       + (f"  先に使うアカウント {s['account_wish']}" if s.get("account_wish") else "")
                        + (f"  起動方法: {(s['start']['every'] + ' ごとか') if s['start']['every'] else ''}--start"
                           f"、{s['start']['report_to']} に返す" if s.get("start") else "")
                        + (f"（前 {_at(s.get('last_started'))}・次 {_at(s.get('next_start'))}）"
@@ -356,7 +364,8 @@ def lines(companies):
             out.append("  窓口: 名付けていない（本社で持ち主と話す会話から --desk を打つと名付く）")
         for t in c.get("tools", []):
             out.append(f"  ツール: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
-                       + f"  片づかなければ {t['fallback_role']} に回す  外れ {t['misses']} 回")
+                       + f"  片づかなければ {t['fallback_role']} に回す"
+                       + (f"（先に使うアカウント {t['account']}）" if t.get("account") else "") + f"  外れ {t['misses']} 回")
         out += [f"  ! {p}" for p in c["problems"] + c.get("health", [])]
         depts = c["departments"]
         for i, d in enumerate(depts):

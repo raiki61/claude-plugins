@@ -422,6 +422,48 @@ class Hours(unittest.TestCase):
         self.assertEqual((got["to"], got["kind"]), ("p1", "hours"))   # 名指しが使えなくても、終わる手前ならほかへ移す
 
 
+class Prefer(unittest.TestCase):
+    """会社の形の役か受け持ちが名指したアカウント（accounts.prefer）。my_notes の受付 20261020-084411-d23053 の、写しの後始末を
+    cheapest の使える時間帯の中は cheapest で回す形。"""
+
+    cheap = Hours.cheap
+    accts = (Account("p1", "c1"), cheap)
+    lim = {"p1": {"seven_day": {"used_percentage": 10, "resets_at": Hours.inside + 86400 * 3}, "five_hour": {"used_percentage": 1}}}
+
+    def rows(self, at=Hours.inside):
+        return accounts.rank(self.accts, self.lim, 95, at)
+
+    def test_a_usable_wish_goes_first_even_without_limits(self):
+        self.assertEqual(names(self.rows()), ["p1", "cheap"])   # 名指しが無ければ、控えの無い cheap は後
+        got, note = accounts.prefer(self.rows(), "cheap", 0, "役 写しの後始末")
+        self.assertEqual((names(got), note), (["cheap", "p1"], None))
+        self.assertEqual(accounts.prefer(self.rows(), None, 0, None), (self.rows(), None))
+
+    def test_an_unusable_wish_keeps_the_usage_order_and_says_why(self):
+        for at, opened, why in ((Hours.outside, 0, "使える時間帯（17:00-25:00 Asia/Tokyo）の外"),
+                                (Hours.closing, 0, "分後に終わる（終わりの 30 分前からは選ばない）"),
+                                (Hours.inside, 1, "終わっていない会話が 1 件在る")):
+            got, note = accounts.prefer(self.rows(at), "cheap", opened, "役 写しの後始末")
+            self.assertEqual(names(got)[0], "p1")
+            self.assertIn("役 写しの後始末 が名指したアカウント cheap は", note)
+            self.assertIn(why, note)
+        got, note = accounts.prefer(self.rows(), "p9", 0, "受け持ち 写し")
+        self.assertEqual(names(got), ["p1", "cheap"])
+        self.assertIn("p9 は振れるアカウントの中に無い", note)
+
+    def test_an_account_over_its_limit_is_not_used_even_when_named(self):
+        lim = {"p1": {"seven_day": {"used_percentage": 99, "resets_at": Hours.inside + 86400}, "five_hour": {"used_percentage": 1}}}
+        got, note = accounts.prefer(accounts.rank(self.accts, lim, 95, Hours.inside), "p1", 0, "役 作業")
+        self.assertEqual(names(got)[0], "cheap")
+        self.assertIn("seven_day が 99% で上限 95% に達した", note)
+
+    def test_open_conversations_count_idle_background_ones(self):
+        items = [{"state": "idle"}, {"state": "done"}, {"state": "stopped"}, {"state": "failed"},
+                 {"status": "idle"}, {"status": "busy"}, {"state": "working"}]
+        self.assertEqual(accounts.count_open(items), 3)   # 待機中の裏の会話・動いている対話の会話・作業中の裏の会話
+        self.assertEqual(accounts.count_open([]), 0)
+
+
 class Early(unittest.TestCase):
     """区切りで早めに移すか（accounts.early）。受付 215886 の 2026-10-19 09:05 の控え（p3 は 5 時間 77%・週 98%、週の枠は 3 時間 56 分で戻る）。"""
 

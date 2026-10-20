@@ -218,7 +218,7 @@ class Info(unittest.TestCase):
         self.assertEqual(os.path.basename(local), urllib.parse.quote(os.path.realpath(self.root), safe="") + ".toml")
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"]), ("settings", "ノート"))
-        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "settings": None, "start": None,
+        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "settings": None, "account": None, "start": None,
                                           "on_demand": False}])
 
     def test_on_demand_is_read_and_the_former_standing_false_means_the_same(self):
@@ -491,6 +491,21 @@ class Build(unittest.TestCase):
         # 本社を名付けていなければ、名付けていないと出す
         unnamed = company | {"departments": [], "desk": None}
         self.assertIn("  窓口: 名付けていない", "\n".join(tree.lines([unnamed])))
+
+    def test_skill_rows_show_the_account_named_by_the_duty_or_its_role(self):
+        from nodes import role
+        problems = []
+        skills = tree._skills([{"name": "写し", "role": "写しの後始末"}, {"name": "割り振り", "role": "担当", "account": "p2"},
+                               {"name": "直し", "role": "担当", "account": 3}], "t", problems)
+        self.assertEqual([s["account"] for s in skills], [None, "p2", None])
+        self.assertIn("skills[2]（直し）の account は空でないアカウントの名前", problems[0])
+        shape = role.load("t", '[[roles]]\nname = "写しの後始末"\naccount = "cheapest"\n[[roles]]\nname = "担当"\n')
+        company = tree.contacts({"name": "c", "root": "/s/c", "info_source": "origin", "description": None, "problems": [],
+                                 "skills": skills, "departments": []}, shape)
+        text = "\n".join(tree.lines([company]))
+        self.assertIn("受ける仕事: 写し → 写しの後始末  先に使うアカウント cheapest", text)
+        self.assertIn("受ける仕事: 割り振り → 担当  先に使うアカウント p2", text)
+        self.assertNotIn("直し → 担当  先に使う", text)
 
     def test_desk_shows_the_model_and_effort_it_starts_with(self):
         # 窓口の会話が起きるときに効く値: 役のフィールド（--move が旗で渡す）が [roles.settings] の model・effortLevel より先。

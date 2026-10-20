@@ -60,7 +60,7 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["instructions"], "結論と原典の一句を返す。")
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
-        self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "settings": None,
+        self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "account": None, "settings": None,
                                                  "deliver": None, "deliver_check": None, "persistent": False, "fresh": False, "machine": False, "tools": [],
                                                  "holders": None, "ask_holders": None, "ask_check": None, "odd": []})
 
@@ -227,6 +227,21 @@ class ModelAndEffort(unittest.TestCase):
         model, effort, note = role.launch_flags({**r, "effort": "inherit"}, {})
         self.assertEqual((model, effort), ("opus", None))
         self.assertIn("CLAUDE_EFFORT が無い", note)
+
+    def test_account_is_a_name_and_the_duty_comes_first(self):
+        got = role.load("t", '[[roles]]\nname = "写しの後始末"\nmodel = "sonnet"\naccount = " cheapest "\n'
+                             '[[roles]]\nname = "作業"\naccount = ""\n')
+        r = got["roles"]["写しの後始末"]
+        self.assertEqual(r["account"], "cheapest")
+        self.assertNotIn("作業", got["roles"])   # 空の名前は形の違う値として役を外す
+        self.assertIn("account の形が違う", got["problems"][0])
+        self.assertEqual(role.launch_account(r), ("cheapest", "役 写しの後始末"))
+        self.assertEqual(role.launch_account(r, {"name": "写し", "account": "p2"}), ("p2", "受け持ち 写し"))
+        self.assertEqual(role.launch_account(r, {"name": "写し", "account": None}), ("cheapest", "役 写しの後始末"))
+        self.assertEqual(role.launch_account(None), (None, None))
+        # 起動したときの値（company.launched）には入れない（名指しと違うアカウントで立った fresh の部署を、頼みのたびに起動し直さない）
+        self.assertEqual(role.launch_key(r), role.launch_key({**r, "account": None}))
+        self.assertEqual(json.loads(role.launch_key(r)), {"model": "sonnet", "effort": None})
 
     def test_launch_key_keeps_inherit_unresolved_and_takes_the_duty_first(self):
         # 毎回クリアする部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）

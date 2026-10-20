@@ -302,6 +302,16 @@ class Call(unittest.TestCase):
         self.assertIn("知らない鍵 x", out)
         self.assertEqual(deliver.records(self.inbox), [])
 
+    def test_the_tree_shows_the_account_the_fallback_role_names(self):
+        # 片づかなかった仕事を回す役の部署は hand_over が立てるので、役の account が効く。--tree のツールの行に出す
+        self.use("true")
+        self.shape(shape_text("true").replace('name = "調べ役"\n', 'name = "調べ役"\naccount = "cheapest"\n', 1))
+        companies = [{"root": self.src, "name": "src", "skills": [], "departments": [], "problems": []}]
+        calls.annotate(companies, os.path.dirname(self.cfg), gitx)
+        self.assertEqual(companies[0]["tools"][0]["account"], "cheapest")
+        companies[0].update(info_source=None, description=None)
+        self.assertIn("片づかなければ 調べ役 に回す（先に使うアカウント cheapest）  外れ 0 回", "\n".join(tree.lines(companies)))
+
     def test_a_tool_dropped_for_its_fallback_shows_on_the_tree(self):
         # 外したツールは --land の合図で黙って呼ばれなくなるので、--tree の会社の注記に出す
         self.use("true", fallback='fallback_role = "見張り"')

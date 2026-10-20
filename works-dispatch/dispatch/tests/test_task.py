@@ -344,6 +344,39 @@ class Task(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("task/fix  a2  started", out)
 
+    def test_the_account_named_by_the_role_is_used_when_it_can_be(self):
+        # 会社の形の役の account は、使えれば使用率の順より先（a1 は設定の順で先）。使えなければ使用率の順で選び、訳を注記に出す
+        dirs = two_accounts(self.cfg)
+        push_shape(gitx_source(self.cfg), '[[roles]]\nname = "作業"\naccount = "a2"\n')
+        ports = self.ports()
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/fix  a2  started", out)
+        self.assertNotIn("名指した", out)
+        # a2 に終わっていない裏の会話（待機中）が在れば、使用率の順で a1
+        ports = self.ports({dirs["a2"]: [{"sessionId": "w1", "cwd": "/x", "kind": "background", "state": "idle"}]})
+        rc, out = self.run_task(ports, name="別", branch="task/other")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/other  a1  started", out)
+        self.assertIn("役 作業 が名指したアカウント a2 は終わっていない会話が 1 件在るので、使用率の順で選ぶ", out)
+
+    def test_the_account_named_outside_its_hours_falls_back_to_the_usage_order(self):
+        # 試験の時刻は 0（UTC 00:00）。a1 の使える時間帯の外なので、名指しても a2
+        two_accounts(self.cfg)
+        p = pathlib.Path(self.cfg)
+        p.write_text(p.read_text(encoding="utf-8").replace('name = "a1", command = "claude-a1",',
+                                                           'name = "a1", command = "claude-a1", hours = "08:00-16:00 UTC",'),
+                     encoding="utf-8")
+        src = gitx_source(self.cfg)
+        push_shape(src, '[[roles]]\nname = "作業"\naccount = "a1"\n')
+        git("-C", src, "fetch", "-q", "origin")   # --dry-run は origin を取り直さないので、手元の控えに入れておく
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("役 作業 が名指したアカウント a1 は使える時間帯（08:00-16:00 UTC）の外", out)
+        self.assertIn("- 先に使うアカウント: a1（役 作業。使わない）", out)
+        self.assertIn("task/fix  a2  ", out)
+
     def test_unknown_caller_gets_the_screen_route_and_a_note(self):
         ports = self.ports()
         ports.env = {}

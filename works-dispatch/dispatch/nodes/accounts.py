@@ -167,6 +167,30 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
     return rows
 
 
+def count_open(items):
+    """1 つのアカウントの `claude agents --json` の並びのうち、終わっていない会話の数。背景の会話は state が done・failed・stopped の
+    どれでもないもの（待機中も数える。次の頼みでいつ動き出すか分からない）、state の無い対話の会話は動いているもの（is_running）。"""
+    return sum(1 for s in items if isinstance(s, dict) and (s.get("state") not in (None, "done", "failed", "stopped")
+                                                             if s.get("state") is not None else is_running(s)))
+
+
+def prefer(rows, wish, open_count, who):
+    """会社の形の役か受け持ちが名指したアカウント wish（role.launch_account）を、使えるなら rows（rank の並び）の頭に出す。(並び, 注記)。
+    open_count は wish のアカウントの終わっていない会話の数（count_open）、who は名指した所（注記に出す。例「役 写しの後始末」）。
+    使えないと見るのは、rows に無い（設定に無いか、同じ名前の会話が在って避けた）・選べない（使用率の上限か、使える時間帯の外か終わる
+    手前。rank の eligible）・終わっていない会話が在る（同時に 1 件しか走らないアカウントがある）とき。そのときは rows のまま
+    （今の選び方の順）にし、名指しを使わなかった訳を注記にする。名指しが無ければ (rows, None)。"""
+    if not wish:
+        return rows, None
+    row = next((r for r in rows if r["name"] == wish), None)
+    bad = ("振れるアカウントの中に無い（設定の accounts に無いか、同じ名前の会話が在るので避けた）" if row is None
+           else row["reason"] if not row["eligible"]
+           else f"終わっていない会話が {open_count} 件在る" if open_count else None)
+    if bad:
+        return rows, f"{who} が名指したアカウント {wish} は{bad}ので、使用率の順で選ぶ"
+    return [row] + [r for r in rows if r is not row], None
+
+
 def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
     """区切りで早めに移すか（--move --if-changed と待ち受け）。rows は rank の並び、old は今のアカウント、wish は持ち主か窓口が
     --move で名指したが、ターンの途中で移せなかったアカウント（属性 company.move-to）。avoid は前に早めに移そうとして起動できなかった

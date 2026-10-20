@@ -24,7 +24,7 @@
 --no-second は 2 ターン目の文を送らず、/catchup だけで止める。
 
 --task 名前 は、部署を 1 つ立てる（_task）。ブランチの場所を PR と同じ決まりで開き（herdr の、元の clone の子の作業場）、使用率でアカウントを
-1 つ選び、その作業場で Claude Code の裏の会話（claude --bg）を、名前と頼みのファイルを読ませる最初の文を付けて起動し、同じペインで
+1 つ選び（会社の形の役か受け持ちが account で名指したアカウントは、使えれば先に選ぶ）、その作業場で Claude Code の裏の会話（claude --bg）を、名前と頼みのファイルを読ませる最初の文を付けて起動し、同じペインで
 attach して画面を出す（会社の形の設計 9.1）。最初の文の後ろに、呼んだ会話への連絡の道（同じアカウントなら SendMessage、違えば画面に
 書いて止まる）を書き足す。作業の終わりは待たない。作業場の git の設定 company.<名前> に、部署の属性（役・アカウント・会話の名前と
 id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--clean は、会話が終わりブランチがメインブランチに入った部署を、claude rm と一緒に片付ける。
@@ -909,6 +909,12 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         pool = free
     ranked = accounts.rank(pool, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
                            accounts.count_running(listed), cfg.reset_soon_hours, cfg.hours_margin_minutes)
+    # 会社の形の役か受け持ちが名指したアカウント（account）は、使えれば順の頭へ。使えなければ使用率の順のまま、訳を注記に出す。
+    # --move の起動し直し（only_account）では名指しを見ない（アカウントを替えるのは --move の受け持ち）
+    wish, wisher = (None, None) if getattr(a, "only_account", None) else role.launch_account(the_role, duty)
+    ranked, wish_note = accounts.prefer(ranked, wish, accounts.count_open(listed.get(wish, [])), wisher)
+    if wish_note:
+        notes.append(wish_note)
     row = assign.plan(repo, [{"number": None, "kind": "task", "title": a.task, "head": a.branch}], sessions.open_keys(sess),
                       {s["cwd"] for s in sess if s["cwd"]}, ranked, cfg.limit_percent, None, _branch_places(found))[0]
     row["label"] = a.task
@@ -938,6 +944,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             f"- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
             f"- 連絡の道: {route}",
             f"- 会社の形: {info['path'] or '無い'}（--dry-run なので origin を取り直さず、手元の控えで読んだ）",
+            f"- 先に使うアカウント: " + (f"{wish}（{wisher}。{'使わない' if wish_note else '使う'}）" if wish else "名指し無し（使用率の順）"),
             f"- 役の起動の設定: モデル {model or '既定'}、effort {effort or '既定'}、--settings の鍵 "
             + ", ".join(role.settings_for(the_role, duty))
             + (f"（受け持ち {duty['name']} の settings を重ねた）" if duty and duty.get("settings") else ""),

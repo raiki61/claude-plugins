@@ -11,6 +11,12 @@
   その部署ではそちらが先に効く（launch_flags）。inherit（頼み元と同じ）は作らない（頼み元の会話の
   今のモデルを外から読む口が無い。Bash のツールの環境変数に無く〔hooks の文書 "There is no $CLAUDE_MODEL environment variable"〕、
   claude agents --json の 1 件にも無い）ので、書けば problems に書いて役を外す
+- account: 部署を新しく立てるときに先に使うアカウントの名前（dispatch の設定の accounts の name。例 "cheapest"）。省けば使用率の順
+  （accounts.rank）で選ぶ。受け持ち（[[skills]]）に account が有れば、その部署ではそちらが先に効く（launch_account）。名指したアカウントが
+  使えないとき（使用率の上限・使える時間帯の外か終わる手前・終わっていない会話が在る・設定に無い）は止めずに使用率の順で選び、訳を
+  注記に出す（accounts.prefer）。立っている部署を起動し直すとき（--move）は効かない（--move は今のアカウントか名指したアカウントで
+  起動し直す）。起動したときの値（属性 company.launched。launch_key）には入れない（使えるかで起動する先が替わるので、入れると名指しと
+  違うアカウントで立った部署を、毎回の頼みの前に起動し直すことになる）
 - effort: 部署を起動するときの --effort（low・medium・high・xhigh・max・ultracode）。省けばそのアカウントの既定のまま起動する。
   inherit なら、呼んだ会話（頼み元）の今の effort で起動する。Claude Code は Bash のツールに今の effort を CLAUDE_EFFORT として渡す
   （hooks の文書）ので、入口がそれを読む。--effort はその会話にだけ効き、設定の effortLevel・modelSettings より強く、保存されない
@@ -157,7 +163,7 @@ def _empty():
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, deliver_check, persistent, fresh, odd}, gh_user, shared, default_role, desk_role, former, problems}。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, account, settings, deliver, deliver_check, persistent, fresh, odd}, gh_user, shared, default_role, desk_role, former, problems}。
     path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
@@ -197,6 +203,8 @@ def load(path, text=None):
             out["problems"].append(f"{where} に name が無い")
             continue
         bad = [k for k in ("instructions", "model") if k in r and not isinstance(r[k], str)]
+        if "account" in r and not (isinstance(r["account"], str) and r["account"].strip()):
+            bad.append("account")
         for k in ("deliver_check", "ask_check"):
             if k in r and not (isinstance(r[k], str) and r[k].strip()):
                 bad.append(k)
@@ -212,7 +220,7 @@ def load(path, text=None):
                                    and all(isinstance(x, str) and x.strip() for x in r["deliver"])):
             bad.append("deliver")
         if bad:
-            out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
+            out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、account は空でない文字列、settings は表、"
                                    f"deliver は空でない文字列の並び、deliver_check・ask_check は空でない文字列、persistent・resident・fresh・machine は true か false、"
                                    f"holders・ask_holders は true・false か名前の並び、"
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
@@ -229,7 +237,8 @@ def load(path, text=None):
             out["problems"].append(f"{where}: 役 {r['name']} が 2 度書かれている（先の物を使う）")
             continue
         out["roles"][r["name"]] = {"name": r["name"], "instructions": (r.get("instructions") or "").strip() or None,
-                                   "model": r.get("model") or None, "effort": r.get("effort"), "settings": r.get("settings") or None,
+                                   "model": r.get("model") or None, "effort": r.get("effort"),
+                                   "account": r["account"].strip() if "account" in r else None, "settings": r.get("settings") or None,
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
                                    "deliver_check": (r.get("deliver_check") or "").strip() or None,
                                    "ask_check": (r.get("ask_check") or "").strip() or None,
@@ -356,6 +365,17 @@ def launch_spec(role, duty=None):
     return duty.get("model") or (role or {}).get("model"), duty.get("effort") or (role or {}).get("effort")
 
 
+def launch_account(role, duty=None):
+    """部署を新しく立てるときに先に使うアカウントの名前と、名指した所（注記に出す字）。(名前, 所) か (None, None)。
+    決める順は launch_spec と同じく、部署の受け持ち（duty。duty_of が部署の名前で引く）の値、役の値。"""
+    duty, role = duty or {}, role or {}
+    if duty.get("account"):
+        return duty["account"], f"受け持ち {duty['name']}"
+    if role.get("account"):
+        return role["account"], f"役 {role['name']}"
+    return None, None
+
+
 def desk_flags(role):
     """本社の窓口の会話を起動するときの (--model の値, --effort の値)。役のフィールドの値で、effort の inherit は旗を付けない（窓口には
     引き継ぐ呼んだ会話が無い）。None なら旗を付けない。"""
@@ -376,7 +396,8 @@ def launch_key(role, duty=None):
     """部署と窓口の属性 company.launched に書く字（起動したときの launch_spec と、役の起動の設定 [roles.settings]）。待ち受けが
     会社の形の今の値と比べ、違えば起動し直す（--move --if-changed。毎回クリアする部署は次の頼みを渡す前、ほかは区切り〔--rest〕の
     ターンの終わり）。settings は役の設定に受け持ちの設定を重ねた物（_layered）。どちらにも設定が無ければ settings のフィールドを書かない
-    （設定のフィールドの無かった版で起動した部署を、違うと見て起動し直さない）。"""
+    （設定のフィールドの無かった版で起動した部署を、違うと見て起動し直さない）。
+    先に使うアカウント（account。launch_account）は入れない（使えるかで起動する先が替わる。アカウントを替えるのは --move の受け持ち）。"""
     model, effort = launch_spec(role, duty)
     settings = _layered(role, duty)
     return json.dumps({"model": model, "effort": effort, **({"settings": settings} if settings else {})}, ensure_ascii=False,

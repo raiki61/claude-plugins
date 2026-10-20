@@ -14,10 +14,10 @@ https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation �
 # 会社の形の表ごとの、読む鍵。表の名前は TOML の書き方の表の名前（頂きは ""、[land.roles.<役>] は land.roles）
 COMPANY = {
     "": ("name", "description", "desk", "gh_user", "shared_instructions", "default_role", "desk_role", "roles", "skills", "land"),
-    "roles": ("name", "instructions", "model", "effort", "settings", "deliver", "deliver_check", "holders", "ask_check",
+    "roles": ("name", "instructions", "model", "effort", "account", "settings", "deliver", "deliver_check", "holders", "ask_check",
               "ask_holders", "persistent", "resident", "fresh", "machine", "tools", "former_names"),
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
-    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "start", "on_demand", "standing"),
+    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "standing"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
     "land": ("mode", "gate", "check", "bump", "main", "queue", "roles", "after"),
     "land.roles": ("mode", "gate", "check", "bump", "main"),

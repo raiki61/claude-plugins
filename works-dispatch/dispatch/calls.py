@@ -190,7 +190,8 @@ def annotate(companies, settings, g):
             if r.get("kind") == "miss":
                 misses[(r.get("role"), r.get("tool"))] = misses.get((r.get("role"), r.get("tool")), 0) + 1
         c["tools"] = [{"role": r["name"], "name": t["name"], "title": t["title"], "fallback_role": t["fallback_role"],
-                       "machine": r["machine"], "misses": misses.get((r["name"], t["name"]), 0)}
+                       "machine": r["machine"], "misses": misses.get((r["name"], t["name"]), 0),
+                       "account": _fallback_account(shape, c.get("skills", []), t["fallback_role"])}
                       for r in shape["roles"].values() for t in r["tools"]]
         tree.contacts(c, shape)   # 受ける仕事ごとの宛て方と窓口
         c["inbox"] = inbox
@@ -208,6 +209,15 @@ def annotate(companies, settings, g):
             d["no_talk_id"] = bool(attrs.get("role")) and not d.get("head_office") and not attrs.get("session")
     asks_of(companies)
     return companies
+
+
+def _fallback_account(shape, skills, to):
+    """片づかなかった仕事を回す先 to（役か受け持ちの名前）の部署を立てるときに、先に使うアカウント（role.launch_account）。hand_over と
+    同じく、to が役か on_demand を持つ受け持ちの名前ならその受け持ちとその役、ほかは役で引く（役の無い受け持ちへは hand_over が役 to で
+    ツールの名前の部署を立てるので、受け持ちの値は効かない）。--tree のツールの行に出す。"""
+    duty = next((s for s in skills if s.get("name") == to and (s.get("role") or s.get("on_demand"))), None)
+    the_role = shape["roles"].get(role.current(shape, duty["role"] if duty and duty.get("role") else to))
+    return role.launch_account(the_role, duty)[0]
 
 
 def asks_of(companies):
