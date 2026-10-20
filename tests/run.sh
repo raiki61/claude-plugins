@@ -8475,6 +8475,11 @@ assert lc.affected(["docs/a.md", "README.md", "scripts/x.py"], g) == set()
 assert lc.affected(["gates/a.py", "tests/run.sh"], g) is None
 assert lc.affected(["gone/x.py"], {"a": ["gone"], "b": []}) == {"a"}, "消したプラグインに依存するプラグインを足していない"
 assert "tiers" in lc.plugins(root)["works-dispatch"], "plugin.json の dependencies を読めていない: %s" % lc.plugins(root)
+# scope の宣言の語は、在るプラグインか、在るファイルのパスの頭（打ち間違えた語の検査は、--land で毎回見送られて赤を見落とす）
+bad = [w for line in run.splitlines() if line.startswith("scope ") for w in line.split()[1:]
+       if not ((root / w).is_dir() and (root / w / ".claude-plugin" / "plugin.json").exists() if "/" not in w and "." not in w
+               else any(root.glob(w + "*")))]
+assert not bad, "scope の宣言に、在るプラグインでもパスの頭でもない語: %s" % bad
 # tests/run.sh が出す見送りの印と、照合が数える印が同じ
 assert lc.SCOPE_SKIP.strip(" #") in run.replace("$SKIP_MARK", " # SKIP"), "tests/run.sh の見送りの印が tests/land-check.py の SCOPE_SKIP と違う"
 # 止めた赤の中で落ちたテストの名前（unittest の 3.11 からの形と前の形・works-dispatch の parallel.py の形・pytest の要約・中の台本の赤の行）を拾い、無ければ NG の行か最後の Error の行を出す

@@ -317,11 +317,12 @@ command = "python3 tests/ci-watch.py"
 fallback_role = "点検"
 
 # 部署の成果を main に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
-# ゲートは部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
+# 部署は触ったプラグインの試験を手元で回し、ここでは下の check の順に機械で確かめる。版は取り込むときに上げる
 # 件数のチェック（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
 # 文の IT の定着語でない言い方が、ファイルごとの基準の件数より増えていないかも確かめる（scripts/terms.py。辞書は works-dispatch/dispatch/terms.py）
 # 機械が読む値の受け渡しの決まり 3・4 に当たる所の件数が、ファイルごとの基準と違わないかも確かめる（tests/value-rules.py。標準 docs/standards/machine-readable-values.md。数えるだけで数秒）
-# ルートの試験（tests/run.sh）を、graphloops の模擬実行だけ見送って回し、赤の名前を一覧 tests/land-known-red.txt と照合する（tests/land-check.py。4〜5 分）。
+# ルートの試験（tests/run.sh）のうち、この変更が入力に当たる検査だけを、graphloops の模擬実行を見送って回し、赤の名前を一覧 tests/land-known-red.txt と照合する
+# （tests/land-check.py。works-dispatch だけを変えた回で、混んだ機械で 8 分ほど。tests/run.sh を変えた回は全部を回すので 25 分ほど）。
 # 一覧に無い赤と、一覧に在るのに緑の検査で止める。main に入った後の CI でしか回っていなかったため、入るたびに赤が積み上がった（2026-10-19、頼み b9ab0d）
 # 最後に、ブランチが書いた文書を初見の読み手に読ませ、詰まりが在れば止める（gates の branch-check。推測で埋めた箇所だけなら通す。読み 1 回に 2〜4 分。
 # 同じ中身の判定は覚えるので、リベースの打ち直しでは読み直さない）。安いゲートを先に、遅い初見読みを最後に並べる
