@@ -82,6 +82,28 @@ skip_capability() {
     local cap=${rest%%:*}
     [[ "$cap" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' "$cap"
 }
+# **変えた所だけを回す回（メインブランチに入れるゲート。tests/land-check.py が TESTS_AFFECTED と TESTS_CHANGED を渡す）。**
+# scope で入力を宣言した検査は、宣言したプラグイン（TESTS_AFFECTED。変わったプラグインと、それに依存するプラグイン）がどれも無く、
+# 宣言したパス（/ か . を含む語。頭で当てる）に当たる変わったファイル（TESTS_CHANGED。1 行に 1 本）も無ければ、走らせずに見送る。
+# 宣言は次の scope まで続き、引数の無い scope で解く。宣言の無い検査と、渡されない回（CI・手元）は全部を回す。
+# 宣言は検査が読むプラグインとファイルを全部書く（漏れると、変えた所の赤を main に入った後の CI まで見落とす）。
+# 子に継がせない——写しの上で tests/run.sh や台本を起動する検査（tests/mutate.py の実行器ほか）まで見送りの回になる
+LAND_AFFECTED=${TESTS_AFFECTED-} LAND_CHANGED=${TESTS_CHANGED-} LAND_SCOPED=${TESTS_AFFECTED+1}
+unset TESTS_AFFECTED TESTS_CHANGED
+SCOPE=()
+scope() { SCOPE=("$@"); }
+in_scope() {
+    [ -n "$LAND_SCOPED" ] && [ "${#SCOPE[@]}" -gt 0 ] || return 0
+    local s c
+    for s in "${SCOPE[@]}"; do
+        if [[ "$s" == */* || "$s" == *.* ]]; then
+            while IFS= read -r c; do [[ -n "$c" && "$c" == "$s"* ]] && return 0; done <<< "$LAND_CHANGED"
+        elif [[ " $LAND_AFFECTED " == *" $s "* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
 # どの OS で見送りを許すかは実装側で決めない——CI の定義か人が渡す
 report_skips() {
     [ "${#SKIPS[@]}" -gt 0 ] || return 0
@@ -130,6 +152,10 @@ expect_output() {
     if [ -z "$want" ]; then
         echo "  FAIL $desc — 期待メッセージが空（表の行から | が落ちていないか）"
         fail=1; ran=$((ran + 1)); return
+    fi
+    if ! in_scope; then
+        local line="  ok   $desc$SKIP_MARK unchanged: 入力（${SCOPE[*]}）がこの変更で変わっていない（main に入った後の CI が回す）"
+        echo "$line"; note_skips "$line"; ran=$((ran + 1)); return
     fi
     local got
     got=$("$@" 2>&1)
@@ -244,6 +270,28 @@ if [ "$skip_py" = "|n=1|検査 # SKIP fifo: 理由|cap=fifo" ]; then
     echo "  ok   Python の台本の見送りの行（parallel.skip_line）を、root の拾い手が 1 件として拾い、能力の名前を読む"
 else
     echo "  FAIL Python の台本の見送りの行を root の拾い手が拾えないか、能力の名前が読めない: $skip_py"
+    fail=1
+fi
+
+# **変えた所だけを回す回の見送りの腕。** 入力のプラグインが変わったか、入力のパスの頭に当たる変わったファイルが在る検査は走り、
+# どちらも無い検査は走らせずに見送りの行を出して 1 件に数え、宣言の無い検査と、渡されない回は走る。副シェルで本体を汚さない
+scope_run() {
+    ( LAND_SCOPED=$1; LAND_AFFECTED=gates; LAND_CHANGED=$'docs/a.md\ntests/mutate.py'; fail=0; ran=0; SKIPS=()
+      scope tiers; expect_output 0 x "甲" echo x
+      scope tiers gates; expect_output 0 x "乙" echo x
+      scope tests/mutate; expect_output 0 x "丙" echo x
+      scope; expect_output 0 x "丁" echo x
+      printf '|ran=%s|fail=%s|skips=%s' "$ran" "$fail" "${#SKIPS[@]}" )
+}
+scope_on=$(scope_run 1)
+scope_off=$(scope_run "")
+ran=$((ran + 1))
+want_on=$'  ok   甲 # SKIP unchanged: 入力（tiers）がこの変更で変わっていない（main に入った後の CI が回す）\n  ok   乙\n  ok   丙\n  ok   丁\n|ran=4|fail=0|skips=1'
+want_off=$'  ok   甲\n  ok   乙\n  ok   丙\n  ok   丁\n|ran=4|fail=0|skips=0'
+if [ "$scope_on" = "$want_on" ] && [ "$scope_off" = "$want_off" ]; then
+    echo "  ok   変えた所だけを回す回は、入力のプラグインもパスも変わっていない検査だけを見送って 1 件に数え、渡されない回は全部を回す"
+else
+    echo "  FAIL 変えた所だけを回す回の見送りが期待と違う: 渡した回 $scope_on / 渡さない回 $scope_off"
     fail=1
 fi
 
@@ -2374,7 +2422,9 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=755
+EXPECTED_CHECKS=756
+# 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから destgate までは gates のフックと、その試験の台本
+scope gates tests/coldread tests/destgate
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2703,7 +2753,10 @@ expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いし�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr review 12 --comment # $CR_PAD"
 # 検査できない本文は fail-closed で止める
 # 表そのものを走査して、各項目が実際に効いていることを確かめる(表が増えれば検査も増える)
+# 判定表は works-dispatch の dispatch.py の本文を運ぶ旗（DISPATCH_BODY_FLAGS）と突き合わせる
+scope gates tests/coldread tests/destgate works-dispatch
 expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "$ROOT/tests/coldread-table-case.py"
+scope gates tests/coldread tests/destgate
 # 手元の文書の口（書いた後に記録し、ターンの終わりにまとめて読む）。読み手は差し替え（COLDREAD_READER_CMD）で、
 # 呼ばれた回数と渡った依頼文をファイルに残させて数える——指摘を返すかだけを見ると、読まずに通す形も緑になる
 expect_output 0 "DOCS_GATE_OK" "coldread の手元の文書: 文書だけを記録し、ターンの終わりに 1 本 1 回だけ投稿と同じ依頼文で読み、親には指摘をファイルに書いて短い知らせだけを返す" \
@@ -2912,6 +2965,7 @@ PY
 
 # works-dispatch の送るコマンド（--deliver・--ask などの本文）は、gh の投稿と同じく送る前に読む。通した本文ファイルは、
 # ターンの終わりの手元の文書の読みが読み直さない（送った後に直せない指摘を出さない。受付 5bb988）。宛先のゲートは問わない
+scope gates tests/coldread tests/destgate works-dispatch
 expect_output 0 "DISPATCH_SEND_OK" "coldread: works-dispatch の納品と頼みの本文を送る前に読み、通した本文ファイルをターンの終わりに読み直さない" \
     "$PY_BIN" - "$ROOT" "$WORK/dispatch-send" <<'PY'
 import json, os, pathlib, shlex, subprocess, sys
@@ -3015,6 +3069,7 @@ rows = [l.split("\t")[1:] for l in (cfg / "coldread-gate/misses.log").read_text(
 assert ["--deliver", "uv"] in rows, rows
 print("DISPATCH_SEND_OK")
 PY
+scope gates tests/coldread tests/destgate
 
 # 待ちの一覧は読み終えてから消す: 読む口は一覧を読みかけ(<一覧>.<pid>.reading)に替えて取り、読む前に覚えた中身をそこに書き足す。
 # 口が切られて残った読みかけは、同じ役の次の終わりに取り戻し、覚えた中身を忘れて読み直す(まだ読んでいる新しい読みかけには触らない)。
@@ -5165,6 +5220,7 @@ expect_output 0 "読めない" "destgate: 一覧が在るとき、読めない�
 expect_output 0 "解析できず" "destgate: 解析できない gh のコマンドは宛先を確かめられないので通さない" \
     "$DG_CASE" "$DG_CFG" "$WORK" "gh issue comment 1 -R evil/place --body 'closing quote missing"
 
+scope attention tests/catchup tests/changemap tests/reflect
 # ---- attention/catchup: 1 件の PR / issue の「前回から何が起きたか」 ----
 # 取得(gh / GraphQL)はテストの外。ここで検査するのは材料 → 出力の規則だけで、取得をモックすると
 # 検査対象が自分で書いたモックになる
@@ -5435,6 +5491,7 @@ expect_output 0 "OK" "catchup_html: フィールドの検査・雛形への差�
 expect_output 0 "OK" "reflect: 期間・人と裏の会話の見分け・トークンを返答ごとに 1 回・起動した元ごとのまとめ・commit の引き方・GitHub の絞り方・GitHub が切れたら時刻を出して検索で補う・人の発言の見分け（実物から採った見本・知らない promptSource の値を知らせる）・見た範囲の欠け（消えた記録・読んでいない設定のフォルダ）・フィールドの検査・台帳（却下は落とす）・日記のセクションの置き換え・持ち主の値を書かない（unittest）" \
     "$PY_BIN" "$ROOT/tests/reflect-suite.py"
 
+scope
 # ---- scripts/spread-plugins.py: 会社の形の役「配布」のツール（全アカウントに配る） ----
 # claude・herdr・git は偽物の runner で回す。/reload-plugins を部署と窓口の会話にだけ打つのはこの組織の決まりで、works-dispatch には置かない
 SPREAD_CASE="$ROOT/tests/spread-plugins-case.py"
@@ -5485,6 +5542,7 @@ expect_output 0 "TITLE_OK" \
     "ci-watch: works-dispatch が頼みに付ける題の形が、ツールが自分の頼みを見分ける形のまま" \
     "$PY_BIN" "$CIW_CASE" title
 
+scope attention tests/what-am-i-doing tests/whose-turn
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
 WAI_CASE="$ROOT/tests/what-am-i-doing-case.py"
@@ -5557,12 +5615,14 @@ expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 193 件。時
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
 
+scope works-dispatch
 # ---- works-dispatch/dispatch: 自分の番の PR を herdr の作業場に広げるライン ----
 # 旧 works の試験の殻（works/tests/run.sh）には載せない（設計書 works-dispatch/docs/specs/2026-10-14-catchup-dispatch-design.md の D1）。
 # 試験と、設計書のセクション 4 の決まりのチェック（works-dispatch/dispatch/tests/test_rules.py）を 1 本で回す。herdr・gh・claude には触らない
 expect_output 0 "OK" "works-dispatch/dispatch: ノードの試験と決まりのチェック（D1〜D6・D8）" \
     "$PY_BIN" -B -m unittest discover -s "$ROOT/works-dispatch/dispatch/tests" -t "$ROOT"
 
+scope tiers
 # ---- tiers: 要るツールの段ごとの点検（ほかのプラグインが依存として入れ、使い始めに bin/tiers を呼ぶ）----
 # 外のツール（claude・gh・herdr・archon）は起動せず、口（Probe）を偽物に替える
 expect_output 0 "OK" "tiers: 段ごとの点検が足りない物と入れ方を返し、--json の形と終了コードを守る" \
@@ -5631,6 +5691,7 @@ os.unlink(m.group(1))
 print("OUT_FLAG_OK")
 PY
 
+scope
 # ---- attention/scripts/figure-check: 絵（系の前後の図）の幅・行数・縦線・箱の検査 ----
 # gh にも git にも触らない。通る図はコマンドの本文の例（14 行）そのもの。合否は落ちる／通るだけでなく行と桁が出ることで見る
 FC_CASE="$ROOT/tests/figure-check-case.py"
@@ -6070,6 +6131,8 @@ fi
 # （expect か marker）の在る・無いだけを見る（撃つのは review-loop の gate_efficacy が tests/mutate.py で行う）
 expect_output 0 "字列か証拠の口の無い腕 0・id の重複 0" "変異の腕の字列と証拠の口が今の版に在る（tests/mutate.py --check）" \
     "$PY_BIN" "$ROOT/tests/mutate.py" --check
+# ここから Python の下限の突合までは tests/mutate.py の検査（腕の字列の在る・無い〔上の 1 件〕は、どのファイルの変更でも崩れるので毎回回す）
+scope tests/mutate.py tests/mutations.json tests/pytest_nodes.py .review-checks.json graphloops
 # 起動の口の reconfigure が実際に走る（呼びが在るだけの静的なチェックでは、呼びを飛ばす条件の崩れを拾えない）
 expect_output 0 "字列か証拠の口の無い腕 0・id の重複 0" "tests/mutate.py: stdio を cp1252 に強制しても日本語の報告が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/tests/mutate.py" --check
@@ -7566,6 +7629,7 @@ PYE2E
 expect_output 0 "E2E_AUTO_OK" "自動の腕の本命: 使い捨ての git repo で if の生死が割れる行・誰も通らない行・未追跡の新ファイルを足して撃ち、Killed/Survived/NoCoverage・failfast・未到達を撃たない・--files/--only/--changed-since・差分 0 本・存在しない rev・--gate-efficacy を通して見る" \
     "$PY_BIN" "$WORK/mut-auto-e2e.py" "$ROOT/tests"
 
+scope
 # **宣言した下限と、CI が測る版を機械で突き合わせる。** 版を固定した周に、固定と宣言を結ぶ検査を足さなかった
 # ——README を上げれば CI は古い版を測り続け、workflow だけ上げれば宣言した下限を誰も測らなくなる。どちらも
 # 赤くならない（実測 2026-09-13: tests/run.sh に python-version を照合する行が 0 件）。近傍の doc-symbols.py が
@@ -8330,6 +8394,17 @@ assert not gone, "一覧の名前が tests/run.sh の検査の名前に無い（
 # 照合が読む行の形は、tests/run.sh が今出す形と同じ（expect_output の赤と緑の行・最後の行）
 for shape in ('echo "  FAIL $desc — ', 'echo "  ok   $desc"', 'echo "$ran 件すべて緑', 'echo "$ran 件のうち失敗あり"'):
     assert shape in run, "tests/run.sh の出力の形が tests/land-check.py の読む形と違う: %s" % shape
+# 変わったプラグインは、変わったファイルの頭のディレクトリのプラグインと、それに依存するプラグイン（依存の依存も）。tests/run.sh が変われば全部
+g = {"tiers": [], "works-dispatch": ["tiers", "pr-review-toolkit"], "convergence-loops": [], "graphloops": ["convergence-loops"],
+     "works": ["graphloops"], "gates": []}
+assert lc.affected(["works-dispatch/a.py", "docs/b.md"], g) == {"works-dispatch"}
+assert lc.affected(["tiers/a.py"], g) == {"tiers", "works-dispatch"}
+assert lc.affected(["convergence-loops/a.md"], g) == {"convergence-loops", "graphloops", "works"}
+assert lc.affected(["docs/a.md", "README.md", "scripts/x.py"], g) == set()
+assert lc.affected(["gates/a.py", "tests/run.sh"], g) is None
+assert "tiers" in lc.plugins(root)["works-dispatch"], "plugin.json の dependencies を読めていない: %s" % lc.plugins(root)
+# tests/run.sh が出す見送りの印と、照合が数える印が同じ
+assert lc.SCOPE_SKIP.strip(" #") in run.replace("$SKIP_MARK", " # SKIP"), "tests/run.sh の見送りの印が tests/land-check.py の SCOPE_SKIP と違う"
 print("LAND_CHECK_OK")
 PY
 
