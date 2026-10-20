@@ -19,7 +19,7 @@ COMPANY = {
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
     "skills": ("id", "name", "description", "role", "model", "effort", "start", "on_demand", "standing"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
-    "land": ("mode", "gate", "check", "bump", "main", "roles", "after"),
+    "land": ("mode", "gate", "check", "bump", "main", "queue", "roles", "after"),
     "land.roles": ("mode", "gate", "check", "bump", "main"),
     "land.after": ("role", "tool", "input"),
 }

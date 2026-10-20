@@ -11,6 +11,8 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -21,7 +23,7 @@ import gitx
 import herdr as real_herdr
 import landing
 from config import Repo
-from nodes import bump, land
+from nodes import bump, land, landqueue
 
 
 def git(*args):
@@ -1063,3 +1065,112 @@ class WatchRun(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0 if "view" in argv else 1, json.dumps(body), "")
         with self.assertRaises(ghx.GhError):
             ghx.watch_run("o/r", 1, runner=runner)
+
+
+QUEUE_RULES = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\nqueue = "land-queue"\n'
+
+
+class TwoPorts(Ports):
+    """部署 a（feat/a）と部署 b（feat/b）の 2 つを持つ。"""
+
+    def __init__(self, world, second):
+        super().__init__(world)
+        self.second = second
+
+    def attrs(self, path):
+        if os.path.realpath(path) == os.path.realpath(self.second):
+            return {"name": "b", "session": "s2", "role": "worker"}
+        return super().attrs(path)
+
+
+class Queue(LandCase):
+    """同じ clone で同時に打った 2 つの --land（会社の形の [land] の queue。nodes/landqueue.py）。"""
+
+    def setUp(self):
+        super().setUp()
+        poll = mock.patch.object(landqueue, "POLL", 0.01)
+        poll.start()
+        self.addCleanup(poll.stop)
+
+    def race(self, rules):
+        """部署 a のゲートを止めている間に部署 b の --land を打ち、b がメインブランチを取り直したのが a の push の前か後かを返す。"""
+        w = World(self.tmp, {".claude/company.toml": rules})
+        w.work()
+        second = os.path.join(self.tmp, "wt", "b")
+        git("-C", w.source, "worktree", "add", "-q", "-b", "feat/b", second, "origin/main")
+        write(os.path.join(second, "c.txt"), "c\n")
+        commit(second, "部署 b の作業")
+        ports = TwoPorts(w, second)
+        repo = Repo("o/r", "", w.source, (), None, None)
+        events, lock = [], threading.Lock()
+        gate_a, b_started = threading.Event(), threading.Event()
+        real_refresh, real_advance = land.refresh, land.advance
+
+        def note(what):
+            with lock:
+                events.append((threading.current_thread().name, what))
+
+        def refresh(source, main, g):
+            note("refresh")
+            return real_refresh(source, main, g)
+
+        def advance(path, main, sha, g):
+            real_advance(path, main, sha, g)
+            note("push")
+
+        def checker(command, cwd):
+            if threading.current_thread().name == "a":
+                note("gate")
+                gate_a.wait()
+            return 0, ""
+        codes = {}
+
+        def run(name):
+            codes[name] = landing.main(None, repo, name, ports, no_rows, {"running": "-", "persistent": "-"}, self.config,
+                                       pause=lambda: None, checker=checker)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch.object(land, "refresh", refresh), \
+                mock.patch.object(land, "advance", advance):
+            a = threading.Thread(target=run, args=("a",), name="a")
+            a.start()
+            while ("a", "gate") not in events:   # a が列の先頭を持ってゲートに入るまで
+                time.sleep(0.01)
+            b = threading.Thread(target=run, args=("b",), name="b")
+            b.start()
+            time.sleep(0.5)   # b に、列が無ければメインブランチを取り直してしまうだけの間を与える
+            gate_a.set()
+            a.join()
+            b.join()
+        return codes, events, out.getvalue()
+
+    def test_the_later_land_waits_in_the_queue_until_the_earlier_push(self):
+        codes, events, out = self.race(QUEUE_RULES)
+        self.assertEqual(codes, {"a": 0, "b": 0}, out)
+        first_b = events.index(("b", "refresh"))
+        self.assertLess(events.index(("a", "push")), first_b, f"b が a の push の前にメインブランチを取り直した: {events}")
+        self.assertIn("メインブランチへ入れる列", out)
+        self.assertNotIn("リベースしたブランチで、ゲートから回し直す", out)   # どちらも「先に進んだ」でやり直さない
+        self.assertEqual(os.listdir(os.path.join(self.tmp, "src", ".git", "land-queue")), ["lock"])   # 札は残らない
+
+    def test_without_the_queue_the_later_land_does_not_wait(self):
+        codes, events, out = self.race(CI_RULES.replace('gate = "release/*"', 'gate = "check"\ncheck = "true"'))
+        self.assertLess(events.index(("b", "refresh")), events.index(("a", "push")), events)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "src", ".git", "land-queue")))
+
+    def test_a_ticket_whose_holder_died_is_dropped_and_a_live_one_waits(self):
+        queue = pathlib.Path(self.tmp, "q")
+        queue.mkdir()
+        dead = queue / f"{time.time_ns() - 60 * 10**9:020d}-1.ticket"
+        dead.write_bytes(b"")
+        self.assertEqual(landqueue.alive(queue), [])
+        self.assertFalse(dead.exists())
+        young = queue / f"{time.time_ns():020d}-2.ticket"   # 作ったばかりでロックの前かもしれない札は消さない
+        young.write_bytes(b"")
+        self.assertEqual(landqueue.alive(queue), [young.name])
+
+    def test_queue_is_read_only_on_the_top_land_table(self):
+        self.assertEqual(land.read_rules("c.toml", None, QUEUE_RULES)["queue"], "land-queue")
+        for bad in ('"/tmp/q"', '"../q"', '""', "3"):
+            self.assertTrue(land.read_rules("c.toml", None, QUEUE_RULES.replace('"land-queue"', bad))["problems"], bad)
+        on_role = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\n[land.roles.worker]\nqueue = "q"\n'
+        self.assertTrue(land.read_rules("c.toml", "worker", on_role)["problems"])

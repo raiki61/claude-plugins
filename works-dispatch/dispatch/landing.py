@@ -15,6 +15,10 @@
    エフェメラルの部署（納品の直後で会話がまだ止まりきっていない、など）には入れた印（属性 company.landed）を書いて残し、次の --land
    （どの部署でも）が、片付けられる形になっていれば一緒に片付ける。止まるのを待たないのは、こちらから期限を足さないため（D5）。
 
+会社の形の [land] に queue（列の置き場）が有れば、3 のメインブランチの取り直しの直前に列（nodes/landqueue.py）へ申し出て、6 で push し終える
+（か、止まる）まで列の先頭を持つ。同じ clone で同時に打った --land と、同じ列に並ぶほかの処理（my_notes の collect など）は、申し出た順に
+1 本ずつ「リベース → ゲート → push」を通り、互いの push でメインブランチが先に進んでやり直すことが無い。
+
 --dry-run（_preview）は 1 の後で分かれ、決まりと、することの見立て（リベースが要るか・入れる commit・上げる版・ゲート・片付け）を
 出すだけにする。何も書かない: メインブランチの先頭は fetch せず origin に問い合わせて読み（ls-remote。手元の ref は変えない）、版は
 一時の場所を作らず、部署の場所で本当の流れと同じ bump.plan を回して見積もり、ゲートに出さず、手元の検証を回さず、
@@ -33,7 +37,7 @@ from ports import chat, term
 import config
 import ghx
 import gitx
-from nodes import bump, clean, deliver, land, provision, role, tree, wake
+from nodes import bump, clean, deliver, land, landqueue, provision, role, tree, wake
 
 RUN_PAUSE_S = 10  # ゲートのブランチに push した後、run が現れるのを見に行く間
 FAILED = "failed"   # 代表の clone のメインブランチをそろえる git が誤りを返した（gitx.advance_branch の値に並べる、こちらの札）
@@ -87,11 +91,19 @@ def _find(found, name, attrs_of):
 
 
 def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: time.sleep(RUN_PAUSE_S), today=None,
-        checker=run_check, dry_run=False, keep_removal=False, after=None):
+        checker=run_check, dry_run=False, keep_removal=False, after=None, hold=None):
     """--land <名前>。rows は dispatch._department_rows、reasons は片付けで残す訳（dispatch.DEPT_REASONS）。
     after はメインブランチへ push し終えた後に、会社の形の [[land.after]]（合図。受付の設計 5.5）の並びと代表の clone と部署の属性を渡して
     呼ぶ関数（calls.fire）で、出す行の並びを返す。
-    dry_run なら、することの見立てを出すだけで何も書かない（_preview）。"""
+    dry_run なら、することの見立てを出すだけで何も書かない（_preview）。hold は列の番（landqueue.Hold）で、回し直し（main_again）が
+    前の回の番を持ったまま渡す。省けば、この回で持ち、終わるときに手放す。"""
+    if hold is not None:
+        return _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, dry_run, keep_removal, after, hold)
+    with landqueue.Hold() as hold:
+        return _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, dry_run, keep_removal, after, hold)
+
+
+def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, dry_run, keep_removal, after, hold):
     g, out = ports.git, []
     try:
         found = ports.places(repo)
@@ -148,12 +160,15 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
                 print("注記: 取り込み方 pr では版を上げない（版上げは PR の側で）")
             print(f"PR を出した: {land.offer_pr(source, repo.repo, branch, main, g, ports.gh, env)}")
             return 0
+        if rules["queue"]:
+            hold.take(os.path.join(gitx.common_dir(source), rules["queue"]))
         base = land.refresh(source, main, g)
     except (gitx.GitError, ghx.GhError) as e:
         print(f"止めた: {e}")
         return 1
     if g.is_ancestor(source, head, base):
         print(f"ブランチ {branch} はもうメインブランチ {main} に入っている")
+        hold.drop()
         return _tidy(cfg, repo, ports, found, path, rows, reasons, head)
     if not g.is_ancestor(source, base, head):
         head = _rebase_here(ports, place, path, branch, base, main, rules)
@@ -219,7 +234,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     except gitx.GitError as e:
         print(f"止めた: メインブランチを取り直せない（{e}）")
         return 1
-    again = lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after)
+    again = lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold)
     if not g.is_ancestor(source, base, candidate):
         # ゲートを回す間にメインブランチが先に進んだ: リベースできれば、リベースしたブランチでゲートから回し直す
         return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
@@ -243,6 +258,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         else:
             print(f"止めた: メインブランチ {main} への push が断られた（{e}）")
         return 1
+    hold.drop()   # push し終えたので、列の次の処理に番を渡す（代表の clone のそろえ・合図・片付けは番の外で）
     _, local, err, notes = _follow(source, main, g, candidate)
     for n in notes:
         print(n)
@@ -338,10 +354,11 @@ def _company_roots():
         return []
 
 
-def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after):
-    """リベースしたブランチで、--land を頭から回し直す（ゲートも書き換えの取り合いのゲートも、リベースしたブランチでもう一度通す）。"""
+def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold):
+    """リベースしたブランチで、--land を頭から回し直す（ゲートも書き換えの取り合いのゲートも、リベースしたブランチでもう一度通す）。
+    列の番（hold）は持ったまま回し直す（列に並び直さない）。"""
     print("リベースしたブランチで、ゲートから回し直す")
-    return main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, False, keep_removal, after)
+    return main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, False, keep_removal, after, hold)
 
 
 def _rebase_here(ports, place, path, branch, base, main, rules):
@@ -409,6 +426,9 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
     if base is None:
         print(f"止めた: origin にメインブランチ {main} が無い")
         return 1
+    if rules["queue"]:
+        print(f"列: 本当に打てば、メインブランチを取り直す前に列 {os.path.join(gitx.common_dir(source), rules['queue'])} に並び、"
+              "push し終えるまで先頭を持つ（空打ちでは並ばない）")
     known = g.rev(source, base) is not None   # 手元に無い commit なら、メインブランチは手元の知らない所へ進んでいる
     print(f"メインブランチ {main}: origin の先頭 {base[:7]}（origin に問い合わせて読んだ。手元の ref は取り直していない）")
     if known and g.is_ancestor(source, head, base):

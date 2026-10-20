@@ -32,6 +32,17 @@ FAIL_LINES = 20  # 赤の要点に載せる記録の行数
 ASK_CHARS = 2000  # 部署に打ち込む文の上限の字数
 
 
+def _queue(raw, path, problems):
+    """[land] の queue を読む。共通の .git の下に収まる相対のフォルダ（例 land-queue）だけを通し、ほかは problems に書く。"""
+    if raw is None:
+        return None
+    parts = pathlib.PurePosixPath(raw.strip()).parts if isinstance(raw, str) and "\\" not in raw else ()
+    if not parts or parts[0] == "/" or ".." in parts:
+        problems.append(f"{path}: land.queue は共通の .git の下のフォルダの相対の名前（例 land-queue）")
+        return None
+    return raw.strip()
+
+
 def _after(raw, path, problems):
     """[[land.after]]（メインブランチに入れた後に呼ぶツールの並び。受付の設計 5.5）を読む。形の違う項目は problems に書いて外す。"""
     if not isinstance(raw, list):
@@ -50,8 +61,9 @@ def _after(raw, path, problems):
 def read_rules(path, role=None, text=None):
     """会社の形のファイルの [land] の表を読み、役 role の [land.roles.<役>] を上に重ねる。text を渡せば、それを中身として読む
     （tree.read_info が読んだ物。path は注記に出す場所の札）。{mode, gate, check, bump, main, problems}。ファイルが無い・表が
-    無ければ mode は none。"""
-    out = {"mode": "none", "gate": None, "check": None, "bump": None, "main": None, "after": [], "problems": []}
+    無ければ mode は none。queue（メインブランチへ入れる列の置き場。共通の .git の下のフォルダの名前。nodes/landqueue.py）は頂きの [land] にだけ書ける
+    （列は clone ごとに 1 つなので、役で替えない）。"""
+    out = {"mode": "none", "gate": None, "check": None, "bump": None, "main": None, "queue": None, "after": [], "problems": []}
     if not path or text is None and not os.path.isfile(path):
         return out
     try:
@@ -70,6 +82,7 @@ def read_rules(path, role=None, text=None):
         return out
     out["problems"] += known_keys.land(raw, path, role)
     out["after"] = _after(raw.get("after", []), path, out["problems"])
+    out["queue"] = _queue(raw.get("queue"), path, out["problems"])
     layers = [raw]
     roles = raw.get("roles", {})
     if role and isinstance(roles, dict) and isinstance(roles.get(role), dict):
