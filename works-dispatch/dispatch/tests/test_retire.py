@@ -94,6 +94,28 @@ class Retire(unittest.TestCase):
         deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent"})
         self.assertEqual(self.main(self.place, "--done")[0], 0)
 
+    def test_done_passes_when_the_unanswered_ask_is_a_holder_of_the_delivery(self):
+        # 測りの頼みを残った疑問の担当者に書いて納品した部署は、返事を待たずに畳める（--todo がその受付で追う。受付 20261020-054702-182900）
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, gitx)
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
+                                 "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "業務改革"}})
+        deliver.log(self.inbox, {"kind": "ask", "id": "c2", "status": "queued", "at": 2,
+                                 "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "点検"}})
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d0", "ask": "q0", "status": "sent", "at": 3,   # 順番待ちから受けた前の頼みの納品も数える
+                                 "from": {"name": "調べ", "place": os.path.join(self.place, "sub")}, "holders": [{"holder": "c1", "ask": "c1"}]})
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "q1", "status": "failed", "at": 4,   # 届かなかった納品は数えない
+                                 "from": {"name": "調べ", "place": self.place}, "holders": [{"holder": "c2", "ask": "c2"}]})
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d9", "ask": "x1", "status": "sent", "at": 4,   # ほかの部署の納品は数えない
+                                 "from": {"name": "見直し", "place": self.place}, "holders": [{"holder": "c2", "ask": "c2"}]})
+        rc, out = self.main(self.place, "--done")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("返事の来ていない頼みが在る（受付 c2）", out)
+        self.assertEqual(orders.leftover(self.place, gitx.worktree_attrs(self.place)), ("waiting", ["c2"]))
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d2", "ask": "q1", "status": "sent", "at": 5,   # --again で c2 も担当者にした
+                                 "from": {"name": "調べ", "place": self.place}, "holders": [{"holder": "c2", "ask": "c2"}]})
+        self.assertEqual(orders.leftover(self.place, gitx.worktree_attrs(self.place))[0], "finish")
+        self.assertEqual(self.main(self.place, "--done")[0], 0)
+
     def test_done_passes_a_department_without_commits_and_refuses_desks_and_residents(self):
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 0, out)   # commit の無い部署はメインブランチに入っているとみなす

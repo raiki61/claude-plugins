@@ -1375,7 +1375,8 @@ def finish_here(a, ports, cwd):
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
     断るのは、部署でない・窓口・永続・会話の id が属性に無く、打った会話が部署の裏の会話とも確かめられない・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
     commit が在る・ブランチがメインブランチに入っていない（landed。マージ済みの PR に入った物も入ったとみなす）時（commit の無い部署は入っているとみなす）。前の --retire が
-    残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。"""
+    残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。
+    この部署が頼んで返事の来ていない頼みが在る時も断る（納品の残った疑問の担当者に書いた頼みは数えない。asked_open）。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
         print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりはエフェメラルの部署の場所で印す")
@@ -1405,8 +1406,11 @@ def finish_here(a, ports, cwd):
         return 2
     waiting = asked_open(deliver.inbox_of(common), attrs, cwd)
     if waiting:
-        # この部署が頼んで、まだ返事（納品）の来ていない頼み。畳むと、返事が届いても受ける会話が居ない（業務改革が社長室の答えを待つ間など）
-        print(f"止めた: この部署が頼んで返事の来ていない頼みが在る（受付 {'・'.join(waiting)}）。返事を受けて済ませてから印す")
+        # この部署が頼んで、まだ返事（納品）の来ていない頼み。畳むと、返事が届いても受ける会話が居ない（業務改革が社長室の答えを待つ間など）。
+        # この部署の納品の残った疑問の担当者に書いた受付は数えない（handed_over）
+        print(f"止めた: この部署が頼んで返事の来ていない頼みが在る（受付 {'・'.join(waiting)}）。返事を受けて済ませてから印す"
+              "（返事をこの部署で受けなくてよいなら、その受付を納品の残った疑問の担当者〔holder〕に書いて --deliver --again で"
+              "返し直してから印す。--todo がその受付で追う）")
         return 2
     if not ports.is_clean(cwd):
         print("止めた: 未コミットの変更か、git に足していないファイルが在る（片付けると消える）。commit するか消してから印す")
@@ -1444,10 +1448,26 @@ def finish_here(a, ports, cwd):
 
 
 def asked_open(inbox, attrs, cwd):
-    """この部署（名前と場所）が頼んで、まだ返事（納品）の来ていない頼みの受付の並び。頼みの行は頼んだ側の会社の受付箱に残る。"""
+    """この部署（名前と場所）が頼んで、まだ返事（納品）の来ていない頼みの受付の並び。頼みの行は頼んだ側の会社の受付箱に残る。
+    この部署の納品で、残った疑問の担当者に書いた受付（handed_over）は除く。"""
+    handed = handed_over(inbox, attrs)
     return [r["id"] for r in deliver.open_asks(deliver.records(inbox))
             if (r.get("from") or {}).get("name") == attrs.get("name") and (r.get("from") or {}).get("place")
-            and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
+            and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd) and r["id"] not in handed]
+
+
+def handed_over(inbox, attrs):
+    """この部署（名前）が納品の残った疑問の担当者（納品の行の holders の ask）に書いた受付の集まり。今の頼みの納品に限らず、順番待ちから
+    受けた前の頼みの納品・--again で返し直した納品・--for で返した納品の分も足す（--todo の台帳〔ledger.build〕も --for の行の担当者を追う）。
+    届かなかった納品（status が failed）は数えない。納品の行は頼み元の受付箱（attrs の boss-inbox）に在るので、inbox と両方を見る。
+    納品の行の場所は打った所（作業場の下のフォルダのこともある）なので、名前で当てる（頼みの側は asked_open が場所でも当てる）。
+    担当者に書いた頼みの返事は、部署が畳まれても受付箱に届き、--todo がその受付で追うので、この部署が残って受けなくてよい（2026-10-20 に
+    my_notes の作業の部署が、役の本文どおり業務改革への測りの頼みを担当者に書いて納品したのに、--done に断られて畳めなかった。
+    受付 20261020-054702-182900）。"""
+    rows = ledger.merge(*[deliver.records(x) for x in dict.fromkeys([inbox, attrs.get("boss-inbox")]) if x and os.path.isdir(x)])
+    return {q["ask"] for r in rows
+            if r.get("kind") == "deliver" and r.get("status") != "failed" and (r.get("from") or {}).get("name") == attrs.get("name")
+            for q in r.get("holders") or [] if isinstance(q, dict) and q.get("ask")}
 
 
 def handed_open(common, attrs, cwd, g=gitx):
