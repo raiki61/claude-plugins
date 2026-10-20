@@ -372,3 +372,18 @@ e001d7 は割り振りの作業の部署「割り振り：アカウントの使�
 1. `python3 docs/reform/dispatch-calls.py --since 2026-10-17T19:44 --until 2026-10-23T19:44` を打ち、前（直す前の 3 日）と後（入った後の 3 日）を並べる。
 2. 仕事の量で割って比べる: `--help` と引数の誤りと形の誤りは打った回数 100 回あたり、スキルを開かずに打った会話は会話の数に対する割合で。`--help` の 100 回あたりが 3 分の 1 以上減れば効いた、変わらなければ効いていないとする（1 回の比べでは仕事の中身の違いと分けられないので、効いていないときは直しの見直しを頼む前に、後の期間で `--help` を打った会話を数本読み、スキルの項目を開いてから打ったかを確かめる）。
 3. 結果をこの頼みへの納品（works-dispatch の `dispatch.py --deliver <要約のファイル> --for 20261020-104927-0903d3`）で頼み元へ返す。効いていなければ、`--help` を打った直後に使った引数（`--ask`・`--deliver` など）の多い順に、スキルに足りない項目を割り振りに頼む。
+
+## 頼み f23713（2026-10-20、works-dispatch の試験を並べて回した後の --land の検査と CI の時間を測る、受付 20261020-112115-f23713）
+
+部署「割り振り：works-dispatch のテストを偽物の ports へ」からの頼み。頼み 41ffe3 の 0db9c121（2026-10-20 20:13 に main）で、works-dispatch の試験を組に分けて 4 プロセスで並べる works-dispatch/dispatch/tests/parallel.py を置き、ルートの tests/run.sh もこれで回すようにした。測るのは 2 つ: (1) 会社の形の [land] の check に tests/land-check.py（全部の試験）を戻したときの --land の検査 1 回の時間と load average、(2) main の CI の試験の時間。
+
+### (2) main の CI（直す前 run 39409935369 の 13741c3a と、直した後で最初に走り切った run 39417183392 の c16e818a）
+
+- Windows の test の組では、works-dispatch の 1,207〜1,244 件を 4 つの組がどれも全部回している（組に分けず、どの組でも同じ一式）。その時間は 845〜1,070 秒から 498〜525 秒に縮んだ（約半分）。Windows の test の組 1 つの時間は 24〜30 分から 20〜22 分になった。
+- Ubuntu の test の組は前も後も 5〜8 分で、律速ではなかった。
+- run 全体（最初の job の始まりから最後の job の終わりまで）は 31 分から 34 分で、縮んでいない。律速は macOS の works の 4 組（前 28〜31 分、後 30〜34 分。works の試験で、今回の直しは触っていない。組 0 は 298 件で 2,023 秒）。Windows の組がこれより先に終わるようになったので、works-dispatch をこれ以上速くしても run 全体は縮まない。
+- Windows の works-dispatch の試験は前も後も赤（test_accounts の Hours・Prefer の 7 件が ERROR、test_config と test_dispatch の 2 件が FAIL。どの組でも同じ。Ubuntu は緑）。赤のまま測った時間なので、緑に直したときに件数の分だけ動きうる。
+
+### (1) --land の検査（まだ測れない）
+
+頼みが届いた 2026-10-20 20:21 の時点で、[land] の check は軽い検査（共有の写し・用語・値の決まり・初見の読み）だけで、tests/land-check.py は外してある（持ち主「一旦テストは全部飛ばしてclaudepluginsはいれましょう。」、13741c3a）。戻すかはテストと CI と main へ入れる仕組みの組み直しの中で決まる。戻った後に業務改革が、--land の出力か受付箱の台帳から検査 1 回の時間を数回分拾い、そのときの `uptime` の load average と並べ、直す前の 45 分（混んだ機械）と比べる。遅い組は parallel.py が出す「遅い組:」の行（CI では test_move.Move・test_wake.WakeFlow・test_setup.AskWithoutRepos・test_deliver.Flow が 40〜60 秒）から拾う。
