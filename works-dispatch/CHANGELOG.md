@@ -8,7 +8,11 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- 部署の会話がシェルでほかの部署の場所（本社〔代表の clone〕など）へ移ってから打った `--deliver`・`--wait`・`--rest`・`--compact`・`--done` と `--ask` の `--forward` が、打った場所の部署の属性（受けた頼み `company.ask` など）を読み、別の部署の頼みを閉じようとした。打った場所の属性の会話（`company.session`）が打った会話（環境変数 `CLAUDE_CODE_SESSION_ID`）でなく、同じリポジトリの作業場のうち 1 つだけの部署の属性の会話が打った会話なら、その場所で読むようにした（読み替えたときは注記を 1 行出す）。`--ask` は、打った会話が会話の一覧に見えないときも、頼みの親（`cause`）と頼み元をその場所の部署にする（`--forward` で閉じる頼みとそろえる）。前は、my_notes の社長室が本社で `--deliver` を打ち、本社の段取りが `--forward` で回して閉じた頼みを読んで止まり、段取りから渡された問いを返せなかった（my_notes の受付 20261020-195316-7d7f41）。
+- 部署（works-dispatch が立てる、役を持った Claude Code の会話と、その会話専用の git worktree の組）の会話が、シェルの `cd` でほかの部署の worktree（本社〔代表の clone〕など）へ移ってから打った `--deliver`・`--wait`・`--rest`・`--compact`・`--done` と `--ask` の `--forward` が、自分の部署でなく移った先の worktree の部署の属性を読み、別の部署の頼みを閉じようとしたのを直した。
+  - 語: 属性は、部署の worktree ごとに `git config --worktree` で書く git の設定 `company.*`（その部署が受けた頼みの `company.ask`、その部署の会話の id の `company.session` など）。打った会話は、そのコマンドを Bash で打った Claude Code の会話で、その id は環境変数 `CLAUDE_CODE_SESSION_ID` に入る。
+  - 直した後: 今のディレクトリの worktree の `company.session` が打った会話の id と違うときは、同じリポジトリのほかの worktree から、`company.session` が打った会話の id と同じ部署の worktree を探す。ちょうど 1 つ見つかればその worktree の属性を読み、読み替えたことを注記で 1 行出す。0 個か 2 つ以上なら、前と同じく今のディレクトリの worktree の属性を読む。
+  - `--ask` は、新しい頼みの親（`cause`。頼んだ部署がそのとき受けていた頼みで、頼みの木の親に当たる）と頼み元を、打った会話の作業ディレクトリの部署から決める。作業ディレクトリは会話の一覧（dispatch の設定にあるアカウントごとの `claude agents --json`）から取るが、打った会話が一覧に載らない（設定に無いアカウントで動いている・一覧を読めなかったなど）ときは、前は今のディレクトリの部署にしていた。今は上の読み替えで決まる worktree の部署にする（`--forward` で閉じる頼みとそろえる）。
+  - 起きた例: my_notes（持ち主のノートのリポジトリ。works-dispatch で部署を立てる会社の 1 つ）で、社長室（持ち主への中継の部署）の会話が本社で `--deliver` を打った。本社の worktree には段取り（部署への頼みを配る部署）の属性が載っていたので、`--deliver` は、段取りが `--ask --forward` で別の部署へ回して閉じた頼みを読んで止まり、社長室は段取りから受けた問いに答えを返せなかった（my_notes の受付 20261020-195316-7d7f41。受付は my_notes に残る頼みの記録）。
 
 ## [0.109.1] - 2026-10-20
 
