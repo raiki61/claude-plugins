@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """メインブランチに入れるゲート（.claude/company.toml の [land] の check）から、ルートの tests/run.sh を回す。
 
-tests/run.sh を TESTS_LAND=1 で回し（graphloops の模擬実行の 1 件だけを見送る。見送った後の全体が手元で 4〜5 分）、赤の検査の名前を
-tests/land-known-red.txt と照合する。止めるのは次の場合。
+tests/run.sh を TESTS_LAND=1 で回し（graphloops の模擬実行の 1 件だけを見送る）、赤の検査の名前を
+tests/land-known-red.txt と照合する。
+
+回すのは、この変更が入力に当たる検査だけ（持ち主 2026-10-20「変えたところだけにします」。受付 de7a5b）。メインブランチ（origin/main）との
+分かれ目から変わったファイルを取り、変わったプラグイン（頭のディレクトリに .claude-plugin/plugin.json が在る物）と、それに
+plugin.json の dependencies で依存するプラグインを、変わったプラグインに数える（Nx の affected と同じ形。https://nx.dev/ci/features/affected ）。
+tests/run.sh の検査のうち scope で入力を宣言した物は、宣言したプラグインがどれも変わっておらず、宣言したパスの頭に当たる
+変わったファイルも無ければ、走らせずに見送る（scope の無い検査は毎回回す）。tests/run.sh 自身が変わった回と、分かれ目を
+取れない回は全部を回す。見送った検査は main に入った後の CI が回す（決まった時刻に走る実行は置かない。持ち主は cron などの
+定期の起動を置かない）。全部を回したいときは TESTS_LAND_ALL=1 を付ける。直す前は全部で 24 分 12 秒（2026-10-20、負荷 10〜37 の機械）。
+
+止めるのは次の場合。
 - 一覧に無い赤（この変更か、一覧に足し忘れた赤）
 - 一覧に在るのに緑になった検査（直したなら一覧から消す。一覧が古いままだと、同じ検査がまた赤になっても止まらない）
 - 名前と食い違いの間に「 — 」の無い赤の行（検査の名前を読めないので、一覧と照合できない）
@@ -17,8 +27,10 @@ CI は一覧を読まず、今までどおり全部を赤にする。
 
 使い方: python3 tests/land-check.py               tests/run.sh を回して照合する
         python3 tests/land-check.py --judge <出力のファイル> <終わりの値>   回した出力を照合だけする（試験用）
+        python3 tests/land-check.py --affected [<分かれ目の rev>]   回す範囲を出すだけ（rev の既定は origin/main との分かれ目）
 終わりの値: 0 は止める物が無い、1 は止める物が在る、2 は使い方の誤り。
 """
+import json
 import os
 import pathlib
 import re
@@ -38,6 +50,56 @@ OK_LINE = re.compile(r"^  ok   (.+)$", re.M)
 SKIP_MARK = " # SKIP"   # 見送りの行（tests/run.sh の SKIP_MARK）。走らなかった検査で、緑に数えない
 COUNT_BAD = "件を期待"   # tests/run.sh の件数のチェックが合わないときの行（「検査が N 件走った（M 件を期待）」）
 DONE = re.compile(r"^\d+ 件(すべて緑|のうち失敗あり)", re.M)   # tests/run.sh が最後まで走ったときだけ出す行
+RUN_ALL = ("tests/run.sh",)   # 変われば全部を回すファイル（全部の検査の定義と scope の宣言を持つ）
+SCOPE_SKIP = " # SKIP unchanged:"   # tests/run.sh が入力の変わっていない検査に出す見送りの印
+
+
+def plugins(root):
+    """プラグインの名前 → plugin.json の dependencies のうち、このリポジトリのプラグインの名前の並び。"""
+    out = {}
+    for pj in sorted(root.glob("*/.claude-plugin/plugin.json")):
+        deps = json.loads(pj.read_text(encoding="utf-8")).get("dependencies") or []
+        out[pj.parent.parent.name] = [d["name"] if isinstance(d, dict) else d for d in deps]
+    return out
+
+
+def affected(changed, graph):
+    """(変わったファイルの並び, plugins() の形) → 変わったプラグインの組（依存する側まで足す）。全部を回す回は None。"""
+    if any(c in RUN_ALL for c in changed):
+        return None
+    hit = {c.split("/", 1)[0] for c in changed if "/" in c} & set(graph)
+    grew = True
+    while grew:   # 依存する側を足す（依存の依存も）
+        more = {p for p, deps in graph.items() if hit & set(deps)} - hit
+        hit |= more
+        grew = bool(more)
+    return hit
+
+
+def changed_files(root, base=None):
+    """メインブランチとの分かれ目から HEAD までに変わったファイルの並び。分かれ目を取れなければ None。"""
+    git = lambda *a: subprocess.run(["git", "-C", str(root)] + list(a), capture_output=True, text=True, encoding="utf-8")
+    if base is None:
+        r = git("merge-base", "HEAD", "refs/remotes/origin/main")
+        if r.returncode != 0:
+            return None
+        base = r.stdout.strip()
+    r = git("diff", "--name-only", "--no-renames", "-z", base, "HEAD")
+    return [c for c in r.stdout.split("\0") if c] if r.returncode == 0 else None
+
+
+def scope_env(root, base=None):
+    """tests/run.sh に渡す環境変数（全部を回す回は空）と、範囲の 1 行の説明。"""
+    if os.environ.get("TESTS_LAND_ALL") == "1":
+        return {}, "全部を回す（TESTS_LAND_ALL=1）"
+    changed = changed_files(root, base)
+    if changed is None:
+        return {}, "全部を回す（メインブランチとの分かれ目を取れない）"
+    hit = affected(changed, plugins(root))
+    if hit is None:
+        return {}, "全部を回す（%s が変わった）" % " ".join(c for c in changed if c in RUN_ALL)
+    return ({"TESTS_AFFECTED": " ".join(sorted(hit)), "TESTS_CHANGED": "\n".join(changed)},
+            "変わったファイル %d 本・変わったプラグイン（依存する側を含む）: %s" % (len(changed), " ".join(sorted(hit)) or "無し"))
 
 
 def known_red(text):
@@ -74,8 +136,13 @@ def judge(out, rc, known):
 def main(argv):
     if argv[:1] == ["--judge"] and len(argv) == 3:
         out, rc = pathlib.Path(argv[1]).read_text(encoding="utf-8"), int(argv[2])
+    elif argv[:1] == ["--affected"] and len(argv) <= 2:
+        print(scope_env(ROOT, argv[1] if len(argv) == 2 else None)[1])
+        return 0
     elif not argv:
-        env = dict(os.environ, TESTS_LAND="1")
+        extra, said = scope_env(ROOT)
+        print("land-check: " + said)
+        env = dict(os.environ, TESTS_LAND="1", **extra)
         env.pop("FAIL_ON_SKIP", None)   # CI の設定が継がれると、land の見送りが赤の行の無い失敗になる
         nice = ["nice", "-n", "19"] if shutil.which("nice") else []
         r = subprocess.run(nice + ["bash", str(ROOT / "tests" / "run.sh")], capture_output=True, env=env)
@@ -90,6 +157,9 @@ def main(argv):
     stop, notes = judge(out, rc, known)
     for line in notes + stop:
         print(line)
+    skipped = out.count(SCOPE_SKIP)
+    if skipped:
+        print("land-check: 入力の変わっていない検査 %d 件を見送った（main に入った後の CI が回す）" % skipped)
     print("land-check: %s" % ("止める物 %d 件" % len(stop) if stop else "tests/run.sh に、一覧の外の赤は無い"))
     return 1 if stop else 0
 
