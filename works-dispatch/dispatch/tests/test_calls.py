@@ -269,6 +269,32 @@ class Call(unittest.TestCase):
         calls.annotate(companies, os.path.dirname(self.cfg), gitx)
         self.assertEqual(companies[0]["tools"][0]["misses"], 1)
 
+    def test_a_rerun_inside_the_handed_over_ask_returns_the_miss_instead_of_handing_over_again(self):
+        # 片づかずに回った頼みを受けた部署が、その頼みの中で同じ入力を打ち直しても、同じ頼みをもう 1 つ積まない（my_notes の受付 50f4d5）
+        self.use(self.script("import sys; print('まだ取れない'); sys.exit(4)"))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"dry": true}')
+        self.assertEqual(rc, calls.CALLED, out)
+        (first,) = [r["id"] for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        provision.mark(self.place, self.src, {"ask": first}, gitx)   # 回った頼みを部署が受けている
+        rc, out = self.main(self.place, "--call", "配布", "spread-plugins", "--input", '{"dry":  true}')
+        self.assertEqual(rc, 1, out)
+        self.assertIn(f"この会話が受けている頼み（受付 {first}）が、同じ入力でこのツールが片づかずに回った頼みなので、もう一度は回さない", out)
+        self.assertIn("まだ取れない", out)
+        rows = deliver.records(self.inbox)
+        self.assertEqual([r["id"] for r in rows if r["kind"] == "ask"], [first])
+        self.assertEqual([(r.get("ask"), r.get("rerun_of")) for r in rows if r["kind"] == "miss"], [(first, None), (None, first)])
+        # 別の入力は打ち直しでないので、今までどおり回しに行く（ここでは宛先がこの部署自身で、まだ納品していないので --ask が止める）
+        rc, out = self.main(self.place, "--call", "配布", "spread-plugins", "--input", '{"dry": false}')
+        self.assertIn("調べ役 に回したが、頼みが通らなかった", out)
+        self.assertEqual([r.get("rerun_of") for r in deliver.records(self.inbox) if r["kind"] == "miss"], [None, first, None])
+        # 合図（--land の後に呼ぶ）は打ち直しを見分けず、今までどおり回しに行く
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {"dry": True}}], self.src, self.ports, a, None,
+                   {"ask": first, "boss": "窓口", "boss-inbox": self.inbox})
+        last = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"][-1]
+        self.assertEqual((last.get("rerun_of"), bool(last.get("ask"))), (None, True))
+
     def test_bad_input_stops_before_running(self):
         self.use(self.script("raise SystemExit(9)"))
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"x": 1}')

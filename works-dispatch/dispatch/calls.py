@@ -4,7 +4,8 @@
 
 --call <会社/役> <ツール>（call）: ツールを origin の既定のブランチの中身（一時の worktree。tools.place）のルートで走らせ、入力の JSON を標準入力に渡す。終了の値 0 なら片づいた（答えを出して
 0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の永続の部署が
-在ればその順番待ちに積み、無ければ一度きりの部署を自動で立てる）。回したら受付番号を出して 3 で終わる。
+在ればその順番待ちに積み、無ければ一度きりの部署を自動で立てる）。回したら受付番号を出して 3 で終わる。ただし、打った部署が受けている
+頼みが、同じツールの同じ入力が片づかずに回った頼みなら（その頼みの中での打ち直し）、回さずに失敗を出して 1 で終わる（rerun_of）。
 合図（fire）: --land がメインブランチへ push し終えた後に、[[land.after]] の並びの順に同じ走らせ方で呼ぶ。回した頼みの頼み元は、メインブランチに入れた
 部署の頼み元。
 """
@@ -87,14 +88,31 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
         deliver.log(inbox, {"kind": "call", "status": "done", "role": role_name, "tool": tool_name, "at": ports.now()})
         return 0, [x for x in [note, out.rstrip("\n")] if x and x.strip()]
     out_tail = tools.tail(both)
+    again = rerun_of(inbox, cwd or root, role_name, tool_name, value, ports, a) if boss is None else None
+    ask_id = None if again else deliver.new_id(ports.now())
     deliver.log(inbox, {"kind": "miss", "role": role_name, "tool": tool_name, "input": value, "code": code, "tail": out_tail,
-                        "at": ports.now()})
-    return hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd or root)
+                        "at": ports.now(), **({"rerun_of": again} if again else {"ask": ask_id})})
+    if again:
+        # 片づかずに回った頼みを受けた部署が、その頼みの中で同じ入力を打ち直した: 回すと同じ頼みがもう 1 つ積まれるので、失敗を打った会話に返す
+        return 1, [f"ツール {role_name}/{tool_name} は片づかなかった（終了の値 {code}）。この会話が受けている頼み（受付 {again}）が、"
+                   "同じ入力でこのツールが片づかずに回った頼みなので、もう一度は回さない。ツールの出力の終わり:", out_tail]
+    return hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd or root, ask_id)
 
 
-def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd):
-    """片づかなかったツールの仕事を、回す役への頼みに変えて orders.ask に渡す。(終了の値, 出す行)。"""
-    ask_id = deliver.new_id(ports.now())
+def rerun_of(inbox, cwd, role_name, tool_name, value, ports, a):
+    """打った場所が受けている、まだ納品していない頼み（台帳の cause と同じ物）が、このツールのこの入力が片づかずに回った頼み
+    （外れの行の ask がその受付で、role・tool・input が同じ）なら、その受付。でなければ None。入力は JSON の値で比べる（鍵の順は見ない）。"""
+    held = orders.cause_of(a, cwd, ports)
+    if not held:
+        return None
+    hit = any(r.get("kind") == "miss" and r.get("ask") == held and (r.get("role"), r.get("tool"), r.get("input")) == (role_name, tool_name, value)
+              for r in deliver.records(inbox))
+    return held if hit else None
+
+
+def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd, ask_id=None):
+    """片づかなかったツールの仕事を、回す役への頼みに変えて orders.ask に渡す。(終了の値, 出す行)。ask_id は回す頼みの受付（外れの行の ask）。"""
+    ask_id = ask_id or deliver.new_id(ports.now())
     caller_inbox = deliver.inbox_of(ports.git.common_dir(cwd) or ports.git.common_dir(root))
     brief = deliver.put(caller_inbox, f"{ask_id}-call.md", tools.miss_text(role_name, tool, value, code, out_tail))
     to = tool["fallback_role"]
@@ -122,7 +140,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
 
 
 def call(a, ports, cwd, task):
-    """--call。終了の値（0 片づいた・3 AI に回した・1 回せなかった・2 使い方の誤り）。"""
+    """--call。終了の値（0 片づいた・3 AI に回した・1 回せなかったか打ち直しなので回さなかった・2 使い方の誤り）。"""
     target, tool_name = a.call
     got, why = _company_root(target, ports, cwd, a.config)
     if why:
