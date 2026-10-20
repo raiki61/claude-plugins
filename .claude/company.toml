@@ -333,6 +333,8 @@ mode = "ff-after-ci"
 gate = "check"
 check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 scripts/terms.py && python3 tests/value-rules.py && python3 tests/land-check.py && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
 bump = "marketplace"
+# 同じ clone で同時に打った --land を、申し出た順に 1 本ずつ通す列（works-dispatch の docs/land.md の queue。2026-10-20 に --land 7 本が取り合った）
+queue = "land-queue"
 
 # main に入れた後の合図: 全アカウントに配る（出荷のたびに窓口が手で配っていた物。片づかなければ作業に回り、頼み元は main に入れた部署の頼み元）
 [[land.after]]
