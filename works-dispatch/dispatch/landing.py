@@ -164,7 +164,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
         if rules["queue"]:
             queue = os.path.join(g.common_dir(source), rules["queue"])
             try:
-                hold.take(queue)
+                hold.take(queue, name=(attrs.get("name") or name, branch))   # 名乗れば、判断役の --land-order が順を決められる
             except OSError as e:
                 print(f"止めた: メインブランチへ入れる列（{queue}）に入れない: {e}")
                 return 1

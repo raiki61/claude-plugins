@@ -25,6 +25,7 @@ import ghx
 import gitx
 import herdr as real_herdr
 import landing
+import landorder
 from config import Repo
 from nodes import bump, land, landqueue
 
@@ -560,6 +561,13 @@ class FastForwardAfterCi(LandCase):
 
 class GitBoundary(LandCase):
     """偽物の git（fakegit.FakeGit）が前提にする、本物の git の振る舞い（gitx の口の返し）。偽物の振る舞いを変えたら、ここも合わせる。"""
+
+    def test_forked_paths_lists_only_what_the_branch_changed_since_it_forked(self):
+        w = World(self.tmp)
+        w.work("a.txt")
+        w.move_main()   # 分かれた後（b.txt）にメインブランチが変えたファイルは数えない
+        subprocess.run(["git", "-C", w.source, "fetch", "-q", "origin"], check=True)
+        self.assertEqual(gitx.forked_paths(w.source, "origin/main", "feat/a"), ["a.txt"])
 
     def test_a_file_not_added_makes_the_place_unclean(self):
         w = World(self.tmp)
@@ -1288,6 +1296,91 @@ class Queue(LandCase):
         self.assertEqual(code, 1, out)
         self.assertIn("メインブランチへ入れる列", out)
         self.assertIn("に入れない", out)
+
+    def ticket(self, queue, age_s, pid, who=None):
+        name = f"{time.time_ns() - int(age_s * 10**9):020d}-{pid}.ticket"
+        (queue / name).write_bytes(b"")
+        if who:
+            (queue / (name + landqueue.WHO)).write_text("\n".join(who) + "\n", encoding="utf-8")
+        return name
+
+    def test_the_judges_order_puts_named_tickets_first_and_the_rest_in_offer_order(self):
+        queue = pathlib.Path(self.tmp, "q")
+        queue.mkdir()
+        a = self.ticket(queue, 3, 1, ("部署 a", "feat/a"))
+        other = self.ticket(queue, 2, 2)   # 名乗らない札（my_notes の collect など）
+        b = self.ticket(queue, 1, 3, ("部署 b", "feat/b"))
+        self.assertEqual(landqueue.alive(queue), [a, other, b])   # order が無ければ申し出た順
+        landorder.write(str(queue), ["feat/b", "居ない部署"])     # ブランチでも引ける。当たらない名前は飛ばす
+        self.assertEqual(landqueue.alive(queue), [b, a, other])
+        landorder.write(str(queue), [])
+        self.assertEqual(landqueue.alive(queue), [a, other, b])
+
+    def test_a_land_names_itself_beside_its_ticket_and_takes_the_name_away(self):
+        queue = pathlib.Path(self.tmp, "q")
+        with landqueue.turn(queue, say=lambda _: None, sleep=lambda _: None, name=("部署 a", "feat/a")):
+            (mine,) = landqueue.alive(queue)
+            self.assertEqual(landqueue.who(queue, mine), ("部署 a", "feat/a"))
+        self.assertEqual(sorted(os.listdir(queue)), ["lock"])
+        dead = self.ticket(queue, 60, 9, ("部署 z", "feat/z"))   # 落ちた処理の札は、名乗りも一緒に消す
+        self.assertEqual(landqueue.alive(queue), [])
+        self.assertFalse((queue / (dead + landqueue.WHO)).exists())
+
+    def test_land_order_shows_the_queue_with_the_files_each_land_changes_and_writes_the_order(self):
+        w = FakeWorld(self.tmp, {".claude/company.toml": QUEUE_RULES})
+        w.work("shared.txt")
+        second = w.g.add_worktree(os.path.join(self.tmp, "wt", "b"), "feat/b", "origin/main")
+        w.g.commit(second, {"shared.txt": "b\n", "c.txt": "c\n"}, "部署 b の作業")
+        queue = pathlib.Path(w.g.common_dir(w.source), "land-queue")
+        queue.mkdir()
+        grace = mock.patch.object(landqueue, "GRACE", 10**6)   # 札のロックを持つ処理の代わり（古い札でも消さない）
+        grace.start()
+        self.addCleanup(grace.stop)
+        self.ticket(queue, 120, 1, ("部署 a", "feat/a"))
+        self.ticket(queue, 60, 2, ("部署 b", "feat/b"))
+        repo = Repo("o/r", "", w.source, (), None, None)
+
+        def run(names):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = landorder.main(repo, names, FakePorts(w), self.config)
+            return code, out.getvalue()
+        code, out = run([])
+        self.assertEqual(code, 0, out)
+        self.assertIn("1. 部署 部署 a（ブランチ feat/a）: 待って 2 分、変えたファイル 1 件、ほかの待ちと重なる 1 件（shared.txt）", out)
+        self.assertIn("2. 部署 部署 b（ブランチ feat/b）: 待って 1 分、変えたファイル 2 件", out)
+        code, out = run(["部署 b"])
+        self.assertLess(out.index("部署 部署 b"), out.index("部署 部署 a"), out)
+        self.assertIn("入れる順の指定: 部署 b", out)
+        code, out = run(["-"])
+        self.assertIn("申し出た順", out)
+        self.assertFalse((queue / landqueue.ORDER).exists())
+
+    def test_a_land_that_leaves_the_queue_takes_its_name_out_of_the_order(self):
+        queue = pathlib.Path(self.tmp, "q")
+        landorder.write(str(queue), ["部署 a", "部署 b"])
+        with landqueue.turn(queue, say=lambda _: None, sleep=lambda _: None, name=("部署 a", "feat/a")):
+            pass
+        self.assertEqual(landqueue.order(queue), ["部署 b"])   # 同じ名前で後に申し出た --land を、前の指定で前に出さない
+
+    def test_land_order_refuses_a_dash_mixed_with_names_and_other_entries(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(landorder.main(None, ["-", "部署 a"], None), 2)
+        self.assertIn("- は指定を消すとき", out.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as out, \
+                mock.patch.object(dispatch.config, "load", lambda *a, **k: None), \
+                mock.patch.object(dispatch, "_department_repo", lambda cfg, r, ports, cwd: "repo"):
+            self.assertEqual(dispatch.main(["--land-order", "--land", "a"], ports=type("P", (), {"cwd": lambda self: "/"})()), 2)
+        self.assertIn("--land-order はほかの入口", out.getvalue())
+
+    def test_land_order_without_a_queue_stops_with_a_message(self):
+        w = FakeWorld(self.tmp, {".claude/company.toml": CI_RULES})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = landorder.main(Repo("o/r", "", w.source, (), None, None), [], FakePorts(w), self.config)
+        self.assertEqual(code, 1)
+        self.assertIn("queue が無い", out.getvalue())
 
     def test_queue_is_read_only_on_the_top_land_table(self):
         self.assertEqual(land.read_rules("c.toml", None, QUEUE_RULES)["queue"], "land-queue")

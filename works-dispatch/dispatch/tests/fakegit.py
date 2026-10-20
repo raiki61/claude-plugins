@@ -105,6 +105,15 @@ class FakeGit:
         seen = set(self._line(self._resolve(cwd, a)))
         return [f"{s[:7]} {self.commits[s]['subject']}" for s in self._line(self._resolve(cwd, b)) if s not in seen]
 
+    def forked_paths(self, cwd, base, branch):
+        b, h = self._resolve(cwd, base), self._resolve(cwd, branch)
+        if not (b and h):
+            raise gitx.GitError(f"{base}...{branch} を引けない")
+        seen = set(self._line(b))
+        fork = next((s for s in self._line(h) if s in seen), None)
+        old, new = (self.commits[fork]["files"] if fork else {}), self.commits[h]["files"]
+        return sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k))
+
     def origin_head(self, cwd):
         return "origin/main"
 

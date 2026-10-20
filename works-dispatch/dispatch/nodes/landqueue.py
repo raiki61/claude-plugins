@@ -9,6 +9,10 @@ works-dispatch を import しない処理（my_notes の collect など）とも
   掛けて、終わるまで持つ。持つ処理が落ちれば OS が外す。
 - 札は名の小さい順に並べる。ロックの外れた札は、持ち主の処理が落ちた物として消す。ただし作ってから GRACE 秒の札は、まだロックを
   掛ける前のこともあるので消さずに並べておく。
+- 申し出た処理が名乗れば（--land は部署の名前とブランチ）、札の横に `<札の名>.who` を置く。判断役が置き場の `order`（ORDER）に
+  部署の名前かブランチを 1 行に 1 つ書けば、名乗りが当たる札をその順で前に出し、残りの札は名の順でその後に並べる（--land-order。
+  docs/land.md）。order が無ければ名の順のまま。名乗らない札（my_notes の collect など）は order に当たらない。
+  名乗った処理が列を抜けるとき、order から自分の名前とブランチの行を消す（同じ名前で後に申し出た処理を、前の指定で前に出さない）。
 - 先頭の生きた札になったら、lock のファイルに排他のロックを（ロックが空くのを待たずに）掛けてみて、取れたら進む。取れなければ
   POLL 秒おいて、札の並びから見直す。2 本が同時に進まないことは lock が保つ。
   終われば、ロックを外して札を消す。
@@ -28,6 +32,8 @@ except ImportError:  # Windows
 
 POLL = 1.0
 GRACE = 10
+ORDER = "order"   # 判断役が書く、入れる順（部署の名前かブランチを 1 行に 1 つ）
+WHO = ".who"      # 札の横の名乗り（1 行目が部署の名前、2 行目がブランチ）
 
 
 def _try_lock(handle):
@@ -59,8 +65,37 @@ def _age(name):
         return float("inf")
 
 
+def who(queue, name):
+    """札 name の名乗り（部署の名前, ブランチ）。名乗りが無ければ None。"""
+    try:
+        lines = (Path(queue) / (name + WHO)).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    return (lines + ["", ""])[0], (lines + ["", ""])[1]
+
+
+def order(queue):
+    """判断役が書いた入れる順（部署の名前かブランチの並び）。無ければ空。# で始まる行と空の行は飛ばす。"""
+    try:
+        text = (Path(queue) / ORDER).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def _ranked(queue, names):
+    want = order(queue)
+    if not want:
+        return names
+
+    def rank(name):
+        hits = [want.index(x) for x in (who(queue, name) or ()) if x in want]
+        return min(hits) if hits else len(want)
+    return sorted(names, key=lambda n: (rank(n), n))
+
+
 def alive(queue):
-    """生きた札の名を順に返し、ロックの外れた札は消す。"""
+    """生きた札の名を入れる順（判断役の order、無ければ名の順）に返し、ロックの外れた札は消す。"""
     out = []
     for ticket in sorted(Path(queue).glob("*.ticket")):
         try:
@@ -71,23 +106,28 @@ def alive(queue):
         except OSError:  # Windows でロックされた札は開けないことがある
             stale = False
         if stale and _age(ticket.name) > GRACE:
-            with contextlib.suppress(OSError):
-                ticket.unlink()
+            for gone in (ticket, ticket.with_name(ticket.name + WHO)):
+                with contextlib.suppress(OSError):
+                    gone.unlink()
         else:
             out.append(ticket.name)
-    return out
+    return _ranked(queue, out)
 
 
 @contextlib.contextmanager
-def turn(queue, say=print, sleep=time.sleep):
-    """列 queue（フォルダ）に入り、自分の番が来たら戻る。抜けると次の処理に順番を渡す。"""
+def turn(queue, say=print, sleep=time.sleep, name=None):
+    """列 queue（フォルダ）に入り、自分の番が来たら戻る。抜けると次の処理に順番を渡す。
+    name は名乗り（部署の名前, ブランチ）で、判断役の order が順を決めるのに使う。"""
     queue = Path(queue)
     queue.mkdir(parents=True, exist_ok=True)
     ticket = queue / f"{time.time_ns():020d}-{os.getpid()}.ticket"
+    label = ticket.with_name(ticket.name + WHO)
     with open(ticket, "a+b") as mine:
         while not _try_lock(mine):  # ほかの処理の alive() が一瞬ロックを取っている間は掛からない。掛けずに進むと札を消されて割り込む
             sleep(0.01)
         try:
+            if name:
+                label.write_text("\n".join(x or "" for x in name) + "\n", encoding="utf-8")
             with open(queue / "lock", "a+b") as gate:
                 _wait(queue, ticket.name, gate, say, sleep)
                 try:
@@ -97,8 +137,24 @@ def turn(queue, say=print, sleep=time.sleep):
         finally:
             _unlock(mine)
             mine.close()
-            with contextlib.suppress(OSError):
-                ticket.unlink()
+            for gone in (ticket, label):
+                with contextlib.suppress(OSError):
+                    gone.unlink()
+            if name:
+                with contextlib.suppress(OSError):
+                    _forget(queue, name)
+
+
+def _forget(queue, name):
+    """列を抜けた処理の名乗り（部署の名前・ブランチ）に当たる行を order から消す（同じ名前で後に申し出た処理を、前の指定で前に出さない）。"""
+    path = queue / ORDER
+    lines = path.read_text(encoding="utf-8").splitlines()
+    kept = [line for line in lines if line.strip() not in {x for x in name if x}]
+    if kept == lines:
+        return
+    tmp = queue / f".order-{os.getpid()}"
+    tmp.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _wait(queue, name, gate, say, sleep):
@@ -120,9 +176,9 @@ class Hold:
     def __init__(self):
         self._turn = None
 
-    def take(self, queue, say=print):
+    def take(self, queue, say=print, name=None):
         if self._turn is None:
-            t = turn(queue, say)
+            t = turn(queue, say, name=name)
             t.__enter__()
             self._turn = t
 

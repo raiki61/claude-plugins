@@ -80,6 +80,7 @@ import installed  # noqa: E402
 import jsonio  # noqa: E402
 import calls  # noqa: E402
 import landing  # noqa: E402
+import landorder  # noqa: E402
 import move  # noqa: E402
 import retire  # noqa: E402
 import reorg  # noqa: E402
@@ -264,6 +265,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--retire", metavar="部署", help="エフェメラルの部署の会話を止めてから、部屋を --clean と同じ決まりで片付ける（--done の"
                     "ターンの終わりに機械が打つ。段取りが残った部屋を止めると決めたときも打つ）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりでメインブランチに入れる（ゲートを待ち、緑なら fast-forward）")
+    ap.add_argument("--land-order", nargs="*", metavar="部署",
+                    help="メインブランチへ入れる列（会社の形の [land] の queue）を出す。部署の名前かブランチを並べれば、その順に先に入れる"
+                         "（判断役が決める。- だけなら指定を消して申し出た順に戻す。決め手は docs/land.md の「入れる順を決める」）")
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署がメインブランチを知った後にほかの部署が入れた行を、このブランチが消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
@@ -372,7 +376,7 @@ def main(argv=None, ports=None):
     # 部署の回（--task・--land）は、[[repos]] が無くても、代表の clone の場所から会社を決める（_department_repo）
     # --check は、[[repos]] が無ければ部署の回の前提だけを確かめる（_check）
     # --clean も部署の回と同じに決める（設定が無くても、--repo のパスか今いる場所の代表の clone の部署を片付ける）
-    department = a.task is not None or a.land is not None or a.clean
+    department = a.task is not None or a.land is not None or a.land_order is not None or a.clean
     try:
         cfg = config.load(a.config, os.environ, missing_ok=department or a.check)
         clone = _clone_of(cfg, a.repo, ports) if a.check and cfg.repos else None
@@ -392,6 +396,11 @@ def main(argv=None, ports=None):
     if a.task is None and task_args:
         print(f"止めた: {', '.join(task_args)} は --task と一緒にだけ使う")
         return 2
+    if a.land_order is not None:
+        if a.land is not None or a.task is not None or a.pr or a.issue is not None or a.clean or a.check:
+            print("止めた: --land-order はほかの入口（--land・--task・--pr・--issue・--clean・--check）と一緒に使えない")
+            return 2
+        return landorder.main(repo, a.land_order, ports, a.config)
     if a.land is not None:
         if a.task is not None or a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --land はほかの入口（--task・--pr・--issue・--clean・--check・--no-second）と一緒に使えない")

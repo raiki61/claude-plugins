@@ -437,6 +437,12 @@ def changed_paths(cwd, since, path, runner=_default_runner):
                  runner).splitlines()
 
 
+def forked_paths(cwd, base, branch, runner=_default_runner):
+    """branch が base から分かれた所から変えたファイルの並び（git diff base...branch。リポジトリのルートからの相対）。読めなければ GitError。"""
+    return _must(["git", "-C", cwd, "-c", "core.quotePath=false", "diff", "--no-renames", "--name-only", f"{base}...{branch}"],
+                 runner).splitlines()
+
+
 def diff_zero(cwd, a, b, runner=_default_runner):
     """a から b への差分を、前後の行を付けずに（-U0）、名前の付け替えを追って（-M）。読めなければ GitError。
     読む側がファイルの名前を「a/」「b/」の後ろから取るので、持ち主の設定（diff.noprefix・core.quotePath）に依らず、
