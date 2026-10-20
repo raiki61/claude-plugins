@@ -8236,24 +8236,26 @@ PYVR
 # **main への push の前のフック（.githooks/pre-push）が、軽い検査（scripts/light-check.sh）の赤の commit を main へ入れないこと。**
 # --land を通さない急ぎの直接の push で、語の検査に落ちる commit が main に入り、ほかの --land が全部落ちた（2026-10-20、受付 2ee37b）。
 # 検査の本物は数十秒かかるので、ここでは light-check.sh を「BAD というファイルが在れば赤」の代役に替えて、フックの振る舞いだけを見る:
-# 緑は通す・赤は止める・main 以外のブランチは見ない・今の作業ツリーでない commit も一時の worktree で見る・緑の印の在る tree は回し直さない
+# 緑は通す・赤は止める・main 以外のブランチは見ない・緑の印の在る tree は回し直さない・今の作業ツリーでない commit も一時の worktree で
+# 見る（緑も赤も）・linked worktree から打った push でも、push する commit の中身を見る（フックに渡る GIT_DIR に引かれない）
 expect_output 0 "PRE_PUSH_OK" "main への push の前のフックが、軽い検査の赤の commit を main へ入れない" \
     bash -s -- "$ROOT" <<'PREPUSH'
 set -u
 root=$1; t=$(mktemp -d); cd "$t" || exit 1
 git init -q --bare remote.git && git init -q work && cd work || exit 1
-git config user.email t@example.com; git config user.name t; git config core.hooksPath .githooks
+git config user.email t@example.com; git config user.name t; git config core.hooksPath .githooks; git config core.autocrlf false
 git checkout -q -b main
-mkdir -p .githooks scripts && cp "$root/.githooks/pre-push" .githooks/
+mkdir -p .githooks scripts && cp "$root/.githooks/pre-push" .githooks/ && echo '* text eol=lf' > .gitattributes
 cat > scripts/light-check.sh <<'STUB'
 cd "$(dirname "$0")/.." || exit 1
 echo x >> "$(git rev-parse --path-format=absolute --git-common-dir)/ran"
-[ ! -e BAD ] || { echo "代役の検査: 赤"; exit 1; }
+git ls-files --error-unmatch scripts/light-check.sh >/dev/null 2>&1 || { echo "代役の検査: 自分が index に無い"; exit 1; }
+[ -z "$(git ls-files BAD)" ] || { echo "代役の検査: 赤"; exit 1; }
 mark="$(git rev-parse --path-format=absolute --git-common-dir)/light-check-ok"
 mkdir -p "$mark" && : > "$mark/$(git rev-parse 'HEAD^{tree}')"
 STUB
 git add -A && git commit -qm good && git remote add origin ../remote.git
-ran() { wc -l < .git/ran | tr -d ' '; }
+ran() { wc -l < "$t/work/.git/ran" | tr -d ' '; }
 git push -q origin main 2>/dev/null || { echo "緑の commit を止めた"; exit 1; }
 git commit -q --allow-empty -m same-tree
 git push -q origin main 2>/dev/null || { echo "緑の印の在る tree を止めた"; exit 1; }
@@ -8263,7 +8265,14 @@ git push -q origin main 2>/dev/null && { echo "赤の commit が main に入っ�
 git push -q origin HEAD:refs/heads/side 2>/dev/null || { echo "main 以外のブランチへの push を止めた"; exit 1; }
 bad=$(git rev-parse HEAD); git checkout -q HEAD~1
 git push -q origin "$bad:refs/heads/main" 2>/dev/null && { echo "作業ツリーでない赤の commit が main に入った"; exit 1; }
-[ "$(git -C ../remote.git rev-parse main)" = "$(git rev-parse HEAD)" ] || { echo "origin の main が緑の commit でない"; exit 1; }
+echo y > ok && git add ok && git commit -qm good2 && good=$(git rev-parse HEAD) && git checkout -q HEAD~1
+before=$(ran)
+git push -q origin "$good:refs/heads/main" 2>/dev/null || { echo "作業ツリーでない緑の commit を止めた"; exit 1; }
+[ "$(ran)" = $((before + 1)) ] || { echo "作業ツリーでない commit で検査が回らなかった"; exit 1; }
+git worktree add -q "$t/linked" "$good" && cd "$t/linked" || exit 1
+echo z > z && git add z && git commit -qm good3 && fixed=$(git rev-parse HEAD) && git checkout -q "$bad"
+git push -q origin "$fixed:refs/heads/main" 2>/dev/null || { echo "linked worktree から打った緑の commit を止めた（push を打った worktree の index を見た）"; exit 1; }
+[ "$(git -C "$t/remote.git" rev-parse main)" = "$fixed" ] || { echo "origin の main が緑の commit でない"; exit 1; }
 cd / && rm -rf "$t"
 echo PRE_PUSH_OK
 PREPUSH
