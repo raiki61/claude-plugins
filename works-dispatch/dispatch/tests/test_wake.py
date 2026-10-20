@@ -1884,6 +1884,43 @@ class WakeFlow(unittest.TestCase):
         notice, rec = deliver.records(self.inbox)[-2:]
         self.assertEqual((notice["to"], rec["to"]["wake"]), (to, to))
 
+    def test_deliver_to_an_asker_mid_turn_goes_to_the_ledger_not_the_window(self):
+        # 頼み元の会話は生きているが、人の文で始まったターンの途中で待ち受けが止まっている（生きた印は無く、読んだ所のファイルは残る）:
+        # 窓に打ち込まず台帳に置き、ターンの終わりに張り直した待ち受けに渡させる（2026-10-20 に works-factory-co の工場窓口で、納品が
+        # 持ち主の入力として窓に打ち込まれた）
+        summary = self.ask_then_summary(test_deliver.GOOD)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, gitx)
+        to = self.listen("desk", gitx.git_dir(self.src))
+        wake.release(self.inbox, gitx.git_dir(self.src), "t")
+        self.assertIsNone(wake.listening(self.inbox, to))
+        listed = self.ports.list_sessions
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {**s, "status": "busy"} if s["sessionId"] == "s-desk" else s for s in listed(cdir, include_done)]
+        company = orders.inbox_company(self.inbox, os.path.dirname(self.cfg))
+        talk = self.ports.list_sessions(None)[0]
+        self.assertEqual(orders.resting_listener(self.inbox, company, {**talk, "status": "idle"}, self.ports), [])   # 手が空いている
+        provision.mark(self.src, self.src, {"session": "s-other"}, gitx)   # 属性の会話が頼み元でない場所（本社のほかの会話の頼み）
+        self.assertEqual(orders.resting_listener(self.inbox, company, talk, self.ports), [])
+        provision.mark(self.src, self.src, {"session": "s-desk"}, gitx)
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.prompts(), [])
+        notice, rec = deliver.records(self.inbox)[-2:]
+        self.assertEqual((notice["to"], notice["kind"], notice["file"]), (to, "deliver", rec["file"]))
+        self.assertEqual((rec["status"], rec["to"]["wake"]), ("sent", to))
+        self.assertIn("ターンの終わりに渡す", rec["detail"])
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual(attrs["delivered"], attrs["ask"])
+
+    def test_deliver_to_an_asker_without_a_listener_trace_types_into_the_window(self):
+        # 待ち受けの居た跡の無い頼み元（フックの無い前の版の会話）には、今までどおり窓に打ち込む
+        summary = self.ask_then_summary(test_deliver.GOOD)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, gitx)
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        (w,) = self.prompts()
+        self.assertEqual(w[1], self.desk)
+
 
 if __name__ == "__main__":
     unittest.main()

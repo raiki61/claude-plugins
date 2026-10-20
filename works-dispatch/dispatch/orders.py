@@ -179,6 +179,23 @@ def listener(inbox, company_name, name):
     return to, wake.listening(inbox, to)
 
 
+def resting_listener(inbox, company_name, entry, ports):
+    """会話の一覧の 1 件 entry の頼み元の会話が、ターンの途中（status が busy）で待ち受けが止まっているだけなら、ターンの終わりに
+    張り直す待ち受けが受ける宛先の並び（wake_hook.plan と同じ作り方）。ほかは []。見るのは、会話の作業フォルダに待ち受けの居た跡
+    （wake.has_history）が在り、その場所の属性の会話がこの会話であること（plan は属性の会話でない会話には待ち受けを張らない。本社の
+    窓口でないほかの会話の頼みを、窓口の待ち受けに宛てない）。跡の無い場所はフックの無い前の版の会話なので、窓に打ち込む。"""
+    cwd = (entry or {}).get("cwd")
+    if not (inbox and company_name and cwd and entry.get("status") == "busy"):
+        return []
+    place = ports.git.git_dir(cwd)
+    if not (place and wake.has_history(inbox, place)):
+        return []
+    attrs = ports.attrs(cwd) or {}
+    if not attrs.get("role") or attrs.get("session") != entry.get("sessionId"):
+        return []
+    return wake.addresses(company_name, attrs, gitx.former_names(attrs))
+
+
 def place_name(here, sid, ports):
     """頼んだ場所の名前（属性 company.name）か None。窓口と部署の待ち受けはこの名前で宛先を受ける（wake_hook.plan）ので、頼み元の
     名前に会話の一覧の名前より先に使う（一覧の名前は替わりうる。段取りが会話の名前 my-notes-d7 で頼み、納品が待ち受けに届かず
@@ -1762,7 +1779,14 @@ def deliver_summary(a, ports, cwd):
             return 1
         pane, how = deliver.boss_window(attrs, sid, entry, panes, companies)
         living = [s for items in sessions_.values() for s in items if s.get("sessionId") == sid and s.get("state") not in FALLEN]
-        if pane is None and attrs.get("boss") and sid and not living:
+        names = resting_listener(inbox, inbox_company(inbox, settings), entry if living else None, ports)
+        if names:
+            # 頼み元の会話はターンの途中で、その場所に待ち受けの居た跡が在る: 人の文で始まったターンの途中で待ち受けが止まっているだけ。
+            # 窓に打ち込まず（持ち主の入力に割り込む）、台帳に置いてターンの終わりに張り直した待ち受けに渡させる（--ask・--note と
+            # 同じ見分け。2026-10-20 に works-factory-co の工場窓口で、納品が持ち主の入力として窓に打ち込まれた）
+            to = to if to in names else names[0]
+            heard, pane, how = True, None, f"{to} の待ち受けがターンの終わりに渡す"
+        elif pane is None and attrs.get("boss") and sid and not living:
             # 頼み元の会話が終わった（窓が無く、会話の一覧にも居ないか止まっている）: 頼み元の名前に宛てた知らせを台帳に置き、納品済みにする。
             # 会話が生きていて窓を 1 つに決められないだけのときと、頼み元が誰か分からないときは、今までどおり納品済みにしない。待ち続けても
             # 終わった会話の窓は開かず、部署は次の頼みを受けられないまま止まる（2026-10-17 の点検。頼み元 my-notes-ad が終わり、
