@@ -762,6 +762,33 @@ class Hook(unittest.TestCase):
         self.assertIn("進められなかった", wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: 1 / 0))
         # エフェメラルの部署（頼みごとにメインブランチから切る）と窓口は進めない
         self.assertIsNone(wake_hook.follow_main(self.plan(), {**attrs, "lifecycle": gitx.EPHEMERAL}))
+        # 空にできずに待つ間（5 秒ごとに見直す）も、進めるのと台帳の行は順番待ちの先頭の頼みごとに 1 度
+        provision.mark(self.place, self.src, {"cleared": None}, gitx)   # 前の頼みの後をまだ空にしていない
+        self.put("a1")
+        seen = []
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place, status="working"), now=lambda: 5,
+                                  me=lambda: ME, restart=lambda got_, key: False, key_of=lambda cwd, a: None,
+                                  follow=lambda got_, a: seen.append(1) or "訳")
+        self.assertEqual((check(), check()), (wake.HOLD, wake.HOLD))
+        self.assertEqual(seen, [1])
+        self.assertEqual([r["next"] for r in deliver.records(self.inbox) if r.get("kind") == "followed"], ["a1"])
+
+    def test_a_persistent_department_restarts_when_it_cannot_tell_what_following_changed(self):
+        # 進めた後に替わったファイルを比べられなければ、起動し直す側に倒す（進めたのに進められなかったとは書かない）
+        land = self.with_origin()
+        land("notes.md")
+        attrs = self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1")
+
+        class G:
+            def __getattr__(self, name):
+                return getattr(gitx, name)
+
+            def changed_paths(self, *a):
+                raise gitx.GitError("読めない")
+        got = wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: provision.follow_main(cwd, G()))
+        self.assertIn("比べられなかった", got)
+        self.assertEqual(gitx.head_sha(self.place), git("-C", self.src, "rev-parse", "origin/main"))
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
 
     def test_does_not_hand_the_next_ask_when_one_arrived_after_it_looked(self):
         # 上で属性を読んだ後に、--ask が窓に別の頼みを打って属性を書いた。錠の中で読み直し、渡さずに順番待ちに残す（渡すと、

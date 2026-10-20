@@ -522,11 +522,14 @@ def follow_main(got, attrs, catch_up=provision.follow_main):
         return None
     said = f"作業場のブランチを {main} の先頭へ進めた（{r['behind']} 個の commit を取り込んだ）"
     # 会社の形（tree.INFO_FILE）は起動の設定（role.launch_key）と役の文（role_hook.changed）が別に見るので、起動し直す訳にしない
-    startup = [x for x in r["startup"] if x != "/".join(tree.INFO_FILE)]
-    if not startup:
-        return said
-    files = "・".join(startup[:3]) + (f" ほか {len(startup) - 3} 件" if len(startup) > 3 else "")
-    said += f"。会話が起動するときにしか読まないファイル（{files}）が替わった"
+    if r["startup"] is None:   # 替わったかが分からなければ、起動し直す側に倒す（起動し直しても失う物は空にするのと同じ）
+        said += "。会話が起動するときにしか読まないファイルが替わったかを比べられなかった"
+    else:
+        startup = [x for x in r["startup"] if x != "/".join(tree.INFO_FILE)]
+        if not startup:
+            return said
+        files = "・".join(startup[:3]) + (f" ほか {len(startup) - 3} 件" if len(startup) > 3 else "")
+        said += f"。会話が起動するときにしか読まないファイル（{files}）が替わった"
     account = attrs.get("account")
     if not account:
         return said + "が、部署のアカウントが分からないので起動し直さない"
@@ -630,7 +633,7 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
     進める口（follow_main。(got, 属性) を受け、渡す字に添える文か None を返す）。"""
     # fresh の部署をすぐ替わる訳で空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。
     # 順番待ちに次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--nudge で動かせる）
-    told, untied = set(), {}
+    told, untied, follows = set(), {}, {}   # follows: 順番待ちの先頭の頼み → 作業場を進めて添える文（follow）
 
     def trouble(what, e):
         why = str(e) if isinstance(e, UntieError) else f"{type(e).__name__}: {e}"
@@ -699,12 +702,22 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
             return "end", None   # エフェメラルの部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         # 空にする・区切りの判定より先に進める（起動するときに読むファイルが替われば、名指しの印で区切りの起動し直しに間に合わせる）。
         # 裏の処理が動いている間は、その足元のファイルを替えない（次のターンの終わりにまた試す）
-        followed = (follow(got, attrs) if wake.queued(got["inbox"], got["place"]) and not payload.get("background_tasks")
-                    else None)
-        if followed:
-            # 起動し直すと、この会話は handed の行を書かない（起動し直した会話の待ち受けが渡すときは、もう先頭を含む）ので、先に残す
-            deliver.log(got["inbox"], {"kind": "followed", "at": now(), "place": got["cwd"], "session": got["session"], "detail": followed})
-            attrs = attrs_of(got["cwd"])   # 起動し直す名指し（company.move-to）を印したかもしれない
+        # 進めるのは順番待ちの先頭の頼みごとに 1 度（渡さずに待つ間は 5 秒ごとに見直すので、取り直しと台帳の行を重ねない）
+        waiting = wake.queued(got["inbox"], got["place"])
+        first = waiting[0].get("id") if waiting else None
+        if waiting and first not in follows and not payload.get("background_tasks"):
+            follows[first] = follow(got, attrs)
+            if follows[first]:
+                # 空にした・起動し直した会話の待ち受けが渡すときは、もう先頭を含むので handed の行に添わない。ここで残す
+                deliver.log(got["inbox"], {"kind": "followed", "next": first, "at": now(), "place": got["cwd"], "session": got["session"],
+                                           "detail": follows[first]})
+                attrs = attrs_of(got["cwd"])   # 起動し直す名指し（company.move-to）を印したかもしれない
+                if attrs.get(wake.MOVE_TO) == attrs.get("account") and not open_children(got, attrs, read=_read_part(got)):
+                    # 起動し直すなら、先に空にしない（空にした後の会話の待ち受けが起動し直すので、/clear が無駄に 1 度挟まる）
+                    key = restart_due(got, payload, attrs, key_of)
+                    if key and restart(got, key):
+                        return "end", None   # 起動し直した会話の待ち受けが、次を渡す
+        followed = follows.get(first) if waiting else None
         kept = []   # 空にしないまま前の会話で次を渡す訳（渡す字の頭と台帳に添える。黙って前の会話のまま渡さない）
         if must_clear(payload, attrs):
             children = open_children(got, attrs, read=_read_part(got))
