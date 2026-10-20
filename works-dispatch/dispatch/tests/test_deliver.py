@@ -859,7 +859,49 @@ class Flow(unittest.TestCase):
         self.assertTrue(seen["refreshed"])
         self.assertEqual(seen["attrs"]["boss"], "desk")
         self.assertEqual(deliver.records(self.inbox)[0]["status"], "sent")
+        self.assertIsNone(deliver.records(self.inbox)[0]["detail"])   # 会話の id を書けた
         self.assertEqual(deliver.records(self.inbox)[0]["title"], "出荷する")   # 題は台帳の行のフィールドに残す（--todo は文から拾わない）
+
+    def test_ask_that_started_a_department_without_its_talk_id_is_still_delivered(self):
+        # 会話を起動して窓につないだが、会話の id を書く git が設定の鍵の取り合いで断られた（my_notes の受付 8fc454）。頼みは届いているので
+        # sent と書き、--forward で受けた頼みを閉じる。書けなかった訳は detail に残す
+        said = "会話の id を属性に書けなかった（could not lock config file）。--clean がこの部署を片付けない"
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            path = str(pathlib.Path(self.root) / "new")
+            git("-C", self.src, "worktree", "add", "-q", "-b", ns.branch, path, "origin/main")
+            provision.mark(path, self.src, {**extra_attrs, "role": ns.role}, gitx)
+            print(said)
+            return 0
+
+        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "ask": "a-held"}, gitx)
+        with contextlib.chdir(self.src):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                a = argparse.Namespace(config=self.cfg, ask="出荷役", text="x", brief=None, task="出荷", branch="ship/1", forward=True,
+                                       dry_run=False, role=None, persistent=False, base=None, from_name=None, from_account=None)
+                rc = orders.ask(a, self.ports, self.src, task)
+        self.assertEqual(rc, 0, buf.getvalue())
+        sent = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        self.assertEqual(sent[-1]["status"], "sent")
+        self.assertIn(said, sent[-1]["detail"])
+        self.assertIn("a-held", [r["id"] for r in deliver.records(self.inbox) if r["kind"] == "forwarded"])
+
+    def test_ask_whose_department_did_not_start_is_not_delivered_even_with_its_ask_attr(self):
+        # 部署の属性に頼みを書いたが、会話を起動できなかった（立てる道が 0 以外を返した）。会話の id も無いので届いていない
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            path = str(pathlib.Path(self.root) / "new")
+            git("-C", self.src, "worktree", "add", "-q", "-b", ns.branch, path, "origin/main")
+            provision.mark(path, self.src, {**extra_attrs, "role": ns.role}, gitx)
+            print("部署 出荷  ship/1  p1  launch_failed")
+            return 1
+
+        with contextlib.chdir(self.src), contextlib.redirect_stdout(io.StringIO()):
+            a = argparse.Namespace(config=self.cfg, ask="出荷役", text="x", brief=None, task="出荷", branch="ship/1",
+                                   dry_run=False, role=None, persistent=False, base=None, from_name=None, from_account=None)
+            rc = orders.ask(a, self.ports, self.src, task)
+        self.assertEqual(rc, 1)
+        self.assertEqual([r["status"] for r in deliver.records(self.inbox) if r["kind"] == "ask"], ["failed"])
 
     def test_ask_that_starts_a_department_reads_the_items_from_the_fetched_shape(self):
         seen = {}

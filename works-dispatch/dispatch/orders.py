@@ -699,9 +699,13 @@ def _ask(a, ports, cwd, task, sent):
         got = None
         notes.append(f"立てた後に部署の場所を読めない（{e}）")
     attrs = ports.attrs(got["path"]) if got else {}
-    status = "sent" if attrs.get("ask") == ask_id and attrs.get("session") else "failed"
+    # 届いたかは、部署にこの頼みの属性が在り、会話の id（company.session）が書かれたか、立てる道が会話を起動して窓につないだ（rc 0）かで見る。
+    # 前は会話の id だけを見たので、会話の id を書く git が設定の鍵の取り合いで断られると、頼みが部署の会話に届いて作業が始まっていても
+    # failed と書き、--forward と残った疑問の担当者の検査がこの受付を使えなかった（my_notes の受付 8fc454。55ff19）。
+    # 会話の id が無いまま届いたときは、書けなかった訳を detail に残す
+    status = "sent" if attrs.get("ask") == ask_id and (attrs.get("session") or rc == 0) else "failed"
     deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status,
-                        "detail": None if status == "sent" else (why_not(said.getvalue()) or f"rc={rc}"),
+                        "detail": None if status == "sent" and attrs.get("session") else (why_not(said.getvalue()) or f"rc={rc}"),
                         "cause": cause, **({"cause_boss": cause_boss} if cause_boss else {}),
                         "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
