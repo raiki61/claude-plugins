@@ -95,8 +95,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     """--land <名前>。rows は dispatch._department_rows、reasons は片付けで残す訳（dispatch.DEPT_REASONS）。
     after はメインブランチへ push し終えた後に、会社の形の [[land.after]]（合図。受付の設計 5.5）の並びと代表の clone と部署の属性を渡して
     呼ぶ関数（calls.fire）で、出す行の並びを返す。
-    dry_run なら、することの見立てを出すだけで何も書かない（_preview）。hold は列の番（landqueue.Hold）で、回し直し（main_again）が
-    前の回の番を持ったまま渡す。省けば、この回で持ち、終わるときに手放す。"""
+    dry_run なら、することの見立てを出すだけで何も書かない（_preview）。hold は列の順番（landqueue.Hold）で、回し直し（main_again）が
+    前の回の順番を持ったまま渡す。省けば、この回で持ち、終わるときに手放す。"""
     if hold is not None:
         return _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, dry_run, keep_removal, after, hold)
     with landqueue.Hold() as hold:
@@ -258,7 +258,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
         else:
             print(f"止めた: メインブランチ {main} への push が断られた（{e}）")
         return 1
-    hold.drop()   # push し終えたので、列の次の処理に番を渡す（代表の clone のそろえ・合図・片付けは番の外で）
+    hold.drop()   # push し終えたので、列の次の処理に順番を渡す（代表の clone のそろえ・合図・片付けは順番の外で）
     _, local, err, notes = _follow(source, main, g, candidate)
     for n in notes:
         print(n)
@@ -356,7 +356,7 @@ def _company_roots():
 
 def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold):
     """リベースしたブランチで、--land を頭から回し直す（ゲートも書き換えの取り合いのゲートも、リベースしたブランチでもう一度通す）。
-    列の番（hold）は持ったまま回し直す（列に並び直さない）。"""
+    列の順番（hold）は持ったまま回し直す（列に並び直さない）。"""
     print("リベースしたブランチで、ゲートから回し直す")
     return main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, False, keep_removal, after, hold)
 

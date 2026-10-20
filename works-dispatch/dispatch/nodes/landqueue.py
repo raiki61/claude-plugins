@@ -79,7 +79,7 @@ def alive(queue):
 
 @contextlib.contextmanager
 def turn(queue, say=print, sleep=time.sleep):
-    """列 queue（フォルダ）に入り、自分の番が来たら戻る。抜けると次の処理に番を渡す。"""
+    """列 queue（フォルダ）に入り、自分の番が来たら戻る。抜けると次の処理に順番を渡す。"""
     queue = Path(queue)
     queue.mkdir(parents=True, exist_ok=True)
     ticket = queue / f"{time.time_ns():020d}-{os.getpid()}.ticket"
@@ -113,7 +113,7 @@ def _wait(queue, name, gate, say, sleep):
 
 
 class Hold:
-    """--land の 1 回が持つ列の番。take は持っていなければ列に入って番を待ち（回し直しで重ねて入らない）、drop は番を手放す。"""
+    """--land の 1 回が持つ列の順番。take は持っていなければ列に入って順番を待ち（回し直しで重ねて入らない）、drop は順番を手放す。"""
 
     def __init__(self):
         self._turn = None
