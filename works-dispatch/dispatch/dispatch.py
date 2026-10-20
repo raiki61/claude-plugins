@@ -41,6 +41,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
         python3 dispatch.py --ask <会社/役 か部署の名前か会社の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <ブランチ>] [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--for <受付> | --again] [--dry-run]
         python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
+        python3 dispatch.py --compact [焦点]（部署か窓口の場所から。同じ仕事の前の部分が済んだので、ここで compact してよい区切りと印す）
         python3 dispatch.py --done（エフェメラルの部署の場所から。納品してメインブランチに入れ終えたので、ターンの終わりに会話を止めて部屋を片付けてよいと印す）
         python3 dispatch.py --retire <部署>（エフェメラルの部署の会話を止めてから、--clean と同じ決まりで片付ける）
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
@@ -255,6 +256,9 @@ def main(argv=None, ports=None):
                     "人がその会話に打つか、納品すると外れる）")
     ap.add_argument("--rest", action="store_true", help="部署か窓口の場所から、今は会話を空にしてよい区切りと印す（このターンの終わりに、"
                     "入力フィールドが空なら機械が窓に /clear を打つ。人がその会話に打つと外れる）")
+    ap.add_argument("--compact", nargs="?", const="", metavar="焦点", help="部署か窓口の場所から、同じ仕事の前の部分が済んだので、ここで"
+                    "compact してよい区切りと印す（このターンの終わりに、文脈が大きく入力フィールドが空なら、機械が窓に /compact <焦点> を打ち、"
+                    "済んだら続きをさせる 1 行を会話に渡す。納品の前でも印せる。人がその会話に打つと外れる）")
     ap.add_argument("--done", action="store_true", help="エフェメラルの部署の場所から、納品してメインブランチに入れ終えたので片付けてよいと印す（このターンの"
                     "終わりに、機械が会話を止めて部屋を --clean と同じ決まりで片付ける。人がその会話に打つと外れる）")
     ap.add_argument("--retire", metavar="部署", help="エフェメラルの部署の会話を止めてから、部屋を --clean と同じ決まりで片付ける（--done の"
@@ -335,6 +339,8 @@ def main(argv=None, ports=None):
         return orders.wait_for_input(a, ports, os.getcwd())
     if a.rest:
         return orders.rest_here(a, ports, os.getcwd())
+    if a.compact is not None:
+        return orders.compact_here(a, ports, os.getcwd())
     if a.done:
         return orders.finish_here(a, ports, os.getcwd())
     if a.retire is not None:

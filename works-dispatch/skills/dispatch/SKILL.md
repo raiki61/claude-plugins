@@ -43,7 +43,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 - herdr（作業場とペインを分ける端末のツール）の表示を付け直す `--sync`・組み直す `--reorg` と `--desk`・席の確かめ `--desk --dry-run`・手で会話を立てるときにアカウントを 1 つ選ぶ `nodes/accounts.py --pick`: [references/reorg.md](references/reorg.md)
 - ほかのアカウントで起動し直す `--move`（使用上限や会社の形の起動の設定が替わったときの自動の起動し直しも）: [references/move.md](references/move.md)
 - 頼む `--ask`（宛先・待ち受け・順番待ち・`--take`・`--withdraw`・`--first`・`--nudge`・`--note`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・後で見ることを残すリマインダー `--remind`・落ちた部署の会話・受付箱）: [references/ask.md](references/ask.md)
-- 納品する `--deliver`（要約の項目・納品の検査 `deliver_check`）・答え待ち `--wait`・区切り `--rest`・止める前の差し戻し: [references/deliver.md](references/deliver.md)
+- 納品する `--deliver`（要約の項目・納品の検査 `deliver_check`）・答え待ち `--wait`・区切り `--rest`・compact の区切り `--compact`・止める前の差し戻し: [references/deliver.md](references/deliver.md)
 - 機械窓口 `--call`（頼みを AI でなくスクリプトが受ける）と合図（メインブランチに入れた後などにスクリプトを呼ぶ）（`[[roles.tools]]`）: [references/call.md](references/call.md)
 - 受け持ちを起動する `--start`・`--due`（`[skills.start]`）: [references/start.md](references/start.md)
 - メインブランチに入れる `--land 部署`（`[land]`・リベース・版上げ・書き換えの取り合いのゲート・`[[land.after]]`）: [references/land.md](references/land.md)

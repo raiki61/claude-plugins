@@ -834,7 +834,7 @@ def stuck_why(dest_inbox, place_dir, dept):
 # claude-plugins の割り振りが子の頼みの返事待ちで半日止まり、--nudge が「訳がすぐ替わる」で何もしなかった）
 PASSING = ("会話がまだ動いている", "窓の入力フィールド")
 # 人の文でターンが始まると外れる印（wake_hook.resume_from_wait）。STUCK_LINE は人の文ではないので、打った後に書き戻す
-KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished")
+KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished", "compact", "compact-focus")
 
 
 def _free(pane, ports):
@@ -1370,6 +1370,34 @@ def rest_here(a, ports, cwd):
     return 0
 
 
+def compact_here(a, ports, cwd):
+    """--compact [焦点]。部署か窓口の会話が、同じ仕事の前の部分が済み、続きは要約で足りるので、ここで compact してよい区切りだと印す（属性
+    company.compact に場所の会話の id、company.compact-focus に焦点）。このターンの終わりに待ち受け（wake_hook.py）が、文脈が
+    COMPACT_FLOOR トークン以上で窓の入力フィールドが空なら、窓に /compact <焦点> を打ち、compact の後の会話の始まりの待ち受けが印を外して、
+    会話に続きをさせる 1 行を渡す。--rest と違い、納品していない頼みが在っても印せる（頼みの途中の区切りのための口）。区切りかどうかと
+    どの役が打つかは、会社の形の役の本文の決まりで判断する（ここでは決めない）。人がその会話に打つと印が外れる。終了の値を返す。"""
+    attrs = ports.attrs(cwd)
+    if not attrs.get("role") or not attrs.get("name"):
+        print(f"止めた: {cwd} は部署でも窓口でもない（git の設定 company.role と company.name が無い）。compact の区切りは部署か窓口の場所で印す")
+        return 2
+    if not attrs.get("session"):
+        print(f"止めた: {cwd} の属性に会話の id（company.session）が無く、印がこの会話の物かを待ち受けが見分けられない")
+        return 2
+    focus = " ".join((a.compact or "").split())
+    common = ports.git.common_dir(cwd)
+    try:
+        provision.mark(cwd, gitx.root_of(common), {wake.COMPACT: attrs["session"], wake.COMPACT_FOCUS: focus or None},
+                       ports.git)
+    except (gitx.GitError, OSError) as e:
+        print(f"止めた: compact の区切りの印を書けなかった（{e}）")
+        return 1
+    print(f"compact の区切りと印した。このターンの終わりに、文脈が {wake.COMPACT_FLOOR} トークン以上で窓の入力フィールドが空なら、機械がこの会話の"
+          f"窓に {chat.COMPACT}{' ' + focus if focus else ''} を打ち、済んだら続きをさせる 1 行をこの会話に渡す（文脈がそれより小さいときと、"
+          "打てなかったときは、compact せずに訳を添えた 1 行を渡す）。止まる前のフックは、このターンの終わりに納品を促さない。続きに要ることで、"
+          "焦点に書けない長いものは、このターンを終える前にファイルに書いておく。人がこの会話に打つと印が外れる")
+    return 0
+
+
 def finish_here(a, ports, cwd):
     """--done。エフェメラルの部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
@@ -1900,6 +1928,8 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
         return 0
     if not attrs.get("ask") or in_flight(payload, shells):
         return 0
+    if attrs.get(wake.COMPACT) and attrs[wake.COMPACT] == payload.get("session_id"):
+        return 0   # 会話が compact の区切りと印して（--compact）ターンを終える。待ち受けが compact し、続きをさせる
     path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", attrs["ask"])
     try:
         count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)

@@ -901,6 +901,30 @@ def clear_talk(pane, h, pause, cleared, left=False):
     return "unconfirmed", f"{CLEAR} を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
 
+def compact_talk(pane, h, pause, compacted, text, looks):
+    """窓の会話に text（/compact <焦点>）を打ち、済んだ（compacted() が真。compact の後の会話の始まりの待ち受けが印を外した）のを見たら
+    None。書く口。打てない・looks 回見ても済んだのを見られない訳を返す。入力フィールドに /compact が残っていれば Enter を 1 回足す
+    （clear_talk の /clear と同じ。残ったまま次の字を打つと、/compact に連なって届く）。"""
+    try:
+        h.prompt(pane, text, False)
+    except h.Error as e:
+        return f"打てない（{e}）"
+    entered = False
+    for _ in range(looks):
+        pause()
+        if compacted():
+            return None
+        if entered:
+            continue
+        try:
+            if chat.COMPACT in (chat.input_box(h.read(pane, 40)) or ""):
+                h.send_keys(pane, "enter")
+                entered = True
+        except h.Error:  # 読めない回は次の拍で見直す
+            continue
+    return "打ったが、済んだのを見られない"
+
+
 def wipe_box(pane, h, pause):
     """待ち受けが打って送られずに残った /clear（wake.own_clear）を Ctrl+U で消し、1 拍おいて読み直した入力フィールドの字を返す（空なら
     消えた）。書く口。窓を読めなければ h.Error。"""

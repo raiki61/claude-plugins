@@ -1058,6 +1058,25 @@ class Flow(unittest.TestCase):
         self.assertIn(os.path.join(gitx.git_dir(self.place), wake.HANDOFF), out)
         self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s-dept")
 
+    def test_compact_marks_a_break_even_before_delivery_and_the_stop_hook_lets_the_turn_end(self):
+        # 頼みの途中でも、同じ仕事の前の部分が済んだ区切りで compact を印せる（compact するのはターンの終わりの待ち受け）
+        self.ask_then_summary(GOOD)
+        rc, out = self.main(self.place, "--compact", "次は  直しを書く")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs[wake.COMPACT], attrs[wake.COMPACT_FOCUS]), ("s-dept", "次は 直しを書く"))
+        self.assertIn("/compact 次は 直しを書く", out)
+        self.assertEqual(self.main(self.src, "--compact")[0], 2)   # 部署でも窓口でもない所
+        # 印したターンの終わりは、納品していなくても差し戻さない
+        out = io.StringIO()
+        payload = json.dumps({"session_id": "s-dept", "cwd": self.place})
+        self.assertEqual(orders.stop_hook(io.StringIO(payload), out, lambda cwd: dict(attrs), tempfile.mkdtemp(), lambda: None), 0)
+        self.assertEqual(out.getvalue(), "")
+        for other in (None, "s-other", "1"):   # 印が無いか、ほかの会話の物なら差し戻す
+            out = io.StringIO()
+            orders.stop_hook(io.StringIO(payload), out, lambda cwd: {**attrs, wake.COMPACT: other}, tempfile.mkdtemp(), lambda: None)
+            self.assertEqual(json.loads(out.getvalue())["decision"], "block")
+
     def test_deliver_with_missing_items_sends_nothing_and_names_them(self):
         summary = self.ask_then_summary("結論: 直した\n")
         rc, out = self.main(self.place, "--deliver", summary)

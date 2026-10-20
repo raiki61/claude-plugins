@@ -1227,6 +1227,102 @@ class Hook(unittest.TestCase):
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
         self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))
 
+    def transcript(self, tokens):
+        path = os.path.join(tempfile.mkdtemp(), "t.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "message": {"content": "x"}}) + "\n")
+            f.write(json.dumps({"type": "assistant", "message": {"usage": {
+                "input_tokens": 10, "cache_read_input_tokens": tokens - 110, "cache_creation_input_tokens": 100}}}) + "\n")
+        return path
+
+    def test_a_compact_break_types_compact_and_the_talk_after_it_is_told_to_go_on(self):
+        # 会話が --compact で印したターンの終わりに、待ち受けが窓に /compact <焦点> を打つ。compact の後の会話の始まりの待ち受けが
+        # 印を外し、続きをさせる 1 行を渡す（頼みの途中の会話は、続きを渡されないと止まったまま）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0",
+                                              wake.COMPACT: "s1", wake.COMPACT_FOCUS: "次は直しを書く"}, gitx)
+        stop = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(150000)}
+        w = Window(self.place)
+        start = {"hook_event_name": "SessionStart", "source": "compact", "session_id": "s1"}
+
+        def compacted():   # compact の後の会話の始まり（同じ会話の id）の待ち受け
+            self.assertEqual(w.writes, ["/compact 次は直しを書く"])
+            kind, text = wake_hook.checker(self.plan(), start, h=w, now=lambda: 5, me=lambda: ME)()
+            self.assertEqual(kind, "wake")
+            self.assertIn("compact した。焦点: 次は直しを書く", text)
+        self.assertEqual(wake_hook.compact_turn(self.plan(), stop, gitx.worktree_attrs(self.place), w, me=lambda: ME,
+                                                pause=compacted, looks=1), ("end", None))
+        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT_FOCUS, gitx.worktree_attrs(self.place))
+        # 印が無ければ、compact の後の会話の始まりでも何も渡さない（持ち主が手で打った compact）
+        self.assertIsNone(wake_hook.compact_turn(self.plan(), start, gitx.worktree_attrs(self.place), w, me=lambda: ME))
+
+    def test_a_compact_break_wakes_the_talk_without_compacting_when_it_is_small_or_cannot_type(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.COMPACT: "s1"}, gitx)
+        small = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(wake.COMPACT_FLOOR - 1)}
+        w = Window(self.place)
+        kind, text = self.checker(small, w)()
+        self.assertEqual((kind, w.writes), ("wake", []))
+        self.assertIn("compact しなかった", text)
+        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
+        # 人の打ちかけの字は消さない。打てなければ訳を添えて、この会話のまま続けさせる
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        big = {**small, "transcript_path": self.transcript(wake.COMPACT_FLOOR)}
+        w = Window(self.place, box="打ちかけ")
+        kind, text = self.checker(big, w)()
+        self.assertEqual((kind, w.writes), ("wake", []))
+        self.assertIn("compact できなかった: 窓の入力フィールドに打ちかけの字が在る", text)
+        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
+        # 打ったが済んだのを見られなければ、印を外して続けさせる（止まったままにしない）
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        w = Window(self.place)
+        kind, text = wake_hook.compact_turn(self.plan(), big, gitx.worktree_attrs(self.place), w, me=lambda: ME,
+                                            pause=lambda: None, looks=2)
+        self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
+        self.assertIn("済んだのを見られない", text)
+        # 打った /compact が入力フィールドに残れば Enter を 1 回だけ足す（残ったまま次の字に連なって届かない）
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        w = Window(self.place)
+        w.prompt = lambda pane, text, wait: (w.writes.append(text), setattr(w, "box", text))
+        wake_hook.compact_turn(self.plan(), big, gitx.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None, looks=3)
+        self.assertEqual(w.writes, ["/compact", ("enter",)])
+        # ターンの終わりの直後にまだ動いていると見えても、手が空くのを見直してから打つ
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        w = Window(self.place, status="working")
+        w.pause = lambda: setattr(w, "status", "done")
+        kind, _ = wake_hook.compact_turn(self.plan(), big, gitx.worktree_attrs(self.place), w, me=lambda: ME, pause=w.pause, looks=1)
+        self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
+        # 文脈の大きさを読めなければ打たない（費用の元が取れるかが分からない）
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, gitx)
+        w = Window(self.place)
+        kind, text = wake_hook.compact_turn(self.plan(), {**big, "transcript_path": "/none/t.jsonl"},
+                                            gitx.worktree_attrs(self.place), w, me=lambda: ME)
+        self.assertEqual((kind, w.writes), ("wake", []))
+        self.assertIn("文脈の大きさを読めない", text)
+        # 区切り（--rest）や終わり（--done）の印が在る・ほかの会話の印・裏の処理が残るときは、compact しない
+        for marks, payload in (({wake.REST: "s1"}, big), ({wake.COMPACT: "s0"}, big),
+                               ({}, {**big, "background_tasks": [{"id": "b"}]})):
+            provision.mark(self.place, self.src, {wake.COMPACT: "s1", wake.REST: None, **marks}, gitx)
+            self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, gitx.worktree_attrs(self.place), Window(self.place),
+                                                     me=lambda: ME))
+
+    def test_a_typed_prompt_takes_the_compact_mark_off_but_the_typed_compact_does_not(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.COMPACT: "s1",
+                                              wake.COMPACT_FOCUS: "f"}, gitx)
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1", "prompt": "/compact f"})
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.COMPACT], "s1")
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1", "prompt": "どう？"})
+        self.assertNotIn(wake.COMPACT, gitx.worktree_attrs(self.place))
+        self.assertNotIn(wake.COMPACT_FOCUS, gitx.worktree_attrs(self.place))
+
+    def test_context_of_reads_the_last_usage(self):
+        self.assertEqual(wake_hook.context_of(self.transcript(123456)), 123456)
+        self.assertIsNone(wake_hook.context_of(None))
+        self.assertIsNone(wake_hook.context_of("/none/t.jsonl"))
+        path = self.transcript(123456)
+        with open(path, "a", encoding="utf-8") as f:   # エラーや割り込みの <synthetic> の応答は数が 0。飛ばして前の応答を読む
+            f.write(json.dumps({"type": "assistant", "message": {"model": "<synthetic>", "usage": {"input_tokens": 0}}}) + "\n")
+        self.assertEqual(wake_hook.context_of(path), 123456)
+
     def test_a_turn_that_ends_well_takes_the_limit_wait_mark_off(self):
         # 使用上限か時間帯で止まった会話のターンが誤りなく終わったら、--move --if-limited の待ちの印を外す（待っている処理は
         # 続きの 1 行を打たずにやめる）。人の文が始めたターンが断られたとき（Stop でなく StopFailure）は外さない

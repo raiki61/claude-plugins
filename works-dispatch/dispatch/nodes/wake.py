@@ -47,6 +47,15 @@ QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受け�
 NOTE = "note"       # 今受けている頼みへの足し（--note）。納品と同じに text をそのまま渡す（ターンの途中なら、ターンの終わりの待ち受けが渡す）
 REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
                     # ターンの終わりの待ち受けが窓に /clear を打って消す。人の文でターンが始まると外れる
+COMPACT = "compact"   # 部署と窓口の属性 company.compact: 会話が自分で「ここで compact してよい区切り」と印した（--compact）。値は印した時の
+                      # 会話の id。ターンの終わりの待ち受けが窓に /compact を打ち、compact の後の会話の始まりの待ち受けが印を外して会話を続けさせる。
+                      # 人の文でターンが始まると外れる
+COMPACT_FOCUS = "compact-focus"   # 部署と窓口の属性: --compact に渡した焦点（/compact の後ろに付けて、要約に残させる物）
+# --compact で待ち受けが /compact を打つ下限の文脈（トークン）。これより小さい会話は compact の費用の元が取れない: Opus 5.5 の値段
+# （https://platform.claude.com/docs/en/about-claude/pricing 。キャッシュの読み $0.20・出力 $20・1 時間の書き込み $8 / 100 万トークン）で、
+# 10 万トークンの compact は約 $0.14（読み 10 万・要約の出力約 3 千・要約の書き込み約 8 千）、後の要求 1 回の読みは約 $0.018 安くなり、
+# 約 8 回で元が取れる。5 万では約 16 回かかる。my_notes の 3.5 日の会話の記録（2026-10-17〜20）の、ターンの境目からの要求の数の中央値は 12〜45
+COMPACT_FLOOR = 100000
 FINISHED = "finished"   # エフェメラルの部署の属性 company.finished: 会話が自分で「終わった、片付けてよい」と印した（--done）。値は印した時の
                         # 会話の id。ターンの終わりの待ち受けが印を外して --retire を裏で走らせる。人の文でターンが始まると外れる
 RETIRE_KEPT = "retire-kept"   # 部署の属性: --retire が片付けずに残した訳（--clean の一覧に出す）

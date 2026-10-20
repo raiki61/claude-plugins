@@ -20,6 +20,7 @@ NAME = "Claude Code"   # 使う人に見せる文で、この口の向こうの�
 COMMAND = "claude"     # アカウントに起動のコマンドを書かないときの、会話を起動するコマンド
 AGENT = "claude"       # 端末の口（herdr）が、ペインの前のこのツールの会話に付ける名前（ペインの agent）
 CLEAR = "/clear"       # 会話を空にする打ち込み
+COMPACT = "/compact"   # 会話を要約に置き換えて続ける打ち込み（後ろに焦点を付けられる）
 EXIT = "/exit"         # 前の会話を終えてシェルに戻す打ち込み
 RELOAD = "/reload-plugins"   # 起きている会話にプラグインを読み直させる打ち込み
 CONFIG_ENV = "CLAUDE_CONFIG_DIR"   # アカウントの設定のフォルダを渡す環境変数

@@ -10,6 +10,9 @@
   claude-plugins の割り振りが半日渡さなかった）。子の頼みは、この会話（属性 company.session）が出した物を、受けた頼みが替わっても数える。
   会話を引き継ぐ部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）ターンの終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
+  会話が自分で compact の区切りと印した（--compact。属性 company.compact）ターンの終わりには、文脈が wake.COMPACT_FLOOR 以上なら
+  窓に /compact <焦点> を打ち、compact の後の会話の始まり（SessionStart の compact）の待ち受けが印を外して続きをさせる 1 行を渡す
+  （compact_turn。小さい・打てないときは compact せずに訳を添えて起動する）。納品していない頼みが在っても compact する。
   区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力フィールドの薄字
   （Claude Code の次の文の候補）は打ちかけの字と数えない（claudex.typed）。待ち受けが前に打って送られずに残った /clear も打ちかけと
   数えず、Enter で送り直す（wake.own_clear）。
@@ -170,6 +173,91 @@ def clear_now(got, payload, attrs, h=term, pause=lambda: time.sleep(1), marks=No
         return no(f"{chat.CLEAR} を打ったが、会話が空になったのを見られない")   # この待ち受けが続く（次の待ち受けが張られたかが分からない）
     provision.mark(got["cwd"], got["root"], {**(marks or {"cleared": attrs["ask"]}), wake.CLEAR_TYPED: None}, gitx)
     return True
+
+
+COMPACT_LOOKS = 120   # /compact を打ってから、済んだ（compact の後の会話の始まりの待ち受けが印を外した）のを見る回数（5 秒ごと。10 分）
+IDLE_LOOKS = 6   # ターンの終わりの直後に会話がまだ動いていると見えたとき、手が空くのを見直す回数（5 秒ごと。--rest は次の拍で見直す）
+
+
+def context_of(path, tail=2_000_000):
+    """会話の記録（transcript_path）の最後の応答が読んだ文脈のトークン（input + cache_read + cache_creation）。読めなければ None。
+    数が全部 0 の行（Claude Code が書く <synthetic> の応答。エラーや割り込みの行）は飛ばす。"""
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, os.path.getsize(path) - tail))
+            lines = f.read().splitlines()
+    except (OSError, TypeError):
+        return None
+    for line in reversed(lines):
+        if b'"usage"' not in line:
+            continue
+        try:
+            usage = (json.loads(line).get("message") or {}).get("usage") or {}
+        except ValueError:  # 書きかけの行は飛ばし、前の応答の数を使う
+            continue
+        size = sum(usage.get(k) or 0 for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+        if size:
+            return size
+    return None
+
+
+def compact_now(got, payload, attrs, h=term, pause=lambda: time.sleep(5), me=lambda: chat.host()[0], looks=None):
+    """止まった会話の窓に /compact <焦点> を打ち、済んだ（compact の後の会話の始まりの待ち受けが印 company.compact を外した）のを見たら
+    None。打たなかった・済んだのを見られなかった訳を返す（印は外さない）。窓の確かめは clear_now と同じ（自分の会話の居る窓・手が空いて
+    いる・入力フィールドが空）。"""
+    if payload.get("background_tasks"):
+        return NOT_CLEARED_BACKGROUND
+    try:
+        jobs = (attrs.get("job"), got.get("job"), chat.attach_id(None, payload.get("session_id")))
+        pane = talk_window(got["cwd"], h, [me()], jobs)
+        if pane is None:
+            return "この会話の居る窓を 1 つに確かめられない"
+        for n in range(IDLE_LOOKS):   # Stop の直後は、herdr の会話の状態がまだ動いているのままのことがある
+            if (h.agent(pane) or {}).get("agent_status") in IDLE:
+                break
+            if n == IDLE_LOOKS - 1:
+                return "会話がまだ動いている"
+            pause()
+        box = chat.typed(h.read(pane, 40, ansi=True))
+        if box is None:
+            return "窓の入力フィールドが見えない"
+        if box:
+            return f"窓の入力フィールドに打ちかけの字が在る（「{box[:20]}」）"
+    except h.Error as e:
+        return f"{term.NAME} を読めない（{e}）"
+    focus = attrs.get(wake.COMPACT_FOCUS)
+    why = deliver.compact_talk(pane, h, pause, lambda: not gitx.worktree_attrs(got["cwd"]).get(wake.COMPACT),
+                               f"{chat.COMPACT} {focus}" if focus else chat.COMPACT, COMPACT_LOOKS if looks is None else looks)
+    return why and f"{chat.COMPACT} を{why}"
+
+
+def compact_turn(got, payload, attrs, h=term, me=lambda: chat.host()[0], pause=None, looks=None):
+    """会話が compact の区切りと印した（--compact）ターンの終わり（Stop）か、compact の後の会話の始まり（SessionStart の compact）に、
+    check が返す物。印がこの会話の物でなければ None。"""
+    if not attrs.get(wake.COMPACT) or attrs.get(wake.COMPACT) != got["session"]:
+        return None
+    clear = {wake.COMPACT: None, wake.COMPACT_FOCUS: None}
+    if chat.event(payload) == chat.START and payload.get("source") == "compact":
+        provision.mark(got["cwd"], got["root"], clear, gitx)
+        focus = attrs.get(wake.COMPACT_FOCUS)
+        return "wake", (f"（区切り〔--compact〕で会話を compact した{f'。焦点: {focus}' if focus else ''}。compact の前に受けていた頼みと"
+                        "次の手を要約から読み、続ける。続きが返事待ちなどで今は無ければ、そのままターンを終える）")
+    if chat.event(payload) != "Stop" or attrs.get(wake.REST) or attrs.get(wake.FINISHED):
+        return None
+    if payload.get("background_tasks"):
+        return None   # 裏の処理が終わると会話が再開する。そのターンの終わりにまた試す
+    size = context_of(chat.transcript(payload))
+    if size is None or size < wake.COMPACT_FLOOR:
+        provision.mark(got["cwd"], got["root"], clear, gitx)
+        why = ("会話の記録から文脈の大きさを読めない" if size is None else
+               f"文脈が {size} トークンで、{wake.COMPACT_FLOOR} トークンより小さく、compact の費用の元が取れない")
+        return "wake", (f"（区切り〔--compact〕で compact しなかった: {why}。この会話のまま続ける。続きが今は無ければ、そのままターンを終える）")
+    why = compact_now(got, payload, attrs, h, me=me, looks=looks, **({"pause": pause} if pause else {}))
+    if why is None:
+        return "end", None   # compact の後の会話の始まりの待ち受けが、続きをさせる
+    provision.mark(got["cwd"], got["root"], clear, gitx)
+    return "wake", (f"（区切り〔--compact〕で compact できなかった: {why}。この会話のまま続ける。続きが今は無ければ、そのままターンを"
+                    "終える）")
 
 
 DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
@@ -676,6 +764,9 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
 
     def check():
         attrs = attrs_of(got["cwd"])
+        verdict = compact_turn(got, payload, attrs, h, me=me)
+        if verdict:
+            return verdict
         ask = attrs.get("ask")
         if ask and attrs.get("delivered") != ask:
             if unseen(got, payload, attrs) and not any(r.get("kind") == "handed" and r.get("again") and r.get("id") == ask
@@ -785,17 +876,20 @@ def checker(got, payload, h=term, attrs_of=gitx.worktree_attrs, now=time.time, m
 
 def resume_from_wait(payload, attrs_of=gitx.worktree_attrs, now=time.time):
     """人の文でターンが始まった: 部署の会話が --wait で印した答え待ちを外す（答えを受けたので、止まる前のフックがまた納品を促す）。
-    --rest の区切りの印と --done の終わりの印も外す（人と話している途中の会話を空にも畳みもしない）。印を外すのは、場所の属性の会話（company.session）が文を
+    --rest の区切りの印と --done の終わりの印と --compact の区切りの印も外す（人と話している途中の会話を空にも畳みも compact もしない）。印を外すのは、場所の属性の会話（company.session）が文を
     受けたときだけ（同じ場所のほかの会話の文では外さない）。答え待ちを外したら、場所の会社と頼み元の受付箱の台帳に kind resumed を
     足す（頼みの状態を台帳から読めるように。docs/ledger.md）。"""
     cwd = payload.get("cwd") or os.getcwd()
     attrs = attrs_of(cwd)
-    if not (attrs.get("waiting") or attrs.get(wake.REST) or attrs.get(wake.FINISHED)) \
+    # 待ち受けが打った /compact で始まるターンでは、compact の区切りの印を外さない（外すと compact の後に続きをさせる者が居ない）
+    compact = not (payload.get("prompt") or "").startswith(chat.COMPACT) and attrs.get(wake.COMPACT)
+    if not (attrs.get("waiting") or attrs.get(wake.REST) or attrs.get(wake.FINISHED) or compact) \
             or attrs.get("session") and attrs["session"] != payload.get("session_id"):
         return
     common = gitx.common_dir(cwd)
     if common:
-        provision.mark(cwd, gitx.root_of(common), {"waiting": None, "waiting-why": None, wake.REST: None, wake.FINISHED: None}, gitx)
+        provision.mark(cwd, gitx.root_of(common), {"waiting": None, "waiting-why": None, wake.REST: None, wake.FINISHED: None,
+                                                   **({wake.COMPACT: None, wake.COMPACT_FOCUS: None} if compact else {})}, gitx)
         if attrs.get("waiting"):
             record = {"id": attrs["waiting"], "kind": RESUMED, "at": now(), "place": cwd, "session": payload.get("session_id")}
             for inbox in dict.fromkeys(x for x in (deliver.inbox_of(common), attrs.get("boss-inbox")) if x and os.path.isdir(x)):
