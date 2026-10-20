@@ -2374,7 +2374,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=755
+EXPECTED_CHECKS=756
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -8233,6 +8233,40 @@ else:
     raise AssertionError("構文木にできない本文を数えた")
 print("VALUE_RULES_ARMS_OK")
 PYVR
+# **main への push の前のフック（.githooks/pre-push）が、軽い検査（scripts/light-check.sh）の赤の commit を main へ入れないこと。**
+# --land を通さない急ぎの直接の push で、語の検査に落ちる commit が main に入り、ほかの --land が全部落ちた（2026-10-20、受付 2ee37b）。
+# 検査の本物は数十秒かかるので、ここでは light-check.sh を「BAD というファイルが在れば赤」の代役に替えて、フックの振る舞いだけを見る:
+# 緑は通す・赤は止める・main 以外のブランチは見ない・今の作業ツリーでない commit も一時の worktree で見る・緑の印の在る tree は回し直さない
+expect_output 0 "PRE_PUSH_OK" "main への push の前のフックが、軽い検査の赤の commit を main へ入れない" \
+    bash -s -- "$ROOT" <<'PREPUSH'
+set -u
+root=$1; t=$(mktemp -d); cd "$t" || exit 1
+git init -q --bare remote.git && git init -q work && cd work || exit 1
+git config user.email t@example.com; git config user.name t; git config core.hooksPath .githooks
+git checkout -q -b main
+mkdir -p .githooks scripts && cp "$root/.githooks/pre-push" .githooks/
+cat > scripts/light-check.sh <<'STUB'
+cd "$(dirname "$0")/.." || exit 1
+echo x >> "$(git rev-parse --path-format=absolute --git-common-dir)/ran"
+[ ! -e BAD ] || { echo "代役の検査: 赤"; exit 1; }
+mark="$(git rev-parse --path-format=absolute --git-common-dir)/light-check-ok"
+mkdir -p "$mark" && : > "$mark/$(git rev-parse 'HEAD^{tree}')"
+STUB
+git add -A && git commit -qm good && git remote add origin ../remote.git
+ran() { wc -l < .git/ran | tr -d ' '; }
+git push -q origin main 2>/dev/null || { echo "緑の commit を止めた"; exit 1; }
+git commit -q --allow-empty -m same-tree
+git push -q origin main 2>/dev/null || { echo "緑の印の在る tree を止めた"; exit 1; }
+[ "$(ran)" = 1 ] || { echo "緑の印の在る tree で検査を回し直した（回った数 $(ran)）"; exit 1; }
+touch BAD && git add BAD && git commit -qm bad
+git push -q origin main 2>/dev/null && { echo "赤の commit が main に入った"; exit 1; }
+git push -q origin HEAD:refs/heads/side 2>/dev/null || { echo "main 以外のブランチへの push を止めた"; exit 1; }
+bad=$(git rev-parse HEAD); git checkout -q HEAD~1
+git push -q origin "$bad:refs/heads/main" 2>/dev/null && { echo "作業ツリーでない赤の commit が main に入った"; exit 1; }
+[ "$(git -C ../remote.git rev-parse main)" = "$(git rev-parse HEAD)" ] || { echo "origin の main が緑の commit でない"; exit 1; }
+cd / && rm -rf "$t"
+echo PRE_PUSH_OK
+PREPUSH
 # 共有の認証の部品のうち、アカウントの OAuth トークンを探す口（account_token）と、トークンの期限の近さ・認証の失敗の形の見分け。Keychain と資格情報のファイルは偽物
 expect_output 0 "OK" "共有の認証の部品: アカウントのトークンを、作った項目・Claude Code の項目・資格情報のファイルの順に探す。期限の近さと認証の失敗の形を見分ける" \
     "$PY_BIN" -B "$ROOT/tests/claude-auth-suite.py"
