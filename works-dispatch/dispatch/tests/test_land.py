@@ -1266,6 +1266,29 @@ class Queue(LandCase):
         young.write_bytes(b"")
         self.assertEqual(landqueue.alive(queue), [young.name])
 
+    def test_own_ticket_is_locked_even_if_another_alive_holds_it_for_a_moment(self):
+        """ほかの処理の alive() が札のロックを一瞬取っていても、掛け直して持つ（掛けずに進むと札を消されて割り込む）。"""
+        real, calls = landqueue._try_lock, []
+
+        def flaky(handle):
+            calls.append(handle.name)
+            return False if len(calls) == 1 else real(handle)
+        queue = pathlib.Path(self.tmp, "q")
+        with mock.patch.object(landqueue, "_try_lock", flaky):
+            with landqueue.turn(queue, say=lambda _: None, sleep=lambda _: None):
+                mine = calls[0]
+        self.assertTrue(mine.endswith(".ticket"))
+        self.assertEqual(calls[1], mine)   # 同じ札に掛け直した
+
+    def test_a_queue_folder_that_cannot_be_made_stops_with_a_message(self):
+        w = World(self.tmp, {".claude/company.toml": QUEUE_RULES})
+        w.work()
+        write(os.path.join(w.source, ".git", "land-queue"), "")   # 置き場の名前のファイルが在って、フォルダを作れない
+        code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 1, out)
+        self.assertIn("メインブランチへ入れる列", out)
+        self.assertIn("に入れない", out)
+
     def test_queue_is_read_only_on_the_top_land_table(self):
         self.assertEqual(land.read_rules("c.toml", None, QUEUE_RULES)["queue"], "land-queue")
         for bad in ('"/tmp/q"', '"../q"', '""', "3"):

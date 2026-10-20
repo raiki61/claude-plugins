@@ -162,7 +162,12 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
             print(f"PR を出した: {land.offer_pr(source, repo.repo, branch, main, g, ports.gh, env)}")
             return 0
         if rules["queue"]:
-            hold.take(os.path.join(g.common_dir(source), rules["queue"]))
+            queue = os.path.join(g.common_dir(source), rules["queue"])
+            try:
+                hold.take(queue)
+            except OSError as e:
+                print(f"止めた: メインブランチへ入れる列（{queue}）に入れない: {e}")
+                return 1
         base = land.refresh(source, main, g)
     except (gitx.GitError, ghx.GhError) as e:
         print(f"止めた: {e}")

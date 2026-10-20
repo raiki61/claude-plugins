@@ -85,7 +85,8 @@ def turn(queue, say=print, sleep=time.sleep):
     queue.mkdir(parents=True, exist_ok=True)
     ticket = queue / f"{time.time_ns():020d}-{os.getpid()}.ticket"
     with open(ticket, "a+b") as mine:
-        _try_lock(mine)
+        while not _try_lock(mine):  # ほかの処理の alive() が一瞬ロックを取っている間は掛からない。掛けずに進むと札を消されて割り込む
+            sleep(0.01)
         try:
             with open(queue / "lock", "a+b") as gate:
                 _wait(queue, ticket.name, gate, say, sleep)
