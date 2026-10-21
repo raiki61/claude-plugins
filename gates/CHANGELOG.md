@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-10-21
+
 ### Fixed
 
 - 初見読みの読み手（`coldread-gate.py` が起動する `claude -p`）は、会話のアカウントがモデルを Claude でない物に読み替えている（環境変数か、`CLAUDE_CONFIG_DIR` の `settings.json` の `env` の `ANTHROPIC_MODEL`・`ANTHROPIC_SMALL_FAST_MODEL`・`CLAUDE_CODE_SUBAGENT_MODEL`・`ANTHROPIC_DEFAULT_*_MODEL` に、`claude` を含まない値が在る）とき、読み替えを継がない。読み手の子の環境から読み替え・窓口（`ANTHROPIC_BASE_URL`）・鍵を外し、works-dispatch の設定（`WORKS_DISPATCH_CONFIG`、無ければ `~/.config/works-dispatch/dispatch.toml`。読むだけ）の `accounts` のうち、会話のアカウントでなく、`settings.json` に読み替えの無いアカウントの鍵と設定のフォルダで走らせる。順は使用率の控え（`<limits_dir>/<name>.json`）の小さい順で、控えの無いアカウントはその後に設定の順。読み手が認証の失敗か使用枠の上限で返したら次のアカウントで走らせ直す。答えの `modelUsage` が `claude-` で始まる名前だけで、頼んだモデル（sonnet・haiku）を含むことを確かめ、違えばその回の読み手の答えを使わず、検査できなかったとして止める（gh で GitHub へ本文を投稿するコマンドを書く前に読むゲートならそのコマンドを止め、会話が書いた手元の文書をターンの終わりに読む検査なら、読めなかった文書として会話に返す。前からの読み手の故障と同じ扱い）。使えるアカウントが無いときも同じく検査できなかったとして止め、「会話のアカウントはモデルを読み替えていて、読み替えの無いアカウントとその鍵が works-dispatch の設定に要る」と言う。窓口だけ・値が Claude のモデルの名前（Bedrock・Vertex の ID）の読み替えは、今のまま利用者の経路で走らせる。前は読み替えを継ぎ、LiteLLM の中継で GPT に読み替えたアカウント（鍵は `settings.json` の `apiKeyHelper` に在り、`--setting-sources ""` で起動する読み手は読めない）の会話で、読み手が『Not logged in』と `unrecognized_model` で落ち、書いた後の検査が全部止まっていた（2026-10-21、my_notes の頼み 2165a5）。鍵を足せても、検査を sonnet・haiku で決めた強さと違うモデルで読ませることになっていた。
