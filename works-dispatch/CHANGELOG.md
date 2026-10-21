@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-10-21
+
 ### Added
 
 - アカウント（設定の `accounts`）に `max_open = <1 以上の整数>` を書けるようにした。会社の形（`.claude/company.toml`）の役か受け持ちの `account` でそのアカウントを名指して部署を新しく立てるとき、そのアカウントに開いていてよい終わっていない会話の数で、達していれば名指しを使わない。省けば前と同じ 1。`--tree` と `--check` のアカウントの一覧に、1 でないときだけ「名指しで同時 N 件まで」と出す。
