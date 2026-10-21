@@ -4740,6 +4740,106 @@ except RuntimeError:
     pass
 print("AUTH_EXPIRY_OK")
 PY
+# 会話のアカウントがモデルを Claude でない物に読み替えている(foundry-gpt の settings.json の env など)ときは、読み手の子から
+# 読み替えと鍵を外し、works-dispatch の設定の読み替えの無いほかのアカウントで、使用率の小さい順に走らせる。認証の失敗なら次へ。
+# 答えのモデルが Claude の頼んだ物でなければ通さない。窓口だけ・Claude のモデルの名前の読み替えは今のまま利用者の経路で走らせる
+expect_output 0 "REDIRECT_OK" "モデルを読み替えた会話の読み手は、読み替えの無いほかのアカウントの Claude で走らせる" \
+    "$PY_BIN" - "$ROOT" "$WORK/redirect" <<'PY'
+import importlib.util, json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+for k in [k for k in os.environ if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "COLDREAD_"))]:
+    del os.environ[k]
+def folder(name, env=None):
+    d = work / name
+    d.mkdir(parents=True, exist_ok=True)
+    if env is not None:
+        (d / "settings.json").write_text(json.dumps({"env": env}), encoding="utf-8")
+    return d
+SOL = {"ANTHROPIC_BASE_URL": "http://127.0.0.1:4015", "ANTHROPIC_MODEL": "gpt-6.1-sol", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-6.1-sol"}
+here = folder(".claude-sol", SOL)
+os.environ["CLAUDE_CONFIG_DIR"] = str(here)
+spec = importlib.util.spec_from_file_location("g", root / "gates/hooks/coldread-gate.py")
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+# 見分け: 窓口だけ・Claude のモデルの名前(Bedrock の ID)は読み替えでない
+assert g.model_redirected({"ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-6.1-sol"})
+assert not g.model_redirected({"ANTHROPIC_BASE_URL": "https://gw.example"})
+assert not g.model_redirected({"ANTHROPIC_MODEL": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"})
+limits = folder("limits")
+(limits / "low.json").write_text(json.dumps({"five_hour": {"used_percentage": 5}, "seven_day": {"used_percentage": 20}}), encoding="utf-8")
+(limits / "high.json").write_text(json.dumps({"five_hour": {"used_percentage": 60}, "seven_day": {"used_percentage": 10}}), encoding="utf-8")
+conf = work / "dispatch.toml"
+conf.write_text('limits_dir = "%s"\naccounts = [\n' % limits.as_posix() + "".join(
+    '  { name = "%s", config_dir = "%s"%s },\n' % (n, d.as_posix(), extra) for n, d, extra in (
+        ("sol", here, ""), ("nim", folder(".claude-nim", {"ANTHROPIC_MODEL": "glm"}), ""),
+        ("nolimits", folder(".claude-nolimits"), ""), ("high", folder(".claude-high", {"API_TIMEOUT_MS": "1"}), ""),
+        ("low", folder(".claude-low"), ', keychain_service = "item-low"'), ("nokey", folder(".claude-nokey"), ""))) + "]\n",
+    encoding="utf-8")
+os.environ["WORKS_DISPATCH_CONFIG"] = str(conf)
+os.environ.update(SOL, ANTHROPIC_API_KEY="sk-litellm", CLAUDE_KEYCHAIN_SERVICE="claude-code-oauth-foundry-gpt")
+asked = []
+g.claude_auth.account_token = lambda cfg, env, service=None: (asked.append((os.path.basename(cfg), service, env.get("ANTHROPIC_API_KEY") or env.get("CLAUDE_KEYCHAIN_SERVICE"))) or (
+    (None, "見つからない") if cfg.endswith("nokey") else ("tok-" + os.path.basename(cfg), "keychain(item)")))
+g.claude_auth.auth_env = lambda env, **kw: (_ for _ in ()).throw(AssertionError("読み替えた会話で会話の経路の認証を引いた"))
+envs, redirected = g.reader_envs(dict(os.environ))
+assert redirected and [n for _, n in envs] == ["読み替えを外して %s の keychain(item)" % n for n in ("low", "high", "nolimits")], envs
+assert (".claude-low", "item-low", None) in asked and all(a[2] is None for a in asked), asked
+first = envs[0][0]
+assert first["CLAUDE_CONFIG_DIR"] == str(work / ".claude-low") and first["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-.claude-low", first
+assert not any(k in first for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_API_KEY", "CLAUDE_KEYCHAIN_SERVICE")), first
+def answers(*outs):
+    seen, left = [], list(outs)
+    def run(argv, **kw):
+        seen.append(kw["env"]["CLAUDE_CONFIG_DIR"])
+        return subprocess.CompletedProcess(argv, 0, left.pop(0).encode("utf-8"), b"")
+    g.subprocess.run = run
+    return seen
+def ok(models):
+    return json.dumps({"type": "result", "is_error": False, "structured_output": {"findings": []}, "modelUsage": {m: {} for m in models}})
+# 1 つ目が認証の失敗なら次の候補で走らせ直す
+seen = answers("Failed to authenticate: OAuth session expired and could not be refreshed", ok(["claude-haiku-4-5-20251001"]))
+assert not any(g.read_doc("本文").values()) and [os.path.basename(s) for s in seen] == [".claude-low", ".claude-high"], seen
+# 読み替えの先で読んだ回(modelUsage が Claude でない・頼んだモデルでない)は通さない
+for models in (["gpt-6.1-sol"], ["claude-sonnet-4-5"], []):
+    answers(ok(models))
+    try:
+        g.read_doc("本文")
+        raise AssertionError("頼んだ Claude で走った印の無い回を通した: %r" % models)
+    except g.ReaderShape as exc:
+        assert "読み替えを外して low" in str(exc), exc
+# 全部が認証の失敗なら、読み替えの訳を言って読めなかった物にする
+answers(*["Claude AI usage limit reached|1"] * 3)
+try:
+    g.read_doc("本文")
+    raise AssertionError("全部の候補が落ちたのに通した")
+except g.ReaderAuth as exc:
+    assert str(exc).startswith(g.REDIRECT_NOTE) and "nolimits" in str(exc), exc
+# 候補が無い(設定が無い)なら起動の失敗。通しはしない
+os.environ["WORKS_DISPATCH_CONFIG"] = str(work / "none.toml")
+try:
+    g.read_doc("本文")
+    raise AssertionError("候補が無いのに通した")
+except g.ReaderAuth:
+    raise AssertionError("候補が無いのを認証の失敗と言った")
+except RuntimeError as exc:
+    assert str(exc).startswith(g.REDIRECT_NOTE), exc
+# 会話の settings.json だけが読み替えていても(環境に無くても)外す
+for k in SOL:
+    del os.environ[k]
+assert g.reader_envs(dict(os.environ))[1]
+# 読み替えの無い会話(窓口だけ)は今のまま: 会話の経路の認証 1 つで、modelUsage を見ない
+plain = folder(".claude-plain", {"ANTHROPIC_BASE_URL": "https://gw.example"})
+os.environ["CLAUDE_CONFIG_DIR"] = str(plain)
+g.claude_auth.auth_env = lambda env, **kw: (dict(env), "inherited(ANTHROPIC_API_KEY)")
+envs, redirected = g.reader_envs(dict(os.environ, ANTHROPIC_BASE_URL="https://gw.example"))
+assert not redirected and [n for _, n in envs] == ["inherited(ANTHROPIC_API_KEY)"] and envs[0][0]["ANTHROPIC_API_KEY"] == "sk-litellm", envs
+answers(json.dumps({"type": "result", "is_error": False, "structured_output": {"findings": []}}))
+g.read_doc("本文")
+print("REDIRECT_OK")
+PY
 # structured_output の無い答え(--json-schema の効かない版の claude)と、text の空の指摘も指摘ゼロと読まない
 CR_STUB_NO_STRUCT='cat >/dev/null; printf "%s\n" "{\"type\": \"result\", \"subtype\": \"success\", \"is_error\": false, \"result\": \"指摘なし\"}"'
 expect_output 0 "structured_output が無い" "structured_output の無い答えは止める" \

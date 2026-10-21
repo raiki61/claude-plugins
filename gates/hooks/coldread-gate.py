@@ -95,6 +95,8 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
   (手元の文書の読み手の環境変数 COLDREAD_DOC_* は、下の「手元の文書」のセクションの冒頭)
   COLDREAD_MAX_LEN           これを超えるコマンドは解析せず deny。既定 100000
   COLDREAD_IN_READER=1       読み役の中であることの印(自動で付く)。入れ子の再発火を防ぐ
+  WORKS_DISPATCH_CONFIG      会話がモデルを読み替えているとき、読み手を走らせるほかのアカウントの一覧(既定
+                             ~/.config/works-dispatch/dispatch.toml。読むだけ。reader_envs)
   COLDREAD_KEYCHAIN_SERVICE  macOS Keychain の OAuth トークンのサービス名(未指定なら
                              CLAUDE_CONFIG_DIR の末尾から推定: ~/.claude-p1 → claude-code-oauth-p1)
 """
@@ -2506,6 +2508,116 @@ def _child_text(raw, strict=True):
     return (raw or b"").decode("utf-8", "strict" if strict else "replace").replace("\r\n", "\n")
 
 
+# 会話のアカウントがモデルを Claude でない物に読み替えている(例: settings.json の env で LiteLLM の中継の GPT に)とき、
+# フックの子は会話の環境を継ぐので、読み手も読み替えの先で走り、検査の強さが変わる(読み手は sonnet・haiku で決めた強さ)。
+# 鍵も settings.json の apiKeyHelper に在り、--setting-sources "" で起動する読み手は読めない(2026-10-21、foundry-gpt で
+# 『Not logged in』と unrecognized_model で落ちた)。そのときは読み替えと鍵を外し、読み替えの無いほかのアカウントで走らせる。
+# 見るのはモデルの名前だけ。窓口(ANTHROPIC_BASE_URL)だけ・値が Claude のモデルの名前(Bedrock・Vertex の ID)の利用者は、
+# 今のまま利用者の経路で走らせる(claude_auth の「利用者が選んだ経路を黙って別の口に差し替えない」)
+REDIRECT_MODEL_ENV = ("ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL")
+REDIRECT_PREFIX = "ANTHROPIC_DEFAULT_"   # ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL など
+# 外す時に子の環境から消す物。鍵を残すと、どの候補のアカウントでも同じ鍵で走る
+REDIRECT_DROP = REDIRECT_MODEL_ENV + ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                                       "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_KEYCHAIN_SERVICE")
+# 候補のアカウントの一覧(works-dispatch の設定。読むだけ)。accounts の name・config_dir・keychain_service と limits_dir を読む
+DISPATCH_CONFIG = "~/.config/works-dispatch/dispatch.toml"
+DISPATCH_LIMITS_DIR = "~/.cache/claude-limits"
+REDIRECT_NOTE = "会話のアカウントはモデルを読み替えていて、読み替えの無いアカウントとその鍵が works-dispatch の設定に要る"
+
+
+def model_redirected(env):
+    """env(環境か settings.json の env)が、モデルを Claude でない物に読み替えているか。"""
+    return any(isinstance(v, str) and v and "claude" not in v.lower() for k, v in env.items()
+               if k in REDIRECT_MODEL_ENV or (k.startswith(REDIRECT_PREFIX) and k.endswith("_MODEL")))
+
+
+def settings_redirected(folder):
+    """設定のフォルダの settings.json の env がモデルを読み替えているか。無ければ False、読めなければ None(分からない)。"""
+    try:
+        with open(os.path.join(folder, "settings.json"), encoding="utf-8") as f:
+            section = json.load(f).get("env") or {}
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, AttributeError) as exc:
+        _lost("設定を読めない(%s)" % os.path.join(folder, "settings.json"), exc)
+        return None
+    return isinstance(section, dict) and model_redirected(section)
+
+
+def _usage(limits_dir, name):
+    """works-dispatch の使用率の控えの、5 時間と週の大きい方。控えが無い・読めなければ None。"""
+    path = os.path.join(limits_dir, "%s.json" % name)
+    try:
+        with open(path, encoding="utf-8") as f:
+            snap = json.load(f)
+        got = [snap[w]["used_percentage"] for w in ("five_hour", "seven_day")
+               if isinstance(snap.get(w), dict) and isinstance(snap[w].get("used_percentage"), (int, float))]
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, AttributeError) as exc:
+        _lost("使用率の控えを読めない(%s)" % path, exc)
+        return None
+    return max(got) if got else None
+
+
+def direct_accounts(env):
+    """読み替えの無いほかのアカウントの (名前, 起動の CLAUDE_CONFIG_DIR の値か None, 設定のフォルダ, 鍵の項目名) の並び。
+    使用率の小さい順で、控えの無いアカウントはその後に設定の順(works-dispatch が部署を立てるアカウントの選び方と同じ考え)。
+    会話のアカウントと、settings.json を読めないアカウントは入れない。設定が無い・読めなければ空。"""
+    path = os.path.expanduser(env.get("WORKS_DISPATCH_CONFIG") or DISPATCH_CONFIG)
+    if tomllib is None:
+        return []
+    try:
+        with open(path, "rb") as f:
+            raw = tomllib.load(f)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        _lost("works-dispatch の設定を読めない(%s)" % path, exc)
+        return []
+    here = os.path.realpath(claude_auth.config_dir(env))
+    limits_dir = os.path.expanduser(raw.get("limits_dir") or DISPATCH_LIMITS_DIR)
+    found = []
+    for account in raw.get("accounts") or []:
+        if not isinstance(account, dict) or not isinstance(account.get("name"), str):
+            continue
+        user_config = os.path.expanduser(account["config_dir"]) if account.get("config_dir") else None
+        folder = user_config or os.path.join(os.path.expanduser("~"), ".claude")
+        if os.path.realpath(folder) == here or settings_redirected(folder) is not False:
+            continue
+        found.append((_usage(limits_dir, account["name"]), len(found),
+                      (account["name"], user_config, folder, account.get("keychain_service"))))
+    return [a for _, _, a in sorted(found, key=lambda t: (t[0] is None, t[0] or 0, t[1]))]
+
+
+def reader_envs(env):
+    """読み手の子の環境の候補 [(環境, 認証の注記)] と、読み替えを外したか。読み替えが無ければ、今までどおり
+    claude_auth.auth_env の 1 つ。在れば(環境か、会話のアカウントの settings.json に)、読み替えと鍵を外した環境を
+    direct_accounts の順に、鍵の見つかったアカウントだけ並べる。1 つも無ければ空の並び。"""
+    if not (model_redirected(env) or settings_redirected(claude_auth.config_dir(env))):
+        out, note = claude_auth.auth_env(env, service=env.get("COLDREAD_KEYCHAIN_SERVICE"))
+        if note.startswith("keychain("):
+            _expiry(note[len("keychain("):-1])
+        return [(out, note)], False
+    clean = {k: v for k, v in env.items() if k not in REDIRECT_DROP and not k.startswith(REDIRECT_PREFIX)}
+    found = []
+    for name, user_config, folder, service in direct_accounts(env):
+        token, where = claude_auth.account_token(user_config, clean, service)
+        if token:   # トークンは環境にだけ置き、注記には出どころの名だけを書く
+            found.append((dict(clean, CLAUDE_CONFIG_DIR=folder, CLAUDE_CODE_OAUTH_TOKEN=token),
+                          "読み替えを外して %s の %s" % (name, where)))
+    return found, True
+
+
+def check_model(raw, model):
+    """読み替えを外した回の答えが、頼んだモデル(Claude)で走った印か。違えば ReaderShape。外し損ねて読み替えの先で
+    読んだ回を通さない。読み替えていない回には当てない(Bedrock の ID は claude- で始まらない)。"""
+    used = json.loads(raw).get("modelUsage")
+    if not (isinstance(used, dict) and used and any(model in name for name in used)
+            and all(name.startswith("claude-") for name in used)):
+        raise ReaderShape("%s で走った印が無い(modelUsage: %r)" % (model, used))
+
+
 def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIMEOUT):
     """読み役を起動して答え(structured_output の dict)を返す。prompt は依頼文+本文、schema は答えの JSON Schema。
     model・effort・timeout は既定(投稿の読み役)を替えるときだけ渡す。起動の失敗は RuntimeError、答えの形の違いは ReaderShape。
@@ -2513,7 +2625,6 @@ def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIME
     差し替え(COLDREAD_READER_CMD)にも、claude -p --output-format json と同じ形(type・is_error・structured_output)を
     標準出力に出させる。試験が実運用と同じ読み方を通るようにするため。"""
     override = os.environ.get("COLDREAD_READER_CMD")
-    note = None  # 採った認証の段。差し替えの分岐では認証に触らないので None のまま
     if override:
         # POSIX シェル文字列として sh -c で実行する。shell=True だと Windows では
         # cmd.exe に渡ってしまい、/dev/null 等が解決できない(GitHub Actions windows-latest で実測)。
@@ -2525,21 +2636,37 @@ def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIME
             ["sh", "-c", override], input=prompt.encode("utf-8"),
             capture_output=True, timeout=timeout,
         )
-    else:
-        # 認証(段の中身と理由は claude_auth の冒頭)。トークンはディスクにもログにも書かない。
-        # 取れなくても claude 自身の保存済み認証で動く場合があるため、足せなくても進む。
-        env, note = claude_auth.auth_env(
-            os.environ, service=os.environ.get("COLDREAD_KEYCHAIN_SERVICE"))
-        if note.startswith("keychain("):
-            _expiry(note[len("keychain("):-1])
+        return _reader_out(proc, None)
+    # 認証(段の中身と理由は claude_auth の冒頭)。トークンはディスクにもログにも書かない。
+    # 取れなくても claude 自身の保存済み認証で動く場合があるため、足せなくても進む。
+    # 会話がモデルを読み替えていれば、読み替えの無いほかのアカウントで走らせ、認証の失敗か使用枠の上限なら次の候補へ(reader_envs)
+    envs, redirected = reader_envs(os.environ)
+    if not envs:
+        raise RuntimeError("%s(候補が無い: 設定が無いか、読み替えの無いアカウントかその鍵が見つからない)" % REDIRECT_NOTE)
+    argv = reader_argv(shutil.which("claude") or os.path.expanduser("~/.local/bin/claude"), schema, model, effort)
+    os.makedirs(STATE_DIR, exist_ok=True)
+    for i, (env, note) in enumerate(envs):
         env["COLDREAD_IN_READER"] = "1"
-        claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
-        os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
-            reader_argv(claude_bin, schema, model, effort), input=prompt.encode("utf-8"),
-            capture_output=True, timeout=timeout,
+            argv, input=prompt.encode("utf-8"), capture_output=True, timeout=timeout,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
+        try:
+            got = _reader_out(proc, note)
+        except ReaderAuth as exc:
+            if redirected and i + 1 < len(envs):
+                continue
+            raise ReaderAuth("%s。%s" % (REDIRECT_NOTE, exc)) if redirected else exc
+        if redirected:
+            try:
+                check_model(_child_text(proc.stdout), argv[argv.index("--model") + 1])
+            except ReaderShape as exc:
+                raise ReaderShape("%s(認証: %s)" % (exc, note))
+        return got
+
+
+def _reader_out(proc, note):
+    """読み役の子の終わり方から答え(structured_output の dict)を取る。note は採った認証の段(差し替えの分岐では None)。"""
     out = _child_text(proc.stdout).strip()
     if not out:
         why = (_child_text(proc.stderr, strict=False) or "empty output")[:200]
