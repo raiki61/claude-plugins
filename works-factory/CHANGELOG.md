@@ -8,7 +8,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Added
 
-- 人と固めた設計書と YAML の表から修正へ進む入口 `spec_table` を案内した。会話の中で 5 部品の審査を回し、実際の run の記録と照合してから本線に渡す手順を `skills/works-factory/references/spec.md` に置いた。
+- 人と固めた設計書と YAML の表から修正へ進む入口 `spec_table` を案内した。会話の中で仕様を計画・独立設計・前提・過去の決定・業界の定石の 5 部品で審査し、実際の run の記録と照合してから修正の流れに渡す手順を `skills/works-factory/references/spec.md` に置いた。
 
 ### Changed
 
@@ -17,7 +17,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Fixed
 
-- 前景で止めた周の鎖の子が running のまま残る件を、工場の停止処理の更新で直した。子の abandon は作業ツリーと未コミットの変更を消すため、止めた鎖は resume で続けず新しい run にする、と停止の案内を合わせた。
+- 複数回の修正をつなぐ実行（周の鎖）を `--detach` なしで起動して cancel した後、各回の修正を担う子の run が running のまま残る件を、工場の停止処理の更新で直した。子の abandon は作業ツリーと未コミットの変更を消すため、止めた鎖は resume で続けず新しい run にする、と停止の案内を合わせた。
 
 ## [0.4.0] - 2026-10-20
 
