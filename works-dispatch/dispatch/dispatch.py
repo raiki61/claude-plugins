@@ -48,6 +48,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
         python3 dispatch.py [--repo 代表の clone] --queue-run -- <コマンド> [<引数> ...]（外のツールが --land と同じ列に並んで走る。queuerun.py）
         python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--persistent | --ephemeral] [--boss <頼み元> [--boss-account <名>]] [--dry-run]
         python3 dispatch.py --desk [<名前>] [--role <役>] [--dry-run]
+        python3 dispatch.py --handover <前の名前> [--dry-run]（後継の部署の場所から、そのターンの中で）
         python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> | --init-company [--local] [--repo <代表の clone>]
 
 部署の回（--task・--ask・--land・--tree）は、設定の [[repos]] が無くても、代表の clone の場所（--repo のパスか打った場所）から
@@ -55,6 +56,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
 
 --ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
 --reorg と --desk（部署と窓口の属性の付け替え）の流れは reorg.py が持つ。
+--handover（部署か窓口の受け持ちを同じ会社のほかの部署へ移す）の流れは handover.py が持つ。
 --retire（エフェメラルの部署の会話を止めて片付ける）の流れは retire.py が持つ。
 """
 
@@ -85,6 +87,7 @@ import landorder  # noqa: E402
 import queuerun  # noqa: E402
 import move  # noqa: E402
 import retire  # noqa: E402
+import handover  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
 import tierx  # noqa: E402
@@ -275,11 +278,16 @@ def main(argv=None, ports=None):
     ap.add_argument("--remind-done", metavar="受付", help="見たリマインダーを閉じる")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--for", dest="for_ask", metavar="受付", help="--deliver と一緒に: --ask … --forward で回して閉じた頼み（回した元か"
-                    "回した先の受付）か、cause 付きの --ask で回した子の頼み（子かその元の受付）の、元の頼み元へ返す（今受けている頼みは閉じない）")
+                    "回した先の受付）か、cause 付きの --ask で回した子の頼み（子かその元の受付）の、元の頼み元へ返す。--wait --park で保留にした"
+                    "頼みの受付なら、その頼みを頼み元へ返して閉じる（どれも今受けている頼みは閉じない）")
     ap.add_argument("--again", action="store_true", help="--deliver と一緒に: 今受けている頼みを納品した後に、同じ頼みの続き（納品の後に"
                     "出た、判断の要ること・直し）をもう一度返す（無ければ、納品済みの頼みへの --deliver は止まる）")
     ap.add_argument("--wait", metavar="訳", help="部署の場所から、今の頼みを人の答え待ちと印す（止まる前のフックが納品を促さない。"
                     "人がその会話に打つか、納品すると外れる）")
+    ap.add_argument("--park", action="store_true", help="--wait と一緒に: 答え待ちの頼みを保留にして今の頼みを空ける（順番待ちの次の頼みを"
+                    "受けられる。保留の頼みは台帳で答え待ちのまま閉じず、答えは --deliver --for <受付> で返す）")
+    ap.add_argument("--handover", metavar="前の名前", help="後継の部署の場所から、そのターンの中で: 同じ会社の部署か窓口（前の名前）の宛先・"
+                    "未読の知らせ・順番待ち・保留の頼みをこの部署へ移し、前の場所の属性を消す（受付番号と頼み元は替えない。--dry-run で移す物を出す）")
     ap.add_argument("--rest", action="store_true", help="部署か窓口の場所から、今は会話を空にしてよい区切りと印す（このターンの終わりに、"
                     "入力フィールドが空なら機械が窓に /clear を打つ。人がその会話に打つと外れる）")
     ap.add_argument("--compact", nargs="?", const="", metavar="焦点", help="部署か窓口の場所から、同じ仕事の前の部分が済んだので、ここで"
@@ -311,6 +319,12 @@ def main(argv=None, ports=None):
                          f"名前を省けば今の名前か役の名前）。{term.NAME} の表示も付け直す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
+    if a.handover is not None:
+        flag = {x.dest: x.option_strings[0] for x in ap._actions if x.option_strings}
+        with_ = [flag.get(k, k) for k, v in vars(a).items() if k not in ("handover", "dry_run", "config") and v != ap.get_default(k)]
+        if with_:
+            print(f"止めた: --handover は {'・'.join(with_)} と一緒に使えない（引き継ぎだけを打ち、済んでからほかのコマンドを打つ）")
+            return 2
     if a.queue_run:
         return _queue_run(a, argv, command, ports)
     if a.init:
@@ -340,6 +354,11 @@ def main(argv=None, ports=None):
     if a.forward and (a.ask is None or a.take is not None):
         print("止めた: --forward は --ask と一緒にだけ使う（--take --ask は受付番号と頼み元をそのまま回すので要らない）")
         return 2
+    if a.park and a.wait is None:
+        print("止めた: --park は --wait と一緒にだけ使う")
+        return 2
+    if a.handover is not None:
+        return handover.handover(a, ports, ports.cwd())
     if a.for_ask is not None and a.deliver is None:
         print("止めた: --for は --deliver と一緒にだけ使う")
         return 2
@@ -948,6 +967,14 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     if here:
         print(f"止めた: 「{a.task}」という名前の会話がこの会社にもう開いている（アカウント {', '.join(sorted(set(here)))}）。"
               "宛先が 1 つに決まらないので、別の名前で頼む")
+        return 1
+    try:
+        heir = [w["path"] for w in ports.git.listed_worktrees(repo.source) if a.task in gitx.inherited_names(ports.attrs(w["path"]))]
+    except (gitx.GitError, OSError):
+        heir = []   # 場所を読めなければ、ここでは止めない（宛先を引く --ask が、同じ名前の場所が 2 つ以上あれば止める）
+    if heir:
+        print(f"止めた: 「{a.task}」は、この会社の部署（{'、'.join(heir)}）が --handover で継いだ名前。その名前宛ての頼みと納品の返し先は"
+              "継いだ部署に当たるので、別の名前で頼む")
         return 1
     taken = {acc for acc, _ in alive}
     found_account, found_name = ports.caller(listed)

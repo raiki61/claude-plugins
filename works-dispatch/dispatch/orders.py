@@ -43,7 +43,7 @@ try:
     import ghx  # noqa: E402
     import gitx  # noqa: E402
     import todo  # noqa: E402
-    from nodes import deliver, land, launch, ledger, provision, remind, role, sync, tools, tree, wake  # noqa: E402
+    from nodes import deliver, handover, land, launch, ledger, provision, remind, role, sync, tools, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
     # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
@@ -642,6 +642,9 @@ def _ask(a, ports, cwd, task, sent):
             # 錠の中で属性を読み直す。部署を読んでから今までの間に、待ち受けが順番待ちの頼みを渡していれば（属性の頼みが替わった）、
             # 窓に打たない（打つと、この頼みの頼み元が、渡された頼みの頼み元を上書きする。my_notes の受付 20261017-082903-87f45f）
             now = ports.attrs(dept["path"])
+            if moved_away(dept["attrs"], now):
+                print("\n".join(notes + [moved_text(where)]))
+                return 1
             raced = now.get("ask") != held
             if not raced and fresh:
                 acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
@@ -796,6 +799,16 @@ def cause_boss_of(a, here, ports, cause):
             "pane": boss.get("boss-pane"), "inbox": boss.get("boss-inbox")}
 
 
+def moved_away(seen, now):
+    """宛先の部署の属性を読んだ後に、その場所が部署でなくなったか、名前が替わったか（--handover で畳んだ・--reorg --name で替えた）。"""
+    return not now.get("role") or now.get("name") != seen.get("name")
+
+
+def moved_text(where):
+    return (f"止めた: 宛先 {where} は、読んでから頼むまでの間に畳まれたか名前が替わった（--handover か --reorg）。同じ --ask を打ち直すと、"
+            "今の宛先を引き直す（前の名前は、継いだ部署に当たる）")
+
+
 def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, digest, ask, accounts_, sessions_, source, sent):
     """待ち受けの居る部署への --ask: 順番待ちに積み（同じ中身が積まれていればその受付番号を返す）、宛先の会社の台帳に知らせを
     足す。渡すのは部署の待ち受け（wake_hook.py）。会話が落ちていれば attach で戻す（戻った会話の始まりの待ち受けが渡す）。
@@ -820,8 +833,13 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     path = deliver.put(ask["inbox"], os.path.basename(file), ask["body"])
     line = deliver.ask_line(ask["id"], ask["sender"], ask["body"], path, ask["required"], RUN)
     marks = {**ask["boss"], "fresh": FRESH if ask["fresh"] else None, "ask-digest": digest}
-    wake.enqueue(dest_inbox, place_dir, {"id": ask["id"], "to": to, "file": path, "line": line, "digest": digest, "marks": marks,
-                                         "at": ports.now(), "from": ask["sender"], "title": ask.get("title")})
+    with wake.ask_lock(dest_inbox, place_dir):
+        # 錠の中で宛先の属性を読み直す（読んでから今までの間に --handover が宛先を畳んでいれば、誰も渡さない順番待ちに積まない）
+        if moved_away(dept["attrs"], ports.attrs(dept["path"])):
+            print("\n".join(notes + [moved_text(where)]))
+            return 1
+        wake.enqueue(dest_inbox, place_dir, {"id": ask["id"], "to": to, "file": path, "line": line, "digest": digest, "marks": marks,
+                                             "at": ports.now(), "from": ask["sender"], "title": ask.get("title")})
     deliver.log(dest_inbox, wake.notice(to, ask["id"], wake.QUEUED, path, None, ports.now()))
     if not heard and live_window(dept, ports) is None:
         notes.append(revive(dept, accounts_, ports, sessions_, source)[1])
@@ -1331,6 +1349,8 @@ def note(a, ports, cwd):
 
 # 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる
 WAITING, WAITING_WHY = "waiting", "waiting-why"
+PARKED, parked_of = deliver.PARKED, deliver.parked_of   # 保留にした頼み（--wait <訳> --park）
+BOSS_KEYS = ("boss", "boss-session", "boss-account", "boss-pane", "boss-inbox")
 
 
 def wait_for_input(a, ports, cwd):
@@ -1350,17 +1370,36 @@ def wait_for_input(a, ports, cwd):
         print("止めた: 何の答えを誰から待つのかを --wait に書く")
         return 2
     common = ports.git.common_dir(cwd)
+    park = getattr(a, "park", False)
+    if park:
+        # 保留: 受けた頼みと頼み元を company.parked に移し、今の頼みを空ける（次の頼みを受けられる）。納品済みの印は書かない
+        # （頼みは台帳で答え待ちのまま閉じず、--todo にも残る）。答えは --deliver --for <受付> で返す
+        try:
+            parked = parked_of(attrs, strict=True)
+        except gitx.AttrError as e:
+            print(f"止めた: {e}")
+            return 2
+        entry = {"id": ask, "why": why, "at": ports.now(), **{k: attrs.get(k) for k in BOSS_KEYS}}
+        marks = {PARKED: json.dumps([p for p in parked if p["id"] != ask] + [entry], ensure_ascii=False),
+                 "ask": None, "ask-digest": None, WAITING: None, WAITING_WHY: None, **{k: None for k in BOSS_KEYS}}
+    else:
+        marks = {WAITING: ask, WAITING_WHY: why}
     try:
-        provision.mark(cwd, gitx.root_of(common), {WAITING: ask, WAITING_WHY: why}, ports.git)
+        provision.mark(cwd, gitx.root_of(common), marks, ports.git)
     except (gitx.GitError, OSError) as e:
         print(f"止めた: 答え待ちの印を書けなかった（{e}）")
         return 1
     # 答え待ちを台帳にも残す（頼みの状態を台帳から読めるように。印は git の属性で、台帳の射影からは見えない。docs/ledger.md）
     _log_each([deliver.inbox_of(common), attrs.get("boss-inbox")],
               {"id": ask, "kind": "waiting", "at": ports.now(), "why": why,
-               "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd}})
+               "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd},
+               **({"parked": True} if park else {})})
+    if park:
+        print(f"受付 {ask} を答え待ちのまま保留にした（{why}）。今の頼みは空いたので、順番待ちの次の頼みをターンの終わりに待ち受けが渡す。"
+              f"受付 {ask} は台帳で答え待ちのまま閉じない。答えが出たら --deliver <要約> --for {ask} で頼み元 {entry['boss'] or '-'} へ返す")
+        return 0
     print(f"受付 {ask} を答え待ちにした（{why}）。止まる前のフックは納品を促さない。人がこの会話に打つと印が外れる。"
-          "答えが出たら --deliver で返す")
+          "答えが出たら --deliver で返す（答えを待つ間にほかの頼みを受けるなら --park を付けて打ち直す）")
     return 0
 
 
@@ -1677,13 +1716,13 @@ def caused_ask(rows, ask_id):
 
 def sent_elsewhere(record, rows, ask_id, attrs, top):
     """--deliver --for で引き当てた行（forwarded の行か、cause 付きの子の頼みの行）を書いたのがこの部署でなければ、止める訳を返す。
-    この部署なら None。この部署かは、行の from の名前が属性 company.name と同じか、from の場所がこの作業場（top）の中かで見る（from の
-    無い前の版の行は通す）。ほかの部署が回した頼みの受付を --for に渡すと、その部署の頼み元へ届く（2026-10-18 の割り振り。点検から
+    この部署なら None。この部署かは、行の from の名前が属性 company.name か前の名前（company.former-names。--handover で継いだ名前も
+    入る）と同じか、from の場所がこの作業場（top）の中かで見る（from の無い前の版の行は通す）。ほかの部署が回した頼みの受付を --for に渡すと、その部署の頼み元へ届く（2026-10-18 の割り振り。点検から
     受けた頼み 481db2 の要約を --for 481db2 で返そうとし、届け先が割り振り自身に決まった。my_notes の段取りの受付 b54685）。"""
     sender = record.get("from")
     if not isinstance(sender, dict):
         return None
-    if attrs.get("name") and sender.get("name") == attrs["name"]:
+    if attrs.get("name") and sender.get("name") in [attrs["name"]] + gitx.former_names(attrs):
         return None
     place = sender.get("place")
     if place and top and (os.path.normpath(place) == os.path.normpath(top)
@@ -1751,7 +1790,12 @@ def deliver_summary(a, ports, cwd):
         print(f"止めた: {cwd} は部署でない（git の設定 company.role が無い）。納品は頼まれた部署の場所から返す")
         return 2
     for_ask = getattr(a, "for_ask", None)
-    if for_ask:
+    mine = attrs   # この部署の属性（--for で頼みと頼み元を替える前の物）
+    shelved = next((p for p in parked_of(attrs) if p["id"] == for_ask), None) if for_ask else None
+    if shelved:
+        # 保留にした頼み（--wait --park）へ返す: 頼みと頼み元を保留の件の物に替える（今受けている頼みは閉じない）
+        attrs = {**attrs, "ask": shelved["id"], **{k: shelved.get(k) for k in BOSS_KEYS}}
+    elif for_ask:
         common = ports.git.common_dir(cwd)
         record = forwarded_ask(deliver.inbox_of(common), for_ask) if common else None
         rows = todo.inboxes_from([deliver.inbox_of(common)], ports.git.common_dir)[1] if common else []
@@ -1776,6 +1820,10 @@ def deliver_summary(a, ports, cwd):
             print(why)
             return 2
         attrs = for_attrs(attrs, record)
+    elif not attrs.get("ask") and parked_of(attrs):
+        print("止めた: 今受けている頼みが無い。保留にした頼み（" + "、".join(p["id"] for p in parked_of(attrs))
+              + "）へ返すなら、その受付を --for に渡す")
+        return 2
     elif attrs.get("ask") and attrs.get("delivered") == attrs["ask"] and not getattr(a, "again", False):
         print(delivered_already(attrs))
         return 2
@@ -1843,6 +1891,16 @@ def deliver_summary(a, ports, cwd):
             return 2
         notes.append(f"納品の検査が通った: {check}")
     inbox = attrs.get("boss-inbox")
+    heir = handover.successor(deliver.records(inbox), {"name": attrs.get("boss"), "session": attrs.get("boss-session"),
+                                                       "account": attrs.get("boss-account"), "pane": attrs.get("boss-pane")},
+                              attrs.get("ask")) if inbox and os.path.isdir(inbox) else None
+    if heir:
+        # 頼み元の部署が --handover で受け持ちを移した: 後継へ返す（前の会話の窓に打ち込まない。nodes/handover.py）
+        notes.append(f"頼み元 {attrs.get('boss') or '-'} は引き継ぎ {heir['via']} で {heir['name']} へ移ったので、{heir['name']} へ返す")
+        attrs = {**attrs, "boss": heir["name"], "boss-session": heir["session"], "boss-account": heir["account"],
+                 "boss-pane": heir["pane"]}
+    if common and inbox and to_self(mine, attrs, deliver.inbox_of(common)):
+        return deliver_self(a, ports, cwd, mine, attrs, for_ask, shelved, branch, items, required, questions, notes)
     to, heard = listener(inbox, inbox and inbox_company(inbox, settings, ports.git), attrs.get("boss"))
     if not heard and inbox and attrs.get("boss-session"):
         # 頼み元の名前で待ち受けが引けない（前の版は会話の一覧の名前を頼み元に書いた。place_name）: 頼んだ会話の id で引く
@@ -1906,12 +1964,9 @@ def deliver_summary(a, ports, cwd):
                         "to": {"name": attrs.get("boss"), "account": attrs.get("boss-account"), "session": sid, "pane": pane,
                                "wake": to if heard or status == POSTED else None},
                         "file": path, "holders": deliver.holders_of(questions),
-                        **({"for": for_ask} if for_ask else {})})
-    if ask_id and status in ("sent", POSTED) and not for_ask:   # --for は回して閉じた頼みへ返すので、今の頼みの印は変えない
-        try:
-            provision.mark(cwd, gitx.root_of(common), {"delivered": ask_id, WAITING: None, WAITING_WHY: None}, ports.git)
-        except (gitx.GitError, OSError) as e:
-            notes.append(f"納品済みの印（company.delivered）を書けなかった（{e}）。Stop フックが差し戻し続ける（上限まで）")
+                        **for_fields(for_ask, shelved)})
+    if status in ("sent", POSTED):
+        notes += closed_marks(cwd, common, mine, ask_id, for_ask, shelved, ports)
     if common:
         notes += follow_main(gitx.root_of(common), settings, attrs.get("role"), ports.git)
     if status == POSTED:
@@ -1922,6 +1977,102 @@ def deliver_summary(a, ports, cwd):
     print("\n".join(notes + [f"納品 {file_id} → {attrs.get('boss') or '頼み元'}  {status}" + (f"（{detail}）" if detail else ""),
                              f"- 要約: {path}"]))
     return 0 if status in ("sent", POSTED) else 1
+
+
+def gate_queued(queue, the_role, company, root, name, ports):
+    """順番待ちの件（wake.queued の並び）を、受ける部署（会社 company の name）の役の ask_check で確かめる（--ask と同じ検査を、
+    --handover が後継の役で回す）。通らない件の訳の並び。"""
+    check = (the_role or {}).get("ask_check")
+    if not check or not queue:
+        return []
+    bad = []
+    try:
+        with tools.place(root, ports.git) as (place, _):
+            for q in queue:
+                try:
+                    with open(q["file"], encoding="utf-8") as f:
+                        body = f.read()
+                except (OSError, KeyError, TypeError) as e:
+                    bad.append(f"順番待ちの {q.get('id')} の本文を読めない（{e}）")
+                    continue
+                data = deliver.front(body)[0]
+                code, out = deliver.gate(check, place, {"to": f"{company}/{name}", "role": the_role.get("name"), "body": body,
+                                                        "ask": q["id"], "type": deliver.ask_type_of(data),
+                                                        "from": (q.get("marks") or {}).get("boss-session"),
+                                                        "version": own_version()}, subprocess.run)
+                if code != 0:
+                    bad.append(f"順番待ちの {q['id']} が後継の役の ask_check（{check}）を通らない（終了の値 {code}）: "
+                               + " / ".join(out.splitlines()[-3:]))
+    except (gitx.GitError, OSError) as e:
+        bad.append(f"後継の役の ask_check を走らせる場所を作れなかった（{e}）")
+    return bad
+
+
+SELF = "self"   # 納品の台帳の status: 頼み元がこの部署自身（引き継ぎで頼み元の受け持ちを継いだ）なので、知らせずに閉じた
+
+
+def to_self(mine, attrs, own_inbox):
+    """頼み元（attrs の boss 一式。引き継ぎで読み替えた後の物）がこの部署自身か: 頼み元の受付箱がこの部署の会社の物で、頼み元の名前が
+    この部署の今の名前か --handover で継いだ名前か、頼み元の会話の id がこの部署の会話の id。--reorg --name で替える前の名前は見ない
+    （替えた後にその名前を名乗ったほかの部署への納品を、自分宛てと見て閉じない）。"""
+    inbox = attrs.get("boss-inbox")
+    if not inbox or os.path.realpath(inbox) != os.path.realpath(own_inbox):
+        return False
+    names = [mine.get("name")] + gitx.inherited_names(mine)
+    return bool(attrs.get("boss") and attrs["boss"] in names
+                or attrs.get("boss-session") and attrs["boss-session"] == mine.get("session"))
+
+
+def for_fields(for_ask, shelved):
+    """納品の行に足す鍵。保留の頼みへの返しは、その頼みを閉じる納品なので for を書かない（parked を書く）。"""
+    if shelved:
+        return {"parked": True}
+    return {"for": for_ask} if for_ask else {}
+
+
+def closed_marks(cwd, common, mine, ask_id, for_ask, shelved, ports):
+    """納品が届いた（か、知らせを置いた・自分宛てで閉じた）後の印: 今の頼みなら納品済み、保留の頼みなら保留から外す。--for で回して
+    閉じた頼みへ返したなら印は変えない。出す行の並び。"""
+    if shelved:
+        rest = [p for p in parked_of(mine) if p["id"] != shelved["id"]]
+        marks = {PARKED: json.dumps(rest, ensure_ascii=False) if rest else None}
+    elif ask_id and not for_ask:
+        marks = {"delivered": ask_id, WAITING: None, WAITING_WHY: None}
+    else:
+        return []
+    try:
+        provision.mark(cwd, gitx.root_of(common), marks, ports.git)
+    except (gitx.GitError, OSError) as e:
+        what = f"保留の頼み {ask_id} を company.{PARKED} から外せなかった" if shelved else "納品済みの印（company.delivered）を書けなかった"
+        return [f"{what}（{e}）。Stop フックが差し戻し続ける（上限まで）"]
+    return []
+
+
+def deliver_self(a, ports, cwd, mine, attrs, for_ask, shelved, branch, items, required, questions, notes):
+    """頼み元がこの部署自身の納品: 知らせずに、要約を受付箱に置き、台帳に status self で書いて閉じる。終了の値。引き継ぎ（--handover）で
+    頼み元の受け持ちを継いだとき、継ぐ前に頼み元の部署から受けた頼み（と、その部署が回した頼みの --for の返し）がこれになる。
+    自分の窓に打ち込むと、自分の入力に割り込む。"""
+    inbox = attrs["boss-inbox"]
+    common = ports.git.common_dir(cwd)
+    ask_id = attrs.get("ask")
+    file_id = deliver.new_id(ports.now())
+    target = os.path.join(inbox, f"{file_id}-deliver.md")
+    how = f"頼み元 {attrs.get('boss') or '-'} はこの部署自身（引き継ぎで継いだ受け持ち）。知らせずに閉じる"
+    if a.dry_run:
+        print("\n".join(notes + [f"送り先: {attrs.get('boss') or '-'}  {how}", f"受付箱: {target}"]))
+        return 0
+    path = deliver.put(inbox, os.path.basename(target), deliver.summary_text(items, required))
+    deliver.log(inbox, {"id": file_id, "kind": "deliver", "ask": ask_id, "at": ports.now(), "status": SELF, "detail": how,
+                        "from": {"name": mine.get("name"), "account": mine.get("account"), "session": mine.get("session"),
+                                 "branch": branch, "place": cwd},
+                        "to": {"name": attrs.get("boss"), "account": attrs.get("boss-account"), "session": attrs.get("boss-session"),
+                               "pane": None, "wake": None},
+                        "file": path, "holders": deliver.holders_of(questions), **for_fields(for_ask, shelved)})
+    notes += closed_marks(cwd, common, mine, ask_id, for_ask, shelved, ports)
+    if common:
+        notes += follow_main(gitx.root_of(common), os.path.dirname(config.path_of(a.config, os.environ)), attrs.get("role"), ports.git)
+    print("\n".join(notes + [f"納品 {file_id} → {attrs.get('boss') or '頼み元'}  {SELF}（{how}）", f"- 要約: {path}"]))
+    return 0
 
 
 def follow_main(source, settings, role_name, g):

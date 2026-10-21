@@ -50,7 +50,7 @@ try:
     from ports import chat, term  # noqa: E402
     import config  # noqa: E402
     import gitx  # noqa: E402
-    from nodes import provision, role, tree  # noqa: E402
+    from nodes import deliver, provision, role, tree  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # どの会話の始まりにも走るので、PATH の python3 が古い（tomllib の無い 3.10 以前）ときも会話を邪魔しない
     print(f"works-dispatch: 役を足すフックを動かせない（Python 3.11 以上が要る: {_e}）", file=sys.stderr)
@@ -179,7 +179,18 @@ def text_for(cwd, env=os.environ, attrs=None):
     problems = info.get("problems", []) + shape["problems"]
     if problems:
         text += f"\n（会社の形を読めない所がある: {problems[0]}）"
-    return text
+    return text + parked_text(attrs)
+
+
+def parked_text(attrs):
+    """保留にした頼み（--wait --park）が在れば、会話の始まりに足す行。/clear の後の会話も、答え待ちの頼みと返し方を知る。"""
+    parked = deliver.parked_of(attrs)
+    if not parked:
+        return ""
+    lines = [f"- 受付 {p['id']}（頼み元 {p.get('boss') or '-'}。{p.get('why') or '-'}）" for p in parked]
+    return ("\n\nこの部署が答え待ちのまま保留にした頼み（今の頼みとは別。台帳では答え待ちのまま閉じていない）:\n" + "\n".join(lines)
+            + f"\n答えが出たら、要約を書いて {RUN} --deliver <要約のファイル> --for <受付> でその頼み元へ返す"
+            + f"（本文は頼み元の受付箱の <受付>-ask.md）")
 
 
 def hint_for(cwd, env=os.environ, attrs=None):

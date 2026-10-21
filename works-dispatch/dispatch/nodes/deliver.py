@@ -88,7 +88,8 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
     部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。会社を書かずに会社の名前（会社の形の在る会社だけ）
-    だけで宛てれば、その会社の本社の名付いた会話（窓口）に届け、名付いていなければ、会社の形の desk に書いたほかの会社の窓口に
+    だけで宛てれば、その会社の本社の名付いた会話（窓口）に届け、名付いていなければ、本社の窓口を --handover で継いだ部署（desk_heir）、
+    会社の形の desk に書いた窓口（ほかの会社の窓口か、同じ会社の部署）に
     届け（返しに via を添える）、それも無ければ止める。頼む側の会社の役の名前より先に当たる。役で宛てて task（--task の部署の名前）を
     渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の永続の部署が名前違いで居ても
     使わない）。task が無く、役で宛てて永続の部署が無ければ department は None（新しく立てる）。"""
@@ -126,7 +127,8 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         whole = [one_company(whole, name)]
         # 会社の名前だけで宛てたら、その会社の窓口（本社の、--desk で名付けた会話）に届ける（tree.contacts の窓口と同じ物）。部署で
         # ない会話がほかの会社に頼むとき、宛先の役の名前を会社ごとに知らなくてよいように
-        head = next((d for d in whole[0]["departments"] if d.get("head_office") and d["attrs"].get("name")), None)
+        head = next((d for d in whole[0]["departments"] if d.get("head_office") and d["attrs"].get("name")), None) \
+            or desk_heir(whole[0])
         if head is None and whole[0].get("desk_of"):
             # 本社に窓口が無く、会社の形の desk にほかの会社の窓口が書いてあれば、そこへ届ける（--tree の窓口と同じ物。claude-plugins の
             # 窓口は my_notes の段取り）。書いた先は部署の名前で当たったときだけ使う（役の道に落として、ほかの会社に部署を立てない）
@@ -174,6 +176,13 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         raise DeliverError(f"{company['name']} に役「{name}」の永続の部署が 2 つ以上ある"
                            f"（{'、'.join(d['attrs'].get('name') or d['branch'] for d in persistent)}）。部署の名前で宛てる")
     return {"company": company, "department": persistent[0] if persistent else None, "role": name}
+
+
+def desk_heir(company):
+    """本社の窓口を --handover で継いだ部署（属性 company.inherited の desk）。本社に名付いた窓口が無いときの、会社の窓口。1 つに
+    決まらなければ None。"""
+    hits = [d for d in company["departments"] if not d.get("head_office") and gitx.inherited_desk(d["attrs"])]
+    return hits[0] if len(hits) == 1 else None
 
 
 def window(dept):
@@ -278,6 +287,28 @@ def records(inbox):
     if got.bad:
         filex.warn("注記: " + filex.bad_text(path, got.bad) + "（その行を飛ばして読んだ）")
     return got.rows
+
+
+# 保留にした頼み（--wait <訳> --park）: JSON の並び。1 件は {id, why, at, boss, boss-session, boss-account, boss-pane, boss-inbox}
+PARKED = "parked"
+
+
+def parked_of(attrs, strict=False):
+    """部署の属性 company.parked の並び（保留にした頼み）。読めない（JSON でない・id の在る物の並びでない）とき、strict なら
+    gitx.AttrError（書き足す道が、空として上書きして保留の頼みを消さない）、ほかは標準エラーに知らせて空。"""
+    raw = attrs.get(PARKED) or "[]"
+    try:
+        got = json.loads(raw)
+        ok = isinstance(got, list) and all(isinstance(x, dict) and isinstance(x.get("id"), str) and x["id"] for x in got)
+    except ValueError:
+        ok = False
+    if ok:
+        return got
+    why = f"部署 {attrs.get('name') or '?'} の属性 company.{PARKED} が保留の頼みの JSON の並びでない（{raw[:120]}）"
+    if strict:
+        raise gitx.AttrError(why + f"。git config --worktree company.{PARKED} で直してから打ち直す")
+    filex.warn(f"注記: {why}。保留の頼みは無いものとして読んだ")
+    return []
 
 
 def closed_ids(records):

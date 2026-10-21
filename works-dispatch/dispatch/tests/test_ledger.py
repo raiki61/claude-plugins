@@ -180,13 +180,16 @@ class Catalog(unittest.TestCase):
             for n in tree.body:
                 if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
                     consts.update({(p.stem, t.id): n.value.value for t in n.targets if isinstance(t, ast.Name)})
+        aliases = {p: {a.asname: a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names if a.asname}
+                   for p, tree in trees.items()}
         def value(p, v):
             if isinstance(v, ast.Constant):
                 return v.value
             if isinstance(v, ast.Name):
                 return consts.get((p.stem, v.id), v.id)
-            if isinstance(v, ast.Attribute) and isinstance(v.value, ast.Name):
-                return consts.get((v.value.id, v.attr), ast.unparse(v))
+            if isinstance(v, ast.Attribute) and isinstance(v.value, ast.Name):   # import の別名（from nodes import handover as ho）も引く
+                mod = aliases[p].get(v.value.id, v.value.id)
+                return consts.get((mod, v.attr), ast.unparse(v))
             return None
         found = {}
         for p, tree in trees.items():

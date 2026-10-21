@@ -84,7 +84,8 @@ def _attrs(cwd):
 
 
 def plan(payload, env=os.environ, attrs_of=_attrs, parent=os.getppid, same=chat.in_process):
-    """待つなら {cwd, root, inbox, place, names, session, owner, adopt, company, job}、待たないなら None。adopt は属性の会話の id を書き直すか。
+    """待つなら {cwd, root, inbox, place, names, session, owner, adopt, company, job, since}、待たないなら None。adopt は属性の会話の id を書き直すか。
+    since は --handover で継いだ宛先の {宛先: 台帳の位置}（その位置より後の行だけを自分宛てと見る。wake.watch）。
     company は会社の名前（--retire に宛てる）。job は会話の裏の処理の短い id（環境変数 CLAUDE_JOB_DIR の名前。裏の会話でなければ None）。"""
     cwd = payload.get("cwd") or os.getcwd()
     sid = payload.get("session_id")
@@ -110,7 +111,7 @@ def plan(payload, env=os.environ, attrs_of=_attrs, parent=os.getppid, same=chat.
     company = tree.company_name(root, info)
     names = wake.addresses(company, attrs, gitx.former_names(attrs))
     return {"cwd": cwd, "root": root, "inbox": inbox, "place": place, "names": names, "session": sid, "owner": parent(),
-            "adopt": adopt, "company": company, "job": job_of(env)}
+            "adopt": adopt, "company": company, "job": job_of(env), "since": gitx.inherited_since(attrs)}
 
 
 job_of = chat.job_of
@@ -393,7 +394,7 @@ def _inside(at, root):
 
 def _read_part(got):
     """台帳のうち、この場所の待ち受けが読み終えた所（wake の pos）までの行。読めなければ None（全部を読んだと見る）。"""
-    pos = wake._read_pos(got["inbox"], got["place"])
+    pos = wake.read_pos(got["inbox"], got["place"])
     if pos is None:
         return None
     path = os.path.join(got["inbox"], wake.LOG)
@@ -558,8 +559,11 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
 
 def must_clear(payload, attrs):
     """頼みごとに空の会話で受ける部署（fresh）が、次の頼みを受ける前に会話を空にしなければならないか。納品し終えていて
-    （company.delivered が company.ask）、まだ空にしていない（company.cleared が違う）とき。ただし会話が空で始まった時を除く。"""
+    （company.delivered が company.ask）、まだ空にしていない（company.cleared が違う）とき。ただし会話が空で始まった時と、保留の頼み
+    （company.parked。--wait --park）が在る間を除く（空にすると、保留の答えを返す会話の中身が消える）。"""
     ask = attrs.get("ask")
+    if attrs.get(deliver.PARKED):
+        return False
     if not (ask and attrs.get("fresh") == role.FRESH and attrs.get("delivered") == ask and attrs.get("cleared") != ask):
         return False
     return not (chat.event(payload) == chat.START and payload.get("source") in EMPTY_STARTS)
@@ -643,8 +647,9 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False,
     ほかのアカウントへ早めに移すとき（early_of。early_due）は起動し直す（上限に当たってから移ると、ターンの途中で切られて作業が消える）。
     裏の処理が残る・（at_rest でなければ）順番待ちが空・今の値が起動したとき（company.launched）か、前に起動し直さなかった値（company.restart-kept）と
     同じ・会社の形を読めない・この会話の起動し直しがもう走っている（company.restarting がこの会話の id。人が打って待ち受けが
-    替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）ときは起動し直さない。"""
-    if (not at_rest and (attrs.get("fresh") != role.FRESH or not wake.queued(got["inbox"], got["place"]))
+    替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）・保留の頼みが在る（company.parked。起動し直すと、保留の答えを返す
+    会話の中身が消える）ときは起動し直さない。"""
+    if (attrs.get(deliver.PARKED) or not at_rest and (attrs.get("fresh") != role.FRESH or not wake.queued(got["inbox"], got["place"]))
             or payload.get("background_tasks") or not (attrs.get("job") or attrs.get("session"))
             or attrs.get(wake.RESTARTING) == got["session"]):
         return None
@@ -1017,7 +1022,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), stop)
     return wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, WithRole(err, payload, woke=lambda: woken(got)),
-                      check=checker(got, payload), ready=lambda: not unready(payload, got["job"]))
+                      check=checker(got, payload), ready=lambda: not unready(payload, got["job"]), since=got.get("since"))
 
 
 if __name__ == "__main__":

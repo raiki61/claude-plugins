@@ -156,7 +156,7 @@ def claim(inbox, place, names, session, owner, token, now):
         _replace(mark_path(inbox, place), json.dumps(
             {"names": names, "session": session, "owner": owner, "pid": os.getpid(), "token": token, "place": place,
              "since": now}, ensure_ascii=False))
-    if _read_pos(inbox, place) is None:
+    if read_pos(inbox, place) is None:
         _replace(pos_path(inbox, place), str(_size(os.path.join(inbox, LOG))))
 
 
@@ -403,6 +403,16 @@ def enqueue(inbox, place, item):
     return path
 
 
+def move(item, inbox, place, body):
+    """find か queued で見つけた件を、中身を body に書き直してから、ほかの場所の順番待ちへ rename で移す（同じ受付箱の中なので、
+    件はどの時点でもどちらか 1 か所にだけ在る。途中で落ちても、2 か所に残らず、消えもしない）。移した先のパスを返す。"""
+    _replace(item["path"], json.dumps(body, ensure_ascii=False))
+    path = os.path.join(queue_dir(inbox, place), f"{body['id']}.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.replace(item["path"], path)
+    return path
+
+
 def take(inbox, place):
     """順番待ちの先頭を取り（ファイルを消し）、その件を返す。無ければ None。"""
     for item in queued(inbox, place):
@@ -425,12 +435,12 @@ def mine(record, names):
     return isinstance(record.get("to"), str) and record["to"] in names and record.get("kind") in KINDS
 
 
-def read_new(log, pos):
-    """台帳の pos バイト目から先の、書き終わった行（改行まで）の並びと、読み終えた所と、読めない行の並び（filex.read_jsonl の bad）。
-    読めない行が在れば、その前の行までを返し、読み終えた所はその行の頭で止める（先へ進めると、その行の知らせが誰にも気づかれずに
-    消える）。行を直すか消せば、次に読むときにその行から続く。"""
+def read_new(log, pos, end=None):
+    """台帳の pos バイト目から先（end を渡せば end バイト目まで）の、書き終わった行（改行まで）の並びと、読み終えた所と、読めない行の
+    並び（filex.read_jsonl の bad）。読めない行が在れば、その前の行までを返し、読み終えた所はその行の頭で止める（先へ進めると、その行の
+    知らせが誰にも気づかれずに消える）。行を直すか消せば、次に読むときにその行から続く。"""
     try:
-        got = filex.read_jsonl(log, pos, stop=True)
+        got = filex.read_jsonl(log, pos, end, stop=True)
     except OSError:
         return [], pos, []
     return got.rows, got.pos, got.bad
@@ -479,7 +489,8 @@ def _size(path):
         return 0
 
 
-def _read_pos(inbox, place):
+def read_pos(inbox, place):
+    """その場所の待ち受けが台帳を読んだ所（バイト）。無いか読めなければ None。"""
     try:
         with open(pos_path(inbox, place), encoding="utf-8") as f:
             return int(f.read().strip())
@@ -487,19 +498,33 @@ def _read_pos(inbox, place):
         return None
 
 
+def start_pos(inbox, place, pos):
+    """その場所に読んだ所が無ければ pos を書く（初めての待ち受けが台帳の終わりから読み始めて、その前に置いた行を取りこぼさない）。"""
+    if read_pos(inbox, place) is None:
+        _replace(pos_path(inbox, place), str(pos))
+
+
+def _names_at(names, since, pos):
+    """台帳の pos バイト目で自分宛てと見る宛先と、その見方が替わる次の位置（無ければ None）。since（{宛先: 位置}）の宛先は、その位置
+    より後の行だけを自分宛てと見る（--handover で継いだ宛先。その位置より前は、前の部署が読んだか、後継の宛先へ写し直した物）。"""
+    later = [at for to, at in since.items() if to in names and at > pos]
+    return [n for n in names if not (n in since and since[n] > pos)], (min(later) if later else None)
+
+
 def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=time.sleep, parent=os.getppid, check=None,
-          ready=None):
+          ready=None, since=None):
     """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・check が終わらせた）。
     owner は待ち受けを起動した会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
     check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに（同じ回にほかの知らせが在れば、そちらを先に会話へ
     渡して呼ばない）呼ぶ関数で、("wake", 字)（その字で会話を再開させる）・
     ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。
     ready は会話が字を受けられるかを返す関数（None なら常に受けられる）。受けられない間は、印を張ったまま台帳を読まず check も
-    呼ばない（読んだ所を進めないので、受けられるようになってから同じ行で起動する）。"""
+    呼ばない（読んだ所を進めないので、受けられるようになってから同じ行で起動する）。since は {宛先: 位置} で、その宛先は台帳のその
+    位置より後の行だけを自分宛てと見る（_names_at）。"""
     claim(inbox, place, names, session, owner, token, now())
     pause(GRACE)
     log = os.path.join(inbox, LOG)
-    pos = _read_pos(inbox, place)
+    pos = read_pos(inbox, place)
     if pos is None:
         pos = _size(log)
         _replace(pos_path(inbox, place), str(pos))
@@ -531,8 +556,9 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
         if size < pos:
             pos = size   # 台帳を作り直した
         if size > pos:
-            records, pos, bad = read_new(log, pos)
-            hits = [r for r in records if mine(r, names)]
+            now_names, cut = _names_at(names, since or {}, pos)
+            records, pos, bad = read_new(log, pos, cut)
+            hits = [r for r in records if mine(r, now_names)]
             _replace(pos_path(inbox, place), str(pos))   # 出す前に進める（同じ行で 2 度起動しない）
             said = [r for r in hits if r.get("kind") != QUEUED]
             broken = _bad_news(inbox, place, log, bad)

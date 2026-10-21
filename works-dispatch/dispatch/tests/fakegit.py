@@ -36,6 +36,11 @@ class FakeGit:
     root_of = staticmethod(gitx.root_of)
     lifecycle_attrs = staticmethod(gitx.lifecycle_attrs)
     former_names = staticmethod(gitx.former_names)
+    INHERITED = gitx.INHERITED
+    inherited = staticmethod(gitx.inherited)
+    inherited_since = staticmethod(gitx.inherited_since)
+    inherited_names = staticmethod(gitx.inherited_names)
+    inherited_desk = staticmethod(gitx.inherited_desk)
 
     def __init__(self, source, files, url=None, branches=()):
         """source は元の clone の場所、files は最初の commit の中身、url は origin の URL（origin_repo の元。既定は <source の親>/o/r.git、空なら origin が無い）、
@@ -489,7 +494,8 @@ class Repos:
 
     def __getattr__(self, name):
         got = getattr(self.gits[0], name)
-        if not callable(got) or isinstance(got, type) or name in ("root_of", "lifecycle_attrs", "former_names"):
+        if not callable(got) or isinstance(got, type) or name in ("root_of", "lifecycle_attrs", "former_names", "inherited", "inherited_since",
+                                                                         "inherited_names", "inherited_desk"):
             return got
         return lambda cwd, *a, **k: getattr(self.of(cwd), name)(cwd, *a, **k)
 

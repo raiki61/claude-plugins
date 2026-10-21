@@ -52,14 +52,15 @@ def _renamed(attrs, new_name):
 
 
 def _clash(companies, place, name, g):
-    """同じ会社のほかの場所が同じ名前（今の名前）を持っていれば、その場所の字。宛先が 1 つに決まらなくなるので止める。ほかの会社の
+    """同じ会社のほかの場所が同じ名前（今の名前か、--handover で継いだ名前）を持っていれば、その場所の字。宛先が 1 つに決まらなくなるので
+    止める（継いだ名前を本社の --desk が名乗ると、前の名前で宛てた頼みと納品の返し先が、継いだ部署でなく本社に当たる）。ほかの会社の
     同じ名前は「会社/名前」で分けられるので止めない（--task と同じ。0.48.0）。"""
     here = os.path.realpath(g.common_dir(place) or place)
     for c in companies:
         if os.path.realpath(g.common_dir(c["root"]) or c["root"]) != here:
             continue
         for d in c["departments"]:
-            if not _same(d["path"], place) and d["attrs"].get("name") == name:
+            if not _same(d["path"], place) and (d["attrs"].get("name") == name or name in gitx.inherited_names(d["attrs"])):
                 return f"{c['name']}/{d['branch'] or d['path']}"
     return None
 

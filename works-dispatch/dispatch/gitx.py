@@ -310,6 +310,42 @@ def former_names(attrs, strict=False):
     return []
 
 
+INHERITED = "inherited"   # 部署の属性: --handover で継いだ物の JSON の並び。1 件は {id, from, names〔宛先の並び〕, place, session, since, desk}
+
+
+def inherited(attrs):
+    """部署の属性 company.inherited の並び（継いだ物）。読めない物は標準エラーに知らせて外す。"""
+    raw = attrs.get(INHERITED) or "[]"
+    try:
+        got = json.loads(raw)
+    except ValueError:
+        got = None
+    if not isinstance(got, list):
+        filex.warn(f"注記: 部署 {attrs.get('name') or '?'} の属性 company.{INHERITED} が JSON の並びでない（{raw[:120]}）。継いだ物は無いものとして読んだ")
+        return []
+    return [x for x in got if isinstance(x, dict) and isinstance(x.get("names"), list) and isinstance(x.get("since"), int)]
+
+
+def inherited_since(attrs):
+    """待ち受けに渡す {宛先: 位置}: 継いだ宛先は、台帳のその位置より後の行だけを自分宛てと見る。同じ宛先を 2 度継いだら後の位置。"""
+    out = {}
+    for x in inherited(attrs):
+        for to in x["names"]:
+            if isinstance(to, str):
+                out[to] = max(out.get(to, 0), x["since"])
+    return out
+
+
+def inherited_names(attrs):
+    """継いだ名前（会社を外した物）の並び。"""
+    return list(dict.fromkeys(to.partition("/")[2] or to for x in inherited(attrs) for to in x["names"] if isinstance(to, str)))
+
+
+def inherited_desk(attrs):
+    """本社の窓口を継いだ部署か（継いだ物のどれかが desk）。"""
+    return any(x.get("desk") for x in inherited(attrs))
+
+
 def untracked(cwd, runner=_default_runner):
     """git にまだ足していないファイルの集合（cwd の worktree のルートからの相対。.gitignore に当たる物は入れない）。読めなければ GitError。"""
     out = _must(["git", "-C", cwd, "ls-files", "--others", "--exclude-standard", "-z"], runner)

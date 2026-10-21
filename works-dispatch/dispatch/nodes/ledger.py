@@ -48,9 +48,10 @@ KINDS = {
     "reordered": "id",    # 順番待ちの先頭に回した（--first）
     "withdrawn": "id",    # 頼みを取り下げた（--withdraw。順番待ちに無い物は was に前の状態、why に訳）
     "forwarded": "id",    # 受けた頼み（id）を回して閉じた。child が回した先の頼み
-    "deliver": "ask",     # 納品した（id は要約のファイルの受付、ask が頼み。for は回して閉じた頼みへの返し）。知らせの行は id が頼み
+    "deliver": "ask",     # 納品した（id は要約のファイルの受付、ask が頼み。for は回して閉じた頼みへの返し、parked は保留にした頼みへの返し、
+                          # status self は頼み元がこの部署自身で知らせずに閉じた）。知らせの行は id が頼み
     "note": "ask",        # 足した（id は足しの受付、ask が頼み）
-    "waiting": "id",      # 部署が頼みを人の答え待ちと印した（--wait。why に訳）
+    "waiting": "id",      # 部署が頼みを人の答え待ちと印した（--wait。why に訳。parked は --park で保留にして次の頼みを受けた）
     "resumed": "id",      # 人の文で答え待ちの印が外れた
     "nudged": "id",       # 止まった部署を動かした（--nudge）
     "knot": "id",         # 返事待ちの輪をほどくため、輪の頼みを --take で回した
@@ -63,6 +64,8 @@ KINDS = {
     "remind": None,       # リマインダーを立てた（--remind。id はリマインダーの受付で、頼みではない。nodes/remind）
     "reminded": None,     # 見る時の来たリマインダーを担当者に知らせた（--due）
     "remind-done": None,  # リマインダーを閉じた（--remind-done）
+    "handover": None,     # 部署か窓口の受け持ちをほかの部署へ移した（--handover。status は started と done。nodes/handover.py）。
+                          # 移すときに写し直した知らせの行は、元の行の種類のまま handover に引き継ぎの id、copied に元の行の鍵を持つ
 }
 
 SHORT_ID = re.compile(r"(?<![0-9a-f-])[0-9a-f]{6}(?![0-9a-f])")
@@ -180,7 +183,7 @@ def build(rows, title_of=None, questions_of=None, reminders=None):
     for r in rows:
         kind, at, i = r.get("kind"), r.get("at"), subject(r)
         t = tasks.get(i)
-        if t is None:
+        if t is None or r.get("copied"):   # 引き継ぎで写し直した知らせは、元の行で数えた
             continue
         t["updated"] = max(t["updated"] or 0, at or 0)
         if t["state"] in FINAL or t["state"] == "forwarded":

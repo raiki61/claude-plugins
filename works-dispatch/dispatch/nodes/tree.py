@@ -318,6 +318,10 @@ def contacts(company, shape):
                     f"--ask {plain}/{r['name']} --task {s['name']} --branch <ブランチ>" if r["persistent"] else
                     f"--ask {plain}/{r['name']} --task <部署の名前> --branch <ブランチ>")
     head = next((d for d in company["departments"] if d["head_office"] and d["attrs"].get("name")), None)
+    if head is None:
+        # 本社の窓口を --handover で継いだ部署が窓口（deliver.find_target の会社の名前だけの宛先と同じ物）
+        heirs = [d for d in company["departments"] if not d["head_office"] and gitx.inherited_desk(d["attrs"])]
+        head = heirs[0] if len(heirs) == 1 and heirs[0]["attrs"].get("name") else None
     if head is not None:
         # 窓口の会話が起きるときに効く model と effort（役のフィールドの旗が [roles.settings] より先。role.desk_spec）
         model, effort = role.desk_spec(shape["roles"].get(role.current(shape, head["attrs"].get("role"))))

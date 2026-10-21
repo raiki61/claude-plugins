@@ -876,6 +876,19 @@ class Hook(unittest.TestCase):
                                               "fresh": role.FRESH, "job": "j1", **more}, self.g)
         return self.g.worktree_attrs(self.place)
 
+    def test_a_parked_ask_keeps_the_conversation_from_being_cleared_or_restarted(self):
+        # --wait --park の保留が在る間は、空にも起動し直しもしない（保留の答えを返す会話の中身が消える）
+        opus = role.launch_key({"model": "opus"})
+        attrs = self.fresh_dept(launched=role.launch_key(None), cleared=None)
+        self.put("a1")
+        got, stop = self.plan(), {"hook_event_name": "Stop", "session_id": "s1"}
+        self.assertEqual(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus), opus)
+        self.assertTrue(wake_hook.must_clear(stop, attrs))
+        parked = {**attrs, deliver.PARKED: json.dumps([{"id": "c1", "boss": "段取り"}])}
+        self.assertIsNone(wake_hook.restart_due(got, stop, parked, key_of=lambda cwd, a: opus))
+        self.assertIsNone(wake_hook.restart_due(got, stop, parked, key_of=lambda cwd, a: opus, at_rest=True))
+        self.assertFalse(wake_hook.must_clear(stop, parked))
+
     def test_fresh_department_restarts_before_the_next_ask_when_the_shape_changed_its_model(self):
         # /clear は起動したときの --model・--effort を残すので、会社の形の値が起動したときと違えば起動し直す（6bdc72）
         opus = role.launch_key({"model": "opus"})
