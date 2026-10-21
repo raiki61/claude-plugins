@@ -6,6 +6,19 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Added
+
+- 人と固めた設計書と YAML の表から修正へ進む入口 `spec_table` を案内した。会話の中で 5 部品の審査を回し、実際の run の記録と照合してから本線に渡す手順を `skills/works-factory/references/spec.md` に置いた。
+
+### Changed
+
+- 工場の固定 commit（`works-factory/PIN`）を e04500cd に更新した。判定と計画を 1 回ずつ回す仕様入力の道、変更に関わる試験の実行器を使う試験の段、報告の冒頭に対象への反映状況と判断の短い題を出す改善を取り込んだ。通常の依頼の入口も残る。
+- 依頼の参照先を用途別に示した。`findings` の形は `workflows/.shared/schemas/request.schema.json`、依頼の全項目と省略の扱いは、今も在る `lib/carry.py` の `parts()`。
+
+### Fixed
+
+- 前景で止めた周の鎖の子が running のまま残る件を、工場の停止処理の更新で直した。子の abandon は作業ツリーと未コミットの変更を消すため、止めた鎖は resume で続けず新しい run にする、と停止の案内を合わせた。
+
 ## [0.4.0] - 2026-10-20
 
 ### Changed
