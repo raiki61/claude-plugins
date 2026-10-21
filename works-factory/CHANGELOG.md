@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-22
+
 ### Added
 
 - 人と固めた設計書と YAML の表から修正へ進む入口 `spec_table` を案内した。会話の中で仕様を計画・独立設計・前提・過去の決定・業界の定石の 5 部品で審査し、実際の run の記録と照合してから修正の流れに渡す手順を `skills/works-factory/references/spec.md` に置いた。
