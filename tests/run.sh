@@ -5998,6 +5998,10 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   # Claude Code がフックに渡す、プロジェクトのフォルダの環境変数（gates の初見読みのゲートが、入っている版を決めるときに読む。
                   # https://code.claude.com/docs/en/plugins-reference#environment-variables）
                   "CLAUDE_PROJECT_DIR",
+                  # Claude Code のモデルの別名の読み替え先と既定のモデルの環境変数（works-dispatch の claudex.py が各アカウントの settings.json の env から読む。
+                  # https://code.claude.com/docs/en/model-config）
+                  "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                  "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_MODEL",
                   # herdr がペインの中の殻に渡す環境変数（works-dispatch は HERDR_SOCKET_PATH を herdr への問い合わせに読み、HERDR_PANE_ID は
                   # 「継いだ値が別のペインを指すことがあるので使わない」と文書で名指す）・OS の PATH
                   "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "PATH",
