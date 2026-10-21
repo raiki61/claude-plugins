@@ -6102,6 +6102,8 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   # https://code.claude.com/docs/en/model-config）
                   "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
                   "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_MODEL",
+                  # 小さく速いモデルの読み替え先（gates の coldread-gate.py が、会話がモデルを読み替えたかを見る名の 1 つ）
+                  "ANTHROPIC_SMALL_FAST_MODEL",
                   # herdr がペインの中の殻に渡す環境変数（works-dispatch は HERDR_SOCKET_PATH を herdr への問い合わせに読み、HERDR_PANE_ID は
                   # 「継いだ値が別のペインを指すことがあるので使わない」と文書で名指す）・OS の PATH
                   "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "PATH",
