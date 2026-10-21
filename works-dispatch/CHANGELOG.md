@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.111.0] - 2026-10-21
+
 ### Added
 
 - アカウント（設定の `accounts`）に `named_only = true` を書けるようにした。書いたアカウントは、自動の選び方（部署の起動・`--move` の移る先・区切りで早めに移す先・PR を開く回）に入れず、会社の形（`.claude/company.toml`）の役か受け持ちの `account` で名指したときと、`--move --account` で名指したときだけ使う。使用率の上限・使える時間帯（`hours`）の外は、名指しても前と同じく使わない。
