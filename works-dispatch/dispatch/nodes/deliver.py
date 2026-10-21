@@ -739,8 +739,8 @@ def child_env(env=None):
 
 
 def gate(command, place, payload, runner):
-    """納品の検査。command（シェルの字）を place（部署の作業場のルート）で走らせ、payload（role・ask・branch・place・items・summary・version）を
-    JSON で標準入力に渡す。(終了の値, 標準出力と標準エラーの終わりの GATE_TAIL 行)。0 なら通った、0 以外なら送らない。
+    """納品の検査。command（シェルの字）を place（部署の作業場のルート）で走らせ、payload（role・ask・boss・branch・place・items・open・summary・
+    version。boss は返し先の頼み元の名前で、--handover で移した頼み元は後継に読み替えた後の物）を JSON で標準入力に渡す。(終了の値, 標準出力と標準エラーの終わりの GATE_TAIL 行)。0 なら通った、0 以外なら送らない。
     runner は subprocess.run（このノードは subprocess を持たないので、流れの orders.py が渡す）。"""
     p = runner(command, shell=True, cwd=place, input=json.dumps(payload, ensure_ascii=False), capture_output=True,
                text=True, encoding="utf-8", errors="replace", env=child_env())

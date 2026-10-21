@@ -28,6 +28,8 @@ name = "相談"
 ask_check = "{check}"
 [[roles]]
 name = "担当"
+holders = ["社長室"]
+deliver_check = "{gate}"
 """
 
 
@@ -44,7 +46,10 @@ class Handover(unittest.TestCase):
                               "sys.exit(0 if d['type'] in ('task', 'question') else 3)\n", encoding="utf-8")
         shape = pathlib.Path(self.src, ".claude", "company.toml")
         shape.parent.mkdir(exist_ok=True)
-        shape.write_text(SHAPE.format(check=f"{sys.executable} {self.check}"), encoding="utf-8")
+        self.gate = pathlib.Path(self.root).parent / "gate.py"   # 担当の納品の検査: 渡された JSON を gate.json に写して通す
+        self.gate.write_text(f"import sys\nopen({str(self.gate.with_suffix('.json'))!r}, 'w').write(sys.stdin.read())\n",
+                             encoding="utf-8")
+        shape.write_text(SHAPE.format(check=f"{sys.executable} {self.check}", gate=f"{sys.executable} {self.gate}"), encoding="utf-8")
         self.place = self.g.add_worktree(str(pathlib.Path(self.root) / "office"), "work/office", "origin/main")
         provision.mark(self.src, self.src, {"role": "段取り", "lifecycle": "persistent", "account": "a1", "name": "段取り",
                                             "session": "s-desk"}, self.g)
@@ -468,6 +473,107 @@ class Handover(unittest.TestCase):
         self.assertEqual([r["status"] for r in got], [orders.SELF])
         self.assertEqual(self.g.worktree_attrs(self.place)["delivered"], "c1")
         self.assertEqual(self.ports.term.writes and [w for w in self.ports.term.writes if w[0] == "prompt"], [])
+
+    # 引き継ぎの後の納品の担当者（残った疑問の holder）は、頼み元を後継に読み替えてから検査する。担当の役は社長室を中継（holders）に
+    # 持つので、ふつうは社長室を担当者に書けない。移すより前に段取りが頼んだ物だけ、頼み元の後継として書ける
+    PRE, POST = "20261021-110000-aaaaaa", "20261021-130000-bbbbbb"   # 引き継ぎ（12:00）の前と後の受付
+
+    def handed_over_with(self, ask, boss="段取り", inbox=None, **more):
+        """担当の部署 窓口をたたむ（頼み元 boss から受付 ask を受けている）を残して、段取りを社長室へ 12:00 に移す。その部署の場所。"""
+        self.ports.now = lambda: 1792584000   # 2026-10-21 12:00 UTC
+        fold = self.fold()
+        provision.mark(fold, self.src, {"ask": ask, "boss": boss, "boss-session": "s-desk", "boss-account": "a1",
+                                        "boss-inbox": inbox or self.inbox, **more}, self.g)
+        self.ports._cwd, self.ports.env = self.place, {"CLAUDE_CODE_SESSION_ID": "s-a"}
+        rc, out = self.main("--handover", "段取り")
+        self.assertEqual(rc, 0, out)
+        self.ports._cwd, self.ports.env = fold, {"CLAUDE_CODE_SESSION_ID": "s-x"}
+        return fold
+
+    def deliver_with(self, place, holder, *more):
+        summary = pathlib.Path(self.root).parent / "sum.md"
+        summary.write_text(f'+++\n[[open]]\nquestion = "後で決める"\nholder = "{holder}"\n+++\n## 結論\n済んだ\n## 決め手\n'
+                           'https://example.com/a\n', encoding="utf-8")
+        with contextlib.chdir(place):
+            return self.main("--deliver", str(summary), *more)
+
+    def delivered(self, ask):
+        return [(r["status"], (r.get("to") or {}).get("name")) for r in self.rows("deliver") if r.get("ask") == ask]
+
+    def test_a_department_of_the_old_desk_names_the_successor_as_holder(self):
+        fold = self.handed_over_with(self.PRE)
+        rc, out = self.deliver_with(fold, "社長室")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("社長室 へ返す", out)
+        self.assertEqual(self.delivered(self.PRE), [("sent", "社長室")], out)
+        self.assertEqual(json.loads(self.gate.with_suffix(".json").read_text(encoding="utf-8"))["boss"], "社長室")   # 検査も後継で見る
+        self.assertEqual(self.g.worktree_attrs(fold)["boss"], "段取り")   # 部署の属性（頼み元の名前）は書き換えない
+
+    def test_the_old_desk_as_holder_is_checked_against_the_successor(self):
+        fold = self.handed_over_with(self.PRE)
+        rc, out = self.deliver_with(fold, "段取り")   # 頼み元はもう段取りでない
+        self.assertEqual(rc, 2, out)
+        self.assertIn("担当者「段取り」", out)
+        self.assertEqual(self.delivered(self.PRE), [])
+
+    def test_the_successor_is_not_a_holder_for_other_asks(self):
+        for case in ("無関係な頼み元", "移した後に前の名前で頼んだ物", "別の会社の段取り（引き継ぎの行が無い）"):
+            with self.subTest(case):
+                self.setUp()
+                other = pathlib.Path(self.root) / "other-co" / ".git" / "company" / "inbox"
+                other.mkdir(parents=True)
+                ask, boss, inbox = {"無関係な頼み元": (self.PRE, "窓口をひらく", None),
+                                    "移した後に前の名前で頼んだ物": (self.POST, "段取り", None)}.get(case, (self.PRE, "段取り", str(other)))
+                fold = self.handed_over_with(ask, boss, inbox)
+                rc, out = self.deliver_with(fold, "社長室")
+                self.assertEqual(rc, 2, out)
+                self.assertIn("担当者「社長室」", out)
+                self.assertNotIn("社長室 へ返す", out)
+                self.assertFalse(self.gate.with_suffix(".json").exists())   # 担当者の検査で止まり、納品の検査まで行かない
+                self.assertEqual(self.delivered(ask), [])
+
+    def test_a_parked_ask_of_the_old_desk_names_the_successor_as_holder(self):
+        fold = self.handed_over_with("t2", "窓口をひらく", parked=json.dumps(
+            [{"id": self.PRE, "boss": "段取り", "boss-session": "s-desk", "boss-account": "a1", "boss-inbox": self.inbox}]))
+        rc, out = self.deliver_with(fold, "社長室", "--for", self.PRE)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.delivered(self.PRE), [("sent", "社長室")], out)
+        self.assertEqual(deliver.parked_of(self.g.worktree_attrs(fold)), [])
+        self.assertEqual(json.loads(self.gate.with_suffix(".json").read_text(encoding="utf-8"))["boss"], "社長室")
+
+    def test_a_forwarded_ask_of_the_old_desk_names_the_successor_as_holder(self):
+        fold = self.handed_over_with("t2", "窓口をひらく")
+        deliver.log(self.inbox, {"id": self.PRE, "kind": "forwarded", "child": "20261021-111000-cccccc", "at": 1.0,
+                                 "from": {"name": "窓口をたたむ"},
+                                 "boss": {"name": "段取り", "session": "s-desk", "account": "a1", "inbox": self.inbox}})
+        rc, out = self.deliver_with(fold, "社長室", "--for", self.PRE)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.delivered(self.PRE), [("sent", "社長室")], out)
+        self.assertEqual(self.g.worktree_attrs(fold)["ask"], "t2")   # 今の頼みは閉じない
+        self.assertEqual(json.loads(self.gate.with_suffix(".json").read_text(encoding="utf-8"))["boss"], "社長室")
+
+    def test_a_caused_ask_of_the_old_desk_names_the_successor_as_holder(self):
+        # cause 付きの --ask で回した子の頼みの答え: 元の頼み（段取りから引き継ぎの前に受けた物）を納品した後に、--for で返す
+        fold = self.handed_over_with("t2", "窓口をひらく")
+        child = "20261021-111000-dddddd"
+        deliver.log(self.inbox, {"id": child, "kind": "ask", "cause": self.PRE, "at": 1.0, "status": "sent",
+                                 "from": {"name": "窓口をたたむ"}, "to": {"name": "社長室"},
+                                 "cause_boss": {"name": "段取り", "session": "s-desk", "account": "a1", "inbox": self.inbox}})
+        deliver.log(self.inbox, {"id": "20261021-111500-eeeeee", "kind": "deliver", "ask": self.PRE, "at": 1.0, "status": "sent",
+                                 "from": {"name": "窓口をたたむ"}, "to": {"name": "段取り"}})
+        rc, out = self.deliver_with(fold, "社長室", "--for", child)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.delivered(self.PRE), [("sent", "段取り"), ("sent", "社長室")], out)
+        self.assertEqual(json.loads(self.gate.with_suffix(".json").read_text(encoding="utf-8"))["boss"], "社長室")
+
+    def test_a_reply_that_comes_back_to_the_successor_itself_closes_as_self(self):
+        self.handed_over_with("t2", "窓口をひらく")
+        provision.mark(self.place, self.src, {"ask": self.PRE, "boss": "段取り", "boss-session": "s-desk", "boss-account": "a1",
+                                              "boss-inbox": self.inbox}, self.g)
+        self.ports._cwd, self.ports.env = self.place, {"CLAUDE_CODE_SESSION_ID": "s-a"}
+        rc, out = self.deliver_with(self.place, "owner:choose")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.delivered(self.PRE), [(orders.SELF, "社長室")], out)
 
 
 class Park(unittest.TestCase):

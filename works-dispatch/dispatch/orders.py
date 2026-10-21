@@ -1865,9 +1865,21 @@ def deliver_summary(a, ports, cwd):
                                  + f"。{deliver.OPEN}の外は見出し（## 結論）で書く。結論は 3 行以内、決め手には原典の URL",
                                  deliver.DELIVER_FORMAT]))
         return 2
+    inbox = attrs.get("boss-inbox")
+    heir = handover.successor(deliver.records(inbox), {"name": attrs.get("boss"), "session": attrs.get("boss-session"),
+                                                       "account": attrs.get("boss-account"), "pane": attrs.get("boss-pane")},
+                              attrs.get("ask")) if inbox and os.path.isdir(inbox) else None
+    if heir:
+        # 頼み元の部署が --handover で受け持ちを移した: 後継へ返す（前の会話の窓に打ち込まない。nodes/handover.py）。担当者の検査と
+        # 納品の検査より前に読み替える（頼み元が持つ疑問は後継が持つ。--for・保留の頼みへの返しも、頼みと頼み元を替えた後に読み替える）
+        notes.append(f"頼み元 {attrs.get('boss') or '-'} は引き継ぎ {heir['via']} で {heir['name']} へ移ったので、{heir['name']} へ返す")
+        attrs = {**attrs, "boss": heir["name"], "boss-session": heir["session"], "boss-account": heir["account"],
+                 "boss-pane": heir["pane"]}
     relays = (the_role or {}).get("holders")
     if relays is not None:
-        bad = deliver.holder_problems(questions, relays, attrs.get("boss")) + deliver.unsure_problems(items)
+        # 後継が中継の会話（holders）でも、移すより前に前の部署が頼んだこの頼みでは頼み元として担当者に書ける（ほかの頼みでは書けない）
+        own = [r for r in relays if not heir or r != heir["name"]]
+        bad = deliver.holder_problems(questions, own, attrs.get("boss")) + deliver.unsure_problems(items)
         if not bad and any(deliver.ASK_ID.fullmatch((q.get("holder") or "").strip()) for q in questions or []):
             bad = deliver.unknown_asks(questions, ledger_asks(attrs, ports, cwd))
         if bad:
@@ -1877,7 +1889,8 @@ def deliver_summary(a, ports, cwd):
     check = (the_role or {}).get("deliver_check")
     if check:
         place = ports.git.toplevel(cwd) or cwd
-        code, out = deliver.gate(check, place, {"role": attrs["role"], "ask": attrs.get("ask"), "branch": branch, "place": place,
+        code, out = deliver.gate(check, place, {"role": attrs["role"], "ask": attrs.get("ask"), "boss": attrs.get("boss"),
+                                                "branch": branch, "place": place,
                                                 "items": items, "open": questions or [], "summary": deliver.summary_text(items, required),
                                                 "version": own_version()},
                                  subprocess.run)
@@ -1890,15 +1903,6 @@ def deliver_summary(a, ports, cwd):
                             + [f"- 検査は会社の形の役 {attrs['role']} の deliver_check。上の訳を直してから --deliver を打ち直す"]))
             return 2
         notes.append(f"納品の検査が通った: {check}")
-    inbox = attrs.get("boss-inbox")
-    heir = handover.successor(deliver.records(inbox), {"name": attrs.get("boss"), "session": attrs.get("boss-session"),
-                                                       "account": attrs.get("boss-account"), "pane": attrs.get("boss-pane")},
-                              attrs.get("ask")) if inbox and os.path.isdir(inbox) else None
-    if heir:
-        # 頼み元の部署が --handover で受け持ちを移した: 後継へ返す（前の会話の窓に打ち込まない。nodes/handover.py）
-        notes.append(f"頼み元 {attrs.get('boss') or '-'} は引き継ぎ {heir['via']} で {heir['name']} へ移ったので、{heir['name']} へ返す")
-        attrs = {**attrs, "boss": heir["name"], "boss-session": heir["session"], "boss-account": heir["account"],
-                 "boss-pane": heir["pane"]}
     if common and inbox and to_self(mine, attrs, deliver.inbox_of(common)):
         return deliver_self(a, ports, cwd, mine, attrs, for_ask, shelved, branch, items, required, questions, notes)
     to, heard = listener(inbox, inbox and inbox_company(inbox, settings, ports.git), attrs.get("boss"))
