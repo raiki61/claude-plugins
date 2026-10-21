@@ -378,7 +378,15 @@ class Task(unittest.TestCase):
                                                            'name = "a2", command = "claude-a2", named_only = true,'),
                      encoding="utf-8")
         push_shape(self.g, '[[roles]]\nname = "作業"\naccount = "a2"\n')
-        rc, out = self.run_task(self.ports({dirs["a2"]: [{"sessionId": "w1", "cwd": "/x", "kind": "background", "state": "idle"}]}))
+        rc, out = self.run_task(self.ports())   # 使えるなら、名指しのときだけ使うアカウントで立てる
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/fix  a2  started", out)
+        self.g.fetch(self.g.source, "main")   # --dry-run は origin を取り直さないので、手元の控えに入れておく
+        busy = {dirs["a2"]: [{"sessionId": "w1", "cwd": "/x", "kind": "background", "state": "idle"}]}
+        rc, out = self.run_task(self.ports(busy), "--dry-run", name="別", branch="task/other")   # 試しでも同じに止まる
+        self.assertEqual(rc, 1, out)
+        self.assertIn("止めた: 役 作業 が名指したアカウント a2 は", out)
+        rc, out = self.run_task(self.ports(busy), name="別", branch="task/other")
         self.assertEqual(rc, 1, out)
         self.assertIn("止めた: 役 作業 が名指したアカウント a2 は終わっていない会話が 1 件在り、設定の max_open（1）に達した。"
                       "名指しのときだけ使うアカウント（named_only）なので、ほかのアカウントでは立てない", out)
