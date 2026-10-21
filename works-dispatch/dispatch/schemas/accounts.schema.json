@@ -25,6 +25,8 @@
           "eligible_at": {"type": ["integer", "null"]},
           "soon": {"type": "boolean"},
           "peak": {"type": ["number", "null"]},
+          "named_only": {"type": "boolean"},
+          "named_ok": {"type": "boolean"},
           "running": {"type": "integer"}
         }
       }

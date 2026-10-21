@@ -56,6 +56,9 @@ class Account(NamedTuple):
     limits: bool = True  # 使用率の枠があるか。false は Ollama・Foundry のような枠の無いアカウントで、控えを読まず使用率で外さない
     plan: str | None = None  # 持ち主が教えたプラン（例 default_claude_max_20x）。ログインの記録からプランが読めないときだけ limits.plan_of が使う
     hours: Hours | None = None  # 使える時間帯。None は一日中使える。外では部署の起動にも移し先にも選ばない（accounts.rank）
+    # 名指しのときだけ使うか。真なら自動の選び方（起動・移し先・PR を開く回）に入れず、会社の形の役か受け持ちの account と、
+    # --move --account で名指したときだけ使う（accounts.rank の named_only。弱いモデルへ読み替わる口を自動で選ばないため）
+    named_only: bool = False
 
 
 class Repo(NamedTuple):
@@ -202,6 +205,10 @@ def load(path=None, env=os.environ, missing_ok=False):
         elif plan is not None and not has_limits:
             problems.append(f"{where}: limits = false のアカウントにはプランが無いので、plan は書かない")
             plan = None
+        named_only = a.get("named_only", False)
+        if not isinstance(named_only, bool):
+            problems.append(f"{where}: named_only が true か false で無い")
+            named_only = False
         hours = a.get("hours")
         if hours is not None:
             hours = parse_hours(hours)
@@ -210,7 +217,8 @@ def load(path=None, env=os.environ, missing_ok=False):
                 hours = None
         if hours is not None and hours.length < 24 * 60 and margin >= hours.length:
             problems.append(f"{where}: hours_margin_minutes（{margin:g} 分）が hours の長さ以上なので、このアカウントは一度も選ばれない")
-        accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan, hours))
+        accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan, hours,
+                                named_only))
     if not raw.get("accounts"):
         accounts = [Account("default", chat.COMMAND, None)]
 

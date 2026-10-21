@@ -12,6 +12,9 @@
   終わりで要求が断られ、ターンの途中で切られるため。日をまたぐ時間帯は始まった日の物として見る。
 - 控えが無い・読めないアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（D7）。
 - 使用率の枠の無いアカウント（設定の limits = false。Ollama・Foundry など）は控えを読まず、控えの無いものと同じに扱う。
+- 名指しのときだけ使うアカウント（設定の named_only = true。弱いモデルへ読み替わる中継など）は、自動では選ばない（eligible を偽にする）。
+  使用率と時間帯で外れていなければ named_ok を真にし（訳は NAMED_ONLY）、会社の形の役か受け持ちが account で名指したとき（prefer）と、
+  --move --account・区切りの名指し（early の wish）で名指したときだけ使う。
 - 動いている会話は、`claude agents --json` の 1 件のうち、背景の会話は state が working・blocked のもの、state の無い対話の会話は status が busy のもの。
   アカウントの一覧を読めなければ 0 件とみなして先へ進み、注記を出す。
 
@@ -43,6 +46,7 @@ for _s in (sys.stdout, sys.stderr):
 
 WINDOWS = ("seven_day", "five_hour")
 RUNNING_STATES = ("working", "blocked")  # 背景の会話の state のうち、動いているもの
+NAMED_ONLY = "名指しのときだけ使うアカウント（設定の named_only = true）"   # 自動で選ばない訳
 
 
 def _window(raw, now):
@@ -120,7 +124,8 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
     控えが古い（limits.stale）アカウントは stale にし、known を偽にする（古い値で選ばない）。stale_over は、古い控えの最後の値で
     上限に達していたか（--move --if-limited が、取り直せない間も移るかを最後の値で決める。一時の混み合いで移さない）。
     eligible_at は、選べないアカウントがまた選べるようになる時刻（上限に達した枠の切り替わりと、使える時間帯の始まりの遅い方。
-    分からなければ None）。"""
+    分からなければ None。名指しのときだけ使うアカウントは自動では選べるようにならないので None）。
+    named_only は設定の named_only。named_ok は、名指せば使える（named_only で、上限にも時間帯にも外れていない）か。"""
     running = running or {}
     rows = []
     for i, a in enumerate(accounts):
@@ -135,6 +140,7 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
         closed = shut(a.hours, now, margin_minutes)
         ends = [w[k]["resets_at"] for k in over] + ([_reopens(a.hours, now)] if closed else [])
         why_not = [f"{k} が {w[k]['used']}% で上限 {limit_percent}% に達した" for k in over] + ([closed] if closed else [])
+        named_only = getattr(a, "named_only", False)
         rows.append({
             "name": a.name,
             "command": a.command,
@@ -144,9 +150,11 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
             "known": known,
             "stale": old,
             "stale_over": any(u is not None and u >= limit_percent for u in last),
-            "eligible": not why_not,
-            "reason": "、".join(why_not) or None,
-            "eligible_at": max(ends) if why_not and None not in ends else None,
+            "eligible": not why_not and not named_only,
+            "reason": "、".join(why_not) or (NAMED_ONLY if named_only else None),
+            "named_only": named_only,
+            "named_ok": named_only and not why_not,
+            "eligible_at": max(ends) if why_not and None not in ends and not named_only else None,
             "hours": a.hours.text if a.hours else None,
             "shut": closed is not None,
             "soon": known and at is not None and at - now <= soon_hours * 3600,
@@ -178,17 +186,26 @@ def prefer(rows, wish, open_count, who):
     """会社の形の役か受け持ちが名指したアカウント wish（role.launch_account）を、使えるなら rows（rank の並び）の頭に出す。(並び, 注記)。
     open_count は wish のアカウントの終わっていない会話の数（count_open）、who は名指した所（注記に出す。例「役 写しの後始末」）。
     使えないと見るのは、rows に無い（設定に無いか、同じ名前の会話が在って避けた）・選べない（使用率の上限か、使える時間帯の外か終わる
-    手前。rank の eligible）・終わっていない会話が在る（同時に 1 件しか走らないアカウントがある）とき。そのときは rows のまま
+    手前。rank の eligible。名指しのときだけ使うアカウントは named_ok）・終わっていない会話が在る（同時に 1 件しか走らないアカウントがある）とき。そのときは rows のまま
     （今の選び方の順）にし、名指しを使わなかった訳を注記にする。名指しが無ければ (rows, None)。"""
     if not wish:
         return rows, None
     row = next((r for r in rows if r["name"] == wish), None)
     bad = ("振れるアカウントの中に無い（設定の accounts に無いか、同じ名前の会話が在るので避けた）" if row is None
-           else row["reason"] if not row["eligible"]
+           else row["reason"] if not (row["eligible"] or row.get("named_ok"))
            else f"終わっていない会話が {open_count} 件在る" if open_count else None)
     if bad:
         return rows, f"{who} が名指したアカウント {wish} は{bad}ので、使用率の順で選ぶ"
-    return [row] + [r for r in rows if r is not row], None
+    return named(rows, wish), None
+
+
+def named(rows, name):
+    """名指したアカウント name を rows（rank の並び）の頭に出す。名指しのときだけ使うアカウントで名指せば使える（named_ok）なら、
+    その行を選べる（eligible）にする（--move の起動し直し〔only_account〕と prefer が使う）。ほかの行はそのまま。"""
+    row = next((r for r in rows if r["name"] == name), None)
+    if row is None:
+        return rows
+    return [{**row, "eligible": True} if row.get("named_ok") else row] + [r for r in rows if r is not row]
 
 
 def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
@@ -202,7 +219,7 @@ def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
       使用率が分かり、高い方の枠が early_percent に届かないほかのアカウントのうち、rank の順の頭へ移す。"""
     if wish and wish != old:
         row = next((r for r in rows if r["name"] == wish), None)
-        if row and row["eligible"] and wish != avoid:
+        if row and (row["eligible"] or row.get("named_ok")) and wish != avoid:
             return {"to": wish, "why": f"--move で名指したアカウント {wish} へ、区切りまで待って移す", "kind": "wish"}
         bad = ("設定に無い" if row is None else "前に起動できなかった" if wish == avoid
                else "使える時間帯の外か終わる手前な" if row.get("shut") else "使用率が上限に達した")
@@ -265,6 +282,32 @@ def why(row, now, soon_hours=config.DEFAULT_RESET_SOON_HOURS):
         return (f"週の枠が {_left(row['seven_day']['resets_at'] - now)}後に切り替わる（{soon_hours:g} 時間以内なので、"
                 f"使わずに切り替わる分を先に使う）。{use}。{tail}")
     return f"{use} で、高い方 {_pct(row['peak'])} が選べるものの中で最も低い。{tail}"
+
+
+def overview(accts, env):
+    """アカウントの一覧の 1 件ずつの {name, named_only, limits, hours, models}。models はモデルの別名の読み替え先
+    （chat.model_aliases。正本はそのアカウントの設定のフォルダの settings.json で、ここでは読むだけ）。--tree と --check が出す。"""
+    return [{"name": a.name, "named_only": getattr(a, "named_only", False), "limits": a.limits,
+             "hours": a.hours.text if a.hours else None,
+             "models": chat.model_aliases(config.effective_config_dir(a, env), env)} for a in accts]
+
+
+ALIAS_LABEL = {"subagent": "サブエージェント", "default": "既定"}   # overview の models のキーで、別名（opus など）でない物の出し方
+
+
+def overview_lines(items):
+    """overview の人が読む行。見出しと 1 アカウント 1 行。読み替え先は、同じモデルに読み替わる別名をまとめて出す。"""
+    out = ["アカウント（選び方: 自動 は使用率の順で選ぶ、名指しだけ は会社の形の account か --move --account で名指したときだけ。"
+           "モデルは別名の読み替え先と既定のモデルで、各アカウントの設定のフォルダの settings.json の env と model から読む。そこに書いていない物は出さない）:"]
+    for x in items:
+        to = {}
+        for alias, model in x["models"].items():
+            to.setdefault(model, []).append(ALIAS_LABEL.get(alias, alias))
+        out.append("  " + "  ".join([x["name"], "名指しだけ" if x["named_only"] else "自動"]
+                                    + ([] if x["limits"] else ["使用率の枠なし"])
+                                    + ([f"時間帯 {x['hours']}"] if x["hours"] else [])
+                                    + (["モデル " + "、".join(f"{'・'.join(a)} → {m}" for m, a in to.items())] if to else [])))
+    return out
 
 
 def read_limits(limits_dir, names):

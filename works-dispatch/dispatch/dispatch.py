@@ -976,6 +976,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     # 会社の形の役か受け持ちが名指したアカウント（account）は、使えれば順の頭へ。使えなければ使用率の順のまま、訳を注記に出す。
     # --move の起動し直し（only_account）では名指しを見ない（アカウントを替えるのは --move の受け持ち）
     wish, wisher = (None, None) if getattr(a, "only_account", None) else role.launch_account(the_role, duty)
+    if getattr(a, "only_account", None):
+        ranked = accounts.named(ranked, a.only_account)   # --move の名指しは、名指しのときだけ使うアカウントも使う
     ranked, wish_note = accounts.prefer(ranked, wish, accounts.count_open(listed.get(wish, [])), wisher)
     if wish_note:
         notes.append(wish_note)
@@ -1152,15 +1154,19 @@ def _company(a, ports):
         print("\n".join(lines))
         return rc
     try:
-        _, _, companies, settings, notes = survey_companies(a.config, ports, plugins=True)
+        accounts_, _, companies, settings, notes = survey_companies(a.config, ports, plugins=True)
     except term.Error as e:
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     calls.annotate(companies, settings, ports.git)
+    # アカウントごとの選び方（自動か名指しだけか）とモデルの別名の読み替え先。アカウントが 1 つで、named_only も読み替え先も無ければ出さない
+    shown = accounts.overview(accounts_, ports.account_env)
+    if len(shown) < 2 and not any(x["named_only"] or x["models"] for x in shown):
+        shown = []
     if a.json:
-        jsonio.dump({"companies": companies, "notes": notes}, None)
+        jsonio.dump({"companies": companies, "accounts": shown, "notes": notes}, None)
         return 0
-    print("\n".join(notes + tree.lines(companies)))
+    print("\n".join(notes + tree.lines(companies) + (accounts.overview_lines(shown) if shown else [])))
     return 0
 
 
@@ -1349,6 +1355,9 @@ def _check(cfg, ports, task=None, lead=None):
             ports.list_sessions(acc.config_dir)
         except chat.Error as e:
             problems.append(f"アカウント {acc.name}: {e}（開いている会話を読む {chat.LIST_COMMAND} が通らない。{chat.NAME} を新しくする）")
+    shown = accounts.overview(cfg.accounts, ports.account_env)
+    if len(shown) > 1 or any(x["named_only"] or x["models"] for x in shown):
+        notes += accounts.overview_lines(shown)
     print("\n".join(notes))
     if problems:
         print("足りない物:")

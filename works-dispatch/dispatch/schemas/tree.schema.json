@@ -4,6 +4,20 @@
   "properties": {
     "schema": {"type": "integer", "enum": [1]},
     "notes": {"type": "array", "items": {"type": "string"}},
+    "accounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "named_only", "limits", "hours", "models"],
+        "properties": {
+          "name": {"type": "string"},
+          "named_only": {"type": "boolean"},
+          "limits": {"type": "boolean"},
+          "hours": {"type": ["string", "null"]},
+          "models": {"type": "object", "additionalProperties": {"type": "string"}}
+        }
+      }
+    },
     "companies": {
       "type": "array",
       "items": {

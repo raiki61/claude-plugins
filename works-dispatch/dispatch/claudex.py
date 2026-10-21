@@ -138,6 +138,32 @@ def trust_file(config_dir, env):
     return os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude.json")
 
 
+# モデルの別名と、その読み替え先を決める環境変数（https://code.claude.com/docs/en/model-config 。settings.json の env に書ける）。
+# default は別名でなく、--model を付けずに起動した会話のモデル（ANTHROPIC_MODEL。無ければ settings.json の model）。subagent はサブエージェントのモデル
+MODEL_ENV = (("opus", "ANTHROPIC_DEFAULT_OPUS_MODEL"), ("sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
+             ("haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL"), ("fable", "ANTHROPIC_DEFAULT_FABLE_MODEL"),
+             ("subagent", "CLAUDE_CODE_SUBAGENT_MODEL"), ("default", "ANTHROPIC_MODEL"))
+
+
+def model_aliases(config_dir, env):
+    """そのアカウントの設定のフォルダの settings.json に書いた、モデルの別名の読み替え先。{別名: モデルの名前}（MODEL_ENV の順）。
+    書いていない別名は入れない（その別名は Anthropic のモデルのまま）。正本は settings.json で、dispatch の設定には写さない。
+    中継（LiteLLM など）がその名前をさらに別のモデルへ送るか（付け替え）は、ここでは読まない。読めない・JSON でなければ {}。"""
+    folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    try:
+        with open(os.path.join(os.path.expanduser(folder), "settings.json"), encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    got = raw.get("env") if isinstance(raw.get("env"), dict) else {}
+    out = {alias: got[key] for alias, key in MODEL_ENV if isinstance(got.get(key), str) and got[key]}
+    if "default" not in out and isinstance(raw.get("model"), str) and raw["model"]:
+        out["default"] = raw["model"]
+    return out
+
+
 def _same_folder(a, b):
     """2 つのパスが同じフォルダか。Claude Code が .claude.json の projects に書く字は、区切りや記号のリンクの解き方が dispatch の
     持つ字と違うことがある（Windows は区切りを / で書き、dispatch は逆スラッシュで書いた物を持つ。macOS の /tmp は
@@ -487,6 +513,7 @@ def accounts_draft(found):
         "# 切り替えるなら、名前・そのアカウントで Claude Code を起動するコマンド・そのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダを並べる。",
         "# 鍵を自分で決めた名前の Keychain の項目に置いたなら keychain_service、使用率の枠の無いアカウント（Ollama など）は limits = false。",
         "# 使える時間帯の決まったアカウントは hours に始まり・終わり・時刻の基準を書く（例 hours = \"08:00-16:00 UTC\"。基準は UTC か Asia/Tokyo などで、書き落とすと止まる）。",
+        "# 名指しのときだけ使うアカウント（弱いモデルへ読み替わる中継など）は named_only = true（会社の形の account か --move --account で名指したときだけ使う）。",
         "# setup-token の鍵だけで動かすアカウントは、プランを plan に書く（例 plan = \"default_claude_max_20x\"。limits.py plan がログインの記録からプランを読めないため）。",
         "# CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて claude を起動する人も、そのフォルダを config_dir に書く（書かないと ~/.claude を見る）:",
         "# accounts = [",
@@ -494,6 +521,7 @@ def accounts_draft(found):
         '#   { name = "sub",  command = "<別のアカウントで起動するコマンド>", config_dir = "~/.claude-sub" },',
         '#   { name = "mine", command = "<コマンド>", config_dir = "~/.claude-mine", keychain_service = "<Keychain の項目の名前>" },',
         '#   { name = "local", command = "<Ollama などで起動するコマンド>", limits = false },',
+        '#   { name = "relay", command = "<中継で起動するコマンド>", config_dir = "~/.claude-relay", limits = false, named_only = true },',
         "# ]",
         f"# この機械で見つかった Claude Code の設定のフォルダ: {', '.join(found) or '無し'}",
     ]

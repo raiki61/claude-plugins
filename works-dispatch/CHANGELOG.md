@@ -6,6 +6,17 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- アカウント（設定の `accounts`）に `named_only = true` を書けるようにした。書いたアカウントは、自動の選び方（部署の起動・`--move` の移る先・区切りで早めに移す先・PR を開く回）に入れず、会社の形（`.claude/company.toml`）の役か受け持ちの `account` で名指したときと、`--move --account` で名指したときだけ使う。使用率の上限・使える時間帯（`hours`）の外は、名指しても前と同じく使わない。
+  - 前は、使用率の枠の無いアカウント（`limits = false`）は順の最後に並ぶだけで、選べる側に残った。弱いモデルへ読み替わる口（NVIDIA NIM を LiteLLM の中継で Claude Code につなぐ口など）を足すと、使用率の分かるアカウントが全部上限か時間帯の外のとき、段取りや照合役のような役がその口で立った（my_notes〔持ち主のノートのリポジトリ〕の受付 20261021-031828-b45260）。
+  - `named_only` を書かないアカウントの選び方は変わらない。
+- `--tree` と `--check` の終わりに、アカウントの一覧を出すようにした。1 アカウント 1 行で、選び方（自動か名指しだけか）・使用率の枠の有無・使える時間帯と、モデルの別名（`opus`・`sonnet`・`haiku`・`fable`・サブエージェント・既定）の読み替え先を出す。読み替え先は、そのアカウントの設定のフォルダの `settings.json` の `env`（`ANTHROPIC_DEFAULT_OPUS_MODEL` など。https://code.claude.com/docs/en/model-config ）から読み（既定のモデルは `ANTHROPIC_MODEL`、無ければ `model`）、dispatch の設定には写さない。`settings.json` に書いていない物は出さない。`--tree --json` は同じ物を `accounts` に出す。アカウントが 1 つで、named_only も読み替え先も無ければ出さない。
+
+### Fixed
+
+- `--move <部署> --account <名前>` で使用率が上限のアカウントを名指すと、前の会話を止めた後で新しい会話を起動できず、部署が空のまま終わっていた。前の会話を止める前に、上限か時間帯の外なら訳を出して止まるようにした（時間帯の外は前から止まっていた）。
+
 ## [0.110.0] - 2026-10-21
 
 ### Added

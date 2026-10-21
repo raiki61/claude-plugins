@@ -162,7 +162,8 @@ def _once(a, ports, cwd, task, token):
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
                            accounts.count_running(sessions_), cfg.reset_soon_hours, cfg.hours_margin_minutes)
     mine = next((r for r in ranked if r["name"] == old), None)
-    usable = bool(mine and mine["eligible"] and not mine.get("stale_over"))
+    # 名指しのときだけ使うアカウント（named_only）で動いている会話は、名指しで立ったので、上限と時間帯で外れていなければ使える
+    usable = bool(mine and (mine["eligible"] or mine.get("named_ok")) and not mine.get("stale_over"))
     passing = usable and (mine["known"] or mine.get("stale"))   # 使用率の分かる今のアカウントが上限に届かない: 一時の混み合い
     if a.if_limited and not a.dry_run and (passing or token and usable):
         if token:
@@ -180,8 +181,10 @@ def _once(a, ports, cwd, task, token):
             return 2
         chosen = a.account
         row = next(r for r in ranked if r["name"] == chosen)
-        if row["shut"]:
-            print("\n".join(notes + [f"止めた: アカウント {chosen} は{row['reason']}（時間帯の外では要求が断られる）"]))
+        # 上限か時間帯の外のアカウントは名指しても使わない。前の会話を止める前に止める（止めた後では起動できず、部署が空になる）
+        if not (row["eligible"] or row.get("named_ok")):
+            print("\n".join(notes + [f"止めた: アカウント {chosen} は、{row['reason']}"
+                                     + ("（時間帯の外では要求が断られる）" if row["shut"] else "（使用率が上限のアカウントでは起動しない）")]))
             return 2
     else:
         chosen = next((r["name"] for r in ranked if r["name"] != old and r["eligible"]), None)
@@ -442,7 +445,8 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
         print("\n".join(notes + [f"起動し直さない: {where} の起動の設定は起動したときと同じ（{now_key}）"
                                  + (f"。{early['why']}" if early else "")]))
         return 0
-    roomy = [r["name"] for r in ranked if r["eligible"]]
+    # 今のアカウントは、名指しのときだけ使うアカウント（named_only）でも、上限と時間帯で外れていなければ使える（名指しで立った）
+    roomy = [r["name"] for r in ranked if r["eligible"] or r["name"] == old and r.get("named_ok")]
     if again and not changed and not (early and early["to"]) and old not in roomy:
         # 同じアカウントの名指しなのに、そのアカウントが選べない。ほかへ移さず、印を外す（区切りのたびに試し直さない）
         if not a.dry_run:

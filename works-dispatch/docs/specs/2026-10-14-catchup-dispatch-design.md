@@ -102,7 +102,8 @@ cost が書くのは、dispatch の控え（`<limits_dir>/dispatch-cost.json`）
      1. 週の枠の切り替わりが近い（設定の `reset_soon_hours` 以内。既定 24 時間。ちょうども含む）ものを先に、切り替わりの近い順。使わずに切り替わる分を無駄にしないため。
      2. それ以外は、5 時間の枠と週の枠のうち高い方の使用率の低い順。
      3. 同じなら、そのアカウントで動いている会話の数の少ない順、次に設定の順。数えるのは sessions と同じ `claude agents --json` の並びのうち、背景の会話は `state` が `working`・`blocked` のもの、`state` の無い対話の会話は `status` が `busy` のもの（2026-10-16 に、対話の会話には `state` が無く `status` だけが入るのを見た）。読めないアカウントは 0 件とみなし、注記を出す。
-   - 出力の 1 件は、名前、起動のコマンド、2 つの枠の値、選べるか、外した訳、切り替わりが近いか（`soon`）、高い方の使用率（`peak`）、動いている会話の数（`running`）。
+   - 設定に `named_only = true` を書いたアカウントは、上限と時間帯で外れていなくても選べる側に置かない（`eligible` は偽、訳は「名指しのときだけ使うアカウント」）。会社の形の役か受け持ちの `account` か `--move --account` で名指したときだけ、上限と時間帯で外れていなければ使う（`named_ok`）。弱いモデルへ読み替わる口が、ほかのアカウントが全部上限のときに自動で選ばれないようにするため（my_notes の受付 20261021-031828-b45260）。
+   - 出力の 1 件は、名前、起動のコマンド、2 つの枠の値、選べるか、外した訳、切り替わりが近いか（`soon`）、高い方の使用率（`peak`）、動いている会話の数（`running`）、名指しのときだけ使うか（`named_only`）、名指せば使えるか（`named_ok`）。
    - 単独でも呼べる（`python3 nodes/accounts.py --pick [--json]`）。順の頭の 1 つの名前と起こし方の命令と選んだ訳を出す。人が手で会話を立てるときも、同じ選び方を通すため（持ち主 2026-10-16）。dispatch の中と違い、古い控えだけを取り直す（`limits.py` の probe と同じ）。
 4. **assign**: 純粋な関数。PR ごとに結末を 1 つ決める。
    - `(対象のリポジトリ, PR の head の枝)` の組が sessions にあるか、その枝の場所のフォルダ（3 節）かその下を作業フォルダにする会話があれば `already_open`（会話が開いている）。リポジトリまで見るので、`main` のような同じ名前の枝を別のリポジトリの会話と取り違えない。
@@ -217,12 +218,15 @@ limits_dir = "~/.cache/claude-limits"   # 使用率の控えの置き場
 # plan は持ち主が教えたプラン（Claude Code のログインの記録〔config_dir の .claude.json の oauthAccount〕の organizationRateLimitTier と同じ形）。
 # アカウントごとのプランを出す limits.py plan は、その記録からプランを読む。setup-token（claude setup-token で作る長く使える鍵）だけで動くアカウント（例の p2）は記録を持たず、
 # プランを読めないので書く。記録が読めるときは記録を採る。limits = false のアカウントには書かない（設定の誤りになる）
+# named_only = true は名指しのときだけ使うアカウント（弱いモデルへ読み替わる中継など）。自動の選び方に入れず、会社の形の account と
+# --move --account で名指したときだけ使う。モデルの別名の読み替え先は config_dir の settings.json の env に書き、ここには書かない
 accounts = [
   { name = "main", command = "claude" },
   { name = "p1",   command = "claude-p1", config_dir = "~/.claude-p1" },
   { name = "p2",   command = "claude-p2", config_dir = "~/.claude-p2", plan = "default_claude_max_20x" },
   { name = "p3",   command = "claude-p3", config_dir = "~/.claude-p3" },
   { name = "local", command = "claude-ollama", config_dir = "~/.claude-ollama", limits = false },
+  { name = "nim", command = "claude-nim", config_dir = "~/.claude-nim", limits = false, named_only = true },
 ]
 
 [[repos]]

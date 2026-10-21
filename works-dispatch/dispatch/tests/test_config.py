@@ -156,6 +156,18 @@ class Load(unittest.TestCase):
             config.load(write(self.d, "c.toml", "hours_margin_minutes = 480\n" + body), env={})
         self.assertIn("一度も選ばれない", str(e.exception))
 
+    def test_named_only_is_read_and_checked(self):
+        # NIM（弱いモデルへ読み替わる中継）を名指しのときだけ使う。受付 20261021-031828-b45260
+        repos = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
+        body = ('accounts = [{ name = "p1", command = "c1" },'
+                ' { name = "nim", command = "claude-nim", config_dir = "~/.claude-nim", limits = false, named_only = true }]\n' + repos)
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual([a.named_only for a in cfg.accounts], [False, True])
+        self.assertEqual(cfg.notes, ())   # 知らない鍵の注記を出さない
+        with self.assertRaises(config.ConfigError) as e:
+            config.load(write(self.d, "c.toml", body.replace("named_only = true", 'named_only = "yes"')), env={})
+        self.assertIn("accounts[1]: named_only が true か false で無い", str(e.exception))
+
     def test_account_field_types_are_checked(self):
         body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
                 f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')

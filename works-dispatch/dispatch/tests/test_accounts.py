@@ -497,3 +497,83 @@ class Early(unittest.TestCase):
         self.assertEqual(accounts.early(self.rows(), "main", 90, 1, self.now, wish="p1")["to"], "p1")   # 目安を待たない
         self.assertIsNone(accounts.early(self.rows(), "p3", 90, 1, self.now, wish="p2")["to"])   # 上限に達した
         self.assertIsNone(accounts.early(self.rows(), "p3", 90, 1, self.now, wish="p9")["to"])
+
+
+class NamedOnly(unittest.TestCase):
+    """名指しのときだけ使うアカウント（設定の named_only）。my_notes の受付 20261021-031828-b45260 の、NIM（弱いモデルへ読み替わる中継）を
+    Anthropic の口が全部上限のときにも自動で選ばない形。"""
+
+    nim = Account("nim", "claude-nim", limits=False, named_only=True)
+    accts = (Account("p1", "c1"), Account("cheap", "claude-cheapest", limits=False), nim)
+
+    def rows(self, used=10):
+        lim = {"p1": {"seven_day": window(used, NOW + 86400 * 3), "five_hour": window(1, NOW + 3600)}}
+        return accounts.rank(self.accts, lim, 95, NOW)
+
+    def test_it_is_never_picked_automatically_even_when_every_other_account_is_over(self):
+        got = self.rows()
+        self.assertEqual(names(got), ["p1", "cheap", "nim"])
+        self.assertEqual((by(got, "nim")["eligible"], by(got, "nim")["named_ok"]), (False, True))
+        self.assertEqual(by(got, "nim")["reason"], accounts.NAMED_ONLY)
+        self.assertIsNone(by(got, "nim")["eligible_at"])
+        self.assertEqual((by(got, "cheap")["named_only"], by(got, "cheap")["named_ok"]), (False, False))
+        # Anthropic の口（p1）が上限で、使用率の枠の無い cheap も無い: nim は選ばれない
+        only = accounts.rank(self.accts[:1] + (self.nim,), {"p1": {"seven_day": window(99, NOW + 86400), "five_hour": window(1, NOW + 3600)}},
+                             95, NOW)
+        self.assertFalse(any(r["eligible"] for r in only))
+        self.assertIsNone(accounts.early(only, "p1", 90, 1, NOW)["to"])
+        self.assertEqual(accounts.next_look(only, NOW, 600), NOW + 86400)   # nim を待たず、p1 の週の枠の切り替わりまで待つ
+
+    def test_naming_it_from_the_company_shape_or_move_uses_it(self):
+        got, note = accounts.prefer(self.rows(), "nim", 0, "役 下書き")
+        self.assertEqual((names(got)[0], got[0]["eligible"], note), ("nim", True, None))
+        self.assertEqual(names(accounts.named(self.rows(), "nim"))[0], "nim")
+        self.assertTrue(accounts.named(self.rows(), "nim")[0]["eligible"])
+        self.assertEqual(accounts.named(self.rows(), "cheap")[0], by(self.rows(), "cheap"))   # ふつうのアカウントの行は替えない
+        self.assertEqual(accounts.early(self.rows(), "p1", 90, 1, NOW, wish="nim")["to"], "nim")
+
+    def test_named_but_closed_or_busy_it_is_still_not_used(self):
+        shut = Account("nim", "claude-nim", limits=False, named_only=True, hours=config.parse_hours("08:00-09:00 UTC"))
+        rows = accounts.rank(self.accts[:2] + (shut,), {}, 95, NOW)   # NOW は UTC 07:30
+        self.assertFalse(by(rows, "nim")["named_ok"])
+        self.assertIn("使える時間帯（08:00-09:00 UTC）の外", by(rows, "nim")["reason"])
+        got, note = accounts.prefer(rows, "nim", 0, "役 下書き")
+        self.assertNotEqual(names(got)[0], "nim")
+        self.assertIn("使える時間帯（08:00-09:00 UTC）の外", note)
+        got, note = accounts.prefer(self.rows(), "nim", 1, "役 下書き")
+        self.assertEqual(names(got)[0], "p1")
+        self.assertIn("終わっていない会話が 1 件在る", note)
+        self.assertIsNone(accounts.early(rows, "p1", 90, 1, NOW, wish="nim")["to"])
+
+    def test_output_matches_schema(self):
+        self.assertEqual(schemacheck.check({"schema": 1, "accounts": self.rows(), "notes": []}, schemacheck.schema("accounts")), [])
+
+
+class Overview(unittest.TestCase):
+    """--tree と --check に出すアカウントの一覧（accounts.overview）。読み替え先は settings.json の env から読む。"""
+
+    def test_aliases_come_from_the_settings_of_each_account(self):
+        with tempfile.TemporaryDirectory() as d:
+            nim, plain = pathlib.Path(d, "nim"), pathlib.Path(d, "plain")
+            nim.mkdir(), plain.mkdir()
+            (nim / "settings.json").write_text(json.dumps({"env": {
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.3-flash", "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.3-flash",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "nemotron-3.5-super-vl", "ANTHROPIC_BASE_URL": "http://127.0.0.1:4011"}}))
+            (plain / "settings.json").write_text(json.dumps({"model": "opus"}))
+            accts = (Account("p1", "c1", str(plain)), Account("nim", "claude-nim", str(nim), limits=False, named_only=True),
+                     Account("gone", "c9", str(pathlib.Path(d, "gone"))))
+            got = accounts.overview(accts, {"HOME": d})
+            self.assertEqual([x["models"] for x in got],
+                             [{"default": "opus"}, {"opus": "glm-5.3-flash", "sonnet": "glm-5.3-flash", "haiku": "nemotron-3.5-super-vl"}, {}])
+            lines = accounts.overview_lines(got)
+            self.assertEqual(lines[1:], ["  p1  自動  モデル 既定 → opus",
+                                         "  nim  名指しだけ  使用率の枠なし  モデル opus・sonnet → glm-5.3-flash、haiku → nemotron-3.5-super-vl",
+                                         "  gone  自動"])
+            self.assertEqual(schemacheck.check({"schema": 1, "companies": [], "accounts": got, "notes": []}, schemacheck.schema("tree")), [])
+
+    def test_unreadable_settings_give_no_aliases(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "settings.json").write_text("{not json")
+            self.assertEqual(claudex.model_aliases(d, {}), {})
+            pathlib.Path(d, "settings.json").write_text(json.dumps({"env": {"ANTHROPIC_MODEL": "", "CLAUDE_CODE_SUBAGENT_MODEL": "x"}}))
+            self.assertEqual(claudex.model_aliases(d, {}), {"subagent": "x"})

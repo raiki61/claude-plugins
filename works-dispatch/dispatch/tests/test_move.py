@@ -435,6 +435,50 @@ class Move(unittest.TestCase):
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((moved["from"], moved["to"], moved["why"]), ("a1", "a1", move.CHANGED))
 
+    def test_a_department_on_a_named_only_account_stays_on_it(self):
+        # 名指しのときだけ使うアカウント（named_only）で動く部署は、名指しで移せて、区切りの起動し直しでもそのアカウントに残る
+        p = pathlib.Path(self.cfg)
+        text = p.read_text(encoding="utf-8")
+        self.assertIn('name = "a1", command = "claude-a1",', text)
+        p.write_text(text.replace('name = "a1", command = "claude-a1",', 'name = "a1", command = "claude-a1", named_only = true,'),
+                     encoding="utf-8")
+        self.changed_world(role.launch_key(None))
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(seen[-1]["ns"].only_account, "a1")
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(seen[-1]["ns"].only_account, "a1")
+            # 名指さなければ、自動の候補（a2）へ移す
+            rc, out = self.main(self.src, "--move", "調べ")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(seen[-1]["ns"].only_account, "a2")
+            # 上限の a1 は名指しても使わず、前の会話を止めない
+            self.stopped.clear()
+            full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+            self.ports.limits_seq = [{"a1": full, "a2": None}]
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("止めた: アカウント a1 は、five_hour が 100% で上限", out)
+            self.assertEqual(self.stopped, [])
+
+    def test_if_limited_goes_on_in_the_same_talk_on_a_named_only_account(self):
+        p = pathlib.Path(self.cfg)
+        p.write_text(p.read_text(encoding="utf-8").replace('name = "a1", command = "claude-a1",',
+                                                           'name = "a1", command = "claude-a1", named_only = true,'), encoding="utf-8")
+        under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
+        self.ports.limits_seq = [under, under]
+        self.ports.term.screen = self.READY
+        provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "ask": "q1", "rest": "s-dept"}, self.g)
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((seen, self.stopped), ([], []))
+        self.assertEqual(self.typed_lines(), [move.GO_ON.format(account="a1")])
+
     def test_if_changed_keeps_the_talk_when_the_values_are_the_same_or_it_carries_its_talk(self):
         self.changed_world(role.launch_key({"model": "opus"}))
         seen, task = self.fake_task()

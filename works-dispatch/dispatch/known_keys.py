@@ -30,7 +30,7 @@ COMPANY_RETIRED = {}
 CONFIG = {
     "": ("limit_percent", "limits_dir", "reset_soon_hours", "move_early_percent", "move_early_reset_hours", "hours_margin_minutes",
          "accounts", "repos"),
-    "accounts": ("name", "command", "config_dir", "keychain_service", "limits", "plan", "hours"),
+    "accounts": ("name", "command", "config_dir", "keychain_service", "limits", "plan", "hours", "named_only"),
     "repos": ("repo", "second_prompt_file", "source", "copy_files", "copy_from", "gh_user"),
 }
 CONFIG_RETIRED = {
