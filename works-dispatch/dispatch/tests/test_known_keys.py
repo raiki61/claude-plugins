@@ -2,6 +2,7 @@
 鍵の骨組み（samples/company-*.toml。文は x に置き換えた）。--deliver と --ask が止まるのは test_deliver の Flow で見る。"""
 
 import pathlib
+import re
 import tomllib
 import unittest
 from unittest import mock
@@ -43,6 +44,14 @@ class Samples(unittest.TestCase):
         # 会社の形に鍵を足したのに一覧（known_keys.COMPANY）を直し忘れると、ここで赤になる
         raw = tomllib.loads(LIVE.read_text(encoding="utf-8"))
         self.assertEqual(known_keys.company(raw, str(LIVE)), [])
+
+    def test_the_roles_reference_sample_has_no_unknown_keys(self):
+        # 書き手が写す見本（references/roles.md の ```toml の塊）が TOML として読め、この版の読まない鍵を含まないこと
+        doc = DISPATCH.parent / "skills" / "dispatch" / "references" / "roles.md"
+        blocks = re.findall(r"^```toml\n(.*?)^```", doc.read_text(encoding="utf-8"), re.S | re.M)
+        self.assertTrue(blocks)
+        for b in blocks:
+            self.assertEqual(known_keys.company(tomllib.loads(b), str(doc)), [])
 
     def test_a_misspelt_key_is_noted_and_marks_the_role(self):
         text = (SAMPLES / "company-my_notes.toml").read_text(encoding="utf-8").replace("deliver_check =", "deliver_chek =", 1)

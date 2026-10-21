@@ -96,3 +96,23 @@
 - 試験は `python3 -B works-dispatch/dispatch/tests/parallel.py`（リポジトリのルートから。中身は `python3 -B -m unittest discover -s works-dispatch/dispatch/tests -t .` と同じ試験を、クラスを小さい組に分けて別のプロセスで並べる。`-j` で並べる数、試験の名前〔例 `test_land`〕で絞る）。ルートの `tests/run.sh` もこれを回す。
 - `--land`（部署のブランチをメインブランチに入れるコマンド）が入れるか・止めるかを決める判断の試験は、`tests/test_land.py` の試験用のクラス `FakeWorld`・`FakePorts` を使い、git の偽物（`tests/fakegit.py`）を `ports.git`（git を呼ぶ口）に渡して回す。本物の git を起動するのは、同じファイルの 2 種類の試験だけ。1 つは試験用のクラス `World`・`Ports` を使う、本物の git の動きに頼る処理（リベースとぶつかりの解き方など）の試験。もう 1 つは試験のクラス `GitBoundary` で、偽物が前提にしている `gitx.py` の返す値（push を断るか・リベースがぶつかったときの返しなど）を本物の git で確かめる。
 - 頼みと納品（`--ask`・`--deliver`）・部署の立て方（`--task`）・部署の移し替え（`--move`）・片付け（`--clean`・`--retire`）・待ち受けなどのフック・PR ごとの場所の一生（`dispatch.py` をオプションを付けずに打ったときの、PR ごとに作業場所を作って開き、片付けるまでの処理）の流れの試験も、git の偽物（`tests/fakegit.py`）を `ports.git` に渡して回す。フック（`wake_hook.py` など、`ports` を持たずにモジュールの `gitx` を git の口に使う単独の入口）の試験は、試験の間だけそのモジュールの `gitx` を偽物に替える（`fakegit.wire`）。偽物で回す試験の中で `gitx.py` が本物の git を起動すると、その試験は赤になる（`fakegit.forbid_real_git`）。本物の git を起動するのは、git との境目を確かめる組だけ。`gitx.py` の口そのもの（`test_ports.GitWorktree`・`test_clean.LocalWork`）、部署の属性の読み書きと、`git worktree add` が属性を写すこと（`test_company.Attrs` と `test_company.Build` の 2 件）、会社の形を origin から読むこと（`test_company.Source`）、`--call` がツールを走らせる一時の worktree（`test_calls.ToolPlace`）、入口を別の処理として起動する試験（`test_wake.HookProcess` など。別の処理には偽物を渡せない）、部署の場所を作る・消すノードの試験（`test_provision.Prepare`・`test_clean.Remove`）、設定と元の clone の読み方の試験（`test_dispatch` の `Preflight`・`Init`・`Check`、`test_local_origin`）が、それに当たる。
+
+## 部署の属性と会話の見分け
+
+部署の属性（`git config --worktree` で書く `company.*`）と、部署の会話の見分け方の細部。会社の形の書き方は [references/roles.md](../skills/dispatch/references/roles.md)。語は文書の頭の「言葉」のほか、次のとおり。
+
+- 代表の clone は、部署の worktree を作る元のふつうの clone（git の主の worktree。worktree の id は `.`）。窓口の会話はここに居る。
+- 属性の名前: `company.role` は部署の役の名前、`company.session` はその場所の会話の id、`company.ask` は部署が今受けている頼みの受付番号。
+- コマンド: `--desk` は代表の clone で打ち、打った会話を窓口の席に付ける。`--task` は部署を立てる。`--move` は部署の会話を起動し直す（ほかのアカウントへ移すときも）。`--land` は部署のブランチをメインブランチに入れる。
+- 差し戻すは、部署の会話が納品していない頼みを持ったままターンを終えようとしたときなどに、Stop のフックが止まるのを断り（`{"decision": "block"}`）、納品するよう会話を続けさせること。
+
+細部:
+
+- 部署の会話で `/clear`・compact・`--resume` をすると会話の id が変わる。SessionStart のフックが、そのとき（フックの入力の `source` が `clear`・`compact`・`resume`。`startup` では書き直さない）だけ属性 `company.session` を新しい id に書き直す。古い id のままだと、`--ask` が頼みを打った後に会話が動き出したかを見られず、Stop のフックが部署の会話を見分けられずに納品を促さない。代表の clone では、この条件に加えて、`--desk` が書いた会話の処理の番号（属性 `company.pid`）と同じ処理の会話のときだけ書き直す（窓口は `/clear` の後に `--desk` を打ち直さなくてよい）。
+- 裏の会話の短い id（`claude attach` に渡す。`/clear` の後も変わらない）は属性 `company.job` に残す。部署の窓から会話が消え、会話の一覧にも見えなければ、`--ask` が部署の窓に `<アカウントのコマンド> attach <短い id>` を打って戻してから頼みを打つ。アカウントのコマンドは、dispatch の設定の `accounts` のその行の `command`（既定 `claude`）。
+- 裏の処理を待つ部署の会話（[references/roles.md](../skills/dispatch/references/roles.md) の「部署の属性」）の裏の処理の数は、Stop のフックの入力の `background_tasks` の running の物で数える。その一覧の無い版の Claude Code では、会話のプロセスの子に残る Bash のツールのシェルを `ps` で数える。`ps` の無い Windows では数えられないので、裏の処理を待っているかが分からず、差し戻す。
+- `extensions.worktreeConfig` が有効なとき、`git worktree add` は打った worktree の `config.worktree`（`company.*` の在るファイル）を新しい worktree へほぼ丸ごと写す。そこで部署の属性を書くときは、書いた worktree の id（`.git/worktrees/<id>` の `<id>`。代表の clone は `.`）を `company.worktree-id` に書き、読むときに、値を読んだ `config.worktree` のパスの id と違えば写しとして属性が無いと読む（部署が切った一時の worktree が同じ名前の部署に見えず、`--move`・`--ask`・`--land` が「2 つ以上ある」で止まらない）。このツールが新しい worktree に部署（や PR の作業場）を立てるときは、写った `company.*` を先に丸ごと消してから書く（消すのは属性だけで、worktree と中の作業は消さない）。
+- `company.worktree-id` の無い属性（それを書き始めた 0.83.1 より前の版で書いた物）は今までどおり読む。その部署の属性が次に書かれる（頼みを受ける・納品するなど）までに切った worktree は、前と同じく部署に見える。ただし代表の clone でない worktree の属性が `company.pid`（`--desk` だけが代表の clone に書く）を含み `company.worktree-id` を含まなければ、窓口から写された物として、`company.role` も含めて属性が無いと読む（写された worktree で起動した PR の会話は、プロセス番号が使い回されても窓口として振る舞わない）。
+- 待ち受けの居ない部署（このフックの無い古い版の会話）は、`--ask` が空にする。前の頼み（属性 `company.ask`）を納品し終えて会話が止まっていれば、`--ask` が部署の窓に `/clear` を打ち、会話の id が変わったのを見てから頼む。前の頼みが無い部署（`--task` の頼みのファイルで働いているかもしれない）は空にせず、「空にしなかった」と注記して送る。空にできない（会話が動いている・id が変わったのを確かめられない）ときは、待ち受けの跡が在り部署がターンの途中なら順番待ちに積み、そうでなければ終了の値 1 で止める。待ち受けの跡は受付箱の `wake/<場所の鍵>.pos` で、場所の鍵は場所の git のフォルダ（`git rev-parse --absolute-git-dir`）の実のパスの SHA-1 の頭 16 字（`nodes/wake.py` の `key`）。
+- 既定の置き場でない dispatch の設定（`--config <ファイル>` か環境変数 `WORKS_DISPATCH_CONFIG` で指したファイル）で部署を立てたときは、フックがその隣の `companies/` を読めるよう、設定の場所を属性 `company.config` に書く。
+- フォルダの信頼は、Claude Code が `.claude.json` の `projects` に書いたフォルダのパスの書き方と dispatch の持つ書き方が違っても（Windows の `C:/…` と `C:\…`、macOS の `/tmp` と `/private/tmp`）、同じフォルダなら信頼済みと見る。部署の作業場に付ける信頼の印は、Claude Code が書いたパスの区切りの字（`/` か `\`）に揃える。
