@@ -39,11 +39,11 @@ class EntryTests(unittest.TestCase):
         self.env = dict(os.environ, XDG_CACHE_HOME=str(self.root / "cache"), WORKS_FACTORY_PLUGIN_REPO=str(self.source))
 
     def git(self, *args):
-        return subprocess.run(["git", "-C", str(self.source), *args], check=True, text=True, capture_output=True)
+        return subprocess.run(["git", "-C", str(self.source), *args], check=True, text=True, encoding="utf-8", capture_output=True)
 
     def invoke(self, *args):
         return subprocess.run(["bash", str(self.plugin / "bin/works-factory"), *args], env=self.env,
-                              text=True, capture_output=True)
+                              text=True, encoding="utf-8", capture_output=True)
 
     def test_fetches_exact_commit_and_keeps_arguments(self):
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
@@ -54,7 +54,7 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], args)
         cached = self.root / "cache/works-factory-plugin" / self.pin
-        head = subprocess.run(["git", "-C", str(cached), "rev-parse", "HEAD"], check=True, text=True, capture_output=True)
+        head = subprocess.run(["git", "-C", str(cached), "rev-parse", "HEAD"], check=True, text=True, encoding="utf-8", capture_output=True)
         self.assertEqual(head.stdout.strip(), self.pin)
 
     def test_reuses_cache_without_repository(self):
