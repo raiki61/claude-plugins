@@ -14,7 +14,7 @@
 - 使用率の枠の無いアカウント（設定の limits = false。Ollama・Foundry など）は控えを読まず、控えの無いものと同じに扱う。
 - 名指しのときだけ使うアカウント（設定の named_only = true。弱いモデルへ読み替わる中継など）は、自動では選ばない（eligible を偽にする）。
   使用率と時間帯で外れていなければ named_ok を真にし（訳は NAMED_ONLY）、会社の形の役か受け持ちが account で名指したとき（prefer）と、
-  --move --account・区切りの名指し（early の wish）で名指したときだけ使う。
+  --move --account・区切りの名指し（early の wish）で名指したときだけ使う。会社の形の名指しが使えなければ、ほかのアカウントへ回さない（prefer の strict）。
 - 動いている会話は、`claude agents --json` の 1 件のうち、背景の会話は state が working・blocked のもの、state の無い対話の会話は status が busy のもの。
   アカウントの一覧を読めなければ 0 件とみなして先へ進み、注記を出す。
 
@@ -182,18 +182,23 @@ def count_open(items):
                                                              if s.get("state") is not None else is_running(s)))
 
 
-def prefer(rows, wish, open_count, who):
+def prefer(rows, wish, open_count, who, max_open=1, strict=False):
     """会社の形の役か受け持ちが名指したアカウント wish（role.launch_account）を、使えるなら rows（rank の並び）の頭に出す。(並び, 注記)。
     open_count は wish のアカウントの終わっていない会話の数（count_open）、who は名指した所（注記に出す。例「役 写しの後始末」）。
+    max_open は wish のアカウントに開いていてよい終わっていない会話の数（設定の max_open。既定 1 は、同時に 1 件しか走らない口に合わせた数）。
     使えないと見るのは、rows に無い（設定に無いか、同じ名前の会話が在って避けた）・選べない（使用率の上限か、使える時間帯の外か終わる
-    手前。rank の eligible。名指しのときだけ使うアカウントは named_ok）・終わっていない会話が在る（同時に 1 件しか走らないアカウントがある）とき。そのときは rows のまま
-    （今の選び方の順）にし、名指しを使わなかった訳を注記にする。名指しが無ければ (rows, None)。"""
+    手前。rank の eligible。名指しのときだけ使うアカウントは named_ok）・終わっていない会話が max_open 件以上在る、とき。そのときは rows のまま
+    （今の選び方の順）にし、名指しを使わなかった訳を注記にする。strict（wish が名指しのときだけ使うアカウント）なら、ほかのアカウントへ
+    回さずに空の並びを返す（そのアカウントでしか動かないモデルを名指した役が、黙って別のモデルで立たないため）。名指しが無ければ (rows, None)。"""
     if not wish:
         return rows, None
     row = next((r for r in rows if r["name"] == wish), None)
     bad = ("振れるアカウントの中に無い（設定の accounts に無いか、同じ名前の会話が在るので避けた）" if row is None
            else row["reason"] if not (row["eligible"] or row.get("named_ok"))
-           else f"終わっていない会話が {open_count} 件在る" if open_count else None)
+           else f"終わっていない会話が {open_count} 件在り、設定の max_open（{max_open}）に達した" if open_count >= max_open else None)
+    if bad and strict:
+        return [], (f"{who} が名指したアカウント {wish} は{bad}。名指しのときだけ使うアカウント（named_only）なので、"
+                    "ほかのアカウントでは立てない")
     if bad:
         return rows, f"{who} が名指したアカウント {wish} は{bad}ので、使用率の順で選ぶ"
     return named(rows, wish), None
@@ -285,9 +290,9 @@ def why(row, now, soon_hours=config.DEFAULT_RESET_SOON_HOURS):
 
 
 def overview(accts, env):
-    """アカウントの一覧の 1 件ずつの {name, named_only, limits, hours, models}。models はモデルの別名の読み替え先
+    """アカウントの一覧の 1 件ずつの {name, named_only, max_open, limits, hours, models}。models はモデルの別名の読み替え先
     （chat.model_aliases。正本はそのアカウントの設定のフォルダの settings.json で、ここでは読むだけ）。--tree と --check が出す。"""
-    return [{"name": a.name, "named_only": getattr(a, "named_only", False), "limits": a.limits,
+    return [{"name": a.name, "named_only": getattr(a, "named_only", False), "max_open": getattr(a, "max_open", 1), "limits": a.limits,
              "hours": a.hours.text if a.hours else None,
              "models": chat.model_aliases(config.effective_config_dir(a, env), env)} for a in accts]
 
@@ -304,6 +309,7 @@ def overview_lines(items):
         for alias, model in x["models"].items():
             to.setdefault(model, []).append(ALIAS_LABEL.get(alias, alias))
         out.append("  " + "  ".join([x["name"], "名指しだけ" if x["named_only"] else "自動"]
+                                    + ([f"名指しで同時 {x['max_open']} 件まで"] if x.get("max_open", 1) != 1 else [])
                                     + ([] if x["limits"] else ["使用率の枠なし"])
                                     + ([f"時間帯 {x['hours']}"] if x["hours"] else [])
                                     + (["モデル " + "、".join(f"{'・'.join(a)} → {m}" for m, a in to.items())] if to else [])))

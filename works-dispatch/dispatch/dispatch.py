@@ -978,7 +978,12 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     wish, wisher = (None, None) if getattr(a, "only_account", None) else role.launch_account(the_role, duty)
     if getattr(a, "only_account", None):
         ranked = accounts.named(ranked, a.only_account)   # --move の名指しは、名指しのときだけ使うアカウントも使う
-    ranked, wish_note = accounts.prefer(ranked, wish, accounts.count_open(listed.get(wish, [])), wisher)
+    wished = next((x for x in cfg.accounts if x.name == wish), None)
+    ranked, wish_note = accounts.prefer(ranked, wish, accounts.count_open(listed.get(wish, [])), wisher,
+                                        wished.max_open if wished else 1, bool(wished and wished.named_only))
+    if wish_note and not ranked:   # 名指しのときだけ使うアカウントの名指しが使えない。ほかのアカウントで立てずに止める
+        print("\n".join(notes + [f"止めた: {wish_note}（使えるようになってから頼み直す。会話の数で止まったなら、設定の max_open を上げてもよい）"]))
+        return 1
     if wish_note:
         notes.append(wish_note)
     row = assign.plan(repo, [{"number": None, "kind": "task", "title": a.task, "head": a.branch}], sessions.open_keys(sess),
@@ -1159,9 +1164,10 @@ def _company(a, ports):
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     calls.annotate(companies, settings, ports.git)
-    # アカウントごとの選び方（自動か名指しだけか）とモデルの別名の読み替え先。アカウントが 1 つで、named_only も読み替え先も無ければ出さない
+    # アカウントごとの選び方（自動か名指しだけか・名指しで同時に立てる数）とモデルの別名の読み替え先。アカウントが 1 つで、named_only も
+    # max_open も読み替え先も無ければ出さない
     shown = accounts.overview(accounts_, ports.account_env)
-    if len(shown) < 2 and not any(x["named_only"] or x["models"] for x in shown):
+    if len(shown) < 2 and not any(x["named_only"] or x["max_open"] != 1 or x["models"] for x in shown):
         shown = []
     if a.json:
         jsonio.dump({"companies": companies, "accounts": shown, "notes": notes}, None)
@@ -1356,7 +1362,7 @@ def _check(cfg, ports, task=None, lead=None):
         except chat.Error as e:
             problems.append(f"アカウント {acc.name}: {e}（開いている会話を読む {chat.LIST_COMMAND} が通らない。{chat.NAME} を新しくする）")
     shown = accounts.overview(cfg.accounts, ports.account_env)
-    if len(shown) > 1 or any(x["named_only"] or x["models"] for x in shown):
+    if len(shown) > 1 or any(x["named_only"] or x["max_open"] != 1 or x["models"] for x in shown):
         notes += accounts.overview_lines(shown)
     print("\n".join(notes))
     if problems:

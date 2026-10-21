@@ -442,7 +442,7 @@ class Prefer(unittest.TestCase):
     def test_an_unusable_wish_keeps_the_usage_order_and_says_why(self):
         for at, opened, why in ((Hours.outside, 0, "使える時間帯（17:00-25:00 Asia/Tokyo）の外"),
                                 (Hours.closing, 0, "分後に終わる（終わりの 30 分前からは選ばない）"),
-                                (Hours.inside, 1, "終わっていない会話が 1 件在る")):
+                                (Hours.inside, 1, "終わっていない会話が 1 件在り、設定の max_open（1）に達した")):
             got, note = accounts.prefer(self.rows(at), "cheap", opened, "役 写しの後始末")
             self.assertEqual(names(got)[0], "p1")
             self.assertIn("役 写しの後始末 が名指したアカウント cheap は", note)
@@ -450,6 +450,13 @@ class Prefer(unittest.TestCase):
         got, note = accounts.prefer(self.rows(), "p9", 0, "受け持ち 写し")
         self.assertEqual(names(got), ["p1", "cheap"])
         self.assertIn("p9 は振れるアカウントの中に無い", note)
+
+    def test_max_open_allows_that_many_open_conversations(self):
+        got, note = accounts.prefer(self.rows(), "cheap", 2, "役 写しの後始末", max_open=3)
+        self.assertEqual((names(got)[0], note), ("cheap", None))
+        got, note = accounts.prefer(self.rows(), "cheap", 3, "役 写しの後始末", max_open=3)
+        self.assertEqual(names(got)[0], "p1")
+        self.assertIn("終わっていない会話が 3 件在り、設定の max_open（3）に達した", note)
 
     def test_an_account_over_its_limit_is_not_used_even_when_named(self):
         lim = {"p1": {"seven_day": {"used_percentage": 99, "resets_at": Hours.inside + 86400}, "five_hour": {"used_percentage": 1}}}
@@ -542,7 +549,16 @@ class NamedOnly(unittest.TestCase):
         self.assertIn("使える時間帯（08:00-09:00 UTC）の外", note)
         got, note = accounts.prefer(self.rows(), "nim", 1, "役 下書き")
         self.assertEqual(names(got)[0], "p1")
-        self.assertIn("終わっていない会話が 1 件在る", note)
+        self.assertIn("終わっていない会話が 1 件在り", note)
+        # strict（名指しのときだけ使うアカウントの名指し）なら、ほかのアカウントへ回さず空の並び
+        got, note = accounts.prefer(self.rows(), "nim", 1, "役 下書き", strict=True)
+        self.assertEqual(got, [])
+        self.assertIn("ほかのアカウントでは立てない", note)
+        got, note = accounts.prefer(rows, "nim", 0, "役 下書き", strict=True)
+        self.assertEqual(got, [])
+        self.assertIn("使える時間帯（08:00-09:00 UTC）の外", note)
+        got, note = accounts.prefer(self.rows(), "nim", 1, "役 下書き", max_open=2, strict=True)
+        self.assertEqual((names(got)[0], note), ("nim", None))
         self.assertIsNone(accounts.early(rows, "p1", 90, 1, NOW, wish="nim")["to"])
 
     def test_output_matches_schema(self):
@@ -560,14 +576,14 @@ class Overview(unittest.TestCase):
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.3-flash", "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.3-flash",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL": "nemotron-3.5-super-vl", "ANTHROPIC_BASE_URL": "http://127.0.0.1:4011"}}))
             (plain / "settings.json").write_text(json.dumps({"model": "opus"}))
-            accts = (Account("p1", "c1", str(plain)), Account("nim", "claude-nim", str(nim), limits=False, named_only=True),
+            accts = (Account("p1", "c1", str(plain)), Account("nim", "claude-nim", str(nim), limits=False, named_only=True, max_open=3),
                      Account("gone", "c9", str(pathlib.Path(d, "gone"))))
             got = accounts.overview(accts, {"HOME": d})
             self.assertEqual([x["models"] for x in got],
                              [{"default": "opus"}, {"opus": "glm-5.3-flash", "sonnet": "glm-5.3-flash", "haiku": "nemotron-3.5-super-vl"}, {}])
             lines = accounts.overview_lines(got)
             self.assertEqual(lines[1:], ["  p1  自動  モデル 既定 → opus",
-                                         "  nim  名指しだけ  使用率の枠なし  モデル opus・sonnet → glm-5.3-flash、haiku → nemotron-3.5-super-vl",
+                                         "  nim  名指しだけ  名指しで同時 3 件まで  使用率の枠なし  モデル opus・sonnet → glm-5.3-flash、haiku → nemotron-3.5-super-vl",
                                          "  gone  自動"])
             self.assertEqual(schemacheck.check({"schema": 1, "companies": [], "accounts": got, "notes": []}, schemacheck.schema("tree")), [])
 

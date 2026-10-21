@@ -8,10 +8,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "named_only", "limits", "hours", "models"],
+        "required": ["name", "named_only", "max_open", "limits", "hours", "models"],
         "properties": {
           "name": {"type": "string"},
           "named_only": {"type": "boolean"},
+          "max_open": {"type": "integer", "minimum": 1},
           "limits": {"type": "boolean"},
           "hours": {"type": ["string", "null"]},
           "models": {"type": "object", "additionalProperties": {"type": "string"}}

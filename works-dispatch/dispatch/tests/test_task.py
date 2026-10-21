@@ -350,7 +350,39 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports, name="別", branch="task/other")
         self.assertEqual(rc, 0, out)
         self.assertIn("task/other  a1  started", out)
-        self.assertIn("役 作業 が名指したアカウント a2 は終わっていない会話が 1 件在るので、使用率の順で選ぶ", out)
+        self.assertIn("役 作業 が名指したアカウント a2 は終わっていない会話が 1 件在り、設定の max_open（1）に達したので、使用率の順で選ぶ", out)
+
+    def test_max_open_lets_the_named_account_take_more_departments(self):
+        # 設定の max_open まで、終わっていない会話の在る名指しのアカウントに立てる（my_notes の受付 20261021-063439-aee108。
+        # 使用率の枠の無い Foundry の口に部署を並べる）
+        dirs = two_accounts(self.cfg)
+        p = pathlib.Path(self.cfg)
+        p.write_text(p.read_text(encoding="utf-8").replace('name = "a2", command = "claude-a2",',
+                                                           'name = "a2", command = "claude-a2", max_open = 2,'),
+                     encoding="utf-8")
+        push_shape(self.g, '[[roles]]\nname = "作業"\naccount = "a2"\n')
+        idle = {"sessionId": "w1", "cwd": "/x", "kind": "background", "state": "idle"}
+        rc, out = self.run_task(self.ports({dirs["a2"]: [idle]}))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/fix  a2  started", out)
+        rc, out = self.run_task(self.ports({dirs["a2"]: [idle, {**idle, "sessionId": "w2"}]}), name="別", branch="task/other")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/other  a1  started", out)
+        self.assertIn("終わっていない会話が 2 件在り、設定の max_open（2）に達した", out)
+
+    def test_a_named_only_account_that_cannot_take_it_stops_instead_of_another_account(self):
+        # 名指しのときだけ使うアカウントの名指しが使えなければ、ほかのアカウント（別のモデル）で立てずに止める
+        dirs = two_accounts(self.cfg)
+        p = pathlib.Path(self.cfg)
+        p.write_text(p.read_text(encoding="utf-8").replace('name = "a2", command = "claude-a2",',
+                                                           'name = "a2", command = "claude-a2", named_only = true,'),
+                     encoding="utf-8")
+        push_shape(self.g, '[[roles]]\nname = "作業"\naccount = "a2"\n')
+        rc, out = self.run_task(self.ports({dirs["a2"]: [{"sessionId": "w1", "cwd": "/x", "kind": "background", "state": "idle"}]}))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("止めた: 役 作業 が名指したアカウント a2 は終わっていない会話が 1 件在り、設定の max_open（1）に達した。"
+                      "名指しのときだけ使うアカウント（named_only）なので、ほかのアカウントでは立てない", out)
+        self.assertNotIn("started", out)
 
     def test_the_account_named_outside_its_hours_falls_back_to_the_usage_order(self):
         # 試験の時刻は 0（UTC 00:00）。a1 の使える時間帯の外なので、名指しても a2

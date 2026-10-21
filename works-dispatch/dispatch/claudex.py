@@ -514,6 +514,7 @@ def accounts_draft(found):
         "# 鍵を自分で決めた名前の Keychain の項目に置いたなら keychain_service、使用率の枠の無いアカウント（Ollama など）は limits = false。",
         "# 使える時間帯の決まったアカウントは hours に始まり・終わり・時刻の基準を書く（例 hours = \"08:00-16:00 UTC\"。基準は UTC か Asia/Tokyo などで、書き落とすと止まる）。",
         "# 名指しのときだけ使うアカウント（弱いモデルへ読み替わる中継など）は named_only = true（会社の形の account か --move --account で名指したときだけ使う）。",
+        "# 会社の形の account で名指して部署を同時に何件まで立てるかは max_open（既定 1。同時に 1 件しか走らない口に合わせた数）。",
         "# setup-token の鍵だけで動かすアカウントは、プランを plan に書く（例 plan = \"default_claude_max_20x\"。limits.py plan がログインの記録からプランを読めないため）。",
         "# CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて claude を起動する人も、そのフォルダを config_dir に書く（書かないと ~/.claude を見る）:",
         "# accounts = [",

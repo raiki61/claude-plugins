@@ -59,6 +59,9 @@ class Account(NamedTuple):
     # 名指しのときだけ使うか。真なら自動の選び方（起動・移し先・PR を開く回）に入れず、会社の形の役か受け持ちの account と、
     # --move --account で名指したときだけ使う（accounts.rank の named_only。弱いモデルへ読み替わる口を自動で選ばないため）
     named_only: bool = False
+    # 会社の形の account で名指して部署を立てるとき、そのアカウントに開いていてよい終わっていない会話の数（accounts.prefer）。
+    # 達していれば名指しを使わない。既定の 1 は同時に 1 件しか走らない口（cheapest など）に合わせた数
+    max_open: int = 1
 
 
 class Repo(NamedTuple):
@@ -209,6 +212,10 @@ def load(path=None, env=os.environ, missing_ok=False):
         if not isinstance(named_only, bool):
             problems.append(f"{where}: named_only が true か false で無い")
             named_only = False
+        max_open = a.get("max_open", 1)
+        if isinstance(max_open, bool) or not isinstance(max_open, int) or max_open < 1:
+            problems.append(f"{where}: max_open が 1 以上の整数で無い")
+            max_open = 1
         hours = a.get("hours")
         if hours is not None:
             hours = parse_hours(hours)
@@ -218,7 +225,7 @@ def load(path=None, env=os.environ, missing_ok=False):
         if hours is not None and hours.length < 24 * 60 and margin >= hours.length:
             problems.append(f"{where}: hours_margin_minutes（{margin:g} 分）が hours の長さ以上なので、このアカウントは一度も選ばれない")
         accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan, hours,
-                                named_only))
+                                named_only, max_open))
     if not raw.get("accounts"):
         accounts = [Account("default", chat.COMMAND, None)]
 

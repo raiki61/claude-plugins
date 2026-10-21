@@ -168,6 +168,18 @@ class Load(unittest.TestCase):
             config.load(write(self.d, "c.toml", body.replace("named_only = true", 'named_only = "yes"')), env={})
         self.assertIn("accounts[1]: named_only が true か false で無い", str(e.exception))
 
+    def test_max_open_is_read_and_checked(self):
+        # 名指しで部署を立てるとき、そのアカウントに開いていてよい会話の数。既定 1。my_notes の受付 20261021-063439-aee108
+        repos = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
+        body = 'accounts = [{ name = "p1", command = "c1" }, { name = "f", command = "cf", limits = false, max_open = 4 }]\n' + repos
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual([a.max_open for a in cfg.accounts], [1, 4])
+        self.assertEqual(cfg.notes, ())
+        for bad in ("0", "true", '"4"', "1.5"):
+            with self.assertRaises(config.ConfigError) as e:
+                config.load(write(self.d, "c.toml", body.replace("max_open = 4", f"max_open = {bad}")), env={})
+            self.assertIn("accounts[1]: max_open が 1 以上の整数で無い", str(e.exception))
+
     def test_account_field_types_are_checked(self):
         body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
                 f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
