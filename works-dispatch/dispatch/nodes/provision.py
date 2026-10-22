@@ -228,12 +228,8 @@ def follow_main(path, g=gitx):
     "behind": 足りない commit の数, "startup": 進めて替わった、会話が起動するときにしか読まないファイル〔比べられなければ None〕} を返す。
     ブランチにメインブランチに無い commit が在れば（書きかけの作業）、動かさずに local_only（書き換えない。受けた会話が決める）。
     取れない・未コミットの変更と重なって git が断ったときは GitError（変更は消さない）。"""
-    top = g.toplevel(path) or path
-    main = g.default_branch(top)
-    g.fetch(top, main)
-    ref = f"refs/remotes/origin/{main}"
+    top, main, ref, ahead, behind = _lag(path, g)
     head = g.head_sha(top)
-    ahead, behind = (len(g.subjects(top, ref, "HEAD")), len(g.subjects(top, "HEAD", ref)))
     status = g.fast_forward_to(top, ref)
     # 進める前の HEAD を読めなければ（生まれたばかりのブランチなど）、替わったファイルを比べない。進めた後に比べられなければ None
     # （もう進めたので GitError にしない。替わったかが分からない）
@@ -244,6 +240,22 @@ def follow_main(path, g=gitx):
         except g.GitError:
             startup = None
     return {"status": status, "main": main, "ahead": ahead, "behind": behind, "startup": startup}
+
+
+def lag(path, g=gitx):
+    """永続の部署の作業場（path）のブランチが、origin のメインブランチからどれだけ遅れているか。origin のメインブランチを取り直す
+    （参照だけで、作業場のファイルとブランチは動かさない）。{"main": メインブランチ, "ahead": メインブランチに無い commit の数,
+    "behind": 足りない commit の数} を返す。取れなければ GitError。"""
+    _, main, _, ahead, behind = _lag(path, g)
+    return {"main": main, "ahead": ahead, "behind": behind}
+
+
+def _lag(path, g):
+    top = g.toplevel(path) or path
+    main = g.default_branch(top)
+    g.fetch(top, main)
+    ref = f"refs/remotes/origin/{main}"
+    return top, main, ref, len(g.subjects(top, ref, "HEAD")), len(g.subjects(top, "HEAD", ref))
 
 
 def renew_session(attrs, sid):

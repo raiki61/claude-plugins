@@ -31,7 +31,7 @@
   順番待ちに積まれたままこの部署へ戻る輪を見つけたら、輪の一番古い頼みを、それが積まれた部署の会社で dispatch.py --take で既定の役の
   部署へ回す（knot・untie。受付の設計の 4.3。出力は受付箱の takes/、台帳に knot の行）。
   永続の部署は、次の頼みを渡す前に、作業場のブランチを origin のメインブランチの先頭まで fast-forward する（follow_main。書きかけの
-  commit が在れば動かさない）。会話が起動するときにしか読まないファイルが替われば、今のアカウントの名指し（company.move-to）を印して起動し直させる。
+  commit が在れば動かさない。会話の裏の処理が動いている間は進めず、遅れていればそれを添える。lag_note）。会話が起動するときにしか読まないファイルが替われば、今のアカウントの名指し（company.move-to）を印して起動し直させる。
   毎回クリアする部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
   dispatch.py --move <部署> --if-changed で起動し直す（/clear は起動したときの --model・--effort を残すため。restart_due）。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文でターンが始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
@@ -640,6 +640,30 @@ def follow_main(got, attrs, catch_up=None):
     return said + "ので、次の区切り（頼みを納品した後に --rest を打ったターンの終わり）で、同じアカウントのまま起動し直す"
 
 
+def lag_note(got, attrs, count=None):
+    """会話の裏の処理が動いていて follow_main で作業場を進めないとき、渡す字の頭と台帳（kind followed の行と、handed の行の
+    followed）に添える文。永続の部署の作業場がメインブランチより遅れていれば、進めていないことと足りない commit の数を書く（遅れて
+    いない・永続の部署でなければ None）。黙って進めずに渡すと、会話はメインブランチに入った直しの無い作業場で頼みを受け、それを
+    知らない（2026-10-21 に my_notes の調べものが、裏の処理が残ったまま次の頼みを受け、followed の行も無かった。my_notes の受付 35aa1b）。
+    count は遅れを数える口（provision.lag。取り直すのは参照だけで、作業場のファイルは替えない）。何が起きても頼みは渡す。"""
+    if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
+        return None
+    held = "会話の裏の処理が動いているので、その足元のファイルを替えないよう、作業場のブランチをメインブランチの先頭へ進めていない"
+    try:
+        r = (count or (lambda cwd: provision.lag(cwd, gitx)))(got["cwd"])
+    except Exception as e:  # 取れなくても、頼みは渡す
+        return held + f"（遅れているかを確かめられなかった: {type(e).__name__}: {e}）"
+    if not r["behind"]:
+        return None
+    main = r["main"]
+    said = (held.replace("メインブランチ", main) + f"（{main} に有って作業場のブランチに無い commit が {r['behind']} 個）。"
+            "この頼みはこのブランチのまま受ける（待ち受けがこの頼みのために後から進めることは無い）。")
+    if r["ahead"]:   # follow_main の local_only と同じ扱い（書き換えない）
+        return said + (f"作業場のブランチに {main} に無い commit が {r['ahead']} 個在るので、fast-forward では進められない。"
+                       "前の頼みの書きかけなら、その頼み元に確かめてから --land で入れ、違うなら扱いを頼み元に問う")
+    return said + f"{main} に入った直しが要るなら、裏の処理が終わってから、この会話で git merge --ff-only origin/{main} を打って進める"
+
+
 def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False, early_of=early_due):
     """毎回クリアする部署が次の頼みを受ける前に（at_rest なら、会話を引き継ぐ部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
     起動し直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起動したときの --model・--effort・--settings を
@@ -724,11 +748,12 @@ class _DoneFile:
 
 
 def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: chat.host()[0],
-            spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie, follow=follow_main):
+            spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie, follow=follow_main, lag=lag_note):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
     restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
     unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。follow は永続の部署の作業場をメインブランチの先頭へ
-    進める口（follow_main。(got, 属性) を受け、渡す字に添える文か None を返す）。"""
+    進める口（follow_main。(got, 属性) を受け、渡す字に添える文か None を返す）。lag は会話の裏の処理が動いていて進めないときに
+    代わりに呼ぶ口（lag_note。同じ形）。"""
     # fresh の部署をすぐ替わる訳で空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。
     # 順番待ちに次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--nudge で動かせる）
     told, untied, follows = set(), {}, {}   # follows: 順番待ちの先頭の頼み → 作業場を進めて添える文（follow）
@@ -802,12 +827,13 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
             return "end", None   # エフェメラルの部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         # 空にする・区切りの判定より先に進める（起動するときに読むファイルが替われば、名指しの印で区切りの起動し直しに間に合わせる）。
-        # 裏の処理が動いている間は、その足元のファイルを替えない（次のターンの終わりにまた試す）
+        # 裏の処理が動いている間は、その足元のファイルを替えず、進めていないことと遅れを添える（lag。空にできずに待つなら、
+        # 次のターンの終わりの待ち受けがまた試す。前の会話のまま渡すなら、会話は遅れを知って受ける）
         # 進めるのは順番待ちの先頭の頼みごとに 1 度（渡さずに待つ間は 5 秒ごとに見直すので、取り直しと台帳の行を重ねない）
         waiting = wake.queued(got["inbox"], got["place"])
         first = waiting[0].get("id") if waiting else None
-        if waiting and first not in follows and not payload.get("background_tasks"):
-            follows[first] = follow(got, attrs)
+        if waiting and first not in follows:
+            follows[first] = (lag if payload.get("background_tasks") else follow)(got, attrs)
             if follows[first]:
                 # 空にした・起動し直した会話の待ち受けが渡すときは、もう先頭を含むので handed の行に添わない。ここで残す
                 deliver.log(got["inbox"], {"kind": "followed", "next": first, "at": now(), "place": got["cwd"], "session": got["session"],

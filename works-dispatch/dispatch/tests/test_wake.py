@@ -680,14 +680,23 @@ class Hook(unittest.TestCase):
         same = role.launch_key(None)
         self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1", launched=same)
         stop = {"hook_event_name": "Stop"}
-        # 裏の処理が動いている間は、その足元のファイルを替えない
+        # 裏の処理が動いている間は、その足元のファイルを替えない。黙らず、進めていないことと遅れを渡す字と台帳に添える
+        # （2026-10-21 に my_notes の調べものが、裏の処理が残ったまま遅れた作業場で頼みを受け、followed の行も無かった。受付 35aa1b）
         self.put("a0b")
         busy = {**stop, "background_tasks": [{"id": "b"}]}
         seen = []
         check = wake_hook.checker(self.plan(), busy, h=Window(self.place), now=lambda: 5, me=lambda: ME, restart=lambda got_, key: False,
                                   key_of=lambda cwd, a: same, follow=lambda got_, attrs: seen.append(1))
-        self.assertEqual(check()[0], "wake")
+        head = self.g.head_sha(self.place)
+        verdict, text = check()
+        self.assertEqual(verdict, "wake")
         self.assertEqual(seen, [])
+        self.assertEqual(self.g.head_sha(self.place), head)
+        row = deliver.records(self.inbox)[-1]
+        self.assertIn("進めていない（main に有って作業場のブランチに無い commit が 1 個）", row["followed"])
+        self.assertTrue(text.startswith(f"（{row['followed']}）\n"), text)
+        self.assertIn("git merge --ff-only origin/main", row["followed"])
+        self.assertEqual([r["next"] for r in deliver.records(self.inbox) if r.get("kind") == "followed"], ["a0b"])
         provision.mark(self.place, self.src, {"delivered": "a0b", "cleared": "a0b"}, self.g)
         self.put("a1")
         check = wake_hook.checker(self.plan(), stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
@@ -756,6 +765,15 @@ class Hook(unittest.TestCase):
         self.assertIn("進められなかった", wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: 1 / 0))
         # エフェメラルの部署（頼みごとにメインブランチから切る）と窓口は進めない
         self.assertIsNone(wake_hook.follow_main(self.plan(), {**attrs, "lifecycle": gitx.EPHEMERAL}))
+        # 裏の処理が動いていて進めないときの文（lag_note）も、作業場を動かさず、同じ場所では添えない
+        got = wake_hook.lag_note(self.plan(), attrs)
+        self.assertIn("commit が 1 個）", got)
+        self.assertIn("main に無い commit が 1 個在るので、fast-forward では進められない", got)   # 書きかけなら進めると書かない
+        self.assertNotIn("merge --ff-only", got)
+        self.assertEqual(self.g.head_sha(self.place), head)
+        self.assertIn("確かめられなかった", wake_hook.lag_note(self.plan(), attrs, count=lambda cwd: 1 / 0))
+        self.assertIsNone(wake_hook.lag_note(self.plan(), attrs, count=lambda cwd: {"main": "main", "ahead": 1, "behind": 0}))
+        self.assertIsNone(wake_hook.lag_note(self.plan(), {**attrs, "lifecycle": gitx.EPHEMERAL}))
         # 空にできずに待つ間（5 秒ごとに見直す）も、進めるのと台帳の行は順番待ちの先頭の頼みごとに 1 度
         provision.mark(self.place, self.src, {"cleared": None}, self.g)   # 前の頼みの後をまだ空にしていない
         self.put("a1")
