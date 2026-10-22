@@ -1,0 +1,31 @@
+{
+  "type": "result",
+  "session_id": "ab7c8043-9430-42af-b27b-c8bf5ae123cf",
+  "is_error": false,
+  "subtype": "success",
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 4813,
+    "cache_read_input_tokens": 1249,
+    "output_tokens": 6449,
+    "output_tokens_details": {"thinking_tokens": 5401},
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 4813,
+      "ephemeral_5m_input_tokens": 0
+    }
+  },
+  "modelUsage": {
+    "claude-haiku-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 6449,
+      "cacheReadInputTokens": 1249,
+      "cacheCreationInputTokens": 4813,
+      "costUSD": 0.00419979,
+      "costBasis": "list"
+    }
+  },
+  "num_turns": 2,
+  "total_cost_usd": 0.00419979,
+  "structured_output": {"findings": []},
+  "result": ""
+}

@@ -18,6 +18,7 @@ import os
 import pathlib
 import sys
 import tempfile
+import subprocess
 
 gate_path = os.path.join(os.path.dirname(__file__), "..", "gates", "hooks", "coldread-gate.py")
 spec = importlib.util.spec_from_file_location("coldread_gate", gate_path)
@@ -330,6 +331,13 @@ try:
 finally:
     del gate.LONG_TEXT_FLAGS[PATCH_FLAG]
     _tmp.cleanup()
+
+# 読み手の記録と依頼元の結合も、このゲートの既存の試験入口から回す。失敗した出力と終了コードを落とさない。
+usage = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "coldread-usage-case.py")], capture_output=True)
+if usage.returncode:
+    sys.stdout.write(usage.stdout.decode("utf-8", "replace"))
+    sys.stderr.write(usage.stderr.decode("utf-8", "replace"))
+    failures.append("読み手の使用量記録の試験が失敗した")
 
 if failures:
     for f in failures:
