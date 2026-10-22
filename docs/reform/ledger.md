@@ -439,15 +439,21 @@ e001d7 は割り振りの作業の部署「割り振り：アカウントの使�
 
 ## 頼み 0fa9b0（2026-10-22、前の版で立った待ち受けが頼みを渡す前に今の版へ替わる直しが効いているかを測る、受付 20261022-131613-0fa9b0）
 
-直しは works-dispatch 0.114.2（commit 0f569f35、版上げ e7966f73 は 2026-10-22 22:09 JST に main）。替われた・替われなかったは受付箱の台帳（`.git/company/inbox/log.jsonl`）の種類 hopped の行（from・to に版の置き場、status failed は替われなかった回）に残る。0.114.2 の後にもう 1 度版が上がらないと「前の版の待ち受け」が生まれないので、まだ測れない。Windows は替わらない作り。
+頼み元は claude-plugins の割り振り（頼みを部署に振り分ける部署）。待ち受けは、ターンの終わりと会話の始まりに裏で走り、順番待ちの頼みを部署に渡す works-dispatch のフック（wake_hook.py）。プラグインの版を上げても、上げる前に立った待ち受けは前の版のまま動き続け、前の版の作りで頼みを渡していた。直しは works-dispatch 0.114.2（commit 0f569f35、版上げ e7966f73 は 2026-10-22 22:09 JST に main）で、待ち受けが渡す前に今入っている版の待ち受けへ替わる。替わった回は受付箱の台帳（各会社の `.git/company/inbox/log.jsonl`）に種類 hopped の行で残る（from に前の版の置き場、to に今の版の置き場、place に部署の作業場。替われなかった回は同じ形の行で status が failed）。0.114.2 の後にもう 1 度版が上がるまでは 0.114.2 の待ち受けが「前の版」にならないので、まだ測れない。台帳の行の種類の定義は works-dispatch/docs/ledger.md。
 
-### 直す前の控え（2026-10-22 22:16 JST）
+### 直す前の控え（2026-10-22 22:16 JST、会社は claude-plugins と my_notes の 2 つ）
 
 - hopped の行: claude-plugins 0 件・my_notes 0 件。
-- handed の行: claude-plugins 187 件（handed.followed 有り 8 件）・my_notes 605 件（同 6 件）。
+- handed の行（部署に頼みを渡した行）: claude-plugins 187 件・my_notes 605 件。そのうちフィールド followed が入っている物は 8 件・6 件。
+
+### 前の版の渡しの見分け方
+
+永続の部署（頼みを終えても畳まず、同じ作業場で次の頼みを受ける部署）では、0.103.1 からの待ち受けは、渡す前に作業場をメインブランチの先頭へ進め、種類 followed の行（フィールド next に渡す頼みの受付番号）を書く。進めた待ち受けがそのまま渡したときは、handed の行のフィールド followed に同じ文が入る。そこで、永続の部署の handed の行で、同じ受付番号を next に持つ followed の行が無い物を「進めの手順を持たない版の待ち受けが渡した物」と数える（作業場が既に先頭なら followed の文は書かれないので、この数は上限の目安）。
 
 ### 本測りでする事（works-dispatch が 0.114.2 より後の版に上がった後の業務改革）
 
-1. 版上げの commit の時刻（`git log origin/main -- works-dispatch/.claude-plugin/plugin.json`）を T とし、両方の会社の台帳で T 以降の hopped の行を数える（status failed は別に数え、出ていれば from・to と place を添えて works-dispatch の担当に頼む）。
-2. T 以降の handed の行のうち、前の版の待ち受けが渡した物（永続の部署で followed の行や handed.followed が無いなど、新しい版でだけ出る跡が無い物）を数え、直す前の割合と比べる。0.114.2 が入る前（e7966f73 より前）から待っている待ち受けは数えない。
-3. hopped が 1 件以上出て、前の版の渡しが減っていれば「効いた」とし、T 以降に handed が 20 件に満たなければ「測れなかった」と書いて次の回へ送る。結果は `dispatch.py --deliver <要約のファイル> --for 20261022-131613-0fa9b0` で頼み元（割り振り）へ返す。
+1. 0.114.2 より後で最初に works-dispatch の版を上げた commit の時刻（`git log --reverse origin/main -- works-dispatch/.claude-plugin/plugin.json` で e7966f73 の次の行）を T とする。
+2. 両方の会社の台帳で、T 以降の hopped の行を、status failed とそれ以外に分けて数える。failed が出ていれば、from・to・place と detail を添えて works-dispatch の担当に頼む（--ask claude-plugins/works-dispatch）。
+3. T 以降の永続の部署の handed の行のうち、上の見分け方で前の版の渡しに当たる物の割合を出し、T より前の同じ長さの期間と比べる。
+4. 判定: T 以降の handed が 20 件に満たなければ「測れなかった」として次の回へ送る。20 件以上で hopped が 1 件以上あり、3 の割合が減っていれば「効いた」。hopped が 0 件なら、T の時点で前の版の待ち受けが残っていなかったのか、替わる作りが動いていないのかを、T をまたいで動いていた会話の place で確かめてから書く。Windows の部署は替わらない作りなので、数えるのは macOS の部署だけ（今の部署は全部 macOS）。
+5. 結果は `dispatch.py --deliver <要約のファイル> --for 20261022-131613-0fa9b0`（dispatch.py は works-dispatch の dispatch/ に在る。要約は結論・決め手・残った疑問の項目で書く）で割り振りへ返す。
