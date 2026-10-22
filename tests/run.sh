@@ -6098,6 +6098,8 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "CLAUDE_ENV_FILE",
                   # Claude Code が会話とその子に渡す環境変数（works-dispatch が effort の継ぎと待ち受けの窓の確かめに読む）
                   "CLAUDE_EFFORT", "CLAUDE_JOB_DIR",
+                  # gates の reader_source が書き手の会話番号の補助に読む環境変数。モジュールの定数ではなく os.environ.get から読む
+                  "CLAUDE_SESSION_ID",
                   # Claude Code がプラグインのスキルの本文で置き換える、プラグインの入った場所の変数（スキルがコマンドの中のパスに書く。
                   # https://code.claude.com/docs/en/plugins-reference#environment-variables）
                   "CLAUDE_PLUGIN_ROOT",
