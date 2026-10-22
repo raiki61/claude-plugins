@@ -2748,7 +2748,10 @@ def _reader_attempt(argv, prompt, timeout, call, env=None, note=None, redirected
                               cwd=STATE_DIR if env is not None else None, env=env)
         got = _reader_out(proc, note)
         if redirected:
-            check_model(_child_text(proc.stdout), call["requested_model"])
+            try:
+                check_model(_child_text(proc.stdout), call["requested_model"])
+            except ReaderShape as exc:
+                raise ReaderShape("%s(認証: %s)" % (exc, note))
         status = "ok"
         return got
     except subprocess.TimeoutExpired as exc:

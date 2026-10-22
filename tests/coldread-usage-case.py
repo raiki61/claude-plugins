@@ -195,6 +195,19 @@ class UsageTests(unittest.TestCase):
         self.assertIsNone(rows[0]["usage"]["output_tokens"])
         self.assertEqual(rows[1]["usage"]["output_tokens"], 7281)
         self.assertNotIn("秘密", self.log.read_text())
+        # モデル照合で止まる回も、切替先の説明を残し、成功ではなく shape として記録する。
+        envs = [(envs[0][0], "読み替えを外して first の keychain(item)")]
+        for models in ({"gpt-6.1-sol": {}}, {"claude-sonnet-5-5": {}}, {}):
+            result = dict(self.result, modelUsage=models)
+            with patch.object(g, "reader_envs", return_value=(envs, True)), \
+                 patch.object(g.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(result).encode(), b"")), \
+                 patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(g.ReaderShape, "読み替えを外して first"):
+                    g.run_reader("秘密", {}, model="haiku", effort="high")
+            row = json.loads(self.log.read_text().splitlines()[-1])
+            self.assertEqual(row["status"], "shape")
+            self.assertEqual(row["usage"]["output_tokens"], 7281)
+        self.assertNotIn("秘密", self.log.read_text())
 
     def test_record_only_hook_does_not_read_company(self):
         payload = {"session_id": "writer"}

@@ -2770,6 +2770,10 @@ gate = root / "gates/hooks/coldread-gate.py"
 work.mkdir(parents=True)
 cfg, calls = work / "cfg", work / "calls"
 calls.mkdir()
+# 代役の答えには modelUsage が無い。親のモデル読み替えと設定フォルダを継がず、試験の設定で読む。
+for k in [k for k in os.environ if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "COLDREAD_"))]:
+    del os.environ[k]
+os.environ["CLAUDE_CONFIG_DIR"] = str(cfg)
 spec = importlib.util.spec_from_file_location("gate_docs", gate)
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
@@ -4672,8 +4676,10 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+# 認証と起動は代役。親のモデル読み替え・読み手の差し替え・会話の入口を外し、試験の設定フォルダで読む。
+for k in [k for k in os.environ if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "COLDREAD_"))]:
+    del os.environ[k]
 os.environ["CLAUDE_CONFIG_DIR"] = str(work / "cfg")
-os.environ.pop("CLAUDE_CODE_ENTRYPOINT", None)   # 親の Stop を待って読む口(claude -p)にする
 spec = importlib.util.spec_from_file_location("g", root / "gates/hooks/coldread-gate.py")
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
