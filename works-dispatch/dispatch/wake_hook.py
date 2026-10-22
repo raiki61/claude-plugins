@@ -34,6 +34,9 @@
   commit が在れば動かさない。会話の裏の処理が動いている間は進めず、遅れていればそれを添える。lag_note）。会話が起動するときにしか読まないファイルが替われば、今のアカウントの名指し（company.move-to）を印して起動し直させる。
   毎回クリアする部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
   dispatch.py --move <部署> --if-changed で起動し直す（/clear は起動したときの --model・--effort を残すため。restart_due）。
+  頼みを渡す・空にするなどの確かめ（checker）の前に毎回、Claude Code の入れた物の控え（installed_plugins.json）がこのプラグインの今の置き場を
+  別の版と言っていれば、今の版の wake_hook.py に同じ引数とフックの入力で替わる（POSIX だけで exec。newer_self・hop。台帳に hopped の行）。
+  /reload-plugins は裏で待っている待ち受けを止めないので、替わらないと、版を上げる前に立った待ち受けが前の版のまま何時間も後に渡す。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文でターンが始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
   終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じターンの中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
   そうなると止まる前のフックが答え待ちの頼みを「納品していない」と差し戻し続ける。社長室で 3 回続いた）。
@@ -57,6 +60,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -67,6 +71,7 @@ try:
     import gitx  # noqa: E402
     import role_hook  # noqa: E402
     import filex  # noqa: E402
+    import installed  # noqa: E402
     from nodes import accounts, deliver, provision, role, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # 待ち受けは裏で走るので、古い Python（tomllib の無い 3.10 以前）でも会話を止めない。知らせは止まる前のフック
@@ -990,6 +995,40 @@ def woken(got, attrs_of=_attrs):
         provision.mark(got["cwd"], got["root"], {"cleared": None}, gitx)
 
 
+HANDED_OVER = "WORKS_DISPATCH_WAKE_FROM"   # 前の版の待ち受けから替わった印（値は前の待ち受けの印の token）
+
+
+def newer_self(script=__file__, look=installed.look, posix=os.name != "nt"):
+    """今入っている版の wake_hook.py が、この待ち受けの版と別の置き場に在れば、そのパス（無い・この版なら None）。
+    /reload-plugins は裏で待っている待ち受けを止めないので（nodes/refresh.py）、版を上げる前に立った待ち受けは、何時間も前の版のまま
+    頼みを渡しうる（2026-10-21 に my_notes の調べものへ、0.103.1 で足した作業場を進める直しの無い前の版が、入ってから 9 時間半後に渡した。
+    my_notes の受付 35aa1b）。環境の乗り換えた先の印（installed.HOPPED）は見ない（dispatch.py の乗り換えた先が起動した会話にも継がれている）。
+    Windows では替わらない（os.execv が呼んだ側に先に戻るので子として起動するしかなく、子の親が会話の処理でなくなり、会話が終わっても
+    子が残って生きた待ち受けに見え続ける）。"""
+    if not posix:
+        return None
+    there, why = look(script, {})
+    if why:
+        filex.warn(f"注記: 今入っている版の待ち受けを探せないので、この版のまま待つ（{why}）")
+    return there
+
+
+def hop(there, argv, payload, token, execv=os.execve):
+    """今入っている版の待ち受け there に、同じ引数とフックの入力で替わる（POSIX だけ。newer_self）。exec で同じ処理のまま替わるので、
+    処理の番号・親の会話の処理・Claude Code が読む標準エラーと終了の値がそのまま続く。フックの入力は読み終えているので、書いた一時の
+    ファイルを標準入力に付け直す。token（この待ち受けの印）を環境の HANDED_OVER で渡し、替わった先は印がまだそれなら続ける（替わる間に
+    人の文で止められていれば〔--pause〕終わる。main）。exec できなければ OSError を投げる（呼んだ側がこの版のまま待ち直す）。"""
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    with tempfile.TemporaryFile() as f:
+        f.write(data)
+        f.flush()
+        os.lseek(f.fileno(), 0, os.SEEK_SET)
+        os.dup2(f.fileno(), 0)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    return execv(sys.executable, [sys.executable, there, *argv], {**os.environ, HANDED_OVER: token})
+
+
 class WithRole:
     """会話を再開させる字（err に書く物）の頭に、その会話の役の文が替わっていれば今の文を足す（role_hook.changed）。"""
 
@@ -1014,7 +1053,7 @@ class WithRole:
         self.err.flush()
 
 
-def main(argv=None, stdin=sys.stdin, err=sys.stderr):
+def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop, now=time.time, env=os.environ):
     argv = sys.argv[1:] if argv is None else argv
     try:
         payload = json.loads(stdin.read() or "{}") or {}
@@ -1024,13 +1063,19 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
         return resume_here(payload)
     if argv[:1] == ["--pause"]:
         return pause_here(payload)
-    try:
-        ended_well(payload)
-    except (gitx.GitError, OSError) as e:
-        print(f"works-dispatch: 使用上限で止まった会話を待つ印を外せなかった（{e}）", file=err)
+    # 前の版の待ち受けから替わった（hop）。フックの入力は何時間も前の物なので、ターンの終わりの後始末（ended_well）はもう済んでいて、
+    # 繰り返さない。印は外す（ここから起動する --retire などの子に継がせない）
+    handed = env.pop(HANDED_OVER, None)
+    if not handed:
+        try:
+            ended_well(payload)
+        except (gitx.GitError, OSError) as e:
+            print(f"works-dispatch: 使用上限で止まった会話を待つ印を外せなかった（{e}）", file=err)
     got = plan(payload)
     if not got:
         return 0
+    if handed and (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != handed:
+        return 0   # 替わる間に、人の文で止められた（--pause）か、新しい待ち受けに替わった
     if got["adopt"]:
         try:
             attrs = gitx.worktree_attrs(got["cwd"])
@@ -1038,17 +1083,52 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
         except (gitx.GitError, OSError):
             return 0
     keep_job(got)
-    token = wake.new_token()
+    inner, there = checker(got, payload), []
 
-    def stop(*_):
-        # 会話が終わる（claude stop）・フックの持ち時間が尽きると Claude Code が TERM を送る。印を消して、送る側をすぐ予備へ回す
-        wake.release(got["inbox"], got["place"], token)
-        sys.exit(0)
-    for name in ("SIGTERM", "SIGHUP", "SIGINT"):
-        if hasattr(signal, name):
-            signal.signal(getattr(signal, name), stop)
-    return wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, WithRole(err, payload, woke=lambda: woken(got)),
-                      check=checker(got, payload), ready=lambda: not unready(payload, got["job"]), since=got.get("since"))
+    def check():
+        # 頼みを渡すか空にする前に、今入っている版に替わる（替わった先の待ち受けが、同じ順番待ちと台帳の読んだ所から続ける）
+        try:
+            found = there == [] and newer()
+        except (OSError, ValueError, TypeError, AttributeError) as e:   # 控えの形が思っていたのと違う。この版のまま待つ
+            filex.warn(f"注記: 今入っている版の待ち受けを探せないので、この版のまま待つ（{type(e).__name__}: {e}）", err)
+            found = None
+        if found:
+            there.append(found)
+            return "end", None
+        return inner()
+    while True:
+        token = wake.new_token()
+
+        def stop(*_, token=token):
+            # 会話が終わる（claude stop）・フックの持ち時間が尽きると Claude Code が TERM を送る。印を消して、送る側をすぐ予備へ回す
+            wake.release(got["inbox"], got["place"], token)
+            sys.exit(0)
+        for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+            if hasattr(signal, name):
+                signal.signal(getattr(signal, name), stop)
+        code = wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token,
+                          WithRole(err, payload, woke=lambda: woken(got)), check=check, ready=lambda: not unready(payload, got["job"]),
+                          since=got.get("since"))
+        if code or len(there) != 1:
+            return code
+        if (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != token:
+            return 0   # check の後に、人の文で止められた（--pause）か、新しい待ち受けに替わった
+        row = {"kind": "hopped", "at": now(), "place": got["cwd"], "session": got["session"],
+               "from": str(pathlib.Path(__file__).resolve().parent.parent), "to": str(pathlib.Path(there[0]).parent.parent)}
+        try:
+            deliver.log(got["inbox"], row)   # exec の後には書けないので先に書く
+        except OSError as e:  # 台帳に書けなくても替わる
+            filex.warn(f"注記: 待ち受けを今の版に替えたことを台帳に書けない（{e}）", err)
+        try:
+            return jump(there[0], argv, payload, token)
+        except OSError as e:
+            # 替われなければ、この版のまま待ち直す（待ち受けが居なくなると、次のターンの終わりまで順番待ちを渡す者が居ない）
+            filex.warn(f"注記: 今入っている版の待ち受け {there[0]} に替われないので、この版のまま待つ（{e}）", err)
+            there.append(None)
+            try:
+                deliver.log(got["inbox"], {**row, "at": now(), "status": "failed", "detail": str(e)})
+            except OSError as e2:
+                filex.warn(f"注記: 替われなかったことを台帳に書けない（{e2}）", err)
 
 
 if __name__ == "__main__":

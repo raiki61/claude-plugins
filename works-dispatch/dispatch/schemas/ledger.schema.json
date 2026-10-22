@@ -10,7 +10,7 @@
         "required": ["kind"],
         "properties": {
           "kind": {"type": "string", "enum": ["ask", "queued", "handed", "held", "taken", "reordered", "withdrawn", "forwarded", "deliver",
-                                              "note", "waiting", "resumed", "nudged", "knot", "start", "moved", "followed", "retired", "call", "miss",
+                                              "note", "waiting", "resumed", "nudged", "knot", "start", "moved", "followed", "hopped", "retired", "call", "miss",
                                               "remind", "reminded", "remind-done", "handover"]},
           "id": {"type": ["string", "null"]},
           "at": {"type": "number"},

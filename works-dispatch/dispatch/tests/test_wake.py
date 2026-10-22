@@ -5,9 +5,11 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -1522,6 +1524,103 @@ class Hook(unittest.TestCase):
         self.assertNotIn("waiting", attrs)
         self.assertNotIn("waiting-why", attrs)
 
+    def hop_main(self, newer, jump, env=None):
+        payload = {"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"}
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(wake, "GRACE", 0), mock.patch.object(wake, "POLL", 0.05):
+            rc = wake_hook.main([], io.StringIO(json.dumps(payload)), err, newer=newer, jump=jump, now=lambda: 5, env=env or {})
+        return rc, payload, err.getvalue()
+
+    def test_a_waiter_of_an_older_version_hands_over_to_the_installed_one_before_it_hands_an_ask(self):
+        # 2026-10-21 に、版を上げる前に立った待ち受けが、/reload-plugins の後も前の版のまま頼みを渡した（my_notes の受付 35aa1b）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
+        place, there = self.g.git_dir(self.place), "/c/works-dispatch/9.9.9/dispatch/wake_hook.py"
+        looks, jumps = [], []
+        self.assertIn("co/調べ", self.plan()["names"])   # 下の知らせの宛先（違うと待ち受けが渡さずに待ち続ける）
+
+        def later():
+            self.put("a1")
+            deliver.log(self.inbox, wake.notice("co/調べ", "a1", wake.QUEUED, "/a1.md", "a1", 1))
+
+        def newer():
+            # 読み始めの確かめではまだ今の版。その後に版が上がり、頼みが積まれる（台帳の知らせで確かめる）
+            looks.append(1)
+            if len(looks) == 1:
+                timer = threading.Timer(0.2, later)
+                timer.start()
+                self.addCleanup(timer.cancel)
+                return None
+            return there
+        rc, payload, _ = self.hop_main(newer, lambda *a: jumps.append(a) or 2)
+        self.assertEqual(rc, 2)
+        ((to, argv, got, token),) = jumps
+        self.assertEqual((to, argv, got), (there, [], payload))
+        self.assertEqual(wake.read_mark(self.inbox, place)["token"], token)   # 替わった先は、印がまだこの token なら続ける
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, place)], ["a1"])   # 渡さずに替わった
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "hopped"]
+        self.assertEqual((row["to"], row["session"]), ("/c/works-dispatch/9.9.9", "s1"))
+
+    def test_a_waiter_that_cannot_hand_over_keeps_waiting_in_its_own_version(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
+        self.put("a1")
+
+        def jump(*_):
+            raise OSError("exec できない")
+        rc, _, err = self.hop_main(lambda: "/c/works-dispatch/9.9.9/dispatch/wake_hook.py", jump)
+        self.assertEqual(rc, 2)   # この版のまま、順番待ちの頼みを渡した
+        self.assertIn("頼みです（受付 a1）", err)
+        self.assertIn("替われないので、この版のまま待つ", err)
+        self.assertEqual([r.get("status") for r in deliver.records(self.inbox) if r.get("kind") == "hopped"], [None, "failed"])
+
+    def test_a_waiter_that_cannot_read_the_record_keeps_waiting_in_its_own_version(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
+        self.put("a1")
+
+        def newer():
+            raise TypeError("installPath が文字列でない")   # 控えの形が思っていたのと違う
+        rc, _, err = self.hop_main(newer, lambda *a: 1 / 0)
+        self.assertEqual(rc, 2)   # 待ち受けを落とさず、この版のまま渡した
+        self.assertIn("頼みです（受付 a1）", err)
+        self.assertIn("探せないので、この版のまま待つ", err)
+
+    def test_a_handed_over_waiter_stops_when_the_talk_was_paused_meanwhile(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "limit-hold": "x"}, self.g)
+        self.put("a1")
+        place = self.g.git_dir(self.place)
+        wake.claim(self.inbox, place, ["co/調べ"], "s1", os.getppid(), "paused", 0)   # 替わる間に人の文で --pause が書き替えた
+        env = {wake_hook.HANDED_OVER: "old-token"}
+        rc, _, _ = self.hop_main(lambda: None, lambda *a: 1 / 0, env)
+        self.assertEqual((rc, env), (0, {}))   # 渡さずに終わり、印は子に継がせない
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, place)], ["a1"])
+        self.assertEqual(wake.read_mark(self.inbox, place)["token"], "paused")
+        self.assertEqual(self.g.worktree_attrs(self.place)["limit-hold"], "x")   # 何時間も前の Stop の後始末を繰り返さない
+        wake.claim(self.inbox, place, ["co/調べ"], "s1", os.getppid(), "old-token", 0)
+        rc, _, err = self.hop_main(lambda: None, lambda *a: 1 / 0, {wake_hook.HANDED_OVER: "old-token"})
+        self.assertEqual(rc, 2)   # 印がまだ前の待ち受けの物なら、続けて渡す
+        self.assertIn("頼みです（受付 a1）", err)
+
+    def test_a_waiter_finds_the_installed_version_of_itself(self):
+        root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
+        mine = root / "cache" / "raiki61" / "works-dispatch" / "0.1.0" / "dispatch" / "wake_hook.py"
+        new = root / "cache" / "raiki61" / "works-dispatch" / "0.2.0" / "dispatch" / "wake_hook.py"
+        for f in (mine, new):
+            f.parent.mkdir(parents=True)
+            f.write_text("", encoding="utf-8")
+
+        def record(version):
+            (root / "installed_plugins.json").write_text(json.dumps({"plugins": {"works-dispatch@raiki61": [
+                {"scope": "user", "installPath": str(new.parent.parent.parent / version)}]}}), encoding="utf-8")
+        record("0.2.0")
+        self.assertEqual(wake_hook.newer_self(mine), str(new))
+        self.assertIsNone(wake_hook.newer_self(new))
+        # dispatch.py の乗り換えた先から起動した会話にも継がれる印では止めない
+        with mock.patch.dict(os.environ, {"WORKS_DISPATCH_HOPPED": "1"}):
+            self.assertEqual(wake_hook.newer_self(mine), str(new))
+        self.assertIsNone(wake_hook.newer_self(mine, posix=False))   # Windows は替わらない
+        record("0.1.0")
+        self.assertIsNone(wake_hook.newer_self(mine))
+        self.assertIsNone(wake_hook.newer_self(DISPATCH / "wake_hook.py"))   # リポジトリの checkout
+
     def test_plugin_declares_the_waiter_on_stop_and_session_start_and_the_pause_on_prompts(self):
         hooks = json.loads((DISPATCH.parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         for event in ("Stop", "SessionStart"):
@@ -1577,6 +1676,56 @@ class HookProcess(unittest.TestCase):
         self.assertEqual((rc, proc.stderr.read()), (2, "納品です（受付 d1）\n"))
         proc.stdout.close()
         proc.stderr.close()
+
+
+    @unittest.skipIf(os.name == "nt", "Windows は exec でなく子として起動する")
+    def test_an_older_waiter_execs_the_installed_one_in_the_same_process_with_the_same_input(self):
+        root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
+        old = root / "cache" / "raiki61" / "works-dispatch" / "0.1.0" / "dispatch"
+        shutil.copytree(DISPATCH, old, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+        new = root / "cache" / "raiki61" / "works-dispatch" / "0.2.0" / "dispatch" / "wake_hook.py"
+        new.parent.mkdir(parents=True)
+        new.write_text("import os, sys\nsys.stderr.write(f'{os.getpid()} {sys.argv[1:]} {sys.stdin.read()}')\nsys.exit(2)\n",
+                       encoding="utf-8")
+        (root / "installed_plugins.json").write_text(json.dumps({"plugins": {"works-dispatch@raiki61": [
+            {"scope": "user", "installPath": str(new.parent.parent)}]}}), encoding="utf-8")
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ"}, gitx)
+        payload = json.dumps({"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"})
+        proc = subprocess.Popen([sys.executable, str(old / "wake_hook.py"), "--x"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, encoding="utf-8", env={**os.environ, **self.env})
+        try:
+            _, err = proc.communicate(payload, timeout=30)
+        finally:
+            proc.kill()
+        self.assertEqual((proc.returncode, err), (2, f"{proc.pid} ['--x'] {payload}"))
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "hopped"]
+        self.assertEqual([os.path.realpath(row[k]) for k in ("from", "to")], [os.path.realpath(x) for x in (old.parent, new.parent.parent)])
+
+    @unittest.skipIf(os.name == "nt", "Windows は替わらない")
+    def test_the_installed_waiter_goes_on_from_the_same_queue_after_the_hop(self):
+        root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
+        versions = root / "cache" / "raiki61" / "works-dispatch"
+        for v in ("0.1.0", "0.2.0"):
+            shutil.copytree(DISPATCH, versions / v / "dispatch", ignore=shutil.ignore_patterns("tests", "__pycache__"))
+        (root / "installed_plugins.json").write_text(json.dumps({"plugins": {"works-dispatch@raiki61": [
+            {"scope": "user", "installPath": str(versions / "0.2.0")}]}}), encoding="utf-8")
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ"}, gitx)
+        place = gitx.git_dir(self.place)
+        line = "頼みです（受付 a1）"   # 渡す字は順番待ちに積んだ字のまま
+        wake.enqueue(self.inbox, place, {"id": "a1", "line": line, "marks": {"ask": "a1", "boss": "窓口"}})
+        payload = json.dumps({"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"})
+        proc = subprocess.Popen([sys.executable, str(versions / "0.1.0" / "dispatch" / "wake_hook.py")], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                                env={**os.environ, **self.env, "TMPDIR": tempfile.mkdtemp()})
+        try:
+            _, err = proc.communicate(payload, timeout=60)
+        finally:
+            proc.kill()
+        self.assertEqual((proc.returncode, err.splitlines()[-1]), (2, line), err)   # 頭に役の文が足されることがある
+        self.assertEqual(wake.queued(self.inbox, place), [])
+        kinds = [r.get("kind") for r in deliver.records(self.inbox) if r.get("kind") in ("hopped", "handed")]
+        self.assertEqual(kinds, ["hopped", "handed"])
+        self.assertEqual(gitx.worktree_attrs(self.place)["ask"], "a1")
 
 
 class WakeFlow(unittest.TestCase):
