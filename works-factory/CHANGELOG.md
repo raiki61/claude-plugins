@@ -10,7 +10,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`。殻が使う raiki61/works-factory の commit）を fd33cb45 に上げた。仕様審査の業界の定石との比較（工場の部品 `works-factory-world`）が、表の頭の設計と受け入れの条件の全部に 1 行ずつ答えを返し、本線の起動時の照合も全部の条件に行が在るかを確かめるようになった。前の PIN の工場で回したこの部品の run は、行が欠けていれば本線の起動で止まるので回し直す、と `skills/works-factory/references/spec.md` に書いた。
+- 工場の固定 commit（`works-factory/PIN`。殻が使う raiki61/works-factory の commit）を fd33cb45 に上げた。人と固めた仕様を審査する部品のうち、設計を業界の定石と比べる部品（`works-factory-world`）が、仕様の表（YAML）の `design` と `acceptance` の各要素に評価の行を 1 つずつ返し、本線の起動時の照合も全部の要素に行が在るかを確かめるようになった。前の PIN の工場で回したこの部品の run は、行が欠けていれば本線の起動で止まるので、使う人がこの部品だけを回し直す。手順は `skills/works-factory/references/spec.md` の 2 に書いた。
 
 ## [0.5.0] - 2026-10-22
 
