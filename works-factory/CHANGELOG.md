@@ -6,6 +6,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- `skills/works-factory/references/spec.md` の、業界の定石との比較の run が全部の行に答えているかの照合の説明で、「依頼の行」が表の `design`（設計書）と `acceptance` の各行を指すこと、照合する行が部品の返す `rows` の行であることを書き足した。
+
 ## [0.6.0] - 2026-10-22
 
 ### Changed
