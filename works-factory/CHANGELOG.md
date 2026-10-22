@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-22
+
 ### Changed
 
 - 工場の固定 commit（`works-factory/PIN`。殻が使う raiki61/works-factory の commit）を fd33cb45 に上げた。仕様審査の業界の定石との比較（工場の部品 `works-factory-world`）が、表の頭の設計と受け入れの条件の全部に 1 行ずつ答えを返し、本線の起動時の照合も全部の条件に行が在るかを確かめるようになった。前の PIN の工場で回したこの部品の run は、行が欠けていれば本線の起動で止まるので回し直す、と `skills/works-factory/references/spec.md` に書いた。
