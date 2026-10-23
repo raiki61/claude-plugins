@@ -6088,6 +6088,8 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "ANTHROPIC_BASE_URL",
                   # Claude Code の会話のキャッシュの寿命の環境変数（works-factory のスキルの認証の手引きが名指す）
                   "FORCE_PROMPT_CACHING_5M",
+                  # 同じ寿命と、キャッシュを切る環境変数（works-dispatch の keepalive が読み、CHANGELOG と受付の設計が名指す）
+                  "ENABLE_PROMPT_CACHING_1H", "DISABLE_PROMPT_CACHING",
                   # Archon がノードと子に渡す環境変数・Archon の設定の環境変数
                   "ARTIFACTS_DIR", "TITLE_GENERATION_MODEL",
                   # 包みが Bash の役の子に向け直す・向け直さない外のツールの環境変数
