@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.117.0] - 2026-10-23
+
 ### Added
 
 - 会社の形（`.claude/company.toml`）の役（`[[roles]]`）と受け持ち（`[[skills]]`）に `keepalive` を足した。書いた部署が裏の処理（Bash の `run_in_background` など）を待ってターンを終えると、待ち受け（部署の会話のターンの終わりに裏で動き、頼みと納品の知らせを待つフック `dispatch/wake_hook.py`）は、プロンプトキャッシュの寿命が切れる前に短い文を送って会話を起動し、キャッシュを伸ばす（寿命を過ぎてから知らせでターンが始まると、会話の中身を全部キャッシュに書き直す）。`keepalive = true` なら、送る間隔は寿命から 90 秒を引いた値（`promptCacheTtl = "5m"` なら 210 秒。寿命は Claude Code と同じ順に、会話の環境変数 `FORCE_PROMPT_CACHING_5M`・`CLAUDE_CODE_PROMPT_CACHE_TTL`、起動の設定の `promptCacheTtl`、`ENABLE_PROMPT_CACHING_1H` で読み、キャッシュを切っている・寿命が分からない・間が寿命より短くないときは送らずに注記を出す）で、文は既定（「待機中」とだけ書いてターンを終えるよう頼む 1 行。文面は `dispatch/nodes/role.py` の `KEEPALIVE_TEXT`）。`{ every = "210s", text = "…" }` で間隔と文を変える。`false` なら切る。送るのは次の全部がそろう間だけ。部署が納品していない頼みを受けている。区切りの印（`--rest`・`--compact`。会話を空にしてよい・compact してよいと部署が打つ）と終わりの印（`--done`。エフェメラルの部署が打つ）が無い。Stop のフックの入力（Claude Code がフックに渡す JSON）の `background_tasks`（その会話の裏の処理の並び）に動いている物が在る。会話の記録のファイル（transcript）が、そのターンの終わりから間隔の分だけ更新されていない。窓の会話（herdr のペインに出した部署の会話の画面）も動いていない。納品した部署と窓口（本社で持ち主と話し、部署に頼みを配る会話）は送らない。待ち受けは、頼みと納品の知らせが来ていればそちらを先に会話に渡し、keepalive は知らせが無いときにだけ送る。同じ裏の処理を待つ間に続けて送る数は、送る費用の合計がキャッシュの書き直し 1 回分に着くまで（`ceil(書く倍率 / 読む倍率)`。書く倍率は入力の値段の 1.25 倍〔5 分〕か 2 倍〔1 時間〕、読む倍率は会話の最後に答えたモデルで決め、Opus 5.5・Sonnet 5.5 は 0.05 倍なので 5 分で 25 本・1 時間で 40 本、読みが 0.1 倍のモデルなら 13 本・20 本）。送るたびと上限で止めた時に、受付箱の台帳（`.git/company/inbox/log.jsonl`）に `kind` が `keepalive` の行を残す。書き方は references/roles.md の「裏の処理を待つ間の keepalive」、仕組みは受付の設計の 3.4（2026-10-23、my_notes の受付 1c8a86）。
