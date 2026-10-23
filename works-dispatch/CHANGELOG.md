@@ -12,7 +12,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Changed
 
-- PR・issue の会話を、`--settings <templates/session-settings.json>`（AskUserQuestion を外す deny だけを書いたファイル）を付けて起動するようにした。上の前提を満たしていない環境でも、dispatch が開く会話はこの画面で止まらない。`--settings` の `permissions` の並びはアカウントの設定と合わさるので、ほかの deny・allow は消えない。部署の会話は今までどおり会社の形の役の設定で同じ deny を持つ。
+- PR・issue の会話を、`--settings <templates/session-settings.json>`（AskUserQuestion を外す deny だけを書いたファイル）を付けて起動するようにした。上の前提を満たしていない環境でも、dispatch が開く会話はこの画面で止まらない。`--settings` の `permissions` の並びはアカウントの設定と合わさるので、ほかの deny・allow は消えない。部署の会話は今までどおり、会社の形の役の設定（`[roles.settings]`。`--init-company` の下書きが書く）で同じ deny を持つ。
 
 ## [0.115.0] - 2026-10-23
 

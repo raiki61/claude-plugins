@@ -95,10 +95,10 @@ def setup_one(config_dir):
     if not root.is_dir():   # 打ち間違いで、使われないフォルダを作らない
         return False, f"{config_dir}: フォルダが無い（アカウントの設定のフォルダ〔CLAUDE_CONFIG_DIR に入れる物〕を渡す）"
     path = root / "settings.json"
-    text = statusline.read_file(path)
     try:
+        text = statusline.read_file(path)
         settings = json.loads(text) if text and text.strip() else {}
-    except ValueError as e:
+    except (OSError, ValueError) as e:   # フォルダ・読めない・UTF-8 でない物も、落ちずに止まる（点検と同じ扱い）
         return False, f"{path} が JSON として読めない（{e}）。直してから、もう一度打つ"
     if not isinstance(settings, dict):
         return False, f"{path} の一番外が {{}} でない。直してから、もう一度打つ"

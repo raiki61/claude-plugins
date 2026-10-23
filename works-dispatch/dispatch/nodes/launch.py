@@ -10,7 +10,7 @@
 POSIX のシェルでは、コマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く。attention の /catchup は書いたページを VS Code の窓に
 開くが、dispatch は何件も一度に起動するので、窓にタブが一気に開かないようにする（ページは書かれ、一覧のページに載る）。
 シェル関数のアカウントのコマンドにも、この前置きは関数の間だけ環境変数として渡る（bash・zsh で確かめた）。
-PR の会話には `--settings <templates/session-settings.json>` を付け、選択肢の画面で問うツール（AskUserQuestion）を外す。その画面で
+PR・issue の会話には `--settings <templates/session-settings.json>` を付け、選択肢の画面で問うツール（AskUserQuestion）を外す。その画面で
 問われると、窓を開いてキーを押すまで会話が進まず、窓口の会話からは答えられない（2026-10-23、guided-resolver の issue #1895）。
 各アカウントの settings.json の deny（tiers の段 2 が点検する前提。docs/prerequisites.md の 13）を満たしていない人の環境でも、
 dispatch が開く会話では止まらないようにする。--settings の permissions の並びは、アカウントの設定の並びと合わさる（置き換えない。
@@ -35,7 +35,7 @@ import jsonio  # noqa: E402
 
 
 QUIET_CATCHUP = "ATTENTION_CATCHUP_OPEN=0"
-# PR の会話にだけ効かせる設定のファイル（--settings。選択肢の画面で問うツールを外す）
+# PR・issue の会話にだけ効かせる設定のファイル（--settings。選択肢の画面で問うツールを外す）
 SESSION_SETTINGS = str(pathlib.Path(__file__).resolve().parent.parent / "templates" / "session-settings.json")
 
 
@@ -48,7 +48,7 @@ BUSY = "作業場のペインの前で、シェルではない物が動いてい
 
 
 def start(row, pane, h=term, posix=None, settings=SESSION_SETTINGS):
-    """PR の会話を、/catchup の窓を開かない前置き（POSIX のシェルだけ）と、その会話にだけ効く設定（--settings）を付けて起動する。"""
+    """PR・issue の会話を、/catchup の窓を開かない前置き（POSIX のシェルだけ）と、その会話にだけ効く設定（--settings）を付けて起動する。"""
     posix = os.name != "nt" if posix is None else posix
     command = f"{row['account']['command']} --settings {_quote(settings, posix)}"
     if posix:

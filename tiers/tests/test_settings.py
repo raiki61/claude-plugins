@@ -57,6 +57,13 @@ class Setup(unittest.TestCase):
         self.assertFalse((self.home / ".claude-none").exists())
         self.assertEqual((broken / "settings.json").read_text(encoding="utf-8"), '{"model": ')
 
+    def test_a_settings_json_that_cannot_be_read_is_reported_not_raised(self):
+        d = self.home / ".claude-a"
+        (d / "settings.json").mkdir(parents=True)
+        code, _, err = self.run_setup(d)
+        self.assertEqual(code, 1)
+        self.assertIn("JSON として読めない", err)
+
     def test_without_config_dir_it_uses_claude_config_dir(self):
         d = self.home / ".claude-env"
         d.mkdir()
