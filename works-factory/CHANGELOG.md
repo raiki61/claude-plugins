@@ -6,6 +6,11 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場の固定 commit（`works-factory/PIN`）を 3b44770d に上げた。取り込んだ物は 3 つ。対話モードの入力の名を `design_only` から `design_talk` に替えた（raiki61/works-factory#829。動きは同じ。古い名を本線か周の鎖に渡すと、殻が Archon を起こさずに止まり、`--input design_talk=true` を案内する）。同じ対象に 2 本以上を同時に起動しても落ちなくなった（raiki61/works-factory#826。使う人の手順は変わらない）。`--detach` なしの `workflow run` が終わると（承認ノードで止まった時も）、標準エラーに `works-factory: 記録の置き場: <パス>` を 1 行出す（raiki61/works-factory#831）。
+- スキルの本文と `skills/works-factory/references/chain.md` の `design_only` を `design_talk` に替え、「4. 報告を読む」に記録の置き場の 1 行を書き足した。空の `revise` の聞き直しを「2 回まで」と書き直した（前の「3 度目は止まる」と同じ振る舞い）。本文の長さの上限（5000 字）に収めるため、ほかの文を短くした。
+
 ## [0.8.0] - 2026-10-23
 
 ### Added
