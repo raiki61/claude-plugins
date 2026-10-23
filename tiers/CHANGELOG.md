@@ -6,6 +6,8 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-23
+
 ### Added
 
 - 段 2（`tiers --tier 2`）の点検に、起動コマンド（`--launcher` で渡す、アカウントごとに Claude Code を起動するコマンド）ごとのアカウントの `settings.json` に `"feedbackDrafts": "off"`（Claude がフィードバックの下書きをためない設定）があるかを足した。Claude が Claude Code の組み込みの SendFeedback のツールで下書きをためた会話は、`/exit` の前に送るか捨てるかの確認で止まる。そのため、Claude Code の会話を `/exit` で閉じて回る works-dispatch（このリポジトリの別のプラグイン）が、その会話を閉じられなかった（2026-10-23 に、持ち主の勤め先のリポジトリ guided-resolver で起きた）。アカウントの設定のフォルダは、段 2 がそのアカウントのログインを確かめるのに打つ `<起動コマンド> auth status --json` の答えの `configDirectory` から引く（無ければ足りない物として出す）。`--config-dir` で渡したフォルダも見る。無ければ、書くコマンドと、手で書く場所を出す。点検は今までどおり何も書き換えない。

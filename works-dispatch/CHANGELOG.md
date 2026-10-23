@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.115.0] - 2026-10-23
+
 ### Changed
 
 - `--check`（dispatch の前提がそろっているかを確かめるオプション）の前提に、各アカウントの `settings.json` の `"feedbackDrafts": "off"`（Claude がフィードバックの下書きをためない設定）を足した。下書きのたまった会話は `/exit` の前に送るか捨てるかの確認で止まり、dispatch が自分の番でなくなった PR の会話を閉じられなかった（2026-10-23 に、持ち主の勤め先のリポジトリ guided-resolver で起きた）。点検は tiers（プラグインが要る外のツールがそろっているかを点検する、このリポジトリの別のプラグイン）の段 2（`tiers --tier 2` の点検）が持ち（tiers/CHANGELOG.md の Unreleased）、この設定が無いアカウントがあれば `--check` が止まって書き方（`tiers-settings setup --config-dir <フォルダ>`）を出す。利用者は、止まったら出た書き方を打つ。tiers の点検は、設定のファイルに `config_dir`（アカウントの設定のフォルダ）を書かないアカウントの起動コマンド（`claude`）を、dispatch を走らせている会話の `CLAUDE_CONFIG_DIR` でなく、ペイン（herdr が端末を分けた区画）で起きるシェルの値で見るようにした（そのアカウントの Claude Code にログインしているかの点検も同じ）。dispatch が会話を開くのはそのシェルなので、そこで効くフォルダを見るため。理由は docs/prerequisites.md の 12。
