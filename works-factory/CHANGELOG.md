@@ -6,6 +6,16 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Added
+
+- 対話モード（`--input design_only=true` で、無人でない run）の設計の相談の承認ノード `gate-design` と、その答え `revise <一言>` をスキルの「3. 承認ノードで答える」に書いた。計画と事前審査の往復が終わるたびに設計案と審査の結果を見せ、`approve` で同じ run のまま修正へ進み（直す前の承認ノードは合意した行を聞き直さない）、`stop` で止まり、`revise <一言>` で設計し直して事前審査をやり直し、もう一度聞く。一言が空なら聞き直し（2 回まで）、往復は 20 周まで。無人の run で `design_only=true` を付けた時は今までどおり直す前で止まる。
+
+### Changed
+
+- 工場の固定 commit（`works-factory/PIN`）を 5a376672 に上げた。上の設計の相談（raiki61/works-factory#824）と、試験を回す仕組みの直し（raiki61/works-factory#825。使う人の手順は変わらない）を取り込んだ。通常の run と無人の run の止まり方は変わらない。
+- 周の鎖（何周もつなぐ run）の手順を、スキルの本文から `skills/works-factory/references/chain.md` に移した。`design_only=true` と組めないことを書き足した。
+- 本文の長さの上限（5000 字）に収めるため、API キーの時に `WORKS_FACTORY_KEYCHAIN_ITEM` を付けない注意（`references/auth.md` に同じ注意が在る）と、深さの段ごとの違いの括弧書き（工場の `docs/design/line.md` の 5.1 に在る）を本文から外した。
+
 ## [0.7.0] - 2026-10-22
 
 ### Changed

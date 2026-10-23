@@ -17,7 +17,7 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 
 - macOS か Linux、Python 3.12 以上、git、`bun`（Archon の源を起動するのに使う）、Claude Code の `claude`。
 - 足りない物は、殻が入れ方のコマンドを 1 行ずつ出して止まる。出たコマンドを打ってから、もう一度起動する。
-- 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）時は、[references/auth.md](references/auth.md) を読む。API キーなら `WORKS_FACTORY_KEYCHAIN_ITEM` は付けない。
+- 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）時は、[references/auth.md](references/auth.md) を読む。
 
 ## 1. 殻
 
@@ -53,16 +53,19 @@ WF workflow run works-factory-line --cwd <対象のリポジトリ> --input requ
 - 人が承認ノードで答えない run は `--input unattended=true` を付ける。始める時の承認ノードは飛ばし、ほかを開くはずの時は、項目の推しが全部「進む」なら進み、そうでなければ開かずに止める（報告は出る）。最後の承認ノードは推しが無く、開くはずなら止まる（差分を当てるなら 5. の `--allow-stopped`）。計画と審査の往復が上限 20 周で止まった時も推しで越えない。`spec=on` とは組めない。
 - 起動は長くかかるので、Bash の run_in_background で起動し、終わりの知らせで次の手を打つ。`nohup` や `&` で切り離さない（知らせが来ないので、承認ノードで止まった run に気づけない）。
 - run の記録（Archon の家）は対象のリポジトリごとに分かれる。対象の外から打つ時は、どのコマンドにも `--cwd <対象>` を付ける。
-- 何周もつなぐ時（周の鎖）: `WF workflow run works-factory-chain --cwd <対象> --input rounds=<1〜5> --input request=<依頼>`（費用の上限は `--input budget_usd=<USD>`）。1 周が子の run 1 本で、残りが在れば次の周を起動する。周の中の承認ノードには子の run の id で答える（`WF workflow status --cwd <対象>` で見る）。当てるのは鎖の run（`WF apply <鎖の run> --cwd <対象>`）で、採る周までの最後の差分と、周ごとの表 `chain.md` が置き場に出る。
+- 何周もつなぐ時（周の鎖）は [references/chain.md](references/chain.md)（起動の 1 行・周の中の答え方・当て方）を読む。
 
 ## 3. 承認ノードで答える
 
-run は 4 か所で止まり、人の答えを待つ: 始める時・直す前（聞く必要がある時だけ。`--input design_only=true` なら必ず）・修正の途中で計画が変わる時（承認した範囲や受け入れの試験が変わるか、審査役が問う時）・最後。最後の開き方は `--input final_gate=always|when_needed|protected_only` で選ぶ（既定は always、無人の run は when_needed）。守りのパス（対象の `.works-protected.json` に書いた物）に当たった時などはどれでも開き、`protected_only` はその時だけ開く（全部は工場の README「Choosing the approval nodes」）。
+run は 4 か所（対話モードは 5 か所）で止まり、人の答えを待つ: 始める時・直す前（聞く必要がある時だけ）・修正の途中で計画が変わる時（承認した範囲や受け入れの試験が変わるか、審査役が問う時）・最後。最後の開き方は `--input final_gate=always|when_needed|protected_only` で選ぶ（既定は always、無人の run は when_needed）。守りのパス（対象の `.works-protected.json` に書いた物）に当たった時などはどれでも開き、`protected_only` はその時だけ開く（全部は工場の README「Choosing the approval nodes」）。
+
+`--input design_only=true` で無人でない run は対話モード。5 か所目の `gate-design` が計画と事前審査の往復の終わるたびに開き、設計案と審査の結果を見せる。無人の run と組むと開かず、直す前で止まる（報告は出る）。
 
 1. 何を聞かれているかを見る: `WF workflow get <run> --cwd <対象>`
-2. 答える: `WF workflow respond <run> approve|stop [一言] --cwd <対象>`
-   - `approve`: 進める。
+2. 答える: `WF workflow respond <run> approve|stop|revise [一言] --cwd <対象>`
+   - `approve`: 進める。`gate-design` では同じ run のまま修正へ進み、直す前は合意した行を聞き直さない。
    - `stop`: 止める。後ろを飛ばして報告を出す（`workflow reject <run>` も同じ）。
+   - `revise <一言>`: `gate-design` だけ。直す所を一言で返すと、設計し直して事前審査をやり直し、もう一度聞く。空の一言は聞き直す（3 度目は止まる）。往復は 20 回までで、20 回目の `revise` は止まる。止まり方は `stop` と同じ。
 - 承認ノードの間で走っている run は `WF workflow cancel <run> --cwd <対象>` で止まる（報告は出ない）。`<run>` に入れる id・止めた後・Ctrl-C の時は [references/stop.md](references/stop.md) を読む。
 
 ## 4. 報告を読む
@@ -71,7 +74,7 @@ run は 4 か所で止まり、人の答えを待つ: 始める時・直す前�
 - 結果と報告の在りか: `WF workflow get <run> --cwd <対象>`
 - 人に向けた報告（`report-ai.md`）の冒頭は機械が組む: 起きたこと・差分を当ててよいか・壊れた所と対象へ当てたか・判断が要る件数。判断が無ければ次に大事な事実を出す。その下に判断の短い題が並び、本文は `report-detail.md` の「人が決めること」を含む見出しに置く。
 - 報告の書き手が落ちた run は failed で終わり、冒頭に訳が出る。使用枠切れなら、冒頭に出る resume のコマンドを別のアカウントの keychain の項目で打つと、報告の書き手から先だけが走り直す。
-- 報告の入口のセクションに、工場が依頼から決めた深さ（軽量・標準・重厚）とその根拠、飛ばしたノードが 1 行で出る。段ごとに省く物・足す物は工場の `docs/design/line.md` の 5.1 の表（計画の事前審査はどの段でも省かない）。
+- 報告の入口のセクションに、工場が依頼から決めた深さ（軽量・標準・重厚）と根拠、飛ばしたノードが 1 行で出る。段ごとの違いは工場の `docs/design/line.md` の 5.1。
 
 ## 5. 差分を当てる
 
