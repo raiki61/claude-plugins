@@ -1,6 +1,6 @@
 # 認証の道と「認証が無い」で止まった時
 
-殻（このプラグインの `bin/works-factory`。スキルの `WF`）が工場の中の AI の役（子のプロセスの claude。以下「子」）を起こす時に使う Claude の認証の選び方と、止まった時の直し方。Archon は工場が載る外の実行基盤。
+殻（このプラグインの `bin/works-factory`。スキルの `WF`）が工場の中の AI の役（子のプロセスの claude。以下「子」）を起こす時に使う Claude の認証の選び方と、止まった時の直し方。Archon は工場が載る外の実行基盤。要求の同時数の上限と、会話のキャッシュの寿命の変え方もここに置く。
 
 ## ログインか keychain の項目で動く人
 
@@ -12,7 +12,7 @@
 
 ## API キーかゲートウェイで動く人
 
-- キーを環境変数 `ANTHROPIC_API_KEY` に置いて起こす（`ANTHROPIC_AUTH_TOKEN` も同じく拾う）。ゲートウェイを通すなら `ANTHROPIC_BASE_URL` も置く。どちらも殻を起こす環境に置く。Claude Code の設定 `settings.json` の `env` に書いた値（ゲートウェイの URL など）は、殻自身が読む `WORKS_FACTORY_KEYCHAIN_ITEM` と違い、工場の中の AI の役には運ばれない。
+- キーを環境変数 `ANTHROPIC_API_KEY` に置いて起こす（`ANTHROPIC_AUTH_TOKEN` も同じく拾う）。ゲートウェイを通すなら `ANTHROPIC_BASE_URL` も置く。どちらも殻を起動する環境に置く。Claude Code の設定 `settings.json` の `env` に書いた値（ゲートウェイの URL など）は、殻自身が読む `WORKS_FACTORY_KEYCHAIN_ITEM` と違い、工場の中の AI の役には運ばれない。
 - 殻は「認証は ANTHROPIC_API_KEY から拾う」と出して、そのキーで AI の役を起こす。
 - 上の `WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` は付けない。付けると殻はその項目のログインを使い、`ANTHROPIC_API_KEY`・`ANTHROPIC_AUTH_TOKEN`・Bedrock や Vertex の設定を子から外す。API キーの入った項目を名指しても読めずに止まる。
 
@@ -38,3 +38,13 @@
 ## 残ったログイン
 
 - 既定の設定の置き場（`~/.claude`）に Claude のログインが残っていると（macOS は keychain、Linux は `.credentials.json`）、キーも `apiKeyHelper` も `WORKS_FACTORY_KEYCHAIN_ITEM` も `CLAUDE_CODE_OAUTH_TOKEN` も無い時は止まらずにそのログインのアカウントで起こす。殻の出す「認証は … から拾う」の行で確かめる。
+
+## 会話のキャッシュの寿命を変える時
+
+- 工場は、中の AI の役の会話のキャッシュの寿命を既定で 5 分にする（殻が、Archon の run ごとの設定〔`--config` と同じ層〕の `env:` に `CLAUDE_CODE_PROMPT_CACHE_TTL=5m` を載せる）。Claude の加入（Pro・Max など）でログインした人では Claude Code の既定は 1 時間で、キャッシュの書き込みが 5 分の物の 2 倍の単価で使用枠を減らすのに、工場の役の会話は要求の間が 5 分を超えることが少ないため（[工場の docs/design/archon.md](https://github.com/raiki61/works-factory/blob/1b5d8b709f6927f73acb1c431eeaac8e01f415dc/docs/design/archon.md)）。API キーの人は前から 5 分。
+- 寿命の値は `5m` か `1h`（Claude Code はほかの値を無視する）。選び方は次のどれか。どれかが在れば、工場の 5 分は載らない。
+  - 殻を起動する環境に置く: `CLAUDE_CODE_PROMPT_CACHE_TTL=1h WF workflow run ...`
+  - 殻に渡す `--config <YAML のファイル>` か、修正を頼むリポジトリの `.archon/config.yaml` の、いちばん上の `env:` に書く。1 時間に戻すなら `env:` の下に `ENABLE_PROMPT_CACHING_1H: '1'`。`CLAUDE_CODE_PROMPT_CACHE_TTL`・`FORCE_PROMPT_CACHING_5M` も書ける。
+  - `--config` か `.archon/config.yaml` に寿命の変数が在ると、殻を起動する環境の `CLAUDE_CODE_PROMPT_CACHE_TTL` は役に届かない。
+- 次に書いた寿命は効かず、工場の 5 分が勝つ: 対象の `.archon/.env`、Claude Code の設定の `promptCacheTtl`（会社が配る managed settings の物も）、Archon の DB の codebase の env。
+- `--adopt`（前の run を引き継ぐ起動）は工場の 5 分を載せない。PIN が 1b5d8b70 より前の工場で始めた run を `resume` で続けると、寿命はその時のまま。

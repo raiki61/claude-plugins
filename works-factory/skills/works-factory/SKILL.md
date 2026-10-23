@@ -17,11 +17,11 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 
 - macOS か Linux、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、Claude Code の `claude`。
 - 足りない物は、殻が入れ方のコマンドを出して止まる。打ってから起動し直す。
-- 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）時は、[references/auth.md](references/auth.md) を読む。
+- 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）・会話のキャッシュの寿命（既定 5 分）を変える時は、[references/auth.md](references/auth.md) を読む。
 
 ## 1. 殻
 
-殻はこのプラグインの `bin/works-factory`。Claude Code が入れたプラグインの置き場（`${CLAUDE_PLUGIN_ROOT}`）に在る。
+殻はこのプラグインの `bin/works-factory`（`${CLAUDE_PLUGIN_ROOT}` の下）。
 
 - 初回は、止めた commit（`${CLAUDE_PLUGIN_ROOT}/PIN` に書いた 40 桁）の raiki61/works-factory を、`${XDG_CACHE_HOME:-~/.cache}/works-factory-plugin/<commit>` に取ってくる。2 回目からは取り置きを使う。
 - 引数は取り置いた工場の `bin/works-factory` にそのまま渡る。Archon の旗はコマンドの後ろに置く。

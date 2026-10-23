@@ -6,6 +6,11 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場の固定 commit（`works-factory/PIN`）を 1b5d8b70 に上げた。取り込んだのは raiki61/works-factory#835。工場の中の AI の役の会話のキャッシュの寿命が、Claude の加入でログインした人では既定の 1 時間から 5 分になった（run の設定の層の env に `CLAUDE_CODE_PROMPT_CACHE_TTL=5m` を載せる）。殻を起動する環境・`--config` の `env:`・対象の `.archon/config.yaml` の `env:` で寿命を選んでいれば上書きせず、`--adopt` の起動では載せない。報告（`report-ai.md`）の「費用」のセクションに、工程ごとのトークン数（入力・出力・キャッシュの読み・書き）の行が出る。
+- 寿命を変える時の書き方を `skills/works-factory/references/auth.md` の「会話のキャッシュの寿命を変える時」に書き、スキルの本文の「認証」の行から指した。本文の長さの上限（5000 字）に収めるため、「1. 殻」の置き場の文を短くした。
+
 ## [0.9.0] - 2026-10-23
 
 ### Changed
@@ -56,7 +61,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- `works-factory/PIN`（殻が使う raiki61/works-factory の commit）を 687a6057 に上げ、殻が `apiKeyHelper`（Claude Code の設定の、API キーを出すコマンドの欄）のコマンドを走らせて得たキーで工場の中の AI の役を起動する道と、同時数の上限 `WORKS_FACTORY_CLAUDE_CONCURRENCY`（429 が返る時）をスキルの `references/auth.md` に書いた。API キーとゲートウェイ（API の中継先）の値は殻を起こす環境に置き、設定の `env` に書いた値は工場の中の AI の役に運ばれない、と説明を直した。
+- `works-factory/PIN`（殻が使う raiki61/works-factory の commit）を 687a6057 に上げ、殻が `apiKeyHelper`（Claude Code の設定の、API キーを出すコマンドの欄）のコマンドを走らせて得たキーで工場の中の AI の役を起動する道と、同時数の上限 `WORKS_FACTORY_CLAUDE_CONCURRENCY`（429 が返る時）をスキルの `references/auth.md` に書いた。API キーとゲートウェイ（API の中継先）の値は殻を起動する環境に置き、設定の `env` に書いた値は工場の中の AI の役に運ばれない、と説明を直した。
 
 ## [0.3.0] - 2026-10-20
 
