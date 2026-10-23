@@ -8,11 +8,11 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Added
 
-- 前提（`--check` が tiers の段 2 で確かめる物）に、各アカウントの `settings.json` の `permissions.deny` に `"AskUserQuestion"`（Claude が選択肢の画面で問うツール）があることを足した。dispatch が PR・issue ごとに開く会話がこの画面で止まると、窓を開いてキーを押すまで進まず、窓口の会話からは答えられない（2026-10-23、guided-resolver の issue #1895）。無ければ `--check` が止まり、tiers の `tiers-settings setup --config-dir <フォルダ>` で書く手を出す（feedbackDrafts と一緒に書く）。docs/prerequisites.md の 13。
+- 前提（`--check` が tiers の段 2 で確かめる物）に、各アカウントの `settings.json` の `permissions.deny` に `"AskUserQuestion"`（Claude が選択肢の画面で問うツール）があることを足した。dispatch が PR・issue ごとに開く会話がこの画面で止まると、窓を開いてキーを押すまで進まず、窓口の会話からは答えられない（2026-10-23、guided-resolver の issue #1895）。無ければ `--check` が止まり、tiers の `tiers-settings setup --config-dir <フォルダ>` で書く手を出す（feedbackDrafts と一緒に書く）。使う人は、`--check` を通すためにこれを書く。docs/prerequisites.md の 13。
 
 ### Changed
 
-- PR・issue の会話を、`--settings <templates/session-settings.json>`（AskUserQuestion を外す deny だけを書いたファイル）を付けて起動するようにした。上の前提を満たしていない環境でも、dispatch が開く会話はこの画面で止まらない。`--settings` の `permissions` の並びはアカウントの設定と合わさるので、ほかの deny・allow は消えない。部署の会話は今までどおり、会社の形の役の設定（`[roles.settings]`。`--init-company` の下書きが書く）で同じ deny を持つ。
+- PR・issue の会話を、`--settings <templates/session-settings.json>`（AskUserQuestion を外す deny だけを書いたファイル）を付けて起動するようにした。前提を書く前（`--check` を通さずに dispatch を走らせた場合など）でも、dispatch が開く会話はこの画面で止まらない。前提を書かなくてよくなるわけではなく、前提は手で起動する会話にも効かせるため。`--settings` の `permissions` の並びはアカウントの設定と合わさるので、ほかの deny・allow は消えない。部署の会話は今までどおり、会社の形の役の設定（`[roles.settings]`。`--init-company` の下書きが書く）で同じ deny を持つ。
 
 ## [0.115.0] - 2026-10-23
 

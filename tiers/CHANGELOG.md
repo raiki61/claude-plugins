@@ -8,11 +8,11 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ### Added
 
-- 段 2（`tiers --tier 2`）の点検に、起動コマンドごとのアカウントの `settings.json` の `permissions.deny` に `"AskUserQuestion"`（Claude が選択肢の画面で問うツール）があるかを足した。項目の名前は「選択肢の画面で問うツール（<フォルダ>）」で、feedbackDrafts と同じく、フォルダは `auth status --json` の `configDirectory` と `--config-dir` から引き、点検は何も書き換えない。Claude がこのツールで問うと、その会話は窓を開いてキーを押すまで進まず、ほかの会話からは答えられない（2026-10-23、持ち主の勤め先のリポジトリ guided-resolver で、works-dispatch が開いた会話が止まった）。括弧付きの `AskUserQuestion(...)` は通さない。`permissions` が {} でない・`deny` が並びでないときは、形を直す手を先に出す。
+- 段 2（`tiers --tier 2`）の点検に、起動コマンドごとのアカウントの `settings.json` の `permissions.deny` に `"AskUserQuestion"`（Claude が選択肢の画面で問うツール）があるかを足した。項目の名前は「選択肢の画面で問うツール（<フォルダ>）」で、feedbackDrafts と同じく、フォルダは `auth status --json` の `configDirectory` と `--config-dir` から引き、点検は何も書き換えない。Claude がこのツールで問うと、その会話は窓を開いてキーを押すまで進まず、ほかの会話からは答えられない（2026-10-23、持ち主の勤め先のリポジトリ guided-resolver で、works-dispatch が開いた会話が止まった）。括弧付きの `AskUserQuestion(...)` は通さない。`permissions` が JSON のオブジェクト（`{...}`）でない（並びや文字など、型が違う）か、`deny` が並び（`[...]`）でないときは、`tiers-settings setup` が書けないので、点検はその項目の直し方の 1 行目に「その形を手で直してから」を出す。中身の在る `permissions` や空の `permissions` は止めず、`deny` を足す。
 
 ### Changed
 
-- `tiers-settings setup` が、`feedbackDrafts` に加えて `permissions.deny` の末尾に `"AskUserQuestion"` を足すようにした（既に在れば触らず、ほかの項目は消さない。前の `settings.json` は今までどおり `.bak` で 1 つ残す）。`permissions` か `deny` の形が違う `settings.json` には何も書かずに止まる（終了コード 1）。中身の空の `settings.json` を {} と同じに扱うようにした（点検と同じ扱い）。
+- `tiers-settings setup` が、`feedbackDrafts` に加えて `permissions.deny` の末尾に `"AskUserQuestion"` を足すようにした（既に在れば触らず、ほかの項目は消さない。前の `settings.json` は今までどおり `.bak` で 1 つ残す）。`permissions` か `deny` の型が違う（上と同じ）`settings.json` には何も書かずに止まる（終了コード 1）。中身の空の `settings.json` を {} と同じに扱うようにした（点検と同じ扱い）。
 - 起動コマンドの `auth status --json` に `configDirectory` が無いときの項目の名前を、「フィードバックの下書き（<コマンド>）」から「アカウントの設定（<コマンド>）」にした（2 つの設定の両方に係るため）。README の「Feedback drafts」は「Account settings」の下に移した。
 
 ## [0.10.0] - 2026-10-23
