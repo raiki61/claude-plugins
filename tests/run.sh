@@ -6086,6 +6086,8 @@ EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "WORKS_FACTORY_")
 EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                   # Claude Code のゲートウェイの環境変数（works-factory のスキルの認証の手引きが名指す）
                   "ANTHROPIC_BASE_URL",
+                  # Claude Code の会話のキャッシュの寿命の環境変数（works-factory のスキルの認証の手引きが名指す）
+                  "FORCE_PROMPT_CACHING_5M",
                   # Archon がノードと子に渡す環境変数・Archon の設定の環境変数
                   "ARTIFACTS_DIR", "TITLE_GENERATION_MODEL",
                   # 包みが Bash の役の子に向け直す・向け直さない外のツールの環境変数
