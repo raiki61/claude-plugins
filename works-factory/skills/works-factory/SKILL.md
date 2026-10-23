@@ -15,7 +15,7 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 
 ## 0. 要る物
 
-- macOS か Linux、Python 3.12 以上、git、`bun`（Archon の源を起動するのに使う）、Claude Code の `claude`。
+- macOS か Linux、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、Claude Code の `claude`。
 - 足りない物は、殻が入れ方のコマンドを 1 行ずつ出して止まる。出たコマンドを打ってから、もう一度起動する。
 - 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）時は、[references/auth.md](references/auth.md) を読む。
 
@@ -59,11 +59,11 @@ WF workflow run works-factory-line --cwd <対象のリポジトリ> --input requ
 
 run は 4 か所（対話モードは 5 か所）で止まり、人の答えを待つ: 始める時・直す前（聞く必要がある時だけ）・修正の途中で計画が変わる時（承認した範囲や受け入れの試験が変わるか、審査役が問う時）・最後。最後の開き方は `--input final_gate=always|when_needed|protected_only` で選ぶ（既定は always、無人の run は when_needed）。守りのパス（対象の `.works-protected.json` に書いた物）に当たった時などはどれでも開き、`protected_only` はその時だけ開く（全部は工場の README「Choosing the approval nodes」）。
 
-`--input design_only=true` で無人でない run は対話モード。5 か所目の `gate-design` が計画と事前審査の往復の終わるたびに開き、設計案と審査の結果を見せる。無人の run と組むと開かず、直す前で止まる（報告は出る）。
+`--input design_only=true` で無人でない run は対話モード。`gate-design` が計画と事前審査の往復の終わるたびに開き、設計案と審査の結果を見せる。無人の run と組むと開かず、直す前で止まる（報告は出る）。
 
 1. 何を聞かれているかを見る: `WF workflow get <run> --cwd <対象>`
 2. 答える: `WF workflow respond <run> approve|stop|revise [一言] --cwd <対象>`
-   - `approve`: 進める。`gate-design` では同じ run のまま修正へ進み、直す前は合意した行を聞き直さない。
+   - `approve`: 進める。`gate-design` では同じ run のまま修正へ進み、直す前は合意した設計の項目を聞き直さない。
    - `stop`: 止める。後ろを飛ばして報告を出す（`workflow reject <run>` も同じ）。
    - `revise <一言>`: `gate-design` だけ。直す所を一言で返すと、設計し直して事前審査をやり直し、もう一度聞く。空の一言は聞き直す（3 度目は止まる）。往復は 20 回までで、20 回目の `revise` は止まる。止まり方は `stop` と同じ。
 - 承認ノードの間で走っている run は `WF workflow cancel <run> --cwd <対象>` で止まる（報告は出ない）。`<run>` に入れる id・止めた後・Ctrl-C の時は [references/stop.md](references/stop.md) を読む。

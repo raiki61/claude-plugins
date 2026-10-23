@@ -1,13 +1,16 @@
 # 何周もつなぐ（周の鎖）
 
-1 回の run で閉じなかった残りを、続けて何周も回す時の手順。`WF` はこのプラグインの `bin/works-factory`。
+1 つの依頼を、工場のメインの run（`works-factory-line`）に最大 5 周続けて回す時の手順。1 周目から鎖が回すので、先にメインの run を起動しておく必要は無い。前に終わった run の残りから始める時は、その残りを依頼のファイルに書いて渡す。`WF` はこのプラグインの `bin/works-factory`。
 
 ```
-WF workflow run works-factory-chain --cwd <対象> --input rounds=<1〜5> --input request=<依頼>
+WF workflow run works-factory-chain --cwd <対象> --input rounds=<1〜5> --input request=<依頼のファイル> [--input budget_usd=<USD>]
 ```
 
-- 費用の上限は `--input budget_usd=<USD>` で付ける。
-- 1 周が子の run 1 本で、残りが在れば次の周を起動する。
-- 周の中の承認ノードには子の run の id で答える（`WF workflow status --cwd <対象>` で見る）。
-- 当てるのは鎖の run（`WF apply <鎖の run> --cwd <対象>`）で、採る周までの最後の差分と、周ごとの表 `chain.md` が置き場に出る。
-- `--input design_only=true` とは組めない（工場が起動を拒む）。
+- `request` は SKILL.md の「2. 起動する」と同じ、依頼を書いた JSON のファイルのパス。1 周目の子の run にだけ渡る。
+- 1 周が子の run 1 本。2 周目からの依頼は、前の周の子の run が出した残り（次の依頼。直し切れなかった所見など）を工場が自動で渡す。人が書き直す所は無い。
+- 鎖は、次のどれかで `rounds` の途中でも止まる（工場の `lib/chain.py` の `STOPS`）: 指定の周の数に達した・結末が閉じた（直し済みか、直す物が無い。残りが無くなった時もここ）・run が止まった・人の判断が要る・進みが無い（差分が出ないか、残りが前の周と同じ）・費用の上限。
+- 費用の上限（`budget_usd`）を付けると、次の周を起動する前に、累計と最大の周の費用の和が上限を越えうる時と、費用が読めない周が在る時に止める。済んだ周の差分はそのまま残る。付けなければ費用では止まらない。
+- 周の中の承認ノードは子の run で止まる。答えるのは子の run の id（`WF workflow status --cwd <対象>` で見る）で、答え方は SKILL.md の「3. 承認ノードで答える」と同じ `WF workflow respond <子の run> approve|stop|revise [一言] --cwd <対象>`。答えると鎖が続く。
+- 人が答えない時は `--input unattended=true` を付けられ、どの周の子の run にも渡る。`--input design_only=true` とは組めない（工場が起動を拒む）。
+- 当てるのは鎖の run（`WF apply <鎖の run> --cwd <対象>`）。採る周は工場が決める: 最後の周から戻り、止まっていない最初の周。元の基からその周までの差分をまとめて当てる。止まった周の差分は採らず、別に残す。
+- 周ごとの表と合計を書いた `chain.md` と、採らなかった周の差分は、鎖の run の記録の場所（対象の作業ツリーではない）に出る。在りかは `WF workflow get <鎖の run> --cwd <対象>` の結果に出る。
