@@ -73,3 +73,14 @@ herdr（端末を作業場とペインに分けて並べ、中の AI の会話�
 - 足す規則だけを配り、上書きは人が手で作る: herdr が配り直すたびに古くなる（今回の不具合の形そのもの）。
 
 手元の 3 つのファイルは、プラグインの版で印が出るのを確かめるまで残す（消すかは持ち主に確かめる）。`~/.claude/herdr-activity.sh`（今見ている PR の番号を控えるフック）は、今回の移し替えの外なので手元に残る。
+
+## フィードバックの下書きを切る設定（feedbackDrafts。2026-10-23）
+
+tiers が段 2 でこの設定を点検し、書く側のコマンド `tiers-settings setup` を別に持つと決めた理由の記録。利用者がすること（足りないと出たら `tiers-settings setup` を打つか `/config` で切る）は README の「Feedback drafts」。
+
+Claude が SendFeedback のツールでフィードバックの下書きをためた会話は、`/exit` の前に送るか捨てるかの確認を出して止まる（[tools reference](https://code.claude.com/docs/en/tools-reference) の「SendFeedback tool behavior」: 「When you run /exit with drafts from the session still in the queue, Claude Code asks whether to review them or discard them before exiting.」）。2026-10-23 に、持ち主（このリポジトリの作者）の勤め先のリポジトリ guided-resolver で、works-dispatch（Claude Code の会話を作業ごとに開き、要らなくなった会話を `/exit` で閉じるプラグイン）が、自分の番でなくなった PR の会話を `/exit` で閉じられなかった。持ち主はフィードバックを送らないので、確認の画面に答える作りにせず、下書きをためない設定を前提の環境にして、その点検を tiers が持つ（持ち主の決め。works-dispatch の部署への頼み 20261023-043724-0b4b8b〔頼みのファイルの名前〕で決めた）。
+
+- **何を見るか。** 各アカウントの `settings.json` の `feedbackDrafts` が `"off"` か（[settings reference](https://code.claude.com/docs/en/settings-reference) の feedbackDrafts: 範囲は User か managed〔管理者が配る設定〕、`"off"` で SendFeedback のツールが外れる）。環境変数の `CLAUDE_CODE_SEND_FEEDBACK=0` は 1 つの会話にしか効かず、`DISABLE_FEEDBACK_COMMAND=1` は人が打つ `/feedback` も止めるので見ない。
+- **どのフォルダを見るか。** 段 2 の起動コマンドは、シェルの関数が `CLAUDE_CONFIG_DIR` を入れて claude を起動する物が多く、tiers からはフォルダが見えない。ログインの点検で打つ `<起動コマンド> auth status --json` の答えに `configDirectory` が在る（2.1.309 で見た。公式の文書には書かれていない）ので、そこから引く。無ければ足りない物として出し、`--config-dir` で渡す手を示す（`--config-dir` を渡したときは、どのフォルダの物かは引けないので、渡したフォルダを見たことで通す）。管理者の managed settings はアカウントの値より先に効くが、点検は読まない（持ち主の手元に無く、置き場が OS と配り方で分かれるため）。`--config-dir` で渡したフォルダも見て、同じフォルダは 1 つにまとめる。
+- **段。** 外から会話を閉じるツール（works-dispatch）の前提なので、起動コマンドを見る段 2 に置いた。
+- **書く側を statusline の setup と分けた。** `tiers-statusline setup` は、使うかを利用者が決める statusLine を書く（アカウントに 1 つの statusLine を押しのける）。feedbackDrafts は段 2 の前提で、statusLine を使わないアカウントにも要る。相乗りさせると、片方だけ欲しい人が書けない。そこで `tiers-settings setup` を別に置き、`.bak` の残し方と書き方（`tiers_statusline.backup`〔前の `settings.json` を `settings.json.bak.<日時>-tiers` に写す〕・`write_file`〔ファイルを書く〕）は同じ物を使う。ほかのキーは残し、`feedbackDrafts` だけを足すか書き換える。打つのは利用者で、点検は書かない。

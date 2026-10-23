@@ -194,7 +194,8 @@ class Ports:
                  login_config_dir=None, worktrees=None, task_flags=None, tier_check=None):
         self._herdr_methods = herdr_methods or term.methods
         self._task_flags = task_flags or chat.missing_flags
-        self._tier_check = tier_check or (lambda launchers: tierx.check(launchers, env=self.env))
+        # 起動コマンドの点検（ログインと設定のフォルダ）は、ペインで起きるシェルの CLAUDE_CONFIG_DIR で見る（account_env）
+        self._tier_check = tier_check or (lambda launchers: tierx.check(launchers, env=self.account_env))
         self._herdr_integration = herdr_integration or (lambda cdir: term.claude_integration(cdir, dict(self.env)))
         self._login_config_dir = login_config_dir or (lambda: _login_config_dir(self.env))
         self._account_env = None

@@ -6,6 +6,11 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Added
+
+- 段 2（`tiers --tier 2`）の点検に、起動コマンド（`--launcher` で渡す、アカウントごとに Claude Code を起動するコマンド）ごとのアカウントの `settings.json` に `"feedbackDrafts": "off"`（Claude がフィードバックの下書きをためない設定）があるかを足した。Claude が Claude Code の組み込みの SendFeedback のツールで下書きをためた会話は、`/exit` の前に送るか捨てるかの確認で止まる。そのため、Claude Code の会話を `/exit` で閉じて回る works-dispatch（このリポジトリの別のプラグイン）が、その会話を閉じられなかった（2026-10-23 に、持ち主の勤め先のリポジトリ guided-resolver で起きた）。アカウントの設定のフォルダは、段 2 がそのアカウントのログインを確かめるのに打つ `<起動コマンド> auth status --json` の答えの `configDirectory` から引く（無ければ足りない物として出す）。`--config-dir` で渡したフォルダも見る。無ければ、書くコマンドと、手で書く場所を出す。点検は今までどおり何も書き換えない。
+- 書く側のコマンド `tiers-settings setup [--config-dir フォルダ ...]` を足した。`--config-dir` で渡した各フォルダ（省けば `CLAUDE_CONFIG_DIR` のフォルダ、それも無ければ `~/.claude`）の `settings.json` に `"feedbackDrafts": "off"` を書き、前の物は `tiers-statusline setup` と同じく `settings.json.bak.<日時>-tiers` の名前で隣に残す。段 2 の点検でこの設定が足りないと出たら、利用者はこのコマンドを打つ（または、そのアカウントの `/config` で Claude-drafted feedback を off にする）。README の「Feedback drafts」。
+
 ## [0.9.2] - 2026-10-20
 
 ### Fixed

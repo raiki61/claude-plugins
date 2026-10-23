@@ -12,7 +12,7 @@ disable-model-invocation: true
 
 - 段 0: Claude Code だけ（入っているか、ログイン済みか）
 - 段 1: gh（GitHub の CLI。入っているか、ログイン済みか）
-- 段 2: herdr（端末の画面を作業ごとの作業場とペインに分け、その中の Claude Code の会話を外から操作できるツール。入っているか、動いているか）と、アカウントの起動コマンド（Claude Code のアカウントごとに、そのアカウントで会話を起動するコマンド。既定は `claude` だけ。シェルで見つかるか、そのアカウントでログイン済みか）
+- 段 2: herdr（端末の画面を作業ごとの作業場とペインに分け、その中の Claude Code の会話を外から操作できるツール。入っているか、動いているか）と、アカウントの起動コマンド（Claude Code のアカウントごとに、そのアカウントで会話を起動するコマンド。既定は `claude` だけ。シェルで見つかるか、そのアカウントでログイン済みか、そのアカウントの `settings.json` に Claude がフィードバックの下書きをためない設定 `"feedbackDrafts": "off"` があるか）
 - 段 3: Archon（YAML に書いた AI の段を順に回すツール。このリポジトリの works〔コードの直しを AI の流れで回すプラグイン〕が使う）
 
 ## 走らせ方
@@ -25,7 +25,7 @@ tiers --tier <段>
 
 - 段が分からなければ、呼んだプラグインの README の「要る段」を見る。それも無ければ `--tier 3` で全部を見る。
 - 段 2 で、複数のアカウントを別々のコマンド（シェルの関数など）で起動しているなら、コマンドごとに `--launcher <コマンド>` を足す。省けば `claude` だけを見る。
-- アカウントごとに Claude Code の設定のフォルダを分けているなら、フォルダごとに `--config-dir <フォルダ>` を足す。入れたプラグインの控え（Claude Code が入れたプラグインの置き場を書く `plugins/installed_plugins.json`）が、消えたフォルダや前の版の印 `.orphaned_at` の付いたフォルダを指していないか（段 0）と、herdr の連携（herdr が Claude Code の設定に入れるフック。`herdr integration status` が `current` と出すか）が入っているか（段 2）を、フォルダごとに見る。段 2 では、statusLine が tiers の statusline を指すフォルダだけ、その支度（README の「Status line」）がそろっているかも見る。
+- アカウントごとに Claude Code の設定のフォルダを分けているなら、フォルダごとに `--config-dir <フォルダ>` を足す。入れたプラグインの控え（Claude Code が入れたプラグインの置き場を書く `plugins/installed_plugins.json`）が、消えたフォルダや前の版の印 `.orphaned_at` の付いたフォルダを指していないか（段 0）と、herdr の連携（herdr が Claude Code の設定に入れるフック。`herdr integration status` が `current` と出すか）が入っているか（段 2）を、フォルダごとに見る。段 2 では、statusLine が tiers の statusline を指すフォルダだけ、その支度（README の「Status line」）がそろっているかも見る。`feedbackDrafts` も、起動コマンドから引いたフォルダに足して、渡したフォルダごとに見る。
 - 機械で読むなら `--json` を足す（形は `lib/tiers_check.py` の頭に在る）。
 - 終了コードは 0 = そろっている、1 = 足りない物がある、2 = 使い方が違う。
 

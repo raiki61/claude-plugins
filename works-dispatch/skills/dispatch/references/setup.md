@@ -11,6 +11,7 @@
 
 - [herdr](https://herdr.dev)（端末を作業場ごとに分けて、中の AI の会話を外から操作できるツール）が動いている。
 - Claude Code が、開いている会話を読む `claude agents --json` を持つ版である。
+- 使う各アカウントの `settings.json` に `"feedbackDrafts": "off"` がある（Claude がフィードバックの下書きをためた会話は、`/exit` の前に送るか捨てるかの確認で止まり、dispatch が閉じられない）。tiers の段 2 の点検が見て、無ければ `--check` が止まる。書くのは tiers の `tiers-settings setup --config-dir <フォルダ>`。訳は docs/prerequisites.md の 12。
 - 使う各アカウントに、attention プラグインがアカウント全体（user）に入っている。
 - 部署の回は、herdr の設定（`~/.config/herdr/config.toml`）の作業場の行（`[ui.sidebar.spaces]` の `rows`）のどこかに `{ token = "$kind" }` がある。部署の作業場の行に、永続・毎回クリア／永続・引き継ぎ／エフェメラルの印を出すため（`$kind` は dispatch が部署の作業場に付ける herdr の印の名前）。無ければ `--check` が足す行を出し、部署を立てる回は止める（PR を開く回は注記だけ）。足したら `herdr server reload-config` を打つ。
 - gh でそのリポジトリを読める（PR を開く回だけ。部署の回は GitHub を読まない）。普段の gh のアカウントで読めなければ、設定の `gh_user` に読めるアカウントを書く。

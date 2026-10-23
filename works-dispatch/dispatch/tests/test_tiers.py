@@ -10,6 +10,7 @@ import unittest
 from . import DISPATCH  # noqa: F401
 from .test_dispatch import FakePorts, make_cfg, run_main
 import tierx
+import wiring
 
 
 def result(*bad):
@@ -65,6 +66,19 @@ class CheckCallsTiers(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(ports.asked, [["claude-a1"]])
         self.assertTrue(ports.preflighted)
+
+    def test_tiers_sees_the_config_dir_of_the_pane_shell_not_of_this_session(self):
+        # 起動コマンド claude のログインと設定のフォルダ（feedbackDrafts の点検）は、ペインで起きるシェルの CLAUDE_CONFIG_DIR で決まる
+        seen = []
+        real = tierx.check
+        tierx.check = lambda launchers, env=None: seen.append(env) or result()
+        self.addCleanup(setattr, tierx, "check", real)
+        ports = wiring.Ports(env={"PATH": "/bin", "CLAUDE_CONFIG_DIR": "/h/.claude-session"}, login_config_dir=lambda: None)
+        ports.tiers(["claude"])
+        self.assertNotIn("CLAUDE_CONFIG_DIR", seen[0])
+        ports = wiring.Ports(env={"PATH": "/bin", "CLAUDE_CONFIG_DIR": "/h/.claude-session"}, login_config_dir=lambda: "/h/.claude-pane")
+        ports.tiers(["claude"])
+        self.assertEqual(seen[1]["CLAUDE_CONFIG_DIR"], "/h/.claude-pane")
 
     def test_without_the_part_it_stops_instead_of_saying_nothing_is_missing(self):
         # 段の点検を回せないまま「足りない物は無い」と言うと、herdr が動いていなくても通ってしまう

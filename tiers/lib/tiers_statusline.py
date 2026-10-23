@@ -60,14 +60,14 @@ def herdr_paths(env):
             pathlib.Path(state, "herdr", "agent-detection", "remote", "claude.toml"))
 
 
-def _read(path):
+def read_file(path):
     try:
         return pathlib.Path(path).read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
 
 
-def _write(path, text):
+def write_file(path, text):
     """書きかけを読ませない（statusline.sh が 30 秒ごとに、ペインの数だけ並んで起動しうる）。path がリンク（dotfiles の管理など）なら、
     リンクを普通のファイルで置き換えず、リンクの先に書く。"""
     path = pathlib.Path(os.path.realpath(path))
@@ -77,7 +77,7 @@ def _write(path, text):
     os.replace(tmp, path)
 
 
-def _backup(path):
+def backup(path):
     """前の物を同じフォルダに .bak.<日時>-tiers で残す（持ち主の今の残し方 settings.json.bak.<日時>-<訳> に合わせる）。"""
     dest = path.with_name(f"{path.name}.bak.{time.strftime('%Y%m%d-%H%M%S')}-tiers")
     dest.write_bytes(path.read_bytes())
@@ -115,10 +115,10 @@ def refresh(env=None, force=False, run=None):
     env = os.environ if env is None else env
     run = run or subprocess.run   # 既定を引数に書くと、読み込んだ時の subprocess.run に決まり、試験が差し替えられない
     over, remote = herdr_paths(env)
-    base = _read(remote)
+    base = read_file(remote)
     if base is None:
         return False, f"herdr が配った Claude の判定ルール（{remote}）が無い。herdr を起動するか herdr server update-agent-manifests を打ってから、もう一度打つ"
-    cur = _read(over)
+    cur = read_file(over)
     if cur is not None and not cur.startswith(MARK) and not force:
         return True, f"{over} は tiers が作った物でないので触らない（置き換えるなら tiers-statusline setup）"
     try:
@@ -130,8 +130,8 @@ def refresh(env=None, force=False, run=None):
     if cur == want:
         os.utime(over)   # 配られたルールの方が新しいままだと、statusline.sh が 30 秒ごとに起動し続ける
         return True, f"{over} は今の配られたルールから作った物のまま"
-    saved = _backup(over) if cur is not None and not cur.startswith(MARK) else None
-    _write(over, want)
+    saved = backup(over) if cur is not None and not cur.startswith(MARK) else None
+    write_file(over, want)
     # 動いている herdr に読み直させる。動いていなければ、次に起動したときに読む
     try:
         run(["herdr", "server", "reload-agent-manifests"], capture_output=True)
@@ -142,7 +142,7 @@ def refresh(env=None, force=False, run=None):
 
 def installed_root(config_dir):
     """そのアカウントに user の範囲で入った tiers の置き場。無ければ None。"""
-    text = _read(pathlib.Path(os.path.expanduser(config_dir), "plugins", "installed_plugins.json"))
+    text = read_file(pathlib.Path(os.path.expanduser(config_dir), "plugins", "installed_plugins.json"))
     try:
         entries = json.loads(text).get("plugins", {}).get(PLUGIN_ID) if text else None
     except (ValueError, AttributeError):
@@ -155,7 +155,7 @@ def installed_root(config_dir):
 
 def uses_it(config_dir):
     """そのアカウントの statusLine が、ここの statusline を指しているか。"""
-    text = _read(pathlib.Path(os.path.expanduser(config_dir), "settings.json"))
+    text = read_file(pathlib.Path(os.path.expanduser(config_dir), "settings.json"))
     try:
         line = json.loads(text).get("statusLine") if text else None
     except (ValueError, AttributeError):
@@ -179,7 +179,7 @@ def setup_one(config_dir):
         os.symlink(root, tmp)
         os.replace(tmp, link)
     path = pathlib.Path(os.path.expanduser(config_dir), "settings.json")
-    text = _read(path)
+    text = read_file(path)
     try:
         settings = json.loads(text) if text else {}
     except ValueError as e:
@@ -189,8 +189,8 @@ def setup_one(config_dir):
     want.setdefault("refreshInterval", 30)   # 裏の処理の数は会話が黙っている間にも替わる。印を消すのが遅れないように時計でも描き直す
     if settings.get("statusLine") == want:
         return True, f"{config_dir}: statusLine は前から tiers の statusline を指している"
-    saved = _backup(path) if text is not None else None
-    _write(path, json.dumps({**settings, "statusLine": want}, ensure_ascii=False, indent=2) + "\n")
+    saved = backup(path) if text is not None else None
+    write_file(path, json.dumps({**settings, "statusLine": want}, ensure_ascii=False, indent=2) + "\n")
     return True, f"{config_dir}: statusLine を {want['command']} にした" + (f"（前の物は {saved}）" if saved else "")
 
 
