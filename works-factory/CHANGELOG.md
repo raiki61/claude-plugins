@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-23
+
 ### Changed
 
 - 工場の固定 commit（`works-factory/PIN`）を 1b5d8b70 に上げた。取り込んだのは raiki61/works-factory#835。工場の中の AI の役の会話のキャッシュの寿命が、Claude の加入でログインした人では既定の 1 時間から 5 分になった（run の設定の層の env に `CLAUDE_CODE_PROMPT_CACHE_TTL=5m` を載せる）。殻を起動する環境・`--config` の `env:`・対象の `.archon/config.yaml` の `env:` で寿命を選んでいれば上書きせず、`--adopt` の起動では載せない。報告（`report-ai.md`）の「費用」のセクションに、工程ごとのトークン数（入力・出力・キャッシュの読み・書き）の行が出る。
