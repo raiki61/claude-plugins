@@ -34,6 +34,21 @@ LIST_COMMAND = "claude agents --json"   # 開いている会話の一覧を読�
 REMOVE_COMMAND = "claude rm"            # 裏の会話を消すコマンド（同じ）
 # 部署の裏の会話の設定に必ず重ねる値（会話に worktree を作らせず、先に作った作業場で働かせる）
 FIXED_SETTINGS = {"worktree": {"bgIsolation": "none"}}
+# 会話の本体のプロンプトキャッシュの寿命を選ぶ設定の名前と、受ける値の秒（ほかの値は無視される）。書かなければ、サブスクリプションの
+# 含まれる使用量の中では 1 時間（https://code.claude.com/docs/en/prompt-caching の「Cache lifetime」）
+CACHE_TTL_SETTING = "promptCacheTtl"
+CACHE_TTLS = {"5m": 300, "1h": 3600}
+CACHE_TTL_UNSET = 3600
+# 寿命を選ぶ環境変数（同じ文書の「Choose the TTL yourself」。先に効く順に、5 分に決める物・寿命を値で選ぶ物。設定 promptCacheTtl はその
+# 次で、1 時間を頼む物はさらにその次）と、キャッシュを切る物（「Disable prompt caching」。値が 1 で効く）
+CACHE_TTL_FORCE_5M, CACHE_TTL_ENV, CACHE_TTL_ASK_1H = "FORCE_PROMPT_CACHING_5M", "CLAUDE_CODE_PROMPT_CACHE_TTL", "ENABLE_PROMPT_CACHING_1H"
+CACHE_OFF_ENV = "DISABLE_PROMPT_CACHING"
+# キャッシュの書き込みと読みの値段の、ふつうの入力の値段への倍率（寿命の秒 → 書き込みの倍率）。読みはモデルで違い、表に無いモデルは
+# 0.1 倍（https://platform.claude.com/docs/en/about-claude/pricing の「Model pricing」の表と注。2026-10-23 に読んだ）。表の鍵はモデルの名前の頭
+CACHE_WRITE_RATE = {300: 1.25, 3600: 2.0}
+CACHE_READ_RATE = 0.1
+CACHE_READ_RATES = {"claude-opus-5-5": 0.05, "claude-sonnet-5-5": 0.05, "claude-fable-5-1": 0.025, "claude-mythos-5-1": 0.025}
+TAIL_BYTES = 262144   # 会話の記録の終わりから読む大きさ（last_model。最後の答えの行が入る大きさ）
 LOCAL_SETTINGS = ".claude/settings.local.json"   # リポジトリの中の、会話が書く手元だけの設定（許可の記録など。commit しない）
 # 会話が起動するときにしか読まないファイル（/clear では読み直さない）。.claude/ の下（役の定義・設定・フックなど）と、ルートのこれら
 STARTUP_DIR, STARTUP_FILES = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json")
@@ -126,6 +141,26 @@ def background_shells(me=None, runner=_default_runner):
     if host is None:
         return None
     return sum(1 for pid, (ppid, command) in procs.items() if ppid == host and SNAPSHOT in command and pid not in chain)
+
+
+def running_tasks(payload, shells):
+    """ターンの終わりに裏で動いている処理の数。分からなければ None。Stop フックの入力に裏の処理の一覧（background_tasks。
+    run_in_background の Bash・裏で立てたサブエージェント〔Agent〕・Monitor など。https://code.claude.com/docs/en/hooks#stop-input）
+    が在れば、その中の status が running の物を数える（2026-10-17 に 2.1.301 で、裏のサブエージェントが running で載り、終わった後のターンでは
+    空なのを見た）。一覧の無い版では、裏の Bash を数える口 shells（background_shells。裏のサブエージェントは見えない）を呼ぶ。"""
+    tasks = payload.get("background_tasks")
+    if isinstance(tasks, list):
+        return sum(1 for t in tasks if isinstance(t, dict) and t.get("status") == "running")
+    return shells()
+
+
+def running_ids(payload):
+    """ターンの終わりに裏で動いている処理の id の並び（並べ替えた物）。Stop フックの入力に裏の処理の一覧が無ければ None
+    （running_tasks の一覧の無い版。そのときは数しか分からない）。"""
+    tasks = payload.get("background_tasks")
+    if not isinstance(tasks, list):
+        return None
+    return sorted(str(t.get("id")) for t in tasks if isinstance(t, dict) and t.get("status") == "running")
 
 
 def trust_file(config_dir, env):
@@ -624,6 +659,33 @@ def event(payload):
 def transcript(payload):
     """会話の記録のファイルの場所（無ければ None）。"""
     return payload.get("transcript_path")
+
+
+def last_model(payload):
+    """会話の記録（transcript_path）の終わりの方で、最後に答えたモデルの名前。記録が無い・読めない・答えの行が無ければ None。"""
+    path = transcript(payload)
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, os.path.getsize(path) - TAIL_BYTES))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None   # 記録を読めなければモデルは分からない（呼んだ側は表に無いモデルの倍率で見る）
+    for line in reversed(lines):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue   # 読み始めの切れた行や書きかけの行は飛ばす
+        model = (row.get("message") or {}).get("model") if isinstance(row, dict) and row.get("type") == "assistant" else None
+        if isinstance(model, str) and model.startswith("claude-"):
+            return model
+    return None
+
+
+def read_rate(model):
+    """そのモデルのキャッシュの読みの値段の、入力の値段への倍率（CACHE_READ_RATES。表に無い・分からなければ CACHE_READ_RATE）。"""
+    return next((r for k, r in CACHE_READ_RATES.items() if (model or "").startswith(k)), CACHE_READ_RATE)
 
 
 def added_context(event_name, text):

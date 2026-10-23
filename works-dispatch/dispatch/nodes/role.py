@@ -62,6 +62,7 @@ role_hook.py が context と env_line を呼ぶ。
 """
 
 import json
+import math
 import os
 import re
 import shlex
@@ -245,6 +246,7 @@ def load(path, text=None):
                                    "persistent": r.get("persistent", r.get("resident")) is True, "fresh": r.get("fresh") is True,
                                    "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"]),
                                    "holders": _holders(r.get("holders")), "ask_holders": _holders(r.get("ask_holders")),
+                                   "keepalive": parse_keepalive(r.get("keepalive"), f"{where}（{r['name']}）", out["problems"]),
                                    "odd": [k for k, _ in known_keys.odd("roles", r)]}
         olds = r.get("former_names", [])
         if not (isinstance(olds, list) and all(isinstance(x, str) and x.strip() for x in olds)):
@@ -437,6 +439,88 @@ def settings_for(role, duty=None):
     """部署を起動するときに --settings に渡す設定（dict）。役の設定に受け持ち（duty。duty_of で引いた項目）の設定を重ね、
     必ず効かせる鍵（FIXED）を上から重ねる。表は鍵ごとに深く重ね、表でない値（並びを含む）は上の物で置き換える。"""
     return _merge(_layered(role, duty) or {}, FIXED)
+
+
+# keepalive（裏の処理を待つ間、会話のプロンプトキャッシュを切らさないために待ち受けが送る文）。寿命は役と受け持ちの設定を重ねた物の
+# chat.CACHE_TTL_SETTING から読む
+# 間隔の既定は寿命からこの秒を引く（ターンの終わりの応答を作る時間と、待ち受けが送ってから要求が出るまでの遅れの余裕）。5 分なら 210 秒
+KEEPALIVE_MARGIN = 90
+# 既定の文。返事を空にすると Claude Code が見える返事を促す文を足して要求が 1 回増え、「ツールを使わず」だけではフックの止めの字と
+# 読んで何かを打つことがある（2026-10-23 の試し。受付の設計の 7 章）ので、何もしないことと、書く一言を決めて渡す
+KEEPALIVE_TEXT = ("（keepalive: 裏の処理を待つ間に会話のプロンプトキャッシュを切らさないため、待ち受けが送った文で、誤りでも頼みでもない。"
+                  "裏の処理が終われば知らせが届く。ツールを使わず、「待機中」とだけ書いてターンを終える）")
+_EVERY = re.compile(r"(\d+)([smh])")
+_UNIT = {"s": 1, "m": 60, "h": 3600}
+
+
+def parse_keepalive(value, where, problems):
+    """会社の形の keepalive の値（役の [roles.keepalive] か受け持ちの keepalive）を読む。書いていなければ None、false なら False
+    （役の物を受け持ちで止める）、true か表なら {"every": 秒か None, "text": 字か None}（None は既定を使う）。形が違えば problems に
+    書いて None（書いていないのと同じ。送らない）。表の鍵は every（秒の整数か "210s"・"4m"・"1h" の字）と text（空でない字）。"""
+    if value is None or value is False:
+        return value
+    if value is True:
+        return {"every": None, "text": None}
+    if not isinstance(value, dict):
+        problems.append(f"{where}: keepalive は true・false か表（every・text）。外して送らない")
+        return None
+    every = value.get("every")
+    if isinstance(every, str) and _EVERY.fullmatch(every.strip()):
+        n, unit = _EVERY.fullmatch(every.strip()).groups()
+        every = int(n) * _UNIT[unit]
+    if "every" in value and not (isinstance(every, int) and not isinstance(every, bool) and every > 0):
+        problems.append(f"{where}: keepalive の every は正の秒の整数か \"210s\"・\"4m\"・\"1h\" の形の字。外して送らない")
+        return None
+    text = value.get("text")
+    if "text" in value and not (isinstance(text, str) and text.strip()):
+        problems.append(f"{where}: keepalive の text は空でない字。外して送らない")
+        return None
+    return {"every": every, "text": text.strip() if text else None}
+
+
+def keepalive_for(role, duty=None, notes=None, read=chat.CACHE_READ_RATE, env=None):
+    """部署の keepalive の {every: 秒, text: 字, ttl: 秒, limit: 続けて送る本数の上限}。送らないなら None。受け持ち（duty）の keepalive が役の物より先に効き、
+    両方が表なら鍵ごとに重ねる。every を書かなければ、キャッシュの寿命（cache_ttl。会話の環境変数 env と、役と受け持ちの設定を重ねた
+    promptCacheTtl〔_layered〕から読む）から KEEPALIVE_MARGIN を引いた秒。寿命が無い・分からない・every が寿命より短くないなら、
+    送っても寿命の切れた後に届くので送らず、訳を notes（並び）に足す。read は会話のモデルのキャッシュの読みの倍率（chat.read_rate）。"""
+    top, base = (duty or {}).get("keepalive"), (role or {}).get("keepalive")
+    got = top if top is not None else base
+    if not got:
+        return None
+    if isinstance(top, dict) and isinstance(base, dict):
+        got = {k: top.get(k) if top.get(k) is not None else base.get(k) for k in ("every", "text")}
+    ttl, why = cache_ttl((_layered(role, duty) or {}).get(chat.CACHE_TTL_SETTING), env or {})
+    every = got["every"] or (ttl and ttl - KEEPALIVE_MARGIN)
+    if ttl and every >= ttl:
+        why = f"keepalive の every（{every} 秒）がキャッシュの寿命（{ttl} 秒）より短くない（送っても寿命の切れた後に届く）"
+    if why:
+        if notes is not None:
+            notes.append(f"{why}ので、keepalive を送らない")
+        return None
+    # 続けて送るのは、送った分の読みの値段が、切れたときの書き直し 1 回の値段に届くまで（スキーのレンタルと購入の問題の、借り続けて
+    # 買値に届いたら買う手。待ちの長さを知らなくても、最善の手の 2 倍の費用で収まる）。読みが 0.1 倍のモデルで 5 分なら 13 本、1 時間なら
+    # 20 本。0.05 倍（Opus 5.5・Sonnet 5.5）なら 25 本と 40 本
+    limit = math.ceil(chat.CACHE_WRITE_RATE[ttl] / read)
+    return {"every": every, "text": got["text"] or KEEPALIVE_TEXT, "ttl": ttl, "limit": limit}
+
+
+def cache_ttl(written, env):
+    """会話の本体のキャッシュの寿命の秒と、決められないときの訳（(秒, None) か (None, 訳)）。Claude Code が先に効かせる順
+    （https://code.claude.com/docs/en/prompt-caching の「Choose the TTL yourself」）に、5 分に決める環境変数・寿命の環境変数・
+    起動の設定の promptCacheTtl（written）・1 時間を頼む環境変数を見て、どれも無ければ chat.CACHE_TTL_UNSET。env は会話の環境変数
+    （フックは会話の環境を継ぐ）。キャッシュを切っている会話と、受けない値（Claude Code は無視する）は、寿命が無い・分からないので訳を返す。"""
+    if env.get(chat.CACHE_OFF_ENV) == "1":
+        return None, f"環境変数 {chat.CACHE_OFF_ENV} でキャッシュを切っている"
+    if env.get(chat.CACHE_TTL_FORCE_5M) == "1":
+        return chat.CACHE_TTLS["5m"], None
+    for name, value in ((f"環境変数 {chat.CACHE_TTL_ENV}", env.get(chat.CACHE_TTL_ENV) or None), (chat.CACHE_TTL_SETTING, written)):
+        if value is not None:
+            if value in chat.CACHE_TTLS:
+                return chat.CACHE_TTLS[value], None
+            return None, f"{name} の {value!r} は {'・'.join(chat.CACHE_TTLS)} のどれでもない"
+    if env.get(chat.CACHE_TTL_ASK_1H) == "1":
+        return chat.CACHE_TTLS["1h"], None
+    return chat.CACHE_TTL_UNSET, None
 
 
 def _holders(value):

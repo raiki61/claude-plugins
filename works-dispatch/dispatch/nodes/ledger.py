@@ -58,6 +58,8 @@ KINDS = {
     "start": "id",        # 起動方法の有る受け持ちを起動した（--start・--due）
     "moved": None,        # 部署の会話を別のアカウントで起動し直した（--move）
     "followed": None,     # 待ち受けが永続の部署の作業場をメインブランチの先頭へ進めた・進めなかった（detail に訳、next に順番待ちの先頭の頼み。wake_hook.follow_main）
+    "keepalive": None,    # 待ち受けが裏の処理を待つ部署に keepalive を送った（ask に受けている頼み、sent に何回目か、limit に上限、tasks に待つ処理。
+                          # status stopped は上限で止めた。wake_hook.Warm）。機械が送るので、頼みの更新の時刻を進めない
     "hopped": None,       # 前の版の待ち受けが、今入っている版の待ち受けに替わった（from・to に版の置き場。wake_hook.newer_self）
     "retired": None,      # エフェメラルの部署を畳んだ（--retire）
     "call": None,         # 機械窓口のツールを呼んで片づいた（--call）

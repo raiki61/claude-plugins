@@ -49,6 +49,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
     from ports import chat, term  # noqa: E402
     import config  # noqa: E402
+    import filex  # noqa: E402
     import gitx  # noqa: E402
     from nodes import deliver, provision, role, tree  # noqa: E402
 except (ImportError, SyntaxError) as _e:
@@ -148,6 +149,26 @@ def launch_key(cwd, attrs, env=os.environ):
     if here and common and os.path.realpath(here) == os.path.realpath(common):
         return role.launch_key(the_role)   # 窓口は部署でないので受け持ちを引かない（--move の _move_desk が起動する値と揃える）
     return role.launch_key(the_role, role.duty_of(info.get("skills", []), attrs.get("name")))
+
+
+def keepalive_of(cwd, attrs, env=os.environ, read=chat.CACHE_READ_RATE):
+    """その場所の部署の keepalive（role.keepalive_for の {every, text, ttl, limit}）。送らない・会社の形を読めない・役が無い・窓口
+    （頼みを受けない）のときは None。寿命の値が読めずに送らないときは、その訳を注記に出す。read は会話のモデルのキャッシュの読みの倍率。"""
+    got = attrs.get("role") and _shape_at(cwd, attrs, env)
+    if not got:
+        return None
+    _, info, shape = got
+    the_role = shape["roles"].get(role.current(shape, attrs["role"]))
+    if the_role is None:
+        return None
+    here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
+    if here and common and os.path.realpath(here) == os.path.realpath(common):
+        return None   # 窓口は頼みを受けないので送らない（受付の設計の 3.4。送るのは納品していない頼みを受けている部署だけ）
+    notes = []
+    conf = role.keepalive_for(the_role, role.duty_of(info.get("skills", []), attrs.get("name")), notes, read, env)
+    for n in notes:
+        filex.warn(f"注記: {n}")
+    return conf
 
 
 def rename_role(cwd, attrs, env=os.environ):

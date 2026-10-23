@@ -220,7 +220,7 @@ class Info(unittest.TestCase):
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"]), ("settings", "ノート"))
         self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "settings": None, "account": None, "start": None,
-                                          "on_demand": False}])
+                                          "on_demand": False, "keepalive": None}])
 
     def test_on_demand_is_read_and_the_former_standing_false_means_the_same(self):
         write(os.path.join(self.root, ".claude", "company.toml"),

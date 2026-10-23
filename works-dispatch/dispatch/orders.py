@@ -2095,14 +2095,8 @@ def follow_main(source, settings, role_name, g):
 
 
 def in_flight(payload, shells):
-    """ターンの終わりに裏で動いている処理の数。分からなければ None。Claude Code が Stop フックの入力に渡す background_tasks（裏の処理の
-    一覧。run_in_background の Bash・裏で立てたサブエージェント〔Agent〕・Monitor など。https://code.claude.com/docs/en/hooks#stop-input）
-    が在れば、その中の status が running の物を数える（2026-10-17 に 2.1.301 で、裏のサブエージェントが running で載り、終わった後のターンでは
-    空なのを見た）。一覧の無い版では、裏の Bash を ps で数える（shells。裏のサブエージェントは見えない）。"""
-    tasks = payload.get("background_tasks")
-    if isinstance(tasks, list):
-        return sum(1 for t in tasks if isinstance(t, dict) and t.get("status") == "running")
-    return shells()
+    """ターンの終わりに裏で動いている処理の数。分からなければ None（数え方は会話の口の running_tasks）。"""
+    return chat.running_tasks(payload, shells)
 
 
 def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shells=chat.background_shells):

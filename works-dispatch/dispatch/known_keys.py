@@ -15,10 +15,12 @@ https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation �
 COMPANY = {
     "": ("name", "description", "desk", "gh_user", "shared_instructions", "default_role", "desk_role", "roles", "skills", "land"),
     "roles": ("name", "instructions", "model", "effort", "account", "settings", "deliver", "deliver_check", "holders", "ask_check",
-              "ask_holders", "persistent", "resident", "fresh", "machine", "tools", "former_names"),
+              "ask_holders", "persistent", "resident", "fresh", "machine", "tools", "former_names", "keepalive"),
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
-    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "standing"),
+    "roles.keepalive": ("every", "text"),
+    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "standing", "keepalive"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
+    "skills.keepalive": ("every", "text"),
     "land": ("mode", "gate", "check", "bump", "main", "queue", "roles", "after"),
     "land.roles": ("mode", "gate", "check", "bump", "main"),
     "land.after": ("role", "tool", "input"),
@@ -67,11 +69,14 @@ def company(raw, path):
         out += [say(f"{path}: roles[{i}]{name}", k, g) for k, g in odd("roles", r)]
         for j, t in enumerate(_rows(r, "tools") if isinstance(r, dict) else []):
             out += [say(f"{path}: roles[{i}]{name} の tools[{j}]", k, g) for k, g in odd("roles.tools", t)]
+        if isinstance(r, dict):
+            out += [say(f"{path}: roles[{i}]{name} の keepalive", k, g) for k, g in odd("roles.keepalive", r.get("keepalive"))]
     for i, s in enumerate(_rows(raw, "skills")):
         name = f"（{s['name']}）" if isinstance(s, dict) and isinstance(s.get("name"), str) else ""
         out += [say(f"{path}: skills[{i}]{name}", k, g) for k, g in odd("skills", s)]
         if isinstance(s, dict):
             out += [say(f"{path}: skills[{i}]{name} の start", k, g) for k, g in odd("skills.start", s.get("start"))]
+            out += [say(f"{path}: skills[{i}]{name} の keepalive", k, g) for k, g in odd("skills.keepalive", s.get("keepalive"))]
     out += land(raw.get("land"), path)
     return out
 

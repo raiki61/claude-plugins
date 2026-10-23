@@ -122,6 +122,32 @@ def _mark_lock(path):
     return filex.lock(path + ".lock")
 
 
+def warm_path(inbox, place):
+    """keepalive の控え（{session, tasks, sent, stopped}。同じ会話が同じ裏の処理を待つ間に続けて送った本数と、上限で止めたか）。"""
+    return os.path.join(_dir(inbox), key(place) + ".warm.json")
+
+
+def warm_state(inbox, place, session, tasks):
+    """同じ会話（session）が同じ裏の処理（tasks。id の並びか数）を待つ間の keepalive の控え {sent, stopped}。控えが無い・読めない・
+    会話か裏の処理が替わっていれば {sent: 0, stopped: False}（新しい待ちの始まり）。"""
+    fresh = {"sent": 0, "stopped": False}
+    try:
+        with open(warm_path(inbox, place), encoding="utf-8") as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return fresh   # 控えが無いか壊れていれば、新しい待ちとして数え直す（多く数えても、送る本数の上限に早く着くだけ）
+    if not isinstance(got, dict) or got.get("session") != session or got.get("tasks") != tasks:
+        return fresh
+    return {"sent": got.get("sent") if isinstance(got.get("sent"), int) else 0, "stopped": got.get("stopped") is True}
+
+
+def warm_note(inbox, place, session, tasks, sent, stopped=False):
+    """keepalive を送った本数と、上限で止めたかを控えに書く。"""
+    os.makedirs(_dir(inbox), exist_ok=True)
+    _replace(warm_path(inbox, place), json.dumps({"session": session, "tasks": tasks, "sent": sent, "stopped": stopped},
+                                                 ensure_ascii=False))
+
+
 def pos_path(inbox, place):
     return os.path.join(_dir(inbox), key(place) + ".pos")
 
@@ -512,7 +538,7 @@ def _names_at(names, since, pos):
 
 
 def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=time.sleep, parent=os.getppid, check=None,
-          ready=None, since=None):
+          ready=None, since=None, idle=None):
     """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・check が終わらせた）。
     owner は待ち受けを起動した会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
     check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに（同じ回にほかの知らせが在れば、そちらを先に会話へ
@@ -520,7 +546,8 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
     ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。
     ready は会話が字を受けられるかを返す関数（None なら常に受けられる）。受けられない間は、印を張ったまま台帳を読まず check も
     呼ばない（読んだ所を進めないので、受けられるようになってから同じ行で起動する）。since は {宛先: 位置} で、その宛先は台帳のその
-    位置より後の行だけを自分宛てと見る（_names_at）。"""
+    位置より後の行だけを自分宛てと見る（_names_at）。idle は、渡す知らせが無い周ごとに呼ぶ関数で、字を返せばその字で会話を
+    再開させる（keepalive。wake_hook.Warm）。None を返せば待ち続ける。"""
     claim(inbox, place, names, session, owner, token, now())
     pause(GRACE)
     log = os.path.join(inbox, LOG)
@@ -582,6 +609,9 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             except OSError:
                 pass   # 印が消えたか触れない（消えていれば次の周の read_mark が見て抜ける）
             beat = now()
+        said = idle() if idle else None
+        if said:
+            return _finish(("wake", said), err)
         pause(POLL)
 
 

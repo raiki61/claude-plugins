@@ -21,7 +21,7 @@ import claudex
 import orders
 import role_hook
 import wake_hook
-from nodes import deliver, launch, provision, role
+from nodes import deliver, launch, provision, role, tree
 
 SHAPE = '''
 name = "試しの会社"
@@ -60,7 +60,7 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "account": None, "settings": None,
                                                  "deliver": None, "deliver_check": None, "persistent": False, "fresh": False, "machine": False, "tools": [],
-                                                 "holders": None, "ask_holders": None, "ask_check": None, "odd": []})
+                                                 "holders": None, "ask_holders": None, "ask_check": None, "keepalive": None, "odd": []})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None,
@@ -270,6 +270,69 @@ class ModelAndEffort(unittest.TestCase):
         # 待ち受けが比べる字にも重ねた設定が入る（受け持ちの設定を替えれば起動し直す）。どちらにも無ければ settings を書かない
         self.assertEqual(json.loads(role.launch_key(r, duty))["settings"]["promptCacheTtl"], "5m")
         self.assertEqual(json.loads(role.launch_key({"name": "作業"}, {"name": "調べもの", "settings": None})), {"model": None, "effort": None})
+
+    def test_keepalive_is_read_in_its_forms_and_a_bad_value_is_dropped_with_a_note(self):
+        problems = []
+        self.assertIsNone(role.parse_keepalive(None, "w", problems))
+        self.assertIs(role.parse_keepalive(False, "w", problems), False)
+        self.assertEqual(role.parse_keepalive(True, "w", problems), {"every": None, "text": None})
+        self.assertEqual(role.parse_keepalive({"every": "4m", "text": " 見る "}, "w", problems), {"every": 240, "text": "見る"})
+        self.assertEqual(role.parse_keepalive({"every": 200}, "w", problems), {"every": 200, "text": None})
+        self.assertEqual(problems, [])
+        for bad in ({"every": "4 min"}, {"every": 0}, {"every": True}, {"text": ""}, "4m", 240):
+            got = []
+            self.assertIsNone(role.parse_keepalive(bad, "w", got), bad)
+            self.assertEqual(len(got), 1, bad)
+
+    def test_keepalive_takes_the_duty_over_the_role_and_its_interval_from_the_cache_lifetime(self):
+        on = {"every": None, "text": None}
+        r = {"name": "作業", "keepalive": on, "settings": {"promptCacheTtl": "1h"}}
+        five = {"name": "調べもの", "settings": {"promptCacheTtl": "5m"}, "keepalive": None}
+        # 寿命から余裕を引いた間隔。続けて送るのは、読みの値段が書き直し 1 回に届くまで（5 分は 1.25 / 0.1、1 時間は 2 / 0.1）
+        self.assertEqual({k: v for k, v in role.keepalive_for(r, five).items() if k != "text"},
+                         {"every": 300 - role.KEEPALIVE_MARGIN, "ttl": 300, "limit": 13})
+        self.assertEqual({k: v for k, v in role.keepalive_for(r).items() if k != "text"},
+                         {"every": 3600 - role.KEEPALIVE_MARGIN, "ttl": 3600, "limit": 20})
+        self.assertEqual(role.keepalive_for({"name": "作業", "keepalive": on})["ttl"], 3600)   # 寿命を書かなければ 1 時間と見る
+        self.assertEqual(role.keepalive_for(r)["text"], role.KEEPALIVE_TEXT)
+        # 受け持ちの表は鍵ごとに役の表に重なり、false は役の物を止める
+        got = role.keepalive_for({"name": "作業", "keepalive": {"every": 100, "text": "役の文"}},
+                                 {"name": "調べもの", "keepalive": {"every": None, "text": "受け持ちの文"}})
+        self.assertEqual((got["every"], got["text"]), (100, "受け持ちの文"))
+        self.assertIsNone(role.keepalive_for(r, {"name": "手入れ", "keepalive": False}))
+        self.assertIsNone(role.keepalive_for({"name": "作業"}, five))
+
+    def test_keepalive_reads_the_cache_lifetime_in_the_order_claude_code_does_and_skips_what_it_cannot_tell(self):
+        on = {"name": "作業", "keepalive": {"every": None, "text": None}}
+        five, hour = dict(on, settings={"promptCacheTtl": "5m"}), dict(on, settings={"promptCacheTtl": "1h"})
+        ttl = lambda r, env: (role.keepalive_for(r, env=env) or {}).get("ttl")
+        # 5 分に決める環境変数 → 寿命の環境変数 → 設定 → 1 時間を頼む環境変数 → 既定
+        self.assertEqual(ttl(hour, {"FORCE_PROMPT_CACHING_5M": "1", "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h"}), 300)
+        self.assertEqual(ttl(hour, {"CLAUDE_CODE_PROMPT_CACHE_TTL": "5m"}), 300)
+        self.assertEqual(ttl(five, {"ENABLE_PROMPT_CACHING_1H": "1"}), 300)
+        self.assertEqual(ttl(on, {"ENABLE_PROMPT_CACHING_1H": "1"}), 3600)
+        self.assertEqual(ttl(on, {}), 3600)
+        self.assertEqual(role.keepalive_for(five, env={"FORCE_PROMPT_CACHING_5M": "1"}, read=0.05)["limit"], 25)
+        # 寿命が無い・分からない・間が寿命より短くないなら、送っても切れた後に届くので送らず、訳を注記に出す
+        for r, env, why in ((five, {"DISABLE_PROMPT_CACHING": "1"}, "DISABLE_PROMPT_CACHING"),
+                            (five, {"CLAUDE_CODE_PROMPT_CACHE_TTL": "10m"}, "'10m'"),
+                            (dict(on, settings={"promptCacheTtl": "10m"}), {}, "'10m'"),
+                            (dict(five, keepalive={"every": 300, "text": None}), {}, "300 秒")):
+            notes = []
+            self.assertIsNone(role.keepalive_for(r, notes=notes, env=env), (r, env))
+            self.assertIn(why, notes[0])
+
+    def test_keepalive_is_read_from_the_shape_for_roles_and_duties(self):
+        d = tempfile.mkdtemp()
+        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "作業"\n[roles.keepalive]\nevery = "3m"\n'
+                                             '[[roles]]\nname = "担当"\nkeepalive = 5\n'))
+        self.assertEqual(got["roles"]["作業"]["keepalive"], {"every": 180, "text": None})
+        self.assertIsNone(got["roles"]["担当"]["keepalive"])
+        self.assertEqual(len(got["problems"]), 1)
+        problems = []
+        skills = tree._skills([{"name": "調べもの", "keepalive": {"text": "待つ"}}, {"name": "手入れ", "keepalive": False}],
+                              "w", problems)
+        self.assertEqual([s["keepalive"] for s in skills], [{"every": None, "text": "待つ"}, False])
 
     def test_flow_rank_puts_carry_over_then_standing_by_the_duties_then_per_task_then_the_rest(self):
         # herdr の作業場の並びと --tree の部署の並びが同じ鍵を使う（持ち主 2026-10-17 の案 A）

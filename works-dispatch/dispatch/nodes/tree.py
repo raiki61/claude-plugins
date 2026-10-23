@@ -86,6 +86,8 @@ def _skills(raw, where, problems):
             problems.append(f"{where}: skills[{i}]（{s['name']}）の settings は表。外して、役の settings だけで起動する")
         elif s.get("settings"):
             got["settings"] = s["settings"]
+        # 裏の処理を待つ間に待ち受けが送る keepalive。役の [roles.keepalive] より先に効く（role.keepalive_for）。形が違えば外す
+        got["keepalive"] = role.parse_keepalive(s.get("keepalive"), f"{where}: skills[{i}]（{s['name']}）", problems)
         # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
         # on_demand = true（オンデマンド）: 永続の部署を置かず、頼まれたときだけその受け持ちの名前のエフェメラルの部署を立てる（--ask が

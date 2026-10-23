@@ -7,6 +7,7 @@ dispatch のスキル（works-dispatch のプラグイン）の別ファイル�
 - [役の本文](#役の本文)
 - [model・effort・account](#modeleffortaccount)
 - [起動の設定（settings）](#起動の設定settings)
+- [裏の処理を待つ間の keepalive（keepalive）](#裏の処理を待つ間の-keepalivekeepalive)
 - [永続と毎回クリア（persistent・fresh）](#永続と毎回クリアpersistentfresh)
 - [役の名前と既定の役](#役の名前と既定の役)
 - [部署の属性](#部署の属性)
@@ -46,6 +47,7 @@ ask_check = "python3 scripts/check_ask.py"       # 任意。この役へ宛て�
 ask_holders = []                                 # 任意。holders と同じ値で、この役へ宛てた頼みの残った疑問の担当者を確かめる（「頼む」の「本文の書き方」）
 persistent = true                                # この役の部署は永続（--persistent を付けたのと同じ。前の版のキー resident = true も同じ意味）
 fresh = true                                     # 頼みごとに空の会話で受ける（省けば会話を引き継ぐ）
+keepalive = true                                 # 任意。裏の処理を待つ間、待ち受けがプロンプトキャッシュの寿命の前に短い文を送る（間と文は「裏の処理を待つ間の keepalive」）
 [roles.settings]                                 # 部署を起動するときの --settings（その会話にだけ効く Claude Code の設定）。この行より後のフィールドは settings に入る
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "pr-review-toolkit@claude-plugins-official" = false }
@@ -58,6 +60,7 @@ model = "sonnet"                      # この部署だけ、役の model より
 effort = "low"                        # この部署だけ、役の effort より先に効く
 account = "cheapest"                  # この部署だけ、役の account より先に効く
 settings = { promptCacheTtl = "5m" }  # この部署だけ、役の [roles.settings] に重ねる（例はプロンプトキャッシュの寿命を 5 分にする）
+keepalive = { every = "210s" }        # この部署だけ、役の keepalive より先に効く（表どうしは鍵ごとに重ねる。false で切る）
 ```
 
 `machine = true` の役は、AI の部署を持たない役（AI を起動せずに機械で答えるツール `[[roles.tools]]` だけを持つ「機械窓口」。書き方は call.md）で、`--ask` で宛てられない。
@@ -117,6 +120,14 @@ settings = { promptCacheTtl = "5m" }  # この部署だけ、役の [roles.setti
 - `settings` は、その会話の間だけ、利用者の全体の設定とリポジトリの設定の同じ鍵より先に効く（全体の設定とリポジトリの設定は触らない）。ツールの名前だけを `permissions.deny` に書くと、そのツールは会話の文脈から消える。`skillOverrides` は Claude Code に同梱のスキルにだけ効き、プラグインのスキルには効かない（プラグインごと切るのは `enabledPlugins`）。`enabledPlugins` で works-dispatch 自身を切ると役の本文が足されないので、dispatch が注記を出す。
 - 受け持ちの `settings`（表）は、その受け持ちの部署（受け持ちの名前と「<受け持ち>：<何をするか>」）を起動するとき、役の `[roles.settings]` の上に重ねる（表は鍵ごとに深く重ね、表でない値〔並びを含む〕は受け持ちの値で置き換える。部署の worktree を作業場から出さない `worktree.bgIsolation` は最後に上から重ねる）。表でなければ注記を出して外す。効く時は `model`・`effort` と同じで、`company.launched` にも重ねた設定が入る。`--task --dry-run` の「役の起動の設定」の行に、重ねた後の鍵の名前が出る。
 - 部署が打つ `--land` が auto mode の判定に止められないための `autoMode.allow` の書き方と訳は land.md。並びの頭に `"$defaults"` を置く（無いと、組み込みの例外の並びを丸ごと置き換える。https://code.claude.com/docs/en/auto-mode-config ）。`autoMode` はプロジェクトの `.claude/settings.json` からは読まれないので、役の `settings` に書く。
+
+## 裏の処理を待つ間の keepalive（keepalive）
+
+- 部署が裏の処理（Bash の `run_in_background` など）を待ってターンを終えると、会話は手が空いたまま知らせを待つ。プロンプトキャッシュの寿命（5 分か 1 時間。キャッシュに当たるたびに伸びる）を過ぎてから知らせでターンが始まると、会話の中身を全部キャッシュに書き直す。書く単価は入力の 1.25 倍（5 分）か 2 倍（1 時間）、当たって読む単価はモデルで違い、Opus 5.5・Sonnet 5.5 は 0.05 倍、Fable 5.1・Mythos 5.1 は 0.025 倍、ほかは 0.1 倍（https://platform.claude.com/docs/en/about-claude/pricing 。2026-10-23 に読んだ）。`keepalive` を書いた役と受け持ちの部署では、待ち受けが寿命の切れる前に短い文を会話に送り、そのターンの要求でキャッシュを伸ばす。
+- 書き方は 3 つ。`keepalive = true`（間も文も既定）・`keepalive = { every = "210s", text = "…" }`（`every` は正の整数の秒か `"<数>s"`・`"<数>m"`・`"<数>h"`、`text` は空でない文字列。どちらも省ける）・`keepalive = false`（切る）。書かなければ送らない。受け持ちの値は役の値より先に効き、両方が表なら鍵ごとに受け持ちの値で重ねる。形が違えば注記を出して、書かなかったのと同じに扱う。
+- 間の既定は、キャッシュの寿命から 90 秒を引いた値（5 分なら 210 秒、1 時間なら 3510 秒）。90 秒は、ターンの終わりの応答を作る時間と、待ち受けが送ってから keepalive のターンの要求が出るまでの遅れの余裕（待ち受けは 1 秒ごとに見る）。寿命は、Claude Code が先に効かせる順（https://code.claude.com/docs/en/prompt-caching の「Choose the TTL yourself」）に、会話の環境変数 `FORCE_PROMPT_CACHING_5M=1`（5 分）・`CLAUDE_CODE_PROMPT_CACHE_TTL`、その部署の起動の設定（役の `[roles.settings]` に受け持ちの `settings` を重ねた物）の `promptCacheTtl`、環境変数 `ENABLE_PROMPT_CACHING_1H=1`（1 時間）を見て決め、どれも無ければ 1 時間と見る（サブスクリプションの使用枠の中では、Claude Code の会話の既定が 1 時間）。環境変数 `DISABLE_PROMPT_CACHING=1` でキャッシュを切っている・寿命の値が `5m`・`1h` のどちらでもない・`every` が寿命より短くない部署には送らない（伸ばすキャッシュが無いか、寿命が分からないか、送っても寿命の切れた後に届く）。利用者の設定（`~/.claude/settings.json` など）の `promptCacheTtl` は読まないので、そこで寿命を変えている部署では、会社の形の `settings` に同じ `promptCacheTtl` を書く（起動の `--settings` は利用者の設定より先に効くので、会話の寿命とも合う。`every` だけを書くと、間は合っても続けて送る本数の上限を 1 時間の寿命で数える）。
+- 文の既定は、keepalive だと名乗り、誤りでも頼みでもないと断って、ツールを使わずに「待機中」とだけ書いてターンを終えるよう頼む 1 行（文面は `dispatch/nodes/role.py` の `KEEPALIVE_TEXT`。返事を空にすると、Claude Code が見える返事を促す文を足して要求が 1 回増える）。役の本文に keepalive の扱いを書くなら、`text` で文を合わせる。
+- 送るのは、部署が納品していない頼みを受けていて、ターンの終わりに Claude Code が Stop のフックへ渡す入力に、動いている裏の処理が在るときだけ。納品した（`--deliver`）・区切りを打った（`--rest`・`--compact`）・終わりを打った（`--done`）部署と、頼みを受けない窓口は送らない。会話を空にした・止めた・ほかのアカウントへ移した（`--move`）ときは、待ち受けが替わるか止まるので送らない。そのターンの終わりから `every` 秒、会話の記録（transcript）が替わらず、窓の会話も動いていないときに 1 本送る。頼みと納品の知らせが来ればそちらを先に渡す。同じ会話が同じ裏の処理を待つ間に続けて送るのは、送る費用の合計がキャッシュの書き直し 1 回分に着くまで（`ceil(書く倍率 / 読む倍率)`。読む倍率は会話の記録の最後に答えたモデルで決める。Opus 5.5・Sonnet 5.5 なら 5 分で 25 本・1 時間で 40 本、0.1 倍のモデルなら 13 本・20 本）で、その先は送らない（待ちがどれだけ続くか分からないので、書き直しを恐れて送り続けて損を広げない）。送るたびと上限で止めた時に、受付箱の台帳に `kind` が `keepalive` の行を残す。仕組みと、keepalive のターンが知らせのターンと重ならない訳は受付の設計（docs/specs/2026-10-17-reception-design.md）の 3.4。
 
 ## 永続と毎回クリア（persistent・fresh）
 
