@@ -6,6 +6,8 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-23
+
 ### Added
 
 - 段 2（`tiers --tier 2`）の点検に、起動コマンドごとのアカウントの `settings.json` の `permissions.deny` に `"AskUserQuestion"`（Claude が選択肢の画面で問うツール）があるかを足した。項目の名前は「選択肢の画面で問うツール（<フォルダ>）」で、feedbackDrafts と同じく、フォルダは `auth status --json` の `configDirectory` と `--config-dir` から引き、点検は何も書き換えない。Claude がこのツールで問うと、その会話は窓を開いてキーを押すまで進まず、ほかの会話からは答えられない（2026-10-23、持ち主の勤め先のリポジトリ guided-resolver で、works-dispatch が開いた会話が止まった）。括弧付きの `AskUserQuestion(...)` は通さない。`permissions` が JSON のオブジェクト（`{...}`）でない（並びや文字など、型が違う）か、`deny` が並び（`[...]`）でないときは、`tiers-settings setup` が書けないので、点検はその項目の直し方の 1 行目に「その形を手で直してから」を出す。中身の在る `permissions` や空の `permissions` は止めず、`deny` を足す。

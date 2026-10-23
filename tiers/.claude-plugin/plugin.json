@@ -1,6 +1,6 @@
 {
   "name": "tiers",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "プラグインが要る外のツールを段に分けて点検する共通の部品。段 0: Claude Code だけ、段 1: gh（入っていてログイン済みか）、段 2: herdr（動いているか）とアカウントの起動コマンド、段 3: Archon。足りない物と入れ方（手で入れる物は手順）を人の読む形か --json で返し、点検は何も入れない。ほかのプラグインは dependencies でこれに依存し、使い始めに bin/tiers を呼ぶ（今つないでいるのは works-dispatch だけ）。人は /tiers:check で同じ点検を走らせる（会話からは呼べず、常に載る文脈を足さない）。ほかに、裏の処理を待つ間「⧖ バックグラウンド作業中 N 本」を出して herdr に作業中と見せる statusline を持ち、使う人が tiers-statusline setup で入れる。",
   "author": {
     "name": "raiki61"
