@@ -13,7 +13,7 @@ description: "自分の番の PR（attention の /whose-turn が並べる物）�
 
 ## 打ち方（毎回）
 
-このスキルは下のスクリプトを走らせ、出力をそのまま見せる。スクリプトの出した結果を言い換えたり、代わりに判断したりしない。`${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインの入ったフォルダのパス（例 `~/.claude/plugins/cache/raiki61/works-dispatch/<版>/`）を入れる変数で、自分で置き換えずにそのまま打つ。どの引数を打つかは、頼まれた事から読む別ファイルを引く対応の表（下の「何をいつ読むか」の並び。1 行が 1 つの別ファイルで、行の頭に引数と頼まれる事を並べる）で行を選び、その別ファイルを読んで決める。コマンドは `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起動する（`python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下のコマンドの形をそのまま打ち、Python の名前を替えない。
+このスキルは下のスクリプトを走らせ、出力をそのまま見せる。スクリプトの出した結果を言い換えたり、代わりに判断したりしない。`${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインの入ったフォルダのパスを入れる変数で、自分で置き換えずにそのまま打つ。どの引数を打つかは、下の「何をいつ読むか」の手順で決める。コマンドは `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起動する（`python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下のコマンドの形をそのまま打ち、Python の名前を替えない。
 
 ```
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
@@ -32,7 +32,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 
 ## 何をいつ読むか
 
-手順は 3 つ。1. 下の並びから、頼まれた事（例「PR を開いて」なら引数なしの行、「部署を立てて」なら `--task` の行、「この作業を「作業」に回して」なら `--ask` の行。「作業」は一度きりの部署の役の名前で、`--ask <会社>/作業` で頼む）に当たる行を 1〜2 本選ぶ。2. その行の別ファイルを読む。3. 別ファイルに書いてあるコマンドの形で打つ。別ファイルの中の「」の名前（例「役の中身と起動方法」）は、ほかの別ファイルのセクションを指す。そのセクションが要るときは、下の並びからそのファイルを開く。
+手順は 3 つ。1. 下の並びから、頼まれた事（例「PR を開いて」なら引数なしの行、「部署を立てて」なら `--task` の行、「この作業を「作業」に回して」なら `--ask` の行。「作業」は一度きりの部署の役の名前で、`--ask <会社>/作業` で頼む）に当たる行を 1〜2 本選ぶ。2. その行の別ファイルを、そのコマンドを打つ直前に読む（仕事の初めにまとめて読まない。納品の別ファイルは納品する時に読む）。3. 別ファイルに書いてあるコマンドの形で打つ。別ファイルの中の「」の名前は、ほかの別ファイルのセクションを指す。そのセクションが要るときは、下の並びからそのファイルを開く。
 
 - `setup`・`--check`・`--init`・`--init-company`、「前提」「初めて」「アカウントの書き方」「herdr の見た目を整える」: [references/setup.md](references/setup.md)
 - 自分の番の PR を開く（引数なし・`--dry-run`・`--pr N`・`--issue N`・`--no-second`）と「しないこと」: [references/pr.md](references/pr.md)
@@ -42,8 +42,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 - 部署を立てる前に `model`・`effort` の値を選ぶ（今の世代のモデルの格と effort の段ごとの成績・費用。原典の URL と確かめた日つき。重み付けは書かない）: [references/models.md](references/models.md)
 - herdr の表示を付け直す `--sync`・組み直す `--reorg` と `--desk`・席の確かめ `--desk --dry-run`・受け持ちを移す `--handover`・手で立てる会話のアカウントを選ぶ `nodes/accounts.py --pick`: [references/reorg.md](references/reorg.md)
 - ほかのアカウントで起動し直す `--move`（使用上限や会社の形の起動の設定が替わったときの自動の起動し直しも）: [references/move.md](references/move.md)
-- 頼む `--ask`（宛先・待ち受け・順番待ち・`--take`・`--withdraw`・`--first`・`--nudge`・`--note`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・後で見ることを残すリマインダー `--remind`・落ちた部署の会話・受付箱）: [references/ask.md](references/ask.md)
-- 納品する `--deliver`（要約の項目・納品の検査 `deliver_check`）・答え待ち `--wait`（`--park`）・区切り `--rest`・compact の区切り `--compact`・止める前の差し戻し: [references/deliver.md](references/deliver.md)
+- 頼む `--ask`（宛先・待ち受け・順番待ち・`--note`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・後で見ることを残すリマインダー `--remind`・受付箱）: [references/ask.md](references/ask.md)
+- 順番待ちを動かす `--take`・`--withdraw`・`--first`・`--nudge`・返事待ちの輪・落ちた部署の会話: [references/queue.md](references/queue.md)
+- 納品する `--deliver`（要約の項目・納品の検査 `deliver_check`）: [references/deliver.md](references/deliver.md)
+- 答え待ち `--wait`（`--park`）・区切り `--rest`・compact の区切り `--compact`・止める前の差し戻し: [references/rest.md](references/rest.md)
 - 機械窓口 `--call`（頼みを AI でなくスクリプトが受ける）と合図（メインブランチに入れた後などにスクリプトを呼ぶ）（`[[roles.tools]]`）: [references/call.md](references/call.md)
 - 受け持ちを起動する `--start`・`--due`（`[skills.start]`）: [references/start.md](references/start.md)
 - メインブランチに入れる `--land 部署`（`[land]`・リベース・版上げ・書き換えの取り合いのゲート・`[[land.after]]`）: [references/land.md](references/land.md)

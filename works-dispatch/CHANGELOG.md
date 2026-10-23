@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- dispatch のスキルの別ファイルを、普段の頼みと納品に要らない項で分けた。`references/ask.md`（45,020 バイト）から、順番待ちを動かす `--take`・`--withdraw`・`--first`・`--nudge` と「返事待ちの輪」「落ちた部署の会話」を `references/queue.md` へ、`references/deliver.md`（23,737 バイト）から、答え待ち `--wait`（`--park`）・区切り `--rest`・compact の区切り `--compact`・「止める前の差し戻し」を `references/rest.md` へ、字を変えずに移した（ask.md は 27,087 バイト、deliver.md は 13,170 バイトになった）。SKILL.md の「何をいつ読むか」に、別ファイルはそのコマンドを打つ直前に読み、仕事の初めにまとめて読まないこと（納品の別ファイルは納品する時に読む）を足した。my_notes の調べものの部署が、仕事に着く前に deliver.md を開き、起動から約 75k トークンを読み込んでいた（my_notes の受付 20261023-105851-d4107f）。
+
 ## [0.117.0] - 2026-10-23
 
 ### Added
