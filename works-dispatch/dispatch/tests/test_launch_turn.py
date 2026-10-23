@@ -1,5 +1,7 @@
 """launch ノード（作業場でアカウントの Claude Code を起動し、読み戻す）と turn ノード（ターンを送る）。偽物の herdr で回す。"""
 
+import json
+import pathlib
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -61,16 +63,21 @@ SECOND = "1. 深掘り\n2. 世の中の解 'x' $y"
 class Launch(unittest.TestCase):
     def test_runs_account_command_in_slot_pane_and_reads_back(self):
         h = FakeHerdr()
-        got = launch.start(ROW, "wB:p1", h, posix=True)
+        got = launch.start(ROW, "wB:p1", h, posix=True, settings="/p/session settings.json")
         self.assertEqual(got["status"], "ready")
         self.assertEqual(h.calls[:2], [("shell_in_front", "wB:p1"),
-                                       ("run", "wB:p1", "ATTENTION_CATCHUP_OPEN=0 claude-x")])
+                                       ("run", "wB:p1", "ATTENTION_CATCHUP_OPEN=0 claude-x --settings '/p/session settings.json'")])
         self.assertIn(("agent", "wB:p1"), h.calls)
 
     def test_without_a_posix_shell_the_command_is_typed_as_is(self):
         h = FakeHerdr()
-        launch.start(ROW, "wB:p1", h, posix=False)
-        self.assertIn(("run", "wB:p1", "claude-x"), h.calls)
+        launch.start(ROW, "wB:p1", h, posix=False, settings="C:/p/session-settings.json")
+        self.assertIn(("run", "wB:p1", 'claude-x --settings "C:/p/session-settings.json"'), h.calls)
+
+    def test_the_settings_file_keeps_the_choice_prompt_tool_off(self):
+        # PR の会話が選択肢の画面で止まると、窓を開いてキーを押すまで進まない（2026-10-23、guided-resolver の issue #1895）
+        got = json.loads(pathlib.Path(launch.SESSION_SETTINGS).read_text(encoding="utf-8"))
+        self.assertIn("AskUserQuestion", got["permissions"]["deny"])
 
     def test_no_conversation_on_read_back_is_launch_failed(self):
         got = launch.start(ROW, "wB:p1", FakeHerdr(agent={"agent": None, "agent_status": "unknown"}))

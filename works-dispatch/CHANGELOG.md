@@ -6,6 +6,14 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- 前提（`--check` が tiers の段 2 で確かめる物）に、各アカウントの `settings.json` の `permissions.deny` に `"AskUserQuestion"`（Claude が選択肢の画面で問うツール）があることを足した。dispatch が PR・issue ごとに開く会話がこの画面で止まると、窓を開いてキーを押すまで進まず、窓口の会話からは答えられない（2026-10-23、guided-resolver の issue #1895）。無ければ `--check` が止まり、tiers の `tiers-settings setup --config-dir <フォルダ>` で書く手を出す（feedbackDrafts と一緒に書く）。docs/prerequisites.md の 13。
+
+### Changed
+
+- PR・issue の会話を、`--settings <templates/session-settings.json>`（AskUserQuestion を外す deny だけを書いたファイル）を付けて起動するようにした。上の前提を満たしていない環境でも、dispatch が開く会話はこの画面で止まらない。`--settings` の `permissions` の並びはアカウントの設定と合わさるので、ほかの deny・allow は消えない。部署の会話は今までどおり会社の形の役の設定で同じ deny を持つ。
+
 ## [0.115.0] - 2026-10-23
 
 ### Changed

@@ -10,6 +10,11 @@
 POSIX のシェルでは、コマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く。attention の /catchup は書いたページを VS Code の窓に
 開くが、dispatch は何件も一度に起動するので、窓にタブが一気に開かないようにする（ページは書かれ、一覧のページに載る）。
 シェル関数のアカウントのコマンドにも、この前置きは関数の間だけ環境変数として渡る（bash・zsh で確かめた）。
+PR の会話には `--settings <templates/session-settings.json>` を付け、選択肢の画面で問うツール（AskUserQuestion）を外す。その画面で
+問われると、窓を開いてキーを押すまで会話が進まず、窓口の会話からは答えられない（2026-10-23、guided-resolver の issue #1895）。
+各アカウントの settings.json の deny（tiers の段 2 が点検する前提。docs/prerequisites.md の 13）を満たしていない人の環境でも、
+dispatch が開く会話では止まらないようにする。--settings の permissions の並びは、アカウントの設定の並びと合わさる（置き換えない。
+https://code.claude.com/docs/en/settings の「Lists merge instead of overriding」）。部署の会話は会社の形の役の設定が同じ deny を持つ。
 部署（入口の --task）は start_background が、Claude Code の裏の会話（`claude --bg`）として部署の作業場で起動し、attach が同じ
 ペインでその会話につなぐ（会社の形の設計 9.1）。持ち主のアカウントのコマンドはシェル関数のことがあり、鍵はその関数が入れる
 （関数を通さずに打った回は blocked のまま進まなかった）ので、裏の会話も herdr のペインに打ち込んで起動する。
@@ -30,6 +35,8 @@ import jsonio  # noqa: E402
 
 
 QUIET_CATCHUP = "ATTENTION_CATCHUP_OPEN=0"
+# PR の会話にだけ効かせる設定のファイル（--settings。選択肢の画面で問うツールを外す）
+SESSION_SETTINGS = str(pathlib.Path(__file__).resolve().parent.parent / "templates" / "session-settings.json")
 
 
 def _quote(text, posix):
@@ -40,10 +47,10 @@ def _quote(text, posix):
 BUSY = "作業場のペインの前で、シェルではない物が動いている（打ち込まない。そのペインを空けてから打ち直す）"
 
 
-def start(row, pane, h=term, posix=None):
-    """PR の会話を、/catchup の窓を開かない前置き（POSIX のシェルだけ）を付けて起動する。"""
+def start(row, pane, h=term, posix=None, settings=SESSION_SETTINGS):
+    """PR の会話を、/catchup の窓を開かない前置き（POSIX のシェルだけ）と、その会話にだけ効く設定（--settings）を付けて起動する。"""
     posix = os.name != "nt" if posix is None else posix
-    command = row["account"]["command"]
+    command = f"{row['account']['command']} --settings {_quote(settings, posix)}"
     if posix:
         command = f"{QUIET_CATCHUP} {command}"
     result = {"number": row["number"], "pane": pane, "status": "launch_failed", "detail": None}

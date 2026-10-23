@@ -29,11 +29,13 @@ class Setup(unittest.TestCase):
         (d / "settings.json").write_text('{"model": "opus"}', encoding="utf-8")
         code, out, _ = self.run_setup(d)
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads((d / "settings.json").read_text(encoding="utf-8")), {"model": "opus", "feedbackDrafts": "off"})
+        self.assertEqual(json.loads((d / "settings.json").read_text(encoding="utf-8")),
+                         {"model": "opus", "feedbackDrafts": "off", "permissions": {"deny": ["AskUserQuestion"]}})
         backups = list(d.glob("settings.json.bak.*-tiers"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(encoding="utf-8"), '{"model": "opus"}')
         self.assertIn("off にした", out)
+        self.assertIn("AskUserQuestion を足した", out)
 
     def test_a_second_run_changes_nothing(self):
         d = self.home / ".claude-a"
@@ -41,7 +43,7 @@ class Setup(unittest.TestCase):
         self.run_setup(d)
         code, out, _ = self.run_setup(d)
         self.assertEqual(code, 0)
-        self.assertIn("前から off", out)
+        self.assertIn("前からそろっている", out)
         self.assertFalse(list(d.glob("settings.json.bak.*")))   # 1 回目は settings.json が無かったので残す物も無い
 
     def test_missing_folder_and_broken_json_are_not_written(self):
@@ -60,7 +62,29 @@ class Setup(unittest.TestCase):
         d.mkdir()
         code, _, _ = self.run_setup(env={"CLAUDE_CONFIG_DIR": str(d)})
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads((d / "settings.json").read_text(encoding="utf-8")), {"feedbackDrafts": "off"})
+        self.assertEqual(json.loads((d / "settings.json").read_text(encoding="utf-8")), {"feedbackDrafts": "off", "permissions": {"deny": ["AskUserQuestion"]}})
+
+    def test_deny_is_appended_at_the_end_and_other_permissions_stay(self):
+        d = self.home / ".claude-a"
+        d.mkdir()
+        before = {"feedbackDrafts": "off", "permissions": {"allow": ["WebFetch"], "deny": ["Artifact"], "defaultMode": "auto"}}
+        (d / "settings.json").write_text(json.dumps(before), encoding="utf-8")
+        code, out, _ = self.run_setup(d)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads((d / "settings.json").read_text(encoding="utf-8")),
+                         {"feedbackDrafts": "off", "permissions": {"allow": ["WebFetch"], "deny": ["Artifact", "AskUserQuestion"],
+                                                                   "defaultMode": "auto"}})
+        self.assertNotIn("off にした", out)
+
+    def test_permissions_of_a_wrong_shape_write_nothing(self):
+        d = self.home / ".claude-a"
+        d.mkdir()
+        (d / "settings.json").write_text('{"permissions": {"deny": "Artifact"}}', encoding="utf-8")
+        code, _, err = self.run_setup(d)
+        self.assertEqual(code, 1)
+        self.assertIn("permissions.deny が並び（[]）でない", err)
+        self.assertEqual((d / "settings.json").read_text(encoding="utf-8"), '{"permissions": {"deny": "Artifact"}}')
+        self.assertFalse(list(d.glob("settings.json.bak.*")))
 
 
 if __name__ == "__main__":

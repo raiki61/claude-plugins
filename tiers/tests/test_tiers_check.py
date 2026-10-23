@@ -12,11 +12,14 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "lib"))
 import tiers_check  # noqa: E402
 
+# tiers-settings setup の書く設定がそろった settings.json
+GOOD_SETTINGS = '{"feedbackDrafts": "off", "permissions": {"deny": ["AskUserQuestion"]}}'
+
 
 class FakeProbe:
     """have: 在るコマンドの名前。runs: (コマンドの名前, 引数の頭) → (終了コード, 出力)。shell: シェルで見つかるコマンド。
     auth: 起動コマンド → auth status --json の (終了コード, 出力)。無い物はログイン済みで、設定のフォルダを /h/.<コマンド> と答える
-    （そのフォルダの settings.json は feedbackDrafts が off で在る）。"""
+    （そのフォルダの settings.json は tiers-settings setup の書く設定がそろっている）。"""
 
     def __init__(self, have=("claude", "gh", "herdr", "archon"), runs=None, shell=("claude",), platform="linux", auth=None):
         self.have = set(have)
@@ -61,7 +64,7 @@ class FakeProbe:
     def auth_status(self, cmd):
         if cmd in self.auth:
             return self.auth[cmd]
-        self.files.setdefault(f"/h/.{cmd}/settings.json", '{"feedbackDrafts": "off"}')
+        self.files.setdefault(f"/h/.{cmd}/settings.json", GOOD_SETTINGS)
         return 0, json.dumps({"loggedIn": True, "authMethod": "oauth_token", "configDirectory": f"/h/.{cmd}"})
 
 
@@ -78,7 +81,7 @@ class Tiers(unittest.TestCase):
     def test_upper_tier_includes_lower_ones(self):
         r = tiers_check.check(3, probe=FakeProbe())
         self.assertTrue(r["ok"], r)
-        self.assertEqual([x["tier"] for x in r["checks"]], [0, 0, 1, 1, 2, 2, 2, 2, 3])
+        self.assertEqual([x["tier"] for x in r["checks"]], [0, 0, 1, 1, 2, 2, 2, 2, 2, 3])
 
     def test_missing_gh_gives_install_for_the_os_and_skips_login(self):
         for platform, word in (("darwin", "brew install gh"), ("win32", "winget"), ("linux", "apt")):
@@ -297,7 +300,7 @@ class ConfigDirs(unittest.TestCase):
         probe.links["/h/.claude-o"] = "claude: not installed (/h/.claude-o/hooks/herdr-agent-state.sh)\n"
         probe.links["/h/.claude-x"] = "claude: broken-ish (v11)\n"
         probe.dirs.update({"/h/.claude-p1", "/h/.claude-o", "/h/.claude-x"})
-        probe.files.update({f"{d}/settings.json": '{"feedbackDrafts": "off"}' for d in probe.dirs})
+        probe.files.update({f"{d}/settings.json": GOOD_SETTINGS for d in probe.dirs})
         r = tiers_check.check(2, probe=probe, config_dirs=["/h/.claude-p1", "/h/.claude-o", "/h/.claude-x"])
         self.assertEqual(names(r, ok=False), ["herdr の連携（/h/.claude-o）", "herdr の連携（/h/.claude-x）"])
         got = {x["name"]: x for x in r["checks"]}
@@ -313,15 +316,15 @@ class ConfigDirs(unittest.TestCase):
         self.assertIn("プラグインの控え（/h/.claude-p1）", out.getvalue())
 
 
-class FeedbackDrafts(unittest.TestCase):
-    """段 2 の、起動コマンドごとの設定のフォルダの feedbackDrafts が off かの点検。"""
+class AccountSettings(unittest.TestCase):
+    """段 2 の、起動コマンドごとの設定のフォルダの settings.json に、feedbackDrafts の off と permissions.deny の AskUserQuestion が在るかの点検。"""
 
     def test_each_launcher_folder_is_read_from_auth_status_and_a_missing_setting_says_how_to_write_it(self):
         probe = FakeProbe(shell=("claude-a", "claude-b"))
-        probe.files["/h/.claude-b/settings.json"] = '{"model": "opus"}'
+        probe.files["/h/.claude-b/settings.json"] = '{"model": "opus", "permissions": {"deny": ["AskUserQuestion"]}}'
         r = tiers_check.check(2, launchers=["claude-a", "claude-b"], probe=probe)
         self.assertEqual(names(r, ok=False), ["フィードバックの下書き（/h/.claude-b）"])
-        bad = r["checks"][-1]
+        bad = r["checks"][-2]
         self.assertIn("feedbackDrafts が無い", bad["problem"])
         self.assertIn("claude-b が起動するアカウント", bad["problem"])
         self.assertEqual(bad["fix"][0], "tiers-settings setup --config-dir /h/.claude-b")
@@ -341,14 +344,36 @@ class FeedbackDrafts(unittest.TestCase):
         probe = FakeProbe(shell=("claude-a",))
         probe.dirs.update({"/h/.claude-a", "/h/.claude-z"})
         r = tiers_check.check(2, launchers=["claude-a"], probe=probe, config_dirs=["/h/.claude-a/", "/h/.claude-z"])
-        self.assertEqual(names(r)[-2:], ["フィードバックの下書き（/h/.claude-a）", "フィードバックの下書き（/h/.claude-z）"])
+        self.assertEqual(names(r)[-4:], ["フィードバックの下書き（/h/.claude-a）", "選択肢の画面で問うツール（/h/.claude-a）",
+                                         "フィードバックの下書き（/h/.claude-z）", "選択肢の画面で問うツール（/h/.claude-z）"])
         self.assertEqual(names(r).count("フィードバックの下書き（/h/.claude-a）"), 1)
 
     def test_without_config_directory_in_auth_status_the_folder_is_unknown_and_not_passed(self):
         probe = FakeProbe(shell=("claude-a",), auth={"claude-a": (0, '{"loggedIn": true}')})
         r = tiers_check.check(2, launchers=["claude-a"], probe=probe)
-        self.assertEqual(names(r, ok=False), ["フィードバックの下書き（claude-a）"])
+        self.assertEqual(names(r, ok=False), ["アカウントの設定（claude-a）"])
         self.assertIn("--config-dir", r["checks"][-1]["fix"][-1])
+
+    def test_a_missing_deny_says_how_to_add_it_and_other_deny_entries_are_not_enough(self):
+        probe = FakeProbe(shell=("claude-a", "claude-b"))
+        probe.files["/h/.claude-a/settings.json"] = '{"feedbackDrafts": "off"}'
+        probe.files["/h/.claude-b/settings.json"] = '{"feedbackDrafts": "off", "permissions": {"deny": ["Artifact", "AskUserQuestion(x)"]}}'
+        r = tiers_check.check(2, launchers=["claude-a", "claude-b"], probe=probe)
+        self.assertEqual(names(r, ok=False), ["選択肢の画面で問うツール（/h/.claude-a）", "選択肢の画面で問うツール（/h/.claude-b）"])
+        bad = {x["name"]: x for x in r["checks"] if not x["ok"]}["選択肢の画面で問うツール（/h/.claude-a）"]
+        self.assertIn("permissions.deny に AskUserQuestion が無い", bad["problem"])
+        self.assertIn("ほかの会話からは答えられない", bad["problem"])
+        self.assertEqual(bad["fix"][0], "tiers-settings setup --config-dir /h/.claude-a")
+        self.assertIn('"AskUserQuestion"', bad["fix"][1])
+
+    def test_permissions_of_a_wrong_shape_ask_to_fix_the_shape_first(self):
+        probe = FakeProbe(shell=("claude-a", "claude-b"))
+        probe.files["/h/.claude-a/settings.json"] = '{"feedbackDrafts": "off", "permissions": []}'
+        probe.files["/h/.claude-b/settings.json"] = '{"feedbackDrafts": "off", "permissions": {"deny": "AskUserQuestion"}}'
+        got = {x["name"]: x for x in tiers_check.check(2, launchers=["claude-a", "claude-b"], probe=probe)["checks"] if not x["ok"]}
+        self.assertIn("permissions が {} でない", got["選択肢の画面で問うツール（/h/.claude-a）"]["problem"])
+        self.assertIn("permissions.deny が並び（[]）でない", got["選択肢の画面で問うツール（/h/.claude-b）"]["problem"])
+        self.assertIn("形を直してから", got["選択肢の画面で問うツール（/h/.claude-b）"]["fix"][0])
 
     def test_launchers_not_found_or_not_logged_in_get_no_extra_item(self):
         probe = FakeProbe(shell=("claude-a",), auth={"claude-a": (0, '{"loggedIn": false}')})
@@ -360,13 +385,13 @@ class FeedbackDrafts(unittest.TestCase):
         self.assertEqual(names(tiers_check.check(1, probe=probe)), ["Claude Code", "Claude Code のログイン", "gh", "gh のログイン"])
 
 
-class FeedbackDraftsEdges(unittest.TestCase):
-    """feedbackDrafts の点検の、ふつうでない形のフォルダと settings.json。"""
+class AccountSettingsEdges(unittest.TestCase):
+    """アカウントの settings.json の点検の、ふつうでない形のフォルダと settings.json。"""
 
     def test_without_config_directory_a_passed_config_dir_is_read_instead(self):
         probe = FakeProbe(shell=("claude-a",), auth={"claude-a": (0, '{"loggedIn": true}')})
         probe.dirs.add("/h/.claude-a")
-        probe.files["/h/.claude-a/settings.json"] = '{"feedbackDrafts": "off"}'
+        probe.files["/h/.claude-a/settings.json"] = GOOD_SETTINGS
         r = tiers_check.check(2, launchers=["claude-a"], probe=probe, config_dirs=["/h/.claude-a"])
         self.assertTrue(r["ok"], names(r, ok=False))
 
@@ -376,7 +401,9 @@ class FeedbackDraftsEdges(unittest.TestCase):
         probe.files["/h/.claude-b/settings.json"] = "[]"
         got = {x["name"]: x for x in tiers_check.check(2, launchers=["claude-a", "claude-b"], probe=probe)["checks"]}
         self.assertIn("feedbackDrafts が無い", got["フィードバックの下書き（/h/.claude-a）"]["problem"])
+        self.assertIn("permissions.deny に AskUserQuestion が無い", got["選択肢の画面で問うツール（/h/.claude-a）"]["problem"])
         self.assertIn("一番外が {} でない", got["フィードバックの下書き（/h/.claude-b）"]["problem"])
+        self.assertIn("一番外が {} でない", got["選択肢の画面で問うツール（/h/.claude-b）"]["problem"])
 
     def test_a_config_dir_that_does_not_exist_is_left_to_the_tier_0_check(self):
         r = tiers_check.check(2, probe=FakeProbe(), config_dirs=["/h/.claude-none"])

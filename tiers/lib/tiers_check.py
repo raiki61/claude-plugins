@@ -7,8 +7,9 @@
 - 段 1: gh（GitHub の CLI。入っているか、ログイン済みか）
 - 段 2: herdr（入っているか、動いているか）と、アカウントの起動コマンド（--launcher で渡す。省けば claude。在るか、そのアカウントで
   ログイン済みか）と、起動コマンドごとの設定のフォルダ（auth status --json の configDirectory）の settings.json の feedbackDrafts が
-  "off" か（Claude がフィードバックの下書きをためると、/exit が送るか捨てるかの確認で止まり、外から会話を閉じられない。書くのは
-  tiers-settings setup。tiers_settings.py）
+  "off" か（Claude がフィードバックの下書きをためると、/exit が送るか捨てるかの確認で止まり、外から会話を閉じられない）と、
+  permissions.deny に AskUserQuestion が在るか（Claude が選択肢の画面で問うと、窓でキーを押すまで会話が進まない）。書くのは
+  tiers-settings setup（tiers_settings.py）
 - 段 3: Archon（archon が在るか）
 
 ここに書くツールは、どれも利用者が手で入れる物（OS のツール・ログイン・シェルの設定）なので、点検は入れ方を示して止まる。
@@ -21,7 +22,7 @@ herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install H
   効くかが分からない）
 - 段 2: herdr の Claude Code の連携（herdr integration status を、そのフォルダを CLAUDE_CONFIG_DIR にして打つ）と、statusLine が tiers の
   statusline を指すアカウントなら、その印を herdr が見分ける支度（リンクと herdr の判定ルールの上書き。tiers_statusline.py）と、
-  feedbackDrafts が "off" か（起動コマンドから引いたフォルダと同じなら 1 つにまとめる）
+  feedbackDrafts と permissions.deny の AskUserQuestion（起動コマンドから引いたフォルダと同じなら 1 つにまとめる）
 
 使い方:
     tiers [--tier N] [--launcher コマンド ...] [--config-dir フォルダ ...] [--json]
@@ -227,7 +228,7 @@ def _installed(probe, tier, cmd, label, version_args, guide=()):
 def _login(probe, tier, cmd, label, dirs=None):
     """cmd（claude か起動コマンド）でログインしているか（claude auth status --json の loggedIn）の点検の項目。答えの JSON が読めない
     ときも通さない（前は claude --version しか見ず、ログインが切れていても段 0 を通した）。dirs を渡せば、ログイン済みのときに
-    dirs[cmd] へ設定のフォルダ（答えの configDirectory。2.1.309 で在るのを見た。無ければ None）を控える（check_feedback_drafts が読む）。"""
+    dirs[cmd] へ設定のフォルダ（答えの configDirectory。2.1.309 で在るのを見た。無ければ None）を控える（check_settings が読む）。"""
     code, text = probe.auth_status(cmd)
     fix = [f"{cmd} を起動して /login を打つ（か {cmd} auth login）"]
     try:
@@ -355,18 +356,19 @@ def check_statusline(probe, config_dirs):
     return out
 
 
-def check_feedback_drafts(probe, launchers, dirs, config_dirs):
-    """アカウントごとの、Claude がフィードバックの下書きをためない設定（settings.json の feedbackDrafts が "off"）の点検の項目（段 2）。
-    下書きのたまった会話は /exit の前に送るか捨てるかの確認を出して止まり、外から閉じられない（2026-10-23、works-dispatch が自分の番で
-    なくなった PR の会話を閉じられなかった）。フォルダは、起動コマンドごとの auth status --json の configDirectory（_login が dirs に
-    控える）と --config-dir で、同じフォルダは 1 つにまとめる。読むだけで書かない（書くのは tiers-settings setup）。
-    管理者の managed settings（アカウントの値より先に効く）は読まない。"""
+def check_settings(probe, launchers, dirs, config_dirs):
+    """アカウントごとの settings.json に、tiers-settings setup が書く設定（tiers_settings.NEEDS: Claude がフィードバックの下書きを
+    ためない feedbackDrafts = "off" と、選択肢の画面で問うツールを外す permissions.deny の AskUserQuestion）が在るかの点検の項目（段 2）。
+    どちらも、無いと会話が画面の確認で止まり、外から閉じる・進めることができない（2026-10-23、works-dispatch が開いた会話で起きた）。
+    フォルダは、起動コマンドごとの auth status --json の configDirectory（_login が dirs に控える）と --config-dir で、同じフォルダは
+    1 つにまとめる。項目はフォルダごと・設定ごとに 1 つ。読むだけで書かない。管理者の managed settings（アカウントの値より先に効き、
+    permissions の並びは合わさる）は読まない。"""
     folders, out = {}, []   # folders: 比べる形のパス → (見せるパス, そのフォルダで起動するコマンドの並び)
     for cmd in launchers:
         if cmd not in dirs:
             continue   # ログインしていない起動コマンドは、その項目が先に足りない物として出ている（見つからない物は呼び手が渡さない）
         if dirs[cmd] is None:
-            label = f"フィードバックの下書き（{cmd}）"
+            label = f"アカウントの設定（{cmd}）"
             if config_dirs:   # どのフォルダの物かは引けないので、渡されたフォルダを見たことで通す
                 out.append(_item(2, label, found=f"{cmd} の設定のフォルダは auth status --json から分からない。--config-dir で渡したフォルダを見た"))
             else:
@@ -380,27 +382,28 @@ def check_feedback_drafts(probe, launchers, dirs, config_dirs):
             folders.setdefault(_same_path(d), (d, []))
     for d, cmds in folders.values():
         path = os.path.join(os.path.expanduser(d), "settings.json")
-        label = f"フィードバックの下書き（{d}）"
         who = f"。{'・'.join(cmds)} が起動するアカウント" if cmds else ""
-        fix = [f"tiers-settings setup --config-dir {shlex.quote(d)}",
-               f'か、{path} の一番外の {{}} に "{settings.KEY}": "{settings.VALUE}" を足す'
-               "（か、そのアカウントの Claude Code で /config を開き、Claude-drafted feedback を off にする）"]
+        setup = f"tiers-settings setup --config-dir {shlex.quote(d)}"
         try:
             text = probe.read(path)
             got = json.loads(text) if text and text.strip() else {}   # 無い・空は {} と同じ（tiers-settings setup も同じに扱う）
+            broken = None if isinstance(got, dict) else f"{path} の一番外が {{}} でない"
         except (OSError, ValueError) as e:
-            out.append(_item(2, label, problem=f"{path} が読めない（{e}）", fix=[f"{path} を JSON として読める形に直してから、下のどれか"] + fix))
-            continue
-        if not isinstance(got, dict):
-            out.append(_item(2, label, problem=f"{path} の一番外が {{}} でない", fix=[f"{path} の一番外を {{}} に直してから、下のどれか"] + fix))
-            continue
-        value = got.get(settings.KEY)
-        if value == settings.VALUE:
-            out.append(_item(2, label, found=f"{settings.KEY} が {settings.VALUE}（{path}{who}）"))
-            continue
-        said = "無い" if value is None else f" {json.dumps(value, ensure_ascii=False)}"
-        out.append(_item(2, label, problem=f"{path} の {settings.KEY} が{said}（Claude がフィードバックの下書きをためると、"
-                         f"/exit が送るか捨てるかの確認で止まり、外から会話を閉じられない{who}）", fix=fix))
+            got, broken = {}, f"{path} が読めない（{e}）"
+        for need in settings.NEEDS:
+            label = f"{need.name}（{d}）"
+            fix = [setup, f"か、{path} の{need.manual}"]
+            if broken:
+                out.append(_item(2, label, problem=broken, fix=[f"{path} を JSON の {{}} として読める形に直してから、下のどれか"] + fix))
+                continue
+            state, said = need.state(got)
+            if state == settings.OK:
+                out.append(_item(2, label, found=f"{said}（{path}{who}）"))
+            elif state == settings.MISSING:
+                out.append(_item(2, label, problem=f"{path} の{said}（{need.why}{who}）", fix=fix))
+            else:   # 形が違うと setup は書かないので、先に手で直させる
+                out.append(_item(2, label, problem=f"{path} の{said}（{need.why}{who}）",
+                                 fix=[f"{path} の形を直してから、下のどれか"] + fix))
     return out
 
 
@@ -529,7 +532,7 @@ def check_herdr(probe, launchers, config_dirs=(), dirs=None):
                              fix=[f"シェルの設定に {cmd} を足す（中身は、そのアカウントの CLAUDE_CONFIG_DIR を決めて claude を起動する関数か別名）。"
                                   "アカウントが 1 つなら claude のままでよい"],
                              guide=LAUNCHER_GUIDE))
-    return out + check_feedback_drafts(probe, found, dirs, config_dirs)
+    return out + check_settings(probe, found, dirs, config_dirs)
 
 
 def check_archon(probe):
@@ -582,7 +585,7 @@ def main(argv=None, probe=None, stdout=None):
                     help="段 2: アカウントの起動コマンド（繰り返して複数。省けば claude）")
     ap.add_argument("--config-dir", action="append", default=[], metavar="フォルダ",
                     help="アカウントの Claude Code の設定のフォルダ（繰り返して複数）。渡せば、プラグインの控え（段 0）と、herdr の連携・"
-                         "statusline の支度・feedbackDrafts（段 2）をフォルダごとに点検する")
+                         "statusline の支度・feedbackDrafts・permissions.deny の AskUserQuestion（段 2）をフォルダごとに点検する")
     ap.add_argument("--json", action="store_true", help="JSON で出す")
     try:
         a = ap.parse_args(argv)

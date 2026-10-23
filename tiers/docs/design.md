@@ -76,7 +76,7 @@ herdr（端末を作業場とペインに分けて並べ、中の AI の会話�
 
 ## フィードバックの下書きを切る設定（feedbackDrafts。2026-10-23）
 
-tiers が段 2 でこの設定を点検し、書く側のコマンド `tiers-settings setup` を別に持つと決めた理由の記録。利用者がすること（足りないと出たら `tiers-settings setup` を打つか `/config` で切る）は README の「Feedback drafts」。
+tiers が段 2 でこの設定を点検し、書く側のコマンド `tiers-settings setup` を別に持つと決めた理由の記録。利用者がすること（足りないと出たら `tiers-settings setup` を打つか `/config` で切る）は README の「Account settings」。
 
 Claude が SendFeedback のツールでフィードバックの下書きをためた会話は、`/exit` の前に送るか捨てるかの確認を出して止まる（[tools reference](https://code.claude.com/docs/en/tools-reference) の「SendFeedback tool behavior」: 「When you run /exit with drafts from the session still in the queue, Claude Code asks whether to review them or discard them before exiting.」）。2026-10-23 に、持ち主（このリポジトリの作者）の勤め先のリポジトリ guided-resolver で、works-dispatch（Claude Code の会話を作業ごとに開き、要らなくなった会話を `/exit` で閉じるプラグイン）が、自分の番でなくなった PR の会話を `/exit` で閉じられなかった。持ち主はフィードバックを送らないので、確認の画面に答える作りにせず、下書きをためない設定を前提の環境にして、その点検を tiers が持つ（持ち主の決め。works-dispatch の部署への頼み 20261023-043724-0b4b8b〔頼みのファイルの名前〕で決めた）。
 
@@ -84,3 +84,14 @@ Claude が SendFeedback のツールでフィードバックの下書きをた�
 - **どのフォルダを見るか。** 段 2 の起動コマンドは、シェルの関数が `CLAUDE_CONFIG_DIR` を入れて claude を起動する物が多く、tiers からはフォルダが見えない。ログインの点検で打つ `<起動コマンド> auth status --json` の答えに `configDirectory` が在る（2.1.309 で見た。公式の文書には書かれていない）ので、そこから引く。無ければ足りない物として出し、`--config-dir` で渡す手を示す（`--config-dir` を渡したときは、どのフォルダの物かは引けないので、渡したフォルダを見たことで通す）。管理者の managed settings はアカウントの値より先に効くが、点検は読まない（持ち主の手元に無く、置き場が OS と配り方で分かれるため）。`--config-dir` で渡したフォルダも見て、同じフォルダは 1 つにまとめる。
 - **段。** 外から会話を閉じるツール（works-dispatch）の前提なので、起動コマンドを見る段 2 に置いた。
 - **書く側を statusline の setup と分けた。** `tiers-statusline setup` は、使うかを利用者が決める statusLine を書く（アカウントに 1 つの statusLine を押しのける）。feedbackDrafts は段 2 の前提で、statusLine を使わないアカウントにも要る。相乗りさせると、片方だけ欲しい人が書けない。そこで `tiers-settings setup` を別に置き、`.bak` の残し方と書き方（`tiers_statusline.backup`〔前の `settings.json` を `settings.json.bak.<日時>-tiers` に写す〕・`write_file`〔ファイルを書く〕）は同じ物を使う。ほかのキーは残し、`feedbackDrafts` だけを足すか書き換える。打つのは利用者で、点検は書かない。
+
+## 選択肢の画面で問うツールを外す設定（permissions.deny の AskUserQuestion。2026-10-23）
+
+上の feedbackDrafts と同じ作り（段 2 の点検は読むだけ・書くのは `tiers-settings setup`）で、2 つ目の設定を足した理由の記録。利用者がすることは README の「Account settings」。
+
+Claude が AskUserQuestion のツール（選択肢の画面で問う）で問うと、その問いは答えるまで開いたまま（[tools reference](https://code.claude.com/docs/en/tools-reference) の「AskUserQuestion tool behavior」）で、会話は窓を開いてキーを押すまで進まない。2026-10-23 に guided-resolver の issue #1895 で、works-dispatch が開いた会話がこの画面で止まり、窓口の会話（持ち主と話し、ほかの会話に仕事を配る会話）からは答えられなかった。持ち主は、手で起動する会話も含めて全アカウントでこのツールを使えなくすると決め、tiers の前提にも入れると決めた（works-dispatch の部署への頼み 20261023-054557-7a51b7）。tiers はほかの人にも配るので、点検で止めると画面を見ている人からこのツールを奪う、という見立ては持ち主が聞いたうえでの決め。
+
+- **何を見るか。** `settings.json` の `permissions.deny` の並びに、括弧の付かない `"AskUserQuestion"` が在るか。tools reference は、ツールの名前を権限の決まりに書く字そのものとし、決まりの書き方の表に無いツールは括弧の付かない名前だけを受けると書く。括弧付きの `AskUserQuestion(...)` は通さない。
+- **書き方。** `tiers-settings setup` が、並びの末尾に足す（既に在れば触らない）。ほかの deny・allow などは消さない。設定のファイルごとの並びは置き換えでなく合わさる（[settings](https://code.claude.com/docs/en/settings) の「Lists merge instead of overriding」）ので、ほかの場所の deny とも食い違わない。`permissions` が {} でない・`deny` が並びでない `settings.json` は、何をどう直すべきか機械では決められないので、何も書かずに止まり、点検も形を直す手を先に出す。feedbackDrafts と 1 回の setup で書き、`.bak` は 1 つ残す。
+- **採らない方。** `askUserQuestionTimeout`（答えないまま置いた問いを閉じる設定）は、裏の会話（`--bg`）では時計が動かない（同じ tools reference の「Question auto-continue timeout」）。works-dispatch の部署は裏の会話なので効かない。
+

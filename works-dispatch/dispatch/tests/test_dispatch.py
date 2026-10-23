@@ -28,7 +28,8 @@ from nodes import report
 
 
 def typed(command):
-    """launch がペインに打ち込む形（POSIX のシェルでは /catchup の窓を開かない前置きが付く）。"""
+    """launch がペインに打ち込む形（PR の会話にだけ効く設定のファイルを付け、POSIX のシェルでは /catchup の窓を開かない前置きが付く）。"""
+    command = f"{command} --settings {launch._quote(launch.SESSION_SETTINGS, os.name != 'nt')}"
     return command if os.name == "nt" else f"{launch.QUIET_CATCHUP} {command}"
 
 
