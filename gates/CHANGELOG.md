@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-24
+
 ### Added
 
 - 4 本目のゲート waitgate（`hooks/wait-gate.py`。Bash のツールが走る前に働く PreToolUse のフック）を足した。手で書いた待ちのループを、前景か裏（Bash の `run_in_background`）かを問わず走る前に止め、待つ対象のコマンドそのものを `run_in_background` で走らせて終わりの知らせを待つよう返す。入れた後に利用者がする事は無い。1 回の Bash の呼び出しの中で、次のどちらかが在れば止める。
