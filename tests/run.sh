@@ -2422,9 +2422,9 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=758
-# 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから destgate までは gates のフックと、その試験の台本
-scope gates tests/coldread tests/destgate
+EXPECTED_CHECKS=759
+# 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから searchgate までは gates のフックと、その試験の台本
+scope gates tests/coldread tests/destgate tests/searchgate
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3092,7 +3092,7 @@ got = bash('%s --deliver "$F"' % D, FIND)
 assert got and got["permissionDecision"] == "deny" and "--deliver に渡すファイル" in got["permissionDecisionReason"] and read() == n + 2, got
 print("DISPATCH_SEND_OK")
 PY
-scope gates tests/coldread tests/destgate
+scope gates tests/coldread tests/destgate tests/searchgate
 
 # 待ちの一覧は読み終えてから消す: 読む口は一覧を読みかけ(<一覧>.<pid>.reading)に替えて取り、読む前に覚えた中身をそこに書き足す。
 # 口が切られて残った読みかけは、同じ役の次の終わりに取り戻し、覚えた中身を忘れて読み直す(まだ読んでいる新しい読みかけには触らない)。
@@ -5344,6 +5344,10 @@ expect_output 0 "読めない" "destgate: 一覧が在るとき、読めない�
     sh -c 'printf "not json" | env CLAUDE_CONFIG_DIR="$2" "$1" "$3"' sh "$PY_BIN" "$DG_CFG" "$ROOT/gates/hooks/dest-gate.py"
 expect_output 0 "解析できず" "destgate: 解析できない gh のコマンドは宛先を確かめられないので通さない" \
     "$DG_CASE" "$DG_CFG" "$WORK" "gh issue comment 1 -R evil/place --body 'closing quote missing"
+
+# ---- searchgate: / やホームの全体から探すのを止める(手元の資源を守る軸。止める形と通す形の表は suite の中) ----
+expect_output 0 "OK" "searchgate: / やホームの全体を起点にした find・fd・rg・grep -r と Glob・Grep を止め、それより下と作業場の中は通す・入れ子と変数と cd を読む・検査が落ちたら止める（unittest）" \
+    "$PY_BIN" "$ROOT/tests/searchgate-suite.py"
 
 scope attention tests/catchup tests/changemap tests/reflect
 # ---- attention/catchup: 1 件の PR / issue の「前回から何が起きたか」 ----

@@ -6,6 +6,10 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Added
+
+- 3 本目のゲート searchgate（`hooks/search-gate.py`、PreToolUse の Bash・Glob・Grep）を足した。探す起点が `/`・`/Users`・`/System`・`/System/Volumes/Data`・`/Volumes`・`/private`・`/opt`・ホームそのもの（`~`・`$HOME`・そのパス）のどれかなら、Bash の find・bfs・gfind・fd・rg・grep -r と、Glob・Grep のツールを走る前に止め、作業場か探す物の置き場から探すよう返す。それより下（`~/.cache/works-factory` など）と作業場の中は通す。`nice`・`sudo`・`xargs`・`timeout` などの前置の後ろ、`bash -c "…"`・`eval`・`$( … )` の中、同じコマンドの中で変数に入れた起点（`D=/; find $D`）、`cd / && find .` の相対の起点も読む。検査が落ちたら止め、止めた記録は `$CLAUDE_CONFIG_DIR/searchgate/denies.log` に残す。2026-10-24 に部署の会話の `find / …` 2 本が 1 時間で CPU を計 860% 使い、マシンの負荷が 24 コアで 55〜70 になったのを受けた（my_notes の頼み 61c696）。
+
 ## [0.41.0] - 2026-10-22
 
 ### Changed

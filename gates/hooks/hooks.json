@@ -19,6 +19,18 @@
             "statusMessage": "宛先ゲートを確認中"
           }
         ]
+      },
+      {
+        "matcher": "^(Bash|Glob|Grep)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/search-gate.py\"",
+            "shell": "bash",
+            "timeout": 30,
+            "statusMessage": "探す範囲を確認中"
+          }
+        ]
       }
     ],
     "PostToolUse": [
