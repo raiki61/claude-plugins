@@ -23,6 +23,10 @@ import json
 import os
 import sys
 
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 LOG = os.path.expanduser("~/src/claude-plugins/.git/company/inbox/log.jsonl")
 PLACE = os.path.expanduser("~/.herdr/worktrees/claude-plugins/")
 WEIGHT = {"w5": 1.25, "w1": 2.0, "r": 0.05}
