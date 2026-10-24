@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Changed
 
-- compact の計画（`docs/specs/2026-10-25-compact-restart-plan.md`）の 3.2 の 3 に、rent-or-buy の要約の出力の既定が 5,000 から 9,000 トークンに替わったことと、計画の数が替える前の値で数えてあることを書いた。
+- compact の計画（`docs/specs/2026-10-25-compact-restart-plan.md`）の 3.2 の 3 に、rent-or-buy の要約の出力の既定が 5,000 から 9,000 トークンに替わったことと、計画の中の試算（compact の費用の表と、compact が初めて得になる文脈の大きさ）は替える前の 5,000 で計算してあることを書いた。9,000 で計算し直すと、得になる文脈の中央は約 0.6〜0.7 万トークン上がる（数は計画の 3.2 の 3）。
 
 ## [0.126.2] - 2026-10-25
 
