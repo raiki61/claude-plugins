@@ -105,7 +105,8 @@ def targets(root):
         mine = ([(f, "skill") for f in sorted(src.glob("skills/*/SKILL.md"))]
                 + [(f, "command") for f in sorted(src.glob("commands/**/*.md"))]
                 + [(f, "agent") for f in sorted(src.glob("agents/*.md"))])
-        if not mine:
+        # bin/ のコマンドだけを配るプラグイン（rent-or-buy）は説明を持たないが、空回りではない
+        if not mine and not any(f.is_file() for f in src.glob("bin/*")):
             bad.append(f"{plugin['name']}: スキル・コマンド・役が 1 つも見つからない（走査が空回りしている）")
         found += mine
     return found, bad
@@ -178,10 +179,12 @@ def arms():
     must_pass("役は字数を見ない", f"---\ndescription: {'あ' * 2000}\n---\n", kind="agent")
     must_fail("役も切れは見る", "---\ndescription: 何をするか #いつ\n---\n", kind="agent", word="読み捨てる")
 
-    # 走査: 置き場を変えたプラグインと、何も見つからないプラグインを落とす。見つかる物は skills・commands（入れ子も）・agents
+    # 走査: 置き場を変えたプラグインと、何も見つからないプラグインを落とす。見つかる物は skills・commands（入れ子も）・agents。
+    # bin/ のコマンドだけのプラグインは落とさない
     r = d / "repo"
     for p, files in (("full", ("skills/x/SKILL.md", "commands/y.md", "commands/sub/z.md", "agents/w.md")),
-                     ("moved", ("skills/x/SKILL.md",)), ("empty", ("README.md",))):
+                     ("moved", ("skills/x/SKILL.md",)), ("empty", ("README.md",)),
+                     ("tool", ("bin/t",))):
         for rel in files:
             (r / p / rel).parent.mkdir(parents=True, exist_ok=True)
             (r / p / rel).write_text("---\ndescription: 何をするか\n---\n", encoding="utf-8")
@@ -190,7 +193,7 @@ def arms():
             json.dumps({"name": p, **({"skills": "./other"} if p == "moved" else {})}), encoding="utf-8")
     (r / ".claude-plugin").mkdir()
     (r / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
-        {"plugins": [{"name": p, "source": f"./{p}"} for p in ("full", "moved", "empty")]}), encoding="utf-8")
+        {"plugins": [{"name": p, "source": f"./{p}"} for p in ("full", "moved", "empty", "tool")]}), encoding="utf-8")
     found, bad = scan(r)
     kinds = sorted((f.relative_to(r).as_posix(), k) for f, k in found)
     assert kinds == [("full/agents/w.md", "agent"), ("full/commands/sub/z.md", "command"), ("full/commands/y.md", "command"),

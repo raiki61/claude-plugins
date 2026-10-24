@@ -18,7 +18,7 @@ Claude Code の会話には、少しずつ払い続ける（借りる）か、�
 
 - keepalive: works-dispatch（このリポジトリ claude-plugins のプラグイン）が、寿命 − 90 秒おきに送り、読みが 0.05 倍のモデル（Opus 5.5・Sonnet 5.5）なら寿命 5 分で 25 本・1 時間で 40 本まで送る（`works-dispatch/dispatch/nodes/role.py` の `keepalive_for`）
 - compact: works-dispatch の `COMPACT_FLOOR = 100000`（`works-dispatch/dispatch/nodes/wake.py`）と、my_notes の役（会話に与える役割の本文）「相談」の「10 万トークンを超えていそうなら」の目安
-- 単価: works-dispatch の `claudex.py` の倍率（`CACHE_READ_RATES` の表に無いモデルは黙って読み 0.1 倍に落ちる）、my_notes の `claude_call.py` の `PRICES`。同じ値段を 2 か所に写している
+- 単価: works-dispatch の `claudex.py` の倍率（`CACHE_READ_RATES` の表に無いモデルは黙って読み 0.1 倍に落ちる）、my_notes の `claude_call.py` の PRICES。同じ値段を 2 か所に写している
 
 作るのは、この判断の計算だけを持つ小さな部品 `rent-or-buy`。部署（works-dispatch が仕事ごとに立てる、役を持った別の会話）の仕組みは知らず、どこからでも呼べる形にして、部品として使い回す（持ち主 2026-10-24「綺麗な部品としてアセット化しておきたいので、できるだけ綺麗な形で」）。
 
@@ -155,7 +155,7 @@ keepalive を送る時刻には、手が 3 つある。送る（借りる）、c
 
 ### 3.3 モデル名の揃え
 
-使う人の環境で記録に書かれるモデル名は、値段表の名前と同じとは限らない（クラウド経由の前置き、1M 文脈版の `[1m]`、日付付きの版、社内の中継が付けた名前など）。ccusage は、そのまま照合し、合わなければ小文字にして `.` と `@` を `-` に替え、それでも合わなければ名前を含む項目のうち一番長い物を採る（曖昧な照合）。使う人の対応表を環境変数 `CCUSAGE_MODEL_ALIASES` で足せる（https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/model_aliases.rs ）。ここは次の順にする。
+使う人の環境で記録に書かれるモデル名は、値段表の名前と同じとは限らない（クラウド経由の前置き、1M 文脈版の `[1m]`、日付付きの版、社内の中継が付けた名前など）。ccusage は、そのまま照合し、合わなければ小文字にして `.` と `@` を `-` に替え、それでも合わなければ名前を含む項目のうち一番長い物を採る（曖昧な照合）。使う人の対応表を環境変数 CCUSAGE_MODEL_ALIASES で足せる（https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/model_aliases.rs ）。ここは次の順にする。
 
 1. 使う人の対応表（環境変数 `RENT_OR_BUY_MODEL_ALIASES`。`名前=モデル` をカンマで区切るか JSON。ccusage と同じ形）でそのまま引く。
 2. 揃える: 小文字にし、末尾の `[…]` を削り、`claude-` より前（`us.anthropic.` などの前置き）を削り、`.` と `@` を `-` に替え、末尾の日付（`-20261001` など）と版（`-v1:0` など）を削る。揃えた名前で値段表と対応表を引く。
@@ -263,7 +263,7 @@ rent-or-buy/
 ```
 
 - スキルは置かない。呼ぶのはプログラムで、会話から使う場面がまだ無いため。
-- 版の固定はタグでなく commit の SHA にする。このリポジトリはタグを作らない（持ち主 2026-09-29）。works-factory の `PIN`（使う版の commit の SHA を 1 行書いたファイル）と同じ形。
+- 版の固定はタグでなく commit の SHA にする。このリポジトリはタグを作らない（持ち主 2026-09-29）。works-factory の PIN（使う版の commit の SHA を 1 行書いたファイル）と同じ形。
 - 受け持ち: 割り振り（works-dispatch・tiers・rent-or-buy の直しを受け持つ部署）。いちばんよく呼ぶのが works-dispatch のため（my_notes の司令塔の答え。足しの受付 20261024-081622-55075a）。会社の形（`.claude/company.toml`）の割り振りの説明は、この部品を main に入れるブランチで直した。
 
 ## 8. 試験
@@ -301,7 +301,7 @@ rent-or-buy/
 
 - 部品（`rent-or-buy/`）はこの設計書を書いた作業の部署で作る。
 - works-dispatch の側（6）は割り振りに頼む。works-dispatch のファイルは割り振りの受け持ちのため（会社の形 `.claude/company.toml`）。
-- my_notes の側は、my_notes の部署へ一覧で渡す。中身は、役「相談」の目安を消す、`autoCompactWindow` を上げる、`claude_call.py` の `PRICES` を部品の値段に替える、の 3 つ。
+- my_notes の側は、my_notes の部署へ一覧で渡す。中身は、役「相談」の目安を消す、`autoCompactWindow` を上げる、`claude_call.py` の PRICES を部品の値段に替える、の 3 つ。
 
 ## 12. 持ち主と決めたこと（2026-10-24、この部署の窓で）
 

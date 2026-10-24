@@ -5858,7 +5858,7 @@ expect_exit 1 "figure-check: 知らないケース名は落ちる（検査自体
 # SKIP_ALLOW に無い名前（pyyaml）として赤にするので、入れる段を消しても黙って緑には戻らない
 SD_CASE="$ROOT/tests/skill-descriptions-case.py"
 if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
-    expect_output 0 "SKILL_DESCRIPTION_ARMS_OK" "スキルの説明のチェック: 空白の後の # で切れる・引用符の後ろの注釈・値の中の ---・読めない YAML・1 行目でない頭・空の説明・SKILL.md の 1,025 字・スキルとコマンドの description と when_to_use の合わせて 1,537 字・置き場を変えたプラグイン・何も見つからないプラグインを落とし、引用符や畳む書き方の中の # と CRLF・BOM・フィールドと同じ深さの注釈の行は通す" \
+    expect_output 0 "SKILL_DESCRIPTION_ARMS_OK" "スキルの説明のチェック: 空白の後の # で切れる・引用符の後ろの注釈・値の中の ---・読めない YAML・1 行目でない頭・空の説明・SKILL.md の 1,025 字・スキルとコマンドの description と when_to_use の合わせて 1,537 字・置き場を変えたプラグイン・何も見つからないプラグインを落とし、引用符や畳む書き方の中の # と CRLF・BOM・フィールドと同じ深さの注釈の行・bin/ のコマンドだけのプラグインは通す" \
         "$PY_BIN" "$SD_CASE" arms
     expect_output 0 "SKILL_DESCRIPTIONS_OK" "スキルの説明のチェック: 全部のプラグインのスキル・コマンド・役の説明が YAML で黙って切れず、公式の字数の上限（SKILL.md 1,024 字・一覧 1,536 字）に収まる" \
         "$PY_BIN" "$SD_CASE" tree
@@ -6218,6 +6218,11 @@ assert len(works_env) >= 20, f"works のコードから WORKS_ の名を {len(wo
 GL_CODE = [q for q in sorted((root / "graphloops").rglob("*")) if q.suffix in (".py", ".sh") and q.is_file()]
 works_env |= set().union(*(re.findall(r"\b(?:GL|GRAPHLOOPS)_[A-Z0-9_]+", q.read_text(encoding="utf-8", errors="replace")) for q in GL_CODE))
 assert {"GL_SHARD_MANIFEST", "GRAPHLOOPS_AUTH_NOTE"} <= works_env, "graphloops のコードから環境変数の名を拾えていない（走査が壊れている）"
+# rent-or-buy の RENT_OR_BUY_ で始まる名も環境変数で、`env.get("RENT_OR_BUY_PRICES")` の形で読み、名の代入の行は無い。
+# 同じく rent-or-buy のコード（.py と拡張子の無い bin/rent-or-buy）のどこかに字で在れば実在と見る
+RB_CODE = [q for q in sorted((root / "rent-or-buy").rglob("*")) if q.is_file() and (q.suffix == ".py" or q.parent.name == "bin")]
+works_env |= set().union(*(re.findall(r"\bRENT_OR_BUY_[A-Z0-9_]+", q.read_text(encoding="utf-8", errors="replace")) for q in RB_CODE))
+assert {"RENT_OR_BUY_PRICES", "RENT_OR_BUY_RECORD"} <= works_env, "rent-or-buy のコードから環境変数の名を拾えていない（走査が壊れている）"
 
 def wrong_pairs(pairs, label):
     """名指しされたファイルにその定数が無い組を返す。**自己検査のために関数にしてある**
