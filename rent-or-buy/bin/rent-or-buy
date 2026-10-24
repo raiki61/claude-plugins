@@ -94,7 +94,7 @@ def _from_transcript(scene: str, facts: dict, path: str, override) -> tuple:
             base["post_tokens"] = tr["post_tokens"]
         merged = {**base, **facts}
         if "spent" not in merged:
-            post = merged.get("post_tokens", prices.defaults()["compact"]["after_tokens"])
+            post = translate.count(merged, "post_tokens", prices.defaults()["compact"]["after_tokens"])
             price = prices.lookup(translate.check_model(merged["model"]), override)
             base["spent"] = translate.extra_read_cost(tr["contexts_after_compact"], post, price)
     return {**base, **facts}, {"skipped_lines": tr["skipped_lines"]}
@@ -108,9 +108,10 @@ def _fail_row(scene: str, facts) -> dict:
 
 
 def _judge(scene: str, args) -> int:
-    facts = None
+    facts = received = None
     try:
         facts = _read_stdin()
+        received = dict(facts)  # prices を取り出す前の写し。記録の input はこれ
         # prices（単価の上書き）を受けるのは keepalive と compact だけ。decide では知らない鍵として止まる
         override = facts.pop("prices", None) if scene != "decide" else None
         info = None
@@ -123,12 +124,12 @@ def _judge(scene: str, args) -> int:
             if info is not None:
                 out["transcript"] = info
     except (rent_or_buy.InputError, translate.FactsError) as e:
-        return _fail("invalid_input", str(e), 2, _fail_row(scene, facts))
+        return _fail("invalid_input", str(e), 2, _fail_row(scene, received))
     except prices.PricesError as e:
-        return _fail(e.key, e.why, e.code, _fail_row(scene, facts))
+        return _fail(e.key, e.why, e.code, _fail_row(scene, received))
     except transcript.TranscriptError as e:
-        return _fail("transcript_unreadable", str(e), 4, _fail_row(scene, facts))
-    row = {"scene": scene, "input": facts}
+        return _fail("transcript_unreadable", str(e), 4, _fail_row(scene, received))
+    row = {"scene": scene, "input": received}
     err = _record(dict(row, output=out))
     if err:
         out["record"] = err
@@ -155,8 +156,11 @@ def main() -> int:
                 snap = prices.fetch_snapshot(time.strftime("%Y-%m-%d", time.gmtime()), timeout=120)
             except (OSError, ValueError, KeyError) as e:
                 return _fail("fetch_failed", "could not fetch from LiteLLM: %s" % e, 1)
-            (ROOT / "prompt_cache" / "snapshot.json").write_text(
-                json.dumps(snap, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            try:
+                (ROOT / "prompt_cache" / "snapshot.json").write_text(
+                    json.dumps(snap, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            except OSError as e:
+                return _fail("write_failed", "could not write the snapshot file: %s" % e, 1)
             _emit({"models": len(snap["models"]), "commit": snap["commit"], "fetched": snap["fetched"]})
             return 0
         return _judge(args.cmd, args)

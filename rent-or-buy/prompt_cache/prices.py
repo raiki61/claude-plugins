@@ -5,6 +5,7 @@
 import json
 import math
 import os
+import threading
 import time
 import tomllib
 import urllib.request
@@ -67,7 +68,7 @@ def clean(entry: dict) -> dict:
     out = dict(entry)
     for f in FIELDS.values():
         t = f + TIER_SUFFIX
-        if t in out and not (_positive(out[t]) and out[t] >= entry[f]):
+        if t in out and not (_positive(out[t]) and out[t] >= entry.get(f, 0)):
             del out[t]
     return out
 
@@ -129,6 +130,26 @@ def fetch_snapshot(today: str, timeout: float = FETCH_TIMEOUT_S) -> dict:
     return build_snapshot(_http_json(LITELLM_URL, deadline), commit, today)
 
 
+def _fetch_within_deadline(today: str) -> dict:
+    """fetch_snapshot を使い捨ての別スレッドで回し、FETCH_TIMEOUT_S で打ち切る（名前引きや遅い読みで固まっても待たせない）。"""
+    box: dict = {}
+
+    def run():
+        try:
+            box["snap"] = fetch_snapshot(today)
+        except BaseException as e:  # noqa: BLE001 - 呼び側へ運ぶ
+            box["err"] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(FETCH_TIMEOUT_S)
+    if t.is_alive():
+        raise TimeoutError("fetch did not finish in %s s" % FETCH_TIMEOUT_S)
+    if "err" in box:
+        raise box["err"]
+    return box["snap"]
+
+
 def refresh_latest(env=os.environ, now: Optional[float] = None) -> None:
     """最新を 1 日に 1 回まで取り、cache_dir/latest.json に控える。RENT_OR_BUY_OFFLINE=1 なら取りに行かない。
 
@@ -146,7 +167,7 @@ def refresh_latest(env=os.environ, now: Optional[float] = None) -> None:
         d.mkdir(parents=True, exist_ok=True)
         tried.touch()
         os.utime(tried, (now, now))
-        snap = fetch_snapshot(time.strftime("%Y-%m-%d", time.gmtime(now)))
+        snap = _fetch_within_deadline(time.strftime("%Y-%m-%d", time.gmtime(now)))
         if snap["models"]:
             _atomic_write(d / "latest.json", json.dumps(snap, ensure_ascii=False))
     except Exception:
@@ -159,6 +180,8 @@ def _layer(path: Path, label: str, tolerate: bool):
     """写しか最新のファイルを読む。tolerate なら読めない・壊れた物は無いものとする（写しは試験が守る）。"""
     try:
         data = _read_table(path)
+        if not isinstance(data, dict):
+            raise ValueError("top level is not an object")
         models = {k: clean(v) for k, v in data["models"].items() if usable(v)}
         return models, {"commit": data.get("commit"), "fetched": data.get("fetched")}
     except (OSError, ValueError, KeyError, AttributeError):
@@ -170,6 +193,10 @@ def _layer(path: Path, label: str, tolerate: bool):
 def _override(data, label: str) -> dict:
     if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
         raise PricesError("invalid_input", "%s must be a table of model name -> {field: price}" % label, 2)
+    for model, fields in data.items():
+        for f in KEEP:
+            if f in fields and not _positive(fields[f]):
+                raise PricesError("invalid_input", "%s: %s.%s must be a positive finite number: %r" % (label, model, f, fields[f]), 2)
     return data
 
 
@@ -209,10 +236,10 @@ def _stale(fetched, snap_fetched, now: Optional[float]) -> bool:
 
 def lookup(model: str, override: Optional[dict] = None, env=os.environ, now: Optional[float] = None) -> Price:
     """モデル名から単価を引く。知らないモデルは PricesError（unknown_model、コード 3）。"""
-    snap, snap_origin = _layer(HERE / "snapshot.json", "同梱の写し", tolerate=False)
+    snap, snap_origin = _layer(HERE / "snapshot.json", "bundled snapshot", tolerate=False)
     layers = [("snapshot", snap, snap_origin)]
     refresh_latest(env, now)
-    latest, latest_origin = _layer(cache_dir(env) / "latest.json", "最新", tolerate=True)
+    latest, latest_origin = _layer(cache_dir(env) / "latest.json", "latest", tolerate=True)
     skipped = None
     if latest and _stale(latest_origin.get("fetched"), snap_origin.get("fetched"), now):
         latest, skipped = {}, "stale"
@@ -245,4 +272,4 @@ def lookup(model: str, override: Optional[dict] = None, env=os.environ, now: Opt
         raise PricesError("invalid_input" if source == "override" else "unknown_model",
                           "prices of %s are incomplete or not in the order read < input < write" % key,
                           2 if source == "override" else 3)
-    return Price(key, entry, source, origin, skipped)
+    return Price(key, clean(entry), source, origin, skipped)  # 上書きで基の単価が上がり、段が基より低くなった物を落とす

@@ -44,8 +44,9 @@ def read(path) -> dict:
                     last_request_at = row["timestamp"]
             elif kind == "system" and row.get("subtype") == "compact_boundary":
                 post = row["compactMetadata"]["postTokens"]
-                if isinstance(post, int) and not isinstance(post, bool):
-                    post_tokens, responses, order = post, {}, []
+                if not isinstance(post, int) or isinstance(post, bool):
+                    raise TypeError("postTokens is not an integer")
+                post_tokens, responses, order = post, {}, []
             elif kind == "assistant" and not row.get("isSidechain"):
                 msg = row["message"]
                 ctx = _context(msg["usage"])

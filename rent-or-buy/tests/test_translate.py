@@ -174,5 +174,44 @@ class TranslateTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)  # 標準入力で足りれば通る
 
 
+    def test_post_tokens_from_stdin_is_checked(self):
+        path = sample(self.tmp.name)
+        for bad in (None, "5", -1, True):
+            r = self.run_cli("compact", "--transcript", str(path), stdin=json.dumps({"lifetime": 300, "post_tokens": bad}))
+            self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (2, "invalid_input"), bad)
+
+    def test_override_is_validated_and_tiers_follow_base(self):
+        for bad in ({"input_cost_per_token_above_100k_tokens": "x"}, {"output_cost_per_token_above_100k_tokens": float("inf")},
+                    {"input_cost_per_token_above_100k_tokens": -1}):
+            with self.assertRaises(prices.PricesError, msg=bad) as cm:
+                prices.lookup("claude-haiku-5-5", {"claude-haiku-5-5": bad}, env=self.env)
+            self.assertEqual((cm.exception.key, cm.exception.code), ("invalid_input", 2))
+        base = prices.lookup("claude-haiku-5-5", env=self.env)
+        self.assertIn("input_cost_per_token_above_100k_tokens", base.entry)
+        tier = base.entry["input_cost_per_token_above_100k_tokens"]
+        raised = {"input_cost_per_token": tier * 2, "cache_creation_input_token_cost": tier * 4,
+                  "cache_creation_input_token_cost_above_1hr": tier * 4}  # 順序を保ったまま基を段の上へ
+        got = prices.lookup("claude-haiku-5-5", {"claude-haiku-5-5": raised}, env=self.env)
+        self.assertNotIn("input_cost_per_token_above_100k_tokens", got.entry)
+
+    def test_latest_with_non_object_top_level_is_unusable(self):
+        (pathlib.Path(self.tmp.name) / "latest.json").write_text("[1, 2]", encoding="utf-8")
+        got = prices.lookup("claude-opus-5-5", env=self.env)
+        self.assertEqual(got.source, "snapshot")
+
+    def test_snapshot_write_failure_exits_1(self):
+        # 書き込みを失敗させるため、取得を差し替えた台本を同じ口から呼ぶ（ネットワークには出ない）
+        code = ("import runpy, sys, json\nfrom unittest import mock\nfrom prompt_cache import prices\n"
+                "snap = {'models': {}, 'commit': 'c', 'fetched': 'd'}\n"
+                "import pathlib\n"
+                "with mock.patch.object(prices, 'fetch_snapshot', return_value=snap), "
+                "mock.patch.object(pathlib.Path, 'write_text', side_effect=OSError('read-only')):\n"
+                "    sys.argv = ['rent-or-buy', 'snapshot']\n"
+                "    runpy.run_path(%r, run_name='__main__')\n" % str(PLUGIN / "bin" / "rent-or-buy"))
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8",
+                           env=self.env, cwd=str(PLUGIN))
+        self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (1, "write_failed"), r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

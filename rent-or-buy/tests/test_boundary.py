@@ -58,6 +58,18 @@ def check_public_names_only(tree, public):
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in aliases:
             if node.attr not in public:
                 bad.append("rent_or_buy.%s" % node.attr)
+        elif isinstance(node, ast.ImportFrom) and node.level > 0:
+            # prompt_cache の中の `from .. import rent_or_buy`（相対で外の口を取る形）
+            if node.level >= 2 and any(a.name == "rent_or_buy" for a in node.names):
+                bad.append("relative import of rent_or_buy")
+        elif isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
+            fn, arg = node.func, node.args[0].value
+            if isinstance(fn, ast.Name) and fn.id == "__import__" and isinstance(arg, str) and arg.split(".")[0] == "rent_or_buy" and arg != "rent_or_buy":
+                bad.append("inner module %s" % arg)
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr"
+                and len(node.args) >= 2 and isinstance(node.args[0], ast.Name) and node.args[0].id in aliases
+                and isinstance(node.args[1], ast.Constant) and node.args[1].value not in public):
+            bad.append("rent_or_buy.%s" % node.args[1].value)
     return bad
 
 
@@ -99,9 +111,13 @@ class BoundaryTest(unittest.TestCase):
         for path, text in sources(PLUGIN / "prompt_cache"):
             self.assertEqual(check_public_names_only(ast.parse(text), public), [], path.name)
         for snippet in ("from rent_or_buy.policies import fixed", "from rent_or_buy import POLICIES",
-                        "import rent_or_buy\nrent_or_buy.POLICIES", "import rent_or_buy as r\nr.core"):
+                        "import rent_or_buy\nrent_or_buy.POLICIES", "import rent_or_buy as r\nr.core",
+                        "import rent_or_buy\ngetattr(rent_or_buy, 'POLICIES')",
+                        "__import__('rent_or_buy.policies')", "from .. import rent_or_buy"):
             self.assertTrue(check_public_names_only(ast.parse(snippet), public), snippet)
         self.assertEqual(check_public_names_only(ast.parse("import rent_or_buy\nrent_or_buy.decide"), public), [])
+        self.assertEqual(check_public_names_only(ast.parse("import rent_or_buy\ngetattr(rent_or_buy, 'decide')"), public), [])
+        self.assertEqual(check_public_names_only(ast.parse("__import__('rent_or_buy')"), public), [])
 
     def test_3_nothing_outside_imports_the_modules(self):
         scanned, hits = 0, []

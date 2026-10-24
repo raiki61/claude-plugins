@@ -40,7 +40,8 @@ def _check(facts: dict, required, optional) -> None:
         raise FactsError("missing keys: %s" % ", ".join(missing))
 
 
-def _count(facts: dict, key: str, default):
+def count(facts: dict, key: str, default):
+    """facts[key]（無ければ default）が有限の 0 以上の数か確かめて返す。違えば FactsError。"""
     v = facts.get(key, default)
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
         raise FactsError("%s must be a finite number of 0 or more: %r" % (key, v))
@@ -86,9 +87,9 @@ def keepalive(facts: dict, price_override=None, env=None, now=None) -> dict:
            _CORE_KEYS + ("last_request_at", "write_tokens", "output_tokens", "margin_s", "turn_end_at"))
     d = prices.defaults()["keepalive"]
     check_model(facts["model"])
-    kind, n = _write_kind(facts), _count(facts, "context_tokens", None)
+    kind, n = _write_kind(facts), count(facts, "context_tokens", None)
     price = _lookup(facts["model"], price_override, env, now)
-    write, out_tokens, margin = (_count(facts, k, d[k]) for k in ("write_tokens", "output_tokens", "margin_s"))
+    write, out_tokens, margin = (count(facts, k, d[k]) for k in ("write_tokens", "output_tokens", "margin_s"))
     w, r = price.rate(kind, n), price.rate("read", n)
     rent = r * n + w * write + price.rate("output", n) * out_tokens
     buy = (w - r) * n
@@ -118,10 +119,10 @@ def compact(facts: dict, price_override=None, env=None, now=None) -> dict:
            _COMPACT_CORE_KEYS + ("post_tokens", "summary_tokens", "warm", "consult_cost"))
     d = prices.defaults()["compact"]
     check_model(facts["model"])
-    kind, n = _write_kind(facts), _count(facts, "context_tokens", None)
+    kind, n = _write_kind(facts), count(facts, "context_tokens", None)
     price = _lookup(facts["model"], price_override, env, now)
-    post, summary = _count(facts, "post_tokens", d["after_tokens"]), _count(facts, "summary_tokens", d["summary_tokens"])
-    ask_cost = _count(facts, "consult_cost", 0)
+    post, summary = count(facts, "post_tokens", d["after_tokens"]), count(facts, "summary_tokens", d["summary_tokens"])
+    ask_cost = count(facts, "consult_cost", 0)
     rent = max(0, n - post) * price.rate("read", n)
     buy = post * price.rate(kind, post) + summary * price.rate("output", n) + ask_cost
     inputs = {"rent": rent, "buy": buy, "spent": facts["spent"], "certain": True}
