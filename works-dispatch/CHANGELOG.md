@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.120.0] - 2026-10-24
+
 ### Changed
 
 - keepalive（待ってターンを終えた会話に、プロンプトキャッシュの寿命が切れる前に短い文を送る仕組み。会社の形〔`.claude/company.toml`〕の役〔`[[roles]]`〕か受け持ち〔`[[skills]]`〕に `keepalive` を書いた所だけ）を、裏の処理（ターンを終えた後も動き続けるバックグラウンドの作業。Bash の `run_in_background` など）が動いているかで決めず、仕事が終わっていない間はターンを終えるたびに送る。仕事が終わっていないのは、次のどれかが在る間。
