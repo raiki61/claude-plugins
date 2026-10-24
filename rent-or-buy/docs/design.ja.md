@@ -202,6 +202,18 @@ compact:
 - この形は Claude Code 2.1.310 の記録で確かめた物で、文書に書かれた形ではない。形の違う行は飛ばして数える（出力の `transcript.skipped_lines`）。値が 1 つも読めなければ「記録を読めない」を返し、呼ぶ側は決め打ちの数で動く。
 - 場面に要る事実（モデルと文脈の大きさ、keepalive なら最後の要求の時刻も）が記録にも標準入力にも無いとき（compact の直後でまだ応答が無いときなど）、コマンドは既定で埋めず、終了コード 4 で終わる。文脈の大きさを compact の後の大きさで代えることもしない。モデルも分からないため。
 
+### 4.6 compact の直す項（後の版）
+
+この項は、今の版（0.2.1）の次の版で `compact` の式を直すための設計メモで、直す作業は次の抜けを埋めること。実装の順は計画のセクション 7 にある。compact の翻訳（4.4 の、場面の事実を中心の入力に直す部分）を項ごとに、会話の記録から計った実測値と照合した（2026-10-25。計画は [works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md](https://github.com/raiki61/claude-plugins/blob/main/works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md) のセクション 3「compact の損得の式を、項ごとに見直す」）。次の抜けが在り、どれもまだ作っていない。`C` は今の文脈、`C'` は compact の後の文脈（その後の最初の要求が書き込む分が `C'_w`、読む分が `C'_r`）、`F' = C'_w * write + C'_r * read + summary * output` は、compact が要約の要求のほかに足す費用。`write`・`read`・`output` は 4.4 の 1 トークンあたりの単価、`summary` は要約の出力のトークン数、`spent` は前の compact から余分に読んだ額、`rent` は今の要求で余分に読む額、`buy` は今の規則での compact 1 回の費用（直した規則では `F' + rent`）。
+
+- 要約の要求は、キャッシュが温かい間、今の文脈 `C` の全部をキャッシュから読む（[Claude Code の prompt caching](https://code.claude.com/docs/en/prompt-caching#compacting-the-conversation)）。正しく数えると buy は `F' + rent`（要約の要求が 1 本分の rent を食う）で、規則は `spent >= F' + consult_cost` になる。今の規則 `spent + rent >= buy` は、この要求を数えていない。
+- compact の後の大きさ: 記録の `postTokens`（compact の区切りの行にある、直後の文脈のトークン数。約 1 万）は要約だけの大きさ。compact の後の最初の要求は 2.7〜4.5 万トークンを書き込む（7 日分の中央値。役、つまり担当・相談など会話の種類で違う）。その要求の書き込みと読みを記録から読んで `C'_w`・`C'_r` にし、会話にまだ compact が無いうちは `prices.toml` の既定（7 日分の全体の中央値。書き込み 4 万・読み 1 万）を使う。rent-or-buy は役を知らないので、役ごとの既定は持たない。
+- 要約の出力 `summary`（トークン数）: 既定の 5,000 は変えない。変えるのは出典で、実測ではなく、要約の本文（約 1 万字。英語で約 3 千トークン）に捨てられる下書きを足した見積もりと書く。要約の要求の出力は記録に残らず、測れない。
+- `consult_cost`: 呼ぶ側が `Q_each / (1 - w) + Q_answer` を渡す。`Q_each` は問いを届ける口で問うたびに払う分、`Q_answer` は焦点が返った時だけ払う分、`w` はその口で焦点（compact の要約で残す話題の指定）が返らない割合。
+- キャッシュを切らせる直前の compact のための入力 `expiring`（真偽。呼ぶ側が keepalive の止め時に立てる）: その時は `C * (write - read) > C' * write + summary * output + consult_cost` で buy。
+
+これらの項で 7 日分の記録を流すと、compact が初めて得になる文脈は、中央値で約 8 万トークンから約 13 万に移る（Opus、寿命 1 時間。1 時間は Claude Code がサブスクリプションの枠の中で会話の本体に付ける寿命）。
+
 ## 5. コマンド
 
 `bin/rent-or-buy`（Claude Code は、有効なプラグインの `bin/` を Bash のツールの PATH に入れる）。標準入力に JSON のオブジェクトを受け、標準出力に JSON のオブジェクトを 1 つ返す。Python 3.11 以上で、標準ライブラリだけを使う（Claude Code のプラグインには、使う人の機械に pip の依存を入れる段が無いため）。
