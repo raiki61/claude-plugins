@@ -14,6 +14,6 @@ source = "measured on one keepalive prompt; other prompts differ"
 # compact の後の文脈のトークン数
 after_tokens = 25000
 # compact の要約の出力のトークン数
-summary_tokens = 5000
-measured = "2026-10-24"
-source = "example values, not measured"
+summary_tokens = 9000
+measured = "2026-10-25"
+source = "after_tokens: example value, not measured. summary_tokens: estimate, see docs/design.md 4.2; the summary text (median 5,800 tokens over 613 compacts in 8 days of transcripts) plus half of that for the analysis Claude Code drops before the summary; the summary request's output is not in the transcript and cannot be measured"

@@ -128,7 +128,7 @@ class TranslateTest(unittest.TestCase):
         facts = {"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": 150000, "spent": 0}
         out = translate.compact(facts, env=self.env)
         self.assertAlmostEqual(out["rent"], 125000 * 2e-7)
-        self.assertAlmostEqual(out["buy"], 25000 * 5e-6 + 5000 * 2e-5)
+        self.assertAlmostEqual(out["buy"], 25000 * 5e-6 + 9000 * 2e-5)
         haiku = prices.lookup("claude-haiku-5-5", env=self.env)
         self.assertEqual((haiku.rate("read", 100000), haiku.rate("read", 100001)), (1e-8, 5e-8))
 
