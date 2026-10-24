@@ -55,7 +55,7 @@ Claude Code の会話には、少しずつ払い続ける（借りる）か、�
 3. プラグインの外から `rent_or_buy`・`prompt_cache` を Python で読み込まない。外はコマンドを通す。
 4. `rent_or_buy/` に Claude の語（claude・token・cache・compact・keepalive と、キャッシュ・トークン・要約）を書かない。import の照合だけでは、Claude の事情を名前や文で書き込めば Claude を知ってしまえるため、語の照合で塞ぐ。ただし塞げるのは語だけで、Claude の単価などの数を素の数で書き込む形は見つけられない（数は書かないという守りは、キャッシュの層に置いて見直す）。works の「考えの住処のチェック」（設計の考えが決めた 1 か所の外に漏れたら赤にする試験）と同じ考え方。
 
-フレームワークは入れない。業界の定石は import-linter（Python の import の向きを決まりとして書いて検査する道具）の layers の契約（https://import-linter.readthedocs.io/en/stable/contract_types.html#layers ）で、Spring Modulith や Packwerk も同じ種類の道具。どれもモジュールが数十あるコードのための物で、ここは 2 つしかない。決まり 4 を持つ道具も無いので、入れても自前の試験は残る。moon（モノレポの道具）は、宣言した依存をプロジェクトの単位で照合する物で、Python の import も 1 つのプラグインの中の境目も見ない（https://moonrepo.dev/docs/config/workspace の `constraints`）。モジュールが 4 つ以上に増えるか、アルゴリズムを別のリポジトリから使う人が出たら、import-linter に移す。境目の守り方の一番よい形は my_notes に調べを頼んである（受付 20261024-074314-98bc8f）。答えで変わるなら、この節を直す。
+フレームワークは入れない。業界の定石は import-linter（Python の import の向きを決まりとして書いて検査する道具）の layers の契約（https://import-linter.readthedocs.io/en/stable/contract_types.html#layers ）で、Spring Modulith や Packwerk も同じ種類の道具。どれもモジュールが数十あるコードのための物で、ここは 2 つしかない。決まり 4 を持つ道具も無いので、入れても自前の試験は残る。moon（モノレポの道具）は、宣言した依存をプロジェクトの単位で照合する物で、Python の import も 1 つのプラグインの中の境目も見ない（https://moonrepo.dev/docs/config/workspace の `constraints`）。モジュールが 4 つ以上に増えるか、アルゴリズムを別のリポジトリから使う人が出たら、import-linter に移す。境目の守り方は my_notes に調べを頼み（受付 20261024-074314-98bc8f）、答えも自前の試験を勧めた。決まり 1（標準ライブラリと自分だけ）を許す側で書ける道具は見つからず、決まり 3・4 は import のグラフを見る道具の範囲の外だからである（import-linter・Tach・PyTestArch・Deply を比べた）。試験が拾う形: 関数の中や条件の中の import（ast で全部の節点を見る）、相対の import（`rent_or_buy` の中は 1 段まで）、`importlib.import_module` と `__import__`・`getattr` で読む形。拾わない形: 文字列を組み立てて読む形と、`exec`・`eval` の中。`sys.stdlib_module_names` は Python 3.10 から在り、部品は 3.11 以上を求める（`bin/rent-or-buy`）。
 
 ## 2. 中心: decide（`rent_or_buy/`）
 
@@ -148,10 +148,10 @@ keepalive を送る時刻には、手が 3 つある。送る（借りる）、c
 `prompt_cache/prices.toml` に置く。3.1 の LiteLLM の値段表に無い値（トークン数や秒数の既定）を置く。測った日と出どころ（受付番号か指南の節）は `prices.toml` には書かず、この節に残す。
 
 - keepalive 1 本のキャッシュの書き込み 380・出力 5（my_notes の受付 20261024-031615-3eafaa の測り。works-dispatch の keepalive の文で測った値なので、ほかの文では違う。呼ぶ側が上書きできる）
-- 寿命までの余裕 `m` 90 秒（今の works-dispatch の値。3.4 の測り方では安全側に寄る。記録で測ってから詰める）
+- 寿命までの余裕 `m` 60 秒（4 分おきに送る。外の keepalive のプラグイン https://www.claudepluginhub.com/plugins/yujiachen-y-cache-keepalive-plugins-cache-keepalive の既定の間隔 240 秒と同じ。今の works-dispatch の 90 秒は早すぎると持ち主が判断した〔2026-10-24〕。記録で遅れの分布を測ってから詰める）
 - compact の後の文脈 2.5 万・要約の出力 5,000（指南 3.5 の C の例の値で、実測ではない。指南の commit は 8709d0c90728029d55985a72548170e591298d59）
 
-出どころは `prices.toml` には書かず（部品を、このリポジトリの外の文脈から切り離すため）、ここに残す。keepalive の 380 と 5 は受付 20261024-031615-3eafaa の測り、余裕 90 秒は works-dispatch の今の値。
+出どころは `prices.toml` には書かず（部品を、このリポジトリの外の文脈から切り離すため）、ここに残す。keepalive の 380 と 5 は受付 20261024-031615-3eafaa の測り、余裕 60 秒は外の keepalive のプラグインの既定の間隔に合わせた値（works-dispatch の今の値は 90 秒）。
 
 ### 3.3 モデル名の揃え
 
@@ -311,4 +311,5 @@ rent-or-buy/
 - Claude Code の自動の compact は、線を上げて歯止めに残す。
 - 綺麗な部品として使い回せる形にする。名前は `rent-or-buy`（ほかのプラグインと同じハイフンでつなぐ形で、論文の呼び名 rent-or-buy problem に合わせる）。
 - 1 つのプラグインの中をアルゴリズムとキャッシュの層に分け、境目は試験で守る（モジュラモノリス）。フレームワークは入れない。守り方の一番よい形は my_notes に調べを頼む。
+- keepalive の寿命までの余裕の既定は 60 秒（90 秒では 3 分半で送り、早すぎる）。
 - 値段とモデル名は、世の中の解き方（ccusage）を写す。写しを同梱し、最新は 1 日 1 回まで取りに行き、モデル名は揃えて引き、曖昧な照合はしない。

@@ -69,7 +69,7 @@ class TranslateTest(unittest.TestCase):
                                    "certain": True, "last_request_at": "2026-10-24T04:48:48.895Z"}, env=self.env)
         self.assertAlmostEqual(out["rent"], 2e-7 * 100000 + 5e-6 * 380 + 2e-5 * 5)
         self.assertAlmostEqual(out["buy"], (5e-6 - 2e-7) * 100000)
-        self.assertEqual((out["action"], out["next_at"], out["prices"]["source"]), ("rent", "2026-10-24T04:52:18Z", "snapshot"))
+        self.assertEqual((out["action"], out["next_at"], out["prices"]["source"]), ("rent", "2026-10-24T04:52:48Z", "snapshot"))
         self.assertFalse(out["consult"])
         self.assertEqual(out["reason"], "within_buy_cost")
         self.assertNotIn("guide", out)

@@ -6,7 +6,7 @@ write_tokens = 380
 # keepalive 1 本の出力のトークン数
 output_tokens = 5
 # キャッシュの寿命が切れる何秒前に次の keepalive を送るか
-margin_s = 90
+margin_s = 60
 measured = "2026-10-24"
 source = "measured on one keepalive prompt; other prompts differ"
 
