@@ -2353,6 +2353,23 @@ class Hook(unittest.TestCase):
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "hopped"]
         self.assertEqual((row["to"], row["session"]), ("/c/works-dispatch/9.9.9", "s1"))
 
+    def test_an_older_waiter_hands_over_before_it_asks_the_keepalive(self):
+        # 2026-10-24 に、前の版の待ち受けが keepalive を聞いてから替わり、替わった先が同じ判断を聞き直した（my_notes の受付 b527a1）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
+        there, jumps, asked = "/c/works-dispatch/9.9.9/dispatch/wake_hook.py", [], []
+        with mock.patch.object(wake_hook, "warm_for", side_effect=lambda *a, **k: asked.append(k)):
+            rc, payload, _ = self.hop_main(lambda: there, lambda *a: jumps.append(a) or 2)
+        self.assertEqual((rc, asked), (2, []))   # 聞かずに替わった
+        self.assertEqual(jumps, [(there, [], payload, None)])   # 印を渡さないので、替わった先がフックの入力を初めから扱う
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "hopped"]
+        self.assertEqual(row["to"], "/c/works-dispatch/9.9.9")
+
+    def test_a_waiter_that_hops_right_after_it_starts_hands_over_no_token(self):
+        seen = []
+        with mock.patch.dict(os.environ, {wake_hook.HANDED_OVER: "stale"}), mock.patch.object(os, "dup2"):
+            wake_hook.hop("/x/wake_hook.py", [], {}, None, execv=lambda *a: seen.append(a[2]))
+        self.assertNotIn(wake_hook.HANDED_OVER, seen[0])
+
     def test_a_waiter_that_cannot_hand_over_keeps_waiting_in_its_own_version(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
         self.put("a1")

@@ -1387,7 +1387,7 @@ def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shel
       裏の処理が在って仕事が終わった
     - keepalive を書いていない部署で、納品していない頼みを受けて裏の処理を待つ（「keepalive が無い」）
     ターンの終わりに裏の処理を残したかは、--tree が長く動かない部署を出すために、毎回控えに書く（wake.waiting_note）。again は前の版の
-    待ち受けから替わった（hop）印で、そのフックの入力は前の版が控えと台帳に書いた物なので、どちらも書き直さない。"""
+    待ち受けから、待っている間に替わった（hop）印で（起動の直後に替わった時は真にならない。main）、そのフックの入力は前の版が控えと台帳に書いた物なので、どちらも書き直さない。"""
     if chat.event(payload) != "Stop":
         return None
     count = chat.running_tasks(payload, shells)
@@ -1464,7 +1464,8 @@ def hop(there, argv, payload, token, execv=os.execve):
     """今入っている版の待ち受け there に、同じ引数とフックの入力で替わる（POSIX だけ。newer_self）。exec で同じ処理のまま替わるので、
     処理の番号・親の会話の処理・Claude Code が読む標準エラーと終了の値がそのまま続く。フックの入力は読み終えているので、書いた一時の
     ファイルを標準入力に付け直す。token（この待ち受けの印）を環境の HANDED_OVER で渡し、替わった先は印がまだそれなら続ける（替わる間に
-    人の文で止められていれば〔--pause〕終わる。main）。exec できなければ OSError を投げる（呼んだ側がこの版のまま待ち直す）。"""
+    人の文で止められていれば〔--pause〕終わる。main）。token が None なら（起動の直後に替わる。main）印を渡さず、替わった先は
+    フックの入力を自分の物として初めから扱う。exec できなければ OSError を投げる（呼んだ側がこの版のまま待ち直す）。"""
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     with tempfile.TemporaryFile() as f:
         f.write(data)
@@ -1473,7 +1474,8 @@ def hop(there, argv, payload, token, execv=os.execve):
         os.dup2(f.fileno(), 0)
     sys.stdout.flush()
     sys.stderr.flush()
-    return execv(sys.executable, [sys.executable, there, *argv], {**os.environ, HANDED_OVER: token})
+    env = {k: v for k, v in os.environ.items() if k != HANDED_OVER}
+    return execv(sys.executable, [sys.executable, there, *argv], {**env, HANDED_OVER: token} if token else env)
 
 
 class WithRole:
@@ -1535,6 +1537,42 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
             return 0
     keep_job(got)
     inner, there = checker(got, payload), []
+
+    def look():
+        try:
+            return newer()
+        except (OSError, ValueError, TypeError, AttributeError) as e:   # 控えの形が思っていたのと違う。この版のまま待つ
+            filex.warn(f"注記: 今入っている版の待ち受けを探せないので、この版のまま待つ（{type(e).__name__}: {e}）", err)
+            return None
+
+    def jump_to(to, token):
+        # 替わる。替われなければ、この版のまま待ち直す（待ち受けが居なくなると、次のターンの終わりまで順番待ちを渡す者が居ない）
+        row = {"kind": "hopped", "at": now(), "place": got["cwd"], "session": got["session"],
+               "from": str(pathlib.Path(__file__).resolve().parent.parent), "to": str(pathlib.Path(to).parent.parent)}
+        try:
+            deliver.log(got["inbox"], row)   # exec の後には書けないので先に書く
+        except OSError as e:  # 台帳に書けなくても替わる
+            filex.warn(f"注記: 待ち受けを今の版に替えたことを台帳に書けない（{e}）", err)
+        try:
+            return jump(to, argv, payload, token)
+        except OSError as e:
+            filex.warn(f"注記: 今入っている版の待ち受け {to} に替われないので、この版のまま待つ（{e}）", err)
+            there.append(None)
+            try:
+                deliver.log(got["inbox"], {**row, "at": now(), "status": "failed", "detail": str(e)})
+            except OSError as e2:
+                filex.warn(f"注記: 替われなかったことを台帳に書けない（{e2}）", err)
+            return None
+    # 前の版で立った待ち受けは、keepalive と compact を聞く前に今の版へ替わる。替わった先はフックの入力を初めから扱う（印を渡さない）。
+    # 聞いてから替わると、替わった先が keepalive を聞き直し（2026-10-24 の判断の記録で、10 秒以内の同じ聞き直し 98 組の全部が替わった
+    # 行と重なった。my_notes の受付 b527a1）、ターンの終わりの compact の判断は前の版の Warm ごと捨てられていた
+    early = [] if handed else [True]   # 起動の直後に今の版を見た（読み始めの check では見直さない）
+    if early:
+        to = look()
+        if to:
+            code = jump_to(to, None)
+            if code is not None:
+                return code
     try:
         warm = warm_for(got, payload, again=bool(handed))
     except Exception as e:  # keepalive を決められなくても、頼みと納品の知らせは待つ
@@ -1543,11 +1581,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
 
     def check():
         # 頼みを渡すか空にする前に、今入っている版に替わる（替わった先の待ち受けが、同じ順番待ちと台帳の読んだ所から続ける）
-        try:
-            found = there == [] and newer()
-        except (OSError, ValueError, TypeError, AttributeError) as e:   # 控えの形が思っていたのと違う。この版のまま待つ
-            filex.warn(f"注記: 今入っている版の待ち受けを探せないので、この版のまま待つ（{type(e).__name__}: {e}）", err)
-            found = None
+        found = there == [] and not (early and early.pop()) and look()
         if found:
             there.append(found)
             return "end", None
@@ -1565,26 +1599,13 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
         code = wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token,
                           WithRole(err, payload, woke=lambda: woken(got)), check=check, ready=lambda: not unready(payload, got["job"]),
                           since=got.get("since"), idle=warm)
-        if code or len(there) != 1:
+        if code or not there or there[-1] is None:   # 替わる先が無いか、前に替われなかった
             return code
         if (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != token:
             return 0   # check の後に、人の文で止められた（--pause）か、新しい待ち受けに替わった
-        row = {"kind": "hopped", "at": now(), "place": got["cwd"], "session": got["session"],
-               "from": str(pathlib.Path(__file__).resolve().parent.parent), "to": str(pathlib.Path(there[0]).parent.parent)}
-        try:
-            deliver.log(got["inbox"], row)   # exec の後には書けないので先に書く
-        except OSError as e:  # 台帳に書けなくても替わる
-            filex.warn(f"注記: 待ち受けを今の版に替えたことを台帳に書けない（{e}）", err)
-        try:
-            return jump(there[0], argv, payload, token)
-        except OSError as e:
-            # 替われなければ、この版のまま待ち直す（待ち受けが居なくなると、次のターンの終わりまで順番待ちを渡す者が居ない）
-            filex.warn(f"注記: 今入っている版の待ち受け {there[0]} に替われないので、この版のまま待つ（{e}）", err)
-            there.append(None)
-            try:
-                deliver.log(got["inbox"], {**row, "at": now(), "status": "failed", "detail": str(e)})
-            except OSError as e2:
-                filex.warn(f"注記: 替われなかったことを台帳に書けない（{e2}）", err)
+        code = jump_to(there[0], token)
+        if code is not None:
+            return code
 
 
 if __name__ == "__main__":
