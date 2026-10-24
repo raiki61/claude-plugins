@@ -516,6 +516,32 @@ class Handover(unittest.TestCase):
         self.assertIn("担当者「段取り」", out)
         self.assertEqual(self.delivered(self.PRE), [])
 
+    def test_a_renamed_successor_is_the_holder_and_the_receiver_by_its_current_name(self):
+        # 後継（社長室）が引き継ぎの後に名前を替えた（--reorg --name か --desk。前の名前は company.former-names に残る）: 台帳の
+        # handover の行は社長室のままでも、今の名前で担当者に書け、今の名前へ返す（受付 6d331c。my_notes で 2 回、回り道の頼みが出た）
+        fold = self.handed_over_with(self.PRE)
+        self.ports._cwd, self.ports.env = self.place, {"CLAUDE_CODE_SESSION_ID": "s-a"}
+        with contextlib.chdir(self.place):
+            rc, out = self.main("--reorg", "--name", "総務")
+        self.assertEqual(rc, 0, out)
+        self.ports._cwd, self.ports.env = fold, {"CLAUDE_CODE_SESSION_ID": "s-x"}
+        rc, out = self.deliver_with(fold, "社長室")   # 移した時の名前はもう頼み元でない
+        self.assertEqual(rc, 2, out)
+        self.assertIn("担当者「社長室」", out)
+        rc, out = self.deliver_with(fold, "総務")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("総務 へ返す", out)
+        self.assertEqual(self.delivered(self.PRE), [("sent", "総務")], out)
+        self.assertEqual(json.loads(self.gate.with_suffix(".json").read_text(encoding="utf-8"))["boss"], "総務")
+
+    def test_renamed_reads_the_current_name_only_from_the_successors_former_names(self):
+        heir = {"name": "本社の司令塔", "session": "s", "via": "h1", "path": "/p"}
+        self.assertEqual(handover.renamed(heir, {"name": "司令塔", "former-names": '["社長室", "本社の司令塔"]'})["name"], "司令塔")
+        self.assertIs(handover.renamed(heir, {"name": "司令塔", "former-names": '["社長室"]'}), heir)   # 別の会話が名乗った場所
+        self.assertIs(handover.renamed(heir, {"name": "本社の司令塔"}), heir)
+        self.assertIs(handover.renamed(heir, {}), heir)
+        self.assertIsNone(handover.renamed(None, {"name": "司令塔"}))
+
     def test_the_successor_is_not_a_holder_for_other_asks(self):
         for case in ("無関係な頼み元", "移した後に前の名前で頼んだ物", "別の会社の段取り（引き継ぎの行が無い）"):
             with self.subTest(case):

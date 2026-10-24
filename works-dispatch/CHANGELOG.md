@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- `--handover` で受け持ちを移した後に、後継が `--desk` か `--reorg --name` で名前を替えると、移す前に頼まれた頼みの納品の検査が、頼み元（後継の今の名前）を残った疑問の担当者に受け付けず、返し先も移した時の名前のままだった。台帳の handover の行に残る名前が、後継の場所の属性 `company.former-names` に在れば、今の名前に読み替えてから担当者を検査し、今の名前へ返す（my_notes の受付 6d331c。回り道の頼みが 2 回出た）。
+
 ## [0.121.1] - 2026-10-24
 
 ### Changed

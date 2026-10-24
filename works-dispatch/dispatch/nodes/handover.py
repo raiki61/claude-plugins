@@ -8,10 +8,13 @@ handover.py が持つ。
 - 宛先: 後継の属性 company.former-names に前の名前を足す（--ask・--land・会社の形の desk は前の名前でも後継を引く。gitx.former_names）。
 - 待ち受け: 後継の属性 company.inherited（JSON の並び。読み方は gitx.inherited）の since（台帳のバイトの位置）より後の、前の名前宛ての知らせだけを後継の物と
   見る（since より前は前の部署が読んだか、移すときに後継の宛先へ写し直した物。wake.watch の since）。
-- 納品の返し先: 頼み元が前の部署で、移すより前に頼んだ物なら、頼み元の受付箱の台帳の handover の行で後継に読み替える（successor）。前の会話のペインに打ち込まない。
+- 納品の返し先: 頼み元が前の部署で、移すより前に頼んだ物なら、頼み元の受付箱の台帳の handover の行で後継に読み替える（successor）。後継が後で名前を替えていれば、後継の場所の
+  company.former-names で今の名前に読み替える（renamed）。前の会話のペインに打ち込まない。
 """
 
 import os
+
+import gitx
 
 KIND = "handover"
 STARTED, DONE = "started", "done"
@@ -63,7 +66,17 @@ def successor(records, boss, ask):
         to = hit.get("to") or {}
         current = {**current, "name": to.get("name"), "session": to.get("session"), "account": to.get("account"),
                    "pane": to.get("pane")}
-        out = {**current, "via": hit["id"]}
+        out = {**current, "via": hit["id"], "path": to.get("path")}
+
+
+def renamed(heir, attrs):
+    """後継（successor の返り値）が引き継ぎの後に --desk か --reorg で名前を替えていれば、今の名前に読み替えた後継。替えていなければ
+    heir のまま。attrs は後継の場所（handover の行の to.path）の今の属性で、その前の名前（company.former-names）に引き継ぎの行の名前が
+    在るときだけ読み替える（handover の行は移した時の名前のままで、後で名乗り替えた名前を納品の担当者に書くと止まった。受付 6d331c）。"""
+    name = (attrs or {}).get("name")
+    if not heir or not name or name == heir.get("name") or heir.get("name") not in gitx.former_names(attrs):
+        return heir
+    return {**heir, "name": name}
 
 
 def copy_key(r):

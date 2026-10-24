@@ -1869,6 +1869,8 @@ def deliver_summary(a, ports, cwd):
     heir = handover.successor(deliver.records(inbox), {"name": attrs.get("boss"), "session": attrs.get("boss-session"),
                                                        "account": attrs.get("boss-account"), "pane": attrs.get("boss-pane")},
                               attrs.get("ask")) if inbox and os.path.isdir(inbox) else None
+    if heir and heir.get("path") and os.path.isdir(heir["path"]):
+        heir = handover.renamed(heir, ports.attrs(heir["path"]))   # 後継が後で名前を替えていれば、今の名前で返して検査する
     if heir:
         # 頼み元の部署が --handover で受け持ちを移した: 後継へ返す（前の会話の窓に打ち込まない。nodes/handover.py）。担当者の検査と
         # 納品の検査より前に読み替える（頼み元が持つ疑問は後継が持つ。--for・保留の頼みへの返しも、頼みと頼み元を替えた後に読み替える）
