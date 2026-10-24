@@ -290,9 +290,9 @@ class ModelAndEffort(unittest.TestCase):
         five = {"name": "調べもの", "settings": {"promptCacheTtl": "5m"}, "keepalive": None}
         # 寿命から余裕を引いた間隔。続けて送るのは、読みの値段が書き直し 1 回に届くまで（5 分は 1.25 / 0.1、1 時間は 2 / 0.1）
         self.assertEqual({k: v for k, v in role.keepalive_for(r, five).items() if k != "text"},
-                         {"every": 300 - role.KEEPALIVE_MARGIN, "ttl": 300, "limit": 13})
+                         {"every": 300 - role.KEEPALIVE_MARGIN, "ttl": 300, "limit": 13, "written": False})
         self.assertEqual({k: v for k, v in role.keepalive_for(r).items() if k != "text"},
-                         {"every": 3600 - role.KEEPALIVE_MARGIN, "ttl": 3600, "limit": 20})
+                         {"every": 3600 - role.KEEPALIVE_MARGIN, "ttl": 3600, "limit": 20, "written": False})
         self.assertEqual(role.keepalive_for({"name": "作業", "keepalive": on})["ttl"], 3600)   # 寿命を書かなければ 1 時間と見る
         self.assertEqual(role.keepalive_for(r)["text"], role.KEEPALIVE_TEXT)
         # 受け持ちの表は鍵ごとに役の表に重なり、false は役の物を止める

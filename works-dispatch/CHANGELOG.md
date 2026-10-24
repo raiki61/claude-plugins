@@ -6,6 +6,17 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- keepalive（仕事が終わらないままターンを終えた部署と窓口に、待ち受けがプロンプトキャッシュの寿命の前に送る短い文）の送る時刻と止め時を、借りるか買うかの判断の部品（このリポジトリの rent-or-buy プラグインの `bin/rent-or-buy`。設計はルートの `docs/specs/2026-10-24-rent-or-buy-design.md` の 6）に聞く形にした。送る時刻は、会話の記録の最後の要求の始まり + 寿命 − 60 秒（部品の `next_at`。前はターンの終わりから数えたので、応答を作る時間の分だけ早く送っていた）。止めるのは、送った費用の合計と次の 1 本の費用がキャッシュの書き直し 1 回分に着いたと部品が答えた時（前は本数の上限）。部品が入っていない・答えないときは前の形で、間はターンの終わりから寿命 − 60 秒、本数の上限で止める。台帳の keepalive の行は、部品が答えたら送った費用の合計 `spent` と部品の訳 `reason`、答えなければ上限 `limit` と答えない訳 `fixed` を持つ。
+- keepalive の余裕を 90 秒から 60 秒にした（間の既定は寿命 5 分で 240 秒、1 時間で 3540 秒）。持ち主 2026-10-24「90だと3分半で送るのでさすがにはやいのでは」。外の keepalive のプラグインの既定の間隔 240 秒（https://github.com/yujiachen-y/claude-code-cache-keepalive ）と同じ。余裕の正は部品の `prices.toml` の `margin_s` で、`dispatch/nodes/role.py` の `KEEPALIVE_MARGIN` は部品が無いときの控え。
+- keepalive の既定の文（`KEEPALIVE_TEXT`）を約 15 トークンに縮めた（`keepalive ping, no action needed. Use no tools. Reply with exactly: waiting`）。ツールを使わないことと `waiting` とだけ返すことは残した。
+- `--compact` の区切りで compact を打つかを、部品の `bin/rent-or-buy compact` の答え（`buy` なら打つ）で決める形にした。部品が無い・答えないときだけ、前の文脈 10 万トークン（`COMPACT_FLOOR`）以上の下限で決める。
+
+### Added
+
+- keepalive を送る時刻に、裏の処理が残っていなければ、先に compact するかを部品に聞く（`--compact` の印が無くても）。部品が会話に聞けと答えたら、keepalive の文の代わりに、残す焦点を 1 行で返すか、今は困るなら `skip:` と訳を返すよう頼む問いを送り、そのターンの終わりに待ち受けが答えを読んで部品にもう一度聞き、打つなら `/compact <焦点>` を打つ。`skip:` は延期と数え、2 回（`DEFER_LIMIT`）を超えたら問わずに打つ。compact の要求がキャッシュを読むので、打つ時刻は keepalive の代わりになる。書き方は references/rest.md の「keepalive の時刻の compact」。
+
 ## [0.121.2] - 2026-10-24
 
 ### Fixed

@@ -1113,8 +1113,11 @@ class Flow(unittest.TestCase):
     def test_compact_marks_a_break_even_before_delivery_and_the_stop_hook_lets_the_turn_end(self):
         # 頼みの途中でも、同じ仕事の前の部分が済んだ区切りで compact を印せる（compact するのはターンの終わりの待ち受け）
         self.ask_then_summary(GOOD)
+        inbox, place = deliver.inbox_of(self.g.common_dir(self.src)), self.g.git_dir(self.place)
+        wake.compact_note(inbox, place, "s-dept", deferred=1, judged=True)   # 待ち受けが費用の判断で付けた印の控え
         rc, out = self.main(self.place, "--compact", "次は  直しを書く")
         self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(wake.compact_path(inbox, place)))   # 会話が付けた印として扱わせる
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs[wake.COMPACT], attrs[wake.COMPACT_FOCUS]), ("s-dept", "次は 直しを書く"))
         self.assertIn("/compact 次は 直しを書く", out)

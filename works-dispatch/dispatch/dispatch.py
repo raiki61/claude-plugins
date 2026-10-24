@@ -1488,7 +1488,7 @@ role = "担当"
 # model = "sonnet"   # この受け持ちの部署を起動するときの --model（役の model より優先する。省けば役の値、それも無ければアカウントの既定）
 # effort = "low"     # この受け持ちの部署を起動するときの --effort（役の effort より優先する。書ける値は役の effort と同じ）
 # settings = {{ promptCacheTtl = "5m" }}   # この受け持ちの部署の --settings に、役の [roles.settings] の上から重ねる {chat} の設定
-# keepalive = true   # 頼みの仕事が終わらないままターンを終えた間、キャッシュの寿命の前に待ち受けが短い文を送る（間と文を変えるなら {{ every = "210s", text = "…" }}。false で切る）
+# keepalive = true   # 頼みの仕事が終わらないままターンを終えた間、キャッシュの寿命の前に待ち受けが短い文を送る（間と文を変えるなら {{ every = "240s", text = "…" }}。false で切る）
 
 [[skills]]
 id = "one-off"

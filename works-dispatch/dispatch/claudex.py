@@ -690,6 +690,38 @@ def last_model(payload):
     return None
 
 
+def last_reply(payload):
+    """会話の記録（transcript_path）の終わりの方の、本体の会話の最後のターンの (答えの字, そのターンを始めた文)。答えの字は最後の答えの行の
+    text の塊をつないだ物、始めた文はその前の最後の文の行（人の文か、フックの知らせ。ツールの結果の行は飛ばす）の字。サブエージェントの行は
+    飛ばす。読めない・無ければ空の字。"""
+    path = transcript(payload)
+    reply = None
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, os.path.getsize(path) - TAIL_BYTES))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except (OSError, TypeError):
+        return "", ""
+    for line in reversed(lines):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue   # 記録の終わりから読むので、頭の切れた行と書きかけの行は読み飛ばす（答えが読めなければ空を返す）
+        if not isinstance(row, dict) or row.get("isSidechain"):
+            continue
+        content = (row.get("message") or {}).get("content") if isinstance(row.get("message"), dict) else None
+        if row.get("type") == "assistant" and reply is None:
+            texts = [c["text"] for c in content or [] if isinstance(c, dict) and c.get("type") == "text" and isinstance(c.get("text"), str)]
+            reply = "\n".join(texts).strip() or None
+        elif row.get("type") == "user":
+            if isinstance(content, str):
+                return reply or "", content
+            texts = [c["text"] for c in content or [] if isinstance(c, dict) and c.get("type") == "text" and isinstance(c.get("text"), str)]
+            if texts:
+                return reply or "", "\n".join(texts)
+    return reply or "", ""
+
+
 def read_rate(model):
     """そのモデルのキャッシュの読みの値段の、入力の値段への倍率（CACHE_READ_RATES。表に無い・分からなければ CACHE_READ_RATE）。"""
     return next((r for k, r in CACHE_READ_RATES.items() if (model or "").startswith(k)), CACHE_READ_RATE)

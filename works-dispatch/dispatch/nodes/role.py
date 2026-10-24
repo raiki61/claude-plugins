@@ -443,14 +443,17 @@ def settings_for(role, duty=None):
 
 # keepalive（仕事が終わらないままターンを終えた間、会話のプロンプトキャッシュを切らさないために待ち受けが送る文）。寿命は役と受け持ちの設定を重ねた物の
 # chat.CACHE_TTL_SETTING から読む
-# 間隔の既定は寿命からこの秒を引く（ターンの終わりの応答を作る時間と、待ち受けが送ってから要求が出るまでの遅れの余裕）。5 分なら 210 秒
-KEEPALIVE_MARGIN = 90
+# 間隔の既定は寿命からこの秒を引く（ターンの終わりの応答を作る時間と、待ち受けが送ってから要求が出るまでの遅れの余裕）。5 分なら 240 秒。
+# 借りるか買うかの部品（rent-or-buy。rentx）が在れば、送る時刻はその部品の next_at（最後の要求の時刻 + 寿命 − 部品の余裕）で決まり、
+# この値は部品が無い・答えられないときの控え。部品の余裕（rent-or-buy/prompt_cache/prices.toml の margin_s）と同じ値にしておく
+# （持ち主 2026-10-24「90だと3分半で送るのでさすがにはやいのでは」。docs/specs/2026-10-24-rent-or-buy-design.md の 3.2）
+KEEPALIVE_MARGIN = 60
 # 既定の文。返事を空にすると Claude Code が見える返事を促す文を足して要求が 1 回増え、「ツールを使わず」だけではフックの止めの字と
-# 読んで何かを打つことがある（2026-10-23 の試し。受付の設計の 7 章）ので、誤りでも頼みでもないことと、書く一語を決めて渡す。
+# 読んで何かを打つことがある（2026-10-23 の試し。受付の設計の 7 章）ので、頼みでないことと、書く一語を決めて渡す。
 # 英語の短い文にして、keepalive の要求ごとに書く分を減らす（2026-10-24、my_notes の受付 be3161。持ち主「あとは日本語じゃない方がいい。
-# waitingとかのほうがいいのでは」）
-KEEPALIVE_TEXT = ("keepalive from a works-dispatch hook to keep the prompt cache warm while work is pending. "
-                  "Not an error or a request; anything you wait for will notify you. Use no tools. Reply with exactly: waiting")
+# waitingとかのほうがいいのでは」）。約 15 トークン（前の約 45 トークンの文から、ツールを使わないことと返す一語だけを残した。
+# 割り振りの受付 20261024-091547-143751）
+KEEPALIVE_TEXT = "keepalive ping, no action needed. Use no tools. Reply with exactly: waiting"
 _EVERY = re.compile(r"(\d+)([smh])")
 _UNIT = {"s": 1, "m": 60, "h": 3600}
 
@@ -458,7 +461,7 @@ _UNIT = {"s": 1, "m": 60, "h": 3600}
 def parse_keepalive(value, where, problems):
     """会社の形の keepalive の値（役の [roles.keepalive] か受け持ちの keepalive）を読む。書いていなければ None、false なら False
     （役の物を受け持ちで止める）、true か表なら {"every": 秒か None, "text": 字か None}（None は既定を使う）。形が違えば problems に
-    書いて None（書いていないのと同じ。送らない）。表の鍵は every（秒の整数か "210s"・"4m"・"1h" の字）と text（空でない字）。"""
+    書いて None（書いていないのと同じ。送らない）。表の鍵は every（秒の整数か "240s"・"4m"・"1h" の字）と text（空でない字）。"""
     if value is None or value is False:
         return value
     if value is True:
@@ -481,7 +484,7 @@ def parse_keepalive(value, where, problems):
 
 
 def keepalive_for(role, duty=None, notes=None, read=chat.CACHE_READ_RATE, env=None):
-    """部署か窓口の keepalive の {every: 秒, text: 字, ttl: 秒, limit: 続けて送る本数の上限}。送らないなら None。受け持ち（duty）の keepalive が役の物より先に効き、
+    """部署か窓口の keepalive の {every: 秒, text: 字, ttl: 秒, limit: 続けて送る本数の上限, written: every を書いたか}。送らないなら None。受け持ち（duty）の keepalive が役の物より先に効き、
     両方が表なら鍵ごとに重ねる。every を書かなければ、キャッシュの寿命（cache_ttl。会話の環境変数 env と、役と受け持ちの設定を重ねた
     promptCacheTtl〔_layered〕から読む）から KEEPALIVE_MARGIN を引いた秒。寿命が無い・分からない・every が寿命より短くないなら、
     送っても寿命の切れた後に届くので送らず、訳を notes（並び）に足す。read は会話のモデルのキャッシュの読みの倍率（chat.read_rate）。"""
@@ -491,7 +494,7 @@ def keepalive_for(role, duty=None, notes=None, read=chat.CACHE_READ_RATE, env=No
         return None
     if isinstance(top, dict) and isinstance(base, dict):
         got = {k: top.get(k) if top.get(k) is not None else base.get(k) for k in ("every", "text")}
-    ttl, why = cache_ttl((_layered(role, duty) or {}).get(chat.CACHE_TTL_SETTING), env or {})
+    ttl, why = cache_ttl_for(role, duty, env)
     every = got["every"] or (ttl and ttl - KEEPALIVE_MARGIN)
     if ttl and every >= ttl:
         why = f"keepalive の every（{every} 秒）がキャッシュの寿命（{ttl} 秒）より短くない（送っても寿命の切れた後に届く）"
@@ -503,7 +506,12 @@ def keepalive_for(role, duty=None, notes=None, read=chat.CACHE_READ_RATE, env=No
     # 買値に届いたら買う手。待ちの長さを知らなくても、最善の手の 2 倍の費用で収まる）。読みが 0.1 倍のモデルで 5 分なら 13 本、1 時間なら
     # 20 本。0.05 倍（Opus 5.5・Sonnet 5.5）なら 25 本と 40 本
     limit = math.ceil(chat.CACHE_WRITE_RATE[ttl] / read)
-    return {"every": every, "text": got["text"] or KEEPALIVE_TEXT, "ttl": ttl, "limit": limit}
+    return {"every": every, "text": got["text"] or KEEPALIVE_TEXT, "ttl": ttl, "limit": limit, "written": bool(got["every"])}
+
+
+def cache_ttl_for(role, duty=None, env=None):
+    """部署か窓口の会話のキャッシュの寿命（cache_ttl。起動の設定は役と受け持ちの設定を重ねた promptCacheTtl〔_layered〕）。"""
+    return cache_ttl((_layered(role, duty) or {}).get(chat.CACHE_TTL_SETTING), env or {})
 
 
 def cache_ttl(written, env):

@@ -310,6 +310,9 @@ class Keepalive(unittest.TestCase):
         self.conf = {"every": 210, "text": "（keepalive）", "ttl": 300, "limit": 2}
         self.clock = [1000.0]
         self.attrs = {"ask": "a1"}   # 納品していない頼みを受けている部署
+        quiet = mock.patch.object(wake_hook, "RENT", lambda *a, **k: (None, "試験では部品に聞かない"))   # 決まった数で動く
+        quiet.start()
+        self.addCleanup(quiet.stop)
 
     def warm(self, tasks=("b1",)):
         return wake_hook.Warm(self.got, self.payload, self.conf, list(tasks), now=lambda: self.clock[0],
@@ -328,7 +331,7 @@ class Keepalive(unittest.TestCase):
         self.assertIsNone(warm())
         self.clock[0] += 1
         self.assertEqual(warm(), "（keepalive）")
-        self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["b1"]), {"sent": 1, "stopped": False})
+        self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["b1"]), {"sent": 1, "stopped": False, "spent": 0})
         self.clock[0] += 210
         self.assertEqual(self.warm()(), None)   # 次の待ち受けの時計はその時から
         self.clock[0] += 210
@@ -446,7 +449,7 @@ class Keepalive(unittest.TestCase):
         warm = wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs, now=lambda: self.clock[0])
         self.clock[0] += 210
         self.assertEqual(warm(), "（keepalive）")
-        self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["child:c1"]), {"sent": 1, "stopped": False})
+        self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["child:c1"]), {"sent": 1, "stopped": False, "spent": 0})
         # 保留の頼み（--wait --park）の答えも待つ物に入る。並びが替われば数え直す
         self.attrs = {"name": "調べ", "parked": json.dumps([{"id": "p1"}])}
         self.assertEqual(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs).tasks,
@@ -628,6 +631,67 @@ class Keepalive(unittest.TestCase):
         rc = wake.watch(inbox, place, ["co/調べ"], "s1", 7, "t1", err, now=lambda: clock[0], pause=pause, parent=lambda: 7, idle=idle)
         self.assertEqual((rc, err.getvalue()), (2, "（keepalive）\n"))
 
+    def planned(self, action="rent", due=None, rent=0.01):
+        return {"action": action, "due": due, "rent": rent, "reason": "within_buy_cost" if action == "rent" else "reached_buy_cost",
+                "why": "w"}
+
+    def test_the_part_sets_when_to_send_and_when_to_stop(self):
+        # 借りるか買うかの部品が答えれば、送る時刻は部品の next_at（due）、止めるのは action が buy のとき（設計書の 6）。
+        # 送った分の費用は控えに足し、次の待ちの判断に spent で渡す
+        warm = wake_hook.Warm(self.got, self.payload, self.conf, ["b1"], now=lambda: self.clock[0], attrs_of=lambda cwd: self.attrs,
+                              plan=self.planned(due=1100.0))
+        self.clock[0] = 1099.0
+        self.assertIsNone(warm())
+        self.clock[0] = 1100.0
+        self.assertEqual(warm(), "（keepalive）")
+        self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["b1"]), {"sent": 1, "stopped": False, "spent": 0.01})
+        row = deliver.records(self.inbox)[-1]
+        self.assertEqual((row["sent"], row["spent"], row["reason"]), (1, 0.01, "within_buy_cost"))
+        warm = wake_hook.Warm(self.got, self.payload, self.conf, ["b1"], now=lambda: self.clock[0], attrs_of=lambda cwd: self.attrs,
+                              plan=self.planned("buy", due=1000.0))
+        self.assertIsNone(warm())
+        row = deliver.records(self.inbox)[-1]
+        self.assertEqual((row["status"], row["reason"], row["spent"]), ("stopped", "reached_buy_cost", 0.01))
+        self.assertTrue(wake.warm_state(self.inbox, self.place, "s1", ["b1"])["stopped"])
+        # 止めた後の待ちは、同じ物を待つ間は送らず、台帳にも書き足さない
+        warm = wake_hook.Warm(self.got, self.payload, self.conf, ["b1"], now=lambda: self.clock[0], attrs_of=lambda cwd: self.attrs,
+                              plan=self.planned(due=1000.0))
+        self.assertIsNone(warm())
+        self.assertEqual(len(deliver.records(self.inbox)), 2)
+
+    def test_keepalive_plan_reads_next_at_and_keeps_a_written_interval(self):
+        seen = []
+
+        def part(scene, facts, transcript):
+            seen.append((scene, facts, transcript))
+            return {"action": "rent", "next_at": "2026-10-24T00:04:00Z", "rent": 0.02, "reason": "within_buy_cost", "why": "w"}, None
+        with mock.patch.object(wake_hook, "RENT", part):
+            plan, why = wake_hook.keepalive_plan(self.payload, self.conf, 0.05, now=lambda: 0)
+            self.assertIsNone(why)
+            self.assertEqual(seen, [("keepalive", {"lifetime": 300, "spent": 0.05, "certain": True,
+                                                   "turn_end_at": "1970-01-01T00:00:00Z"}, self.log)])
+            self.assertEqual((plan["action"], plan["due"], plan["rent"]), ("rent", 1792800240.0, 0.02))
+            # 役か受け持ちに every を書いた場所は、書いた間で送る（止め時だけ部品に聞く）
+            plan, _ = wake_hook.keepalive_plan(self.payload, {**self.conf, "written": True}, 0, now=lambda: 0)
+            self.assertIsNone(plan["due"])
+        # 部品が答えなければ訳を返す（Warm は every と limit で動き、台帳の行に訳を添える）
+        plan, why = wake_hook.keepalive_plan(self.payload, self.conf, 0)
+        self.assertEqual((plan, why), (None, "試験では部品に聞かない"))
+        warm = wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: self.conf, attrs_of=lambda cwd: self.attrs,
+                                  now=lambda: self.clock[0])
+        self.clock[0] += 210
+        self.assertEqual(warm(), "（keepalive）")
+        self.assertEqual(deliver.records(self.inbox)[-1]["fixed"], "試験では部品に聞かない")
+
+    def test_compact_is_judged_only_when_no_background_work_is_left(self):
+        # compact の要求は裏の処理が残る間は打てない（compact_now）ので、裏の処理を残したターンの終わりの待ちでは compact を聞かない
+        answer = ({"action": "rent", "next_at": None, "rent": 0.01, "reason": "within_buy_cost", "why": "w"}, None)
+        conf = lambda cwd, attrs, read: self.conf
+        with mock.patch.object(wake_hook, "RENT", lambda *a, **k: answer):
+            self.assertFalse(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs).compact)
+            idle = {**self.payload, "background_tasks": []}
+            self.assertTrue(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs).compact)
+
 
 class Hook(unittest.TestCase):
     """入口 wake_hook.py: 部署と窓口でだけ待ち、同じ場所の別の会話は待たない。順番待ちを渡し、fresh の部署を空にする。"""
@@ -645,6 +709,9 @@ class Hook(unittest.TestCase):
         fakegit.wire(self, self.repos, wake_hook, role_hook, orders)
         self.inbox = deliver.inbox_of(self.g.common_dir(self.src))
         self.env = {"WORKS_DISPATCH_CONFIG": "/none/c.toml"}
+        quiet = mock.patch.object(wake_hook, "RENT", lambda *a, **k: (None, "試験では部品に聞かない"))   # 決まった数で動く
+        quiet.start()
+        self.addCleanup(quiet.stop)
 
     def plan(self, sid="s1", parent=lambda: 7, cwd=None, same=lambda pid: False):
         return wake_hook.plan({"cwd": cwd or self.place, "session_id": sid}, env=self.env, parent=parent, same=same)
@@ -1237,7 +1304,7 @@ class Hook(unittest.TestCase):
         # 上限は会話のモデルのキャッシュの読みの値段で決める（Opus 5.5 は 0.05 倍で 25 本）
         self.assertEqual(role_hook.keepalive_of(self.place, self.g.worktree_attrs(self.place), env=self.env, read=0.05)["limit"], 25)
         # 窓口も読む（頼みは受けないが、出した頼みの返事を待つ間に送る）。窓口は部署でないので受け持ちを引かず、役の値で決める
-        self.assertEqual(role_hook.keepalive_of(self.src, {"role": "担当", "name": "調べ"}, env=self.env)["every"], 210)
+        self.assertEqual(role_hook.keepalive_of(self.src, {"role": "担当", "name": "調べ"}, env=self.env)["every"], 300 - role.KEEPALIVE_MARGIN)
         # 寿命の値を読めなければ、黙って 1 時間と見ずに送らず、訳を注記に出す
         pathlib.Path(shape).write_text(toml.format(more='settings = { promptCacheTtl = "10m" }\n'), encoding="utf-8")
         err = io.StringIO()
@@ -1687,6 +1754,122 @@ class Hook(unittest.TestCase):
             provision.mark(self.place, self.src, {wake.COMPACT: "s1", wake.REST: None, **marks}, self.g)
             self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
                                                      me=lambda: ME))
+
+    def rent_or_buy(self, *answers):
+        """部品の偽物: 呼ばれるたびに answers を順に返し、呼ばれた (場面, facts) を self.asked_part に残す。"""
+        self.asked_part = []
+        it = iter(answers)
+
+        def ask(scene, facts, transcript=None):
+            self.asked_part.append((scene, facts))
+            return next(it)
+        return mock.patch.object(wake_hook, "RENT", ask)
+
+    def judged_warm(self, log, clock):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0"}, self.g)
+        payload = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": log, "background_tasks": []}
+        conf = {"every": 240, "text": "（keepalive）", "ttl": 300, "limit": 2}
+        plan = {"action": "rent", "due": 1240.0, "rent": 0.01, "reason": "within_buy_cost", "why": "w"}
+        return payload, wake_hook.Warm(self.plan(), payload, conf, ["ask:a0"], now=lambda: clock[0],
+                                       attrs_of=lambda cwd: self.g.worktree_attrs(self.place), plan=plan, compact=True,
+                                       compact_with=lambda *a: "窓の入力フィールドに打ちかけの字が在る")
+
+    def test_at_keepalive_time_the_part_asks_the_talk_for_a_focus_and_its_answer_compacts(self):
+        # keepalive の時刻に、先に compact を部品に聞く。打つ時で聞けと答えれば、keepalive の文の代わりに焦点の問いを送る（設計書の 6）
+        log, clock = self.transcript(150000), [1240.0]
+        payload, warm = self.judged_warm(log, clock)
+        place = self.g.git_dir(self.place)
+        with self.rent_or_buy(({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)):
+            self.assertEqual(warm(), wake_hook.CONSULT_TEXT)
+        self.assertEqual(self.asked_part, [("compact", {"lifetime": 300, "ask": True, "deferred": 0,
+                                                        "defer_limit": wake_hook.DEFER_LIMIT})])
+        self.assertTrue(wake.compact_state(self.inbox, place, "s1")["asked"])
+        self.assertEqual(deliver.records(self.inbox)[-1]["status"], "asked")
+        # 問いで始まったターンの最後の答えを読み、2 回目の判断に渡す。打つなら焦点付きで打ち、compact の後の会話に待ちを続けさせる
+        write_line(log, {"type": "user", "message": {"content": "Stop hook blocking error: " + wake_hook.CONSULT_TEXT}})
+        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "直しの残りと試験の結果"}]}})
+        go = {"action": "buy", "consult": False, "reason": "consult_go", "prep": {"focus": "直しの残りと試験の結果"}, "why": "w"}
+        w = Window(self.place)
+        start = {"hook_event_name": "SessionStart", "source": "compact", "session_id": "s1"}
+
+        def compacted():
+            self.assertEqual(w.writes, ["/compact 直しの残りと試験の結果"])
+            kind, text = wake_hook.checker(self.plan(), start, h=w, now=lambda: 5, me=lambda: ME)()
+            self.assertIn("費用の判断で会話を compact した。焦点: 直しの残りと試験の結果", text)
+        with self.rent_or_buy((go, None)):
+            self.assertEqual(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), w, me=lambda: ME,
+                                                    pause=compacted, looks=1), ("end", None))
+        self.assertEqual(self.asked_part[0][1]["answer"], {"go": True, "prep": {"focus": "直しの残りと試験の結果"}})
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        self.assertFalse(os.path.exists(wake.compact_path(self.inbox, place)))
+
+    def test_a_skip_answer_defers_and_a_turn_not_started_by_the_question_is_not_read(self):
+        log, clock = self.transcript(150000), [1240.0]
+        payload, warm = self.judged_warm(log, clock)
+        place = self.g.git_dir(self.place)
+        with self.rent_or_buy(({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)):
+            warm()
+        write_line(log, {"type": "user", "message": {"content": wake_hook.CONSULT_TEXT}})
+        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "skip: 試験の途中"}]}})
+        deferred = {"action": "rent", "consult": False, "reason": "consult_deferred", "why": "w"}
+        with self.rent_or_buy((deferred, None)):
+            self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
+                                                     me=lambda: ME))
+        self.assertEqual(self.asked_part[0][1]["answer"], {"go": False, "why": "試験の途中"})
+        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "judged": False})
+        # 問うた後に人の文などでターンが始まったら、その答えは問いへの答えと読まない（部品に聞かず、問うた印だけ外す）
+        wake.compact_note(self.inbox, place, "s1", asked=True, deferred=1)
+        write_line(log, {"type": "user", "message": {"content": "どう？"}})
+        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "進んでいる"}]}})
+        with self.rent_or_buy():
+            self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
+                                                     me=lambda: ME))
+        self.assertEqual(self.asked_part, [])
+        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "judged": False})
+
+    def test_past_the_defer_limit_it_compacts_without_asking_and_sends_the_keepalive_if_it_cannot(self):
+        # 延ばした回数が上限に着くと部品は聞かずに buy を返す。焦点なしで打つ。打てなければ印を外し、keepalive の文を送る
+        log, clock = self.transcript(150000), [1240.0]
+        payload, warm = self.judged_warm(log, clock)
+        place = self.g.git_dir(self.place)
+        wake.compact_note(self.inbox, place, "s1", deferred=wake_hook.DEFER_LIMIT)
+        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
+            self.assertEqual(warm(), "（keepalive）")
+        self.assertEqual(self.asked_part[0][1]["deferred"], wake_hook.DEFER_LIMIT)
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        self.assertFalse(wake.compact_state(self.inbox, place, "s1")["judged"])
+        row = deliver.records(self.inbox)[-1]
+        self.assertEqual((row["sent"], row["compact"]), (1, "compact を打てなかった（窓の入力フィールドに打ちかけの字が在る）"))
+        # 打てれば keepalive は送らない（compact の要求がキャッシュを読む。compact の後の会話の始まりの待ち受けが会話を起動する）
+        payload, warm = self.judged_warm(log, clock)
+        warm.compact_with = lambda got, payload, attrs: self.assertEqual(attrs[wake.COMPACT], "s1")
+        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
+            self.assertIsNone(warm())
+        self.assertTrue(wake.compact_state(self.inbox, place, "s1")["judged"])
+        self.assertEqual(deliver.records(self.inbox)[-1]["status"], "compacted")
+
+    def test_a_compact_break_asks_the_part_whether_it_pays(self):
+        # --compact の印のターンの終わりは、部品が在れば文脈の下限（COMPACT_FLOOR）の代わりに部品の action で決める（設計書の 6 の 4）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.COMPACT: "s1"}, self.g)
+        big = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(wake.COMPACT_FLOOR * 2)}
+        w = Window(self.place)
+        with self.rent_or_buy(({"action": "rent", "reason": "within_buy_cost", "why": "not yet"}, None)):
+            kind, text = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME)
+        self.assertEqual((kind, w.writes), ("wake", []))
+        self.assertIn("借りるか買うかの部品が、まだ compact の費用の元が取れないと答えた（not yet）", text)
+        self.assertEqual({k: v for k, v in self.asked_part[0][1].items() if k != "lifetime"}, {"ask": False, "deferred": 0, "defer_limit": 0})
+        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
+        small = {**big, "transcript_path": self.transcript(1000)}
+        with self.rent_or_buy(({"action": "buy", "reason": "reached_buy_cost", "why": "w"}, None)):
+            kind, _ = wake_hook.compact_turn(self.plan(), small, self.g.worktree_attrs(self.place), w, me=lambda: ME,
+                                             pause=lambda: None, looks=1)
+        self.assertEqual(w.writes, ["/compact"])   # 下限より小さくても、部品が元が取れると答えれば打つ
+
+    def test_reply_answer_reads_the_first_line(self):
+        self.assertEqual(wake_hook.reply_answer("\n 直しの残り \n二行目"), {"go": True, "prep": {"focus": "直しの残り"}})
+        self.assertEqual(wake_hook.reply_answer("Skip：試験の途中"), {"go": False, "why": "試験の途中"})
+        self.assertEqual(wake_hook.reply_answer("skip"), {"go": False, "why": "skip"})
+        self.assertEqual(wake_hook.reply_answer(""), {"go": False, "why": "no reply"})
 
     def test_a_typed_prompt_takes_the_compact_mark_off_but_the_typed_compact_does_not(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.COMPACT: "s1",

@@ -1442,8 +1442,8 @@ def rest_here(a, ports, cwd):
 
 def compact_here(a, ports, cwd):
     """--compact [焦点]。部署か窓口の会話が、同じ仕事の前の部分が済み、続きは要約で足りるので、ここで compact してよい区切りだと印す（属性
-    company.compact に場所の会話の id、company.compact-focus に焦点）。このターンの終わりに待ち受け（wake_hook.py）が、文脈が
-    COMPACT_FLOOR トークン以上で窓の入力フィールドが空なら、窓に /compact <焦点> を打ち、compact の後の会話の始まりの待ち受けが印を外して、
+    company.compact に場所の会話の id、company.compact-focus に焦点）。このターンの終わりに待ち受け（wake_hook.py）が、compact の費用の元が
+    取れる（借りるか買うかの部品の判断。部品が無ければ文脈が COMPACT_FLOOR トークン以上）と見て、窓の入力フィールドが空なら、窓に /compact <焦点> を打ち、compact の後の会話の始まりの待ち受けが印を外して、
     会話に続きをさせる 1 行を渡す。--rest と違い、納品していない頼みが在っても印せる（頼みの途中の区切りのための口）。区切りかどうかと
     どの役が打つかは、会社の形の役の本文の決まりで判断する（ここでは決めない）。人がその会話に打つと印が外れる。終了の値を返す。"""
     attrs = ports.attrs(cwd)
@@ -1461,9 +1461,11 @@ def compact_here(a, ports, cwd):
     except (gitx.GitError, OSError) as e:
         print(f"止めた: compact の区切りの印を書けなかった（{e}）")
         return 1
-    print(f"compact の区切りと印した。このターンの終わりに、文脈が {wake.COMPACT_FLOOR} トークン以上で窓の入力フィールドが空なら、機械がこの会話の"
-          f"窓に {chat.COMPACT}{' ' + focus if focus else ''} を打ち、済んだら続きをさせる 1 行をこの会話に渡す（文脈がそれより小さいときと、"
-          "打てなかったときは、compact せずに訳を添えた 1 行を渡す）。止まる前のフックは、このターンの終わりに納品を促さない。続きに要ることで、"
+    with contextlib.suppress(OSError):   # 待ち受けが費用の判断で付けた印の控えを消す（この印は会話が付けた物として扱わせる）
+        wake.compact_forget(deliver.inbox_of(common), ports.git.git_dir(cwd))
+    print(f"compact の区切りと印した。このターンの終わりに、compact の費用の元が取れる（費用の判断の部品が無ければ、文脈が {wake.COMPACT_FLOOR} "
+          f"トークン以上）と見て、窓の入力フィールドが空なら、機械がこの会話の窓に {chat.COMPACT}{' ' + focus if focus else ''} を打ち、済んだら続きを"
+          "させる 1 行をこの会話に渡す（元が取れないと見たときと、打てなかったときは、compact せずに訳を添えた 1 行を渡す）。止まる前のフックは、このターンの終わりに納品を促さない。続きに要ることで、"
           "焦点に書けない長いものは、このターンを終える前にファイルに書いておく。人がこの会話に打つと印が外れる")
     return 0
 

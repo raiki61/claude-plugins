@@ -28,7 +28,7 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 # wiring.py は入口の口の束（Ports）を組み立てる所で、始める前の確かめが作業場のシェルを起動して読む
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py",
                  "calls.py", "installed.py", "orders.py", "limit_hook.py", "wake_hook.py", "limits_entry.py", "wiring.py",
-                 "queuerun.py"}
+                 "queuerun.py", "rentx.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照合しない。subprocess.run は herdr の run ではないので数えない
 WRITES = {

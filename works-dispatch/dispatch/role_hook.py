@@ -156,6 +156,18 @@ def keepalive_of(cwd, attrs, env=os.environ, read=chat.CACHE_READ_RATE):
     None。寿命の値が読めずに送らないときは、その訳を注記に出す。read は会話のモデルのキャッシュの読みの倍率。窓口も読む（頼みは
     受けないが、出した頼みの返事を待つ間に送る。wake_hook.warm_for）。窓口は部署でないので受け持ちを引かず、役の値だけで決める
     （--move・--desk が窓口を起動する設定〔role.write_desk_settings〕と寿命を揃える。launch_key と同じ）。"""
+    found = _role_duty(cwd, attrs, env)
+    if not found:
+        return None
+    notes = []
+    conf = role.keepalive_for(*found, notes, read, env)
+    for n in notes:
+        filex.warn(f"注記: {n}")
+    return conf
+
+
+def _role_duty(cwd, attrs, env):
+    """その場所の (役, 受け持ち)。会社の形を読めない・役が無いときは None。窓口は部署でないので受け持ちを None にする。"""
     got = attrs.get("role") and _shape_at(cwd, attrs, env)
     if not got:
         return None
@@ -163,14 +175,16 @@ def keepalive_of(cwd, attrs, env=os.environ, read=chat.CACHE_READ_RATE):
     the_role = shape["roles"].get(role.current(shape, attrs["role"]))
     if the_role is None:
         return None
-    notes = []
     here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
     desk = here and common and os.path.realpath(here) == os.path.realpath(common)
-    duty = None if desk else role.duty_of(info.get("skills", []), attrs.get("name"))
-    conf = role.keepalive_for(the_role, duty, notes, read, env)
-    for n in notes:
-        filex.warn(f"注記: {n}")
-    return conf
+    return the_role, None if desk else role.duty_of(info.get("skills", []), attrs.get("name"))
+
+
+def cache_ttl_of(cwd, attrs, env=os.environ):
+    """その場所の会話のプロンプトキャッシュの寿命の秒（role.cache_ttl。会社の形の役と受け持ちの promptCacheTtl と会話の環境変数から読む）。
+    役が無ければ環境変数だけで決める。決められなければ None。keepalive を書いていない場所でも読む（wake_hook.compact_turn）。"""
+    found = _role_duty(cwd, attrs, env)
+    return (role.cache_ttl_for(*found, env) if found else role.cache_ttl(None, env))[0]
 
 
 def rename_role(cwd, attrs, env=os.environ):

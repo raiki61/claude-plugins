@@ -123,14 +123,15 @@ def _mark_lock(path):
 
 
 def warm_path(inbox, place):
-    """keepalive の控え（{session, tasks, sent, stopped}。同じ会話が同じ物〔裏の処理と頼み〕を待つ間に続けて送った本数と、上限で止めたか）。"""
+    """keepalive の控え（{session, tasks, sent, stopped, spent}。同じ会話が同じ物〔裏の処理と頼み〕を待つ間に続けて送った本数と、
+    止めたかと、送った分の費用の累計〔ドル。借りるか買うかの部品の rent の和〕）。"""
     return os.path.join(_dir(inbox), key(place) + ".warm.json")
 
 
 def warm_state(inbox, place, session, tasks):
     """同じ会話（session）が同じ物（tasks。裏の処理の id か数と、ask:・child:・parked: の頼み。wake_hook.warm_for）を待つ間の keepalive の
-    控え {sent, stopped}。控えが無い・読めない・会話か待つ物が替わっていれば {sent: 0, stopped: False}（新しい待ちの始まり）。"""
-    fresh = {"sent": 0, "stopped": False}
+    控え {sent, stopped, spent}。控えが無い・読めない・会話か待つ物が替わっていれば {sent: 0, stopped: False, spent: 0}（新しい待ちの始まり）。"""
+    fresh = {"sent": 0, "stopped": False, "spent": 0}
     try:
         with open(warm_path(inbox, place), encoding="utf-8") as f:
             got = json.load(f)
@@ -138,14 +139,51 @@ def warm_state(inbox, place, session, tasks):
         return fresh   # 控えが無いか壊れていれば、新しい待ちとして数え直す（多く数えても、送る本数の上限に早く着くだけ）
     if not isinstance(got, dict) or got.get("session") != session or got.get("tasks") != tasks:
         return fresh
-    return {"sent": got.get("sent") if isinstance(got.get("sent"), int) else 0, "stopped": got.get("stopped") is True}
+    spent = got.get("spent")
+    return {"sent": got.get("sent") if isinstance(got.get("sent"), int) else 0, "stopped": got.get("stopped") is True,
+            "spent": spent if isinstance(spent, (int, float)) and not isinstance(spent, bool) and spent >= 0 else 0}
 
 
-def warm_note(inbox, place, session, tasks, sent, stopped=False):
-    """keepalive を送った本数と、上限で止めたかを控えに書く。"""
+def warm_note(inbox, place, session, tasks, sent, stopped=False, spent=0):
+    """keepalive を送った本数と、止めたかと、送った分の費用の累計を控えに書く。"""
     os.makedirs(_dir(inbox), exist_ok=True)
-    _replace(warm_path(inbox, place), json.dumps({"session": session, "tasks": tasks, "sent": sent, "stopped": stopped},
-                                                 ensure_ascii=False))
+    _replace(warm_path(inbox, place), json.dumps({"session": session, "tasks": tasks, "sent": sent, "stopped": stopped,
+                                                  "spent": spent}, ensure_ascii=False))
+
+
+def compact_path(inbox, place):
+    """keepalive の時刻の compact の判断の控え（{session, asked, deferred, judged}。wake_hook.Warm が会話に compact の焦点を問うたか・
+    会話が skip と答えて延ばした回数・判断で compact の印を付けたか）。"""
+    return os.path.join(_dir(inbox), key(place) + ".compact.json")
+
+
+def compact_state(inbox, place, session):
+    """同じ会話（session）の compact の判断の控え {asked, deferred, judged}。控えが無い・読めない・会話が替わっていれば
+    {asked: False, deferred: 0, judged: False}。"""
+    fresh = {"asked": False, "deferred": 0, "judged": False}
+    try:
+        with open(compact_path(inbox, place), encoding="utf-8") as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return fresh   # 控えが無いか壊れていれば、問うていない・延ばしていないと見る（延ばす回数が上限から数え直しになるだけ）
+    if not isinstance(got, dict) or got.get("session") != session:
+        return fresh
+    deferred = got.get("deferred")
+    return {"asked": got.get("asked") is True, "judged": got.get("judged") is True,
+            "deferred": deferred if isinstance(deferred, int) and not isinstance(deferred, bool) and deferred >= 0 else 0}
+
+
+def compact_note(inbox, place, session, asked=False, deferred=0, judged=False):
+    """compact の判断の控えを書く。"""
+    os.makedirs(_dir(inbox), exist_ok=True)
+    _replace(compact_path(inbox, place), json.dumps({"session": session, "asked": asked, "deferred": deferred, "judged": judged},
+                                                    ensure_ascii=False))
+
+
+def compact_forget(inbox, place):
+    """compact の判断の控えを消す（compact が済んだ・人の文でターンが始まった。次の回は延ばした回数を 0 から数える）。"""
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(compact_path(inbox, place))
 
 
 LONG_WAIT = 3600   # --tree が「裏の処理を待ったまま動きが無い」と出す、裏の処理を残したターンの終わりからの秒
