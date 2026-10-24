@@ -222,7 +222,7 @@ compact:
 
 ## 6. 呼ぶ側の層: works-dispatch が持つこと
 
-部品の外。works-dispatch を受け持つ割り振りの部署（会社の形 `.claude/company.toml` で works-dispatch と tiers の直しを受け持つ部署）が作る。
+部品の外。works-dispatch を受け持つ割り振りの部署（会社の形 `.claude/company.toml` で works-dispatch・tiers・rent-or-buy の直しを受け持つ部署）が作る。
 
 - keepalive: 送る時刻を 3.4 の `next_at` にし、何本まで送るかを中心の `action` に替える。送る直前に、待っている物の知らせが届いていないか（台帳・裏の処理の終わり）を見て、届いていれば送らない。台帳は、works-dispatch が知らせを 1 行ずつ足す受付箱の `log.jsonl`。この確かめが要る例として、my_notes の調べものの部署の 04:30〜04:38 の 1 本目は、裏の処理の終わりと同じ秒に送っていた（待っている物が届いた時に送った、要らない 1 本）。
 - compact の指針:
@@ -264,7 +264,7 @@ rent-or-buy/
 
 - スキルは置かない。呼ぶのはプログラムで、会話から使う場面がまだ無いため。
 - 版の固定はタグでなく commit の SHA にする。このリポジトリはタグを作らない（持ち主 2026-09-29）。works-factory の `PIN`（使う版の commit の SHA を 1 行書いたファイル）と同じ形。
-- 受け持ち: 割り振り（works-dispatch と tiers の直しを受け持つ部署）に足す。いちばんよく呼ぶのが works-dispatch のため。会社の形（`.claude/company.toml`）は説明書の部署の受け持ちなので、足すのは説明書に頼む。
+- 受け持ち: 割り振り（works-dispatch・tiers・rent-or-buy の直しを受け持つ部署）。いちばんよく呼ぶのが works-dispatch のため（my_notes の司令塔の答え。足しの受付 20261024-081622-55075a）。会社の形（`.claude/company.toml`）の割り振りの説明は、この部品を main に入れるブランチで直した。
 
 ## 8. 試験
 
