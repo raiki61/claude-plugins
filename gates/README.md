@@ -1,8 +1,8 @@
 # gates — gatekeeper hooks
 
-For people who use Claude Code to post to GitHub with gh (the GitHub CLI) or to write documents, and want a check that the text gets across to a first-time reader before it goes out. It is also for anyone who runs several Claude Code sessions on one machine and wants to keep a session from searching the whole disk. Install the plugin (see Install); the coldread and searchgate hooks are on as soon as it is installed, and destgate stays off until you create its allowlist. After Install and the first coldread section, the later sections are reference: the limits of what is caught, the details of each gatekeeper, and the measurements behind each decision.
+For people who use Claude Code to post to GitHub with gh (the GitHub CLI) or to write documents, and want a check that the text gets across to a first-time reader before it goes out. It is also for anyone who runs several Claude Code sessions on one machine and wants to keep a session from searching the whole disk or from waiting in a loop that never ends. Install the plugin (see Install); the coldread, searchgate and waitgate hooks are on as soon as it is installed, and destgate stays off until you create its allowlist. After Install and the first coldread section, the later sections are reference: the limits of what is caught, the details of each gatekeeper, and the measurements behind each decision.
 
-This plugin distributes hooks that stop an operation until a check passes: outward-facing operations, and searches that would load the whole machine. There are currently 3 gatekeepers: coldread (whether the text gets across to a first-time reader), destgate (an allowlist for destinations) and searchgate (no searches from / or the whole home). coldread stops posts to gh before they are written; for local documents (md and so on) it reads them after they are written and returns findings to whoever wrote them (the parent session or a subagent worker) when that writer finishes (it does not stop them).
+This plugin distributes hooks that stop an operation until a check passes: outward-facing operations, searches that would load the whole machine, and hand-written waiting loops that would leave a session stuck. There are currently 4 gatekeepers: coldread (whether the text gets across to a first-time reader), destgate (an allowlist for destinations), searchgate (no searches from / or the whole home) and waitgate (no hand-written waiting loops). coldread stops posts to gh before they are written; for local documents (md and so on) it reads them after they are written and returns findings to whoever wrote them (the parent session or a subagent worker) when that writer finishes (it does not stop them).
 
 The coldread skill's instructions and description are written in Japanese.
 
@@ -486,3 +486,25 @@ not reach sessions working on other repositories, and a session can still miss i
 - The decision is deterministic (no LLM) and **there is no escape hatch**. It fails closed: if the check itself fails (input it cannot read),
   the call is stopped. Stops are logged to `$CLAUDE_CONFIG_DIR/searchgate/denies.log` (the Claude Code
   settings folder, `~/.claude` by default)
+
+## waitgate — no hand-written waiting loops
+
+The fourth gatekeeper. On 2026-10-24, sessions that waited for a background job with a loop they wrote themselves (`until grep -q … out.txt;
+do sleep 3; done`, `while pgrep -f "research.py theme"; do sleep 5; done`) kept looping after the job was gone, and the sessions stood still
+for 28 hours, 16 hours and 38 minutes. Running the loop in the foreground does not help: when a foreground Bash command reaches its timeout,
+Claude Code moves it to the background instead of stopping it (["Foreground commands that move to the background"](https://code.claude.com/docs/en/tools-reference)).
+The right way to wait is to run the awaited command itself with Bash's `run_in_background` and end the turn; Claude Code wakes the session when
+it finishes.
+
+- The rule: a Bash call is stopped before it runs, in the foreground or the background, if it has a `while` or `until` loop that runs `sleep`,
+  or if it has a `while`/`until` loop (or a `for` loop that runs `sleep`) together with `pgrep`/`pidwait -f` (`--full`), `pkill -0` or
+  `ps … | grep`. The last group searches the whole command line, so two loops waiting for the same text find each other's shells and never end.
+  A `pgrep -f` inside any `for` loop is stopped too (run it in a separate Bash call to pass), and `for ((;;))`, which has no end condition,
+  counts as a `while` loop
+- What passes: a single `pgrep -f` with no loop, loops that do not run `sleep`, `while read` loops (they end when the input ends, e.g.
+  `ps aux | grep x | while read u p _; do kill $p; done`), a `for` loop that runs `sleep` a fixed number of times, `ps | grep` in a `for` loop without `sleep`, and `--until` or `for` inside a word or an option
+- What it reads: loop words at the head of a command (start of a line, after `;`, `&`, `|`, brackets, `do`, `then`, `else` or `time`). Text in
+  quotes and here-document bodies is ignored, except the arguments of `bash -c` (also `bash -o pipefail -c`) and `eval`, `$( … )` and `` ` … ` `` inside double quotes, and a
+  here-document read by a shell (`bash <<EOF`). Not seen: a loop inside `python3 -c`, `awk` over `ps`, or a loop in another script
+- The decision is deterministic (no LLM) and **there is no escape hatch**. It fails closed: if the check itself fails, the call is stopped.
+  Stops are logged to `$CLAUDE_CONFIG_DIR/waitgate/denies.log`. The rules are copied from my_notes' `tools/no_wait_loop.py` (master 2d951aab)
