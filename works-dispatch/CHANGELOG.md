@@ -8,7 +8,9 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- 待ち受けが会話の記録からターンを始めた文を読むとき（`claudex.last_reply`。keepalive の時刻に compact の焦点を問うた後、答えを読む所）、compact の要約の行（Claude Code が `isCompactSummary` を付ける、compact の後の最初の user の行）を始めた文に数えない。要約は前の会話の文を引くので、引いた焦点の問いに当たって、問いへの答えと読み違える余地があった（壊れた例は見ていない）。受付の設計（`docs/specs/2026-10-17-reception-design.md`）の 7 章の keepalive の数え方にも、この行を除く決まりを足した（my_notes の業務改革の実測で、要約の行が keepalive のターンに数えられていた）。
+- compact（Claude Code の会話の文脈を要約して縮める操作）の後の会話の最初の user の行（要約の行。Claude Code が `isCompactSummary` を付ける）を、次の 2 か所で数えない。要約の行は前の会話の文を引くので、引いた文に当たって読み違える。
+  - 待ち受け（部署の会話を見張る、works-dispatch の裏のフック）が会話の記録から、ターンを始めた user の文を読む所（`dispatch/claudex.py` の `last_reply`）。待ち受けは keepalive（待ってターンを終えた会話に、プロンプトキャッシュの寿命が切れる前に送る短い文）の時刻に compact の焦点（compact で残す話題）を会話に問い、次のターンの終わりにこの関数で答えを読む。要約の行が引いた問いを、そのターンの問いと取り違える余地があった（取り違えた例は見ていない）。
+  - 受付の設計（`docs/specs/2026-10-17-reception-design.md`）の 7 章の、keepalive のターンを会話の記録から人が数えるときの数え方。my_notes（持ち主の別のリポジトリ）の業務改革の部署の実測で、要約の行が引いた keepalive の文に当たり、keepalive のターン 2 本に数えられていた。
 
 ## [0.124.0] - 2026-10-24
 
