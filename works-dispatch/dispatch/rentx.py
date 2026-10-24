@@ -57,8 +57,8 @@ def ask(scene, facts, transcript=None, here=None, runner=subprocess.run, env=Non
     try:
         p = runner(argv, input=json.dumps(facts, ensure_ascii=False), capture_output=True, text=True, encoding="utf-8",
                    errors="replace", env=dict(os.environ if env is None else env))
-    except OSError as e:
-        return None, f"{NAME} を起動できない（{e}）"
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        return None, f"{NAME} を起動できない（{type(e).__name__}: {e}）"
     try:
         got = json.loads(p.stdout)
     except (TypeError, ValueError):

@@ -71,6 +71,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -288,13 +289,14 @@ def compact_judge(payload, ttl, ask, deferred=0, answer=None):
 
 
 def reply_answer(reply):
-    """焦点の問い（CONSULT_TEXT）への会話の答えを部品の answer の形にする。最初の空でない行が skip で始まれば延ばす（訳はその後ろ）、
-    ほかの字なら進めて、その行を焦点にする。答えが無ければ延ばす。"""
+    """焦点の問い（CONSULT_TEXT）への会話の答えを部品の answer の形にする。最初の空でない行が skip: で始まれば延ばす（訳はその後ろ。
+    skip の後ろに : の無い字〔Skip list…〕は焦点と読む）、ほかの字なら進めて、その行を焦点にする。答えが無ければ延ばす。"""
     line = next((x.strip() for x in (reply or "").splitlines() if x.strip()), "")
     if not line:
         return {"go": False, "why": "no reply"}
-    if line.lower().startswith("skip"):
-        return {"go": False, "why": line[4:].lstrip(" :：").strip() or "skip"}
+    flat = unicodedata.normalize("NFKC", line)   # 全角のコロンも : と読む
+    if flat[:4].lower() == "skip" and flat[4:].lstrip(" ").startswith(":"):
+        return {"go": False, "why": flat[4:].lstrip(" :").strip() or "skip"}
     return {"go": True, "prep": {"focus": line[:FOCUS_CHARS]}}
 
 
@@ -306,10 +308,13 @@ def consult_answer(got, payload, attrs, ttl_of=role_hook.cache_ttl_of):
     mine = wake.compact_state(inbox, place, session)
     if not mine["asked"]:
         return attrs
-    reply, prompt = chat.last_reply(payload)
-    if CONSULT_TEXT not in (prompt or ""):
-        wake.compact_note(inbox, place, session, deferred=mine["deferred"])
+    got_reply = chat.last_reply(payload)
+    if got_reply is None or CONSULT_TEXT not in got_reply[1]:
+        wake.compact_note(inbox, place, session, deferred=mine["deferred"])   # 延ばした回数は足さない（次の keepalive の時刻にまた問う）
+        warm_log(got, attrs, [], status="skipped", detail="会話の記録を読めず、焦点の問いへの答えを読めない" if got_reply is None
+                 else "そのターンが焦点の問いで始まっていない（間に人の文か知らせが入った）ので、答えを読まない")
         return attrs
+    reply = got_reply[0]
     answer = reply_answer(reply)
     found, why = compact_judge(payload, ttl_of(got["cwd"], attrs), True, mine["deferred"], answer)
     row = {"status": "answered", "answer": answer}
@@ -362,6 +367,11 @@ def compact_turn(got, payload, attrs, h=term, me=lambda: chat.host()[0], pause=N
     if chat.event(payload) != "Stop" or attrs.get(wake.REST) or attrs.get(wake.FINISHED):
         return None
     if payload.get("background_tasks"):
+        if judged:   # 判断で付けた印は会話が頼んだ物でないので残さない（残すと keepalive も止まる。次の keepalive の時刻にまた判断する）
+            provision.mark(got["cwd"], got["root"], clear, gitx)
+            wake.compact_note(got["inbox"], got["place"], got["session"],
+                              deferred=wake.compact_state(got["inbox"], got["place"], got["session"])["deferred"])
+            warm_log(got, attrs, [], status="compact-failed", detail="裏の処理が残っている")
         return None   # 裏の処理が終わると会話が再開する。そのターンの終わりにまた試す
     why = None if judged else compact_worth(got, payload, attrs, ttl_of)
     if why:
@@ -1252,7 +1262,7 @@ class Warm:
 
     def _compact(self, attrs, state):
         """送る時刻の compact の判断（設計書 6 の compact の指針 1〜3）。打つか問うなら、Warm が返す物を 1 つだけ入れた組（問いの文か、
-        打ったなら None）。打たないなら None（keepalive の判断に進む。部品の訳は self.note に置き、keepalive の行に添える）。"""
+        打ったなら None）。打たないなら None（keepalive の判断に進む。部品の訳は self.compact_note に置き、keepalive の行に添える）。"""
         inbox, place, session = self.got["inbox"], self.got["place"], self.got["session"]
         mine = wake.compact_state(inbox, place, session)
         found, why = compact_judge(self.payload, self.conf["ttl"], True, mine["deferred"])
@@ -1265,7 +1275,10 @@ class Warm:
         marks = {wake.COMPACT: session, wake.COMPACT_FOCUS: None}
         provision.mark(self.got["cwd"], self.got["root"], marks, gitx)
         wake.compact_note(inbox, place, session, deferred=mine["deferred"], judged=True)
-        failed = self.compact_with(self.got, self.payload, {**attrs, **marks})
+        try:
+            failed = self.compact_with(self.got, self.payload, {**attrs, **marks})
+        except Exception as e:  # 印を残すと keepalive が止まるので、打てなかったのと同じに扱って印を外す
+            failed = f"{type(e).__name__}: {e}"
         if failed is None:
             self.off = True
             self._log(attrs, status="compacted", compact=found.get("reason"))
@@ -1320,16 +1333,19 @@ def keepalive_plan(payload, conf, spent, now=time.time):
     """この待ちで keepalive を送るか（action が rent なら送る、buy なら止める）と送る時刻（due。秒）を、借りるか買うかの部品に聞く
     （rent-or-buy keepalive。設計書 docs/specs/2026-10-24-rent-or-buy-design.md の 6）。spent はこの待ちで送った分の費用の累計（ドル。
     wake.warm_state）。({action, due, rent, reason, why}, None) か、聞けなければ (None, 訳)（Warm は conf の every と limit で動く）。
-    due は部品の next_at（会話の記録の最後の要求の始まり + 寿命 − 部品の余裕 margin_s）で、役か受け持ちに every を書いた場所と、
-    next_at が無いときは None（ターンの終わりから every 秒）。"""
+    due は部品の next_at（会話の記録の最後の要求の始まり + 寿命 − 部品の余裕 margin_s）で、役か受け持ちに every を書いた場所は
+    None（ターンの終わりから every 秒）。rent か next_at が読めない答えは、聞けなかったのと同じに扱う。"""
     got, why = RENT("keepalive", {"lifetime": conf["ttl"], "spent": spent, "certain": True, "turn_end_at": _iso(now())},
                     chat.transcript(payload))
     if why:
         return None, why
     rent = got.get("rent")
-    return {"action": got["action"], "due": None if conf.get("written") else _epoch(got.get("next_at")),
-            "rent": rent if isinstance(rent, (int, float)) and not isinstance(rent, bool) and rent >= 0 else 0,
-            "reason": got.get("reason"), "why": got.get("why")}, None
+    if isinstance(rent, bool) or not isinstance(rent, (int, float)) or not rent >= 0:
+        return None, f"借りるか買うかの部品の答えの rent が 0 以上の数でない（{rent!r}）"   # 費用が数えられないと止め時が来ない
+    due = None if conf.get("written") else _epoch(got.get("next_at"))
+    if not conf.get("written") and due is None:
+        return None, f"借りるか買うかの部品の答えの next_at を読めない（{got.get('next_at')!r}）"
+    return {"action": got["action"], "due": due, "rent": rent, "reason": got.get("reason"), "why": got.get("why")}, None
 
 
 HANDED_OVER = "WORKS_DISPATCH_WAKE_FROM"   # 前の版の待ち受けから替わった印（値は前の待ち受けの印の token）

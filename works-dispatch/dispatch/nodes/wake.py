@@ -139,7 +139,7 @@ def warm_state(inbox, place, session, tasks):
         return fresh   # 控えが無いか壊れていれば、新しい待ちとして数え直す（多く数えても、送る本数の上限に早く着くだけ）
     if not isinstance(got, dict) or got.get("session") != session or got.get("tasks") != tasks:
         return fresh
-    spent = got.get("spent")
+    spent = got.get("spent")   # 控えはこの待ち受けだけが書く。壊れた spent は、壊れた控えと同じく新しい待ちとして 0 から数える
     return {"sent": got.get("sent") if isinstance(got.get("sent"), int) else 0, "stopped": got.get("stopped") is True,
             "spent": spent if isinstance(spent, (int, float)) and not isinstance(spent, bool) and spent >= 0 else 0}
 
@@ -181,7 +181,7 @@ def compact_note(inbox, place, session, asked=False, deferred=0, judged=False):
 
 
 def compact_forget(inbox, place):
-    """compact の判断の控えを消す（compact が済んだ・人の文でターンが始まった。次の回は延ばした回数を 0 から数える）。"""
+    """compact の判断の控えを消す（compact が済んだ・会話が --compact を打った。次の回は延ばした回数を 0 から数える）。"""
     with contextlib.suppress(FileNotFoundError):
         os.remove(compact_path(inbox, place))
 

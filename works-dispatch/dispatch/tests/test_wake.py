@@ -674,6 +674,13 @@ class Keepalive(unittest.TestCase):
             # 役か受け持ちに every を書いた場所は、書いた間で送る（止め時だけ部品に聞く）
             plan, _ = wake_hook.keepalive_plan(self.payload, {**self.conf, "written": True}, 0, now=lambda: 0)
             self.assertIsNone(plan["due"])
+        # rent か next_at を読めない答えは、聞けなかったのと同じに扱う（費用が数えられないと止め時が来ない）
+        for bad in ({"rent": None}, {"rent": -1}, {"next_at": "あした"}):
+            with mock.patch.object(wake_hook, "RENT", lambda *a, bad=bad: ({"action": "rent", "next_at": "2026-10-24T00:04:00Z",
+                                                                            "rent": 0.02, **bad}, None)):
+                plan, why = wake_hook.keepalive_plan(self.payload, self.conf, 0, now=lambda: 0)
+            self.assertIsNone(plan)
+            self.assertIn("借りるか買うかの部品の答えの", why)
         # 部品が答えなければ訳を返す（Warm は every と limit で動き、台帳の行に訳を添える）
         plan, why = wake_hook.keepalive_plan(self.payload, self.conf, 0)
         self.assertEqual((plan, why), (None, "試験では部品に聞かない"))
@@ -685,7 +692,7 @@ class Keepalive(unittest.TestCase):
 
     def test_compact_is_judged_only_when_no_background_work_is_left(self):
         # compact の要求は裏の処理が残る間は打てない（compact_now）ので、裏の処理を残したターンの終わりの待ちでは compact を聞かない
-        answer = ({"action": "rent", "next_at": None, "rent": 0.01, "reason": "within_buy_cost", "why": "w"}, None)
+        answer = ({"action": "rent", "next_at": "2026-10-24T00:04:00Z", "rent": 0.01, "reason": "within_buy_cost", "why": "w"}, None)
         conf = lambda cwd, attrs, read: self.conf
         with mock.patch.object(wake_hook, "RENT", lambda *a, **k: answer):
             self.assertFalse(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs).compact)
@@ -1868,7 +1875,9 @@ class Hook(unittest.TestCase):
     def test_reply_answer_reads_the_first_line(self):
         self.assertEqual(wake_hook.reply_answer("\n 直しの残り \n二行目"), {"go": True, "prep": {"focus": "直しの残り"}})
         self.assertEqual(wake_hook.reply_answer("Skip：試験の途中"), {"go": False, "why": "試験の途中"})
-        self.assertEqual(wake_hook.reply_answer("skip"), {"go": False, "why": "skip"})
+        self.assertEqual(wake_hook.reply_answer("skip:"), {"go": False, "why": "skip"})
+        # skip の後ろに : の無い字は焦点と読む（「Skip list」の見出しなど）
+        self.assertEqual(wake_hook.reply_answer("Skip list の直し"), {"go": True, "prep": {"focus": "Skip list の直し"}})
         self.assertEqual(wake_hook.reply_answer(""), {"go": False, "why": "no reply"})
 
     def test_a_typed_prompt_takes_the_compact_mark_off_but_the_typed_compact_does_not(self):

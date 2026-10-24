@@ -58,9 +58,14 @@ KINDS = {
     "start": "id",        # 起動方法の有る受け持ちを起動した（--start・--due）
     "moved": None,        # 部署の会話を別のアカウントで起動し直した（--move）
     "followed": None,     # 待ち受けが永続の部署の作業場をメインブランチの先頭へ進めた・進めなかった（detail に訳、next に順番待ちの先頭の頼み。wake_hook.follow_main）
-    "keepalive": None,    # 待ち受けが仕事の終わらない部署・窓口に keepalive を送った（ask に受けている頼み、sent に何回目か、limit に上限、
+    "keepalive": None,    # 待ち受けが仕事の終わらない部署・窓口に keepalive を送った（ask に受けている頼み、sent に何回目か、
                           # tasks に待つ物〔裏の処理の id、受けた頼みの ask:<受付>、出した頼みの child:<受付>、保留の頼みの parked:<受付>〕。
-                          # status stopped は上限で止めた、status skipped は送らなかった〔detail に訳〕。wake_hook.Warm・warm_for）。
+                          # 借りるか買うかの部品が答えたら spent に送った費用の累計〔ドル〕と reason に部品の訳、答えなければ limit に上限と
+                          # fixed に答えない訳。compact に compact を打たなかった・打った訳〔部品の reason か聞けなかった訳〕。
+                          # status stopped は止めた〔部品が buy と答えたか上限〕、skipped は送らなかった〔detail に訳〕、asked は keepalive の
+                          # 代わりに compact の焦点を問うた、answered は問いへの答え〔answer〕を読んで部品に聞き直した、compacted は判断で
+                          # compact を打った、compact-failed は判断で付けた compact の印を打てずに外した〔detail に訳〕。wake_hook.Warm・warm_for・
+                          # consult_answer・compact_turn）。
                           # 機械が書くので、頼みの更新の時刻を進めない
     "hopped": None,       # 前の版の待ち受けが、今入っている版の待ち受けに替わった（from・to に版の置き場。wake_hook.newer_self）
     "retired": None,      # エフェメラルの部署を畳んだ（--retire）

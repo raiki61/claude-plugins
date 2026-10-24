@@ -88,8 +88,8 @@ class LastReply(unittest.TestCase):
                 {"type": "system", "subtype": "stop_hook_summary"}]
         pathlib.Path(path).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
         self.assertEqual(chat.last_reply({"transcript_path": path}), ("答え", "問い"))
-        self.assertEqual(chat.last_reply({"transcript_path": "/none/t.jsonl"}), ("", ""))
-        self.assertEqual(chat.last_reply({}), ("", ""))
+        self.assertIsNone(chat.last_reply({"transcript_path": "/none/t.jsonl"}))
+        self.assertIsNone(chat.last_reply({}))
 
 
 if __name__ == "__main__":

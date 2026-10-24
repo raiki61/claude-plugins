@@ -693,7 +693,7 @@ def last_model(payload):
 def last_reply(payload):
     """会話の記録（transcript_path）の終わりの方の、本体の会話の最後のターンの (答えの字, そのターンを始めた文)。答えの字は最後の答えの行の
     text の塊をつないだ物、始めた文はその前の最後の文の行（人の文か、フックの知らせ。ツールの結果の行は飛ばす）の字。サブエージェントの行は
-    飛ばす。読めない・無ければ空の字。"""
+    飛ばす。記録を読めなければ None（答えか文が無ければ、その分は空の字）。"""
     path = transcript(payload)
     reply = None
     try:
@@ -701,7 +701,7 @@ def last_reply(payload):
             f.seek(max(0, os.path.getsize(path) - TAIL_BYTES))
             lines = f.read().decode("utf-8", "replace").splitlines()
     except (OSError, TypeError):
-        return "", ""
+        return None
     for line in reversed(lines):
         try:
             row = json.loads(line)

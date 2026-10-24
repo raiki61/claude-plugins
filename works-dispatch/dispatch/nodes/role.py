@@ -474,7 +474,7 @@ def parse_keepalive(value, where, problems):
         n, unit = _EVERY.fullmatch(every.strip()).groups()
         every = int(n) * _UNIT[unit]
     if "every" in value and not (isinstance(every, int) and not isinstance(every, bool) and every > 0):
-        problems.append(f"{where}: keepalive の every は正の秒の整数か \"210s\"・\"4m\"・\"1h\" の形の字。外して送らない")
+        problems.append(f"{where}: keepalive の every は正の秒の整数か \"240s\"・\"4m\"・\"1h\" の形の字。外して送らない")
         return None
     text = value.get("text")
     if "text" in value and not (isinstance(text, str) and text.strip()):
