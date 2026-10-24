@@ -188,6 +188,13 @@ model = "opus"   # 理由は頭の「受け持ちごとの model・effort」の�
 persistent = true
 resident = true   # 前の版の works-dispatch が読むキー（persistent と同じ意味）。前の版が使われなくなったら消す
 fresh = true
+# keepalive: 部署が頼みの途中でターンを終えて待つ間（裏の処理・出した頼みの納品）、待ち受けがキャッシュの寿命の前に短い文を送ってキャッシュを保つ。
+# 送る時刻と止め時は rent-or-buy の部品が決める（works-dispatch 0.122.0 から。works-dispatch/skills/dispatch/references/roles.md の「仕事が終わるまでの keepalive」）。
+# 寿命は 1 時間（[roles.settings] の promptCacheTtl）。my_notes の部署の 5 分と違うのは、この会社の部署の働き方を測った結果（業務改革の頼み b5b5c1。docs/reform/ledger.md の「頼み b5b5c1」）。
+# 結論: 5 分と 1 時間の費用はほぼ同点（差は 2〜3%）なので、今の動きのまま 1 時間にした。
+# 数: 2026-10-24 11〜21 時の要求 1,154 回で、5 分を超えて 1 時間以内の間が 27 回、そのうち keepalive を書いても送られない間（ターンの中の前景の --land や、何も待たずにターンを終えた後）が 14 回。
+# 条件: my_notes の指南 llm-agent-workflow-cost-design-guide.md の 3.3 の「1 時間が得 ⇔ 5 分で切れて書き直す量 Q が、書き込み W0 の 0.625 倍を超える」。この窓では Q 165 万・0.625 × W0 185 万、10-21〜24 の窓では Q 438 万・407 万
+keepalive = true
 # 残った疑問（要約の頭書きの [[open]]）の 1 件ごとの担当者（holder）を --deliver が確かめる。書けるのは受付番号・owner:choose・owner:confirm・頼み元の名前（my_notes の司令塔は持ち主への中継を兼ねるので除く。受付 24e521・b6778d）
 holders = ["司令塔"]
 deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約に works-dispatch/dispatch/terms.py の語の一覧の言い方（IT の定着語でない物）が有れば止める。「」・`` ` `` の中、引用の行、コードブロックは見ない
@@ -227,6 +234,8 @@ skillOverrides = { dataviz = "off" }
 # （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
 # 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
 autoCompactWindow = 200000
+# キャッシュの寿命。理由は役「担当」の keepalive のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
+promptCacheTtl = "1h"
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は main へ fast-forward するので
 # 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] のゲートを通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
 autoMode = { allow = ["$defaults", """\
@@ -240,6 +249,7 @@ main への取り込みは、人のレビューの代わりに、会社の形（
 name = "作業"
 model = "opus"   # 理由は頭の「受け持ちごとの model・effort」のコメントの「ただし model は」の項
 effort = "medium"
+keepalive = true   # 理由は役「担当」の keepalive のコメント
 # 残った疑問（要約の頭書きの [[open]]）の 1 件ごとの担当者（holder）を --deliver が確かめる。書けるのは受付番号・owner:choose・owner:confirm・頼み元の名前（my_notes の司令塔は持ち主への中継を兼ねるので除く。受付 24e521・b6778d）
 holders = ["司令塔"]
 deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約に works-dispatch/dispatch/terms.py の語の一覧の言い方（IT の定着語でない物）が有れば止める。「」・`` ` `` の中、引用の行、コードブロックは見ない
@@ -278,6 +288,8 @@ skillOverrides = { dataviz = "off" }
 # （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
 # 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
 autoCompactWindow = 200000
+# キャッシュの寿命。理由は役「担当」の keepalive のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
+promptCacheTtl = "1h"
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は main へ fast-forward するので
 # 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] のゲートを通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
 autoMode = { allow = ["$defaults", """\
