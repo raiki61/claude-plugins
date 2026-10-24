@@ -348,30 +348,34 @@ def reply_answer(reply):
 def consult_answer(got, payload, attrs, ttl_of=role_hook.cache_ttl_of, line_of=forced_line):
     """keepalive の時刻かターンの終わりに compact の焦点を問うた（Warm が CONSULT_TEXTS の 1 つを送った）ターンの終わり（Stop）に、
     会話の最後の答えを読んで部品に 2 回目の判断を聞く。打つなら compact の印（company.compact・company.compact-focus）を付けて、
-    印を足した属性を返す。打たないなら延ばした回数を 1 足し、attrs をそのまま返す。問うていない・そのターンが問いで始まっていない（間に人の文などが入った）なら何もしない。"""
+    印を足した属性を返す。打たないなら延ばした回数を 1 足し、attrs をそのまま返す。問うていない・そのターンが問いで始まっていない（間に人の文などが入った）なら何もしない。
+    ターンの終わりの問い（TURN_CONSULT_TEXT）への答えは、延ばした回数を keepalive の時刻の物（deferred）と分けて turned で数える
+    （ターンの終わりに人が打ちそうで延ばした回数で、keepalive の時刻に問わずに打つ延期の上限を使い切らない）。"""
     inbox, place, session = got["inbox"], got["place"], got["session"]
     mine = wake.compact_state(inbox, place, session)
     if not mine["asked"]:
         return attrs
+    kept = {"deferred": mine["deferred"], "turned": mine["turned"]}
     got_reply = chat.last_reply(payload)
     if got_reply is None or not any(t in got_reply[1] for t in CONSULT_TEXTS):
-        wake.compact_note(inbox, place, session, deferred=mine["deferred"])   # 延ばした回数は足さない（次の keepalive の時刻にまた問う）
+        wake.compact_note(inbox, place, session, **kept)   # 延ばした回数は足さない（次の keepalive の時刻にまた問う）
         warm_log(got, attrs, [], status="skipped", detail="会話の記録を読めず、焦点の問いへの答えを読めない" if got_reply is None
                  else "そのターンが焦点の問いで始まっていない（間に人の文か知らせが入った）ので、答えを読まない")
         return attrs
     reply = got_reply[0]
     answer = reply_answer(reply)
-    found, why = compact_judge(payload, ttl_of(got["cwd"], attrs), True, mine["deferred"], answer, line_of(got, attrs)[0])
+    count = "turned" if TURN_CONSULT_TEXT in got_reply[1] else "deferred"
+    found, why = compact_judge(payload, ttl_of(got["cwd"], attrs), True, kept[count], answer, line_of(got, attrs)[0])
     row = {"status": "answered", "answer": answer}
     if found and found["action"] == "buy":
         prep = found.get("prep") if isinstance(found.get("prep"), dict) else answer.get("prep")   # 強制の buy は prep を返さない
         focus = (prep or {}).get("focus")
         marks = {wake.COMPACT: session, wake.COMPACT_FOCUS: " ".join(str(focus).split()) if focus else None}
         provision.mark(got["cwd"], got["root"], marks, gitx)
-        wake.compact_note(inbox, place, session, deferred=mine["deferred"], judged=True)
+        wake.compact_note(inbox, place, session, **kept, judged=True)
         warm_log(got, attrs, [], **row, compact=found.get("reason"))
         return {**attrs, **marks}
-    wake.compact_note(inbox, place, session, deferred=mine["deferred"] + (1 if found else 0))
+    wake.compact_note(inbox, place, session, **{**kept, count: kept[count] + (1 if found else 0)})
     warm_log(got, attrs, [], **row, compact=found.get("reason") if found else why)
     return attrs
 
@@ -426,8 +430,8 @@ def compact_turn(got, payload, attrs, h=term, me=lambda: chat.host()[0], pause=N
         return None   # 会話は裏の処理の知らせで動いている。起動せずに印を残し、そのターンの終わりにまた試す
     provision.mark(got["cwd"], got["root"], clear, gitx)
     if judged:
-        wake.compact_note(got["inbox"], got["place"], got["session"],
-                          deferred=wake.compact_state(got["inbox"], got["place"], got["session"])["deferred"])
+        mine = wake.compact_state(got["inbox"], got["place"], got["session"])
+        wake.compact_note(got["inbox"], got["place"], got["session"], deferred=mine["deferred"], turned=mine["turned"])
         warm_log(got, attrs, [], status="compact-failed", detail=why)
         return None   # 判断で付けた印は会話が頼んだ物でないので、起動せずに待ちを続ける（次の keepalive の時刻にまた判断する）
     return "wake", (f"（区切り〔--compact〕で compact できなかった: {why}。この会話のまま続ける。続きが今は無ければ、そのままターンを"
@@ -1229,6 +1233,7 @@ class Warm:
         self.ended = ended and compact   # ターンの終わりの compact の判断（_turn_end）をまだ聞いていない
         self.line = line   # 強制の線（トークン。forced_line。分からなければ None）
         self.compact_note = None   # compact を打たなかった訳（部品の reason か聞けなかった訳。台帳の keepalive の行に添える）
+        self.failed = False   # この待ちで compact を打てなかった（ターンの終わりに打てなかったら、同じ周の送る時刻に打ち直さない）
         self.compact_with = compact_with or compact_now
         self.path = chat.transcript(payload)
         self.since, self.pos, self.off = now(), self._size(), False
@@ -1285,7 +1290,7 @@ class Warm:
         if state["stopped"]:
             self.off = True
             return None
-        said = self._compact(attrs, state) if self.compact else None
+        said = self._compact(attrs, state) if self.compact and not self.failed else None
         if said is not None:
             return said[0]
         if self.plan and self.plan["action"] == "buy" or not self.plan and state["sent"] >= self.conf["limit"]:
@@ -1315,10 +1320,14 @@ class Warm:
     def _turn_end(self):
         """ターンの終わりの compact の判断（設計書 6 の compact の指針 1。keepalive の時刻を待つと、寿命より短い待ちが続く会話では
         判断が一度も回らない）。待ち受けが張った最初の周に 1 度だけ聞く。打つか問うなら _compact と同じ組、ほかは None（送る時刻を待つ）。
-        送る時刻と違い、台帳には問うた・打った時だけ書く（毎回のターンの終わりに書くと台帳が埋まる）。"""
+        送る時刻と違い、台帳には問うた・打った時だけ書く（毎回のターンの終わりに書くと台帳が埋まる）。問いは keepalive の 1 本と
+        数える（_send。問いのターンもキャッシュを読み直すので、送った本数と費用の累計に足す）。順番待ちに頼みが在れば聞かない
+        （check が HOLD を返して渡すのを待っている頼みより先に、問いを渡さない）。"""
         attrs = self.attrs_of(self.got["cwd"])
         if work_unwanted(self.got, attrs):
             return None   # 送る時刻に _tick が訳を台帳に残す
+        if wake.queued(self.got["inbox"], self.got["place"]):
+            return None
         state = wake.warm_state(self.got["inbox"], self.got["place"], self.got["session"], self.tasks)
         if state["stopped"]:
             return None   # 止めた待ちの控えを、問いの 1 本で送り直す形に書き替えない（_send）
@@ -1328,23 +1337,25 @@ class Warm:
         """送る時刻か、ターンの終わり（ended）の compact の判断（設計書 6 の compact の指針 1〜3）。打つか問うなら、Warm が返す物を
         1 つだけ入れた組（問いの文か、打ったなら None）。打たないなら None（keepalive の判断に進む。部品の訳は self.compact_note に置き、
         keepalive の行に添える）。ターンの終わりに問わずに打つのは強制の線に着いたときだけで、延期の上限を超えて問わずに打つのは
-        送る時刻に回す（人が次の文を打とうとしている間に、会話の skip を越えて打たない）。"""
+        送る時刻に回す（人が次の文を打とうとしている間に、会話の skip を越えて打たない）。ターンの終わりは延ばした回数を turned で
+        数え（consult_answer）、上限に着いたら問わない（毎回のターンの終わりに問いを続けない）。"""
         inbox, place, session = self.got["inbox"], self.got["place"], self.got["session"]
         mine = wake.compact_state(inbox, place, session)
-        found, why = compact_judge(self.payload, self.conf["ttl"], True, mine["deferred"], line=self.line)
+        kept = {"deferred": mine["deferred"], "turned": mine["turned"]}
+        found, why = compact_judge(self.payload, self.conf["ttl"], True, kept["turned" if ended else "deferred"], line=self.line)
         if not found or found["action"] != "buy":
             self.compact_note = found.get("reason") if found else why
             return None
         turn = {"when": "turn-end"} if ended else {}   # 台帳の行で、ターンの終わりの判断を送る時刻の判断と分ける
         if found.get("consult"):
-            wake.compact_note(inbox, place, session, asked=True, deferred=mine["deferred"])
+            wake.compact_note(inbox, place, session, asked=True, **kept)
             return (self._send(attrs, state, TURN_CONSULT_TEXT if ended else CONSULT_TEXT, status="asked",
                                compact=found.get("reason"), **turn),)
         if ended and found.get("reason") != "forced":
             return None
         marks = {wake.COMPACT: session, wake.COMPACT_FOCUS: None}
         provision.mark(self.got["cwd"], self.got["root"], marks, gitx)
-        wake.compact_note(inbox, place, session, deferred=mine["deferred"], judged=True)
+        wake.compact_note(inbox, place, session, **kept, judged=True)
         try:   # 裏の処理が残る会話は、窓の会話の状態の代わりに、この待ちで会話が動いていないかを見る（compact_now の still）
             failed = self.compact_with(self.got, self.payload, {**attrs, **marks}, still=lambda: not self._moved())
         except Exception as e:  # 印を残すと keepalive が止まるので、打てなかったのと同じに扱って印を外す
@@ -1354,11 +1365,11 @@ class Warm:
             self._log(attrs, status="compacted", compact=found.get("reason"), **turn)
             return (None,)   # compact の後の会話の始まりの待ち受けが、会話を起動する
         provision.mark(self.got["cwd"], self.got["root"], {wake.COMPACT: None, wake.COMPACT_FOCUS: None}, gitx)
-        wake.compact_note(inbox, place, session, deferred=mine["deferred"])
+        wake.compact_note(inbox, place, session, **kept)
         if failed == MOVED:
             self.off = True   # 会話が動いた。送らなくてよいので台帳にも書かない（_tick と同じ）
             return (None,)
-        self.compact_note = f"compact を打てなかった（{failed}）"
+        self.compact_note, self.failed = f"compact を打てなかった（{failed}）", True
         return None
 
 
@@ -1409,7 +1420,7 @@ def ours(payload, conf):
     compact の判断を聞かない。keepalive は送る直前に聞き、問いの答えは consult_answer が読むので、聞くと同じ判断を重ねるか問いが続く）。
     会話の記録を読めなければ真（聞かない）。"""
     got = chat.last_reply(payload)
-    return got is None or any(t in got[1] for t in (conf["text"], *CONSULT_TEXTS))
+    return got is None or any(t and t in got[1] for t in (conf["text"], *CONSULT_TEXTS))
 
 
 def keepalive_plan(payload, conf, spent, now=time.time):

@@ -1864,7 +1864,7 @@ class Hook(unittest.TestCase):
             self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
                                                      me=lambda: ME))
         self.assertEqual(self.asked_part[0][1]["answer"], {"go": False, "why": "試験の途中"})
-        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "judged": False})
+        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "turned": 0, "judged": False})
         # 問うた後に人の文などでターンが始まったら、その答えは問いへの答えと読まない（部品に聞かず、問うた印だけ外す）
         wake.compact_note(self.inbox, place, "s1", asked=True, deferred=1)
         write_line(log, {"type": "user", "message": {"content": "どう？"}})
@@ -1873,7 +1873,7 @@ class Hook(unittest.TestCase):
             self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
                                                      me=lambda: ME))
         self.assertEqual(self.asked_part, [])
-        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "judged": False})
+        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "turned": 0, "judged": False})
 
     def test_past_the_defer_limit_it_compacts_without_asking_and_sends_the_keepalive_if_it_cannot(self):
         # 延ばした回数が上限に着くと部品は聞かずに buy を返す。焦点なしで打つ。打てなければ印を外し、keepalive の文を送る
@@ -2020,7 +2020,9 @@ class Hook(unittest.TestCase):
         write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "skip: 持ち主の答えを待っている"}]}})
         with self.rent_or_buy(({"action": "rent", "consult": False, "reason": "consult_deferred", "why": "w"}, None)):
             wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place), me=lambda: ME)
-        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "judged": False})
+        # ターンの終わりの問いに延ばした回数は、keepalive の時刻の物と分けて数える（人が打ちそうで延ばしても、keepalive の時刻に
+        # 問わずに打つ延期の上限を使い切らない）
+        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 0, "turned": 1, "judged": False})
         # rent なら台帳に書かずに送る時刻を待ち、送る時刻にはまた聞く
         rows = len(deliver.records(self.inbox))
         payload, warm = self.judged_warm(log, clock)
@@ -2031,9 +2033,9 @@ class Hook(unittest.TestCase):
             self.assertEqual(len(deliver.records(self.inbox)), rows)
             clock[0] = 1240.0
             self.assertEqual(warm(), "（keepalive）")
-        self.assertEqual(len(self.asked_part), 2)
+        self.assertEqual([facts["deferred"] for _, facts in self.asked_part[-2:]], [1, 0])   # ターンの終わりは turned、送る時刻は deferred
         # 延期の上限を超えた buy（問わずに打つ）は、ターンの終わりには打たない（人が次の文を打とうとしている間でありうる）
-        wake.compact_note(self.inbox, place, "s1", deferred=wake_hook.DEFER_LIMIT)
+        wake.compact_note(self.inbox, place, "s1", turned=wake_hook.DEFER_LIMIT)
         clock[0] = 1000.0
         payload, warm = self.judged_warm(log, clock)
         warm.ended, typed = True, []
@@ -2042,6 +2044,7 @@ class Hook(unittest.TestCase):
             self.assertIsNone(warm())
         self.assertEqual(typed, [])
         self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        self.assertEqual(self.asked_part[-1][1]["deferred"], wake_hook.DEFER_LIMIT)
         # 強制の線に着いたら、ターンの終わりにも問わずに打つ（自動の compact はターンの途中でも打つ）
         payload, warm = self.judged_warm(log, clock)
         warm.ended = True
@@ -2050,6 +2053,45 @@ class Hook(unittest.TestCase):
             self.assertIsNone(warm())
         self.assertEqual(typed, [None])
         self.assertEqual((deliver.records(self.inbox)[-1]["status"], deliver.records(self.inbox)[-1]["when"]), ("compacted", "turn-end"))
+
+    def test_the_turn_end_judgment_yields_to_queued_asks_unwanted_work_and_stopped_waits(self):
+        # 順番待ちに頼みが在る（check が HOLD で渡すのを待つ）・仕事が要らなくなった・止めた待ちでは、ターンの終わりに聞かない
+        log, clock = self.transcript(150000), [1000.0]
+        place = self.g.git_dir(self.place)
+        buy = ({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)
+        wake.enqueue(self.inbox, place, {"id": "a1", "line": "a1"})
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended = True
+        with self.rent_or_buy(buy):
+            self.assertIsNone(warm())
+        self.assertEqual(self.asked_part, [])
+        for item in wake.queued(self.inbox, place):
+            os.remove(item["path"])
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended = True
+        wake.warm_note(self.inbox, place, "s1", ["ask:a0"], 1, stopped=True, spent=0.01)
+        with self.rent_or_buy(buy):
+            self.assertIsNone(warm())
+        self.assertEqual(self.asked_part, [])
+        os.remove(wake.warm_path(self.inbox, place))
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended = True
+        provision.mark(self.place, self.src, {wake.FINISHED: "1"}, self.g)
+        with self.rent_or_buy(buy):
+            self.assertIsNone(warm())
+        self.assertEqual(self.asked_part, [])
+
+    def test_a_turn_end_compact_that_could_not_type_is_not_retried_in_the_same_round(self):
+        # ターンの終わりに強制の線で打てなかったら、同じ周の送る時刻に打ち直さず keepalive を送る
+        log, clock = self.transcript(150000), [1240.0]
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended, tried = True, []
+        warm.compact_with = lambda got, payload, attrs, still: tried.append(1) or "窓の入力フィールドに打ちかけの字が在る"
+        forced = ({"action": "buy", "consult": False, "reason": "forced", "why": "w"}, None)
+        with self.rent_or_buy(forced, forced):
+            self.assertEqual(warm(), "（keepalive）")
+        self.assertEqual(len(tried), 1)
+        self.assertIn("compact を打てなかった", deliver.records(self.inbox)[-1]["compact"])
 
     def test_turns_the_waiting_side_started_do_not_ask_again_at_their_end(self):
         # keepalive の文か問いで始まったターンの終わりには、ターンの終わりの判断を聞かない（keepalive は送る直前に聞き、問いの答えは
