@@ -127,10 +127,11 @@ def clone_location(market, env, runner=run):
     """その設定のフォルダの marketplace の clone の置き場（読めなければ None）。"""
     code, out = runner(["claude", "plugin", "marketplace", "list", "--json"], env)
     try:
-        return next((m.get("installLocation") for m in json.loads(out) if isinstance(m, dict) and m.get("name") == market),
-                    None) if code == 0 else None
+        loc = next((m.get("installLocation") for m in json.loads(out) if isinstance(m, dict) and m.get("name") == market),
+                   None) if code == 0 else None
     except (ValueError, TypeError):
         return None
+    return loc if isinstance(loc, str) and loc else None
 
 
 def mend_clone(name, market, env, dry, runner=run):
@@ -250,7 +251,7 @@ def update_account(name, config_dir, market, dry, runner=run, keep_out=()):
         names, line = offered(name, market, env, runner)
         if line:
             note("install", line[1], line[0])
-        for i in sorted(f"{n}@{market}" for n in names if n not in keep_out and f"{n}@{market}" not in ids):
+        for i in sorted({f"{n}@{market}" for n in names if n not in keep_out and f"{n}@{market}" not in ids}):
             argv = ["claude", "plugin", "install", i]
             if dry:
                 note("install", f"{name}: {' '.join(argv)}（空打ち）", False)
@@ -277,9 +278,9 @@ def update_account(name, config_dir, market, dry, runner=run, keep_out=()):
             head = f"{name}: claude plugin {verb} {i} "
             where, version = after.get(i, (None, None))
             if err:
-                note("update", head + f"失敗（入った写しを確かめられない: {err}）", True)
+                note(verb, head + f"失敗（入った写しを確かめられない: {err}）", True)
             elif not where or not (pathlib.Path(where) / ".claude-plugin" / "plugin.json").is_file():
-                note("update", head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
+                note(verb, head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
             else:
                 whole.append((name, i, version, verb))
     return steps, whole
