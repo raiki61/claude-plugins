@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.126.0] - 2026-10-25
+
 ### Changed
 
 - 待ってターンを終えた会話の compact（Claude Code の会話の文脈を要約して縮める操作）を、keepalive（待ってターンを終えた会話に、プロンプトキャッシュの寿命が切れる前に送る短い文）の時刻を待たずに、そのターンの終わりにも判断する。待ち受け（部署の会話を見張る、works-dispatch の裏のフック）が、借りるか買うかの判断の部品（rent-or-buy の `bin/rent-or-buy`）に、keepalive の時刻と同じく聞く。前の版は keepalive の時刻にだけ聞いた。そのため、寿命より短い待ちが続く会話（寿命 1 時間の my_notes の司令塔は、持ち主と話している昼の間ほぼ全部）では判断が一度も回らず、得になる線を越えても強制の線（`autoCompactWindow` の 8 割）まで縮まなかった。

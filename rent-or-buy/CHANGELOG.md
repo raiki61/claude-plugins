@@ -6,6 +6,8 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
 ### Changed
 
 - 設計書（`docs/design.md` と `docs/design.ja.md`）の 7 の、呼ぶ側の compact の指針を直した。compact を判断する時を、keepalive の時刻だけから、待ちに入るターンの終わりにも広げた。どの待ちもキャッシュの寿命より短い会話では keepalive の時刻が来ないため。ターンの終わりは人が次の文を打とうとしている間でありうるので、問わずに compact するのは `forced` のときだけにする。コマンドの振る舞いは変えていない。
