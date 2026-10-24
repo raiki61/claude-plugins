@@ -40,7 +40,7 @@
   仕事が終わらないままターンを終えた会話（受けた頼みがまだ閉じていないか、出した頼みと保留の頼みの返事を待つ。裏の処理の有無は
   問わない。work_of）で、役か受け持ちに keepalive を書いた部署と窓口は、知らせの無いまま keepalive の間が過ぎれば、keepalive の文で
   会話を起動してプロンプトキャッシュを切らさない（Warm・warm_for。受付の設計の 3.4）。送る時刻と止め時は借りるか買うかの部品に聞き
-  （keepalive_plan）、裏の処理が無ければ送る時刻に先に compact を聞く（Warm._compact。会話に焦点を問い、答えはそのターンの終わりの
+  （keepalive_plan）、裏の処理の有無によらず送る時刻に先に compact を聞く（Warm._compact。会話に焦点を問い、答えはそのターンの終わりの
   compact_turn が読む。設計書 docs/specs/2026-10-24-rent-or-buy-design.md の 6）。
   送らなかったとき（仕事が終わった・区切りの印が在る・keepalive が無いなど）は、訳を台帳に keepalive の skipped の行で残す（残すターンの終わりの
   決まりは warm_for）。毎回のターンの終わりに、裏の処理を残したかを控えに書く（wake.waiting_note。--tree が、同じ頼みのまま長く動かない
@@ -200,6 +200,19 @@ def clear_now(got, payload, attrs, h=term, pause=lambda: time.sleep(1), marks=No
 
 COMPACT_LOOKS = 120   # /compact を打ってから、済んだ（compact の後の会話の始まりの待ち受けが印を外した）のを見る回数（5 秒ごと。10 分）
 IDLE_LOOKS = 6   # ターンの終わりの直後に会話がまだ動いていると見えたとき、手が空くのを見直す回数（5 秒ごと。--rest は次の拍で見直す）
+MOVED = "会話が動いた（会話の記録にターンの行が足された）"   # compact_now が still で打たなかった訳
+
+
+def still_since(path):
+    """今の会話の記録の終わりから、ターンの行が足されていなければ真を返す口（compact_now の still。wake.turned）。記録の場所が
+    分からなければ None（会話が動いたかを見られない）。"""
+    if not path:
+        return None
+    try:
+        start = os.path.getsize(path)
+    except OSError:
+        start = 0   # 記録がまだ無い・読めない（読めるようになった後の行は、全部を足された行と見る）
+    return lambda: not wake.turned(path, start)[0]
 
 
 def context_of(path, tail=2_000_000):
@@ -224,18 +237,27 @@ def context_of(path, tail=2_000_000):
     return None
 
 
-def compact_now(got, payload, attrs, h=term, pause=lambda: time.sleep(5), me=lambda: chat.host()[0], looks=None):
+def compact_now(got, payload, attrs, h=term, pause=lambda: time.sleep(5), me=lambda: chat.host()[0], looks=None, still=None):
     """止まった会話の窓に /compact <焦点> を打ち、済んだ（compact の後の会話の始まりの待ち受けが印 company.compact を外した）のを見たら
     None。打たなかった・済んだのを見られなかった訳を返す（印は外さない）。窓の確かめは clear_now と同じ（自分の会話の居る窓・手が空いて
-    いる・入力フィールドが空）。"""
-    if payload.get("background_tasks"):
+    いる・入力フィールドが空）。裏の処理（background_tasks）が残る会話は、herdr がターンを終えていても working と出すので、窓の会話の
+    状態の代わりに still（呼ぶ側が見始めた所から、会話の記録にターンの行が足されていなければ真。still_since）で手が空いたと見る。
+    still が無ければ打たない。裏の処理が残ったまま打ってよいのは、compact の後も裏の処理が動き続け、終わりの知らせが縮めた後の
+    会話に届くため（2026-10-25 に手元の全アカウントの会話の記録で、裏の処理の起動と終わりの間に compact が挟まった 325 件は、どれも知らせが
+    compact の後に届いた。compact の後の会話には Claude Code が動いている処理を task_status の行で添える。my_notes の受付 807aee）。"""
+    busy = payload.get("background_tasks")
+    if busy and still is None:
         return NOT_CLEARED_BACKGROUND
     try:
         jobs = (attrs.get("job"), got.get("job"), chat.attach_id(None, payload.get("session_id")))
         pane = talk_window(got["cwd"], h, [me()], jobs)
         if pane is None:
             return "この会話の居る窓を 1 つに確かめられない"
-        for n in range(IDLE_LOOKS):   # Stop の直後は、herdr の会話の状態がまだ動いているのままのことがある
+        if busy:
+            pause()   # Stop の直後は、窓に入力フィールドがまだ戻っていないことがある
+            if not still():
+                return MOVED
+        for n in range(0 if busy else IDLE_LOOKS):   # Stop の直後は、herdr の会話の状態がまだ動いているのままのことがある
             if (h.agent(pane) or {}).get("agent_status") in IDLE:
                 break
             if n == IDLE_LOOKS - 1:
@@ -380,25 +402,22 @@ def compact_turn(got, payload, attrs, h=term, me=lambda: chat.host()[0], pause=N
         said = f"。焦点: {focus}" if focus else ""
         if judged:
             return "wake", (f"（待ちの間に、費用の判断で会話を compact した{said}。compact の前に受けていた頼みと待っていた物を要約から読む。"
-                            "待つ物がまだ届いていなければ、そのままターンを終える）")
+                            "待つ物がまだ届いていなければ、そのままターンを終える。裏の処理の終わりの知らせは compact の後にも届く）")
         return "wake", (f"（区切り〔--compact〕で会話を compact した{said}。compact の前に受けていた頼みと"
-                        "次の手を要約から読み、続ける。続きが返事待ちなどで今は無ければ、そのままターンを終える）")
+                        "次の手を要約から読み、続ける。続きが返事待ちなどで今は無ければ、そのままターンを終える。裏の処理の終わりの知らせは"
+                        " compact の後にも届く）")
     if chat.event(payload) != "Stop" or attrs.get(wake.REST) or attrs.get(wake.FINISHED):
         return None
-    if payload.get("background_tasks"):
-        if judged:   # 判断で付けた印は会話が頼んだ物でないので残さない（残すと keepalive も止まる。次の keepalive の時刻にまた判断する）
-            provision.mark(got["cwd"], got["root"], clear, gitx)
-            wake.compact_note(got["inbox"], got["place"], got["session"],
-                              deferred=wake.compact_state(got["inbox"], got["place"], got["session"])["deferred"])
-            warm_log(got, attrs, [], status="compact-failed", detail="裏の処理が残っている")
-        return None   # 裏の処理が終わると会話が再開する。そのターンの終わりにまた試す
+    still = still_since(chat.transcript(payload))   # 裏の処理が残るときに、窓の会話の状態の代わりに見る（compact_now）
     why = None if judged else compact_worth(got, payload, attrs, ttl_of, line_of)
     if why:
         provision.mark(got["cwd"], got["root"], clear, gitx)
         return "wake", (f"（区切り〔--compact〕で compact しなかった: {why}。この会話のまま続ける。続きが今は無ければ、そのままターンを終える）")
-    why = compact_now(got, payload, attrs, h, me=me, looks=looks, **({"pause": pause} if pause else {}))
+    why = compact_now(got, payload, attrs, h, me=me, looks=looks, still=still, **({"pause": pause} if pause else {}))
     if why is None:
         return "end", None   # compact の後の会話の始まりの待ち受けが、続きをさせる
+    if why == MOVED and not judged:
+        return None   # 会話は裏の処理の知らせで動いている。起こさずに印を残し、そのターンの終わりにまた試す
     provision.mark(got["cwd"], got["root"], clear, gitx)
     if judged:
         wake.compact_note(got["inbox"], got["place"], got["session"],
@@ -1191,7 +1210,7 @@ class Warm:
     読み直し、work_unwanted が訳を返せば送らない。同じ会話が同じ仕事（tasks。裏の処理の id と work_of の並び）の間に続けて送るのは
     plan（keepalive_plan。借りるか買うかの部品の答え）が在れば、送る時刻は plan の due（無ければターンの終わりから conf の every 秒）、
     止めるのは plan の action が buy のとき。plan が無い（部品が無い・答えない）ときは conf の limit 本まで（wake.warm_state）。
-    compact が真（部品が答えるか強制の線 line が分かり、裏の処理が無い）なら、送る時刻に先に compact の判断を聞き（設計書
+    compact が真（部品が答えるか強制の線 line が分かる）なら、送る時刻に先に compact の判断を聞き（設計書
     docs/specs/2026-10-24-rent-or-buy-design.md の 6 の compact の指針。_compact）、打つなら keepalive は送らない。送るたびと、止めた時と、鳴った時に work_unwanted の訳が出てやめた時と、
     時計が誤りで止まった時に、台帳に keepalive の行を残す。送ったら控えに印を付ける（wake.waiting_kept。keepalive のターンで --tree の
     長い待ちの時計を戻さない）。"""
@@ -1295,8 +1314,8 @@ class Warm:
         marks = {wake.COMPACT: session, wake.COMPACT_FOCUS: None}
         provision.mark(self.got["cwd"], self.got["root"], marks, gitx)
         wake.compact_note(inbox, place, session, deferred=mine["deferred"], judged=True)
-        try:
-            failed = self.compact_with(self.got, self.payload, {**attrs, **marks})
+        try:   # 裏の処理が残る会話は、窓の会話の状態の代わりに、この待ちで会話が動いていないかを見る（compact_now の still）
+            failed = self.compact_with(self.got, self.payload, {**attrs, **marks}, still=lambda: not self._moved())
         except Exception as e:  # 印を残すと keepalive が止まるので、打てなかったのと同じに扱って印を外す
             failed = f"{type(e).__name__}: {e}"
         if failed is None:
@@ -1305,6 +1324,9 @@ class Warm:
             return (None,)   # compact の後の会話の始まりの待ち受けが、会話を起動する
         provision.mark(self.got["cwd"], self.got["root"], {wake.COMPACT: None, wake.COMPACT_FOCUS: None}, gitx)
         wake.compact_note(inbox, place, session, deferred=mine["deferred"])
+        if failed == MOVED:
+            self.off = True   # 会話が動いた。送らなくてよいので台帳にも書かない（_tick と同じ）
+            return (None,)
         self.compact_note = f"compact を打てなかった（{failed}）"
         return None
 
@@ -1348,7 +1370,7 @@ def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shel
     plan, fixed = keepalive_plan(payload, conf, state["spent"], now)
     line = line_of(got, attrs)[0]   # 部品が無くても、強制の線に着いた会話は送る時刻に compact する（compact_judge）
     return Warm(got, payload, conf, tasks + work, now=now, attrs_of=attrs_of, plan=plan,
-                compact=(bool(plan) or line is not None) and not count, fixed=fixed, line=line)
+                compact=bool(plan) or line is not None, fixed=fixed, line=line)
 
 
 def keepalive_plan(payload, conf, spent, now=time.time):
