@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.121.1] - 2026-10-24
+
 ### Changed
 
 - 受付の設計（`docs/specs/2026-10-17-reception-design.md`）の 7 章に、章の読み方（試しと実測の記録で、待ち受けと keepalive を直す前に見る所）と、keepalive を数えるときの数え方（会話の記録〔`~/.claude*/projects/` の jsonl〕の user の行のうち、待ち受けの Stop フックが止めた訳として Claude Code が「Stop hook blocking error from command」を頭に付けて keepalive の文を渡した行だけを数え、ツールの結果〔tool_result〕に keepalive の文が混じった行は除く）を書いた。keepalive の文や送り方を直すときは、この数え方で直す前と後を比べる。
