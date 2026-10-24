@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.125.0] - 2026-10-25
+
 ### Changed
 
 - 裏の処理（会話が `run_in_background` で走らせた Bash や、裏で動くサブエージェント）を待ってターンを終えた会話にも、compact（Claude Code の会話の文脈を要約して縮める操作）をする。待ち受け（部署の会話を見張る、works-dispatch の裏のフック）は、keepalive（待ってターンを終えた会話に、プロンプトキャッシュの寿命が切れる前に送る短い文）を送る時刻に、compact するかを借りるか買うかの判断の部品（rent-or-buy の `bin/rent-or-buy`）に聞く。文脈が強制の線（`autoCompactWindow` の 8 割）に着いた会話には、部品の答えによらず打つ。前の版は、裏の処理が 1 本でも残る間はこのどちらもせず、会話が `--compact` で印したターンでも、裏の処理が終わるまで打たなかった。my_notes（持ち主の別のリポジトリ）の作業の部署の keepalive 105 本は、全部が裏の処理を待つ間で、compact の判断は 0 回だった。
