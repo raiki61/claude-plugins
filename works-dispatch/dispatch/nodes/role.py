@@ -533,6 +533,42 @@ def cache_ttl(written, env):
     return chat.CACHE_TTL_UNSET, None
 
 
+# 強制の線（借りるか買うかの部品の compact の入力 forced。docs/specs/2026-10-24-rent-or-buy-design.md の 2.3）を、Claude Code の自動の
+# compact の線（auto_compact）のこの割合に置く。待ち受けが compact を判断するのは keepalive の時刻（待ちの間）だけで、自動の compact は
+# ターンの途中でも打つので、線の手前に、待ちが 1 回は入る幅を残す。自動の compact は線より少し手前で打つ（1M の窓のモデルの既定は
+# 1M の約 96.7% の約 967K。chat.AUTO_COMPACT_SETTING の注の文書）ので、それより十分下に置く。待ちの間に自動の compact が
+# 打たれていれば（会話の記録の compact の境目の trigger が auto）割合を下げる（割り振りの受付 20261024-105511-ded6a1）
+FORCED_SHARE = 0.8
+_TOKENS = re.compile(r"(\d+)([kKmM]?)")
+
+
+def auto_compact_for(role, duty=None, env=None):
+    """部署か窓口の会話の、Claude Code の自動の compact の線（auto_compact。起動の設定は役と受け持ちの設定を重ねた autoCompactWindow）。"""
+    return auto_compact((_layered(role, duty) or {}).get(chat.AUTO_COMPACT_SETTING), env or {})
+
+
+def auto_compact(written, env):
+    """Claude Code の自動の compact が打つ文脈の量（トークン）と、決められないときの訳（(トークン, None) か (None, 訳)）。環境変数
+    chat.AUTO_COMPACT_ENV が起動の設定の値（written）より先に効く。どちらも無いとき（Claude Code がモデルに合わせて選ぶ）と、幅の外か
+    数でない値（Claude Code は 10 万に直すか無視する）は、線が分からないので訳を返す。env は会話の環境変数（フックは会話の環境を継ぐ）。"""
+    low, high = chat.AUTO_COMPACT_RANGE
+    for name, value in ((f"環境変数 {chat.AUTO_COMPACT_ENV}", env.get(chat.AUTO_COMPACT_ENV) or None), (chat.AUTO_COMPACT_SETTING, written)):
+        if value is None:
+            continue
+        got = None if isinstance(value, bool) else value if isinstance(value, int) else _TOKENS.fullmatch(str(value).strip())
+        if got is not None and not isinstance(got, int):
+            got = int(got[1]) * {"": 1, "k": 1000, "m": 1000000}[got[2].lower()]
+        if got is None or not low <= got <= high:
+            return None, f"{name} の {value!r} は {low} から {high} までのトークンの数でない"
+        return got, None
+    return None, f"{chat.AUTO_COMPACT_SETTING} を書いていない（{chat.NAME} がモデルに合わせて選ぶ線は分からない）"
+
+
+def forced_line(window):
+    """自動の compact の線 window（トークン）から、強制の線（トークン）。"""
+    return int(window * FORCED_SHARE)
+
+
 def _holders(value):
     """役の holders・ask_holders の値を、検査しないなら None、するなら持ち主の側とみなす名前の並び（空でもよい）にする。"""
     if value is True:

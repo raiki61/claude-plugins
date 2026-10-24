@@ -322,6 +322,22 @@ class ModelAndEffort(unittest.TestCase):
             self.assertIsNone(role.keepalive_for(r, notes=notes, env=env), (r, env))
             self.assertIn(why, notes[0])
 
+    def test_the_auto_compact_line_is_read_like_claude_code_and_the_forced_line_sits_below_it(self):
+        # 環境変数が設定より先に効き、k・M を後ろに付けた値も読む。受け持ちの設定が役の設定より先に効く（起動の設定と同じ重ね方）
+        r = {"name": "作業", "settings": {"autoCompactWindow": 1000000}}
+        self.assertEqual(role.auto_compact_for(r), (1000000, None))
+        self.assertEqual(role.auto_compact_for(r, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500k"}), (500000, None))
+        self.assertEqual(role.auto_compact_for(r, {"name": "調べもの", "settings": {"autoCompactWindow": "200k"}}), (200000, None))
+        self.assertEqual(role.auto_compact(" 1M ", {}), (1000000, None))
+        self.assertEqual(role.forced_line(1000000), 800000)
+        # 書いていない（Claude Code がモデルに合わせて選ぶ）・幅の外・数でない値は、線が分からないので訳を返す
+        for written, env, why in ((None, {}, "書いていない"), (99999, {}, "99999"), (2000000, {}, "2000000"),
+                                  ("auto", {}, "'auto'"), (True, {}, "True"),
+                                  (1000000, {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200"}, "環境変数")):
+            got, note = role.auto_compact(written, env)
+            self.assertIsNone(got, (written, env))
+            self.assertIn(why, note)
+
     def test_keepalive_is_read_from_the_shape_for_roles_and_duties(self):
         d = tempfile.mkdtemp()
         got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "作業"\n[roles.keepalive]\nevery = "3m"\n'

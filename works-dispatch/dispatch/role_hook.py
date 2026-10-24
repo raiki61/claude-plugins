@@ -187,6 +187,13 @@ def cache_ttl_of(cwd, attrs, env=os.environ):
     return (role.cache_ttl_for(*found, env) if found else role.cache_ttl(None, env))[0]
 
 
+def auto_compact_of(cwd, attrs, env=os.environ):
+    """その場所の会話の、Claude Code の自動の compact の線（role.auto_compact。会社の形の役と受け持ちの autoCompactWindow と会話の
+    環境変数から読む）。(トークン, None) か、決められなければ (None, 訳)。役が無ければ環境変数だけで決める。"""
+    found = _role_duty(cwd, attrs, env)
+    return role.auto_compact_for(*found, env) if found else role.auto_compact(None, env)
+
+
 def rename_role(cwd, attrs, env=os.environ):
     """属性 company.role が役の前の名前（former_names）なら、今の名前に書き直す。書いたら今の名前、書かなければ None。"""
     if not attrs.get("role"):

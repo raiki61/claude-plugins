@@ -43,6 +43,11 @@ CACHE_TTL_UNSET = 3600
 # 次で、1 時間を頼む物はさらにその次）と、キャッシュを切る物（「Disable prompt caching」。値が 1 で効く）
 CACHE_TTL_FORCE_5M, CACHE_TTL_ENV, CACHE_TTL_ASK_1H = "FORCE_PROMPT_CACHING_5M", "CLAUDE_CODE_PROMPT_CACHE_TTL", "ENABLE_PROMPT_CACHING_1H"
 CACHE_OFF_ENV = "DISABLE_PROMPT_CACHING"
+# 自動の compact が打つ文脈の量（トークン）を選ぶ設定の名前と、それより先に効く環境変数と、受ける値の幅（値は 1000 倍の k・100 万倍の M を
+# 後ろに付けてもよい）。どれも書かなければモデルに合わせた量で、1M の窓のモデルは約 967K（https://code.claude.com/docs/en/settings-reference の
+# 「autoCompactWindow」、https://code.claude.com/docs/en/model-config の「Set the auto-compact window」。2026-10-24 に読んだ）
+AUTO_COMPACT_SETTING, AUTO_COMPACT_ENV = "autoCompactWindow", "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+AUTO_COMPACT_RANGE = (100000, 1000000)
 # キャッシュの書き込みと読みの値段の、ふつうの入力の値段への倍率（寿命の秒 → 書き込みの倍率）。読みはモデルで違い、表に無いモデルは
 # 0.1 倍（https://platform.claude.com/docs/en/about-claude/pricing の「Model pricing」の表と注。2026-10-23 に読んだ）。表の鍵はモデルの名前の頭
 CACHE_WRITE_RATE = {300: 1.25, 3600: 2.0}

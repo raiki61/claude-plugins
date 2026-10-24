@@ -120,6 +120,11 @@ keepalive = { every = "240s" }        # この部署だけ、役の keepalive �
 - `settings` は、その会話の間だけ、利用者の全体の設定とリポジトリの設定の同じ鍵より先に効く（全体の設定とリポジトリの設定は触らない）。ツールの名前だけを `permissions.deny` に書くと、そのツールは会話の文脈から消える。`skillOverrides` は Claude Code に同梱のスキルにだけ効き、プラグインのスキルには効かない（プラグインごと切るのは `enabledPlugins`）。`enabledPlugins` で works-dispatch 自身を切ると役の本文が足されないので、dispatch が注記を出す。
 - 受け持ちの `settings`（表）は、その受け持ちの部署（受け持ちの名前と「<受け持ち>：<何をするか>」）を起動するとき、役の `[roles.settings]` の上に重ねる（表は鍵ごとに深く重ね、表でない値〔並びを含む〕は受け持ちの値で置き換える。部署の worktree を作業場から出さない `worktree.bgIsolation` は最後に上から重ねる）。表でなければ注記を出して外す。効く時は `model`・`effort` と同じで、`company.launched` にも重ねた設定が入る。`--task --dry-run` の「役の起動の設定」の行に、重ねた後の鍵の名前が出る。
 - 部署が打つ `--land` が auto mode の判定に止められないための `autoMode.allow` の書き方と訳は land.md。並びの頭に `"$defaults"` を置く（無いと、組み込みの例外の並びを丸ごと置き換える。https://code.claude.com/docs/en/auto-mode-config ）。`autoMode` はプロジェクトの `.claude/settings.json` からは読まれないので、役の `settings` に書く。
+- `autoCompactWindow`（Claude Code が自動で compact する文脈の量。トークンの数で 100000〜1000000。https://code.claude.com/docs/en/settings-reference ）は、待ち受けの強制の線の元にもなる。強制の線は、その値の 8 割（`dispatch/nodes/role.py` の `FORCED_SHARE`）。keepalive を送る時刻（「仕事が終わるまでの keepalive」）と `--compact` の印のターンの終わりに、会話の文脈が強制の線に着いていれば、待ち受けは借りるか買うかの判断の部品に `forced` を真にして聞き、会話に焦点を問わずに compact を打つ（部品が入っていない・答えないときも打つ。書き方は [rest.md](rest.md) の「keepalive の時刻の compact」）。会話の環境変数 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` が設定より先に効く（Claude Code と同じ順）。どちらも書いていない・幅の外の値なら、強制の線は無い。上げる値は次の順で決める。
+  1. 上げるのは keepalive を書いた役か受け持ちだけ。待ち受けが compact を判断するのは keepalive の時刻と `--compact` の印のときだけなので、keepalive の無い部署で上げると、自動の compact のほかに歯止めが無くなる。
+  2. 値は、その役のモデルの文脈の上限を超えない（今の Claude 5 系は全部 1M。https://platform.claude.com/docs/en/about-claude/models/overview ）。超えて書くと、Claude Code はモデルの上限で打つが、強制の線は書いた値から出すので、自動の compact より後ろになる。
+  3. 上限の近くまで上げる（設計書 docs/specs/2026-10-24-rent-or-buy-design.md〔リポジトリのルート〕の 6。自動の compact はターンの途中でも焦点なしで打つので、歯止めにだけ残す）。1M のモデルで `1000000` なら、強制の線は 80 万トークンで、自動の compact は約 967K（https://code.claude.com/docs/en/model-config ）。
+  4. 上げた後は、待ちに入らずに働き続ける会話（keepalive の時刻が来ない会話）が自動の compact の線まで伸びる。その費用を、会話の記録で、自動の compact（compact の境目の `trigger` が `auto`）の数と、20 万トークンを超えた会話の数で見る。20 万は、長い会話の読み直しの費用を抑えるために入れた前の値（ルートの docs/reform/ledger.md の「長い会話を 20 万トークンで縮める」）。待ちの間に自動の compact が打たれていたら、`FORCED_SHARE` を下げる。
 
 ## 仕事が終わるまでの keepalive（keepalive）
 
