@@ -4,7 +4,7 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る。
 
-## [Unreleased]（まだ版を付けていない変更。版を出すときに版の見出しへ移す）
+## [Unreleased]
 
 ### Added
 
