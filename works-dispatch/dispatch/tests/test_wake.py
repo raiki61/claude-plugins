@@ -389,6 +389,11 @@ class Keepalive(unittest.TestCase):
         warm = wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs)
         self.assertEqual((type(warm), warm.tasks), (wake_hook.Warm, ["b1", "ask:a1"]))
         self.assertEqual(self.skipped(), [])
+        # compact を聞ける（部品が答えるか強制の線が分かる）なら、ターンの終わりの判断も聞く。前の版の待ち受けから替わった時は聞かない
+        line = lambda got, attrs: (150000, None)
+        self.assertTrue(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs, line_of=line).ended)
+        self.assertFalse(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs, line_of=line,
+                                            again=True).ended)
         self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: self.attrs))
         self.assertIsNone(wake_hook.warm_for(self.got, {**self.payload, "hook_event_name": "SessionStart"}, conf_of=conf,
                                              attrs_of=lambda cwd: self.attrs))
@@ -1998,6 +2003,68 @@ class Hook(unittest.TestCase):
                                    pause=lambda: None, looks=1, line_of=lambda got, attrs: (150000, None))
         self.assertTrue(self.asked_part[0][1]["forced"])
         self.assertEqual(w.writes[0], "/compact 直しの残り")
+
+    def test_at_the_end_of_a_turn_it_asks_before_keepalive_time_but_not_past_the_defer_limit(self):
+        # ターンの終わり（待ち受けが張った最初の周）にも、送る時刻を待たずに compact を部品に聞く（寿命より短い待ちが続く会話でも回る）。
+        # 聞けと答えれば、ターンの終わりの問いを送る
+        log, clock = self.transcript(150000), [1000.0]
+        place = self.g.git_dir(self.place)
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended = True
+        with self.rent_or_buy(({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)):
+            self.assertEqual(warm(), wake_hook.TURN_CONSULT_TEXT)
+        self.assertTrue(wake.compact_state(self.inbox, place, "s1")["asked"])
+        self.assertEqual((deliver.records(self.inbox)[-1]["status"], deliver.records(self.inbox)[-1]["when"]), ("asked", "turn-end"))
+        # その問いへの答えも、keepalive の時刻の問いと同じく読む
+        write_line(log, {"type": "user", "message": {"content": "Stop hook blocking error: " + wake_hook.TURN_CONSULT_TEXT}})
+        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "skip: 持ち主の答えを待っている"}]}})
+        with self.rent_or_buy(({"action": "rent", "consult": False, "reason": "consult_deferred", "why": "w"}, None)):
+            wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place), me=lambda: ME)
+        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "judged": False})
+        # rent なら台帳に書かずに送る時刻を待ち、送る時刻にはまた聞く
+        rows = len(deliver.records(self.inbox))
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended = True
+        rent = ({"action": "rent", "consult": False, "reason": "within_buy_cost", "why": "w"}, None)
+        with self.rent_or_buy(rent, rent):
+            self.assertIsNone(warm())
+            self.assertEqual(len(deliver.records(self.inbox)), rows)
+            clock[0] = 1240.0
+            self.assertEqual(warm(), "（keepalive）")
+        self.assertEqual(len(self.asked_part), 2)
+        # 延期の上限を超えた buy（問わずに打つ）は、ターンの終わりには打たない（人が次の文を打とうとしている間でありうる）
+        wake.compact_note(self.inbox, place, "s1", deferred=wake_hook.DEFER_LIMIT)
+        clock[0] = 1000.0
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended, typed = True, []
+        warm.compact_with = lambda got, payload, attrs, still: typed.append(attrs[wake.COMPACT_FOCUS])
+        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
+            self.assertIsNone(warm())
+        self.assertEqual(typed, [])
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        # 強制の線に着いたら、ターンの終わりにも問わずに打つ（自動の compact はターンの途中でも打つ）
+        payload, warm = self.judged_warm(log, clock)
+        warm.ended = True
+        warm.compact_with = lambda got, payload, attrs, still: typed.append(attrs[wake.COMPACT_FOCUS])
+        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "forced", "why": "w"}, None)):
+            self.assertIsNone(warm())
+        self.assertEqual(typed, [None])
+        self.assertEqual((deliver.records(self.inbox)[-1]["status"], deliver.records(self.inbox)[-1]["when"]), ("compacted", "turn-end"))
+
+    def test_turns_the_waiting_side_started_do_not_ask_again_at_their_end(self):
+        # keepalive の文か問いで始まったターンの終わりには、ターンの終わりの判断を聞かない（keepalive は送る直前に聞き、問いの答えは
+        # consult_answer が読む）。記録を読めないときも聞かない
+        conf = {"text": "（keepalive）"}
+        log = self.transcript(150000)
+        payload = {"transcript_path": log}
+        self.assertFalse(wake_hook.ours(payload, conf))
+        for text in ("Stop hook blocking error: （keepalive）", wake_hook.CONSULT_TEXT, wake_hook.TURN_CONSULT_TEXT):
+            write_line(log, {"type": "user", "message": {"content": text}})
+            write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "waiting"}]}})
+            self.assertTrue(wake_hook.ours(payload, conf), text)
+        write_line(log, {"type": "user", "message": {"content": "どう？"}})
+        self.assertFalse(wake_hook.ours(payload, conf))
+        self.assertTrue(wake_hook.ours({"transcript_path": None}, conf))
 
     def test_reply_answer_reads_the_first_line(self):
         self.assertEqual(wake_hook.reply_answer("\n 直しの残り \n二行目"), {"go": True, "prep": {"focus": "直しの残り"}})

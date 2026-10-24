@@ -64,8 +64,9 @@ KINDS = {
                           # fixed に答えない訳。compact に compact を打たなかった・打った訳〔部品の reason か聞けなかった訳〕。
                           # status stopped は止めた〔部品が buy と答えたか上限〕、skipped は送らなかった〔detail に訳〕、asked は keepalive の
                           # 代わりに compact の焦点を問うた、answered は問いへの答え〔answer〕を読んで部品に聞き直した、compacted は判断で
-                          # compact を打った、compact-failed は判断で付けた compact の印を打てずに外した〔detail に訳〕。wake_hook.Warm・warm_for・
-                          # consult_answer・compact_turn）。
+                          # compact を打った、compact-failed は判断で付けた compact の印を打てずに外した〔detail に訳〕。asked と compacted の
+                          # 行で when が turn-end なのは、keepalive の時刻でなくターンの終わりの判断〔Warm._turn_end〕。wake_hook.Warm・
+                          # warm_for・consult_answer・compact_turn）。
                           # 機械が書くので、頼みの更新の時刻を進めない
     "hopped": None,       # 前の版の待ち受けが、今入っている版の待ち受けに替わった（from・to に版の置き場。wake_hook.newer_self）
     "retired": None,      # エフェメラルの部署を畳んだ（--retire）
