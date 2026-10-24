@@ -8,7 +8,11 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ### Added
 
-- 4 本目のゲート waitgate（`hooks/wait-gate.py`、PreToolUse の Bash）を足した。手で書いた待ちのループを、前景か `run_in_background` かを問わず走る前に止め、待つ対象のコマンドそのものを `run_in_background` で走らせて終わりの知らせを待つよう返す。止めるのは、`sleep` を回す `while`・`until` のループと、`while`・`until`・`sleep` を回す `for` と同じコマンドの中の `pgrep`・`pidwait` の `-f`（`--full`）・`pkill -0`・`ps … | grep`（コマンド行の全体から探すので、同じ文字列で待つ別のシェルに当たって終わらない）。`for` の中の `pgrep -f` は `sleep` が無くても止め（別の Bash の呼び出しに分ければ通る）、終わる条件の無い `for ((;;))` は `while` と同じに見る。1 回だけの `pgrep -f`、`sleep` を回さないループ、`while read` のループ（行を読み終えれば終わる）、回数の決まった `for` の中の `ps | grep` は通す。引用符の中とヒアドキュメントの中身は見ず、`bash -c`（`bash -o pipefail -c` も）・`eval` の引数と `$( … )` の中は見る。検査が落ちたら止め、止めた記録は `$CLAUDE_CONFIG_DIR/waitgate/denies.log` に残す。前景で打ったループも、Bash の時間の上限で Claude Code が止めずに裏へ移すので終わらずに残る（https://code.claude.com/docs/en/tools-reference の「Foreground commands that move to the background」）。2026-10-24 に、待つ先が終わった後も回り続けたループで会話が 28 時間・16 時間・38 分止まったのを受けた。判定は my_notes の `tools/no_wait_loop.py`（master 2d951aab）から写した（my_notes の頼み c8725c）。
+- 4 本目のゲート waitgate（`hooks/wait-gate.py`。Bash のツールが走る前に働く PreToolUse のフック）を足した。手で書いた待ちのループを、前景か裏（Bash の `run_in_background`）かを問わず走る前に止め、待つ対象のコマンドそのものを `run_in_background` で走らせて終わりの知らせを待つよう返す。入れた後に利用者がする事は無い。1 回の Bash の呼び出しの中で、次のどちらかが在れば止める。
+  - `sleep` を回す `while`・`until` のループ。待つ条件が満たされなければ終わらない。前景で打っても、Bash の時間の上限で Claude Code が止めずに裏へ移すので終わらずに残る（https://code.claude.com/docs/en/tools-reference の「Foreground commands that move to the background」）。終わる条件の無い `for ((;;))` も `while` と同じに見る。
+  - プロセスをコマンド行の全体から探す物（`pgrep`・`pidwait` の `-f`〔`--full`〕、生きているかだけを見る `pkill -0`、`ps` の出力を `grep` する形）と、ループが一緒に在る形。ループは `while`・`until`（`sleep` の有無を問わない）と `for`。`for` は、`sleep` を回すなら 4 つとも、回さないなら `pgrep`・`pidwait` の `-f` と `pkill -0` だけで止める。コマンド行の全体から探すので、同じ文字列で待つ別のシェルに当たり、互いに相手を見つけて終わらない。ループと関係の無い `pgrep -f` も、同じ呼び出しに在れば止まる（別の Bash の呼び出しに分ければ通る）。
+
+  通すのは、ループの無い 1 回だけの `pgrep -f`、`sleep` も上の探しも無いループ、`while read` のループ（行を読み終えれば終わる）、`sleep` の無い `for` の中の `ps | grep`。引用符の中とヒアドキュメントの中身は見ず、`bash -c`（`bash -o pipefail -c` も）・`eval` の引数と `$( … )` の中は見る。検査が落ちたら止め、止めた記録は `$CLAUDE_CONFIG_DIR/waitgate/denies.log`（Claude Code の設定のフォルダ。既定は `~/.claude`）に残す。2026-10-24 に、待つ先が終わった後も回り続けたループで、部署の会話が 28 時間・16 時間・38 分止まった（会話の記録で見た）のを受けた。判定は、持ち主の別のリポジトリ my_notes が自分の作業場だけに置いていたフック `tools/no_wait_loop.py`（master 2d951aab）から写した（my_notes の頼み c8725c）。
 
 ## [0.42.0] - 2026-10-24
 

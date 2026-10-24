@@ -498,13 +498,14 @@ it finishes.
 
 - The rule: a Bash call is stopped before it runs, in the foreground or the background, if it has a `while` or `until` loop that runs `sleep`,
   or if it has a `while`/`until` loop (or a `for` loop that runs `sleep`) together with `pgrep`/`pidwait -f` (`--full`), `pkill -0` or
-  `ps … | grep`. The last group searches the whole command line, so two loops waiting for the same text find each other's shells and never end.
+  `ps … | grep` (`pkill -0` sends no signal; it only checks whether a matching process is alive). These look for processes by the whole
+  command line, so two loops waiting for the same text find each other's shells and never end.
   A `pgrep -f` inside any `for` loop is stopped too (run it in a separate Bash call to pass), and `for ((;;))`, which has no end condition,
   counts as a `while` loop
 - What passes: a single `pgrep -f` with no loop, loops that do not run `sleep`, `while read` loops (they end when the input ends, e.g.
   `ps aux | grep x | while read u p _; do kill $p; done`), a `for` loop that runs `sleep` a fixed number of times, `ps | grep` in a `for` loop without `sleep`, and `--until` or `for` inside a word or an option
-- What it reads: loop words at the head of a command (start of a line, after `;`, `&`, `|`, brackets, `do`, `then`, `else` or `time`). Text in
+- What it reads: loop words at the head of a command (start of a line, after `;`, `&`, `|`, `(`, `)`, `{`, `}`, `!`, `do`, `then`, `else` or `time`). Text in
   quotes and here-document bodies is ignored, except the arguments of `bash -c` (also `bash -o pipefail -c`) and `eval`, `$( … )` and `` ` … ` `` inside double quotes, and a
   here-document read by a shell (`bash <<EOF`). Not seen: a loop inside `python3 -c`, `awk` over `ps`, or a loop in another script
 - The decision is deterministic (no LLM) and **there is no escape hatch**. It fails closed: if the check itself fails, the call is stopped.
-  Stops are logged to `$CLAUDE_CONFIG_DIR/waitgate/denies.log`. The rules are copied from my_notes' `tools/no_wait_loop.py` (master 2d951aab)
+  Stops are logged to `$CLAUDE_CONFIG_DIR/waitgate/denies.log` (`~/.claude` by default). The rules are copied from my_notes' `tools/no_wait_loop.py` (master 2d951aab)
