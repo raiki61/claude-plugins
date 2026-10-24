@@ -48,7 +48,7 @@ role = "作業"
 [[skills]]
 id = "dispatch"
 name = "割り振り"
-description = "works-dispatch と tiers の直し（部署の立て方・頼みと納品・main に入れるコマンドと、ツールの点検）"
+description = "works-dispatch・tiers・rent-or-buy の直し（部署の立て方・頼みと納品・main に入れるコマンドと、ツールの点検と、借りるか買うかの費用の判断の部品）"
 role = "担当"
 effort = "high"   # コード（works-dispatch の Python）
 
