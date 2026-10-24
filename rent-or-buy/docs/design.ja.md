@@ -159,7 +159,7 @@ keepalive を送る時刻の手は、実は 3 つある。送る（借りる）�
 
 ### 4.3 モデル名
 
-会話の記録に書かれるモデル名は、値段表の名前と同じとは限らない（クラウドの前置き、1M 文脈の印 `[1m]`、日付付きの版、社内の中継が付けた名前）。ccusage はそのまま照合し、次に小文字にして `.` と `@` を `-` に替え、最後に、渡された名前が含む表の名前のうち一番長い物を採る（曖昧な照合）。使う人は `CCUSAGE_MODEL_ALIASES` で対応表を足せる（[ccusage の model_aliases.rs](https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/model_aliases.rs)）。rent-or-buy は次の順にする。
+会話の記録に書かれるモデル名は、値段表の名前と同じとは限らない（クラウドの前置き、1M 文脈の印 `[1m]`、日付付きの版、社内の中継が付けた名前）。ccusage はそのまま照合し、次に小文字にして `.` と `@` を `-` に替え、最後に、渡された名前が含む表の名前のうち一番長い物を採る（曖昧な照合）。使う人は ccusage の環境変数で対応表を足せる（[ccusage の model_aliases.rs](https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/model_aliases.rs)）。rent-or-buy は次の順にする。
 
 1. 使う人の対応表（`RENT_OR_BUY_MODEL_ALIASES`。`名前=モデル` をカンマで区切るか JSON のオブジェクト。ccusage と同じ形）でそのまま引く。
 2. 正規化する: 小文字にし、末尾の `[...]` を削り、`claude-` より前（`us.anthropic.` などの前置き）を削り、`.` と `@` を `-` に替え、末尾の日付（`-20261001`）と版（`-v1:0`）を削る。その名前で値段表と対応表を引く。

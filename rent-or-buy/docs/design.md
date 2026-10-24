@@ -159,7 +159,7 @@ Data-residency pricing (`inference_geo`, 1.1 times) and Fast mode (a Claude Code
 
 ### 4.3 Model names
 
-The model name written in a transcript is not always the name in the price table: cloud prefixes, the 1M-context suffix `[1m]`, dated versions, names set by an internal proxy. ccusage matches exactly, then lowercases and replaces `.` and `@` with `-`, then falls back to the longest table name the given name contains (fuzzy matching). Users can add aliases in `CCUSAGE_MODEL_ALIASES` ([ccusage model_aliases.rs](https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/model_aliases.rs)). rent-or-buy does this:
+The model name written in a transcript is not always the name in the price table: cloud prefixes, the 1M-context suffix `[1m]`, dated versions, names set by an internal proxy. ccusage matches exactly, then lowercases and replaces `.` and `@` with `-`, then falls back to the longest table name the given name contains (fuzzy matching). Users can add aliases in an environment variable of ccusage ([ccusage model_aliases.rs](https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/model_aliases.rs)). rent-or-buy does this:
 
 1. Look the name up in the user's alias table (`RENT_OR_BUY_MODEL_ALIASES`, `name=model` pairs separated by commas, or a JSON object, the same shape as ccusage).
 2. Normalize: lowercase, drop a trailing `[...]`, drop everything before `claude-` (prefixes like `us.anthropic.`), replace `.` and `@` with `-`, drop a trailing date (`-20261001`) and version (`-v1:0`). Look the result up in the price table and the alias table.
