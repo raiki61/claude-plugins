@@ -57,7 +57,7 @@ def _tail(path, n=160):
     try:
         with open(path, "rb") as f:
             f.seek(max(0, os.path.getsize(path) - n))
-            return " ".join(f.read().decode("utf-8", "replace").split())
+            return " ".join(f.read().decode("utf-8", "ignore").split())   # 切った所で割れた字は捨てる（「�」を出さない）
     except OSError:
         return ""
 

@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import time
 import unittest
 from unittest import mock
@@ -235,6 +236,67 @@ class Move(unittest.TestCase):
                 self.assertEqual(rc, 0, out)
                 self.assertIn("待つのをやめた", out)
                 self.assertEqual(self.typed_lines(), [])
+
+    def gone_while_waiting(self, gone):
+        """--if-limited が待ち始めた後、1 度目の待ちの間に gone で部署を消し、見直さずに台帳へ訳を残して終わるのを確かめる。台帳の
+        moved の行の detail を返す。"""
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}]
+        self.ports.on_sleep = lambda _s: gone()
+        rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.ports.slept), 1)   # 消えた後は見直さない
+        self.assertIn("消えた", out)
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual([r["status"] for r in rows], [move.WAITING, "skipped"])
+        self.assertEqual((rows[-1]["why"], rows[-1]["path"]), (move.GONE, self.place))
+        return rows[-1]["detail"]
+
+    def test_if_limited_stops_waiting_once_the_department_place_is_gone_and_leaves_why_in_the_ledger(self):
+        # 待つ間に部署が畳まれて作業場が消えたら、宛先を引けない誤りを一時の誤りと見て待ち続けない
+        # （works-factory で、畳まれた部署を 10 分ごとに約 2254 分見直し続けた。受付 5b5019）
+        self.assertIn("作業場が無い", self.gone_while_waiting(lambda: shutil.rmtree(self.place)))
+
+    def test_if_limited_stops_waiting_once_the_department_attrs_are_gone(self):
+        self.assertIn("company.role", self.gone_while_waiting(
+            lambda: provision.mark(self.place, self.src, {"role": None}, self.g)))
+
+    def test_if_limited_stops_on_a_changed_wait_mark_even_while_the_department_cannot_be_found(self):
+        # 宛先を引けない間も、待ちの印が替われば（同じ場所に別の部署が立った・ターンが誤りなく終わった）herdr を通さずにやめる
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}]
+        find, waited = move.deliver.find_target, []
+        self.ports.on_sleep = lambda _s: waited.append(1) or provision.mark(self.place, self.src, {wake.LIMIT_HOLD: "other"}, self.g)
+
+        def missing(*args, **kw):
+            if waited:
+                raise move.deliver.DeliverError("「調べ」という部署が無い")
+            return find(*args, **kw)
+        with mock.patch.object(move.deliver, "find_target", missing):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("待ちの印", out)
+        self.assertEqual(len(self.ports.slept), 1)
+        self.assertEqual([r["status"] for r in deliver.records(self.inbox) if r.get("kind") == "moved"], [move.WAITING])
+
+    def test_if_limited_keeps_waiting_while_the_department_is_there_but_cannot_be_found(self):
+        # 作業場と属性が在るのに宛先を引けない（herdr の一覧の一時の抜けなど）間は、今までどおり待ち直す
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}, {"a1": full, "a2": full}]
+        find, calls = move.deliver.find_target, []
+
+        def missing(*args, **kw):
+            calls.append(1)
+            if len(calls) == 2:
+                raise move.deliver.DeliverError("「調べ」という部署が無い")
+            return find(*args, **kw)
+        self.ports.on_sleep = lambda _s: len(self.ports.slept) == 2 and provision.mark(self.place, self.src, {wake.LIMIT_HOLD: None}, self.g)
+        with mock.patch.object(move.deliver, "find_target", missing):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("見直せなかった（DeliverError", out)
+        self.assertNotIn("消えた", out)
+        self.assertEqual(len(self.ports.slept), 2)
 
     def test_if_limited_waits_again_over_a_typing_window_and_stops_when_the_talk_already_runs(self):
         # 持ち主の打ちかけの字に 1 行を足さない（待ち直す）。会話がもう動いていれば打たずにやめる

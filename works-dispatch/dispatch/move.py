@@ -94,6 +94,7 @@ BUSY = ("working", "blocked")   # herdr が会話がターンの途中（動い�
 WAIT = 600
 LONGEST = 3600
 GONE_ON = "使用上限か使える時間帯で止まった会話を、待った後に同じアカウントで続けた"   # 台帳の nudged の行の why
+GONE = "待っている間に部署か窓口が消えた"   # 台帳の moved の行の why（status は skipped。待つのをやめた）
 WAITING = "waiting"   # 台帳の moved の行の status: 移さずに待ち始めた（待った後に、起動し直すか、同じ会話に続きの 1 行を打つ）
 # 待った後に、止まった会話へ打つ続きの 1 行（{account} は今のアカウント）
 GO_ON = ("続きの知らせです: 前のターンは、提供元が要求を断った誤り（使用上限・使える時間帯の外・同時の要求の超過など）で途中で止まった。"
@@ -101,9 +102,14 @@ GO_ON = ("続きの知らせです: 前のターンは、提供元が要求を�
 
 
 def move(a, ports, cwd, task):
-    """--move。終了の値。--if-limited で移さずに待つと決めたら、決めた時刻まで待って見直す（_once が待ちを返す間、繰り返す）。"""
-    token = None
+    """--move。終了の値。--if-limited で移さずに待つと決めたら、決めた時刻まで待って見直す（_once が待ちを返す間、繰り返す）。
+    見直す前に、待っている部署か窓口が消えていれば（_gone）、台帳に訳を残して 0 で終える。"""
+    token = held = None
     while True:
+        if token and held:
+            gone = _gone(held, token, ports)
+            if gone is not None:
+                return gone
         try:
             got = _once(a, ports, cwd, task, token)
         except Exception as e:   # noqa: BLE001
@@ -114,8 +120,46 @@ def move(a, ports, cwd, task):
             got = {"until": ports.now() + WAIT, "token": token}
         if not isinstance(got, dict):
             return got
-        token = got["token"]
+        token, held = got["token"], got.get("held") or held
         ports.sleep(max(got["until"] - ports.now(), 0))
+
+
+def _watched(dept, company):
+    """待つ部署か窓口の、待った後に消えたかを見る値（_gone に渡す）。"""
+    return {"place": dept["path"], "root": company["root"], "name": dept["attrs"].get("name") or dept.get("branch")}
+
+
+def _gone(held, token, ports):
+    """待っている部署か窓口が消えた（作業場が無いか、部署の属性 company.role が無い）なら、台帳に kind moved・status skipped で訳を
+    残して 0。待ちの印（company.limit-hold）がもう token でなければ、_once と同じく何もせずに 0。居て印もそのままか、作業場の属性を
+    読めなければ None（読めないのは一時の誤りと見て待ち続ける）。宛先は herdr の一覧から引くので、畳まれた部署は引けず、その誤りを
+    一時の誤りと見て 10 分ごとに見直し続けた（works-factory で約 2254 分。受付 5b5019）。そこで herdr を通さずに作業場を見る。"""
+    place = held["place"]
+    if os.path.isdir(place):
+        try:
+            attrs = ports.attrs(place) or {}
+        except (gitx.GitError, OSError):
+            return None
+        if not attrs and os.path.exists(os.path.join(place, ".git")):
+            return None   # git の読み取りが落ちると属性は空で返る。作業場の git が在る間は、読めなかったと見る
+        if attrs.get("role"):
+            if attrs.get(wake.LIMIT_HOLD) == token:
+                return None
+            print(f"待つのをやめた: {held['name']} の待ちの印（company.{wake.LIMIT_HOLD}）が替わった（会話のターンが誤りなく終わったか、"
+                  "起動し直したか、後から止まった回の --move が待ちを引き継いだ）")
+            return 0
+        why = "作業場の部署の属性（company.role）が無い"
+    else:
+        why = "作業場が無い"
+    detail = f"待つのをやめた: 待っている間に {held['name']} が消えた（{why}。畳まれたか片付けられた）"
+    try:
+        deliver.log(deliver.inbox_of(ports.git.common_dir(held["root"])),
+                    {"kind": "moved", "at": ports.now(), "name": held["name"], "path": place, "from": None, "to": None,
+                     "why": GONE, "status": "skipped", "detail": detail})
+    except Exception as e:   # noqa: BLE001
+        print(f"台帳に書けなかった（{type(e).__name__}: {e}）", file=sys.stderr)
+    print(detail)
+    return 0
 
 
 def _once(a, ports, cwd, task, token):
@@ -232,7 +276,7 @@ def _once(a, ports, cwd, task, token):
         return _hold(ports, company, dept, ranked, mine, notes, f"アカウント {chosen} で起動し直せなかった", None)
     if watch:
         print(f"{WAIT // 60} 分後に、起動し直した会話が誤りで止まっていないかを見る（ターンが誤りなく終われば見ずにやめる）")
-        return {"until": ports.now() + WAIT, "token": watch}
+        return {"until": ports.now() + WAIT, "token": watch, "held": _watched(dept, company)}
     return rc
 
 
@@ -298,7 +342,7 @@ def _hold(ports, company, dept, ranked, mine, notes, why, token):
                      "to": None, "why": CLOSED if mine and mine["shut"] else LIMITED, "status": WAITING, "detail": why})
     at = time.strftime("%H:%M", time.localtime(until))
     print("\n".join(notes + [f"待つ: {why}。{at} に見直す（ほかのアカウントが空けば移し、今のアカウントが使えれば同じ会話に続きの 1 行を打つ）"]))
-    return {"until": until, "token": token}
+    return {"until": until, "token": token, "held": _watched(dept, company)}
 
 
 def _go_on(ports, accounts_, sessions_, company, dept, mine, notes, token):
