@@ -7,7 +7,7 @@
 
 - 見渡し: attention
 - 見直し: convergence-loops・graphloops
-- 割り振り: works-dispatch・tiers
+- 仕組み: works-dispatch・tiers・rent-or-buy
 - 点検: gates と、CI・ルートの `tests/`
 - 説明書: ルートの README・CLAUDE.md・CONTRIBUTING.md など、プラグインをまたぐ文書
 - 作業: 受け持ちの無い一度きりの直し
