@@ -123,13 +123,13 @@ def _mark_lock(path):
 
 
 def warm_path(inbox, place):
-    """keepalive の控え（{session, tasks, sent, stopped}。同じ会話が同じ裏の処理を待つ間に続けて送った本数と、上限で止めたか）。"""
+    """keepalive の控え（{session, tasks, sent, stopped}。同じ会話が同じ物〔裏の処理と頼み〕を待つ間に続けて送った本数と、上限で止めたか）。"""
     return os.path.join(_dir(inbox), key(place) + ".warm.json")
 
 
 def warm_state(inbox, place, session, tasks):
-    """同じ会話（session）が同じ裏の処理（tasks。id の並びか数）を待つ間の keepalive の控え {sent, stopped}。控えが無い・読めない・
-    会話か裏の処理が替わっていれば {sent: 0, stopped: False}（新しい待ちの始まり）。"""
+    """同じ会話（session）が同じ物（tasks。裏の処理の id か数と、ask:・child:・parked: の頼み。wake_hook.warm_for）を待つ間の keepalive の
+    控え {sent, stopped}。控えが無い・読めない・会話か待つ物が替わっていれば {sent: 0, stopped: False}（新しい待ちの始まり）。"""
     fresh = {"sent": 0, "stopped": False}
     try:
         with open(warm_path(inbox, place), encoding="utf-8") as f:

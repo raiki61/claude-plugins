@@ -656,6 +656,13 @@ def event(payload):
     return payload.get("hook_event_name")
 
 
+def in_subagent(payload):
+    """フックがサブエージェントの中で動いたか（agent_id が在る）。サブエージェントが compact すると、その中で SessionStart の compact が
+    会話の id と場所を本体と同じにして動く（2026-10-24、my_notes の受付 5ccb69 の部署の記録で、サブエージェントの compact の 1〜2 秒後に
+    待ち受けが立ち直っていた）。"""
+    return bool(payload.get("agent_id"))
+
+
 def transcript(payload):
     """会話の記録のファイルの場所（無ければ None）。"""
     return payload.get("transcript_path")

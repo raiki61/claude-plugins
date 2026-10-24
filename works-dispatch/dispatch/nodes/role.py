@@ -441,14 +441,14 @@ def settings_for(role, duty=None):
     return _merge(_layered(role, duty) or {}, FIXED)
 
 
-# keepalive（裏の処理を待つ間、会話のプロンプトキャッシュを切らさないために待ち受けが送る文）。寿命は役と受け持ちの設定を重ねた物の
+# keepalive（仕事が終わらないままターンを終えた間、会話のプロンプトキャッシュを切らさないために待ち受けが送る文）。寿命は役と受け持ちの設定を重ねた物の
 # chat.CACHE_TTL_SETTING から読む
 # 間隔の既定は寿命からこの秒を引く（ターンの終わりの応答を作る時間と、待ち受けが送ってから要求が出るまでの遅れの余裕）。5 分なら 210 秒
 KEEPALIVE_MARGIN = 90
 # 既定の文。返事を空にすると Claude Code が見える返事を促す文を足して要求が 1 回増え、「ツールを使わず」だけではフックの止めの字と
 # 読んで何かを打つことがある（2026-10-23 の試し。受付の設計の 7 章）ので、何もしないことと、書く一言を決めて渡す
-KEEPALIVE_TEXT = ("（keepalive: 裏の処理を待つ間に会話のプロンプトキャッシュを切らさないため、待ち受けが送った文で、誤りでも頼みでもない。"
-                  "裏の処理が終われば知らせが届く。ツールを使わず、「待機中」とだけ書いてターンを終える）")
+KEEPALIVE_TEXT = ("（keepalive: 頼みの仕事が終わらないままターンを終えた会話のプロンプトキャッシュを切らさないため、待ち受けが送った文で、"
+                  "誤りでも頼みでもない。待つ物があれば、済んだときに知らせが届く。ツールを使わず、「待機中」とだけ書いてターンを終える）")
 _EVERY = re.compile(r"(\d+)([smh])")
 _UNIT = {"s": 1, "m": 60, "h": 3600}
 
@@ -479,7 +479,7 @@ def parse_keepalive(value, where, problems):
 
 
 def keepalive_for(role, duty=None, notes=None, read=chat.CACHE_READ_RATE, env=None):
-    """部署の keepalive の {every: 秒, text: 字, ttl: 秒, limit: 続けて送る本数の上限}。送らないなら None。受け持ち（duty）の keepalive が役の物より先に効き、
+    """部署か窓口の keepalive の {every: 秒, text: 字, ttl: 秒, limit: 続けて送る本数の上限}。送らないなら None。受け持ち（duty）の keepalive が役の物より先に効き、
     両方が表なら鍵ごとに重ねる。every を書かなければ、キャッシュの寿命（cache_ttl。会話の環境変数 env と、役と受け持ちの設定を重ねた
     promptCacheTtl〔_layered〕から読む）から KEEPALIVE_MARGIN を引いた秒。寿命が無い・分からない・every が寿命より短くないなら、
     送っても寿命の切れた後に届くので送らず、訳を notes（並び）に足す。read は会話のモデルのキャッシュの読みの倍率（chat.read_rate）。"""

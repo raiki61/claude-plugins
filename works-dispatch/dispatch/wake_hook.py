@@ -37,9 +37,10 @@
   頼みを渡す・空にするなどの確かめ（checker）の前に毎回、Claude Code の入れた物の控え（installed_plugins.json）がこのプラグインの今の置き場を
   別の版と言っていれば、今の版の wake_hook.py に同じ引数とフックの入力で替わる（POSIX だけで exec。newer_self・hop。台帳に hopped の行）。
   /reload-plugins は裏で待っている待ち受けを止めないので、替わらないと、版を上げる前に立った待ち受けが前の版のまま何時間も後に渡す。
-  裏の処理を待ってターンを終えた会話（Stop の background_tasks に動いている物が在る）で、役か受け持ちに keepalive を書いた部署は、
-  知らせの無いまま keepalive の間が過ぎれば、keepalive の文で会話を起動してプロンプトキャッシュを切らさない（Warm・warm_for。受付の設計の 3.4）。
-  送らなかったとき（裏の処理が無い・納品した・keepalive が無いなど）は、訳を台帳に keepalive の skipped の行で残す（残すターンの終わりの
+  仕事が終わらないままターンを終えた会話（受けた頼みがまだ閉じていないか、出した頼みと保留の頼みの返事を待つ。裏の処理の有無は
+  問わない。work_of）で、役か受け持ちに keepalive を書いた部署と窓口は、知らせの無いまま keepalive の間が過ぎれば、keepalive の文で
+  会話を起動してプロンプトキャッシュを切らさない（Warm・warm_for。受付の設計の 3.4）。
+  送らなかったとき（仕事が終わった・区切りの印が在る・keepalive が無いなど）は、訳を台帳に keepalive の skipped の行で残す（残すターンの終わりの
   決まりは warm_for）。毎回のターンの終わりに、裏の処理を残したかを控えに書く（wake.waiting_note。--tree が、同じ頼みのまま長く動かない
   部署を出す）。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文でターンが始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
@@ -1001,23 +1002,41 @@ def woken(got, attrs_of=_attrs):
         provision.mark(got["cwd"], got["root"], {"cleared": None}, gitx)
 
 
-def warm_unwanted(attrs):
-    """keepalive を送らない場所の属性なら、その訳（台帳の keepalive の skipped の行の detail）。送ってよければ None。送るのは、納品して
-    いない頼み（company.ask が company.delivered でない）を受けていて、区切り（--rest・--compact）・終わり（--done）・起動し直し
-    （--move --if-changed）の印が無いときだけ（受付の設計の 3.4。作業の済んだ部署は送らない）。"""
-    ask = attrs.get("ask")
-    if not ask:
-        return "頼みを受けていない"
-    if attrs.get("delivered") == ask:
-        return "今の頼みを納品した"
+def asking(attrs):
+    """受けた頼みがまだ閉じていない（company.ask が在り、company.delivered でない）か。--done・--rest の印は warm_marked が見る。"""
+    return bool(attrs.get("ask")) and attrs.get("delivered") != attrs.get("ask")
+
+
+def warm_marked(attrs):
+    """区切り・終わり・起動し直しの印が在れば、その訳。無ければ None。"""
     marks = {wake.REST: "区切りの印（--rest）", wake.COMPACT: "区切りの印（--compact）", wake.FINISHED: "終わりの印（--done）",
              wake.RESTARTING: "起動し直しの印（--move --if-changed）"}
     return next((f"{v}が在る" for k, v in marks.items() if attrs.get(k)), None)
 
 
-def warm_wanted(attrs):
-    """keepalive を送ってよい場所の属性か（warm_unwanted が訳を返さない）。"""
-    return warm_unwanted(attrs) is None
+def awaited(got, attrs, records=None):
+    """この会話が返事か答えを待つ頼みの並び（keepalive の控えの鍵の一部）。出した頼みのうち閉じていない物（open_children）を
+    "child:<受付>" で、答え待ちのまま保留にした頼み（--wait --park）を "parked:<受付>" で並べる。どちらも、返事の納品の知らせか
+    答えでこの会話のターンが始まる（保留の間は会話を空にしない。references/rest.md）。"""
+    return ([f"child:{c}" for c in open_children(got, attrs, records)]
+            + sorted(f"parked:{p['id']}" for p in deliver.parked_of(attrs)))
+
+
+def work_of(got, attrs):
+    """keepalive の控えの鍵にする、この会話の終わっていない仕事のうち頼みの分の並び（受けた頼みが閉じていなければ "ask:<受付>" と、
+    awaited）。空なら、仕事は終わっている。"""
+    return ([f"ask:{attrs['ask']}"] if asking(attrs) else []) + awaited(got, attrs)
+
+
+def work_unwanted(got, attrs):
+    """keepalive を送らない場所の属性なら、その訳（台帳の keepalive の skipped の行の detail）。送ってよければ None。送るのは、
+    区切り（--rest・--compact）・終わり（--done）・起動し直し（--move --if-changed）の印が無く、仕事が終わっていない（work_of が
+    空でない）ときだけ（受付の設計の 3.4）。"""
+    why = warm_marked(attrs)
+    if why or work_of(got, attrs):
+        return why
+    head = "今の頼みを納品し" if attrs.get("ask") else "頼みを受けておらず"
+    return f"{head}、閉じていない出した頼みも保留の頼みも無い"
 
 
 def warm_log(got, attrs, tasks, now=time.time, **extra):
@@ -1031,16 +1050,16 @@ def warm_log(got, attrs, tasks, now=time.time, **extra):
 
 
 class Warm:
-    """keepalive の時計（受付の設計の 3.4）。裏の処理を待ってターンを終えた会話に、プロンプトキャッシュの寿命が切れる前に、会社の形の
-    keepalive の文を渡す（wake.watch の idle）。会話の記録（transcript_path）にターンの行（人の文か答え。type が user か assistant）が
+    """keepalive の時計（受付の設計の 3.4）。仕事が終わらないままターンを終えた会話に、プロンプトキャッシュの寿命が切れる
+    前に、会社の形の keepalive の文を渡す（wake.watch の idle）。会話の記録（transcript_path）にターンの行（人の文か答え。type が user か assistant）が
     足されたら、会話が動いた（裏の処理の知らせや人の文でターンが始まった）ので、この待ちでは送らない（そのターンの終わりに張り直した
-    待ち受けが、その時の裏の処理で決める。会話が動いたのは送らなくてよい形なので、台帳には書かない）。ターンの行でない行（手が空いた
+    待ち受けが、その時の属性と台帳で決める。会話が動いたのは送らなくてよい形なので、台帳には書かない）。ターンの行でない行（手が空いた
     会話の要約 away_summary など）では止めない（wake.turned）。
     端末（ports.term）の窓の会話の状態は見ない（裏の処理が動いている間は、ターンを終えていても working と出るので、見ると 1 本も送らない。
     2026-10-23 に my_notes の調べものが約 11 時間止まった間、keepalive は 0 本だった。my_notes の受付 f55a1b）。送る前に場所の属性を
-    読み直し、warm_unwanted が訳を返せば送らない。同じ会話が同じ裏の処理を待つ間に続けて送るのは conf の limit 本まで
-    （wake.warm_state）。送るたびと、上限で止めた時と、鳴った時に warm_unwanted の訳が出てやめた時と、時計が誤りで止まった時に、台帳に
-    keepalive の行を残す。送ったら控えに印を付ける（wake.waiting_kept。keepalive のターンで --tree の長い待ちの時計を戻さない）。"""
+    読み直し、work_unwanted が訳を返せば送らない。同じ会話が同じ仕事（tasks。裏の処理の id と work_of の並び）の間に続けて送るのは
+    conf の limit 本まで（wake.warm_state）。送るたびと、上限で止めた時と、鳴った時に work_unwanted の訳が出てやめた時と、時計が誤りで
+    止まった時に、台帳に keepalive の行を残す。送ったら控えに印を付ける（wake.waiting_kept。keepalive のターンで --tree の長い待ちの時計を戻さない）。"""
 
     def __init__(self, got, payload, conf, tasks, now=time.time, attrs_of=_attrs):
         self.got, self.payload, self.conf, self.tasks, self.now, self.attrs_of = got, payload, conf, tasks, now, attrs_of
@@ -1084,7 +1103,7 @@ class Warm:
         if self.now() - self.since < self.conf["every"]:
             return None
         attrs = self.attrs_of(self.got["cwd"])
-        why = warm_unwanted(attrs)
+        why = work_unwanted(self.got, attrs)
         if why:
             self._skip(attrs, why)
             return None
@@ -1103,12 +1122,16 @@ class Warm:
 
 
 def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shells=chat.background_shells, now=time.time, again=False):
-    """この待ち受けが keepalive を送るなら Warm、送らないなら None。送るのは、ターンの終わり（Stop）に裏の処理が動いていて、その場所が
-    warm_wanted（納品していない頼みを受けていて、区切り・終わりの印が無い）で、その場所の役か受け持ちに keepalive を書き、会話の
-    記録の場所が分かるときだけ。送らないときは、訳を台帳に keepalive の skipped の行で 1 行残す。残すのは次のターンの終わりだけ
+    """この待ち受けが keepalive を送るなら Warm、送らないなら None。送るのは、その場所の役か受け持ちに keepalive を書き、会話の記録の
+    場所が分かり、ターンの終わり（Stop）に、区切り・終わり・起動し直しの印が無く、仕事が終わっていない（受けた頼みがまだ閉じていないか、
+    出した頼みか保留の頼みの返事を待つ。work_of）ときだけ。裏の処理が動いているかでは決めない（持ち主 2026-10-24「その裏作業が
+    あればじゃなくて。ずっとのほうがいいんじゃないの」。my_notes の受付 144229 と足し af82b2。司令塔は部署へ頼みを出して納品を待ちながら
+    ターンを終えるので、裏の処理はたいてい無い）。頼みを受けていない窓口も、出した頼みの返事を待つ間は送る。待つ物（tasks。控えの鍵）は、
+    動いている裏の処理の id（数しか分からなければ "count:<数>"）と work_of の並びで、替われば送った本数を数え直す。
+    送らないときは、訳を台帳に keepalive の skipped の行で 1 行残す。残すのは次のターンの終わりだけ
     （ほかは keepalive に関わらない。全部に書くと台帳が埋まる）:
-    - keepalive を書いた部署で、裏の処理を待つか、納品していない頼みを受けている（keepalive を書いて頼みを受けていれば、裏の処理が
-      無くても「無い」と残す。裏の処理が台帳に見えない形で待ったのかを分けるため）
+    - keepalive を書いた場所で、裏の処理か、閉じていない受けた頼み・出した頼み・保留の頼みが在る（印か会話の記録の場所で送らない）か、
+      裏の処理が在って仕事が終わった
     - keepalive を書いていない部署で、納品していない頼みを受けて裏の処理を待つ（「keepalive が無い」）
     ターンの終わりに裏の処理を残したかは、--tree が長く動かない部署を出すために、毎回控えに書く（wake.waiting_note）。again は前の版の
     待ち受けから替わった（hop）印で、そのフックの入力は前の版が控えと台帳に書いた物なので、どちらも書き直さない。"""
@@ -1123,21 +1146,16 @@ def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shel
             wake.waiting_note(got["inbox"], got["place"], got["session"], attrs.get("ask"), tasks, now(), chat.transcript(payload))
     except OSError as e:
         filex.warn(f"注記: 裏の処理を残したターンの控えを書けない（{e}）")   # --tree に長い待ちが出ないだけ
-    why = warm_unwanted(attrs)
-    if count is None and not why:
-        why = "裏の処理の数を数えられない（フックの入力に並びが無く、裏の shell も数えられない）"
-    elif not count and not why:
-        why = "ターンの終わりに動いている裏の処理が無い"
     conf = conf_of(got["cwd"], attrs, read=chat.read_rate(chat.last_model(payload)))   # 上限は会話のモデルの読みの値段で決める
-    if not conf and not why:
-        why = "会社の形の役にも受け持ちにも keepalive が無い（書いていないか、寿命の値が読めない）"
-    elif conf and not why and not chat.transcript(payload):
+    work = work_of(got, attrs) if conf else []   # 台帳を読む（awaited）のは keepalive を書いた場所だけ
+    why = work_unwanted(got, attrs) if conf else "会社の形の役にも受け持ちにも keepalive が無い（書いていないか、寿命の値が読めない）"
+    if not why and not chat.transcript(payload):
         why = "会話の記録の場所が分からず、会話が動いたかを見られない"
     if why:
-        if not again and (count and (conf or warm_wanted(attrs)) or conf and warm_wanted(attrs)):
-            warm_log(got, attrs, tasks, now, status="skipped", detail=why)
+        if not again and (conf and (count or work) or count and asking(attrs)):
+            warm_log(got, attrs, tasks + work, now, status="skipped", detail=why)
         return None
-    return Warm(got, payload, conf, tasks, now=now, attrs_of=attrs_of)
+    return Warm(got, payload, conf, tasks + work, now=now, attrs_of=attrs_of)
 
 
 HANDED_OVER = "WORKS_DISPATCH_WAKE_FROM"   # 前の版の待ち受けから替わった印（値は前の待ち受けの印の token）
@@ -1203,6 +1221,10 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
     try:
         payload = json.loads(stdin.read() or "{}") or {}
     except ValueError:
+        return 0
+    if chat.in_subagent(payload):
+        # サブエージェントの compact の SessionStart。待ち受けは本体の会話に 1 本だけ。立てると本体の待ち受けを替え、keepalive の時計を
+        # 落とし（Stop でないので持たない。受付 5ccb69 の部署では 21 分間に 9 回替わり、1 本も送られなかった）、知らせをサブエージェントへ渡しうる
         return 0
     if argv[:1] == ["--resume"]:
         return resume_here(payload)

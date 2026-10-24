@@ -152,8 +152,10 @@ def launch_key(cwd, attrs, env=os.environ):
 
 
 def keepalive_of(cwd, attrs, env=os.environ, read=chat.CACHE_READ_RATE):
-    """その場所の部署の keepalive（role.keepalive_for の {every, text, ttl, limit}）。送らない・会社の形を読めない・役が無い・窓口
-    （頼みを受けない）のときは None。寿命の値が読めずに送らないときは、その訳を注記に出す。read は会話のモデルのキャッシュの読みの倍率。"""
+    """その場所の部署か窓口の keepalive（role.keepalive_for の {every, text, ttl, limit}）。送らない・会社の形を読めない・役が無いときは
+    None。寿命の値が読めずに送らないときは、その訳を注記に出す。read は会話のモデルのキャッシュの読みの倍率。窓口も読む（頼みは
+    受けないが、出した頼みの返事を待つ間に送る。wake_hook.warm_for）。窓口は部署でないので受け持ちを引かず、役の値だけで決める
+    （--move・--desk が窓口を起動する設定〔role.write_desk_settings〕と寿命を揃える。launch_key と同じ）。"""
     got = attrs.get("role") and _shape_at(cwd, attrs, env)
     if not got:
         return None
@@ -161,11 +163,11 @@ def keepalive_of(cwd, attrs, env=os.environ, read=chat.CACHE_READ_RATE):
     the_role = shape["roles"].get(role.current(shape, attrs["role"]))
     if the_role is None:
         return None
-    here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
-    if here and common and os.path.realpath(here) == os.path.realpath(common):
-        return None   # 窓口は頼みを受けないので送らない（受付の設計の 3.4。送るのは納品していない頼みを受けている部署だけ）
     notes = []
-    conf = role.keepalive_for(the_role, role.duty_of(info.get("skills", []), attrs.get("name")), notes, read, env)
+    here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
+    desk = here and common and os.path.realpath(here) == os.path.realpath(common)
+    duty = None if desk else role.duty_of(info.get("skills", []), attrs.get("name"))
+    conf = role.keepalive_for(the_role, duty, notes, read, env)
     for n in notes:
         filex.warn(f"注記: {n}")
     return conf
@@ -313,6 +315,8 @@ def prompt(stdin=sys.stdin, env=os.environ):
 
 def main(stdin=sys.stdin, env=os.environ):
     payload = _payload(stdin)
+    if chat.in_subagent(payload):
+        return 0   # サブエージェントの compact の SessionStart。役の本文は本体の会話の物で、サブエージェントに部署を名乗らせない
     cwd = payload.get("cwd") or os.getcwd()
     attrs = gitx.worktree_attrs(cwd)
     wrote = [None, None]

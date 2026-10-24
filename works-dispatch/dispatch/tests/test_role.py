@@ -407,6 +407,23 @@ class Hook(unittest.TestCase):
             attrs = self.g.worktree_attrs(self.place)
             self.assertEqual((attrs["session"], attrs["job"]), (f"s-{source}", "8c4a1102"))
 
+    def test_a_subagent_compacting_gets_no_role_text_and_keeps_the_department_session(self):
+        # サブエージェントの compact の SessionStart も、会話の id は本体の物で届く。役の本文を足すとサブエージェントが部署を名乗る
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)
+        provision.mark(self.place, self.src, {"role": "調べ役", "session": "s-dept", "job": "j-dept"}, self.g)
+
+        def start(**extra):
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out):
+                role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-dept", "source": "compact", **extra})),
+                               self.env)
+            return out.getvalue()
+        self.assertEqual(start(agent_id="a9de"), "")
+        self.assertIn("役は「調べ役」", start())   # 本体の compact には足す
+        provision.mark(self.place, self.src, {"session": "s-dept"}, self.g)
+        start(agent_id="a9de")
+        self.assertEqual(self.g.worktree_attrs(self.place)["session"], "s-dept")
+
     def test_new_talks_and_the_head_office_keep_the_department_session(self):
         # 部署の場所で人が別の会話を起動しても（startup）、本社で持ち主の会話が /clear しても、部署の会話の id は替えない
         provision.mark(self.place, self.src, {"role": "担当", "session": "s-dept"}, self.g)

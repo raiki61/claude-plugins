@@ -297,7 +297,7 @@ class Window:
 
 
 class Keepalive(unittest.TestCase):
-    """keepalive: 裏の処理を待ってターンを終えた会話に、キャッシュの寿命が切れる前に文を渡す（wake_hook.Warm・warm_for）。"""
+    """keepalive: 仕事が終わらないままターンを終えた会話に、キャッシュの寿命が切れる前に文を渡す（wake_hook.Warm・warm_for）。"""
 
     def setUp(self):
         self.inbox, self.place, self.cwd = tempfile.mkdtemp(), tempfile.mkdtemp(), tempfile.mkdtemp()
@@ -335,7 +335,7 @@ class Keepalive(unittest.TestCase):
         warm = self.warm()
         self.clock[0] += 210
         self.assertEqual(warm(), "（keepalive）")
-        # 同じ会話が同じ裏の処理を待つ間は limit 本まで（それより長い待ちは、切れて書き直す 1 回の方が安い）
+        # 同じ会話が同じ物を待つ間は limit 本まで（それより長い待ちは、切れて書き直す 1 回の方が安い）
         warm = self.warm()
         self.clock[0] += 210
         self.assertIsNone(warm())
@@ -381,39 +381,40 @@ class Keepalive(unittest.TestCase):
             self.clock[0] += 210
             self.assertEqual(warm(), "（keepalive）")
 
-    def test_it_is_set_only_at_the_end_of_a_turn_with_work_running_and_a_keepalive_written(self):
+    def test_it_is_set_at_the_end_of_a_turn_with_the_work_unfinished_and_a_keepalive_written(self):
         conf = lambda cwd, attrs, read: self.conf
         warm = wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs)
-        self.assertEqual((type(warm), warm.tasks), (wake_hook.Warm, ["b1"]))
+        self.assertEqual((type(warm), warm.tasks), (wake_hook.Warm, ["b1", "ask:a1"]))
         self.assertEqual(self.skipped(), [])
         self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: self.attrs))
         self.assertIsNone(wake_hook.warm_for(self.got, {**self.payload, "hook_event_name": "SessionStart"}, conf_of=conf,
                                              attrs_of=lambda cwd: self.attrs))
+        # 裏の処理が無くても、受けた頼みが閉じていなければ送る（持ち主 2026-10-24。my_notes の受付 144229 の足し af82b2）
         idle = {**self.payload, "background_tasks": [{"id": "b0", "status": "completed"}]}
-        self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs))
-        # 一覧の無い版では裏の Bash の数で見る（数えられなければ送らない）
+        self.assertEqual(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs).tasks, ["ask:a1"])
+        # 一覧の無い版では裏の Bash の数を待つ物に入れる（数えられなくても送る）
         bare = {k: v for k, v in self.payload.items() if k != "background_tasks"}
         self.assertEqual(wake_hook.warm_for(self.got, bare, conf_of=conf, attrs_of=lambda cwd: self.attrs, shells=lambda: 2).tasks,
-                         ["count:2"])
-        self.assertIsNone(wake_hook.warm_for(self.got, bare, conf_of=conf, attrs_of=lambda cwd: self.attrs, shells=lambda: None))
+                         ["count:2", "ask:a1"])
+        self.assertEqual(wake_hook.warm_for(self.got, bare, conf_of=conf, attrs_of=lambda cwd: self.attrs, shells=lambda: None).tasks,
+                         ["ask:a1"])
         no_log = {k: v for k, v in self.payload.items() if k != "transcript_path"}
         self.assertIsNone(wake_hook.warm_for(self.got, no_log, conf_of=conf, attrs_of=lambda cwd: self.attrs))
         # 送らなかった訳を台帳に残す（ターンの終わりでない SessionStart は残さない）
         self.assertEqual(self.skipped(), ["会社の形の役にも受け持ちにも keepalive が無い（書いていないか、寿命の値が読めない）",
-                                          "ターンの終わりに動いている裏の処理が無い",
-                                          "裏の処理の数を数えられない（フックの入力に並びが無く、裏の shell も数えられない）",
                                           "会話の記録の場所が分からず、会話が動いたかを見られない"])
         # keepalive を書いていない部署の、裏の処理の無いターンの終わりと、頼みの無い部署の裏の処理は台帳に書かない
         wake_hook.warm_for(self.got, idle, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: self.attrs)
         wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: {})
-        self.assertEqual(len(self.skipped()), 4)
+        self.assertEqual(len(self.skipped()), 2)
 
     def test_a_department_done_with_its_ask_or_marked_to_rest_says_nothing(self):
         conf = lambda cwd, attrs, read: self.conf
         for attrs in ({}, {"ask": "a1", "delivered": "a1"}, {"ask": "a1", "rest": "s1"}, {"ask": "a1", "compact": "s1"},
                       {"ask": "a1", "finished": "s1"}, {"ask": "a1", "restarting": "s1"}):
             self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs), attrs)
-        self.assertEqual(self.skipped(), ["頼みを受けていない", "今の頼みを納品した", "区切りの印（--rest）が在る",
+        self.assertEqual(self.skipped(), ["頼みを受けておらず、閉じていない出した頼みも保留の頼みも無い",
+                                          "今の頼みを納品し、閉じていない出した頼みも保留の頼みも無い", "区切りの印（--rest）が在る",
                                           "区切りの印（--compact）が在る", "終わりの印（--done）が在る",
                                           "起動し直しの印（--move --if-changed）が在る"])
         # 待つ間に納品した・区切りを打ったなら、時計が鳴っても送らない（送る前に属性を読み直す）。この待ちでは、もう送らない
@@ -423,8 +424,79 @@ class Keepalive(unittest.TestCase):
         self.assertIsNone(warm())
         self.attrs = {"ask": "a2"}
         self.assertIsNone(warm())
-        self.assertEqual(self.skipped()[-1:], ["今の頼みを納品した"])
+        self.assertEqual(self.skipped()[-1:], ["今の頼みを納品し、閉じていない出した頼みも保留の頼みも無い"])
         self.assertEqual(len(self.skipped()), 7)
+
+    def asked(self, child, at=1000.0, session="s1"):
+        """この部署（名前「調べ」）が出した頼みの行を台帳に足す。"""
+        deliver.log(self.inbox, {"kind": "ask", "id": child, "at": at, "status": "sent",
+                                 "from": {"name": "調べ", "place": self.cwd, "session": session}})
+
+    def test_it_sends_while_waiting_for_the_answers_to_asks_it_sent_without_background_work(self):
+        # 司令塔のように、部署へ頼みを出して納品を待ちながらターンを終えた会話（裏の処理は無い）にも送る（my_notes の受付 144229）
+        conf = lambda cwd, attrs, read: self.conf
+        idle = {**self.payload, "background_tasks": []}
+        self.asked("c1")
+        for attrs, tasks in (({"name": "調べ", "ask": "a1"}, ["ask:a1", "child:c1"]),
+                             ({"name": "調べ", "ask": "a1", "delivered": "a1"}, ["child:c1"]), ({"name": "調べ"}, ["child:c1"])):
+            warm = wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: self.clock[0])
+            self.assertEqual((type(warm), warm.tasks), (wake_hook.Warm, tasks), attrs)   # 窓口と、納品した部署も
+        self.assertEqual(self.skipped(), [])
+        self.attrs = {"name": "調べ"}
+        warm = wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs, now=lambda: self.clock[0])
+        self.clock[0] += 210
+        self.assertEqual(warm(), "（keepalive）")
+        self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["child:c1"]), {"sent": 1, "stopped": False})
+        # 保留の頼み（--wait --park）の答えも待つ物に入る。並びが替われば数え直す
+        self.attrs = {"name": "調べ", "parked": json.dumps([{"id": "p1"}])}
+        self.assertEqual(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs).tasks,
+                         ["child:c1", "parked:p1"])
+        # 鳴るまでに頼みが閉じたら送らず、訳を残す
+        self.attrs = {"name": "調べ"}
+        warm = wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs, now=lambda: self.clock[0])
+        deliver.log(self.inbox, {"kind": "deliver", "ask": "c1", "at": 1100.0})
+        self.clock[0] += 210
+        self.assertIsNone(warm())
+        self.assertEqual(self.skipped(), ["頼みを受けておらず、閉じていない出した頼みも保留の頼みも無い"])
+
+    def test_marks_still_stop_it_and_background_work_and_asks_all_go_into_what_it_waits_for(self):
+        conf = lambda cwd, attrs, read: self.conf
+        idle = {**self.payload, "background_tasks": []}
+        self.asked("c1")
+        # 区切り・終わりの印が在れば送らず、訳を残す
+        attrs = {"name": "調べ", "ask": "a1", "delivered": "a1", "rest": "s1"}
+        self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: attrs))
+        self.assertEqual(self.skipped(), ["区切りの印（--rest）が在る"])
+        # 待つ物は、裏の処理・受けた頼み・出した頼みを並べる（どれかが替われば数え直す）
+        attrs = {"name": "調べ", "ask": "a1"}
+        self.assertEqual(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs).tasks,
+                         ["b1", "ask:a1", "child:c1"])
+        # keepalive を書いていなければ送らず、台帳にも書かない。前の会話が出した古い頼みは待たない
+        self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=lambda cwd, a, read: None, attrs_of=lambda cwd: {"name": "調べ"}))
+        self.assertEqual(len(self.skipped()), 1)
+        deliver.log(self.inbox, {"kind": "deliver", "ask": "c1", "at": 1100.0})
+        self.asked("c0", at=10.0, session="s0")
+        handed = {"kind": "handed", "id": "a1", "at": 500.0, "place": self.cwd}
+        deliver.log(self.inbox, handed)
+        self.assertEqual(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: {"name": "調べ", "ask": "a1"}).tasks,
+                         ["ask:a1"])
+        # 頼みを受けない窓口は、前の会話が出して閉じていない頼みも待つ
+        self.assertEqual(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: {"name": "調べ"}).tasks, ["child:c0"])
+        # 数しか分からない裏の処理も、頼みと並べる
+        bare = {k: v for k, v in self.payload.items() if k != "background_tasks"}
+        self.assertEqual(wake_hook.warm_for(self.got, bare, conf_of=conf, attrs_of=lambda cwd: {"name": "調べ", "ask": "a2"},
+                                            shells=lambda: 2).tasks, ["count:2", "ask:a2", "child:c0"])
+
+    def test_a_department_done_with_its_work_writes_no_skipped_row_at_each_turn_end(self):
+        # 納品した後に人と話すだけのターンの終わりは keepalive に関わらないので、台帳を埋めない
+        conf = lambda cwd, attrs, read: self.conf
+        idle = {**self.payload, "background_tasks": []}
+        for attrs in ({"name": "調べ", "ask": "a1", "delivered": "a1"}, {"name": "調べ"}):
+            self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: attrs))
+        self.assertEqual(self.skipped(), [])
+        # 裏の処理を残したなら、送らなかった訳を残す
+        self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: {"ask": "a1", "delivered": "a1"}))
+        self.assertEqual(self.skipped(), ["今の頼みを納品し、閉じていない出した頼みも保留の頼みも無い"])
 
     def test_the_model_that_answered_last_sets_the_price_of_a_read(self):
         with open(self.log, "a", encoding="utf-8") as f:
@@ -507,7 +579,8 @@ class Keepalive(unittest.TestCase):
     def test_a_watcher_taking_over_from_an_older_version_writes_nothing_again(self):
         conf = lambda cwd, a, read: self.conf
         idle = {**self.payload, "background_tasks": []}
-        self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs, again=True))
+        done = {"ask": "a1", "delivered": "a1"}
+        self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: done, again=True))
         self.assertIsInstance(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs, again=True),
                               wake_hook.Warm)
         self.assertEqual(deliver.records(self.inbox), [])
@@ -1152,7 +1225,7 @@ class Hook(unittest.TestCase):
         self.assertEqual(attrs["cleared"], "a0")
         self.assertNotIn(wake.CLEAR_TYPED, attrs)
 
-    def test_keepalive_is_read_from_the_shape_for_a_department_and_never_for_the_desk(self):
+    def test_keepalive_is_read_from_the_shape_for_a_department_and_the_desk(self):
         os.makedirs(os.path.join(self.src, ".claude"), exist_ok=True)
         toml = ('[[roles]]\nname = "担当"\nkeepalive = true\n[roles.settings]\npromptCacheTtl = "5m"\n\n'
                 '[[skills]]\nname = "調べ"\nrole = "担当"\nkeepalive = {{ every = "3m" }}\n{more}')
@@ -1163,7 +1236,8 @@ class Hook(unittest.TestCase):
         self.assertEqual((got["every"], got["ttl"], got["limit"]), (180, 300, 13))
         # 上限は会話のモデルのキャッシュの読みの値段で決める（Opus 5.5 は 0.05 倍で 25 本）
         self.assertEqual(role_hook.keepalive_of(self.place, self.g.worktree_attrs(self.place), env=self.env, read=0.05)["limit"], 25)
-        self.assertIsNone(role_hook.keepalive_of(self.src, {"role": "担当", "name": "窓口"}, env=self.env))   # 窓口は頼みを受けない
+        # 窓口も読む（頼みは受けないが、出した頼みの返事を待つ間に送る）。窓口は部署でないので受け持ちを引かず、役の値で決める
+        self.assertEqual(role_hook.keepalive_of(self.src, {"role": "担当", "name": "調べ"}, env=self.env)["every"], 210)
         # 寿命の値を読めなければ、黙って 1 時間と見ずに送らず、訳を注記に出す
         pathlib.Path(shape).write_text(toml.format(more='settings = { promptCacheTtl = "10m" }\n'), encoding="utf-8")
         err = io.StringIO()
@@ -1803,6 +1877,17 @@ class Hook(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn("waiting", attrs)
         self.assertNotIn("waiting-why", attrs)
+
+    def test_a_subagent_compacting_starts_no_waiter(self):
+        # 2026-10-24、my_notes の受付 5ccb69 の部署で、サブエージェントの compact の SessionStart が本体と同じ会話の id で待ち受けを
+        # 立て直し、本体の待ち受けを替えて keepalive の時計を 21 分間に 9 回戻した
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a1"}, self.g)
+        place = self.g.git_dir(self.place)
+        wake.claim(self.inbox, place, ["co/調べ"], "s1", os.getppid(), "t", 0)
+        payload = {"cwd": self.place, "session_id": "s1", "hook_event_name": "SessionStart", "source": "compact", "agent_id": "a9de"}
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(wake_hook, "plan", side_effect=AssertionError("待ち受けを立てた")):
+            self.assertEqual(wake_hook.main([], io.StringIO(json.dumps(payload)), io.StringIO(), env={}), 0)
+        self.assertEqual(wake.read_mark(self.inbox, place)["token"], "t")
 
     def hop_main(self, newer, jump, env=None):
         payload = {"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"}
