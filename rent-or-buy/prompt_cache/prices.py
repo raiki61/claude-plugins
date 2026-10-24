@@ -19,7 +19,7 @@ COMMIT_URL = "https://api.github.com/repos/BerriAI/litellm/commits/main"
 DAY = 24 * 3600
 FETCH_TIMEOUT_S = 5  # keepalive のたびに裏で呼ばれるので、ネットワークが固まっても判断を待たせない
 
-# 内側の名前 → LiteLLM の欄（1 トークンあたりのドル）
+# 内側の名前 → LiteLLM のフィールド（1 トークンあたりのドル）
 FIELDS = {
     "input": "input_cost_per_token",
     "write_5m": "cache_creation_input_token_cost",
@@ -27,7 +27,7 @@ FIELDS = {
     "read": "cache_read_input_token_cost",
     "output": "output_cost_per_token",
 }
-TIER_SUFFIX = "_above_100k_tokens"  # 送る文が 10 万トークンを超えると単価が上がるモデル（Haiku 5.5）の欄
+TIER_SUFFIX = "_above_100k_tokens"  # 送る文が 10 万トークンを超えると単価が上がるモデル（Haiku 5.5）のフィールド
 TIER_LIMIT = 100_000
 KEEP = tuple(FIELDS.values()) + tuple(f + TIER_SUFFIX for f in FIELDS.values())
 
@@ -56,7 +56,7 @@ def usable(entry) -> bool:
 
 
 def pick(raw: dict) -> dict:
-    """値段表から、Anthropic に直に繋ぐときの `claude-` の項目で、使える物の、使う欄だけを抜く。"""
+    """値段表から、Anthropic に直に繋ぐときの `claude-` の項目で、使える物の、使うフィールドだけを抜く。"""
     out = {}
     for key, entry in raw.items():
         if key.startswith("claude-") and "/" not in key and usable(entry):
@@ -134,19 +134,19 @@ def _layer(path: Path, label: str, tolerate: bool):
 
 def _override(data, label: str) -> dict:
     if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
-        raise PricesError("invalid_input", "%s は モデル名→{欄: 単価} の表でなければならない" % label, 2)
+        raise PricesError("invalid_input", "%s は モデル名→{フィールド: 単価} の表でなければならない" % label, 2)
     return data
 
 
 @dataclass(frozen=True)
 class Price:
     model: str   # 揃えた値段表の名前
-    entry: dict  # LiteLLM の欄 → 単価
+    entry: dict  # LiteLLM のフィールド → 単価
     source: str  # snapshot・latest・override
     origin: dict
 
     def rate(self, kind: str, prompt_tokens: int = 0) -> float:
-        """kind（FIELDS の鍵）の 1 トークンあたりの単価。送る文が 10 万を超えれば上の段の欄を使う。"""
+        """kind（FIELDS の鍵）の 1 トークンあたりの単価。送る文が 10 万を超えれば上の段のフィールドを使う。"""
         field = FIELDS[kind]
         if prompt_tokens > TIER_LIMIT and field + TIER_SUFFIX in self.entry:
             return self.entry[field + TIER_SUFFIX]
