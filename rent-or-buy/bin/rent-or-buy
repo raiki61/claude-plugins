@@ -1,0 +1,151 @@
+#!/bin/sh
+''':'
+# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・py -3 の順に、実際に起きる物で
+# この台本を起動し直す。PATH の頭の python3 をそのまま使わないのは、Windows の python3・python が、Python を入れていないと
+# Microsoft Store へ誘う代わりの物（起動すると案内を出して終わる）に当たるため（tiers/bin/tiers と同じ作り）。
+for cand in python3 python "py -3"; do
+  command -v "${cand%% *}" >/dev/null 2>&1 || continue
+  # shellcheck disable=SC2086
+  $cand -c 'import sys' >/dev/null 2>&1 && exec $cand "$0" "$@"
+done
+echo "rent-or-buy: 起動できる Python が見つからない（python3・python・py -3 を試した）。Python 3 を入れる" >&2
+exit 1
+'''
+"""借りるか買うかの判断のコマンド。標準入力に JSON を受け、標準出力に JSON を返す。
+
+  rent-or-buy decide                         中心をそのまま呼ぶ
+  rent-or-buy keepalive [--transcript FILE]  keepalive の判断（記録からモデル・文脈・最後の要求の時刻を埋める）
+  rent-or-buy compact [--transcript FILE]    compact の判断（記録からモデル・文脈・compact の後の文脈・余分に読んだ累計を埋める）
+  rent-or-buy prices MODEL                   揃えた名前と、使う単価と、その出どころ
+  rent-or-buy snapshot                       LiteLLM の main から同梱の値段の写しを作り直す
+
+終わりのコード: 0 判断できた / 2 入力の形が違う / 3 知らないモデル / 4 記録を読めない（snapshot の失敗は 1）。
+0 以外でも標準出力に {"error": 鍵, "why": 訳} を返す。環境変数は README の Environment。
+設計は docs/specs/2026-10-24-rent-or-buy-design.md。
+"""
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+import rent_or_buy  # noqa: E402
+from prompt_cache import prices, transcript, translate  # noqa: E402
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        _emit({"error": "invalid_input", "why": message})
+        sys.exit(2)
+
+
+def _emit(obj) -> None:
+    print(json.dumps(obj, ensure_ascii=False))
+
+
+def _fail(key: str, why: str, code: int, row=None):
+    out = {"error": key, "why": why}
+    if row is not None:
+        _record(dict(row, output=out))
+    _emit(out)
+    return code
+
+
+def _record(row: dict):
+    """判断の記録を足す。置き場は RENT_OR_BUY_RECORD（off で止める）か、キャッシュのフォルダの decisions.jsonl。書けなければ訳を返す。"""
+    target = os.environ.get("RENT_OR_BUY_RECORD")
+    if target == "off":
+        return None
+    path = target or prices.cache_dir() / "decisions.jsonl"
+    row = dict(row, ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    return rent_or_buy.append_record(path, row)
+
+
+def _read_stdin() -> dict:
+    text = sys.stdin.read()
+    try:
+        data = json.loads(text) if text.strip() else {}
+    except ValueError as e:
+        raise rent_or_buy.InputError("標準入力が JSON でない: %s" % e)
+    if not isinstance(data, dict):
+        raise rent_or_buy.InputError("標準入力は JSON のオブジェクトでなければならない")
+    return data
+
+
+def _from_transcript(scene: str, facts: dict, path: str, override) -> tuple:
+    """記録から埋める事実を facts の下に敷く（標準入力の値が勝つ）。返すのは (事実, 記録の読み取りの情報)。"""
+    tr = transcript.read(path)
+    base = {k: tr[k] for k in ("model", "context_tokens") if k in tr}
+    if scene == "keepalive" and "last_request_at" in tr:
+        base["last_request_at"] = tr["last_request_at"]
+    if scene == "compact":
+        if "post_tokens" in tr:
+            base["post_tokens"] = tr["post_tokens"]
+        merged = {**base, **facts}
+        if "spent" not in merged and "model" in merged:
+            post = merged.get("post_tokens", prices.defaults()["compact"]["after_tokens"])
+            price = prices.lookup(merged["model"], override)
+            base["spent"] = translate.extra_read_cost(tr["contexts_after_compact"], post, price)
+    return {**base, **facts}, {"skipped_lines": tr["skipped_lines"]}
+
+
+def _judge(scene: str, args) -> int:
+    facts = _read_stdin()
+    override = facts.pop("prices", None)
+    info = None
+    if scene == "decide":
+        out = rent_or_buy.decide(facts)
+    else:
+        if args.transcript:
+            facts, info = _from_transcript(scene, facts, args.transcript, override)
+        out = getattr(translate, scene)(facts, override)
+        if info is not None:
+            out["transcript"] = info
+    row = {"scene": scene, "input": facts}
+    err = _record(dict(row, output=out))
+    if err:
+        out["record"] = err
+    _emit(out)
+    return 0
+
+
+def main() -> int:
+    ap = _Parser(prog="rent-or-buy", description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd", required=True, parser_class=_Parser)
+    sub.add_parser("decide")
+    for name in ("keepalive", "compact"):
+        sub.add_parser(name).add_argument("--transcript", metavar="FILE")
+    sub.add_parser("prices").add_argument("model")
+    sub.add_parser("snapshot")
+    args = ap.parse_args()
+    try:
+        if args.cmd == "prices":
+            p = prices.lookup(args.model)
+            _emit({"input": args.model, **p.info(), "rates": {k: p.rate(k) for k in prices.FIELDS}, "entry": p.entry})
+            return 0
+        if args.cmd == "snapshot":
+            try:
+                snap = prices.fetch_snapshot(time.strftime("%Y-%m-%d", time.gmtime()))
+            except (OSError, ValueError, KeyError) as e:
+                return _fail("fetch_failed", "LiteLLM から取れなかった: %s" % e, 1)
+            (ROOT / "prompt_cache" / "snapshot.json").write_text(
+                json.dumps(snap, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            _emit({"models": len(snap["models"]), "commit": snap["commit"], "fetched": snap["fetched"]})
+            return 0
+        return _judge(args.cmd, args)
+    except (rent_or_buy.InputError, translate.FactsError) as e:
+        return _fail("invalid_input", str(e), 2, {"scene": args.cmd})
+    except prices.PricesError as e:
+        return _fail(e.key, e.why, e.code, {"scene": args.cmd})
+    except transcript.TranscriptError as e:
+        return _fail("transcript_unreadable", str(e), 4)
+
+
+if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr, sys.stdin):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
+    sys.exit(main())

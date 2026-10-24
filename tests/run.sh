@@ -5763,6 +5763,11 @@ scope tiers
 expect_output 0 "OK" "tiers: 段ごとの点検が足りない物と入れ方を返し、--json の形と終了コードを守る" \
     "$PY_BIN" -B -m unittest discover -s "$ROOT/tiers/tests"
 scope
+# ---- rent-or-buy: 借りるか買うかの部品（アルゴリズムと Claude への当てはめの 2 モジュール。ネットワークと ~/.cache には触らない）----
+scope rent-or-buy
+expect_output 0 "OK" "rent-or-buy: fixed の最悪 2 倍未満・問い合わせ口の 2 回の呼び方・境目の 4 つの決まり・モデル名の揃えを守る" \
+    "$PY_BIN" -B -m unittest discover -s "$ROOT/rent-or-buy/tests"
+scope
 # --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
 expect_output 0 "OUT_FLAG_OK" \
     "attention 3 本: --out は値を取らず位置引数を吸わない。一時ファイルは 0600。セクションの行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \

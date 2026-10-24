@@ -53,6 +53,11 @@
       "name": "tiers",
       "source": "./tiers",
       "strict": false
+    },
+    {
+      "name": "rent-or-buy",
+      "source": "./rent-or-buy",
+      "strict": false
     }
   ],
   "renames": {

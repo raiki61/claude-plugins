@@ -1,0 +1,21 @@
+# LiteLLM に無い値。測った日と出どころを付ける。呼ぶ側が上書きできる。
+
+[guide]
+# 式の正本（my_notes の notes/knowledge/llm-agent-workflow-cost-design-guide.md の 3.5）の commit
+commit = "8709d0c90728029d55985a72548170e591298d59"
+
+[keepalive]
+# keepalive 1 本が会話に残すキャッシュの書き込みと出力のトークン数。works-dispatch の keepalive の文で測った値で、ほかの文では違う
+write_tokens = 380
+output_tokens = 5
+# 寿命までの余裕（秒）。今の works-dispatch の値。記録で測ってから詰める
+margin_s = 90
+measured = "2026-10-24"
+source = "my_notes の受付 20261024-031615-3eafaa（余裕は works-dispatch の今の値）"
+
+[compact]
+# compact の後の文脈と要約の出力のトークン数
+after_tokens = 25000
+summary_tokens = 5000
+measured = "2026-10-24"
+source = "指南 3.5 の C の例の値（実測ではない）"
