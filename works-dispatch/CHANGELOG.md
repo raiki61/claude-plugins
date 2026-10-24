@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.124.1] - 2026-10-24
+
 ### Fixed
 
 - compact（Claude Code の会話の文脈を要約して縮める操作）の後の会話の最初の user の行（要約の行。Claude Code が `isCompactSummary` を付ける）を、次の 2 か所で数えない。要約の行は前の会話の文を引くので、引いた文に当たって読み違える。
