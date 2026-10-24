@@ -311,9 +311,16 @@ class Keepalive(unittest.TestCase):
         self.clock = [1000.0]
         self.attrs = {"ask": "a1"}   # 納品していない頼みを受けている部署
 
-    def warm(self, w=None, tasks=("b1",)):
-        return wake_hook.Warm(self.got, self.payload, self.conf, list(tasks), h=w or Window(self.cwd), now=lambda: self.clock[0],
-                              me=lambda: ME, attrs_of=lambda cwd: self.attrs)
+    def warm(self, tasks=("b1",)):
+        return wake_hook.Warm(self.got, self.payload, self.conf, list(tasks), now=lambda: self.clock[0],
+                              attrs_of=lambda cwd: self.attrs)
+
+    def skipped(self):
+        return [r["detail"] for r in deliver.records(self.inbox) if r.get("status") == "skipped"]
+
+    def add(self, row, end="\n"):
+        with open(self.log, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + end)
 
     def test_it_says_the_text_once_the_interval_passes_and_stops_at_the_limit(self):
         warm = self.warm()
@@ -345,29 +352,40 @@ class Keepalive(unittest.TestCase):
         self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["b1", "b2"])["sent"], 0)
         self.assertEqual(wake.warm_state(self.inbox, self.place, "s2", ["b1"])["sent"], 0)
 
-    def test_a_turn_seen_in_the_transcript_or_a_working_window_sets_the_clock_back(self):
+    def test_a_turn_row_added_to_the_transcript_stops_the_wait_and_other_rows_do_not(self):
         warm = self.warm()
-        self.clock[0] += 200
-        os.utime(self.log, (1, 1))   # 裏の処理の知らせでターンが始まり、会話の記録が替わった
+        self.clock[0] += 100
+        # 止まった会話にも足される行（ターンの終わりのフックの要約・手が空いた会話の要約）と、書きかけの行では止めない
+        self.add({"type": "system", "subtype": "stop_hook_summary"})
+        self.add({"type": "system", "subtype": "away_summary", "content": '{"type":"user"}'})
+        self.add({"type": "assistant", "isSidechain": True, "message": {"content": "サブエージェント"}})
+        self.add({"type": "user", "message": {"content": "x"}}, end="")
         self.assertIsNone(warm())
-        self.clock[0] += 200
-        self.assertIsNone(warm())
-        self.clock[0] += 10
-        self.assertEqual(warm(), "（keepalive）")
-        w = Window(self.cwd, status="working")
-        warm = self.warm(w)
+        self.assertEqual(self.skipped(), [])
+        with open(self.log, "a", encoding="utf-8") as f:
+            f.write("\n")
+        self.clock[0] += 110
+        self.assertIsNone(warm())   # 書きかけの行が書き終わり、ターンの行と分かった
         self.clock[0] += 210
-        self.assertIsNone(warm())   # 動いているターンの要求がキャッシュを温める
-        w.status = "idle"
-        self.clock[0] += 209
-        self.assertIsNone(warm())
-        self.clock[0] += 1
-        self.assertEqual(warm(), "（keepalive）")
+        self.assertIsNone(warm())   # この待ちでは、もう送らない
+        self.assertEqual(deliver.records(self.inbox), [])   # 会話が動いたのは送らなくてよい形なので、台帳に書かない
+        warm = self.warm()
+        self.add({"type": "system", "subtype": "away_summary"})
+        self.clock[0] += 210
+        self.assertEqual(warm(), "（keepalive）")   # ターンの行でない行だけなら送る
+
+    def test_it_sends_while_the_window_shows_the_talk_working_on_its_background_work(self):
+        # herdr は裏の処理が動く間、ターンを終えた会話も working と出す。窓の状態を見ていた版は 1 本も送らなかった（f55a1b）
+        with mock.patch.object(wake_hook, "talk_window", side_effect=AssertionError("窓は見ない")):
+            warm = self.warm()
+            self.clock[0] += 210
+            self.assertEqual(warm(), "（keepalive）")
 
     def test_it_is_set_only_at_the_end_of_a_turn_with_work_running_and_a_keepalive_written(self):
         conf = lambda cwd, attrs, read: self.conf
         warm = wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs)
         self.assertEqual((type(warm), warm.tasks), (wake_hook.Warm, ["b1"]))
+        self.assertEqual(self.skipped(), [])
         self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: self.attrs))
         self.assertIsNone(wake_hook.warm_for(self.got, {**self.payload, "hook_event_name": "SessionStart"}, conf_of=conf,
                                              attrs_of=lambda cwd: self.attrs))
@@ -378,19 +396,35 @@ class Keepalive(unittest.TestCase):
         self.assertEqual(wake_hook.warm_for(self.got, bare, conf_of=conf, attrs_of=lambda cwd: self.attrs, shells=lambda: 2).tasks,
                          ["count:2"])
         self.assertIsNone(wake_hook.warm_for(self.got, bare, conf_of=conf, attrs_of=lambda cwd: self.attrs, shells=lambda: None))
+        no_log = {k: v for k, v in self.payload.items() if k != "transcript_path"}
+        self.assertIsNone(wake_hook.warm_for(self.got, no_log, conf_of=conf, attrs_of=lambda cwd: self.attrs))
+        # 送らなかった訳を台帳に残す（ターンの終わりでない SessionStart は残さない）
+        self.assertEqual(self.skipped(), ["会社の形の役にも受け持ちにも keepalive が無い（書いていないか、寿命の値が読めない）",
+                                          "ターンの終わりに動いている裏の処理が無い",
+                                          "裏の処理の数を数えられない（フックの入力に並びが無く、裏の shell も数えられない）",
+                                          "会話の記録の場所が分からず、会話が動いたかを見られない"])
+        # keepalive を書いていない部署の、裏の処理の無いターンの終わりと、頼みの無い部署の裏の処理は台帳に書かない
+        wake_hook.warm_for(self.got, idle, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: self.attrs)
+        wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: {})
+        self.assertEqual(len(self.skipped()), 4)
 
     def test_a_department_done_with_its_ask_or_marked_to_rest_says_nothing(self):
         conf = lambda cwd, attrs, read: self.conf
         for attrs in ({}, {"ask": "a1", "delivered": "a1"}, {"ask": "a1", "rest": "s1"}, {"ask": "a1", "compact": "s1"},
                       {"ask": "a1", "finished": "s1"}, {"ask": "a1", "restarting": "s1"}):
             self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs), attrs)
-        # 待つ間に納品した・区切りを打ったなら、時計が鳴っても送らない（送る前に属性を読み直す）
+        self.assertEqual(self.skipped(), ["頼みを受けていない", "今の頼みを納品した", "区切りの印（--rest）が在る",
+                                          "区切りの印（--compact）が在る", "終わりの印（--done）が在る",
+                                          "起動し直しの印（--move --if-changed）が在る"])
+        # 待つ間に納品した・区切りを打ったなら、時計が鳴っても送らない（送る前に属性を読み直す）。この待ちでは、もう送らない
         warm = self.warm()
         self.attrs = {"ask": "a1", "delivered": "a1"}
         self.clock[0] += 210
         self.assertIsNone(warm())
         self.attrs = {"ask": "a2"}
-        self.assertEqual(warm(), "（keepalive）")
+        self.assertIsNone(warm())
+        self.assertEqual(self.skipped()[-1:], ["今の頼みを納品した"])
+        self.assertEqual(len(self.skipped()), 7)
 
     def test_the_model_that_answered_last_sets_the_price_of_a_read(self):
         with open(self.log, "a", encoding="utf-8") as f:
@@ -412,7 +446,83 @@ class Keepalive(unittest.TestCase):
         with mock.patch.object(wake, "warm_note", side_effect=OSError("書けない")), mock.patch.object(sys, "stderr", err):
             self.assertIsNone(warm())
         self.assertIn("keepalive の時計が誤りで止まった", err.getvalue())
+        self.assertEqual(self.skipped(), ["時計が誤りで止まった（OSError）"])
         self.assertIsNone(warm())   # この待ちではもう送らない
+
+    def test_a_department_left_waiting_on_its_background_work_long_shows_on_the_tree(self):
+        attrs = {"ask": "a1", "session": "s1"}
+        conf = lambda cwd, a, read: None   # keepalive を書いていなくても控えは書く
+        wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: 1000.0)
+        long = wake.LONG_WAIT + 1000.0
+        self.assertIsNone(wake.long_wait(self.inbox, self.place, attrs, now=long - 1))
+        self.assertEqual(wake.long_wait(self.inbox, self.place, attrs, now=long), {"since": 1000.0, "tasks": 1})
+        # 止まった会話にも足される行では、動いたと見ない
+        self.add({"type": "system", "subtype": "away_summary"})
+        self.assertIsNotNone(wake.long_wait(self.inbox, self.place, attrs, now=long))
+        # 納品した・頼みか会話が替わったなら出さない
+        for other in ({"ask": "a1", "session": "s1", "delivered": "a1"}, {"ask": "a2", "session": "s1"}, {"ask": "a1", "session": "s2"}):
+            self.assertIsNone(wake.long_wait(self.inbox, self.place, other, now=long), other)
+        # 会話が動いた（ターンの行が足された）なら出さない（長いターンの途中を待ちと見ない）
+        self.add({"type": "user", "message": {"content": "x"}})
+        self.assertIsNone(wake.long_wait(self.inbox, self.place, attrs, now=long))
+        # 裏の処理を残さずに終えたターンは控えを消す
+        wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: 2000.0)
+        self.assertTrue(os.path.exists(wake.waiting_path(self.inbox, self.place)))
+        idle = {**self.payload, "background_tasks": []}
+        wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: 2000.0)
+        self.assertFalse(os.path.exists(wake.waiting_path(self.inbox, self.place)))
+        # 数だけ分かる裏の処理（count:N）は数を出す
+        wake.waiting_note(self.inbox, self.place, "s1", "a1", ["count:2"], 0.0, self.log)
+        self.assertEqual(wake.long_wait(self.inbox, self.place, attrs, now=long)["tasks"], 2)
+        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                       "problems": [], "departments": [
+                                           {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
+                                            "account": None, "boss": None, "panes": [], "branch": "b",
+                                            "long_wait": {"since": 1792760000.0, "tasks": 2}}]}]))
+        stamp = time.strftime("%m-%d %H:%M", time.localtime(1792760000.0))
+        self.assertIn(f"! 裏の処理（2 本）を待ってターンを終えたまま、{stamp} から同じ頼みで会話が動いていない", line)
+
+    def test_a_keepalive_turn_does_not_set_the_long_wait_back(self):
+        attrs = {"ask": "a1", "session": "s1"}
+        self.attrs = attrs
+        conf = lambda cwd, a, read: self.conf
+        warm = wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: self.clock[0])
+        self.clock[0] += 210
+        self.assertEqual(warm(), "（keepalive）")
+        # keepalive のターンが記録に行を足して終わり、同じ裏の処理を待つ
+        self.add({"type": "user", "message": {"content": "（keepalive）"}})
+        self.add({"type": "assistant", "message": {"content": "待機中"}})
+        self.clock[0] += 5
+        wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: self.clock[0])
+        later = 1000.0 + wake.LONG_WAIT
+        self.assertEqual(wake.long_wait(self.inbox, self.place, attrs, now=later), {"since": 1000.0, "tasks": 1})
+        # keepalive でないターン（印の無い控えの後）は時計を進める
+        self.add({"type": "user", "message": {"content": "知らせ"}})
+        self.clock[0] += 5
+        wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: self.clock[0])
+        self.assertIsNone(wake.long_wait(self.inbox, self.place, attrs, now=later))
+        # keepalive でないターンの後は、そのターンの終わりから測り直す
+        self.assertEqual(wake.long_wait(self.inbox, self.place, attrs, now=self.clock[0] + wake.LONG_WAIT)["since"], self.clock[0])
+
+    def test_a_watcher_taking_over_from_an_older_version_writes_nothing_again(self):
+        conf = lambda cwd, a, read: self.conf
+        idle = {**self.payload, "background_tasks": []}
+        self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs, again=True))
+        self.assertIsInstance(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs, again=True),
+                              wake_hook.Warm)
+        self.assertEqual(deliver.records(self.inbox), [])
+        self.assertFalse(os.path.exists(wake.waiting_path(self.inbox, self.place)))
+
+    def test_turned_reads_only_whole_new_lines_and_takes_a_shorter_record_as_moved(self):
+        size = os.path.getsize(self.log)
+        self.assertEqual(wake.turned(self.log, size), (False, size))
+        self.assertEqual(wake.turned(self.log, size + 10), (True, size))   # 記録が作り直された
+        self.assertEqual(wake.turned(self.log, -1), (False, -1))   # 読めない位置
+        self.assertEqual(wake.turned(os.path.join(self.cwd, "none.jsonl"), 0), (False, 0))
+        wake.waiting_note(self.inbox, self.place, "s1", "a1", ["b1"], 0.0, self.log)
+        with open(wake.waiting_path(self.inbox, self.place), "w", encoding="utf-8") as f:
+            json.dump({"session": "s1", "ask": "a1", "tasks": ["b1"], "at": 0.0, "transcript": self.log, "pos": -5}, f)
+        self.assertIsNone(wake.long_wait(self.inbox, self.place, {"ask": "a1", "session": "s1"}, now=wake.LONG_WAIT + 1))
 
     def test_the_watch_hands_a_notice_before_it_asks_the_clock(self):
         inbox, place, clock = tempfile.mkdtemp(), tempfile.mkdtemp(), [0.0]

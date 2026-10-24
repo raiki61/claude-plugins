@@ -148,6 +148,112 @@ def warm_note(inbox, place, session, tasks, sent, stopped=False):
                                                  ensure_ascii=False))
 
 
+LONG_WAIT = 3600   # --tree が「裏の処理を待ったまま動きが無い」と出す、裏の処理を残したターンの終わりからの秒
+TURN_ROWS = ("user", "assistant")   # 会話の記録の行のうち、ターンが動いた印の type（人の文・知らせ・ツールの結果と、答え）
+
+
+def turn_row(line):
+    """会話の記録（transcript_path の JSONL）の 1 行がターンの行（type が TURN_ROWS）か。読めない行はターンの行と見ない。
+    ターンの行でない行（ターンの終わりのフックの要約・手が空いた会話の要約 away_summary など）は、会話が止まっていても足される。
+    サブエージェントの行（isSidechain）は本体の会話のターンでないので数えない。終えたターンの答えの行は Stop のフックより前に
+    書かれる（2026-10-24 に my_notes の調べものの記録の 17 回のターンの終わりで、答えの行が stop_hook_summary より前に在るのを見た）。"""
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(row, dict) and row.get("type") in TURN_ROWS and not row.get("isSidechain")
+
+
+def turned(path, pos):
+    """会話の記録の pos バイト目より後に、ターンの行が足されたか。(足されたか, 次に読む位置)。書きかけの行（改行の無い終わり）は
+    次に回す。記録が読めなければ足されていないと見る。記録が縮んだ（作り直された）なら足されたと見る。"""
+    try:
+        size = os.path.getsize(path)
+        if size < pos:
+            return True, size
+        with open(path, "rb") as f:
+            f.seek(pos)
+            for line in iter(f.readline, b""):   # 行ごとに読み、ターンの行が見つかった所で打ち切る
+                if not line.endswith(b"\n"):
+                    break
+                pos += len(line)
+                if turn_row(line):
+                    return True, pos
+    except (OSError, TypeError, ValueError):
+        return False, pos
+    return False, pos
+
+
+def waiting_path(inbox, place):
+    """裏の処理を残して終えたターンの控え（{session, ask, tasks, at, transcript, pos}。--tree の long_wait が読む）。"""
+    return os.path.join(_dir(inbox), key(place) + ".waiting.json")
+
+
+def waiting_note(inbox, place, session, ask, tasks, at, transcript=None):
+    """ターンの終わり（Stop）に、裏の処理（tasks。id の並びか数）を残したなら控えに書き、残さなかったなら控えを消す。控えには、その時の
+    会話の記録（transcript）の大きさを pos に書く（long_wait が、その後にターンの行が足されたかで会話が動いたかを見る）。
+    keepalive のターン（waiting_kept の印の有る控えの後のターン）の終わりで、会話・頼み・待つ処理が前の控えと同じなら、at は前の値を
+    残す（keepalive は会話を動かしていない。残さないと、送るたびに long_wait の時計が戻り、止まった部署が --tree に出ない）。"""
+    path = waiting_path(inbox, place)
+    if not tasks:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(path)
+        return
+    try:
+        pos = os.path.getsize(transcript) if transcript else None
+    except OSError:
+        pos = None
+    before = _read_json(path)
+    if (before.get("kept") is True and isinstance(before.get("at"), (int, float))
+            and (before.get("session"), before.get("ask"), before.get("tasks")) == (session, ask, tasks)):
+        at = before["at"]
+    os.makedirs(_dir(inbox), exist_ok=True)
+    _replace(path, json.dumps({"session": session, "ask": ask, "tasks": tasks, "at": at, "transcript": transcript, "pos": pos},
+                              ensure_ascii=False))
+
+
+def waiting_kept(inbox, place):
+    """keepalive を送った印を控えに付ける（次のターンの終わりの waiting_note が、そのターンを会話の動きと数えない）。"""
+    path = waiting_path(inbox, place)
+    got = _read_json(path)
+    if got:
+        _replace(path, json.dumps({**got, "kept": True}, ensure_ascii=False))
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def long_wait(inbox, place, attrs, now=None):
+    """部署が、納品していない同じ頼みを受けたまま、裏の処理を残したターンの終わりから LONG_WAIT 秒を超えて会話が動いていなければ
+    {since: そのターンの終わりの時刻, tasks: 待つ裏の処理の数}。ほかは None（控えが無い・会話か頼みが替わった・納品した・その後に
+    会話の記録にターンの行が足された・記録の場所が控えに無い）。裏の処理の終わりを待つ形の誤り（待ちのループが互いに当たって
+    終わらないなど）で、人が気づくまで止まった部署を --tree に出す（2026-10-23 に my_notes の調べものが約 11 時間止まった。
+    my_notes の受付 f55a1b）。"""
+    try:
+        with open(waiting_path(inbox, place), encoding="utf-8") as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return None
+    ask = attrs.get("ask")
+    if (not isinstance(got, dict) or not isinstance(got.get("at"), (int, float)) or not ask or attrs.get("delivered") == ask
+            or got.get("ask") != ask or got.get("session") != attrs.get("session")
+            or not isinstance(got.get("transcript"), str) or not isinstance(got.get("pos"), int) or got["pos"] < 0):
+        return None
+    if (time.time() if now is None else now) - got["at"] < LONG_WAIT or turned(got["transcript"], got["pos"])[0]:   # 読むのは控えの後だけ
+        return None
+    tasks = got.get("tasks") if isinstance(got.get("tasks"), list) else []
+    count = len(tasks) or None
+    if len(tasks) == 1 and str(tasks[0]).startswith("count:"):   # id の分からない裏の処理は数だけ（warm_for の count:N）
+        count = int(tasks[0][6:]) if tasks[0][6:].isdigit() else None
+    return {"since": got["at"], "tasks": count}
+
+
 def pos_path(inbox, place):
     return os.path.join(_dir(inbox), key(place) + ".pos")
 

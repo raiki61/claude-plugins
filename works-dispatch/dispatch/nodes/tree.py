@@ -386,6 +386,10 @@ def lines(companies):
                 stuck = "渡す待ち受けが居ない" if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None)
                 fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"
                               + (f"  ! {stuck}（--nudge {d['name'] or d['branch']} で動かす）" if stuck else ""))
+            if d.get("long_wait"):
+                w = d["long_wait"]
+                fields.append(f"! 裏の処理{'（' + str(w['tasks']) + ' 本）' if w.get('tasks') else ''}を待ってターンを終えたまま、"
+                              f"{_at(w['since'])} から同じ頼みで会話が動いていない（待つ処理が終わらない形かを窓で確かめる）")
             if d.get("no_talk_id"):
                 fields.append("! 会話の id（company.session）が無い（窓の会話が落ちたとき、--ask か --nudge が会話の一覧の部署の場所の会話で戻して書き戻す）")
             if d.get("tool_place"):

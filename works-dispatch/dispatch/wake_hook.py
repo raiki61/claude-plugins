@@ -39,6 +39,9 @@
   /reload-plugins は裏で待っている待ち受けを止めないので、替わらないと、版を上げる前に立った待ち受けが前の版のまま何時間も後に渡す。
   裏の処理を待ってターンを終えた会話（Stop の background_tasks に動いている物が在る）で、役か受け持ちに keepalive を書いた部署は、
   知らせの無いまま keepalive の間が過ぎれば、keepalive の文で会話を起動してプロンプトキャッシュを切らさない（Warm・warm_for。受付の設計の 3.4）。
+  送らなかったとき（裏の処理が無い・納品した・keepalive が無いなど）は、訳を台帳に keepalive の skipped の行で残す（残すターンの終わりの
+  決まりは warm_for）。毎回のターンの終わりに、裏の処理を残したかを控えに書く（wake.waiting_note。--tree が、同じ頼みのまま長く動かない
+  部署を出す）。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文でターンが始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
   終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じターンの中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
   そうなると止まる前のフックが答え待ちの頼みを「納品していない」と差し戻し続ける。社長室で 3 回続いた）。
@@ -55,6 +58,7 @@ company.session の会話だけ（部署で属性に id が無ければ誰でも
 宛先の会社の名前は、--ask と --tree と同じ読み方（tree.read_info と tree.company_name）で決める。
 """
 
+import contextlib
 import json
 import os
 import pathlib
@@ -997,48 +1001,69 @@ def woken(got, attrs_of=_attrs):
         provision.mark(got["cwd"], got["root"], {"cleared": None}, gitx)
 
 
-def warm_wanted(attrs):
-    """keepalive を送ってよい場所の属性か。納品していない頼み（company.ask が company.delivered でない）を受けていて、区切り（--rest・
-    --compact）・終わり（--done）・起動し直し（--move --if-changed）の印が無いときだけ（受付の設計の 3.4。作業の済んだ部署は送らない）。"""
+def warm_unwanted(attrs):
+    """keepalive を送らない場所の属性なら、その訳（台帳の keepalive の skipped の行の detail）。送ってよければ None。送るのは、納品して
+    いない頼み（company.ask が company.delivered でない）を受けていて、区切り（--rest・--compact）・終わり（--done）・起動し直し
+    （--move --if-changed）の印が無いときだけ（受付の設計の 3.4。作業の済んだ部署は送らない）。"""
     ask = attrs.get("ask")
-    return bool(ask and attrs.get("delivered") != ask
-                and not any(attrs.get(k) for k in (wake.REST, wake.COMPACT, wake.FINISHED, wake.RESTARTING)))
+    if not ask:
+        return "頼みを受けていない"
+    if attrs.get("delivered") == ask:
+        return "今の頼みを納品した"
+    marks = {wake.REST: "区切りの印（--rest）", wake.COMPACT: "区切りの印（--compact）", wake.FINISHED: "終わりの印（--done）",
+             wake.RESTARTING: "起動し直しの印（--move --if-changed）"}
+    return next((f"{v}が在る" for k, v in marks.items() if attrs.get(k)), None)
+
+
+def warm_wanted(attrs):
+    """keepalive を送ってよい場所の属性か（warm_unwanted が訳を返さない）。"""
+    return warm_unwanted(attrs) is None
+
+
+def warm_log(got, attrs, tasks, now=time.time, **extra):
+    """受付箱の台帳に keepalive の行を残す（送った・上限で止めた・送らなかった。to が無いので知らせとしては読まれない）。"""
+    row = {"kind": "keepalive", "at": now(), "place": got["cwd"], "session": got["session"], "ask": attrs.get("ask"),
+           "tasks": tasks, **extra}
+    try:
+        deliver.log(got["inbox"], row)
+    except OSError as e:
+        filex.warn(f"注記: keepalive を台帳に書けない（{e}）")   # 書けなくても送る・止める（控えの本数で上限は効く）
 
 
 class Warm:
     """keepalive の時計（受付の設計の 3.4）。裏の処理を待ってターンを終えた会話に、プロンプトキャッシュの寿命が切れる前に、会社の形の
-    keepalive の文を渡す（wake.watch の idle）。会話の記録（transcript_path）が替われば、会話が動いた（裏の処理の知らせでターンが
-    始まったなど）ので時計を戻して送らない。窓の会話が動いていると見えても戻す（動いているターンの要求がキャッシュを温める）。
-    窓を確かめられないときは記録だけで見る。送る前に場所の属性を読み直し、warm_wanted でなくなっていれば送らない。同じ会話が同じ
-    裏の処理を待つ間に続けて送るのは conf の limit 本まで（wake.warm_state）。送るたびと、上限で止めた時に、台帳に keepalive の行を残す。"""
+    keepalive の文を渡す（wake.watch の idle）。会話の記録（transcript_path）にターンの行（人の文か答え。type が user か assistant）が
+    足されたら、会話が動いた（裏の処理の知らせや人の文でターンが始まった）ので、この待ちでは送らない（そのターンの終わりに張り直した
+    待ち受けが、その時の裏の処理で決める。会話が動いたのは送らなくてよい形なので、台帳には書かない）。ターンの行でない行（手が空いた
+    会話の要約 away_summary など）では止めない（wake.turned）。
+    端末（ports.term）の窓の会話の状態は見ない（裏の処理が動いている間は、ターンを終えていても working と出るので、見ると 1 本も送らない。
+    2026-10-23 に my_notes の調べものが約 11 時間止まった間、keepalive は 0 本だった。my_notes の受付 f55a1b）。送る前に場所の属性を
+    読み直し、warm_unwanted が訳を返せば送らない。同じ会話が同じ裏の処理を待つ間に続けて送るのは conf の limit 本まで
+    （wake.warm_state）。送るたびと、上限で止めた時と、鳴った時に warm_unwanted の訳が出てやめた時と、時計が誤りで止まった時に、台帳に
+    keepalive の行を残す。送ったら控えに印を付ける（wake.waiting_kept。keepalive のターンで --tree の長い待ちの時計を戻さない）。"""
 
-    def __init__(self, got, payload, conf, tasks, h=term, now=time.time, me=lambda: chat.host()[0], attrs_of=_attrs):
-        self.got, self.payload, self.conf, self.tasks, self.h, self.now, self.me, self.attrs_of = \
-            got, payload, conf, tasks, h, now, me, attrs_of
+    def __init__(self, got, payload, conf, tasks, now=time.time, attrs_of=_attrs):
+        self.got, self.payload, self.conf, self.tasks, self.now, self.attrs_of = got, payload, conf, tasks, now, attrs_of
         self.path = chat.transcript(payload)
-        self.since, self.seen, self.off = now(), self._stamp(), False
+        self.since, self.pos, self.off = now(), self._size(), False
 
-    def _stamp(self):
+    def _size(self):
         try:
-            return os.path.getmtime(self.path) if self.path else None
+            return os.path.getsize(self.path)
         except OSError:
-            return None   # 記録が無い・読めない間は、替わったかを見られない（窓の確かめだけで見る）
+            return 0   # 記録がまだ無い・読めない（読めるようになった後の行は、全部を足された行と見る）
 
-    def _busy(self, attrs):
-        try:
-            jobs = (attrs.get("job"), self.got.get("job"), chat.attach_id(None, self.payload.get("session_id")))
-            pane = talk_window(self.got["cwd"], self.h, [self.me()], jobs)
-            return pane is not None and (self.h.agent(pane) or {}).get("agent_status") not in IDLE
-        except (self.h.Error, gitx.GitError, OSError):
-            return False   # 窓を確かめられない（herdr の無い所など）。会話の記録が替わらないかだけで見る
+    def _moved(self):
+        """前に見た所から、会話の記録にターンの行が足されたか（wake.turned）。"""
+        moved, self.pos = wake.turned(self.path, self.pos)
+        return moved
 
-    def _log(self, attrs, sent, **extra):
-        row = {"kind": "keepalive", "at": self.now(), "place": self.got["cwd"], "session": self.got["session"],
-               "ask": attrs.get("ask"), "tasks": self.tasks, "sent": sent, "limit": self.conf["limit"], **extra}
-        try:
-            deliver.log(self.got["inbox"], row)
-        except OSError as e:
-            filex.warn(f"注記: keepalive を台帳に書けない（{e}）")   # 書けなくても送る・止める（控えの本数で上限は効く）
+    def _log(self, attrs, **extra):
+        warm_log(self.got, attrs, self.tasks, self.now, **extra)
+
+    def _skip(self, attrs, detail):
+        self.off = True   # この待ちでは、もう控えも記録も見ない
+        self._log(attrs, status="skipped", detail=detail)
 
     def __call__(self):
         if self.off:
@@ -1048,50 +1073,71 @@ class Warm:
         except Exception as e:  # keepalive の誤りで待ち受けを落とさない（落ちると知らせと順番待ちが次のターンの終わりまで止まる）
             self.off = True
             filex.warn(f"注記: keepalive の時計が誤りで止まった。この待ちでは送らない（{type(e).__name__}: {e}）")
+            with contextlib.suppress(Exception):
+                self._log({}, status="skipped", detail=f"時計が誤りで止まった（{type(e).__name__}）")
             return None
 
     def _tick(self):
-        stamp = self._stamp()
-        if stamp != self.seen:
-            self.seen, self.since = stamp, self.now()
+        if self._moved():
+            self.off = True   # 会話が動いた。送らなくてよいので台帳にも書かない（そのターンの終わりの待ち受けが改めて決める）
             return None
         if self.now() - self.since < self.conf["every"]:
             return None
         attrs = self.attrs_of(self.got["cwd"])
-        if not warm_wanted(attrs):
+        why = warm_unwanted(attrs)
+        if why:
+            self._skip(attrs, why)
             return None
         inbox, place, session = self.got["inbox"], self.got["place"], self.got["session"]
         state = wake.warm_state(inbox, place, session, self.tasks)
         if state["sent"] >= self.conf["limit"]:
-            self.off = True   # この待ちでは、もう窓も控えも見ない
+            self.off = True
             if not state["stopped"]:
                 wake.warm_note(inbox, place, session, self.tasks, state["sent"], stopped=True)
-                self._log(attrs, state["sent"], status="stopped", detail="送る本数の上限に着いた")
-            return None
-        if self._busy(attrs):
-            self.since = self.now()
+                self._log(attrs, sent=state["sent"], limit=self.conf["limit"], status="stopped", detail="送る本数の上限に着いた")
             return None
         wake.warm_note(inbox, place, session, self.tasks, state["sent"] + 1)
-        self._log(attrs, state["sent"] + 1)
+        wake.waiting_kept(inbox, place)
+        self._log(attrs, sent=state["sent"] + 1, limit=self.conf["limit"])
         return self.conf["text"]
 
 
-def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shells=chat.background_shells):
+def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shells=chat.background_shells, now=time.time, again=False):
     """この待ち受けが keepalive を送るなら Warm、送らないなら None。送るのは、ターンの終わり（Stop）に裏の処理が動いていて、その場所が
-    warm_wanted（納品していない頼みを受けていて、区切り・終わりの印が無い）で、その場所の役か受け持ちに keepalive を書いたときだけ。"""
+    warm_wanted（納品していない頼みを受けていて、区切り・終わりの印が無い）で、その場所の役か受け持ちに keepalive を書き、会話の
+    記録の場所が分かるときだけ。送らないときは、訳を台帳に keepalive の skipped の行で 1 行残す。残すのは次のターンの終わりだけ
+    （ほかは keepalive に関わらない。全部に書くと台帳が埋まる）:
+    - keepalive を書いた部署で、裏の処理を待つか、納品していない頼みを受けている（keepalive を書いて頼みを受けていれば、裏の処理が
+      無くても「無い」と残す。裏の処理が台帳に見えない形で待ったのかを分けるため）
+    - keepalive を書いていない部署で、納品していない頼みを受けて裏の処理を待つ（「keepalive が無い」）
+    ターンの終わりに裏の処理を残したかは、--tree が長く動かない部署を出すために、毎回控えに書く（wake.waiting_note）。again は前の版の
+    待ち受けから替わった（hop）印で、そのフックの入力は前の版が控えと台帳に書いた物なので、どちらも書き直さない。"""
     if chat.event(payload) != "Stop":
         return None
     count = chat.running_tasks(payload, shells)
-    if not count:
-        return None
+    ids = chat.running_ids(payload) if count else None
+    tasks = (ids if ids is not None else [f"count:{count}"]) if count else []
     attrs = attrs_of(got["cwd"])
-    if not warm_wanted(attrs):
-        return None
+    try:
+        if not again:
+            wake.waiting_note(got["inbox"], got["place"], got["session"], attrs.get("ask"), tasks, now(), chat.transcript(payload))
+    except OSError as e:
+        filex.warn(f"注記: 裏の処理を残したターンの控えを書けない（{e}）")   # --tree に長い待ちが出ないだけ
+    why = warm_unwanted(attrs)
+    if count is None and not why:
+        why = "裏の処理の数を数えられない（フックの入力に並びが無く、裏の shell も数えられない）"
+    elif not count and not why:
+        why = "ターンの終わりに動いている裏の処理が無い"
     conf = conf_of(got["cwd"], attrs, read=chat.read_rate(chat.last_model(payload)))   # 上限は会話のモデルの読みの値段で決める
-    if not conf:
+    if not conf and not why:
+        why = "会社の形の役にも受け持ちにも keepalive が無い（書いていないか、寿命の値が読めない）"
+    elif conf and not why and not chat.transcript(payload):
+        why = "会話の記録の場所が分からず、会話が動いたかを見られない"
+    if why:
+        if not again and (count and (conf or warm_wanted(attrs)) or conf and warm_wanted(attrs)):
+            warm_log(got, attrs, tasks, now, status="skipped", detail=why)
         return None
-    ids = chat.running_ids(payload)
-    return Warm(got, payload, conf, ids if ids is not None else [f"count:{count}"], attrs_of=attrs_of)
+    return Warm(got, payload, conf, tasks, now=now, attrs_of=attrs_of)
 
 
 HANDED_OVER = "WORKS_DISPATCH_WAKE_FROM"   # 前の版の待ち受けから替わった印（値は前の待ち受けの印の token）
@@ -1184,7 +1230,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
     keep_job(got)
     inner, there = checker(got, payload), []
     try:
-        warm = warm_for(got, payload)
+        warm = warm_for(got, payload, again=bool(handed))
     except Exception as e:  # keepalive を決められなくても、頼みと納品の知らせは待つ
         filex.warn(f"注記: keepalive を送るかを決められないので送らない（{type(e).__name__}: {e}）", err)
         warm = None
