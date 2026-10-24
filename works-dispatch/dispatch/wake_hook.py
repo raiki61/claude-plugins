@@ -287,8 +287,8 @@ def compact_judge(payload, ttl, ask, deferred=0, answer=None, line=None):
     """compact を打つかを部品に聞く（rent-or-buy compact。文脈の大きさ・モデル・前の compact からの余分な読みの累計は部品が会話の記録から
     読む）。(部品の答え, None) か、聞けなければ (None, 訳)。ask は打つ前に会話に焦点を問うか、answer は問いへの会話の答え（2 回目）。
     line は強制の線（forced_line。無ければ None）で、会話の文脈がそこに着いていれば forced を真にして渡す（部品は聞かずに buy と答える。
-    設計書 docs/specs/2026-10-24-rent-or-buy-design.md の 2.3）。部品が答えないときも、着いていれば buy（reason は forced）を返す
-    （部品が無い会社でも、自動の compact の線を上げた後に会話が伸び続けない）。"""
+    設計書 docs/specs/2026-10-24-rent-or-buy-design.md の 2.3）。部品が答えない・buy でない（forced を知らない古い版）ときも、着いて
+    いれば buy（reason は forced）を返す（部品が無い会社でも、自動の compact の線を上げた後に会話が伸び続けない）。"""
     size = context_of(chat.transcript(payload)) if line else None
     forced = size is not None and size >= line
     if ttl:
@@ -298,9 +298,10 @@ def compact_judge(payload, ttl, ask, deferred=0, answer=None, line=None):
         found, why = RENT("compact", facts, chat.transcript(payload))
     else:
         found, why = None, "キャッシュの寿命が分からない"
-    if found is None and forced:
+    if forced and (found is None or found.get("action") != "buy"):
+        heard = f"部品に聞けない: {why}" if found is None else f"部品の答えは {found.get('action')!r}"
         return {"action": "buy", "reason": "forced", "consult": False, "prep": None,
-                "why": f"文脈が {size} トークンで、強制の線 {line} トークンに着いた（部品に聞けない: {why}）"}, None
+                "why": f"文脈が {size} トークンで、強制の線 {line} トークンに着いた（{heard}）"}, None
     return found, why
 
 
@@ -335,7 +336,8 @@ def consult_answer(got, payload, attrs, ttl_of=role_hook.cache_ttl_of, line_of=f
     found, why = compact_judge(payload, ttl_of(got["cwd"], attrs), True, mine["deferred"], answer, line_of(got, attrs)[0])
     row = {"status": "answered", "answer": answer}
     if found and found["action"] == "buy":
-        focus = (found.get("prep") or {}).get("focus") if isinstance(found.get("prep"), dict) else None
+        prep = found.get("prep") if isinstance(found.get("prep"), dict) else answer.get("prep")   # 強制の buy は prep を返さない
+        focus = (prep or {}).get("focus")
         marks = {wake.COMPACT: session, wake.COMPACT_FOCUS: " ".join(str(focus).split()) if focus else None}
         provision.mark(got["cwd"], got["root"], marks, gitx)
         wake.compact_note(inbox, place, session, deferred=mine["deferred"], judged=True)

@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Added
 
-- compact の強制の線。keepalive を送る時刻と `--compact` の印のターンの終わりに、会話の文脈が、その部署の起動の設定の `autoCompactWindow`（Claude Code が自動で compact する文脈の量。会話の環境変数 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` が先に効く）の 8 割に着いていれば、借りるか買うかの判断の部品に `forced` を真にして聞き、会話に焦点を問わずに compact を打つ（設計はルートの `docs/specs/2026-10-24-rent-or-buy-design.md` の 2.3）。部品が入っていない・答えないときも、線に着いていれば打つ。`autoCompactWindow` を書いていない部署には線が無い。`autoCompactWindow` を上げる値の決め方は references/roles.md の「起動の設定」。
+- compact の強制の線。keepalive を送る時刻と `--compact` の印のターンの終わりに、会話の文脈が、その部署の起動の設定の `autoCompactWindow`（Claude Code が自動で compact する文脈の量。会話の環境変数 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` が先に効く）の 8 割に着いていれば、借りるか買うかの判断の部品に `forced` を真にして聞き、会話に焦点を問わずに compact を打つ（設計はルートの `docs/specs/2026-10-24-rent-or-buy-design.md` の 2.3）。部品が入っていない・答えない・`buy` 以外を答えるときも、線に着いていれば打つ。`autoCompactWindow` を書いていない部署には線が無い。`autoCompactWindow` を上げる値の決め方は references/roles.md の「起動の設定」。
 
 ## [0.123.0] - 2026-10-24
 

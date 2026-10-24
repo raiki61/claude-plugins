@@ -705,6 +705,9 @@ class Keepalive(unittest.TestCase):
             self.assertEqual((warm.compact, warm.line), (True, 800000))
             self.assertFalse(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: self.attrs,
                                                 line_of=lambda got, attrs: (None, "書いていない")).compact)
+            # 線が分かっても、裏の処理が残る間は聞かない
+            self.assertFalse(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs,
+                                                line_of=lambda got, attrs: (800000, None)).compact)
 
 
 class Hook(unittest.TestCase):
@@ -1917,6 +1920,37 @@ class Hook(unittest.TestCase):
             wake_hook.compact_turn(self.plan(), small, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None,
                                    looks=1, line_of=lambda got, attrs: (wake.COMPACT_FLOOR - 1, None))
         self.assertEqual(w.writes, ["/compact"])
+
+    def test_the_forced_line_overrides_a_part_that_does_not_answer_buy(self):
+        # forced を知らない古い版の部品が rent と答えても、線に着いていれば buy にする（線は自動の compact を上げた後の歯止め）
+        payload = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(150000)}
+        rent = ({"action": "rent", "reason": "within_buy_cost", "why": "old"}, None)
+        with self.rent_or_buy(rent, rent, rent):
+            found, _ = wake_hook.compact_judge(payload, 300, True, line=150000)
+            self.assertEqual((found["action"], found["reason"], found["consult"]), ("buy", "forced", False))
+            self.assertIn("部品の答えは 'rent'", found["why"])
+            self.assertEqual(wake_hook.compact_judge(payload, 300, True, line=150001), rent)
+            self.assertEqual(wake_hook.compact_judge(payload, 300, True), rent)   # 線が無ければ文脈を見ない
+        self.assertEqual([facts["forced"] for _, facts in self.asked_part], [True, False, False])
+        # 寿命が分からず部品に聞けなくても、線に着いていれば打つ。文脈を読めなければ着いたとは見ない
+        self.assertEqual(wake_hook.compact_judge(payload, None, True, line=150000)[0]["reason"], "forced")
+        self.assertEqual(wake_hook.compact_judge({**payload, "transcript_path": "/none/t.jsonl"}, None, True, line=1),
+                         (None, "キャッシュの寿命が分からない"))
+
+    def test_a_forced_buy_after_the_question_keeps_the_focus_the_talk_gave(self):
+        # 焦点を問うた後に線に着くと、部品は prep の無い buy（forced）を返す。会話が返した焦点で打つ
+        log, clock = self.transcript(150000), [1240.0]
+        payload, warm = self.judged_warm(log, clock)
+        with self.rent_or_buy(({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)):
+            self.assertEqual(warm(), wake_hook.CONSULT_TEXT)
+        write_line(log, {"type": "user", "message": {"content": wake_hook.CONSULT_TEXT}})
+        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "直しの残り"}]}})
+        w = Window(self.place)
+        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "forced", "prep": None, "why": "w"}, None)):
+            wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), w, me=lambda: ME,
+                                   pause=lambda: None, looks=1, line_of=lambda got, attrs: (150000, None))
+        self.assertTrue(self.asked_part[0][1]["forced"])
+        self.assertEqual(w.writes[0], "/compact 直しの残り")
 
     def test_reply_answer_reads_the_first_line(self):
         self.assertEqual(wake_hook.reply_answer("\n 直しの残り \n二行目"), {"go": True, "prep": {"focus": "直しの残り"}})

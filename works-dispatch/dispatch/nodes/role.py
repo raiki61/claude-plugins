@@ -536,8 +536,8 @@ def cache_ttl(written, env):
 # 強制の線（借りるか買うかの部品の compact の入力 forced。docs/specs/2026-10-24-rent-or-buy-design.md の 2.3）を、Claude Code の自動の
 # compact の線（auto_compact）のこの割合に置く。待ち受けが compact を判断するのは keepalive の時刻（待ちの間）だけで、自動の compact は
 # ターンの途中でも打つので、線の手前に、待ちが 1 回は入る幅を残す。自動の compact は線より少し手前で打つ（1M の窓のモデルの既定は
-# 1M の約 96.7% の約 967K。chat.AUTO_COMPACT_SETTING の注の文書）ので、それより十分下に置く。待ちの間に自動の compact が
-# 打たれていれば（会話の記録の compact の境目の trigger が auto）割合を下げる（割り振りの受付 20261024-105511-ded6a1）
+# 1M の約 96.7% の約 967K。chat.AUTO_COMPACT_SETTING の注の文書）ので、それより十分下に置く。8 割は実測の前の仮の値で、
+# keepalive の部署の会話の記録に、待ちの間の自動の compact（compact の境目の trigger が auto）が出ていれば、人がこの割合を下げる
 FORCED_SHARE = 0.8
 _TOKENS = re.compile(r"(\d+)([kKmM]?)")
 
