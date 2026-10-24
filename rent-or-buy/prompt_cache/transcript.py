@@ -32,7 +32,7 @@ def read(path) -> dict:
         with open(path, encoding="utf-8") as f:
             lines = f.read().splitlines()
     except (OSError, UnicodeDecodeError) as e:
-        raise TranscriptError("記録を開けない: %s" % e)
+        raise TranscriptError("cannot open the transcript: %s" % e)
     for line in lines:
         if not line.strip():
             continue
@@ -49,7 +49,9 @@ def read(path) -> dict:
             elif kind == "assistant" and not row.get("isSidechain"):
                 msg = row["message"]
                 ctx = _context(msg["usage"])
-                if ctx > 0 and not str(msg.get("model", "")).startswith("<"):  # <synthetic> は実の応答ではない
+                if not isinstance(msg["model"], str):
+                    raise TypeError("model is not a string")
+                if ctx > 0 and not msg["model"].startswith("<"):  # <synthetic> は実の応答ではない
                     if msg["id"] not in responses:
                         order.append(msg["id"])
                     responses[msg["id"]] = (msg["model"], ctx)
@@ -66,5 +68,5 @@ def read(path) -> dict:
     if post_tokens is not None:
         out["post_tokens"] = post_tokens
     if not ({"model", "last_request_at", "post_tokens"} & set(out)):
-        raise TranscriptError("記録から応答も要求も compact の印も読めなかった（読み飛ばした行 %d）" % skipped)
+        raise TranscriptError("no response, request or compact mark could be read from the transcript (skipped lines: %d)" % skipped)
     return out

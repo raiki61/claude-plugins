@@ -1,8 +1,14 @@
-"""場面の事実を中心 decide の入力に直す。式は指南 3.5（prices.toml の guide に commit）。
+"""場面の事実を中心 decide の入力に直す。
 
-keepalive: 借りる＝1 本の費用、買う＝切れの上乗せ。compact: 借りる＝この 1 回で余分に読む額、買う＝縮める費用。
+keepalive: 借りる＝1 本の費用（読み × 文脈 + 書き込み × 1 本の書き込み + 出力 × 1 本の出力）、買う＝切れの上乗せ
+（(書き込み − 読み) × 文脈）。
+compact: 借りる＝この 1 回で余分に読む額（(文脈 − compact の後の文脈) × 読み）、買う＝縮める費用
+（compact の後の文脈 × 書き込み + 要約の出力 × 出力 + 問い合わせの費用）。
+単価の段（10 万トークン超で上がる）は、送る文の大きさで選ぶ。compact の書き込みは書く量（compact の後の文脈）、
+出力は縮める前の文脈の大きさで選ぶ。
 """
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -25,42 +31,61 @@ def version() -> str:
 
 def _check(facts: dict, required, optional) -> None:
     if not isinstance(facts, dict):
-        raise FactsError("入力は表（JSON のオブジェクト）でなければならない")
+        raise FactsError("input must be a JSON object")
     unknown = sorted(set(facts) - set(required) - set(optional))
     missing = [k for k in required if k not in facts]
     if unknown:
-        raise FactsError("知らない鍵: %s" % ", ".join(unknown))
+        raise FactsError("unknown keys: %s" % ", ".join(unknown))
     if missing:
-        raise FactsError("足りない鍵: %s" % ", ".join(missing))
+        raise FactsError("missing keys: %s" % ", ".join(missing))
 
 
 def _count(facts: dict, key: str, default):
     v = facts.get(key, default)
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
-        raise FactsError("%s は 0 以上の数でなければならない: %r" % (key, v))
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
+        raise FactsError("%s must be a finite number of 0 or more: %r" % (key, v))
     return v
+
+
+def check_model(model):
+    if not isinstance(model, str):
+        raise FactsError("model must be a string: %r" % (model,))
+    return model
+
+
+def _time(key: str, value) -> datetime:
+    """ISO 8601 で、時差（Z か +09:00 など）付きの時刻を UTC の datetime にする。"""
+    try:
+        t = datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        raise FactsError("%s must be an ISO 8601 time: %r" % (key, value))
+    if t.tzinfo is None:
+        raise FactsError("%s must carry a time zone (for example Z or +09:00): %r" % (key, value))
+    return t.astimezone(timezone.utc)
 
 
 def _write_kind(facts: dict) -> str:
     life = facts["lifetime"]
     if life not in (300, 3600):
-        raise FactsError("lifetime は 300 か 3600 でなければならない: %r" % (life,))
+        raise FactsError("lifetime must be 300 or 3600: %r" % (life,))
     return "write_5m" if life == 300 else "write_1h"
 
 
 def _stamp(out: dict, price: "prices.Price", rent: float, buy: float, extra: dict) -> dict:
     out = dict(out, rent=rent, buy=buy, **extra)
-    out.update(prices=price.info(), version=version(), guide=prices.defaults()["guide"]["commit"])
+    out.update(prices=price.info(), version=version())
     return out
 
 
 def keepalive(facts: dict, price_override=None, env=None, now=None) -> dict:
     """keepalive の判断。facts: model・lifetime・context_tokens・spent・certain（必須）と、
-    hazard・miss・policy・last_request_at・write_tokens・output_tokens・margin_s（省ける。後ろの 3 つは prices.toml の既定）。
+    hazard・miss・policy・last_request_at・write_tokens・output_tokens・margin_s（省ける。後ろの 3 つは prices.toml の既定）と、
+    記録だけに残す turn_end_at（ISO 8601。判断には使わず、出力にそのまま添える）。
     """
     _check(facts, ("model", "lifetime", "context_tokens", "spent", "certain"),
-           _CORE_KEYS + ("last_request_at", "write_tokens", "output_tokens", "margin_s"))
+           _CORE_KEYS + ("last_request_at", "write_tokens", "output_tokens", "margin_s", "turn_end_at"))
     d = prices.defaults()["keepalive"]
+    check_model(facts["model"])
     kind, n = _write_kind(facts), _count(facts, "context_tokens", None)
     price = _lookup(facts["model"], price_override, env, now)
     write, out_tokens, margin = (_count(facts, k, d[k]) for k in ("write_tokens", "output_tokens", "margin_s"))
@@ -69,16 +94,14 @@ def keepalive(facts: dict, price_override=None, env=None, now=None) -> dict:
     buy = (w - r) * n
     inputs = {"rent": rent, "buy": buy, "spent": facts["spent"], "certain": facts["certain"]}
     inputs.update({k: facts[k] for k in _CORE_KEYS if k in facts})
-    out = rent_or_buy.decide(inputs)
-    at = facts.get("last_request_at")
     next_at = None
-    if at is not None:
-        try:
-            t = datetime.fromisoformat(at).astimezone(timezone.utc)
-        except (ValueError, TypeError):
-            raise FactsError("last_request_at は ISO 8601 の時刻でなければならない: %r" % (at,))
+    if facts.get("last_request_at") is not None:
+        t = _time("last_request_at", facts["last_request_at"])
         next_at = (t + timedelta(seconds=facts["lifetime"] - margin)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return _stamp(out, price, rent, buy, {"next_at": next_at})
+    extra = {"next_at": next_at}
+    if facts.get("turn_end_at") is not None:
+        extra["turn_end_at"] = _time("turn_end_at", facts["turn_end_at"]).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return _stamp(rent_or_buy.decide(inputs), price, rent, buy, extra)
 
 
 def extra_read_cost(contexts, post_tokens, price: "prices.Price") -> float:
@@ -94,12 +117,13 @@ def compact(facts: dict, price_override=None, env=None, now=None) -> dict:
     _check(facts, ("model", "lifetime", "context_tokens", "spent"),
            _COMPACT_CORE_KEYS + ("post_tokens", "summary_tokens", "warm", "consult_cost"))
     d = prices.defaults()["compact"]
+    check_model(facts["model"])
     kind, n = _write_kind(facts), _count(facts, "context_tokens", None)
     price = _lookup(facts["model"], price_override, env, now)
     post, summary = _count(facts, "post_tokens", d["after_tokens"]), _count(facts, "summary_tokens", d["summary_tokens"])
     ask_cost = _count(facts, "consult_cost", 0)
     rent = max(0, n - post) * price.rate("read", n)
-    buy = post * price.rate(kind, n) + summary * price.rate("output", n) + ask_cost
+    buy = post * price.rate(kind, post) + summary * price.rate("output", n) + ask_cost
     inputs = {"rent": rent, "buy": buy, "spent": facts["spent"], "certain": True}
     inputs.update({k: facts[k] for k in _COMPACT_CORE_KEYS if k in facts})
     return _stamp(rent_or_buy.decide(inputs), price, rent, buy, {"warm": facts.get("warm")})

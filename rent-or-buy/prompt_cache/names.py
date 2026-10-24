@@ -32,13 +32,13 @@ def parse_aliases(text: Optional[str]) -> dict:
     if text.startswith("{"):
         table = json.loads(text)
         if not isinstance(table, dict) or not all(isinstance(v, str) for v in table.values()):
-            raise ValueError("対応表の JSON は 名前→モデル名（文字列）の表でなければならない")
+            raise ValueError("the alias JSON must map a name to a model name (string)")
         return table
     table = {}
     for pair in text.split(","):
         key, sep, value = pair.partition("=")
         if not sep or not key.strip() or not value.strip():
-            raise ValueError("対応表の項目は `名前=モデル` の形でなければならない: %r" % pair)
+            raise ValueError("an alias entry must look like name=model: %r" % pair)
         table[key.strip()] = value.strip()
     return table
 

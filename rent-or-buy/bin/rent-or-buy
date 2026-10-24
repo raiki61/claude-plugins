@@ -1,14 +1,14 @@
 #!/bin/sh
 ''':'
-# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・py -3 の順に、実際に起きる物で
+# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・py -3 の順に、実際に起きる 3.11 以上の物で
 # この台本を起動し直す。PATH の頭の python3 をそのまま使わないのは、Windows の python3・python が、Python を入れていないと
 # Microsoft Store へ誘う代わりの物（起動すると案内を出して終わる）に当たるため（tiers/bin/tiers と同じ作り）。
 for cand in python3 python "py -3"; do
   command -v "${cand%% *}" >/dev/null 2>&1 || continue
   # shellcheck disable=SC2086
-  $cand -c 'import sys' >/dev/null 2>&1 && exec $cand "$0" "$@"
+  $cand -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1 && exec $cand "$0" "$@"
 done
-echo "rent-or-buy: 起動できる Python が見つからない（python3・python・py -3 を試した）。Python 3 を入れる" >&2
+echo "rent-or-buy: no usable Python 3.11+ found (tried python3, python, py -3). Install Python 3.11 or later" >&2
 exit 1
 '''
 """借りるか買うかの判断のコマンド。標準入力に JSON を受け、標準出力に JSON を返す。
@@ -20,7 +20,7 @@ exit 1
   rent-or-buy snapshot                       LiteLLM の main から同梱の値段の写しを作り直す
 
 終わりのコード: 0 判断できた / 2 入力の形が違う / 3 知らないモデル / 4 記録を読めない（snapshot の失敗は 1）。
-0 以外でも標準出力に {"error": 鍵, "why": 訳} を返す。環境変数は README の Environment。
+0 以外でも標準出力に {"error": 鍵, "why": 英語の訳} を返す。環境変数は README の Environment。
 設計は docs/specs/2026-10-24-rent-or-buy-design.md。
 """
 import argparse
@@ -47,6 +47,7 @@ def _emit(obj) -> None:
 
 
 def _fail(key: str, why: str, code: int, row=None):
+    """失敗を返す。row があれば入力ごと記録に残す（知らないモデル名などを機械で拾えるように）。"""
     out = {"error": key, "why": why}
     if row is not None:
         _record(dict(row, output=out))
@@ -69,9 +70,9 @@ def _read_stdin() -> dict:
     try:
         data = json.loads(text) if text.strip() else {}
     except ValueError as e:
-        raise rent_or_buy.InputError("標準入力が JSON でない: %s" % e)
+        raise rent_or_buy.InputError("standard input is not JSON: %s" % e)
     if not isinstance(data, dict):
-        raise rent_or_buy.InputError("標準入力は JSON のオブジェクトでなければならない")
+        raise rent_or_buy.InputError("standard input must be a JSON object")
     return data
 
 
@@ -81,29 +82,52 @@ def _from_transcript(scene: str, facts: dict, path: str, override) -> tuple:
     base = {k: tr[k] for k in ("model", "context_tokens") if k in tr}
     if scene == "keepalive" and "last_request_at" in tr:
         base["last_request_at"] = tr["last_request_at"]
+    # この場面に要る事実が記録からも標準入力からも揃わなければ、既定で埋めず止める
+    # （compact の直後でまだ応答が無いときなど。文脈の量を compact の後の量で代えることはしない）
+    need = ("model", "context_tokens") + (("last_request_at",) if scene == "keepalive" else ())
+    lacking = [k for k in need if k not in {**base, **facts}]
+    if lacking:
+        raise transcript.TranscriptError("the transcript lacks %s needed for %s (no response yet after a compact?)"
+                                         % (", ".join(lacking), scene))
     if scene == "compact":
         if "post_tokens" in tr:
             base["post_tokens"] = tr["post_tokens"]
         merged = {**base, **facts}
-        if "spent" not in merged and "model" in merged:
+        if "spent" not in merged:
             post = merged.get("post_tokens", prices.defaults()["compact"]["after_tokens"])
-            price = prices.lookup(merged["model"], override)
+            price = prices.lookup(translate.check_model(merged["model"]), override)
             base["spent"] = translate.extra_read_cost(tr["contexts_after_compact"], post, price)
     return {**base, **facts}, {"skipped_lines": tr["skipped_lines"]}
 
 
+def _fail_row(scene: str, facts) -> dict:
+    row = {"scene": scene}
+    if facts is not None:
+        row["input"] = facts
+    return row
+
+
 def _judge(scene: str, args) -> int:
-    facts = _read_stdin()
-    override = facts.pop("prices", None)
-    info = None
-    if scene == "decide":
-        out = rent_or_buy.decide(facts)
-    else:
-        if args.transcript:
-            facts, info = _from_transcript(scene, facts, args.transcript, override)
-        out = getattr(translate, scene)(facts, override)
-        if info is not None:
-            out["transcript"] = info
+    facts = None
+    try:
+        facts = _read_stdin()
+        # prices（単価の上書き）を受けるのは keepalive と compact だけ。decide では知らない鍵として止まる
+        override = facts.pop("prices", None) if scene != "decide" else None
+        info = None
+        if scene == "decide":
+            out = rent_or_buy.decide(facts)
+        else:
+            if args.transcript:
+                facts, info = _from_transcript(scene, facts, args.transcript, override)
+            out = getattr(translate, scene)(facts, override)
+            if info is not None:
+                out["transcript"] = info
+    except (rent_or_buy.InputError, translate.FactsError) as e:
+        return _fail("invalid_input", str(e), 2, _fail_row(scene, facts))
+    except prices.PricesError as e:
+        return _fail(e.key, e.why, e.code, _fail_row(scene, facts))
+    except transcript.TranscriptError as e:
+        return _fail("transcript_unreadable", str(e), 4, _fail_row(scene, facts))
     row = {"scene": scene, "input": facts}
     err = _record(dict(row, output=out))
     if err:
@@ -128,20 +152,16 @@ def main() -> int:
             return 0
         if args.cmd == "snapshot":
             try:
-                snap = prices.fetch_snapshot(time.strftime("%Y-%m-%d", time.gmtime()))
+                snap = prices.fetch_snapshot(time.strftime("%Y-%m-%d", time.gmtime()), timeout=120)
             except (OSError, ValueError, KeyError) as e:
-                return _fail("fetch_failed", "LiteLLM から取れなかった: %s" % e, 1)
+                return _fail("fetch_failed", "could not fetch from LiteLLM: %s" % e, 1)
             (ROOT / "prompt_cache" / "snapshot.json").write_text(
                 json.dumps(snap, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
             _emit({"models": len(snap["models"]), "commit": snap["commit"], "fetched": snap["fetched"]})
             return 0
         return _judge(args.cmd, args)
-    except (rent_or_buy.InputError, translate.FactsError) as e:
-        return _fail("invalid_input", str(e), 2, {"scene": args.cmd})
-    except prices.PricesError as e:
-        return _fail(e.key, e.why, e.code, {"scene": args.cmd})
-    except transcript.TranscriptError as e:
-        return _fail("transcript_unreadable", str(e), 4)
+    except prices.PricesError as e:  # prices サブコマンドの失敗は記録しない（調べ用で、判断ではない）
+        return _fail(e.key, e.why, e.code)
 
 
 if __name__ == "__main__":
