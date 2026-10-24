@@ -145,7 +145,7 @@ keepalive を送る時刻には、手が 3 つある。送る（借りる）、c
 
 ### 3.2 実測の値と既定
 
-`prompt_cache/prices.toml` に置く。LiteLLM に無い値を置く。測った日と出どころ（受付番号か指南の節）は `prices.toml` には書かず、この節に残す。
+`prompt_cache/prices.toml` に置く。3.1 の LiteLLM の値段表に無い値（トークン数や秒数の既定）を置く。測った日と出どころ（受付番号か指南の節）は `prices.toml` には書かず、この節に残す。
 
 - keepalive 1 本のキャッシュの書き込み 380・出力 5（my_notes の受付 20261024-031615-3eafaa の測り。works-dispatch の keepalive の文で測った値なので、ほかの文では違う。呼ぶ側が上書きできる）
 - 寿命までの余裕 `m` 90 秒（今の works-dispatch の値。3.4 の測り方では安全側に寄る。記録で測ってから詰める）
