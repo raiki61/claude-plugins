@@ -17,9 +17,12 @@ def append_record(path, row: dict, max_bytes: int = MAX_BYTES) -> Optional[str]:
         line = json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
         p.parent.mkdir(parents=True, exist_ok=True)
         if p.exists() and p.stat().st_size > max_bytes:
-            os.replace(p, p.with_name(p.stem + ".1" + p.suffix))
+            # 並行して呼ばれると、別の呼び出しが先に切った新しい記録を古い物として動かしてしまう。
+            # 動かす直前にもう一度大きさを見て、その窓を狭める（ロックは持たない。記録は失っても判断に響かない）
+            if p.stat().st_size > max_bytes:
+                os.replace(p, p.with_name(p.stem + ".1" + p.suffix))
         with p.open("a", encoding="utf-8") as f:
             f.write(line)
     except (OSError, TypeError, ValueError) as e:
-        return "記録を書けない: %s" % e
+        return "cannot write the record: %s" % e
     return None

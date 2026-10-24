@@ -19,41 +19,43 @@ _REQUIRED = ("rent", "buy", "spent", "certain")
 def _number(key, v):
     # bool は int の仲間だが、数として受けない
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
-        raise InputError("%s は有限の数でなければならない: %r" % (key, v))
+        raise InputError("%s must be a finite number: %r" % (key, v))
     if v < 0:
-        raise InputError("%s は 0 以上でなければならない: %r" % (key, v))
+        raise InputError("%s must be 0 or more: %r" % (key, v))
     return v
 
 
 def parse(raw: dict) -> Inputs:
     """表を Inputs に直す。知らない鍵・足りない鍵・型や範囲の違いは InputError。"""
     if not isinstance(raw, dict):
-        raise InputError("入力は表（JSON のオブジェクト）でなければならない")
+        raise InputError("input must be a JSON object")
     names = {f.name for f in fields(Inputs)}
     unknown = sorted(set(raw) - names)
     if unknown:
-        raise InputError("知らない鍵: %s" % ", ".join(unknown))
+        raise InputError("unknown keys: %s" % ", ".join(unknown))
     missing = [k for k in _REQUIRED if k not in raw]
     if missing:
-        raise InputError("足りない鍵: %s" % ", ".join(missing))
+        raise InputError("missing keys: %s" % ", ".join(missing))
     out = dict(raw)
     for k in _NUMBERS:
-        if out.get(k) is not None:
+        # null を受けるのは hazard だけ（無い、の意味）。ほかの数の null は黙って直さず止める
+        if k in out and not (k == "hazard" and out[k] is None):
             out[k] = _number(k, out[k])
     for k in _INTS:
         if k in out and (isinstance(out[k], bool) or not isinstance(out[k], int) or out[k] < 0):
-            raise InputError("%s は 0 以上の整数でなければならない: %r" % (k, out[k]))
+            raise InputError("%s must be an integer of 0 or more: %r" % (k, out[k]))
     for k in _BOOLS:
         if k in out and not isinstance(out[k], bool):
-            raise InputError("%s は真偽でなければならない: %r" % (k, out[k]))
+            raise InputError("%s must be true or false: %r" % (k, out[k]))
     if out.get("miss", 0) > 1:
-        raise InputError("miss は 0 から 1 の割合でなければならない: %r" % out["miss"])
+        raise InputError("miss must be a share from 0 to 1: %r" % out["miss"])
     if out.get("hazard") is not None and out["hazard"] > 1:
-        raise InputError("hazard は 0 から 1 の確率でなければならない: %r" % out["hazard"])
-    if "answer" in out and out["answer"] is not None and not isinstance(out["answer"], dict):
-        raise InputError("answer は表でなければならない: %r" % (out["answer"],))
+        raise InputError("hazard must be a probability from 0 to 1: %r" % out["hazard"])
+    if out.get("answer") is not None and _reply(out["answer"]) is None:
+        # コマンドで渡された answer の形の違いは黙って買いにせず止める（関数の返事の形の違いだけは買いにする）
+        raise InputError("answer must be {\"go\": true, \"prep\": {...}} or {\"go\": false, \"why\": \"...\"}: %r" % (out["answer"],))
     if not isinstance(out.get("policy", "fixed"), str):
-        raise InputError("policy は文字列でなければならない: %r" % (out["policy"],))
+        raise InputError("policy must be a string: %r" % (out["policy"],))
     return Inputs(**out)
 
 
@@ -67,44 +69,49 @@ def _reply(r):
     return r if isinstance(r.get("why"), str) else None
 
 
-def _apply_reply(r, why: str):
-    """返事を (action, why, prep) にする。r が None（形が違う・聞けない）なら聞かなかったのと同じ。"""
+def _apply_reply(r):
+    """返事を (action, reason, why 追記, prep) にする。r が None（形が違う・聞けない）なら聞かなかったのと同じに買う。"""
     reply = _reply(r)
     if reply is None:
-        return "buy", why + "。問い合わせの返事を読めず、聞かなかったのと同じに買う", None
+        return "buy", "consult_unreadable", "the consult reply was unreadable, so buy as if not asked", None
     if reply["go"]:
-        return "buy", why + "。相手が進めると答えた", reply.get("prep")
-    return "rent", "延期: %s（元の判断: %s）" % (reply["why"], why), None
+        return "buy", "consult_go", "the other side said go", reply.get("prep")
+    return "rent", "consult_deferred", "deferred by the other side: %s" % reply["why"], None
 
 
 def decide(raw: dict, consult: Optional[Callable[[Inputs], dict]] = None) -> dict:
-    """借りるか買うかを決める。出力は {action, why, consult, prep, policy}。
+    """借りるか買うかを決める。出力は {action, reason, why, consult, prep, policy}。
 
-    consult は問い合わせ口。聞くべきときだけ呼ぶ。渡さなければ consult: true を返し、呼ぶ側が相手に聞いて
-    answer に入れて 2 回目を呼ぶ（部品は状態を持たない）。
+    reason は機械の読む短い鍵、why は英語の訳。consult は問い合わせ口。聞くべきときだけ呼ぶ。渡さなければ
+    consult: true を返し、呼ぶ側が相手に聞いて answer に入れて 2 回目を呼ぶ（部品は状態を持たない）。
     """
     x = parse(raw)
     policy = x.policy
     policy_fn = POLICIES.get(policy)
     note = ""
     if policy_fn is None:
-        policy_fn, policy, note = fixed, "fixed", "知らない決め方 %r のため fixed で決めた。" % x.policy
-    action, why = policy_fn(x)
+        policy_fn, policy, note = fixed, "fixed", "unknown policy %r, decided with fixed. " % x.policy
+    action, reason, why = policy_fn(x)
+    if policy_fn is fixed and note:
+        reason = "unknown_policy_fallback"
     why, prep, ask_now = note + why, None, False
-    if action == "buy":
-        if x.forced:
-            why += "。強制の上限に着いた"
-        elif x.ask and x.deferred < x.defer_limit:
+    if x.forced:
+        # 強制の上限は決め方の結果によらず買う
+        action, reason, why = "buy", "forced", why + "; forced to buy at the caller's hard limit"
+    elif action == "buy":
+        if x.ask and x.deferred < x.defer_limit:
             if x.answer is not None:
-                action, why, prep = _apply_reply(x.answer, why)
+                action, reason, add, prep = _apply_reply(x.answer)
+                why += "; " + add
             elif consult is not None:
                 try:
                     reply = consult(x)
                 except Exception:  # 相手が落ちても判断は止めない。聞かなかったのと同じに扱い、次の行で買いにする
                     reply = None
-                action, why, prep = _apply_reply(reply, why)
+                action, reason, add, prep = _apply_reply(reply)
+                why += "; " + add
             else:
                 ask_now = True
         elif x.ask:
-            why += "。延期の上限に着いたので聞かずに買う"
-    return {"action": action, "why": why, "consult": ask_now, "prep": prep, "policy": policy}
+            reason, why = "defer_limit_reached", why + "; defer limit reached, so buy without asking"
+    return {"action": action, "reason": reason, "why": why, "consult": ask_now, "prep": prep, "policy": policy}

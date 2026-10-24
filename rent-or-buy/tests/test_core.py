@@ -45,9 +45,26 @@ class FixedTest(unittest.TestCase):
         for bad in ({"rent": -1, "buy": 1, "spent": 0, "certain": True},
                     {"rent": 1, "buy": 1, "spent": 0, "certain": "yes"},
                     {"rent": 1, "buy": 1, "spent": 0, "certain": True, "nope": 1},
-                    {"rent": 1, "buy": 1, "certain": True}):
+                    {"rent": 1, "buy": 1, "certain": True},
+                    # null を受けるのは hazard だけ
+                    {"rent": 1, "buy": 1, "spent": 0, "certain": True, "miss": None},
+                    {"rent": None, "buy": 1, "spent": 0, "certain": True},
+                    # 形の違う answer は黙って買いにせず止める（関数の返事だけが買いになる）
+                    {"rent": 1, "buy": 1, "spent": 0, "certain": True, "ask": True, "defer_limit": 1, "answer": {"go": "yes"}}):
             with self.assertRaises(rent_or_buy.InputError):
                 rent_or_buy.decide(bad)
+        out = rent_or_buy.decide({"rent": 1, "buy": 9, "spent": 0, "certain": False, "hazard": None})
+        self.assertEqual((out["action"], out["reason"]), ("buy", "no_hazard"))
+
+    def test_every_output_has_reason_and_english_why(self):
+        base = {"rent": 1, "buy": 5, "spent": 0, "certain": True}
+        cases = [({}, "within_buy_cost"), ({"spent": 4}, "reached_buy_cost"),
+                 ({"policy": "nope"}, "unknown_policy_fallback"), ({"ask": True, "defer_limit": 1, "spent": 4}, "reached_buy_cost"),
+                 ({"ask": True, "defer_limit": 1, "deferred": 1, "spent": 4}, "defer_limit_reached")]
+        for extra, reason in cases:
+            out = rent_or_buy.decide({**base, **extra})
+            self.assertEqual(out["reason"], reason, extra)
+            self.assertTrue(out["why"].isascii(), out["why"])
 
 
 class ConsultTest(unittest.TestCase):
@@ -56,10 +73,11 @@ class ConsultTest(unittest.TestCase):
     def test_two_step_call(self):
         first = rent_or_buy.decide(self.BUY)
         self.assertEqual((first["action"], first["consult"]), ("buy", True))
+        self.assertEqual(rent_or_buy.decide({**self.BUY, "answer": {"go": True}})["reason"], "consult_go")
         go = rent_or_buy.decide({**self.BUY, "answer": {"go": True, "prep": {"focus": "テスト"}}})
         self.assertEqual((go["action"], go["consult"], go["prep"]), ("buy", False, {"focus": "テスト"}))
         wait = rent_or_buy.decide({**self.BUY, "answer": {"go": False, "why": "作業中"}})
-        self.assertEqual((wait["action"], wait["consult"]), ("rent", False))
+        self.assertEqual((wait["action"], wait["consult"], wait["reason"]), ("rent", False, "consult_deferred"))
 
     def test_limits_skip_asking(self):
         self.assertFalse(rent_or_buy.decide({**self.BUY, "deferred": 2})["consult"])
@@ -67,7 +85,8 @@ class ConsultTest(unittest.TestCase):
         forced = rent_or_buy.decide({**self.BUY, "forced": True})
         self.assertEqual((forced["action"], forced["consult"]), ("buy", False))
         # 強制は、決め方が借りると言っても買う
-        self.assertEqual(rent_or_buy.decide({**self.BUY, "spent": 0, "forced": True})["action"], "rent")
+        out = rent_or_buy.decide({**self.BUY, "spent": 0, "forced": True})
+        self.assertEqual((out["action"], out["reason"], out["consult"]), ("buy", "forced", False))
 
     def test_function_form(self):
         calls = []
@@ -81,7 +100,7 @@ class ConsultTest(unittest.TestCase):
         # 例外・形の違う返事は、聞かなかったのと同じに買う
         for reply in (lambda x: 1 / 0, lambda x: {"go": "はい"}):
             out = rent_or_buy.decide(self.BUY, consult=reply)
-            self.assertEqual((out["action"], out["consult"]), ("buy", False))
+            self.assertEqual((out["action"], out["consult"], out["reason"]), ("buy", False, "consult_unreadable"))
 
 
 if __name__ == "__main__":
