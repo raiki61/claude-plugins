@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.123.0] - 2026-10-24
+
 ### Added
 
 - `--check` は、借りるか買うかの判断の部品（rent-or-buy プラグインの `bin/rent-or-buy`）が見つからないとき、keepalive と compact が決まった数で動くことと、入れるコマンド（`claude plugin install rent-or-buy@<マーケット>`）を注記に出す（止めない）。0.122.0 の後、部品がどのアカウントにも入っておらず、部署の会話が黙って決まった数で動いていた。
