@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- 会話を縮める（compact）・始め直す・そのまま続けるを、場面ごとに費用の式で決める計画を足した（`docs/specs/2026-10-25-compact-restart-plan.md`）。式の見直し・問いの費用と届け方・キャッシュの寿命ごとの場面・実装の順を書いた。コードはまだ変えていない。
+
 ## [0.126.0] - 2026-10-25
 
 ### Changed
