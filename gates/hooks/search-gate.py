@@ -33,9 +33,16 @@ FD = {"fd", "fdfind"}
 RG = {"rg"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 # 後ろに走らせるコマンドを取る前置。coldread の command_start が飛ばす物(env・timeout など)のほかに、ここで越える
-HOPS = {"nice", "sudo", "doas", "xargs", "caffeinate", "stdbuf", "ionice", "taskpolicy", "arch", "chrt", "builtin"}
+# 前置の旗のうち値を取る物(値ごと飛ばす)。旗と数(chrt の優先度・nice -19)を飛ばした次の語を、走るコマンドと見る
+HOPS = {"nice": {"-n"}, "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"}, "doas": {"-u", "-C"},
+        "xargs": {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "-J", "-R", "-S"}, "caffeinate": {"-t", "-w"},
+        "stdbuf": {"-i", "-o", "-e"}, "ionice": {"-c", "-n", "-p"}, "taskpolicy": {"-c", "-t", "-l", "-p"},
+        "arch": set(), "chrt": set(), "builtin": set()}
 # 前段の粗選別: 探すツールの語もシェルの入れ子も無いコマンドは、解析部を読み込まずに通す(Bash のたびに走るので)
-WORD_RE = re.compile(r"(?<![\w.-])(?:find|bfs|gfind|fd|fdfind|rg|e?grep|fgrep|ggrep)(?![\w.-])")
+# grep は再帰の旗の在るときだけ読む(`| grep foo` のたびに解析部を読み込まない)
+WORD_RE = re.compile(r"(?<![\w.-])(?:find|bfs|gfind|fd|fdfind|rg)(?![\w.-])"
+                     r"|(?<![\w.-])(?:e?grep|fgrep|ggrep)(?![\w.-]).*?(?:\s-[A-Za-z]*[rRd]|--recursive|--dereference-recursive"
+                     r"|--directories)", re.S)
 # 入れ子は 8 段まで読む(`bash -c "bash -c '…'"` の深さ。それより深い物はそのまま通す)
 MAX_DEPTH = 8
 
@@ -173,6 +180,8 @@ def starts_of(name, args, piped):
     """ツール name の引数 args から起点を返す。探さない形(grep の再帰でない・stdin を読む)なら []。
 
     piped は前がパイプのとき(rg・grep は起点の無いとき stdin を読み、cwd を探さない)。"""
+    if "--help" in args or "--version" in args or (name in FD | RG and {"-h", "-V"} & set(args)):
+        return []   # 使い方と版を出すだけ
     if name in FIND:
         return find_starts(args)
     if name in FD:
@@ -213,6 +222,14 @@ def resolve(value, cwd):
     v = expand_home(value)
     if "$" in v or "`" in v:
         return None
+    if any(ch in v for ch in "*?["):
+        # シェルが開く型(~/*・/Users/*)は、型を含む区切りの前のフォルダの中を全部探すのと同じ
+        head = []
+        for part in v.split("/"):
+            if any(ch in part for ch in "*?["):
+                break
+            head.append(part)
+        v = "/".join(head) or ("/" if v.startswith("/") else ".")
     if not v.startswith("/"):
         if not cwd:
             return None
@@ -244,12 +261,9 @@ def check_command(cr, command, cwd, depth=0):
         at = cr.command_start(c.args)
         words = c.args[at:]
         while words and os.path.basename(words[0]) in HOPS:
-            # 前置を越える: 後ろの語のうち、最初に探すツールかシェルの名前のもの(nice -n 19 find …・xargs -0 rg …)
-            nxt = next((j for j, w in enumerate(words[1:], 1)
-                        if os.path.basename(w) in FIND | FD | RG | GREP | SHELLS | {"eval"}), None)
-            words = words[nxt:] if nxt else []
-        if not words:
-            continue
+            words = after_hop(words)   # 前置を越える(nice -n 19 find …・xargs -0 rg …)
+        if not words or ("command" in c.args[:at] and {"-v", "-V"} & set(c.args[:at])):
+            continue   # command -v rg は在るかを引くだけ
         name = os.path.basename(words[0])
         here = files.at(k, c.args[:at]).cwd_here()
         if name in SHELLS:
@@ -267,14 +281,32 @@ def check_command(cr, command, cwd, depth=0):
         check_command(cr, inner, cwd, depth + 1)
 
 
+def after_hop(words):
+    """前置(words[0])の旗と、値を取る旗の値と、数を飛ばした残り。"""
+    values, i = HOPS[os.path.basename(words[0])], 1
+    while i < len(words):
+        w = words[i]
+        if w in values:
+            i += 2
+        elif w.startswith("-") or w.isdigit() or re.match(r"[A-Za-z_][A-Za-z0-9_]*=", w):
+            i += 1
+        else:
+            break
+    return words[i:]
+
+
 def shell_script(args):
     """bash・sh などの引数から -c の文字列を返す。-c が無ければ None(ファイルか stdin を走らせる)。"""
-    for i, a in enumerate(args):
-        if a.startswith("-") and not a.startswith("--") and "c" in a[1:]:
-            rest = [x for x in args[i + 1:] if not x.startswith("-")]
-            return rest[0] if rest else None
-        if not a.startswith("-"):
-            return None
+    i, has_c = 0, False
+    while i < len(args):
+        a = args[i]
+        if not a.startswith(("-", "+")):
+            return a if has_c else None
+        if not a.startswith("--"):
+            has_c = has_c or "c" in a[1:]
+            if a[-1] in "oO":
+                i += 1   # 値を取る旗(-o pipefail・-euo pipefail)
+        i += 1
     return None
 
 
@@ -297,6 +329,8 @@ def check_tool(tool, args, cwd):
     path = args.get("path") or "."
     if tool == "Glob":
         pattern = args.get("pattern") or ""
+        if not any(ch in pattern for ch in "*?[{"):
+            return   # 字だけの型は 1 つのパスを見るだけで、下をたどらない
         root = glob_root(pattern)
         if not root.startswith(("/", "~", "$")):
             base = resolve(path, cwd)
@@ -308,6 +342,10 @@ def check_tool(tool, args, cwd):
 
 
 def deny(cr, tool, start):
+    try:
+        os.makedirs(os.path.dirname(DENY_LOG), exist_ok=True)   # 止めると決まった後だけ作る(書けない環境で全部を止めない)
+    except OSError:
+        pass   # 記録を書けなくても止める(log_line も書けなければ知らせて続ける)
     cr.log_line(DENY_LOG, "deny %s %s" % (tool, start))
     cr.deny(
         "searchgate: %s の起点 %s は / やホームの全体なので止めた。全体を探すとマシン全体が重くなり"
@@ -351,7 +389,6 @@ def load_coldread():
     spec.loader.exec_module(cr)
     global Scope, DENY_LOG
     DENY_LOG = os.path.join(cr.CONFIG_DIR, "searchgate", "denies.log")
-    os.makedirs(os.path.dirname(DENY_LOG), exist_ok=True)
 
     class Scope(cr.BodyFiles):
         """変数と cd の追い方は coldread と同じ 1 本。~ と $HOME だけ先にホームへ開く(coldread は本文のパスでしか開かない)。"""
@@ -367,6 +404,27 @@ def load_coldread():
             if "HOME" not in self.assigned():
                 value = expand_home(value)
             return super().var(value)
+
+        def cwd_here(self, k=None):
+            """coldread の cwd_here と同じ読み方に、2 つを足す: ; と改行の後の cd も読む(coldread は本文のパスを取り違えない
+            ように && の後だけ)・引数の無い cd はホーム。"""
+            k = self.k if k is None else k
+            if self.moved:
+                return None
+            cwd = self.cwd
+            for j in range(k):
+                c = self.cmds[j]
+                if not any(t in cr.CD_WORDS for t in c.args):
+                    continue
+                args = c.args[cr.command_start(c.args):]
+                dest = None
+                if args[:1] == ["cd"]:
+                    dest = home() if len(args) == 1 else self.var(args[1]) if len(args) == 2 else None
+                dest = cr.native_path(dest) if dest else None
+                ok = (dest and os.path.isabs(dest) and not self.conditional and self._runs(j, ("&&",))
+                      and self._between(j, k, cr._SEQUENTIAL, below_ok=False))
+                cwd = dest if ok else None
+            return cwd
 
     return cr
 

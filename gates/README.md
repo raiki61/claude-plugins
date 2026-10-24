@@ -1,10 +1,10 @@
 # gates — gatekeeper hooks
 
-For people who use Claude Code to post to GitHub with gh or to write documents, and want a check that the text gets across to a first-time reader before it goes out. It is also for anyone who runs several Claude Code sessions on one machine and wants to keep a session from searching the whole disk. Install the plugin (see Install); the coldread and searchgate hooks are on as soon as it is installed, and destgate stays off until you create its allowlist. After Install and the first coldread section, the later sections are reference: the limits of what is caught, the details of each gatekeeper, and the measurements behind each decision.
+For people who use Claude Code to post to GitHub with gh (the GitHub CLI) or to write documents, and want a check that the text gets across to a first-time reader before it goes out. It is also for anyone who runs several Claude Code sessions on one machine and wants to keep a session from searching the whole disk. Install the plugin (see Install); the coldread and searchgate hooks are on as soon as it is installed, and destgate stays off until you create its allowlist. After Install and the first coldread section, the later sections are reference: the limits of what is caught, the details of each gatekeeper, and the measurements behind each decision.
 
-Distributes hooks that stop an operation until a check passes: outward-facing operations, and searches that would load the whole machine. There are currently 3 gatekeepers: coldread (whether the text gets across), destgate (an allowlist for destinations) and searchgate (no searches from / or the whole home). coldread stops posts to gh before they are written; for local documents (md and so on) it reads them after they are written and returns findings at the end of the role that wrote them (the parent session or a worker) (it does not stop them).
+This plugin distributes hooks that stop an operation until a check passes: outward-facing operations, and searches that would load the whole machine. There are currently 3 gatekeepers: coldread (whether the text gets across to a first-time reader), destgate (an allowlist for destinations) and searchgate (no searches from / or the whole home). coldread stops posts to gh before they are written; for local documents (md and so on) it reads them after they are written and returns findings to whoever wrote them (the parent session or a subagent worker) when that writer finishes (it does not stop them).
 
-The skill's instructions and description are written in Japanese.
+The coldread skill's instructions and description are written in Japanese.
 
 Changes per version are in [CHANGELOG.md](CHANGELOG.md). How versions are released (the step of adding to the change log; no git tags are made) is in [docs/releasing.md](../docs/releasing.md) (relative to the repository root; it is not in the copy installed as a plugin. Read it in a clone or on GitHub: https://github.com/raiki61/claude-plugins).
 
@@ -467,18 +467,22 @@ The second gatekeeper, restricting a different axis from coldread: "may this be 
 ## searchgate — no searches from / or the whole home
 
 The third gatekeeper. It protects the local machine instead of what goes out. On 2026-10-24, two `find / -name …` commands run by sessions
-(Claude Code runs find as `bfs`) used 860% CPU in total for an hour and pushed the load to 55–70 on 24 cores. They outlived the Bash timeout,
-and `pkill -f "find / …"` did not match the `bfs` process name. Writing "do not search from /" into each company's documents does not stop
-the next company or the next search, so this is one rule for every session.
+(Claude Code runs find as `bfs`) used 860% CPU in total (about 8.6 cores) for an hour and pushed the load average to 55–70 on a 24-core machine. They outlived the Bash
+timeout, and `pkill -f "find / …"` did not match the `bfs` process name. Writing "do not search from /" into one repository's instructions does
+not reach sessions working on other repositories, and a session can still miss it, so this is one rule, enforced by a hook, for every session.
 
 - The rule: if the start of a search is `/`, `/Users`, `/System`, `/System/Volumes/Data`, `/Volumes`, `/private`, `/opt` or the home folder
-  itself (`~`, `$HOME`, the path), the call is stopped before it runs, and the session is told to start from the work folder or from the place
-  the thing is known to be kept. Anything below these (`~/.cache/works-factory`, `/opt/homebrew`, the work folder) passes. There is no depth or time limit
-- What it reads (PreToolUse on Bash, Glob and Grep): `find`, `bfs`, `gfind`, `fd`, `rg` and `grep -r` in Bash, also behind `nice`, `sudo`,
+  itself (written as `~`, `$HOME` or its absolute path), the call is stopped before it runs, and the session is told to start from its working
+  folder (the folder the session runs in) or from the place the thing is known to be kept. Anything below these (`~/.cache/works-factory`,
+  `/opt/homebrew`, the working folder) passes. Only the start is checked: an allowed search is not limited in depth or running time
+- What it reads (a PreToolUse hook, which runs before each Bash, Glob and Grep call): `find`, `bfs`, `gfind`, `fd`, `rg` and `grep -r` in Bash, also behind `nice`, `sudo`,
   `xargs`, `timeout` and so on, and inside `bash -c "…"`, `eval`, `$( … )` and `` ` … ` ``; the `path` of the Glob and Grep tools and the
-  fixed head of a Glob pattern (`/Users/**/x` starts at `/Users`). With no path, the start is the session's folder
+  fixed head of a Glob pattern (`/Users/**/x` starts at `/Users`; a pattern with no wildcard looks at one path and passes). A start with a shell
+  wildcard counts as the folder above the wildcard (`find ~/*` starts at the home folder). With no path, the start is the session's working folder
 - Variables in the start are resolved from assignments in the same command (`D=/; find $D`) and from `~`/`$HOME`; a relative start is resolved
-  from a preceding `cd <absolute path> &&` or the session's folder. A start it cannot resolve (an unknown variable, an assignment inside a
-  condition) is not stopped, because nothing in the text says it is wide
+  from a preceding `cd <absolute path>` (followed by `&&`, `;` or a new line; a bare `cd` is the home folder) or the session's working folder.
+  Calls that take no start (`--help`, `--version`, `command -v rg`) pass. A start it cannot resolve (an unknown variable, an assignment inside an
+  `if`) is not stopped, because nothing in the text says it is wide
 - The decision is deterministic (no LLM) and **there is no escape hatch**. It fails closed: if the check itself fails (input it cannot read),
-  the call is stopped. Stops are logged to `$CLAUDE_CONFIG_DIR/searchgate/denies.log`
+  the call is stopped. Stops are logged to `$CLAUDE_CONFIG_DIR/searchgate/denies.log` (the Claude Code
+  settings folder, `~/.claude` by default)

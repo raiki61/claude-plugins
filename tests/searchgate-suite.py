@@ -72,6 +72,12 @@ class Bash(unittest.TestCase):
         "grep -rn needle /",
         "grep -R --include='*.json' needle ~",
         "xargs -0 find / -name x",
+        "xargs -I {} find / -name {}",
+        "find ~/* -name x",
+        "grep -rn needle /Users/*",
+        "rg needle /*",
+        "bash -o pipefail -c 'find / -name x'",
+        "bash -euo pipefail -c 'find ~ -name x'",
     ]
     PASS = [
         "find . -name x",
@@ -93,6 +99,17 @@ class Bash(unittest.TestCase):
         "find $UNKNOWN -name x",
         "git status",
         "cat <<'EOF'\nfind / -name x\nEOF",
+        "find ~/src/* -name x",
+        "git log | grep -i needle",
+    ]
+    # 作業場がホームのときも通す形(起点を取らない呼び出し)
+    PASS_IN_HOME = [
+        "rg --version",
+        "fd --help",
+        "find --version",
+        "command -v rg",
+        "nice -n 19 pytest -k find",
+        "fd -V",
     ]
 
     def test_stops_wide_starts(self):
@@ -109,6 +126,12 @@ class Bash(unittest.TestCase):
                 reason, out = run("Bash", {"command": command})
                 self.assertIsNone(reason, out)
 
+    def test_passes_calls_without_a_start(self):
+        for command in self.PASS_IN_HOME:
+            with self.subTest(command=command):
+                reason, out = run("Bash", {"command": command}, cwd=HOME)
+                self.assertIsNone(reason, out)
+
     def test_names_the_start_it_stopped(self):
         reason, _ = run("Bash", {"command": "find ~ -name x"})
         self.assertIn("find の起点 /home/tester は", reason)
@@ -117,6 +140,9 @@ class Bash(unittest.TestCase):
     def test_relative_start_after_cd(self):
         self.assertIsNotNone(run("Bash", {"command": "cd / && find . -name x"})[0])
         self.assertIsNone(run("Bash", {"command": "cd /tmp && find . -name x"})[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd ~; find . -name x"})[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd /\nrg needle"})[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd && find . -name x"})[0])
 
     def test_relative_start_in_wide_cwd(self):
         self.assertIsNotNone(run("Bash", {"command": "find . -name x"}, cwd=HOME)[0])
@@ -136,7 +162,9 @@ class Tools(unittest.TestCase):
         passes = [{"pattern": "**/*.py"},
                   {"pattern": "**/x", "path": "/home/tester/.cache/works-factory"},
                   {"pattern": "/home/tester/.cache/**/x"},
-                  {"pattern": "src/a.py"}]
+                  {"pattern": "src/a.py"},
+                  {"pattern": "~/.zshrc"},
+                  {"pattern": "/opt/homebrew"}]
         for args in passes:
             with self.subTest(args=args):
                 self.assertIsNone(run("Glob", args)[0])
