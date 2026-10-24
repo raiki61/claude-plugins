@@ -417,7 +417,7 @@ def compact_turn(got, payload, attrs, h=term, me=lambda: chat.host()[0], pause=N
     if why is None:
         return "end", None   # compact の後の会話の始まりの待ち受けが、続きをさせる
     if why == MOVED and not judged:
-        return None   # 会話は裏の処理の知らせで動いている。起こさずに印を残し、そのターンの終わりにまた試す
+        return None   # 会話は裏の処理の知らせで動いている。起動せずに印を残し、そのターンの終わりにまた試す
     provision.mark(got["cwd"], got["root"], clear, gitx)
     if judged:
         wake.compact_note(got["inbox"], got["place"], got["session"],

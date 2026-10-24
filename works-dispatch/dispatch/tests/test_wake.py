@@ -1782,7 +1782,7 @@ class Hook(unittest.TestCase):
                                             pause=lambda: None, looks=1)
         self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
         self.assertIn("済んだのを見られない", text)   # 偽物の窓では compact の後の会話の始まりが来ない
-        # 打つ前に会話が動いた（裏の処理の知らせでターンが始まった）なら打たない。動いている会話を起こさず、印を残して
+        # 打つ前に会話が動いた（裏の処理の知らせでターンが始まった）なら打たない。動いている会話を起動せず、印を残して
         # そのターンの終わりにまた試す
         provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
         w = Window(self.place, status="working")
