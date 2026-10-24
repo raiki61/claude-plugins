@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.124.0] - 2026-10-24
+
 ### Added
 
 - compact の強制の線を足した。`autoCompactWindow` を書いていない部署には何も変わらない（急ぐ作業は無い）。書いてある部署では、待ちの間に会話が長くなっても、Claude Code の自動の compact（`autoCompactWindow` の値の近くまで文脈が伸びてから打たれる）より先に、待ち受けが compact を打てるようになる。compact は会話の文脈を縮める操作。強制の線は、その部署（works-dispatch が役を持たせて立てる、別の作業場の会話）の起動の設定の `autoCompactWindow`（Claude Code が自動で compact する文脈の量。トークンの数）の 8 割の文脈の量。部署の起動時に会話の環境変数 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` が設定されていれば、設定よりそちらの値が先に効き、8 割はその値から出す。次の 2 つの時点で、会話の文脈が線以上になっていれば、待ち受け（部署の会話を見張る、works-dispatch の裏のフック）は、会話に残す焦点（compact で残す話題の指定）を問わずに、焦点を付けない compact を打つ。(1) keepalive（待ちの間に、プロンプトキャッシュ〔API が再利用のために保つ文脈で、時間で切れる〕の寿命の前に、待ち受けが会話へ送る短い文）を送る時刻（keepalive を使うと設定した部署と窓口だけ。設定は `skills/dispatch/references/roles.md` の「仕事が終わるまでの keepalive」）。この時刻に線に着いていれば、keepalive の文の代わりに compact を打つ（compact の要求がキャッシュを読むので、keepalive の役も果たす）。(2) `--compact` の印（会話が「ここで compact してよい」と `--compact` コマンドで付ける印）があるターンの終わり（会話が 1 回の応答を終えて、待ち受けの Stop フックが呼ばれた時点）。打つ前に、借りるか買うかの判断の部品（このリポジトリの rent-or-buy プラグインの `bin/rent-or-buy`。キャッシュを借り続ける〔`rent`。keepalive で保つ〕か、compact して買い直す〔`buy`〕かを答える）に、線に着いたことを知らせる `forced` を真にして聞く。線に着いている間は、部品が入っていない・答えない・`buy` 以外を答えるときも打つ（部品の答えは打つかどうかを変えない）。線に着いていなければ、この強制は働かず、従来どおり部品の答えで決める。利用者が書くかは任意。書くと線が現れる（この変更だけでは設定は変わらない）。上げる値の決め方は `skills/dispatch/references/roles.md` の「起動の設定（settings）」の `autoCompactWindow` の項。設計はこのリポジトリのルートの `docs/specs/2026-10-24-rent-or-buy-design.md` の 2.3。
