@@ -446,9 +446,11 @@ def settings_for(role, duty=None):
 # 間隔の既定は寿命からこの秒を引く（ターンの終わりの応答を作る時間と、待ち受けが送ってから要求が出るまでの遅れの余裕）。5 分なら 210 秒
 KEEPALIVE_MARGIN = 90
 # 既定の文。返事を空にすると Claude Code が見える返事を促す文を足して要求が 1 回増え、「ツールを使わず」だけではフックの止めの字と
-# 読んで何かを打つことがある（2026-10-23 の試し。受付の設計の 7 章）ので、何もしないことと、書く一言を決めて渡す
-KEEPALIVE_TEXT = ("（keepalive: 頼みの仕事が終わらないままターンを終えた会話のプロンプトキャッシュを切らさないため、待ち受けが送った文で、"
-                  "誤りでも頼みでもない。待つ物があれば、済んだときに知らせが届く。ツールを使わず、「待機中」とだけ書いてターンを終える）")
+# 読んで何かを打つことがある（2026-10-23 の試し。受付の設計の 7 章）ので、誤りでも頼みでもないことと、書く一語を決めて渡す。
+# 英語の短い文にして、keepalive の要求ごとに書く分を減らす（2026-10-24、my_notes の受付 be3161。持ち主「あとは日本語じゃない方がいい。
+# waitingとかのほうがいいのでは」）
+KEEPALIVE_TEXT = ("keepalive from a works-dispatch hook to keep the prompt cache warm while work is pending. "
+                  "Not an error or a request; anything you wait for will notify you. Use no tools. Reply with exactly: waiting")
 _EVERY = re.compile(r"(\d+)([smh])")
 _UNIT = {"s": 1, "m": 60, "h": 3600}
 

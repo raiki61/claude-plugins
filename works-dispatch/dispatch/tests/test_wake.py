@@ -563,7 +563,7 @@ class Keepalive(unittest.TestCase):
         self.assertEqual(warm(), "（keepalive）")
         # keepalive のターンが記録に行を足して終わり、同じ裏の処理を待つ
         self.add({"type": "user", "message": {"content": "（keepalive）"}})
-        self.add({"type": "assistant", "message": {"content": "待機中"}})
+        self.add({"type": "assistant", "message": {"content": "waiting"}})
         self.clock[0] += 5
         wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: self.clock[0])
         later = 1000.0 + wake.LONG_WAIT
