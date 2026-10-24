@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.121.0] - 2026-10-24
+
 ### Changed
 
 - keepalive の既定の文（`dispatch/nodes/role.py` の `KEEPALIVE_TEXT`）を英語の短い文にし、返事を `waiting` の 1 語にした（今までは日本語の文で、返事は「待機中」）。keepalive の要求ごとに書く分（送る文はキャッシュに書かれる）を減らす。中身は今までと同じで、誤りでも頼みでもないと断り、待つ物があれば済んだときに知らせが届くと添え、ツールを使わないよう頼む（my_notes の受付 20261024-033628-be3161。持ち主「あとは日本語じゃない方がいい。waitingとかのほうがいいのでは」）。役か受け持ちの `text` に文を書いた所は今までどおりその文を送る。my_notes の 9 部署の keepalive 26 本は、どれもツールを打たず要求 1 回だった（ツールを打ったと数えられた 2 本は、ツールの結果に keepalive の文が混じった行で、keepalive のターンではなかった）ので、送り方は変えていない。
