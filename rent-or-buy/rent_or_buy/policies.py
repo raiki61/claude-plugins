@@ -9,7 +9,7 @@ from typing import Callable, Optional, Tuple
 
 @dataclass(frozen=True)
 class Inputs:
-    """decide の入力（鍵の意味は docs/specs/2026-10-24-rent-or-buy-design.md の 2.1）。"""
+    """decide の入力（鍵の意味はプラグインの docs/design.md の 3.1）。"""
     rent: float
     buy: float
     spent: float

@@ -21,7 +21,7 @@ exit 1
 
 終わりのコード: 0 判断できた / 2 入力の形が違う / 3 知らないモデル / 4 記録を読めない（snapshot の失敗は 1）。
 0 以外でも標準出力に {"error": 鍵, "why": 英語の訳} を返す。環境変数は README の Environment。
-設計は docs/specs/2026-10-24-rent-or-buy-design.md。
+設計はプラグインの docs/design.md（英語の正本）と docs/design.ja.md（日本語の訳）。
 """
 import argparse
 import json
