@@ -47,6 +47,17 @@ def locate(here=None):
     return None
 
 
+def missing_note(here=None):
+    """部品が見つからないときの --check の注記の 1 行（見つかれば None）。止めない（部品は依存でなく、無ければ決まった数で動く）。
+    入れるコマンドのマーケットは、このプラグインの置き場（<設定のフォルダ>/plugins/cache/<マーケット>/…）から読む。"""
+    if locate(here):
+        return None
+    parts = _plugin_root(here).parts
+    market = parts[-3] if len(parts) >= 5 and parts[-4] == "cache" else "<works-dispatch を入れたマーケットプレイス>"
+    return (f"借りるか買うかの部品（{NAME}）が見つからない。keepalive と compact は決まった数で動く"
+            f"（入れるなら {chat.COMMAND} plugin install {NAME}@{market}。開いている会話では /reload-plugins を打つ）")
+
+
 def ask(scene, facts, transcript=None, here=None, runner=subprocess.run, env=None):
     """部品の場面（keepalive か compact）に facts を渡した答え。(答えの dict, None) か、答えられなければ (None, 訳)。
     transcript は会話の記録のファイル（部品がモデル・文脈の量・最後の要求の時刻などを読む）。"""

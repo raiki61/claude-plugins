@@ -40,6 +40,15 @@ class Locate(unittest.TestCase):
         self.assertIsNone(rentx.locate(here))
         self.assertEqual(rentx.ask("keepalive", {}, here=here), (None, "借りるか買うかの部品（rent-or-buy）が入っていない"))
 
+    def test_check_notes_a_missing_part_with_the_install_command(self):
+        # 見つからないまま黙って決まった数で動かない（--check に注記を出す）。見つかれば出さない
+        self.assertIsNone(rentx.missing_note())
+        d = pathlib.Path(tempfile.mkdtemp())
+        here = d / "plugins" / "cache" / "m1" / "works-dispatch" / "1.0.0" / "dispatch" / "rentx.py"
+        note = rentx.missing_note(here)
+        self.assertIn("決まった数で動く", note)
+        self.assertIn("claude plugin install rent-or-buy@m1", note)
+
 
 class Ask(unittest.TestCase):
     def run_with(self, stdout, code=0):

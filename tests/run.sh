@@ -5649,6 +5649,9 @@ expect_output 0 "MEND_CLONE_OK" \
 expect_output 0 "REAL_SHAPES_OK" \
     "spread-plugins: claude plugin list --json と herdr pane list の実物から採った見本で、使うフィールドが読めて配れる" \
     "$PY_BIN" "$SPREAD_CASE" real-shapes
+expect_output 0 "INSTALL_MISSING_OK" \
+    "spread-plugins: marketplace の clone に載っているのに入っていないプラグインは install で入れ、写しと版も照合する（手元の設定の no_install は入れない。入っている物を読めなければ入れない。一覧の形が違えば失敗に数える）" \
+    "$PY_BIN" "$SPREAD_CASE" install-missing
 expect_output 0 "SHAPE_CHANGED_OK" \
     "spread-plugins: 外のツールの形が変わったら（id が無い・この marketplace の物が 0 件・claude の窓が 0 件・知らない状態）、配ったと出さずに失敗に数える" \
     "$PY_BIN" "$SPREAD_CASE" shape-changed

@@ -15,6 +15,8 @@
   （別の会話が取り直している間）は失敗に数えずに進む
 - real-shapes: claude plugin list --json と herdr pane list の実物から採った見本（tests/fixtures/spread-plugins/）で、使うフィールドが
   読めて配れる（Claude Code 2.1.303・herdr 0.9.3 で採った。版が上がって形が変わったら採り直す）
+- install-missing: marketplace の clone に載っているのに入っていないプラグインは claude plugin install で入れ、入れた写しと版も
+  照合する（手元の設定の no_install の物は入れない）。入っている物を読めないときは入れない。clone の一覧の形が違えば失敗に数える
 - shape-changed: 外のツールの形が変わったら（id の名前・この marketplace の物が 0 件・claude の窓が 0 件・知らない状態）、何も
   更新せずに「配った」と出さず、失敗に数える
 """
@@ -55,11 +57,12 @@ def plugin_dir(whole=True):
 FIXTURES = ROOT / "tests" / "fixtures" / "spread-plugins"
 
 
-def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky=(), listed=None, panes=None):
+def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky=(), listed=None, panes=None, offered=None):
     """(runner, 打ったコマンドの並び)。flaky は最初の 1 回だけ落ちるコマンド。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
     version は入った版（関数なら、その設定のフォルダで打った plugin update の数から版を返す）、main はメインブランチ（origin/main）の
     plugin.json の版（None ならメインブランチを読めない）。listed は claude plugin list --json の並びを返す関数（入った場所と版を受ける）、
-    panes は herdr pane list の窓の並び（どちらも省けば手で書いた見本）。"""
+    panes は herdr pane list の窓の並び（どちらも省けば手で書いた見本）。offered は marketplace の clone に載っている
+    プラグインの名前の並び（省けば、claude plugin list --json に user の scope で入っている物と同じ。入っていない物が無い）。"""
     calls = []
     installed = installed or plugin_dir()
     panes = panes if panes is not None else [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "agent_status": "idle", "cwd": "/dept"},
@@ -73,6 +76,14 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky
 
     def runner(argv, env=None):
         calls.append((argv, (env or {}).get("CLAUDE_CONFIG_DIR")))
+        if argv[:4] == ["git", "-C", "/m/mine", "show"]:
+            assert argv[4] == "HEAD:.claude-plugin/marketplace.json", argv
+            if offered is not None:
+                return 0, json.dumps({"plugins": [{"name": n, "source": f"./{n}"} for n in offered]})
+            code, out = runner(["claude", "plugin", "list", "--json"], env)
+            calls.pop()
+            return 0, json.dumps({"plugins": [{"name": p["id"].rsplit("@", 1)[0]} for p in json.loads(out)
+                                              if p.get("id", "").endswith("@" + MARKET) and p.get("scope") == "user"]})
         if argv[:3] == ["claude", "plugin", "list"]:
             v = version(sum(1 for a, e in calls if a[:3] == ["claude", "plugin", "update"] and e == (env or {}).get(
                 "CLAUDE_CONFIG_DIR"))) if callable(version) else version
@@ -264,7 +275,7 @@ def mend_clone():
     runner, calls = world(gone="attention/README.md\ntiers/README.md\n")
     rc, out = run(runner, {})
     assert rc == 0, out
-    seq = [a for a, _ in calls if a[:1] == ["git"] and a[2] == "/m/mine" or a[:3] == ["claude", "plugin", "update"]]
+    seq = [a for a, _ in calls if a[:1] == ["git"] and a[2] == "/m/mine" and a[3] != "show" or a[:3] == ["claude", "plugin", "update"]]
     assert seq[:3] == [["git", "-C", "/m/mine", "ls-files", "--deleted"], ["git", "-C", "/m/mine", "checkout", "--", "."],
                        ["claude", "plugin", "update", f"a@{MARKET}"]], seq   # 戻してから更新する
     assert "main: marketplace の clone の作業ツリーに 2 個のファイルが無いので戻す 済" in out, out
@@ -323,6 +334,48 @@ def real_shapes():
     print("REAL_SHAPES_OK")
 
 
+def install_missing():
+    new = plugin_dir()
+    runner, calls = world(offered=["a", "new", "skipme"])
+    def installing(argv, env=None):   # 入れた後の一覧に、そのアカウントで入れた物が載る
+        code, out = runner(argv, env)
+        here = (env or {}).get("CLAUDE_CONFIG_DIR")
+        if argv[:3] == ["claude", "plugin", "list"] and [a for a, e in calls if a[:3] == ["claude", "plugin", "install"] and e == here]:
+            out = json.dumps(json.loads(out) + [{"id": f"new@{MARKET}", "scope": "user", "installPath": new, "version": "1.0.0"}])
+        return code, out
+    rc, out = run(installing, {}, 'skip = ["plugins1"]\nno_install = ["skipme"]\n')
+    assert rc == 0, out
+    installs = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "install"]]
+    assert installs == [(f"new@{MARKET}", None), (f"new@{MARKET}", "/c/p1")], installs   # 入っている a と、除いた skipme は入れない
+    assert out.count(f"claude plugin install new@{MARKET} 済（1.0.0）") == 2, out
+    runner, calls = world(offered=["a", "new"])
+    rc, out = run(runner, {"dry_run": True})
+    assert rc == 0 and f"main: claude plugin install new@{MARKET}（空打ち）" in out, out
+    assert not [a for a, _ in calls if a[:3] == ["claude", "plugin", "install"]], calls
+    runner, calls = world(offered=["a", "new"], installed=plugin_dir(whole=False))   # 入れても写しが欠けていれば済と数えない
+    rc, out = run(runner, {})
+    assert rc == 1 and f"claude plugin install new@{MARKET} 失敗（入った写しに .claude-plugin/plugin.json が無い" in out, out
+    runner, calls = world(offered=["a", "new"], fail={f"claude plugin install new@{MARKET}"})
+    rc, out = run(runner, {})
+    installs = [env for a, env in calls if a[:3] == ["claude", "plugin", "install"]]
+    assert rc == 1 and installs == [None, "/c/p1", None, "/c/p1"], (out, installs)   # 落ちたら 1 回だけ配り直す
+    def renamed(installed, version):
+        return [{"plugin_id": f"a@{MARKET}", "scope": "user"}]
+    runner, calls = world(listed=renamed, offered=["a", "new"])   # 入っている物を読めなければ、全部を入れ直さない
+    rc, out = run(runner, {})
+    assert rc == 1 and not [a for a, _ in calls if a[:3] == ["claude", "plugin", "install"]], calls
+    runner, calls = world()
+    def shapeless(argv, env=None):
+        if argv[:4] == ["git", "-C", "/m/mine", "show"]:
+            calls.append((argv, None))
+            return 0, json.dumps({"entries": []})
+        return runner(argv, env)
+    rc, out = run(shapeless, {})
+    names, (failed, _) = sp.offered("main", MARKET, {}, shapeless)
+    assert rc == 1 and names == [] and failed, out   # 一覧の形が違えば、入れずに失敗に数える
+    print("INSTALL_MISSING_OK")
+
+
 def shape_changed():
     def renamed(installed, version):   # id の名前が変わった
         return [{("plugin_id" if k == "id" else k): v for k, v in p.items()} for p in real_list(installed, version)]
@@ -360,4 +413,4 @@ def shape_changed():
 if __name__ == "__main__":
     {"only-company-talks": only_company_talks, "bad-config": bad_config, "failure-is-nonzero": failure_is_nonzero,
      "local-accounts": local_accounts, "broken-copy": broken_copy, "mend-clone": mend_clone,
-     "real-shapes": real_shapes, "shape-changed": shape_changed}[sys.argv[1]]()
+     "real-shapes": real_shapes, "install-missing": install_missing, "shape-changed": shape_changed}[sys.argv[1]]()

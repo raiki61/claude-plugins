@@ -8,7 +8,10 @@ works-dispatch の機械窓口のツールとして、`dispatch.py --call 配布
 すること:
 1. アカウントごとに（works-dispatch の設定の accounts と、手元の設定 `~/.config/claude-plugins/spread.toml` の accounts。
    設定のフォルダ config_dir ごとに Claude Code を起動する）、`claude plugin marketplace update <このリポジトリの marketplace>`
-   を打ち（落ちたら 1 回だけ打ち直す。それでも落ちても、入った版が全部 main とそろえば失敗に数えない）、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
+   を打ち（落ちたら 1 回だけ打ち直す。それでも落ちても、入った版が全部 main とそろえば失敗に数えない）、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。
+   marketplace の clone（HEAD の .claude-plugin/marketplace.json）に載っているのに入っていないプラグインは `claude plugin install <id>` で
+   入れる（marketplace に足した新しいプラグインは update では入らない。2026-10-24 に rent-or-buy がどのアカウントにも入っていなかった）。
+   入れたくないプラグインは手元の設定の `no_install`（プラグインの名前の並び）に書く。marketplace の clone の作業ツリーから
    消えたファイルは戻し、入った写しに .claude-plugin/plugin.json が無ければ失敗に数える。works-dispatch の設定に載るのは
    部署を起動する先のアカウントだけなので、Claude Code を使うが部署は起動しないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
@@ -23,7 +26,7 @@ works-dispatch の機械窓口のツールとして、`dispatch.py --call 配布
    works-dispatch でなくここに置く）。ターンの途中の会話（herdr が idle・done と見ていない物）と、入力フィールドに字が入っている会話は
    飛ばす。飛ばした会話は、works-dispatch のターンの終わりのフック（dispatch/refresh_hook.py）が、その会話のターンの終わりの手の空いた
    時に替える。/clear では替わらない（2026-10-17 に Claude Code 2.1.302 で確かめた）。
-3. その人だけの除外は手元の設定の `skip`（herdr の作業場の名前の並び）に置く。持ち主の値を配布物に書かない。
+3. その人だけの除外は手元の設定の `skip`（herdr の作業場の名前の並び）と `no_install`（入れないプラグインの名前の並び）に置く。持ち主の値を配布物に書かない。
 4. 外のツールの形が変わったら、何も更新せずに「配った」と出さず、失敗に数える: `claude plugin list --json` の物に id か scope が無い・
    この marketplace のプラグインが user の scope に 0 件・herdr のペインに claude の会話が 0 個・herdr の知らない状態（KNOWN_STATUS の外）。
    そのため、配る先のアカウントには、この marketplace のプラグインを 1 つ以上入れておく（0 件のアカウントは毎回失敗に数える。
@@ -103,9 +106,13 @@ def skips(path=LOCAL):
     return listed(read_toml(path), "skip", str, path)
 
 
+def no_installs(path=LOCAL):
+    return listed(read_toml(path), "no_install", str, path)
+
+
 def step(account, kind, text, failed):
     """1 つの手の結果。成否と種類はフィールドで持ち、text は人に見せるだけ（後で text を読んで分岐しない）。
-    kind は marketplace-update・mend・list・update・version・main・talk・reload のどれか。"""
+    kind は marketplace-update・mend・list・install・update・version・main・talk・reload のどれか。"""
     return {"account": account, "kind": kind, "text": text, "failed": failed}
 
 
@@ -116,18 +123,23 @@ def claude_env(config_dir, env=os.environ):
     return out
 
 
+def clone_location(market, env, runner=run):
+    """その設定のフォルダの marketplace の clone の置き場（読めなければ None）。"""
+    code, out = runner(["claude", "plugin", "marketplace", "list", "--json"], env)
+    try:
+        return next((m.get("installLocation") for m in json.loads(out) if isinstance(m, dict) and m.get("name") == market),
+                    None) if code == 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
 def mend_clone(name, market, env, dry, runner=run):
     """その設定のフォルダの marketplace の clone で、作業ツリーから消えた tracked のファイルを index から戻す。step の並び。
     clone のやり直しが途中で切れると、作業ツリーが欠けたまま marketplace update は済になり、その後の plugin update は
     欠けた写しを入れるか（plugin.json の無い写しは版でなく commit の名前の版で入る）「destination is empty after copy」で
     失敗する（2026-10-17 に p2 で実測）。marketplace update は欠けを戻さないので、ここで戻す。clone の置き場そのものが
     無いときは戻さずに進む（plugin.json の無い写しと main より古い版は、入った写しの検査と版の照合が失敗に数える）。"""
-    code, out = runner(["claude", "plugin", "marketplace", "list", "--json"], env)
-    try:
-        loc = next((m.get("installLocation") for m in json.loads(out) if isinstance(m, dict) and m.get("name") == market),
-                   None) if code == 0 else None
-    except ValueError:
-        loc = None
+    loc = clone_location(market, env, runner)
     if not loc:
         return []   # 戻せないときも、入った写しの検査（update_account）が欠けを失敗に数える
     code, out = runner(["git", "-C", loc, "ls-files", "--deleted"])
@@ -167,6 +179,25 @@ def expected_versions(market, root=ROOT, runner=run):
         return {}, f"main の版を読めない（{e}）"
 
 
+def offered(name, market, env, runner=run):
+    """(marketplace の clone に載っているプラグインの名前の並び, 行か None)。行は (失敗か, 文)。clone の置き場が無いとき
+    （別の会話が取り直している間。mend_clone と同じ）は失敗に数えず、次の配布で入れる。載っている物の形が違えば失敗に数える
+    （黙って入れずに「配った」と出さない）。"""
+    loc = clone_location(market, env, runner)
+    code, out = runner(["git", "-C", loc, "show", "HEAD:.claude-plugin/marketplace.json"]) if loc else (1, "")
+    if code != 0:
+        if not loc or not pathlib.Path(loc).is_dir():
+            return [], (False, f"{name}: marketplace の clone が無いので、入っていないプラグインを確かめずに進む（別の会話が取り直している間か）")
+        return [], (True, f"{name}: marketplace の clone の一覧を読めない 失敗（{out.strip()[:200]}）")
+    try:
+        names = [p["name"] for p in json.loads(out).get("plugins")]
+        if not all(isinstance(n, str) for n in names):
+            raise TypeError("name が文字列でない")
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
+        return [], (True, f"{name}: marketplace の clone の一覧の形が違う 失敗（{type(e).__name__}: {e}）")
+    return names, None
+
+
 def installed_ids(name, market, env, runner=run):
     """(入っているこの marketplace のプラグインの {id: (入った場所, 版)}, 読めなかったときの行か None)。user の scope の物だけ。"""
     code, out = runner(["claude", "plugin", "list", "--json"], env)
@@ -189,8 +220,9 @@ def installed_ids(name, market, env, runner=run):
     return ids, None
 
 
-def update_account(name, config_dir, market, dry, runner=run):
-    """1 つのアカウントの marketplace とプラグインを更新する。(step の並び, 写しの揃った [(名前, id, 版)])。
+def update_account(name, config_dir, market, dry, runner=run, keep_out=()):
+    """1 つのアカウントの marketplace とプラグインを更新し、marketplace に載っているのに入っていない物（keep_out の名前を除く）を
+    入れる。(step の並び, 写しの揃った [(名前, id, 版, 打ったコマンド〔update か install〕)])。
     入った写しに .claude-plugin/plugin.json が無ければ失敗に数える（欠けた写しを済と数えない）。版は check_versions が照合する。"""
     env = claude_env(config_dir)
     steps = []
@@ -213,6 +245,21 @@ def update_account(name, config_dir, market, dry, runner=run):
     if err:
         note("list", err, True)
     done, whole = [], []
+    if not err:
+        # 入っている物を読めないときに入れると、全部を入れ直してしまうので、読めたときだけ入れる
+        names, line = offered(name, market, env, runner)
+        if line:
+            note("install", line[1], line[0])
+        for i in sorted(f"{n}@{market}" for n in names if n not in keep_out and f"{n}@{market}" not in ids):
+            argv = ["claude", "plugin", "install", i]
+            if dry:
+                note("install", f"{name}: {' '.join(argv)}（空打ち）", False)
+                continue
+            code, out = runner(argv, env)
+            if code != 0:
+                note("install", f"{name}: {' '.join(argv)} 失敗（{out.strip()[:200]}）", True)
+            else:
+                done.append(i)
     for i in sorted(ids):
         argv = ["claude", "plugin", "update", i]
         if dry:
@@ -226,14 +273,15 @@ def update_account(name, config_dir, market, dry, runner=run):
     if done:
         after, err = installed_ids(name, market, env, runner)
         for i in done:
-            head = f"{name}: claude plugin update {i} "
+            verb = "update" if i in ids else "install"
+            head = f"{name}: claude plugin {verb} {i} "
             where, version = after.get(i, (None, None))
             if err:
                 note("update", head + f"失敗（入った写しを確かめられない: {err}）", True)
             elif not where or not (pathlib.Path(where) / ".claude-plugin" / "plugin.json").is_file():
                 note("update", head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
             else:
-                whole.append((name, i, version))
+                whole.append((name, i, version, verb))
     return steps, whole
 
 
@@ -241,8 +289,8 @@ def check_versions(whole, want):
     """写しの揃ったプラグインの版を main の {id: 版} と照合する。step の並び。「済」と出すのは版が main と同じときだけ
     （古い版を済と数えない）。main に無いプラグイン（marketplace から外した物）は版を照合しない。"""
     steps = []
-    for name, i, version in whole:
-        head = f"{name}: claude plugin update {i} "
+    for name, i, version, verb in whole:
+        head = f"{name}: claude plugin {verb} {i} "
         if i in want and version != want[i]:
             steps.append(step(name, "version", head + f"失敗（版が main とそろわない: 入った版 {version}・main {want[i]}）", True))
         else:
@@ -314,13 +362,13 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
             raise ValueError("JSON の物で無い")
         dry = bool(value.get("dry_run"))
         market = marketplace_name()
-        accs, skip = accounts(env, local), skips(local)
+        accs, skip, keep_out = accounts(env, local), skips(local), no_installs(local)
     except (OSError, ValueError, KeyError, tomllib.TOMLDecodeError) as e:
         print(f"止めた: 入力か設定を読めない（{e}）")
         return 2
     steps, whole = [], []
     for name, config_dir in accs:
-        got, ok = update_account(name, config_dir, market, dry, runner)
+        got, ok = update_account(name, config_dir, market, dry, runner, keep_out)
         steps += got
         whole += ok
     # main は配った後に読む（配る間に main へ入った版を、入った版が新しいのにそろわないと数えないため）
@@ -329,8 +377,8 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
     # フォルダの別の会話が marketplace の clone を取り直している間は、plugin update が「Plugin source not found」で落ちる
     # （2026-10-20 に p3 で実測。後で見ると取り直した clone が在った）。版のずれたアカウントと plugin update の落ちたアカウント
     # だけ 1 回配り直し、main を読み直して照合する（配り直すアカウントは、1 回目の失敗を数えず配り直しの結果で数える）
-    stale = {n for n, i, v in whole if i in want and v != want[i]} if not err else set()
-    again = stale | {s["account"] for s in steps if s["kind"] == "update" and s["failed"]}
+    stale = {n for n, i, v, _ in whole if i in want and v != want[i]} if not err else set()
+    again = stale | {s["account"] for s in steps if s["kind"] in ("update", "install") and s["failed"]}
     if again:
         for s in steps:
             if s["account"] in again and s["failed"]:
@@ -339,7 +387,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
         whole = [w for w in whole if w[0] not in again]
         for name, config_dir in accs:
             if name in again:
-                got, ok = update_account(name, config_dir, market, dry, runner)
+                got, ok = update_account(name, config_dir, market, dry, runner, keep_out)
                 steps += got
                 whole += ok
         if whole:
@@ -351,8 +399,8 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
         if not err:
             # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部 main と同じなら目的は果たしている。同じ設定のフォルダの
             # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
-            off = {n for n, i, v in whole if i in want and v != want[i]}
-            even = {n for n, i, v in whole if i in want} - off
+            off = {n for n, i, v, _ in whole if i in want and v != want[i]}
+            even = {n for n, i, v, _ in whole if i in want} - off
             for n in sorted(even):
                 fell = [s for s in steps if s["account"] == n and s["kind"] == "marketplace-update" and s["failed"]]
                 for s in fell:

@@ -293,7 +293,7 @@ machine = true
 [[roles.tools]]
 name = "spread-plugins"
 title = "全アカウントに配る"
-description = "works-dispatch の設定と手元の設定（~/.config/claude-plugins/spread.toml の accounts）の全アカウントで、この marketplace と入っているそのプラグインを更新し、全アカウントに配った後に、入った版を origin/main の plugin.json の版と照合し（そろわなければ失敗に数える）、部署と窓口の会話に /reload-plugins を打つ（ターンの途中の会話と、入力フィールドに字の在る会話は飛ばす）"
+description = "works-dispatch の設定と手元の設定（~/.config/claude-plugins/spread.toml の accounts）の全アカウントで、この marketplace と入っているそのプラグインを更新し、marketplace に載っているのに入っていないプラグインを入れ（手元の設定の no_install の物は除く）、全アカウントに配った後に、入った版を origin/main の plugin.json の版と照合し（そろわなければ失敗に数える）、部署と窓口の会話に /reload-plugins を打つ（ターンの途中の会話と、入力フィールドに字の在る会話は飛ばす）"
 inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、することを出すだけで何も打たない" } }, additionalProperties = false }
 command = "python3 scripts/spread-plugins.py"
 fallback_role = "作業"

@@ -90,6 +90,7 @@ import retire  # noqa: E402
 import handover  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
+import rentx  # noqa: E402
 import tierx  # noqa: E402
 from nodes import accounts, assign, clean, cost, deliver, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
@@ -1378,6 +1379,9 @@ def _check(cfg, ports, task=None, lead=None):
     # origin/HEAD が無い元の clone は、会社の形を作業ツリーから読む（止めずに直し方を出す）
     heads = [n for n in dict.fromkeys(tree.head_note(r.source, ports.git) for r in cfg.repos if r.source) if n]
     notes = list(cfg.notes) + tier_notes + notes + heads
+    rent = rentx.missing_note()
+    if rent:
+        notes.append(rent)
     if lead:
         notes.insert(0, lead)
     elif not cfg.repos:
