@@ -53,7 +53,7 @@ Claude Code の会話には、少しずつ払い続ける（借りる）か、�
 1. `rent_or_buy/` が読み込むのは、標準ライブラリ（Python の `sys.stdlib_module_names`）と自分だけ。
 2. `prompt_cache/` は `rent_or_buy` の表の口（`rent_or_buy/__init__.py` に並べた名前）だけを使い、中のファイル（`rent_or_buy.policies` など）を直に読み込まない。中を作り替えても外が壊れないようにするため。
 3. プラグインの外から `rent_or_buy`・`prompt_cache` を Python で読み込まない。外はコマンドを通す。
-4. `rent_or_buy/` に Claude の語（claude・token・cache・compact・keepalive）を書かない。import の照合だけでは、値を直に書き込めば Claude を知ってしまえるため、語の照合で塞ぐ。works の「考えの住処のチェック」（設計の考えが決めた 1 か所の外に漏れたら赤にする試験）と同じ考え方。
+4. `rent_or_buy/` に Claude の語（claude・token・cache・compact・keepalive と、キャッシュ・トークン・要約）を書かない。import の照合だけでは、Claude の事情を名前や文で書き込めば Claude を知ってしまえるため、語の照合で塞ぐ。ただし塞げるのは語だけで、Claude の単価などの数を素の数で書き込む形は見つけられない（数は書かないという守りは、キャッシュの層に置いて見直す）。works の「考えの住処のチェック」（設計の考えが決めた 1 か所の外に漏れたら赤にする試験）と同じ考え方。
 
 フレームワークは入れない。業界の定石は import-linter（Python の import の向きを決まりとして書いて検査する道具）の layers の契約（https://import-linter.readthedocs.io/en/stable/contract_types.html#layers ）で、Spring Modulith や Packwerk も同じ種類の道具。どれもモジュールが数十あるコードのための物で、ここは 2 つしかない。決まり 4 を持つ道具も無いので、入れても自前の試験は残る。moon（モノレポの道具）は、宣言した依存をプロジェクトの単位で照合する物で、Python の import も 1 つのプラグインの中の境目も見ない（https://moonrepo.dev/docs/config/workspace の `constraints`）。モジュールが 4 つ以上に増えるか、アルゴリズムを別のリポジトリから使う人が出たら、import-linter に移す。境目の守り方の一番よい形は my_notes に調べを頼んである（受付 20261024-074314-98bc8f）。答えで変わるなら、この節を直す。
 
@@ -81,13 +81,14 @@ Claude Code の会話には、少しずつ払い続ける（借りる）か、�
 ### 2.2 出力
 
 ```json
-{"action": "rent", "why": "…", "consult": false, "prep": null, "policy": "fixed"}
+{"action": "rent", "reason": "within_buy_cost", "why": "…", "consult": false, "prep": null, "policy": "fixed"}
 ```
 
 - `action` は `rent`（借りる）か `buy`（買う）。
 - `consult` は、まだ聞いていない相手に聞くべきとき true（コマンドで呼ぶときの 1 回目）。true になるのは、決め方が `buy` を出し、`forced` が false で、`ask` が true で、`deferred < defer_limit` で、`answer` が無いときだけ。それ以外は false。
 - `prep` は、相手が進めると答えたときの準備の情報（compact なら焦点〔`/compact` の後ろに付けて、要約に残す話題を指す 1 行〕）。無ければ null。
-- 部品の版と指南の版は、キャッシュの層が出力に足す（3）。アルゴリズムは指南を知らないため。
+- `reason` は機械の読む短い鍵（`within_buy_cost`・`reached_buy_cost`・`hazard_above_ratio`・`hazard_below_ratio`・`no_hazard`・`forced`・`defer_limit_reached`・`consult_go`・`consult_deferred`・`consult_unreadable`・`unknown_policy_fallback`）、`why` は英語の訳（人が読む）。決め方の関数は `(action, reason, why)` を返す。
+- 部品の版は、キャッシュの層が出力に足す（3）。
 
 ### 2.3 決め方
 
@@ -102,7 +103,7 @@ Claude Code の会話には、少しずつ払い続ける（借りる）か、�
 
 どの決め方にも、次の 2 つを中心で重ねる。
 
-- 強制の上限: `forced` が true なら、決め方の結果によらず `buy`。compact では、Claude Code の自動の compact より前に打つための呼ぶ側の線に当たる。
+- 強制の上限: `forced` が true なら、決め方の結果によらず `buy`（`reason` は `forced`。聞かない）。compact では、Claude Code の自動の compact より前に打つための呼ぶ側の線に当たる。
 - 延期の上限: 決め方が `buy` を出しても、`deferred < defer_limit` の間は、問い合わせ口（2.4。買う前に相手に聞く口）の答えが延期なら `rent` を返す。上限に着いたら、聞かずに `buy` を返す。延期した分だけ最悪の倍率は悪くなる。その幅は指南の式で出す。
 
 ### 2.4 問い合わせ口
@@ -113,7 +114,7 @@ Claude Code の会話には、少しずつ払い続ける（借りる）か、�
   - `{"go": true, "prep": {...}}`: 進める。`prep` は買いの準備の情報で、compact なら焦点。
   - `{"go": false, "why": "…"}`: 延期する。
   - 例外か、形の違う返事: 聞かなかったのと同じに扱い、`buy` を返して `why` にそう書く。
-- コマンドとして呼ぶとき: 関数を渡せないので 2 回に分ける。1 回目は `{"action": "buy", "consult": true}` を返し、呼ぶ側が相手に聞く。2 回目に、答えを `answer` に入れて渡す。延期なら、呼ぶ側が次の回から `deferred` を 1 つ足して渡す。中心が状態を持たない形は崩れない。
+- コマンドとして呼ぶとき: 関数を渡せないので 2 回に分ける。1 回目は `{"action": "buy", "consult": true}` を返し、呼ぶ側が相手に聞く。2 回目に、答えを `answer` に入れて渡す。延期なら、呼ぶ側が次の回から `deferred` を 1 つ足して渡す。中心が状態を持たない形は崩れない。コマンドで渡された `answer` の形が違うときは、黙って買いにせず入力の形の違いとして止める（黙って買いにするのは、関数の返事の形が違うときだけ）。
 
 ### 2.5 3 つ以上の手（後の段）
 
@@ -135,7 +136,7 @@ keepalive を送る時刻には、手が 3 つある。送る（借りる）、c
 
 - 同梱の写し: `prompt_cache/snapshot.json`。LiteLLM の値段表（https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json ）から、Anthropic に直に繋ぐときの `claude-` で始まる項目と、使う単価の欄だけを抜いた物。どの commit から取ったかと、取った日を写しに書く。
 - 使う欄（1 トークンあたりのドル）: 入力 `input_cost_per_token`・5 分の書き込み `cache_creation_input_token_cost`・1 時間の書き込み `cache_creation_input_token_cost_above_1hr`・読み `cache_read_input_token_cost`・出力 `output_cost_per_token`。送る文の大きさで単価が上がるモデル（Haiku 5.5 は 10 万トークンを超えると上がる）は、`…_above_100k_tokens` の形の欄も持つ。2026-10-24 に、Opus 5.5・Sonnet 5.5・Haiku 5.5・Fable 5.1 の値が公式の料金表（https://platform.claude.com/docs/en/about-claude/pricing ）と一致することを確かめた。
-- 最新: 1 日に 1 回まで LiteLLM の main から取り、`~/.cache/rent-or-buy/latest.json` に控える。ccusage は人が打つたびに 1 回動くので毎回取るが、この部品は keepalive のたびに裏で呼ばれるので、1 日 1 回に抑える。取れたら照合し（5 つの単価が揃って正の数か、読み < 入力 < 書き込みの順か）、外れた項目は使わない。取れない・照合に落ちたときは写しで計算する。環境変数 `RENT_OR_BUY_OFFLINE=1` で取りに行かない（ccusage の `--offline`）。
+- 最新: 1 日に 1 回まで LiteLLM の main から取り、`~/.cache/rent-or-buy/latest.json` に控える。ccusage は人が打つたびに 1 回動くので毎回取るが、この部品は keepalive のたびに裏で呼ばれるので、1 日 1 回に抑える。取れたら照合し（5 つの単価が揃って正の有限の数か、読み < 入力 < 書き込みの順か。`…_above_100k_tokens` の欄も正の有限の数で基の単価以上か）、外れた項目と欄は使わない。2 回の取得（commit と値段表）は合わせて 5 秒で打ち切り、取れない・照合に落ちた・どんな失敗でもときは写しで計算する（最新は費用の最適化で、判断を止めない）。控えの取得日が写しより古いか、7 日より前なら使わず、出力の `prices.latest_skipped` に `stale` と書く。環境変数 `RENT_OR_BUY_OFFLINE=1` で取りに行かない（ccusage の `--offline`）。
 - 上書き: 使う人の値段のファイル（環境変数 `RENT_OR_BUY_PRICES` に置き場）と、呼ぶときに渡す JSON の `prices` が、最後に勝つ。
 - 写しを新しくする: `bin/rent-or-buy snapshot` を受け持ちの部署が打つ。ccusage は CI が毎日 main に commit して写しを新しくする（https://github.com/ryoppippi/ccusage/blob/main/.github/workflows/update-pricing.yaml ）が、このリポジトリは main に入れるときに版を上げる決まりで、CI の commit とぶつかるため、手で打つ。
 - 出力の `prices` に、どの値段で計算したか（`snapshot`・`latest`・`override`）と、その出どころ（LiteLLM の commit か取った日）を書く。
@@ -148,8 +149,9 @@ keepalive を送る時刻には、手が 3 つある。送る（借りる）、c
 
 - keepalive 1 本のキャッシュの書き込み 380・出力 5（my_notes の受付 20261024-031615-3eafaa の測り。works-dispatch の keepalive の文で測った値なので、ほかの文では違う。呼ぶ側が上書きできる）
 - 寿命までの余裕 `m` 90 秒（今の works-dispatch の値。3.4 の測り方では安全側に寄る。記録で測ってから詰める）
-- compact の後の文脈 2.5 万・要約の出力 5,000（指南 3.5 の C の例の値）
-- 指南の版（my_notes の commit）
+- compact の後の文脈 2.5 万・要約の出力 5,000（指南 3.5 の C の例の値で、実測ではない。指南の commit は 8709d0c90728029d55985a72548170e591298d59）
+
+出どころは `prices.toml` には書かず（部品を、このリポジトリの外の文脈から切り離すため）、ここに残す。keepalive の 380 と 5 は受付 20261024-031615-3eafaa の測り、余裕 90 秒は works-dispatch の今の値。
 
 ### 3.3 モデル名の揃え
 
@@ -171,7 +173,7 @@ keepalive:
 
 - 受ける物: モデル・寿命（300 か 3600 秒）・文脈の量・この待ちで送った本数の費用の累計・待っている物が来ることが確かか（と、分かれば来る確率と外れ率）・最後の要求の時刻。1 本の書き込みと出力のトークン数と余裕 `m` は、3.2 の既定を呼ぶ側が上書きできる。
 - 当てはめ: 借りる＝1 本の費用（読み × 文脈 + 寿命に合う書き込み × 1 本の書き込み + 出力 × 1 本の出力）、買う＝切れの上乗せ（(寿命に合う書き込み − 読み) × 文脈）。
-- 返す物: 中心の出力に、送る時刻 `next_at`、借りる・買うの額、`prices`・`version`・`guide` を足した物。keepalive の `buy` は「止める」なので、問い合わせはしない（`ask` は常に false）。
+- 返す物: 中心の出力に、送る時刻 `next_at`、借りる・買うの額、`prices`・`version` を足した物。記録だけに残す `turn_end_at`（受けたらそのまま添える）もある。keepalive の `buy` は「止める」なので、問い合わせはしない（`ask` は常に false）。
 - 送る時刻: 最後の要求の時刻 + 寿命 − 余裕 `m`。
   - キャッシュの寿命は要求の開始から数える（https://code.claude.com/docs/en/prompt-caching ）。記録の時刻は手元で要求を出す前に付くので、この測り方は安全側に寄る。
   - 今の 90 秒は、ターンの終わりから数えていたので、応答を作る時間も含んでいた。最後の要求から数えれば、その分は要らない。
@@ -181,7 +183,7 @@ compact:
 - 受ける物: モデル・compact が書く寿命・文脈の量・前の compact の後の文脈の量（無ければ 3.2 の既定）・要約の出力の量・前の compact から後に余分に読んだ費用の累計・キャッシュが温かいか・問い合わせの費用（1 往復の額）と、中心の入力の `forced`・`ask`・`deferred`・`defer_limit`・`answer`。
 - 当てはめ: 借りる＝この 1 回で余分に読む額（(文脈 − compact の後の文脈) × 読み。負なら 0）、買う＝縮める費用（compact の後の文脈 × 書き込み + 要約の出力 × 出力 + 問い合わせの費用）。`certain` は true。
 - キャッシュが温かいかは、全部の書き込みが同じ寿命なら判断に入らない（指南 3.5 の C）。会話の本体が 1 時間・compact が 5 分の環境で冷えているときは早く打ってよいが、実測が無いので、最初の版は記録に残すだけにする。
-- 返す物: 中心の出力（`buy` なら打つ）に、借りる・買うの額、`prices`・`version`・`guide` を足した物。呼ぶ側は借りる額を累計に足して次の回に渡す。
+- 返す物: 中心の出力（`buy` なら打つ）に、借りる・買うの額、`prices`・`version` を足した物。呼ぶ側は借りる額を累計に足して次の回に渡す。
 
 ### 3.5 会話の記録の読み取り
 
@@ -192,7 +194,8 @@ compact:
 - 最後の要求の時刻: `"type": "api-request"` の行の `timestamp`（UTC の ISO 8601）。会話の本体の要求（`querySource` が `repl_main_thread`）だけを見る。
 - compact の後の文脈の量: 最後の `"subtype": "compact_boundary"` の行の `compactMetadata.postTokens`。
 - 前の compact から後に余分に読んだ費用の累計: 最後の compact の後の応答ごとに、(その応答の文脈 − compact の後の文脈) × 読み を足した物（負は 0）。
-- この形は 2026-10-24 の Claude Code 2.1.310 の記録で確かめた物で、公式の文書に書かれた形ではない。読めない行は飛ばし、必要な値が 1 つも読めなければ「記録を読めない」と返して、呼ぶ側は今の決まった数で動く。
+- この形は 2026-10-24 の Claude Code 2.1.310 の記録で確かめた物で、公式の文書に書かれた形ではない。読めない行（`model` が文字列でない行を含む）は飛ばし、必要な値が 1 つも読めなければ「記録を読めない」と返して、呼ぶ側は今の決まった数で動く。
+- 場面に要る事実（モデル・文脈の量、keepalive は最後の要求の時刻も）が、記録と標準入力を合わせても揃わないとき（compact の直後でまだ応答が無いときなど）は、既定で埋めず「記録を読めない」（終わりのコード 4）と返す。文脈の量を compact の後の量で代えることはしない（モデルも分からないため）。
 
 ## 4. コマンド
 
@@ -204,11 +207,11 @@ compact:
 - `rent-or-buy prices <モデル>`: 揃えた名前と、使う単価と、その出どころを返す（調べるとき用）。
 - `rent-or-buy snapshot`: LiteLLM の main から同梱の写しを作り直す（受け持ちの部署が打つ）。
 
-終わりのコード: 0 は判断できた、2 は入力の形が違う、3 は知らないモデル、4 は記録を読めない。0 以外でも標準出力に `{"error": "<機械の読む鍵>", "why": "…"}` を返す。部品の版 `version` は、プラグインの `plugin.json` の `version`（main に入れるたびに上がる）。
+終わりのコード: 0 は判断できた、1 は `snapshot` の取得の失敗、2 は入力の形が違う、3 は知らないモデル、4 は記録を読めない。0 以外でも標準出力に `{"error": "<機械の読む鍵>", "why": "…（英語）"}` を返す。`decide`・`keepalive`・`compact` の失敗は、入力ごと判断の記録に足す（知らないモデル名を機械で拾い、写しか対応表に足す手がかりにするため。`prices` の失敗は記録しない）。部品の版 `version` は、プラグインの `plugin.json` の `version`（main に入れるたびに上がる）。
 
 ## 5. 判断の記録の欄
 
-全部の行: 時刻・場面（`decide`・`keepalive`・`compact`）・入力・出力。キャッシュの層の行は `prices`・`version`・`guide` も持つ（式と部品のずれを後で見つけるため）。
+全部の行: 時刻・場面（`decide`・`keepalive`・`compact`）・入力・出力。キャッシュの層の行は `prices`・`version` も持つ（式と部品のずれを後で見つけるため）。
 
 - keepalive の行: 指南の未測定の値を出すための欄を持つ（my_notes の受付 20261024-053049-2f6453）。
   - 時刻: 最後の要求・送ると決めた時（行の時刻）。呼ぶ側が渡せばターンの終わりも持つ。送った要求が出た時は、後で記録から埋める。
@@ -240,7 +243,7 @@ rent-or-buy/
   README.md・CHANGELOG.md
   bin/rent-or-buy             コマンド（4）
   rent_or_buy/                アルゴリズム（2）
-    __init__.py               表の口: decide・register・append_record
+    __init__.py               表の口: decide・InputError・register・append_record
     core.py                   中心 decide・強制と延期・問い合わせ口
     policies.py               決め方の表と fixed
     record.py                 判断の記録を足す・上限で切る
@@ -254,6 +257,7 @@ rent-or-buy/
     prices.toml               実測の値と既定
   tests/
     test_core.py              fixed の約束（8）
+    test_translate.py         翻訳・会話の記録・コマンドを、ネットワークなしで
     test_boundary.py          境目の 4 つの決まり（1.1）
     test_names.py             モデル名の揃えを実物の見本で
 ```

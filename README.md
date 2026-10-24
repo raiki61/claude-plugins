@@ -10,7 +10,7 @@ This README and each plugin's README are in English. Everything else in the repo
 
 ## Plugins
 
-This marketplace ships 8 plugins. Install only the ones you need. If you are not sure where to start, try convergence-loops: besides Claude Code it needs only git, Python 3.12 or later, and bash (no tool from the [tool tiers](#tool-tiers) below), and `/review-loop` reviews and fixes your latest code change.
+This marketplace ships 9 plugins. Install only the ones you need. If you are not sure where to start, try convergence-loops: besides Claude Code it needs only git, Python 3.12 or later, and bash (no tool from the [tool tiers](#tool-tiers) below), and `/review-loop` reviews and fixes your latest code change.
 
 | Plugin | What it does | Docs |
 |---|---|---|
@@ -22,6 +22,7 @@ This marketplace ships 8 plugins. Install only the ones you need. If you are not
 | **works-factory** | Sends a fix request to the factory in [raiki61/works-factory](https://github.com/raiki61/works-factory) | [SKILL.md](works-factory/skills/works-factory/SKILL.md) |
 | **works-dispatch** | Opens a Claude Code session in its own workspace for each task, hands it the request, and has it return a summary | [README](works-dispatch/README.md) |
 | **tiers** | Checks that the external tools a plugin needs are in place | [README](tiers/README.md) |
+| **rent-or-buy** | Decides by calculation alone between paying a little each time and paying once, for example when to stop sending keepalive requests or when to compact a conversation | [README](rent-or-buy/README.md) |
 
 ## Install
 
