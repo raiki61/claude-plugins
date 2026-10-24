@@ -1,8 +1,8 @@
 # rent-or-buy: design
 
-This is the canonical design document of rent-or-buy. A Japanese translation is in [design.ja.md](design.ja.md); when the two differ, this English version wins. Both files have the same headings in the same order, and `tests/test_docs.py` checks that.
+rent-or-buy is a Claude Code plugin: a command that is given costs and answers `rent` (pay a little again) or `buy` (pay once), for two decisions in a session, keepalive and compact (section 1; keepalive is a short request sent so the prompt cache does not expire, compact is Claude Code's summarize-and-shrink operation). A caller is a program (a script, a hook, another plugin) that runs this command and acts on the answer. This is the canonical design document of rent-or-buy. A Japanese translation is in [design.ja.md](design.ja.md); when the two differ, this English version wins. Both files have the same headings in the same order, and `tests/test_docs.py` checks that.
 
-Who reads this: people who maintain the plugin, people who write a caller for it, and anyone who takes the plugin out of this repository. How to call the commands is in [README.md](../README.md); this document explains why the plugin is built the way it is.
+Who reads this: people who maintain the plugin, people who write a caller for it, and anyone who takes the plugin out of this repository. If you are none of these, you can stop here. How to call the commands is in [README.md](../README.md); this document explains why the plugin is built the way it is.
 
 ## 1. The problem
 
@@ -17,13 +17,13 @@ rent-or-buy is a small component that makes these decisions from costs alone. It
 
 ## 2. Layers
 
-One plugin holds two Python modules (a modular monolith: shipped as one unit, the boundary inside is kept by tests).
+One plugin holds two Python modules, each a package (a folder; the files inside are not counted) (a modular monolith: shipped as one unit, the boundary inside is kept by tests).
 
 ```
   caller (a script, a hook, another plugin)
   │  runs the command bin/rent-or-buy (JSON on stdin, JSON on stdout). Never imports Python modules
   ▼
-  prompt_cache/   the fit to Claude's prompt cache
+  prompt_cache/   the adaptation to Claude's prompt cache: turns Claude facts into plain costs
   │  price table, model-name normalization, transcript reader, translation (session facts -> core input)
   ▼  uses only the public names of rent_or_buy (listed in __init__.py)
   rent_or_buy/    the rent-or-buy algorithm. Knows neither Claude nor tokens
@@ -46,7 +46,7 @@ One plugin holds two Python modules (a modular monolith: shipped as one unit, th
 3. Nothing outside the plugin imports `rent_or_buy` or `prompt_cache`. Outside code goes through the command.
 4. `rent_or_buy/` contains no Claude words (claude, token, cache, compact, keepalive, and the Japanese words for cache, token and summary). Import checks alone cannot stop Claude knowledge written into names or text. The rule catches words only: a Claude unit price written as a bare number is not detected.
 
-The test finds imports inside functions and conditions (it walks every node of the syntax tree with `ast`), relative imports (at most one level inside `rent_or_buy`), and imports through `importlib.import_module`, `__import__` and `getattr`. It does not find imports built from strings at run time or hidden in `exec` or `eval`.
+What each rule sees: rules 1 and 2 walk every node of the syntax tree with `ast`, so imports inside functions and conditions count; rule 1 sees `import` and `from ... import` statements (a relative import may only name a sibling file, as in `from .x import y`; `from ..x` is rejected); rule 2 also sees `__import__` and `getattr` on `rent_or_buy`; rule 3 matches import statements and `import_module("...")` as text in every Python file of the host repository outside the plugin (the folder above the plugin). Not seen: `importlib` or `__import__` inside `rent_or_buy/` (rule 1), `importlib.import_module` from `prompt_cache/` (rule 2), imports built from strings at run time, and imports hidden in `exec` or `eval`. After moving the plugin into its own repository, rule 3 has to be pointed at the new host repository.
 
 No framework is used. The standard tool for import direction is import-linter's layers contract ([import-linter: layers](https://import-linter.readthedocs.io/en/stable/contract_types.html#layers)); Spring Modulith and Packwerk are the same kind of tool. They are made for code with dozens of modules, and here there are two. None of them can express rule 1 (standard library only, as an allow list) or rules 3 and 4, so a local test would remain anyway. Move to import-linter when there are four or more modules or when someone uses the algorithm from another repository.
 
@@ -61,7 +61,7 @@ No framework is used. The standard tool for import direction is import-linter's 
 | spent | number | total paid in rentals in this round |
 | certain | bool | whether the event that ends the renting is sure to come |
 | miss | number, default 0 | share of rentals that fail to avoid the buy |
-| hazard | number or null | probability the ending event comes in the next interval |
+| hazard | number or null, default null | probability the ending event comes in the next interval |
 | deferred | integer, default 0 | postponements so far after a buy was decided |
 | defer_limit | integer, default 0 | postponements allowed |
 | forced | bool, default false | the caller's hard limit was reached |
@@ -69,9 +69,11 @@ No framework is used. The standard tool for import direction is import-linter's 
 | answer | object, optional | the other side's reply, on the second call (3.4) |
 | policy | string, default fixed | name of the stopping rule |
 
-A round is one wait for keepalive, or the span since the previous compact for compact. For keepalive, the ending event is the next real request (the result or message the session waits for), and `miss` is the share of waits in which the cache expired although keepalives were sent.
+An interval is the span between two consecutive decisions, in which one rental is paid; `t` intervals mean `t` rentals. A round is one wait for keepalive, or the span since the previous compact for compact. For keepalive, the ending event is the next real request (the result or message the session waits for), and `miss` is the share of waits in which the cache expired although keepalives were sent.
 
-The cost unit is the caller's choice (the cache layer uses dollars). Malformed input (negative numbers, wrong types, unknown keys, a malformed `answer`) is never silently corrected: the call stops with a reason.
+`rent`, `buy`, `spent` and `certain` are required; the rest are optional. Numbers must be finite and 0 or more, `miss` and `hazard` at most 1, integers must be integers, `policy` a string.
+
+The cost unit is the caller's choice (the cache layer uses dollars). Malformed input (a missing required key, an unknown key, a wrong type or range, a malformed `answer`) is never silently corrected: the call stops with a reason.
 
 ### 3.2 Output
 
@@ -90,14 +92,14 @@ A policy function returns `(action, reason, why)`. The cache layer adds the plug
 
 ### 3.3 Policies
 
-Policies are looked up by name in a table, and callers can add their own (`register`). An unknown name falls back to `fixed`, and `why` says so.
+Policies are looked up by name in a table, and Python code that imports the algorithm can add its own (`register`); callers of the command cannot. An unknown name falls back to `fixed`, and `why` says so.
 
 `fixed` (the only policy in the first version) is deterministic. The part of the buy that renting can avoid is `(1 - miss) * buy`. Rent only while one more rental keeps the total below it: `spent + rent < (1 - miss) * buy`.
 
 - When `certain` is true, this rule alone decides. With a constant rent and `miss = 0`, it rents `K = ceil(rho) - 1` times and then buys, where `rho = buy / rent`. Proof of the bound: let the event come after `t` intervals. If `t <= K`, the cost is `t * rent`, which is the optimum. Otherwise `t >= K + 1 >= rho`, so the optimum in hindsight is `buy`, and the cost is `K * rent + buy < buy + buy`. So the cost is always less than twice the optimum, which is the classic deterministic bound for ski rental ([Wikipedia](https://en.wikipedia.org/wiki/Ski_rental_problem)). `tests/test_core.py` checks it for many prices and lengths.
-- When `rho` is not an integer, the best deterministic rule also compares stopping one rental earlier and takes the smaller ratio. `fixed` skips that comparison: the difference is one rental, both stay below 2, and compact's rent changes every round, so it cannot be counted in rentals. One rule that compares totals covers both scenes.
-- Compact follows the same rule: compact when the extra read paid since the last compact (`spent`) reaches the cost of one compact (`buy`).
-- When `certain` is false: rent only if `hazard` is given, `hazard > rent / ((1 - miss) * buy)`, and the rule above still allows renting. The ratio test compares one more rental against what it saves on average: with probability `hazard` the event comes in the next interval and the avoidable buy is saved. The total cap stays even while the event looks likely. Without `hazard`, buy.
+- When `rho` is not an integer, there is a second candidate: stop after `K - 1` rentals instead of `K`. The best deterministic rule picks whichever of the two candidates has the smaller worst-case ratio (its cost divided by the optimum). `fixed` always uses the `K` rule and skips that comparison, for two reasons. The two candidates differ by one rental, and both worst-case ratios stay below 2. And compact's rent changes every round, so there is no fixed count `K` to shorten by one. One rule that compares totals covers both scenes.
+- Compact follows the same rule: compact when the extra read paid since the last compact (`spent`) plus this request's extra read (`rent`) reaches the cost of one compact (`buy`).
+- When `certain` is false: rent only if `hazard` is given, `hazard > rent / ((1 - miss) * buy)`, and the rule above still allows renting. The ratio test compares one more rental against what it saves on average, `hazard * (1 - miss) * buy`: with probability `hazard` the event comes in the next interval and the avoidable buy is saved. Renting pays only while `rent` is below that, which is the test above. The total cap stays even while the event looks likely. Without `hazard`, buy. The code compares totals, so `rent = 0` needs no division, and with `miss = 1` nothing is avoidable and the answer is `buy`. (`rho` appears only in the proof.)
 
 Planned policies (not in the first version):
 
@@ -107,7 +109,7 @@ Planned policies (not in the first version):
 Two rules are applied on top of every policy by the core.
 
 - Hard limit: if `forced` is true, the answer is `buy` whatever the policy says (`reason` is `forced`, no asking). For compact, this is the caller's own line set below Claude Code's automatic compact.
-- Postponement limit: when the policy says `buy`, `ask` is true and `deferred < defer_limit`, the other side is asked (3.4); a "not now" reply gives `rent`. When the limit is reached, the core buys without asking (`defer_limit_reached`). Each postponement can make the worst case worse than twice the optimum; the caller bounds that by choosing `defer_limit`.
+- Postponement limit: when the policy says `buy`, `ask` is true and `deferred < defer_limit`, the other side is asked (3.4); a "not now" reply gives `rent`. When the limit is reached, the core buys without asking (`defer_limit_reached`). A postponed rental is paid after the point where the rule said to buy, so the proof above no longer covers it: each postponement adds one rental to the worst case and can push it past twice the optimum. The caller bounds that by choosing `defer_limit`.
 
 ### 3.4 Consult
 
@@ -128,8 +130,8 @@ At keepalive time there are really three actions: send (rent), compact (pay now 
 
 A function in the core appends one JSON Lines row per decision. It does not look at the content, so it knows nothing about Claude.
 
-- The caller chooses the file. The command's default is `<cache dir>/decisions.jsonl`; `RENT_OR_BUY_RECORD` changes the path and `off` disables it.
-- The log grows forever, so it has a cap: past 10 MB the file is renamed to `decisions.1.jsonl` and a new one starts. Only one old file is kept.
+- The caller chooses the file. The command's default is `<cache dir>/decisions.jsonl`, where the cache directory is `~/.cache/rent-or-buy` unless `RENT_OR_BUY_CACHE_DIR` says otherwise; `RENT_OR_BUY_RECORD` changes the path and `off` disables it.
+- The log grows forever, so it has a cap: when the file is already larger than 10 MiB before a row is appended, it is renamed to `decisions.1.jsonl` and a new one starts. Only one old file is kept.
 - If the log cannot be written (no folder, no permission), the decision is still made and the output carries the reason in `record`.
 
 ## 4. Cache layer (`prompt_cache/`)
@@ -139,19 +141,19 @@ A function in the core appends one JSON Lines row per decision. It does not look
 The model is ccusage, a tool that computes Claude Code usage cost from the same transcripts and solves the same price and model-name problems. ccusage embeds a copy of LiteLLM's price table, fetches the latest table at run time, and falls back to the copy when the fetch fails ([ccusage pricing.rs](https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/pricing.rs), `load_with_overrides`). rent-or-buy does the same.
 
 - Bundled copy: `prompt_cache/snapshot.json`, taken from [LiteLLM's price table](https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json). Only entries for direct Anthropic access (names starting with `claude-`, without a provider prefix) and only the fields below are kept. The copy records the LiteLLM commit and the date it was taken.
-- Fields used (dollars per token): input `input_cost_per_token`, 5-minute cache write `cache_creation_input_token_cost`, 1-hour cache write `cache_creation_input_token_cost_above_1hr`, cache read `cache_read_input_token_cost`, output `output_cost_per_token`. Models whose price rises with the request size (above 100,000 tokens) also have `..._above_100k_tokens` fields. The values were checked against [Anthropic's pricing page](https://platform.claude.com/docs/en/about-claude/pricing) when the copy was taken.
-- Latest: fetched from LiteLLM's main branch at most once a day into `<cache dir>/latest.json`. ccusage fetches on every run because a person runs it now and then; this component is called in the background on every keepalive, so it fetches at most daily. Fetched entries are checked (all five prices are positive finite numbers, read < input < write; tier fields are positive finite and not below the base price) and failing entries or fields are dropped. The two fetches (commit and table) have 5 seconds in total. Any failure falls back to the copy: the latest prices are an optimization and never stop a decision. A cached latest table older than the copy or than 7 days is ignored, and the output says `prices.latest_skipped: "stale"`. `RENT_OR_BUY_OFFLINE=1` never fetches (like ccusage's `--offline`).
+- Fields used (dollars per token): input `input_cost_per_token`, 5-minute cache write `cache_creation_input_token_cost`, 1-hour cache write `cache_creation_input_token_cost_above_1hr`, cache read `cache_read_input_token_cost`, output `output_cost_per_token`. Models whose price rises with the request size (above 100,000 tokens) also have `..._above_100k_tokens` fields (the price tiers). The values were checked against [Anthropic's pricing page](https://platform.claude.com/docs/en/about-claude/pricing) when the copy was taken.
+- Latest: fetched from LiteLLM's main branch at most once a day into `<cache dir>/latest.json` (`<cache dir>` is defined in 3.6). The once-a-day limit is the modification time of a marker file `<cache dir>/latest.tried`, which is touched before each attempt, so a failed fetch is not retried for 24 hours; a fetch with no usable entry writes nothing. ccusage fetches on every run because a person runs it now and then; this component is called in the background on every keepalive, so it fetches at most daily. Fetched entries are checked (all five prices, namely input, 5-minute write, 1-hour write, read and output, are positive finite numbers, read < input < write; tier fields are positive finite and not below the base price) and failing entries or fields are dropped. The two fetches (the hash of LiteLLM's latest commit, kept as the origin of the table, and the table itself) have 5 seconds in total. Any failure falls back to the copy: the latest prices are an optimization and never stop a decision. A cached latest table older than the copy, or fetched more than 7 days before now, is ignored, and the output says `prices.latest_skipped: "stale"`. `RENT_OR_BUY_OFFLINE=1` never fetches (like ccusage's `--offline`).
 - Overrides: a price file (path in `RENT_OR_BUY_PRICES`) and the per-call `prices` key are applied last and win.
-- Refreshing the copy: the maintainer runs `bin/rent-or-buy snapshot`. ccusage refreshes its copy with a daily CI commit ([update-pricing.yaml](https://github.com/ryoppippi/ccusage/blob/main/.github/workflows/update-pricing.yaml)). Here it is manual, because a repository that bumps versions when changes are merged would conflict with automatic commits.
+- Refreshing the copy: the maintainer runs `bin/rent-or-buy snapshot`. ccusage refreshes its copy with a daily CI commit ([update-pricing.yaml](https://github.com/ryoppippi/ccusage/blob/main/.github/workflows/update-pricing.yaml)). Here it is manual: the plugin's version should change whenever its bundled prices change, and an unattended commit would change the prices without a release.
 - The output's `prices` says which layer priced the call (`snapshot`, `latest`, `override`) and its origin (LiteLLM commit or fetch date).
 
-Data-residency pricing (`inference_geo`, 1.1 times) and Fast mode multiply every field by the same factor (Anthropic's pricing page). Decisions depend only on price ratios, so the first version ignores both.
+Data-residency pricing (`inference_geo`, 1.1 times) and Fast mode (a Claude Code speed setting billed at a higher multiple, given on that page) multiply every field by the same factor (Anthropic's pricing page). Decisions depend only on price ratios, so the first version ignores both.
 
 ### 4.2 Measured values and defaults
 
 `prompt_cache/prices.toml` holds the values that LiteLLM does not have. Callers can override each of them.
 
-- keepalive: one keepalive writes 380 tokens to the cache and outputs 5 tokens. Measured on one keepalive prompt; other prompts differ.
+- keepalive: one keepalive writes 380 tokens to the cache and outputs 5 tokens. Measured on one keepalive prompt; other prompts differ, and the prompt text was not kept, so measure again with your own prompt and pass the values.
 - keepalive: margin `m` = 60 seconds before the cache expires (a keepalive every 4 minutes for the 5-minute cache). This matches the 240-second default of an existing keepalive plugin ([cache-keepalive](https://www.claudepluginhub.com/plugins/yujiachen-y-cache-keepalive-plugins-cache-keepalive)). Tighten it after the decision log shows how late requests actually go out.
 - compact: 25,000 tokens of context after a compact and a 5,000-token summary. Example values, not measured.
 
@@ -174,16 +176,16 @@ Translation turns the facts of a scene into the core's input. Prices are per tok
 keepalive:
 
 - Takes: model, cache lifetime (300 or 3600 seconds), context size, rentals paid so far in this wait (`spent`), whether the awaited event is certain (and, if known, `hazard` and `miss`), the time of the last request. The tokens one keepalive writes and outputs, and the margin `m`, default to 4.2.
-- Maps: rent = one keepalive = `read * context + write * keepalive_write + output * keepalive_output`; buy = the extra cost of an expired cache = `(write - read) * context`.
+- Maps: rent = one keepalive = `read * context + write * keepalive_write + output * keepalive_output` (`keepalive_write` and `keepalive_output` are the 380 and 5 tokens of 4.2, unless the caller passes others); buy = the extra cost of an expired cache = `(write - read) * context`.
 - Returns: the core's output plus `next_at` (when to send the next keepalive), `rent`, `buy`, `prices` and `version`. `turn_end_at`, if given, is echoed for the decision log. For keepalive, `buy` means stop, so there is no asking.
 - `next_at` = last request time + lifetime - `m`. The cache lifetime counts from the start of the request ([Claude Code prompt caching](https://code.claude.com/docs/en/prompt-caching)). The transcript stamps the time before the request leaves the machine, so this errs on the safe side. Counting from the end of the turn instead would also count the time spent generating the answer.
 
 compact:
 
-- Takes: model, the cache lifetime that the compact writes, context size, context size after the previous compact (default 4.2), summary size, extra read paid since the previous compact (`spent`), whether the cache is warm, the cost of one consult round trip, and the core's `forced`, `ask`, `deferred`, `defer_limit`, `answer`.
-- Maps: rent = the extra read on this request = `(context - post_compact_context) * read` (0 if negative); buy = `post_compact_context * write + summary * output + consult_cost`. `certain` is true.
-- Warm or cold cache does not change the decision when every write uses the same lifetime. With a 1-hour session cache and a 5-minute compact, a cold cache would favor compacting earlier, but there is no measurement yet, so the first version only logs it.
-- Returns: the core's output (`buy` means compact now) plus `rent`, `buy`, `prices` and `version`. The caller adds `rent` to its running total and passes it next time.
+- Takes: model, the cache lifetime that the compact writes, context size, context size after the previous compact (`post_compact_context`; default 4.2), summary size, extra read paid since the previous compact (`spent`), whether the cache is warm, the cost of one consult round trip, and the core's `forced`, `ask`, `deferred`, `defer_limit`, `answer`.
+- Maps: rent = the extra read on this request = `(context - post_compact_context) * read` (0 if negative); buy = `post_compact_context * write + summary * output + consult_cost`. `certain` is true. `post_compact_context` is the size after the previous compact, used as the estimate of the size after this one.
+- Warm or cold cache does not change the decision when every write uses the same lifetime. With a 1-hour session cache and a 5-minute compact, a cold cache would favor compacting earlier (the next request must rewrite the whole context anyway, and a compact first makes that rewrite smaller), but there is no measurement yet, so the first version only logs it.
+- Returns: the core's output (`buy` means compact now) plus `rent`, `buy`, `warm` (echoed), `prices` and `version`. The caller adds `rent` to its running total and passes it next time.
 
 Prices that rise above 100,000 tokens are chosen by the size of the request: the context size for reads, writes and output of a keepalive; the post-compact size for the compact's write; the pre-compact context size for the summary output.
 
@@ -191,10 +193,11 @@ Prices that rise above 100,000 tokens are chosen by the size of the request: the
 
 So that callers need not count, a reader extracts the facts from the session transcript (Claude Code's JSON Lines file). On the command it is `--transcript FILE`.
 
+- Responses: lines with `"type": "assistant"`, excluding side-chain lines (`isSidechain` true), lines whose model name starts with `<` (such as `<synthetic>`, not a real response) and lines whose context is 0.
 - Context size: the sum of `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` in `message.usage` of the last response. A response is split into one line per content block with the same `message.id`, so lines are grouped by id.
 - Model: `message.model` of the last response.
 - Last request time: `timestamp` (UTC, ISO 8601) of the last line with `"type": "api-request"` and `querySource` `repl_main_thread` (requests of the main conversation only).
-- Context after a compact: `compactMetadata.postTokens` of the last line with `"subtype": "compact_boundary"`.
+- Context after a compact: `compactMetadata.postTokens` of the last line with `"type": "system"` and `"subtype": "compact_boundary"`. Responses before that line are forgotten.
 - Extra read since the last compact: for each response after it, `(context - post_compact_context) * read` (0 if negative), summed.
 - This format was checked on Claude Code 2.1.310 transcripts; it is not a documented format. Malformed lines are skipped and counted (`transcript.skipped_lines` in the output). If no value at all can be read, the result is "transcript unreadable" and the caller falls back to its fixed numbers.
 - When the facts a scene needs (model and context size, and for keepalive also the last request time) are missing from both the transcript and standard input, for example right after a compact before any response, the command does not fill them with defaults and exits with code 4. It does not substitute the post-compact size for the context size, because the model is unknown too.
@@ -213,26 +216,28 @@ Exit codes: 0 decided, 1 `snapshot` failed, 2 malformed input, 3 unknown model, 
 
 ## 6. Decision log fields
 
-Every row: time, scene (`decide`, `keepalive`, `compact`), input, output. Rows of the cache layer also carry `prices` and `version`, so a later mismatch between formula and component can be found.
+Every row today: time, scene (`decide`, `keepalive`, `compact`), input as received on standard input, output. The output of the cache layer carries `rent`, `buy`, `prices` and `version`, so a later mismatch between formula and component can be found. Facts filled from `--transcript` are not in the row's input; only what the output carries (for keepalive, `next_at` and `turn_end_at`) is kept.
 
-- keepalive rows are meant to measure what is still guessed:
+The fields below are what the log is meant to measure. The facts filled from the transcript and the outcome fields are planned additions (section 10, step 4).
+
+- keepalive rows:
   - Times: the last request and the decision (the row's time), and the end of the turn when the caller passes it. When the sent request actually went out is filled in later from the transcript.
   - From these come the time to generate the last answer (turn end - last request) and the delay from decision to request.
-  - A large cache write after a keepalive counts as a miss. Collected over many waits, this gives the miss rate `q(m)` for each margin `m`.
+  - A cache write after a keepalive that is large (well above the few hundred tokens a keepalive itself writes; the threshold is set when this is built, step 4) counts as a miss. Collected over many waits, this gives the miss rate `q(m)` for each margin `m`.
 - compact rows: whether the cache was warm or cold, context size before and after, and the usage of the compact request and the next request (including which lifetime's write price applied), to compare cold and warm compacts by measurement.
 - Outcome fields (whether it missed, what was written next, when the request went out) are unknown at decision time. The component has no state, so a tool that fills them later from the transcript is planned together with tuning `m` (section 10, step 4).
 
 ## 7. Callers
 
-The component does not decide policy. A caller that wires it into a session dispatcher should do the following. This is the plan for the first caller in the original repository.
+The component does not decide policy. A caller that wires it into a session dispatcher should do the following.
 
-- keepalive: send at `next_at`, and turn the number of keepalives into the core's `action`. Just before sending, check whether the awaited event has already arrived; if so, do not send (otherwise a keepalive can go out in the same second as the result it was waiting for).
+- keepalive: send at `next_at`. Add each keepalive's `rent` to a running total and pass it as `spent` on the next call; the core's `action` then replaces a fixed limit of M keepalives. The caller supplies `certain` (true when it knows the awaited event will come, for example a job it started); `hazard` and `miss` are optional and the component does not derive them, so leave them out until measured (with `certain` false and no `hazard`, the answer is `buy`, that is, stop). Just before sending, check whether the awaited event has already arrived; if so, do not send (otherwise a keepalive can go out in the same second as the result it was waiting for).
 - compact:
-  1. Decide only while waiting with an empty input box, that is, at keepalive time. At that moment ask the compact decision first; if it says compact, do not send the keepalive (the compact request reads the cache and keeps it alive). Otherwise ask the keepalive decision.
+  1. Decide only while waiting with an empty input box (the user has typed nothing), that is, at keepalive time. At that moment ask the compact decision first; if it says compact, do not send the keepalive (the compact request reads the cache and keeps it alive). Otherwise ask the keepalive decision.
   2. When the compact decision returns `consult: true`, replace that keepalive's text with the question: "It is time to compact. Reply with one line naming the focus to keep, or with skip: and a reason if now is bad. Do not use tools." The request count stays one; only a few dozen tokens are added.
-  3. Read the reply from the last response in the transcript and pass it as `answer` on the second call. On go, the caller types `/compact <focus>` into the session. On skip, count a postponement; past the limit, compact without a focus.
+  3. Read the reply from the last response in the transcript and pass it as `answer` on the second call. On go, the caller types `/compact <focus>` into the session. On skip, count a postponement; past the limit, compact without a focus. If the reply is neither a one-line focus nor `skip:`, pass `{"go": true}` (compact without a focus), as the function call in 3.4 buys on an unreadable reply.
   4. Replace fixed thresholds (such as "compact above 100,000 tokens") with the core's `action` when the component is present, and keep them only as the fallback.
-- Claude Code's automatic compact: keep it as a safety net, but raise its line (the `autoCompactWindow` setting) close to the context limit. It cannot choose its moment and may run in the middle of a turn, so it should not be the normal path.
+- Claude Code's automatic compact: keep it as a safety net, but raise the context size at which it runs (the Claude Code setting `autoCompactWindow` at the time of writing; check the current name, unit and default in the [Claude Code settings](https://code.claude.com/docs/en/settings)) close to the context limit. It cannot choose its moment and may run in the middle of a turn, so it should not be the normal path.
 - Finding the component: look up `rent-or-buy` in Claude Code's record of installed plugins (`installed_plugins.json`) and run its `bin/rent-or-buy`. If it is missing or exits non-zero, use the fixed numbers.
 
 ## 8. Layout and versions
@@ -265,7 +270,7 @@ rent-or-buy/
 ```
 
 - No skills. Callers are programs; there is no use from inside a conversation yet.
-- Pin the component by commit SHA, not by tag (the original repository makes no tags).
+- Callers pin the component by commit SHA. The plugin was born in a repository that makes no git tags; a standalone repository may add tags.
 
 ## 9. Tests
 
@@ -279,11 +284,11 @@ Tests cover only the component's promises.
 
 ## 10. Prior art and roadmap
 
-No existing tool does the same thing (as far as a web search found):
+No existing tool does the same thing, as far as a web search at design time found. The items below are observations from that search; only the linked ones carry a source.
 
-- keepalive: there are break-even formulas for the interval and keepalive plugins (240 seconds, up to 7 requests), but all use fixed numbers and none decides when to stop.
+- keepalive: there are break-even formulas for the interval and keepalive plugins (240 seconds, up to 7 requests), but all use fixed numbers and none decides when to stop (for example [cache-keepalive](https://www.claudepluginhub.com/plugins/yujiachen-y-cache-keepalive-plugins-cache-keepalive)).
 - compact: OpenHands, Codex, Cline, Aider and Letta all compact at a size or ratio threshold. None was found that chooses the moment from a cost formula.
-- Cache retention in inference servers: Continuum chooses retention time by expected gain, but for GPU memory and without a worst-case bound. One paper treats cost-based retention time as ski rental with the 2x worst case ([arXiv:2309.03521](https://arxiv.org/pdf/2309.03521)).
+- Cache retention in inference servers: Continuum chooses retention time by expected gain, but for GPU memory and without a worst-case bound. One paper treats cost-based retention time as ski rental with the 2x worst case (the cost is at most twice the best possible; [arXiv:2309.03521](https://arxiv.org/pdf/2309.03521)).
 - Prices and model names follow ccusage (4.1, 4.3).
 
 Steps. Measure each step's effect in the decision log before moving on.
