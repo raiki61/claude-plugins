@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 待ち受けが会話の記録からターンを始めた文を読むとき（`claudex.last_reply`。keepalive の時刻に compact の焦点を問うた後、答えを読む所）、compact の要約の行（Claude Code が `isCompactSummary` を付ける、compact の後の最初の user の行）を始めた文に数えない。要約は前の会話の文を引くので、引いた焦点の問いに当たって、問いへの答えと読み違える余地があった（壊れた例は見ていない）。受付の設計（`docs/specs/2026-10-17-reception-design.md`）の 7 章の keepalive の数え方にも、この行を除く決まりを足した（my_notes の業務改革の実測で、要約の行が keepalive のターンに数えられていた）。
+
 ## [0.124.0] - 2026-10-24
 
 ### Added

@@ -97,6 +97,11 @@ class LastReply(unittest.TestCase):
                 {"type": "system", "subtype": "stop_hook_summary"}]
         pathlib.Path(path).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
         self.assertEqual(chat.last_reply({"transcript_path": path}), ("答え", "問い"))
+        # compact の要約の行で始まったターンは、要約の中に引いた文（焦点の問いなど）で当たらないよう、始めた文を空にする
+        summary = {"type": "user", chat.COMPACT_SUMMARY: True, "message": {"content": "This session is being continued … 問い"}}
+        rows[-3:] = [summary, rows[-2], rows[-1]]
+        pathlib.Path(path).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        self.assertEqual(chat.last_reply({"transcript_path": path}), ("答え", ""))
         self.assertIsNone(chat.last_reply({"transcript_path": "/none/t.jsonl"}))
         self.assertIsNone(chat.last_reply({}))
 

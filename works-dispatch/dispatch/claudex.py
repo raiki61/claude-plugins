@@ -695,10 +695,16 @@ def last_model(payload):
     return None
 
 
+# compact の要約の行（compact の後の会話の最初の user の行。字は「This session is being continued from a previous conversation…」で
+# 始まる）に Claude Code が付ける印（2026-10-24 の Claude Code 2.1.310 の会話の記録で読んだ）
+COMPACT_SUMMARY = "isCompactSummary"
+
+
 def last_reply(payload):
     """会話の記録（transcript_path）の終わりの方の、本体の会話の最後のターンの (答えの字, そのターンを始めた文)。答えの字は最後の答えの行の
     text の塊をつないだ物、始めた文はその前の最後の文の行（人の文か、フックの知らせ。ツールの結果の行は飛ばす）の字。サブエージェントの行は
-    飛ばす。記録を読めなければ None（答えか文が無ければ、その分は空の字）。"""
+    飛ばす。compact の要約の行（COMPACT_SUMMARY が真の user の行。要約の中に前の文を引くので、引いた文で当たる）で始まったターンの始めた
+    文は空の字にする。記録を読めなければ None（答えか文が無ければ、その分は空の字）。"""
     path = transcript(payload)
     reply = None
     try:
@@ -719,6 +725,8 @@ def last_reply(payload):
             texts = [c["text"] for c in content or [] if isinstance(c, dict) and c.get("type") == "text" and isinstance(c.get("text"), str)]
             reply = "\n".join(texts).strip() or None
         elif row.get("type") == "user":
+            if row.get(COMPACT_SUMMARY):
+                return reply or "", ""
             if isinstance(content, str):
                 return reply or "", content
             texts = [c["text"] for c in content or [] if isinstance(c, dict) and c.get("type") == "text" and isinstance(c.get("text"), str)]
