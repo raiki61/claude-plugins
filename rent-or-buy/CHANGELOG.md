@@ -6,6 +6,8 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-25
+
 ### Changed
 
 - compact の損得の式を直した（設計書の 4.4。works-dispatch の compact の計画の 7 の 1）。
