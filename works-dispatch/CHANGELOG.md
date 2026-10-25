@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.126.6] - 2026-10-25
+
 ### Fixed
 
 - 手順書（`skills/dispatch/references/rest.md`・`roles.md`）と受付の設計書（`docs/specs/2026-10-17-reception-design.md`）を、区切りの印（`--rest`）の今の動きに合わせた。`--rest` は、会話が自分で「今は会話を空にしてよい」と印すコマンドで、そのターンの終わりに機械が `/clear` を打つ。
