@@ -1352,6 +1352,20 @@ class Hook(unittest.TestCase):
         self.assertIsNone(wake_hook.restart_due(got, stop, parked, key_of=lambda cwd, a: opus, at_rest=True))
         self.assertFalse(wake_hook.must_clear(stop, parked))
 
+    def test_a_break_clears_the_talk_even_with_a_parked_ask(self):
+        # 会話が自分で区切りと印した（--rest）なら、保留が在っても空にする。保留の一覧と返し方は空にした後の会話の始まりに足される
+        # （my_notes の司令塔が、持ち主の席外しが長いときに始め直せるように。受付 7b8dff）
+        parked = json.dumps([{"id": "c1", "boss": "段取り", "why": "持ち主の答え"}], ensure_ascii=False)
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1",
+                                              deliver.PARKED: parked}, self.g)
+        w = self.emptied()
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(self.checker({"hook_event_name": "Stop", "session_id": "s1"}, w)(), ("end", None))
+        self.assertEqual(w.writes[0], deliver.CLEAR)
+        attrs = self.g.worktree_attrs(self.place)
+        self.assertNotIn(wake.REST, attrs)
+        self.assertIn("受付 c1", role_hook.parked_text(attrs))
+
     def test_fresh_department_restarts_before_the_next_ask_when_the_shape_changed_its_model(self):
         # /clear は起動したときの --model・--effort を残すので、会社の形の値が起動したときと違えば起動し直す（6bdc72）
         opus = role.launch_key({"model": "opus"})

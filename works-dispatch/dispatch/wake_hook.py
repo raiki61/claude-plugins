@@ -1177,7 +1177,7 @@ def warm_marked(attrs):
 def awaited(got, attrs, records=None):
     """この会話が返事か答えを待つ頼みの並び（keepalive の控えの鍵の一部）。出した頼みのうち閉じていない物（open_children）を
     "child:<受付>" で、答え待ちのまま保留にした頼み（--wait --park）を "parked:<受付>" で並べる。どちらも、返事の納品の知らせか
-    答えでこの会話のターンが始まる（保留の間は会話を空にしない。references/rest.md）。"""
+    答えでこの会話のターンが始まる（保留の間は、会話が --rest を打たない限り空にしない。references/rest.md）。"""
     return ([f"child:{c}" for c in open_children(got, attrs, records)]
             + sorted(f"parked:{p['id']}" for p in deliver.parked_of(attrs)))
 
