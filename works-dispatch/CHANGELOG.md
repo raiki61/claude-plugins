@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- compact の計画（`docs/specs/2026-10-25-compact-restart-plan.md`）の 7 の 1（rent-or-buy の compact の費用の式の直し）を入れたことと、compact の後の文脈の既定を測り直した値（書き込み約 3.7 万・読み約 0.8 万トークン）を書き足した。持ち主が計画を 5.5 も含めて採り、司令塔が自分で会話を空にして始め直す手（5.4）も採ったので、選択肢として残していた書き方を、採った形に直した。works-dispatch の動きは替わらない。
+
 ## [0.126.4] - 2026-10-25
 
 ### Changed

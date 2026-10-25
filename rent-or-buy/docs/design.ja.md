@@ -155,7 +155,7 @@ keepalive を送る時刻の手は、実は 3 つある。送る（借りる）�
 
 - keepalive: 1 本でキャッシュに 380 トークン書き、5 トークン出力する。1 つの keepalive の文で測った値で、文が違えば変わる。測ったときの文は残していないので、自分の文で測り直して値を渡す。
 - keepalive: キャッシュが切れる 60 秒前を余裕 `m` とする（5 分のキャッシュなら 4 分おきに送る）。今ある keepalive のプラグインの既定の間隔 240 秒に合わせた（[cache-keepalive](https://www.claudepluginhub.com/plugins/yujiachen-y-cache-keepalive-plugins-cache-keepalive)）。要求が実際にどれだけ遅れて出るかを判断の記録で見てから詰める。
-- compact: compact の後の文脈 25,000 トークン。例の値で、測った値ではない。
+- compact: compact の後の最初の要求が、キャッシュに 37,000 トークン書き、8,000 トークン読む（和が compact の後の文脈）。7 日分の会話の記録（2026-10-18〜25、compact 451 回）の、compact の区切りの後の最初の会話の本体の応答の中央値（四分位で、書き込み 29,000〜45,000、読み 7,600〜8,900）。記録に compact が在れば、その会話の値が勝つ（4.5）。役で値は違うが、rent-or-buy は役を知らないので、役ごとの既定は持たない。
 - compact: 要約の出力 9,000 トークン。見積もりの値で、要約の要求の出力は記録に残らないので測れない（要約の要求は [Claude Code の prompt caching](https://code.claude.com/docs/en/prompt-caching#compacting-the-conversation) が書いている）。2 つの部分の和にした:
   - 要約の本文: 8 日分の会話の記録の compact の要約（2026-10-25 までの 8 日に書かれた記録のファイルの 613 件。`isCompactSummary` の行）は、中央 13,279 字。大半が英語（日本語の字の割合の中央 8%）。字をトークンに直す率は、同じ記録の、本文だけの応答（`output_tokens` が本文だけの量になる。4,304 件）から測った。日本語でない字 1 字が 0.364 トークン、日本語の字 1 字が 1.118 トークン（外れ方の中央 3.5%）。要約の本文は中央で 5,800 トークン（四分位で 4,800〜7,000）。
   - 下書き: Claude Code の compact の指示文は、`<summary>` の前に `<analysis>` を書かせ、`<analysis>` を会話から捨てる。大きさは見えない。無い場合と本文と同じ長さの場合の間をとって、本文の半分（3,000 トークン）と見る。
@@ -186,12 +186,12 @@ keepalive:
 
 compact:
 
-- 受ける物: モデル、compact が書くキャッシュの寿命、文脈の大きさ、前の compact の後の文脈の大きさ（`post_compact_context`。既定は 4.2）、要約の大きさ、前の compact から余分に読んだ額（`spent`）、キャッシュが温かいか、問い合わせ 1 往復の費用、中心の `forced`・`ask`・`deferred`・`defer_limit`・`answer`。
-- 当てはめ: 借りる = この要求で余分に読む額 = `(context - post_compact_context) * read`（負なら 0）。買う = `post_compact_context * write + summary * output + consult_cost`。`certain` は true。`post_compact_context` は前の compact の後の大きさで、今回の compact の後の大きさの見積りに使う。
+- 受ける物: モデル、compact が書くキャッシュの寿命、文脈の大きさ、前の compact の後の最初の要求がキャッシュに書いた量と読んだ量（`after_write_tokens`・`after_read_tokens`。記号は `C'_w`・`C'_r`。既定は 4.2）、要約の大きさ、前の compact から余分に読んだ額（`spent`）、キャッシュが温かいか、問い合わせ 1 往復の費用、中心の `forced`・`ask`・`deferred`・`defer_limit`・`answer`。
+- 当てはめ: `C' = C'_w + C'_r`（compact の後の文脈）と置き、借りる = この要求で余分に読む額 = `(context - C') * read`（負なら 0）。`F' = C'_w * write + C'_r * read + summary * output` は compact が要約の要求のほかに足す費用で、買う = `F' + 借りる + consult_cost`。要約の要求はキャッシュが温かい間、今の文脈の全部をキャッシュから読む（[Claude Code の prompt caching](https://code.claude.com/docs/en/prompt-caching#compacting-the-conversation)）ので、この 1 本は借り賃を浮かせられず、買うに借り 1 回分が入る。中心の規則 `spent + rent >= buy` は、`spent >= F' + consult_cost` になる。`certain` は true。`C'` は前の compact の値で、今回の compact の後の大きさの見積りに使う。
 - キャッシュが温かいか冷えているかは、全部の書き込みが同じ寿命なら判断を変えない。会話のキャッシュが 1 時間で compact が 5 分の環境では、冷えているなら早めに compact する方が得になりうる（次の要求がどのみち文脈の全体を書き直すので、先に compact すればその書き直しが小さくなる）が、測った値が無いので、最初の版は記録に残すだけにする。
-- 返す物: 中心の出力（`buy` なら今 compact する）に、`rent`・`buy`・`warm`（受けた値をそのまま）・`prices`・`version` を足した物。呼ぶ側は `rent` を累計に足し、次の回に渡す。
+- 返す物: 中心の出力（`buy` なら今 compact する）に、`rent`・`buy`・`compact_cost`（`F'`）・`warm`（受けた値をそのまま）・`prices`・`version` を足した物。呼ぶ側は `rent` を累計に足し、次の回に渡す。
 
-10 万トークンを超えると上がる値段は、要求の大きさで選ぶ。keepalive の読み・書き込み・出力は文脈の大きさで、compact の書き込みは compact の後の大きさで、要約の出力は compact の前の文脈の大きさで選ぶ。
+10 万トークンを超えると上がる値段は、要求の大きさで選ぶ。keepalive の読み・書き込み・出力は文脈の大きさで、compact の後の要求の書き込みと読みは compact の後の大きさ `C'` で、要約の出力は compact の前の文脈の大きさで選ぶ。
 
 ### 4.5 会話の記録の読み取り
 
@@ -201,22 +201,19 @@ compact:
 - 文脈の大きさ: 最後の応答の `message.usage` の `input_tokens`・`cache_read_input_tokens`・`cache_creation_input_tokens` の和。1 つの応答は内容のブロックごとに行が分かれ、同じ `message.id` を持つので、id でまとめる。
 - モデル: 最後の応答の `message.model`。
 - 最後の要求の時刻: `"type": "api-request"` で `querySource` が `repl_main_thread`（会話の本体の要求だけ）の最後の行の `timestamp`（UTC の ISO 8601）。
-- compact の後の文脈: `"type": "system"` で `"subtype": "compact_boundary"` の最後の行の `compactMetadata.postTokens`。その行より前の応答は忘れる。
-- 前の compact から余分に読んだ額: その後の応答ごとに `(context - post_compact_context) * read`（負なら 0）を足した物。
+- compact の後の文脈: `"type": "system"` で `"subtype": "compact_boundary"` の最後の行を compact の印とし、その行より前の応答は忘れる。その後の最初の応答の `cache_read_input_tokens` を `C'_r` に、その応答の文脈の残り（`cache_creation_input_tokens` と `input_tokens` の和）を `C'_w` にする（最初の要求がキャッシュに当たらなかったときに `C'` を小さく見積もらないため）。区切りの行の `compactMetadata.postTokens` は使わない。要約だけの大きさ（約 1 万）で、compact の後の最初の要求が書き込む量（役ごとの 7 日分の中央値で 2.7〜4.5 万）の 4 分の 1 ほどしかないため。compact が無いか、その後に応答がまだ無ければ埋めず、4.2 の既定を使う。
+- 前の compact から余分に読んだ額: その後の応答ごとに `(context - C') * read`（負なら 0）を足した物。
 - この形は Claude Code 2.1.310 の記録で確かめた物で、文書に書かれた形ではない。形の違う行は飛ばして数える（出力の `transcript.skipped_lines`）。値が 1 つも読めなければ「記録を読めない」を返し、呼ぶ側は決め打ちの数で動く。
 - 場面に要る事実（モデルと文脈の大きさ、keepalive なら最後の要求の時刻も）が記録にも標準入力にも無いとき（compact の直後でまだ応答が無いときなど）、コマンドは既定で埋めず、終了コード 4 で終わる。文脈の大きさを compact の後の大きさで代えることもしない。モデルも分からないため。
 
-### 4.6 compact の直す項（後の版）
+### 4.6 compact のまだ足していない項（後の版）
 
-この項は、今の版（0.2.1）の次の版で `compact` の式を直すための設計メモで、直す作業は次の抜けを埋めること。実装の順は計画のセクション 7 にある。compact の翻訳（4.4 の、場面の事実を中心の入力に直す部分）を項ごとに、会話の記録から計った実測値と照合した（2026-10-25。計画は [works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md](https://github.com/raiki61/claude-plugins/blob/main/works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md) のセクション 3「compact の損得の式を、項ごとに見直す」）。次の抜けが在り、どれもまだ作っていない。`C` は今の文脈、`C'` は compact の後の文脈（その後の最初の要求が書き込む分が `C'_w`、読む分が `C'_r`）、`F' = C'_w * write + C'_r * read + summary * output` は、compact が要約の要求のほかに足す費用。`write`・`read`・`output` は 4.4 の 1 トークンあたりの単価、`summary` は要約の出力のトークン数、`spent` は前の compact から余分に読んだ額、`rent` は今の要求で余分に読む額、`buy` は今の規則での compact 1 回の費用（直した規則では `F' + rent`）。
+compact の翻訳を、会話の記録から計った実測値と項ごとに照合して、抜けが見つかった（2026-10-25。計画は [works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md](https://github.com/raiki61/claude-plugins/blob/main/works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md) のセクション 3「compact の損得の式を、項ごとに見直す」）。要約の要求が今の文脈を読む分と compact の後の大きさは 0.4.0 で（4.4・4.5）、要約の出力は 0.3.0 で（4.2）直した。残りは次の 2 つで、実装の順は計画のセクション 7 にある。記号は 4.4 と同じ。
 
-- 要約の要求は、キャッシュが温かい間、今の文脈 `C` の全部をキャッシュから読む（[Claude Code の prompt caching](https://code.claude.com/docs/en/prompt-caching#compacting-the-conversation)）。正しく数えると buy は `F' + rent`（要約の要求が 1 本分の rent を食う）で、規則は `spent >= F' + consult_cost` になる。今の規則 `spent + rent >= buy` は、この要求を数えていない。
-- compact の後の大きさ: 記録の `postTokens`（compact の区切りの行にある、直後の文脈のトークン数。約 1 万）は要約だけの大きさ。compact の後の最初の要求は 2.7〜4.5 万トークンを書き込む（7 日分の中央値。役、つまり担当・相談など会話の種類で違う）。その要求の書き込みと読みを記録から読んで `C'_w`・`C'_r` にし、会話にまだ compact が無いうちは `prices.toml` の既定（7 日分の全体の中央値。書き込み 4 万・読み 1 万）を使う。rent-or-buy は役を知らないので、役ごとの既定は持たない。
-- 要約の出力 `summary`（トークン数）: 既定は 2026-10-25 に 9,000 にした。要約の本文に、Claude Code が捨てる下書きを足した見積もり（4.2）。要約の要求の出力は記録に残らず、測れない。
-- `consult_cost`: 呼ぶ側が `Q_each / (1 - w) + Q_answer` を渡す。口は、問いを会話に届ける道（単独の要求・どのみち起きる要求に添える注記・keepalive と差し替える問い）で、`Q_each` はその口で問うたびに払う分、`Q_answer` は焦点が返った時だけ払う分、`w` はその口で焦点（compact の要約で残す話題の指定）が返らない割合。
+- `consult_cost`: 呼ぶ側が `Q_each / (1 - w) + Q_answer` を渡す。口は、問いを会話に届ける道（単独の要求・どのみち起きる要求に添える注記・keepalive と差し替える問い）で、`Q_each` はその口で問うたびに払う分、`Q_answer` は焦点が返った時だけ払う分、`w` はその口で焦点（compact の要約で残す話題の指定）が返らない割合。入力はもう在り、残っているのは呼ぶ側が渡すこと。
 - キャッシュを切らせる直前の compact のための入力 `expiring`（真偽。呼ぶ側が keepalive の止め時に立てる）: その時は `C * (write - read) > C' * write + summary * output + consult_cost` で buy。
 
-これらの項で 7 日分の記録を流すと、compact が初めて得になる文脈は、中央値で約 8 万トークンから約 13 万に移る（Opus、寿命 1 時間。1 時間は Claude Code がサブスクリプションの枠の中で会話の本体に付ける寿命）。
+直した項で 7 日分の記録を流すと、compact が初めて得になる文脈は、中央値で約 8 万トークンから約 13 万に移る（Opus、寿命 1 時間。1 時間は Claude Code がサブスクリプションの枠の中で会話の本体に付ける寿命）。
 
 ## 5. コマンド
 

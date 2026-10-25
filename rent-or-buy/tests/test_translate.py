@@ -34,8 +34,8 @@ def sample(tmp):
         line(type="system", subtype="compact_boundary", compactMetadata={"trigger": "auto", "preTokens": 90000, "postTokens": 10000}),
         line(type="api-request", timestamp="2026-10-24T04:48:48.895Z", querySource="repl_main_thread"),
         line(type="api-request", timestamp="2026-10-24T04:49:00.000Z", querySource="other"),
-        line(type="assistant", message={"id": "m2", "model": "claude-opus-5-5", "usage": usage(20000)}),
-        line(type="assistant", message={"id": "m2", "model": "claude-opus-5-5", "usage": usage(20000)}),  # 同じ id は 1 つ
+        line(type="assistant", message={"id": "m2", "model": "claude-opus-5-5", "usage": usage(15000, 1000)}),
+        line(type="assistant", message={"id": "m2", "model": "claude-opus-5-5", "usage": usage(15000, 5000)}),  # 同じ id は最後の行
         line(type="assistant", message={"id": "m3", "model": "claude-opus-5-5", "usage": usage(30000, 1000)}),
         "{壊れた行",
     ]
@@ -55,7 +55,10 @@ class TranslateTest(unittest.TestCase):
 
     def test_transcript_facts(self):
         tr = transcript.read(sample(self.tmp.name))
-        self.assertEqual((tr["model"], tr["context_tokens"], tr["post_tokens"]), ("claude-opus-5-5", 31002, 10000))
+        self.assertEqual((tr["model"], tr["context_tokens"]), ("claude-opus-5-5", 31002))
+        # compact の後の最初の応答（m2 の最後の行）の書き込み（キャッシュに無い入力 2 を含む）と読み。postTokens は使わない
+        self.assertEqual((tr["after_write_tokens"], tr["after_read_tokens"]), (5002, 15000))
+        self.assertNotIn("post_tokens", tr)
         self.assertEqual(tr["last_request_at"], "2026-10-24T04:48:48.895Z")
         self.assertEqual(tr["contexts_after_compact"], [20002, 31002])
         self.assertEqual(tr["skipped_lines"], 1)
@@ -85,12 +88,42 @@ class TranslateTest(unittest.TestCase):
         out = translate.keepalive({**ok, "turn_end_at": "2026-10-24T13:00:00+09:00"}, env=self.env)
         self.assertEqual(out["turn_end_at"], "2026-10-24T04:00:00Z")
 
-    def test_compact_tiers_use_post_for_write_and_n_for_output(self):
+    def test_compact_tiers_use_after_for_write_and_n_for_output(self):
         haiku = prices.lookup("claude-haiku-5-5", env=self.env)
         out = translate.compact({"model": "claude-haiku-5-5", "lifetime": 300, "context_tokens": 150000, "spent": 0,
-                                 "post_tokens": 20000, "summary_tokens": 1000}, env=self.env)
-        self.assertAlmostEqual(out["buy"], 20000 * haiku.rate("write_5m", 20000) + 1000 * haiku.rate("output", 150000))
+                                 "after_write_tokens": 20000, "after_read_tokens": 5000, "summary_tokens": 1000}, env=self.env)
+        fixed = (20000 * haiku.rate("write_5m", 25000) + 5000 * haiku.rate("read", 25000)
+                 + 1000 * haiku.rate("output", 150000))
+        self.assertAlmostEqual(out["compact_cost"], fixed)
+        self.assertAlmostEqual(out["rent"], 125000 * haiku.rate("read", 150000))
+        self.assertAlmostEqual(out["buy"], fixed + out["rent"])
         self.assertNotEqual(haiku.rate("output", 150000), haiku.rate("output", 20000))
+        # compact の後が 10 万を超えれば、書き込みと読みは上の段（文脈 99,000 なら出力は下の段）
+        big = translate.compact({"model": "claude-haiku-5-5", "lifetime": 300, "context_tokens": 99000, "spent": 0,
+                                 "after_write_tokens": 90000, "after_read_tokens": 20000, "summary_tokens": 1000}, env=self.env)
+        self.assertAlmostEqual(big["compact_cost"], 90000 * haiku.rate("write_5m", 110000) + 20000 * haiku.rate("read", 110000)
+                               + 1000 * haiku.rate("output", 99000))
+        self.assertNotEqual(haiku.rate("read", 110000), haiku.rate("read", 99000))
+        self.assertEqual(big["rent"], 0)
+
+    def test_compact_buys_when_spent_reaches_fixed_cost_and_consult_cost(self):
+        # 規則は spent ≥ F' + consult_cost（要約の要求が今の文脈を読むので、この 1 本の rent は浮かない）
+        base = {"model": "claude-opus-5-5", "lifetime": 3600, "context_tokens": 130000, "consult_cost": 0.01}
+        f = translate.compact({**base, "spent": 0}, env=self.env)["compact_cost"]
+        below = translate.compact({**base, "spent": f + 0.01 - 1e-6}, env=self.env)
+        at = translate.compact({**base, "spent": f + 0.01}, env=self.env)
+        self.assertEqual((below["action"], at["action"]), ("rent", "buy"))
+
+    def test_compact_defaults_come_from_prices_toml(self):
+        d = prices.defaults()["compact"]
+        opus = prices.lookup("claude-opus-5-5", env=self.env)
+        out = translate.compact({"model": "claude-opus-5-5", "lifetime": 3600, "context_tokens": 130000, "spent": 0},
+                                env=self.env)
+        after = d["after_write_tokens"] + d["after_read_tokens"]
+        self.assertEqual(translate.after_tokens({}), after)
+        self.assertAlmostEqual(out["compact_cost"], d["after_write_tokens"] * opus.rate("write_1h", after)
+                               + d["after_read_tokens"] * opus.rate("read", after)
+                               + d["summary_tokens"] * opus.rate("output", 130000))
 
     def test_tier_fields_are_validated(self):
         base = {"input_cost_per_token": 2e-6, "cache_creation_input_token_cost": 3e-6,
@@ -127,8 +160,8 @@ class TranslateTest(unittest.TestCase):
     def test_compact_numbers_and_haiku_tier(self):
         facts = {"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": 150000, "spent": 0}
         out = translate.compact(facts, env=self.env)
-        self.assertAlmostEqual(out["rent"], 125000 * 2e-7)
-        self.assertAlmostEqual(out["buy"], 25000 * 5e-6 + 9000 * 2e-5)
+        self.assertAlmostEqual(out["rent"], (150000 - 37000 - 8000) * 2e-7)
+        self.assertAlmostEqual(out["buy"], 37000 * 5e-6 + 8000 * 2e-7 + 9000 * 2e-5 + out["rent"])
         haiku = prices.lookup("claude-haiku-5-5", env=self.env)
         self.assertEqual((haiku.rate("read", 100000), haiku.rate("read", 100001)), (1e-8, 5e-8))
 
@@ -174,11 +207,26 @@ class TranslateTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)  # 標準入力で足りれば通る
 
 
-    def test_post_tokens_from_stdin_is_checked(self):
+    def test_spent_from_transcript_uses_the_first_request_after_compact(self):
+        r = self.run_cli("compact", "--transcript", str(sample(self.tmp.name)), stdin=json.dumps({"lifetime": 300}))
+        out = json.loads(r.stdout)
+        read = prices.lookup("claude-opus-5-5", env=self.env).rate("read", 31002)
+        # compact の後の文脈は m2 の書き込み 5002 + 読み 15000
+        self.assertAlmostEqual(out["rent"], (31002 - 20002) * read)
+        r = self.run_cli("compact", "--transcript", str(sample(self.tmp.name)),
+                         stdin=json.dumps({"lifetime": 300, "after_read_tokens": 25000}))
+        out = json.loads(r.stdout)  # 標準入力の値が勝ち、spent もその値で数える（m2 の 20002 は 30002 を下回り、m3 だけが 1000 余分）
+        self.assertAlmostEqual(out["rent"], 1000 * read)
+        self.assertAlmostEqual(out["compact_cost"] + out["rent"], out["buy"])
+
+    def test_after_tokens_from_stdin_is_checked(self):
         path = sample(self.tmp.name)
-        for bad in (None, "5", -1, True):
-            r = self.run_cli("compact", "--transcript", str(path), stdin=json.dumps({"lifetime": 300, "post_tokens": bad}))
-            self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (2, "invalid_input"), bad)
+        for key in ("after_write_tokens", "after_read_tokens"):
+            for bad in (None, "5", -1, True):
+                r = self.run_cli("compact", "--transcript", str(path), stdin=json.dumps({"lifetime": 300, key: bad}))
+                self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (2, "invalid_input"), (key, bad))
+        r = self.run_cli("compact", "--transcript", str(path), stdin=json.dumps({"lifetime": 300, "post_tokens": 5}))
+        self.assertEqual(r.returncode, 2)  # 前の版の post_tokens は知らない鍵
 
     def test_override_is_validated_and_tiers_follow_base(self):
         for bad in ({"input_cost_per_token_above_100k_tokens": "x"}, {"output_cost_per_token_above_100k_tokens": float("inf")},

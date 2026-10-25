@@ -11,9 +11,11 @@ measured = "2026-10-24"
 source = "measured on one keepalive prompt; other prompts differ"
 
 [compact]
-# compact の後の文脈のトークン数
-after_tokens = 25000
+# compact の後の最初の要求がキャッシュに書くトークン数と、読むトークン数（和が compact の後の文脈）。
+# 会話の記録に compact が在れば、記録の値が勝つ
+after_write_tokens = 37000
+after_read_tokens = 8000
 # compact の要約の出力のトークン数
 summary_tokens = 9000
 measured = "2026-10-25"
-source = "after_tokens: example value, not measured. summary_tokens: estimate, see docs/design.md 4.2; the summary text (median 5,800 tokens over 613 compacts in 8 days of transcripts) plus half of that for the analysis Claude Code drops before the summary; the summary request's output is not in the transcript and cannot be measured"
+source = "after_write_tokens, after_read_tokens: medians over the first main-thread response after each compact boundary in 7 days of transcripts (2026-10-18..25, 451 compacts; write quartiles 29,000-45,000, read 7,600-8,900). summary_tokens: estimate, see docs/design.md 4.2; the summary text (median 5,800 tokens over 613 compacts in 8 days of transcripts) plus half of that for the analysis Claude Code drops before the summary; the summary request's output is not in the transcript and cannot be measured"

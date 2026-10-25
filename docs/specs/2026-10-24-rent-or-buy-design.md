@@ -195,8 +195,8 @@ compact:
 - 文脈の量: 最後の応答の `message.usage` の `input_tokens`・`cache_read_input_tokens`・`cache_creation_input_tokens` の和。応答は内容のブロックごとに行が分かれ、同じ `message.id` を持つので、id でまとめる。
 - モデル: 最後の応答の `message.model`。
 - 最後の要求の時刻: `"type": "api-request"` の行の `timestamp`（UTC の ISO 8601）。会話の本体の要求（`querySource` が `repl_main_thread`）だけを見る。
-- compact の後の文脈の量: 最後の `"subtype": "compact_boundary"` の行の `compactMetadata.postTokens`。
-- 前の compact から後に余分に読んだ費用の累計: 最後の compact の後の応答ごとに、(その応答の文脈 − compact の後の文脈) × 読み を足した物（負は 0）。
+- compact の後の文脈の量: 最後の `"subtype": "compact_boundary"` の行の後の最初の応答が書き込んだ量（キャッシュに無い入力を含む）と読んだ量の和（rent-or-buy 0.4.0 から。区切りの行の `compactMetadata.postTokens` は要約だけの大きさなので使わない。rent-or-buy の `docs/design.md` の 4.5）。
+- 前の compact から後に余分に読んだ費用の累計: 最後の compact の後の応答ごとに、(その応答の文脈 − compact の後の文脈の量) × 読み を足した物（負は 0）。
 - この形は 2026-10-24 の Claude Code 2.1.310 の記録で確かめた物で、公式の文書に書かれた形ではない。読めない行（`model` が文字列でない行を含む）は飛ばし、必要な値が 1 つも読めなければ「記録を読めない」と返して、呼ぶ側は今の決まった数で動く。
 - 場面に要る事実（モデル・文脈の量、keepalive は最後の要求の時刻も）が、記録と標準入力を合わせても揃わないとき（compact の直後でまだ応答が無いときなど）は、既定で埋めず「記録を読めない」（終わりのコード 4）と返す。文脈の量を compact の後の量で代えることはしない（モデルも分からないため）。
 

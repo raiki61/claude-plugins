@@ -90,13 +90,11 @@ def _from_transcript(scene: str, facts: dict, path: str, override) -> tuple:
         raise transcript.TranscriptError("the transcript lacks %s needed for %s (no response yet after a compact?)"
                                          % (", ".join(lacking), scene))
     if scene == "compact":
-        if "post_tokens" in tr:
-            base["post_tokens"] = tr["post_tokens"]
+        base.update({k: tr[k] for k in ("after_write_tokens", "after_read_tokens") if k in tr})
         merged = {**base, **facts}
         if "spent" not in merged:
-            post = translate.count(merged, "post_tokens", prices.defaults()["compact"]["after_tokens"])
             price = prices.lookup(translate.check_model(merged["model"]), override)
-            base["spent"] = translate.extra_read_cost(tr["contexts_after_compact"], post, price)
+            base["spent"] = translate.extra_read_cost(tr["contexts_after_compact"], translate.after_tokens(merged), price)
     return {**base, **facts}, {"skipped_lines": tr["skipped_lines"]}
 
 
