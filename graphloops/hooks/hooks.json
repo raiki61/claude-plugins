@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/record-read.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/record-read.py\"",
             "shell": "bash",
             "timeout": 15
           }

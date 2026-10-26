@@ -130,7 +130,7 @@ Convergence means, for **2 consecutive rounds**, zero blockers, green CI, and ne
 
 ## Dependencies
 
-**Required**: `git` / `python3` or `python` (**3.12 or later**. CI pins and measures one minimum version — a lower bound that is not measured is not declared. It used to say 3.9, but when the local python was newer, syntax that fails only on 3.9 slipped past an all-green run and turned CI red on all 3 OSes (measured 2026-09-13). `graphlib`, used by `graphcheck.py`, was added in 3.9, so that is not the reason for the lower bound; the reason is **that the developer's machine and CI read the same syntax**) / `bash`
+**Required**: `git` / Python reachable as `python3`, `python`, or `py -3` (the bundled `scripts/run-python.sh` tries them in that order and uses the first that actually runs and is 3.12 or later, so the Windows Microsoft Store stub behind `python3` is skipped) (**3.12 or later**. CI pins and measures one minimum version — a lower bound that is not measured is not declared. It used to say 3.9, but when the local python was newer, syntax that fails only on 3.9 slipped past an all-green run and turned CI red on all 3 OSes (measured 2026-09-13). `graphlib`, used by `graphcheck.py`, was added in 3.9, so that is not the reason for the lower bound; the reason is **that the developer's machine and CI read the same syntax**) / `bash`
 
 **What the local review calls** (both `/review-loop` and graphloops' review-loop graph — the graph that `/review-graph` ran before it was removed, kept for the engine's tests; which one calls what is in the Use column):
 
@@ -142,11 +142,11 @@ Convergence means, for **2 consecutive rounds**, zero blockers, green CI, and ne
 | built-in `/security-review` | when the change touches authentication, data handling, or external I/O | same as above |
 | `gh` CLI | conflict check against concurrent PRs | on other hosts, substitute the equivalent command. If it cannot be substituted, the loop is made to report "could not check" |
 
-**What `/research-loop` calls**: `WebSearch` / `WebFetch`, the `Workflow` tool (in environments where it is not available, the instructions include a procedure to reproduce the same structure by starting `Agent`s in parallel), and `python3` with the bundled `research-record.py` (validation of the run record — the source of truth for the required fields of the final report. In environments where it cannot be run, the instructions include a procedure to read the script body and check by eye)
+**What `/research-loop` calls**: `WebSearch` / `WebFetch`, the `Workflow` tool (in environments where it is not available, the instructions include a procedure to reproduce the same structure by starting `Agent`s in parallel), and Python (through `scripts/run-python.sh`) with the bundled `research-record.py` (validation of the run record — the source of truth for the required fields of the final report. In environments where it cannot be run, the instructions include a procedure to read the script body and check by eye)
 
-**What `/firstread-loop` calls**: `python3` with the bundled `firstread-record.py` (validation of each round's record — its main purposes are **making it impossible to write "there was none" for material that was never asked about**, and confirming that answers written earlier actually exist as files)
+**What `/firstread-loop` calls**: Python (through `scripts/run-python.sh`) with the bundled `firstread-record.py` (validation of each round's record — its main purposes are **making it impossible to write "there was none" for material that was never asked about**, and confirming that answers written earlier actually exist as files)
 
-**What `/doctor-loop` calls**: read-only instruments that already exist in the target repository (lint, type checks, tests, etc.; if there are none, they are reported as "instruments that could not be tried"), and `python3` with the bundled `doctor-record.py` (validation of the run record. The record is written **outside** the target repository's working tree — to stay compatible with the rule against changing it)
+**What `/doctor-loop` calls**: read-only instruments that already exist in the target repository (lint, type checks, tests, etc.; if there are none, they are reported as "instruments that could not be tried"), and Python (through `scripts/run-python.sh`) with the bundled `doctor-record.py` (validation of the run record. The record is written **outside** the target repository's working tree — to stay compatible with the rule against changing it)
 
 ## What this design does not guarantee
 

@@ -104,6 +104,23 @@ def test_selfcheck_names_hook_that_writes_nothing(tmp_path, monkeypatch, repo):
     assert why and "行を書かない" in why
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="SKIP posix-mode: 偽の python3 を PATH のフォルダに置く形は POSIX の物")
+def test_selfcheck_names_missing_python_every_init(tmp_path, monkeypatch, repo):
+    """Python を選べない機械では、init のたびに訳を出す（試しの session_id は毎回同じなので、run-python.sh --once の印が
+    TMPDIR に残ると 2 回目からは黙る。試しは自分の置き場を TMPDIR にして印を持ち越さない）"""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "python3").write_text("#!/bin/sh\nexit 9009\n", encoding="utf-8")
+    (bin_ / "python3").chmod(0o755)
+    (bin_ / "bash").symlink_to(shutil.which("bash"))
+    monkeypatch.setenv("PATH", str(bin_))
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    d = board(repo / ".git", "research-loop", "r1", "running")
+    whys = [commands.hook_selfcheck(d, repo) for _ in range(2)]
+    assert all(w and "Python 3.12" in w and "py -3" in w for w in whys), whys
+
+
+
 def test_worktree_board_notice(repo, tmp_path):
     """linked worktree の git ディレクトリの下の盤面だけを名指し、写す先（共有の .git の boards-archive）を出す"""
     wt = tmp_path / "wt"

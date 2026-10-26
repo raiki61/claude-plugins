@@ -15,7 +15,7 @@
 **次の周に進む前に、その周の記録を書きます。**
 
 ```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/firstread-record.py <今の周の記録.json> [<前の周の記録.json>]
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/firstread-record.py" <今の周の記録.json> [<前の周の記録.json>]
 ```
 
 書き方は `${CLAUDE_PLUGIN_ROOT}/templates/firstread-round-1.example.json` を、2 周目以降

@@ -43,12 +43,12 @@ fi
 BASE="$1"
 REF="${2:-}"
 
-# Windows の Python は `python3` を持たないことがある（逆に Linux / macOS は `python`
-# を持たないことがある）ので両方を探す。見つからないまま進むと空の集計が出る。
-PY_BIN=$(command -v python3 || command -v python || true)
-[ -n "$PY_BIN" ] || { echo "comment-ratio: python3 / python が PATH に無い" >&2; exit 2; }
-
-"$PY_BIN" - "$BASE" "$REF" "$JSON" <<'PY'
+# Python は同じフォルダの run-python.sh で選ぶ（python3・python・py -3 の順に、実際に起きて 3.12 以上の物。Windows の
+# python3 が Microsoft Store へ誘う代わりの物に当たっても先へ進む）。選べなければ run-python.sh は 127 で終わるので、
+# 測れなかった 2 に直す（見つからないまま進むと空の集計が出る）。
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+rc=0
+"$BASH" "$HERE/run-python.sh" - "$BASE" "$REF" "$JSON" <<'PY' || rc=$?
 import json, re, subprocess, sys, io, tokenize
 
 # Windows の既定コンソール（cp932 等）では本文の記号を encode できずに落ちるため、
@@ -252,3 +252,5 @@ except SystemExit:
 except Exception as _e:
     fail(f"想定外の例外（{type(_e).__name__}）: {_e}")
 PY
+[ "$rc" -ne 127 ] || exit 2
+exit "$rc"

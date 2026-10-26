@@ -13,14 +13,14 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
 役の起動方法（engine が起動する役と、起動できない役を Agent で起動するとき）は [references/nodes.md](references/nodes.md) の頭に在る。
 
-このプラグインの置き場（この SKILL.md があるフォルダの 2 つ上）は `${CLAUDE_PLUGIN_ROOT}` である（ここと下のコマンドの中はスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルのコマンドに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、この SKILL.md〔プラグインの中の `skills/research-graph/SKILL.md`〕があるフォルダの 2 つ上、プラグイン graphloops のルートのフォルダ）に読み替えて打て。
+このプラグインの置き場（この SKILL.md があるフォルダの 2 つ上）は `${CLAUDE_PLUGIN_ROOT}` である（ここと下のコマンドの中はスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルのコマンドに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、この SKILL.md〔プラグインの中の `skills/research-graph/SKILL.md`〕があるフォルダの 2 つ上、プラグイン graphloops のルートのフォルダ）に読み替えて打て。コマンドは `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起動する（`python3`・`python`・`py -3` の順に、実際に起きて 3.12 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下のコマンドの形をそのまま打ち、Python の名前を替えない。
 
 ## 手順
 
 1. **始める**。依頼文と見立て文書を渡して盤面を作る:
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop research-loop --request @<依頼文のファイル> --document <見立て文書>
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop research-loop --request @<依頼文のファイル> --document <見立て文書>
    ```
 
    返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
@@ -30,7 +30,7 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 2. **回す**。`loop.py run` を**前景で**打つ（Bash の timeout は最大に）。engine が起動できるノード（役・走らせるだけのノード・sandbox の中で起動する任せ先〔下請けの子〕）は、回し手（run が会話の Bash から切り離して立てる engine の背景プロセス）が起動して受け付けまで進め、run は止まる所でだけ戻る。回し手は 1 つの run に 1 本だけで（盤面の置き場の錠で決まる。2 本目の run は回し手を立てずに付き添う）、見守りの run が Bash の上限に当たって止められても背景へ移されても、回し手と役は止まらない:
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" run --dir <DIR>
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" run --dir <DIR>
    ```
 
    終了コードで次の手を決めよ（値の表の正本は engine の `runner.CODES`）:

@@ -11,7 +11,7 @@
    **今の回し方もそのまま使える**: `next` を呼び、返った `ready` を全部こなして `done` で返し、`status` が converged か stopped になって `ready` が空になるまで繰り返す（`launch` を持つノードは `loop.py launch` が起動する。`launch` は役が終わるまで戻らないので、会話の Bash から待つなら打たずに `run` に任せよ——回し手が `launch` を立てて終わりを待つ。端末や CI で待てるなら直に打ってよい）。1 つの run で混ぜるときは、回し手が居る間に `launch` を自分で打つな（同じノードを 2 本で起動しない）:
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" next --dir <DIR>
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" next --dir <DIR>
    ```
 
    `handoff`（と `next` の `ready`）の各要素は 1 つのノード（instance）で、`mode` が 3 種類ある（cli・agent・runner）。**役のノード（runner 以外）は、`launch` を持っていれば engine が起動する**:
@@ -22,7 +22,7 @@
    同じ `ready` に載ったノードは互いに依存が無い。`launch` を持つノードは 1 回の `launch` でまとめて並列に起こる。runner のノード（と `launch` を持たない agent のノード）は、返答を保存したら:
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" done --node "<id>" --output <返答のファイル> --dir <DIR>
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" done --node "<id>" --output <返答のファイル> --dir <DIR>
    ```
 
    `done` が exit 1 で拒んだら、理由を読んで直す。役のノードなら、理由を添えて**同じ役に返させろ**（`launch` で起動したノードは engine が同じ会話に出し直させる。上限まで拒まれたら `relaunch` で起動し直す）——あなたが JSON を補ったり判定を書き換えたりしてはいけない（回す側は採点しない）。runner のノードなら自分の返答を直す。`ready` が空で `status` が running なら、もう一度 `next`（機械のノードが進んで次の波が出る）。

@@ -6,6 +6,11 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Fixed
+- Windows で、`python3` の名前が Microsoft Store へ誘う代わりの物（起動すると案内を出して終わる物）に当たる機械では、記録の検証器（`review-record.py`・`research-record.py`・`firstread-record.py`・`doctor-record.py`）を起動する手順書のコマンドと `comment-ratio.sh` が、本物の `python` が在っても落ちていた。どれも先に見つかった `python3` を確かめずに起動していたため。
+  - 新しい `scripts/run-python.sh` が、`python3`・`python`・`py -3` の順に、実際に起きて 3.12 以上の物を選んで起動する。手順書のコマンドの行と `comment-ratio.sh` を、この入口を通す形にした。review-loop の手順書にあった「`python3` が無ければ `python` に読み替え、版を確かめる」の手作業は、この入口が代わりにする。
+  - 選べなければ、訳と直し方を 1 行で出し、終了の値 127 で終わる（検証器の 1〔阻害要因あり〕・2〔記録が不正〕と混ざらない）。`comment-ratio.sh` は、そのとき今までどおり 2（測れなかった）で終わる。
+
 ## [0.51.0] - 2026-10-19
 
 ### Changed

@@ -2419,6 +2419,11 @@ def cmd_intake(a):
     print(f"ok {len(rows)} 件を送った（HTTP {status}）")
 
 
+# 会話に打たせる次の手（init の next・intake の知らせ）の Python の選び方。スキルとコマンドの手順書のコマンドの行と同じく、プラグインの
+# hooks/run-python.sh を通す（Windows の python3 が Microsoft Store へ誘う代わりの物に当たっても、python・py -3 へ進む）
+RUN_PYTHON = PLUGIN_ROOT / "hooks" / "run-python.sh"
+
+
 def intake_notice():
     """まだ作者へ手渡していない失敗の記録（engine/intake.py の intake.jsonl）の知らせの文。init と status が毎回出す——記録を書くだけでは
     誰も読まず、手渡した所の印も無いまま溜まっていた（実測 2026-10-19: 3 つのアカウントで 68 行、印はどこにも無い）。
@@ -2427,7 +2432,7 @@ def intake_notice():
     if not b:
         return None
     name = intake.plugin_meta()[0] or "graphloops"
-    cmd = f"python3 {shlex.quote(str(PLUGIN_ROOT / 'scripts' / 'loop.py'))} intake --data-dir {shlex.quote(b['dir'])}"
+    cmd = f"bash {shlex.quote(str(RUN_PYTHON))} {shlex.quote(str(PLUGIN_ROOT / 'scripts' / 'loop.py'))} intake --data-dir {shlex.quote(b['dir'])}"
     top = "、".join(f"{k} ×{n}" for k, n in b["top"])
     lost = f"。上限 {intake.CAP} 行を超えて、手渡す前に古い {b['lost']} 件を捨てた" if b["lost"] else ""
     return (f"{name} の engine が利用者の環境に残した失敗の記録が {b['pending']} 件、まだ作者へ渡していない"
@@ -2468,7 +2473,7 @@ def init_notices(g, root):
                    f"フィールドを確かめた版は {cd['pinned']}。旗の改名は起動で落ちて見えるが、設定のキーと包みのフィールドの改名は"
                    f"黙って効かなくなる。{PLUGIN_ROOT / 'README.md'} の「{intake.CLAUDE_CHECK}」の手順で確かめる（手順のコマンドは"
                    f"claude-plugins の clone のルートで打ち、clone の {name} をこの run の版 {ver} にそろえる。費用なし）。clone が無ければ "
-                   f"`python3 {loop} intake --what 'claude の版のずれ'` で記録に残し、init が示す手順で作者へ渡す")
+                   f"`bash {shlex.quote(str(RUN_PYTHON))} {loop} intake --what 'claude の版のずれ'` で記録に残し、init が示す手順で作者へ渡す")
     n = intake_notice()
     if n:
         out.append(n)
@@ -2531,9 +2536,12 @@ def _hook_selfcheck(board, cwd):
         payload = {"hook_event_name": "PostToolUse", "session_id": HOOK_PROBE_ID, "tool_use_id": HOOK_PROBE_ID, "tool_name": "Read",
                    "cwd": str(top), "tool_input": {"file_path": str(fake / "state.json")},
                    "tool_response": {"type": "text", "file": {"filePath": str(fake / "state.json")}}}
+        # TMPDIR を試しの置き場にするのは、Python を選べないときに run-python.sh --once が会話ごとの印を TMPDIR に残すため。
+        # 試しの session_id は毎回同じなので、印が /tmp に残ると 2 回目からの init は訳（Python が無い）を出さずに黙る
         try:
             r = subprocess.run([bash, "-c", entry["command"]], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8",
-                               errors="replace", cwd=str(top), timeout=limit, env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(PLUGIN_ROOT)})
+                               errors="replace", cwd=str(top), timeout=limit,
+                               env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(PLUGIN_ROOT), "TMPDIR": str(top)})
             why = f"終了コード {r.returncode}" + (f"・{r.stderr.strip()[-200:]}" if r.stderr.strip() else "")
         except subprocess.TimeoutExpired:
             why = f"{limit} 秒で終わらない"
@@ -2728,4 +2736,4 @@ def cmd_init(a):
     print(dump({"dir": str(d), "run_id": run_id, "loop": loop, "thickness": th, "thickness_decider": decider, "max_rounds": state["max_rounds"],
                 "validator": validator or ("見つからない（report の前に init --validator で渡すか " + (env_root(g["plugin"]) if g.get("plugin") else "graph の plugin") + "）"),
                 "overview": g.get("overview", ""), **({"notes": notes} if notes else {}),
-                "next": f"python3 {PLUGIN_ROOT / 'scripts' / 'loop.py'} next --dir {d}"}))
+                "next": f"bash {RUN_PYTHON} {PLUGIN_ROOT / 'scripts' / 'loop.py'} next --dir {d}"}))
