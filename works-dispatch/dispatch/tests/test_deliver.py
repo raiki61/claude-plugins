@@ -215,7 +215,6 @@ class Holders(unittest.TestCase):
                          ["「結論」に「要確認」がある。頭書きの [[open]] に移して holder（担当者）を付ける"])
 
     def test_the_role_reads_holders_as_off_true_or_relay_names(self):
-        import tomllib
         from nodes import role
         path = pathlib.Path(tempfile.mkdtemp(), "c.toml")
         path.write_text('[[roles]]\nname = "担当"\nholders = ["社長室"]\n[[roles]]\nname = "相談"\nask_holders = true\n'
@@ -642,7 +641,6 @@ class Flow(unittest.TestCase):
                 self.writes.append(("keys",) + keys)
         line = "再開の知らせです: この会話は落ちて戻った。受付 X"
         # 入力フィールドに残った: Enter を 1 回足し、動き出したら送れた
-        state = {"n": 0}
 
         def busy_after_enter():
             return any(w[0] == "keys" for w in h.writes)

@@ -10,11 +10,13 @@
 - append_line: ロックを取って 1 行足す。前に書いた処理が改行の前で落ちていれば、改行を補ってから足す（切れた行に次の行を
   つなげない。切れた行は、読む側が読めない行として出す）。
 - read_jsonl: 書き終わった行（改行まで）だけを読み、読めない行を数えて返す（黙って飛ばさない）。
+- inside: cwd が置き場かその下か。リンクを辿った実際のパスで比べる（前はノードの 6 か所に写していた）。
 """
 
 import contextlib
 import json
 import os
+import pathlib
 import sys
 import time
 import uuid
@@ -157,3 +159,9 @@ def bad_text(path, bad, what="台帳"):
     more = f"ほか {len(bad) - 1} 行。" if len(bad) > 1 else ""
     return (f"{what} {path} の {first['at']} バイト目の行が読めない（{first['why']}。行の頭: {first['text']}）。{more}"
             "その行を直すか消す")
+
+
+def inside(cwd, path):
+    """cwd が path かその下か。リンクを辿った実際のパスで比べる（~/src がリンクでも見落とさない）。"""
+    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
+    return c == p or p in c.parents

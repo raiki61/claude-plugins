@@ -24,11 +24,11 @@
 """
 
 import os
-import pathlib
 import time
 import tomllib
 import urllib.parse
 
+import filex
 import gitx
 import known_keys
 from nodes import role, start
@@ -41,12 +41,6 @@ SETTINGS_DIR = "companies"  # 設定の置き場の下の、リポジトリの�
 STATES = {"working": "作業中", "blocked": "止まっている", "done": "終わった", "failed": "失敗した", "stopped": "止めた",
           "idle": "待機中", "no_session": "会話なし"}
 STATUS = {"busy": "working", "waiting": "blocked", "idle": "idle"}  # 手前の会話の status → 状態
-
-
-def inside(cwd, path):
-    """cwd が path かその下か（リンクを辿った実際のパスで比べる）。"""
-    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
-    return c == p or p in c.parents
 
 
 def settings_info_path(settings_dir, root):
@@ -210,7 +204,7 @@ def roots(workspaces, panes, common_of, cwds=()):
 
 
 def _deepest(places, cwd):
-    hits = [p for p in places if cwd and inside(cwd, p["path"])]
+    hits = [p for p in places if cwd and filex.inside(cwd, p["path"])]
     return max(hits, key=lambda p: len(os.path.realpath(p["path"])), default=None)
 
 

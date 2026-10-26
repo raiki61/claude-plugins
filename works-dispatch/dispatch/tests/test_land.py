@@ -1211,7 +1211,7 @@ class Queue(LandCase):
         ports = TwoPorts(w, second)
         repo = Repo("o/r", "", w.source, (), None, None)
         events, lock = [], threading.Lock()
-        gate_a, b_started = threading.Event(), threading.Event()
+        gate_a = threading.Event()
         real_refresh, real_advance = land.refresh, land.advance
 
         def note(what):

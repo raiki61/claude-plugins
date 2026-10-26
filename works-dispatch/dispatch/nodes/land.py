@@ -21,6 +21,7 @@ import pathlib
 import re
 import tomllib
 
+import filex
 import known_keys
 from ports import chat
 
@@ -114,15 +115,10 @@ def gate_branch(gate, name, branch):
     return gate.replace("*", part)
 
 
-def _inside(cwd, path):
-    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
-    return c == p or p in c.parents
-
-
 def pane_of(panes, place):
     """部署の窓（herdr のペイン）。部署の作業場の中か、部署の場所の中に居るペインのうち、Claude Code の会話を先に。無ければ None。"""
     mine = [p for p in panes if (place.get("workspace") and p.get("workspace_id") == place["workspace"])
-            or (p.get("cwd") and _inside(p["cwd"], place["path"]))]
+            or (p.get("cwd") and filex.inside(p["cwd"], place["path"]))]
     mine.sort(key=lambda p: p.get("agent") != chat.AGENT)
     return mine[0]["pane_id"] if mine else None
 

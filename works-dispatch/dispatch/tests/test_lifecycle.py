@@ -21,6 +21,7 @@ from .test_launch_turn import CATCHUP, SECOND
 from .test_launch_turn import FakeHerdr as TurnHerdr
 import claudex
 import dispatch
+import filex
 import wiring
 import ghx
 import herdr as real_herdr
@@ -61,8 +62,8 @@ class Decide(unittest.TestCase):
         (real / "feat-1").mkdir()
         link = pathlib.Path(tempfile.mkdtemp()) / "w"
         os.symlink(real, link)
-        self.assertTrue(fresh.inside(str(real / "feat-1" / "sub"), str(link / "feat-1")))
-        self.assertFalse(fresh.inside(str(real / "feat-10"), str(link / "feat-1")))
+        self.assertTrue(filex.inside(str(real / "feat-1" / "sub"), str(link / "feat-1")))
+        self.assertFalse(filex.inside(str(real / "feat-10"), str(link / "feat-1")))
 
     def test_own_pr_without_reviewers_is_held(self):
         self.assertTrue(fresh.own_unreviewed({"role": "implementer"}, {"reviewers": False}))

@@ -68,7 +68,6 @@ import os
 import pathlib
 import re
 import sys
-import tempfile
 import time
 import tomllib
 
@@ -77,6 +76,7 @@ from ports import chat, term  # noqa: E402
 import wiring  # noqa: E402
 from wiring import Ports  # noqa: E402,F401  口の束は wiring が組み立てる（試験と shape_hook は dispatch.Ports で取る）
 import config  # noqa: E402
+import filex  # noqa: E402
 import ghx  # noqa: E402
 import gitx  # noqa: E402
 import installed  # noqa: E402
@@ -140,7 +140,7 @@ def _end_conversation(ports, path):
 def _sessions_in(cfg, ports, path):
     """その場所かその下を作業フォルダにする会話（全アカウント）。読めなければ ClaudeError。"""
     return [s for acc in cfg.accounts for s in ports.list_sessions(acc.config_dir)
-            if s.get("cwd") and fresh.inside(s["cwd"], path)]
+            if s.get("cwd") and filex.inside(s["cwd"], path)]
 
 
 def _cost_note(est, limit_percent):
@@ -536,7 +536,7 @@ def main(argv=None, ports=None):
     keys = sessions.open_keys(sess)
     for p in (my_prs if listing else []):
         path = places.get(p["head"])
-        inside = [x for x in sess if x["cwd"] and path and fresh.inside(x["cwd"], path)]
+        inside = [x for x in sess if x["cwd"] and path and filex.inside(x["cwd"], path)]
         if not inside:
             # 会話が開いていない PR: 前に送った後に動きが無ければ、開き直さない（返事待ちの PR を、持ち主が会話を閉じただけで
             # もう一度レビューしない。持ち主 2026-10-15）。--pr で名指したときはここを通らない
@@ -783,7 +783,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
             continue
         finished = r["state"] in clean.FINISHED
         if r["reason"] == "session" and finished:
-            mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
+            mine = [x for x in sess if x["cwd"] and filex.inside(x["cwd"], r["path"])]
             files = changed(r["path"])
             head = clean.in_pr(r["path"], r["pr_head"], ports.head_sha, ports.is_ancestor)
             local = (not ports.is_clean(r["path"]) or ports.stashed(r["path"], r["branch"]) or not head or files)
@@ -833,7 +833,7 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     だけを閉じる。持ち主が自分で開いた会話と、--pr・--issue で開いた会話と、印を書く前の版の控えの会話には触らず、触らない訳を報告の
     行に書く（_not_listed_why）。limited（whose-turn がその PR の材料を取り切れなかった）なら、自分の番でないという判定が取りこぼしの上に立つので閉じない。返すのは報告の行。"""
     rec = _sent_record(sent.get(_key(repo, r["number"])))
-    mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
+    mine = [x for x in sess if x["cwd"] and filex.inside(x["cwd"], r["path"])]
     if not mine:
         return []
     why = _not_listed_why(rec, mine)
@@ -964,7 +964,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     # 避けて振る（部署の名前に会社の名前を付けない決まりのまま、会社ごとに同じ名前の受け持ちを並べて立てるため）
     alive = [(acc, s) for acc, items in listed.items() for s in items
              if s.get("name") == a.task and s.get("state") not in ("done", "failed", "stopped")]
-    here = [acc for acc, s in alive if s.get("cwd") and any(fresh.inside(s["cwd"], p["path"]) for p in found if p.get("path"))]
+    here = [acc for acc, s in alive if s.get("cwd") and any(filex.inside(s["cwd"], p["path"]) for p in found if p.get("path"))]
     if here:
         print(f"止めた: 「{a.task}」という名前の会話がこの会社にもう開いている（アカウント {', '.join(sorted(set(here)))}）。"
               "宛先が 1 つに決まらないので、別の名前で頼む")
@@ -1155,7 +1155,7 @@ def _started(ports, config_dir, name, path, pane):
             items = ports.list_sessions(config_dir, include_done=True)
         except chat.Error as e:
             return None, f"起動した後に会話の一覧を読めない（{e}）"
-        mine = [s for s in items if s.get("name") == name and s.get("cwd") and fresh.inside(s["cwd"], path)]
+        mine = [s for s in items if s.get("name") == name and s.get("cwd") and filex.inside(s["cwd"], path)]
         if mine:
             return max(mine, key=lambda s: s.get("startedAt") or 0), None
         try:

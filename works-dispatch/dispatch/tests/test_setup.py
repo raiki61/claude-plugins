@@ -2,8 +2,6 @@
 （config.repo_at・dispatch._department_repo）と、会社の形の下書き（--init-company）。git は偽物（tests/fakegit.py）で回す
 （--land の組 LandGhUser は test_land の World の本物）。"""
 
-import contextlib
-import io
 import os
 import pathlib
 import tempfile

@@ -24,7 +24,7 @@ import limits
 import limits_entry
 import tierx
 import vscode
-from nodes import accounts, clean, cost, fresh, prs
+from nodes import accounts, clean, cost, prs
 from ports import chat, term
 
 # 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）。PR を開く道が使う物。
@@ -469,7 +469,7 @@ class Ports:
             items = self.list_sessions(config_dir)
         except chat.Error:
             return None
-        got = [i.get("status") or i.get("state") for i in items if fresh.inside(i.get("cwd") or "", path)]
+        got = [i.get("status") or i.get("state") for i in items if filex.inside(i.get("cwd") or "", path)]
         return got[0] if len(got) == 1 else None
 
     def now(self):

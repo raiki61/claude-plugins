@@ -7,7 +7,6 @@ import unittest
 
 from . import DISPATCH  # noqa: F401
 import activity  # noqa: E402
-import herdr  # noqa: E402
 import windows  # noqa: E402
 
 

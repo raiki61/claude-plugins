@@ -271,7 +271,7 @@
  },
  "works-dispatch/dispatch/nodes/deliver.py": {
   "rule3": 15,
-  "rule4": 5
+  "rule4": 2
  },
  "works-dispatch/dispatch/nodes/tools.py": {
   "rule4": 1

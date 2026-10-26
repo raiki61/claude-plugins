@@ -1,7 +1,6 @@
 """引き継ぎ（入口の --handover）と保留（--wait <訳> --park）。本社の窓口「段取り」の受け持ちを、同じ会社の部署「社長室」へ移す形で
 回す。git（tests/fakegit.py）・herdr・claude の会話の一覧は偽物。"""
 
-import argparse
 import contextlib
 import json
 import os
@@ -15,7 +14,6 @@ from .test_company import CompanyHerdr
 from .test_dispatch import FakePorts, fake_cfg, gitx_source, run_main
 import filex
 import gitx
-import handover as flow
 import orders
 import role_hook
 from nodes import deliver, handover, ledger, provision, wake

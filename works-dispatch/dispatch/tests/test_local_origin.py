@@ -4,16 +4,14 @@
 
 import os
 import pathlib
-import shutil
 import subprocess
 import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
-from .test_dispatch import FakePorts, gitx_source, make_cfg, quiet_ports, run_main
+from .test_dispatch import FakePorts, make_cfg, quiet_ports, run_main
 from .test_provision import git
 import config
-import dispatch
 import wiring
 import gitx
 import landing

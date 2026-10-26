@@ -54,11 +54,6 @@ from ports import chat, term  # noqa: E402
 FINISHED = ("MERGED", "CLOSED")
 
 
-def _inside(cwd, path):
-    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
-    return c == p or p in c.parents
-
-
 def _same(a, b):
     return os.path.realpath(a or "") == os.path.realpath(b or "")
 
@@ -115,7 +110,7 @@ def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha, so
         row.update(number=pr["number"], state=pr["state"], pr_head=pr.get("head_sha"))
         if pr["state"] not in FINISHED:
             row["reason"] = "pr_open"
-        elif any(_inside(c, path) for c in open_cwds if c):
+        elif any(filex.inside(c, path) for c in open_cwds if c):
             row["reason"] = "session"
         elif not is_clean(path):
             row["reason"] = "dirty"

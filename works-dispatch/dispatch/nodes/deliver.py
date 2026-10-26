@@ -23,6 +23,7 @@
   orders.stop_after が持つ。
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -53,11 +54,6 @@ STOP_LIMIT = 3                    # 同じ会話・同じ頼みで Stop フッ�
 
 class DeliverError(Exception):
     """宛先・頼み元・受付箱が決まらない。訳を 1 つの文で持つ。"""
-
-
-def inside(cwd, path):
-    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
-    return c == p or p in c.parents
 
 
 # ---- 宛先 ----
@@ -835,10 +831,7 @@ def send(pane, line, h, pause=None):
             except h.Error:
                 break
             if chat.left_in_field(tail[-8:], head):
-                try:
-                    h.send_keys(pane, "enter")
-                except h.Error:
-                    pass
+                press_enter(h, pane)
                 return "sent", "入力フィールドに残っていたので Enter を足した"
     return "sent", None
 
@@ -885,10 +878,7 @@ def send_confirmed(pane, line, h, pause, busy):
                 continue
             if head in (chat.input_box(screen) or ""):
                 if not entered:
-                    try:
-                        h.send_keys(pane, "enter")
-                    except h.Error:
-                        pass
+                    press_enter(h, pane)
                     entered, detail = True, "入力フィールドに残っていたので Enter を足した"
             elif chat.above_box(screen).count(head) > seen:
                 return "sent", detail   # 入力フィールドから出て、入力フィールドより上に新しく載った（会話に届いた）
@@ -925,10 +915,7 @@ def clear_talk(pane, h, pause, cleared, left=False):
         except h.Error:
             continue
         if CLEAR in box and not entered:
-            try:
-                h.send_keys(pane, "enter")
-            except h.Error:
-                pass
+            press_enter(h, pane)
             entered = True
     return "unconfirmed", f"{CLEAR} を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
@@ -985,12 +972,16 @@ def reload_talk(pane, h, pause):
         if chat.RELOAD not in box:
             return "sent", None
         if not entered:
-            try:
-                h.send_keys(pane, "enter")
-            except h.Error:
-                pass   # Enter は足しの手。届かなければ入力フィールドに残ったままなので、見直しの末に failed を返す
+            press_enter(h, pane)
             entered = True
     return "failed", f"{chat.RELOAD} を打ったが、入力フィールドから出たのを見られなかった"
+
+
+def press_enter(h, pane):
+    """入力フィールドに残った文に Enter を足す。Enter は足しの手なので、herdr の誤りは捨てる（届かなければ文は入力フィールドに
+    残ったままになり、見直す呼び元はその末に failed か unconfirmed を返す）。"""
+    with contextlib.suppress(h.Error):
+        h.send_keys(pane, "enter")
 
 
 # 前の会話を終えるコマンドと、シェルに戻るのを見る回数（1 回ごとに pause）

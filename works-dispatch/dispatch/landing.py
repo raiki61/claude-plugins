@@ -104,7 +104,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
 
 
 def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, dry_run, keep_removal, after, hold):
-    g, out = ports.git, []
+    g = ports.git
     try:
         found = ports.places(repo)
     except term.Error as e:

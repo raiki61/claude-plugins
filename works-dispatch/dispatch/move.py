@@ -67,6 +67,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from ports import chat, term  # noqa: E402
 import config  # noqa: E402
+import filex  # noqa: E402
 import gitx  # noqa: E402
 import orders  # noqa: E402
 import role_hook  # noqa: E402
@@ -412,7 +413,7 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
         provision.mark(dept["path"], company["root"], {wake.MOVE_TO: chosen}, ports.git)
         said += (f"。次の区切り（毎回クリアする部署は次の頼みを渡す前、ほかは" + ("頼みを納品した後に " if chosen == old else "")
                  + f"その会話で --rest を打ったターンの終わり）で{'起動し直す' if chosen == old else '移す'}よう印した（属性 company.{wake.MOVE_TO}）")
-    if rc == NOT_NOW and not (a.if_changed or a.if_limited) and cwd and not deliver.inside(cwd, dept["path"]):
+    if rc == NOT_NOW and not (a.if_changed or a.if_limited) and cwd and not filex.inside(cwd, dept["path"]):
         told = _tell(inbox, company["name"], dept, old, chosen, said, ports)
     elif rc == NOT_NOW and not a.account:
         said += INSIDE

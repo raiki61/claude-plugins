@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- コードの写しをまとめ、使われていない名前を消した（works-dispatch の動きは変わらない）。「cwd が置き場かその下か」を見る関数は、ノードの 6 か所（clean・assign・land・fresh・tree・deliver）にあった写しを `dispatch/filex.py` の `inside` の 1 つにした。`nodes/deliver.py` で、入力フィールドに残った文に Enter を足し、herdr の誤りを捨てる 4 か所は、注の付いた 1 つの関数 `press_enter` にした。使われていない import と代入を、`dispatch.py`・`nodes/cost.py`・`landing.py` と試験から消した。
+
 ## [0.126.7] - 2026-10-26
 
 ### Fixed

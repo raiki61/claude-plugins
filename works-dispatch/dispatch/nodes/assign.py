@@ -25,13 +25,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+import filex  # noqa: E402
 import jsonio  # noqa: E402
-
-
-def _inside(cwd, path):
-    """cwd が path かその下か。リンクを辿った実際のパスで比べる（clean と同じ。~/src がリンクでも見落とさない）。"""
-    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
-    return c == p or p in c.parents
 
 
 WINDOWS = ("seven_day", "five_hour")
@@ -74,7 +69,7 @@ def plan(repo, prs, open_keys, open_cwds, accounts, limit_percent=95, cost=None,
         path = places.get(p["head"]) if p.get("head") else None
         row = {"number": p["number"], "kind": p.get("kind", "pr"), "title": p["title"], "head": p.get("head"),
                "url": p.get("url"), "fork": bool(p.get("fork")), "outcome": "assigned", "account": None, "path": path}
-        if (repo.repo, p.get("head")) in open_keys or (path and any(_inside(c, path) for c in open_cwds if c)):
+        if (repo.repo, p.get("head")) in open_keys or (path and any(filex.inside(c, path) for c in open_cwds if c)):
             row["outcome"] = "already_open"
         rows.append(row)
     to_open = [r for r in rows if r["outcome"] == "assigned"]

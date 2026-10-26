@@ -194,7 +194,6 @@ class Task(unittest.TestCase):
         self.assertIn("default_role", out)
 
     def test_branch_on_origin_is_made_from_origin_not_the_default_branch(self):
-        src = gitx_source(self.cfg)
         self.g.origin["task/old"] = self.g.origin["main"]
         sha = self.g.push_origin("task/old", {}, "theirs")
         ports = self.ports()
@@ -203,7 +202,6 @@ class Task(unittest.TestCase):
         self.assertEqual(self.g.head_sha(self.place(ports, "task/old")), sha)
 
     def test_shape_changed_on_origin_is_fetched_before_the_role_is_read(self):
-        src = gitx_source(self.cfg)
         sha = push_shape(self.g, SHAPE)
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役")
@@ -217,7 +215,6 @@ class Task(unittest.TestCase):
         self.assertEqual(json.loads(launched), {"model": "haiku", "effort": None})
 
     def test_dry_run_reads_the_shape_without_fetching(self):
-        src = gitx_source(self.cfg)
         before = self.g.tracking["main"]
         push_shape(self.g, SHAPE)
         rc, out = self.run_task(self.ports(), "--dry-run")
@@ -243,7 +240,6 @@ class Task(unittest.TestCase):
         self.assertIn(f"git -C {src} remote set-head origin --auto", out)
 
     def test_existing_place_is_opened_again_and_not_moved(self):
-        src = gitx_source(self.cfg)
         elsewhere = str(pathlib.Path(self.root).parent / "hand-made")
         self.g.add_worktree(elsewhere, "task/fix", "origin/main")
         ports = self.ports()
@@ -486,7 +482,6 @@ class Task(unittest.TestCase):
         self.assertEqual(ports.term.writes, [])
 
     def test_a_conversation_open_in_the_place_is_already_open(self):
-        src = gitx_source(self.cfg)
         elsewhere = str(pathlib.Path(self.root).parent / "hand-made")
         self.g.add_worktree(elsewhere, "task/fix", "origin/main")
         ports = self.ports({f"{pathlib.Path(self.cfg).parent}/c1": [{"sessionId": "s1", "name": "別", "cwd": elsewhere}]})
