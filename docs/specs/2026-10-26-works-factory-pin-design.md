@@ -14,13 +14,13 @@ works-factory プラグインの殻（`works-factory/bin/works-factory`）は、
 1. claude-plugins の main に誰かが `--land` で入れると、works-dispatch が `[[land.after]]` の並びで、機械だけの役（会話を立てずにコマンドだけを回す役。works-dispatch の機械窓口）「工場の版の見張り」のツール `python3 scripts/works-factory-pin.py` を呼ぶ。手では `dispatch.py --call claude-plugins/工場の版の見張り works-factory-pin` で呼べる。
 2. ツールは、まず自分が前に回した頼みが開いていないかを受付箱で見る。開いていれば 0 で黙る。
 3. 次に、PIN の後の工場の main の commit を新しい順に見て、check の名 `tests`（工場の CI で、4 つに分けた試験の結果を 1 つにまとめる job）が緑の最初の物を上げ先にする。無ければ 0 で黙る。
-4. 上げ先が在れば、前の PIN と上げ先の 2 つの木を比べ、スキルに効く変更を照合する（2.4）。上げ先・取り込む PR（main に入った順）・照合の結果と手順を出して 1 で終わる。works-dispatch がその出力の末尾 20 行を添えた頼みを作業に回し、作業の部署が立つ。
+4. 上げ先が在れば、前の PIN と上げ先の 2 つの木を比べ、スキルに効く変更を照合する（3.4）。上げ先・取り込む PR（main に入った順）・照合の結果と手順を出して 1 で終わる。works-dispatch がその出力の末尾 20 行を添えた頼みを作業に回し、作業の部署が立つ。
 5. 作業の部署は `python3 scripts/works-factory-pin.py --write <上げ先の sha>` で PIN と `works-factory/CHANGELOG.md` の `## [Unreleased]` を書く。照合で当たりが在れば、スキル（`works-factory/skills/works-factory` の SKILL.md と references）を工場の PR と README に合わせて直し、CHANGELOG に利用者に効く違いを書き足す。
 6. 作業の部署が `--land` で入れる。版は `--land` が上げ、配布は `--land` の後の合図の spread-plugins がする。
 
 同じ上げ先を何度も頼まない: 知らせた上げ先と時刻を、代表の clone の git の共通のディレクトリの `works-factory-pin.json` に覚える。回した頼みが開いている間は黙り、閉じた後も同じ上げ先なら黙る（作業の部署が上げずに閉じた上げ先を頼み直さない）。知らせた後に頼みが立っていなければ（works-dispatch が頼みに変えられなかった時）、次の呼びで知らせ直す。工場の main が進んで上げ先が変われば知らせ直す。
 
-失敗のとき: 工場を読めない（gh の失敗・PIN が工場の main の祖先でない・比べの一覧が先の本数と合わない・git の失敗）ときは、理由を出して 1 で終わる。works-dispatch が頼みに変えて作業に回すので、黙って止まらない。その頼みが開いている間は、2 のとおり工場を読む前に黙るので、頼みは積まれない。
+失敗のとき: 工場を読めない（gh の失敗・PIN が工場の main の祖先でない・工場が答えた commit の一覧の数が、PIN から工場の main の頭までの commit の数〔GitHub の比べの答えの ahead_by〕と合わない・git の失敗）ときは、理由を出して 1 で終わる。works-dispatch が頼みに変えて作業に回すので、黙って止まらない。その頼みが開いている間は、2 のとおり工場を読む前に黙るので、頼みは積まれない。
 
 ## 3. 決めた事（案・推し・代償）
 
