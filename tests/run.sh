@@ -8220,10 +8220,59 @@ for name, _tag, body in here + stdin_here:
     if not re.search(r"^\s*_s\.reconfigure\(encoding=", body, re.M):
         bad.append(f"tests/run.sh の {name}: 標準出力の encoding を直す呼びが無い"
                    "（Windows の既定 cp1252 で、日本語を print した時点で落ちる。語がコメントに在るだけでは足りない）")
+
+
+def fixes_encoding(tree):
+    return any(isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "reconfigure"
+               and any(k.arg == "encoding" for k in n.keywords) for n in ast.walk(tree))
+
+
+# **同じ置き場の部品に寄せた呼びも辿る。** そのファイルの ast だけを見ていたとき、検証器 4 本が同じ try/except の
+# reconfigure を隣の record_common.py の 1 つの関数に寄せられず、4 つの写しを持った（2026-10-26、頼み 4bd6d4・4bd18a）。
+# チェックが名乗るのは「encoding を直す呼びが在る」で、「そのファイルに綴られている」ではない。辿るのは 1 段だけ——
+# 起動の口のファイルが、同じ置き場の .py（直に起動したスクリプトの置き場は sys.path に入る。検証器は自分でも足す）から import した関数を呼び、
+# その関数の本体が reconfigure(encoding=…) を直に呼ぶ形。import しただけで呼ばない形と、`from … import *` で取り込んだ形は受けない
+helpers = {}
+def sibling_fixers(path):
+    if path not in helpers:
+        names = set()
+        if path.is_file():
+            try:
+                names = {n.name for n in ast.walk(ast.parse(path.read_text(encoding="utf-8", errors="replace")))
+                         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and fixes_encoding(n)}
+            except SyntaxError:
+                pass
+        helpers[path] = names
+    return helpers[path]
+
+
+def calls_sibling_fixer(p, tree):
+    names, mods = set(), {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and n.module and not n.level:
+            fixers = sibling_fixers(p.parent / f"{n.module}.py")
+            names |= {(a.asname or a.name) for a in n.names if a.name in fixers}
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                fixers = sibling_fixers(p.parent / f"{a.name}.py")
+                if fixers:
+                    mods[a.asname or a.name] = fixers
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Name) and f.id in names:
+            return True
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.attr in mods.get(f.value.id, ()):
+            return True
+    return False
+
+
 # **起動の口を持つ .py も書く側に入れる。** 埋め込みの script だけを見ていたとき、単体の入口（tests/mutate.py）が
 # 日本語を print して windows-latest だけで落ちた（実測: 25d6338 以降の Windows の run すべて）。母数は
 # `if __name__ == "__main__"` を持ち、print か sys.stdout / sys.stderr に触れるファイル。呼びの形は ast で見る
 entries = 0
+via_helper = 0
 for p in files:
     try:
         tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
@@ -8237,9 +8286,13 @@ for p in files:
     if not writes:
         continue
     entries += 1
-    if not any(isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "reconfigure"
-               and any(k.arg == "encoding" for k in n.keywords) for n in ast.walk(tree)):
-        bad.append(f"{p.relative_to(root).as_posix()}: 起動の口を持ち標準出力に書くのに、encoding を直す呼び（reconfigure）が無い")
+    if fixes_encoding(tree):
+        continue
+    if calls_sibling_fixer(p, tree):
+        via_helper += 1
+        continue
+    bad.append(f"{p.relative_to(root).as_posix()}: 起動の口を持ち標準出力に書くのに、encoding を直す呼び（reconfigure）が無い"
+               "（同じ置き場から import して呼ぶ関数の中にも無い）")
 if not entries:
     print("NG 起動の口を持つ .py が 1 本も見つからない（走査が空回り）")
     sys.exit(1)
@@ -8248,7 +8301,7 @@ if bad:
         print(f"NG {b}" if b.startswith("tests/run.sh") or "起動の口" in b else f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
     sys.exit(1)
 print(f"SUB_ENCODING_OK（走査した呼び {calls} 件のうち文字で読む {textual} 件を突合／対象外 {calls - textual} 件: バイトで読むので既定コーデックに依らない"
-      f"・{len(files)} ファイル・書く側 ファイルに書く形 {len(here)} 本・標準入力の形 {len(stdin_here)} 本と起動の口 {entries} 本）")
+      f"・{len(files)} ファイル・書く側 ファイルに書く形 {len(here)} 本・標準入力の形 {len(stdin_here)} 本と起動の口 {entries} 本〔うち同じ置き場の関数で直す {via_helper} 本〕）")
 SUBENC
 expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
     "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"
