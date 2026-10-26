@@ -4,12 +4,15 @@
 使い方: python3 tests/works-factory-pin-case.py <場合>
 - target: PIN の後の工場の main の commit を新しい順に見て、CI（tests）が緑の最初の物を上げ先にする。頭が途中なら前の緑に、緑が無ければ
   0 で黙る。PIN が頭なら 0。知らせる時は 1 で終わり、手順の行を最後に出す。dry_run は覚えない
-- told: 知らせた上げ先は、このツールから回した頼みが開いている間は黙り、閉じた後も同じ上げ先なら黙る。上げ先が進めば知らせ直す
+- told: 知らせた上げ先は、このツールから回した頼みが開いている間は黙り、閉じた後も同じ上げ先なら黙る。知らせた後に頼みが立っていなければ
+  知らせ直す。上げ先が進めば知らせ直す
 - surface: スキルが引いた語・パスのうち前の木に在って上げ先の木に無い物、本線の inputs の出入り、WORKS_FACTORY_* の出入り、README と殻の
   変更を拾う。どれにも当たらない上げは「当たり無し」
 - write: --write が PIN を上げ先に替え、CHANGELOG の [Unreleased] の Changed に PR の番号と差分の URL の 1 行を足す（Changed が無ければ作る）。
   緑でない commit・PIN の後に無い commit の名指しは書かずに止める
-- unreadable: gh が落ちたら黙らず 1 で知らせる。入力が JSON のオブジェクトでなければ 2
+- unreadable: gh が落ちたら黙らず 1 で知らせる。ただし、このツールの頼みが開いていれば gh を読む前に黙る。入力が JSON のオブジェクトでなければ 2
+- page: 比べの一覧をページで繰り、main の先の本数（ahead_by）まで読む
+- edges: CHANGELOG の Changed の空行の無い形・Unreleased が最後のセクションの形、inputs の下げた続きの行と列 0 のコメント
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
 """
 
@@ -59,7 +62,7 @@ def tmp():
 
 
 def git(cwd, *argv):
-    return subprocess.run(["git", "-C", cwd, *argv], check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", cwd, *argv], check=True, capture_output=True, text=True, encoding="utf-8").stdout.strip()
 
 
 def factory():
@@ -129,9 +132,12 @@ class Fake:
         path = argv[2]
         if "/compare/" in path:
             pin = path.split("/compare/")[1].split("...")[0]
+            query = dict(q.split("=") for q in path.split("?")[1].split("&"))
+            size, page = int(query["per_page"]), int(query["page"])
             after = self.shas[self.shas.index(pin) + 1:]
+            rows = after[(page - 1) * size:page * size]
             return 0, json.dumps({"ahead_by": len(after), "behind_by": 0,
-                                  "commits": [{"sha": s, "commit": {"message": self.titles.get(s, "t") + "\n\n本文"}} for s in after]}), ""
+                                  "commits": [{"sha": s, "commit": {"message": self.titles.get(s, "t") + "\n\n本文"}} for s in rows]}), ""
         sha = path.split("/commits/")[1].split("/")[0]
         return 0, json.dumps({"check_runs": self.checks.get(sha, [])}), ""
 
@@ -140,11 +146,11 @@ def ok():
     return [{"name": "tests", "status": "completed", "conclusion": "success"}]
 
 
-def go(fake, root, value="{}", argv=()):
+def go(fake, root, value="{}", argv=(), now=100.0):
     out = io.StringIO()
     old, sys.stdout = sys.stdout, out
     try:
-        code = wp.main(argv=list(argv), stdin=io.StringIO(value), runner=fake, root=root)
+        code = wp.main(argv=list(argv), stdin=io.StringIO(value), runner=fake, root=root, now=now)
     finally:
         sys.stdout = old
     return code, out.getvalue()
@@ -181,9 +187,11 @@ def target():
 
 
 def told():
-    ask = {"kind": "ask", "status": "queued", "id": "20261026-000000-aaaaaa", "title": TITLE}
+    ask = {"kind": "ask", "status": "queued", "id": "20261026-000000-aaaaaa", "title": TITLE, "at": 201.0}
     fake, root, shas, d = world(1, {2: ok()})
     check(go(fake, root)[0] == 1, "最初の上げ先を知らせない")
+    code, out = go(fake, root, now=200.0)
+    check(code == 1, f"知らせた後に頼みが立っていないのに黙った: {code} {out}")
     with open(os.path.join(d, *wp.deliver.INBOX, wp.deliver.LOG), "a", encoding="utf-8") as f:
         f.write(json.dumps(ask, ensure_ascii=False) + "\n")   # works-dispatch が出力を頼みに変えた形
     with open(os.path.join(d, wp.STATE), encoding="utf-8") as f:
@@ -241,11 +249,35 @@ def unreadable():
     fake.broken = True
     code, out = go(fake, root)
     check(code == 1 and "HTTP 502" in out, f"gh の失敗を黙った: {code} {out}")
+    with open(os.path.join(d, *wp.deliver.INBOX, wp.deliver.LOG), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"kind": "ask", "status": "queued", "id": "20261026-000000-bbbbbb", "title": TITLE, "at": 1.0}) + "\n")
+    code, out = go(fake, root)
+    check(code == 0, f"頼みが開いているのに gh の失敗を知らせ直した: {code} {out}")
     fake.broken = False
     for bad in ("[1]", "{"):
         code, out = go(fake, root, bad)
         check(code == 2, f"読めない入力 {bad} を 2 で止めない: {code} {out}")
     print("UNREADABLE_OK")
+
+
+def page():
+    shas = [f"{i:040x}" for i in range(1, 2 * wp.PAGE + 12)]
+    fake = Fake(tmp(), shas, {}, {shas[-1]: ok()})
+    to, commits = wp.target(shas[0], fake)
+    check(to == shas[-1] and len(commits) == len(shas) - 1, f"ページを繰って main の先まで読まない: {to} {len(commits)}")
+    print("PAGE_OK")
+
+
+def edges():
+    for text in ("# x\n\n## [Unreleased]\n### Changed\n- old\n", "# x\n\n## [Unreleased]\n\n### Changed\n\n- old\n\n## [0.1.0]\n"):
+        got = wp.add_changed(text, "- new")
+        check(got.count("### Changed") == 1 and got.index("- new") < got.index("- old"), f"在る Changed の頭に足さない: {got!r}")
+    got = wp.add_changed("# x\n\n## [Unreleased]\n", "- new")
+    check(re.search(r"## \[Unreleased\]\n\n### Changed\n\n- new\n", got) is not None, f"最後のセクションの Unreleased に Changed を作らない: {got!r}")
+    yaml = "inputs:\n# 列 0 の注記\n  a:\n    default: x\n  b: {default: y}\nnodes:\n  c: 1\n"
+    got = wp.inputs(yaml)
+    check(sorted(got) == ["a", "b"] and "default: x" in got["a"], f"下げた続きの行か列 0 の注記で読み違えた: {got}")
+    print("EDGES_OK")
 
 
 def title():
@@ -256,4 +288,5 @@ def title():
 
 
 if __name__ == "__main__":
-    {"target": target, "told": told, "surface": surface, "write": write, "unreadable": unreadable, "title": title}[sys.argv[1]]()
+    {"target": target, "told": told, "surface": surface, "write": write, "unreadable": unreadable, "page": page, "edges": edges,
+     "title": title}[sys.argv[1]]()

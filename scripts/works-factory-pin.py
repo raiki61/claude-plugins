@@ -32,6 +32,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -52,6 +53,7 @@ INPUT_FILES = ("workflows/line/works-factory-line.yaml", "workflows/chain/works-
 FACE_FILES = ("README.md", "bin/works-factory", "bin/apply")
 ENV = re.compile(r"WORKS_FACTORY_[A-Z0-9_]+")
 SHA = re.compile(r"[0-9a-f]{40}")
+PAGE = 100   # 比べ（compare）の commit の一覧を 1 回に引く数（GitHub の per_page の上限）。既定の 30 では、31 本より先の main を読み切れない
 
 
 def run(argv, cwd=None):
@@ -84,13 +86,21 @@ def green(sha, runner):
 
 def target(pin, runner):
     """(上げ先の sha, PIN の後の工場の main の commit の並び〔古い順。1 件は (sha, 題)〕)。上げ先が無ければ sha は None。"""
-    got = gh_json(f"repos/{REPO}/compare/{pin}...main", runner)
-    if got.get("behind_by"):
-        raise RuntimeError(f"PIN {pin[:8]} が工場の main の祖先でない（main が {got['behind_by']} 本後ろ。force push か PIN の誤り）")
-    commits = [(c["sha"], (c.get("commit", {}).get("message") or "").splitlines()[0] if c.get("commit") else "")
-               for c in got.get("commits") or []]
-    if len(commits) != got.get("ahead_by", len(commits)):
-        raise RuntimeError(f"比べの一覧が {len(commits)} 本で、main の先の本数 {got.get('ahead_by')} と合わない（一覧の上限を超えた）")
+    commits, page = [], 1
+    while True:
+        got = gh_json(f"repos/{REPO}/compare/{pin}...main?per_page={PAGE}&page={page}", runner)
+        if got.get("behind_by"):
+            raise RuntimeError(f"PIN {pin[:8]} が工場の main の祖先でない（main が {got['behind_by']} 本後ろ。force push か PIN の誤り）")
+        if not isinstance(got.get("ahead_by"), int):
+            raise RuntimeError("比べの答えに main の先の本数（ahead_by）が無い")
+        rows = got.get("commits") or []
+        commits += [(c["sha"], ((c.get("commit") or {}).get("message") or "").splitlines()[:1] or [""]) for c in rows]
+        if len(commits) >= got["ahead_by"] or not rows:
+            break
+        page += 1
+    commits = [(sha, title[0]) for sha, title in commits]
+    if len(commits) != got["ahead_by"]:
+        raise RuntimeError(f"比べの一覧が {len(commits)} 本で、main の先の本数 {got['ahead_by']} と合わない")
     for sha, _ in reversed(commits):
         if green(sha, runner):
             return sha, commits
@@ -135,23 +145,33 @@ def has_path(cache, sha, path, runner):
     return runner(["git", "-C", cache, "cat-file", "-e", f"{sha}:{path}"])[0] == 0
 
 
+CODE_DIRS = ("bin", "lib", "workflows")   # 語の消えを探す所。docs・CHANGELOG・README は前の名前を移しの説明に残すので見ない
+
+
 def has_text(cache, sha, text, runner):
-    return runner(["git", "-C", cache, "grep", "-q", "-F", "-e", text, sha])[0] == 0
+    code, _, err = runner(["git", "-C", cache, "grep", "-q", "-F", "-e", text, sha, "--", *CODE_DIRS])
+    if code not in (0, 1):
+        raise RuntimeError(f"工場の木 {sha[:8]} を探せない（git grep が {code} で終わった）: {err.strip()[-300:]}")
+    return code == 0
 
 
 def inputs(yaml_text):
-    """頭の inputs: の下の 1 段下げの行を、名前から行への辞書に。"""
-    found, inside = {}, False
+    """頭の inputs: の下の項目を、名前からその項目の行（下げの深い続きの行も含む）への辞書に。"""
+    found, inside, name = {}, False, None
     for line in (yaml_text or "").splitlines():
         if line.startswith("inputs:"):
             inside = True
             continue
-        if inside:
-            if line and not line.startswith(" "):
-                break
-            m = re.match(r"  ([A-Za-z_][\w-]*):", line)
-            if m:
-                found[m.group(1)] = line
+        if not inside or line.startswith("#") or not line.strip():
+            continue
+        if not line.startswith(" "):
+            break
+        m = re.match(r"  ([A-Za-z_][\w-]*):", line)
+        if m:
+            name = m.group(1)
+            found[name] = line
+        elif name and line.startswith("   "):
+            found[name] += "\n" + line
     return found
 
 
@@ -187,8 +207,10 @@ def surface(old, new, cache, runner, root=ROOT):
             lines.append(f"{f} の inputs の変更（+ 足した・- 消した・~ 中身を変えた）: " + " ".join(moved))
     envs = {}
     for sha in (old, new):
-        code, out, _ = runner(["git", "-C", cache, "grep", "-h", "-o", "-E", ENV.pattern, sha, "--", "bin", "lib"])
-        envs[sha] = set(ENV.findall(out)) if code in (0, 1) else set()
+        code, out, err = runner(["git", "-C", cache, "grep", "-h", "-o", "-E", ENV.pattern, sha, "--", "bin", "lib"])
+        if code not in (0, 1):
+            raise RuntimeError(f"工場の木 {sha[:8]} の環境変数を探せない（git grep が {code} で終わった）: {err.strip()[-300:]}")
+        envs[sha] = set(ENV.findall(out))
     moved = [f"+{k}" for k in sorted(envs[new] - envs[old])] + [f"-{k}" for k in sorted(envs[old] - envs[new])]
     if moved:
         lines.append("工場が読む環境変数の変更: " + " ".join(moved))
@@ -208,12 +230,14 @@ def common_dir(runner, root=ROOT):
 
 
 def mine(inbox):
-    """このツールから回した頼みのうち、閉じていない物が在るか。頼みの題は works-dispatch が「ツール <役>/<name> が片づけられなかった仕事」で
-    付ける（calls.hand_over。形が変わったら tests/works-factory-pin-case.py の title が赤になる）。"""
+    """このツールから回した頼みの (閉じていない物が在るか, 一番新しい頼みの時刻〔Unix 時刻。無ければ None〕)。頼みの題は works-dispatch が
+    「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/works-factory-pin-case.py の title が赤になる）。"""
     marker = f"/{TOOL} "
     rows = deliver.records(inbox)
-    ids = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")}
-    return any(r["id"] in ids for r in deliver.open_asks(rows))
+    asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")]
+    ids = {r["id"] for r in asks}
+    at = [r["at"] for r in asks if isinstance(r.get("at"), (int, float))]
+    return any(r["id"] in ids for r in deliver.open_asks(rows)), (max(at) if at else None)
 
 
 def load_state(path):
@@ -227,10 +251,10 @@ def load_state(path):
     return got if isinstance(got, dict) else {}
 
 
-def save_state(path, sha):
+def save_state(path, sha, at):
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"told": sha}, f)
+        json.dump({"told": sha, "at": at}, f)
     os.replace(tmp, path)
 
 
@@ -238,7 +262,7 @@ def url_of():
     return os.environ.get("WORKS_FACTORY_PLUGIN_REPO") or f"https://github.com/{REPO}.git"
 
 
-def watch(stdin, runner, root):
+def watch(stdin, runner, root, now):
     raw = stdin.read().strip() or "{}"
     try:
         value = json.loads(raw)
@@ -250,19 +274,23 @@ def watch(stdin, runner, root):
         print("止めた: 入力は JSON のオブジェクトにする")
         return 2
     try:
+        cdir = common_dir(runner, root)
+        # 開いた頼みを先に見る（工場を読めない失敗も頼みに変わるので、読む前に見ないと、失敗が続く間 main に入れるたびに頼みが積まれる）
+        still_open, asked_at = mine(deliver.inbox_of(cdir))
+        if still_open:
+            print("このツールから回した頼みが開いているので黙る")
+            return 0
+        state_path = os.path.join(cdir, STATE)
+        state = load_state(state_path)
         pin = read_pin(root)
         to, commits = target(pin, runner)
         if to is None:
             print(f"上げる物は無い（PIN {pin[:8]} の後の工場の main の commit {len(commits)} 本に、CI〔{CHECK}〕が緑の物が無い）"
                   if commits else f"上げる物は無い（PIN {pin[:8]} が工場の main の頭）")
             return 0
-        cdir = common_dir(runner, root)
-        state_path = os.path.join(cdir, STATE)
-        told = load_state(state_path).get("told")
-        if mine(deliver.inbox_of(cdir)):
-            print(f"上げる物は在る（{to[:8]}）が、このツールから回した頼みが開いているので黙る")
-            return 0
-        if told == to:
+        # 同じ上げ先で黙るのは、知らせた後に頼みが立って閉じた時だけ（頼みが立たなかった知らせは知らせ直す）
+        told_at = state.get("at")
+        if state.get("told") == to and asked_at is not None and isinstance(told_at, (int, float)) and asked_at >= told_at:
             print(f"上げる物は在る（{to[:8]}）が、前に知らせて頼みが閉じた上げ先と同じなので黙る（作業の部署が上げずに閉じた。工場の main が進めば知らせ直す）")
             return 0
         cache = os.path.join(cdir, SOURCE)
@@ -278,14 +306,14 @@ def watch(stdin, runner, root):
     print(f"差分: https://github.com/{REPO}/compare/{pin[:12]}...{to[:12]}")
     print("取り込む PR: " + ("・".join(f"#{n}" for n in numbers) if numbers else "（題から番号を拾えなかった）"))
     print("スキルに効く変更の照合: " + ("当たり無し" if not face else f"{len(face)} 件"))
-    print("\n".join(f"- {x[:300]}" for x in face))
+    print("\n".join(f"- {x[:300]}" for x in face) + ("\n（照合の行は 300 字で切った。全文は --write の出力）" if any(len(x) > 300 for x in face) else ""))
     # 手順の行は最後に出す（works-dispatch が頼みに載せるのは出力の末尾の行なので）
     print(f"手順: 作業場で python3 scripts/works-factory-pin.py --write {to} を打つ（PIN と CHANGELOG の [Unreleased] を書き、照合の結果の全部を出す）。"
           + ("照合で当たりが在るので、スキル（works-factory/skills/works-factory の SKILL.md と references）を工場の該当の PR と README に"
              "合わせて直し、CHANGELOG の行に利用者に効く違いを書き足してから --land で入れる。" if face else "照合で当たりが無いので、そのまま --land で入れる。")
           + "版は --land が上げ、配布は --land の後の合図がする")
     if not dry:
-        save_state(state_path, to)
+        save_state(state_path, to, now)
     return 1
 
 
@@ -303,14 +331,14 @@ def add_changed(text, line):
     if at < 0:
         raise RuntimeError("CHANGELOG に ## [Unreleased] の見出しが無い")
     body_from = at + len(head)
-    nxt = text.find("\n## [", body_from)
-    body_to = len(text) if nxt < 0 else nxt + 1
+    nxt = re.compile(r"^## \[", re.M).search(text, body_from)
+    body_to = len(text) if nxt is None else nxt.start()
     body = text[body_from:body_to]
-    m = re.search(r"^### Changed\n\n", body, re.M)
+    m = re.search(r"^### Changed\n\n?", body, re.M)
     if m:
         body = body[:m.end()] + line + "\n" + body[m.end():]
     else:
-        body = "\n### Changed\n\n" + line + "\n" + body
+        body = "\n### Changed\n\n" + line + "\n" + (body if body.strip() else "\n")
     return text[:body_from] + body + text[body_to:]
 
 
@@ -335,8 +363,9 @@ def write(argv, runner, root):
         fetch(cache, url_of(), [pin, to], runner)
         face = surface(pin, to, cache, runner, root)
         log = root / PLUGIN / "CHANGELOG.md"
-        log.write_text(add_changed(log.read_text(encoding="utf-8"), changelog_line(pin, to, prs(commits))), encoding="utf-8")
+        text = add_changed(log.read_text(encoding="utf-8"), changelog_line(pin, to, prs(commits)))   # 書く前に両方を組む（片方だけ書いて止まらない）
         (root / PLUGIN / "PIN").write_text(to + "\n", encoding="utf-8")
+        log.write_text(text, encoding="utf-8")
     except (RuntimeError, OSError) as e:
         print(f"止めた: {e}")
         return 1
@@ -350,14 +379,14 @@ def write(argv, runner, root):
     return 0
 
 
-def main(argv=None, stdin=None, runner=run, root=ROOT):
+def main(argv=None, stdin=None, runner=run, root=ROOT, now=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--write"]:
         return write(argv[1:], runner, root)
     if argv:
         print(f"止めた: 知らない引数 {' '.join(argv)}")
         return 2
-    return watch(sys.stdin if stdin is None else stdin, runner, root)
+    return watch(sys.stdin if stdin is None else stdin, runner, root, time.time() if now is None else now)
 
 
 if __name__ == "__main__":

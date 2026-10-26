@@ -373,7 +373,7 @@ machine = true
 [[roles.tools]]
 name = "works-factory-pin"
 title = "工場の版の上げ先を見る"
-description = "works-factory プラグインの工場の固定 commit（works-factory/PIN）の後に、raiki61/works-factory の main で CI（check の名 tests）が緑の commit が在るかを見る。在れば、上げ先・取り込む PR・スキルに効く変更の照合（スキルが引いた語・パスの消え、本線と周の鎖の入力の出入り、WORKS_FACTORY_* の出入り、工場の README と殻の変更）と、上げる手順（python3 scripts/works-factory-pin.py --write）を出して 1 で終わり、作業に回る。知らせた上げ先は覚え、回した頼みが開いている間と、閉じた後の同じ上げ先では知らせ直さない"
+description = "works-factory プラグインの工場の固定 commit（works-factory/PIN）の後に、raiki61/works-factory の main で CI（check の名 tests）が緑の commit が在るかを見る。在れば、上げ先・取り込む PR・スキルに効く変更の照合（スキルが引いた語・パスの消え、本線と周の鎖の入力の出入り、WORKS_FACTORY_* の出入り、工場の README と殻の変更）と、上げる手順（python3 scripts/works-factory-pin.py --write <上げ先の sha>）を出して 1 で終わり、作業に回る。知らせた上げ先は覚え、回した頼みが開いている間（工場を読む前に見る）と、閉じた後の同じ上げ先では知らせ直さない"
 inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、知らせる物を出すだけで覚えない" } }, additionalProperties = false }
 command = "python3 scripts/works-factory-pin.py"
 fallback_role = "作業"
