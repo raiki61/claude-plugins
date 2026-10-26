@@ -2813,25 +2813,31 @@ def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIME
         except ReaderAuth as exc:
             if redirected and i + 1 < len(envs):
                 continue
-            if note == "none":
-                READER_NOTICES.add(no_auth_note(env))
+            _no_login(note, env)
             raise ReaderAuth("%s。%s" % (REDIRECT_NOTE, exc)) if redirected else exc
         except RuntimeError:   # 起動の失敗と答えの形の違い(ReaderShape)。ログインが無いときの終わり方はこちらにも出うる
-            if note == "none":
-                READER_NOTICES.add(no_auth_note(env))
+            _no_login(note, env)
             raise
         return got
 
 
+def _no_login(note, env):
+    """読み手が読めなかった回に、ログインが無いことが訳なら、ログインへ導く 1 行を知らせに足す。当てるのは、認証を足す段が無く
+    (claude_auth.auth_env の段 none。macOS の外で、フックの環境に鍵が無い)、ログインの保存先のファイルも無い回だけ。ファイルが
+    在る人の失敗(使用枠・切れた認証・答えの形)には足さない。"""
+    if note == "none" and not os.path.exists(os.path.join(claude_auth.config_dir(env), ".credentials.json")):
+        READER_NOTICES.add(no_auth_note(env))
+
+
 def no_auth_note(env):
-    """認証を足す段が無かった回(claude_auth.auth_env の段 none。macOS の外で、フックの環境に鍵が無い)に読み手が読めなかったときの、
-    人に見せる 1 行。鍵を CLAUDE_CODE_OAUTH_TOKEN でだけ渡す人は、Claude Code がフックにその値を渡さず(2.1.310 で実測。
+    """ログインが無いので読み手が読めなかったときの、人に見せる 1 行(_no_login)。鍵を CLAUDE_CODE_OAUTH_TOKEN でだけ渡す人は、Claude Code がフックにその値を渡さず(2.1.310 で実測。
     docs/trials/2026-10-26-cross-os.md)、読み手の子の claude が「Not logged in」で終わる。救う口はフックの側に無い(読み手は
     --setting-sources "" で起動するので、settings.json の env に置いた鍵も読まない)ので、ログインの保存先へ導く。"""
     return ("coldread の読み手は、ログインの認証が無いので読めなかった(フックの環境に鍵が無く、%s/.credentials.json も"
-            "使えなかった)。鍵を環境変数 CLAUDE_CODE_OAUTH_TOKEN でだけ渡していると、Claude Code はフックにその値を渡さない。"
-            "`claude auth login` でログインして、このファイルを作る(gates の README の「When the reader is not logged in」)。"
-            "持ち主に 1 行で伝える。" % claude_auth.config_dir(env).replace("\\", "/"))
+            "無い)。鍵を環境変数 CLAUDE_CODE_OAUTH_TOKEN でだけ渡していると、Claude Code はフックにその値を渡さない"
+            "(`claude setup-token` で作り直しても直らない)。`claude auth login` でログインして、このファイルを作る"
+            "(gates の README の「When the reader is not logged in」)。持ち主に 1 行で伝える。"
+            % claude_auth.config_dir(env).replace("\\", "/"))
 
 
 def _reader_out(proc, note):
@@ -5233,8 +5239,8 @@ def branch_check(argv):
     if down:
         print("読めなかった文書(読み手を起動できない。手で読ませるなら %s <パス>): %s"
               % (read_cmd(), "・".join(down)))
-        for note in sorted(READER_NOTICES):
-            print(note)
+    for note in sorted(READER_NOTICES):
+        print(note)
     if unread:
         print("開けなかった文書(UTF-8 の文書として開けない。文書でなければ拡張子を変える): %s" % "・".join(unread))
     print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件%s・推測で埋めた箇所 %d 件%s。%s"

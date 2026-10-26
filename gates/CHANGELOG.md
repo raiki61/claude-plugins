@@ -8,7 +8,7 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ### Fixed
 
-- Linux と Windows で、Claude Code の鍵を環境変数 `CLAUDE_CODE_OAUTH_TOKEN` でだけ渡し、ログインの保存先（`~/.claude/.credentials.json`）が無い人は、coldread の読み手が起動しなかった。Claude Code 2.1.310 はフックにその値を渡さず（2026-10-26 に Linux と Windows で実測）、読み手の `claude -p` が「Not logged in · Please run /login」で終わり、gh の投稿は全部「検査できていない」で止まり、ターンの終わりは毎回「読み手が読めなかった文書」を知らせた。フックの側で鍵を拾う口は無い（読み手は settings を読まずに起動するので、`settings.json` の `env` に置いた鍵も届かない）ので、この時の手を README の「When the reader is not logged in」に書き、止める時の知らせ（gh の投稿を止める訳・ターンの終わりの知らせ・`branch-check`・手で打つ `read`）に、`claude auth login` でログインしてこのファイルを作る手を 1 行足す。足すのは macOS の外で、フックの環境に鍵が無かった回だけ。
+- Linux と Windows で、Claude Code の鍵を環境変数 `CLAUDE_CODE_OAUTH_TOKEN` でだけ渡し、ログインの保存先（`~/.claude/.credentials.json`）が無い人は、coldread の読み手が起動しなかった。Claude Code 2.1.310 はフックにその値を渡さず（2026-10-26 に Linux と Windows で実測）、読み手の `claude -p` が「Not logged in · Please run /login」で終わり、gh の投稿は全部「検査できていない」で止まり、ターンの終わりは毎回「読み手が読めなかった文書」を知らせた。フックの側で鍵を拾う口は無い（読み手は settings を読まずに起動するので、`settings.json` の `env` に置いた鍵も届かない）ので、この時の手を README の「When the reader is not logged in」に書き、止める時の知らせ（gh の投稿を止める訳・ターンの終わりの知らせ・`branch-check`・手で打つ `read`）に、`claude auth login` でログインしてこのファイルを作る手を 1 行足す。足すのは macOS の外で、フックの環境に鍵が無く、そのファイルも無い回だけ（ファイルの在る人の、使用枠や切れた認証の失敗には足さない）。
 - 知らせの文が打たせる手の読み直しのコマンド（待ちの一覧が残っている知らせ・ターンの終わりの「読み手が読めなかった文書」・`branch-check` の「読めなかった文書」）が素の `python3 <パス>/coldread-gate.py read` だった。Windows で python.org から Python を入れた機械では、`python3` が Microsoft Store へ誘う代わりの物に当たり、終了の値 49 で終わる。SKILL.md と同じ `bash <パス>/run-python.sh <パス>/coldread-gate.py read <パス>` にそろえた。README の手で打つ `read`・`prompt`・`branch-check` の形も同じにした。
 
 ## [0.44.0] - 2026-10-26

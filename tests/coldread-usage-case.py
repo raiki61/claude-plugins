@@ -222,16 +222,20 @@ class UsageTests(unittest.TestCase):
             self.assertEqual(len(g.READER_NOTICES), 1)
             note = next(iter(g.READER_NOTICES))
             self.assertIn("claude auth login", note)
+            self.assertIn("claude setup-token", note)
             self.assertIn(cfg.replace("\\", "/") + "/.credentials.json", note)
             self.assertIn(note, g.notices())
-        # 認証を足せた回の失敗(切れた鍵・使用枠)には足さない
-        g.READER_NOTICES.clear()
-        with patch.object(g, "reader_envs", return_value=([({"CLAUDE_CONFIG_DIR": cfg}, "inherited(ANTHROPIC_API_KEY)")], False)), \
-             patch.object(g.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"Not logged in", b"")), \
-             patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(g.ReaderAuth):
-                g.run_reader("秘密", {})
-        self.assertEqual(g.READER_NOTICES, set())
+        # 認証を足せた回と、ログインの保存先のファイルが在る回の失敗(切れた鍵・使用枠)には足さない
+        os.makedirs(cfg)
+        Path(cfg, ".credentials.json").write_text("{}")
+        for note in ("inherited(ANTHROPIC_API_KEY)", "none"):
+            g.READER_NOTICES.clear()
+            with patch.object(g, "reader_envs", return_value=([({"CLAUDE_CONFIG_DIR": cfg}, note)], False)), \
+                 patch.object(g.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"Claude AI usage limit reached", b"")), \
+                 patch.dict(os.environ, {}, clear=True):
+                with self.assertRaises(g.ReaderAuth):
+                    g.run_reader("秘密", {})
+            self.assertEqual(g.READER_NOTICES, set(), note)
 
     def test_read_command_goes_through_run_python(self):
         # 知らせの文が打たせる形。素の python3 は Windows で Microsoft Store へ誘う代わりの物に当たる(docs/standards/cross-os.md の決まり 1)
