@@ -52,7 +52,7 @@ A marketplace can point at **a GitHub repository, any git URL, or a local direct
 /plugin install gates@raiki61            # other plugins take the same form (name@raiki61)
 ```
 
-A `marketplace` is where tools are distributed from, and a `plugin` is a bundle of tools you install from it. **No setup is needed**. You can use it right after installing. If you install from your shell instead of a session (`claude plugin install`), read [Dependencies and how you obtain them](#dependencies-and-how-you-obtain-them) first — on a new machine one more `marketplace add` is needed.
+A `marketplace` is where tools are distributed from, and a `plugin` is a bundle of tools you install from it. Here `raiki61/claude-plugins` is the GitHub repository that hosts convergence-loops and the other plugins, and `raiki61` is the marketplace name it registers. **No setup is needed**. You can use convergence-loops right after installing. If you install from your shell instead of a session (`claude plugin install`), read [Dependencies and how you obtain them](#dependencies-and-how-you-obtain-them) first — on a new machine one more `marketplace add`, for the official marketplace `claude-plugins-official`, is needed.
 
 To update, run the following 2 lines. You do not need to restart the session (`/reload-plugins` reloads and applies it):
 
@@ -75,13 +75,13 @@ To update, run the following 2 lines. You do not need to restart the session (`/
 
 `/plugin marketplace add` creates this field but does not add `autoUpdate`. Whether to turn it on is up to the person installing.
 
-**However, there is one condition on how you obtain it** — read the next section before choosing how to distribute. The 3 options above are not equal choices.
+**However, there is one condition on how you obtain this plugin's dependency, `pr-review-toolkit`** — read the next section before choosing how to distribute. The 3 marketplace sources above (GitHub, internal git URL, shared folder / local path) are not equal choices.
 
 ## Dependencies and how you obtain them
 
-`/review-loop` uses the official plugin `pr-review-toolkit` for local defect review. This is declared in `dependencies` in `plugin.json`, so **it is installed together when you install this plugin** (it is in the official marketplace `claude-plugins-official`) — **as long as that marketplace is registered on your machine**.
+`/review-loop` (the loop that reviews a code change) uses the official plugin `pr-review-toolkit` for local defect review. This is declared in `dependencies` in `plugin.json`, so **it is installed together when you install this plugin** (it is in the official marketplace `claude-plugins-official`) — **as long as that marketplace is registered on your machine**.
 
-**If you install only from your shell (`claude plugin install`) on a machine where no one has started an interactive Claude Code session yet, register the official marketplace first.** Claude Code registers `claude-plugins-official` the first time you start an interactive session, so on such a machine it is not registered yet ([Install from your shell](https://code.claude.com/docs/en/discover-plugins#install-from-your-shell)). Then `pr-review-toolkit` fails (Claude Code 2.1.310 printed "no marketplace you have added lists it"), this plugin fails to load, and so does graphloops, which depends on it. Run this before installing:
+**If you install only from your shell (`claude plugin install`) on a machine where no one has started an interactive Claude Code session yet, register the official marketplace first.** Claude Code registers `claude-plugins-official` the first time you start an interactive session, so on such a machine it is not registered yet ([Install from your shell](https://code.claude.com/docs/en/discover-plugins#install-from-your-shell)). Then `pr-review-toolkit` fails (Claude Code 2.1.310 printed "no marketplace you have added lists it"), this plugin fails to load, and so does graphloops (another plugin in this repository that runs the same loops in a machine-run engine), which depends on this plugin. Run this before installing:
 
 ```bash
 claude plugin marketplace add anthropics/claude-plugins-official
@@ -99,7 +99,7 @@ claude plugin list
 
 The alternative of running an install command inside `/review-loop` instead of declaring the dependency is not used — when the declaration is unresolved the plugin does not load, so that install command could never be reached; the two cannot coexist.
 
-**This constraint bites in environments that cannot reach `claude-plugins-official` (on GitHub)**. Of the 3 options in the installation section above, **distribution via a shared folder or local path tends to hit this** (the more reason someone has to use it in an air-gapped internal environment, the more likely they hit it). If it cannot be reached, either prepare a route through which users can first register `claude-plugins-official` and run `/plugin install pr-review-toolkit@claude-plugins-official`, or distribute knowing that it cannot go through.
+**This constraint bites in environments that cannot reach `claude-plugins-official` (on GitHub)**. Of the 3 marketplace sources in the installation section above (GitHub, internal git URL, shared folder / local path), **distribution via a shared folder or local path tends to hit this** (the more reason someone has to use it in an air-gapped internal environment, the more likely they hit it). If it cannot be reached, either set things up so that users can first register `claude-plugins-official` and run `/plugin install pr-review-toolkit@claude-plugins-official`, or distribute knowing that it cannot go through.
 
 **It chooses to stop rather than let a review pass with one defect perspective quietly missing.** This is the result of applying to this distribution itself the fail-open check of validation mechanisms (does a check that fails to run let things through as if it passed?) that the bundled `REVIEW.md` 「コード衛生観点」 (code hygiene perspective) requires.
 
