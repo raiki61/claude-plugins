@@ -80,10 +80,13 @@ class Launcher(unittest.TestCase):
                                        env=env)
                     self.assertEqual(p.returncode, 0, p.stderr)
             named.unlink()
-            p = subprocess.run(["sh", str(ENTRY), "--help"], capture_output=True, text=True, encoding="utf-8", env=env)
-            self.assertEqual(p.returncode, 1)
-            self.assertIn("python3.20〜python3.8", p.stderr)
-            self.assertIn("入れた場所を PATH に足す", p.stderr)
+            for name, floor in (("tiers", 8), ("tiers-settings", 8), ("tiers-statusline", 11)):
+                with self.subTest(name):
+                    p = subprocess.run(["sh", str(ENTRY.with_name(name)), "--help"], capture_output=True, text=True, encoding="utf-8",
+                                       env=env)
+                    self.assertEqual(p.returncode, 1)
+                    self.assertIn(f"python3.20〜python3.{floor}", p.stderr)
+                    self.assertIn("入れた場所を PATH に足す", p.stderr)
 
 
 if __name__ == "__main__":

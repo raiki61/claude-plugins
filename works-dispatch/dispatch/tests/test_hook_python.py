@@ -45,6 +45,7 @@ class HookPython(unittest.TestCase):
                                encoding="utf-8", env=env)
             self.assertEqual(p.returncode, 1)
             self.assertIn("Python 99.0 以上", p.stderr)
+            self.assertNotIn("python3.20", p.stderr)   # 3 系でない下限には版の付いた名前を試さない
 
     def test_once_tells_only_the_first_time_in_a_conversation(self):
         # 止まる前のフックはターンごとに走る。選べないときの知らせは、会話ごとに 1 回だけ誤り（終了の値 1）として出す

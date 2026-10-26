@@ -22,8 +22,12 @@ while :; do
   esac
 done
 want="(${min%%.*}, ${min#*.})"
-named='' n=20
-while [ "$n" -ge "${min#*.}" ]; do named="$named python3.$n"; n=$((n - 1)); done
+# 版の付いた名前は 3 系の --min（ドット付き）のときだけ足す（--min 99.0 で python3.N を試しても当たらない）
+named='' tried='' n=20
+case "$min" in
+  3.*) while [ "$n" -ge "${min#*.}" ]; do named="$named python3.$n"; n=$((n - 1)); done
+       [ -n "$named" ] && tried="python3.20〜python3.${min#*.}・" ;;
+esac
 # shellcheck disable=SC2086
 for cand in python3 python $named "py -3"; do
   command -v "${cand%% *}" >/dev/null 2>&1 || continue
@@ -42,5 +46,5 @@ if [ -n "$once" ]; then
   [ -e "$mark" ] && exit 0
   : > "$mark" 2>/dev/null
 fi
-echo "works-dispatch: Python $min 以上が見つからない（python3・python・python3.20〜python3.${min#*.}・py -3 を試した）。Python $min 以上を入れる。入れてあるのに見つからないなら、入れた場所を PATH に足す。Windows で python3 や python が Microsoft Store へ誘うなら、設定 → アプリ → アプリ実行エイリアス で python.exe と python3.exe の「アプリ インストーラー」を切る" >&2
+echo "works-dispatch: Python $min 以上が見つからない（python3・python・${tried}py -3 を試した）。Python $min 以上を入れる。入れてあるのに見つからないなら、入れた場所を PATH に足す。Windows で python3 や python が Microsoft Store へ誘うなら、設定 → アプリ → アプリ実行エイリアス で python.exe と python3.exe の「アプリ インストーラー」を切る" >&2
 exit 1
