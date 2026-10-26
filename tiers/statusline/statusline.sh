@@ -224,7 +224,9 @@ mdl=$(printf '%s\n' "$metrics" | sed -n 3p)
 # 単独で使っており、幅に入らない分は herdr が切る。
 branch_pr_info() {
   local dir=$1 branch=$2 cache val
-  cache="${TMPDIR:-/tmp}/herdr-pr-$(printf '%s|%s' "$dir" "$branch" | shasum | cut -c1-16)"
+  # 鍵は cksum（POSIX）の CRC で作る。shasum は POSIX に無く、Debian の slim などでは perl の包みに入っていて無い。無いと鍵が空になり、
+  # どのブランチも同じ控えを読んで、ほかのブランチの PR を黙って出す（2026-10-26 に python:3.14-slim で無いのを見た）
+  cache="${TMPDIR:-/tmp}/herdr-pr-$(printf '%s|%s' "$dir" "$branch" | cksum | cut -d' ' -f1)"
   if [ ! -s "$cache" ] || [ -n "$(find "$cache" -mmin +15 2>/dev/null)" ]; then
     (
       # 打ち切りは再描画の間隔（30 秒）より短く取る。gh 自身は要求を打ち切らないので、

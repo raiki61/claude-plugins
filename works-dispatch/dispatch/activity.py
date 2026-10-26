@@ -18,6 +18,7 @@ import pathlib
 import re
 import shlex
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import herdr  # noqa: E402
@@ -110,7 +111,7 @@ def handle(text, env, send=herdr.report_activity, find=None):
         return
     if not isinstance(payload, dict):
         return
-    tmp = pathlib.Path(env.get("TMPDIR") or "/tmp")
+    tmp = pathlib.Path(env.get("TMPDIR") or tempfile.gettempdir())   # Windows は TMPDIR がふつう無く、/tmp も無い（role_hook.seen_path と同じ）
     pane = pane_of(payload, tmp, find)
     if not pane:
         return

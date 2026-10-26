@@ -194,7 +194,7 @@ def setup_one(config_dir):
     return True, f"{config_dir}: statusLine を {want['command']} にした" + (f"（前の物は {saved}）" if saved else "")
 
 
-def main(argv=None, stdout=None, env=None, stderr=None):
+def main(argv=None, stdout=None, env=None, stderr=None, platform=None):
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
     env = os.environ if env is None else env
@@ -208,6 +208,11 @@ def main(argv=None, stdout=None, env=None, stderr=None):
         a = ap.parse_args(argv)
     except SystemExit as e:
         return 2 if e.code else 0
+    if (platform or sys.platform) == "win32":
+        # 入口で止める。進めると os.symlink の OSError の traceback か、動かない statusLine を settings.json に書く
+        print("できなかった: tiers-statusline は macOS と Linux だけで動く（statusline.sh と bg-count.sh は bash・ps・jq で動く）。"
+              "Windows では WSL の中の Claude Code で打つ", file=stderr)
+        return 1
     results = []
     if a.cmd == "setup":
         dirs = list(dict.fromkeys(a.config_dir)) or [env.get("CLAUDE_CONFIG_DIR") or "~/.claude"]

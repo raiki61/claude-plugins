@@ -6,6 +6,12 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Fixed
+
+- statusline の PR の番号と題の控え（`${TMPDIR:-/tmp}/herdr-pr-<鍵>`）の鍵を、`shasum` でなく `cksum`（POSIX のコマンド）で作るようにした。`shasum` は POSIX に無く、Debian の slim などの最小のイメージでは入っていない（2026-10-26 に `python:3.14-slim` で確かめた）。無いと鍵が空になり、どのブランチも同じ控えを読むので、ほかのブランチの PR の番号と題を黙って出していた。鍵の形が替わるので、入れた後に 1 回だけ PR を取り直す。
+- 「⧖ バックグラウンド作業中 N 本」の数が、Linux で `~/.local/share/claude/versions/<版>` を直に起動した会話で 0 になっていたのを直した。会話の Claude を探すのに、処理の名前（`ps -o comm=`）がパスを含む形（`*/claude/versions/*`）を見ていたが、Linux の名前はパスを持たず版の数字（例: `2.1.302`）だけになる。名前で当たらなければ、実行ファイルのパス（`/proc/<pid>/exe`）で見るようにした（2026-10-26 に Linux のコンテナーで、前の形が当たらず、直した形が当たるのを確かめた）。
+- `tiers-statusline` を Windows で打つと、入口で「macOS と Linux だけで動く」と 1 行出して止まる（終了コード 1）ようにした。前は、リンクを張る所で traceback を出して落ちるか、Windows では動かない statusLine を `settings.json` に書いていた。statusline は bash・ps・jq で動くので、Windows では WSL の中の Claude Code で打つ。
+
 ## [0.11.0] - 2026-10-23
 
 ### Added

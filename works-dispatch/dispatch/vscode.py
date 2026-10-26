@@ -16,6 +16,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import tempfile
 
 OPEN_ENV = "ATTENTION_CATCHUP_OPEN"  # 0 なら開かない（attention の /catchup と同じ旗）
 
@@ -44,9 +45,9 @@ def code_cli(home=None, which=shutil.which):
 
 
 def sockets(env):
-    """窓の socket を新しい順に。TMPDIR（無ければ /tmp）と XDG_RUNTIME_DIR を探し、環境の VSCODE_IPC_HOOK_CLI も足す。"""
+    """窓の socket を新しい順に。TMPDIR（無ければ OS の一時の置き場）と XDG_RUNTIME_DIR を探し、環境の VSCODE_IPC_HOOK_CLI も足す。"""
     found = set()
-    for d in (env.get("TMPDIR") or "/tmp", env.get("XDG_RUNTIME_DIR") or ""):
+    for d in (env.get("TMPDIR") or tempfile.gettempdir(), env.get("XDG_RUNTIME_DIR") or ""):
         if d:
             found.update(glob.glob(os.path.join(d, "vscode-ipc-*.sock")))
     hook = env.get("VSCODE_IPC_HOOK_CLI")

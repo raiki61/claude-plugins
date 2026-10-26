@@ -190,6 +190,15 @@ class Setup(Base):
         self.assertIn("できなかった", err.getvalue())
         self.assertEqual(out.getvalue(), "")
 
+    def test_windows_stops_at_the_door_with_the_reason(self):
+        conf, _ = self.account()
+        settings = pathlib.Path(conf, "settings.json")
+        out, err = io.StringIO(), io.StringIO()
+        self.assertEqual(sl.main(["setup", "--config-dir", conf], stdout=out, env=self.env, stderr=err, platform="win32"), 1)
+        self.assertIn("macOS と Linux だけ", err.getvalue())
+        self.assertFalse(os.path.lexists(sl.data_link(conf)), "リンクを張らない")
+        self.assertFalse(settings.exists() and "statusLine" in settings.read_text(encoding="utf-8"), "statusLine を書かない")
+
     def test_a_real_folder_at_the_link_is_not_replaced(self):
         conf, _ = self.account()
         sl.data_link(conf).mkdir(parents=True)

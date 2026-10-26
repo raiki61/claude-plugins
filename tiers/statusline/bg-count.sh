@@ -18,7 +18,9 @@ set -u
 # この台本を起動した Claude の pid を、親をたどって探す。
 # 背景の Bash の親になる、いちばん近い Claude を採る。Claude のプロセスの名前（comm）は起動方法で 3 通りある:
 #   - claude: 端末で ~/.local/bin/claude を起動した会話
-#   - 2.1.302 など: ~/.local/share/claude/versions/<版> を直に起動した会話（名前が版の数字になる）
+#   - 2.1.302 など: ~/.local/share/claude/versions/<版> を直に起動した会話（名前が版の数字になる）。macOS の comm はパスごと
+#     出るので */claude/versions/* で当たるが、Linux の comm はパスを持たず版の数字だけになるので、実行ファイルのパス（/proc/<pid>/exe）で見る
+#     （2026-10-26 に python:3.14-slim で、versions/2.1.302 を直に起動した処理の comm が「2.1.302」、exe がパスごとなのを見た）
 #   - claude bg-spare: claude --bg や claude attach で開く背景の会話。会話は daemon（claude）→ bg-pty-host → bg-spare の
 #     bg-spare の中で動き、背景の Bash はその直下に付く。名前が「claude」とだけ合う物を探すと、上の daemon を採って
 #     直下に Bash が無く、0 本と数えていた（2026-10-18、guided-resolver の w9R:p1 で「1 shell」なのに印が出なかった）。
@@ -28,6 +30,9 @@ find_claude() {
     c=$(ps -o comm= -p "$p" 2>/dev/null)
     case "$c" in
       "claude bg-spare"*|*/claude/versions/*|claude|*/claude) echo "$p"; return ;;
+    esac
+    case "$(readlink "/proc/$p/exe" 2>/dev/null)" in
+      */claude/versions/*) echo "$p"; return ;;
     esac
     p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
   done
