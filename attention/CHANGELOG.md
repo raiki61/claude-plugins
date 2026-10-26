@@ -6,6 +6,8 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-10-26
+
 ### Fixed
 
 - `/whose-turn`・`/catchup`・`/what-am-i-doing`・`/reflect` が、同梱の台本（`scripts/*.py`）を素の `python3` で起動していて、Windows で動かない恐れがあったのを直した。Windows の python.org の入れ方は `python3` を入れず、PATH の `python3` は Microsoft Store を開かせるだけの見せかけの物に当たることがある。利用者の対応は要らない。
