@@ -6,6 +6,9 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Fixed
+- README の「Installation」と「Dependencies and how you obtain them」で、指す先の取れなかった「it」を名前に替え、`raiki61/claude-plugins` と `raiki61` が何か・シェルで足す marketplace が公式の `claude-plugins-official` であること・3 つの置き場（GitHub・社内の git の URL・共有フォルダかローカルのパス）・graphloops が何かを本文で書いた。
+
 ## [0.52.1] - 2026-10-26
 
 ### Fixed
