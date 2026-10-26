@@ -146,7 +146,7 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
 - 5-2 tiers の statusline（決まり 1・2・4・5）。`statusline.sh` の `shasum` は Debian の slim などに無く、キャッシュの鍵が空になって、どのブランチも同じ保存済みのキャッシュを使い、ほかのブランチの PR を黙って出す。`bg-count.sh` の Claude のプロセスの探し方は Linux の `ps -o comm` の形（パスを持たない）で当たらない疑い。`bg-count.sh` の素の `python3`。`tiers-statusline setup` は「macOS と Linux だけ」なのに Windows で止まらない。`bin/` の頭は Python が起きるかだけを見て、要ると書いた 3.11 以上かを見ない。状態: 入った（tiers 0.12.0。仕組み 20261026-062654-79c989、納品 20261026-070700-c26257）。`bg-count.sh` の素の `python3` は直していない。statusline が Windows の入口で止まるので、Windows では `bg-count.sh` まで来ないため。入口の Python の下限は `tiers`・`tiers-settings` が 3.8、`tiers-statusline` が 3.11 に分かれた。`ps` の無い slim の Linux では背景の作業の数が黙って 0 になる穴が残る。ふつうのデスクトップの Linux には `ps` が在るので直していない
 - 5-3 works-dispatch の `dispatch/activity.py` が一時の置き場を `TMPDIR` か `/tmp` で引き、Windows では落ちて例外が捨てられ、herdr（会話ごとの作業場を並べる画面）の横の作業の行（その会話の動きを一行で出す所）が出ない（決まり 3）。状態: 入った（works-dispatch 0.126.7。5-2 と同じ受付）
 - 5-4 gates の探しのゲート（`hooks/search-gate.py`）の広すぎるルートの一覧が macOS の形だけで、Linux の `/home`・`/usr` や Windows のドライブのルートは止まらず、`C:\x` を相対として扱う（決まり 4）。状態: 入った（gates 0.43.1。点検 20261026-062700-6f4c7d、納品 20261026-080530-2ac6e5。Linux の / 直下とドライブのルートの書き方〔C:/・C:\・/c/・/cygdrive/c・/mnt/c〕も止める）
-- 5-5 ルートの `tests/mutate.py` の `lingering()` が Linux と macOS 以外で「確かめられない」（None）を返し、呼ぶ側が「残っていない」と読む。CI の Windows の実行（OS ごとのジョブ）で、残ったプロセスの確かめが黙って外れる。状態: 入った（commit e10499b5。確かめられない OS では写しを使い回さない。点検 20261026-062700-6f4c7d）。素の `python3` を赤にする検査は、点検が足すと決めた。今の当たりは attention の 6 行だけなので、attention の直し〔見渡し 20261026-062736-f788d9〕が入った後に、0 件でなければ赤にする形で足すよう、標準が点検に頼む
+- 5-5 ルートの `tests/mutate.py` の `lingering()` が Linux と macOS 以外で「確かめられない」（None）を返し、呼ぶ側が「残っていない」と読む。CI の Windows の実行（OS ごとのジョブ）で、残ったプロセスの確かめが黙って外れる。状態: 入った（commit e10499b5。確かめられない OS では、前に確かめた結果の控え（キャッシュ）を使い回さない。点検 20261026-062700-6f4c7d）。hooks.json や SKILL.md が素の `python3` か `command -v python3 || command -v python` で Python を起動していたら赤にする、リポジトリのルートの `tests/` の検査は、点検が足すと決めた。今の当たりは attention の 6 行だけなので、attention の直し〔見渡し 20261026-062736-f788d9〕が入った後に、0 件でなければ赤にする形で足すよう、標準が点検に頼む
 - 5-6 works の `dev/archon.sh` が Archon（AI の段を順に回すツール）の実行ファイルを macOS の Apple silicon の物に決め打ちし、OS を確かめない。ほかの機械では 77MB を落とした後に `Exec format error` で落ちる。`shasum` が無いと誤った案内を出す。works-factory の認証の手順の `security` に macOS 専用だと示す表示や OS の確かめが無い（決まり 5）。状態: 入った（commit 6e4cad0b。作業 20261026-062757-0bb23d。works と works-factory は誰の受け持ちでもないので作業に回した。止まり方は偽の uname の試験で確かめ、Linux と Intel の Mac の実機では未確認）
 
 前の試しとの重なり: 5-1 は上のとおり 3 回目の 7 と同じ原因で、直しが広がっていなかった物。ほかは試しの記録（docs/trials/）に無い。
@@ -181,7 +181,7 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
   - プログラムが対話の入力に Enter を送り、出た誤りを捨てる処理が `nodes/deliver.py` に 4 度在り、理由の注は 1 つだけに在る。
   - 今の作業のフォルダが部署の作業場の中かを見る 2 行の関数（`inside`・`_inside`）が、ノード 6 本に写しで在る。
   - 使われていない import が、本番に 3 件、試験に 17 件ほど在る。rent-or-buy の `record.py` には、内側の確かめが働かない入れ子の確かめが在る。
-  - 状態: 入った（works-dispatch 0.126.8・rent-or-buy 0.4.1。仕組み 20261026-070739-4217c7、納品 20261026-075350-2e82eb。置き場の中かを見る関数は `filex.inside` の 1 つに、Enter を押す所は `press_enter` の 1 つにした）
+  - 状態: 入った（works-dispatch 0.126.8・rent-or-buy 0.4.1。仕組み 20261026-070739-4217c7、納品 20261026-075350-2e82eb。部署の作業場の中かを見る関数は `filex.inside` の 1 つに、Enter を押す所は `press_enter` の 1 つにした）
 - 6-4 attention の `catchup.py` の `render` は 141 文の一続き。見出しごとに分けられる。使われていない import も 1 件在る。状態: 頼んだ（見渡し 20261026-070744-f03eee）
 - 6-5 works には、試験からしか呼ばれない本番の関数（本番の処理からは呼ばれない）が在る。
   - `count_round_rejects` の本番の唯一の呼び手 `dev/report_rejects.py` は commit 14f622da で消えた。ほかに `fix_prompt`・`tdd_prompt`・`reject_text` が在る。
