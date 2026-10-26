@@ -13,6 +13,16 @@ ARCHON_VERSION="v0.11.1"
 ARCHON_SHA256="b9338474fd3151d5d5402d76ae278105e65835f2e3506a93f0e5e4a378d10ede"
 ARCHON_BIN_NAME="archon-darwin-arm64"
 
+# 固定した実行ファイルは macOS の Apple silicon 用の 1 つだけ。ほかの機械では 77MB を落として sha256 も通った後の exec が
+# 「Exec format error」で落ちるので、何も落とさず認証も読まずに 1 行で止まる。Rosetta の下の殻は uname -m が x86_64 を返すが
+# 機械は Apple silicon なので通す（sysctl.proc_translated が 1。Apple の「About the Rosetta translation environment」）
+_os="$(uname -s)"
+_arch="$(uname -m)"
+if [ "$_os" != "Darwin" ] || { [ "$_arch" != "arm64" ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" != "1" ]; }; then
+  echo "archon.sh: 固定した Archon（${ARCHON_BIN_NAME}）は macOS の Apple silicon でだけ動く。この機械は ${_os} ${_arch} なので止まる" >&2
+  exit 2
+fi
+
 WORKS_ADAPTER="$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/claude-adapter"
 
 # 開発の家と対象（cwd）が Claude Code の一時フォルダの下なら、認証も実行ファイルも触らずに止まる（guard.sh）
@@ -79,7 +89,12 @@ fi
 
 # 合わなければ止まる。壊れたキャッシュ（ダウンロードが途中で切れた等）は在る限り毎回同じ所で止まるので、
 # 消せば次で取り直すと 1 行で案内する。消すのは人に任せる（利用者のファイルを黙って消さない）。
-actual_sha256="$(shasum -a 256 "$BIN_PATH" | awk '{print $1}')"
+# shasum が起きない・失敗した・何も出さなかったときは、壊れたキャッシュと取り違えて消させないよう、別の訳で止まる。
+if ! _sum="$(shasum -a 256 "$BIN_PATH")" || [ -z "$_sum" ]; then
+  echo "archon.sh: $BIN_PATH の sha256 を測れなかった（shasum -a 256 が失敗したか、何も出さなかった）。キャッシュの良し悪しは分からないので消さずに、shasum が動くかを先に確かめる" >&2
+  exit 1
+fi
+actual_sha256="${_sum%% *}"
 if [ "$actual_sha256" != "$ARCHON_SHA256" ]; then
   echo "archon.sh: sha256 mismatch for $BIN_PATH (expected $ARCHON_SHA256, got $actual_sha256)。壊れたキャッシュなら、このファイルを消して回し直せば取り直す（rm \"$BIN_PATH\"）" >&2
   exit 1

@@ -263,6 +263,76 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("取り直す", lines[0])
             self.assertEqual(cached.read_bytes(), b"not the real archon binary")   # 消さない
 
+    def _run_archon_sh_with_fakes(self, scripts):
+        """scripts（名前→sh の本文）の偽物を PATH の先頭に置き、偽の実行ファイルをキャッシュに入れて認証無しで archon.sh を回す。
+        uname は既定で Darwin arm64 の偽物（試験を回す機械に依らない）。sysctl は既定で、呼ばれたら記録して 0 を出す偽物。
+        戻り値は (結果, 偽の gh が呼ばれたか, キャッシュの中身, 偽の sysctl が呼ばれたか)"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            dev_home = tmp / "dev-home"
+            (dev_home / "bin").mkdir(parents=True)
+            cached = dev_home / "bin" / "archon-darwin-arm64"
+            cached.write_bytes(b"not the real archon binary")
+            fake_bin = tmp / "fake-bin"
+            fake_bin.mkdir()
+            gh_called = tmp / "gh-called"
+            sysctl_called = tmp / "sysctl-called"
+            scripts = {"gh": f'touch "{gh_called}"\n',
+                       "uname": '[ "$1" = "-s" ] && echo Darwin || echo arm64\n',
+                       "sysctl": "echo 0\n", **scripts}
+            scripts["sysctl"] = f'touch "{sysctl_called}"\n' + scripts["sysctl"]
+            for name, body in scripts.items():
+                (fake_bin / name).write_text("#!/bin/sh\n" + body)
+                (fake_bin / name).chmod(0o755)
+            env = hermetic.child_env()
+            env.update(WORKS_DEV_HOME=str(dev_home), WORKS_DEV_NO_AUTH="1",
+                       PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""))
+            result = subprocess.run(["sh", str(DEV / "archon.sh"), "version"],
+                                    capture_output=True, text=True, encoding="utf-8", env=env)
+            return result, gh_called.exists(), cached.read_bytes(), sysctl_called.exists()
+
+    def test_archon_sh_refuses_machines_other_than_apple_silicon_mac(self):
+        """固定した実行ファイルは darwin-arm64 だけ。Linux・Intel の Mac では落とさず sha256 にも進まず、機械の名を添えた 1 行で止まる"""
+        # Linux では sysctl が 1 を返しても（Rosetta の印を Linux で見ない）止まる
+        for os_name, arch, translated in (("Linux", "x86_64", "1"), ("Linux", "aarch64", "0"), ("Darwin", "x86_64", "0")):
+            with self.subTest(os=os_name, arch=arch, translated=translated):
+                uname = f'[ "$1" = "-s" ] && echo {os_name} || echo {arch}\n'
+                result, gh_called, _, _ = self._run_archon_sh_with_fakes({"uname": uname, "sysctl": f"echo {translated}\n"})
+                self.assertEqual(result.returncode, 2, result.stderr)
+                lines = result.stderr.strip().splitlines()
+                self.assertEqual(len(lines), 1, result.stderr)
+                self.assertIn("Apple silicon", lines[0])
+                self.assertIn(f"{os_name} {arch}", lines[0])
+                self.assertNotIn("sha256", lines[0])
+                self.assertFalse(gh_called)
+
+    def test_archon_sh_lets_rosetta_shell_on_apple_silicon_through(self):
+        """Rosetta の下の殻（uname -m が x86_64・sysctl.proc_translated が 1）は機械が Apple silicon なので通し、sha256 の確かめまで進む"""
+        uname = '[ "$1" = "-s" ] && echo Darwin || echo x86_64\n'
+        sysctl = '[ "$2" = "sysctl.proc_translated" ] && echo 1\n'
+        result, _, _, sysctl_called = self._run_archon_sh_with_fakes({"uname": uname, "sysctl": sysctl})
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("sha256 mismatch", result.stderr)
+        self.assertTrue(sysctl_called)
+
+    def test_archon_sh_lets_apple_silicon_mac_through_without_sysctl(self):
+        """ふつうの Apple silicon の Mac（Darwin arm64）は sysctl を引かずに通し、sha256 の確かめまで進む"""
+        result, _, _, sysctl_called = self._run_archon_sh_with_fakes({})
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("sha256 mismatch", result.stderr)
+        self.assertFalse(sysctl_called)
+
+    def test_archon_sh_tells_shasum_failure_apart_from_broken_cache(self):
+        """shasum が失敗したら、壊れたキャッシュの案内（消して取り直す）を出さず、測れなかったと言って止まる。キャッシュは消さない"""
+        for label, body in (("失敗", "exit 127\n"), ("出力が空", "exit 0\n")):
+            with self.subTest(shasum=label):
+                result, _, cached, _ = self._run_archon_sh_with_fakes({"shasum": body})
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("測れなかった", result.stderr)
+                self.assertNotIn("mismatch", result.stderr)
+                self.assertNotIn("rm ", result.stderr)
+                self.assertEqual(cached, b"not the real archon binary")
+
     def _run_archon_sh_with_fake_security(self, fake_token="dummy-token-for-test", **overrides):
         """偽の `security`（呼ばれた時の $HOME と引数を記録し、偽のトークンを出す）を PATH の先頭に置いて archon.sh を回す。
 

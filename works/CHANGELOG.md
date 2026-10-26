@@ -6,6 +6,11 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 殻（`dev/archon.sh`。`use.sh`・`check.sh` などが通る）が、macOS の Apple silicon 以外の機械では Archon の実行ファイル（77MB）を落とさず、認証も読まずに、機械の名を添えた 1 行で止まるようにした。前は落として sha256 も通った後の起動が「Exec format error」で落ちていた。Rosetta の下の殻（機械は Apple silicon）は通す。
+- `shasum` が失敗した・何も出さなかったときに「sha256 mismatch」と出してキャッシュを消せと案内していたのを、測れなかったと言って消させずに止まるようにした。
+
 ## [0.7.0] - 2026-10-19
 
 ### Changed

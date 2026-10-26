@@ -8,7 +8,7 @@
   - 毎回付けずに済ませるなら、使う Claude Code の設定の置き場（既定は `~/.claude`）の `settings.json` の `env` に `WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` に当たる組を書く。Claude Code が Bash の子に渡すので、殻がそのまま拾う。
   - `CLAUDE_KEYCHAIN_SERVICE`（Claude Code 側の、keychain の項目の名を入れる変数）に項目の名を置いても拾う。
   - ログインの資格は数時間で切れる。長い run（工場の 1 回の実行）は、`claude setup-token` で作ったトークンを `CLAUDE_CODE_OAUTH_TOKEN` に置いて起こす。
-  - 殻が「認証が無い」で止まったら、`security find-generic-password -s <項目の名>` で項目が在るかを確かめる（`-w` を付けず、値を出さない）。項目の名を推して試さず、人に聞く。
+  - 殻が「認証が無い」で止まったら、macOS では `security find-generic-password -s <項目の名>` で項目が在るかを確かめる（`-w` を付けず、値を出さない）。項目の名を推して試さず、人に聞く。`security` は macOS のコマンドで、ほかの OS には無い。
 
 ## API キーかゲートウェイで動く人
 

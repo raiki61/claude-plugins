@@ -6,6 +6,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Fixed
+
+- 認証の手順（`references/auth.md`）の、keychain の項目を確かめる `security find-generic-password` が macOS だけのコマンドだと書いた。
+
 ## [0.10.0] - 2026-10-23
 
 ### Changed
