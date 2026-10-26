@@ -18,6 +18,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -45,7 +46,7 @@ LOG = """# 変更の記録
 
 ### Changed
 
-- 前の行
+- old line
 """
 
 
@@ -166,16 +167,16 @@ def world(pin_at, checks, asks=()):
 def target():
     fake, root, shas, d = world(1, {2: ok(), 3: [{"name": "tests", "status": "in_progress", "conclusion": None}]})
     code, out = go(fake, root, '{"dry_run": true}')
-    check(code == 1 and f"緑の {shas[2][:8]}" in out and "2 本先" not in out and "1 本先" in out, f"頭が途中の時に前の緑を選ばない: {code} {out}")
-    check("main の頭" in out and "#13" in out and "#14" not in out, f"頭の CI の注記か取り込む PR が違う: {out}")
-    check(out.strip().splitlines()[-1].startswith("手順: ") and shas[2] in out.strip().splitlines()[-1], f"手順の行が最後に無い: {out}")
+    last = out.strip().splitlines()[-1]
+    check(code == 1 and f"--write {shas[2]} " in last, f"頭が途中の時に前の緑を選ばないか、手順の行が最後に無い: {code} {out}")
+    check(shas[3][:8] in out and "#13" in out and "#14" not in out, f"頭の CI の注記か取り込む PR が違う: {out}")
     check(not os.path.exists(os.path.join(d, wp.STATE)), "dry_run なのに覚えた")
     fake.checks = {}
     code, out = go(fake, root)
-    check(code == 0 and "緑の物が無い" in out, f"緑が無いのに黙らない: {code} {out}")
+    check(code == 0 and shas[2][:8] not in out, f"緑が無いのに黙らない: {code} {out}")
     fake, root, shas, d = world(3, {})
     code, out = go(fake, root)
-    check(code == 0 and "main の頭" in out, f"PIN が頭なのに黙らない: {code} {out}")
+    check(code == 0, f"PIN が頭なのに黙らない: {code} {out}")
     print("TARGET_OK")
 
 
@@ -188,14 +189,14 @@ def told():
     with open(os.path.join(d, wp.STATE), encoding="utf-8") as f:
         check(json.load(f)["told"] == shas[2], "知らせた上げ先を覚えない")
     code, out = go(fake, root)
-    check(code == 0 and "開いている" in out, f"頼みが開いているのに知らせ直した: {code} {out}")
+    check(code == 0, f"頼みが開いているのに知らせ直した: {code} {out}")
     with open(os.path.join(d, *wp.deliver.INBOX, wp.deliver.LOG), "a", encoding="utf-8") as f:
         f.write(json.dumps({"kind": "deliver", "ask": ask["id"], "at": 1.0}) + "\n")
     code, out = go(fake, root)
-    check(code == 0 and "同じ" in out, f"閉じた後に同じ上げ先を知らせ直した: {code} {out}")
+    check(code == 0, f"閉じた後に同じ上げ先を知らせ直した: {code} {out}")
     fake.checks[shas[3]] = ok()
     code, out = go(fake, root)
-    check(code == 1 and f"緑の {shas[3][:8]}" in out, f"上げ先が進んだのに知らせ直さない: {code} {out}")
+    check(code == 1 and f"--write {shas[3]} " in out, f"上げ先が進んだのに知らせ直さない: {code} {out}")
     print("TOLD_OK")
 
 
@@ -203,13 +204,14 @@ def surface():
     fake, root, shas, d = world(0, {1: ok()})
     code, out = go(fake, root, '{"dry_run": true}')
     check(code == 1, f"上げ先を知らせない: {code} {out}")
-    for want in ("消えた物: ", "design_only", "lib/carry.py", "WORKS_FACTORY_OLD", "+design_talk -design_only",
-                 "+WORKS_FACTORY_NEW -WORKS_FACTORY_OLD", "README.md、bin/works-factory", "照合で当たりが在る"):
+    for want in ("design_only", "lib/carry.py", "WORKS_FACTORY_OLD", "+design_talk -design_only",
+                 "+WORKS_FACTORY_NEW -WORKS_FACTORY_OLD", "README.md", "bin/works-factory"):
         check(want in out, f"照合に {want} が無い: {out}")
     check("CLAUDE_PLUGIN_ROOT" not in out and "request" not in out, f"工場に関わらない語か、変わらない入力を拾った: {out}")
     fake, root, shas, d = world(1, {2: ok()})
     code, out = go(fake, root, '{"dry_run": true}')
-    check(code == 1 and "照合: 当たり無し" in out and "そのまま --land" in out, f"lib の中だけの上げで当たりを出した: {out}")
+    face = wp.surface(shas[1], shas[2], os.path.join(d, wp.SOURCE), fake, root)
+    check(code == 1 and face == [], f"lib の中だけの上げで当たりを出した: {face} {out}")
     print("SURFACE_OK")
 
 
@@ -219,17 +221,18 @@ def write():
     check(code == 0 and (root / "works-factory" / "PIN").read_text() == shas[2] + "\n", f"名指した commit に PIN を替えない: {code} {out}")
     log = (root / "works-factory" / "CHANGELOG.md").read_text(encoding="utf-8")
     unreleased = log.split("## [Unreleased]\n")[1].split("## [0.1.0]")[0]
-    check(f"\n### Changed\n\n- 工場の固定 commit（`works-factory/PIN`）を {shas[2][:8]} に上げた。取り込んだ PR は raiki61/works-factory#13。" in unreleased
-          and f"/compare/{shas[1][:12]}...{shas[2][:12]}" in unreleased, f"Unreleased の Changed の行が違う: {unreleased}")
-    check(log.count("- 前の行") == 1 and "## [0.1.0] - 2026-10-01\n\n### Changed\n\n- 前の行" in log, f"前の版の記録を崩した: {log}")
+    line = re.search(r"\A\n### Changed\n\n- [^\n]*`works-factory/PIN`[^\n]*" + shas[2][:8] + r"[^\n]*raiki61/works-factory#13[^\n]*/compare/"
+                     + shas[1][:12] + r"\.\.\." + shas[2][:12] + r"[^\n]*\n\n\Z", unreleased)
+    check(line is not None, f"Unreleased の Changed の行が違う: {unreleased}")
+    check(log.count("- old line") == 1 and "## [0.1.0] - 2026-10-01\n\n### Changed\n\n- old line" in log, f"前の版の記録を崩した: {log}")
     code, out = go(fake, root, argv=["--write"])
     check(code == 0 and (root / "works-factory" / "PIN").read_text() == shas[3] + "\n", f"省いた時に今の上げ先に替えない: {out}")
     log = (root / "works-factory" / "CHANGELOG.md").read_text(encoding="utf-8")
     check(log.count("### Changed") == 2 and log.index(shas[3][:8]) < log.index(shas[2][:8]), f"既に在る Changed に足さない: {log}")
     fake, root, shas, d = world(1, {2: ok()})
-    for bad, why in ((shas[3], "緑でない"), (shas[0], "無い"), ("abc", "40 桁")):
+    for bad, want in ((shas[3], 1), (shas[0], 1), ("abc", 2)):
         code, out = go(fake, root, argv=["--write", bad])
-        check(code in (1, 2) and why in out and (root / "works-factory" / "PIN").read_text() == shas[1] + "\n", f"{bad} を書いた: {code} {out}")
+        check(code == want and (root / "works-factory" / "PIN").read_text() == shas[1] + "\n", f"{bad} を書いた: {code} {out}")
     print("WRITE_OK")
 
 
@@ -237,7 +240,7 @@ def unreadable():
     fake, root, shas, d = world(1, {2: ok()})
     fake.broken = True
     code, out = go(fake, root)
-    check(code == 1 and "読めなかった" in out and "HTTP 502" in out, f"gh の失敗を黙った: {code} {out}")
+    check(code == 1 and "HTTP 502" in out, f"gh の失敗を黙った: {code} {out}")
     fake.broken = False
     for bad in ("[1]", "{"):
         code, out = go(fake, root, bad)

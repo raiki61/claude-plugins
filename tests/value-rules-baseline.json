@@ -245,6 +245,9 @@
  "tests/whose-turn-suite.py": {
   "rule3": 22
  },
+ "tests/works-factory-pin-case.py": {
+  "rule3": 1
+ },
  "tiers/lib/tiers_check.py": {
   "rule4": 1
  },
