@@ -147,7 +147,7 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
 - 5-3 works-dispatch の `dispatch/activity.py` が一時の置き場を `TMPDIR` か `/tmp` で引き、Windows では落ちて例外が捨てられ、herdr（会話ごとの作業場を並べる画面）の横の作業の行（その会話の動きを一行で出す所）が出ない（決まり 3）。状態: 頼んだ（5-2 と同じ受付）
 - 5-4 gates の探しのゲート（`hooks/search-gate.py`）の広すぎるルートの一覧が macOS の形だけで、Linux の `/home`・`/usr` や Windows のドライブのルートは止まらず、`C:\x` を相対として扱う（決まり 4）。状態: 頼んだ（点検 20261026-062700-6f4c7d。5-1 と同じ受付）
 - 5-5 ルートの `tests/mutate.py` の `lingering()` が Linux と macOS 以外で「確かめられない」（None）を返し、呼ぶ側が「残っていない」と読む。CI の Windows の実行（OS ごとのジョブ）で、残ったプロセスの確かめが黙って外れる。状態: 頼んだ（点検 20261026-062700-6f4c7d。5-1 と同じ受付。標準を機械で守らせる検査〔素の `python3` を赤にする物〕を足すかの判断も同じ受付に入れた）
-- 5-6 works の `dev/archon.sh` が Archon（AI の段を順に回すツール）の実行ファイルを macOS の Apple silicon の物に決め打ちし、OS を確かめない。ほかの機械では 77MB を落とした後に `Exec format error` で落ちる。`shasum` が無いと誤った案内を出す。works-factory の認証の手順の `security` に macOS 専用だと示す表示や OS の確かめが無い（決まり 5）。状態: 頼んだ（作業 20261026-062757-0bb23d。works と works-factory は誰の受け持ちでもないので作業に回した）
+- 5-6 works の `dev/archon.sh` が Archon（AI の段を順に回すツール）の実行ファイルを macOS の Apple silicon の物に決め打ちし、OS を確かめない。ほかの機械では 77MB を落とした後に `Exec format error` で落ちる。`shasum` が無いと誤った案内を出す。works-factory の認証の手順の `security` に macOS 専用だと示す表示や OS の確かめが無い（決まり 5）。状態: 済み（作業 20261026-062757-0bb23d が main の 6e4cad0b で入れた。works と works-factory は誰の受け持ちでもないので作業に回した。止まり方は偽の uname の試験で確かめ、Linux と Intel の Mac の実機では未確認）
 
 前の試しとの重なり: 5-1 は上のとおり 3 回目の 7 と同じ原因で、直しが広がっていなかった物。ほかは試しの記録（docs/trials/）に無い。
 実機の確かめ: 5-1〜5-6 の直しが入った後、フック・statusline・スキルの本文が打たせるコマンドは CI の試験が実際には起動しない（決まり 6）ので、Windows と Linux で入れて試すかどうかを試しの受け持ち（実機の確かめの部署）に頼むかは、直しが揃った次の回に決める。
