@@ -1,14 +1,18 @@
 #!/bin/sh
 ''':'
-# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・py -3 の順に、実際に起きる 3.8 以上の物で
+# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・版の付いた名前（python3.20 から python3.8 まで、
+# 新しい順。uv で入れた Python はその名前でだけ PATH に在る。docs/standards/cross-os.md の決まり 1）・py -3 の順に、実際に起きる 3.8 以上の物で
 # この台本を起動し直す（2026-10-26 に 3.8 で動くのを確かめた。python が Python 2 の PC では、版を見ないと 2 で起動して構文の誤りで落ちる）。PATH の頭の python3 をそのまま使わないのは、Windows の python3・python が、Python を入れていないと
 # Microsoft Store へ誘う代わりの物（起動すると案内を出して終わる）に当たるため。
-for cand in python3 python "py -3"; do
+named='' n=20
+while [ "$n" -ge 8 ]; do named="$named python3.$n"; n=$((n - 1)); done
+# shellcheck disable=SC2086
+for cand in python3 python $named "py -3"; do
   command -v "${cand%% *}" >/dev/null 2>&1 || continue
   # shellcheck disable=SC2086
   $cand -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1 && exec $cand "$0" "$@"
 done
-echo "tiers: 起動できる Python 3.8 以上が見つからない（python3・python・py -3 を試した）。Python 3.8 以上を入れる。Windows で python3 や python が Microsoft Store へ誘うなら、設定 → アプリ → アプリ実行エイリアス で python.exe と python3.exe の「アプリ インストーラー」を切る" >&2
+echo "tiers: 起動できる Python 3.8 以上が見つからない（python3・python・python3.20〜python3.8・py -3 を試した）。Python 3.8 以上を入れる。入れてあるのに見つからないなら、入れた場所を PATH に足す。Windows で python3 や python が Microsoft Store へ誘うなら、設定 → アプリ → アプリ実行エイリアス で python.exe と python3.exe の「アプリ インストーラー」を切る" >&2
 exit 1
 '''
 """要るツールの段ごとの点検の入口。中身は ../lib/tiers_check.py（使い方もそこ）。

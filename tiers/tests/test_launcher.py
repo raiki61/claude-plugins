@@ -60,6 +60,31 @@ class Launcher(unittest.TestCase):
                     self.assertEqual(p.returncode, 0, p.stderr)
                     self.assertNotIn("SyntaxError", p.stderr)
 
+    @unittest.skipIf(os.name == "nt" or not shutil.which("sh"), "sh で起動する形は Windows の外で確かめる")
+    def test_sh_finds_a_versioned_name_when_python3_is_too_old(self):
+        # uv で入れた Python は python3.14 のような版の付いた名前でだけ PATH に在り、PATH の python3 は macOS 付属の 3.9 のことがある
+        # （docs/standards/cross-os.md の決まり 1）
+        with tempfile.TemporaryDirectory() as d:
+            stub = pathlib.Path(d) / "python3"   # 古い Python の振る舞い: 版の確かめに 1 で答える
+            stub.write_text('#!/bin/sh\ncase "$2" in *version_info*) exit 1 ;; esac\nexit 0\n', encoding="utf-8")
+            stub.chmod(0o755)
+            named = pathlib.Path(d) / f"python3.{sys.version_info.minor}"
+            named.symlink_to(sys.executable)
+            only_sh = pathlib.Path(d) / "only-sh"
+            only_sh.mkdir()
+            (only_sh / "sh").symlink_to(shutil.which("sh"))
+            env = {**os.environ, "PATH": os.pathsep.join([d, str(only_sh)])}
+            for name in ("tiers", "tiers-settings", "tiers-statusline"):
+                with self.subTest(name):
+                    p = subprocess.run(["sh", str(ENTRY.with_name(name)), "--help"], capture_output=True, text=True, encoding="utf-8",
+                                       env=env)
+                    self.assertEqual(p.returncode, 0, p.stderr)
+            named.unlink()
+            p = subprocess.run(["sh", str(ENTRY), "--help"], capture_output=True, text=True, encoding="utf-8", env=env)
+            self.assertEqual(p.returncode, 1)
+            self.assertIn("python3.20〜python3.8", p.stderr)
+            self.assertIn("入れた場所を PATH に足す", p.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

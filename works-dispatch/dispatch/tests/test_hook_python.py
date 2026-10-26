@@ -59,16 +59,33 @@ class HookPython(unittest.TestCase):
             self.assertIn("アプリ実行エイリアス", runs[0].stderr)
             self.assertEqual(runs[1].stderr, "")
 
+    def test_a_versioned_name_is_found_when_python3_is_too_old(self):
+        # uv で入れた Python は python3.14 のような版の付いた名前でだけ PATH に在り、PATH の python3 は macOS 付属の 3.9 のことがある
+        # （docs/standards/cross-os.md の決まり 1）
+        with tempfile.TemporaryDirectory() as d:
+            old = pathlib.Path(d) / "python3"   # 古い Python の振る舞い: 版の確かめに 1 で答える
+            old.write_text('#!/bin/sh\ncase "$2" in *version_info*) exit 1 ;; esac\nexit 0\n', encoding="utf-8")
+            old.chmod(0o755)
+            (pathlib.Path(d) / f"python3.{sys.version_info.minor}").symlink_to(sys.executable)
+            script = pathlib.Path(d) / "s.py"
+            script.write_text("import sys; print(sys.version_info >= (3, 11))\n", encoding="utf-8")
+            p = subprocess.run([shutil.which("bash"), str(PICK), str(script)], capture_output=True, text=True, encoding="utf-8",
+                               env={**os.environ, "PATH": d})
+            self.assertEqual((p.returncode, p.stdout.strip()), (0, "True"), p.stderr)
+
     def test_nothing_to_pick_says_how_to_fix_it(self):
         with tempfile.TemporaryDirectory() as d:
             for name in ("python3", "python"):
                 stub = pathlib.Path(d) / name
                 stub.write_text("#!/bin/sh\nexit 9009\n", encoding="utf-8")
                 stub.chmod(0o755)
-            env_path = os.pathsep.join([d, os.path.dirname(shutil.which("bash"))])
+            # bash の在るフォルダをそのまま PATH に足さない（Ubuntu の CI では /usr/bin の python3.12 などの版の付いた名前が見つかり、
+            # 選べない形を作れない）
             p = subprocess.run([shutil.which("bash"), str(PICK), "x.py"], capture_output=True, text=True, encoding="utf-8",
-                               env={**os.environ, "PATH": env_path})
+                               env={**os.environ, "PATH": d})
             self.assertEqual(p.returncode, 1)
+            self.assertIn("python3.20〜python3.11", p.stderr)
+            self.assertIn("入れた場所を PATH に足す", p.stderr)
             self.assertIn("アプリ実行エイリアス", p.stderr)
 
 

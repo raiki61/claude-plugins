@@ -1,14 +1,18 @@
 #!/bin/sh
 ''':'
-# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・py -3 の順に、実際に起きる 3.11 以上の物で
-# この台本を起動し直す。PATH の頭の python3 をそのまま使わないのは、Windows の python3・python が、Python を入れていないと
+# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・版の付いた名前（python3.20 から python3.11 まで、
+# 新しい順）・py -3 の順に、実際に起きる 3.11 以上の物でこの台本を起動し直す。版の付いた名前を試すのは、uv で入れた Python がその名前で
+# だけ PATH に在り、PATH の python3 が macOS 付属の 3.9 のことがあるため（docs/standards/cross-os.md の決まり 1）。PATH の頭の python3 をそのまま使わないのは、Windows の python3・python が、Python を入れていないと
 # Microsoft Store へ誘う代わりの物（起動すると案内を出して終わる）に当たるため（tiers/bin/tiers と同じ作り）。
-for cand in python3 python "py -3"; do
+named='' n=20
+while [ "$n" -ge 11 ]; do named="$named python3.$n"; n=$((n - 1)); done
+# shellcheck disable=SC2086
+for cand in python3 python $named "py -3"; do
   command -v "${cand%% *}" >/dev/null 2>&1 || continue
   # shellcheck disable=SC2086
   $cand -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1 && exec $cand "$0" "$@"
 done
-echo "rent-or-buy: no usable Python 3.11+ found (tried python3, python, py -3). Install Python 3.11 or later" >&2
+echo "rent-or-buy: no usable Python 3.11+ found (tried python3, python, python3.20 down to python3.11, py -3). Install Python 3.11 or later; if it is installed but not found, add the folder it was installed in to PATH" >&2
 exit 1
 '''
 """借りるか買うかの判断のコマンド。標準入力に JSON を受け、標準出力に JSON を返す。

@@ -17,7 +17,7 @@ The skill's and command's instructions and descriptions are written in Japanese.
 ## Requirements
 
 - **Required tier (要る段): 0** (Claude Code only).
-- Python 3.8 or later (3.11 or later for the statusline). `bin/tiers` runs with the first of `python3`, `python`, `py -3` that starts and is new enough, in that order. On Windows, if typing `python3` or `python` opens the Microsoft Store (the stand-in that appears when Python is not installed), install Python, then go to Settings → Apps → App execution aliases and turn off the "App Installer" entries for `python.exe` and `python3.exe`.
+- Python 3.8 or later (3.11 or later for the statusline). `bin/tiers` runs with the first of `python3`, `python`, the versioned names `python3.20` down to the required version (for example `python3.8`), and `py -3` that starts and is new enough, in that order. If Python is installed but not found, add the folder it was installed in to PATH. On Windows, if typing `python3` or `python` opens the Microsoft Store (the stand-in that appears when Python is not installed), install Python, then go to Settings → Apps → App execution aliases and turn off the "App Installer" entries for `python.exe` and `python3.exe`.
 
 ## Try it in 5 minutes
 

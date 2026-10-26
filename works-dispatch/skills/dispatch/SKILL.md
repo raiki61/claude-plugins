@@ -13,7 +13,7 @@ description: "自分の番の PR（attention の /whose-turn が並べる物）�
 
 ## 打ち方（毎回）
 
-このスキルは下のスクリプトを走らせ、出力をそのまま見せる。スクリプトの出した結果を言い換えたり、代わりに判断したりしない。`${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインの入ったフォルダのパスを入れる変数で、自分で置き換えずにそのまま打つ。どの引数を打つかは、下の「何をいつ読むか」の手順で決める。コマンドは `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起動する（`python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下のコマンドの形をそのまま打ち、Python の名前を替えない。
+このスキルは下のスクリプトを走らせ、出力をそのまま見せる。スクリプトの出した結果を言い換えたり、代わりに判断したりしない。`${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインの入ったフォルダのパスを入れる変数で、自分で置き換えずにそのまま打つ。どの引数を打つかは、下の「何をいつ読むか」の手順で決める。コマンドは `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起動する（`python3`・`python`・版の付いた名前〔`python3.20` から `python3.11` まで〕・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下のコマンドの形をそのまま打ち、Python の名前を替えない。
 
 ```
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>

@@ -24,7 +24,7 @@ The design (why it is built this way: the problem, the formulas and why the boun
 /plugin install rent-or-buy@raiki61
 ```
 
-Claude Code puts the `bin/` of an enabled plugin on the PATH of its Bash tool. Python 3.11+ (standard library only) is required; the launcher picks the first of `python3`, `python`, `py -3` that is 3.11 or later.
+Claude Code puts the `bin/` of an enabled plugin on the PATH of its Bash tool. Python 3.11+ (standard library only) is required; the launcher picks the first of `python3`, `python`, the versioned names `python3.20` down to `python3.11`, and `py -3` that is 3.11 or later. If Python is installed but not found, add the folder it was installed in to PATH.
 
 ## Commands
 
