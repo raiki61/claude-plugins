@@ -6,6 +6,12 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+### Fixed
+
+- `/whose-turn`・`/catchup`・`/what-am-i-doing`・`/reflect` が、3.9 以上の Python が `python3.14` のような版の付いた名前でだけ PATH に在り、PATH の `python3` が古い物か Microsoft Store へ誘う代わりの物のとき、入っている Python を見つけられず「Python 3.9 以上を入れる」と言って止まっていたのを直した。uv で入れた Python はこの形になる（uv は既定で版の付いた名前だけを入れる）。利用者の対応は要らない。
+  - 同梱の `scripts/run-python.sh` は、`python3`・`python` の後に `python3.20` から `python3.9` までを新しい順に試し、最後に `py -3` を試す。今動いている機械で選ばれる Python は変わらない。
+  - 選べないときの 1 行に、入っているのに見つからないときの直し方（入れた場所を PATH に足す）を足した。
+
 ## [0.42.0] - 2026-10-26
 
 ### Changed

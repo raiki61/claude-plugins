@@ -2422,7 +2422,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=777
+EXPECTED_CHECKS=778
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5556,6 +5556,9 @@ expect_output 1 "番号か PR / issue の URL、手元の commit を渡す" \
 # Windows の python3 が Microsoft Store へ誘う代わりの物でも、起きる python を選ぶ（PATH を偽の python3 と python だけにする）
 expect_output 0 "PICKED" "attention run-python.sh: python3 が Microsoft Store へ誘う代わりの物なら、次の python を選ぶ" \
     bash "$ROOT/tests/attention-run-python-case.sh" store "$PY_BIN"
+# 本物が python3.14 の名前でだけ PATH に在る形（uv は版の付いた名前だけを入れる。docs/standards/cross-os.md の決まり 1）
+expect_output 0 "PICKED" "attention run-python.sh: python3・python で見つからなくても、版の付いた名前（python3.14）の本物を選ぶ" \
+    bash "$ROOT/tests/attention-run-python-case.sh" versioned "$PY_BIN"
 expect_output 1 "Python 3.9 以上が見つからない" "attention run-python.sh: 起きる Python が無ければ、訳と直し方を出して 1 で終わる" \
     bash "$ROOT/tests/attention-run-python-case.sh" none "$PY_BIN"
 
