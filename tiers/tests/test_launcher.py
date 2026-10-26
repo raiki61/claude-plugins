@@ -40,6 +40,26 @@ class Launcher(unittest.TestCase):
             self.assertEqual(p.returncode, 1)
             self.assertIn("アプリ実行エイリアス", p.stderr)
 
+    @unittest.skipIf(os.name == "nt" or not shutil.which("sh"), "sh で起動する形は Windows の外で確かめる")
+    def test_sh_skips_a_python_older_than_the_floor(self):
+        with tempfile.TemporaryDirectory() as d:
+            # 古い Python の振る舞い: 版の確かめ（version_info を比べる -c）には 1 で答え、ほかの -c は通り、台本は読めずに落ちる
+            stub = pathlib.Path(d) / "python3"
+            stub.write_text('#!/bin/sh\ncase "$2" in *version_info*) exit 1 ;; esac\n[ "$1" = -c ] && exit 0\n'
+                            "echo 'SyntaxError: invalid syntax' >&2\nexit 1\n", encoding="utf-8")
+            stub.chmod(0o755)
+            (pathlib.Path(d) / "python").symlink_to(sys.executable)
+            only_sh = pathlib.Path(d) / "only-sh"
+            only_sh.mkdir()
+            (only_sh / "sh").symlink_to(shutil.which("sh"))
+            env = {**os.environ, "PATH": os.pathsep.join([d, str(only_sh)])}
+            for name in ("tiers", "tiers-settings", "tiers-statusline"):
+                with self.subTest(name):
+                    p = subprocess.run(["sh", str(ENTRY.with_name(name)), "--help"], capture_output=True, text=True, encoding="utf-8",
+                                       env=env)
+                    self.assertEqual(p.returncode, 0, p.stderr)
+                    self.assertNotIn("SyntaxError", p.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

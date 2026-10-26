@@ -295,6 +295,36 @@ class Shell(Base):
         self.assertFalse(started(), "手で書いた上書きは起動しても変わらない")
 
 
+class FindClaude(unittest.TestCase):
+    """bg-count.sh の find_claude が、背景の Bash の親の Claude を探す所。ps と readlink は PATH の偽物で答える。"""
+
+    def find(self, comm, exe):
+        # 処理 50（背景の Bash）の親が 100（Claude）。100 の名前を comm、実行ファイルのパスを exe で答える
+        with tempfile.TemporaryDirectory() as d:
+            bin_ = pathlib.Path(d)
+            (bin_ / "ps").write_text(
+                '#!/bin/sh\ncase "$*" in\n'
+                f'  "-o comm= -p 100") echo "{comm}" ;;\n  "-o comm= -p 50") echo bash ;;\n'
+                '  "-o ppid= -p 50") echo " 100" ;;\n  "-o ppid= -p 100") echo " 1" ;;\nesac\n', encoding="utf-8")
+            (bin_ / "readlink").write_text(f'#!/bin/sh\n[ "$1" = /proc/100/exe ] && echo "{exe}"\n', encoding="utf-8")
+            for f in bin_.iterdir():
+                f.chmod(0o755)
+            script = (sl.ROOT / "statusline" / "bg-count.sh").read_text(encoding="utf-8")
+            func = re.search(r"^find_claude\(\) \{\n.*?^\}\n", script, re.M | re.S).group(0)
+            return subprocess.run(["bash", "-c", func + "find_claude 50"], env={**os.environ, "PATH": f"{d}:{os.environ['PATH']}"},
+                                  capture_output=True, text=True, encoding="utf-8").stdout.strip()
+
+    def test_linux_versions_binary_is_found_by_its_executable_path(self):
+        # Linux の comm はパスを持たず版の数字だけになる（2026-10-26 に python:3.14-slim で見た）
+        self.assertEqual(self.find("2.1.302", "/home/u/.local/share/claude/versions/2.1.302"), "100")
+
+    def test_macos_versions_binary_is_found_by_its_name(self):
+        self.assertEqual(self.find("/Users/u/.local/share/claude/versions/2.1.302", ""), "100")
+
+    def test_other_processes_are_not_taken_for_claude(self):
+        self.assertEqual(self.find("2.1.302", "/usr/bin/node"), "")
+
+
 class Check(Base):
     def probe(self, uses=True, link=True, over=None):
         p = FakeProbe()

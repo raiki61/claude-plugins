@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- herdr の横に出す作業の行の控え（`activity.py`）と、VS Code の窓の socket を探す所（`vscode.py`）の一時の置き場を、環境変数 `TMPDIR` が無いときに `/tmp` と決め打ちせず、OS の一時の置き場（Python の `tempfile.gettempdir()`）にした。Windows では `TMPDIR` がふつう無く、`\tmp` に書こうとして落ち、作業の行が黙って出なかった。macOS と Linux では、置き場は前と同じ。
+- herdr の横に出す作業の行の控え（`activity.py`）と、VS Code の窓の socket を探す所（`vscode.py`）の一時の置き場を、環境変数 `TMPDIR` が無いときに `/tmp` と決め打ちせず、OS の一時の置き場（Python の `tempfile.gettempdir()`）にした。Windows では `TMPDIR` がふつう無く、`\tmp` に書こうとして落ち、作業の行が黙って出なかった。macOS と Linux では、`TMPDIR` が在れば前と同じ所に置く。`TMPDIR` が無いときは、`TEMP`・`TMP` を見た後に `/tmp` を使う（`/tmp` に書けなければ、Python が選ぶほかの一時の置き場になる）。
 
 ## [0.126.6] - 2026-10-25
 
