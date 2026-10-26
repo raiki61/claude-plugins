@@ -33,14 +33,15 @@ Inside Claude Code, add the marketplace, then install the plugins you need.
 /plugin install convergence-loops@raiki61
 ```
 
-From a terminal, these two lines do the same.
+From a terminal, these lines do the same, with one extra line first. The first line adds Anthropic's official marketplace (`claude-plugins-official`), which lists pr-review-toolkit, a plugin that convergence-loops depends on. Claude Code adds that marketplace by itself the first time anyone starts an interactive session on the machine, so the first line is only needed if that has never happened. Without it, the install prints a warning that pr-review-toolkit was not installed, and convergence-loops (and graphloops, which depends on it) do not load.
 
 ```bash
+claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin marketplace add raiki61/claude-plugins
 claude plugin install convergence-loops@raiki61
 ```
 
-`@raiki61` is the marketplace name. Installing a plugin that depends on other plugins installs those too (for example, installing works-dispatch also installs tiers). To move to a newer version, run `claude plugin marketplace update raiki61`, then `claude plugin update <plugin>@raiki61`, and restart Claude Code.
+`@raiki61` is the marketplace name. Installing a plugin that depends on other plugins installs those too, as long as the marketplace that lists each dependency is added (for example, installing works-dispatch also installs tiers from this marketplace, and installing convergence-loops also installs pr-review-toolkit from the official marketplace). To move to a newer version, run `claude plugin marketplace update raiki61`, then `claude plugin update <plugin>@raiki61`, and restart Claude Code.
 
 ## Tool tiers
 
