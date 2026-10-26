@@ -13,6 +13,9 @@ gh_user = "raiki61"
 # 窓口は本社（代表の clone ~/src/claude-plugins。main を出しておく）の会話で、役は下の [[roles]] の「窓口」（持ち主 2026-10-26「はい。窓口たてていいよ。mainに」）。
 # 前は my_notes の司令塔が兼ねていた（業務改革の案 1-3、社長室の答え bce452）。司令塔はこれまでどおり、この会社の部署へ部署の名前で直に頼んでよい
 desk_role = "窓口"   # --desk で --role を省いたときの役（本社の会話の役）
+# 本社の会話が --desk で名付くまでの窓口。works-dispatch は本社に名付いた窓口が在ればそちらを先に引き、無いときだけこれを使う。
+# 消すと、名付くまで会社の名前だけで宛てた頼み（--ask claude-plugins）が止まる（nodes/deliver.py の「窓口が名付けられていない」）
+desk = "my_notes/司令塔"
 
 default_role = "作業"   # --task で --role を省いたときの役
 
@@ -250,6 +253,8 @@ name = "窓口"
 model = "opus"
 effort = "medium"
 keepalive = true   # 理由は役「担当」の keepalive のコメント
+holders = ["司令塔"]   # 理由は役「担当」の holders のコメント（窓口も部署の頼みに納品で返す）
+deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 役「担当」と同じ
 instructions = """\
 claude-plugins の窓口。本社（代表の clone ~/src/claude-plugins）で持ち主と話し、頼みを部署へ配る。\
 自分では直さない。プラグインの直しは会社の形 .claude/company.toml の [[skills]] の受け持ちの名前で、その担当に頼む（--ask claude-plugins/<受け持ち>）。\
