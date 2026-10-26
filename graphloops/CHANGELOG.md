@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-10-26
+
 ### Fixed
 - README の「Installation」に、シェルの `claude plugin install` だけで入れる機械では、先に `claude plugin marketplace add anthropics/claude-plugins-official` を打つことを足した（依存の convergence-loops が公式の marketplace の `pr-review-toolkit` に依存していて、登録が無いと両方とも読み込まれない）。
 

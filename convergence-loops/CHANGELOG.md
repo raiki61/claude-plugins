@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-10-26
+
 ### Fixed
 - README の「Dependencies and how you obtain them」に、まだ誰も対話の Claude Code を起動していない機械でシェルの `claude plugin install` だけで入れると、公式の marketplace（`claude-plugins-official`）が登録されておらず、依存の `pr-review-toolkit` が入らずにこの plugin が読み込まれないことと、先に `claude plugin marketplace add anthropics/claude-plugins-official` を打つ手順を足した。読み込まれないときの直し方にも、同じ登録を先にすることを足した。
 
