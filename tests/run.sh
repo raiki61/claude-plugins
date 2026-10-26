@@ -6870,6 +6870,11 @@ py = pathlib.Path(sys.executable).as_posix()
     f'"{py}" -c "import a, sys; a.X == 1 or print(\'  FAIL got=%d\' % a.X); sys.exit(a.X != 1)"\n', encoding="utf-8", newline="\n")
 subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
 mutate.ROOT = src
+# cwd を読む口の無い OS（Windows）では、lease は写しを毎回捨てる。戻して照合する道を見るため、そこでは残っていないと答えさせる
+# （確かめられないときに捨てることは、下の unknown が見る）
+checks = mutate.lingering(src) is not None
+if not checks:
+    mutate.lingering = lambda d: False
 arm = lambda i, f, old, new: {"id": i, "title": i, "file": f, "suite": "root", "old": old, "new": new}
 # 同じファイルに同じ大きさの腕を続ける——.pyc が写しの木に残れば、2 本目は前の腕のバイトコードを読みうる（mtime の秒とサイズが同じ）
 rs = [mutate.one(x) for x in (arm("a1", "a.py", "X = 1", "X = 2"), arm("a2", "a.py", "X = 1", "X = 3"), arm("a3", "b.txt", "p", "q"))]
@@ -6898,11 +6903,15 @@ cases = {"stray": lambda repo, d: (repo / "stray.txt").write_text("x", encoding=
          "failfast": lambda repo, d: mutate.run_group([mutate.BASH, "-c", "echo '  FAIL x'; sleep 30"], repo, failfast=True),
          "raise": boom}
 out.append(" ".join(f"{k}={after(f)}" for k, f in cases.items()))
-# cwd を読む口の無い OS（Windows）は確かめない（tests/mutate.py の docstring が照合の外と書く）。実行の許可も Windows には無い
+answer = mutate.lingering
+mutate.lingering = lambda d: None
+out.append(f"unknown={after(lambda repo, d: None)}")
+mutate.lingering = answer
+# 残ったプロセスは cwd を読める OS だけで見る（読めない OS は上で残っていないと答えさせた）。実行の許可も Windows には無い
 left = after(stray_proc)
 stray_proc.p.kill()
 mode = after(lambda repo, d: os.chmod(repo / "b.txt", 0o755))
-out.append(f"lingering_ok={left.startswith('写しの置き場を cwd に') if os.name == 'posix' else True}"
+out.append(f"lingering_ok={left.startswith('写しの置き場を cwd に') if checks else True}"
            f" mode_ok={mode.startswith('写しの中身が基点と違う') if os.name == 'posix' else True}")
 with mutate.lease("f"):   # 棚に使い回せる写しを 1 つ置いてから、--fresh-copy がそれを使わないことを見る
     pass
@@ -6917,8 +6926,9 @@ PYLEASE
 expect_output 0 "a1=Killed:got=2 a2=Killed:got=3 a3=Survived:-
 made=1 reused=2
 stray=写しの中身が基点と違う emptydir=写しの中身が基点と違う edit=写しの中身が基点と違う pytest_cache=kept branch=写しの .git が作った時と違う config=写しの .git が作った時と違う tag=写しの .git が作った時と違う failfast=子のグループを殺した raise=例外か止める信号で抜けた
+unknown=この OS では写しの置き場を cwd に持つプロセスを確かめられない
 lingering_ok=True mode_ok=True
-fresh_made=2 fresh_reused=0 line=写し: 作った 2 / 使い回した 0 / 捨てた（--fresh-copy） 2" "写しの使い回し: 腕の写しは基点に戻して次の腕へ渡し（.pyc と一時物は写しの外で腕ごとに消え、同じ大きさの腕が続いても前の腕を読まない）、余分な項目・空のディレクトリ・戻していない字列・.git の refs と config・子のグループを殺した腕・例外・残ったプロセスでは捨てる。.pytest_cache は消して使い回す。--fresh-copy は毎回作る" \
+fresh_made=2 fresh_reused=0 line=写し: 作った 2 / 使い回した 0 / 捨てた（--fresh-copy） 2" "写しの使い回し: 腕の写しは基点に戻して次の腕へ渡し（.pyc と一時物は写しの外で腕ごとに消え、同じ大きさの腕が続いても前の腕を読まない）、余分な項目・空のディレクトリ・戻していない字列・.git の refs と config・子のグループを殺した腕・例外・残ったプロセス・残ったかを確かめられない OS では捨てる。.pytest_cache は消して使い回す。--fresh-copy は毎回作る" \
     "$PY_BIN" "$WORK/mut-lease.py" "$ROOT/tests"
 # 撃ち比べ（--same-as）: 使い回しで撃った報告と、腕ごとに作り直して撃った結果を突き合わせる。撃たずに、選び方・比べ方・main の配線を見る
 cat > "$WORK/mut-sameas.py" <<'PYSAME'

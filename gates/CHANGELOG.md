@@ -6,6 +6,11 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows で python.org の Python だけを入れた機械では、フックが毎回落ちてゲートが黙って外れていた。フックの起動の行が `command -v python3 || command -v python` で Python を選び、`python3` が Microsoft Store へ誘う代わりの物（WindowsApps の `python3.exe`。起動すると案内を出して終わる）に当たっても `python` に落ちなかった（Claude Code はフックの落ちを会話を止めない誤りとして扱う）。フックは `hooks/run-python.sh` を通し、`python3`・`python`・`py -3` の順に、実際に起きて 3.9 以上の物を選ぶ（works-dispatch の `hooks/run-python.sh` と同じ選び方）。選べなければ直し方を会話ごとに 1 回出す。coldread のスキルの手で打つ命令（`branch-check`・`read`）も同じ入口を通す。入れた後に利用者がする事は無い。
+- searchgate（探す範囲のゲート）が止める起点が macOS の形（`/Users`・`/System`・`/Volumes`・`/private`・`/opt`）だけで、Linux と Windows では `/` の直下の大きいフォルダとドライブの根を止めていなかった。Linux の `/home`・`/usr`・`/var`・`/mnt`・`/media`・`/root`・`/srv` と、Windows のドライブの根とその下の `Users`・`Windows`・`Program Files`・`Program Files (x86)`・`ProgramData` も止める。ドライブは `C:/…`・`C:\…`・Git Bash の `/c/…`・Cygwin の `/cygdrive/c/…`・WSL の `/mnt/c/…` のどれで書いても同じ所と読む。前は `C:\x` を相対の起点として作業場に繋いでいた。大文字と小文字は区別しない（macOS と Windows の既定のファイルシステムは区別しないので、前は `find /users` が通っていた）。
+
 ## [0.43.0] - 2026-10-24
 
 ### Added

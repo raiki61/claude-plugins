@@ -6,8 +6,11 @@ coldread・destgate が外に出る物を守るのに対し、これは手元の
 24 コアで 55〜70 になった。Bash の時間切れの後も親を失って残り、`pkill -f "find / …"` では名が合わず消えなかった。
 会社ごとの文書に「探すな」と書いても、ほかの会社・ほかの探し物で同じことが起きるので、全部の会話に 1 つの決まりを当てる。
 
-決まりは 1 つ: 探す起点が WIDE のどれか(/・/Users・/System・/Volumes・/private・/opt・ホームそのもの)なら止める。
-それより下(~/.cache/works-factory など)と作業場の中は通す。深さや時間の上限では縛らない。
+決まりは 1 つ: 探す起点が WIDE のどれか(/ と、その直下の大きいフォルダ〔macOS の /Users・/System・/Volumes・/private・/opt、
+Linux の /home・/usr・/var・/mnt・/media・/root・/srv〕・Windows のドライブの根とその直下の大きいフォルダ・ホームそのもの)なら止める。
+それより下(~/.cache/works-factory など)と作業場の中は通す。深さや時間の上限では縛らない。Windows のドライブは C:/…・C:\…・
+Git Bash の /c/…・Cygwin の /cygdrive/c/…・WSL の /mnt/c/… のどれで書いても同じ所と読み、大文字と小文字は区別しない
+(macOS と Windows の既定のファイルシステムは区別しないので、/users も /Users と同じ所を探す)。
 
 見るツール: Bash の find・bfs・gfind・fd・rg・grep -r(前置の nice・sudo・xargs・timeout なども越えて読む)と、
 Claude Code の Glob・Grep のツール。`bash -c "…"`・`eval`・`$( … )`・`` ` … ` `` の中も読む。起点の変数は、同じコマンドの中の
@@ -61,14 +64,41 @@ def norm(path):
     return p
 
 
+# ドライブの書き方(C:・C:/…・/c/…・/cygdrive/c/…・WSL の /mnt/c/…)。norm の後の形(\\ は / に、C:/ は C: に畳まれている)
+DRIVE_RE = re.compile(r"(?:([A-Za-z]):|/(?:cygdrive/|mnt/)?([A-Za-z]))(/.*)?\Z")
+# / の直下の大きいフォルダ(macOS・Linux)。/System/Volumes/Data は macOS で /Users などの実体が載る場所(firmlink)で、
+# / の全体と同じ重さになる
+ROOT_DIRS = ("/Users", "/System", "/System/Volumes/Data", "/Volumes", "/private", "/opt",
+             "/home", "/usr", "/var", "/mnt", "/media", "/root", "/srv")
+# ドライブの根の直下の大きいフォルダ(Windows)
+DRIVE_DIRS = ("/Users", "/Windows", "/Program Files", "/Program Files (x86)", "/ProgramData")
+
+
+def key(path):
+    """norm の後の形 → 比べる形: ドライブの書き方を /c/… に揃え、大文字と小文字を畳む。"""
+    m = DRIVE_RE.match(path)
+    if m:
+        path = "/" + (m.group(1) or m.group(2)).lower() + (m.group(3) or "")
+    return path.casefold()
+
+
 def wide_set():
     h = norm(home())
-    # /System/Volumes/Data は macOS で /Users などの実体が載る場所(firmlink)。/ の全体と同じ重さになる
-    base = {"/", "/Users", "/System", "/System/Volumes/Data", "/Volumes", "/private", "/opt", h}
-    return base | {"/System/Volumes/Data" + p for p in (h, "/Users") if p.startswith("/")}
+    drives = ["/" + chr(c) for c in range(ord("a"), ord("z") + 1)]
+    base = {"/", h, *ROOT_DIRS, *drives, *(d + sub for d in drives for sub in DRIVE_DIRS)}
+    base |= {"/System/Volumes/Data" + p for p in (h, "/Users") if p.startswith("/")}
+    return {key(p) for p in base}
 
 
 WIDE = wide_set()
+# 止めたときに見せる一覧(WIDE は比べる形なので、読める形を別に持つ)
+WIDE_TEXT = "・".join(("/",) + ROOT_DIRS) + "・ドライブの根(C:/・/c/ など)とその下の " + "・".join(
+    d.lstrip("/") for d in DRIVE_DIRS) + "・ホームそのもの(%s)" % norm(home())
+
+
+def is_abs(path):
+    """/ で始まるか、ドライブで始まる(C:/…)。"""
+    return path.startswith("/") or re.match(r"[A-Za-z]:(?:/|\Z)", path) is not None
 
 
 def expand_home(value):
@@ -219,7 +249,7 @@ def resolve(value, cwd):
     """起点の語 → 比べる形の絶対パス。決まらなければ None(止めない)。"""
     if value is None:
         return None
-    v = expand_home(value)
+    v = expand_home(value).replace("\\", "/")
     if "$" in v or "`" in v:
         return None
     if any(ch in v for ch in "*?["):
@@ -230,7 +260,7 @@ def resolve(value, cwd):
                 break
             head.append(part)
         v = "/".join(head) or ("/" if v.startswith("/") else ".")
-    if not v.startswith("/"):
+    if not is_abs(v):   # C:\x も C:/x と同じく絶対(cwd に繋がない)
         if not cwd:
             return None
         v = posixpath.join(cwd.replace("\\", "/"), v)
@@ -239,7 +269,7 @@ def resolve(value, cwd):
 
 def check_path(tool, value, cwd):
     p = resolve(value, cwd)
-    if p in WIDE:
+    if p is not None and key(p) in WIDE:
         raise Hit(tool, p)
 
 
@@ -332,7 +362,7 @@ def check_tool(tool, args, cwd):
         if not any(ch in pattern for ch in "*?[{"):
             return   # 字だけの型は 1 つのパスを見るだけで、下をたどらない
         root = glob_root(pattern)
-        if not root.startswith(("/", "~", "$")):
+        if not (is_abs(root) or root.startswith(("~", "$"))):
             base = resolve(path, cwd)
             if base is None:
                 return   # 起点の path が決まらない
@@ -352,7 +382,7 @@ def deny(cr, tool, start):
         "（2026-10-24 に / からの find 2 本で 1 時間に CPU 860%%）、時間切れの後も残る。"
         "作業場の中か、探す物の置き場（例: ~/.cache/<ツール>/・~/src/<リポジトリ>）を起点にして打ち直すこと。"
         "置き場が分からなければ、先にそのツールの文書か設定を読む。止める起点は %s で、それより下は通る。"
-        "このゲートに逃げ道は無い。" % (tool, start, "・".join(sorted(WIDE)))
+        "このゲートに逃げ道は無い。" % (tool, start, WIDE_TEXT)
     )
 
 

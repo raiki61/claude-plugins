@@ -78,6 +78,24 @@ class Bash(unittest.TestCase):
         "rg needle /*",
         "bash -o pipefail -c 'find / -name x'",
         "bash -euo pipefail -c 'find ~ -name x'",
+        # Linux の / の直下の大きいフォルダ
+        "find /home -name x",
+        "find /usr -name x",
+        "rg needle /var",
+        "fd x /mnt",
+        "grep -rn needle /root",
+        # Windows のドライブの根(どの書き方でも)とその下の大きいフォルダ。大文字と小文字は区別しない
+        "find C:/ -name x",
+        "find 'C:\\' -name x",
+        "find /c/ -name x",
+        "find /cygdrive/c -name x",
+        "find /mnt/c -name x",
+        "find /c/Users -name x",
+        "find 'C:\\Users' -name x",
+        "find /c/Windows -name x",
+        "rg needle 'C:/Program Files'",
+        "find /users -name x",
+        "find /HOME -name x",
     ]
     PASS = [
         "find . -name x",
@@ -101,6 +119,10 @@ class Bash(unittest.TestCase):
         "cat <<'EOF'\nfind / -name x\nEOF",
         "find ~/src/* -name x",
         "git log | grep -i needle",
+        "find /usr/local/lib -name x",
+        "find /c/Users/tester/src -name x",
+        "find 'C:\\Users\\tester\\src' -name x",
+        "find /mnt/data -name x",
     ]
     # 作業場がホームのときも通す形(起点を取らない呼び出し)
     PASS_IN_HOME = [
@@ -144,6 +166,15 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "cd /\nrg needle"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd && find . -name x"})[0])
 
+    def test_drive_start_is_not_joined_to_cwd(self):
+        # ドライブの形の起点(D:\)は絶対で、cwd に繋がない(繋ぐと /home/tester/src/repo/D: になって通っていた)
+        self.assertIsNotNone(run("Bash", {"command": "find 'D:\\' -name x"})[0])
+
+    @unittest.skipUnless(os.name == "nt", "C:\\… の cwd は Windows の Claude Code だけが渡す(ほかの OS では絶対のパスでないので cd の読み方が捨てる)")
+    def test_relative_start_in_windows_cwd(self):
+        self.assertIsNone(run("Bash", {"command": "find src -name x"}, cwd="C:\\Users\\tester\\repo")[0])
+        self.assertIsNotNone(run("Bash", {"command": "find .. -name x"}, cwd="C:\\Users\\tester")[0])
+
     def test_relative_start_in_wide_cwd(self):
         self.assertIsNotNone(run("Bash", {"command": "find . -name x"}, cwd=HOME)[0])
         self.assertIsNotNone(run("Bash", {"command": "rg needle"}, cwd="/")[0])
@@ -154,7 +185,10 @@ class Tools(unittest.TestCase):
         stop = [{"pattern": "**/research.json", "path": "/"},
                 {"pattern": "/Users/**/x.ts"},
                 {"pattern": "**/x.ts", "path": "~"},
-                {"pattern": "/home/tester/**/x"}]
+                {"pattern": "/home/tester/**/x"},
+                {"pattern": "C:/**/x"},
+                {"pattern": "**/x", "path": "C:\\Users"},
+                {"pattern": "**/x", "path": "D:\\"}]
         for args in stop:
             with self.subTest(args=args):
                 self.assertIsNotNone(run("Glob", args)[0])
@@ -164,7 +198,9 @@ class Tools(unittest.TestCase):
                   {"pattern": "/home/tester/.cache/**/x"},
                   {"pattern": "src/a.py"},
                   {"pattern": "~/.zshrc"},
-                  {"pattern": "/opt/homebrew"}]
+                  {"pattern": "/opt/homebrew"},
+                  {"pattern": "C:/Users/tester/src/**/x"},
+                  {"pattern": "**/x", "path": "C:\\Users\\tester\\src"}]
         for args in passes:
             with self.subTest(args=args):
                 self.assertIsNone(run("Glob", args)[0])

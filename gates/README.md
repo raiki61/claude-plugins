@@ -234,9 +234,11 @@ The following are accepted as out of scope in principle, or as forms that are st
   So `gh pr checkout -b <branch name>`, `gh issue view -c`, `gh run download -n`, etc. are
   not posts and are not caught by the net. Conversely, even if gh adds posting subcommands, they are caught by the net if written with long flags.
   New subcommands used only with short forms are missed
-- The hook's start line is written assuming it is evaluated by a POSIX shell (bash) (it uses `command -v` and `$(...)` to
-  choose `python3`/`python`). In an environment without bash, the host cannot start the hook at all, so
-  the gatekeeper does not run regardless of how the start line is written
+- The hook's start line runs `hooks/run-python.sh` with bash. It tries `python3`, `python` and `py -3` in that order and uses the
+  first one that actually starts and is Python 3.9 or newer (on Windows, `python3`/`python` can be the Microsoft Store placeholder,
+  which only prints an install hint; picking the first name on PATH would make every hook fail and the gates silently not run).
+  If none works, it prints how to fix it once per conversation and the gates do not run. In an environment without bash, the host
+  cannot start the hook at all, so the gatekeeper does not run regardless of how the start line is written
 - The screen for a new PR or issue is assembled only for `gh pr create` and `gh issue create`. The title is taken from `--title`, the repository from
   `-R` (if absent, `gh repo view` in the place where gh runs), and the PR's branches from `--base` (if absent, the default branch) and `--head` (if absent, the current branch
   of the place where gh runs);
@@ -471,10 +473,14 @@ The third gatekeeper. It protects the local machine instead of what goes out. On
 timeout, and `pkill -f "find / …"` did not match the `bfs` process name. Writing "do not search from /" into one repository's instructions does
 not reach sessions working on other repositories, and a session can still miss it, so this is one rule, enforced by a hook, for every session.
 
-- The rule: if the start of a search is `/`, `/Users`, `/System`, `/System/Volumes/Data`, `/Volumes`, `/private`, `/opt` or the home folder
-  itself (written as `~`, `$HOME` or its absolute path), the call is stopped before it runs, and the session is told to start from its working
+- The rule: if the start of a search is `/`, a large folder right under it (macOS: `/Users`, `/System`, `/System/Volumes/Data`, `/Volumes`,
+  `/private`, `/opt`; Linux: `/home`, `/usr`, `/var`, `/mnt`, `/media`, `/root`, `/srv`), a Windows drive root or a large folder right under it
+  (`Users`, `Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`), or the home folder itself (written as `~`, `$HOME` or its
+  absolute path), the call is stopped before it runs, and the session is told to start from its working
   folder (the folder the session runs in) or from the place the thing is known to be kept. Anything below these (`~/.cache/works-factory`,
-  `/opt/homebrew`, the working folder) passes. Only the start is checked: an allowed search is not limited in depth or running time
+  `/opt/homebrew`, `/usr/local/lib`, the working folder) passes. Only the start is checked: an allowed search is not limited in depth or running time
+- A Windows drive is the same place however it is written: `C:/…`, `C:\…`, Git Bash's `/c/…`, Cygwin's `/cygdrive/c/…` or WSL's `/mnt/c/…`.
+  Upper and lower case are not told apart (the default file systems of macOS and Windows do not, so `/users` searches the same folder as `/Users`)
 - What it reads (a PreToolUse hook, which runs before each Bash, Glob and Grep call): `find`, `bfs`, `gfind`, `fd`, `rg` and `grep -r` in Bash, also behind `nice`, `sudo`,
   `xargs`, `timeout` and so on, and inside `bash -c "…"`, `eval`, `$( … )` and `` ` … ` ``; the `path` of the Glob and Grep tools and the
   fixed head of a Glob pattern (`/Users/**/x` starts at `/Users`; a pattern with no wildcard looks at one path and passes). A start with a shell

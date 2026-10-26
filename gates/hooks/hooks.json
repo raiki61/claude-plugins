@@ -6,21 +6,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\"",
             "shell": "bash",
             "timeout": 275,
             "statusMessage": "外部投稿ゲートを確認中"
           },
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/dest-gate.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/dest-gate.py\"",
             "shell": "bash",
             "timeout": 30,
             "statusMessage": "宛先ゲートを確認中"
           },
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/wait-gate.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/wait-gate.py\"",
             "shell": "bash",
             "timeout": 30,
             "statusMessage": "待ちのループを確認中"
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/search-gate.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/search-gate.py\"",
             "shell": "bash",
             "timeout": 30,
             "statusMessage": "探す範囲を確認中"
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-record",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-record",
             "shell": "bash",
             "timeout": 10
           }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-record",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-record",
             "shell": "bash",
             "timeout": 10
           }
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-record",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-record",
             "shell": "bash",
             "timeout": 10
           }
@@ -82,7 +82,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-check",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-check",
             "shell": "bash",
             "timeout": 900,
             "statusMessage": "coldread: このサブエージェントが書いた文書を初見の読み手が読んでいる"
@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-session-end",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-session-end",
             "shell": "bash",
             "timeout": 10
           }
@@ -108,14 +108,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-check",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-check",
             "shell": "bash",
             "timeout": 900,
             "statusMessage": "coldread: このターンで書いた文書を初見の読み手が読んでいる"
           },
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-check-async",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-check-async",
             "shell": "bash",
             "asyncRewake": true,
             "timeout": 900

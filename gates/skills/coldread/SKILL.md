@@ -75,13 +75,13 @@ git の作業ツリーの中で書き換わった文書で、ほかのコマン�
 読まないもの: 300 字未満の文書、1 行目に `coldread:skip`(前の coldwrite の `coldwrite:skip` も効く)を置いた文書、
 `.gitattributes` で `linguist-generated` の印を付けた文書(生成物)か `-coldread` を付けた文書(原文と照合する写しなど、ほかの検査が受け持つ所)、書く前と同じ中身、前に読んだのと同じ中身。手元の文書のゲートだけを切るなら、環境変数 `COLDREAD_DOCS_OFF=1` を入れて Claude Code を起動する。
 
-main に入れる前に、ブランチが書いた文書をまとめて読ませるときは `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py" branch-check`
+main に入れる前に、ブランチが書いた文書をまとめて読ませるときは `bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py" branch-check`
 をブランチの作業ツリーで走らせる(main との分かれ目からブランチが変えた文書だけを読み、詰まりが在れば終了コード 1。README の「メインブランチに入れる前に読む」)。
 
 ## 手で検査するとき(メール・チャットなど、ファイルに書かない文章)
 
 1. 検査対象の本文を一時ファイルに保存する。
-2. `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py" read <そのファイル>` を走らせる。ゲートと同じ依頼文で、
+2. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py" read <そのファイル>` を走らせる。ゲートと同じ依頼文で、
    新しい coldreader が読む(依頼文そのものは同じ口の `prompt` で出る。観点の正本はゲートの 1 か所で、ここに写さない)。
    詰まりが在れば終了コード 1。重い文章は `COLDREAD_DOC_MODEL=sonnet` を前に付けて読ませてよい。
 3. 指摘の類型を言語化してから同型を掃討する(上と同じ)。
