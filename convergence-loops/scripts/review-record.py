@@ -87,7 +87,7 @@ import sys
 # importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
-from record_common import _rows, _tables, fail, load  # noqa: E402
+from record_common import _rows, _tables, fail, is_int, load, require_dict, run  # noqa: E402
 
 # Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
 # 落ちると終了コードが 1 になり「阻害要因あり」と区別が付かないため、収束を永久に
@@ -100,7 +100,7 @@ for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError, OSError):
-        pass
+        pass   # 出力の文字化けは致命でないので諦める（1 で落とすより良い）
 
 
 # 明示返答を要求する素材。ここが正本で、手順書は列挙を持たない。
@@ -358,10 +358,6 @@ TRACKED = ("held", "escalate", "decided")
 NUMERIC_FIELDS = ("count", "from_round")
 
 
-def is_int(v):
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
 def require_fields(obj, fields, what, why, cond):
     """`what` が `cond` なので `fields` が要る、を検査する。**欠落と空を別の診断に分ける**——
     `not obj.get(...)` だと 0 や "" を欠落と同じ扱いにし、入れてあるフィールドについて「要る」と
@@ -409,19 +405,16 @@ def validate(rec, path, hint=None):
     # 押さえないと負値から始めて連番のまま永久に素通りできる。手順書は「1 から 1 ずつ」。
     if rec["round"] < 1:
         fail(f"{path}: 'round' が 1 以上でない: {rec['round']!r}")
-    if not isinstance(rec["materials"], dict):
-        fail(f"{path}: 'materials' が object でない")
+    require_dict(rec["materials"], f"{path}: 'materials'")
     if not isinstance(rec["units"], list):
         fail(f"{path}: 'units' が配列でない")
-    if not isinstance(rec["reviews"], dict):
-        fail(f"{path}: 'reviews' が object でない")
+    require_dict(rec["reviews"], f"{path}: 'reviews'")
     if not isinstance(rec["questions"], list):
         fail(f"{path}: 'questions' が配列でない（人に聞く候補が無いなら空の配列）")
     # `scalars` は任意のフィールドだが、**在るなら object**（無いと `"scalars": null` が「想定外の例外」
     # になり、書き手に何を直せばよいかが伝わらない）。
     if "scalars" in rec:
-        if not isinstance(rec["scalars"], dict):
-            fail(f"{path}: 'scalars' が object でない（規模指標の名前 → 数値。無いならフィールドごと省け）")
+        require_dict(rec["scalars"], f"{path}: 'scalars'", "（規模指標の名前 → 数値。無いならフィールドごと省け）")
         # **値が数であることも見る。** 器の型だけ守っていたとき、`"doc_lines": "135"` と書くと
         # scalar_changes の isinstance が黙って弾いて「増えた scalar」が一生出ず、R1 に膨張が
         # 見えなかった（exit 2 にも 1 にもならない）。`bool` は int の派生なので別に落とす
@@ -465,8 +458,7 @@ def validate(rec, path, hint=None):
 
     seen_keys = {}
     for i, u in enumerate(rec["units"]):
-        if not isinstance(u, dict):
-            fail(f"{path}: units[{i}] が object でない")
+        require_dict(u, f"{path}: units[{i}]")
         if not u.get("key"):
             fail(f"{path}: units[{i}] に key が無い（ラウンド間の突合に使う）")
         # 後勝ちで潰れると、重い方が消えて受容していないものが受容扱いになる。
@@ -530,8 +522,7 @@ def validate_questions(rec, path, unit_index):
     seen = set()
     for i, q in enumerate(rec["questions"]):
         where = f"{path}: questions[{i}]"
-        if not isinstance(q, dict):
-            fail(f"{where} が object でない")
+        require_dict(q, where)
         if not q.get("key"):
             fail(f"{where} に key が無い（周をまたぐ突合に使う。何を決めるかを一文で）")
         if q["key"] in seen:
@@ -695,7 +686,6 @@ FAIL_LAYERS = {
     "question_origins_exist": "未決の問いの出どころの実在。judge_output が targets で units と defer 台帳に当てる",
     "load_dir": "記録のディレクトリの名前と連番。記録を書くのは engine（周の記録の段）で、判定役は書かない",
     "main": "引数の形と、3 周続く [block] の振り分け（stuck_unlisted。履歴を読む判定のノードで当てる）",
-    "_run": "想定外の例外を exit 2 に写す境界（規則ではない）",
 }
 
 
@@ -1224,16 +1214,6 @@ def main():
     )
 
 
-def _run():
-    # **終了コードの契約を担保するのはここ 1 箇所**（理由は冒頭 docstring）。
-    try:
-        main()
-    except SystemExit:
-        raise
-    except Exception as e:
-        fail(f"想定外の例外（{type(e).__name__}）: {e}")
-
-
 def _run_json():
     """--json の口。人向けの文は捕まえて text に入れ、止める訳はキーで stop に入れる。exit 2（記録が不正）でも、それまでに
     出した文を落とさない（落とす前に診断を出し切る main の約束を、JSON の口でも保つ）"""
@@ -1242,7 +1222,7 @@ def _run_json():
     buf, code = io.StringIO(), 0
     try:
         with contextlib.redirect_stdout(buf):
-            _run()
+            run(main)   # **終了コードの契約を担保する例外境界**は record_common.run
     except SystemExit as e:
         code = e.code if isinstance(e.code, int) else (0 if e.code is None else 2)
     print(json.dumps({"exit": code, "stop": _stop if code == 1 else None, "text": buf.getvalue()}, ensure_ascii=False))
@@ -1253,4 +1233,4 @@ if __name__ == "__main__":
     if sys.argv[1:2] == ["--json"]:
         del sys.argv[1]
         _run_json()
-    _run()
+    run(main)

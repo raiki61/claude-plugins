@@ -93,7 +93,7 @@
   "file": "<置き場>/record.json（駆動器が組み立てる。回す側は直接編集しない——手当ては loop.py patch で痕跡付き）",
   "validator": "python3 research-record.py record.json——report のノードに入る前に駆動器が回し、exit 0 でなければ report を出さない",
   "validator_path": "scripts/research-record.py",
-  "vocab_owner": "research-record.py の VERDICTS / VERDICT_FIELDS / THICKNESS / DECIDERS / ORIGINS / GATE_VERDICTS / OUTCOMES / REQUIRED。この JSON の schema の enum はそれを写している（増やすときは検証器が先）",
+  "vocab_owner": "research-record.py の VERDICTS / VERDICT_FIELDS / THICKNESS / DECIDERS / ORIGINS / GATE_VERDICTS / OUTCOMES / REQUIRED（THICKNESS / DECIDERS / GATE_VERDICTS は doctor-record.py と共有するので隣の record_common.py に在り、research-record.py が import する）。この JSON の schema の enum はそれを写している（増やすときは検証器が先）",
   "exit_codes": "0 = 発行を妨げるものなし／1 = 収束を名乗りながらゲート未 pass・覆り・未反証の相違／2 = 記録が不正。outcome=stopped の記録は 1 にならない",
   "report_accepts_exit": [
    0

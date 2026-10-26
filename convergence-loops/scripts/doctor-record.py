@@ -26,19 +26,24 @@
 単一スキーマに閉じず、`jsonschema` は「必須は git / python3 / bash だけ」と衝突する。
 """
 
-import json
 import sys
 
 # 検証器 4 本が共有する土台（隣の record_common）。**`sys.path[0]` に頼らない**——
 # importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
-from record_common import fail, load, not_applicable, require_int, require_str  # noqa: E402
+from record_common import (  # noqa: E402
+    DECIDERS, THICKNESS, check_convergence, check_gate, check_sampling, check_thickness, fail, is_str_list, load,
+    not_applicable, require_bool, require_dict, require_int, require_str, require_str_list, run,
+)
 
-# Windows の既定コンソール（cp932 等）対策。兄弟と同じ理由。
+# Windows の既定コンソール（cp932 等）対策。形と理由は review-record.py と同じ（try で包むのは、切り離されたストリームで
+# 落ちて終了コード 1 になるのを防ぐため）。
 for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
+    try:
         _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass   # 出力の文字化けは致命でないので諦める（1 で落とすより良い）
 
 # ここが正本で、手順書は列挙を持たない（二重管理を避ける）。
 # 「未検証」は判定の不在（フィールドの初期値）——停止した実行でだけ記録に残ってよい。
@@ -58,9 +63,6 @@ VERDICT_FIELDS = {
 CONFIDENCES = ("certain", "likely", "hypothesis")
 WEIGHTS = ("mechanical_small", "behavior_medium", "library", "architecture")
 ESCALATION_WEIGHTS = ("library", "architecture")  # 増し掛け（独立 3 票）の対象
-THICKNESS = ("light", "standard", "heavy")
-DECIDERS = ("requester", "default")
-GATE_VERDICTS = ("pass", "redesign-needed", "unverifiable")
 OUTCOMES = ("saturated", "stopped")
 FEASIBILITY = ("high", "medium", "low")
 # **値は ASCII のキーで持ち、比べる。** 日本語の語は人に見せる表示で、キーから引く（docs/standards/machine-readable-values.md の
@@ -104,13 +106,6 @@ REQUIRED = (
 )
 
 
-def require_bool(rec, key, where):
-    v = rec.get(key)
-    if not isinstance(v, bool):
-        fail(f"{where}: '{key}' が bool でない")
-    return v
-
-
 def validate(rec, path):
     # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
     if not isinstance(rec, dict):
@@ -120,22 +115,15 @@ def validate(rec, path):
             fail(f"{path}: 必須のフィールド '{key}' が無い")
 
     require_str(rec, "area", path)
-    if rec["thickness"] not in THICKNESS:
-        fail(f"{path}: 'thickness' が不正: {rec['thickness']!r}（{choices(THICKNESS)}）")
-    if rec["thickness_decider"] not in DECIDERS:
-        fail(f"{path}: 'thickness_decider' が不正: {rec['thickness_decider']!r}")
+    check_thickness(rec, path, choices(THICKNESS))
 
     # 返答の突合。返答を欠いた scout の面積は「見ていない範囲」に載っていなければ
     # ならない——欠落を「見つからなかった」と読む誤りを等式で塞ぐ。
     if not isinstance(rec["scouts"], list) or not rec["scouts"]:
         fail(f"{path}: 'scouts' が空——走査なしの報告は診断ではない")
-    if not isinstance(rec["unseen"], list) or not all(
-        isinstance(s, str) and s.strip() for s in rec["unseen"]
-    ):
-        fail(f"{path}: 'unseen' が文字列の配列でない")
+    require_str_list(rec["unseen"], f"{path}: 'unseen'")
     for i, s in enumerate(rec["scouts"]):
-        if not isinstance(s, dict):
-            fail(f"{path}: scouts[{i}] が object でない")
+        require_dict(s, f"{path}: scouts[{i}]")
         require_str(s, "area", f"{path}: scouts[{i}]")
         require_str(s, "lens", f"{path}: scouts[{i}]")
         returned = require_bool(s, "candidates_returned", f"{path}: scouts[{i}]")
@@ -152,8 +140,7 @@ def validate(rec, path):
     escalation_targets = 0
     adoptable = 0
     for i, n in enumerate(rec["nodes"]):
-        if not isinstance(n, dict):
-            fail(f"{path}: nodes[{i}] が object でない")
+        require_dict(n, f"{path}: nodes[{i}]")
         key = require_str(n, "key", f"{path}: nodes[{i}]")
         if key in keys:
             fail(f"{path}: ノードのキー '{key}' が重複（安定キーは突合に使うため一意）")
@@ -200,20 +187,14 @@ def validate(rec, path):
         if one.get("feasibility") not in FEASIBILITY:
             fail(f"{path}: oneshot の feasibility が不正（{choices(FEASIBILITY)}）")
         votes = one.get("votes")
-        if not isinstance(votes, list) or len(votes) != 3 or not all(
-            isinstance(v, str) and v.strip() for v in votes
-        ):
+        if not is_str_list(votes) or len(votes) != 3:
             fail(f"{path}: oneshot の votes は 3 票の文字列——prospector が自分の統合を自分で確定するな")
     else:
         fail(f"{path}: 'oneshot' は選定の記録か「該当なし+理由」のどちらかの形")
 
-    tri = rec["triage"]
-    if not isinstance(tri, dict):
-        fail(f"{path}: 'triage' が object でない")
+    tri = require_dict(rec["triage"], f"{path}: 'triage'")
     for k in ("discretion", "verification_decides", "human_only"):
-        v = tri.get(k)
-        if not isinstance(v, list) or not all(isinstance(s, str) and s.strip() for s in v):
-            fail(f"{path}: triage.{k} が文字列の配列でない")
+        require_str_list(tri.get(k), f"{path}: triage.{k}")
     if adoptable > 0 and not any(
         tri[k] for k in ("discretion", "verification_decides", "human_only")
     ):
@@ -226,28 +207,13 @@ def validate(rec, path):
         if not isinstance(rec[name], list):
             fail(f"{path}: '{name}' が配列でない")
         for i, item in enumerate(rec[name]):
-            if not isinstance(item, dict):
-                fail(f"{path}: {name}[{i}] が object でない")
+            require_dict(item, f"{path}: {name}[{i}]")
             for k in fields:
                 require_str(item, k, f"{path}: {name}[{i}]")
 
-    smp = rec["sampling"]
-    if not_applicable(smp):
-        pass
-    elif isinstance(smp, dict) and smp.get("status") == "done":
-        sampled = smp.get("sampled_keys")
-        if not isinstance(sampled, list) or not sampled:
-            fail(f"{path}: sampling.sampled_keys が空")
-        unknown = [s for s in sampled if s not in keys]
-        if unknown:
-            fail(f"{path}: sampling.sampled_keys に無いノード: {unknown}")
-        require_int(smp, "overturned", f"{path}: sampling")
-    else:
-        fail(f"{path}: 'sampling' は status=done か「該当なし+理由」のどちらかの形")
+    check_sampling(rec["sampling"], path, "sampled_keys", keys, "ノード")
 
-    gates = rec["gates"]
-    if not isinstance(gates, dict):
-        fail(f"{path}: 'gates' が object でない")
+    gates = require_dict(rec["gates"], f"{path}: 'gates'")
     for g in ("cartographer_comparison", "cold_reader", "rederiver_comparison"):
         if g not in gates:
             fail(f"{path}: gates に '{g}' が無い")
@@ -260,30 +226,9 @@ def validate(rec, path):
             if g == "rederiver_comparison" and rec["thickness"] == "heavy":
                 fail(f"{path}: 重厚段で rederiver の突合を省略している")
             continue
-        if not isinstance(v, dict):
-            fail(f"{path}: gates.{g} が object でない")
-        if g == "cold_reader":
-            rounds = v.get("rounds")
-            if not isinstance(rounds, list) or not rounds:
-                fail(f"{path}: cold_reader の rounds が空")
-            for i, r in enumerate(rounds):
-                if not isinstance(r, dict) or r.get("verdict") not in GATE_VERDICTS:
-                    fail(f"{path}: cold_reader rounds[{i}] の verdict が不正")
-                require_int(r, "findings", f"{path}: cold_reader rounds[{i}]")
-        else:
-            if v.get("verdict") not in GATE_VERDICTS:
-                fail(f"{path}: {g} の verdict が不正: {v.get('verdict')!r}")
-            require_str(v, "reason", f"{path}: gates.{g}")
+        check_gate(g, v, path)
 
-    conv = rec["convergence"]
-    if not isinstance(conv, dict):
-        fail(f"{path}: 'convergence' が object でない")
-    require_int(conv, "rounds_total", f"{path}: convergence", 1)
-    require_int(conv, "consecutive_zero", f"{path}: convergence")
-    if conv.get("outcome") not in OUTCOMES:
-        fail(f"{path}: convergence.outcome が不正（{'/'.join(OUTCOMES)}）")
-    if conv["outcome"] == "stopped":
-        require_str(conv, "stopped_reason", f"{path}: convergence（outcome=stopped）")
+    check_convergence(require_dict(rec["convergence"], f"{path}: 'convergence'"), path, OUTCOMES)
 
     # 変更禁止の機械確認は必須フィールド——確認せずに「変更していない」と書かせない。
     mc = rec["mod_check"]
@@ -292,9 +237,7 @@ def validate(rec, path):
     if mc["status"] != "clean":
         require_str(mc, "note", f"{path}: mod_check（status={mc['status']}）")
 
-    proc = rec["process"]
-    if not isinstance(proc, dict):
-        fail(f"{path}: 'process' が object でない")
+    proc = require_dict(rec["process"], f"{path}: 'process'")
     require_int(proc, "rerolls", f"{path}: process")
     # 増し掛け（独立 3 票）の対象ゼロは「その旨と重さの根拠」の明示が要る——
     # 選定ゼロで素通りする降格の禁止（P2b）。
@@ -304,14 +247,9 @@ def validate(rec, path):
         fail(f"{path}: 増し掛けの対象があるのに escalation_zero_reason がある（申告の腐り）")
 
     # 再走査の手引き——候補は腐るが被覆の指定は腐らない。報告を捨てても掘り直せる形。
-    rs = rec["rescan"]
-    if not isinstance(rs, dict):
-        fail(f"{path}: 'rescan' が object でない")
+    rs = require_dict(rec["rescan"], f"{path}: 'rescan'")
     require_str(rs, "coverage", f"{path}: rescan（面積×レンズ×層の指定）")
-    if not isinstance(rs.get("instruments"), list) or not all(
-        isinstance(s, str) and s.strip() for s in rs["instruments"]
-    ):
-        fail(f"{path}: rescan.instruments が文字列の配列でない")
+    require_str_list(rs.get("instruments"), f"{path}: rescan.instruments")
 
 
 def blockers(rec):
@@ -374,10 +312,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # 終了コードの契約を担保するのはここ 1 箇所（理由は冒頭 docstring）。
-    try:
-        main()
-    except SystemExit:
-        raise
-    except Exception as e:
-        fail(f"想定外の例外（{type(e).__name__}）: {e}")
+    run(main)   # 終了コードの契約を担保する例外境界（理由は冒頭 docstring）

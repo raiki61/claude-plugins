@@ -5,7 +5,6 @@
 
 engine が差し込むツールは engine/rules.py の INJECT が正本（ここに写さない）。
 """
-import collections
 import importlib.util
 import json
 import pathlib
@@ -996,7 +995,6 @@ rejudge_exhausted.__doc__ = "3 回の擦り合わせがどれも決着しなか�
 # 生き残りを次の審査の所見として出す。**engine は線を追わない**（Temporal の Parent Close Policy ABANDON と同じ——親の周が
 # 閉じても子の線は影響を受けない）。線の結果は撃った版で鍵付けした置き場（盤面の lanes/）に落ち、次の周の機械のノードが
 # 版ごとに読む。途中の版で撃った結果は、その版の結果でしかない——収束の前に最終のコードで撃ち直す（p4.final_gates）
-LANE_HANDLED = ("tests_added", "equivalent", "needs_test", "defect")   # 見逃しへの答え。schema（$defs.lane_reply）の enum と同じ語
 LANE_OPEN = ("needs_test", "defect")   # 線の中で閉じなかった答え——次の周の判定へ渡す（needs_test は線がテストを書けなかった物）
 # 線の台帳の状態。abandoned は回す側が止めた線（Temporal の Cancelled と同じく running と別の閉じた状態）——engine は線を追わないので、
 # 止めた回す側が loop.py patch で state と理由 why を書く。止めた後に届いた結果は重ねない

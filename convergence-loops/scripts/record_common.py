@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""検証器 4 本（<loop>-record.py）が共有する土台——契約の 3 値を守る口と、記録を読む口。
+"""検証器 4 本（<loop>-record.py）が共有する土台——契約の 3 値を守る口と、記録を読む口と、型を確かめる部品。
 
 **なぜ共有できるか。** 検証器は graphloops の find_validator が
 `scripts/<loop>-record.py` としてプラグインの中から解決する（`<PLUGIN>_ROOT` → 同じリポジトリ →
@@ -21,6 +21,16 @@ import sys
 def fail(msg):
     print(f"記録が不正: {msg}", file=sys.stderr)
     sys.exit(2)
+
+def run(main):
+    """`main` を走らせる。**終了コードの契約を担保するのはここ 1 箇所**——想定外の例外は未処理のままだと exit 1
+    （阻害要因あり）になるので、記録の不正（2）に倒す。"""
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        fail(f"想定外の例外（{type(e).__name__}）: {e}")
 
 def load(path):
     """記録を読む。**読めないことは記録の不正（2）で、発行阻害（1）ではない。**"""
@@ -62,6 +72,24 @@ def _tables(what, build):
     except (IndexError, KeyError, TypeError) as e:
         fail(f"{what} の組み立てに失敗（正本の表と写しが割れている）: {e!r}")
 
+def is_int(v):
+    """bool でない int。bool は int の派生なので、素の isinstance では True が 1 として通る"""
+    return isinstance(v, int) and not isinstance(v, bool)
+
+def is_str_list(v):
+    """空でない文字列だけの配列（配列そのものは空でよい）"""
+    return isinstance(v, list) and all(isinstance(s, str) and s.strip() for s in v)
+
+def require_dict(v, what, note=""):
+    if not isinstance(v, dict):
+        fail(f"{what} が object でない{note}")
+    return v
+
+def require_str_list(v, what):
+    if not is_str_list(v):
+        fail(f"{what} が文字列の配列でない")
+    return v
+
 def require_str(rec, key, where):
     v = rec.get(key)
     if not isinstance(v, str) or not v.strip():
@@ -70,8 +98,14 @@ def require_str(rec, key, where):
 
 def require_int(rec, key, where, minimum=0):
     v = rec.get(key)
-    if not isinstance(v, int) or isinstance(v, bool) or v < minimum:
+    if not is_int(v) or v < minimum:
         fail(f"{where}: '{key}' が {minimum} 以上の整数でない")
+    return v
+
+def require_bool(rec, key, where):
+    v = rec.get(key)
+    if not isinstance(v, bool):
+        fail(f"{where}: '{key}' が bool でない")
     return v
 
 def not_applicable(v):
@@ -82,3 +116,55 @@ def not_applicable(v):
         and isinstance(v.get("reason"), str)
         and v["reason"].strip()
     )
+
+# ---- doctor と research の記録が同じ形で持つ物（厚みの三段・ゲート・抜き取り・収束）。値はキー、表示の語は各本の LABELS ----
+THICKNESS = ("light", "standard", "heavy")
+DECIDERS = ("requester", "default")
+GATE_VERDICTS = ("pass", "redesign-needed", "unverifiable")
+
+def check_thickness(rec, path, shown):
+    """厚みとその決め手。`shown` は診断の文に出す許す値の一覧（本ごとに表示の語の付け方が違う）"""
+    if rec["thickness"] not in THICKNESS:
+        fail(f"{path}: 'thickness' が不正: {rec['thickness']!r}（{shown}）")
+    if rec["thickness_decider"] not in DECIDERS:
+        fail(f"{path}: 'thickness_decider' が不正: {rec['thickness_decider']!r}")
+
+def check_gate(g, v, path):
+    """走ったゲート 1 つの形。cold_reader は周ごとの判定の並び、他は判定と理由"""
+    require_dict(v, f"{path}: gates.{g}")
+    if g == "cold_reader":
+        rounds = v.get("rounds")
+        if not isinstance(rounds, list) or not rounds:
+            fail(f"{path}: cold_reader の rounds が空")
+        for i, r in enumerate(rounds):
+            if not isinstance(r, dict) or r.get("verdict") not in GATE_VERDICTS:
+                fail(f"{path}: cold_reader rounds[{i}] の verdict が不正")
+            require_int(r, "findings", f"{path}: cold_reader rounds[{i}]")
+    else:
+        if v.get("verdict") not in GATE_VERDICTS:
+            fail(f"{path}: {g} の verdict が不正: {v.get('verdict')!r}")
+        require_str(v, "reason", f"{path}: gates.{g}")
+
+def check_sampling(smp, path, field, known, noun):
+    """抜き取りは status=done か「該当なし+理由」。`field` は抜いた物の一覧の鍵、`known` はその母集団、`noun` は診断の呼び名"""
+    if not_applicable(smp):
+        return
+    if isinstance(smp, dict) and smp.get("status") == "done":
+        sampled = smp.get(field)
+        if not isinstance(sampled, list) or not sampled:
+            fail(f"{path}: sampling.{field} が空")
+        unknown = [s for s in sampled if s not in known]
+        if unknown:
+            fail(f"{path}: sampling.{field} に無い{noun}: {unknown}")
+        require_int(smp, "overturned", f"{path}: sampling")
+    else:
+        fail(f"{path}: 'sampling' は status=done か「該当なし+理由」のどちらかの形")
+
+def check_convergence(conv, path, outcomes):
+    """周の数・連続ゼロの数・結末と、止まったときの理由"""
+    require_int(conv, "rounds_total", f"{path}: convergence", 1)
+    require_int(conv, "consecutive_zero", f"{path}: convergence")
+    if conv.get("outcome") not in outcomes:
+        fail(f"{path}: convergence.outcome が不正（{'/'.join(outcomes)}）")
+    if conv["outcome"] == "stopped":
+        require_str(conv, "stopped_reason", f"{path}: convergence（outcome=stopped）")

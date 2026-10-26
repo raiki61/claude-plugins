@@ -3,7 +3,7 @@
 rules の op のうち読み口を受ける新しい形（cond_reads の印を持つ物）は、書く値を返すだけで記録を直に書かない。書き先は op が writes_to
 （graph の writes の to を {to} に埋める記録の path の型）で名乗り、ここがそこに置く——記録への書き込みの口を増やさず、書き先の正本は
 graph の writes の宣言（graphcheck が照合し、巻き戻しが見る）のまま。旧い形の op（盤面を受け取る物）は今までどおり盤面で呼ぶ。"""
-from .rules import registry, takes_view
+from .rules import registry
 from .util import Reject, die, get_path, has_path, pick, set_path
 
 ENGINE_WRITE_OPS = ("set", "append", "merge_by_id")  # engine が持つ op。graphcheck はこれを import して照合する（写さない）

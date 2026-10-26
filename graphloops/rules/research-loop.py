@@ -867,7 +867,7 @@ def _settle_outcome(b):
 
 
 def finalize(b):
-    rec, th, ls = b.record, b.state["thickness"], b.loop_state
+    rec, th = b.record, b.state["thickness"]
     g = rec["gates"]
     _settle_outcome(b)
     # 読了のチェックが成立しなかった周は、成立しなかったことを人に見せる（engine の traces() が拾うフィールド名）。盤面の写しなので途中でも写す

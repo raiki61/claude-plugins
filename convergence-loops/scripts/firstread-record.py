@@ -57,7 +57,6 @@ exit 1 なので、**例外を素通しした時点でこの契約は破れる�
 """
 
 import collections
-import json
 import os
 import sys
 
@@ -65,14 +64,17 @@ import sys
 # importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
-from record_common import _rows, fail, load  # noqa: E402
+from record_common import _rows, fail, is_int, load, require_dict, run  # noqa: E402
 
 # Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
 # 落ちると終了コードが 1 になり「阻害要因あり」と区別が付かないため、収束を永久に
-# 宣言できなくなる。出力を UTF-8 に固定して塞ぐ。
+# 宣言できなくなる。出力を UTF-8 に固定して塞ぐ。try で包む理由は review-record.py と同じ
+# （切り離されたストリームでは reconfigure 自体が投げ、塞ぐ処理が終了コード 1 を作る）。
 for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
+    try:
         _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass   # 出力の文字化けは致命でないので諦める（1 で落とすより良い）
 
 
 # 詰まり。**範囲の内外を割り振るのはこの 4 つだけ**——疑問・着想・読み飛ばしは
@@ -143,7 +145,7 @@ def validate(rec, path):
     for key in ("target", "round", "scope", "reader_profile", "pre_answers", "errands", "materials"):
         if key not in rec:
             fail(f"{path}: 必須のフィールド '{key}' が無い")
-    if not isinstance(rec["round"], int) or isinstance(rec["round"], bool):
+    if not is_int(rec["round"]):
         fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
     # 連番検査は間隔しか見ないので、基点を押さえないと負値から始めて連番のまま
     # 永久に素通りできる。手順書は「1 から 1 ずつ」。
@@ -167,8 +169,7 @@ def validate(rec, path):
     if not isinstance(rec["errands"], list) or not rec["errands"]:
         fail(f"{path}: 'errands' が空（用事を渡さないと、探せるかを測れない）")
     for i, e in enumerate(rec["errands"]):
-        if not isinstance(e, dict):
-            fail(f"{path}: errands[{i}] が object でない")
+        require_dict(e, f"{path}: errands[{i}]")
         for field in ("errand", "expected", "reached"):
             if field not in e:
                 fail(f"{path}: errands[{i}] に '{field}' が無い")
@@ -178,8 +179,7 @@ def validate(rec, path):
         if e["found"] and not e["reached"]:
             fail(f"{path}: errands[{i}] は found なのに 'reached' が空")
 
-    if not isinstance(rec["materials"], dict):
-        fail(f"{path}: 'materials' が object でない")
+    require_dict(rec["materials"], f"{path}: 'materials'")
     for name in MATERIALS:
         m = rec["materials"].get(name)
         if not isinstance(m, dict):
@@ -194,8 +194,7 @@ def validate(rec, path):
             if not isinstance(m["items"], list):
                 fail(f"{path}: 素材 '{name}' の 'items' が配列でない")
             for j, it in enumerate(m["items"]):
-                if not isinstance(it, dict):
-                    fail(f"{path}: 素材 '{name}' の items[{j}] が object でない")
+                require_dict(it, f"{path}: 素材 '{name}' の items[{j}]")
                 # key は周をまたいだ突合に使う。無いと「同じ場所でまた詰まった」が測れない。
                 if not it.get("key"):
                     fail(f"{path}: 素材 '{name}' の items[{j}] に key が無い（周をまたぐ突合に使う）")
@@ -219,8 +218,7 @@ def validate(rec, path):
                         )
 
     for i, u in enumerate(rec.get("unresolved") or []):
-        if not isinstance(u, dict):
-            fail(f"{path}: unresolved[{i}] が object でない")
+        require_dict(u, f"{path}: unresolved[{i}]")
         if not u.get("question"):
             fail(f"{path}: unresolved[{i}] に 'question' が無い")
         if u.get("verdict") not in VERDICTS:
@@ -240,8 +238,7 @@ def validate(rec, path):
     if not isinstance(fixes, list):
         fail(f"{path}: 'fixes' が配列でない（直していない周は空配列 []。フィールドの省略は許さない）")
     for i, fx in enumerate(fixes):
-        if not isinstance(fx, dict):
-            fail(f"{path}: fixes[{i}] が object でない")
+        require_dict(fx, f"{path}: fixes[{i}]")
         for field, why in (
             ("key", "どの詰まりへの直しか（詰まりの key）"),
             ("file", "どのファイルへ書いたか"),
@@ -278,12 +275,10 @@ def validate(rec, path):
     if gate["fired"] and not gate.get("decision"):
         fail(f"{path}: structure_gate は fired なのに 'decision'（構造の判断と根拠）が無い")
 
-    size = rec.get("size")
-    if not isinstance(size, dict):
-        fail(f"{path}: 'size' が object でない（行数で増減を記録しろ）")
+    size = require_dict(rec.get("size"), f"{path}: 'size'", "（行数で増減を記録しろ）")
     for field in ("lines_before", "lines_after"):
         v = size.get(field)
-        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+        if not is_int(v) or v < 0:
             fail(f"{path}: size.{field} が 0 以上の整数でない: {v!r}")
 
 
@@ -493,10 +488,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # **終了コードの契約を担保するのはここ 1 箇所**（理由は冒頭 docstring）。
-    try:
-        main()
-    except SystemExit:
-        raise
-    except Exception as e:
-        fail(f"想定外の例外（{type(e).__name__}）: {e}")
+    run(main)   # **終了コードの契約を担保する例外境界**（理由は冒頭 docstring）

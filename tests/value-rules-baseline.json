@@ -11,9 +11,6 @@
  "attention/scripts/whose-turn.py": {
   "rule3": 1
  },
- "convergence-loops/scripts/review-record.py": {
-  "rule4": 1
- },
  "gates/hooks/coldread-gate.py": {
   "rule3": 3
  },
