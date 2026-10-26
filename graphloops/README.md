@@ -17,6 +17,14 @@ Changes per version are in [CHANGELOG.md](CHANGELOG.md). How versions are releas
 /plugin install graphloops@raiki61
 ```
 
+graphloops depends on convergence-loops, which depends on `pr-review-toolkit` from the official marketplace `claude-plugins-official`. If you install from your shell on a machine where no one has started an interactive Claude Code session yet, the official marketplace is not registered and neither plugin loads, so register it first (details and the recovery steps in convergence-loops' [Dependencies and how you obtain them](../convergence-loops/README.md#dependencies-and-how-you-obtain-them)):
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+claude plugin marketplace add raiki61/claude-plugins
+claude plugin install graphloops@raiki61
+```
+
 ## Three layers
 
 | Layer | Location | What it holds |
