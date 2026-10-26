@@ -8351,7 +8351,10 @@ def pick(globs):
 
 owners = {}  # 正本を持つ側: engine と検証器の module 直下の大文字の名前表
 declared = 0
-OWNER_GLOBS = ["graphloops/engine/*.py", "convergence-loops/scripts/*-record.py"]
+# 検証器の側は、検証器 4 本（*-record.py）だけでなく、4 本が import する共有の部品 record_common.py も正本に入れる。doctor と research が
+# 別々に持っていた表 THICKNESS・DECIDERS・GATE_VERDICTS がそこへ移り、*-record.py だけでは、名前表の宣言 98 個のうちこの 3 個が
+# 黙って数の外に落ちていた（2026-10-26。works-dispatch の頼みの受付 20261026-074948-504978）
+OWNER_GLOBS = ["graphloops/engine/*.py", "convergence-loops/scripts/*-record.py", "convergence-loops/scripts/record_common.py"]
 # **正本の置き場ごとに 1 本は拾うこと。** 検証器が scripts/ から convergence-loops/scripts/ へ移った後も
 # 古い glob のまま 0 本を拾い、検証器の表が黙って母数の外に落ちていた（declared の照合は、拾う数が 0 でも気づかない）
 for g in OWNER_GLOBS:
