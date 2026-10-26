@@ -109,6 +109,7 @@ import importlib.util
 import json
 import math
 import os
+import pathlib
 import re
 import shlex
 import shutil
@@ -2812,8 +2813,25 @@ def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIME
         except ReaderAuth as exc:
             if redirected and i + 1 < len(envs):
                 continue
+            if note == "none":
+                READER_NOTICES.add(no_auth_note(env))
             raise ReaderAuth("%s。%s" % (REDIRECT_NOTE, exc)) if redirected else exc
+        except RuntimeError:   # 起動の失敗と答えの形の違い(ReaderShape)。ログインが無いときの終わり方はこちらにも出うる
+            if note == "none":
+                READER_NOTICES.add(no_auth_note(env))
+            raise
         return got
+
+
+def no_auth_note(env):
+    """認証を足す段が無かった回(claude_auth.auth_env の段 none。macOS の外で、フックの環境に鍵が無い)に読み手が読めなかったときの、
+    人に見せる 1 行。鍵を CLAUDE_CODE_OAUTH_TOKEN でだけ渡す人は、Claude Code がフックにその値を渡さず(2.1.310 で実測。
+    docs/trials/2026-10-26-cross-os.md)、読み手の子の claude が「Not logged in」で終わる。救う口はフックの側に無い(読み手は
+    --setting-sources "" で起動するので、settings.json の env に置いた鍵も読まない)ので、ログインの保存先へ導く。"""
+    return ("coldread の読み手は、ログインの認証が無いので読めなかった(フックの環境に鍵が無く、%s/.credentials.json も"
+            "使えなかった)。鍵を環境変数 CLAUDE_CODE_OAUTH_TOKEN でだけ渡していると、Claude Code はフックにその値を渡さない。"
+            "`claude auth login` でログインして、このファイルを作る(gates の README の「When the reader is not logged in」)。"
+            "持ち主に 1 行で伝える。" % claude_auth.config_dir(env).replace("\\", "/"))
 
 
 def _reader_out(proc, note):
@@ -3512,9 +3530,9 @@ def _left_behind():
                 continue   # 消えたか読めない: 忘れる中身が分からない(覚えは残る)
     shown = [p for _, p in new[:5]]
     return ("初見読みの待ちの一覧 %d 本が、書いた会話が終わったまま読まれずに残っている(一番古い物は %d 日前。ほかの会話か、"
-            "切られたサブエージェントの物)。一覧の各行(# で始まる行を除く)が読まれていない文書のパス。読むなら python3 %s read <文書のパス>、要らなければ"
+            "切られたサブエージェントの物)。一覧の各行(# で始まる行を除く)が読まれていない文書のパス。読むなら %s <文書のパス>、要らなければ"
             "一覧のファイルを消す。持ち主に 1 行で伝え、この会話の作業では読まない: %s%s"
-            % (len(new), (now - new[0][0]) // 86400, os.path.abspath(__file__), "、".join(shown),
+            % (len(new), (now - new[0][0]) // 86400, read_cmd(), "、".join(shown),
                "(ほか %d 本)" % (len(new) - len(shown)) if len(new) > len(shown) else ""))
 
 
@@ -4750,8 +4768,8 @@ def docs_check(payload, background=False):
     event = payload.get("hook_event_name") or ("SubagentStop" if agent else "Stop")
     turn = "直前のターン" if background else "このターン"
     reader = "coldread(文脈を持たない初見の読み手 coldreader、モデル %s・effort %s)" % (DOC_MODEL, DOC_EFFORT)
-    tail = ("読み手が読めなかった文書(%s)。手で読ませるなら python3 %s read <パス>。"
-            % ("・".join(down), os.path.abspath(__file__))) if down else ""
+    tail = ("読み手が読めなかった文書(%s)。手で読ませるなら %s <パス>。"
+            % ("・".join(down), read_cmd())) if down else ""
     if later:   # 知らせて終わりをもう 1 度呼ぶ(サブエージェントは続き、裏の口は会話を呼び起こす)。次の終わりに残りを読む
         tail = "\n\n".join(filter(None, (tail, "書いた文書が 1 回の終わりに読める数(%d 本)を超えたので、残りの %d 本は次の終わりに読む。"
                                                  "読ませるために、この知らせの後はそのまま終えてよい" % (DOC_READ_MAX, later))))
@@ -5213,8 +5231,10 @@ def branch_check(argv):
     for line in stuck:
         print(line)
     if down:
-        print("読めなかった文書(読み手を起動できない。手で読ませるなら python3 %s read <パス>): %s"
-              % (os.path.abspath(__file__), "・".join(down)))
+        print("読めなかった文書(読み手を起動できない。手で読ませるなら %s <パス>): %s"
+              % (read_cmd(), "・".join(down)))
+        for note in sorted(READER_NOTICES):
+            print(note)
     if unread:
         print("開けなかった文書(UTF-8 の文書として開けない。文書でなければ拡張子を変える): %s" % "・".join(unread))
     print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件%s・推測で埋めた箇所 %d 件%s。%s"
@@ -5225,6 +5245,16 @@ def branch_check(argv):
     return 1 if stuck or down or unread else 0
 
 
+def read_cmd():
+    """知らせの文が人に打たせる、手で 1 本を読ませるコマンド(後ろに <パス> を足して打つ)。SKILL.md と同じく run-python.sh を
+    通す。素の python3 は、Windows で python.org から Python を入れた機械では Microsoft Store へ誘う代わりの物に当たって終わる
+    (終了の値 49。docs/trials/2026-10-26-cross-os.md・docs/standards/cross-os.md の決まり 1)。パスは / で書き、Git Bash でも
+    そのまま打てる形にする。"""
+    here = pathlib.Path(__file__).resolve().parent
+    return "bash %s %s read" % (shlex.quote((here / "run-python.sh").as_posix()),
+                                shlex.quote((here / "coldread-gate.py").as_posix()))
+
+
 def read_now(path):
     """手で 1 本を読ませる(記録もハッシュも見ない)。指摘を出し、詰まりが在れば 1 で終わる。"""
     READER_SOURCE.update(reader_source())
@@ -5233,7 +5263,7 @@ def read_now(path):
     try:
         found = read_doc(text, premise=skill_premise(path))
     except Exception as exc:
-        print("\n".join(["読めなかった: %s" % _down_reason(exc), *_expiry_lines()]))
+        print("\n".join(["読めなかった: %s" % _down_reason(exc), *_expiry_lines(), *sorted(READER_NOTICES)]))
         return 1
     body = doc_feedback(path, found)
     print(body or "CLEAN(詰まりも補完も無い)" + ("\n" + section("残った疑問:", finding_lines(found, "question"))

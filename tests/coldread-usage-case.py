@@ -208,6 +208,41 @@ class UsageTests(unittest.TestCase):
             self.assertEqual(row["usage"]["output_tokens"], 7281)
         self.assertNotIn("秘密", self.log.read_text())
 
+    def test_no_auth_points_to_login(self):
+        # 鍵を環境変数でだけ渡す人: フックに鍵が届かず(段 none)、読み手が「Not logged in」で終わる。ログインへ導く 1 行を知らせに足す
+        cfg = str(Path(self.tmp.name) / "cfg")
+        for out, rc, err in ((b"Not logged in \xc2\xb7 Please run /login", 0, g.ReaderAuth),
+                             (json.dumps({"type": "result", "is_error": True, "result": "Not logged in · Please run /login"}).encode(), 1, RuntimeError)):
+            g.READER_NOTICES.clear()
+            with patch.object(g, "reader_envs", return_value=([({"CLAUDE_CONFIG_DIR": cfg}, "none")], False)), \
+                 patch.object(g.subprocess, "run", return_value=subprocess.CompletedProcess([], rc, out, b"")), \
+                 patch.dict(os.environ, {}, clear=True):
+                with self.assertRaises(err):
+                    g.run_reader("秘密", {})
+            self.assertEqual(len(g.READER_NOTICES), 1)
+            note = next(iter(g.READER_NOTICES))
+            self.assertIn("claude auth login", note)
+            self.assertIn(cfg.replace("\\", "/") + "/.credentials.json", note)
+            self.assertIn(note, g.notices())
+        # 認証を足せた回の失敗(切れた鍵・使用枠)には足さない
+        g.READER_NOTICES.clear()
+        with patch.object(g, "reader_envs", return_value=([({"CLAUDE_CONFIG_DIR": cfg}, "inherited(ANTHROPIC_API_KEY)")], False)), \
+             patch.object(g.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"Not logged in", b"")), \
+             patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(g.ReaderAuth):
+                g.run_reader("秘密", {})
+        self.assertEqual(g.READER_NOTICES, set())
+
+    def test_read_command_goes_through_run_python(self):
+        # 知らせの文が打たせる形。素の python3 は Windows で Microsoft Store へ誘う代わりの物に当たる(docs/standards/cross-os.md の決まり 1)
+        cmd = g.read_cmd()
+        self.assertTrue(cmd.startswith("bash "), cmd)
+        self.assertTrue(cmd.endswith("coldread-gate.py read"), cmd)
+        self.assertIn("/hooks/run-python.sh", cmd)
+        self.assertNotIn("\\", cmd)
+        source = (ROOT / "gates/hooks/coldread-gate.py").read_text(encoding="utf-8")
+        self.assertNotRegex(source, r"python3 %s")
+
     def test_record_only_hook_does_not_read_company(self):
         payload = {"session_id": "writer"}
         with patch.object(g, "docs_off", return_value=False), patch.dict(os.environ, {}, clear=True), \

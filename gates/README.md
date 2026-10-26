@@ -15,6 +15,20 @@ Changes per version are in [CHANGELOG.md](CHANGELOG.md). How versions are releas
 /plugin install gates@raiki61
 ```
 
+### When the reader is not logged in
+
+coldread starts its reader as a separate `claude -p`. On Linux and Windows, that reader can only use the login that Claude Code saves in
+`<CLAUDE_CONFIG_DIR>/.credentials.json` (`~/.claude/.credentials.json` if `CLAUDE_CONFIG_DIR` is not set; on Windows `%USERPROFILE%\.claude\.credentials.json`),
+or a key that is present in the hook's own environment.
+
+- If you pass your Claude Code key only as the environment variable `CLAUDE_CODE_OAUTH_TOKEN` (a `claude setup-token` token, common in containers and VMs)
+  and have no `.credentials.json`, the reader does not start: Claude Code 2.1.310 did not pass `CLAUDE_CODE_OAUTH_TOKEN` to hook processes (measured on Linux and Windows, 2026-10-26),
+  and the reader ends with "Not logged in · Please run /login". Every gh post is then stopped as not checked, and each turn ends with a list of documents the reader could not read.
+  A key in the `env` of `settings.json` does not help either, because the reader starts without reading settings (`--setting-sources ""`).
+- Fix: run `claude auth login` (or `/login` in a session) once in that environment, so that `.credentials.json` exists. You can keep `CLAUDE_CODE_OAUTH_TOKEN` for your own sessions.
+  When this happens, the gate's stop reason and the end-of-turn notice add one line that points here.
+- On macOS the reader reads the token from the Keychain instead (see `COLDREAD_KEYCHAIN_SERVICE` under the settings below).
+
 ## coldread — gatekeeper for external posts
 
 A PreToolUse hook catches commands that post text to GitHub with gh (issue/PR comments and bodies, release notes, gists, etc.), and **the hook itself
@@ -285,7 +299,7 @@ read again (in 5 hours on 2026-10-17: 12 blockers against 395 guesses; 17% of th
   A separate file (such as `references/*.md`) gets the skill's `SKILL.md` as premise; the reader takes the words and steps explained there as known and reports only on the body.
   `SKILL.md` does not get the content of the files it points to, only their names (files of the same folder whose relative path is written in `SKILL.md`) and the note that they are opened where `SKILL.md` points,
   so their content missing from `SKILL.md` is not a blocker; a pointer that does not say when to open it or what is in it, and words not explained within `SKILL.md`, are still reported.
-  The premise is the current content in the working tree for the read the hook runs at the end of each turn, for the branch gate, and for the manual command `python3 hooks/coldread-gate.py read <パス>` (on a rerun of the branch gate, a changed `SKILL.md` alone does not make its separate files read again; see the branch gate below).
+  The premise is the current content in the working tree for the read the hook runs at the end of each turn, for the branch gate, and for the manual command `bash hooks/run-python.sh hooks/coldread-gate.py read <パス>` (on a rerun of the branch gate, a changed `SKILL.md` alone does not make its separate files read again; see the branch gate below).
   An agent using a skill reads `SKILL.md` first and opens a separate file when `SKILL.md` points to it (`docs/standards/skill-authoring.md`, rules 3 and 4). Read alone, a separate file lost the words explained in `SKILL.md`,
   and `SKILL.md` was blocked because the content it pointed to was not there; each fix brought new blockers elsewhere and the branch gate kept stopping (2026-10-18: 7 → 19 blockers when splitting 3 skills of attention).
   `SKILL.md` is not given the pointed content because the agent reads `SKILL.md` before opening them, and because a `SKILL.md` that points to 12 files would make one edit read most of the folder
@@ -309,7 +323,7 @@ How findings are returned depends on the writing role:
   remembered by the SessionEnd hook (reason is clear) in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/cleared`, and the notice for that session's documents says
   「/clear で終わった前の会話(id)が書いた文書で、意図はこの会話に無い。詰まりは直させ、推測で埋めた箇所は文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、確かめられないものは残す」
   ("these documents were written by the previous session (id) that ended with /clear, and their intent is not in this session. Have the blockers fixed; for guesses, fix only those whose intent can be confirmed from elsewhere in the document, the commit history, or the request file, and leave the ones that cannot")
-- **Read before merging into the mainline (メインブランチに入れる前に読む; the branch gate)**: `python3 <gates の置き場>/hooks/coldread-gate.py branch-check [--base <メインブランチの ref>]` (`<gates の置き場>` is where gates is installed; `<メインブランチの ref>` is the mainline ref)
+- **Read before merging into the mainline (メインブランチに入れる前に読む; the branch gate)**: `bash <gates の置き場>/hooks/run-python.sh <gates の置き場>/hooks/coldread-gate.py branch-check [--base <メインブランチの ref>]` (`<gates の置き場>` is where gates is installed; `<メインブランチの ref>` is the mainline ref)
   compares against the point where the branch split off from the mainline (by default the branch that `origin/HEAD` points to) and reads the documents the branch added or changed with the same reader and viewpoint. Documents that already existed are
   compared with the version at the split point, and only the rewritten sections are read (for long sections, only the rewritten paragraphs and items; see "Range read" above). For documents the branch added too,
   lines that existed in the split-point version of documents the branch deleted or changed (where they moved from) (compared ignoring leading/trailing whitespace and heading `#`) are treated as pre-existing lines,
@@ -441,8 +455,8 @@ How findings are returned depends on the writing role:
   A parent conversation run with `claude -p` has no next end after the notice, so there all documents are read in one end
 - Lists and `.reading` files last modified more than 1 day ago (the writer ended without them being read) are reported once at the end of a parent conversation's turn (not a subagent),
   both to the conversation and on the owner's screen, with the paths and how to read or remove them
-- Manual entry point to read one file: `python3 hooks/coldread-gate.py read <パス>` (`<パス>` is the path; exit code 1 if there are blockers).
-  The request text itself is printed by `python3 hooks/coldread-gate.py prompt`
+- Manual entry point to read one file: `bash hooks/run-python.sh hooks/coldread-gate.py read <パス>` (`<パス>` is the path; exit code 1 if there are blockers. `run-python.sh` picks a Python that actually starts; a bare `python3` can hit the Microsoft Store placeholder on Windows).
+  The request text itself is printed by `bash hooks/run-python.sh hooks/coldread-gate.py prompt`
 
 Before, coldwrite, a separate plugin, read documents with a prompt-type hook before Write and stopped the write. A prompt-type hook sees only the content passed
 to the tool, so with Edit it could read only the few replaced lines, not the whole document. It was moved to gates, coldwrite was removed from the marketplace, and
