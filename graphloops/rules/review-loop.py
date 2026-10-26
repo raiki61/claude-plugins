@@ -2493,6 +2493,14 @@ def _prev_round_record(b):
     return read_json(p) if p.is_file() else None
 
 
+# 止める訳（検証器の STOP_KEYS のキー）→ 人に諮る問いの頭。訳の集合の正本は検証器の表で、ここは文を足すだけ
+# ——ここに無い訳も聞く（_converge が検証器の人向けの文で代える）
+STOP_QUESTION = {
+    "premise_escalate": "前提不成立が確定した——残る仕事は全てその答えに従属する。",
+    "work_exhausted": "残る阻害要因は保留の問いに帰属するものだけ——答え無しに進める仕事は無い。",
+}
+
+
 def stop_branch(V, v):
     """検証器の結果（run_validator の戻り。graph の record.validator_output が json）から周の分岐を決める。止める訳は検証器の
     --json の stop（キー）で受け、人向けの文を読まない——以前は文から停止文言の行を探しており、文言を直すと黙って work_remains へ
@@ -2714,10 +2722,12 @@ def _converge(b, nid):
                 "options": ["continue", "stop"],
             }}
     if branch in V.STOP_KEYS:
+        # 問いの頭は訳ごとの表から引く。以前は premise_escalate とそれ以外の 2 通りで書き分けており、検証器に訳を足すと
+        # 足した訳の問いが関係のない work_exhausted の文になった（2026-10-26、受付 57fa33・4b3d41）。
+        # 文を書いていない訳は検証器の人向けの文で聞く
         return {"decision": "ask", "reason": branch, "ask": {
             "kinds": [branch],
-            "question": ("前提不成立が確定した——残る仕事は全てその答えに従属する。" if branch == "premise_escalate" else
-                         "残る阻害要因は保留の問いに帰属するものだけ——答え無しに進める仕事は無い。") +
+            "question": STOP_QUESTION.get(branch, f"{V.STOP_KEYS[branch]}。") +
                         " 台帳の held / escalate に答えるか（continue --note <答え>）、未収束のまま報告に進むか（stop）",
             "items": [f"[{q['status']}] {q['kind']}: {q['key']} — {q.get('reason', '')}" + (f" 選択肢: {q['options']}" if q.get("options") else "") for q in asking],
             "options": ["continue", "stop"],

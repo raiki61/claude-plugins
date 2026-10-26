@@ -118,6 +118,19 @@ def test_converge_does_not_re_ask_an_answered_ci_question_and_stops_instead_of_s
     assert got["decision"] == "ask" and "p4.ci: CI で回す" in got["ask"]["question"] and "聞き直さず" in got["ask"]["question"]
 
 
+def test_converge_asks_every_stop_key_with_its_own_question_even_one_it_has_no_text_for(tmp_path, monkeypatch):
+    """問いの頭は訳ごとの表 STOP_QUESTION から引く。以前は premise_escalate とそれ以外の 2 通りで書き分けており、
+    検証器に訳を足すと足した訳の問いが work_exhausted の文になった。文を書いていない訳は検証器の人向けの文で聞く"""
+    real = RULES.validator_module(board(tmp_path))
+    V = types.SimpleNamespace(**{k: getattr(real, k) for k in dir(real) if k.isupper()})
+    V.STOP_KEYS = {**real.STOP_KEYS, "new_stop": "新しく足した止める訳"}
+    monkeypatch.setattr(RULES, "validator_module", lambda b: V)
+    for key in V.STOP_KEYS:
+        got = RULES.converge(board(tmp_path, outputs={"p4.record": {"branch": key}}), "p4.converge")
+        assert got["decision"] == "ask" and got["ask"]["kinds"] == [key], (key, got)
+        assert got["ask"]["question"].startswith(RULES.STOP_QUESTION.get(key, "新しく足した止める訳。")), (key, got)
+
+
 # ---------------------------------------------------------------- 規模の数値（scalars・_comment_ratio）
 def script(tmp_path, body):
     d = tmp_path / "scripts"
