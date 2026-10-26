@@ -6,6 +6,8 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-26
+
 ### Fixed
 
 - `bin/rent-or-buy` の頭が Python を選ぶとき、`python3`・`python` の後、`py -3` の前に、`python3.20` から `python3.11` までの版の付いた名前を新しい順に試すようにした。前は、3.11 以上の Python が `python3.14` のような版の付いた名前でだけ PATH に在り、PATH の `python3` が macOS 付属の 3.9 のとき、入っている Python を見つけられずに止まっていた。uv で入れた Python はこの形になる。選べないときの 1 行（英語）には、試した名前の範囲と、入れてあるのに見つからないなら入れた場所を PATH に足すことを足した。今動いている機械で選ばれる Python は変わらない（同じ決まり: リポジトリの `docs/standards/cross-os.md` の決まり 1）。
