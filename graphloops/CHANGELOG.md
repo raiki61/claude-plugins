@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+- 利用者の動きは変わらない直し。engine と rules から、どこからも読まれていない名前を消した（`rules/review-loop.py` の `collections` の import と `LANE_HANDLED`、`engine/record.py` の import の `takes_view`、`rules/research-loop.py` の finalize の中の `ls`）。research-loop の graph の `vocab_owner` に、厚みなどの語の一覧（THICKNESS / DECIDERS / GATE_VERDICTS）が convergence-loops の `scripts/record_common.py` に移ったことを書き足した。
+
 ## [0.42.1] - 2026-10-26
 
 ### Fixed
