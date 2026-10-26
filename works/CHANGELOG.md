@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- Python の入口 `dev/run-python.sh` が、3.11 以上の Python が `python3.14` のような版の付いた名前でだけ PATH に在り、PATH の `python3` が macOS 付属の 3.9 の機械（uv で入れた Python はこの形になる）で、入っている Python を見つけずに「入れる」と案内して止まっていたのを直した。`python3`・`python` の後、`py -3` の前に、版の付いた名前を `python3.20` から `python3.11` まで新しい順に試す。止まるときの 1 行に、入っているのに見つからないときの直し方（入れた場所を PATH に足す）を足した（docs/standards/cross-os.md の決まり 1）
+
 ## [0.7.4] - 2026-10-26
 
 ### Fixed

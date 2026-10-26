@@ -1868,5 +1868,29 @@ class TestHerdrContinue(unittest.TestCase):
         self.assertEqual(len(hermetic.herdr_sockets(log)), 2)
 
 
+class RunPythonTest(unittest.TestCase):
+    """入口 dev/run-python.sh が、PATH の python3 が 3.11 に足りなくても版の付いた名前（python3.N）の物を選び、
+    どれも無ければ試した物と PATH の直し方を 1 行出して 1 で止まること（docs/standards/cross-os.md の決まり 1）"""
+
+    def run_entry(self, bin_dir):
+        return subprocess.run(["/bin/sh", str(DEV / "run-python.sh"), "-c", "import sys; print(sys.argv[1:])", "a", "b c"],
+                              capture_output=True, text=True, encoding="utf-8", env=hermetic.child_env(PATH=str(bin_dir)))
+
+    def test_picks_versioned_name_when_python3_is_too_old(self):
+        with tempfile.TemporaryDirectory() as d:
+            bin_dir = pathlib.Path(d)
+            old = bin_dir / "python3"  # macOS 付属の 3.9 の代わり: 版の確かめで偽を返す
+            old.write_text("#!/bin/sh\nexit 1\n")
+            old.chmod(0o755)
+            r = self.run_entry(bin_dir)
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("python3.20〜python3.11", r.stderr)
+            self.assertIn("入れた場所を PATH に足す", r.stderr)
+            (bin_dir / f"python3.{sys.version_info.minor}").symlink_to(sys.executable)
+            r = self.run_entry(bin_dir)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "['a', 'b c']\n")
+
+
 if __name__ == "__main__":
     unittest.main()
