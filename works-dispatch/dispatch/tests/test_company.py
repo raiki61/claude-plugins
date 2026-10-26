@@ -220,7 +220,7 @@ class Info(unittest.TestCase):
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"]), ("settings", "ノート"))
         self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "settings": None, "account": None, "start": None,
-                                          "on_demand": False, "keepalive": None}])
+                                          "on_demand": False, "per_ask": False, "keepalive": None}])
 
     def test_on_demand_is_read_and_the_former_standing_false_means_the_same(self):
         write(os.path.join(self.root, ".claude", "company.toml"),
@@ -230,6 +230,17 @@ class Info(unittest.TestCase):
         got = tree.read_info(self.root, self.settings)
         self.assertEqual([s["on_demand"] for s in got["skills"]], [True, True, False, False, False, False])
         self.assertEqual(got["problems"], [f"{got['path']}: skills[4]（e）の on_demand は true か false。外して永続で扱う"])
+
+    def test_per_ask_is_read_only_with_on_demand(self):
+        # per_ask = true（頼みごとの部署）は on_demand = true と併せたときだけ効く。形が違えば外して、受け持ちの名前の部署 1 つで受ける
+        write(os.path.join(self.root, ".claude", "company.toml"),
+              '[[skills]]\nname = "a"\non_demand = true\nper_ask = true\n[[skills]]\nname = "b"\nper_ask = true\n'
+              '[[skills]]\nname = "c"\non_demand = true\nper_ask = "yes"\n[[skills]]\nname = "d"\non_demand = true\n')
+        got = tree.read_info(self.root, self.settings)
+        self.assertEqual([(s["on_demand"], s["per_ask"]) for s in got["skills"]], [(True, True), (False, False), (True, False), (True, False)])
+        self.assertEqual(got["problems"], [
+            f"{got['path']}: skills[1]（b）の per_ask は on_demand = true と併せて書く。外して、受け持ちの名前の部署 1 つで受ける",
+            f"{got['path']}: skills[2]（c）の per_ask は true か false。外して、受け持ちの名前の部署 1 つで受ける"])
 
     def test_repo_file_wins_and_unknown_fields_are_skipped(self):
         write(tree.settings_info_path(self.settings, self.root), 'name = "手元"\n')
@@ -484,6 +495,9 @@ class Build(unittest.TestCase):
         company.update({"root": "/s/c", "info_source": "origin", "description": None, "problems": []})
         text = "\n".join(tree.lines([company | {"departments": []}]))
         self.assertIn("  受ける仕事: 調べ → 担当  宛て方 --ask c/調べ", text)
+        per_ask = company | {"departments": [], "skills": [{"name": "見渡し", "description": None, "role": "担当", "on_demand": True,
+                                                            "per_ask": True, "ask": "--ask c/見渡し"}]}
+        self.assertIn("  受ける仕事: 見渡し → 担当  オンデマンド（頼みごとの部署）  宛て方 --ask c/見渡し", "\n".join(tree.lines([per_ask])))
         self.assertIn("  窓口: 段取り（受ける仕事に当たらない件・部署をまたぐ件）  model 既定  effort 既定  宛て方 --ask c/段取り", text)
         # ほかの会社が兼ねる窓口（会社の形の desk）は、その会社の形を読まないので model・effort を出さない
         other = company | {"departments": [], "desk": None, "desk_of": "n/段取り"}

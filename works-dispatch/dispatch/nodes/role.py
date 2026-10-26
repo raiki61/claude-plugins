@@ -334,8 +334,8 @@ def seat_problem(shape, role_name, role, duties, name):
     「<受け持ち>：<主題>」のような一度きりの仕事の名前で立てると、永続の部署が誰の席でもないまま残る（my_notes の受付 90b7d8。
     「調べもの：指示の細かさと下位モデルの精度」が担当の永続の部署で立ち、--clean で畳まれず、使用上限で移るフックが起動し直し続けた）。
     受け持ちに名指されない永続の役（相談の社長室など）は、名前を問わない。"""
-    if not (role and role["persistent"]):
-        return None
+    if not (role and role["persistent"]) or on_demand_of(duties, name):
+        return None   # 頼みごとの部署（per_ask）は受け持ちの名前でなくても、エフェメラルで立つので席を残さない
     held = [s["name"] for s in duties if s.get("role") and current(shape, s["role"]) == current(shape, role_name)]
     if not held or name in held:
         return None
@@ -359,6 +359,19 @@ def duty_of(skills, name):
     # 受け持ちの名前に DUTY_SEP が入っていても当たるよう、長い頭から順に試す
     heads = [name] + [name[:i] for i in range(len(name) - 1, 0, -1) if name[i] == DUTY_SEP]
     return next((x for h in heads for x in skills if x.get("name") == h), None)
+
+
+def on_demand_of(skills, name):
+    """部署の名前（name）で引く、オンデマンドの効き（エフェメラルで立つ・会話の始まりの文・席の検査を問わない）の付く受け持ち。名前が
+    オンデマンドの受け持ちの name と同じ物か、頼みごとの部署（per_ask = true の受け持ちの「<受け持ち>：<何をするか>」の部署。
+    per_ask_name が名付ける）。どちらでもなければ None。"""
+    duty = duty_of(skills, name)
+    return duty if duty and duty.get("on_demand") and (duty["name"] == name or duty.get("per_ask")) else None
+
+
+def per_ask_name(duty_name, ask_id):
+    """頼みごとの部署（per_ask = true の受け持ち）の名前。「<受け持ち>：<受付番号の終わり 6 字>」（ブランチ work/ask-<同じ 6 字> と揃える）。"""
+    return f"{duty_name}{DUTY_SEP}{ask_id[-6:]}"
 
 
 def launch_spec(role, duty=None):

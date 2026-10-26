@@ -18,7 +18,7 @@ COMPANY = {
               "ask_holders", "persistent", "resident", "fresh", "machine", "tools", "former_names", "keepalive"),
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
     "roles.keepalive": ("every", "text"),
-    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "standing", "keepalive"),
+    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "per_ask", "standing", "keepalive"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
     "skills.keepalive": ("every", "text"),
     "land": ("mode", "gate", "check", "bump", "main", "queue", "roles", "after"),

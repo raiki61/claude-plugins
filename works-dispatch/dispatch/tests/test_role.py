@@ -459,6 +459,18 @@ class Hook(unittest.TestCase):
         self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
         self.assertIsNone(role_hook.text_for(tempfile.mkdtemp(), self.env))   # git でない
 
+    def test_a_department_per_ask_gets_the_on_demand_line_of_its_duty(self):
+        # 頼みごとの部署（per_ask）は名前が「<受け持ち>：…」でも、受け持ちの説明とオンデマンドの文が足される。per_ask の無い受け持ちの
+        # 「<受け持ち>：…」の部署には足さない（今までどおり）
+        write(pathlib.Path(self.src) / ".claude" / "company.toml",
+              SHAPE + '[[skills]]\nname = "見渡し"\ndescription = "調べる"\nrole = "調べ役"\non_demand = true\nper_ask = true\n'
+                      '[[skills]]\nname = "直し"\ndescription = "直す"\nrole = "調べ役"\non_demand = true\n')
+        provision.mark(self.place, self.src, {"role": "調べ役", "name": "見渡し：d14822", "lifecycle": "ephemeral"}, self.g)
+        text = role_hook.text_for(self.place, self.env)
+        self.assertIn("受け持ちは「見渡し」（調べる）。この受け持ちはオンデマンド", text)
+        provision.mark(self.place, self.src, {"name": "直し：題"}, self.g)
+        self.assertNotIn("受け持ちは", role_hook.text_for(self.place, self.env))
+
     def test_shared_text_reaches_departments_but_not_the_head_office_desk(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", 'shared_instructions = "試験は触った所だけ。"\n' + SHAPE)
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)

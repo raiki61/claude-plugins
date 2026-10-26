@@ -164,6 +164,22 @@ class Task(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("担当", "ephemeral"))
 
+    def test_a_department_per_ask_starts_ephemeral_under_a_resident_duty_role(self):
+        # per_ask = true の受け持ちの「<受け持ち>：<受付番号の終わり 6 字>」の部署は、担当の役でも席の検査で止めず、エフェメラルで立つ
+        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\nper_ask = true\n')
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "担当", name="直し：d14822", branch="work/ask-d14822")
+        self.assertEqual(rc, 0, out)
+        attrs = self.g.worktree_attrs(self.place(ports, "work/ask-d14822"))
+        self.assertEqual((attrs["role"], attrs["lifecycle"], attrs["name"]), ("担当", "ephemeral", "直し：d14822"))
+        # per_ask の無いオンデマンドの受け持ちの「<受け持ち>：…」は、今までどおり担当の役では止める
+        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\n')
+        rc, out = self.run_task(ports, "--role", "担当", name="直し：題", branch="task/topic")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("止めた: 役 担当 は受け持ちごとに 1 つの永続の部署", out)
+
     def test_a_duty_role_starts_only_under_a_duty_name(self):
         # 受け持ちに名指される永続の役（担当）は、受け持ちの名前でない「<受け持ち>：<主題>」では立てない（立てると誰の席でもない
         # 永続の部署が残る。my_notes の受付 90b7d8）。受け持ちの名前なら永続で立ち、--persistent を名指せば名前を問わない

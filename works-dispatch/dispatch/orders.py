@@ -466,6 +466,12 @@ def forwarded(attrs, sent, ports, cwd):
     return [f"回した元の受付 {held} を閉じた（頼み元 {attrs.get('boss') or '-'} の会話は起動せず、回した先を台帳に書いた）"]
 
 
+def on_demand_name(target, ask_id):
+    """オンデマンドの受け持ちへの頼み（deliver.find_target が on_demand を付けた宛先）で立てる部署の名前。受け持ちの名前か、per_ask = true
+    なら頼みごとの部署の名前（role.per_ask_name）。"""
+    return role.per_ask_name(target["on_demand"], ask_id) if target.get("per_ask") else target["on_demand"]
+
+
 def _ask(a, ports, cwd, task, sent):
     """--ask の本体。頼みが宛先に届いた（送った・積んだ・同じ中身が動いている）なら、sent に回した先の頼みの id と宛先（to）を書く。"""
     if bool(a.text) == bool(a.brief):
@@ -696,8 +702,11 @@ def _ask(a, ports, cwd, task, sent):
     if target.get("on_demand"):
         # オンデマンドの受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
         # 部署はエフェメラルの部署で立ち（dispatch._task が受け持ちの on_demand を見る）、納品してメインブランチに入れたら --done で畳まれる
-        a = argparse.Namespace(**{**vars(a), "task": target["on_demand"], "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
-        notes.append(f"{target['on_demand']} はオンデマンドの受け持ち（頼まれたときだけ立てる）なので、部署 {a.task}（ブランチ {a.branch}）を立てる")
+        # per_ask = true の受け持ちは、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる（並べて進む）
+        a = argparse.Namespace(**{**vars(a), "task": on_demand_name(target, ask_id), "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
+        notes.append(f"{target['on_demand']} はオンデマンドの受け持ち（頼まれたときだけ立てる）"
+                     + ("で、頼みごとに別の部署で受ける" if target.get("per_ask") else "")
+                     + f"なので、部署 {a.task}（ブランチ {a.branch}）を立てる")
     if not (a.task and a.task.strip() and a.branch):
         print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の永続の部署が無いので新しく立てる。"
                                  "部署の名前を --task <名前>、ブランチを --branch <ブランチ> で渡す"]))

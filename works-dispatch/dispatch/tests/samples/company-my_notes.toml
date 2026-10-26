@@ -64,6 +64,8 @@ id = "research"
 name = "調べもの"
 description = "x"
 role = "担当"
+on_demand = true
+per_ask = true
 [skills.start]
 every = "30d"
 report_to = "段取り"

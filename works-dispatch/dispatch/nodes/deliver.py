@@ -163,8 +163,10 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("on_demand")), None)
     if duty and duty.get("role"):
         # オンデマンドの受け持ち（on_demand = true）で、その名前の部署が今は無い: その名前のエフェメラルの部署を立てる（orders.ask が
-        # 部署の名前とブランチを決める）。同じ受け持ちで立つ部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む
-        return {"company": company, "department": None, "role": current(company, duty["role"]), "on_demand": duty["name"]}
+        # 部署の名前とブランチを決める）。同じ受け持ちで立つ部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む。
+        # per_ask = true の受け持ちは、頼みごとに別の部署（「<受け持ち>：<受付番号の終わり 6 字>」）を立てるので、積まずに並ぶ
+        return {"company": company, "department": None, "role": current(company, duty["role"]), "on_demand": duty["name"],
+                "per_ask": bool(duty.get("per_ask"))}
     name = current(company, name)
     persistent = [d for d in company["departments"]
                 if d["attrs"].get("role") and current(company, d["attrs"]["role"]) == name

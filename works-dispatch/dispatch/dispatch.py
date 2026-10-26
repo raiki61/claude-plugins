@@ -926,8 +926,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     # 部署の名前で引いた受け持ち（[[skills]]。名前が同じ物か、「<受け持ち>：<何をするか>」の受け持ちの物。role.duty_of）に model・effort・
     # settings が有れば、役の値より先に効く（settings は役の設定の上に重ねる）。effort の inherit は、呼んだ会話の今の effort
     duty = role.duty_of(info["skills"], a.task)
-    # オンデマンドの受け持ちは、名前が同じ部署だけ（一度きりの名前の部署は役のとおりに立てる）
-    own = duty if duty and duty["name"] == a.task else None
+    # オンデマンドの受け持ちは、名前が同じ部署と頼みごとの部署（per_ask）だけ（ほかの一度きりの名前の部署は役のとおりに立てる）
+    own = role.on_demand_of(info["skills"], a.task)
     # 受け持ちの席の役（担当）は、受け持ちの名前でしか立てない。--persistent を名指した回（--move の起動し直しなど）は問わない
     why = None if a.persistent else role.seat_problem(shape, role_name, the_role, info["skills"], a.task)
     if why:

@@ -83,6 +83,17 @@ class Start(unittest.TestCase):
         (rec,) = self.starts()
         self.assertEqual((rec["skill"], rec["status"], rec["report_to"]), ("調べ", "sent", "社長室"))
 
+    def test_start_of_a_duty_taken_per_ask_still_goes_to_the_department_of_the_duty_name(self):
+        # per_ask = true（頼みごとの部署）の受け持ちでも、[skills.start] の起動は今までどおり受け持ちの名前の部署（調べ）へ頼む
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
+        self.shape(shape_text('report_to = "社長室"\ntext = "見直す"').replace(
+            'role = "調べ役"\n[skills.start]', 'role = "調べ役"\non_demand = true\nper_ask = true\n[skills.start]'))
+        rc, out = self.main(self.src, "--start", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.prompts()), 1)
+        self.assertNotIn("頼みごとに別の部署", out)
+        self.assertEqual(self.g.worktree_attrs(self.place)["boss"], "社長室")
+
     def test_by_limits_who_may_start_by_command(self):
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nby = ["社長室"]'))
         rc, out = self.main(self.src, "--start", "調べ", "--from-name", "段取り")

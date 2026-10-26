@@ -95,6 +95,16 @@ def _skills(raw, where, problems):
             problems.append(f"{where}: skills[{i}]（{s['name']}）の {key} は true か false。外して永続で扱う")
             flag = False
         got["on_demand"] = flag
+        # per_ask = true（頼みごとの部署）: オンデマンドの受け持ちへの頼みを、頼みごとに別の一度きりの部署（「<受け持ち>：<受付番号の
+        # 終わり 6 字>」）で受け、並べて進める（orders.ask が名前を決め、role.on_demand_of が名前から受け持ちを引く）。on_demand = true と併せて書く
+        per_ask = s.get("per_ask", False)
+        if not isinstance(per_ask, bool):
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の per_ask は true か false。外して、受け持ちの名前の部署 1 つで受ける")
+            per_ask = False
+        elif per_ask and not flag:
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の per_ask は on_demand = true と併せて書く。外して、受け持ちの名前の部署 1 つで受ける")
+            per_ask = False
+        got["per_ask"] = per_ask
         out.append({"model": None, "effort": None, "settings": None, "account": None, **got})
     return out
 
@@ -354,7 +364,7 @@ def lines(companies):
                           f"、{s['start']['report_to']} に返す" if s.get("start") else "")
                        + (f"（前 {_at(s.get('last_started'))}・次 {_at(s.get('next_start'))}）"
                           if "next_start" in s else "")
-                       + ("  オンデマンド" if s.get("on_demand") else "")
+                       + ("  オンデマンド" if s.get("on_demand") else "") + ("（頼みごとの部署）" if s.get("per_ask") else "")
                        + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
         if c.get("desk"):
             desk = c["desk"]   # model・effort はこの会社の本社の窓口だけ（ほかの会社が兼ねる窓口は、その会社の行に出る）
