@@ -6,6 +6,12 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+### Fixed
+
+- `/whose-turn`・`/catchup`・`/what-am-i-doing`・`/reflect` が、同梱の台本（`scripts/*.py`）を素の `python3` で起動していて、Windows で動かない恐れがあったのを直した。Windows の python.org の入れ方は `python3` を入れず、PATH の `python3` は Microsoft Store を開かせるだけの見せかけの物に当たることがある。利用者の対応は要らない。
+  - 台本は同梱の `scripts/run-python.sh`（bash の台本。Windows では Claude Code が使う Git Bash で動く）を通して起動する。`python3`・`python`・`py -3` の順に、実際に起きて 3.9 以上の物を選ぶ。選べなければ、訳と直し方（Windows の設定の「アプリ実行エイリアス」で `python.exe` と `python3.exe` の項目を切る）を 1 行で出す。
+- `/catchup setup` が、Remote-SSH で繋いだことの無いマシン（手元の VS Code の端末など）で打たれると、手元の VS Code が読まない置き場（`~/.vscode-server/`）を作って設定を書き、済んだように見えていたのを直した。今はその置き場が無ければ何も書かず、Remote-SSH で繋いだ窓の端末から打ち直すよう訳を出す。
+
 ## [0.41.0] - 2026-10-23
 
 ### Changed

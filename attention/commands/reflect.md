@@ -5,7 +5,7 @@ allowed-tools: Bash, Read, Write
 
 /reflect は、ある期間の持ち主の作業（会話・commit・GitHub の動き）を振り返り、改善の提案と、仕事の仕方の気づきを 1 枚の HTML のページに出すコマンド。持ち主が「最近どうだった？」と聞いたときや、手で /reflect を打ったときに、下の手順で走らせる。
 
-持ち主は、このプラグインを使う人（この会話の相手）である。仕様の正本は `attention/docs/reflect-spec.md`。機械は `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/reflect.py`（以下 reflect.py）。材料を集めるのも、ページ・台帳・日記を書くのも機械で、AI が書くのはフィールドの JSON だけ（`/catchup` と同じ分担）。
+持ち主は、このプラグインを使う人（この会話の相手）である。仕様の正本は `attention/docs/reflect-spec.md`。機械は `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/reflect.py"`（`run-python.sh` は実際に起きる Python〔python3・python・py -3 の順〕を選ぶ入口で、`python3` に替えて打たない。以下 reflect.py）。材料を集めるのも、ページ・台帳・日記を書くのも機械で、AI が書くのはフィールドの JSON だけ（`/catchup` と同じ分担）。
 
 言葉:
 

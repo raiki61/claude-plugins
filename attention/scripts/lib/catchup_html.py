@@ -1210,6 +1210,16 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
     else:
         did.append(f"VS Code の窓 {len(live)} 個が繋がっている（{live[0]} ほか）")
 
+    server = pathlib.Path(home or pathlib.Path.home()) / ".vscode-server"
+    if not server.is_dir():
+        # Remote-SSH で繋いだことの無いマシン。手元の VS Code は拡張と設定を別の置き場から読むので、ここに書いても効かない。
+        # 置き場を作らずに訳を返す（code が無いときの訳は上で出している）
+        if cli:
+            missing.append(f"このマシンに VS Code の Remote-SSH の置き場（{server}）が無い。/catchup setup は Remote-SSH"
+                           "で繋いだ先のマシンの準備だけをする（手元の VS Code は拡張と設定を別の置き場から読み、ここに書いても"
+                           "効かない）。Remote-SSH で繋いだ窓の端末から打ち直す")
+        return _setup_report(did, missing)
+
     ext = extension_dirs(home)
     if ext:
         did.append(f"拡張 Simple HTML Viewer は入っている（{os.path.basename(ext[-1])}）")
@@ -1247,6 +1257,10 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
                          if run([cli, "--reuse-window", str(sample)], {**env, "VSCODE_IPC_HOOK_CLI": s}) == 0)
             did.append(f"見本を VS Code の窓 {opened} 個で開いた（色付きのページが出れば準備は済み。"
                        "ソースのまま出たら、拡張が入っていないか設定が効いていない）")
+    return _setup_report(did, missing)
+
+
+def _setup_report(did, missing):
     lines = ["した・確かめたこと:"] + [f"  - {x}" for x in did]
     lines += (["まだ足りないもの:"] + [f"  - {x}" for x in missing]) if missing else ["まだ足りないもの: なし"]
     return (1 if missing else 0), lines

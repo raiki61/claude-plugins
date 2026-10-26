@@ -11,7 +11,7 @@ open 全件を見渡すフェーズにいる。
 
 ## やらないこと
 
-- `gh pr list` / `gh issue list` / `gh search` で一覧を組み立て直すな。取り方の正本は同梱の `scripts/whose-turn.py`（下の `${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインのルートのフォルダに置き換える変数。スクリプトはその下の `scripts/` にある）で、判定の定義と見ていないものは `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/whose-turn.py --help` にある。
+- `gh pr list` / `gh issue list` / `gh search` で一覧を組み立て直すな。取り方の正本は同梱の `scripts/whose-turn.py`（下の `${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインのルートのフォルダに置き換える変数。スクリプトはその下の `scripts/` にある）で、判定の定義と見ていないものは `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/whose-turn.py" --help` にある。
 - 出力に無い項目を足すな。スクリプトが失敗したら、そのエラーをそのまま報告して終わる。
 - subagent・Agent・Workflow を立てるな。手順 5 の読みも含めて `gh` は Bash で直列に呼ぶ（5 件で数秒）。並列化は起動の overhead で分単位を失い、結果待ちを誤ると 10 分止まる（実測 2026-09-02）。
 
@@ -22,7 +22,7 @@ open 全件を見渡すフェーズにいる。
 
 ## やること
 
-1. `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/whose-turn.py --json --materials $ARGUMENTS --out` を実行し、返ってきたパスを **Read で**読む（引数なし＝自分＝gh の認証ユーザー。`<login>` で他の人、`--all` で全員分を人別に）。`--out` は出力を一時ファイルへ書いてパスだけ返す——材料付きの出力は Claude Code の Bash の 1 回あたりの上限（約 30,000 バイト。上限はバイトで測るので、日本語はおよそ 1 万文字で当たる）を越え、付けずに走らせるとツール側でファイルへ退避され、走らせ直しで `gh` の呼び出しごと 2 回走る。**`cat` で読むな**——同じ量が再び Bash の出力に乗って、また退避される。`--out` は値を取らないので、`$ARGUMENTS` の後ろに置く。出力は JSON で、**鍵で読む**（文の区切りや行の位置で読まない）:
+1. `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/whose-turn.py" --json --materials $ARGUMENTS --out` を実行し、返ってきたパスを **Read で**読む（引数なし＝自分＝gh の認証ユーザー。`<login>` で他の人、`--all` で全員分を人別に）。`--out` は出力を一時ファイルへ書いてパスだけ返す——材料付きの出力は Claude Code の Bash の 1 回あたりの上限（約 30,000 バイト。上限はバイトで測るので、日本語はおよそ 1 万文字で当たる）を越え、付けずに走らせるとツール側でファイルへ退避され、走らせ直しで `gh` の呼び出しごと 2 回走る。**`cat` で読むな**——同じ量が再び Bash の出力に乗って、また退避される。`--out` は値を取らないので、`$ARGUMENTS` の後ろに置く。出力は JSON で、**鍵で読む**（文の区切りや行の位置で読まない）:
    - `sections`: 人ごと（`who`）に `mine`（自分の番）と `theirs`（相手の番）の PR の並び。1 件は `number`・`url`・`title`・`author`・`role`（`implementer`＝その人が直す PR〔作者か、担当として受けた人〕、`reviewer`＝それ以外）・`days`・`facts`（行に添える事実の文）。`mine` の人の PR には `intro`（作者の本文の 1 文）と `size` も付く
    - `waits`: 返していない呼びかけ（`who`・`kind`・`number`・`url`・`title`・`days`・`by`・`excerpt`・`text`＝投稿の全文）。`threads`: 返すターンがあるスレッドの、相手の最後の発言（`number`・`path`・`line`・`author`・`text`）
    - `assigned_issues`・`scope`（母集団の数）・`limits`（走査の上限）・`blind_spots`（手順 5 の 2 つの確認の数。`team_review_requests`＝Team 宛のレビュー依頼の件数、`unverified_replies`＝本文コメントの噛み合いを確かめていない PR の `number` と `count` の並び）・`not_seen`（見ていないもの）

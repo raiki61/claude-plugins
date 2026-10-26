@@ -2422,7 +2422,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=770
+EXPECTED_CHECKS=772
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- coldread ゲート ------------------------------------------------------
@@ -5353,7 +5353,7 @@ expect_output 0 "OK" "searchgate: / やホームの全体を起点にした find
 expect_output 0 "OK" "waitgate: sleep を回す while・until と、pgrep -f・pkill -0・ps | grep で待つループを前景でも裏でも止め、1 回の探しと回数の決まった for は通す・引用符とヒアドキュメントの中は見ない・検査が落ちたら止める（unittest）" \
     "$PY_BIN" "$ROOT/tests/waitgate-suite.py"
 
-scope attention tests/catchup tests/changemap tests/reflect
+scope attention tests/catchup tests/changemap tests/reflect tests/attention-run-python
 # ---- attention/catchup: 1 件の PR / issue の「前回から何が起きたか」 ----
 # 取得(gh / GraphQL)はテストの外。ここで検査するのは材料 → 出力の規則だけで、取得をモックすると
 # 検査対象が自分で書いたモックになる
@@ -5543,6 +5543,13 @@ expect_output 0 "○ 待ち" \
 expect_output 1 "番号か PR / issue の URL、手元の commit を渡す" \
     "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
+
+# ---- attention/scripts/run-python.sh: スキルとコマンドの本文が打つ行の、Python を選ぶ入口 ----
+# Windows の python3 が Microsoft Store へ誘う代わりの物でも、起きる python を選ぶ（PATH を偽の python3 と python だけにする）
+expect_output 0 "PICKED" "attention run-python.sh: python3 が Microsoft Store へ誘う代わりの物なら、次の python を選ぶ" \
+    bash "$ROOT/tests/attention-run-python-case.sh" store "$PY_BIN"
+expect_output 1 "Python 3.9 以上が見つからない" "attention run-python.sh: 起きる Python が無ければ、訳と直し方を出して 1 で終わる" \
+    bash "$ROOT/tests/attention-run-python-case.sh" none "$PY_BIN"
 
 # ---- attention/catchup --switch: 該当ブランチへ移る（一時の git リポジトリで実際に動かす） ----
 # GitHub には触らない。guard は「git 自身が止めない状態」で組む（ブランチで中身が違う file で汚すと guard を
@@ -5824,7 +5831,7 @@ cases = [
     ("catchup", ["--switch", "1569", "指摘", "--out"], "words", ["1569", "指摘"],
      "catchup", "`catchup.py --switch <それ> --out`"),
     ("what-am-i-doing", ["--topic", "今の修正", "--out"], "topic", ["今の修正"],
-     "what-am-i-doing", "what-am-i-doing.py --out"),
+     "what-am-i-doing", 'what-am-i-doing.py" --out'),
 ]
 for stem, argv, field, want, doc, call in cases:
     a = load(stem).parser().parse_args(argv)

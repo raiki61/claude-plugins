@@ -21,7 +21,7 @@
   （1 行だけの │ は検査が落とす）
 - 1 行 60 桁（日本語は 2 桁）、14 行以内。変更前と変更後は上下に並べる（左右は幅で壊れる）。前後が無い形
   （待ちの鎖・層）なら 1 つでよい
-- 出す前に `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/figure-check.py` に図の本文（```text の中身）を標準入力か
+- 出す前に `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/figure-check.py"` に図の本文（```text の中身）を標準入力か
   ファイルの引数で渡して通す——幅・行数・縦線と箱のずれを figure-check.py が見る（通れば終了コード 0、
   落ちたら 1 で、落ちた理由を 1 件 1 行で出す）。落ちたら直し、直せなければ矢印の鎖 1 行に落とす
 

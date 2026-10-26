@@ -555,6 +555,7 @@ class SettingsTest(unittest.TestCase):
 
     def test_check_mode_changes_nothing(self):
         home = pathlib.Path(self.tmp.name)
+        (home / ".vscode-server").mkdir()
         code, lines = ch.setup(check=True, home=home, env={"TMPDIR": str(home)}, run=lambda a, e: 1,
                                which=lambda n: "/bin/code")
         self.assertEqual(code, 1)
@@ -562,6 +563,19 @@ class SettingsTest(unittest.TestCase):
         self.assertIn("生きている VS Code の窓が無い", text)
         self.assertIn("拡張 Simple HTML Viewer が入っていない", text)
         self.assertIn(ch.ASSOC_GLOB, text)
+        self.assertEqual(list((home / ".vscode-server").iterdir()), [])
+        self.assertFalse((home / ".cache").exists())
+
+    def test_machine_without_remote_server_gets_reason_and_nothing_written(self):
+        # 手元の VS Code の端末から打たれた形: code も生きた窓も有るが、Remote-SSH の置き場が無い
+        home = pathlib.Path(self.tmp.name)
+        (home / "vscode-ipc-1.sock").write_text("")
+        calls = []
+        code, lines = ch.setup(home=home, env={"TMPDIR": str(home)}, run=lambda a, e: calls.append(a) or 0,
+                               which=lambda n: "/bin/code")
+        self.assertEqual(code, 1)
+        self.assertIn("Remote-SSH の置き場", "\n".join(lines))
+        self.assertEqual([a for a in calls if a[1:2] != ["--status"]], [])  # 拡張を入れず、見本も開かない
         self.assertFalse((home / ".vscode-server").exists())
         self.assertFalse((home / ".cache").exists())
 
