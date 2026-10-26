@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gates が Python の台本を起動する入口（フックと、SKILL.md が書く手で打つ命令）。
+# gates が Python の台本を起動する入口（フックと、SKILL.md が書く手で打つコマンド）。
 # 使い方: bash run-python.sh [--once] [--min <版>] <台本> [引数...]（--min を省けば 3.9。macOS 付属の版で、gates の台本が動く下限）
 #
 # python3・python・py -3 の順に、実際に起きて --min 以上の物を選ぶ。PATH の頭の物をそのまま使わないのは、Windows の

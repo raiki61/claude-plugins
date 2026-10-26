@@ -84,7 +84,7 @@ class Bash(unittest.TestCase):
         "rg needle /var",
         "fd x /mnt",
         "grep -rn needle /root",
-        # Windows のドライブの根(どの書き方でも)とその下の大きいフォルダ。大文字と小文字は区別しない
+        # Windows のドライブのルート(どの書き方でも)とその下の大きいフォルダ。大文字と小文字は区別しない
         "find C:/ -name x",
         "find 'C:\\' -name x",
         "find /c/ -name x",
@@ -92,6 +92,8 @@ class Bash(unittest.TestCase):
         "find /mnt/c -name x",
         "find /c/Users -name x",
         "find 'C:\\Users' -name x",
+        "find C:/Users/.. -name x",
+        "find 'C:\\Windows\\..' -name x",
         "find /c/Windows -name x",
         "rg needle 'C:/Program Files'",
         "find /users -name x",

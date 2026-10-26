@@ -7,7 +7,7 @@ coldread・destgate が外に出る物を守るのに対し、これは手元の
 会社ごとの文書に「探すな」と書いても、ほかの会社・ほかの探し物で同じことが起きるので、全部の会話に 1 つの決まりを当てる。
 
 決まりは 1 つ: 探す起点が WIDE のどれか(/ と、その直下の大きいフォルダ〔macOS の /Users・/System・/Volumes・/private・/opt、
-Linux の /home・/usr・/var・/mnt・/media・/root・/srv〕・Windows のドライブの根とその直下の大きいフォルダ・ホームそのもの)なら止める。
+Linux の /home・/usr・/var・/mnt・/media・/root・/srv〕・Windows のドライブのルートとその直下の大きいフォルダ・ホームそのもの)なら止める。
 それより下(~/.cache/works-factory など)と作業場の中は通す。深さや時間の上限では縛らない。Windows のドライブは C:/…・C:\…・
 Git Bash の /c/…・Cygwin の /cygdrive/c/…・WSL の /mnt/c/… のどれで書いても同じ所と読み、大文字と小文字は区別しない
 (macOS と Windows の既定のファイルシステムは区別しないので、/users も /Users と同じ所を探す)。
@@ -58,6 +58,10 @@ def home():
 def norm(path):
     """起点を比べる形に直す: \\ を / に、.. を畳み、末尾の / を落とす(/ そのものは /)。"""
     p = path.replace("\\", "/")
+    drive = re.match(r"([A-Za-z]:)(/.*)\Z", p)
+    if drive:   # C:/… は C: の後ろだけを畳む(まとめて畳むと C: を 1 つのフォルダと読み、C:/Users/.. が . になる)
+        rest = "/" + posixpath.normpath(drive.group(2)).lstrip("/")
+        return drive.group(1) + ("" if rest == "/" else rest)
     p = posixpath.normpath(p) if p else p
     if p.startswith("//"):
         p = "/" + p.lstrip("/")   # normpath は先頭の // を残す(POSIX の決まり)。bfs は / と同じに読む
@@ -70,7 +74,7 @@ DRIVE_RE = re.compile(r"(?:([A-Za-z]):|/(?:cygdrive/|mnt/)?([A-Za-z]))(/.*)?\Z")
 # / の全体と同じ重さになる
 ROOT_DIRS = ("/Users", "/System", "/System/Volumes/Data", "/Volumes", "/private", "/opt",
              "/home", "/usr", "/var", "/mnt", "/media", "/root", "/srv")
-# ドライブの根の直下の大きいフォルダ(Windows)
+# ドライブのルートの直下の大きいフォルダ(Windows)
 DRIVE_DIRS = ("/Users", "/Windows", "/Program Files", "/Program Files (x86)", "/ProgramData")
 
 
@@ -92,7 +96,7 @@ def wide_set():
 
 WIDE = wide_set()
 # 止めたときに見せる一覧(WIDE は比べる形なので、読める形を別に持つ)
-WIDE_TEXT = "・".join(("/",) + ROOT_DIRS) + "・ドライブの根(C:/・/c/ など)とその下の " + "・".join(
+WIDE_TEXT = "・".join(("/",) + ROOT_DIRS) + "・ドライブのルート(C:/・/c/ など)とその下の " + "・".join(
     d.lstrip("/") for d in DRIVE_DIRS) + "・ホームそのもの(%s)" % norm(home())
 
 
