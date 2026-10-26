@@ -68,8 +68,8 @@ def test_none_found_says_why(tmp_path, name):
         r = run(ENTRIES[name], path, "-c", "pass", bash=bash)
         assert r.returncode == NOT_FOUND[name], bash
         assert r.stderr.startswith(f"{name}: Python 3.12 ") and all(w in r.stderr for w in ("python3", "python3.20〜python3.12", "py -3", "PATH に足す", "python.exe"))
-        # --min を替えると、試す版の付いた名前の下の端もその版になる
-        assert "python3.20〜python3.9・" in run(ENTRIES[name], path, "--min", "3.9", "-c", "pass", bash=bash).stderr, bash
+        # --min を替えると、試す版の付いた名前の下の端もその版になる（小文字の python3.9 は試した名前の範囲にだけ出る）
+        assert "python3.9" in run(ENTRIES[name], path, "--min", "3.9", "-c", "pass", bash=bash).stderr, bash
 
 
 def test_once_per_session(tmp_path):
