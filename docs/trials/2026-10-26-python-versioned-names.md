@@ -13,6 +13,7 @@
 - 読んだ記録のフック: graphloops の PostToolUse のフック（`hooks/record-read.py`）。Read のたびに入口を通して起き、回っている run（graphloops のループの 1 回の実行）が在れば、その盤面（run ごとの状態のフォルダ）の `reads.jsonl` に 1 行足す。入口を `--once` 付きで起動し、Python を選べないときは一時の置き場に印のファイル `graphloops-no-python-<会話の id>` を作る。
 - 形 1・形 2: 頼みが確かめてほしいと書いた 2 つの形。形 1 は「ふつうに入っている Python」。形 2 は「3.12 以上の Python が版の付いた名前でだけ PATH に在る」。uv は既定で版の付いた名前だけを入れる（[uv の文書の Installing Python](https://docs.astral.sh/uv/guides/install-python/)「uv only installs a _versioned_ executable by default.」）ので、`uv python install 3.13` で作った。
 - PostToolUse: Claude Code がツールを使った直後に起動するフックの場面。`hook_started`・`hook_response` は、`claude -p --include-hook-events` が出す、フックの起動と終わり（終了の値を含む）の行。
+- `/graphloops:intake`: graphloops を使っていて踏んだ問題を、利用者の手元の `intake.jsonl` に 1 行残すコマンド。本文は、入口を通して `scripts/loop.py intake` を打たせる。
 - 試しの会話の主: 試しで起動した `claude -p` の会話の中の AI。`/graphloops:intake` の本文を読んで、そこに書かれたコマンドを打つのはこの AI。
 - 代わりの物: Windows に初めから在る「アプリ実行エイリアス」の `python3.exe`・`python.exe`（`%LOCALAPPDATA%\Microsoft\WindowsApps` の中）。Python を入れていない人を Microsoft Store へ誘う物で、Python としては動かない。
 
@@ -29,6 +30,7 @@
 - 「intake」の列は `/graphloops:intake <1 行>` の返事。4 つとも「ok 1 行を …/intake.jsonl に残した」で、残った行の `python` のフィールドは入口が選んだ物の版と同じだった。
 - convergence-loops の入口も、4 つの形で graphloops と同じ物を選んだ。
 - 比べとして、直す前の版（graphloops 0.45.1）の入口は、Linux の形 2 で「Python 3.12 以上が見つからない（python3・python・py -3 を試した）」の 1 行で止まった（終了の値 1）。Windows の形 2 では、py を PATH から外した形でだけ同じ 1 行で止まった（下の「Windows」）。今の版はどちらも `python3.13` を選んだ。この試しが、直した所を通っていることの裏付け。
+- 版の付いた名前の候補（`python3.20`〜`python3.12`）のうち、試したのは `python3.13` だけ。ほかの名前も同じ並びの中で同じ仕方で起動されるので、1 つで足りるとした。
 - 表の 4 行のほかに、Windows で `py` も PATH から外した形を、入口を直に打つ形でだけ確かめた（下の「Windows」の「py も外した形」）。
 - 新しく見つけた詰まりは 0 件。
 
@@ -47,7 +49,7 @@
 - Windows は 1 台の VM で、形 1 の後に形 2 を作った。
   - 形 1 の PATH の Python の類: `python3` は代わりの物だけ。`python` は python.org の物が代わりの物より前に在る。`py` は `C:\WINDOWS\py.exe`。
   - 形 2: uv を入れて `uv python install 3.13` を打った。uv は `~\.local\bin\python3.13.exe` だけを置いた。そのうえで、PowerShell で PATH から python.org のフォルダ（`C:\Program Files\Python315-arm64` と、その `Scripts`）を外してから claude を起動した。`python3` と `python` は代わりの物だけになった。`py`（`C:\WINDOWS` の中）は残した。`C:\WINDOWS` は PATH から外せないため。py を外した形は、入口を直に打つ確かめでだけ試した（下の「Windows」）。
-- 盤面: 試しのリポジトリで、research-graph のスキルの本文の行（`bash <graphloops>/hooks/run-python.sh <graphloops>/scripts/loop.py init --loop research-loop …`）を打って run を 1 つ立てた。読んだ記録のフックは、回っている run が無いと何も書かないので、この run は、フックが Python の台本まで動いたかを見るために立てた。4 つの形とも、この行は終了の値 0。
+- 盤面: 試しのリポジトリで、graphloops の research-graph のスキルの本文の行（`bash <graphloops>/hooks/run-python.sh <graphloops>/scripts/loop.py init --loop research-loop …`）を打って run を 1 つ立てた。読んだ記録のフックは、回っている run が無いと何も書かないので、この run は、フックが Python の台本まで動いたかを見るために立てた。4 つの形とも、この行は終了の値 0。
 - `claude -p` は、形ごとに 2 回、合わせて 8 回起動した。1 回目は「README.md を Read して OK と返す」頼みで、2 回目は `/graphloops:intake 試し: …` で、どちらも `--output-format stream-json --verbose --include-hook-events --max-budget-usd 1` を付けた。フックが起きたかは hook_started・hook_response の行で見た。モデルは Sonnet 5.5（アカウントの既定）。かかった額は 1 回 0.005〜0.049 ドル、8 回の合計は約 0.29 ドル。
 - 鍵: Claude Code の鍵は環境変数 `CLAUDE_CODE_OAUTH_TOKEN` だけで渡した。Linux は `docker exec -e` で、Windows は vm.sh の ssh で渡した。ファイルには書いていない。
 
@@ -62,7 +64,7 @@
 - `/graphloops:intake`: 試しの会話の主は、コマンドの本文のとおり `bash "<graphloops>/hooks/run-python.sh" "<graphloops>/scripts/loop.py" intake --data-dir "<プラグインのデータ>" --what "…"` を打った。返事は「ok 1 行を /home/tester/.claude/plugins/data/graphloops-raiki61/intake.jsonl に残した」。残った行の `python` は、形 1 で 3.13.5、形 2 で 3.13.17。
 - convergence-loops のスキルの本文が打たせる行も、2 つの形で打った。
   - `bash <convergence-loops>/scripts/comment-ratio.sh --json HEAD~1` は数を出した（終了の値 0）。この殻は中で同じフォルダの入口を通して Python を起動する。
-  - `bash <convergence-loops>/scripts/run-python.sh <convergence-loops>/scripts/review-record.py rec.json` は「記録が不正: …」を返した（終了の値 2）。わざとディレクトリでない物を渡した。終了の値は、入口が選べなかったときの 127 でなく、検証器の返した 2。
+  - `bash <convergence-loops>/scripts/run-python.sh <convergence-loops>/scripts/review-record.py rec.json` は「記録が不正: …」を返した（終了の値 2）。`rec.json` は `{}` だけを書いたファイルで、わざと渡した。`review-record.py`（レビューの記録の検証器）は記録を `round-<N>.json` をまとめたフォルダで受け取るので、ファイルを渡すと「記録が不正」で止まる。見たかったのは、入口が Python を選んで検証器まで届くこと。終了の値は、入口が選べなかったときの 127 でなく、検証器の返した 2 だった。
 
 ### Windows
 
@@ -85,7 +87,7 @@
 
 - Linux: 2 つのコンテナ `gl-pyentry-a`・`gl-pyentry-b` と、土台のイメージ `gl-pyentry-base` を、名前を指して消した。鍵は環境変数でだけ渡したので、コンテナのファイルには書いていない。
 - Windows:
-  - 消す前に、家のフォルダの下のファイル（名前が `Microsoft` と `cache` のフォルダの中を除く。`cache` はプラグインのキャッシュで、鍵の形を見分ける台本の文字を持つ）に、鍵の形の値が無いことを確かめた（当たり 0）。
+  - 消す前に、家のフォルダの下のファイル（名前が `Microsoft` と `cache` のフォルダの中を除く）を、鍵の形（`sk-ant-` で始まり 40 字以上続く値）の正規表現で `grep` し、当たったファイルが 0 本なのを確かめた。`cache` を除いたのはプラグインのキャッシュで、プラグインの台本が鍵を見分けるための `sk-ant-` の文字を持つため。
   - 入れた 3 つのプラグインを外し、marketplace の raiki61 と claude-plugins-official を消し、プラグインのキャッシュとデータも消した。
   - uv の Python 3.13 を `uv python uninstall` で外し、uv の本体（`~\.local\bin` の `uv.exe`・`uvx.exe`・`uvw.exe`）と `%APPDATA%\uv` も消した。試しのリポジトリ `~\proj-a`・`~\proj-b` と、持ち込んだ台本も消した。
   - `~\.claude\settings.json` は試しの前の形（`env` の `HTTPS_PROXY` と `NO_PROXY` だけ）に戻した。プラグインを外した後も、中身の空の `enabledPlugins` と `extraKnownMarketplaces` が残っていたため。
