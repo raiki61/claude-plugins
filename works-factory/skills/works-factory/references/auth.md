@@ -12,7 +12,9 @@
 
 ## API キーかゲートウェイで動く人
 
-- キーを環境変数 `ANTHROPIC_API_KEY` に置いて起こす（`ANTHROPIC_AUTH_TOKEN` も同じく拾う）。ゲートウェイを通すなら `ANTHROPIC_BASE_URL` も置く。どちらも殻を起動する環境に置く。Claude Code の設定 `settings.json` の `env` に書いた値（ゲートウェイの URL など）は、殻自身が読む `WORKS_FACTORY_KEYCHAIN_ITEM` と違い、工場の中の AI の役には運ばれない。
+- キーを環境変数 `ANTHROPIC_API_KEY` に置いて起こす（`ANTHROPIC_AUTH_TOKEN` も同じく拾う）。ゲートウェイを通すなら `ANTHROPIC_BASE_URL` も置く。どちらも殻を起動する環境か、下の Claude Code の設定の `env` に置く。
+- Claude Code の設定の `env`（利用者の `settings.json`、その上に会社が配る managed settings のファイル）に書いた接続の値は、子に運ばれる: 接続先・資格・proxy・証明書・モデルの別名（`ANTHROPIC_DEFAULT_*_MODEL`）と、選んだ provider（Bedrock・Mantle・Vertex）の決まった名の変数。設定の `env` に書いた直の資格（`ANTHROPIC_API_KEY`・`ANTHROPIC_AUTH_TOKEN`）は環境の物より勝つが、provider を選んだ時は運ばれない。hook・permissions・プラグインは運ばれない。
+- Bedrock・Mantle・Vertex は、`CLAUDE_CODE_USE_BEDROCK`・`CLAUDE_CODE_USE_MANTLE`・`CLAUDE_CODE_USE_VERTEX` を殻を起動する環境か設定の `env` に置く（両方に在れば環境が勝つ）。環境で選んだ時は、設定の `env` のほかの接続の値は運ばれず、殻が標準エラーに名だけを 1 行出す。殻が止まる場合（設定の `env` で Foundry を選ぶ・資格のファイルを相対パスで書く・設定のファイルが壊れているなど）と、`~/.aws`・gcloud の資格の渡し方は、[工場の README](https://github.com/raiki61/works-factory/blob/e52a1b452d330504e1fa5c0b49e8905a817515e7/README.md) の `WORKS_FACTORY_KEYCHAIN_ITEM` の次の項目に在る。
 - 殻は「認証は ANTHROPIC_API_KEY から拾う」と出して、そのキーで AI の役を起こす。
 - 上の `WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` は付けない。付けると殻はその項目のログインを使い、`ANTHROPIC_API_KEY`・`ANTHROPIC_AUTH_TOKEN`・Bedrock や Vertex の設定を子から外す。API キーの入った項目を名指しても読めずに止まる。
 

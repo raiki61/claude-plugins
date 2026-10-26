@@ -6,6 +6,12 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場の固定 commit（`works-factory/PIN`）を e52a1b45 に上げた。取り込んだ PR は raiki61/works-factory#841・#839・#840・#847・#850・#842・#848・#852・#854・#853・#844・#856・#858・#857・#843・#859・#860・#865・#866・#867・#861・#870・#869・#872・#874・#875。差分は https://github.com/raiki61/works-factory/compare/1b5d8b709f69...e52a1b452d33 。
+- 利用者に効く違い: Claude Code の設定の `env`（利用者の `settings.json` と会社が配る managed settings のファイル）に書いた接続の値（接続先・資格・proxy・証明書・モデルの別名、Bedrock・Mantle・Vertex の決まった名の変数）が、工場の中の AI の役に運ばれるようになった（raiki61/works-factory#859・#860。前は運ばれず、殻を起動する環境に置く必要があった）。`CLAUDE_BIN_PATH` に、普段 Claude を起動するラッパースクリプトを指せるようになった。対象の `.review-checks.json` の `suite` の横に、試験を走らせずに一覧だけを出す `list` を書ける（試験が無いと決めるのに使う）。
+- `skills/works-factory/references/auth.md` の「API キーかゲートウェイで動く人」の、設定の `env` の値は運ばれないという文を直し、Bedrock・Mantle・Vertex の選び方と工場の README への指しを書き足した。
+
 ## [0.10.1] - 2026-10-26
 
 ### Fixed
