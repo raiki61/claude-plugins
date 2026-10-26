@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.51.2] - 2026-10-26
+
 ### Fixed
 - 記録の検証器のうち `research-record.py`・`firstread-record.py`・`doctor-record.py` の 3 本は、標準出力か標準エラーが切り離された・閉じた状態で起動されると、出力を UTF-8 に直す所で落ちて終了の値 1（阻害要因あり）になり、記録の不正（2）や収束と区別が付かなかった。`review-record.py` だけが直した形（直せなければ文字化けを諦めて続ける）を持ち、3 本は前の形のままだった。4 本を同じ形にした。ふつうの起動での出力と終了の値は変わらない。
 
