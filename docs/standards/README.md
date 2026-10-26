@@ -169,7 +169,7 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
 頼む範囲の線は、持ち主の頼み（コードが綺麗か）のとおりにした。直しは振る舞いを変えない物だけで、今ある試験が通ることを入れる条件にした。1 つの担当に 1 回 3 つまでで、効きの大きい順に選んだ。
 
 - 6-1 ルートの `tests/run.sh` の名前表（同じ名前の定数の表）の写しの検査（`TABLE_COPIES_OK`）に穴が在る（検査の穴で、本番の振る舞いは壊れていない）。検証器（`*-record.py`）を移す前の `scripts/` で探すので、1 本も拾わない。検証器の表は、この検査の数え上げから黙って落ちている（commit a98e9c61 で convergence-loops/scripts/ に移った時の直し漏れ）。直すと、隠れていた写しが赤で出る見込みがある。同じ点検の受け持ちの gates にも 2 つ見つけた。
-  - gates の `coldread-gate.py` の使われていない定数 BASE_CHECK_SCHEMA（点検の頼み 087e11 で消した）。
+  - gates の `coldread-gate.py` の使われていない定数 BASE_CHECK_SCHEMA。
   - gates のフックのスクリプト 3 本（search-gate.py・wait-gate.py・dest-gate.py）が、coldread-gate.py を読み込む関数 `load_coldread()` と、落ちたら拒む `if __name__` の包みを、同じ形で別々に持つ。
   - 状態: 頼んだ（点検 20261026-070730-087e11）
 - 6-2 convergence-loops の検証器 4 本には、同じ形で写した処理がずれて残っている。
