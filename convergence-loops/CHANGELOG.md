@@ -6,6 +6,9 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+- 記録の検証器 4 本（`review-record.py`・`research-record.py`・`firstread-record.py`・`doctor-record.py`）が 1 本ずつ持っていた、標準出力と標準エラーを UTF-8 にする処理（直せなければ文字化けを諦めて続ける形）を、`scripts/record_common.py` の `utf8_output` 1 つにまとめた。出力と終了の値は変わらない。検証器を `--validator` で別の置き場へ写して使う人は、隣に置く `record_common.py` も今の版にそろえる（古い `record_common.py` には `utf8_output` が無く、起動した所で落ちる）。
+
 ## [0.51.2] - 2026-10-26
 
 ### Fixed
