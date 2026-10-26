@@ -39,6 +39,7 @@ STANDARD = "docs/standards/cross-os.md の決まり 1"
 CUSTOM_PATHS = ("skills", "commands", "hooks")   # hooks は路の文字列のときだけ置き場の変更（object なら直に書いたフック）
 
 BARE = re.compile(r"(?<![\w./\\-])python(?:3(?:\.\d+)?)?(?:[ \t]+(?=[-\"'$<\\~@]|[\w.{}-]*/|[\w./{}-]*\.py\b)|\\?\",[ \t]*\\?\")")
+EMPTY_SCAN = "フックか本文が 1 つも見つからない（走査が空回りしている）"
 EXISTS = re.compile(r"\b(?:command[ \t]+-v|which|type[ \t]+-p)[ \t]+[\"']?python")
 
 # プラグインのファイルを起動する行でない物（ファイル: {行の字の一部: 訳}）
@@ -86,7 +87,7 @@ def targets(root):
             bad.append(f"{plugin['name']}: plugin.json が置き場（{', '.join(custom)}）を変えている。このチェックの走査も合わせて直す")
         found += sorted({*src.glob("hooks/hooks.json"), *src.glob("skills/**/*.md"), *src.glob("commands/**/*.md")})
     if not any(f.name == "hooks.json" for f in found) or not any(f.suffix == ".md" for f in found):
-        bad.append("フックか本文が 1 つも見つからない（走査が空回りしている）")
+        bad.append(EMPTY_SCAN)
     return found, bad
 
 
@@ -191,7 +192,7 @@ def _arms(d):
     empty = d / "empty"
     (empty / ".claude-plugin").mkdir(parents=True)
     (empty / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": []}), encoding="utf-8")
-    assert scan(empty, {})[1] == ["フックか本文が 1 つも見つからない（走査が空回りしている）"], "空回りを落とさない"
+    assert scan(empty, {})[1] == [EMPTY_SCAN], "空回りを落とさない"
     print("PYTHON_LAUNCH_ARMS_OK")
     return 0
 
