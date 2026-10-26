@@ -55,6 +55,7 @@
   - Claude Code のログインの鍵を環境変数 `CLAUDE_CODE_OAUTH_TOKEN` だけで渡している人は、Linux と Windows で gates の初見読みが動かない。初見読みは、外へ出す文や書いた文書を文脈を持たない別の claude に読ませる gates の仕組みで、その別の claude が起動しない。頼んだ先は点検（gates の受け持ち）。
   - gates の知らせの文が、Windows で動かない素の `python3` を打たせる。頼んだ先は点検。
 - [2026-10-26-works-python-entry.md](2026-10-26-works-python-entry.md) — works 0.7.4 で、works の殻とスキルの本文が Python を入口 `works/dev/run-python.sh`（3.11 以上を選ぶ）で起動する形になった後を、macOS で試した。PATH の `python3` が macOS 付属の 3.9 だけのとき、前の版 0.7.3 の `archon.sh` は TypeError で落ちたが、0.7.4 は「python 3.11 以上が見つからない」の 1 行で止まった。3.11 以上を PATH に足すと、それが選ばれて先へ進んだ。新しい詰まりは 1 件。3.11 以上が版の付いた名前（`python3.14` など）でだけ PATH に在ると選べない件で、止まるときの 1 行から PATH の直し方が分かるので、利用者が画面の言葉だけで先へ進める。標準の部署に問いを回し、標準の部署は決まり 1 に版の付いた名前を足して、各プラグインの入口の足しを担当に頼んだ。
+- [2026-10-26-python-versioned-names.md](2026-10-26-python-versioned-names.md) — graphloops 0.45.2 と convergence-loops 0.52.3 で、Python の入口（`run-python.sh`）が `python3`・`python` の後に版の付いた名前（`python3.20`〜`python3.12`）も試し、`py -3` を最後に試す形になった後を、Linux（Colima の Docker の Debian 13）と Windows（下の手引きの VM）に入れて試した。ふつうに入れた Python と、uv で入れた `python3.13` だけが PATH に在る形の 2 つで、どちらの OS でも入口は 3.12 以上を選んだ。graphloops の読んだ記録のフック（Read の後に起きる PostToolUse）と `/graphloops:intake` のコマンドが動いた。直す前の版の入口は、Linux の `python3.13` だけの形と、Windows で `py` も PATH から外した形で、「見つからない」の 1 行で止まった。新しい詰まりは 0 件。
 
 ## モデルを替えたときの確かめ
 
