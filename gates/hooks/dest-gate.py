@@ -12,7 +12,6 @@ coldread と別フックにしてあるのは、通じやすさの検査の倒�
 解析部(トークン化・単純コマンド分割・旗表)は coldread-gate.py から読み込んで共有する。
 """
 import fnmatch
-import importlib.util
 import json
 import os
 import re
@@ -23,12 +22,11 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-_spec = importlib.util.spec_from_file_location(
-    "coldread_gate",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "coldread-gate.py"),
-)
-cr = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cr)
+# `sys.path[0]` に頼らない(coldread-gate.py が claude_auth を読むのと同じ)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gate_shell  # noqa: E402
+
+cr = gate_shell.load_coldread()
 
 CONFIG_DIR = cr.CONFIG_DIR   # 隣の coldread-gate と同じ置き場（決め方の正本は共通の claude_auth）
 STATE_DIR = os.path.join(CONFIG_DIR, "destgate")
@@ -184,7 +182,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:  # 検査できないものを黙って通さない(coldread と同じ倒し方)
-        cr.deny("外部投稿ゲート(destgate): 検査自体に失敗した(%s)。" % str(exc)[:150])
+    gate_shell.run(main, lambda why: "外部投稿ゲート(destgate): 検査自体に失敗した(%s)。" % why, cr.deny)

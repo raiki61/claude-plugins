@@ -8298,7 +8298,14 @@ def pick(globs):
 
 owners = {}  # 正本を持つ側: engine と検証器の module 直下の大文字の名前表
 declared = 0
-for p in pick(["graphloops/engine/*.py", "scripts/*-record.py"]):
+OWNER_GLOBS = ["graphloops/engine/*.py", "convergence-loops/scripts/*-record.py"]
+# **正本の置き場ごとに 1 本は拾うこと。** 検証器が scripts/ から convergence-loops/scripts/ へ移った後も
+# 古い glob のまま 0 本を拾い、検証器の表が黙って母数の外に落ちていた（declared の照合は、拾う数が 0 でも気づかない）
+for g in OWNER_GLOBS:
+    if not pick([g]):
+        print(f"NG 正本の置き場 {g} から 1 本も拾えない（置き場が移ったのに glob が古い）")
+        sys.exit(1)
+for p in pick(OWNER_GLOBS):
     for n in ast.parse(p.read_text(encoding="utf-8")).body:
         if (isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)
                 and n.targets[0].id.isupper()):
@@ -8318,7 +8325,7 @@ if len(owners) != declared:
     sys.exit(1)
 bad = []
 scanned = 0  # **数えるのは容れ物でなく当たり**——走査が空回りしても合格の顔にならないように
-for p in pick(["graphloops/**/*.py", "scripts/*.py", "tests/*.py"]):
+for p in pick(["graphloops/**/*.py", "convergence-loops/scripts/*.py", "scripts/*.py", "tests/*.py"]):
     src = p.read_text(encoding="utf-8")
     for node in ast.walk(ast.parse(src)):
         if not isinstance(node, ast.Compare) or not any(isinstance(o, (ast.In, ast.NotIn)) for o in node.ops):

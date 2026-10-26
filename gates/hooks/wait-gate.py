@@ -30,6 +30,10 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
+# `sys.path[0]` に頼らない(coldread-gate.py が claude_auth を読むのと同じ)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gate_shell  # noqa: E402
+
 # コマンドの頭(行頭・区切りの記号・括弧・do/then/else/time の後)に在るループの語
 _LOOP_HEAD = r"(?:^|[;&|(){}!\n]|\b(?:do|then|else|time)\b)\s*"
 FOR = re.compile(_LOOP_HEAD + r"for\s")
@@ -233,32 +237,11 @@ def main():
     reason = reason_for(command)
     if reason is None:
         return
-    cr = load_coldread()
+    cr = gate_shell.load_coldread()
     log = os.path.join(cr.CONFIG_DIR, "waitgate", "denies.log")
-    try:
-        os.makedirs(os.path.dirname(log), exist_ok=True)   # 止めると決まった後だけ作る(書けない環境で全部を止めない)
-    except OSError:
-        pass   # 記録を書けなくても止める(log_line も書けなければ知らせて続ける)
     cr.log_line(log, "deny %s" % " ".join(command.split())[:200])
     cr.deny(reason)
 
 
-def load_coldread():
-    """止めた記録の置き場・記録の書き方・deny の出し方は coldread と同じ 1 本を使う。"""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "coldread_gate", os.path.join(os.path.dirname(os.path.abspath(__file__)), "coldread-gate.py"))
-    cr = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(cr)
-    return cr
-
-
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:  # 検査できないものを黙って通さない(coldread・destgate・searchgate と同じ倒し方)
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": "waitgate: 待ちのループの検査自体に失敗した(%s)。" % str(exc)[:150],
-        }}, ensure_ascii=False))
+    gate_shell.run(main, lambda why: "waitgate: 待ちのループの検査自体に失敗した(%s)。" % why)

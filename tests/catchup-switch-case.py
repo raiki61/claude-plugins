@@ -225,9 +225,8 @@ def _branch_name(tmp):
     ブランチを作って移る／既に居ればその旨／追跡 file に未コミットがあれば移らず理由と今の位置。移ったブランチで
     ahead_of_default が既定ブランチより先の commit の変更（木と枠）を出し、main では何も出さない。"""
     repo = make_repo(tmp)
-    bare = make_origin(tmp, repo)
+    make_origin(tmp, repo)
     git(repo, "config", "branch.autoSetupMerge", "false")
-    old = git(repo, "rev-parse", "HEAD")
     git(repo, "push", "-q", "origin", "main")
     git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
     # origin にだけ有るブランチ（main より 1 commit 先。a.txt を変えた）

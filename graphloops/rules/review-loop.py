@@ -2713,7 +2713,7 @@ def _converge(b, nid):
                 "items": [f"local_checks: {st or '無し'} — {ci.get('reason') or ci.get('checked') or ci.get('detail') or ''}"],
                 "options": ["continue", "stop"],
             }}
-    if branch in ("premise_escalate", "work_exhausted"):
+    if branch in V.STOP_KEYS:
         return {"decision": "ask", "reason": branch, "ask": {
             "kinds": [branch],
             "question": ("前提不成立が確定した——残る仕事は全てその答えに従属する。" if branch == "premise_escalate" else

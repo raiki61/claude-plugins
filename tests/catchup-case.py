@@ -4,7 +4,6 @@
 テストに載せるのは「材料 → 出力」の規則だけ。取得（gh / GraphQL）は対象外で、ここで
 モックしても検査になるのは自分で書いたモックの方になる。"""
 
-import datetime as dt
 import importlib.util
 import pathlib
 import sys

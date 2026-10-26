@@ -2243,8 +2243,9 @@ def _rotate(path):
 
 
 def log_line(path: str, text: str) -> None:
+    """path の置き場のフォルダも作る(searchgate・waitgate・destgate の記録は coldread と別のフォルダに在る)。"""
     try:
-        os.makedirs(STATE_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         _rotate(path)
         with open(path, "a", encoding="utf-8") as f:
             f.write("%s\t%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text))
@@ -4908,7 +4909,6 @@ def _verdict_schema(words):
 
 
 BASE_WORDS = ("old", "new")
-BASE_CHECK_SCHEMA = _verdict_schema(BASE_WORDS)
 
 
 def _verdict_marks(reply, words):

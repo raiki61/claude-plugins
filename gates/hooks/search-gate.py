@@ -30,6 +30,10 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
+# `sys.path[0]` に頼らない(coldread-gate.py が claude_auth を読むのと同じ)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gate_shell  # noqa: E402
+
 FIND = {"find", "bfs", "gfind"}
 GREP = {"grep", "egrep", "fgrep", "ggrep"}
 FD = {"fd", "fdfind"}
@@ -376,10 +380,6 @@ def check_tool(tool, args, cwd):
 
 
 def deny(cr, tool, start):
-    try:
-        os.makedirs(os.path.dirname(DENY_LOG), exist_ok=True)   # 止めると決まった後だけ作る(書けない環境で全部を止めない)
-    except OSError:
-        pass   # 記録を書けなくても止める(log_line も書けなければ知らせて続ける)
     cr.log_line(DENY_LOG, "deny %s %s" % (tool, start))
     cr.deny(
         "searchgate: %s の起点 %s は / やホームの全体なので止めた。全体を探すとマシン全体が重くなり"
@@ -416,11 +416,7 @@ def main():
 
 
 def load_coldread():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "coldread_gate", os.path.join(os.path.dirname(os.path.abspath(__file__)), "coldread-gate.py"))
-    cr = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(cr)
+    cr = gate_shell.load_coldread()
     global Scope, DENY_LOG
     DENY_LOG = os.path.join(cr.CONFIG_DIR, "searchgate", "denies.log")
 
@@ -467,11 +463,4 @@ Scope = DENY_LOG = None
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:  # 検査できないものを黙って通さない(coldread・destgate と同じ倒し方)
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": "searchgate: 探す起点の検査自体に失敗した(%s)。" % str(exc)[:150],
-        }}, ensure_ascii=False))
+    gate_shell.run(main, lambda why: "searchgate: 探す起点の検査自体に失敗した(%s)。" % why)

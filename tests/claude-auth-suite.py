@@ -9,7 +9,6 @@ Keychain（security）と資格情報のファイルは偽物にする。
 
 import datetime
 import json
-import os
 import pathlib
 import subprocess
 import sys
