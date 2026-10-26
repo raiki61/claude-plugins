@@ -249,10 +249,12 @@ The following are accepted as out of scope in principle, or as forms that are st
   So `gh pr checkout -b <branch name>`, `gh issue view -c`, `gh run download -n`, etc. are
   not posts and are not caught by the net. Conversely, even if gh adds posting subcommands, they are caught by the net if written with long flags.
   New subcommands used only with short forms are missed
-- The hook's start line runs `hooks/run-python.sh` with bash. It tries `python3`, `python` and `py -3` in that order and uses the
+- The hook's start line runs `hooks/run-python.sh` with bash. It tries `python3`, `python`, the versioned names from `python3.20`
+  down to `python3.9`, and `py -3` in that order and uses the
   first one that actually starts and is Python 3.9 or newer (on Windows, `python3`/`python` can be the Microsoft Store placeholder,
-  which only prints an install hint; picking the first name on PATH would make every hook fail and the gates silently not run).
-  If none works, it prints how to fix it once per conversation and the gates do not run. In an environment without bash, the host
+  which only prints an install hint; picking the first name on PATH would make every hook fail and the gates silently not run.
+  The versioned names cover a Python installed by uv, which puts only names like `python3.14` on PATH).
+  If none works, it prints how to install Python or add its folder to PATH, once per conversation, and the gates do not run. In an environment without bash, the host
   cannot start the hook at all, so the gatekeeper does not run regardless of how the start line is written
 - The screen for a new PR or issue is assembled only for `gh pr create` and `gh issue create`. The title is taken from `--title`, the repository from
   `-R` (if absent, `gh repo view` in the place where gh runs), and the PR's branches from `--base` (if absent, the default branch) and `--head` (if absent, the current branch

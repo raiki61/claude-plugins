@@ -2422,9 +2422,17 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=774
+EXPECTED_CHECKS=777
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
+# ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
+# PATH を偽の名前だけにする。訳と形は tests/gates-run-python-case.sh の頭
+expect_output 0 "PICKED" "gates run-python.sh: python3 が要る版に足りず、版の付いた名前（python3.10）が起きるなら、それを選ぶ" \
+    bash "$ROOT/tests/gates-run-python-case.sh" versioned "$PY_BIN"
+expect_output 0 "PICKED" "gates run-python.sh: python3 が起きて要る版なら、版の付いた名前が在っても python3 を選ぶ（今の機械で選ぶ物を変えない）" \
+    bash "$ROOT/tests/gates-run-python-case.sh" order "$PY_BIN"
+expect_output 1 "入れた場所を PATH に足す" "gates run-python.sh: 起きる Python が無ければ、試した物と、入れ方と PATH の直し方を出して 1 で終わる" \
+    bash "$ROOT/tests/gates-run-python-case.sh" none "$PY_BIN"
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
