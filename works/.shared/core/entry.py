@@ -679,8 +679,11 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
 
 
 def _nice19() -> None:
-    """子の中で exec の前に呼ぶ（Popen の preexec_fn）: nice -n 19 と同じだけ優先度を下げる"""
-    os.nice(19)
+    """子の中で exec の前に呼ぶ（Popen の preexec_fn）: nice -n 19 と同じだけ優先度を下げる。
+    os.nice は使わない: macOS の libc の nice() は値を 19 で頭打ちにするが、カーネルは 20 まで許す（nice 1 以上の殻から
+    nice -n 19 で起こすと 20 になる）ので、親が 20 だと nice() は優先度を上げる向きになって EPERM で落ちる。
+    nice(1) の BSD の版と同じく setpriority に今の値 + 19 を渡し、上限はカーネルに切らせる"""
+    os.setpriority(os.PRIO_PROCESS, 0, os.getpriority(os.PRIO_PROCESS, 0) + 19)
 
 
 def _launched(argv: list, how: str) -> str:

@@ -857,15 +857,25 @@ class LocalChecksMaterialCase(StartCaseBase):
     def test_niced_runs_with_lower_priority(self):
         """niced（既定 False）が真なら nice を付けて走らせる（TDD の輪の中の test_cmd。ADR 0071 の 3 の 1）。偽なら今どおり"""
         repo = self.seed()
-        cmd = f"{sys.executable} -c \"import os; print('NICE', os.nice(0))\""
+        # os.nice(0) で読まない: macOS では nice 20 の下で EPERM になる（entry._nice19 の docstring）
+        cmd = f"{sys.executable} -c \"import os; print('NICE', os.getpriority(os.PRIO_PROCESS, 0))\""
 
         def level(log, **kw):
             m = entry.local_checks_material(repo, cmd, self.tmp / log, **kw)["material"]
             self.assertEqual(m["status"], "clean", m)
             return int((self.tmp / log).read_text(encoding="utf-8").split("NICE")[1].split()[0])
         plain, niced = level("plain.log"), level("niced.log", niced=True)
-        self.assertEqual(plain, os.nice(0))
+        self.assertEqual(plain, os.getpriority(os.PRIO_PROCESS, 0))
         self.assertGreaterEqual(niced, min(plain + 19, 19), "nice -n 19 と同じ（上限は OS で 19 か 20）")
+
+    def test_nice19_at_ceiling_does_not_fail(self):
+        """親が既に上限（macOS は 20）でも、_nice19 が preexec_fn の中で落ちずに子を起こせる（nice 1 以上の殻から nice -n 19 で
+        試験を回した回）。落ちれば subprocess.SubprocessError になる。os.nice の退行を捕まえるのは macOS だけ（Linux の上限は 19 で、
+        19 の下の os.nice は通る）"""
+        def at_ceiling():
+            os.setpriority(os.PRIO_PROCESS, 0, 20)
+            entry._nice19()
+        subprocess.run([sys.executable, "-c", "pass"], preexec_fn=at_ceiling, check=True)
 
     def test_empty_cmd_not_run(self):
         m = entry.local_checks_material(self.seed(), "  ", self.tmp / "x.log")["material"]

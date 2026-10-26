@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- TDD の輪の中の test_cmd を優先度を下げて起こす所（`entry._nice19`）が、親がすでに nice 20 の macOS で `Exception occurred in preexec_fn` で落ち、試験のコマンドを起こせなかったのを直した。nice 1 以上の殻から `nice -n 19` で起こすとカーネルは 20 まで下げるが、libc の `nice()` は 19 で頭打ちにするので、20 の下では優先度を上げる向きになって EPERM になっていた。`setpriority` に今の値 + 19 を渡し、上限はカーネルに切らせる。
+
 ## [0.7.2] - 2026-10-26
 
 ### Fixed
