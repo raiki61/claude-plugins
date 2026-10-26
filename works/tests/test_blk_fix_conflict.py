@@ -33,7 +33,7 @@ import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
 import prepkit  # noqa: E402
-from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, PLAN_FIELDS, block, board_shas, find_node, load, pop_accept_last,  # noqa: E402
+from test_blk_fix import (BoardCase, CLAMP, MEAN, PLAN_FIELDS, block, board_shas, find_node, load, pop_accept_last,  # noqa: E402
                           run_script)
 from test_blk_fix import plan_reply as PLAN_REPLY  # noqa: E402  （split_plan_reply が元の 1 項目の案から作る）
 from test_blk_fix_tdd import LoopCase  # noqa: E402

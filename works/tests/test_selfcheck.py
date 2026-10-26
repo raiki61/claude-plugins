@@ -11,7 +11,6 @@
 - 写しの置き場が Claude Code の一時フォルダの下なら、dev/guard.sh の柵で何も写さずに 2 で止まる
 """
 import json
-import os
 import pathlib
 import shutil
 import subprocess

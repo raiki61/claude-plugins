@@ -137,7 +137,7 @@ class LensBoardCase(RF.DeltaBoardCase):
 
     def test_route_without_definition_does_not_route_with_reason(self):
         """定義が役の設定に無いレンズは起こさない（go 偽・指示書は空）。lens.json には not_routed と理由"""
-        repo = self.fixed()
+        self.fixed()
         with mock.patch.object(lenses.rolekit, "agent_def", return_value=None):
             out = lenses.route(self.board)
         self.assertEqual((out["silent_failure_hunter_go"], out["prompt_silent_failure_hunter"]), (False, ""))
@@ -308,7 +308,7 @@ class LensBoardCase(RF.DeltaBoardCase):
     # -- 報告
     def test_report_lists_unseen_lenses(self):
         """報告の「未確認のレンズ」に落ちたレンズと理由、手直しの差分の 1 行。レンズを走らせない run も節を出し「走らせていない」と言う"""
-        repo = self.fixed()
+        self.fixed()
         rep = report.build(self.board.resolve(), judged=None, tests=None, start=None)
         text = pathlib.Path(rep["report_file"]).read_text(encoding="utf-8")
         self.assertIn("レンズを走らせていない", text.split("## 未確認のレンズ", 1)[1].split("\n## ", 1)[0])
@@ -329,7 +329,7 @@ class LensBoardCase(RF.DeltaBoardCase):
         self.assertIn("- silent-failure-hunter: 落ちた（", section)
 
     def test_report_lines_name_broken_file_and_all_ran(self):
-        repo = self.fixed()
+        self.fixed()
         b = self.board_obj()
         b.work(lens.LENS_FILE).write_text("[]", encoding="utf-8")
         self.assertIn("レンズの控え", lens.report_lines(b)[0])

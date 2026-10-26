@@ -12,7 +12,6 @@
 import json
 import pathlib
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,7 +24,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 import unitlanes  # noqa: E402
 import unittrees  # noqa: E402
 import writes  # noqa: E402
-from gitkit import committed_copy, git  # noqa: E402
+from gitkit import committed_copy  # noqa: E402
 
 SEED = {"a.txt": "a1\na2\na3\n", "b.txt": "b1\nb2\nb3\n", "c.txt": "c1\nc2\nc3\n"}
 _SRC = None

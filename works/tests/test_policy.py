@@ -118,7 +118,6 @@ class JudgeBlockPolicyCase(unittest.TestCase):
 # ---------------------------------------------------------------- start が組む方針の文（計画 Task 7。policy.brief）
 # 方針の文書の固定は盤面を作る時の写しの on_init（policy_input.resolve: 共通の git の置き場の graphloops/policy.md を盤面の
 # policy/<sha256>.md に写す）。brief はその写し（record.process.policy.copy）から役に貼る本文と置き場を組むだけ
-import json  # noqa: E402
 import tempfile  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))

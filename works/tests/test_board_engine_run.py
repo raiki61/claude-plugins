@@ -9,7 +9,6 @@ import copy
 import json
 import os
 import pathlib
-import re
 import signal
 import subprocess
 import sys
@@ -275,7 +274,7 @@ class RunEngineCase(EngineRunCase):
         seen = {}
 
         def bad_reply(board, nid, launch, runs):
-            got = real(board, nid, launch, runs)                   # by: engine を記憶に書く
+            real(board, nid, launch, runs)                         # by: engine を記憶に書く
             seen["by"] = board.record["process"]["checks"][nid]["by"]
             return {"reply": {"material": {"status": "no-such-status"}}}
         with mock.patch.dict(er, {"reply": bad_reply}):

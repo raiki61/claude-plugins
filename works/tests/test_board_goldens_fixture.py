@@ -11,7 +11,6 @@ import copy
 import gzip
 import hashlib
 import json
-import os
 import pathlib
 import sys
 import unittest

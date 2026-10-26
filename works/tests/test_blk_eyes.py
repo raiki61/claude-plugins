@@ -46,7 +46,6 @@ import boardreplay as br  # noqa: E402
 import design  # noqa: E402
 import entry  # noqa: E402
 import eyes  # noqa: E402
-from accept import role_schema  # noqa: E402
 from board import BoardGap, NodeTable, graph_expanded, GRAPH_SHA, rules_module  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import node_marker  # noqa: E402

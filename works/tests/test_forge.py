@@ -25,7 +25,6 @@ import hermetic  # noqa: E402
 import forge  # noqa: E402
 import board  # noqa: E402
 import entry  # noqa: E402
-import entryshape  # noqa: E402  （入口の変換）
 import prcheck  # noqa: E402
 import report  # noqa: E402
 from engine.rules import registry  # noqa: E402

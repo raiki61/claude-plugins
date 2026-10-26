@@ -27,7 +27,6 @@ sys.path.insert(0, str(ROOT / "blk-fix" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
 import adapter  # noqa: E402
-import startrec  # noqa: E402  （始めの記録の置き場と読み口）
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import entry  # noqa: E402

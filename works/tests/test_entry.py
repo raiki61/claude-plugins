@@ -30,7 +30,6 @@ import carry  # noqa: E402
 import entry  # noqa: E402
 import entryshape  # noqa: E402  （入口の変換）
 import startrec  # noqa: E402  （始めの記録の読み口）
-import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scopes  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
@@ -598,7 +597,6 @@ class LinekitCase(unittest.TestCase):
 import subprocess  # noqa: E402
 
 import adapter  # noqa: E402
-import ticket  # noqa: E402
 
 SCRIPT = ROOT / "blk-entry" / "scripts" / "start.py"
 SEED_CMD = "python3 -m unittest test_stats"

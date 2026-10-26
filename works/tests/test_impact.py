@@ -17,7 +17,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CORE = ROOT / ".shared" / "core"
 sys.path.insert(0, str(CORE))
 
-import changemap  # noqa: E402
 import impact  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 

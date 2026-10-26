@@ -32,6 +32,20 @@ import node_marker  # noqa: E402
 import rolekit  # noqa: E402
 import rulebook  # noqa: E402
 
+
+def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", iteration: int = 1, libdocs: str = "",
+               seat: str = "") -> str:
+    """直す役の指示書の本文（fix-prep が書く物と同じ組み立て。fixrules.fix_parts を rulebook.render で並べる）"""
+    return fixrules.render("fix", iteration, fixrules.fix_parts(values, kinds, libdocs, seat), reject_file=reject_file)["text"]
+
+
+def tdd_prompt(values: dict, phase: str, phase_text: str, *, title: str, reason: str = "", kinds: dict | None = None,
+               iteration: int = 1, brief: str = "", seat: str = "") -> str:
+    """TDD の輪の役の指示書の本文（fixrules.tdd_render の text）"""
+    return fixrules.tdd_render(values, phase, phase_text, title=title, reason=reason, kinds=kinds, iteration=iteration,
+                               brief=brief, seat=seat)["text"]
+
+
 SHARED = CORE / "writerules" / "common.md"
 # 本線（graphloops の p3.fix.md）から来た決まりの句。正本に在り、両方の指示書に届く
 MAINLINE = ("根本の単位ごとに直せ", "同じ形を全部直せ", "直す前に既製の物で済まないかを確かめろ", "動きを変えたら",
@@ -102,8 +116,8 @@ class TestSharedSource(unittest.TestCase):
         rule = "緑にするためにテスト・依頼・コードのどれかを曲げるくらいなら、食い違いとして返せ"
         self.assertIn(rule, fixrules.sections(fixrules.SHARED)["core-conflict"])
         self.assertEqual(sum(ln.count(rule) for ln in shared_lines()), 1, "正本に 1 か所だけ")
-        for text in (fixrules.fix_prompt(VALUES, kinds={}),
-                     fixrules.tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "route", "## 今の段", title="# t", kinds={})):
+        for text in (fix_prompt(VALUES, kinds={}),
+                     tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "route", "## 今の段", title="# t", kinds={})):
             self.assertIn(rule, text)
         ruler = fixrules.ruler_prompt({"conflicts_file": "/b/r1/conflicts.json", "ids": "c1-1", "judgment_file": "/b/j.json",
                                        "request_file": "", "policy_path": ""})
@@ -123,8 +137,8 @@ class TestSharedSource(unittest.TestCase):
         self.assertIn(only, sec["core-fix"])
         self.assertIn("`which_is_right` を unknown", sec["core-conflict"])
         old = re.compile(r"(疑い|疑いの理由|何が要るか|ぶつかるか|人に聞きたいこと)(は|を)\s*`rejudge_requested`\s*に書")
-        prompts = {"fix": fixrules.fix_prompt(VALUES, kinds={}),
-                   "tdd": fixrules.tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "fix", "## 今の段", title="# t", kinds={})}
+        prompts = {"fix": fix_prompt(VALUES, kinds={}),
+                   "tdd": tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "fix", "## 今の段", title="# t", kinds={})}
         for name, text in prompts.items():
             with self.subTest(name):
                 self.assertIn(ask, text)
@@ -148,8 +162,8 @@ class TestSharedSource(unittest.TestCase):
         line = next(ln for ln in shared_lines() if rule in ln)
         for w in ("方針の文書", "人に見せる一覧", "人に届かない"):
             self.assertIn(w, line)
-        for text in (fixrules.fix_prompt(VALUES, kinds={}),
-                     fixrules.tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "fix", "## 今の段", title="# t", kinds={})):
+        for text in (fix_prompt(VALUES, kinds={}),
+                     tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "fix", "## 今の段", title="# t", kinds={})):
             self.assertIn(rule, text)
         # plan_faces は直す役の返答だけの欄なので、その答え方は直す役の決まり（返答の欄の節）に置く
         faces = next(ln for ln in (BLK / "rules" / "direct.md").read_text(encoding="utf-8").splitlines() if ln.startswith("- `plan_faces`:"))
@@ -220,10 +234,10 @@ class TestSharedSource(unittest.TestCase):
 
 class TestCompose(unittest.TestCase):
     def fix(self, **kw):
-        return fixrules.fix_prompt(VALUES, **kw)
+        return fix_prompt(VALUES, **kw)
 
     def tdd(self, phase="fix", **kw):
-        return fixrules.tdd_prompt(tdd_values(), phase, PHASE_TEXT, title=TITLE, **kw)
+        return tdd_prompt(tdd_values(), phase, PHASE_TEXT, title=TITLE, **kw)
 
     def test_brief_rule_reaches_fixer_and_tdd_only(self):
         """brief の決まり（brief-canon）は修正役と TDD の役の頭の次にだけ載る。裁定役と手直しの役には載せない"""
@@ -388,21 +402,21 @@ class TestCompose(unittest.TestCase):
 
     def test_missing_value_is_an_error(self):
         with self.assertRaises(fixrules.Unfilled):
-            fixrules.fix_prompt({k: v for k, v in VALUES.items() if k != "plan_file"})
+            fix_prompt({k: v for k, v in VALUES.items() if k != "plan_file"})
         with self.assertRaises(fixrules.Unfilled):
             fixrules.fill("a <<nope>> b", {})
 
     def test_values_are_not_rescanned(self):
         """値の中の <<…>>・$… は字のまま（埋めた値をもう一度穴として読まない）"""
         odd = {**VALUES, "notes_file": "/x/<<plan_file>>/$INPUTS.plan_file"}
-        self.assertIn("`/x/<<plan_file>>/$INPUTS.plan_file`", fixrules.fix_prompt(odd))
+        self.assertIn("`/x/<<plan_file>>/$INPUTS.plan_file`", fix_prompt(odd))
 
     def test_same_inputs_same_bytes(self):
         self.assertEqual(self.fix().encode(), self.fix().encode())
-        self.assertEqual(self.fix().encode(), fixrules.fix_prompt(dict(reversed(list(VALUES.items())))).encode())
+        self.assertEqual(self.fix().encode(), fix_prompt(dict(reversed(list(VALUES.items())))).encode())
         self.assertEqual(self.tdd().encode(), self.tdd().encode())
         self.assertEqual(self.fix(reject_file="/b/r-1.txt").encode(), self.fix(reject_file="/b/r-1.txt").encode())
-        self.assertNotEqual(self.fix(), fixrules.fix_prompt({**VALUES, "plan_file": "/other"}))
+        self.assertNotEqual(self.fix(), fix_prompt({**VALUES, "plan_file": "/other"}))
 
     def test_reject_line_after_the_header(self):
         """前の回の拒否の理由はファイルのパスで、見出しの次の 1 行（rolekit と同じ文。理由の文は貼らない。R44）"""
@@ -426,7 +440,7 @@ class TestCompose(unittest.TestCase):
 
     def test_tdd_brief_after_title_before_reason(self):
         """TDD の役の指示書の頭: 題 → brief の節 → 前の回に拒んだ理由"""
-        text = fixrules.tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, reason="R", brief="## 要求の正本（brief）\n\nX")
+        text = tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, reason="R", brief="## 要求の正本（brief）\n\nX")
         self.assertLess(text.index(TITLE), text.index("## 要求の正本（brief）"))
         self.assertLess(text.index("## 要求の正本（brief）"), text.index("前の回の返答を機械が拒んだ理由"))
 
@@ -979,7 +993,7 @@ class TestLangLine(unittest.TestCase):
 
     def test_no_lang_no_line(self):
         """盤面の外で組む（lang が空）なら置かない。置いても本文はそのまま"""
-        plain = fixrules.fix_prompt(VALUES)
+        plain = fix_prompt(VALUES)
         self.assertNotIn(rolekit.LANG_RULE.split("{lang}")[0], plain)
         got = rulebook.render("fix", 1, fixrules.fix_parts(VALUES), lang=self.LINE)["text"]
         self.assertEqual(got, plain.rstrip("\n") + "\n\n" + self.LINE + "\n")
@@ -1101,9 +1115,9 @@ class TestSeatParts(unittest.TestCase):
         self.assertNotIn("seat", [pid for pid, _, _ in fixrules.tdd_parts(tdd_values())])
 
     def test_prompts_pass_the_seat_through(self):
-        self.assertIn("座の文 S", fixrules.fix_prompt(VALUES, seat="座の文 S"))
-        self.assertIn("座の文 S", fixrules.tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, seat="座の文 S"))
-        self.assertEqual(fixrules.fix_prompt(VALUES), fixrules.fix_prompt(VALUES, seat=""))
+        self.assertIn("座の文 S", fix_prompt(VALUES, seat="座の文 S"))
+        self.assertIn("座の文 S", tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, seat="座の文 S"))
+        self.assertEqual(fix_prompt(VALUES), fix_prompt(VALUES, seat=""))
 
     def _values(self, rows, owed):
         from unittest import mock

@@ -28,8 +28,8 @@ from rejudgekit import UNIT_A, UNIT_B, load  # noqa: E402
 import node_marker  # noqa: E402
 import prepkit  # noqa: E402
 import rejudge  # noqa: E402
-from accept import role_schema, snapshot_tree  # noqa: E402
-from board import BoardGap, graph_expanded, rules_module  # noqa: E402
+from accept import role_schema  # noqa: E402
+from board import BoardGap, graph_expanded  # noqa: E402
 from engine import pointers  # noqa: E402
 from engine.render import Renderer  # noqa: E402
 from engine.util import dump, safe_name  # noqa: E402

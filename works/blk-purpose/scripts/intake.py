@@ -35,7 +35,6 @@ import conflict  # noqa: E402
 import carry  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
-import conflict  # noqa: E402
 from engine.util import Reject  # noqa: E402  purpose の後（purpose を読むと写しの graphloops が sys.path に入る）
 
 REQUEST_ENV = "INPUTS_REQUEST"

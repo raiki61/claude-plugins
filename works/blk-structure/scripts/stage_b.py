@@ -21,7 +21,6 @@ new_names: [{name, sites}], dup_blocks_added: int, timing: {秒（lib/eye の WA
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile

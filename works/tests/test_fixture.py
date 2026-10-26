@@ -10,9 +10,7 @@
 """
 import hashlib
 import json
-import os
 import pathlib
-import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -188,9 +186,7 @@ class FixtureCase(FixtureBase):
         self.assertIn(f"{fixture.COPY}/state.json", man["files"])
 
     def test_start_record_place_is_one(self):
-        """start の控えの置き場は包みの START_REL 1 つ（1 周目の startrec.NAME）。固定材料の印の読み口は adopted だけ"""
-        import adapter
-        self.assertEqual(startrec.REL, startrec.REL)
+        """start の控えの置き場は startrec.REL 1 つ（1 周目の startrec.NAME）。固定材料の印の読み口は adopted だけ"""
         self.assertEqual(startrec.REL, f"r1/{startrec.NAME}")
         self.assertIsNone(fixture.adopted(self.tmp / "nowhere"))
 

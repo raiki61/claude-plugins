@@ -4,7 +4,6 @@ import json
 import pathlib
 import sys
 import tempfile
-import types
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]

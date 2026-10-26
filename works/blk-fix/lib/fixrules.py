@@ -22,7 +22,7 @@
 型の穴は <<名>>。run の値は `値`（空は EMPTY）。埋めた値はもう一度読まない（1 回の置き換え）。穴に値が無い時は Unfilled。
 同じ入力からはバイト単位で同じ指示書になる（時刻を書かない）。
 
-- fix_prompt / tdd_prompt: 2 つの道の指示書（純粋な関数）
+- fix_parts / tdd_render: 2 つの道の指示書の節と組み立て（純粋な関数）
 - prep: 節 fix-prep・fix-ruled-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う。
   下請けを起こす単位（dispatched: TDD の輪が緑にした単位を除く。依頼 243 の 2）が在れば、借りたスキルの座の代わりに下請けを
   回す節（seat.g1_section。項目ごとのファイルは g1_values）を載せる。
@@ -108,7 +108,6 @@ CODE_SUFFIXES = frozenset({".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", 
 PATH_TOKEN = re.compile(r"[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]*")
 # 受け付け（scripts/accept.py の accept_fix を script_io.main が回す）が拒否の理由を書くファイル（script_io の名の決まり）
 REJECT_FN = "accept_fix"   # 受け付けの関数の名（拒否の理由のファイルの名。script_io.reject_name）
-REJECT_GLOB = script_io.reject_name(REJECT_FN, "*")
 DELIVERED = ".delivered.json"   # この輪で渡した証拠の種類と回の番号の控え（<名>.md の隣）
 SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今の周の作業ファイル。直す義務の単位の brief を名指す節）
 G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正役が起こす下請けのファイル（今の周の作業ファイル。n は項目の番号）
@@ -277,24 +276,11 @@ def ruler_prompt(values: dict, *, reject_file: str = "", iteration: int = 1, lan
     return render("rule", iteration, ruler_parts(values), reject_file=reject_file, lang=lang)["text"]
 
 
-def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", iteration: int = 1, libdocs: str = "",
-               seat: str = "") -> str:
-    """直す役の指示書（純粋）"""
-    return render("fix", iteration, fix_parts(values, kinds, libdocs, seat), reject_file=reject_file)["text"]
-
-
-def tdd_prompt(values: dict, phase: str, phase_text: str, *, title: str, reason: str = "", kinds: dict | None = None,
-               iteration: int = 1, brief: str = "", seat: str = "") -> str:
-    """TDD の輪の役の指示書（純粋）"""
-    return tdd_render(values, phase, phase_text, title=title, reason=reason, kinds=kinds, iteration=iteration, brief=brief,
-                      seat=seat)["text"]
-
-
 TDD_REJECT_HEAD = promptsection.Section("## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）\n\n", source="fn:fixrules.tdd_render")
 
 
 def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, iteration=1, lang="", brief="", seat="") -> dict:
-    """tdd_prompt の {text, head}（rulebook.render）。並び: 題 → [brief の節（planbrief.head_text）] → [拒んだ理由] → 決まり
+    """TDD の輪の役の指示書の {text, head}（rulebook.render）。並び: 題 → [brief の節（planbrief.head_text）] → [拒んだ理由] → 決まり
     → 今の段の約束 → 今の段（tddloop が書く）→ 結び → [言語の 1 行（lang_at）]"""
     before = [title, *([brief] if brief else [])]
     if reason:
@@ -644,12 +630,12 @@ def overlap_line(b) -> str:
     """修正役の並べの枝の締めが記録（LANES_RECORD）に残した重なりのファイルが在れば、出し直しの指示書の頭の 1 行（OVERLAP_LINE）。
     無ければ空"""
     doc = lanes_record(b) or {}
-    shared = [f for f in doc.get("shared") or [] if isinstance(f, str)]
-    if not shared:
+    overlap = [f for f in doc.get("shared") or [] if isinstance(f, str)]
+    if not overlap:
         return ""
     items = [it.get("item") for it in doc.get("items") or [] if isinstance(it, dict) and it.get("outcome") == "merged"
-             and set([*(it.get("files") or []), *(it.get("patched") or [])]) & set(shared)]
-    return OVERLAP_LINE.format(items="・".join(str(n) for n in items), files="、".join(shared[:10]))
+             and set([*(it.get("files") or []), *(it.get("patched") or [])]) & set(overlap)]
+    return OVERLAP_LINE.format(items="・".join(str(n) for n in items), files="、".join(overlap[:10]))
 
 
 LANE_LATER = "- この枝の後の項目（今は手を付けるな。この項目が済んだ後に新しい会話で直す）: {items}"

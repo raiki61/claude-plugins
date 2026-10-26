@@ -33,7 +33,6 @@ from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_REQUEST_FILE, PREMIS
 import conflict  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
-import conflict  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
 INPUTS = (REQUEST_ENV,)   # 裁定 TA16: 読む INPUTS_* の組

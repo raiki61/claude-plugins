@@ -32,7 +32,6 @@ sys.path.insert(0, str(TESTS))
 import conflict  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 import planbrief  # noqa: E402
-import planmarks  # noqa: E402
 import prepkit  # noqa: E402
 import stopby  # noqa: E402
 import tddloop  # noqa: E402

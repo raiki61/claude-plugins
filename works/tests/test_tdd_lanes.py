@@ -18,7 +18,6 @@ docs/plans/2026-10-07-overlap-lanes.md・docs/plans/2026-10-07-lane-nodes.md）�
 import json
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
 import unittest

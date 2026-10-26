@@ -1,7 +1,7 @@
 """役の節の印（works-node）。
 
 役の節の output_format（JSON Schema）の一番上の description に 1 行 `works-node: <名>[ continue=<名>][ <flag>…]` を置く。
-Archon の SDK は output_format を claude の argv の `--json-schema` にそのまま載せるので、包み（.shared/adapter）は
+Archon の SDK は output_format を claude の argv の `--json-schema` にそのまま載せるので、包み（.shared/core/claude-adapter）は
 argv だけでどの節の起動かを見分けられる（仕様 3.7・5.1、裁定 TA20）。description は JSON Schema の注記なので、
 返答の型の検査には効かない。graph の schema（role_schema）の一番上は description を持たない。
 

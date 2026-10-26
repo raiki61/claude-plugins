@@ -8,7 +8,6 @@
   辿る。版は dist-info の METADATA・package.json の version。環境の置き場の外を指す symlink は読まない
 """
 import json
-import os
 import pathlib
 import sys
 import tempfile

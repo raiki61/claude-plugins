@@ -35,7 +35,7 @@ import engine.util as engine_util  # noqa: E402
 from engine import commands as engine_commands  # noqa: E402
 from engine import pointers as engine_pointers  # noqa: E402
 from engine.board import Board as EngineBoard  # noqa: E402
-from engine.util import AnswerReject, BoardConflict, Reject  # noqa: E402
+from engine.util import BoardConflict, Reject  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
 
 GRAPH = json.loads(GRAPH_PATH.read_text(encoding="utf-8"))

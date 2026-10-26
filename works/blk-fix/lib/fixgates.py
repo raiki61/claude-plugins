@@ -155,11 +155,6 @@ def overflow_asks(rows: list[dict], repo, rev: str, items) -> list[dict]:
     return out
 
 
-def reject_text(rows: list[dict]) -> str:
-    """行を全部並べた 1 つの文（reject_lines を " / " でつないだ物。1 行ずつ直させて受け付けの回数を使い切らない）"""
-    return " / ".join(reject_lines(rows))
-
-
 def _mark(pass_: str, attempt: int) -> dict:
     """帳面の行の受け付けの回の印"""
     return {"pass": pass_, "attempt": attempt}

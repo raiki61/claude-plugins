@@ -151,7 +151,6 @@ GATE_OFF = "off"
 # 単位ごとの深さ（入力 unit_depths の値）のうち、緑の後の test_cmd を走らせない語。出口の単位の test_cmd はその時 CMD_LIGHT
 LIGHT = "軽量"
 CMD_LIGHT = "light"
-SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
 
 
 class Broken(Exception):

@@ -6,7 +6,7 @@
 - 盤面の控え: 公式の取れた物と見つからない物はライブラリ＋版の鍵で周の置き場に書き、次は網に出ない（前の周の控えも読む）
 - 数で言う: 取れなかった・見つからない・上限で取らない物は節の頭に数と名前で出す（黙って落とさない）
 - 標準ライブラリだけの対象は何も取らず、取らないことを書く。WORKS_LIBDOCS_WEB=off も網に出ないことを書く
-- 組み立て: 修正役の指示書（fixrules.fix_prompt）と修正案の役の頭（planblk.head）に節が入る
+- 組み立て: 修正役の指示書（fixrules.fix_parts）と修正案の役の頭（planblk.head）に節が入る
 - 出どころ（SourcesCase。設計 works/docs/plans/2026-10-08-libdocs-sources.md）: 手元の版 → 公式の順に並べる。手元で読んだ版で
   公式に問う。どこからも取れなかった物は名指して役に自分で引けと言う。off でも手元は読む。公式の取れた物と見つからない物は
   盤面と家に控える（取れなかった物は控えない）
@@ -18,7 +18,6 @@
 """
 import json
 import pathlib
-import re
 import sys
 import tempfile
 import unittest
@@ -289,7 +288,7 @@ class SourcesCase(Base):
         libdocs.section(self.board, self.repo, [f], get=ok_http(), env=env, now=1_800_000_000.0)
         self.board.round = 2
         http = FakeHttp()
-        text = libdocs.section(self.board, self.repo, [f], get=http, env=env, now=1_800_000_060.0)
+        libdocs.section(self.board, self.repo, [f], get=http, env=env, now=1_800_000_060.0)
         self.assertEqual(http.calls, [], "次の周は盤面の控えを読む")
         self.assertIn("Use `requests.Session` to keep cookies", self.saved("official-1-readme.md", rnd=2))
         other = FakeBoard(self.tmp / "board2")
@@ -389,11 +388,11 @@ class ComposerCase(Base):
         vals = {k: "" for k in fixrules.FIX_VALUES}
         f = self.write("app.py", "import requests\n")
         sec = libdocs.section(self.board, self.repo, [f], get=ok_http(), env={})
-        text = fixrules.fix_prompt(vals, libdocs=sec)
+        text = fixrules.render("fix", 1, fixrules.fix_parts(vals, libdocs=sec))["text"]
         self.assertIn(libdocs.TITLE, text)
         self.assertIn('"id": "libdocs"', text)
         self.assertNotIn("Context7", text, "決まりの節の理由の字も Context7 を言わない")
-        self.assertNotIn(libdocs.TITLE, fixrules.fix_prompt(vals))
+        self.assertNotIn(libdocs.TITLE, fixrules.render("fix", 1, fixrules.fix_parts(vals))["text"])
 
     def test_plan_head_carries_the_section(self):
         import planblk

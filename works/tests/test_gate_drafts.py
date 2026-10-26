@@ -6,7 +6,6 @@ FAST: test_plan_gate の偽の盤面で写しの RL の human_gate を直に呼�
 役が関所に回す行に構造の推し recommend {answer, note, why} を書き、無人の run が関所で止まったら、項目ごとの答えの下書きを
 next-request.json の answers に draft: true と出どころ source つきで置く。機械は関所に答えない（下書きを使う前に人が見直す）。
 """
-import json
 import pathlib
 import sys
 import unittest

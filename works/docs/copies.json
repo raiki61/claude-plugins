@@ -358,7 +358,7 @@
    "試験の組み立ての繰り返し"
   ],
   "tests/test_accept.py": [
-   11,
+   10,
    "試験の組み立ての繰り返し"
   ],
   "tests/test_adapter_no_turn.py": [
@@ -417,10 +417,6 @@
    20,
    "試験の組み立ての繰り返し"
   ],
-  "tests/test_canary_sh.py": [
-   10,
-   "試験の組み立ての繰り返し"
-  ],
   "tests/test_carry_home.py": [
    10,
    "試験の組み立ての繰り返し"
@@ -457,20 +453,12 @@
    10,
    "試験の組み立ての繰り返し"
   ],
-  "tests/test_selfcheck.py": [
-   10,
-   "試験の組み立ての繰り返し"
-  ],
   "tests/test_tdd_frozen.py": [
    13,
    "試験の組み立ての繰り返し"
   ],
   "tests/test_tdd_lane_wiring.py": [
    11,
-   "試験の組み立ての繰り返し"
-  ],
-  "tests/test_tdd_lanes.py": [
-   10,
    "試験の組み立ての繰り返し"
   ],
   "tests/test_tdd_outside.py": [

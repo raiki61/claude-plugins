@@ -1,4 +1,4 @@
-"""包みの切符: 包み（.shared/adapter/claude-adapter）が、盤面の場所と役に書かせない場所を知るための小さなファイル（標準ライブラリだけ）。
+"""包みの切符: 包み（.shared/core/claude-adapter）が、盤面の場所と役に書かせない場所を知るための小さなファイル（標準ライブラリだけ）。
 
 線の `start` が run ごとに 1 回だけ `write` で書き、包みが起動のたびに `adapter.read_ticket(cwd)` で引く。置き場は包みの家
 `home()` の下の `tickets/<cwd の realpath の sha256 の先頭 16 桁>.json`。cwd は run ごとの worktree なので、run の間で混ざらない。

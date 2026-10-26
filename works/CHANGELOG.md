@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 中の片付け（動きは変えない）: 試験からしか呼ばれない関数と、どこからも読まれない定数を消した（`report_roles.count_round_rejects`・`COLD_UNPASSED`、`fixgates.reject_text`、`fixrules.REJECT_GLOB`、`tddloop.SUITE_MADE_NOTE`。試験だけが呼んでいた `fixrules.fix_prompt`・`tdd_prompt` は試験の側へ移した）。いつも通っていた試験の比べ（`test_fixture` の `startrec.REL` を自分と比べる行）・試験とスクリプトの使わない import と代入を外し、docstring が指す今は無い置き場 `.shared/adapter` を `.shared/core/claude-adapter` に直した。
+
 ## [0.7.1] - 2026-10-26
 
 ### Fixed

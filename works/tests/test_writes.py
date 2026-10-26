@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "blk-fix" / "lib"))
 sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
-from gitkit import committed_copy, git  # noqa: E402
+from gitkit import committed_copy  # noqa: E402
 import adapter  # noqa: E402
 import tddloop  # noqa: E402
 import writes  # noqa: E402

@@ -614,7 +614,7 @@ class FinalGateCase(EdgeBase):
         self.assertEqual(doc["text"].encode("utf-8"), ODD_NOTE.encode("utf-8"))
 
     def test_final_gate_null_means_not_opened(self):
-        tests = self.closed()
+        self.closed()
         got = self.edge("eyes", gate=None)
         self.assertEqual((got["stop"], got["go"]), (False, False))
         self.assertFalse(entry.open_board(self.board, allow_halted=True).work(line_edge.FINAL_GATE_ANSWER).exists())

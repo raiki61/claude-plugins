@@ -34,7 +34,6 @@ sys.path.insert(0, str(TESTS))
 import entry  # noqa: E402
 import entryshape  # noqa: E402  （入口の変換）
 import ghreads  # noqa: E402
-import hermetic  # noqa: E402
 import linekit  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 

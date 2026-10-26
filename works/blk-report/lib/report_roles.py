@@ -86,7 +86,6 @@ UNKNOWN_KIND = "unknown"
 COLD_REJECTS_LINE = "- 初見の読み手の拒否（この周）:"
 INVALID_NAME = "report-record-invalid.json"   # 今の周の作業ファイル: 検証器の関所が通らなかった事実
 COLD_MARK_NAME = "report-cold-unpassed.json"  # 今の周の作業ファイル: 上限の回に初見の確かめを通らないまま受け取った事実
-COLD_UNPASSED = "cold_unpassed"         # count_round_rejects が書き手の節に並べる COLD_MARK_NAME の件数の鍵
 COLD_RESULT_NAME = "report-cold-check.json"   # 今の周の作業ファイル: 書き手の頭を読んだ初見の読み手の最後の返答（出口の cold_check）
 TERMS_NAME = "report-terms.json"        # 今の周の作業ファイル: 書き手が返した run ごとの語（{節: [{term, definition}]}）
 SNAPSHOT_PREFIX = "report-snapshot-"    # 書き手を起こす前の作業ツリーの写し（読むだけの役の比べ）
@@ -515,15 +514,6 @@ def count_rejects(rows) -> dict:
         if r.get("node") in got:
             kind = r.get("kind") if r.get("kind") in REJECT_KINDS else UNKNOWN_KIND
             got[r["node"]][kind] += 1
-    return got
-
-
-def count_round_rejects(round_dir) -> dict:
-    """盤面の周のディレクトリ r<N> の拒否の回数（count_rejects）に、書き手の節の COLD_UNPASSED（上限の回に初見の確かめを
-    通らないまま受け取った件数。COLD_MARK_NAME の有無で 0 か 1）を並べる"""
-    round_dir = pathlib.Path(round_dir)
-    got = count_rejects(_read_json(round_dir / REJECTS_NAME, []))
-    got[NODE_OF[WRITE]][COLD_UNPASSED] = int((round_dir / COLD_MARK_NAME).is_file())
     return got
 
 

@@ -49,7 +49,6 @@ import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import planscope  # noqa: E402
 import prepkit  # noqa: E402
-import writes  # noqa: E402
 sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
 import stubfold  # noqa: E402
 
@@ -199,7 +198,7 @@ class TestBlockYaml(unittest.TestCase):
 
     def fix_prompt(self):
         import fixrules
-        return fixrules.fix_prompt({k: f"/b/{k}" for k in fixrules.FIX_VALUES})
+        return fixrules.render("fix", 1, fixrules.fix_parts({k: f"/b/{k}" for k in fixrules.FIX_VALUES}))["text"]
 
     def test_fix_prompt(self):
         """組んだ指示書: run の値は全部パスで埋まり（Archon の $ の置き換えに通さない）、決まり（commit しない・テスト）と欄を持つ"""
@@ -233,7 +232,8 @@ class TestBlockYaml(unittest.TestCase):
         # 盤面の無い物を読ませない: engine の穴（{{…}}）・前の周の R1/R4・並行の線の合流は無い
         for gone in ("{{", "prev.r1", "prev.r4", "lane_merge"):
             self.assertNotIn(gone, body)
-        again = fixrules.fix_prompt({k: f"/b/{k}" for k in fixrules.FIX_VALUES}, reject_file="/b/reject-accept_fix-1.txt")
+        again = fixrules.render("fix", 1, fixrules.fix_parts({k: f"/b/{k}" for k in fixrules.FIX_VALUES}),
+                                reject_file="/b/reject-accept_fix-1.txt")["text"]
         self.assertIn("/b/reject-accept_fix-1.txt", again.split("\n")[1])
 
     def test_output_format_constant_matches_graph(self):

@@ -642,7 +642,7 @@ class SnapCollectCase(PrCase):
     def test_scripts_success_path(self):
         """本物の entry.open_board で、スクリプトを子で起こす: pr-snap → pr-accept（cwd は対象のリポジトリ）→ collect が
         ok true・drafts 1・excluded 1 を 1 行で出す"""
-        b = self.fallen()
+        self.fallen()
         env = {"ARTIFACTS_DIR": str(self.art)}
         r = run_script("snap", env, cwd=self.repo)
         self.assertEqual(r.returncode, 0, r.stderr)
