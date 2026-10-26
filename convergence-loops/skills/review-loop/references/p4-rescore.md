@@ -6,7 +6,7 @@
 
 1. **writer**: CI を再実行（緑維持。赤なら P3 に戻って先に直せ）。
 2. **writer**: P1 を新しい context でやり直せ——局所レビューの再実行と、各 grader subagent の新規起動。**前ラウンドの grader 出力・修正の経緯を P1 / P2 の subagent に渡すな**（渡すと前ラウンドのフレームにアンカーされ、再採点が追認になる）。続けて P2 grader を新しい context で再起動し、根本ユニットを再採点させろ。
-3. **突合（機械）**: 下の形のまま打て——Python の名前を `python3` や `python` に替えるな。`run-python.sh` は `python3`・`python`・`py -3` の順に、実際に起きて 3.12 以上の物を選ぶ（Windows の `python3` が Microsoft Store へ誘う代わりの物や、Python 2 の `python` を飛ばす）。Python 2 で回すとこのツールは構文エラーの**終了コード 1**（＝「阻害要因あり」）で落ち、**壊れているのか未収束なのかが区別できない**——この機械が終了コードで 3 値を分けている、その要が破れる。選べなければ `run-python.sh` が訳を出して**終了コード 127** で終わる（Python を入れてから打ち直せ。非収束の判定ではない）。
+3. **突合（機械）**: 下の形のまま打て——Python の名前を `python3` や `python` に替えるな。`run-python.sh` は `python3`・`python`・版の付いた名前（`python3.20`〜`python3.12`）・`py -3` の順に、実際に起きて 3.12 以上の物を選ぶ（Windows の `python3` が Microsoft Store へ誘う代わりの物や、Python 2 の `python` を飛ばす）。Python 2 で回すとこのツールは構文エラーの**終了コード 1**（＝「阻害要因あり」）で落ち、**壊れているのか未収束なのかが区別できない**——この機械が終了コードで 3 値を分けている、その要が破れる。選べなければ `run-python.sh` が訳を出して**終了コード 127** で終わる（Python を入れてから打ち直せ。非収束の判定ではない）。
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/review-record.py" .claude/review-rounds/

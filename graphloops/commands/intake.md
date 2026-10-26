@@ -17,7 +17,7 @@ graphloops の engine（ループを回す本体 `scripts/loop.py`）は、次�
 
 ## 使い方
 
-引数（`$ARGUMENTS`）の頭の語で分ける。どれでもなければ、引数の全体を 1 行の説明として残す。下の `${CLAUDE_PLUGIN_ROOT}` はプラグインの置き場、`${CLAUDE_PLUGIN_DATA}` は更新で消えないプラグインの保存先（記録の置き場）で、どちらも Claude Code がこの手順書の本文に埋める。コマンドは `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起動する（`python3`・`python`・`py -3` の順に、実際に起きて 3.12 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下のコマンドの形をそのまま打ち、Python の名前を替えない。
+引数（`$ARGUMENTS`）の頭の語で分ける。どれでもなければ、引数の全体を 1 行の説明として残す。下の `${CLAUDE_PLUGIN_ROOT}` はプラグインの置き場、`${CLAUDE_PLUGIN_DATA}` は更新で消えないプラグインの保存先（記録の置き場）で、どちらも Claude Code がこの手順書の本文に埋める。コマンドは `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起動する（`python3`・`python`・版の付いた名前（`python3.20`〜`python3.12`）・`py -3` の順に、実際に起きて 3.12 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下のコマンドの形をそのまま打ち、Python の名前を替えない。
 
 1. **1 行を残す**（既定）: 回している run があれば、その盤面のディレクトリを `--dir` に添える（run の番号と周〔ループの何周目か〕が行に載る）。盤面のディレクトリは `loop.py init` と `loop.py status` が出す JSON の `dir` に在る（形は `$(git rev-parse --git-dir)/graphloops/<ループ>/<run の番号>/`）。
    ```bash

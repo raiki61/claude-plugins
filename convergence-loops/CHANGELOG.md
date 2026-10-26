@@ -6,6 +6,9 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/run-python.sh` が、`python3`・`python` の後に版の付いた名前（`python3.20` から要る版の `python3.12` まで新しい順）も試すようにした。uv で入れた Python は `python3.14` のような版の付いた名前でだけ PATH に在り、PATH の `python3` が macOS 付属の 3.9 のとき、入っているのに「入れる」と言って止まっていた。止まるときの 1 行には、入っているのに PATH に無いときの直し方（入れた場所を PATH に足す）を足した（docs/standards/cross-os.md の決まり 1）。
+
 ## [0.52.2] - 2026-10-26
 
 ### Fixed
