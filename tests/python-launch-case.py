@@ -57,8 +57,8 @@ EXEMPT = {
     },
     "works/skills/works/references/request.md": {
         'python3 -I "<works の置き場>/.shared/core/carry.py"':
-            "works は macOS の Apple silicon だけで動き（cross-os.md の決まり 5）、起動の殻の dev/*.sh も python3 で Python を起動する。"
-            "works の Python の選び方を決まり 1 に合わせるかは、殻と一緒に決める",
+            "works の殻（dev/*.sh）と一緒に決まり 1 に合わせる直しの途中（macOS 付属の python3 は 3.9 で、dev/toolset.py が落ちる。"
+            "決まり 5 の macOS 専用は版を見ないので足りない。標準の受付 20261026-095045-10783c、直しは 20261026-113749-8d5e51）。直ったら消す",
     },
 }
 
