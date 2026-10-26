@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-26
+
 ### Changed
 - 利用者の動きは変わらない直し。review-loop の周の締め（`rules/review-loop.py` の `_converge`）で、周を止めて人に諮るときの問いの頭を、止める訳ごとの表 `STOP_QUESTION` から引くようにした。以前は `premise_escalate` とそれ以外の 2 通りで書き分けており、convergence-loops の検証器の `STOP_KEYS` に訳を足すと、足した訳の問いが関係のない `work_exhausted` の文になった。`STOP_QUESTION` に文の無い訳は、検証器（`convergence-loops/scripts/review-record.py`）の表 `STOP_KEYS` に訳ごとに書かれた文で聞く。
 
