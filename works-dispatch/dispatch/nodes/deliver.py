@@ -18,7 +18,8 @@
   部署ごとの .git/worktrees/<部署> は git worktree remove で一緒に消える）、勤め先のリポジトリの .gitignore も触らない。
   頼みと納品の本文を 1 件 1 ファイルで置き、log.jsonl に誰が誰に何を頼み何が返ったかを 1 行ずつ足す。
 - Stop フック: 部署（company.role の在る場所）の会話で、受けた頼み（company.ask）の納品（company.delivered）が済んでいなければ、
-  止まる前に納品のコマンドで返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで。裏の処理（裏の Bash・サブエージェント）が
+  止まる前に納品のコマンドで返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで（使い切って止まるときは、頼み元へ
+  stall_line の知らせを 1 度置く。orders.stalled）。裏の処理（裏の Bash・サブエージェント）が
   動いている間は差し戻さない（どう見るかは orders.in_flight）。納品した後の差し戻し（メインブランチに入れていない・終わりの印が無い）は
   orders.stop_after が持つ。
 """
@@ -1029,6 +1030,14 @@ def stop_verdict(payload, attrs, count, run):
             f"{boss} へ返す（足りない項目はコマンドが教える）。返せない訳があれば、それを要約の「残った疑問」に書いて返す"
             f"（この差し戻しは {STOP_LIMIT} 回まで。{count + 1} 回目）。裏の処理（run_in_background の Bash や Agent）の終わりを待つだけなら、"
             "ターンを終えてよい（動いている間はこの差し戻しは出ず、終われば知らせで会話が起きる）。")
+
+
+def stall_line(attrs, run):
+    """部署が頼みを納品しないまま Stop フックの差し戻しを使い切ってターンを終えたとき、頼み元へ渡す知らせの 1 行。差し戻しの後は
+    会話を再開させる物が無く、部署は知られずに止まる（2026-10-26 の見渡し。順番待ちの頼みが 45 分渡らなかった。受付 3ddd8e）。"""
+    ask, name = attrs.get("ask"), attrs.get("name") or "部署"
+    return (f"止まった知らせです: {name} は受付 {ask} の頼みを納品しないまま、止まる前の差し戻し（{STOP_LIMIT} 回）を使い切って"
+            f"ターンを終えた。部署の会話を再開させる物はもう無い。続けさせるなら {run} --note {ask} で足しを送ると、部署の会話が再開する。")
 
 
 def stop_count_path(tmp_dir, session_id, ask):

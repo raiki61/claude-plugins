@@ -359,6 +359,31 @@ class StopVerdict(unittest.TestCase):
         self.assertEqual([json.loads(o)["decision"] for o in outs[:-1]], ["block"] * deliver.STOP_LIMIT)
         self.assertEqual(outs[-1], "")
 
+    def test_hook_tells_the_boss_once_when_the_limit_is_used_up(self):
+        # 差し戻しを使い切った部署は、会話を再開させる物が無く知られずに止まった（2026-10-26 の見渡し。受付 3ddd8e）。止まるのは通し、
+        # 頼み元の待ち受けへ台帳の知らせを 1 度だけ置く
+        tmp, inbox = tempfile.mkdtemp(), tempfile.mkdtemp()
+        attrs = {**self.ATTRS, "name": "見渡し", "boss-inbox": inbox}
+        payload = json.dumps({"session_id": "s1", "cwd": "/w"})
+        outs = []
+        for _ in range(deliver.STOP_LIMIT + 2):
+            out = io.StringIO()
+            orders.stop_hook(io.StringIO(payload), out, lambda cwd: dict(attrs), tmp, lambda: 0, company_of=lambda x: "co")
+            outs.append(out.getvalue())
+        self.assertEqual(outs[deliver.STOP_LIMIT:], ["", ""])
+        (row,) = deliver.records(inbox)
+        self.assertEqual((row["to"], row["kind"]), ("co/desk", wake.NOTE))
+        self.assertNotEqual(row["id"], "id1")   # 頼みの受付で書くと、--todo がその頼みに足しが来たと数える
+        self.assertIn("見渡し は受付 id1 の頼みを納品しないまま", row["text"])
+        self.assertIn("--note id1", row["text"])
+        # 頼み元の受付箱が分からない・会社が分からないときは知らせず、止まるのは通す
+        for bad, company in (({**attrs, "boss-inbox": None}, "co"), (attrs, None)):
+            tmp = tempfile.mkdtemp()
+            for _ in range(deliver.STOP_LIMIT + 1):
+                orders.stop_hook(io.StringIO(payload), io.StringIO(), lambda cwd: dict(bad), tmp, lambda: 0,
+                                 company_of=lambda x: company)
+        self.assertEqual(len(deliver.records(inbox)), 1)
+
     def test_plugin_hook_runs_orders_stop_and_is_quiet_outside_a_department(self):
         hooks = json.loads((DISPATCH.parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         (command,) = [h["command"] for g in hooks["Stop"] for h in g["hooks"] if not h.get("asyncRewake") and not h.get("async")]

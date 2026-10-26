@@ -1227,8 +1227,9 @@ class Warm:
     長い待ちの時計を戻さない）。"""
 
     def __init__(self, got, payload, conf, tasks, now=time.time, attrs_of=_attrs, plan=None, compact=False, fixed=None,
-                 compact_with=None, line=None, ended=False):
+                 compact_with=None, line=None, ended=False, running=None):
         self.got, self.payload, self.conf, self.tasks, self.now, self.attrs_of = got, payload, conf, tasks, now, attrs_of
+        self.running = running   # ターンの終わりに裏で動いていた処理の数（chat.running_tasks。分からなければ None）
         self.plan, self.compact, self.fixed = plan, compact, fixed   # fixed は plan が無い訳（台帳の行に添える）
         self.ended = ended and compact   # ターンの終わりの compact の判断（_turn_end）をまだ聞いていない
         self.line = line   # 強制の線（トークン。forced_line。分からなければ None）
@@ -1328,6 +1329,10 @@ class Warm:
             return None   # 送る時刻に _tick が訳を台帳に残す
         if wake.queued(self.got["inbox"], self.got["place"]):
             return None
+        if not self.running and deliver.stop_verdict(self.payload, attrs, 0, RUN):
+            # 納品していない頼みが在り、裏の処理も無い: orders の Stop フックがこのターンの終わりを差し戻している（ターンは終わっていない）。
+            # 問うと、会話はツールを使わずに 1 行で答えてターンを終え、差し戻しを使い切って止まる（2026-10-26 の見渡し。受付 3ddd8e）
+            return None
         state = wake.warm_state(self.got["inbox"], self.got["place"], self.got["session"], self.tasks)
         if state["stopped"]:
             return None   # 止めた待ちの控えを、問いの 1 本で送り直す形に書き替えない（_send）
@@ -1412,7 +1417,7 @@ def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shel
     plan, fixed = keepalive_plan(payload, conf, state["spent"], now)
     line = line_of(got, attrs)[0]   # 部品が無くても、強制の線に着いた会話は送る時刻に compact する（compact_judge）
     return Warm(got, payload, conf, tasks + work, now=now, attrs_of=attrs_of, plan=plan,
-                compact=bool(plan) or line is not None, fixed=fixed, line=line, ended=not again and not ours(payload, conf))
+                compact=bool(plan) or line is not None, fixed=fixed, line=line, ended=not again and not ours(payload, conf), running=count)
 
 
 def ours(payload, conf):

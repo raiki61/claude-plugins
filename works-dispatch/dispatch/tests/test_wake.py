@@ -1827,14 +1827,16 @@ class Hook(unittest.TestCase):
             return next(it)
         return mock.patch.object(wake_hook, "RENT", ask)
 
-    def judged_warm(self, log, clock):
+    def judged_warm(self, log, clock, running=1):
+        # running: ターンの終わりに裏で動いていた処理の数。既定は裏の処理を待って終えたターン（頼み a0 を納品していなくても、orders の
+        # Stop フックは差し戻さず、ターンは本当に終わっている）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0"}, self.g)
         payload = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": log, "background_tasks": []}
         conf = {"every": 240, "text": "（keepalive）", "ttl": 300, "limit": 2}
         plan = {"action": "rent", "due": 1240.0, "rent": 0.01, "reason": "within_buy_cost", "why": "w"}
         return payload, wake_hook.Warm(self.plan(), payload, conf, ["ask:a0"], now=lambda: clock[0],
                                        attrs_of=lambda cwd: self.g.worktree_attrs(self.place), plan=plan, compact=True,
-                                       compact_with=lambda *a, **k: "窓の入力フィールドに打ちかけの字が在る")
+                                       compact_with=lambda *a, **k: "窓の入力フィールドに打ちかけの字が在る", running=running)
 
     def test_at_keepalive_time_the_part_asks_the_talk_for_a_focus_and_its_answer_compacts(self):
         # keepalive の時刻に、先に compact を部品に聞く。打つ時で聞けと答えれば、keepalive の文の代わりに焦点の問いを送る（設計書の 6）
@@ -2094,6 +2096,25 @@ class Hook(unittest.TestCase):
         with self.rent_or_buy(buy):
             self.assertIsNone(warm())
         self.assertEqual(self.asked_part, [])
+
+    def test_the_turn_end_judgment_does_not_ask_while_the_stop_hook_sends_the_turn_back(self):
+        # 納品していない頼みが在り、裏の処理も無いターンの終わりは、orders の Stop フックが差し戻している（ターンは終わっていない）。
+        # 問うと、会話はツールを使わずに 1 行で答えてターンを終え、差し戻しを使い切って止まった（2026-10-26 の見渡し。受付 3ddd8e）
+        log, clock = self.transcript(150000), [1000.0]
+        buy = ({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)
+        for running in (0, None):   # None は裏の処理を数えられないとき（orders の Stop フックも差し戻す）
+            with self.subTest(running=running):
+                payload, warm = self.judged_warm(log, clock, running=running)
+                warm.ended = True
+                with self.rent_or_buy(buy):
+                    self.assertIsNone(warm())
+                self.assertEqual(self.asked_part, [])
+        # --wait で人の答え待ちにした頼みは差し戻さないので、ターンは終わっている。問う
+        payload, warm = self.judged_warm(log, clock, running=0)
+        warm.ended = True
+        provision.mark(self.place, self.src, {"waiting": "a0"}, self.g)
+        with self.rent_or_buy(buy):
+            self.assertEqual(warm(), wake_hook.TURN_CONSULT_TEXT)
 
     def test_a_turn_end_compact_that_could_not_type_is_not_retried_in_the_same_round(self):
         # ターンの終わりに強制の線で打てなかったら、同じ周の送る時刻に打ち直さず keepalive を送る

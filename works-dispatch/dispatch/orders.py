@@ -2103,7 +2103,21 @@ def in_flight(payload, shells):
     return chat.running_tasks(payload, shells)
 
 
-def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shells=chat.background_shells):
+def stalled(attrs, settings_dir, company_of=None, now=time.time):
+    """差し戻しを使い切って止まった部署を、頼み元の待ち受けへ台帳の知らせ（wake.NOTE）で知らせる。頼み元の受付箱か会社が分からなければ
+    知らせない（真偽を返す）。頼み元の待ち受けが今いなくても、張られれば台帳の知らせで届く（納品の知らせと同じ宛て方）。"""
+    inbox, boss = attrs.get("boss-inbox"), attrs.get("boss")
+    if not (inbox and boss and os.path.isdir(inbox)):
+        return False
+    company = (company_of or (lambda x: inbox_company(x, settings_dir, gitx)))(inbox)
+    if not company:
+        return False
+    at = now()   # 知らせの受付は新しく取る（頼みの受付で書くと、--todo がその頼みに足しが来たと数える。ledger.subject）
+    deliver.log(inbox, wake.notice(wake.address(company, boss), deliver.new_id(at), wake.NOTE, None, deliver.stall_line(attrs, RUN), at))
+    return True
+
+
+def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shells=chat.background_shells, company_of=None):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
     納品し終えた後も、ブランチをメインブランチに入れていないか、エフェメラルの部署が終わりの印を打っていなければ差し戻す（stop_after）。
     部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。in_flight）を待っている間は差し戻さない（裏の処理が
@@ -2126,6 +2140,14 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shel
     except (OSError, ValueError):
         count = 0
     reason = deliver.stop_verdict(payload, attrs, count, RUN)
+    if reason is None and count == deliver.STOP_LIMIT and deliver.stop_verdict(payload, attrs, 0, RUN):
+        # 差し戻しを使い切った: 止まるのは通すが、知られずに止まらないよう頼み元へ 1 度だけ知らせる（数を上限より 1 つ進めて、2 度は知らせない）
+        try:
+            stalled(attrs, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), company_of)
+        except Exception as e:  # 知らせの誤りで Stop フックを落とさない（止まるのは通す）。訳は利用者に見せる
+            print(f"works-dispatch の Stop フックが、止まった知らせを頼み元へ置けなかった: {e}", file=sys.stderr)
+        pathlib.Path(path).write_text(str(count + 1), encoding="utf-8")
+        return 0
     if reason is None and attrs.get("delivered") == attrs["ask"]:
         # 納品の後: ブランチをメインブランチに入れずに、かエフェメラルの部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
         path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", f"{attrs['ask']}-after")
