@@ -140,15 +140,15 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 持ち主の頼み（「macos専用の書き方とかになってる部分ないかチェックしておいて」）で、[OS をまたいで動かす標準](cross-os.md)を作った。
 marketplace が配る 9 つのプラグインと、ルートの `scripts/`・`tests/`・CI を、読み取り専用のサブエージェント 4 本に読ませた。実機（Linux・Windows）では試していない（読んで洗い出すまでの頼み）。
-BSD と GNU で振る舞いの違うコマンドを落ち方無しに使う所は 0 件。ルートの `scripts/`・`tests/`・CI に今壊れている物は無い。見つけた物は次のとおりで、各担当が直す前に自分で確かめる。
+BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの道（落ち方）も持たずに使う所は 0 件。ルートの `scripts/`・`tests/`・CI に今壊れている物は無い（5-5 の Windows の確かめが外れる件は、壊れる余地として下に挙げた）。見つけた物は次のとおりで、各担当が直す前に自分で確かめる。`決まり N` は cross-os.md の「決まり」の番号。上の「9 つ」は marketplace が配る全プラグイン（対象の 6 つと works・works-factory・rent-or-buy）。
 
-- 5-1 Python を「在るか」で選ぶ（決まり 1）。gates と graphloops のフックが `command -v python3 || command -v python`、attention・gates・graphloops のスキルとコマンドの本文が打たせるコマンドが素の `python3`、convergence-loops の `scripts/comment-ratio.sh` も同じ形。Windows で python.org の Python だけを入れた機械では、代わりの物（Microsoft Store へ誘う `python3.exe`）に当たって毎回落ちる疑い。フックの失敗は Claude Code が止めないので、ゲートが黙って外れる。docs/trials/2026-10-16-clean-env-3.md の 7 で works-dispatch に起きた物と同じ原因で、そのときは works-dispatch と tiers だけを直していた。状態: 頼んだ（gates は点検 20261026-062700-6f4c7d、graphloops と convergence-loops は見直し 20261026-062718-67d953、attention は見渡し 20261026-062736-f788d9）
-- 5-2 tiers の statusline（決まり 1・2・4・5）。`statusline.sh` の `shasum` は Debian の slim などに無く、鍵が空になって、どのブランチも同じ控えを使い、ほかのブランチの PR を黙って出す。`bg-count.sh` の会話の探し方は Linux の `ps -o comm` の形（パスを持たない）で当たらない疑い。`bg-count.sh` の素の `python3`。`tiers-statusline setup` は「macOS と Linux だけ」なのに Windows で止まらない。`bin/` の頭は Python が起きるかだけを見て、要ると書いた 3.11 以上かを見ない。状態: 頼んだ（仕組み 20261026-062654-79c989）
-- 5-3 works-dispatch の `dispatch/activity.py` が一時の置き場を `TMPDIR` か `/tmp` で引き、Windows では落ちて例外が捨てられ、herdr の横の作業の行が出ない（決まり 3）。状態: 頼んだ（5-2 と同じ受付）
+- 5-1 Python を「在るか」で選ぶ（決まり 1）。gates と graphloops のフックが `command -v python3 || command -v python`、attention・gates・graphloops のスキルとコマンドの本文が打たせるコマンドが素の `python3`、convergence-loops の `scripts/comment-ratio.sh` も同じ形。Windows で python.org の Python だけを入れた機械では、代わりの物（Microsoft Store へ誘う `python3.exe`）に当たって毎回落ちる疑い。フックの失敗は Claude Code が止めないので、ゲートが黙って外れる。docs/trials/2026-10-16-clean-env-3.md の 7 番目の記録で works-dispatch に起きた物と同じ原因で、そのときは works-dispatch と tiers だけを直していた。状態: 頼んだ（gates は点検 20261026-062700-6f4c7d、graphloops と convergence-loops は見直し 20261026-062718-67d953、attention は見渡し 20261026-062736-f788d9）
+- 5-2 tiers の statusline（決まり 1・2・4・5）。`statusline.sh` の `shasum` は Debian の slim などに無く、キャッシュの鍵が空になって、どのブランチも同じ保存済みのキャッシュを使い、ほかのブランチの PR を黙って出す。`bg-count.sh` の Claude のプロセスの探し方は Linux の `ps -o comm` の形（パスを持たない）で当たらない疑い。`bg-count.sh` の素の `python3`。`tiers-statusline setup` は「macOS と Linux だけ」なのに Windows で止まらない。`bin/` の頭は Python が起きるかだけを見て、要ると書いた 3.11 以上かを見ない。状態: 頼んだ（仕組み 20261026-062654-79c989）
+- 5-3 works-dispatch の `dispatch/activity.py` が一時の置き場を `TMPDIR` か `/tmp` で引き、Windows では落ちて例外が捨てられ、herdr（会話ごとの作業場を並べる画面）の横の作業の行（その会話の動きを一行で出す所）が出ない（決まり 3）。状態: 頼んだ（5-2 と同じ受付）
 - 5-4 gates の探しのゲート（`hooks/search-gate.py`）の広すぎるルートの一覧が macOS の形だけで、Linux の `/home`・`/usr` や Windows のドライブのルートは止まらず、`C:\x` を相対として扱う（決まり 4）。状態: 頼んだ（点検 20261026-062700-6f4c7d。5-1 と同じ受付）
-- 5-5 ルートの `tests/mutate.py` の `lingering()` が Linux と macOS 以外で「確かめられない」（None）を返し、呼ぶ側が「残っていない」と読む。CI の Windows の組で、残ったプロセスの確かめが黙って外れる。状態: 頼んだ（点検 20261026-062700-6f4c7d。5-1 と同じ受付。標準を機械で守らせる検査〔素の `python3` を赤にする物〕を足すかの判断も同じ受付に入れた）
-- 5-6 works の `dev/archon.sh` が Archon の実行ファイルを macOS の Apple silicon の物に決め打ちし、OS を確かめない。ほかの機械では 77MB を落とした後に `Exec format error` で落ちる。`shasum` が無いと誤った案内を出す。works-factory の認証の手順の `security` に macOS だけの印が無い（決まり 5）。状態: 頼んだ（作業 20261026-062757-0bb23d。works と works-factory は誰の受け持ちでもないので作業に回した）
+- 5-5 ルートの `tests/mutate.py` の `lingering()` が Linux と macOS 以外で「確かめられない」（None）を返し、呼ぶ側が「残っていない」と読む。CI の Windows の実行（OS ごとのジョブ）で、残ったプロセスの確かめが黙って外れる。状態: 頼んだ（点検 20261026-062700-6f4c7d。5-1 と同じ受付。標準を機械で守らせる検査〔素の `python3` を赤にする物〕を足すかの判断も同じ受付に入れた）
+- 5-6 works の `dev/archon.sh` が Archon（AI の段を順に回すツール）の実行ファイルを macOS の Apple silicon の物に決め打ちし、OS を確かめない。ほかの機械では 77MB を落とした後に `Exec format error` で落ちる。`shasum` が無いと誤った案内を出す。works-factory の認証の手順の `security` に macOS 専用だと示す表示や OS の確かめが無い（決まり 5）。状態: 頼んだ（作業 20261026-062757-0bb23d。works と works-factory は誰の受け持ちでもないので作業に回した）
 
 前の試しとの重なり: 5-1 は上のとおり 3 回目の 7 と同じ原因で、直しが広がっていなかった物。ほかは試しの記録（docs/trials/）に無い。
-実機の確かめ: 5-1〜5-6 の直しが入った後、フック・statusline・スキルの本文が打たせるコマンドは CI の試験が通らない（決まり 6）ので、Windows と Linux で入れて試すかを試しの受け持ちに頼むかは、直しが揃った次の回に決める。
+実機の確かめ: 5-1〜5-6 の直しが入った後、フック・statusline・スキルの本文が打たせるコマンドは CI の試験が実際には起動しない（決まり 6）ので、Windows と Linux で入れて試すかどうかを試しの受け持ち（実機の確かめの部署）に頼むかは、直しが揃った次の回に決める。
 
