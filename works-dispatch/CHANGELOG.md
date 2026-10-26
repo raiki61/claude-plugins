@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.126.9] - 2026-10-26
+
 ### Fixed
 
 - 部署（works-dispatch が仕事ごとに立てる作業場と、そこで働く Claude Code の会話の組）が、受けた頼みを納品しないまま `skip:` の 1 行を返してターンを終え、そのまま止まることがあった。2026-10-26 に部署「見渡し」で起き、順番待ちの次の頼みが 45 分渡らなかった。
