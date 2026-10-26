@@ -1332,6 +1332,7 @@ class Warm:
         if not self.running and deliver.stop_verdict(self.payload, attrs, 0, RUN):
             # 納品していない頼みが在り、裏の処理も無い: orders の Stop フックがこのターンの終わりを差し戻している（ターンは終わっていない）。
             # 問うと、会話はツールを使わずに 1 行で答えてターンを終え、差し戻しを使い切って止まる（2026-10-26 の見渡し。受付 3ddd8e）
+            # 差し戻しを使い切った後も問わない（止まった部署は orders.stalled が頼み元へ知らせる）
             return None
         state = wake.warm_state(self.got["inbox"], self.got["place"], self.got["session"], self.tasks)
         if state["stopped"]:
