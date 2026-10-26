@@ -143,12 +143,63 @@ marketplace が配る 9 つのプラグインと、ルートの `scripts/`・`te
 BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの道（落ち方）も持たずに使う所は 0 件。ルートの `scripts/`・`tests/`・CI に今壊れている物は無い（5-5 の Windows の確かめが外れる件は、壊れる余地として下に挙げた）。見つけた物は次のとおりで、各担当が直す前に自分で確かめる。`決まり N` は cross-os.md の「決まり」の番号。上の「9 つ」は marketplace が配る全プラグイン（対象の 6 つと works・works-factory・rent-or-buy）。
 
 - 5-1 Python を「在るか」で選ぶ（決まり 1）。gates と graphloops のフックが `command -v python3 || command -v python`、attention・gates・graphloops のスキルとコマンドの本文が打たせるコマンドが素の `python3`、convergence-loops の `scripts/comment-ratio.sh` も同じ形。Windows で python.org の Python だけを入れた機械では、代わりの物（Microsoft Store へ誘う `python3.exe`）に当たって毎回落ちる疑い。フックの失敗は Claude Code が止めないので、ゲートが黙って外れる。docs/trials/2026-10-16-clean-env-3.md の 7 番目の記録で works-dispatch に起きた物と同じ原因で、そのときは works-dispatch と tiers だけを直していた。状態: 頼んだ（gates は点検 20261026-062700-6f4c7d、graphloops と convergence-loops は見直し 20261026-062718-67d953、attention は見渡し 20261026-062736-f788d9）
-- 5-2 tiers の statusline（決まり 1・2・4・5）。`statusline.sh` の `shasum` は Debian の slim などに無く、キャッシュの鍵が空になって、どのブランチも同じ保存済みのキャッシュを使い、ほかのブランチの PR を黙って出す。`bg-count.sh` の Claude のプロセスの探し方は Linux の `ps -o comm` の形（パスを持たない）で当たらない疑い。`bg-count.sh` の素の `python3`。`tiers-statusline setup` は「macOS と Linux だけ」なのに Windows で止まらない。`bin/` の頭は Python が起きるかだけを見て、要ると書いた 3.11 以上かを見ない。状態: 頼んだ（仕組み 20261026-062654-79c989）
-- 5-3 works-dispatch の `dispatch/activity.py` が一時の置き場を `TMPDIR` か `/tmp` で引き、Windows では落ちて例外が捨てられ、herdr（会話ごとの作業場を並べる画面）の横の作業の行（その会話の動きを一行で出す所）が出ない（決まり 3）。状態: 頼んだ（5-2 と同じ受付）
+- 5-2 tiers の statusline（決まり 1・2・4・5）。`statusline.sh` の `shasum` は Debian の slim などに無く、キャッシュの鍵が空になって、どのブランチも同じ保存済みのキャッシュを使い、ほかのブランチの PR を黙って出す。`bg-count.sh` の Claude のプロセスの探し方は Linux の `ps -o comm` の形（パスを持たない）で当たらない疑い。`bg-count.sh` の素の `python3`。`tiers-statusline setup` は「macOS と Linux だけ」なのに Windows で止まらない。`bin/` の頭は Python が起きるかだけを見て、要ると書いた 3.11 以上かを見ない。状態: 入った（tiers 0.12.0。仕組み 20261026-062654-79c989、納品 20261026-070700-c26257）。`bg-count.sh` の素の `python3` は直していない。statusline が Windows の入口で止まるので、Windows では `bg-count.sh` まで来ないため。入口の Python の下限は `tiers`・`tiers-settings` が 3.8、`tiers-statusline` が 3.11 に分かれた。`ps` の無い slim の Linux では背景の作業の数が黙って 0 になる穴が残る。ふつうのデスクトップの Linux には `ps` が在るので直していない
+- 5-3 works-dispatch の `dispatch/activity.py` が一時の置き場を `TMPDIR` か `/tmp` で引き、Windows では落ちて例外が捨てられ、herdr（会話ごとの作業場を並べる画面）の横の作業の行（その会話の動きを一行で出す所）が出ない（決まり 3）。状態: 入った（works-dispatch 0.126.7。5-2 と同じ受付）
 - 5-4 gates の探しのゲート（`hooks/search-gate.py`）の広すぎるルートの一覧が macOS の形だけで、Linux の `/home`・`/usr` や Windows のドライブのルートは止まらず、`C:\x` を相対として扱う（決まり 4）。状態: 頼んだ（点検 20261026-062700-6f4c7d。5-1 と同じ受付）
 - 5-5 ルートの `tests/mutate.py` の `lingering()` が Linux と macOS 以外で「確かめられない」（None）を返し、呼ぶ側が「残っていない」と読む。CI の Windows の実行（OS ごとのジョブ）で、残ったプロセスの確かめが黙って外れる。状態: 頼んだ（点検 20261026-062700-6f4c7d。5-1 と同じ受付。標準を機械で守らせる検査〔素の `python3` を赤にする物〕を足すかの判断も同じ受付に入れた）
-- 5-6 works の `dev/archon.sh` が Archon（AI の段を順に回すツール）の実行ファイルを macOS の Apple silicon の物に決め打ちし、OS を確かめない。ほかの機械では 77MB を落とした後に `Exec format error` で落ちる。`shasum` が無いと誤った案内を出す。works-factory の認証の手順の `security` に macOS 専用だと示す表示や OS の確かめが無い（決まり 5）。状態: 済み（作業 20261026-062757-0bb23d が main の 6e4cad0b で入れた。works と works-factory は誰の受け持ちでもないので作業に回した。止まり方は偽の uname の試験で確かめ、Linux と Intel の Mac の実機では未確認）
+- 5-6 works の `dev/archon.sh` が Archon（AI の段を順に回すツール）の実行ファイルを macOS の Apple silicon の物に決め打ちし、OS を確かめない。ほかの機械では 77MB を落とした後に `Exec format error` で落ちる。`shasum` が無いと誤った案内を出す。works-factory の認証の手順の `security` に macOS 専用だと示す表示や OS の確かめが無い（決まり 5）。状態: 入った（commit 6e4cad0b。作業 20261026-062757-0bb23d。works と works-factory は誰の受け持ちでもないので作業に回した。止まり方は偽の uname の試験で確かめ、Linux と Intel の Mac の実機では未確認）
 
 前の試しとの重なり: 5-1 は上のとおり 3 回目の 7 と同じ原因で、直しが広がっていなかった物。ほかは試しの記録（docs/trials/）に無い。
 実機の確かめ: 5-1〜5-6 の直しが入った後、フック・statusline・スキルの本文が打たせるコマンドは CI の試験が実際には起動しない（決まり 6）ので、Windows と Linux で入れて試すかどうかを試しの受け持ち（実機の確かめの部署）に頼むかは、直しが揃った次の回に決める。
 
+### 6 回目（2026-10-26、受付 20261026-062209-e897af）
+
+持ち主の頼み（「あとは綺麗かどうかチェックしておいて。コードが」）で、marketplace の 9 つのプラグインとルートの `scripts/`・`tests/` のコードが綺麗かを洗い出した。新しい標準は作っていない。拾ったのは業界の定石で説明できる物だけで、次の 6 つの類のどれかに当たる物。今壊れている物は 6-1 の検査の穴だけで、本番の振る舞いが壊れている物は無い。
+
+- 使われていないコード（呼ぶ所の無い関数・読まれない定数・import）
+- 同じ処理の写し
+- 標準ライブラリで足りる自作
+- 長すぎる関数
+- コードと食い違う注
+- 黙って捨てる例外
+
+機械の当たりは ruff（Python の静的検査の OSS。https://docs.astral.sh/ruff/rules/ の F401・F811・F841・C901・PLR0912・PLR0915・BLE001・S110・SIM105）と vulture（使われていないコードを探す OSS）で取った。数は ruff が約 1,100 件、vulture が 33 件。そのうえで、サブエージェント 4 本に、呼ぶ所が本当に無いかを grep で、写しが見張りの付いた意図した物でないかを読んで、裏を取らせた。
+プラグインは 1 つずつ配られ、実行時にほかのプラグインのファイルを読めない。だから、写しの見張りの検査（`scripts/shared-copies.py`）や works の写しの台帳（`COPIED_FROM`）に載った写しは、意図した物として外した。分岐の多さ（C901）は、ほとんどが平らな確かめの並びなので、件数では拾っていない。
+
+頼みの線は持ち主の頼みのとおりにした。直しは振る舞いを変えない物だけで、今ある試験が通ることを入れる条件にした。1 つの担当に 1 回 3 つまでで、効きの大きい順に選んだ。
+
+- 6-1 ルートの `tests/run.sh` の名前表の写しの検査（`TABLE_COPIES_OK`）に穴が在る（検査の穴で、本番の振る舞いは壊れていない）。検証器（`*-record.py`）を移す前の `scripts/` で探すので、1 本も拾わない。検証器の表は数から黙って落ちている（commit a98e9c61 で convergence-loops/scripts/ に移った時の直し漏れ）。直すと、隠れていた写しが赤で出る見込みがある。同じ点検の受け持ちの gates にも 2 つ見つけた。
+  - gates の `coldread-gate.py` の使われていない定数 `BASE_CHECK_SCHEMA`。
+  - gates のフックのスクリプト 3 本（search-gate.py・wait-gate.py・dest-gate.py）が、coldread-gate.py を読み込む関数 `load_coldread()` と、落ちたら拒む `if __name__` の包みを、同じ形で別々に持つ。
+  - 状態: 頼んだ（点検 20261026-070730-087e11）
+- 6-2 convergence-loops の検証器 4 本には、同じ形で写した処理がずれて残っている。
+  - review-record.py だけが、標準出力が detach された時に終了の値 1 で落ちる穴を塞いでいる。ほかの 3 本と `comment-ratio.sh` は塞ぐ前の形のまま。
+  - 同じ型の確かめを手で書いた所が 30 か所あまり在る。
+  - graphloops に使われていない import と定数が在る。
+  - 状態: 頼んだ（見直し 20261026-070735-4bd6d4）
+- 6-3 works-dispatch では、同じ形の処理が別々の所に書かれている。
+  - Enter を押して誤りを捨てる処理が `nodes/deliver.py` に 4 度在り、理由の注は 1 つだけに在る。
+  - 今の作業のフォルダが部署の作業場の中かを見る 2 行の関数（`inside`・`_inside`）が、ノード 6 本に写しで在る。
+  - 使われていない import が、本番に 3 件、試験に 17 件ほど在る。rent-or-buy の `record.py` には、効かない入れ子の確かめが在る。
+  - 状態: 頼んだ（仕組み 20261026-070739-4217c7）
+- 6-4 attention の `catchup.py` の `render` は 141 文の一続き。見出しごとに分けられる。使われていない import も 1 件在る。状態: 頼んだ（見渡し 20261026-070744-f03eee）
+- 6-5 works には、試験からしか呼ばれない本番の関数が在る。
+  - `count_round_rejects` の本番の唯一の呼び手 `dev/report_rejects.py` は commit 14f622da で消えた。ほかに `fix_prompt`・`tdd_prompt`・`reject_text` が在る。
+  - どこからも読まれない定数が 2 つ在る。
+  - いつも通る試験の照合が 1 つ在る（`test_fixture.py` の、同じ値どうしの比べ）。
+  - 使われていない import が約 30 件在る。
+  - JSON を書く・読む小さい関数（`_write_json`・`_read_json`）が、共通の `works/.shared/core/jsonfile.py` が在るのに、blk-* の 17 ファイル前後に 1〜2 本ずつ在る。
+  - 状態: 頼んだ（作業 20261026-070752-ca2afe。works は誰の受け持ちでもないので作業に回した）
+
+次の回の候補（今回は頼んでいない。効きが小さいか、直すと出力が変わる物）:
+
+- attention の `reflect.py` の `sessions()` と `scan()` は、読めない会話の記録を黙って外す。隣の `records_from` は読めない数を出す。[壊れたら機械が知らせる標準](breakage-detection.md)の決まり 1 のずれ。直すと出力が増え、振る舞いを変えない直しの線の外なので、今回は頼んでいない。
+- works の `blk-fix/scripts/assert_changed.py:80` と `blk-structure/lib/context.py:104` は、どの例外も同じ扱いで捨てる。注は意図を書いているが、作りの誤りも同じ扱いになる。
+- ルートの `scripts/works-factory-pin.py` と `tests/ci-watch.py` が、小さい部品（`run`・`common_dir`・状態の保存）を同じ形で持つ。
+- 長い関数で、分け方が機械的な物:
+  - works-dispatch の `dispatch.py` の `main`（頭の約 120 行が引数の定義だけ）
+  - graphloops の `engine/advance.py` の `emit_instance`
+  - works の `darkfactory/lib/line_edge.py` の `edge`
+- tiers の `tiers_statusline.py` の `uses_it` は試験だけが呼ぶ。設定を読む同じ形の扱いが 4 か所在る。
+
+外した物（直さない）: works の `.shared/core` の graphloops の写しは、graphloops 0.21.0 の版に留まる（今の graphloops は 0.42.0）。works は写して自分の側で育てる決まりなので、ずれではない（ルートの CLAUDE.md の「works（Archon の pack）」）。
