@@ -6,6 +6,8 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-10-26
+
 ### Fixed
 
 - `/whose-turn`・`/catchup`・`/what-am-i-doing`・`/reflect` が、3.9 以上の Python が `python3.14` のような版の付いた名前でだけ PATH に在り、PATH の `python3` が古い物か Microsoft Store へ誘う代わりの物のとき、入っている Python を見つけられず「Python 3.9 以上を入れる」と言って止まっていたのを直した。uv で入れた Python はこの形になる（uv は既定で版の付いた名前だけを入れる）。利用者の対応は要らない。
