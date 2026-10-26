@@ -8,4 +8,4 @@
 
    相違が結論の芯に刺さった・stuck（再照合した相違がまた相違になり、前提側の誤りが疑われる状態）が出たら、厚さの段を上げる（義務。下げる道は無い。`<段>` は `light`・`standard`・`heavy` のどれか。graph の `thickness.tiers`）: `loop.py thicken --to <段> --reason "<理由>" --dir <DIR>`。optional のノードを省くときは `loop.py skip --node <id> --reason "<理由>" --dir <DIR>`（報告の「省略した機構」に載る）。
 
-5. **終わり**。最後のノード `report` の前に engine が記録を仕上げて検証器を回す。通らなければ `report` は出ない（record.json と trace.jsonl を見て直す。手当ては `loop.py patch`——痕跡が残る最終手段）。`report` の本文は盤面の置き場の `report.md` に保存される。それを依頼者の言語でそのまま出せ。`reflect` の提案（グラフ・プロンプト・engine・検証器のどこを直すべきか）は run の中で書き換えず、依頼者に見せる。
+5. **終わり**。最後のノード `report` の前に engine が記録を仕上げて検証器を回す。通らなければ `report` は出ない（record.json と trace.jsonl を見て直す。手当ては `loop.py patch`——痕跡が残る最終手段）。`report` の本文は盤面の置き場の `report.md` に保存される。それを依頼者の言語でそのまま出せ。`reflect` の提案（グラフ・プロンプト・engine・検証器のどこを直すべきか）は run の中で書き換えず、依頼者に見せる。直す先の置き場: ループの算術（記録の初期形・扇の項目（役に並べて配る項目。照合が要る主張の束・反証が要る主張・無作為の抜き取り）の選び方・収束判定）は `rules/research-loop.py` にある。記録のフィールドと語彙の正本は convergence-loops の `scripts/research-record.py` で、engine は報告の前にそれを回す。
