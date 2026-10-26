@@ -32,6 +32,23 @@ def run(main):
     except Exception as e:
         fail(f"想定外の例外（{type(e).__name__}）: {e}")
 
+def utf8_output():
+    """標準出力と標準エラーを UTF-8 に固定する。各本が import の直後（例外境界 `run` より前）に 1 回呼ぶ。
+
+    Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。落ちると終了コードが 1 になり
+    「阻害要因あり」と区別が付かないため、収束を永久に宣言できなくなる。
+
+    **try で包む。** ここは例外境界より前（インポート時）に走る。`hasattr` はメソッドの有無しか見ないので、
+    detach 済み・クローズ済みのストリームでは `reconfigure` が例外を投げ、未捕捉のまま終了コード 1 になる
+    ——塞ごうとしている当の状態を、塞ぐ処理自体が作る。出力の文字化けは致命ではないので、失敗したら黙って諦める。
+    以前は 4 本が同じ try/except を 1 つずつ写していた（2026-10-26、頼み 0ed9d5 で寄せた）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):
+            pass   # 出力の文字化けは致命でないので諦める（1 で落とすより良い）
+
 def load(path):
     """記録を読む。**読めないことは記録の不正（2）で、発行阻害（1）ではない。**"""
     try:

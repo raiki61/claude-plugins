@@ -87,20 +87,9 @@ import sys
 # importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
-from record_common import _rows, _tables, fail, is_int, load, require_dict, run  # noqa: E402
+from record_common import _rows, _tables, fail, is_int, load, require_dict, run, utf8_output  # noqa: E402
 
-# Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
-# 落ちると終了コードが 1 になり「阻害要因あり」と区別が付かないため、収束を永久に
-# 宣言できなくなる。出力を UTF-8 に固定して塞ぐ。
-for _stream in (sys.stdout, sys.stderr):
-    # **ここは例外境界より前（インポート時）に走る。** `hasattr` はメソッドの有無しか見ないので、
-    # detach 済み・クローズ済みのストリームでは `reconfigure` が例外を投げ、未捕捉のまま
-    # 終了コード 1 になる——この行が塞ごうとしている当の状態（1 と区別が付かない）を、
-    # 塞ぐ処理自体が作る。出力の文字化けは致命ではないので、失敗したら黙って諦める。
-    try:
-        _stream.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError, OSError):
-        pass   # 出力の文字化けは致命でないので諦める（1 で落とすより良い）
+utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
 
 
 # 明示返答を要求する素材。ここが正本で、手順書は列挙を持たない。

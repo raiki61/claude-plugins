@@ -34,16 +34,10 @@ import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
 from record_common import (  # noqa: E402
     DECIDERS, THICKNESS, check_convergence, check_gate, check_sampling, check_thickness, fail, is_str_list, load,
-    not_applicable, require_bool, require_dict, require_int, require_str, require_str_list, run,
+    not_applicable, require_bool, require_dict, require_int, require_str, require_str_list, run, utf8_output,
 )
 
-# Windows の既定コンソール（cp932 等）対策。形と理由は review-record.py と同じ（try で包むのは、切り離されたストリームで
-# 落ちて終了コード 1 になるのを防ぐため）。
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        _stream.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError, OSError):
-        pass   # 出力の文字化けは致命でないので諦める（1 で落とすより良い）
+utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
 
 # ここが正本で、手順書は列挙を持たない（二重管理を避ける）。
 # 「未検証」は判定の不在（フィールドの初期値）——停止した実行でだけ記録に残ってよい。

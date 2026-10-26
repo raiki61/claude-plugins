@@ -64,17 +64,9 @@ import sys
 # importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
-from record_common import _rows, fail, is_int, load, require_dict, run  # noqa: E402
+from record_common import _rows, fail, is_int, load, require_dict, run, utf8_output  # noqa: E402
 
-# Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
-# 落ちると終了コードが 1 になり「阻害要因あり」と区別が付かないため、収束を永久に
-# 宣言できなくなる。出力を UTF-8 に固定して塞ぐ。try で包む理由は review-record.py と同じ
-# （切り離されたストリームでは reconfigure 自体が投げ、塞ぐ処理が終了コード 1 を作る）。
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        _stream.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError, OSError):
-        pass   # 出力の文字化けは致命でないので諦める（1 で落とすより良い）
+utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
 
 
 # 詰まり。**範囲の内外を割り振るのはこの 4 つだけ**——疑問・着想・読み飛ばしは
