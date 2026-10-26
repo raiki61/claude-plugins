@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-26
+
 ### Changed
 - 利用者の動きは変わらない直し。searchgate・waitgate・destgate の殻が、それぞれ自分で書いていた coldread-gate.py の読み込みと、検査に失敗したら拒む包みを、`hooks/gate_shell.py` の 1 か所にまとめた（拒む JSON の中身は変えていない）。止めた記録の置き場のフォルダは `log_line` が作るので、殻の側のフォルダ作りを消した。`coldread-gate.py` から、どこからも読まれていない定数を 1 つ消した。
 
