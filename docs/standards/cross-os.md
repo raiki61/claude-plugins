@@ -38,7 +38,7 @@ Windows では、Git for Windows が在れば Bash のツールは Git Bash で�
 4. **OS の形を一覧や型で持つ所は、OS ごとに持つか、持たない OS で効かないことを出す。** 例: 広すぎる探しのルートの一覧（macOS の `/Users`・`/System` だけでなく、Linux の `/home`・`/usr`、Windows のドライブのルート）、プロセスの名前の形（Linux の `ps -o comm` はパスを持たず 15 字で切れる）、パスの書き方（`C:\x` を相対として扱わない）。
 5. **1 つの OS でしか動かない物は、入口で OS（と要るなら CPU）を確かめ、ほかの OS では「どの OS だけか」を 1 行出して止まる。** 説明書に書くだけでは足りない。例: works の Archon（AI の段を順に回すツール）の実行ファイルは macOS の Apple silicon だけ、works/dev の keychain（`security`）は macOS だけ、tiers の statusline は macOS と Linux だけ。macOS の keychain を読む共有の認証の部品（各プラグインの `claude_auth.py`）は、`sys.platform == "darwin"` の時だけ読み、ほかの OS では試した物を並べた訳を返す形で、この決まりを満たしている。
 6. **確かめは CI の Linux と Windows に載せる。載らない物は試しに頼む。**
-   - ルートの `tests/run.sh` と pytest は CI（`.github/workflows/test.yml`）で ubuntu と windows で回り、見送りは OS ごとの許しの一覧（`SKIP_ALLOW`）に無ければ赤になる。OS で分かれるコードは、ここで回る試験で両方の道を通す。
+   - ルートの `tests/run.sh` と pytest は CI（`.github/workflows/test.yml`）で ubuntu と windows で回り、見送りは OS ごとの許しの一覧（test.yml が環境変数 SKIP_ALLOW で渡す）に無ければ赤になる。OS で分かれるコードは、ここで回る試験で両方の道を通す。
    - フックの起動の行・ステータスラインの殻・スキルの本文が打たせるコマンドは、CI の試験が実際には起動しない（試験は Python のコードを回すだけ）ので、変えたら試し（実機の Linux と Windows で入れて試す部署）に頼む。前の試しの記録は [docs/trials/README.md](../trials/README.md)。
 
 ## 直さないと決めた物
