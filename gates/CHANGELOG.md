@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-10-26
+
 ### Fixed
 
 - Windows で python.org の Python だけを入れた機械では、フックが毎回落ちてゲートが黙って外れていた。フックの起動の行が `command -v python3 || command -v python` で Python を選び、`python3` が Microsoft Store へ誘う代わりの物（WindowsApps の `python3.exe`。起動すると案内を出して終わる）に当たっても `python` に落ちなかった（Claude Code はフックの落ちを会話を止めない誤りとして扱う）。フックは `hooks/run-python.sh` を通し、`python3`・`python`・`py -3` の順に、実際に起きて 3.9 以上の物を選ぶ（works-dispatch の `hooks/run-python.sh` と同じ選び方）。選べなければ直し方を会話ごとに 1 回出す。coldread のスキルの手で打つ命令（`branch-check`・`read`）も同じ入口を通す。入れた後に利用者がする事は無い。
