@@ -7,7 +7,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ## [Unreleased]
 
 ### Changed
-- 利用者の動きは変わらない直し。`rules/review-loop.py` の止める訳の分岐が、検証器の `STOP_KEYS` の 2 つのキーを手で並べ直していたのを、`V.STOP_KEYS` から導くようにした（リポジトリのルートの試験の、名前表の写しの検査が、移った検証器を拾うように直したら見つかった）。
+- 利用者の動きは変わらない直し。`rules/review-loop.py` の止める訳の分岐が、検証器（`convergence-loops/scripts/review-record.py`。以下 `V`）の止める訳の表 `STOP_KEYS` のキー 2 つ（`premise_escalate`・`work_exhausted`）を文字列で書き写していたのを、`V.STOP_KEYS` から読む形にした。表にキーを足したときに、写した側だけ古く残るのを防ぐ。
 
 ## [0.43.0] - 2026-10-26
 
