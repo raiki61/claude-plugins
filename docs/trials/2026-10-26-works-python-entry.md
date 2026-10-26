@@ -1,5 +1,9 @@
 # works 0.7.4 の Python の選び方を、macOS 付属の 3.9 が先頭の PATH で試す（2026-10-26）
 
+- 何の記録か: works（コードの直しを AI の段の流れで回すプラグイン）0.7.4 を、PATH の `python3` が macOS 付属の古い 3.9 の Mac で試した結果。影響するのは、Python 3.11 以上を入れていないか、入れても PATH の `python3` が 3.9 のままの macOS の works の利用者。
+- 分かった事: 前の版 0.7.3 は落ちていたが、0.7.4 は「3.11 以上が見つからない」の 1 行で止まり、3.11 以上を PATH の `python3` に置けば先へ進む。今壊れている所は無い。版の付いた名前（`python3.14` など）でだけ入れた人には見つけられない件が 1 つ残り、標準の側は決まりを直し済みで、works の入口の直しはこれから。
+- 読み手に求める物: 無い。works の入口の直しは、標準の部署が受け持ちの担当に頼んである（下の「新しく見つけた詰まり」）。
+
 works 0.7.4（main の a7d6a575）で、works の殻（`works/dev/*.sh`）とスキルの本文（`works/skills/works/references/request.md` の `carry.py` の行）が、Python を素の `python3` でなく入口 `works/dev/run-python.sh` で選んで起動する形になった。入口は `python3`・`python`・`py -3` の 3 つの名前を順に起動し、3.11 以上の物を選ぶ。3 つの名前のどれも 3.11 以上でなければ、次の 1 行を出して止まる（入口を直に打ったときは終了の値 1、殻が入口を通して止まったときは 2）。
 
 > works: python 3.11 以上が見つからない（python3・python・py -3 を試した）。python 3.11 以上を入れる（macOS 付属の /usr/bin/python3 は 3.9 で足りない。例: brew install python）
@@ -16,13 +20,13 @@ works 0.7.4（main の a7d6a575）で、works の殻（`works/dev/*.sh`）とス
 - toolset install: `archon.sh` が Archon を起動する前に、隔離した Claude Code の設定にスキルとプラグインを入れる段（`works/dev/toolset.py`）。
 - 認証の道・認証の要らない道: `archon.sh` は既定で、Claude Code のログインの鍵（macOS の keychain）を読み、`claude` の実行ファイルを探してから Archon を起動する（認証の道）。環境変数 `WORKS_DEV_NO_AUTH=1` を付けると、鍵も `claude` も使わない道を通る（認証の要らない道）。
 - 利用の家・開発の家: works の殻が、Archon の実行ファイルや run の記録を置くフォルダ。`use.sh` は利用の家（既定は `XDG_STATE_HOME` か `~/.local/state` の下の `works/`）を、`archon.sh` を直に打つと開発の家（`WORKS_DEV_HOME`）を使う。
-- 「人だけなら止まる」: 説明書と画面の言葉のとおりに手を打つだけでは先へ進まない詰まり（試しの記録の一覧 [README.md](README.md) と同じ意味）。
+- 「人だけなら止まる」: 利用者が、説明書と画面の言葉のとおりに手を打つだけでは先へ進めない詰まり。AI の助けや作り手への問い合わせが要る物（試しの記録の一覧 [README.md](README.md) と同じ意味）。
 
 ## 結果のあらまし
 
 - 見どころの 1（3.9 だけの PATH で落ちずに訳を出す）: 済み。0.7.4 の `use.sh check`・`archon.sh`・入口・`carry.py` の行は、全部が版の訳の 1 行で止まった。前の版 0.7.3 で同じ 3.9 だけの PATH を使うと、`archon.sh` は `TypeError: unsupported operand type(s) for |` で落ちた。
 - 見どころの 2（3.11 以上を PATH に置くと、それが選ばれて先へ進む）: 済み。版の訳は消えた。`use.sh check` は Archon の validate まで進んで終了の値 0、認証の要らない道の `archon.sh version` は toolset install を通って Archon の版を出し、0 だった。
-- 新しく見つけた詰まりは 1 件で、人だけなら止まる物ではない。3.11 以上の Python が版の付いた名前（`python3.14` など）でだけ PATH に在ると、入口は選べずに版の訳で止まる（下の「新しく見つけた詰まり」）。決まり 1 の候補の並びの話なので、標準の部署に問いを回した（受付 20261026-123944-c55c33）。
+- 新しく見つけた詰まりは 1 件で、人だけなら止まる物ではない。3.11 以上の Python が版の付いた名前（`python3.14` など）でだけ PATH に在ると、入口は選べずに版の訳で止まる（下の「新しく見つけた詰まり」）。決まり 1 の候補の並びの話なので標準の部署に問いを回し（受付 20261026-123944-c55c33）、標準の部署は決まり 1 に版の付いた名前を足した（main の 397103eb）。
 
 ## 試しの環境
 
@@ -76,11 +80,12 @@ works 0.7.4（main の a7d6a575）で、works の殻（`works/dev/*.sh`）とス
 
 ## 新しく見つけた詰まり
 
-1. 3.11 以上の Python が版の付いた名前でだけ PATH に在ると、入口は選べずに版の訳で止まる。訳は「入れる」と言うが、Python はもう入っている。人だけなら止まる物ではない（版の訳の「python3・python・py -3 を試した」から、PATH の先頭の `python3` が 3.11 以上になるように PATH を並べ直せば通ると読める）。
+1. 3.11 以上の Python が版の付いた名前でだけ PATH に在ると、入口は選べずに版の訳で止まる。訳は「入れる」と言うが、Python はもう入っている。人だけなら止まる物ではない。版の訳の「python3・python・py -3 を試した」から、利用者は「PATH の `python3` が 3.9 に当たっている」と分かり、3.11 以上の `python3` が先に当たるように PATH を直せば通る。下の 2 つの例は、どちらもこの直しの前の、止まる形。
    - 例 1: `PATH=<python3.14 だけを置いたフォルダ>:/usr/bin:/bin`。
-   - 例 2: `PATH=/usr/bin:/opt/homebrew/bin:/bin`。Homebrew の `python3` が `/usr/bin` より後ろに在る形。
+   - 例 2: `PATH=/usr/bin:/opt/homebrew/bin:/bin`。Homebrew の 3.14 の `python3` が `/usr/bin` より後ろに在るので、先に当たるのは `/usr/bin/python3`（3.9）。`/opt/homebrew/bin` を `/usr/bin` より前に置けば通る。
    - 版の付いた名前だけになる入れ方は実在する。uv は既定で版の付いた名前だけを入れる（[uv の文書の Installing Python](https://docs.astral.sh/uv/guides/install-python/)「uv only installs a _versioned_ executable by default.」）。この機械も `~/.local/bin` に `python3.14` だけが在った。
    - 候補の並びは決まり 1 が決め、works-dispatch の `hooks/run-python.sh` などの手本も同じ並びなので、works だけの話ではない。候補に版の付いた名前を足すか、訳の文を直すか、今のままにするかを、標準の部署に問いとして回した（受付 20261026-123944-c55c33）。
+   - 標準の部署は、決まり 1 の候補に版の付いた名前（`python3.20` から要る版まで）を足し、止まるときの 1 行に「入っているなら入れた場所を PATH に足す」を加えた（main の 397103eb）。works の `dev/run-python.sh` を含む各プラグインの入口はまだ版の付いた名前を試さず、標準の部署が各担当に足しを頼んだ（cross-os.md の決まり 1 の手本の項）。直した版が出たら、この記録の例 1 で選ばれるかを試す。
 
 ## 片付け
 
