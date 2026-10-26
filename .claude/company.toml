@@ -363,6 +363,21 @@ inputSchema = { type = "object", properties = { dry_run = { type = "boolean", de
 command = "python3 tests/ci-watch.py"
 fallback_role = "点検"
 
+# 工場の版の見張り（受付 20261026-055008-8aa008。頼み元は works-factory の窓口）: works-factory プラグインの PIN より先に、工場 raiki61/works-factory の
+# main で CI が緑の commit が在れば、上げる頼みを作業に回す。作業は --write で PIN と CHANGELOG を書き、照合で当たればスキルも直して --land で入れる。
+# [[land.after]] にはまだ並べていない（CI の緑だけで上げるか、本物の run の確かめを挟むかを持ち主が決めるまで）。それまでは --call で呼ぶ
+[[roles]]
+name = "工場の版の見張り"
+machine = true
+
+[[roles.tools]]
+name = "works-factory-pin"
+title = "工場の版の上げ先を見る"
+description = "works-factory プラグインの工場の固定 commit（works-factory/PIN）の後に、raiki61/works-factory の main で CI（check の名 tests）が緑の commit が在るかを見る。在れば、上げ先・取り込む PR・スキルに効く変更の照合（スキルが引いた語・パスの消え、本線と周の鎖の入力の出入り、WORKS_FACTORY_* の出入り、工場の README と殻の変更）と、上げる手順（python3 scripts/works-factory-pin.py --write）を出して 1 で終わり、作業に回る。知らせた上げ先は覚え、回した頼みが開いている間と、閉じた後の同じ上げ先では知らせ直さない"
+inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、知らせる物を出すだけで覚えない" } }, additionalProperties = false }
+command = "python3 scripts/works-factory-pin.py"
+fallback_role = "作業"
+
 # 部署の成果を main に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
 # 部署は触ったプラグインの試験を手元で回し、ここでは下の check の順に機械で確かめる。版は取り込むときに上げる
 # 件数のチェック（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
@@ -404,7 +419,7 @@ tool = "ci-watch"
 #   herdr のサイドバーには、作業場の木（親＝リポジトリ、子＝worktree）と、会話の行（作業場の名前・役・ブランチ）が出る。
 #   会社の名前は親の作業場にだけ出るので、部署の名前（--task・--ask に渡す名前。作業場・会話の名前になる）に会社を付けない。
 # - 役は 5 つ: 窓口（頼みを配り、片付けの判断〔--clean・--retire〕と止められた --land の打ち直しを受ける本社の会話。
-#   役の本文は [[roles]] の「窓口」。2026-10-26 までは my_notes の司令塔が兼ねていた〔業務改革の案 1-3〕）・担当（受け持ちに 1 つ。永続か、オンデマンド）・作業（一度きり）・機械だけの役（配布・CI の見張り）・相談（この会社の形には置かない）。
+#   役の本文は [[roles]] の「窓口」。2026-10-26 までは my_notes の司令塔が兼ねていた〔業務改革の案 1-3〕）・担当（受け持ちに 1 つ。永続か、オンデマンド）・作業（一度きり）・機械だけの役（配布・CI の見張り・工場の版の見張り）・相談（この会社の形には置かない）。
 # - 担当: 受け持ちごとに 1 つ。部署の名前を受け持ちの名前にし、自分の受け持ちはその名前で決まる。
 #   受け持ちの表（どの受け持ちが何のファイルを持つか）は [[skills]] の 1 か所に置く（name が部署の名前、description が中身。works-dispatch の
 #   役を足すフックが、部署の名前と同じ name の description を会話の始まりに足す）。役の本文と、このコメントに写さない。
