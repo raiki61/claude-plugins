@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.126.8] - 2026-10-26
+
 ### Fixed
 
 - 同じ処理がコピーされて何か所にも在ったコードを 1 か所にまとめ、使われていない import と代入を消した。不具合の直しではなく、動きは変えない整理（works-dispatch の試験 1375 件が前と同じく通る）。まとめたのは 2 つ。1 つ目は「作業中のフォルダ（cwd）が、部署の作業場のフォルダかその下か」をリンクを辿った実際のパスで見る関数で、`dispatch/nodes/` の 6 つのモジュール（clean・assign・land・fresh・tree・deliver）に同じ物が在ったのを、`dispatch/filex.py` の `inside` の 1 つにした。2 つ目は `nodes/deliver.py` の、会話の窓の入力フィールドに文が残っていたときに Enter キーを送る処理で、4 か所に在った。窓を操作する herdr（端末をペインに分けて会話を並べるツール）が Enter を送れなかったときの誤りは、どこでも止めずに捨てていて、その訳の注は 1 か所にしか無かった。これを、訳の注を持つ 1 つの関数 `press_enter` にした。使われていない import と代入は、`dispatch.py`・`nodes/cost.py`・`landing.py` と試験から消した。
