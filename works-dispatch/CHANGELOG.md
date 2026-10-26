@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- main に入れる列（`--land` で並んだ部署のブランチ）を重ね、ゲートを 1 回だけ回す形（まとめ検査）の設計書を足した（`docs/specs/2026-10-26-land-batch-design.md`）。重ね方と上限、赤のときの切り分け、衝突、版上げと main に入れた後の合図、初見の読み手のゲート、`--land-order`・`--queue-run` との関係、止まった・落ちた時の戻し方、試験の方針を書いた。今の 1 本ずつの道から狭まる能力の棚卸し（16）と、持ち主に選んでもらう 5 つ（15）も載せた。コードはまだ変えていない。works-dispatch の動きは替わらない。
+
 ## [0.127.0] - 2026-10-26
 
 ### Added
