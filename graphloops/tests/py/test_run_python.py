@@ -51,9 +51,12 @@ def test_skips_store_stub(tmp_path, name):
 
 @pytest.mark.parametrize("name", list(ENTRIES))
 def test_finds_versioned_name(tmp_path, name):
-    """python3 が代わりの物で python が無くても、版の付いた名前（uv が入れる形。python3.14 など）の本物で台本が走る"""
+    """python3 が起きるが版の足りない物（macOS 付属の 3.9 の形。版の確かめに 1 で答える）で python が無くても、版の付いた名前
+    （uv が入れる形。python3.14 など）の本物で台本が走る"""
     versioned = f"python{sys.version_info.major}.{sys.version_info.minor}"
-    r = run(ENTRIES[name], fake_dir(tmp_path, True, versioned), "-c", "import sys; print(sys.version_info >= (3, 12))")
+    path = fake_dir(tmp_path, True, versioned)
+    (path / "python3").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    r = run(ENTRIES[name], path, "-c", "import sys; print(sys.version_info >= (3, 12))")
     assert (r.returncode, r.stdout.strip()) == (0, "True"), r.stderr
 
 
@@ -65,6 +68,8 @@ def test_none_found_says_why(tmp_path, name):
         r = run(ENTRIES[name], path, "-c", "pass", bash=bash)
         assert r.returncode == NOT_FOUND[name], bash
         assert r.stderr.startswith(f"{name}: Python 3.12 ") and all(w in r.stderr for w in ("python3", "python3.20〜python3.12", "py -3", "PATH に足す", "python.exe"))
+        # --min を替えると、試す版の付いた名前の下の端もその版になる
+        assert "python3.20〜python3.9・" in run(ENTRIES[name], path, "--min", "3.9", "-c", "pass", bash=bash).stderr, bash
 
 
 def test_once_per_session(tmp_path):
