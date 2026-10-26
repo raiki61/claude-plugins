@@ -295,6 +295,7 @@ class Shell(Base):
         self.assertFalse(started(), "手で書いた上書きは起動しても変わらない")
 
 
+@unittest.skipIf(os.name == "nt", "bg-count.sh は macOS と Linux だけで動く")
 class FindClaude(unittest.TestCase):
     """bg-count.sh の find_claude が、背景の Bash の親の Claude を探す所。ps と readlink は PATH の偽物で答える。"""
 
