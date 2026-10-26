@@ -375,7 +375,7 @@ class StopVerdict(unittest.TestCase):
         self.assertEqual((row["to"], row["kind"]), ("co/desk", wake.NOTE))
         self.assertNotEqual(row["id"], "id1")   # 頼みの受付で書くと、--todo がその頼みに足しが来たと数える
         self.assertIn("見渡し は受付 id1 の頼みを納品しないまま", row["text"])
-        self.assertIn("--note id1", row["text"])
+        self.assertIn("--note id1 --text", row["text"])   # --note は足しの文（--text か --brief）が無いと止まる
         # 頼み元の受付箱が分からない・会社が分からないときは知らせず、止まるのは通す
         for bad, company in (({**attrs, "boss-inbox": None}, "co"), (attrs, None)):
             tmp = tempfile.mkdtemp()

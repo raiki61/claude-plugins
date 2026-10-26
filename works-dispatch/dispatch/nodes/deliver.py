@@ -1037,7 +1037,8 @@ def stall_line(attrs, run):
     会話を再開させる物が無く、部署は知られずに止まる（2026-10-26 の見渡し。順番待ちの頼みが 45 分渡らなかった。受付 3ddd8e）。"""
     ask, name = attrs.get("ask"), attrs.get("name") or "部署"
     return (f"止まった知らせです: {name} は受付 {ask} の頼みを納品しないまま、止まる前の差し戻し（{STOP_LIMIT} 回）を使い切って"
-            f"ターンを終えた。部署の会話を再開させる物はもう無い。続けさせるなら {run} --note {ask} で足しを送ると、部署の会話が再開する。")
+            f"ターンを終えた。部署の会話を再開させる物はもう無い。続けさせるなら {run} --note {ask} --text '<続けてほしいこと>' で足しを"
+            "送ると、部署の会話が再開する。")
 
 
 def stop_count_path(tmp_dir, session_id, ask):
