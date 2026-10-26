@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-10-26
+
 ### Fixed
 - Windows で、Python を python.org の入れ方などで入れ、`python3` の名前が Microsoft Store へ誘う代わりの物（起動すると案内を出して終わる物）に当たる機械では、読了の記録のフック（`hooks/record-read.py`）が Read のたびに落ち、`/research-graph` と `/graphloops:intake` の手順書のコマンドも落ちていた。どれも素の `python3` を起動していたため。
   - 新しい `hooks/run-python.sh` が、`python3`・`python`・`py -3` の順に、実際に起きて 3.12 以上の物を選んで起動する（works-dispatch の `hooks/run-python.sh` と同じ選び方）。フックの登録、手順書のコマンドの行、engine が会話に出す次の手（init の `next` と、intake の知らせのコマンド）を、この入口を通す形にした。
