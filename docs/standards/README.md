@@ -189,10 +189,11 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
   - いつも通る試験の照合が 1 つ在る（`test_fixture.py` の、同じ値どうしの比べ）。
   - 使われていない import が約 30 件在る。
   - JSON を書く・読む小さい関数（`_write_json`・`_read_json`）が、共通の `works/.shared/core/jsonfile.py` が在るのに、blk-* の 17 ファイル前後に 1〜2 本ずつ在る。
-  - 状態: 頼んだ（作業 20261026-070752-ca2afe。works は誰の受け持ちでもないので作業に回した）
+  - 状態: 上の 4 つは入った（works 0.7.2。作業 20261026-070752-ca2afe、納品 20261026-090611-055622。works は誰の受け持ちでもないので作業に回した）。JSON の小さい関数は寄せていない。数え直すと `_write_json` が 13 本・`_read_json` が 15 本在り、返す値・既定の値・書き方・字下げが関数ごとに違うので、振る舞いを変えずに寄せるには 1 本ずつ照合が要る。下の次の回の候補に移した
 
 次の回の候補（今回は頼んでいない。効きが小さいか、直すと出力が変わる物）:
 
+- works の `_write_json`・`_read_json` を `works/.shared/core/jsonfile.py` に寄せる（6-5 の残り）。1 回に数本ずつ、旧の関数と出力を照合して寄せる形で作業に頼む
 - attention の `reflect.py` の `sessions()` と `scan()` は、読めない会話の記録を黙って外す。隣の `records_from` は読めない数を出す。[壊れたら機械が知らせる標準](breakage-detection.md)の決まり 1 のずれ。直すと出力が増え、振る舞いを変えない直しの線の外なので、今回は頼んでいない。
 - works の `blk-fix/scripts/assert_changed.py:80` と `blk-structure/lib/context.py:104` は、どの例外も同じ扱いで捨てる。注は意図を書いているが、作りの誤りも同じ扱いになる。
 - ルートの `scripts/works-factory-pin.py` と `tests/ci-watch.py` が、小さい部品（`run`・`common_dir`・状態の保存）を同じ形で持つ。
