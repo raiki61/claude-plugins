@@ -2422,7 +2422,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=772
+EXPECTED_CHECKS=774
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- coldread ゲート ------------------------------------------------------
@@ -5915,6 +5915,15 @@ expect_output 0 "SKILL_BODY_ARMS_OK" "スキルの本文のチェック: 5,001 �
     "$PY_BIN" "$SB_CASE" arms
 expect_output 0 "SKILL_BODY_OK" "スキルの本文のチェック: 全部のプラグインのスキルとコマンドの本文が 5,000 字以下かつ 500 行未満で、指したリンクの先がプラグインの中に在り、100 行を超える別ファイルに目次が有る（外す一覧の物を除く）" \
     "$PY_BIN" "$SB_CASE" tree
+
+# ---- 全部のプラグインのフックとスキル・コマンドの本文が Python を起動する形（OS をまたいで動かす標準 docs/standards/cross-os.md の決まり 1） ----
+# 素の python3 と「command -v python3 || command -v python」は Windows で Microsoft Store へ誘う代わりの物に当たり、フックなら黙って外れる。
+# 見ることと外す一覧は台本の頭。正しい形は各プラグインの run-python.sh を通す形
+PL_CASE="$ROOT/tests/python-launch-case.py"
+expect_output 0 "PYTHON_LAUNCH_ARMS_OK" "Python の起動の形のチェック: 素の python・python3・python3.N の起動と command -v・which・type -p で選ぶ形を落とし、run-python.sh を通す行・文の中の python・路の一部は通す。hooks.json・plugin.json に直に書いたフック・skills と commands の下の深い .md を見て、外した字の隣の起動・外す一覧の当たらなくなった字・置き場を変えたプラグイン・空の走査を落とす" \
+    "$PY_BIN" "$PL_CASE" arms
+expect_output 0 "PYTHON_LAUNCH_OK" "Python の起動の形のチェック: 全部のプラグインのフック（hooks/hooks.json）とスキル・コマンドの本文が、Python を素の名前か「在るか」で起動しない（外す一覧の物を除く）" \
+    "$PY_BIN" "$PL_CASE" tree
 
 # ---- shell の静的検査（shellcheck） ----
 # **定番解を入れて、自作の regex を落とした。** 自作のチェックは for の位置しか見ず、同じ問題クラス
