@@ -50,10 +50,10 @@
 
 ## OS をまたぐ書き方の直しの確かめ
 
-- [2026-10-26-cross-os.md](2026-10-26-cross-os.md) — macOS でしか動かない書き方の直し（標準の受付 062135-00c4c3 の 5 回目）の後の版を、Linux（Colima の Debian 13）と Windows（上の VM）に入れて試した。対象は gates・graphloops・convergence-loops・tiers・works-dispatch・attention で、Claude Code 2.1.310。フックは全部起き、Windows の `python3` が Microsoft Store の代わりの物でも本物の Python を選んで動いた。新しい詰まりは 3 件で、直しを点検・説明書・見直しに頼んだ。
-  - ターミナルだけで入れると、依存の pr-review-toolkit が入らず convergence-loops と graphloops が読み込まれない。
-  - 鍵を環境変数でだけ渡す人は、gates の初見読みの読み手が起動しない。
-  - gates の知らせの文が、Windows で動かない素の `python3` を打たせる。
+- [2026-10-26-cross-os.md](2026-10-26-cross-os.md) — 標準の部署が見つけて各担当に直させた、macOS でしか動かない書き方の直し 4 件（頼みの言葉では「標準の受付 062135-00c4c3 の 5 回目」）の後の版を試した。Linux（Mac の上で Docker を動かす Colima の、Debian 13 のコンテナ）と Windows（上の VM）に、このリポジトリのプラグイン gates・graphloops・convergence-loops・tiers・works-dispatch・attention を入れた。Claude Code は 2.1.310。フック（Claude Code が会話の決まった場面で起動するプラグインのスクリプト）は全部起きた。Windows の `python3` が Microsoft Store へ誘う代わりの物でも、本物の Python を選んで動いた。新しい詰まりは 3 件で、受け持ちの部署に直しを頼んだ。
+  - ターミナルで `claude plugin install` を打つだけで入れる（対話の Claude Code の中の `/plugin` を使わない）と、依存の pr-review-toolkit が入らず、convergence-loops と graphloops が読み込まれない。頼んだ先は説明書（ルートの README）と見直し（convergence-loops の README）。
+  - Claude Code のログインの鍵を環境変数 `CLAUDE_CODE_OAUTH_TOKEN` だけで渡している人は、Linux と Windows で gates の初見読みが動かない。初見読みは、外へ出す文や書いた文書を文脈を持たない別の claude に読ませる gates の仕組みで、その別の claude が起動しない。頼んだ先は点検（gates の受け持ち）。
+  - gates の知らせの文が、Windows で動かない素の `python3` を打たせる。頼んだ先は点検。
 
 ## モデルを替えたときの確かめ
 
