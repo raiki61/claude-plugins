@@ -223,11 +223,14 @@ mdl=$(printf '%s\n' "$metrics" | sed -n 3p)
 # 30 秒ごとの描画でやり直す意味が無い。桁での切り詰めはしない——サイドバーでは 2 行目を
 # 単独で使っており、幅に入らない分は herdr が切る。
 branch_pr_info() {
-  local dir=$1 branch=$2 cache val
-  # 鍵は cksum（POSIX）の CRC とバイト数で作る。shasum は POSIX に無く、Debian の slim などでは perl の包みに入っていて無い。無いと鍵が空になり、
-  # どのブランチも同じ控えを読んで、ほかのブランチの PR を黙って出す（2026-10-26 に python:3.14-slim で無いのを見た）。CRC は 32 ビットなので、
-  # バイト数も足して、長さの違うブランチどうしは鍵がぶつからないようにする
-  cache="${TMPDIR:-/tmp}/herdr-pr-$(printf '%s|%s' "$dir" "$branch" | cksum | tr ' ' -)"
+  local dir=$1 branch=$2 key cache val
+  # 鍵は Python の hashlib で作る（作業場とブランチの SHA-1 の頭 16 桁。前の shasum と同じ値）。shasum は POSIX に無く、Debian の slim などでは
+  # perl の包みに入っていて無い。無いと鍵が空になり、どのブランチも同じ控えを読んで、ほかのブランチの PR を黙って出していた（2026-10-26 に
+  # python:3.14-slim で無いのを見た）。BSD と GNU で違う外のコマンドに頼らず Python に寄せる（docs/standards/cross-os.md の決まり 2）。
+  # 鍵が作れなければ PR を出さない（ほかのブランチの PR を出すより、出さない方がよい）
+  key=$(python3 -c 'import hashlib, os, sys; print(hashlib.sha1(os.fsencode(sys.argv[1])).hexdigest()[:16])' "$dir|$branch" 2>/dev/null) \
+    && [ -n "$key" ] || return 0
+  cache="${TMPDIR:-/tmp}/herdr-pr-$key"
   if [ ! -s "$cache" ] || [ -n "$(find "$cache" -mmin +15 2>/dev/null)" ]; then
     (
       # 打ち切りは再描画の間隔（30 秒）より短く取る。gh 自身は要求を打ち切らないので、

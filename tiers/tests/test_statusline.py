@@ -1,5 +1,6 @@
 """tiers_statusline と、tiers_check の statusline の点検の試験。herdr は起動せず、一時のフォルダを HOME と設定のフォルダにする。"""
 
+import hashlib
 import io
 import json
 import os
@@ -293,6 +294,34 @@ class Shell(Base):
         self.put(self.over, "# 手で書いた\n" + BASE)
         os.utime(self.over, (0, 0))
         self.assertFalse(started(), "手で書いた上書きは起動しても変わらない")
+
+
+@unittest.skipIf(os.name == "nt", "statusline.sh は macOS と Linux だけで動く")
+class BranchPrKey(unittest.TestCase):
+    """statusline.sh の branch_pr_info が、作業場とブランチごとの PR の控えを読む所。"""
+
+    def read(self, path):
+        # 控えが新しいうちは gh を起動しないので、控えを置いて読むだけを見る。PATH は find と cat と（あれば）python3 だけ
+        with tempfile.TemporaryDirectory() as d:
+            tmp, bin_ = pathlib.Path(d, "tmp"), pathlib.Path(d, "bin")
+            tmp.mkdir()
+            bin_.mkdir()
+            for cmd in path:
+                (bin_ / cmd).symlink_to(shutil.which(cmd) if cmd != "python3" else sys.executable)
+            key = hashlib.sha1("/w/日本語|feat/x".encode()).hexdigest()[:16]
+            (tmp / f"herdr-pr-{key}").write_text("12\t題", encoding="utf-8")
+            (tmp / "herdr-pr-").write_text("99\tほかのブランチ", encoding="utf-8")
+            script = (sl.ROOT / "statusline" / "statusline.sh").read_text(encoding="utf-8")
+            func = re.search(r"^branch_pr_info\(\) \{\n.*?^\}\n", script, re.M | re.S).group(0)
+            return subprocess.run([shutil.which("bash"), "-c", func + 'branch_pr_info /w/日本語 feat/x'],
+                                  env={"PATH": str(bin_), "TMPDIR": str(tmp)}, capture_output=True, text=True, encoding="utf-8").stdout
+
+    def test_key_is_the_sha1_head_of_the_workspace_and_branch(self):
+        # 0.11.0 までの shasum の鍵と同じ値なので、上げても控えを取り直さない
+        self.assertEqual(self.read(["find", "cat", "python3"]), "12\t題")
+
+    def test_no_key_shows_no_pr_rather_than_another_branchs(self):
+        self.assertEqual(self.read(["find", "cat"]), "")
 
 
 @unittest.skipIf(os.name == "nt", "bg-count.sh は macOS と Linux だけで動く")
