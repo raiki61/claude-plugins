@@ -67,6 +67,9 @@ else
 fi
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+# python は入口 run-python.sh で選ぶ。3.11 以上が無ければ、ここで訳を 1 行出して止まる（docs/standards/cross-os.md の決まり 1）
+WORKS_PY="$DEV_DIR/run-python.sh"
+sh "$WORKS_PY" -c "" || exit 2
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
@@ -108,7 +111,7 @@ fi
 
 # 何かを作る前に、起こし役の check で認証を確かめ、無ければその 1 行の案内で止まる。拾った出どころの名は捨てる
 # （名の行は archon.sh が出す）
-python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" check --for dogfood.sh \
+sh "$WORKS_PY" -I "$WORKS_DIR/.shared/core/auth_launch.py" check --for dogfood.sh \
   --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" >/dev/null || exit $?
 
 if [ ! -f "$1" ]; then
@@ -217,6 +220,6 @@ if [ "$show_status" -eq 0 ]; then
 fi
 # 起動の仕事が済んだ後の最後。読む前に待つことを言う（落ちても終了コードは変えない）
 echo "dogfood.sh: 上流の tag を読む（網を待つ。止まったら Ctrl-C で切ってよい。起動は済んでいる）" >&2
-python3 "$DEV_DIR/toolset.py" newer --user-config "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" >&2 || echo "dogfood.sh: superpowers の新しい版の確かめが終了コード $? で落ちた（起動は済んでいる）" >&2
+sh "$WORKS_PY" "$DEV_DIR/toolset.py" newer --user-config "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" >&2 || echo "dogfood.sh: superpowers の新しい版の確かめが終了コード $? で落ちた（起動は済んでいる）" >&2
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

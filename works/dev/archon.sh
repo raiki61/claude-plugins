@@ -27,6 +27,8 @@ WORKS_ADAPTER="$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/claude-adapter"
 
 # 開発の家と対象（cwd）が Claude Code の一時フォルダの下なら、認証も実行ファイルも触らずに止まる（guard.sh）
 . "$(cd "$(dirname "$0")" && pwd -P)/guard.sh"
+# 3.11 以上の python が無ければ、ここで訳を 1 行出して止まる（入口は guard.sh が置く WORKS_PY）
+sh "$WORKS_PY" -c "" || exit 2
 # 開発の家の既定と本物の claude の解決は launch.py env が持つ（何も作らず認証も読まない）。認証の要らない道では claude を解かない
 if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
   works_dev_launch_env archon.sh --claude --adapter "$WORKS_ADAPTER"
@@ -73,7 +75,7 @@ AUTH_LAUNCH="$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/auth_launch.py"
 USER_HOME="$HOME"
 USER_CONFIG_RAW="${CLAUDE_CONFIG_DIR:-}"
 if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ] && [ -z "${WORKS_AUTH_FROM:-}" ]; then
-  _auth_from="$(python3 -I "$AUTH_LAUNCH" check --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW")" || exit $?
+  _auth_from="$(sh "$WORKS_PY" -I "$AUTH_LAUNCH" check --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW")" || exit $?
   echo "archon.sh: 認証は ${_auth_from} から拾う（値は出さない）" >&2
 fi
 
@@ -136,7 +138,7 @@ fi
 HOST_GH=""
 if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
   # 包みを通す run では包みの家（切符が役の書き込みから守る所）の下に置く（役が口を書き換えて sandbox の外で走らせない）
-  HOST_GH="$(python3 -I "$(cd "$(dirname "$0")" && pwd -P)/hostgh.py" write --dir "${WORKS_ADAPTER_HOME:-$WORKS_DEV_HOME}/host-gh" --path "$PATH" \
+  HOST_GH="$(sh "$WORKS_PY" -I "$(cd "$(dirname "$0")" && pwd -P)/hostgh.py" write --dir "${WORKS_ADAPTER_HOME:-$WORKS_DEV_HOME}/host-gh" --path "$PATH" \
     --home "$HOME" --gh-config-dir "${GH_CONFIG_DIR:-}" --xdg-config-home "${XDG_CONFIG_HOME:-}")"
 fi
 
@@ -219,9 +221,9 @@ fi
 # claude を起こさず、スキルだけを写す（validate も同じ置き場で探す。借りる物の確かめは同じ）
 TOOLSET="$(cd "$(dirname "$0")" && pwd -P)/toolset.py"
 if [ "${WORKS_DEV_NO_AUTH:-}" = "1" ]; then
-  python3 "$TOOLSET" install --no-plugins --user-config "$USER_CLAUDE_CONFIG" "$CLAUDE_CONFIG_DIR"
+  sh "$WORKS_PY" "$TOOLSET" install --no-plugins --user-config "$USER_CLAUDE_CONFIG" "$CLAUDE_CONFIG_DIR"
 else
-  python3 "$TOOLSET" install --claude "$REAL_CLAUDE" --user-config "$USER_CLAUDE_CONFIG" "$CLAUDE_CONFIG_DIR"
+  sh "$WORKS_PY" "$TOOLSET" install --claude "$REAL_CLAUDE" --user-config "$USER_CLAUDE_CONFIG" "$CLAUDE_CONFIG_DIR"
 fi
 
 # run ごとの版の控え（<ARTIFACTS_DIR>/versions.json。線の start が .shared/core/versions.py で書く）へ渡す版。
@@ -237,4 +239,4 @@ ARCHON_TELEMETRY_DISABLED=1
 DO_NOT_TRACK=1
 export ARCHON_TELEMETRY_DISABLED DO_NOT_TRACK
 
-exec python3 -I "$AUTH_LAUNCH" exec --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW" -- "$BIN_PATH" "$@"
+exec sh "$WORKS_PY" -I "$AUTH_LAUNCH" exec --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW" -- "$BIN_PATH" "$@"

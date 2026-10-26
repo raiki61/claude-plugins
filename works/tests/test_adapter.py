@@ -1690,7 +1690,7 @@ class DevWiringCase(unittest.TestCase):
             fake = pathlib.Path(t, "archon.sh")
             fake.write_text("#!/bin/sh\necho '{\"runs\": [{\"workflow_name\": \"darkfactory\", \"id\": \"r1\"}]}'\n")
             env = hermetic.child_env(WORKS_DEV_HOME=t, WORKS_DEV_MODEL="opus", CLAUDE_BIN_PATH="/x/claude",
-                       WORKS_DEV_ADAPTER="1")
+                       WORKS_DEV_ADAPTER="1", DEV_DIR=str(DEV))
             r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh" && works_dev_show_run t "{fake}" "{t}"'],
                                capture_output=True, text=True, encoding="utf-8", env=env)
             self.assertEqual(r.returncode, 0, r.stderr)

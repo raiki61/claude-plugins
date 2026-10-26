@@ -206,7 +206,8 @@ class TestDevShell(unittest.TestCase):
         """works_copy から works_dev_copy_pack で pack を写し、(出どころの控え, 写した pack の直下の名) を返す"""
         pack = works_copy.parent / "pack"
         subprocess.run(["sh", "-c", '. "$1" && works_dev_copy_pack "$2" "$3"', "_", str(DEV / "lib.sh"),
-                        str(works_copy), str(pack)], check=True, capture_output=True, text=True, encoding="utf-8")
+                        str(works_copy), str(pack)], check=True, capture_output=True, text=True, encoding="utf-8",
+                       env=hermetic.child_env(DEV_DIR=str(DEV)))
         return (json.loads((pack / ".works-source.json").read_text(encoding="utf-8")),
                 sorted(p.name for p in pack.iterdir()))
 
@@ -1836,11 +1837,12 @@ class TestHerdrContinue(unittest.TestCase):
 
     def test_go_tail_passes_continue_entry_when_dev_dir_is_set(self):
         """入口の殻（DEV_DIR を置く）の続きの行は続きの口の入口 continue.sh を通り、Archon の生の語（workflow <動詞>）も残す"""
+        # cwd は works/dev: DEV_DIR が空のとき、. で読んだ guard.sh・lib.sh は python の入口 run-python.sh を呼び手の dir（sh -c では cwd）で引く
         env = hermetic.child_env(WORKS_DEV_HOME="/h", CLAUDE_BIN_PATH="/c", WORKS_DEV_MODEL="opus")
         for dev_dir, want in ((str(DEV), f"sh {DEV / 'continue.sh'} /a.sh workflow"), ("", "sh /a.sh workflow")):
             with self.subTest(dev_dir=dev_dir):
                 r = subprocess.run(["sh", "-c", f'DEV_DIR="{dev_dir}"; . "{DEV}/guard.sh"; . "{DEV}/lib.sh"; works_dev_go /a.sh /x'],
-                                   capture_output=True, text=True, encoding="utf-8", env=env)
+                                   capture_output=True, text=True, encoding="utf-8", env=env, cwd=DEV)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertTrue(r.stdout.rstrip("\n").endswith(" " + want), r.stdout)
 

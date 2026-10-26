@@ -1,5 +1,9 @@
 # shellcheck shell=sh
 # works/dev/guard.sh — archon.sh・mktarget.sh・dogfood.sh・use.sh が . で読む（単独では走らせない）
+
+# python を起動する入口（run-python.sh。素の python3 は macOS 付属の 3.9 に当たりうる。docs/standards/cross-os.md の決まり 1）。
+# . で読まれ自分の場所を知れないので、呼び手の殻が置いた DEV_DIR（works/dev）を使う（無ければ呼び手の殻の dir）
+WORKS_PY="${DEV_DIR:-$(cd "$(dirname "$0")" && pwd -P)}/run-python.sh"
 #
 # Claude Code のサンドボックスは、自分の一時フォルダ（/private/tmp/claude-<uid>/。/tmp は macOS では /private/tmp への
 # symlink）への書き込みを Bash に許す。そこに開発の家（WORKS_DEV_HOME）・対象・origin を置くと、サンドボックスの中の
@@ -78,7 +82,7 @@ works_dev_refuse_claude_tmp() {
 works_dev_launch_env() {
   _wl_for=$1
   shift
-  _wl_out=$(python3 -I "$(cd "$(dirname "$0")" && pwd -P)/launch.py" env --for="$_wl_for" "$@") || exit $?
+  _wl_out=$(sh "$WORKS_PY" -I "$(cd "$(dirname "$0")" && pwd -P)/launch.py" env --for="$_wl_for" "$@") || exit $?
   works_dev_launch_eval "$_wl_for" "$_wl_out" || exit $?
   unset _wl_out _wl_for
 }

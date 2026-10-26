@@ -15,6 +15,9 @@ if [ "$#" -ne 1 ]; then
 fi
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+# python は入口 run-python.sh で選ぶ。3.11 以上が無ければ、ここで訳を 1 行出して止まる（docs/standards/cross-os.md の決まり 1）
+WORKS_PY="$DEV_DIR/run-python.sh"
+sh "$WORKS_PY" -c "" || exit 2
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 
 # 対象が Claude Code の一時フォルダの下なら、何も作らずに止まる（guard.sh）
@@ -43,7 +46,7 @@ find "$DIR" -name .git -prune -o \
 . "$DEV_DIR/lib.sh"
 works_dev_copy_pack "$WORKS_DIR" "$DIR/.archon/workflows/works"
 # 筋書きの共通の基（<工程>/fixtures/base.yaml）を写しの筋書きに合わせて基を消す（合わせ方と消す訳は stubfold.materialize）
-python3 "$DEV_DIR/stubfold.py" materialize "$DIR/.archon/workflows/works"
+sh "$WORKS_PY" "$DEV_DIR/stubfold.py" materialize "$DIR/.archon/workflows/works"
 
 # 利用者の git の設定（署名・hook）に左右されないように、この commit だけ切る
 git -C "$DIR" add -A

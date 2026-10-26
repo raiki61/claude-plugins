@@ -157,6 +157,9 @@ case "$CMD:$#" in
 esac
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+# python は入口 run-python.sh で選ぶ。3.11 以上が無ければ、ここで訳を 1 行出して止まる（docs/standards/cross-os.md の決まり 1）
+WORKS_PY="$DEV_DIR/run-python.sh"
+sh "$WORKS_PY" -c "" || exit 2
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 CHAIN_PY="$WORKS_DIR/.shared/core/chain.py"
 CHAIN_DIR=""   # 鎖の控えの置き場 <家>/chains/<鎖の id>（鎖の起動か次の周の起動の時だけ）
@@ -169,7 +172,7 @@ if [ -n "$CHAIN_NEXT" ]; then
   [ -n "$_cn_home" ] || { echo "use.sh: --chain-next は鎖の家を WORKS_USE_HOME で受ける（内部の旗。wait の鎖の 1 歩が打つ）" >&2; exit 2; }
   for _v in $(env | sed -n -e 's/^\(WORKS_USE_[A-Za-z0-9_]*\)=.*/\1/p' -e 's/^\(WORKS_DESIGN_ONLY\)=.*/\1/p'); do unset "$_v"; done
   CHAIN_DIR="$_cn_home/chains/$CHAIN_NEXT"
-  _cn_plan="$(python3 -I "$CHAIN_PY" plan --dir "$CHAIN_DIR")" || { echo "use.sh: 鎖 ${CHAIN_NEXT} の次の周を鎖の控え（${CHAIN_DIR}）から読めない" >&2; exit 2; }
+  _cn_plan="$(sh "$WORKS_PY" -I "$CHAIN_PY" plan --dir "$CHAIN_DIR")" || { echo "use.sh: 鎖 ${CHAIN_NEXT} の次の周を鎖の控え（${CHAIN_DIR}）から読めない" >&2; exit 2; }
   eval "$_cn_plan"
   WORKS_USE_HOME="$_cn_home"
   export WORKS_USE_HOME
@@ -263,7 +266,7 @@ works_dev_launch_env use.sh --claude --target "$TARGET"
 WORKS_WRAPS_DIR="$WORKS_USE_HOME/wraps"
 export WORKS_DEV_HOME WORKS_WRAPS_DIR WORKS_STATE_ROOT
 works_dev_refuse_claude_tmp use.sh "WORKS_USE_HOME" "$WORKS_USE_HOME"
-WORKS_ANSWER_CMD="$(A="$WORKS_USE_SH" T="$TARGET" python3 -c 'import os, shlex
+WORKS_ANSWER_CMD="$(A="$WORKS_USE_SH" T="$TARGET" sh "$WORKS_PY" -c 'import os, shlex
 print("sh {} answer {}".format(shlex.quote(os.environ["A"]), shlex.quote(os.environ["T"])))')"
 export WORKS_ANSWER_CMD
 # answer は答えた者を必須にするので、関所の文の答えの行の末尾に埋める穴を見せる（.shared/core/answer.py WHO_ENV）
@@ -283,7 +286,7 @@ problem() {
 
 # 認証の出どころの名（無ければ空）。順は起こし役 auth_launch.py が持つ（値はその中で読んで捨て、名だけを受ける）
 auth_from() {
-  python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" check --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" 2>/dev/null || true
+  sh "$WORKS_PY" -I "$WORKS_DIR/.shared/core/auth_launch.py" check --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" 2>/dev/null || true
 }
 
 # 本物の claude（隔離の前に launch.py env が解いた値。控えが置いた CLAUDE_BIN_PATH が先）。show・check も次の行に載せる
@@ -324,7 +327,7 @@ if [ "$CMD" = start ] || [ "$CMD" = check ]; then
   WORKS_AUTH_FROM="$(auth_from)"
   export WORKS_AUTH_FROM
   if [ -z "$WORKS_AUTH_FROM" ]; then
-    problem "$(python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" howto)"
+    problem "$(sh "$WORKS_PY" -I "$WORKS_DIR/.shared/core/auth_launch.py" howto)"
   fi
   if ! command -v uv >/dev/null 2>&1; then
     problem "uv が PATH に無い（ラインの節は uv run で回る）。入れる: curl -LsSf https://astral.sh/uv/install.sh | sh"
@@ -390,7 +393,7 @@ chain_init() {
     # shellcheck disable=SC2154  # _cv は上の eval が置く
     set -- "$@" "--env=$_ce=$_cv"
   done
-  python3 -I "$CHAIN_PY" "$@"
+  sh "$WORKS_PY" -I "$CHAIN_PY" "$@"
 }
 
 # apply_checked <差分のファイル> <止まりを見る run-id> <呼び名>: 差分を対象へ当てる確かめ（消す行は許しが要る・記録が止まりを示す run は
@@ -405,7 +408,7 @@ apply_checked() {
   # 記録が止まりを明示する run（人が最後の関所で stop と答えた・止め札・ラインの止め）は当てない。止まりの判定の正本は
   # report.stopped_run（結末を決める decide_outcome と同じ分け方）。止まりかを言える記録が無いか読めない run は 1 行出して当てる
   _ac_stopped="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$_ac_rid" |
-    RUN_ID="$_ac_rid" CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+    RUN_ID="$_ac_rid" CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 sh "$WORKS_PY" -c '
 import json, os, sys
 sys.path.insert(0, os.environ["CORE_DIR"])
 import report
@@ -435,7 +438,7 @@ elif got:
 
 # row_of: 標準入力の run の行（lib.sh works_dev_run_json の JSON の 1 行）を「id<TAB>status<TAB>working_path」に直す。読めなければ 1
 row_of() {
-  python3 -c '
+  sh "$WORKS_PY" -c '
 import json, sys
 r = json.load(sys.stdin)
 print("\t".join([r.get("id") or "", r.get("status") or "", r.get("working_path") or ""]))
@@ -584,7 +587,7 @@ EOF
   BRANCH="$(git -C "$GOT" rev-parse --abbrev-ref HEAD)" || return $?
   # 修正の段が run の worktree から切った単位の worktree と守りの参照（refs/works/units/<印>/ の下）を先に片付ける
   # （unittrees.sweep。止まった run の残り。印は run の worktree の実パスから引くので、worktree を消す前に呼ぶ）
-  _swept="$(CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+  _swept="$(CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 sh "$WORKS_PY" -c '
 import os, sys
 sys.path.insert(0, os.environ["CORE_DIR"])
 import unittrees
@@ -634,7 +637,7 @@ pid_alive() {
 # 結ばれたら 0 と run の id を標準出力に出す。子の pid が死んで結ばれないままなら 2 と子の出力の置き場、期限が来たら 1
 chain_wait_bound() {
   while :; do
-    _cb="$(python3 -I "$CHAIN_PY" pending --dir "$1")" || return 1
+    _cb="$(sh "$WORKS_PY" -I "$CHAIN_PY" pending --dir "$1")" || return 1
     _cb_run="$(printf '%s' "$_cb" | cut -f1)"
     if [ -n "$_cb_run" ]; then
       printf '%s\n' "$_cb_run"
@@ -656,9 +659,9 @@ chain_step() {
   _cs_dir="$WORKS_USE_HOME/chains/$_cs_id"
   CHAIN_STATUS=1
   exec 8>"$_cs_dir/chain.json.lock"
-  python3 -I "$CHAIN_PY" hold 8 || { exec 8>&-; echo "鎖 $_cs_id: 控えの錠を取れない"; return 0; }
+  sh "$WORKS_PY" -I "$CHAIN_PY" hold 8 || { exec 8>&-; echo "鎖 $_cs_id: 控えの錠を取れない"; return 0; }
   _cs_diff="$WORKS_USE_HOME/diffs/run-$_cs_rid.diff"
-  _cs_prep="$(python3 -I "$CHAIN_PY" --held prep --dir "$_cs_dir" --run "$_cs_rid" --facts "$_cs_facts")" || { exec 8>&-; echo "鎖 $_cs_id: run $_cs_rid は鎖の今の周でない"; return 0; }
+  _cs_prep="$(sh "$WORKS_PY" -I "$CHAIN_PY" --held prep --dir "$_cs_dir" --run "$_cs_rid" --facts "$_cs_facts")" || { exec 8>&-; echo "鎖 $_cs_id: run $_cs_rid は鎖の今の周でない"; return 0; }
   _cs_round="$(printf '%s' "$_cs_prep" | cut -f1)"
   _cs_from="$(printf '%s' "$_cs_prep" | cut -f2)"
   _cs_base="$(printf '%s' "$_cs_prep" | cut -f3)"
@@ -678,7 +681,7 @@ chain_step() {
       set -- --unwritten "周の結果の commit を作れなかった（差分 ${_cs_diff} を周の起点 ${_cs_base} に当てられない）" --diff "$_cs_diff"
     fi
   fi
-  _cs_out="$(python3 -I "$CHAIN_PY" --held step --dir "$_cs_dir" --run "$_cs_rid" --facts "$_cs_facts" "$@")" || { exec 8>&-; echo "鎖 $_cs_id: 鎖の控えを進められなかった"; return 0; }
+  _cs_out="$(sh "$WORKS_PY" -I "$CHAIN_PY" --held step --dir "$_cs_dir" --run "$_cs_rid" --facts "$_cs_facts" "$@")" || { exec 8>&-; echo "鎖 $_cs_id: 鎖の控えを進められなかった"; return 0; }
   _cs_act="$(printf '%s' "$_cs_out" | cut -f1)"
   case "$_cs_act" in
     launch)
@@ -686,7 +689,7 @@ chain_step() {
       _cs_log="$_cs_dir/round-${_cs_n}.log"
       echo "鎖 $_cs_id: 周 ${_cs_n} を切り離して起こす（前の周は run ${_cs_rid}。出力は ${_cs_log}）"
       WORKS_USE_HOME="$WORKS_USE_HOME" nohup sh "$WORKS_USE_SH" start --chain-next "$_cs_id" "$TARGET" - >"$_cs_log" 2>&1 </dev/null 8>&- &
-      python3 -I "$CHAIN_PY" --held pid --dir "$_cs_dir" --pid "$!" --log "$_cs_log"
+      sh "$WORKS_PY" -I "$CHAIN_PY" --held pid --dir "$_cs_dir" --pid "$!" --log "$_cs_log"
       exec 8>&-
       ;;
     wait)
@@ -704,13 +707,13 @@ chain_step() {
       _cs_word="$(printf '%s' "$_cs_out" | cut -f2)"
       _cs_text="$(printf '%s' "$_cs_out" | cut -f3)"
       # 最後の差分: 元の基から、止まりと言われていない最後の周の結果まで（止まった周は採らず、chain.md が差分を名指す）
-      _cs_kept="$(python3 -I "$CHAIN_PY" pick --dir "$_cs_dir")"
+      _cs_kept="$(sh "$WORKS_PY" -I "$CHAIN_PY" pick --dir "$_cs_dir")"
       rm -f "$_cs_dir/final.diff"
       if [ -n "$_cs_kept" ]; then
         git -C "$TARGET" diff --binary --no-ext-diff "$(printf '%s' "$_cs_kept" | cut -f4)" "$(printf '%s' "$_cs_kept" | cut -f3)" >"$_cs_dir/final.diff" ||
           { rm -f "$_cs_dir/final.diff"; _cs_kept=""; echo "鎖 $_cs_id: 最後の差分を書けなかった（git diff が落ちた）"; }
       fi
-      python3 -I "$CHAIN_PY" render --dir "$_cs_dir" >/dev/null
+      sh "$WORKS_PY" -I "$CHAIN_PY" render --dir "$_cs_dir" >/dev/null
       exec 8>&-
       echo "鎖 $_cs_id を止めた（${_cs_word}: ${_cs_text}）。報告: $_cs_dir/chain.md"
       if [ -n "$_cs_kept" ]; then
@@ -816,7 +819,7 @@ case "$CMD" in
     cd "$TARGET"
     # 鎖の id なら、周ごとと合計の報告 chain.md（今の控えから描き直す。止めていない鎖は途中の姿）を出す
     if [ -f "$WORKS_USE_HOME/chains/${3:-}/chain.json" ]; then
-      exec python3 -I "$CHAIN_PY" render --dir "$WORKS_USE_HOME/chains/$3"
+      exec sh "$WORKS_PY" -I "$CHAIN_PY" render --dir "$WORKS_USE_HOME/chains/$3"
     fi
     # run-id を省けば、この対象で start が結んだ一番新しい run（控えが無い時だけ一覧の一番新しい run）
     RID="${3:-$(ledger_latest)}"
@@ -857,7 +860,7 @@ case "$CMD" in
         resolve_claude
         diff_status=0
         # 鎖の周の run なら、差分と一緒に周の事実（結末・費用・分・起点の版）も書く（WORKS_CHAIN_FACTS）
-        chain_id="$(python3 -I "$CHAIN_PY" of-run --home "$WORKS_USE_HOME" --run "$3" 2>/dev/null)" || chain_id=""
+        chain_id="$(sh "$WORKS_PY" -I "$CHAIN_PY" of-run --home "$WORKS_USE_HOME" --run "$3" 2>/dev/null)" || chain_id=""
         chain_facts=""
         [ -z "$chain_id" ] || chain_facts="$WORKS_USE_HOME/chains/$chain_id/facts-$3.json"
         WORKS_CHAIN_FACTS="$chain_facts" WORKS_RUN_ID="$3" works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" >/dev/null || diff_status=$?
@@ -912,7 +915,7 @@ case "$CMD" in
     BY="$(printf '%s' "${6:-}" | tr -d '[:space:]')"
     [ -n "$BY" ] || refuse "答えた者（第 6 引数）が無い。人が決める関所なので、決めた人の名を渡す（殻を打った者には落とさない）"
     mkdir -p "$WORKS_USE_HOME"
-    RUN_ID="$3" VERB="$4" TEXT="$5" BY="$6" DIR="$TARGET" python3 -c '
+    RUN_ID="$3" VERB="$4" TEXT="$5" BY="$6" DIR="$TARGET" sh "$WORKS_PY" -c '
 import datetime, json, os
 e = os.environ
 row = {"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "run_id": e["RUN_ID"],
@@ -954,7 +957,7 @@ print(json.dumps(row, ensure_ascii=False))
     # 鎖の id なら、鎖が止まった時に書いた最後の差分（元の基から、止まりと言われていない最後の周の結果まで）を同じ確かめで当てる
     if [ -f "$WORKS_USE_HOME/chains/$3/chain.json" ]; then
       CHAIN_DIR="$WORKS_USE_HOME/chains/$3"
-      _ap_kept="$(python3 -I "$CHAIN_PY" pick --dir "$CHAIN_DIR")" || exit 2
+      _ap_kept="$(sh "$WORKS_PY" -I "$CHAIN_PY" pick --dir "$CHAIN_DIR")" || exit 2
       [ -f "$CHAIN_DIR/final.diff" ] || refuse "鎖 $3 の最後の差分がまだ無い（鎖が止まっていないか、採れる周が無い）。use.sh show ${TARGET} $3 で報告を見る"
       [ -s "$CHAIN_DIR/final.diff" ] || refuse "鎖 $3 の最後の差分が空（元の基から採った周の結果までに変更が無い）。use.sh show ${TARGET} $3 で報告を見る"
       apply_checked "$CHAIN_DIR/final.diff" "$(printf '%s' "$_ap_kept" | cut -f2)" "鎖 $3（周 $(printf '%s' "$_ap_kept" | cut -f1)）"
@@ -977,7 +980,7 @@ print(json.dumps(row, ensure_ascii=False))
     # 今の clean と同じ文で拒む（生きた状態の判定は下と同じ ledger live）
     if [ -f "$WORKS_USE_HOME/chains/$3/chain.json" ]; then
       CHAIN_DIR="$WORKS_USE_HOME/chains/$3"
-      _cc="$(python3 -I "$CHAIN_PY" pending --dir "$CHAIN_DIR")" || exit 2
+      _cc="$(sh "$WORKS_PY" -I "$CHAIN_PY" pending --dir "$CHAIN_DIR")" || exit 2
       _cc_run="$(printf '%s' "$_cc" | cut -f1)"
       _cc_last="$(printf '%s' "$_cc" | cut -f7)"
       if [ -n "$(printf '%s' "$_cc" | cut -f4)" ] && [ -z "$_cc_run" ]; then
@@ -1023,7 +1026,7 @@ esac
 # 「注意」の行だけで止めない。確かめの殻そのものが落ちた（0・3 の外）時も、手元を走らせる形を除けないので止める（止めを外せば
 # 落ちたことを出して起こす）
 _tc_rc=0
-_tc_out="$(python3 -I "$DEV_DIR/testcmd_check.py" ${WORKS_USE_ALLOW_TESTCMD:+--allow-checkout} "$TARGET" "$TEST_CMD")" || _tc_rc=$?
+_tc_out="$(sh "$WORKS_PY" -I "$DEV_DIR/testcmd_check.py" ${WORKS_USE_ALLOW_TESTCMD:+--allow-checkout} "$TARGET" "$TEST_CMD")" || _tc_rc=$?
 case "$_tc_rc" in
   0) [ -z "$_tc_out" ] || printf '%s\n' "$_tc_out" ;;
   3)
@@ -1159,7 +1162,7 @@ if [ -n "$ROUNDS" ]; then
   echo "鎖 ${CHAIN_ID}: ${ROUNDS} 周まで${BUDGET_USD:+（費用の上限 \$${BUDGET_USD}）}つなぐ（控え ${CHAIN_DIR}）"
 fi
 if [ -n "$CHAIN_DIR" ]; then
-  python3 -I "$CHAIN_PY" launched --dir "$CHAIN_DIR" --from "$BASE_REV" || exit 2
+  sh "$WORKS_PY" -I "$CHAIN_PY" launched --dir "$CHAIN_DIR" --from "$BASE_REV" || exit 2
 fi
 set +e
 sh "$ARCHON" "$@"
@@ -1209,7 +1212,7 @@ RID="$WORKS_RUN_ID"
 BOUND="$WORKS_RUN_ROW"
 # 結べた run を鎖の控えの今の周に結ぶ（wait が次の周へ進める目印。次の周の起動を待つ wait もこの印を読む）
 if [ -n "$CHAIN_DIR" ]; then
-  python3 -I "$CHAIN_PY" bound --dir "$CHAIN_DIR" --run "$RID" || exit 2
+  sh "$WORKS_PY" -I "$CHAIN_PY" bound --dir "$CHAIN_DIR" --run "$RID" || exit 2
 fi
 
 # 無人の run: 起動の関所を越え（残りをその場で回す）、次に人が決める関所で待っていれば止めて報告へ進める（本線の --unattended）

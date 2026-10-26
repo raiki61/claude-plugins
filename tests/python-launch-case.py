@@ -55,11 +55,6 @@ EXEMPT = {
     "works/skills/works/references/start.md": {
         "`python3 -m unittest -q`": "直す対象のリポジトリの試験のコマンド（test_cmd）の例",
     },
-    "works/skills/works/references/request.md": {
-        'python3 -I "<works の置き場>/.shared/core/carry.py"':
-            "works の殻（dev/*.sh）と一緒に決まり 1 に合わせる直しの途中（macOS 付属の python3 は 3.9 で、dev/toolset.py が落ちる。"
-            "決まり 5 の macOS 専用は版を見ないので足りない。標準の受付 20261026-095045-10783c、直しは 20261026-113749-8d5e51）。直ったら消す",
-    },
 }
 
 

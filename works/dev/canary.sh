@@ -61,6 +61,9 @@ if [ "$#" -gt 1 ]; then
 fi
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+# python は入口 run-python.sh で選ぶ。3.11 以上が無ければ、ここで訳を 1 行出して止まる（docs/standards/cross-os.md の決まり 1）
+WORKS_PY="$DEV_DIR/run-python.sh"
+sh "$WORKS_PY" -c "" || exit 2
 USE_SH="${WORKS_DEV_USE:-$DEV_DIR/use.sh}"
 TEST_CMD="python3 -m pytest -q"
 
@@ -111,7 +114,7 @@ for used in repo origin.git home; do
 done
 python3 -I -c "import pytest" 2>/dev/null ||
   refuse "python3 -I で pytest が読めない（test_cmd の ${TEST_CMD} は隔離した家で走るので、利用者の site-packages の pytest は見えない）。python3 の site-packages に pytest を入れる"
-if [ -n "$FIXTURE" ] && ! fixture_why="$(PYTHONDONTWRITEBYTECODE=1 python3 "$DEV_DIR/canary_fixture.py" check "$UNITS" 2>&1)"; then
+if [ -n "$FIXTURE" ] && ! fixture_why="$(PYTHONDONTWRITEBYTECODE=1 sh "$WORKS_PY" "$DEV_DIR/canary_fixture.py" check "$UNITS" 2>&1)"; then
   refuse "固定材料 ${UNITS} を使えない: $(printf '%s' "$fixture_why" | tr '\n' ' ')"
 fi
 if [ -n "$CHANGE" ] && [ "$(grep -cF "$CHANGE_FROM" "$SEED/$CHANGE_FILE")" != 1 ]; then
@@ -190,7 +193,7 @@ echo "use.sh start の終了コード: $run_status"
 RID="$(ls -t "$HOME_DIR/runs" 2>/dev/null | sed -n 's/\.json$//p' | sed -n 1p)"
 if [ -n "$RID" ]; then
   echo "canary の run id: $RID"
-  echo "何が通ったかを見る（読むだけ）: python3 $DEV_DIR/canary_check.py $ROOT $RID --request $REQUEST_WORD"
+  echo "何が通ったかを見る（読むだけ）: sh $WORKS_PY $DEV_DIR/canary_check.py $ROOT $RID --request $REQUEST_WORD"
 else
   echo "canary の run を結べなかった（${HOME_DIR}/runs に控えが無い）。上の use.sh の行を見る"
 fi

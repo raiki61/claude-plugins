@@ -1,6 +1,10 @@
 # shellcheck shell=sh
 # works/dev/lib.sh — mktarget.sh・dogfood.sh が . で読む（単独では走らせない）
 
+# python を起動する入口（run-python.sh。素の python3 は macOS 付属の 3.9 に当たりうる。docs/standards/cross-os.md の決まり 1）。
+# . で読まれ自分の場所を知れないので、呼び手の殻が置いた DEV_DIR（works/dev）を使う（無ければ呼び手の殻の dir）
+WORKS_PY="${DEV_DIR:-$(cd "$(dirname "$0")" && pwd -P)}/run-python.sh"
+
 # works_dev_copy_pack <works の dir> <pack の dir>: works/ を project pack として写す。tests/・dev/・docs/ は除く
 # （Archon はドット始まりのフォルダと、直下に YAML の無いフォルダを工程として読まない）。
 # Python のバイトコードキャッシュや OS のゴミファイル、Claude Code がプラグインのキャッシュの版の置き場に置く印
@@ -17,13 +21,13 @@ works_dev_copy_pack() {
   find "$2" \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 | xargs -0 rm -rf
   # 節の読み書きの宣言 _meta は Archon が知らない鍵（節ごとに node_unknown_key_ignored の警告）なので、写しの工程の YAML から落とす
   # （写しの中の .shared/core/nodemeta.py。地図の元の指紋は落とした字から取るので写しでも古くならない）
-  python3 -I "$2/.shared/core/nodemeta.py" strip "$2"
+  sh "$WORKS_PY" -I "$2/.shared/core/nodemeta.py" strip "$2"
   # 出どころの控え <pack>/.works-source.json（{rev, dirty, from, version}）。run ごとの版の控え versions.json（線の start が
   # .shared/core/versions.py で書く）が読む。写しは git を持たないので、写す時に元の commit と手元の書き換えの有無を残す。
   # rev・dirty は、元の works がその git のリポジトリで追跡されている時だけ引く（プラグインのキャッシュ（git の外）から写した時と、
   # キャッシュを含む別のリポジトリ（設定の置き場を git で持つ人）の中の時は null。別のリポジトリの commit を works の版と偽らない）。
   # version は元の .claude-plugin/plugin.json の version（無ければ null）。中身そのものの印は versions.json の pack_sha256 が持つ
-  SRC_DIR="$1" python3 -c '
+  SRC_DIR="$1" sh "$WORKS_PY" -c '
 import json, os, subprocess, sys
 src = os.environ["SRC_DIR"]
 def git(*a):
@@ -46,7 +50,7 @@ sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
 # works_dev_launch <launch.py の引数…>: 部品 launch.py を呼ぶ。lib.sh は . で読まれ自分の場所を知れないので、呼び手の殻が置いた
 # DEV_DIR（works/dev）を使う（無ければ呼び手の殻の dir）
 works_dev_launch() {
-  python3 -I "${DEV_DIR:-$(cd "$(dirname "$0")" && pwd -P)}/launch.py" "$@"
+  sh "$WORKS_PY" -I "${DEV_DIR:-$(cd "$(dirname "$0")" && pwd -P)}/launch.py" "$@"
 }
 
 # works_dev_ledgers <控えの置き場> [<run-id>]: 控えを読む一覧の口（launch.py ledger list）。読めた控え 1 つを 1 行、
@@ -123,7 +127,7 @@ works_dev_herdr_sync() {
     works_dev_ledgers "$_d" | awk -F'\t' -v home="${_d%/runs}" '$5 != "" { print home "\t" $1 "\t" $2 "\t" $5 "\t" $6 "\t" $7 }'
   done)"
   [ -n "$_ledgers" ] || return 0
-  _sigs="$(ARCHON_SH="$_archon" LEDGERS="$_ledgers" SLOT_PY="$WORKS_DEV_SLOT_PY" python3 -c '
+  _sigs="$(ARCHON_SH="$_archon" LEDGERS="$_ledgers" SLOT_PY="$WORKS_DEV_SLOT_PY" sh "$WORKS_PY" -c '
 import json, os, subprocess, sys, time
 e = os.environ
 exec(e["SLOT_PY"])
@@ -234,7 +238,7 @@ works_dev_continue() {
   mkdir -p "$(dirname "$_c_mark")"
   # 鍵を取ってから置く（読み手が鍵の無い印を見る間を作らない）
   exec 9>"$_c_mark.$$"
-  PYTHONDONTWRITEBYTECODE=1 python3 "${DEV_DIR:-}/../.shared/core/hold_lock.py" 9
+  PYTHONDONTWRITEBYTECODE=1 sh "$WORKS_PY" "${DEV_DIR:-}/../.shared/core/hold_lock.py" 9
   mv "$_c_mark.$$" "$_c_mark"
   trap 'rm -f "$_c_mark"; exec 9>&-; works_dev_herdr_sync "$_c_archon" "$_c_runs" "$_c_rid"; exit 130' INT TERM HUP
   works_dev_herdr_sync "$_c_archon" "$_c_runs" "$_c_rid=running"
@@ -264,7 +268,7 @@ works_dev_continue() {
 # 模型を明示しなかった run は空の指定に start の時の既定を WORKS_MODEL_PINNED で添え、続きで既定を解き直さない
 works_dev_go() {
   ARCHON_SH="$1" DIR="$2" TAIL="${3:-}" MODEL_PINNED="$(works_dev_model_value)" CONTINUE_SH="${DEV_DIR:+$DEV_DIR/continue.sh}" \
-    STATE_ROOT="${WORKS_STATE_ROOT:-}" python3 -c '
+    STATE_ROOT="${WORKS_STATE_ROOT:-}" sh "$WORKS_PY" -c '
 import os, shlex
 model = os.environ.get("WORKS_DEV_MODEL", "")
 # 空は引用符なしで書く（行は WORKS_ANSWER_CMD の中に引用符ごと包まれるので、'' だと引用が入れ子になる）
@@ -296,7 +300,7 @@ print("cd {} && {}WORKS_DEV_HOME={} {}WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}
 # （1 本も無ければ何も出さずに 0）。見つからない・一覧が読めなければ 1 行の理由で 1。問い合わせは認証が要らないので認証を読ませない
 works_dev_run_json() {
   WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
-    CALLER="$1" DIR="$3" RUN_ID="${4:-}" python3 -c '
+    CALLER="$1" DIR="$3" RUN_ID="${4:-}" sh "$WORKS_PY" -c '
 import json, os, sys
 e = os.environ
 caller = e["CALLER"]
@@ -326,7 +330,7 @@ for r in runs if every else runs[:1]:
 # works_dev_show_cmd <殻のパス> <archon を呼ぶ殻> <dir>: 続きの行の後ろに付ける口（<殻> --show <dir>。WORKS_DEV_SHOW_CMD）を export する。
 # dogfood.sh が起動の後と --show で呼ぶ
 works_dev_show_cmd() {
-  WORKS_DEV_SHOW_CMD="$(SHELL_SH="$1" ARCHON_SH="$2" DIR="$3" python3 -c '
+  WORKS_DEV_SHOW_CMD="$(SHELL_SH="$1" ARCHON_SH="$2" DIR="$3" sh "$WORKS_PY" -c '
 import os, shlex
 e = os.environ
 print("WORKS_DEV_ARCHON={} {}".format(shlex.quote(e["ARCHON_SH"]), shlex.join(["sh", e["SHELL_SH"], "--show", e["DIR"]])))
@@ -336,7 +340,7 @@ print("WORKS_DEV_ARCHON={} {}".format(shlex.quote(e["ARCHON_SH"]), shlex.join(["
 
 # works_dev_id_status: 標準入力の run の行（works_dev_run_json の 1 行）を <run-id>=<状態> にする
 works_dev_id_status() {
-  python3 -c 'import json, sys; r = json.load(sys.stdin); print("{}={}".format(r.get("id") or "", r.get("status") or ""))'
+  sh "$WORKS_PY" -c 'import json, sys; r = json.load(sys.stdin); print("{}={}".format(r.get("id") or "", r.get("status") or ""))'
 }
 
 # works_dev_show_synced <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh の起動の後と --show。
@@ -412,7 +416,7 @@ works_dev_show_run() {
   # shellcheck disable=SC2016  # python の中の $? は、出す続きの行が打たれる殻で展開する字
   printf '%s\n' "$_row" |
     IS_DONE="$_is_done" CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" GO="$_go" REDO="$_redo" \
-    DEV_PATH="${DEV_DIR:-}" CORE_DIR="${DEV_DIR:-}/../.shared/core" SLOT_PY="$WORKS_DEV_SLOT_PY" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+    DEV_PATH="${DEV_DIR:-}" CORE_DIR="${DEV_DIR:-}/../.shared/core" SLOT_PY="$WORKS_DEV_SLOT_PY" PYTHONDONTWRITEBYTECODE=1 sh "$WORKS_PY" -c '
 import glob, json, os, re, shlex, socket, subprocess, sys
 exec(os.environ["SLOT_PY"])
 r = json.load(sys.stdin)

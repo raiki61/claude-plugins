@@ -386,10 +386,10 @@ class YamlRulesCase(unittest.TestCase):
         self.assertIn("set -eu", lines)
         execs = [i for i, ln in enumerate(lines) if ln.startswith("exec ")]
         self.assertEqual([lines[i] for i in execs], [
-            'exec python3 -I "$AUTH_LAUNCH" exec --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW" '
+            'exec sh "$WORKS_PY" -I "$AUTH_LAUNCH" exec --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW" '
             '-- "$BIN_PATH" "$@"'])
         fixed = [i for i, ln in enumerate(lines) if ln == 'CLAUDE_CONFIG_DIR="$WORKS_DEV_HOME/claude-config"']
-        installs = [i for i, ln in enumerate(lines) if ln.startswith('python3 "$TOOLSET" install ')]
+        installs = [i for i, ln in enumerate(lines) if ln.startswith('sh "$WORKS_PY" "$TOOLSET" install ')]
         self.assertEqual(len(fixed), 1, "CLAUDE_CONFIG_DIR を殻の中の置き場に固定していない")
         self.assertEqual(len(installs), 2, "認証あり・なしの両方の道で toolset.py install を通していない")
         self.assertTrue(fixed[0] < min(installs) and max(installs) < execs[0], "組む前か、組んだ後の外で Archon を起こす")

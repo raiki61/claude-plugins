@@ -14,6 +14,8 @@ fi
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 . "$DEV_DIR/lib.sh"
+# 3.11 以上の python が無ければ、ここで訳を 1 行出して止まる（入口は lib.sh が置く WORKS_PY）
+sh "$WORKS_PY" -c "" || exit 2
 ARCHON="$1"
 shift
 works_dev_continue "$ARCHON" "$(works_dev_ledger_dirs)" "$3" "$@"

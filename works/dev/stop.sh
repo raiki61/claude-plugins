@@ -17,6 +17,9 @@
 set -eu
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+# python は入口 run-python.sh で選ぶ。3.11 以上が無ければ、ここで訳を 1 行出して止まる（docs/standards/cross-os.md の決まり 1）
+WORKS_PY="$DEV_DIR/run-python.sh"
+sh "$WORKS_PY" -c "" || exit 2
 CORE_DIR="$(cd "$DEV_DIR/../.shared/core" && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 
@@ -39,7 +42,7 @@ if ! GOT="$(WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow get "$RUN_ID" --json)"; th
 fi
 
 # 盤面の場所を組む（標準ライブラリだけ）。拒むときは理由を標準エラーに出して 2、組めたら board/ のパスを 1 行
-if ! BOARD="$(printf '%s' "$GOT" | RUN_ID="$RUN_ID" python3 -c '
+if ! BOARD="$(printf '%s' "$GOT" | RUN_ID="$RUN_ID" sh "$WORKS_PY" -c '
 import json, os, sys
 rid = os.environ["RUN_ID"]
 try:
@@ -63,7 +66,7 @@ if [ ! -d "$BOARD" ]; then
 fi
 
 BY="${USER:-$(id -un)}"
-BOARD="$BOARD" REASON="$REASON" BY="$BY" CORE_DIR="$CORE_DIR" python3 -c '
+BOARD="$BOARD" REASON="$REASON" BY="$BY" CORE_DIR="$CORE_DIR" sh "$WORKS_PY" -c '
 import os, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CORE_DIR"])

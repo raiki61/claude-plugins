@@ -784,6 +784,7 @@ class Receiving(unittest.TestCase):
     def run_shell(self, fake_body):
         with tempfile.TemporaryDirectory() as d:
             shutil.copy(DEV / "guard.sh", pathlib.Path(d) / "guard.sh")
+            shutil.copy(DEV / "run-python.sh", pathlib.Path(d) / "run-python.sh")
             (pathlib.Path(d) / "launch.py").write_text(fake_body)
             script = pathlib.Path(d) / "shell.sh"
             script.write_text('. "$(cd "$(dirname "$0")" && pwd -P)/guard.sh"\n'

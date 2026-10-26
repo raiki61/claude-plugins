@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 殻（`dev/*.sh`）と `/works` のスキルの本文が打たせる `carry.py` の行が、Python を素の `python3` で起動していたため、PATH の頭が macOS 付属の `/usr/bin/python3`（3.9）の機械では、`dev/archon.sh` の toolset の取り込みなどが traceback（3.10 からの型の書き方や 3.11 からの `tomllib`）で落ちていたのを直した。Python は新しい入口 `dev/run-python.sh` で選ぶ（`python3`・`python`・`py -3` を順に実際に起動し、3.11 以上の物を使う）。どれも足りなければ、殻は始めに試した物と入れ方を 1 行出して終了コード 2 で止まる。README の Requirements に Python 3.11 以上を書いた
+
 ## [0.7.3] - 2026-10-26
 
 ### Fixed
