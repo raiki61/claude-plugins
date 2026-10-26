@@ -1058,20 +1058,39 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     """branch_lines は --switch の結果（見出しの URL の行の後ろに足す。無ければ何も足さない）。
     stacked はこのブランチを base にする open PR の列（main() が gh pr list で取る。gh が失敗すれば None）、
     since は「私の痕跡以降に変わった file」（collect_since の戻り値。無ければ None）。ここは gh も
-    git も叩かない——取得は全部 main() で済ませ、材料だけ受け取る。"""
+    git も叩かない——取得は全部 main() で済ませ、材料だけ受け取る。セクションは下の *_lines が 1 つずつ書き、
+    出さないセクションは None を返す。"""
     is_pr = node["__typename"] == "PullRequest"
-    author = login_of(node["author"])
-    out = []
-    w = out.append
-
-    def name(who):
-        return me_or(who, me)
-
     red, running, green = check_state(node) if is_pr else ([], 0, 0)
     reasons, ask, spoke, own = turn_reasons(node, me, ev, red)
     anchor_t = anchor["t"] if anchor else ts(node["createdAt"])
+    human = unresolved_threads(node, me) if is_pr else []
+    sections = [
+        head_lines(node, me, ev, reasons, branch_lines),
+        last_done_lines(me, anchor, anchor_kind, anchor_t, full),
+        asked_lines(me, ask, spoke, own, full),
+        after_lines(me, ev, anchor_t, full, limit),
+        render_since(since) if since is not None else None,
+        state_lines(node, me, red, running, green, human),
+        linked_lines(node, refs, stacked),
+    ]
+    out = []
+    for lines in sections:
+        if lines is not None:
+            out.extend(lines)
+            out.append("")
+    out.extend(unseen_lines(node, me, caps, unlinked, ask, since, full, red, human,
+                            with_map, with_threads, with_ci))
+    return "\n".join(out)
 
+
+def head_lines(node, me, ev, reasons, branch_lines):
+    """見出し: 件名・立場と私の番か・件の種別と大きさ・URL・ブランチの行。"""
+    is_pr = node["__typename"] == "PullRequest"
+    author = login_of(node["author"])
     kind = "PR" if is_pr else "issue"
+    out = []
+    w = out.append
     w(f"# #{node['number']} {node['title']}")
     role = role_of(node, me, ev)
     # 理由が 1 つなら 1 行、複数なら箇条書き。／で繋ぐと 3 つで 100 字を超え、端末で折り返して
@@ -1100,8 +1119,13 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     w("  " + node["url"])
     # ブランチの行は URL の後ろ——スキルの文書は「URL は見出しの下の行から写す」で、行が下がるとずれる
     out.extend("  " + ln for ln in branch_lines)
-    w("")
+    return out
 
+
+def last_done_lines(me, anchor, anchor_kind, anchor_t, full):
+    """「私が最後にしたこと」のセクション。"""
+    out = []
+    w = out.append
     w("## 私が最後にしたこと")
     if anchor_kind == "mine":
         w(f"  {hhmm(anchor['t'])}  {anchor['kind']}")
@@ -1109,28 +1133,38 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     else:
         w("  この件で私はまだ何もしていない")
         if anchor_kind == "handover":
-            w(f"  {hhmm(anchor['t'])}  {name(anchor['who'])} の {anchor['kind']} で私に渡された")
+            w(f"  {hhmm(anchor['t'])}  {me_or(anchor['who'], me)} の {anchor['kind']} で私に渡された")
         else:
             w(f"  {hhmm(anchor_t)}  作成")
-    w("")
+    return out
 
+
+def asked_lines(me, ask, spoke, own, full):
+    """「私に求められていること」のセクション。"""
+    out = []
+    w = out.append
     w("## 私に求められていること")
     if ask:
         note = "（名指しは無い。私の件への発言）" if ask.get("unaddressed") else ""
-        w(f"  {hhmm(ask['t'])}  {name(ask['who'])} の {ask['kind']}{note}")
+        w(f"  {hhmm(ask['t'])}  {me_or(ask['who'], me)} の {ask['kind']}{note}")
         # 依頼の抜粋だけ長めに取る。220 字だと結論の前で切れて用件が読めない（実測: 対象ファイルの
         # パスの途中で切れ、初見の読み手 2 人が「何を直せばよいか分からない」で止まった）
         w("  " + excerpt(ask["text"], 0 if full else 400, keep_quotes=full))
         f = ask.get("followup")
         if f:
-            w(f"  （その後 {hhmm(f['t'])} に {name(f['who'])} が {f['kind']} を出している）")
+            w(f"  （その後 {hhmm(f['t'])} に {me_or(f['who'], me)} が {f['kind']} を出している）")
     elif spoke:
         w(f"  私の最後の発言（{hhmm(spoke['t'])}）より後には無い"
           + ("（名指しも、私の件への発言も）" if own else ""))
     else:
         w("  無い")
-    w("")
+    return out
 
+
+def after_lines(me, ev, anchor_t, full, limit):
+    """「その後に起きたこと」のセクション。--full でなければ新しい方から limit 件。"""
+    out = []
+    w = out.append
     after = [e for e in ev if e["t"] > anchor_t]
     shown = after if full else after[-limit:]
     w(f"## その後に起きたこと — {len(after)} 件"
@@ -1138,18 +1172,18 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     if not after:
         w("  なし")
     for e in shown:
-        who = f"{name(e['who'])} が " if e["who"] else ""
+        who = f"{me_or(e['who'], me)} が " if e["who"] else ""
         tag = "[bot] " if e["bot"] else ""
         w(f"  {hhmm(e['t'])}  {tag}{who}{e['kind']}")
         body = excerpt(e["text"], 0 if full else 110, keep_quotes=full)
         if body != "（本文なし）":
             w(f"      {body}")
-    w("")
+    return out
 
-    if since is not None:
-        out.extend(render_since(since))
-        w("")
 
+def state_lines(node, me, red, running, green, human):
+    """「いまの状態」のセクション。書く行が無ければ None。human は unresolved_threads の戻り値。"""
+    is_pr = node["__typename"] == "PullRequest"
     state = []
     st = state.append
     if is_pr:
@@ -1179,7 +1213,6 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         unresolved = [t for t in node["reviewThreads"]["nodes"] if not t["isResolved"]]
         # 「人が入っている」は指摘の材料と同じ数え方（私以外の人の発言があるもの）。私だけの
         # スレッドや bot だけのスレッドを数えると、本体の数字と末尾の材料が食い違う（実測）
-        human = unresolved_threads(node, me)
         st(f"  未解決スレッド: {len(unresolved)} 件"
            f"（うち人が入っているもの {len(human)} 件）")
     else:
@@ -1189,32 +1222,46 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     assignees = [a["login"] for a in node["assignees"]["nodes"]]
     # 自分だけが担当の行は、1 行目の立場と重なるので出さない
     if any(a != me for a in assignees):
-        st("  担当: " + ", ".join(name(a) for a in assignees))
-    if state:
-        w("## いまの状態")
-        out.extend(state)
-        w("")
+        st("  担当: " + ", ".join(me_or(a, me) for a in assignees))
+    if not state:
+        return None
+    return ["## いまの状態"] + state
 
+
+def linked_lines(node, refs, stacked):
+    """「つながっている先」のセクション。閉じる issue・上に積む PR・参照のどれも無ければ None。"""
+    is_pr = node["__typename"] == "PullRequest"
     linked = node.get("closingIssuesReferences", {}).get("nodes", []) if is_pr else []
-    if linked or refs or stacked or stacked is None:
-        w("## つながっている先")
-        for i in linked:
-            w(f"  閉じる  #{i['number']} {i['state'].lower()}  {i['title']}")
-        if stacked is None:
-            w(f"  上に積む  （gh pr list --base {node.get('headRefName')} が失敗して読めなかった）")
-        for s in (stacked or ())[:STACKED_SHOWN]:
-            w(f"  上に積む  #{s['number']} {s['title']}")
-        if stacked and len(stacked) > STACKED_SHOWN:
-            # gh pr list は STACKED_SHOWN + 1 件までしか取っていないので、残りの数は言えない
-            w(f"  （上に積む PR は他にもある。gh pr list --base {node.get('headRefName')} で見る）")
-        # 参照は新しい 3 件だけ。5 件出したら初見の読み手 3 人中 2 人が「読まなくてよかった」と言った。
-        # 残すのは、この PR から分かれた後続の PR がここに出るため
-        for r in refs[-3:]:
-            w(f"  参照    {hhmm(r['t'])}  {r['text']}")
-        if len(refs) > 3:
-            w(f"  （参照は他に {len(refs) - 3} 件）")
-        w("")
+    if not (linked or refs or stacked or stacked is None):
+        return None
+    out = []
+    w = out.append
+    w("## つながっている先")
+    for i in linked:
+        w(f"  閉じる  #{i['number']} {i['state'].lower()}  {i['title']}")
+    if stacked is None:
+        w(f"  上に積む  （gh pr list --base {node.get('headRefName')} が失敗して読めなかった）")
+    for s in (stacked or ())[:STACKED_SHOWN]:
+        w(f"  上に積む  #{s['number']} {s['title']}")
+    if stacked and len(stacked) > STACKED_SHOWN:
+        # gh pr list は STACKED_SHOWN + 1 件までしか取っていないので、残りの数は言えない
+        w(f"  （上に積む PR は他にもある。gh pr list --base {node.get('headRefName')} で見る）")
+    # 参照は新しい 3 件だけ。5 件出したら初見の読み手 3 人中 2 人が「読まなくてよかった」と言った。
+    # 残すのは、この PR から分かれた後続の PR がここに出るため
+    for r in refs[-3:]:
+        w(f"  参照    {hhmm(r['t'])}  {r['text']}")
+    if len(refs) > 3:
+        w(f"  （参照は他に {len(refs) - 3} 件）")
+    return out
 
+
+def unseen_lines(node, me, caps, unlinked, ask, since, full, red, human,
+                 with_map, with_threads, with_ci):
+    """報告の最後の「見ていないもの:」。後ろに空行を付けない。"""
+    is_pr = node["__typename"] == "PullRequest"
+    kind = "PR" if is_pr else "issue"
+    out = []
+    w = out.append
     w("見ていないもの:")
     # 上限は「何件切れたか」ではなく「それで何を見落としうるか」まで書く。件数だけでは、
     # 読む人がこの報告のどこを疑えばよいか分からない
@@ -1250,7 +1297,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
       + ("（私の件なので、最後の 1 件だけは上に出した）" if ask and ask.get("unaddressed") else ""))
     if not full:
         w("  - 発言の全文。--full で出る")
-    return "\n".join(out)
+    return out
 
 
 # ---- 本文（材料） ---------------------------------------------------------------

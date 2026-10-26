@@ -22,7 +22,6 @@ import datetime as dt
 import json
 import os
 import pathlib
-import re
 import subprocess
 import sys
 
