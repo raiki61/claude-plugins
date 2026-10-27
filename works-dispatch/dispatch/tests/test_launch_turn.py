@@ -166,8 +166,9 @@ class Turn(unittest.TestCase):
     def test_second_ends_with_the_carry_line_on_the_same_line(self):
         # 2 ターン目の文はそのまま先に置き、後ろに引き継ぎの一言を空白 1 つでつなぐ（改行を足すとペインで途中送信になる）
         got = turn.with_carry("/attention:my-turn\n", "/watch:catchup")
-        self.assertEqual(got, "/attention:my-turn " + turn.CARRY.format(catchup="/watch:catchup"))
-        self.assertIn("/watch:catchup", got)
+        self.assertEqual(got, "/attention:my-turn この会話の前のターン（/watch:catchup）で調べた物は、材料として引き継いでよい。"
+                              "取り直すのは、前のターンの後に変わった物と、前のターンで調べていない物だけ。"
+                              "前のターンで問うた事と、いま問う事が違えば調べ直す。")
         self.assertNotIn("\n", got)
         self.assertNotIn("my-turn", turn.CARRY)
 

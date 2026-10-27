@@ -45,7 +45,7 @@ CARRY = ("この会話の前のターン（{catchup}）で調べた物は、材�
 
 def with_carry(second, catchup):
     """2 ターン目の文の後ろに引き継ぎの一言を足す。ペインに打ち込むので、改行で途中送信しないよう空白 1 つでつなぐ。"""
-    return f"{second.rstrip()} {CARRY.format(catchup=catchup)}"
+    return " ".join(filter(None, (second.rstrip(), CARRY.format(catchup=catchup))))
 
 
 def send(pane, text, wait, h=term, until=()):

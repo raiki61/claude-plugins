@@ -30,7 +30,7 @@
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init-company [--local] [--repo <代表の clone>]
    ```
 
-2. PR を開く回（引数なし・`--pr`・`--issue`）も使う人は、dispatch の設定（既定は `~/.config/works-dispatch/dispatch.toml`）の下書きを書く。隣に空の `dispatch-second-prompt.md` ができるので、`/catchup` の後に送る文（2 ターン目の文）を書く。送るとき、プラグインがその後ろに「前のターン（`/catchup`）で調べた物は引き継いでよい。問う事が違えば調べ直す」という一言を足すので、引き継ぎの指示は書かなくてよい。`--init` は設定がもうあると書かずに止まるので、手順 3 で設定を書くより先に打つ（もうあるなら `[[repos]]` を手で足す）。
+2. PR を開く回（引数なし・`--pr`・`--issue`）も使う人は、dispatch の設定（既定は `~/.config/works-dispatch/dispatch.toml`）の下書きを書く。隣に空の `dispatch-second-prompt.md` ができるので、`/catchup` の後に送る文（2 ターン目の文）を書く。送るとき、プラグインがその後ろに、前のターン（`/catchup`）で調べた物は引き継いでよく、問う事が違えば調べ直す、という大意の一言を足すので、引き継ぎの指示は書かなくてよい（書いてあると二重に送られる）。`--init` は設定がもうあると書かずに止まるので、手順 3 で設定を書くより先に打つ（もうあるなら `[[repos]]` を手で足す）。
 
    ```
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init --repo OWNER/NAME --source <代表の clone>
