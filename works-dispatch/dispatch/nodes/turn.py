@@ -9,6 +9,9 @@ stalled（送って動き出さなかった。herdr の組み込みの見張り�
 2 ターン目の文の後ろには、1 ターン目の調べを引き継いでよいという一言（CARRY）を、改行を挟まずに足す。1 ターン目が /catchup で
 あることはこのノードが決めているので、引き継ぎの一言もここが持つ。2 ターン目に何を送るかは持ち主の設定（second_prompt_file）が
 持ち、一言は 2 ターン目のコマンドの中身を名指さない（/catchup と 2 ターン目のコマンドは互いを知らない部品のままにする）。
+同じ場所で前に開いた会話が残した報告（1 ターン目の後のターンの最後の答え）は、keep_report が場所の git の置き場に書き残し、
+そのパスを渡す一言（EARLIER）を同じ道で足す（GitHub に出していない下書きや前の回の発見を、次の会話が読めるように。持ち主
+2026-10-27「前の回の発見もいい情報なので、枝になるかもしれないし、議題になるかもしれないしね」）。前の報告が無ければ足さない。
 1 ターン目の終わりは、入口が state を渡せば、Claude Code 自身が返す会話の状態（claude agents --json の status。idle・busy）で見る。
 herdr は画面の下の行で作業中かを決めるので、会話が裏に待ちのコマンドを残すと、ターンが終わっても作業中と見続ける（2026-10-15 に
 #2003 で 54 分止まり、2 ターン目も報告も出なかった）。動き出したことだけは herdr の --wait --until working で見る（herdr の
@@ -26,6 +29,7 @@ close_session は、会話を終えてペインの前をシェルに戻す（送
 """
 
 import argparse
+import os
 import pathlib
 import sys
 import time
@@ -43,9 +47,40 @@ CARRY = ("この会話の前のターン（{catchup}）で調べた物は、材�
          "前のターンで調べていない物だけ。前のターンで問うた事と、いま問う事が違えば調べ直す。")
 
 
-def with_carry(second, catchup):
-    """2 ターン目の文の後ろに引き継ぎの一言を足す。ペインに打ち込むので、改行で途中送信しないよう空白 1 つでつなぐ。"""
-    return " ".join(filter(None, (second.rstrip(), CARRY.format(catchup=catchup))))
+EARLIER = "前にこの PR を開いた会話の報告（GitHub に出していない発見を含みうる）を {path} に残した。前の回の発見として読んでよい。"
+REPORTS_HEAD = "# 前にこの PR を開いた会話の報告\n\n会話の記録: {talk}\n"
+
+
+def with_carry(second, catchup, earlier=None):
+    """2 ターン目の文の後ろに引き継ぎの一言と、前の会話の報告を残した場所 earlier（有れば）を渡す一言を足す。ペインに打ち込むので、
+    改行で途中送信しないよう空白 1 つでつなぐ。"""
+    return " ".join(filter(None, (second.rstrip(), CARRY.format(catchup=catchup), earlier and EARLIER.format(path=earlier))))
+
+
+def _catchup_turn(said, catchup):
+    """そのターンを始めた文が 1 ターン目の /catchup か。記録には、打った字のままか、スラッシュコマンドの印（<command-name>）で残る。
+    コマンドの名前が分からなければ（catchup が None）見分けず、そのターンの答えも残す。"""
+    head = said.lstrip()
+    return bool(catchup) and (head.split(None, 1)[:1] == [catchup]
+                              or head.startswith("<command-") and f"<command-name>{catchup}</command-name>" in head)
+
+
+def keep_report(talk, folder, catchup, replies=chat.turn_replies):
+    """前の会話の記録 talk の、1 ターン目（catchup。最初に出てくる物だけ。後から打った /catchup の答えは残す）の外のターンの最後の答えを、
+    folder/<記録の名前>.md に古い順に書き、そのパスを返す。答えが無ければ（/catchup だけで終えた会話など）書かずに None。同じ会話は
+    同じファイルに書き直し、ほかの会話の物は消さない。"""
+    turns = replies(talk)
+    first = next((i for i, (said, _) in enumerate(turns) if _catchup_turn(said, catchup)), None)
+    if first is not None:
+        turns = turns[:first] + turns[first + 1:]
+    if not turns:
+        return None
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, os.path.splitext(os.path.basename(talk))[0] + ".md")
+    body = "".join(f"\n## {said.strip().splitlines()[0][:120] if said.strip() else '（文の無いターン）'}\n\n{reply}\n" for said, reply in turns)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(REPORTS_HEAD.format(talk=talk) + body)
+    return path
 
 
 def send(pane, text, wait, h=term, until=()):
@@ -83,9 +118,10 @@ def _turn_end(pane, h, state, pause):
         pause()
 
 
-def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pause=lambda: time.sleep(POLL_S)):
+def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pause=lambda: time.sleep(POLL_S), earlier=None):
     """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。
     catchup は送るコマンドの名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。
+    earlier は前の会話の報告を残したパス（keep_report。無ければ None）。
     state() は、その会話の状態を Claude Code 自身に問う口（idle・busy・None）。None を渡すと、終わりも herdr の見立てで待つ。"""
     if second is None:
         only = send(pane, f"{catchup} {number}", False, h)
@@ -97,7 +133,7 @@ def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pa
         first["status"] = _turn_end(pane, h, state, pause)
     if first["status"] not in FINISHED:
         return first["status"]  # blocked か stalled
-    second_result = send(pane, with_carry(second, catchup), False, h)
+    second_result = send(pane, with_carry(second, catchup, earlier), False, h)
     return "sent" if second_result["status"] == "sent" else "send_failed"
 
 

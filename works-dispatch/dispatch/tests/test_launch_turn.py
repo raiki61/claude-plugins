@@ -1,7 +1,9 @@
 """launch ノード（作業場でアカウントの Claude Code を起動し、読み戻す）と turn ノード（ターンを送る）。偽物の herdr で回す。"""
 
 import json
+import os
 import pathlib
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -171,6 +173,64 @@ class Turn(unittest.TestCase):
                               "前のターンで問うた事と、いま問う事が違えば調べ直す。")
         self.assertNotIn("\n", got)
         self.assertNotIn("my-turn", turn.CARRY)
+
+    def test_the_earlier_report_line_follows_on_the_same_line_only_when_there_is_one(self):
+        got = turn.with_carry("/attention:my-turn\n", "/watch:catchup", "/g/works-dispatch/reports/s1.md")
+        self.assertEqual(got, turn.with_carry("/attention:my-turn", "/watch:catchup")
+                         + " 前にこの PR を開いた会話の報告（GitHub に出していない発見を含みうる）を /g/works-dispatch/reports/s1.md に"
+                           "残した。前の回の発見として読んでよい。")
+        self.assertNotIn("\n", got)
+        self.assertNotIn("my-turn", turn.EARLIER)
+        h = FakeHerdr(prompts=["idle", "sent"])
+        self.assertEqual(turn.catchup_then_second(7, "wB:p1", SECOND, h, catchup=CATCHUP, earlier="/r.md"), "sent")
+        self.assertEqual(h.calls[1][2], turn.with_carry(SECOND, CATCHUP, "/r.md"))
+
+    def test_keep_report_writes_the_last_answer_of_each_turn_after_catchup(self):
+        d = tempfile.mkdtemp()
+        folder = os.path.join(d, "reports")
+        def talk(name, *rows):
+            path = os.path.join(d, name)
+            pathlib.Path(path).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+            return path
+        said = lambda text, **k: {"type": "user", "message": {"role": "user", "content": text}, **k}
+        answer = lambda *content, **k: {"type": "assistant", "message": {"role": "assistant", "content": list(content)}, **k}
+        text = lambda t: {"type": "text", "text": t}
+        catchup = said(f"<command-message>attention:catchup</command-message>\n<command-name>{CATCHUP}</command-name>\n<command-args>7</command-args>")
+        first = talk("s1.jsonl",
+                     catchup, answer(text("PR の今")),
+                     said("<task-notification>\n<task-id>b1</task-id>\n</task-notification>"), answer(text("catchup の続き")),
+                     said(f"/attention:my-turn この会話の前のターン（{CATCHUP}）で調べた物は…"),
+                     answer({"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}),
+                     said([{"type": "tool_result", "tool_use_id": "t1", "content": "out"}]),
+                     answer(text("途中の字")), answer(text("報告: helm test に寄せれば写しも守りも消える")),
+                     said("Caveat: …", isMeta=True), answer(text("サブエージェントの答え"), isSidechain=True),
+                     said("<command-name>/exit</command-name>"),
+                     said("続けて"), answer(text("追加の発見")),
+                     said("<local-command-stdout>done</local-command-stdout>"), answer(text("続きの答え")),
+                     said(f"{CATCHUP} 7"), answer(text("後から打った catchup の答え")))
+        kept = turn.keep_report(first, folder, CATCHUP)
+        self.assertEqual(kept, os.path.join(folder, "s1.md"))
+        body = pathlib.Path(kept).read_text(encoding="utf-8")
+        self.assertIn(f"会話の記録: {first}", body)
+        self.assertIn("## /attention:my-turn", body)
+        self.assertLess(body.index("報告: helm test"), body.index("## 続けて"))
+        self.assertLess(body.index("## 続けて"), body.index("続きの答え"))
+        self.assertNotIn("追加の発見", body, "スラッシュコマンドの出力の行は前のターンの続きで、その答えが最後の答えになる")
+        self.assertIn("後から打った catchup の答え", body, "落とすのは最初の /catchup のターンだけ")
+        for gone in ("PR の今", "catchup の続き", "task-notification", "途中の字", "サブエージェントの答え", "/exit"):
+            self.assertNotIn(gone, body)
+        self.assertIsNone(turn.keep_report(talk("s2.jsonl", catchup, answer(text("PR の今"))), folder, CATCHUP),
+                          "/catchup だけで終えた会話には報告が無い")
+        typed = pathlib.Path(turn.keep_report(talk("s3.jsonl", said("<task-notification>x</task-notification>"), answer(text("先頭の知らせ")),
+                                                   said(f"{CATCHUP} 7"), answer(text("PR の今")),
+                                                   said(f"{CATCHUP}-foo"), answer(text("別のコマンド"))), folder, CATCHUP)).read_text(encoding="utf-8")
+        self.assertNotIn("PR の今", typed, "打った字のままの /catchup も見分ける")
+        self.assertIn("別のコマンド", typed, "名前が /catchup で始まるだけの別のコマンドは残す")
+        self.assertNotIn("先頭の知らせ", typed, "続ける前のターンの無い知らせの行は捨てる")
+        self.assertEqual(sorted(os.listdir(folder)), ["s1.md", "s3.md"])
+        self.assertIn("catchup の続き", pathlib.Path(turn.keep_report(first, folder, None)).read_text(encoding="utf-8"),
+                      "コマンドの名前が分からなければ見分けずに残す")
+        self.assertIsNone(turn.keep_report(os.path.join(d, "none.jsonl"), folder, CATCHUP))
 
     def test_without_second_sends_only_catchup_and_does_not_wait(self):
         h = FakeHerdr(prompts=["sent"])

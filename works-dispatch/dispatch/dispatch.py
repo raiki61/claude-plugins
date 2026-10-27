@@ -14,6 +14,8 @@
 一覧で回すとき（--pr・--issue 無し）は、2 の fresh で、自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める。
 会話の開いていない PR も、前に送った控えが有って、その後に自分以外の動きも head の変化も無ければ開かない（no_news）。
 送り直す PR は、provision の前に古い会話を終えて（turn.close_session）ペインの作業場を畳み（clean.release）、同じ場所に立て直す。
+前からある場所で 2 ターン目まで送る PR は、新しい会話を起動する前に、その場所で前に開いた会話の報告を残し（_earlier_report）、
+2 ターン目の後ろの一言でその場所を渡す（turn.keep_report・with_carry）。
 最後に、自分の番でなくなった PR の、dispatch が開いた会話を終えて作業場を閉じ（_step_back。worktree は残す。whose-turn の limited に
 入った PR は、自分の番でないという判定が取りこぼしの上に立つので閉じない）、閉じた PR の場所を片付ける（_tidy。--dry-run は並べるだけ）。
 
@@ -135,6 +137,31 @@ def _end_conversation(ports, path):
         return "close_failed", f"その場所に {term.NAME} の会話のペインが無い（{term.NAME} の外の会話は終えない）"
     got = turn.close_session(pane, ports.term)
     return got, None if got == "closed" else f"ペイン {pane} の会話が /exit で終わらなかった"
+
+
+def _earlier_report(cfg, ports, r, notes):
+    """その PR の場所で前に開いた会話（全アカウントの、その場所の会話の記録。送り直しで終えた会話も、持ち主が閉じた会話も）のうち、
+    報告の在るいちばん新しい物（/catchup だけで終えた会話は飛ばす）の報告を、場所の git の置き場（git が追わず、作業ツリーを汚さない。
+    worktree を消せば一緒に消える）の works-dispatch/reports に残し（turn.keep_report）、そのパスを返す。前の会話が無いか、どの会話にも
+    報告が無ければ None。"""
+    talks = sorted(((at, os.path.join(chat.talk_dir(acc.config_dir, r["path"], ports.account_env), name), acc.config_dir)
+                    for acc in cfg.accounts for at, name in chat.talks(acc.config_dir, r["path"], ports.account_env) or ()),
+                   reverse=True)
+    if not talks:
+        return None
+    try:
+        place = ports.git.git_dir(r["path"])
+        if not place:
+            raise OSError("場所の git の置き場が読めない")
+        for _, talk, config_dir in talks:
+            kept = turn.keep_report(talk, os.path.join(place, "works-dispatch", "reports"),
+                                    ports.catchup_command(config_dir) or ports.catchup_command(r["account"].get("config_dir")))
+            if kept:
+                return kept
+        return None
+    except (OSError, gitx.GitError) as e:
+        notes.append(f"{_name(r)}: 前に開いた会話の報告を残せなかった（{e}）。新しい会話には渡さない")
+        return None
 
 
 def _sessions_in(cfg, ports, path):
@@ -655,6 +682,8 @@ def main(argv=None, ports=None):
                 notes.append(f"{name}: どのアカウントも元の clone を信頼していないので、"
                              f"{chat.NAME} がフォルダの信頼の確認を出す" if trusted == "source_untrusted" else
                              f"{name}: 信頼の印を付けられない（{trusted}）。{chat.NAME} がフォルダの信頼の確認を出す")
+            if r["kind"] == "pr" and not prov["created"] and not a.no_second and r["number"] not in catchup_only:
+                r["earlier"] = _earlier_report(cfg, ports, r, notes)   # 新しい会話を起動する前に（起動すると、それがいちばん新しい記録になる）
             got = launch.start(r, prov["pane"], ports.term)
             if got["status"] == "ready":
                 ready.append((r, prov["pane"]))
@@ -674,7 +703,8 @@ def main(argv=None, ports=None):
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
                 futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane, second[r["number"]], ports.term,
                                                     catchup=ports.catchup_command(r["account"].get("config_dir")),
-                                                    state=(lambda r=r: ports.state(r["account"].get("config_dir"), r["path"])))
+                                                    state=(lambda r=r: ports.state(r["account"].get("config_dir"), r["path"])),
+                                                    earlier=r.get("earlier"))
                            for r, pane in ready}
                 results.update({n: f.result() for n, f in futures.items()})
             for r, _ in ready:

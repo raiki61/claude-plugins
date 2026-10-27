@@ -674,6 +674,8 @@ class Flow(unittest.TestCase):
             (d / name).write_text("{}", encoding="utf-8")
             os.utime(d / name, (t, t))
         self.assertEqual(claudex.newest_talk(home, cwd), ("y.jsonl", 20))
+        self.assertEqual(sorted(claudex.talks(home, cwd)), [(10, "x.jsonl"), (20, "y.jsonl")])
+        self.assertIsNone(claudex.talks(home, "/w/none"), "置き場が無ければ None")
 
     def test_confirmed_send_waits_for_the_box_and_resends_only_when_the_line_never_arrived(self):
         # Windows: attach で戻した直後の会話は、打った字を受けられるまで間がある。入力フィールドが出てから送り、動き出す（busy）まで見る

@@ -11,6 +11,7 @@
 import contextlib
 import io
 import json
+import os
 import pathlib
 import subprocess
 import unittest
@@ -222,6 +223,43 @@ class Flow(unittest.TestCase):
         self.assertEqual([x["path"] for x in self.linked(ports)], [path])
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
         self.assertIn("o/r#1", sent)
+
+    def test_reopening_leaves_the_old_conversations_report_and_passes_its_place(self):
+        # 前の回の報告（GitHub に出していない下書きを含む）を、次の会話が読めるように場所の git の置き場に残して渡す（頼み 98e76d）
+        path = self.place(1)
+        ports = FakePorts([pr(1)], git=self.g)
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        talks = pathlib.Path(claudex.talk_dir(str(pathlib.Path(self.root).parent / "c1"), path, {}))
+        talks.mkdir(parents=True)
+        rows = [{"type": "user", "message": {"content": f"{CATCHUP} 1"}}, {"type": "assistant", "message": {"content": [{"type": "text", "text": "PR の今"}]}},
+                {"type": "user", "message": {"content": "二手目"}},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "下書き: helm test に寄せる"}]}}]
+        (talks / "old.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        (talks / "new.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows[:2]), encoding="utf-8")
+        os.utime(talks / "old.jsonl", (1000, 1000))
+        os.utime(talks / "new.jsonl", (2000, 2000))   # いちばん新しい会話が /catchup だけで終わっていても、その前の報告を渡す
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 1).endswith("refreshed"), out)
+        kept = os.path.join(self.g.git_dir(path), "works-dispatch", "reports", "old.md")
+        self.assertFalse(filex.inside(kept, path), "作業ツリーを汚さない")
+        self.assertIn("下書き: helm test に寄せる", pathlib.Path(kept).read_text(encoding="utf-8"))
+        self.assertEqual(os.listdir(os.path.dirname(kept)), ["old.md"])
+        self.assertEqual([x[2] for x in ports.term.writes if x[0] == "prompt"][-1], turn.with_carry("二手目", CATCHUP, kept))
+
+    def test_reopening_without_an_earlier_report_adds_nothing(self):
+        path = self.place(1)
+        ports = FakePorts([pr(1)], git=self.g)
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        talks = pathlib.Path(claudex.talk_dir(str(pathlib.Path(self.root).parent / "c1"), path, {}))
+        talks.mkdir(parents=True)
+        (talks / "old.jsonl").write_text(json.dumps({"type": "user", "message": {"content": f"{CATCHUP} 1"}}) + "\n"
+                                         + json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "PR の今"}]}}) + "\n",
+                                         encoding="utf-8")
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual([x[2] for x in ports.term.writes if x[0] == "prompt"][-1], turn.with_carry("二手目", CATCHUP))
+        self.assertFalse(os.path.exists(os.path.join(self.g.git_dir(path), "works-dispatch")))
 
     def test_refresh_records_the_send_time_before_the_first_turn_and_the_head(self):
         path = self.place(1)

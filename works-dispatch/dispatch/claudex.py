@@ -407,18 +407,27 @@ def job_tmp(config_dir, session_id, env=None):
     return os.path.join(os.path.expanduser(folder), "jobs", attach_id({"sessionId": session_id}), "tmp")
 
 
-def newest_talk(config_dir, cwd, env=None):
-    """その作業フォルダの会話の記録（<設定のフォルダ>/projects/<フォルダの字の英数字でない字を - にした物>/<会話の id>.jsonl）のうち、
-    いちばん新しく書かれた物の (名前, 書いた時刻)。無ければ None。裏の会話（claude --bg）は /clear で会話を空にしても、会話の一覧の
-    sessionId が替わらないことがある（2026-10-17 の試し。一覧は 98d8f057 のまま、記録は f20ea13c から新しいファイルに移った）ので、
-    空になったかを記録のファイルが替わったかで見る。設定のフォルダの決め方は job_tmp と同じ。"""
+def talk_dir(config_dir, cwd, env=None):
+    """その作業フォルダの会話の記録の置き場（<設定のフォルダ>/projects/<フォルダの字の英数字でない字を - にした物>。記録は
+    その中の <会話の id>.jsonl）。設定のフォルダの決め方は job_tmp と同じ。"""
     env = os.environ if env is None else env
     folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
-    d = os.path.join(os.path.expanduser(folder), "projects", re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
+    return os.path.join(os.path.expanduser(folder), "projects", re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
+
+
+def talks(config_dir, cwd, env=None):
+    """その作業フォルダの会話の記録（置き場は talk_dir）の (書いた時刻, 名前) の並び。置き場が無いか読めなければ None。"""
     try:
-        found = [(e.stat().st_mtime, e.name) for e in os.scandir(d) if e.name.endswith(".jsonl") and e.is_file()]
+        return [(e.stat().st_mtime, e.name) for e in os.scandir(talk_dir(config_dir, cwd, env)) if e.name.endswith(".jsonl") and e.is_file()]
     except OSError:
         return None
+
+
+def newest_talk(config_dir, cwd, env=None):
+    """その作業フォルダの会話の記録（talks）のうち、いちばん新しく書かれた物の (名前, 書いた時刻)。無ければ None。
+    裏の会話（claude --bg）は /clear で会話を空にしても、会話の一覧の sessionId が替わらないことがある（2026-10-17 の試し。一覧は
+    98d8f057 のまま、記録は f20ea13c から新しいファイルに移った）ので、空になったかを記録のファイルが替わったかで見る。"""
+    found = talks(config_dir, cwd, env)
     return (max(found)[1], max(found)[0]) if found else None
 
 
@@ -740,6 +749,49 @@ def last_model(payload):
 # compact の要約の行（compact の後の会話の最初の user の行。字は「This session is being continued from a previous conversation…」で
 # 始まる）に Claude Code が付ける印（2026-10-24 の Claude Code 2.1.310 の会話の記録で読んだ）
 COMPACT_SUMMARY = "isCompactSummary"
+
+
+def _texts(content):
+    """行の message.content の text の塊の字の並び（字のままの content は 1 つの塊）。"""
+    if isinstance(content, str):
+        return [content]
+    return [c["text"] for c in content or [] if isinstance(c, dict) and c.get("type") == "text" and isinstance(c.get("text"), str)]
+
+
+RESUMED_BY = ("<task-notification>", "<local-command-")
+
+
+def turn_replies(path):
+    """会話の記録のファイル（path）を頭から読み、本体の会話のターンごとの (そのターンを始めた文, そのターンの最後の答えの字) の並び。
+    ターンを始めるのは、人の文かフックの知らせの行（字の塊を持つ user の行）。ツールの結果の行・会話が足した行（isMeta）・compact の
+    要約の行と、裏の処理の終わりの知らせ・スラッシュコマンドの出力の行（RESUMED_BY の字で始まる行。前のターンの続き）はターンを始めない。
+    サブエージェントの行は飛ばす。答えの字の無いターン（/exit など）は並べない。読めなければ空の並び。"""
+    turns = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue   # 書きかけの行は飛ばす
+                if not isinstance(row, dict) or row.get("isSidechain") or not isinstance(row.get("message"), dict):
+                    continue
+                content = row["message"].get("content")
+                if row.get("type") == "user":
+                    starts = not row.get("isMeta") and not row.get(COMPACT_SUMMARY) and not (
+                        isinstance(content, list) and any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content))
+                    texts = _texts(content) if starts else []
+                    if texts and texts[0].lstrip().startswith(RESUMED_BY):
+                        continue   # 前のターンの続き。答えは前のターンの答えとして拾う（前のターンが無ければ捨てる）
+                    if texts:
+                        turns.append(["\n".join(texts), ""])
+                elif row.get("type") == "assistant" and turns:
+                    reply = "\n".join(_texts(content)).strip()
+                    if reply:
+                        turns[-1][1] = reply
+    except OSError:
+        return []
+    return [(said, reply) for said, reply in turns if reply]
 
 
 def last_reply(payload):
