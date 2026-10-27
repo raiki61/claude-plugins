@@ -44,7 +44,9 @@
   compact_turn が読む。設計書 docs/specs/2026-10-24-rent-or-buy-design.md の 6）。compact は、待ち受けが張った最初の周（ターンの終わり）にも
   聞く（Warm._turn_end。寿命より短い待ちが続く会話でも回す。待ち受けが送った文で始まったターンは除く。ours）。
   送らなかったとき（仕事が終わった・区切りの印が在る・keepalive が無いなど）は、訳を台帳に keepalive の skipped の行で残す（残すターンの終わりの
-  決まりは warm_for）。毎回のターンの終わりに、裏の処理を残したかを控えに書く（wake.waiting_note。--tree が、同じ頼みのまま長く動かない
+  決まりは warm_for）。Stop フックが、終わりの知らせが入力の待ち行列に残っているので差し戻さずにターンを終えさせたのに、その知らせで
+  会話が再開しないまま LATE_WAIT が過ぎたら、Stop フックと同じ差し戻し（orders.stop_reason。数える控えも同じ）を 1 度だけ送る
+  （Late・late_for）。毎回のターンの終わりに、裏の処理を残したかを控えに書く（wake.waiting_note。--tree が、同じ頼みのまま長く動かない
   部署を出す）。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文でターンが始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
   終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じターンの中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
@@ -1400,13 +1402,13 @@ class Late:
         if self.done or self.now() - self.since < LATE_WAIT:
             return None
         self.done = True
-        attrs = self.attrs_of(self.got["cwd"])
-        if not self.still() or not attrs.get("ask"):
-            return None
-        if self.nudge is None:
-            import orders   # 差し戻しの文と数え方は Stop フックと同じ物を使う。読むのはここに来たときだけ（待ち受けの起動を重くしない）
-            self.nudge = orders.stop_reason
         try:
+            attrs = self.attrs_of(self.got["cwd"])
+            if not self.still() or not attrs.get("ask"):
+                return None
+            if self.nudge is None:
+                import orders   # 差し戻しの文と数え方は Stop フックと同じ物を使う。読むのはここに来たときだけ（待ち受けの起動を重くしない）
+                self.nudge = orders.stop_reason
             reason = self.nudge(self.payload, self.got["cwd"], attrs)
         except Exception as e:  # 差し戻しを決められなくても待ち受けは止めない（止めると順番待ちを渡す者が居なくなる）。訳は待ち受けの出力に残す
             filex.warn(f"注記: 待ち行列に残った知らせで会話が再開しないので差し戻そうとしたが、決められない（{type(e).__name__}: {e}）")
@@ -1414,11 +1416,13 @@ class Late:
         return LATE_NOTE + reason if reason else None
 
 
-def late_for(got, payload, attrs_of=_attrs, shells=chat.background_shells):
+def late_for(got, payload, attrs_of=_attrs, shells=chat.background_shells, again=False):
     """この待ち受けが差し戻しを遅れて送る（Late）なら Late、送らないなら None。送るのは、ターンの終わり（Stop）に、部署が納品の前か後の
     頼みを持ち、裏で動いている処理が無く（数が分からないときも）、入力の待ち行列に積まれた物が在って、Stop フックが差し戻さなかった
-    ときだけ（chat.resumers が待ち行列の数を返した形）。会話の記録の場所が分からなければ、会話が動いたかを見られないので送らない。"""
-    if chat.event(payload) != "Stop" or not chat.transcript(payload):
+    ときだけ（chat.resumers が待ち行列の数を返した形）。会話の記録の場所が分からなければ、会話が動いたかを見られないので送らない。
+    again（待っている間に今の版の待ち受けに替わった。warm_for と同じ）なら送らない（ターンの終わりの時刻と記録の位置は前の版の
+    待ち受けしか知らず、替わった時から測ると、もう動いている会話のターンの途中に差し戻しを入れうる）。"""
+    if again or chat.event(payload) != "Stop" or not chat.transcript(payload):
         return None
     attrs = attrs_of(got["cwd"])
     if not attrs.get("role") or not attrs.get("ask") or chat.running_tasks(payload, shells) or not chat.queued_inputs(payload):
@@ -1632,7 +1636,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
         filex.warn(f"注記: keepalive を送るかを決められないので送らない（{type(e).__name__}: {e}）", err)
         warm = None
     try:
-        late = late_for(got, payload)
+        late = late_for(got, payload, again=bool(handed))
     except Exception as e:  # 遅れた差し戻しを決められなくても、頼みと納品の知らせは待つ
         filex.warn(f"注記: 待ち行列に残った知らせで会話が再開しないときの差し戻しを決められない（{type(e).__name__}: {e}）", err)
         late = None

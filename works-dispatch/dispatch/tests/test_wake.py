@@ -752,6 +752,13 @@ class Late(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()) as err:
             self.assertIsNone(late(), "差し戻しを決められなくても待ち受けは止めない")
         self.assertIn("git が読めない", err.getvalue())
+        def unreadable(cwd):
+            raise OSError("作業場の属性が読めない")
+        late = wake_hook.Late(self.got, self.payload, unreadable, lambda: self.clock[0], nudge=broken)
+        self.clock[0] += wake_hook.LATE_WAIT
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertIsNone(late(), "属性を読めなくても待ち受けは止めない")
+        self.assertIn("作業場の属性が読めない", err.getvalue())
 
     def test_a_turn_started_by_the_notice_or_a_closed_ask_sends_nothing(self):
         late = self.late()
@@ -775,10 +782,39 @@ class Late(unittest.TestCase):
         self.assertIn("頼み（受付 a1）をまだ納品していない", text)
         self.assertEqual(pathlib.Path(deliver.stop_count_path(tmp, "s1", "a1")).read_text(encoding="utf-8"), "1", "Stop フックと同じ控えで数える")
 
+    def test_at_the_limit_it_leaves_the_stopped_notice_instead(self):
+        # Stop フックが差し戻しを使い切った後なら、送らずに頼み元へ止まった知らせを置く（Stop フックと同じ 1 度だけ）
+        tmp, sent = tempfile.mkdtemp(), []
+        count = pathlib.Path(deliver.stop_count_path(tmp, "s1", "a1"))
+        count.parent.mkdir(parents=True, exist_ok=True)
+        count.write_text(str(deliver.STOP_LIMIT), encoding="utf-8")
+        late = wake_hook.Late(self.got, self.payload, lambda cwd: self.attrs, lambda: self.clock[0])
+        self.clock[0] += wake_hook.LATE_WAIT
+        with mock.patch.object(tempfile, "gettempdir", lambda: tmp), \
+                mock.patch.object(orders, "stalled", lambda attrs, settings, company_of=None: sent.append(attrs["ask"])):
+            self.assertIsNone(late())
+        self.assertEqual(sent, ["a1"])
+        self.assertEqual(count.read_text(encoding="utf-8"), str(deliver.STOP_LIMIT + 1), "2 度は知らせない")
+
+    def test_after_delivery_it_uses_the_leftover_nudge_and_its_own_count(self):
+        tmp, seen = tempfile.mkdtemp(), []
+        self.attrs = {**self.attrs, "delivered": "a1"}
+        late = wake_hook.Late(self.got, self.payload, lambda cwd: self.attrs, lambda: self.clock[0])
+        self.clock[0] += wake_hook.LATE_WAIT
+        def after(payload, cwd, attrs, count, settings, g, rearm=None, gh=None):
+            seen.append(count)
+            return "main に入れていない"
+        with mock.patch.object(tempfile, "gettempdir", lambda: tmp), mock.patch.object(orders, "stop_after", after):
+            self.assertEqual(late(), wake_hook.LATE_NOTE + "main に入れていない")
+        self.assertEqual(seen, [0])
+        self.assertEqual(pathlib.Path(deliver.stop_count_path(tmp, "s1", "a1-after")).read_text(encoding="utf-8"), "1")
+        self.assertFalse(os.path.exists(deliver.stop_count_path(tmp, "s1", "a1")), "納品の前の控えは進めない")
+
     def test_it_is_set_only_when_the_hook_let_the_turn_end_for_a_queued_notice(self):
-        late_for = lambda payload=None, attrs=None, shells=lambda: 0: wake_hook.late_for(
-            self.got, payload or self.payload, lambda cwd: attrs or self.attrs, shells)
+        late_for = lambda payload=None, attrs=None, shells=lambda: 0, again=False: wake_hook.late_for(
+            self.got, payload or self.payload, lambda cwd: attrs or self.attrs, shells, again)
         self.assertIsInstance(late_for(), wake_hook.Late)
+        self.assertIsNone(late_for(again=True), "今の版に替わった待ち受けは、ターンの終わりの時刻を知らないので送らない")
         self.assertIsInstance(late_for({k: v for k, v in self.payload.items() if k != "background_tasks"}, shells=lambda: None),
                               wake_hook.Late, "裏の処理の数が分からなくても、待ち行列で Stop フックが差し戻さなかったなら送る")
         self.assertIsNone(late_for({**self.payload, "background_tasks": [{"id": "b1", "status": "running"}]}),

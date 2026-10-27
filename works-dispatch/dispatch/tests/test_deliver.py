@@ -434,14 +434,14 @@ class StopVerdict(unittest.TestCase):
         # 受付 f1d5c5 の部署はこの間に差し戻しを使い切り、止まった知らせを出された）。知らせが会話を再開させるので差し戻さない
         # （再開しなければ待ち受けが遅れて差し戻す。test_wake の Late）
         rows = lambda *ops: "".join(json.dumps({"type": "queue-operation", "operation": op}) + "\n" for op in ops)
-        def stop(*ops, head='{"type": "user"}\n', running=(), shells=lambda: 0):
+        def stop(*ops, head='{"type": "user"}\n', running=(), shells=lambda: 0, attrs=None):
             path = os.path.join(tempfile.mkdtemp(), "t.jsonl")
             pathlib.Path(path).write_text(head + rows(*ops), encoding="utf-8")
             payload = {"session_id": "s1", "cwd": "/w", "transcript_path": path}
             if running is not None:
                 payload["background_tasks"] = list(running)
             out = io.StringIO()
-            orders.stop_hook(io.StringIO(json.dumps(payload)), out, lambda cwd: dict(self.ATTRS), tempfile.mkdtemp(), shells)
+            orders.stop_hook(io.StringIO(json.dumps(payload)), out, lambda cwd: dict(attrs or self.ATTRS), tempfile.mkdtemp(), shells)
             return out.getvalue()
         self.assertEqual(stop("enqueue"), "")
         self.assertEqual(stop("enqueue", "dequeue", "enqueue"), "")
@@ -452,6 +452,8 @@ class StopVerdict(unittest.TestCase):
         self.assertEqual(stop("enqueue", running=[{"id": "b1", "status": "running"}]), "")
         self.assertEqual(stop("enqueue", running=None, shells=lambda: None), "", "裏の処理の数が分からなくても、待ち行列で見る")
         self.assertEqual(json.loads(stop(running=None, shells=lambda: None))["decision"], "block")
+        self.assertEqual(stop("enqueue", attrs={**self.ATTRS, "delivered": self.ATTRS["ask"]}), "",
+                         "納品の後に残る差し戻しも、知らせが渡るまで出さない")
         # 待ち行列の行でない行は、字に queue-operation を含んでも数えない（部署がこのコードを読むと、ツールの結果に出る）
         quoted = json.dumps({"type": "user", "operation": "enqueue", "text": "queue-operation"}) + "\n" + '{"type": "queue-ope'
         self.assertEqual(json.loads(stop(head=quoted + "\n"))["decision"], "block", "ほかの行と切れた行は数えない")

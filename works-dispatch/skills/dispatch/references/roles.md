@@ -163,7 +163,7 @@ keepalive = { every = "240s" }        # この部署だけ、役の keepalive �
 ## 部署の属性
 
 - 部署の会話が `/clear`・compact・`--resume` で会話の id を替えても、フックが属性 `company.session` を書き直す（窓口は `/clear` の後に `--desk` を打ち直さなくてよい）。
-- 部署の会話が裏の処理（`run_in_background` の Bash・裏のサブエージェント・Monitor。`--land` など）の終わりを待つ間、herdr の状態は done になる。待っている印（会話の画面の下の「⧖ バックグラウンド作業中 N 本」と、herdr に作業中と見分けさせる印）は tiers の statusline（`tiers-statusline setup` でアカウントごとに入れる。tiers の README の「Status line」）が出す。待っている間、このプラグインの Stop のフックは、納品していない頼みを差し戻さない（処理が終わると Claude Code が会話を再開させる）。
+- 部署の会話が裏の処理（`run_in_background` の Bash・裏のサブエージェント・Monitor。`--land` など）の終わりを待つ間、herdr の状態は done になる。待っている印（会話の画面の下の「⧖ バックグラウンド作業中 N 本」と、herdr に作業中と見分けさせる印）は tiers の statusline（`tiers-statusline setup` でアカウントごとに入れる。tiers の README の「Status line」）が出す。待っている間と、処理の終わりの知らせが入力の待ち行列に残っている間、このプラグインの Stop のフックは、納品していない頼みを差し戻さない（処理が終わると Claude Code が会話を再開させる。知らせで会話が再開しなければ、待ち受けが 30 秒後に同じ差し戻しを送る）。
 - 部署が自分の作業場から `git worktree add` で切った一時の worktree には、git が部署の属性を写す。今の版の属性は書いた worktree の id（`company.worktree-id`）を持つので、id の違う worktree では属性を無いと読み、部署に見えない。
 - `--task` で立てずに手で開いた worktree を部署にするときは、その worktree で次を打つ（値は commit されず、worktree と一緒に消える。代表の clone の窓口は手で書かず `--desk` を打つ）。属性の無い場所は `--reorg` を受けないので、手で書く。
 
