@@ -6,6 +6,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場の固定 commit（`works-factory/PIN`）を 9a7c5d8d に上げた。取り込んだ PR は raiki61/works-factory#892。差分は https://github.com/raiki61/works-factory/compare/16d525ca7a2b...9a7c5d8d1e44 。
+
 ## [0.14.0] - 2026-10-27
 
 ### Changed
