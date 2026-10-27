@@ -194,7 +194,7 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
 次の回の候補（今回は頼んでいない。効きが小さいか、直すと出力が変わる物）:
 
 - works の `_write_json`・`_read_json` を `works/.shared/core/jsonfile.py` に寄せる（6-5 の残り）。1 回に数本ずつ、旧の関数と出力を照合して寄せる形で作業に頼む
-- attention の `reflect.py` の `sessions()` と `scan()` は、読めない会話の記録を黙って外す。隣の `records_from` は読めない数を出す。[壊れたら機械が知らせる標準](breakage-detection.md)の決まり 1 のずれ。直すと出力が増え、振る舞いを変えない直しの線の外なので、今回は頼んでいない。
+- attention の `reflect.py` の `sessions()` と `scan()` は、読めない会話の記録を黙って外す。隣の `records_from` は読めない数を出す。[壊れたら機械が知らせる標準](breakage-detection.md)の決まり 1 のずれ。直すと出力が増え、振る舞いを変えない直しの線の外なので、今回は頼んでいない。状態: 直した（attention 0.51.0。見渡し 20261027-225713-f31a4d が直した、commit 2c5e408d。読めなかった記録は、設定のフォルダごとに「読めなかった記録が N 件」の 1 行を /reflect のページの頭の見た範囲の欠けに出す。0 件なら出さない）
 - works の `blk-fix/scripts/assert_changed.py:80` と `blk-structure/lib/context.py:104` は、どの例外も同じ扱いで捨てる。注は意図を書いているが、作りの誤りも同じ扱いになる。
 - ルートの `scripts/works-factory-pin.py` と `tests/ci-watch.py` が、小さい部品（`run`・`common_dir`・状態の保存）を同じ形で持つ。
 - 長い関数で、分け方が機械的な物:
