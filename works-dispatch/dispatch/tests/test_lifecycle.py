@@ -119,7 +119,7 @@ class TurnEnd(unittest.TestCase):
         got = turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP, state=lambda: next(states), pause=lambda: None)
         self.assertEqual(got, "sent")
         prompts = [c for c in h.calls if c[0] == "prompt"]
-        self.assertEqual([c[2] for c in prompts], [f"{CATCHUP} 7", SECOND])
+        self.assertEqual([c[2] for c in prompts], [f"{CATCHUP} 7", turn.with_carry(SECOND, CATCHUP)])
 
     def test_blocked_on_screen_stops_before_the_second_turn(self):
         h = TurnHerdr(prompts=["working"], agent={"agent": "claude", "agent_status": "blocked"})
@@ -218,7 +218,7 @@ class Flow(unittest.TestCase):
         new = ports.term.panes()[0]["pane_id"]
         self.assertNotEqual(new, old["pane_id"])
         self.assertIn(("run", new, typed("claude-a1")), w)
-        self.assertEqual([x[2] for x in w if x[0] == "prompt"][1:], [f"{CATCHUP} 1", "二手目"])
+        self.assertEqual([x[2] for x in w if x[0] == "prompt"][1:], [f"{CATCHUP} 1", turn.with_carry("二手目", CATCHUP)])
         self.assertEqual([x["path"] for x in self.linked(ports)], [path])
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
         self.assertIn("o/r#1", sent)

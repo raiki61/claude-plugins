@@ -160,7 +160,16 @@ class Turn(unittest.TestCase):
     def test_idle_after_catchup_sends_second_without_waiting(self):
         h = FakeHerdr(prompts=["idle", "sent"])
         self.assertEqual(turn.catchup_then_second(7, "wB:p1", SECOND, h, catchup=CATCHUP), "sent")
-        self.assertEqual(h.calls, [("prompt", "wB:p1", "/attention:catchup 7", True), ("prompt", "wB:p1", SECOND, False)])
+        self.assertEqual(h.calls, [("prompt", "wB:p1", "/attention:catchup 7", True),
+                                   ("prompt", "wB:p1", turn.with_carry(SECOND, CATCHUP), False)])
+
+    def test_second_ends_with_the_carry_line_on_the_same_line(self):
+        # 2 ターン目の文はそのまま先に置き、後ろに引き継ぎの一言を空白 1 つでつなぐ（改行を足すとペインで途中送信になる）
+        got = turn.with_carry("/attention:my-turn\n", "/watch:catchup")
+        self.assertEqual(got, "/attention:my-turn " + turn.CARRY.format(catchup="/watch:catchup"))
+        self.assertIn("/watch:catchup", got)
+        self.assertNotIn("\n", got)
+        self.assertNotIn("my-turn", turn.CARRY)
 
     def test_without_second_sends_only_catchup_and_does_not_wait(self):
         h = FakeHerdr(prompts=["sent"])

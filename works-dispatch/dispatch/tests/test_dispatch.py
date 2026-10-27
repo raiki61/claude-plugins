@@ -25,6 +25,7 @@ from nodes import provision
 from nodes import launch
 from nodes import prs as prs_node
 from nodes import report
+from nodes import turn
 
 
 def typed(command):
@@ -484,7 +485,7 @@ class Main(unittest.TestCase):
             ("trust", "a1", gitx_source(self.cfg), path),
             ("run", "P0", typed("claude-a1")),
             ("prompt", "P0", "/attention:catchup 1", True),
-            ("prompt", "P0", "二手目", False),
+            ("prompt", "P0", turn.with_carry("二手目", "/attention:catchup"), False),
         ])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
 

@@ -6,6 +6,9 @@
 2 ターン目は、1 ターン目が idle か done で終えた時だけ、待たずに送る。2 ターン目の文が無ければ（--no-second）、
 `/catchup <番号>` だけを待たずに送って終える。blocked（許可の確認などで止まっている）と
 stalled（送って動き出さなかった。herdr の組み込みの見張りの結末）なら送らない。
+2 ターン目の文の後ろには、1 ターン目の調べを引き継いでよいという一言（CARRY）を、改行を挟まずに足す。1 ターン目が /catchup で
+あることはこのノードが決めているので、引き継ぎの一言もここが持つ。2 ターン目に何を送るかは持ち主の設定（second_prompt_file）が
+持ち、一言は 2 ターン目のコマンドの中身を名指さない（/catchup と 2 ターン目のコマンドは互いを知らない部品のままにする）。
 1 ターン目の終わりは、入口が state を渡せば、Claude Code 自身が返す会話の状態（claude agents --json の status。idle・busy）で見る。
 herdr は画面の下の行で作業中かを決めるので、会話が裏に待ちのコマンドを残すと、ターンが終わっても作業中と見続ける（2026-10-15 に
 #2003 で 54 分止まり、2 ターン目も報告も出なかった）。動き出したことだけは herdr の --wait --until working で見る（herdr の
@@ -36,6 +39,13 @@ FINISHED = ("idle", "done")
 
 POLL_S = 5                         # 1 ターン目の終わりを Claude Code に問う間
 CLOSE_TRIES, CLOSE_PAUSE_S = 30, 1  # /exit の後にシェルが前に戻るのを見る回数と間
+CARRY = ("この会話の前のターン（{catchup}）で調べた物は、材料として引き継いでよい。取り直すのは、前のターンの後に変わった物と、"
+         "前のターンで調べていない物だけ。前のターンで問うた事と、いま問う事が違えば調べ直す。")
+
+
+def with_carry(second, catchup):
+    """2 ターン目の文の後ろに引き継ぎの一言を足す。ペインに打ち込むので、改行で途中送信しないよう空白 1 つでつなぐ。"""
+    return f"{second.rstrip()} {CARRY.format(catchup=catchup)}"
 
 
 def send(pane, text, wait, h=term, until=()):
@@ -87,7 +97,7 @@ def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pa
         first["status"] = _turn_end(pane, h, state, pause)
     if first["status"] not in FINISHED:
         return first["status"]  # blocked か stalled
-    second_result = send(pane, second, False, h)
+    second_result = send(pane, with_carry(second, catchup), False, h)
     return "sent" if second_result["status"] == "sent" else "send_failed"
 
 

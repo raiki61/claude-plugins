@@ -1440,7 +1440,7 @@ def _init(a, ports):
         "",
         "[[repos]]",
         f"repo = {q(a.repo)}",
-        f"second_prompt_file = {q(second)}   # 2 ターン目に送る文。空のままだと --check が止める",
+        f"second_prompt_file = {q(second)}   # 2 ターン目に送る文。空のままだと --check が止める。後ろに /catchup の調べを引き継ぐ一言を足して送る",
         f"source = {q(source)}   # 代表の clone。ブランチごとの worktree はここから作る（置き場は {term.NAME} の worktrees.directory）",
         "copy_files = [   # git が追わない手元だけのファイル。代表の clone で見つかった候補",
         *[f"  {q(f)}," for f in local],
