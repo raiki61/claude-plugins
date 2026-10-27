@@ -2107,11 +2107,6 @@ def follow_main(source, settings, role_name, g):
     return landing.catch_up(source, info, main, g) if main else []
 
 
-def in_flight(payload, shells):
-    """ターンの終わりに裏で動いている処理の数。分からなければ None（数え方は会話の口の running_tasks）。"""
-    return chat.running_tasks(payload, shells)
-
-
 def stalled(attrs, settings_dir, company_of=None, now=time.time):
     """差し戻しを使い切って止まった部署を、頼み元の待ち受けへ台帳の知らせ（wake.NOTE）で知らせる。頼み元の受付箱か会社が分からなければ
     知らせない（真偽を返す）。頼み元の待ち受けが今いなくても、張られれば台帳の知らせで届く（納品の知らせと同じ宛て方）。"""
@@ -2129,17 +2124,18 @@ def stalled(attrs, settings_dir, company_of=None, now=time.time):
 def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shells=chat.background_shells, company_of=None):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
     納品し終えた後も、ブランチをメインブランチに入れていないか、エフェメラルの部署が終わりの印を打っていなければ差し戻す（stop_after）。
-    部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。in_flight）を待っている間は差し戻さない（裏の処理が
+    部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。数え方は会話の口の pending）を待っている間は差し戻さない（裏の処理が
     終わると Claude Code が会話を再開させるので、納品はその後でよい。差し戻すと待つだけのターンを回数の上限まで繰り返した。裏の
     サブエージェントは 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。2026-10-17 の割り振り）。動いているのを
-    確かめられないとき（一覧も ps も無い）と、裏の処理が終わったときは差し戻す。待っている印を herdr に出すのは tiers の statusline
+    確かめられないとき（一覧も ps も無い）と、裏の処理が終わってその知らせも会話に渡った後は差し戻す（知らせが入力の待ち行列に残る間は、
+    それが会話を再開させるので差し戻さない。2026-10-27、受付 f1d5c5）。待っている印を herdr に出すのは tiers の statusline
     （tiers-statusline setup で入れる。全部の会話に効き、30 秒ごとに描き直す）の受け持ちで、ここでは出さない。"""
     payload = json.loads(stdin.read() or "{}")
     cwd = payload.get("cwd") or os.getcwd()
     attrs = (attrs_of or gitx.worktree_attrs)(cwd)   # git の口は呼ぶ時に引く（試験は gitx を偽物に替える。tests/fakegit.wire）
     if not attrs.get("role"):
         return 0
-    if not attrs.get("ask") or in_flight(payload, shells):
+    if not attrs.get("ask") or chat.pending(payload, shells):
         return 0
     if attrs.get(wake.COMPACT) and attrs[wake.COMPACT] == payload.get("session_id"):
         return 0   # 会話が compact の区切りと印して（--compact）ターンを終える。待ち受けが compact し、続きをさせる

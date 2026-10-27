@@ -53,7 +53,7 @@ AUTO_COMPACT_RANGE = (100000, 1000000)
 CACHE_WRITE_RATE = {300: 1.25, 3600: 2.0}
 CACHE_READ_RATE = 0.1
 CACHE_READ_RATES = {"claude-opus-5-5": 0.05, "claude-sonnet-5-5": 0.05, "claude-fable-5-1": 0.025, "claude-mythos-5-1": 0.025}
-TAIL_BYTES = 262144   # 会話の記録の終わりから読む大きさ（last_model。最後の答えの行が入る大きさ）
+TAIL_BYTES = 262144   # 会話の記録の終わりから読む大きさ（tail_lines。最後の答えの行が入る大きさ）
 LOCAL_SETTINGS = ".claude/settings.local.json"   # リポジトリの中の、会話が書く手元だけの設定（許可の記録など。commit しない）
 # 会話が起動するときにしか読まないファイル（/clear では読み直さない）。.claude/ の下（役の定義・設定・フックなど）と、ルートのこれら
 STARTUP_DIR, STARTUP_FILES = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json")
@@ -125,7 +125,7 @@ def _is_claude(command):
 
 def background_shells(me=None, runner=_default_runner):
     """このフックを起動した Claude Code の会話が、裏で走らせている Bash（run_in_background）の数。分からなければ None。
-    Stop フックの入力に裏の処理の一覧（background_tasks）の無い版のための代わり（一覧が在れば orders.in_flight がそちらを使う）。
+    Stop フックの入力に裏の処理の一覧（background_tasks）の無い版のための代わり（一覧が在れば running_tasks がそちらを使う）。
     ターンが終わった時に会話のプロセスの子に残っている Bash のツールのシェル（コマンドに SNAPSHOT を含む）を数える。ターンの終わりには前で走らせた Bash は
     終わっているので、残っているのは裏の物。プロセスの一覧は ps で読むので、ps の無い Windows では None。"""
     if os.name == "nt":
@@ -166,6 +166,40 @@ def running_ids(payload):
     if not isinstance(tasks, list):
         return None
     return sorted(str(t.get("id")) for t in tasks if isinstance(t, dict) and t.get("status") == "running")
+
+
+# 会話の記録の、入力の待ち行列の行（type が queue-operation）の operation のうち、積む物と取り出す物。取り出すのは、ターンの終わりの後に
+# 次のターンの文として渡す dequeue と、ターンの途中に添えて渡す remove（2026-10-27 の Claude Code 2.1.311 の会話の記録で読んだ）
+QUEUE_ROW = "queue-operation"
+QUEUE_TAKE = ("dequeue", "remove")
+
+
+def queued(payload):
+    """会話の記録（transcript_path）の終わりの方で、入力の待ち行列に積まれてまだ渡されていない物の数。読めなければ 0。積まれたままの物
+    （裏の処理の終わりの知らせ・フックの知らせ・人の文）は、ターンが終わると Claude Code が次のターンの文として渡し、会話を再開させる。
+    裏の処理が会話の最後の答えの最中に終わると、その処理は Stop フックの入力の裏の処理の一覧（background_tasks）から消え、終わりの知らせは
+    まだ待ち行列に在る（2026-10-27 に 2.1.311 で再現した。my_notes の受付 f1d5c5 の部署は、この間に差し戻しを 3 回受け、止まった知らせを出された）。"""
+    depth = 0
+    for line in tail_lines(payload) or []:
+        if QUEUE_ROW not in line:
+            continue
+        try:
+            op = json.loads(line).get("operation")
+        except (ValueError, AttributeError):
+            continue   # 読み始めの切れた行や書きかけの行は飛ばす
+        if op == "enqueue":
+            depth += 1
+        elif op in QUEUE_TAKE:
+            depth = max(0, depth - 1)   # 読み始めより前に積まれた物の取り出し（積まれた物はすぐ渡されるので、読み始めでは空と見る）
+    return depth
+
+
+def pending(payload, shells):
+    """ターンの終わりの後に会話を再開させる物の数: 裏で動いている処理（running_tasks）と、入力の待ち行列に積まれてまだ渡されていない物
+    （queued。最後の答えの最中に終わった裏の処理の終わりの知らせなど）。裏で動いている処理が在れば記録を読まない。裏の処理の数が
+    分からず、待ち行列も空なら None。"""
+    running = running_tasks(payload, shells)
+    return running or queued(payload) or running
 
 
 def trust_file(config_dir, env):
@@ -673,18 +707,20 @@ def transcript(payload):
     return payload.get("transcript_path")
 
 
-def last_model(payload):
-    """会話の記録（transcript_path）の終わりの方で、最後に答えたモデルの名前。記録が無い・読めない・答えの行が無ければ None。"""
+def tail_lines(payload):
+    """会話の記録（transcript_path）の終わりの方（TAIL_BYTES）の行の並び。記録が無い・読めなければ None。頭の行は切れていることがある。"""
     path = transcript(payload)
-    if not path:
-        return None
     try:
         with open(path, "rb") as f:
             f.seek(max(0, os.path.getsize(path) - TAIL_BYTES))
-            lines = f.read().decode("utf-8", "replace").splitlines()
-    except OSError:
-        return None   # 記録を読めなければモデルは分からない（呼んだ側は表に無いモデルの倍率で見る）
-    for line in reversed(lines):
+            return f.read().decode("utf-8", "replace").splitlines()
+    except (OSError, TypeError):
+        return None
+
+
+def last_model(payload):
+    """会話の記録（transcript_path）の終わりの方で、最後に答えたモデルの名前。記録が無い・読めない・答えの行が無ければ None。"""
+    for line in reversed(tail_lines(payload) or []):   # 記録を読めなければモデルは分からない（呼んだ側は表に無いモデルの倍率で見る）
         try:
             row = json.loads(line)
         except ValueError:
@@ -705,14 +741,10 @@ def last_reply(payload):
     text の塊をつないだ物、始めた文はその前の最後の文の行（人の文か、フックの知らせ。ツールの結果の行は飛ばす）の字。サブエージェントの行は
     飛ばす。compact の要約の行（COMPACT_SUMMARY が真の user の行。要約の中に前の文を引くので、引いた文で当たる）で始まったターンの始めた
     文は空の字にする。記録を読めなければ None（答えか文が無ければ、その分は空の字）。"""
-    path = transcript(payload)
-    reply = None
-    try:
-        with open(path, "rb") as f:
-            f.seek(max(0, os.path.getsize(path) - TAIL_BYTES))
-            lines = f.read().decode("utf-8", "replace").splitlines()
-    except (OSError, TypeError):
+    lines = tail_lines(payload)
+    if lines is None:
         return None
+    reply = None
     for line in reversed(lines):
         try:
             row = json.loads(line)
