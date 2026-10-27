@@ -559,7 +559,7 @@ class Coverage(unittest.TestCase):
             human, _ = rf.sessions([cfg], start, end, notes)
             self.assertEqual(len(human), 1)
             self.assertEqual(len(notes), 1, notes)
-            self.assertIn(str(cfg), notes[0])
+            self.assertIn(cfg.name, notes[0])  # 一時の場所がホームの下なら ~ に縮むので、フォルダの名前だけを見る
             self.assertRegex(notes[0], r" 1 ")
             env = {"HOME": tmp, rf.DIRS_ENV: str(cfg)}
             data = rf.collect(DAY.isoformat(), env, with_github=False, today=DAY)
