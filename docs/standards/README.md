@@ -58,12 +58,12 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 見送ったずれ（1 回目）:
 
-- コマンドの置き場が `commands/` と `skills/` に割れている。`commands/` に残るのは attention の my-turn・reflect と graphloops の intake で、ほかは `skills/` にある（2-2・2-3 で、決まり 1 の上限〔本文 5,000 字〕を超えるコマンドは、本文を分けるついでに `skills/` へ移した。2026-10-19 時点）。公式の文書は `skills/` を勧めるが、「新しいプラグインには」の条件付きで、`commands/` も読み込む（[Plugin manifest reference の Standard layout](https://code.claude.com/docs/en/plugins-reference#standard-layout)「Prefer `skills/` for new plugins」）。移すと呼び出しの名前と振る舞いを確かめ直すことになるので、標準では新しく作る物を `skills/` にするとだけ決め、今ある物は移さない。
+- コマンドの置き場が `commands/` と `skills/` に割れている。`commands/` に残るのは attention の my-turn・reflect と graphloops の intake で、ほかは `skills/` にある（2-2・2-3 で、当時の決まり 1 の上限〔本文 5,000 字〕を超えるコマンドは、本文を分けるついでに `skills/` へ移した。2026-10-19 時点）。公式の文書は `skills/` を勧めるが、「新しいプラグインには」の条件付きで、`commands/` も読み込む（[Plugin manifest reference の Standard layout](https://code.claude.com/docs/en/plugins-reference#standard-layout)「Prefer `skills/` for new plugins」）。移すと呼び出しの名前と振る舞いを確かめ直すことになるので、標準では新しく作る物を `skills/` にするとだけ決め、今ある物は移さない。
 - 試験の置き場が、ルートの `tests/`（attention・convergence-loops・gates）とプラグインの中（graphloops・tiers・works-dispatch）に割れている。公式に決まりが無く、どちらも CI（`.github/workflows/test.yml`）から回るので、今は揃えない。
 
 ### 2 回目（2026-10-18、受付 20261018-005346-25a518）
 
-[スキルの書き方の標準](skill-authoring.md)を作り、marketplace に載る全プラグインのスキルとコマンド 17 本の本文を測った。決まり 1（本文 5,000 字以下・500 行未満）を超えるのは 11 本。description（決まり 7）は 17 本とも 1,024 字以下（いちばん長い attention の catchup で 415 字）。
+[スキルの書き方の標準](skill-authoring.md)を作り、marketplace に載る全プラグインのスキルとコマンド 17 本の本文を測った。当時の決まり 1（本文 5,000 字以下・500 行未満。字数の上限は 2026-10-27 に持ち主の決めで外した）を超えるのは 11 本。description（決まり 7）は 17 本とも 1,024 字以下（いちばん長い attention の catchup で 415 字）。
 
 - 2-1 スキルの書き方の標準の決まり 1・4・5 を機械で見る検査が無い。状態: 入った（cb2b1d54。検査は tests/skill-body-case.py。点検 20261018-011005-129e80）。検査が失敗にしない例外の一覧（EXEMPT）に、attention の 3 本（2-2）の移す前の `commands/` の行が残り、もう無いファイルを指している。点検に消す直しを頼んだ（受付 20261018-214826-03c714）が、行は既に main で消えていた（d7f717a5）。代わりに、attention の catchup の本文が 5,007 字に増え、上限を超えている（今壊れている）。点検が attention の担当（見渡し）に戻す直しを頼んだ（受付 20261018-223254-7f3460）
 - 2-2 attention の catchup 18,615 字・whose-turn 7,532 字・what-am-i-doing 6,230 字。状態: 入った（d6de3d9b・ce41c961・e3d59061・0298b216。3 本とも `skills/` へ移り、本文は 4,990・4,130・4,732 字。見渡し 20261018-011022-65db74）
