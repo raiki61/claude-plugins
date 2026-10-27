@@ -213,16 +213,22 @@ The following are accepted as out of scope in principle, or as forms that are st
 - A heredoc is treated only as the text of the simple command it is attached to. Even if another command's
   heredoc is on the same line, it is not mixed into gh's text
 - **The hook reads body files itself** (`--body-file f`, `--notes-file f`, `-F f`, `-F body=@f`, `--input f`).
-  Before, it stopped them as "cannot extract" and made the writer rewrite them as heredocs; that caused 124 round trips, 22 of which went out unchecked through the escape hatch.
+  Before this change, the hook stopped them as "cannot extract" and made the writer rewrite them as heredocs; that caused 124 round trips, 22 of which went out unchecked through the former escape hatch (`COLDREAD_SKIP=1`, which now has no effect; see "There is no escape hatch" above).
   It reads them only when it can say statically that the content is the same as what gh will read; if it cannot say so, it stops (fail-closed):
-  - Paths are resolved as far as: literal, `~/` (expanded with HOME), a variable assigned in the same command (`S=/abs; gh … --body-file "$S/b.md"`),
+  - Paths are resolved as far as: literal, `~/` and `$HOME`, `$CLAUDE_JOB_DIR` (the folder for a background session's temporary files; for these two names, the value is taken from the hook's own environment,
+    because Claude Code passes the same values to the Bash tool and to the hook. It is not taken when the same command could reassign the name — the name appears anywhere
+    other than as a `$NAME` or `${NAME}` reference, such as `HOME=x` or `read HOME` — or when the value is not an absolute path.
+    `$CLAUDE_CONFIG_DIR` is not resolved this way and is stopped, because a shell profile may export a different value to the Bash tool than the hook sees), a variable assigned in the same command (`S=/abs; gh … --body-file "$S/b.md"`),
     relative to the cwd in the hook's input (according to the official documentation, after Claude runs cd it points to the new location), and relative after `cd <absolute path> &&`.
     A variable is resolved only when the text shows that the assignment always runs and reaches gh: assigned only once, not inside a condition (`if`, `||`), a loop,
     a pipe, `&`, or a subshell that closes first, and not reassigned with `+=`, `read`, `printf -v`, `declare`, `for`, `eval`, etc.
     (`$( … )` and pipes of other commands in between are not looked at). Unresolvable variables, `~user`, globs, relative paths after a cd followed by `;` or after `if cd …`,
     and relative paths after `env -C` are stopped
   - If the same command contains a command that writes the body file, and it is a single `cat > f <<'EOF'` that always runs before gh
-    (not inside a condition, `||`, a pipe, or `&`), that heredoc is read (the file at the time of the hook has old content). If there are other writers (`cp`, `mv`, `sed`, `git`… that take the body file's name as an argument, or
+    (not inside a condition, `||`, a pipe, or `&`), that heredoc is read instead of the file (the hook runs before the `cat`, so the file on disk at that time still has its old content). It is also read when the file
+    does not exist yet and the `cat` may be skipped only because a command before it fails (`mkdir -p d && cat > d/f <<'EOF'` and then gh on a new line):
+    if the `cat` does not run, gh finds no file. This holds only outside conditions and loops, with no `||` between the `cat` and gh, and with only
+    `mkdir` and read-only commands before the `cat`. If there are other writers (`cp`, `mv`, `sed`, `git`… that take the body file's name as an argument, or
     a redirect to that file, including gh's own `> f`), it is stopped. Commands that take the name as an argument but do not write
     (`cat`, `wc`, `head`, `ls`, `grep`, etc.) and commands that run after gh finishes (the cleanup in `gh … --body-file f && rm f`;
     except inside loops or functions) are not counted
@@ -502,10 +508,10 @@ not reach sessions working on other repositories, and a session can still miss i
   `xargs`, `timeout` and so on, and inside `bash -c "…"`, `eval`, `$( … )` and `` ` … ` ``; the `path` of the Glob and Grep tools and the
   fixed head of a Glob pattern (`/Users/**/x` starts at `/Users`; a pattern with no wildcard looks at one path and passes). A start with a shell
   wildcard counts as the folder above the wildcard (`find ~/*` starts at the home folder). With no path, the start is the session's working folder
-- Variables in the start are resolved from assignments in the same command (`D=/; find $D`) and from `~`/`$HOME`; a relative start is resolved
+- Variables in the start (the folder the search begins from) are resolved from assignments in the same command (`D=/; find $D`), from `~`/`$HOME` and from `$CLAUDE_JOB_DIR` (resolved from the hook's environment under the same conditions as for body-file paths in the post gatekeeper above); a relative start is resolved
   from a preceding `cd <absolute path>` (followed by `&&`, `;` or a new line; a bare `cd` is the home folder) or the session's working folder.
   Calls that take no start (`--help`, `--version`, `command -v rg`) pass. A start it cannot resolve (an unknown variable, an assignment inside an
-  `if`) is not stopped, because nothing in the text says it is wide
+  `if`) is not stopped, because nothing in the command text says it is wide
 - The decision is deterministic (no LLM) and **there is no escape hatch**. It fails closed: if the check itself fails (input it cannot read),
   the call is stopped. Stops are logged to `$CLAUDE_CONFIG_DIR/searchgate/denies.log` (the Claude Code
   settings folder, `~/.claude` by default)

@@ -1844,6 +1844,11 @@ def deliver_summary(a, ports, cwd):
     except OSError as e:
         print(f"止めた: 要約のファイルを読めない（{e}）")
         return 2
+    def refuse(lines):
+        """要約を送らずに止まる（直しと打ち直しを分けさせる REDO を最後の行に出す）。"""
+        print("\n".join(lines + [deliver.REDO]))
+        return 2
+
     common = ports.git.common_dir(cwd)
     settings = os.path.dirname(config.path_of(a.config, os.environ))
     the_role, problems = shape_role(gitx.root_of(common) if common else None, settings, attrs["role"], ports.git)
@@ -1856,8 +1861,7 @@ def deliver_summary(a, ports, cwd):
     if deliver.OPEN in items:
         bad.append(deliver.OPEN_IN_BODY)
     if bad:
-        print("\n".join(["送らなかった: 要約の頭書き（機械が読むフィールド）か見出しの形が違う"] + [f"  {x}" for x in bad] + [deliver.DELIVER_FORMAT]))
-        return 2
+        return refuse(["送らなかった: 要約の頭書き（機械が読むフィールド）か見出しの形が違う"] + [f"  {x}" for x in bad] + [deliver.DELIVER_FORMAT])
     questions = data.get("open")
     if questions is not None:
         items[deliver.OPEN] = deliver.render_open(questions)
@@ -1868,14 +1872,12 @@ def deliver_summary(a, ports, cwd):
     notes = list(problems)
     why = gate_keys(the_role, "送らなかった")
     if why:
-        print("\n".join(notes + [f"送らなかった: {why}"]))
-        return 2
+        return refuse(notes + [f"送らなかった: {why}"])
     if missing:
-        print("\n".join(notes + ["送らなかった: 要約に足りない項目がある: " + "、".join(missing),
-                                 f"- 必須の項目（{attrs['role']}）: " + "・".join(required)
-                                 + f"。{deliver.OPEN}の外は見出し（## 結論）で書く。結論は 3 行以内、決め手には原典の URL",
-                                 deliver.DELIVER_FORMAT]))
-        return 2
+        return refuse(notes + ["送らなかった: 要約に足りない項目がある: " + "、".join(missing),
+                               f"- 必須の項目（{attrs['role']}）: " + "・".join(required)
+                               + f"。{deliver.OPEN}の外は見出し（## 結論）で書く。結論は 3 行以内、決め手には原典の URL",
+                               deliver.DELIVER_FORMAT])
     inbox = attrs.get("boss-inbox")
     heir = handover.successor(deliver.records(inbox), {"name": attrs.get("boss"), "session": attrs.get("boss-session"),
                                                        "account": attrs.get("boss-account"), "pane": attrs.get("boss-pane")},
@@ -1896,9 +1898,8 @@ def deliver_summary(a, ports, cwd):
         if not bad and any(deliver.ASK_ID.fullmatch((q.get("holder") or "").strip()) for q in questions or []):
             bad = deliver.unknown_asks(questions, ledger_asks(attrs, ports, cwd))
         if bad:
-            print("\n".join(notes + ["送らなかった: 残った疑問の担当者が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
-                            + [deliver.DELIVER_FORMAT]))
-            return 2
+            return refuse(notes + ["送らなかった: 残った疑問の担当者が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
+                          + [deliver.DELIVER_FORMAT])
     check = (the_role or {}).get("deliver_check")
     if check:
         place = ports.git.toplevel(cwd) or cwd
@@ -1908,13 +1909,12 @@ def deliver_summary(a, ports, cwd):
                                                 "version": own_version()},
                                  subprocess.run)
         if code != 0:
-            print("\n".join(notes + [f"送らなかった: 納品の検査が通らなかった（終了の値 {code}）: {check}"]
-                            + [f"  {x}" for x in out.splitlines()]
-                            + [f"- 検査の台本 {x} がこの作業場に無い（会社の形は origin のメインブランチから読むが、検査は作業場で走る）。"
-                               "ブランチをメインブランチの上にリベースしてから（git fetch origin && git rebase origin/main）打ち直す"
-                               for x in deliver.absent_files(check, place)]
-                            + [f"- 検査は会社の形の役 {attrs['role']} の deliver_check。上の訳を直してから --deliver を打ち直す"]))
-            return 2
+            return refuse(notes + [f"送らなかった: 納品の検査が通らなかった（終了の値 {code}）: {check}"]
+                          + [f"  {x}" for x in out.splitlines()]
+                          + [f"- 検査の台本 {x} がこの作業場に無い（会社の形は origin のメインブランチから読むが、検査は作業場で走る）。"
+                             "ブランチをメインブランチの上にリベースしてから（git fetch origin && git rebase origin/main）打ち直す"
+                             for x in deliver.absent_files(check, place)]
+                          + [f"- 検査は会社の形の役 {attrs['role']} の deliver_check。上の訳を直す"])
         notes.append(f"納品の検査が通った: {check}")
     if common and inbox and to_self(mine, attrs, deliver.inbox_of(common)):
         return deliver_self(a, ports, cwd, mine, attrs, for_ask, shelved, branch, items, required, questions, notes)

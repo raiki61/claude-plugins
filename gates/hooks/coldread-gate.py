@@ -1088,8 +1088,8 @@ def json_has_long_text(obj, limit=200):
 # 本文がファイルに在る形(--body-file f・-F f・-F body=@f・--input f)を「取り出せない」で止めて書き直させて
 # いた頃は、往復が 124 回あり、うち 22 回は逃げ道で未検査のまま出た。フックが自分で読めば往復は要らない。
 # 読むのは gh がそのファイルを読むときに同じ中身だと静的に言えるときだけで、言えなければ止める:
-#   - パスは字のまま・同じコマンドの中で代入した変数・cwd(フックの入力)からの相対・`cd <絶対パス> &&` の先の
-#     相対まで解く。それ以外(解けない変数・~・グロブ・`;` で続く cd の後の相対)は止める
+#   - パスは字のまま・同じコマンドの中で代入した変数・フックと同じ値の環境変数(SHARED_ENV)・cwd(フックの入力)からの
+#     相対・`cd <絶対パス> &&` の先の相対まで解く。それ以外(解けない変数・~・グロブ・`;` で続く cd の後の相対)は止める
 #   - 同じコマンドの中で本文ファイルを書く単純コマンドが在れば、`cat > f <<EOF` 1 本だけならそのヒアドキュメントを
 #     読む(フックの時点のファイルは古い中身)。それ以外の書き手(cp・mv・sed・tee・>…)が在れば止める
 #   - 開くのは O_NONBLOCK で、開いた後に fstat で通常のファイルかを見る(FIFO が書き手を待ってフックを止めると、
@@ -1108,6 +1108,14 @@ REASSIGN_CMDS = {"read", "printf", "declare", "typeset", "local", "readonly", "m
                  "select", "unset", "let", "getopts"}
 _APPEND_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\+=")
 _VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+# コマンドの中で代入していなければ、フックの環境の値で解く変数。どれも Claude Code が Bash のツールとフックの両方に同じ値で渡す
+# (HOME は同じ利用者、CLAUDE_JOB_DIR は裏の会話の一時の置き場。works-dispatch の待ち受けもフックが継ぐ CLAUDE_JOB_DIR で窓を
+# 確かめる)。裏の会話の指示が一時のファイルを $CLAUDE_JOB_DIR/tmp に置けと言うので、
+# 納品の要約をそこに書いて --deliver $CLAUDE_JOB_DIR/tmp/… と打つ部署が多く、解けなかった頃は「パスが決まらない」で止めていた
+# (2026-10-20〜27 の dispatch.py の止めた回 419 回のうち 231 回。my_notes の受付 8cac6e)。TMPDIR は Bash のツールが替え、
+# CLAUDE_CONFIG_DIR はアカウントを切り替える人が shell の設定ファイル(Bash のツールは読み、フックは読まない)で別の値を
+# export しうるので入れない
+SHARED_ENV = ("HOME", "CLAUDE_JOB_DIR")
 
 
 def single_quoted_dollar(text):
@@ -1225,7 +1233,8 @@ class BodyFiles:
         return below_ok or self.cmds[k].depth >= d
 
     def assigned(self):
-        """変数名 → (値, 位置)。値が 1 つに決まらない名前は None。
+        """変数名 → (値, 位置)。値が 1 つに決まらない名前は None(代入せずに入れ直すだけの名前も None で載せ、eval などで
+        どの名前でも入れ直しうれば "*" を載せる)。
 
         決まらないのは: 2 度代入された・`+=` で書き足された・read・printf -v・declare・local・mapfile・for・unset などで
         入れ直されうる(`B=x; read -r B < f` の B は f の中身)。
@@ -1247,7 +1256,34 @@ class BodyFiles:
                             spoiled.add(name)
                         table[name] = (value, j)
             self._assigned = {n: (None if n in spoiled or "*" in spoiled else v) for n, v in table.items()}
+            self._assigned.update((n, None) for n in spoiled if n not in table)
         return self._assigned
+
+    def inherited(self, name):
+        """コマンドの中で代入も入れ直しもしない SHARED_ENV の名前の、フックの環境の値(絶対パスのときだけ)。ほかは None。
+
+        assigned() が拾わない入れ直し(`N=x 2>/dev/null`・`export -- N=x`・`declare -n R=N`・`read HO\\ME` のように引用で
+        割った名前)も逃さないよう、次のどれかなら解かない: 名前が $ の参照の外に 1 度でも出る・`\\$` が在る(シェルは $ を
+        字のまま渡す)・eval・source の類が在る・入れ直すコマンド(printf は -v のときだけ)の名前の側に変数が在る。
+        前置(env など)と `command`・`builtin` の後ろのコマンド名で見る。値が空白を持てば、引用の無い $名前 は割れるので解かない。
+        """
+        value = os.environ.get(name) if name in SHARED_ENV else None
+        table = self.assigned()
+        if (not value or not os.path.isabs(value) or any(ch in value for ch in "$`\"' \t\n") or name in table
+                or "*" in table or "\\$" in self.norm
+                or re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % name, _VAR_REF_RE.sub("", self.norm))):
+            return None
+        for c in self.cmds:
+            words = c.args[command_start(c.args):]
+            while words[:1] in (["command"], ["builtin"]):
+                words = words[1:]
+            if words[:1] in (["eval"], ["source"], ["."]):
+                return None
+            if words[:1] == ["export"] or (words and words[0] in REASSIGN_CMDS
+                                           and (words[0] != "printf" or any(a.startswith("-v") for a in words))):
+                if any(ch in a.split("=", 1)[0] for a in words[1:] for ch in "$`"):
+                    return None
+        return value
 
     def var(self, value):
         """$名前・${名前} を同じコマンドの中の代入で置き換えた値。解けなければ None。"""
@@ -1260,12 +1296,21 @@ class BodyFiles:
         table = self.assigned()
         failed = []
 
+        def shared(m):
+            got = self.inherited(m.group(1) or m.group(2))
+            if got is None:
+                failed.append(m.group(0))
+            return got or ""
+
         def sub(m):
-            entry = table.get(m.group(1) or m.group(2))
-            if not entry or not self._flows(entry[1]) or "$" in entry[0] or "`" in entry[0]:
+            name = m.group(1) or m.group(2)
+            if name not in table:
+                return shared(m)
+            entry = table[name]
+            if not entry or not self._flows(entry[1]) or "`" in entry[0]:
                 failed.append(m.group(0))
                 return ""
-            return entry[0]
+            return _VAR_REF_RE.sub(shared, entry[0])   # F=$CLAUDE_JOB_DIR/tmp/a.md の右辺も、フックの環境の値でだけ解く
 
         out = _VAR_REF_RE.sub(sub, value)
         return None if failed or "$" in out else out
@@ -1295,10 +1340,10 @@ class BodyFiles:
     def path(self, value, k=None):
         """本文ファイルの実パス(k 番目のコマンドの cwd で解く)。字のまま決まらなければ None。"""
         v = self.var(value)
-        if v and v.startswith("~/") and "HOME" not in self.assigned() and os.environ.get("HOME"):
-            # `~/` はシェルが HOME で開く。フックは Bash と同じ利用者・同じ HOME で起動される(コマンドの中で HOME を
-            # 入れ直していなければ)。`~user/` の形は開かない
-            v = os.path.join(os.environ["HOME"], v[2:])
+        home = self.inherited("HOME") if v and v.startswith("~/") else None
+        if home:
+            # `~/` はシェルが HOME で開く(`$HOME/` と同じ扱い)。`~user/` の形は開かない
+            v = os.path.join(home, v[2:])
         if not v or v.startswith("~") or "__HEREDOC" in v or any(ch in v for ch in "*?["):
             return None
         v = native_path(v)
@@ -1323,6 +1368,25 @@ class BodyFiles:
             return self._between(j, self.k, _SEQUENTIAL, below_ok=True)
         return self._runs(j, ("&&",)) and self._between(j, self.k, ("&&",), below_ok=True)
 
+    def _writes_first_or_creates(self, j, target):
+        """j 番目の書き込みが、gh が走るまでに済むか、まだ無いファイルを作る物か。まだ無ければ、j が走らない回の gh は
+        読むファイルが無くて止まるので、gh が読むのは j の書いた中身だけ(`mkdir -p d && cat > d/f <<EOF` の後に改行で
+        続く gh。2026-10-20〜27 に「書き換えうる」で止めた dispatch.py の --deliver に多い形。my_notes の受付 8cac6e)。
+        間の区切りは ; && 改行だけ(パイプ・& は同時に走り、`||` は走らないことがある)で、条件・繰り返しの中は見ない(前の回の
+        gh が後の書き込みを読む)。j より前のコマンドは mkdir と読むだけのコマンドに限る(名前を引数に持たずにファイルを書く
+        コマンドが先に在ると、j が走らない回に gh がその中身を読む)。それらのコマンドもリダイレクトで書かない(/dev/null は除く)。"""
+        if self._writes_first(j):
+            return True
+        if not (j < self.k) or self.looped or self.conditional or os.path.lexists(target):
+            return False
+        for c in self.cmds[:j]:
+            at = command_start(c.args)
+            if at < len(c.args) and os.path.basename(c.args[at]) not in READ_ONLY_CMDS | {"mkdir"}:
+                return False
+            if any(op in WRITE_OPS and dest != "/dev/null" for op, dest in c.redirects):
+                return False   # `echo x > link`: リンクを通して target を書きうる(書き手の照合は名前の末尾だけ)
+        return self._between(j, self.k, _SEQUENTIAL, below_ok=True)
+
     def writer(self, target):
         """同じコマンドの中で target を書く単純コマンド。無ければ None、`cat > f <<EOF` 1 本ならその本文、ほかは "writer"。"""
         base = os.path.basename(target)
@@ -1337,10 +1401,10 @@ class BodyFiles:
                 d = self.var(dest)
                 if d is None or os.path.basename(d) == base:
                     marks = [t for t in c.args[1:] if t.startswith("__HEREDOC")]
-                    # ヒアドキュメントを本文と見るのは、その cat が必ず gh より先に走り(`[ -e f ] || cat > f` は走らないことがある)、
-                    # 書く先が cat の cwd で解いて同じファイルのときだけ
+                    # ヒアドキュメントを本文と見るのは、その cat が必ず gh より先に走るか(`[ -e f ] || cat > f` は走らないことがある)
+                    # まだ無いファイルを作る物で(_writes_first_or_creates)、書く先が cat の cwd で解いて同じファイルのときだけ
                     heredoc = (c.args[:1] == ["cat"] and len(c.args) == 2 and len(marks) == 1 and op in (">", ">|")
-                               and d is not None and self.path(dest, j) == target and self._writes_first(j))
+                               and d is not None and self.path(dest, j) == target and self._writes_first_or_creates(j, target))
                     found.append(int(marks[0][9:-2]) if heredoc else "writer")
             at = command_start(c.args)
             if j != self.k and at < len(c.args) and os.path.basename(c.args[at]) not in READ_ONLY_CMDS:
@@ -3099,8 +3163,11 @@ def main() -> None:
     # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
     if analysis.blocked:
         target = analysis.target_of()[0]
-        how = ("納品の要約は --deliver に渡すファイル(<絶対パス>。同じコマンドの中で書き換えない)で渡して再実行すること"
-               "(持ち主に向けた問いが在るかを読むため)。\n"
+        # 部署の会話は止められた後に要約を直し、同じコマンドで打ち直してまた止まることが多かった(受付 8cac6e)ので、分け方まで書く
+        how = ("納品の要約は --deliver に渡すファイルに置き、要約を書く・直す手(Write のツールか前の Bash のコマンド)と、"
+               "--deliver <ファイル> だけを打つ Bash のコマンドを分けて再実行すること。パスは絶対パスか、"
+               "%s で始まる形(持ち主に向けた問いが在るかを、送る前に読むため)。\n"
+               % "・".join(["~/"] + ["$" + n for n in SHARED_ENV if os.path.isabs(os.environ.get(n) or "")])
                if any(blk and sub and sub[0] == DISPATCH_SUB for sub, _, _, blk, _ in analysis.calls) else
                ("本文はヒアドキュメント(<<'EOF' ... EOF)・本文旗(--body / --notes 等)・本文ファイル(--body-file "
                 "<絶対パス> 等。同じコマンドの中で書き換えない)のどれかで渡して再実行すること。\n"))

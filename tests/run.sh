@@ -2991,20 +2991,22 @@ calls.mkdir(parents=True)
 (cfg / "destgate").mkdir(parents=True)
 (cfg / "destgate/allowlist").write_text("good/*\n", encoding="utf-8")
 
-def hook(script, payload, reader=None, *args):
+def hook(script, payload, reader=None, *args, job=None):
     # 会話の一時の置き場（CLAUDE_JOB_DIR）は継がない: WORK がその下に在ると、文書を一時の物として読まず、読み直さないことが空回りで緑になる。
     # 入口は sdk-cli にする（対話の会話〔cli〕の親の Stop は、待つ口の docs-check では読まない）
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_") and k != "CLAUDE_JOB_DIR"}
     e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_TMP_DIRS=str(work / "tmp-root"), CLAUDE_CODE_ENTRYPOINT="sdk-cli")
     if reader:
         e["COLDREAD_READER_CMD"] = reader
+    if job:
+        e["CLAUDE_JOB_DIR"] = job
     r = subprocess.run([sys.executable, str(script), *args], input=json.dumps(payload).encode("utf-8"),
                        capture_output=True, env=e, timeout=60)
     assert r.returncode == 0, (script.name, args, r.returncode, r.stderr.decode("utf-8", "replace"))
     return r.stdout.decode("utf-8")
 
-def bash(command, reader, script=gate):
-    out = hook(script, {"session_id": "d1", "cwd": str(work), "tool_name": "Bash", "tool_input": {"command": command}}, reader)
+def bash(command, reader, script=gate, job=None):
+    out = hook(script, {"session_id": "d1", "cwd": str(work), "tool_name": "Bash", "tool_input": {"command": command}}, reader, job=job)
     return json.loads(out)["hookSpecificOutput"] if out else None
 
 def stub(*findings):
@@ -3098,6 +3100,20 @@ for odd in ("open = [", 'title = "x"\n[[open]]\nquestion = "出すかを決め�
 # 要約のファイルを解けない変数で渡す納品は、持ち主への問いが在るかを確かめられないので止める
 got = bash('%s --deliver "$F"' % D, FIND)
 assert got and got["permissionDecision"] == "deny" and "--deliver に渡すファイル" in got["permissionDecisionReason"] and read() == n + 2, got
+# 知らせは、フックの環境に無い CLAUDE_JOB_DIR を渡せる形に挙げない(案内どおりに打ってまた止まらない)
+assert "$CLAUDE_JOB_DIR" not in got["permissionDecisionReason"] and "~/" in got["permissionDecisionReason"], got
+# 裏の会話の --deliver "$CLAUDE_JOB_DIR/tmp/…" は、フックの環境の値で解いて持ち主への問いを読む(受付 8cac6e)。知らせも挙げる
+job = work / "job"
+(job / "tmp").mkdir(parents=True)
+(job / "tmp/s.md").write_text('+++\n[[open]]\nquestion = "出すかを決める"\nholder = "owner:choose"\n+++\n直した。', encoding="utf-8")
+got = bash('%s --deliver "$CLAUDE_JOB_DIR/tmp/s.md"' % D, FIND, job=str(job))
+assert got and got["permissionDecision"] == "deny" and "持ち主" in got["permissionDecisionReason"] and read() == n + 3, (got, read())
+got = bash('%s --deliver "$F"' % D, FIND, job=str(job))
+assert got and "$CLAUDE_JOB_DIR" in got["permissionDecisionReason"] and read() == n + 3, got
+# コマンドの中で入れ直しうる CLAUDE_JOB_DIR(リダイレクトの付いた代入・export の混ざった引数・declare -n)は解かずに止める
+for pre in ("CLAUDE_JOB_DIR=/evil 2>/dev/null; ", "export FOO CLAUDE_JOB_DIR=/evil; ", "declare -n R=CLAUDE_JOB_DIR; R=/evil; "):
+    got = bash('%s%s --deliver "$CLAUDE_JOB_DIR/tmp/s.md"' % (pre, D), FIND, job=str(job))
+    assert got and "--deliver に渡すファイル" in got["permissionDecisionReason"] and read() == n + 3, (pre, got)
 print("DISPATCH_SEND_OK")
 PY
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
@@ -5143,6 +5159,26 @@ expect_output 0 "MARK_FILE が届いた" "ホームの下を ~/ で書いたパ�
     env HOME="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file ~/body.md"
 expect_output 0 "取り出せない" "解けない変数のパスは止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file \"\$NOPE\""
+# Claude Code が Bash のツールとフックに同じ値で渡す変数(CLAUDE_JOB_DIR など)は、フックの環境の値で解く(受付 8cac6e)。
+# コマンドの中で入れ直す名前・絶対パスでない値は解かない
+expect_output 0 "MARK_FILE が届いた" "\$CLAUDE_JOB_DIR で始まるパスは、フックの環境の値で解いて読む" \
+    env CLAUDE_JOB_DIR="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file \"\$CLAUDE_JOB_DIR/body.md\""
+expect_output 0 "MARK_FILE が届いた" "F=\$CLAUDE_JOB_DIR/… と代入した変数のパスも、フックの環境の値で解いて読む" \
+    env CLAUDE_JOB_DIR="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "F=\$CLAUDE_JOB_DIR/body.md; gh issue comment 1 --body-file \"\$F\""
+expect_output 0 "取り出せない" "コマンドの中で read で入れ直す CLAUDE_JOB_DIR は解かずに止める" \
+    env CLAUDE_JOB_DIR="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "read CLAUDE_JOB_DIR < /dev/null; gh issue comment 1 --body-file \"\$CLAUDE_JOB_DIR/body.md\""
+expect_output 0 "取り出せない" "絶対パスでない CLAUDE_JOB_DIR は解かずに止める" \
+    env CLAUDE_JOB_DIR=rel "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file \"\$CLAUDE_JOB_DIR/body.md\""
+expect_output 0 "取り出せない" "フックと同じ値と言えない環境変数(TMPDIR)のパスは止める" \
+    env TMPDIR="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file \"\$TMPDIR/body.md\""
+expect_output 0 "取り出せない" "名前の側に変数を持つ export(CLAUDE_JOB_\$X=…)が在れば CLAUDE_JOB_DIR を解かずに止める" \
+    env CLAUDE_JOB_DIR="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "X=DIR; export CLAUDE_JOB_\$X=/evil; gh issue comment 1 --body-file \"\$CLAUDE_JOB_DIR/body.md\""
+expect_output 0 "取り出せない" "command eval が在れば CLAUDE_JOB_DIR を解かずに止める" \
+    env CLAUDE_JOB_DIR="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "command eval \"\$(cat /dev/null)\"; gh issue comment 1 --body-file \"\$CLAUDE_JOB_DIR/body.md\""
+expect_output 0 "取り出せない" "\\\$CLAUDE_JOB_DIR(シェルが字のまま渡す)は解かずに止める" \
+    env CLAUDE_JOB_DIR="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file \\\$CLAUDE_JOB_DIR/body.md"
+expect_output 0 "取り出せない" "引用で割った名前で HOME を入れ直す(read HO\\ME)なら ~/ を解かずに止める" \
+    env HOME="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "read HO\\ME < /dev/null; gh issue comment 1 --body-file ~/body.md"
 printf 'MARK_OLD %s %s\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/w.md"
 CR_STUB_SEES_HD=$(cr_stub_sees MARK_HD)
 expect_output 0 "MARK_HD が届いた" "同じコマンドで cat > f <<EOF と書いてから渡す本文は、ディスクの古い中身でなくヒアドキュメントを読む" \
@@ -5152,6 +5188,39 @@ EOF
 gh issue comment 1 --body-file $CR_FDIR/w.md"
 expect_output 0 "取り出せない" "同じコマンドの中で別のコマンドが本文ファイルを書き換えうるなら止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cp $CR_FDIR/w.md $CR_FDIR/body.md && gh issue comment 1 --body-file $CR_FDIR/body.md"
+# まだ無いファイルを作るヒアドキュメントは、gh が読めば必ずその中身なので、`mkdir -p d &&` の後でも読む(受付 8cac6e)。
+# 前から在るファイルは、cat が走らない回に古い中身を gh が読むので止める
+expect_output 0 "MARK_HD が届いた" "mkdir -p d && cat > d/新しいファイル <<EOF の後に改行で続く gh は、ヒアドキュメントを読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_HD" "mkdir -p $CR_FDIR/fresh && cat > $CR_FDIR/fresh/h.md <<'EOF'
+MARK_HD $CR_BODY $CR_PAD
+EOF
+gh issue comment 1 --body-file $CR_FDIR/fresh/h.md"
+expect_output 0 "取り出せない" "mkdir -p d && cat > d/前から在るファイル <<EOF の後の gh は止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "mkdir -p $CR_FDIR && cat > $CR_FDIR/w.md <<'EOF'
+MARK_HD $CR_BODY $CR_PAD
+EOF
+gh issue comment 1 --body-file $CR_FDIR/w.md"
+expect_output 0 "取り出せない" "まだ無いファイルでも、cat の前に名前を引数に持たない書き手が在れば止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "python3 gen.py && cat > $CR_FDIR/fresh/g.md <<'EOF'
+MARK_HD $CR_BODY $CR_PAD
+EOF
+gh issue comment 1 --body-file $CR_FDIR/fresh/g.md"
+expect_output 0 "取り出せない" "まだ無いファイルでも、条件の中の cat のヒアドキュメントは読まずに止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "if test -d $CR_FDIR; then cat > $CR_FDIR/fresh/o.md <<'EOF'
+MARK_HD $CR_BODY $CR_PAD
+EOF
+fi
+gh issue comment 1 --body-file $CR_FDIR/fresh/o.md"
+expect_output 0 "取り出せない" "まだ無いファイルでも、cat の前のコマンドがリダイレクトで書く(リンクを通して書きうる)なら止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "echo x > $CR_FDIR/fresh/link && cat > $CR_FDIR/fresh/r.md <<'EOF'
+MARK_HD $CR_BODY $CR_PAD
+EOF
+gh issue comment 1 --body-file $CR_FDIR/fresh/r.md"
+expect_output 0 "取り出せない" "まだ無いファイルでも、cat と gh の間に || が在れば止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "mkdir -p $CR_FDIR/fresh && cat > $CR_FDIR/fresh/p.md <<'EOF' || true
+MARK_HD $CR_BODY $CR_PAD
+EOF
+gh issue comment 1 --body-file $CR_FDIR/fresh/p.md"
 expect_output 0 "MARK_FILE が届いた" "gh の後に走る後片付け(&& rm f)は書き手に数えない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file $CR_FDIR/body.md && rm -f $CR_FDIR/no-such-copy/body.md"
 printf '\377\376 not utf-8 %s\n' "$CR_PAD" > "$CR_FDIR/latin.md"

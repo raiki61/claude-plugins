@@ -1217,11 +1217,20 @@ class Flow(unittest.TestCase):
             orders.stop_hook(io.StringIO(payload), out, lambda cwd: {**attrs, wake.COMPACT: other}, tempfile.mkdtemp(), lambda: None)
             self.assertEqual(json.loads(out.getvalue())["decision"], "block")
 
+    def test_deliver_with_a_wrong_front_matter_sends_nothing_and_ends_with_the_redo_line(self):
+        summary = self.ask_then_summary("+++\nopen = []\nnope = 1\n+++\n## 結論\n直した\n## 決め手\nhttps://example.com\n")
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("送らなかった: 要約の頭書き（機械が読むフィールド）か見出しの形が違う", out)
+        self.assertEqual(out.rstrip().splitlines()[-1], deliver.REDO)
+        self.assertEqual(self.prompts(), [])
+
     def test_deliver_with_missing_items_sends_nothing_and_names_them(self):
         summary = self.ask_then_summary("結論: 直した\n")
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 2, out)
         self.assertIn("送らなかった: 要約に足りない項目がある: 決め手（無いか空）、残った疑問（頭書きの open が無い。疑問が無ければ open = []）", out)
+        self.assertEqual(out.rstrip().splitlines()[-1], deliver.REDO)   # 直しと打ち直しを分けさせる（初見の読み手のゲートが止めない形。受付 8cac6e）
         self.assertEqual(self.prompts(), [])
         attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn("delivered", attrs)
@@ -1392,6 +1401,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("送らなかった: 納品の検査が通らなかった（終了の値 1）", out)
         self.assertIn("  reference/ に無い URL: https://example.com/spec", out)
+        self.assertEqual(out.rstrip().splitlines()[-1], deliver.REDO)
         self.assertEqual(self.prompts(), [])
         self.assertNotIn("delivered", self.g.worktree_attrs(self.place))
         payload = json.loads(got.read_text(encoding="utf-8"))
@@ -1420,6 +1430,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("roles[0]（担当）: 知らない鍵 deliver_chek（読まない", out)
         self.assertIn("送らなかった: 役「担当」の会社の形に、この版の読まない鍵 deliver_chek があるので送らなかった", out)
+        self.assertEqual(out.rstrip().splitlines()[-1], deliver.REDO)
         self.assertEqual(self.prompts(), [])
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "もう 1 つ", "--dry-run")
         self.assertEqual(rc, 2, out)
