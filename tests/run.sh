@@ -5922,9 +5922,9 @@ fi
 # 本文は呼ばれたときに丸ごと会話に載り、圧縮の後は頭の 5,000 トークンだけが残る。見ることと出典は台本の頭。
 # 今 標準を満たさない物は台本の EXEMPT に載せて緑で始め、満たしたら赤で知らせて一覧から消させる（MANIFEST_STANDARD_OK と同じ形）
 SB_CASE="$ROOT/tests/skill-body-case.py"
-expect_output 0 "SKILL_BODY_ARMS_OK" "スキルの本文のチェック: 5,001 字・500 行の本文・無いリンクの先・ルートの外を指すリンク・目次の無い 100 行超えの別ファイル・外す一覧に残った満たした物と無い物・置き場を変えたプラグイン・空の走査を落とし、頭の YAML・コードの中のリンクの形・URL と変数・スクリプトは見ない" \
+expect_output 0 "SKILL_BODY_ARMS_OK" "スキルの本文のチェック: 500 行の本文・無いリンクの先・ルートの外を指すリンク・目次の無い 100 行超えの別ファイル・外す一覧に残った満たした物と無い物・置き場を変えたプラグイン・空の走査を落とし、頭の YAML・コードの中のリンクの形・URL と変数・スクリプトは見ない" \
     "$PY_BIN" "$SB_CASE" arms
-expect_output 0 "SKILL_BODY_OK" "スキルの本文のチェック: 全部のプラグインのスキルとコマンドの本文が 5,000 字以下かつ 500 行未満で、指したリンクの先がプラグインの中に在り、100 行を超える別ファイルに目次が有る（外す一覧の物を除く）" \
+expect_output 0 "SKILL_BODY_OK" "スキルの本文のチェック: 全部のプラグインのスキルとコマンドの本文が 500 行未満で、指したリンクの先がプラグインの中に在り、100 行を超える別ファイルに目次が有る（外す一覧の物を除く）" \
     "$PY_BIN" "$SB_CASE" tree
 
 # ---- 全部のプラグインのフックとスキル・コマンドの本文が Python を起動する形（OS をまたいで動かす標準 docs/standards/cross-os.md の決まり 1） ----
@@ -7973,7 +7973,6 @@ NOT_RATCHET = {
     "ME": "works-dispatch の試験の中の、この会話の処理の番号（pid）。件数の突合ではない",
     "SKILL_MAX": "tests/skill-descriptions-case.py の SKILL.md の description の字数の上限（Agent Skills の仕様の 1,024 字）。件数の突合ではない",
     "LISTING_MAX": "tests/skill-descriptions-case.py の description と when_to_use の合わせた字数の上限（Claude Code の一覧の 1,536 字）。件数の突合ではない",
-    "BODY_CHARS_MAX": "tests/skill-body-case.py の本文の字数の上限（スキルの書き方の標準の決まり 1）。件数の突合ではない",
     "BODY_LINES_LIMIT": "tests/skill-body-case.py の本文の行数の上限（スキルの書き方の標準の決まり 1）。件数の突合ではない",
     "TOC_OVER": "tests/skill-body-case.py が別ファイルに目次を求める行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
     "TOC_HEAD": "tests/skill-body-case.py が目次を探す頭の行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",

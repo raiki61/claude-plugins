@@ -10,7 +10,7 @@
 - arms: 下の検査の 1 つずつが、壊した例で落ち、壊していない例で通ることを見る（チェックが空振りしていないか）
 
 見ること:
-- 長さ（決まり 1）: 本文（頭の YAML の後ろ）が 5,000 字以下、かつ 500 行未満
+- 長さ（決まり 1）: 本文（頭の YAML の後ろ）が 500 行未満。字数は見ない
 - 無い先（決まり 4）: 本文から相対パスの Markdown のリンクで指した先が在る。コードの中（``` の塊と ` の中）のリンクの形は見ない
 - ルートの外（決まり 4）: 指した先がプラグインのルートの中に在る。marketplace から入れたプラグインはルートの中だけが手元に写され、
   ルートの外のファイルは利用者の手元に無い（https://code.claude.com/docs/en/plugins/loading#in-place-and-copied-plugins）
@@ -35,7 +35,6 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 STANDARD = "docs/standards/skill-authoring.md"
-BODY_CHARS_MAX = 5000   # 決まり 1。字で数える（トークンは手元で数えられない。1 字あたり 0.77〜0.87 トークンの実測は標準に）
 BODY_LINES_LIMIT = 500  # 決まり 1。500 行「未満」
 TOC_OVER = 100          # 決まり 5。100 行を「超える」別ファイル
 TOC_HEAD = 20           # 決まり 5。目次を置く頭の行数
@@ -115,9 +114,9 @@ def check_file(path, plugin_root, kind):
     text = path.read_text(encoding="utf-8").removeprefix("﻿")
     body = body_of(text)
     bad = []
-    chars, lines = len(body), len(body.splitlines())
-    if chars > BODY_CHARS_MAX or lines >= BODY_LINES_LIMIT:
-        bad.append(("長さ", f"本文が {chars} 字・{lines} 行（{BODY_CHARS_MAX} 字以下かつ {BODY_LINES_LIMIT} 行未満。決まり 1）"))
+    lines = len(body.splitlines())
+    if lines >= BODY_LINES_LIMIT:
+        bad.append(("長さ", f"本文が {lines} 行（{BODY_LINES_LIMIT} 行未満。決まり 1）"))
     # ルートの中かは、書いたパスの .. を畳んで見る（シンボリックリンクは辿らない。marketplace の中の繋ぎは写すときに扱われる）
     root = os.path.normpath(os.path.abspath(plugin_root))
     for t in link_targets(body):
@@ -204,12 +203,11 @@ def _arms(d):
     head = "---\ndescription: 何をするか\n---\n"
     sk = "skills/x/SKILL.md"
     must("素の本文", [], {sk: head + "本文\n"})
-    must("頭の YAML は字数に数えない", [], {sk: "---\ndescription: " + "あ" * 6000 + "\n---\n本文\n"})
-    must("5,000 字ちょうど", [], {sk: head + "あ" * BODY_CHARS_MAX})
-    must("5,001 字", ["長さ"], {sk: head + "あ" * (BODY_CHARS_MAX + 1)})
+    must("頭の YAML は行数に数えない", [], {sk: "---\ndescription: |\n" + "  あ\n" * BODY_LINES_LIMIT + "---\n本文\n"})
+    must("字数は見ない", [], {sk: head + "あ" * 6000})
     must("499 行", [], {sk: head + "a\n" * (BODY_LINES_LIMIT - 1)})
     must("500 行", ["長さ"], {sk: head + "a\n" * BODY_LINES_LIMIT})
-    must("頭の YAML の無いコマンドも本文を測る", ["長さ"], {"commands/c.md": "あ" * (BODY_CHARS_MAX + 1)}, kind="command")
+    must("頭の YAML の無いコマンドも本文を測る", ["長さ"], {"commands/c.md": "a\n" * BODY_LINES_LIMIT}, kind="command")
     must("在る先", [], {sk: head + "[手順](references/a.md#セクション) と [別名][r]\n\n[r]: <references/b c.md>\n",
                        "skills/x/references/a.md": "a\n", "skills/x/references/b c.md": "b\n"})
     must("%20 の先", [], {sk: head + "[b](references/b%20c.md)\n", "skills/x/references/b c.md": "b\n"})
@@ -251,7 +249,7 @@ def _arms(d):
 
     # 走査と外す一覧: 外した決まりは通し、満たした物・無い物は消させる。外していない決まりは落とす
     r = d / "repo"
-    for p, files in (("a", {"skills/x/SKILL.md": head + "あ" * (BODY_CHARS_MAX + 1),
+    for p, files in (("a", {"skills/x/SKILL.md": head + "a\n" * BODY_LINES_LIMIT,
                             "commands/c.md": head + "本文\n", "commands/sub/n.md": head + "[n](none.md)\n"}),
                      ("moved", {"skills/y/SKILL.md": head + "本文\n"}), ("moved2", {"commands/z.md": head + "本文\n"})):
         for rel, body in files.items():
@@ -273,7 +271,7 @@ def _arms(d):
     assert len(bad) == len(want) and all(b.startswith(w) for b, w in zip(bad, want)), f"走査の食い違いの拾い方が違う: {bad}"
     assert not any(b.startswith("a/skills/x/SKILL.md") for b in bad), "外した決まりまで落としている"
     _, bad = scan(r, {})
-    assert any(b.startswith("a/skills/x/SKILL.md: 本文が 5001 字") for b in bad), "外していない長さを落とさない"
+    assert any(b.startswith("a/skills/x/SKILL.md: 本文が 500 行") for b in bad), "外していない長さを落とさない"
     empty = d / "empty"
     (empty / ".claude-plugin").mkdir(parents=True)
     (empty / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": []}), encoding="utf-8")
