@@ -321,10 +321,13 @@ def watch(stdin, runner, root, now, env, lander):
     failed = None
     if not face and not dry:
         try:
-            said = lander(pin, to, commits, cdir, runner, env)
+            landed, said = lander(pin, to, commits, cdir, runner, env)
         except (RuntimeError, OSError) as e:
             failed = str(e)
         else:
+            if not landed:
+                print(f"機械の上げは打たなかった: {said}")
+                return 0
             print(f"機械の上げ: {PLUGIN}/PIN を {pin[:8]} → {to[:8]} に上げて main に入れた（照合に当たり無し。取り込んだ PR: "
                   + ("・".join(f"#{n}" for n in numbers) or "題から番号を拾えなかった") + "）")
             print(said)
@@ -389,7 +392,8 @@ def must(argv, runner, what):
 
 def land_pin(pin, to, commits, cdir, runner, env):
     """機械の上げ: 代表の clone に origin/MAIN の頭から一時の worktree とブランチを作り、PIN と CHANGELOG を書いて commit し、works-dispatch の
-    --land で main に入れる。main の PIN が to になったかで入ったかを決め、--land の出力の終わりを返す。入らなければ RuntimeError。
+    --land で main に入れる。(入れたか, 出す行)。入れたら出す行は --land の出力の終わり。入れる物がもう無い（origin/MAIN の PIN が上げ先か、
+    ほかの上げで見張りが読んだ PIN と違う・同じ上げを走らせている処理が居る）なら入れずに訳を返す。入れようとして入らなければ RuntimeError。
     --land はほかの部署と同じ列（会社の形の [land] の queue）に並び、同じゲート（[land] の check）を通る。合図の中から打っても、外の --land は
     push し終えて列の順番を手放した後に合図を呼ぶので、列で待ち合って止まらない。作った worktree とブランチは、入っても入らなくても消す。"""
     dispatch = env.get("WORKS_DISPATCH")
@@ -399,17 +403,32 @@ def land_pin(pin, to, commits, cdir, runner, env):
     source = os.path.dirname(cdir) if os.path.basename(cdir) == ".git" else cdir   # 代表の clone のルート（works-dispatch の gitx.root_of と同じ）
     branch = f"{BRANCH}{to[:12]}"
     must(["git", "-C", source, "fetch", "-q", "origin", MAIN], runner, f"origin の {MAIN} を取り直せない")
+    # 見張りが読んだ木（works-dispatch がツールを走らせる一時の場所）は fetch していないので、取り直した origin/MAIN の PIN で決め直す
+    code, now_pin, _ = runner(["git", "-C", source, "show", f"origin/{MAIN}:{PLUGIN}/PIN"])
+    now_pin = now_pin.strip() if code == 0 else None
+    if now_pin == to:
+        return False, f"上げ先 {to[:8]} はもう origin の {MAIN} の PIN に入っている（ほかの機械の上げか手の上げが先に入れた）"
+    if now_pin != pin:
+        return False, (f"origin の {MAIN} の PIN が {(now_pin or '読めない')[:8]} で、見張りが読んだ {pin[:8]} と違う（ほかの上げが先に入った）ので打たない。"
+                       "次に main に入れたときの合図で見直す")
+    for e in listed(source, runner):
+        if e.get("branch") == f"refs/heads/{branch}":
+            why = e.get("locked") or ""
+            pid = why[len(OWNER):].strip() if why.startswith(OWNER) else ""
+            if pid.isdigit() and alive(int(pid)):
+                return False, f"同じ上げ先の機械の上げを、ほかの処理（pid {pid}）が走らせているので打たない"
+            # 殺された機械の上げの残り（作った処理がもう居ないか、鍵が無い）。消してから作り直す
+            runner(["git", "-C", source, "worktree", "remove", "--force", "--force", e["path"]])
+    runner(["git", "-C", source, "worktree", "prune"])
     temp = tempfile.mkdtemp(prefix="works-factory-pin-")
     place = os.path.join(temp, "tree")
     try:
-        must(["git", "-C", source, "worktree", "add", "-q", "-B", branch, place, f"origin/{MAIN}"], runner, "一時の worktree を作れない")
+        must(["git", "-C", source, "worktree", "add", "-q", "--lock", "--reason", f"{OWNER}{os.getpid()}", "-B", branch, place, f"origin/{MAIN}"],
+             runner, "一時の worktree を作れない")
         if runner(["git", "-C", place, "config", "--type=bool", "--get", "extensions.worktreeConfig"])[1].strip() == "true":
             # git は代表の clone の worktree ごとの設定（部署の属性 company.*）を新しい worktree に写すので、本社の部署に見えないように消す
             runner(["git", "-C", place, "config", "--worktree", "--remove-section", "company"])
         root = pathlib.Path(place)
-        now_pin = read_pin(root)
-        if now_pin != pin:
-            raise RuntimeError(f"origin の {MAIN} の PIN が {now_pin[:8]} で、見張りが読んだ {pin[:8]} と違う（ほかの上げが先に入った）")
         put(root, pin, to, commits)
         must(["git", "-C", place, "add", f"{PLUGIN}/PIN", f"{PLUGIN}/CHANGELOG.md"], runner, "上げを git に足せない")
         must(["git", "-C", place, "commit", "-q", "-m", f"works-factory: 工場の固定 commit（PIN）を {to[:8]} に上げる（機械の上げ。scripts/works-factory-pin.py）"],
@@ -417,15 +436,47 @@ def land_pin(pin, to, commits, cdir, runner, env):
         p = subprocess.run([python, dispatch, "--repo", source, "--land", branch], capture_output=True, text=True, encoding="utf-8",
                            errors="replace", env={**env, LANDING: to})
         said = "\n".join(((p.stdout or "") + (p.stderr or "")).rstrip().splitlines()[-LAND_TAIL:])
-        must(["git", "-C", source, "fetch", "-q", "origin", MAIN], runner, f"入れた後に origin の {MAIN} を取り直せない")
+        fetched = runner(["git", "-C", source, "fetch", "-q", "origin", MAIN])[0] == 0
         code, landed, _ = runner(["git", "-C", source, "show", f"origin/{MAIN}:{PLUGIN}/PIN"])
-        if code != 0 or landed.strip() != to:
-            raise RuntimeError(f"--land が main に入れなかった（終了の値 {p.returncode}）。--land の出力の終わり:\n{said}")
-        return said
+        if code == 0 and landed.strip() == to:
+            return True, said
+        if not fetched and p.returncode == 0:   # 取り直せないときだけ --land の終了の値に頼る（入ったのに作業に回さない）
+            return True, said + f"\n注記: 入れた後に origin の {MAIN} を取り直せなかったので、--land の終了の値 0 で入ったとみた"
+        raise RuntimeError(f"--land が main に入れなかった（終了の値 {p.returncode}）。--land の出力の終わり:\n{said}")
     finally:
-        runner(["git", "-C", source, "worktree", "remove", "--force", place])
-        runner(["git", "-C", source, "branch", "-D", branch])
+        left = [what for argv, what in ((["git", "-C", source, "worktree", "remove", "--force", "--force", place], "worktree"),
+                                        (["git", "-C", source, "branch", "-D", branch], "ブランチ"))
+                if runner(argv)[0] != 0 and (what != "worktree" or os.path.exists(place))]
+        if left:
+            print(f"注記: 機械の上げの{'と'.join(left)}（{place}・{branch}）を消せなかった。次の機械の上げが残りとして消す")
         shutil.rmtree(temp, ignore_errors=True)
+
+
+OWNER = "works-factory-pin pid "   # 機械の上げの worktree の鍵の訳。後ろに作った処理の pid（works-dispatch の nodes/tools.py の OWNER と同じ形）
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (OSError, OverflowError):
+        return False
+    return True
+
+
+def listed(source, runner):
+    """代表の clone の worktree の並び（git worktree list --porcelain）。1 件は {path, branch, locked}。読めなければ空。"""
+    code, out, _ = runner(["git", "-C", source, "worktree", "list", "--porcelain"])
+    rows = []
+    for line in (out if code == 0 else "").splitlines():
+        if line.startswith("worktree "):
+            rows.append({"path": line[len("worktree "):], "branch": None, "locked": None})
+        elif rows and line.startswith("branch "):
+            rows[-1]["branch"] = line[len("branch "):]
+        elif rows and (line == "locked" or line.startswith("locked ")):
+            rows[-1]["locked"] = line[len("locked "):]
+    return rows
 
 
 def write(argv, runner, root):

@@ -360,6 +360,25 @@ def auto():
     check(f"--write {shas[2]} " in out.strip().splitlines()[-1], f"手順の行が最後に無い: {out}")
     check(git(origin, "show", "main:works-factory/PIN") == shas[1], "入れられなかったのに main の PIN が変わった")
     check(leftovers(source) == ("", 1), f"失敗の後に作ったブランチか worktree が残った: {leftovers(source)}")
+    # 殺された機械の上げの残り（同じブランチの worktree。鍵の pid はもう居ない）を消してから入れる
+    source, origin = plugins(shas[1])
+    stale = os.path.join(tmp(), "stale")
+    git(source, "worktree", "add", "-q", "--lock", "--reason", f"{wp.OWNER}999999999", "-b", f"{wp.BRANCH}{shas[2][:12]}", stale)
+    fake = Fake(os.path.join(source, ".git"), shas, titles, {shas[2]: ok()})
+    code, out = go(fake, pathlib.Path(source), env={**env, "PIN_CASE_PUSH": "1"})
+    check(code == 0 and git(origin, "show", "main:works-factory/PIN") == shas[2], f"残りの worktree が在ると入れない: {code} {out}")
+    check(leftovers(source) == ("", 1), f"残りの worktree かブランチを消さない: {leftovers(source)}")
+    # origin の main の PIN がもう上げ先（見張りの木は古い）: --land を打たずに 0 で黙る
+    open(record, "w").close()
+    old_root = plugin(shas[1])
+    fake = Fake(os.path.join(source, ".git"), shas, titles, {shas[2]: ok()})
+    code, out = go(fake, old_root, env={**env, "PIN_CASE_PUSH": "1"})
+    with open(record, encoding="utf-8") as f:
+        check(code == 0 and f.read() == "", f"もう入った上げ先で --land を打った: {code} {out}")
+    # 空打ちは、照合に当たりが無くても機械の上げを打たない
+    called = []
+    code, out = go(fake, old_root, '{"dry_run": true}', env=env, lander=lambda *a: called.append(a))
+    check(code == 1 and not called, f"空打ちで機械の上げを打った: {code} {called}")
     # 照合に当たりが在る上げは機械で打たない
     called = []
     fake, root, shas2, d = world(0, {1: ok()})

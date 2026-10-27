@@ -4,7 +4,7 @@ works-factory プラグインの殻（`works-factory/bin/works-factory`）は、
 
 ## 1. 決め: 工場の CI の緑だけで上げる（案 A）
 
-持ち主が 2026-10-26 に案 A を選んだ（「おし」。勧めた案 A への答え。受付 20261026-072130-ea695b）。会社の形（`.claude/company.toml`）の `[[land.after]]`（main に入れた後に呼ぶツールの並び）に `role = "工場の版の見張り"`・`tool = "works-factory-pin"` を並べた。
+持ち主が 2026-10-26 に案 A を選んだ（「おし」。勧めた案 A への答え。受付 20261026-072130-ea695b）。会社の形（`.claude/company.toml`）の `[[land.after]]`（main に入れた後に呼ぶツールの並び。呼ぶこと、またその呼びを以下「合図」と言う）に `role = "工場の版の見張り"`・`tool = "works-factory-pin"` を並べた。
 
 - 採った: 案 A。工場の main の CI（check の名 `tests`）が緑なら、上げて配る。代償: 工場の CI は本物の run（AI の役を起こす実走）を回さないので、CI を通るが実走で壊れる変更も利用者の手元に届く。戻すのは、前の PIN に戻す手の上げ 1 回。
 - 採らない: 案 B（上げる前に、works-factory の窓口へ実走を頼み、緑の答えを待ってから `--land` する）。上げのたびに run 1 回分の費用と、run が終わるまでの待ちが掛かり、works-factory の窓口と実走の部署の手も要る。戻すのが 1 回の直しで済む A に比べ、毎回の費用が重い。
@@ -62,17 +62,23 @@ PR は立てない。このリポジトリは main へ PR を通さず、`--land
 
 ### 3.7 照合に当たりの無い上げ: 機械で `--land` まで打つ
 
+この節は設計の記録で、読み手に求める作業は無い。ツール（`scripts/works-factory-pin.py`）の `land_pin` を直す・不具合を調べる人が、機械の上げの手順と落とし穴を知るために読む。今壊れている物の話ではない。
+
 - 採った: 照合（3.4）に当たりが無ければ、ツールが自分で上げて `--land` で入れる。手の上げで作業の部署がしていたのは、`--write` を打ち、照合に当たりが無ければそのまま `--land` を打つことだけで、判断が無い。判断の要る、照合に当たりの在る上げと、機械の上げが失敗した上げだけを作業に回す。
 - 採らない: 照合に当たりが在っても機械で上げる。スキルが古いまま利用者に届く。
 - 採らない: ツールの中で main へ直に push する（`--queue-run` で列には並べる）。版の上げ（`--land` の bump）とゲート（`[land]` の `check`）と配布の合図を写すことになり、`--land` と割れる。
 
 手順（`land_pin`）:
 
-1. 代表の clone で origin の main を取り直し、その頭から一時の worktree とブランチ `works-factory-pin/<上げ先の頭 12 字>` を作る。git は代表の clone の worktree ごとの設定（部署の属性 `company.*`）を新しい worktree に写すので、消す（本社と同じ名前の部署に見えないように）。
-2. その worktree の PIN が、見張りが読んだ PIN と同じかを確かめる（違えば、ほかの上げが先に入ったので止めて作業に回す）。PIN と CHANGELOG を `--write` と同じ形で書いて commit する。
-3. works-dispatch の `--repo <代表の clone> --land <ブランチ>` を打つ。works-dispatch は合図のツールに自分のパスを環境変数 `WORKS_DISPATCH`・`WORKS_DISPATCH_PYTHON` で渡す（works-dispatch/docs/land.md の「外のツールが列に並ぶ」）。`--land` はブランチの名前で部署を探すので、会話の無いこのブランチも入れられる。
-4. 入ったかは、`--land` の終了の値でなく、origin の main の PIN が上げ先になったかで決める。入らなければ、`--land` の出力の終わり 12 行を添えて作業に回す。
-5. 入っても入らなくても、作った worktree とブランチを消す（入らなかった commit は、作業の部署が `--write` で同じ物を作り直せる）。
+1. 代表の clone（`~/src/claude-plugins`。main を出しておく本社の clone）で origin の main を取り直し、その main の `works-factory/PIN` を読む（以下、取り直した PIN）。上げ先は、2 の 3 で決めた、上げる先の工場の commit。取り直した PIN と、見張りが読んだ PIN（works-dispatch がツールを走らせる一時の場所の木の物で、取り直していない）を、次のように分ける。
+   - 取り直した PIN が上げ先と同じ: ほかの上げが先に入れたので、打たずに 0 で黙る。
+   - 取り直した PIN が見張りが読んだ PIN と違い、上げ先でもない: ほかの上げが先に入ったので、打たずに 0 で黙り、次に main に入れたときの合図で見直す。作業には回さない。
+   - 取り直した PIN が見張りが読んだ PIN のまま: 手順 2 へ進む。
+2. 同じ名前のブランチの worktree が在れば、鍵（`git worktree add --lock` の理由欄に書いた、作った処理の pid）を見る。その処理が居れば、同じ上げを走らせているので打たずに 0 で黙る。居なければ、殺された機械の上げの残りなので消す。
+3. origin の main の頭から、一時の worktree とブランチ `works-factory-pin/<上げ先の頭 12 字>` を、自分の pid の鍵を掛けて作る。git は代表の clone の worktree ごとの git の設定のうち `company.role` など `company.*` の項目（works-dispatch が、その worktree をどの役の部署の作業場かと見分けるのに読む物）を新しい worktree に写す。写ったままだと一時の worktree が部署の作業場に見えるので、この項目を消す。このツール自身の `--write <上げ先の sha>`（2 の 7。`works-factory/PIN` を上げ先の sha に、`works-factory/CHANGELOG.md` の `## [Unreleased]` に取り込んだ PR と比べの URL の 1 行を書く）と同じ関数で PIN と CHANGELOG を書いて commit する。
+4. works-dispatch の `--repo <代表の clone> --land <ブランチ>` を打つ。works-dispatch は合図のツールに自分のパスを環境変数 `WORKS_DISPATCH`・`WORKS_DISPATCH_PYTHON` で渡す（works-dispatch/docs/land.md の「外のツールが列に並ぶ」）。`--land` はブランチの名前で部署を探すので、会話の無いこのブランチも入れられる。
+5. 入ったかは、`--land` の終了の値でなく、origin の main の PIN が上げ先になったかで決める（取り直せないときだけ、`--land` の終了の値 0 を入ったとみる）。入らなければ、`--land` の出力の終わり 12 行を添えて作業に回す。
+6. 入っても入らなくても、作った worktree とブランチを消す（入らなかった commit は、作業の部署が上のツールの `--write` を打てば同じ物を作り直せる）。消せなければ注記を出し、次の機械の上げが 2 の残りとして消す。
 
 列の鍵: `--land` は、main へ push し終えたところで列（`[land]` の `queue`）の順番を手放し、その後で合図（`[[land.after]]`）を呼ぶ（works-dispatch/dispatch/landing.py の `hold.drop()` の後の `after`）。合図の中の機械の上げが打つ `--land` は、ほかの `--land` と同じ列に並び、外の `--land` と待ち合って止まることは無い。`--call` で手で呼んだときも同じ列に並ぶ。
 
