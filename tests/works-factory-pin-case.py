@@ -14,6 +14,9 @@
 - page: 比べの一覧をページで繰り、main の先の本数（ahead_by）まで読む
 - edges: CHANGELOG の Changed の空行の無い形・Unreleased が最後のセクションの形、inputs の下げた続きの行と列 0 のコメント
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
+- auto: 照合に当たりが無い上げは、代表の clone に作ったブランチで PIN と CHANGELOG を commit し、--land（偽物の dispatch.py）で main に入れて
+  0 で終わる。--land が入れなければ 1 で作業に回し、手順の行を最後に出す。どちらも作ったブランチと worktree を消す。照合に当たりが在れば
+  機械の上げを打たない。機械の上げの --land の合図で呼ばれたら工場を読まずに黙る
 """
 
 import importlib.util
@@ -22,6 +25,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -146,11 +150,13 @@ def ok():
     return [{"name": "tests", "status": "completed", "conclusion": "success"}]
 
 
-def go(fake, root, value="{}", argv=(), now=100.0):
+def go(fake, root, value="{}", argv=(), now=100.0, env=None, lander=wp.land_pin):
+    """env を省けば空（WORKS_DISPATCH が無いので、機械の上げは打てずに作業に回る）。"""
     out = io.StringIO()
     old, sys.stdout = sys.stdout, out
     try:
-        code = wp.main(argv=list(argv), stdin=io.StringIO(value), runner=fake, root=root, now=now)
+        code = wp.main(argv=list(argv), stdin=io.StringIO(value), runner=fake, root=root, now=now, env={} if env is None else env,
+                       lander=lander)
     finally:
         sys.stdout = old
     return code, out.getvalue()
@@ -287,6 +293,85 @@ def title():
     print("TITLE_OK")
 
 
+# 偽物の dispatch.py: --repo <代表の clone> --land <ブランチ> を受け、引数と LANDING を記録に書き、push するなら ブランチを origin の main に push する
+FAKE_DISPATCH = """import os, subprocess, sys
+args = sys.argv[1:]
+with open(os.environ["PIN_CASE_RECORD"], "a", encoding="utf-8") as f:
+    f.write(" ".join(args) + " " + os.environ.get("%s", "") + "\\n")
+if os.environ.get("PIN_CASE_PUSH") == "1":
+    subprocess.run(["git", "-C", args[1], "push", "-q", "origin", args[3] + ":main"], check=True)
+    print("FAKE_LAND_PUSHED")
+else:
+    print("FAKE_LAND_RED")
+    sys.exit(1)
+""" % wp.LANDING
+
+
+def plugins(pin):
+    """claude-plugins の見本: (代表の clone のルート, origin の bare)。main に PIN・CHANGELOG・スキルを置く。"""
+    base = tmp()
+    origin, source = os.path.join(base, "origin.git"), os.path.join(base, "source")
+    git(base, "init", "-q", "--bare", "-b", "main", origin)
+    git(base, "clone", "-q", origin, source)
+    git(source, "config", "user.name", "T")
+    git(source, "config", "user.email", "t@example.invalid")
+    git(source, "checkout", "-q", "-b", "main")
+    made = plugin(pin)
+    shutil.copytree(made / "works-factory", os.path.join(source, "works-factory"))
+    git(source, "add", "-A")
+    git(source, "commit", "-qm", "first")
+    git(source, "push", "-q", "origin", "main")
+    os.makedirs(os.path.join(source, ".git", *wp.deliver.INBOX))
+    return source, origin
+
+
+def auto():
+    repo, shas = factory()
+    os.environ["WORKS_FACTORY_PLUGIN_REPO"] = repo
+    titles = dict(zip(shas, ["first", "#10 名前を替える (#11)", "#12 中だけ (#13)", "中だけ その 2 (#14)"]))
+    script = os.path.join(tmp(), "dispatch.py")
+    with open(script, "w", encoding="utf-8") as f:
+        f.write(FAKE_DISPATCH)
+    record = os.path.join(tmp(), "record")
+    env = {**os.environ, "WORKS_DISPATCH": script, "WORKS_DISPATCH_PYTHON": sys.executable, "PIN_CASE_RECORD": record}
+
+    def leftovers(source):
+        branches = git(source, "branch", "--list", wp.BRANCH + "*")
+        trees = [x for x in git(source, "worktree", "list", "--porcelain").splitlines() if x.startswith("worktree ")]
+        return branches, len(trees)
+
+    # 入れられる --land: main の PIN が上げ先になり、0 で終わる
+    source, origin = plugins(shas[1])
+    fake = Fake(os.path.join(source, ".git"), shas, titles, {shas[2]: ok()})
+    code, out = go(fake, pathlib.Path(source), env={**env, "PIN_CASE_PUSH": "1"})
+    check(code == 0 and "FAKE_LAND_PUSHED" in out and "#13" in out, f"照合に当たりの無い上げを機械で入れない: {code} {out}")
+    check(git(origin, "show", "main:works-factory/PIN") == shas[2], f"origin の main の PIN が上げ先でない: {out}")
+    log = git(origin, "show", "main:works-factory/CHANGELOG.md")
+    check(f"`works-factory/PIN`）を {shas[2][:8]} に上げた" in log and "raiki61/works-factory#13" in log, f"CHANGELOG に上げの行が無い: {log}")
+    with open(record, encoding="utf-8") as f:
+        said = f.read()
+    check(f"--repo {source} --land {wp.BRANCH}{shas[2][:12]} {shas[2]}" in said, f"--land の引数か {wp.LANDING} が違う: {said}")
+    check(leftovers(source) == ("", 1), f"作ったブランチか worktree が残った: {leftovers(source)}")
+    # 入れられない --land: 1 で作業に回し、手順の行を最後に出す
+    source, origin = plugins(shas[1])
+    fake = Fake(os.path.join(source, ".git"), shas, titles, {shas[2]: ok()})
+    code, out = go(fake, pathlib.Path(source), env=env)
+    check(code == 1 and "FAKE_LAND_RED" in out, f"--land の失敗を作業に回さない: {code} {out}")
+    check(f"--write {shas[2]} " in out.strip().splitlines()[-1], f"手順の行が最後に無い: {out}")
+    check(git(origin, "show", "main:works-factory/PIN") == shas[1], "入れられなかったのに main の PIN が変わった")
+    check(leftovers(source) == ("", 1), f"失敗の後に作ったブランチか worktree が残った: {leftovers(source)}")
+    # 照合に当たりが在る上げは機械で打たない
+    called = []
+    fake, root, shas2, d = world(0, {1: ok()})
+    code, out = go(fake, root, env=env, lander=lambda *a: called.append(a))
+    check(code == 1 and not called, f"照合に当たりが在るのに機械の上げを打った: {code} {called} {out}")
+    # 機械の上げの --land の合図で呼ばれたら、工場を読まずに黙る（gh を壊しておき、読めば 1 になる）
+    fake.broken = True
+    code, out = go(fake, root, env={wp.LANDING: shas2[1]})
+    check(code == 0, f"機械の上げの合図で黙らない: {code} {out}")
+    print("AUTO_OK")
+
+
 if __name__ == "__main__":
     {"target": target, "told": told, "surface": surface, "write": write, "unreadable": unreadable, "page": page, "edges": edges,
-     "title": title}[sys.argv[1]]()
+     "title": title, "auto": auto}[sys.argv[1]]()

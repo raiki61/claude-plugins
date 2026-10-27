@@ -4,9 +4,14 @@
 
 works-dispatch の機械窓口のツールとして、`dispatch.py --call 工場の版の見張り works-factory-pin` か、main に入れた後の合図
 （[[land.after]]）で呼ばれる。持ち主は定期の起動（cron）を置かないと決めているので、tests/ci-watch.py と同じく main へ入れる動きに乗せる。
-上げる物が在れば、その行を出して 1 で終わり、works-dispatch がその出力を添えて役の fallback_role（作業）への頼みに変える。作業の部署は
-`python3 scripts/works-factory-pin.py --write` で PIN と CHANGELOG を直し、スキルに効く変更が出ていればスキルを直して、--land で入れる
-（版は --land が上げ、配布は --land の後の合図の spread-plugins がする）。
+上げる物が在り、スキルに効く変更の照合に当たりが無ければ、AI を立てずに自分で上げる（機械の上げ。land_pin）: 代表の clone に一時の
+worktree とブランチ（works-factory-pin/<上げ先の頭 12 字>）を作り、PIN と CHANGELOG を書いて commit し、works-dispatch の --land で main に
+入れる（版は --land が上げ、配布は --land の後の合図の spread-plugins がする）。入れたら 0 で終わる。
+照合に当たりが在るとき・機械の上げが失敗したときは、その行を出して 1 で終わり、works-dispatch がその出力を添えて役の fallback_role（作業）への
+頼みに変える。作業の部署は `python3 scripts/works-factory-pin.py --write` で PIN と CHANGELOG を直し、スキルに効く変更が出ていれば
+スキルを直して、--land で入れる。
+機械の上げの --land の後の合図は、もう一度このツールを呼ぶ。そのときは環境変数 LANDING（機械の上げが --land に渡す）を見て、工場を読まずに
+黙る（工場の main がさらに進んでいれば、次に誰かが main に入れたときに上げる）。
 
 見る物:
 - 上げ先: 工場の main のうち PIN より新しい commit を新しい順に見て、check の名 `tests`（工場の .github/workflows/tests.yml の集めの job）が
@@ -23,7 +28,8 @@ works-dispatch の機械窓口のツールとして、`dispatch.py --call 工場
 使い方:
   python3 scripts/works-factory-pin.py < 入力の JSON（省けば {}。{"dry_run": true} なら、知らせる物を出すだけで覚えない）
   python3 scripts/works-factory-pin.py --write [<commit>]   作業の部署の作業場で、PIN と CHANGELOG の [Unreleased] を書き、照合の結果を出す
-終了の値: 0 = 上げる物が無い（--write は書いた） / 1 = 上げる物が在る（その行を出す）か、gh・git を読めない / 2 = 入力・引数が読めない
+終了の値: 0 = 上げる物が無いか、機械の上げで main に入れた（--write は書いた） / 1 = 作業に回す上げが在る（その行を出す）か、gh・git を
+読めないか、機械の上げが失敗した / 2 = 入力・引数が読めない
 """
 
 import json
@@ -31,7 +37,9 @@ import os
 import pathlib
 import re
 import subprocess
+import shutil
 import sys
+import tempfile
 import time
 
 for _s in (sys.stdout, sys.stderr):
@@ -53,6 +61,10 @@ INPUT_FILES = ("workflows/line/works-factory-line.yaml", "workflows/chain/works-
 FACE_FILES = ("README.md", "bin/works-factory", "bin/apply")
 ENV = re.compile(r"WORKS_FACTORY_[A-Z0-9_]+")
 SHA = re.compile(r"[0-9a-f]{40}")
+MAIN = "main"   # claude-plugins のメインブランチ。機械の上げは origin のこのブランチの頭から切る
+BRANCH = "works-factory-pin/"   # 機械の上げのブランチの名前の頭（後ろに上げ先の頭 12 字）。--land はこの名前で部署を探す
+LANDING = "WORKS_FACTORY_PIN_LANDING"   # 機械の上げが --land に渡す環境変数（値は上げ先）。その --land の合図で呼ばれたこのツールは黙る
+LAND_TAIL = 12   # 機械の上げが失敗したときに出す、--land の出力の終わりの行数（頼みに載るのは出力の末尾 20 行なので、上げ先の行から手順の行までをその中に収める）
 PAGE = 100   # 比べ（compare）の commit の一覧を 1 回に引く数（GitHub の per_page の上限）。既定の 30 では、31 本より先の main を読み切れない
 
 
@@ -262,7 +274,7 @@ def url_of():
     return os.environ.get("WORKS_FACTORY_PLUGIN_REPO") or f"https://github.com/{REPO}.git"
 
 
-def watch(stdin, runner, root, now):
+def watch(stdin, runner, root, now, env, lander):
     raw = stdin.read().strip() or "{}"
     try:
         value = json.loads(raw)
@@ -273,6 +285,9 @@ def watch(stdin, runner, root, now):
     if dry is None:
         print("止めた: 入力は JSON のオブジェクトにする")
         return 2
+    if env.get(LANDING):
+        print(f"機械の上げ（上げ先 {env[LANDING][:8]}）が打った --land の合図なので黙る（工場の main がさらに進んでいれば、次に main に入れたときに上げる）")
+        return 0
     try:
         cdir = common_dir(runner, root)
         # 開いた頼みを先に見る（工場を読めない失敗も頼みに変わるので、読む前に見ないと、失敗が続く間 main に入れるたびに頼みが積まれる）
@@ -301,19 +316,34 @@ def watch(stdin, runner, root, now):
         return 1
     head, commits = commits[-1][0], upto(commits, to)
     numbers = prs(commits)
+    if not dry:
+        save_state(state_path, to, now)
+    failed = None
+    if not face and not dry:
+        try:
+            said = lander(pin, to, commits, cdir, runner, env)
+        except (RuntimeError, OSError) as e:
+            failed = str(e)
+        else:
+            print(f"機械の上げ: {PLUGIN}/PIN を {pin[:8]} → {to[:8]} に上げて main に入れた（照合に当たり無し。取り込んだ PR: "
+                  + ("・".join(f"#{n}" for n in numbers) or "題から番号を拾えなかった") + "）")
+            print(said)
+            return 0
     print(f"工場 {REPO} の main で CI〔{CHECK}〕が緑の {to[:8]} が、{PLUGIN}/PIN の {pin[:8]} より {len(commits)} 本先に在る"
           + (f"（main の頭 {head[:8]} の CI はまだ緑でない）" if head != to else ""))
     print(f"差分: https://github.com/{REPO}/compare/{pin[:12]}...{to[:12]}")
     print("取り込む PR: " + ("・".join(f"#{n}" for n in numbers) if numbers else "（題から番号を拾えなかった）"))
     print("スキルに効く変更の照合: " + ("当たり無し" if not face else f"{len(face)} 件"))
     print("\n".join(f"- {x[:300]}" for x in face) + ("\n（照合の行は 300 字で切った。全文は --write の出力）" if any(len(x) > 300 for x in face) else ""))
+    if failed:
+        print(f"機械の上げが失敗した（作業に回す）: {failed}")
+    elif dry and not face:
+        print("空打ちなので、機械の上げ（照合に当たりが無いので、本当に打てば AI を立てずに main に入れる）は打たない")
     # 手順の行は最後に出す（works-dispatch が頼みに載せるのは出力の末尾の行なので）
     print(f"手順: 作業場で python3 scripts/works-factory-pin.py --write {to} を打つ（PIN と CHANGELOG の [Unreleased] を書き、照合の結果の全部を出す）。"
           + ("照合で当たりが在るので、スキル（works-factory/skills/works-factory の SKILL.md と references）を工場の該当の PR と README に"
              "合わせて直し、CHANGELOG の行に利用者に効く違いを書き足してから --land で入れる。" if face else "照合で当たりが無いので、そのまま --land で入れる。")
           + "版は --land が上げ、配布は --land の後の合図がする")
-    if not dry:
-        save_state(state_path, to, now)
     return 1
 
 
@@ -342,6 +372,62 @@ def add_changed(text, line):
     return text[:body_from] + body + text[body_to:]
 
 
+def put(root, pin, to, commits):
+    """PIN を to に替え、CHANGELOG の [Unreleased] の Changed に上げの 1 行を足す。"""
+    log = root / PLUGIN / "CHANGELOG.md"
+    text = add_changed(log.read_text(encoding="utf-8"), changelog_line(pin, to, prs(commits)))   # 書く前に両方を組む（片方だけ書いて止まらない）
+    (root / PLUGIN / "PIN").write_text(to + "\n", encoding="utf-8")
+    log.write_text(text, encoding="utf-8")
+
+
+def must(argv, runner, what):
+    code, out, err = runner(argv)
+    if code != 0:
+        raise RuntimeError(f"{what}（{' '.join(argv[:4])} … が {code} で終わった）: {(err or out).strip()[-300:]}")
+    return out
+
+
+def land_pin(pin, to, commits, cdir, runner, env):
+    """機械の上げ: 代表の clone に origin/MAIN の頭から一時の worktree とブランチを作り、PIN と CHANGELOG を書いて commit し、works-dispatch の
+    --land で main に入れる。main の PIN が to になったかで入ったかを決め、--land の出力の終わりを返す。入らなければ RuntimeError。
+    --land はほかの部署と同じ列（会社の形の [land] の queue）に並び、同じゲート（[land] の check）を通る。合図の中から打っても、外の --land は
+    push し終えて列の順番を手放した後に合図を呼ぶので、列で待ち合って止まらない。作った worktree とブランチは、入っても入らなくても消す。"""
+    dispatch = env.get("WORKS_DISPATCH")
+    if not dispatch:
+        raise RuntimeError("works-dispatch から呼ばれていない（環境変数 WORKS_DISPATCH が無い）ので、--land を打てない")
+    python = env.get("WORKS_DISPATCH_PYTHON") or sys.executable
+    source = os.path.dirname(cdir) if os.path.basename(cdir) == ".git" else cdir   # 代表の clone のルート（works-dispatch の gitx.root_of と同じ）
+    branch = f"{BRANCH}{to[:12]}"
+    must(["git", "-C", source, "fetch", "-q", "origin", MAIN], runner, f"origin の {MAIN} を取り直せない")
+    temp = tempfile.mkdtemp(prefix="works-factory-pin-")
+    place = os.path.join(temp, "tree")
+    try:
+        must(["git", "-C", source, "worktree", "add", "-q", "-B", branch, place, f"origin/{MAIN}"], runner, "一時の worktree を作れない")
+        if runner(["git", "-C", place, "config", "--type=bool", "--get", "extensions.worktreeConfig"])[1].strip() == "true":
+            # git は代表の clone の worktree ごとの設定（部署の属性 company.*）を新しい worktree に写すので、本社の部署に見えないように消す
+            runner(["git", "-C", place, "config", "--worktree", "--remove-section", "company"])
+        root = pathlib.Path(place)
+        now_pin = read_pin(root)
+        if now_pin != pin:
+            raise RuntimeError(f"origin の {MAIN} の PIN が {now_pin[:8]} で、見張りが読んだ {pin[:8]} と違う（ほかの上げが先に入った）")
+        put(root, pin, to, commits)
+        must(["git", "-C", place, "add", f"{PLUGIN}/PIN", f"{PLUGIN}/CHANGELOG.md"], runner, "上げを git に足せない")
+        must(["git", "-C", place, "commit", "-q", "-m", f"works-factory: 工場の固定 commit（PIN）を {to[:8]} に上げる（機械の上げ。scripts/works-factory-pin.py）"],
+             runner, "上げを commit できない")
+        p = subprocess.run([python, dispatch, "--repo", source, "--land", branch], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", env={**env, LANDING: to})
+        said = "\n".join(((p.stdout or "") + (p.stderr or "")).rstrip().splitlines()[-LAND_TAIL:])
+        must(["git", "-C", source, "fetch", "-q", "origin", MAIN], runner, f"入れた後に origin の {MAIN} を取り直せない")
+        code, landed, _ = runner(["git", "-C", source, "show", f"origin/{MAIN}:{PLUGIN}/PIN"])
+        if code != 0 or landed.strip() != to:
+            raise RuntimeError(f"--land が main に入れなかった（終了の値 {p.returncode}）。--land の出力の終わり:\n{said}")
+        return said
+    finally:
+        runner(["git", "-C", source, "worktree", "remove", "--force", place])
+        runner(["git", "-C", source, "branch", "-D", branch])
+        shutil.rmtree(temp, ignore_errors=True)
+
+
 def write(argv, runner, root):
     if len(argv) > 1 or (argv and not SHA.fullmatch(argv[0])):
         print("止めた: --write に渡せるのは 40 桁の commit 1 つだけ（省けば今の上げ先）")
@@ -362,10 +448,7 @@ def write(argv, runner, root):
         cache = os.path.join(common_dir(runner, root), SOURCE)
         fetch(cache, url_of(), [pin, to], runner)
         face = surface(pin, to, cache, runner, root)
-        log = root / PLUGIN / "CHANGELOG.md"
-        text = add_changed(log.read_text(encoding="utf-8"), changelog_line(pin, to, prs(commits)))   # 書く前に両方を組む（片方だけ書いて止まらない）
-        (root / PLUGIN / "PIN").write_text(to + "\n", encoding="utf-8")
-        log.write_text(text, encoding="utf-8")
+        put(root, pin, to, commits)
     except (RuntimeError, OSError) as e:
         print(f"止めた: {e}")
         return 1
@@ -379,14 +462,15 @@ def write(argv, runner, root):
     return 0
 
 
-def main(argv=None, stdin=None, runner=run, root=ROOT, now=None):
+def main(argv=None, stdin=None, runner=run, root=ROOT, now=None, env=None, lander=land_pin):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--write"]:
         return write(argv[1:], runner, root)
     if argv:
         print(f"止めた: 知らない引数 {' '.join(argv)}")
         return 2
-    return watch(sys.stdin if stdin is None else stdin, runner, root, time.time() if now is None else now)
+    return watch(sys.stdin if stdin is None else stdin, runner, root, time.time() if now is None else now,
+                 os.environ if env is None else env, lander)
 
 
 if __name__ == "__main__":

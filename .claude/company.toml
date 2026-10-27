@@ -364,7 +364,9 @@ command = "python3 tests/ci-watch.py"
 fallback_role = "点検"
 
 # 工場の版の見張り（受付 20261026-055008-8aa008。頼み元は works-factory の窓口）: works-factory プラグインの PIN より先に、工場 raiki61/works-factory の
-# main で CI が緑の commit が在れば、上げる頼みを作業に回す。作業は --write で PIN と CHANGELOG を書き、照合で当たればスキルも直して --land で入れる。
+# main で CI が緑の commit が在れば上げる。スキルに効く変更の照合に当たりが無ければ、AI を立てずにツールが PIN と CHANGELOG を書いて --land で入れる
+# （機械の上げ。持ち主 2026-10-28「いやLLMも要らないような自動のあげかた」。設計の 3.7）。照合に当たったときと機械の上げが失敗したときだけ、
+# 上げる頼みを作業に回す。作業は --write で PIN と CHANGELOG を書き、照合で当たればスキルも直して --land で入れる。
 # main に入れるたびに下の [[land.after]] の合図で呼ばれる。工場の CI の緑だけで上げる（持ち主 2026-10-26「おし」で案 A。設計 docs/specs/2026-10-26-works-factory-pin-design.md の 1）。
 # 手で呼ぶなら dispatch.py --call claude-plugins/工場の版の見張り works-factory-pin（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えない）
 [[roles]]
@@ -374,8 +376,8 @@ machine = true
 [[roles.tools]]
 name = "works-factory-pin"
 title = "工場の版の上げ先を見る"
-description = "works-factory プラグインの工場の固定 commit（works-factory/PIN）の後に、raiki61/works-factory の main で CI（check の名 tests）が緑の commit が在るかを見る。在れば、上げ先・取り込む PR・スキルに効く変更の照合（スキルが引いた語・パスの消え、本線と周の鎖の入力の出入り、WORKS_FACTORY_* の出入り、工場の README と殻の変更）と、上げる手順（python3 scripts/works-factory-pin.py --write <上げ先の sha>）を出して 1 で終わり、作業に回る。知らせた上げ先は覚え、回した頼みが開いている間（工場を読む前に見る）と、閉じた後の同じ上げ先では知らせ直さない"
-inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、知らせる物を出すだけで覚えない" } }, additionalProperties = false }
+description = "works-factory プラグインの工場の固定 commit（works-factory/PIN）の後に、raiki61/works-factory の main で CI（check の名 tests）が緑の commit が在るかを見る。在れば、スキルに効く変更を照合する（スキルが引いた語・パスの消え、本線と周の鎖の入力の出入り、WORKS_FACTORY_* の出入り、工場の README と殻の変更）。当たりが無ければ、代表の clone に一時のブランチを作って PIN と CHANGELOG を commit し、--land で main に入れて 0 で終わる（機械の上げ。その --land の合図で呼ばれたら黙る）。当たりが在るか機械の上げが失敗したら、上げ先・取り込む PR・照合の結果と、上げる手順（python3 scripts/works-factory-pin.py --write <上げ先の sha>）を出して 1 で終わり、作業に回る。知らせた上げ先は覚え、回した頼みが開いている間（工場を読む前に見る）と、閉じた後の同じ上げ先では知らせ直さない"
+inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、知らせる物を出すだけで覚えず、機械の上げも打たない" } }, additionalProperties = false }
 command = "python3 scripts/works-factory-pin.py"
 fallback_role = "作業"
 

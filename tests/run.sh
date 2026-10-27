@@ -2422,7 +2422,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=778
+EXPECTED_CHECKS=779
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5696,7 +5696,7 @@ expect_output 0 "TITLE_OK" \
     "ci-watch: works-dispatch が頼みに付ける題の形が、ツールが自分の頼みを見分ける形のまま" \
     "$PY_BIN" "$CIW_CASE" title
 
-# ---- scripts/works-factory-pin.py: 会社の形の役「工場の版の見張り」のツール（works-factory の PIN を工場の main の緑に上げる頼みを作る） ----
+# ---- scripts/works-factory-pin.py: 会社の形の役「工場の版の見張り」のツール（works-factory の PIN を工場の main の緑に上げる。照合に当たれば頼みを作る） ----
 # gh は偽物の runner で回し、工場は一時の git のリポジトリに作る。本物の GitHub と受付箱には触らない
 WFP_CASE="$ROOT/tests/works-factory-pin-case.py"
 expect_output 0 "TARGET_OK" \
@@ -5723,6 +5723,9 @@ expect_output 0 "EDGES_OK" \
 expect_output 0 "TITLE_OK" \
     "works-factory-pin: works-dispatch が頼みに付ける題の形が、ツールが自分の頼みを見分ける形のまま" \
     "$PY_BIN" "$WFP_CASE" title
+expect_output 0 "AUTO_OK" \
+    "works-factory-pin: 照合に当たりの無い上げは AI を立てずに --land で main に入れ、入らなければ作業に回し、作ったブランチを残さず、合図の再入では黙る" \
+    "$PY_BIN" "$WFP_CASE" auto
 
 scope attention tests/what-am-i-doing tests/whose-turn
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
