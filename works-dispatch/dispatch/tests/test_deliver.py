@@ -432,14 +432,16 @@ class StopVerdict(unittest.TestCase):
     def test_a_queued_notice_lets_the_turn_end_until_it_is_taken(self):
         # 裏の処理が最後の答えの最中に終わると、background_tasks からは消え、終わりの知らせは入力の待ち行列に残る（2.1.311 で再現。
         # 受付 f1d5c5 の部署はこの間に差し戻しを使い切り、止まった知らせを出された）。知らせが会話を再開させるので差し戻さない
+        # （再開しなければ待ち受けが遅れて差し戻す。test_wake の Late）
         rows = lambda *ops: "".join(json.dumps({"type": "queue-operation", "operation": op}) + "\n" for op in ops)
-        def stop(*ops, running=()):
+        def stop(*ops, head='{"type": "user"}\n', running=(), shells=lambda: 0):
             path = os.path.join(tempfile.mkdtemp(), "t.jsonl")
-            pathlib.Path(path).write_text('{"type": "user"}\n' + rows(*ops), encoding="utf-8")
+            pathlib.Path(path).write_text(head + rows(*ops), encoding="utf-8")
+            payload = {"session_id": "s1", "cwd": "/w", "transcript_path": path}
+            if running is not None:
+                payload["background_tasks"] = list(running)
             out = io.StringIO()
-            orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w", "transcript_path": path,
-                                                     "background_tasks": list(running)})),
-                             out, lambda cwd: dict(self.ATTRS), tempfile.mkdtemp(), lambda: 0)
+            orders.stop_hook(io.StringIO(json.dumps(payload)), out, lambda cwd: dict(self.ATTRS), tempfile.mkdtemp(), shells)
             return out.getvalue()
         self.assertEqual(stop("enqueue"), "")
         self.assertEqual(stop("enqueue", "dequeue", "enqueue"), "")
@@ -448,6 +450,11 @@ class StopVerdict(unittest.TestCase):
         self.assertEqual(json.loads(stop("dequeue", "enqueue", "remove"))["decision"], "block", "読み始めより前の取り出しは数えない")
         self.assertEqual(json.loads(stop())["decision"], "block")
         self.assertEqual(stop("enqueue", running=[{"id": "b1", "status": "running"}]), "")
+        self.assertEqual(stop("enqueue", running=None, shells=lambda: None), "", "裏の処理の数が分からなくても、待ち行列で見る")
+        self.assertEqual(json.loads(stop(running=None, shells=lambda: None))["decision"], "block")
+        # 待ち行列の行でない行は、字に queue-operation を含んでも数えない（部署がこのコードを読むと、ツールの結果に出る）
+        quoted = json.dumps({"type": "user", "operation": "enqueue", "text": "queue-operation"}) + "\n" + '{"type": "queue-ope'
+        self.assertEqual(json.loads(stop(head=quoted + "\n"))["decision"], "block", "ほかの行と切れた行は数えない")
 
     @unittest.skipIf(os.name == "nt", "ps の無い Windows では数えない（None を返し、Stop フックは裏の処理の一覧で見る）")
     def test_background_shells_are_the_claude_childs_bash_tool_shells(self):

@@ -1330,7 +1330,8 @@ class Warm:
         if wake.queued(self.got["inbox"], self.got["place"]):
             return None
         if not self.running and deliver.stop_verdict(self.payload, attrs, 0, RUN):
-            # 納品していない頼みが在り、裏の処理も無い: orders の Stop フックがこのターンの終わりを差し戻している（ターンは終わっていない）。
+            # 納品していない頼みが在り、裏の処理も無い: orders の Stop フックがこのターンの終わりを差し戻している（ターンは終わっていない）か、
+            # 入力の待ち行列に残った知らせで会話がすぐ再開する（再開しなければ Late が差し戻しを送る）。
             # 問うと、会話はツールを使わずに 1 行で答えてターンを終え、差し戻しを使い切って止まる（2026-10-26 の見渡し。受付 3ddd8e）
             # 差し戻しを使い切った後も問わない（止まった部署は orders.stalled が頼み元へ知らせる）
             return None
@@ -1377,6 +1378,52 @@ class Warm:
             return (None,)
         self.compact_note, self.failed = f"compact を打てなかった（{failed}）", True
         return None
+
+
+LATE_WAIT = 30.0   # 待ち行列に残った知らせで会話が再開するのを待つ秒（ふつうはターンの終わりの直後に渡る。Late）
+LATE_NOTE = "（ターンの終わりに入力の待ち行列に残っていた知らせで、会話が再開しなかったので、止まる前の差し戻しをここで送る）\n"
+
+
+class Late:
+    """止まる前の差し戻しを、待ち受けが遅れて送る口（wake.watch の idle）。Stop フック（orders.stop_hook）は、入力の待ち行列に
+    積まれた知らせが残る間は差し戻さない（知らせが会話を再開させる。chat.queued_inputs）。ただ、積まれたまま渡らない知らせもある
+    （会話の記録で、Monitor の知らせや、取り出しの行を書かずに消えた知らせを見た）。そのときは差し戻しも止まった知らせも出ないまま
+    部署が止まるので、ターンの終わりから LATE_WAIT 秒たっても会話の記録にターンの行が足されていなければ（still_since）、
+    Stop フックと同じ差し戻し（orders.stop_reason。回数も止まった知らせも同じ控えで数える）を 1 度だけ送る。足されていれば、そのターンの
+    終わりの Stop フックと待ち受けが決め直すので、この待ちでは送らない。"""
+
+    def __init__(self, got, payload, attrs_of=_attrs, now=time.time, nudge=None):
+        self.got, self.payload, self.attrs_of, self.now, self.nudge = got, payload, attrs_of, now, nudge
+        self.since, self.still, self.done = now(), still_since(chat.transcript(payload)), False
+
+    def __call__(self):
+        if self.done or self.now() - self.since < LATE_WAIT:
+            return None
+        self.done = True
+        attrs = self.attrs_of(self.got["cwd"])
+        if not self.still() or not attrs.get("ask"):
+            return None
+        if self.nudge is None:
+            import orders   # 差し戻しの文と数え方は Stop フックと同じ物を使う。読むのはここに来たときだけ（待ち受けの起動を重くしない）
+            self.nudge = orders.stop_reason
+        try:
+            reason = self.nudge(self.payload, self.got["cwd"], attrs)
+        except Exception as e:  # 差し戻しを決められなくても待ち受けは止めない（止めると順番待ちを渡す者が居なくなる）。訳は待ち受けの出力に残す
+            filex.warn(f"注記: 待ち行列に残った知らせで会話が再開しないので差し戻そうとしたが、決められない（{type(e).__name__}: {e}）")
+            return None
+        return LATE_NOTE + reason if reason else None
+
+
+def late_for(got, payload, attrs_of=_attrs, shells=chat.background_shells):
+    """この待ち受けが差し戻しを遅れて送る（Late）なら Late、送らないなら None。送るのは、ターンの終わり（Stop）に、部署が納品の前か後の
+    頼みを持ち、裏で動いている処理が無く（数が分からないときも）、入力の待ち行列に積まれた物が在って、Stop フックが差し戻さなかった
+    ときだけ（chat.resumers が待ち行列の数を返した形）。会話の記録の場所が分からなければ、会話が動いたかを見られないので送らない。"""
+    if chat.event(payload) != "Stop" or not chat.transcript(payload):
+        return None
+    attrs = attrs_of(got["cwd"])
+    if not attrs.get("role") or not attrs.get("ask") or chat.running_tasks(payload, shells) or not chat.queued_inputs(payload):
+        return None
+    return Late(got, payload, attrs_of)
 
 
 def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shells=chat.background_shells, now=time.time, again=False,
@@ -1584,6 +1631,12 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
     except Exception as e:  # keepalive を決められなくても、頼みと納品の知らせは待つ
         filex.warn(f"注記: keepalive を送るかを決められないので送らない（{type(e).__name__}: {e}）", err)
         warm = None
+    try:
+        late = late_for(got, payload)
+    except Exception as e:  # 遅れた差し戻しを決められなくても、頼みと納品の知らせは待つ
+        filex.warn(f"注記: 待ち行列に残った知らせで会話が再開しないときの差し戻しを決められない（{type(e).__name__}: {e}）", err)
+        late = None
+    idle = (lambda: late() or (warm() if warm else None)) if late else warm
 
     def check():
         # 頼みを渡すか空にする前に、今入っている版に替わる（替わった先の待ち受けが、同じ順番待ちと台帳の読んだ所から続ける）
@@ -1604,7 +1657,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
                 signal.signal(getattr(signal, name), stop)
         code = wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token,
                           WithRole(err, payload, woke=lambda: woken(got)), check=check, ready=lambda: not unready(payload, got["job"]),
-                          since=got.get("since"), idle=warm)
+                          since=got.get("since"), idle=idle)
         if code or not there or there[-1] is None:   # 替わる先が無いか、前に替われなかった
             return code
         if (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != token:

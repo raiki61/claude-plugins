@@ -1,6 +1,7 @@
 """受付の待ち受けと順番待ち（nodes/wake.py・wake_hook.py）と、--ask・--deliver が待ち受けに知らせる道。
 git（tests/fakegit.py）・herdr・claude は偽物で回す（入口を別の処理として起動する HookProcess だけ、git は一時のフォルダの本物）。"""
 
+import contextlib
 import io
 import json
 import os
@@ -713,6 +714,80 @@ class Keepalive(unittest.TestCase):
             # 裏の処理が残る間も、線が分かれば聞く
             self.assertTrue(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: self.attrs,
                                                line_of=lambda got, attrs: (800000, None)).compact)
+
+
+class Late(unittest.TestCase):
+    """待ち行列に残った知らせで会話が再開しないときに、待ち受けが遅れて送る止まる前の差し戻し（wake_hook.Late・late_for）。"""
+
+    def setUp(self):
+        self.cwd = tempfile.mkdtemp()
+        self.log = os.path.join(self.cwd, "talk.jsonl")
+        self.add({"type": "assistant"}, {"type": "queue-operation", "operation": "enqueue", "content": "<task-notification>"})
+        self.got = {"cwd": self.cwd, "inbox": tempfile.mkdtemp(), "place": tempfile.mkdtemp(), "session": "s1", "job": None}
+        self.payload = {"hook_event_name": "Stop", "session_id": "s1", "cwd": self.cwd, "transcript_path": self.log, "background_tasks": []}
+        self.attrs = {"role": "担当", "ask": "a1"}
+        self.clock, self.asked = [1000.0], []
+
+    def add(self, *rows):
+        with open(self.log, "a", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in rows))
+
+    def late(self, nudge="差し戻し"):
+        return wake_hook.Late(self.got, self.payload, lambda cwd: self.attrs, lambda: self.clock[0],
+                              nudge=lambda payload, cwd, attrs: self.asked.append(attrs["ask"]) or nudge)
+
+    def test_it_sends_the_hooks_nudge_once_when_the_turn_does_not_resume(self):
+        late = self.late()
+        self.clock[0] += wake_hook.LATE_WAIT - 1
+        self.assertIsNone(late())
+        self.clock[0] += 1
+        self.assertEqual(late(), wake_hook.LATE_NOTE + "差し戻し")
+        self.assertEqual(self.asked, ["a1"])
+        self.clock[0] += 600
+        self.assertIsNone(late(), "1 度だけ（次はそのターンの終わりの Stop フックが決める）")
+        def broken(payload, cwd, attrs):
+            raise OSError("git が読めない")
+        late = wake_hook.Late(self.got, self.payload, lambda cwd: self.attrs, lambda: self.clock[0], nudge=broken)
+        self.clock[0] += wake_hook.LATE_WAIT
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertIsNone(late(), "差し戻しを決められなくても待ち受けは止めない")
+        self.assertIn("git が読めない", err.getvalue())
+
+    def test_a_turn_started_by_the_notice_or_a_closed_ask_sends_nothing(self):
+        late = self.late()
+        self.add({"type": "queue-operation", "operation": "dequeue"}, {"type": "user", "message": {"content": "<task-notification>"}})
+        self.clock[0] += wake_hook.LATE_WAIT
+        self.assertIsNone(late())
+        late, self.attrs = self.late(), {"role": "担当"}
+        self.clock[0] += wake_hook.LATE_WAIT
+        self.assertIsNone(late())
+        self.assertEqual(self.asked, [])
+        late, self.attrs = self.late(nudge=None), {"role": "担当", "ask": "a1"}
+        self.clock[0] += wake_hook.LATE_WAIT
+        self.assertIsNone(late(), "差し戻しが要らない（使い切った・納品の後で残ってよい）なら送らない")
+
+    def test_it_uses_the_stop_hooks_nudge_and_count(self):
+        tmp = tempfile.mkdtemp()
+        late = wake_hook.Late(self.got, self.payload, lambda cwd: self.attrs, lambda: self.clock[0])
+        self.clock[0] += wake_hook.LATE_WAIT
+        with mock.patch.object(tempfile, "gettempdir", lambda: tmp):
+            text = late()
+        self.assertIn("頼み（受付 a1）をまだ納品していない", text)
+        self.assertEqual(pathlib.Path(deliver.stop_count_path(tmp, "s1", "a1")).read_text(encoding="utf-8"), "1", "Stop フックと同じ控えで数える")
+
+    def test_it_is_set_only_when_the_hook_let_the_turn_end_for_a_queued_notice(self):
+        late_for = lambda payload=None, attrs=None, shells=lambda: 0: wake_hook.late_for(
+            self.got, payload or self.payload, lambda cwd: attrs or self.attrs, shells)
+        self.assertIsInstance(late_for(), wake_hook.Late)
+        self.assertIsInstance(late_for({k: v for k, v in self.payload.items() if k != "background_tasks"}, shells=lambda: None),
+                              wake_hook.Late, "裏の処理の数が分からなくても、待ち行列で Stop フックが差し戻さなかったなら送る")
+        self.assertIsNone(late_for({**self.payload, "background_tasks": [{"id": "b1", "status": "running"}]}),
+                          "裏の処理が動いている間は、終わるまで何時間でも待つ")
+        self.assertIsNone(late_for(attrs={"role": "担当"}))
+        self.assertIsNone(late_for(attrs={"ask": "a1"}))
+        self.assertIsNone(late_for({**self.payload, "hook_event_name": "SessionStart"}))
+        self.add({"type": "queue-operation", "operation": "dequeue"})
+        self.assertIsNone(late_for(), "待ち行列が空なら Stop フックが差し戻している")
 
 
 class Hook(unittest.TestCase):

@@ -2121,24 +2121,14 @@ def stalled(attrs, settings_dir, company_of=None, now=time.time):
     return True
 
 
-def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shells=chat.background_shells, company_of=None):
-    """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
-    納品し終えた後も、ブランチをメインブランチに入れていないか、エフェメラルの部署が終わりの印を打っていなければ差し戻す（stop_after）。
-    部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。数え方は会話の口の pending）を待っている間は差し戻さない（裏の処理が
-    終わると Claude Code が会話を再開させるので、納品はその後でよい。差し戻すと待つだけのターンを回数の上限まで繰り返した。裏の
-    サブエージェントは 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。2026-10-17 の割り振り）。動いているのを
-    確かめられないとき（一覧も ps も無い）と、裏の処理が終わってその知らせも会話に渡った後は差し戻す（知らせが入力の待ち行列に残る間は、
-    それが会話を再開させるので差し戻さない。2026-10-27、受付 f1d5c5）。待っている印を herdr に出すのは tiers の statusline
-    （tiers-statusline setup で入れる。全部の会話に効き、30 秒ごとに描き直す）の受け持ちで、ここでは出さない。"""
-    payload = json.loads(stdin.read() or "{}")
-    cwd = payload.get("cwd") or os.getcwd()
-    attrs = (attrs_of or gitx.worktree_attrs)(cwd)   # git の口は呼ぶ時に引く（試験は gitx を偽物に替える。tests/fakegit.wire）
-    if not attrs.get("role"):
-        return 0
-    if not attrs.get("ask") or chat.pending(payload, shells):
-        return 0
+def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
+    """部署の会話がターンを終えるときの差し戻しの文か None（差し戻さない）。差し戻すなら、この会話・この頼みで差し戻した数を控えに
+    1 つ進める。納品の前は deliver.stop_verdict、納品の後（ブランチをメインブランチに入れていない・エフェメラルの部署が終わりの印を
+    打っていない）は stop_after が文を決める。納品の前の差し戻しを使い切ったときは、止まるのを通し、知られずに止まらないよう頼み元へ
+    1 度だけ止まった知らせを置く（stalled）。呼ぶのは Stop フック（stop_hook）と、ターンの終わりに残った知らせで会話が再開しなかったときの
+    待ち受け（wake_hook.Late）。"""
     if attrs.get(wake.COMPACT) and attrs[wake.COMPACT] == payload.get("session_id"):
-        return 0   # 会話が compact の区切りと印して（--compact）ターンを終える。待ち受けが compact し、続きをさせる
+        return None   # 会話が compact の区切りと印して（--compact）ターンを終える。待ち受けが compact し、続きをさせる
     path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", attrs["ask"])
     try:
         count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
@@ -2149,10 +2139,10 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shel
         # 差し戻しを使い切った: 止まるのは通すが、知られずに止まらないよう頼み元へ 1 度だけ知らせる（数を上限より 1 つ進めて、2 度は知らせない）
         try:
             stalled(attrs, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), company_of)
-        except Exception as e:  # 知らせの誤りで Stop フックを落とさない（止まるのは通す）。訳は利用者に見せる
-            print(f"works-dispatch の Stop フックが、止まった知らせを頼み元へ置けなかった: {e}", file=sys.stderr)
+        except Exception as e:  # 知らせの誤りで Stop フックや待ち受けを落とさない（止まるのは通す）。訳は利用者に見せる
+            print(f"works-dispatch が、止まった知らせを頼み元へ置けなかった: {e}", file=sys.stderr)
         pathlib.Path(path).write_text(str(count + 1), encoding="utf-8")
-        return 0
+        return None
     if reason is None and attrs.get("delivered") == attrs["ask"]:
         # 納品の後: ブランチをメインブランチに入れずに、かエフェメラルの部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
         path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", f"{attrs['ask']}-after")
@@ -2163,10 +2153,32 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shel
         reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), gitx,
                             rearm=lambda: pathlib.Path(path).unlink(missing_ok=True), gh=ghx)   # gh の口も呼ぶ時に引く（試験は偽物に替える）
     if reason is None:
-        return 0
+        return None
     os.makedirs(os.path.dirname(path), exist_ok=True)
     pathlib.Path(path).write_text(str(count + 1), encoding="utf-8")
-    out.write(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+    return reason
+
+
+def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=None, tmp_dir=None, shells=chat.background_shells, company_of=None):
+    """プラグインの Stop フック。部署の会話で受けた頼みを納品していないか、納品の後に残ってはいけないまま止まるなら、止まるのを
+    差し戻す（{"decision": "block"}。文と数え方は stop_reason）。
+    部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど）を待っている間は差し戻さない（裏の処理が
+    終わると Claude Code が会話を再開させるので、納品はその後でよい。差し戻すと待つだけのターンを回数の上限まで繰り返した。裏の
+    サブエージェントは 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。2026-10-17 の割り振り）。裏の処理の
+    終わりの知らせが入力の待ち行列に残っている間も差し戻さない（ターンの終わりの後に Claude Code がそれを渡して会話を再開させる。
+    差し戻すと、差し戻しの文が先に渡り、知らせは待ち行列に残ったまま差し戻しを使い切った。2026-10-27、受付 f1d5c5）。どちらも
+    数え方は会話の口の resumers。待ち行列に残った知らせが会話を再開させないこともある（会話の記録で、積まれたまま渡らない知らせを
+    見た）ので、そのときは待ち受けが少し待ってから同じ差し戻しを送る（wake_hook.Late）。動いているのを確かめられないとき
+    （一覧も ps も無く、待ち行列も空）は差し戻す。待っている印を herdr に出すのは tiers の statusline
+    （tiers-statusline setup で入れる。全部の会話に効き、30 秒ごとに描き直す）の受け持ちで、ここでは出さない。"""
+    payload = json.loads(stdin.read() or "{}")
+    cwd = payload.get("cwd") or os.getcwd()
+    attrs = (attrs_of or gitx.worktree_attrs)(cwd)   # git の口は呼ぶ時に引く（試験は gitx を偽物に替える。tests/fakegit.wire）
+    if not attrs.get("role") or not attrs.get("ask") or chat.resumers(payload, shells):
+        return 0
+    reason = stop_reason(payload, cwd, attrs, tmp_dir, company_of)
+    if reason:
+        out.write(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
     return 0
 
 

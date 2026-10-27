@@ -168,38 +168,43 @@ def running_ids(payload):
     return sorted(str(t.get("id")) for t in tasks if isinstance(t, dict) and t.get("status") == "running")
 
 
-# 会話の記録の、入力の待ち行列の行（type が queue-operation）の operation のうち、積む物と取り出す物。取り出すのは、ターンの終わりの後に
-# 次のターンの文として渡す dequeue と、ターンの途中に添えて渡す remove（2026-10-27 の Claude Code 2.1.311 の会話の記録で読んだ）
+# 会話の記録の、入力の待ち行列の行（type が queue-operation）の operation のうち、取り出す物。ターンの終わりの後に次のターンの文として
+# 渡す dequeue と、ターンの途中に添えて渡すか、渡さずに除く remove（2026-10-27 の Claude Code 2.1.311 の会話の記録で読んだ）
 QUEUE_ROW = "queue-operation"
 QUEUE_TAKE = ("dequeue", "remove")
 
 
-def queued(payload):
-    """会話の記録（transcript_path）の終わりの方で、入力の待ち行列に積まれてまだ渡されていない物の数。読めなければ 0。積まれたままの物
-    （裏の処理の終わりの知らせ・フックの知らせ・人の文）は、ターンが終わると Claude Code が次のターンの文として渡し、会話を再開させる。
-    裏の処理が会話の最後の答えの最中に終わると、その処理は Stop フックの入力の裏の処理の一覧（background_tasks）から消え、終わりの知らせは
-    まだ待ち行列に在る（2026-10-27 に 2.1.311 で再現した。my_notes の受付 f1d5c5 の部署は、この間に差し戻しを 3 回受け、止まった知らせを出された）。"""
+def queued_inputs(payload):
+    """会話の記録（transcript_path）の終わりの方で、入力の待ち行列に積まれて（enqueue）まだ取り出されていない物の数。読めなければ 0。
+    積まれた物（裏の処理の終わりの知らせ・人の文など）は、ふつうはターンの終わりの直後に Claude Code が次のターンの文として渡し、会話を
+    再開させる。裏の処理が会話の最後の答えの最中に終わると、その処理は Stop フックの入力の裏の処理の一覧（background_tasks）から消え、
+    終わりの知らせはまだ待ち行列に在る（2026-10-27 に 2.1.311 で再現した。my_notes の受付 f1d5c5）。ただし、積まれたまま渡らない物も
+    在り（Monitor の知らせ・人が入力フィールドに書きかけている間に積まれた物など）、取り出しの行を書かずに消えると、数は多いまま残る。
+    なので、この数で会話が再開すると決めてかからない（Stop フックは差し戻さないが、待ち受けが確かめる。wake_hook.Late）。"""
     depth = 0
     for line in tail_lines(payload) or []:
         if QUEUE_ROW not in line:
-            continue
+            continue   # 速さのための絞り込み。読むのは type が待ち行列の行の物だけ
         try:
-            op = json.loads(line).get("operation")
-        except (ValueError, AttributeError):
+            row = json.loads(line)
+        except ValueError:
             continue   # 読み始めの切れた行や書きかけの行は飛ばす
-        if op == "enqueue":
+        if not isinstance(row, dict) or row.get("type") != QUEUE_ROW:
+            continue
+        if row.get("operation") == "enqueue":
             depth += 1
-        elif op in QUEUE_TAKE:
-            depth = max(0, depth - 1)   # 読み始めより前に積まれた物の取り出し（積まれた物はすぐ渡されるので、読み始めでは空と見る）
+        elif row.get("operation") in QUEUE_TAKE:
+            depth = max(0, depth - 1)   # 読み始めより前に積まれた物の取り出し（読み始めでは待ち行列を空と見る）
     return depth
 
 
-def pending(payload, shells):
-    """ターンの終わりの後に会話を再開させる物の数: 裏で動いている処理（running_tasks）と、入力の待ち行列に積まれてまだ渡されていない物
-    （queued。最後の答えの最中に終わった裏の処理の終わりの知らせなど）。裏で動いている処理が在れば記録を読まない。裏の処理の数が
-    分からず、待ち行列も空なら None。"""
+def resumers(payload, shells):
+    """ターンの終わりの後に会話を再開させうる物の数: 裏で動いている処理（running_tasks）と、入力の待ち行列に積まれてまだ渡されていない物
+    （queued_inputs）。裏で動いている処理が在れば記録を読まない。"""
     running = running_tasks(payload, shells)
-    return running or queued(payload) or running
+    if running:
+        return running
+    return queued_inputs(payload) or running   # 裏の処理の数が分からず（None）、待ち行列も空なら None のまま返す
 
 
 def trust_file(config_dir, env):
