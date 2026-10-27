@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.44.4] - 2026-10-28
+
 ### Fixed
 
 - 初見の読み手のゲート（`hooks/coldread-gate.py`。gh の投稿と、works-dispatch の `dispatch.py --deliver <ファイル>`〔以下 `--deliver`〕が送る本文を、コマンドを走らせる前に読むフック）が、`--deliver` と gh の本文ファイルを、次の 2 つの形で「本文を取り出せない形」として止めていたのを、読んで通すようにした。
