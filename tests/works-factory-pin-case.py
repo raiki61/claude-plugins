@@ -355,7 +355,9 @@ def auto():
     with open(script, "w", encoding="utf-8") as f:
         f.write(FAKE_DISPATCH)
     record = os.path.join(tmp(), "record")
-    env = {**os.environ, "WORKS_DISPATCH": script, "WORKS_DISPATCH_PYTHON": sys.executable, "PIN_CASE_RECORD": record}
+    # 機械の上げの --land のゲートの中で回ると、その --land の合図の変数（LANDING）を継いでツールが黙るので外す
+    base = {k: v for k, v in os.environ.items() if k != wp.LANDING}
+    env = {**base, "WORKS_DISPATCH": script, "WORKS_DISPATCH_PYTHON": sys.executable, "PIN_CASE_RECORD": record}
 
     def leftovers(source):
         branches = git(source, "branch", "--list", wp.BRANCH + "*")
