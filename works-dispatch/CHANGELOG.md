@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.129.0] - 2026-10-27
+
 ### Added
 
 - dispatch が PR を開く回（引数なし・`--pr`）に、既にある worktree で新しい Claude Code の会話を立てるとき（会話の開いている PR を送り直すとき、持ち主が会話を閉じた後に開き直すとき）、その worktree で前に開いた会話の報告を、dispatch が新しい会話に渡すようにした。issue・worktree を作ったばかりのとき・`--no-second` では何もしない。
