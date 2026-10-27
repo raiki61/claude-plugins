@@ -348,7 +348,7 @@ def _figure_errors(fig, files=None, n_points=0):
         return ["figure は {\"kind\": …, …}（オブジェクト）か null にする"]
     kind = fig.get("kind")
     if kind not in FIGURE_KINDS:
-        return [f"figure.kind は {'・'.join(FIGURE_KINDS)} のどれかにする（形は中身で選ぶ。決まりは skills/catchup/references/figures.md）"]
+        return [f"figure.kind は {'・'.join(FIGURE_KINDS)} のどれかにする（形は中身で選ぶ。決まりは skills/catchup/references/explain.md）"]
     errs = _label(fig.get("caption"), "figure.caption", cap=200, required=False)
     if kind == "graph":
         return errs + _graph_errors(fig, files, n_points)

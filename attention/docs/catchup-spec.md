@@ -9,7 +9,7 @@
 コードのとおり。
 スキルの文書の本文（`SKILL.md`）は呼ばれるたびに会話へ丸ごと載り、会話の間ずっと残るので、毎回要る部分と落とし穴だけを置き、
 5,000 字以下に保つ（リポジトリのスキルの書き方の標準 `docs/standards/skill-authoring.md`。長い会話で Claude Code が自動で文脈を縮めた〔圧縮した〕後は、各スキルの頭の 5,000 トークンしか付け直されない。日本語の 5,000 字はおよそ 4,400 トークンで、その内に収まる）。
-フィールドの書き方・対象の読み方・一覧・PR でないとき・準備・図の形は `attention/skills/catchup/references/` に主題ごとに分け、
+対象の読み方と移り方・フィールドの書き方（PR でないときの形を含む）・この PR がすることの書き方（図の形を含む）・準備は `attention/skills/catchup/references/` に主題ごとに分け、
 本文が「その場面で読む」と指す（2026-10-18 に `commands/catchup.md` と `docs/catchup-ref.md`・`docs/catchup-figures.md` から移した）。
 2026-10-16 の測りで、works-dispatch（同じリポジトリの、PR を作業場に開いて Claude Code の会話を立て、/catchup を送るプラグイン）が起動する PR の会話の最初の要求 72〜75k のうち、スキルの文書の本文が 25.1k を占めていた。
 

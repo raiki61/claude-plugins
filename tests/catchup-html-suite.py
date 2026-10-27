@@ -86,6 +86,15 @@ class FieldsTest(unittest.TestCase):
                             for e in ch.validate_fields(fields(figure={"rows": []}))))
         self.assertTrue(any("figure.kind は" in e for e in ch.validate_fields(fields(figure={"kind": "flow", "rows": []}))))
 
+    def test_figure_kind_message_names_a_doc_that_exists(self):
+        # 言い分が指す決まりの文書が在る（スキルの別ファイルを分け直したとき、古い名前が残ると AI が開けない）
+        import re
+        errs = ch.validate_fields(fields(figure={"kind": "flow"}))
+        docs = [d for e in errs for d in re.findall(r"skills/catchup/references/[\w-]+\.md", e)]
+        self.assertTrue(docs, errs)
+        for d in docs:
+            self.assertTrue((ROOT / "attention" / d).is_file(), d)
+
     def test_graph_declares_boxes_and_relations_without_coordinates(self):
         ok = {"kind": "graph", "dir": "TB", "groups": [{"id": "job", "text": "毎晩のジョブ"}], "nodes": [
             {"id": "a", "text": "入口", "group": "job"},
