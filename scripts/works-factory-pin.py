@@ -49,6 +49,7 @@ for _s in (sys.stdout, sys.stderr):
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # 開いた頼みの見分けは works-dispatch の物をそのまま使う（tests/ci-watch.py と同じ形。写すと割れる）
 sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
+import todo  # noqa: E402
 from nodes import deliver  # noqa: E402
 
 TOOL = "works-factory-pin"   # 会社の形の [[roles.tools]] の name。works-dispatch が回す頼みの題「ツール <役>/<name> が…」で、このツールの頼みを見分ける
@@ -241,11 +242,19 @@ def common_dir(runner, root=ROOT):
     return out.strip()
 
 
-def mine(inbox):
+def place_dir(runner, place):
+    """place の属するリポジトリの git の共通のディレクトリ（git でなければ None）。todo.inboxes_from がほかの会社の受付箱を引くのに渡す。"""
+    code, out, _ = runner(["git", "-C", place, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    return os.path.normpath(out.strip()) if code == 0 and out.strip() else None
+
+
+def mine(inbox, place_common):
     """このツールから回した頼みの (閉じていない物が在るか, 一番新しい頼みの時刻〔Unix 時刻。無ければ None〕)。頼みの題は works-dispatch が
-    「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/works-factory-pin-case.py の title が赤になる）。"""
+    「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/works-factory-pin-case.py の title が赤になる）。
+    閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
+    納品の行はその会社の受付箱にだけ在る）。place_common は作業場のパスから git の共通のディレクトリを引く物（git でなければ None）。"""
     marker = f"/{TOOL} "
-    rows = deliver.records(inbox)
+    _, rows = todo.inboxes_from([inbox], place_common)
     asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")]
     ids = {r["id"] for r in asks}
     at = [r["at"] for r in asks if isinstance(r.get("at"), (int, float))]
@@ -291,7 +300,7 @@ def watch(stdin, runner, root, now, env, lander):
     try:
         cdir = common_dir(runner, root)
         # 開いた頼みを先に見る（工場を読めない失敗も頼みに変わるので、読む前に見ないと、失敗が続く間 main に入れるたびに頼みが積まれる）
-        still_open, asked_at = mine(deliver.inbox_of(cdir))
+        still_open, asked_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
         if still_open:
             print("このツールから回した頼みが開いているので黙る")
             return 0

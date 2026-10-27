@@ -5705,6 +5705,9 @@ expect_output 0 "TARGET_OK" \
 expect_output 0 "TOLD_OK" \
     "works-factory-pin: 知らせた上げ先は、回した頼みが開いている間と、閉じた後の同じ上げ先では知らせ直さず、頼みが立たなかったか上げ先が進めば知らせる" \
     "$PY_BIN" "$WFP_CASE" told
+expect_output 0 "CROSS_OK" \
+    "works-factory-pin: 納品の行がほかの会社の受付箱にだけ在る頼みは、台帳の行が指す受付箱まで足し合わせて閉じたとみる" \
+    "$PY_BIN" "$WFP_CASE" cross
 expect_output 0 "SURFACE_OK" \
     "works-factory-pin: スキルが引いた語・パスの消え・本線の inputs の出入り・WORKS_FACTORY_* の出入り・README と殻の変更を拾い、中だけの上げは当たり無し" \
     "$PY_BIN" "$WFP_CASE" surface

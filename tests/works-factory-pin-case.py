@@ -6,6 +6,8 @@
   0 で黙る。PIN が頭なら 0。知らせる時は 1 で終わり、手順の行を最後に出す。dry_run は覚えない
 - told: 知らせた上げ先は、このツールから回した頼みが開いている間は黙り、閉じた後も同じ上げ先なら黙る。知らせた後に頼みが立っていなければ
   知らせ直す。上げ先が進めば知らせ直す
+- cross: 頼み元がほかの会社の会話で、納品の行がその会社の受付箱にだけ在る頼みは、--todo と同じく台帳の行が指す受付箱まで足し合わせて
+  閉じたとみる（自分の受付箱だけ見て開いているとみて黙り続けない）
 - surface: スキルが引いた語・パスのうち前の木に在って上げ先の木に無い物、本線の inputs の出入り、WORKS_FACTORY_* の出入り、README と殻の
   変更を拾う。どれにも当たらない上げは「当たり無し」
 - write: --write が PIN を上げ先に替え、CHANGELOG の [Unreleased] の Changed に PR の番号と差分の URL の 1 行を足す（Changed が無ければ作る）。
@@ -125,11 +127,12 @@ class Fake:
 
     def __init__(self, gitdir, shas, titles, checks, broken=False):
         self.gitdir, self.shas, self.titles, self.checks, self.broken = gitdir, shas, titles, checks, broken
+        self.places = {}   # git -C <場所> の共通のディレクトリの答えを場所ごとに替える物（無い場所は gitdir）
 
     def __call__(self, argv, cwd=None):
         if argv[0] == "git":
             if "--git-common-dir" in argv:
-                return 0, self.gitdir + "\n", ""
+                return 0, self.places.get(argv[2], self.gitdir) + "\n", ""
             return wp.run(argv)
         if self.broken:
             return 1, "", "HTTP 502"
@@ -212,6 +215,25 @@ def told():
     code, out = go(fake, root)
     check(code == 1 and f"--write {shas[3]} " in out, f"上げ先が進んだのに知らせ直さない: {code} {out}")
     print("TOLD_OK")
+
+
+def cross():
+    # 頼み元の会社の受付箱を、行の boss.inbox（受付箱を直に指す）と from.place（作業場から git で引く）の 2 つの道で指す
+    for via in ("boss", "place"):
+        place = tmp()   # 頼み元の会社の作業場
+        other = wp.deliver.inbox_of(os.path.join(place, ".git"))
+        os.makedirs(other)
+        ask = {"kind": "ask", "status": "sent", "id": "20261026-000000-bbbbbb", "title": TITLE, "at": 1.0}
+        ask.update({"boss": {"inbox": other}} if via == "boss" else {"from": {"place": place}})
+        fake, root, shas, d = world(1, {2: ok()}, asks=[ask])
+        fake.places[place] = os.path.dirname(os.path.dirname(other))
+        code, out = go(fake, root, '{"dry_run": true}')
+        check(code == 0 and shas[2][:8] not in out, f"{via}: 納品の無い頼みを閉じたとみた（緑の上げ先を知らせた）: {code} {out}")
+        with open(os.path.join(other, wp.deliver.LOG), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"kind": "deliver", "ask": ask["id"], "at": 2.0}) + "\n")   # 納品の行は頼み元の会社の受付箱にだけ在る
+        code, out = go(fake, root, '{"dry_run": true}')
+        check(code == 1 and f"--write {shas[2]} " in out, f"{via}: ほかの会社の受付箱にだけ納品が在る頼みを開いているとみた: {code} {out}")
+    print("CROSS_OK")
 
 
 def surface():
@@ -392,5 +414,5 @@ def auto():
 
 
 if __name__ == "__main__":
-    {"target": target, "told": told, "surface": surface, "write": write, "unreadable": unreadable, "page": page, "edges": edges,
+    {"target": target, "told": told, "cross": cross, "surface": surface, "write": write, "unreadable": unreadable, "page": page, "edges": edges,
      "title": title, "auto": auto}[sys.argv[1]]()
