@@ -546,6 +546,25 @@ class Coverage(unittest.TestCase):
             _, none = rf.records_from([cfg], rf.bounds(DAY, DAY)[1])
             self.assertEqual(none, [])
 
+    def test_unreadable_records_are_counted_not_dropped_silently(self):
+        """開けない会話の記録は、黙ってふり返りから外さずに、フォルダごとの件数を 1 行出す。0 件なら出さない"""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = pathlib.Path(tmp) / ".claude"
+            write_jsonl(cfg / "projects" / "p" / "ok.jsonl", [user("どうぞ", at(9))])
+            start, end = rf.bounds(DAY, DAY)
+            notes = []
+            rf.sessions([cfg], start, end, notes)
+            self.assertEqual(notes, [])
+            (cfg / "projects" / "p" / "broken.jsonl").mkdir()  # 開くと IsADirectoryError（OSError）
+            human, _ = rf.sessions([cfg], start, end, notes)
+            self.assertEqual(len(human), 1)
+            self.assertEqual(len(notes), 1, notes)
+            self.assertIn(str(cfg), notes[0])
+            self.assertRegex(notes[0], r" 1 ")
+            env = {"HOME": tmp, rf.DIRS_ENV: str(cfg)}
+            data = rf.collect(DAY.isoformat(), env, with_github=False, today=DAY)
+            self.assertIn(notes[0], data["coverage"]["notes"])  # ページの頭（見た範囲の欠け）に届く
+
     def test_missing_and_unread_config_dirs_are_told(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = pathlib.Path(tmp)

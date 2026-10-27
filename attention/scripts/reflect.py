@@ -233,15 +233,11 @@ def human_ask(entry, text):
 
 
 def scan(path, start, end):
-    """1 つの会話の記録から期間の中の分を数える。期間に 1 行も無ければ None。"""
+    """1 つの会話の記録から期間の中の分を数える。期間に 1 行も無ければ None。記録を読めなければ OSError。"""
     s = {"id": path.stem, "cwd": None, "first": None, "last": None, "asks": [], "first_prompt": None,
          "tools": collections.Counter(), "marks": collections.Counter(), "out": {}, "models": {}, "errors": 0,
          "unknown_sources": collections.Counter(), "sourced": 0, "interactive": False}
-    try:
-        f = open(path, encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    with f:
+    with open(path, encoding="utf-8", errors="replace") as f:  # 開けない・読めない記録の OSError は呼ぶ側（sessions）が数える
         for line in f:
             try:
                 o = json.loads(line)
@@ -293,22 +289,29 @@ def clip(text, n=ASK_CHARS):
     return text if len(text) <= n else text[:n] + "…"
 
 
-def sessions(dirs, start, end):
-    """(人の会話の並び, 裏の会話の並び)。両方とも scan の結果に、どのフォルダかを足したもの。"""
+def sessions(dirs, start, end, notes=None):
+    """(人の会話の並び, 裏の会話の並び)。両方とも scan の結果に、どのフォルダかを足したもの。
+    読めなかった会話の記録は、フォルダごとの件数を notes に足す（渡されたときだけ）"""
     human, background = [], []
     floor = start.timestamp()
     for d in dirs:
+        unreadable = 0
         for path in sorted((d / "projects").glob("*/*.jsonl")):
             try:
                 if path.stat().st_mtime < floor:
                     continue
-            except OSError:
+                s = scan(path, start, end)
+            except FileNotFoundError:  # glob の後に消えた記録は、もう残っていないので数える対象から外れる
                 continue
-            s = scan(path, start, end)
+            except OSError:
+                unreadable += 1
+                continue
             if not s:
                 continue
             s["config_dir"] = d.name
             (human if s["asks"] else background).append(s)
+        if unreadable and notes is not None:
+            notes.append(f"会話の記録: {home_short(str(d))} の読めなかった記録が {unreadable} 件あり（権限など）、ふり返りに数えていない")
     return human, background
 
 
@@ -793,7 +796,8 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     first, last = period(spec, today)
     start, end = bounds(first, last)
     dirs = config_dirs(env, extra_dirs)
-    human, background = sessions(dirs, start, end)
+    session_notes = []
+    human, background = sessions(dirs, start, end, session_notes)
     records, record_notes = records_from(dirs, start)
     cwds = sorted({s["cwd"] for s in human if s["cwd"]})
     asks, cmds = repeats(human)
@@ -830,7 +834,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
         # 見た範囲の欠け。ページの頭に出す（AI が unseen に写さなくても読み手に届くように）
         "coverage": {
             "records": records,
-            "notes": [*dir_notes(env, dirs, extra_dirs), *record_notes, *source_notes(human, background),
+            "notes": [*dir_notes(env, dirs, extra_dirs), *session_notes, *record_notes, *source_notes(human, background),
                       *github_notes(gh)],
         },
         "unseen": [
