@@ -495,7 +495,7 @@ def main(argv=None, ports=None):
             return 2
         return landing.main(cfg, repo, a.land, ports, _department_rows, DEPT_REASONS, a.config, dry_run=a.dry_run,
                             keep_removal=a.keep_removal,
-                            after=lambda rules, source, attrs: calls.fire(rules, source, ports, a, _task, attrs))
+                            after=lambda rules, source, attrs, members=(): calls.fire(rules, source, ports, a, _task, attrs, members))
     if a.task is not None:
         if a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --task は --pr・--issue・--clean・--check・--no-second と一緒に使えない（1 回に 1 つの入口）")

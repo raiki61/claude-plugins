@@ -584,6 +584,7 @@ def _ask(a, ports, cwd, task, sent):
         notes.append("頼み元が分からないので、この頼みの納品の返り先が無い（会話の中から打つか --from-name を渡す）")
     cause = cause_of(a, here, ports)
     cause_boss = cause_boss_of(a, here, ports, cause)
+    causes = {"causes": a.causes} if getattr(a, "causes", None) else {}   # 束の合図で回した頼み: 乗った部署の頼みも親に並べる（calls.fire）
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if (the_role or {}).get("machine"):
         print("\n".join(notes + [f"止めた: 役「{role}」は機械だけの役（AI の部署を持たない）なので頼めない。ツールを --call で呼ぶ"
@@ -607,7 +608,7 @@ def _ask(a, ports, cwd, task, sent):
         def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
                              {"id": ask_id, "sender": sender, "body": body, "title": title, "inbox": inbox, "required": required, "boss": boss,
-                              "fresh": fresh, "cause": cause, "cause_boss": cause_boss, "from": {"name": name, "account": account,
+                              "fresh": fresh, "cause": cause, **causes, "cause_boss": cause_boss, "from": {"name": name, "account": account,
                               "session": boss["boss-session"], "place": cwd}, "company": company["name"], "role": role},
                              accounts_, sessions_, company["root"], sent)
         if to and dest_inbox and place_dir and (heard or (pending or mid_turn) and wake.has_history(dest_inbox, place_dir)):
@@ -688,7 +689,7 @@ def _ask(a, ports, cwd, task, sent):
             print("\n".join(notes + [f"止めた: 宛先の部署 {where} は、読んでから打つまでの間に受付 {now.get('ask')}（頼み元 "
                                      f"{now.get('boss') or '-'}）を受けた。納品を待つか、別の部署に頼む"]))
             return 2
-        deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, "cause": cause,
+        deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, "cause": cause, **causes,
                             **({"cause_boss": cause_boss} if cause_boss else {}),
                             "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                             "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
@@ -749,7 +750,7 @@ def _ask(a, ports, cwd, task, sent):
     status = "sent" if attrs.get("ask") == ask_id and (attrs.get("session") or rc == 0) else "failed"
     deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status,
                         "detail": None if status == "sent" and attrs.get("session") else (why_not(said.getvalue()) or f"rc={rc}"),
-                        "cause": cause, **({"cause_boss": cause_boss} if cause_boss else {}),
+                        "cause": cause, **causes, **({"cause_boss": cause_boss} if cause_boss else {}),
                         "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
                                "path": got and got["path"], "pane": None}, "file": path, "title": title})
@@ -857,7 +858,7 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     n = len(wake.queued(dest_inbox, place_dir))
     detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
     deliver.log(ask["inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
-                               "cause": ask.get("cause"), **({"cause_boss": ask["cause_boss"]} if ask.get("cause_boss") else {}),
+                               "cause": ask.get("cause"), **({"causes": ask["causes"]} if ask.get("causes") else {}), **({"cause_boss": ask["cause_boss"]} if ask.get("cause_boss") else {}),
                                "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
                                                           "role": ask["role"], "branch": dept["branch"], "path": dept["path"],
                                                           "pane": None, "wake": to}, "file": path, "title": ask.get("title")})

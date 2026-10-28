@@ -260,6 +260,18 @@ class Call(unittest.TestCase):
         self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
         self.assertEqual(len(self.prompts()), 1)
 
+    def test_fire_after_a_batch_names_every_member_and_parents_the_riders_asks(self):
+        # 束（束の設計 9）: 合図は 1 回。ツールに部署の名前の並びを渡し、回した頼みの親に乗った部署の受けている頼みを並べる（納品済みと束ね役と同じ頼みは除く）
+        self.use(self.script(f"import os, sys; print(os.environ['{calls.WORKS_LAND_MEMBERS}'].replace(chr(10), ',')); sys.exit(1)"))
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        members = [{"name": "b", "ask": "r-b"}, {"name": "c", "ask": "r-c", "delivered": "r-c"}, {"name": "d", "ask": "l"}, {"name": "e"}]
+        calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None,
+                   {"name": "a", "ask": "l", "boss": "窓口", "boss-inbox": self.inbox}, members=members)
+        rows = deliver.records(self.inbox)
+        self.assertEqual([r["tail"] for r in rows if r["kind"] == "miss"], ["a,b,c,d,e"])
+        self.assertEqual([(r.get("cause"), r.get("causes")) for r in rows if r["kind"] == "ask"], [("l", ["r-b"])])
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- `--land` が、列の先頭で後ろに待つ部署のブランチも重ねて、1 回のゲートでメインブランチに入れられるようにした（束）。会社の形（`.claude/company.toml`）の `[land]` に `batch`（束の上限の本数。2 以上で `queue` が要る）を書いた会社でだけ動き、省けば 1 で今までと同じ。乗る札・閉じる訳・赤のときのほどき方（乗った札に疑いの印を付け、束ね役 1 本で回し直す）・乗った部署の受け取り（自分の `--land` か待ち受けの追いつきで、重ねた写しへ替える）は `docs/land.md` の `batch` と `docs/specs/2026-10-26-land-batch-design.md`。合図（`[[land.after]]`）は束ごとに 1 回で、ツールに部署の名前の並びを環境変数 `WORKS_LAND_MEMBERS` で渡し、片づかずに回した頼みの親に、乗った部署の受けている頼みも並べる（台帳の頼みの行のフィールド `causes`。`--todo` の木では、その頼みの子にも並ぶ）。束の回は、`check` に渡す環境変数（`WORKS_LAND_TIP`・`WORKS_LAND_KEY`・`WORKS_LAND_BRANCH`）の値が 1 本の回と違う（`docs/land.md` の手順 4）。`--land-order` と `--dry-run` は次の束の見込みを添える。束に乗った札が自分の順番の前に列を抜けたときは「束に乗っていたので、束ね役 X が入れたかもしれない」と出す（受付 20261027-225705-f5f08a）。
+
 ## [0.131.0] - 2026-10-28
 
 ### Changed

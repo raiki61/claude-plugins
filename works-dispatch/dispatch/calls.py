@@ -26,6 +26,7 @@ import health
 from nodes import clean, deliver, role, tools, tree, wake
 
 CALLED = 3   # 片づかず AI に回した --call の終了の値
+WORKS_LAND_MEMBERS = "WORKS_LAND_MEMBERS"   # 束の合図でツールに渡す、束の部署の名前の並び（改行で区切る。束の設計 9）
 # ツールに渡す環境変数の名（ツールが works-dispatch を打ち返すため。docs/land.md の「外のツールが列に並ぶ」）
 WORKS_DISPATCH, WORKS_DISPATCH_PYTHON = "WORKS_DISPATCH", "WORKS_DISPATCH_PYTHON"
 
@@ -37,10 +38,11 @@ def tool_env():
             WORKS_DISPATCH_PYTHON: sys.executable}
 
 
-def run_tool(command, cwd, value):
-    """ツールを cwd で走らせる（シェルの字）。入力の JSON を標準入力に渡す。(終了の値, 標準出力, 標準出力と標準エラー)。"""
+def run_tool(command, cwd, value, env=None):
+    """ツールを cwd で走らせる（シェルの字）。入力の JSON を標準入力に渡す。env はツールの環境に足す変数。
+    (終了の値, 標準出力, 標準出力と標準エラー)。"""
     p = subprocess.run(command, shell=True, cwd=cwd, input=json.dumps(value, ensure_ascii=False), capture_output=True,
-                       text=True, encoding="utf-8", errors="replace", env=tool_env())
+                       text=True, encoding="utf-8", errors="replace", env={**tool_env(), **(env or {})})
     return p.returncode, p.stdout or "", (p.stdout or "") + (p.stderr or "")
 
 
@@ -82,8 +84,9 @@ def _input(text):
         return None, f"入力を JSON として読めない（{e}）"
 
 
-def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, boss=None, cwd=None):
-    """ツールを 1 つ走らせ、片づかなければ回す。(終了の値 0・3・1・2, 出す行の並び)。boss は回す頼みの頼み元の属性の上書き。"""
+def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, boss=None, cwd=None, env=None, causes=()):
+    """ツールを 1 つ走らせ、片づかなければ回す。(終了の値 0・3・1・2, 出す行の並び)。boss は回す頼みの頼み元の属性の上書き。
+    env はツールの環境に足す変数、causes は回す頼みの台帳の親に足す頼みの受付の並び（束の合図。calls.fire）。"""
     found, why = tools.find(roles, role_name, tool_name)
     if why:
         return 2, [f"止めた: {why}"]
@@ -93,7 +96,7 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
         return 2, [f"止めた: ツール {role_name}/{tool_name} の入力が形に合わない: " + "、".join(bad)]
     inbox = deliver.inbox_of(ports.git.common_dir(root))
     with tools.place(root, ports.git) as (here, note):
-        code, out, both = run_tool(tool["command"], here, value)
+        code, out, both = run_tool(tool["command"], here, value, env)
     if code == 0:
         deliver.log(inbox, {"kind": "call", "status": "done", "role": role_name, "tool": tool_name, "at": ports.now()})
         return 0, [x for x in [note, out.rstrip("\n")] if x and x.strip()]
@@ -106,7 +109,7 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
         # 片づかずに回った頼みを受けた部署が、その頼みの中で同じ入力を打ち直した: 回すと同じ頼みがもう 1 つ積まれるので、失敗を打った会話に返す
         return 1, [f"ツール {role_name}/{tool_name} は片づかなかった（終了の値 {code}）。この会話が受けている頼み（受付 {again}）が、"
                    "同じ入力でこのツールが片づかずに回った頼みなので、もう一度は回さない。ツールの出力の終わり:", out_tail]
-    return hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd or root, ask_id)
+    return hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd or root, ask_id, causes)
 
 
 def rerun_of(inbox, cwd, role_name, tool_name, value, ports, a):
@@ -120,8 +123,9 @@ def rerun_of(inbox, cwd, role_name, tool_name, value, ports, a):
     return held if hit else None
 
 
-def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd, ask_id=None):
-    """片づかなかったツールの仕事を、回す役への頼みに変えて orders.ask に渡す。(終了の値, 出す行)。ask_id は回す頼みの受付（外れの行の ask）。"""
+def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, task, boss, cwd, ask_id=None, causes=()):
+    """片づかなかったツールの仕事を、回す役への頼みに変えて orders.ask に渡す。(終了の値, 出す行)。ask_id は回す頼みの受付（外れの行の ask）。
+    causes は頼みの行の causes（台帳の親の頼み〔cause〕に並べて結ぶ頼み）。"""
     ask_id = ask_id or deliver.new_id(ports.now())
     caller_inbox = deliver.inbox_of(ports.git.common_dir(cwd) or ports.git.common_dir(root))
     brief = deliver.put(caller_inbox, f"{ask_id}-call.md", tools.miss_text(role_name, tool, value, code, out_tail))
@@ -140,7 +144,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
     ns = argparse.Namespace(**{**vars(a), "ask": ask, "text": None, "brief": brief, "dry_run": False,
                                "task": task_name if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,
-                               "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss,
+                               "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss, "causes": list(causes),
                                "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
     head = f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）。{to} に回した"
     rc = orders.ask(ns, ports, cwd, task)
@@ -262,18 +266,23 @@ def asks_of(companies):
                           "state": state, "title": r.get("title") or deliver.ask_title(r.get("file"))})
 
 
-def fire(after, root, ports, a, task, attrs):
+def fire(after, root, ports, a, task, attrs, members=()):
     """--land の合図: メインブランチに入れた後に [[land.after]] のツールを順に呼ぶ。出す行の並び（終了の値は --land に響かせない）。
-    attrs はメインブランチに入れた部署の属性で、その頼み元を回す頼みの頼み元に、その頼み（ask）を回す頼みの親（台帳の cause）にする。"""
+    attrs はメインブランチに入れた部署の属性で、その頼み元を回す頼みの頼み元に、その頼み（ask）を回す頼みの親（台帳の cause）にする。
+    members は束（束の設計 9）で一緒に入れた部署の属性の並び。ツールに部署の名前の並び（$WORKS_LAND_MEMBERS。改行で区切る）を渡し、
+    どの部署の変更が原因か分からないので、乗った部署の受けている頼みも回す頼みの親に並べる（頼みの行の causes）。"""
     if not after:
         return []
     info = tree.read_info(root, os.path.dirname(config.path_of(a.config, os.environ)), ports.git)
     company = tree.company_name(root, info)
     shape = role.load(info["path"], info["text"])
     boss = {k: attrs.get(k) for k in ("ask", "boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")}
+    env = {WORKS_LAND_MEMBERS: "\n".join(m.get("name") or "" for m in [attrs, *members])} if members else None
+    causes = [m["ask"] for m in members if m.get("ask") and m.get("delivered") != m["ask"] and m["ask"] != attrs.get("ask")]
     lines = []
     for x in after:
-        rc, out = invoke(root, company, role.current(shape, x["role"]), x["tool"], x.get("input") or {}, shape["roles"], ports, a, task, boss=boss)
+        rc, out = invoke(root, company, role.current(shape, x["role"]), x["tool"], x.get("input") or {}, shape["roles"], ports, a, task,
+                         boss=boss, env=env, causes=causes)
         state = {0: "片づいた", CALLED: "AI に回した"}.get(rc, "呼べなかった")
         lines.append(f"合図（メインブランチに入れた後）: {x['role']}/{x['tool']} {state}")
         lines += [f"  {line}" for item in out for line in item.splitlines()]

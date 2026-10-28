@@ -1340,6 +1340,19 @@ class Hook(unittest.TestCase):
         self.assertEqual(self.g.head_sha(self.place), self.g.rev(self.src, "origin/main"))
         self.assertEqual(self.g.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
 
+    def test_adopting_a_batch_then_following_still_restarts_for_changed_agents(self):
+        # 束の写しを受け取って（adopt_batch）から進めた回も、起動するときにしか読まないファイルが替われば起動し直す（受け取りの後で道を分けない）
+        attrs = self.fresh_dept(lifecycle=gitx.PERSISTENT, account="a1")
+        rows = iter([{"status": "local_only", "main": "main", "ahead": 1, "behind": 1},
+                     {"status": "updated", "main": "main", "behind": 2, "startup": [".claude/agents/x.md"]}])
+        got = wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: next(rows), adopt=lambda *a: "took")
+        self.assertEqual(got.split("。")[0], "took", got)
+        self.assertIn("作業場のブランチを main の先頭へ進めた", got)
+        self.assertIn("（.claude/agents/x.md）が替わった", got)
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.MOVE_TO], "a1")
+        rows = iter([{"status": "local_only", "main": "main", "ahead": 1, "behind": 1}, {"status": "current", "main": "main"}])
+        self.assertEqual(wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: next(rows), adopt=lambda *a: "took"), "took")
+
     def test_does_not_hand_the_next_ask_when_one_arrived_after_it_looked(self):
         # 上で属性を読んだ後に、--ask が窓に別の頼みを打って属性を書いた。錠の中で読み直し、渡さずに順番待ちに残す（渡すと、
         # 後に書いた頼み元が前の頼みの頼み元を上書きする。my_notes の受付 20261017-082903-87f45f）

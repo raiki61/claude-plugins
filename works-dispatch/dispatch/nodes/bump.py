@@ -87,6 +87,43 @@ def has_entries(text):
     return any(line.strip() and not line.lstrip().startswith("#") for line in lines[head + 1:end])
 
 
+def added_entries(before, after):
+    """`## [Unreleased]` に、before（前の字。無ければ None）に無く after に在る、見出しでない中身の行が有るか（束の部署ごとの見方。
+    束の設計 5.1）。字だけを見て、ファイルも git も読まない。after に `## [Unreleased]` が無ければ BumpError。"""
+    def body(text):
+        head, end, lines = unreleased(text)
+        return [line.strip() for line in lines[head + 1:end] if line.strip() and not line.lstrip().startswith("#")]
+    old = body(before) if before is not None and "## [Unreleased]" in before else []
+    new = body(after)
+    for line in old:
+        if line in new:
+            new.remove(line)
+    return bool(new)
+
+
+def misses(root, since, g):
+    """root（一時の場所。HEAD がその部署の重ねた先頭）で、since から HEAD までに置き場のファイルを変えたのに、その CHANGELOG.md の
+    `## [Unreleased]` に中身の行を 1 行も足していないプラグインの名前の並び（束の設計 5.1。束に重ねた部署ごとに、その部署の写しの範囲で見る）。
+    plan が中身の無い `## [Unreleased]` で止めるのと同じく、試験と文書だけの変更も数える（plan は据え置きを、置き場のどのファイルを
+    変えたかで決める）。記録が読めない・見出しが無いプラグインも並べる。"""
+    mk = json.loads(_read(root, MARKETPLACE))
+    out = []
+    for p in mk.get("plugins", []):
+        if not (isinstance(p.get("source"), str) and p["source"].startswith("./")):
+            continue
+        src = posixpath.normpath(p["source"])
+        if not g.changed_paths(root, since, src):
+            continue
+        cl = posixpath.join(src, "CHANGELOG.md")
+        try:
+            wrote = added_entries(g.file_at(root, since, cl), _read(root, cl))
+        except (OSError, BumpError):
+            wrote = False
+        if not wrote:
+            out.append(p["name"])
+    return out
+
+
 def quiet(path, src):
     """プラグインの置き場 src の下のファイル path（リポジトリのルートからの相対）が、試験か文書か（利用者が動かす物でないか）。
     試験は tests・test のフォルダの下と test_*.py・*_test.py・conftest.py、文書は docs のフォルダの下と、置き場の直下の

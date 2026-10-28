@@ -87,7 +87,7 @@ try:
     import filex  # noqa: E402
     import installed  # noqa: E402
     import rentx  # noqa: E402
-    from nodes import accounts, deliver, provision, role, tree, wake  # noqa: E402
+    from nodes import accounts, batch, deliver, land, landqueue, provision, role, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # 待ち受けは裏で走るので、古い Python（tomllib の無い 3.10 以前）でも会話を止めない。知らせは止まる前のフック
     # （orders.py stop）が会話ごとに 1 回出す
@@ -769,7 +769,7 @@ def early_due(got, attrs, env=os.environ, now=time.time):
     return bool(attrs.get(wake.MOVE_TO) or got_ and got_["to"])
 
 
-def follow_main(got, attrs, catch_up=None):
+def follow_main(got, attrs, catch_up=None, adopt=None):
     """永続の部署（属性 company.lifecycle が persistent）が順番待ちの次の頼みを受ける前に、作業場のブランチを origin のメインブランチの
     先頭まで fast-forward する（provision.follow_main）。永続の部署の作業場は頼みのたびに作り直さないので、進めないとメインブランチに
     入れた組織の直しが効かない（2026-10-20 に my_notes の調べものが 20 commit 遅れ、費用を下げる役の定義の直しが効かなかった。受付 72f7e4）。
@@ -777,21 +777,30 @@ def follow_main(got, attrs, catch_up=None):
     今のアカウントの名指し（company.move-to）を印し、区切りの --move --if-changed に同じアカウントのまま起動し直させる（restart_due）。
     ほかのアカウントへ移す名指しが在れば、そのまま（移す時に起動し直す）。ブランチにメインブランチに無い commit が在れば（書きかけの作業）
     動かさない。渡す字の頭と台帳（kind followed の行と、handed の行の followed）に添える文を返す（添える事が無ければ None）。何が起きても頼みは渡す。
-    同じアカウントのまま起動し直すのは --move の名指し（受付 c149fa）と同じ道で、子の頼みの返事を待って会話を空にしない間は起動し直さない。"""
+    同じアカウントのまま起動し直すのは --move の名指し（受付 c149fa）と同じ道で、子の頼みの返事を待って会話を空にしない間は起動し直さない。
+    メインブランチに無い commit が、束（[land] batch が 2 以上の会社で 1 回のゲートでまとめて入れた組）で写しがメインブランチに入った物なら、
+    先に受け取って（adopt_batch）から進める（束の設計 8.2 の 5）。"""
     if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
         return None
     try:
         r = (catch_up or (lambda cwd: provision.follow_main(cwd, gitx)))(got["cwd"])
     except Exception as e:  # 取れない・未コミットの変更と重なるなどでも、頼みは渡す
         return f"作業場のブランチをメインブランチの先頭へ進められなかったので、この作業場のまま渡す（{type(e).__name__}: {e}）"
-    main = r["main"]
+    main, lead = r["main"], ""
     if r["status"] == "local_only":
-        return (f"作業場のブランチに {main} に無い commit が {r['ahead']} 個在るので、{main} の先頭（足りない commit {r['behind']} 個）へ"
-                f"進めていない（書き換えない）。この頼みはこのブランチのまま受ける。前の頼みの書きかけなら、その頼み元に確かめてから --land で入れ、"
-                "違うなら扱いを頼み元に問う")
+        try:
+            took = (adopt or adopt_batch)(got, attrs, main)
+            if took:
+                r, lead = (catch_up or (lambda cwd: provision.follow_main(cwd, gitx)))(got["cwd"]), took + "。"
+        except Exception as e:  # 受け取れなくても、頼みは渡す
+            return f"束で入った中身を受け取れなかったので、この作業場のまま渡す（{type(e).__name__}: {e}）"
+    if r["status"] == "local_only":
+        return lead + (f"作業場のブランチに {main} に無い commit が {r['ahead']} 個在るので、{main} の先頭（足りない commit {r['behind']} 個）へ"
+                       f"進めていない（書き換えない）。この頼みはこのブランチのまま受ける。前の頼みの書きかけなら、その頼み元に確かめてから --land で入れ、"
+                       "違うなら扱いを頼み元に問う")
     if r["status"] != "updated":
-        return None
-    said = f"作業場のブランチを {main} の先頭へ進めた（{r['behind']} 個の commit を取り込んだ）"
+        return lead[:-1] or None
+    said = lead + f"作業場のブランチを {main} の先頭へ進めた（{r['behind']} 個の commit を取り込んだ）"
     # 会社の形（tree.INFO_FILE）は起動の設定（role.launch_key）と役の文（role_hook.changed）が別に見るので、起動し直す訳にしない
     if r["startup"] is None:   # 替わったかが分からなければ、起動し直す側に倒す（起動し直しても失う物は空にするのと同じ）
         said += "。会話が起動するときにしか読まないファイルが替わったかを比べられなかった"
@@ -812,6 +821,28 @@ def follow_main(got, attrs, catch_up=None):
     if attrs.get("fresh") == role.FRESH:
         return said + "ので、同じアカウントのまま起動し直してから渡す（この文が見えていれば起動し直せなかったので、前の起動のまま受ける）"
     return said + "ので、次の区切り（頼みを納品した後に --rest を打ったターンの終わり）で、同じアカウントのまま起動し直す"
+
+
+def adopt_batch(got, attrs, main):
+    """永続の部署の作業場のブランチが、前の束でメインブランチ main に写しが入った物のままなら（HEAD が束に重ねる前の先頭と同じ）、写しに
+    替える（--land の受け取りと同じ手。batch.adoptable と land.adopt）。受け取ったら添える文、受け取る物が無ければ None。
+    束の後に commit を足した作業場（受け取りの手が onto）は替えない（足した commit は書きかけで、部署の次の --land が受け取って入れる）。"""
+    root, cwd = got["root"], got["cwd"]
+    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), gitx)
+    rules = land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))
+    branch = gitx.branch(cwd)
+    if rules["problems"] or rules["batch"] < 2 or not rules["queue"] or not branch:
+        return None
+    queue = os.path.join(gitx.common_dir(root), rules["queue"])
+    base, head = gitx.rev(cwd, f"refs/remotes/origin/{main}"), gitx.rev(cwd, "HEAD")
+    hit = batch.adoptable(landqueue.batches(queue), branch, base, head, gitx.is_clean(cwd), cwd, gitx) if base and head else None
+    if not hit or hit[0] != "reset":
+        return None
+    _, record, row = hit
+    new, notes = land.adopt(cwd, branch, row, "reset", gitx)
+    provision.mark(cwd, root, {"base": record["candidate"]}, gitx)
+    return "；".join([f"束（束ね役 {record.get('leader') or '-'}）でメインブランチに入った中身を受け取った（ブランチ {branch} を写し "
+                     f"{new[:7]} に替えた）", *notes])
 
 
 def lag_note(got, attrs, count=None):

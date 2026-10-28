@@ -38,7 +38,7 @@ from ports import chat, term
 import config
 import ghx
 import gitx
-from nodes import bump, clean, deliver, land, landqueue, provision, role, tree, wake
+from nodes import batch, bump, clean, deliver, land, landqueue, provision, role, tree, wake
 
 RUN_PAUSE_S = 10  # ゲートのブランチに push した後、run が現れるのを見に行く間
 FAILED = "failed"   # 代表の clone のメインブランチをそろえる git が誤りを返した（gitx.advance_branch の値に並べる、こちらの札）
@@ -180,6 +180,18 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
     except (gitx.GitError, ghx.GhError) as e:
         print(f"止めた: {e}")
         return 1
+    run = types.SimpleNamespace(
+        cfg=cfg, repo=repo, ports=ports, rows=rows, reasons=reasons, found=found, place=place, attrs=attrs, name=attrs.get("name") or name,
+        branch=branch, path=path, source=source, info=info, rules=rules, main=main, env=env, pause=pause, today=today, checker=checker,
+        after=after, hold=hold, keep_removal=keep_removal,
+        again=lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold))
+    bundles = rules["batch"] > 1 and hold.queue is not None
+    if bundles:
+        # 束の会社は順番を取った後に HEAD を読み直し（列で待つ間に足した commit も入れる）、前の束で入っていれば受け取る（束の設計 8.2）
+        head = g.rev(path, "HEAD")
+        code, head = _adopt(run, head, base)
+        if code is not None:
+            return code
     if g.is_ancestor(source, head, base):
         print(f"ブランチ {branch} はもうメインブランチ {main} に入っている")
         hold.drop()
@@ -192,14 +204,14 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
     if stop is not None:
         print(stop)
         return 1
-
-    run = types.SimpleNamespace(
-        cfg=cfg, repo=repo, ports=ports, rows=rows, reasons=reasons, found=found, place=place, attrs=attrs, name=attrs.get("name") or name,
-        branch=branch, path=path, source=source, info=info, rules=rules, main=main, env=env, pause=pause, today=today, checker=checker,
-        after=after, hold=hold,
-        again=lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold))
+    if bundles:
+        code, head = _batch(run, head, base)
+        if code is not None:
+            return code
     stage = tempfile.mkdtemp(prefix="dispatch-land-") if rules["bump"] else None
     try:
+        if stage:
+            land.stage(source, stage, head, g)
         candidate = _bump(run, head, stage) if stage else head
         verdict, label, points, ref = _gate(run, head, candidate, stage or path)
     except (gitx.GitError, ghx.GhError, bump.BumpError, OSError, ValueError) as e:
@@ -207,11 +219,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
         return 1
     finally:
         if stage:
-            try:
-                land.unstage(source, stage, g)
-            except gitx.GitError as e:
-                print(f"注記: 一時の場所 {stage} を消せなかった（{e}）")
-            shutil.rmtree(stage, ignore_errors=True)
+            _unstage(run, stage)
     print(f"ゲート（{label}）: {'緑' if verdict['result'] == 'green' else '赤'}")
     if verdict["result"] == "red":
         print(_ask(ports, place, land.red_text(branch, label, points)))
@@ -220,10 +228,18 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
     return _finish(run, candidate, ref) if code is None else code
 
 
+def _unstage(run, stage):
+    """一時の場所を消す（git の worktree の記録とフォルダ）。消せなければ注記だけ出す。"""
+    try:
+        land.unstage(run.source, stage, run.ports.git)
+    except gitx.GitError as e:
+        print(f"注記: 一時の場所 {stage} を消せなかった（{e}）")
+    shutil.rmtree(stage, ignore_errors=True)
+
+
 def _bump(run, head, stage):
-    """版上げの段: 一時の場所 stage を head で作り、その上に版を上げる commit を作る。候補の commit を返す（据え置きが無ければ head）。"""
+    """版上げの段: 一時の場所 stage（HEAD が head に居る）に版を上げる commit を作る。候補の commit を返す（据え置きが無ければ head）。"""
     g = run.ports.git
-    land.stage(run.source, stage, head, g)
     got = bump.make(stage, run.today or datetime.date.today().isoformat(), g)
     if not got["sha"]:
         print("版の据え置きは無い（版を上げる commit は作らない）")
@@ -235,25 +251,28 @@ def _bump(run, head, stage):
     return got["sha"]
 
 
-def _gate(run, head, candidate, where):
+def _gate(run, head, candidate, where, riders=()):
     """ゲートの段: 候補 candidate を、手元の検証なら場所 where で回し、CI のブランチの形ならゲートのブランチに出して run を待つ。
     (結末, ゲートの名前, 失敗の要点, ゲートのブランチ〔手元の検証なら None〕)。手元の検証には、初見の読み手のゲート（gates の branch-check）が
-    文書を読む commit（版上げの前の head）と前の回の控えの鍵と帰属を引くブランチを、環境変数で渡す（束の設計 5.3）。"""
+    文書を読む commit（版上げの前の head）と前の回の控えの鍵と帰属を引くブランチを、環境変数で渡す（束の設計 5.3）。
+    riders は束に乗せた部署のブランチの並び。束なら控えの鍵に束の印を付け、ゲートのブランチの名前を全員のブランチと比べ、
+    ゲートのブランチへの push を一時の場所 where から打つ（束の設計 5.2）。"""
     g, rules = run.ports.git, run.rules
+    key = f"{run.branch} batch" if riders else run.branch   # ブランチの名前は空白を含められないので、実在のブランチの鍵とぶつからない
     if rules["gate"] == land.GATE_CHECK:
         before = g.untracked(where)
-        code, said = run.checker(rules["check"], where, land_env(head, run.branch, run.branch))
+        code, said = run.checker(rules["check"], where, land_env(head, key, run.branch))
         if where == run.path:
             _sweep(where, g.untracked(where) - before)
         return ({"result": "green" if code == 0 else "red"}, f"手元の検証 {rules['check']}",
                 said.splitlines()[-land.FAIL_LINES:], None)
     ref = land.gate_branch(rules["gate"], run.name, run.branch)
-    if ref in (run.main, run.branch):
+    if ref in (run.main, run.branch, *riders):
         raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
     if not land.ci_on(where, rules["gate"]):
         raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
                          f"{rules['gate'].split('*', 1)[0]} を書いていない）")
-    land.publish(run.path, candidate, ref, g)   # push は部署の作業場から（下の advance と同じ訳）
+    land.publish(where if riders else run.path, candidate, ref, g)   # push は部署の作業場から（下の advance と同じ訳）。束は候補の木から
     print(f"ゲートに出した: {ref}（commit {candidate[:7]}）")
     verdict = land.wait_gate(run.repo.repo, ref, candidate, run.ports.gh, run.env, run.pause)
     label = f"CI {ref}" + (f" {verdict['run'].get('url')}" if verdict.get("run") else "")
@@ -297,9 +316,17 @@ def _publish(run, candidate):
     return None
 
 
-def _finish(run, candidate, ref):
-    """後始末の段（push し終えた後）: 列の順番を渡し、代表の clone をそろえ、合図を打ち、company.base を進め、ゲートのブランチを消し、片付ける。"""
+def _finish(run, candidate, ref, riders=()):
+    """後始末の段（push し終えた後）: 束の控えと疑いの印を掃き、列の順番を渡し、代表の clone をそろえ、合図を打ち、company.base を進め、ゲートのブランチを消し、片付ける。
+    riders は束に乗せた部署（_look の事実の並び）で、合図に乗った部署の属性を渡す（合図は束ごとに 1 回。束の設計 9）。"""
     g, source, main = run.ports.git, run.source, run.main
+    if run.hold.queue:
+        # 順番を持つ間に掃く（後ろの束ね役が push の前に書いた控えを、push されなかった物と見て消さない）。入れたブランチの疑いの印も外す
+        _sweep_batches(run, candidate)
+        try:
+            _suspects_without(run, {run.branch, *(f["branch"] for f in riders)})
+        except OSError as e:
+            print(f"注記: 疑いの印を書き直せなかった（{e}）。印はブランチの先頭が動けば当たらなくなる")
     run.hold.drop()   # push し終えたので、列の次の処理に順番を渡す（代表の clone のそろえ・合図・片付けは順番の外で）
     _, local, err, notes = _follow(source, main, g, candidate)
     for n in notes:
@@ -308,7 +335,7 @@ def _finish(run, candidate, ref):
     if local in LAGS:
         print(_tell_desk(source, run.info, main, candidate, local, g, err))
     if run.after and run.rules["after"]:
-        for line in run.after(run.rules["after"], source, run.attrs):
+        for line in run.after(run.rules["after"], source, run.attrs, **({"members": [f["attrs"] for f in riders]} if riders else {})):
             print(line)
     try:
         # この部署がメインブランチを知った位置を、入れた後のメインブランチに進める（次の --land のゲートは、ここより後にほかの部署が入れた行を見る）
@@ -321,6 +348,242 @@ def _finish(run, candidate, ref):
         except gitx.GitError as e:
             print(f"注記: ゲートのブランチ {ref} を消せなかった（{e}）")
     return _tidy(run.cfg, run.repo, run.ports, run.found, run.path, run.rows, run.reasons, candidate)
+
+
+def _look(run, base, only=None):
+    """束の顔ぶれを決める事実を集める（batch.select に渡す。束の設計 4.2）。見るのは、束ね役が先頭を取った時に待っていた札（hold.seen）の
+    うち束ね役より後ろの物（only を渡せばその札だけ）。乗る札の部署の場所は読むだけで書かない。"""
+    g, hold = run.ports.git, run.hold
+    queue = hold.queue
+    waiting = hold.seen[hold.seen.index(hold.ticket) + 1:] if hold.ticket in hold.seen else []
+    alive = set(landqueue.alive(queue))
+    marks, records = landqueue.suspects(queue), landqueue.batches(queue)
+    out = []
+    for ticket in waiting:
+        if only is not None and ticket not in only:
+            continue
+        who = landqueue.who(queue, ticket)
+        f = {"ticket": ticket, "who": who, "alive": ticket in alive, "name": (who and who[0]) or ticket, "path": None}
+        out.append(f)
+        branch = who[1] if who else ""
+        hits = [(p, a) for p, a in _find(run.found, branch, run.ports.attrs) if p.get("branch") == branch] if branch else []
+        head = g.rev(hits[0][0]["path"], "HEAD") if len(hits) == 1 else None
+        if not head:
+            continue
+        place, attrs = hits[0]
+        step = (batch.adoptable(records, branch, base, head, True, run.source, g) or (None,))[0]
+        rules = land.read_rules(run.info.get("path"), attrs.get("role"), run.info.get("text"))
+        f.update(branch=branch, place=place, path=place["path"], attrs=attrs, head=head,
+                 # 前の束で入り、まだ受け取っていない札も入っている（写しは元と別の commit なので、祖先の判定だけでは見えない）。
+                 # 束の後に commit を足した札は、自分の場所で受け取ってから入れる（束の設計 8.2）
+                 landed=g.is_ancestor(run.source, head, base) or step == "reset", unadopted=step == "onto",
+                 same=not rules["problems"] and all(rules[k] == run.rules[k] for k in land.FIELDS),
+                 clean=run.ports.is_clean(place["path"]), suspect=marks.get(branch) == head)
+    return out
+
+
+def _stack(run, head, base, riders, stage):
+    """重ねる段（束の設計 4.3）: 一時の場所を束ね役の先頭 head で作り、乗る札のブランチを順に写す。ぶつかる・ほかの部署が入れた行を消す・
+    変更の記録を書いていない札に当たったら、その札を外してそこで閉じる。(重ねた先頭, 乗せた札の並び〔各札に元 original と写し stacked を
+    足す〕)。束ね役が変更の記録を書いていなければ None（束の数 1 の道で、版上げが今と同じに止める）。"""
+    g = run.ports.git
+    land.stage(run.source, stage, head, g)
+    if run.rules["bump"]:
+        miss = bump.misses(stage, base, g)
+        if miss:
+            print(f"束: 束ね役のブランチが変更の記録を書いていない（{'・'.join(miss)}）ので、束にせず 1 本で通す")
+            return None
+    top, kept = head, []
+    for f in riders:
+        fork = g.merge_base(stage, f["head"], base) or base
+        new, left = land.stack_one(stage, top, fork, f["head"], g)
+        why = None if new else f"ぶつかる（{'・'.join(left)}）"
+        if why is None and f["attrs"].get("base"):
+            try:
+                hits = land.taken(stage, f["attrs"]["base"], top, new, g)
+                why = f"ほかの部署が入れた行を {len(hits)} 行消す" if hits else None
+            except gitx.GitError as e:
+                why = f"書き換えの取り合いを見られない（{e}）"
+        if why is None and run.rules["bump"]:
+            miss = bump.misses(stage, top, g)
+            why = f"変更の記録を書いていない（{'・'.join(miss)}）" if miss else None
+        if why:
+            if new:
+                land.drop_to(stage, top, g)
+            print(f"束: 札 {f['name']} で閉じた（{why}）。その札は自分の順番で 1 本で通る")
+            break
+        kept.append({**f, "original": f["head"], "stacked": new})
+        top = new
+    return top, kept
+
+
+def _suspects_without(run, branches, add=None):
+    """疑いの印から branches を外し、add（{ブランチ: commit}）を足して書く。ブランチの先頭が印の commit から動いた印（部署が直して push し直した）も
+    ここで掃除する（束の設計 6.2）。"""
+    g, queue = run.ports.git, run.hold.queue
+    marks = {b: s for b, s in landqueue.suspects(queue).items()
+             if b not in branches and g.rev(run.source, f"refs/heads/{b}") == s}
+    landqueue.set_suspects(queue, {**marks, **(add or {})})
+
+
+def _sweep_batches(run, base):
+    """受け取りの済んだ束の控えと、push されなかった束の控えを消す（束の設計 11。列の先頭を持つ処理だけが打つ）。"""
+    g = run.ports.git
+    tip_of = lambda b: g.rev(run.source, f"refs/heads/{b}") if b else None   # noqa: E731
+    try:
+        for ticket, record in landqueue.batches(run.hold.queue):
+            if batch.finished(record, base, tip_of, g, run.source):
+                landqueue.drop_batch(run.hold.queue, ticket)
+    except (gitx.GitError, OSError) as e:
+        print(f"注記: 束の控えを掃けなかった（{e}）。残っても、入ったかは写しが祖先かで見るので、誤って受け取ることは無い")
+
+
+def _batch_once(run, head, base, riders, stage):
+    """束を 1 回作って回す（重ねる → 版上げ → ゲート → 出す）。(結末, 値)。結末は single（束にしない）・red（赤。束をほどいた）・
+    gone（乗る札が抜けた。値は残す札の並び）・moved（メインブランチが進んだ。値は新しい先頭）・stop（値は終わりの値）・
+    pushed（値は (候補, ゲートのブランチ, 乗せた札の並び)）。"""
+    g, queue = run.ports.git, run.hold.queue
+    try:
+        got = _stack(run, head, base, riders, stage)
+        if got is None:
+            return "single", None
+        top, kept = got
+        if not kept:
+            print("束: 乗せられる札が無いので、1 本で通す")
+            return "single", None
+        landqueue.mark_riders(queue, [f["ticket"] for f in kept], run.name)
+        print(f"束: {run.name} と {'・'.join(f['name'] for f in kept)} の {1 + len(kept)} 本を、1 回のゲートで入れる")
+        candidate = _bump(run, top, stage) if run.rules["bump"] else top
+        verdict, label, points, ref = _gate(run, top, candidate, stage, [f["branch"] for f in kept])
+    except (gitx.GitError, ghx.GhError, bump.BumpError, OSError, ValueError) as e:
+        print(f"止めた: {e}")
+        return "stop", 1
+    print(f"ゲート（{label}）: {'緑' if verdict['result'] == 'green' else '赤'}")
+    if verdict["result"] == "red":
+        _suspects_without(run, (), {f["branch"]: f["original"] for f in kept})
+        print("束が赤だったので束をほどき、束ね役 1 本で回し直す（乗っていた札には疑いの印を付け、それぞれの順番で 1 本ずつ通る）")
+        return "red", None
+    alive = landqueue.alive(queue)
+    gone = next((i for i, f in enumerate(kept) if f["ticket"] not in alive), None)
+    if gone is not None:
+        print(f"束: 札 {kept[gone]['name']} がゲートの間に列を抜けたので、その札から後ろを外して束を作り直す")
+        return "gone", kept[:gone]
+    members = [{"ticket": run.hold.ticket, "name": run.name, "branch": run.branch, "original": head, "stacked": head}]
+    members += [{k: f[k] for k in ("ticket", "name", "branch", "original", "stacked")} for f in kept]
+    try:
+        now = land.refresh(run.source, run.main, g)
+        if not g.is_ancestor(run.source, now, candidate):
+            return "moved", now
+        # 控えは push の前に書く（push の後に落ちても、乗った部署が写しを引ける。束の設計 8.1）。push されなければ次の掃除が消す
+        landqueue.write_batch(queue, run.hold.ticket, {"leader": run.name, "main_before": base, "candidate": candidate, "members": members})
+    except (gitx.GitError, OSError) as e:
+        print(f"止めた: {e}")
+        return "stop", 1
+    try:
+        land.advance(stage, run.main, candidate, g)   # push は候補の木から（push の前のフックを候補の木から走らせる。束の設計 5.2）
+    except gitx.GitError as e:
+        try:
+            now = land.refresh(run.source, run.main, g)
+        except gitx.GitError:
+            now = None
+        if now is None or g.is_ancestor(run.source, now, candidate):
+            print(f"止めた: メインブランチ {run.main} への push が断られた（{e}）")
+            return "stop", 1
+        return "moved", now
+    return "pushed", (candidate, ref, kept)
+
+
+def _batch(run, head, base):
+    """束の道（束の設計 4〜8）。列の先頭を取ったこの --land が束ね役になり、後ろに待つ札の部署のブランチを一時の場所に重ねて、1 回の版上げと
+    ゲートで入れる。束にしない・ほどいたなら (None, head)（呼ぶ側が束の数 1 の道を head で回す）、止まるか入れたなら (終わりの値, head)。"""
+    g, queue = run.ports.git, run.hold.queue
+    if landqueue.suspects(queue).get(run.branch) == head:
+        print("束にしない（このブランチには疑いの印が有る。前の束が赤だった）")
+        return None, head
+    riders, closed, why = batch.select(_look(run, base), run.rules["batch"])
+    if not riders:
+        if closed is not None:
+            print(f"束にしない（次の札 {closed['name']}: {why}）")
+        return None, head
+    if closed is not None:
+        print(f"束: 札 {closed['name']} で閉じた（{why}）")
+    marked, got = set(), None
+    try:
+        while True:
+            marked |= {f["ticket"] for f in riders}
+            stage = tempfile.mkdtemp(prefix="dispatch-land-")
+            try:
+                tag, got = _batch_once(run, head, base, riders, stage)
+            finally:
+                _unstage(run, stage)
+            if tag in ("single", "red"):
+                return None, head
+            if tag == "stop":
+                return got, head
+            if tag == "pushed":
+                break
+            if tag == "gone":
+                riders = got
+                continue
+            # ゲートの間にメインブランチが進んだ: 束ね役を部署の場所でリベースし、同じ顔ぶれで重ね直してゲートから回し直す（束の設計 8.1）
+            base = got
+            if not g.is_ancestor(run.source, base, head):
+                head = _rebase_here(run.ports, run.place, run.path, run.branch, base, run.main, run.rules)
+                if head is None:
+                    return 1, None
+            stop = _overwrite_gate(run.ports, run.place, run.attrs, run.branch, base, head, run.keep_removal)
+            if stop is not None:
+                print(stop)
+                return 1, head
+            print("メインブランチが先に進んでいたので、同じ顔ぶれで重ね直してゲートから回し直す")
+            riders, closed, why = batch.select(_look(run, base, {f["ticket"] for f in riders}), run.rules["batch"])
+            if closed is not None:
+                print(f"束: 札 {closed['name']} で閉じた（{why}）")
+    finally:
+        landqueue.unmark_riders(queue, sorted(marked))
+    candidate, ref, kept = got
+    print(f"束で入れた: {run.name}・{'・'.join(f['name'] for f in kept)}（乗った部署は、それぞれの --land か作業場の追いつきで受け取る）")
+    return _finish(run, candidate, ref, kept), head
+
+
+def _adopt(run, head, base):
+    """受け取り（束の設計 8.2）: 前の束でこの部署のブランチの写しがメインブランチに入っていれば、部署の場所で受け取る。(終わりの値か None, head)。
+    None なら今の道を head で続ける（受け取る物が無い・束の後に足した commit を写しの上へ移した）。"""
+    g, ports = run.ports.git, run.ports
+    got = batch.adoptable(landqueue.batches(run.hold.queue), run.branch, base, head, ports.is_clean(run.path), run.path, g)
+    if got is None:
+        return None, head
+    step, record, row = got
+    leader = record.get("leader") or "-"
+    again = f"中身はメインブランチに入った（束ね役 {leader}）。手元の変更を commit してから --land を打ち直す"
+    if step == "dirty":
+        print(_ask(ports, run.place, again))
+        return 1, head
+    try:
+        new, said = land.adopt(run.path, run.branch, row, step, g)
+    except gitx.GitError as e:
+        print(f"受け取りの git が断った（{e}）")
+        print(_ask(ports, run.place, again))
+        return 1, head
+    if new is None:
+        print(f"束（束ね役 {leader}）で入った中身の上に、その後の commit を移すとぶつかりが残った（{'・'.join(said)}）。元に戻した")
+        print(_ask(ports, run.place, land.rebase_text(run.branch, run.main, run.rules["bump"]) + f" ぶつかるファイル: {'・'.join(said)}"))
+        return 1, head
+    for n in said:
+        print(f"注記: {n}")
+    try:
+        provision.mark(run.path, run.source, {"base": record["candidate"]}, g)
+        run.attrs["base"] = record["candidate"]
+    except (gitx.GitError, OSError) as e:
+        print(f"注記: メインブランチを知った位置（company.base）を書けなかった（{e}）。次の --land の書き換えのゲートは前の位置で見る")
+    _suspects_without(run, {run.branch})
+    if step == "onto":
+        print(f"束（束ね役 {leader}）で入った中身の上に、その後の commit を移した（{new[:7]}）。残りを入れる")
+        return None, new
+    print(f"束（束ね役 {leader}）でメインブランチに入った（ブランチ {run.branch} を写し {new[:7]} に替えた）")
+    _sweep_batches(run, base)
+    run.hold.drop()
+    return _tidy(run.cfg, run.repo, ports, run.found, run.path, run.rows, run.reasons, new), new
 
 
 def catch_up(source, info, main, g):
@@ -510,9 +773,31 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
         print(f"止めた: {e}")
         return 1
     print(f"緑なら: メインブランチをもう一度取り直し、まだ祖先ならメインブランチ {main} を候補へ fast-forward して push する。赤なら失敗の要点を部署に頼む")
+    if rules["batch"] > 1 and rules["queue"]:
+        _preview_batch(g, source, os.path.join(g.common_dir(source), rules["queue"]), rules["batch"], branch, head)
     if rules["after"]:
         print("入れた後の合図: " + "、".join(f"{x['role']}/{x['tool']}" for x in rules["after"]) + " を呼ぶ（片づかなければ AI に回す）")
     return _tidy(cfg, repo, ports, found, path, rows, reasons, head, dry_run=True)
+
+
+def _preview_batch(g, source, queue, limit, branch, head):
+    """--land --dry-run の束の見立て（束の設計 10）。読むだけで、一時の場所を作らない。本当に打てば列の最後に並ぶので、この部署は先に並んだ
+    札の束に乗るか、先頭を取って後ろに待つ札を束ねる。今列に待つ札の次の束の見込みと、部署のブランチと merge してぶつかる見込みの札を出す。"""
+    waiting = landqueue.alive(queue) if os.path.isdir(queue) else []
+    print(f"束: 上限 {limit} 本。本当に打てば列の最後に並び、先に並んだ札の束に乗るか、先頭を取ったときに後ろに待つ札を束ねる（今待つ札 {len(waiting)} 本）")
+    if not waiting:
+        return
+    marks = landqueue.suspects(queue)
+    nxt = batch.upcoming([(n, landqueue.who(queue, n)) for n in waiting[1:]], limit, marks)
+    name = lambda n: (landqueue.who(queue, n) or (n,))[0] or n   # noqa: E731
+    print(f"- 今先頭で進む札: {name(waiting[0])}。次の束の見込み: {'・'.join(name(n) for n in nxt) or '無し'}")
+    clash = [name(n) for n in waiting for w in [landqueue.who(queue, n)] if w and w[1] and w[1] != branch
+             and g.rev(source, f"refs/heads/{w[1]}") and g.merges_clean(source, head, f"refs/heads/{w[1]}") is False]
+    if clash:
+        print(f"- 部署のブランチと merge するとぶつかる見込み: {'・'.join(clash)}（同じ束に入れば、ぶつかる札の手前で束を閉じる）")
+    if branch in marks:
+        print("- このブランチには疑いの印が有る（前の束が赤だった）ので、束に乗らずに 1 本で通る")
+    print("- 見積もりは名乗り・疑いの印・merge の見込みだけで見た物で、外れうる（当たらなかったぶつかりは本番の重ねる段で出る）")
 
 
 def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):

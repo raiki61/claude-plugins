@@ -21,7 +21,7 @@ COMPANY = {
     "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "per_ask", "standing", "keepalive"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
     "skills.keepalive": ("every", "text"),
-    "land": ("mode", "gate", "check", "bump", "main", "queue", "roles", "after"),
+    "land": ("mode", "gate", "check", "bump", "main", "queue", "batch", "roles", "after"),
     "land.roles": ("mode", "gate", "check", "bump", "main"),
     "land.after": ("role", "tool", "input"),
 }

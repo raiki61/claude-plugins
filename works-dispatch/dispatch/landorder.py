@@ -16,7 +16,7 @@ import time
 
 import config
 import gitx
-from nodes import land, landqueue, tree
+from nodes import batch, land, landqueue, tree
 
 SHOWN = 5   # 重なるファイルを名前で出す数
 NO_QUEUE = "会社の形の [land] に queue が無い"
@@ -24,6 +24,12 @@ NO_QUEUE = "会社の形の [land] に queue が無い"
 
 def place(repo, ports, config_path):
     """(列の置き場, 会社の形に書いたメインブランチ〔無ければ None〕) か、読めなければ (None, 訳)。--queue-run（queuerun.py）も同じ置き場を使う。"""
+    got, why = _rules(repo, ports, config_path)
+    return (None, why) if got is None else got[:2]
+
+
+def _rules(repo, ports, config_path):
+    """((列の置き場, メインブランチ〔無ければ None〕, 束の上限), None) か、読めなければ (None, 訳)。"""
     g = ports.git
     info = tree.read_info(repo.source, os.path.dirname(config.path_of(config_path, os.environ)),
                           committed=lambda root: tree.committed_info(root, g))
@@ -32,7 +38,7 @@ def place(repo, ports, config_path):
         return None, "取り込みの決まりが読めない: " + " / ".join(rules["problems"])
     if not rules["queue"]:
         return None, NO_QUEUE
-    return os.path.join(g.common_dir(repo.source), rules["queue"]), rules["main"]
+    return (os.path.join(g.common_dir(repo.source), rules["queue"]), rules["main"], rules["batch"]), None
 
 
 def write(queue, names):
@@ -49,10 +55,11 @@ def write(queue, names):
     os.replace(tmp, path)
 
 
-def rows(queue, source, main, g, now=None):
-    """待っている札ごとの行の並び（今の入れる順）。"""
+def rows(queue, source, main, g, now=None, limit=1):
+    """待っている札ごとの行の並び（今の入れる順）。limit は束の上限（[land] batch）で、2 以上なら次の束に入る見込みの札に印を添える。"""
     now = time.time() if now is None else now
     names = landqueue.alive(queue) if os.path.isdir(queue) else []
+    nxt = batch.upcoming([(n, landqueue.who(queue, n)) for n in names[1:]], limit, landqueue.suspects(queue)) if limit > 1 else []
     seen = {}
     for n in names:
         w = landqueue.who(queue, n)
@@ -82,6 +89,8 @@ def rows(queue, source, main, g, now=None):
             bits.append(f"変えたファイル {len(files)} 件")
             if shared:
                 bits.append(f"ほかの待ちと重なる {len(shared)} 件（{', '.join(shared[:SHOWN])}{' ほか' if len(shared) > SHOWN else ''}）")
+        if n in nxt:
+            bits.append("次の束の束ね役（見込み）" if n == nxt[0] else "次の束に乗る見込み")
         out.append(head + ": " + "、".join(bits))
     return out
 
@@ -99,19 +108,23 @@ def main(repo, names, ports, config_path=None):
 
 
 def _main(repo, names, ports, config_path):
-    queue, main_ = place(repo, ports, config_path)
-    if queue is None:
-        print(f"止めた: {main_}" + ("（列が無いので、入れる順は打った順に決まる）" if main_ == NO_QUEUE else ""))
+    got, why = _rules(repo, ports, config_path)
+    if got is None:
+        print(f"止めた: {why}" + ("（列が無いので、入れる順は打った順に決まる）" if why == NO_QUEUE else ""))
         return 1
+    queue, main_, limit = got
     main_ = main_ or ports.default_branch(repo)
     if names:
         write(queue, [] if names == ["-"] else names)
         print("入れる順を消した（申し出た順に戻した）" if names == ["-"] else f"入れる順を書いた: {' → '.join(names)}（書いていない札はその後に申し出た順）")
     want = landqueue.order(queue)
-    listed = rows(queue, repo.source, main_, ports.git)
+    listed = rows(queue, repo.source, main_, ports.git, limit=limit)
     print(f"列 {queue}: 待っているのは {len(listed)} 本（上から入る順）。入れる順の指定: {' → '.join(want) if want else '無し（申し出た順）'}")
     for line in listed:
         print(line)
     if not names:
         print("入れる順を決める: --land-order <部署> [<部署> ...]（書いた順に先に入る）。消す: --land-order -。決め手は works-dispatch の docs/land.md の「入れる順を決める」")
+        if limit > 1:
+            print(f"束: 先頭の --land が後ろに待つ札を {limit} 本まで束ねて 1 回のゲートで入れる。「次の束」の印は名乗りと疑いの印だけで見積もった物で、"
+                  "部署の場所・未コミットの変更・ぶつかりで束はもっと手前で閉じうる")
     return 0

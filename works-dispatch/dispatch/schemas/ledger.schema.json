@@ -17,6 +17,7 @@
           "status": {"type": ["string", "null"]},
           "cause": {"type": ["string", "null"]},
           "cause_boss": {"type": "object"},
+          "causes": {"type": "array", "items": {"type": "string"}},
           "ask": {"type": ["string", "null"]},
           "child": {"type": "string"},
           "for": {"type": "string"},

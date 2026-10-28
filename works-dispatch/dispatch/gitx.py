@@ -553,6 +553,36 @@ def rebase(cwd, onto, runner=_default_runner):
     return (True, []) if p.returncode == 0 else (False, conflicted(cwd, runner))
 
 
+def rebase_onto(cwd, onto, upstream, tip=None, runner=_default_runner):
+    """upstream から tip（省けば今のブランチ）までの commit を onto の上へ写す（git rebase --onto）。書く口。返しは rebase と同じ。
+    tip は commit で渡す（ブランチの名前を渡すと、git はそのブランチを cwd で checkout しようとし、ほかの作業場が開いていれば断る）。
+    tip を渡せば、cwd はブランチに乗らない HEAD のまま写した先頭に居る。やめれば（rebase_abort）始める前の HEAD に戻る。"""
+    p = runner(["git", "-C", cwd, *REBASE_OPTS, "rebase", "--quiet", "--onto", onto, upstream, *([tip] if tip else [])])
+    return (True, []) if p.returncode == 0 else (False, conflicted(cwd, runner))
+
+
+def merge_base(cwd, a, b, runner=_default_runner):
+    """a と b の分かれ目の commit。無ければ None。"""
+    return _git(cwd, ["merge-base", a, b], runner) or None
+
+
+def merges_clean(cwd, a, b, runner=_default_runner):
+    """a と b を merge するとぶつからないか（git merge-tree --write-tree。作業ツリーも ref も替えない）。読めなければ None。"""
+    code = runner(["git", "-C", cwd, "merge-tree", "--write-tree", "--name-only", a, b]).returncode
+    return {0: True, 1: False}.get(code)
+
+
+def detach(cwd, sha, runner=_default_runner):
+    """cwd（ブランチに乗らない一時の場所）の HEAD を sha に移す（git checkout --detach）。書く口。"""
+    _must(["git", "-C", cwd, "checkout", "--quiet", "--detach", sha], runner)
+
+
+def reset_to(cwd, sha, runner=_default_runner):
+    """cwd の今のブランチを sha へ `git reset --keep` で替える。書く口。--keep は、未コミットの変更と替わるファイルが重なれば
+    git が断る（GitError。変更は消さない）。"""
+    _must(["git", "-C", cwd, "reset", "--quiet", "--keep", sha], runner)
+
+
 def rebase_continue(cwd, runner=_default_runner):
     """途中のリベースを続ける（ぶつかりを解いて index に足した後）。書く口。返しは rebase と同じ。"""
     p = runner(["git", "-C", cwd, *REBASE_OPTS, "rebase", "--continue"])

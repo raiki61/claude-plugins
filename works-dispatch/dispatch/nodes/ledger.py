@@ -10,7 +10,8 @@ Marten の Live の射影）。行の形・種類・つなぎ方の決まりは 
   済・取り下げ・回した（forwarded）は終わりで、後の行で戻さない。状態の名前と、JSCalendar の Task の progress への対応は STATES。
 - 親: 頼みの行の cause（その頼みを打った場所が、そのとき受けていた頼み。Marten・KurrentDB の causation id）、--forward で回した
   forwarded の行（回した元が親）。cause のフィールドの無い古い行は、打った場所と名前が同じ部署が、その時より前に最後に受けた頼みを親と見る
-  （wake_hook.open_children と同じ見分け。parent_by は inferred）。
+  （wake_hook.open_children と同じ見分け。parent_by は inferred）。頼みの行の causes（束の合図で回した頼み）の頼みにも子として並べる
+  （木の親は cause の 1 つのまま）。
 - 続き: 納品の残った疑問の担当者が受付番号なら、その頼みを続き（follows）に結ぶ。リマインダーの受付なら、リマインダーの続き
   （reminders。頼みの木には入れない）に結ぶ。担当者が部署や持ち主の物は questions に残すだけで、開いている物には数えない（閉じる行が
   台帳に無いため）。
@@ -250,6 +251,13 @@ def build(rows, title_of=None, questions_of=None, reminders=None):
                and (tasks[x[3]]["closed"] is None or tasks[x[3]]["closed"] > (t["created"] or 0))]
         if got and frm.get("place"):
             _link(tasks, got[-1][3], t["id"], "inferred")
+    # 並べた親: 頼みの行の causes（束の合図で回した頼み。どの部署の変更が原因か分からないので、乗った部署の頼みにも子として並べる）。
+    # 木の親（parent）は cause の 1 つのまま
+    for t in tasks.values():
+        for extra in t["_row"].get("causes") or []:
+            if extra in tasks and extra not in (t["id"], t["parent"]) and not _below(tasks, t["id"], extra) \
+                    and t["id"] not in tasks[extra]["children"]:
+                tasks[extra]["children"].append(t["id"])
     # 続き: 納品の残った疑問の担当者の受付（頼みか、リマインダー）
     rems = reminders or {}
     for r in rows:

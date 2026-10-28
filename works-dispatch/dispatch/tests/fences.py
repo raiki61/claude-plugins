@@ -57,6 +57,9 @@ WRITES = {
     "push": {"nodes/land.py"},
     # git: メインブランチが先に進んだ部署のブランチを、メインブランチに入れるコマンドがリベースして origin に出す
     "rebase": {"nodes/land.py"},
+    "rebase_onto": {"nodes/land.py"},   # 束: 一時の場所へ部署のブランチを重ねる・受け取りで束の後の commit を写しの上へ移す
+    "detach": {"nodes/land.py"},   # 束: 重ねられなかった部署を外し、一時の場所を前の先頭へ戻す
+    "reset_to": {"nodes/land.py"},   # 束: 受け取りで部署のブランチを写しへ替える
     "rebase_continue": {"nodes/land.py"},
     "rebase_abort": {"nodes/land.py"},
     "add_path": {"nodes/land.py"},

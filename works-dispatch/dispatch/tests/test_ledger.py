@@ -86,6 +86,14 @@ class Projection(unittest.TestCase):
         rows = [ask(A, 1), {"id": "f", "kind": "deliver", "ask": A, "at": 2, "status": "sent"}, ask(B, 3, frm=dept)]
         self.assertIsNone(build(rows)[B]["parent"])
 
+    def test_extra_causes_link_the_ask_under_each_listed_parent_without_moving_its_tree_parent(self):
+        # 束の合図が回した頼み（束の設計 9）: 親は cause の 1 つのまま、causes に並べた頼みの子にも並べる（自分・親・自分の下・無い頼みは飛ばす）
+        dept = {"name": "調べ", "place": "/co/dept"}
+        rows = [ask(A, 1), ask(B, 2), ask(C, 3, frm=dept, cause=A, causes=[B, A, C, "missing"]), ask(D, 4, frm=dept, cause=C, causes=[C])]
+        got = build(rows)
+        self.assertEqual((got[C]["parent"], got[C]["parent_by"]), (A, "cause"))
+        self.assertEqual((got[A]["children"], got[B]["children"], got[C]["children"]), ([C], [C], [D]))
+
     def test_a_forwarded_ask_missing_from_the_ledgers_read_still_leads_to_its_child(self):
         rows = [{"id": "a0", "kind": "forwarded", "at": 1, "child": A, "boss": {"name": "社長室"}, "from": {"name": "desk"}},
                 ask(A, 2, "queued")]

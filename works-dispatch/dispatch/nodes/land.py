@@ -59,12 +59,24 @@ def _after(raw, path, problems):
     return out
 
 
+def _batch(raw, path, problems):
+    """[land] の batch（1 回のゲートでまとめて入れるブランチの本数の上限。束の設計 4.4）を読む。省けば 1（束にしない）。
+    1 以上の整数だけを通し、ほかは problems に書く。"""
+    if raw is None:
+        return 1
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        problems.append(f"{path}: land.batch は 1 以上の整数（{raw!r} は読めない）")
+        return 1
+    return raw
+
+
 def read_rules(path, role=None, text=None):
     """会社の形のファイルの [land] の表を読み、役 role の [land.roles.<役>] を上に重ねる。text を渡せば、それを中身として読む
     （tree.read_info が読んだ物。path は注記に出す場所の札）。{mode, gate, check, bump, main, problems}。ファイルが無い・表が
     無ければ mode は none。queue（メインブランチへ入れる列の置き場。共通の .git の下のフォルダの名前。nodes/landqueue.py）は頂きの [land] にだけ書ける
-    （列は clone ごとに 1 つなので、役で替えない）。"""
-    out = {"mode": "none", "gate": None, "check": None, "bump": None, "main": None, "queue": None, "after": [], "problems": []}
+    （列は clone ごとに 1 つなので、役で替えない）。batch（束の上限。_batch）も同じく頂きの [land] にだけ書ける。"""
+    out = {"mode": "none", "gate": None, "check": None, "bump": None, "main": None, "queue": None, "batch": 1, "after": [],
+           "problems": []}
     if not path or text is None and not os.path.isfile(path):
         return out
     try:
@@ -84,6 +96,9 @@ def read_rules(path, role=None, text=None):
     out["problems"] += known_keys.land(raw, path, role)
     out["after"] = _after(raw.get("after", []), path, out["problems"])
     out["queue"] = _queue(raw.get("queue"), path, out["problems"])
+    out["batch"] = _batch(raw.get("batch"), path, out["problems"])
+    if out["batch"] > 1 and not out["queue"]:
+        out["problems"].append(f"{path}: land.batch を 2 以上にするなら land.queue（列の置き場）が要る（束は列で待つ札から作る）")
     layers = [raw]
     roles = raw.get("roles", {})
     if role and isinstance(roles, dict) and isinstance(roles.get(role), dict):
@@ -175,13 +190,13 @@ def resolve_changelog(path):
     return True
 
 
-def auto_rebase(place, branch, base, g):
-    """部署の場所で、ブランチをメインブランチ base の上に git でリベースし、origin の部署のブランチもリベースした物にする。(リベースした頭の commit か None,
-    並び)。並びは、リベースできなければ解けなかったファイル、リベースできたら注記（origin に出せなかったなど）。ぶつかりは、git rerere が前の解き方で解いた物と、変更の記録の Unreleased の頭の物（resolve_changelog）
-    だけを機械で解く。ほかが残ればリベースをやめて元のブランチに戻す（部署の会話に頼む）。"""
-    old = g.rev(place, "HEAD")
+def replay(place, start, g):
+    """place で start（rebase を始める関数。(進んだか, 解けていないファイル)）を呼び、ぶつかりを機械で解いて最後まで続ける。(写した後の HEAD か
+    None, 解けなかったファイルの並び)。ぶつかりは、git rerere が前の解き方で解いた物と、変更の記録の Unreleased の頭の物（resolve_changelog）
+    だけを解く。ほかが残れば rebase をやめて始める前の HEAD に戻す。部署の場所のリベース（auto_rebase）・束の重ねる段（stack_one）・
+    受け取り（adopt）が使う（束の設計 12.4）。写す物が無くて HEAD が動かなくても誤りにしない（呼ぶ側が見る）。"""
     try:
-        ok, files = g.rebase(place, base)
+        ok, files = start()
         while not ok:
             left = [f for f in files if not resolve_changelog(os.path.join(place, f))]
             if left:
@@ -198,17 +213,55 @@ def auto_rebase(place, branch, base, g):
         if g.rebasing(place):
             g.rebase_abort(place)   # 途中のまま残さない
         return None, [f"（{e}）"]
-    new = g.rev(place, "HEAD")
+    return g.rev(place, "HEAD"), []
+
+
+def _push_branch(place, branch, new, g):
+    """origin の部署のブランチを new にする（無ければ作る）。期待値は今の origin の値。出せなければ注記の並び。"""
+    try:
+        g.push_rebased(place, branch, g.remote_rev(place, branch) or "", new)
+    except g.GitError as e:
+        return [f"origin の {branch} は出せなかった（{e}）"]
+    return []
+
+
+def auto_rebase(place, branch, base, g):
+    """部署の場所で、ブランチをメインブランチ base の上に git でリベースし（replay）、origin の部署のブランチもリベースした物にする。(リベースした頭の commit か None,
+    並び)。並びは、リベースできなければ解けなかったファイル、リベースできたら注記（origin に出せなかったなど）。ほかが残ればリベースをやめて
+    元のブランチに戻す（部署の会話に頼む）。"""
+    old = g.rev(place, "HEAD")
+    new, left = replay(place, lambda: g.rebase(place, base), g)
+    if new is None:
+        return None, left
     if new == old:
         return None, ["（リベースしてもブランチが動かない）"]
-    pushed = None
-    if new != old:
-        # origin の部署のブランチもリベースした物にする（無ければ作る）。メインブランチへ入れるのには要らないので、出せなくてもリベースは使う
-        try:
-            g.push_rebased(place, branch, g.remote_rev(place, branch) or "", new)
-        except g.GitError as e:
-            pushed = f"origin の {branch} は出せなかった（{e}）"
-    return new, [pushed] if pushed else []
+    # origin の部署のブランチもリベースした物にする。メインブランチへ入れるのには要らないので、出せなくてもリベースは使う
+    return new, _push_branch(place, branch, new, g)
+
+
+def stack_one(stage, top, fork, tip, g):
+    """束の重ねる段（束の設計 4.3）: 一時の場所 stage（ブランチに乗らない HEAD が top に居る）で、分かれ目 fork から部署のブランチの先頭 tip
+    までの commit を top の上へ写す。(写した後の先頭か None, 解けなかったファイル)。写せなければ stage は top に戻っている。"""
+    return replay(stage, lambda: g.rebase_onto(stage, top, fork, tip), g)
+
+
+def drop_to(stage, sha, g):
+    """一時の場所を前の先頭 sha へ戻す（重ねた部署を束から外す）。"""
+    g.detach(stage, sha)
+
+
+def adopt(place, branch, row, step, g):
+    """受け取りの git の手（束の設計 8.2）。部署の場所 place でだけ打つ。step が reset なら部署のブランチを写しへ替え（git reset --keep。重なる
+    書きかけが有れば GitError）、onto なら束の後に足した commit を写しの上へ移す。どちらも origin の部署のブランチも替える（断られれば注記）。
+    (受け取った後の HEAD か None, 並び)。並びは、移せなければ解けなかったファイル、移せたら注記。"""
+    if step == "reset":
+        g.reset_to(place, row["stacked"])
+        new = row["stacked"]
+    else:
+        new, left = replay(place, lambda: g.rebase_onto(place, row["stacked"], row["original"]), g)
+        if new is None:
+            return None, left
+    return new, _push_branch(place, branch, new, g)
 
 
 def red_text(branch, where, points):
