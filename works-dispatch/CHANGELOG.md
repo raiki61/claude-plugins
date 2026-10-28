@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 同梱の試験（`dispatch/tests`）のうち、Windows の CI でだけ落ちていた 15 本ほどを直した。利用者の操作と振る舞いは変えていない。直したのは、偽の会社の形の TOML にパスを `\` 区切りで書いていた所（TOML の逃がしの字になって読めなかった）、期待値を `/` 区切りで書いていた所、Windows では探さない待ち受けの版の探し方を、探す形（`posix=True`）で呼ぶようにした所、日本時間（Asia/Tokyo）の枠の試験。日本時間の枠の試験は、地域の時刻の表（tzdata）の無い機械では見送り、表の無いときの読みを別の試験で全部の OS で確かめる。
+
 ## [0.135.0] - 2026-10-29
 
 ### Changed
