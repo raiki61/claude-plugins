@@ -6,6 +6,8 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-29
+
 ### Fixed
 
 - 同梱の試験 `test_cli_smoke` が、Windows で plugin.json を既定の文字コード（cp1252）で読んで落ちていたのを、UTF-8 で読むようにした。利用者の操作と振る舞いは変えていない。
