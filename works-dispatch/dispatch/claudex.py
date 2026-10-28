@@ -7,6 +7,7 @@
 起動するのはシェルの関数ではなく PATH の claude の実体（subprocess はシェルを通らない）。一覧を読むだけなので、認証のラッパは要らない。
 """
 
+import calendar
 import json
 import os
 import re
@@ -833,3 +834,123 @@ def read_rate(model):
 def added_context(event_name, text):
     """会話に text を足すフックの答え（標準出力に 1 行で出す JSON）。"""
     return json.dumps({"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": text}}, ensure_ascii=False)
+
+
+# 会話の記録の、フックが会話に渡した文（止まる前のフックの差し戻しと、待ち受けが会話に送った文）の印。字は
+# `Stop hook blocking error from command "<出来事>": <フックの文>`（2026-10-25 の 2.1.31x の記録で読んだ。<task-notification> と
+# <system-reminder> に包まれて届く）と、前の版の `Stop hook feedback:\n<フックの文>`
+HOOK_SAID = re.compile(r'hook blocking error from command "([^"]*)":\s*')
+HOOK_FEEDBACK = "Stop hook feedback:\n"
+HOOK_SAID_WITHIN = 400   # 印は文の頭から 400 字の内に在る（包みの <task-notification> などの後。2026-10-28 の記録の 386 件はどれも 100〜199 字目）
+_COMMAND_NAME = re.compile(r"<command-name>([^<]*)</command-name>")
+
+
+def talk_files(home=None, since=None):
+    """アカウントごとの設定のフォルダ（config_dirs）の会話の記録（projects/<フォルダ>/<会話の id>.jsonl。サブエージェントの記録は
+    入らない）を、会話の id → パスの表で返す。同じ id の記録が複数のアカウントに在れば（部署が別のアカウントへ移ると写る）一番大きい物。
+    since（秒）より前に最後に書いた記録は入れない。"""
+    home = home or os.path.expanduser("~")
+    found = {}
+    for folder in config_dirs(home):
+        root = os.path.join(home, folder[2:], "projects")
+        try:
+            places = [e.path for e in os.scandir(root) if e.is_dir()]
+        except OSError:   # このアカウントに会話の記録が無い
+            continue
+        for place in places:
+            try:
+                entries = [e for e in os.scandir(place) if e.name.endswith(".jsonl") and e.is_file()]
+            except OSError:   # 読む間に消えたフォルダは飛ばす
+                continue
+            for e in entries:
+                st = e.stat()
+                if since is not None and st.st_mtime < since:
+                    continue
+                sid = e.name[:-6]
+                if sid not in found or st.st_size > found[sid][0]:
+                    found[sid] = (st.st_size, e.path)
+    return {sid: path for sid, (_, path) in found.items()}
+
+
+def _epoch_of(text):
+    try:
+        return calendar.timegm(time.strptime(text[:19], "%Y-%m-%dT%H:%M:%S")) + float("0" + text[19:].rstrip("Z")[:4])
+    except (TypeError, ValueError):
+        return None
+
+
+def _said(content):
+    """user の行の字から (by, event, text)。by は hook（フックの文。event はその出来事）・notice（裏の処理の知らせ）・command（打ち込んだ
+    スラッシュコマンド。text はその名前）・person（人の文）。コマンドの出力の行は None。"""
+    text = "\n".join(_texts(content))
+    if not text.strip():
+        return None
+    m = HOOK_SAID.search(text, 0, HOOK_SAID_WITHIN)   # 人の文が引いた印は、頭から離れた所に在るので拾わない
+    if m:
+        body = text[m.end():]
+        return "hook", m.group(1), body.split("</system-reminder>", 1)[0].strip()
+    if text.startswith(HOOK_FEEDBACK):
+        return "hook", "Stop", text[len(HOOK_FEEDBACK):].strip()
+    stripped = text.lstrip()
+    if stripped.startswith("<task-notification>"):
+        return "notice", None, stripped
+    m = _COMMAND_NAME.search(stripped[:200])
+    if m:
+        return "command", None, m.group(1).strip()
+    if stripped.startswith("<local-command-"):
+        return None
+    return "person", None, text
+
+
+def talk_events(path, marks=()):
+    """会話の記録のファイルを、本体の会話（サブエージェントの行を除く）の出来事の並びに読み替える。marks を渡せば、記録の字にそのどれも
+    無いときは読まずに None を返す（集計で関わりの無い会話を飛ばす）。読めなければ None。出来事は表で、type ごとに:
+    - request: 要求 1 回（同じ要求の行は最後の行の使用量を採る）。at（最初の行の時刻の秒）・model・input・write_5m・write_1h・read・output
+      （トークン）
+    - said: ターンを始めた文。at・by（_said）・event（フックの出来事の名前。フックでなければ None）・text
+    - compact: 会話の要約。at・trigger（auto か manual）・pre・post（前と後のトークン）
+    """
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    if marks and not any(m in raw for m in marks):
+        return None
+    events, by_id = [], {}
+    for line in raw.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:   # 書きかけの最後の行など、読めない行は飛ばす
+            continue
+        if not isinstance(row, dict) or row.get("isSidechain"):
+            continue
+        kind, at = row.get("type"), _epoch_of(row.get("timestamp"))
+        if kind == "system" and row.get("subtype") == "compact_boundary":
+            meta = row.get("compactMetadata") or {}
+            events.append({"type": "compact", "at": at, "trigger": meta.get("trigger"),
+                           "pre": int(meta.get("preTokens") or 0), "post": int(meta.get("postTokens") or 0)})
+        elif kind == "assistant" and isinstance(row.get("message"), dict):
+            msg = row["message"]
+            u, model = msg.get("usage"), msg.get("model")
+            if not isinstance(u, dict) or not isinstance(model, str) or model.startswith("<"):
+                continue
+            rid = row.get("requestId") or msg.get("id") or object()   # 鍵の無い行は、ほかの行とまとめない
+            c = u.get("cache_creation") if isinstance(u.get("cache_creation"), dict) else {}
+            w1 = int(c.get("ephemeral_1h_input_tokens") or 0)
+            got = {"model": model, "input": int(u.get("input_tokens") or 0), "write_1h": w1,
+                   "write_5m": int(c.get("ephemeral_5m_input_tokens", (u.get("cache_creation_input_tokens") or 0) - w1) or 0),
+                   "read": int(u.get("cache_read_input_tokens") or 0), "output": int(u.get("output_tokens") or 0)}
+            if rid in by_id:
+                by_id[rid].update(got)
+            else:
+                by_id[rid] = {"type": "request", "at": at, **got}
+                events.append(by_id[rid])
+        elif kind == "user" and isinstance(row.get("message"), dict) and not row.get("isMeta") and not row.get(COMPACT_SUMMARY):
+            content = row["message"].get("content")
+            if isinstance(content, list) and any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content):
+                continue
+            said = _said(content)
+            if said:
+                events.append({"type": "said", "at": at, "by": said[0], "event": said[1], "text": said[2]})
+    return events

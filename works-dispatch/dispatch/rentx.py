@@ -58,26 +58,53 @@ def missing_note(here=None):
             f"（入れるなら {chat.COMMAND} plugin install {NAME}@{market}。開いている会話では /reload-plugins を打つ）")
 
 
-def ask(scene, facts, transcript=None, here=None, runner=subprocess.run, env=None):
-    """部品の場面（keepalive か compact）に facts を渡した答え。(答えの dict, None) か、答えられなければ (None, 訳)。
-    transcript は会話の記録のファイル（部品がモデル・文脈の量・最後の要求の時刻などを読む）。"""
+def _run(args, stdin, here, runner, env, lines=False):
+    """部品を args で起動した出力。(読んだ値, None) か (None, 訳)。lines なら出力を JSON Lines の行の並びに読む。"""
     entry = locate(here)
     if entry is None:
         return None, f"借りるか買うかの部品（{NAME}）が入っていない"
-    argv = [sys.executable, entry, scene] + (["--transcript", transcript] if transcript else [])
     try:
-        p = runner(argv, input=json.dumps(facts, ensure_ascii=False), capture_output=True, text=True, encoding="utf-8",
+        p = runner([sys.executable, entry] + args, input=stdin, capture_output=True, text=True, encoding="utf-8",
                    errors="replace", env=dict(os.environ if env is None else env))
     except (OSError, subprocess.SubprocessError, ValueError) as e:
         return None, f"{NAME} を起動できない（{type(e).__name__}: {e}）"
     try:
-        got = json.loads(p.stdout)
+        got = [json.loads(x) for x in (p.stdout or "").splitlines() if x.strip()] if lines else json.loads(p.stdout)
     except (TypeError, ValueError):
         return None, f"{NAME} の出力が JSON でない（終了コード {p.returncode}）: {(p.stdout or p.stderr or '').strip()[:200]}"
+    if lines:
+        return (got, None) if p.returncode == 0 else (None, f"{NAME} が答えなかった（終了コード {p.returncode}）")
     if not isinstance(got, dict):
         return None, f"{NAME} の出力が表でない（終了コード {p.returncode}）"
     if p.returncode != 0 or got.get("error"):
         return None, f"{NAME} が答えなかった（終了コード {p.returncode}、{got.get('error')}: {str(got.get('why') or '')[:200]}）"
+    return got, None
+
+
+def ask(scene, facts, transcript=None, here=None, runner=subprocess.run, env=None):
+    """部品の場面（keepalive か compact）に facts を渡した答え。(答えの dict, None) か、答えられなければ (None, 訳)。
+    transcript は会話の記録のファイル（部品がモデル・文脈の量・最後の要求の時刻などを読む）。"""
+    got, why = _run([scene] + (["--transcript", transcript] if transcript else []), json.dumps(facts, ensure_ascii=False),
+                    here, runner, env)
+    if got is None:
+        return None, why
     if got.get("action") not in ("rent", "buy"):
         return None, f"{NAME} の答えの action が rent・buy のどちらでもない（{got.get('action')!r}）"
     return got, None
+
+
+def prices(model, here=None, runner=subprocess.run, env=None):
+    """モデルの単価（部品の prices の答え。rates に input・write_5m・write_1h・read・output の 1 トークンの額）。(答え, None) か (None, 訳)。"""
+    return _run(["prices", model], "", here, runner, env)
+
+
+def records(since=None, until=None, here=None, runner=subprocess.run, env=None):
+    """部品の判断の記録の行（since ≤ ts < until。時刻は YYYY-MM-DDTHH:MM:SSZ）。(行の並び, None) か (None, 訳)。"""
+    args = ["records"] + (["--since", since] if since else []) + (["--until", until] if until else [])
+    return _run(args, "", here, runner, env, lines=True)
+
+
+def outcome(items, here=None, runner=subprocess.run, env=None):
+    """判断の鍵に結果の行を足す（items は key・paid・alternative・detail の表の並び。結果の在る鍵は部品が飛ばす）。
+    ({"recorded", "duplicates"}, None) か (None, 訳)。"""
+    return _run(["outcome"], json.dumps({"outcomes": list(items)}, ensure_ascii=False), here, runner, env)

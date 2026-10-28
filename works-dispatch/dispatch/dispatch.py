@@ -93,6 +93,7 @@ import handover  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
 import rentx  # noqa: E402
+import rentfx  # noqa: E402
 import tierx  # noqa: E402
 from nodes import accounts, assign, clean, cost, deliver, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
@@ -257,7 +258,7 @@ def main(argv=None, ports=None):
                     help="--task と一緒に: 永続の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けばエフェメラルの部署。"
                          "--resident は前の版の名前）")
     ap.add_argument("--tree", action="store_true", help=f"{term.NAME} に開いている会社ごとに、会社の情報と部署の様子を出す")
-    ap.add_argument("--json", action="store_true", help="--tree か --todo と一緒に: JSON で出す")
+    ap.add_argument("--json", action="store_true", help="--tree か --todo か --rent-effect と一緒に: JSON で出す")
     ap.add_argument("--todo", metavar="受付", nargs="?", const="",
                     help="受付箱の台帳から頼みの木（頼み → 回した先・出した頼み、と残った疑問の続き）を作って出す。済んだブランチは出さない"
                          "（受付を渡せばその頼みから下を全部。誰のターンかは出さない。作った物は保存せず、開くたびに作り直す）")
@@ -333,6 +334,11 @@ def main(argv=None, ports=None):
                     help="-- の後ろのコマンドを、メインブランチへ入れる列（会社の形の [land] の queue）の先頭を取ってから走らせ、"
                          "終わったら次に渡す（works-dispatch の外のツールが --land と同じ列に並ぶ口。ほかの引数は --queue-run の前に書く。"
                          "終了の値はコマンドの物で、列に入れなければ 125。docs/land.md の「外のツールが列に並ぶ」）")
+    ap.add_argument("--rent-effect", action="store_true",
+                    help="借りるか買うかの部品（rent-or-buy）が効いたかの集計の点を出す（--since・--until の期間の会話の記録で、部品の"
+                         "無かった世界との差を keepalive・compact の得失に分けて出し、閉じた待ちの結果を部品の判断の記録に足す。定義は docs/rent-effect.md）")
+    ap.add_argument("--since", metavar="T", help="--rent-effect と一緒に: 期間の始まり（YYYY-MM-DDTHH:MM:SSZ。省けば 7 日前）")
+    ap.add_argument("--until", metavar="T", help="--rent-effect と一緒に: 期間の終わり（含まない。省けば今）")
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署がメインブランチを知った後にほかの部署が入れた行を、このブランチが消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
@@ -355,6 +361,11 @@ def main(argv=None, ports=None):
             return 2
     if a.queue_run:
         return _queue_run(a, argv, command, ports)
+    if (a.since or a.until) and not a.rent_effect:
+        print("止めた: --since と --until は --rent-effect と一緒にだけ使う")
+        return 2
+    if a.rent_effect:
+        return rentfx.main(a.since, a.until, a.json)
     if a.init:
         return _init(a, ports)
     if a.input is not None and a.call is None:

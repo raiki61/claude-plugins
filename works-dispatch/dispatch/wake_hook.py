@@ -307,6 +307,13 @@ def _epoch(text):
         return None
 
 
+def decision_key(payload):
+    """部品の判断の記録に残す鍵（{"key": "<会話の id>/<8 桁の hex>"}。会話の id が無ければ空の表）。後で --rent-effect（rentfx）が、
+    判断の時刻を含む待ちの実際の費用を、この鍵に結果の行として足す（docs/rent-effect.md）。"""
+    sid = payload.get("session_id")
+    return {"key": f"{sid}/{os.urandom(4).hex()}"} if isinstance(sid, str) and sid and len(sid) <= 180 else {}
+
+
 def forced_line(got, attrs, window_of=role_hook.auto_compact_of):
     """その場所の会話の強制の線（role.forced_line。Claude Code の自動の compact の線の手前）。(トークン, None) か、無ければ (None, 訳)。"""
     window, why = window_of(got["cwd"], attrs)
@@ -322,7 +329,8 @@ def compact_judge(payload, ttl, ask, deferred=0, answer=None, line=None):
     size = context_of(chat.transcript(payload)) if line else None
     forced = size is not None and size >= line
     if ttl:
-        facts = {"lifetime": ttl, "ask": ask, "deferred": deferred, "defer_limit": DEFER_LIMIT if ask else 0, "forced": forced}
+        facts = {"lifetime": ttl, "ask": ask, "deferred": deferred, "defer_limit": DEFER_LIMIT if ask else 0, "forced": forced,
+                 **decision_key(payload)}
         if answer is not None:
             facts["answer"] = answer
         found, why = RENT("compact", facts, chat.transcript(payload))
@@ -1517,8 +1525,8 @@ def keepalive_plan(payload, conf, spent, now=time.time):
     wake.warm_state）。({action, due, rent, reason, why}, None) か、聞けなければ (None, 訳)（Warm は conf の every と limit で動く）。
     due は部品の next_at（会話の記録の最後の要求の始まり + 寿命 − 部品の余裕 margin_s）で、役か受け持ちに every を書いた場所は
     None（ターンの終わりから every 秒）。rent か next_at が読めない答えは、聞けなかったのと同じに扱う。"""
-    got, why = RENT("keepalive", {"lifetime": conf["ttl"], "spent": spent, "certain": True, "turn_end_at": _iso(now())},
-                    chat.transcript(payload))
+    got, why = RENT("keepalive", {"lifetime": conf["ttl"], "spent": spent, "certain": True, "turn_end_at": _iso(now()),
+                                  **decision_key(payload)}, chat.transcript(payload))
     if why:
         return None, why
     rent = got.get("rent")

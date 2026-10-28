@@ -674,6 +674,8 @@ class Keepalive(unittest.TestCase):
         with mock.patch.object(wake_hook, "RENT", part):
             plan, why = wake_hook.keepalive_plan(self.payload, self.conf, 0.05, now=lambda: 0)
             self.assertIsNone(why)
+            # 判断の記録に結果を結ぶ鍵（会話の id と 8 桁の hex。docs/rent-effect.md）を添える
+            self.assertRegex(seen[0][1].pop("key"), r"^s1/[0-9a-f]{8}$")
             self.assertEqual(seen, [("keepalive", {"lifetime": 300, "spent": 0.05, "certain": True,
                                                    "turn_end_at": "1970-01-01T00:00:00Z"}, self.log)])
             self.assertEqual((plan["action"], plan["due"], plan["rent"]), ("rent", 1792800240.0, 0.02))
@@ -1969,6 +1971,7 @@ class Hook(unittest.TestCase):
         place = self.g.git_dir(self.place)
         with self.rent_or_buy(({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)):
             self.assertEqual(warm(), wake_hook.CONSULT_TEXT)
+        self.assertRegex(self.asked_part[0][1].pop("key"), r"^s1/[0-9a-f]{8}$")
         self.assertEqual(self.asked_part, [("compact", {"lifetime": 300, "ask": True, "deferred": 0,
                                                         "defer_limit": wake_hook.DEFER_LIMIT, "forced": False})])
         self.assertTrue(wake.compact_state(self.inbox, place, "s1")["asked"])
@@ -2066,7 +2069,7 @@ class Hook(unittest.TestCase):
             kind, text = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME)
         self.assertEqual((kind, w.writes), ("wake", []))
         self.assertIn("借りるか買うかの部品が、まだ compact の費用の元が取れないと答えた（not yet）", text)
-        self.assertEqual({k: v for k, v in self.asked_part[0][1].items() if k != "lifetime"},
+        self.assertEqual({k: v for k, v in self.asked_part[0][1].items() if k not in ("lifetime", "key")},
                          {"ask": False, "deferred": 0, "defer_limit": 0, "forced": False})
         provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
         small = {**big, "transcript_path": self.transcript(1000)}
