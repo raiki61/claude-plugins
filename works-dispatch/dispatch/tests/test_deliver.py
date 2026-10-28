@@ -72,7 +72,7 @@ class Target(unittest.TestCase):
         self.assertEqual(got["department"]["path"], "/r/a-w2")
 
     def test_role_without_a_resident_department_means_a_new_one(self):
-        got = deliver.find_target([self.a, self.b], "/r/b", "出荷役")   # b の出荷役はエフェメラルの部署
+        got = deliver.find_target([self.a, self.b], "/r/b", "出荷役")   # b の出荷役は tmp の部署
         self.assertEqual((got["company"]["name"], got["department"], got["role"]), ("b", None, "出荷役"))
 
     def test_unknown_company_and_twin_names_stop(self):
@@ -635,7 +635,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(attach[2], "claude-a1 attach d")
         self.assertNotEqual(attach[1], self.window, "閉じたペインでなく、開き直した作業場の新しいペインに打つ")
         self.assertIn(("rename_pane", attach[1], "調べ"), h.writes)   # 開き直したペインにも --sync と同じ名前を付ける
-        # 開き直した作業場は新しいので、永続かエフェメラルかの印も付け直す
+        # 開き直した作業場は新しいので、永続か tmp かの印も付け直す
         self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
     def test_clear_before_ask_sees_the_clear_by_a_new_talk_file_when_the_list_keeps_the_id(self):

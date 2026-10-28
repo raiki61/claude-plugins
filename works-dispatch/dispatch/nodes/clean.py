@@ -19,7 +19,7 @@ git が追わないファイルのうち、それ以外（依存・生成物な�
 graphloops/boards-archive/ に写す（keep_boards。写せなければ消さない。部署を消すときも同じ remove を通る）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
 
 部署（入口の --task が立て、属性 company.session を持つ linked worktree）は、別の決まりで選ぶ（departments・retire）。
-- エフェメラルの部署である（属性 company.lifecycle が persistent の永続の部署は畳まない。属性が無ければエフェメラルとみなす。会社の形の設計 4.10 の 1）
+- tmp の部署である（属性 company.lifecycle が persistent の永続の部署は畳まない。属性が無ければ tmp とみなす。会社の形の設計 4.10 の 1）
 - 部署の会話が終わっている（state が done・stopped・failed）か、会話の一覧にもう無い
 - 未コミットの変更も git に足していないファイルも、手元にしか無い commit や stash も無い
 - 部署のブランチの先頭がメインブランチ（origin の既定のブランチの手元の控え）に入っている（ブランチに乗っていない部署も、先頭が入っていれば消す）

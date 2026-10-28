@@ -4,7 +4,7 @@
 
 - 宛先: 「会社/役」か部署の名前か会社の名前。会社を省けば頼む側の会社。部署の名前（属性 company.name）が先に当たる。会社の名前
   だけなら、その会社の窓口（本社の、--desk で名付けた会話）に届ける。役で宛てたときは、その役の
-  永続の部署（company.lifecycle=persistent）に届け、無ければ新しく立てる（4.10 の 1・2。エフェメラルの部署は頼みごとに立てる）。
+  永続の部署（company.lifecycle=persistent）に届け、無ければ新しく立てる（4.10 の 1・2。tmp の部署は頼みごとに立てる）。
 - 頼み元の窓: 部署の属性 company.boss-session（頼んだ会話の id）、無ければ company.boss と company.boss-account から会話の一覧で
   引いた会話を、herdr のペインと結ぶ。結び方は、その会話を持つ部署の窓、ペインの会話の印（agent_session）と場所が合うもの、
   頼んだときのペイン（company.boss-pane）の順。ペインの会話の印は裏の会話の attach の窓では別の会話の id を指すことがある
@@ -162,7 +162,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                 "role": current(company, mine[0]["attrs"].get("role") or name if mine else name)}
     duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("on_demand")), None)
     if duty and duty.get("role"):
-        # オンデマンドの受け持ち（on_demand = true）で、その名前の部署が今は無い: その名前のエフェメラルの部署を立てる（orders.ask が
+        # オンデマンドの受け持ち（on_demand = true）で、その名前の部署が今は無い: その名前の tmp の部署を立てる（orders.ask が
         # 部署の名前とブランチを決める）。同じ受け持ちで立つ部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む。
         # per_ask = true の受け持ちは、頼みごとに別の部署（「<受け持ち>：<受付番号の終わり 6 字>」）を立てるので、積まずに並ぶ
         return {"company": company, "department": None, "role": current(company, duty["role"]), "on_demand": duty["name"],

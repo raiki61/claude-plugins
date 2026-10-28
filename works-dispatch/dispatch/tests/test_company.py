@@ -137,13 +137,13 @@ class HerdrPorts(unittest.TestCase):
         run = fake_runner(json.dumps({"result": {"workspaces": [
             {"workspace_id": "w1", "label": "r", "worktree": {"repo_root": "/s/r", "checkout_path": "/s/r"}},
             {"workspace_id": "w3", "label": "d", "worktree": {"repo_root": "/s/r", "checkout_path": "/w/d", "is_linked_worktree": True}},
-            {"workspace_id": "w2", "label": "notes", "tokens": {"kind": "エフェメラル"}}]}}))
+            {"workspace_id": "w2", "label": "notes", "tokens": {"kind": "tmp"}}]}}))
         self.assertEqual(real_herdr.workspaces(runner=run), [
             {"workspace_id": "w1", "label": "r", "repo_root": os.path.normpath("/s/r"), "path": os.path.normpath("/s/r"),
              "linked": False, "tokens": {}},
             {"workspace_id": "w3", "label": "d", "repo_root": os.path.normpath("/s/r"), "path": os.path.normpath("/w/d"),
              "linked": True, "tokens": {}},
-            {"workspace_id": "w2", "label": "notes", "repo_root": None, "path": None, "linked": False, "tokens": {"kind": "エフェメラル"}}])
+            {"workspace_id": "w2", "label": "notes", "repo_root": None, "path": None, "linked": False, "tokens": {"kind": "tmp"}}])
 
     def test_move_workspace_sends_one_json_line_to_the_socket_and_reads_the_answer(self):
         # herdr 0.9.3 の CLI に作業場を並べ替えるコマンドが無いので、ソケットの API に 1 行の JSON で頼む
@@ -476,7 +476,7 @@ class Build(unittest.TestCase):
         self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  頼み元 -  窓 なし", text)
 
     def test_contacts_show_who_to_ask_and_the_desk(self):
-        # 受ける仕事ごとの宛て方（永続の受け持ちは部署の名前、まだ立っていなければ役と --task、エフェメラルの役は役と --task）と窓口を出す。
+        # 受ける仕事ごとの宛て方（永続の受け持ちは部署の名前、まだ立っていなければ役と --task、tmp の役は役と --task）と窓口を出す。
         # 頼み元（company.boss）は納品の返し先なので、宛て方にも窓口にも使わない
         from nodes import role
         shape = role.load("t", '[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
@@ -735,7 +735,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn(f"{os.path.basename(self.src)}  {self.src}  （会社の情報なし）", out)
         self.assertIn("  本社 main  会話なし", out)
-        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役（エフェメラル）  アカウント a1  頼み元 -  窓 あり", out)
+        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役（tmp）  アカウント a1  頼み元 -  窓 あり", out)
 
     def test_tree_json_matches_the_schema(self):
         rc, out = self.main("--tree", "--json")
@@ -756,12 +756,12 @@ class Entry(unittest.TestCase):
         self.assertEqual(self.ports.term.writes, [])
         self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役  題名 調べ  札 role=調べ役、account=a1", out)
         ws = next(p["workspace_id"] for p in self.ports.term.panes() if p["pane_id"] == self.pane)
-        self.assertIn(f"作業場 {ws}: 名前 調べ  印 エフェメラル", out)
+        self.assertIn(f"作業場 {ws}: 名前 調べ  印 tmp", out)
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", ws, "調べ"),
-            ("report_workspace_metadata", ws, {"kind": "エフェメラル", "seat": "ephemeral"}, []),
+            ("report_workspace_metadata", ws, {"kind": "tmp", "seat": "ephemeral"}, []),
             ("rename_pane", self.pane, "調べ"),
             ("report_pane_metadata", self.pane, "調べ役", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
 

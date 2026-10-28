@@ -6,7 +6,7 @@ Claude Code は、API の誤りでターンが終わると Stop の代わりに 
 提供元がどの誤りで断るかは決まっていないので、誤りの種類で絞らない。matcher は空で、誤りの種類はここで見る）。
 会話の場所が永続の部署（属性 company.lifecycle が persistent）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
 dispatch.py --move <名前> --if-limited を、この会話から切り離して（POSIX は nodes/wake.py の detached の殻で、親を init に替えて）裏で走らせる（--move はこの会話を止めてから起動し直すので、
-この会話の子として待たない）。エフェメラルの部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
+この会話の子として待たない）。tmp の部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
 同じ場所で 10 分の間に 2 度は走らせない（上限の後の自動の続き〔autoContinueAtUsageLimit〕で、同じ誤りが続けて来ることがある）。
 走らせた出力は受付箱の moves/ に残す。何も出さず、0 で終わる（StopFailure はフックの出力を読まない）。
 --move は、移さないときと移る先が無いときも、待って見直し、移すか同じ会話に続きの 1 行を打つ（move.py の --if-limited。待つ最短の
@@ -66,7 +66,7 @@ def plan(payload, attrs_of=_attrs, closed_of=closed):
     if head and attrs.get("session") != payload.get("session_id"):
         return None   # 窓口の席（本社か、本社の属性が写った作業場）の、窓口でない会話
     if not head and attrs.get("lifecycle") != gitx.PERSISTENT and not (attrs.get("ask") and attrs.get("delivered") != attrs["ask"]):
-        return None   # エフェメラルの部署は、頼みを受けている間だけ移す（オンデマンドの受け持ちの部署は、頼みの途中で枠が尽きうる）
+        return None   # tmp の部署は、頼みを受けている間だけ移す（オンデマンドの受け持ちの部署は、頼みの途中で枠が尽きうる）
     argv = [sys.executable, DISPATCH_PY, "--move", name, "--if-limited"] + (["--config", attrs["config"]] if attrs.get("config") else [])
     out = os.path.join(deliver.inbox_of(common), MOVES, f"{''.join(c for c in name if c.isalnum())}-{int(time.time())}.log")
     return argv, cwd, out

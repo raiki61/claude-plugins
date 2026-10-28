@@ -11,8 +11,8 @@
 5. ゲート: CI のブランチの形なら、そのブランチの頭を GitHub Actions の設定が書いていることを確かめ、そのブランチへ候補を push して run を待つ。check なら、手元の検証のコマンドを候補の場所で回す。
 6. 赤なら、部署に失敗の要点を頼む。緑ならメインブランチを取り直し、まだ祖先ならメインブランチを fast-forward して push する（ゲートのブランチは消す）。
    進んでいれば、同じにリベースしてゲートから回し直す（リベースできなければ部署に頼む）。
-7. 入れたら、エフェメラルの部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。永続の部署は残す。片付けられない
-   エフェメラルの部署（納品の直後で会話がまだ止まりきっていない、など）には入れた印（属性 company.landed）を書いて残し、次の --land
+7. 入れたら、tmp の部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。永続の部署は残す。片付けられない
+   tmp の部署（納品の直後で会話がまだ止まりきっていない、など）には入れた印（属性 company.landed）を書いて残し、次の --land
    （どの部署でも）が、片付けられる形になっていれば一緒に片付ける。止まるのを待たないのは、こちらから期限を足さないため（D5）。
 
 会社の形の [land] に queue（列の置き場）が有れば、3 のメインブランチの取り直しの直前に列（nodes/landqueue.py）へ申し出て、6 で push し終える
@@ -801,7 +801,7 @@ def _preview_batch(g, source, queue, limit, branch, head):
 
 
 def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
-    """入れた部署を片付ける（--clean の部署の決まりと部品）。片付けられないエフェメラルの部署には、入れた印 company.landed（入れた commit）を
+    """入れた部署を片付ける（--clean の部署の決まりと部品）。片付けられない tmp の部署には、入れた印 company.landed（入れた commit）を
     書いて残す。前の --land が残した部署（印の有る部署）も、片付けられる形になっていれば片付ける。終わりの値は入れた部署の分だけ。
     dry_run なら、片付けるか残すかの見立てを出すだけ（印を書かず、片付けない）。"""
     notes = []

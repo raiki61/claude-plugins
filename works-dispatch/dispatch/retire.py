@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""--retire <部署>（retire）: エフェメラルの部署の会話を止めてから、部屋（作業場・worktree・会話・手元のブランチ）を --clean と同じ決まりで片付ける。
+"""--retire <部署>（retire）: tmp の部署の会話を止めてから、部屋（作業場・worktree・会話・手元のブランチ）を --clean と同じ決まりで片付ける。
 
-エフェメラルの部署は、納品してメインブランチに入れ終えた後も会話が生きたまま残り、--clean は「会話がまだ動いている」と見て残す。終わったかを機械が
+tmp の部署は、納品してメインブランチに入れ終えた後も会話が生きたまま残り、--clean は「会話がまだ動いている」と見て残す。終わったかを機械が
 推し量るのは難しいので、部署が自分で終わりの印（--done。属性 company.finished）を打ち、そのターンの終わりに待ち受け（wake_hook.py）が
 このコマンドを会話から切り離して裏で走らせる。印の無い部屋は、段取りが --clean の一覧で残った訳を見て、止めると決めたらこのコマンドを打つ。
 
@@ -49,7 +49,7 @@ def retire(a, ports, cwd, rows, reasons):
         return 2
     company, dept = target["company"], target["department"]
     if dept is None or dept.get("head_office"):
-        print("\n".join(notes + [f"止めた: 「{a.retire}」という部署が無い（畳むのは --task が立てたエフェメラルの部署。窓口は畳まない）"]))
+        print("\n".join(notes + [f"止めた: 「{a.retire}」という部署が無い（畳むのは --task が立てた tmp の部署。窓口は畳まない）"]))
         return 2
     if cfg is None:
         print("\n".join(notes + ["止めた: 畳むには、読める dispatch の設定が要る（会話を止めるアカウントを読む）"]))

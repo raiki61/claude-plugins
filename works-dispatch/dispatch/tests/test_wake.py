@@ -1301,7 +1301,7 @@ class Hook(unittest.TestCase):
         self.assertNotIn(wake.MOVE_TO, self.g.worktree_attrs(self.place))
         # 読めなくても頼みは渡す（訳を添える）
         self.assertIn("進められなかった", wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: 1 / 0))
-        # エフェメラルの部署（頼みごとにメインブランチから切る）と窓口は進めない
+        # tmp の部署（頼みごとにメインブランチから切る）と窓口は進めない
         self.assertIsNone(wake_hook.follow_main(self.plan(), {**attrs, "lifecycle": gitx.EPHEMERAL}))
         # 裏の処理が動いていて進めないときの文（lag_note）も、作業場を動かさず、同じ場所では添えない
         got = wake_hook.lag_note(self.plan(), attrs)
@@ -2317,7 +2317,7 @@ class Hook(unittest.TestCase):
         return seen, spawn
 
     def test_a_finished_department_starts_retire_apart_from_the_talk_at_the_end_of_the_turn(self):
-        # エフェメラルの部署が終わりと印した（--done）ターンの終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
+        # tmp の部署が終わりと印した（--done）ターンの終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH, wake.FINISHED: "s1"}, self.g)
         seen, spawn = self.spawner()

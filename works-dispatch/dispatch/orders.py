@@ -702,7 +702,7 @@ def _ask(a, ports, cwd, task, sent):
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。ブランチの名前は頼む側が渡す）
     if target.get("on_demand"):
         # オンデマンドの受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
-        # 部署はエフェメラルの部署で立ち（dispatch._task が受け持ちの on_demand を見る）、納品してメインブランチに入れたら --done で畳まれる
+        # 部署は tmp の部署で立ち（dispatch._task が受け持ちの on_demand を見る）、納品してメインブランチに入れたら --done で畳まれる
         # per_ask = true の受け持ちは、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる（並べて進む）
         a = argparse.Namespace(**{**vars(a), "task": on_demand_name(target, ask_id), "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
         notes.append(f"{target['on_demand']} はオンデマンドの受け持ち（頼まれたときだけ立てる）"
@@ -1481,7 +1481,7 @@ def compact_here(a, ports, cwd):
 
 
 def finish_here(a, ports, cwd):
-    """--done。エフェメラルの部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
+    """--done。tmp の部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
     断るのは、部署でない・窓口・永続・会話の id が属性に無く、打った会話が部署の裏の会話とも確かめられない・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
     commit が在る・ブランチがメインブランチに入っていない（landed。マージ済みの PR に入った物も入ったとみなす）時（commit の無い部署は入っているとみなす）。前の --retire が
@@ -1489,7 +1489,7 @@ def finish_here(a, ports, cwd):
     この部署が頼んで返事の来ていない頼みが在る時も断る（納品の残った疑問の担当者に書いた頼みは数えない。asked_open）。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
-        print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりはエフェメラルの部署の場所で印す")
+        print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりは tmp の部署の場所で印す")
         return 2
     common, place = ports.git.common_dir(cwd), ports.git.git_dir(cwd)
     if not common or not place or os.path.realpath(place) == os.path.realpath(common):
@@ -1633,7 +1633,7 @@ def leftover(cwd, attrs, g=gitx, gh=ghx):
     """受けた頼みを納品し終えた部署が、ターンを終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
     受付の並び）・handed（ブランチがメインブランチに入っていないが、この部署が今の頼みを受けてから出した頼みの答えがまだ出ていない
     〔handed_open〕。中身は受付の並び）・unlanded（ブランチの先頭がメインブランチに入っていない〔landed〕。中身はメインブランチの名前）・
-    finish（エフェメラルの
+    finish（tmp の
     部署で、ブランチもメインブランチに入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
     順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・永続の部署でブランチが入っている、ときは None。
     --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
@@ -1680,7 +1680,7 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None, gh=ghx)
     name = attrs.get("name") or attrs.get("branch") or "<部署>"
     limit = f"（この差し戻しは {deliver.STOP_LIMIT} 回まで。{count + 1} 回目）"
     if kind == "finish":
-        return (f"頼み（受付 {attrs['ask']}）は納品済みで、ブランチもメインブランチに入っている。エフェメラルの部署なので、{RUN} --done でターンを終える（会話を"
+        return (f"頼み（受付 {attrs['ask']}）は納品済みで、ブランチもメインブランチに入っている。tmp の部署なので、{RUN} --done でターンを終える（会話を"
                 f"止めて部屋を片付けるのは機械がする）。持ち主と話している途中なら、印さずにターンを終えてよい{limit}")
     root = gitx.root_of(g.common_dir(cwd))
     info = tree.read_info(root, settings, g)
@@ -2124,7 +2124,7 @@ def stalled(attrs, settings_dir, company_of=None, now=time.time):
 
 def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
     """部署の会話がターンを終えるときの差し戻しの文か None（差し戻さない）。差し戻すなら、この会話・この頼みで差し戻した数を控えに
-    1 つ進める。納品の前は deliver.stop_verdict、納品の後（ブランチをメインブランチに入れていない・エフェメラルの部署が終わりの印を
+    1 つ進める。納品の前は deliver.stop_verdict、納品の後（ブランチをメインブランチに入れていない・tmp の部署が終わりの印を
     打っていない）は stop_after が文を決める。納品の前の差し戻しを使い切ったときは、止まるのを通し、知られずに止まらないよう頼み元へ
     1 度だけ止まった知らせを置く（stalled）。呼ぶのは Stop フック（stop_hook）と、ターンの終わりに残った知らせで会話が再開しなかったときの
     待ち受け（wake_hook.Late）。"""
@@ -2145,7 +2145,7 @@ def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
         pathlib.Path(path).write_text(str(count + 1), encoding="utf-8")
         return None
     if reason is None and attrs.get("delivered") == attrs["ask"]:
-        # 納品の後: ブランチをメインブランチに入れずに、かエフェメラルの部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
+        # 納品の後: ブランチをメインブランチに入れずに、か tmp の部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
         path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", f"{attrs['ask']}-after")
         try:
             count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)

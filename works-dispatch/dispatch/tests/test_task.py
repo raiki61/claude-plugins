@@ -125,7 +125,7 @@ class Task(unittest.TestCase):
         # 表示名と札、作業場の印は、書いた属性から付ける（名前は起動するときに付けたので付け直さない）
         self.assertEqual(ports.term.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
-        self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "エフェメラル", "seat": "ephemeral"}))
+        self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "tmp", "seat": "ephemeral"}))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(self.g.branch(src), "main")
 
@@ -155,7 +155,7 @@ class Task(unittest.TestCase):
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("作業", "ephemeral"))
 
     def test_a_duty_raised_only_when_asked_starts_per_task_even_under_a_resident_role(self):
-        # 受け持ちの on_demand = true（オンデマンド）は、役が persistent = true でもエフェメラルの部署で立つ（--done で畳まれる）
+        # 受け持ちの on_demand = true（オンデマンド）は、役が persistent = true でも tmp の部署で立つ（--done で畳まれる）
         push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
                                           '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\n')
         ports = self.ports()
@@ -165,7 +165,7 @@ class Task(unittest.TestCase):
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("担当", "ephemeral"))
 
     def test_a_department_per_ask_starts_ephemeral_under_a_resident_duty_role(self):
-        # per_ask = true の受け持ちの「<受け持ち>：<受付番号の終わり 6 字>」の部署は、担当の役でも席の検査で止めず、エフェメラルで立つ
+        # per_ask = true の受け持ちの「<受け持ち>：<受付番号の終わり 6 字>」の部署は、担当の役でも席の検査で止めず、tmp で立つ
         push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
                                           '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\nper_ask = true\n')
         ports = self.ports()

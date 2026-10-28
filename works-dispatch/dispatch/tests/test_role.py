@@ -182,7 +182,7 @@ class Seat(unittest.TestCase):
         self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
         self.assertNotIn("変", got["roles"])
         self.assertIn("persistent・fresh・machine は true か false", got["problems"][0])
-        # herdr の作業場の印に、永続かエフェメラルかと、会話を引き継ぐか毎回クリアするかを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
+        # herdr の作業場の印に、永続か tmp かと、会話を引き継ぐか毎回クリアするかを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
         from nodes import sync
         self.assertEqual(sync.seat_of({"role": "担当", "lifecycle": "persistent", "fresh": "true"}), "persistent-fresh")
         self.assertEqual(sync.seat_of({"role": "相談", "lifecycle": "persistent"}), "persistent-carry")

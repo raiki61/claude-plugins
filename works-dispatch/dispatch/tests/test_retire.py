@@ -1,4 +1,4 @@
-"""終わりの印（--done。orders.finish_here）と、エフェメラルの部署を止めて畳む --retire（retire.py）と、納品し終えた部署がターンを終えて残る訳
+"""終わりの印（--done。orders.finish_here）と、tmp の部署を止めて畳む --retire（retire.py）と、納品し終えた部署がターンを終えて残る訳
 （orders.leftover・stop_after）。git（tests/fakegit.py）・gh・herdr・claude は偽物で回す。"""
 
 import io
@@ -17,7 +17,7 @@ from nodes import deliver, provision, wake
 
 
 class Retire(unittest.TestCase):
-    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。部署「調べ」は origin/main から切ったエフェメラルの部署。"""
+    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。部署「調べ」は origin/main から切った tmp の部署。"""
 
     Flow = test_deliver.Flow
     main, shape = Flow.main, Flow.shape

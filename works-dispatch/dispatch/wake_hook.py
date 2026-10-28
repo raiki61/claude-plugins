@@ -23,7 +23,7 @@
   /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起動し直す（空にするのと失う物は同じ。持ち主の手で起動し直さない）。
   起動の設定が同じでも、今のアカウントの使用率が早めに移す目安に達したか、--move の名指し（company.move-to）が在れば同じく走らせ、
   上限に当たる前の区切りでほかのアカウントへ移す（early_due。名指しが今のアカウントなら、同じアカウントのまま起動し直す）。
-  エフェメラルの部署が終わりと印した（--done。属性 company.finished）ターンの終わりには、印を外して dispatch.py --retire <部署> を会話から
+  tmp の部署が終わりと印した（--done。属性 company.finished）ターンの終わりには、印を外して dispatch.py --retire <部署> を会話から
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
   順番待ちに頼みが在れば畳まずに渡し、印を外す（済ませてから印し直す）。
@@ -456,7 +456,7 @@ NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この�
 
 
 def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time, detach=None):
-    """終わりと印したエフェメラルの部署（--done）の印を外し、dispatch.py --retire <会社/部署> を会話から切り離して裏で走らせる。走らせたら True。
+    """終わりと印した tmp の部署（--done）の印を外し、dispatch.py --retire <会社/部署> を会話から切り離して裏で走らせる。走らせたら True。
     走らせられなければ、残った訳を属性に書いて False（印は外したまま。打ち直しはしない）。detach（既定は POSIX で本物の Popen のとき）
     なら detached の殻で走らせ、終わりの値を .done に書く（0 でなければ --tree と --todo が出す。health.py）。"""
     name = attrs["name"]
@@ -1038,7 +1038,7 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
             return None   # 未納品の頼みを持っている
         if (chat.event(payload) == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
-            return "end", None   # エフェメラルの部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
+            return "end", None   # tmp の部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         # 空にする・区切りの判定より先に進める（起動するときに読むファイルが替われば、名指しの印で区切りの起動し直しに間に合わせる）。
         # 裏の処理が動いている間は、その足元のファイルを替えず、進めていないことと遅れを添える（lag。空にできずに待つなら、
         # 次のターンの終わりの待ち受けがまた試す。前の会話のまま渡すなら、会話は遅れを知って受ける）

@@ -6,6 +6,8 @@
 （patterns）の組を並べる（https://github.com/textlint-rule/textlint-rule-prh）。語は my_notes の tools/checks/terms.py と
 同じにそろえ（「本流」は、my_notes では master、ここでは会社ごとに名前の違うメインブランチと書く）、claude-plugins に多い
 4 つ（持ち手・関門・柵・根）を足した。
+正しい表記には、英語のまま通じる短い語（tmp・fast-forward）も置く（持ち主 2026-10-29「別に英単語もつかっていいんじゃない？」。
+どこまで英単語を許すかの線は claude-plugins のルートの CLAUDE.md の「会話」）。
 
 見ないもの: 引用（`>` の行）と脚注の定義の行と、「」の中（人の言葉やほかの文書の見出しをそのまま引く）と、`` ` `` の中
 （コマンド・パス・コード）と、コードブロック（``` か ~~~ で囲んだ所）の中。
@@ -32,11 +34,12 @@ _START = "(?<![きりびい])(?<!障害を)(?<!問題を)(?<!事故を)(?<!混�
 # 番 のうち、番号の意味（一番・連番・欠番・何番・番号・番目）と、門番・交番・定番・出番・順番と、attention の画面の名前の
 # 「自分の番」「私の番」は直さない
 _TURN = r"(?<![一二三四五六七八九十順当本交輪週張定出門連欠何0-9])(?<![0-9] )(?<!自分の)(?<!相手の)(?<!私の)番(?![号目地組人兵台])"
-# 部署の寿命の前の呼び名（常設・都度・毎回空）。works-dispatch が永続（persistent）・エフェメラル（ephemeral）・毎回クリアに替えた
-# （GitHub Actions の persistent・ephemeral のランナー、Claude Code の /clear に寄せた）。「その都度」「常設の展示」などの
-# ふつうの言い方は当てず、部署の話の形だけを当てる
+# 部署の寿命の前の呼び名（常設・都度・毎回空・「エフェメラル」）。works-dispatch が永続（persistent）・「エフェメラル」（ephemeral）・
+# 毎回クリアに替え（GitHub Actions の persistent・ephemeral のランナー、Claude Code の /clear に寄せた）、2026-10-29 に表示の幅を
+# 取る「エフェメラル」を tmp に替えた（持ち主「エフェメラルじゃなく tmp」。機械が比べる値 ephemeral はそのまま）。「その都度」
+# 「常設の展示」などのふつうの言い方は当てず、部署の話の形だけを当てる
 _PERSISTENT = r"常設(?=の部署|の役(?![員割])|の担当|の受け持ち|の会話|で立|で 1|でな|なら|・(?=毎回|持ち越|引き継)|か都度|に上げ|に残)"
-_EPHEMERAL = r"(?<!その)都度(?=の部署|の役(?![員割])|の会話|で立|でな|なら|とみな|と見な|・|か常設)|(?<=常設か|永続か)都度"
+_EPHEMERAL = r"(?<!その)都度(?=の部署|の役(?![員割])|の会話|で立|でな|なら|とみな|と見な|・|か常設)|(?<=常設か|永続か)都度|エフェメラル"
 _CLEARED = r"(?<=常設・|永続・)毎回空|毎回空(?=の部署|で立|にする部署)"
 # 段 は順序や層（3 段・段ごと・tiers の段 0〜3・段取り・段落）にも使うので、契約・アカウント・プランの名前に付いた形（契約の段・
 # Max 20x の段）と、段の直後に括弧でプランの名前を添えた形（段（Pro））だけを当てる。my_notes の tools/checks/terms.py の項を元に、
@@ -71,7 +74,7 @@ TERMS = (
     ("ルート", r"(?<![屋垣大羽心球尾草禍性精島箱])根(?![拠本気性底幹深元源っ強絶回菜付差づ])"),
     ("プラン", _PLAN_OF + _PLAN_TAIL + "|" + _PLAN_NAMED),
     ("永続", _PERSISTENT),
-    ("エフェメラル", _EPHEMERAL),
+    ("tmp", _EPHEMERAL),
     ("毎回クリア", _CLEARED),
 )
 PATTERNS = tuple((expected, re.compile(p)) for expected, p in TERMS)
@@ -147,7 +150,7 @@ FIXES = (
     (rf"({_PLAN_OF})" + _PLAN_TAIL, "\\1プラン"),
     (_PLAN_NAMED, "プラン"),
     (_PERSISTENT, "永続"),
-    (_EPHEMERAL, "エフェメラル"),
+    (_EPHEMERAL, "\x01tmp\x02"),
     (_CLEARED, "毎回クリア"),
 )
 FIX_PATTERNS = tuple((re.compile(p), r) for p, r in FIXES)

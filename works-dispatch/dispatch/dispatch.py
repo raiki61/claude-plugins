@@ -44,8 +44,8 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
         python3 dispatch.py --deliver <要約のファイル> [--for <受付> | --again] [--dry-run]
         python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
         python3 dispatch.py --compact [焦点]（部署か窓口の場所から。同じ仕事の前の部分が済んだので、ここで compact してよい区切りと印す）
-        python3 dispatch.py --done（エフェメラルの部署の場所から。納品してメインブランチに入れ終えたので、ターンの終わりに会話を止めて部屋を片付けてよいと印す）
-        python3 dispatch.py --retire <部署>（エフェメラルの部署の会話を止めてから、--clean と同じ決まりで片付ける）
+        python3 dispatch.py --done（tmp の部署の場所から。納品してメインブランチに入れ終えたので、ターンの終わりに会話を止めて部屋を片付けてよいと印す）
+        python3 dispatch.py --retire <部署>（tmp の部署の会話を止めてから、--clean と同じ決まりで片付ける）
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
         python3 dispatch.py [--repo 代表の clone] --queue-run -- <コマンド> [<引数> ...]（外のツールが --land と同じ列に並んで走る。queuerun.py）
         python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--persistent | --ephemeral] [--boss <頼み元> [--boss-account <名>]] [--dry-run]
@@ -59,7 +59,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
 --ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
 --reorg と --desk（部署と窓口の属性の付け替え）の流れは reorg.py が持つ。
 --handover（部署か窓口の受け持ちを同じ会社のほかの部署へ移す）の流れは handover.py が持つ。
---retire（エフェメラルの部署の会話を止めて片付ける）の流れは retire.py が持つ。
+--retire（tmp の部署の会話を止めて片付ける）の流れは retire.py が持つ。
 """
 
 import argparse
@@ -255,7 +255,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--from-account", help="--task か --ask と一緒に: 呼んだ会話のアカウントの名（同上）")
     ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば会社の形の default_role、無ければ {DEFAULT_ROLE}）")
     ap.add_argument("--persistent", action="store_true",
-                    help="--task と一緒に: 永続の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けばエフェメラルの部署）")
+                    help="--task と一緒に: 永続の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば tmp の部署）")
     ap.add_argument("--tree", action="store_true", help=f"{term.NAME} に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree か --todo か --rent-effect と一緒に: JSON で出す")
     ap.add_argument("--todo", metavar="受付", nargs="?", const="",
@@ -321,9 +321,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--compact", nargs="?", const="", metavar="焦点", help="部署か窓口の場所から、同じ仕事の前の部分が済んだので、ここで"
                     "compact してよい区切りと印す（このターンの終わりに、文脈が大きく入力フィールドが空なら、機械が窓に /compact <焦点> を打ち、"
                     "済んだら続きをさせる 1 行を会話に渡す。納品の前でも印せる。人がその会話に打つと外れる）")
-    ap.add_argument("--done", action="store_true", help="エフェメラルの部署の場所から、納品してメインブランチに入れ終えたので片付けてよいと印す（このターンの"
+    ap.add_argument("--done", action="store_true", help="tmp の部署の場所から、納品してメインブランチに入れ終えたので片付けてよいと印す（このターンの"
                     "終わりに、機械が会話を止めて部屋を --clean と同じ決まりで片付ける。人がその会話に打つと外れる）")
-    ap.add_argument("--retire", metavar="部署", help="エフェメラルの部署の会話を止めてから、部屋を --clean と同じ決まりで片付ける（--done の"
+    ap.add_argument("--retire", metavar="部署", help="tmp の部署の会話を止めてから、部屋を --clean と同じ決まりで片付ける（--done の"
                     "ターンの終わりに機械が打つ。段取りが残った部屋を止めると決めたときも打つ）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりでメインブランチに入れる（ゲートを待ち、緑なら fast-forward）")
     ap.add_argument("--land-order", nargs="*", metavar="部署",
@@ -341,10 +341,10 @@ def main(argv=None, ports=None):
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署がメインブランチを知った後にほかの部署が入れた行を、このブランチが消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
-                    help=f"今いる部署の名前・役・永続かエフェメラルか・頼み元を付け替え、{term.NAME} の表示を付け直す（--name・--role・--persistent か --ephemeral・--boss）")
+                    help=f"今いる部署の名前・役・永続か tmp か・頼み元を付け替え、{term.NAME} の表示を付け直す（--name・--role・--persistent か --ephemeral・--boss）")
     ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
     ap.add_argument("--ephemeral", action="store_true",
-                    help="--reorg と一緒に: エフェメラルの部署にする（永続をやめる）")
+                    help="--reorg と一緒に: tmp の部署にする（永続をやめる）")
     ap.add_argument("--boss", help="--reorg と一緒に: 新しい頼み元（納品を返す会話）の名前")
     ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい頼み元のアカウントの名（省けば名前だけで引く）")
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
@@ -973,7 +973,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     if why:
         print(f"止めた: {why}")
         return 2
-    # 役の persistent = true は --persistent と同じ。ただし受け持ちが on_demand = true（オンデマンド）ならエフェメラルの部署で立てる
+    # 役の persistent = true は --persistent と同じ。ただし受け持ちが on_demand = true（オンデマンド）なら tmp の部署で立てる
     persistent = a.persistent or (bool(the_role and the_role["persistent"]) and not (own and own.get("on_demand")))
     model, effort, flags_note = role.launch_flags(the_role, ports.env, duty)
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
@@ -1167,7 +1167,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 notes += [f"ペインに表示名と札を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
                 if prov.get("workspace"):
                     shown = sync.apply_workspaces([sync.kind_op(prov["workspace"], written)], ports.term)
-                    notes += [f"作業場に永続かエフェメラルかの印を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
+                    notes += [f"作業場に永続か tmp かの印を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
                     notes += _order_company(repo.source, info["skills"], ports)
                 route += f"（会話 {sid}）"
     print("\n".join(notes + [f"部署 {a.task}  {a.branch}  {account}  {result}"] +
@@ -1642,7 +1642,7 @@ DRAFT_DUTY = ("受け持ちを永続で預かる。自分の受け持ちは部�
               "書く（前の頼みで覚えた中身で書かない。覚えた中身で書くと、ほかの部署が入れた変更を消してしまう）。" + DRAFT_COMMIT + "並べて進めたい作業は作業に頼む"
               "（--ask {company}/作業 に --task <受け持ち>：<何をするか> --branch <ブランチ> を添える）。試験は触った所の物だけを回す。"
               + DRAFT_RETURN + DRAFT_DENIED + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
-# エフェメラルの部署の畳み方。書かないと、納品した部署が会話を残したまま並び続ける（2026-10-19 の works-factory の会社で、持ち主が指摘して足した）
+# tmp の部署の畳み方。書かないと、納品した部署が会話を残したまま並び続ける（2026-10-19 の works-factory の会社で、持ち主が指摘して足した）
 DRAFT_DONE = ("納品し、ブランチがメインブランチに入ったら（commit の無い頼みなら納品の後に）、--done を打ってターンを終える。--done が"
               "「ブランチがメインブランチに入っていない」と断れば、git fetch origin してから打ち直し、それでも断れば --done を打たずに止まる"
               "（ブランチがメインブランチに入った後に窓口が --retire で畳む）。")

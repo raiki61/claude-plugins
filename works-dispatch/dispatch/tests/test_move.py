@@ -842,8 +842,8 @@ class LimitHook(unittest.TestCase):
 
     def test_only_resident_departments_and_the_desk_move_on_a_rate_limit(self):
         base = {"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"}
-        self.assertIsNone(limit_hook.plan(base))   # 頼みを受けていないエフェメラルの部署
-        provision.mark(self.place, self.src, {"ask": "q1"}, self.g)   # 頼みの途中のエフェメラルの部署（オンデマンドの受け持ち）は移す
+        self.assertIsNone(limit_hook.plan(base))   # 頼みを受けていない tmp の部署
+        provision.mark(self.place, self.src, {"ask": "q1"}, self.g)   # 頼みの途中の tmp の部署（オンデマンドの受け持ち）は移す
         self.assertEqual(limit_hook.plan(base)[0][2:4], ["--move", "調べ"])
         provision.mark(self.place, self.src, {"ask": None, "lifecycle": "persistent"}, self.g)
         argv, cwd, out = limit_hook.plan(base)

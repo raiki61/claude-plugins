@@ -84,7 +84,7 @@ def _skills(raw, where, problems):
         got["keepalive"] = role.parse_keepalive(s.get("keepalive"), f"{where}: skills[{i}]（{s['name']}）", problems)
         # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
-        # on_demand = true（オンデマンド）: 永続の部署を置かず、頼まれたときだけその受け持ちの名前のエフェメラルの部署を立てる（--ask が
+        # on_demand = true（オンデマンド）: 永続の部署を置かず、頼まれたときだけその受け持ちの名前の tmp の部署を立てる（--ask が
         # 立て、--done で畳む）
         flag = s.get("on_demand", False)
         if not isinstance(flag, bool):
@@ -307,7 +307,7 @@ def contacts(company, shape):
     見渡す本社の会話で、部署をまたぐ件の上げ先を関わる部署すべてを見渡す段とする組織論の原典（Galbraith 1974）と、外の入口を 1 つに
     する形（ITIL のサービスデスク）に当たる。受ける仕事ごとの宛先は働きごとに宛先を分ける形（RFC 2142）に当たる。
     宛先の決まりは deliver.find_target と同じ: 永続の役の受け持ちとオンデマンドの受け持ちは部署の名前（＝受け持ちの名前。役を足す
-    フックが同じ名前で結ぶ）で宛て、永続の役の部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。エフェメラルの役は役で宛てて --task に
+    フックが同じ名前で結ぶ）で宛て、永続の役の部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。tmp の役は役で宛てて --task に
     部署の名前を添える。立てるときはブランチ（--branch）も要る（orders.ask）。頼み元（属性 company.boss）は納品の返し先で、ここでは使わない。"""
     plain = company["name"]
     named = {d["attrs"].get("name") for d in company["departments"]}
