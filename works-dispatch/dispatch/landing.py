@@ -43,6 +43,8 @@ from nodes import bump, clean, deliver, land, landqueue, provision, role, tree, 
 RUN_PAUSE_S = 10  # ゲートのブランチに push した後、run が現れるのを見に行く間
 FAILED = "failed"   # 代表の clone のメインブランチをそろえる git が誤りを返した（gitx.advance_branch の値に並べる、こちらの札）
 LAGS = ("dirty", "local_only", FAILED)   # 代表の clone のメインブランチが遅れたまま残り、窓口に知らせる形
+# 手元の検証に渡す環境変数の名前（land_env。gates の coldread-gate.py の LAND_TIP・LAND_KEY・LAND_BRANCH と同じ字）
+WORKS_LAND_TIP, WORKS_LAND_KEY, WORKS_LAND_BRANCH = "WORKS_LAND_TIP", "WORKS_LAND_KEY", "WORKS_LAND_BRANCH"
 
 
 def run_check(command, cwd, env=None):
@@ -55,7 +57,7 @@ def run_check(command, cwd, env=None):
 def land_env(tip, key, branch):
     """手元の検証に渡す環境変数（束の設計 5.3）。初見の読み手のゲート（gates の branch-check）が、推し量りより先に使う。
     tip は文書を読む commit（版上げの前の先頭）、key は前の回の控えの鍵、branch は読み手の記録の帰属を引く部署のブランチ。"""
-    return {"WORKS_LAND_TIP": tip, "WORKS_LAND_KEY": key, "WORKS_LAND_BRANCH": branch}
+    return {WORKS_LAND_TIP: tip, WORKS_LAND_KEY: key, WORKS_LAND_BRANCH: branch}
 
 
 def _ask(ports, place, text):
