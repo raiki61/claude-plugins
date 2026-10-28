@@ -204,3 +204,22 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
 - tiers の `tiers_statusline.py` の `uses_it` は試験だけが呼ぶ。設定を読む同じ形の扱いが 4 か所在る。
 
 外した物（直さない）: works の `.shared/core` の graphloops の写しは、graphloops 0.21.0 の版に留まる（今の graphloops は 0.42.0）。works は写して自分の側で育てる決まりなので、ずれではない（ルートの CLAUDE.md の「works（Archon の pack）」）。
+
+### 7 回目（2026-10-29、受付 20261028-214724-f7cb45）
+
+持ち主の頼み（「このリポジトリを綺麗にする余地、最適化する余地を探してやっておいて」）で、リポジトリ全体を読み取り専用のサブエージェント 4 本に測らせた。測ったのは、古い版のための互換の残り・毎回の会話に入る文の大きさ・CI とゲートの時間・works-dispatch の dispatch の文書がどれだけ読まれたか（全アカウントの会話の記録 7 日分・1,119 本）。新しい標準は作っていない。効く物・壊れている物の順に並べる。
+
+- 7-1 main の CI（test.yml）が 2026-10-16 の run 38901250374 を最後に緑になっていない（今壊れている。直近 60 回で緑 0 回）。落ちるのは pytest の 2 job と Windows の test 4 組で、多くは works-dispatch の試験の Windows の path の区切りなど。CI の見張り（tests/ci-watch.py）は、10-19 に点検へ回した頼み 20261019-002018-9ae6fd が台帳で開いたままなので、10 日黙っている（決まり 1 のずれ。[壊れたら機械が知らせる標準](breakage-detection.md)）。状態: 頼んだ（点検 20261028-215406-7f0d8e。赤の片付けを各担当に回すことと、見張りが開いたままの頼みで黙る穴を塞ぐこと）
+- 7-2 works-dispatch の dispatch の文書（SKILL.md 約 10KB・references 15 本で約 310KB）。7 日で references を読んだ会話は 285 本、1 会話あたり中央値 13,870 字・p90 34,262 字。読まれるのは deliver.md・clean.md・land.md・ask.md に偏り（4 本で読んだ字数の 8 割）、models.md は 0 回。部署の会話が打つのは --deliver・--land・--ask・--done が大半なので、その打ち方を役の本文か dispatch.py の出力に短く持たせれば、多くの会話でスキルを読まずに済む見込み。状態: 頼んだ（仕組み 20261028-215423-af40f6。窓口が持ち主に出した案 4）
+- 7-3 works-dispatch の、古い版のための互換の残り（会社の形の `standing = false` 7 行・`resident = true`、その読み替え、作業場の属性 `company.residency` の二重書き、旧旗 `--resident`・`--per-task`。コードと文書で約 130 行）。全アカウントの works-dispatch は 0.126.6 以上で、旧キーを読む版は入っていない。my_notes の会社の形にも同じ行が在るので、そちらを先に消してから読む側を消す。状態: 頼んだ（仕組み 20261028-215428-a4cbb3）
+- 7-4 description が[スキルの書き方の標準](skill-authoring.md)の決まり 7（主な使いどころを先に書く）に合わない: attention の catchup（419 字。marketplace で最長）・my-turn（351 字）・reflect（328 字）。手順や引数の書き方が description に入っている。description は毎回の会話の始まりに載る（marketplace の 22 本の合計は 4,172 字）。状態: 頼んだ（見渡し 20261028-215436-7a668e）
+- 7-5 同じく convergence-loops の firstread-loop（398 字）。起動の条件が末尾にあり、一覧で切られると見えない。状態: 頼んだ（見直し 20261028-215337-7cd3e4）
+
+やっていない物と訳:
+
+- 会社の形の受け持ち「業務改革」の description が 1,672 字（ほかは 38〜245 字）。載るのは業務改革の部署の会話だけで、効きが小さい。業務改革の受け持ちの中身なので、業務改革が次に直すときの候補。
+- 役「担当」と「作業」の本文に同じ文が 15 文（約 1,350 字）在る。1 つの部署には片方しか載らないので、毎回の量は減らない（食い違う余地だけ）。会社の形の中身は持ち主と窓口が決めるので、効きの小ささと合わせて頼んでいない。
+- CI の時間（1 回 30〜50 分。律速は macOS の works の 4 組）。works の `tests/test_script_contract.py` の setUpClass が約 20 の筋書きを直列に回し、1 組の約 27 分を占める。組ごとの偏り（約 1,300〜1,810 秒）、macOS の組を ubuntu に移せるか、Windows の test 4 組の重なりも候補。CI は待たない決め（ルートの CLAUDE.md の「判断の線」）で、先に 7-1 の赤を直すのが先なので頼んでいない。works は誰の受け持ちでもないので、頼むなら作業に回す。
+- CI の pip のキャッシュ（`setup-python` の `cache: pip`）。1 job あたり十数秒で効きが小さい。
+- main へ入れるゲートの軽い検査（scripts/light-check.sh）は測って 31 秒で、直す所は無い。
+- 確かめきれなかった互換の残り: graphloops の `engine/commands.py` と `runner.py` が読む旧盤面の `runner_unlaunched`（動いている盤面の寿命を確かめていない）。convergence-loops の review-record.py の旧形式を弾く案内と rent-or-buy の旧キー `post_tokens` を拒む試験は、診断として要るので残す。
