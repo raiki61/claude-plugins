@@ -233,7 +233,7 @@ def commands_text(dept, ephemeral):
     """部署の会話に足す、よく打つコマンドの全文。部署の会話はこれらを打つたびにスキルの別ファイル（deliver.md・land.md・clean.md）を
     読んでいた（2026-10-22〜29 の会話の記録で、スキルとして読んだ別ファイルの字数の 7 割がこの 3 本。頼み af40f6）ので、字を渡して読まずに済ませる。"""
     lines = [f"- 納品: {RUN} --deliver <要約のファイル>（納品した頼みの続きを返し直すときは --again を足す）",
-             f"- main に入れる: {RUN} --land {shlex.quote(dept)}（Bash の run_in_background で打ち、終わりの知らせで結果を見る。Claude Code の自動の権限の判定〔auto mode〕に止められたら打ち直さず、納品で窓口に知らせる）",
+             f"- main に入れる: {RUN} --land {shlex.quote(dept)}（Bash の run_in_background で打ち、終わりの知らせで結果を見る。自動の権限の判定〔auto mode〕に止められたら打ち直さず、納品で窓口に知らせる）",
              f"- 頼む: {RUN} --ask <宛先> --text <頼み>（長い頼みは --text の代わりに --brief <ファイル>）"]
     if ephemeral:
         lines.append(f"- 終わりの印（納品して main に入れ終えたら）: {RUN} --done")
