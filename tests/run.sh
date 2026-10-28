@@ -5796,7 +5796,7 @@ expect_output 0 "TITLE_OK" \
     "works-factory-pin: works-dispatch が頼みに付ける題の形が、ツールが自分の頼みを見分ける形のまま" \
     "$PY_BIN" "$WFP_CASE" title
 expect_output 0 "AUTO_OK" \
-    "works-factory-pin: 照合に当たりの無い上げは AI を立てずに --land で main に入れ、入らなければ作業に回し、作ったブランチを残さず、合図の再入では黙る" \
+    "works-factory-pin: 照合に当たりの無い上げは AI を立てずに --land で main に入れ、入らなければ作業に回し、作ったブランチを origin にも手元にも残さず、合図の再入では黙る" \
     "$PY_BIN" "$WFP_CASE" auto
 
 scope attention tests/what-am-i-doing tests/whose-turn

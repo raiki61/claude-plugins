@@ -17,8 +17,9 @@
 - edges: CHANGELOG の Changed の空行の無い形・Unreleased が最後のセクションの形、inputs の下げた続きの行と列 0 のコメント
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
 - auto: 照合に当たりが無い上げは、代表の clone に作ったブランチで PIN と CHANGELOG を commit し、--land（偽物の dispatch.py）で main に入れて
-  0 で終わる。--land が入れなければ 1 で作業に回し、手順の行を最後に出す。どちらも作ったブランチと worktree を消す。照合に当たりが在れば
-  機械の上げを打たない。機械の上げの --land の合図で呼ばれたら工場を読まずに黙る
+  0 で終わる。--land が入れなければ 1 で作業に回し、手順の行を最後に出す。どちらも作ったブランチと worktree と、--land が push した
+  origin のブランチを消す（消せなければ注記を出す）。照合に当たりが在れば機械の上げを打たない。機械の上げの --land の合図で呼ばれたら
+  工場を読まずに黙る
 """
 
 import importlib.util
@@ -315,11 +316,13 @@ def title():
     print("TITLE_OK")
 
 
-# 偽物の dispatch.py: --repo <代表の clone> --land <ブランチ> を受け、引数と LANDING を記録に書き、push するなら ブランチを origin の main に push する
+# 偽物の dispatch.py: --repo <代表の clone> --land <ブランチ> を受け、引数と LANDING を記録に書き、本物の --land と同じくブランチを origin に
+# push し、入れるなら（PIN_CASE_PUSH=1）ブランチを origin の main にも push する
 FAKE_DISPATCH = """import os, subprocess, sys
 args = sys.argv[1:]
 with open(os.environ["PIN_CASE_RECORD"], "a", encoding="utf-8") as f:
     f.write(" ".join(args) + " " + os.environ.get("%s", "") + "\\n")
+subprocess.run(["git", "-C", args[1], "push", "-q", "origin", args[3]], check=True)
 if os.environ.get("PIN_CASE_PUSH") == "1":
     subprocess.run(["git", "-C", args[1], "push", "-q", "origin", args[3] + ":main"], check=True)
     print("FAKE_LAND_PUSHED")
@@ -360,9 +363,10 @@ def auto():
     env = {**base, "WORKS_DISPATCH": script, "WORKS_DISPATCH_PYTHON": sys.executable, "PIN_CASE_RECORD": record}
 
     def leftovers(source):
+        """(手元のブランチ, worktree の数, origin のブランチ)。origin は --land が push した機械の上げのブランチ。"""
         branches = git(source, "branch", "--list", wp.BRANCH + "*")
         trees = [x for x in git(source, "worktree", "list", "--porcelain").splitlines() if x.startswith("worktree ")]
-        return branches, len(trees)
+        return branches, len(trees), git(source, "ls-remote", "origin", f"refs/heads/{wp.BRANCH}*")
 
     # 入れられる --land: main の PIN が上げ先になり、0 で終わる
     source, origin = plugins(shas[1])
@@ -375,7 +379,7 @@ def auto():
     with open(record, encoding="utf-8") as f:
         said = f.read()
     check(f"--repo {source} --land {wp.BRANCH}{shas[2][:12]} {shas[2]}" in said, f"--land の引数か {wp.LANDING} が違う: {said}")
-    check(leftovers(source) == ("", 1), f"作ったブランチか worktree が残った: {leftovers(source)}")
+    check(leftovers(source) == ("", 1, ""), f"作ったブランチか worktree が残った: {leftovers(source)}")
     # 入れられない --land: 1 で作業に回し、手順の行を最後に出す
     source, origin = plugins(shas[1])
     fake = Fake(os.path.join(source, ".git"), shas, titles, {shas[2]: ok()})
@@ -383,7 +387,16 @@ def auto():
     check(code == 1 and "FAKE_LAND_RED" in out, f"--land の失敗を作業に回さない: {code} {out}")
     check(f"--write {shas[2]} " in out.strip().splitlines()[-1], f"手順の行が最後に無い: {out}")
     check(git(origin, "show", "main:works-factory/PIN") == shas[1], "入れられなかったのに main の PIN が変わった")
-    check(leftovers(source) == ("", 1), f"失敗の後に作ったブランチか worktree が残った: {leftovers(source)}")
+    check(leftovers(source) == ("", 1, ""), f"失敗の後に作ったブランチか worktree が残った: {leftovers(source)}")
+    # origin がブランチの消しを断る: 黙らずに注記の 1 行を出す
+    source, origin = plugins(shas[1])
+    hook = os.path.join(origin, "hooks", "pre-receive")
+    with open(hook, "w", encoding="utf-8") as f:
+        f.write("#!/bin/sh\nwhile read old new ref; do case $new in *[!0]*) ;; *) echo no-delete >&2; exit 1;; esac; done\n")
+    os.chmod(hook, 0o755)
+    fake = Fake(os.path.join(source, ".git"), shas, titles, {shas[2]: ok()})
+    code, out = go(fake, pathlib.Path(source), env=env)
+    check(code == 1 and f"origin の機械の上げのブランチ {wp.BRANCH}{shas[2][:12]} が消せなかった" in out, f"origin のブランチの消しの失敗を黙った: {out}")
     # 殺された機械の上げの残り（同じブランチの worktree。鍵の pid はもう居ない）を消してから入れる
     source, origin = plugins(shas[1])
     stale = os.path.join(tmp(), "stale")
@@ -391,7 +404,7 @@ def auto():
     fake = Fake(os.path.join(source, ".git"), shas, titles, {shas[2]: ok()})
     code, out = go(fake, pathlib.Path(source), env={**env, "PIN_CASE_PUSH": "1"})
     check(code == 0 and git(origin, "show", "main:works-factory/PIN") == shas[2], f"残りの worktree が在ると入れない: {code} {out}")
-    check(leftovers(source) == ("", 1), f"残りの worktree かブランチを消さない: {leftovers(source)}")
+    check(leftovers(source) == ("", 1, ""), f"残りの worktree かブランチを消さない: {leftovers(source)}")
     # origin の main の PIN がもう上げ先（見張りの木は古い）: --land を打たずに 0 で黙る
     open(record, "w").close()
     old_root = plugin(shas[1])

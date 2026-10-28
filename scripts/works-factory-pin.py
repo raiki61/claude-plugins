@@ -404,7 +404,8 @@ def land_pin(pin, to, commits, cdir, runner, env):
     --land で main に入れる。(入れたか, 出す行)。入れたら出す行は --land の出力の終わり。入れる物がもう無い（origin/MAIN の PIN が上げ先か、
     ほかの上げで見張りが読んだ PIN と違う・同じ上げを走らせている処理が居る）なら入れずに訳を返す。入れようとして入らなければ RuntimeError。
     --land はほかの部署と同じ列（会社の形の [land] の queue）に並び、同じゲート（[land] の check）を通る。合図の中から打っても、外の --land は
-    push し終えて列の順番を手放した後に合図を呼ぶので、列で待ち合って止まらない。作った worktree とブランチは、入っても入らなくても消す。"""
+    push し終えて列の順番を手放した後に合図を呼ぶので、列で待ち合って止まらない。作った worktree とブランチ（--land が push した origin の
+    ブランチも）は、入っても入らなくても消す。"""
     dispatch = env.get("WORKS_DISPATCH")
     if not dispatch:
         raise RuntimeError("works-dispatch から呼ばれていない（環境変数 WORKS_DISPATCH が無い）ので、--land を打てない")
@@ -458,6 +459,15 @@ def land_pin(pin, to, commits, cdir, runner, env):
                 if runner(argv)[0] != 0 and (what != "worktree" or os.path.exists(place))]
         if left:
             print(f"注記: 機械の上げの{'と'.join(left)}（{place}・{branch}）を消せなかった。次の機械の上げが残りとして消す")
+        # --land はリベースしたブランチを origin に push するので、入らなくても origin に残る。在れば消す（ls-remote の 2 は「無い」）
+        code, _, err = runner(["git", "-C", source, "ls-remote", "--exit-code", "origin", f"refs/heads/{branch}"])
+        what = "在るかを確かめられなかった" if code not in (0, 2) else None
+        if code == 0:
+            code, _, err = runner(["git", "-C", source, "push", "-q", "origin", "--delete", branch])
+            what = "消せなかった" if code != 0 else None
+        if what:
+            why = ((err or "").strip().splitlines() or ["訳は出なかった"])[-1]
+            print(f"注記: origin の機械の上げのブランチ {branch} が{what}（{why}）。在れば手で git push origin --delete {branch} を打つ")
         shutil.rmtree(temp, ignore_errors=True)
 
 
