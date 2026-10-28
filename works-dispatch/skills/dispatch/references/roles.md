@@ -78,7 +78,7 @@ keepalive = { every = "240s" }        # この部署だけ、役の keepalive �
 ## 役の本文
 
 - 役の本文は、このプラグインの SessionStart のフックが、会話の始まり（やり直し・圧縮の後も）に足す。毎回の起動の量に入るので短く書く。
-- 部署（属性 `company.name` の有る、代表の clone でない worktree）の会話には、役の本文の後に、よく打つ works-dispatch のコマンドの全文（納品 `--deliver`・main に入れる `--land <部署の名前>`・頼む `--ask`。エフェメラルの部署なら終わりの印 `--done` も）を足す。部署の会話はこれを打つたびにスキルの別ファイル（deliver.md・land.md・clean.md）を読んでいたので、字を渡して読まずに済ませる（`role_hook.commands_text`）。
+- 部署（属性 `company.name` の有る、代表の clone でない worktree）の会話には、役の本文の後に、よく打つ works-dispatch のコマンドの全文（納品 `--deliver`・main に入れる `--land <部署の名前>`・頼む `--ask`。tmp の部署なら終わりの印 `--done` も）を足す。部署の会話はこれを打つたびにスキルの別ファイル（deliver.md・land.md・clean.md）を読んでいたので、字を渡して読まずに済ませる（`role_hook.commands_text`）。
 - 足す先は、部署（属性 `company.role` の有る worktree）の会話と、`--desk` で窓口を名付けた代表の clone の、窓口の席に座る会話だけ。窓口の席に座るのは次のどれか:
   - 属性の会話（`company.session`）。
   - `--desk` を打った会話と同じ Claude Code の処理の会話（`/clear` の後）。
