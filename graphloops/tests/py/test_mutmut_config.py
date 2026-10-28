@@ -1,6 +1,7 @@
 """mutmut の設定（graphloops/setup.cfg の [mutmut]）。mutmut は graphloops/mutants/ に、source_paths と also_copy に並べた物だけを
 写して試験を走らせるので、試験が読む置き場を also_copy から落とすと、写しの側で試験を集める所から落ちる（09-28〜10-12 の 3 回、
-blocks/ が無くて graph の $ref が解けず、load_graph が None を返した。mutmut は CI でしか撃たないので、手元の試験で先に止める）"""
+blocks/ が無くて graph の $ref が解けず、load_graph が None を返した。10-26 は README.md が無くて、README の見出しを読む試験が
+落ちた。mutmut は CI でしか撃たないので、手元の試験で先に止める）"""
 import configparser
 import pathlib
 import re
@@ -8,8 +9,12 @@ import re
 import conftest
 import pytest
 
-# 試験が読まないので写さない置き場（名前と訳）。ここに無い置き場は also_copy に並べる
-NOT_READ = {"skills": "スキルの本文。mutmut が選ぶ試験（medium でない物）は読まない", "commands": "コマンドの本文。mutmut が選ぶ試験は読まない"}
+# 試験が読まないので写さない置き場とファイル（名前と訳）。ここに無い物は also_copy に並べる
+NOT_READ = {"skills": "スキルの本文。mutmut が選ぶ試験（medium でない物）は読まない", "commands": "コマンドの本文。mutmut が選ぶ試験は読まない",
+            "CHANGELOG.md": "変更の記録。試験は読まない"}
+# also_copy に並べなくても mutmut が写す物（mutmut 3.8.0 の src/mutmut/configuration.py の _load_config が also_copy に足す一覧のうち、
+# graphloops/ に在る物）
+COPIED_ANYWAY = {"setup.cfg"}
 
 
 def _mutmut():
@@ -21,12 +26,13 @@ def _mutmut():
 @pytest.mark.small
 def test_also_copy_lists_every_place_the_tests_read():
     m = _mutmut()
-    have = set(m["source_paths"]) | set(m["also_copy"]) | set(NOT_READ)
-    # mutants/ の写しの中で走るときは、写した置き場だけが在る（足りない物は、写しの外の graphloops/ で走る回が名指す）。
-    # . で始まる置き場は、also_copy に並べた物（.claude-plugin）のほかは手元のキャッシュ（.pytest_cache・.venv など）として見ない
-    dirs = {p.name for p in conftest.PLUGIN.iterdir() if p.is_dir() and p.name not in ("mutants", "__pycache__")
-            and (not p.name.startswith(".") or p.name in m["also_copy"])}
-    assert sorted(dirs - have) == [], "graphloops/setup.cfg の [mutmut] の also_copy に無い置き場（写しの側の試験が読めない）"
+    have = set(m["source_paths"]) | set(m["also_copy"]) | set(NOT_READ) | COPIED_ANYWAY
+    # mutants/ の写しの中で走るときは、写した物だけが在る（足りない物は、写しの外の graphloops/ で走る回が名指す）。
+    # . で始まる物は、also_copy に並べた物（.claude-plugin）のほかは手元のキャッシュ（.pytest_cache・.venv・.DS_Store など）として見ない。
+    # ファイルも見る（README.md が抜けて、README の見出しを読む試験が写しの側で落ちた）
+    names = {p.name for p in conftest.PLUGIN.iterdir() if p.name not in ("mutants", "__pycache__")
+             and (not p.name.startswith(".") or p.name in m["also_copy"])}
+    assert sorted(names - have) == [], "graphloops/setup.cfg の [mutmut] の also_copy に無い置き場・ファイル（写しの側の試験が読めない）"
 
 
 @pytest.mark.small
