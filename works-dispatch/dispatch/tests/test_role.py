@@ -113,14 +113,11 @@ deliver_check = ""
         self.assertEqual(role.pick(shape, "サブエージェント", False), (None, None))
         self.assertEqual(role.pick(role.load(None), "何か", True), (None, None))
 
-    def test_default_role_and_resident_are_read_and_checked(self):
+    def test_default_role_and_persistent_are_read_and_checked(self):
         got = role.load(write(f"{self.d}/d.toml", 'default_role = "b"\n[[roles]]\nname = "a"\npersistent = true\n[[roles]]\nname = "b"\n'))
         self.assertEqual((got["default_role"], got["roles"]["a"]["persistent"], got["roles"]["b"]["persistent"], got["problems"]),
                          ("b", True, False, []))
         self.assertEqual(role.default(got, "作業"), ("b", None))
-        # 前の版の鍵 resident も同じ意味で読む（persistent が有ればそちら）
-        got = role.load(write(f"{self.d}/r.toml", '[[roles]]\nname = "a"\nresident = true\n[[roles]]\nname = "b"\nresident = true\npersistent = false\n'))
-        self.assertEqual((got["roles"]["a"]["persistent"], got["roles"]["b"]["persistent"], got["problems"]), (True, False, []))
         got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\npersistent = "yes"\n'
                                                   '[[roles]]\nname = "c"\n'))
         self.assertIsNone(got["default_role"])
@@ -178,13 +175,13 @@ deliver_check = ""
 
 
 class Seat(unittest.TestCase):
-    def test_fresh_is_read_and_shown_with_residency(self):
+    def test_fresh_is_read_and_shown_with_lifecycle(self):
         d = tempfile.mkdtemp()
         got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "担当"\npersistent = true\nfresh = true\n'
                                              '[[roles]]\nname = "相談"\npersistent = true\n[[roles]]\nname = "変"\nfresh = "yes"\n'))
         self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
         self.assertNotIn("変", got["roles"])
-        self.assertIn("persistent・resident・fresh・machine は true か false", got["problems"][0])
+        self.assertIn("persistent・fresh・machine は true か false", got["problems"][0])
         # herdr の作業場の印に、永続かエフェメラルかと、会話を引き継ぐか毎回クリアするかを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
         from nodes import sync
         self.assertEqual(sync.seat_of({"role": "担当", "lifecycle": "persistent", "fresh": "true"}), "persistent-fresh")

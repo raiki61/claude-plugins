@@ -38,7 +38,6 @@
   名前に読み替える。問いを受ける相談の役に書く）
 - persistent: true なら、その役の部署は永続（--persistent を付けたのと同じ）。担当のように受け持ちごとに永続で置く役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --persistent を付け忘れると、エフェメラルの部署が立って次の頼みがその部署を見つけないため。
-  前の版のキー resident も同じ意味で読む（persistent が有ればそちら）
 - fresh: true なら、その役の部署は頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に /clear を
   打つ）。省けば会話を引き継ぐ。persistent とは別の軸で、永続の席（順番を 1 本にする・宛先の名前・決まった窓）は残したまま、
   前の頼みの記憶を引き継がない（記憶は太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す。まっさらな環境での 2 回目の試し）
@@ -211,8 +210,7 @@ def load(path, text=None):
                 bad.append(k)
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
-        bad += [k for k in ("persistent", "resident", "fresh", "machine") if k in r and not isinstance(r[k], bool)
-                and not (k == "resident" and "persistent" in r)]   # persistent が有れば resident は読まないので問わない
+        bad += [k for k in ("persistent", "fresh", "machine") if k in r and not isinstance(r[k], bool)]
         bad += [k for k in ("holders", "ask_holders") if k in r and not (isinstance(r[k], bool) or isinstance(r[k], list)
                                                                         and all(isinstance(x, str) and x for x in r[k]))]
         if "effort" in r and r["effort"] not in EFFORTS + (INHERIT,):
@@ -222,7 +220,7 @@ def load(path, text=None):
             bad.append("deliver")
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、account は空でない文字列、settings は表、"
-                                   f"deliver は空でない文字列の並び、deliver_check・ask_check は空でない文字列、persistent・resident・fresh・machine は true か false、"
+                                   f"deliver は空でない文字列の並び、deliver_check・ask_check は空でない文字列、persistent・fresh・machine は true か false、"
                                    f"holders・ask_holders は true・false か名前の並び、"
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
             continue
@@ -243,7 +241,7 @@ def load(path, text=None):
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
                                    "deliver_check": (r.get("deliver_check") or "").strip() or None,
                                    "ask_check": (r.get("ask_check") or "").strip() or None,
-                                   "persistent": r.get("persistent", r.get("resident")) is True, "fresh": r.get("fresh") is True,
+                                   "persistent": r.get("persistent") is True, "fresh": r.get("fresh") is True,
                                    "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"]),
                                    "holders": _holders(r.get("holders")), "ask_holders": _holders(r.get("ask_holders")),
                                    "keepalive": parse_keepalive(r.get("keepalive"), f"{where}（{r['name']}）", out["problems"]),

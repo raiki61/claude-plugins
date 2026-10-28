@@ -85,14 +85,10 @@ def _skills(raw, where, problems):
         # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
         # on_demand = true（オンデマンド）: 永続の部署を置かず、頼まれたときだけその受け持ちの名前のエフェメラルの部署を立てる（--ask が
-        # 立て、--done で畳む）。前の版の standing = false も同じ意味で読む（on_demand が有ればそちら）
-        if "on_demand" in s:
-            key, flag = "on_demand", s["on_demand"]
-        else:
-            key, flag = "standing", s.get("standing", True)
-            flag = not flag if isinstance(flag, bool) else flag
+        # 立て、--done で畳む）
+        flag = s.get("on_demand", False)
         if not isinstance(flag, bool):
-            problems.append(f"{where}: skills[{i}]（{s['name']}）の {key} は true か false。外して永続で扱う")
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の on_demand は true か false。外して永続で扱う")
             flag = False
         got["on_demand"] = flag
         # per_ask = true（頼みごとの部署）: オンデマンドの受け持ちへの頼みを、頼みごとに別の一度きりの部署（「<受け持ち>：<受付番号の

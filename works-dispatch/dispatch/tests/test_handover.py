@@ -119,7 +119,7 @@ class Handover(unittest.TestCase):
         self.assertEqual(len(got), 1)
         self.assertEqual((got[0]["names"], got[0]["desk"], got[0]["since"]),
                          ([f"{self.company}/段取り"], True, os.path.getsize(self.log) - self._tail_bytes()))
-        self.assertEqual({k: v for k, v in self.g.worktree_attrs(self.src, former=False).items()}, {})   # 本社の窓口は解いた
+        self.assertEqual({k: v for k, v in self.g.worktree_attrs(self.src).items()}, {})   # 本社の窓口は解いた
         self.assertEqual(wake.queued(self.inbox, self.desk_place), [])
         moved = wake.queued(self.inbox, self.office_place)
         self.assertEqual([(q["id"], q["to"]) for q in moved], [("q1", f"{self.company}/社長室")])
@@ -206,7 +206,7 @@ class Handover(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("打ち直すと、残りの手順を続ける", out)
         self.assertEqual([r["status"] for r in self.rows(handover.KIND)], [handover.STARTED])
-        self.assertEqual(self.g.worktree_attrs(self.src, former=False).get("name"), "段取り")   # 写し直す前は前の場所を消さない
+        self.assertEqual(self.g.worktree_attrs(self.src).get("name"), "段取り")   # 写し直す前は前の場所を消さない
         rc, out = self.main("--handover", "段取り")
         self.assertEqual(rc, 0, out)
         self.assertEqual([r["status"] for r in self.rows(handover.KIND)], [handover.STARTED, handover.DONE])
@@ -254,7 +254,7 @@ class Handover(unittest.TestCase):
         rc, out = self.main("--handover", "段取り")
         self.assertEqual(rc, 2, out)
         self.assertIn("受付 t9", out)
-        self.assertEqual(self.g.worktree_attrs(self.src, former=False).get("ask"), "t9")   # 受けた頼みの返し先を消さない
+        self.assertEqual(self.g.worktree_attrs(self.src).get("ask"), "t9")   # 受けた頼みの返し先を消さない
         real(self.src, self.src, {"delivered": "t9"}, self.g)
         # 始めた後に積まれた頼みも、後継の役の ask_check を通してから移す
         self.queue("n1", kind="note")
@@ -296,7 +296,7 @@ class Handover(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("読み進めたか、順番待ちに頼みが積まれた", out)
         self.assertEqual(self.rows(handover.KIND), [])
-        self.assertEqual(self.g.worktree_attrs(self.src, former=False).get("name"), "段取り")
+        self.assertEqual(self.g.worktree_attrs(self.src).get("name"), "段取り")
 
     def test_the_successor_without_a_read_position_starts_where_the_handover_ended(self):
         self.read_to_end(self.desk_place)
@@ -379,8 +379,8 @@ class Handover(unittest.TestCase):
 
         @contextlib.contextmanager
         def folded(inbox, place, *args, **kw):
-            if os.path.realpath(place) == os.path.realpath(self.desk_place) and self.g.worktree_attrs(self.src, former=False):
-                provision.mark(self.src, self.src, {k: None for k in self.g.worktree_attrs(self.src, former=False)}, self.g)
+            if os.path.realpath(place) == os.path.realpath(self.desk_place) and self.g.worktree_attrs(self.src):
+                provision.mark(self.src, self.src, {k: None for k in self.g.worktree_attrs(self.src)}, self.g)
             with real(inbox, place, *args, **kw):
                 yield
         with mock.patch.object(wake, "ask_lock", folded), contextlib.chdir(fold):
@@ -408,7 +408,7 @@ class Handover(unittest.TestCase):
         rc, out = self.main("--handover", "段取り")
         self.assertEqual(rc, 2, out)
         self.assertIn("別の名前 受付", out)
-        self.assertEqual(self.g.worktree_attrs(self.src, former=False).get("name"), "受付")
+        self.assertEqual(self.g.worktree_attrs(self.src).get("name"), "受付")
         real(self.src, self.src, {"name": "段取り"}, self.g)
         rc, out = self.main("--handover", "段取り")
         self.assertEqual(rc, 0, out)
@@ -422,7 +422,7 @@ class Handover(unittest.TestCase):
         rc, out = self.main("--desk", "段取り")
         self.assertEqual(rc, 2, out)
         self.assertIn("段取り", out)
-        self.assertEqual(self.g.worktree_attrs(self.src, former=False), {})
+        self.assertEqual(self.g.worktree_attrs(self.src), {})
         rc, out = self.main("--desk", "受付")   # 継いでいない名前なら名乗れる（本社の名付いた窓口が先に当たる）
         self.assertEqual(rc, 0, out)
 

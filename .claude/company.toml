@@ -63,7 +63,6 @@ effort = "high"   # コード（works-dispatch の Python）
 id = "gates"
 name = "点検"
 on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
-standing = false   # 前の版の works-dispatch が読むキー（on_demand と同じ意味）。前の版が使われなくなったら消す
 description = "gates の直し（書き込み前のゲート・初見読みなど）と、CI・ルートの tests/ の直し"
 role = "担当"
 effort = "high"   # コード（gates のフック・CI・ルートの tests/）
@@ -72,7 +71,6 @@ effort = "high"   # コード（gates のフック・CI・ルートの tests/）
 id = "convergence"
 name = "見直し"
 on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
-standing = false   # 前の版の works-dispatch が読むキー（on_demand と同じ意味）。前の版が使われなくなったら消す
 description = "convergence-loops と graphloops の直し（レビュー・調べ・初見読みなどの収束の工程と、そのグラフ）"
 role = "担当"
 effort = "high"   # コード（graphloops の Python とグラフ）と、レビューの工程の判断
@@ -81,7 +79,6 @@ effort = "high"   # コード（graphloops の Python とグラフ）と、レ�
 id = "attention"
 name = "見渡し"
 on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
-standing = false   # 前の版の works-dispatch が読むキー（on_demand と同じ意味）。前の版が使われなくなったら消す
 description = "attention の直し（自分の番の PR の見渡しと /catchup）"
 role = "担当"
 effort = "high"   # コード（attention の Python）
@@ -90,7 +87,6 @@ effort = "high"   # コード（attention の Python）
 id = "docs"
 name = "説明書"
 on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
-standing = false   # 前の版の works-dispatch が読むキー（on_demand と同じ意味）。前の版が使われなくなったら消す
 description = """\
 プラグインをまたぐ文書（ルートの README・CLAUDE.md・CONTRIBUTING.md・docs/。docs/trials/・docs/standards/・docs/reform/ は除く）と、会社の形（.claude/company.toml と設計の docs/specs/2026-10-16-company-shape-design.md）の直し。\
 会社の形の中身を決めるのは持ち主と窓口で、説明書は書く（業務改革の案から承認された組織の直しは、業務改革が自分で入れる）"""
@@ -101,7 +97,6 @@ effort = "medium"   # 文書と会社の形を書く。原文の照合がある�
 id = "standards"
 name = "標準"
 on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
-standing = false   # 前の版の works-dispatch が読むキー（on_demand と同じ意味）。前の版が使われなくなったら消す
 description = """\
 プラグインをまたぐ標準（書き方・作りの揃え方）を docs/standards/ に作り、プラグインごとのずれを見つけて綺麗にし続ける。\
 ずれの直しは各プラグインの担当に、標準を機械で守らせる検査（CI・ルートの tests/）は点検に、ルートの README・CLAUDE.md・CONTRIBUTING.md から標準を指す直しは説明書に頼む"""
@@ -138,7 +133,6 @@ text = """\
 id = "reform"
 name = "業務改革"
 on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
-standing = false   # 前の版の works-dispatch が読むキー（on_demand と同じ意味）。前の版が使われなくなったら消す
 description = """\
 claude-plugins の組織（会社の形 .claude/company.toml が表す部署・役・頼みの流れ）を外から点検し、改善の案から、承認された直しを自分で入れて、効いたかを my_notes の司令塔へ報告するまで通しでやる。\
 受け持ちのファイルは改善の台帳（docs/reform/ledger.md）と、承認された直しが触る所（会社の形・設計の docs/specs/2026-10-16-company-shape-design.md・ルートの CLAUDE.md の会社の決まり）。my_notes の組織は my_notes の業務改革が見る。\
@@ -179,7 +173,6 @@ text = """\
 id = "trials"
 name = "試し"
 on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
-standing = false   # 前の版の works-dispatch が読むキー（on_demand と同じ意味）。前の版が使われなくなったら消す
 description = "まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する"
 role = "担当"
 effort = "high"   # 長い手順で入れて動かし、見たことを漏らさず記録する仕事なので下げない
@@ -190,7 +183,6 @@ effort = "high"   # 長い手順で入れて動かし、見たことを漏らさ
 name = "担当"
 model = "opus"   # 理由は頭の「受け持ちごとの model・effort」のコメントの「ただし model は」の項
 persistent = true
-resident = true   # 前の版の works-dispatch が読むキー（persistent と同じ意味）。前の版が使われなくなったら消す
 fresh = true
 # keepalive: 部署が頼みの途中でターンを終えて待つ間（裏の処理・出した頼みの納品）、待ち受けがキャッシュの寿命の前に短い文を送ってキャッシュを保つ。
 # 送る時刻と止め時は rent-or-buy の部品が決める（works-dispatch 0.122.0 から。works-dispatch/skills/dispatch/references/roles.md の「仕事が終わるまでの keepalive」）。

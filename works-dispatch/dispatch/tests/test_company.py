@@ -222,14 +222,13 @@ class Info(unittest.TestCase):
         self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "settings": None, "account": None, "start": None,
                                           "on_demand": False, "per_ask": False, "keepalive": None}])
 
-    def test_on_demand_is_read_and_the_former_standing_false_means_the_same(self):
+    def test_on_demand_is_read(self):
         write(os.path.join(self.root, ".claude", "company.toml"),
-              '[[skills]]\nname = "a"\non_demand = true\n[[skills]]\nname = "b"\nstanding = false\n'
-              '[[skills]]\nname = "c"\nstanding = true\n[[skills]]\nname = "d"\n'
-              '[[skills]]\nname = "e"\non_demand = "yes"\n[[skills]]\nname = "f"\non_demand = false\nstanding = false\n')
+              '[[skills]]\nname = "a"\non_demand = true\n[[skills]]\nname = "d"\n'
+              '[[skills]]\nname = "e"\non_demand = "yes"\n[[skills]]\nname = "f"\non_demand = false\n')
         got = tree.read_info(self.root, self.settings)
-        self.assertEqual([s["on_demand"] for s in got["skills"]], [True, True, False, False, False, False])
-        self.assertEqual(got["problems"], [f"{got['path']}: skills[4]（e）の on_demand は true か false。外して永続で扱う"])
+        self.assertEqual([s["on_demand"] for s in got["skills"]], [True, False, False, False])
+        self.assertEqual(got["problems"], [f"{got['path']}: skills[2]（e）の on_demand は true か false。外して永続で扱う"])
 
     def test_per_ask_is_read_only_with_on_demand(self):
         # per_ask = true（頼みごとの部署）は on_demand = true と併せたときだけ効く。形が違えば外して、受け持ちの名前の部署 1 つで受ける
@@ -719,39 +718,6 @@ class Entry(unittest.TestCase):
         rc, out = self.main("--sync")
         self.assertIn("company.fresh true → （消す）", out)
         self.assertNotIn("fresh", self.g.worktree_attrs(self.place))
-
-    def test_former_residency_attribute_is_read_and_sync_keeps_both_attributes_in_step(self):
-        # 前の版の属性 company.residency（resident・per-task）は寿命として読み、--sync が company.lifecycle を書き足す。
-        # 前の版と混ざって動く間は、2 つの属性を同じ値でそろえて残す
-        self.g.set_worktree_attr(self.place, "residency", "resident")
-        self.g.set_worktree_attr(self.place, "role", "調べ役")
-        self.assertEqual(self.g.worktree_attrs(self.place)["lifecycle"], "persistent")
-        rc, out = self.main("--sync", "--dry-run")
-        self.assertIn("company.lifecycle - → persistent（寿命の 2 つの属性をそろえる）", out)
-        self.assertIn("印 永続・引き継ぎ", out)
-        self.assertNotIn("lifecycle", self.g.worktree_attrs(self.place, former=False), "--dry-run が書いた")
-        rc, out = self.main("--sync")
-        self.assertEqual(rc, 0, out)
-        attrs = self.g.worktree_attrs(self.place, former=False)
-        self.assertEqual((attrs["lifecycle"], attrs["residency"]), ("persistent", "resident"))
-        rc, out = self.main("--sync")
-        self.assertNotIn("company.lifecycle", out, "2 回目も書いた")
-        # 前の版が company.residency だけを書き換えたら、そちらを読み、--sync が company.lifecycle を合わせる（今の版は 2 つを同じ値で書く）
-        self.g.set_worktree_attr(self.place, "residency", "per-task")
-        self.assertEqual(self.g.worktree_attrs(self.place)["lifecycle"], "ephemeral")
-        rc, out = self.main("--sync")
-        self.assertIn("company.lifecycle persistent → ephemeral（寿命の 2 つの属性をそろえる）", out)
-        self.assertEqual(self.g.worktree_attrs(self.place, former=False)["lifecycle"], "ephemeral")
-        # company.lifecycle だけの部署には、前の版が読む company.residency を書き足す
-        self.g.unset_worktree_attr(self.place, "residency")
-        rc, out = self.main("--sync")
-        self.assertIn("company.residency - → per-task（寿命の 2 つの属性をそろえる）", out)
-        self.assertEqual(self.g.worktree_attrs(self.place, former=False)["residency"], "per-task")
-
-    def test_writing_a_lifecycle_also_writes_the_former_attribute(self):
-        # 前の版の --clean・--land は company.residency の無い部署をエフェメラルとみなすので、寿命を書くときは両方に書く
-        self.assertEqual(gitx.lifecycle_attrs("persistent"), {"lifecycle": "persistent", "residency": "resident"})
-        self.assertEqual(gitx.lifecycle_attrs("ephemeral"), {"lifecycle": "ephemeral", "residency": "per-task"})
 
     def test_sync_renames_a_former_role_name_to_the_current_one(self):
         # 会社の形で役の名前を替え、前の名前を former_names に書けば、--sync が前の名前を持つ場所の属性を今の名前に書き直す

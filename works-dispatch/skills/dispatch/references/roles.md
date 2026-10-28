@@ -45,7 +45,7 @@ deliver_check = "python3 scripts/check_deliver.py"   # 納品の検査のシェ�
 holders = []                                     # 任意。true か名前の並びなら、納品の要約の残った疑問ごとに、それを追う担当者が書いてあるかを確かめる（空の [] は true と同じ。並びには、担当者にさせない持ち主への中継の会話の名前を書く。例 ["社長室"]。false か省けば確かめない。「納品する」の「要約の書き方」）
 ask_check = "python3 scripts/check_ask.py"       # 任意。この役へ宛てた頼みを受ける会社の検査（「頼む」の「受ける会社の検査」）
 ask_holders = []                                 # 任意。holders と同じ値で、この役へ宛てた頼みの残った疑問の担当者を確かめる（「頼む」の「本文の書き方」）
-persistent = true                                # この役の部署は永続（--persistent を付けたのと同じ。前の版のキー resident = true も同じ意味）
+persistent = true                                # この役の部署は永続（--persistent を付けたのと同じ）
 fresh = true                                     # 頼みごとに空の会話で受ける（省けば会話を引き継ぐ）
 keepalive = true                                 # 任意。仕事が終わらないままターンを終えた間、待ち受けがプロンプトキャッシュの寿命の前に短い文を送る（間と文は「仕事が終わるまでの keepalive」）
 [roles.settings]                                 # 部署を起動するときの --settings（その会話にだけ効く Claude Code の設定）。この行より後のフィールドは settings に入る
@@ -65,7 +65,7 @@ keepalive = { every = "240s" }        # この部署だけ、役の keepalive �
 
 `machine = true` の役は、AI の部署を持たない役（AI を起動せずに機械で答えるツール `[[roles.tools]]` だけを持つ「機械窓口」。書き方は call.md）で、`--ask` で宛てられない。
 
-見本に無いフィールド: 頭の `name`（会社の名前。`--ask <会社>` の宛先）・`description` と、`[[skills]]` の `description`・`on_demand`・`per_ask`・前の版の `standing` は department.md の「会社のツリー図: `--tree`」。`[[skills]]` の `id` は `--tree --json` に出るだけの識別子。`[skills.start]` は start.md、`[land]` は land.md。
+見本に無いフィールド: 頭の `name`（会社の名前。`--ask <会社>` の宛先）・`description` と、`[[skills]]` の `description`・`on_demand`・`per_ask` は department.md の「会社のツリー図: `--tree`」。`[[skills]]` の `id` は `--tree --json` に出るだけの識別子。`[skills.start]` は start.md、`[land]` は land.md。
 
 ## TOML の書き方の決まり
 
@@ -74,7 +74,6 @@ keepalive = { every = "240s" }        # この部署だけ、役の keepalive �
 - TOML には共通の表を引く書き方が無く、works-dispatch も役の間で `settings` を継がない。いくつかの役に同じ起動の設定を効かせるなら、役ごとの `[roles.settings]` に同じ値を書く（受け持ちごとに足す分は受け持ちの `settings`）。本文の共通の決まりは `shared_instructions` に 1 度だけ書く（下の「役の本文」）。
 - 会社の形の表（頭・`[[roles]]`・`[[roles.tools]]`・`[[skills]]`・`[skills.start]`・`[land]`・`[land.roles.<役>]`・`[[land.after]]`）に、この版が読まない鍵（書き間違い・新しい版の鍵・外した鍵）が有れば、その鍵だけを読まずに、会社の形を読むコマンド（`--tree`・`--task`・`--ask`・`--deliver`・`--land`）の出力に鍵の名前を挙げた注記を出す（`--tree` では会社の行の下の `!` の行。読む鍵の一覧は `dispatch/known_keys.py`）。`[roles.settings]`・受け持ちの `settings`・ツールの `inputSchema`・`[[land.after]]` の `input` の中は見ない（Claude Code・JSON Schema・ツールに渡す値のため）。
 - 注記だけで止めないのが基本で、止めるのは 2 つ。`[[roles]]` の項目に読まない鍵が 1 つでも有れば、その役の部署からの `--deliver` とその役へ宛てた `--ask` は、何も送らず受付箱にも置かずに鍵の名前を出して終わる（`deliver_check`・`ask_check`・`holders`・`ask_holders` を書き間違えると、ゲートが黙って外れるため）。`[land]`・その役の `[land.roles.<役>]`・`[[land.after]]` の読まない鍵は `--land` を止める。直すには、鍵を直して origin の既定のブランチ（会社の形はここから読む）に入れるか、その鍵を知る版の works-dispatch を使って打ち直す。
-- 前の版のキー（役の `resident = true`、受け持ちの `standing = false`）は、今の版が今のキー（`persistent = true`・`on_demand = true`）と同じ意味で読む（両方有れば今のキー）。0.78.0 までの works-dispatch は今のキーを読まないので、その版でこの会社の形を読む PC が残る間だけ前のキーも並べて書き、残らなくなったら消す。
 
 ## 役の本文
 
@@ -174,7 +173,7 @@ keepalive = { every = "240s" }        # この部署だけ、役の keepalive �
   git config --worktree company.worktree-id "$(basename "$(git rev-parse --absolute-git-dir)")"   # 写しと見分ける
   ```
 
-  代表の clone に `extensions.worktreeConfig = true` が要る（dispatch が一度でも部署を立てた clone には在る）。0.78.0 までの works-dispatch と混ざって動く間は、前の版の属性 `company.residency`（`resident` か `per-task`）も同じ値で書く。`company.residency` が在れば `company.lifecycle` より先に読むので、後で寿命を替えるときは `company.residency` も一緒に書き替える。書いた後に `--sync` を打つと herdr の表示が付く。
+  代表の clone に `extensions.worktreeConfig = true` が要る（dispatch が一度でも部署を立てた clone には在る）。書いた後に `--sync` を打つと herdr の表示が付く。
 - 属性の書き直し・写しの見分け・裏の処理の数え方・フォルダの信頼の見方・`company.job`・`company.config` の細部は works-dispatch の `docs/internals.md`〔直す人向けの文書〕の「部署の属性と会話の見分け」（会社の形の書き手には要らない）。
 
 ## gh のアカウント

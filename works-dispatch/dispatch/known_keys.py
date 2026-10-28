@@ -15,10 +15,10 @@ https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation ï¼
 COMPANY = {
     "": ("name", "description", "desk", "gh_user", "shared_instructions", "default_role", "desk_role", "roles", "skills", "land"),
     "roles": ("name", "instructions", "model", "effort", "account", "settings", "deliver", "deliver_check", "holders", "ask_check",
-              "ask_holders", "persistent", "resident", "fresh", "machine", "tools", "former_names", "keepalive"),
+              "ask_holders", "persistent", "fresh", "machine", "tools", "former_names", "keepalive"),
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
     "roles.keepalive": ("every", "text"),
-    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "per_ask", "standing", "keepalive"),
+    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "per_ask", "keepalive"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
     "skills.keepalive": ("every", "text"),
     "land": ("mode", "gate", "check", "bump", "main", "queue", "batch", "roles", "after"),

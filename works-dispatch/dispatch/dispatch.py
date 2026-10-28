@@ -254,9 +254,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--from-name", help=f"--task か --ask と一緒に: 呼んだ会話の名前（{chat.NAME} の中から走らせれば自分で探す）")
     ap.add_argument("--from-account", help="--task か --ask と一緒に: 呼んだ会話のアカウントの名（同上）")
     ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば会社の形の default_role、無ければ {DEFAULT_ROLE}）")
-    ap.add_argument("--persistent", "--resident", dest="persistent", action="store_true",
-                    help="--task と一緒に: 永続の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けばエフェメラルの部署。"
-                         "--resident は前の版の名前）")
+    ap.add_argument("--persistent", action="store_true",
+                    help="--task と一緒に: 永続の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けばエフェメラルの部署）")
     ap.add_argument("--tree", action="store_true", help=f"{term.NAME} に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree か --todo か --rent-effect と一緒に: JSON で出す")
     ap.add_argument("--todo", metavar="受付", nargs="?", const="",
@@ -344,8 +343,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--reorg", action="store_true",
                     help=f"今いる部署の名前・役・永続かエフェメラルか・頼み元を付け替え、{term.NAME} の表示を付け直す（--name・--role・--persistent か --ephemeral・--boss）")
     ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
-    ap.add_argument("--ephemeral", "--per-task", dest="ephemeral", action="store_true",
-                    help="--reorg と一緒に: エフェメラルの部署にする（永続をやめる。--per-task は前の版の名前）")
+    ap.add_argument("--ephemeral", action="store_true",
+                    help="--reorg と一緒に: エフェメラルの部署にする（永続をやめる）")
     ap.add_argument("--boss", help="--reorg と一緒に: 新しい頼み元（納品を返す会話）の名前")
     ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい頼み元のアカウントの名（省けば名前だけで引く）")
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
@@ -1067,7 +1066,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     many = len(cfg.accounts) > 1
     pane_label = sync.label(a.task, account, many)
     # 部署の属性（正本）。頼み元は呼んだ会話。分からない物は書かない
-    attrs = {"role": role_name, **gitx.lifecycle_attrs(gitx.PERSISTENT if persistent else gitx.EPHEMERAL), "fresh": role.FRESH if the_role and the_role["fresh"] else None,
+    attrs = {"role": role_name, "lifecycle": gitx.PERSISTENT if persistent else gitx.EPHEMERAL, "fresh": role.FRESH if the_role and the_role["fresh"] else None,
              "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
@@ -1337,9 +1336,7 @@ def _flow_inputs(companies, workspaces_):
 def _sync_roles(companies, settings, ports, dry_run):
     """会社の形の役を、今いる部署と本社の属性に写し直す（会社の形を変えたら、--sync 1 回で全部の場所に行き渡らせる。--ask・
     --reorg --role を待たない）。属性 company.role が役の前の名前（former_names）なら今の名前に、company.fresh は役の fresh に。
-    寿命の属性は、company.lifecycle（persistent・ephemeral）と前の版の company.residency（resident・per-task）の片方しか無いか
-    2 つが食い違う部署に、読んだ寿命（食い違えば company.residency の側）で 2 つとも書く（役が会社の形に無くても。前の版と混ざって動く間のため）。
-    companies の中の属性も書き換え、続く表示がそれを使う。出す行の並び。会社の形に無い役の場所は、寿命の属性のほかは触らない。--dry-run なら書かずに、
+    companies の中の属性も書き換え、続く表示がそれを使う。出す行の並び。会社の形に無い役の場所は触らない。--dry-run なら書かずに、
     書く物だけを出す。"""
     out = []
     for c in companies:
@@ -1348,12 +1345,6 @@ def _sync_roles(companies, settings, ports, dry_run):
         for d in c["departments"]:
             got = shape["roles"].get(role.current(shape, d["attrs"].get("role")))
             changes, why = {}, []
-            if d["attrs"].get("lifecycle") in gitx.FORMER_RESIDENCY and d.get("path"):
-                stored = ports.git.worktree_attrs(d["path"], former=False)
-                for k, v in gitx.lifecycle_attrs(d["attrs"]["lifecycle"]).items():
-                    if stored.get(k) != v:
-                        changes[k] = v
-                        why.append(f"company.{k} {stored.get(k) or '-'} → {v}（寿命の 2 つの属性をそろえる）")
             if got and d["attrs"].get("role") != got["name"]:
                 changes["role"] = got["name"]
                 why.append(f"company.role {d['attrs'].get('role')} → {got['name']}（役の前の名前を今の名前に）")

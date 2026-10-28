@@ -30,11 +30,9 @@ class FakeGit:
     OWN_ID = gitx.OWN_ID
     MAIN_ID = gitx.MAIN_ID
     PERSISTENT, EPHEMERAL = gitx.PERSISTENT, gitx.EPHEMERAL
-    FORMER_RESIDENCY = gitx.FORMER_RESIDENCY
     CONFIG_TRIES, CONFIG_PAUSE = gitx.CONFIG_TRIES, gitx.CONFIG_PAUSE
     # git を起動しない関数はそのまま使う
     root_of = staticmethod(gitx.root_of)
-    lifecycle_attrs = staticmethod(gitx.lifecycle_attrs)
     former_names = staticmethod(gitx.former_names)
     INHERITED = gitx.INHERITED
     inherited = staticmethod(gitx.inherited)
@@ -285,12 +283,12 @@ class FakeGit:
     def is_merged(self, cwd, target):
         return self.is_ancestor(cwd, "HEAD", target)
 
-    def worktree_attrs(self, cwd, former=True, copies=False):
+    def worktree_attrs(self, cwd, copies=False):
         place = self._place(cwd)
         if place is None:
             return {}
         return gitx.shape_attrs(self.attrs.get(place, {}), self.ids.get(place) if self.attrs.get(place) else None,
-                                former=former, copies=copies)
+                                copies=copies)
 
     def worktree_id(self, cwd):
         place = self._place(cwd)
@@ -494,7 +492,7 @@ class Repos:
 
     def __getattr__(self, name):
         got = getattr(self.gits[0], name)
-        if not callable(got) or isinstance(got, type) or name in ("root_of", "lifecycle_attrs", "former_names", "inherited", "inherited_since",
+        if not callable(got) or isinstance(got, type) or name in ("root_of", "former_names", "inherited", "inherited_since",
                                                                          "inherited_names", "inherited_desk"):
             return got
         return lambda cwd, *a, **k: getattr(self.of(cwd), name)(cwd, *a, **k)

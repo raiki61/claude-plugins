@@ -65,16 +65,16 @@ class Reorg(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("振り分け", ["割り振り"]))
 
-    def test_role_residency_and_boss_are_replaced(self):
+    def test_role_lifecycle_and_boss_are_replaced(self):
         push = pathlib.Path(self.src, ".claude")
         push.mkdir()
         (push / "company.toml").write_text('[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n',
                                            encoding="utf-8")
-        rc, out = self.main("--reorg", "--role", "作業", "--per-task", "--boss", "割り振り", "--boss-account", "a1")   # 前の版の旗の名前（今は --ephemeral）
+        rc, out = self.main("--reorg", "--role", "作業", "--ephemeral", "--boss", "割り振り", "--boss-account", "a1")
         self.assertEqual(rc, 0, out)
-        attrs = self.g.worktree_attrs(self.place, former=False)   # 前の版の属性も同じ値で書く（読み替えずに見る）
-        self.assertEqual((attrs["role"], attrs["lifecycle"], attrs["residency"], attrs["boss"], attrs["boss-account"]),
-                         ("作業", "ephemeral", "per-task", "割り振り", "a1"))
+        attrs = self.g.worktree_attrs(self.place)
+        self.assertEqual((attrs["role"], attrs["lifecycle"], attrs["boss"], attrs["boss-account"]),
+                         ("作業", "ephemeral", "割り振り", "a1"))
         # 前の頼み元の会話の id とペインは消す（納品は新しい頼み元を名前で引く）
         self.assertNotIn("boss-session", attrs)
         self.assertNotIn("boss-pane", attrs)
@@ -124,9 +124,9 @@ class Reorg(unittest.TestCase):
         self.ports.term.add_pane(self.ws(self.office_pane), self.src, agent="claude")
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
-        attrs = self.g.worktree_attrs(self.src, former=False)
-        self.assertEqual({k: attrs.get(k) for k in ("role", "lifecycle", "residency", "name", "account", "session")},
-                         {"role": "窓口", "lifecycle": "persistent", "residency": "resident", "name": "窓口", "account": "a1", "session": "s-desk"})
+        attrs = self.g.worktree_attrs(self.src)
+        self.assertEqual({k: attrs.get(k) for k in ("role", "lifecycle", "name", "account", "session")},
+                         {"role": "窓口", "lifecycle": "persistent", "name": "窓口", "account": "a1", "session": "s-desk"})
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.office_pane), os.path.basename(self.src)),
             ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "永続・引き継ぎ", "seat": "persistent-carry"}, []),

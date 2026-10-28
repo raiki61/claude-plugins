@@ -165,9 +165,9 @@ def reorg(a, ports, cwd):
     if a.role:
         changes["role"] = the_role
     if a.persistent or a.ephemeral:
-        changes.update(gitx.lifecycle_attrs(gitx.PERSISTENT if a.persistent else gitx.EPHEMERAL))
+        changes["lifecycle"] = gitx.PERSISTENT if a.persistent else gitx.EPHEMERAL
     elif a.role and got and got["persistent"]:
-        changes.update(gitx.lifecycle_attrs(gitx.PERSISTENT))   # 役の persistent = true は --persistent と同じ（--task と揃える）
+        changes["lifecycle"] = gitx.PERSISTENT   # 役の persistent = true は --persistent と同じ（--task と揃える）
     if a.role and got:
         changes["fresh"] = role.FRESH if got["fresh"] else None   # 役の fresh を写す（--task と揃える）
     if a.name:
@@ -238,7 +238,7 @@ def desk(a, ports, cwd):
     if not account:
         notes.append("このコマンドを打った会話が会話の一覧に見えないので、アカウントと会話の id は今の値のまま"
                      "（窓口の会話の中から打てば書く）")
-    changes = {"role": the_role, **gitx.lifecycle_attrs(gitx.PERSISTENT), "name": name}
+    changes = {"role": the_role, "lifecycle": gitx.PERSISTENT, "name": name}
     if account:
         pid = ports.caller_pid(sessions_)
         held = attrs.get("pid")

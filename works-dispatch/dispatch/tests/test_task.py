@@ -111,7 +111,7 @@ class Task(unittest.TestCase):
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
         # 部署がメインブランチを知った位置（ブランチを作ったときの origin のメインブランチ）も書く（--land の書き換えの取り合いのゲートが使う）
         # 起動したときの会社の形の model・effort も書く（毎回クリアする部署の待ち受けが、今の値と比べる）
-        self.assertEqual(self.g.worktree_attrs(path), {"role": "作業", "lifecycle": "ephemeral", "residency": "per-task", "account": "a1", "name": "直し",
+        self.assertEqual(self.g.worktree_attrs(path), {"role": "作業", "lifecycle": "ephemeral", "account": "a1", "name": "直し",
                                                      "session": "bg0-full", "job": "bg0", "config": self.cfg,
                                                      "launched": '{"effort": null, "model": null}',
                                                      "base": self.g.tracking["main"]})
@@ -129,9 +129,9 @@ class Task(unittest.TestCase):
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(self.g.branch(src), "main")
 
-    def test_role_and_residency_are_written_as_given(self):
+    def test_role_and_lifecycle_are_written_as_given(self):
         ports = self.ports()
-        rc, out = self.run_task(ports, "--role", "調べ役", "--resident")   # 前の版の旗の名前も効く（今は --persistent）
+        rc, out = self.run_task(ports, "--role", "調べ役", "--persistent")
         self.assertEqual(rc, 0, out)
         path = self.place(ports)
         attrs = self.g.worktree_attrs(path)
@@ -139,8 +139,8 @@ class Task(unittest.TestCase):
         # 永続の部署の最初のブランチも、入れたブランチと同じ記録に書く（入れずに次のブランチへ移っても、先頭がそのままなら後で消える）
         self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": self.g.head_sha(path)})
 
-    def test_shape_picks_the_default_role_and_a_role_can_be_resident(self):
-        # 会社の形の default_role は --role を省いたときの役、役の resident = true は --persistent と同じ
+    def test_shape_picks_the_default_role_and_a_role_can_be_persistent(self):
+        # 会社の形の default_role は --role を省いたときの役、役の persistent = true は --persistent と同じ
         push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
                                           '[[roles]]\nname = "作業"\n')
         ports = self.ports()
@@ -466,7 +466,7 @@ class Task(unittest.TestCase):
         self.assertEqual(ports.term.writes, [])
         self.assertFalse(hasattr(ports, "refreshed"))
         self.assertIn("部署 直し  task/fix  a1  create", out)
-        self.assertIn("- 部署の属性: company.role=作業、company.lifecycle=ephemeral、company.residency=per-task、company.account=a1、company.name=直し", out)
+        self.assertIn("- 部署の属性: company.role=作業、company.lifecycle=ephemeral、company.account=a1、company.name=直し", out)
         self.assertIn("- 最初の文: 作業の頼みです。", out)
         self.assertNotIn(".claude/", self.g.excludes)
 

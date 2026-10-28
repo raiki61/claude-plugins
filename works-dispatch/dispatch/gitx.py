@@ -201,14 +201,6 @@ def root_of(common):
 ATTR = "company."
 # 部署の寿命（属性 company.lifecycle の値）。永続の部署は片付けで畳まず、エフェメラルの部署は頼みを済ませたら畳む（会社の形の設計 4.10 の 1）
 PERSISTENT, EPHEMERAL = "persistent", "ephemeral"
-FORMER_LIFECYCLE = {"resident": PERSISTENT, "per-task": EPHEMERAL}   # 前の版の company.residency の値 → 今の値
-FORMER_RESIDENCY = {v: k for k, v in FORMER_LIFECYCLE.items()}
-
-
-def lifecycle_attrs(lifecycle):
-    """寿命を書くときの属性。前の版の company.residency にも同じ値を書く（版の混ざる間、前の版の --clean・--land が
-    company.residency の無い部署をエフェメラルとみなして、永続の部署を畳まないように）。"""
-    return {"lifecycle": lifecycle, "residency": FORMER_RESIDENCY[lifecycle]}
 
 
 # 属性を書いた worktree の id（git の worktree の管理の場所 .git/worktrees/<id> の <id>。本社〔代表の clone〕は "."）。部署の属性を
@@ -265,29 +257,25 @@ def _copy_of(attrs, here):
     return here != MAIN_ID and bool(attrs.get(DESK_ONLY))
 
 
-def worktree_attrs(cwd, runner=_default_runner, former=True, copies=False):
+def worktree_attrs(cwd, runner=_default_runner, copies=False):
     """その worktree の git の設定 company.<名前> を {名前: 値} で（名前は git が小文字にそろえる）。
-    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。former が偽なら、前の版の属性を読み替えずに返す。
+    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。
     属性の worktree の id（OWN_ID）が値を読んだ config.worktree の worktree の id と違えば、git の worktree add が別の worktree の属性を写した物なので、空として
     読む（copies が真なら、写しもそのまま返す。写しを消す側〔add_detached〕が使う）。git は extensions.worktreeConfig のとき、作った
     元の worktree の config.worktree を新しい worktree に写す。部署が自分の作業場から試しの一時の worktree を切ると、部署の属性が全部
     そのまま載り、名前で部署を探す --move・--ask・--land が「同じ名前の部署が 2 つ以上ある」で止まった（2026-10-19、説明書の部署の
     value-rules を回す一時の worktree。受付 7d0ac0）。id を書く前の版で書いた属性（OWN_ID が無い）は今までどおり読む（窓口の属性は除く。_copy_of）。
     返す属性に OWN_ID は含めない。"""
-    return shape_attrs(*_read_attrs(cwd, runner), former=former, copies=copies)
+    return shape_attrs(*_read_attrs(cwd, runner), copies=copies)
 
 
-def shape_attrs(attrs, here, former=True, copies=False):
-    """読んだ属性（{名前: 値}、値を読んだ config.worktree の worktree の id）を、worktree_attrs の返す形にする（写しを空と読む・OWN_ID を外す・
-    前の版の寿命を読み替える）。git を起動しない（試験の git の偽物も同じ決め方で読む）。"""
+def shape_attrs(attrs, here, copies=False):
+    """読んだ属性（{名前: 値}、値を読んだ config.worktree の worktree の id）を、worktree_attrs の返す形にする（写しを空と読む・OWN_ID を外す）。
+    git を起動しない（試験の git の偽物も同じ決め方で読む）。"""
     attrs = dict(attrs)
     if not copies and _copy_of(attrs, here):
         return {}
     attrs.pop(OWN_ID, None)   # 読む側だけが見る印なので、呼ぶ側には渡さない（属性を写し直す --reorg などが、ほかの場所の id を書かない）
-    # 前の版の属性 company.residency（resident・per-task）が有れば、その値を寿命として読む。今の版は 2 つを同じ値で書くので、
-    # 食い違うのは前の版（company.residency だけを書く）が後から寿命を替えたとき
-    if former and attrs.get("residency") in FORMER_LIFECYCLE:
-        attrs["lifecycle"] = FORMER_LIFECYCLE[attrs["residency"]]
     return attrs
 
 

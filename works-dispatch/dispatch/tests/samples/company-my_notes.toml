@@ -13,7 +13,6 @@ effort = "medium"
 holders = ["社長室"]
 instructions = "x"
 persistent = true
-resident = true
 fresh = true
 deliver_check = "true"
 [roles.settings]
@@ -45,7 +44,6 @@ ask_holders = ["社長室"]
 instructions = "x"
 deliver = ["結論", "持ち主の言葉"]
 persistent = true
-resident = true
 model = "opus"
 effort = "high"
 [roles.settings]
@@ -82,7 +80,6 @@ role = "担当"
 id = "reform"
 name = "業務改革"
 on_demand = true
-standing = false
 description = "x"
 role = "担当"
 [skills.start]
