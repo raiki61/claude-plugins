@@ -556,3 +556,22 @@ my_notes の司令塔からの頼み。持ち主の言葉「ほかの部署に�
 1. 805f39 の直しが main に在るか。その後の合図で、9a7c5d8d（かその先の緑）への上げが作業の部署を立てずに main に入ったか。見る物は 2 つ: claude-plugins の `git log -- works-factory/PIN` の commit の題（機械の上げなら頼みの受付番号が付かない）と、受付箱の台帳（`.git/company/inbox/log.jsonl`）の `"kind": "miss"`・`"role": "工場の版の見張り"` の行の数。miss の行は、合図のツールが 1 で終わって works-dispatch が作業へ頼みを回した 1 回ごとに 1 行書かれるので、増えていなければ作業に回っていない。
 2. 増えていれば、その行の `tail`（ツールの出力の末尾 20 行。機械の上げが失敗した訳と `--land` の出力の終わりが入る）で訳を書く。直しが効かず、まだ黙っていれば、空打ちの答えを添えて作業の 805f39 の続きとして頼み直す。
 3. `git worktree list` と `git branch -a --list '*works-factory-pin/*'` に残りが無いか。
+
+## 頼み 1e1c05（2026-10-28、工場の固定 commit の上げの CHANGELOG の雛形の書き直しの効き目を測る、受付 20261028-020303-1e1c05）
+
+工場の版の見張り（`scripts/works-factory-pin.py`）が上げのたびに書く CHANGELOG の行の雛形を、受付 8d0046 で書き直した（main の 477e2568。工場が何か・PIN が何か・前の commit・照合の範囲・利用者の手順が変わらないことを行の中で言い切る）。これで、機械の上げが main へ入れるゲートの初見読み（`coldread-gate.py branch-check`）の赤で作業の部署に回る割合が下がったかを測る頼み。
+
+### 測った事（2026-10-28 11:10 ごろ）
+
+- 新しい雛形での上げはまだ 0 回。477e2568 の後に `works-factory/PIN` を変えた commit は無い。空打ち（`echo '{"dry_run":true}' | python3 scripts/works-factory-pin.py`）の答えは「上げる物は無い（PIN 2aff8921 の後の工場の main の commit 1 本に、CI〔tests〕が緑の物が無い）」。今は壊れていない。
+- 前の雛形の基準（見張りが上げた 4 回。受付箱の台帳 `.git/company/inbox/log.jsonl` の `"kind": "miss"`・`"role": "工場の版の見張り"` の行と、`git log -- works-factory/PIN` で数えた）:
+  - 機械の上げが入った: 2 回（38f40bb0、ebd3bfc8）。
+  - 作業に回った: 2 回。1b347e（上げ先 9a7c5d8d）は coldread でなく、見張り自身の試験（合図の再入で黙る）の赤。8d0046（上げ先 2aff8921）が coldread の赤（CHANGELOG の行で「読者に何を求めるかが言えない」）。
+  - これより前の miss の 2 行（062cd124・be85df25 への上げ）は機械の上げの前の形で、手順を作業に渡すだけの物なので数えない。
+  - 頼み元の言う「直近 5 回で 1 回」と合う（coldread の赤は 8d0046 の 1 回だけ）。
+
+### 次の回に確かめる事
+
+1. 477e2568 の後の見張りの上げを 5 回まで数える。数え方は上の基準と同じ: `git log --format='%h %s' origin/main -- works-factory/PIN` の「（機械の上げ。scripts/works-factory-pin.py）」の付いた commit が入った回、受付箱の台帳の miss の行（`role` が「工場の版の見張り」で `at` が 477e2568 の時刻 2026-10-28 10:52 より後）が作業に回った回。
+2. 作業に回った回は `tail` に `coldread branch-check` の詰まりが在るかで訳を分ける。coldread の赤が 5 回のうち 1 回以上なら、詰まりの全文（`tail` に在る findings のパス）を添えて、雛形の直し（`scripts/works-factory-pin.py`。受け持ちが無いので作業）を頼む。
+3. 5 回たまる前に起動されたら、その時点の回数を書き、頼み 1e1c05 への納品（`--for`）で報告する。
