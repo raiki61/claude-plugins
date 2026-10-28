@@ -7,7 +7,7 @@ origin の既定のブランチに commit された .claude/company.toml、無�
 clone、git でない場所）では何も出さない。本社（代表の clone）の窓口には、部署ではなく本社の会話と書く。部署のブランチが書き換えた物も、
 元の clone がたまたま開いているブランチの物も読まない（--task が起動の設定を決めたときと同じ物を読む）。
 足す文は毎回の起動時の量に入るので、役の本文（instructions）と、会社の共通の本文（会社の形の頭の shared_instructions。部署だけ）と、
-部署の名前と同じ name の受ける仕事（[[skills]]。受け持ち）の説明だけを足す。読めない・形が違うときも会話は止めない（何も足さないか、
+部署の名前と同じ name の受ける仕事（[[skills]]。受け持ち）の説明と、部署の会話がよく打つコマンドの全文（commands_text）だけを足す。読めない・形が違うときも会話は止めない（何も足さないか、
 訳を 1 行足す）。会話をやり直した（resume・clear・compact）ときにも走り、役が付き直す。
 
 部署の属性 company.gh-user（--task が書く gh のアカウントの名前）があれば、Claude Code がフックに渡す CLAUDE_ENV_FILE に、その鍵を
@@ -219,12 +219,26 @@ def text_for(cwd, env=os.environ, attrs=None):
     company = info.get("name") or os.path.basename(os.path.normpath(root))
     duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None) \
         or role.on_demand_of(info.get("skills", []), attrs.get("name"))   # 頼みごとの部署（per_ask）は受け持ちの名前で始まる
-    text = role.context(name, shape["roles"].get(name), company, duty, gitx.is_main_worktree(cwd) is True, attrs.get("lifecycle"),
-                        shape["shared"])
+    head_office = gitx.is_main_worktree(cwd) is True
+    text = role.context(name, shape["roles"].get(name), company, duty, head_office, attrs.get("lifecycle"), shape["shared"])
+    if attrs.get("name") and not head_office:
+        text += commands_text(attrs["name"], attrs.get("lifecycle") != gitx.PERSISTENT)
     problems = info.get("problems", []) + shape["problems"]
     if problems:
         text += f"\n（会社の形を読めない所がある: {problems[0]}）"
     return text + parked_text(attrs)
+
+
+def commands_text(dept, ephemeral):
+    """部署の会話に足す、よく打つコマンドの全文。部署の会話はこれらを打つたびにスキルの別ファイル（deliver.md・land.md・clean.md）を
+    読んでいた（2026-10-22〜29 の会話の記録で、スキルとして読んだ別ファイルの字数の 7 割がこの 3 本。頼み af40f6）ので、字を渡して読まずに済ませる。"""
+    lines = [f"- 納品: {RUN} --deliver <要約のファイル>（納品した頼みの続きを返し直すときは --again を足す）",
+             f"- main に入れる: {RUN} --land {shlex.quote(dept)}（Bash の run_in_background で打ち、終わりの知らせで結果を見る。Claude Code の自動の権限の判定〔auto mode〕に止められたら打ち直さず、納品で窓口に知らせる）",
+             f"- 頼む: {RUN} --ask <宛先> --text <頼み>（長い頼みは --text の代わりに --brief <ファイル>）"]
+    if ephemeral:
+        lines.append(f"- 終わりの印（納品して main に入れ終えたら）: {RUN} --done")
+    return ("\n\nworks-dispatch のコマンド（この字のまま打つ。打つ前にスキル /works-dispatch:dispatch や別ファイルを読まない。"
+            "断られたら出力の訳どおりに直して打ち直し、それで直せないときと、ほかのコマンドを打つときだけスキルを読む）:\n" + "\n".join(lines))
 
 
 def parked_text(attrs):

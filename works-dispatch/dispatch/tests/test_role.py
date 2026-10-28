@@ -456,6 +456,20 @@ class Hook(unittest.TestCase):
         self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
         self.assertIsNone(role_hook.text_for(tempfile.mkdtemp(), self.env))   # git でない
 
+    def test_a_named_department_gets_the_commands_it_runs_so_it_need_not_read_the_skill(self):
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)
+        provision.mark(self.place, self.src, {"role": "調べ役", "name": "見渡し：d1", "lifecycle": "ephemeral"}, self.g)
+        text = role_hook.text_for(self.place, self.env)
+        self.assertIn(f"{role_hook.RUN} --deliver <要約のファイル>", text)
+        self.assertIn(f"{role_hook.RUN} --land {shlex.quote('見渡し：d1')}", text)
+        self.assertIn(f"{role_hook.RUN} --ask <宛先> --text <頼み>", text)
+        self.assertIn(f"{role_hook.RUN} --done", text)
+        # 永続の部署は --done を断られるので書かない。本社の窓口には足さない
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
+        self.assertNotIn("--done", role_hook.text_for(self.place, self.env))
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
+        self.assertNotIn("--deliver", role_hook.text_for(self.src, self.env))
+
     def test_a_department_per_ask_gets_the_on_demand_line_of_its_duty(self):
         # 頼みごとの部署（per_ask）は名前が「<受け持ち>：…」でも、受け持ちの説明とオンデマンドの文が足される。per_ask の無い受け持ちの
         # 「<受け持ち>：…」の部署には足さない（今までどおり）
