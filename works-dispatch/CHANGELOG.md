@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.131.0] - 2026-10-28
+
 ### Changed
 
 - `--land` が、会社の形（`.claude/company.toml`）の `[land]` に書いた検証のコマンド `check` を回すとき、環境変数を 3 つ足して渡すようにした。受け取るのは gates の初見の読み手のゲート（`check` の中の `branch-check`。ブランチで変わった文書を AI の読み手に初見で読ませ、詰まりが在れば止める）で、この 3 つを HEAD から推し量らずに使う。
