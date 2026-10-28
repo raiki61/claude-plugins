@@ -91,6 +91,18 @@ skip_capability() {
 LAND_AFFECTED=${TESTS_AFFECTED-} LAND_CHANGED=${TESTS_CHANGED-} LAND_SCOPED=${TESTS_AFFECTED+1}
 unset TESTS_AFFECTED TESTS_CHANGED
 SCOPE=()
+# **変異の腕が宣言した検査だけを回す回（tests/mutate.py が腕ごとに渡す TESTS_ONLY。1 行に 1 つの、検査の説明の頭）。** 説明がどの頭でも
+# 始まらない検査は、走らせずに見送りの行を出して 1 件に数える。腕の証拠は落ちた検査に宣言（expect）が在ることだけなので、ほかの検査を
+# 回しても証拠は増えない。検査の間の下ごしらえは今までどおり走る。渡されない回は全部を回す。子に継がせない（TESTS_AFFECTED と同じ）。
+# 効かせるのは、expect_output 自身を検査する番人の腕の後から（数えるだけの回の差し替えと同じ所。下の ONLY_SET=$ONLY_WANT）
+ONLY_HEADS=${TESTS_ONLY-} ONLY_WANT=${TESTS_ONLY+1} ONLY_SET=
+unset TESTS_ONLY
+only_hit() {
+    [ -n "$ONLY_SET" ] || return 0
+    local h
+    while IFS= read -r h; do [[ -n "$h" && "$1" == "$h"* ]] && return 0; done <<< "$ONLY_HEADS"
+    return 1
+}
 scope() { SCOPE=("$@"); }
 in_scope() {
     [ -n "$LAND_SCOPED" ] && [ "${#SCOPE[@]}" -gt 0 ] || return 0
@@ -155,6 +167,10 @@ expect_output() {
     fi
     if ! in_scope; then
         local line="  ok   $desc$SKIP_MARK unchanged: 入力（${SCOPE[*]}）がこの変更で変わっていない（main に入った後の CI が回す）"
+        echo "$line"; note_skips "$line"; ran=$((ran + 1)); return
+    fi
+    if ! only_hit "$desc"; then
+        local line="  ok   $desc$SKIP_MARK only: 変異の腕が宣言した検査でない（tests/mutate.py が渡した TESTS_ONLY の回）"
         echo "$line"; note_skips "$line"; ran=$((ran + 1)); return
     fi
     local got
@@ -294,6 +310,26 @@ else
     echo "  FAIL 変えた所だけを回す回の見送りが期待と違う: 渡した回 $scope_on / 渡さない回 $scope_off"
     fail=1
 fi
+# **腕の検査だけを回す回の見送りの腕。** 説明が渡した頭のどれかで始まる検査だけが走り、ほかは見送りの行を出して 1 件に数え、
+# 渡されない回は全部を回す。副シェルで本体を汚さない
+only_run() {
+    ( ONLY_SET=$1; ONLY_HEADS=$'甲の\n丙'; fail=0; ran=0; SKIPS=()
+      expect_output 0 x "甲の検査" echo x
+      expect_output 0 x "乙の検査" echo x
+      expect_output 0 x "丙" echo x
+      printf '|ran=%s|fail=%s|skips=%s' "$ran" "$fail" "${#SKIPS[@]}" )
+}
+only_on=$(only_run 1)
+only_off=$(only_run "")
+ran=$((ran + 1))
+want_on=$'  ok   甲の検査\n  ok   乙の検査 # SKIP only: 変異の腕が宣言した検査でない（tests/mutate.py が渡した TESTS_ONLY の回）\n  ok   丙\n|ran=3|fail=0|skips=1'
+want_off=$'  ok   甲の検査\n  ok   乙の検査\n  ok   丙\n|ran=3|fail=0|skips=0'
+if [ "$only_on" = "$want_on" ] && [ "$only_off" = "$want_off" ]; then
+    echo "  ok   腕の検査だけを回す回は、説明が渡した頭で始まらない検査だけを見送って 1 件に数え、渡されない回は全部を回す"
+else
+    echo "  FAIL 腕の検査だけを回す回の見送りが期待と違う: 渡した回 $only_on / 渡さない回 $only_off"
+    fail=1
+fi
 
 # **数えるだけの回（TESTS_COUNT_ONLY=1）。** 検査を走らせずに件数だけを数え、下の件数の基準（EXPECTED_CHECKS）だけを当てる。
 # メインブランチに入れるコマンドのゲート（tests/count-fences.sh）が回す。検査を足して件数の基準を上げ忘れた変更が、メインブランチに入った後の CI で初めて
@@ -303,6 +339,7 @@ fi
 if [ "${TESTS_COUNT_ONLY:-}" = 1 ]; then
     expect_output() { ran=$((ran + 1)); }
 fi
+ONLY_SET=$ONLY_WANT
 
 # 記録の一部を壊した JSON を**まとめて 1 プロセスで**書き出す。「壊すと落ちる」ことまで
 # 確かめないと、検証が空振りしても合格になる（fail-open）。
@@ -2422,7 +2459,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=797
+EXPECTED_CHECKS=799
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6595,6 +6632,46 @@ print(f"status={r['status']} killed={r['status'] == 'Killed'} unrunnable={r.get(
 PYTO
 expect_output 0 "status=Timeout killed=False unrunnable=時間切れ leased=1" "時間切れの腕は赤でなく走り切らない（Timeout）" \
     "$PY_BIN" "$WORK/mut-timeout.py" "$ROOT/tests"
+# 台本一式で撃つ一覧の腕は宣言した検査だけを回し（TESTS_ONLY。緑なら --confirm-survivors の回だけ一式で確かめ直す）、control も同じ絞り方を
+# 確かめる。期限の無い回は、壊していない写し（control）を時間切れで止めず、壊した腕の写しは止める
+cat > "$WORK/mut-only.py" <<'PYON'
+import contextlib, pathlib, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+d = pathlib.Path(tempfile.mkdtemp()); (d / "repo" / "t").mkdir(parents=True); (d / "repo" / "t" / "f.py").write_text("x = 1\n")
+@contextlib.contextmanager
+def fake_lease(tag, a=None):
+    yield d / "repo", d
+mutate.lease = fake_lease
+mutate.copy = lambda tag: (d / "repo", d / "gone")
+calls = []
+def fake_group(argv, cwd, env=None, failfast=False, sub=""):
+    calls.append(((env or {}).get(mutate.ONLY_ENV), str(cwd) in mutate._UNTIMED))
+    return 0, "  ok   x\n"
+real_group, mutate.run_group = mutate.run_group, fake_group
+arm = {"id": "o1", "title": "t", "file": "t/f.py", "suite": "root", "old": "x = 1", "new": "x = 2", "expect": "甲の検査"}
+r = mutate.one(arm); narrowed = (list(calls), r.get("selected"), r["status"])
+calls.clear(); mutate.CONFIRM = True; r = mutate.one(arm); mutate.CONFIRM = False
+confirmed = (list(calls), r.get("confirmed"))
+calls.clear(); mutate.one({**arm, "expect": "test_a.py::t1", "id": "o2"}); node = list(calls)
+calls.clear(); mutate.BASE_UNTIMED = True; c = mutate.control({"root"}, only=["乙", "甲の検査"]); mutate.BASE_UNTIMED = False
+ctl = (list(calls), sorted(c), str(d / "repo") in mutate._UNTIMED)
+calls.clear(); mutate.control({"root"}); timed = list(calls)
+# 本物の run_group: _UNTIMED に在る写しは TIMEOUT を過ぎても止めず、無い写しは止める
+mutate.run_group, mutate.TIMEOUT = real_group, 0.3
+slow = [sys.executable, "-c", "import time; time.sleep(1.5)"]
+mutate._UNTIMED.add(str(d))
+free = real_group(slow, d)[0]
+mutate._UNTIMED.discard(str(d))
+cut = real_group(slow, d)[0]
+print(f"narrowed={narrowed} confirmed={confirmed} node={node} ctl={ctl} timed={timed} free={free} cut={cut}")
+PYON
+expect_output 0 "narrowed=([('甲の検査', False)], True, 'Survived') confirmed=([('甲の検査', False), (None, False)], True) node=[(None, False)] ctl=([(None, True), ('乙\n甲の検査', True)], ['only', 'root'], False) timed=[(None, False)] free=0 cut=timeout" \
+    "tests/mutate.py: 台本一式で撃つ一覧の腕は宣言した検査だけを回し（緑なら --confirm-survivors の回だけ一式で確かめ直す）、node id の expect は絞らない。control は同じ絞り方も確かめ、期限の無い回は壊していない写しを時間切れで止めない" \
+    "$PY_BIN" "$WORK/mut-only.py" "$ROOT/tests"
 # 版から変わったファイルには、未追跡の新しいファイルも入る（git diff は未追跡を出さない）
 mkdir -p "$WORK/chg" && git -C "$WORK/chg" init -q && printf 'a\n' > "$WORK/chg/a.txt" && git -C "$WORK/chg" add -A \
     && git -C "$WORK/chg" -c user.name=t -c user.email=t@t commit -qm x && printf 'n\n' > "$WORK/chg/new.txt"

@@ -563,6 +563,7 @@ _BASE_GIT = {}
 _SCRATCH = set()          # copy が作った写しの repo。run_group はここで起動する子にだけ、写しの下の TMPDIR を渡す
 _POOL = {}                # 基点の鍵 → 次の腕を待つ写し [(repo, 作業場, .git の控え)]（lease だけが出し入れする）
 _SPOILED = set()          # 子のグループを殺した写しの repo（run_group の killpg が足し、lease が捨てる）
+_UNTIMED = set()          # run_group が TIMEOUT で止めない写しの repo（壊していない写し。BASE_UNTIMED の回に control と marker_run が足す）
 COPIES = collections.Counter()   # lease の数: made（作った）・reused（使い回した）・discarded:<理由>
 _BASE_VIEW = {}           # 基点の鍵 → 基点の項目（tree_view。照合の相手で、起動の中で 1 回だけ読む）
 FRESH = False             # --fresh-copy: 写しを使い回さず腕ごとに作り直す（main が立てる）
@@ -855,7 +856,8 @@ def run_group(argv, cwd, env=None, failfast=False, sub=""):
         late["v"] = True
         killpg()
     timer = threading.Timer(TIMEOUT, kill)
-    timer.start()
+    if str(cwd) not in _UNTIMED:
+        timer.start()
     out, stopped = [], False
     try:
         if STOPPING.is_set():   # 信号の片付けが _LIVE を読んだ後に起動した子（止める信号の後の腕）は、ここで自分で止める
@@ -1114,6 +1116,27 @@ def same_as_diff(prev, res):
 
 
 CONFIRM = False   # --confirm-survivors: 絞った台本が緑の腕を台本一式で確かめ直す（main が立てる）
+# 期限（--deadline-at）の無い回は、壊していない写し（control と印の写し）を TIMEOUT で止めない（main が立てる）。TIMEOUT は、壊した行が
+# 止まらなくした腕を止めるための物。壊していない写しの台本一式は、CI の混んだ機械では TIMEOUT を超え（2026-10-26 の run 40295705969 で、
+# 全 OS の全組の control と印の写しが打ち切られ、どの腕も証拠にならなかった）、止まらない台本は土台の job の上限が止める。
+# 期限の有る回は、期限の算段（段の数×TIMEOUT）に control も入れるので、今までどおり止める
+BASE_UNTIMED = False
+ONLY_ENV = "TESTS_ONLY"   # tests/run.sh が読む、回す検査の説明の頭（1 行に 1 つ）。正本は tests/run.sh の only_hit
+
+
+def only_head(a):
+    """台本一式（root の tests/run.sh）で撃つ一覧の腕の、宣言した検査の説明の頭。絞れない腕は None。
+    expect を宣言した腕の証拠は、落ちた検査に expect が在ることだけ（evaluate）なので、宣言した検査だけを回しても証拠は減らない。
+    tests/run.sh 一式は CI の混んだ機械で TIMEOUT を超え、絞らない腕は時間切れで証拠にならなかった（2026-10-26 の run 40295705969 で
+    root の腕の 74〜83 本）。自動の腕（expect が無い）と、expect が pytest の node id の腕は絞らない"""
+    e = a.get("expect")
+    return e if a.get("suite") == "root" and "auto" not in a and e and "::" not in e else None
+
+
+def only_env(heads):
+    """宣言した検査だけを回す tests/run.sh の環境。FAIL_ON_SKIP は外す（見送りの行が赤の行の無い失敗になる。tests/land-check.py と同じ）"""
+    env = {k: v for k, v in os.environ.items() if k != "FAIL_ON_SKIP"}
+    return {**env, ONLY_ENV: "\n".join(sorted(set(heads)))}
 
 
 def cover_why(a, key):
@@ -1284,6 +1307,11 @@ def one(a):
             # 決定的に落ちる検査もあれば、揺れた検査もある。見分けられないので attribution に印を残し、証拠は外さない
             if r["rc"] == 0 and CONFIRM:
                 r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False, "confirmed": True}
+        elif only_head(a):
+            # 台本一式で撃つ一覧の腕は、宣言した検査だけを回す（only_head）。緑なら、絞った台本と同じく --confirm-survivors の回だけ一式で確かめ直す
+            r = {**run_suite(repo, "root", env=only_env([only_head(a)])), "selected": True}
+            if r["rc"] == 0 and CONFIRM:
+                r = {**run_suite(repo, "root"), "selected": False, "confirmed": True}
         if r is None:
             r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False}
         if red_py is not None and r["rc"] in (0, "timeout", "no-test"):
@@ -1325,18 +1353,24 @@ def pytest_green(repo, head, py, r):
             **({"pytest_selected": True} if narrowed_py else {})}
 
 
-def control(suites, selected=None, pytest=None):
+def control(suites, selected=None, pytest=None, only=None):
     """壊していない写しで、撃つときと同じ走らせ方が緑になるか（絞った台本も、絞った形のまま確かめる）。pytest は腕が撃つ pytest の
-    テストのファイルの和（node id は並べない——argv の長さと件数のチェックを node id で外さないため）"""
+    テストのファイルの和（node id は並べない——argv の長さと件数のチェックを node id で外さないため）。only は腕が宣言した
+    tests/run.sh の検査の頭の和（only_head。その検査だけを回す形でも緑になるか——間の下ごしらえを前の検査に頼る検査はここで赤になる）"""
     repo, d = copy("control")
+    if BASE_UNTIMED:
+        _UNTIMED.add(str(repo))
     try:
         res = {s: run_suite(repo, s) for s in sorted(suites)}
         if selected:
             res["selected"] = run_selected(repo, selected)
+        if only:
+            res["only"] = run_suite(repo, "root", env=only_env(only))
         if pytest:
             res["pytest"] = run_pytest(repo, pytest)
         return res
     finally:
+        _UNTIMED.discard(str(repo))
         shutil.rmtree(d, ignore_errors=True)
 
 
@@ -1344,6 +1378,8 @@ def marker_run(arms):
     """全腕の印を 1 つの写しに入れて台本を 1 度走らせる。印は挙動を変えない（ファイルへ 1 行書くだけ）。
     差し込む位置は元の本文で全部決めてから後ろから入れる——先に差した印が後の腕の字列を割らない。"""
     repo, d = copy("marker")
+    if BASE_UNTIMED:
+        _UNTIMED.add(str(repo))
     hits = d / "hits.txt"
     plan, placed, skipped = {}, [], {}
     try:
@@ -1404,6 +1440,7 @@ def marker_run(arms):
                                "tail": body.splitlines()[-5:], **({} if ok else {"why": f"印の写しの pytest が緑でない（rc={rc}）——pytest の覆いを使わない"})})
         return out
     finally:
+        _UNTIMED.discard(str(repo))
         shutil.rmtree(d, ignore_errors=True)
 
 
@@ -1870,8 +1907,9 @@ def main():
             print(f"NG 腕 {i}: {why}——チェックを直したなら、同じ変更でこの腕も今の字列に直せ")
         print(f"{len(arms)} 腕のうち字列か証拠の口の無い腕 {len(bad)}・id の重複 {len(dup)}")
         sys.exit(1 if bad or dup else 0)
-    global CONFIRM, FRESH, PYTEST_STAGE
+    global CONFIRM, FRESH, PYTEST_STAGE, BASE_UNTIMED
     CONFIRM = a.confirm_survivors
+    BASE_UNTIMED = not a.deadline_at
     FRESH = a.fresh_copy or bool(a.same_as)
     same_prev = None
     if a.same_as:
@@ -2080,7 +2118,9 @@ def shoot(a, res, fire, sel, fps, late, pend):
             pyfiles.update(f.split("::")[0] for f in (pytest_args(x)[0] or ()))
         py_ctl = {"pytest": [WHOLE] if WHOLE in pyfiles else sorted(pyfiles)} if pyfiles else {}
         # 撃つ腕が無い（全部持ち越し）回は写しで control を走らせない——持ち越した腕の健全さは前の回の結果が持つ
-        fc = ex.submit(control, {x["suite"] for x in fire} | {"root"}, {s: sorted(v) for s, v in union.items()}, **py_ctl) if fire else None
+        heads = sorted({only_head(x) for x in fire} - {None})   # 一覧の腕が宣言した tests/run.sh の検査（one と同じ絞り方で確かめる）
+        fc = (ex.submit(control, {x["suite"] for x in fire} | {"root"}, {s: sorted(v) for s, v in union.items()}, **py_ctl,
+                        **({"only": heads} if heads else {})) if fire else None)
         fm = None if pre_marker else (ex.submit(marker_run, fire) if fire else None)   # 全部持ち越しの回は印の写しを走らせない（差す腕が無い）
         fa = {ex.submit(start, x): x for x in fire}
         empty_marker = {"rc": 0, "failed": [], "tail": [], "placed": [], "seen": [], "cover": {}, "skipped": {}}
