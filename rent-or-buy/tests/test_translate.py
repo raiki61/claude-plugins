@@ -247,6 +247,48 @@ class TranslateTest(unittest.TestCase):
         got = prices.lookup("claude-opus-5-5", env=self.env)
         self.assertEqual(got.source, "snapshot")
 
+    def test_key_is_kept_in_the_record_and_checked(self):
+        log = pathlib.Path(self.tmp.name) / "log.jsonl"
+        facts = {"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": 1000, "spent": 0}
+        for cmd, extra in (("keepalive", {"certain": True}), ("compact", {})):
+            r = self.run_cli(cmd, stdin=json.dumps({**facts, **extra, "key": "s1/ab"}), RENT_OR_BUY_RECORD=str(log))
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(json.loads(log.read_text(encoding="utf-8").splitlines()[-1])["input"]["key"], "s1/ab")
+            for bad in (5, "", "x" * 201):
+                with self.assertRaises(translate.FactsError):
+                    getattr(translate, cmd)({**facts, **extra, "key": bad}, env=self.env)
+
+    def test_outcome_adds_each_key_once_and_checks_all_first(self):
+        log = pathlib.Path(self.tmp.name) / "log.jsonl"
+        r = self.run_cli("outcome", stdin=json.dumps({"outcomes": [{"key": "a", "paid": 0.1, "alternative": None},
+                                                                   {"key": "b", "paid": 0, "detail": {"x": 1}}]}),
+                         RENT_OR_BUY_RECORD=str(log))
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, {"recorded": 2, "duplicates": 0}), r.stdout)
+        r = self.run_cli("outcome", stdin=json.dumps({"key": "a", "paid": 9}), RENT_OR_BUY_RECORD=str(log))
+        self.assertEqual(json.loads(r.stdout), {"recorded": 0, "duplicates": 1})
+        before = log.read_text(encoding="utf-8")
+        for bad in ({"outcomes": [{"key": "c", "paid": 1}, {"key": "d", "paid": -1}]}, {"key": "e", "paid": True},
+                    {"key": "f", "paid": 1, "alternative": "x"}, {"key": "g", "paid": 1, "other": 1}, {"paid": 1},
+                    {"key": "h", "paid": 1, "detail": [1]}, {"outcomes": {"key": "i", "paid": 1}}):
+            r = self.run_cli("outcome", stdin=json.dumps(bad), RENT_OR_BUY_RECORD=str(log))
+            self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (2, "invalid_input"), bad)
+        self.assertEqual(log.read_text(encoding="utf-8"), before)  # 1 件でも形が違えば何も足さない
+        r = self.run_cli("outcome", stdin=json.dumps({"key": "a", "paid": 1}))
+        self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (2, "record_off"))
+
+    def test_records_reads_the_rotated_file_first_and_filters_by_time(self):
+        log = pathlib.Path(self.tmp.name) / "log.jsonl"
+        old = pathlib.Path(self.tmp.name) / "log.1.jsonl"
+        old.write_text(line(scene="keepalive", ts="2026-10-01T00:00:00Z") + "\n{壊れた行\n", encoding="utf-8")
+        log.write_text(line(scene="compact", ts="2026-10-02T00:00:00Z") + "\n" + line(scene="compact") + "\n"
+                       + line(scene="outcome", ts="2026-10-03T00:00:00Z") + "\n", encoding="utf-8")
+        r = self.run_cli("records", RENT_OR_BUY_RECORD=str(log))
+        self.assertEqual([json.loads(x)["ts"] for x in r.stdout.splitlines()],
+                         ["2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z", "2026-10-03T00:00:00Z"])
+        r = self.run_cli("records", "--since", "2026-10-02T00:00:00Z", "--until", "2026-10-03T00:00:00Z", RENT_OR_BUY_RECORD=str(log))
+        self.assertEqual([json.loads(x)["scene"] for x in r.stdout.splitlines()], ["compact"])
+        self.assertEqual(self.run_cli("records").stdout, "")  # 記録を止めていれば何も出さない
+
     def test_snapshot_write_failure_exits_1(self):
         # 書き込みを失敗させるため、取得を差し替えた台本を同じ口から呼ぶ（ネットワークには出ない）
         code = ("import runpy, sys, json\nfrom unittest import mock\nfrom prompt_cache import prices\n"

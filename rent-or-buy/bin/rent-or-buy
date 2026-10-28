@@ -21,9 +21,11 @@ exit 1
   rent-or-buy keepalive [--transcript FILE]  keepalive の判断（記録からモデル・文脈・最後の要求の時刻を埋める）
   rent-or-buy compact [--transcript FILE]    compact の判断（記録からモデル・文脈・compact の後の文脈・余分に読んだ累計を埋める）
   rent-or-buy prices MODEL                   揃えた名前と、使う単価と、その出どころ
+  rent-or-buy outcome                        判断の鍵（key）に結果の行を足す（同じ鍵の結果が在れば足さない）
+  rent-or-buy records [--since T] [--until T] 判断の記録の行を JSON Lines で出す（T は YYYY-MM-DDTHH:MM:SSZ）
   rent-or-buy snapshot                       LiteLLM の main から同梱の値段の写しを作り直す
 
-終わりのコード: 0 判断できた / 2 入力の形が違う / 3 知らないモデル / 4 記録を読めない（snapshot の失敗は 1）。
+終わりのコード: 0 判断できた / 2 入力の形が違う / 3 知らないモデル / 4 記録を読めない（snapshot と、outcome の書けない失敗は 1）。
 0 以外でも標準出力に {"error": 鍵, "why": 英語の訳} を返す。環境変数は README の Environment。
 設計はプラグインの docs/design.md（英語の正本）と docs/design.ja.md（日本語の訳）。
 """
@@ -59,14 +61,55 @@ def _fail(key: str, why: str, code: int, row=None):
     return code
 
 
-def _record(row: dict):
-    """判断の記録を足す。置き場は RENT_OR_BUY_RECORD（off で止める）か、キャッシュのフォルダの decisions.jsonl。書けなければ訳を返す。"""
+def _record_path():
+    """判断の記録の置き場。RENT_OR_BUY_RECORD（off なら None）か、キャッシュのフォルダの decisions.jsonl。"""
     target = os.environ.get("RENT_OR_BUY_RECORD")
     if target == "off":
         return None
-    path = target or prices.cache_dir() / "decisions.jsonl"
+    return target or prices.cache_dir() / "decisions.jsonl"
+
+
+def _record(row: dict):
+    """判断の記録を足す。書けなければ訳を返す。"""
+    path = _record_path()
+    if path is None:
+        return None
     row = dict(row, ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     return rent_or_buy.append_record(path, row)
+
+
+def _outcome() -> int:
+    """標準入力の結果（1 件の表か {"outcomes": [表, ...]}）を確かめ、まだ結果の無い鍵だけ記録に足す。1 件でも形が違えば何も足さない。"""
+    try:
+        data = _read_stdin()
+        items = data["outcomes"] if set(data) == {"outcomes"} else [data]
+        if not isinstance(items, list):
+            raise rent_or_buy.InputError("outcomes must be a JSON array")
+        items = [rent_or_buy.check_outcome(x) for x in items]
+    except rent_or_buy.InputError as e:
+        return _fail("invalid_input", str(e), 2)
+    path = _record_path()
+    if path is None:
+        return _fail("record_off", "RENT_OR_BUY_RECORD is off, so outcomes cannot be kept", 2)
+    seen = {r.get("input", {}).get("key") for r in rent_or_buy.read_records(path) if r.get("scene") == "outcome"}
+    added = 0
+    for item in items:
+        if item["key"] in seen:
+            continue
+        err = _record({"scene": "outcome", "input": item})
+        if err:
+            return _fail("write_failed", err, 1)
+        seen.add(item["key"])
+        added += 1
+    _emit({"recorded": added, "duplicates": len(items) - added})
+    return 0
+
+
+def _records(args) -> int:
+    path = _record_path()
+    for row in rent_or_buy.read_records(path, args.since, args.until) if path is not None else ():
+        print(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+    return 0
 
 
 def _read_stdin() -> dict:
@@ -147,7 +190,15 @@ def main() -> int:
         sub.add_parser(name).add_argument("--transcript", metavar="FILE")
     sub.add_parser("prices").add_argument("model")
     sub.add_parser("snapshot")
+    sub.add_parser("outcome")
+    rec = sub.add_parser("records")
+    rec.add_argument("--since", metavar="T")
+    rec.add_argument("--until", metavar="T")
     args = ap.parse_args()
+    if args.cmd == "outcome":
+        return _outcome()
+    if args.cmd == "records":
+        return _records(args)
     try:
         if args.cmd == "prices":
             p = prices.lookup(args.model)

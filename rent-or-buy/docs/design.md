@@ -133,6 +133,7 @@ A function in the core appends one JSON Lines row per decision. It does not look
 - The caller chooses the file. The command's default is `<cache dir>/decisions.jsonl`, where the cache directory is `~/.cache/rent-or-buy` unless `RENT_OR_BUY_CACHE_DIR` says otherwise; `RENT_OR_BUY_RECORD` changes the path and `off` disables it.
 - The log grows forever, so it has a cap: when the file is already larger than 10 MiB before a row is appended, it is renamed to `decisions.1.jsonl` and a new one starts. Only one old file is kept.
 - If the log cannot be written (no folder, no permission), the decision is still made and the output carries the reason in `record`.
+- Outcome rows link a later result to an earlier decision. The caller passes a `key` with the decision (any string of 1 to 200 characters; the core does not read it) and later appends `{"key", "paid", "alternative", "detail"}`: what the chosen action actually cost, the estimate for the action not taken (`null` when it cannot be estimated) and the caller's own table. One outcome per key; a second one for the same key is not appended. The core checks only the shape (`check_outcome`) and reads rows back by time (`read_records`, the rotated file first).
 
 ## 4. Cache layer (`prompt_cache/`)
 
@@ -224,21 +225,23 @@ With the corrected terms, replaying 7 days of transcripts moves the context at w
 - `rent-or-buy compact [--transcript FILE]`: 4.4 compact. With a transcript, model, context size, post-compact size and the extra read so far are filled from it.
 - `rent-or-buy prices MODEL`: the normalized name, the prices used and their origin (for inspection).
 - `rent-or-buy snapshot`: rebuild the bundled copy from LiteLLM's main branch (run by the maintainer).
+- `rent-or-buy outcome`: append outcome rows (3.6). Standard input is one outcome or `{"outcomes": [...]}`; if any is malformed, nothing is appended (exit 2). Keys that already have an outcome are skipped. Output `{"recorded", "duplicates"}`. With `RENT_OR_BUY_RECORD=off` it exits 2 (`record_off`).
+- `rent-or-buy records [--since T] [--until T]`: print the log rows with `since <= ts < until` as JSON Lines (`T` is `YYYY-MM-DDTHH:MM:SSZ`, the same form as `ts`). Callers read the log through this instead of opening the file, so the path stays this component's business.
 
-Exit codes: 0 decided, 1 `snapshot` failed, 2 malformed input, 3 unknown model, 4 transcript unreadable. On a non-zero exit the output is still `{"error": "<key>", "why": "<English>"}`. Failures of `decide`, `keepalive` and `compact` are written to the decision log together with the input, so unknown model names can be collected (`prices` failures are not). `version` in outputs is the `version` of the plugin's `plugin.json`.
+Exit codes: 0 decided, 1 `snapshot` failed or an outcome could not be written, 2 malformed input, 3 unknown model, 4 transcript unreadable. On a non-zero exit the output is still `{"error": "<key>", "why": "<English>"}`. Failures of `decide`, `keepalive` and `compact` are written to the decision log together with the input, so unknown model names can be collected (`prices` failures are not). `version` in outputs is the `version` of the plugin's `plugin.json`.
 
 ## 6. Decision log fields
 
-Every row today: time, scene (`decide`, `keepalive`, `compact`), input as received on standard input, output. The output of the cache layer carries `rent`, `buy`, `prices` and `version`, so a later mismatch between formula and component can be found. Facts filled from `--transcript` are not in the row's input; only what the output carries (for keepalive, `next_at` and `turn_end_at`) is kept.
+Every decision row today: time, scene (`decide`, `keepalive`, `compact`), input as received on standard input (including `key` when the caller passes one), output. Outcome rows have scene `outcome`, the outcome as input, and time. The output of the cache layer carries `rent`, `buy`, `prices` and `version`, so a later mismatch between formula and component can be found. Facts filled from `--transcript` are not in the row's input; only what the output carries (for keepalive, `next_at` and `turn_end_at`) is kept.
 
-The fields below are what the log is meant to measure. The facts filled from the transcript and the outcome fields are planned additions (section 10, step 4).
+The fields below are what the log is meant to measure. The outcome rows (3.6) are the place for them; which fields a caller fills, and how it measures them from its own records, is the caller's choice (works-dispatch: its `docs/rent-effect.md`). Filling facts from the transcript into the decision row is still planned (section 10, step 4).
 
 - keepalive rows:
   - Times: the last request and the decision (the row's time), and the end of the turn when the caller passes it. When the sent request actually went out is filled in later from the transcript.
   - From these come the time to generate the last answer (turn end - last request) and the delay from decision to request.
   - A cache write after a keepalive that is large (well above the few hundred tokens a keepalive itself writes; the threshold is set when this is built, step 4) counts as a miss. Collected over many waits, this gives the miss rate `q(m)` for each margin `m`.
 - compact rows: whether the cache was warm or cold, context size before and after, and the usage of the compact request and the next request (including which lifetime's write price applied), to compare cold and warm compacts by measurement.
-- Outcome fields (whether it missed, what was written next, when the request went out) are unknown at decision time. The component has no state, so a tool that fills them later from the transcript is planned together with tuning `m` (section 10, step 4).
+- Outcome fields (whether it missed, what was written next, when the request went out) are unknown at decision time. The component has no state, so the caller measures them later and appends them as outcome rows under the decision's `key`. Tuning `m` from them is still planned (section 10, step 4).
 
 ## 7. Callers
 
@@ -309,7 +312,7 @@ Steps. Measure each step's effect in the decision log before moving on.
 1. Design (this document).
 2. Core, cache layer, command and log; keepalive wired into a caller.
 3. Compact policy in the caller (consult, skip limit, raised automatic compact line).
-4. A tool that fills outcome fields, tuning of `m`, and a status line display.
+4. A tool that fills outcome fields (outcome rows and `key` are in place; the caller measures), tuning of `m`, and a status line display.
 5. `random`, `learned`, three or more actions, choosing the cache lifetime (5 minutes or 1 hour), and translating "continue the previous session or start a new one".
 
 The first version covers steps 2 and 3.

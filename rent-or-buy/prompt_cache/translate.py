@@ -20,6 +20,8 @@ from . import prices
 _CORE_KEYS = ("hazard", "miss", "policy")
 _COMPACT_CORE_KEYS = ("forced", "ask", "deferred", "defer_limit", "answer", "policy")
 _AFTER_KEYS = ("after_write_tokens", "after_read_tokens")
+# 記録だけに残す鍵（呼ぶ側が判断の結果を後で結ぶ字。判断には使わない。rent-or-buy outcome がこの字で結果の行を足す）
+_KEY = ("key",)
 
 
 class FactsError(ValueError):
@@ -40,6 +42,9 @@ def _check(facts: dict, required, optional) -> None:
         raise FactsError("unknown keys: %s" % ", ".join(unknown))
     if missing:
         raise FactsError("missing keys: %s" % ", ".join(missing))
+    # key は 1〜KEY_CHARS 字の字（呼ぶ側が判断と結果を結ぶ字。中身は問わない）
+    if "key" in facts and (not isinstance(facts["key"], str) or not 0 < len(facts["key"]) <= rent_or_buy.KEY_CHARS):
+        raise FactsError("key must be a string of 1 to %d characters" % rent_or_buy.KEY_CHARS)
 
 
 def count(facts: dict, key: str, default):
@@ -83,10 +88,10 @@ def _stamp(out: dict, price: "prices.Price", rent: float, buy: float, extra: dic
 def keepalive(facts: dict, price_override=None, env=None, now=None) -> dict:
     """keepalive の判断。facts: model・lifetime・context_tokens・spent・certain（必須）と、
     hazard・miss・policy・last_request_at・write_tokens・output_tokens・margin_s（省ける。後ろの 3 つは prices.toml の既定）と、
-    記録だけに残す turn_end_at（ISO 8601。判断には使わず、出力にそのまま添える）。
+    記録だけに残す turn_end_at（ISO 8601。判断には使わず、出力にそのまま添える）と key（_KEY）。
     """
     _check(facts, ("model", "lifetime", "context_tokens", "spent", "certain"),
-           _CORE_KEYS + ("last_request_at", "write_tokens", "output_tokens", "margin_s", "turn_end_at"))
+           _CORE_KEYS + ("last_request_at", "write_tokens", "output_tokens", "margin_s", "turn_end_at") + _KEY)
     d = prices.defaults()["keepalive"]
     check_model(facts["model"])
     kind, n = _write_kind(facts), count(facts, "context_tokens", None)
@@ -116,10 +121,10 @@ def compact(facts: dict, price_override=None, env=None, now=None) -> dict:
     """compact の判断。facts: model・lifetime・context_tokens・spent（必須）と、after_write_tokens・after_read_tokens・
     summary_tokens・warm・consult_cost・forced・ask・deferred・defer_limit・answer・policy（省ける。前の 3 つは prices.toml の既定）。
     after_write_tokens・after_read_tokens は compact の後の最初の要求がキャッシュに書く量と読む量で、和が compact の後の文脈。
-    warm（キャッシュが温かいか）は判断に入れず、記録に残すだけ。
+    warm（キャッシュが温かいか）と key（_KEY）は判断に入れず、記録に残すだけ。
     """
     _check(facts, ("model", "lifetime", "context_tokens", "spent"),
-           _COMPACT_CORE_KEYS + _AFTER_KEYS + ("summary_tokens", "warm", "consult_cost"))
+           _COMPACT_CORE_KEYS + _AFTER_KEYS + ("summary_tokens", "warm", "consult_cost") + _KEY)
     d = prices.defaults()["compact"]
     check_model(facts["model"])
     kind, n = _write_kind(facts), count(facts, "context_tokens", None)
