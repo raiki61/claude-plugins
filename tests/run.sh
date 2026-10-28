@@ -2422,7 +2422,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=796
+EXPECTED_CHECKS=797
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -4905,7 +4905,8 @@ envs, redirected = g.reader_envs(dict(os.environ))
 assert redirected and [n for _, n in envs] == ["読み替えを外して %s の keychain(item)" % n for n in ("low", "high", "nolimits")], envs
 assert (".claude-low", "item-low", None) in asked and all(a[2] is None for a in asked), asked
 first = envs[0][0]
-assert first["CLAUDE_CONFIG_DIR"] == str(work / ".claude-low") and first["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-.claude-low", first
+# 設定の config_dir は as_posix で書くので、Windows では区切りが / で返る。パスとして比べる
+assert pathlib.Path(first["CLAUDE_CONFIG_DIR"]) == work / ".claude-low" and first["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-.claude-low", first
 assert not any(k in first for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_API_KEY", "CLAUDE_KEYCHAIN_SERVICE")), first
 def answers(*outs):
     seen, left = [], list(outs)
@@ -5837,8 +5838,11 @@ expect_output 0 "RED_RANGE_OK" \
     "ci-watch: main の最新の決着した run（取り消しを除く）が赤なら知らせ、最後の緑から赤までの commit の範囲を添える。読む数の外の緑・取り消しに埋もれた赤も引き、ファイルの無い workflow は見ない" \
     "$PY_BIN" "$CIW_CASE" red-range
 expect_output 0 "TOLD_WHILE_OPEN_OK" \
-    "ci-watch: 知らせた件は、このツールから回した頼みが開いているうちは知らせ直さず、新しい件だけを知らせる" \
+    "ci-watch: 知らせた件は、このツールから回した頼みが開いているうちは知らせ直さず、新しい件だけを知らせる。開いた頼みを回してから 1 日を過ぎたら、その受付を添えて知らせ直す" \
     "$PY_BIN" "$CIW_CASE" told-while-open
+expect_output 0 "CROSS_OK" \
+    "ci-watch: 頼み元がほかの会社の会話で、納品がその会社の受付箱にだけ在る頼みも、台帳の行が指す受付箱まで足し合わせて閉じたとみる" \
+    "$PY_BIN" "$CIW_CASE" cross
 expect_output 0 "REOPEN_AFTER_CLOSE_OK" \
     "ci-watch: 頼みが閉じた後は、閉じた後に決着した赤だけ知らせ直し（戻しの run を待つ）、緑に戻った件は忘れる" \
     "$PY_BIN" "$CIW_CASE" reopen-after-close

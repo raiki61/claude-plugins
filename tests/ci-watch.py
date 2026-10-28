@@ -17,7 +17,10 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 - 止められた: workflow の状態が active でない（disabled_inactivity など）
 
 同じ件を何度も頼まない: 知らせた件の鍵（workflow と種類と、赤なら最後の緑の run）を覚え（代表の clone の git の共通の
-ディレクトリの ci-watch.json）、覚えた件は、このツールから回した頼みが閉じていないうちは知らせない。新しい件は、開いた頼みが在っても
+ディレクトリの ci-watch.json）、覚えた件は、このツールから回した頼みが閉じていないうちは知らせない（閉じたかは、台帳の行が指す
+ほかの会社の受付箱まで足し合わせて見る）。ただし、開いた頼みのうち一番新しい
+物を回してから REPEAT（1 日）を過ぎても同じ件が続いていれば、開いた頼みの受付を添えて知らせ直す（受けた部署が畳まれて納品の来ない頼みで、
+赤が誰にも届かないまま黙り続けないため。2026-10-19 の頼みが開いたまま 10 日黙った）。新しい件は、開いた頼みが在っても
 知らせる。頼みが閉じた後は、閉じた後に新しく決着した赤の run が在るときだけ知らせ直す（戻しの commit の run が決着する前に同じ赤を
 頼み直さない。決着した時刻で見る）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
 また起きれば、新しい件として知らせる）。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
@@ -40,6 +43,7 @@ for _s in (sys.stdout, sys.stderr):
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # 開いた頼みの見分けは works-dispatch の物をそのまま使う（scripts/spread-plugins.py と同じ形。写すと割れる）
 sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
+import todo  # noqa: E402
 from nodes import deliver  # noqa: E402
 
 TOOL = "ci-watch"   # 会社の形の [[roles.tools]] の name。works-dispatch が回す頼みの題「ツール <役>/<name> が…」で、このツールの頼みを見分ける
@@ -48,6 +52,7 @@ RED = ("failure", "timed_out", "startup_failure")
 GREEN = ("success",)
 RUNS = 100   # workflow ごとに読む run の数。この中に緑が無ければ、最後の緑を別に引く
 SLACK = datetime.timedelta(days=1)
+REPEAT = datetime.timedelta(days=1)   # 開いた頼みを回してから、同じ件を知らせ直すまでの長さ
 FIELDS = "databaseId,status,conclusion,event,headSha,createdAt,updatedAt,url"
 
 
@@ -128,16 +133,29 @@ def common_dir(runner):
     return out.strip()
 
 
-def mine(inbox):
-    """このツールから回した頼みの (閉じていない物が在るか, 最後に閉じた時刻〔無ければ None〕)。頼みの題は works-dispatch が
-    「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/ci-watch-case.py の title が赤になる）。"""
+def place_dir(runner, place):
+    """place の属するリポジトリの git の共通のディレクトリ（git でなければ None）。todo.inboxes_from がほかの会社の受付箱を引くのに渡す。"""
+    code, out, _ = runner(["git", "-C", place, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    return os.path.normpath(out.strip()) if code == 0 and out.strip() else None
+
+
+def stamp(at):
+    return datetime.datetime.fromtimestamp(at, datetime.timezone.utc) if isinstance(at, (int, float)) else None
+
+
+def mine(inbox, place_common):
+    """このツールから回した頼みの (閉じていない頼みの台帳の行〔積んだ順〕, 最後に閉じた時刻〔無ければ None〕)。頼みの題は works-dispatch が
+    「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/ci-watch-case.py の title が赤になる）。
+    閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
+    納品の行はその会社の受付箱にだけ在る。2026-10-19 の頼みは my_notes に納品されたのに、開いているとみて 10 日黙った）。place_common は
+    作業場のパスから git の共通のディレクトリを引く物（git でなければ None）。"""
     marker = f"/{TOOL} "
-    rows = deliver.records(inbox)
+    _, rows = todo.inboxes_from([inbox], place_common)
     ids = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")}
-    still = any(r["id"] in ids for r in deliver.open_asks(rows))
+    still = [r for r in deliver.open_asks(rows) if r["id"] in ids]
     # 閉じた時刻は、閉じたと数える行（deliver.closed_ids と同じ見分け。知らせられなかった納品と --for の返しは数えない）の時刻
     at = [r["at"] for r in rows if isinstance(r.get("at"), (int, float)) and deliver.closed_ids([r]) & ids]
-    return still, (datetime.datetime.fromtimestamp(max(at), datetime.timezone.utc) if at else None)
+    return still, (stamp(max(at)) if at else None)
 
 
 def load_state(path):
@@ -177,24 +195,33 @@ def main(stdin=None, runner=run, now=None):
         cdir = common_dir(runner)
         state_path = os.path.join(cdir, STATE)
         told = set(load_state(state_path).get("told", []))
-        still_open, closed_at = mine(deliver.inbox_of(cdir))
+        still, closed_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
     except RuntimeError as e:
         print(f"CI の見張りが読めなかった: {e}")
         return 1
     keys = {x["key"] for x in found}
     # 知らせ済みの件は、頼みが開いている間は黙り、閉じた後は閉じた後に新しく決着した赤だけ知らせ直す（閉じた記録の無い件は、頼みに
-    # なったかが分からないので知らせ直す）
-    tell = [x for x in found if x["key"] not in told
-            or (not still_open and (closed_at is None or (x["since"] is not None and x["since"] > closed_at)))]
+    # なったかが分からないので知らせ直す）。開いている間も、一番新しい頼みを回してから REPEAT を過ぎたら知らせ直す（回した時刻の
+    # 分からない頼みは、古いと決められないので黙る）
+    sent = [t for t in (stamp(r.get("at")) for r in still) if t]
+    late = bool(still) and bool(sent) and now - max(sent) > REPEAT
+    tell = [x for x in found if x["key"] not in told or late
+            or (not still and (closed_at is None or (x["since"] is not None and x["since"] > closed_at)))]
     if not tell:
-        print("知らせる物は無い" + (f"（{len(found)} 件は知らせ済みで、" + ("その頼みが開いている）" if still_open else
+        wait = f"。{max(sent) + REPEAT:%Y-%m-%d %H:%M} UTC を過ぎても続けば知らせ直す" if sent else ""
+        print("知らせる物は無い" + (f"（{len(found)} 件は知らせ済みで、" + (f"その頼みが開いている{wait}）" if still else
                                                                  "その頼みが閉じた後に新しく決着した赤は無い）") if found else ""))
         if not dry:
             save_state(state_path, told & keys)   # 直った件は忘れる（また壊れたら知らせ直す）
         return 0
     print("\n".join(f"- {x['text']}" for x in tell))
+    if late:
+        print(f"- 前に回した頼み {'・'.join(r['id'] for r in still)} が開いたまま、一番新しい物を回してから "
+              f"{(now - max(sent)).days} 日を過ぎた（受けた部署が止まったか畳まれた）。片付けたら、前の頼みを "
+              f"dispatch.py --withdraw <受付> で閉じる")
     # 数の行は最後に出す（works-dispatch が頼みに載せるのは出力の末尾の行なので、件が多いと頭の行が落ちる）
-    print(f"main の CI に、知らせる物が上の {len(tell)} 件ある（新しい件か、前に知らせた頼みが閉じた後に新しく赤になった件）")
+    print(f"main の CI に、知らせる物が上の {len(tell)} 件ある（新しい件か、前に知らせた頼みが閉じた後に新しく赤になった件か、"
+          f"前に知らせた頼みが開いたまま {REPEAT.days} 日を過ぎた件）")
     if not dry:
         save_state(state_path, (told & keys) | {x["key"] for x in tell})
     return 1

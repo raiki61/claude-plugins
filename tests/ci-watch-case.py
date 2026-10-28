@@ -5,7 +5,10 @@
 - red-range: main の最新の決着した run が赤なら 1 で終わり、run の URL と、最後の緑から最新の赤までの commit の範囲を出す。取り消しの
   run は決着に数えない。読む数の中に緑が無ければ、成功の run を別に引く。1 度も緑が無ければそう書く。dry_run は覚えない
   読む数の全部が取り消しなら、決着ごとに最新を引いて赤を見る。リポジトリにファイルの無い workflow は見ない
-- told-while-open: 知らせた件は、このツールから回した頼みが開いているうちは知らせない（0 で終わる）。新しい件だけは知らせる
+- told-while-open: 知らせた件は、このツールから回した頼みが開いているうちは知らせない（0 で終わる）。新しい件だけは知らせる。
+  開いた頼みのうち一番新しい物を回してから REPEAT を過ぎたら、開いた頼みの受付を添えて知らせ直す（回した時刻の無い頼みでは黙る）
+- cross: 頼み元がほかの会社の会話で、納品の行がその会社の受付箱にだけ在る頼みは、--todo と同じく台帳の行が指す受付箱まで足し合わせて
+  閉じたとみる（自分の受付箱だけ見て開いているとみて黙り続けない）
 - reopen-after-close: 頼みが閉じた（納品された）後は、閉じた後に決着した赤の run が在るときだけ知らせ直す（戻しの run が決着する
   前は黙る）。閉じた記録の無い件は知らせ直す。緑に戻った件は忘れる
 - age: 1 度も回っていない workflow・止められた workflow・間隔と 1 日より古い定期の run を知らせる。定期の run は、push の run が
@@ -47,10 +50,11 @@ class Fake:
 
     def __init__(self, gitdir, workflows, runs, broken=False):
         self.gitdir, self.workflows, self.runs, self.broken = gitdir, workflows, runs, broken
+        self.places = {}   # git -C <場所> の共通のディレクトリの答えを場所ごとに替える物（無い場所は gitdir）
 
     def __call__(self, argv):
         if argv[0] == "git":
-            return 0, self.gitdir + "\n", ""
+            return 0, self.places.get(argv[2], self.gitdir) + "\n", ""
         if self.broken:
             return 1, "", "HTTP 502"
         if argv[1:3] == ["workflow", "list"]:
@@ -129,7 +133,47 @@ def told_while_open():
     fake.runs[2] = [r(20, "failure", "d", event="schedule")]
     code, out = go(fake)
     check(code == 1 and "mutation" in out and "test.yml" not in out, f"新しい件だけを知らせない: {out}")
+    # 回した時刻が在り、REPEAT の内なら黙り、過ぎたら同じ件を、開いた頼みの受付を添えて知らせ直す
+    old = {"kind": "ask", "status": "queued", "id": "20261017-000000-bbbbbb", "title": TITLE,
+           "at": (NOW - cw.REPEAT - datetime.timedelta(hours=2)).timestamp()}
+    new = dict(old, id="20261019-000000-cccccc", at=(NOW - cw.REPEAT + datetime.timedelta(hours=2)).timestamp())
+    d = setup([old, new])
+    fake = Fake(d, [TEST], {1: [r(7, "failure", "a"), r(6, "success", "0")]})
+    go(fake)
+    code, out = go(fake)
+    check(code == 0 and f"{datetime.datetime.fromtimestamp(new['at'], datetime.timezone.utc) + cw.REPEAT:%Y-%m-%d %H:%M} UTC" in out,
+          f"回してから REPEAT の内の頼みが開いているのに知らせ直した: {code} {out}")
+    d = setup([new | {"at": old["at"]}, old])
+    fake = Fake(d, [TEST], {1: [r(7, "failure", "a"), r(6, "success", "0")]})
+    go(fake)
+    code, out = go(fake)
+    check(code == 1 and "run 7" in out and old["id"] in out and new["id"] in out and "--withdraw" in out,
+          f"開いたまま REPEAT を過ぎた頼みの件を知らせ直さない: {code} {out}")
+    check("--withdraw" not in out.strip().splitlines()[-1], f"数の行が最後に無い: {out}")
     print("TOLD_WHILE_OPEN_OK")
+
+
+def cross():
+    # 頼み元の会社の受付箱を、行の boss.inbox（受付箱を直に指す）と from.place（作業場から git で引く）の 2 つの道で指す
+    for via in ("boss", "place"):
+        place = tempfile.mkdtemp(prefix="ci-watch-place-")   # 頼み元の会社の作業場
+        other = cw.deliver.inbox_of(os.path.join(place, ".git"))
+        os.makedirs(other)
+        ask = {"kind": "ask", "status": "queued", "id": "20261019-000000-aaaaaa", "title": TITLE,
+               "at": datetime.datetime(2026, 10, 19, 11, 0, tzinfo=datetime.timezone.utc).timestamp()}
+        ask.update({"boss": {"inbox": other}} if via == "boss" else {"from": {"place": place}})
+        d = setup([ask])
+        fake = Fake(d, [TEST], {1: [r(7, "failure", "a", "2026-10-18T10:00:00Z"), r(6, "success", "0")]})
+        fake.places[place] = os.path.dirname(os.path.dirname(other))
+        go(fake)
+        code, out = go(fake)
+        check(code == 0 and "run 7" not in out, f"{via}: 納品の無い頼みを閉じたとみた: {code} {out}")
+        with open(os.path.join(other, cw.deliver.LOG), "w", encoding="utf-8") as f:   # 納品の行は頼み元の会社の受付箱にだけ在る
+            f.write(json.dumps({"kind": "deliver", "ask": ask["id"], "at": ask["at"] + 600}) + "\n")
+        fake.runs[1].insert(0, r(8, "failure", "b", "2026-10-19T11:30:00Z"))
+        code, out = go(fake)
+        check(code == 1 and "run 8" in out, f"{via}: ほかの会社の受付箱にだけ納品が在る頼みを開いているとみた: {code} {out}")
+    print("CROSS_OK")
 
 
 def reopen_after_close():
@@ -196,5 +240,5 @@ def title():
 
 
 if __name__ == "__main__":
-    {"red-range": red_range, "told-while-open": told_while_open, "reopen-after-close": reopen_after_close, "age": age,
+    {"red-range": red_range, "told-while-open": told_while_open, "cross": cross, "reopen-after-close": reopen_after_close, "age": age,
      "unreadable": unreadable, "title": title}[sys.argv[1]]()
