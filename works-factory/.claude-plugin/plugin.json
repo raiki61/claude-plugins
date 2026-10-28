@@ -1,5 +1,5 @@
 {
   "name": "works-factory",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "修正の工場 works-factory（raiki61/works-factory。Archon の上に載る pack）の、Claude Code 側の薄い入口。/works-factory スキルは、今いるリポジトリを対象に修正依頼を工場へ回すときの依頼の書き方・起動・承認ノードでの答え方・差分の当て方を持つ。工場の中身は止めた commit（PIN）の works-factory を取り置きに取って使う。今の /works（works プラグイン）と並べて置く。"
 }
