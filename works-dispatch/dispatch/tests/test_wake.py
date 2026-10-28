@@ -2599,8 +2599,8 @@ class Hook(unittest.TestCase):
             self.assertEqual(wake_hook.newer_self(mine, posix=True), str(new))
         self.assertIsNone(wake_hook.newer_self(mine, posix=False))   # Windows は替わらない
         record("0.1.0")
-        self.assertIsNone(wake_hook.newer_self(mine))
-        self.assertIsNone(wake_hook.newer_self(DISPATCH / "wake_hook.py"))   # リポジトリの checkout
+        self.assertIsNone(wake_hook.newer_self(mine, posix=True))
+        self.assertIsNone(wake_hook.newer_self(DISPATCH / "wake_hook.py", posix=True))   # リポジトリの checkout
 
     def test_plugin_declares_the_waiter_on_stop_and_session_start_and_the_pause_on_prompts(self):
         hooks = json.loads((DISPATCH.parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
