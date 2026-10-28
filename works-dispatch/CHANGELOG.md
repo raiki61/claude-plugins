@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.134.0] - 2026-10-29
+
 ### Removed
 
 - 0.78.0 までの版と混ざって動くための互換を消した。会社の形の前の版のキー（役の `resident = true`・受け持ちの `standing = false`）は読まなくなり、残っていれば知らない鍵の注記が出る（今のキー `persistent = true`・`on_demand = true` に書き替える）。部署の属性は `company.lifecycle` だけを書き、前の版の属性 `company.residency` は書かず読まない（`company.residency` だけを持つ部署はエフェメラルとみなす）。`--sync` は 2 つの属性をそろえなくなった。前の版の旗の名前 `--resident`・`--per-task` を消した（`--persistent`・`--ephemeral` を使う）。
