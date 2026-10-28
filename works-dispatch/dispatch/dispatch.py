@@ -611,7 +611,7 @@ def main(argv=None, ports=None):
         ports.refresh_limits(cfg, metered)
     before = ports.read_limits(cfg.limits_dir, metered)
     ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now(), accounts.count_running(listed),
-                           cfg.reset_soon_hours, cfg.hours_margin_minutes)
+                           margin_minutes=cfg.hours_margin_minutes)
     try:
         est = cost.estimate(ports.load_cost(cfg.limits_dir))
     except cost.CostError as e:
@@ -1040,7 +1040,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                      "そのアカウントを避けて振る")
         pool = free
     ranked = accounts.rank(pool, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
-                           accounts.count_running(listed), cfg.reset_soon_hours, cfg.hours_margin_minutes)
+                           accounts.count_running(listed), margin_minutes=cfg.hours_margin_minutes)
     # 会社の形の役か受け持ちが名指したアカウント（account）は、使えれば順の頭へ。使えなければ使用率の順のまま、訳を注記に出す。
     # --move の起動し直し（only_account）では名指しを見ない（アカウントを替えるのは --move の受け持ち）
     wish, wisher = (None, None) if getattr(a, "only_account", None) else role.launch_account(the_role, duty)
@@ -1465,7 +1465,6 @@ def _init(a, ports):
         "# フィールドの書き方: works-dispatch の skills/dispatch/references/setup.md の「初めて」と「アカウントの書き方」（前提の訳は docs/prerequisites.md）",
         "",
         "limit_percent = 95                      # 週か 5 時間の使用率がこれに達したアカウントは使わない",
-        "# reset_soon_hours = 24                 # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（使わずに切り替わる分を無駄にしない）",
         '# limits_dir = "~/.cache/claude-limits"   # アカウントごとの使用率の控え（<name>.json）。無ければ使用率は見ない',
         "",
         *chat.accounts_draft(seen),

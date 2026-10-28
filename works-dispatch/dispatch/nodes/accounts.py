@@ -4,10 +4,12 @@
 
 - 週の枠（seven_day）か 5 時間の枠（five_hour）の使用率が上限に達したアカウントは選ばない。使用率は 1% 刻みの整数で届き、ちょうど上限の値は上限を超えている見込みがあるので、上限ちょうども選ばない。
 - 切り替わりの時刻（resets_at）が過ぎた枠は、切り替わった後なので使用率 0 とみなす。
-- 選べるものを、次の順に並べる（持ち主の決め 2026-10-16）。
-  1. 週の枠の切り替わりが近い（設定の reset_soon_hours 以内。既定 24 時間。ちょうども含む）ものを先に、切り替わりの近い順。使わずに切り替わる分を無駄にしないため。
-  2. それ以外は、5 時間の枠と週の枠のうち高い方の使用率の低い順。週の切り替わりが十数時間早いだけのアカウントに寄せて、その 5 時間の枠を先に食い潰さないため。
-  3. 同じなら、そのアカウントで動いている会話の数の少ない順、次に設定の順。
+- 選べるものを、1 つの点数（score）の高い順に並べる（持ち主の決め 2026-10-29「アルゴリズム化か単純計算でもっと勾配つけたいね」。
+  前の 2026-10-16 の段の決まり〔週の切り替わりが 24 時間以内なら先、ほかは使用率の低い順〕を置き換えた）。点数は pace の式で、
+  週の枠の上限までの残り（上限 − 使用率）を週の切り替わりまでの時間で割った「1 時間あたり使ってよい量」に、5 時間の枠の上限までの残りの
+  割合を掛けた物。残りが多く切り替わりの近いアカウントほど高く（使わずに切り替わる分を残さない）、残りが少なく切り替わりの遠いアカウントほど
+  低い（切り替わりの前に上限に当たらない）。5 時間の枠を使うほど滑らかに下がる（先に食い潰さない）。
+  同じ点数なら、そのアカウントで動いている会話の数の少ない順、次に設定の順。
 - 使える時間帯（設定の hours）の外のアカウントと、時間帯の終わりまで設定の hours_margin_minutes（既定 30 分。ちょうども含む）を切ったアカウントは選ばない。
   終わりで要求が断られ、ターンの途中で切られるため。日をまたぐ時間帯は始まった日の物として見る。
 - 控えが無い・読めないアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（D7）。
@@ -28,7 +30,6 @@
 import argparse
 import datetime
 import json
-import math
 import os
 import pathlib
 import sys
@@ -45,6 +46,8 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 WINDOWS = ("seven_day", "five_hour")
+WEEK_HOURS = 7 * 24   # 週の枠の長さ。切り替わりの時刻が分からない週の枠は、今から 1 週間で切り替わるとみなす
+MIN_HOURS = 1   # 週の切り替わりまでの時間の下限。切り替わりの直前で点数が際限なく大きくならないため
 RUNNING_STATES = ("working", "blocked")  # 背景の会話の state のうち、動いているもの
 NAMED_ONLY = "名指しのときだけ使うアカウント（設定の named_only = true）"   # 自動で選ばない訳
 
@@ -117,9 +120,17 @@ def gather_running(accounts, list_sessions):
     return count_running(listed), notes
 
 
-def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.DEFAULT_RESET_SOON_HOURS,
-         margin_minutes=config.DEFAULT_HOURS_MARGIN_MINUTES):
-    """running は名 → 動いている会話の数（無い名は 0）。soon_hours は、週の枠の切り替わりを「近い」とみなす時間。
+def pace(seven_day, five_hour, limit_percent, now):
+    """選ぶ順の点数。週の枠の上限までの残り（%）÷ 週の切り替わりまでの時間（MIN_HOURS より短くしない）× 5 時間の枠の上限までの残りの割合。
+    枠は _window の形。使用率の分からない枠は 0% とみなす。上限に達した枠が在れば 0。"""
+    used7, used5 = seven_day["used"] or 0, five_hour["used"] or 0
+    at = seven_day["resets_at"]
+    left = WEEK_HOURS if at is None else max((at - now) / 3600, MIN_HOURS)
+    return (max(limit_percent - used7, 0) / left) * (max(limit_percent - used5, 0) / limit_percent)
+
+
+def rank(accounts, limits, limit_percent, now, running=None, margin_minutes=config.DEFAULT_HOURS_MARGIN_MINUTES):
+    """running は名 → 動いている会話の数（無い名は 0）。点数（score）は pace。使用率の分からないアカウントは None で、選べる物の後に並ぶ。
     margin_minutes は、使える時間帯の終わりの何分前から選ばないか。時間帯で選ばないアカウントは shut を真にする。
     控えが古い（limits.stale）アカウントは stale にし、known を偽にする（古い値で選ばない）。stale_over は、古い控えの最後の値で
     上限に達していたか（--move --if-limited が、取り直せない間も移るかを最後の値で決める。一時の混み合いで移さない）。
@@ -136,7 +147,6 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
         over = [k for k in WINDOWS if w[k]["used"] is not None and w[k]["used"] >= limit_percent]
         used = [w[k]["used"] for k in WINDOWS if w[k]["used"] is not None]
         last = [_window(raw.get(k), now)["used"] for k in WINDOWS] if old else []
-        at = w["seven_day"]["resets_at"]
         closed = shut(a.hours, now, margin_minutes)
         ends = [w[k]["resets_at"] for k in over] + ([_reopens(a.hours, now)] if closed else [])
         why_not = [f"{k} が {w[k]['used']}% で上限 {limit_percent}% に達した" for k in over] + ([closed] if closed else [])
@@ -157,7 +167,7 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
             "eligible_at": max(ends) if why_not and None not in ends and not named_only else None,
             "hours": a.hours.text if a.hours else None,
             "shut": closed is not None,
-            "soon": known and at is not None and at - now <= soon_hours * 3600,
+            "score": pace(w["seven_day"], w["five_hour"], limit_percent, now) if known else None,
             "peak": max(used) if used else None,
             "running": running.get(a.name, 0),
             "_order": i,
@@ -165,8 +175,7 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
     rows.sort(key=lambda r: (
         not r["eligible"],
         not r["known"],
-        not r["soon"],
-        r["seven_day"]["resets_at"] if r["soon"] else (r["peak"] if r["peak"] is not None else math.inf),
+        -(r["score"] or 0),
         r["running"],
         r["_order"],
     ))
@@ -275,18 +284,18 @@ def _left(sec):
     return f"{h} 時間 {m} 分" if h else f"{m} 分"
 
 
-def why(row, now, soon_hours=config.DEFAULT_RESET_SOON_HOURS):
+def why(row, now):
     """順の頭に来た 1 件を選んだ訳を、人が読む 1 文にする。"""
     tail = f"動いている会話 {row['running']} 件"
     if row.get("stale"):
         return f"使用率が分からない（控えが {limits_.TRUST_HOURS} 時間より古い。取り直せていない）。{tail}"
     if not row["known"]:
         return f"使用率が分からない（控えが無いか、使用率の枠の無いアカウント）。{tail}"
-    use = f"5 時間 {_pct(row['five_hour']['used'])}・週 {_pct(row['seven_day']['used'])}"
-    if row["soon"]:
-        return (f"週の枠が {_left(row['seven_day']['resets_at'] - now)}後に切り替わる（{soon_hours:g} 時間以内なので、"
-                f"使わずに切り替わる分を先に使う）。{use}。{tail}")
-    return f"{use} で、高い方 {_pct(row['peak'])} が選べるものの中で最も低い。{tail}"
+    at = row["seven_day"]["resets_at"]
+    reset = "週の枠の切り替わりの時刻は不明" if at is None else f"週の枠は {_left(at - now)}後に切り替わる"
+    return (f"5 時間 {_pct(row['five_hour']['used'])}・週 {_pct(row['seven_day']['used'])}（{reset}）で、"
+            f"点数 {row['score']:.2f}（週の残り ÷ 切り替わりまでの時間 × 5 時間の残りの割合）が"
+            f"選べるものの中で最も高い。{tail}")
 
 
 def overview(accts, env):
@@ -358,13 +367,13 @@ def main(argv=None, env=os.environ, ports=None):
         ports.refresh_limits(cfg, metered, force=False)
     running, notes = gather_running(cfg.accounts, ports.list_sessions)
     rows = rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, now, running,
-                cfg.reset_soon_hours, cfg.hours_margin_minutes)
+                margin_minutes=cfg.hours_margin_minutes)
     if not a.pick:
         jsonio.dump({"accounts": rows, "notes": notes}, a.out)
         return 0
     head = rows[0] if rows and rows[0]["eligible"] else None
     pick = None if head is None else {"name": head["name"], "command": head["command"], "config_dir": head["config_dir"],
-                                      "why": why(head, now, cfg.reset_soon_hours)}
+                                      "why": why(head, now)}
     if a.json:
         jsonio.dump({"pick": pick, "accounts": rows, "notes": notes}, a.out)
     elif pick:

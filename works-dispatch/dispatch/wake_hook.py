@@ -761,7 +761,7 @@ def early_due(got, attrs, env=os.environ, now=time.time):
         metered = [x.name for x in cfg.accounts if x.limits]
         at = now()
         rows = accounts.rank(cfg.accounts, accounts.read_limits(cfg.limits_dir, metered), cfg.limit_percent, at, None,
-                             cfg.reset_soon_hours, cfg.hours_margin_minutes)
+                             margin_minutes=cfg.hours_margin_minutes)
         got_ = accounts.early(rows, attrs.get("account"), cfg.early_percent, cfg.early_reset_hours, at, attrs.get(wake.MOVE_TO),
                               attrs.get(wake.MOVE_KEPT))
         if got_ and not got_["to"] and not attrs.get(wake.MOVE_TO):

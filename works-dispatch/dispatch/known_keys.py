@@ -30,12 +30,14 @@ COMPANY_RETIRED = {}
 
 # dispatch の設定の表ごとの、読む鍵
 CONFIG = {
-    "": ("limit_percent", "limits_dir", "reset_soon_hours", "move_early_percent", "move_early_reset_hours", "hours_margin_minutes",
+    "": ("limit_percent", "limits_dir", "move_early_percent", "move_early_reset_hours", "hours_margin_minutes",
          "accounts", "repos"),
     "accounts": ("name", "command", "config_dir", "keychain_service", "limits", "plan", "hours", "named_only", "max_open"),
     "repos": ("repo", "second_prompt_file", "source", "copy_files", "copy_from", "gh_user"),
 }
 CONFIG_RETIRED = {
+    "": {"reset_soon_hours": "週の切り替わりの近さは、アカウントを選ぶ点数（週の残り ÷ 切り替わりまでの時間）に入ったので、"
+                             "24 時間などの線は要らなくなった。設定から消してよい"},
     "repos": {"clone_root": "0.3.0 で外した。作業場はブランチごとの git worktree で作る。設定から消してよい",
               "task_cwd": "0.5.0 で外した。部署は自分の作業場で起動する。設定から消してよい"},
 }

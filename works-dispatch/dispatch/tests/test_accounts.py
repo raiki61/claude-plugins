@@ -49,9 +49,21 @@ def window(used, resets_at):
 
 
 class Rank(unittest.TestCase):
-    def test_without_a_near_weekly_reset_lower_peak_comes_first(self):
-        # どれも週の切り替わりが 24 時間より先なので、5 時間と週の高い方の低い順（p1 38・p3 79・main 86・p2 86）。同じなら設定の順
-        self.assertEqual(names(accounts.rank(ACCTS, limits(), 95, NOW)), ["p1", "p3", "main", "p2"])
+    def test_higher_pace_comes_first(self):
+        # 点数 = 週の上限までの残り ÷ 切り替わりまでの時間 × 5 時間の上限までの残りの割合。
+        # p1 57/53.5 時間 ≒ 1.05・p2 9/43.5 時間 ≒ 0.21・main 9/43.5 × 94/95 ≒ 0.20・p3 16/116.5 × 71/95 ≒ 0.10
+        got = accounts.rank(ACCTS, limits(), 95, NOW)
+        self.assertEqual(names(got), ["p1", "p2", "main", "p3"])
+        self.assertAlmostEqual(by(got, "p1")["score"], 57 / 53.5 * 94 / 95, places=3)
+
+    def test_owner_case_of_2026_10_29_spreads_onto_the_account_that_would_leave_its_week_unused(self):
+        # 2026-10-29 の控え。前の決まりは p2（切り替わりが 24 時間以内）を先にし、p1 と p3 は高い方が同じ 44 で並んだ。
+        # p3 は週が切り替わって間もなく、102 時間で 51% 使えばよい。p1 は 39 時間で 51% 使わないと使い残す
+        lim = {"main": {"seven_day": window(89, NOW + hours(28.7)), "five_hour": window(5, NOW + hours(4))},
+               "p1": {"seven_day": window(44, NOW + hours(38.7)), "five_hour": window(1, NOW + hours(2))},
+               "p2": {"seven_day": window(74, NOW + hours(13.7)), "five_hour": window(23, NOW + hours(1))},
+               "p3": {"seven_day": window(44, NOW + hours(101.7)), "five_hour": window(1, NOW + hours(1))}}
+        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW)), ["p1", "p2", "p3", "main"])
 
     def test_owner_case_of_2026_10_16_does_not_pile_on_the_slightly_earlier_reset(self):
         # p2 は週の切り替わりが十数時間早いだけで、5 時間の枠が 74%。main（5 時間 2%・週 1%）を先に使う
@@ -69,42 +81,58 @@ class Rank(unittest.TestCase):
         self.assertEqual(names(got)[-1], "p1")
         self.assertTrue(by(got, "p1")["stale"])
         self.assertFalse(by(got, "p1")["known"])
+        self.assertIsNone(by(got, "p1")["score"])
         self.assertFalse(by(got, "p1")["stale_over"])   # 最後の値は上限の下（--move --if-limited は移さない）
         lim["p1"]["five_hour"]["used_percentage"] = 99
         self.assertTrue(by(accounts.rank(ACCTS, lim, 95, NOW), "p1")["stale_over"])
 
-    def test_peak_is_the_higher_of_five_hour_and_weekly(self):
+    def test_five_hour_use_lowers_the_score_smoothly(self):
+        # 5 時間の枠を使うほど点数は下がり、上限の手前で 0 に近づく。p1 は 5 時間 80% で 1.05 × 15/95 ≒ 0.17 まで下がり、p2（0.21）の後へ
         lim = limits()
-        lim["p1"]["five_hour"]["used_percentage"] = 80   # 週 38 でも 5 時間 80 なら高い方は 80
+        lim["p1"]["five_hour"]["used_percentage"] = 80
         got = accounts.rank(ACCTS, lim, 95, NOW)
         self.assertEqual(by(got, "p1")["peak"], 80)
-        self.assertEqual(names(got), ["p3", "p1", "main", "p2"])
+        self.assertEqual(names(got), ["p2", "main", "p1", "p3"])
+        lim["p1"]["five_hour"]["used_percentage"] = 40
+        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW))[0], "p1")
 
     def test_peak_uses_the_known_window_when_the_other_is_missing(self):
         lim = limits()
         lim["p1"]["five_hour"] = None
-        self.assertEqual(by(accounts.rank(ACCTS, lim, 95, NOW), "p1")["peak"], 38)
-
-    def test_weekly_reset_within_the_window_goes_first_even_with_a_higher_peak(self):
-        lim = limits()
-        lim["p2"]["seven_day"]["resets_at"] = NOW + hours(20)
         got = accounts.rank(ACCTS, lim, 95, NOW)
-        self.assertEqual(names(got)[0], "p2")
-        self.assertTrue(by(got, "p2")["soon"])
-        self.assertFalse(by(got, "p1")["soon"])
+        self.assertEqual(by(got, "p1")["peak"], 38)
+        self.assertAlmostEqual(by(got, "p1")["score"], 57 / 53.5, places=3)   # 分からない 5 時間の枠は 0% とみなす
 
-    def test_exactly_the_window_counts_as_near_and_one_second_more_does_not(self):
+    def test_a_nearer_weekly_reset_raises_the_score_without_a_cliff(self):
+        # 同じ使用率なら切り替わりの近い方が先。24 時間などの線は無く、時間に応じて滑らかに変わる
         lim = limits()
-        lim["p2"]["seven_day"]["resets_at"] = NOW + hours(24)
+        scores = []
+        for h in (20, 24, 25, 60, 100):
+            lim["p2"]["seven_day"] = window(38, NOW + hours(h))
+            lim["p2"]["five_hour"]["used_percentage"] = 1
+            scores.append(by(accounts.rank(ACCTS, lim, 95, NOW), "p2")["score"])
+        self.assertEqual(scores, sorted(scores, reverse=True))
+        self.assertAlmostEqual(scores[1] / scores[2], 25 / 24, places=6)   # 24 時間と 25 時間の差は 1 時間分だけ
+        lim["p2"]["seven_day"] = window(38, NOW + hours(20))
         self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW))[0], "p2")
-        lim["p2"]["seven_day"]["resets_at"] = NOW + hours(24) + 1
-        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW))[0], "p1")
 
-    def test_near_resets_are_nearest_first(self):
+    def test_a_reset_within_the_last_hour_counts_as_one_hour(self):
         lim = limits()
-        lim["p3"]["seven_day"]["resets_at"] = NOW + hours(10)
-        lim["main"]["seven_day"]["resets_at"] = NOW + hours(5)
-        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW))[:3], ["main", "p3", "p1"])
+        lim["p2"]["seven_day"] = window(90, NOW + 60)
+        self.assertAlmostEqual(by(accounts.rank(ACCTS, lim, 95, NOW), "p2")["score"], 5.0, places=6)
+
+    def test_an_unknown_weekly_reset_counts_as_a_full_week(self):
+        lim = limits()
+        lim["p2"]["seven_day"] = {"used_percentage": 0}
+        lim["p2"]["five_hour"]["used_percentage"] = 0
+        self.assertAlmostEqual(by(accounts.rank(ACCTS, lim, 95, NOW), "p2")["score"], 95 / 168, places=6)
+
+    def test_a_freshly_reset_week_does_not_take_everything(self):
+        # 週が切り替わったばかり（0%・168 時間）でも、使い残しそうなアカウント（p1）より先にしない
+        lim = limits()
+        lim["p3"]["seven_day"] = window(0, NOW + hours(168))
+        lim["p3"]["five_hour"]["used_percentage"] = 0
+        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW))[:2], ["p1", "p3"])
 
     def test_near_reset_at_the_limit_is_not_used(self):
         # 切り替わりが近くても、上限ちょうど（95）に届いていれば選ばない
@@ -120,28 +148,22 @@ class Rank(unittest.TestCase):
         lim["p2"]["five_hour"]["used_percentage"] = 95
         self.assertFalse(by(accounts.rank(ACCTS, lim, 95, NOW), "p2")["eligible"])
 
-    def test_the_window_comes_from_the_argument(self):
-        lim = limits()   # main と p2 の週の切り替わりは 43 時間 20 分後
-        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW, soon_hours=44))[:2], ["main", "p2"])
-        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW, soon_hours=0))[0], "p1")
-
     def test_fewer_running_conversations_win_a_tie(self):
-        # main と p2 は高い方が同じ 86。動いている会話の少ない p2 が先
-        got = accounts.rank(ACCTS, limits(), 95, NOW, {"main": 3, "p2": 1})
-        self.assertEqual(names(got)[2:], ["p2", "main"])
+        # main と p2 は週 86%・同じ切り替わり・5 時間 0% で点数が同じ。動いている会話の少ない p2 が先
+        lim = limits()
+        lim["main"]["five_hour"]["used_percentage"] = 0
+        got = accounts.rank(ACCTS, lim, 95, NOW, {"main": 3, "p2": 1})
+        self.assertEqual(names(got)[1:3], ["p2", "main"])
         self.assertEqual(by(got, "main")["running"], 3)
         self.assertEqual(by(got, "p1")["running"], 0)
 
     def test_same_running_count_falls_back_to_config_order(self):
-        got = accounts.rank(ACCTS, limits(), 95, NOW, {"main": 2, "p2": 2})
-        self.assertEqual(names(got)[2:], ["main", "p2"])
-
-    def test_running_breaks_a_tie_between_near_resets(self):
         lim = limits()
-        lim["main"]["seven_day"]["resets_at"] = lim["p2"]["seven_day"]["resets_at"] = NOW + hours(3)
-        self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW, {"main": 1}))[:2], ["p2", "main"])
+        lim["main"]["five_hour"]["used_percentage"] = 0
+        got = accounts.rank(ACCTS, lim, 95, NOW, {"main": 2, "p2": 2})
+        self.assertEqual(names(got)[1:3], ["main", "p2"])
 
-    def test_running_does_not_beat_a_lower_peak(self):
+    def test_running_does_not_beat_a_higher_score(self):
         self.assertEqual(names(accounts.rank(ACCTS, limits(), 95, NOW, {"p1": 9}))[0], "p1")
 
     def test_over_limit_weekly_is_excluded(self):
@@ -297,7 +319,8 @@ source = "s"
         lim = limits()
         lim["p3"]["seven_day"]["resets_at"] = NOW + hours(5) + 30 * 60
         _, out, _ = self.run_main(["--pick", "--no-probe"], FakePorts(lim, {None: [], "d1": [], "d2": [], "d3": []}))
-        self.assertTrue(out.startswith("p3: c3 — 週の枠が 5 時間 30 分後に切り替わる（24 時間以内"))
+        # 点数は 16 ÷ 5.5 時間 × 71/95 ≒ 2.17 で、p1（1.05）より高い
+        self.assertTrue(out.startswith("p3: c3 — 5 時間 24%・週 79%（週の枠は 5 時間 30 分後に切り替わる）で、点数 2.17"), out)
 
     def test_json_has_the_pick_every_row_and_notes(self):
         ports = FakePorts(limits(), {None: [], "d1": [], "d2": claudex.Error("x"), "d3": []})
@@ -307,7 +330,7 @@ source = "s"
         self.assertEqual(ports.probed, [])
         self.assertEqual({k: got["pick"][k] for k in ("name", "command", "config_dir")},
                          {"name": "p1", "command": "c1", "config_dir": "d1"})
-        self.assertEqual(names(got["accounts"]), ["p1", "p3", "main", "p2"])
+        self.assertEqual(names(got["accounts"]), ["p1", "p2", "main", "p3"])
         self.assertEqual(len(got["notes"]), 1)
         self.assertEqual(schemacheck.check(got, schemacheck.schema("accounts")), [])
 

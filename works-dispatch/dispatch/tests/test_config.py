@@ -92,15 +92,13 @@ class Load(unittest.TestCase):
         self.assertEqual(config.copy_root(cfg.repos[0]), cfg.repos[0].source)
         self.assertEqual(cfg.limit_percent, 95)
         self.assertEqual(cfg.limits_dir, os.path.expanduser("~/.cache/claude-limits"))
-        self.assertEqual(cfg.reset_soon_hours, 24)
 
-    def test_reset_soon_hours_is_read_and_checked(self):
+    def test_retired_reset_soon_hours_still_loads_with_a_note(self):
+        # 古い版の設定に残った reset_soon_hours は、止めずに読み飛ばし、外した訳を注記に出す
         body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
-        self.assertEqual(config.load(write(self.d, "c.toml", "reset_soon_hours = 6.5\n" + body), env={}).reset_soon_hours, 6.5)
-        for bad in ('"24"', "-1", "true"):
-            with self.assertRaises(config.ConfigError) as e:
-                config.load(write(self.d, "c.toml", f"reset_soon_hours = {bad}\n" + body), env={})
-            self.assertIn("reset_soon_hours", str(e.exception))
+        cfg = config.load(write(self.d, "c.toml", "reset_soon_hours = 6.5\n" + body), env={})
+        self.assertFalse(hasattr(cfg, "reset_soon_hours"))
+        self.assertTrue(any("reset_soon_hours" in n for n in cfg.notes), cfg.notes)
 
     def test_move_early_values_are_read_and_checked(self):
         body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'

@@ -7,7 +7,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "command", "config_dir", "seven_day", "five_hour", "known", "eligible", "reason", "soon", "peak", "running"],
+        "required": ["name", "command", "config_dir", "seven_day", "five_hour", "known", "eligible", "reason", "score", "peak", "running"],
         "properties": {
           "name": {"type": "string"},
           "command": {"type": "string"},
@@ -23,7 +23,7 @@
           "eligible": {"type": "boolean"},
           "reason": {"type": ["string", "null"]},
           "eligible_at": {"type": ["integer", "null"]},
-          "soon": {"type": "boolean"},
+          "score": {"type": ["number", "null"], "minimum": 0},
           "peak": {"type": ["number", "null"]},
           "named_only": {"type": "boolean"},
           "named_ok": {"type": "boolean"},

@@ -205,7 +205,7 @@ def _once(a, ports, cwd, task, token):
     if not a.dry_run:
         ports.refresh_limits(cfg, metered)
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
-                           accounts.count_running(sessions_), cfg.reset_soon_hours, cfg.hours_margin_minutes)
+                           accounts.count_running(sessions_), margin_minutes=cfg.hours_margin_minutes)
     mine = next((r for r in ranked if r["name"] == old), None)
     # 名指しのときだけ使うアカウント（named_only）で動いている会話は、名指しで立ったので、上限と時間帯で外れていなければ使える
     usable = bool(mine and (mine["eligible"] or mine.get("named_ok")) and not mine.get("stale_over"))
@@ -474,7 +474,7 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
         ports.refresh_limits(cfg, metered)
     now = ports.now()
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, now,
-                           accounts.count_running(sessions_), cfg.reset_soon_hours, cfg.hours_margin_minutes)
+                           accounts.count_running(sessions_), margin_minutes=cfg.hours_margin_minutes)
     # 使用上限に当たる前の区切りで、空いているアカウントへ早めに移す（上限で移す --if-limited はターンの途中で切られ、そのターンの作業が消える）
     early = accounts.early(ranked, old, cfg.early_percent, cfg.early_reset_hours, now, attrs.get(wake.MOVE_TO), attrs.get(wake.MOVE_KEPT))
     if early and early["to"] is None and not a.dry_run:
