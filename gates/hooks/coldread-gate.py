@@ -5087,26 +5087,79 @@ def _still_stuck(stuck, text, premise=""):
     return [item for k, item in enumerate(stuck) if marks.get(str(k + 1)) != "fixed"], True
 
 
-def _branch_where(root, mb):
-    """(前の回の控えを分ける鍵, 文書を読む commit)。鍵は共通の .git の場所と、今のブランチの名前。ブランチに居ない HEAD(--land は版を
-    上げた一時の作業場で回す)は、HEAD から辿れて分かれ目(mb)から辿れないブランチが 1 本だけなら、そのブランチ(候補はその頭か、頭に
-    版上げの commit を足した物)。鍵が取れなければ None(前の回を使わず、分かれ目から読む)。文書を読む commit は、HEAD がそのブランチの頭より
-    先に居るとき(版上げの commit を足した一時の作業場)だけ頭の名前で、ほかは None(作業ツリーから読む)。"""
+# --land(works-dispatch)が check を回すときに渡す環境変数(works-dispatch/docs/specs/2026-10-26-land-batch-design.md の 5.3)。在れば推し量り
+# (_guess_where)より先に使う。束(複数のブランチを重ねて 1 回のゲートで入れる)では、HEAD から辿れるブランチの頭が乗った部署の変更を
+# 含まないので、推し量りでは乗った部署の文書をメインブランチと同じ字で読んで通してしまう
+LAND_TIP = "WORKS_LAND_TIP"         # 文書を読む commit(版上げの前の先頭)。HEAD の祖先でなければ 2 で止める
+LAND_KEY = "WORKS_LAND_KEY"         # 前の回の控えの鍵だけに使う字(束なら「束ね役のブランチ batch」で、実在のブランチの鍵とぶつからない)
+LAND_BRANCH = "WORKS_LAND_BRANCH"   # 読み手の呼び出しの記録の帰属を引く、実在のブランチ
+
+
+class WhereError(Exception):
+    """--land が渡した文書を読む commit を使えない(作業ツリーに黙って戻さず、branch-check を 2 で止める)。"""
+
+
+MARKETPLACE = ".claude-plugin/marketplace.json"
+
+
+def _bump_file(rel):
+    """版上げの commit(works-dispatch の bump.make)が書き換えるファイルか: 目録 .claude-plugin/marketplace.json と、各プラグインの
+    <フォルダ>/.claude-plugin/plugin.json と <フォルダ>/CHANGELOG.md。"""
+    return rel == MARKETPLACE or rel.endswith("/.claude-plugin/plugin.json") or rel.endswith("/CHANGELOG.md")
+
+
+def _branch_where(root, mb, env=None):
+    """(前の回の控えを分ける鍵, 文書を読む commit, 帰属を引くブランチ)。鍵は共通の .git の場所と、ブランチ(か --land が渡した鍵)の
+    名前で、取れなければ None(前の回を使わず、分かれ目から読む)。文書を読む commit が None なら作業ツリーから読む。--land の環境変数
+    (LAND_TIP・LAND_KEY・LAND_BRANCH)が 1 つでも在れば、それだけを使う。読む commit が HEAD の祖先でなければ WhereError。"""
+    env = os.environ if env is None else env
     common = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root)
     if not common:
-        return None, None
+        return None, None, None
+    common = common.decode("utf-8", "replace").strip()
+    if not any(env.get(k) for k in (LAND_TIP, LAND_KEY, LAND_BRANCH)):
+        name, tip = _guess_where(root, mb)
+        return ("%s\0%s" % (common, name) if name else None), tip, name
+    tip = env.get(LAND_TIP) or None
+    if tip:
+        got = _git(["rev-parse", "--verify", "-q", tip + "^{commit}"], root)
+        sha = got.decode("ascii", "replace").strip() if got else None
+        if not sha or _git(["merge-base", "--is-ancestor", sha, "HEAD"], root) is None:
+            raise WhereError("$%s の %s が HEAD の祖先でない(--land が渡した文書を読む commit を使えない)" % (LAND_TIP, tip))
+        head = _git(["rev-parse", "HEAD"], root)
+        tip = None if head and head.decode("ascii", "replace").strip() == sha else sha   # HEAD なら作業ツリーから(今までと同じ)
+    key = env.get(LAND_KEY) or None
+    return ("%s\0%s" % (common, key) if key else None), tip, env.get(LAND_BRANCH) or None
+
+
+def _guess_where(root, mb):
+    """環境変数の無いときの推し量り: (ブランチの名前, 文書を読む commit)。今のブランチの名前か、ブランチに居ない HEAD(--land は版を
+    上げた一時の作業場で回す)なら HEAD から辿れて分かれ目(mb)から辿れないブランチが 1 本だけのときのそのブランチ。取れなければ
+    (None, None)。ブランチに居ない HEAD は、そのブランチの頭と同じか、頭のちょうど 1 commit 先でその commit が目録を変え、版上げの変える
+    ファイル(_bump_file)だけを変えたときに限り、後者なら頭の名前を読む commit にする(版上げの commit が書き換える CHANGELOG.md を読まないため。
+    受付 9d73b4)。ほかの形(束で重ねた先頭など)は (None, None) で、作業ツリーから読む。commit の数だけで見ると、版上げの付かない束で
+    乗った部署が 1 commit だけのとき、その commit を版上げと取り違えて乗った部署の文書を読まずに通す。"""
     name = _git(["symbolic-ref", "-q", "--short", "HEAD"], root)
-    detached = name is None
-    if detached:
-        name = _git(["for-each-ref", "--format=%(refname:short)", "--merged", "HEAD", "--no-merged", mb, "refs/heads/"], root)
+    if name is not None:
+        names = name.decode("utf-8", "replace").split()
+        return (names[0], None) if len(names) == 1 else (None, None)
+    name = _git(["for-each-ref", "--format=%(refname:short)", "--merged", "HEAD", "--no-merged", mb, "refs/heads/"], root)
     names = name.decode("utf-8", "replace").split() if name else []
     if len(names) != 1:
         return None, None
-    tip = None
-    if detached:
-        heads = _git(["rev-parse", "HEAD", names[0]], root)
-        tip = names[0] if heads and len(set(heads.split())) == 2 else None
-    return "%s\0%s" % (common.decode("utf-8", "replace").strip(), names[0]), tip
+    heads = _git(["rev-parse", "HEAD", names[0]], root)
+    heads = heads.decode("ascii", "replace").split() if heads else []
+    if len(heads) != 2:
+        return None, None
+    if heads[0] == heads[1]:
+        return names[0], None
+    parent = _git(["rev-parse", "-q", "--verify", "HEAD^"], root)
+    if not parent or parent.decode("ascii", "replace").strip() != heads[1]:
+        return None, None
+    changed = _git(["diff", "--name-only", "-z", "--no-renames", "HEAD^", "HEAD", "--"], root)
+    rels = [r for r in (changed or b"").decode("utf-8", "replace").split("\0") if r]
+    return (names[0], names[0]) if changed is not None and MARKETPLACE in rels and all(_bump_file(r) for r in rels) \
+        else (None, None)
 
 
 def _tip_text(root, tip, rel):
@@ -5238,8 +5291,12 @@ def branch_check(argv):
         print("coldread branch-check: %s との分かれ目が取れない(--base <メインブランチの ref> で渡す)" % base)
         return 2
     mb, docs = got
-    where, tip = _branch_where(root, mb)
-    READER_SOURCE.update(reader_source(cwd=root, branch=where.split("\0", 1)[1] if where else None))
+    try:
+        where, tip, branch = _branch_where(root, mb)
+    except WhereError as exc:
+        print("coldread branch-check: %s" % exc)
+        return 2
+    READER_SOURCE.update(reader_source(cwd=root, branch=branch))
     generated = _generated([full for _, full in docs]) if docs else set()
     moved = _moved_lines(root, mb) if docs else set()
     picked, unread = [], []

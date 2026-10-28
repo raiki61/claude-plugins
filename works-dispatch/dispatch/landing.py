@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import types
 
 from ports import chat, term
 import config
@@ -44,11 +45,17 @@ FAILED = "failed"   # 代表の clone のメインブランチをそろえる gi
 LAGS = ("dirty", "local_only", FAILED)   # 代表の clone のメインブランチが遅れたまま残り、窓口に知らせる形
 
 
-def run_check(command, cwd):
-    """手元の検証のコマンドを cwd で回す。(終わりの値, 出力)。"""
+def run_check(command, cwd, env=None):
+    """手元の検証のコマンドを cwd で回す。env は今の環境に足す変数（land_env）。(終わりの値, 出力)。"""
     p = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       env=deliver.child_env())
+                       env={**deliver.child_env(), **(env or {})})
     return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
+def land_env(tip, key, branch):
+    """手元の検証に渡す環境変数（束の設計 5.3）。初見の読み手のゲート（gates の branch-check）が、推し量りより先に使う。
+    tip は文書を読む commit（版上げの前の先頭）、key は前の回の控えの鍵、branch は読み手の記録の帰属を引く部署のブランチ。"""
+    return {"WORKS_LAND_TIP": tip, "WORKS_LAND_KEY": key, "WORKS_LAND_BRANCH": branch}
 
 
 def _ask(ports, place, text):
@@ -184,42 +191,15 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
         print(stop)
         return 1
 
-    candidate, stage, where = head, None, path
+    run = types.SimpleNamespace(
+        cfg=cfg, repo=repo, ports=ports, rows=rows, reasons=reasons, found=found, place=place, attrs=attrs, name=attrs.get("name") or name,
+        branch=branch, path=path, source=source, info=info, rules=rules, main=main, env=env, pause=pause, today=today, checker=checker,
+        after=after, hold=hold,
+        again=lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold))
+    stage = tempfile.mkdtemp(prefix="dispatch-land-") if rules["bump"] else None
     try:
-        if rules["bump"]:
-            stage = tempfile.mkdtemp(prefix="dispatch-land-")
-            land.stage(source, stage, head, g)
-            where = stage
-            got = bump.make(stage, today or datetime.date.today().isoformat(), g)
-            if got["sha"]:
-                candidate = got["sha"]
-                print(f"版を上げた: {got['subject']}（commit {candidate[:7]}）")
-                for r in got["rows"]:
-                    if r.get("why"):
-                        print(f"注記: {r['name']} は{r['why']}")
-            else:
-                print("版の据え置きは無い（版を上げる commit は作らない）")
-        if rules["gate"] == land.GATE_CHECK:
-            before = g.untracked(where)
-            code, said = checker(rules["check"], where)
-            if where == path:
-                _sweep(where, g.untracked(where) - before)
-            verdict = {"result": "green" if code == 0 else "red"}
-            label = f"手元の検証 {rules['check']}"
-            points = said.splitlines()[-land.FAIL_LINES:]
-        else:
-            ref = land.gate_branch(rules["gate"], attrs.get("name") or name, branch)
-            if ref in (main, branch):
-                raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
-            if not land.ci_on(where, rules["gate"]):
-                raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
-                                 f"{rules['gate'].split('*', 1)[0]} を書いていない）")
-            land.publish(path, candidate, ref, g)   # push は部署の作業場から（下の advance と同じ訳）
-            print(f"ゲートに出した: {ref}（commit {candidate[:7]}）")
-            verdict = land.wait_gate(repo.repo, ref, candidate, ports.gh, env, pause)
-            label = f"CI {ref}" + (f" {verdict['run'].get('url')}" if verdict.get("run") else "")
-            points = ports.gh.run_failure(repo.repo, verdict["run"]["id"], land.FAIL_LINES, env=env) \
-                if verdict["result"] == "red" else []
+        candidate = _bump(run, head, stage) if stage else head
+        verdict, label, points, ref = _gate(run, head, candidate, stage or path)
     except (gitx.GitError, ghx.GhError, bump.BumpError, OSError, ValueError) as e:
         print(f"止めた: {e}")
         return 1
@@ -234,56 +214,111 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
     if verdict["result"] == "red":
         print(_ask(ports, place, land.red_text(branch, label, points)))
         return 1
+    code = _publish(run, candidate)
+    return _finish(run, candidate, ref) if code is None else code
+
+
+def _bump(run, head, stage):
+    """版上げの段: 一時の場所 stage を head で作り、その上に版を上げる commit を作る。候補の commit を返す（据え置きが無ければ head）。"""
+    g = run.ports.git
+    land.stage(run.source, stage, head, g)
+    got = bump.make(stage, run.today or datetime.date.today().isoformat(), g)
+    if not got["sha"]:
+        print("版の据え置きは無い（版を上げる commit は作らない）")
+        return head
+    print(f"版を上げた: {got['subject']}（commit {got['sha'][:7]}）")
+    for r in got["rows"]:
+        if r.get("why"):
+            print(f"注記: {r['name']} は{r['why']}")
+    return got["sha"]
+
+
+def _gate(run, head, candidate, where):
+    """ゲートの段: 候補 candidate を、手元の検証なら場所 where で回し、CI のブランチの形ならゲートのブランチに出して run を待つ。
+    (結末, ゲートの名前, 失敗の要点, ゲートのブランチ〔手元の検証なら None〕)。手元の検証には、初見の読み手のゲート（gates の branch-check）が
+    文書を読む commit（版上げの前の head）と前の回の控えの鍵と帰属を引くブランチを、環境変数で渡す（束の設計 5.3）。"""
+    g, rules = run.ports.git, run.rules
+    if rules["gate"] == land.GATE_CHECK:
+        before = g.untracked(where)
+        code, said = run.checker(rules["check"], where, land_env(head, run.branch, run.branch))
+        if where == run.path:
+            _sweep(where, g.untracked(where) - before)
+        return ({"result": "green" if code == 0 else "red"}, f"手元の検証 {rules['check']}",
+                said.splitlines()[-land.FAIL_LINES:], None)
+    ref = land.gate_branch(rules["gate"], run.name, run.branch)
+    if ref in (run.main, run.branch):
+        raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
+    if not land.ci_on(where, rules["gate"]):
+        raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
+                         f"{rules['gate'].split('*', 1)[0]} を書いていない）")
+    land.publish(run.path, candidate, ref, g)   # push は部署の作業場から（下の advance と同じ訳）
+    print(f"ゲートに出した: {ref}（commit {candidate[:7]}）")
+    verdict = land.wait_gate(run.repo.repo, ref, candidate, run.ports.gh, run.env, run.pause)
+    label = f"CI {ref}" + (f" {verdict['run'].get('url')}" if verdict.get("run") else "")
+    points = run.ports.gh.run_failure(run.repo.repo, verdict["run"]["id"], land.FAIL_LINES, env=run.env) \
+        if verdict["result"] == "red" else []
+    return verdict, label, points, ref
+
+
+def _publish(run, candidate):
+    """出す段: メインブランチを取り直し、まだ候補の祖先ならメインブランチを候補へ fast-forward して push する。push したら None。
+    メインブランチが先に進んでいれば、部署の場所でリベースしてゲートから回し直した終わりの値（リベースできなければ 1）、止まれば 1。"""
+    g, source, main = run.ports.git, run.source, run.main
+    rebase = lambda base: run.again() if _rebase_here(run.ports, run.place, run.path, run.branch, base, main, run.rules) else 1
     try:
         base = land.refresh(source, main, g)
     except gitx.GitError as e:
         print(f"止めた: メインブランチを取り直せない（{e}）")
         return 1
-    again = lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold)
     if not g.is_ancestor(source, base, candidate):
         # ゲートを回す間にメインブランチが先に進んだ: リベースできれば、リベースしたブランチでゲートから回し直す
-        return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
+        return rebase(base)
     try:
         # push は部署の作業場から打つ。push の前のゲート（core.hooksPath の相対の .githooks など）は git を打った作業場の物が走るので、
         # 代表の clone が遅れていると古いゲートが走り、メインブランチの今の決まりで通るはずの push を止めた（2026-10-17 の my_notes。5d75df）
-        land.advance(path, main, candidate, g)
+        land.advance(run.path, main, candidate, g)
     except gitx.GitError as e:
         # 断られた訳を、メインブランチを取り直して分ける: 先に進んでいればリベースを頼み、そうでなければ（ブランチの保護・認証など）止める
         try:
             moved = not g.is_ancestor(source, land.refresh(source, main, g), candidate)
         except gitx.GitError:
             moved = False
-        if moved:
-            try:
-                base = land.refresh(source, main, g)
-            except gitx.GitError as e2:
-                print(f"止めた: メインブランチを取り直せない（{e2}）")
-                return 1
-            return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
-        else:
+        if not moved:
             print(f"止めた: メインブランチ {main} への push が断られた（{e}）")
-        return 1
-    hold.drop()   # push し終えたので、列の次の処理に順番を渡す（代表の clone のそろえ・合図・片付けは順番の外で）
+            return 1
+        try:
+            base = land.refresh(source, main, g)
+        except gitx.GitError as e2:
+            print(f"止めた: メインブランチを取り直せない（{e2}）")
+            return 1
+        return rebase(base)
+    return None
+
+
+def _finish(run, candidate, ref):
+    """後始末の段（push し終えた後）: 列の順番を渡し、代表の clone をそろえ、合図を打ち、company.base を進め、ゲートのブランチを消し、片付ける。"""
+    g, source, main = run.ports.git, run.source, run.main
+    run.hold.drop()   # push し終えたので、列の次の処理に順番を渡す（代表の clone のそろえ・合図・片付けは順番の外で）
     _, local, err, notes = _follow(source, main, g, candidate)
     for n in notes:
         print(n)
     print(f"メインブランチ {main} を {candidate[:7]} へ fast-forward して push した（手元の {main}: {local if err is None else f'そろえられなかった: {err}'}）")
     if local in LAGS:
-        print(_tell_desk(source, info, main, candidate, local, g, err))
-    if after and rules["after"]:
-        for line in after(rules["after"], source, attrs):
+        print(_tell_desk(source, run.info, main, candidate, local, g, err))
+    if run.after and run.rules["after"]:
+        for line in run.after(run.rules["after"], source, run.attrs):
             print(line)
     try:
         # この部署がメインブランチを知った位置を、入れた後のメインブランチに進める（次の --land のゲートは、ここより後にほかの部署が入れた行を見る）
-        provision.mark(path, source, {"base": candidate}, g)
+        provision.mark(run.path, source, {"base": candidate}, g)
     except (gitx.GitError, OSError) as e:
         print(f"注記: メインブランチを知った位置（company.base）を書けなかった（{e}）。次の --land の書き換えのゲートは前の位置で見る")
-    if rules["gate"] != land.GATE_CHECK:
+    if ref:
         try:
             land.drop_gate(source, ref, g)
         except gitx.GitError as e:
             print(f"注記: ゲートのブランチ {ref} を消せなかった（{e}）")
-    return _tidy(cfg, repo, ports, found, path, rows, reasons, candidate)
+    return _tidy(run.cfg, run.repo, run.ports, run.found, run.path, run.rows, run.reasons, candidate)
 
 
 def catch_up(source, info, main, g):

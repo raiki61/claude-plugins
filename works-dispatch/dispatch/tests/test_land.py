@@ -334,6 +334,43 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(ports.term.prompts, [])
         self.assertEqual(w.origin("main"), before)
 
+    def test_refused_push_because_main_moved_rebases_and_runs_the_gate_again(self):
+        w = FakeWorld(self.tmp, CI_FILES)
+        w.work()
+        ports = FakePorts(w)
+        real, refused = w.g.push, []
+
+        def push(cwd, sha, ref, force=False):
+            if ref == "main" and not refused:
+                refused.append(1)
+                w.move_main()   # ほかの処理が先に push した
+                raise gitx.GitError("rejected (fetch first)")
+            return real(cwd, sha, ref, force)
+        with mock.patch.object(w.g, "push", push):
+            code, out = self.land(w, ports)
+        self.assertEqual(code, 0, out)
+        self.assertIn("リベースしたブランチで、ゲートから回し直す", out)
+        self.assertEqual(w.log(2), ["部署の作業", "ほかの部署"])
+        self.assertEqual(ports.term.prompts, [])
+
+    def test_the_after_signal_is_called_once_after_the_push_with_the_department_attrs(self):
+        rules = CI_RULES + '[[land.after]]\nrole = "r"\ntool = "t"\n'
+        w = FakeWorld(self.tmp, {**CI_FILES, ".claude/company.toml": rules})
+        head = w.work()
+        calls = []
+
+        def after(items, source, attrs, **kw):
+            calls.append((items, source, attrs.get("name"), w.origin("main"), kw))
+            return ["合図の行"]
+        repo = Repo("o/r", "", w.source, (), None, None)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = landing.main(None, repo, "a", FakePorts(w), no_rows, {"persistent": "-"}, self.config, pause=lambda: None,
+                                after=after)
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(calls, [([{"role": "r", "tool": "t", "input": {}}], w.source, "a", head, {})])
+        self.assertIn("合図の行", out.getvalue())
+
     def test_failure_after_the_push_still_finishes_the_landing(self):
         w = FakeWorld(self.tmp, CI_FILES)
         head = w.work()
@@ -729,7 +766,7 @@ class OverwriteGate(LandCase):
         before = w.origin("main")
         w.work("calc.py", "def add():\n    pass\ndef sub():\n    pass\n")   # 前に読んだ中身で書き直し、div を消した
         ports = self.ports(w)
-        code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
+        code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
         [(_, text)] = ports.term.prompts
@@ -741,7 +778,7 @@ class OverwriteGate(LandCase):
     def test_keep_removal_lands_on_purpose(self):
         w = self.world()
         head = w.work("calc.py", "def add():\n    pass\n")
-        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd: (0, ""), keep_removal=True)
+        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd, env=None: (0, ""), keep_removal=True)
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
         self.assertIn("--keep-removal で通す", out)
@@ -749,7 +786,7 @@ class OverwriteGate(LandCase):
     def test_keeping_the_lines_passes_and_moves_the_known_position(self):
         w = self.world()
         head = w.work("calc.py", "def add():\n    pass\ndef div():\n    pass\ndef sub():\n    pass\n")
-        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd: (0, ""))
+        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 0, out)
         self.assertIn("書き換えの取り合いのゲート: 通った", out)
         self.assertEqual(gitx.worktree_attrs(w.dept).get("base"), head, "入れた後のメインブランチを、次のゲートの位置にする")
@@ -760,7 +797,7 @@ class OverwriteGate(LandCase):
         w.g.fetch(w.dept, "main")
         w.g.local["feat/a"] = w.g.rev(w.dept, "origin/main")   # 担当がメインブランチの先頭からブランチを切った
         head = w.work("calc.py", "def add():\n    pass\n")
-        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd: (0, ""))
+        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
         self.assertIn("メインブランチを知った位置（company.base）の記録が無い", out)
@@ -802,7 +839,7 @@ class OverwriteGateRenames(LandCase):
         git("-C", w.dept, "mv", "calc.py", "math.py")   # 部署がブランチで名前を替えた
         commit(w.dept, "calc.py を math.py にする")
         self.add_div_on_main(w)   # その間に、ほかの部署が古い名前へ行を入れた
-        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd: (0, ""))
+        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 0, out)
         self.assertIn("書き換えの取り合いのゲート: 通った", out)
         landed = git("--git-dir", w.remote, "show", "refs/heads/main:math.py")
@@ -818,7 +855,7 @@ class OverwriteGateRenames(LandCase):
         w.work("math.py", self.BODY)   # 名前を替え、前に読んだ中身で書き直して div を消した
         self.assertIn("rename from calc.py", gitx.diff_zero(w.dept, before, "HEAD"), "名前の付け替えとして読む形で試す")
         ports = self.ports(w)
-        code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
+        code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
         [(_, text)] = ports.term.prompts
@@ -839,7 +876,7 @@ class OverwriteGateRenames(LandCase):
         before = w.origin("main")
         w.work("math.py", self.BODY.replace("def f0():", "def g0():"))   # f0 を書き換え、前に読んだ中身で div を消した
         ports = self.ports(w)
-        code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
+        code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
         [(_, text)] = ports.term.prompts
@@ -884,17 +921,21 @@ class OtherModes(LandCase):
         w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
         head = w.work()
         ran = []
-        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd: ran.append((cmd, cwd)) or (0, "ok"))
+        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd, env=None: ran.append((cmd, cwd, env)) or (0, "ok"))
         self.assertEqual(code, 0, out)
-        self.assertEqual(ran, [("tools/check", w.dept)])
+        self.assertEqual(ran, [("tools/check", w.dept, landing.land_env(head, "feat/a", "feat/a"))])
         self.assertEqual(w.origin("main"), head)
+
+    def test_run_check_adds_the_given_variables_to_the_environment(self):
+        command = f'"{sys.executable}" -c "import os; print(os.environ[\'WORKS_LAND_KEY\'], os.environ[\'PYTHONIOENCODING\'], end=\'\')"'
+        self.assertEqual(landing.run_check(command, self.tmp, {"WORKS_LAND_KEY": "k"}), (0, "k utf-8"))
 
     def test_local_check_red(self):
         w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
         before = w.origin("main")
         w.work()
         ports = FakePorts(w)
-        code, out = self.land(w, ports, checker=lambda cmd, cwd: (1, "line1\n壊れた\n"))
+        code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (1, "line1\n壊れた\n"))
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), before)
         self.assertIn("壊れた", ports.term.prompts[0][1])
@@ -906,7 +947,7 @@ class OtherModes(LandCase):
         cache = pathlib.Path(w.dept, "src", "__pycache__")
         cache.mkdir(parents=True)
         (cache / "calc.cpython-314.pyc").write_bytes(b"x")
-        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: (0, "ok"))
+        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd, env=None: (0, "ok"))
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
 
@@ -936,12 +977,15 @@ class BumpAtLand(LandCase):
         head = commit(w.dept, "one を直す")
         seen = []
 
-        def checker(cmd, cwd):
+        def checker(cmd, cwd, env=None):
             seen.append(json.loads(pathlib.Path(cwd, "one/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"])
+            seen.append(env)
             return 0, ""
         code, out = self.land(w, Ports(w), checker=checker)
         self.assertEqual(code, 0, out)
-        self.assertEqual(seen, ["0.2.0"], "ゲートが版を上げた後の木を見ていない")
+        self.assertEqual(seen[0], "0.2.0", "ゲートが版を上げた後の木を見ていない")
+        # 初見の読み手のゲートが文書を読むのは版上げの前の部署の先頭（束の設計 5.3）
+        self.assertEqual(seen[1], {"WORKS_LAND_TIP": head, "WORKS_LAND_KEY": "feat/a", "WORKS_LAND_BRANCH": "feat/a"})
         landed = w.origin("main")
         self.assertEqual(git("--git-dir", w.remote, "rev-parse", f"{landed}^"), head)
         self.assertEqual(git("--git-dir", w.remote, "log", "-1", "--format=%s", landed),
@@ -1015,7 +1059,7 @@ class BumpAtLand(LandCase):
         write(os.path.join(w.dept, "one", "CHANGELOG.md"), CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n"))
         commit(w.dept, "one を直す（記録は見出しだけ）")
         ran = []
-        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: ran.append(cmd) or (0, ""))
+        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd, env=None: ran.append(cmd) or (0, ""))
         self.assertEqual(code, 1, out)
         self.assertIn("one（one/CHANGELOG.md）", out)
         self.assertEqual(ran, [], "版を上げられないのにゲートを回した")
@@ -1081,7 +1125,7 @@ class DryRun(LandCase):
         w.work()
         before = w.g.snapshot()
         ran = []
-        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd: ran.append(cmd) or (0, ""), dry_run=True)
+        code, out = self.land(w, FakePorts(w), checker=lambda cmd, cwd, env=None: ran.append(cmd) or (0, ""), dry_run=True)
         self.assertEqual(code, 0, out)
         self.assertEqual(ran, [])
         self.assertIn("手元の検証 tools/check", out)
@@ -1226,7 +1270,7 @@ class Queue(LandCase):
             real_advance(path, main, sha, g)
             note("push")
 
-        def checker(command, cwd):
+        def checker(command, cwd, env=None):
             if threading.current_thread().name == "a":
                 note("gate")
                 gate_a.wait()
@@ -1422,7 +1466,7 @@ class QueueRun(LandCase):
             real_advance(path, main, sha, g)
             note("push")
 
-        def checker(command, cwd):
+        def checker(command, cwd, env=None):
             note("gate")
             if first == "land":
                 hold.wait()

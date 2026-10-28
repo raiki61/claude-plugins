@@ -2422,7 +2422,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=795
+EXPECTED_CHECKS=796
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -3976,7 +3976,8 @@ READER = ('R() { "$CR_PY" "$CR_REPLY_PY" "$@"; }; '
           'elif grep -q 印GUESS "$f"; then R "guess=印GUESS を推測で読んだ"; else R; fi') % calls.as_posix()
 
 def check(reader=READER, *args):
-    e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR"))}
+    # --land のゲートの中で回ると、--land が渡す環境変数(WORKS_LAND_*)を継いで、この試験の木に無い commit を読もうとする
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR", "WORKS_LAND_"))}
     e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=reader)
     r = subprocess.run([sys.executable, str(gate), "branch-check", *args], cwd=str(repo), capture_output=True, env=e, timeout=120)
     return r.returncode, r.stdout.decode("utf-8")
@@ -4212,16 +4213,23 @@ rc, out = check()
 assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 問い直して fixed。字が同じなので読み直さない
 rc, out = check()
 assert rc == 0 and "新しく読んだ 0 本" in out and len(prompts()) == before + 1, (rc, out)
+(repo / "p").mkdir()
+(repo / "p/CHANGELOG.md").write_text(doc(("V", "")), encoding="utf-8")
+git("add", "p/CHANGELOG.md")
+git("commit", "-q", "-m", "changelog")
+rc, out = check()
+assert rc == 0 and len(prompts()) == before + 2, (rc, len(prompts()) - before, out)
 git("switch", "-q", "--detach")
-(repo / "VERSION").write_text("1\n", encoding="utf-8")
-(repo / "inc.md").write_text((repo / "inc.md").read_text(encoding="utf-8").replace("## セクションY", "## セクションY 1"), encoding="utf-8")
-git("add", "VERSION", "inc.md")
+(repo / ".claude-plugin").mkdir()
+(repo / ".claude-plugin/marketplace.json").write_text('{"metadata": {"version": "1"}}\n', encoding="utf-8")
+(repo / "p/CHANGELOG.md").write_text((repo / "p/CHANGELOG.md").read_text(encoding="utf-8").replace("## セクションV", "## セクションV 1"), encoding="utf-8")
+git("add", ".claude-plugin/marketplace.json", "p/CHANGELOG.md")
 git("commit", "-q", "-m", "bump")
 rc, out = check()
-assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 版上げの commit を足した候補でも feat の前の回を使い、版上げで動いた見出しは読まない
+assert rc == 0 and len(prompts()) == before + 2, (rc, len(prompts()) - before, out)   # 版上げの commit を足した候補でも feat の前の回を使い、版上げで動いた見出しは読まない
 git("switch", "-q", "feat")
 rc, out = check()
-assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 一時の作業場の回はブランチの頭の版を控えたので、打ち直しても見出しだけを読ませない(受付 9d73b4)
+assert rc == 0 and len(prompts()) == before + 2, (rc, len(prompts()) - before, out)   # 一時の作業場の回はブランチの頭の版を控えたので、打ち直しても見出しだけを読ませない(受付 9d73b4)
 # スキルの別ファイルの詰まりは、前提の SKILL.md を直せば、別ファイルを読み直さずに今の前提で問い直す
 (skill / "references/c.md").write_text("# 詰まる別ファイル\n\n" + lines("RC") + "印STUCK を足した。\n", encoding="utf-8")
 git("add", ".")
@@ -4270,6 +4278,85 @@ git("switch", "-q", "-c", "other")
 rc, out = check()
 assert rc == 0 and any("印X の 0 行目" in p and "印Z の 39 行目" in p for p in prompts()[before:]), (rc, out)
 print("DOCS_BRANCH_OK")
+PY
+# --land の束(works-dispatch/docs/specs/2026-10-26-land-batch-design.md の 5.3): ブランチに居ない HEAD がブランチの頭のちょうど 1 commit 先で、
+# その commit が版上げの変えるファイルだけを変えたときに限り頭の字を読む。束で重ねた先頭(乗った部署の commit を写した物)を版上げと取り違えると、
+# 乗った部署だけが変えた文書をメインブランチと同じ字で読み、書き換えが無いと見て読まずに通していた。--land が渡す環境変数は推し量りより先に使う
+expect_output 0 "DOCS_BRANCH_LAND_OK" "coldread のブランチのゲート: 束で重ねた一時の場所では乗った部署の文書を作業ツリーから読み、--land の環境変数(読む commit・控えの鍵・帰属のブランチ)を推し量りより先に使い、読む commit が HEAD の祖先でなければ 2 で止める" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-branch-land" <<'PY'
+import json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls, repo, lead, stage = work / "cfg", work / "calls", work / "repo", work / "lead", work / "stage"
+calls.mkdir()
+repo.mkdir()
+# 読み手の差し替え: 依頼文を calls/ に残し、印STUCK が在れば詰まりを返す
+READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q 印STUCK "$f"; then "$CR_PY" "$CR_REPLY_PY" "stuck=印STUCK の語が分からない"; '
+          'else "$CR_PY" "$CR_REPLY_PY"; fi') % calls.as_posix()
+
+def git(*a, cwd=repo):
+    return subprocess.run(["git", "-C", str(cwd), *a], check=True, capture_output=True).stdout.decode("utf-8").strip()
+
+def check(**land):
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR", "WORKS_LAND_"))}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=READER, **land)
+    r = subprocess.run([sys.executable, str(gate), "branch-check"], cwd=str(stage), capture_output=True, env=e, timeout=120)
+    return r.returncode, r.stdout.decode("utf-8")
+
+def doc(mark, extra=""):
+    return "# 題\n\nこの文書は印T の設計を書く。\n\n## セクション\n\n" + "".join("印%s の %d 行目。\n" % (mark, i) for i in range(40)) + extra
+
+git("init", "-q", "-b", "main")
+git("config", "user.email", "t@example.com")
+git("config", "user.name", "t")
+git("config", "core.autocrlf", "false")
+git("config", "extensions.worktreeConfig", "true")
+(repo / "old.md").write_text(doc("O"), encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "base")
+git("update-ref", "refs/remotes/origin/main", "HEAD")
+git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+# 乗る部署のブランチ ride: メインブランチに前から在る old.md に詰まりを足す
+git("switch", "-q", "-c", "ride")
+(repo / "old.md").write_text(doc("O", "印STUCK を足した。\n"), encoding="utf-8")
+git("commit", "-q", "-am", "ride")
+ride = git("rev-parse", "HEAD")
+git("switch", "-q", "main")
+# 束ね役の部署のブランチ lead は別の作業場(部署の名前 L)に乗り、詰まりの無い文書を足す
+git("worktree", "add", "-q", "-b", "lead", str(lead), "main")
+git("config", "--worktree", "company.name", "L", cwd=lead)
+(lead / "lead.md").write_text(doc("L"), encoding="utf-8")
+git("add", "lead.md", cwd=lead)
+git("commit", "-q", "-m", "lead", cwd=lead)
+# 一時の場所に束を重ねる: lead の頭の上に ride の commit を写す(写しは元と別の commit なので、ride は HEAD から辿れない)
+git("worktree", "add", "-q", "--detach", str(stage), "lead")
+git("cherry-pick", ride, cwd=stage)
+tip = git("rev-parse", "HEAD", cwd=stage)
+
+# 1) 頭の 1 commit 先でも、その commit が版上げの変えるファイルの外(old.md)を変えたなら作業ツリーから読み、乗った部署の詰まりで止める
+rc, out = check()
+assert rc == 1 and "old.md — 詰まり: 印STUCK" in out, (rc, out)
+# 2) 版上げの commit を足して頭の 2 commit 先になっても作業ツリーから読む
+(stage / ".claude-plugin").mkdir()
+(stage / ".claude-plugin/marketplace.json").write_text('{"metadata": {"version": "1"}}\n', encoding="utf-8")
+git("add", ".claude-plugin/marketplace.json", cwd=stage)
+git("commit", "-q", "-m", "bump", cwd=stage)
+rc, out = check()
+assert rc == 1 and "old.md — 詰まり: 印STUCK" in out, (rc, out)
+# 3) --land の環境変数が在れば推し量りより先に使う: 版上げの前の先頭の字を読み、帰属は渡したブランチ(lead)の作業場の部署
+usage = cfg / "coldread-gate" / "reader-usage.jsonl"
+rc, out = check(WORKS_LAND_TIP=tip, WORKS_LAND_KEY="lead batch", WORKS_LAND_BRANCH="lead")
+assert rc == 1 and "old.md — 詰まり: 印STUCK" in out, (rc, out)
+last = json.loads(usage.read_text(encoding="utf-8").strip().splitlines()[-1])
+assert last.get("department") == "L", last
+# 4) 読む commit が HEAD の祖先でなければ(写す前の ride の commit)、作業ツリーに黙って戻さず 2 で止める
+rc, out = check(WORKS_LAND_TIP=ride, WORKS_LAND_KEY="lead batch", WORKS_LAND_BRANCH="lead")
+assert rc == 2 and "WORKS_LAND_TIP" in out, (rc, out)
+print("DOCS_BRANCH_LAND_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。
 # 2026-10-16 に、scratchpad(/private/tmp/claude-<uid>/…)と /private/tmp の写しを読み、毎回「直さずに残す」で終わる指摘を出した。

@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `--land` が、会社の形（`.claude/company.toml`）の `[land]` に書いた検証のコマンド `check` を回すとき、環境変数を 3 つ足して渡すようにした。`WORKS_LAND_TIP` は文書を読む commit（版を上げる前の部署のブランチの先頭）、`WORKS_LAND_KEY` は前の回の控えの鍵（前の回に読んだ文書を残した控えを引く字）、`WORKS_LAND_BRANCH` は読み手の呼び出しの記録を部署と頼みに結ぶための、部署のブランチの名前。今は KEY と BRANCH のどちらにも部署のブランチの名前を渡す。gates の初見の読み手のゲート（`check` の中の `branch-check`）が、この 3 つを HEAD から推し量らずに受け取る。複数のブランチを 1 回のゲートで入れる形（束。`docs/specs/2026-10-26-land-batch-design.md`）の下ごしらえで、`--land` の振る舞いはほかに変えていない。既存の `check` の書き直しは要らない（受付 20261027-225705-f5f08a は、この実装を部署に頼んだ記録）。
+
 ## [0.130.0] - 2026-10-28
 
 ### Changed

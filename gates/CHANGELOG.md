@@ -6,6 +6,14 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Fixed
+
+- メインブランチに入れる前のゲート（`branch-check`）が、ブランチに乗らない HEAD（works-dispatch の `--land` が `check` を回す一時の場所）で、文書をブランチの頭（ブランチの先頭の commit）の字で読むのを、HEAD がその頭のちょうど 1 commit 先で、その commit が目録（ルートの `.claude-plugin/marketplace.json`）を変え、版上げの書き換えるファイル（目録・各プラグインのフォルダの `.claude-plugin/plugin.json` と `CHANGELOG.md`）だけを変えたときに限った。ほかの形では作業ツリーから読み、前の回の控えも使わない。今の `--land` の候補（ゲートに出す commit）は、1 本ずつ入れる今の道ではいつも「頭か、頭に版上げの commit を足した物」なので、ゲートの合否は変わらない。直したのは、works-dispatch の `--land` がほかの部署の commit を同じ一時の場所に重ねて 1 回のゲートで入れる形（束。works-dispatch/docs/specs/2026-10-26-land-batch-design.md）で、重ねた部署だけが変えた文書がメインブランチと同じ字で読まれ、書き換えが無いと見えて読まれずに通る穴（受付 20261027-225705-f5f08a は、この直しを部署に頼んだ記録）。利用者がする事は無い。
+
+### Added
+
+- `branch-check` が、works-dispatch の `--land` の渡す環境変数を、HEAD からの推し量りより先に使うようにした。`WORKS_LAND_TIP` は文書を読む commit（版上げの前の先頭）で、HEAD の祖先でなければ作業ツリーから読み直さずに終わりの値 2 で止める。`WORKS_LAND_KEY` は前の回の控え（前の回に読んだ文書を残した物）を引く鍵だけに使う。`WORKS_LAND_BRANCH` は AI の読み手（文書を初見で読ませる検査）の呼び出しの記録（`reader-usage.jsonl`）を、どの部署のどの頼みの費用として数えるかを引く、部署の git ブランチの名前。3 つのどれかが在れば、HEAD からの推し量りより先にこの値を使う。環境変数は `--land` が渡すので、利用者がする事は無い。
+
 ## [0.44.4] - 2026-10-28
 
 ### Fixed
