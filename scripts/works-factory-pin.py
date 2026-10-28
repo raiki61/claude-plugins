@@ -359,11 +359,18 @@ def watch(stdin, runner, root, now, env, lander):
     return 1
 
 
-def changelog_line(old, new, numbers):
+SAME_STEPS = ("この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を "
+              "`scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。")   # 照合に当たりが無い上げの CHANGELOG の行の締め
+
+
+def changelog_line(old, new, numbers, face):
+    # 初見の読み手（main へ入れるゲートの coldread）が「工場」・PIN・利用者への効き目を推測で埋めないよう、行の中で言い切る
     got = "・".join(f"raiki61/works-factory#{n}" if i == 0 else f"#{n}" for i, n in enumerate(numbers))
-    return (f"- 工場の固定 commit（`works-factory/PIN`）を {new[:8]} に上げた。"
+    return (f"- 工場（ワークフローの本体の別リポジトリ {REPO}。殻 `bin/works-factory` が手元に clone して回す）の固定 commit"
+            f"（殻が clone する commit を書いた `works-factory/PIN`）を {old[:8]} から {new[:8]} に上げた。"
             + (f"取り込んだ PR は {got}。" if numbers else "")
-            + f"差分は https://github.com/{REPO}/compare/{old[:12]}...{new[:12]} 。")
+            + f"差分（前の固定 commit から今の固定 commit まで）は https://github.com/{REPO}/compare/{old[:12]}...{new[:12]} 。"
+            + ("" if face else SAME_STEPS))
 
 
 def add_changed(text, line):
@@ -384,10 +391,10 @@ def add_changed(text, line):
     return text[:body_from] + body + text[body_to:]
 
 
-def put(root, pin, to, commits):
-    """PIN を to に替え、CHANGELOG の [Unreleased] の Changed に上げの 1 行を足す。"""
+def put(root, pin, to, commits, face=()):
+    """PIN を to に替え、CHANGELOG の [Unreleased] の Changed に上げの 1 行を足す。照合の当たり（face）が無ければ、利用者の手順が変わらないと書く。"""
     log = root / PLUGIN / "CHANGELOG.md"
-    text = add_changed(log.read_text(encoding="utf-8"), changelog_line(pin, to, prs(commits)))   # 書く前に両方を組む（片方だけ書いて止まらない）
+    text = add_changed(log.read_text(encoding="utf-8"), changelog_line(pin, to, prs(commits), face))   # 書く前に両方を組む（片方だけ書いて止まらない）
     (root / PLUGIN / "PIN").write_text(to + "\n", encoding="utf-8")
     log.write_text(text, encoding="utf-8")
 
@@ -518,7 +525,7 @@ def write(argv, runner, root):
         cache = os.path.join(common_dir(runner, root), SOURCE)
         fetch(cache, url_of(), [pin, to], runner)
         face = surface(pin, to, cache, runner, root)
-        put(root, pin, to, commits)
+        put(root, pin, to, commits, face)
     except (RuntimeError, OSError) as e:
         print(f"止めた: {e}")
         return 1

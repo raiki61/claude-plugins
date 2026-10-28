@@ -261,11 +261,13 @@ def write():
     line = re.search(r"\A\n### Changed\n\n- [^\n]*`works-factory/PIN`[^\n]*" + shas[2][:8] + r"[^\n]*raiki61/works-factory#13[^\n]*/compare/"
                      + shas[1][:12] + r"\.\.\." + shas[2][:12] + r"[^\n]*\n\n\Z", unreleased)
     check(line is not None, f"Unreleased の Changed の行が違う: {unreleased}")
+    check(wp.SAME_STEPS in line.group(0) and wp.SAME_STEPS not in wp.changelog_line(shas[1], shas[2], [13], ["README.md"]),
+          f"照合の当たりの有無で利用者への効き目の文を出し分けない: {unreleased}")
     check(log.count("- old line") == 1 and "## [0.1.0] - 2026-10-01\n\n### Changed\n\n- old line" in log, f"前の版の記録を崩した: {log}")
     code, out = go(fake, root, argv=["--write"])
     check(code == 0 and (root / "works-factory" / "PIN").read_text() == shas[3] + "\n", f"省いた時に今の上げ先に替えない: {out}")
     log = (root / "works-factory" / "CHANGELOG.md").read_text(encoding="utf-8")
-    check(log.count("### Changed") == 2 and log.index(shas[3][:8]) < log.index(shas[2][:8]), f"既に在る Changed に足さない: {log}")
+    check(log.count("### Changed") == 2 and log.index(f"{shas[3][:8]} に上げた") < log.index(f"{shas[2][:8]} に上げた"), f"既に在る Changed に足さない: {log}")
     fake, root, shas, d = world(1, {2: ok()})
     for bad, want in ((shas[3], 1), (shas[0], 1), ("abc", 2)):
         code, out = go(fake, root, argv=["--write", bad])
@@ -375,7 +377,7 @@ def auto():
     check(code == 0 and "FAKE_LAND_PUSHED" in out and "#13" in out, f"照合に当たりの無い上げを機械で入れない: {code} {out}")
     check(git(origin, "show", "main:works-factory/PIN") == shas[2], f"origin の main の PIN が上げ先でない: {out}")
     log = git(origin, "show", "main:works-factory/CHANGELOG.md")
-    check(f"`works-factory/PIN`）を {shas[2][:8]} に上げた" in log and "raiki61/works-factory#13" in log, f"CHANGELOG に上げの行が無い: {log}")
+    check(f"`works-factory/PIN`）を {shas[1][:8]} から {shas[2][:8]} に上げた" in log and "raiki61/works-factory#13" in log, f"CHANGELOG に上げの行が無い: {log}")
     with open(record, encoding="utf-8") as f:
         said = f.read()
     check(f"--repo {source} --land {wp.BRANCH}{shas[2][:12]} {shas[2]}" in said, f"--land の引数か {wp.LANDING} が違う: {said}")
