@@ -47,7 +47,8 @@ class Handover(unittest.TestCase):
         self.gate = pathlib.Path(self.root).parent / "gate.py"   # 担当の納品の検査: 渡された JSON を gate.json に写して通す
         self.gate.write_text(f"import sys\nopen({str(self.gate.with_suffix('.json'))!r}, 'w').write(sys.stdin.read())\n",
                              encoding="utf-8")
-        shape.write_text(SHAPE.format(check=f"{sys.executable} {self.check}", gate=f"{sys.executable} {self.gate}"), encoding="utf-8")
+        py = pathlib.Path(sys.executable).as_posix()   # TOML の基本文字列に書くので / 区切り（Windows の \ は TOML の逃がしになる）
+        shape.write_text(SHAPE.format(check=f"{py} {self.check.as_posix()}", gate=f"{py} {self.gate.as_posix()}"), encoding="utf-8")
         self.place = self.g.add_worktree(str(pathlib.Path(self.root) / "office"), "work/office", "origin/main")
         provision.mark(self.src, self.src, {"role": "段取り", "lifecycle": "persistent", "account": "a1", "name": "段取り",
                                             "session": "s-desk"}, self.g)

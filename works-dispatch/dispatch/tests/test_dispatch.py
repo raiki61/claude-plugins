@@ -929,8 +929,9 @@ class Preflight(unittest.TestCase):
                                gh_ok=lambda repo, env=None: True)
         _, notes = ports.preflight(cfg)
         self.assertIn(f"どのアカウントも {cfg.repos[0].source} を信頼していない", "\n".join(notes))
-        # 画面で起動できない会話にも手を示す: 手で書く信頼の印の置き場と鍵（Claude Code の文書の形。works-factory の会社の受付 6ea42d）
-        self.assertIn(f'{cdirs[0] / ".claude.json"} の projects["{os.path.realpath(cfg.repos[0].source)}"].hasTrustDialogAccepted を true にする',
+        # 画面で起動できない会話にも手を示す: 手で書く信頼の印の置き場と鍵（Claude Code の文書の形。works-factory の会社の受付 6ea42d）。
+        # 置き場は設定の字に足した形のまま出す（Windows では / と \ が混じる）
+        self.assertIn(f'{os.path.join(cfg.accounts[0].config_dir, ".claude.json")} の projects["{os.path.realpath(cfg.repos[0].source)}"].hasTrustDialogAccepted を true にする',
                       "\n".join(notes))
         # どれか 1 つのアカウントが信頼していれば、ほかのアカウントには作業場を作るときに広げるので知らせない
         (cdirs[-1] / ".claude.json").write_text(json.dumps({"projects": {cfg.repos[0].source: {"hasTrustDialogAccepted": True}}}))

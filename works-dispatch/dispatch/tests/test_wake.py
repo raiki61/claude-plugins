@@ -2513,7 +2513,7 @@ class Hook(unittest.TestCase):
         self.assertEqual(wake.read_mark(self.inbox, place)["token"], token)   # 替わった先は、印がまだこの token なら続ける
         self.assertEqual([q["id"] for q in wake.queued(self.inbox, place)], ["a1"])   # 渡さずに替わった
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "hopped"]
-        self.assertEqual((row["to"], row["session"]), ("/c/works-dispatch/9.9.9", "s1"))
+        self.assertEqual((row["to"], row["session"]), (str(pathlib.Path("/c/works-dispatch/9.9.9")), "s1"))   # Windows は \ 区切り
 
     def test_an_older_waiter_hands_over_before_it_asks_the_keepalive(self):
         # 2026-10-24 に、前の版の待ち受けが keepalive を聞いてから替わり、替わった先が同じ判断を聞き直した（my_notes の受付 b527a1）
@@ -2524,7 +2524,7 @@ class Hook(unittest.TestCase):
         self.assertEqual((rc, asked), (2, []))   # 聞かずに替わった
         self.assertEqual(jumps, [(there, [], payload, None)])   # 印を渡さないので、替わった先がフックの入力を初めから扱う
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "hopped"]
-        self.assertEqual(row["to"], "/c/works-dispatch/9.9.9")
+        self.assertEqual(row["to"], str(pathlib.Path("/c/works-dispatch/9.9.9")))   # Windows は \ 区切り
 
     def test_a_waiter_that_hops_right_after_it_starts_hands_over_no_token(self):
         seen = []
@@ -2592,11 +2592,11 @@ class Hook(unittest.TestCase):
             (root / "installed_plugins.json").write_text(json.dumps({"plugins": {"works-dispatch@raiki61": [
                 {"scope": "user", "installPath": str(new.parent.parent.parent / version)}]}}), encoding="utf-8")
         record("0.2.0")
-        self.assertEqual(wake_hook.newer_self(mine), str(new))
-        self.assertIsNone(wake_hook.newer_self(new))
+        self.assertEqual(wake_hook.newer_self(mine, posix=True), str(new))   # 探し方は OS によらない（Windows の CI でも確かめる）
+        self.assertIsNone(wake_hook.newer_self(new, posix=True))
         # dispatch.py の乗り換えた先から起動した会話にも継がれる印では止めない
         with mock.patch.dict(os.environ, {"WORKS_DISPATCH_HOPPED": "1"}):
-            self.assertEqual(wake_hook.newer_self(mine), str(new))
+            self.assertEqual(wake_hook.newer_self(mine, posix=True), str(new))
         self.assertIsNone(wake_hook.newer_self(mine, posix=False))   # Windows は替わらない
         record("0.1.0")
         self.assertIsNone(wake_hook.newer_self(mine))

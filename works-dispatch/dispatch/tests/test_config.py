@@ -6,7 +6,9 @@ import os
 import pathlib
 import tempfile
 import unittest
+import zoneinfo
 from contextlib import redirect_stdout
+from unittest import mock
 
 from . import DISPATCH  # noqa: F401 — import の道を整える
 import config
@@ -129,8 +131,9 @@ class Load(unittest.TestCase):
     def test_hours_need_the_time_base_and_may_cross_midnight(self):
         # CheapestInference の Europe 枠（UTC 08:00〜16:00、日本時間 17:00〜翌 1:00）。受付 c66192
         self.assertEqual(config.parse_hours("08:00-16:00 UTC"), config.Hours(480, 480, "UTC", "08:00-16:00 UTC"))
-        self.assertEqual(config.parse_hours("17:00-25:00 Asia/Tokyo")[:3], (1020, 480, "Asia/Tokyo"))
-        self.assertEqual(config.parse_hours("17:00-01:00 Asia/Tokyo")[:3], (1020, 480, "Asia/Tokyo"))
+        if zoneinfo.available_timezones():   # 地域の表（tzdata）の無い機械〔Windows の CI など〕では、下の test_a_region_needs_the_table で見る
+            self.assertEqual(config.parse_hours("17:00-25:00 Asia/Tokyo")[:3], (1020, 480, "Asia/Tokyo"))
+            self.assertEqual(config.parse_hours("17:00-01:00 Asia/Tokyo")[:3], (1020, 480, "Asia/Tokyo"))
         self.assertEqual(config.parse_hours("00:00-24:00 UTC")[:2], (0, 1440))
         for bad, word in (("08:00-16:00", "時刻の基準"), ("8-16 UTC", "時刻の基準"), ("08:00-16:00 JST", "JST"), ("08:00-16:00 EST", "EST"),
                           ("08:00-16:00 Japan", "Japan"), ("08:00-16:00 asia/tokyo", "asia/tokyo"),
@@ -138,6 +141,14 @@ class Load(unittest.TestCase):
             got = config.parse_hours(bad)
             self.assertIsInstance(got, str, bad)
             self.assertIn(word, got, bad)
+
+    def test_a_region_needs_the_table(self):
+        # 地域の表（tzdata）の無い機械では、地域の名前を読まずに UTC で書けと言い、UTC は表を引かずに読む
+        with mock.patch.object(zoneinfo, "available_timezones", return_value=set()):
+            got = config.parse_hours("17:00-25:00 Asia/Tokyo")
+            self.assertIsInstance(got, str)
+            self.assertIn("tzdata", got)
+            self.assertEqual(config.parse_hours("08:00-16:00 UTC")[:3], (480, 480, "UTC"))
 
     def test_hours_and_the_margin_are_read_and_checked(self):
         repos = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'

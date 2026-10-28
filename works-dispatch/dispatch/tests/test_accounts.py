@@ -5,6 +5,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+import zoneinfo
 from contextlib import redirect_stderr, redirect_stdout
 
 from . import DISPATCH  # noqa: F401
@@ -354,7 +355,12 @@ class ReadLimits(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+# 下の 2 つは日本時間（Asia/Tokyo）の枠で見る。地域の表（tzdata）の無い機械〔Windows の CI など〕では読めないので見送る
+# （表の無いときの読みは test_config の test_a_region_needs_the_table、枠の決まりは表の有る機械で見る）
+NO_TABLE = "地域の表（tzdata）が無く、Asia/Tokyo を読めない"
 
+
+@unittest.skipUnless(zoneinfo.available_timezones(), NO_TABLE)
 class Hours(unittest.TestCase):
     """使える時間帯（設定の hours）。CheapestInference の Europe 枠（UTC 08:00〜16:00、日本時間 17:00〜翌 1:00）。受付 c66192。"""
 
@@ -422,6 +428,7 @@ class Hours(unittest.TestCase):
         self.assertEqual((got["to"], got["kind"]), ("p1", "hours"))   # 名指しが使えなくても、終わる手前ならほかへ移す
 
 
+@unittest.skipUnless(zoneinfo.available_timezones(), NO_TABLE)
 class Prefer(unittest.TestCase):
     """会社の形の役か受け持ちが名指したアカウント（accounts.prefer）。my_notes の受付 20261020-084411-d23053 の、写しの後始末を
     cheapest の使える時間帯の中は cheapest で回す形。"""

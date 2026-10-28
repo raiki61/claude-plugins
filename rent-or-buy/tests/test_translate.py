@@ -173,7 +173,7 @@ class TranslateTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             out = json.loads(r.stdout)
             self.assertIn(out["action"], ("rent", "buy"))
-            self.assertEqual(out["version"], json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["version"])
+            self.assertEqual(out["version"], json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"])
         r = subprocess.run([sys.executable, str(PLUGIN / "bin" / "rent-or-buy"), "prices", "no-such-model"],
                            capture_output=True, text=True, encoding="utf-8", env=self.env)
         self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (3, "unknown_model"))
