@@ -12,7 +12,8 @@ session）の記録のうち、期間の中の要求だけ。1 つの要求は�
 - 5 分を超えて 1 時間以内の要求どうしの間の数と、そのうち台帳に keepalive の行が無い間の数と、その間の後の要求のキャッシュの
   長さ（読み＋書き）の合計 Q。寿命が 5 分なら Q が書き直しになる。1 時間が得なのは Q > 0.625 × 1 時間の書き込み のとき
   （5 分にすると書き込みが 0.75 下がり、Q が 1.2 上がる）
-- 待ちの後の最初の要求のうち、書き込みが読みより多かった（キャッシュが切れて書き直した）回数
+- 待ちの後の最初の要求のうち、書き込みが読みより多かった（キャッシュが切れて書き直した）回数。compact の問いと compact の
+  keepalive の行（COMPACT_ROWS）の後は数えない
 - 台帳の keepalive の行の数（送った sent〔status の無い行〕と、送らなかった skipped と、そのほか）
 
 使い方: python3 docs/reform/cache-cost.py <始まり> <終わり>（どちらも 2026-10-24T20:00 の形の手元の時刻）
@@ -29,6 +30,8 @@ for _s in (sys.stdout, sys.stderr):
 
 LOG = os.path.expanduser("~/src/claude-plugins/.git/company/inbox/log.jsonl")
 PLACE = os.path.expanduser("~/.herdr/worktrees/claude-plugins/")
+# compact の問いと compact の行。その後の要求は要約から文脈を書き直すので、切れの書き直しに数えない（頼み 3ca5fe で外した）
+COMPACT_ROWS = ("asked", "answered", "compacted", "compact-failed")
 WEIGHT = {"w5": 1.25, "w1": 2.0, "r": 0.05}
 
 
@@ -64,12 +67,15 @@ def main(argv):
     for p in glob.glob(os.path.expanduser("~/.claude*/projects/*/*.jsonl")):
         paths.setdefault(os.path.basename(p)[:-6], []).append(p)
     waits = {}
+    cold_waits = {}
     keep = {"sent": 0, "skipped": 0, "other": 0}
     for r in rows:
         if r.get("kind") == "keepalive" and start <= r["at"] < end:
             status = r.get("status")
             keep["sent" if status is None else "skipped" if status == "skipped" else "other"] += 1
             waits.setdefault(r.get("session"), []).append(r["at"])
+            if status not in COMPACT_ROWS:
+                cold_waits.setdefault(r.get("session"), []).append(r["at"])
     n = 0
     tot = {"w5": 0, "w1": 0, "r": 0}
     cold = gaps = bare = q = 0
@@ -88,7 +94,7 @@ def main(argv):
                 if not any(reqs[i - 1][0] < w < at for w in waits.get(sid, [])):
                     bare += 1
                     q += u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
-        for w in waits.get(sid, []):
+        for w in cold_waits.get(sid, []):
             after = [u for at, u in reqs if at > w]
             if after and after[0].get("cache_creation_input_tokens", 0) > after[0].get("cache_read_input_tokens", 0):
                 cold += 1
