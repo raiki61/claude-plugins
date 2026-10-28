@@ -1,5 +1,5 @@
 ---
-description: 「最近どうだった？ 何を直せばいい？」への答え。ある期間（today・yesterday・week（今日を含む 7 日。既定）・month（今日を含む 30 日）・YYYY-MM-DD・YYYY-MM-DD..YYYY-MM-DD）の会話・裏で起動された会話・commit・GitHub の動き・/insights の控えから、改善の提案と、持ち主の仕事の仕方についての気づきとヒントを 1 枚の HTML に出す。日記の置き場（ATTENTION_REFLECT_DIARY_DIR）を決めていれば、1 日の期間のとき、その日の日記に振り返りのセクションを書く。前に却下した提案は出さない。提案を採る・却下する・保留するも、この会話で伝えれば台帳に書く。
+description: 「最近どうだった？ 何を直せばいい？」への答え。ある期間の会話・裏で起動された会話・commit・GitHub の動き・/insights の控えから、改善の提案と、持ち主の仕事の仕方についての気づきとヒントを 1 枚の HTML に出す。提案を採る・却下する・保留するも、この会話で伝えれば台帳に書く。
 allowed-tools: Bash, Read, Write
 ---
 
@@ -15,7 +15,7 @@ allowed-tools: Bash, Read, Write
 
 ## 振り返る
 
-1. `reflect.py <期間> --out` を走らせる。期間が無ければ `week`。1 行目に材料の JSON の path、2 行目に数（人の会話・発言・裏の会話・commit・GitHub の動きの件数）が出る。その JSON を Read で読む（`cat` で読まない。長ければ offset を進めて最後まで読む）。
+1. `reflect.py <期間> --out` を走らせる。期間は `today`・`yesterday`・`week`（今日を含む 7 日）・`month`（今日を含む 30 日）・`YYYY-MM-DD`・`YYYY-MM-DD..YYYY-MM-DD` のどれかで、無ければ `week`。1 行目に材料の JSON の path、2 行目に数（人の会話・発言・裏の会話・commit・GitHub の動きの件数）が出る。その JSON を Read で読む（`cat` で読まない。長ければ offset を進めて最後まで読む）。
 2. 足りない所だけ自分で確かめる。
    - 提案が既に有る物を作れと言わないよう、`assets` のプラグイン・コマンド・スキルと、`assets.instructions` の指示ファイルのうち関わるものを読む。
    - 提案のうち `count × minutes` の大きいもの（ページで上に並ぶもの）は、世間に既製品や公式の機能が無いかを当たる。有ればそれを `existing` に書き、`kind` を `adopt` にする。
