@@ -55,14 +55,18 @@ python3 dispatch/dispatch.py --rent-effect [--since 2026-10-24T00:00:00Z] [--unt
 
 ### compact
 
-基準の世界の文脈を、実際の文脈との差（delta）で、会話の頭から追う。
-- 実際だけが打った compact（部品の判断の物・基準の文脈が `COMPACT_FLOOR` 未満の区切り・基準では線にまだ着かない自動）は、delta に縮めた分（前 − 後）を足す。
+基準の世界の文脈を、実際の文脈との差（delta）で、会話の頭から追う。先に 2 つの大きさを記録から出す:
+- ターンの分（`turn_new`）: ターンの最初の本当の要求のうち、読めて、compact か /clear の直後でない物の新しい部分の、期間の内の中央値。ターンを始めた文と前の答えなど、どちらの世界でも書く分。
+- 書き直す大きさ（`rebuild`）: compact の後の最初の本当の要求の文脈 − ターンの分（その要求の新しい部分のほうが小さければ、そちら）の、読んだ会話の全部の実際の自動の compact の中央値（期間の外の行も使う。自動の compact が 1 つも無ければ compact の全部、それも無ければ要約の大きさ）。compact の後の最初の本当の要求は、要約のほかに、Claude Code が compact の後に足し直す物（指示ファイル・読んでいたファイル・スキルの一覧など）も書く。そのため、記録の compact の後の大きさ（要約）より大きい（10-24〜28 の中央値で、要約 約 1.2 万トークンに対して約 5 万トークン）。
+
+追い方:
+- 実際だけが打った compact（部品の判断の物・基準の文脈が `COMPACT_FLOOR` 未満の区切り・基準では線にまだ着かない自動）は、その後の最初の本当の要求で、基準の文脈を「前の文脈 + ターンの分」にする（delta = 基準の文脈 − その要求の実際の文脈）。間に本当の要求の無い 2 回目の compact は、基準の前の文脈と、寿命を測る起点（基準の世界で最後にキャッシュに触れた要求）を 1 回目の物のまま持ち、基準でも打つかもその基準の文脈で決める。
 - 両方で打つ compact（人の物・基準の文脈が `COMPACT_FLOOR` 以上の区切り・delta が 0 以上の自動）と /clear は、delta を 0 に戻す。
-- 基準の文脈（実際の文脈 + delta）が自動の compact の線に着いた本当の要求の前で、基準だけが自動の compact を打つ。その後の基準の文脈は、読んだ会話の全部の実際の自動の compact の後の文脈の中央値（期間の外の行も使う。自動の compact が 1 つも無ければ、読んだ会話の compact の全部の後の文脈の中央値）と、その要求の新しい部分にする。delta は負になりうる（早く縮めた世界は、次も早く縮める）。
+- 基準の文脈（実際の文脈 + delta）が自動の compact の線に着いた本当の要求の前で、基準だけが自動の compact を打つ。その後の基準の文脈は、書き直す大きさと、その要求の新しい部分（実際だけが縮めた直後の要求なら、ターンの分）にする。delta は負になりうる（早く縮めた世界は、次も早く縮める）。
 
 数える額:
-- 要約の見積もり（`summary`・`base_summary`）: 実際だけ・基準だけが打った compact ごとに、前の文脈 × 読みの単価 + 後の文脈 × 出力の単価。要約の要求そのものは記録に残らないので見積もる。
-- 縮めた後の最初の要求（`first`・`base_first`）: 実際だけが縮めた後は、基準の額（前の文脈を、寿命の内なら読み、過ぎていれば書き、新しい部分を書く）− 実際の入力の側の額。基準だけが縮めた後は、基準の額（全部を書く）− 実際の入力の側の額。実際の入力の側の額は、その要求の入力・書き込み・読みを実際の単価で払った額（出力は含まない）。
+- 要約の見積もり（`summary`・`base_summary`）: 実際だけ・基準だけが打った compact ごとに、前の文脈 × 読みの単価 + 要約の大きさ × 出力の単価。要約の大きさは、実際の compact は記録の後の大きさ、基準だけの compact は読んだ会話の全部の実際の自動の compact の後の大きさの中央値（`auto_post`）。要約の要求そのものは記録に残らない（記録の要求の行は本体の会話の物だけで、compact の要約の要求の使用量は無い）ので見積もる。Claude Code の要約の要求は、会話と同じ前の部分を送り、キャッシュが生きていればそれを読む（https://code.claude.com/docs/en/prompt-caching の「Compacting the conversation」）。前の要求から寿命が過ぎた後の compact（`cold`）だけは、前の文脈を 5 分の書き込みの単価で数える。
+- 縮めた後の最初の要求（`first`・`base_first`）: 実際だけが縮めた後は、基準の額（前の文脈を、1 回目の compact の前の最後の要求から寿命の内なら読み、過ぎていれば書き、ターンの分を書く）− 実際の入力の側の額。実際の額には、書き直す大きさの書き込みが入る。基準だけが縮めた後は、基準の額（全部を書く）− 実際の入力の側の額。実際の入力の側の額は、その要求の入力・書き込み・読みを実際の単価で払った額（出力は含まない）。
 - 文脈の大きさの差（`kept`）: ほかの本当の要求ごとに delta × 単価（実際に読めた要求は読み、書き直した要求は書き込みの単価）。delta は compact の差でだけ動き、keepalive と問いのターンが足した分は入らない（それは `linger`）ので、二重には数えない。
 - 問いのターンの額（`asks`）。
 - compact の差（`net`）= kept + first + base_first + base_summary − summary − asks。
@@ -87,7 +91,10 @@ python3 dispatch/dispatch.py --rent-effect [--since 2026-10-24T00:00:00Z] [--unt
 
 ## 見積もれない物と前提
 
-- compact の後のやり直し（要約に残らなかった事を読み直す・やり直す仕事）は、記録から割れない。出力に「部品の compact 1 回あたり、これを超えるやり直しがあれば損」の額（compact の差 ÷ 実際だけが打った compact のうち、部品の判断の物と区切りの物の数）を出す。compact の差には自動の compact の分も入るが、分母には自動の compact の数を入れない。
+- compact の後のやり直し（要約に残らなかった事を読み直す・やり直す仕事）は数えない。出力に「部品の compact 1 回あたり、これを超えるやり直しがあれば損」の額（compact の差 ÷ 実際だけが打った compact のうち、部品の判断の物と区切りの物の数）を出す。compact の差には自動の compact の分も入るが、分母には自動の compact の数を入れない。Claude Code が compact の後に自動で足し直すファイルは、書き直す大きさに入っている。
+  - ツールの呼び出しで読み直した物は、2026-10-29 に一度だけ記録から測った（頼み 2407d1。10-24〜28）。compact の後 50 要求の内に、compact の前（/clear まで）に呼んだのと同じ物を呼んだ回の結果のトークンを、後の要求が読み続けた額と、呼び出しが読み直しだけの要求の後に足された 1 往復の額を数え、compact の無い所の同じ長さの窓の繰り返し（対照）を引いた。同じ物の見分けは 3 通りで測った: ツールと引数の完全一致（Read はファイルと読んだ範囲、Bash はコマンドの字）、ファイル単位（Read・cat などの読むコマンドのファイル、Grep・Glob の引数、WebFetch の URL）、ゆるい一致（コマンドに出たファイルの名前の全部）。
+  - 1 回あたり、対照を引いた額は、部品の判断の compact で $0.00〜$0.03、自動の compact で $0.01〜$0.10。対照を引かない額でも、部品の判断の compact で $0.005〜$0.21、自動の compact で $0.02〜$0.28。部品の判断の compact は待ちの間に打つので、自動の compact より読み直しが少ない。基準の世界は自動の compact を多く打つ（10-24〜28 で 54〜175 回）ので、どの見分けでも compact の差は正のまま。
+  - この数え方は `--rent-effect` に入れていない。同じ物の見分けの決め事（どのコマンドを読むコマンドと見るか）で額が 1 桁変わり、毎週の数を見かけより確かに見せるため。compact の差が損に転じる線に近づいたら、測り直す。
 - 長い待ちで、基準の世界が delta の分も書き直す額（keepalive と compact の掛け合わせ）は数えない。
 - 要約の要求と、両方の世界の出力の違い（keepalive と問いのターンの出力は、送った額に入る）は、上の見積もりのとおり。
 - サブエージェントの要求は数えない。入力が一定のトークンを超えると単価が上がるモデルでも、上がる前の単価で数える。
@@ -99,5 +106,5 @@ python3 dispatch/dispatch.py --rent-effect [--since 2026-10-24T00:00:00Z] [--unt
 - `since`・`until`・`sessions`（読んだ会話の数）
 - `keepalive.rows`（`<待ちの長さ>・<温めた物>` ごとに `waits`・`sent`・`sent_cost`・`avoided`・`avoided_low`・`failed`・`failed_sent_cost`）・`keepalive.total`・`keepalive.net`（`low`・`high`）・`keepalive.expired_without_warming`（温めずに寿命を超えた待ちの、`waits` 本のうち書き直した `rewrote` 本と、その割合 `share` = `rewrote` ÷ `waits`。`waits` が 0 なら null。`avoided_low` に掛ける）
 - `asks`（`turns`・`cost`）・`linger`
-- `compact.low`・`compact.high`（`count`〔`judged`・`cut`・`auto`〕・`shared`・`summary`・`base_auto`・`base_summary`・`first`・`base_first`・`kept`・`net`・`break_even_redo`）・`compact.seen_line`（読んだ会話の全部の自動の compact の前の文脈の中央値。1 つも無ければ `BASE_AUTO_LINE`）・`compact.auto_post`（基準だけが打つ自動の compact の後の文脈）・`compact.auto_seen`（読んだ自動の compact の数）。`compact.low`・`compact.high` の `shared` は両方で打った compact の数、`base_auto` は基準だけが打った自動の compact の数、`break_even_redo` は「見積もれない物と前提」の最初の額
+- `compact.low`・`compact.high`（`count`〔`judged`・`cut`・`auto`〕・`cold`（実際だけが打った compact のうち、前の要求から寿命が過ぎた後の物の数）・`shared`・`summary`・`base_auto`・`base_summary`・`first`・`base_first`・`kept`・`net`・`break_even_redo`）・`compact.seen_line`（読んだ会話の全部の自動の compact の前の文脈の中央値。1 つも無ければ `BASE_AUTO_LINE`）・`compact.auto_post`（基準だけが打つ自動の compact の要約の大きさ）・`compact.turn_new`（ターンの分）・`compact.rebuild`（書き直す大きさ）・`compact.rebuild_over_summary`（compact ごとの、書き直す大きさ − 要約の大きさの中央値）・`compact.auto_seen`（読んだ自動の compact の数）。`compact.low`・`compact.high` の `shared` は両方で打った compact の数、`base_auto` は基準だけが打った自動の compact の数、`break_even_redo` は「見積もれない物と前提」の最初の額
 - `net`（`low`・`high`）・`unknown_models`・`outcomes`（`recorded`・`duplicates`・`keyless`・`why`。`why` は部品の記録を読めなかったか書けなかった訳で、無ければ null。そのとき `recorded` は 0）

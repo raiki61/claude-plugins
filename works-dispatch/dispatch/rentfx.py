@@ -40,6 +40,10 @@ def _ctx(r):
     return r["input"] + r["write_5m"] + r["write_1h"] + r["read"]
 
 
+def _new(r):
+    return r["input"] + r["write_5m"] + r["write_1h"]
+
+
 def _warm(r):
     return r["read"] >= WARM_SHARE * max(1, _ctx(r))
 
@@ -70,13 +74,14 @@ class Prices:
 def turns(events):
     """出来事を要求ごとに (要求, そのターンの種類) にする。種類は ping（keepalive の文で始まったターン）・ask（焦点の問いで始まった
     ターン）・real（ほか）。compact は ("compact", 出来事) で並べ、その種類（judged・cut・auto・person）は後に続く文の印で決める。
-    /clear は ("clear", 出来事)。要求には life（キャッシュの寿命の秒。その要求か前の要求のうち、最後に書いた物の書き込みの寿命）を足す。"""
-    out, kind, pending, life = [], "real", None, HOUR
+    /clear は ("clear", 出来事)。要求には life（キャッシュの寿命の秒。その要求か前の要求のうち、最後に書いた物の書き込みの寿命）と、
+    opens（ターンを始めた文の直後の要求か）を足す。"""
+    out, kind, pending, life, opens = [], "real", None, HOUR, False
     for e in events:
         if e["at"] is None:   # 時刻の無い行は待ちの長さを測れない
             continue
         if e["type"] == "said":
-            text = e["text"]
+            text, opens = e["text"], True
             if e["by"] == "hook" and ASK_MARK in text:
                 kind = "ask"
             elif e["by"] == "hook" and text.lstrip("（(").startswith(PING_HEAD):
@@ -94,7 +99,8 @@ def turns(events):
             pending = None if kind == "real" else pending
             if e["write_1h"] or e["write_5m"]:
                 life = HOUR if e["write_1h"] else FIVE_MIN
-            out.append((kind, dict(e, life=life)))
+            out.append((kind, dict(e, life=life, opens=opens)))
+            opens = False
     return out
 
 
@@ -182,14 +188,43 @@ class Session:
         reqs = [r for k, r in self.rows if k == "ask" and self._in(r["at"])]
         return len(reqs), sum(self.p.cost(r) for r in reqs)
 
-    def compacts(self, out, auto_line, auto_post):
+    def turn_news(self):
+        """ターンの最初の本当の要求のうち、読めて、compact か /clear の直後でない物の新しい部分（ターンを始めた文と前の答えなど、
+        どちらの世界でも書く分）。"""
+        out, after_cut = [], False
+        for kind, r in self.rows:
+            if kind in ("compact", "clear"):
+                after_cut = True
+                continue
+            if kind == "real" and r["opens"] and not after_cut and self._in(r["at"]) and _warm(r):
+                out.append(_new(r))
+            after_cut = False
+        return out
+
+    def rebuilds(self, g):
+        """compact ごとに (種類, 縮めた後の最初の本当の要求の文脈 − ターンの分 g, 要約 post)。要約のほかに、Claude Code が compact の後に足し直す物
+        （指示ファイル・読んでいたファイル・スキルの一覧など）も入る、compact の後に書き直す大きさ。"""
+        out, c = [], None
+        for kind, r in self.rows:
+            if kind == "compact":
+                c = r
+            elif kind == "clear":
+                c = None
+            elif c is not None and kind == "real":
+                out.append((c["how"], _ctx(r) - min(_new(r), g), c["post"]))
+                c = None
+        return out
+
+    def compacts(self, out, auto_line, auto_post, g, rebuild):
         """部品の無かった世界（基準）の文脈を、実際の文脈との差 delta で追い、compact の得失を out に足す（docs/rent-effect.md の「compact」）。
         実際の compact のうち、基準でも同じ所で打つ物（人の compact・基準の文脈が COMPACT_FLOOR 以上の区切り・delta が 0 以上のときの自動）は
         delta を 0 に戻して差に数えない。ほか（部品の判断・基準の文脈が COMPACT_FLOOR 未満の区切り・基準ではまだ線に着かない自動）は、実際
-        だけが打つ compact で、delta に pre − post を足す。基準の文脈（実際の文脈 + delta）が auto_line に着いた本当の要求の前で、基準だけが
-        自動の compact を打ち、基準の文脈を auto_post とその要求の新しい部分にする（delta は負になりうる。早く縮めた世界は次も早く縮める）。
-        - summary・base_summary: 実際だけ・基準だけが打った compact の要約の見積もり（前の文脈を読み、後の文脈を書き出す額）
-        - first: 実際だけが compact した後の最初の要求の、基準の額（前の文脈を読み〔寿命の内なら〕、新しい部分を書く）− 実際の額
+        だけが打つ compact で、その後の最初の本当の要求で、基準の文脈を「前の文脈 pre + ターンの分」にする（ターンの分は、その要求の新しい
+        部分と g の小さい方。g はターンの最初の要求の新しい部分の中央値）。基準の文脈（実際の文脈 + delta）が auto_line に着いた本当の要求の
+        前で、基準だけが自動の compact を打ち、基準の文脈を rebuild（実際の自動の compact の後に書き直した大きさの中央値）とその要求の新しい
+        部分にする（delta は負になりうる。早く縮めた世界は次も早く縮める）。
+        - summary・base_summary: 実際だけ・基準だけが打った compact の要約の見積もり（前の文脈を読み、要約 post か auto_post を書き出す額）
+        - first: 実際だけが compact した後の最初の要求の、基準の額（前の文脈を読み〔寿命の内なら〕、ターンの分を書く）− 実際の額
         - base_first: 基準だけが compact した後の最初の要求の、基準の額（全部を書く）− 実際の額
         - kept: ほかの本当の要求の delta × 単価（読めた要求は読み、書き直した要求は書き込みの単価）
         差はどれも「基準の額 − 実際の額」で、正なら部品が安くした。"""
@@ -200,35 +235,41 @@ class Session:
                 continue
             if kind == "compact":
                 inside = self._in(r["at"])
-                if r["how"] == "person" or r["how"] == "cut" and r["pre"] + delta >= wake.COMPACT_FLOOR or r["how"] == "auto" and delta >= 0:
+                # 間に本当の要求の無い 2 回目の compact は、基準の前の文脈（pre + delta）と最後に触れた要求を 1 回目の物のまま持つ
+                d = delta if fresh_a is None else fresh_a[0]["pre"] + fresh_a[2] - r["pre"]
+                if r["how"] == "person" or r["how"] == "cut" and r["pre"] + d >= wake.COMPACT_FLOOR or r["how"] == "auto" and d >= 0:
                     out["shared"] += inside
                     delta, fresh_a, fresh_b = 0, None, False
                     continue
                 if inside and prev is not None:
+                    # 要約の要求は、キャッシュが生きていれば前の文脈を読み、切れていれば書き直す（Claude Code の prompt caching の文書）
+                    cold = r["at"] - prev["at"] > prev["life"]
                     out["count"][r["how"]] += 1
-                    out["summary"] += r["pre"] * self.p.rate(prev, "read") + r["post"] * self.p.rate(prev, "output")
-                fresh_a = (r, prev, delta)
-                delta += max(0, r["pre"] - r["post"])
+                    out["cold"] += cold
+                    out["summary"] += r["pre"] * self.p.rate(prev, "write_5m" if cold else "read") + r["post"] * self.p.rate(prev, "output")
+                fresh_a = (r, prev if fresh_a is None else fresh_a[1], d)
                 continue
             if kind != "real":
                 prev = r
                 continue
             inside, ctx, warm = self._in(r["at"]), _ctx(r), _warm(r)
             p_r, p_w = self.p.rate(r, "read"), self._write(r)
-            new = r["input"] + r["write_5m"] + r["write_1h"]
+            new = _new(r)
+            turn = min(new, g)
+            if fresh_a is not None:
+                delta = fresh_a[2] + fresh_a[0]["pre"] + turn - ctx
             actual = r["input"] * self.p.rate(r, "input") + r["write_5m"] * self.p.rate(r, "write_5m") \
                 + r["write_1h"] * self.p.rate(r, "write_1h") + r["read"] * p_r
             if not fresh_b and ctx + delta >= auto_line:
                 if inside:
                     out["base_auto"] += 1
                     out["base_summary"] += (ctx + delta) * p_r + auto_post * self.p.rate(r, "output")
-                base_ctx = auto_post + (max(0, new - fresh_a[0]["post"]) if fresh_a else new)
+                base_ctx = rebuild + (turn if fresh_a else new)
                 delta, fresh_b = base_ctx - ctx, True
             if fresh_a is not None and not fresh_b:
                 c, before, was = fresh_a
                 alive = before is not None and r["at"] - before["at"] <= before["life"]
-                added = max(0, new - c["post"])
-                diff, slot = (c["pre"] + was) * (p_r if alive else p_w) + added * p_w - actual, "first"
+                diff, slot = (c["pre"] + was) * (p_r if alive else p_w) + turn * p_w - actual, "first"
             elif fresh_b:
                 diff, slot = (ctx + delta) * p_w - actual, "base_first"
             else:
@@ -244,7 +285,7 @@ def _median(xs):
 
 
 def _comp_blank():
-    return {"count": {"judged": 0, "cut": 0, "auto": 0}, "shared": 0, "summary": 0.0, "first": 0.0, "kept": 0.0,
+    return {"count": {"judged": 0, "cut": 0, "auto": 0}, "cold": 0, "shared": 0, "summary": 0.0, "first": 0.0, "kept": 0.0,
             "base_auto": 0, "base_summary": 0.0, "base_first": 0.0}
 
 
@@ -274,14 +315,18 @@ def measure(since, until, home=None, prices=None, files=None):
     seen_line = _median([c["pre"] for c in autos]) or BASE_AUTO_LINE
     auto_post = _median([c["post"] for c in autos]) or _median(
         [r["post"] for s in sessions.values() for k, r in s.rows if k == "compact"]) or 0
+    # ターンの分 g と、compact の後に書き直す大きさ（実際の自動の compact の物の中央値。無ければ compact の全部、それも無ければ要約）
+    g = _median([n for s in sessions.values() for n in s.turn_news()]) or 0
+    built = [b for s in sessions.values() for b in s.rebuilds(g)]
+    rebuild = _median([n for how, n, _ in built if how == "auto"]) or _median([n for _, n, _ in built]) or auto_post
     for s in sessions.values():
         s.keepalive(table, rewrote)
         n, cost = s.asks()
         asked[0] += n
         asked[1] += cost
         low, high = lines_of(s, seen_line)
-        s.compacts(comp["low"], low, auto_post)
-        s.compacts(comp["high"], high, auto_post)
+        s.compacts(comp["low"], low, auto_post, g, rebuild)
+        s.compacts(comp["high"], high, auto_post, g, rebuild)
         linger += s.linger()
     q = rewrote[0] / rewrote[1] if rewrote[1] else None
     for row in table.values():
@@ -291,7 +336,8 @@ def measure(since, until, home=None, prices=None, files=None):
         c["net"] = c["kept"] + c["first"] + c["base_first"] + c["base_summary"] - c["summary"] - asked[1]
         n_comp = c["count"]["judged"] + c["count"]["cut"]
         c["break_even_redo"] = c["net"] / n_comp if n_comp else None
-    comp.update(seen_line=seen_line, auto_post=auto_post, auto_seen=len(autos))
+    comp.update(seen_line=seen_line, auto_post=auto_post, auto_seen=len(autos), turn_new=g, rebuild=rebuild,
+                rebuild_over_summary=_median([n - post for _, n, post in built]))
     ka_low, ka_high = ka["avoided_low"] - ka["sent_cost"], ka["avoided"] - ka["sent_cost"]
     nets = sorted((comp["low"]["net"], comp["high"]["net"]))
     return {"since": _stamp(since), "until": _stamp(until), "sessions": len(sessions),
@@ -368,12 +414,15 @@ def render(got):
               f"- keepalive の差（避けた額 − 送った額）: {_money(ka['net']['low'])}〜{_money(ka['net']['high'])}", "",
               f"送った文と答えが文脈に残って読まれた額: {_money(got['linger'])}", "",
               f"compact（基準の世界の自動の compact の線の、下の端 / 上の端。線は会話の実際の自動の compact の中央値か、無ければ下は全体の"
-              f"中央値 {comp['seen_line']} とその会話の最大の文脈の大きい方、上は {DEFAULT_LINE}。基準の自動の compact の後の文脈 {comp['auto_post']}）",
+              f"中央値 {comp['seen_line']} とその会話の最大の文脈の大きい方、上は {DEFAULT_LINE}。基準の自動の compact の要約 {comp['auto_post']}）",
+              f"- compact の後に書き直す大きさ（縮めた後の最初の本当の要求の文脈 − ターンの分 {comp['turn_new']}）: {comp['rebuild']}（実際の自動の "
+              f"compact の中央値。無ければ compact 全部の中央値、それも無ければ要約。基準だけが打つ compact の後の文脈）。要約より大きい分の中央値 {comp['rebuild_over_summary']}",
               f"- 問いのターン {got['asks']['turns']} 要求・{_money(got['asks']['cost'])}"]
     for name in ("low", "high"):
         c = comp[name]
         lines += [f"- {'下' if name == 'low' else '上'}の端: 実際だけが打った compact（部品の判断 {c['count']['judged']}・区切り "
                   f"{c['count']['cut']}・自動 {c['count']['auto']}。両方で打った {c['shared']}）の要約 {_money(c['summary'])}"
+                  f"（うちキャッシュの切れた後 {c['cold']} 回）"
                   f"・基準だけが打った自動の compact {c['base_auto']} 回の要約 {_money(c['base_summary'])}"
                   f"・縮めた後の最初の要求の差 {_money(c['first'])}（基準だけ {_money(c['base_first'])}）"
                   f"・文脈の大きさの差 {_money(c['kept'])}・計 {_money(c['net'])}"

@@ -159,32 +159,73 @@ class Compact(unittest.TestCase):
             c = got["compact"][name]
             self.assertEqual(c["count"], {"judged": 1, "cut": 0, "auto": 0})
             self.assertAlmostEqual(c["summary"], 151000 * 2e-7 + 10000 * 2e-5)
-            # 縮めた後の最初の要求（入力の側）: 基準は前の文脈 151000 を読み、新しい 2001 を書く
-            self.assertAlmostEqual(c["first"], (151000 * 2e-7 + 2001 * 8e-6) - (1 * 4e-6 + 12000 * 8e-6))
+            # 縮めた後の最初の要求（入力の側）: 基準は前の文脈 151000 を読み、ターンの分（ターンの最初の要求の新しい部分 1001 と
+            # 101 の中央値 1001）を書く
+            self.assertAlmostEqual(c["first"], (151000 * 2e-7 + 1001 * 8e-6) - (1 * 4e-6 + 12000 * 8e-6))
         # 自動の compact が記録に無いので、線の下の端は 20 万と最大の文脈の大きい方、上の端は既定の線。どちらも着かない
-        self.assertAlmostEqual(got["compact"]["high"]["kept"], 141000 * 2e-7)
+        # 基準は実際より 151000 + 1001 − 12001 = 140000 大きい
+        self.assertAlmostEqual(got["compact"]["high"]["kept"], 140000 * 2e-7)
+        self.assertEqual((got["compact"]["turn_new"], got["compact"]["rebuild"]), (1001, 11000))
         self.assertEqual(got["compact"]["low"]["base_auto"], 0)
         self.assertEqual(got["asks"]["turns"], 1)
+
+    def test_the_first_request_after_a_compact_rewrites_more_than_the_summary(self):
+        # Claude Code は compact の後に指示ファイルや読んでいたファイルを足し直すので、最初の要求は要約 10000 より大きい 40001 を書く。
+        # 基準との差は前の文脈とターンの分から、その 40001 を引いた物で、要約の大きさからは出さない
+        rows = [said(T0, "直して"), req(T0, "a", read=150000, w1=1000),
+                said(T0 + 610, "<command-name>/compact</command-name>"), compact(T0 + 611, 151000, 10000),
+                hook(T0 + 612, "（待ちの間に、" + rentfx.JUDGED_MARK + "。焦点: x）", "SessionStart:compact"),
+                req(T0 + 613, "f", w1=40000),
+                said(T0 + 700, "続き"), req(T0 + 700, "b", read=40000, w1=100)]
+        got, _ = rentfx.measure(T0, T0 + 86400, prices=prices(), files={"s1": write(rows)})
+        c = got["compact"]["high"]
+        self.assertAlmostEqual(c["first"], (151000 * 2e-7 + 1001 * 8e-6) - (1 * 4e-6 + 40000 * 8e-6))
+        self.assertAlmostEqual(c["kept"], (151000 + 1001 - 40001) * 2e-7)
+        self.assertEqual(got["compact"]["rebuild_over_summary"], 40001 - 1001 - 10000)
+
+    def test_a_second_compact_before_any_real_request_keeps_the_base_world_of_the_first(self):
+        # 1 回目は寿命 1 時間を過ぎた後なので、要約の要求は前の文脈を書き直す（cold）。間の keepalive は基準の世界に無いので、
+        # 2 回目の後の基準の寿命は、1 回目の前の要求 a から測る
+        judged = hook(T0 + 4201, "（待ちの間に、" + rentfx.JUDGED_MARK + "。）", "SessionStart:compact")
+        rows = [said(T0, "直して"), req(T0, "a", read=150000, w1=1000),
+                compact(T0 + 4000, 151000, 10000),
+                hook(T0 + 4001, "（待ちの間に、" + rentfx.JUDGED_MARK + "。）", "SessionStart:compact"),
+                hook(T0 + 4100, role.KEEPALIVE_TEXT), req(T0 + 4100, "p", read=30000, w1=10),
+                compact(T0 + 4200, 30000, 8000), judged,
+                req(T0 + 4300, "f", w1=20000),
+                said(T0 + 4400, "続き"), req(T0 + 4400, "b", read=20000, w1=100)]
+        got, _ = rentfx.measure(T0, T0 + 86400, prices=prices(), files={"s1": write(rows)})
+        c = got["compact"]["high"]
+        self.assertEqual((c["count"]["judged"], c["cold"]), (2, 1))
+        self.assertAlmostEqual(c["summary"], 151000 * 5e-6 + 10000 * 2e-5 + 30000 * 2e-7 + 8000 * 2e-5)
+        # 基準の前の文脈は 1 回目の 151000 のまま。a から 4300 秒で寿命の外なので、書き直してターンの分 1001 を書く
+        self.assertAlmostEqual(c["first"], (151000 + 1001) * 8e-6 - (1 * 4e-6 + 20000 * 8e-6))
+        # 2 回目が区切りなら、基準でも打つかは基準の文脈 151000（COMPACT_FLOOR 以上）で決める
+        rows[rows.index(judged)] = hook(T0 + 4201, "（区切り〔--compact〕で会話を compact した。…）", "SessionStart:compact")
+        got, _ = rentfx.measure(T0, T0 + 86400, prices=prices(), files={"s1": write(rows)})
+        c = got["compact"]["high"]
+        self.assertEqual((c["count"], c["shared"]), ({"judged": 1, "cut": 0, "auto": 0}, 1))
 
     def test_the_base_world_compacts_by_itself_at_its_auto_line_and_then_runs_smaller(self):
         rows = [said(T0, "直して"), req(T0, "a", read=160000, w1=1000),
                 compact(T0 + 10, 161000, 10000),
                 hook(T0 + 11, "（区切り〔--compact〕で会話を compact した。…）", "SessionStart:compact"),
                 req(T0 + 12, "f", w1=12000),
-                said(T0 + 20, "続き"), req(T0 + 20, "b", read=12000, w1=8000),   # 基準は 20000 + 151000 で線 168000 に着く
+                said(T0 + 20, "続き"), req(T0 + 20, "b", read=12000, w1=8000),   # 部品の判断の compact なら、基準は 20001 + 150000 で線 168000 に着く
                 said(T0 + 30, "続き"), req(T0 + 30, "c", read=20000, w1=100)]
         sess = rentfx.Session("s1", rentfx.turns(chat.talk_events(write(rows))), prices(), T0, T0 + 86400)
         out = rentfx._comp_blank()
-        sess.compacts(out, 168000, 5000)
+        sess.compacts(out, 168000, 5000, 1001, 5000)
         # 区切りの compact は、基準の文脈 161000 が COMPACT_FLOOR 以上なので基準でも打つ（差に数えない）
         self.assertEqual((out["shared"], out["count"]["cut"], out["base_auto"]), (1, 0, 0))
         rows[3] = hook(T0 + 11, "（待ちの間に、" + rentfx.JUDGED_MARK + "。）", "SessionStart:compact")
         sess = rentfx.Session("s1", rentfx.turns(chat.talk_events(write(rows))), prices(), T0, T0 + 86400)
         out = rentfx._comp_blank()
-        sess.compacts(out, 168000, 5000)
+        sess.compacts(out, 168000, 5000, 1001, 5000)
         self.assertEqual((out["count"]["judged"], out["base_auto"]), (1, 1))
-        self.assertAlmostEqual(out["base_summary"], (20001 + 151000) * 2e-7 + 5000 * 2e-5)
-        # 基準は縮めた後 5000 + 新しい 8001 を全部書く。その後は基準が 20001 − 13001 = 7000 小さい（実際が読みに払う）
+        # 縮めた後の最初の要求で、基準は 161000 + ターンの分 1001 = 162001。次の要求で 20001 + 150000 が線 168000 に着く
+        self.assertAlmostEqual(out["base_summary"], (20001 + 150000) * 2e-7 + 5000 * 2e-5)
+        # 基準は書き直す大きさ 5000 + 新しい 8001 を全部書く。その後は基準が 20001 − 13001 = 7000 小さい（実際が読みに払う）
         self.assertAlmostEqual(out["base_first"], 13001 * 8e-6 - (1 * 4e-6 + 8000 * 8e-6 + 12000 * 2e-7))
         self.assertAlmostEqual(out["kept"], -7000 * 2e-7)
 
