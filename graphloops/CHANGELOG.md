@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 利用者の動きは変わらない直し。消す口（`shutil.rmtree`）に届いてよい所の表（`tests/py/test_harness.py` の `RMTREE_ALLOWED`）に、リポジトリのルートの `scripts/works-factory-pin.py` の `land_pin`（同じ関数が `mkdtemp` で作った一時の置き場を finally で消す）を足した。表に無いので `test_rmtree_is_reached_only_from_named_sites` が落ち、main の CI が赤だった。
+
 ## [0.45.2] - 2026-10-26
 
 ### Fixed
