@@ -10,7 +10,7 @@ session と from.session）のうち、作業場が両社の本社か部署の�
 仕組みが足す分の数え方は 2 つ。
 - 文脈に居座る分（占有）: 仕組みが足した文を、その後の要求のたびに文脈の一部として読み書きする費用。足した文のトークンの
   見積もり ÷ その要求の文脈の長さ × その要求の入力の側の費用を、compact か /clear で文脈が替わるまで足す。
-- 仕組みが起こしたターン（起動）: 仕組みの文で始まり、人の頼みの仕事でないターンの要求の費用の全部（入力と出力）。
+- 仕組みが始めたターン（起動）: 仕組みの文で始まり、人の頼みの仕事でないターンの要求の費用の全部（入力と出力）。
   keepalive・compact の問い・未納品の差し戻し・納品の検査の差し戻しの後の打ち直し。
 トークンの見積もりは、字数から 1.07 × ASCII でない字 + 0.42 × ASCII の字（部署の会話の 5,755 組の、短い文 1 つだけが足された
 前後の要求の文脈の差に当てた最小二乗。包みの system-reminder などの約 180 トークンは数えない）。
@@ -37,7 +37,7 @@ PLACES = {"claude-plugins": (f"{HOME}/.herdr/worktrees/claude-plugins/", f"{HOME
           "my_notes": (f"{HOME}/.herdr/worktrees/my-notes/", f"{HOME}/.herdr/worktrees/my_notes/", f"{HOME}/src/my_notes")}
 SNAPSHOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../rent-or-buy/prompt_cache/snapshot.json")
 STOP = "Stop hook blocking error from command"
-# 仕組みが起こすターンの種類（そのターンの要求の費用を全部、その種類に付ける）
+# 仕組みが始めるターンの種類（そのターンの要求の費用を全部、その種類に付ける）
 TRIGGERED = ("keepalive", "compact_q", "undelivered", "deliver_retry", "gates_retry")
 LABEL = {
     "role": "役の本文（会話の始まり・compact と /clear の後）",
@@ -103,7 +103,7 @@ def stop_kind(text):
         return "compact_q", body
     if body.startswith("会社の形が替わったので"):
         return "role_reread", body
-    if body.startswith(("coldread", "初見読み", "読み手を起こせず")):
+    if body.startswith(("coldread", "初見読み", "読み手を")):
         return "gates", body
     if body.startswith(("頼み（受付",)) and ("まだ納品していない" in body[:80] or "納品済みだが" in body[:80]):
         return "undelivered", body
@@ -131,7 +131,7 @@ def result_text(block):
 
 def walk(path, company, price, since, until, out):
     items = []          # 文脈に居座る仕組みの文: [種類, トークン]
-    turn = None         # 今のターンを起こした仕組みの種類（仕事のターンなら None）
+    turn = None         # 今のターンを始めた仕組みの種類（仕事のターンなら None）
     retry = None        # 納品を止められてから、次の --deliver を打つまで（そのターンの中だけ）。止めた物の種類
     reload_until_req = False
     seen = set()
