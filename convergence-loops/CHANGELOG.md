@@ -6,6 +6,9 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+- `/firstread-loop` の説明（description）を 398 字から 202 字に縮め、起動の条件（人が `/firstread-loop` と打ったときか「工程に回して」と言ったときだけ）を何をするかの 1 文のすぐ後ろに置いた。スキルの一覧で説明が切られても起動の条件が見える。読み役の立て方・直しを叩かせる目・導線の引き金・止め時は説明から外した（本文と references/ に在る。docs/standards/skill-authoring.md の決まり 7）。
+
 ## [0.52.3] - 2026-10-26
 
 ### Fixed
