@@ -405,6 +405,9 @@ check = "bash scripts/light-check.sh && python3 tests/land-check.py && python3 g
 bump = "marketplace"
 # 同じ clone で同時に打った --land を、申し出た順に 1 本ずつ通す列（works-dispatch の docs/land.md の queue。2026-10-20 に --land 7 本が取り合った）
 queue = "land-queue"
+# 束: 上の queue の列の先頭を取った --land（束ね役）が、後ろに待つ部署のブランチを最大 3 本重ねて（自分を入れて 4 本）、1 回の check でメインブランチに入れる（works-dispatch の docs/land.md の batch。持ち主の選び、受付 f5f08a）
+# check は一時の worktree で回るので、部署の場所にだけ在るファイルに頼らない（書く前に、追跡外のファイルの無い一時の worktree で緑を確かめた）
+batch = 4
 
 # main に入れた後の合図: 全アカウントに配る（出荷のたびに窓口が手で配っていた物。片づかなければ作業に回り、頼み元は main に入れた部署の頼み元）
 [[land.after]]
