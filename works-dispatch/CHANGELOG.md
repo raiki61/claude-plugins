@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.141.0] - 2026-10-29
+
 ### Changed
 
 - 0.140.2 の直し（main に入れた後の機械のツールが回した頼みの頼み元の落ち先）の説明を、`references/land.md`・受付の設計（`docs/specs/2026-10-17-reception-design.md`）・この記録で書き足した。機械の上げ（works-factory-pin）がなぜ頼み元の無い `--land` を打つのかと、落ち先の窓口がどちらの会社の窓口かを書いた。振る舞いは変わらない（頼み 2c4310）。
