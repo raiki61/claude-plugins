@@ -781,7 +781,7 @@ class Late(unittest.TestCase):
         self.clock[0] += wake_hook.LATE_WAIT
         with mock.patch.object(tempfile, "gettempdir", lambda: tmp):
             text = late()
-        self.assertIn("頼み（受付 a1）をまだ納品していない", text)
+        self.assertIn("You have not delivered ask a1 yet", text)
         self.assertEqual(pathlib.Path(deliver.stop_count_path(tmp, "s1", "a1")).read_text(encoding="utf-8"), "1", "Stop フックと同じ控えで数える")
 
     def test_at_the_limit_it_leaves_the_stopped_notice_instead(self):

@@ -12,6 +12,11 @@
 見ないもの: 引用（`>` の行）と脚注の定義の行と、「」の中（人の言葉やほかの文書の見出しをそのまま引く）と、`` ` `` の中
 （コマンド・パス・コード）と、コードブロック（``` か ~~~ で囲んだ所）の中。
 
+英語の区画: AI だけが読む文（部署の役の本文・部署へ返す自動の差し戻し）は英語で書く（claude-plugins のルートの CLAUDE.md の
+「会話」）。その文は `# terms: english-begin` の行と `# terms: english-end` の行（印だけのコメントの行。# か // か <!-- で始める）で挟み、
+語の一覧を当てない。代わりに、区画の中に「」と `` ` `` の外の日本語の字があれば当てる（日本語の文が区画に紛れて検査から
+外れないため）。閉じの無い区画の始まりも当てる（閉じ忘れでファイルの残りが外れないため）。納品の要約（--deliver）は区画を見ない。
+
 使い方:
     python3 terms.py <ファイル>...                  # 当たった行を出す（当たれば 1、読めないファイルが在れば 2 で終わる）
     python3 terms.py --fix [--main 語] <ファイル>...  # 活用ごとの置き換えで直し、直せなかった行を出す
@@ -170,6 +175,24 @@ def _space(text):
     return re.sub(rf"\x02(?=[{_CJK}「`])", " ", text).replace("\x02", "")
 
 
+# 英語の区画の始まりと閉じの印（コメントの行に書く）と、区画の中で当てる日本語の字（和文の字・和文の記号・全角の字）
+# 印は行の頭のコメントだけ（文の中で印の名前を引いても区画にならない）
+ENGLISH_BEGIN = re.compile(r"^\s*(?:#|//|<!--)\s*terms:\s*english-begin\b")
+ENGLISH_END = re.compile(r"^\s*(?:#|//|<!--)\s*terms:\s*english-end\b")
+JAPANESE = re.compile(r"[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]+")
+ENGLISH = "英語（英語の区画の中の日本語の語は「」か `` ` `` で囲む）"
+UNCLOSED = "閉じの行（terms: english-end）"
+
+
+def describe(found, expected):
+    """当たった 1 件を人に見せる文。"""
+    if expected == ENGLISH:
+        return f"英語の区画に日本語の「{found}」がある。英語で書くか、日本語の語は「」か `` ` `` で囲む"
+    if expected == UNCLOSED:
+        return "英語の区画の始まり（terms: english-begin）に閉じ（terms: english-end）が無い"
+    return f"「{found}」は IT の定着語でない。「{expected}」と書く"
+
+
 def line_problems(line):
     """1 行の中の言い方ごとに、(当たった語, 正しい表記) を返す。"""
     if SKIPPED_LINE.match(line):
@@ -178,15 +201,37 @@ def line_problems(line):
     return [(m.group(0), expected) for expected, pattern in PATTERNS for m in pattern.finditer(text)]
 
 
-def text_problems(text):
-    """複数行の文の中の言い方ごとに、(行の番号, 当たった語, 正しい表記) を返す。"""
-    out, fenced = [], False
-    for n, line in enumerate((text or "").splitlines(), start=1):
-        if FENCE.match(line):
+def english_lines(lines):
+    """英語の区画の中の行の番号（0 から）の集まりと、閉じの無い始まりの行の番号の並び。印の行は区画に入れない。
+    閉じの無い始まりの後ろの行は区画に入れない（語の一覧を当てる）。"""
+    inside, unclosed, start = set(), [], None
+    for i, line in enumerate(lines):
+        if start is None and ENGLISH_BEGIN.search(line):
+            start = i
+        elif start is not None and ENGLISH_END.search(line):
+            inside.update(range(start + 1, i))
+            start = None
+        elif start is not None and ENGLISH_BEGIN.search(line):
+            unclosed.append(start)
+            start = i
+    if start is not None:
+        unclosed.append(start)
+    return inside, unclosed
+
+
+def text_problems(text, regions=True):
+    """複数行の文の中の言い方ごとに、(行の番号, 当たった語, 正しい表記) を返す。regions が偽なら英語の区画を見ない（納品の要約）。"""
+    lines = (text or "").splitlines()
+    inside, unclosed = english_lines(lines) if regions else (set(), [])
+    out, fenced = [(i + 1, "terms: english-begin", UNCLOSED) for i in unclosed], False
+    for n, line in enumerate(lines, start=1):
+        if n - 1 in inside:
+            out += [(n, m.group(0), ENGLISH) for m in JAPANESE.finditer(PROTECTED.sub("", line))]
+        elif FENCE.match(line):
             fenced = not fenced
         elif not fenced:
             out += [(n, found, expected) for found, expected in line_problems(line)]
-    return out
+    return sorted(out, key=lambda x: x[0])
 
 
 def fix_line(line, main=MAIN, quoted=False):
@@ -204,9 +249,13 @@ def fix_line(line, main=MAIN, quoted=False):
 
 
 def fix_text(text, main=MAIN, quoted=False):
+    lines = text.splitlines(keepends=True)
+    inside = english_lines(lines)[0]
     out, fenced = [], False
-    for x in text.splitlines(keepends=True):
-        if FENCE.match(x):
+    for i, x in enumerate(lines):
+        if i in inside:
+            pass   # 英語の区画は直さない
+        elif FENCE.match(x):
             fenced = not fenced
         elif not fenced:
             x = fix_line(x.rstrip("\n"), main, quoted) + ("\n" if x.endswith("\n") else "")
@@ -217,8 +266,8 @@ def fix_text(text, main=MAIN, quoted=False):
 def deliver_problems(payload):
     """納品の検査に渡る JSON（payload）の要約の、言い方ごとの違反の文の並び。"""
     summary = payload.get("summary") if isinstance(payload, dict) else None
-    return [f"{n} 行目: 「{found}」は IT の定着語でない。「{expected}」と書く"
-            for n, found, expected in text_problems(summary if isinstance(summary, str) else "")]
+    return [f"{n} 行目: {describe(found, expected)}"
+            for n, found, expected in text_problems(summary if isinstance(summary, str) else "", regions=False)]
 
 
 def main(argv):
@@ -262,7 +311,7 @@ def main(argv):
                 path.write_text(fixed, encoding="utf-8")
             text = fixed
         for n, found, expected in text_problems(text):
-            print(f"{p}:{n}: 「{found}」は IT の定着語でない。「{expected}」と書く")
+            print(f"{p}:{n}: {describe(found, expected)}")
             bad = 1
     return 2 if unread else bad
 

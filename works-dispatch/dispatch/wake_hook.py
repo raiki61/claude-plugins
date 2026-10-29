@@ -1424,7 +1424,11 @@ class Warm:
 
 
 LATE_WAIT = 30.0   # 待ち行列に残った知らせで会話が再開するのを待つ秒（ふつうはターンの終わりの直後に渡る。Late）
-LATE_NOTE = "（ターンの終わりに入力の待ち行列に残っていた知らせで、会話が再開しなかったので、止まる前の差し戻しをここで送る）\n"
+# 部署だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」）
+# terms: english-begin
+LATE_NOTE = ("(A notice left in the input queue at the end of the turn did not resume the conversation, so the send-back that "
+             "would have fired at the stop is sent here.)\n")
+# terms: english-end
 
 
 class Late:

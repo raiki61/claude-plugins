@@ -1677,22 +1677,29 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None, gh=ghx)
     if count >= deliver.STOP_LIMIT or got is None or got[0] in ("waiting", "handed"):
         return None
     kind, main = got
-    name = attrs.get("name") or attrs.get("branch") or "<部署>"
-    limit = f"（この差し戻しは {deliver.STOP_LIMIT} 回まで。{count + 1} 回目）"
+    name = attrs.get("name") or attrs.get("branch") or "<department>"
+    # 部署だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」）
+    # terms: english-begin
+    limit = f" (this send-back fires up to {deliver.STOP_LIMIT} times; this is #{count + 1})."
     if kind == "finish":
-        return (f"頼み（受付 {attrs['ask']}）は納品済みで、ブランチもメインブランチに入っている。tmp の部署なので、{RUN} --done でターンを終える（会話を"
-                f"止めて部屋を片付けるのは機械がする）。持ち主と話している途中なら、印さずにターンを終えてよい{limit}")
+        return (f"Ask {attrs['ask']} is delivered and the branch is in the main branch. This is a tmp department, so end the turn "
+                f"with {RUN} --done (the machine stops the conversation and cleans up the room). If you are in the middle of a talk "
+                f"with the owner, you may end the turn without running --done{limit}")
+    # terms: english-end
     root = gitx.root_of(g.common_dir(cwd))
     info = tree.read_info(root, settings, g)
     if land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))["mode"] != "ff-after-ci":
         return None
-    return (f"頼み（受付 {attrs['ask']}）は納品済みだが、ブランチがメインブランチ（origin/{main} の手元の控え）に入っていない。止まる前に "
-            f"{RUN} --land {shlex.quote(name)} で入れる（ほかの会話が入れたなら、git fetch origin してから止まる）。--land が自動の"
-            f"権限の判定に止められたなら、打ち直さず、入れてほしいと {RUN} --ask {shlex.quote(tree.company_name(root, info))} で窓口に"
-            f"頼む（頼んだ頼みの答えが出るまでは、この差し戻しは出ない。返事が来ても、返事の残った疑問の担当者の頼みが閉じるまでは"
-            f"答えが出ていないと見る。どちらも --todo に出る）。残った疑問に担当者を書くだけでは、担当者に頼みが届かない。"
-            f"頼みを取り下げられて入れないなら、ブランチを origin に push してターンを終える（頼み元が --retire で畳む）。"
-            f"持ち主と話している途中なら、入れずにターンを終えてよい{limit}")
+    # terms: english-begin
+    return (f"Ask {attrs['ask']} is delivered, but the branch is not in the main branch (the local copy of origin/{main}). Before "
+            f"you stop, land it with {RUN} --land {shlex.quote(name)} (if another conversation landed it, run git fetch origin and "
+            f"then stop). If auto mode's permission check blocked --land, do not retry; ask the front desk (「窓口」) to land it with "
+            f"{RUN} --ask {shlex.quote(tree.company_name(root, info))} (this send-back stays off until that ask is answered; even "
+            "after a reply, it counts as unanswered until the asks of the reply's open-question holders close; both show in "
+            "--todo). Writing a holder in the open questions alone does not deliver an ask to that holder. If the ask was "
+            "withdrawn and you will not land, push the branch to origin and end the turn (the asker cleans up with --retire). "
+            f"If you are in the middle of a talk with the owner, you may end the turn without landing{limit}")
+    # terms: english-end
 
 
 def forwarded_ask(inbox, ask_id):

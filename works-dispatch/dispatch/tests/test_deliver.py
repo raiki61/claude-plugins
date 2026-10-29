@@ -329,7 +329,7 @@ class StopVerdict(unittest.TestCase):
     ATTRS = {"role": "サブエージェント", "ask": "id1", "session": "s1", "boss": "desk"}
 
     def test_blocks_only_an_undelivered_ask_in_its_own_conversation_up_to_the_limit(self):
-        self.assertIn("受付 id1", deliver.stop_verdict({"session_id": "s1"}, self.ATTRS, 0, "/d.py"))
+        self.assertIn("ask id1", deliver.stop_verdict({"session_id": "s1"}, self.ATTRS, 0, "/d.py"))
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, {}, 0, "/d.py"))
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, {"ask": "id1"}, 0, "/d.py"))   # 部署でない
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "delivered": "id1"}, 0, "/d.py"))
@@ -337,16 +337,16 @@ class StopVerdict(unittest.TestCase):
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, self.ATTRS, deliver.STOP_LIMIT, "/d.py"))
         # --wait で人の答え待ちにした頼みは促さない。前の頼みの印が残っていても、今の頼みは促す
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "waiting": "id1"}, 0, "/d.py"))
-        self.assertIn("受付 id1", deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "waiting": "id0"}, 0, "/d.py"))
+        self.assertIn("ask id1", deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "waiting": "id0"}, 0, "/d.py"))
 
     def test_names_the_ask_file_so_a_talk_that_missed_the_ask_can_read_it(self):
         # 渡した字が会話に届かなくても、差し戻しから本文へたどれる（my_notes の受付 4bae53）
         inbox = tempfile.mkdtemp()
         attrs = {**self.ATTRS, "boss-inbox": inbox}
-        self.assertNotIn("本文は", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))   # 本文の無い場所は書かない
+        self.assertNotIn("The ask's text is at", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))   # 本文の無い場所は書かない
         file = os.path.join(inbox, "id1-ask.md")
         pathlib.Path(file).write_text("頼み", encoding="utf-8")
-        self.assertIn(f"本文は {file}", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))
+        self.assertIn(f"The ask's text is at {file}", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))
 
     def test_hook_blocks_with_json_then_gives_up_after_the_limit(self):
         tmp = tempfile.mkdtemp()
@@ -427,7 +427,7 @@ class StopVerdict(unittest.TestCase):
         self.assertEqual(json.loads(stop({"background_tasks": [{**agent, "status": "completed"}]}))["decision"], "block")
         self.assertEqual(stop({}, shells=lambda: 1), "", "一覧の無い版では裏の Bash を ps で数える")
         self.assertEqual(json.loads(stop({}, shells=lambda: None))["decision"], "block", "動いているのを確かめられなければ差し戻す")
-        self.assertIn("ターンを終えてよい", json.loads(stop({"background_tasks": []}))["reason"])
+        self.assertIn("you may end the turn", json.loads(stop({"background_tasks": []}))["reason"])
 
     def test_a_queued_notice_lets_the_turn_end_until_it_is_taken(self):
         # 裏の処理が最後の答えの最中に終わると、background_tasks からは消え、終わりの知らせは入力の待ち行列に残る（2.1.311 で再現。
@@ -1163,7 +1163,7 @@ class Flow(unittest.TestCase):
         self.assertEqual([(r["kind"], r["id"]) for r in rows], [("waiting", attrs["ask"]), ("resumed", attrs["ask"])])
         self.assertEqual(rows[0]["why"], "持ち主の答え（どちらの案にするか）")
         self.assertEqual(ledger.build(ledger.merge(deliver.records(self.inbox)))["tasks"][attrs["ask"]]["state"], "working")
-        self.assertIn("受付", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
+        self.assertIn("ask ", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
         # 納品でも外れる
         self.assertEqual(self.main(self.place, "--wait", "持ち主の答え")[0], 0)
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
@@ -1234,7 +1234,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(self.prompts(), [])
         attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn("delivered", attrs)
-        self.assertIn("受付", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
+        self.assertIn("ask ", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
 
     def test_a_new_department_on_the_askers_own_branch_stops_and_says_to_go_on_here(self):
         # 部署はブランチの作業場で起動するので、頼んだ会話の居るブランチには立たない。前は台帳に訳の無い failed を残した（3d3ccc）

@@ -391,7 +391,7 @@ class Retire(unittest.TestCase):
         self.g.commit(self.place, {}, "x")
         self.g.push(self.place, "HEAD", "dept/a")
         got = self.after()
-        self.assertIn("ブランチがメインブランチ（origin/main の手元の控え）に入っていない", got)
+        self.assertIn("the branch is not in the main branch (the local copy of origin/main)", got)
         self.assertIn("--land '調べ'", got)
         self.assertIn("--ask src", got)   # 打てなければ窓口（会社の名前）に頼む
         rc, out = self.main(self.src, "--clean")
@@ -468,7 +468,7 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "lifecycle": "persistent"}, self.g)
         self.assertIsNone(self.after())
         self.g.commit(self.place, {}, "x")
-        self.assertIn("ブランチがメインブランチ（origin/main の手元の控え）に入っていない", self.after())
+        self.assertIn("the branch is not in the main branch (the local copy of origin/main)", self.after())
 
     def test_an_unlanded_branch_is_not_sent_back_where_the_company_lands_by_pr(self):
         self.shape('[land]\nmode = "pr"\n')
@@ -482,7 +482,7 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
         self.assertIsNone(self.after())   # 納品していない頼みは deliver.stop_verdict が差し戻す
         provision.mark(self.place, self.src, {"delivered": "q1"}, self.g)
-        self.assertIn("--done でターンを終える", self.after())
+        self.assertIn("end the turn with ", self.after())
         self.assertIsNone(self.after(count=deliver.STOP_LIMIT))
         self.assertIsNone(orders.stop_after({"session_id": "other"}, self.place, self.g.worktree_attrs(self.place), 0,
                                             os.path.dirname(self.cfg), self.g))   # 同じ作業場の別の会話

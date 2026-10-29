@@ -1029,15 +1029,19 @@ def stop_verdict(payload, attrs, count, run):
         return None   # 同じ作業場の別の会話（部署の会話ではない）
     if count >= STOP_LIMIT:
         return None
-    boss = attrs.get("boss") or "頼み元"
+    boss = attrs.get("boss") or "the asker"
     # 本文の場所も添える。頼みを渡した字が会話に届かなくても、この差し戻しで本文へたどれる（my_notes の受付 4bae53 は、起動し直した
-    # 会話が受付番号だけを見て、本文を読まずに「受けている頼みは無い」と納品した）
+    # 会話が受付番号だけを見て、本文を読まずに「受けている頼みは無い」と納品した）。部署だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」）
     file = os.path.join(attrs.get("boss-inbox") or "", f"{ask}-ask.md")
-    body = f"本文は {file}（まだ読んでいなければ、先に読んで進める）。" if attrs.get("boss-inbox") and os.path.isfile(file) else ""
-    return (f"頼み（受付 {ask}）をまだ納品していない。{body}止まる前に、要約をファイルに書いて {deliver_command(run)} で"
-            f"{boss} へ返す（足りない項目はコマンドが教える）。返せない訳があれば、それを要約の「残った疑問」に書いて返す"
-            f"（この差し戻しは {STOP_LIMIT} 回まで。{count + 1} 回目）。裏の処理（run_in_background の Bash や Agent）の終わりを待つだけなら、"
-            "ターンを終えてよい（動いている間はこの差し戻しは出ず、終われば知らせで会話が起きる）。")
+    # terms: english-begin
+    body = f"The ask's text is at {file} (read it first if you have not). " if attrs.get("boss-inbox") and os.path.isfile(file) else ""
+    return (f"You have not delivered ask {ask} yet. {body}Before you stop, write a summary to a file and send it to {boss} with "
+            f"{run} --deliver <summary-file> (the command names any missing sections). If something keeps you from finishing, "
+            "write it as an open question in the summary and deliver anyway "
+            f"(this send-back fires up to {STOP_LIMIT} times; this is #{count + 1}). If you are only waiting for background work "
+            "(run_in_background Bash or Agent) to finish, you may end the turn (this send-back does not fire while it runs, and its "
+            "completion notification wakes the conversation).")
+    # terms: english-end
 
 
 def stall_line(attrs, run):

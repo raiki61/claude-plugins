@@ -6,6 +6,11 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 部署だけが読む自動の差し戻しの文を英語にした（頼み 79eacf。持ち主 2026-10-29「なんならＡＩ同士の会話は英語にしたほうがいい」）。対象は、Stop のフックの納品前の文（`deliver.stop_verdict`）、納品後の 2 つの文（`orders.stop_after` の finish と unlanded）、遅れて送る前置き（`wake_hook.LATE_NOTE`）。指すコマンドと旗（`--deliver`・`--land`・`--ask`・`--done`・`--retire`・`--todo`・`git fetch origin`）は元のまま。頼み元へ渡す `stall_line`・持ち主の画面に出る systemMessage・役の本文の枠の文とコマンドの一覧は日本語のまま。
+- 語の検査（`dispatch/terms.py`）に英語の区画を足した。`# terms: english-begin` と `# terms: english-end` の行（印だけのコメントの行）で囲んだ所は、語の一覧で当てない。そのかわり、日本語の字（「」と `` ` `` の中を除く）が残る行と、閉じの無い区画を当てる。`--fix` は区画の中を直さない。納品の要約の検査（deliver_check）は区画を見ない（要約は持ち主が読む日本語の文）。
+
 ## [0.137.3] - 2026-10-29
 
 ### Fixed

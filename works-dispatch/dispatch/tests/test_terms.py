@@ -85,6 +85,33 @@ class Fix(unittest.TestCase):
         self.assertEqual(terms.text_problems(text), [(4, "枝", "ブランチ")])
 
 
+class English(unittest.TestCase):
+    """英語の区画（terms: english-begin〜english-end の行の間。AI だけが読む文）。"""
+
+    def test_the_word_list_is_not_applied_inside_and_japanese_outside_quotes_is_found(self):
+        text = ("枝\n# terms: english-begin\nAsk the 「窓口」 with `--ask 作業`. 命令\nsend it 本流\n"
+                "# terms: english-end\n枝\n")
+        self.assertEqual(terms.text_problems(text), [(1, "枝", "ブランチ"), (3, "命令", terms.ENGLISH),
+                                                     (4, "本流", terms.ENGLISH), (6, "枝", "ブランチ")])
+        self.assertIn("英語の区画に日本語の「命令」がある", terms.describe("命令", terms.ENGLISH))
+
+    def test_an_unclosed_region_is_found_and_the_rest_is_checked_as_japanese(self):
+        text = "# terms: english-begin\nok\n枝\n"
+        self.assertEqual(terms.text_problems(text), [(1, "terms: english-begin", terms.UNCLOSED), (3, "枝", "ブランチ")])
+        # 閉じる前の 2 つ目の始まりは、1 つ目を閉じの無い始まりとして当てる
+        text = "# terms: english-begin\n# terms: english-begin\nok\n# terms: english-end\n"
+        self.assertEqual(terms.text_problems(text), [(1, "terms: english-begin", terms.UNCLOSED)])
+
+    def test_fix_leaves_the_region_alone(self):
+        text = "枝\n# terms: english-begin\n枝\n# terms: english-end\n"
+        self.assertEqual(terms.text_problems("印は `# terms: english-begin` の行\n枝\n"), [(2, "枝", "ブランチ")])
+        self.assertEqual(terms.fix_text(text), "ブランチ\n# terms: english-begin\n枝\n# terms: english-end\n")
+
+    def test_the_summary_of_a_delivery_does_not_honor_regions(self):
+        summary = "## 結論\nterms: english-begin\n枝\nterms: english-end"
+        self.assertEqual(terms.deliver_problems({"summary": summary}), ["3 行目: 「枝」は IT の定着語でない。「ブランチ」と書く"])
+
+
 class Deliver(unittest.TestCase):
     def test_the_summary_of_a_delivery_is_checked(self):
         for summary, code in (("## 結論\n枝を本流に入れた", 1), ("## 結論\n「枝」をブランチに替えた", 0)):

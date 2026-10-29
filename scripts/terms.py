@@ -63,7 +63,7 @@ def main(argv):
     if argv[:1] == ["--list"]:
         for p in argv[1:]:
             for n, found, expected in terms.text_problems((ROOT / p).read_text(encoding="utf-8")):
-                print(f"{p}:{n}: 「{found}」→「{expected}」")
+                print(f"{p}:{n}: {terms.describe(found, expected)}")
         return 0
     now, unread = counts()
     for p, e in unread:
