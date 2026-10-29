@@ -701,5 +701,5 @@ claude-plugins の窓口からの頼み。持ち主の問い（2026-10-28）「�
   - 毎回クリア → clear。Claude Code の `/clear`（空のコンテキストで新しい会話を始める。https://code.claude.com/docs/en/commands ）。
   - 引き継ぎ → continue。`claude --continue`（その場所の最近の会話を続ける。https://code.claude.com/docs/en/cli-reference ）。`--resume` は id を選んで戻す口なので、同じ会話を続ける部署には continue が合う。
   - オンデマンド → on-demand。AWS の On-Demand Instances（要るときに使い、長い約束をしない。https://aws.amazon.com/ec2/pricing/on-demand/ ）。
-- 表示は「keep・clear」「keep・continue」「tmp」で、端末の幅は前の「永続・毎回クリア」「永続・引き継ぎ」と同じか短い。機械が読む値と旗は替えていない（docs/standards/machine-readable-values.md）。CHANGELOG・ADR・日付の付いた記録・この台帳の前の項は、当時の言葉の記録なので書き換えていない。
+- 作業場の印は、3 種類の寿命ごとに「keep・clear」（persistent-fresh）・「keep・continue」（persistent-carry）・「tmp」（ephemeral。頼み 06aac5 で「エフェメラル」から替えた語で、今回は替えていない）になった。on-demand は寿命でなく受け持ちの種類の語で、印には出ず `--tree` の受ける仕事の行に出る。端末の幅は前の「永続・毎回クリア」「永続・引き継ぎ」と同じか短い。機械が読む値と旗は替えていない（docs/standards/machine-readable-values.md）。CHANGELOG・ADR・日付の付いた記録・この台帳の前の項は、当時の言葉の記録なので書き換えていない。
 
