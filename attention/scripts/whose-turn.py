@@ -1363,7 +1363,7 @@ def report(a):
             limited.add(p["number"])
         limits += hit
         # draft の PR は、最後に draft へ戻した時でレビュー依頼を数えるかが変わる（counted_requests）。履歴が切れていると
-        # 戻した時も依頼の時も取りこぼしうるので、limited だけでなく文の行にも出す
+        # 戻した時も依頼の時も取りこぼしうるので、limited だけでなく limits（走査の上限に当たったものの一覧）にも出す
         if p["isDraft"] and timeline_cut(p):
             limits.append(f"#{p['number']}: 履歴が {TIMELINE_LAST} 件で切れている。最後に draft へ戻した時を取りこぼし、"
                           "戻す前のレビュー依頼をレビュアーのターンに数えた恐れがある")
