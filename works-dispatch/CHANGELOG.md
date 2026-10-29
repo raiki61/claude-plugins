@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.140.0] - 2026-10-29
+
 ### Added
 
 - 部署か窓口の会話の始まりに足す文（役の本文・受け持ちの説明・コマンドの一覧）が、Claude Code のフックの上限 1 万字を超えたら気づけるようにした。上限は、フックが足す文（`additionalContext`）1 件ごとに、どの部署にも窓口にも同じに効く（https://code.claude.com/docs/en/hooks）。超えると Claude Code は文をファイルに保存し、会話には頭の 2,000 字と保存先のパスだけを入れる。そのファイルを読めとは言わないので、後ろの手順（`--land`・`--done` など）が黙って落ちていた（頼み 9f790e）。
