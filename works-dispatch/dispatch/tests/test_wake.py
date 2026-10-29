@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from unittest import mock
@@ -2503,15 +2502,25 @@ class Hook(unittest.TestCase):
             deliver.log(self.inbox, wake.notice("co/調べ", "a1", wake.QUEUED, "/a1.md", "a1", 1))
 
         def newer():
-            # 読み始めの確かめではまだ今の版。その後に版が上がり、頼みが積まれる（台帳の知らせで確かめる）
+            # 起動の直後の確かめではまだ今の版。その後に版が上がる
             looks.append(1)
-            if len(looks) == 1:
-                timer = threading.Timer(0.2, later)
-                timer.start()
-                self.addCleanup(timer.cancel)
-                return None
-            return there
-        rc, payload, _ = self.hop_main(newer, lambda *a: jumps.append(a) or 2)
+            return None if len(looks) == 1 else there
+        real = wake_hook.checker
+
+        def checker(*a, **k):
+            # 頼みは、読み始めの check が空の順番待ちを見た後に積む（台帳の知らせで、次の check が版を見直す）。時計で積むと、
+            # 遅い Windows の runner では読み始めの check より前に積まれ、替わらずに渡した（main の CI の run 40811028939。頼み 4af520）
+            inner, seen = real(*a, **k), []
+
+            def first_then_later():
+                verdict = inner()
+                if not seen:
+                    seen.append(1)
+                    later()
+                return verdict
+            return first_then_later
+        with mock.patch.object(wake_hook, "checker", checker):
+            rc, payload, _ = self.hop_main(newer, lambda *a: jumps.append(a) or 2)
         self.assertEqual(rc, 2)
         ((to, argv, got, token),) = jumps
         self.assertEqual((to, argv, got), (there, [], payload))
