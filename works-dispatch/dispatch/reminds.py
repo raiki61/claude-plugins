@@ -117,9 +117,9 @@ def due(rems, tasks, now):
 def route(holder, companies, here_root, current):
     """担当者 holder（「会社/名前」）に届ける道。None なら担当者の名前の部署か窓口が立っているので、今までどおり担当者の待ち受けへ
     台帳の知らせで渡す。立っていなければ (宛先, 訳, 宛先の会社)。宛先は次の順で決める。
-    - 担当者の名前が会社の形のオンデマンドの受け持ち（頼まれたときだけ部署を立てる受け持ち）なら、その受け持ち。--ask と同じく、
+    - 担当者の名前が会社の形の on-demand の受け持ち（頼まれたときだけ部署を立てる受け持ち）なら、その受け持ち。--ask と同じく、
       受け持ちの名前の部署が立つ。
-    - 担当者の名前が役で、その役の永続の部署が別の名前で立っているなら、その部署。
+    - 担当者の名前が役で、その役の keep の部署が別の名前で立っているなら、その部署。
     - それ以外（頼みごとに立てる部署・作業など、名前で立て直せない部署）は、担当者の会社の窓口。
     担当者の会社が端末に開いていないなどで宛先が決まらなければ None（知らせだけ書く）。"""
     company, _, name = holder.rpartition("/")
@@ -134,7 +134,7 @@ def route(holder, companies, here_root, current):
             return None
         return f"{company}/{now}", f"担当者 {holder} の名前の部署が無く、同じ役の部署 {now} が立っているので、そこに頼む", got["company"]
     if got.get("on_demand") and not got.get("per_ask"):
-        return holder, f"担当者の部署が立っていないので、オンデマンドの受け持ち {name} に頼んで部署を立てる", got["company"]
+        return holder, f"担当者の部署が立っていないので、on-demand の受け持ち {name} に頼んで部署を立てる", got["company"]
     try:
         desk = deliver.find_target(companies, here_root, company, None, current)
     except deliver.DeliverError:

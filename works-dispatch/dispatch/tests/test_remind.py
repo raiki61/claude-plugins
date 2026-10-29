@@ -199,7 +199,7 @@ class Flow(unittest.TestCase):
                 "skills": list(skills)}
 
     def test_a_reminder_goes_by_note_while_its_holder_stands_and_by_an_ask_once_it_is_folded(self):
-        # 担当者の部署が畳まれた（オンデマンドの受け持ちの tmp の部署）後は、知らせを拾う待ち受けが無い（頼み d3a7a1）
+        # 担当者の部署が畳まれた（on-demand の受け持ちの tmp の部署）後は、知らせを拾う待ち受けが無い（頼み d3a7a1）
         duty = {"name": "仕組み", "role": "担当", "on_demand": True}
         desk = {"attrs": {"name": "窓口", "role": "窓口"}, "path": str(self.root), "branch": "main", "head_office": True}
         standing = {"attrs": {"name": "仕組み", "role": "担当"}, "path": "/co/w", "branch": "work/ask-1"}
