@@ -14,7 +14,7 @@
 - fork の PR（head が別のリポジトリ）は origin にブランチが無いので作らず provision_failed。
 - 最後に、herdr の worktree の並びにそのブランチの場所が在り、作業場が開いていて、checkout がそのブランチに居ることを読み戻してから返す。
 
-永続の部署（頼みを終えても同じ作業場で次の頼みを受ける）の作業場は、待ち受けが次の頼みを渡す前に follow_main が origin のメインブランチの
+keep の部署（頼みを終えても同じ作業場で次の頼みを受ける）の作業場は、待ち受けが次の頼みを渡す前に follow_main が origin のメインブランチの
 先頭まで fast-forward する（メインブランチに無い commit が在れば動かさない）。
 
 サブエージェント（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。部署の属性（役・アカウント・会話の名前・
@@ -223,7 +223,7 @@ def read_at_start(rel):
 
 
 def follow_main(path, g=gitx):
-    """永続の部署の作業場（path）のブランチを、origin のメインブランチを取り直してから、その先頭を含むところまで fast-forward する。書く口。
+    """keep の部署の作業場（path）のブランチを、origin のメインブランチを取り直してから、その先頭を含むところまで fast-forward する。書く口。
     {"status": current|updated|local_only, "main": メインブランチ, "ahead": メインブランチに無い commit の数,
     "behind": 足りない commit の数, "startup": 進めて替わった、会話が起動するときにしか読まないファイル〔比べられなければ None〕} を返す。
     ブランチにメインブランチに無い commit が在れば（書きかけの作業）、動かさずに local_only（書き換えない。受けた会話が決める）。
@@ -243,7 +243,7 @@ def follow_main(path, g=gitx):
 
 
 def lag(path, g=gitx):
-    """永続の部署の作業場（path）のブランチが、origin のメインブランチからどれだけ遅れているか。origin のメインブランチを取り直す
+    """keep の部署の作業場（path）のブランチが、origin のメインブランチからどれだけ遅れているか。origin のメインブランチを取り直す
     （参照だけで、作業場のファイルとブランチは動かさない）。{"main": メインブランチ, "ahead": メインブランチに無い commit の数,
     "behind": 足りない commit の数} を返す。取れなければ GitError。"""
     _, main, _, ahead, behind = _lag(path, g)

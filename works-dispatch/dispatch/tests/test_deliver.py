@@ -635,7 +635,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(attach[2], "claude-a1 attach d")
         self.assertNotEqual(attach[1], self.window, "閉じたペインでなく、開き直した作業場の新しいペインに打つ")
         self.assertIn(("rename_pane", attach[1], "調べ"), h.writes)   # 開き直したペインにも --sync と同じ名前を付ける
-        # 開き直した作業場は新しいので、永続か tmp かの印も付け直す
+        # 開き直した作業場は新しいので、keep か tmp かの印も付け直す
         self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
     def test_clear_before_ask_sees_the_clear_by_a_new_talk_file_when_the_list_keeps_the_id(self):
@@ -885,7 +885,7 @@ class Flow(unittest.TestCase):
         self.assertFalse(os.path.exists(self.inbox))
 
     def test_ask_to_a_duty_raised_only_when_asked_starts_its_department_with_a_branch_of_its_own(self):
-        # オンデマンドの受け持ち（on_demand = true）: --task・--branch を渡さなくても、受け持ちの名前の部署を立てる（813bb8）
+        # on-demand の受け持ち（on_demand = true）: --task・--branch を渡さなくても、受け持ちの名前の部署を立てる（813bb8）
         self.shape('[[roles]]\nname = "担当"\npersistent = true\n[[skills]]\nname = "見渡し"\nrole = "担当"\non_demand = true\n')
         seen = {}
 
@@ -900,7 +900,7 @@ class Flow(unittest.TestCase):
                 orders.ask(a, self.ports, self.src, task)
         self.assertEqual((seen["name"], seen["role"]), ("見渡し", "担当"), buf.getvalue())
         self.assertRegex(seen["branch"], r"^work/ask-[0-9a-f]{6}$")
-        self.assertIn("オンデマンドの受け持ち", buf.getvalue())
+        self.assertIn("on-demand の受け持ち", buf.getvalue())
         companies = [{"name": "co", "root": self.src, "departments": [],
                       "skills": [{"name": "見渡し", "role": "担当", "on_demand": True}]}]
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["on_demand"], "見渡し")
@@ -935,7 +935,7 @@ class Flow(unittest.TestCase):
         got = deliver.find_target(companies, self.src, "co/見渡し")   # 頼みごとの部署が立っていても、次の頼みは別の部署
         self.assertEqual((got["department"], got["on_demand"], got["per_ask"]), (None, "見渡し", True))
         self.assertEqual(orders.on_demand_name(got, "20261026-092520-d14822"), "見渡し：d14822")
-        companies[0]["departments"].append(dept_row(name="見渡し", role="担当", path="/r/w"))   # 受け持ちの名前の部署（移す前の永続）へは届く
+        companies[0]["departments"].append(dept_row(name="見渡し", role="担当", path="/r/w"))   # 受け持ちの名前の部署（移す前の keep）へは届く
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
 
     def test_ask_to_a_role_without_a_resident_department_starts_one_through_the_task_path(self):
@@ -1288,7 +1288,7 @@ class Flow(unittest.TestCase):
         return sent
 
     def test_fresh_role_clears_the_talk_before_the_next_ask_once_the_last_one_is_delivered(self):
-        # 担当は永続の席のまま、頼みごとに空の会話で受ける（前の頼みの記憶で書き直すと、ほかの部署が入れた行を消す）
+        # 担当は keep の席のまま、頼みごとに空の会話で受ける（前の頼みの記憶で書き直すと、ほかの部署が入れた行を消す）
         sent = self.fresh_world()
         provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
@@ -1301,7 +1301,7 @@ class Flow(unittest.TestCase):
         self.assertEqual((attrs["session"], attrs["job"], attrs["fresh"]), ("s-new", "s", "true"))
         # herdr の作業場の印にも出る
         rc, out = self.main(self.src, "--sync", "--dry-run")
-        self.assertIn("印 永続・毎回クリア", out)
+        self.assertIn("印 keep・clear", out)
 
     def test_fresh_role_sees_the_clear_in_the_records_of_the_pane_account_not_of_the_asker(self):
         # 設定のフォルダを書かないアカウントの部署は、ペインのシェルの素の claude で起きて ~/.claude に記録を書く。頼む会話の

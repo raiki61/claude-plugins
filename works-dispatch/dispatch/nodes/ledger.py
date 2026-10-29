@@ -58,7 +58,7 @@ KINDS = {
     "knot": "id",         # 返事待ちの輪をほどくため、輪の頼みを --take で回した
     "start": "id",        # 起動方法の有る受け持ちを起動した（--start・--due）
     "moved": None,        # 部署の会話を別のアカウントで起動し直した（--move）
-    "followed": None,     # 待ち受けが永続の部署の作業場をメインブランチの先頭へ進めた・進めなかった（detail に訳、next に順番待ちの先頭の頼み。wake_hook.follow_main）
+    "followed": None,     # 待ち受けが keep の部署の作業場をメインブランチの先頭へ進めた・進めなかった（detail に訳、next に順番待ちの先頭の頼み。wake_hook.follow_main）
     "keepalive": None,    # 待ち受けが仕事の終わらない部署・窓口に keepalive を送った（ask に受けている頼み、sent に何回目か、
                           # tasks に待つ物〔裏の処理の id、受けた頼みの ask:<受付>、出した頼みの child:<受付>、保留の頼みの parked:<受付>〕。
                           # 借りるか買うかの部品が答えたら spent に送った費用の累計〔ドル〕と reason に部品の訳、答えなければ limit に上限と
@@ -232,7 +232,7 @@ def build(rows, title_of=None, questions_of=None, reminders=None):
         if t["closed"] is None and (t["state"] in FINAL or t["state"] == "forwarded"):
             t["closed"] = at
     # 親: 回した行が先、次に頼みの行の cause、どちらも無い古い行は打った場所と名前から（その場所がその時受けていて、まだ閉じて
-    # いない頼み。窓口のように頼みを受けては返す永続の部署の会話が、閉じた前の頼みの子として頼みを出したと読まない）
+    # いない頼み。窓口のように頼みを受けては返す keep の部署の会話が、閉じた前の頼みの子として頼みを出したと読まない）
     for r in rows:
         if r.get("kind") == "forwarded" and r.get("id") in tasks and r.get("child") in tasks:
             _link(tasks, r["id"], r["child"], "forwarded")

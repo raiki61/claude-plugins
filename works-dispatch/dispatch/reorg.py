@@ -4,8 +4,8 @@
 dispatch.py の流れの続きで、ノード（nodes/provision.py の mark・nodes/sync.py）を呼ぶ順をここが持つ。ほかの部署と dispatch.py を
 同時に直すので、ぶつかりを減らすために別のファイルにした（orders.py・landing.py と同じ）。
 
---reorg（reorg）: 今いる部署（属性 company.role の在る worktree）の名前・役・永続か tmp か・頼み元を付け替える。
---desk [名前]（desk）: 本社（代表の clone）で持ち主と話す会話を窓口として名付ける。役（desk_role）・永続・名前・アカウントと会話の id と
+--reorg（reorg）: 今いる部署（属性 company.role の在る worktree）の名前・役・keep か tmp か・頼み元を付け替える。
+--desk [名前]（desk）: 本社（代表の clone）で持ち主と話す会話を窓口として名付ける。役（desk_role）・keep・名前・アカウントと会話の id と
 会話の処理の番号を本社の git の設定に書く（手で書いていた company.role・company.name の正式な口）。役は --role、会社の形の頭の
 desk_role、本社が今持つ役、DESK_ROLE の順に決め、名前を省けば本社が今持つ名前、無ければ役の名前。会話の処理の番号（company.pid）は、
 その会話を /clear・compact・resume して会話の id が変わったときに、フックが本社の属性の id を書き直すための見分け（同じ処理の会話だけ）。

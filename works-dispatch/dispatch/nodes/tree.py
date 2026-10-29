@@ -84,14 +84,14 @@ def _skills(raw, where, problems):
         got["keepalive"] = role.parse_keepalive(s.get("keepalive"), f"{where}: skills[{i}]（{s['name']}）", problems)
         # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
-        # on_demand = true（オンデマンド）: 永続の部署を置かず、頼まれたときだけその受け持ちの名前の tmp の部署を立てる（--ask が
+        # on_demand = true（on-demand）: keep の部署を置かず、頼まれたときだけその受け持ちの名前の tmp の部署を立てる（--ask が
         # 立て、--done で畳む）
         flag = s.get("on_demand", False)
         if not isinstance(flag, bool):
-            problems.append(f"{where}: skills[{i}]（{s['name']}）の on_demand は true か false。外して永続で扱う")
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の on_demand は true か false。外して keep で扱う")
             flag = False
         got["on_demand"] = flag
-        # per_ask = true（頼みごとの部署）: オンデマンドの受け持ちへの頼みを、頼みごとに別の一度きりの部署（「<受け持ち>：<受付番号の
+        # per_ask = true（頼みごとの部署）: on-demand の受け持ちへの頼みを、頼みごとに別の一度きりの部署（「<受け持ち>：<受付番号の
         # 終わり 6 字>」）で受け、並べて進める（orders.ask が名前を決め、role.on_demand_of が名前から受け持ちを引く）。on_demand = true と併せて書く
         per_ask = s.get("per_ask", False)
         if not isinstance(per_ask, bool):
@@ -306,8 +306,8 @@ def contacts(company, shape):
     外の会社の部署も中の部署も、仕事が決まれば受ける仕事の宛先へ、決まらない件と部署をまたぐ件は窓口へ頼む。窓口は会社の部署すべてを
     見渡す本社の会話で、部署をまたぐ件の上げ先を関わる部署すべてを見渡す段とする組織論の原典（Galbraith 1974）と、外の入口を 1 つに
     する形（ITIL のサービスデスク）に当たる。受ける仕事ごとの宛先は働きごとに宛先を分ける形（RFC 2142）に当たる。
-    宛先の決まりは deliver.find_target と同じ: 永続の役の受け持ちとオンデマンドの受け持ちは部署の名前（＝受け持ちの名前。役を足す
-    フックが同じ名前で結ぶ）で宛て、永続の役の部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。tmp の役は役で宛てて --task に
+    宛先の決まりは deliver.find_target と同じ: keep の役の受け持ちと on-demand の受け持ちは部署の名前（＝受け持ちの名前。役を足す
+    フックが同じ名前で結ぶ）で宛て、keep の役の部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。tmp の役は役で宛てて --task に
     部署の名前を添える。立てるときはブランチ（--branch）も要る（orders.ask）。頼み元（属性 company.boss）は納品の返し先で、ここでは使わない。"""
     plain = company["name"]
     named = {d["attrs"].get("name") for d in company["departments"]}
@@ -360,7 +360,7 @@ def lines(companies):
                           f"、{s['start']['report_to']} に返す" if s.get("start") else "")
                        + (f"（前 {_at(s.get('last_started'))}・次 {_at(s.get('next_start'))}）"
                           if "next_start" in s else "")
-                       + ("  オンデマンド" if s.get("on_demand") else "") + ("（頼みごとの部署）" if s.get("per_ask") else "")
+                       + ("  on-demand" if s.get("on_demand") else "") + ("（頼みごとの部署）" if s.get("per_ask") else "")
                        + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
         if c.get("desk"):
             desk = c["desk"]   # model・effort はこの会社の本社の窓口だけ（ほかの会社が兼ねる窓口は、その会社の行に出る）

@@ -693,3 +693,13 @@ claude-plugins の窓口からの頼み。持ち主の問い（2026-10-28）「�
 - 差し戻しの文の照合: 差分の消えた行と足した行で、旗と差し込む値（`--deliver`・`--land`・`--ask`・`--done`・`--retire`・`--todo`・`git fetch origin`・`origin/{main}`・回数の上限）が同じ数だけ在る。納品前の文の `--deliver` の後ろの置き場の名前だけ `<要約のファイル>` から `<summary-file>` に替わった。
 - トークン数（Haiku の入力のトークン。同じ空の頼みとの差）: 担当 1,758 → 1,743、窓口 543 → 661、作業 1,721 → 1,717、業務改革 1,451 → 1,347、差し戻しの 4 つの文の計 1,094 → 971。全体で 6,567 → 6,439（2% 減）。字の数は 2〜2.4 倍に増えた。英語の語と日本語の語の対応（Terms の行。duty = 「受け持ち」 など）と Language の行を各役の最後に足したので、役の本文はほぼ同じで、窓口は 118 増えた。足さない形では 6,142（6.5% 減）だった。Terms の行は、見直しの目（inspector）の「duty・ask などが何を指すか本文に無い」という指摘で足した。
 - 後でしか測れない効き目（部署が決まりを読み違える回が減るか）は、業務改革に測る頼みを回した（納品の残った疑問）。
+
+## 頼み 29e7fd（2026-10-29、部署の寿命の表示の残りの語を英単語にそろえる）
+
+- 頼み 06aac5 の未決 (a) への持ち主の答え（「全部短いなじみのある英単語にそろえたら？」）で、表示の語を次の短い英単語にした。語は業界の呼び名から選び、持ち主に問わずに決めた（ルートの CLAUDE.md の「判断の線」の、業界の定石で 1 つに決まる物）。
+  - 永続 → keep。Claude Code が worktree の会話を閉じるとき、作業が残っていれば keep か remove かを問い、keep は作業場とブランチを残す（https://code.claude.com/docs/en/worktrees ）。部署の作業場を畳まずに残す意味と同じで、tmp の反対の語として短い。GitHub Actions の persistent（https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/autoscaling-with-self-hosted-runners ）は、表示が長いので採らなかった。
+  - 毎回クリア → clear。Claude Code の `/clear`（空のコンテキストで新しい会話を始める。https://code.claude.com/docs/en/commands ）。
+  - 引き継ぎ → continue。`claude --continue`（その場所の最近の会話を続ける。https://code.claude.com/docs/en/cli-reference ）。`--resume` は id を選んで戻す口なので、同じ会話を続ける部署には continue が合う。
+  - オンデマンド → on-demand。AWS の On-Demand Instances（要るときに使い、長い約束をしない。https://aws.amazon.com/ec2/pricing/on-demand/ ）。
+- 表示は「keep・clear」「keep・continue」「tmp」で、端末の幅は前の「永続・毎回クリア」「永続・引き継ぎ」と同じか短い。機械が読む値と旗は替えていない（docs/standards/machine-readable-values.md）。CHANGELOG・ADR・日付の付いた記録・この台帳の前の項は、当時の言葉の記録なので書き換えていない。
+

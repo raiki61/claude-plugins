@@ -467,7 +467,7 @@ def forwarded(attrs, sent, ports, cwd):
 
 
 def on_demand_name(target, ask_id):
-    """オンデマンドの受け持ちへの頼み（deliver.find_target が on_demand を付けた宛先）で立てる部署の名前。受け持ちの名前か、per_ask = true
+    """on-demand の受け持ちへの頼み（deliver.find_target が on_demand を付けた宛先）で立てる部署の名前。受け持ちの名前か、per_ask = true
     なら頼みごとの部署の名前（role.per_ask_name）。"""
     return role.per_ask_name(target["on_demand"], ask_id) if target.get("per_ask") else target["on_demand"]
 
@@ -701,15 +701,15 @@ def _ask(a, ports, cwd, task, sent):
         return 0 if status == "sent" else 1
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。ブランチの名前は頼む側が渡す）
     if target.get("on_demand"):
-        # オンデマンドの受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
+        # on-demand の受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
         # 部署は tmp の部署で立ち（dispatch._task が受け持ちの on_demand を見る）、納品してメインブランチに入れたら --done で畳まれる
         # per_ask = true の受け持ちは、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる（並べて進む）
         a = argparse.Namespace(**{**vars(a), "task": on_demand_name(target, ask_id), "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
-        notes.append(f"{target['on_demand']} はオンデマンドの受け持ち（頼まれたときだけ立てる）"
+        notes.append(f"{target['on_demand']} は on-demand の受け持ち（頼まれたときだけ立てる）"
                      + ("で、頼みごとに別の部署で受ける" if target.get("per_ask") else "")
                      + f"なので、部署 {a.task}（ブランチ {a.branch}）を立てる")
     if not (a.task and a.task.strip() and a.branch):
-        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の永続の部署が無いので新しく立てる。"
+        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の keep の部署が無いので新しく立てる。"
                                  "部署の名前を --task <名前>、ブランチを --branch <ブランチ> で渡す"]))
         return 2
     if cfg is None:
@@ -1483,7 +1483,7 @@ def compact_here(a, ports, cwd):
 def finish_here(a, ports, cwd):
     """--done。tmp の部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
-    断るのは、部署でない・窓口・永続・会話の id が属性に無く、打った会話が部署の裏の会話とも確かめられない・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
+    断るのは、部署でない・窓口・keep・会話の id が属性に無く、打った会話が部署の裏の会話とも確かめられない・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
     commit が在る・ブランチがメインブランチに入っていない（landed。マージ済みの PR に入った物も入ったとみなす）時（commit の無い部署は入っているとみなす）。前の --retire が
     残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。
     この部署が頼んで返事の来ていない頼みが在る時も断る（納品の残った疑問の担当者に書いた頼みは数えない。asked_open）。"""
@@ -1496,7 +1496,7 @@ def finish_here(a, ports, cwd):
         print("止めた: 窓口は畳まない。会話を空にしてよい区切りなら --rest で印す")
         return 2
     if attrs.get("lifecycle") == gitx.PERSISTENT:
-        print("止めた: 永続の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
+        print("止めた: keep の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
         return 2
     # 属性に会話の id（company.session）が無ければ、打ったこの会話が部署の裏の会話（短い id が company.job と同じ）のときだけ、この会話の
     # id で埋める（部署を立てた直後に会話のフックと書き込みがぶつかり、書かれなかった部署が在った。2026-10-20）。ほかの会話が部署の
@@ -1635,7 +1635,7 @@ def leftover(cwd, attrs, g=gitx, gh=ghx):
     〔handed_open〕。中身は受付の並び）・unlanded（ブランチの先頭がメインブランチに入っていない〔landed〕。中身はメインブランチの名前）・
     finish（tmp の
     部署で、ブランチもメインブランチに入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
-    順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・永続の部署でブランチが入っている、ときは None。
+    順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・keep の部署でブランチが入っている、ときは None。
     --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
     --land が止まって入れ損ねた部署が、残った疑問に「担当者: 段取り」と書いただけで段取りに頼まず、1 日残った。--clean はこれを、
     返事を待つだけの部署と同じ一行で出していた。"""

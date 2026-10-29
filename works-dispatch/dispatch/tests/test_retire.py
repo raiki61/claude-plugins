@@ -124,7 +124,7 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"lifecycle": "persistent", wake.FINISHED: None}, self.g)
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
-        self.assertIn("永続の部署は畳まない", out)
+        self.assertIn("keep の部署は畳まない", out)
 
     def test_retire_stops_the_talk_then_removes_the_room_like_clean(self):
         rc, out = self.main(self.src, "--retire", "調べ")
@@ -492,7 +492,7 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {wake.FINISHED: "s-dept"}, self.g)
         self.assertIsNone(self.after())
         provision.mark(self.place, self.src, {wake.FINISHED: None, "lifecycle": "persistent"}, self.g)
-        self.assertIsNone(self.after())   # 永続の部署は畳まない
+        self.assertIsNone(self.after())   # keep の部署は畳まない
         self.assertIsNone(orders.stop_after({"session_id": "s-desk"}, self.src, {"role": "窓口", "name": "desk", "ask": "q1",
                                                                                 "delivered": "q1"}, 0, os.path.dirname(self.cfg), self.g))
 

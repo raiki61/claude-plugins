@@ -199,7 +199,7 @@ def root_of(common):
 
 
 ATTR = "company."
-# 部署の寿命（属性 company.lifecycle の値）。永続の部署は片付けで畳まず、tmp の部署は頼みを済ませたら畳む（会社の形の設計 4.10 の 1）
+# 部署の寿命（属性 company.lifecycle の値）。keep の部署は片付けで畳まず、tmp の部署は頼みを済ませたら畳む（会社の形の設計 4.10 の 1）
 PERSISTENT, EPHEMERAL = "persistent", "ephemeral"
 
 

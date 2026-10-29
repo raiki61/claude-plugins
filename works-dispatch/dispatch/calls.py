@@ -3,7 +3,7 @@
 （会社の形の [[land.after]]）から呼ぶ。ツールの中身（入力の確かめ・回す頼みの字）は nodes/tools.py、ツールの定義を読むのは role ノード。
 
 --call <会社/役> <ツール>（call）: ツールを origin の既定のブランチの中身（一時の worktree。tools.place）のルートで走らせ、入力の JSON を標準入力に渡す。終了の値 0 なら片づいた（答えを出して
-0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の永続の部署が
+0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の keep の部署が
 在ればその順番待ちに積み、無ければ一度きりの部署を自動で立てる）。回したら受付番号を出して 3 で終わる。ただし、打った部署が受けている
 頼みが、同じツールの同じ入力が片づかずに回った頼みなら（その頼みの中での打ち直し）、回さずに失敗を出して 1 で終わる（rerun_of）。
 合図（fire）: --land がメインブランチへ push し終えた後に、[[land.after]] の並びの順に同じ走らせ方で呼ぶ。回した頼みの頼み元は、メインブランチに入れた
@@ -140,7 +140,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
     if target["department"] is None and duty and not target.get("on_demand") and duty.get("role"):
         # 立っていない受け持ちの部署には、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じく、受け持ちの役でその名前の部署を立てる
         ask, task_name = f"{company}/{duty['role']}", to
-    auto = target["department"] is None and not target.get("on_demand")   # オンデマンドの受け持ちは orders.ask が部署の名前とブランチを決める
+    auto = target["department"] is None and not target.get("on_demand")   # on-demand の受け持ちは orders.ask が部署の名前とブランチを決める
     ns = argparse.Namespace(**{**vars(a), "ask": ask, "text": None, "brief": brief, "dry_run": False,
                                "task": task_name if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,

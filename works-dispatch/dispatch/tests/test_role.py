@@ -182,13 +182,13 @@ class Seat(unittest.TestCase):
         self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
         self.assertNotIn("変", got["roles"])
         self.assertIn("persistent・fresh・machine は true か false", got["problems"][0])
-        # herdr の作業場の印に、永続か tmp かと、会話を引き継ぐか毎回クリアするかを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
+        # herdr の作業場の印に、keep か tmp かと、会話を引き継ぐか clear するかを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
         from nodes import sync
         self.assertEqual(sync.seat_of({"role": "担当", "lifecycle": "persistent", "fresh": "true"}), "persistent-fresh")
         self.assertEqual(sync.seat_of({"role": "相談", "lifecycle": "persistent"}), "persistent-carry")
         self.assertEqual(sync.seat_of({"role": "作業", "lifecycle": "ephemeral"}), "ephemeral")
         self.assertIsNone(sync.seat_of({}))
-        self.assertEqual(sync.seat_tokens("persistent-fresh"), {"kind": "永続・毎回クリア", "seat": "persistent-fresh"})
+        self.assertEqual(sync.seat_tokens("persistent-fresh"), {"kind": "keep・clear", "seat": "persistent-fresh"})
         self.assertEqual(sync.op("p", {"role": "担当", "lifecycle": "persistent", "name": "割り振り"}, False)["display_agent"], "担当")
 
 
@@ -239,7 +239,7 @@ class ModelAndEffort(unittest.TestCase):
         self.assertEqual(json.loads(role.launch_key(r)), {"model": "sonnet", "effort": None})
 
     def test_launch_key_keeps_inherit_unresolved_and_takes_the_duty_first(self):
-        # 毎回クリアする部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）
+        # clear の部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）
         r = {"name": "担当", "model": "opus", "effort": "inherit"}
         self.assertEqual(json.loads(role.launch_key(r)), {"model": "opus", "effort": "inherit"})
         self.assertEqual(json.loads(role.launch_key(r, {"name": "割り振り", "model": "sonnet", "effort": None})),
@@ -247,7 +247,7 @@ class ModelAndEffort(unittest.TestCase):
         self.assertEqual(json.loads(role.launch_key(None)), {"model": None, "effort": None})
 
     def test_duty_is_found_by_the_same_name_or_by_the_head_of_a_one_off_name(self):
-        # 永続の部署は名前が受け持ちと同じ。一度きりの部署は「<受け持ち>：<何をするか>」。同じ名前の受け持ちが先
+        # keep の部署は名前が受け持ちと同じ。一度きりの部署は「<受け持ち>：<何をするか>」。同じ名前の受け持ちが先
         skills = [{"name": "調べもの"}, {"name": "調べもの：常設"}, {"name": "手入れ"}]
         self.assertIs(role.duty_of(skills, "調べもの"), skills[0])
         self.assertIs(role.duty_of(skills, "調べもの：原典の確かめ"), skills[0])
@@ -464,21 +464,21 @@ class Hook(unittest.TestCase):
         self.assertIn(f"{role_hook.RUN} --land {shlex.quote('見渡し：d1')}", text)
         self.assertIn(f"{role_hook.RUN} --ask <宛先> --text <頼み>", text)
         self.assertIn(f"{role_hook.RUN} --done", text)
-        # 永続の部署は --done を断られるので書かない。本社の窓口には足さない
+        # keep の部署は --done を断られるので書かない。本社の窓口には足さない
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.assertNotIn("--done", role_hook.text_for(self.place, self.env))
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
         self.assertNotIn("--deliver", role_hook.text_for(self.src, self.env))
 
     def test_a_department_per_ask_gets_the_on_demand_line_of_its_duty(self):
-        # 頼みごとの部署（per_ask）は名前が「<受け持ち>：…」でも、受け持ちの説明とオンデマンドの文が足される。per_ask の無い受け持ちの
+        # 頼みごとの部署（per_ask）は名前が「<受け持ち>：…」でも、受け持ちの説明と on-demand の文が足される。per_ask の無い受け持ちの
         # 「<受け持ち>：…」の部署には足さない（今までどおり）
         write(pathlib.Path(self.src) / ".claude" / "company.toml",
               SHAPE + '[[skills]]\nname = "見渡し"\ndescription = "調べる"\nrole = "調べ役"\non_demand = true\nper_ask = true\n'
                       '[[skills]]\nname = "直し"\ndescription = "直す"\nrole = "調べ役"\non_demand = true\n')
         provision.mark(self.place, self.src, {"role": "調べ役", "name": "見渡し：d14822", "lifecycle": "ephemeral"}, self.g)
         text = role_hook.text_for(self.place, self.env)
-        self.assertIn("受け持ちは「見渡し」（調べる）。この受け持ちはオンデマンド", text)
+        self.assertIn("受け持ちは「見渡し」（調べる）。この受け持ちは on-demand", text)
         provision.mark(self.place, self.src, {"name": "直し：題"}, self.g)
         self.assertNotIn("受け持ちは", role_hook.text_for(self.place, self.env))
 

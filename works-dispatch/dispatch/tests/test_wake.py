@@ -1059,7 +1059,7 @@ class Hook(unittest.TestCase):
 
     def test_a_ring_through_three_departments_with_an_undelivered_one_in_the_middle_is_found_from_each(self):
         # 割り振りは今の頼みを納品せずに点検への c1 の返事を待ち、点検は見直しへの c2 を、見直しは割り振りへの c3 を待つ（10-18 の
-        # claude-plugins。輪の途中に、納品していない永続の担当が入る）
+        # claude-plugins。輪の途中に、納品していない keep の担当が入る）
         held = {"role": "担当", "fresh": role.FRESH}
         provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, self.g)   # 納品していない
         check_ = self.dept("dept/b", **held, name="点検", ask="b0")
@@ -1211,7 +1211,7 @@ class Hook(unittest.TestCase):
         return land
 
     def test_a_persistent_department_follows_the_main_branch_before_the_next_ask_and_restarts_for_its_agents(self):
-        # 永続の部署の作業場は頼みのたびに作り直さないので、渡す前にメインブランチの先頭へ進める。役の定義が替われば、
+        # keep の部署の作業場は頼みのたびに作り直さないので、渡す前にメインブランチの先頭へ進める。役の定義が替われば、
         # 同じアカウントのまま起動し直す名指しを印す（2026-10-20、my_notes の調べものが 20 commit 遅れた。受付 72f7e4）
         land = self.with_origin()
         land("notes.md")

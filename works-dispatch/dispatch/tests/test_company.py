@@ -189,9 +189,9 @@ class HerdrPorts(unittest.TestCase):
 
     def test_workspace_metadata_sets_and_clears_in_one_call(self):
         run = fake_runner("")
-        real_herdr.report_workspace_metadata("wX", "company", {"kind": "永続・毎回クリア"}, ["old"], runner=run)
+        real_herdr.report_workspace_metadata("wX", "company", {"kind": "keep・clear"}, ["old"], runner=run)
         self.assertEqual(run.calls, [["herdr", "workspace", "report-metadata", "wX", "--source", "company",
-                                      "--token", "kind=永続・毎回クリア", "--clear-token", "old"]])
+                                      "--token", "kind=keep・clear", "--clear-token", "old"]])
 
     def test_read_returns_the_screen_text(self):
         self.assertEqual(real_herdr.read("p", 3, runner=fake_runner("a\nb\n")), "a\nb\n")
@@ -228,7 +228,7 @@ class Info(unittest.TestCase):
               '[[skills]]\nname = "e"\non_demand = "yes"\n[[skills]]\nname = "f"\non_demand = false\n')
         got = tree.read_info(self.root, self.settings)
         self.assertEqual([s["on_demand"] for s in got["skills"]], [True, False, False, False])
-        self.assertEqual(got["problems"], [f"{got['path']}: skills[2]（e）の on_demand は true か false。外して永続で扱う"])
+        self.assertEqual(got["problems"], [f"{got['path']}: skills[2]（e）の on_demand は true か false。外して keep で扱う"])
 
     def test_per_ask_is_read_only_with_on_demand(self):
         # per_ask = true（頼みごとの部署）は on_demand = true と併せたときだけ効く。形が違えば外して、受け持ちの名前の部署 1 つで受ける
@@ -472,11 +472,11 @@ class Build(unittest.TestCase):
         text = "\n".join(tree.lines(self.build((), sessions)))
         self.assertIn("r  /s/r  （会社の情報なし）", text)
         self.assertIn("  本社 main  会話なし", text)
-        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（永続・引き継ぎ）  アカウント p2  頼み元 窓口  窓 なし", text)
+        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（keep・continue）  アカウント p2  頼み元 窓口  窓 なし", text)
         self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  頼み元 -  窓 なし", text)
 
     def test_contacts_show_who_to_ask_and_the_desk(self):
-        # 受ける仕事ごとの宛て方（永続の受け持ちは部署の名前、まだ立っていなければ役と --task、tmp の役は役と --task）と窓口を出す。
+        # 受ける仕事ごとの宛て方（keep の受け持ちは部署の名前、まだ立っていなければ役と --task、tmp の役は役と --task）と窓口を出す。
         # 頼み元（company.boss）は納品の返し先なので、宛て方にも窓口にも使わない
         from nodes import role
         shape = role.load("t", '[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
@@ -496,7 +496,7 @@ class Build(unittest.TestCase):
         self.assertIn("  受ける仕事: 調べ → 担当  宛て方 --ask c/調べ", text)
         per_ask = company | {"departments": [], "skills": [{"name": "見渡し", "description": None, "role": "担当", "on_demand": True,
                                                             "per_ask": True, "ask": "--ask c/見渡し"}]}
-        self.assertIn("  受ける仕事: 見渡し → 担当  オンデマンド（頼みごとの部署）  宛て方 --ask c/見渡し", "\n".join(tree.lines([per_ask])))
+        self.assertIn("  受ける仕事: 見渡し → 担当  on-demand（頼みごとの部署）  宛て方 --ask c/見渡し", "\n".join(tree.lines([per_ask])))
         self.assertIn("  窓口: 段取り（受ける仕事に当たらない件・部署をまたぐ件）  model 既定  effort 既定  宛て方 --ask c/段取り", text)
         # ほかの会社が兼ねる窓口（会社の形の desk）は、その会社の形を読まないので model・effort を出さない
         other = company | {"departments": [], "desk": None, "desk_of": "n/段取り"}
@@ -586,7 +586,7 @@ class Sync(unittest.TestCase):
         bare = {**self.dept({}, [], branch="dept/e"), "workspace": "wE"}
         got = sync.workspace_ops(self.company(office, same, kinded, *shared, bare), [
             {"workspace_id": "wX", "label": "mynotes"}, {"workspace_id": "wB", "label": "調べ", "tokens": {"kind": "前の言い方", "seat": "ephemeral"}},
-            {"workspace_id": "wK", "label": "割り振り", "tokens": {"kind": "永続・毎回クリア"}},
+            {"workspace_id": "wK", "label": "割り振り", "tokens": {"kind": "keep・clear"}},
             {"workspace_id": "wS", "label": "x"}, {"workspace_id": "wE", "label": "y"}])
         # 本社の作業場は herdr の木の親なので会社の名前。名前と印が今と同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の
         # 無い場所の作業場は触らない。印は見せる語（kind）でなく席の種類のキー（seat）で比べ、seat の無い前の版の作業場には付け直す（受付 0715c5）
@@ -708,7 +708,7 @@ class Entry(unittest.TestCase):
         shape.write_text('[[roles]]\nname = "調べ役"\npersistent = true\nfresh = true\n', encoding="utf-8")
         rc, out = self.main("--sync", "--dry-run")
         self.assertIn("company.fresh - → true（役 調べ役 の fresh を写す）", out)
-        self.assertIn("印 永続・毎回クリア", out)   # 席の見え方は作業場の印に出す
+        self.assertIn("印 keep・clear", out)   # 席の見え方は作業場の印に出す
         self.assertIn("表示名 調べ役  ", out)   # ペインの表示名は役だけ
         self.assertNotIn("fresh", self.g.worktree_attrs(self.place), "--dry-run が書いた")
         rc, out = self.main("--sync")
@@ -896,7 +896,7 @@ class Departments(unittest.TestCase):
     def test_resident_department_is_never_removed(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         rc, out = self.clean("--apply")
-        self.assertIn("部署 dept/a dept/a  done  残す（永続の部署は畳まない）", out)
+        self.assertIn("部署 dept/a dept/a  done  残す（keep の部署は畳まない）", out)
         self.assertEqual(self.removed, [])
         self.assertTrue(os.path.exists(self.place))
 
@@ -910,7 +910,7 @@ class Departments(unittest.TestCase):
         self.assertIn("消すには --clean --apply を付けて打ち直す", out)
 
     def test_resident_department_branches_it_landed_are_removed_after_it_moves_on(self):
-        # 永続の部署は作業場を残し、頼みごとにブランチを移る。--land が書いた「入れたブランチ → commit」のうち、もう開いていないブランチを消す
+        # keep の部署は作業場を残し、頼みごとにブランチを移る。--land が書いた「入れたブランチ → commit」のうち、もう開いていないブランチを消す
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         old_sha = self.g.head_sha(self.place)
         self.g.local["dept/next"] = old_sha

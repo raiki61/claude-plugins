@@ -35,17 +35,23 @@ class Fix(unittest.TestCase):
             self.assertEqual(terms.fix_line(before), after, before)
 
     def test_former_names_of_department_lifetimes_are_fixed_but_ordinary_words_are_not(self):
-        cases = {"常設の部署": "永続の部署", "都度の部署": "tmp の部署", "常設・毎回空": "永続・毎回クリア",
-                 "担当は常設で 1 人": "担当は永続で 1 人", "常設か都度か": "永続か tmp か", "その都度の部署": "その都度の部署",
+        cases = {"常設の部署": "keep の部署", "都度の部署": "tmp の部署", "常設・毎回空": "keep・clear",
+                 "担当は常設で 1 人": "担当は keep で 1 人", "常設か都度か": "keep か tmp か", "その都度の部署": "その都度の部署",
                  "その都度確かめる": "その都度確かめる", "常設の展示": "常設の展示",
-                 "チェックが毎回空振りする": "チェックが毎回空振りする", "常設の会話": "永続の会話",
-                 "常設でない部署": "永続でない部署", "都度とみなす": "tmp とみなす", "常設の役員": "常設の役員",
+                 "チェックが毎回空振りする": "チェックが毎回空振りする", "常設の会話": "keep の会話",
+                 "常設でない部署": "keep でない部署", "都度とみなす": "tmp とみなす", "常設の役員": "常設の役員",
                  "席が毎回空く": "席が毎回空く", "タンクが毎回空になる": "タンクが毎回空になる", "常設・仮設": "常設・仮設",
-                 "常設の席": "常設の席", "エフェメラルの部署": "tmp の部署", "永続かエフェメラルか": "永続か tmp か",
-                 "`--ephemeral` でエフェメラルにする": "`--ephemeral` で tmp にする"}
+                 "常設の席": "常設の席", "エフェメラルの部署": "tmp の部署", "永続かエフェメラルか": "keep か tmp か",
+                 "`--ephemeral` でエフェメラルにする": "`--ephemeral` で tmp にする",
+                 # 2026-10-29 に残りの寿命の語も英単語にそろえた（永続 → keep・毎回クリア → clear・引き継ぎ → continue・オンデマンド → on-demand）
+                 "永続の部署": "keep の部署", "永続・毎回クリア": "keep・clear", "永続・引き継ぎ": "keep・continue",
+                 "常設・持ち越し": "keep・continue", "毎回クリアする部署": "clear の部署", "毎回クリアする担当": "clear の担当",
+                 "毎回空にする部署": "clear の部署", "オンデマンドの受け持ち": "on-demand の受け持ち", "永続に上げる": "keep に上げる",
+                 "状態の永続化": "状態の永続化", "ディスク永続の checkpointer": "ディスク永続の checkpointer",
+                 "永続の checkpointer": "永続の checkpointer", "会話の引き継ぎ": "会話の引き継ぎ", "引き継ぎの文": "引き継ぎの文"}
         for before, after in cases.items():
             self.assertEqual(terms.fix_line(before), after, before)
-        self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "毎回クリア")])
+        self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "clear")])
 
     def test_a_plan_written_as_a_step_is_fixed_but_steps_and_layers_are_not(self):
         # サブスクのプランの意味の 段 だけを当てる（my_notes の tools/checks/terms.py の項を元にした形）

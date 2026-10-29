@@ -262,7 +262,7 @@ class LandCase(unittest.TestCase):
         repo = Repo("o/r", "", world.source, (), None, None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = landing.main(None, repo, name, ports, rows, {"running": "会話がまだ動いている", "persistent": "永続の部署は畳まない"},
+            code = landing.main(None, repo, name, ports, rows, {"running": "会話がまだ動いている", "persistent": "keep の部署は畳まない"},
                                 self.config, pause=lambda: None, today=today, dry_run=dry_run, keep_removal=keep_removal,
                                 **({"checker": checker} if checker else {}))
         return code, out.getvalue()
@@ -653,7 +653,7 @@ class Tidy(LandCase):
         row = {"path": w.dept, "branch": "feat/a", "removable": False, "reason": "persistent"}
         code, out = self.land(w, FakePorts(w), rows=lambda *a: [row])
         self.assertEqual(code, 0, out)
-        self.assertIn("永続の部署は畳まない", out)
+        self.assertIn("keep の部署は畳まない", out)
 
     def test_resident_department_gets_no_mark(self):
         w = FakeWorld(self.tmp, CI_FILES)
@@ -665,7 +665,7 @@ class Tidy(LandCase):
         attrs = w.g.worktree_attrs(w.dept)
         self.assertNotIn("landed", attrs)
         self.assertNotIn("次の --land", out)
-        # 永続の部署は作業場を残す。入れたブランチと commit を書き、部署が次のブランチに移った後の --land か --clean --apply が消す
+        # keep の部署は作業場を残す。入れたブランチと commit を書き、部署が次のブランチに移った後の --land か --clean --apply が消す
         self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": head})
         self.assertIn("入れたブランチは、部署が次のブランチに移った後", out)
 

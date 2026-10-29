@@ -36,10 +36,10 @@
   --dry-run（試し打ち）でも走る（通るかを試しで見られるように）（deliver_check の頼みの側。例 my_notes の社長室あての返事の要らない知らせを止める tools/no_notice.py --ask-check）
 - ask_holders: holders と同じ形で、この役へ宛てた --ask の本文の頭書きに [[open]] が在れば、同じ検査を掛ける（頼み元の名前は頼む側の
   名前に読み替える。問いを受ける相談の役に書く）
-- persistent: true なら、その役の部署は永続（--persistent を付けたのと同じ）。担当のように受け持ちごとに永続で置く役に書く。役で宛てた頼み
+- persistent: true なら、その役の部署は keep（--persistent を付けたのと同じ）。担当のように受け持ちごとに keep で置く役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --persistent を付け忘れると、tmp の部署が立って次の頼みがその部署を見つけないため。
 - fresh: true なら、その役の部署は頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に /clear を
-  打つ）。省けば会話を引き継ぐ。persistent とは別の軸で、永続の席（順番を 1 本にする・宛先の名前・決まった窓）は残したまま、
+  打つ）。省けば会話を引き継ぐ。persistent とは別の軸で、keep の席（順番を 1 本にする・宛先の名前・決まった窓）は残したまま、
   前の頼みの記憶を引き継がない（記憶は太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す。まっさらな環境での 2 回目の試し）
 - machine: true なら、AI の部署を持たない役（ツールだけを持つ。--ask で宛てられない。部署を立てない）
 - tools: 機械窓口のツールの並び（[[roles.tools]]。受付の設計 5.2）。フィールドは MCP の Tool に合わせた name・title・description・inputSchema と、
@@ -85,12 +85,12 @@ FIXED = chat.FIXED_SETTINGS
 
 
 # 部署の席の種類のキー（機械が比べ・並べる値）と、人に見せる語（herdr の作業場の印 kind と --tree に役の後ろへ添える字）。
-# 語は表示にだけ使い、比べない（語を言い換えても、並びと判定が替わらない）。毎回クリアは頼みごとに /clear する fresh の部署
-SEAT_LABELS = {"persistent-carry": "永続・引き継ぎ", "persistent-fresh": "永続・毎回クリア", "ephemeral": "tmp"}
+# 語は表示にだけ使い、比べない（語を言い換えても、並びと判定が替わらない）。clear は頼みごとに /clear する fresh の部署
+SEAT_LABELS = {"persistent-carry": "keep・continue", "persistent-fresh": "keep・clear", "ephemeral": "tmp"}
 
 
 def seat(lifecycle, fresh):
-    """部署の席の種類のキー（SEAT_LABELS の鍵）。lifecycle は属性 company.lifecycle の値。永続なら会話の引き継ぎ方も分ける。"""
+    """部署の席の種類のキー（SEAT_LABELS の鍵）。lifecycle は属性 company.lifecycle の値。keep なら会話の引き継ぎ方も分ける。"""
     if lifecycle == gitx.PERSISTENT:
         return "persistent-fresh" if fresh else "persistent-carry"
     return "ephemeral"
@@ -106,7 +106,7 @@ FLOW = ("persistent-carry", "persistent-fresh", "ephemeral")
 
 
 def flow_rank(attrs, duties):
-    """部署の、仕事の流れの順の鍵（小さい方が先）。永続・引き継ぎ（相談の社長室など）、永続・毎回クリア（担当。この中は duties の並び
+    """部署の、仕事の流れの順の鍵（小さい方が先）。keep・continue（相談の社長室など）、keep・clear（担当。この中は duties の並び
     〔会社の形の [[skills]] の名前の書き順〕）、tmp（作業）、役の無い場所。同じ鍵の物の順は呼ぶ側が決める（herdr の並びは今の順、
     --tree はブランチの名前）。herdr の作業場の並び（sync.flow_order）と --tree の部署の並び（tree.build）が同じ鍵を使う。"""
     attrs = attrs or {}
@@ -261,7 +261,7 @@ def load(path, text=None):
         else:
             out["former"][old] = now[0]
     # 回す先は --ask 会社/<名前> と同じ宛て方なので、受け持ちの名前（[[skills]] の name）でも書ける。その受け持ちの役で確かめる。
-    # 引く順は deliver.find_target と同じ（オンデマンドの受け持ちが役より先、同じ名前の受け持ちは先の物）
+    # 引く順は deliver.find_target と同じ（on-demand の受け持ちが役より先、同じ名前の受け持ちは先の物）
     duties = {}
     for s in raw.get("skills", []) if isinstance(raw.get("skills", []), list) else []:
         if isinstance(s, dict) and isinstance(s.get("name"), str):
@@ -329,9 +329,9 @@ def pick(shape, name, explicit):
 def seat_problem(shape, role_name, role, duties, name):
     """受け持ちの席の役（persistent = true で、会社の形の受け持ち [[skills]] の role に名指される役。担当）の部署を、その役の
     受け持ちの名前でない名前で立てようとしたら、止める訳。ほかは None。席の役は、部署の名前が受け持ちの名前のときだけ席なので、
-    「<受け持ち>：<主題>」のような一度きりの仕事の名前で立てると、永続の部署が誰の席でもないまま残る（my_notes の受付 90b7d8。
-    「調べもの：指示の細かさと下位モデルの精度」が担当の永続の部署で立ち、--clean で畳まれず、使用上限で移るフックが起動し直し続けた）。
-    受け持ちに名指されない永続の役（相談の社長室など）は、名前を問わない。"""
+    「<受け持ち>：<主題>」のような一度きりの仕事の名前で立てると、keep の部署が誰の席でもないまま残る（my_notes の受付 90b7d8。
+    「調べもの：指示の細かさと下位モデルの精度」が担当の keep の部署で立ち、--clean で畳まれず、使用上限で移るフックが起動し直し続けた）。
+    受け持ちに名指されない keep の役（相談の社長室など）は、名前を問わない。"""
     if not (role and role["persistent"]) or on_demand_of(duties, name):
         return None   # 頼みごとの部署（per_ask）は受け持ちの名前でなくても、tmp で立つので席を残さない
     held = [s["name"] for s in duties if s.get("role") and current(shape, s["role"]) == current(shape, role_name)]
@@ -340,8 +340,8 @@ def seat_problem(shape, role_name, role, duties, name):
     other = shape.get("default_role")
     to = (f"--role {other}（--ask なら <会社>/{other}）" if other and other != role_name and other in shape["roles"]
           and not shape["roles"][other]["persistent"] else "persistent でない役")
-    return (f"役 {role_name} は受け持ちごとに 1 つの永続の部署で、部署の名前は受け持ちの名前（{'・'.join(held)}）。"
-            f"「{name}」はどれでもないので、この役で立てると誰の席でもない永続の部署が残る。一度きりの仕事は {to}で頼む")
+    return (f"役 {role_name} は受け持ちごとに 1 つの keep の部署で、部署の名前は受け持ちの名前（{'・'.join(held)}）。"
+            f"「{name}」はどれでもないので、この役で立てると誰の席でもない keep の部署が残る。一度きりの仕事は {to}で頼む")
 
 
 # 一度きりの部署の名前で、受け持ちの名前と何をするかを分ける字（「<受け持ち>：<何をするか>」。--init-company の下書きの役の本文の決まり）
@@ -349,7 +349,7 @@ DUTY_SEP = "："
 
 
 def duty_of(skills, name):
-    """部署の名前（name）で引く受け持ち（[[skills]] の項目）。名前が受け持ちの name と同じ物（永続の部署）を先に、無ければ名前の
+    """部署の名前（name）で引く受け持ち（[[skills]] の項目）。名前が受け持ちの name と同じ物（keep の部署）を先に、無ければ名前の
     DUTY_SEP より前（長い方から）が受け持ちの name と同じ物（「<受け持ち>：<何をするか>」の一度きりの部署）。どちらも無ければ None。
     起動の設定（model・effort・settings）を引くときに使う（launch_flags・launch_key・settings_for）。"""
     if not name:
@@ -360,8 +360,8 @@ def duty_of(skills, name):
 
 
 def on_demand_of(skills, name):
-    """部署の名前（name）で引く、オンデマンドの効き（tmp で立つ・会話の始まりの文・席の検査を問わない）の付く受け持ち。名前が
-    オンデマンドの受け持ちの name と同じ物か、頼みごとの部署（per_ask = true の受け持ちの「<受け持ち>：<何をするか>」の部署。
+    """部署の名前（name）で引く、on-demand の効き（tmp で立つ・会話の始まりの文・席の検査を問わない）の付く受け持ち。名前が
+    on-demand の受け持ちの name と同じ物か、頼みごとの部署（per_ask = true の受け持ちの「<受け持ち>：<何をするか>」の部署。
     per_ask_name が名付ける）。どちらでもなければ None。"""
     duty = duty_of(skills, name)
     return duty if duty and duty.get("on_demand") and (duty["name"] == name or duty.get("per_ask")) else None
@@ -407,7 +407,7 @@ def desk_spec(role):
 
 def launch_key(role, duty=None):
     """部署と窓口の属性 company.launched に書く字（起動したときの launch_spec と、役の起動の設定 [roles.settings]）。待ち受けが
-    会社の形の今の値と比べ、違えば起動し直す（--move --if-changed。毎回クリアする部署は次の頼みを渡す前、ほかは区切り〔--rest〕の
+    会社の形の今の値と比べ、違えば起動し直す（--move --if-changed。clear の部署は次の頼みを渡す前、ほかは区切り〔--rest〕の
     ターンの終わり）。settings は役の設定に受け持ちの設定を重ねた物（_layered）。どちらにも設定が無ければ settings のフィールドを書かない
     （設定のフィールドの無かった版で起動した部署を、違うと見て起動し直さない）。
     先に使うアカウント（account。launch_account）は入れない（使えるかで起動する先が替わる。アカウントを替えるのは --move の受け持ち）。"""
@@ -605,7 +605,7 @@ def context(role_name, role, company, duty=None, head_office=False, lifecycle=No
     if duty and duty.get("description"):
         head += f"受け持ちは「{duty['name']}」（{duty['description']}）。"
     if duty and duty.get("on_demand") and not head_office and lifecycle != gitx.PERSISTENT:
-        head += "この受け持ちはオンデマンド（頼まれたときだけ立てる）で、この部署は tmp の部署（頼みを済ませたら畳まれる）。"
+        head += "この受け持ちは on-demand（頼まれたときだけ立てる）で、この部署は tmp の部署（頼みを済ませたら畳まれる）。"
     return (head + (f"\n{shared}" if shared and not head_office else "")
             + (f"\n{role['instructions']}" if role and role["instructions"] else ""))
 

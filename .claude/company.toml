@@ -29,19 +29,19 @@ default_role = "作業"   # --task で --role を省いたときの役
 # - ただし model は受け持ちに書かず、役（担当・作業）のフィールドに model = "opus" と書く（受け持ちに model が無ければ役の値で起動する）。書かないと、
 #   部署はアカウントの既定のモデル（/model で替わり、そのアカウントの新しい会話の既定として保存される）で起き、会社の形を読んでも決まらない。
 #   書いた日（2026-10-18）は main・p1・p2・p3 の 4 アカウントの ~/.claude*/settings.json がどれも "model": "opus" で、動くモデルは変わらない。
-#   ただし毎回クリアする部署は、起動したときの値と違うので、次の頼みの前に一度起動し直される。
+#   ただし clear の部署は、起動したときの値と違うので、次の頼みの前に一度起動し直される。
 #   my_notes の .claude/company.toml（my_notes の 4 役とも model = "opus"）と同じ書き方（受付 a41972）。
-# 毎回クリアする担当は、次の頼みの前に新しい値で起動し直す。入れた後の外れは手元の測り（docs/model-replay.md）で見つけ、戻すのは my_notes の司令塔が持つ
+# clear の担当は、次の頼みの前に新しい値で起動し直す。入れた後の外れは手元の測り（docs/model-replay.md）で見つけ、戻すのは my_notes の司令塔が持つ
 
-# 永続の部署と、オンデマンド（頼まれたときだけ立てる）の部署（持ち主 2026-10-17「そうね。そうして」「作業量が増えたり依頼がふえたらスケール出来るようにね」。社長室の受付 813bb8）
-# - 永続に残す: 本社の窓口だけ（my_notes の司令塔・調べもの・ノートの手入れは my_notes の会社の形）。仕組みも 2026-10-29 にオンデマンドにした（仕組みの項のコメント）。
-# - オンデマンド（on_demand = true）: 仕組み・点検・見直し・見渡し・説明書・標準・業務改革・試し。--ask claude-plugins/<受け持ち> で、
+# keep の部署と、on-demand（頼まれたときだけ立てる）の部署（持ち主 2026-10-17「そうね。そうして」「作業量が増えたり依頼がふえたらスケール出来るようにね」。社長室の受付 813bb8）
+# - keep に残す: 本社の窓口だけ（my_notes の司令塔・調べもの・ノートの手入れは my_notes の会社の形）。仕組みも 2026-10-29 に on-demand にした（仕組みの項のコメント）。
+# - on-demand（on_demand = true）: 仕組み・点検・見直し・見渡し・説明書・標準・業務改革・試し。--ask claude-plugins/<受け持ち> で、
 #   その受け持ちの名前の tmp の部署が立ち（ブランチは受付番号から作る）、納品して main に入れたら --done で畳まれる。受け持ちの範囲と、誰が触って
 #   よいかの区切りは変えない。同じ受け持ちの部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積まれる。
 # - 増えたときの広げ方: 1 つの部署に頼みが重なったら、互いに関わらない仕事を作業（--task）に分けて並べる。読む量が多いだけの仕事は、
 #   その会話の中でサブエージェントに分けて読ませる。アカウントは使用枠に空きのあるものを自動で選ぶ。
-#   オンデマンドの受け持ちで、1 日 20 件を超える日が続くか、頼みの待ちの上位 1 割が 30 分を超えたら、業務改革が台帳から
-#   数えて永続に上げる（on_demand を外す）。下回れば下げる。上げ下げは持ち主に問わず、my_notes の司令塔に報告だけする。20 件・30 分は 10-17 の
+#   on-demand の受け持ちで、1 日 20 件を超える日が続くか、頼みの待ちの上位 1 割が 30 分を超えたら、業務改革が台帳から
+#   数えて keep に上げる（on_demand を外す）。下回れば下げる。上げ下げは持ち主に問わず、my_notes の司令塔に報告だけする。20 件・30 分は 10-17 の
 #   数から置いた目安で原典は無く、業務改革が次の回に測り直す。
 [[skills]]
 id = "plugin-fix"
@@ -52,13 +52,13 @@ role = "作業"
 # 仕組み: 前の名前は「割り振り」（works-dispatch の働き「部署に仕事を割り振る」から付けた）。部署の名前としては「仕事を振り分ける所」と読め、
 # 自分で直す中身と食い違うので、中身に合わせて替えた（持ち主 2026-10-24「割り振りって作業する場所じゃないよね」、業務改革の案 41106c-1 に「はい。」。
 # 司令塔の受付 a18228）。振り分けは窓口の仕事で、この受け持ちは works-dispatch・tiers・rent-or-buy を自分で直す。id は替えない
-# オンデマンドにした（2026-10-29。持ち主「あとこの仕組みはやはり積もっちゃうので、エフェメラルにするように解体してもいいのでは」。前に my_notes で
+# on-demand にした（2026-10-29。持ち主「あとこの仕組みはやはり積もっちゃうので、エフェメラルにするように解体してもいいのでは」。前に my_notes で
 # 2026-10-26「全部サブ部署はエフェメラルにしますか。永続にしてるメリットないですよね？」「永続辞めるって話しかなかったっけ。積まれるから」）。
-# 永続の部署は頼みをまたいで残り、10-29 には順番待ちに頼みが 4 件積まれて窓口が 3 件を役「作業」の部署へ移した。ほかの担当は 10-17 からオンデマンド（受付 813bb8）
+# keep の部署は頼みをまたいで残り、10-29 には順番待ちに頼みが 4 件積まれて窓口が 3 件を役「作業」の部署へ移した。ほかの担当は 10-17 から on-demand（受付 813bb8）
 [[skills]]
 id = "dispatch"
 name = "仕組み"
-on_demand = true   # オンデマンド（持ち主 2026-10-29。上のコメント）
+on_demand = true   # on-demand（持ち主 2026-10-29。上のコメント）
 description = "works-dispatch・tiers・rent-or-buy の直し（部署の立て方・頼みと納品・main に入れるコマンドと、ツールの点検と、借りるか買うかの費用の判断の部品）"
 role = "担当"
 effort = "high"   # コード（works-dispatch の Python）
@@ -66,7 +66,7 @@ effort = "high"   # コード（works-dispatch の Python）
 [[skills]]
 id = "gates"
 name = "点検"
-on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
+on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
 description = "gates の直し（書き込み前のゲート・初見読みなど）と、CI・ルートの tests/ の直し"
 role = "担当"
 effort = "high"   # コード（gates のフック・CI・ルートの tests/）
@@ -74,7 +74,7 @@ effort = "high"   # コード（gates のフック・CI・ルートの tests/）
 [[skills]]
 id = "convergence"
 name = "見直し"
-on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
+on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
 description = "convergence-loops と graphloops の直し（レビュー・調べ・初見読みなどの収束の工程と、そのグラフ）"
 role = "担当"
 effort = "high"   # コード（graphloops の Python とグラフ）と、レビューの工程の判断
@@ -82,7 +82,7 @@ effort = "high"   # コード（graphloops の Python とグラフ）と、レ�
 [[skills]]
 id = "attention"
 name = "見渡し"
-on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
+on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
 description = "attention の直し（自分の番の PR の見渡しと /catchup）"
 role = "担当"
 effort = "high"   # コード（attention の Python）
@@ -90,7 +90,7 @@ effort = "high"   # コード（attention の Python）
 [[skills]]
 id = "docs"
 name = "説明書"
-on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
+on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
 description = """\
 プラグインをまたぐ文書（ルートの README・CLAUDE.md・CONTRIBUTING.md・docs/。docs/trials/・docs/standards/・docs/reform/ は除く）と、会社の形（.claude/company.toml と設計の docs/specs/2026-10-16-company-shape-design.md）の直し。\
 会社の形の中身を決めるのは持ち主と窓口で、説明書は書く（業務改革の案から承認された組織の直しは、業務改革が自分で入れる）"""
@@ -100,7 +100,7 @@ effort = "medium"   # 文書と会社の形を書く。原文の照合がある�
 [[skills]]
 id = "standards"
 name = "標準"
-on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
+on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
 description = """\
 プラグインをまたぐ標準（書き方・作りの揃え方）を docs/standards/ に作り、プラグインごとのずれを見つけて綺麗にし続ける。\
 ずれの直しは各プラグインの担当に、標準を機械で守らせる検査（CI・ルートの tests/）は点検に、ルートの README・CLAUDE.md・CONTRIBUTING.md から標準を指す直しは説明書に頼む"""
@@ -118,12 +118,12 @@ text = """\
 前の回からの続きは docs/standards/ から拾ってください。\
 前提が違う・今は要らないと思ったら、作らずにそう返してください。"""
 
-# 業務改革: claude-plugins の組織（部署・役・頼みの流れ）を外から点検し、案から、承認された直しを自分で入れて効いたかの報告までを通しでやる受け持ち（オンデマンド。上の段）。
+# 業務改革: claude-plugins の組織（部署・役・頼みの流れ）を外から点検し、案から、承認された直しを自分で入れて効いたかの報告までを通しでやる受け持ち（on-demand。上の段）。
 # my_notes の業務改革（受付 4582e6）と同じ形にそろえる（持ち主 2026-10-17「claudepluginsにもつくってあげて。」受付 7f0b16）。
 # 2 つが同じ物を重ねて点検しないよう、こちらは claude-plugins の組織だけを見る（my_notes の組織は my_notes の業務改革）。
 # 一度きりでは案を返すと畳まれ、持ち主が呼び直さなければ誰も見届けない（持ち主 2026-10-17「業務改革部署がたちあがったのに、
 # 割り振りにふってすぐclearされたら、最後まで面倒見ないかもしれない」「社長室を戦力換算しないで。組織でイメージして」）ので担当にする。
-# 2026-10-17 の承認（813bb8）でオンデマンドの形にした後も、司令塔の答えを待つ間は、自分の出した頼みに返事が来ていなければ --done が断るので、畳まれずに見届ける。
+# 2026-10-17 の承認（813bb8）で on-demand の形にした後も、司令塔の答えを待つ間は、自分の出した頼みに返事が来ていなければ --done が断るので、畳まれずに見届ける。
 # 会話は担当のまま fresh で、続きは改善の台帳と受付箱の台帳から読む。進め方は担当の本文でなく下の description に書く
 # （受け持ちの中身は [[skills]] の 1 か所に置く決まりで、description は業務改革の部署にだけ足される）。
 # 改善の台帳は docs/reform/ に置き、説明書の受け持ちから外す（試しの docs/trials/・標準の docs/standards/ と同じ切り方。
@@ -136,7 +136,7 @@ text = """\
 [[skills]]
 id = "reform"
 name = "業務改革"
-on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
+on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
 # 業務改革の部署にだけ足される進め方なので英語で書く（ルートの CLAUDE.md の「会話」。元の日本語の行との対応は docs/reform/ledger.md の頼み 79eacf）
 # terms: english-begin
 description = """\
@@ -179,13 +179,13 @@ text = """\
 [[skills]]
 id = "trials"
 name = "試し"
-on_demand = true   # オンデマンド（持ち主 2026-10-17 承認。受付 813bb8）
+on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
 description = "まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する"
 role = "担当"
 effort = "high"   # 長い手順で入れて動かし、見たことを漏らさず記録する仕事なので下げない
 
-# 担当: 受け持ちごとに 1 つ（persistent = true なので、--persistent を付けなくても永続の部署で立つ。受け持ちが on_demand = true なら tmp の部署で立つ）。受け持ちは部署の名前で決まる
-# fresh = true で、頼みごとに空の会話で受ける（永続・毎回クリア。持ち主の決め 2026-10-17「担当＝常設・毎回空」。--ask が前の頼みを納品し終えた担当に /clear を打ってから頼む）
+# 担当: 受け持ちごとに 1 つ（persistent = true なので、--persistent を付けなくても keep の部署で立つ。受け持ちが on_demand = true なら tmp の部署で立つ）。受け持ちは部署の名前で決まる
+# fresh = true で、頼みごとに空の会話で受ける（keep・clear。持ち主の決め 2026-10-17「担当＝常設・毎回空」。--ask が前の頼みを納品し終えた担当に /clear を打ってから頼む）
 [[roles]]
 name = "担当"
 model = "opus"   # 理由は頭の「受け持ちごとの model・effort」のコメントの「ただし model は」の項
@@ -206,7 +206,7 @@ deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約�
 instructions = """\
 You hold a duty. \
 Your duty is set by the workspace name (the department name), and its content is added at the start of the conversation. \
-If the duty is on demand (the start of the conversation says 「この受け持ちはオンデマンド（頼まれたときだけ立てる）で、この部署は tmp の部署」), after you deliver the ask and land it in main, run dispatch.py --done and end the turn (it refuses while asks wait in your queue, so first finish the next ask the watcher (「待ち受け」) hands you). \
+If the duty is on demand (the start of the conversation says 「この受け持ちは on-demand（頼まれたときだけ立てる）で、この部署は tmp の部署」), after you deliver the ask and land it in main, run dispatch.py --done and end the turn (it refuses while asks wait in your queue, so first finish the next ask the watcher (「待ち受け」) hands you). \
 Do the work of one ask in this conversation; do not route it to departments. Split work that is just a lot of reading to subagents in this conversation. \
 Boundaries: the inside of a plugin's folder (README, tests, etc.) belongs to that plugin's 「担当」. \
 works and works-factory belong to no duty; do not touch them. \
@@ -249,7 +249,7 @@ autoMode = { allow = ["$defaults", """\
 この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分のブランチを main に入れること。\
 main への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] のゲートを通してから fast-forward する決まりで、持ち主がこの会社の部署に許している。"""] }
 
-# 窓口: 本社（代表の clone）で持ち主と話し、頼みを部署へ配る会話（持ち主 2026-10-26「はい。窓口たてていいよ。mainに」）。--desk で名付き、永続で引き継ぐ。
+# 窓口: 本社（代表の clone）で持ち主と話し、頼みを部署へ配る会話（持ち主 2026-10-26「はい。窓口たてていいよ。mainに」）。--desk で名付き、keep で引き継ぐ。
 # model・effort は my_notes の司令塔（同じく持ち主と話して配る会話。opus・medium）にそろえる。配る判断は誤りを後ろで止める仕組みが無いので opus に残す
 [[roles]]
 name = "窓口"
@@ -441,7 +441,7 @@ tool = "works-factory-pin"
 #   herdr のサイドバーには、作業場の木（親＝リポジトリ、子＝worktree）と、会話の行（作業場の名前・役・ブランチ）が出る。
 #   会社の名前は親の作業場にだけ出るので、部署の名前（--task・--ask に渡す名前。作業場・会話の名前になる）に会社を付けない。
 # - 役は 5 つ: 窓口（頼みを配り、片付けの判断〔--clean・--retire〕と止められた --land の打ち直しを受ける本社の会話。
-#   役の本文は [[roles]] の「窓口」。2026-10-26 までは my_notes の司令塔が兼ねていた〔業務改革の案 1-3〕）・担当（受け持ちに 1 つ。永続か、オンデマンド）・作業（一度きり）・機械だけの役（配布・CI の見張り・工場の版の見張り）・相談（この会社の形には置かない）。
+#   役の本文は [[roles]] の「窓口」。2026-10-26 までは my_notes の司令塔が兼ねていた〔業務改革の案 1-3〕）・担当（受け持ちに 1 つ。keep か、on-demand）・作業（一度きり）・機械だけの役（配布・CI の見張り・工場の版の見張り）・相談（この会社の形には置かない）。
 # - 担当: 受け持ちごとに 1 つ。部署の名前を受け持ちの名前にし、自分の受け持ちはその名前で決まる。
 #   受け持ちの表（どの受け持ちが何のファイルを持つか）は [[skills]] の 1 か所に置く（name が部署の名前、description が中身。works-dispatch の
 #   役を足すフックが、部署の名前と同じ name の description を会話の始まりに足す）。役の本文と、このコメントに写さない。
@@ -451,9 +451,9 @@ tool = "works-factory-pin"
 #   works と works-factory は持ち主が別に回している所なので、受け持ちを作らず、どの担当も触らない。
 #   担当への頼みは部署の名前で宛てる（--ask 仕組み。works-dispatch は部署の名前を役より先に当てる。
 #   別の会社に同じ名前の部署が有れば --ask claude-plugins/仕組み）。担当は 1 つの会社に幾つも有るので、役（--ask claude-plugins/担当）では宛てない。
-#   永続の受け持ち（今は無い。業務改革が上げ下げで on_demand を外したときに出る）で担当がまだ居なければ --task <受け持ち> --branch work/<英小文字> --role 担当 --persistent で立てる（起動方法 [skills.start] の有る受け持ちは --start <受け持ち> でも立つ）。
-#   オンデマンドの受け持ちは、--ask claude-plugins/<受け持ち> だけで立つ。
-#   永続の担当の部署は片付けで畳まれず、次の頼みを同じ作業場と窓で、空にした会話で受ける（fresh = true）。同じ受け持ちの直しは担当の中で順番に進むので、同じファイルの取り合いにならない。
+#   keep の受け持ち（今は無い。業務改革が上げ下げで on_demand を外したときに出る）で担当がまだ居なければ --task <受け持ち> --branch work/<英小文字> --role 担当 --persistent で立てる（起動方法 [skills.start] の有る受け持ちは --start <受け持ち> でも立つ）。
+#   on-demand の受け持ちは、--ask claude-plugins/<受け持ち> だけで立つ。
+#   keep の担当の部署は片付けで畳まれず、次の頼みを同じ作業場と窓で、空にした会話で受ける（fresh = true）。同じ受け持ちの直しは担当の中で順番に進むので、同じファイルの取り合いにならない。
 # - 作業: 頼みごとに立って入れたら畳まれる一時の部署。畳むきっかけは、作業が最後に自分で打つ終わりの印（dispatch.py --done。打つ時は作業の本文）で、
 #   印のターンの終わりに works-dispatch が会話を止めて部屋を片付ける。印の無いまま残った部屋は、dispatch.py --clean の一覧に
 #   「頼みは納品済みで、終わりの印が無い」「終わりの印で畳もうとして残った: …」などの訳と並ぶので、窓口が止めるか残すかを決め、止めるなら --retire <部署> を打つ。

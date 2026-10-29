@@ -1,5 +1,5 @@
 """受け持ちの起動方法（[skills.start]）: フィールドの読み（start ノード・tree）と、--start・--due を入口から。
-git（tests/fakegit.py）・herdr・claude は偽物で回す。部署は test_deliver の Flow の永続の部署「調べ」（役 調べ役）。"""
+git（tests/fakegit.py）・herdr・claude は偽物で回す。部署は test_deliver の Flow の keep の部署「調べ」（役 調べ役）。"""
 
 import os
 import pathlib

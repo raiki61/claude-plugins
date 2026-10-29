@@ -30,9 +30,9 @@
   渡さずに待つ部署（納品していない頼みが在る）が、子の頼みの宛先をたどって、宛先も同じく止まり、子の頼みが宛先の
   順番待ちに積まれたままこの部署へ戻る輪を見つけたら、輪の一番古い頼みを、それが積まれた部署の会社で dispatch.py --take で既定の役の
   部署へ回す（knot・untie。受付の設計の 4.3。出力は受付箱の takes/、台帳に knot の行）。
-  永続の部署は、次の頼みを渡す前に、作業場のブランチを origin のメインブランチの先頭まで fast-forward する（follow_main。書きかけの
+  keep の部署は、次の頼みを渡す前に、作業場のブランチを origin のメインブランチの先頭まで fast-forward する（follow_main。書きかけの
   commit が在れば動かさない。会話の裏の処理が動いている間は進めず、遅れていればそれを添える。lag_note）。会話が起動するときにしか読まないファイルが替われば、今のアカウントの名指し（company.move-to）を印して起動し直させる。
-  毎回クリアする部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
+  clear の部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
   dispatch.py --move <部署> --if-changed で起動し直す（/clear は起動したときの --model・--effort を残すため。restart_due）。
   頼みを渡す・空にするなどの確かめ（checker）の前に毎回、Claude Code の入れた物の控え（installed_plugins.json）がこのプラグインの今の置き場を
   別の版と言っていれば、今の版の wake_hook.py に同じ引数とフックの入力で替わる（POSIX だけで exec。newer_self・hop。台帳に hopped の行）。
@@ -778,8 +778,8 @@ def early_due(got, attrs, env=os.environ, now=time.time):
 
 
 def follow_main(got, attrs, catch_up=None, adopt=None):
-    """永続の部署（属性 company.lifecycle が persistent）が順番待ちの次の頼みを受ける前に、作業場のブランチを origin のメインブランチの
-    先頭まで fast-forward する（provision.follow_main）。永続の部署の作業場は頼みのたびに作り直さないので、進めないとメインブランチに
+    """keep の部署（属性 company.lifecycle が persistent）が順番待ちの次の頼みを受ける前に、作業場のブランチを origin のメインブランチの
+    先頭まで fast-forward する（provision.follow_main）。keep の部署の作業場は頼みのたびに作り直さないので、進めないとメインブランチに
     入れた組織の直しが効かない（2026-10-20 に my_notes の調べものが 20 commit 遅れ、費用を下げる役の定義の直しが効かなかった。受付 72f7e4）。
     進めて、会話が起動するときにしか読まないファイル（.claude/ の役の定義・設定など。provision.read_at_start）が替わっていれば、
     今のアカウントの名指し（company.move-to）を印し、区切りの --move --if-changed に同じアカウントのまま起動し直させる（restart_due）。
@@ -832,7 +832,7 @@ def follow_main(got, attrs, catch_up=None, adopt=None):
 
 
 def adopt_batch(got, attrs, main):
-    """永続の部署の作業場のブランチが、前の束でメインブランチ main に写しが入った物のままなら（HEAD が束に重ねる前の先頭と同じ）、写しに
+    """keep の部署の作業場のブランチが、前の束でメインブランチ main に写しが入った物のままなら（HEAD が束に重ねる前の先頭と同じ）、写しに
     替える（--land の受け取りと同じ手。batch.adoptable と land.adopt）。受け取ったら添える文、受け取る物が無ければ None。
     束の後に commit を足した作業場（受け取りの手が onto）は替えない（足した commit は書きかけで、部署の次の --land が受け取って入れる）。"""
     root, cwd = got["root"], got["cwd"]
@@ -855,8 +855,8 @@ def adopt_batch(got, attrs, main):
 
 def lag_note(got, attrs, count=None):
     """会話の裏の処理が動いていて follow_main で作業場を進めないとき、渡す字の頭と台帳（kind followed の行と、handed の行の
-    followed）に添える文。永続の部署の作業場がメインブランチより遅れていれば、進めていないことと足りない commit の数を書く（遅れて
-    いない・永続の部署でなければ None）。黙って進めずに渡すと、会話はメインブランチに入った直しの無い作業場で頼みを受け、それを
+    followed）に添える文。keep の部署の作業場がメインブランチより遅れていれば、進めていないことと足りない commit の数を書く（遅れて
+    いない・keep の部署でなければ None）。黙って進めずに渡すと、会話はメインブランチに入った直しの無い作業場で頼みを受け、それを
     知らない（2026-10-21 に my_notes の調べものが、裏の処理が残ったまま次の頼みを受け、followed の行も無かった。my_notes の受付 35aa1b）。
     count は遅れを数える口（provision.lag。取り直すのは参照だけで、作業場のファイルは替えない）。何が起きても頼みは渡す。"""
     if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
@@ -878,7 +878,7 @@ def lag_note(got, attrs, count=None):
 
 
 def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False, early_of=early_due):
-    """毎回クリアする部署が次の頼みを受ける前に（at_rest なら、会話を引き継ぐ部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
+    """clear の部署が次の頼みを受ける前に（at_rest なら、会話を引き継ぐ部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
     起動し直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起動したときの --model・--effort・--settings を
     残すので、会社の形の起動の設定を替えたら、空にするのでなく起動し直す（6bdc72）。値が同じでも、使用上限に当たる前の区切りで
     ほかのアカウントへ早めに移すとき（early_of。early_due）は起動し直す（上限に当たってから移ると、ターンの途中で切られて作業が消える）。
@@ -966,7 +966,7 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
             spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie, follow=follow_main, lag=lag_note):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
     restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
-    unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。follow は永続の部署の作業場をメインブランチの先頭へ
+    unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。follow は keep の部署の作業場をメインブランチの先頭へ
     進める口（follow_main。(got, 属性) を受け、渡す字に添える文か None を返す）。lag は会話の裏の処理が動いていて進めないときに
     代わりに呼ぶ口（lag_note。同じ形）。"""
     # fresh の部署をすぐ替わる訳で空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。
@@ -1035,7 +1035,7 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
                 if not payload.get("background_tasks"):   # 裏の処理が残る間は、終わった後のターンの終わりでまた試す
                     provision.mark(got["cwd"], got["root"], {wake.REST: None}, gitx)
             if not payload.get("background_tasks"):
-                # 納品の前に子の返事を待ってターンを終えた部署（永続の担当なども）も、輪の途中に入りうる
+                # 納品の前に子の返事を待ってターンを終えた部署（keep の担当なども）も、輪の途中に入りうる
                 loose(attrs)
             return None   # 未納品の頼みを持っている
         if (chat.event(payload) == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
@@ -1196,7 +1196,7 @@ def keep_job(got, attrs_of=_attrs):
 
 
 def woken(got, attrs_of=_attrs):
-    """待ち受けが会話を再開させる（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、毎回クリアする部署（役が fresh）なら、空にした印
+    """待ち受けが会話を再開させる（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、clear の部署（役が fresh）なら、空にした印
     （company.cleared）を外す。起動されたターンの文脈が会話に残るので、そのターンの終わりに待ち受けがまた空にする（must_clear）。今までは、
     頼みを受けていないターン（社長室の納品で起動された業務改革など）の後も印が残り、次の頼みが前のターンの文脈のまま渡った
     （my_notes の受付 f4ca34 で見つかった。6a9337）。人が窓に打ったターンでは外さない（持ち主と話している途中の会話を空にしない）。"""

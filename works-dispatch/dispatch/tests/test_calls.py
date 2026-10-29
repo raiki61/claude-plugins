@@ -123,7 +123,7 @@ class CompanyRoot(unittest.TestCase):
 
 
 class Call(unittest.TestCase):
-    """--call を入口から。会社の形は本社のファイル。回す先は Flow の永続の部署「調べ」（役 調べ役）。"""
+    """--call を入口から。会社の形は本社のファイル。回す先は Flow の keep の部署「調べ」（役 調べ役）。"""
 
     Flow = test_deliver.Flow
     setUp, main, prompts, shape = Flow.setUp, Flow.main, Flow.prompts, Flow.shape
@@ -154,7 +154,7 @@ class Call(unittest.TestCase):
         miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
         self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
         self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
-        (w,) = self.prompts()   # 永続の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
+        (w,) = self.prompts()   # keep の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
         self.assertIn("-ask.md を読んで", w[2])
         brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
         self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
@@ -216,7 +216,7 @@ class Call(unittest.TestCase):
         self.assertIn("回す先 見張り が会社の形の役にも受け持ちにも無いので外す", companies[0]["problems"][0])
 
     def test_handing_over_to_an_on_demand_duty_lets_ask_name_its_department(self):
-        # オンデマンドの受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
+        # on-demand の受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
         self.use("true", fallback='fallback_role = "見渡し"')
         with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
             f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\non_demand = true\n')
@@ -233,7 +233,7 @@ class Call(unittest.TestCase):
         self.assertEqual((seen.get("name"), seen.get("role")), ("見渡し", "調べ役"))
 
     def test_handing_over_to_a_duty_whose_department_is_down_raises_it_with_the_duty_role(self):
-        # オンデマンドでない受け持ち「調べ物」の部署が立っていなければ（立っているのは別の名前の「調べ」）、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じ形で立てる
+        # on-demand でない受け持ち「調べ物」の部署が立っていなければ（立っているのは別の名前の「調べ」）、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じ形で立てる
         self.use("true", fallback='fallback_role = "調べ物"')
         with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
             f.write('\n[[skills]]\nname = "調べ物"\nrole = "調べ役"\n')
