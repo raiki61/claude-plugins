@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.137.0] - 2026-10-29
+
 ### Changed
 
 - 部署の寿命の表示の語「エフェメラル」を `tmp` に替えた（受付 06aac5。持ち主 2026-10-29「エフェメラルじゃなく tmp」）。herdr の作業場の印・`--tree`・`--todo`・フックの文・役の本文・docs で幅を取っていたため。機械が読む値は替えない（属性 `company.lifecycle` の `ephemeral`・席の種類のキー `ephemeral`・旗 `--ephemeral`）。`terms.py` は前の呼び名「エフェメラル」も `tmp` に直す。永続・毎回クリア・引き継ぎ・オンデマンドは替えていない（案が割れるので持ち主に問う）
