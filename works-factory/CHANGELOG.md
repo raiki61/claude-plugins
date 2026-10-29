@@ -6,6 +6,13 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 7fd81c6f から 19814ddf に上げた。取り込んだ PR は raiki61/works-factory#918・#917・#921・#920・#907・#919・#924。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/7fd81c6ff311...19814ddfd6fe 。
+  - 利用者に効く違い（入口）: 依頼のファイルの中身が空の形（`{"findings": []}` のように、`findings` もほかの項目も全部空の物）の run は、判定の段の観点を全部回した後に止まっていたのが、AI が動く前に入口で断られるようになった（PR #918）。`findings` が空でもほかの項目が在る物（工場が自分で書く次の run の依頼のファイル）は通る（PR #921）。
+  - 利用者に効く違い（直す前の承認ノード）: 人が答える run（`unattended=true` でない run）では、人の答えや指示ファイルが名指した文書が、run の読む commit に無く別の commit にだけ在る時に、直す前の承認ノードが開き、その文書に従ってよいかを聞くようになった。この問いには勧めの答え（推し）が付かない（PR #920）。どの commit にも無い文書では開かず、ほかの理由で開いた時に推し「気にせず進む」付きで並ぶ。無人の run（`unattended=true`）は報告に 1 行出すだけで、これでは止まらない。
+  - スキル: `references/pr.md` に、入口が断る形（上の空の依頼のファイル）を 1 つ足した。あわせて工場の README の書き直しに合わせ、run が比べるのは PR の head の commit と `--cwd` で checkout した commit であることと、「diff <base>..HEAD (N files), 0 requests」の行は AI の役が動く前に入口の検査が出すことを書き足した（工場の振る舞いは変わっていない）。名指しの文書の問いは承認ノードの項目に出るので、SKILL.md は変えていない。
+
 ## [0.30.0] - 2026-10-29
 
 ### Changed
