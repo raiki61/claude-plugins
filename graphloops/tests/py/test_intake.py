@@ -243,7 +243,7 @@ def _claude_on_path(tmp_path, monkeypatch, version, code=0):
     return exe
 
 
-@pytest.mark.skipif(os.name == "nt", reason="代役の claude を #! の台本で置く")
+@pytest.mark.skipif(os.name == "nt", reason="SKIP posix-mode: 代役の claude を #! の台本で PATH のフォルダに置く形は POSIX の物")
 def test_claude_drift_compares_the_claude_on_path_with_the_pinned_version(tmp_path, monkeypatch):
     """入れた置き場から走る回は、PATH の claude の版を見本の控え（tests/py/cli/versions.json）と比べる——違えば init が知らせる
     （docs/standards/breakage-detection.md の決まり 3）"""
