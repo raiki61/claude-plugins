@@ -26,7 +26,12 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 また起きれば、新しい件として知らせる）。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
 
 使い方: python3 tests/ci-watch.py < 入力の JSON（省けば {}。{"dry_run": true} なら、知らせる物を出すだけで覚えない）
-終了の値: 0 = 知らせる物が無い / 1 = 知らせる物が在る（その行を出す）か、gh・台帳を読めない / 2 = 入力が読めない
+GitHub の利用制限（rate limit）で gh が断られた回は、読まずに 0 で終わり、当たり始めた時刻を覚える（次に main へ入れた後の合図で読み直す）。
+GitHub は、制限に当たった間は打ち直さずに待つよう求めている（https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+の「Exceeding the rate limit」）。一時の制限を CI の赤と同じ頼みにしない（2026-10-28 に 2 次の制限で 1 で終わり、点検に頼みが回った。
+受付 6a9f37）。当たり始めてから REPEAT を過ぎても続けば、黙らずに 1 で知らせる（知らせた後は REPEAT ごとに 1 回）。
+
+終了の値: 0 = 知らせる物が無いか、利用制限で今回は読まなかった / 1 = 知らせる物が在る（その行を出す）か、gh・台帳を読めない / 2 = 入力が読めない
 """
 
 import datetime
@@ -61,10 +66,17 @@ def run(argv):
     return p.returncode, p.stdout or "", p.stderr or ""
 
 
+class Limited(RuntimeError):
+    """gh が GitHub の利用制限（1 次の "API rate limit exceeded" と 2 次の "secondary rate limit"）で断られた。"""
+
+
 def gh_json(argv, runner):
     code, out, err = runner(["gh", *argv])
     if code != 0:
-        raise RuntimeError(f"gh {' '.join(argv)} が {code} で終わった: {err.strip()[-300:]}")
+        # 長い文は頭と末尾を残す（2 次の制限の文は、訳の "secondary rate limit" が頭に在り、末尾の 300 字には残らない）
+        err = err.strip()
+        short = err if len(err) <= 300 else f"{err[:150]} … {err[-150:]}"
+        raise (Limited if "rate limit" in err.lower() else RuntimeError)(f"gh {' '.join(argv)} が {code} で終わった: {short}")
     try:
         return json.loads(out)
     except ValueError as e:
@@ -166,16 +178,32 @@ def load_state(path):
         return {}
     except (OSError, ValueError) as e:
         raise RuntimeError(f"覚えた件（{path}）を読めない（{e}）。消せば、今の件を全部知らせ直す") from e
-    if not isinstance(got, dict) or not isinstance(got.get("told"), list):
-        raise RuntimeError(f"覚えた件（{path}）の形が違う（told の並びが無い）。消せば、今の件を全部知らせ直す")
+    if not isinstance(got, dict) or not isinstance(got.get("told"), list) or not isinstance(got.get("limited", 0), (int, float)):
+        raise RuntimeError(f"覚えた件（{path}）の形が違う（told の並びが無いか、limited が数でない）。消せば、今の件を全部知らせ直す")
     return got
 
 
-def save_state(path, told):
+def save_state(path, told, limited=None):
+    """limited は利用制限に当たり始めた時刻（読めた回は None で、覚えた時刻を消す）。"""
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"told": sorted(told)}, f, ensure_ascii=False, indent=1)
+        json.dump({"told": sorted(told), **({"limited": limited.timestamp()} if limited else {})}, f, ensure_ascii=False, indent=1)
     os.replace(tmp, path)
+
+
+def limited(path, state, now, dry, e):
+    """利用制限で読めなかった回。当たり始めてから REPEAT のうちは 0 で黙り、過ぎたら 1 で知らせて時刻を今に替える（知らせるのは REPEAT ごとに 1 回）。"""
+    since = stamp(state.get("limited")) or now
+    late = now - since > REPEAT
+    if late:
+        print(f"CI の見張りが読めなかった: GitHub の利用制限（rate limit）が {since:%Y-%m-%d %H:%M} UTC から {REPEAT.days} 日を過ぎても"
+              f"続いている。gh api rate_limit で残りを見る: {e}")
+    else:
+        print(f"今回は読まなかった: GitHub の利用制限（rate limit）に当たった。次に main へ入れた後の合図で読み直す"
+              f"（{since + REPEAT:%Y-%m-%d %H:%M} UTC を過ぎても続けば知らせる）: {e}")
+    if not dry:
+        save_state(path, set(state["told"]) if "told" in state else set(), now if late else since)
+    return 1 if late else 0
 
 
 def main(stdin=None, runner=run, now=None):
@@ -191,10 +219,14 @@ def main(stdin=None, runner=run, now=None):
         return 2
     now = now or datetime.datetime.now(datetime.timezone.utc)
     try:
-        found = findings(runner, now)
         cdir = common_dir(runner)
         state_path = os.path.join(cdir, STATE)
-        told = set(load_state(state_path).get("told", []))
+        state = load_state(state_path)
+        told = set(state.get("told", []))
+        try:
+            found = findings(runner, now)
+        except Limited as e:
+            return limited(state_path, state, now, dry, e)
         still, closed_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
     except RuntimeError as e:
         print(f"CI の見張りが読めなかった: {e}")

@@ -14,6 +14,8 @@
 - age: 1 度も回っていない workflow・止められた workflow・間隔と 1 日より古い定期の run を知らせる。定期の run は、push の run が
   読む数を埋めても別に引く
 - unreadable: gh が落ちたら黙らず 1 で知らせる。入力が JSON のオブジェクトでなければ 2
+- limited: gh が GitHub の利用制限で断られた回は 0 で黙り、当たり始めた時刻を覚える（覚えた件は消さない。dry_run は覚えない）。
+  REPEAT を過ぎても続けば 1 で知らせて時刻を替え、読めた回は時刻を消す
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
 """
 
@@ -48,15 +50,15 @@ def r(i, conclusion, sha, at="2026-10-18T10:00:00Z", event="push", status="compl
 class Fake:
     """gh と git の偽物。workflows は gh workflow list の答え、runs は workflow の id ごとの run（新しい順）。"""
 
-    def __init__(self, gitdir, workflows, runs, broken=False):
-        self.gitdir, self.workflows, self.runs, self.broken = gitdir, workflows, runs, broken
+    def __init__(self, gitdir, workflows, runs, broken=False, err="HTTP 502"):
+        self.gitdir, self.workflows, self.runs, self.broken, self.err = gitdir, workflows, runs, broken, err
         self.places = {}   # git -C <場所> の共通のディレクトリの答えを場所ごとに替える物（無い場所は gitdir）
 
     def __call__(self, argv):
         if argv[0] == "git":
             return 0, self.places.get(argv[2], self.gitdir) + "\n", ""
         if self.broken:
-            return 1, "", "HTTP 502"
+            return 1, "", self.err
         if argv[1:3] == ["workflow", "list"]:
             return 0, json.dumps(self.workflows), ""
         got = self.runs.get(int(argv[argv.index("--workflow") + 1]), [])
@@ -77,11 +79,11 @@ def setup(asks=()):
     return d
 
 
-def go(fake, value="{}"):
+def go(fake, value="{}", now=NOW):
     out = io.StringIO()
     old, sys.stdout = sys.stdout, out
     try:
-        code = cw.main(stdin=io.StringIO(value), runner=fake, now=NOW)
+        code = cw.main(stdin=io.StringIO(value), runner=fake, now=now)
     finally:
         sys.stdout = old
     return code, out.getvalue()
@@ -232,6 +234,33 @@ def unreadable():
     print("UNREADABLE_OK")
 
 
+def limited():
+    # 2 次の制限の文は GitHub の答えの形（頭に "rate limit" が在り、末尾の 300 字には残らない長さ）
+    err = ("gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. If you reach out to GitHub "
+           "Support for help, please include the request ID 0000:0000:0000000:0000000:00000000 and timestamp 2026-10-28 23:45:16 UTC. "
+           "For more on scraping GitHub and how it may affect your rights, please review our Terms of Service "
+           "(https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) (HTTP 403)")
+    d = setup()
+    with open(os.path.join(d, cw.STATE), "w", encoding="utf-8") as f:
+        json.dump({"told": ["a:red:1"]}, f)
+    state = lambda: json.load(open(os.path.join(d, cw.STATE), encoding="utf-8"))
+    code, out = go(Fake(d, [TEST], {}, broken=True, err=err), '{"dry_run": true}')
+    check(code == 0 and "limited" not in state(), f"dry_run の利用制限で時刻を覚えた: {code} {out} {state()}")
+    code, out = go(Fake(d, [TEST], {}, broken=True, err=err))
+    check(code == 0 and "secondary rate limit" in out and state() == {"told": ["a:red:1"], "limited": NOW.timestamp()},
+          f"利用制限を黙って覚えない: {code} {out} {state()}")
+    code, out = go(Fake(d, [TEST], {}, broken=True, err=err), now=NOW + cw.REPEAT)
+    check(code == 0 and state()["limited"] == NOW.timestamp(), f"REPEAT のうちに知らせたか、当たり始めた時刻を替えた: {code} {out} {state()}")
+    later = NOW + cw.REPEAT + datetime.timedelta(hours=1)
+    code, out = go(Fake(d, [TEST], {}, broken=True, err=err), now=later)
+    check(code == 1 and "secondary rate limit" in out and state()["limited"] == later.timestamp(), f"REPEAT を過ぎた利用制限を黙った: {code} {out} {state()}")
+    code, out = go(Fake(d, [TEST], {}, broken=True, err="HTTP 403: Resource not accessible by integration"), now=later)
+    check(code == 1 and "HTTP 403" in out and state()["limited"] == later.timestamp(), f"利用制限でない 403 を黙った: {code} {out}")
+    code, out = go(Fake(d, [], {}), now=later)
+    check(code == 0 and "limited" not in state(), f"読めた回に利用制限の時刻を消さない: {code} {out} {state()}")
+    print("LIMITED_OK")
+
+
 def title():
     src = (ROOT / "works-dispatch" / "dispatch" / "calls.py").read_text(encoding="utf-8")
     check("\"title\": f\"ツール {role_name}/{tool['name']} が片づけられなかった仕事\"" in src,
@@ -241,4 +270,4 @@ def title():
 
 if __name__ == "__main__":
     {"red-range": red_range, "told-while-open": told_while_open, "cross": cross, "reopen-after-close": reopen_after_close, "age": age,
-     "unreadable": unreadable, "title": title}[sys.argv[1]]()
+     "unreadable": unreadable, "limited": limited, "title": title}[sys.argv[1]]()
