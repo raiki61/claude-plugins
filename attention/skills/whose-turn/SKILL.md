@@ -24,14 +24,15 @@ open 全件を見渡すフェーズにいる。
 
 1. `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/whose-turn.py" --json --materials $ARGUMENTS --out` を実行し、返ってきたパスを **Read で**読む（引数なし＝自分＝gh の認証ユーザー。`<login>` で他の人、`--all` で全員分を人別に）。`--out` は出力を一時ファイルへ書いてパスだけ返す——材料付きの出力は Claude Code の Bash の 1 回あたりの上限（約 30,000 バイト。上限はバイトで測るので、日本語はおよそ 1 万文字で当たる）を越え、付けずに走らせるとツール側でファイルへ退避され、走らせ直しで `gh` の呼び出しごと 2 回走る。**`cat` で読むな**——同じ量が再び Bash の出力に乗って、また退避される。`--out` は値を取らないので、`$ARGUMENTS` の後ろに置く。出力は JSON で、**鍵で読む**（文の区切りや行の位置で読まない）:
    - `sections`: 人ごと（`who`）に `mine`（自分の番）と `theirs`（相手の番）の PR の並び。1 件は `number`・`url`・`title`・`author`・`role`（`implementer`＝その人が直す PR〔作者か、担当として受けた人〕、`reviewer`＝それ以外）・`days`・`facts`（行に添える事実の文）。`mine` の人の PR には `intro`（作者の本文の 1 文）と `size` も付く
-   - `waits`: 返していない呼びかけ（`who`・`kind`・`number`・`url`・`title`・`days`・`by`・`excerpt`・`text`＝投稿の全文）。`threads`: 返すターンがあるスレッドの、相手の最後の発言（`number`・`path`・`line`・`author`・`text`）
+   - `waits`: 返していない呼びかけ（`who`・`kind`・`number`・`url`・`title`・`days`・`by`・`excerpt`・`text`＝投稿の全文・`before_draft`＝draft の PR で、最後に draft へ戻した時より前の呼びかけ）。`threads`: 返すターンがあるスレッドの、相手の最後の発言（`number`・`path`・`line`・`author`・`text`）
    - `assigned_issues`・`scope`（母集団の数）・`limits`（走査の上限）・`blind_spots`（手順 5 の 2 つの確認の数。`team_review_requests`＝Team 宛のレビュー依頼の件数、`unverified_replies`＝本文コメントで自分の最後の発言が相手の問いに答えているかを確かめていない PR の `number` と `count` の並び）・`not_seen`（見ていないもの）
 
-2. `waits` の各件を、`text` の全文と添えられた事実（`reply_to_own`＝直前が自分の発言・`reacted`＝自分が 👍 済み・`referenced_by_open_prs`＝open PR が参照）から 4 つに分け、根拠を 1 行ずつ付ける:
-   - **要返信** — 質問・確認依頼・レビュー依頼で、まだ答えていない
+2. `waits` の各件を、`text` の全文と添えられた事実（`reply_to_own`＝直前が自分の発言・`reacted`＝自分が 👍 済み・`referenced_by_open_prs`＝open PR が参照）から 5 つに分け、根拠を 1 行ずつ付ける:
+   - **要返信** — 質問・確認依頼・レビュー依頼で、まだ答えていない。draft の PR のレビュー依頼も、`before_draft` が false なら要返信（draft の間に頼んだのは「今見てほしい」の合図）。`before_draft` が true のレビュー依頼は要返信にせず、下の **draft へ戻す前** に入れる（作者が draft へ戻して直している最中）
    - **回答済み** — 自分（このツールを使う人）が出した質問への答えや、自分が委ねた判断の結果。返す義務は無い
    - **FYI** — 共有・決定通知・お礼。返す義務は無い
    - **別所で継続** — 話が別の PR / issue に移っている（`referenced_by_open_prs` があればそちらを読む）
+   - **draft へ戻す前** — `before_draft` が true のレビュー依頼。作者が ready for review にし直すまで返さなくてよい
 
 3. `threads` の各件（返すターンがあるスレッドの、相手の最後の発言の全文）を 3 つに分け、根拠を 1 行ずつ付ける:
    - **見て閉じる** — 直した報告。コミット SHA や「直しました」で終わり、問いが無い。差分を見て resolve するだけ

@@ -12,13 +12,15 @@ ASCII のキーで持ち（判定が比べるだけで、印字はしない）�
 返答できる assignee がいて作者がその中にいなければその全員（作者は渡し終えている）、それ以外は作者。
 assignee の種別が取れない GitHub（assignedActors が無い）では作者。
 持ち主の側は作者と持ち主で、スレッドではこの側が答える:
-  draft              持ち主。draft のまま
+  draft              持ち主。draft のまま。draft の間は下の review は、最後に draft へ戻した時（戻していなければ
+                     作成）より後に出た依頼だけに立つ——戻す前の依頼は「直すから待って」で消えずに残った物
   ci_red（CI 赤）    持ち主。head commit のチェックに SUCCESS / NEUTRAL / SKIPPED / PENDING /
                      EXPECTED / CANCELLED / STALE 以外の結論がある（未知の値は赤に倒す）
   changes_requested（指摘対応）
                      持ち主。reviewDecision が CHANGES_REQUESTED で、最新の意見が変更要求の人のうち
                      レビュー依頼が出ていない人がいる（全員に再依頼が出ていればターンはレビュアー）
-  review（レビュー） 依頼先。Bot 以外（人か Team）へのレビュー依頼が未消化（copilot 等の Bot 宛は数えない）
+  review（レビュー） 依頼先。Bot 以外（人か Team）へのレビュー依頼が未消化（copilot 等の Bot 宛は数えない）。
+                     draft の PR では上の draft の行の条件に合う依頼だけ
   awaiting_review（レビュー待ち）
                      持ち主。その依頼が残っている間。持ち主に動かせることは無いが、行を立てないと
                      open な PR が持ち主のどの段にも出ず、依頼を出したことごと一覧から消える
@@ -69,7 +71,9 @@ assignee の種別が取れない GitHub（assignedActors が無い）では作�
 
 〈呼びかけ〉issue の本文・コメント、PR のコメント・レビュー・スレッドで @login と呼ばれ、
 その後に本人のコメントが無いもの。Bot の呼びかけと、コード・引用（>）の中は数えない。
-要返信かは判定せず、抜粋・本人の 👍・直前が本人の発言か・参照する open PR を添える。
+要返信かは判定せず、抜粋・本人の 👍・直前が本人の発言か・参照する open PR を添える。draft の PR の
+呼びかけには、最後に draft へ戻した時より前の物かも添える（戻す前のレビューの頼みは、作者が直している間は
+返さなくてよい。中身がレビューの頼みかは読む側が決める）。
 
 〈材料〉--materials は呼びかけの全文に加え、返すターンがあるスレッドの最後の発言も全文で出す。
 数だけでは「相手が直した報告（見て resolve するだけ）」と「相手が問いを返した（答えないと
@@ -395,9 +399,12 @@ def formal_rows(pr):
     rows = []
     # draft は形式上の状態だけを止める。会話と assignee の行は pr_balls が別に積む——作者が下書きに
     # 戻しても、人が付けた未解決の指摘は生きたままで、返すターンは消えない（実測 2026-08-23・
-    # IL-SW-AI/guided-resolver #1308: draft のため、作者が返すターンの 21 スレッドが誰の一覧にも出ていなかった）
+    # IL-SW-AI/guided-resolver #1308: draft のため、作者が返すターンの 21 スレッドが誰の一覧にも出ていなかった）。
+    # draft の間に出たレビュー依頼（counted_requests）は依頼先の review の行にする。作者の行は draft のまま——
+    # ready for review にするのは作者にしかできず、作者も手を止めていない（#2233 は「コードは後から足す」）
     if pr["isDraft"]:
-        return [(author, "draft", last_event("ConvertToDraftEvent") or created)]
+        draft = [(author, "draft", last_event("ConvertToDraftEvent") or created)]
+        return draft + [(who, "review", requested_at(pr, who) or created) for who in counted_requests(pr)]
 
     red = red_checks(pr)
     if red:
@@ -489,9 +496,37 @@ def requested_at(pr, who):
     )
 
 
+def back_to_draft_at(pr):
+    """draft の PR を最後に draft へ戻した日時。draft でないか、戻した記録が無ければ None"""
+    if not pr["isDraft"]:
+        return None
+    return latest(e["createdAt"] for e in pr["timelineItems"]["nodes"] if e["__typename"] == "ConvertToDraftEvent")
+
+
+def before_draft(pr, at):
+    """draft の PR で、その日時が最後に draft へ戻した時以前か。戻す前の依頼・頼みは「直すから待って」で止まっている——
+    GitHub は draft へ戻してもレビュー依頼を消さないので、数えると作者が直している最中の PR がレビュアーの自分の番に
+    出続ける。戻した記録の無い draft（最初から draft）では偽——draft の間に付けた依頼は作者が意図して出した「今見て
+    ほしい」の合図（GitHub は CODEOWNERS への依頼を ready for review にした時に出すので、draft の間の依頼は人が付けた物。
+    実測 2026-10-28・IL-SW-AI/guided-resolver #2233: draft のまま設計書のレビューを頼まれ、レビュアーの一覧に出なかった）"""
+    back = back_to_draft_at(pr)
+    return bool(back) and at <= back
+
+
+def counted_requests(pr):
+    """ターンに数えるレビュー依頼の依頼先（reviewer() の値。Bot 宛は除く）。draft へ戻した PR では、最後に戻した時より
+    後に出た依頼だけ——依頼の日時が履歴に無い物は戻す前の物と区別できないので数えない（作者の draft のまま残す。
+    履歴が切れている PR は limits と limited に出る）"""
+    asked = [w for w in (reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]) if w]
+    back = back_to_draft_at(pr)
+    if back is None:
+        return asked
+    return [w for w in asked if (requested_at(pr, w) or "") > back]
+
+
 def review_since(pr, who):
     """レビューを依頼されている人（formal_rows の review の行と同じ条件）のターンが始まった日時。ほかは None"""
-    if pr["isDraft"] or who not in {reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]}:
+    if who not in counted_requests(pr):
         return None
     return requested_at(pr, who)
 
@@ -800,8 +835,13 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
                 )
     asked = [reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]]
     asked = [a for a in asked if a]
-    if asked:
-        facts.append("レビュー依頼: " + ", ".join(sorted(asked)))
+    counted = counted_requests(pr)
+    if counted:
+        facts.append("レビュー依頼: " + ", ".join(sorted(counted)))
+    # draft の PR で数えない依頼（最後に draft へ戻す前の物か、日時が履歴に無い物）。依頼先には相手の番にも出ない
+    held = sorted(a for a in asked if a not in counted)
+    if held:
+        facts.append("draft へ戻す前のレビュー依頼（作者が ready にするまで数えない）: " + ", ".join(held))
     pending = pr.get("pendingReview")
     if pending and who in (None, pending["by"]):
         facts.append(
@@ -1309,6 +1349,11 @@ def report(a):
         if hit or timeline_cut(p):
             limited.add(p["number"])
         limits += hit
+        # draft の PR は、最後に draft へ戻した時でレビュー依頼を数えるかが変わる（counted_requests）。履歴が切れていると
+        # 戻した時も依頼の時も取りこぼしうるので、limited だけでなく文の行にも出す
+        if p["isDraft"] and timeline_cut(p):
+            limits.append(f"#{p['number']}: 履歴が {TIMELINE_LAST} 件で切れている。draft へ戻した時と依頼の時を取りこぼし、"
+                          "戻す前のレビュー依頼を数えた（か、後の依頼を数えなかった）恐れがある")
         for who, ball in pr_tiers(p).items():
             balls[(who, p["number"])] = ball
         pr_waits += [(who, info, p) for who, info in unanswered(posts_of_pr(p)).items()]
@@ -1358,6 +1403,8 @@ def report(a):
             )
             if refs:
                 tags.append("open PR " + ", ".join(f"#{r}" for r in refs) + " が参照")
+            if "reviewThreads" in item and before_draft(item, info["since"]):
+                tags.append("draft へ戻す前")
             lines.append(
                 f"{indent}  #{item['number']:<5} {local_time(info['since'], '%Y-%m-%d')} から {days(info['since']):>3} 日  {cut(item['title'], 56)}"
             )
@@ -1393,11 +1440,12 @@ def report(a):
     people = sorted({w for w, _ in balls}, key=str) if a.all else [me]
     waits_all = pr_waits + issue_waits
     waits = waits_all if a.all else [w for w in waits_all if w[0] == me]
+    # draft へ戻す前の Team 宛の依頼は数えない——死角の確認（スキルの手順 5）が Team の所属を引いて自分の番に足すため
     teams = sum(
         1
         for p in prs
         for r in p["reviewRequests"]["nodes"]
-        if (r["requestedReviewer"] or {}).get("__typename") == "Team"
+        if team_slug(r["requestedReviewer"]) in counted_requests(p)
     )
     unverified = {}
     for who in people:
@@ -1460,6 +1508,9 @@ def report(a):
                 "referenced_by_open_prs": refs,
                 # PR の呼びかけの役割（sections の role と同じ決め方）。issue には PR の役割が無いので null
                 "role": ("implementer" if who in owners(item) else "reviewer") if kind == "pr" else None,
+                # draft の PR で、最後に draft へ戻した時以前の呼びかけか。戻す前のレビューの頼みは、作者が直している間は
+                # 返さなくてよい（中身がレビューの頼みかは読む側が決める）。issue は false
+                "before_draft": kind == "pr" and before_draft(item, info["since"]),
             }
             if a.materials:
                 out["text"] = cut(info["text"], 1500)

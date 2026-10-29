@@ -180,9 +180,34 @@ class PrBalls(unittest.TestCase):
         p = pr(isDraft=True, timelineItems=conn(event("ConvertToDraftEvent", T2)))
         self.assertEqual(flow.pr_balls(p), [("alice", "draft", T2)])
 
-    def test_draft_hides_pending_requests(self):
+    def test_draft_from_the_start_counts_its_requests(self):
+        # 最初から draft で依頼を付けた PR は、依頼された人のターン（実測 IL-SW-AI/guided-resolver #2233）。作者は draft のまま
+        p = pr(isDraft=True, reviewRequests=requests(user("bob")), timelineItems=conn(requested(user("bob"), T1)))
+        self.assertEqual(flow.pr_balls(p), [("alice", "draft", T0), ("bob", "review", T1)])
+        self.assertEqual(tiers(p), {"alice": 2, "bob": 0})
+        # 依頼の日時が履歴に無くても、draft へ戻した記録が無ければ数える（待ちは作成日から）
         p = pr(isDraft=True, reviewRequests=requests(user("bob")))
-        self.assertEqual(flow.pr_balls(p), [("alice", "draft", T0)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "draft", T0), ("bob", "review", T0)])
+
+    def test_requests_before_going_back_to_draft_are_not_counted(self):
+        # ready → 依頼 → draft へ戻す: 「直すから待って」。GitHub は依頼を消さないが、作者のターン（draft のまま）
+        p = pr(isDraft=True, reviewRequests=requests(user("bob")),
+               timelineItems=conn(event("ReadyForReviewEvent", T0), requested(user("bob"), T1),
+                                  event("ConvertToDraftEvent", T2)))
+        self.assertEqual(flow.pr_balls(p), [("alice", "draft", T2)])
+        self.assertEqual(tiers(p), {"alice": 2})
+        self.assertIsNone(flow.review_since(p, "bob"))
+        # 日時が履歴に無い依頼は、戻す前の物と見分けられないので数えない
+        p = pr(isDraft=True, reviewRequests=requests(user("bob")), timelineItems=conn(event("ConvertToDraftEvent", T2)))
+        self.assertEqual(flow.pr_balls(p), [("alice", "draft", T2)])
+
+    def test_requests_after_going_back_to_draft_are_counted(self):
+        # ready → draft へ戻す → 依頼: 戻した後に頼んだのは「今見てほしい」
+        p = pr(isDraft=True, reviewRequests=requests(user("bob"), user("carol")),
+               timelineItems=conn(requested(user("carol"), T0), event("ReadyForReviewEvent", T0),
+                                  event("ConvertToDraftEvent", T1), requested(user("bob"), T2)))
+        self.assertEqual(flow.pr_balls(p), [("alice", "draft", T1), ("bob", "review", T2)])
+        self.assertEqual(flow.review_since(p, "bob"), T2)
 
     def test_ci_red_on_every_non_green_value(self):
         for v in (
@@ -2454,6 +2479,50 @@ class Json(unittest.TestCase):
         theirs = pr(number=6, comments=conn(comment(user("alice"), T1, "@bob 見て")))
         out = json.loads(report(mine, theirs, issues=[called], who="bob", args=("--json",)))
         self.assertEqual({w["number"]: w["role"] for w in out["waits"]}, {3: None, 5: "implementer", 6: "reviewer"})
+
+    def test_json_a_draft_mention_without_a_request_stays_a_wait(self):
+        # draft・依頼なしで呼ばれただけの人は、機械のセクションには出ない（中身がレビューの頼みかは AI が決め、
+        # reply.md の「呼びかけから」の行で自分の番に立てる）。呼びかけには残り、draft へ戻す前かを添える
+        ask = comment(user("alice"), T2, "@bob 設計書のレビューをお願いします")
+        fresh = pr(number=5, isDraft=True, comments=conn(ask))
+        stale = pr(number=6, isDraft=True, comments=conn(comment(user("alice"), T1, "@bob 見て")),
+                   timelineItems=conn(event("ConvertToDraftEvent", T2)))
+        out = json.loads(report(fresh, stale, who="bob", args=("--json",)))
+        (me,) = out["sections"]
+        self.assertEqual((me["mine"], me["theirs"]), ([], []))
+        self.assertEqual({w["number"]: w["before_draft"] for w in out["waits"]}, {5: False, 6: True})
+        self.assertIn("draft へ戻す前", report(fresh, stale, who="bob"))
+
+    def test_json_a_draft_request_is_the_reviewers_turn(self):
+        # 実測 #2233 の形: 最初から draft で Team と持ち主へ依頼。依頼された人の自分の番で、Team は死角の確認へ渡す
+        p = pr(number=7, isDraft=True, reviewRequests=requests(team("o/t"), user("bob")),
+               timelineItems=conn(requested(team("o/t"), T1), requested(user("bob"), T2)))
+        out = json.loads(report(p, who="bob", args=("--json",)))
+        self.assertEqual([x["number"] for x in out["prs"]], [7])
+        self.assertEqual(out["prs"][0]["role"], "reviewer")
+        self.assertEqual(out["blind_spots"]["team_review_requests"], 1)
+        self.assertIn("レビュー依頼: bob, o/t", out["sections"][0]["mine"][0]["facts"])
+
+    def test_json_requests_before_going_back_to_draft_are_set_aside(self):
+        p = pr(number=8, isDraft=True, reviewRequests=requests(team("o/t"), user("bob")),
+               timelineItems=conn(requested(team("o/t"), T1), requested(user("bob"), T1),
+                                  event("ConvertToDraftEvent", T2)))
+        out = json.loads(report(p, who="bob", args=("--json",)))
+        self.assertEqual(out["prs"], [])
+        self.assertEqual(out["sections"][0]["theirs"], [])
+        self.assertEqual(out["blind_spots"]["team_review_requests"], 0)
+        facts = flow.pr_facts(p)
+        self.assertIn("draft へ戻す前のレビュー依頼（作者が ready にするまで数えない）: bob, o/t", facts)
+        self.assertEqual(sum("bob" in f for f in facts), 1)  # 数える依頼の行には出ない
+
+    def test_a_cut_timeline_of_a_draft_is_named_in_limits(self):
+        # draft では戻した時で依頼を数えるかが変わる。履歴が切れていれば文の上限の行にも出す（draft でなければ limited だけ）
+        draft = pr(number=9, isDraft=True, timelineItems=full_history())
+        ready = pr(number=10, timelineItems=full_history())
+        out = json.loads(report(draft, ready, who="bob", args=("--json",)))
+        self.assertEqual(out["limited"], [9, 10])
+        (line,) = out["limits"]
+        self.assertTrue(line.startswith("#9:"), line)
 
     def test_json_with_materials_carries_full_texts(self):
         called = issue(number=3, comments=[(user("alice"), T1, "@bob 見て。全文")])
