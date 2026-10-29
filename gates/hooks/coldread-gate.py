@@ -1413,8 +1413,10 @@ class BodyFiles:
                     if os.path.basename(tv.rstrip("/")) == base:
                         found.append("writer")
                 # 名前をヒアドキュメントの中に持つ書き手(`python3 - <<'EOF'` の中で open(p, 'w'))も数える。数えないと、フックは
-                # 書き換える前のファイルを読み、直した後の本文に消した文の指摘を出し続けた(2026-10-29 の PR の本文の更新で 4 回。頼み 6d61ca)
-                if any(base in body for body in own_heredocs(c.args, self.heredocs)):
+                # 書き換える前のファイルを読み、直した後の本文に消した文の指摘を出し続けた(2026-10-29 の PR の本文の更新で 4 回。頼み 6d61ca)。
+                # 名前を字として持つだけで数える(読むだけの台本も止める)のは承知の上で、止めても書き換えと投稿を分ければ通る
+                named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))
+                if any(named.search(body) for body in own_heredocs(c.args, self.heredocs)):
                     found.append("writer")
         if not found:
             return None
