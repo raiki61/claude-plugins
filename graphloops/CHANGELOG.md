@@ -7,7 +7,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ## [Unreleased]
 
 ### Fixed
-- 利用者の動きは変わらない直し。変異テストの道具 mutmut の設定（`setup.cfg` の `[mutmut]` の `also_copy`）に `README.md` を足した。mutmut が試験を走らせる写し（`mutants/`）に README が無く、README の見出しを読む `test_the_notices_point_at_a_readme_section_that_names_the_live_check` が写しの側で落ち、main の CI の変異テスト（mutmut の job）が赤だった。揃いを縛る `tests/py/test_mutmut_config.py` は、置き場（フォルダ）に加えて graphloops 直下のファイルも見るようにした。
+- 利用者の動きは変わらない直し。変異テストの道具 mutmut は、試験を graphloops の一時の写し（`mutants/`）の中で走らせ、写しには `setup.cfg` の `[mutmut]` の `also_copy`（一緒に写すファイルとフォルダの一覧）に書いた物と mutmut が決まって写す物（`setup.cfg` など）だけが入る。この一覧に `README.md` が無く、README の見出しを読む試験（`test_the_notices_point_at_a_readme_section_that_names_the_live_check`）が写しの中で README を見つけられずに落ち、main の CI の変異テスト（mutmut の job）が赤だった。一覧に `README.md` を足した。一覧の抜けを手元の試験で止める `tests/py/test_mutmut_config.py`（graphloops 直下に在る物が、一覧か、試験の中の「試験が読まない物」の表（`NOT_READ`）のどちらかに載っているかを見る）は、これまでフォルダだけを見ていたので README.md の抜けを止められなかった。直下のファイル（今は `README.md`・`CHANGELOG.md`・`setup.cfg`）も見るようにした。
 
 ## [0.45.3] - 2026-10-29
 
