@@ -781,7 +781,7 @@ def why_not(said):
 def lent_boss(given, cause_boss, desk):
     """渡された頼み元 given（部署の属性の形。ask の鍵は除く）。given に頼み元が無いとき（合図で回した頼みで、メインブランチに入れた部署が
     機械の上げ〔works-factory-pin〕の作業場だった --land など。--take で回し直す件に頼み元が空で残っていたときも）は、この頼みの親
-    （cause）の頼み元、それも無ければ頼む側の会社の窓口（desk が
+    （cause）の頼み元、それも無ければ頼む側の会社（--land を打った部署のいる会社）の窓口（desk が
     返す。決まらなければ given のまま）。頼み元の無いまま回すと、立った部署の納品が受付箱を引けずに止まる（2026-10-29 の受付 cee7e1。
     寿命の語を英単語にそろえる部署の --land の機械の上げが打った --land の CI の見張りの頼み。頼み 2c4310）。"""
     lent = {k: v for k, v in given.items() if k != "ask"}
