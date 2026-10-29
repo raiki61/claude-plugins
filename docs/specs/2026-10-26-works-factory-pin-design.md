@@ -39,7 +39,7 @@ PIN は試験・文書のファイルでないので、`--land` は `## [Unrelea
 
 ### 3.3 CHANGELOG: PR の題からは組まない
 
-`--write` が書くのは、PR の番号と比べの URL の 1 行だけ（例: 「工場の固定 commit（`works-factory/PIN`）を 20b4a2ef に上げた。取り込んだ PR は raiki61/works-factory#841・#839・…。差分は https://github.com/raiki61/works-factory/compare/… 。」）。工場の PR の題は工場の中の作り手に向けた文で（例: 「#837 組を当てた後の確かめ直しで、…組を戻さない」）、プラグインの利用者に効く違いを言わない。利用者に効く違いは、照合に当たったときに作業の部署が書き足す。
+`--write` が書くのは、PR の番号と比べの URL の 1 行だけ（例: 「工場の固定 commit（`works-factory/PIN`）を ffc8cb43 に上げた。取り込んだ PR は raiki61/works-factory#841・#839・…。差分は https://github.com/raiki61/works-factory/compare/… 。」）。工場の PR の題は工場の中の作り手に向けた文で（例: 「#837 組を当てた後の確かめ直しで、…組を戻さない」）、プラグインの利用者に効く違いを言わない。利用者に効く違いは、照合に当たったときに作業の部署が書き足す。
 
 ### 3.4 スキルに効く変更: 機械で照合し、当たれば作業の部署が直す
 
@@ -78,7 +78,7 @@ PR は立てない。このリポジトリは main へ PR を通さず、`--land
 3. origin の main の頭から、一時の worktree とブランチ `works-factory-pin/<上げ先の頭 12 字>` を、自分の pid の鍵を掛けて作る。git は代表の clone の worktree ごとの git の設定のうち `company.role` など `company.*` の項目（works-dispatch が、その worktree をどの役の部署の作業場かと見分けるのに読む物）を新しい worktree に写す。写ったままだと一時の worktree が部署の作業場に見えるので、この項目を消す。このツール自身の `--write <上げ先の sha>`（2 の 7。`works-factory/PIN` を上げ先の sha に、`works-factory/CHANGELOG.md` の `## [Unreleased]` に取り込んだ PR と比べの URL の 1 行を書く）と同じ関数で PIN と CHANGELOG を書いて commit する。
 4. works-dispatch の `--repo <代表の clone> --land <ブランチ>` を打つ。works-dispatch は合図のツールに自分のパスを環境変数 `WORKS_DISPATCH`・`WORKS_DISPATCH_PYTHON` で渡す（works-dispatch/docs/land.md の「外のツールが列に並ぶ」）。`--land` はブランチの名前で部署を探すので、会話の無いこのブランチも入れられる。
 5. 入ったかは、`--land` の終了の値でなく、origin の main の PIN が上げ先になったかで決める（取り直せないときだけ、`--land` の終了の値 0 を入ったとみる）。入らなければ、`--land` の出力の終わり 12 行を添えて作業に回す。
-6. 入っても入らなくても、作った worktree とブランチを消す（入らなかった commit は、作業の部署が上のツールの `--write` を打てば同じ物を作り直せる）。消せなければ注記を出し、次の機械の上げが 2 の残りとして消す。`--land` はリベースしたブランチを origin に push するので、入らなくても origin に同じ名前のブランチが残る。origin にそのブランチが在れば `git push origin --delete` で消し、消せなければ注記の 1 行を出す（2026-10-27 の上げ先 9a7c5d8d で origin に残ったのを受けた直し。受付 20261027-235947-6e9cec）。
+6. 入っても入らなくても、作った worktree とブランチを消す（入らなかった commit は、作業の部署が上のツールの `--write` を打てば同じ物を作り直せる）。消せなければ注記を出し、次の機械の上げが 2 の残りとして消す。`--land` はリベースしたブランチを origin に push するので、入らなくても origin に同じ名前のブランチが残る。origin にそのブランチが在れば `git push origin --delete` で消し、消せなければ注記の 1 行を出す（2026-10-27 の上げ先 99ba48d6 で origin に残ったのを受けた直し。受付 20261027-235947-6e9cec）。
 
 列の鍵: `--land` は、main へ push し終えたところで列（`[land]` の `queue`）の順番を手放し、その後で合図（`[[land.after]]`）を呼ぶ（works-dispatch/dispatch/landing.py の `hold.drop()` の後の `after`）。合図の中の機械の上げが打つ `--land` は、ほかの `--land` と同じ列に並び、外の `--land` と待ち合って止まることは無い。`--call` で手で呼んだときも同じ列に並ぶ。
 

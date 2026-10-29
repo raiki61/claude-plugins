@@ -552,9 +552,9 @@ my_notes の司令塔からの頼み。持ち主の言葉「ほかの部署に�
 
 ### 測った事（2026-10-28 08:00 ごろ）
 
-- 機械の上げはまだ一度も走っていない。今壊れている。ツールは 10-27 10:32 から後の合図で毎回「このツールから回した頼みが開いているので黙る」で 0 を返す（空打ち `echo '{"dry_run":true}' | python3 scripts/works-factory-pin.py` で同じ答え）。工場 raiki61/works-factory の main には、PIN（16d525ca）の 1 本先に CI〔tests〕が緑の 9a7c5d8d（#892）が在るので、本来は上げる回。
+- 機械の上げはまだ一度も走っていない。今壊れている。ツールは 10-27 10:32 から後の合図で毎回「このツールから回した頼みが開いているので黙る」で 0 を返す（空打ち `echo '{"dry_run":true}' | python3 scripts/works-factory-pin.py` で同じ答え）。工場 raiki61/works-factory の main には、PIN（664796fe）の 1 本先に CI〔tests〕が緑の 99ba48d6（#892）が在るので、本来は上げる回。
 - 訳: 前の形の上げの頼み 20261027-012329-185f8f は、合図（main に入れた後に works-dispatch がツールを呼ぶこと）を起こした `--land` が別の会社 guided-resolver の窓口の会話から打たれたので頼み元がその会話になり、納品の行は guided-resolver の受付箱の台帳にだけ書かれた。ツールの `mine()` は claude-plugins の受付箱の台帳だけを見るので 185f8f を開いているとみる。`--todo` は台帳の指すほかの受付箱まで足し合わせる（`works-dispatch/dispatch/todo.py` の `inboxes_from`）ので「済」と出て、食い違いに気づけなかった。
-- その間の上げ（04355e15、PIN を 16d525ca に）は、works-factory の工場窓口が手で頼んだ物（受付 85d562）で、見張りの物ではない。
+- その間の上げ（04355e15、PIN を 664796fe に）は、works-factory の工場窓口が手で頼んだ物（受付 85d562）で、見張りの物ではない。
 - 失敗して作業に回った回: 無し。機械の上げのブランチ（`works-factory-pin/<sha12>`）と worktree: 残り無し。origin に残る `work/works-factory-pin-b1061b` と `works-factory-pin-16d525ca` は前の形の手の上げの物で、機械の上げの残りではない。
 
 ### 回した事
@@ -563,7 +563,7 @@ my_notes の司令塔からの頼み。持ち主の言葉「ほかの部署に�
 
 ### 次の回に確かめる事
 
-1. 805f39 の直しが main に在るか。その後の合図で、9a7c5d8d（かその先の緑）への上げが作業の部署を立てずに main に入ったか。見る物は 2 つ: claude-plugins の `git log -- works-factory/PIN` の commit の題（機械の上げなら頼みの受付番号が付かない）と、受付箱の台帳（`.git/company/inbox/log.jsonl`）の `"kind": "miss"`・`"role": "工場の版の見張り"` の行の数。miss の行は、合図のツールが 1 で終わって works-dispatch が作業へ頼みを回した 1 回ごとに 1 行書かれるので、増えていなければ作業に回っていない。
+1. 805f39 の直しが main に在るか。その後の合図で、99ba48d6（かその先の緑）への上げが作業の部署を立てずに main に入ったか。見る物は 2 つ: claude-plugins の `git log -- works-factory/PIN` の commit の題（機械の上げなら頼みの受付番号が付かない）と、受付箱の台帳（`.git/company/inbox/log.jsonl`）の `"kind": "miss"`・`"role": "工場の版の見張り"` の行の数。miss の行は、合図のツールが 1 で終わって works-dispatch が作業へ頼みを回した 1 回ごとに 1 行書かれるので、増えていなければ作業に回っていない。
 2. 増えていれば、その行の `tail`（ツールの出力の末尾 20 行。機械の上げが失敗した訳と `--land` の出力の終わりが入る）で訳を書く。直しが効かず、まだ黙っていれば、空打ちの答えを添えて作業の 805f39 の続きとして頼み直す。
 3. `git worktree list` と `git branch -a --list '*works-factory-pin/*'` に残りが無いか。
 
@@ -573,11 +573,11 @@ my_notes の司令塔からの頼み。持ち主の言葉「ほかの部署に�
 
 ### 測った事（2026-10-28 11:10 ごろ）
 
-- 新しい雛形での上げはまだ 0 回。477e2568 の後に `works-factory/PIN` を変えた commit は無い。空打ち（`echo '{"dry_run":true}' | python3 scripts/works-factory-pin.py`）の答えは「上げる物は無い（PIN 2aff8921 の後の工場の main の commit 1 本に、CI〔tests〕が緑の物が無い）」。今は壊れていない。
+- 新しい雛形での上げはまだ 0 回。477e2568 の後に `works-factory/PIN` を変えた commit は無い。空打ち（`echo '{"dry_run":true}' | python3 scripts/works-factory-pin.py`）の答えは「上げる物は無い（PIN f1458f86 の後の工場の main の commit 1 本に、CI〔tests〕が緑の物が無い）」。今は壊れていない。
 - 前の雛形の基準（見張りが上げた 4 回。受付箱の台帳 `.git/company/inbox/log.jsonl` の `"kind": "miss"`・`"role": "工場の版の見張り"` の行と、`git log -- works-factory/PIN` で数えた）:
   - 機械の上げが入った: 2 回（38f40bb0、ebd3bfc8）。
-  - 作業に回った: 2 回。1b347e（上げ先 9a7c5d8d）は coldread でなく、見張り自身の試験（合図の再入で黙る）の赤。8d0046（上げ先 2aff8921）が coldread の赤（CHANGELOG の行で「読者に何を求めるかが言えない」）。
-  - これより前の miss の 2 行（062cd124・be85df25 への上げ）は機械の上げの前の形で、手順を作業に渡すだけの物なので数えない。
+  - 作業に回った: 2 回。1b347e（上げ先 99ba48d6）は coldread でなく、見張り自身の試験（合図の再入で黙る）の赤。8d0046（上げ先 f1458f86）が coldread の赤（CHANGELOG の行で「読者に何を求めるかが言えない」）。
+  - これより前の miss の 2 行（4aa2a162・056f35c3 への上げ）は機械の上げの前の形で、手順を作業に渡すだけの物なので数えない。
   - 頼み元の言う「直近 5 回で 1 回」と合う（coldread の赤は 8d0046 の 1 回だけ）。
 
 ### 次の回に確かめる事

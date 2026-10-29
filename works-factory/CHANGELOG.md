@@ -6,11 +6,17 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を e6a48dd7 から 8d8e8e9d に上げた。取り込んだ PR は raiki61/works-factory#925・#922。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/e6a48dd72ae6...8d8e8e9d7f6d 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+  - 利用者に効く違い: 直す段の出力の欄名が工場の中で食い違い、終わりの段（finish）が「/untested/0」で止まることがあったのが、止まらなくなった（PR #922）。
+- 工場のリポジトリの履歴が 2026-10-29 に書き直され（ファイルの中身は同じで、commit の番号だけが替わった）、古い番号の commit は GitHub から取れなくなる見込み。殻が取り寄せる commit が取れずに落ちないよう、PIN を新しい履歴の commit にした。この記録・スキルの references（`auth.md`・`spec.md`）・リポジトリの文書に書いた工場の commit の番号と比べの URL も、新しい履歴の同じ中身の commit の番号に置き換えた（前の PIN 19814ddf は新しい履歴で e6a48dd7）。
+
 ## [0.31.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 7fd81c6f から 19814ddf に上げた。取り込んだ PR は raiki61/works-factory#918・#917・#921・#920・#907・#919・#924。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/7fd81c6ff311...19814ddfd6fe 。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を c145be99 から e6a48dd7 に上げた。取り込んだ PR は raiki61/works-factory#918・#917・#921・#920・#907・#919・#924。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/c145be99c775...e6a48dd72ae6 。
   - 利用者に効く違い（入口）: 依頼のファイルの中身が空の形（`{"findings": []}` のように、`findings` もほかの項目も全部空の物）の run は、判定の段の観点を全部回した後に止まっていたのが、AI が動く前に入口で断られるようになった（PR #918）。`findings` が空でもほかの項目が在る物（工場が自分で書く次の run の依頼のファイル）は通る（PR #921）。
   - 利用者に効く違い（直す前の承認ノード）: 人が答える run（`unattended=true` でない run）では、人の答えや指示ファイルが名指した文書が、run の読む commit に無く別の commit にだけ在る時に、直す前の承認ノードが開き、その文書に従ってよいかを聞くようになった。この問いには勧めの答え（推し）が付かない（PR #920）。どの commit にも無い文書では開かず、ほかの理由で開いた時に推し「気にせず進む」付きで並ぶ。無人の run（`unattended=true`）は報告に 1 行出すだけで、これでは止まらない。
   - スキル: `references/pr.md` に、入口が断る形（上の空の依頼のファイル）を 1 つ足した。あわせて工場の README の書き直しに合わせ、run が比べるのは PR の head の commit と `--cwd` で checkout した commit であることと、「diff <base>..HEAD (N files), 0 requests」の行は AI の役が動く前に入口の検査が出すことを書き足した（工場の振る舞いは変わっていない）。名指しの文書の問いは承認ノードの項目に出るので、SKILL.md は変えていない。
@@ -19,122 +25,122 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 20515f69 から 7fd81c6f に上げた。取り込んだ PR は raiki61/works-factory#916。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/20515f699f5a...7fd81c6ff311 。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 19dc0cf0 から c145be99 に上げた。取り込んだ PR は raiki61/works-factory#916。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/19dc0cf0208a...c145be99c775 。
   - 利用者に効く違い: 依頼のファイルを渡さず `--input pr=<番号>` だけで回す run（PR の差分だけを見せて直す所を見つけさせる使い方）が、判定の段の観点を全部回した後に、判定の終わりの検査で止まっていた（PR #916 の本文では、止まるまでに 1 回約 7 ドルを使っていた）のが、止まらずに進むようになった。スキルに、この使い方（別ファイル `references/pr.md`）と、入口が断る 2 つの形（`{"pr": [<番号>]}` だけの依頼のファイル、`base` と `pr` を一緒に渡す形）を書き足し、依頼のファイルに PR の番号だけを書けば `findings` を省けるとしていた行を直した（その形は差分が空で断られる）。
 
 ## [0.29.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を bf2b11fa から 20515f69 に上げた。取り込んだ PR は raiki61/works-factory#912。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/bf2b11fa0e77...20515f699f5a 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 6d996347 から 19dc0cf0 に上げた。取り込んだ PR は raiki61/works-factory#912。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/6d99634785b1...19dc0cf0208a 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.28.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 457d2289 から bf2b11fa に上げた。取り込んだ PR は raiki61/works-factory#910。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/457d22897eef...bf2b11fa0e77 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 5c18d719 から 6d996347 に上げた。取り込んだ PR は raiki61/works-factory#910。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/5c18d7190348...6d99634785b1 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.27.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を fc89608e から 457d2289 に上げた。取り込んだ PR は raiki61/works-factory#909。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/fc89608e4222...457d22897eef 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を bf238bb1 から 5c18d719 に上げた。取り込んだ PR は raiki61/works-factory#909。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/bf238bb13409...5c18d7190348 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.26.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を b61f04b6 から fc89608e に上げた。取り込んだ PR は raiki61/works-factory#914。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/b61f04b65714...fc89608e4222 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 6a3b321a から bf238bb1 に上げた。取り込んだ PR は raiki61/works-factory#914。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/6a3b321ae01a...bf238bb13409 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.25.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 1f281e82 から b61f04b6 に上げた。取り込んだ PR は raiki61/works-factory#915。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/1f281e825b92...b61f04b65714 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を c30df295 から 6a3b321a に上げた。取り込んだ PR は raiki61/works-factory#915。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/c30df295da60...6a3b321ae01a 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.24.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 2fa53572 から 1f281e82 に上げた。取り込んだ PR は raiki61/works-factory#908。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/2fa535728272...1f281e825b92 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を d726bb2a から c30df295 に上げた。取り込んだ PR は raiki61/works-factory#908。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/d726bb2a05f9...c30df295da60 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.23.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 3567844e から 2fa53572 に上げた。取り込んだ PR は raiki61/works-factory#906。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/3567844e8ee5...2fa535728272 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 2857117a から d726bb2a に上げた。取り込んだ PR は raiki61/works-factory#906。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/2857117a366c...d726bb2a05f9 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.22.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 8feb2437 から 3567844e に上げた。取り込んだ PR は raiki61/works-factory#905。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/8feb243757a0...3567844e8ee5 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を ee40dcfc から 2857117a に上げた。取り込んだ PR は raiki61/works-factory#905。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/ee40dcfccf94...2857117a366c 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.21.0] - 2026-10-29
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 7ca58554 から 8feb2437 に上げた。取り込んだ PR は raiki61/works-factory#902・#903・#904。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/7ca585541459...8feb243757a0 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 8b9be974 から ee40dcfc に上げた。取り込んだ PR は raiki61/works-factory#902・#903・#904。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/8b9be9744c7d...ee40dcfccf94 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.20.0] - 2026-10-28
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 7e19bb47 から 7ca58554 に上げた。取り込んだ PR は raiki61/works-factory#901・#900・#899。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/7e19bb479959...7ca585541459 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 38cced23 から 8b9be974 に上げた。取り込んだ PR は raiki61/works-factory#901・#900・#899。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/38cced23f8fd...8b9be9744c7d 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.19.0] - 2026-10-28
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 2aff8921 から 7e19bb47 に上げた。取り込んだ PR は raiki61/works-factory#895・#896・#898。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/2aff8921b264...7e19bb479959 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を f1458f86 から 38cced23 に上げた。取り込んだ PR は raiki61/works-factory#895・#896・#898。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/f1458f861ae8...38cced23f8fd 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.18.0] - 2026-10-28
 
 ### Changed
 
-- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 0878a201 から 2aff8921 に上げた。取り込んだ PR は raiki61/works-factory#897。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/0878a2017fe5...2aff8921b264 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 0c88f554 から f1458f86 に上げた。取り込んだ PR は raiki61/works-factory#897。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/0c88f55494fd...f1458f861ae8 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
 
 ## [0.17.0] - 2026-10-28
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 0878a201 に上げた。取り込んだ PR は raiki61/works-factory#894。差分は https://github.com/raiki61/works-factory/compare/15d2d325afcf...0878a2017fe5 。
+- 工場の固定 commit（`works-factory/PIN`）を 0c88f554 に上げた。取り込んだ PR は raiki61/works-factory#894。差分は https://github.com/raiki61/works-factory/compare/20a34ad1c286...0c88f55494fd 。
 
 ## [0.16.0] - 2026-10-28
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 15d2d325 に上げた。取り込んだ PR は raiki61/works-factory#893。差分は https://github.com/raiki61/works-factory/compare/9a7c5d8d1e44...15d2d325afcf 。
+- 工場の固定 commit（`works-factory/PIN`）を 20a34ad1 に上げた。取り込んだ PR は raiki61/works-factory#893。差分は https://github.com/raiki61/works-factory/compare/99ba48d6bfd7...20a34ad1c286 。
 
 ## [0.15.0] - 2026-10-28
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 9a7c5d8d に上げた。取り込んだ PR は raiki61/works-factory#892。差分は https://github.com/raiki61/works-factory/compare/16d525ca7a2b...9a7c5d8d1e44 。
+- 工場の固定 commit（`works-factory/PIN`）を 99ba48d6 に上げた。取り込んだ PR は raiki61/works-factory#892。差分は https://github.com/raiki61/works-factory/compare/664796fe5a94...99ba48d6bfd7 。
 
 ## [0.14.0] - 2026-10-27
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 16d525ca に上げた。取り込んだ PR は raiki61/works-factory#888・#891・#890。差分は https://github.com/raiki61/works-factory/compare/be85df25ebc6...16d525ca7a2b 。
+- 工場の固定 commit（`works-factory/PIN`）を 664796fe に上げた。取り込んだ PR は raiki61/works-factory#888・#891・#890。差分は https://github.com/raiki61/works-factory/compare/056f35c30ce0...664796fe5a94 。
 
 ## [0.13.0] - 2026-10-27
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を be85df25 に上げた。取り込んだ PR は raiki61/works-factory#879・#878・#881・#883・#885・#887・#889。差分は https://github.com/raiki61/works-factory/compare/062cd124bb59...be85df25ebc6 。
+- 工場の固定 commit（`works-factory/PIN`）を 056f35c3 に上げた。取り込んだ PR は raiki61/works-factory#879・#878・#881・#883・#885・#887・#889。差分は https://github.com/raiki61/works-factory/compare/4aa2a162cb81...056f35c30ce0 。
 
 ## [0.12.0] - 2026-10-26
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 062cd124 に上げた。取り込んだ PR は raiki61/works-factory#876。差分は https://github.com/raiki61/works-factory/compare/e52a1b452d33...062cd124bb59 。
+- 工場の固定 commit（`works-factory/PIN`）を 4aa2a162 に上げた。取り込んだ PR は raiki61/works-factory#876。差分は https://github.com/raiki61/works-factory/compare/da2a5a0efbe3...4aa2a162cb81 。
 
 ## [0.11.0] - 2026-10-26
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を e52a1b45 に上げた。取り込んだ PR は raiki61/works-factory#841・#839・#840・#847・#850・#842・#848・#852・#854・#853・#844・#856・#858・#857・#843・#859・#860・#865・#866・#867・#861・#870・#869・#872・#874・#875。差分は https://github.com/raiki61/works-factory/compare/1b5d8b709f69...e52a1b452d33 。
+- 工場の固定 commit（`works-factory/PIN`）を da2a5a0e に上げた。取り込んだ PR は raiki61/works-factory#841・#839・#840・#847・#850・#842・#848・#852・#854・#853・#844・#856・#858・#857・#843・#859・#860・#865・#866・#867・#861・#870・#869・#872・#874・#875。差分は https://github.com/raiki61/works-factory/compare/99b6cfdba0bc...da2a5a0efbe3 。
 - 利用者に効く違い: Claude Code の設定の `env`（利用者の `settings.json` と会社が配る managed settings のファイル）に書いた接続の値（接続先・資格・proxy・証明書・モデルの別名、Bedrock・Mantle・Vertex の決まった名の変数）が、工場の中の AI の役に運ばれるようになった（raiki61/works-factory#859・#860。前は運ばれず、殻を起動する環境に置く必要があった）。`CLAUDE_BIN_PATH` に、普段 Claude を起動するラッパースクリプトを指せるようになった。対象の `.review-checks.json` の `suite` の横に、試験を走らせずに一覧だけを出す `list` を書ける（試験が無いと決めるのに使う）。
 - `skills/works-factory/references/auth.md` の「API キーかゲートウェイで動く人」の、設定の `env` の値は運ばれないという文を直し、Bedrock・Mantle・Vertex の選び方と工場の README への指しを書き足した。
 
@@ -148,14 +154,14 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 1b5d8b70 に上げた。取り込んだのは raiki61/works-factory#835。工場の中の AI の役の会話のキャッシュの寿命が、Claude の加入でログインした人では既定の 1 時間から 5 分になった（run の設定の層の env に `CLAUDE_CODE_PROMPT_CACHE_TTL=5m` を載せる）。殻を起動する環境・`--config` の `env:`・対象の `.archon/config.yaml` の `env:` で寿命を選んでいれば上書きせず、`--adopt` の起動では載せない。報告（`report-ai.md`）の「費用」のセクションに、工程ごとのトークン数（入力・出力・キャッシュの読み・書き）の行が出る。
+- 工場の固定 commit（`works-factory/PIN`）を 99b6cfdb に上げた。取り込んだのは raiki61/works-factory#835。工場の中の AI の役の会話のキャッシュの寿命が、Claude の加入でログインした人では既定の 1 時間から 5 分になった（run の設定の層の env に `CLAUDE_CODE_PROMPT_CACHE_TTL=5m` を載せる）。殻を起動する環境・`--config` の `env:`・対象の `.archon/config.yaml` の `env:` で寿命を選んでいれば上書きせず、`--adopt` の起動では載せない。報告（`report-ai.md`）の「費用」のセクションに、工程ごとのトークン数（入力・出力・キャッシュの読み・書き）の行が出る。
 - 寿命を変える時の書き方を `skills/works-factory/references/auth.md` の「会話のキャッシュの寿命を変える時」に書き、スキルの本文の「認証」の行から指した。本文の長さの上限（5000 字）に収めるため、「1. 殻」の置き場の文を短くした。
 
 ## [0.9.0] - 2026-10-23
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 3b44770d に上げた。取り込んだ物は 3 つ。対話モードの入力の名を `design_only` から `design_talk` に替えた（raiki61/works-factory#829。動きは同じ。古い名を本線か周の鎖に渡すと、殻が Archon を起こさずに止まり、`--input design_talk=true` を案内する）。同じ対象に 2 本以上を同時に起動しても落ちなくなった（raiki61/works-factory#826。使う人の手順は変わらない）。`--detach` なしの `workflow run` が終わると（承認ノードで止まった時も）、標準エラーに `works-factory: 記録の置き場: <パス>` を 1 行出す（raiki61/works-factory#831）。
+- 工場の固定 commit（`works-factory/PIN`）を de774a60 に上げた。取り込んだ物は 3 つ。対話モードの入力の名を `design_only` から `design_talk` に替えた（raiki61/works-factory#829。動きは同じ。古い名を本線か周の鎖に渡すと、殻が Archon を起こさずに止まり、`--input design_talk=true` を案内する）。同じ対象に 2 本以上を同時に起動しても落ちなくなった（raiki61/works-factory#826。使う人の手順は変わらない）。`--detach` なしの `workflow run` が終わると（承認ノードで止まった時も）、標準エラーに `works-factory: 記録の置き場: <パス>` を 1 行出す（raiki61/works-factory#831）。
 - スキルの本文と `skills/works-factory/references/chain.md` の `design_only` を `design_talk` に替え、「4. 報告を読む」に記録の置き場の 1 行を書き足した。空の `revise` の聞き直しを「2 回まで」と書き直した（前の「3 度目は止まる」と同じ振る舞い）。本文の長さの上限（5000 字）に収めるため、ほかの文を短くした。
 
 ## [0.8.0] - 2026-10-23
@@ -166,7 +172,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を 5a376672 に上げた。上の設計の相談（raiki61/works-factory#824）と、試験を回す仕組みの直し（raiki61/works-factory#825。使う人の手順は変わらない）を取り込んだ。通常の run と無人の run の止まり方は変わらない。
+- 工場の固定 commit（`works-factory/PIN`）を 72087cad に上げた。上の設計の相談（raiki61/works-factory#824）と、試験を回す仕組みの直し（raiki61/works-factory#825。使う人の手順は変わらない）を取り込んだ。通常の run と無人の run の止まり方は変わらない。
 - 周の鎖（何周もつなぐ run）の手順を、スキルの本文から `skills/works-factory/references/chain.md` に移した。`design_only=true` と組めないことを書き足した。
 - 本文の長さの上限（5000 字）に収めるため、API キーの時に `WORKS_FACTORY_KEYCHAIN_ITEM` を付けない注意（`references/auth.md` に同じ注意が在る）と、深さの段ごとの違いの括弧書き（工場の `docs/design/line.md` の 5.1 に在る）を本文から外した。
 
@@ -180,7 +186,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`。殻が使う raiki61/works-factory の commit）を fd33cb45 に上げた。人と固めた仕様を審査する部品のうち、設計を業界の定石と比べる部品（`works-factory-world`）が、仕様の表（YAML）の `design` と `acceptance` の各要素に評価の行を 1 つずつ返し、本線の起動時の照合も全部の要素に行が在るかを確かめるようになった。前の PIN の工場で回したこの部品の run は、行が欠けていれば本線の起動で止まるので、使う人がこの部品だけを回し直す。手順は `skills/works-factory/references/spec.md` の 2 に書いた。
+- 工場の固定 commit（`works-factory/PIN`。殻が使う raiki61/works-factory の commit）を 527d0294 に上げた。人と固めた仕様を審査する部品のうち、設計を業界の定石と比べる部品（`works-factory-world`）が、仕様の表（YAML）の `design` と `acceptance` の各要素に評価の行を 1 つずつ返し、本線の起動時の照合も全部の要素に行が在るかを確かめるようになった。前の PIN の工場で回したこの部品の run は、行が欠けていれば本線の起動で止まるので、使う人がこの部品だけを回し直す。手順は `skills/works-factory/references/spec.md` の 2 に書いた。
 
 ## [0.5.0] - 2026-10-22
 
@@ -190,7 +196,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- 工場の固定 commit（`works-factory/PIN`）を e04500cd に更新した。判定と計画を 1 回ずつ回す仕様入力の道、変更に関わる試験の実行器を使う試験の段、報告の冒頭に対象への反映状況と判断の短い題を出す改善を取り込んだ。通常の依頼の入口も残る。
+- 工場の固定 commit（`works-factory/PIN`）を 976c6835 に更新した。判定と計画を 1 回ずつ回す仕様入力の道、変更に関わる試験の実行器を使う試験の段、報告の冒頭に対象への反映状況と判断の短い題を出す改善を取り込んだ。通常の依頼の入口も残る。
 - 依頼の参照先を用途別に示した。`findings` の形は `workflows/.shared/schemas/request.schema.json`、依頼の全項目と省略の扱いは、今も在る `lib/carry.py` の `parts()`。
 
 ### Fixed
@@ -201,13 +207,13 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- `works-factory/PIN`（殻が使う raiki61/works-factory の commit）を 687a6057 に上げ、殻が `apiKeyHelper`（Claude Code の設定の、API キーを出すコマンドの欄）のコマンドを走らせて得たキーで工場の中の AI の役を起動する道と、同時数の上限 `WORKS_FACTORY_CLAUDE_CONCURRENCY`（429 が返る時）をスキルの `references/auth.md` に書いた。API キーとゲートウェイ（API の中継先）の値は殻を起動する環境に置き、設定の `env` に書いた値は工場の中の AI の役に運ばれない、と説明を直した。
+- `works-factory/PIN`（殻が使う raiki61/works-factory の commit）を f0d8b660 に上げ、殻が `apiKeyHelper`（Claude Code の設定の、API キーを出すコマンドの欄）のコマンドを走らせて得たキーで工場の中の AI の役を起動する道と、同時数の上限 `WORKS_FACTORY_CLAUDE_CONCURRENCY`（429 が返る時）をスキルの `references/auth.md` に書いた。API キーとゲートウェイ（API の中継先）の値は殻を起動する環境に置き、設定の `env` に書いた値は工場の中の AI の役に運ばれない、と説明を直した。
 
 ## [0.3.0] - 2026-10-20
 
 ### Changed
 
-- `works-factory/PIN`（このプラグインが取ってくる工場の commit）を raiki61/works-factory の e87f40a3 に上げた。工場の流れ（本線のグラフ）を部品に分けて組み直した版（raiki61/works-factory の issue #765・PR #794）で、プラグインから起動する run（工場の 1 回の実行）はこの版で回る。起動の形は変わらない。スキルを新しい工場に合わせた:
+- `works-factory/PIN`（このプラグインが取ってくる工場の commit）を raiki61/works-factory の 478fc153 に上げた。工場の流れ（本線のグラフ）を部品に分けて組み直した版（raiki61/works-factory の issue #765・PR #794）で、プラグインから起動する run（工場の 1 回の実行）はこの版で回る。起動の形は変わらない。スキルを新しい工場に合わせた:
   - 承認ノード（run が止まって人の答えを待つ所）は 4 か所になった: 始める時・直す前・修正の途中で計画が変わる時（今回増えた）・最後。
   - 最後の承認ノードをいつ開くかを `--input final_gate=` で選べる: `always`（毎回。人が答える run の既定）・`when_needed`（訳が在る時だけ。無人の run の既定）・`protected_only`（守りのパス〔対象の `.works-protected.json` に書いたファイル〕に当たった時など）。
   - `--input design_only=true` を付けると、直す前の承認ノードがいつも開き、修正の前に計画を見られる。
@@ -226,7 +232,7 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Fixed
 
-- `works-factory/PIN` を raiki61/works-factory の 4082a4e0 に上げた。報告の書き手が 2026-10-17 から模型の提供元の安全の判定に止められ、報告の本文が書かれていなかった。報告の書き手に渡す引き継ぎのメモの欄の名を替え、この上げで通るようにした。cancel した run の AI のプロセスが残って使用量を使い続けていたのを、殻が cancel の後に子の run の分まで止め、止めた物と残った物を 1 行ずつ出すようにした。計画の事前審査の返答が書式の訳だけで拒まれ続け、run が直しの前で止まる件を塞いだ。守りのファイルに当たった一覧も先頭の数行と件数に切った（当たりが数万本でも承認ノードの文と出力が膨らまない）。
+- `works-factory/PIN` を raiki61/works-factory の ce900ed6 に上げた。報告の書き手が 2026-10-17 から模型の提供元の安全の判定に止められ、報告の本文が書かれていなかった。報告の書き手に渡す引き継ぎのメモの欄の名を替え、この上げで通るようにした。cancel した run の AI のプロセスが残って使用量を使い続けていたのを、殻が cancel の後に子の run の分まで止め、止めた物と残った物を 1 行ずつ出すようにした。計画の事前審査の返答が書式の訳だけで拒まれ続け、run が直しの前で止まる件を塞いだ。守りのファイルに当たった一覧も先頭の数行と件数に切った（当たりが数万本でも承認ノードの文と出力が膨らまない）。
 
 ### Changed
 
@@ -237,19 +243,19 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Fixed
 
-- `works-factory/PIN` を raiki61/works-factory の 56032b5a に上げた。修正役の後始末（clean）が消したファイルを最後の承認ノードの文と報告に全部並べていたため、消した本数が数万になると、ノードの出力が Archon の上限を越えて run が終われなかった。一覧を「先頭 5 本・ほかの件数・全件の置き場のパス」に切った（取り込むと消えるファイル・新しい名の一覧も同じ）。報告の書き手を周ごとに新しい会話で起こし、引き継ぎのメモで渡す直しも入る。
+- `works-factory/PIN` を raiki61/works-factory の 2eff5096 に上げた。修正役の後始末（clean）が消したファイルを最後の承認ノードの文と報告に全部並べていたため、消した本数が数万になると、ノードの出力が Archon の上限を越えて run が終われなかった。一覧を「先頭 5 本・ほかの件数・全件の置き場のパス」に切った（取り込むと消えるファイル・新しい名の一覧も同じ）。報告の書き手を周ごとに新しい会話で起こし、引き継ぎのメモで渡す直しも入る。
 
 ## [0.1.9] - 2026-10-17
 
 ### Changed
 
-- `works-factory/PIN` を raiki61/works-factory の 1e60d4b1 に上げた。工場が使う Archon を upstream の 355f1867 に上げた（承認ノードは新しい待ちの形で、答え方の命令は今までと同じ。使用枠が切れた run は今までどおり落ち、別のアカウントで resume して続ける）。run の深さを依頼の行ごとの未知の種類で選ぶ・計画を書く役が周をまたいで引き継ぎのメモを渡す・計画の段の最初の答えが同じ形で拒まれる件を減らし、出し直しの回数を報告に出す・公開ベンチの台の起動前の確かめ、などが入る。
+- `works-factory/PIN` を raiki61/works-factory の a6864142 に上げた。工場が使う Archon を upstream の 355f1867 に上げた（承認ノードは新しい待ちの形で、答え方の命令は今までと同じ。使用枠が切れた run は今までどおり落ち、別のアカウントで resume して続ける）。run の深さを依頼の行ごとの未知の種類で選ぶ・計画を書く役が周をまたいで引き継ぎのメモを渡す・計画の段の最初の答えが同じ形で拒まれる件を減らし、出し直しの回数を報告に出す・公開ベンチの台の起動前の確かめ、などが入る。
 
 ## [0.1.8] - 2026-10-16
 
 ### Changed
 
-- `works-factory/PIN` を raiki61/works-factory の 2e5e55c7 に上げた。run の深さを軽量・標準・重厚の 3 段にし、計画の事前審査を深さで飛ばす道を外した（重厚は判定の裏取りと木の事前審査を足す）・無人の run（`unattended=true`）は承認ノードで推しを採って進み、計画の壁打ちが安全の上限に届いた時は止める・計画の足す物と消す物をファイル構成の行にし、行ごとに考えの住処と退けた置き場を持たせる・修正の組の子の run が落ちたら run を止め、resume で続きから回す・受け付けに拒まれた出し直しを同じ役の会話の続きで直させる・字のぶつかりの印をファイルの中身と重ならない長さで書いて照らす、などが入る。
+- `works-factory/PIN` を raiki61/works-factory の ead27517 に上げた。run の深さを軽量・標準・重厚の 3 段にし、計画の事前審査を深さで飛ばす道を外した（重厚は判定の裏取りと木の事前審査を足す）・無人の run（`unattended=true`）は承認ノードで推しを採って進み、計画の壁打ちが安全の上限に届いた時は止める・計画の足す物と消す物をファイル構成の行にし、行ごとに考えの住処と退けた置き場を持たせる・修正の組の子の run が落ちたら run を止め、resume で続きから回す・受け付けに拒まれた出し直しを同じ役の会話の続きで直させる・字のぶつかりの印をファイルの中身と重ならない長さで書いて照らす、などが入る。
 - スキルの深さの説明を 3 段に合わせ、無人の run の起こし方を書いた。
 
 ## [0.1.7] - 2026-10-15
@@ -262,21 +268,21 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- `works-factory/PIN` を raiki61/works-factory の 9365c286 に上げた。軽い依頼では run の頭で深さを決めて計画の事前審査を飛ばす（代わりに独立の目を必ず回す）・承認済みの受け入れ条件のテストが変わったら承認し直すかを人に問う・今の works から落ちていた能力の総点検と戻し・試験が走ったかを証拠が在る時だけ言う直しの残り・公開ベンチの台（プロキシの要る網・remote の無い課題・submodule の在る課題）が入る。
+- `works-factory/PIN` を raiki61/works-factory の 2e593f13 に上げた。軽い依頼では run の頭で深さを決めて計画の事前審査を飛ばす（代わりに独立の目を必ず回す）・承認済みの受け入れ条件のテストが変わったら承認し直すかを人に問う・今の works から落ちていた能力の総点検と戻し・試験が走ったかを証拠が在る時だけ言う直しの残り・公開ベンチの台（プロキシの要る網・remote の無い課題・submodule の在る課題）が入る。
 - スキルに、`findings` を省ける依頼と仕様の段の止め、報告の入口の深さの 1 行を書いた。
 
 ## [0.1.5] - 2026-10-14
 
 ### Changed
 
-- `works-factory/PIN` を raiki61/works-factory の bfc23c48 に上げた。run の作業ツリーを対象の今の姿（commit していない変更を含む）から切る・一部の CI の系統が回せない時も回せた系統で進む・手元を指す `test_cmd` を起こす前に止める・「試験が走らなかった」を証拠が在る時だけ言う、が入る。
+- `works-factory/PIN` を raiki61/works-factory の ecd39a60 に上げた。run の作業ツリーを対象の今の姿（commit していない変更を含む）から切る・一部の CI の系統が回せない時も回せた系統で進む・手元を指す `test_cmd` を起こす前に止める・「試験が走らなかった」を証拠が在る時だけ言う、が入る。
 - スキルの起動の説明を、上の作業ツリーの起点と `test_cmd` の確かめに合わせた。
 
 ## [0.1.4] - 2026-10-14
 
 ### Changed
 
-- `works-factory/PIN` を raiki61/works-factory の 53213e16 に上げた。試験が走らなかった時に報告の冒頭で名指す・試験のコマンドの環境を利用者が明示した時だけ家の設定に戻す・全部の AI ノードの出し直し・認証の案内・公開ベンチの台の直しが入る。
+- `works-factory/PIN` を raiki61/works-factory の 7f06cac4 に上げた。試験が走らなかった時に報告の冒頭で名指す・試験のコマンドの環境を利用者が明示した時だけ家の設定に戻す・全部の AI ノードの出し直し・認証の案内・公開ベンチの台の直しが入る。
 - スキルに、試験が家の設定を要る時の 2 つの道（手元で回す・`WORKS_FACTORY_TARGET_USER_ENV=1` を付ける）と、付けると資格に届くことを書いた。
 
 ## [0.1.3] - 2026-10-14
@@ -295,11 +301,11 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ### Changed
 
-- 止めた commit（`works-factory/PIN`）を raiki61/works-factory の eefaa6c2 に上げる。周の鎖（`works-factory-chain`。頼まれた周の数まで回し、最後の差分と周ごとの表 chain.md を出す）・組の合わせ（並べた組を合わせて赤になったら合わせ役が直し、直せなければ裁定へ）・記録された方針だけを方針として扱う直し・審査する変更とこの run の直しの出どころを分ける直しが入る。
+- 止めた commit（`works-factory/PIN`）を raiki61/works-factory の b05c6bae に上げる。周の鎖（`works-factory-chain`。頼まれた周の数まで回し、最後の差分と周ごとの表 chain.md を出す）・組の合わせ（並べた組を合わせて赤になったら合わせ役が直し、直せなければ裁定へ）・記録された方針だけを方針として扱う直し・審査する変更とこの run の直しの出どころを分ける直しが入る。
 
 ## [0.1.0] - 2026-10-14
 
 ### Added
 
 - `/works-factory` スキル: 今いるリポジトリを対象に、修正依頼を works-factory（raiki61/works-factory）へ回す入口。今の `/works` には触らず、並べて置く（持ち主の決め `coexist-before-switch`）。
-- 殻 `bin/works-factory`: 止めた commit（`works-factory/PIN`。raiki61/works-factory の 909588a9）を `${XDG_CACHE_HOME:-~/.cache}/works-factory-plugin/<commit>` に取り置き、その殻に引数をそのまま渡す。`apply` は差分を当てる口 `bin/apply` に渡す。
+- 殻 `bin/works-factory`: 止めた commit（`works-factory/PIN`。raiki61/works-factory の 3b38638e）を `${XDG_CACHE_HOME:-~/.cache}/works-factory-plugin/<commit>` に取り置き、その殻に引数をそのまま渡す。`apply` は差分を当てる口 `bin/apply` に渡す。
