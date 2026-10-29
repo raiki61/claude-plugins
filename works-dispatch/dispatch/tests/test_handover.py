@@ -40,12 +40,13 @@ class Handover(unittest.TestCase):
         self.src = gitx_source(self.cfg)
         self.company = os.path.basename(self.src)
         self.check = pathlib.Path(self.root).parent / "check.py"
-        self.check.write_text("import json, sys\nd = json.load(sys.stdin)\n"
+        self.check.write_text("import json, sys\nd = json.loads(sys.stdin.buffer.read())\n"
                               "sys.exit(0 if d['type'] in ('task', 'question') else 3)\n", encoding="utf-8")
         shape = pathlib.Path(self.src, ".claude", "company.toml")
         shape.parent.mkdir(exist_ok=True)
-        self.gate = pathlib.Path(self.root).parent / "gate.py"   # 担当の納品の検査: 渡された JSON を gate.json に写して通す
-        self.gate.write_text(f"import sys\nopen({str(self.gate.with_suffix('.json'))!r}, 'w').write(sys.stdin.read())\n",
+        # 担当の納品の検査: 渡された JSON を gate.json にバイトのまま写して通す（文字で書くと Windows の既定の cp1252 で日本語を書けない）
+        self.gate = pathlib.Path(self.root).parent / "gate.py"
+        self.gate.write_text(f"import sys\nopen({str(self.gate.with_suffix('.json'))!r}, 'wb').write(sys.stdin.buffer.read())\n",
                              encoding="utf-8")
         py = pathlib.Path(sys.executable).as_posix()   # TOML の基本文字列に書くので / 区切り（Windows の \ は TOML の逃がしになる）
         shape.write_text(SHAPE.format(check=f"{py} {self.check.as_posix()}", gate=f"{py} {self.gate.as_posix()}"), encoding="utf-8")
@@ -343,7 +344,7 @@ class Handover(unittest.TestCase):
         rc, out = self.main("--handover", "段取り")
         self.assertEqual(rc, 0, out)
         # 後継の役の ask_check を、問い（question）だけ受ける形にする。互換の宛先へ頼んだ仕事（task）も、その検査が止める
-        self.check.write_text("import json, sys\nsys.exit(0 if json.load(sys.stdin)['type'] == 'question' else 3)\n", encoding="utf-8")
+        self.check.write_text("import json, sys\nsys.exit(0 if json.loads(sys.stdin.buffer.read())['type'] == 'question' else 3)\n", encoding="utf-8")
         fold = self.g.add_worktree(str(pathlib.Path(self.root) / "fold"), "work/fold", "origin/main")
         provision.mark(fold, self.src, {"role": "担当", "account": "a1", "name": "窓口をたたむ", "session": "s-x"}, self.g)
         self.ports._cwd = fold
