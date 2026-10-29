@@ -6,6 +6,11 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 20515f69 から 7fd81c6f に上げた。取り込んだ PR は raiki61/works-factory#916。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/20515f699f5a...7fd81c6ff311 。
+  - 利用者に効く違い: 依頼のファイルを渡さず `--input pr=<番号>` だけで回す run（PR の差分だけを見せて直す所を見つけさせる使い方）が、判定の段の観点を全部回した後に、判定の終わりの検査で止まっていた（PR #916 の本文では、止まるまでに 1 回約 7 ドルを使っていた）のが、止まらずに進むようになった。スキルに、この使い方（別ファイル `references/pr.md`）と、入口が断る 2 つの形（`{"pr": [<番号>]}` だけの依頼のファイル、`base` と `pr` を一緒に渡す形）を書き足し、依頼のファイルに PR の番号だけを書けば `findings` を省けるとしていた行を直した（その形は差分が空で断られる）。
+
 ## [0.29.0] - 2026-10-29
 
 ### Changed

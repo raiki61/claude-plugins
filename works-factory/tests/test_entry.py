@@ -83,7 +83,7 @@ class EntryTests(unittest.TestCase):
         body = text.split("---", 2)[2].lstrip("\n")
         self.assertLessEqual(len(body), 5000)
         self.assertLess(len(body.splitlines()), 500)
-        for name in ("auth.md", "stop.md", "spec.md"):
+        for name in ("auth.md", "stop.md", "spec.md", "pr.md"):
             self.assertIn(f"(references/{name})", body)
             self.assertTrue((PLUGIN / "skills/works-factory/references" / name).is_file())
 

@@ -11,8 +11,6 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 
 流れ: 起動 → 承認 → 報告 → 差分を当てる。起動後と承認して進めた後に AI が動き、費用が掛かる。
 
-今の `/works`（works プラグインの darkfactory）とは別の工場。
-
 ## 0. 要る物
 
 - macOS か Linux、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、Claude Code の `claude`。
@@ -35,8 +33,8 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 WF workflow run works-factory-line --cwd <対象のリポジトリ> --input request=<依頼のファイル> [--input test_cmd=<試験のコマンド>] [--from <枝か commit>]
 ```
 
-- `request` は依頼を書いた JSON のファイルのパス。文を渡すとファイル名として読まれて止まる。
-  - 形: `{"findings": [{"where": "<ファイル:行>", "text": "<何が困っているか・どうなってほしいか>"}], "pr": [<番号>], "issue": [<番号>]}`。`pr`・`issue` は省ける。前の run の答え（`answers`）や PR だけを渡す時は `findings` も省ける。ただし仕様の段（`spec=on`）は、`findings` か PR の題・本文が無いと止まる。
+- `request` は依頼を書いた JSON のファイルのパス。文を渡すとファイル名として読まれて止まる。PR の差分だけを見せる時は [references/pr.md](references/pr.md)。
+  - 形: `{"findings": [{"where": "<ファイル:行>", "text": "<何が困っているか・どうなってほしいか>"}], "pr": [<番号>], "issue": [<番号>]}`。`pr`・`issue` は省ける。前の run の答え（`answers`）だけを渡す時は `findings` も省ける。ただし仕様の段（`spec=on`）は、`findings` か PR の題・本文が無いと止まる。
   - `text` には問題と目的を書き、直し方は書かない。案は `text` の中に「案: …」と分けて添える（工場は案を世の中の定石と比べる）。
   - `findings` の形は `workflows/.shared/schemas/request.schema.json`。依頼の全項目と省略は `lib/carry.py` の `parts()`。
 - 人と固めた仕様から進める時は、`request` の代わりに `--input spec_table=<仕様の表>` を渡す。準備と必須の審査は [references/spec.md](references/spec.md) を読む。
