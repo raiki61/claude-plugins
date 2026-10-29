@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 写しの `dispatch/vendor/whose-turn.py` を attention の正本に揃えた。draft の PR でも、最後に draft へ戻した時（戻していなければ作成）より後に出たレビュー依頼は、依頼された人の「自分の番」に数える。引数なしの `/works-dispatch:dispatch` は、最初から draft でレビューを頼まれた PR も、頼まれた人の作業場で開くようになった（今までは開かず、IL-SW-AI/guided-resolver #2233 を見落とした）。draft へ戻す前の依頼は今までどおり数えない。鍵の形は変わらない。
+
 ## [0.139.0] - 2026-10-29
 
 ### Changed
