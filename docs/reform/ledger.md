@@ -721,15 +721,15 @@ claude-plugins の窓口からの頼み。持ち主の問い（2026-10-28）「�
 
 値は「1 回でも在った会話の数 / 回数の計」。
 
-| 会社・役 | 会話 | undelivered | _again | unlanded | undone | holder_reject | commit_after |
+| 会社・役 | 会話 | undelivered | undelivered_again | unlanded | undone | holder_reject | commit_after |
 |---|---|---|---|---|---|---|---|
 | claude-plugins 作業 | 31 | 6/31 | 3/12 | 0/0 | 0/0 | 0/0 | 0/0 |
-| claude-plugins 担当 | 70 | 16/108 | 9/41 | 2/8 | 1/3 | 1/4 | 6/34 |
+| claude-plugins 担当 | 69 | 15/102 | 9/41 | 2/8 | 1/3 | 1/4 | 5/15 |
 | my_notes 作業 | 181 | 62/320 | 33/135 | 0/0 | 6/18 | 2/5 | 3/5 |
 | my_notes 担当 | 89 | 13/94 | 8/47 | 0/0 | 5/30 | 3/7 | 1/2 |
 | my_notes 機械的な作業 | 16 | 2/6 | 0/0 | 0/0 | 0/0 | 0/0 | 1/1 |
 
-- holder_reject は、どの行も全部が holder_relay_or_self（司令塔か自分）だった。
+- holder_relay_or_self の列は表から省いた。どの行も holder_reject と同じ数で、止められた担当者の値は全部が司令塔か自分だった。
 - 役の本文を英語にしたのは claude-plugins だけ。my_notes は差し戻しの文だけが英語になる（works-dispatch は会社によらず同じ版）。そのため my_notes の行は、役の本文の英訳の効き目を見る比べの相手（差し戻しの文だけの効き目）に使える。
 - 窓口の会話（本社の `~/src/claude-plugins` で動く）は、始まりの文の形が違うので、この数え方では拾えていない。窓口は会話の数が少なく、比べの数にならないので外した。
 - 数の揺れの元: この期間に works-dispatch は版を何度も替えている（差し戻しの出る条件も替わった）。後の期間にも差し戻しの条件の直しが入れば、その分は英訳の効き目と分けられない。本測りでは、その期間に入った works-dispatch の CHANGELOG の差し戻し（`deliver.py`・`orders.py`・`wake_hook.py`）の直しを書き添える。

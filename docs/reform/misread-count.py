@@ -37,6 +37,8 @@ STOP = ("Stop hook blocking error from command", "Stop hook feedback:")
 KINDS = ("undelivered", "undelivered_again", "unlanded", "undone", "holder_reject", "holder_relay_or_self", "commit_after")
 # 持ち主への中継の会話の名前（司令塔は 2026-10-24 に社長室・段取りから名前が替わった）
 RELAYS = ("司令塔", "社長室", "段取り")
+# 待ち受けが遅れて送る差し戻しは、利用者の文として頭に LATE_NOTE（wake_hook.py）を付けて届く
+SENDBACK = ("頼み（受付", "Ask ", "You have not", "（ターンの終わりに", "(A notice left")
 AGAIN = re.compile(r"(\d+) 回目）|this is #(\d+)")
 
 
@@ -78,11 +80,13 @@ def walk(path):
             t = t or ""
             if d.get("type") == "user" and b.get("type") == "text" and "頼みです（受付" in t:
                 delivered = False   # 常駐の部署は次の頼みを同じ会話で受ける。commit を数えるのは納品から次の頼みまで
-            if role is None:
+            # 役と受け持ちは会話の始まりに足される文から取る（読んだファイルや自分の文の中の同じ形は拾わない）
+            head = d.get("type") in ("user", "attachment") and b.get("type") == "text"
+            if role is None and head:
                 r = re.search(r"の部署で、役は「([^」]+)」", t)
                 if r:
                     role = r.group(1)
-            if name is None:
+            if name is None and head:
                 r = re.search(r"受け持ちは「([^」]+)」", t)
                 if r:
                     name = r.group(1)
@@ -99,7 +103,7 @@ def walk(path):
                     n["holder_reject"] += 1
                     if any(r in h for r in RELAYS) or (name and name in h):
                         n["holder_relay_or_self"] += 1
-            if any(s in t for s in STOP) or (b.get("type") == "text" and d.get("type") == "user" and t.startswith(("頼み（受付", "Ask ", "You have not"))):
+            if any(s in t for s in STOP) or (b.get("type") == "text" and d.get("type") == "user" and t.startswith(SENDBACK)):
                 for k in stop_kinds(t):
                     n[k] += 1
     return start, role, n
