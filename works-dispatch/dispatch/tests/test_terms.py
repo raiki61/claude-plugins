@@ -48,7 +48,8 @@ class Fix(unittest.TestCase):
                  "常設・持ち越し": "keep・continue", "毎回クリアする部署": "clear の部署", "毎回クリアする担当": "clear の担当",
                  "毎回空にする部署": "clear の部署", "オンデマンドの受け持ち": "on-demand の受け持ち", "永続に上げる": "keep に上げる",
                  "状態の永続化": "状態の永続化", "ディスク永続の checkpointer": "ディスク永続の checkpointer",
-                 "永続の checkpointer": "永続の checkpointer", "会話の引き継ぎ": "会話の引き継ぎ", "引き継ぎの文": "引き継ぎの文"}
+                 "永続の checkpointer": "永続の checkpointer", "会話の引き継ぎ": "会話の引き継ぎ", "引き継ぎの文": "引き継ぎの文",
+                 "永続ボリューム": "永続ボリューム", "オンデマンドインスタンス": "オンデマンドインスタンス"}
         for before, after in cases.items():
             self.assertEqual(terms.fix_line(before), after, before)
         self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "clear")])

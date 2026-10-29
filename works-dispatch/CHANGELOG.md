@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Changed
 
-- 部署の寿命の表示の残りの語も、短い英単語にそろえた（受付 29e7fd。持ち主 2026-10-29「全部短いなじみのある英単語にそろえたら？」）。永続 → `keep`、毎回クリア → `clear`、引き継ぎ → `continue`、オンデマンド → `on-demand`。herdr の作業場の印と `--tree` の役の後ろの字は `keep・clear`・`keep・continue`・`tmp` になり、`--tree` の受ける仕事の行は `on-demand` と出る。会話の始まりに足す文・フックの文・役の本文・docs も同じ語にした。機械が読む値は替えない（属性 `company.lifecycle` の `persistent`・席の種類のキー `persistent-fresh`・`persistent-carry`・会社の形の `on_demand`・旗 `--persistent`）。`terms.py` は前の呼び名（永続・毎回クリア・引き継ぎ・オンデマンドと、その前の常設・毎回空・持ち越し）も新しい語に直す（「永続化」などのふつうの言い方は当てない）
+- 部署の寿命の表示の残りの語も、短い英単語にそろえた（受付 29e7fd。持ち主 2026-10-29「全部短いなじみのある英単語にそろえたら？」）。永続 → `keep`、毎回クリア → `clear`、引き継ぎ → `continue`、オンデマンド → `on-demand`。herdr の作業場の印と `--tree` の役の後ろの字は `keep・clear`・`keep・continue`・`tmp` になり、`--tree` の受ける仕事の行は `on-demand` と出る。会話の始まりに足す文・フックの文・役の本文・docs も同じ語にした。機械が読む値は替えない（属性 `company.lifecycle` の `persistent`・席の種類のキー `persistent-fresh`・`persistent-carry`・会社の形の `on_demand`・旗 `--persistent`）。`terms.py` は前の呼び名（永続・毎回クリア・引き継ぎ・オンデマンドと、その前の常設・毎回空・持ち越し）も新しい語に直す（「永続化」などのふつうの言い方は当てない）。今ある作業場の印は、作業場を開き直すまで前の語のまま残る（`--sync` は印を席の種類のキー `seat` で比べ、見せる語では比べないため。受付 0715c5）
 
 ## [0.138.1] - 2026-10-29
 
