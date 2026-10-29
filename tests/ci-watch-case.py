@@ -10,7 +10,8 @@
 - cross: 頼み元がほかの会社の会話で、納品の行がその会社の受付箱にだけ在る頼みは、--todo と同じく台帳の行が指す受付箱まで足し合わせて
   閉じたとみる（自分の受付箱だけ見て開いているとみて黙り続けない）
 - reopen-after-close: 頼みが閉じた（納品された）後は、閉じた後に決着した赤の run が在るときだけ知らせ直す（戻しの run が決着する
-  前は黙る）。閉じた記録の無い件は知らせ直す。緑に戻った件は忘れる
+  前は黙る）。閉じた記録の無い件は知らせ直す。緑に戻った件は忘れる。頼みが直しをほかの部署へ回して閉じたら（cause がその頼みを
+  指す頼み。孫まで）、回した頼みが開いている間は黙り、全部閉じた後に決着した赤だけ知らせ直す
 - age: 1 度も回っていない workflow・止められた workflow・間隔と 1 日より古い定期の run を知らせる。定期の run は、push の run が
   読む数を埋めても別に引く
 - unreadable: gh が落ちたら黙らず 1 で知らせる。入力が JSON のオブジェクトでなければ 2
@@ -203,6 +204,30 @@ def reopen_after_close():
     fake = Fake(d, [TEST], {1: [r(7, "failure", "a"), r(6, "success", "0")]})
     go(fake)
     check(go(fake)[0] == 1, "頼みになった記録の無い件を知らせ直さない")
+    # 閉じた頼みが直しをほかの部署へ回していれば（cause がその頼みを指す頼み。孫まで）、回した頼みが開いている間は、閉じた後に決着した
+    # 赤も黙る。回した頼みが全部閉じた後は、その後に決着した赤だけ知らせ直す
+    def log(*rows):
+        with open(os.path.join(d, *cw.deliver.INBOX, cw.deliver.LOG), "a", encoding="utf-8") as f:
+            f.writelines(json.dumps(x, ensure_ascii=False) + "\n" for x in rows)
+    at = lambda hm: datetime.datetime(2026, 10, 19, *hm, tzinfo=datetime.timezone.utc).timestamp()
+    d = setup([ask])
+    fake = Fake(d, [TEST], {1: [r(7, "failure", "a", "2026-10-18T10:00:00Z"), r(6, "success", "0")]})
+    go(fake)
+    child = {"kind": "ask", "status": "sent", "id": "20261019-000000-bbbbbb", "title": "直しの頼み", "cause": ask["id"], "at": at((9, 0))}
+    grand = {"kind": "ask", "status": "queued", "id": "20261019-000000-cccccc", "title": "直しの続き", "cause": child["id"], "at": at((9, 5))}
+    log(child, grand, {"kind": "deliver", "ask": ask["id"], "at": at((9, 0))})
+    fake.runs[1].insert(0, r(8, "failure", "b", "2026-10-19T08:00:00Z", updated="2026-10-19T09:30:00Z"))
+    code, out = go(fake)
+    check(code == 0, f"直しを回した頼みが開いているのに、閉じた後に決着した赤を知らせ直した: {code} {out}")
+    log({"kind": "deliver", "ask": child["id"], "at": at((9, 10))})
+    code, out = go(fake)
+    check(code == 0, f"孫の頼みが開いているのに、知らせ直した: {code} {out}")
+    log({"kind": "deliver", "ask": grand["id"], "at": at((11, 0))})
+    code, out = go(fake)
+    check(code == 0, f"回した頼みが閉じる前に決着した赤を、閉じた後に知らせ直した: {code} {out}")
+    fake.runs[1].insert(0, r(9, "failure", "c", "2026-10-19T11:00:00Z", updated="2026-10-19T11:30:00Z"))
+    code, out = go(fake)
+    check(code == 1 and "run 9" in out, f"回した頼みが全部閉じた後に決着した赤を知らせ直さない: {code} {out}")
     print("REOPEN_AFTER_CLOSE_OK")
 
 

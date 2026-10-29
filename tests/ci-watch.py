@@ -21,7 +21,8 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 ほかの会社の受付箱まで足し合わせて見る）。ただし、開いた頼みのうち一番新しい
 物を回してから REPEAT（1 日）を過ぎても同じ件が続いていれば、開いた頼みの受付を添えて知らせ直す（受けた部署が畳まれて納品の来ない頼みで、
 赤が誰にも届かないまま黙り続けないため。2026-10-19 の頼みが開いたまま 10 日黙った）。新しい件は、開いた頼みが在っても
-知らせる。頼みが閉じた後は、閉じた後に新しく決着した赤の run が在るときだけ知らせ直す（戻しの commit の run が決着する前に同じ赤を
+知らせる。回した頼みが生んだ頼み（台帳の行の cause がそれを指す頼み。直しをほかの部署へ回して納品した物）も同じ件の頼みに数え、
+それが開いている間も黙る。頼みが閉じた後は、閉じた後に新しく決着した赤の run が在るときだけ知らせ直す（戻しの commit の run が決着する前に同じ赤を
 頼み直さない。決着した時刻で見る）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
 また起きれば、新しい件として知らせる）。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
 
@@ -156,7 +157,7 @@ def stamp(at):
 
 
 def mine(inbox, place_common):
-    """このツールから回した頼みの (閉じていない頼みの台帳の行〔積んだ順〕, 最後に閉じた時刻〔無ければ None〕)。頼みの題は works-dispatch が
+    """このツールから回した頼みとそれが生んだ頼みの (閉じていない頼みの台帳の行〔積んだ順〕, 最後に閉じた時刻〔無ければ None〕)。頼みの題は works-dispatch が
     「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/ci-watch-case.py の title が赤になる）。
     閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
     納品の行はその会社の受付箱にだけ在る。2026-10-19 の頼みは my_notes に納品されたのに、開いているとみて 10 日黙った）。place_common は
@@ -164,6 +165,11 @@ def mine(inbox, place_common):
     marker = f"/{TOOL} "
     _, rows = todo.inboxes_from([inbox], place_common)
     ids = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")}
+    # 回した頼みが生んだ頼み（cause がそれを指す頼み。孫まで辿る）も数える。点検が直しをほかの部署へ回して納品すると、回した頼みは
+    # 閉じても直しは開いたままで、閉じる前の push の run が後で赤で決着すると同じ赤を頼み直していた（2026-10-29、頼み 1e203a の
+    # 30 分後の頼み 2bd197）
+    while more := {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and r.get("cause") in ids} - ids:
+        ids |= more
     still = [r for r in deliver.open_asks(rows) if r["id"] in ids]
     # 閉じた時刻は、閉じたと数える行（deliver.closed_ids と同じ見分け。知らせられなかった納品と --for の返しは数えない）の時刻
     at = [r["at"] for r in rows if isinstance(r.get("at"), (int, float)) and deliver.closed_ids([r]) & ids]

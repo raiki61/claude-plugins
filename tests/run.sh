@@ -5881,7 +5881,7 @@ expect_output 0 "CROSS_OK" \
     "ci-watch: 頼み元がほかの会社の会話で、納品がその会社の受付箱にだけ在る頼みも、台帳の行が指す受付箱まで足し合わせて閉じたとみる" \
     "$PY_BIN" "$CIW_CASE" cross
 expect_output 0 "REOPEN_AFTER_CLOSE_OK" \
-    "ci-watch: 頼みが閉じた後は、閉じた後に決着した赤だけ知らせ直し（戻しの run を待つ）、緑に戻った件は忘れる" \
+    "ci-watch: 頼みが閉じた後は、閉じた後に決着した赤だけ知らせ直し（戻しの run を待つ）、緑に戻った件は忘れる。頼みが直しをほかの部署へ回して閉じたら、回した頼みが開いている間は黙る" \
     "$PY_BIN" "$CIW_CASE" reopen-after-close
 expect_output 0 "AGE_OK" \
     "ci-watch: 1 度も回っていない workflow・止められた workflow・間隔と 1 日より古い定期の run（push の run に埋もれても別に引く）を知らせる" \
