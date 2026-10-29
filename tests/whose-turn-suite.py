@@ -2493,6 +2493,19 @@ class Json(unittest.TestCase):
         self.assertEqual({w["number"]: w["before_draft"] for w in out["waits"]}, {5: False, 6: True})
         self.assertIn("draft へ戻す前", report(fresh, stale, who="bob"))
 
+    def test_json_a_mention_after_going_back_to_draft_is_not_set_aside(self):
+        # ready → draft へ戻す → 呼びかけ: 戻した後の頼み。戻す前の呼びかけが残っていても、後の頼みを材料にする
+        back = event("ConvertToDraftEvent", T1)
+        later = pr(number=5, isDraft=True, timelineItems=conn(back),
+                   comments=conn(comment(user("alice"), T2, "@bob 設計書のレビューをお願いします")))
+        both = pr(number=6, isDraft=True, timelineItems=conn(back),
+                  comments=conn(comment(user("alice"), T0, "@bob 見て"),
+                                comment(user("alice"), T3, "@bob 設計書のレビューをお願いします")))
+        out = json.loads(report(later, both, who="bob", args=("--json", "--materials")))
+        self.assertEqual({w["number"]: (w["before_draft"], w["since"]) for w in out["waits"]},
+                         {5: (False, T2), 6: (False, T3)})
+        self.assertIn("設計書", [w for w in out["waits"] if w["number"] == 6][0]["text"])
+
     def test_json_a_draft_request_is_the_reviewers_turn(self):
         # 実測 #2233 の形: 最初から draft で Team と持ち主へ依頼。依頼された人の自分の番で、Team は死角の確認へ渡す
         p = pr(number=7, isDraft=True, reviewRequests=requests(team("o/t"), user("bob")),

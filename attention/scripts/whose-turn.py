@@ -514,9 +514,10 @@ def before_draft(pr, at):
 
 
 def counted_requests(pr):
-    """ターンに数えるレビュー依頼の依頼先（reviewer() の値。Bot 宛は除く）。draft へ戻した PR では、最後に戻した時より
-    後に出た依頼だけ——依頼の日時が履歴に無い物は戻す前の物と区別できないので数えない（作者の draft のまま残す。
-    履歴が切れている PR は limits と limited に出る）"""
+    """ターンに数えるレビュー依頼の依頼先（reviewer() の値。Bot 宛は除く）。draft へ戻した記録のある PR では、最後に戻した
+    時より後に出た依頼だけ——依頼の日時が履歴に無い物は戻す前の物と区別できないので数えない（作者の draft のまま残す）。
+    戻した記録が無ければ全部数える。履歴が切れて戻した記録を取りこぼすと戻す前の依頼まで数えるので、その PR は
+    limits と limited に出る"""
     asked = [w for w in (reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]) if w]
     back = back_to_draft_at(pr)
     if back is None:
@@ -1158,6 +1159,18 @@ def unanswered(posts):
     return out
 
 
+def pr_unanswered(pr):
+    """PR の呼びかけ（unanswered）。draft へ戻した PR では、戻した後にも返していない呼びかけがある人は、その最初の物を
+    材料にする——戻す前の呼びかけが残ったまま戻した後に新しく頼まれると、最初の 1 件だけでは before_draft が真になり、
+    後の頼みの本文も読む側に届かない"""
+    posts = posts_of_pr(pr)
+    out = unanswered(posts)
+    back = back_to_draft_at(pr)
+    if back:
+        out.update(unanswered([q for q in posts if q["at"] > back]))
+    return out
+
+
 def open_prs_referencing(issue, prs=()):
     """issue を相互参照している open PR と、ブランチ名か題名に issue 番号を含む open PR。
     後者は本文で参照していない PR（例: feature/1127-… から作った PR）を拾うため。"""
@@ -1352,11 +1365,11 @@ def report(a):
         # draft の PR は、最後に draft へ戻した時でレビュー依頼を数えるかが変わる（counted_requests）。履歴が切れていると
         # 戻した時も依頼の時も取りこぼしうるので、limited だけでなく文の行にも出す
         if p["isDraft"] and timeline_cut(p):
-            limits.append(f"#{p['number']}: 履歴が {TIMELINE_LAST} 件で切れている。draft へ戻した時と依頼の時を取りこぼし、"
-                          "戻す前のレビュー依頼を数えた（か、後の依頼を数えなかった）恐れがある")
+            limits.append(f"#{p['number']}: 履歴が {TIMELINE_LAST} 件で切れている。最後に draft へ戻した時を取りこぼし、"
+                          "戻す前のレビュー依頼をレビュアーのターンに数えた恐れがある")
         for who, ball in pr_tiers(p).items():
             balls[(who, p["number"])] = ball
-        pr_waits += [(who, info, p) for who, info in unanswered(posts_of_pr(p)).items()]
+        pr_waits += [(who, info, p) for who, info in pr_unanswered(p).items()]
     issue_waits = []
     for i in issues:
         limits += limits_of_issue(i)
