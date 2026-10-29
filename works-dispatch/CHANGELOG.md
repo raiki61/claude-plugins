@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.138.1] - 2026-10-29
+
 ### Fixed
 
 - Windows の CI で、納品の試験（`dispatch/tests/test_handover.py`）の 5 件が落ちていたのを直した。試験の中で納品の検査の代わりに置く小さな Python のスクリプトが、受け取った JSON を文字のまま読み書きしていたため、Windows の既定の文字コード（cp1252）では日本語を書けずに落ちていた。バイトのまま読み書きする形にした。直したのは試験だけで、`--deliver` の動きは変わらない。
