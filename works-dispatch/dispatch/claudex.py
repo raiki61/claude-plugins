@@ -60,6 +60,9 @@ LOCAL_SETTINGS = ".claude/settings.local.json"   # リポジトリの中の、�
 STARTUP_DIR, STARTUP_FILES = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json")
 # フックの入力の、会話の始まり・人の文・ツールの呼び出しの出来事の名前（hook_event_name）
 START, PROMPT, TOOL = "SessionStart", "UserPromptSubmit", "PreToolUse"
+# フックが会話に足す文（additionalContext）の上限の字数と、超えたときに会話に入る頭の字数（https://code.claude.com/docs/en/hooks
+# 「capped at 10,000 characters」「a preview of up to the first 2,000 characters」。上限を上げる設定は無い）
+CONTEXT_LIMIT, CONTEXT_PREVIEW = 10000, 2000
 
 
 class ClaudeError(Exception):

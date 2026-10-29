@@ -17,13 +17,19 @@ docs/standards/breakage-detection.md）。
   消す）。works-dispatch が写した物の合計が clean.ARCHIVE_LIMIT を超えて残れば出す。
 - 周期（due）: 会社の形の受け持ちの周期（[skills.start] の every）の、前に起動した時と次の時。次の時を DUE_LATE_MIN 分過ぎても起動して
   いなければ出す（--due は頼みと納品が流れたときにしか打たれない）。
+- 役の本文の字数（oversize）: 役の本文を足すフック（role_hook.py）が部署と窓口に足した文が chat.CONTEXT_LIMIT 字を超えると、会話には
+  頭の chat.CONTEXT_PREVIEW 字と保存先のパスしか入らず、後ろの手順が黙って落ちる。フックが超えた場所を受付箱の SIZES_DIR に 1 つずつ
+  控え（note_size。収まれば消す）、ここで出す。控えた場所が無くなった（部署が畳まれた）物は、読むときに消す。
 """
 
 import errno
+import json
 import os
+import time
 
 import filex
 from nodes import clean, start, wake
+from ports import chat
 
 BACKGROUND = ("moves", "retires", "takes")   # 受付箱の下の、裏の処理の出力の置き場（limit_hook.py・wake_hook.py と同じ名前）
 FINE = (0, wake.NOT_NOW)
@@ -35,6 +41,7 @@ LEDGER_LIMIT = 32 * 1024 * 1024
 LEDGERS = (wake.LOG, "due.log")   # due.log は starts.DUE_LOG と同じ名前
 EMPTY_DAYS = 1
 DUE_LATE_MIN = 60
+SIZES_DIR = "role-sizes"   # 受付箱の下の、足した文が上限を超えた場所の控えの置き場（note_size）
 
 
 def _stamp(name):
@@ -213,8 +220,57 @@ def due(skills, records, now):
     return out
 
 
+def note_size(inbox, place, name, chars):
+    """場所 place（worktree の .git の場所。部署の名前 name）に足した文の字数 chars を控える。上限を超えていれば控えを書き、収まっていれば消す。"""
+    path = os.path.join(inbox, SIZES_DIR, f"{wake.key(place)}.json")
+    if chars <= chat.CONTEXT_LIMIT:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass   # 前から収まっている（控えは超えたときだけ書く）
+        return
+    filex.replace(path, json.dumps({"place": place, "name": name, "chars": chars, "at": time.time()}, ensure_ascii=False))
+
+
+def oversize(inbox):
+    """足した文が上限を超えた場所の注記の並び。場所の無くなった控えは消す。"""
+    out = []
+    d = os.path.join(inbox, SIZES_DIR)
+    try:
+        names = sorted(n for n in os.listdir(d) if n.endswith(".json"))
+    except FileNotFoundError:
+        return out   # まだ超えた場所が無い（置き場は超えたときに作る）
+    except OSError as e:
+        return [f"役の本文の字数の控えの置き場 {d} を読めない（{e.strerror or e}）。上限を超えた部署が出ない"]
+    for n in names:
+        path = os.path.join(d, n)
+        try:
+            with open(path, encoding="utf-8") as f:
+                got = json.load(f)
+        except FileNotFoundError:
+            continue   # 読む間にフックが消した（収まった）
+        except (OSError, ValueError) as e:
+            out.append(f"役の本文の字数の控え {path} を読めない（{e}）。中を見て要らなければ消す")
+            continue
+        if not isinstance(got, dict) or not isinstance(got.get("chars"), int):
+            out.append(f"役の本文の字数の控え {path} の形が違う（place・name・chars の JSON でない）。中を見て要らなければ消す")
+            continue
+        if not os.path.isdir(got.get("place") or ""):
+            try:
+                os.unlink(path)   # 部署が畳まれた
+            except FileNotFoundError:
+                pass   # ほかの --tree か --todo が先に消した
+            except OSError as e:
+                out.append(f"畳まれた部署の役の本文の字数の控え {path} を消せない（{e.strerror or e}）。中を見て要らなければ消す")
+            continue
+        out.append(f"部署 {got.get('name') or got.get('place')} の会話の始まりに足す文が {got['chars']:,} 字で、フックの上限"
+                   f" {chat.CONTEXT_LIMIT:,} 字を超えた（会話には頭の {chat.CONTEXT_PREVIEW:,} 字しか入らず、後ろの手順が落ちる）。"
+                   "その部署の受け持ちの説明（[[skills]] の description）か役の本文を縮める")
+    return out
+
+
 def inbox_notes(inbox, now):
-    """受付箱 1 つの注記（裏の処理・順番待ち・台帳の大きさ）。"""
+    """受付箱 1 つの注記（裏の処理・順番待ち・台帳の大きさ・役の本文の字数）。"""
     if not inbox or not os.path.isdir(inbox):
         return []
-    return background(inbox, now) + stale_queue(inbox, now) + growth(inbox)
+    return background(inbox, now) + stale_queue(inbox, now) + growth(inbox) + oversize(inbox)

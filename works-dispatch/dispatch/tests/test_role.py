@@ -18,6 +18,7 @@ from . import DISPATCH, fakegit
 from .test_dispatch import FakeHerdr, gitx_source
 from . import test_task
 import claudex
+import health
 import orders
 import role_hook
 import wake_hook
@@ -469,6 +470,40 @@ class Hook(unittest.TestCase):
         self.assertNotIn("--done", role_hook.text_for(self.place, self.env))
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
         self.assertNotIn("--deliver", role_hook.text_for(self.src, self.env))
+
+    def test_a_role_text_over_the_hook_limit_is_flagged_in_the_notes_and_at_its_head(self):
+        # 上限（1 万字）を超えた文は、会話に頭の 2,000 字しか入らない。頭に置き場を読めという 1 行を足し、--tree・--todo の注記に出す
+        inbox = deliver.inbox_of(self.g.common_dir(self.place))
+        os.makedirs(inbox, exist_ok=True)
+        sizes = os.path.join(inbox, health.SIZES_DIR)
+        provision.mark(self.place, self.src, {"role": "調べ役", "name": "見渡し：d1", "session": "s-dept"}, self.g)
+        head = role_hook.OVER_HEAD.split("{", 1)[0]
+
+        def start(long):
+            write(pathlib.Path(self.src) / ".claude" / "company.toml",
+                  SHAPE.replace("結論と原典の一句を返す。", "長い。" * (claudex.CONTEXT_LIMIT // 3)) if long else SHAPE)
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out):
+                role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-dept", "source": "startup"})), self.env)
+            return json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"]
+
+        def kept():
+            return [json.loads(pathlib.Path(sizes, n).read_text(encoding="utf-8")) for n in sorted(os.listdir(sizes))]
+        text = start(True)
+        self.assertTrue(text.startswith(head))
+        self.assertLess(len(role_hook.OVER_HEAD), claudex.CONTEXT_PREVIEW)   # 頭の 1 行は会話に入る字の内に収まる
+        [got] = kept()
+        self.assertEqual((got["name"], got["chars"]), ("見渡し：d1", len(text) - len(text.split("\n", 1)[0]) - 1))
+        self.assertGreater(got["chars"], claudex.CONTEXT_LIMIT)
+        self.assertEqual(len(health.oversize(inbox)), 1)
+        self.assertIn(health.oversize(inbox)[0], health.inbox_notes(inbox, 0))
+        # 縮めれば控えが消え、注記も頭の 1 行も出ない
+        self.assertFalse(start(False).startswith(head))
+        self.assertEqual((kept(), health.oversize(inbox)), ([], []))
+        # 超えたまま部署が畳まれたら、控えは読むときに消す
+        start(True)
+        self.g.remove_worktree(self.place, force=True)
+        self.assertEqual((health.oversize(inbox), kept()), ([], []))
 
     def test_a_department_per_ask_gets_the_on_demand_line_of_its_duty(self):
         # 頼みごとの部署（per_ask）は名前が「<受け持ち>：…」でも、受け持ちの説明と on-demand の文が足される。per_ask の無い受け持ちの
