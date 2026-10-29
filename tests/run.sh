@@ -5313,6 +5313,12 @@ EOF
 gh issue comment 1 --body-file $CR_FDIR/w.md"
 expect_output 0 "取り出せない" "同じコマンドの中で別のコマンドが本文ファイルを書き換えうるなら止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cp $CR_FDIR/w.md $CR_FDIR/body.md && gh issue comment 1 --body-file $CR_FDIR/body.md"
+# 名前を引数でなくヒアドキュメントの中に持つ書き手(python3 - <<'EOF' … open(p,'w'))も止める。読むと書き換える前の中身を検査する(頼み 6d61ca)
+expect_output 0 "取り出せない" "ヒアドキュメントの中で本文ファイルの名前を持つ python も書き手に数えて止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "python3 - <<'EOF'
+p='$CR_FDIR/body.md'; open(p, 'w').write('new')
+EOF
+gh issue comment 1 --body-file $CR_FDIR/body.md"
 # まだ無いファイルを作るヒアドキュメントは、gh が読めば必ずその中身なので、`mkdir -p d &&` の後でも読む(受付 8cac6e)。
 # 前から在るファイルは、cat が走らない回に古い中身を gh が読むので止める
 expect_output 0 "MARK_HD が届いた" "mkdir -p d && cat > d/新しいファイル <<EOF の後に改行で続く gh は、ヒアドキュメントを読む" \
