@@ -47,7 +47,7 @@ KINDS = ("undelivered", "undelivered_again", "unlanded", "undone", "holder_rejec
 # 持ち主への中継の会話の名前（司令塔は 2026-10-24 に社長室・段取りから名前が替わった）
 RELAYS = ("司令塔", "社長室", "段取り")
 AGAIN = re.compile(r"(\d+) 回目）|this is #(\d+)")
-COMMIT = re.compile(r"\bgit(\s+-\S+(\s+\S+)?)*\s+commit\b")
+COMMIT = re.compile(r"\bgit(\s+-\S+(\s+\S+)?)*\s+commit(?![\w-])")
 # 英語にした役の本文にだけ在る文（担当・作業・窓口のどれにも在る Language の行の頭）
 EN_ROLE = "Language: everything the owner reads"
 
@@ -107,7 +107,8 @@ def walk(path, since, until, active, hit, total):
                     role = r.group(1)
                     n = re.search(r"受け持ちは「([^」]+)」", text)
                     name = n.group(1) if n else None
-                    lang = "en" if EN_ROLE in text else "ja"
+                    # 置き場のファイルが読めず頭の 2,000 字しか無いときは、最後の行に在る EN_ROLE を見られないので言語を決めない
+                    lang = "en" if EN_ROLE in text else "unknown" if text.startswith("<persisted-output>") else "ja"
             elif a.get("type") == "hook_blocking_error" and a.get("hookEvent") == "Stop":
                 be = a.get("blockingError")
                 texts.append((True, be.get("blockingError") if isinstance(be, dict) else str(be or "")))
@@ -140,9 +141,9 @@ def walk(path, since, until, active, hit, total):
             if not (stop or any(s in t for s in STOP) or t.startswith(LATE)):
                 continue
             body = t.split("\n", 1)[1] if t.startswith(STOP) and "\n" in t else t
-            if body in last_texts:
-                continue   # 同じ差し戻しが attachment と利用者の文の両方に残る
-            last_texts.append(body)
+            if any(body == x and abs((at - t0).total_seconds()) < 10 for x, t0 in last_texts):
+                continue   # 同じ差し戻しが attachment と利用者の文の両方に残る（同じ時のものだけを 1 つにする）
+            last_texts.append((body, at))
             for k in stop_kinds(body):
                 count(k, at)
         if role and since <= at < until:
