@@ -57,7 +57,7 @@ reviews:
    ```
 
 3. Bash の `run_in_background` で起動し、終わりの知らせから `WF workflow get <run> --json --cwd <対象>` で結果を読む。各部品の結果を確認し、指摘を直したら入力を組み直して影響する部品を再審査する。
-4. 最終版を審査した各 run の id を `reviews[].run` に書く。残した指摘は `findings` に `{key, text, handling: accepted, owner_words}` の形で記録し、`owner_words` に人が受け入れた言葉を書く。指摘が無ければ空配列。AI が代わりに受け入れたことにしない。
+4. 書き先は「1. 設計書と表を用意する」で用意した表（上の YAML の例）の `reviews` で、部品（`part`）ごとの項目の `run` に、最終版を審査した run の id を書く。残した指摘は同じ項目の `findings` に `{key, text, handling: accepted, owner_words}` の形で記録し、`owner_words` に人が受け入れた言葉を書く。指摘が無ければ空配列。AI が代わりに受け入れたことにしない。
 
 指摘の `key` は任意に付けない。各 run の `terminal_record.returns.value` のポインタが指すファイルを、`terminal_record.artifacts.root` から読んで取得する。
 
