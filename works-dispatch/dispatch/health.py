@@ -263,9 +263,10 @@ def oversize(inbox):
             except OSError as e:
                 out.append(f"畳まれた部署の役の本文の字数の控え {path} を消せない（{e.strerror or e}）。中を見て要らなければ消す")
             continue
-        out.append(f"部署 {got.get('name') or got.get('place')} の会話の始まりに足す文が {got['chars']:,} 字で、フックの上限"
+        out.append(f"部署 {got.get('name') or got.get('place')} の会話に足す役の文が {got['chars']:,} 字で、フックの上限"
                    f" {chat.CONTEXT_LIMIT:,} 字を超えた（会話には頭の {chat.CONTEXT_PREVIEW:,} 字しか入らず、後ろの手順が落ちる）。"
-                   "その部署の受け持ちの説明（[[skills]] の description）か役の本文を縮める")
+                   "会社の形の役の本文（instructions）・共通の本文（shared_instructions）・その部署の受け持ちの説明（[[skills]] の description）"
+                   "のどれかを縮めるか、保留にした頼み（--wait --park）を返して減らす")
     return out
 
 

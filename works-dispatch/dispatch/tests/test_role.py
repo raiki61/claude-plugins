@@ -500,6 +500,17 @@ class Hook(unittest.TestCase):
         # 縮めれば控えが消え、注記も頭の 1 行も出ない
         self.assertFalse(start(False).startswith(head))
         self.assertEqual((kept(), health.oversize(inbox)), ([], []))
+        # 動いている会話のターンの始まり（prompt）と、待ち受けが再開させる字（changed）で文が替わったときも、控えを今の文にそろえる
+        write(pathlib.Path(self.src) / ".claude" / "company.toml",
+              SHAPE.replace("結論と原典の一句を返す。", "長い。" * (claudex.CONTEXT_LIMIT // 3)))
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            role_hook.prompt(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-dept"})), self.env)
+        self.assertTrue(json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"].startswith(head))
+        self.assertEqual(len(kept()), 1)
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)
+        self.assertIsNotNone(role_hook.changed({"cwd": self.place, "session_id": "s-dept"}, self.env))
+        self.assertEqual(kept(), [])
         # 超えたまま部署が畳まれたら、控えは読むときに消す
         start(True)
         self.g.remove_worktree(self.place, force=True)

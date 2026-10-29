@@ -32,8 +32,9 @@ works-dispatch-role-<会話の id>）と違えば、今の文を足す（会社�
 足す文がフックの上限（chat.CONTEXT_LIMIT 字）を超えると、Claude Code は文を会話の場所のファイルに置き、会話には頭の
 chat.CONTEXT_PREVIEW 字と置き場のパスだけを入れ、そのファイルを読めとは言わない（https://code.claude.com/docs/en/hooks ）。役の
 本文の後ろの手順（--land・--done・担当者の決まり）が黙って落ちる（2026-10-29、頼み 79eacf で役の本文を英語にして、業務改革の部署で
-10,185 字になった。頼み 9f790e）ので、SessionStart と UserPromptSubmit で足す役の文の字数を受付箱に控え（health.note_size）、
---tree と --todo の注記に出す。超えた文の頭には、置き場のファイルを読めという 1 行を足す（fit。頭の字は会話に入る）。
+10,185 字になった。頼み 9f790e）ので、役の文を作り直すたび（SessionStart と、changed が今の文を足すとき）に字数を受付箱に控え
+（note_size → health.note_size）、--tree と --todo の注記に出す。additionalContext に出す文が超えていれば、頭に置き場のファイルを
+読めという 1 行を足す（fit。頭の字は会話に入る。待ち受けが再開させる字〔Stop のフックの差し戻し〕には上限の記述が無いので足さない）。
 
 会社（会社の形の在るリポジトリ。読み方は上と同じ tree.read_info）の場所で、役の本文を足さない会話（部署の属性の無い作業場の会話、
 本社の窓口でない会話）には、ほかの会社への頼み方の 1 行（HINT。--ask <会社の名前> でその会社の窓口に届く）を足す。SendMessage で
@@ -264,18 +265,22 @@ OVER_HEAD = ("（works-dispatch: この文は {chars:,} 字で、フックの上
              "続きの手順が落ちているので、下に示された置き場のファイルを Read で全部読んでから進める）")
 
 
-def fit(text, cwd, attrs):
-    """部署か窓口に足す役の文 text の字数を受付箱に控え、上限を超えていれば頭に OVER_HEAD を足した文を返す。控えを書けなくても止めない。"""
-    chars = len(text)
+def note_size(text, cwd, attrs):
+    """部署か窓口に足す役の文 text の字数を受付箱に控える（health.note_size。上限を超えていれば書き、収まれば消す）。書けなくても止めない。
+    役の文を作り直したとき（SessionStart と、changed が今の文を足すとき）に呼ぶ。"""
     try:
         here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
         if here and common:
-            health.note_size(deliver.inbox_of(common), here, attrs.get("name") or attrs.get("role"), chars)
+            health.note_size(deliver.inbox_of(common), here, attrs.get("name") or attrs.get("role"), len(text))
     except (gitx.GitError, OSError) as e:
         print(f"works-dispatch: 役の本文の字数を控えられなかった（{e}）", file=sys.stderr)
-    if chars <= chat.CONTEXT_LIMIT:
+
+
+def fit(text):
+    """additionalContext に出す文 text が上限を超えていれば、頭に OVER_HEAD を足した文。収まっていればそのまま。"""
+    if len(text) <= chat.CONTEXT_LIMIT:
         return text
-    return OVER_HEAD.format(chars=chars, limit=chat.CONTEXT_LIMIT, preview=chat.CONTEXT_PREVIEW) + "\n" + text
+    return OVER_HEAD.format(chars=len(text), limit=chat.CONTEXT_LIMIT, preview=chat.CONTEXT_PREVIEW) + "\n" + text
 
 
 def hint_for(cwd, env=os.environ, attrs=None):
@@ -334,6 +339,7 @@ def changed(payload, env=os.environ, attrs=None):
     except OSError:
         pass
     remember(sid, text, env)
+    note_size(text, cwd, attrs)   # 待ち受けが再開させる字（wake_hook）に足す道でも、控えを今の文にそろえる
     return f"{CHANGED_HEAD}\n{text}"
 
 
@@ -370,7 +376,7 @@ def prompt(stdin=sys.stdin, env=os.environ):
     except (gitx.GitError, OSError) as e:
         print(f"works-dispatch: 役の名前を書き直せなかった（{e}）", file=sys.stderr)
     text = changed(payload, env, attrs)
-    text = fit(text, cwd, attrs) if text else late_hint(payload, cwd, attrs, env)
+    text = fit(text) if text else late_hint(payload, cwd, attrs, env)
     if text:
         print(chat.added_context(chat.PROMPT, text))
     return 0
@@ -399,13 +405,15 @@ def main(stdin=sys.stdin, env=os.environ):
         # 控えるのは引き継ぎの一行を付ける前の本文（次の発言の changed は text_for と比べるので、一行込みで控えると「会社の形が
         # 替わった」と役の本文を足し直す）
         remember(payload.get("session_id"), text, env)
+        if dept:
+            note_size(text, cwd, attrs)
     if text and wrote[0] and gitx.is_main_worktree(cwd) is True:
         # 本社の窓口の会話が /clear などで会話の id を替えた: 席はこのフックが引き継いだと会話に知らせる（窓口が空にした後に毎回
         # --desk --dry-run を打って確かめなくてよい。c52730 の 6）
         text += (f"\n（窓口 {attrs.get('name') or '-'} の席はこの会話に引き継いだ: 属性の会話の id（company.session）をこの会話の id に"
                  "書き直した。--desk を打ち直さなくてよい）")
     if text and dept:
-        text = fit(text, cwd, attrs)
+        text = fit(text)
     if text:
         print(chat.added_context(chat.START, text))
     return 0
