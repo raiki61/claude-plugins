@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.138.0] - 2026-10-29
+
 ### Changed
 
 - 部署だけが読む自動の差し戻しの文を英語にした（頼み 79eacf。持ち主 2026-10-29「なんならＡＩ同士の会話は英語にしたほうがいい」）。対象は、Stop のフックの納品前の文（`deliver.stop_verdict`）、納品後の 2 つの文（`orders.stop_after` の finish と unlanded）、遅れて送る前置き（`wake_hook.LATE_NOTE`）。指すコマンドと旗（`--deliver`・`--land`・`--ask`・`--done`・`--retire`・`--todo`・`git fetch origin`）は元のまま。頼み元へ渡す `stall_line`・持ち主の画面に出る systemMessage・役の本文の枠の文とコマンドの一覧は日本語のまま。
