@@ -1819,6 +1819,17 @@ def _running_note(d, attrs, ports):
         return (f"。頼みは納品済みだが、ブランチがメインブランチに入っていない。この部署が頼みを受けてから出した頼みの答えがまだ出ていない"
                 f"（受付 {'・'.join(got[1])}。--todo で追える。入れる手を預けたのでなければ --land {name}）")
     if got[0] == "unlanded":
+        try:
+            # 入れ先のブランチの先頭は GitHub が作った commit（マージの commit など）で手元に無いことがあるので、取ってから比べる
+            parked = retire.parked_on(d["path"], d["pr_head"], d["branch"], ports.git, fetch=True)
+        except gitx.GitError:
+            parked = None   # origin を読めなければ、入れ損ねの訳のまま出す
+        if parked == got[1]:
+            return (f"。頼みは納品済みで、部署の先頭は origin の {parked} に入っている（手元の origin/{parked} の控えが古い。"
+                    f"git fetch origin で揃う）。畳むなら --retire {name}")
+        if parked:
+            return (f"。頼みは納品済みで、部署の先頭は origin の {parked} に入っている（{got[1]} へはまだ）。"
+                    + (f"入れるなら --land {name}。" if parked == d["branch"] else "") + f"入れずに畳むなら --retire {name}（push は要らない）")
         return (f"。頼みは納品済みだが、ブランチがメインブランチ（origin/{got[1]}）に入っていない（入れ損ねか、入れる手を待っている。消すと成果を失う）。"
                 f"入れるなら --land {name}。入れずに畳むなら（頼みを取り下げたときなど）、ブランチを origin に push してから --retire {name}"
                 "（ブランチは origin に残る）")

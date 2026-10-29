@@ -599,6 +599,47 @@ class Move(unittest.TestCase):
         self.assertIn("移さない", out)
         self.assertEqual(len(seen), 1)
 
+    def test_an_early_move_that_cannot_start_keeps_the_accounts_it_failed_on_before(self):
+        # 起動できなかった先は、前に起動できなかった先に足していく（1 つだけ覚えると、2 つの先を交互に選び直し、区切りのたびに
+        # 止めて戻すのを繰り返す。2026-10-29、works-factory の変更のレビューで main → p1・main → p2 を約 25 秒おきに 30 回ほど）
+        self.changed_world(role.launch_key({"model": "opus"}))
+        provision.mark(self.place, self.src, {"account": "a1", wake.MOVE_KEPT: "a3"}, self.g)
+        hot = {"five_hour": {"used_percentage": 92, "resets_at": 10 * 3600}, "seven_day": {"used_percentage": 50}}
+        cool = {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 40}}
+        self.ports.limits_seq = [{"a1": hot, "a2": cool}]
+        seen, task = self.fake_task(rc=1)
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.MOVE_KEPT], "a2,a3")
+
+    def test_a_department_off_any_branch_is_not_moved(self):
+        # 作業場がブランチに居ない部署（detached HEAD）は、--task と同じ道で起動し直せない。前の会話を止めずに断る
+        # （止めてから断ると、attach で戻した会話の始まりの待ち受けがまた移そうとし、繰り返す。2026-10-29、works-factory の変更のレビュー）
+        self.changed_world(role.launch_key({"model": "opus"}))
+        provision.mark(self.place, self.src, {"account": "a1"}, self.g)
+        self.g.heads[os.path.realpath(self.place)] = None
+        hot = {"five_hour": {"used_percentage": 92, "resets_at": 10 * 3600}, "seven_day": {"used_percentage": 50}}
+        cool = {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 40}}
+        full = {"five_hour": {"used_percentage": 100, "resets_at": 10 * 3600}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": hot, "a2": cool}, {"a1": full, "a2": cool}, {"a1": full, "a2": cool}]   # --if-changed は控えを読む前に断る
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 0, out)
+            self.assertIn(move.UNBRANCHED, out)
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a2")
+            self.assertEqual(rc, 2, out)
+            self.assertIn(move.UNBRANCHED, out)
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited", "--dry-run")
+            self.assertEqual(rc, 0, out)
+            self.assertIn(f"待つ: {move.UNBRANCHED}", out)   # 使用上限で止まったら、移さずに待つ（使えるようになれば続きの 1 行を打つ）
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited", "--account", "a2")
+            self.assertEqual(rc, 2, out)   # 名指しは --if-limited でも断る（前の会話を止めない）
+            self.assertIn(move.UNBRANCHED, out)
+        self.assertEqual((seen, self.stopped), ([], []))
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "moved"], [])
+
     def test_if_changed_does_not_move_early_without_a_roomy_account_or_when_the_window_resets_soon(self):
         # 移る先が目安に届く・達した枠がすぐ戻るときは移さず、訳を台帳に status skipped で残す
         self.changed_world(role.launch_key({"model": "opus"}))

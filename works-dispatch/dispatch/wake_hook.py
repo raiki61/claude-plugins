@@ -884,12 +884,14 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False,
     ほかのアカウントへ早めに移すとき（early_of。early_due）は起動し直す（上限に当たってから移ると、ターンの途中で切られて作業が消える）。
     裏の処理が残る・（at_rest でなければ）順番待ちが空・今の値が起動したとき（company.launched）か、前に起動し直さなかった値（company.restart-kept）と
     同じ・会社の形を読めない・この会話の起動し直しがもう走っている（company.restarting がこの会話の id。人が打って待ち受けが
-    替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）・保留の頼みが在る（company.parked。起動し直すと、保留の答えを返す
+    替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）・部署の作業場がブランチに居ない（detached HEAD。--move が移さない）・保留の頼みが在る（company.parked。起動し直すと、保留の答えを返す
     会話の中身が消える）ときは起動し直さない。"""
     if (attrs.get(deliver.PARKED) or not at_rest and (attrs.get("fresh") != role.FRESH or not wake.queued(got["inbox"], got["place"]))
             or payload.get("background_tasks") or not (attrs.get("job") or attrs.get("session"))
             or attrs.get(wake.RESTARTING) == got["session"]):
         return None
+    if not provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs) and gitx.branch(got["cwd"]) is None:
+        return None   # ブランチの決まらない部署は起動し直せない（move._unbranched）。--move を走らせて断られるのを頼みのたびに繰り返さない
     try:
         key = key_of(got["cwd"], attrs)
     except Exception:  # 会社の形を読めなくても、頼みは渡す

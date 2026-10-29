@@ -56,6 +56,10 @@ move_early_reset_hours（既定 1 時間）より先まで戻らないとき。�
 頼みを前の会話に渡す（wake_hook.restart_first）。窓口か部署の会話がターンの途中か窓の入力フィールドに打ちかけの字が在って止めなかったときは
 NOT_NOW（75）で終わり、待ち受けは今の値を残さずに次の区切りで試し直す。入力フィールドの薄字（Claude Code の次の文の候補）は打ちかけと
 数えない（claudex.typed）。
+
+作業場がブランチに居ない部署（detached HEAD）は、どの口でも移さない（--task がブランチの無い作業場に会話を立てられない。_unbranched）。
+前の会話を止める前に断り、--if-limited は移さずに待つ。区切りで早めに移そうとして起動できなかったアカウントは、属性 company.move-kept に
+足していき（1 つだけ覚えると、2 つの先を交互に選び直す）、起動し直すまで早めに移す先に選ばない。
 """
 
 import argparse
@@ -84,6 +88,8 @@ NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この�
 KEEP = ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")
 # 前の裏の会話が止まったのを会話の一覧で見る回数（1 回ごとに ports.pause）
 STOP_LOOKS = 20
+# ブランチの決まらない部署を移さない訳（_unbranched）
+UNBRANCHED = "作業場のブランチが決まっていない（detached HEAD）ので移さない（--task と同じ道で起動し直せない）"
 NOT_NOW = wake.NOT_NOW   # 今は起動し直さない（ターンの途中・打ちかけの字）。待ち受けが次の区切りで試し直す
 # 今は起動し直さないで終わったときに、その会話の中か待ち受けから打った --move の出力に添える案内（外から打てば、訳を知らせで渡す）
 INSIDE = ("。--account を名指して打てば、次の区切り（毎回クリアする部署は次の頼みを渡す前、ほかは頼みを納品した後にその会話で --rest を"
@@ -220,6 +226,10 @@ def _once(a, ports, cwd, task, token):
         print("\n".join(notes + [f"移さない: アカウント {old} の使用率は上限 {cfg.limit_percent}% に達していない（一時の混み合いと見る）。"
                                  f"{WAIT // 60} 分待って、同じ会話に続きの 1 行を打つ"]))
         return 0
+    stuck = _unbranched(dept)
+    if stuck and (a.account or not a.if_limited):   # 待つのは --if-limited で移し先を選ばせたときだけ（名指しは止める前に断る）
+        print("\n".join(notes + [f"止めた: {a.move} は{UNBRANCHED}"]))
+        return 2
     if a.account:
         if a.account not in names:
             print(f"止めた: --account の {a.account} が設定の accounts に無い（{', '.join(names)}）")
@@ -232,12 +242,14 @@ def _once(a, ports, cwd, task, token):
                                      + ("（時間帯の外では要求が断られる）" if row["shut"] else "（使用率が上限のアカウントでは起動しない）")]))
             return 2
     else:
-        chosen = next((r["name"] for r in ranked if r["name"] != old and r["eligible"]), None)
+        # ブランチの決まらない部署は移さずに待つ（今のアカウントが使えるようになれば、同じ会話に続きの 1 行を打つ）
+        chosen = None if stuck else next((r["name"] for r in ranked if r["name"] != old and r["eligible"]), None)
+        none = UNBRANCHED if stuck else (f"移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かず、"
+                                         "使える時間帯の中のアカウントが無い）")
         if chosen is None and a.if_limited and not a.dry_run:
-            return _hold(ports, company, dept, ranked, mine, notes, f"移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かず、"
-                         "使える時間帯の中のアカウントが無い）", token)
+            return _hold(ports, company, dept, ranked, mine, notes, none, token)
         if chosen is None and a.if_limited:
-            print("\n".join(notes + [f"待つ: 移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かず、使える時間帯の中のアカウントが無い）。"
+            print("\n".join(notes + [f"待つ: {none}。"
                                      "待って見直し、ほかのアカウントが空けば移し、今のアカウントが使えれば同じ会話に続きの 1 行を打つ"]))
             return 0
         if chosen is None:
@@ -279,6 +291,14 @@ def _once(a, ports, cwd, task, token):
         print(f"{WAIT // 60} 分後に、起動し直した会話が誤りで止まっていないかを見る（ターンが誤りなく終われば見ずにやめる）")
         return {"until": ports.now() + WAIT, "token": watch, "held": _watched(dept, company)}
     return rc
+
+
+def _unbranched(dept):
+    """部署の作業場がブランチに居ない（detached HEAD。PR の head を見るレビューの部署など）か。--move は --task と同じ道で起動し直し、
+    --task はブランチの無い作業場に会話を立てられない（provision の「ブランチが決まっていない」）ので、こうした部署は移しの対象にしない。
+    前の会話を止めてから断られると、attach で戻した会話の始まりの待ち受けがまた早めに移そうとし、止めて戻すのを繰り返す
+    （2026-10-29、works-factory の変更のレビューで約 25 秒おきに 30 回ほど）。窓口は同じペインで起動し直すので、ブランチに依らない。"""
+    return not dept.get("head_office") and not dept.get("branch")
 
 
 def _pane_of(dept, ports):
@@ -405,8 +425,9 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
     where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
     told = None
     if why == EARLY and rc not in (0, NOT_NOW):
-        # 起動できずに前の会話へ戻した。同じ先へは早めに移し直さない（区切りのたびに止めて戻すのを繰り返さない）
-        provision.mark(dept["path"], company["root"], {wake.MOVE_KEPT: chosen}, ports.git)
+        # 起動できずに前の会話へ戻した。同じ先へは早めに移し直さない（区切りのたびに止めて戻すのを繰り返さない）。前に起動できなかった
+        # 先も覚えたまま足す（1 つだけ覚えると、2 つの先を交互に選び直す）
+        provision.mark(dept["path"], company["root"], {wake.MOVE_KEPT: accounts.kept_with(attrs.get(wake.MOVE_KEPT), chosen)}, ports.git)
     if rc == NOT_NOW and not (a.if_changed or a.if_limited) and a.account:
         # 区切りまで待って移す（待ち受けの --if-changed が、毎回クリアする部署は次の頼みを渡す前、ほかは --rest のターンの終わりに移す。
         # 今のアカウントを名指したなら、同じアカウントのまま起動し直す）
@@ -461,6 +482,10 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
     if cfg is None:
         print("\n".join(notes + ["止めた: 起動し直すには、読める dispatch の設定が要る（アカウントと使用率の上限を読む）"]))
         return 2
+    if _unbranched(dept):
+        # 待ち受けは今の会話に頼みを渡す（前の会話を止めていない）
+        print("\n".join(notes + [f"起動し直さない: {where} は{UNBRANCHED}"]))
+        return 0
     if not a.dry_run:
         notes = notes + [n for n in [provision.refresh_shape(company["root"], ports.git)] if n]
     now_key = role_hook.launch_key(dept["path"], attrs, ports.env)

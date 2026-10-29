@@ -276,10 +276,11 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         self.g.push(self.place, self.g.commit(self.place, {}, "x"), "dept/a")
         head = self.g.commit(self.place, {}, "y")
-        self.g.push(self.place, head, "other")   # 先頭はほかのブランチにだけ在る
+        self.g.push(self.place, head, "other")
+        del self.g.origin["other"]   # 先頭を持つ origin のブランチは消え、手元の origin/other の控えにだけ残る
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
-        self.assertIn("origin の dept/a の先頭も手元と違う。入れずに畳むなら、git push origin dept/a", out)
+        self.assertIn(f"origin のどのブランチにも手元の先頭 {head[:9]} が無い。入れずに畳むなら、git push origin dept/a", out)
         self.assertEqual((self.stopped, self.removed), ([], []))
         rc, out = self.main(self.place, "--done")   # 部署が自分で畳むのは、入れてからだけ
         self.assertEqual(rc, 2, out)
@@ -293,6 +294,58 @@ class Retire(unittest.TestCase):
         self.assertEqual(self.g.origin["dept/a"], head)
         self.assertNotIn("dept/a", self.g.local)   # 手元のブランチは消す
         self.assertEqual([r["status"] for r in self.retired()], ["kept", "done"])
+
+    def test_retire_folds_a_department_whose_head_is_in_another_branch_on_origin(self):
+        # 積み重ねた PR: 部署の PR が main でなくほかの部署のブランチに入り、GitHub が head のブランチを消した。先頭がそのブランチから
+        # 辿れれば成果は origin に残るので、push を求めずに畳み、どのブランチに残ったかを出す（2026-10-29、guided-resolver の #2240。受付 5f175e）
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        head = self.g.commit(self.place, {}, "y")
+        self.g.push(self.place, head, "dept/a")
+        self.g.push(self.place, head, "feat/x")
+        self.g.origin["feat/x"] = self.g._new(head, {}, "z")   # 入れ先のブランチは先へ進み、その先頭はまだ手元に無い
+        del self.g.origin["dept/a"]   # head のブランチは消えた
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("部署の先頭は origin の feat/x に入っている（main へはまだ）。入れずに畳むなら --retire 調べ（push は要らない）", out)
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署の先頭は origin の feat/x に入っている（メインブランチへはまだ）", out)
+        self.assertEqual(self.stopped, ["d"])
+        self.assertFalse(os.path.exists(self.place))
+
+    def test_retire_names_main_last_when_the_local_copy_of_main_is_stale(self):
+        # 手元の origin/main の控えが古いと、main に入った部署も入れ損ねに見える。ほかのブランチに在ればそれを出し、main にだけ在れば
+        # 「控えが古い」と出す（main へはまだ、と事実と違う文を出さない）
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        head = self.g.commit(self.place, {}, "y")
+        self.g.push(self.place, head, "work/b")
+        stale = self.g.tracking["main"]
+        self.g.origin["main"] = self.g._new(head, {}, "z")   # origin の main には入ったが、手元の控えはまだ古い
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("部署の先頭は origin の work/b に入っている（main へはまだ）", out)
+        del self.g.origin["work/b"]
+        self.g.tracking["main"] = stale   # --clean は手元に無い先頭を取るので、控えを古いまま戻す
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("部署の先頭は origin の main に入っている（手元の origin/main の控えが古い。git fetch origin で揃う）", out)
+        self.g.tracking["main"] = stale
+        self.g.origin["main"] = self.g._new(self.g.origin["main"], {}, "w")   # 先頭がまた手元に無い
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("を畳んだ", out)   # 確かめるときに取った先頭で控えが揃い、止めた後の見立てでは main に入っている
+        self.assertFalse(os.path.exists(self.place))
+
+    def test_retire_keeps_a_department_whose_head_was_squashed_into_another_branch(self):
+        # squash で入った形（先頭が origin のどこからも辿れない）は、今までどおり push を求める
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        head = self.g.commit(self.place, {}, "y")
+        self.g.push(self.place, head, "dept/a")
+        del self.g.origin["dept/a"]   # head のブランチは消え、手元の origin/dept/a の控えにだけ残る
+        self.g.origin["feat/x"] = self.g._new(self.g.origin["main"], {}, "squashed")
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("入れずに畳むなら（頼みを取り下げたときなど）、ブランチを origin に push してから --retire 調べ", out)
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 2, out)
+        self.assertIn(f"origin のどのブランチにも手元の先頭 {head[:9]} が無い", out)
+        self.assertEqual((self.stopped, self.removed), ([], []))
 
     def test_retire_folds_a_detached_department_whose_head_is_in_main(self):
         # 2026-10-19 に claude-plugins の見渡しが、読むために main の commit を開いたまま（ブランチに乗らずに）残り、--retire が
@@ -342,8 +395,9 @@ class Retire(unittest.TestCase):
         self.assertIn("--land '調べ'", got)
         self.assertIn("--ask src", got)   # 打てなければ窓口（会社の名前）に頼む
         rc, out = self.main(self.src, "--clean")
-        self.assertIn("頼みは納品済みだが、ブランチがメインブランチ（origin/main）に入っていない（入れ損ねか、入れる手を待っている。消すと成果を失う）。"
-                      "入れるなら --land 調べ。入れずに畳むなら（頼みを取り下げたときなど）、ブランチを origin に push してから --retire 調べ", out)
+        # origin の部署のブランチに先頭が在るので、入れ損ねでなく、どこに在るかを出す
+        self.assertIn("頼みは納品済みで、部署の先頭は origin の dept/a に入っている（main へはまだ）。入れるなら --land 調べ。"
+                      "入れずに畳むなら --retire 調べ（push は要らない）", out)
         # 入れてほしいと頼んだら、返事を待つ間は差し戻さず、--clean は返事待ちと出す
         deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "sent", "at": 1,
                                  "from": {"name": "調べ", "place": self.place}, "to": {"company": "src", "name": "desk"}})

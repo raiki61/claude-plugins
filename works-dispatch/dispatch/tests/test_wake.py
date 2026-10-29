@@ -1531,6 +1531,11 @@ class Hook(unittest.TestCase):
         self.put("a1")
         self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: same, early_of=lambda g, a: False))
         self.assertEqual(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: same, early_of=lambda g, a: True), same)
+        # 作業場がブランチに居ない部署は起動し直せないので、--move を走らせない（move._unbranched）
+        branch = self.g.heads[os.path.realpath(self.place)]
+        self.g.heads[os.path.realpath(self.place)] = None
+        self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: same, early_of=lambda g, a: True))
+        self.g.heads[os.path.realpath(self.place)] = branch
         # 早めに移す目安は、設定と使用率の控えから読む（控えは取り直さない）
         d = tempfile.mkdtemp()
         cfg = os.path.join(d, "c.toml")

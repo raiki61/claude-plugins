@@ -528,6 +528,14 @@ class Early(unittest.TestCase):
         self.assertIsNone(got["to"])
         self.assertIn("ほかのアカウントが無い", got["why"])
 
+    def test_every_account_that_failed_to_start_is_avoided(self):
+        # 起動できなかった先を 1 つだけ覚えると、2 つの先を交互に選び直す（2026-10-29、works-factory の変更のレビュー）
+        self.assertEqual(accounts.early(self.rows(), "p3", 90, 1, self.now, avoid="main")["to"], "p1")
+        got = accounts.early(self.rows(), "p3", 90, 1, self.now, avoid=accounts.kept_with("main", "p1"))
+        self.assertIsNone(got["to"])
+        self.assertEqual(accounts.kept_with("p1", "main"), "main,p1")
+        self.assertEqual(accounts.kept_with(None, "p1"), "p1")
+
     def test_the_named_account_is_taken_unless_it_is_over_its_limit(self):
         self.assertEqual(accounts.early(self.rows(), "p3", 90, 1, self.now, wish="p1")["to"], "p1")
         self.assertEqual(accounts.early(self.rows(), "main", 90, 1, self.now, wish="p1")["to"], "p1")   # 目安を待たない

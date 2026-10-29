@@ -9,8 +9,8 @@ tmp の部署は、納品してメインブランチに入れ終えた後も会�
 1. 部署を名前で探す（--move と同じ deliver.find_target）。窓口・永続の部署は畳まない。
 2. 止める前に確かめる: 受けた頼みを納品している・順番待ちに頼みが無い・--clean の部署の決まり（clean.departments）で、会話が止まったとみなしたときに
    残す訳が無い（未コミットの変更・手元にしか無い commit・メインブランチに入っていないブランチなど）。訳が有れば何も止めない。
-   ただし、メインブランチに入っていないブランチでも、origin の同じ名前のブランチの先頭が手元の先頭と同じ（origin に問い合わせて確かめる）
-   なら畳む。成果は origin のブランチに残る（取り下げた頼みの部署は、入れずにブランチを残せと頼まれる。--done は入れていない部署を断るので、
+   ただし、メインブランチに入っていないブランチでも、部署の先頭が origin のどれかのブランチに在る（同じ名前のブランチの先頭が同じか、
+   ほかのブランチの先頭の祖先。origin に問い合わせて確かめる。parked_on）なら畳み、どのブランチに残っているかを出す。成果は origin のブランチに残る（取り下げた頼みの部署は、入れずにブランチを残せと頼まれる。--done は入れていない部署を断るので、
    頼み元が --retire で畳む。2026-10-20 に、origin に push 済みの取り下げた部署が「メインブランチに入っていない」で残った。受付 d28a74）。
 3. 会話が動いていれば、窓の attach の画面をシェルに戻し（launch.to_shell。attach が開いたままだと会話を再開させる）、claude stop で
    止め、--move と同じ回数だけ止まったかを読み戻す。一覧に処理の番号（pid）の無い会話は、動く処理が無いので止まったとみなす。
@@ -134,7 +134,9 @@ def retire(a, ports, cwd, rows, reasons):
     if not got["removed"]:
         return kept(f"片付けられなかった: {got['detail']}")
     if parked:
-        note = f"ブランチ {parked} はメインブランチに入れずに origin に残した"
+        note = (f"ブランチ {parked} はメインブランチに入れずに origin に残した" if parked == r["branch"]
+                else f"部署の先頭は origin の {parked} に入っている（"
+                + ("手元の控えが古かった）" if parked == _main_of(path, ports.git) else "メインブランチへはまだ）"))
         got["detail"] = f"{note}。{got['detail']}" if got["detail"] else note
     deliver.log(inbox, {"kind": "retired", "at": ports.now(), "name": attrs.get("name"), "path": path, "status": "done",
                         "detail": got["detail"]})
@@ -143,14 +145,41 @@ def retire(a, ports, cwd, rows, reasons):
 
 
 def on_origin(row, g):
-    """メインブランチに入っていない部署の行（reason が not_merged）のブランチが、同じ先頭で origin に在るか。(ブランチ, None) か
-    (None, 残す訳)。手元の origin/<ブランチ> の控えは古いことがあるので、origin に問い合わせる（remote_rev）。"""
+    """メインブランチに入っていない部署の行（reason が not_merged）の先頭が、origin のどれかのブランチに在るか（parked_on）。
+    (ブランチ, None) か (None, 残す訳)。手元の origin/* の控えは古いことがあるので、origin に問い合わせる。"""
     branch = row["branch"]
     try:
-        there = g.remote_rev(row["path"], branch)
+        there = parked_on(row["path"], row["pr_head"], branch, g, fetch=True)
     except gitx.GitError as e:
-        return None, f"ブランチがメインブランチに入っておらず、origin の {branch} を読めない（{e}）"
-    if there and there == row["pr_head"]:
-        return branch, None
-    return None, (f"ブランチがメインブランチに入っておらず、" + (f"origin の {branch} の先頭も手元と違う" if there else f"origin に {branch} が無い")
+        return None, f"ブランチがメインブランチに入っておらず、origin のブランチを読めない（{e}）"
+    if there:
+        return there, None
+    return None, (f"ブランチがメインブランチに入っておらず、origin のどのブランチにも手元の先頭 {(row['pr_head'] or '-')[:9]} が無い"
                   + f"。入れずに畳むなら、git push origin {branch} で手元の先頭を origin に残してから打ち直す")
+
+
+def _main_of(path, g):
+    try:
+        return g.default_branch(path)
+    except gitx.GitError:
+        return None
+
+
+def parked_on(path, sha, branch, g, fetch=False):
+    """部署の先頭 sha を持つ origin のブランチ（先頭か、その祖先に sha が在る）。部署のブランチ branch が同じ先頭で在れば、それを先に
+    返す。ほかはブランチの名前の順で、メインブランチは最後。無ければ None。origin を読めなければ GitError。fetch なら、手元に無い先頭を取ってから比べる（書く口）。
+    部署の PR が main でなくほかの部署のブランチに入り（積み重ねた PR）、GitHub が head のブランチを消しても、成果はそのブランチに
+    残る（2026-10-29、guided-resolver の #2240 が feat/design-doc-writing-form に入り、--retire が push を求めた。受付 5f175e）。
+    squash で入った形（sha がどこからも辿れない）は見つからない。"""
+    heads = g.remote_heads(path)
+    if not sha:
+        return None
+    if branch and heads.get(branch) == sha:
+        return branch
+    if fetch:
+        missing = sorted(b for b, top in heads.items() if not g.rev(path, top))
+        if missing:
+            g.fetch_heads(path, missing)
+    main = g.default_branch(path)   # メインブランチは最後に見る（手元の origin/main の控えが古いと、入った部署もここへ来る）
+    return next((b for b in sorted(heads, key=lambda b: (b == main, b))
+                 if g.rev(path, heads[b]) and g.is_ancestor(path, sha, heads[b])), None)

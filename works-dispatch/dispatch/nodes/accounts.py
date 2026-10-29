@@ -222,20 +222,32 @@ def named(rows, name):
     return [{**row, "eligible": True} if row.get("named_ok") else row] + [r for r in rows if r is not row]
 
 
+def kept(value):
+    """属性 company.move-kept の字（起動できなかったアカウントの名前を , でつないだ物）を名前の集まりに。"""
+    return {x for x in (value or "").split(",") if x}
+
+
+def kept_with(value, name):
+    """属性 company.move-kept の字に name を足した字。1 つだけ覚えると、起動できない部署で 2 つの移る先を交互に選び直し続ける
+    （2026-10-29、works-factory の変更のレビューが main → p1・main → p2 を約 25 秒おきに 30 回ほど繰り返した）。"""
+    return ",".join(sorted(kept(value) | {name}))
+
+
 def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
     """区切りで早めに移すか（--move --if-changed と待ち受け）。rows は rank の並び、old は今のアカウント、wish は持ち主か窓口が
     --move で名指したが、ターンの途中で移せなかったアカウント（属性 company.move-to）。avoid は前に早めに移そうとして起動できなかった
-    アカウント（属性 company.move-kept。選び直すと区切りのたびに止めて戻すのを繰り返す）。
+    アカウントの並び（属性 company.move-kept の字。kept で読む。選び直すと区切りのたびに止めて戻すのを繰り返す）。
     {"to": 移る先か None, "why": 移す訳か移さない訳, "kind": move・wish・soon・none・bad・hours・hours_none}。移す訳の無いとき（まだ目安に届かない・控えが無い）は None。
     - wish が在れば、それが選べて（上限に届かず、使える時間帯の中で）今のアカウントと違えば移る先にする（使用率の目安を待たない）。
     - 今のアカウントが使える時間帯の外か終わる手前（rank の shut）なら、選べるほかのアカウントのうち rank の順の頭へ移す（kind hours）。
     - 今のアカウントの 5 時間か週の枠が early_percent に達し、達した枠のどれかが reset_hours より先まで戻らなければ、
       使用率が分かり、高い方の枠が early_percent に届かないほかのアカウントのうち、rank の順の頭へ移す。"""
+    avoid = kept(avoid)
     if wish and wish != old:
         row = next((r for r in rows if r["name"] == wish), None)
-        if row and (row["eligible"] or row.get("named_ok")) and wish != avoid:
+        if row and (row["eligible"] or row.get("named_ok")) and wish not in avoid:
             return {"to": wish, "why": f"--move で名指したアカウント {wish} へ、区切りまで待って移す", "kind": "wish"}
-        bad = ("設定に無い" if row is None else "前に起動できなかった" if wish == avoid
+        bad = ("設定に無い" if row is None else "前に起動できなかった" if wish in avoid
                else "使える時間帯の外か終わる手前な" if row.get("shut") else "使用率が上限に達した")
         mine = next((r for r in rows if r["name"] == old), None)
         if not (mine and mine.get("shut")):   # 今のアカウントが時間帯で選べないなら、名指しが使えなくても下でほかへ移す
@@ -243,7 +255,7 @@ def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
     mine = next((r for r in rows if r["name"] == old), None)
     if mine and mine.get("shut"):
         # 使える時間帯の外になる前に移す。移る先は rank の順の頭（使用率の分からないアカウントも、目安を見ずに選べる）
-        to = next((r["name"] for r in rows if r["name"] not in (old, avoid) and r["eligible"]), None)
+        to = next((r["name"] for r in rows if r["name"] != old and r["name"] not in avoid and r["eligible"]), None)
         if to is None:
             return {"to": None, "why": f"アカウント {old} は{mine['reason']}が、選べるほかのアカウントが無いので移さない", "kind": "hours_none"}
         return {"to": to, "why": f"アカウント {old} は{mine['reason']}（時間帯の外になる前に、区切りで移す）", "kind": "hours"}
@@ -257,7 +269,7 @@ def early(rows, old, early_percent, reset_hours, now, wish=None, avoid=None):
     if not lasting:
         return {"to": None, "why": f"アカウント {old} の{use}は目安 {early_percent}% に達したが、{reset_hours:g} 時間以内に戻るので移さない",
                 "kind": "soon"}
-    to = next((r["name"] for r in rows if r["name"] not in (old, avoid) and r["eligible"] and r["known"]
+    to = next((r["name"] for r in rows if r["name"] != old and r["name"] not in avoid and r["eligible"] and r["known"]
                and r["peak"] is not None and r["peak"] < early_percent), None)
     if to is None:
         return {"to": None, "why": f"アカウント {old} の{use}が目安 {early_percent}% に達したが、使用率がそれに届かないほかのアカウントが無いので移さない",

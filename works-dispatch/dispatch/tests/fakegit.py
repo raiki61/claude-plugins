@@ -179,6 +179,13 @@ class FakeGit:
     def remote_rev(self, cwd, branch):
         return self.origin.get(branch)
 
+    def remote_heads(self, cwd):
+        return dict(self.origin)
+
+    def fetch_heads(self, cwd, branches):
+        for b in branches:
+            self.fetch(cwd, b)
+
     def subjects(self, cwd, a, b):
         seen = set(self._line(self._resolve(cwd, a)))
         return [f"{s[:7]} {self.commits[s]['subject']}" for s in self._line(self._resolve(cwd, b)) if s not in seen]

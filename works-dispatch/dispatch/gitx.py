@@ -450,6 +450,19 @@ def remote_rev(cwd, branch, runner=_default_runner):
     return out.split()[0] if out else None
 
 
+def remote_heads(cwd, runner=_default_runner):
+    """origin のブランチと先頭の commit を origin に問い合わせて読む（git ls-remote --heads）。{ブランチ: commit}。手元の ref は書かない。
+    読めなければ GitError。"""
+    out = _must(["git", "-C", cwd, "ls-remote", "--heads", "origin"], runner)
+    return {ref[len("refs/heads/"):]: sha for sha, ref in (line.split() for line in out.splitlines() if line.strip())
+            if ref.startswith("refs/heads/")}
+
+
+def fetch_heads(cwd, branches, runner=_default_runner):
+    """origin のそのブランチたちを 1 度に取る（fetch の複数の ref を取る形）。取れなければ GitError。書く口。"""
+    _must(["git", "-C", cwd, "fetch", "--quiet", "origin", *branches], runner)
+
+
 def subjects(cwd, a, b, runner=_default_runner):
     """a..b の commit の「短い id 件名」を新しい順に。読めなければ GitError。"""
     return _must(["git", "-C", cwd, "log", "--format=%h %s", f"{a}..{b}"], runner).splitlines()
