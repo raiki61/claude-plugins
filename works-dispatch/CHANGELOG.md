@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.137.2] - 2026-10-29
+
 ### Fixed
 
 - 部署の PR が main でなくほかの部署のブランチに入り（積み重ねた PR）、GitHub が head のブランチを消すと、`--retire` が「main に入っておらず、origin に部署のブランチが無い」で畳まず、push し直すよう求めていた（2026-10-29、guided-resolver の #2240 が feat/design-doc-writing-form に入った）。今の `--retire` は、部署の先頭の commit が origin のどれかのブランチの先頭か、その祖先に在れば（`git ls-remote` で origin に問い合わせ、手元に無い先頭は取ってから比べる）、push を求めずに畳み、「部署の先頭は origin の <ブランチ> に入っている（メインブランチへはまだ）」と出す。`--clean` の一覧の、会話が動いたまま入れていない部署の行も、この場合は入れ損ねの訳でなく「部署の先頭は origin の <ブランチ> に入っている（main へはまだ）」と出す。squash で入って先頭が origin のどこからも辿れない形は、今までどおり push を求める。
