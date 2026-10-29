@@ -564,8 +564,11 @@ def main(argv=None, ports=None):
     if listing:
         # 部署の作業場（--task が立てた worktree。属性 company.role を持つ）は部署の会話の物なので、一覧の回の送り直し・自分の番でない会話を
         # 閉じる・閉じた PR の片付けのどれにも使わない（2026-10-29 に guided-resolver で、部署の出した PR が自分の番の一覧に入り、送り直しの
-        # /exit が部署の会話の窓を attach から外した）。部署は --clean・--retire が畳む
+        # /exit が部署の会話の窓を attach から外した）。部署は --clean・--retire が畳む。自分の番でなくなった部署の PR は、会話を残して
+        # 窓だけを閉じる（_step_back_departments）
         depts = _department_places(found, ports, repo.source)
+        dept_places = [p for p in found if p.get("branch") in depts]
+        dept_turn = {p["number"] for p in my_prs if p["head"] in depts}   # 自分の番に居る部署の PR（その窓は閉じない）
         for p in [p for p in my_prs if p["head"] in depts]:
             notes.append(f"#{p['number']}: 部署「{depts[p['head']]}」の作業場のブランチなので開かない（レビューの返しは --ask '{depts[p['head']]}' --text <頼み> で部署へ回す）")
         my_prs = [p for p in my_prs if p["head"] not in depts]
@@ -762,6 +765,7 @@ def main(argv=None, ports=None):
 
     if listing:
         notes += _tidy(cfg, repo, ports, a.dry_run, found, turn_numbers, sent, limited)
+        notes += _step_back_departments(cfg, repo, ports, a.dry_run, dept_places, depts, dept_turn, limited)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
 
@@ -918,6 +922,80 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     if rel["status"] == "none":
         return [f"{_where(r)}: 自分の番でない PR なので会話を終えた（{term.NAME} の作業場は開いていなかった）"]
     return [f"{_where(r)}: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）"]
+
+
+def _step_back_departments(cfg, repo, ports, dry_run, places, names, turn_numbers, limited):
+    """自分の番でなくなった開いている PR の部署の作業場（herdr の窓）を閉じる（一覧の回だけ）。places は部署の場所（_department_places の
+    ブランチの物）、names は {ブランチ: 部署の名前}、turn_numbers は自分の番に居る部署の PR の番号。部署の裏の会話・worktree・ブランチは
+    残す（--retire しない。レビューの指摘を、事情を知った同じ会話へ --ask で回すため。次の --ask が作業場を開き直す: orders.revive）。
+    閉じるのは、窓が開いていて、部署の場所の会話がどれも手すきか止まっていて、受けた頼みを納品し終え、順番待ちに頼みが無く、未コミットの
+    変更も手元にしか無い commit・stash も無いときだけ（2026-10-29 に guided-resolver で、相手の番の PR の部署の窓が 8 つ開いたまま残った。
+    持ち主「部署も同じ扱いにして」）。窓の前の attach の画面は Ctrl+Z でシェルに戻してから閉じる（launch.to_shell。裏の会話は止まらない）。
+    limited（whose-turn がその PR の材料を取り切れなかった）なら閉じない。返すのは報告の行。"""
+    places = [p for p in places if p.get("workspace")]
+    if not places:
+        return []
+    try:
+        listed = [s for acc in cfg.accounts for s in ports.list_sessions(acc.config_dir)]
+    except chat.Error as e:
+        return [f"部署の窓を閉じるのを飛ばした（開いている会話を読めない: {e}）"]
+    out = []
+    for p in sorted(places, key=lambda p: p["path"]):
+        path, where = p["path"], f"部署「{names[p['branch']]}」"
+        try:
+            got = ports.pr_for_branch(repo, p["branch"])
+        except clean.Unknown as e:
+            out.append(f"{where}: ブランチの PR を読めないので窓を残した（{e}）")
+            continue
+        if not got or got.get("state") != "OPEN" or got["number"] in turn_numbers:
+            continue
+        where = f"#{got['number']} {where}"
+        if got["number"] in limited:
+            out.append(f"{where}: 自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので窓を残した")
+            continue
+        why = _department_busy(ports, path, [s for s in listed if s.get("cwd") and filex.inside(s["cwd"], path)])
+        if why:
+            out.append(f"{where}: 自分の番でない PR だが、{why}ので窓を残した")
+            continue
+        try:
+            panes = [x["pane_id"] for x in ports.term.panes() if x.get("workspace_id") == p["workspace"]]
+            other = [x for x in panes if not ports.term.shell_in_front(x)
+                     and not any(" attach " in f" {c} " for c in ports.term.foreground(x))]
+        except term.Error as e:
+            out.append(f"{where}: 自分の番でない PR だが、窓のペインを読めないので残した（{e}）")
+            continue
+        if other:
+            out.append(f"{where}: 自分の番でない PR だが、窓のペイン {', '.join(other)} の前で attach の画面でない物が動いているので残した")
+            continue
+        if dry_run:
+            out.append(f"{where}: 自分の番でない PR なので、部署の窓を閉じる（会話と worktree は残す）")
+            continue
+        stuck = [x for x in panes if not launch.to_shell(x, ports.term, ports.pause)]
+        if stuck:
+            out.append(f"{where}: 自分の番でない PR だが、窓のペイン {', '.join(stuck)} の attach の画面をシェルに戻せないので残した")
+            continue
+        rel = clean.release(repo.source, path, ports.term)
+        out.append(f"{where}: " + (f"自分の番でない PR だが、部署の窓を閉じられなかった（{rel['detail']}）" if rel["status"] == "close_failed" else
+                                   f"自分の番でない PR だが、部署の窓は {term.NAME} にもう開いていなかった" if rel["status"] == "none" else
+                                   f"自分の番でない PR なので、部署の窓を閉じた（会話と worktree は残した。返しは --ask '{names[p['branch']]}' で回す）"))
+    return out
+
+
+def _department_busy(ports, path, mine):
+    """部署の窓を閉じない訳（無ければ None）。mine はその場所の会話の一覧の行。"""
+    if any(s.get("state") == "blocked" or (s.get("status") or s.get("state")) not in ("idle",) + clean.DONE for s in mine):
+        return "会話が作業中か返事待ち"
+    attrs = ports.attrs(path)
+    if attrs.get("ask") and attrs.get("delivered") != attrs["ask"]:
+        return f"納品していない頼み（受付 {attrs['ask']}）が在る"
+    common, place = ports.git.common_dir(path), ports.git.git_dir(path)
+    if not (common and place) or wake.queued(deliver.inbox_of(common), place):
+        return "順番待ちに頼みが在るか、順番待ちを読めない"
+    if not ports.is_clean(path):
+        return "未コミットの変更が有る"
+    if ports.unpushed(path):
+        return "手元にしか無い commit か stash が有る"
+    return None
 
 
 def _not_listed_why(rec, mine):

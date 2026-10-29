@@ -26,7 +26,7 @@ import filex
 import wiring
 import ghx
 import herdr as real_herdr
-from nodes import fresh, turn
+from nodes import clean, fresh, turn
 
 
 def session(status="idle", started=100.0):
@@ -768,6 +768,108 @@ class Flow(unittest.TestCase):
         self.assertTrue(line(out, 1).endswith("refreshed"), out)
         self.assertEqual([x for x in ports.term.writes if x[0] == "prompt" and x[2] == "/exit"],
                          [("prompt", old["pane_id"], "/exit", False)])
+
+    def off_turn_department(self, n=3):
+        """自分の番でない開いている PR の部署の作業場で、部署の窓に attach の画面が開き、裏の会話が手すきの形。Ctrl+Z で attach が終わる。"""
+        path = self.place(n)
+        ports = FakePorts([], git=self.g)
+        pane = self.talking_in(ports, path)
+        ports.term.front = {pane["pane_id"]: ["claude attach abc12345"]}
+
+        def keys(target, *k):
+            ports.term.writes.append(("send_keys", target, *k))
+            if "ctrl+z" in k:
+                ports.term.talking.discard(target)
+        ports.term.send_keys = keys
+        ports.branch_prs = {f"feat/{n}": {"number": n, "state": "OPEN", "head_sha": self.g.head_sha(path)}}
+        self.department(path)
+        return path, ports, pane
+
+    def test_off_turn_departments_window_is_closed_and_its_conversation_and_worktree_kept(self):
+        # 持ち主「部署も同じ扱いにして」（2026-10-29、guided-resolver）: 窓だけ閉じ、裏の会話は /exit も stop もしない
+        path, ports, pane = self.off_turn_department()
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("#3 部署「部署の作業」: 自分の番でない PR なので、部署の窓を閉じた（会話と worktree は残した。返しは --ask '部署の作業' で回す）", out)
+        self.assertEqual(ports.term.writes, [("send_keys", pane["pane_id"], "ctrl+z"), ("close_workspace", pane["workspace_id"])])
+        self.assertTrue(pathlib.Path(path).exists())
+        self.assertIn("feat/3", self.g.local)
+
+    def test_dry_run_names_the_off_turn_departments_window_and_closes_nothing(self):
+        path, ports, _ = self.off_turn_department()
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertIn("#3 部署「部署の作業」: 自分の番でない PR なので、部署の窓を閉じる（会話と worktree は残す）", out)
+        self.assertEqual(ports.term.writes, [])
+
+    def test_off_turn_departments_window_with_work_left_is_kept_and_named(self):
+        for case, why in (("busy", "会話が作業中か返事待ち"), ("blocked", "会話が作業中か返事待ち"),
+                          ("ask", "納品していない頼み（受付 a1b2c3）が在る"), ("commit", "手元にしか無い commit か stash が有る"),
+                          ("file", "未コミットの変更が有る"), ("editor", "attach の画面でない物が動いている"),
+                          ("limited", "whose-turn が材料を取り切れなかった")):
+            with self.subTest(case):
+                self.setUp()
+                path, ports, pane = self.off_turn_department()
+                if case == "busy":
+                    ports.agents = [{**x, "status": "busy"} for x in ports.agents]
+                if case == "blocked":
+                    ports.agents = [{**x, "state": "blocked"} for x in ports.agents]
+                if case == "ask":
+                    self.g.set_worktree_attr(path, "ask", "a1b2c3")
+                if case == "commit":
+                    self.g.commit(path, {}, "x")
+                if case == "file":
+                    pathlib.Path(path, "draft.py").write_text("x\n")
+                    self.g.dirty.add(path)
+                if case == "editor":
+                    ports.term.front = {pane["pane_id"]: ["vim"]}
+                if case == "limited":
+                    ports._limited = {3}
+                rc, out = run_main(self.cfg, ports)
+                self.assertEqual(rc, 0, out)
+                got = next((x for x in out.splitlines() if x.startswith("#3 ")), "")
+                self.assertIn(why, got, out)
+                self.assertIn("残した", got)
+                self.assertEqual(ports.term.writes, [])
+
+    def test_dry_run_keeps_the_departments_window_with_an_editor_in_front(self):
+        path, ports, pane = self.off_turn_department()
+        ports.term.front = {pane["pane_id"]: ["vim"]}
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertIn("attach の画面でない物が動いているので残した", out)
+        self.assertNotIn("部署の窓を閉じる", out)
+
+    def test_departments_window_that_cannot_be_closed_or_is_already_gone_is_named(self):
+        for status, said in (("close_failed", "部署の窓を閉じられなかった（boom）"), ("none", "部署の窓は herdr にもう開いていなかった")):
+            with self.subTest(status):
+                self.setUp()
+                path, ports, pane = self.off_turn_department()
+                real_release = clean.release
+                clean.release = lambda source, path, h, status=status: {"status": status, "workspace": None, "detail": "boom"}
+                self.addCleanup(setattr, clean, "release", real_release)
+                rc, out = run_main(self.cfg, ports)
+                self.assertIn(said, out)
+                self.assertNotIn(("close_workspace", pane["workspace_id"]), ports.term.writes)
+                self.assertTrue(pathlib.Path(path).exists())
+
+    def test_delivered_departments_window_is_closed(self):
+        path, ports, pane = self.off_turn_department()
+        self.g.set_worktree_attr(path, "ask", "a1b2c3")
+        self.g.set_worktree_attr(path, "delivered", "a1b2c3")
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn(("close_workspace", pane["workspace_id"]), ports.term.writes)
+
+    def test_on_turn_or_merged_departments_window_is_left_open(self):
+        for case in ("on_turn", "merged"):
+            with self.subTest(case):
+                self.setUp()
+                path, ports, _ = self.off_turn_department()
+                if case == "on_turn":
+                    ports._prs = [pr(3)]
+                else:
+                    self.merged(ports, 3, path)
+                rc, out = run_main(self.cfg, ports)
+                self.assertEqual(ports.term.writes, [], out)
+                self.assertNotIn("部署の窓", out)
 
 
 if __name__ == "__main__":
