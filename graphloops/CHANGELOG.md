@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 利用者の動きは変わらない直し。`tests/py/test_intake.py` の `test_claude_drift_compares_the_claude_on_path_with_the_pinned_version` の Windows での見送りの理由が「SKIP <能力>:」の形でなく、飛ばしが失敗に数えられて main の CI の windows の pytest が赤だった。理由をほかの試験と同じ `SKIP posix-mode:` の形にした（`posix-mode` は Windows の欠けてよい能力の一覧〔`SKIP_ALLOW`〕に在る）。
+
 ## [0.45.4] - 2026-10-29
 
 ### Fixed
