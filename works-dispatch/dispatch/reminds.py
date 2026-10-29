@@ -142,20 +142,6 @@ def route(holder, companies, here_root, current):
     return company, f"担当者 {holder} の部署が立っておらず、名前で立て直せないので、会社 {company} の窓口に頼む", desk["company"]
 
 
-def boss_of(company, companies, here_root, current, git):
-    """リマインダーの頼みの頼み元の属性（担当者の会社 company の窓口）か None（窓口が決まらない）。頼み元の名前の待ち受けが納品を
-    受ける（starts._boss と同じく、会話の id は持たない）。"""
-    try:
-        got = deliver.find_target(companies, here_root, company, None, current)
-    except deliver.DeliverError:
-        return None
-    common = git.common_dir(got["company"]["root"])
-    if not common or not got["department"]["attrs"].get("name"):
-        return None
-    return {"boss": got["department"]["attrs"]["name"], "boss-account": None, "boss-session": None, "boss-pane": None,
-            "boss-inbox": deliver.inbox_of(common)}
-
-
 def asked(company, ask_id, git):
     """受付 ask_id の頼みが company の台帳で届いたか（sent）か積まれた（queued）か。orders.ask は、頼みが部署に届いた後に立てる道が
     0 以外を返しても、その値を返すので、終了の値でなく台帳で見る。"""
@@ -178,7 +164,7 @@ def asker(company, companies, settings, ports, a, task):
         if how is None:
             return None
         to, why, there = how
-        boss = boss_of(r["holder"].rpartition("/")[0], companies, company["root"], current, ports.git)
+        boss = orders.desk_boss(r["holder"].rpartition("/")[0], companies, company["root"], current, ports.git)
         if boss is None:
             return None
         if dry_run:

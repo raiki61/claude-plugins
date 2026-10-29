@@ -13,6 +13,7 @@ import unittest
 from . import test_deliver
 from .test_provision import git
 import calls
+import orders
 import gitx
 from nodes import deliver, land, provision, role, tools, tree
 
@@ -259,6 +260,43 @@ class Call(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place)   # 回した頼みの頼み元は、メインブランチに入れた部署の頼み元
         self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
         self.assertEqual(len(self.prompts()), 1)
+
+    def test_fire_after_a_land_by_a_department_without_a_boss_hands_over_with_the_desk(self):
+        # 機械の上げ（works-factory-pin）が自分の作業場から打った --land は、部署に頼み元が無い。頼み元の無いまま回すと、立った部署の納品が
+        # 受付箱を引けずに止まった（2026-10-29 の受付 cee7e1。頼み 2c4310）
+        self.use(self.script("raise SystemExit(1)"))
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        provision.mark(self.src, self.src, {"name": "受付", "lifecycle": "persistent"}, self.g)   # 本社の名付いた会話（窓口）
+        lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None, {"name": None})
+        self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")
+        attrs = self.g.worktree_attrs(self.place)   # 回した頼みの頼み元は会社の窓口
+        self.assertEqual((attrs.get("boss"), attrs.get("boss-inbox")), ("受付", self.inbox))
+        (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        self.assertEqual(row["from"]["name"], "受付")
+
+    def test_fire_after_a_land_by_a_department_without_a_boss_hands_over_with_the_held_asks_boss(self):
+        # 受付 cee7e1 の形: --land を打った場所が頼みを受けていれば、その頼みの頼み元（cause_boss）を頼み元にする
+        self.use(self.script("raise SystemExit(1)"))
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        provision.mark(self.src, self.src, {"ask": "20261029-005748-29e7fd", "boss": "窓口", "boss-session": "s0",
+                                            "boss-inbox": self.inbox}, self.g)
+        calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None, {"name": None})
+        attrs = self.g.worktree_attrs(self.place)
+        self.assertEqual((attrs.get("boss"), attrs.get("boss-session"), attrs.get("boss-inbox")), ("窓口", "s0", self.inbox))
+        (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        self.assertEqual((row["from"]["name"], row["cause"]), ("窓口", "20261029-005748-29e7fd"))
+
+    def test_a_handed_boss_falls_back_to_the_parent_asks_boss_then_the_desk(self):
+        parent = {"name": "窓口", "session": "s0", "account": "a0", "pane": "w1:p1", "inbox": "/in"}
+        desk = {"boss": "受付", "boss-inbox": "/desk"}
+        self.assertEqual(orders.lent_boss({"ask": "x", "boss": "頼み元", "boss-inbox": "/b"}, parent, lambda: desk),
+                         {"boss": "頼み元", "boss-inbox": "/b"})
+        self.assertEqual(orders.lent_boss({"ask": "x", "boss": None, "boss-session": None}, parent, lambda: desk),
+                         {"boss": "窓口", "boss-session": "s0", "boss-account": "a0", "boss-pane": "w1:p1", "boss-inbox": "/in"})
+        self.assertEqual(orders.lent_boss({"boss": None}, None, lambda: desk), desk)
+        self.assertEqual(orders.lent_boss({"boss": None}, None, lambda: None), {"boss": None})
 
     def test_fire_after_a_batch_names_every_member_and_parents_the_riders_asks(self):
         # 束（束の設計 9）: 合図は 1 回。ツールに部署の名前の並びを渡し、回した頼みの親に乗った部署の受けている頼みを並べる（納品済みと束ね役と同じ頼みは除く）

@@ -575,15 +575,17 @@ def _ask(a, ports, cwd, task, sent):
     boss = {"ask": ask_id, "boss": name, "boss-account": account, "boss-session": sid,
             "boss-pane": windows.own_pane(here, sid, panes) if sid else None,
             "boss-inbox": deliver.inbox_of(here_common) if here_common else inbox}
+    cause = cause_of(a, here, ports)
+    cause_boss = cause_boss_of(a, here, ports, cause)
     if getattr(a, "from_boss", None):
-        # 合図で回した頼み（calls.fire）: 頼み元は、メインブランチに入れた部署の頼み元
-        boss.update({k: v for k, v in a.from_boss.items() if k != "ask"})
+        # 合図で回した頼み（calls.fire）・リマインダーの頼み: 頼み元は渡された物
+        home = next((c for c in companies if os.path.realpath(c["root"]) == os.path.realpath(gitx.root_of(common))), company)   # 頼む側の会社
+        boss.update(lent_boss(a.from_boss, cause_boss,
+                              lambda: desk_boss(home["name"], companies, home["root"], current_role(settings, ports.git), ports.git)))
         name = boss.get("boss")
         sender = name or sender
     if not boss.get("boss"):
         notes.append("頼み元が分からないので、この頼みの納品の返り先が無い（会話の中から打つか --from-name を渡す）")
-    cause = cause_of(a, here, ports)
-    cause_boss = cause_boss_of(a, here, ports, cause)
     causes = {"causes": a.causes} if getattr(a, "causes", None) else {}   # 束の合図で回した頼み: 乗った部署の頼みも親に並べる（calls.fire）
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if (the_role or {}).get("machine"):
@@ -774,6 +776,34 @@ def why_not(said):
     lines = [x.strip() for x in said.splitlines() if x.strip()]
     told = [x for x in lines if not x.startswith("- ")]
     return next((x for x in reversed(lines) if x.startswith("止めた")), None) or ("；".join(told) or None)
+
+
+def lent_boss(given, cause_boss, desk):
+    """渡された頼み元 given（部署の属性の形。ask の鍵は除く）。given に頼み元が無いとき（合図で回した頼みで、メインブランチに入れた部署が
+    機械の上げ〔works-factory-pin〕の作業場だった --land など。--take で回し直す件に頼み元が空で残っていたときも）は、この頼みの親
+    （cause）の頼み元、それも無ければ頼む側の会社の窓口（desk が
+    返す。決まらなければ given のまま）。頼み元の無いまま回すと、立った部署の納品が受付箱を引けずに止まる（2026-10-29 の受付 cee7e1。
+    寿命の語を英単語にそろえる部署の --land の機械の上げが打った --land の CI の見張りの頼み。頼み 2c4310）。"""
+    lent = {k: v for k, v in given.items() if k != "ask"}
+    if lent.get("boss") or lent.get("boss-session"):
+        return lent
+    if cause_boss:
+        return {"boss": cause_boss.get("name"), "boss-session": cause_boss.get("session"), "boss-account": cause_boss.get("account"),
+                "boss-pane": cause_boss.get("pane"), "boss-inbox": cause_boss.get("inbox")}
+    return desk() or lent
+
+
+def desk_boss(company, companies, here_root, current, git):
+    """会社 company（名前）の窓口を頼み元にする属性か None（窓口が決まらない）。頼み元の名前の待ち受けが納品を受ける（starts._boss と
+    同じく、会話の id は持たない）。リマインダーの頼みと、頼み元の無い合図の頼み（lent_boss）が使う。"""
+    try:
+        got = deliver.find_target(companies, here_root, company, None, current)
+    except deliver.DeliverError:
+        return None
+    common, desk = git.common_dir(got["company"]["root"]), ((got.get("department") or {}).get("attrs") or {}).get("name")
+    if not common or not desk:
+        return None
+    return {"boss": desk, "boss-account": None, "boss-session": None, "boss-pane": None, "boss-inbox": deliver.inbox_of(common)}
 
 
 def cause_of(a, here, ports):
