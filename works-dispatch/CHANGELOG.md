@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.141.1] - 2026-10-29
+
 ### Fixed
 
 - Windows の CI で時々落ちていた試験 3 本を、試験の側だけで直した。本体の振る舞いは変わらない（頼み 89e17d）。
