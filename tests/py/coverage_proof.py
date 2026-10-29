@@ -44,12 +44,13 @@ if os.environ.get("COVERAGE_PROCESS_START"):
     # pip で入れた coverage.py（7.13 から）は site-packages の .pth が先に process_startup を呼ぶので、ここでの呼び出しは None を返す
     cov = coverage.process_startup() or coverage.Coverage.current()
     if cov is not None and sys.argv[0].replace("\\", "/").endswith("/scripts/review-record.py"):
-        marks = [(os.environ.get(k, "\0") + "/", to) for k, to in (("COVPROOF_WORK", ""), ("COVPROOF_ROOT", "repo:"))]
+        # Windows の引数は \ 区切り。前置きの照合と残りの名前は / にそろえる（台帳の Row.args も / の形）
+        marks = [(os.environ.get(k, "\0").replace("\\", "/") + "/", to) for k, to in (("COVPROOF_WORK", ""), ("COVPROOF_ROOT", "repo:"))]
         names = []
         for a in sys.argv[1:]:
             for m, to in marks:
-                if a.startswith(m):
-                    a = to + a[len(m):]
+                if a.replace("\\", "/").startswith(m):
+                    a = to + a.replace("\\", "/")[len(m):]
                     break
             names.append(a)
         cov.switch_context("argv:" + " ".join(names))
