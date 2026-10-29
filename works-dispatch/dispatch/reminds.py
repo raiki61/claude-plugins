@@ -5,12 +5,15 @@
   来た方で見る時が来る）を台帳に kind remind の行で残す。条件を文でしか書けない待ち（「次に X が起きたら」）は、見直す日を --on に付ける。
 --remind-done <受付>（close）: 見たリマインダーを閉じる（kind remind-done）。
 --due の中（notify）: 見る時が来て、まだ知らせていないリマインダーを、担当者の待ち受けへ台帳の知らせ（kind note）で 1 度だけ渡し、
-  kind reminded の行で知らせたと残す。--due は頼みと納品のたびに裏で走る（starts.due_later）。--todo は見る時の来た物を出す。
+  kind reminded の行で知らせたと残す。担当者の部署が立っていなければ（畳まれたエフェメラルの部署など。知らせを拾う待ち受けが無い）、
+  知らせの代わりに --ask と同じ道で頼む（route と asker）。--due は頼みと納品のたびに裏で走る（starts.due_later）。--todo は見る時の来た物を出す。
 """
 
+import argparse
 import os
 
 import config
+import gitx
 import orders
 import todo
 from ports import chat
@@ -111,10 +114,91 @@ def due(rems, tasks, now):
     return [(r, why) for r in rems.values() for why in [remind.came(r, tasks, now)] if why]
 
 
-def notify(inbox, common_dir, now, dry_run=False):
+def route(holder, companies, here_root, current):
+    """担当者 holder（「会社/名前」）に届ける道。None なら担当者の名前の部署か窓口が立っているので、今までどおり担当者の待ち受けへ
+    台帳の知らせで渡す。立っていなければ (宛先, 訳, 宛先の会社)。宛先は次の順で決める。
+    - 担当者の名前が会社の形のオンデマンドの受け持ち（頼まれたときだけ部署を立てる受け持ち）なら、その受け持ち。--ask と同じく、
+      受け持ちの名前の部署が立つ。
+    - 担当者の名前が役で、その役の永続の部署が別の名前で立っているなら、その部署。
+    - それ以外（頼みごとに立てる部署・作業など、名前で立て直せない部署）は、担当者の会社の窓口。
+    担当者の会社が端末に開いていないなどで宛先が決まらなければ None（知らせだけ書く）。"""
+    company, _, name = holder.rpartition("/")
+    try:
+        got = deliver.find_target(companies, here_root, holder, None, current)
+    except deliver.DeliverError:
+        return None
+    d = got.get("department")
+    if d is not None:
+        now = d["attrs"].get("name")
+        if now == name or name in gitx.former_names(d["attrs"]):
+            return None
+        return f"{company}/{now}", f"担当者 {holder} の名前の部署が無く、同じ役の部署 {now} が立っているので、そこに頼む", got["company"]
+    if got.get("on_demand") and not got.get("per_ask"):
+        return holder, f"担当者の部署が立っていないので、オンデマンドの受け持ち {name} に頼んで部署を立てる", got["company"]
+    try:
+        desk = deliver.find_target(companies, here_root, company, None, current)
+    except deliver.DeliverError:
+        return None
+    return company, f"担当者 {holder} の部署が立っておらず、名前で立て直せないので、会社 {company} の窓口に頼む", desk["company"]
+
+
+def boss_of(company, companies, here_root, current, git):
+    """リマインダーの頼みの頼み元の属性（担当者の会社 company の窓口）か None（窓口が決まらない）。頼み元の名前の待ち受けが納品を
+    受ける（starts._boss と同じく、会話の id は持たない）。"""
+    try:
+        got = deliver.find_target(companies, here_root, company, None, current)
+    except deliver.DeliverError:
+        return None
+    common = git.common_dir(got["company"]["root"])
+    if not common or not got["department"]["attrs"].get("name"):
+        return None
+    return {"boss": got["department"]["attrs"]["name"], "boss-account": None, "boss-session": None, "boss-pane": None,
+            "boss-inbox": deliver.inbox_of(common)}
+
+
+def asked(company, ask_id, git):
+    """受付 ask_id の頼みが company の台帳で届いたか（sent）か積まれた（queued）か。orders.ask は、頼みが部署に届いた後に立てる道が
+    0 以外を返しても、その値を返すので、終了の値でなく台帳で見る。"""
+    common = git.common_dir(company["root"])
+    if not common:
+        return False
+    return any(r.get("id") == ask_id and r.get("kind") == "ask" and r.get("status") in ("sent", "queued")
+               for r in deliver.records(deliver.inbox_of(common)))
+
+
+def asker(company, companies, settings, ports, a, task):
+    """notify に渡す、担当者の部署が立っていないリマインダーを頼みにする関数。(r, 知らせの文, 試し打ちか) → (出す行, 頼みの受付か None)
+    か None（担当者の部署が立っているか、宛先か頼み元が決まらないので、知らせで渡す）。頼みは --due の外から打った形で、starts.fire と
+    同じく orders.ask に渡す。頼み元は担当者の会社の窓口で、納品は窓口の待ち受けに届く。頼みが通らなければ (出す行, None) を返し、
+    reminded の行を書かずに次の --due で頼み直す。"""
+    current = orders.current_role(settings, ports.git)
+
+    def reach(r, line, dry_run):
+        how = route(r["holder"], companies, company["root"], current)
+        if how is None:
+            return None
+        to, why, there = how
+        boss = boss_of(r["holder"].rpartition("/")[0], companies, company["root"], current, ports.git)
+        if boss is None:
+            return None
+        if dry_run:
+            return f"頼む: リマインダー 受付 {r['id']} を {to} に（{why}）", None
+        ask_id = deliver.new_id(ports.now())
+        ns = argparse.Namespace(**{**vars(a), "ask": to, "text": line, "brief": None, "task": None, "branch": None, "role": None,
+                                   "persistent": False, "ask_id": ask_id, "forward": False, "title": f"リマインダー（受付 {r['id']}）",
+                                   "from_boss": boss})
+        rc = orders.ask(ns, ports, company["root"], task)
+        if rc != 0 and not asked(there, ask_id, ports.git):
+            return f"頼めなかった: リマインダー 受付 {r['id']} を {to} に（終了の値 {rc}。次の --due で頼み直す）", None
+        return f"頼んだ: リマインダー 受付 {r['id']} を {to} に 受付 {ask_id}（{why}）", ask_id
+    return reach
+
+
+def notify(inbox, common_dir, now, dry_run=False, reach=None):
     """--due の中で、その会社の受付箱のリマインダーのうち、見る時が来てまだ知らせていない物を、担当者の待ち受けへ台帳の知らせで渡す。
     知らせの行そのものが知らせた印で（remind.project）、2 度は知らせない（RFC 9074 の VALARM の ACKNOWLEDGED と同じく、受けたかを
-    返さない知らせは送った時に印す）。続けて kind reminded の行に来た訳を残す。dry_run なら書かずに、知らせる物を言うだけ。出す行の並びを返す。"""
+    返さない知らせは送った時に印す）。続けて kind reminded の行に来た訳を残す。reach（asker の返す関数）が頼みにした物は、知らせの
+    行を書かず、reminded の行に頼みの受付（child）を残す。頼みが通らなかった物は reminded を書かず、次の --due で頼み直す。dry_run なら書かずに、知らせる物を言うだけ。出す行の並びを返す。"""
     rems = {i: r for i, r in remind.project(deliver.records(inbox)).items() if not r["closed"] and not r["reminded"]}
     if not rems:
         return []
@@ -126,11 +210,18 @@ def notify(inbox, common_dir, now, dry_run=False):
     for r, why in due(rems, tasks, now):
         if not r["holder"]:
             continue
+        line = (f"リマインダーです（受付 {r['id']}。{why}）: {r['text']}。見たら {orders.RUN} --remind-done {r['id']} で閉じる"
+                "（まだ早ければ閉じて、見る日を替えて --remind で立て直す）")
+        asked = reach(r, line, dry_run) if reach else None
+        if asked:
+            said, child = asked
+            out.append(said)
+            if child:
+                deliver.log(inbox, {"id": r["id"], "kind": remind.REMINDED, "at": now, "why": why, "child": child})
+            continue
         if dry_run:
             out.append(f"知らせる: リマインダー 受付 {r['id']}（{why}）を {r['holder']} に")
             continue
-        line = (f"リマインダーです（受付 {r['id']}。{why}）: {r['text']}。見たら {orders.RUN} --remind-done {r['id']} で閉じる"
-                "（まだ早ければ閉じて、見る日を替えて --remind で立て直す）")
         deliver.log(inbox, wake.notice(r["holder"], r["id"], wake.NOTE, None, line, now))
         deliver.log(inbox, {"id": r["id"], "kind": remind.REMINDED, "at": now, "why": why})
         out.append(f"知らせた: リマインダー 受付 {r['id']}（{why}）を {r['holder']} に")

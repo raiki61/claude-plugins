@@ -197,7 +197,8 @@ def due_all(a, ports, task):
             if inbox:
                 # 見る時の来たリマインダーを担当者に知らせる（docs/ledger.md の「リマインダー」。同じ錠の中なので 2 度は知らせない）
                 try:
-                    lines += reminds.notify(inbox, ports.git.common_dir, now, dry_run=a.dry_run)
+                    lines += reminds.notify(inbox, ports.git.common_dir, now, dry_run=a.dry_run,
+                                            reach=reminds.asker(company, companies, settings, ports, a, task))
                 except (OSError, ValueError) as e:
                     lines.append(f"注記: {company['name']} のリマインダーを知らせられなかった（{e}）")
                     worst = 1

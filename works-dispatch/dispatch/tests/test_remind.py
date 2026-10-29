@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 from . import schemacheck
+import gitx
 import orders
 import reminds
 import todo
@@ -192,6 +193,84 @@ class Flow(unittest.TestCase):
         rc, out = shown(r, page=str(self.root / "p.html"))
         self.assertEqual(rc, 2, out)   # ページは頼みの木だけ。黙って標準出力に出さない
         self.assertIn("リマインダーで", out)
+
+    def company(self, departments=(), skills=()):
+        return {"name": "co", "root": str(self.root), "info_source": "origin", "departments": list(departments),
+                "skills": list(skills)}
+
+    def test_a_reminder_goes_by_note_while_its_holder_stands_and_by_an_ask_once_it_is_folded(self):
+        # 担当者の部署が畳まれた（オンデマンドの受け持ちのエフェメラルの部署）後は、知らせを拾う待ち受けが無い（頼み d3a7a1）
+        duty = {"name": "仕組み", "role": "担当", "on_demand": True}
+        desk = {"attrs": {"name": "窓口", "role": "窓口"}, "path": str(self.root), "branch": "main", "head_office": True}
+        standing = {"attrs": {"name": "仕組み", "role": "担当"}, "path": "/co/w", "branch": "work/ask-1"}
+        same = lambda company, name: name
+        self.assertIsNone(reminds.route("co/仕組み", [self.company([desk, standing], [duty])], str(self.root), same))
+        self.assertEqual(reminds.route("co/仕組み", [self.company([desk], [duty])], str(self.root), same)[0], "co/仕組み")
+        self.assertEqual(reminds.route("co/作業：abc123", [self.company([desk], [duty])], str(self.root), same)[0], "co")
+        self.assertIsNone(reminds.route("co/窓口", [self.company([desk], [duty])], str(self.root), same))
+        self.assertIsNone(reminds.route("far/仕組み", [self.company([desk], [duty])], str(self.root), same))   # 会社が開いていない
+        kept = {"attrs": {"name": "点検", "role": "担当", "lifecycle": gitx.PERSISTENT}, "path": "/co/k", "branch": "work/k"}
+        self.assertEqual(reminds.route("co/担当", [self.company([desk, kept])], str(self.root), same)[0], "co/点検")   # 役の名前の担当者
+        with mock.patch.object(orders, "current_role", lambda settings, g: same):   # 窓口が無ければ頼まない（納品の返り先が無い）
+            self.assertIsNone(reminds.asker(self.company([], [duty]), [self.company([], [duty])], None, self.ports,
+                                            argparse.Namespace(dry_run=True), None)({"holder": "co/仕組み", "id": "x"}, "", True))
+
+        self.attrs = {"role": "担当", "name": "仕組み", "session": "s1"}
+        self.call(reminds.put, remind="効き目を測る", on="2026-01-01")
+        sent = []
+
+        def fake_ask(ns, ports, cwd, task):
+            sent.append(ns)
+            return 0
+        a = argparse.Namespace(dry_run=False, config=None)
+        self.now = time.time()
+        with mock.patch.object(orders, "current_role", lambda settings, g: same), mock.patch.object(orders, "ask", fake_ask):
+            reach = reminds.asker(self.company([desk], [duty]), [self.company([desk], [duty])], None, self.ports, a, None)
+            dry = reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now, dry_run=True, reach=reach)
+            self.assertEqual((len(dry), sent), (1, []))
+            self.assertIn("頼む", dry[0])
+            got = reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now, reach=reach)
+            self.assertEqual(reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now, reach=reach), [])   # 2 度は頼まない
+        (ns,) = sent
+        self.assertEqual((ns.ask, ns.task, ns.from_boss["boss"], ns.from_boss["boss-inbox"]), ("co/仕組み", None, "窓口", str(self.inbox)))
+        self.assertIn("--remind-done", ns.text)
+        self.assertIn("頼んだ", got[0])
+        self.assertFalse([r for r in self.rows() if isinstance(r.get("to"), str)])   # 知らせの行は書かない
+        (row,) = [r for r in self.rows() if r["kind"] == remind.REMINDED]
+        self.assertEqual(row["child"], ns.ask_id)
+        self.assertEqual(schemacheck.check({"schema": ledger.SCHEMA, "rows": self.rows()}, schemacheck.schema("ledger")), [])
+
+    def test_a_refused_ask_is_asked_again_on_the_next_due(self):
+        # 頼みが通らなければ reminded を書かず、次の --due で頼み直す（知らせに落とすと、立っていない担当者宛てで誰にも届かない）
+        duty = {"name": "仕組み", "role": "担当", "on_demand": True}
+        desk = {"attrs": {"name": "窓口", "role": "窓口"}, "path": str(self.root), "branch": "main", "head_office": True}
+        self.attrs = {"role": "担当", "name": "仕組み", "session": "s1"}
+        self.call(reminds.put, remind="見る", on="2026-01-01")
+        self.now = time.time()
+        calls = []
+
+        def fake_ask(ns, ports, cwd, task):
+            calls.append(ns)
+            if len(calls) == 2:   # 2 度目: 部署に届いた後に立てる道が 0 以外を返した（台帳は sent）
+                deliver.log(str(self.inbox), {"id": ns.ask_id, "kind": "ask", "at": self.now, "status": "sent"})
+            return 1
+        co = self.company([desk], [duty])
+        with mock.patch.object(orders, "current_role", lambda settings, g: lambda company, name: name), \
+                mock.patch.object(orders, "ask", fake_ask):
+            reach = reminds.asker(co, [co], None, self.ports, argparse.Namespace(dry_run=False), None)
+            first = reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now, reach=reach)
+            self.assertIn("頼めなかった", first[0])
+            self.assertFalse([r for r in self.rows() if r["kind"] == remind.REMINDED or isinstance(r.get("to"), str)])
+            second = reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now, reach=reach)
+        self.assertIn("頼んだ", second[0])
+        self.assertEqual(len([r for r in self.rows() if r["kind"] == remind.REMINDED]), 1)
+
+    def test_a_reminder_whose_holder_stands_goes_by_the_note(self):
+        self.call(reminds.put, remind="見る", on="2026-01-01")
+        self.now = time.time()
+        got = reminds.notify(str(self.inbox), self.ports.git.common_dir, self.now, reach=lambda r, line, dry_run: None)
+        self.assertIn("知らせた", got[0])
+        self.assertEqual(len([r for r in self.rows() if isinstance(r.get("to"), str)]), 1)
 
 if __name__ == "__main__":
     unittest.main()
