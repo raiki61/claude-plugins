@@ -48,9 +48,10 @@ if os.environ.get("COVERAGE_PROCESS_START"):
         marks = [(os.environ.get(k, "\0").replace("\\", "/") + "/", to) for k, to in (("COVPROOF_WORK", ""), ("COVPROOF_ROOT", "repo:"))]
         names = []
         for a in sys.argv[1:]:
+            s = a.replace("\\", "/")
             for m, to in marks:
-                if a.replace("\\", "/").startswith(m):
-                    a = to + a.replace("\\", "/")[len(m):]
+                if s.startswith(m):
+                    a = to + s[len(m):]
                     break
             names.append(a)
         cov.switch_context("argv:" + " ".join(names))
