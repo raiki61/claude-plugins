@@ -185,6 +185,18 @@ def _branch_places(places):
     return {p["branch"]: p["path"] for p in places if p.get("linked") and p.get("branch") and not p.get("prunable")}
 
 
+def _department_places(places, ports, source):
+    """worktree の並びのうち、部署の作業場（属性 company.role を持つ linked worktree。元の clone は除く）の {ブランチ: 部署の名前}。"""
+    out = {}
+    for p in places:
+        if not (p.get("linked") and p.get("branch")) or os.path.realpath(p["path"]) == os.path.realpath(source):
+            continue
+        attrs = ports.attrs(p["path"])
+        if attrs.get("role"):
+            out[p["branch"]] = attrs.get("name") or p["branch"]
+    return out
+
+
 def _issue_item(repo, number, ports, notes):
     """--issue の 1 件を、prs の 1 件と同じ形（kind が issue）にする。ブランチは issue に結んだブランチ（2 本以上なら最初の 1 本）。
     結んだブランチが見えなければ、issue を閉じる開いた PR のブランチ（ブランチから PR を作ると、GitHub はブランチの結びつきを PR に置き換える）。
@@ -549,6 +561,15 @@ def main(argv=None, ports=None):
         # 閉じた issue にはブランチを作らない（作る前に止める）
         print("\n".join(report.lines([_held_row(my_prs[0], "issue_closed", {}, kind="issue")], {}, notes)))
         return 0
+    if listing:
+        # 部署の作業場（--task が立てた worktree。属性 company.role を持つ）は部署の会話の物なので、一覧の回の送り直し・自分の番でない会話を
+        # 閉じる・閉じた PR の片付けのどれにも使わない（2026-10-29 に guided-resolver で、部署の出した PR が自分の番の一覧に入り、送り直しの
+        # /exit が部署の会話の窓を attach から外した）。部署は --clean・--retire が畳む
+        depts = _department_places(found, ports, repo.source)
+        for p in [p for p in my_prs if p["head"] in depts]:
+            notes.append(f"#{p['number']}: 部署「{depts[p['head']]}」の作業場のブランチなので開かない（レビューの返しは --ask '{depts[p['head']]}' --text <頼み> で部署へ回す）")
+        my_prs = [p for p in my_prs if p["head"] not in depts]
+        found = [p for p in found if p.get("branch") not in depts]
     places = _branch_places(found)
     turn_numbers = {p["number"] for p in my_prs}   # 自分の番の PR（片付けで、自分の番でない PR の会話を見分ける）
     sess = sessions.collect(listed, ports.branch, ports.origin)

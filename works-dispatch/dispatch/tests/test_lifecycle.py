@@ -729,5 +729,46 @@ class Flow(unittest.TestCase):
         self.assertTrue(pathlib.Path(path).exists())
 
 
+    def department(self, path, name="部署の作業"):
+        self.g.set_worktree_attr(path, "role", "作業")
+        self.g.set_worktree_attr(path, "name", name)
+
+    def test_departments_place_is_never_refreshed_closed_or_tidied_by_the_listing(self):
+        # 部署の作業場（属性 company.role を持つ worktree）の会話は、一覧の回のどの道でも /exit しない（2026-10-29、guided-resolver）
+        for case in ("refresh", "off_turn", "merged"):
+            with self.subTest(case):
+                self.setUp()
+                if case == "off_turn":
+                    path, ports, _ = self.off_turn()
+                else:
+                    path = self.place(3)
+                    ports = FakePorts([pr(3)] if case == "refresh" else [], git=self.g)
+                    self.talking_in(ports, path)
+                    ports.acts = {3: {"reviewers": True, "last_other": 500.0}}
+                    if case == "merged":
+                        self.merged(ports, 3, path)
+                self.department(path)
+                rc, out = run_main(self.cfg, ports)
+                self.assertEqual(rc, 0, out)
+                self.assertEqual(ports.term.writes, [], out)
+                self.assertTrue(pathlib.Path(path).exists())
+                if case == "refresh":
+                    self.assertIn("#3: 部署「部署の作業」の作業場のブランチなので開かない（レビューの返しは --ask '部署の作業' --text <頼み> で部署へ回す）", out)
+
+    def test_a_pr_place_beside_a_department_is_still_refreshed(self):
+        # 部署の作業場を外しても、同じ回の部署でない PR の作業場は今までどおり送り直す（絞りすぎない）
+        dept, path = self.place(3), self.place(1)
+        ports = FakePorts([pr(1), pr(3)], git=self.g)
+        self.talking_in(ports, dept)
+        old = self.talking_in(ports, path)
+        ports.acts = {n: {"reviewers": True, "last_other": 500.0} for n in (1, 3)}
+        self.department(dept)
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("refreshed"), out)
+        self.assertEqual([x for x in ports.term.writes if x[0] == "prompt" and x[2] == "/exit"],
+                         [("prompt", old["pane_id"], "/exit", False)])
+
+
 if __name__ == "__main__":
     unittest.main()
