@@ -5917,6 +5917,9 @@ expect_output 0 "WRITE_OK" \
 expect_output 0 "UNREADABLE_OK" \
     "works-factory-pin: gh が落ちたら黙らずに知らせ（回した頼みが開いていれば黙る）、読めない入力は 2 で止める" \
     "$PY_BIN" "$WFP_CASE" unreadable
+expect_output 0 "LIMITED_OK" \
+    "works-factory-pin: GitHub の利用制限で断られた回は頼みにせず黙って時刻を覚え、1 日を過ぎても続けば知らせ、読めた回に時刻を消す" \
+    "$PY_BIN" "$WFP_CASE" limited
 expect_output 0 "PAGE_OK" \
     "works-factory-pin: 比べの一覧をページで繰り、main の先の本数まで読む" \
     "$PY_BIN" "$WFP_CASE" page

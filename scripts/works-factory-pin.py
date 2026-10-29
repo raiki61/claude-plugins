@@ -28,8 +28,13 @@ worktree とブランチ（works-factory-pin/<上げ先の頭 12 字>）を作�
 使い方:
   python3 scripts/works-factory-pin.py < 入力の JSON（省けば {}。{"dry_run": true} なら、知らせる物を出すだけで覚えない）
   python3 scripts/works-factory-pin.py --write [<commit>]   作業の部署の作業場で、PIN と CHANGELOG の [Unreleased] を書き、照合の結果を出す
-終了の値: 0 = 上げる物が無いか、機械の上げで main に入れた（--write は書いた） / 1 = 作業に回す上げが在る（その行を出す）か、gh・git を
-読めないか、機械の上げが失敗した / 2 = 入力・引数が読めない
+GitHub の利用制限（rate limit）で gh が断られた回は、読まずに 0 で終わり、当たり始めた時刻を覚える（次に main へ入れた後の合図で読み直す）。
+GitHub は、制限に当たった間は打ち直さずに待つよう求めている（https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+の「Exceeding the rate limit」）。tests/ci-watch.py と同じ形で、同じ合図で CI の見張りのすぐ後に回るので同じ制限に当たる（頼み 9f1616）。
+当たり始めてから REPEAT を過ぎても続けば、黙らずに 1 で知らせる（知らせた後は REPEAT ごとに 1 回）。
+
+終了の値: 0 = 上げる物が無いか、機械の上げで main に入れた（--write は書いた）か、利用制限で今回は読まなかった / 1 = 作業に回す上げが在る
+（その行を出す）か、gh・git を読めないか、機械の上げが失敗した / 2 = 入力・引数が読めない
 """
 
 import json
@@ -66,6 +71,7 @@ MAIN = "main"   # claude-plugins のメインブランチ。機械の上げは o
 BRANCH = "works-factory-pin/"   # 機械の上げのブランチの名前の頭（後ろに上げ先の頭 12 字）。--land はこの名前で部署を探す
 LANDING = "WORKS_FACTORY_PIN_LANDING"   # 機械の上げが --land に渡す環境変数（値は上げ先）。その --land の合図で呼ばれたこのツールは黙る
 LAND_TAIL = 12   # 機械の上げが失敗したときに出す、--land の出力の終わりの行数（頼みに載るのは出力の末尾 20 行なので、上げ先の行から手順の行までをその中に収める）
+REPEAT = 24 * 60 * 60   # 利用制限が続いても黙る長さ（秒。1 日。tests/ci-watch.py の REPEAT と同じ）
 PAGE = 100   # 比べ（compare）の commit の一覧を 1 回に引く数（GitHub の per_page の上限）。既定の 30 では、31 本より先の main を読み切れない
 
 
@@ -74,10 +80,17 @@ def run(argv, cwd=None):
     return p.returncode, p.stdout or "", p.stderr or ""
 
 
+class Limited(RuntimeError):
+    """gh が GitHub の利用制限（1 次の "API rate limit exceeded" と 2 次の "secondary rate limit"）で断られた。"""
+
+
 def gh_json(path, runner):
     code, out, err = runner(["gh", "api", path])
     if code != 0:
-        raise RuntimeError(f"gh api {path} が {code} で終わった: {err.strip()[-300:]}")
+        # 長い文は頭と末尾を残す（2 次の制限の文は、訳の "secondary rate limit" が頭に在り、末尾の 300 字には残らない）
+        err = err.strip()
+        short = err if len(err) <= 300 else f"{err[:150]} … {err[-150:]}"
+        raise (Limited if "rate limit" in err.lower() else RuntimeError)(f"gh api {path} が {code} で終わった: {short}")
     try:
         return json.loads(out)
     except ValueError as e:
@@ -269,14 +282,34 @@ def load_state(path):
         return {}
     except (OSError, ValueError) as e:
         raise RuntimeError(f"覚えた上げ先（{path}）を読めない（{e}）。消せば、今の上げ先を知らせ直す") from e
-    return got if isinstance(got, dict) else {}
+    got = got if isinstance(got, dict) else {}
+    if not isinstance(got.get("limited", 0), (int, float)):
+        raise RuntimeError(f"覚えた上げ先（{path}）の形が違う（limited が数でない）。消せば、今の上げ先を知らせ直す")
+    return got
 
 
-def save_state(path, sha, at):
+def save_state(path, sha, at, limited=None):
+    """limited は利用制限に当たり始めた時刻（Unix 時刻。読めた回は None で、覚えた時刻を消す）。"""
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"told": sha, "at": at}, f)
+        json.dump({"told": sha, "at": at, **({"limited": limited} if limited is not None else {})}, f)
     os.replace(tmp, path)
+
+
+def limited(path, state, now, dry, e):
+    """利用制限で読めなかった回。当たり始めてから REPEAT のうちは 0 で黙り、過ぎたら 1 で知らせて時刻を今に替える（知らせるのは REPEAT ごとに 1 回）。"""
+    since = state.get("limited", now)
+    late = now - since > REPEAT
+    when = lambda t: time.strftime("%Y-%m-%d %H:%M", time.gmtime(t))
+    if late:
+        print(f"工場の版の見張りが読めなかった: GitHub の利用制限（rate limit）が {when(since)} UTC から {REPEAT // 86400} 日を過ぎても"
+              f"続いている。gh api rate_limit で残りを見る: {e}")
+    else:
+        print(f"今回は読まなかった: GitHub の利用制限（rate limit）に当たった。次に main へ入れた後の合図で読み直す"
+              f"（{when(since + REPEAT)} UTC を過ぎても続けば知らせる）: {e}")
+    if not dry:
+        save_state(path, state.get("told"), state.get("at"), now if late else since)
+    return 1 if late else 0
 
 
 def url_of():
@@ -307,7 +340,12 @@ def watch(stdin, runner, root, now, env, lander):
         state_path = os.path.join(cdir, STATE)
         state = load_state(state_path)
         pin = read_pin(root)
-        to, commits = target(pin, runner)
+        try:
+            to, commits = target(pin, runner)
+        except Limited as e:
+            return limited(state_path, state, now, dry, e)
+        if "limited" in state and not dry:   # 読めたので、覚えた利用制限の時刻を消す（次に当たったら、そこから数え直す）
+            save_state(state_path, state.get("told"), state.get("at"))
         if to is None:
             print(f"上げる物は無い（PIN {pin[:8]} の後の工場の main の commit {len(commits)} 本に、CI〔{CHECK}〕が緑の物が無い）"
                   if commits else f"上げる物は無い（PIN {pin[:8]} が工場の main の頭）")

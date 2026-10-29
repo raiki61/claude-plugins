@@ -13,6 +13,8 @@
 - write: --write が PIN を上げ先に替え、CHANGELOG の [Unreleased] の Changed に PR の番号と差分の URL の 1 行を足す（Changed が無ければ作る）。
   緑でない commit・PIN の後に無い commit の名指しは書かずに止める
 - unreadable: gh が落ちたら黙らず 1 で知らせる。ただし、このツールの頼みが開いていれば gh を読む前に黙る。入力が JSON のオブジェクトでなければ 2
+- limited: gh が GitHub の利用制限で断られた回は 0 で黙り、当たり始めた時刻を覚える（覚えた上げ先は消さない。dry_run は覚えない）。
+  REPEAT を過ぎても続けば 1 で知らせて時刻を替え、利用制限でない失敗は知らせ、読めた回は時刻を消す
 - page: 比べの一覧をページで繰り、main の先の本数（ahead_by）まで読む
 - edges: CHANGELOG の Changed の空行の無い形・Unreleased が最後のセクションの形、inputs の下げた続きの行と列 0 のコメント
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
@@ -128,6 +130,7 @@ class Fake:
 
     def __init__(self, gitdir, shas, titles, checks, broken=False):
         self.gitdir, self.shas, self.titles, self.checks, self.broken = gitdir, shas, titles, checks, broken
+        self.err = "HTTP 502"   # broken のときの gh の stderr
         self.places = {}   # git -C <場所> の共通のディレクトリの答えを場所ごとに替える物（無い場所は gitdir）
 
     def __call__(self, argv, cwd=None):
@@ -136,7 +139,7 @@ class Fake:
                 return 0, self.places.get(argv[2], self.gitdir) + "\n", ""
             return wp.run(argv)
         if self.broken:
-            return 1, "", "HTTP 502"
+            return 1, "", self.err
         path = argv[2]
         if "/compare/" in path:
             pin = path.split("/compare/")[1].split("...")[0]
@@ -291,6 +294,42 @@ def unreadable():
     print("UNREADABLE_OK")
 
 
+def limited():
+    # 2 次の制限の文は GitHub の答えの形（頭に "rate limit" が在り、末尾の 300 字には残らない長さ）
+    err = ("gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. If you reach out to GitHub "
+           "Support for help, please include the request ID 0000:0000:0000000:0000000:00000000 and timestamp 2026-10-28 23:45:16 UTC. "
+           "For more on scraping GitHub and how it may affect your rights, please review our Terms of Service "
+           "(https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) (HTTP 403)")
+    fake, root, shas, d = world(1, {2: ok()})
+    path = os.path.join(d, wp.STATE)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"told": shas[1], "at": 50.0}, f)
+    state = lambda: json.load(open(path, encoding="utf-8"))
+    fake.broken, fake.err = True, err
+    code, out = go(fake, root, '{"dry_run": true}')
+    check(code == 0 and "limited" not in state(), f"dry_run の利用制限で時刻を覚えた: {code} {out} {state()}")
+    code, out = go(fake, root)
+    check(code == 0 and "secondary rate limit" in out and state() == {"told": shas[1], "at": 50.0, "limited": 100.0},
+          f"利用制限を黙って覚えない: {code} {out} {state()}")
+    code, out = go(fake, root, now=100.0 + wp.REPEAT)
+    check(code == 0 and state()["limited"] == 100.0, f"REPEAT のうちに知らせたか、当たり始めた時刻を替えた: {code} {out} {state()}")
+    later = 100.0 + wp.REPEAT + 3600
+    code, out = go(fake, root, '{"dry_run": true}', now=later)
+    check(code == 1 and state()["limited"] == 100.0, f"dry_run で REPEAT を過ぎた回に知らせないか、時刻を替えた: {code} {out} {state()}")
+    code, out = go(fake, root, now=later)
+    check(code == 1 and "secondary rate limit" in out and "(HTTP 403)" in out and state()["limited"] == later, f"REPEAT を過ぎた利用制限を黙った: {code} {out} {state()}")
+    fake.err = "gh: API Rate Limit exceeded for user ID 1. (HTTP 403)"   # 1 次の制限。大文字小文字を問わず見る
+    code, out = go(fake, root, now=later)
+    check(code == 0 and state()["limited"] == later, f"1 次の利用制限を知らせた: {code} {out} {state()}")
+    fake.err = "HTTP 403: Resource not accessible by integration"
+    code, out = go(fake, root, now=later)
+    check(code == 1 and "HTTP 403" in out and state()["limited"] == later, f"利用制限でない 403 を黙った: {code} {out}")
+    fake.broken, fake.checks = False, {}
+    code, out = go(fake, root, now=later)
+    check(code == 0 and state() == {"told": shas[1], "at": 50.0}, f"読めた回に利用制限の時刻を消さない: {code} {out} {state()}")
+    print("LIMITED_OK")
+
+
 def page():
     shas = [f"{i:040x}" for i in range(1, 2 * wp.PAGE + 12)]
     fake = Fake(tmp(), shas, {}, {shas[-1]: ok()})
@@ -431,5 +470,5 @@ def auto():
 
 
 if __name__ == "__main__":
-    {"target": target, "told": told, "cross": cross, "surface": surface, "write": write, "unreadable": unreadable, "page": page, "edges": edges,
+    {"target": target, "told": told, "cross": cross, "surface": surface, "write": write, "unreadable": unreadable, "limited": limited, "page": page, "edges": edges,
      "title": title, "auto": auto}[sys.argv[1]]()
