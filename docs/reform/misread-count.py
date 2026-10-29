@@ -93,7 +93,7 @@ def walk(path, since, until, active, hit, total):
         at = when(d)
         if at is None:
             continue
-        texts = []   # 仕組みが会話に渡した文（Stop のフックの差し戻しと、届いた頼み）
+        texts = []   # 仕組みが会話に渡した文（Stop のフックの差し戻しと、届いた頼み）: (Stop のフックの attachment か, 文)
         if d.get("type") == "attachment":
             a = d.get("attachment") or {}
             if a.get("type") == "hook_additional_context" and a.get("hookEvent") == "SessionStart":
@@ -110,14 +110,14 @@ def walk(path, since, until, active, hit, total):
                     lang = "en" if EN_ROLE in text else "ja"
             elif a.get("type") == "hook_blocking_error" and a.get("hookEvent") == "Stop":
                 be = a.get("blockingError")
-                texts.append(be.get("blockingError") if isinstance(be, dict) else str(be or ""))
+                texts.append((True, be.get("blockingError") if isinstance(be, dict) else str(be or "")))
         elif d.get("type") == "user":
             c = (d.get("message") or {}).get("content")
             for b in ([{"type": "text", "text": c}] if isinstance(c, str) else c if isinstance(c, list) else []):
                 if not isinstance(b, dict):
                     continue
                 if b.get("type") == "text":
-                    texts.append(b.get("text") or "")
+                    texts.append((False, b.get("text") or ""))
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in deliver_ids:
                     t = oh.result_text(b)
                     if re.search(r"納品 \d{8}-\d{6}-[0-9a-f]{6} →", t):
@@ -134,10 +134,10 @@ def walk(path, since, until, active, hit, total):
                         deliver_ids.add(b.get("id"))
                     if delivered and COMMIT.search(cmd):
                         count("commit_after", at)
-        for t in texts:
+        for stop, t in texts:
             if "頼みです（受付" in t:
                 delivered = False   # 常駐の部署は次の頼みを同じ会話で受ける。commit を数えるのは納品から次の頼みまで
-            if not (d.get("type") == "attachment" or any(s in t for s in STOP) or t.startswith(LATE)):
+            if not (stop or any(s in t for s in STOP) or t.startswith(LATE)):
                 continue
             body = t.split("\n", 1)[1] if t.startswith(STOP) and "\n" in t else t
             if body in last_texts:
