@@ -1452,7 +1452,7 @@ class QueueRun(LandCase):
     def race(self, first):
         """first（"land" か "queue-run"）を先に申し出させて止めている間に、もう片方を申し出させ、起きた事の並びを返す。"""
         events, lock, hold = [], threading.Lock(), threading.Event()
-        real_refresh, real_advance = land.refresh, land.advance
+        real_refresh, real_advance, real_wait = land.refresh, land.advance, landqueue._wait
 
         def note(what):
             with lock:
@@ -1471,6 +1471,12 @@ class QueueRun(LandCase):
             if first == "land":
                 hold.wait()
             return 0, ""
+
+        def wait(queue, name, gate, say, sleep):
+            def nap(seconds):
+                note("wait")   # 待つ行を出した後に眠る
+                sleep(seconds)
+            return real_wait(queue, name, gate, say, nap)
 
         def command(argv):
             note("start")
@@ -1491,12 +1497,16 @@ class QueueRun(LandCase):
         second = "queue-run" if first == "land" else "land"
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
-                mock.patch.object(land, "refresh", refresh), mock.patch.object(land, "advance", advance):
+                mock.patch.object(land, "refresh", refresh), mock.patch.object(land, "advance", advance), \
+                mock.patch.object(landqueue, "_wait", wait):
             threads[first].start()
             while (first, "gate" if first == "land" else "start") not in events:   # 先のほうが列の先頭を持つまで
                 time.sleep(0.01)
             threads[second].start()
-            time.sleep(0.5)   # 後のほうに、列が無ければ進んでしまうだけの間を与える
+            # 後のほうが列で待ち始めてから先のほうを放す。時計で放すと、遅い runner では後のほうが待つ行を出す前に先のほうが
+            # 終わった（2026-10-29 の main の CI の windows。頼み 89e17d）
+            while (second, "wait") not in events:
+                time.sleep(0.01)
             hold.set()
             for t in threads.values():
                 t.join()

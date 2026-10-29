@@ -39,6 +39,19 @@ def dead_pid():
     return p.pid
 
 
+def posix_kill():
+    """posix=True の分岐を回す間の os.kill。Windows では、この試験の処理だけを生きていると見る偽物にする。Windows の os.kill は 0 を
+    渡しても処理を止め、番号の使い回しも早いので、dead_pid() の番号が別の処理に当たると生きて見えたうえ、その処理を止めかねない
+    （2026-10-29 の main の CI の windows で、test_listening… と test_stalled… が揺れた。頼み 89e17d）。POSIX は本物を打つ。"""
+    if os.name != "nt":
+        return contextlib.nullcontext()
+
+    def kill(pid, sig):
+        if pid != os.getpid():
+            raise ProcessLookupError(pid)
+    return mock.patch.object(wake.os, "kill", kill)
+
+
 class Watch(unittest.TestCase):
     """待ち受けの本体を、時計と待ちを偽物にして回す。台帳への書き込みは待ちのターンごとに差し込む。"""
 
@@ -130,6 +143,10 @@ class Watch(unittest.TestCase):
         self.assertIsNone(wake.read_mark(self.inbox, self.place))
 
     def test_listening_needs_the_name_and_a_living_conversation(self):
+        with posix_kill():
+            self.check_listening()
+
+    def check_listening(self):
         wake.claim(self.inbox, self.place, self.names, "s1", os.getpid(), "t", 0)
         self.assertTrue(wake.has_history(self.inbox, self.place))   # 張ったら跡が残る
         self.assertEqual(wake.listening(self.inbox, "co/前の名前", posix=True)["token"], "t")
@@ -180,6 +197,10 @@ class Watch(unittest.TestCase):
             pass
 
     def test_stalled_needs_a_queue_a_delivered_ask_and_no_running_watcher(self):
+        with posix_kill():
+            self.check_stalled()
+
+    def check_stalled(self):
         # 会話は生きているのに待ち受けの台本が居ない（2026-10-17 に my_notes のノートの手入れで約 70 分止まった形）
         def mark(pid):
             os.makedirs(os.path.dirname(wake.mark_path(self.inbox, self.place)), exist_ok=True)
