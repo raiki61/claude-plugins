@@ -33,8 +33,9 @@ import sys
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
 from record_common import (  # noqa: E402
-    DECIDERS, THICKNESS, check_convergence, check_gate, check_sampling, check_thickness, fail, is_str_list, load,
-    not_applicable, require_bool, require_dict, require_int, require_str, require_str_list, run, utf8_output,
+    DECIDERS, THICKNESS, check_convergence, check_gate, check_lists, check_sampling, check_thickness, fail, is_str_list,
+    not_applicable, publish_main, require_bool, require_dict, require_int, require_labels, require_record, require_str,
+    require_str_list, run, utf8_output,
 )
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
@@ -70,9 +71,7 @@ LABELS = {
     "light": "軽量", "standard": "標準", "heavy": "重厚", "requester": "依頼者指定", "default": "既定",
     "high": "高", "medium": "中", "low": "低",
 }
-_missing = [k for k in (*NODE_VERDICTS, *CONFIDENCES, *WEIGHTS, *THICKNESS, *DECIDERS, *FEASIBILITY) if k not in LABELS]
-if _missing:
-    fail(f"表示の語の表 LABELS にキーが無い: {_missing}")
+require_labels("LABELS", LABELS, (*NODE_VERDICTS, *CONFIDENCES, *WEIGHTS, *THICKNESS, *DECIDERS, *FEASIBILITY))
 
 
 def choices(keys):
@@ -102,11 +101,7 @@ REQUIRED = (
 
 def validate(rec, path):
     # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
-    if not isinstance(rec, dict):
-        fail(f"{path}: 記録の最上位が object でない")
-    for key in REQUIRED:
-        if key not in rec:
-            fail(f"{path}: 必須のフィールド '{key}' が無い")
+    require_record(rec, path, REQUIRED)
 
     require_str(rec, "area", path)
     check_thickness(rec, path, choices(THICKNESS))
@@ -194,16 +189,10 @@ def validate(rec, path):
     ):
         fail(f"{path}: 採用候補が {adoptable} 件あるのに消化の三分類が全部空")
 
-    for name, fields in (
+    check_lists(rec, path, (
         ("ledger_candidates", ("claim", "reason", "revisit", "evidence")),
         ("out_of_scope", ("finding",)),
-    ):
-        if not isinstance(rec[name], list):
-            fail(f"{path}: '{name}' が配列でない")
-        for i, item in enumerate(rec[name]):
-            require_dict(item, f"{path}: {name}[{i}]")
-            for k in fields:
-                require_str(item, k, f"{path}: {name}[{i}]")
+    ))
 
     check_sampling(rec["sampling"], path, "sampled_keys", keys, "ノード")
 
@@ -280,29 +269,8 @@ def blockers(rec):
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(__doc__, file=sys.stderr)
-        fail(f"引数は 1 個（受け取った数: {len(sys.argv) - 1}）")
-
-    rec = load(sys.argv[1])
-    validate(rec, sys.argv[1])
-
-    found = blockers(rec)
-    if found:
-        print(f"発行を妨げるもの {len(found)} 件:")
-        for b in found:
-            print(f"  - {b}")
-        sys.exit(1)
-    if rec["convergence"]["outcome"] == "stopped":
-        print(
-            f"停止（未飽和）の申告つきで発行できる: {rec['convergence']['stopped_reason']}——"
-            "諮りたかった内容は散文の冒頭に「要人間判断」として列挙しろ。"
-        )
-        return
-    print(
-        "機械で見つけられる発行の阻害は無い。**これは品質・飽和の宣言ではない**——"
-        "木の妥当性・一撃の筋・記録に載らない懸念は人と cold-reader が見ろ。"
-    )
+    publish_main(__doc__, validate, blockers, "未飽和",
+                 "木の妥当性・一撃の筋・記録に載らない懸念は人と cold-reader が見ろ。")
 
 
 if __name__ == "__main__":

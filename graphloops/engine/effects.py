@@ -19,15 +19,19 @@ REDUCER_KEY = "x-reducer"
 LOOP_HEAD = "loop."
 
 
+def _props(schema):
+    return (schema or {}).get("properties") or {}
+
+
 def reducer_of(schema, key):
     """state_schema が鍵 key に宣言した合わせ方（宣言が無ければ None）"""
-    prop = ((schema or {}).get("properties") or {}).get(key)
+    prop = _props(schema).get(key)
     return prop.get(REDUCER_KEY) if isinstance(prop, dict) else None
 
 
 def declares_reducers(schema):
     """state_schema が合わせ方を宣言している（＝run の状態を effect の口だけで書く）graph か"""
-    return any(isinstance(p, dict) and REDUCER_KEY in p for p in ((schema or {}).get("properties") or {}).values())
+    return any(isinstance(p, dict) and REDUCER_KEY in p for p in _props(schema).values())
 
 
 def apply_effects(loop, effects, schema, by):
@@ -43,7 +47,7 @@ def apply_effects(loop, effects, schema, by):
             die(f"{by}: effects[{i}] の書き先 '{e['to']}' は loop の最上位の鍵 1 つ（下のフィールドは合わせ方の値で書く）")
         want = reducer_of(schema, key)
         if want is None:
-            if r == "overwrite" and value is None and key not in ((schema or {}).get("properties") or {}):
+            if r == "overwrite" and value is None and key not in _props(schema):
                 loop.pop(key, None)
                 continue
             die(f"{by}: effects[{i}] の鍵 '{key}' に graph の state_schema が合わせ方（{REDUCER_KEY}）を宣言していない")

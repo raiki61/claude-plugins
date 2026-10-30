@@ -19,6 +19,8 @@ import json
 import pathlib
 import re
 
+from .util import ENGINE_DEFS, read_json
+
 
 @functools.lru_cache(maxsize=None)
 def end_anchored(pat):
@@ -111,7 +113,6 @@ def expand_refs(graph):
     ノードの pointers（番号で指すフィールド。engine/pointers.py）の型の広げもここで行う。
     **展開は graph を読む入口（盤面・init・graphcheck）で 1 度だけ行い、型検査は展開後の形だけを見る**。
     引けない $ref は ValueError（黙って空の schema にすると、そのフィールドの型検査が消える）"""
-    from .util import ENGINE_DEFS
     local = graph.get("$defs") or {}
 
     def walk(x, seen):
@@ -244,7 +245,6 @@ def inline_block_refs(obj, path, used=None):
 
     def load(p):
         if p not in docs:
-            from .util import read_json
             if root not in p.parents or p.suffix != ".json":
                 raise ValueError(f"$ref が {p} を指している（引けるのは {root} の下の .json だけ）")
             if not p.is_file():
@@ -281,7 +281,6 @@ def inline_block_refs(obj, path, used=None):
 
 def graph_files(path):
     """graph の同一性に入るファイル: graph・差し替えの元（extends の鎖の根元まで）・展開で引いたブロックのファイル（引いた順）"""
-    from .util import read_json
     chain, used = extends_chain(path, read_json), []
     for p, g in chain:
         inline_block_refs(g, p, used)
@@ -321,7 +320,6 @@ def graph_text(path):
 def load_graph(path):
     """graph を読んで（差し替えの版なら元の graph に重ねて）$ref を展開する ——（graph, ""）か（None, 理由）。graph を読む入口（盤面・init・graphcheck）はこの 1 本を通し、
     理由をどう伝えるか（die か NG の印字か）だけを呼び元が決める"""
-    from .util import read_json
     try:
         return expand_refs(resolve_extends(path, lambda p: inline_block_refs(read_json(p), p))), ""
     except ValueError as e:

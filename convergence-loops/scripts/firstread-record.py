@@ -64,7 +64,9 @@ import sys
 # importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
-from record_common import _rows, fail, is_int, load, require_dict, run, utf8_output  # noqa: E402
+from record_common import (  # noqa: E402
+    _rows, fail, is_int, load, print_list, require_dict, require_labels, require_record, require_round, run, utf8_output,
+)
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
 
@@ -125,24 +127,13 @@ TAX_LABELS = {
     "pass": "通す", "wrong_place": "置き場が違う", "root_elsewhere": "根本が別にある",
     "creates_snag": "作る詰まりの懸念", "skipped_by_requester": "省略（依頼者の指定）",
 }
-_missing = [k for k in TAX_VERDICTS if k not in TAX_LABELS]
-if _missing:
-    fail(f"表示の語の表 TAX_LABELS にキーが無い: {_missing}")
+require_labels("TAX_LABELS", TAX_LABELS, TAX_VERDICTS)
 
 
 def validate(rec, path):
     # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
-    if not isinstance(rec, dict):
-        fail(f"{path}: 記録の最上位が object でない")
-    for key in ("target", "round", "scope", "reader_profile", "pre_answers", "errands", "materials"):
-        if key not in rec:
-            fail(f"{path}: 必須のフィールド '{key}' が無い")
-    if not is_int(rec["round"]):
-        fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
-    # 連番検査は間隔しか見ないので、基点を押さえないと負値から始めて連番のまま
-    # 永久に素通りできる。手順書は「1 から 1 ずつ」。
-    if rec["round"] < 1:
-        fail(f"{path}: 'round' が 1 以上でない: {rec['round']!r}")
+    require_record(rec, path, ("target", "round", "scope", "reader_profile", "pre_answers", "errands", "materials"))
+    require_round(rec, path)
     # **範囲は読ませる前に書くもの。** 詰まりを見てから狭められると、都合の悪いものを
     # 外に出すツールになる。書かれていること自体はここで、書いた時期は人が見る。
     if not rec.get("scope"):
@@ -274,20 +265,21 @@ def validate(rec, path):
             fail(f"{path}: size.{field} が 0 以上の整数でない: {v!r}")
 
 
+def found_items(rec, names):
+    """素材 `names` のうち status=found のものの項目を順に返す"""
+    for name in names:
+        m = rec["materials"][name]
+        if m["status"] == "found":
+            yield from m["items"]
+
+
 def stuck_items(rec):
     """この周に出た**範囲内の**詰まりを key → 中身で返す。
 
     範囲外を混ぜないこと——直していないものが次の周でまた出るのは当然で、
     「同じ場所でまた詰まった（直し方が効いていない）」とは別の事象。
     """
-    items = {}
-    for name in STUCK:
-        m = rec["materials"][name]
-        if m["status"] == "found":
-            for it in m["items"]:
-                if it["in_scope"]:
-                    items[it["key"]] = it
-    return items
+    return {it["key"]: it for it in found_items(rec, STUCK) if it["in_scope"]}
 
 
 def repeated_skips(rec, prev):
@@ -302,8 +294,7 @@ def repeated_skips(rec, prev):
         return []
 
     def keys(r):
-        m = r["materials"]["skipped"]
-        return {it["key"] for it in m["items"]} if m["status"] == "found" else set()
+        return {it["key"] for it in found_items(r, ("skipped",))}
 
     return sorted(keys(rec) & keys(prev))
 
@@ -322,16 +313,7 @@ def structural_recurrence(rec, prev):
 
 def out_of_scope(rec):
     """範囲の外へ倒したものと、その行き先。**阻害要因にはしない。**"""
-    out = []
-    for name in STUCK:
-        m = rec["materials"][name]
-        if m["status"] == "found":
-            out.extend(
-                f"{it['key']} → {it['disposition']}"
-                for it in m["items"]
-                if not it["in_scope"]
-            )
-    return out
+    return [f"{it['key']} → {it['disposition']}" for it in found_items(rec, STUCK) if not it["in_scope"]]
 
 
 def blockers(rec, prev):
@@ -417,29 +399,12 @@ def main():
         if rec["round"] != prev["round"] + 1:
             fail(f"周が連番でない: {prev['round']} の次が {rec['round']}")
 
-    outside = out_of_scope(rec)
-    if outside:
-        print("範囲の外へ出したもの（阻害要因ではない。行き先まで書かれているかを人が見ろ）:")
-        for line in outside:
-            print(f"  - {line}")
-
-    again = repeated_skips(rec, prev)
-    if again:
-        print("2 周続けて読み飛ばされた（阻害要因ではない。消す・場所を変える・見出しを付けるのどれかをしたか）:")
-        for line in again:
-            print(f"  - {line}")
-
-    fixed = structural_recurrence(rec, prev)
-    if fixed:
-        print("読み役の性質による再出として収束信号から外したもの（阻害要因ではない。理由が本当かを人が見ろ）:")
-        for line in fixed:
-            print(f"  - {line}")
-
-    grew = growth(rec, prev)
-    if grew:
-        print("直し方が足す側に偏っている（阻害要因ではない。消す・場所を変える・並べ替えるを見たか）:")
-        for line in grew:
-            print(f"  - {line}")
+    print_list("範囲の外へ出したもの（阻害要因ではない。行き先まで書かれているかを人が見ろ）:", out_of_scope(rec))
+    print_list("2 周続けて読み飛ばされた（阻害要因ではない。消す・場所を変える・見出しを付けるのどれかをしたか）:",
+               repeated_skips(rec, prev))
+    print_list("読み役の性質による再出として収束信号から外したもの（阻害要因ではない。理由が本当かを人が見ろ）:",
+               structural_recurrence(rec, prev))
+    print_list("直し方が足す側に偏っている（阻害要因ではない。消す・場所を変える・並べ替えるを見たか）:", growth(rec, prev))
 
     # 押し切りと引き金は阻害要因にしない——検証役の判定は鵜呑みにするものではなく、
     # 引き金は構造の判断（このループの外で実行されうる）へ渡すものだから。人が見る。
@@ -448,20 +413,14 @@ def main():
         for fx in rec["fixes"]
         if fx["tax_verdict"] not in TAX_UNOPPOSED
     ]
-    if pushed:
-        print("「通す」以外の判定で当てた直し（阻害要因ではない。押し切りか代案採用かを人が見ろ）:")
-        for line in pushed:
-            print(f"  - {line}")
+    print_list("「通す」以外の判定で当てた直し（阻害要因ではない。押し切りか代案採用かを人が見ろ）:", pushed)
 
     untaxed = [
         f"{fx['key']} → {fx['tax_reason']}"
         for fx in rec["fixes"]
         if fx["tax_verdict"] == "skipped_by_requester"
     ]
-    if untaxed:
-        print("検証税を省いた直し（阻害要因ではない。依頼者の指定が本当にあったかを人が見ろ）:")
-        for line in untaxed:
-            print(f"  - {line}")
+    print_list("検証税を省いた直し（阻害要因ではない。依頼者の指定が本当にあったかを人が見ろ）:", untaxed)
 
     if rec["structure_gate"]["fired"]:
         print("導線の引き金が立った（阻害要因ではない。構造の判断がこの周の文章の直しより先）:")
@@ -469,9 +428,7 @@ def main():
 
     found = blockers(rec, prev)
     if found:
-        print(f"収束を妨げるもの {len(found)} 件:")
-        for b in found:
-            print(f"  - {b}")
+        print_list(f"収束を妨げるもの {len(found)} 件:", found)
         sys.exit(1)
     print(
         "機械で見つけられる阻害要因は無い。**これは収束の宣言ではない**——"

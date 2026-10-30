@@ -14,13 +14,12 @@
 （relaunch の確かめと同じ読み、role_run._probe）。Windows は木の仲間を数える口が無いので、長が居るかだけを返し、
 長が終わった後の木の残りは止められない（taskkill /T は親子の鎖で辿る）。
 """
-import json
 import os
 import pathlib
 
 from . import role_run
 from .commands import attempt_marks, resolve_dir
-from .util import Reject, dump, now, read_json
+from .util import Reject, append_trace, dump, read_json
 
 RUNNING = "running"        # 印を書いたプロセス（launch）が生きている——いま走っている試行
 LEFT = "left"              # owner がもう居ない——止め残し（受け付けの後の残り・launch が先に死んだ残り）
@@ -115,10 +114,8 @@ def stop(board_dir, reason, include_running=False):
             continue
         why = role_run.stop_group(pathlib.Path(board_dir) / row["mark"])
         row.update(result="left" if why else "stopped", **({"stop_why": why} if why else {}))
-    with open(pathlib.Path(board_dir) / "trace.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": now(), "op": "children_stop", "reason": reason, "include_running": include_running,
-                            "rows": [{k: r.get(k) for k in ("mark", "instance", "state", "result", "stop_why")} for r in rows]},
-                           ensure_ascii=False) + "\n")
+    append_trace(board_dir, "children_stop", reason=reason, include_running=include_running,
+                 rows=[{k: r.get(k) for k in ("mark", "instance", "state", "result", "stop_why")} for r in rows])
     return rows
 
 

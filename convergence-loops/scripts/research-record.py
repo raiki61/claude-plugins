@@ -47,8 +47,9 @@ import sys
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
 from record_common import (  # noqa: E402
-    DECIDERS, GATE_VERDICTS, THICKNESS, _rows, _tables, check_convergence, check_gate, check_sampling, check_thickness, fail,
-    is_str_list, load, not_applicable, require_dict, require_int, require_str, require_str_list, run, utf8_output,
+    DECIDERS, GATE_VERDICTS, THICKNESS, _rows, _tables, check_convergence, check_gate, check_lists, check_sampling,
+    check_thickness, fail, is_str_list, not_applicable, publish_main, require_dict, require_int, require_labels,
+    require_record, require_str, require_str_list, run, utf8_output,
 )
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
@@ -106,9 +107,7 @@ OUTCOMES = ("converged", "stopped")
 # 直した周に写しだけが古くなり、しかも役は写しの方を読む（実測 2026-09-13: research の prompt 6 本が
 # 検証器の名前表を 13 か所で並べ直していた——review 側で同じ形を閉じた直後に、こちらは手つかずだった）。
 # **engine はこの dict の中身を知らない**——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
-_missing = [k for k in (*VERDICTS, *THICKNESS, *DECIDERS, *ORIGINS) if k not in LABELS]
-if _missing:
-    fail(f"表示の語の表 LABELS にキーが無い: {_missing}")
+require_labels("LABELS", LABELS, (*VERDICTS, *THICKNESS, *DECIDERS, *ORIGINS))
 PROMPT_TABLES = _tables("プロンプトの表", lambda: {
         # **必須フィールドは全部並べる。** 先頭 1 つだけを貼っていたので、判定語に 2 つ目の必須フィールドを足しても
     # 役に渡る本文には現れなかった（review 側は同じ表を全要素で並べており、写しどうしが割れていた）
@@ -146,7 +145,7 @@ GAP_FIELDS = ("question", "constraints", "clusters", "claims", "decisions")
 
 def stopped_gaps(rec, path):
     """止まった記録が理由つきで空と申告したフィールドの集合。申告の形が崩れている・止まっていない記録の申告・空でないフィールドの申告は落とす"""
-    gaps = (rec.get("process") or {}).get("stopped_gaps") if isinstance(rec.get("process"), dict) else None
+    gaps = rec["process"].get("stopped_gaps") if isinstance(rec.get("process"), dict) else None
     if gaps is None:
         return set()
     if not isinstance(gaps, dict) or not all(k in GAP_FIELDS and isinstance(v, str) and v.strip() for k, v in gaps.items()):
@@ -164,11 +163,7 @@ def stopped_gaps(rec, path):
 
 def validate(rec, path):
     # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
-    if not isinstance(rec, dict):
-        fail(f"{path}: 記録の最上位が object でない")
-    for key in REQUIRED:
-        if key not in rec:
-            fail(f"{path}: 必須のフィールド '{key}' が無い")
+    require_record(rec, path, REQUIRED)
     # 結末を先に見る——未決の記録（走っている run を途中で仕上げた）は他のフィールドも作りかけなので、後ろの検査で落ちると
     # 『記録が壊れている』に見える。止まった記録でだけ受ける規則（stopped_gaps・not_run）もこの値を読む
     conv = require_dict(rec["convergence"], f"{path}: 'convergence'")
@@ -255,13 +250,7 @@ def validate(rec, path):
             fail(f"{path}: 訂正の番号が連番でない（{i}番目が no={no}、先頭は no={start}）")
         require_str(c, "text", f"{path}: corrections[{i}]")
 
-    for name, fields in (("terms", ("term", "definition")), ("numbers", ("value", "source"))):
-        if not isinstance(rec[name], list):
-            fail(f"{path}: '{name}' が配列でない")
-        for i, item in enumerate(rec[name]):
-            require_dict(item, f"{path}: {name}[{i}]")
-            for k in fields:
-                require_str(item, k, f"{path}: {name}[{i}]")
+    check_lists(rec, path, (("terms", ("term", "definition")), ("numbers", ("value", "source"))))
 
     check_convergence(conv, path, OUTCOMES)   # 結末は上で先に見てある（ここでの結末の検査は必ず通る）
 
@@ -366,29 +355,8 @@ def blockers(rec):
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(__doc__, file=sys.stderr)
-        fail(f"引数は 1 個（受け取った数: {len(sys.argv) - 1}）")
-
-    rec = load(sys.argv[1])
-    validate(rec, sys.argv[1])
-
-    found = blockers(rec)
-    if found:
-        print(f"発行を妨げるもの {len(found)} 件:")
-        for b in found:
-            print(f"  - {b}")
-        sys.exit(1)
-    if rec["convergence"]["outcome"] == "stopped":
-        print(
-            f"停止（未収束）の申告つきで発行できる: {rec['convergence']['stopped_reason']}——"
-            "諮りたかった内容は散文の冒頭に「要人間判断」として列挙しろ。"
-        )
-        return
-    print(
-        "機械で見つけられる発行の阻害は無い。**これは品質・飽和の宣言ではない**——"
-        "統合の妥当性・散文の質・記録に載らない懸念は人と cold-reader が見ろ。"
-    )
+    publish_main(__doc__, validate, blockers, "未収束",
+                 "統合の妥当性・散文の質・記録に載らない懸念は人と cold-reader が見ろ。")
 
 
 if __name__ == "__main__":

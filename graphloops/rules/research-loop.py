@@ -360,6 +360,12 @@ def stop(b, reason):
     return {"decision": "stopped", "reason": reason}
 
 
+def _ask_decision(asks, question, options):
+    return {"decision": "ask", "reason": "; ".join(k for k, _ in asks), "ask": {
+        "kinds": [k for k, _ in asks], "question": question,
+        "items": [f"{k}: {t}" for k, t in asks], "options": options}}
+
+
 def converge(b, nid):
     """round.converge の機械版。判断は 4 つ: converged / next_round / stopped / ask。"""
     st, rec, rd, ls = b.state, b.record, b.rd, b.loop_state
@@ -431,22 +437,15 @@ def converge(b, nid):
         # research 側だけ残っていた＝**知見が片側にしか当たっていない**）。延長は 1 周だけ（on_answer が上げる）。
         asks.append(("max_rounds", f"総ラウンドが上限 {st['max_rounds']} に達した（収束せず）"
                                    "——上限を 1 周だけ延ばして続けるか、未収束のまま報告へ進むか"))
-        return {"decision": "ask", "reason": "; ".join(k for k, _ in asks), "ask": {
-            "kinds": [k for k, _ in asks],
-            "question": f"上限 {st['max_rounds']} 周に達した。次のどれにするか"
-                        "（continue: 上限を 1 周だけ延ばして次の周へ／stop: 未収束のまま報告へ）",
-            "items": [f"{k}: {t}" for k, t in asks],
-            "options": ["continue", "stop"]}}
+        return _ask_decision(asks, f"上限 {st['max_rounds']} 周に達した。次のどれにするか"
+                                   "（continue: 上限を 1 周だけ延ばして次の周へ／stop: 未収束のまま報告へ）",
+                             ["continue", "stop"])
     can_escalate = bool(b.tiers) and st.get("thickness") != b.tiers[-1]
     if asks:
-        return {"decision": "ask", "reason": "; ".join(k for k, _ in asks), "ask": {
-            "kinds": [k for k, _ in asks],
-            "question": "収束していない。次のどれにするか（continue: 次の周へ／stop: 未収束のまま報告へ"
-                        + ("／escalate: 重厚に上げて次の周へ" if can_escalate else "") + "）",
-            "items": [f"{k}: {t}" for k, t in asks],
-            # 最上段では escalate を出さない——出しても answer が『降格は許さない』で拒み、取れない選択肢になる
-            "options": ["continue", "stop"] + (["escalate"] if can_escalate else []),
-        }}
+        return _ask_decision(asks, "収束していない。次のどれにするか（continue: 次の周へ／stop: 未収束のまま報告へ"
+                                   + ("／escalate: 重厚に上げて次の周へ" if can_escalate else "") + "）",
+                             # 最上段では escalate を出さない——出しても answer が『降格は許さない』で拒み、取れない選択肢になる
+                             ["continue", "stop"] + (["escalate"] if can_escalate else []))
     if new:
         why = f"新規相違 {new} 件"
     elif fails:

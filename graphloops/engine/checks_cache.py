@@ -74,7 +74,7 @@ import subprocess
 import tempfile
 
 from . import declared
-from .util import worktree_tree
+from .util import now, worktree_tree
 
 RERUN_ENV = "GRAPHLOOPS_RERUN_CHECKS"
 # 指紋から外す環境変数（上の注記の「入れない物」。子には渡す）。2026-09-27 に同じ機械の loop.py launch 3 本と回す側のシェルの環境を
@@ -183,10 +183,6 @@ def _tool(argv0, cwd, path):
     real = os.path.realpath(found)
     st = os.stat(real)
     return {"argv0": argv0, "path": real, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
-
-
-def _now():
-    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def _born(d):
@@ -318,7 +314,7 @@ def lookup(p, steps, log_dir):
     """同じ指紋の緑を引く ——（段の行, 外れの理由）。当たれば置き場の出力を log_dir に写し、行は log_dir を指す。
     どの道でも当たり外れを log_dir の NOTE_NAME に書く"""
     rows, why, causes = _lookup(p, steps, log_dir)
-    _note(log_dir, format=1, at=_now(), key=p["key"], hit=rows is not None, why=why, causes=causes)
+    _note(log_dir, format=1, at=now(), key=p["key"], hit=rows is not None, why=why, causes=causes)
     return rows, why
 
 
@@ -414,7 +410,7 @@ def _store(p, steps, runs, log_dir):
             shutil.copyfile(r["out"], tmp / f"{i}.out")
             shutil.copyfile(r["err"], tmp / f"{i}.err")
         (tmp / "entry.json").write_text(json.dumps(
-            {"format": FORMAT, "key": p["key"], "material": p["material"], "at": _now(), "from": str(log_dir),
+            {"format": FORMAT, "key": p["key"], "material": p["material"], "at": now(), "from": str(log_dir),
              "runs": [{k: r.get(k) for k in ("name", "argv", "exit", "wall_s", "tail")} for r in runs]},
             ensure_ascii=False, indent=1), encoding="utf-8")
         os.rename(tmp, final)   # 読む側は entry.json の在る完成した置き場しか見ない

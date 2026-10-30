@@ -87,7 +87,9 @@ import sys
 # importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
-from record_common import _rows, _tables, fail, is_int, load, require_dict, run, utf8_output  # noqa: E402
+from record_common import (  # noqa: E402
+    _rows, _tables, fail, is_int, load, print_list, require_dict, require_round, run, utf8_output,
+)
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
 
@@ -388,12 +390,7 @@ def validate(rec, path, hint=None):
             extra = "（問いの台帳。人に聞く候補が無いなら空の配列を書け）" if key == "questions" else ""
             fail(f"{path}: 必須のフィールド '{key}' が無い{extra}"
                  + (f"。旧世代の記録ならフィールドを足せ。{hint}" if hint else ""))
-    if not is_int(rec["round"]):
-        fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
-    # 連番検査（`rec["round"] != prev["round"] + 1`）は間隔しか見ないので、基点を
-    # 押さえないと負値から始めて連番のまま永久に素通りできる。手順書は「1 から 1 ずつ」。
-    if rec["round"] < 1:
-        fail(f"{path}: 'round' が 1 以上でない: {rec['round']!r}")
+    require_round(rec, path)
     require_dict(rec["materials"], f"{path}: 'materials'")
     if not isinstance(rec["units"], list):
         fail(f"{path}: 'units' が配列でない")
@@ -1087,17 +1084,8 @@ def main():
         ledger = validate_against(b, a, ledger)
         question_origins_exist(b, ledger)
 
-    grew = scalar_changes(rec, prev)
-    if grew:
-        print("増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:")
-        for line in grew:
-            print(bullet(line))
-
-    carried = carry_summary(rec)
-    if carried:
-        print("持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:")
-        for line in carried:
-            print(bullet(line))
+    print_list("増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:", scalar_changes(rec, prev), bullet)
+    print_list("持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:", carry_summary(rec), bullet)
 
     if rec["questions"]:
         print("問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。"
@@ -1109,11 +1097,7 @@ def main():
             print(bullet(f"[{tag}] {q['kind']}: {q['key']} — {tail}"))
 
     # `if rounds:` は書かない——`load_dir` が空なら fail するので恒真だった。
-    lines = history(rounds)
-    if lines:
-        print(f"履歴（round 1〜{rec['round']}。P2 の judge に渡せ。機械は解釈しない）:")
-        for line in lines:
-            print(bullet(line))
+    print_list(f"履歴（round 1〜{rec['round']}。P2 の judge に渡せ。機械は解釈しない）:", history(rounds), bullet)
 
     # **落とすのは、直すのに要るものを出し切ってから。** 他の exit 2 の経路は印字より前に在るが、
     # この 1 本だけは「どのキーが 3 周続いたか」を履歴で見ないと直しようがない。印字の前に
@@ -1130,19 +1114,13 @@ def main():
     found = blockers(rec, prev, ledger, prev_blocks)
     if prev is not None:
         here = {u["key"] for u in rec["units"]}
-        dropped = [k for k in ledger if k not in here]
-        if dropped:
-            print("前ラウンドの defer で今ラウンドの記録に無いキー（台帳には残る。最終報告に載せろ）:")
-            for k in dropped:
-                print(bullet(k))
+        print_list("前ラウンドの defer で今ラウンドの記録に無いキー（台帳には残る。最終報告に載せろ）:",
+                   [k for k in ledger if k not in here], bullet)
         # **機械はこれを数えない**——一覧は判定でなく P2 の judge への入力である（数えられない
         # 理由の 2 通りの検討は手順書 P2「履歴との突合」が持つ。ここに写すと片方が腐る）。
-        gone = [k for k in sorted(prev_blocks) if k not in here]
-        if gone:
-            print("過去のラウンドの [block] で今ラウンドの記録に無いキー"
-                  "（直ったのか、記録から落ちたのかは機械には見えない。P2「履歴との突合」でルーターに掛けろ）:")
-            for k in gone:
-                print(bullet(k))
+        print_list("過去のラウンドの [block] で今ラウンドの記録に無いキー"
+                   "（直ったのか、記録から落ちたのかは機械には見えない。P2「履歴との突合」でルーターに掛けろ）:",
+                   [k for k in sorted(prev_blocks) if k not in here], bullet)
 
     # 連続 2 ラウンドの会計。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
     # **これを writer に数えさせない**——採点を自己申告にしないのと同じ理由。

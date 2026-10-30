@@ -72,7 +72,6 @@ import ast
 import graphlib
 import importlib.util
 import io
-import json
 import pathlib
 import re
 import sys
@@ -664,8 +663,7 @@ def block_errors(gpath, g, rules, conds, emit):
                 exit_files[b].add(et[0])
     for b, ns in exit_of.items():
         for n in sorted(ns):
-            raw_sch = next((r["nodes"][n]["schema"] for _, r in reversed(raws) if "schema" in (r.get("nodes") or {}).get(n, {})), None)
-            f = next((f for f, r in reversed(raws) if "schema" in (r.get("nodes") or {}).get(n, {})), None)
+            f, raw_sch = next(((f, r["nodes"][n]["schema"]) for f, r in reversed(raws) if "schema" in (r.get("nodes") or {}).get(n, {})), (None, None))
             t = _ref_target(raw_sch["$ref"], f) if isinstance(raw_sch, dict) and isinstance(raw_sch.get("$ref"), str) else None
             if t is None or t[0] not in exit_files[b] or t[1] != f"/properties/{n}":
                 errs.append(f"出口のノード {n} の schema は graph の中に書かず、ブロック {b} の出口のファイル（{sorted(x.name for x in exit_files[b]) or '無い'}）の "

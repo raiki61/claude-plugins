@@ -98,6 +98,12 @@ def now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def append_trace(d, op, **kw):
+    """盤面の trace.jsonl に 1 行足す（時刻・op・残りの鍵の順）"""
+    with open(pathlib.Path(d) / "trace.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": now(), "op": op, **kw}, ensure_ascii=False) + "\n")
+
+
 def waiting(inst):
     """待っている instance の経過と試行の回数——{elapsed_min, attempts}。engine が起動して走っている試行は、起動してからの経過
     （launched_min）も足す（子の出力は終わりに 1 回なので、最後の出力からの経過は測れない——止めずに見せるだけ）。

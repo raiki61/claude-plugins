@@ -28,7 +28,7 @@ from .rules import hook, load_rules, registry
 from .schema import cli_schema, graph_text, load_graph, validate_schema
 from .util import (ANSWER_ACTIONS, HANDOFF_DEFECTS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS,
                    copy_worktree, defects_only, die, dump, find_attempt, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain,
-                   protected_paths, read_input_json,
+                   append_trace, protected_paths, read_input_json,
                    read_json, repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json, write_lane_failed)
 from .role_run import (COMMAND_TOOLS, DELEGATE_TOOLS, SKILL_ENV, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings,
                        kill_all, liveness, mark_launch, pgid_path, probe_group, read_grant_path, read_rule, repo_deny, run_role, run_steps,
@@ -152,11 +152,8 @@ def check_graph(graph, validator):
     読むので、頭で取り込むと輪になる。検査そのものが動かせない環境（取り込みに失敗する）では
     **黙って通さず die する**——「検査できないから通す」は、この差分が繰り返し塞いできた形である。
     """
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("graphloops_graphcheck", PLUGIN_ROOT / "scripts" / "graphcheck.py")
     try:
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        mod = _load_script("graphloops_graphcheck", PLUGIN_ROOT / "scripts" / "graphcheck.py")
     except Exception as e:                      # noqa: BLE001 — 何で落ちても「検査できない」は同じ扱い
         die(f"graph の静的検査を動かせない（{type(e).__name__}: {e}）——検査を飛ばして init はしない")
     lines = []
@@ -166,6 +163,14 @@ def check_graph(graph, validator):
     # ノードの知らない鍵は止めずに知らせる（返りは init の notes に載せる）——外から持ち込んだ graph のノードに利用者が書いた鍵で init を
     # 止めない（上位互換）。単体の graphcheck と台本では NG
     return [f"graph の静的検査の警告: {str(l)[5:]}" for l in lines if str(l).startswith("WARN ")]
+
+
+def _load_script(name, path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def resolve_dir(a):
@@ -315,6 +320,21 @@ def launch_prefix():
     return [a.format(python=sys.executable, plugin_root=str(PLUGIN_ROOT)) for a in launch_words.VIA]
 
 
+def _prefix_refusal(words, head):
+    if [_norm(a) for a in words[:len(head)]] != [_norm(w) for w in head]:
+        return f"engine が起動してよい前置ではない（前置が engine の層 {head} でない）——先頭は {words[:2]}"
+    return None
+
+
+def _resume_ids(inst, resume):
+    sid = inst.get("session_id")
+    return {"{session_id}", sid} - {None} if resume else {sid} - {None}
+
+
+def _stdin_refusal(launch):
+    return None if pathlib.Path(launch.get("stdin") or "").is_file() else f"材料 {launch.get('stdin')} が無い"
+
+
 def _json_schema_refusal(value):
     """--json-schema の値が返答の形だけを運ぶか（よければ None）。JSON の object で、engine だけが読む語（schema.ENGINE_ONLY_KEYWORDS）を
     含まない形（schema.cli_schema で変わらない）であること。値はノードの schema と突き合わせない——この旗は子の権限を広げず、受け付けの正本は
@@ -424,17 +444,15 @@ def _want_values(inst, d, perm, resume, read=None):
         want.update({"--tools": ",".join(d["tools"]), "--allowedTools": ",".join(perm["allowed_tools"]),
                      "--permission-mode": perm["permission_mode"]})
     # 続ける会話は engine が決めた物だけ——graph に任意の会話の番号を書いて、engine が起動していない会話を開けない
-    sid = inst.get("session_id")
-    want["--resume"] = {"{session_id}", sid} - {None} if resume else {sid} - {None}
+    want["--resume"] = _resume_ids(inst, resume)
     return want
 
 
 def _argv_refusal(argv, inst, d, perm, resume=False, read=None):
     """1 本の argv が起動してよい形か（よければ None）。d は起動する時に読み直した役の定義、perm は engine が決めた権限の形。"""
     want_prefix = launch_prefix()
-    if [_norm(a) for a in argv[:len(want_prefix)]] != [_norm(w) for w in want_prefix]:
-        return (f"engine が起動してよい前置ではない（前置が engine の層 {want_prefix} でない）"
-                f"——先頭は {argv[:2]}")
+    if why := _prefix_refusal(argv, want_prefix):
+        return why
     role_tools = d["tools"]
     if role_tools and ("*" in role_tools or any(x in WRITE_TOOLS for x in role_tools)):
         return f"全部のツール・ファイルを書くツールを持つ役（{role_tools}）——engine の中からは起動しない"
@@ -502,9 +520,7 @@ def launch_refusal(inst, cwd=None, board_dir=None, state=None):
             why = _argv_refusal(words, inst, d, perm, resume, read)
             if why:
                 return why
-    if not pathlib.Path(launch.get("stdin") or "").is_file():
-        return f"材料 {launch.get('stdin')} が無い"
-    return None
+    return _stdin_refusal(launch)
 
 
 def _runner_refusal(inst, launch, cwd, board, denied):
@@ -525,8 +541,8 @@ def _runner_refusal(inst, launch, cwd, board, denied):
     for words, resume in ((launch.get("argv"), False), (launch.get("resume_argv"), True)):
         if not words:
             continue
-        if [_norm(a) for a in words[:len(head)]] != [_norm(w) for w in head]:
-            return f"engine が起動してよい前置ではない（前置が engine の層 {head} でない）——先頭は {words[:2]}"
+        if why := _prefix_refusal(words, head):
+            return why
         got, why = _parse_flags(words[len(head) + 1:], RUNNER_FLAGS)
         if why:
             return f"回す側のノードの argv: {why}"
@@ -539,8 +555,7 @@ def _runner_refusal(inst, launch, cwd, board, denied):
             elif flag == "--settings":
                 why = _settings_refusal(val, perm["settings"])
             elif flag == "--resume":
-                sid = inst.get("session_id")
-                ok = {"{session_id}", sid} - {None} if resume else {sid} - {None}
+                ok = _resume_ids(inst, resume)
                 why = None if val in ok else f"--resume が {val!r}——engine が続ける会話は {sorted(ok)}"
             elif flag in ("--tools", "--allowedTools"):
                 why = None if sorted(val.split(",")) == sorted(want[flag].split(",")) else \
@@ -549,9 +564,7 @@ def _runner_refusal(inst, launch, cwd, board, denied):
                 why = f"{flag} が {val!r}——engine が決めた値は {want[flag]!r}"
             if why:
                 return f"回す側のノードの {why}"
-    if not pathlib.Path(launch.get("stdin") or "").is_file():
-        return f"材料 {launch.get('stdin')} が無い"
-    return None
+    return _stdin_refusal(launch)
 
 
 def _delegate_refusal(inst, launch, board, denied, unfenced=False):
@@ -574,8 +587,8 @@ def _delegate_refusal(inst, launch, board, denied, unfenced=False):
     for words, resume in ((launch.get("argv"), False), (launch.get("resume_argv"), True)):
         if not words:
             continue
-        if [_norm(a) for a in words[:len(head)]] != [_norm(w) for w in head]:
-            return f"engine が起動してよい前置ではない（前置が engine の層 {head} でない）——先頭は {words[:2]}"
+        if why := _prefix_refusal(words, head):
+            return why
         got, why = _parse_flags(words[len(head) + 1:], DELEGATE_FLAGS)
         if why:
             return f"任せ先の argv: {why}"
@@ -587,17 +600,14 @@ def _delegate_refusal(inst, launch, board, denied, unfenced=False):
             elif flag == "--settings":
                 why = _settings_refusal(val, settings)
             elif flag == "--resume":
-                sid = inst.get("session_id")
-                ok = {"{session_id}", sid} - {None} if resume else {sid} - {None}
+                ok = _resume_ids(inst, resume)
                 why = None if val in ok else f"--resume が {val!r}——engine が続ける会話は {sorted(ok)}"
             else:
                 why = None if val == want[flag] else f"{flag} が {val!r}——engine が任せ先に決めた値は {want[flag]!r}"
             if why:
                 return (f"任せ先の {why}（sandbox の名指し・ツール・権限の形は起動する瞬間に git と role_run から組み直す。"
                         "next の後に作業ツリーが足されたなら relaunch で出し直せ）")
-    if not pathlib.Path(launch.get("stdin") or "").is_file():
-        return f"材料 {launch.get('stdin')} が無い"
-    return None
+    return _stdin_refusal(launch)
 
 
 # 同じ launch の中で並列に起動した役が、盤面を 1 本ずつ開いて書く錠。scripts/loop.py の入口は盤面を書くコマンドで、
@@ -732,9 +742,7 @@ def _engine_fallback(d, iid, reason):
     def fall(b):
         prev = pending_instance(b, iid)
         new = emit_instance(b, prev["node"], None, attempt=prev.get("attempts", 1) + 1, engine_fallback=reason)
-        new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason,
-                                                                  "prev_emitted_at": prev["emitted_at"], "prev_emitted_rev": prev.get("emitted_rev"),
-                                                                  "prev_out_path": prev["out_path"]}]
+        _log_attempt(prev, new, reason, prev["out_path"])
         b.trace("engine_fallback", instance=iid, reason=reason)
         return new["id"]
     return _board_update(d, fall)
@@ -756,9 +764,8 @@ def launch_engine_run(d, inst):
                          still_mine=_still_mine(d, inst))
     except Superseded:
         return {**got, "ok": False, "why": SUPERSEDED, "superseded": True}
-    with open(pathlib.Path(d) / "trace.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": now(), "op": "engine_run", "instance": inst["id"], "node": inst["node"],
-                            "runs": [{k: r.get(k) for k in ("name", "exit", "wall_s", "error")} for r in runs]}, ensure_ascii=False) + "\n")
+    append_trace(d, "engine_run", instance=inst["id"], node=inst["node"],
+                  runs=[{k: r.get(k) for k in ("name", "exit", "wall_s", "error")} for r in runs])
     fallback = None
     runs_short = [{k: r.get(k) for k in ("name", "exit", "wall_s")} for r in runs]
     with BOARD_LOCK:
@@ -808,8 +815,7 @@ def _git_state_guard(accept, d, iid):
         now_shared = _shared_git_marks()
         moved = sorted(k for k in shared if shared[k] != now_shared[k])
         if moved:
-            with open(pathlib.Path(d) / "trace.jsonl", "a", encoding="utf-8") as f:
-                f.write(json.dumps({"t": now(), "op": "git_shared_moved", "instance": iid, "moved": moved}, ensure_ascii=False) + "\n")
+            append_trace(d, "git_shared_moved", instance=iid, moved=moved)
             shared.update(now_shared)
         return accept(text)
     return guarded
@@ -1092,7 +1098,8 @@ def launch_one(d, inst, max_resumes, cwd=None, state=None):
         _note_unmeasured_bash(d, inst, down)
     background = bool(launch.get("background"))
     accept = None if background else _accept_for_launch(d, inst["id"], inst["out_path"])
-    role_accept = _git_state_guard(accept, d, inst["id"]) if launch.get("kind") == "runner" and launch.get("edits") else accept
+    rewrites = launch.get("kind") == "runner" and launch.get("edits")
+    role_accept = _git_state_guard(accept, d, inst["id"]) if rewrites else accept
     still_mine = _still_mine(d, inst)
     # 背景の線は誰も待たない（周の締めも次の周も線を待たない）。時間の上限はどのノードにも付けない
     out_path = launch["result_path"] + ".tmp" if background else inst["out_path"]
@@ -1113,7 +1120,7 @@ def launch_one(d, inst, max_resumes, cwd=None, state=None):
     if launch.get("skill"):
         env = {**os.environ, **SKILL_ENV}
     child_tmp = None
-    if launch.get("kind") == "runner" and launch.get("edits"):
+    if rewrites:
         # 作業ツリーを書き換える子の sandbox が書ける一時の置き場（Claude Code の利用者ごとの一時の置き場）を、共有の置き場から
         # 子ごとの専用の置き場へ移す（CLAUDE_CODE_TMPDIR）——作業ツリーの外に書いた物を、終わった後に数えて記録に残すため。
         # 専用の置き場が sandbox の中で書けない版なら、共有の置き場のまま起動する（書く子の中の一時ファイルを作るテストを落とさない）
@@ -1464,12 +1471,7 @@ def cmd_done(a):
     # どこから読んだかは instance と返事に残す。
     text, read_from = None, None
     if a.output:
-        try:
-            text, read_from = pathlib.Path(a.output).read_text(encoding="utf-8"), f"--output {a.output}"
-        except (OSError, UnicodeDecodeError) as e:
-            # UnicodeDecodeError は ValueError 派生で OSError ではない——列挙から漏れると総括 except に落ち、
-            # 呼び直せば通る事故が exit 2（盤面が読めない）に化ける（実測 2026-09-13: UTF-16 の返答で再現）
-            raise Reject(f"{a.output}: 読めない（{e}）——UTF-8 で書き直して done し直せ")
+        text, read_from = _read_reply(a.output), f"--output {a.output}"
     elif getattr(a, "stdin", False):
         # バイトで読んで UTF-8 に決める——テキストの stdin は OS 既定の文字コード（Windows は cp1252、日本語 Windows なら cp932）で復号され、
         # 日本語の返答が壊れて JSON にならない（実測 2026-09-13: CI の windows-latest で標準入力の done が落ちた）
@@ -1484,10 +1486,7 @@ def cmd_done(a):
             raise Reject("--stdin なのに標準入力が空——返答を流すか、--output か置き場で渡せ")
         text, read_from = got, "stdin"
     if text is None and inst.get("out_path") and pathlib.Path(inst["out_path"]).is_file():
-        try:
-            text, read_from = pathlib.Path(inst["out_path"]).read_text(encoding="utf-8"), f"out_path {inst['out_path']}"
-        except (OSError, UnicodeDecodeError) as e:
-            raise Reject(f"{inst['out_path']}: 読めない（{e}）——UTF-8 で書き直して done し直せ")
+        text, read_from = _read_reply(inst["out_path"]), f"out_path {inst['out_path']}"
     if text is None:
         raise Reject("返答が無い——" + ("engine が起動するノード（launch を持つ）の置き場は loop.py launch が書く。会話が引き取るなら、返答を別のファイルに"
                                       "書いて --output で渡せ" if inst.get("launch") else
@@ -1495,6 +1494,15 @@ def cmd_done(a):
     if inst.get("mode") == "cli" and a.agent_id:
         raise Reject("cli の遮断系は engine が起動するので agent_id は無い（会話の番号は launch が盤面に残す）——--agent-id を渡すな")
     print(accept_output(b, a.node, text, read_from, agent_id=a.agent_id, accept_tree_change=a.accept_tree_change))
+
+
+def _read_reply(path):
+    try:
+        return pathlib.Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        # UnicodeDecodeError は ValueError 派生で OSError ではない——列挙から漏れると総括 except に落ち、
+        # 呼び直せば通る事故が exit 2（盤面が読めない）に化ける（実測 2026-09-13: UTF-16 の返答で再現）
+        raise Reject(f"{path}: 読めない（{e}）——UTF-8 で書き直して done し直せ")
 
 
 def reply_origin(inst, text):
@@ -1913,15 +1921,13 @@ def cmd_answer(a):
             observed={"claudecode_env": bool(os.environ.get("CLAUDECODE")), "stdin_tty": bool(sys.stdin and sys.stdin.isatty())})
     if in_round:
         # 問うたノードをここで済ませる（ask では done の印を付けない）。continue は同じ周のまま先へ、stop は run をその場で止める
-        b.rd["done"][ph["node"]] = {"at": now(), "builtin": f"answer:{ans}"}
-        b.state["done_ever"][ph["node"]] = b.round
+        _mark_done(b, ph["node"], f"answer:{ans}")
         if ans == "stop":
             b.state["status"] = "stopped"
             b.state["halted"] = {"node": ph["node"], "round": b.round, "by": "answer", "reason": ph["note"]}
     elif ans == "stop":
         # 聞いたノードはここで決着——ask では done の印を付けないので、stop の答えが印を付ける（continue は周が変わる）
-        b.rd["done"][ph["node"]] = {"at": now(), "builtin": "answer:stop"}
-        b.state["done_ever"][ph["node"]] = b.round
+        _mark_done(b, ph["node"], "answer:stop")
         b.state["status"] = "stopped"
     else:
         if ans == "escalate":
@@ -1930,13 +1936,17 @@ def cmd_answer(a):
                 raise Reject("この loop に段（thickness.tiers）が無いので escalate できない")
             thicken(b, b.tiers[-1], "依頼者の判断（諮った結果）", by="answer")
         if not open_next_round(b, ph["node"]):
-            b.rd["done"][ph["node"]] = {"at": now(), "builtin": f"answer:{ans}"}
-            b.state["done_ever"][ph["node"]] = b.round
+            _mark_done(b, ph["node"], f"answer:{ans}")
             b.save()
             print(f"ok 答え '{ans}' を記録した。init --stop-after-round {b.state['stop_after_round']} の指定で、次の周は開かずに止めた（halted）")
             return
     b.save()
     print(f"ok 答え '{ans}' を記録した。続きは loop.py next")
+
+
+def _mark_done(b, nid, builtin):
+    b.rd["done"][nid] = {"at": now(), "builtin": builtin}
+    b.state["done_ever"][nid] = b.round
 
 
 STOPPED_BY = "人が止めた（loop.py stop）"
@@ -2008,8 +2018,7 @@ def cmd_stop(a):
         fn = hook(b.rules, "on_stop")
         no_report = fn(b, info) if fn else None
         if root and not no_report:
-            rd["done"][root] = {"at": now(), "builtin": "stop"}
-            b.state["done_ever"][root] = b.round
+            _mark_done(b, root, "stop")
         else:
             info["report"] = False
             info["no_report"] = no_report or "graph に stop の宣言（止めた後に走らせるノード）が無い——init の版の graph が古い"
@@ -2353,9 +2362,13 @@ def reissue(b, prev, reason):
             new[k] = prev[k]
         else:
             new.pop(k, None)
-    new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason, "prev_emitted_at": prev["emitted_at"],
-                                                             "prev_emitted_rev": prev.get("emitted_rev"), "prev_out_path": str(old)}]
+    _log_attempt(prev, new, reason, str(old))
     return new
+
+
+def _log_attempt(prev, new, reason, prev_out_path):
+    new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason, "prev_emitted_at": prev["emitted_at"],
+                                                             "prev_emitted_rev": prev.get("emitted_rev"), "prev_out_path": prev_out_path}]
 
 
 def retire_out(old, n):
@@ -2553,11 +2566,8 @@ def _hook_selfcheck(board, cwd):
             landed = False
     if not landed:
         return f"読了のフックを登録の語（{entry['command']}）のとおりに試しで走らせたが、行を書かない（{why}）{lost}"
-    import importlib.util
     try:
-        spec_ = importlib.util.spec_from_file_location("graphloops_record_read", PLUGIN_ROOT / "hooks" / "record-read.py")
-        mod = importlib.util.module_from_spec(spec_)
-        spec_.loader.exec_module(mod)
+        mod = _load_script("graphloops_record_read", PLUGIN_ROOT / "hooks" / "record-read.py")
         found = [pathlib.Path(x).resolve() for x in mod.boards(str(cwd))]
     except Exception as e:                      # noqa: BLE001 — 何で落ちても「確かめられない」は同じ扱い
         return f"読了のフックがこの盤面を見つけるかを確かめられない（{type(e).__name__}: {e}）{lost}"
@@ -2703,12 +2713,10 @@ def cmd_init(a):
         state["unfenced_delegates"] = {"at": now(), "reason": a.unfenced_delegates}
     write_json(d / "state.json", state)
     write_json(d / "record.json", record)
-    with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": now(), "op": "init", "thickness": th, "decider": decider,
-                            **({"unfenced_delegates": state["unfenced_delegates"]} if state.get("unfenced_delegates") else {}),
-                            **({"engine_runners": state["engine_runners"]} if state.get("engine_runners") else {}),
-                            **({"no_engine_runners": True} if runners is False else {})},
-                           ensure_ascii=False) + "\n")
+    append_trace(d, "init", thickness=th, decider=decider,
+                  **({"unfenced_delegates": state["unfenced_delegates"]} if state.get("unfenced_delegates") else {}),
+                  **({"engine_runners": state["engine_runners"]} if state.get("engine_runners") else {}),
+                  **({"no_engine_runners": True} if runners is False else {}))
     fn = hook(rules, "on_init")
     if fn:
         # rules の入口が拒んだ（入力の値の検査など）ら、作った置き場を消してから抜ける——この関数の頭の『die しても空の盤面を

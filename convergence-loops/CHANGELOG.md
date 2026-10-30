@@ -6,6 +6,9 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+- 利用者の動きは変わらない直し（簡潔化。持ち主 2026-10-30、頼み 49885f）。記録の検証器 4 本（`scripts/*-record.py`）に写しで在った検査を `scripts/record_common.py` にまとめた（記録の頭の形と必須のフィールド・周の番号・ラベルの表・必須の文字列を持つ配列・見出しつきの一覧の印字・doctor と research の `main()`）。4 本の計は 2,412 行から 2,283 行（`record_common.py` は 187 行から 247 行）。テンプレートの各キーを壊した 4,305 通りの記録で、元の版と出力・終わりの値が同じことを確かめた。
+
 ## [0.53.0] - 2026-10-29
 
 ### Changed

@@ -253,7 +253,7 @@ def tooled_permission(tools, cwd=None, board_dir=None, deny=()):
     protected = protected_paths(cwd, board_dir) if sandbox_available() else None
     if protected is None:
         return {"form": "read_only", "permission_mode": "dontAsk", "allowed_tools": allowed,
-                "settings": json.dumps(_with_deny({}, deny), ensure_ascii=False, sort_keys=True) if deny else "{}"}
+                "settings": json.dumps(_with_deny({}, deny), ensure_ascii=False, sort_keys=True)}
     settings = _with_deny({"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": protected}}}, deny)
     return {"form": "sandbox", "permission_mode": "dontAsk", "allowed_tools": allowed,
             "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
@@ -278,8 +278,7 @@ def edit_deny(protected, top):
         for r in roots:
             if r.startswith(p.rstrip(os.sep) + os.sep):
                 return None
-    dot_git = {q for r in roots for q in (os.path.join(r, ".git"),)}
-    return sorted(set(rest) | dot_git)
+    return sorted(set(rest) | {os.path.join(r, ".git") for r in roots})
 
 
 def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None, deny=()):
@@ -399,9 +398,7 @@ def kill_all():
     with _LIVE_LOCK:
         live = list(LIVE)
     for p in live:
-        why = _kill(p)
-        if why:
-            print(f"NG 子の木を止め切れない（pid {p.pid}）: {why}", file=sys.stderr)
+        _kill_or_say(p)
 
 
 class StopSignal(KeyboardInterrupt):
@@ -418,15 +415,13 @@ def install_stop_handlers():
     """止める信号（SIGTERM・SIGHUP・SIGINT）を受けたら、生きている子を木ごと止めてから StopSignal を上げる。loop.py の main が
     全コマンドの前に 1 度だけ呼ぶ——子は別のプロセスグループに切り離してあるので、loop.py に届いた信号は子に届かず、
     next・done の中の builtin が run_tree で起動したテスト一式も launch の役の子も、ここで止めないと作業ツリーに書き続ける"""
-    import signal as _signal
-
     def stop(signum, _frame):
         _STOPPING.set()
         kill_all()
         raise StopSignal(signum)
     for name in ("SIGTERM", "SIGHUP", "SIGINT"):
-        if hasattr(_signal, name):
-            _signal.signal(getattr(_signal, name), stop)
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), stop)
 
 
 # 包みのフィールドのうち要約に残すもの（--output-format json の result の行）。本文（result）は残さない
@@ -439,6 +434,10 @@ SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "to
 ENVELOPE_READS = ("session_id", "subtype", "is_error", "total_cost_usd", "permission_denials")
 
 
+def _is_usd(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 def session_costs(rows, group=lambda row: None):
     """trace の op=role_run の行の費用を group(行) ごとに足した ——{group の値: 米ドル}。total_cost_usd は会話（session_id）の累計で、
     続きを頼むたびと、同じ会話を続けるノード（same_context_as）で前のノードの分を含んで増える（公式の cost-tracking の文書）。そこで行の順に、
@@ -448,7 +447,7 @@ def session_costs(rows, group=lambda row: None):
     high, out = {}, collections.defaultdict(float)
     for r in rows:
         sid, cost = r.get("session_id"), r.get("total_cost_usd")
-        if r.get("op") == "role_run" and sid and isinstance(cost, (int, float)) and not isinstance(cost, bool):
+        if r.get("op") == "role_run" and sid and _is_usd(cost):
             prev = high.get(sid, 0)
             out[group(r)] += max(0, cost - prev)
             high[sid] = max(prev, cost)
@@ -509,8 +508,7 @@ def envelope_gaps(rows):
         if r.get("op") != "role_run" or r.get("envelope") is not True:
             continue
         lost = set(r.get("missing") or ()) | {k for k in ENVELOPE_READS if k in SUMMARY_KEYS and k not in r}
-        cost = r.get("total_cost_usd")
-        if "total_cost_usd" in r and not (isinstance(cost, (int, float)) and not isinstance(cost, bool)):
+        if "total_cost_usd" in r and not _is_usd(r["total_cost_usd"]):
             lost.add("total_cost_usd")
         gaps.update(lost)
     return dict(sorted(gaps.items()))
@@ -738,6 +736,12 @@ def _kill(p):
     return why   # 止め切れなかった理由（None なら止まった）
 
 
+def _kill_or_say(p):
+    why = _kill(p)
+    if why:
+        print(f"NG 子の木を止め切れない（pid {p.pid}）: {why}", file=sys.stderr)
+
+
 def run_tree(argv, *, cwd, timeout, shell=False):
     """1 回走らせて終わりを待つ（rules がテストの実行器を走らせる口。INJECT で渡る）。返すのは subprocess.CompletedProcess
     （stdout・stderr は UTF-8 の文字列、読めない字は置き換え）。**時間切れ・止める信号・例外のどれで抜けても木ごと止める**
@@ -839,9 +843,7 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
         return p.returncode, out, err
     finally:
         if not ended:
-            why = _kill(p)
-            if why:
-                print(f"NG 子の木を止め切れない（pid {p.pid}）: {why}", file=sys.stderr)
+            _kill_or_say(p)
         _forget(p)
         if pgid_file and (trees is None or not ended):
             pathlib.Path(pgid_file).unlink(missing_ok=True)   # 正常に終わった回の印は、試行の終わりに残りを止めてから消す

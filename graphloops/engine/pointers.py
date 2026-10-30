@@ -110,11 +110,15 @@ def rewrite_at(output, at, fn):
         box[k] = fn(box[k])
 
 
+def _snap_names(snap, i, r):
+    return snap[i]["names"] if snap and i < len(snap) and snap[i]["at"] == r["at"] else None
+
+
 def resolve(output, ptrs, snap):
     """返答の中の番号を名前に置き換える（output を書き換える）。拒む理由の一覧を返す（空なら全部置き換えた）"""
     errs = []
     for i, r in enumerate(ptrs or []):
-        names = snap[i]["names"] if snap and i < len(snap) and snap[i]["at"] == r["at"] else None
+        names = _snap_names(snap, i, r)
         for box, k in _slots(output, _segs(r["at"])):
             v = box[k]
             if not isinstance(v, int) or isinstance(v, bool):
@@ -140,7 +144,7 @@ def hint(output, ptrs, snap):
     no と名前の頭の対応——を同じ拒みに添える。材料は emit で固めた名前の列だけ（snap）"""
     lines = []
     for i, r in enumerate(ptrs or []):
-        names = snap[i]["names"] if snap and i < len(snap) and snap[i]["at"] == r["at"] else None
+        names = _snap_names(snap, i, r)
         if not names:
             continue
         known = {n for n in names if isinstance(n, str)}

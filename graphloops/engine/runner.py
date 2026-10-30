@@ -28,7 +28,7 @@ import time
 
 from . import filelock, intake
 from .role_run import group_alive, lane_failure, liveness, pgid_path, trace_costs
-from .util import Reject, defects_only, now, write_json, write_lane_failed
+from .util import Reject, append_trace, defects_only, now, write_json, write_lane_failed
 
 LOOP = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "loop.py"
 WATCH_LIMIT_S = 540   # 見守りが会話へ戻る上限（人の決定 2026-09-25 ①）。回し手と子は止めない
@@ -184,8 +184,7 @@ def _runner_alive(d):
 
 
 def _trace(d, event, **kw):
-    with open(pathlib.Path(d) / "trace.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": now(), "op": "run", "event": event, "pid": os.getpid(), **kw}, ensure_ascii=False) + "\n")
+    append_trace(d, "run", event=event, pid=os.getpid(), **kw)
 
 
 def _detached():
@@ -200,6 +199,13 @@ def _cli(d, *args):
     r = subprocess.run([sys.executable, str(LOOP), *args, "--dir", str(d)], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", stdin=subprocess.DEVNULL, **_detached())
     return r.returncode, r.stdout, r.stderr
+
+
+def _spawn_loop(d, *args):
+    """loop.py <args> --dir d を切り離して立て、待たない。出力は盤面の run.log に足す"""
+    with open(pathlib.Path(d) / RUN_LOG, "ab") as log:
+        return subprocess.Popen([sys.executable, str(LOOP), *args, "--dir", str(d)], stdin=subprocess.DEVNULL,
+                                stdout=log, stderr=log, **_detached())
 
 
 # ---------------------------------------------------------------- 回し手
@@ -222,9 +228,7 @@ class _Runner:
         ids = [i["id"] for i in insts]
         self.attempts = {i["id"]: i.get("attempts", 1) for i in insts}
         self.marks.mkdir(exist_ok=True)
-        with open(self.d / RUN_LOG, "ab") as log:
-            p = subprocess.Popen([sys.executable, str(LOOP), "launch", "--dir", str(self.d)], stdin=subprocess.DEVNULL,
-                                 stdout=log, stderr=log, **_detached())
+        p = _spawn_loop(self.d, "launch")
         mark = self.marks / f"{p.pid}.json"
         # 形は role_run.probe_group が読む印と同じ。途中で落ちても半端な印を残さないよう、一時ファイルから置き換える
         _write_atomic(mark, {"pgid": p.pid, "ids": ids})
@@ -241,9 +245,7 @@ class _Runner:
         if rc != 0:
             return f"'{iid}' の受領を受け付けられない（done exit {rc}: {err.strip()[-400:]}）"
         try:
-            with open(self.d / RUN_LOG, "ab") as log:
-                p = subprocess.Popen([sys.executable, str(LOOP), "launch", "--node", iid, "--dir", str(self.d)], stdin=subprocess.DEVNULL,
-                                     stdout=log, stderr=log, **_detached())
+            p = _spawn_loop(self.d, "launch", "--node", iid)
         except OSError as e:
             # 受領は done 済みで、線の launch は起きていない——結果の置き場に落ちた印を書く（読む側は『結果が使えない』に振る）
             why = f"回し手が線の launch を起動できない（{e}）"
@@ -430,12 +432,6 @@ def _write_atomic(path, obj):
 
 
 # ---------------------------------------------------------------- 見守り
-def _spawn_runner(d):
-    with open(pathlib.Path(d) / RUN_LOG, "ab") as log:
-        return subprocess.Popen([sys.executable, str(LOOP), "run", "--foreground", "--dir", str(d)], stdin=subprocess.DEVNULL,
-                                stdout=log, stderr=log, **_detached())
-
-
 def watch(d):
     """見守りの本体——止まった種類を返す"""
     d = pathlib.Path(d)
@@ -445,7 +441,7 @@ def watch(d):
         if h is None:
             break
         filelock.release(h)
-        p = _spawn_runner(d)
+        p = _spawn_loop(d, "run", "--foreground")
         while _read_json(d / RUNNER_JSON, {}).get("pid") != p.pid and p.poll() is None:
             time.sleep(0.05)
         if _read_json(d / RUNNER_JSON, {}).get("pid") == p.pid:

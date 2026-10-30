@@ -184,6 +184,15 @@ class Renderer:
         core = strip_prefix(path)
         return any(path == r or core == r or core.startswith(r + ".") or path.startswith(r + ".") for r in self.reads)
 
+    def _target(self, target, path):
+        try:
+            target = self.resolve(target.strip(), check=False)  # file: の宣言が中の path も覆う
+        except KeyError:
+            pass
+        if not isinstance(target, str) or not target:
+            raise KeyError(path)
+        return target
+
     def resolve(self, path, check=True):
         if check and not self.allowed(path):
             # KeyError と別の型にする。同じ型にすると optional の穴（{{?…}}）の空埋めが遮断の握り潰しを兼ね、
@@ -202,21 +211,10 @@ class Renderer:
             return "\n".join(out)
         if path.startswith("section:"):
             target, _, heading = path[8:].partition("#")
-            try:
-                target = self.resolve(target.strip(), check=False)
-            except KeyError:
-                pass
-            if not isinstance(target, str) or not target:
-                raise KeyError(path)
+            target = self._target(target, path)
             return _as_material(section_of(pathlib.Path(target).read_text(encoding="utf-8", errors="replace"), heading.strip(), path))
         if path.startswith("file:"):
-            target = path[5:].strip()
-            try:
-                target = self.resolve(target, check=False)  # file: の宣言が中の path も覆う
-            except KeyError:
-                pass
-            if not isinstance(target, str) or not target:
-                raise KeyError(path)
+            target = self._target(path[5:].strip(), path)
             # errors=replace: 非 UTF-8 の材料で復号の例外が render の『読めない』の腕（OSError）を迂回して総括例外で落ちた
             return _as_material(pathlib.Path(target).read_text(encoding="utf-8", errors="replace"))
         return get_path(self.ctx, path)

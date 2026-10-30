@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+- 利用者の動きは変わらない直し（簡潔化。持ち主 2026-10-30「気になるとこに並列でsimplifyかけまくっていって」、頼み 49885f）。engine の写しの重複を関数にまとめた: 起動の語の穴の埋めと roles/ への書き出し（`advance.py` の `launch_holes`・`write_role`）、起動の前置・`--resume`・材料の拒みの検査（`commands.py` の `_prefix_refusal`・`_resume_ids`・`_stdin_refusal`）、`trace.jsonl` への 1 行の追記（`util.py` の `append_trace`。`commands.py`・`children.py`・`runner.py` の 3 か所の写しを置き換えた）、loop.py を切り離して起動する 3 か所（`runner.py` の `_spawn_loop`）、子を木ごと止める後始末（`role_run.py` の `_kill_or_say`）など。`rules/review-loop.py`・`rules/research-loop.py`・`scripts/graphcheck.py`・`scripts/gl.py` の重複もまとめ、使っていない import と同じ中身の分岐を消した。出す文・JSON の形・終わりの値は変えていない。違いは 1 つで、`runner_launch_spec` が起動せずに返るとき、空の `roles/` を作らなくなった（読む所は無い）。
+- `skills/research-graph/references/rules.md` の「人の方針」の段を消した。同じ中身が `references/policy.md` に在り、SKILL.md もそちらを指している。
+
 ## [0.45.5] - 2026-10-29
 
 ### Fixed

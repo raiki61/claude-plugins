@@ -97,6 +97,35 @@ def is_str_list(v):
     """空でない文字列だけの配列（配列そのものは空でよい）"""
     return isinstance(v, list) and all(isinstance(s, str) and s.strip() for s in v)
 
+def require_record(rec, path, keys):
+    """記録の最上位が object で、必須のフィールド `keys` が全部在ること"""
+    if not isinstance(rec, dict):
+        fail(f"{path}: 記録の最上位が object でない")
+    for key in keys:
+        if key not in rec:
+            fail(f"{path}: 必須のフィールド '{key}' が無い")
+
+def require_round(rec, path):
+    """周の番号。連番検査（`rec["round"] != prev["round"] + 1`）は間隔しか見ないので、基点を
+    押さえないと負値から始めて連番のまま永久に素通りできる。手順書は「1 から 1 ずつ」。"""
+    if not is_int(rec["round"]):
+        fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
+    if rec["round"] < 1:
+        fail(f"{path}: 'round' が 1 以上でない: {rec['round']!r}")
+
+def require_labels(name, labels, keys):
+    """表示の語の表 `labels` が、キー `keys` を全部持つこと（インポート時に呼ぶ）"""
+    missing = [k for k in keys if k not in labels]
+    if missing:
+        fail(f"表示の語の表 {name} にキーが無い: {missing}")
+
+def print_list(header, lines, item=lambda s: f"  - {s}"):
+    """見出しと項目の行。項目が無ければ何も出さない"""
+    if lines:
+        print(header)
+        for line in lines:
+            print(item(line))
+
 def require_dict(v, what, note=""):
     if not isinstance(v, dict):
         fail(f"{what} が object でない{note}")
@@ -177,6 +206,16 @@ def check_sampling(smp, path, field, known, noun):
     else:
         fail(f"{path}: 'sampling' は status=done か「該当なし+理由」のどちらかの形")
 
+def check_lists(rec, path, specs):
+    """`(フィールド名, 各項に要る文字列のフィールド)` の組ごとに、配列で、各項が object で文字列が埋まっていること"""
+    for name, fields in specs:
+        if not isinstance(rec[name], list):
+            fail(f"{path}: '{name}' が配列でない")
+        for i, item in enumerate(rec[name]):
+            require_dict(item, f"{path}: {name}[{i}]")
+            for k in fields:
+                require_str(item, k, f"{path}: {name}[{i}]")
+
 def check_convergence(conv, path, outcomes):
     """周の数・連続ゼロの数・結末と、止まったときの理由"""
     require_int(conv, "rounds_total", f"{path}: convergence", 1)
@@ -185,3 +224,24 @@ def check_convergence(conv, path, outcomes):
         fail(f"{path}: convergence.outcome が不正（{'/'.join(outcomes)}）")
     if conv["outcome"] == "stopped":
         require_str(conv, "stopped_reason", f"{path}: convergence（outcome=stopped）")
+
+def publish_main(doc, validate, blockers, unsettled, closing):
+    """doctor と research の main。`unsettled` は停止の申告の括弧の中の語、`closing` は阻害が無いときの結びの文"""
+    if len(sys.argv) != 2:
+        print(doc, file=sys.stderr)
+        fail(f"引数は 1 個（受け取った数: {len(sys.argv) - 1}）")
+
+    rec = load(sys.argv[1])
+    validate(rec, sys.argv[1])
+
+    found = blockers(rec)
+    if found:
+        print_list(f"発行を妨げるもの {len(found)} 件:", found)
+        sys.exit(1)
+    if rec["convergence"]["outcome"] == "stopped":
+        print(
+            f"停止（{unsettled}）の申告つきで発行できる: {rec['convergence']['stopped_reason']}——"
+            "諮りたかった内容は散文の冒頭に「要人間判断」として列挙しろ。"
+        )
+        return
+    print("機械で見つけられる発行の阻害は無い。**これは品質・飽和の宣言ではない**——" + closing)

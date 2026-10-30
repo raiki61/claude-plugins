@@ -1,8 +1,4 @@
-# research-graph の人の方針と守ること
-
-## 人の方針
-
-人が決めた、どの run にも効く決まりは、対象リポジトリの共有の git ディレクトリ（`git rev-parse --git-common-dir` が指す所）の下の `graphloops/policy.md` に置けば、`init` が拾う（別の文書なら `init --input policy_md=<パス>`）。問いの確定・反証・統合・内部照合・適用のノードに、役には本文が、回す側には置き場が届く。置き場の決め方・届く先・文書の変化の扱い（周の途中では人に聞かず、報告の前に比べる）は [policy.md の「人の方針」](policy.md#人の方針) に在る。
+# research-graph の守ること
 
 ## 守ること
 

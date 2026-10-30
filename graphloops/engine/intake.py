@@ -239,7 +239,7 @@ def data_dir(given=None):
 def _commit(root):
     inst = _installed(root)
     if inst:   # 入れた置き場は git の作業ツリーではない——Claude Code の台帳が入れた commit を持つ
-        d = json.loads((inst[0] / "installed_plugins.json").read_text(encoding="utf-8"))
+        d = json.loads((inst[0] / LEDGER).read_text(encoding="utf-8"))
         for rows in (d.get("plugins") or {}).values():
             for r in rows or []:
                 if r.get("gitCommitSha") and pathlib.Path(r.get("installPath") or "/").resolve() == pathlib.Path(root).resolve():

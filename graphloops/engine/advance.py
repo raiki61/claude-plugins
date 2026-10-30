@@ -130,6 +130,23 @@ def node_schema(b, inst):
     return ((b.graph.get("nodes") or {}).get(inst.get("node")) or {}).get("schema") or None
 
 
+def write_role(b, name, text):
+    """盤面の roles/<name> に子へ渡す本文を書いた置き場"""
+    f = b.dir / "roles" / name
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text, encoding="utf-8")
+    return f
+
+
+def launch_holes(inst, **given):
+    """起動する語の穴（LAUNCH_HOLES）の埋め——instance と engine 自身から決まる値に、呼び元の値を足した物"""
+    sub = dict.fromkeys(LAUNCH_HOLES, "")
+    sub.update(prompt_file=inst["prompt_file"], out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT),
+               session_id="{session_id}")
+    sub.update(given)
+    return sub
+
+
 def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
     """役を engine の中で起動する語（argv・続きの語・材料）。起動できない役なら None（回す側が Agent で起動する）。
 
@@ -161,16 +178,9 @@ def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
             die(f"{inst['id']}: ツールゼロの役 '{inst['agent_type']}' を起動するのに graph の launch.isolated が無い"
                 "（Agent ツールで起動すると CLAUDE.md が注入され、遮断が名ばかりになる）")
         return None
-    role = safe_name(inst["agent_type"])
-    rdir = b.dir / "roles"
-    rdir.mkdir(parents=True, exist_ok=True)
-    sub = dict.fromkeys(LAUNCH_HOLES, "")
-    sub.update(model=d.get("model") or "", effort=d.get("effort") or "", prompt_file=inst["prompt_file"],
-               out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT),
-               session_id=resume_sid or "{session_id}")
-    role_file = rdir / (role + ".txt")
-    role_file.write_text(d["body"], encoding="utf-8")
-    sub["role_file"] = str(role_file)
+    role_file = write_role(b, safe_name(inst["agent_type"]) + ".txt", d["body"])
+    sub = launch_holes(inst, model=d.get("model") or "", effort=d.get("effort") or "", session_id=resume_sid or "{session_id}",
+                       role_file=str(role_file))
     tools, form = [], None
     if read_grant:
         # 読ませる 1 本の実パスだけを先に許す（dontAsk。ほかの読みは聞かずに拒まれる）。チェックは起動する瞬間に同じ関数で組み直す
@@ -217,20 +227,15 @@ def delegate_launch_spec(b, inst, n, ctx):
     if not spec:
         return None
     delegate = n["delegate"]
-    rdir = b.dir / "roles"
-    rdir.mkdir(parents=True, exist_ok=True)
-    role_file = rdir / "delegate.txt"
-    role_file.write_text(spec.get("preamble") or "", encoding="utf-8")
+    role_file = write_role(b, "delegate.txt", spec.get("preamble") or "")
     protected = protected_paths([b.dir])
     denied, _bad = repo_deny(launch_cwd(b))   # 読めない宣言はチェック（commands._delegate_refusal）が起動する瞬間に拒む
     if b.state.get("unfenced_delegates"):
         mode, allowed, settings = unfenced_delegate_permission(denied or ())
     else:
         (mode, allowed), settings = delegate_permission(), delegate_settings(protected or [], denied or ())
-    sub = dict.fromkeys(LAUNCH_HOLES, "")
-    sub.update(model=delegate.get("model") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
-               out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
-               tools=",".join(DELEGATE_TOOLS), allowed_tools=",".join(allowed), permission_mode=mode, settings=settings)
+    sub = launch_holes(inst, model=delegate.get("model") or "", role_file=str(role_file),
+                       tools=",".join(DELEGATE_TOOLS), allowed_tools=",".join(allowed), permission_mode=mode, settings=settings)
     launch = {"kind": "delegate", "stdin": inst["prompt_file"],
               **claude_words("delegate", sub, schema=None if delegate.get("background") else n.get("schema") or None),
               "tools": list(DELEGATE_TOOLS)}
@@ -272,10 +277,7 @@ def lens_files(b, inst):
         d = agent_def(name)
         if d is None:
             return None, f"レンズ {name} の定義がこの環境に無い（別 plugin）"
-        f = b.dir / "roles" / (safe_name(name) + ".lens.txt")
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(d["body"], encoding="utf-8")
-        out[name] = str(f)
+        out[name] = str(write_role(b, safe_name(name) + ".lens.txt", d["body"]))
     return out, None
 
 
@@ -311,8 +313,6 @@ def runner_launch_spec(b, inst, n):
         inst["unlaunched"] = f"{what}を子で起動できない（{down}）"
         return None
     cwd = launch_cwd(b)
-    rdir = b.dir / "roles"
-    rdir.mkdir(parents=True, exist_ok=True)
     preamble = spec.get("preamble") or ""
     perm = runner_form(skill, edits, cwd, b.dir, repo_deny(cwd)[0] or ())   # 読めない宣言はチェックの入口が起動する瞬間に拒む
     if perm is None:
@@ -327,13 +327,10 @@ def runner_launch_spec(b, inst, n):
         preamble = spec.get("skill_preamble") or ""
         if lenses:
             preamble += "\nレンズの定義の置き場（Agent の子に Read で読ませる）:\n" + "".join(f"- {k}: {v}\n" for k, v in lenses.items())
-    role_file = rdir / ("skill.txt" if skill else "runner.txt")
-    role_file.write_text(preamble, encoding="utf-8")
-    sub = dict.fromkeys(LAUNCH_HOLES, "")
-    sub.update(model=spec.get("model") or "", effort=spec.get("effort") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
-               out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
-               tools=",".join(perm["tools"]), allowed_tools=",".join(perm["allowed_tools"]),
-               permission_mode=perm["permission_mode"], settings=perm["settings"])
+    role_file = write_role(b, "skill.txt" if skill else "runner.txt", preamble)
+    sub = launch_holes(inst, model=spec.get("model") or "", effort=spec.get("effort") or "", role_file=str(role_file),
+                       tools=",".join(perm["tools"]), allowed_tools=",".join(perm["allowed_tools"]),
+                       permission_mode=perm["permission_mode"], settings=perm["settings"])
     launch = {"kind": "runner", "stdin": inst["prompt_file"], **claude_words("runner", sub, schema=n.get("schema") or None),
               "tools": perm["tools"], "form": perm["form"], "edits": edits,
               "model": spec.get("model") or "", "effort": spec.get("effort") or ""}
@@ -536,7 +533,8 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         # 生出力は {{ref:raw}}（Board.ref）だけが渡す——ctx["raw"] は両 graph のどのプロンプトからも読まれておらず、
         # 報告の next で同じ出力を 209 回読み直していた（実測 2026-09-12）
     # ツールゼロの役は別プロセスの CLI へ標準入力で流すので、Agent ツールの貼る先の上限が無い＝切らない（cap=None）。
-    atype = None if b.is_runner(n) else agent_type_of(b, n)
+    runner = b.is_runner(n)
+    atype = None if runner else agent_type_of(b, n)
     role_def = narrowed_def(agent_def(atype), b.graph.get("launch", {}).get("tooled", {}).get("narrow")) if atype else None
     role_def_missing = None
     if atype and ":" in atype and role_def is None:
@@ -552,7 +550,6 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         role_def_missing = f"{atype} の定義がこの環境に無い（別 plugin）。ツールは不明——遮断系としては扱わない。渡し方は paste"
         b.state.setdefault("role_def_missing", []).append({"instance": iid, "round": b.round, "agent_type": atype})
     isolated = role_def is not None and role_def["tools"] == []
-    runner = b.is_runner(n)
     segs = launch_appends(b.graph, n, role_def, runner)
     try:
         tpl = node_prompt(b.state["graph"], n, segs=segs)
@@ -610,7 +607,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
     inst = {
         "id": iid, "node": nid, "run_by": n["run_by"], "prompt_bytes": prompt_bytes,
         "mode": "runner" if runner else "agent",
-        "agent_type": None if runner else agent_type_of(b, n),
+        "agent_type": atype,
         "prompt_file": str(pfile), "prompt_sha": sha(prompt), "item": item, "status": "pending", "emitted_at": emitted,
         # 出した盤面の版（読んだ版。この保存で 1 つ進む）——区間の重なり（commands._in_interval）を秒でなく保存の順で分ける論理時計
         "emitted_rev": b.state.get("rev", 0),
@@ -825,8 +822,7 @@ def engine_changed(b, notes):
     「新機構が実走で動いていない」という指摘が 3 周にわたって出続け、原因（engine が別物）に
     たどり着くのに 9 周かかった（実測 r10）。置き場と版を毎周書けば、記録を読むだけで分かる。
     """
-    here = pathlib.Path(__file__).resolve().parent.parent          # <plugin>/engine/.. = <plugin>
-    cur = {"root": str(here), "version": intake.plugin_meta(here)[1]}
+    cur = {"root": str(PLUGIN_ROOT), "version": intake.plugin_meta(PLUGIN_ROOT)[1]}
     if cur != b.state.get("engine"):
         b.state.setdefault("engine_changes", []).append({"round": b.round, "from": b.state.get("engine"), "to": cur, "at": now()})
         b.state["engine"] = cur

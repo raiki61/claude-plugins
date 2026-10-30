@@ -229,14 +229,13 @@ def main(argv=None):
     try:
         return {"cond": cmd_cond, "accept": cmd_accept, "request": cmd_request, "machine": cmd_machine, "exit": cmd_exit}[a.cmd](a)
     except Unreadable as e:
-        print(json.dumps({"ok": False, "unreadable": str(e)}, ensure_ascii=False))
-        return 2
+        why = str(e)
     except SystemExit as e:   # engine の die（規則の欠陥・盤面の壊れ）——判定を下せない
-        print(json.dumps({"ok": False, "unreadable": f"engine が止めた（exit {e.code}）"}, ensure_ascii=False))
-        return 2
+        why = f"engine が止めた（exit {e.code}）"
     except Exception as e:  # noqa: BLE001 — 盤面の形が崩れている等で関数が落ちた——判定を下せない（拒否と混ぜない）
-        print(json.dumps({"ok": False, "unreadable": f"{type(e).__name__}: {e}"}, ensure_ascii=False))
-        return 2
+        why = f"{type(e).__name__}: {e}"
+    out({"ok": False, "unreadable": why})
+    return 2
 
 
 if __name__ == "__main__":

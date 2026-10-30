@@ -496,6 +496,12 @@ def _with_paste(snap):
     return snap if "paste_file" in snap else {**snap, "paste_file": snap["diff_file"]}
 
 
+def _changed_list_of(diff_file):
+    """差分の写し（diff-r<N>….patch）の隣の、変わったファイルの一覧（changed-r<N>….txt。_take_diff が書く）"""
+    f = pathlib.Path(diff_file)
+    return f.with_name(f.name.replace("diff-", "changed-", 1).replace(".patch", ".txt"))
+
+
 def _upcast_snapshot(h, out):
     """旧い版の rules が書いた p1.worktree_before の出力（差分の一式が出力の上の段にあり、snapshot のフィールドが無い）から snapshot を組む。
     組めなければ None。読み替えた印 from_old_output を付ける（人の決定 2026-09-27: 旧い盤面は警告して通す）。旧い出力は入口の周か
@@ -503,9 +509,8 @@ def _upcast_snapshot(h, out):
     if not isinstance(out.get("diff_file"), str):
         return None
     tb = out.get("tree_before") or {}
-    f = pathlib.Path(out["diff_file"])
     return {"rev": tb.get("rev") or tb.get("tree") or "", "diff_file": out["diff_file"], "changed_files": out.get("changed_files") or [],
-            "changed_files_file": str(f.with_name(f.name.replace("diff-", "changed-", 1).replace(".patch", ".txt"))),
+            "changed_files_file": str(_changed_list_of(out["diff_file"])),
             "stat": out.get("stat") or "", "entry": _entry_from_history(h), "paste_file": out["diff_file"], "from_old_output": True}
 
 
@@ -548,7 +553,7 @@ def hist_after_fix(h):
     if not f:
         return HIST_ABSENT
     snap = h.hist("snapshot")
-    lst = pathlib.Path(f).with_name(pathlib.Path(f).name.replace("diff-", "changed-", 1).replace(".patch", ".txt"))
+    lst = _changed_list_of(f)
     files = [x for x in (lst.read_text(encoding="utf-8").splitlines() if lst.is_file() else []) if x.strip()]
     return {"rev": (snap or {}).get("rev", "") if snap is not HIST_ABSENT else "", "diff_file": f, "changed_files": files,
             "changed_files_file": str(lst), "stat": "", "paste_file": f, "from_old_output": True}
@@ -1794,9 +1799,6 @@ def numstat_totals(text):
                     break
                 rows.append([cols[0], cols[1], parts[i + 2]])
                 i += 3
-            elif len(cols) == 3:
-                rows.append(cols)
-                i += 1
             else:
                 rows.append(cols)
                 i += 1
@@ -2623,6 +2625,12 @@ def _ci_skip_why(b):
     return f"。CI のノードは run の間ずっと省かれている（{'; '.join(got)}）——この run では CI を engine が走らせず、収束しない" if got else ""
 
 
+def _asking_items(asking):
+    """人に諮る問いの items の行（台帳の held / escalate を 1 行ずつ）"""
+    return [f"[{q['status']}] {q['kind']}: {q['key']} — {q.get('reason', '')}" + (f" 選択肢: {q['options']}" if q.get("options") else "")
+            for q in asking]
+
+
 def _converge(b, nid):
     V = validator_module(b)
     rec_out = b.output_of_round("p4.record", b.round) or {}
@@ -2670,8 +2678,7 @@ def _converge(b, nid):
             "question": (f"暴走ガード: 総ラウンドが上限 {b.state['max_rounds']} に達した（収束せず）。"
                          "台帳の held / escalate に答えて 1 周だけ延ばすか（continue --note <答え>。"
                          "上限は 1 周ぶんだけ上がり、次の周末にまた聞く）、未収束のまま報告に進むか（stop）"),
-            "items": [f"[{q['status']}] {q['kind']}: {q['key']} — {q.get('reason', '')}"
-                      + (f" 選択肢: {q['options']}" if q.get("options") else "") for q in asking],
+            "items": _asking_items(asking),
             "options": ["continue", "stop"],
         }}
     if will_converge:
@@ -2729,7 +2736,7 @@ def _converge(b, nid):
             "kinds": [branch],
             "question": STOP_QUESTION.get(branch, f"{V.STOP_KEYS[branch]}。") +
                         " 台帳の held / escalate に答えるか（continue --note <答え>）、未収束のまま報告に進むか（stop）",
-            "items": [f"[{q['status']}] {q['kind']}: {q['key']} — {q.get('reason', '')}" + (f" 選択肢: {q['options']}" if q.get("options") else "") for q in asking],
+            "items": _asking_items(asking),
             "options": ["continue", "stop"],
         }}
     return {"decision": "next_round", "reason": "阻害要因が残る（検証器の出力を P2 の履歴に渡す）"}
@@ -3021,6 +3028,16 @@ def _carried_r1_accounted(b, out):
     return errs
 
 
+def _fork_exempt(V, questions):
+    """人に諮っている fork の出どころと depends の key（その単位は待ってよい）"""
+    keys = set()
+    for q in questions:
+        if q.get("kind") == "fork" and q.get("status") in V.ASKING:
+            keys.add(q.get("origin"))
+            keys.update(q.get("depends", []) or [])
+    return keys
+
+
 def _fork_moves_forward(b, out):
     """fork が出どころの [block] を免除するのは 1 周だけ。2 周目からは escalate（人に実際に届く形）に上げろ。
 
@@ -3035,10 +3052,7 @@ def _fork_moves_forward(b, out):
     痕跡が残らない。対象は unit の key なので綴りが安定している。
     """
     V = validator_module(b)
-    prev_exempt = set()
-    for q in _hist(b, "prev_questions", []):
-        if q.get("kind") == "fork" and q.get("status") in V.ASKING:
-            prev_exempt |= {q.get("origin")} | set(q.get("depends", []) or [])
+    prev_exempt = _fork_exempt(V, _hist(b, "prev_questions", []))
     prev_exempt.discard(None)
     if not prev_exempt:
         return []
@@ -3268,12 +3282,7 @@ def _owed_units(v):
     修正の側のノードに見せる義務の印（fix_units）がこの 1 本から引き、修正案・TDD のテスト・修正の受け付けはその印から引く
     （2 か所で計算していた頃は、修正案の側だけ免除が抜けていた）"""
     V = v.validator
-    exempt = set()
-    for q in v("record.questions", []):
-        if q.get("kind") == "fork" and q.get("status") in V.ASKING:
-            exempt.add(q.get("origin"))
-            exempt.update(q.get("depends", []) or [])
-    return {u["key"] for u in v("record.units", []) if V.is_open(u)} - exempt - _human_excluded(v)
+    return {u["key"] for u in v("record.units", []) if V.is_open(u)} - _fork_exempt(V, v("record.questions", [])) - _human_excluded(v)
 
 
 def _human_excluded(v):
@@ -3575,8 +3584,8 @@ def _md_link_errors(base, root):
         # / で始まるリンクはリポジトリのルート基準（GitHub の文書の相対リンクの規則）
         base_dir = rootp if path.startswith("/") else (rootp / rel).parent
         return _walk_as_written(base_dir, unquote(path.lstrip("/"))) if path else _walk_as_written(rootp, rel)
-    inside = {dest_of(r, g).relative_to(rootp).as_posix() for r, _, g, u in links
-              if not u and rootp in dest_of(r, g).parents}
+    inside = {d.relative_to(rootp).as_posix() for r, _, g, u in links
+              if not u and rootp in (d := dest_of(r, g)).parents}
     # ディレクトリは、版に入るファイルを 1 本以上含むこと（FS の is_dir だけだと、空のディレクトリや無視対象だけの
     # ディレクトリへのリンクが通った）
     dirs = {x for x in inside if (rootp / x).is_dir()}
@@ -4522,16 +4531,16 @@ def _stopped_round_record(b, reason):
     """止めた周の記録を組む（record_round と fill_materials をそのまま使う）。**写しの上で組み、検証器を通ったときだけ盤面に残す**
     ——通らなければ記録と周の記録のファイルを組む前に戻し、報告を出せない理由を返す"""
     import copy
-    rec0 = copy.deepcopy(b.record)
+    rec0, rf = copy.deepcopy(b.record), b.dir / "rounds" / f"round-{b.round}.json"
     # 周の締めで検証器に落ちた回の周の記録が残っていれば外す——止めた周は閉じた周として hist が読むので、組む前の古い記録を読ませない
-    (b.dir / "rounds" / f"round-{b.round}.json").unlink(missing_ok=True)
+    rf.unlink(missing_ok=True)
     _drop_stopped_materials(b)
     fill_materials(b)
     out = record_round(b, None, stopped_reason=reason)
     if out.get("ok"):
         return None
     b.record = rec0
-    (b.dir / "rounds" / f"round-{b.round}.json").unlink(missing_ok=True)
+    rf.unlink(missing_ok=True)
     return "止めた周の記録が検証器を通らない: " + "; ".join(out.get("problems") or [])[-800:]
 
 

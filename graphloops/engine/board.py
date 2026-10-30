@@ -472,10 +472,7 @@ class Board:
         if path == "record" or path.startswith("record."):
             return [(path, str(self.dir / "record.json"), get_path({"record": self.record}, path))]
         if path == "raw":
-            nodes = set(self.graph.get("raw_for_report", []))
-            return [(f"r{rd['round']}/{iid}", self._out_path(inst["output_file"]), self.read_out(inst["output_file"], board_relative=True))
-                    for rd in self.state["rounds"] for iid, inst in rd["instances"].items()
-                    if inst["status"] == "done" and inst["node"] in nodes and inst.get("output_file")]
+            return self._done_outputs(self.state["rounds"], set(self.graph.get("raw_for_report", [])))
         if path.startswith("out.") or path.startswith("prev."):
             prev = path.startswith("prev.")
             nid = self.node_of(path[5:] if prev else path[4:])
@@ -486,11 +483,13 @@ class Board:
             # 1 周目の出力が穴では貼られ ref: では出なかった）。周で切らないのは、once のノードを後の周が読むため。
             rounds = [rd for rd in self.state["rounds"] if rd["round"] < self.round] if prev else self.state["rounds"]
             ran = [rd for rd in rounds if any(i["status"] == "done" and i["node"] == nid for i in rd["instances"].values())]
-            rounds = ran[-1:]
-            return [(f"r{rd['round']}/{iid}", self._out_path(inst["output_file"]), self.read_out(inst["output_file"], board_relative=True))
-                    for rd in rounds for iid, inst in rd["instances"].items()
-                    if inst["status"] == "done" and inst["node"] == nid and inst.get("output_file")]
+            return self._done_outputs(ran[-1:], {nid})
         raise KeyError(f"{path}: ref: にできるのは record・out.<ノード>・prev.<ノード>・raw だけ")
+
+    def _done_outputs(self, rounds, nodes):
+        return [(f"r{rd['round']}/{iid}", self._out_path(inst["output_file"]), self.read_out(inst["output_file"], board_relative=True))
+                for rd in rounds for iid, inst in rd["instances"].items()
+                if inst["status"] == "done" and inst["node"] in nodes and inst.get("output_file")]
 
     def ctx(self, item=None):
         """プロンプトの穴・条件・pointers の from・delegate.result_to が引く文脈。cur.<ノード> は今の周にそのノードが出した出力だけ
@@ -515,8 +514,7 @@ class Board:
         ——周が変わる next で同じ `git status` が 2 回走っていた（実測 2026-09-13: 1 回 15 ミリ秒）。
         """
         if "_porcelain" not in self.__dict__:
-            from .util import porcelain as _p
-            self.__dict__["_porcelain"] = _p()
+            self.__dict__["_porcelain"] = util.porcelain()
         return self.__dict__["_porcelain"]
 
     def worktree_tree(self, why=None):
@@ -543,7 +541,6 @@ class Board:
         """
         cache = self.__dict__.get("_vtables")
         if cache is None:
-            from .rules import Reject, validator_module
             try:
                 cache = dict(getattr(validator_module(self), "PROMPT_TABLES", {}) or {})
             except (Reject, OSError, ImportError):

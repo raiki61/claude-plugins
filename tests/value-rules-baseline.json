@@ -18,7 +18,7 @@
   "rule4": 2
  },
  "graphloops/engine/render.py": {
-  "rule4": 2
+  "rule4": 1
  },
  "graphloops/engine/role_run.py": {
   "rule4": 4
