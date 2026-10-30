@@ -755,8 +755,9 @@ def privacy(commit_rows, gh_rows, ask=repo_private):
 
 
 # 非公開の番号を集める・フィールドの文から探す用。lib/ghtext.py の refs（コードと引用の中を数えない）より広く、
-# 「PR 12」の形も、コードの中の #12 も当てる——ここは漏れを防ぐ側なので、外すより当て過ぎに倒す
-REF = re.compile(r"(?:#|\b(?:PR|pr|issue|Issue)\s*#?)(\d+)")
+# 「PR 12」の形も、コードの中の #12 も当てる——ここは漏れを防ぐ側なので、外すより当て過ぎに倒す。PR・issue の前の
+# 切れ目は ASCII の英数字で見る（\b は日本語の字も語に数え、「このPR 12」を見逃す）。全角の ＃ も当てる
+REF = re.compile(r"(?:[#＃]|(?<![A-Za-z0-9_])(?:pr|issue)\s*[#＃]?)(\d+)", re.I)
 
 
 def leaks(fields, data):
@@ -779,9 +780,12 @@ def leaks(fields, data):
     for repo in priv.get("repos") or []:
         names = {repo} | ({repo.split("/", 1)[1]} if "/" in repo and len(repo.split("/", 1)[1]) >= 4 else set())
         # 語の切れ目で当てる（名前が一般の語のとき、id の「unknown-one」のような語の一部に当てない）。切れ目は ASCII の
-        # 英数字で見る——\w は日本語の字も語に数え、「secret-appで直した」の名前を見逃す。GitHub の名前は大小を区別しない
-        hit = sorted(n for n in names
-                     if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(n) + r"(?![A-Za-z0-9_-])", text, re.I))
+        # 英数字で見る——\w は日本語の字も語に数え、「secret-appで直した」の名前を見逃す。GitHub の名前は大小を区別しない。
+        # 名前そのものに - を含む物（secret-app）は一般の語でないので、- も切れ目に数える（id の「fix-secret-app」に当てる）
+        def word(n):
+            edge = "A-Za-z0-9_" if "-" in n else "A-Za-z0-9_-"
+            return rf"(?<![{edge}])" + re.escape(n) + rf"(?![{edge}])"
+        hit = sorted(n for n in names if re.search(word(n), text, re.I))
         if hit:
             errs.append(f"非公開のリポジトリの名前を書いている: {'、'.join(hit)}")
     nums = set(priv.get("numbers") or [])
