@@ -56,9 +56,18 @@ if [ "${HERDR_ENV:-}" = 1 ]; then
        || { head -n 1 "$hd_over" 2>/dev/null | grep -qF '# tiers-statusline が作った herdr の判定ルールの上書き。' \
        && { [ "$hd_remote" -nt "$hd_over" ] || [ "$here/claude-rule.toml" -nt "$hd_over" ]; }; }; }; then
     # 入口が Python 3.11 以上を見つけられず（PATH の python3 が 3.10 まで）に落ちると、refresh は Python を読み込む前に終わるので、
-    # 失敗の印を書けない。上書きが無いままそう落ちたら、ここで印を書く（書かないと 30 秒ごとにペインの数だけ入口が同じ失敗を繰り返す）
-    { "$here/../bin/tiers-statusline" refresh >/dev/null 2>>"$err_log" \
-      || [ -e "$hd_over" ] || { mkdir -p "${hd_over%/*}" && : > "$hd_failed"; } 2>/dev/null; } &
+    # 失敗の印を書けない。そう落ちたら、ここで Python の refresh の失敗と同じ手当てをする（しないと 30 秒ごとにペインの数だけ入口が
+    # 同じ失敗を繰り返す）。上書きが無ければ印を書く（Python が書いた訳を空にしないよう、中身は触らず時刻だけ進める）。tiers の作った
+    # 上書きがあれば、その時刻を進める。手で書いた上書きは起動の条件に入らないので触らない。
+    # 入口の終わりの値が 127 のときだけ。refresh が Python で失敗したとき（1）は、手当ては refresh が済ませている（herdr が書いている
+    # 途中を読んだときは、わざと印を付けずに次の描画で取り直す）。
+    { "$here/../bin/tiers-statusline" refresh >/dev/null 2>>"$err_log"; [ $? -ne 127 ] || {
+        if [ ! -e "$hd_over" ]; then
+          mkdir -p "${hd_over%/*}" && touch "$hd_failed"
+        elif head -n 1 "$hd_over" | grep -qF '# tiers-statusline が作った herdr の判定ルールの上書き。'; then
+          touch "$hd_over"
+        fi
+      } 2>/dev/null; } &
   fi
 fi
 

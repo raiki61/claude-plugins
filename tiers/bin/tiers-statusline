@@ -13,7 +13,8 @@ for cand in python3 python $named "py -3"; do
   $cand -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1 && exec $cand "$0" "$@"
 done
 echo "tiers-statusline: 起動できる Python 3.11 以上が見つからない（python3・python・python3.20〜python3.11・py -3 を試した）。Python 3.11 以上を入れる。入れてあるのに見つからないなら、入れた場所を PATH に足す。Windows で python3 や python が Microsoft Store へ誘うなら、設定 → アプリ → アプリ実行エイリアス で python.exe と python3.exe の「アプリ インストーラー」を切る" >&2
-exit 1
+# 終わりの値は 127（コマンドが無いときの値）。statusline.sh は、これを refresh の失敗（1）と分けて、Python が読み込まれずに印を書けなかったときだけ手当てする
+exit 127
 '''
 """statusline と herdr の判定ルールの上書きを入れて保つ道具の入口。中身は ../lib/tiers_statusline.py（使い方もそこ）。
 

@@ -80,11 +80,12 @@ class Launcher(unittest.TestCase):
                                        env=env)
                     self.assertEqual(p.returncode, 0, p.stderr)
             named.unlink()
-            for name, floor in (("tiers", 8), ("tiers-settings", 8), ("tiers-statusline", 11)):
+            # tiers-statusline だけ 127（statusline.sh が refresh の失敗の 1 と分ける）
+            for name, floor, code in (("tiers", 8, 1), ("tiers-settings", 8, 1), ("tiers-statusline", 11, 127)):
                 with self.subTest(name):
                     p = subprocess.run(["sh", str(ENTRY.with_name(name)), "--help"], capture_output=True, text=True, encoding="utf-8",
                                        env=env)
-                    self.assertEqual(p.returncode, 1)
+                    self.assertEqual(p.returncode, code)
                     self.assertIn(f"python3.20〜python3.{floor}", p.stderr)
                     self.assertIn("入れた場所を PATH に足す", p.stderr)
 

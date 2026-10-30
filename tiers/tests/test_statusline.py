@@ -113,6 +113,26 @@ class Refresh(Base):
         self.assertIn(sl.RULE_ID, self.over.read_text(encoding="utf-8"), "壊れた上書きは書かない")
         self.assertGreater(self.over.stat().st_mtime, 1, "statusline.sh が 30 秒ごとに同じ失敗を繰り返さない")
 
+    def test_a_failure_is_not_stamped_when_the_handed_out_rules_changed_while_reading(self):
+        # herdr が書いている途中を読んで compose が落ち、そのあと herdr が書き終えた。そのあとで印（時刻）を付けると、完成した
+        # 配られたルールより新しい印になり、次に herdr が配り直すまで作り直しを待たされる。変わっていたら印を付けず、次の描画で取り直す
+        self.put(self.remote, 'id = "claude"\n')
+        os.utime(self.remote, (1, 1))
+        real = sl.read_file
+
+        def read_then_finish_writing(path):
+            text = real(path)
+            if pathlib.Path(path) == self.remote:
+                self.put(self.remote, BASE)   # 読んだあとに書き終わる
+            return text
+        sl.read_file = read_then_finish_writing
+        try:
+            ok, said = sl.refresh(self.env, run=self.run_)
+        finally:
+            sl.read_file = real
+        self.assertFalse(ok)
+        self.assertFalse(self.over.with_name(self.over.name + ".tiers-failed").exists(), "読んでいる間に変わったなら印を残さない")
+
     @unittest.skipIf(os.name == "nt", "リンクを張る権限が Windows では要る")
     def test_a_linked_override_is_written_through_the_link(self):
         self.put(self.remote, BASE)
@@ -343,6 +363,51 @@ class Shell(Base):
             subprocess.run(["sleep", "0.1"])
         self.assertTrue(stamp.exists(), "入口が落ちたときも失敗の印を残す")
         self.assertFalse(self.over.exists())
+
+    @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "jq と bash が要る")
+    def test_a_launcher_that_finds_no_python_3_11_ages_our_override_instead_of_stamping(self):
+        # tiers の作った上書きが配られたルールより古いまま入口が落ちると、Python の refresh の失敗と同じに上書きの時刻を進めないと、
+        # 30 秒ごとに入口を起動し直してエラーの記録に書き足し続ける
+        top, _ = self.starter()
+        shutil.copy(sl.ROOT / "bin" / "tiers-statusline", top / "bin" / "tiers-statusline")
+        old = self.home / "oldpy"
+        old.mkdir()
+        for name in ["python3", "python", "py"] + [f"python3.{n}" for n in range(11, 21)]:
+            (old / name).write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            (old / name).chmod(0o755)
+        self.put(self.remote, BASE)
+        os.utime(self.remote, (1000, 1000))
+        os.utime(top / "statusline" / "claude-rule.toml", (1, 1))
+        self.put(self.over, sl.MARK + "\n" + BASE)
+        os.utime(self.over, (500, 500))
+        env = {**self.sh_env, "PATH": f"{old}{os.pathsep}{os.environ['PATH']}"}
+        subprocess.run(["bash", str(top / "statusline" / "statusline.sh")], input='{"model": {"display_name": "Opus"}}',
+                       env=env, capture_output=True, text=True, encoding="utf-8", check=True)
+        for _ in range(50):   # 裏で起動するので、少し待つ
+            if self.over.stat().st_mtime > 1000:
+                break
+            subprocess.run(["sleep", "0.1"])
+        self.assertGreater(self.over.stat().st_mtime, 1000, "上書きの時刻を進めて、次の描画で起動し直さない")
+        self.assertFalse(self.over.with_name(self.over.name + ".tiers-failed").exists(), "上書きがあるときは印を書かない")
+
+    @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "jq と bash が要る")
+    def test_a_refresh_that_failed_in_python_is_left_to_python(self):
+        # refresh が Python で失敗した（終わりの値 1）ときの手当ては refresh が済ませている。herdr が書いている途中を読んだときは
+        # わざと印を付けないので、statusline.sh が代わりに印を書くと、書き終わったルールを次に配り直すまで取り直さない
+        top, _ = self.starter()
+        done = self.home / "refresh-done"
+        (top / "bin" / "tiers-statusline").write_text(f"#!/bin/sh\n: > '{done}'\nexit 1\n", encoding="utf-8")
+        (top / "bin" / "tiers-statusline").chmod(0o755)
+        self.put(self.remote, BASE)
+        subprocess.run(["bash", str(top / "statusline" / "statusline.sh")], input='{"model": {"display_name": "Opus"}}',
+                       env=self.sh_env, capture_output=True, text=True, encoding="utf-8", check=True)
+        for _ in range(50):   # 裏で起動するので、少し待つ
+            if done.exists():
+                break
+            subprocess.run(["sleep", "0.1"])
+        subprocess.run(["sleep", "0.3"])
+        self.assertTrue(done.exists())
+        self.assertFalse(self.over.with_name(self.over.name + ".tiers-failed").exists(), "Python の失敗には印を書き足さない")
 
 
 @unittest.skipIf(os.name == "nt", "statusline.sh は macOS と Linux だけで動く")

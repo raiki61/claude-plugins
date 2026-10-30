@@ -68,6 +68,15 @@ def read_file(path):
         return None
 
 
+def stat_key(path):
+    """読んでいる間に書き換わったかを見分ける目印。無ければ None。"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
 def write_file(path, text):
     """書きかけを読ませない（statusline.sh が 30 秒ごとに、ペインの数だけ並んで起動しうる）。path がリンク（dotfiles の管理など）なら、
     リンクを普通のファイルで置き換えず、リンクの先に書く。"""
@@ -116,6 +125,7 @@ def refresh(env=None, force=False, run=None):
     env = os.environ if env is None else env
     run = run or subprocess.run   # 既定を引数に書くと、読み込んだ時の subprocess.run に決まり、試験が差し替えられない
     over, remote = herdr_paths(env)
+    seen = stat_key(remote)
     base = read_file(remote)
     if base is None:
         return False, f"herdr が配った Claude の判定ルール（{remote}）が無い。herdr を起動するか herdr server update-agent-manifests を打ってから、もう一度打つ"
@@ -126,6 +136,8 @@ def refresh(env=None, force=False, run=None):
     try:
         want = compose(base, RULE.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
+        if stat_key(remote) != seen:   # herdr が書いている途中を読んだかもしれない。今の時刻で印を付けると書き終わった物より新しくなり、次に配り直すまで取り直さないので、付けずに次の描画で取り直す
+            return False, str(e)
         if cur is not None and cur.startswith(MARK):
             os.utime(over)   # statusline.sh が 30 秒ごとに起動して同じ失敗を繰り返さないよう、次に herdr が配り直すまで待たせる
         elif cur is None:   # 上書きが無いときは、時刻を進める物が無いので失敗の印を残す（statusline.sh は印より新しいルールを待つ）
