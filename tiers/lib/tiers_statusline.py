@@ -39,6 +39,7 @@ RULE_ID = "local_bg_wait_mark_working"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RULE = ROOT / "statusline" / "claude-rule.toml"
 MARK = "# tiers-statusline が作った herdr の判定ルールの上書き。"   # 上書きの 1 行目。これで始まる物だけを作り直す（statusline.sh も頭で見分ける）
+FAILED = ".tiers-failed"   # 上書きが無いまま作れなかった印（上書きの名前の後ろに付ける。statusline.sh も同じ名前で見る）
 
 
 def data_link(config_dir):
@@ -121,12 +122,19 @@ def refresh(env=None, force=False, run=None):
     cur = read_file(over)
     if cur is not None and not cur.startswith(MARK) and not force:
         return True, f"{over} は tiers が作った物でないので触らない（置き換えるなら tiers-statusline setup）"
+    failed = over.with_name(over.name + FAILED)
     try:
         want = compose(base, RULE.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         if cur is not None and cur.startswith(MARK):
             os.utime(over)   # statusline.sh が 30 秒ごとに起動して同じ失敗を繰り返さないよう、次に herdr が配り直すまで待たせる
+        elif cur is None:   # 上書きが無いときは、時刻を進める物が無いので失敗の印を残す（statusline.sh は印より新しいルールを待つ）
+            try:
+                write_file(failed, str(e) + "\n")
+            except OSError:   # 印が書けないだけなら、作れない訳は呼び元に返す（前と同じく 30 秒ごとに起動し直すだけ）
+                pass
         return False, str(e)
+    failed.unlink(missing_ok=True)   # 残すと、後で上書きを消したときに statusline.sh が作り直さない
     if cur == want:
         os.utime(over)   # 配られたルールの方が新しいままだと、statusline.sh が 30 秒ごとに起動し続ける
         return True, f"{over} は今の配られたルールから作った物のまま"

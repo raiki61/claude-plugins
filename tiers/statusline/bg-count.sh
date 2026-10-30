@@ -135,7 +135,9 @@ esac
 shells=0
 [ -n "$claude_pid" ] && shells=$(bg_pids "$claude_pid" | wc -l | tr -d ' ')
 born=""
-# macOS の date は -j -f で読み、Linux（GNU の date に -j が無い）は ps の経過秒（etimes）を今から引く
-[ -n "$claude_pid" ] && born=$(date -j -f "%a %b %d %T %Y" "$(LC_ALL=C ps -o lstart= -p "$claude_pid")" +%s 2>/dev/null \
+# macOS の date は -j -f で読み、Linux（GNU の date に -j が無い）は ps の経過秒（etimes）を今から引く。
+# date も C の言葉で読む。LC_TIME などが日本語だと C の言葉の lstart（"Fri Oct 30 …"）を読めず、macOS の ps には etimes も無いので
+# 起きた時刻が空になり、知らせ無しに終わったサブエージェントを 6 時間走っていると数える
+[ -n "$claude_pid" ] && born=$(LC_ALL=C date -j -f "%a %b %d %T %Y" "$(LC_ALL=C ps -o lstart= -p "$claude_pid")" +%s 2>/dev/null \
   || { e=$(ps -o etimes= -p "$claude_pid" 2>/dev/null | tr -d ' '); [ -n "$e" ] && echo $(( $(date +%s) - e )); })
 echo $(( shells + $(bg_agents "${1:-}" "$born") ))

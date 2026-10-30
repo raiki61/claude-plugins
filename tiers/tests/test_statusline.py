@@ -260,9 +260,8 @@ class Shell(Base):
         self.hook(data, root)
         self.assertFalse(os.path.lexists(data / "current"), "statusLine がほかを指すアカウントには張らない")
 
-    @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "jq と bash が要る")
-    def test_the_statusline_starts_refresh_only_when_it_would_change_something(self):
-        # statusline/ を写し、bin/tiers-statusline を、起動されたら印のファイルを書く偽物にする
+    def starter(self):
+        # statusline/ を写し、bin/tiers-statusline を、起動されたら印のファイルを書く偽物にする。(写した先, 起動したかを見る関数)
         top = self.home / "tiers"
         shutil.copytree(sl.ROOT / "statusline", top / "statusline")
         (top / "bin").mkdir()
@@ -282,6 +281,11 @@ class Shell(Base):
                     return True
                 subprocess.run(["sleep", "0.1"])
             return False
+        return top, started
+
+    @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "jq と bash が要る")
+    def test_the_statusline_starts_refresh_only_when_it_would_change_something(self):
+        top, started = self.starter()
         self.assertFalse(started(), "配られたルールがまだ無い")
         self.put(self.remote, BASE)
         self.assertTrue(started(), "上書きが無い")
@@ -294,6 +298,26 @@ class Shell(Base):
         self.put(self.over, "# 手で書いた\n" + BASE)
         os.utime(self.over, (0, 0))
         self.assertFalse(started(), "手で書いた上書きは起動しても変わらない")
+
+    @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "jq と bash が要る")
+    def test_a_failure_with_no_override_waits_for_new_rules(self):
+        # 上書きが無いまま作れない（Python が 3.10 まで・配られたルールが壊れている）と、30 秒ごとにペインの数だけ失敗を繰り返し、
+        # エラーの記録に書き足し続ける。失敗の印を残し、配られたルールか足す規則が新しくなるまで起動しない
+        top, started = self.starter()
+        self.put(self.remote, 'id = "claude"\n')
+        os.utime(self.remote, (1, 1))
+        os.utime(top / "statusline" / "claude-rule.toml", (1, 1))
+        ok, said = sl.refresh(self.env, run=self.run_)
+        self.assertFalse(ok)
+        self.assertFalse(self.over.exists())
+        stamp = self.over.with_name(self.over.name + ".tiers-failed")
+        self.assertTrue(stamp.exists(), "失敗の印を残す")
+        self.assertFalse(started(), "失敗の印の方が新しい")
+        os.utime(top / "statusline" / "claude-rule.toml")
+        self.assertTrue(started(), "足す規則が直れば作り直す")
+        self.put(self.remote, BASE)
+        self.assertTrue(sl.refresh(self.env, run=self.run_)[0])
+        self.assertFalse(stamp.exists(), "作れたら失敗の印を消す")
 
 
 @unittest.skipIf(os.name == "nt", "statusline.sh は macOS と Linux だけで動く")
@@ -322,6 +346,35 @@ class BranchPrKey(unittest.TestCase):
 
     def test_no_key_shows_no_pr_rather_than_another_branchs(self):
         self.assertEqual(self.read(["find", "cat"]), "")
+
+    def refetch(self, gh_exit):
+        # 古い控え（15 分より前）を置き、gh の偽物（出力無しで gh_exit で終わる）に取り直させて、控えに残った物を返す
+        with tempfile.TemporaryDirectory() as d:
+            tmp, bin_, work = pathlib.Path(d, "tmp"), pathlib.Path(d, "bin"), pathlib.Path(d, "work")
+            for p in (tmp, bin_, work):
+                p.mkdir()
+            for cmd in ("find", "cat", "mv", "touch"):
+                (bin_ / cmd).symlink_to(shutil.which(cmd))
+            (bin_ / "python3").symlink_to(sys.executable)
+            (bin_ / "gh").write_text(f"#!/bin/sh\nexit {gh_exit}\n", encoding="utf-8")
+            (bin_ / "gh").chmod(0o755)
+            cache = tmp / f"herdr-pr-{hashlib.sha1(f'{work}|feat/x'.encode()).hexdigest()[:16]}"
+            cache.write_text("12\t題", encoding="utf-8")
+            os.utime(cache, (1, 1))
+            script = (sl.ROOT / "statusline" / "statusline.sh").read_text(encoding="utf-8")
+            func = re.search(r"^branch_pr_info\(\) \{\n.*?^\}\n", script, re.M | re.S).group(0)
+            subprocess.run([shutil.which("bash"), "-c", func + f'branch_pr_info "{work}" feat/x >/dev/null; wait'],
+                           env={"PATH": str(bin_), "TMPDIR": str(tmp)}, capture_output=True, check=True)
+            self.assertGreater(cache.stat().st_mtime, 1, "失敗しても時刻は進め、30 秒ごとに gh を起動し直さない")
+            return cache.read_text(encoding="utf-8")
+
+    def test_a_failed_gh_keeps_the_cached_pr(self):
+        # ネットワークの断・20 秒の打ち切り（124）・認証の誤りで、開いた PR を「PR 無し」で 15 分上書きしない
+        for code in (1, 124):
+            self.assertEqual(self.refetch(code), "12\t題", code)
+
+    def test_no_open_pr_is_cached_as_none(self):
+        self.assertEqual(self.refetch(0), "-")
 
 
 @unittest.skipIf(os.name == "nt", "bg-count.sh は macOS と Linux だけで動く")
@@ -353,6 +406,30 @@ class FindClaude(unittest.TestCase):
 
     def test_other_processes_are_not_taken_for_claude(self):
         self.assertEqual(self.find("2.1.302", "/usr/bin/node"), "")
+
+
+@unittest.skipUnless(sys.platform == "darwin", "Claude のプロセスが起きた時刻を BSD の date で読む所")
+class BgAgentsBorn(unittest.TestCase):
+    """bg-count.sh が、Claude のプロセスより前に最後の行を書いた背景のサブエージェントを数えない所。"""
+
+    def test_a_subagent_from_before_the_process_is_not_counted_under_a_japanese_locale(self):
+        # 起きた時刻が読めないと、知らせ無しに終わった下請けを 6 時間走っていると数える。LC_TIME が日本語だと date が
+        # C の言葉の ps の lstart（"Fri Oct 30 …"）を読めない。今の bash を Claude と見なし、2020 年に止まった下請けを置く
+        with tempfile.TemporaryDirectory() as d:
+            t = pathlib.Path(d, "s.jsonl")
+            t.write_text("", encoding="utf-8")
+            sub = pathlib.Path(d, "s", "subagents")
+            sub.mkdir(parents=True)
+            (sub / "agent-a1.meta.json").write_text('{"requestShape": "background"}', encoding="utf-8")
+            (sub / "agent-a1.jsonl").write_text(json.dumps({"type": "user", "timestamp": "2020-01-01T00:00:00.000Z",
+                                                            "message": {"content": "x"}}) + "\n", encoding="utf-8")
+            script = (sl.ROOT / "statusline" / "bg-count.sh").read_text(encoding="utf-8")
+            func = re.search(r"^bg_agents\(\) \{\n.*?^\}\n", script, re.M | re.S).group(0)
+            born = re.search(r"^born=\"\"\n.*?(?=^echo )", script, re.M | re.S).group(0)
+            got = subprocess.run(["bash", "-c", func + "claude_pid=$$\n" + born + 'bg_agents "$1" "$born"', "_", str(t)],
+                                 env={**os.environ, "LC_ALL": "ja_JP.UTF-8", "LANG": "ja_JP.UTF-8"},
+                                 capture_output=True, text=True, encoding="utf-8").stdout.strip()
+            self.assertEqual(got, "0")
 
 
 class Check(Base):

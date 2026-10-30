@@ -43,12 +43,17 @@ printf '%s' "$json" | jq -rf "$here/statusline.jq"
 # 上書きは herdr が配ったルールの丸ごとの置き換えなので、上書きが無いか、tiers の作った上書き（1 行目の印で見分ける。中身は
 # tiers_statusline.py の MARK）より配られたルールか足す規則の方が新しければ、tiers-statusline refresh を裏で起動して作り直す。
 # 配られたルールがまだ無いときと、手で書いた上書きは、30 秒ごとに起動しても変わらないので起動しない。
+# 上書きが無いまま作れなかったとき（Python が 3.10 まで・配られたルールが壊れている）は、refresh が残す失敗の印（上書きの名前に
+# .tiers-failed を足した物）が配られたルールと足す規則のどちらよりも新しい間は起動しない（30 秒ごとにペインの数だけ同じ失敗を
+# エラーの記録に書き足し続けない）。
 if [ "${HERDR_ENV:-}" = 1 ]; then
   bg_n=$("$here/bg-count.sh" "$(printf '%s' "$json" | jq -r '.transcript_path // empty' 2>/dev/null)" 2>/dev/null || echo 0)
   [ "${bg_n:-0}" -gt 0 ] 2>/dev/null && printf '⧖ バックグラウンド作業中 %s 本\n' "$bg_n"
   hd_over="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/agent-detection/claude.toml"
   hd_remote="${XDG_STATE_HOME:-$HOME/.local/state}/herdr/agent-detection/remote/claude.toml"
-  if [ -e "$hd_remote" ] && { [ ! -e "$hd_over" ] || { head -n 1 "$hd_over" | grep -qF '# tiers-statusline が作った herdr の判定ルールの上書き。' \
+  hd_failed="$hd_over.tiers-failed"
+  if [ -e "$hd_remote" ] && { { [ ! -e "$hd_over" ] && ! { [ "$hd_failed" -nt "$hd_remote" ] && [ "$hd_failed" -nt "$here/claude-rule.toml" ]; }; } \
+       || { head -n 1 "$hd_over" 2>/dev/null | grep -qF '# tiers-statusline が作った herdr の判定ルールの上書き。' \
        && { [ "$hd_remote" -nt "$hd_over" ] || [ "$here/claude-rule.toml" -nt "$hd_over" ]; }; }; }; then
     "$here/../bin/tiers-statusline" refresh >/dev/null 2>>"$err_log" &
   fi
@@ -237,8 +242,13 @@ branch_pr_info() {
       #
       # タイトルの空白は 1 つに潰す。区切りに TAB を使うので、TAB や改行が混じると
       # 読み出し側の cut が途中で切れる。
+      #
+      # gh が失敗したら（ネットワークの断・打ち切りの 124・認証の誤り）、控えが在れば中身を変えず、時刻だけ進めて 15 分後に取り直す
+      # （無ければ「-」を書いて 15 分待つ）。「PR 無し」の「-」で上書きすると、開いた PR が 15 分消える。PR が無いときの gh は
+      # 0 で終わって何も出さない
       raw=$(cd "$dir" && ${timeout_cmd:+$timeout_cmd 20} gh pr list --head "$branch" --state open \
-        --json number,title --jq '.[0] | select(.number) | "\(.number)\t\(.title | gsub("\\s+"; " "))"' 2>/dev/null)
+        --json number,title --jq '.[0] | select(.number) | "\(.number)\t\(.title | gsub("\\s+"; " "))"' 2>/dev/null) \
+        || { [ -s "$cache" ] && touch "$cache" && exit 0; }
       if [ -n "$raw" ]; then
         num=${raw%%	*}
         title=${raw#*	}
