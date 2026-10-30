@@ -230,7 +230,11 @@ BLOCKED_CASES = [
      "gh api -X PUT /repos/o/r/actions/secrets/K --input - <<'EOF'\n{\"encrypted_value\": \"%s\"}\nEOF" % PAD),
     ("graphql mutation の本文を取り出せない",
      "gh api graphql -f query='mutation($b: String!) { addComment(input:{body: $b}) { x } }' # %s" % PAD),
+    # query も本文の旗と同じ決まりで読み、読めなければ mutation かも分からないので止める
+    ("graphql の query を読めない", 'gh api graphql -f query="$Q" # %s' % PAD),
     ("本文旗の値を判定できない", "gh issue comment 1 %s %s" % (PATCH_FLAG, TEXT)),
+    # $'…' の中の \c(制御の字)は開かずに止める(shield_heredocs の _ansi_c)
+    ("$'…' の引用を読めない", "gh issue comment 1 --body $'%s\\cA' # %s" % (BODY, PAD)),
     # works-dispatch の送るコマンドも、gh と同じ口(_body_sink)で倒れる
     ("別プロセスからの stdin 渡し", "cat /tmp/b.md | %s --deliver - # %s" % (DISPATCH, PAD)),
     ("本文ファイルのパスが決まらない", "%s --deliver rel/summary.md # %s" % (DISPATCH, PAD)),
@@ -338,6 +342,13 @@ if usage.returncode:
     sys.stdout.write(usage.stdout.decode("utf-8", "replace"))
     sys.stderr.write(usage.stderr.decode("utf-8", "replace"))
     failures.append("読み手の使用量記録の試験が失敗した")
+
+# 頼み cae1e2 で直した穴 13 件の回帰も同じ入口から回す(前の版の本体を引数に渡すと全部が赤になる)
+fixes = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "coldread-fix-case.py")], capture_output=True)
+if fixes.returncode:
+    sys.stdout.write(fixes.stdout.decode("utf-8", "replace"))
+    sys.stderr.write(fixes.stderr.decode("utf-8", "replace"))
+    failures.append("直した穴の回帰の試験が失敗した")
 
 if failures:
     for f in failures:

@@ -385,26 +385,167 @@ class Expands(str):
     本文は実際に出る本文と違う。読ませずに止める印(中身は普通の str として扱える)。"""
 
 
+# $'…'(ANSI-C の引用)の中の \ の書き方のうち、1 字に決まる物(bash の文書の「ANSI-C Quoting」)
+_ANSI_C_SIMPLE = {"a": b"\a", "b": b"\b", "e": b"\x1b", "E": b"\x1b", "f": b"\f", "n": b"\n", "r": b"\r",
+                  "t": b"\t", "v": b"\v", "\\": b"\\", "'": b"'", '"': b'"', "?": b"?"}
+# $'…' を読めないときに、書き直した単一引用の中に置く印。本文の値に在れば止める(_body_sink の add)
+ANSI_C_MARK = "__ANSI_C_UNREADABLE__"
+# 盾置換の走査が止まる字(引用・置換の開閉・注釈・ヒアドキュメントの開始)。間はまとめて飛ばす
+_SHIELD_EVENT_RE = re.compile(r"""[\\'"`$()#<]""")
+_OCT_RE = re.compile(r"[0-7]{0,2}")
+_HEX_RES = {e: re.compile(r"[0-9A-Fa-f]{1,%d}" % k) for e, k in (("x", 2), ("u", 4), ("U", 8))}
+
+
+def _ansi_c(text, i):
+    r"""text[i] から始まる $'…' を、同じ字を運ぶ単一引用の形に書き直す。(書き直した字, 閉じの次の位置)。閉じが無ければ None。
+
+    $'…' の中は \ が書き方の始まりで、\' は閉じにならない。単一引用と同じに読むと閉じの位置を取り違え、
+    `--body $'\''"$(cat x)"\'` の $(…) を単一引用の中の字と読んで、ファイルの中身が出るのに字のままの本文を読ませていた。
+    中身は bash 5 と同じに開く: \0 などの NUL はそこから後を捨て、知らない書き方(\q・\x の後に 16 進の字が無い)は \ ごと残す。
+    \c(制御の字)・UTF-8 にならない字・字の番号の外の \u は読めない物として ANSI_C_MARK を置く(本文に在れば止める)。
+    """
+    out, j, n, cut = bytearray(), i + 2, len(text), False
+    while j < n and text[j] != "'":
+        c = text[j]
+        if c != "\\" or j + 1 >= n:
+            got = c.encode("utf-8", "surrogatepass")
+            j += 1
+        else:
+            e, j = text[j + 1], j + 2
+            if e in _ANSI_C_SIMPLE:
+                got = _ANSI_C_SIMPLE[e]
+            elif e in "01234567":
+                m = _OCT_RE.match(text, j)
+                got, j = bytes([int(e + m.group(0), 8) & 0xFF]), m.end()
+            elif e in "xuU":
+                m = _HEX_RES[e].match(text, j)
+                if m is None:
+                    got = ("\\" + e).encode("utf-8")
+                elif e == "x":
+                    got, j = bytes([int(m.group(0), 16)]), m.end()
+                else:
+                    point, j = int(m.group(0), 16), m.end()
+                    if point > 0x10FFFF or 0xD800 <= point <= 0xDFFF:
+                        return "'%s'" % ANSI_C_MARK, _ansi_c_end(text, j)
+                    got = chr(point).encode("utf-8")
+            elif e == "c":
+                return "'%s'" % ANSI_C_MARK, _ansi_c_end(text, j)
+            else:
+                got = ("\\" + e).encode("utf-8", "surrogatepass")
+        if b"\0" in got:
+            cut = True
+        if not cut:
+            out += got
+    if j >= n:
+        return None
+    try:
+        decoded = out.decode("utf-8")
+    except UnicodeDecodeError:
+        return "'%s'" % ANSI_C_MARK, j + 1
+    return "'%s'" % decoded.replace("'", "'\\''"), j + 1
+
+
+def _ansi_c_end(text, j):
+    """$'…' の途中の位置 j から、閉じの次の位置。閉じが無ければ文字列の終わり(字句解析が引用の閉じ忘れとして止める)。"""
+    while j < len(text) and text[j] != "'":
+        j += 2 if text[j] == "\\" else 1
+    return min(j + 1, len(text))
+
+
+def _word_head(text, i):
+    r"""text[i] が語頭か(注釈の始まりか)。行継続(\ と改行)は前後をつなぐので、その手前の字で見る(normalize_shell の _head と同じ字)。"""
+    while i >= 2 and text[i - 2:i] == "\\\n":
+        i -= 2
+    return i == 0 or text[i - 1] in " \t\n;|&()"
+
+
 def shield_heredocs(command):
-    """ヒアドキュメント本文を取り出し、解析用の文字列では番号付きの印に置き換える。
+    """ヒアドキュメント本文を取り出し、解析用の文字列では番号付きの印に置き換える。$'…' は単一引用の形に書き直す。
 
     番号を振るのは、どの単純コマンドに付いたヒアドキュメントかを後で見分けるため。
     番号が無いと、同じ行の別コマンド(cat > f <<EOF)の中身まで gh の本文候補に混ざる。
 
-    続きの行に 2 本目の開始(`cat <<A > f; gh … <<B`)が在ると、1 回目の置換では 2 本目の開始が置換後の
-    文字列に入って走査されないので、置換が起きなくなるまで繰り返す(bash も本文を開始の順に読む)。
+    開始の << と見るのは引用の外(と、$(…)・`…` の中)だけ。引用の中の << は字で、bash もヒアドキュメントにしない。
+    前は文字列全体を正規表現で置き換えていたので、`--body $'…\ncat <<EOF\n…\nEOF\n…'` や、二重引用の本文に引いた
+    `python3 - <<'PY' … PY` の行が本文から抜かれ、読み手には印(__HEREDOC0__)が届いていた。
+    引用の状態は左から 1 度だけ追う。置き換えた後は開始行の続きから読み直すので、同じ行の 2 本目の開始
+    (`cat <<A > f; gh … <<B`)も拾う(bash も本文を開始の順に読む)。注釈の中の ' や << は数えない。
     """
     bodies = []
-
-    def repl(m):
-        body = m.group(5)
-        bodies.append(Expands(body) if not m.group(2) and re.search(r"[$`]", body) else body)
-        return " " + (HEREDOC_MARK % (len(bodies) - 1)) + " " + m.group(4) + "\n"
-
+    text, i = command, 0
+    stack = [[None, 0]]   # 文脈と、$( の中なら開いた括弧の数。None=引用の外、'"'=二重引用、"("=$(…)、"`"=`…`
     while True:
-        command, n = HEREDOC_RE.subn(repl, command)
-        if not n:
-            return command, bodies
+        m = _SHIELD_EVENT_RE.search(text, i)
+        if m is None:
+            return text, bodies
+        i, c, top = m.start(), m.group(0), stack[-1]
+        if top[0] == '"':
+            if c == "\\":
+                i += 2
+            elif c == '"':
+                stack.pop()
+                i += 1
+            elif c == "`":
+                stack.append(["`", 0])
+                i += 1
+            elif text.startswith("$(", i):
+                stack.append(["(", 1])
+                i += 2
+            else:
+                i += 1
+        elif c == "\\":
+            i += 2
+        elif c == "'":
+            j = text.find("'", i + 1)
+            i = len(text) if j < 0 else j + 1
+        elif c == '"':
+            stack.append(['"', 0])
+            i += 1
+        elif c == "`":
+            if top[0] == "`":
+                stack.pop()
+            else:
+                stack.append(["`", 0])
+            i += 1
+        elif c == "$":
+            if text.startswith("$'", i):
+                got = _ansi_c(text, i)
+                if got is None:
+                    i += 2   # 閉じの無い $'…'。字句解析が引用の閉じ忘れとして止める
+                else:
+                    text = text[:i] + got[0] + text[got[1]:]
+                    i += len(got[0])
+            elif text.startswith("$(", i):
+                stack.append(["(", 1])
+                i += 2
+            else:
+                i += 2 if text.startswith("$$", i) else 1   # $$'…' の $$ は番号の展開で、後ろの ' は単一引用
+        elif c in "()":
+            if top[0] == "(":
+                top[1] += 1 if c == "(" else -1
+                if not top[1]:
+                    stack.pop()
+            i += 1
+        elif c == "#":
+            if _word_head(text, i):
+                nl = text.find("\n", i)
+                i = len(text) if nl < 0 else nl
+            else:
+                i += 1
+        elif text.startswith("<<<", i):
+            i += 3   # ヒア文字列
+        elif text.startswith("<<", i):
+            hm = HEREDOC_RE.match(text, i)
+            if hm is None:
+                i += 2
+                continue
+            body = hm.group(5)
+            bodies.append(Expands(body) if not hm.group(2) and re.search(r"[$`]", body) else body)
+            head = " " + (HEREDOC_MARK % (len(bodies) - 1)) + " "
+            text = text[:i] + head + hm.group(4) + "\n" + text[hm.end():]
+            i += len(head)
+        else:
+            i += 1
 
 
 def own_heredocs(args, heredoc_bodies):
@@ -425,6 +566,26 @@ def has_live_substitution(text):
     本文に ``` や `--body` を含むだけの普通の文章まで「置換渡し」と誤判定する。
     """
     return _live(text, lambda t, i: t[i] == "`" or t.startswith("$(", i))
+
+
+# 展開される $( と ` の頭(引用・\\ の手前まで)。語は shlex が引用を落とすので、語の中の $( が展開されるかは語の側では分からない
+_SUB_HEAD_RE = re.compile(r"""(?:\$\(|`)[^\\"'`()]*""")
+
+
+def live_substitutions(text):
+    """引用の外と二重引用の中の $( と ` の、頭の字の並び(has_live_substitution が真になる所)。
+
+    本文の値がこの頭を含めば、その所は展開される置換と見る(_body_sink の add)。値の先頭だけを見ていた頃は、
+    `--body "See: $(cat x)"` の $(…) を字のまま読ませ、ファイルの中身が出ていた。単一引用の中に同じ字が在る本文も止まるが、
+    止める側に倒す。"""
+    heads = []
+
+    def hit(t, i):
+        if t[i] == "`" or t.startswith("$(", i):
+            heads.append(_SUB_HEAD_RE.match(t, i).group(0))
+        return False
+    _live(text, hit)
+    return heads
 
 
 def _live(text, hit, where=(None, '"')):
@@ -744,6 +905,8 @@ def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
     標準入力の倒れ方を 2 か所に書くと、片方だけ外れる。引数の意味は classify と同じ。
     """
     candidates, blocked = [], []
+    # live_substitution は真偽か、展開される置換の頭の並び(live_substitutions)。並びなら、値の途中の置換も見分ける
+    heads = live_substitution if isinstance(live_substitution, list) else []
 
     def file_failed(why):
         """本文ファイルを読まなかった理由を blocked へ積む(理由ごとに直し方が違うので語を分ける)。"""
@@ -781,7 +944,10 @@ def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
         """
         mark = len(candidates) + len(blocked)
         not_body = False
-        if kind == "json":
+        if ANSI_C_MARK in value:
+            # $'…' の中身を開けなかった(\c・UTF-8 にならない字。shield_heredocs の _ansi_c)。字のままでは出る本文と違う
+            blocked.append("$'…' の引用を読めない")
+        elif kind == "json":
             # gh api --input の中身は本文とは限らない(secrets の暗号値・設定の JSON 等)。
             # 本文の位置(.body と review の comments[].body)の中身だけを読ませる。
             if value in ("-", ""):
@@ -822,7 +988,7 @@ def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
                     blocked.append("変数・コマンド置換渡し")
                 else:
                     candidates.append(got)
-            elif live_substitution and looks_sub:
+            elif live_substitution and (looks_sub or any(h in value for h in heads)):
                 blocked.append("変数・コマンド置換渡し")
             else:
                 candidates.append(value)
@@ -842,7 +1008,22 @@ def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
             # 引き金は 2 つ: 表に知らない種別が足された・分岐が倒れ先を書き忘れた。
             blocked.append("本文旗の値を判定できない")
 
-    return candidates, blocked, add, read_file
+    def field(typed, value):
+        """gh api の -f(typed が偽)・-F のフィールドの値 1 つを、本文の旗と同じ決まりで読む。graphql の query と、mutation の
+        本文の変数に使う。読めれば中身、読めなければ None(理由は blocked へ積む)。-F の @名前 はファイル、@- は標準入力。
+
+        前は値を字のまま使い、`-f b="$(cat f)"`・`-f b="$B"`・`-F b=@- <<EOF` の本文を字のまま読ませ、query が変数・置換・
+        @- のときは mutation でないと見て通していた。"""
+        mark, before = len(candidates), len(blocked)
+        if typed and value.startswith("@"):
+            add("file", "@-" if value == "@-" else value[1:])
+        else:
+            add("text", value)
+        got = candidates[mark:]
+        del candidates[mark:]
+        return None if len(blocked) > before else "\n".join(got)
+
+    return candidates, blocked, add, field
 
 
 def dispatch_flag(tok):
@@ -897,7 +1078,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # 一つずつ実際に発火させて突合するため、ここだけは別経路(return の直書き)を作らない。
     # 縛れるのは倒れ先だけで、候補(candidates)側の網羅は機械では言えない——抽出した文字列が
     # 本文かどうかは判定できないので、候補を足す経路は人が読んで守る。
-    candidates, blocked, add, read_file = _body_sink(heredoc_bodies, live_substitution, ctx, live_variable)
+    candidates, blocked, add, field = _body_sink(heredoc_bodies, live_substitution, ctx, live_variable)
     if any(t in HELP_FLAGS for t in (args[:args.index("--")] if "--" in args else args)):
         # --help・-h・--version は旗がどこに在っても gh が案内を出して終わる(投稿しない)。短いコマンドを解析の前に
         # 通していた頃は `gh --version` も通っていたので、ここで止めると逆戻りになる
@@ -980,12 +1161,17 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
             blocked.append("実ファイル指定")
 
     if is_graphql:
-        query = _gql_field_value(gql_fields.pop("query"), read_file) if "query" in gql_fields else None
+        query = None
+        if "query" in gql_fields:
+            # query も本文の旗と同じ決まりで読む(変数・置換・ファイル・@-)。読めなければ mutation かも分からないので止める
+            query = field(*gql_fields.pop("query"))
+            if query is None:
+                blocked.append("graphql の query を読めない")
         if query and re.search(r"\bmutation\b", query):
             # mutation が本文を運ぶのは body(と readme)のフィールドだけ。フィールドの値だけを抜き、ほかのフィールド(ID・トークン・
             # 設定値)は読み役へ送らない。フィールドを持たない mutation(resolveReviewThread など)は投稿でない——
             # 一律で止めていた頃は、これが往復の 57 件を生んでいた。
-            texts = graphql_bodies(query, gql_fields, read_file)
+            texts = graphql_bodies(query, gql_fields, field)
             if texts is None:
                 blocked.append("graphql mutation の本文を取り出せない")
             elif texts:
@@ -999,11 +1185,12 @@ GQL_BODY_FIELD_RE = re.compile(r"""(?<![\w$])(?:body|readme)\s*:\s*""")
 GQL_STRING_RE = re.compile(r'"""(.*?)"""|"((?:[^"\\]|\\.)*)"|\$([A-Za-z_]\w*)', re.S)
 
 
-def graphql_bodies(query, fields, read_file):
+def graphql_bodies(query, fields, field):
     """mutation の本文のフィールドの値の列。値が決まらないフィールドが 1 つでも在れば None(止める)。
 
     値はブロック文字列・文字列・変数($名前 は -f/-F の同じ名前のフィールド)。変数として使われなかった
-    body・…[body] のフィールド(input[body]= のように入れ物ごと渡す形)も本文として読む。
+    body・…[body] のフィールド(input[body]= のように入れ物ごと渡す形)も本文として読む。フィールドの値は
+    field(_body_sink の field。型付きか, 値)で、本文の旗と同じ決まりで読む。
     """
     texts, used = [], set()
     for m in GQL_BODY_FIELD_RE.finditer(query):
@@ -1022,20 +1209,13 @@ def graphql_bodies(query, fields, read_file):
             if name not in fields:
                 return None
             used.add(name)
-            texts.append(_gql_field_value(fields[name], read_file))
-    for key, field in fields.items():
+            texts.append(field(*fields[name]))
+    for key, value in fields.items():
         if key not in used and (key == "body" or key.endswith("[body]")):
-            texts.append(_gql_field_value(field, read_file))
+            texts.append(field(*value))
     if any(t is None for t in texts):
         return None
     return texts
-
-
-def _gql_field_value(field, read_file):
-    typed, value = field
-    if typed and value.startswith("@") and value != "@-":
-        return read_file(value[1:])
-    return value
 
 
 def json_bodies(raw):
@@ -1111,6 +1291,41 @@ REASSIGN_CMDS = {"read", "printf", "declare", "typeset", "local", "readonly", "m
                  "select", "unset", "let", "getopts"}
 _APPEND_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\+=")
 _VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+# $ の後に引用か \\ が続き、その後ろが名前の字(字のままの $ と後ろの字が $名前 の語を作りうる: '$'S・"$"S・\\$'S')
+_DOLLAR_JOIN_RE = re.compile(r"""\$['"\\]+[A-Za-z_{]""")
+
+
+def _dollar_names(norm):
+    """コマンドの $名前・${名前} を (字のままの所の名前, 展開される所の名前) に分ける。字のままの所は単一引用の中と \\$ の後。
+    字のままの $ が後ろの字と $名前 の語を作りうる(_DOLLAR_JOIN_RE)なら None(名前では見分けられない)。"""
+    if _DOLLAR_JOIN_RE.search(norm):
+        return None
+    literal, live = set(), set()
+    i, quote = 0, None
+    while i < len(norm):
+        c = norm[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+            elif c == "$":
+                m = _VAR_REF_RE.match(norm, i)
+                if m:
+                    literal.add(m.group(1) or m.group(2))
+        elif c == "\\":
+            m = _VAR_REF_RE.match(norm, i + 1)
+            if m:
+                literal.add(m.group(1) or m.group(2))
+            i += 1
+        elif c == '"' and quote == '"':
+            quote = None
+        elif c in "'\"" and quote is None:
+            quote = c
+        elif c == "$":
+            m = _VAR_REF_RE.match(norm, i)
+            if m:
+                live.add(m.group(1) or m.group(2))
+        i += 1
+    return literal, live
 # コマンドの中で代入していなければ、フックの環境の値で解く変数。どれも Claude Code が Bash のツールとフックの両方に同じ値で渡す
 # (HOME は同じ利用者、CLAUDE_JOB_DIR は裏の会話の一時の置き場。works-dispatch の待ち受けもフックが継ぐ CLAUDE_JOB_DIR で窓を
 # 確かめる)。裏の会話の指示が一時のファイルを $CLAUDE_JOB_DIR/tmp に置けと言うので、
@@ -1268,18 +1483,33 @@ class BodyFiles:
         return value
 
     def var(self, value):
-        """$名前・${名前} を同じコマンドの中の代入で置き換えた値。解けなければ None。"""
+        """$名前・${名前} を同じコマンドの中の代入で置き換えた値。解けなければ None。
+
+        単一引用の中(と \\$ の後)の $名前 は字のまま残す。語の側では引用が落ちていて '$S' と "$S" を見分けられないので、
+        名前で見分ける: コマンドの中で字のままの所にだけ在る名前は字のまま、展開される所にも在る名前は解かない。前は単一引用の中に
+        $ が 1 つでも在れば全部の変数を解かず、`D=/; find "$D" -name 'x$'` の起点を読めずに通していた(探す範囲のゲートも同じ口)。
+        """
         if "$" not in value:
             return value
         if self._sq is None:
-            # 単一引用の中に $ が在るか。shlex は引用を落とすので、'$S' と "$S" を語の側では見分けられない
-            self._sq = _live(self.norm, lambda t, i: t[i] == "$", ("'",))
-        if self._sq:
-            return None   # '$S' は字のまま。語の側では引用が落ちていて見分けられない
+            self._sq = _dollar_names(self.norm) or ()
+        if not self._sq:
+            return None   # $ の後に引用・\\ が続き、字のままの $名前 を作りうる('$'S・"$"S)
+        literal, live = self._sq
         table = self.assigned()
-        failed = []
+        failed, kept = [], []
+
+        def plain(m):
+            """字のままの所にだけ在る名前は印に替えて残す(最後に戻す)。両方に在る名前は解かない。"""
+            if (m.group(1) or m.group(2)) in live:
+                failed.append(m.group(0))
+                return ""
+            kept.append(m.group(0))
+            return "\0%d\0" % (len(kept) - 1)
 
         def shared(m):
+            if (m.group(1) or m.group(2)) in literal:
+                return plain(m)
             got = self.inherited(m.group(1) or m.group(2))
             if got is None:
                 failed.append(m.group(0))
@@ -1287,6 +1517,8 @@ class BodyFiles:
 
         def sub(m):
             name = m.group(1) or m.group(2)
+            if name in literal:
+                return plain(m)
             if name not in table:
                 return shared(m)
             entry = table[name]
@@ -1296,7 +1528,9 @@ class BodyFiles:
             return _VAR_REF_RE.sub(shared, entry[0])   # F=$CLAUDE_JOB_DIR/tmp/a.md の右辺も、フックの環境の値でだけ解く
 
         out = _VAR_REF_RE.sub(sub, value)
-        return None if failed or "$" in out else out
+        if failed or "$" in out:
+            return None
+        return re.sub(r"\0(\d+)\0", lambda m: kept[int(m.group(1))], out) if kept else out
 
     def cwd_here(self, k=None):
         """k 番目(既定は gh)のコマンドが走る cwd。決まらなければ None。
@@ -1320,6 +1554,16 @@ class BodyFiles:
         return cwd
 
     CD_BETWEEN = ("&&",)   # cd から k までをつないでよい区切り
+
+    def place_lost(self, k=None):
+        """k 番目(既定は gh)が走る場所を、前の cd・-C が読めなくしたか(フックの入力に cwd が無いだけなら False)。"""
+        if self.cwd is not None:
+            return self.cwd_here(k) is None
+        self.cwd = os.sep   # 仮の場所を置き、それでも決まらなければ cd・-C のせい
+        try:
+            return self.cwd_here(k) is None
+        finally:
+            self.cwd = None
 
     def cd_dest(self, args):
         """`cd <行き先>` の行き先(変数を解いた字)。cd でないか読めなければ None。"""
@@ -1476,6 +1720,15 @@ class Analysis:
     def __init__(self, parsed, candidates=(), blocked=(), calls=(), misses=()):
         self.parsed, self.candidates, self.blocked = parsed, list(candidates), list(blocked)
         self.calls, self.misses = list(calls), list(misses)
+        self.lost = []   # calls と同じ順。前の cd・-C で走る場所が読めなくなった呼び出しは True
+
+    def run_place(self, body, cwd):
+        """body を運んだ gh が走る場所。前の cd・-C で読めなくなったら None(フックの場所 cwd で代えない)。
+        cd の無い呼び出しで cwd も無ければ "" (フックの場所)。"""
+        for (_, _, cands, _, here), lost in zip(self.calls, self.lost):
+            if body in cands:
+                return None if lost else (here or cwd or "")
+        return cwd or ""
 
     def call_of(self, body=None):
         """body を運んだ呼び出し(無ければ止めた呼び出し)の (サブコマンド, 引数列, cwd)。無ければ (None, [], None)。"""
@@ -1501,15 +1754,17 @@ def _head_word(args):
     return "-"
 
 
-def analyze(command, cwd=None):
-    """コマンド文字列を解析する(Analysis)。解析できなければ parsed=False。"""
-    norm, heredoc_bodies = prepare(command)
+def analyze(command, cwd=None, prepared=None):
+    """コマンド文字列を解析する(Analysis)。解析できなければ parsed=False。
+
+    prepared は呼び元が先に通した prepare(command) の結果(渡せば prepare を 2 度回さない)。"""
+    norm, heredoc_bodies = prepared or prepare(command)
     tokens = tokenize(norm)
     if tokens is None:
         return Analysis(False)
     # 字句解析と同じ 1 本を見る。生の側を見ていると `--body "$\<改行>(cat x)"` が
     # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
-    live = has_live_substitution(norm)
+    live = live_substitutions(norm)   # 空でなければ has_live_substitution と同じ真
     live_var = has_live_variable(norm)
     cmds = split_commands(tokens)
     files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
@@ -1528,7 +1783,9 @@ def analyze(command, cwd=None):
             cands, blk = classify_dispatch(args, heredoc_bodies, live, here, live_var)
             sub = dispatch_mode(args)
         if args is not None:
-            out.calls.append((sub, args, cands, blk, here.cwd_here()))
+            run = here.cwd_here()
+            out.calls.append((sub, args, cands, blk, run))
+            out.lost.append(run is None and files.place_lost())
             out.candidates.extend(cands)
             out.blocked.extend(blk)
         # 素通しの理由が「投稿でない」なのか「ゲートから漏れた」なのかを後から数える。本文旗の綴りが単純コマンドに
@@ -1591,7 +1848,7 @@ API_DEST_RES = (
     (re.compile(_REPO + r"pulls/(?P<n>\d+)/reviews$"), "item"),
     (re.compile(_REPO + r"issues/(?P<n>\d+)/comments$"), "item"),
     (re.compile(_REPO + r"issues/comments/(?P<n>\d+)$"), "issue-comment-edit"),
-    (re.compile(_REPO + r"(?:issues|pulls)/(?P<n>\d+)$"), "item"),
+    (re.compile(_REPO + r"(?:issues|pulls)/(?P<n>\d+)$"), "item"),   # 本文の置き換え(replaces_body)
 )
 # 非 api 経路で、既に在る PR/issue へ本文を付けるサブコマンド(create は入れない)
 PR_THREAD_SUBS = {("pr", "comment"), ("pr", "review"), ("pr", "close"), ("pr", "reopen"),
@@ -1703,14 +1960,33 @@ def positional_after(args, sub):
     return None
 
 
+def _api_path(sub):
+    """gh api の宛先のパス(ホストと ? 以降を落とした物)。api でなければ None。"""
+    if not sub or sub[0] != "api" or len(sub) < 2:
+        return None
+    return re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/").split("?", 1)[0]
+
+
+# 本文を送ると、PR・issue の本文そのものを置き換える呼び出し。これらの本文候補は本文の旗の値だけなので、
+# 読む本文はいつも新しい本文になる
+BODY_EDIT_SUBS = {("pr", "edit"), ("issue", "edit")}
+_ITEM_BODY_RE = re.compile(_REPO + r"(?:issues|pulls)/(?P<n>\d+)$")
+
+
+def replaces_body(sub):
+    """sub が PR・issue の本文を置き換える呼び出しか(gh pr edit・gh issue edit・gh api …/issues/N・…/pulls/N)。"""
+    path = _api_path(sub)
+    return sub in BODY_EDIT_SUBS if path is None else bool(_ITEM_BODY_RE.match(path))
+
+
 def destination(args, sub):
     """投稿先が既に在るスレッドなら (種別, owner/repo か None, 番号か ID か None)。新規作成等は None。"""
     if not sub:
         return None
     if sub[0] == "api":
-        if len(sub) < 2:
+        path = _api_path(sub)
+        if path is None:
             return None
-        path = re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/").split("?", 1)[0]
         for rx, kind in API_DEST_RES:
             m = rx.match(path)
             if m:
@@ -1824,9 +2100,11 @@ def assemble(head, body, comments, tail):
     return clip(text(), SCREEN_MAX)
 
 
-def screen_for(dest, cwd, body=""):
+def screen_for(dest, cwd, body="", replaces=False):
     """投稿先の画面に既に見えているものを、読み手に渡す文章にして返す。取れなければ例外。
-    body は投稿する本文——その中の #番号 の題を引くために見る。"""
+    body は投稿する本文——その中の #番号 の題を引くために見る。replaces は、body が PR・issue の本文を置き換える
+    (replaces_body)。そのときは古い本文を画面に置かない(直す当のコメントを外す review-edit と同じ。古い本文を
+    「画面に見えている」と渡すと、新しい本文から落とした定義を読み手が古い本文で補ってしまう)。"""
     kind, repo, ref = dest
     g = Screen(cwd)
     if kind in ("review-reply", "review-edit"):
@@ -1880,9 +2158,10 @@ def screen_for(dest, cwd, body=""):
         ref = item.get("number")
     head = ["%s #%s「%s」(%s、%s)" % ("PR" if is_pr else "issue", ref, item.get("title", ""),
                                   where or "このリポジトリ", item_state(item))]
-    head += g.cut_lines() + files_lines(files) + ["[本文]"]
-    nums = referenced_numbers([body, item.get("body")] + [t.get("body") for t in comments], ref)
-    return assemble(head, clip(item.get("body"), SCREEN_ITEM_BODY_MAX),
+    old = None if replaces else item.get("body")
+    head += g.cut_lines() + files_lines(files) + ([] if replaces else ["[本文]"])
+    nums = referenced_numbers([body, old] + [t.get("body") for t in comments], ref)
+    return assemble(head, "" if replaces else clip(old, SCREEN_ITEM_BODY_MAX),
                     comment_blocks("これまでのコメント", comments[-SCREEN_COMMENTS:]),
                     referenced_lines(g, where, nums) if where else [])
 
@@ -2670,9 +2949,16 @@ DISPATCH_LIMITS_DIR = "~/.cache/claude-limits"
 REDIRECT_NOTE = "会話のアカウントはモデルを読み替えていて、読み替えの無いアカウントとその鍵が works-dispatch の設定に要る"
 
 
+# Claude Code のモデルの別名(--model・ANTHROPIC_MODEL に書ける短い名前。後ろに [1m] を付けてよい)。
+# 名前に claude を含まないが Claude のモデルなので、読み替えと見ない(前は CLAUDE_CODE_SUBAGENT_MODEL=haiku の利用者の
+# 読み手を、読み替えとしてほかのアカウントへ移していた)
+MODEL_ALIAS_RE = re.compile(r"(?:haiku|opus|sonnet|fable|opusplan|default|best|inherit)(?:\[1m\])?", re.IGNORECASE)
+
+
 def model_redirected(env):
     """env(環境か settings.json の env)が、モデルを Claude でない物に読み替えているか。"""
-    return any(isinstance(v, str) and v and "claude" not in v.lower() for k, v in env.items()
+    return any(isinstance(v, str) and v and "claude" not in v.lower() and not MODEL_ALIAS_RE.fullmatch(v.strip())
+               for k, v in env.items()
                if k in REDIRECT_MODEL_ENV or (k.startswith(REDIRECT_PREFIX) and k.endswith("_MODEL")))
 
 
@@ -2936,7 +3222,7 @@ SKIP_TOKEN = "COLDREAD_SKIP=1"
 SKIP_PREFIX_RE = re.compile(r"\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*" + SKIP_TOKEN + r"(?=\s|$)")
 
 
-def wants_skip(command):
+def wants_skip(command, prepared=None):
     """逃げ道(COLDREAD_SKIP=1)が書き手の前置として置かれているか。本文に文字列が入っているだけでは数えない。
 
     **逃げ道はもう効かない**(持ち主の判断 2026-10-16: エージェントに使わせない)。これは、書いた事実を
@@ -2945,7 +3231,7 @@ def wants_skip(command):
     """
     if SKIP_PREFIX_RE.match(command):
         return True
-    tokens = tokenize(prepare(command)[0])
+    tokens = tokenize((prepared or prepare(command))[0])
     if tokens is None:
         return False
     # 読み飛ばす範囲は gh_args と同じ command_start(予約語は simple_commands が先に落とす)。
@@ -3100,8 +3386,11 @@ def main() -> None:
     if not SEND_WORD_RE.search(command):
         allow()
 
+    # 長さの上限は prepare(盾置換の正規表現は長さの 2 乗まで掛かりうる)より前に見る。後に見ると、長いコマンドの
+    # 前処理だけでフックが時間切れになり、時間切れの PreToolUse は止めずに通る。上限の内側では 1 回だけ prepare を回し、
+    # 逃げ道の読みと解析で同じ結果を使う
     skip_note = ""
-    if wants_skip(command):
+    if SKIP_PREFIX_RE.match(command) and len(command) > MAX_LEN:
         log_line(SKIP_LOG, "refused\t" + command[:200].replace("\n", " "))
         skip_note = SKIP_REFUSED_NOTE
 
@@ -3148,7 +3437,15 @@ def main() -> None:
              "コマンド先頭に書いてもフック自身には届かない)。\n" + OWNER_NOTE)
 
     try:
-        analysis = analyze(command, cwd)
+        prepared = prepare(command)
+    except Exception:
+        prepared = None   # 解析(analyze)が同じ例外で落ち、下で解析できないとして止める
+    if wants_skip(command, prepared) if prepared else SKIP_PREFIX_RE.match(command):
+        log_line(SKIP_LOG, "refused\t" + command[:200].replace("\n", " "))
+        skip_note = SKIP_REFUSED_NOTE
+
+    try:
+        analysis = analyze(command, cwd, prepared)
     except Exception as exc:
         analysis = Analysis(False)
         parse_error = str(exc)[:150]
@@ -3225,8 +3522,14 @@ def main() -> None:
     sub, sub_args, sub_cwd = analysis.call_of(body)
     noun = NEW_ITEM_SUBS.get(sub) if dest is None else None
     if dest is not None:
+        # 画面は gh が走る場所で引く(前の `cd 別のリポジトリ &&` を読んだ所)。その場所が前の cd・-C で読めず、
+        # 宛先の repo も書いていなければ、どのリポジトリのスレッドか分からないので引かない(フックの場所で引くと、
+        # 別のリポジトリの同じ番号のスレッドを画面として渡してしまう)
+        place = analysis.run_place(body, cwd)
         try:
-            screen = screen_for(dest, cwd or "", body)
+            if place is None and dest[1] is None:
+                raise RuntimeError("gh が走る場所が前の cd で決まらず、どのリポジトリのスレッドか分からない")
+            screen = screen_for(dest, place or "", body, replaces_body(sub))
         except Exception as exc:
             screen_error = str(exc)[:120]
         if screen is None:
@@ -3697,14 +4000,16 @@ def _reflog_time(row):
 def _head_moves(snap):
     """走った間の HEAD の移動を ([(前, 後, 後の時刻, 前の時刻) — 書いた役の commit], commit 以外の移動が在ったか) に分ける。
 
-    走る前の記録の頭(控えの reflog)より新しい分だけを見る。頭が見つからない(記録を消した・上限を超えた)ときは、
-    分けられないので commit は拾わず、commit 以外の移動が在ったと見る(メインブランチの文書を読むより、読まない側に倒す)。
+    走る前の記録の頭(控えの reflog)より新しい分だけを見る。頭が見つからない(記録を消した・上限を超えた)ときと、
+    走る前に HEAD は在ったのに記録の頭を読めなかった(git log -g の失敗・時間切れ)ときは、分けられないので commit は拾わず、
+    HEAD が動いていれば commit 以外の移動が在ったと見る(メインブランチの文書を読むより、読まない側に倒す。前は後の方を
+    最初の commit と取り違え、古い commit を最大 REFLOG_MAX 件まで書いた物として拾っていた)。
     """
     root, top = snap.get("root"), snap.get("reflog")
     rows = _reflog(root, REFLOG_MAX + 1)
-    if top is None:
-        new, before = rows, None   # 走る前は記録が無かった(最初の commit)
-    elif top in rows:
+    if top is None and not snap.get("head"):
+        new, before = rows, None   # 走る前は HEAD も記録も無かった(最初の commit)
+    elif top is not None and top in rows:
         new, before = rows[:rows.index(top)], top[0]
     else:
         return [], bool(rows) and rows[0][0] != snap.get("head")
@@ -3906,6 +4211,7 @@ def docs_snapshot(payload):
 # (2026-10-16 に窓口の会話で実測)。字面に書き込み先が現れない書き方(python の中で書く)は、git の中の差でだけ拾う
 AUTHOR_CMDS = ("echo", "printf")   # 引数が中身
 PASS_CMDS = ("cat", "tee")         # 受けた中身をそのまま書く
+CLOSE_WORDS = ("}", "done", "fi", "esac")   # 複合コマンドを閉じる語(リダイレクトは中のコマンド全部の出力に掛かる)
 
 
 def _written_by_command(command, cwd):
@@ -3936,6 +4242,11 @@ def _written_by_command(command, cwd):
         dests = [d for op, d in c.redirects if op in WRITE_OPS]
         if name == "tee":
             dests += [a for a in rest if "__HEREDOC" not in a]
+        if name in CLOSE_WORDS:
+            # `{ echo …; } > x.md`・`for …; done > x.md` の書き込み先は、中の複数のコマンドの出力をまとめた物で、
+            # 書いた物か写しかを 1 つに決められない。写しに分けると変更一覧の差からも外れて読まれないので、
+            # どちらにも入れず、git の作業ツリーの差で拾わせる
+            dests = []
         (mine if authored else theirs).extend(dests)
         if name in ("sed", "gsed") and any(a.startswith(("-i", "--in-place")) for a in c.args[at + 1:]):
             mine += [a for a in rest if a.lower().endswith(DOC_EXTS)]
@@ -4883,7 +5194,7 @@ def docs_check(payload, background=False):
 # 箇所と疑問だけなら通す(手元の文書のゲートと同じ重さ: 直すのは詰まり、推測は意図と違うときだけ)。読めなかった文書が在っても
 # 1 で終わる(読まずに通すと、ゲートが黙って空になる)。指摘の全文は findings/ に書き、--land が部署の窓に返す末尾の行に
 # 詰まりと全文の場所を出す。メインブランチが先に進むたびにリベースして打ち直すので、同じ依頼文の判定は branch/ に覚えて読み直さない
-DOC_BRANCH = os.path.join(DOC_DIR, "branch")   # 依頼文のハッシュごとの判定(読み直さない)
+DOC_BRANCH = os.path.join(DOC_DIR, "branch")   # 依頼文・モデル・effort のハッシュごとの判定(読み直さない。_cache_key)
 DOC_BRANCH_KEEP = 2000   # 覚える判定の数(古いものから消す)
 
 
@@ -4927,6 +5238,12 @@ def _moved_base(text, moved):
     lines = text.split("\n")
     kept = [line for line in lines if not _line_key(line) or _line_key(line) in moved]
     return "\n".join(kept) if any(_line_key(line) for line in kept) else None
+
+
+def _cache_key(prompt):
+    """覚えた判定(DOC_BRANCH)の鍵: 依頼文とモデル・effort。モデルか effort を替えたら(COLDREAD_DOC_MODEL・
+    COLDREAD_DOC_EFFORT)前のモデルの判定を使わない(前は依頼文だけで、替えても前の判定を使い回していた)。"""
+    return hashlib.sha256("\0".join((DOC_MODEL, DOC_EFFORT, prompt)).encode("utf-8")).hexdigest()[:40]
 
 
 def _branch_cached(key, compute, valid):
@@ -5000,7 +5317,7 @@ def _verdict_marks(reply, words):
 
 def _asked_marks(prompt, words):
     """prompt を係に問い、{"番号": 答え} を覚えた物か出して覚えた物で返す(番号は覚えの JSON の鍵なので文字列)。"""
-    key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:40]
+    key = _cache_key(prompt)
     marks, _ = _branch_cached(key, lambda: {str(n): v for n, v in _verdict_marks(
         run_reader(prompt, _verdict_schema(words), model=DOC_MODEL, effort=DOC_EFFORT, timeout=DOC_READ_TIMEOUT), words).items()},
         lambda d: isinstance(d, dict) and all(v in words for v in d.values()))
@@ -5309,9 +5626,9 @@ def branch_check(argv):
             part = "" if last["text"] == text else doc_excerpt(full, text, last["text"], fixer)
         body = None if part == "" else text if part is None else part
         premise = skill_premise(full)
-        key = hashlib.sha256(doc_prompt(body, bool(part), premise).encode("utf-8")).hexdigest()[:40] if body is not None else None
+        key = _cache_key(doc_prompt(body, bool(part), premise)) if body is not None else None
         picked.append((rel, text, body, bool(part), key, old, premise, last, lpath))
-    notes, stuck, counts, down, fresh = [], [], {"stuck": 0, "guess": 0, "carried": 0}, [], 0
+    notes, stuck, counts, down, fresh, failed = [], [], {"stuck": 0, "guess": 0, "carried": 0}, [], 0, set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
         futures = [(pool.submit(_branch_verdict, key, body, focus, old, premise, text, last), rel, text, focus, lpath, premise)
                    for rel, text, body, focus, key, old, premise, last, lpath in picked]
@@ -5321,6 +5638,7 @@ def branch_check(argv):
         except Exception as exc:
             log_line(DOC_LOG, "reader-down\t%s\tbranch\t%s" % (str(exc)[:150].replace("\n", " "), rel))
             down.append("%s: %s" % (rel, _down_reason(exc)))
+            failed.add(rel)
             continue
         kept = [item for k, item in enumerate(found["stuck"]) if k not in old]
         if lpath and asked:
@@ -5337,7 +5655,9 @@ def branch_check(argv):
         counts["stuck"] += len(found["stuck"])
         counts["guess"] += len(found["guess"])
         counts["carried"] += len(carried)
-    _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, *_ in picked])   # ターンの終わりの読みと重ねない
+    # ターンの終わりの読みと重ねない。覚えるのは読み終えた文書だけ(読み手が落ちた文書を覚えると、ターンの終わりの読みも
+    # 読んだ物として飛ばし、どこでも読まれない。_read_claimed が読めなかった物を _forget するのと同じ)
+    _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for rel, text, *_ in picked if rel not in failed])
     where = _write_findings("branch", "\n\n".join(("coldread が、メインブランチに入れる前にブランチの文書を読んだ指摘(分かれ目 %s)。" % mb[:8], *notes))) \
         if notes else None
     for line in stuck:
