@@ -84,14 +84,13 @@ REASON_SLEEP = (
 )
 
 
-def executed_text(command, dropped=False):
-    """シェルが走らせる所だけを残したコマンド。dropped は、ヒアドキュメントの中身を呼び元が既に除いたか。
+def executed_text(command):
+    """シェルが走らせる所だけを残したコマンド。
 
     引用符の中の文字は空白に替え、走る中身(`bash -c` と `eval` の引数、ダブルクォートの中の `$(…)` と `` `…` ``、
     引用符の外の `` `…` ``)は括弧で囲んで残す。
     """
-    # 除いた後の置換の中身をもう一度除くと、中身と終わりの語の行が無いので、`<<EOF` の後のコードを中身と見て落とす
-    command = command if dropped else drop_heredoc_bodies(command)
+    command = drop_heredoc_bodies(command)
     out = []
     solid = 0   # out の、空白だけでない最後の片の次の位置(shell_argument_before が末尾の空白を読み直さないため)
     index = 0
@@ -114,7 +113,7 @@ def executed_text(command, dropped=False):
         elif char == "`":
             # シェルは先に閉じる `` ` `` で閉じる。中の引用符をその先まで数えると、後の行のループを引用符の中と取り違える
             end = next_backtick(command, index + 1)
-            out.append(" (%s) " % executed_text(command[index + 1:end], True))
+            out.append(" (%s) " % executed_text(command[index + 1:end]))
             index = end + 1
         else:
             out.append(char)
@@ -169,11 +168,11 @@ def substitutions(text):
             index += 2
         elif text.startswith("$(", index):
             end = paren_end(text, index + 1)
-            found.append(executed_text(text[index + 2:end], True))
+            found.append(executed_text(text[index + 2:end]))
             index = end + 1
         elif text[index] == "`":
             end = backtick_end(text, index)
-            found.append(executed_text(text[index + 1:end], True))
+            found.append(executed_text(text[index + 1:end]))
             index = end + 1
         else:
             index += 1
@@ -226,17 +225,20 @@ def backtick_end(text, start):
 
 
 def drop_heredoc_bodies(command):
-    """シェルでないコマンドに渡すヒアドキュメントの中身を除く。"""
+    """シェルでないコマンドに渡すヒアドキュメントの中身を除く。終わりの語の行は残す。
+
+    置換や `bash -c "…"` の中は executed_text が読み直すときにもう一度除く。終わりの語の行まで除いていると、2 度目は
+    `<<EOF` の後のコードを中身と見て落とし、後の行のループを見落とす(何度除いても同じ結果になるようにする)。"""
     found = []
     scan_code(command, 0, None, found)
     out = []
     copied = 0
-    for start, body_start, body_end in sorted(found, key=lambda item: item[1]):
+    for start, body_start, keep in sorted(found, key=lambda item: item[1]):
         line_start = command.rfind("\n", 0, start) + 1
         if body_start < copied or SHELL_STDIN.search(command[line_start:start]):
             continue
         out.append(command[copied:body_start])
-        copied = body_end
+        copied = keep
     out.append(command[copied:])
     return "".join(out)
 
@@ -334,6 +336,7 @@ def heredoc_end(text, index, match, found, stop=None):
     word = match.group("sq") or match.group("dq") or match.group("word")
     body_start = index
     closed = False
+    keep = len(text)
     while index < len(text):
         end = text.find("\n", index)
         line_end = len(text) if end < 0 else end
@@ -341,17 +344,19 @@ def heredoc_end(text, index, match, found, stop=None):
         tick = unescaped_backtick(line) if stop == "`" else -1
         if tick >= 0:
             index, closed = index + tick, True
+            keep = index
             break
         stripped = line.lstrip("\t") if match.group("dash") else line
         if stripped == word:
-            index = len(text) if end < 0 else end + 1
+            keep, index = index, len(text) if end < 0 else end + 1
             break
         if stop == ")" and EARLY_CLOSE and stripped.startswith(word) and ")" in stripped[len(word):]:
+            keep = index
             index, closed = line_end - len(stripped) + len(word), True
             EARLY_CLOSED.append(index)
             break
         index = len(text) if end < 0 else end + 1
-    found.append((match.start(), body_start, index))
+    found.append((match.start(), body_start, keep))
     return index, closed
 
 

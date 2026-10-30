@@ -133,10 +133,12 @@ class SleepLoops(unittest.TestCase):
         # `` ` ` `` の中の ' は、シェルが先に閉じる `` ` `` を越えない
         "x=`echo it's`\nwhile true; do sleep 5; done",
         "x=`cat <<'EOF'\nrun `ls` it's\nEOF\n`\nwhile true; do sleep 5; done",
-        # 置換の中のヒアドキュメントの後のループ。中身を除いた後の置換をもう一度読むときに除き直すと、終わりの語の行が
-        # 無いので後のループを中身と見て落としていた
+        # 置換と `bash -c "…"` の中のヒアドキュメントの後のループ。中身を除いた後の中をもう一度読むときに除き直すと、
+        # 終わりの語の行が無いので後のループを中身と見て落としていた
         "x=`cat <<EOF\nhello\nEOF\nuntil test -f M; do sleep 1; done\n`",
         "x=\"$(cat <<EOF\nhi\nEOF\nuntil test -f M; do sleep 1; done\n)\"",
+        'bash -c "x=$(cat <<EOF\nhi\nEOF\n)\nuntil test -f M; do sleep 1; done"',
+        'eval "x=$(cat <<EOF\nhi\nEOF\n)\nuntil test -f M; do sleep 1; done"',
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -155,6 +157,7 @@ class SleepLoops(unittest.TestCase):
         "git commit -m \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"",
         "gh pr comment 5 --body \"$(cat <<'EOF'\nEOF handling (#12) is fixed; it's covered now\nEOF\n)\"",
         "x=`echo 'a b'`; echo \"$x\"",
+        "bash <<'X'\ngit commit -m \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"\nX",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
