@@ -135,8 +135,9 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
     brief = deliver.put(caller_inbox, f"{ask_id}-call.md", tools.miss_text(role_name, tool, value, code, out_tail))
     to = tool["fallback_role"]
     try:
-        *_, companies, _, _ = orders.survey(a.config, ports)
-        target = deliver.find_target(companies, root, f"{company}/{to}")
+        *_, companies, settings, _ = orders.survey(a.config, ports)
+        # 前の役の名前（former_names）を属性に持つ部署にも当たるように、--ask と同じく今の役の名前に引き直して探す
+        target = deliver.find_target(companies, root, f"{company}/{to}", None, orders.current_role(settings, ports.git))
     except (term.Error, deliver.DeliverError) as e:
         return 1, [f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）が、{to} に回せなかった（{e}）"]
     ask, task_name = f"{company}/{to}", tools.auto_name(role_name, tool)

@@ -250,6 +250,25 @@ class Call(unittest.TestCase):
         calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None, self.src)
         self.assertEqual((seen.get("name"), seen.get("role")), ("調べ物", "調べ役"))
 
+    def test_handing_over_finds_the_keep_department_that_still_has_the_roles_former_name(self):
+        # 役の名前を替えた（former_names）後も、前の名前を属性に持つ keep の部署に回す（今の名前に引き直さず、ツールの名前の部署を新しく立てていた）
+        self.use("true")
+        provision.mark(self.place, self.src, {"role": "旧調べ役"}, self.g)
+        self.shape(shape_text("true").replace('name = "調べ役"\n', 'name = "調べ役"\nformer_names = ["旧調べ役"]\n', 1))
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(name=ns.task)
+            return 1
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False, base=None)
+        info = tree.read_info(self.src, os.path.dirname(self.cfg), self.g)
+        tool = role.load(info["path"], info["text"])["roles"]["配布"]["tools"][0]
+        rc, out = calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None,
+                                  self.src)
+        self.assertEqual((rc, seen), (calls.CALLED, {}), out)
+        self.assertNotIn("部署", out[0].rsplit("受付", 1)[1])
+
     def test_fire_after_land_hands_over_with_the_landers_boss(self):
         self.use(self.script("raise SystemExit(1)"))
         a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
