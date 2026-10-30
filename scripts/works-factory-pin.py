@@ -54,6 +54,8 @@ for _s in (sys.stdout, sys.stderr):
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # 開いた頼みの見分けは works-dispatch の物をそのまま使う（tests/ci-watch.py と同じ形。写すと割れる）
 sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
+import filex  # noqa: E402
+import gitx  # noqa: E402
 import todo  # noqa: E402
 from nodes import deliver  # noqa: E402
 
@@ -73,6 +75,8 @@ LANDING = "WORKS_FACTORY_PIN_LANDING"   # 機械の上げが --land に渡す環
 LAND_TAIL = 12   # 機械の上げが失敗したときに出す、--land の出力の終わりの行数（頼みに載るのは出力の末尾 20 行なので、上げ先の行から手順の行までをその中に収める）
 REPEAT = 24 * 60 * 60   # 利用制限が続いても黙る長さ（秒。1 日。tests/ci-watch.py の REPEAT と同じ）
 PAGE = 100   # 比べ（compare）の commit の一覧を 1 回に引く数（GitHub の per_page の上限）。既定の 30 では、31 本より先の main を読み切れない
+OWNER = "works-factory-pin pid "   # 機械の上げの worktree の鍵の訳。後ろに作った処理の pid（works-dispatch の nodes/tools.py の OWNER と同じ形）
+CODE_DIRS = ("bin", "lib", "workflows")   # 語の消えを探す所。docs・CHANGELOG・README は前の名前を移しの説明に残すので見ない
 
 
 def run(argv, cwd=None):
@@ -120,11 +124,10 @@ def target(pin, runner):
         if not isinstance(got.get("ahead_by"), int):
             raise RuntimeError("比べの答えに main の先の本数（ahead_by）が無い")
         rows = got.get("commits") or []
-        commits += [(c["sha"], ((c.get("commit") or {}).get("message") or "").splitlines()[:1] or [""]) for c in rows]
+        commits += [(c["sha"], (((c.get("commit") or {}).get("message") or "").splitlines() or [""])[0]) for c in rows]
         if len(commits) >= got["ahead_by"] or not rows:
             break
         page += 1
-    commits = [(sha, title[0]) for sha, title in commits]
     if len(commits) != got["ahead_by"]:
         raise RuntimeError(f"比べの一覧が {len(commits)} 本で、main の先の本数 {got['ahead_by']} と合わない")
     for sha, _ in reversed(commits):
@@ -171,14 +174,21 @@ def has_path(cache, sha, path, runner):
     return runner(["git", "-C", cache, "cat-file", "-e", f"{sha}:{path}"])[0] == 0
 
 
-CODE_DIRS = ("bin", "lib", "workflows")   # 語の消えを探す所。docs・CHANGELOG・README は前の名前を移しの説明に残すので見ない
+def grep(cache, sha, args, dirs, what, runner):
+    """工場の木 sha を git grep で探す。(当たったか, 出力)。git grep の 1 は当たり無しで、0・1 のほかは what を添えて RuntimeError。"""
+    code, out, err = runner(["git", "-C", cache, "grep", *args, sha, "--", *dirs])
+    if code not in (0, 1):
+        raise RuntimeError(f"工場の木 {sha[:8]} {what}（git grep が {code} で終わった）: {err.strip()[-300:]}")
+    return code == 0, out
 
 
 def has_text(cache, sha, text, runner):
-    code, _, err = runner(["git", "-C", cache, "grep", "-q", "-F", "-e", text, sha, "--", *CODE_DIRS])
-    if code not in (0, 1):
-        raise RuntimeError(f"工場の木 {sha[:8]} を探せない（git grep が {code} で終わった）: {err.strip()[-300:]}")
-    return code == 0
+    return grep(cache, sha, ["-q", "-F", "-e", text], CODE_DIRS, "を探せない", runner)[0]
+
+
+def delta(a, b):
+    """2 つの名前の集まりの違い。b で足した名前に +、消した名前に -（足した物が先で、それぞれ名前の順）。"""
+    return [f"+{k}" for k in sorted(b - a)] + [f"-{k}" for k in sorted(a - b)]
 
 
 def inputs(yaml_text):
@@ -227,17 +237,12 @@ def surface(old, new, cache, runner, root=ROOT):
         lines.append("スキルが引いた語・パスで、上げ先の工場から消えた物: " + "、".join(gone))
     for f in INPUT_FILES:
         a, b = inputs(show(cache, old, f, runner)), inputs(show(cache, new, f, runner))
-        moved = [f"+{k}" for k in sorted(b.keys() - a.keys())] + [f"-{k}" for k in sorted(a.keys() - b.keys())] \
-            + [f"~{k}" for k in sorted(a.keys() & b.keys()) if a[k] != b[k]]
+        moved = delta(a.keys(), b.keys()) + [f"~{k}" for k in sorted(a.keys() & b.keys()) if a[k] != b[k]]
         if moved:
             lines.append(f"{f} の inputs の変更（+ 足した・- 消した・~ 中身を変えた）: " + " ".join(moved))
-    envs = {}
-    for sha in (old, new):
-        code, out, err = runner(["git", "-C", cache, "grep", "-h", "-o", "-E", ENV.pattern, sha, "--", "bin", "lib"])
-        if code not in (0, 1):
-            raise RuntimeError(f"工場の木 {sha[:8]} の環境変数を探せない（git grep が {code} で終わった）: {err.strip()[-300:]}")
-        envs[sha] = set(ENV.findall(out))
-    moved = [f"+{k}" for k in sorted(envs[new] - envs[old])] + [f"-{k}" for k in sorted(envs[old] - envs[new])]
+    envs = {sha: set(ENV.findall(grep(cache, sha, ["-h", "-o", "-E", ENV.pattern], ("bin", "lib"), "の環境変数を探せない", runner)[1]))
+            for sha in (old, new)}
+    moved = delta(envs[old], envs[new])
     if moved:
         lines.append("工場が読む環境変数の変更: " + " ".join(moved))
     code, out, err = runner(["git", "-C", cache, "diff", "--name-only", old, new, "--", *FACE_FILES])
@@ -290,10 +295,7 @@ def load_state(path):
 
 def save_state(path, sha, at, limited=None):
     """limited は利用制限に当たり始めた時刻（Unix 時刻。読めた回は None で、覚えた時刻を消す）。"""
-    tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"told": sha, "at": at, **({"limited": limited} if limited is not None else {})}, f)
-    os.replace(tmp, path)
+    filex.replace(path, json.dumps({"told": sha, "at": at, **({"limited": limited} if limited is not None else {})}))
 
 
 def limited(path, state, now, dry, e):
@@ -444,6 +446,36 @@ def must(argv, runner, what):
     return out
 
 
+def origin_pin(source, runner):
+    """origin/MAIN の PIN（読めなければ None）。"""
+    got = show(source, f"origin/{MAIN}", f"{PLUGIN}/PIN", runner)
+    return got.strip() if got is not None else None
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (OSError, OverflowError):
+        return False
+    return True
+
+
+def listed(source, runner):
+    """代表の clone の worktree の並び（git worktree list --porcelain）。1 件は {path, branch, locked}。読めなければ空。"""
+    code, out, _ = runner(["git", "-C", source, "worktree", "list", "--porcelain"])
+    rows = []
+    for line in (out if code == 0 else "").splitlines():
+        if line.startswith("worktree "):
+            rows.append({"path": line[len("worktree "):], "branch": None, "locked": None})
+        elif rows and line.startswith("branch "):
+            rows[-1]["branch"] = line[len("branch "):]
+        elif rows and (line == "locked" or line.startswith("locked ")):
+            rows[-1]["locked"] = line[len("locked "):]
+    return rows
+
+
 def land_pin(pin, to, commits, cdir, runner, env):
     """機械の上げ: 代表の clone に origin/MAIN の頭から一時の worktree とブランチを作り、PIN と CHANGELOG を書いて commit し、works-dispatch の
     --land で main に入れる。(入れたか, 出す行)。入れたら出す行は --land の出力の終わり。入れる物がもう無い（origin/MAIN の PIN が上げ先か、
@@ -455,12 +487,11 @@ def land_pin(pin, to, commits, cdir, runner, env):
     if not dispatch:
         raise RuntimeError("works-dispatch から呼ばれていない（環境変数 WORKS_DISPATCH が無い）ので、--land を打てない")
     python = env.get("WORKS_DISPATCH_PYTHON") or sys.executable
-    source = os.path.dirname(cdir) if os.path.basename(cdir) == ".git" else cdir   # 代表の clone のルート（works-dispatch の gitx.root_of と同じ）
+    source = gitx.root_of(cdir)   # 代表の clone のルート
     branch = f"{BRANCH}{to[:12]}"
     must(["git", "-C", source, "fetch", "-q", "origin", MAIN], runner, f"origin の {MAIN} を取り直せない")
     # 見張りが読んだ木（works-dispatch がツールを走らせる一時の場所）は fetch していないので、取り直した origin/MAIN の PIN で決め直す
-    code, now_pin, _ = runner(["git", "-C", source, "show", f"origin/{MAIN}:{PLUGIN}/PIN"])
-    now_pin = now_pin.strip() if code == 0 else None
+    now_pin = origin_pin(source, runner)
     if now_pin == to:
         return False, f"上げ先 {to[:8]} はもう origin の {MAIN} の PIN に入っている（ほかの機械の上げか手の上げが先に入れた）"
     if now_pin != pin:
@@ -492,8 +523,7 @@ def land_pin(pin, to, commits, cdir, runner, env):
                            errors="replace", env={**env, LANDING: to})
         said = "\n".join(((p.stdout or "") + (p.stderr or "")).rstrip().splitlines()[-LAND_TAIL:])
         fetched = runner(["git", "-C", source, "fetch", "-q", "origin", MAIN])[0] == 0
-        code, landed, _ = runner(["git", "-C", source, "show", f"origin/{MAIN}:{PLUGIN}/PIN"])
-        if code == 0 and landed.strip() == to:
+        if origin_pin(source, runner) == to:
             return True, said
         if not fetched and p.returncode == 0:   # 取り直せないときだけ --land の終了の値に頼る（入ったのに作業に回さない）
             return True, said + f"\n注記: 入れた後に origin の {MAIN} を取り直せなかったので、--land の終了の値 0 で入ったとみた"
@@ -514,33 +544,6 @@ def land_pin(pin, to, commits, cdir, runner, env):
             why = ((err or "").strip().splitlines() or ["訳は出なかった"])[-1]
             print(f"注記: origin の機械の上げのブランチ {branch} が{what}（{why}）。在れば手で git push origin --delete {branch} を打つ")
         shutil.rmtree(temp, ignore_errors=True)
-
-
-OWNER = "works-factory-pin pid "   # 機械の上げの worktree の鍵の訳。後ろに作った処理の pid（works-dispatch の nodes/tools.py の OWNER と同じ形）
-
-
-def alive(pid):
-    try:
-        os.kill(pid, 0)
-    except PermissionError:
-        return True
-    except (OSError, OverflowError):
-        return False
-    return True
-
-
-def listed(source, runner):
-    """代表の clone の worktree の並び（git worktree list --porcelain）。1 件は {path, branch, locked}。読めなければ空。"""
-    code, out, _ = runner(["git", "-C", source, "worktree", "list", "--porcelain"])
-    rows = []
-    for line in (out if code == 0 else "").splitlines():
-        if line.startswith("worktree "):
-            rows.append({"path": line[len("worktree "):], "branch": None, "locked": None})
-        elif rows and line.startswith("branch "):
-            rows[-1]["branch"] = line[len("branch "):]
-        elif rows and (line == "locked" or line.startswith("locked ")):
-            rows[-1]["locked"] = line[len("locked "):]
-    return rows
 
 
 def write(argv, runner, root):

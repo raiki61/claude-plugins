@@ -17,7 +17,6 @@
 
 終了コード: 0 = 揃っている / 1 = 割れている・写し先が無い・走査が空回り・読めない本文が在る / 2 = 使い方が違う
 """
-import hashlib
 import pathlib
 import shutil
 import subprocess
@@ -76,7 +75,7 @@ def check(gs):
             print(f"NG {where[0]}: 写しだと名乗っているのに写し先が無い(配られていない。印を外すか、配れ)")
             bad = 1
             continue
-        if len({hashlib.sha256(p.read_bytes()).hexdigest() for p in ps}) > 1:
+        if len({p.read_bytes() for p in ps}) > 1:
             print(f"NG {name}: 写しが割れている({where})——1 か所で直して配れ: "
                   f"python3 scripts/shared-copies.py --sync {where[0]}")
             bad = 1
@@ -92,7 +91,8 @@ def sync(src, gs):
     if src not in ps:
         print(f"NG {src} は写しの組に無い(印『{MARK}』を持つ .py か、frontmatter に持つ .md を指せ)")
         return 2
-    wrote = [p for p in ps if p != src and p.read_bytes() != src.read_bytes()]
+    data = src.read_bytes()
+    wrote = [p for p in ps if p != src and p.read_bytes() != data]
     for p in wrote:
         shutil.copyfile(src, p)
     print("SHARED_COPIES_SYNCED(%s → %s)" % (rel(src), "・".join(rel(p) for p in wrote) or "差分なし"))

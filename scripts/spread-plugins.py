@@ -102,14 +102,6 @@ def accounts(env=os.environ, local=LOCAL):
     return out
 
 
-def skips(path=LOCAL):
-    return listed(read_toml(path), "skip", str, path)
-
-
-def no_installs(path=LOCAL):
-    return listed(read_toml(path), "no_install", str, path)
-
-
 def step(account, kind, text, failed):
     """1 つの手の結果。成否と種類はフィールドで持ち、text は人に見せるだけ（後で text を読んで分岐しない）。
     kind は marketplace-update・mend・list・install・update・version・main・talk・reload のどれか。"""
@@ -245,36 +237,30 @@ def update_account(name, config_dir, market, dry, runner=run, keep_out=()):
     ids, err = installed_ids(name, market, env, runner)
     if err:
         note("list", err, True)
-    done, whole = [], []
+    done, whole = [], []   # done は 0 で終わった [(verb〔install か update〕, id)]
+
+    def fire(verb, targets):
+        for i in targets:
+            argv = ["claude", "plugin", verb, i]
+            if dry:
+                note(verb, f"{name}: {' '.join(argv)}（空打ち）", False)
+                continue
+            code, out = runner(argv, env)
+            if code != 0:
+                note(verb, f"{name}: {' '.join(argv)} 失敗（{out.strip()[:200]}）", True)
+            else:
+                done.append((verb, i))
+
     if not err:
         # 入っている物を読めないときに入れると、全部を入れ直してしまうので、読めたときだけ入れる
         names, line = offered(name, market, env, runner)
         if line:
             note("install", line[1], line[0])
-        for i in sorted({f"{n}@{market}" for n in names if n not in keep_out and f"{n}@{market}" not in ids}):
-            argv = ["claude", "plugin", "install", i]
-            if dry:
-                note("install", f"{name}: {' '.join(argv)}（空打ち）", False)
-                continue
-            code, out = runner(argv, env)
-            if code != 0:
-                note("install", f"{name}: {' '.join(argv)} 失敗（{out.strip()[:200]}）", True)
-            else:
-                done.append(i)
-    for i in sorted(ids):
-        argv = ["claude", "plugin", "update", i]
-        if dry:
-            note("update", f"{name}: {' '.join(argv)}（空打ち）", False)
-            continue
-        code, out = runner(argv, env)
-        if code != 0:
-            note("update", f"{name}: {' '.join(argv)} 失敗（{out.strip()[:200]}）", True)
-        else:
-            done.append(i)
+        fire("install", sorted({f"{n}@{market}" for n in names if n not in keep_out and f"{n}@{market}" not in ids}))
+    fire("update", sorted(ids))
     if done:
         after, err = installed_ids(name, market, env, runner)
-        for i in done:
-            verb = "update" if i in ids else "install"
+        for verb, i in done:
             head = f"{name}: claude plugin {verb} {i} "
             where, version = after.get(i, (None, None))
             if err:
@@ -284,6 +270,11 @@ def update_account(name, config_dir, market, dry, runner=run, keep_out=()):
             else:
                 whole.append((name, i, version, verb))
     return steps, whole
+
+
+def drifted(whole, want):
+    """写しの揃ったプラグインのうち、版が main の {id: 版} とそろわない物の在るアカウントの名前の集まり（main に無いプラグインは見ない）。"""
+    return {n for n, i, v, _ in whole if i in want and v != want[i]}
 
 
 def check_versions(whole, want):
@@ -313,6 +304,10 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
     except (herdr.HerdrError, OSError) as e:   # OSError は herdr が入っていない・起動できないとき
         return [step(None, "talk", f"herdr を読めない（{e}）", True)]
     steps = []
+
+    def say(kind, text, failed=False):
+        steps.append(step(None, kind, text, failed))
+
     talks = [p for p in panes if p.get("agent") == "claude"]
     if not talks:
         # 配るのは herdr に開いた会話（main に入れた部署か、--call を打った会話）から打つ前提で、その会話自身が 1 つは居る。
@@ -321,38 +316,39 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
     for p in talks:
         if not p.get("cwd"):
             continue
-        where = f"{labels.get(p.get('workspace_id')) or p.get('workspace_id')}（{p['pane_id']}）"
-        if labels.get(p.get("workspace_id")) in skip:
-            steps.append(step(None, "talk", f"{where}: 手元の設定で除く", False))
+        label, status = labels.get(p.get("workspace_id")), p.get("agent_status")
+        where = f"{label or p.get('workspace_id')}（{p['pane_id']}）"
+        if label in skip:
+            say("talk", f"{where}: 手元の設定で除く")
             continue
         if not is_company_place(p["cwd"], runner):
             continue   # 持ち主の作業の会話（部署でも窓口でもない）には打たない
-        if p.get("agent_status") not in KNOWN_STATUS:
-            steps.append(step(None, "talk", f"{where}: herdr の知らない状態 {p.get('agent_status')!r} なので飛ばす（herdr の形が変わったか）", True))
+        if status not in KNOWN_STATUS:
+            say("talk", f"{where}: herdr の知らない状態 {status!r} なので飛ばす（herdr の形が変わったか）", True)
             continue
-        if p.get("agent_status") not in refresh.IDLE:
-            steps.append(step(None, "talk", f"{where}: ターンの途中なので飛ばす（ターンの終わりに替わる）", False))
+        if status not in refresh.IDLE:
+            say("talk", f"{where}: ターンの途中なので飛ばす（ターンの終わりに替わる）")
             continue
         try:
             box = claudex.typed(herdr.read(p["pane_id"], 40, herdr_run, ansi=True))   # 薄字の候補は打った字と数えない
         except (herdr.HerdrError, OSError) as e:
-            steps.append(step(None, "talk", f"{where}: 画面を読めない（{e}）", True))
+            say("talk", f"{where}: 画面を読めない（{e}）", True)
             continue
         if box is None:
-            steps.append(step(None, "talk", f"{where}: 入力フィールドが見えないので飛ばす", False))
+            say("talk", f"{where}: 入力フィールドが見えないので飛ばす")
             continue
         if box:
-            steps.append(step(None, "talk", f"{where}: 入力フィールドに字が在るので飛ばす", False))
+            say("talk", f"{where}: 入力フィールドに字が在るので飛ばす")
             continue
         if dry:
-            steps.append(step(None, "reload", f"{where}: {RELOAD}（空打ち）", False))
+            say("reload", f"{where}: {RELOAD}（空打ち）")
             continue
         try:
             got = herdr.prompt(p["pane_id"], RELOAD, False, herdr_run)
         except (herdr.HerdrError, OSError) as e:
             got = str(e)
         ok = got == "sent"   # herdr の見張りが止めた打ち込みは "stalled" で返る（herdr.prompt）
-        steps.append(step(None, "reload", f"{where}: {RELOAD} " + ("済" if ok else f"失敗（{got}）"), not ok))
+        say("reload", f"{where}: {RELOAD} " + ("済" if ok else f"失敗（{got}）"), not ok)
     return steps
 
 
@@ -363,34 +359,36 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
             raise ValueError("JSON の物で無い")
         dry = bool(value.get("dry_run"))
         market = marketplace_name()
-        accs, skip, keep_out = accounts(env, local), skips(local), no_installs(local)
+        accs, mine = accounts(env, local), read_toml(local)
+        skip, keep_out = listed(mine, "skip", str, local), listed(mine, "no_install", str, local)
     except (OSError, ValueError, KeyError, tomllib.TOMLDecodeError) as e:
         print(f"止めた: 入力か設定を読めない（{e}）")
         return 2
     steps, whole = [], []
-    for name, config_dir in accs:
-        got, ok = update_account(name, config_dir, market, dry, runner, keep_out)
-        steps += got
-        whole += ok
+
+    def spread(only=None):
+        for name, config_dir in accs:
+            if only is None or name in only:
+                got, ok = update_account(name, config_dir, market, dry, runner, keep_out)
+                steps.extend(got)
+                whole.extend(ok)
+
+    spread()
     # main は配った後に読む（配る間に main へ入った版を、入った版が新しいのにそろわないと数えないため）
     want, err = expected_versions(market, runner=runner) if whole else ({}, None)
     # 配る間に main が進むと、先に配ったアカウントは前の版のまま残る（2026-10-17 に works-dispatch 0.37.0 で実測）。同じ設定の
     # フォルダの別の会話が marketplace の clone を取り直している間は、plugin update が「Plugin source not found」で落ちる
     # （2026-10-20 に p3 で実測。後で見ると取り直した clone が在った）。版のずれたアカウントと plugin update の落ちたアカウント
     # だけ 1 回配り直し、main を読み直して照合する（配り直すアカウントは、1 回目の失敗を数えず配り直しの結果で数える）
-    stale = {n for n, i, v, _ in whole if i in want and v != want[i]} if not err else set()
+    stale = drifted(whole, want) if not err else set()
     again = stale | {s["account"] for s in steps if s["kind"] in ("update", "install") and s["failed"]}
     if again:
         for s in steps:
             if s["account"] in again and s["failed"]:
                 s["failed"] = False
                 s["text"] += "（配り直す）"
-        whole = [w for w in whole if w[0] not in again]
-        for name, config_dir in accs:
-            if name in again:
-                got, ok = update_account(name, config_dir, market, dry, runner, keep_out)
-                steps += got
-                whole += ok
+        whole[:] = [w for w in whole if w[0] not in again]
+        spread(again)
         if whole:
             want, err = expected_versions(market, runner=runner)
     if whole:
@@ -400,8 +398,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
         if not err:
             # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部 main と同じなら目的は果たしている。同じ設定のフォルダの
             # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
-            off = {n for n, i, v, _ in whole if i in want and v != want[i]}
-            even = {n for n, i, v, _ in whole if i in want} - off
+            even = {n for n, i, *_ in whole if i in want} - drifted(whole, want)
             for n in sorted(even):
                 fell = [s for s in steps if s["account"] == n and s["kind"] == "marketplace-update" and s["failed"]]
                 for s in fell:
