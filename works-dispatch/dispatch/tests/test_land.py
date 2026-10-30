@@ -293,7 +293,7 @@ class FastForwardAfterCi(LandCase):
         ports = FakePorts(w, FakeGh(appear=3))
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
-        self.assertEqual(ports.gh.asked, 4)
+        self.assertEqual(ports.gh.asked, 5)   # 現れるまでの 4 回と、待ち終えた後に遅れて載る run が無いかを見る 1 回
 
     def test_gate_without_ci_for_its_branch_stops_before_pushing(self):
         w = FakeWorld(self.tmp, {".claude/company.toml": CI_RULES})
@@ -1027,6 +1027,19 @@ class BumpAtLand(LandCase):
         self.assertEqual(bump.plan(src, gitx), ([], None), "版を上げた後も据え置きと数える")
 
 
+    def test_a_plugin_json_without_a_version_stops_with_a_reason(self):
+        # 版の無い plugin.json は据え置きと数えられ、版を読むところで KeyError で落ち、--land が訳を出さずに死んでいた
+        files = marketplace_files()
+        files["one/.claude-plugin/plugin.json"] = '{\n  "name": "one"\n}\n'
+        w = World(self.tmp, files)
+        src = w.source
+        write(os.path.join(src, "one", "x.py"), "2\n")
+        write(os.path.join(src, "one", "CHANGELOG.md"), CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n- 直した\n"))
+        commit(src, "one を直す")
+        with self.assertRaises(bump.BumpError) as e:
+            bump.plan(src, gitx)
+        self.assertIn("one/.claude-plugin/plugin.json に version が無い", str(e.exception))
+
     def test_tests_and_docs_only_are_a_patch_even_under_changed(self):
         # 記録が Changed のセクションでも、版を最後に上げた後に変えたのが試験と文書だけなら patch。利用者が動かす物を変えたら minor
         w = World(self.tmp, marketplace_files())
@@ -1231,6 +1244,37 @@ class WaitGate(unittest.TestCase):
         gh = Gh()
         got = land.wait_gate("o/r", "release/a", "abc", gh)
         self.assertEqual((got["result"], got["run"]["id"], gh.watched), ("red", 1, [2, 1]))
+
+    def test_a_run_of_another_workflow_that_shows_up_later_is_waited_for(self):
+        # 2 つ目のワークフローの run は、1 つ目より数秒遅れて並びに載ることがある。最初に見えた並びだけで決めると、遅れた赤を見ずに入れる
+        class Gh:
+            def __init__(self):
+                self.lists = [[{"id": 1, "status": "completed", "conclusion": "success", "url": "u1"}],
+                              [{"id": 2, "status": "in_progress", "conclusion": None, "url": "u2"},
+                               {"id": 1, "status": "completed", "conclusion": "success", "url": "u1"}]]
+
+            def runs_for(self, repo, branch, sha, env=None):
+                return self.lists.pop(0) if len(self.lists) > 1 else self.lists[0]
+
+            def watch_run(self, repo, run_id, env=None):
+                return {"id": run_id, "status": "completed", "conclusion": "failure", "url": f"u{run_id}"}
+        got = land.wait_gate("o/r", "release/a", "abc", Gh())
+        self.assertEqual((got["result"], got["run"]["id"]), ("red", 2))
+
+    def test_a_workflow_whose_jobs_all_skip_is_not_red(self):
+        # ゲートのブランチでは job が全部飛ぶワークフローの run は skipped で終わる。GitHub は飛んだ job を成功と数える
+        class Gh:
+            def runs_for(self, repo, branch, sha, env=None):
+                return [{"id": 2, "status": "completed", "conclusion": "skipped", "url": "u2"},
+                        {"id": 1, "status": "completed", "conclusion": "success", "url": "u1"}]
+        got = land.wait_gate("o/r", "release/a", "abc", Gh())
+        self.assertEqual((got["result"], got["run"]["id"]), ("green", 1))
+
+    def test_only_skipped_runs_are_not_green(self):
+        class Gh:
+            def runs_for(self, repo, branch, sha, env=None):
+                return [{"id": 1, "status": "completed", "conclusion": "skipped", "url": "u1"}]
+        self.assertEqual(land.wait_gate("o/r", "release/a", "abc", Gh())["result"], "red")
 
 
 class FailurePoints(unittest.TestCase):

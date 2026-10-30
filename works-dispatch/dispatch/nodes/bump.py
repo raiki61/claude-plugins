@@ -173,7 +173,9 @@ def plan(root, g):
     plugins = [p for p in mk.get("plugins", []) if isinstance(p.get("source"), str) and p["source"].startswith("./")]
     rows, empty = [], []
     for name, (src, since) in sorted(stale(root, plugins, g).items()):
-        old = json.loads(_read(root, posixpath.join(src, PLUGIN)))["version"]
+        old = json.loads(_read(root, posixpath.join(src, PLUGIN))).get("version")
+        if not isinstance(old, str):
+            raise BumpError(f"{posixpath.join(src, PLUGIN)} に version が無い")
         log = _read(root, posixpath.join(src, "CHANGELOG.md"))
         if not has_entries(log):
             empty.append(f"{name}（{src}/CHANGELOG.md）")

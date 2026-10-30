@@ -364,15 +364,25 @@ def ci_on(root, gate):
 def wait_gate(repo, ref, sha, gh, env=None, pause=lambda: None):
     """そのブランチのその commit の run が現れるまで見に行き（回数に上限を置かない。CI が起きる設定は ci_on で先に確かめる）、
     現れた run を全部（ゲートのブランチを書いたワークフローが複数在れば、1 つの push で run も複数起きる）終わりまで待つ。
-    {result: green・red, run}。run は赤ければ最初の赤の run、緑なら一番新しい run。"""
+    ワークフローごとの run は並びに載るのが数秒ずれることがあるので、待ち終えたら並びを読み直し、新しい run が無くなるまで待つ。
+    {result: green・red, run}。run は赤ければ最初の赤の run、緑なら一番新しい run。job が全部飛んだ run（skipped）と neutral は
+    赤と数えない（GitHub は飛んだ job を成功と数える）が、success の run が 1 つも無ければ赤。"""
+    done = {}
     while True:
         got = gh.runs_for(repo, ref, sha, env=env)
-        if got:
+        new = [r for r in got if r.get("id") not in done]
+        if not new and done:
             break
+        for r in new:
+            done[r.get("id")] = r if r.get("status") == "completed" else gh.watch_run(repo, r["id"], env=env)
         pause()
-    done = [r if r.get("status") == "completed" else gh.watch_run(repo, r["id"], env=env) for r in got]
-    red = [r for r in done if r.get("conclusion") != "success"]
-    return {"result": "red" if red else "green", "run": (red or done)[0]}
+    order = [r.get("id") for r in got]
+    runs = [done[i] for i in order if i in done] + [r for i, r in done.items() if i not in order]
+    red = [r for r in runs if r.get("conclusion") not in ("success", "skipped", "neutral")]
+    green = [r for r in runs if r.get("conclusion") == "success"]
+    if not red and not green:
+        red = runs
+    return {"result": "red" if red else "green", "run": (red or green)[0]}
 
 
 def advance(source, main, sha, g):
