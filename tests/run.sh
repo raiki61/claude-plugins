@@ -7319,10 +7319,13 @@ sys.path.insert(0, sys.argv[1])
 import mutate
 ok = {"summary": {"control_ok": True, "copies": {"made": 2, "reused": 5}}, "control": {"root": {"rc": 0}}, "marker": {"rc": 0}}
 row = lambda i, st, f="a.py", ev="印": {"id": i, "status": st, "file": f, "evidence": ev if st == "Killed" else ""}
-# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9）を、選ぶ腕より前に置く——並びで選んでいれば当たる
+# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9・一式の確かめ直しが時間切れの u1 と v1）を、選ぶ腕より
+# 前に置く——並びで選んでいれば当たる
 prev = {**ok, "arms": [row("k1", "Killed"), row("t1", "Timeout"), {**row("c1", "Killed"), "carried": True}, row("i1", "Ignored"),
-                       row("x9", "Killed"), row("s1", "Survived"), row("k2", "Killed", "b.py"), row("k3", "Killed")]}
-out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1'})}"]
+                       row("x9", "Killed"), {**row("u1", "Survived"), "confirm_rc": "timeout"},
+                       {**row("v1", "Survived"), "pytest": {"confirmed": "timeout"}},
+                       row("s1", "Survived"), row("k2", "Killed", "b.py"), row("k3", "Killed")]}
+out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1', 'u1', 'v1'})}"]
 same = {**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}
 out.append(f"same={mutate.same_as_diff(prev, same)}")
 cases = {"status": {**ok, "arms": [row("k1", "Survived")]},

@@ -1074,7 +1074,9 @@ SAME_AS_STATUS = ("Killed", "Survived", "NoCoverage")   # 撃ち比べる腕の�
 def same_as_pick(prev, ids, n=4):
     """撃ち比べる腕を前の報告から選ぶ ——腕の id の一覧。同じファイルを壊す赤の腕の組を 1 つ（使い回した写しで同じファイルを
     続けて壊す形に近い）、次に生き残り、残りを赤で埋めて n 本まで。今の一覧に在る腕（ids）だけ"""
-    rows = [r for r in prev.get("arms", []) if r.get("id") in ids and not r.get("carried") and r.get("status") in SAME_AS_STATUS]
+    # 一式の確かめ直しが時間切れの生き残り（confirm_rc・pytest の confirmed）は、次の回で Killed にも Timeout にもなりうる——揺れうるので選ばない
+    rows = [r for r in prev.get("arms", []) if r.get("id") in ids and not r.get("carried") and r.get("status") in SAME_AS_STATUS
+            and "confirm_rc" not in r and (r.get("pytest") or {}).get("confirmed") != "timeout"]
     killed = [r for r in rows if r["status"] == "Killed"]
     by_file = collections.defaultdict(list)
     for r in killed:
