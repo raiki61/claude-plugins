@@ -152,6 +152,17 @@ class Task(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(json.loads(self.g.worktree_attrs(path)["landed-branches"]), {"task/fix": first})
 
+    def test_a_keep_department_stood_up_on_a_branch_with_unlanded_commits_does_not_mark_it_as_landed(self):
+        # 前に入れずに移ったブランチ（手元にしか無い commit が載っている）で keep の部署を立てると、その先頭を入れた commit と記録していた。
+        # 部署が次のブランチへ移った後の --land・--clean --apply が、そのブランチを commit ごと消してしまう
+        side = self.g.add_worktree(str(pathlib.Path(self.root).parent / "side"), "task/fix", "main")
+        self.g.commit(side, {"work.txt": "まだ入れていない"}, "work")
+        self.g.remove_worktree(side)
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "調べ役", "--persistent")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("landed-branches", self.g.worktree_attrs(self.place(ports)))
+
     def test_shape_picks_the_default_role_and_a_role_can_be_persistent(self):
         # 会社の形の default_role は --role を省いたときの役、役の persistent = true は --persistent と同じ
         push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
