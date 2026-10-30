@@ -204,6 +204,12 @@ class SleepLoops(unittest.TestCase):
         "ls --color=(auto|#x); until test -f x; do sleep 1; done",
         # 外のシェルが \${ を ${ にするので、中の # はコメントでない
         "bash <<EOF\nname=\\${line%% #*}; until test -f x; do sleep 1; done\nEOF",
+        # <<- の中身は外のシェルが行の頭のタブを除いてから渡すので、中の <<X は \tX の行で閉じる
+        "bash <<-'E'\n\tcat <<X\n\thello\n\tX\n\tuntil test -f x; do sleep 1; done\nE",
+        "bash <<-'EOF'\n\techo a\\\n\t#b; until test -f x; do sleep 1; done\nEOF",
+        # バッククォートの中の \$ はシェルが $ にするので、中の # はコメントでない
+        "echo `echo \\${HOME%% #*}; until test -f x; do sleep 1; done`",
+        "echo \"`echo \\${HOME%% #*}; until test -f x; do sleep 1; done`\"",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -338,6 +344,19 @@ class LongCommands(unittest.TestCase):
                         loop + "\n# x\n" + "bash <<A\n" * 900 + "\n" * 92000):
             reason, _ = run(command, timeout=20)
             self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_nested_closed_heredocs_read_by_shells_are_read_in_time(self):
+        # 前はシェルが読む中身ごとに、終わりの語の行を 1 行ずつ探し直し、入れ子 900 段で 40 秒を超えた
+        command = ("".join("bash <<A%d\n#\n" % i for i in range(900)) + "x\n" * 40000
+                   + "".join("A%d\n" % i for i in reversed(range(900))) + "echo $(date)# ; while true; do sleep 1; done")
+        reason, _ = run(command, timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_deeply_nested_substitutions_with_many_comments_are_read_in_time(self):
+        # 前はヒアドキュメントの無い置換の中身も入れ子ごとに読み直し、270 段で 30 秒を超えた
+        command = 'echo ' + '"$(echo ' * 270 + "#\n" * 46000 + ')"' * 270 + "\necho $(date)# ; while true; do sleep 1; done"
+        reason, _ = run(command, timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_lines_that_almost_end_a_heredoc_are_read_in_time(self):
         # 前は終わりの語に似た行(<<- の引用したタブの語の行)ごとに後ろの全部を探し直し、96KB で 30 秒を超えた

@@ -266,14 +266,14 @@ def hash_kinds(text, depth=0):
 
 
 def heredoc_body_end(text, index, word, dash):
-    """index の行から始まるヒアドキュメントの中身の、終わりの語の行(印の行も)の後の位置と、その行が在ったか。無ければ(末尾, 偽)。"""
-    while index < len(text):
-        end = text.find("\n", index)
-        line = text[index:len(text) if end < 0 else end]
-        index = len(text) if end < 0 else end + 1
-        if (line.lstrip("\t") if dash else line) == word or line == end_mark(word):
-            return index, True
-    return index, False
+    """index の行から始まるヒアドキュメントの中身の、終わりの語の行(印の行も)の後の位置と、その行が在ったか。無ければ(末尾, 偽)。
+    行ごとに読まずに正規表現で探す(入れ子のヒアドキュメントごとに後ろの全部を読むので、行ごとだと深さ × 長さの手間になる)。"""
+    ends = re.compile(r"^%s%s$|^%s$" % ("\t*" if dash else "", re.escape(word), re.escape(end_mark(word))), re.M)
+    hit = ends.search(text, index) if index == 0 or text[index - 1] == "\n" else None
+    if hit is None:
+        return len(text), False
+    end = text.find("\n", hit.start())
+    return (len(text) if end < 0 else end + 1), True
 
 
 def executed_text(command):
@@ -305,7 +305,7 @@ def executed_text(command):
         elif char == "`":
             # シェルは先に閉じる `` ` `` で閉じる。中の引用符をその先まで数えると、後の行のループを引用符の中と取り違える
             end = next_backtick(command, index + 1)
-            out.append(" (%s) " % executed_text(command[index + 1:end]))
+            out.append(" (%s) " % executed_text(backtick_inner(command[index + 1:end])))
             index = end + 1
         else:
             out.append(char)
@@ -364,11 +364,17 @@ def substitutions(text):
             index = end + 1
         elif text[index] == "`":
             end = backtick_end(text, index)
-            found.append(executed_text(text[index + 1:end]))
+            found.append(executed_text(backtick_inner(text[index + 1:end])))
             index = end + 1
         else:
             index += 1
     return found
+
+
+def backtick_inner(text):
+    r"""`` `…` `` の中身を、シェルが読む形にする。シェルは先に `\\`・`\$`・`` \` `` の `\` を外してから読む
+    (`` `echo \${x%% #*}; …` `` の # は、外した後の `${ }` の中なのでコメントでない)。"""
+    return re.sub(r"\\([\\$`])", r"\1", text)
 
 
 def quote_end(text, start):
@@ -430,6 +436,8 @@ def drop_heredoc_bodies(command):
     `<<EOF` の後のコードを中身と見て落とし、後の行のループを見落とす(何度除いても同じ結果になるようにする)。
     終わりの語の行をそのまま残すと、語が `while`・`until` ならループの語に、`it's` なら引用符の始まりに見えるので、
     どの語のヒアドキュメントも閉じる印の行に替える。"""
+    if "<<" not in command:
+        return command   # ヒアドキュメントが無い(置換の入れ子ごとに読み直すと、深さ × 長さの手間になる)
     found = []
     scan_code(command, 0, None, found)
     out = []
@@ -442,7 +450,10 @@ def drop_heredoc_bodies(command):
             # シェルが読む中身はコードなので残す。中身の中のヒアドキュメントは外の読みが飛ばしたので、ここで除く
             # (`bash <<'X'` の中の `cat <<'E'` の中身の `'` で、後の行のループを引用符の中と取り違えない)
             out.append(command[copied:body_start])
-            out.append(drop_heredoc_bodies(command[body_start:abs(keep)]))
+            body = command[body_start:abs(keep)]
+            if command.startswith("<<-", start):
+                body = re.sub(r"(?m)^\t+", "", body)   # 外のシェルが行の頭のタブを除いてから渡す(中の <<X は X の行で閉じる)
+            out.append(drop_heredoc_bodies(body))
             copied = abs(keep)
             continue
         out.append(command[copied:body_start])
