@@ -442,20 +442,36 @@ def f20():
                       ("x=`echo \\`gh issue comment 1 --body hidden\\``", "hidden")):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(20, bool(blk) or not parsed or want in cands, "bash の送る本文を見落とした: %s → %r %r" % (cmd[:50], cands, blk))
-    # $$ はプロセスの番号で、後ろの { は置換を開かない。# から行末は注釈で、次の行の gh が走る
+    # $$ の後の ( { は、二重引用の中で bash 3.2 が括弧と数えて引用の閉じる所が変わる。`$[`・`$(( ))` の中の # は字。どれも読めない物とする
     for cmd in ("echo $${ # it's\ngh issue comment 1 --body 'EVILBODY' # ' }",
-                "echo \"$${\" # it's\ngh issue comment 1 --body 'EVILBODY' # ' }\""):
+                "echo \"$${\" # it's\ngh issue comment 1 --body 'EVILBODY' # ' }\"",
+                "echo \"S $$(\" #\"\n)\"; gh pr comment 1 --body EVILBODY #\"",
+                "echo \"S $${\" #\"\n}\"; gh pr comment 1 --body EVILBODY #\"",
+                "false && echo \"S $[ \" #\"\n]\"; gh pr comment 1 --body EVILBODY #\"",
+                "false && echo $(( 1 #\"\n\" )); gh pr comment 1 --body EVILBODY #\""):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
-        check(20, bool(blk) or not parsed or "EVILBODY" in cands, "$$ の後の { を置換と見て本文を見落とした: %r → %r %r" % (cmd[:30], cands, blk))
+        check(20, bool(blk) or not parsed or "EVILBODY" in cands, "読めない形の後の本文を見落とした: %r → %r %r" % (cmd[:30], cands, blk))
+    # \ で引用した字と、置換を閉じる ) の後の # は語の途中で、同じ行の後ろの gh は走る
+    for cmd in ("echo a\\ #x; gh pr comment 1 --body EVILBODY", "echo a\\;#x; gh pr comment 1 --body EVILBODY",
+                "echo $(echo a)#x; gh pr comment 1 --body EVILBODY", "echo $((1+2))#x; gh pr comment 1 --body EVILBODY"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(20, bool(blk) or not parsed or "EVILBODY" in cands, "語の途中の # を注釈と見て本文を見落とした: %r → %r %r" % (cmd[:30], cands, blk))
     for cmd in ("printf EVIL > note.md; u=\"$(gh issue comment 1 --body-file \"note.md\")\"",
                 "\\cd sub; u=\"$(gh issue comment 1 --body-file \"note.md\")\"",
                 "CLAUDE_JOB_DIR=$PWD/sub; u=\"$(gh issue comment 1 --body-file \"$CLAUDE_JOB_DIR/note.md\")\"",
                 "x=\"$(cp sub/note.md note.md)\"; gh issue comment 1 --body-file note.md",
                 "x=\"$(f=note.md; cp sub/note.md $f)\"; gh issue comment 1 --body-file note.md",
                 "f=a; x=\"$(f=note.md; cat sub/note.md > $f)\"; gh issue comment 1 --body-file note.md",
+                "x=\"$(python3 - <<'EOF'\nopen('note.md','w').write('EVIL BODY')\nEOF\n)\"; gh issue comment 1 --body-file note.md",
                 "______________=\"benign\"; gh issue comment 1 --body \"${x:-\"REAL BODY\"}\""):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(20, (bool(blk) and not cands) or not parsed, "外の効果の見えない本文を読んで通した: %s → %r" % (cmd[:50], cands))
+    # 置換の中の読むだけのコマンドの、外で決まる変数は書き手に数えない
+    for cmd in ("BR=feat; N=\"$(gh pr view \"$BR\" --json number -q .number)\"; gh pr comment \"$N\" --body-file note.md",
+                "F=\"$(basename \"$PWD\")\"; gh pr comment 1 --body-file note.md",
+                "LOG=\"$(git log --oneline \"$BASE\"..HEAD)\"; gh pr comment 1 --body-file note.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(20, parsed and cands == ["BENIGN NOTE"] and not blk, "置換の中の $ を持つ語を書き手と見て止めた: %r → %r %r" % (cmd[:40], cands, blk))
     deep = "x=" + "\"$(echo a " * 400 + "z" + ")\"" * 400 + "; gh issue comment 1 --body-file note.md"
     started = time.monotonic()
     cands, blk, parsed = g.posting_bodies(deep, WORK)

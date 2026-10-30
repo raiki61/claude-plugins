@@ -673,7 +673,7 @@ def substitution_spans(norm):
         c = norm[i]
         if quote == "'":
             quote = None if c == "'" else quote
-        elif c == "\\" or norm.startswith("$$", i):
+        elif c == "\\":
             i += 1
         elif c == "`" or norm.startswith("${", i) or (quote == '"' and norm.startswith("$(", i)):
             end = substitution_end(norm, i)
@@ -711,9 +711,7 @@ def substitution_end(text, start):
     while i < len(text):
         c, top = text[i], stack[-1]
         opens = text.startswith("$(", i) or text.startswith("${", i)
-        if text.startswith("$$", i):
-            i += 1  # $$ はプロセスの番号。後ろの { ( を置換の始まりと読まない
-        elif top == '"':
+        if top == '"':
             if c == "\\":
                 i += 1
             elif c == '"':
@@ -785,6 +783,9 @@ def _live(text, hit, where=(None, '"')):
 
 # 正規化で出力が実際に変わるのは注釈と行継続の 2 事象だけ。事象の起きうる文字へ正規表現で
 # 跳び、その間はスライスで一括複製する。1 文字ずつ積むと 100KB の本文で 5ms/回掛かる
+# 読む所を言い切れないので、在れば読めない物とする形。`$[`(古い算術)の中の # は字。`$$(`・`$${` は、二重引用の中で
+# bash 3.2 が `(`・`{` を開く括弧と数えて引用の閉じる所が変わり、bash 5 は字と読む(版で割れる)
+UNREADABLE_OPENERS = ("$[", "$$(", "$${")
 _EVENT_RE = re.compile(r"""[#\\'"`$()}]""")
 
 
@@ -828,7 +829,10 @@ def normalize_shell(text):
         位置引数を本文と見る経路で嘘の deny が出る。bash と同じ「語頭の # から行末まで」だけを
         落とすのが、どちらにも倒れない唯一の形。
     """
+    if _live(text, lambda t, k: t.startswith(UNREADABLE_OPENERS, k)):
+        return None
     out, i, n, copied, gap = [], 0, len(text), 0, ""
+    escaped_end = -1   # \ で引用した字の次の位置。そこの # は語の途中(`a\ #x`)
     stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
     while True:
         m = _EVENT_RE.search(text, i)
@@ -850,8 +854,7 @@ def normalize_shell(text):
                 copied = i
             else:
                 i += 2  # 退避された 1 文字は事象として見ない(`\#` は注釈の開始ではない)
-        elif text.startswith("$$", i):
-            i += 2  # $$ はプロセスの番号で、後ろの { ( は置換の始まりではない(`$${ # it's` の # は注釈)
+                escaped_end = i
         elif c == "`":
             if top[0] == "`":
                 stack.pop()
@@ -890,7 +893,10 @@ def normalize_shell(text):
             if not top[1]:
                 stack.pop()
             i += 1
-        elif c == "#" and _head(text, i, copied, gap):
+        elif c == "#" and i != escaped_end and _head(text, i, copied, gap):
+            line = text[text.rfind("\n", 0, i) + 1:i]
+            if "))" not in line[line.rfind("$(("):] if "$((" in line else False:
+                return None   # 算術の $(( )) の中の # は字で、bash は注釈にしない。どこで閉じるかを言い切れない
             gap = text[i - 1] if i > copied else gap
             out.append(text[copied:i])
             nl = text.find("\n", i)
@@ -907,13 +913,16 @@ def normalize_shell(text):
 def _head(text, i, copied, gap):
     r"""text[i] が語頭か——注釈の始まりかどうかの判定。
 
+    `)` の後は語頭と見ない。置換を閉じる `)`(`$(echo a)#x`・`$((1+2))#x`)の後の # は語の途中で、注釈と見て落とすと
+    同じ行の後ろの gh を見落とす。サブシェルの `(cd x)# …` の注釈は落とさずに語として読み、中の引用符で読めなければ止める。
+
     見るのは「直前に出力した 1 文字」で、入力側の text[i-1] ではない。複製待ちの区間が
     残っていればその末尾が直前の出力、区間が空なら直前の削除の手前の 1 文字(gap)。
     この違いが出るのが `echo x\<改行>#y` で、行継続を落とした後の直前の出力は x なので
     # は語中=注釈ではない。入力側で見ると改行が直前になり、注釈として後ろの gh まで消える。
     """
     prev = text[i - 1] if i > copied else gap
-    return not prev or prev in " \t\n;|&()"
+    return not prev or prev in " \t\n;|&("
 
 
 def prepare(command):
@@ -936,6 +945,8 @@ def tokenize(text):
     (has_live_substitution)と同じ 1 本を共有させるため——ここに隠すと呼び出し側ごとに
     正規化を掛け直すことになり、100KB の本文で 1 回 6ms を余分に払う。
     """
+    if text is None:
+        return None   # normalize_shell が読めない形と見た
     lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"  # 改行は区切りの演算子として残す
     # shlex 自身の注釈処理は使わない(上で bash の規則どおりに落とした)。既定のままだと
@@ -1889,14 +1900,29 @@ class BodyFiles:
                 named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))
                 if any(named.search(body) for body in own_heredocs(c.args, self.heredocs)):
                     found.append("writer")
+        # 二重引用の中の置換で走るコマンド(`x="$(cp a f)"; gh … --body-file f`)。走る順は読まずに書き手に数える。
+        # 置換の中の代入(`"$(f=note.md; cp evil $f)"`)は外から見えないので、置換の中で代入した名前を使う語は同じファイルかもしれない物と見る
+        assigned = {t.split("=", 1)[0] for args, _ in self.hidden for t in args[:command_start(args)] if ENV_PREFIX_RE.match(t)}
+        assigned.update(t for args, _ in self.hidden if args[command_start(args):][:1] and args[command_start(args)] in REASSIGN_CMDS
+                        for t in args if re.fullmatch(r"[A-Za-z_]\w*", t))
+        named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))
+
+        def hidden_target(t):
+            if any((m.group(1) or m.group(2)) in assigned for m in _VAR_REF_RE.finditer(t)):
+                return None
+            return self.var(t) or t
+
         for args, redirects in self.hidden:
-            # 二重引用の中の置換で走るコマンド(`x="$(cp a f)"; gh … --body-file f`)。走る順は読まずに書き手に数える
-            # 置換の中の代入(`"$(f=note.md; cp evil $f)"`)は外から見えないので、$ を持つ名前は解かずに同じファイルかもしれない物と見る
             at = command_start(args)
-            if (any(op in WRITE_OPS and ("$" in d or os.path.basename(d) == base) for op, d in redirects)
-                    or (at < len(args) and os.path.basename(args[at]) not in READ_ONLY_CMDS
-                        and any("$" in t or os.path.basename(t.rstrip("/")) == base for t in args[1:]))):
+            writes = [hidden_target(d) for op, d in redirects if op in WRITE_OPS]
+            if any(d is None or os.path.basename(d) in ("", base) or "$" in d for d in writes):
                 found.append("writer")
+            elif at < len(args) and os.path.basename(args[at]) not in READ_ONLY_CMDS:
+                if any(tv is None or os.path.basename(tv.rstrip("/")) == base
+                       for tv in map(hidden_target, args[1:])):
+                    found.append("writer")
+                elif any(named.search(body) for body in own_heredocs(args, self.heredocs)):
+                    found.append("writer")
         if not found:
             return None
         if len(found) > 1 or found[0] == "writer":
@@ -2007,7 +2033,7 @@ def analyze(command, cwd=None, prepared=None, depth=0):
 
     prepared は呼び元が先に通した prepare(command) の結果(渡せば prepare を 2 度回さない)。depth は置換の中を読む入れ子の段。"""
     norm, heredoc_bodies = prepared or prepare(command)
-    spans = substitution_spans(norm)
+    spans = None if norm is None else substitution_spans(norm)
     if spans is None:
         return Analysis(False)
     inner, norm = read_substitutions(norm, spans, heredoc_bodies, depth)
