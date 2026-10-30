@@ -5736,6 +5736,10 @@ expect_output 0 "THREAD_RULES_OK" \
     "catchup: スレッドの私が返すターンは理由・依頼・指摘の材料で同じ式——bot の発言は数えない・人の PR の他の人同士のスレッドは私のターンでない・自分の PR の新しい指摘は私のターン・待つスレッドが 2 つなら新しい返事を依頼にする" \
     "$PY_BIN" "$CU_CASE" thread-turn-rules
 
+expect_output 0 "GIT_FAILED_OK" \
+    "catchup: git が読めなかった（timeout など）とき、範囲・既定ブランチより先・未コミットの変更で「変更なし」と断定せず、読めなかったと書く" \
+    "$PY_BIN" "$CU_CASE" git-failed
+
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元の欄にも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring

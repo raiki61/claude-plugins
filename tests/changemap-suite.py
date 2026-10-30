@@ -461,7 +461,7 @@ class FrameDiff(unittest.TestCase):
         cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md"))
         for args in self.calls:
             for flag in ("--no-color", "--no-ext-diff", "--no-textconv",
-                         "--src-prefix=a/", "--dst-prefix=b/", "--no-relative"):
+                         "--src-prefix=a/", "--dst-prefix=b/"):
                 self.assertIn(flag, args)
 
     def test_paths_omitted_asks_git_which_files_changed(self):

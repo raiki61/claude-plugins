@@ -610,8 +610,9 @@ def join_frames(path, info, cap=FRAME_FILE_CAP, frame_cmd="--frame"):
 # 前の 2 つは split_diff の "diff --git " 一致を外して全 file が「中身が diff に無い」という嘘の断りになり、
 # textconv は嘘の行を枠に貼る（どれも実測）。他人の checkout（fork）は相手の .gitattributes を持つ。
 # diff.mnemonicPrefix=true は `git diff HEAD` の接頭辞を c/ w/ にし、GIT_DIFF_HEAD（a/ b/ だけ）が外れる。
-# diff.relative=true は下の階層から呼ぶと path が cwd からの相対になり、cwd の外の file が落ちる
-DIFF_SANE = ("--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative")
+# diff.relative=true は下の階層から呼ぶと path が cwd からの相対になり、cwd の外の file が落ちる。これは run() が
+# -c diff.relative=false で止める（--no-relative は git 2.28 から。古い git は知らない設定の -c を黙って捨てる）
+DIFF_SANE = ("--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/")
 # pathspec は既定で glob と magic を解釈する。`*` や `[` を含む file 名が別の file に当たり、先頭が `:` の
 # path は magic として読まれる。:(top,literal) で literal 固定・リポジトリのルートからの相対にする
 # （cwd が下の階層でも、git が返す path はいつもルートからなので）
@@ -688,7 +689,7 @@ def run(*args, cwd=None, timeout=15, env=None):
         return None, "", "git が見つからない"
     try:
         r = subprocess.run(  # noqa: S603 — git は which で解決。引数は呼び手のリテラルと path・ブランチ名だけ
-            [exe, *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace",
+            [exe, "-c", "diff.relative=false", *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace",
             timeout=timeout, stdin=subprocess.DEVNULL, env={**os.environ, "LC_ALL": "C", **(env or {})},
         )
     except subprocess.TimeoutExpired:
