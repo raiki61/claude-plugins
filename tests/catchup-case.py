@@ -558,6 +558,22 @@ def _threads_material():
     return verdict("THREADS", want, out)
 
 
+@case("threads-quote-only")
+def _threads_quote_only():
+    """指摘の相手の発言が引用行だけ（GitHub の alert 記法 `> [!NOTE]`）でも、全文を空で出さない。前は引用を落として
+    発言者の行の下が空だった。引用と本文が混ざる発言は今までどおり引用を落とす。"""
+    node = pr(author=user(ME), reviewThreads=conn([
+        thread("app/main.py", False, comment(T1, "other", "> [!NOTE]\n> ここは別の関数に分けたい")),
+        thread("app/main.py", False, comment(T1, "other", "> 前の発言\n本文"))]))
+    out = catchup.render_threads(node, ME, lambda p: None)
+    page = catchup.page_threads(node, ME, "https://example.invalid/pull/1", {}, lambda p: None, None, False)[0]
+    want = {
+        "alert_kept": "    > ここは別の関数に分けたい" in out and page[0]["quote"].endswith("ここは別の関数に分けたい"),
+        "mixed_drops_quote": "前の発言" not in out and page[1]["quote"] == "本文",
+    }
+    return verdict("THREADS_QUOTE", want, out + str([t["quote"] for t in page]))
+
+
 @case("threads-since")
 def _threads_since():
     """私が返すターンで相手が私の発言の後に返している件は、私の発言以降のこの file の変更を今の姿に帯で出し（-U0 の

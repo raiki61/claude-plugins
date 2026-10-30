@@ -395,6 +395,12 @@ def unquoted_lines(body):
     return [ln for ln in (body or "").splitlines() if not ln.lstrip().startswith(">")]
 
 
+def their_lines(body):
+    """指摘の相手の発言の全文の行。引用は落とすが、引用行だけの発言（GitHub の alert 記法 `> [!NOTE]`）は落とさずに
+    そのまま（落とすと本文が空のまま出る。excerpt の keep_quotes と同じ理由）。"""
+    return unquoted_lines(body) or (body or "").splitlines()
+
+
 def threads_awaiting(node, me):
     """私が入っている未解決スレッドのうち、私が返すターンのもの（相手が返している）。判定は unresolved_threads の
     my_turn と同じ式（bot の発言は数えない。前は bot の「Thanks!」が最後でも相手が返した扱いだった）。"""
@@ -1858,7 +1864,7 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
         w(f"  === {i}/{len(threads)} {thread_where(th)}  {turn} {changemap.lang_tag(th['path'])}")
         c = th["last"]
         w(f"  {login_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
-        body = unquoted_lines(c["body"])
+        body = their_lines(c["body"])
         for ln in body[:THREAD_BODY_CAP]:
             w("    " + ln)
         if len(body) > THREAD_BODY_CAP:
@@ -2606,7 +2612,7 @@ def page_threads(node, me, url, by_path, read_lines, since_paths, full):
         out.append({
             "path": th["path"], "line": th["line"], "my_turn": th["my_turn"], "outdated": bool(th["outdated"]),
             "who": login_of(c["author"]), "when": hhmm(ts(c["createdAt"])),
-            "quote": "\n".join(unquoted_lines(c["body"])).strip(),
+            "quote": "\n".join(their_lines(c["body"])).strip(),
             "mine": {"when": hhmm(ts(mine["createdAt"])), "quote": excerpt(mine["body"], 300)} if mine else None,
             "href": c.get("url") or (f"{url}/files#{catchup_html.anchor(th['path'])}" if url else ""),
             "excerpt": ex, "changed": None if since_paths is None else th["path"] in since_paths})

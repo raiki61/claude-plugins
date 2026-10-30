@@ -5748,6 +5748,10 @@ expect_output 0 "CAP_CHECKS_OK" \
     "catchup: CI のチェックが取得の上限を超えていれば、取った分だけで全 pass と言い切らず、残りを見ていないものに書く" \
     "$PY_BIN" "$CU_CASE" cap-checks
 
+expect_output 0 "THREADS_QUOTE_OK" \
+    "catchup: 指摘の相手の発言が引用行だけ（alert 記法）なら全文を空で出さずにそのまま出す。引用と本文が混ざれば引用を落とす" \
+    "$PY_BIN" "$CU_CASE" threads-quote-only
+
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元の欄にも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring
