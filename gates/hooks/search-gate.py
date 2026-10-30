@@ -113,8 +113,9 @@ def expand_home(value):
     return re.sub(r"\$(?:\{HOME\}|HOME(?![A-Za-z0-9_]))", lambda m: h, value)
 
 
-def substitutions(text):
-    """引用の単一の外にある $( … ) と ` … ` の中身。二重引用の中も読む(シェルが展開する)。"""
+def substitutions(text, bare=True):
+    """引用の単一の外にある $( … ) と ` … ` の中身。二重引用の中も読む(シェルが展開する)。bare が偽なら、引用の外の $( … ) は
+    返さない(トークン化がその中を単純コマンドに割り、外のコマンドの cd と代入の中で見るので)。"""
     out, i, quote, n = [], 0, None, len(text)
     while i < n:
         c = text[i]
@@ -132,7 +133,8 @@ def substitutions(text):
             while j < n and depth:
                 depth += {"(": 1, ")": -1}.get(text[j], 0)
                 j += 1
-            out.append(text[i + 2:j - 1])
+            if bare or quote == '"':
+                out.append(text[i + 2:j - 1])
             i = j
             continue
         elif c == "`":
@@ -213,11 +215,12 @@ GREP_LONG = {"--regexp", "--file", "--max-count", "--after-context", "--before-c
              "--devices", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--label", "--binary-files"}
 
 
-def starts_of(name, args, piped):
+def starts_of(name, args, piped, xargs=False):
     """ツール name の引数 args から起点を返す。探さない形(grep の再帰でない・stdin を読む)なら []。
 
     piped は前がパイプのとき(rg は起点の無いとき stdin を読み、cwd を探さない。grep -r は前がパイプでも cwd を探す
-    〔GNU grep の -r の説明と macOS の grep で確かめた〕)。"""
+    〔GNU grep の -r の説明と macOS の grep で確かめた〕)。xargs は xargs の後ろのとき(起点は標準入力から足されるので、
+    起点の無い grep -r も cwd を探さない)。"""
     if "--help" in args or "--version" in args or (name in FD | RG and {"-h", "-V"} & set(args)):
         return []   # 使い方と版を出すだけ
     if name in FIND:
@@ -245,7 +248,7 @@ def starts_of(name, args, piped):
             return []
         given = any(o in ("-e", "--regexp", "-f", "--file") for o, _ in opts)
         paths = pos if given else pos[1:]
-        return paths or ["."]
+        return paths or ([] if xargs else ["."])
     return []
 
 
@@ -281,8 +284,9 @@ def check_path(tool, value, cwd):
         raise Hit(tool, p)
 
 
-def check_command(cr, command, cwd, depth=0):
-    """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。"""
+def check_command(cr, command, cwd, depth=0, outer=None):
+    """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。outer は、このコマンドが外のコマンドの $( … ) の中身のとき、
+    外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。"""
     if depth > MAX_DEPTH or not command.strip():
         return
     text, _ = cr.prepare(command)
@@ -295,15 +299,25 @@ def check_command(cr, command, cwd, depth=0):
         return
     cmds = cr.split_commands(tokens)
     files = Scope(cmds, cwd, [], text, tokens)
+    seen = set()
     for k, c in enumerate(cmds):
         at = cr.command_start(c.args)
-        words = c.args[at:]
+        here = files.at(k, c.args[:at]).cwd_here()
+        # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、
+        # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
+        for inner in {x for a in c.args for x in substitutions(a)}:
+            seen.add(inner)
+            check_command(cr, inner, here, depth + 1, files)
+        files.at(k, c.args[:at])
+        words, hops = c.args[at:], False
+        # 前置を越える(nice -n 19 find …・xargs -0 rg …)。前置の後の env・timeout なども越える(nice -n 19 timeout 300 find …)
         while words and os.path.basename(words[0]) in HOPS:
-            words = after_hop(words)   # 前置を越える(nice -n 19 find …・xargs -0 rg …)
+            hops = hops or os.path.basename(words[0]) == "xargs"
+            words = after_hop(words)
+            words = words[cr.command_start(words):]
         if not words or ("command" in c.args[:at] and {"-v", "-V"} & set(c.args[:at])):
             continue   # command -v rg は在るかを引くだけ
         name = os.path.basename(words[0])
-        here = files.at(k, c.args[:at]).cwd_here()
         if name in SHELLS:
             script = shell_script(words[1:])
             if script is not None:
@@ -313,10 +327,15 @@ def check_command(cr, command, cwd, depth=0):
             check_command(cr, " ".join(words[1:]), here, depth + 1)
             continue
         piped = any(op == "|" for op, _ in c.ops)
-        for start in starts_of(name, words[1:], piped):
-            check_path(name, files.var(start) if "$" in start else start, here)
-    for inner in substitutions(text):
-        check_command(cr, inner, cwd, depth + 1)
+        for start in starts_of(name, words[1:], piped, hops):
+            if "$" in start:
+                got = files.var(start)
+                start = outer.var(start) if got is None and outer is not None else got
+            check_path(name, start, here)
+    # 語に割れなかった中身(` … ` など)は、フックの cwd で見る。引用の外の $( … ) はトークン化が単純コマンドに割って上で見た
+    for inner in substitutions(text, bare=False):
+        if inner not in seen:
+            check_command(cr, inner, cwd, depth + 1)
 
 
 def after_hop(words):
@@ -440,10 +459,18 @@ def load_coldread():
 
         def __init__(self, cmds, cwd, heredocs, norm, tokens=()):
             super().__init__(cmds, cwd, heredocs, norm, tokens)
-            # if・繰り返しの語は、最初の探すコマンドより前に在るときだけ見る。後ろの語(`cd / && find . | while read f`)は
-            # 前の cd・代入が走るかを変えないのに、在るだけで起点を解けない(=止めない)側に倒していた
+            # 起点を解けない(=止めない)側に倒すのは、最初の探すコマンドより前の if・繰り返しの中に cd か代入が在るときだけ。
+            # 後ろの語(`cd / && find . | while read f`)・閉じた繰り返し(`for f in *; do echo; done; cd / && find .`)・探す
+            # コマンドを囲む繰り返し(`cd ~ && for f in $(find .)`)は、前の cd・代入が走るかを変えないのに、在るだけで通していた
             first = next((i for i, t in enumerate(tokens) if os.path.basename(t) in FIND | FD | RG | GREP), len(tokens))
-            self.conditional = any(t in cr.CONDITIONAL_WORDS for t in tokens[:first])
+            depth, self.conditional = 0, False
+            for t in tokens[:first]:
+                if t in ("if", "case", "while", "until", "for", "select"):
+                    depth += 1
+                elif t in ("fi", "esac", "done"):
+                    depth = max(depth - 1, 0)
+                elif depth and (t in cr.CD_WORDS or cr.ENV_PREFIX_RE.match(t)):
+                    self.conditional = True
 
         def cd_dest(self, args):
             return home() if args == ["cd"] else super().cd_dest(args)

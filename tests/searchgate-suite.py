@@ -171,6 +171,22 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "cd / && find . -name x; for f in a; do :; done"})[0])
         # 前の繰り返しの中の cd は走るとは限らないので、今までどおり解かない
         self.assertIsNone(run("Bash", {"command": "for d in a; do cd /; done; find . -name x"})[0])
+        # 前の繰り返しが cd・代入を持たなければ、後ろの cd はそのまま走る(前は語が在るだけで解くのをやめていた)
+        self.assertIsNotNone(run("Bash", {"command": "for f in *.md; do echo $f; done; cd / && find . -name x"})[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd /; while read f; do :; done < list; find . -name x"})[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_substitution_runs_in_the_cwd_of_its_command(self):
+        # $( ) の中は、それを持つコマンドの場所(前の cd)と変数で走る
+        self.assertIsNotNone(run("Bash", {"command": 'cd / && echo "$(find . -name x)"'})[0])
+        self.assertIsNotNone(run("Bash", {"command": 'D=/; echo "$(find $D -name x)"'})[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd ~ && for f in $(find . -name '*.json'); do echo; done"})[0])
+        self.assertIsNone(run("Bash", {"command": 'cd /tmp && echo "$(find . -name foo)"'}, cwd=HOME)[0])
+
+    def test_wrappers_after_hops_are_skipped(self):
+        # nice・sudo の後ろの timeout・env も前置きとして飛ばす
+        self.assertIsNotNone(run("Bash", {"command": "nice -n 19 timeout 300 find / -name x"})[0])
+        self.assertIsNotNone(run("Bash", {"command": "sudo env X=1 find / -name x"})[0])
 
     def test_recursive_grep_after_a_pipe_searches_cwd(self):
         # grep -r は起点が無ければ、前がパイプでも cwd を探す(stdin を読まない)。rg は stdin を読む
@@ -180,6 +196,8 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "cd ~; find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd /\nrg needle"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd && find . -name x"})[0])
+        # xargs の後ろの grep -r は、xargs が渡すパスを探す(cwd ではない)
+        self.assertIsNone(run("Bash", {"command": "ls *.txt | xargs grep -r foo"}, cwd=HOME)[0])
 
     def test_drive_start_is_not_joined_to_cwd(self):
         # ドライブの形の起点(D:\)は絶対で、cwd に繋がない(繋ぐと /home/tester/src/repo/D: になって通っていた)
