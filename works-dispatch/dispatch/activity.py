@@ -82,22 +82,28 @@ def confirmed_pane(cwd, sid, env=os.environ):
 
 def pane_of(payload, tmp, find=None):
     """この会話の居るペイン（confirmed_pane。windows.talk_window の決め方。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがあるので使わない）。
-    決まったら会話の id ごとの控えに残し、次からは herdr を読まない。ツールの呼び出し（PreToolUse）では控えだけを見て、決まって
-    いなければ印を送らない（ツールのたびに herdr を待たせない）。"""
+    決まったら会話の id ごとの控えに残す。ツールの呼び出し（PreToolUse）では控えだけを見て、決まっていなければ印を送らない（ツールの
+    たびに herdr を待たせない）。ほかの時（頼まれた時・ターンの終わりなど）は毎回引き直して控えを書き直す（同じ会話の id が --resume や
+    呼び戻しで別のペインに出ると、控えは前のペイン〔今はほかの会話の物かもしれない〕を指したままになる）。確かめられなければ控えを消す。"""
     sid = payload.get("session_id")
     memo = tmp / f"herdr-pane-{sid}" if sid else None
-    try:
-        return memo.read_text(encoding="utf-8").strip() or None
-    except (AttributeError, OSError):
-        pass
     if payload.get("hook_event_name") == "PreToolUse":
-        return None
+        try:
+            return memo.read_text(encoding="utf-8").strip() or None
+        except (AttributeError, OSError):
+            return None
     try:
         pane = find(payload.get("cwd"), sid) if find else confirmed_pane(payload.get("cwd"), sid)
     except herdr.HerdrError:
         return None
-    if pane and memo:
-        memo.write_text(pane, encoding="utf-8")
+    if memo:
+        if pane:
+            memo.write_text(pane, encoding="utf-8")
+        else:
+            try:
+                memo.unlink()
+            except OSError:
+                pass
     return pane
 
 

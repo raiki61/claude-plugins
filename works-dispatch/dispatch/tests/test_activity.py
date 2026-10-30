@@ -53,7 +53,21 @@ class Handle(unittest.TestCase):
         self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
         self.handle({"hook_event_name": "Stop"})
         self.assertEqual(self.sent, [("w1:p1", "テストを直して"), ("w1:p1", "Read b.py"), ("w1:p1", "テストを直して")])
-        self.assertEqual(self.looked, ["s1"])   # 決まったペインは会話ごとに控え、herdr を読み直さない
+        self.assertEqual(self.looked, ["s1", "s1"])   # ツールの呼び出しは控えだけを見て、herdr を読み直さない
+
+    def test_the_pane_is_looked_up_again_when_the_conversation_moves(self):
+        # 同じ会話の id が --resume などで別のペインに出る。控えのペインは前のペイン（今は別の会話）を指したままになる
+        self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "前のターン"})
+        self.panes = [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/a", "agent_session": "s-other"},
+                      {"pane_id": "w2:p2", "agent": "claude", "cwd": "/a", "agent_session": "s1"}]
+        self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "次のターン"})
+        self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
+        self.assertEqual(self.sent[1:], [("w2:p2", "次のターン"), ("w2:p2", "Read b.py")])
+        # 確かめられなくなったら、控えの前のペインへ送らない
+        self.panes = [{"pane_id": "w9:p9", "agent": "claude", "cwd": "/other", "agent_session": "s-other"}]
+        self.handle({"hook_event_name": "Stop"})
+        self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
+        self.assertEqual(len(self.sent), 3)
 
     def test_tool_calls_do_not_wait_for_herdr_before_the_pane_is_known(self):
         self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
