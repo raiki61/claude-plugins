@@ -65,7 +65,9 @@ VALUE_OPTION = re.compile(r"-\w*[oO]")
 OPTION_VALUE = re.compile(r"[\w-]+")
 SHELL_ARGUMENT_REACH = 1000   # シェルの語と `-c` の間に置ける語の数の上限(ふつうは数個)
 # ヒアドキュメントを読むのがシェルか(`bash <<EOF`)
-SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])" + _SHELL + r"(?:\s+" + _SHELL_OPTS + r")?\s*$")
+# `bash -s -- a b <<X`・`bash - <<X` も中身を走らせる(`-s`・`-` の後の語は、走る文に渡す引数)
+SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])" + _SHELL + r"(?:\s+" + _SHELL_OPTS
+                         + r"(?:(?:-\w*s\w*|-)(?:\s+--)?(?:\s+[^\s;&|()<>'\"`\\-][^\s;&|()<>'\"`\\]*)*)?)?\s*$")
 # `<<<`(here-string)は除く。終わりの語は引用符で囲む形(`<<'END-1'`)と、`\` を前に付けて引用する形(`<<\EOF`)と、
 # 引用した片とそのままの片を続けた形(`<<"EO"F`・`<<E\OF`)も読み、シェルと同じく引用を外した字を終わりの語にする。
 # 引用の無い頭は英字か _ だけにする(`$((1<<2))` の 2 を終わりの語と読んで後の行を中身と見て落とさない)
@@ -364,17 +366,17 @@ def substitutions(text):
             index = end + 1
         elif text[index] == "`":
             end = backtick_end(text, index)
-            found.append(executed_text(backtick_inner(text[index + 1:end])))
+            found.append(executed_text(backtick_inner(text[index + 1:end], quoted=True)))
             index = end + 1
         else:
             index += 1
     return found
 
 
-def backtick_inner(text):
+def backtick_inner(text, quoted=False):
     r"""`` `…` `` の中身を、シェルが読む形にする。シェルは先に `\\`・`\$`・`` \` `` の `\` を外してから読む
-    (`` `echo \${x%% #*}; …` `` の # は、外した後の `${ }` の中なのでコメントでない)。"""
-    return re.sub(r"\\([\\$`])", r"\1", text)
+    (`` `echo \${x%% #*}; …` `` の # は、外した後の `${ }` の中なのでコメントでない)。ダブルクォートの中では `\"` の `\` も外す。"""
+    return re.sub(r"\\([\\$`\"])" if quoted else r"\\([\\$`])", r"\1", text)
 
 
 def quote_end(text, start):
@@ -442,17 +444,22 @@ def drop_heredoc_bodies(command):
     scan_code(command, 0, None, found)
     out = []
     copied = 0
+    starts = {}
     for start, body_start, keep, word in sorted(found, key=lambda item: item[1]):
-        line_start = command.rfind("\n", 0, start) + 1
+        line_start = logical_line_start(command, start, starts)
         if body_start < copied:
             continue
-        if SHELL_STDIN.search(command[line_start:start]):
+        # 見るのは演算子の前の 1000 字まで(続く行の多い 1 行に演算子が何千も在っても、前を毎回全部は読まない)
+        if SHELL_STDIN.search(command[max(line_start, start - 1000):start].replace("\\\n", " ")):
             # シェルが読む中身はコードなので残す。中身の中のヒアドキュメントは外の読みが飛ばしたので、ここで除く
             # (`bash <<'X'` の中の `cat <<'E'` の中身の `'` で、後の行のループを引用符の中と取り違えない)
             out.append(command[copied:body_start])
             body = command[body_start:abs(keep)]
             if command.startswith("<<-", start):
                 body = re.sub(r"(?m)^\t+", "", body)   # 外のシェルが行の頭のタブを除いてから渡す(中の <<X は X の行で閉じる)
+            if not any(quote in HEREDOC.match(command, start).group("raw") for quote in "'\"\\"):
+                # 終わりの語を引用しない中身は、外のシェルが `\\`・`\$`・`` \` `` の `\` と `\` + 改行を外してから渡す
+                body = re.sub(r"\\(?:([\\$`])|\n)", lambda hit: hit.group(1) or "", body)
             out.append(drop_heredoc_bodies(body))
             copied = abs(keep)
             continue
@@ -462,6 +469,20 @@ def drop_heredoc_bodies(command):
         copied = abs(keep)
     out.append(command[copied:])
     return "".join(out)
+
+
+def logical_line_start(text, index, starts):
+    """index の在る行の頭。`\\` で前の行に続く行は、続けて 1 行と読む(`bash \\` の次の行の `<<EOF`)。
+    starts に行の頭ごとの答えを控え、続く行が多くても前の行を何度もたどらない。"""
+    line_start = text.rfind("\n", 0, index) + 1
+    chain = []
+    while line_start >= 2 and text[line_start - 2] == "\\" and line_start not in starts:
+        chain.append(line_start)
+        line_start = text.rfind("\n", 0, line_start - 2) + 1
+    line_start = starts.get(line_start, line_start)
+    for seen in chain:
+        starts[seen] = line_start
+    return line_start
 
 
 def scan_code(text, index, stop, found):

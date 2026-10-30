@@ -210,6 +210,14 @@ class SleepLoops(unittest.TestCase):
         # バッククォートの中の \$ はシェルが $ にするので、中の # はコメントでない
         "echo `echo \\${HOME%% #*}; until test -f x; do sleep 1; done`",
         "echo \"`echo \\${HOME%% #*}; until test -f x; do sleep 1; done`\"",
+        # `-s`・`-` の後に引数を書いても、`\` で行を続けても、シェルは中身を走らせる
+        "bash -s -- arg <<'EOF'\nuntil test -f x; do sleep 1; done\nEOF",
+        "bash - <<'EOF'\nuntil test -f x; do sleep 1; done\nEOF",
+        "bash \\\n  <<'EOF'\nuntil test -f x; do sleep 1; done\nEOF",
+        # 終わりの語を引用しない中身の \` は、外のシェルが ` にして渡す
+        "ssh h bash <<EOF\nst=\\`until test -f x; do sleep 1; done; echo ok\\`\nEOF",
+        # ダブルクォートの中のバッククォートの \" は、シェルが " にして読む
+        'x="`echo \\"it\'s\\"; until test -f x; do sleep 1; done`"',
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -229,6 +237,8 @@ class SleepLoops(unittest.TestCase):
         "gh pr comment 5 --body \"$(cat <<'EOF'\nEOF handling (#12) is fixed; it's covered now\nEOF\n)\"",
         "x=`echo 'a b'`; echo \"$x\"",
         "bash <<'X'\ngit commit -m \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"\nX",
+        # `bash script.sh` は中身を走らせず、データとして読ませる
+        "bash script.sh arg <<'EOF'\nwhile true; do sleep 5; done\nEOF",
         # 終わりの語がループの語のヒアドキュメント。終わりの語の行を残すと、ループの語に見えて止めていた
         "cat <<until\nx\nuntil\nsleep 1\n",
         "(true)# it's fine\necho ok",
@@ -355,6 +365,12 @@ class LongCommands(unittest.TestCase):
     def test_deeply_nested_substitutions_with_many_comments_are_read_in_time(self):
         # 前はヒアドキュメントの無い置換の中身も入れ子ごとに読み直し、270 段で 30 秒を超えた
         command = 'echo ' + '"$(echo ' * 270 + "#\n" * 46000 + ')"' * 270 + "\necho $(date)# ; while true; do sleep 1; done"
+        reason, _ = run(command, timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_many_heredocs_on_continued_lines_are_read_in_time(self):
+        # `\` で続けた 1 行に演算子が何千も在っても、演算子ごとに前の行を全部たどり直さない
+        command = "cat <<A \\\n" * 10000 + "A\n" * 10001 + "echo $(date)# ; until test -f x; do sleep 1; done"
         reason, _ = run(command, timeout=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
