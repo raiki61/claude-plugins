@@ -402,9 +402,17 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
         if not err:
             # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部 main と同じなら目的は果たしている。同じ設定のフォルダの
             # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
+            # main に在って入れない物（no_install）を除き、main の全部が入ったアカウントだけを数える。更新の落ちた clone は main で
+            # 足したプラグインを載せないので、入れる手も失敗も出ず、入った物だけを見ると「配った」と出ていた
             even = {n for n, i, *_ in whole if i in want} - drifted(whole, want)
             for n in sorted(even):
                 fell = [s for s in steps if s["account"] == n and s["kind"] == "marketplace-update" and s["failed"]]
+                have = {i for m, i, *_ in whole if m == n}
+                miss = sorted(i for i in want if i not in have and i.rsplit("@", 1)[0] not in keep_out)
+                if fell and miss:
+                    steps.append(step(n, "marketplace-update",
+                                      f"{n}: marketplace の更新が落ち、main に在る {'・'.join(miss)} が入っていない", False))
+                    continue
                 for s in fell:
                     s["failed"] = False
                 if fell:

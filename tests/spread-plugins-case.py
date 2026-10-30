@@ -204,9 +204,13 @@ def failure_is_nonzero():
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
     assert rc == 1 and "- main: claude plugin marketplace update" in out and len(tries) == 8, (rc, out, tries)   # 打ち直しても落ち、版も古ければ失敗（配り直しを含めアカウントごとに 2 回まで）
     runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"})   # 別の会話が先に取り直して版はそろった
-    rc, out = run(runner, {})
+    rc, out = run(runner, {}, local='skip = ["plugins1"]\nno_install = ["gone", "attention"]\n')
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
     assert rc == 0 and len(tries) == 4 and "main: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない" in out, (rc, out, tries)
+    # 入った版がそろっても、main に在るのに入っていない物（更新の落ちた clone は main で足した物を載せない）が在れば失敗のまま
+    runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"})
+    rc, out = run(runner, {})
+    assert rc == 1 and "- main: claude plugin marketplace update" in out and "gone@" in out and "attention@" in out, (rc, out)
     runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"}, main=None)   # メインブランチを読めなければそろったと言えない
     rc, out = run(runner, {})
     assert rc == 1 and "- main: claude plugin marketplace update" in out, (rc, out)
