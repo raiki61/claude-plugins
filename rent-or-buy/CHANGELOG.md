@@ -8,8 +8,8 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ### Fixed
 
-- 最新の値段表を、取った commit の版から取り、記録の commit と値段の版を食い違わせない（頼み cce9a3）。
-- 書きかけで字の途中で切れた記録の行があっても、records・outcome と prompt_cache の記録の読み込みが落ちずにその行だけ飛ばす。JSON の文字列の中の U+2028 などで行を割らない（頼み cce9a3）。
+- LiteLLM の最新の値段表を、先に取った最新 commit を指して取る（CDN の遅れで、写しに書く commit と別の commit の値段が混ざらない）（頼み cce9a3）。
+- 書きかけで字の途中で切れた行があっても、利用の記録（records・outcome）と prompt_cache が読む会話の記録（transcript）の読み込みが落ちず、その行だけ飛ばす。1 行 1 件の JSON を、JSON の文字列の中の U+2028 などでは割らない（頼み cce9a3）。
 
 ## [0.5.1] - 2026-10-29
 

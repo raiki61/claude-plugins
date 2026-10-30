@@ -8,10 +8,12 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ### Fixed
 
-- statusline で、gh の失敗で控えの PR を消さない（頼み cce9a3）。
-- 背景のサブエージェントの数え方が、日本語のロケールでも、GNU coreutils の date が先に PATH に在る macOS でも、Claude の起きた時刻を ps の経過時間から正しく出す（頼み cce9a3）。
-- herdr の判定ルールの上書きを作れないとき（PATH の python3 が 3.10 までで入口が落ちるときも）、失敗の印を残し、30 秒ごとに作り直しを起動し続けない（頼み cce9a3）。
-- Python 3.10 以下の点検（tiers-check）で、tiers の作った上書きを誤りと報告しない（頼み cce9a3）。
+- statusline で、GitHub CLI（gh）が失敗しても、控えておいた PR の表示を消さない（頼み cce9a3）。
+- 背景のサブエージェントの数が、日本語のロケールや、GNU coreutils の date が先に PATH に在る macOS で狂い、終わった物も走っていると数えていたのを直した。Claude の起動時刻を ps の経過時間から出す（頼み cce9a3）。
+- herdr（会話を並べるペイン管理ツール）の判定ルールの上書きを作れないとき（PATH の python3 が 3.10 までで `tiers-statusline refresh` が落ちるときも）、失敗の印を残し、30 秒ごとに作り直しを起動し続けない（頼み cce9a3）。
+- Python 3.10 以下で `/tiers:check` の点検（`tiers-check`）が、tiers の作った上書きを誤りと報告しない（頼み cce9a3）。
+- Python 3.11 以上が見つからず `tiers-statusline refresh` が起動できないとき、tiers の作った上書きが在れば失敗の印でなく上書きの時刻を進め、30 秒ごとの起動し直しを止める（頼み cce9a3）。
+- herdr が配った判定ルールを書いている途中で読んで上書きを作れなかったときは、失敗の印を付けずに次の描画で取り直す（頼み cce9a3）。
 
 ## [0.13.0] - 2026-10-30
 
