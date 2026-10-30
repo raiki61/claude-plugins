@@ -840,6 +840,9 @@ class Flow(unittest.TestCase):
         rc, out = self.main(other, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
         self.assertEqual(os.path.realpath(self.g.worktree_attrs(self.place).get("boss-inbox")), os.path.realpath(self.inbox))
+        # 頼みの行も頼み元の受付箱に書く（--done・Stop フック・待ち受けは自分の受付箱だけを読み、返事待ちの頼みを見落とした）
+        ask_id = self.g.worktree_attrs(self.place).get("ask")
+        self.assertIn(ask_id, [r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "ask"])
 
     def test_ask_from_another_talk_in_the_head_office_keeps_the_talks_name(self):
         # 本社にはほかの会話も居る。--desk が書いた会話（company.session）でなければ、窓口の名前を名乗らない

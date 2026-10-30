@@ -709,7 +709,7 @@ def _ask(a, ports, cwd, task, sent):
             print("\n".join(notes + [f"止めた: 宛先の部署 {where} は、読んでから打つまでの間に受付 {now.get('ask')}（頼み元 "
                                      f"{now.get('boss') or '-'}）を受けた。納品を待つか、別の部署に頼む"]))
             return 2
-        deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, **links, "from": origin,
+        _log_ask(inbox, boss["boss-inbox"], {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, **links, "from": origin,
                             "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
                                    "branch": dept["branch"], "path": dept["path"], "pane": pane}, "file": path, "title": title})
         if status == "sent":
@@ -766,7 +766,7 @@ def _ask(a, ports, cwd, task, sent):
     # failed と書き、--forward と残った疑問の担当者の検査がこの受付を使えなかった（my_notes の受付 8fc454。55ff19）。
     # 会話の id が無いまま届いたときは、書けなかった訳を detail に残す
     status = "sent" if attrs.get("ask") == ask_id and (attrs.get("session") or rc == 0) else "failed"
-    deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status,
+    _log_ask(inbox, boss["boss-inbox"], {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status,
                         "detail": None if status == "sent" and attrs.get("session") else (why_not(said.getvalue()) or f"rc={rc}"),
                         **links, "from": origin,
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
@@ -900,7 +900,7 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
         notes += wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, source)
     n = len(wake.queued(dest_inbox, place_dir))
     detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
-    deliver.log(ask["inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
+    _log_ask(ask["inbox"], ask["boss"]["boss-inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
                                **ask["links"], "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
                                                           "role": ask["role"], "branch": dept["branch"], "path": dept["path"],
                                                           "pane": None, "wake": to}, "file": path, "title": ask.get("title")})
@@ -1107,6 +1107,15 @@ def _log_taken(item, record, also=()):
     両方に残す）。記録の行なので、to は辞書にする（to が字の行は待ち受けが知らせと読み、宛先の会話を再開させる。設計の 3.1）。"""
     boss_inbox = (item.get("marks") or {}).get("boss-inbox")
     _log_each([_queue_inbox(item), boss_inbox, *also], record)
+
+
+def _log_ask(inbox, boss_inbox, record):
+    """頼みの行を、打った場所の受付箱と、頼み元の受付箱（boss-inbox）の両方に書く。ほかの会社の clone で打った頼みを、打った場所の
+    受付箱にだけ書くと、頼み元の部署の --done・Stop フック・待ち受け（asked_open・open_children）が自分の受付箱だけを読むので、
+    返事待ちの頼みを見落とし、部署を畳めた。"""
+    deliver.log(inbox, record)
+    if boss_inbox and boss_inbox != inbox:
+        _log_each([boss_inbox], record)
 
 
 def _log_each(inboxes, record):
