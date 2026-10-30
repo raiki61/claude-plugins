@@ -7319,13 +7319,13 @@ sys.path.insert(0, sys.argv[1])
 import mutate
 ok = {"summary": {"control_ok": True, "copies": {"made": 2, "reused": 5}}, "control": {"root": {"rc": 0}}, "marker": {"rc": 0}}
 row = lambda i, st, f="a.py", ev="印": {"id": i, "status": st, "file": f, "evidence": ev if st == "Killed" else ""}
-# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9・一式の確かめ直しが時間切れの u1 と v1・pytest の段が時間切れの w1）を、選ぶ腕より
+# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9・一式の確かめ直しが時間切れの u1 と v1・pytest の段が時間切れの w1・台本の道が時間切れの y1）を、選ぶ腕より
 # 前に置く——並びで選んでいれば当たる
 prev = {**ok, "arms": [row("k1", "Killed"), row("t1", "Timeout"), {**row("c1", "Killed"), "carried": True}, row("i1", "Ignored"),
                        row("x9", "Killed"), {**row("u1", "Survived"), "confirm_rc": "timeout"},
                        {**row("v1", "Survived"), "pytest": {"confirmed": "timeout"}}, {**row("w1", "Survived"), "pytest": {"rc": "timeout"}},
                        row("s1", "Survived"), row("k2", "Killed", "b.py"), row("k3", "Killed")]}
-out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1', 'u1', 'v1', 'w1'})}"]
+out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1', 'u1', 'v1', 'w1', 'y1'})}"]
 same = {**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}
 out.append(f"same={mutate.same_as_diff(prev, same)}")
 cases = {"status": {**ok, "arms": [row("k1", "Survived")]},
@@ -7343,6 +7343,7 @@ for k, pv in {"partial": {**prev, "partial": True}, "no_reuse": {**prev, "summar
 src = pathlib.Path(tempfile.mkdtemp()) / "src"
 (src / "tests").mkdir(parents=True)
 (src / "a.py").write_text("A = 1\nB = 2\n", encoding="utf-8")
+                       {**row("y1", "Killed"), "script_rc": "timeout"},
 arms = [{"id": i, "title": i, "file": "a.py", "suite": "root", "old": o, "new": "Z = 0", "marker": {"where": "before"}} for i, o in (("k1", "A = 1"), ("s1", "B = 2"))]
 (src / "tests" / "mutations.json").write_text(json.dumps({"arms": arms}), encoding="utf-8")
 subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
