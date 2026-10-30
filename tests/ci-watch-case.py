@@ -240,6 +240,27 @@ def reopen_after_close():
     log({**lost, "status": "sent", "at": at((9, 5))})
     code, out = go(fake)
     check(code == 0, f"渡し直せた頼みが開いているのに知らせ直した: {code} {out}")
+    # 別の頼みが開いている間に渡せなかった件は、その頼みが開いていても、後で閉じても知らせ直す
+    held = {"kind": "ask", "status": "sent", "id": "20261019-000000-cccccc", "title": TITLE, "at": at((8, 0))}
+    d = setup([held])
+    fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
+    check(go(fake)[0] == 1, "止められた workflow を知らせない")
+    log({**lost, "at": at((9, 0))})
+    code, out = go(fake)
+    check(code == 1 and "disabled_manually" in out, f"渡せなかった件を、開いている別の頼みで黙った: {code} {out}")
+    log({"kind": "deliver", "ask": held["id"], "at": at((10, 0))})
+    code, out = go(fake)
+    check(code == 1 and "disabled_manually" in out, f"渡せなかった件を、後で閉じた別の頼みの時刻で黙った: {code} {out}")
+    # 頼みの行を書く前に落ちた（回す先の部署を引けない・部署が埋まっている）ときは、外れの行の受付に頼みの行が無い
+    d = setup([held])
+    fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
+    go(fake)
+    log({"kind": "miss", "role": "点検", "tool": cw.TOOL, "ask": "20261019-000000-dddddd", "code": 1, "at": at((9, 0))})
+    code, out = go(fake)
+    check(code == 1 and "disabled_manually" in out, f"頼みの行の無い外れを、渡せたと見て黙った: {code} {out}")
+    log({"kind": "ask", "status": "sent", "id": "20261019-000000-eeeeee", "title": TITLE, "at": at((9, 30))})
+    code, out = go(fake)
+    check(code == 0, f"渡し直せた頼みが開いているのに知らせ直した: {code} {out}")
     print("REOPEN_AFTER_CLOSE_OK")
 
 

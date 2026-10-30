@@ -24,7 +24,7 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 知らせる。回した頼みが生んだ頼み（台帳の行の cause がそれを指す頼み。直しをほかの部署へ回して納品した物）も同じ件の頼みに数え、
 それが開いている間も黙る。頼みが閉じた後は、閉じた後に新しく決着した赤の run が在るときだけ知らせ直す（戻しの commit の run が決着する前に同じ赤を
 頼み直さない。決着した時刻で見る）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
-また起きれば、新しい件として知らせる）。頼みに渡せなかった（台帳の最後の行が failed）件は、頼みが閉じた後でも知らせ直す。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
+また起きれば、新しい件として知らせる）。頼みに渡せなかった（台帳の最後の行が failed か、外れの行の受付に頼みの行が無い）後は、渡せた頼みが新しく積まれるまで、頼みが開いていても閉じていても知らせ直す。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
 
 使い方: python3 tests/ci-watch.py < 入力の JSON（省けば {}。{"dry_run": true} なら、知らせる物を出すだけで覚えない）
 GitHub の利用制限（rate limit）で gh が断られた回は、読まずに 0 で終わり、当たり始めた時刻を覚える（次に main へ入れた後の合図で読み直す）。
@@ -157,9 +157,10 @@ def stamp(at):
 
 
 def mine(inbox, place_common):
-    """このツールから回した頼みとそれが生んだ頼みの (閉じていない頼みの台帳の行〔積んだ順〕, 最後に閉じた時刻〔無ければ None〕)。頼みの題は works-dispatch が
+    """このツールから回した頼みとそれが生んだ頼みの (閉じていない頼みの台帳の行〔積んだ順〕, 最後に閉じた時刻〔無ければ None〕,
+    渡せなかった頼みが渡せた頼みより新しいか)。頼みの題は works-dispatch が
     「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/ci-watch-case.py の title が赤になる）。
-    渡せなかった頼み（最後の行が failed）が最後に閉じた時刻より新しければ、閉じた時刻は None にする（知らせ直す）。閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
+    閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
     納品の行はその会社の受付箱にだけ在る。2026-10-19 の頼みは my_notes に納品されたのに、開いているとみて 10 日黙った）。place_common は
     作業場のパスから git の共通のディレクトリを引く物（git でなければ None）。"""
     marker = f"/{TOOL} "
@@ -174,15 +175,20 @@ def mine(inbox, place_common):
     # 閉じた時刻は、閉じたと数える行（deliver.closed_ids と同じ見分け。知らせられなかった納品と --for の返しは数えない）の時刻
     at = [r["at"] for r in rows if isinstance(r.get("at"), (int, float)) and deliver.closed_ids([r]) & ids]
     closed_at = stamp(max(at)) if at else None
-    # 渡せなかった頼み（最後の行が failed で、開いても閉じてもいない）が最後に閉じた時刻より新しければ、閉じた時刻を分からないに戻す。
-    # 前は前の頼みが閉じた時刻を使い、渡せなかった件（赤でない件・閉じた前に決着した赤）を頼みにならないまま黙り続けた
+    # 渡せなかった頼みが、渡せた頼みのどれより新しいか。渡せなかったのは、頼みの最後の行が failed（開いても閉じてもいない）か、
+    # このツールの外れの行（kind miss。works-dispatch の calls.call が回す前に書く）の ask に頼みの行が 1 つも無い物（回す先の部署が
+    # 引けない・orders.ask が行を書かずに落ちた）。知らせた件は覚えたので、渡せなかった後は頼みが開いていても閉じていても黙り続けた
+    # （前の頼みが閉じた時刻・開いている頼みで黙った）。渡せた頼みより新しい間は、知らせた件も知らせ直す
     last = {r["id"]: r for r in rows if r.get("kind") == "ask" and r.get("id") in ids}
     shut, held = deliver.closed_ids(rows), {r["id"] for r in still}
-    lost = [r["at"] for r in last.values() if r.get("status") == "failed" and r["id"] not in shut | held
-            and isinstance(r.get("at"), (int, float))]
-    if lost and (closed_at is None or stamp(max(lost)) > closed_at):
-        closed_at = None
-    return still, closed_at
+    when = lambda r: r["at"] if isinstance(r.get("at"), (int, float)) else None
+    lost = [when(r) for r in last.values() if r.get("status") == "failed" and r["id"] not in shut | held]
+    lost += [when(r) for r in rows if r.get("kind") == "miss" and r.get("tool") == TOOL and r.get("ask")
+             and r["ask"] not in last and r["ask"] not in shut | held]
+    handed = [when(r) for r in rows if r.get("kind") == "ask" and r.get("id") in ids and r.get("status") != "failed"]
+    lost, handed = [t for t in lost if t is not None], [t for t in handed if t is not None]
+    relay = bool(lost) and (not handed or max(lost) > max(handed))
+    return still, closed_at, relay
 
 
 def load_state(path):
@@ -242,17 +248,17 @@ def main(stdin=None, runner=run, now=None):
             found = findings(runner, now)
         except Limited as e:
             return limited(state_path, state, now, dry, e)
-        still, closed_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
+        still, closed_at, relay = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
     except RuntimeError as e:
         print(f"CI の見張りが読めなかった: {e}")
         return 1
     keys = {x["key"] for x in found}
     # 知らせ済みの件は、頼みが開いている間は黙り、閉じた後は閉じた後に新しく決着した赤だけ知らせ直す（閉じた記録の無い件は、頼みに
     # なったかが分からないので知らせ直す）。開いている間も、一番新しい頼みを回してから REPEAT を過ぎたら知らせ直す（回した時刻の
-    # 分からない頼みは、古いと決められないので黙る）
+    # 分からない頼みは、古いと決められないので黙る）。頼みに渡せなかった後（relay）は、渡せた頼みが積まれるまで知らせ直す
     sent = [t for t in (stamp(r.get("at")) for r in still) if t]
     late = bool(still) and bool(sent) and now - max(sent) > REPEAT
-    tell = [x for x in found if x["key"] not in told or late
+    tell = [x for x in found if x["key"] not in told or late or relay
             or (not still and (closed_at is None or (x["since"] is not None and x["since"] > closed_at)))]
     if not tell:
         wait = f"。{max(sent) + REPEAT:%Y-%m-%d %H:%M} UTC を過ぎても続けば知らせ直す" if sent else ""
@@ -268,7 +274,7 @@ def main(stdin=None, runner=run, now=None):
               f"dispatch.py --withdraw <受付> で閉じる")
     # 数の行は最後に出す（works-dispatch が頼みに載せるのは出力の末尾の行なので、件が多いと頭の行が落ちる）
     print(f"main の CI に、知らせる物が上の {len(tell)} 件ある（新しい件か、前に知らせた頼みが閉じた後に新しく赤になった件か、"
-          f"前に知らせた頼みが開いたまま {REPEAT.days} 日を過ぎた件）")
+          f"前に知らせた頼みが開いたまま {REPEAT.days} 日を過ぎた件か、前に知らせたが頼みに渡せなかった件）")
     if not dry:
         save_state(state_path, (told & keys) | {x["key"] for x in tell})
     return 1
