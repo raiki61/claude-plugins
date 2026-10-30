@@ -249,13 +249,17 @@ def commands_text(dept, ephemeral):
             "断られたら出力の訳どおりに直して打ち直し、それで直せないときと、ほかのコマンドを打つときだけスキルを読む）:\n" + "\n".join(lines))
 
 
+# 保留にした頼みの行の頭（役の本文の控え〔_digest〕は、ここから後ろを見ない）
+PARKED_HEAD = "\n\nこの部署が答え待ちのまま保留にした頼み（今の頼みとは別。台帳では答え待ちのまま閉じていない）:\n"
+
+
 def parked_text(attrs):
     """保留にした頼み（--wait --park）が在れば、会話の始まりに足す行。/clear の後の会話も、答え待ちの頼みと返し方を知る。"""
     parked = deliver.parked_of(attrs)
     if not parked:
         return ""
     lines = [f"- 受付 {p['id']}（頼み元 {p.get('boss') or '-'}。{p.get('why') or '-'}）" for p in parked]
-    return ("\n\nこの部署が答え待ちのまま保留にした頼み（今の頼みとは別。台帳では答え待ちのまま閉じていない）:\n" + "\n".join(lines)
+    return (PARKED_HEAD + "\n".join(lines)
             + f"\n答えが出たら、要約を書いて {RUN} --deliver <要約のファイル> --for <受付> でその頼み元へ返す"
             + f"（本文は頼み元の受付箱の <受付>-ask.md）")
 
@@ -303,7 +307,9 @@ def seen_path(sid, env=os.environ):
 
 
 def _digest(text):
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    # 保留の頼みの行（parked_text）は除く。保留はこの会話が --wait --park と --deliver --for で増やし減らすので、変わっても役の本文を
+    # 足し直さない（足し直すと、替わっていない役の本文が CHANGED_HEAD の下にもう一度全部入る）
+    return hashlib.sha256(text.split(PARKED_HEAD, 1)[0].encode("utf-8")).hexdigest()
 
 
 def remember(sid, text, env=os.environ):

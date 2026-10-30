@@ -710,6 +710,26 @@ class Hook(unittest.TestCase):
         self.assertIsNone(prompt())   # 足すのは替わった後の 1 度だけ
         self.assertIsNone(prompt("s-other"))   # 場所の属性の会話でない会話には足さない
 
+    def test_parking_or_answering_an_ask_does_not_send_the_role_text_again(self):
+        # 保留の頼み（--wait --park）の行は役の本文の後ろに足すが、保留が増えた・減っただけで「会社の形が替わった」と役の本文を足し直していた
+        shape = pathlib.Path(self.src) / ".claude" / "company.toml"
+        write(shape, '[[roles]]\nname = "相談"\ninstructions = "持ち主と話す。"\n')
+        provision.mark(self.place, self.src, {"role": "相談", "session": "s1"}, self.g)
+        with contextlib.redirect_stdout(io.StringIO()):
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1", "source": "startup"})), self.env)
+        parked = json.dumps([{"id": "c1", "boss": "窓口", "why": "持ち主の答え"}], ensure_ascii=False)
+        provision.mark(self.place, self.src, {deliver.PARKED: parked}, self.g)
+        self.assertIn("受付 c1", role_hook.text_for(self.place, self.env))
+        self.assertIsNone(role_hook.changed({"cwd": self.place, "session_id": "s1"}, self.env))
+        provision.mark(self.place, self.src, {deliver.PARKED: None}, self.g)
+        self.assertIsNone(role_hook.changed({"cwd": self.place, "session_id": "s1"}, self.env))
+        provision.mark(self.place, self.src, {deliver.PARKED: parked}, self.g)
+        write(shape, '[[roles]]\nname = "相談"\ninstructions = "持ち主と話し、頼みは段取りに渡す。"\n')
+        got = role_hook.changed({"cwd": self.place, "session_id": "s1"}, self.env)
+        self.assertTrue(got.startswith(role_hook.CHANGED_HEAD), got)   # 役の本文が替われば、保留の行も添えて足し直す
+        self.assertIn("受付 c1", got)
+        self.assertIsNone(role_hook.changed({"cwd": self.place, "session_id": "s1"}, self.env))
+
     def test_a_talk_outside_the_departments_of_a_company_gets_how_to_ask_other_companies(self):
         # 部署でない会話（PR のブランチの会話など）が SendMessage で頼み、受付の台帳に頼み元が残らなかった（2026-10-17 の guided-resolver）
         def started(cwd, sid):
