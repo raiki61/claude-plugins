@@ -84,6 +84,24 @@ REASON_SLEEP = (
 )
 
 
+def comment_at(text, index, inside):
+    """text[index] の # がコメントの始まり(語の頭)か。inside は、直前の字が語の中の字である位置の集まり。
+
+    `\\ ` の空白と、置換(`$( )`・`$(( ))`・`<( )`)を閉じる `)` は語の中の字で、その後の # は語の途中(`$(date)#notes`)。"""
+    return index == 0 or (text[index - 1] in " \t\n;&|()" and index not in inside)
+
+
+def close_paren(text, index, groups, inside):
+    """text[index] の括弧で groups(開いている括弧が置換か)を進め、置換を閉じる `)` の後の位置を inside に足す。
+
+    `$`・`<`・`>` の後の `(` と、置換の `(` の直後の `(`(`$((`)は置換を開く。ほかの `(` はサブシェル(`(true)#x` の # はコメント)。"""
+    if text[index] == "(":
+        prev = text[index - 1] if index else ""
+        groups.append(prev in "$<>" and prev != "" or (prev == "(" and bool(groups) and groups[-1]))
+    elif groups.pop() if groups else False:
+        inside.add(index + 1)
+
+
 def executed_text(command):
     """シェルが走らせる所だけを残したコマンド。
 
@@ -92,6 +110,7 @@ def executed_text(command):
     """
     command = drop_heredoc_bodies(command)
     out = []
+    groups, inside = [], set()   # 開いている括弧が置換か(comment_at)と、直前の字が語の中の字である位置
     solid = 0   # out の、空白だけでない最後の片の次の位置(shell_argument_before が末尾の空白を読み直さないため)
     index = 0
     while index < len(command):
@@ -101,7 +120,12 @@ def executed_text(command):
         if char == "\\":
             out.append(" ")
             index += 2
-        elif char == "#" and (index == 0 or command[index - 1] in " \t\n;&|()"):
+            inside.add(index)
+        elif char in "()":
+            close_paren(command, index, groups, inside)
+            out.append(char)
+            index += 1
+        elif char == "#" and comment_at(command, index, inside):
             # 語の頭の # から行末まではコメントで走らない。中の引用符を数えると、後の行のループを引用符の中と取り違える
             end = command.find("\n", index)
             index = len(command) if end < 0 else end
@@ -224,11 +248,18 @@ def backtick_end(text, start):
     return end if end >= 0 else len(text)
 
 
+# ヒアドキュメントの中身を除いた後の、終わりの語の行に替える印。シェルに渡るコマンドは C の文字列なので NUL を持たず、
+# 本物の行と取り違えない
+END_MARK = "\x00"
+
+
 def drop_heredoc_bodies(command):
-    """シェルでないコマンドに渡すヒアドキュメントの中身を除く。終わりの語の行は残す。
+    """シェルでないコマンドに渡すヒアドキュメントの中身を除く。終わりの語の行は印の行(END_MARK)に替える。
 
     置換や `bash -c "…"` の中は executed_text が読み直すときにもう一度除く。終わりの語の行まで除いていると、2 度目は
-    `<<EOF` の後のコードを中身と見て落とし、後の行のループを見落とす(何度除いても同じ結果になるようにする)。"""
+    `<<EOF` の後のコードを中身と見て落とし、後の行のループを見落とす(何度除いても同じ結果になるようにする)。
+    終わりの語の行をそのまま残すと、語が `while`・`until` ならループの語に、`it's` なら引用符の始まりに見えるので、
+    どの語のヒアドキュメントも閉じる印の行に替える。"""
     found = []
     scan_code(command, 0, None, found)
     out = []
@@ -238,7 +269,9 @@ def drop_heredoc_bodies(command):
         if body_start < copied or SHELL_STDIN.search(command[line_start:start]):
             continue
         out.append(command[copied:body_start])
-        copied = keep
+        if keep < 0:
+            out.append(END_MARK + "\n")
+        copied = abs(keep)
     out.append(command[copied:])
     return "".join(out)
 
@@ -252,6 +285,7 @@ def scan_code(text, index, stop, found):
     ループを引用符の中と取り違えない)。行ごとでなくコマンドの全体で読むので、複数の行にまたがる引用符も閉じる所まで読む。"""
     pending = []
     depth = 0
+    groups, inside = [], set()
     # `` ` `` の中は、シェルが先に閉じる `` ` ``(`\` で引用していない物)で閉じる。中の引用符はそこを越えない
     close = next_backtick(text, index) if stop == "`" else len(text)
     while index < len(text):
@@ -259,6 +293,7 @@ def scan_code(text, index, stop, found):
         char = text[index]
         if char == "\\":
             index += 2
+            inside.add(index)
         elif char == "\n":
             index += 1
             for match in pending:
@@ -266,7 +301,7 @@ def scan_code(text, index, stop, found):
                 if closed:
                     break   # 置き換えが閉じた。残りのヒアドキュメントの中身は落とさない(見える側に倒す)
             pending = []
-        elif char == "#" and (index == 0 or text[index - 1] in " \t\n;&|()"):
+        elif char == "#" and comment_at(text, index, inside):
             end = text.find("\n", index)
             index = len(text) if end < 0 else end
         elif char == "'":
@@ -276,17 +311,20 @@ def scan_code(text, index, stop, found):
             index = scan_double_quote(text, index, found) + 1
         elif text.startswith("$(", index):
             index = scan_code(text, index + 2, ")", found) + 1
+            inside.add(index)
         elif char == "`":
             if stop == "`":
                 return index
             index = scan_code(text, index + 1, "`", found) + 1
         elif char == "(":
             depth += 1
+            close_paren(text, index, groups, inside)
             index += 1
         elif char == ")":
             if stop == ")" and depth == 0:
                 return index
             depth = max(depth - 1, 0)
+            close_paren(text, index, groups, inside)
             index += 1
         else:
             match = HEREDOC.match(text, index) if char == "<" else None
@@ -347,8 +385,9 @@ def heredoc_end(text, index, match, found, stop=None):
             keep = index
             break
         stripped = line.lstrip("\t") if match.group("dash") else line
-        if stripped == word:
-            keep, index = index, len(text) if end < 0 else end + 1
+        if stripped == word or line == END_MARK:
+            index = len(text) if end < 0 else end + 1
+            keep = -index   # 負の数は「終わりの語の行を印の行に替えて、その後から写す」(drop_heredoc_bodies)
             break
         if stop == ")" and EARLY_CLOSE and stripped.startswith(word) and ")" in stripped[len(word):]:
             keep = index

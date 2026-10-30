@@ -139,6 +139,13 @@ class SleepLoops(unittest.TestCase):
         "x=\"$(cat <<EOF\nhi\nEOF\nuntil test -f M; do sleep 1; done\n)\"",
         'bash -c "x=$(cat <<EOF\nhi\nEOF\n)\nuntil test -f M; do sleep 1; done"',
         'eval "x=$(cat <<EOF\nhi\nEOF\n)\nuntil test -f M; do sleep 1; done"',
+        # 終わりの語が引用符を持つヒアドキュメント。終わりの語の行を残すと、その ' で後の行を引用符の中と見ていた
+        "cat <<\"it's\"\nbody\nit's\nwhile sleep 1; do :; done",
+        # 置換を閉じる ) と \ で引用した空白は語の中の字で、その後の # はコメントでない
+        "echo $(date +%F)#notes; while sleep 1; do :; done",
+        "echo $((1+2))#x; while sleep 1; do :; done",
+        "diff <(ls)#x; while sleep 1; do :; done",
+        "touch my\\ #1; while sleep 1; do :; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -158,6 +165,9 @@ class SleepLoops(unittest.TestCase):
         "gh pr comment 5 --body \"$(cat <<'EOF'\nEOF handling (#12) is fixed; it's covered now\nEOF\n)\"",
         "x=`echo 'a b'`; echo \"$x\"",
         "bash <<'X'\ngit commit -m \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"\nX",
+        # 終わりの語がループの語のヒアドキュメント。終わりの語の行を残すと、ループの語に見えて止めていた
+        "cat <<until\nx\nuntil\nsleep 1\n",
+        "(true)# it's fine\necho ok",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
