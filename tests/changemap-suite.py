@@ -8,8 +8,12 @@
 """
 
 import importlib.util
+import os
 import pathlib
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 
 for _stream in (sys.stdout, sys.stderr):
@@ -456,7 +460,8 @@ class FrameDiff(unittest.TestCase):
             pass
         cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md"))
         for args in self.calls:
-            for flag in ("--no-color", "--no-ext-diff", "--no-textconv"):
+            for flag in ("--no-color", "--no-ext-diff", "--no-textconv",
+                         "--src-prefix=a/", "--dst-prefix=b/", "--no-relative"):
                 self.assertIn(flag, args)
 
     def test_paths_omitted_asks_git_which_files_changed(self):
@@ -495,6 +500,85 @@ class FrameDiff(unittest.TestCase):
         self.assertIsNone(cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md")))
         cm.git = lambda *a, cwd=None: None
         self.assertIsNone(cm.frame_diff(cwd="/x"))
+
+
+class CopyAndFailure(unittest.TestCase):
+    """commit_tree / working_tree の戻り: 複写は新規として出し、git の失敗は「変更なし」の [] にしない。"""
+
+    def setUp(self):
+        self.saved = (cm.git, cm.repo_top)
+        cm.repo_top = lambda cwd=None: None
+
+    def tearDown(self):
+        cm.git, cm.repo_top = self.saved
+
+    def test_copy_is_new_with_its_source_not_a_rename(self):
+        """diff.renames=copies の C は元が残る新規。"~" と "旧:" だと改名に読める（元は消えていない）。"""
+        cm.git = lambda *a, cwd=None: ("C100\0src/a.py\0src/b.py\0R090\0old.py\0new.py\0"
+                                       if "--name-status" in a else "1\t0\t\0src/a.py\0src/b.py\0")
+        paths, tree = cm.commit_tree("a..b")
+        self.assertEqual(paths, ["src/b.py", "new.py"])
+        text = "\n".join(tree)
+        self.assertRegex(text, r"\+ +b\.py\s+\+1\s+複写元: src/a\.py")
+        self.assertRegex(text, r"~ +new\.py.*旧: old\.py")      # 改名は今までどおり
+
+    def test_git_failure_is_none_not_empty(self):
+        """timeout などで落ちたのを ([], []) で返すと、呼び手が「変更なし」「未コミットの変更なし」と断定する。"""
+        cm.git = lambda *a, cwd=None: None
+        self.assertEqual(cm.commit_tree("a..b"), (None, None))
+        self.assertEqual(cm.working_tree(), (None, None))
+
+    def test_clean_tree_is_still_empty(self):
+        cm.git = lambda *a, cwd=None: ""
+        self.assertEqual(cm.working_tree(), ([], []))
+        self.assertEqual(cm.commit_tree("a..b"), ([], []))
+
+
+@unittest.skipUnless(shutil.which("git"), "git が無い")
+class RealGitConfig(unittest.TestCase):
+    """読み手の git 設定（diff.mnemonicPrefix・diff.relative）と下の階層からの呼び出しで、実物の git の出力が
+    読めること。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.top = os.path.realpath(self.tmp)
+        self.sub = os.path.join(self.top, "sub")
+        os.makedirs(self.sub)
+        self.saved_env = dict(os.environ)
+        os.environ.update({"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "diff.mnemonicPrefix",
+                           "GIT_CONFIG_VALUE_0": "true", "GIT_CONFIG_KEY_1": "diff.relative",
+                           "GIT_CONFIG_VALUE_1": "true", "GIT_CONFIG_GLOBAL": os.devnull,
+                           "GIT_CONFIG_NOSYSTEM": "1"})
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(self.saved_env)))
+
+    def git(self, *args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=self.top, check=True,
+                       capture_output=True, stdin=subprocess.DEVNULL)
+
+    def write(self, rel, data):
+        with open(os.path.join(self.top, rel), "wb") as f:
+            f.write(data)
+
+    def test_frames_survive_prefix_and_relative_config_from_a_subdir(self):
+        self.write("sub/in.py", b"def f():\n    return 1\n")
+        self.write("out.py", b"def g():\n    return 1\n")
+        self.write("blob.bin", b"\0\1\2")
+        self.git("init", "-q")
+        self.git("add", ".")
+        self.git("commit", "-qm", "init")
+        self.write("sub/in.py", b"def f():\n    return 2\n")
+        self.write("out.py", b"def g():\n    return 2\n")
+        self.write("blob.bin", b"\0\1\3")
+        self.write("new.txt", b"hello\n")
+        paths, _ = cm.working_tree(self.sub)
+        self.assertCountEqual(paths, ["sub/in.py", "out.py", "blob.bin", "new.txt"])  # cwd の外も落ちない
+        text = "\n".join(cm.frames_section(self.sub, paths))
+        self.assertNotIn("out.py （中身が diff に無い", text)
+        self.assertNotIn("sub/in.py （中身が diff に無い", text)
+        self.assertIn("=== out.py", text)
+        self.assertIn("blob.bin （中身が diff に無い", text)   # バイナリは追跡 file として断る（tracked_set が当たる）
+        self.assertIn("=== new.txt （未追跡の新規", text)       # 下の階層から呼んでもルートに繋いで読める
 
 
 class Prose(unittest.TestCase):

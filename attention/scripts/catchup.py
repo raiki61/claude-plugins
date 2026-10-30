@@ -2331,7 +2331,10 @@ def frame_only(rev, frame, jump, what, cwd=None):
 
 
 def rev_map(out, rev, paths, tree, cwd, frame_cmd, jump, empty, unseen):
-    """commit・範囲の報告の後半（変更の地図と見ていないもの）。変更が無ければ empty の 1 行で終える。"""
+    """commit・範囲の報告の後半（変更の地図と見ていないもの）。変更が無ければ empty の 1 行で終える。
+    paths が None は git が読めなかった（「変更なし」と断定しない）。"""
+    if paths is None:
+        return "\n".join(out + ["", "  変更の地図: 出せない（git diff が失敗した。git show で見る）"])
     if not paths:
         return "\n".join(out + ["", empty])
     out += ["", "## 変更の地図（材料）", TREE_NOTE, *tree]
@@ -2355,7 +2358,7 @@ def render_commit(oid, cwd=None, frame=None, full=False):
         return frame_only(rev, frame, jump, "この commit の変更", cwd)
     paths, tree = changemap.commit_tree(rev, cwd)
     out = [f"# {short} {subject}",
-           f"  {author} · {date} · {len(paths)} ファイル",
+           f"  {author} · {date} · {'分からない' if paths is None else len(paths)} ファイル",
            "  GitHub 側は見ていない——手元の git の commit として出す"]
     lines = [ln.rstrip() for ln in body]
     while lines and not lines[-1]:
@@ -2386,7 +2389,7 @@ def render_range(rev, cwd=None, frame=None, full=False):
         first, last = commits[-1].split("\t", 1)[0], commits[0].split("\t", 1)[0]
         ends = f"（{first} → {last}。{sa} は範囲の外）" if len(commits) > 1 else f"（{first}。{sa} は範囲の外）"
     out = [f"# {sa}..{sb} commit {len(commits)} 件{ends}",
-           f"  {len(paths)} ファイル · 差は {sa} の版と {sb} の版の間",
+           f"  {'分からない' if paths is None else len(paths)} ファイル · 差は {sa} の版と {sb} の版の間",
            "  GitHub 側は見ていない——手元の git の commit の範囲として出す"]
     shown = commits if full else commits[:BODY_CAP]
     out += ["", "## 範囲の commit（材料。古い順に sha・日付・作者・題。本文は git show <sha>）"]
@@ -2417,6 +2420,8 @@ def ahead_of_default(cwd=None):
     paths, tree = changemap.commit_tree(rev, cwd)
     out = ["", f"## {base} より先の commit {count} 件の変更（材料。ブランチ全体の差。未コミットは含まない）",
            TREE_NOTE]
+    if paths is None:
+        return out + ["  読めない（git diff が失敗した）"]
     if not paths:
         return out + ["  変更なし"]
     out += tree
@@ -2496,7 +2501,9 @@ def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None, derived_
         elif behind.strip() != "0":
             w(f"  PR の head {pr_head[:7]} より {behind.strip()} commit 後ろ（fetch / pull していない）")
     dirty, tree = wt if wt is not None else changemap.working_tree(cwd)
-    if dirty:
+    if dirty is None:
+        w("  未コミットの変更: 読めなかった（git status が失敗した）")
+    elif dirty:
         w(f"  未コミット {len(dirty)} 件。木（行頭 + が新規・~ が変更・- が削除。"
           "そのまま diff の枠に貼る）:")
         out.extend(tree)

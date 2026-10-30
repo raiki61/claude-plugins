@@ -246,6 +246,33 @@ def _thread_turn():
         comment(T2, "other", "意図的です。理由は次のとおりで…"))])))
 
 
+@case("thread-turn-rules")
+def _thread_turn_rules():
+    """スレッドの「私が返すターン」は、1 行目の理由（threads_awaiting）・依頼（find_ask）・指摘の材料（unresolved_threads）で
+    同じ式。bot の発言は数えない（私の返事の後に bot が「Thanks!」と書いても相手のターン）。人の PR で私の入っていない
+    他の人同士のスレッドは私のターンでない。自分の PR の新しい指摘は私のターン。待つスレッドが 2 つなら新しい返事の方を依頼にする。"""
+    bot = comment(T3, "coderabbitai", "Thanks!")
+    bot["author"] = user("coderabbitai", bot=True)
+    after_bot = pr(reviewThreads=conn([thread("app/a.py", False, comment(T1, "rev", "nit"), comment(T2, ME, "fixed"), bot)]))
+    others = pr(reviewThreads=conn([thread("app/b.py", False, comment(T1, "bob", "なぜ？"), comment(T2, "alice", "理由は…"))]))
+    own_new = pr(author=user(ME), reviewThreads=conn([thread("app/c.py", False, comment(T1, "rev", "ここ直して"))]))
+    two = pr(reviewThreads=conn([
+        thread("app/old.py", False, comment(T1, ME, "q1"), comment(T2, "rev", "古い返事")),
+        thread("app/new.py", False, comment(T1, ME, "q2"), comment(T4, "rev", "新しい返事"))]))
+
+    def turns(node):
+        return [th["my_turn"] for th in catchup.unresolved_threads(node, ME)]
+    ev, _, _ = catchup.collect_events(two, ME, "")
+    ask = catchup.find_ask(ev, two, ME, None, False)
+    want = {
+        "bot_last_not_mine": not catchup.threads_awaiting(after_bot, ME) and turns(after_bot) == [False],
+        "others_thread_not_mine": turns(others) == [False],
+        "own_new_thread_mine": turns(own_new) == [True],
+        "newest_ask": bool(ask) and ask["text"] == "新しい返事",
+    }
+    return verdict("THREAD_RULES", want, str(want) + str(ask))
+
+
 @case("no-checks")
 def _no_checks():
     """チェックが 1 本も無い状態を「全 pass」と言わない。まだ何もしていない件はそう言う。"""
@@ -1286,6 +1313,30 @@ def _no_target():
         "frame_cmd": seen == {"dirty": ["src/a.py"], "cmd": "what-am-i-doing.py --frame"},
     }
     return verdict("NO_TARGET", want, out)
+
+
+@case("git-failed")
+def _git_failed():
+    """git が読めなかった（15 秒の timeout など）とき、「変更なし」「未コミットの変更なし」と断定せず、
+    読めなかったと書く。commit_tree・working_tree は失敗を (None, None) で返す。"""
+    cm = catchup.changemap
+    saved = (cm.commit_tree, cm.working_tree, cm.git, cm.default_branch_ref)
+    cm.commit_tree = lambda rev, cwd=None: (None, None)
+    cm.working_tree = lambda cwd=None: (None, None)
+    cm.default_branch_ref = lambda cwd=None: "origin/main"
+    cm.git = lambda *a, cwd=None: "3\n" if a[0] == "rev-list" else "mmmmmmm3\n" if a[0] == "merge-base" else ""
+    try:
+        rng = catchup.render_range("aaaaaaa1..bbbbbbb2")
+        ahead = catchup.ahead_of_default()
+        local = catchup.render_local(why="確かめ", wt=cm.working_tree())
+    finally:
+        cm.commit_tree, cm.working_tree, cm.git, cm.default_branch_ref = saved
+    want = {
+        "range": "分からない ファイル" in rng and "変更の地図: 出せない" in rng and "変更なし" not in rng,
+        "ahead": "読めない（git diff が失敗した）" in "\n".join(ahead) and "変更なし" not in "\n".join(ahead),
+        "local": "未コミットの変更: 読めなかった" in local and "未コミットの変更なし" not in local,
+    }
+    return verdict("GIT_FAILED", want, rng + "\n".join(ahead) + local)
 
 
 @case("range")

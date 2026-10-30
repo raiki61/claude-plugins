@@ -280,7 +280,9 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
 
     dirty, tree = changemap.working_tree(cwd)
     w("## いま手元に残っているもの")
-    if dirty:
+    if dirty is None:
+        w("  未コミットの変更: 読めなかった（git status が失敗した）")
+    elif dirty:
         w(f"  未コミット {len(dirty)} 件: " + ", ".join(dirty[:8])
           + ("…" if len(dirty) > 8 else ""))
         # 木は「全体のどこを触っているか」を IDE の変更一覧と同じ形で見せる。周辺の追跡ファイルを

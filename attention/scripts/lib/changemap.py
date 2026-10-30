@@ -608,8 +608,10 @@ def join_frames(path, info, cap=FRAME_FILE_CAP, frame_cmd="--frame"):
 # 読み手の git 設定で diff の形が変わるのを止める。color.ui=always は tty でなくても ANSI を出し、
 # diff.external と .gitattributes の diff driver は unified diff を出さず、textconv は行を書き換える。
 # 前の 2 つは split_diff の "diff --git " 一致を外して全 file が「中身が diff に無い」という嘘の断りになり、
-# textconv は嘘の行を枠に貼る（どれも実測）。他人の checkout（fork）は相手の .gitattributes を持つ
-DIFF_SANE = ("--no-color", "--no-ext-diff", "--no-textconv")
+# textconv は嘘の行を枠に貼る（どれも実測）。他人の checkout（fork）は相手の .gitattributes を持つ。
+# diff.mnemonicPrefix=true は `git diff HEAD` の接頭辞を c/ w/ にし、GIT_DIFF_HEAD（a/ b/ だけ）が外れる。
+# diff.relative=true は下の階層から呼ぶと path が cwd からの相対になり、cwd の外の file が落ちる
+DIFF_SANE = ("--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative")
 # pathspec は既定で glob と magic を解釈する。`*` や `[` を含む file 名が別の file に当たり、先頭が `:` の
 # path は magic として読まれる。:(top,literal) で literal 固定・リポジトリのルートからの相対にする
 # （cwd が下の階層でも、git が返す path はいつもルートからなので）
@@ -920,8 +922,8 @@ def entries_from_porcelain(porcelain, numstat=None):
     return entries
 
 
-def change_note(mark, a, d, whole_dir=False, old=None):
-    """木の行の右に出す ±行数（と改名の旧名）。手元の未コミットと commit の両方が使う。"""
+def change_note(mark, a, d, whole_dir=False, old=None, label="旧"):
+    """木の行の右に出す ±行数（と改名の旧名。複写なら label="複写元"）。手元の未コミットと commit の両方が使う。"""
     if mark == "+" and a is None:
         note = "新規（階層ごと。中は git status -uall で）" if whole_dir else "新規"
     elif a is None:
@@ -930,14 +932,17 @@ def change_note(mark, a, d, whole_dir=False, old=None):
         note = f"-{d}"
     else:
         note = f"+{a}" if not d else f"+{a}/-{d}"
-    return (note + "  " if note else "") + "旧: " + old if old else note
+    return (note + "  " if note else "") + f"{label}: " + old if old else note
 
 
 def working_tree(cwd=None):
-    """手元の未コミットの変更を (パスの一覧, 木の行) で返す。変更が無ければ ([], [])。
+    """手元の未コミットの変更を (パスの一覧, 木の行) で返す。変更が無ければ ([], [])。git が失敗したら
+    (None, None)——[] で返すと、呼び手が読めなかったのを「未コミットの変更なし」と断定する（15 秒の timeout など）。
     /catchup（今のブランチで呼んだとき）と /what-am-i-doing が共用。"""
     # -uall: 未追跡の階層を中のファイルに展開する（既定は "newdir/" の 1 行で、木に名前の無い行が出る）
-    porcelain = git("status", "--porcelain", "-z", "--untracked-files=all", cwd=cwd) or ""
+    porcelain = git("status", "--porcelain", "-z", "--untracked-files=all", cwd=cwd)
+    if porcelain is None:
+        return None, None
     entries = entries_from_porcelain(
         porcelain, parse_numstat(git("diff", *DIFF_SANE, "HEAD", "--numstat", "-z", cwd=cwd)))
     return _tree(entries, cwd)
@@ -985,16 +990,19 @@ def commit_range(oid, cwd=None):
 
 def commit_tree(rev, cwd=None):
     """commit（範囲）の変更を (パスの一覧, 木の行) で。working_tree の commit 版で、
-    出す形は同じ——読む人が「手元の木」と「commit の木」で読み方を変えなくていい。"""
+    出す形は同じ——読む人が「手元の木」と「commit の木」で読み方を変えなくていい。git が失敗したら
+    (None, None)（working_tree と同じ。[] だと「変更なし」と読まれる）。"""
     recs = name_status(cwd=cwd, rev=rev)
     if recs is None:
-        return [], []
+        return None, None
     nums = parse_numstat(git("diff", *DIFF_SANE, "--numstat", "-z", rev, "--", cwd=cwd))
     entries = []
     for status, old, path in recs:
-        mark = {"A": "+", "D": "-"}.get(status[:1], "~")
+        # 複写（C。diff.renames=copies）は元が残る新規なので "+"。"~" と "旧:" だと改名に読める
+        mark = {"A": "+", "C": "+", "D": "-"}.get(status[:1], "~")
         entries.append({"path": path, "mark": mark,
-                        "note": change_note(mark, *nums.get(path, (None, None)), old=old)})
+                        "note": change_note(mark, *nums.get(path, (None, None)), old=old,
+                                            label="複写元" if status[:1] == "C" else "旧")})
     return _tree(entries, cwd)
 
 
@@ -1036,16 +1044,18 @@ def parse_numstat(text):
 def tracked_set(cwd, paths):
     """paths のうち index が追跡しているもの。1 回の ls-files で（file ごとに聞くと N 回 spawn する）。
     -z は path を引用形にしないため（日本語名が集合と一致する）。paths が空だと ls-files は全 file を
-    列挙するので、空集合を返す。"""
+    列挙するので、空集合を返す。paths はルートからの相対——cwd が下の階層でも当たるよう :(top,literal) で
+    渡し、返りもルートからにする（--full-name。既定は cwd からの相対）。"""
     if not paths:
         return set()
-    out = git("ls-files", "-z", "--", *paths, cwd=cwd) or ""
+    out = git("ls-files", "-z", "--full-name", "--", *pathspecs(paths), cwd=cwd) or ""
     return set(filter(None, out.split("\0")))
 
 
 def new_file_rows(cwd, path, kind, frame_cmd="--frame"):
-    """新規 file（未追跡・add 済み）の見出しと、先頭コメント・骨組み。file が読めなければ []。"""
-    full = pathlib.Path(cwd) / path
+    """新規 file（未追跡・add 済み）の見出しと、先頭コメント・骨組み。file が読めなければ []。path は
+    ルートからの相対なので、cwd が下の階層でもルートに繋いで読む。"""
+    full = pathlib.Path(repo_top(cwd) or cwd) / path
     if not full.is_file():
         return []
     try:
