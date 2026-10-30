@@ -84,13 +84,14 @@ REASON_SLEEP = (
 )
 
 
-def executed_text(command):
-    """シェルが走らせる所だけを残したコマンド。
+def executed_text(command, dropped=False):
+    """シェルが走らせる所だけを残したコマンド。dropped は、ヒアドキュメントの中身を呼び元が既に除いたか。
 
     引用符の中の文字は空白に替え、走る中身(`bash -c` と `eval` の引数、ダブルクォートの中の `$(…)` と `` `…` ``、
     引用符の外の `` `…` ``)は括弧で囲んで残す。
     """
-    command = drop_heredoc_bodies(command)
+    # 除いた後の置換の中身をもう一度除くと、中身と終わりの語の行が無いので、`<<EOF` の後のコードを中身と見て落とす
+    command = command if dropped else drop_heredoc_bodies(command)
     out = []
     solid = 0   # out の、空白だけでない最後の片の次の位置(shell_argument_before が末尾の空白を読み直さないため)
     index = 0
@@ -113,7 +114,7 @@ def executed_text(command):
         elif char == "`":
             # シェルは先に閉じる `` ` `` で閉じる。中の引用符をその先まで数えると、後の行のループを引用符の中と取り違える
             end = next_backtick(command, index + 1)
-            out.append(" (%s) " % executed_text(command[index + 1:end]))
+            out.append(" (%s) " % executed_text(command[index + 1:end], True))
             index = end + 1
         else:
             out.append(char)
@@ -168,11 +169,11 @@ def substitutions(text):
             index += 2
         elif text.startswith("$(", index):
             end = paren_end(text, index + 1)
-            found.append(executed_text(text[index + 2:end]))
+            found.append(executed_text(text[index + 2:end], True))
             index = end + 1
         elif text[index] == "`":
             end = backtick_end(text, index)
-            found.append(executed_text(text[index + 1:end]))
+            found.append(executed_text(text[index + 1:end], True))
             index = end + 1
         else:
             index += 1
