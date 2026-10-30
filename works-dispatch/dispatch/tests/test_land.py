@@ -1214,6 +1214,25 @@ class Rules(unittest.TestCase):
         self.assertEqual(land.gate_branch("release/*", "取り込み", "feat/company-land"), "release/feat-company-land")
 
 
+class WaitGate(unittest.TestCase):
+    def test_a_red_run_of_another_workflow_on_the_same_push_is_red(self):
+        # ゲートのブランチを書いたワークフローが 2 つ在ると、1 つの push で run も 2 つ起きる。前は一番新しい 1 つだけを見て、
+        # もう 1 つが赤でも緑と見て入れていた
+        class Gh:
+            watched = []
+
+            def runs_for(self, repo, branch, sha, env=None):
+                return [{"id": 2, "status": "in_progress", "conclusion": None, "url": "u2"},
+                        {"id": 1, "status": "in_progress", "conclusion": None, "url": "u1"}]
+
+            def watch_run(self, repo, run_id, env=None):
+                self.watched.append(run_id)
+                return {"id": run_id, "status": "completed", "conclusion": "failure" if run_id == 1 else "success", "url": f"u{run_id}"}
+        gh = Gh()
+        got = land.wait_gate("o/r", "release/a", "abc", gh)
+        self.assertEqual((got["result"], got["run"]["id"], gh.watched), ("red", 1, [2, 1]))
+
+
 class FailurePoints(unittest.TestCase):
     def test_run_failure_keeps_the_body_of_the_failed_log(self):
         def runner(argv, env=None):

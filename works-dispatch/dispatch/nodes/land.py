@@ -363,16 +363,16 @@ def ci_on(root, gate):
 
 def wait_gate(repo, ref, sha, gh, env=None, pause=lambda: None):
     """そのブランチのその commit の run が現れるまで見に行き（回数に上限を置かない。CI が起きる設定は ci_on で先に確かめる）、
-    終わりを待つ。{result: green・red, run}。"""
+    現れた run を全部（ゲートのブランチを書いたワークフローが複数在れば、1 つの push で run も複数起きる）終わりまで待つ。
+    {result: green・red, run}。run は赤ければ最初の赤の run、緑なら一番新しい run。"""
     while True:
         got = gh.runs_for(repo, ref, sha, env=env)
         if got:
-            run = got[0]
             break
         pause()
-    if run.get("status") != "completed":
-        run = gh.watch_run(repo, run["id"], env=env)
-    return {"result": "green" if run.get("conclusion") == "success" else "red", "run": run}
+    done = [r if r.get("status") == "completed" else gh.watch_run(repo, r["id"], env=env) for r in got]
+    red = [r for r in done if r.get("conclusion") != "success"]
+    return {"result": "red" if red else "green", "run": (red or done)[0]}
 
 
 def advance(source, main, sha, g):
