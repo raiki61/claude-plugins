@@ -252,6 +252,12 @@ def surface():
     code, out = go(fake, root, '{"dry_run": true}')
     face = wp.surface(shas[1], shas[2], os.path.join(d, wp.SOURCE), fake, root)
     check(code == 1 and face == [], f"lib の中だけの上げで当たりを出した: {face} {out}")
+    # 点で始まるパスは点ごと引く（前は頭の点を落として `.archon/config.yaml` を `archon/config.yaml` と読み、消えても気づかなかった）
+    skill = pathlib.Path(tmp()) / "dot"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("`.archon/config.yaml` と `./lib/carry.py` と `../bin/works-factory.`\n", encoding="utf-8")
+    words = wp.cited(skill)
+    check({".archon/config.yaml", "lib/carry.py", "bin/works-factory"} <= set(words), f"点で始まるパスを読み違えた: {words}")
     print("SURFACE_OK")
 
 

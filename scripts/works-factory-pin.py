@@ -217,7 +217,8 @@ def cited(skill_dir):
     for md in sorted(skill_dir.rglob("*.md")):
         for span in re.findall(r"`([^`\n]+)`", md.read_text(encoding="utf-8")):
             for w in re.findall(r"[A-Za-z0-9_./-]+", span):
-                w = w.strip("./")
+                # 頭は ./・../・/ だけを落とす。点ごと落とすと `.archon/config.yaml` を `archon/config.yaml` と読み、工場から消えても気づかない
+                w = re.sub(r"^(?:\.{1,2}/|/)+", "", w).rstrip("./")
                 if len(w) >= 4 and not w.startswith("$"):
                     words.add(w)
     return sorted(words)
