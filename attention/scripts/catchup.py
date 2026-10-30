@@ -2470,12 +2470,12 @@ def render_no_target(cwd=None):
         "",
         render_local(why="this で呼んだので出す", cwd=cwd, wt=wt),
         *frames,
+        *ahead,
         "",
         "見ていないもの:",
         "  - GitHub の PR / issue（今のブランチに PR が無く、名前にも番号が無い。"
         "番号か URL を渡せば出る）",
         "  - 他のブランチ・他の worktree の状態",
-        *ahead,
         "  - このセッションで何をしたか（what-am-i-doing.py で出る）",
     ])
 

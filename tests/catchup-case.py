@@ -1315,8 +1315,8 @@ def _no_target():
     # 既定ブランチより先の差は実物の git で見るので、このリポジトリの push 状態で結果が変わる。
     # 手元の main が origin より 1 commit 進んでいると frames_section が paths と rev で呼ばれ、
     # 下の未コミット用のスタブ（cwd, dirty, frame_cmd）が TypeError で落ちた（2026-09-06 実測）。
-    # この検査が見るのは未コミットの中身の出し方なので、先の差は無い状態に固定する
-    catchup.ahead_of_default = lambda cwd=None: []
+    # この検査が見るのは中身の出し方なので、先の差は固定の行にする（並びを見る）
+    catchup.ahead_of_default = lambda cwd=None: ["", "## origin/main より先の commit 1 件の変更", "  AHEAD"]
     cm.current_branch = lambda cwd=None: "main"
     catchup.render_local = lambda **kw: "## 手元のブランチ main（" + kw["why"] + "）\n  未コミット 1 件"
     cm.working_tree = lambda cwd=None: (["src/a.py"], [" work/", "~  src/a.py  +1"])
@@ -1338,6 +1338,9 @@ def _no_target():
         "unseen": "番号か URL を渡せば出る" in out and "what-am-i-doing.py で出る" in out,
         "frames": "    飛び先 src/a.py:1\n    | def f():" in out,   # 木だけでなく中身も出す
         "frame_cmd": seen == {"dirty": ["src/a.py"], "cmd": "what-am-i-doing.py --frame"},
+        # 先の差のセクションは見ていないものの一覧の前（前は一覧の途中に割り込み、最後の 1 行が離れていた）
+        "ahead_before_unseen": out.index("  AHEAD") < out.index("見ていないもの:")
+        and out.endswith("  - 他のブランチ・他の worktree の状態\n  - このセッションで何をしたか（what-am-i-doing.py で出る）"),
     }
     return verdict("NO_TARGET", want, out)
 
