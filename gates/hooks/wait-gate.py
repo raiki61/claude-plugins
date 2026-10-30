@@ -114,21 +114,23 @@ def comment_at(text, index):
     return kind == COMMENT
 
 
-def hash_kinds(text):
+def hash_kinds(text, depth=0):
     r"""text の、引用符の外の # の位置ごとの読み方(CODE・COMMENT・UNSURE)。載っていない位置は UNSURE。
 
     - 語の頭(行の頭・空白・`;`・`&`・`|`・`<`・`>` の後)の # はコメント。ただし、閉じていない `${ }`・`[[ ]]`・`(( ))`・
-      `$(( ))`・語の中の `( )`(`@( )`・`a=( )`)の中(`${x%% #*}`・`[[ x =~ (a|#) ]]`・`(( x = 1 #2 ))`・`${y:-` の次の行の #)
-      では、シェルがコメントにしないことがあるので迷う。ただの `{ }` のまとまり・サブシェルの `( )`・`[ ]` の中はコメント。
+      `$(( ))`・語の中の `( )`(`@( )`)の中(`${x%% #*}`・`[[ x =~ (a|#) ]]`・`(( x = 1 #2 ))`・`${y:-` の次の行の #)
+      では、シェルがコメントにしないことがあるので迷う。ただの `{ }` のまとまり・サブシェルの `( )`・配列の `a=( )`・`[ ]` の中はコメント。
       括弧はコマンドの全体で数え、`$( )` と `` ` ` `` の中は別に数える(中の `}` で外の `${` を閉じない)。
     - `(`・`)` の後の # は迷う(`$(date)#notes`・`a=(x)#` は語の中の字、`case a in a)# it's` はコメント、zsh の `(#i)` と
       bash の `@(#|x)` はパターンの字)。
     - `\` で引用した字の後(`my\ #1`)と、ほかの字の後の # は語の中の字。`\` と改行は行をつなぐので、つないだ先の前の字で見る。
       コメントの中の `\` は行をつながない(コメントは行の終わりまで飛ばす)。
     - 迷う # の後は、同じ行の # と、その行の `\` でつないだ次の行の # も迷う(迷う # がコメントなら、その後の字は読めない)。
-    - ヒアドキュメントの中身(終わりの語だけの行まで)は、それだけで 1 つのコマンドとして読む。
+    - ヒアドキュメントの中身(終わりの語だけの行まで)は、それだけで 1 つのコマンドとして読む。ただし、終わりの語の行が無い中身
+      (`$(cat <<EOF` を `EOF)` で閉じた後ろは外の `${ }` の中のことがある)と、外のシェルが `\` を外す、終わりの語を引用しない
+      中身の `\` の在る物と、入れ子の 3 段目からの中身は読まない(中の # は迷う。入れ子を全部読み直すと深さ × 長さの手間になる)。
     一度だけ読んで KINDS に置く(# の多い長いコマンドで手間を掛け算にしない)。"""
-    if text in KINDS:
+    if not depth and text in KINDS:
         return KINDS[text]
     kinds = {}
     frames = [["code", 0, 0, 0, -1]]   # 段(code・sub=$( )・`=`…`・"=二重引用)と、{・[・( の開いた数と、閉じる ` の位置
@@ -171,10 +173,12 @@ def hash_kinds(text):
             index += 2
         elif char == "\n":
             index += 1
-            for word, dash in pending:
-                start, index = index, heredoc_body_end(text, index, word, dash)
+            for word, dash, quoted in pending:
+                start, index, closed = index, *heredoc_body_end(text, index, word, dash)
                 # 中身は別のコマンドとして読む(`bash <<'X'` の中身はシェルが読む。中身を除くのは drop_heredoc_bodies の役)
-                kinds.update((start + at, kind) for at, kind in hash_kinds(text[start:index]).items())
+                body = text[start:index]
+                if depth < 2 and closed and (quoted or "\\" not in body):
+                    kinds.update((start + at, kind) for at, kind in hash_kinds(body, depth + 1).items())
             pending = []
         elif char == "'":
             if index and text[index - 1] == "$" and index - 1 not in escaped:
@@ -200,11 +204,11 @@ def hash_kinds(text):
         elif char in "{[(":
             slot = 1 + "{[(".index(char)
             prev = text[index - 1] if index else "\n"
-            # 数えるのは、中の # をシェルがコメントにしないことのある括弧だけ: ${ }・[[ ]]・(( ))・$(( ))・語の中の ( (@( )・a=( ))
-            # と、それらの中の括弧。ただの { } のまとまり・サブシェルの ( )・[ ] の試験の中の # はコメント
+            # 数えるのは、中の # をシェルがコメントにしないことのある括弧だけ: ${ }・[[ ]]・(( ))・$(( ))・語の中の ( (@( ) など)
+            # と、それらの中の括弧。ただの { } のまとまり・サブシェルの ( )・配列の a=( )・[ ] の試験の中の # はコメント
             if frame[slot] or (char == "{" and prev == "$" and index - 1 not in escaped) \
                     or (char != "{" and text.startswith(char, index + 1)) \
-                    or (char == "(" and (prev not in " \t\n;&|<>()" or index - 1 in escaped)):
+                    or (char == "(" and (prev not in " \t\n;&|<>()=" or index - 1 in escaped)):
                 frame[slot] += 1
             index += 1
         elif char in "}])":
@@ -244,23 +248,25 @@ def hash_kinds(text):
             match = HEREDOC.match(text, index)
             if match:
                 word = "".join("".join(piece) for piece in HEREDOC_PIECE.findall(match.group("raw")))
-                pending.append((word, match.group("dash")))
+                raw = match.group("raw")
+                pending.append((word, match.group("dash"), any(quote in raw for quote in "'\"\\")))
                 index = match.end()
             else:
                 index += 1
-    KINDS[text] = kinds
+    if not depth:
+        KINDS[text] = kinds
     return kinds
 
 
 def heredoc_body_end(text, index, word, dash):
-    """index の行から始まるヒアドキュメントの中身の、終わりの語の行(印の行も)の後の位置。無ければ末尾。"""
+    """index の行から始まるヒアドキュメントの中身の、終わりの語の行(印の行も)の後の位置と、その行が在ったか。無ければ(末尾, 偽)。"""
     while index < len(text):
         end = text.find("\n", index)
         line = text[index:len(text) if end < 0 else end]
         index = len(text) if end < 0 else end + 1
         if (line.lstrip("\t") if dash else line) == word or line == end_mark(word):
-            break
-    return index
+            return index, True
+    return index, False
 
 
 def executed_text(command):
@@ -534,7 +540,18 @@ def heredoc_end(text, index, match, found, stop=None):
     body_start = index
     closed = False
     keep = len(text)
+    tabs = "\t*" if match.group("dash") else ""
+    ends = re.compile(r"^%s%s$|^%s$" % (tabs, re.escape(word), re.escape(end_mark(word))), re.M)
+    early = re.compile(r"^%s%s[^\n]*\)" % (tabs, re.escape(word)), re.M) if stop == ")" and EARLY_CLOSE else None
     while index < len(text):
+        # 下のどれかに当たる行まで飛ぶ(行ごとに読むと、閉じない入れ子のヒアドキュメントで深さ × 長さの手間になる)
+        jumps = [found.start() for found in (ends.search(text, index), early and early.search(text, index)) if found]
+        tick = text.find("`", index) if stop == "`" else -1
+        if tick >= 0:
+            jumps.append(text.rfind("\n", 0, tick) + 1)
+        index = max(index, min(jumps)) if jumps else len(text)
+        if index >= len(text):
+            break
         end = text.find("\n", index)
         line_end = len(text) if end < 0 else end
         line = text[index:line_end]

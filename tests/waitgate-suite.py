@@ -196,6 +196,9 @@ class SleepLoops(unittest.TestCase):
         # if・time -p の直後のループ
         "if until test -f x; do sleep 1; done; then :; fi",
         "time -p until test -f x; do sleep 1; done",
+        # `EOF)` で閉じた後ろは外の ${ } の中。外のシェルが \\ を \ にする中身の `\ #` は語の中の字
+        "echo ${y:-$(cat <<EOF\nhi\nEOF) # $(until test -f x; do sleep 1; done)}",
+        "bash <<X\necho a\\\\ #b; until test -f x; do sleep 1; done\nX",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -232,6 +235,9 @@ class SleepLoops(unittest.TestCase):
         "{\n  echo start\n  # step 2 (until v2 ships): sleep before the probe\n  sleep 1\n} > log",
         "{\n  # check if while the server boots the port answers\n  sleep 5; curl localhost\n}",
         "bash <<'X'\n# note: (while it runs) we sleep\nsleep 1\nX",
+        # 複数の行の配列の中のコメントも、コメントのまま
+        'args=(\n  --retry 5   # (until the server is up)\n  --silent\n)\ncurl "${args[@]}" localhost; sleep 1',
+        "declare -A m=(\n  [a]=1  # (until v2)\n)\nsleep 0",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
@@ -317,6 +323,14 @@ class LongCommands(unittest.TestCase):
         # 前はバッククォートの中のコメントごとに閉じる ` を探し直し、60KB で約 40 秒かかった(時間切れで通る)
         reason, _ = run("echo `" + "\n#" * 45000 + "\n`; until test -f x; do sleep 1; done", timeout=20)
         self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_nested_unclosed_heredocs_are_read_in_time(self):
+        # 前は閉じないヒアドキュメントの入れ子ごとに後ろの全部を 1 行ずつ読み直し、10 万字で 30 秒を超えた(時間切れで通る)
+        loop = "until test -f x; do sleep 1; done"
+        for command in ("x=$(:)# ; " + loop + "\n" + "cat <<A\n" * 985 + "\n" * 92000,
+                        loop + "\n# x\n" + "bash <<A\n" * 900 + "\n" * 92000):
+            reason, _ = run(command, timeout=20)
+            self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_hashes_in_nested_substitutions_are_read_in_time(self):
         # 前は # ごとに行の終わりを探し直し、改行の無い長い行を入れ子の置換ごとに読んで約 40 秒かかった(時間切れで通る)
