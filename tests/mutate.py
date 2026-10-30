@@ -922,7 +922,8 @@ def run_selected(repo, tests, failfast=False):
         rcs.append("no-test" if NO_TEST in body else rc)
         failed += [l.strip()[5:].strip() for l in body.splitlines() if l.startswith("  FAIL ")]
     bad = [x for x in rcs if x != 0]
-    return {"rc": bad[0] if bad else 0, "failed": failed, "tail": [], "selected": True}
+    # 先の台本の赤で rc が赤になっても、時間切れの台本が在れば印を残す（次の回でその台本が当たりを出すと、当たりの証拠が変わる）
+    return {"rc": bad[0] if bad else 0, "failed": failed, "tail": [], "selected": True, **({"timed_out": True} if "timeout" in rcs else {})}
 
 
 PYTEST_CACHE = ".pytest_cache"   # 写しの中で pytest が書く控え。前の腕の失敗の記録を次の腕に渡さないよう、腕ごとに消す
@@ -1075,10 +1076,10 @@ def same_as_pick(prev, ids, n=4):
     """撃ち比べる腕を前の報告から選ぶ ——腕の id の一覧。同じファイルを壊す赤の腕の組を 1 つ（使い回した写しで同じファイルを
     続けて壊す形に近い）、次に生き残り、残りを赤で埋めて n 本まで。今の一覧に在る腕（ids）だけ"""
     # 一式の確かめ直しが時間切れの生き残り（confirm_rc・pytest の confirmed）と、pytest の段が時間切れで台本の緑で生き残った腕
-    # （pytest の rc）と、当たらない pytest の赤のまま台本の道が時間切れの腕（script_rc）は、次の回で結果か当たりの証拠が
-    # 変わりうる——揺れうるので選ばない
+    # （pytest の rc）と、当たらない pytest の赤のまま台本の道が時間切れの腕（script_rc）と、絞った台本の 1 本が時間切れの腕
+    # （timed_out）は、次の回で結果か当たりの証拠が変わりうる——揺れうるので選ばない
     rows = [r for r in prev.get("arms", []) if r.get("id") in ids and not r.get("carried") and r.get("status") in SAME_AS_STATUS
-            and "confirm_rc" not in r and r.get("script_rc") != "timeout"
+            and "confirm_rc" not in r and r.get("script_rc") != "timeout" and not r.get("timed_out")
             and "timeout" not in ((r.get("pytest") or {}).get("confirmed"), (r.get("pytest") or {}).get("rc"))]
     killed = [r for r in rows if r["status"] == "Killed"]
     by_file = collections.defaultdict(list)

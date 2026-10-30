@@ -7338,16 +7338,21 @@ sys.path.insert(0, sys.argv[1])
 import mutate
 ok = {"summary": {"control_ok": True, "copies": {"made": 2, "reused": 5}}, "control": {"root": {"rc": 0}}, "marker": {"rc": 0}}
 row = lambda i, st, f="a.py", ev="印": {"id": i, "status": st, "file": f, "evidence": ev if st == "Killed" else ""}
-# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9・一式の確かめ直しが時間切れの u1 と v1・pytest の段が時間切れの w1・台本の道が時間切れの y1）を、選ぶ腕より
+# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9・一式の確かめ直しが時間切れの u1 と v1・pytest の段が時間切れの w1・台本の道が時間切れの y1・絞った台本の 1 本が時間切れの z1）を、選ぶ腕より
 # 前に置く——並びで選んでいれば当たる
 prev = {**ok, "arms": [row("k1", "Killed"), row("t1", "Timeout"), {**row("c1", "Killed"), "carried": True}, row("i1", "Ignored"),
                        row("x9", "Killed"), {**row("u1", "Survived"), "confirm_rc": "timeout"},
                        {**row("v1", "Survived"), "pytest": {"confirmed": "timeout"}}, {**row("w1", "Survived"), "pytest": {"rc": "timeout"}},
-                       {**row("y1", "Killed"), "script_rc": "timeout"},
+                       {**row("y1", "Killed"), "script_rc": "timeout"}, {**row("z1", "Killed"), "timed_out": True},
                        row("s1", "Survived"), row("k2", "Killed", "b.py"), row("k3", "Killed")]}
-out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1', 'u1', 'v1', 'w1', 'y1'})}"]
+out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1', 'u1', 'v1', 'w1', 'y1', 'z1'})}"]
 same = {**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}
 out.append(f"same={mutate.same_as_diff(prev, same)}")
+# 絞った台本の先の 1 本が赤・後の 1 本が時間切れでも、時間切れの印を残す
+real_group = mutate.run_group
+mutate.run_group = lambda argv, cwd, env=None, failfast=False: ("timeout", "") if argv[-1] == "late.py" else (1, "  FAIL other\n")
+out.append(f"sel_timeout={mutate.run_selected('.', {'early.py': ['t'], 'late.py': ['t']}).get('timed_out')}")
+mutate.run_group = real_group
 cases = {"status": {**ok, "arms": [row("k1", "Survived")]},
          "evidence": {**ok, "arms": [row("k1", "Killed", ev="")]},
          "missing": {**ok, "arms": [row("zz", "Killed")]},
@@ -7388,7 +7393,7 @@ for flip in ("Survived", "Killed"):
 out.append(f"main_fresh={seen['fresh']} fire={seen['fire']} codes={codes}")
 print(" ".join(out))
 PYSAME
-expect_output 0 "pick=['k1', 'k3', 's1', 'k2'] same=[] status=1 evidence=1 missing=1 none_shot=1 unhealthy_now=1 partial=1 no_reuse=1 old_report=1 unhealthy_prev=1 main_fresh=True fire=['k1', 's1'] codes=[0, 1]" "撃ち比べ: 同じファイルを壊す赤の組・生き残り・赤を 4 本まで選び（持ち越し・撃てない・揺れうる腕・今の一覧に無い腕は選ばない）、status と当たりの証拠の有無が食い違う・腕が欠ける・撃てた腕が 0 本・どちらかが不健全・前の報告が途中か使い回していないなら食い違い。--same-as は腕ごとに作り直して選んだ腕だけを撃ち、一致で 0" \
+expect_output 0 "pick=['k1', 'k3', 's1', 'k2'] same=[] sel_timeout=True status=1 evidence=1 missing=1 none_shot=1 unhealthy_now=1 partial=1 no_reuse=1 old_report=1 unhealthy_prev=1 main_fresh=True fire=['k1', 's1'] codes=[0, 1]" "撃ち比べ: 同じファイルを壊す赤の組・生き残り・赤を 4 本まで選び（持ち越し・撃てない・揺れうる腕・今の一覧に無い腕は選ばない）、status と当たりの証拠の有無が食い違う・腕が欠ける・撃てた腕が 0 本・どちらかが不健全・前の報告が途中か使い回していないなら食い違い。--same-as は腕ごとに作り直して選んだ腕だけを撃ち、一致で 0" \
     "$PY_BIN" "$WORK/mut-sameas.py" "$ROOT/tests"
 
 cat > "$WORK/mut-root.py" <<'PYROOT'
