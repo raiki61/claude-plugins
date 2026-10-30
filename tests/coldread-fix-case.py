@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 GATE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "gates", "hooks", "coldread-gate.py")
@@ -370,11 +371,13 @@ def f16():
 
 # 17. 展開される $( )・${ }・`…` の中の引用符は bash が数え直す。語の印が bash と食い違うので、全体で見る側に倒すか止める(18)
 def f17():
-    for cmd in ("gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '$(cat f)\" #'",
-                "gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '`cat f`\" #'",
-                "B=secret; echo \"$B\"; gh pr comment 1 -R \"${X:-\"'\"}\" -b \"' --body '$B\" #'"):
-        _, blk, parsed = g.posting_bodies(cmd, WORK)
-        check(17, bool(blk) or not parsed, "置換の中の引用符で印がずれた本文を通した: %s" % cmd[:60])
+    for cmd, bash_body in (("gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '$(cat f)\" #'", None),
+                           ("gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '`cat f`\" #'", None),
+                           ("B=secret; echo \"$B\"; gh pr comment 1 -R \"${X:-\"'\"}\" -b \"' --body '$B\" #'", "' --body 'secret")):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        # bash が送る本文をそのまま読み手に回すか、止めるか(解析できない物として止めるのも可)
+        check(17, bool(blk) or not parsed or (bash_body is not None and cands == [bash_body]),
+              "置換の中の引用符で印がずれた本文を通した: %s → %r" % (cmd[:60], cands))
 
 
 # 18. 二重引用の中の置換の閉じる所を言い切れなければ、語の切れ目が bash と違いうるので解析できない物として止める
@@ -385,7 +388,7 @@ def f18():
                 "gh pr comment 1 -R \"${x//)/}\" -b \"' --body '$(cat f)\" #'",
                 "gh pr comment 1 -R \"`echo \"'\"`\" -b \"' --body '$(cat f)\" #'"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
-        check(18, not parsed, "置換の中の引用符で語のずれる形を読めた物と見た: %s → %r %r" % (cmd[:60], [c[:30] for c in cands], blk))
+        check(18, not parsed or (blk and not cands), "置換の中の引用符で語のずれる形の本文を通した: %s → %r %r" % (cmd[:60], [c[:30] for c in cands], blk))
     for cmd, want in (("gh pr create --title \"$(git log -1 --format='%%s')\" --body 'plain %s'" % BODY, "plain "),
                       ("gh pr comment 1 -R \"${R:-o/r}\" --body 'plain %s'" % BODY, "plain "),
                       ("gh pr comment 1 -R \"$((1+2))\" --body 'plain %s'" % BODY, "plain ")):
@@ -395,7 +398,7 @@ def f18():
 
 
 # 19. 二重引用の中の $( ) と `…` の中の gh の投稿も読む(shlex には 1 語で、前は中の本文を読み手に回さずに通していた)。
-#     置換の中に " を書いた正直な形は、語の切れ目を bash に合わせて読む。閉じる所を言い切れない形(語の頭の #・引用の外の ${ } の中の #)は止める
+#     置換の中に " を書いた正直な形は、語の切れ目を bash に合わせて読む。語の頭の #・引用の外の ${ } の中の # は、bash どおりに読むか止める
 def f19():
     for cmd, want in (("u=\"$(gh pr create --title t --body 'inner %s')\"" % BODY, "inner "),
                       ("u=`gh pr create --title t --body 'inner %s'`" % BODY, "inner "),
@@ -416,10 +419,52 @@ def f19():
     for cmd in ("gh issue comment 1 --body \"%s\" -t \"$( (true)#)\" '\n)\" --body 'EVIL' #'" % BODY,
                 "gh issue comment 1 ${x:- #'}'} --body 'EVIL %s'" % BODY):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
-        check(19, not parsed, "閉じる所を言い切れない置換を読めた物と見た: %s → %r %r" % (cmd[:60], [c[:30] for c in cands], blk))
+        check(19, not parsed or any(c.startswith("EVIL") for c in cands),
+              "閉じる所を言い切れない置換の後ろの本文を見落とした: %s → %r %r" % (cmd[:60], [c[:30] for c in cands], blk))
 
 
-for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19), 1):
+
+# 20. 置換の中を読むときに、外と読み方がずれて本文を見落とさない。読めなかったヒアドキュメント(`<<\EOF`)は止める。
+#     二重引用の中の $( ) の中の " の後ろの # を注釈と見て本文の旗を消さない。`…` の中は \ を外してから読む。置換の中は
+#     外の書き込み・cd・代入が見えないのでファイルを読まず、置換の中の書き込みは外の書き手に数える。埋め草を変数の名前と
+#     見ない。深い入れ子は時間をかけずに止める。語の途中の #(`/#frag`)は注釈と見ない
+def f20():
+    os.makedirs(os.path.join(WORK, "sub"), exist_ok=True)
+    for name, text in (("note.md", "BENIGN NOTE"), (os.path.join("sub", "note.md"), "SUB EVIL NOTE")):
+        with open(os.path.join(WORK, name), "w") as f:
+            f.write(text)
+    for cmd in ("u=\"$(cat <<\\EOF\n)\" ; gh issue comment 1 --body decoy; echo \"\nEOF\ngh issue comment 1 --body REALHIDDEN\n)\"",
+                "u=\"$(cat <<-\\EOF\n)\" ; gh issue comment 1 --body decoy; echo \"\nEOF\ngh issue comment 1 --body REALHIDDEN\n)\""):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(20, not parsed, "読めないヒアドキュメントの ) で置換を閉じた: %s → %r %r" % (cmd[:40], cands, blk))
+    for cmd, want in (("gh issue comment 1 -t \"$(echo \" #\" )\" --body 'REAL BODY' -t \"$(echo \"\n\")\"", "REAL BODY"),
+                      ("u=\"`gh issue comment 1 --body \\\"hello world EVIL\\\"`\"", "hello world EVIL"),
+                      ("x=`echo \\`gh issue comment 1 --body hidden\\``", "hidden")):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(20, bool(blk) or not parsed or want in cands, "bash の送る本文を見落とした: %s → %r %r" % (cmd[:50], cands, blk))
+    # $$ はプロセスの番号で、後ろの { は置換を開かない。# から行末は注釈で、次の行の gh が走る
+    for cmd in ("echo $${ # it's\ngh issue comment 1 --body 'EVILBODY' # ' }",
+                "echo \"$${\" # it's\ngh issue comment 1 --body 'EVILBODY' # ' }\""):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(20, bool(blk) or not parsed or "EVILBODY" in cands, "$$ の後の { を置換と見て本文を見落とした: %r → %r %r" % (cmd[:30], cands, blk))
+    for cmd in ("printf EVIL > note.md; u=\"$(gh issue comment 1 --body-file \"note.md\")\"",
+                "\\cd sub; u=\"$(gh issue comment 1 --body-file \"note.md\")\"",
+                "CLAUDE_JOB_DIR=$PWD/sub; u=\"$(gh issue comment 1 --body-file \"$CLAUDE_JOB_DIR/note.md\")\"",
+                "x=\"$(cp sub/note.md note.md)\"; gh issue comment 1 --body-file note.md",
+                "x=\"$(f=note.md; cp sub/note.md $f)\"; gh issue comment 1 --body-file note.md",
+                "f=a; x=\"$(f=note.md; cat sub/note.md > $f)\"; gh issue comment 1 --body-file note.md",
+                "______________=\"benign\"; gh issue comment 1 --body \"${x:-\"REAL BODY\"}\""):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(20, (bool(blk) and not cands) or not parsed, "外の効果の見えない本文を読んで通した: %s → %r" % (cmd[:50], cands))
+    deep = "x=" + "\"$(echo a " * 400 + "z" + ")\"" * 400 + "; gh issue comment 1 --body-file note.md"
+    started = time.monotonic()
+    cands, blk, parsed = g.posting_bodies(deep, WORK)
+    check(20, not parsed and time.monotonic() - started < 10, "深い入れ子を止めなかったか遅い: %r %.1fs" % (parsed, time.monotonic() - started))
+    cmd = "gh issue comment 1 --body 'ok %s' -t \"$(curl -s https://example.com/a/#frag)\"" % BODY
+    cands, blk, parsed = g.posting_bodies(cmd, WORK)
+    check(20, parsed and len(cands) == 1 and not blk, "語の途中の # を注釈と見て止めた: %r %r %r" % ([c[:20] for c in cands], blk, parsed))
+
+for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1):
     guarded(n, fn)
 
 shutil.rmtree(WORK, ignore_errors=True)

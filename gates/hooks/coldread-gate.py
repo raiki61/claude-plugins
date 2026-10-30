@@ -673,7 +673,7 @@ def substitution_spans(norm):
         c = norm[i]
         if quote == "'":
             quote = None if c == "'" else quote
-        elif c == "\\":
+        elif c == "\\" or norm.startswith("$$", i):
             i += 1
         elif c == "`" or norm.startswith("${", i) or (quote == '"' and norm.startswith("$(", i)):
             end = substitution_end(norm, i)
@@ -693,8 +693,10 @@ def substitution_end(text, start):
     """start の $( ・ ${ ・ ` を bash が閉じる字の位置。言い切れなければ None。
 
     段(置換・二重引用)を積んで読む。単一引用は組を飛ばす(${ } の段では、組の中に } が在れば読み方が版で割れるので None)。
-    `…` の入れ子・$'…'・case(パターンの ) が閉じに見える)・語の頭の #(コメント。${ } の中では bash は読まないが、
-    normalize_shell は読む)・${ } の段の中の ( { \\・$( ) の段の中の対にならない ) は、数え方が bash とずれうるので None。"""
+    `…` の入れ子・$'…'・case(パターンの ) が閉じに見える)・語の頭の #(注釈は normalize_shell が落としたので、残っていれば
+    読み方がずれている)・読めなかったヒアドキュメントの <<(shield_heredocs が読めた物は印に替えたので、残った物は中身が
+    置換の中に残り、中身の ) で閉じたと見てしまう。`<<\\EOF`)・${ } の段の中の ( { \\・$( ) の段の中の対にならない ) は、
+    数え方が bash とずれうるので None。"""
     if text[start] == "`":
         j = start + 1
         while j < len(text):
@@ -709,7 +711,9 @@ def substitution_end(text, start):
     while i < len(text):
         c, top = text[i], stack[-1]
         opens = text.startswith("$(", i) or text.startswith("${", i)
-        if top == '"':
+        if text.startswith("$$", i):
+            i += 1  # $$ はプロセスの番号。後ろの { ( を置換の始まりと読まない
+        elif top == '"':
             if c == "\\":
                 i += 1
             elif c == '"':
@@ -730,7 +734,9 @@ def substitution_end(text, start):
             i = j
         elif c == '"':
             stack.append('"')
-        elif c == "#" and top == ")" and not (text[i - 1].isalnum() or text[i - 1] in "_$"):
+        elif c == "#" and top == ")" and text[i - 1] in " \t\n;|&()<>":
+            return None
+        elif text.startswith("<<", i) and not text.startswith("<<<", i):
             return None
         elif opens:
             stack.append(")" if text[i + 1] == "(" else "}")
@@ -779,7 +785,7 @@ def _live(text, hit, where=(None, '"')):
 
 # 正規化で出力が実際に変わるのは注釈と行継続の 2 事象だけ。事象の起きうる文字へ正規表現で
 # 跳び、その間はスライスで一括複製する。1 文字ずつ積むと 100KB の本文で 5ms/回掛かる
-_EVENT_RE = re.compile(r"""[#\\'"]""")
+_EVENT_RE = re.compile(r"""[#\\'"`$()}]""")
 
 
 def normalize_shell(text):
@@ -802,6 +808,12 @@ def normalize_shell(text):
                  単一引用の中は行継続にならないので残す
       注釈 …… 引用の外の、語頭の # から行末まで。改行は区切りとして残す
 
+    引用は段を積んで追う。bash は二重引用の中の $( ) の中で引用符を数え直すので、平らに数えると
+    `-t "$(echo " #" )" --body '…'` の 2 つ目の " で二重引用が閉じたと見て、bash では引用の中の # から
+    行末までを注釈として落とし、本文の旗を消す。$( ) の段の中は引用の外と同じに読み、${ } の段の中の #
+    (`${x#pat}`)は注釈にしない。`…` の段の中は、閉じる ` を探すだけにする(bash も閉じる所を先に決め、
+    中身はその後で読む。中身の注釈は read_substitutions が中身を読む前に落とす)。
+
     落とさないと何が起きるか:
       行継続 …… tokenize は改行を区切りの演算子として残すので、1 つの gh 呼び出しが複数の
         単純コマンドに割れる。旗だけが載った断片は gh 呼び出しと認識されず(gh_args が None)、
@@ -816,16 +828,17 @@ def normalize_shell(text):
         位置引数を本文と見る経路で嘘の deny が出る。bash と同じ「語頭の # から行末まで」だけを
         落とすのが、どちらにも倒れない唯一の形。
     """
-    out, i, n, quote, copied, gap = [], 0, len(text), None, 0, ""
+    out, i, n, copied, gap = [], 0, len(text), 0, ""
+    stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
     while True:
         m = _EVENT_RE.search(text, i)
         if m is None:
             break
         i = m.start()
-        c = text[i]
-        if quote == "'":
+        c, top = text[i], stack[-1]
+        if top[0] == "'":
             if c == "'":
-                quote = None
+                stack.pop()
             i += 1
         elif c == "\\":
             if text.startswith(("\\\r\n", "\\\n"), i):
@@ -837,19 +850,53 @@ def normalize_shell(text):
                 copied = i
             else:
                 i += 2  # 退避された 1 文字は事象として見ない(`\#` は注釈の開始ではない)
+        elif text.startswith("$$", i):
+            i += 2  # $$ はプロセスの番号で、後ろの { ( は置換の始まりではない(`$${ # it's` の # は注釈)
+        elif c == "`":
+            if top[0] == "`":
+                stack.pop()
+            else:
+                stack.append(["`", 0])
+            i += 1
+        elif top[0] == "`":
+            i += 1
         elif c == '"':
-            quote = None if quote == '"' else '"'
+            if top[0] == '"':
+                stack.pop()
+            else:
+                stack.append(['"', 0])
             i += 1
-        elif c == "'" and quote is None:
-            quote = "'"
+        elif top[0] == '"':
+            if text.startswith("$(", i):
+                stack.append(["(", 1])
+                i += 2
+            elif text.startswith("${", i):
+                stack.append(["{", 0])
+                i += 2
+            else:
+                i += 1
+        elif c == "'":
+            stack.append(["'", 0])
             i += 1
-        elif c == "#" and quote is None and _head(text, i, copied, gap):
+        elif text.startswith("${", i):
+            stack.append(["{", 0])
+            i += 2
+        elif top[0] == "{":
+            if c == "}":
+                stack.pop()
+            i += 1
+        elif c in "()" and top[0] == "(":
+            top[1] += 1 if c == "(" else -1
+            if not top[1]:
+                stack.pop()
+            i += 1
+        elif c == "#" and _head(text, i, copied, gap):
             gap = text[i - 1] if i > copied else gap
             out.append(text[copied:i])
             nl = text.find("\n", i)
             i = n if nl < 0 else nl  # 改行は残す(単純コマンドの区切り)
             copied = i
-        else:  # 二重引用の中の '、引用の中の #、語中の # はどれも構文ではない
+        else:  # 引用の中の #、語中の #、引用の外の $・括弧はどれも、ここで落とす物の境目ではない
             i += 1
     if not out:
         return text  # 落とす物が 1 件も無ければ複製しない
@@ -1548,8 +1595,11 @@ class BodyFiles:
     解くのは、前のコマンドが必ず走って効果が gh まで届くと字面で言えるときだけ。言えなければ None(止める側)。
     """
 
-    def __init__(self, cmds, cwd, heredoc_bodies, norm, tokens=()):
+    def __init__(self, cmds, cwd, heredoc_bodies, norm, tokens=(), hidden=(), blind=False):
         self.cmds, self.heredocs, self.norm = cmds, heredoc_bodies, norm
+        # hidden は二重引用の中の置換で走るコマンドの (引数列, リダイレクト)。blind は置換の中を読むときで、外のコマンドの
+        # cd・代入・書き込みが見えないので、ファイルもフックの環境の値も読まない
+        self.hidden, self.blind = hidden, blind
         # if・case・繰り返しの中のコマンドは、区切りが ; でも走るとは限らない(予約語は単純コマンドから落ちるので、語の列で見る)
         self.conditional = any(t in CONDITIONAL_WORDS for t in tokens)
         self.cwd = cwd if cwd and os.path.isabs(cwd) else None
@@ -1639,7 +1689,7 @@ class BodyFiles:
         字のまま渡す)・eval・source の類が在る・入れ直すコマンド(printf は -v のときだけ)の名前の側に変数が在る。
         前置(env など)と `command`・`builtin` の後ろのコマンド名で見る。値が空白を持てば、引用の無い $名前 は割れるので解かない。
         """
-        value = os.environ.get(name) if name in SHARED_ENV else None
+        value = os.environ.get(name) if name in SHARED_ENV and not self.blind else None
         table = self.assigned()
         if (not value or not os.path.isabs(value) or any(ch in value for ch in "$`\"' \t\n") or name in table
                 or "*" in table or "\\$" in self.norm
@@ -1758,6 +1808,8 @@ class BodyFiles:
 
     def path(self, value, k=None):
         """本文ファイルの実パス(k 番目のコマンドの cwd で解く)。字のまま決まらなければ None。"""
+        if self.blind:
+            return None
         v = self.var(value)
         home = self.inherited("HOME") if v and v.startswith("~/") else None
         if home:
@@ -1837,6 +1889,14 @@ class BodyFiles:
                 named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))
                 if any(named.search(body) for body in own_heredocs(c.args, self.heredocs)):
                     found.append("writer")
+        for args, redirects in self.hidden:
+            # 二重引用の中の置換で走るコマンド(`x="$(cp a f)"; gh … --body-file f`)。走る順は読まずに書き手に数える
+            # 置換の中の代入(`"$(f=note.md; cp evil $f)"`)は外から見えないので、$ を持つ名前は解かずに同じファイルかもしれない物と見る
+            at = command_start(args)
+            if (any(op in WRITE_OPS and ("$" in d or os.path.basename(d) == base) for op, d in redirects)
+                    or (at < len(args) and os.path.basename(args[at]) not in READ_ONLY_CMDS
+                        and any("$" in t or os.path.basename(t.rstrip("/")) == base for t in args[1:]))):
+                found.append("writer")
         if not found:
             return None
         if len(found) > 1 or found[0] == "writer":
@@ -1908,6 +1968,7 @@ class Analysis:
         self.parsed, self.candidates, self.blocked = parsed, list(candidates), list(blocked)
         self.calls, self.misses = list(calls), list(misses)
         self.lost = []   # calls と同じ順。前の cd・-C で走る場所が読めなくなった呼び出しは True
+        self.runs = []   # 走る単純コマンド (引数列, リダイレクト) の全部(置換の中の物も)。外の BodyFiles が書き手を探す
 
     def run_place(self, body, cwd):
         """body を運んだ gh が走る場所。前の cd・-C で読めなくなったら None(フックの場所 cwd で代えない)。
@@ -1941,15 +2002,15 @@ def _head_word(args):
     return "-"
 
 
-def analyze(command, cwd=None, prepared=None):
+def analyze(command, cwd=None, prepared=None, depth=0):
     """コマンド文字列を解析する(Analysis)。解析できなければ parsed=False。
 
-    prepared は呼び元が先に通した prepare(command) の結果(渡せば prepare を 2 度回さない)。"""
+    prepared は呼び元が先に通した prepare(command) の結果(渡せば prepare を 2 度回さない)。depth は置換の中を読む入れ子の段。"""
     norm, heredoc_bodies = prepared or prepare(command)
     spans = substitution_spans(norm)
     if spans is None:
         return Analysis(False)
-    inner, norm = read_substitutions(norm, spans, cwd, heredoc_bodies)
+    inner, norm = read_substitutions(norm, spans, heredoc_bodies, depth)
     if inner is None:
         return Analysis(False)
     tokens = tokenize(norm)
@@ -1962,8 +2023,10 @@ def analyze(command, cwd=None, prepared=None):
     if live or live_var:
         tokens = mark_words(norm, tokens)   # 展開される $・` が無ければ印は要らない(100KB の本文で字句解析を 2 度回さない)
     cmds = split_commands(tokens)
-    files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
+    hidden = [run for sub in inner for run in sub.runs]
+    files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens, hidden, blind=depth > 0)
     out = Analysis(True)
+    out.runs = [(c.args, c.redirects) for c in cmds] + hidden
     for k, c in enumerate(cmds):
         args = gh_args(c.args)
         sent = dispatch_args(c.args) if args is None else None
@@ -2006,15 +2069,23 @@ def analyze(command, cwd=None, prepared=None):
     return out
 
 
-def read_substitutions(norm, spans, cwd, heredoc_bodies):
+# 二重引用の中の置換を、中身を別のコマンドとして読む入れ子の深さの上限。深い入れ子は段ごとに全体を読み直すので、
+# 100KB に 100 段で 1 分かかり、フックの timeout(275s)を過ぎるとコマンドは素通しになる(2026-10-30 に実測。頼み cae1e2)
+SUB_DEPTH = 4
+# 中に引用符を持つ置換の中身を替える埋め草。変数の名前に使えない字にする(_ だと `${x:-"…"}` が `${____}` という名前の
+# 変数に見え、前の `____=…` の代入の値を本文と読んでいた)
+SUB_FILL = "."
+
+
+def read_substitutions(norm, spans, heredoc_bodies, depth):
     """substitution_spans の置換の中身を、別のコマンドとして読む → (中の Analysis の並び, 語に割る写し)。読めなければ (None, norm)。
 
-    中の gh は、前の cd・pushd の先で走りうるので、コマンドに cd・pushd・popd が在れば走る場所を知らない物として読む
-    (本文ファイルを読まない側に倒れる)。前の代入も中には届けない(変数の本文は止まる側に倒れる)。${ } の中の $( )・`…` は
-    走るかが値しだいなので読めない物とする。中に " を持つ置換と、引用符を持つ `…` は、語の切れ目を bash に合わせるため、
-    写しの中身を埋め草(_)に替える(頭の $( ・` と閉じる字は残すので、本文に在れば置換渡しとして止まる)。"""
+    中の gh は、外のコマンドの cd・代入・ファイルへの書き込みの後で走るが、中を読むときにはそれが見えないので、走る場所を
+    知らない物として読む(本文ファイルと変数の本文は止まる側に倒れる)。`…` の中身は、bash と同じく \\$ \\` \\\\
+    (二重引用の中なら \\" も)の \\ を外し、注釈を落としてから読む。${ } の中の $( )・`…` は走るかが値しだいなので
+    読めない物とする。中に " を持つ置換と、引用符を持つ `…` は、語の切れ目を bash に合わせるため、写しの中身を埋め草に
+    替える(頭の $( ・` と閉じる字は残すので、本文に在れば置換渡しとして止まる)。"""
     inner, chars = [], None
-    moves = re.search(r"(?:^|[\s;&|(])(?:cd|pushd|popd)(?=[\s;&|)]|$)", norm)
     for start, end, kind, in_dq in spans:
         head = start + (1 if kind == "`" else 2)
         body = norm[head:end]
@@ -2023,14 +2094,19 @@ def read_substitutions(norm, spans, cwd, heredoc_bodies):
                 return None, norm
             blank = in_dq and '"' in body
         else:
-            sub = analyze(None, None if moves else cwd, (body, heredoc_bodies))
+            if depth >= SUB_DEPTH:
+                return None, norm
+            code = body
+            if kind == "`":
+                code = normalize_shell(re.sub(r'\\([$`\\%s])' % ('"' if in_dq else ""), r"\1", body))
+            sub = analyze(None, None, (code, heredoc_bodies), depth + 1)
             if not sub.parsed:
                 return None, norm
             inner.append(sub)
             blank = '"' in body or (kind == "`" and "'" in body)
         if blank:
             chars = chars or list(norm)
-            chars[head:end] = "_" * (end - head)
+            chars[head:end] = SUB_FILL * (end - head)
     return inner, norm if chars is None else "".join(chars)
 
 
