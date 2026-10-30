@@ -603,7 +603,9 @@ def _ask(a, ports, cwd, task, sent):
     # 頼みの行の親の鍵。束の合図で回した頼みは、乗った部署の頼みも親に並べる（calls.fire）
     links = {"cause": cause, **({"causes": a.causes} if getattr(a, "causes", None) else {}),
              **({"cause_boss": cause_boss} if cause_boss else {})}
-    origin = {"name": name, "account": account, "session": boss["boss-session"], "place": cwd}
+    # 頼み元の場所は、頼んだ会話の部署の場所（here）。打った場所（cwd）を書くと、部署の会話がシェルで本社へ移って打った頼みを、
+    # --done と Stop フックが部署の出した頼みと見ず（asked_here・wake_hook.open_children）、返事を待たずに畳めた
+    origin = {"name": name, "account": account, "session": boss["boss-session"], "place": here}
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if (the_role or {}).get("machine"):
         print("\n".join(notes + [f"止めた: 役「{role}」は機械だけの役（AI の部署を持たない）なので頼めない。ツールを --call で呼ぶ"
@@ -1605,7 +1607,7 @@ def asked_open(inbox, attrs, cwd):
 
 
 def asked_here(row, attrs, top):
-    """台帳の頼みの行 row を、この部署（名前と作業場 top）が出したか。行の場所は --ask を打った所なので、作業場の下のフォルダも当てる。"""
+    """台帳の頼みの行 row を、この部署（名前と作業場 top）が出したか。行の場所は頼んだ会話の部署の場所で、作業場の下のフォルダのことも在る（前の版の行は --ask を打った所）ので、下のフォルダも当てる。"""
     sender = row.get("from") or {}
     if sender.get("name") != attrs.get("name") or not sender.get("place"):
         return False

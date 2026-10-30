@@ -1268,6 +1268,16 @@ class Flow(unittest.TestCase):
         (rec,) = deliver.records(self.inbox)
         self.assertEqual((rec["status"], rec["detail"]), ("failed", "部署 直し  b/x  -  no_account（使用率が上限に届かないアカウントが無い）"))
 
+    def test_an_ask_typed_from_the_head_office_by_a_department_records_the_departments_place(self):
+        # 部署の会話がシェルで本社へ移って頼んでも、頼み元の場所は部署の場所。前は打った場所を書き、--done がこの頼みを見なかった
+        self.shape('[[roles]]\nname = "作業"\n')
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}
+        with mock.patch.object(sys.modules["dispatch"], "_task", lambda *a, **kw: 0):
+            self.main(self.src, "--ask", "作業", "--text", "直して", "--task", "直し", "--branch", "b/x")
+        (rec,) = deliver.records(self.inbox)
+        self.assertEqual(rec["from"]["place"], self.place)
+        self.assertTrue(orders.asked_here(rec, self.g.worktree_attrs(self.place), self.place))
+
     def test_a_department_that_failed_to_launch_keeps_the_reason_from_before_the_summary(self):
         # launch_failed の訳は要約の行より前の行に在る。要約の行だけを残すと、状態の語しか残らない
         self.shape('[[roles]]\nname = "作業"\n')
