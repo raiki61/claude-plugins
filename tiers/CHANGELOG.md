@@ -6,6 +6,13 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Fixed
+
+- statusline で、gh の失敗で控えの PR を消さない（頼み cce9a3）。
+- 背景のサブエージェントの数え方が、日本語のロケールでも、GNU coreutils の date が先に PATH に在る macOS でも、Claude の起きた時刻を ps の経過時間から正しく出す（頼み cce9a3）。
+- herdr の判定ルールの上書きを作れないとき（PATH の python3 が 3.10 までで入口が落ちるときも）、失敗の印を残し、30 秒ごとに作り直しを起動し続けない（頼み cce9a3）。
+- Python 3.10 以下の点検（tiers-check）で、tiers の作った上書きを誤りと報告しない（頼み cce9a3）。
+
 ## [0.13.0] - 2026-10-30
 
 ### Changed

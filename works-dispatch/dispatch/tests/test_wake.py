@@ -3055,12 +3055,13 @@ class WakeFlow(unittest.TestCase):
         def fake_ask(a, ports, cwd, task, sent):
             sent.update(id=a.ask_id, to={"company": "co", "name": "調べ：先", "role": "作業"})
             return 1
+        note = "割り振りが回した"
         with mock.patch.object(orders, "ask", fake_ask):
             rc, out = self.main(self.place, "--take", first["id"], "--ask", "作業", "--task", "調べ：先", "--branch", "b/y",
-                                "--text", "割り振りが回した")
+                                "--text", note)
         self.assertEqual(rc, 1, out)
         self.assertNotIn(first["id"], [q["id"] for q in wake.queued(self.inbox, self.dept_place())])
-        self.assertTrue(pathlib.Path(first["file"]).read_text(encoding="utf-8").startswith("割り振りが回した"), "届いた部署が読む本文を戻さない")
+        self.assertTrue(pathlib.Path(first["file"]).read_text(encoding="utf-8").startswith(note), "届いた部署が読む本文を戻さない")
         self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "taken"], [first["id"]])
 
     def test_withdraw_drops_an_ask_and_leaves_it_in_the_ledger(self):
