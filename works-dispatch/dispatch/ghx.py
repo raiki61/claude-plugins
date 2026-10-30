@@ -179,7 +179,7 @@ def pr_activity(repo, number, me, runner=_default_runner, env=None):
     commit の時刻（秒）, "head_sha": PR の今の head の commit}。Bot（copilot など）は、レビュアーにも、動きにも数えない。見分けは whose-turn と同じく GraphQL の
     __typename（login の形では見分けない）。レビューのスレッドへの返事は、返した人のレビューとして reviews に入る。読めなければ GhError。"""
     owner, name = repo.split("/", 1)
-    p = runner(["gh", "api", "graphql", "-f", f"query={ACTIVITY_QUERY}", "-F", f"owner={owner}", "-F", f"name={name}",
+    p = runner(["gh", "api", "graphql", "-f", f"query={ACTIVITY_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
                 "-F", f"number={number}"], env=env)
     try:
         got = json.loads(p.stdout)["data"]["repository"]["pullRequest"] if p.returncode == 0 else None

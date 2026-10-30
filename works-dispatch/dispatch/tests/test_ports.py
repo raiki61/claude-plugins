@@ -357,6 +357,16 @@ class Gh(unittest.TestCase):
             with self.assertRaises(ghx.GhError):   # 人向けの表や、issue の無い答えを空として読まない
                 ghx.issue_branches("o/r", 12, runner=Fake((0, broken, "")))
 
+    def test_pr_activity_passes_the_owner_and_the_name_as_strings(self):
+        # -F は値の形を読む（2048 は数、true は真偽）ので、GraphQL の String! に渡す owner・name は -f で渡す
+        f = Fake((0, json.dumps({"data": {"repository": {"pullRequest": {}}}}), ""))
+        ghx.pr_activity("someone/2048", 5, "me", runner=f)
+        argv = f.calls[0][0]
+        self.assertEqual(argv[:3], ["gh", "api", "graphql"])
+        self.assertEqual(argv[argv.index("owner=someone") - 1], "-f")
+        self.assertEqual(argv[argv.index("name=2048") - 1], "-f")
+        self.assertEqual(argv[argv.index("number=5") - 1], "-F")
+
     def test_issue_develop_makes_the_branch_from_the_base_with_the_given_env(self):
         f = Fake((0, "github.com/o/r/tree/12-fix-login\n", ""))
         ghx.issue_develop("o/r", 12, "main", runner=f, env={"GH_TOKEN": "t"})
