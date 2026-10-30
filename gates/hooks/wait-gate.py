@@ -117,20 +117,21 @@ def comment_at(text, index):
 def hash_kinds(text):
     r"""text の、引用符の外の # の位置ごとの読み方(CODE・COMMENT・UNSURE)。載っていない位置は UNSURE。
 
-    - 語の頭(行の頭・空白・`;`・`&`・`|`・`<`・`>` の後)の # はコメント。ただし、閉じていない `{`・`[`・`(` の中
-      (`${x%% #*}`・`[[ x =~ (a|#) ]]`・`(( x = 1 #2 ))`・`${y:-` の次の行の #)では、シェルがコメントにしないことがあるので迷う。
+    - 語の頭(行の頭・空白・`;`・`&`・`|`・`<`・`>` の後)の # はコメント。ただし、閉じていない `${ }`・`[[ ]]`・`(( ))`・
+      `$(( ))`・語の中の `( )`(`@( )`・`a=( )`)の中(`${x%% #*}`・`[[ x =~ (a|#) ]]`・`(( x = 1 #2 ))`・`${y:-` の次の行の #)
+      では、シェルがコメントにしないことがあるので迷う。ただの `{ }` のまとまり・サブシェルの `( )`・`[ ]` の中はコメント。
       括弧はコマンドの全体で数え、`$( )` と `` ` ` `` の中は別に数える(中の `}` で外の `${` を閉じない)。
     - `(`・`)` の後の # は迷う(`$(date)#notes`・`a=(x)#` は語の中の字、`case a in a)# it's` はコメント、zsh の `(#i)` と
       bash の `@(#|x)` はパターンの字)。
     - `\` で引用した字の後(`my\ #1`)と、ほかの字の後の # は語の中の字。`\` と改行は行をつなぐので、つないだ先の前の字で見る。
       コメントの中の `\` は行をつながない(コメントは行の終わりまで飛ばす)。
     - 迷う # の後は、同じ行の # と、その行の `\` でつないだ次の行の # も迷う(迷う # がコメントなら、その後の字は読めない)。
-    - ヒアドキュメントの中身(終わりの語だけの行まで)は読まない。
+    - ヒアドキュメントの中身(終わりの語だけの行まで)は、それだけで 1 つのコマンドとして読む。
     一度だけ読んで KINDS に置く(# の多い長いコマンドで手間を掛け算にしない)。"""
     if text in KINDS:
         return KINDS[text]
     kinds = {}
-    frames = [["code", 0, 0, 0]]   # 段(code・sub=$( )・`=`…`・"=二重引用)と、{・[・( の開いた数
+    frames = [["code", 0, 0, 0, -1]]   # 段(code・sub=$( )・`=`…`・"=二重引用)と、{・[・( の開いた数と、閉じる ` の位置
     joins = {}       # 行をつなぐ \ と改行の、改行の位置 → 迷う # の後のつなぎか
     escaped = set()  # \ で引用した字の位置
     pending = []
@@ -150,11 +151,12 @@ def hash_kinds(text):
                 frames.pop()
                 index += 1
             elif char == "`":
-                frames.append(["`", 0, 0, 0])
+                frames.append(["`", 0, 0, 0, -1])
                 index += 1
             else:
-                frames.append(["sub", 0, 0, 0])
-                index += 2
+                arithmetic = text.startswith("$((", index)
+                frames.append(["sub", 0, 0, int(arithmetic), -1])
+                index += 2 + arithmetic
             continue
         match = _HASH_EVENT.search(text, index)
         if match is None:
@@ -170,7 +172,9 @@ def hash_kinds(text):
         elif char == "\n":
             index += 1
             for word, dash in pending:
-                index = heredoc_body_end(text, index, word, dash)
+                start, index = index, heredoc_body_end(text, index, word, dash)
+                # 中身は別のコマンドとして読む(`bash <<'X'` の中身はシェルが読む。中身を除くのは drop_heredoc_bodies の役)
+                kinds.update((start + at, kind) for at, kind in hash_kinds(text[start:index]).items())
             pending = []
         elif char == "'":
             if index and text[index - 1] == "$" and index - 1 not in escaped:
@@ -179,19 +183,29 @@ def hash_kinds(text):
                 found = text.find("'", index + 1)
                 index = size if found < 0 else found + 1
         elif char == '"':
-            frames.append(['"', 0, 0, 0])
+            frames.append(['"', 0, 0, 0, -1])
             index += 1
         elif char == "`":
             if frame[0] == "`":
                 frames.pop()
             else:
-                frames.append(["`", 0, 0, 0])
+                frames.append(["`", 0, 0, 0, -1])
             index += 1
+        elif text.startswith("$((", index):
+            frames.append(["sub", 0, 0, 1, -1])   # $(( )) は ( を 1 つ開いた置換と数える
+            index += 3
         elif text.startswith("$(", index):
-            frames.append(["sub", 0, 0, 0])
+            frames.append(["sub", 0, 0, 0, -1])
             index += 2
         elif char in "{[(":
-            frame[1 + "{[(".index(char)] += 1
+            slot = 1 + "{[(".index(char)
+            prev = text[index - 1] if index else "\n"
+            # 数えるのは、中の # をシェルがコメントにしないことのある括弧だけ: ${ }・[[ ]]・(( ))・$(( ))・語の中の ( (@( )・a=( ))
+            # と、それらの中の括弧。ただの { } のまとまり・サブシェルの ( )・[ ] の試験の中の # はコメント
+            if frame[slot] or (char == "{" and prev == "$" and index - 1 not in escaped) \
+                    or (char != "{" and text.startswith(char, index + 1)) \
+                    or (char == "(" and (prev not in " \t\n;&|<>()" or index - 1 in escaped)):
+                frame[slot] += 1
             index += 1
         elif char in "}])":
             slot = 1 + "}])".index(char)
@@ -218,8 +232,12 @@ def hash_kinds(text):
                 line_end = size if line_end < 0 else line_end
             if kind == UNSURE:
                 unsure_until = line_end
-            if kind == COMMENT:
-                index = min(line_end, next_backtick(text, index)) if frame[0] == "`" else line_end
+            if kind == COMMENT and frame[0] == "`":
+                if frame[4] < index:   # 閉じる ` は段ごとに一度だけ探す(コメントごとに探すと長さの 2 乗)
+                    frame[4] = next_backtick(text, index)
+                index = min(line_end, frame[4])
+            elif kind == COMMENT:
+                index = line_end
             else:
                 index += 1
         else:

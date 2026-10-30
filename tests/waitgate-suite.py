@@ -226,6 +226,12 @@ class SleepLoops(unittest.TestCase):
         "until \"$@\"; do sleep 2; done\nEOF\nchmod +x /tmp/retry_x.sh",
         "sleep 0 # then while it builds, check logs",
         "# Poll the service (until healthy) and sleep between tries\ncurl -s localhost:8080/health",
+        # ただの { } のまとまり・サブシェル・関数の中身・シェルが読むヒアドキュメントの中身のコメントも、コメントのまま
+        "start_server() {\n  # Record start time while the server boots\n  ./server &\n  sleep 3\n}\nstart_server",
+        "(\n  cd /tmp\n  # Hold the lock (while the job runs) and give it a moment\n  sleep 1\n)",
+        "{\n  echo start\n  # step 2 (until v2 ships): sleep before the probe\n  sleep 1\n} > log",
+        "{\n  # check if while the server boots the port answers\n  sleep 5; curl localhost\n}",
+        "bash <<'X'\n# note: (while it runs) we sleep\nsleep 1\nX",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
@@ -305,6 +311,11 @@ class LongCommands(unittest.TestCase):
     def test_many_blank_lines_are_read_in_time(self):
         # 前はループの語の前の空白に改行も数え、空の行の続きを改行ごとに読み直して 8 万行で約 50 秒かかった(時間切れで通る)
         reason, _ = run("true" + "\n" * 80000 + ":\nuntil test -f x; do sleep 1; done", timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_many_comments_in_backticks_are_read_in_time(self):
+        # 前はバッククォートの中のコメントごとに閉じる ` を探し直し、60KB で約 40 秒かかった(時間切れで通る)
+        reason, _ = run("echo `" + "\n#" * 45000 + "\n`; until test -f x; do sleep 1; done", timeout=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_hashes_in_nested_substitutions_are_read_in_time(self):
