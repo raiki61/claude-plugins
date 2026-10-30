@@ -202,6 +202,8 @@ class SleepLoops(unittest.TestCase):
         # 引数の中の `a=(`・`--color=(` は zsh でパターン(中の # はコメントでない)
         "ls a=(x #) ; until test -f x; do sleep 1; done",
         "ls --color=(auto|#x); until test -f x; do sleep 1; done",
+        # 外のシェルが \${ を ${ にするので、中の # はコメントでない
+        "bash <<EOF\nname=\\${line%% #*}; until test -f x; do sleep 1; done\nEOF",
     ]
     PASS = [
         "python3 tools/check_route.py",

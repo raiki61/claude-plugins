@@ -101,8 +101,9 @@ CODE, COMMENT, UNSURE = 0, 1, 2
 _HASH_EVENT = re.compile(r"[\\\n'\"`$(){}\[\]#<]")
 _HASH_QUOTED_EVENT = re.compile(r'[\\"`]|\$\(')
 _ANSI_QUOTED = re.compile(r"(?:[^'\\]|\\.)*'?", re.S)
-# 終わりの語を引用しないヒアドキュメントの中身で、外のシェルが外す `\`(`\\`・`\` と改行・`\``)。外した後は # の読みが変わりうる
-_OUTER_UNESCAPES = re.compile(r"\\[\\\n`]")
+# 終わりの語を引用しないヒアドキュメントの中身で、外のシェルが外す `\`(`\\`・`\` と改行・`\``・`\${`・`\$(`・`\$[`)。
+# 外した後は # の読みが変わりうる(`\${x%% #*}` の # は中のシェルでコメントでない)。`\$HOME` は読みを変えない
+_OUTER_UNESCAPES = re.compile(r"\\(?:[\\\n`]|\$[{(\[])")
 # 配列の代入の `NAME=(`(行の頭・演算子の後・declare などの後)。中の # はコメント。ほかの語の中の `=(` は zsh でパターン
 _ARRAY_OPEN = re.compile(r"(?:^|[\n;&|({]|\b(?:declare|local|typeset|readonly|export)(?:[ \t]+-\w+)*)[ \t]*"
                          r"[A-Za-z_]\w*(?:\[[^\]\n]*\])?\+?=$")
