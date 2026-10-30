@@ -1466,7 +1466,8 @@ function thread(th, i) {
   box.append(el("div", { class: "thread-head" }, th.href ? el("a", { href: th.href, class: "path-link" }, where) : el("span", { class: "path-link" }, where),
     el("span", { class: "right" }, th.outdated ? el("span", { class: "label" }, "行がずれている") : null, status,
       th.my_turn ? el("span", { class: "label severe" }, "私が返すターン")
-        : el("span", { class: "label" }, th.side_last ? `持ち主の側の ${th.side_last} が最後に返している（相手のターン）` : "相手のターン"))));
+        : el("span", { class: "label" }, th.side_last ? `持ち主の側の ${th.side_last} が最後に返している（相手のターン）`
+          : th.mine ? "私が最後に発言している（相手のターン）" : "私は入っていない（他の人同士の会話）"))));
   if (th.excerpt) {
     const ex = drawDiff(el("div", { class: "excerpt" }), th.excerpt);
     // 指摘の行の印は、削除された側への指摘なら base の版の番号（.line-num1）で、ほかは head の版の番号（.line-num2）で探す

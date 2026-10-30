@@ -426,11 +426,34 @@ def repo_label(top):
     return changemap.repo_of(url) or os.path.basename(top)
 
 
+GITHUB_HOSTS = ("github.com", "ssh.github.com", "www.github.com")
+
+
 def on_github(top):
     """origin が github.com か。ほかの host（GitLab・GHE）の "owner/name" を github.com に問い合わせると、同じ名前の
-    別の公開リポジトリを見て公開と答えてしまう"""
-    url = run(["git", "-C", top, "remote", "get-url", "origin"]) or ""
-    return bool(re.search(r"(?:^|[@/])github\.com[:/]", url.strip()))
+    別の公開リポジトリを見て公開と答えてしまう。host は URL の host の部分で見る（path の中の github.com で当てない）。
+    ssh の別名（github.com-仕事用 などの複数アカウントの書き方）は、名前の形と ssh -G の hostname で github.com に
+    戻す——別名を github.com でないと読むと、自分の公開リポジトリの名前と番号を非公開として書かせない（実測）"""
+    url = (run(["git", "-C", top, "remote", "get-url", "origin"]) or "").strip()
+    m = (re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)", url)
+         or re.match(r"^(?:[^@/:]*@)?([^/:]+):(?!//)", url))
+    host = m.group(1).lower() if m else ""
+    if not host or host in GITHUB_HOSTS or host.startswith("github.com-"):
+        return bool(host)
+    if url.lower().startswith(("http://", "https://", "git://")) or host.startswith("-"):
+        return False
+    conf = run(["ssh", "-G", host]) or ""
+    real = next((ln.split(None, 1)[1].strip().lower() for ln in conf.splitlines()
+                 if ln.lower().startswith("hostname ") and len(ln.split(None, 1)) == 2), "")
+    return real in GITHUB_HOSTS
+
+
+def local_repos(cwds, background=()):
+    """privacy の local: 会話の作業フォルダのリポジトリ [(呼び名, origin が github.com か)]。裏の claude -p だけが動いた
+    リポジトリも入れる——作業フォルダと頼みの頭が AI に渡る（background の行）。origin の無いリポジトリ（呼び名が
+    フォルダの名前）は入れない——docs・notes などの一般の語を書けなくなる。commit が在れば privacy が commit の側で見る"""
+    tops = repo_tops(sorted(set(cwds) | {s["cwd"] for s in background if s.get("cwd")})).values()
+    return [(label, on_github(top)) for top in tops for label in [repo_label(top)] if "/" in label]
 
 
 def repo_tops(cwds):
@@ -770,10 +793,12 @@ def privacy(commit_rows, gh_rows, ask=repo_private, local=()):
 # 非公開の番号を集める・フィールドの文から探す用。lib/ghtext.py の refs（コードと引用の中を数えない）より広く、
 # 「PR 12」の形も、コードの中の #12 も当てる——ここは漏れを防ぐ側なので、外すより当て過ぎに倒す。PR・issue の前の
 # 切れ目は ASCII の英数字で見る（\b は日本語の字も語に数え、「このPR 12」を見逃す）。全角の ＃ も当てる。
-# 呼び方は PR・PRs・issue・issues・pull request・pull/12 で、間に空白・#・-・/ を挟んでよい。続けて並べた番号
-# （PR 12・13、#5 と #6、issues 3, 4）も当てる——最初の 1 つだけだと後ろの番号が漏れる
-REF = re.compile(r"(?:[#＃]|(?<![A-Za-z0-9_])(?:pull[\s-]*requests?|prs?|issues?|pull)(?![A-Za-z])[\s#＃/-]*)"
-                 r"(\d+(?:\s*(?:[・、,/]|and|と)\s*[#＃]?\d+)*)", re.I)
+# 呼び方は PR・PRs・issue・issues・pull request・pull/12・プルリク・イシューで、間に空白・#・-・/・:・括弧・no.・
+# 番号を挟んでよい（PR: 12、PR（12）、PR番号 12、issue no. 12）。続けて並べた番号（PR 12・13、#5 と #6、issues 3, 4）と
+# 範囲（PR 12〜14、#12-14）も当てる——最初の 1 つだけだと後ろの番号が漏れる
+REF = re.compile(r"(?:[#＃]|(?<![A-Za-z0-9_])(?:pull[\s-]*requests?|prs?|issues?|pull|プルリク(?:エスト)?|イシュー)"
+                 r"(?![A-Za-z])[\s#＃/:：(（-]*(?:(?:no\.?|番号)[\s#＃:：]*)?)"
+                 r"(\d+(?:\s*(?:[・、,/〜～~–-]|and|と)\s*[#＃]?\d+)*)", re.I)
 
 
 def ref_numbers(text):
@@ -832,8 +857,8 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     gh_unseen = []
     gh = github(start, end, gh_unseen) if with_github else []
     commit_rows = commits(cwds, start, end)
-    local = [(repo_label(top), on_github(top)) for top in repo_tops(cwds).values()]
-    private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True), local)
+    private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True),
+                      local_repos(cwds, background))
     for g in gh:
         g.pop("all_events", None)
     try:

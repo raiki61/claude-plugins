@@ -1041,7 +1041,9 @@ def find_ask(ev, node, me, cutoff, own):
     # 新しい返事のものを取る。私がまだ入っていないスレッド（自分の件の新しい指摘）は名指しが無いと断る
     waiting = [th for th in threads_awaiting(node, me) if cutoff is None or ts(th["last"]["createdAt"]) > cutoff]
     if waiting:
-        th = max(waiting, key=lambda th: ts(th["last"]["createdAt"]))
+        # 私が入っているスレッドの返事を、私がまだ入っていない新しい指摘より先に取る（名指しの無い方を取ると、私への
+        # 返事が「求められていること」から消え、理由も「問いかは本文で確かめる」に弱まる）
+        th = max(waiting, key=lambda th: (bool(th["mine_last"]), ts(th["last"]["createdAt"])))
         c = th["last"]
         ask = {"t": ts(c["createdAt"]), "who": login_of(c["author"]),
                "kind": f"スレッド {thread_where(th)}（未解決）", "text": c["body"],
@@ -1049,9 +1051,11 @@ def find_ask(ev, node, me, cutoff, own):
                "key": "thread", "to": None, "resolved": False}
         return ask if th["mine_last"] else dict(ask, unaddressed=True)
 
-    if own:
-        others = [e for e in later if e["cat"] == SPOKEN and e["who"] != me and not e["bot"]
-                  and not e["resolved"] and (e["text"] or "").strip()]
+    # スレッドの発言は上の threads_awaiting が私のターンかを決め終えているので、ここでは見ない。担当に渡した自分の
+    # PR は担当のターンで（unresolved_threads・/whose-turn と同じ）、名指しの無い発言を私への依頼にしない
+    if own and (node["__typename"] != "PullRequest" or me in turn.owners(node)):
+        others = [e for e in later if e["cat"] == SPOKEN and e["key"] != "thread" and e["who"] != me
+                  and not e["bot"] and not e["resolved"] and (e["text"] or "").strip()]
         if others:
             return dict(others[-1], unaddressed=True)
     return None
@@ -1727,6 +1731,9 @@ def unresolved_threads(node, me):
                     # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
                     "mine_t": ts(mine[-1]["createdAt"]) if mine else None,
                     "mine_last": mine[-1] if mine else None})
+    # 私が返すターンを先に（並びはそのほかは GitHub の順のまま）。一覧は THREAD_CAP 件で切るので、他の人同士の
+    # スレッドが前に 10 件並ぶと、1 行目が「私が返すターン」と言うスレッドが一覧から落ちた
+    out.sort(key=lambda th: not th["my_turn"])
     return out
 
 
@@ -1821,12 +1828,13 @@ def merge_spans(spans):
     return out
 
 
-def render_since_thread(th, node, lines, lo, hi, diff_since, full):
+def render_since_thread(th, node, lines, lo, hi, diff_since, full, frame=True):
     """私が返すターンで、私の発言の後に相手が返している件——私の発言以降にこの file がどう変わったかを、今の姿に
     帯を入れた関数まるごとで出す（相手が「直した」と言う件で確かめるのは関数の今の姿でなく、私の発言以降の
     差分。関数まるごとを head から写すと 1 行の修正に 83 行を読む——実測）。lo〜hi（指摘の行の関数）に掛かる
     hunk だけ。行の無い指摘（file 全体）は、変わった所ごとにその関数。戻り値は (行の列, 枠を出したか)。出せない
-    理由も行で返す（黙って落とさない）。"""
+    理由も行で返す（黙って落とさない）。frame が偽なら、変わったかどうかの行だけで枠は出さない（削除された側の行への
+    指摘。head に行が無く、どの関数かを決められない）。"""
     out = []
     w = out.append
     when = f"私の発言（{hhmm(th['mine_t'])}）"
@@ -1851,6 +1859,10 @@ def render_since_thread(th, node, lines, lo, hi, diff_since, full):
     hunks = split_hunks(changemap.split_diff(text)[0].get(th["path"], []))
     if not hunks:
         w(f"  {when}以降、この file は変わっていない（{tally}）")
+        return out, False
+    if not frame:
+        w(f"  {when}以降、この file は {len(hunks)} か所変わっている（{tally}。削除された側の行への指摘なので枠にしない。"
+          "gh pr diff で見る）")
         return out, False
     if lines is None:
         w(f"  {when}以降の変更: 変わっている（{tally}）が、head の file が読めないので枠にできない。gh pr diff で見る")
@@ -1907,14 +1919,15 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
             w("    " + ln)
         if len(body) > THREAD_BODY_CAP:
             w(f"    （発言はあと {len(body) - THREAD_BODY_CAP} 行。gh api で見る）")
-        # 削除された側の行への指摘は head に行が無い。行の無い指摘と同じく file まるごとを枠にしない
-        since_turn = th["my_turn"] and bool(th["mine_t"]) and not th["left"]
-        lines = read_lines(th["path"]) if th["line"] or since_turn else None
+        # 削除された側の行への指摘は head に行が無く、どの関数かを決められない。私の発言以降に変わったかは出し、
+        # 枠は出さない（file の変わった所ごとの関数を並べると、指摘と関係の無い関数ばかりになる）
+        since_turn = th["my_turn"] and bool(th["mine_t"])
+        lines = read_lines(th["path"]) if (th["line"] or since_turn) and not th["left"] else None
         lo = hi = whole = None
         if th["line"] and not th["left"] and lines is not None and th["line"] <= len(lines):
             lo, hi, whole = func_span(lines, th["line"])
         if since_turn:
-            since_out, framed = render_since_thread(th, node, lines, lo, hi, diff_since, full)
+            since_out, framed = render_since_thread(th, node, lines, lo, hi, diff_since, full, frame=not th["left"])
             out.extend(since_out)
             if framed:
                 continue  # 変更に帯を入れた関数まるごとが出た。今の姿だけの行を重ねない
@@ -2795,8 +2808,10 @@ def local_slug(cwd=None):
 
 
 def plain_diff(rev, cwd=None, paths=(), opts=()):
-    """git diff の本文。失敗なら None。"""
-    return changemap.git("-c", "core.quotePath=false", "diff", *changemap.DIFF_SANE, *opts, rev, "--",
+    """git diff の本文。失敗なら None。複写の探し（diff.renames=copies）は止める——端末の枠（changemap.no_copies）と同じく、
+    複写先を元との差にすると、そのままの複写は中身が無い。"""
+    return changemap.git("-c", "core.quotePath=false", "diff", *changemap.DIFF_SANE, *changemap.no_copies(cwd), *opts,
+                         rev, "--",
                          *changemap.pathspecs(paths), cwd=cwd)
 
 

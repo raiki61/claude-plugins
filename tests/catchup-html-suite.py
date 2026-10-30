@@ -743,6 +743,8 @@ class PageItemTest(unittest.TestCase):
         body = tpl.split("\nfunction thread(", 1)[1].split("\nfunction ", 1)[0]
         self.assertIn("th.my_turn || th.side_last ? [mineEl, theirEl]", body)
         self.assertIn("持ち主の側の ${th.side_last} が最後に返している", body)
+        # 端末と同じく、私が最後に発言したのか、私が入っていないのかを分ける（どちらも「相手のターン」だけだった）
+        self.assertIn('th.mine ? "私が最後に発言している（相手のターン）" : "私は入っていない（他の人同士の会話）"', body)
 
     def test_own_pr_reviewed_after_request_hides_candidates(self):
         # GitHub はレビューを送った人を依頼の一覧から外す（#1901）。依頼の記録とレビューがあれば候補の札は出さない

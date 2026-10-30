@@ -471,7 +471,7 @@ class FrameDiff(unittest.TestCase):
     def test_paths_omitted_asks_git_which_files_changed(self):
         cm.frame_diff(cwd="/x", rev="a...b")
         self.assertEqual(self.calls[0][-4:], ("--name-status", "-z", "a...b", "--"))  # HEAD でなければ rev-parse しない
-        self.assertEqual([a[-1] for a in self.calls[1:]],
+        self.assertEqual([a[-1] for a in self.diffs()],
                          [":(top,literal)src/a.py", ":(top,literal)docs/b.md"])
 
     def test_rename_keeps_old_and_new_in_the_same_pathspec(self):
@@ -641,6 +641,26 @@ class RealGitConfig(unittest.TestCase):
         # --frame 複写先: 元と組にせず新規の diff にする（組にすると元との差で hunk が無い）
         info = cm.framed_diff(cm.frame_diff(cwd=self.top, paths=("sub/big2.txt",))).get("sub/big2.txt")
         self.assertTrue(info and info["new"])
+
+    def test_committed_copy_counts_and_frames_as_new(self):
+        """diff.renames=copies で commit した複写は、元も同じ commit で変わると git が元と組んで探し当てる。
+        木は「+0」、枠は「中身が diff に無い。…改名だけ」だった（実測。2 巡目の直しは add 済みの複写だけ）。"""
+        self.git("init", "-q")
+        self.git("config", "diff.renames", "copies")
+        self.write("sub/big.txt", "".join(f"{i}\n" for i in range(1, 51)).encode())
+        self.commit_all()
+        shutil.copy(os.path.join(self.top, "sub/big.txt"), os.path.join(self.top, "sub/big2.txt"))
+        with open(os.path.join(self.top, "sub/big.txt"), "ab") as f:
+            f.write(b"51\n")
+        self.commit_all()
+        rev = cm.commit_range(cm.commit_oid("HEAD", self.top), self.top)
+        paths, tree = cm.commit_tree(rev, self.top)
+        text = "\n".join(tree)
+        self.assertRegex(text, r"(?m)^\+\s+big2\.txt\s+\+50  複写元: sub/big\.txt")
+        frames = "\n".join(cm.frames_section(self.top, paths, rev=rev, new_from_file=False))
+        self.assertNotIn("中身が diff に無い", frames)
+        self.assertIn("=== sub/big2.txt", frames)
+        self.assertIn("50", frames.split("=== sub/big2.txt")[1])    # 複写先の中身（元との差でなく新規）
 
 
 class Prose(unittest.TestCase):

@@ -643,8 +643,8 @@ def name_status(cwd=None, rev="HEAD"):
 def changed_pairs(cwd=None, rev="HEAD"):
     """rev と比べて変わった file を [(振り分けに使う path, git に渡す path の組)]。改名は新旧を 1 組で
     返す——新側だけを pathspec に渡すと git が対を作れず、中身の変更が消えて全行 + の「新規」diff に
-    なる（実測）。複写（C。diff.renames=copies）は組にしない——元は残っているので、複写先だけを渡して
-    新規の diff にする（元と組にすると元との差になり、そのままの複写は hunk が無い）。失敗なら None。"""
+    なる（実測）。複写（C。diff.renames=copies）は組にしない——元は残っているので、複写先は単独で渡す。
+    中身の diff は no_copies を足して取るので、複写先は新規の diff になる。失敗なら None。"""
     recs = name_status(cwd=cwd, rev=rev)
     if recs is None:
         return None
@@ -657,6 +657,16 @@ def diff_base(rev="HEAD", cwd=None):
     if rev == "HEAD" and git("rev-parse", "--verify", "-q", "HEAD", cwd=cwd) is None:
         return EMPTY_TREE
     return rev
+
+
+def no_copies(cwd=None):
+    """中身と行数を取る git diff に足す引数。diff.renames=copies だと git は複写先を元との差にし、そのままの
+    複写は hunk も行数も無い（commit の木で「+0」、枠で「中身が diff に無い。…改名だけ」。元も変わった
+    commit では、元を一緒に渡すので複写先だけ渡しても防げない。実測）。-M で改名だけを探す既定に戻す。
+    木の振り分け（name_status）は「複写元」を出すために設定のまま読む。設定が copies でなければ何も
+    足さない（false のときに -M を足すと、name_status が削除と新規に分けた対を diff だけが改名に組む）。"""
+    val = (git("config", "--get", "diff.renames", cwd=cwd) or "").strip().lower()
+    return ("-M",) if val in ("copies", "copy") else ()
 
 
 def frame_diff(cwd=None, rev="HEAD", paths=()):
@@ -674,13 +684,13 @@ def frame_diff(cwd=None, rev="HEAD", paths=()):
         pairs = [(p, known.get(p, (p,))) for p in paths]
     if pairs is None:
         return None
-    parts = []
+    parts, copies = [], no_copies(cwd)
     for flag, group in ((("-W",), [g for key, g in pairs if not is_prose(key)]),
                         ((f"-U{PROSE_CONTEXT}",), [g for key, g in pairs if is_prose(key)])):
         names = [n for g in group for n in g]
         if not names:
             continue
-        text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, *flag, rev, "--",
+        text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, *copies, *flag, rev, "--",
                    *pathspecs(names), cwd=cwd)
         if text is None:
             return None
@@ -967,7 +977,8 @@ def working_tree(cwd=None):
     if porcelain is None:
         return None, None
     entries = entries_from_porcelain(
-        porcelain, parse_numstat(git("diff", *DIFF_SANE, diff_base("HEAD", cwd), "--numstat", "-z", cwd=cwd)))
+        porcelain, parse_numstat(git("diff", *DIFF_SANE, *no_copies(cwd), diff_base("HEAD", cwd), "--numstat", "-z",
+                                     cwd=cwd)))
     return _tree(entries, cwd)
 
 
@@ -1018,7 +1029,7 @@ def commit_tree(rev, cwd=None):
     recs = name_status(cwd=cwd, rev=rev)
     if recs is None:
         return None, None
-    nums = parse_numstat(git("diff", *DIFF_SANE, "--numstat", "-z", rev, "--", cwd=cwd))
+    nums = parse_numstat(git("diff", *DIFF_SANE, *no_copies(cwd), "--numstat", "-z", rev, "--", cwd=cwd))
     entries = []
     for status, old, path in recs:
         mark, label = status_mark(status[:1])
@@ -1060,13 +1071,6 @@ def parse_numstat(text):
         except ValueError:
             out[path] = (None, None)  # バイナリは "-"
     return out
-
-
-def copy_targets(text):
-    """git diff の全文から、複写（"copy to 新"の見出し）の新側の path の集合。hunk の行は "+"・"-"・" "・"@"・
-    "\\" で始まるので、"copy to " で始まる行は見出しだけ。"""
-    return {unquote_git_path(line[len("copy to "):].strip())
-            for line in (text or "").split("\n") if line.startswith("copy to ")}
 
 
 def tracked_set(cwd, paths):
@@ -1112,17 +1116,11 @@ def frames_section(cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=Tr
     frames = framed_diff(text)
     hunks, _ = split_diff(text)
     tracked = tracked_set(cwd, paths) if new_from_file else set(paths)
-    # add 済みの複写（diff.renames=copies で git が元との差にした file）は新規として手元の file から出す。
-    # 元との差のままだと、そのままの複写は hunk が無く「中身が diff に無い。…改名だけ」と誤って断る（実測）
-    copied = copy_targets(text) if new_from_file else set()
     w("  変更の中身（" + FRAME_NOTE + cap_note(frame_cmd)
       + f"。合計は {FRAME_TOTAL_CAP} 行まで。" + jump_note + "）:")
     total = 0
     for path in sorted(paths):
         info = frames.get(path)
-        if path in copied:
-            out.extend(new_file_rows(cwd, path, "add 済みの新規", frame_cmd))
-            continue
         if info is None and path in tracked:
             w(f"    === {path} （中身が diff に無い。バイナリ・mode・改名だけ）")
             continue

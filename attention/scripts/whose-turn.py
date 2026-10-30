@@ -729,7 +729,8 @@ def thread_turns(pr):
         opener = login(humans[0]["author"])
         # 側を 1 人で持つ人の自注でも、側の外の人（返答できる人）が返したら、その人への返事のスレッドになる
         outsiders = {answerable(c["author"]) for c in humans} - side - {None}
-        if opener in side and (side != {opener} or not outsiders):
+        # 返答できない作者の自注は、外の人が返しても返す人がいない（ターンを立てると誰も読まない）
+        if opener in side and (side != {opener} or not outsiders or opener in mute):
             answer = owe = side - {opener} - mute
         else:
             answer, owe = side, set(holders)
@@ -774,7 +775,8 @@ def intro_line(body):
     fenced = False
     for line in text.splitlines():
         t = line.strip()
-        if t.startswith("```"):
+        # 後ろに ` を含む行（```npm test``` が落ちる）は行内のコードで、囲みではない（ghtext と同じ GFM の決まり）
+        if re.match(r"`{3,}[^`]*$", t):
             fenced = not fenced
             continue
         # 見出し（# 概要）は題であって説明ではない。囲いの中はコードで、説明ではない

@@ -1441,6 +1441,10 @@ class TurnThreads(unittest.TestCase):
         # 側の外の人が返していない自注は、これまでどおり誰のターンにもしない
         quiet = pr(reviewThreads=conn(thread(comment(user("alice"), T1, "メモ"), comment(user("alice"), T2, "追記"))))
         self.assertEqual(flow.turn_threads(quiet, "alice"), [])
+        # 返答できない作者（Mannequin）の自注に carol が返しても、返す人がいない。作者にターンを立てず、carol の返事待ちも残さない
+        mute = pr(author=mannequin("mq"),
+                  reviewThreads=conn(thread(comment(mannequin("mq"), T1, "メモ"), comment(user("carol"), T2, "これは？"))))
+        self.assertEqual(flow.thread_turns(mute), [])
 
     def test_bot_only_thread_belongs_to_nobody(self):
         p = pr(reviewThreads=conn(thread(comment(bot(), T1, "[block] fail-open です"))))
@@ -1691,6 +1695,13 @@ class Mentions(unittest.TestCase):
         self.assertEqual(flow.mentions("1. a\n   - b:\n     ```python\n     @pytest.fixture\n     ```\n@ann"), {"ann"})
         self.assertEqual(flow.mentions("log:\n```\n@dave\n"), set())
         self.assertEqual(flow.mentions("ありがとう~~~ @gina ~~~"), {"gina"})
+        # GitHub の画面で書いた本文は改行が \r\n。閉じの行の \r で閉じを見失い、囲みの後ろを全部消した（3 巡目の直しの戻り）
+        self.assertEqual(flow.mentions("Repro:\r\n```\r\nnpm test\r\n```\r\n@bob can you check?"), {"bob"})
+        self.assertEqual(flow.repo_refs("```\r\n#3\r\n```\r\n#12", "o/r"), {12})
+        # 閉じは開きと同じ字で開き以上の長さ。別の字や後ろに字の付いた行は閉じでない
+        self.assertEqual(flow.mentions("````\ncode\n`````\n@hana"), {"hana"})
+        self.assertEqual(flow.mentions("~~~\nx\n~~~~\n@hana"), {"hana"})
+        self.assertEqual(flow.mentions("```\n@a\n```~\n@hana"), set())
 
     def test_unanswered_until_mentioned_person_comments(self):
         posts = flow.posts_of_issue(issue(comments=[(user("alice"), T1, "@bob 見て")]))
@@ -2397,6 +2408,8 @@ class Buckets(unittest.TestCase):
         # コードブロックの中身は説明ではない。閉じていないコメントの残骸も拾わない
         self.assertEqual(flow.intro_line("# 概要\n```\nrm -rf /\n```\nこれは説明。続き。"), "これは説明。")
         self.assertEqual(flow.intro_line("```python\nfoo = 1\n```"), "")
+        # 行の頭の ```npm test``` は行内のコードで、囲みの始まりではない（後ろを全部飛ばして空になった）
+        self.assertEqual(flow.intro_line("```npm test``` が落ちるのを直す。ほか"), "npm test が落ちるのを直す。")
         self.assertEqual(flow.intro_line("<!-- template\nsecret line\nreal body"), "")
         # 略語のピリオドで切らない。v1.2 も切らない
         self.assertEqual(flow.intro_line("Fixes the bug, e.g. when foo is empty. Also refactors."),

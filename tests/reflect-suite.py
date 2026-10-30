@@ -313,7 +313,10 @@ class Privacy(unittest.TestCase):
                     "このPR 1665で直した", "非公開のissue 1971", "＃1971", "fix-secret-app", "secret-app-v2",
                     # 並べた番号の 2 つ目と、PRs・issues・PR-・pull request・pull/ の書き方も当てる
                     "PR 42・1665 を直した", "PR 42 と 1971", "#42, 7", "issues 1971", "PR-1665", "PR # 1665",
-                    "pull request 1665", "pull/1971"):
+                    "pull request 1665", "pull/1971",
+                    # 区切りに : と括弧と番号・no. を挟む書き方、プルリク・イシュー、範囲の後ろの番号も当てる
+                    "PR: 1665", "PR（1665）", "PR番号 1665", "プルリク 1665", "イシュー 1971", "issue no. 1971",
+                    "PR 42〜1665", "#42-1971"):
             with self.subTest(bad=bad):
                 self.assertTrue(rf.leaks(fields(diary=bad), data))
 
@@ -327,12 +330,25 @@ class Privacy(unittest.TestCase):
         self.assertEqual(priv["repos"], ["me/notes", "me/talked"])
         with tempfile.TemporaryDirectory() as tmp:
             subprocess.run(["git", "init", "-q", tmp], check=True)
+            # ssh の複数アカウントの別名（github.com-me）は github.com。path の中の github.com（Go の写しの置き場）は違う
             for url, hub in (("git@gitlab.corp:me/notes.git", False), ("https://github.com/me/notes.git", True),
-                             ("git@github.com:me/notes.git", True)):
+                             ("git@github.com:me/notes.git", True), ("git@github.com-me:me/notes.git", True),
+                             ("ssh://git@github.com-me/me/notes.git", True),
+                             ("https://gitea.corp/mirrors/github.com/me/notes.git", False)):
                 subprocess.run(["git", "-C", tmp, "remote", "remove", "origin"], capture_output=True)
                 subprocess.run(["git", "-C", tmp, "remote", "add", "origin", url], check=True)
                 with self.subTest(url=url):
                     self.assertEqual(rf.on_github(tmp), hub)
+
+    def test_background_only_repos_are_checked_and_folder_names_are_not(self):
+        # 裏の claude -p だけが動いたリポジトリも作業フォルダが AI に渡るので見る。origin の無いリポジトリは、フォルダの
+        # 名前（docs など一般の語）を非公開の名前にしない
+        with tempfile.TemporaryDirectory() as tmp:
+            bg, docs = os.path.join(tmp, "bg"), os.path.join(tmp, "docs")
+            for top in (bg, docs):
+                subprocess.run(["git", "init", "-q", top], check=True)
+            subprocess.run(["git", "-C", bg, "remote", "add", "origin", "git@gitlab.corp:corp/oms.git"], check=True)
+            self.assertEqual(rf.local_repos([docs], [{"cwd": bg}, {"cwd": None}]), [("corp/oms", False)])
 
     def test_private_events_past_the_page_cut_are_counted(self):
         # ページに出す動きは先頭の 200 件だが、非公開の名前と番号は全件から集める

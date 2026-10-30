@@ -5764,6 +5764,10 @@ expect_output 0 "PASS3_FIXES_OK" \
     "catchup: 私の後の発言より前の指摘を依頼にしない・担当に渡した自分の PR の新しい指摘を私のターンにしない・解決済みのスレッドの @me を依頼にしない・CI の材料も見ていない残りを断る・削除された側の行への指摘で file まるごとを枠にしない・HTML も持ち主の側の人が最後に返したと言う・commit の無いリポジトリでも HTML に差分を出す" \
     "$PY_BIN" "$CU_CASE" pass3-fixes
 
+expect_output 0 "PASS4_FIXES_OK" \
+    "catchup: 担当に渡した自分の PR で、レビュアーの新しい指摘・担当が返したスレッド・名指しの無いコメントを 1 行目の私の番の理由と依頼にしない・削除された側の行への指摘でも私の発言以降に変わったかを出す・私が返すターンのスレッドを一覧の先に出す・依頼は私が入っているスレッドの返事を先に取る・HTML の差分も複写先を元との差にしない" \
+    "$PY_BIN" "$CU_CASE" pass4-fixes
+
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元のセクションにも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring

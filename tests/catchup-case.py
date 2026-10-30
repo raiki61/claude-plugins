@@ -551,11 +551,12 @@ def _threads_material():
     files = {"app/main.py": [f"line {i}" for i in range(1, 30)], "app/short.py": ["a", "b", "c"]}
     out = catchup.render_threads(node, ME, lambda p: files.get(p))
     want = {
-        "theirs_turn": "=== 1/4 app/main.py:10  ← 私が最後に発言している（相手のターン）" in out,
-        "my_turn": "=== 2/4 app/main.py:10  ← 私が返すターン （言語名 python）" in out,
+        # 私が返すターンのスレッドが先（一覧を THREAD_CAP 件で切っても落ちない）。ほかは GitHub の順
+        "theirs_turn": "=== 4/4 app/main.py:10  ← 私が最後に発言している（相手のターン）" in out,
+        "my_turn": "=== 1/4 app/main.py:10  ← 私が返すターン （言語名 python）" in out,
         "body": "[block] ここは握り潰し" in out and "引用は落とす" not in out,
         "window": "|    5 line 5" in out and "|   15 line 15" in out and "line 16" not in out,
-        "gone": "=== 3/4 app/gone.py  ←" in out and "今の head に無い" in out,
+        "gone": "=== 2/4 app/gone.py  ←" in out and "今の head に無い" in out,
         "outside": "行 10 は head のファイル（3 行）の外" in out and "|    1 a" not in out,
         "skip": "util.py" not in out and "only-me" not in out,
         "human_count": len(catchup.unresolved_threads(node, ME)) == 4,
@@ -663,6 +664,79 @@ def _pass3_fixes():
         "empty_repo_page_diff": len(views) == 1,
     }
     return verdict("PASS3_FIXES", want, str(want) + "\n" + left_out)
+
+
+@case("pass4-fixes")
+def _pass4_fixes():
+    """4 巡目のレビューの指摘。担当に渡した自分の PR で、レビュアーの新しい指摘や担当が返したスレッドを、1 行目の
+    「私の件に相手の発言があり」の理由と依頼にしない（スレッドの一覧は私のターンでないと言うのに 1 行目が私の番だった）。
+    自分で持つ PR の名指しの無いコメントは、これまでどおり依頼に拾う。削除された側の行への指摘でも私の発言以降に
+    変わったかを出す。私が返すターンのスレッドを一覧の先に出す。依頼は私が入っているスレッドの返事を先に取る。HTML の
+    差分も複写先を元との差にしない。"""
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    handed = pr(author=user(ME), assignees=conn([user("bob")]),
+                reviewThreads=conn([thread("app/h.py", False, comment(T1, "rev", "ここは？"))]))
+    side = pr(author=user(ME), assignees=conn([user("bob")]),
+              reviewThreads=conn([thread("app/h.py", False, comment(T1, "rev", "ここは？"), comment(T2, ME, "見ます"),
+                                         comment(T3, "bob", "直した"))]))
+    handed_comment = pr(author=user(ME), assignees=conn([user("bob")]), comments=conn([comment(T1, "rev", "rebase して")]))
+    kept = pr(author=user(ME), comments=conn([comment(T1, "rev", "rebase して")]))
+
+    def reasons(node):
+        ev, _, _ = catchup.collect_events(node, ME, "")
+        return catchup.turn_reasons(node, ME, ev, False)
+
+    kept_reasons, kept_ask, _, _ = reasons(kept)
+    # 削除された側の行への指摘でも、私の発言以降に file が変わったかは出す（枠は出さない）
+    left = thread("app/m.py", False, comment(T1, "rev", "なぜ消した？"), comment(T2, ME, "不要なので"),
+                  comment(T3, "rev", "でも使っている"))
+    left["diffSide"] = "LEFT"
+    lefty = pr(author=user("rev"), headRefOid="bbb", allCommits=conn([commit(T1, "aaa", "最初"), commit(T3, "bbb", "次")]),
+               reviewThreads=conn([left]))
+    since = "diff --git a/app/m.py b/app/m.py\n--- a/app/m.py\n+++ b/app/m.py\n@@ -3 +3 @@\n-old 3\n+line 3\n"
+    left_out = catchup.render_threads(lefty, ME, lambda p: None, diff_since=lambda p, b, h: since)
+    # 他の人同士のスレッドが上限より多く前に並んでも、私が返すターンのスレッドを一覧に出す
+    crowd = [thread(f"app/o{i}.py", False, comment(T1, "bob", "なぜ？"), comment(T2, "alice", "理由は…")) for i in range(11)]
+    mine_th = thread("app/z.py", False, comment(T1, ME, "なぜ？"), comment(T2, "rev", "直した"))
+    busy = pr(author=user("rev"), reviewThreads=conn(crowd + [mine_th]))
+    busy_out = catchup.render_threads(busy, ME, lambda p: None)
+    # 自分の PR で、私が入っているスレッドへの返事（古い）を、私がまだ入っていない新しい指摘より先に依頼に取る
+    two = pr(author=user(ME), reviewThreads=conn([
+        thread("app/a.py", False, comment(T1, ME, "ここを見て"), comment(T2, "bob", "直しました")),
+        thread("app/c.py", False, comment(T3, "carol", "これは？"))]))
+    ev2, _, _ = catchup.collect_events(two, ME, "")
+    ask2 = catchup.find_ask(ev2, two, ME, None, True)
+    # HTML の差分も、diff.renames=copies の複写先を元との差にしない（端末の枠と同じく新規の中身を出す）
+    with tempfile.TemporaryDirectory() as top:
+        git = lambda *a: subprocess.run(["git", "-C", top, "-c", "user.name=t", "-c", "user.email=t@t", *a],  # noqa: E731
+                                        check=True, capture_output=True)
+        git("init", "-q")
+        git("config", "diff.renames", "copies")
+        with open(os.path.join(top, "a.py"), "w") as f:
+            f.write("".join(f"x{i}\n" for i in range(30)))
+        git("add", ".")
+        git("commit", "-qm", "1")
+        shutil.copy(os.path.join(top, "a.py"), os.path.join(top, "b.py"))
+        with open(os.path.join(top, "a.py"), "a") as f:
+            f.write("y\n")
+        git("add", ".")
+        git("commit", "-qm", "2")
+        copy_diff = catchup.plain_diff("HEAD~1..HEAD", cwd=top) or ""
+    want = {
+        "handed_thread_no_reason": reasons(handed)[:2] == ([], None),
+        "side_reply_no_reason": reasons(side)[:2] == ([], None),
+        "handed_comment_no_reason": reasons(handed_comment)[:2] == ([], None),
+        "own_comment_kept": bool(kept_ask) and kept_ask["text"] == "rebase して"
+        and any(r.startswith("私の件に相手の発言があり") for r in kept_reasons),
+        "left_since_status": "以降、この file は 1 か所変わっている" in left_out and "飛び先" not in left_out,
+        "my_turn_thread_listed": "app/z.py" in busy_out and "=== 1/12 app/z.py" in busy_out,
+        "ask_prefers_my_thread": bool(ask2) and ask2["text"] == "直しました" and not ask2.get("unaddressed"),
+        "html_copy_is_new": "copy to b.py" not in copy_diff and "+x29" in copy_diff.split("b/b.py", 1)[-1],
+    }
+    return verdict("PASS4_FIXES", want, str(want))
 
 
 @case("threads-left")
