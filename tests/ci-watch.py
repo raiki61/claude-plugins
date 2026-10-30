@@ -180,18 +180,28 @@ def mine(inbox, place_common):
     # 直しを回した頼みの失敗や送り出しで、知らせた件の渡し損ねを決めない）の最後の行が failed（開いても閉じてもいない）か、このツールの
     # 外れの行（kind miss。works-dispatch の calls.call が回す前に書く）の ask に頼みの行が 1 つも無い物（回す先の部署が引けない・
     # orders.ask が行を書かずに落ちた）。ただし、同じ出力の外れが開いている頼みに渡っていれば、orders.ask が同じ中身の頼みに重ねた
-    # （行を書かずに 0 で返す）ので渡せたに数える。知らせた件は覚えたので、渡せなかった後は頼みが開いていても閉じていても黙り続けた
-    # （前の頼みが閉じた時刻・開いている頼みで黙った）。渡せた頼みより新しい間は、知らせた件も知らせ直す
+    # （行を書かずに 0 で返す）ので渡せたに数える（重ねた先の頼みが後で閉じても、外れの時刻に開いていれば渡せた）。知らせた件は
+    # 覚えたので、渡せなかった後は頼みが開いていても閉じていても黙り続けた（前の頼みが閉じた時刻・開いている頼みで黙った）。渡せた
+    # 頼みより新しい間は、知らせた件も知らせ直す。渡せた時刻は頼みごとの最初の渡せた行の時刻（--take の回し直しが同じ受付で後に
+    # 書く行で、渡し損ねより新しく見せない）
     last = {r["id"]: r for r in rows if r.get("kind") == "ask" and r.get("id") in own}
     shut, held = deliver.closed_ids(rows), {r["id"] for r in still}
     when = lambda r: r["at"] if isinstance(r.get("at"), (int, float)) else None
+    opened, ended = {}, {}
+    for r in rows:
+        if (t := when(r)) is None:
+            continue
+        if r.get("kind") == "ask" and r.get("id") in own and r.get("status") != "failed":
+            opened[r["id"]] = min(t, opened.get(r["id"], t))
+        for i in deliver.closed_ids([r]):
+            ended[i] = min(t, ended.get(i, t))
     misses = [r for r in rows if r.get("kind") == "miss" and r.get("tool") == TOOL and r.get("ask")]
     same = lambda r: json.dumps([r.get("role"), r.get("input"), r.get("code"), r.get("tail")], ensure_ascii=False, sort_keys=True)
-    merged = {same(r) for r in misses if r["ask"] in held}
+    open_then = lambda i, t: i in held or (t is not None and opened.get(i, t + 1) <= t < ended.get(i, float("inf")))
+    merged = lambda r: any(m is not r and same(m) == same(r) and open_then(m["ask"], when(r)) for m in misses)
     lost = [when(r) for r in last.values() if r.get("status") == "failed" and r["id"] not in shut | held]
-    lost += [when(r) for r in misses if r["ask"] not in last and r["ask"] not in shut | held and same(r) not in merged]
-    handed = [when(r) for r in rows if r.get("kind") == "ask" and r.get("id") in own and r.get("status") != "failed"]
-    lost, handed = [t for t in lost if t is not None], [t for t in handed if t is not None]
+    lost += [when(r) for r in misses if r["ask"] not in last and r["ask"] not in shut | held and not merged(r)]
+    lost, handed = [t for t in lost if t is not None], list(opened.values())
     relay = bool(lost) and (not handed or max(lost) > max(handed))
     return still, closed_at, relay
 
