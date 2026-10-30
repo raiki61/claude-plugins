@@ -1659,7 +1659,7 @@ def head_reader(owner, name, oid):
 
 def owns(node, me):
     """自分の件か（作者か assignee）。"""
-    return login_of(node["author"]) == me or any(a["login"] == me for a in node.get("assignees", {}).get("nodes", []))
+    return login_of(node.get("author")) == me or any(a["login"] == me for a in node.get("assignees", {}).get("nodes", []))
 
 
 def unresolved_threads(node, me):
