@@ -114,15 +114,28 @@ def place(root, g):
         return
     sweep(root, g)
     path = os.path.join(tempfile.mkdtemp(prefix=PREFIX), "tree")
-    g.add_detached(root, path, sha, lock=f"{OWNER}{os.getpid()}")
+    try:
+        g.add_detached(root, path, sha, lock=f"{OWNER}{os.getpid()}")
+    except BaseException:
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+        raise
     try:
         yield path, None
     finally:
+        # 残り物を消すとき（sweep）と同じく、どのブランチにも無い先頭の commit は KEPT_REF に残し、未コミットの変更が在るか残せなければ
+        # 消さない（鍵は残す。この処理が居なくなれば、次の sweep と --clean が残すか消す）
         try:
-            g.remove_detached(root, path)
+            got = judge({"path": path, "head": g.rev(path, "HEAD")}, g, root)
+            if not got["reason"] and got["keep"]:
+                g.keep_commit(root, KEPT_REF + got["keep"], got["keep"])
         except g.GitError:
-            pass
-        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+            got = {"reason": GIT_FAILED}
+        if not got["reason"]:
+            try:
+                g.remove_detached(root, path)
+            except g.GitError:
+                pass
+            shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
 
 def is_place(path):

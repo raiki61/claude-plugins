@@ -413,6 +413,41 @@ class ToolPlace(unittest.TestCase):
         (path, reason, why), = tools.sweep(self.src, self.g)[1]
         self.assertEqual((os.path.realpath(path), reason, why), (os.path.realpath(dirty), tools.DIRTY, "未コミットの変更が在る"))
 
+    def test_a_commit_made_by_the_tool_is_kept_and_a_dirty_place_is_left(self):
+        # 走り終えた場所を消すときも、sweep と同じく、どのブランチにも無い commit を残し、未コミットの変更が在れば消さない（頼み cce9a3）
+        self.use(self.script("import subprocess, sys; subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', "
+                             "'-q', '--allow-empty', '-m', '来歴'], check=True); print(subprocess.run(['git', 'rev-parse', 'HEAD'], "
+                             "capture_output=True, text=True).stdout.strip()); sys.exit(1)"))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, calls.CALLED, out)
+        (miss,) = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
+        sha = miss["tail"]   # ツールが走らせる場所で作った commit（どのブランチにも無い）
+        self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
+        self.assertEqual(len(git("-C", self.src, "worktree", "list").splitlines()), 2)
+        self.use(self.script("import pathlib; pathlib.Path('half.txt').write_text('書きかけ', encoding='utf-8')"))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 0, out)
+        (left,) = [e["path"] for e in gitx.listed_worktrees(self.src) if tools.is_place(e["path"])]
+        self.addCleanup(shutil.rmtree, os.path.dirname(left), True)
+        self.assertTrue(os.path.exists(os.path.join(left, "half.txt")))
+
+    def test_a_place_that_cannot_be_made_stops_the_call_without_a_traceback(self):
+        # git worktree add が落ちても（残ったパス・index.lock）、--land の後の合図ごと traceback で止まらず、一時のフォルダも残さない（頼み cce9a3）
+        from unittest import mock
+        self.use("true")
+        made = []
+        real = tempfile.mkdtemp
+        def mkdtemp(**kw):
+            made.append(real(**kw))
+            return made[-1]
+        with mock.patch.object(tools.tempfile, "mkdtemp", side_effect=mkdtemp), \
+                mock.patch.object(gitx, "add_detached", side_effect=gitx.GitError("fatal: index.lock")):
+            rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("止めた: ツールを走らせる場所を作れない（fatal: index.lock）", out)
+        self.assertTrue(made)
+        self.assertFalse(any(os.path.exists(d) for d in made))
+
     def test_sweep_with_a_gone_owner_keeps_a_lone_commit_and_leaves_a_dirty_place(self):
         # 居るかの見方を渡して、消し方そのものを OS に依らずに見る（Windows の既定の見方は「居る」で消さない）
         made = self.leave()

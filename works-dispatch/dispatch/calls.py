@@ -95,8 +95,12 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
     if bad:
         return 2, [f"止めた: ツール {role_name}/{tool_name} の入力が形に合わない: " + "、".join(bad)]
     inbox = deliver.inbox_of(ports.git.common_dir(root))
-    with tools.place(root, ports.git) as (here, note):
-        code, out, both = run_tool(tool["command"], here, value, env)
+    try:
+        with tools.place(root, ports.git) as (here, note):
+            code, out, both = run_tool(tool["command"], here, value, env)
+    except (gitx.GitError, OSError) as e:
+        # 一時の worktree を作れない（残ったパス・index.lock など）。--land の後の合図（fire）も、残りのツールと片付けまで進める
+        return 1, [f"止めた: ツールを走らせる場所を作れない（{e}）"]
     if code == 0:
         deliver.log(inbox, {"kind": "call", "status": "done", "role": role_name, "tool": tool_name, "at": ports.now()})
         return 0, [x for x in [note, out.rstrip("\n")] if x and x.strip()]
