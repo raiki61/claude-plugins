@@ -24,7 +24,7 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 知らせる。回した頼みが生んだ頼み（台帳の行の cause がそれを指す頼み。直しをほかの部署へ回して納品した物）も同じ件の頼みに数え、
 それが開いている間も黙る。頼みが閉じた後は、閉じた後に新しく決着した赤の run が在るときだけ知らせ直す（戻しの commit の run が決着する前に同じ赤を
 頼み直さない。決着した時刻で見る）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
-また起きれば、新しい件として知らせる）。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
+また起きれば、新しい件として知らせる）。頼みに渡せなかった（台帳の最後の行が failed）件は、頼みが閉じた後でも知らせ直す。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
 
 使い方: python3 tests/ci-watch.py < 入力の JSON（省けば {}。{"dry_run": true} なら、知らせる物を出すだけで覚えない）
 GitHub の利用制限（rate limit）で gh が断られた回は、読まずに 0 で終わり、当たり始めた時刻を覚える（次に main へ入れた後の合図で読み直す）。
@@ -159,7 +159,7 @@ def stamp(at):
 def mine(inbox, place_common):
     """このツールから回した頼みとそれが生んだ頼みの (閉じていない頼みの台帳の行〔積んだ順〕, 最後に閉じた時刻〔無ければ None〕)。頼みの題は works-dispatch が
     「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/ci-watch-case.py の title が赤になる）。
-    閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
+    渡せなかった頼み（最後の行が failed）が最後に閉じた時刻より新しければ、閉じた時刻は None にする（知らせ直す）。閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
     納品の行はその会社の受付箱にだけ在る。2026-10-19 の頼みは my_notes に納品されたのに、開いているとみて 10 日黙った）。place_common は
     作業場のパスから git の共通のディレクトリを引く物（git でなければ None）。"""
     marker = f"/{TOOL} "
@@ -173,7 +173,16 @@ def mine(inbox, place_common):
     still = [r for r in deliver.open_asks(rows) if r["id"] in ids]
     # 閉じた時刻は、閉じたと数える行（deliver.closed_ids と同じ見分け。知らせられなかった納品と --for の返しは数えない）の時刻
     at = [r["at"] for r in rows if isinstance(r.get("at"), (int, float)) and deliver.closed_ids([r]) & ids]
-    return still, (stamp(max(at)) if at else None)
+    closed_at = stamp(max(at)) if at else None
+    # 渡せなかった頼み（最後の行が failed で、開いても閉じてもいない）が最後に閉じた時刻より新しければ、閉じた時刻を分からないに戻す。
+    # 前は前の頼みが閉じた時刻を使い、渡せなかった件（赤でない件・閉じた前に決着した赤）を頼みにならないまま黙り続けた
+    last = {r["id"]: r for r in rows if r.get("kind") == "ask" and r.get("id") in ids}
+    shut, held = deliver.closed_ids(rows), {r["id"] for r in still}
+    lost = [r["at"] for r in last.values() if r.get("status") == "failed" and r["id"] not in shut | held
+            and isinstance(r.get("at"), (int, float))]
+    if lost and (closed_at is None or stamp(max(lost)) > closed_at):
+        closed_at = None
+    return still, closed_at
 
 
 def load_state(path):

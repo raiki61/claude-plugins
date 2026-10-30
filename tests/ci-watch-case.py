@@ -228,6 +228,18 @@ def reopen_after_close():
     fake.runs[1].insert(0, r(9, "failure", "c", "2026-10-19T11:00:00Z", updated="2026-10-19T11:30:00Z"))
     code, out = go(fake)
     check(code == 1 and "run 9" in out, f"回した頼みが全部閉じた後に決着した赤を知らせ直さない: {code} {out}")
+    # 前の頼みが閉じた後、知らせた件を頼みに渡せなかった（最後の行が failed）なら、閉じた時刻で黙らずに知らせ直す。渡せたら黙る
+    old = {"kind": "ask", "status": "sent", "id": "20261001-000000-aaaaaa", "title": TITLE, "at": 1.0}
+    d = setup([old, {"kind": "deliver", "ask": old["id"], "at": 2.0}])
+    fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
+    check(go(fake)[0] == 1, "止められた workflow を知らせない")
+    lost = {"kind": "ask", "status": "failed", "id": "20261019-000000-bbbbbb", "title": TITLE, "at": at((9, 0))}
+    log(lost)
+    code, out = go(fake)
+    check(code == 1 and "disabled_manually" in out, f"頼みに渡せなかった件を、前の頼みが閉じた時刻で黙った: {code} {out}")
+    log({**lost, "status": "sent", "at": at((9, 5))})
+    code, out = go(fake)
+    check(code == 0, f"渡し直せた頼みが開いているのに知らせ直した: {code} {out}")
     print("REOPEN_AFTER_CLOSE_OK")
 
 
