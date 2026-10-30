@@ -199,6 +199,9 @@ class SleepLoops(unittest.TestCase):
         # `EOF)` で閉じた後ろは外の ${ } の中。外のシェルが \\ を \ にする中身の `\ #` は語の中の字
         "echo ${y:-$(cat <<EOF\nhi\nEOF) # $(until test -f x; do sleep 1; done)}",
         "bash <<X\necho a\\\\ #b; until test -f x; do sleep 1; done\nX",
+        # 引数の中の `a=(`・`--color=(` は zsh でパターン(中の # はコメントでない)
+        "ls a=(x #) ; until test -f x; do sleep 1; done",
+        "ls --color=(auto|#x); until test -f x; do sleep 1; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -238,6 +241,8 @@ class SleepLoops(unittest.TestCase):
         # 複数の行の配列の中のコメントも、コメントのまま
         'args=(\n  --retry 5   # (until the server is up)\n  --silent\n)\ncurl "${args[@]}" localhost; sleep 1',
         "declare -A m=(\n  [a]=1  # (until v2)\n)\nsleep 0",
+        # 外のシェルが外す \$ は、中のコメントの読みを変えない
+        "bash <<EOF\ncd \\$HOME\n# make && while ! curl -s localhost; do sleep 1; done\nEOF",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
@@ -331,6 +336,12 @@ class LongCommands(unittest.TestCase):
                         loop + "\n# x\n" + "bash <<A\n" * 900 + "\n" * 92000):
             reason, _ = run(command, timeout=20)
             self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_many_lines_that_almost_end_a_heredoc_are_read_in_time(self):
+        # 前は終わりの語に似た行(<<- の引用したタブの語の行)ごとに後ろの全部を探し直し、96KB で 30 秒を超えた
+        command = "echo $(date)#; until test -f x; do sleep 1; done\nx=$(cat <<-'\tE'\n" + "\tE\n" * 32000 + ")"
+        reason, _ = run(command, timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_hashes_in_nested_substitutions_are_read_in_time(self):
         # 前は # ごとに行の終わりを探し直し、改行の無い長い行を入れ子の置換ごとに読んで約 40 秒かかった(時間切れで通る)

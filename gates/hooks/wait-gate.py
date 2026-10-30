@@ -101,6 +101,11 @@ CODE, COMMENT, UNSURE = 0, 1, 2
 _HASH_EVENT = re.compile(r"[\\\n'\"`$(){}\[\]#<]")
 _HASH_QUOTED_EVENT = re.compile(r'[\\"`]|\$\(')
 _ANSI_QUOTED = re.compile(r"(?:[^'\\]|\\.)*'?", re.S)
+# 終わりの語を引用しないヒアドキュメントの中身で、外のシェルが外す `\`(`\\`・`\` と改行・`\``)。外した後は # の読みが変わりうる
+_OUTER_UNESCAPES = re.compile(r"\\[\\\n`]")
+# 配列の代入の `NAME=(`(行の頭・演算子の後・declare などの後)。中の # はコメント。ほかの語の中の `=(` は zsh でパターン
+_ARRAY_OPEN = re.compile(r"(?:^|[\n;&|({]|\b(?:declare|local|typeset|readonly|export)(?:[ \t]+-\w+)*)[ \t]*"
+                         r"[A-Za-z_]\w*(?:\[[^\]\n]*\])?\+?=$")
 
 
 def comment_at(text, index):
@@ -177,7 +182,7 @@ def hash_kinds(text, depth=0):
                 start, index, closed = index, *heredoc_body_end(text, index, word, dash)
                 # 中身は別のコマンドとして読む(`bash <<'X'` の中身はシェルが読む。中身を除くのは drop_heredoc_bodies の役)
                 body = text[start:index]
-                if depth < 2 and closed and (quoted or "\\" not in body):
+                if depth < 2 and closed and (quoted or not _OUTER_UNESCAPES.search(body)):
                     kinds.update((start + at, kind) for at, kind in hash_kinds(body, depth + 1).items())
             pending = []
         elif char == "'":
@@ -208,7 +213,8 @@ def hash_kinds(text, depth=0):
             # と、それらの中の括弧。ただの { } のまとまり・サブシェルの ( )・配列の a=( )・[ ] の試験の中の # はコメント
             if frame[slot] or (char == "{" and prev == "$" and index - 1 not in escaped) \
                     or (char != "{" and text.startswith(char, index + 1)) \
-                    or (char == "(" and (prev not in " \t\n;&|<>()=" or index - 1 in escaped)):
+                    or (char == "(" and (prev not in " \t\n;&|<>()" or index - 1 in escaped)
+                        and not (prev == "=" and _ARRAY_OPEN.search(text, max(0, index - 200), index))):
                 frame[slot] += 1
             index += 1
         elif char in "}])":
@@ -543,13 +549,21 @@ def heredoc_end(text, index, match, found, stop=None):
     tabs = "\t*" if match.group("dash") else ""
     ends = re.compile(r"^%s%s$|^%s$" % (tabs, re.escape(word), re.escape(end_mark(word))), re.M)
     early = re.compile(r"^%s%s[^\n]*\)" % (tabs, re.escape(word)), re.M) if stop == ")" and EARLY_CLOSE else None
+    # 下のどれかに当たりうる行の頭(無ければ末尾)。探すのは、読む位置が前の答えを越えたときだけ(当たらない行が続いても
+    # 探し直しを掛け算にしない)
+    jumps = {"ends": -1, "early": -1 if early else len(text), "tick": -1 if stop == "`" else len(text)}
     while index < len(text):
-        # 下のどれかに当たる行まで飛ぶ(行ごとに読むと、閉じない入れ子のヒアドキュメントで深さ × 長さの手間になる)
-        jumps = [found.start() for found in (ends.search(text, index), early and early.search(text, index)) if found]
-        tick = text.find("`", index) if stop == "`" else -1
-        if tick >= 0:
-            jumps.append(text.rfind("\n", 0, tick) + 1)
-        index = max(index, min(jumps)) if jumps else len(text)
+        # 当たりうる行まで飛ぶ(行ごとに読むと、閉じない入れ子のヒアドキュメントで深さ × 長さの手間になる)
+        if jumps["ends"] < index:
+            hit = ends.search(text, index)
+            jumps["ends"] = hit.start() if hit else len(text)
+        if jumps["early"] < index:
+            hit = early.search(text, index)
+            jumps["early"] = hit.start() if hit else len(text)
+        if jumps["tick"] < index:
+            tick = text.find("`", index)
+            jumps["tick"] = len(text) if tick < 0 else text.rfind("\n", 0, tick) + 1
+        index = max(index, min(jumps.values()))
         if index >= len(text):
             break
         end = text.find("\n", index)
