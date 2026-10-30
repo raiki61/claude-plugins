@@ -17,7 +17,7 @@
 
 写した元: my_notes の master 2d951aab の tools/no_wait_loop.py(判定)と tools/no_preread.py の executed_text
 (引用符とヒアドキュメントを外す)。変えたのは、落ちたら止める・止めた記録を書く・`while read` を外す・`for ((;;))` を待ちと見る・`bash -o pipefail -c`
-の中も見る・コメントを外す・パスで呼ぶシェルと長いオプションのシェル(`/bin/bash -c`・`bash --norc -c`)の中も見る、の 7 つ。
+の中も見る・コメントを外す・パスで呼ぶシェルと長いオプションのシェル(`/bin/bash -c`・`bash --norc -c`)の中も見る・引用符とコメントの中の `<<WORD` をヒアドキュメントと読まない、の 8 つ。
 """
 
 import json
@@ -190,12 +190,35 @@ def drop_heredoc_bodies(command):
         line = lines[index]
         kept.append(line)
         index += 1
+        code = code_mask(line)
         for match in HEREDOC.finditer(line):
+            if not code[match.start()]:
+                continue   # 引用符の中・コメントの中の `<<WORD` はヒアドキュメントを始めない(後の行を落とすとループが見えない)
             body_end = heredoc_end(lines, index, match)
             if SHELL_STDIN.search(line[:match.start()]):
                 kept.extend(lines[index:body_end])
             index = body_end + 1
     return "\n".join(kept)
+
+
+def code_mask(line):
+    """line の各位置が、引用符の外かつコメントの外なら True。"""
+    mask = [True] * (len(line) + 1)
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\":
+            index += 2
+        elif char in "'\"":
+            end = min(quote_end(line, index), len(line) - 1)
+            mask[index:end + 1] = [False] * (end + 1 - index)
+            index = end + 1
+        elif char == "#" and (index == 0 or line[index - 1] in " \t;&|()"):
+            mask[index:len(line)] = [False] * (len(line) - index)
+            break
+        else:
+            index += 1
+    return mask
 
 
 def heredoc_end(lines, start, match):

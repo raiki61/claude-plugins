@@ -109,6 +109,9 @@ class SleepLoops(unittest.TestCase):
         "/bin/bash <<'EOF'\nwhile true; do sleep 5; done\nEOF",
         # コメントの中の引用符で、後の行のループを引用符の中と取り違えない
         "# don't spin\nwhile [ ! -f done ]; do sleep 5; done",
+        # コメント・引用符の中の <<WORD はヒアドキュメントを始めないので、後の行を中身と見て落とさない
+        "echo x\n# cat <<EOF\nuntil false; do sleep 2; done",
+        'git log --grep "a <<EOF"\nwhile ! test -f out; do sleep 2; done',
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -122,6 +125,8 @@ class SleepLoops(unittest.TestCase):
         # コメントの中のループは走らない。$# と ${#x} はコメントでない
         "# while true; do sleep 5; done\necho ok",
         'echo $# ${#x}; for i in 1 2; do sleep 1; done',
+        # 本物のヒアドキュメントの中身(シェルでないコマンドが読む)は、今までどおり見ない
+        "cat <<'EOF' > note.md\nwhile true; do sleep 5; done\nEOF",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
