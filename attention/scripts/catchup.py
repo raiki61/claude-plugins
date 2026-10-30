@@ -463,13 +463,10 @@ def collect_events(node, me, my_email=""):
         c = n["commit"]
         actor = c.get("author") or {}
         who = (actor.get("user") or {}).get("login")
+        name = None
         if not who:
             name, email = (actor.get("name") or "（不明）"), (actor.get("email") or "").lower()
-            if my_email and email == my_email:
-                who = me
-            else:
-                who = name
-                unlinked.add(name)
+            who = me if my_email and email == my_email else name
         # 私の commit を他の人が rebase して push すると、作者は私のまま committedDate だけ新しくなる。それを私の push
         # に数えると「私が最後にしたこと」が rebase の時刻へ進み、その間の相手の発言が「その後」から消える。committer
         # が私でない人なら、その人の push にする（web-flow は GitHub の画面で私が出した commit。提案の取り込みなど）。
@@ -480,6 +477,9 @@ def collect_events(node, me, my_email=""):
             who = pusher
         elif who != me and pusher == me:
             who = me
+        # login に結びつかない作者の commit でも、私の push に数えた物は「私の commit かもしれない」に挙げない
+        if name is not None and who == name:
+            unlinked.add(name)
         add(c["committedDate"], who, "push",
             f"{c['oid'][:9]} {c['messageHeadline']} (+{c['additions']}/-{c['deletions']})",
             PUSH, oid=c["oid"], key="push")
@@ -885,7 +885,7 @@ def latest_status(rows):
     files = {}
     for st, path in rows:
         files[path] = st
-    return sorted((st, path) for path, st in files.items())
+    return sorted(((st, path) for path, st in files.items()), key=lambda r: r[1])
 
 
 def local_range(owner, name, *oids):
@@ -1090,7 +1090,8 @@ def turn_reasons(node, me, ev, red):
     if node["__typename"] == "PullRequest":
         own = owns(node, me) and me in turn.owners(node)
     else:
-        assigned = [a["login"] for a in node.get("assignees", {}).get("nodes", [])]
+        # Bot（Copilot など）だけが assignee の issue は、作者が持ったまま（turn.owners と同じ）
+        assigned = turn.assigned_people(node)
         own = me in assigned or (login_of(node.get("author")) == me and not assigned)
     ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
     # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
@@ -1712,7 +1713,7 @@ def head_reader(owner, name, oid):
         if text is None and oid:
             text = gh_try("api", "-H", "Accept: application/vnd.github.raw",
                           f"repos/{owner}/{name}/contents/{quote(path)}?ref={oid}")
-        cache[path] = text.splitlines() if text is not None else None
+        cache[path] = catchup_html.file_lines(text) if text is not None else None
         return cache[path]
     return read
 

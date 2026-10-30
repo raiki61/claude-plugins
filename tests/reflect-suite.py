@@ -361,7 +361,8 @@ class Privacy(unittest.TestCase):
 
     def test_background_only_repos_are_checked_and_folder_names_are_not(self):
         # 裏の claude -p だけが動いたリポジトリも作業フォルダが AI に渡るので見る。origin の無いリポジトリは、フォルダの
-        # 名前（docs など一般の語）を非公開の名前にしない
+        # 名前（docs など一般の語）を非公開の名前にしないが、会話に出た番号は集める（手元から clone した非公開の
+        # リポジトリも origin が手元の path で、呼び名はフォルダの名前になる）
         with tempfile.TemporaryDirectory() as tmp:
             bg, docs = os.path.join(tmp, "bg"), os.path.join(tmp, "docs")
             for top in (bg, docs):
@@ -369,7 +370,10 @@ class Privacy(unittest.TestCase):
             subprocess.run(["git", "-C", bg, "remote", "add", "origin", "git@gitlab.corp:corp/oms.git"], check=True)
             human = [{"cwd": docs, "asks": ["PR 3 を見て"], "first_prompt": "PR 3 を見て"}]
             background = [{"cwd": bg, "asks": [], "first_prompt": "issue 812 を直して"}, {"cwd": None}]
-            self.assertEqual(rf.local_repos(human, background), [("corp/oms", False, ["issue 812 を直して"])])
+            local = rf.local_repos(human, background)
+            self.assertEqual(local[0], ("corp/oms", False, ["issue 812 を直して"]))
+            priv = rf.privacy([], [], ask=lambda label: True, local=local)
+            self.assertEqual((priv["repos"], priv["numbers"]), (["corp/oms"], [3, 812]))
 
     def test_numbers_said_in_private_repo_conversations_are_counted(self):
         # 非公開のリポジトリの会話（人の頼み・裏の claude -p の頼みの頭）は AI に渡るので、中の番号も書かせない。

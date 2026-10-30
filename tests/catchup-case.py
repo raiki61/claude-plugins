@@ -805,6 +805,37 @@ def _pass6_fixes():
     return verdict("PASS6_FIXES", want, str(want))
 
 
+@case("pass7-fixes")
+def _pass7_fixes():
+    """7 巡目のレビューの指摘。Bot だけが assignee の自分の issue は私が持つ（名指しの無い発言を依頼に読む）。
+    login に結び付かない作者の commit を私が rebase して push したら、「私の commit かもしれない」に挙げない。変わった file は path 順。
+    PR の head の file の行は改行でだけ分ける。"""
+    def ask_of(node):
+        ev, _, _ = catchup.collect_events(node, ME, "")
+        return catchup.turn_reasons(node, ME, ev, False)[1]
+    said = conn([comment(T1, "bob", "これも要る。見てもらえる？")])
+    rebased = commit(T3, "eee", "typo fix", name="Bob Corp", email="bob@corp.invalid")
+    rebased["commit"]["committer"] = {"user": {"login": ME}}
+    _, _, unlinked = catchup.collect_events(pr(author=user(ME), allCommits=conn([rebased])), ME, "")
+    saved = (catchup.local_checkout, catchup.gh_try)
+    catchup.local_checkout = lambda owner, name: None
+    catchup.gh_try = lambda *a, **k: "a\n\x0c\nb\u2028c\nd\n"
+    try:
+        head = catchup.head_reader("o", "r", "abc")("m.el")
+    finally:
+        catchup.local_checkout, catchup.gh_try = saved
+    want = {
+        # head の file の行は git・GitHub と同じく改行でだけ数える（改ページや U+2028 で分けると後ろの行番号がずれる）
+        "head_lines_by_newline": head == ["a", "\x0c", "b\u2028c", "d"],
+        "bot_assigned_issue_ask": ask_of(issue(author=user(ME), assignees=conn([user("Copilot", bot=True)]),
+                                               comments=said)) is not None,
+        "rebased_not_unlinked": unlinked == [],
+        "status_by_path": catchup.latest_status([("A", "z.py"), ("D", "b.py"), ("M", "a.py")])
+                          == [("M", "a.py"), ("D", "b.py"), ("A", "z.py")],
+    }
+    return verdict("PASS7_FIXES", want, str(want))
+
+
 @case("threads-left")
 def _threads_left():
     """削除された行への指摘（diffSide が LEFT。line は base の版の行番号）は、head の同じ番号の行を出さない。端末は

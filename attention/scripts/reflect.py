@@ -462,7 +462,8 @@ def local_repos(human, background=(), facets=()):
     """privacy の local: 会話の作業フォルダのリポジトリ [(呼び名, origin が github.com か, そこでの会話の文)]。会話の文は
     人の頼み・裏の claude -p の最初の頼み・/insights の会話の要約（facets）——どれも AI に渡るので、非公開のリポジトリ
     なら中の番号も書かせない。裏の claude -p だけが動いたリポジトリも入れる。origin の無いリポジトリ（呼び名がフォルダの
-    名前）は入れない——docs・notes などの一般の語を書けなくなる。commit が在れば privacy が commit の側で見る。
+    名前。手元の path の origin も）も入れる——privacy は名前を並べず（docs・notes などの一般の語を書けなくなる）、
+    非公開として番号だけ集める。
     作業フォルダが消えた会話（main に入れた後に畳んだ worktree など）は、どのリポジトリか分からないので呼び名 "" に
     まとめ、非公開として番号を集める（外すより当て過ぎに倒す）"""
     summary = {f.get("session_id"): [v for k in ("brief_summary", "friction_detail", "underlying_goal")
@@ -479,8 +480,8 @@ def local_repos(human, background=(), facets=()):
             texts.setdefault(common, []).extend(said)
         elif not os.path.isdir(s["cwd"]):
             gone.extend(said)
-    return [(label, on_github(top), texts[common]) for common, top in tops.items()
-            for label in [repo_label(top)] if "/" in label] + ([("", False, gone)] if gone else [])
+    return [(repo_label(top), on_github(top), texts[common]) for common, top in tops.items()] + (
+        [("", False, gone)] if gone else [])
 
 
 def git_root(cwd):
