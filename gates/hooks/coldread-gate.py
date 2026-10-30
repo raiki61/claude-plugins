@@ -225,12 +225,15 @@ DENY_STREAK_WINDOW = 30 * 60
 # 開始行の区切りの後ろには、同じ行で旗やパイプが続きうる(`<<'J' -q .html_url`・`<<'EOF' | tail`)。
 # 区切りの直後に改行を求めていた頃は、この形を見落として「別プロセスからの stdin」で止めていた(33 件)。
 # 続きは群 3 に取って解析用の文字列に残す(旗もパイプも gh の引数列と区切りとして読む)。区切りの直後に
-# 区切りの字が続かないこと((?!…))を求めるのは、`<<EOFX` を区切り EOF と続き X に割らないため。
+# 語の切れ目が続くこと((?=…))を求めるのは、`<<EOFX` を区切り EOF と続き X に割らないため。`<<EOF'x` も、bash は
+# 引用の続きまでを区切りの語に含める(引用が行をまたげば、区切りの語も行をまたぐ)ので、区切り EOF とは読まない。
 # 終わりの行の字下げを許すのは `<<-` のときだけで、許すのもタブだけ(bash と同じ)。`<<EOF` で字下げした `  EOF` の行を
 # 終わりと読むと、本文の続きがシェルとして解析され、gh が出す本文の後半が読み役に届かない。
+# 本文の無いヒアドキュメント(開始行の次の行が終わりの行)も読む(群 5 は None)。読めないと << が残り、normalize_shell が
+# 読めない物として止める。
 # 群は 1=`-` 2=引用 3=区切り 4=開始行の続き 5=本文。
 HEREDOC_RE = re.compile(
-    r"""<<(-)?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\2(?![A-Za-z0-9_.-])([^\r\n]*)\r?\n(.*?)\r?\n(?(1)\t*)\3(?:\r?\n|\r?$)""",
+    r"""<<(-)?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\2(?=[ \t\r\n;&|<>()`]|$)([^\r\n]*)\r?\n(?:(.*?)\r?\n)??(?(1)\t*)\3(?:\r?\n|\r?$)""",
     re.S,
 )
 
@@ -391,7 +394,7 @@ _ANSI_C_SIMPLE = {"a": b"\a", "b": b"\b", "e": b"\x1b", "E": b"\x1b", "f": b"\f"
 # $'…' を読めないときに、書き直した単一引用の中に置く印。本文の値に在れば止める(_body_sink の add)
 ANSI_C_MARK = "__ANSI_C_UNREADABLE__"
 # 盾置換の走査が止まる字(引用・置換の開閉・注釈・ヒアドキュメントの開始)。間はまとめて飛ばす
-_SHIELD_EVENT_RE = re.compile(r"""[\\'"`$()#<]""")
+_SHIELD_EVENT_RE = re.compile(r"""[\\'"`$()#<}]""")
 _OCT_RE = re.compile(r"[0-7]{0,2}")
 _HEX_RES = {e: re.compile(r"[0-9A-Fa-f]{1,%d}" % k) for e, k in (("x", 2), ("u", 4), ("U", 8))}
 
@@ -452,49 +455,193 @@ def _ansi_c_end(text, j):
     return min(j + 1, len(text))
 
 
-def _word_head(text, i):
-    r"""text[i] が語頭か(注釈の始まりか)。行継続(\ と改行)は前後をつなぐので、その手前の字で見る(normalize_shell の _head と同じ字)。"""
-    while i >= 2 and text[i - 2:i] == "\\\n":
-        i -= 2
-    return i == 0 or text[i - 1] in " \t\n;|&()"
+def _comment_at(text, at, escaped_at, closed):
+    r"""# が注釈の始まりか。言い切れなければ None。at は # の直前の字の位置(行継続〔\ と改行〕は前後をつなぐので、その手前の字。
+    無ければ -1)、escaped_at は直前に \ で引用した字の位置、closed は閉じた ) の位置ごとの種類(_close_paren が書く)。
+
+    shield_heredocs と normalize_shell は、この 1 本で注釈を見分ける。前は盾の側が別の決め方を持ち、置換を閉じる ) の後
+    (`cat $(echo a)#x <<EOF`)・\ で引用した空白の後(`a\ #x`)・`${ }`・`…` の中の # を注釈と読んで、その行のヒアドキュメントを
+    読み飛ばした。そのため、本文の中の ' を引用の始まりと読み、後ろの gh を引用の中と取り違えていた。
+
+    `)` の後は、閉じた括弧の種類で分ける。置換・プロセス置換・配列の括弧を閉じる `)`(`$(echo a)#x`・`$((1+2))#x`・`<(ls)#x`・
+    `a=(x)#x`)の後の # は語の途中で、注釈と見て落とすと同じ行の後ろの gh を見落とす。サブシェル・関数・`(( ))` の括弧を閉じる `)`
+    (`(cd x)# …`・`f()# …`)の後は語頭で、注釈の中の引用符を語と読むと次の行の gh を引用の中と取り違える。開きの無い `)` と、
+    case の後の `)`(パターンの `)` と置換を閉じる `)` を見分けられない)の後は、読めない物とする(None)。"""
+    if at < 0:
+        return True
+    if at == escaped_at:
+        return False   # `a\ #x` の # は語の途中(bash も注釈にしない)
+    if text[at] == ")":
+        kind = closed.get(at)
+        return None if kind is None else kind == "group"
+    return text[at] in " \t\n;|&("
+
+
+def _open_paren(text, i, parens):
+    """引用の外の ( を積む。積むのは (種類, 算術の中か)。種類は "word"=置換・プロセス置換・配列の括弧(閉じる ) の後も語が続く)、
+    "group"=サブシェル・関数・(( )) の括弧(閉じる ) の後は語頭)。`((`・`$((` とその中の括弧は算術の中で、# は注釈にならない
+    (bash は (( から )) までを 1 つの式として読み、行をまたいでも続く)。"""
+    arith = text.startswith("((", i) or (i > 0 and text[i - 1] == "(") or bool(parens and parens[-1][1])
+    parens.append(("word" if i and text[i - 1] in "$<>=" else "group", arith))
+
+
+def _close_paren(i, parens, closed, case_at):
+    """引用の外の ) で積んだ ( を降ろし、閉じた種類を closed に書く。開きの無い ) は種類を言い切れない(None)。
+    case の後の ) は、パターンの ) か括弧を閉じる ) か見分けられないので、種類を None にし、積みも降ろさない(降ろさなければ、
+    算術の中の印が早く外れて、算術の中の # を注釈と読むことが無い)。"""
+    if i > case_at:
+        closed[i] = None
+        return
+    closed[i] = parens.pop()[0] if parens else None
+
+
+def _case_at(text, start=0):
+    """コマンドの語の位置に書いた最初の case の位置(無ければ文字列の長さ)。"""
+    m = _CASE_WORD_RE.search(text, start)
+    return m.start() if m else len(text)
+
+
+def _skip_escape(text, i, in_tick):
+    r"""\ と、それが引用する字を越えた位置。`…` の中では、bash が先に \\ を \ にしてから中を読むので、\\ の後の字も引用された字
+    になる(`` `echo \\'` `` の ' は引用符でない。前は ' を単一引用の始まりと読み、閉じる ` を越えて後ろのヒアドキュメントを
+    読み飛ばした)。"""
+    if in_tick and text.startswith("\\\\", i):
+        j = i + 2
+        return j + (2 if text.startswith("\\", j) and text[j + 1:j + 2] in ("\\", "`", "$") else 1)
+    return i + 2
+
+
+def _tick_end(text, i):
+    """i の ` を閉じる ` の位置(bash と同じく、\\ の後の字は飛ばして探す)。閉じなければ文字列の長さ。"""
+    j = i + 1
+    while j < len(text):
+        if text[j] == "\\":
+            j += 2
+        elif text[j] == "`":
+            return j
+        else:
+            j += 1
+    return len(text)
 
 
 def shield_heredocs(command):
     """ヒアドキュメント本文を取り出し、解析用の文字列では番号付きの印に置き換える。$'…' は単一引用の形に書き直す。
+    → (解析用の文字列, 本文の並び)。読む所を言い切れなければ解析用の文字列を None にする。
 
     番号を振るのは、どの単純コマンドに付いたヒアドキュメントかを後で見分けるため。
     番号が無いと、同じ行の別コマンド(cat > f <<EOF)の中身まで gh の本文候補に混ざる。
 
-    開始の << と見るのは引用の外(と、$(…)・`…` の中)だけ。引用の中の << は字で、bash もヒアドキュメントにしない。
-    前は文字列全体を正規表現で置き換えていたので、`--body $'…\ncat <<EOF\n…\nEOF\n…'` や、二重引用の本文に引いた
-    `python3 - <<'PY' … PY` の行が本文から抜かれ、読み手には印(__HEREDOC0__)が届いていた。
+    開始の << と見るのは引用の外(と、$(…)・`…` の中)だけ。引用の中と ${ } の中の << は字で、bash もヒアドキュメントにしない
+    (`${x:-<<EOF}` の後の行は走る)。前は文字列全体を正規表現で置き換えていたので、`--body $'…\ncat <<EOF\n…\nEOF\n…'` や、
+    二重引用の本文に引いた `python3 - <<'PY' … PY` の行が本文から抜かれ、読み手には印(__HEREDOC0__)が届いていた。
     引用の状態は左から 1 度だけ追う。置き換えた後は開始行の続きから読み直すので、同じ行の 2 本目の開始
-    (`cat <<A > f; gh … <<B`)も拾う(bash も本文を開始の順に読む)。注釈の中の ' や << は数えない。
+    (`cat <<A > f; gh … <<B`)も拾う(bash も本文を開始の順に読む)。注釈の中の ' や << は数えない。注釈かどうかは
+    normalize_shell と同じ _comment_at で決める(normalize_shell は、盾と読みが割れた所を読めない物として止める)。
+
+    `…` は、bash と同じく閉じる ` を先に決め、中で引用を読み違えても閉じる ` で外へ戻る。置換(`$( )`・`…`)の中のヒアドキュメントの
+    本文が、置換を閉じた後の行に在る形(`` x=`cat <<EOF` `` と次の行の本文、`$(cat <<EOF)`)は、bash がその行をコマンドとして
+    走らせる(`$( )` は bash 3.2。bash 5 は本文と読む)ので、読めない物とする。
     """
     bodies = []
     text, i = command, 0
-    stack = [[None, 0]]   # 文脈と、$( の中なら開いた括弧の数。None=引用の外、'"'=二重引用、"("=$(…)、"`"=`…`
+    # 文脈と、$( の段なら開いた括弧の数、`…` の段なら閉じる ` の位置と入る前の括弧の積み。None=引用の外、'"'=二重引用、
+    # "("=$(…)、"`"=`…`、"{"=${ }
+    stack = [[None, 0]]
+    ticks = []      # stack の中の `…` の段の番号(内側が後ろ)
+    pending = []    # 置換の中のヒアドキュメントの (段の深さ, 開始行の終わりの改行の位置)。段がそれより前で閉じれば読めない
+    parens, closed, joins = [], {}, {}   # 引用の外の ( の積み(_open_paren)と、閉じた ) の種類と、行継続の後の位置 → 直前の字の位置
+    escaped_at = -2
+    case_at = _case_at(text)
+
+    def pop_to(k, at):
+        """stack を k 段に戻す。戻す段の中のヒアドキュメントの本文が、閉じる所(at)より後の行に在れば読めない。
+        `…` の段を戻すときは、括弧の積みを入る前に戻す(normalize_shell は `…` の中の括弧を数えない)。"""
+        while pending and pending[-1][0] > k:
+            if at < pending.pop()[1]:
+                return False
+        while ticks and ticks[-1] >= k:
+            parens[:] = stack[ticks.pop()][2]
+        del stack[k:]
+        return True
+
+    def open_tick(at):
+        ticks.append(len(stack))
+        stack.append(["`", _tick_end(text, at), parens[:]])
+
+    def shift(at, end, delta):
+        """text の at から end の手前までを書き換えて、長さが delta だけ変わった後に、後ろの位置をずらす。
+        書き換えた所に在った case(ヒアドキュメントの本文の中など)は、書き換えた所から探し直す。"""
+        nonlocal case_at
+        for k in ticks:
+            if stack[k][1] > at:
+                stack[k][1] += delta
+        k = len(pending) - 1
+        while k >= 0 and pending[k][1] > at:   # 改行の位置の順に並ぶ
+            pending[k] = (pending[k][0], pending[k][1] + delta)
+            k -= 1
+        if case_at >= end - 1:
+            case_at += delta
+        elif case_at >= at:
+            case_at = _case_at(text, at)
+
     while True:
         m = _SHIELD_EVENT_RE.search(text, i)
+        if ticks and (m is None or m.start() >= stack[ticks[-1]][1]):
+            end = stack[ticks[-1]][1]
+            if not pop_to(ticks[-1], end):
+                return None, bodies
+            i = end + 1
+            continue
         if m is None:
             return text, bodies
         i, c, top = m.start(), m.group(0), stack[-1]
         if top[0] == '"':
             if c == "\\":
-                i += 2
+                i = _skip_escape(text, i, bool(ticks))
             elif c == '"':
                 stack.pop()
                 i += 1
             elif c == "`":
-                stack.append(["`", 0])
+                open_tick(i)
                 i += 1
             elif text.startswith("$(", i):
                 stack.append(["(", 1])
                 i += 2
+            elif text.startswith("${", i):
+                stack.append(["{", 0])
+                i += 2
             else:
                 i += 1
-        elif c == "\\":
-            i += 2
+            continue
+        if top[0] == "{":   # ${ } の中: 引用と入れ子だけを追う(# も << も字。normalize_shell の ${ } の段と同じ)
+            if c == "\\":
+                i = _skip_escape(text, i, bool(ticks))
+            elif c == "'":
+                j = text.find("'", i + 1)
+                i = len(text) if j < 0 else j + 1
+            elif c == '"':
+                stack.append(['"', 0])
+                i += 1
+            elif c == "`":
+                open_tick(i)
+                i += 1
+            elif text.startswith("${", i):
+                stack.append(["{", 0])
+                i += 2
+            elif c == "}":
+                stack.pop()
+                i += 1
+            else:
+                i += 1
+            continue
+        if c == "\\":
+            if text.startswith(("\\\n", "\\\r\n"), i):
+                k = i + (3 if text[i + 1] == "\r" else 2)
+                joins[k] = joins.get(i, i - 1)
+                i = k
+            else:
+                i = _skip_escape(text, i, bool(ticks))
+                escaped_at = i - 1
         elif c == "'":
             j = text.find("'", i + 1)
             i = len(text) if j < 0 else j + 1
@@ -502,10 +649,7 @@ def shield_heredocs(command):
             stack.append(['"', 0])
             i += 1
         elif c == "`":
-            if top[0] == "`":
-                stack.pop()
-            else:
-                stack.append(["`", 0])
+            open_tick(i)
             i += 1
         elif c == "$":
             if text.startswith("$'", i):
@@ -514,35 +658,61 @@ def shield_heredocs(command):
                     i += 2   # 閉じの無い $'…'。字句解析が引用の閉じ忘れとして止める
                 else:
                     text = text[:i] + got[0] + text[got[1]:]
+                    shift(i, got[1], len(got[0]) - (got[1] - i))
                     i += len(got[0])
             elif text.startswith("$(", i):
                 stack.append(["(", 1])
                 i += 2
+            elif text.startswith("${", i):
+                stack.append(["{", 0])
+                i += 2
             else:
                 i += 2 if text.startswith("$$", i) else 1   # $$'…' の $$ は番号の展開で、後ろの ' は単一引用
-        elif c in "()":
+        elif c == "(":
             if top[0] == "(":
-                top[1] += 1 if c == "(" else -1
+                top[1] += 1
+            _open_paren(text, i, parens)
+            i += 1
+        elif c == ")":
+            if top[0] == "(":
+                top[1] -= 1
                 if not top[1]:
-                    stack.pop()
+                    if not pop_to(len(stack) - 1, i):
+                        return None, bodies
+                    closed[i] = "word" if i < case_at else None
+                    i += 1
+                    continue
+            _close_paren(i, parens, closed, case_at)
+            i += 1
+        elif c == "}":
             i += 1
         elif c == "#":
-            if _word_head(text, i):
+            if _comment_at(text, joins.get(i, i - 1), escaped_at, closed) is False:
+                i += 1
+            else:   # 注釈か、言い切れない(normalize_shell が読めない物とする)
                 nl = text.find("\n", i)
                 i = len(text) if nl < 0 else nl
-            else:
-                i += 1
         elif text.startswith("<<<", i):
             i += 3   # ヒア文字列
         elif text.startswith("<<", i):
             hm = HEREDOC_RE.match(text, i)
             if hm is None:
-                i += 2
+                i += 2   # 読めない形(`<<\EOF` など)。normalize_shell が、残った << を読めない物として止める
                 continue
-            body = hm.group(5)
+            if ticks and hm.end() > stack[ticks[-1]][1]:
+                return None, bodies   # 本文が閉じる ` の後の行に在る。bash はその行をコマンドとして走らせる
+            if parens and parens[-1][1]:
+                # 算術の中の << は桁送りで、bash は後ろの行をコマンドとして走らせる(`$((1<<x))` の後の行)。`((cat <<x)` のように
+                # (( を 2 つのサブシェルと読み直す形ではヒアドキュメントになるので、どちらか言い切れない
+                return None, bodies
+            body = hm.group(5) or ""
             bodies.append(Expands(body) if not hm.group(2) and re.search(r"[$`]", body) else body)
             head = " " + (HEREDOC_MARK % (len(bodies) - 1)) + " "
-            text = text[:i] + head + hm.group(4) + "\n" + text[hm.end():]
+            new = head + hm.group(4) + "\n"
+            text = text[:i] + new + text[hm.end():]
+            shift(i, hm.end(), len(new) - (hm.end() - i))
+            if len(stack) > 1:
+                pending.append((len(stack), i + len(new) - 1))
             i += len(head)
         else:
             i += 1
@@ -809,7 +979,23 @@ def _live(text, hit, where=(None, '"')):
 # 読む所を言い切れないので、在れば読めない物とする形。`$[`(古い算術)の中の # は字。`$$(`・`$${` は、二重引用の中で
 # bash 3.2 が `(`・`{` を開く括弧と数えて引用の閉じる所が変わり、bash 5 は字と読む(版で割れる)
 UNREADABLE_OPENERS = ("$[", "$$(", "$${")
-_EVENT_RE = re.compile(r"""[#\\'"`$()}]""")
+_EVENT_RE = re.compile(r"""[#\\'"`$()}<]|__HEREDOC""")
+# 算術の中の << の後に、引用か \ で始まる区切りが続く形(ヒアドキュメントで、盾が読めなかった物)
+_QUOTED_DELIM_RE = re.compile(r"""[ \t]*[\\'"]""")
+
+
+def _regex_operands(text):
+    """`[[ … =~ 正規表現 ]]` の正規表現の範囲 → (=~ の位置の並び, それぞれの後の最初の ]] の位置の並び)。
+
+    bash は =~ の右を、括弧と | を含めて 1 つの語として読むので、`^(a|b)#[0-9]+` の # は注釈にならない。こちらは ( を
+    サブシェルの括弧と数えるので、閉じた ) の後の # を注釈と読み、後ろの gh を落としていた。範囲の中で注釈に見える # は、
+    読めない物とする(後の =~ ほど、範囲の終わりも後ろか同じ)。"""
+    if "=~" not in text:
+        return [], []
+    ends = [m.start() for m in re.finditer(r"\]\]", text)]
+    starts = [m.start() for m in re.finditer(r"=~", text)]
+    k = [bisect.bisect_left(ends, s) for s in starts]
+    return starts, [ends[j] if j < len(ends) else len(text) for j in k]
 
 
 def normalize_shell(text):
@@ -851,15 +1037,21 @@ def normalize_shell(text):
         見えなくなる。かといって注釈をただ切ると、注釈の語が引数として残り、gist create のように
         位置引数を本文と見る経路で嘘の deny が出る。bash と同じ「語頭の # から行末まで」だけを
         落とすのが、どちらにも倒れない唯一の形。
+
+    盾(shield_heredocs)と読みが割れた所は、読めない物とする。盾が印に替えなかった << が引用の外に残っていれば(`<<\EOF`
+    などの読めない区切りや、盾が注釈と読んで飛ばした行の <<)、本文の行をシェルとして読むことになり、本文の中の ' が後ろの
+    gh を引用の中に隠す。印(__HEREDOC0__)が引用・${ }・注釈の中に在れば、盾とこちらで引用の読みが割れている。
     """
     if _live(text, lambda t, k: t.startswith(UNREADABLE_OPENERS, k)):
         return None
-    out, i, n, copied, gap = [], 0, len(text), 0, ""
-    escaped_end = -1   # \ で引用した字の次の位置。そこの # は語の途中(`a\ #x`)
-    gap_at = -1   # gap の位置
-    # 引用の外の ( の種類("word"=置換・プロセス置換・配列の括弧で、閉じる ) の後も語が続く。"group"=サブシェル・関数・
-    # (( )) の括弧で、閉じる ) の後は語頭)と、閉じた ) の位置ごとの種類(_head が # の前の ) を見る)
+    out, i, n, copied = [], 0, len(text), 0
+    escaped_at = -2   # \ で引用した字の位置。その後の # は語の途中(`a\ #x`。行継続をまたいでも同じ)
+    # 直前に出力した字の位置。複製待ちの区間が空のとき(行継続・注釈を落とした直後)に、# の前の字として見る
+    gap_at = -1
+    # 引用の外の ( の積み(_open_paren)と、閉じた ) の位置ごとの種類(_comment_at が # の前の ) を見る)
     parens, closed = [], {}
+    case_at = _case_at(text)
+    regex_starts, regex_ends = _regex_operands(text)
     stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
     while True:
         m = _EVENT_RE.search(text, i)
@@ -867,21 +1059,25 @@ def normalize_shell(text):
             break
         i = m.start()
         c, top = text[i], stack[-1]
-        if top[0] == "'":
+        if c == "_":   # 盾の印
+            if top[0] in ("'", '"', "{"):
+                return None
+            i += len("__HEREDOC")
+        elif top[0] == "'":
             if c == "'":
                 stack.pop()
             i += 1
         elif c == "\\":
             if text.startswith(("\\\r\n", "\\\n"), i):
-                # 連結するので gap(直前に出力した 1 文字)は据え置く。ここを改行や空白に
+                # 連結するので gap_at(直前に出力した 1 文字)は据え置く。ここを改行や空白に
                 # すると `echo x\<改行>#y` の # が語頭に見え、注釈として次の gh まで消える
-                gap, gap_at = (text[i - 1], i - 1) if i > copied else (gap, gap_at)
+                gap_at = i - 1 if i > copied else gap_at
                 out.append(text[copied:i])
                 i += 3 if text[i + 1] == "\r" else 2
                 copied = i
             else:
+                escaped_at = i + 1
                 i += 2  # 退避された 1 文字は事象として見ない(`\#` は注釈の開始ではない)
-                escaped_end = i
         elif c == "`":
             if top[0] == "`":
                 stack.pop()
@@ -915,59 +1111,58 @@ def normalize_shell(text):
             if c == "}":
                 stack.pop()
             i += 1
-        elif c in "()":
+        elif c == "(":
             if top[0] == "(":
-                top[1] += 1 if c == "(" else -1
-            if c == "(":
-                parens.append("word" if i and text[i - 1] in "$<>=" else "group")
-            elif top[0] == "(" and not top[1]:
+                top[1] += 1
+            _open_paren(text, i, parens)
+            i += 1
+        elif c == ")":
+            if top[0] == "(":
+                top[1] -= 1
+            if top[0] == "(" and not top[1]:
                 stack.pop()
-                closed[i] = "word"
+                closed[i] = "word" if i < case_at else None
             else:
                 # 開きの無い ) は case のパターンか、置換の中の case が置換の括弧を先に閉じた後の ) で、どちらか言い切れない
-                closed[i] = parens.pop() if parens else None
+                _close_paren(i, parens, closed, case_at)
             i += 1
-        elif c == "#" and i != escaped_end:
-            head = _head(text, i, copied, gap, gap_at, closed)
-            if head is None:
-                return None
-            if not head:
+        elif c == "<":
+            if text.startswith("<<<", i):
+                i += 3   # ヒア文字列
+            elif not text.startswith("<<", i):
+                i += 1
+            elif parens and parens[-1][1] and not _QUOTED_DELIM_RE.match(text, i + 2):
+                i += 2   # 算術の桁送り
+            else:
+                return None   # 盾が読めなかったヒアドキュメント
+        elif c == "#":
+            # # の前の字は、入力側の text[i-1] でなく直前に出力した字で見る。複製待ちの区間が残っていればその末尾、
+            # 区間が空なら直前に落とした物の手前の字(gap_at)。`echo x\<改行>#y` は行継続を落とした後の直前の出力が x なので
+            # # は語の途中。入力側で見ると改行が直前になり、注釈として後ろの gh まで消える
+            at = i - 1 if i > copied else gap_at
+            head = _comment_at(text, at, escaped_at, closed)
+            if head is False:
                 i += 1
                 continue
-            line = text[text.rfind("\n", 0, i) + 1:i]
-            if "))" not in line[line.rfind("(("):] if "((" in line else False:
-                return None   # 算術の (( ))・$(( )) の中の # は字で、bash は注釈にしない。どこで閉じるかを言い切れない
-            gap, gap_at = (text[i - 1], i - 1) if i > copied else (gap, gap_at)
-            out.append(text[copied:i])
+            k = bisect.bisect_left(regex_starts, i) - 1
+            if head is None or (parens and parens[-1][1]) or (k >= 0 and regex_ends[k] > i):
+                # 注釈か言い切れない。算術の (( ))・$(( )) の中の # は字で bash は注釈にしないが、どこで閉じるかを
+                # 括弧の数え方だけでは言い切れない。=~ の右の # も字(_regex_operands)
+                return None
             nl = text.find("\n", i)
-            i = n if nl < 0 else nl  # 改行は残す(単純コマンドの区切り)
+            nl = n if nl < 0 else nl
+            if "__HEREDOC" in text[i:nl]:
+                return None   # 盾は注釈と読まず、印を置いた
+            gap_at = i - 1 if i > copied else gap_at
+            out.append(text[copied:i])
+            i = nl  # 改行は残す(単純コマンドの区切り)
             copied = i
-        else:  # 引用の中の #、語中の #、引用の外の $・括弧はどれも、ここで落とす物の境目ではない
+        else:  # 引用の中の #、語中の #、引用の外の $ はどれも、ここで落とす物の境目ではない
             i += 1
     if not out:
         return text  # 落とす物が 1 件も無ければ複製しない
     out.append(text[copied:])
     return "".join(out)
-
-
-def _head(text, i, copied, gap, gap_at=-1, closed=None):
-    r"""text[i] が語頭か——注釈の始まりかどうかの判定。
-
-    `)` の後は、閉じた括弧の種類(closed。normalize_shell が積む)で分ける。置換・プロセス置換・配列の括弧を閉じる `)`
-    (`$(echo a)#x`・`$((1+2))#x`・`<(ls)#x`・`a=(x)#x`)の後の # は語の途中で、注釈と見て落とすと同じ行の後ろの gh を
-    見落とす。サブシェル・関数・`(( ))` の括弧を閉じる `)`(`(cd x)# …`・`f()# …`)の後は語頭で、注釈の中の引用符を語と
-    読むと次の行の gh を引用の中と取り違える。開きの無い `)`(case のパターン)の後は、置換の中の case と言い切れないので
-    読めない物とする(None を返し、normalize_shell も None を返す)。
-
-    見るのは「直前に出力した 1 文字」で、入力側の text[i-1] ではない。複製待ちの区間が
-    残っていればその末尾が直前の出力、区間が空なら直前の削除の手前の 1 文字(gap)。
-    この違いが出るのが `echo x\<改行>#y` で、行継続を落とした後の直前の出力は x なので
-    # は語中=注釈ではない。入力側で見ると改行が直前になり、注釈として後ろの gh まで消える。
-    """
-    prev, at = (text[i - 1], i - 1) if i > copied else (gap, gap_at)
-    if prev == ")" and closed is not None:
-        return None if closed.get(at) is None else closed[at] == "group"
-    return not prev or prev in " \t\n;|&("
 
 
 def prepare(command):
@@ -980,7 +1175,7 @@ def prepare(command):
     食い違う(destgate が現にそうなっていた)。
     """
     shielded, bodies = shield_heredocs(command)
-    return normalize_shell(shielded), bodies
+    return (None if shielded is None else normalize_shell(shielded)), bodies
 
 
 def tokenize(text):
