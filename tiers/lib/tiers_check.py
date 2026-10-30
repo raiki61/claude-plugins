@@ -317,6 +317,16 @@ def check_herdr_links(probe, herdr, config_dirs):
     return out
 
 
+def _has_tomllib():
+    """上書きの正しい中身を作る compose は tomllib（Python 3.11 から）で TOML を確かめる。無い Python（3.10 まで）では作れないだけで、
+    上書きが誤りとは言えないので、期待する中身は分からない物（None）に倒す。"""
+    try:
+        import tomllib  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def check_statusline(probe, config_dirs):
     """フォルダごとの、tiers の statusline（印「⧖ バックグラウンド作業中 N 本」を出す）の点検の項目（段 2）。statusLine が tiers の
     statusline を指すアカウントだけ、印を herdr が作業中と見分ける支度がそろっているかを見る（使うかは利用者が tiers-statusline setup で
@@ -338,7 +348,7 @@ def check_statusline(probe, config_dirs):
             continue
         try:
             cur, base = probe.read(str(over)), probe.read(str(remote))
-            want = statusline.compose(base, statusline.RULE.read_text(encoding="utf-8")) if base is not None else None
+            want = statusline.compose(base, statusline.RULE.read_text(encoding="utf-8")) if base is not None and _has_tomllib() else None
         except (OSError, ValueError) as e:
             out.append(_item(2, label, problem=f"herdr の判定ルールの上書きを作れない（{e}）", fix=["tiers-statusline refresh を打って訳を見る"]))
             continue

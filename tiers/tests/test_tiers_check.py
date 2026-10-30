@@ -7,6 +7,7 @@ import pathlib
 import subprocess
 import sys
 import unittest
+import unittest.mock
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "lib"))
@@ -314,6 +315,22 @@ class ConfigDirs(unittest.TestCase):
         probe.dirs.add("/h/.claude-p1")
         self.assertEqual(tiers_check.main(["--tier", "0", "--config-dir", "/h/.claude-p1"], probe=probe, stdout=out), 0)
         self.assertIn("プラグインの控え（/h/.claude-p1）", out.getvalue())
+
+
+class StatuslineWithoutTomllib(unittest.TestCase):
+    """Python 3.10 まで（tomllib が無い）で、statusline の点検が上書きの正しい中身を作れず、偽の NG を出さない所。"""
+
+    def test_an_override_tiers_made_is_not_called_wrong_when_the_expected_one_cannot_be_composed(self):
+        conf = "/c"
+        probe = FakeProbe()
+        probe.files[os.path.join(conf, "settings.json")] = json.dumps({"statusLine": {"type": "command", "command": tiers_check.statusline.command_for(conf)}})
+        probe.dirs.add(str(tiers_check.statusline.data_link(conf)))
+        over, remote = tiers_check.statusline.herdr_paths(probe.env)
+        probe.files[str(remote)] = 'id = "claude"\n'
+        probe.files[str(over)] = tiers_check.statusline.MARK + "\n"
+        with unittest.mock.patch.dict(sys.modules, {"tomllib": None}):   # import tomllib が ImportError になる
+            (item,) = tiers_check.check_statusline(probe, [conf])
+        self.assertTrue(item["ok"], item)
 
 
 class AccountSettings(unittest.TestCase):
