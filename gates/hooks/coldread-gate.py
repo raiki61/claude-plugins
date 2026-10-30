@@ -689,6 +689,12 @@ def substitution_spans(norm):
     return spans
 
 
+# コマンドの語の位置に書いた case(演算子・括弧・改行と、後ろにコマンドを取る予約語の後)。case のパターンの ) は、置換を
+# 閉じる ) と見分けられない。語の位置だけを見るのは、`$(cat docs/use-case.md)`・`grep 'test case'` のように、コマンドの
+# 語でない case まで読めない物として止めないため(前は語の境目の case と esac をすべて見て、置換の中に在れば止めていた)
+_CASE_WORD_RE = re.compile(r"(?:^|[;&|(){}!`\n]|(?<![\w-])(?:do|then|else|elif|if|while|until|time))[ \t]*case(?=[ \t\n])")
+
+
 def substitution_end(text, start):
     """start の $( ・ ${ ・ ` を bash が閉じる字の位置。言い切れなければ None。
 
@@ -749,7 +755,7 @@ def substitution_end(text, start):
             if c == top:
                 stack.pop()
                 if not stack:
-                    return None if re.search(r"\b(?:case|esac)\b", text[start:i]) else i
+                    return None if _CASE_WORD_RE.search(text, start, i) else i
             elif c == ")":
                 return None
         i += 1

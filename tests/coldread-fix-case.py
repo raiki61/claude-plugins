@@ -4,7 +4,8 @@
 1 件ずつ、前の版では赤になり直した版では緑になる形で書く。穴の番号は頼みの番号のまま。読む本体は引数(無ければ
 gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が赤になることを確かめられる。14・15 は 1〜13 の直し
 (commit 8eb61ffd)が持ち込んだ止めすぎで、8eb61ffd の版を渡すと赤になる。16・17 は 14・15 の直し(commit 0bd1e0a2)の
-後に見つけた素通しで、0bd1e0a2 の版を渡すと赤になる。
+後に見つけた素通しで、0bd1e0a2 の版を渡すと赤になる。21〜33 は 2 度目のレビュー(頼み cae1e2)の F1〜F13 で、
+番号から 20 を引くとレビューの番号になる(29 はレビューの F9 で、探しのゲートの側の直しなので tests/searchgate-suite.py に置く)。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -491,7 +492,21 @@ def f20():
     cands, blk, parsed = g.posting_bodies(cmd, WORK)
     check(20, parsed and len(cands) == 1 and not blk, "語の途中の # を注釈と見て止めた: %r %r %r" % ([c[:20] for c in cands], blk, parsed))
 
-for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1):
+# 30. 置換の中の case を読めない物とするのは、コマンドの語の位置の case だけ(前は `use-case.md` の case でも止めていた)
+def f30():
+    for cmd in ('x="$(cat docs/use-case.md)"; gh pr comment 1 --body ok', "x=\"$(grep 'test case' f)\"; gh pr comment 1 --body ok",
+                'x="$(echo esac)"; gh pr comment 1 --body ok'):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(30, parsed and cands == ["ok"] and not blk, "語の位置でない case で止めた: %r → %r %r %r" % (cmd[:40], cands, blk, parsed))
+    for cmd in ('x="$(case a in a) echo;; esac)"; gh pr comment 1 --body ok', 'x="$(echo; case a in a) :;; esac)"; gh pr comment 1 --body ok',
+                'x="$(if case a in a) :;; esac; then :; fi)"; gh pr comment 1 --body ok'):
+        _, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(30, bool(blk) or not parsed, "置換の中の本物の case を読んだ: %r" % cmd[:40])
+
+
+TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
+TESTS.update({30: f30})
+for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
 shutil.rmtree(WORK, ignore_errors=True)

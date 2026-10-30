@@ -497,7 +497,8 @@ def before_scope(cr, cmds, k, files, bodies, inner):
     export しない代入も中の殻に渡ると見る(止める側に倒す)。"""
     c = cmds[k]
     stubs = []
-    for args in (c.args[:cr.command_start(c.args)], [":"]):
+    # 前置の語のうち代入だけ(`D=/ timeout 60 bash -c …`・`env D=/ sh -c …` の timeout・env は除く)
+    for args in ([a for a in c.args[:cr.command_start(c.args)] if cr.ENV_PREFIX_RE.match(a)], [":"]):
         if args:
             stubs.append(copy.copy(c))
             stubs[-1].args = args
