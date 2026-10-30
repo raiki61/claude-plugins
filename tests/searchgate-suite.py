@@ -98,6 +98,9 @@ class Bash(unittest.TestCase):
         "rg needle 'C:/Program Files'",
         "find /users -name x",
         "find /HOME -name x",
+        # 旗の終わりの -- の後ろも起点(BSD・GNU・bfs の find)
+        "find -- / -name x",
+        "find -H -- /Users -name x",
     ]
     PASS = [
         "find . -name x",
@@ -163,6 +166,16 @@ class Bash(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_relative_start_after_cd(self):
         self.assertIsNotNone(run("Bash", {"command": "cd / && find . -name x"})[0])
+        # 探すコマンドより後ろの繰り返しの語は、前の cd が走るかを変えない
+        self.assertIsNotNone(run("Bash", {"command": "cd / && find . -name x | while read f; do echo $f; done"})[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd / && find . -name x; for f in a; do :; done"})[0])
+        # 前の繰り返しの中の cd は走るとは限らないので、今までどおり解かない
+        self.assertIsNone(run("Bash", {"command": "for d in a; do cd /; done; find . -name x"})[0])
+
+    def test_recursive_grep_after_a_pipe_searches_cwd(self):
+        # grep -r は起点が無ければ、前がパイプでも cwd を探す(stdin を読まない)。rg は stdin を読む
+        self.assertIsNotNone(run("Bash", {"command": "ls | grep -r needle"}, cwd=HOME)[0])
+        self.assertIsNone(run("Bash", {"command": "ls | rg needle"}, cwd=HOME)[0])
         self.assertIsNone(run("Bash", {"command": "cd /tmp && find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd ~; find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd /\nrg needle"})[0])

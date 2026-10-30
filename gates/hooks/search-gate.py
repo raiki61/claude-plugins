@@ -180,6 +180,9 @@ def find_starts(args):
     starts, i = [], 0
     while i < len(args) and args[i].startswith("-") and args[i] != "-":
         a = args[i]
+        if a == "--":   # 旗の終わり(BSD・GNU・bfs の find)。後ろは起点
+            i += 1
+            break
         if a in ("-D", "-S", "-f"):
             if a == "-f" and i + 1 < len(args):
                 starts.append(args[i + 1])
@@ -213,7 +216,8 @@ GREP_LONG = {"--regexp", "--file", "--max-count", "--after-context", "--before-c
 def starts_of(name, args, piped):
     """ツール name の引数 args から起点を返す。探さない形(grep の再帰でない・stdin を読む)なら []。
 
-    piped は前がパイプのとき(rg・grep は起点の無いとき stdin を読み、cwd を探さない)。"""
+    piped は前がパイプのとき(rg は起点の無いとき stdin を読み、cwd を探さない。grep -r は前がパイプでも cwd を探す
+    〔GNU grep の -r の説明と macOS の grep で確かめた〕)。"""
     if "--help" in args or "--version" in args or (name in FD | RG and {"-h", "-V"} & set(args)):
         return []   # 使い方と版を出すだけ
     if name in FIND:
@@ -241,7 +245,7 @@ def starts_of(name, args, piped):
             return []
         given = any(o in ("-e", "--regexp", "-f", "--file") for o, _ in opts)
         paths = pos if given else pos[1:]
-        return paths or ([] if piped else ["."])
+        return paths or ["."]
     return []
 
 
@@ -433,6 +437,13 @@ def load_coldread():
         # coldread の cwd_here と同じ読み方に、2 つを足す: ; と改行の後の cd も読む(coldread は本文のパスを取り違えない
         # ように && の後だけ)・引数の無い cd はホーム
         CD_BETWEEN = cr._SEQUENTIAL
+
+        def __init__(self, cmds, cwd, heredocs, norm, tokens=()):
+            super().__init__(cmds, cwd, heredocs, norm, tokens)
+            # if・繰り返しの語は、最初の探すコマンドより前に在るときだけ見る。後ろの語(`cd / && find . | while read f`)は
+            # 前の cd・代入が走るかを変えないのに、在るだけで起点を解けない(=止めない)側に倒していた
+            first = next((i for i, t in enumerate(tokens) if os.path.basename(t) in FIND | FD | RG | GREP), len(tokens))
+            self.conditional = any(t in cr.CONDITIONAL_WORDS for t in tokens[:first])
 
         def cd_dest(self, args):
             return home() if args == ["cd"] else super().cd_dest(args)
