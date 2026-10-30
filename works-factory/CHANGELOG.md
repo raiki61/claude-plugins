@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-31
+
 ### Changed
 
 - 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を fe1cb24c から bdc7461e に上げた。取り込んだ PR は raiki61/works-factory#936・#937・#939・#943。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/fe1cb24c3686...bdc7461eef60 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。
