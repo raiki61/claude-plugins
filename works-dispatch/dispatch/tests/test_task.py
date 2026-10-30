@@ -139,6 +139,19 @@ class Task(unittest.TestCase):
         # keep の部署の最初のブランチも、入れたブランチと同じ記録に書く（入れずに次のブランチへ移っても、先頭がそのままなら後で消える）
         self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": self.g.head_sha(path)})
 
+    def test_running_a_keep_department_again_does_not_mark_its_unlanded_commits_as_landed(self):
+        # 立っている keep の部署を開き直す（--task の打ち直し・--move）と、まだ入れていない commit の載った先頭を入れた commit と
+        # 記録していた。部署が次のブランチへ移った後の --land・--clean --apply が、そのブランチを消してしまう
+        ports = self.ports()
+        self.assertEqual(self.run_task(ports, "--role", "調べ役", "--persistent")[0], 0)
+        path = self.place(ports)
+        first = self.g.head_sha(path)
+        self.g.commit(path, {"work.txt": "まだ入れていない"}, "work")
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "調べ役", "--persistent")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(json.loads(self.g.worktree_attrs(path)["landed-branches"]), {"task/fix": first})
+
     def test_shape_picks_the_default_role_and_a_role_can_be_persistent(self):
         # 会社の形の default_role は --role を省いたときの役、役の persistent = true は --persistent と同じ
         push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'

@@ -1242,9 +1242,10 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 known = ports.git.rev(repo.source, f"refs/remotes/origin/{ports.default_branch(repo)}")
                 if known:
                     provision.mark(prov["path"], repo.source, {"base": known}, ports.git)
-            if attrs["lifecycle"] == gitx.PERSISTENT and a.branch:
+            if attrs["lifecycle"] == gitx.PERSISTENT and a.branch and not existed:
                 # keep の部署の最初のブランチも、入れたブランチと同じに記録する。頼みごとにブランチを移るので、入れずに移った最初のブランチ（--brief で
-                # 立てただけのブランチなど）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す
+                # 立てただけのブランチなど）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す。
+                # 書くのは部署を立てたときだけ（開き直し〔--task の打ち直し・--move〕の先頭には、まだ入れていない commit が載りうる）
                 first = {**clean.landed_of(ports.attrs(prov["path"]), strict=True), a.branch: ports.git.rev(prov["path"], "HEAD")}
                 provision.mark(prov["path"], repo.source, {clean.LANDED_BRANCHES: json.dumps(first, ensure_ascii=False)}, ports.git)
         except (gitx.GitError, OSError) as e:
