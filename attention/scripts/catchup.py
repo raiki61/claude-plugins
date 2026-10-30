@@ -395,12 +395,9 @@ def unquoted_lines(body):
 
 
 def threads_awaiting(node, me):
-    """私が入っている未解決スレッドのうち、最後の発言が相手のもの（私が返すターン）。"""
-    for th in node.get("reviewThreads", {}).get("nodes", []):
-        cs = th["comments"]["nodes"]
-        if not th["isResolved"] and any(login_of(c["author"]) == me for c in cs) \
-                and login_of(cs[-1]["author"]) != me:
-            yield th
+    """私が入っている未解決スレッドのうち、私が返すターンのもの（相手が返している）。判定は unresolved_threads の
+    my_turn と同じ式（bot の発言は数えない。前は bot の「Thanks!」が最後でも相手が返した扱いだった）。"""
+    return [th for th in unresolved_threads(node, me) if th["my_turn"] and th["mine_last"]]
 
 
 # ---- 出来事の並び ------------------------------------------------------------
@@ -1030,9 +1027,11 @@ def find_ask(ev, node, me, cutoff, own):
             chosen = dict(chosen, followup=buttons[-1])
         return chosen
 
-    # 名指しが無くても、私が入っている未解決スレッドに相手が返していれば、それが依頼にあたる
-    for th in threads_awaiting(node, me):
-        c = th["comments"]["nodes"][-1]
+    # 名指しが無くても、私が入っている未解決スレッドに相手が返していれば、それが依頼にあたる。新しい返事のものを取る
+    waiting = threads_awaiting(node, me)
+    if waiting:
+        th = max(waiting, key=lambda th: ts(th["last"]["createdAt"]))
+        c = th["last"]
         return {"t": ts(c["createdAt"]), "who": login_of(c["author"]),
                 "kind": f"スレッド {thread_where(th)}（未解決）", "text": c["body"],
                 "bot": is_bot(c["author"]), "cat": SPOKEN,
@@ -1051,7 +1050,7 @@ def turn_reasons(node, me, ev, red):
     端末の報告（render）と HTML の材料（page_item）が同じ式を通る。"""
     reasons = my_turn(node, me, red)
     spoke = last_spoken(ev, me)
-    own = login_of(node["author"]) == me or any(a["login"] == me for a in node["assignees"]["nodes"])
+    own = owns(node, me)
     ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
     # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
     # 形式の信号が 1 つも立たないときの取りこぼしを、これで塞ぐ。他の理由があっても足す——
@@ -1658,10 +1657,18 @@ def head_reader(owner, name, oid):
     return read
 
 
+def owns(node, me):
+    """自分の件か（作者か assignee）。"""
+    return login_of(node["author"]) == me or any(a["login"] == me for a in node.get("assignees", {}).get("nodes", []))
+
+
 def unresolved_threads(node, me):
     """未解決で人が入っているスレッド。相手（私でない人）の最後の発言と、私が返すターンかを添える。
-    私しか発言していないスレッドは出さない——それは指摘ではなく、私が出した側。"""
+    私しか発言していないスレッドは出さない——それは指摘ではなく、私が出した側。私が返すターンは、人の最後の発言が
+    相手のもので、私がそのスレッドで発言しているか自分の件のとき（人の PR で他の人同士が話しているスレッドは、
+    私が返すターンではない）。"""
     out = []
+    own = owns(node, me)
     for th in node.get("reviewThreads", {}).get("nodes", []):
         if th["isResolved"]:
             continue
@@ -1671,7 +1678,7 @@ def unresolved_threads(node, me):
             continue
         mine = [c for c in cs if login_of(c["author"]) == me]
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
-                    "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me,
+                    "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me and bool(mine or own),
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が
                     # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
                     "mine_t": ts(mine[-1]["createdAt"]) if mine else None,

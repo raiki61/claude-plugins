@@ -5732,6 +5732,10 @@ expect_output 0 "SINCE_BIG_OK" \
     "catchup: 私の発言以降の変更の最初の枠は、1 枠で上限の行数を超えても出す（何も出さずに「残り 1 枠」だけ言わない）" \
     "$PY_BIN" "$CU_CASE" threads-since-big
 
+expect_output 0 "THREAD_RULES_OK" \
+    "catchup: スレッドの私が返すターンは理由・依頼・指摘の材料で同じ式——bot の発言は数えない・人の PR の他の人同士のスレッドは私のターンでない・自分の PR の新しい指摘は私のターン・待つスレッドが 2 つなら新しい返事を依頼にする" \
+    "$PY_BIN" "$CU_CASE" thread-turn-rules
+
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元の欄にも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring
