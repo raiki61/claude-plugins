@@ -5740,6 +5740,10 @@ expect_output 0 "GIT_FAILED_OK" \
     "catchup: git が読めなかった（timeout など）とき、範囲・既定ブランチより先・未コミットの変更で「変更なし」と断定せず、読めなかったと書く" \
     "$PY_BIN" "$CU_CASE" git-failed
 
+expect_output 0 "RANGE_DOTTED_OK" \
+    "catchup: 範囲の両端は . を含んでよい（v1.2.0..v1.3.0 のタグ・release/1.2...HEAD）。最初の .. が区切り" \
+    "$PY_BIN" "$CU_CASE" range-dotted
+
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元の欄にも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring

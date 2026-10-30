@@ -272,7 +272,8 @@ def current_pr_url():
     sys.exit("gh pr view が失敗（今のブランチに PR が無いのとは別。理由: " + err + "）")
 
 
-RANGE_RE = re.compile(r"^(?P<a>[^.\s]+)(?P<sep>\.\.\.?)(?P<b>[^.\s]+)$")
+# 両端は . を含んでよい（v1.2.0 のタグ・release/1.2 のブランチ）。ref の名前に .. は使えないので、最初の .. が区切り
+RANGE_RE = re.compile(r"^(?P<a>\S+?)(?P<sep>\.\.\.?)(?P<b>\S+)$")
 
 
 def resolve_range(token, cwd=None):

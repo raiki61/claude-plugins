@@ -1339,6 +1339,26 @@ def _git_failed():
     return verdict("GIT_FAILED", want, rng + "\n".join(ahead) + local)
 
 
+@case("range-dotted")
+def _range_dotted():
+    """範囲の両端は . を含んでよい（v1.2.0..v1.3.0 のタグ・release/1.2...HEAD）。前は両端に . があると範囲と読まず、
+    「タグ・ブランチ名は通る」と言いながら止まった。"""
+    oids = {"v1.2.0": "a" * 40, "v1.3.0": "b" * 40, "release/1.2": "c" * 40, "HEAD": "d" * 40}
+    saved = catchup.changemap.commit_oid, catchup.changemap.git
+    catchup.changemap.commit_oid = lambda token, cwd=None: oids.get(token)
+    catchup.changemap.git = lambda *a, cwd=None: "e" * 40 + "\n" if a[0] == "merge-base" else None
+    try:
+        got = {t: catchup.resolve_range(t) for t in ("v1.2.0..v1.3.0", "release/1.2...HEAD", "v1.2.0..nope")}
+    finally:
+        catchup.changemap.commit_oid, catchup.changemap.git = saved
+    want = {
+        "tags": got["v1.2.0..v1.3.0"] == f"{'a' * 40}..{'b' * 40}",
+        "three_dots": got["release/1.2...HEAD"] == f"{'e' * 40}..{'d' * 40}",
+        "unknown_end": got["v1.2.0..nope"] is None,
+    }
+    return verdict("RANGE_DOTTED", want, str(got))
+
+
 @case("range")
 def _range():
     """commit の範囲 A..B（A...B は merge-base から）を渡すと、1 commit と同じ形で範囲の差を出す——commit の
