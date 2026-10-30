@@ -130,13 +130,14 @@ def retire(a, ports, cwd, rows, reasons):
         parked, why = on_origin(r, ports.git)
         if not parked:
             return kept(f"会話を止めたが、{why}")
+    main = _main_of(path, ports.git) if parked else None   # 片付けで作業場が消えると、そこでは問えない
     got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git, chat, ports.account_env)
     if not got["removed"]:
         return kept(f"片付けられなかった: {got['detail']}")
     if parked:
         note = (f"ブランチ {parked} はメインブランチに入れずに origin に残した" if parked == r["branch"]
                 else f"部署の先頭は origin の {parked} に入っている（"
-                + ("手元の控えが古かった）" if parked == _main_of(path, ports.git) else "メインブランチへはまだ）"))
+                + ("手元の控えが古かった）" if parked == main else "メインブランチへはまだ）"))
         got["detail"] = f"{note}。{got['detail']}" if got["detail"] else note
     deliver.log(inbox, {"kind": "retired", "at": ports.now(), "name": attrs.get("name"), "path": path, "status": "done",
                         "detail": got["detail"]})

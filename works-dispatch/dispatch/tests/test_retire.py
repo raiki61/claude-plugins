@@ -589,5 +589,33 @@ class Landed(unittest.TestCase):
             ghx.merged_pr_of("o/r", "abc", "main", runner=lambda a, env=None: P("Not Found", 1))
 
 
+class RetireStaleMain(unittest.TestCase):
+    """場の作りは Retire の物を借りる（継ぐと、その試験が二度走る）。"""
+
+    main, shape = Retire.main, Retire.shape
+
+    def setUp(self):
+        Retire.setUp(self)
+
+    def test_retire_says_the_local_copy_of_main_was_stale_after_the_room_is_removed(self):
+        # メインブランチの名前を、片付けで消した作業場で問うていた。本物の git は消えた場所では答えないので、「手元の控えが古かった」が出なかった
+        real = self.g.default_branch
+
+        def default_branch(cwd):
+            if self.g._place(cwd) is None:
+                raise gitx.GitError(f"{cwd}: git でない")
+            return real(cwd)
+        self.g.default_branch = default_branch
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        head = self.g.commit(self.place, {}, "y")
+        self.g.push(self.place, head, "work/b")
+        del self.g.origin["work/b"]   # 入れた後に消えた head のブランチ（手元の origin/work/b の控えにだけ残る）
+        self.g.origin["main"] = head   # origin の main には入ったが、手元の origin/main の控えは古いまま
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署の先頭は origin の main に入っている（手元の控えが古かった）", out)
+        self.assertFalse(os.path.exists(self.place))
+
+
 if __name__ == "__main__":
     unittest.main()
