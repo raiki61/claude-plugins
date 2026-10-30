@@ -274,7 +274,7 @@ def load(path, text=None):
                 to = out["roles"].get(current(out, duty["role"])) if isinstance(duty.get("role"), str) else None
                 why = f"受け持ち {name} の役" + ("が無い" if to is None else "が機械だけの役（AI の部署を持たない）")
             else:
-                to = out["roles"].get(name)
+                to = out["roles"].get(current(out, name))   # 前の名前でも、--ask 会社/<前の名前> と同じく今の役に引く
                 why = "会社の形の役にも受け持ちにも無い" if to is None else "機械だけの役（AI の部署を持たない）"
             if to is None or to["machine"]:
                 out["problems"].append(f"{path}: 役 {r['name']} のツール {t['name']} の回す先 {name} が{why}ので外す")
@@ -284,10 +284,10 @@ def load(path, text=None):
     default = raw.get("default_role")
     if default is not None and not (isinstance(default, str) and default):
         out["problems"].append(f"{path}: default_role が文字列で無い")
-    elif default and default not in out["roles"]:
+    elif default and current(out, default) not in out["roles"]:
         out["problems"].append(f"{path}: default_role の役 {default} が [[roles]] に無い（在る役: {', '.join(out['roles']) or 'なし'}）")
     elif default:
-        out["default_role"] = default
+        out["default_role"] = current(out, default)
     desk = raw.get("desk_role")
     if desk is not None and not (isinstance(desk, str) and desk):
         out["problems"].append(f"{path}: desk_role が文字列で無い")
@@ -308,7 +308,7 @@ def default(shape, builtin):
     その役が無ければ止める訳を返す（前は注記だけで、役の名前を英語で書いた会社では、どの役でもない「作業」の部署が役の本文も
     起動の設定も無いまま立った）。役を書いていない会社は builtin のまま止めない。ただし役が 1 つも読めず problems が有る（TOML が
     壊れているなど）ときは、書いた役を読めていないので止める。"""
-    name = shape.get("default_role") or builtin
+    name = current(shape, shape.get("default_role") or builtin)   # 役の名前を替えても、前の名前の既定の役は今の役に引く
     if not shape["roles"] and shape.get("problems"):
         return name, f"--role を省いたが、会社の形を読めず既定の役を確かめられない（{shape['problems'][0]}）"
     if shape["roles"] and name not in shape["roles"]:

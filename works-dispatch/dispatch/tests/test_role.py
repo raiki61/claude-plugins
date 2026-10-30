@@ -678,6 +678,18 @@ class Hook(unittest.TestCase):
         shape = role.load("x", (pathlib.Path(self.src) / ".claude" / "company.toml").read_text(encoding="utf-8"))
         self.assertEqual((shape["desk_role"], role.current(shape, "窓口"), role.current(shape, "作業")), ("段取り", "段取り", "作業"))
 
+    def test_default_role_and_tool_fallback_by_a_former_name_read_as_the_current_role(self):
+        # 役の名前を替えて前の名前を former_names に書けば、default_role と ツールの fallback_role の前の名前も今の役に引く
+        # （前は default_role が外れて --role を省いた --task が止まり、回す先の前の名前のツールが外れた）
+        text = ('default_role = "作業"\n[[roles]]\nname = "手"\nformer_names = ["作業"]\n'
+                '[[roles]]\nname = "配布"\nmachine = true\n[[roles.tools]]\nname = "spread"\ntitle = "配る"\ncommand = "true"\n'
+                'inputSchema = { type = "object", properties = {}, additionalProperties = false }\nfallback_role = "作業"\n')
+        shape = role.load("/c.toml", text)
+        self.assertEqual((shape["problems"], shape["default_role"]), ([], "手"))
+        self.assertEqual([t["name"] for t in shape["roles"]["配布"]["tools"]], ["spread"])
+        self.assertEqual(role.default(shape, "作業"), ("手", None))
+        self.assertEqual(role.default({**shape, "default_role": None}, "作業"), ("手", None))   # 既定の役（builtin）の前の名前も引く
+
     def test_a_running_talk_gets_the_new_role_text_once_on_its_next_prompt(self):
         shape = pathlib.Path(self.src) / ".claude" / "company.toml"
         write(shape, '[[roles]]\nname = "相談"\ninstructions = "持ち主と話す。"\n')
