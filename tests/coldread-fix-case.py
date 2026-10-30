@@ -73,7 +73,7 @@ def run_main(command, cwd=None):
     try:
         with patched(reader_prompt=reader_prompt):
             g.main()
-    except (Reached, SystemExit):
+    except (Reached, SystemExit):   # 読み手を呼ぶ所まで来たか、ゲートが答えを出して抜けた
         pass
     finally:
         sys.stdin, sys.stdout = old_in, old_out

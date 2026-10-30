@@ -211,6 +211,22 @@ def failure_is_nonzero():
     runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"})
     rc, out = run(runner, {})
     assert rc == 1 and "- main: claude plugin marketplace update" in out and "gone@" in out and "attention@" in out, (rc, out)
+    runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"})
+    def stale(argv, env=None):   # fetch が落ちると手元の origin/main は古いかもしれず、そろったと言えない
+        return (1, "network") if argv[:2] == ["git", "-C"] and argv[3:4] == ["fetch"] else runner(argv, env)
+    rc, out = run(stale, {}, local='skip = ["plugins1"]\nno_install = ["gone", "attention"]\n')
+    assert rc == 1 and "- main: claude plugin marketplace update" in out, (rc, out)
+    runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"})
+    def twin(argv, env=None):   # 同じ名前で設定のフォルダの違うアカウントは、別に数える（片方の入った物で、もう片方の欠けを隠さない）
+        code, out = runner(argv, env)
+        if argv[:3] == ["claude", "plugin", "list"] and (env or {}).get("CLAUDE_CONFIG_DIR") != "/c/twin":
+            got = json.loads(out)
+            out = json.dumps(got + [dict(got[0], id=f"gone@{MARKET}")])
+        return code, out
+    rc, out = run(twin, {}, local='skip = ["plugins1"]\nno_install = ["attention"]\n'
+                  'accounts = [{ name = "main", config_dir = "/c/twin" }]\n')
+    assert rc == 1 and "main（/c/twin）: marketplace の更新が落ち、main に在る gone@" in out, (rc, out)
+    assert "main: marketplace の更新は落ちたが、入った版は main とそろった" in out, (rc, out)
     runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"}, main=None)   # メインブランチを読めなければそろったと言えない
     rc, out = run(runner, {})
     assert rc == 1 and "- main: claude plugin marketplace update" in out, (rc, out)
@@ -300,11 +316,21 @@ def mend_clone():
             if argv[:4] == ["git", "-C", where, "ls-files"]:
                 return 128, f"fatal: cannot change to '{where}': No such file or directory"
             return runner(argv, env)
-        rc, out = run(lost, {})
+        rc, out = run(lost, {}, local='skip = ["plugins1"]\nno_install = ["gone", "attention"]\n')
         assert rc == code and ("clone が無いので欠けを確かめずに進む" in out) == (where == missing), (where, out)
         assert ("clone の欠けを確かめられない 失敗" in out) == (where != missing), (where, out)
         assert ("plugin.json が無い" in out) == bool(installed), (where, out)   # 置き場が無くても欠けた写しは失敗に数える
         assert [a for a, _ in calls if a[:3] == ["claude", "plugin", "update"]], calls   # どちらでもプラグインの更新は打つ
+    # clone が無い間は main で足したプラグインを入れられないので、main に在って入っていない物は失敗に数える
+    runner, calls = world()
+    def blind(argv, env=None):
+        if argv[:4] == ["claude", "plugin", "marketplace", "list"]:
+            return 0, json.dumps([{"name": MARKET, "installLocation": missing}])
+        if argv[:4] == ["git", "-C", missing, "ls-files"]:
+            return 128, f"fatal: cannot change to '{missing}': No such file or directory"
+        return runner(argv, env)
+    rc, out = run(blind, {})
+    assert rc == 1 and "marketplace の clone が無く、main に在る" in out and "gone@" in out, out
     print("MEND_CLONE_OK")
 
 

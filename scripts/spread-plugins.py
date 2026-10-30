@@ -98,13 +98,18 @@ def accounts(env=os.environ, local=LOCAL):
         key = os.path.realpath(os.path.expanduser(d)) if d else None
         if key not in seen:
             seen.add(key)
-            out.append((a.get("name") or "?", d))
+            name = a.get("name") or "?"
+            # 名前は結果を数える鍵（配り直す先・入った物の照合）。設定のフォルダの違う同じ名前を 1 つに数えると、片方の入った物で
+            # もう片方の入っていない物が隠れるので、設定のフォルダを添えて分ける
+            if name in {n for n, _ in out}:
+                name = f"{name}（{d}）"
+            out.append((name, d))
     return out
 
 
 def step(account, kind, text, failed):
     """1 つの手の結果。成否と種類はフィールドで持ち、text は人に見せるだけ（後で text を読んで分岐しない）。
-    kind は marketplace-update・mend・list・install・update・version・main・talk・reload のどれか。"""
+    kind は marketplace-update・mend・list・offered・install・update・version・main・talk・reload のどれか。"""
     return {"account": account, "kind": kind, "text": text, "failed": failed}
 
 
@@ -153,9 +158,9 @@ def mend_clone(name, market, env, dry, runner=run):
 
 
 def expected_versions(market, root=ROOT, runner=run):
-    """(main の {id: 版}, 読めなかったときの行か None)。main は origin/main で、先に fetch する（fetch が切れても手元の
+    """(main の {id: 版}, 読めなかったときの行か None, fetch が済んだか)。main は origin/main で、先に fetch する（fetch が切れても手元の
     origin/main で照合する。--land の push の後なら手元の origin/main も入れた commit を指す）。全アカウントに配った後に呼ぶ。"""
-    runner(["git", "-C", str(root), "fetch", "--quiet", "origin", "main"])
+    fetched = runner(["git", "-C", str(root), "fetch", "--quiet", "origin", "main"])[0] == 0
     def show(path):
         code, out = runner(["git", "-C", str(root), "show", f"origin/main:{path}"])
         if code != 0:
@@ -167,14 +172,14 @@ def expected_versions(market, root=ROOT, runner=run):
             src = p.get("source")
             if isinstance(src, str) and src.startswith("./"):
                 out[f"{p['name']}@{market}"] = show(f"{src[2:]}/.claude-plugin/plugin.json").get("version")
-        return out, None
+        return out, None, fetched
     except (ValueError, KeyError, AttributeError) as e:
-        return {}, f"main の版を読めない（{e}）"
+        return {}, f"main の版を読めない（{e}）", fetched
 
 
 def offered(name, market, env, runner=run):
     """(marketplace の clone に載っているプラグインの名前の並び, 行か None)。行は (失敗か, 文)。clone の置き場が無いとき
-    （別の会話が取り直している間。mend_clone と同じ）は失敗に数えず、次の配布で入れる。載っている物の形が違えば失敗に数える
+    （別の会話が取り直している間。mend_clone と同じ）は失敗に数えず、配った後に main の一覧と照合する（main の照合の側）。載っている物の形が違えば失敗に数える
     （黙って入れずに「配った」と出さない）。"""
     loc = clone_location(market, env, runner)
     if not loc:
@@ -259,7 +264,8 @@ def update_account(name, config_dir, market, dry, runner=run, keep_out=()):
         # 入っている物を読めないときに入れると、全部を入れ直してしまうので、読めたときだけ入れる
         names, line = offered(name, market, env, runner)
         if line:
-            note("install", line[1], line[0])
+            # 確かめずに進んだ（失敗でない）行は offered の種類にし、配った後に main の一覧で入っていない物を照合する
+            note("install" if line[0] else "offered", line[1], line[0])
         fire("install", sorted({f"{n}@{market}" for n in names if n not in keep_out and f"{n}@{market}" not in ids}))
     fire("update", sorted(ids))
     if done:
@@ -379,7 +385,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
 
     spread()
     # main は配った後に読む（配る間に main へ入った版を、入った版が新しいのにそろわないと数えないため）
-    want, err = expected_versions(market, runner=runner) if whole else ({}, None)
+    want, err, fetched = expected_versions(market, runner=runner) if whole else ({}, None, True)
     # 配る間に main が進むと、先に配ったアカウントは前の版のまま残る（2026-10-17 に works-dispatch 0.37.0 で実測）。同じ設定の
     # フォルダの別の会話が marketplace の clone を取り直している間は、plugin update が「Plugin source not found」で落ちる
     # （2026-10-20 に p3 で実測。後で見ると取り直した clone が在った）。版のずれたアカウントと plugin update の落ちたアカウント
@@ -394,7 +400,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
         whole[:] = [w for w in whole if w[0] not in again]
         spread(again)
         if whole:
-            want, err = expected_versions(market, runner=runner)
+            want, err, fetched = expected_versions(market, runner=runner)
     if whole:
         if err:
             steps.append(step(None, "main", err, True))
@@ -404,14 +410,20 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
             # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
             # main に在って入れない物（no_install）を除き、main の全部が入ったアカウントだけを数える。更新の落ちた clone は main で
             # 足したプラグインを載せないので、入れる手も失敗も出ず、入った物だけを見ると「配った」と出ていた
+            # clone が無くて入っていない物を確かめずに進んだアカウント（offered）も、main の一覧で照合する（照合しないと、main で
+            # 足したプラグインを入れないまま「配った」と出て、次に main へ入れるまで入らない）
             even = {n for n, i, *_ in whole if i in want} - drifted(whole, want)
-            for n in sorted(even):
+            blind = {s["account"] for s in steps if s["kind"] == "offered"}
+            for n in sorted(even | blind):
                 fell = [s for s in steps if s["account"] == n and s["kind"] == "marketplace-update" and s["failed"]]
                 have = {i for m, i, *_ in whole if m == n}
                 miss = sorted(i for i in want if i not in have and i.rsplit("@", 1)[0] not in keep_out)
-                if fell and miss:
-                    steps.append(step(n, "marketplace-update",
-                                      f"{n}: marketplace の更新が落ち、main に在る {'・'.join(miss)} が入っていない", False))
+                if miss and (fell or n in blind):
+                    why = "marketplace の更新が落ち" if fell else "marketplace の clone が無く"
+                    steps.append(step(n, "install", f"{n}: {why}、main に在る {'・'.join(miss)} が入っていない", not fell))
+                    continue
+                # fetch が落ちたなら手元の origin/main は古いかもしれず、そろったとは言えないので許さない
+                if n not in even or not fetched:
                     continue
                 for s in fell:
                     s["failed"] = False

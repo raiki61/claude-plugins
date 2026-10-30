@@ -206,6 +206,9 @@
  "tests/ci-watch-case.py": {
   "rule3": 7
  },
+ "tests/coldread-fix-case.py": {
+  "rule3": 1
+ },
  "tests/coldread-raise-case.py": {
   "rule4": 1
  },
@@ -232,7 +235,7 @@
   "rule3": 3
  },
  "tests/spread-plugins-case.py": {
-  "rule3": 22
+  "rule3": 25
  },
  "tests/value-rules.py": {
   "rule3": 1
