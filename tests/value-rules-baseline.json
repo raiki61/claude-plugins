@@ -232,7 +232,7 @@
   "rule3": 3
  },
  "tests/spread-plugins-case.py": {
-  "rule3": 21
+  "rule3": 22
  },
  "tests/value-rules.py": {
   "rule3": 1

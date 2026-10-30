@@ -39,8 +39,9 @@ done
 # 走らせると値を継ぎ、既定の 5 秒を前提に子を止める検査がその下でだけ崩れる（読めない値なら engine の import で全部落ちる）
 unset GL_KILL_GRACE
 # Claude Code の会話の中で回すと、会話の入口(cli・sdk-cli)と会話の一時の置き場を継ぐ。gates の手元の文書の初見読みは
-# これで親の Stop を待って読むか裏で読むか・どこを一時の置き場と見るかを変えるので、外して CI と同じ前提で走る(要る検査は自分で渡す)
-unset CLAUDE_CODE_ENTRYPOINT CLAUDE_JOB_DIR
+# これで親の Stop を待って読むか裏で読むか・どこを一時の置き場と見るかを変えるので、外して CI と同じ前提で走る(要る検査は自分で渡す)。
+# GH_REPO は destgate が -R の無い投稿を宛先不明と見る環境の値なので、手元の値を継がない
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_JOB_DIR GH_REPO
 # **番人自身に `assert` を使うな。** 最適化が効いていると `assert __debug__` ごと消えるので、
 # 番人が常に通る（実測: この形で書いたとき、最適化を効かせた写しが 529 件すべて緑になった）。
 # 検査したい当のものを、検査のツールに使わない——値を印字して外から見る。
@@ -2459,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=807
+EXPECTED_CHECKS=810
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5553,6 +5554,14 @@ expect_output 0 "特定できない" "destgate: 食い違う -R を何度も書�
     "$DG_CASE" "$DG_CFG" "$WORK" "gh issue comment 1 -R allowed/repo -R evil/place --body 'テストの本文です'"
 expect_output 0 "特定できない" "destgate: 環境に GH_REPO が在れば、-R 無しの投稿は宛先不明で止める" \
     env GH_REPO=evil/place COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
+# 投稿先の issue・PR を URL で書けば、gh は走る場所でなく URL の repo へ投稿する。前は走る場所の repo を見て通していた
+expect_output 0 "許可一覧に無い" "destgate: 位置引数の issue・PR の URL の repo を宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh pr comment https://github.com/evil/place/pull/3 --body 'テストの本文です'"
+expect_output 0 "許可一覧に無い" "destgate: 旗の後ろに書いた PR の URL も宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh pr review --approve https://github.com/evil/place/pull/3 -b ok"
+# 題の値が -R で始まっても gh は -R と読まない。前はそれを宛先と読み、走る場所の repo へ出す投稿を通していた
+expect_output 0 "特定できない" "destgate: 題・本文の値が -R で始まる投稿は、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue create --title -Rallowed/repo --body-file p.md"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib
@@ -8874,7 +8883,7 @@ for d, body in (("a", b"old"), ("b", b"old"), ("c", b"new")):
 out = io.StringIO()
 with contextlib.redirect_stdout(out):
     rc = sc.check({"x.py": ps})
-got = out.getvalue()
+got = out.getvalue().replace("\\", "/")   # Windows はパスを \ で区切る
 assert rc == 1, rc
 assert "--sync a/x.py" not in got, got
 assert "c/x.py / a/x.py・b/x.py" in got and "--sync <直した 1 本>" in got, got

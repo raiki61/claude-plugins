@@ -34,6 +34,10 @@ DENY_LOG = os.path.join(CONFIG_DIR, "destgate", "denies.log")
 # Claude Code は止めずに通すので、引き切れないときはこのゲートが自分で止める(宛先不明)
 GH_BUDGET = 20
 _DEADLINE = None   # coldread-gate.py を読んだ時から GH_BUDGET 秒
+# 値に本文・題を取る旗(その値は宛先でない)
+TEXT_FLAGS = {"-b", "--body", "-t", "--title"}
+# 投稿先を指す issue・PR・discussion の URL(gh はこれを位置引数に受ける)
+ITEM_URL_RE = re.compile(r"https?://[^/\s]+/(?P<o>[^/\s]+)/(?P<r>[^/\s]+)/(?:issues|pull|discussions)/\d+")
 
 
 def patterns():
@@ -102,6 +106,13 @@ def dest_of(args, sub, cwd, gh_repo_env=False):
     # `-R 許可した/repo -R 外/repo` を許可一覧の repo と取り違えて通していた)
     values = {owner_repo(v) for i, tok in enumerate(args) if tok.startswith(("-R", "--repo"))
               for v in [cr.flag_value(args[i:i + 2], "-R", "--repo")] if v is not None}
+    # 本文・題の値が -R で始まる(`--title -Ro/r`)なら、gh はそれを -R と読まない。どちらか決めずに宛先不明にする
+    if any(tok.startswith(("-R", "--repo")) and args[i - 1] in TEXT_FLAGS for i, tok in enumerate(args) if i):
+        return None
+    # 投稿先の issue・PR を URL で書けば、gh は -R でも走る場所でもなく URL の repo へ投稿する
+    # (`gh pr comment https://github.com/o/r/pull/3`。前は走る場所の repo を宛先と取り違えて通していた)
+    values |= {f"{m['o']}/{m['r']}" for i, tok in enumerate(args) if not (i and args[i - 1] in TEXT_FLAGS)
+               for m in [ITEM_URL_RE.match(tok)] if m}
     if values:
         return values.pop() if len(values) == 1 else None
     if sub and sub[0] == "api":
