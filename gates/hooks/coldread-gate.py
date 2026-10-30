@@ -641,23 +641,40 @@ def mark_words(norm, tokens):
 
 def _quote_in_substitution(norm, spots):
     """展開される $( ・ ${ ・ `…` の中に引用符が在るか。在れば、bash が置換の中で引用を数え直す所を、_live・shlex は外の引用の
-    続きと読む(`"$(printf %s "'")"`・`"${X:-"'"}"`)ので、語の印が bash と食い違う。mark_words は印を付けずに全体で見る側へ倒す。"""
+    続きと読む(`"$(printf %s "'")"`・`"${X:-"'"}"`)ので、語の印が bash と食い違う。mark_words は印を付けずに全体で見る側へ倒す。
+
+    $( と ${ の中は、開く字と閉じる字を数えて閉じる所までとする(\\ も引用も見ない。閉じなければ終わりまで)。前は $( ごとに
+    閉じる所まで読み直していたので、閉じない $( が並ぶと長さの 2 乗の時間がかかった(`$(:\\()` を並べた 24KB で 2 秒、
+    100KB で 40 秒。フックの時間切れを過ぎると止めずに通る)。今は括弧の種類ごとに 1 度だけ読み、開いた位置を積んで閉じる所と組にする。"""
     ticks = [i for i in spots if norm[i] == "`"]
     for a, b in zip(ticks[::2], ticks[1::2] + [len(norm)]):
         if "'" in norm[a + 1:b] or '"' in norm[a + 1:b]:
             return True
-    for i in spots:
-        if norm[i] != "$" or norm[i + 1:i + 2] not in ("(", "{"):
-            continue
-        opener = norm[i + 1]
-        closer, depth = ")" if opener == "(" else "}", 0
-        for c in norm[i + 1:]:
-            if c in "'\"":
-                return True
-            depth += (c == opener) - (c == closer)
-            if depth == 0:
-                break
+    heads = {i + 1 for i in spots if norm[i] == "$" and norm[i + 1:i + 2] in ("(", "{")}
+    if not heads:
+        return False
+    quotes = [m.start() for m in re.finditer(r"['\"]", norm)]
+    if not quotes:
+        return False
+    for opener, closer in (("(", ")"), ("{", "}")):
+        opened, end = [], len(norm)
+        for m in re.finditer(re.escape(opener) + "|" + re.escape(closer), norm):
+            k = m.start()
+            if norm[k] == opener:
+                opened.append(k)
+            elif opened:
+                head = opened.pop()
+                if head in heads and _any_between(quotes, head, k):
+                    return True
+        if any(head in heads and _any_between(quotes, head, end) for head in opened):
+            return True
     return False
+
+
+def _any_between(sorted_positions, a, b):
+    """並べた位置(sorted_positions)のどれかが a と b の間(両端を含まない)に在るか。"""
+    k = bisect.bisect_right(sorted_positions, a)
+    return k < len(sorted_positions) and sorted_positions[k] < b
 
 
 def substitution_spans(norm):
