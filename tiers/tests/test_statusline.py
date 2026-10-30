@@ -536,7 +536,7 @@ class BgAgentsBornEtime(unittest.TestCase):
                 f.chmod(0o755)
             script = (sl.ROOT / "statusline" / "bg-count.sh").read_text(encoding="utf-8")
             born = re.search(r"^born=\"\"\n.*?(?=^echo )", script, re.M | re.S).group(0)
-            now = int(subprocess.run(["date", "+%s"], capture_output=True, text=True).stdout)
+            now = int(subprocess.run(["date", "+%s"], capture_output=True, text=True, encoding="utf-8").stdout)
             out = subprocess.run(["bash", "-c", "claude_pid=77\n" + born + 'echo "$born"'], env={**os.environ, "PATH": f"{d}:{os.environ['PATH']}"},
                                  capture_output=True, text=True, encoding="utf-8").stdout.strip()
             return now, out
