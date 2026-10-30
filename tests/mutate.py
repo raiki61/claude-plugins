@@ -1329,7 +1329,8 @@ def one(a):
         if r is None:
             r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False}
         if red_py is not None and r["rc"] in (0, "timeout", "no-test"):
-            return {**red_py, "script_rc": r["rc"]}   # 台本の道も殺さなかった: 当たらない pytest の赤のまま（証拠なし）
+            # 台本の道も殺さなかった: 当たらない pytest の赤のまま（証拠なし）。rc が撃てない台本でも、ほかの台本の時間切れの印は残す
+            return {**red_py, "script_rc": r["rc"], **({"timed_out": True} if r.get("timed_out") else {})}
         if r["rc"] in ("timeout", "no-test"):
             return {"id": a["id"], "title": a["title"], "status": "Timeout" if r["rc"] == "timeout" else "RuntimeError",
                     "own": False, **r, "killedBy": [], "failed": r["failed"][:3],

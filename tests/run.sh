@@ -7355,6 +7355,22 @@ out.append(f"sel_timeout={mutate.run_selected('.', {'early.py': ['t'], 'late.py'
 # 先の台本が時間切れ・後の台本が赤でも、rc は後の台本の赤（並びで Timeout にしない）
 out.append(f"sel_rc={mutate.run_selected('.', {'late.py': ['t'], 'early.py': ['t']})['rc']}")
 mutate.run_group = real_group
+# 一覧の腕で pytest が当たらない赤のまま、台本の道の rc が撃てない台本（no-test）でも、ほかの台本の時間切れの印を残して選ばない
+import contextlib
+saved = {k: getattr(mutate, k) for k in ("lease", "mutate", "pytest_args", "named_nodes", "pytest_ready", "run_pytest", "run_selected")}
+@contextlib.contextmanager
+def lease(tag, a=None):
+    yield pathlib.Path(tempfile.mkdtemp()), None
+mutate.lease, mutate.mutate = lease, lambda repo, a: None
+mutate.pytest_args, mutate.named_nodes, mutate.pytest_ready = lambda a: (["x::y"], "nodes"), lambda a: ["x::y"], lambda: ""
+mutate.run_pytest = lambda repo, args, failfast=False: {"rc": 1, "failed": ["other::z"], "tail": []}
+mutate.run_selected = lambda repo, tests, failfast=False: {"rc": "no-test", "failed": [], "tail": [], "selected": True, "timed_out": True}
+parm = {"id": "p1", "title": "p1", "file": "f.py", "suite": "graphloops", "tests": {s: ["f"] for s in mutate.SCRIPTS}, "expect": "t_b"}
+pres = {"arms": [mutate.one(parm)], "marker": {"rc": 0, "placed": [], "seen": []}, "control": {"root": {"rc": 0}}}
+mutate.evaluate(pres, [parm])
+for k, v in saved.items():
+    setattr(mutate, k, v)
+out.append(f"pyred_timeout={pres['arms'][0]['status']}/{pres['arms'][0].get('timed_out')}/{mutate.same_as_pick(pres, {'p1'})}")
 cases = {"status": {**ok, "arms": [row("k1", "Survived")]},
          "evidence": {**ok, "arms": [row("k1", "Killed", ev="")]},
          "missing": {**ok, "arms": [row("zz", "Killed")]},
@@ -7395,7 +7411,7 @@ for flip in ("Survived", "Killed"):
 out.append(f"main_fresh={seen['fresh']} fire={seen['fire']} codes={codes}")
 print(" ".join(out))
 PYSAME
-expect_output 0 "pick=['k1', 'k3', 's1', 'k2'] same=[] sel_timeout=True sel_rc=1 status=1 evidence=1 missing=1 none_shot=1 unhealthy_now=1 partial=1 no_reuse=1 old_report=1 unhealthy_prev=1 main_fresh=True fire=['k1', 's1'] codes=[0, 1]" "撃ち比べ: 同じファイルを壊す赤の組・生き残り・赤を 4 本まで選び（持ち越し・撃てない・揺れうる腕・今の一覧に無い腕は選ばない）、status と当たりの証拠の有無が食い違う・腕が欠ける・撃てた腕が 0 本・どちらかが不健全・前の報告が途中か使い回していないなら食い違い。--same-as は腕ごとに作り直して選んだ腕だけを撃ち、一致で 0" \
+expect_output 0 "pick=['k1', 'k3', 's1', 'k2'] same=[] sel_timeout=True sel_rc=1 pyred_timeout=Killed/True/[] status=1 evidence=1 missing=1 none_shot=1 unhealthy_now=1 partial=1 no_reuse=1 old_report=1 unhealthy_prev=1 main_fresh=True fire=['k1', 's1'] codes=[0, 1]" "撃ち比べ: 同じファイルを壊す赤の組・生き残り・赤を 4 本まで選び（持ち越し・撃てない・揺れうる腕・今の一覧に無い腕は選ばない）、status と当たりの証拠の有無が食い違う・腕が欠ける・撃てた腕が 0 本・どちらかが不健全・前の報告が途中か使い回していないなら食い違い。--same-as は腕ごとに作り直して選んだ腕だけを撃ち、一致で 0" \
     "$PY_BIN" "$WORK/mut-sameas.py" "$ROOT/tests"
 
 cat > "$WORK/mut-root.py" <<'PYROOT'
