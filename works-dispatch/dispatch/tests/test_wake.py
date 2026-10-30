@@ -2998,7 +2998,7 @@ class WakeFlow(unittest.TestCase):
         first, urgent = self.queue_two()
         seen = []
 
-        def fake_ask(a, ports, cwd, task):
+        def fake_ask(a, ports, cwd, task, sent):
             seen.append(a)
             return rc_of_ask
         rc_of_ask = 1
@@ -3036,6 +3036,21 @@ class WakeFlow(unittest.TestCase):
                                     "--text", "割り振りが回した")
                 self.assertEqual(rc, 2, out)
         self.assertEqual(pathlib.Path(first["file"]).read_text(encoding="utf-8"), before)
+
+    def test_take_with_ask_does_not_put_back_an_ask_that_reached_the_new_department(self):
+        # 部署の会話は起動して頼みが届いたが、窓につなげずに立てる道が 0 以外を返した。前は順番待ちに戻し、同じ頼みが 2 度渡った
+        first, _ = self.queue_two()
+
+        def fake_ask(a, ports, cwd, task, sent):
+            sent.update(id=a.ask_id, to={"company": "co", "name": "調べ：先", "role": "作業"})
+            return 1
+        with mock.patch.object(orders, "ask", fake_ask):
+            rc, out = self.main(self.place, "--take", first["id"], "--ask", "作業", "--task", "調べ：先", "--branch", "b/y",
+                                "--text", "割り振りが回した")
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn(first["id"], [q["id"] for q in wake.queued(self.inbox, self.dept_place())])
+        self.assertTrue(pathlib.Path(first["file"]).read_text(encoding="utf-8").startswith("割り振りが回した"), "届いた部署が読む本文を戻さない")
+        self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "taken"], [first["id"]])
 
     def test_withdraw_drops_an_ask_and_leaves_it_in_the_ledger(self):
         first, urgent = self.queue_two()

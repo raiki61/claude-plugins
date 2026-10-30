@@ -430,9 +430,9 @@ def nudge_line(held, boss, now=None):
             "済んでいれば要約を納品のコマンド（--deliver）で返し、途中なら続けてから返す。")
 
 
-def ask(a, ports, cwd, task):
+def ask(a, ports, cwd, task, sent=None):
     """--ask。task は dispatch._task（部署を立てる道）。終了の値を返す。--forward なら、打った場所が受けている頼みを、この頼みで
-    回したとして閉じる（forwarded）。"""
+    回したとして閉じる（forwarded）。sent を渡せば、頼みが宛先に届いたとき回した先の頼みの id と宛先（to）を書く（_ask と同じ）。"""
     held = None
     if getattr(a, "forward", False):
         at, moved = own_place(ports, cwd)   # 回して閉じるのは、打った会話の部署が受けた頼み（打った場所の部署の物でなく）
@@ -443,7 +443,7 @@ def ask(a, ports, cwd, task):
         if not mine.get("role") or not held or mine.get("delivered") == held:
             print("止めた: --forward は、受けた頼みをまだ納品していない部署か窓口の場所から打つ（回す元の頼みが無い）")
             return 2
-    sent = {}
+    sent = {} if sent is None else sent
     rc = _ask(a, ports, cwd, task, sent)
     if held and rc == 0:
         if a.dry_run:
@@ -1146,17 +1146,22 @@ def take(a, ports, cwd, task):
                             deliver.wrap(a.text, body))
     ns = argparse.Namespace(**{**vars(a), "brief": brief, "text": None, "ask_id": item.get("id"), "title": item.get("title"),
                                "from_boss": {k: v for k, v in marks.items() if k == "boss" or k.startswith("boss-")}})
-    rc = ask(ns, ports, cwd, task)
-    if rc != 0:
+    sent = {}
+    rc = ask(ns, ports, cwd, task, sent)
+    if rc != 0 and not sent:
+        wake.put_back(item)
         if a.text:
             # 添え書きを足した本文は元の頼みのファイルと同じ名前に書くので、戻す頼みは元の本文に戻す（重ねて包まないように）
-            pathlib.Path(item["file"]).write_text(body, encoding="utf-8")
-        wake.put_back(item)
+            try:
+                pathlib.Path(item["file"]).write_text(body, encoding="utf-8")
+            except OSError as e:
+                print(f"注記: 頼みのファイルを元の本文に戻せなかった（{e}）。添え書きの付いたまま順番待ちに在る")
         print(f"受付 {a.take} を {a.ask} に頼み直せなかったので、元の順番待ちの同じ場所に戻した")
         return rc
+    # 0 以外でも、頼みが宛先に届いていれば（部署の会話は起動したが窓につなげなかったなど）戻さない。戻すと同じ頼みが 2 度渡る
     _log_taken(item, {"id": item.get("id"), "kind": "taken", "at": ports.now(), "from": os.path.dirname(item["path"]),
                       "to": {"ask": a.ask}, "name": a.task, "by": {"session": chat.session_of(ports.env), "place": cwd}})
-    return 0
+    return rc
 
 
 def _take_here(a, ports, cwd):
