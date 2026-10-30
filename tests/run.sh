@@ -5757,7 +5757,7 @@ expect_output 0 "THREADS_LEFT_OK" \
     "$PY_BIN" "$CU_CASE" threads-left
 
 expect_output 0 "BRANCH_WIRING_OK" \
-    "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元の欄にも残す）" \
+    "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元のセクションにも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring
 
 expect_output 0 "WIRING_OK" \

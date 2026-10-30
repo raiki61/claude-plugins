@@ -1578,7 +1578,7 @@ def _branch_wiring():
     """ブランチ名で呼んだときの report() の配線。origin にだけ在って PR も無いブランチ（移らない回）は、短い名前で
     引けない tip を origin/<名前> から引いて commit として出す（前は oid が None のまま描いて TypeError で止まった）。
     両方に無ければ例外でなく理由を言って止まる。移れた先に PR も番号も無いときは、移った行を出し「移らない」とは言わず、
-    HTML の手元の欄にも移った行を残す（前は「this では移らない」と出て、移った行が落ちていた）。"""
+    HTML の手元のセクションにも移った行を残す（前は「this では移らない」と出て、移った行が落ちていた）。"""
     import argparse
     import contextlib
     import io

@@ -1671,7 +1671,7 @@ class Mentions(unittest.TestCase):
         )
 
     def test_tilde_fences_are_ignored_too(self):
-        """GFM の柵は ~~~ もある。中の @name と #12 は数えない。柵は開いた文字と同じ文字で閉じる"""
+        """GFM のコードブロックは ~~~ でも囲める。中の @name と #12 は数えない。囲みは開いた文字と同じ文字で閉じる"""
         self.assertEqual(flow.mentions("~~~\n@pytest.fixture\n~~~\n@real"), {"real"})
         self.assertEqual(flow.mentions("```\n~~~\n@fence\n```\n@real"), {"real"})
         self.assertEqual(flow.repo_refs("~~~\n#123\n~~~\n#7", "o/r"), {7})

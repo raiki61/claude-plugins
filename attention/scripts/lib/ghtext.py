@@ -20,7 +20,7 @@ def is_bot(actor):
     return (actor or {}).get("__typename") == "Bot"
 
 
-# GFM の柵は ``` と ~~~ の両方。開いた柵と同じ文字で閉じる
+# GFM のコードブロックの囲みは ``` と ~~~ の両方。開いた囲みと同じ文字で閉じる
 _FENCE = re.compile(r"(```|~~~).*?\1", re.S)
 _INLINE = re.compile(r"`[^`\n]*`")
 _QUOTE = re.compile(r"^[ \t]*>.*$", re.M)
