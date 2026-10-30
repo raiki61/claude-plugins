@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-30
+
 ### Changed
 - 利用者の動きは変わらない直し（コードの簡潔化。このリポジトリの持ち主の 2026-10-30 の頼み「気になるとこに並列でsimplifyかけまくっていって」）。engine（graphloops の中核のモジュール群 `engine/`）で、同じ中身のコードが複数の所に写してあった物を 1 つの関数にまとめた。主な物は次のとおり。役を `claude -p` で起動するコマンドの組み立てで、コマンドの雛形の差し込み先（`{prompt_file}` などの置き換える欄）に入れる値を作る処理と、役への指示文を盤面の `roles/` に書き出す処理（`advance.py` の `launch_holes`・`write_role`）。起動してよいコマンドかを確かめて拒む検査のうち、コマンドの頭の形・`--resume` の値・標準入力に渡すファイルの 3 つ（`commands.py` の `_prefix_refusal`・`_resume_ids`・`_stdin_refusal`）。盤面の `trace.jsonl` に 1 行足す処理（`util.py` の `append_trace`。`commands.py`・`children.py`・`runner.py` の 3 か所を置き換えた）。loop.py を親から切り離して起動する 3 か所（`runner.py` の `_spawn_loop`）。子のプロセスを孫まで止める後始末（`role_run.py` の `_kill_or_say`）。`rules/review-loop.py`・`rules/research-loop.py`・`scripts/graphcheck.py`・`scripts/gl.py` の写しもまとめ、使っていない import と、別の枝と同じ中身の分岐を消した。画面や記録に出す文・JSON の形・終了コードは変えていない。違いは 1 つで、`runner_launch_spec` が役を起動せずに返るとき、空の `roles/` フォルダを作らなくなった（engine にも利用者にも、このフォルダが在るかを見る所は無い）。
 - `skills/research-graph/references/rules.md` の「人の方針」の段を消した。同じ中身が `references/policy.md` に在り、SKILL.md もそちらを指している。
