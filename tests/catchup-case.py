@@ -584,6 +584,27 @@ def _threads_since():
     return verdict("SINCE", want, out)
 
 
+@case("threads-since-big")
+def _threads_since_big():
+    """私の発言以降の変更の最初の枠は、1 枠で上限（THREAD_DIFF_CAP 行）を超えても出す（render_map と同じ）。前は
+    何も出さずに「残り 1 枠」だけ言い、枠を出した扱いで今の姿の窓も飛ばしたので、スレッドにコードが 1 行も出なかった。"""
+    body = [f"    x{i} = {i}" for i in range(1, 195)]
+    files = {"app/big.py": ["def f():"] + body + ["", "def g():", "    pass"]}
+    hunks = "".join(f"@@ -{n} +{n} @@\n-    old{n}\n+{files['app/big.py'][n - 1]}\n" for n in (10, 50, 100, 150))
+    text = "diff --git a/app/big.py b/app/big.py\n--- a/app/big.py\n+++ b/app/big.py\n" + hunks
+    th = thread("app/big.py", False, comment(T1, "other", "[block] 直して"), comment(T2, ME, "こう直す"),
+                comment(T3, "other", "直しました"))
+    node = pr(author=user("other"), headRefOid="bbb",
+              allCommits=conn([commit(T1, "aaa", "最初"), commit(T3, "bbb", "直した")]),
+              reviewThreads=conn([th]))
+    out = catchup.render_threads(node, ME, lambda p: files.get(p), diff_since=lambda p, b, h: text)
+    want = {
+        "first_frame": "飛び先 app/big.py:1（head の 1〜195 行" in out and "  | #│  old10" in out,
+        "no_rest_note": "残り" not in out,
+    }
+    return verdict("SINCE_BIG", want, out)
+
+
 @case("branch-number")
 def _branch_number():
     """ブランチ名の番号は区切りに挟まれた数字だけ。版の数字を番号にせず、1 桁は通す。"""

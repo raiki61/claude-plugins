@@ -1820,7 +1820,7 @@ def render_since_thread(th, node, lines, lo, hi, diff_since, full):
         prefix = changemap.common_indent([t for _, t in items])
         frame = changemap.frame_hunk(th["path"], [m + t for m, t in zip((m for m, _ in items),
                                                                         changemap.dedent([t for _, t in items], prefix))])
-        if not full and total + len(frame) > THREAD_DIFF_CAP:
+        if not full and total and total + len(frame) > THREAD_DIFF_CAP:   # 最初の枠は上限を超えても出す（render_map と同じ）
             w(f"  （残り {len(picked) - i} 枠は --full か gh pr diff で）")
             break
         w(f"  飛び先 {th['path']}:{a}（head の {a}〜{b} 行" + (f"。共通の字下げ {len(prefix)} 桁を落とした" if prefix else "") + "）")
