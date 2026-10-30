@@ -98,8 +98,16 @@ def close_paren(text, index, groups, inside):
     if text[index] == "(":
         prev = text[index - 1] if index else ""
         groups.append(prev in "$<>" and prev != "" or (prev == "(" and bool(groups) and groups[-1]))
-    elif groups.pop() if groups else False:
+    elif groups.pop() if groups else True:
+        # 対の無い `)` は、case のパターンの `a)` が置換の括弧を先に閉じた後の物でありうるので、語の中の字と見る
         inside.add(index + 1)
+
+
+def escaped(text, index, inside):
+    """text[index] の `\\` の後の位置を、語の中か inside で示す。`\\` と改行(行継続)は行をつなぐだけなので、`\\` の位置が
+    語の頭なら後ろも語の頭(`echo a \\<改行># it's` の # はコメント)。ほかの字を引用した後は語の中(`my\\ #1`)。"""
+    if text[index + 1:index + 2] != "\n" or not comment_at(text, index, inside):
+        inside.add(index + 2)
 
 
 def executed_text(command):
@@ -119,8 +127,8 @@ def executed_text(command):
         char = command[index]
         if char == "\\":
             out.append(" ")
+            escaped(command, index, inside)
             index += 2
-            inside.add(index)
         elif char in "()":
             close_paren(command, index, groups, inside)
             out.append(char)
@@ -248,13 +256,15 @@ def backtick_end(text, start):
     return end if end >= 0 else len(text)
 
 
-# ヒアドキュメントの中身を除いた後の、終わりの語の行に替える印。シェルに渡るコマンドは C の文字列なので NUL を持たず、
-# 本物の行と取り違えない
-END_MARK = "\x00"
+def end_mark(word):
+    """ヒアドキュメントの中身を除いた後の、終わりの語の行に替える印の行。シェルに渡るコマンドは C の文字列なので NUL を
+    持たず、本物の行と取り違えない。語を 16 進で添えるのは、置換の中のヒアドキュメントの印で、それを囲むヒアドキュメントを
+    閉じないため(16 進の字は引用符もループの語も作らない)。"""
+    return "\x00" + word.encode().hex()
 
 
 def drop_heredoc_bodies(command):
-    """シェルでないコマンドに渡すヒアドキュメントの中身を除く。終わりの語の行は印の行(END_MARK)に替える。
+    """シェルでないコマンドに渡すヒアドキュメントの中身を除く。終わりの語の行は印の行(end_mark)に替える。
 
     置換や `bash -c "…"` の中は executed_text が読み直すときにもう一度除く。終わりの語の行まで除いていると、2 度目は
     `<<EOF` の後のコードを中身と見て落とし、後の行のループを見落とす(何度除いても同じ結果になるようにする)。
@@ -264,13 +274,13 @@ def drop_heredoc_bodies(command):
     scan_code(command, 0, None, found)
     out = []
     copied = 0
-    for start, body_start, keep in sorted(found, key=lambda item: item[1]):
+    for start, body_start, keep, word in sorted(found, key=lambda item: item[1]):
         line_start = command.rfind("\n", 0, start) + 1
         if body_start < copied or SHELL_STDIN.search(command[line_start:start]):
             continue
         out.append(command[copied:body_start])
         if keep < 0:
-            out.append(END_MARK + "\n")
+            out.append(end_mark(word) + "\n")
         copied = abs(keep)
     out.append(command[copied:])
     return "".join(out)
@@ -279,7 +289,7 @@ def drop_heredoc_bodies(command):
 def scan_code(text, index, stop, found):
     """text の index から、シェルが語として読む所を読み、閉じる位置(stop の `)` か `` ` ``。無ければ末尾)を返す。
 
-    ヒアドキュメントの演算子を見つけたら、(演算子の位置, 中身の頭, 終わりの語の行の後)を found に積む。引用符とコメントの
+    ヒアドキュメントの演算子を見つけたら、(演算子の位置, 中身の頭, 写し直す位置, 終わりの語)を found に積む(heredoc_end)。引用符とコメントの
     中の `<<WORD` はヒアドキュメントを始めない(後の行を中身と見て落とすとループが見えない)。ダブルクォートの中の `$(…)` と
     `` `…` `` はシェルが走らせるので、中のヒアドキュメントも読む(`git commit -m "$(cat <<'EOF'` の中身の `'` で、後の行の
     ループを引用符の中と取り違えない)。行ごとでなくコマンドの全体で読むので、複数の行にまたがる引用符も閉じる所まで読む。"""
@@ -292,8 +302,8 @@ def scan_code(text, index, stop, found):
         index = min(index, close)
         char = text[index]
         if char == "\\":
+            escaped(text, index, inside)
             index += 2
-            inside.add(index)
         elif char == "\n":
             index += 1
             for match in pending:
@@ -385,7 +395,7 @@ def heredoc_end(text, index, match, found, stop=None):
             keep = index
             break
         stripped = line.lstrip("\t") if match.group("dash") else line
-        if stripped == word or line == END_MARK:
+        if stripped == word or line == end_mark(word):
             index = len(text) if end < 0 else end + 1
             keep = -index   # 負の数は「終わりの語の行を印の行に替えて、その後から写す」(drop_heredoc_bodies)
             break
@@ -395,7 +405,7 @@ def heredoc_end(text, index, match, found, stop=None):
             EARLY_CLOSED.append(index)
             break
         index = len(text) if end < 0 else end + 1
-    found.append((match.start(), body_start, keep))
+    found.append((match.start(), body_start, keep, word))
     return index, closed
 
 

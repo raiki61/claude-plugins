@@ -146,6 +146,13 @@ class SleepLoops(unittest.TestCase):
         "echo $((1+2))#x; while sleep 1; do :; done",
         "diff <(ls)#x; while sleep 1; do :; done",
         "touch my\\ #1; while sleep 1; do :; done",
+        # \ と改行は行をつなぐだけで、`\` の位置が語の頭なら次の行の頭の # はコメント(中の ' で後の行を引用符の中と見ない)
+        "echo a \\\n# it's a note\nwhile true; do sleep 1; done",
+        "echo a\\\n#x; while true; do sleep 1; done",
+        # 置換の中のヒアドキュメントの印の行で、それを囲むヒアドキュメントを閉じない
+        'bash -c "cat <<A\n$(cat <<B\nb\nB\n)\nit\'s\nA\nwhile true; do sleep 1; done"',
+        # case のパターンの ) が置換の括弧を先に閉じても、置換を閉じる ) の後の # をコメントと見ない
+        "echo $(case a in a) echo x;; esac)#x; while true; do sleep 1; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -168,6 +175,7 @@ class SleepLoops(unittest.TestCase):
         # 終わりの語がループの語のヒアドキュメント。終わりの語の行を残すと、ループの語に見えて止めていた
         "cat <<until\nx\nuntil\nsleep 1\n",
         "(true)# it's fine\necho ok",
+        'bash -c "cat <<A\n$(cat <<B\nb\nB\n)\n  sleep 1 done;\nA\nuntil [ -f x ]; do :; done"',
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
