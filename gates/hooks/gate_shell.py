@@ -40,7 +40,13 @@ def run(main, failed, deny=None):
     try:
         main()
     except Exception as exc:
-        (deny or _print_deny)(failed(str(exc)[:150]))
+        reason = failed(str(exc)[:150])
+        try:
+            (deny or _print_deny)(reason)
+        except Exception:
+            # 渡した deny 自体が落ちても(coldread-gate.py を読めないなど)、例外のまま終えると Claude Code は止めずに通すので、
+            # 自前の deny で止める
+            _print_deny(reason)
 
 
 def _print_deny(reason):

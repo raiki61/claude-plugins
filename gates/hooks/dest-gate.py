@@ -97,10 +97,13 @@ def dest_of(args, sub, cwd, gh_repo_env=False):
 
     cwd はその gh が走る場所(前の `cd <絶対パス> &&` を読んだもの。決まらなければ None)。gh_repo_env は、コマンドが
     環境変数 GH_REPO を書いている(gh は -R の無いとき GH_REPO の repo へ投稿する。https://cli.github.com/manual/gh_help_environment)。"""
-    # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)。旗の読み方は coldread と同じ 1 本(cr.repo_flag)
-    value = cr.repo_flag(args)
-    if value is not None:
-        return owner_repo(value)
+    # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)。旗の読み方は coldread と同じ 1 本(cr.flag_value)。
+    # 何度も書けば gh は最後の値を使うので、全部を読み、食い違えば宛先不明にする(前は最初の値だけを見ていて、
+    # `-R 許可した/repo -R 外/repo` を許可一覧の repo と取り違えて通していた)
+    values = {owner_repo(v) for i, tok in enumerate(args) if tok.startswith(("-R", "--repo"))
+              for v in [cr.flag_value(args[i:i + 2], "-R", "--repo")] if v is not None}
+    if values:
+        return values.pop() if len(values) == 1 else None
     if sub and sub[0] == "api":
         if len(sub) < 2:
             return None
@@ -149,8 +152,9 @@ def main():
         gate_shell.refuse(cr, "destgate", "deny 解析不能: " + snippet,
                           "外部投稿ゲート(destgate): 宛先の許可制が有効だが、このコマンドを解析できず、宛先を確かめられない。"
                           "引用符の閉じ忘れなどを直し、-R owner/repo で宛先を明示して再実行すること。")
-    # GH_REPO はコマンドのどこで書いても(前置・export)後の gh に効くので、値を追わず、書いてあれば -R の無い宛先を不明にする
-    gh_repo_env = "GH_REPO" in cr.prepare(command)[0]
+    # GH_REPO はコマンドのどこで書いても(前置・export)後の gh に効くので、値を追わず、書いてあれば -R の無い宛先を不明にする。
+    # Bash のコマンドは Claude Code の環境を継ぐので、この殻の環境に GH_REPO が在るときも同じに見る
+    gh_repo_env = "GH_REPO" in cr.prepare(command)[0] or bool(os.environ.get("GH_REPO"))
     for sub, args, candidates, blocked, cwd in analysis.calls:
         if not candidates and not blocked:
             continue  # 投稿の形をしていない
