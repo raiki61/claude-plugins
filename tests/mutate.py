@@ -443,7 +443,8 @@ def auto_arms_for(rel, text, added, every=False, pruned=None):
     # 関数の本体の行（import の時に走る行は、最初に import した台本にしか印が付かないので、台本の絞りに使わない）
     bodies = [(n.body[0].lineno, n.end_lineno) for n in ast.walk(tree)
               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.body]
-    lines = text.splitlines(keepends=True)
+    # ast の行番号が数える行末は \n・\r\n・\r だけ。splitlines は \x0c・\x1c-\x1e・\x85・U+2028・U+2029 でも割るので、使うと offset がずれる
+    lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+", text)
     starts = [0]
     for ln in lines:
         starts.append(starts[-1] + len(ln))
@@ -1306,12 +1307,16 @@ def one(a):
             # 確かめ直して赤なら、行を通した台本の外の検査が落とした——件数・語彙の到達・本文を読むチェックのように台本の関数の外で
             # 決定的に落ちる検査もあれば、揺れた検査もある。見分けられないので attribution に印を残し、証拠は外さない
             if r["rc"] == 0 and CONFIRM:
-                r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False, "confirmed": True}
+                # 一式の確かめ直しが時間切れなら、下の only_head と同じく絞った回の緑を残して confirm_rc だけ足す
+                full = run_suite(repo, a["suite"], failfast=auto)
+                r = {**r, "confirm_rc": "timeout"} if full["rc"] == "timeout" else {**full, "selected": False, "confirmed": True}
         elif only_head(a):
             # 台本一式で撃つ一覧の腕は、宣言した検査だけを回す（only_head）。緑なら、絞った台本と同じく --confirm-survivors の回だけ一式で確かめ直す
             r = {**run_suite(repo, "root", env=only_env([only_head(a)])), "selected": True}
             if r["rc"] == 0 and CONFIRM:
-                r = {**run_suite(repo, "root"), "selected": False, "confirmed": True}
+                # 一式の確かめ直しが時間切れなら、絞った回の緑（生き残りの証拠）を捨てずに、確かめ直せなかった印（confirm_rc）だけ足す
+                full = run_suite(repo, "root")
+                r = {**r, "confirm_rc": "timeout"} if full["rc"] == "timeout" else {**full, "selected": False, "confirmed": True}
         if r is None:
             r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False}
         if red_py is not None and r["rc"] in (0, "timeout", "no-test"):

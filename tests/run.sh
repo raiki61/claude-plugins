@@ -2459,7 +2459,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=804
+EXPECTED_CHECKS=807
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5547,6 +5547,23 @@ expect_output 0 "特定できない" "destgate: 移った先を読み切れな�
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "cd ../dg-repo-ng && gh issue comment 1 --body 'テストの本文です'"
 expect_output 0 "特定できない" "destgate: GH_REPO を書いたコマンドの -R 無しの投稿は、宛先不明で止める" \
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "GH_REPO=evil/place gh issue comment 1 --body 'テストの本文です'"
+# gh は -R を何度も書くと最後の値へ投稿し、環境に GH_REPO が在ればその repo へ投稿する。前は最初の -R だけを見て、
+# 殻の環境の GH_REPO を見ずに、許可一覧の repo と取り違えて通していた
+expect_output 0 "特定できない" "destgate: 食い違う -R を何度も書いた投稿は、宛先不明で止める" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh issue comment 1 -R allowed/repo -R evil/place --body 'テストの本文です'"
+expect_output 0 "特定できない" "destgate: 環境に GH_REPO が在れば、-R 無しの投稿は宛先不明で止める" \
+    env GH_REPO=evil/place COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
+# 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
+expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
+    "$PY_BIN" -c 'import io, json, sys, contextlib
+sys.path.insert(0, sys.argv[1]); import gate_shell
+def boom(): raise RuntimeError("main")
+def bad_deny(reason): raise RuntimeError("deny")
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    gate_shell.run(boom, lambda why: "failed: " + why, bad_deny)
+got = json.loads(out.getvalue())["hookSpecificOutput"]
+print("GATE_SHELL_DENY_OK" if got["permissionDecision"] == "deny" and "failed: main" in got["permissionDecisionReason"] else got)' "$ROOT/gates/hooks"
 # 読めない入力と、解析できない gh のコマンドを通さない(前は前者が例外で素通し、後者は coldread に任せて通していた)
 expect_output 0 "読めない" "destgate: 一覧が在るとき、読めないフックの入力を通さない" \
     sh -c 'printf "not json" | env CLAUDE_CONFIG_DIR="$2" "$1" "$3"' sh "$PY_BIN" "$DG_CFG" "$ROOT/gates/hooks/dest-gate.py"
@@ -6729,6 +6746,11 @@ arm = {"id": "o1", "title": "t", "file": "t/f.py", "suite": "root", "old": "x = 
 r = mutate.one(arm); narrowed = (list(calls), r.get("selected"), r["status"])
 calls.clear(); mutate.CONFIRM = True; r = mutate.one(arm); mutate.CONFIRM = False
 confirmed = (list(calls), r.get("confirmed"))
+# 一式の確かめ直しが時間切れでも、絞った回の緑（Survived）を Timeout で潰さず、確かめ直せなかった印（confirm_rc）を付ける
+mutate.CONFIRM = True
+mutate.run_group = lambda argv, cwd, env=None, failfast=False, sub="": (0, "  ok   x\n") if (env or {}).get(mutate.ONLY_ENV) else ("timeout", "")
+r = mutate.one(arm); mutate.CONFIRM = False; mutate.run_group = fake_group
+assert (r["status"], r["selected"], r.get("confirm_rc"), r.get("confirmed"), r.get("unrunnable")) == ("Survived", True, "timeout", None, None), r
 calls.clear(); mutate.one({**arm, "expect": "test_a.py::t1", "id": "o2"}); node = list(calls)
 calls.clear(); mutate.BASE_UNTIMED = True; c = mutate.control({"root"}, only=["乙", "甲の検査"]); mutate.BASE_UNTIMED = False
 ctl = (list(calls), sorted(c), str(d / "repo") in mutate._UNTIMED)
@@ -6857,6 +6879,11 @@ mid = [a["id"] for a in arms if not mutate.auto_marker(src, a, pathlib.Path("/tm
 sd = mutate.scratch_dir(arms[0]["id"])  # 撃つ段の作業場: id の / と : で mkdtemp が落ちない
 scratch = sd.is_dir() and sd.parent.resolve() == mutate.run_root().resolve()
 sd.rmdir()
+# ast の行番号は \n・\r\n・\r だけを行末に数える。\x0c・\x85・U+2028 などを含むファイルでも、腕の範囲（offset）が文の本文に当たるはず
+for odd in ("\u2028", "\x0c", "\x85", "\x1c"):
+    src2 = f"def f(x, errs):\n    s = 'a{odd}b'\n    if x > 1:\n        errs.append(x)\n"
+    segs = {src2[a["auto"]["start"]:a["auto"]["end"]] for a in mutate.auto_arms_for("a.py", src2, {3, 4}, every=True)}
+    assert segs and segs <= {"x > 1", "errs.append(x)", "if x > 1:\n        errs.append(x)"}, f"行を割る文字 {odd!r} の後で腕の範囲がずれた: {segs}"
 print("kinds=" + ",".join(kinds), f"compiled={ok}/{len(arms)}", f"outer_first={outer}", "unmarked=" + ",".join(i.split(":", 2)[2] for i in mid),
       "anchor=" + repr(mutate.anchor_problem(mutate.ROOT, arms[0])), f"scratch={scratch}",
       f"and_new={and_news} or_new={or_news}")
