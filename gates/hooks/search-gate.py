@@ -756,6 +756,10 @@ def load_coldread():
                     else:
                         new += [dest] if surely else [dest, place]
                 places = list(dict.fromkeys(new))
+                if len(places) > PLACES_MAX:
+                    # 走るとは限らない cd が続くと場所は倍々に増える(20 個で時間切れになり、時間切れは通す)。広い場所は
+                    # 浅いので、浅い物から残す
+                    places = sorted(places, key=lambda p: len(p or ""))[:PLACES_MAX]
             return places
 
         def cd_dest(self, args, base=None):
@@ -787,6 +791,7 @@ def load_coldread():
 
 
 Scope = None
+PLACES_MAX = 32   # 1 つのコマンドが走りうる cwd を覚える数の上限(cwds_here)
 
 
 if __name__ == "__main__":

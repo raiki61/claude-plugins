@@ -11,6 +11,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.dont_write_bytecode = True
@@ -183,6 +184,11 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "test -d sub && cd sub; find . -name x"}, cwd=HOME)[0])
         self.assertIsNone(run("Bash", {"command": "test -d sub && cd sub && find . -name x"}, cwd=HOME)[0])
         self.assertIsNotNone(run("Bash", {"command": 'cd /; if [ -n "$X" ]; then cd "$X"; fi; find . -name x'})[0])
+        # 走るとは限らない cd が続いても、場所は倍々に増えない(前は 20 個で時間切れになり、時間切れは通す)
+        many = "".join("if [ -d d%d ]; then cd d%d; fi\n" % (i, i) for i in range(40)) + "find . -name x"
+        started = time.monotonic()
+        self.assertIsNotNone(run("Bash", {"command": many}, cwd=HOME)[0])
+        self.assertLess(time.monotonic() - started, 10)
         # 前の繰り返しが cd・代入を持たなければ、後ろの cd はそのまま走る(前は語が在るだけで解くのをやめていた)
         self.assertIsNotNone(run("Bash", {"command": "for f in *.md; do echo $f; done; cd / && find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd /; while read f; do :; done < list; find . -name x"})[0])
