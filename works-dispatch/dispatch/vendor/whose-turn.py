@@ -1095,28 +1095,37 @@ def unverified_replies(pr, who):
         p
         for i, p in enumerate(posts)
         if p["id"] in body
-        and login(p["author"]) != who
-        and who in mentions(p["body"])
-        and any(login(q["author"]) == who for q in posts[i + 1 :])
+        and not same_login(login(p["author"]), who)
+        and any(same_login(who, m) for m in mentions(p["body"]))
+        and any(same_login(login(q["author"]), who) for q in posts[i + 1 :])
     ]
+
+
+def same_login(a, b):
+    """GitHub の login は大文字小文字を区別しない（@Bob は bob を呼んでいる）"""
+    return bool(a) and bool(b) and a.casefold() == b.casefold()
 
 
 def excerpt(body, who, width=60):
     text = readable(body)
-    i = text.find("@" + who)
-    return cut(text[max(i, 0) :], width)
+    m = re.search(re.escape("@" + who), text, re.I)
+    return cut(text[m.start() if m else 0 :], width)
 
 
-def unanswered(posts):
-    """{呼ばれた login: 材料}。その後に本人のコメントがあれば外す。材料は最初の未返信の呼びかけのもの。"""
+def unanswered(posts, known=()):
+    """{呼ばれた login: 材料}。その後に本人のコメントがあれば外す。材料は最初の未返信の呼びかけのもの。
+
+    login は大文字小文字を区別せず突き合わせる。キーは、この PR の発言者か known（呼ぶ側が知っている login）に
+    いればその正しい綴りで、いなければ本文に打たれたまま。"""
+    canon = {x.casefold(): x for x in [*known, *(login(p["author"]) for p in posts)] if x}
     out = {}
     for n, p in enumerate(posts):
         if is_bot(p["author"]):
             continue
-        later = {login(q["author"]) for q in posts[n + 1 :]}
+        later = {login(q["author"]).casefold() for q in posts[n + 1 :] if login(q["author"])}
         prev = latest_human_post(posts[:n])
-        for who in mentions(p["body"]):
-            if who == login(p["author"]) or who in later or who in out:
+        for who in sorted({canon.get(m.casefold(), m) for m in mentions(p["body"])}):
+            if same_login(who, login(p["author"])) or who.casefold() in later or who in out:
                 continue
             out[who] = {
                 "post_id": p["id"],
@@ -1125,20 +1134,20 @@ def unanswered(posts):
                 "excerpt": excerpt(p["body"], who),
                 "text": readable(p["body"]),
                 "reacted": False,  # 後から REACTIONS_QUERY で埋める
-                "reply_to_own": bool(prev) and login(prev["author"]) == who,
+                "reply_to_own": bool(prev) and same_login(login(prev["author"]), who),
             }
     return out
 
 
-def pr_unanswered(pr):
+def pr_unanswered(pr, known=()):
     """PR の呼びかけ（unanswered）。draft へ戻した PR では、戻した後にも返していない呼びかけがある人は、その最初の物を
     材料にする——戻す前の呼びかけが残ったまま戻した後に新しく頼まれると、最初の 1 件だけでは before_draft が真になり、
     後の頼みの本文も読む側に届かない"""
     posts = posts_of_pr(pr)
-    out = unanswered(posts)
+    out = unanswered(posts, known)
     back = back_to_draft_at(pr)
     if back:
-        out.update(unanswered([q for q in posts if q["at"] > back]))
+        out.update(unanswered([q for q in posts if q["at"] > back], known))
     return out
 
 
@@ -1229,7 +1238,10 @@ def fill_reactions(waits):
         args = ["api", "graphql", "-f", "query=" + REACTIONS_QUERY] + [
             a for i in batch for a in ("-f", f"ids[]={i}")
         ]
-        for node in stop_on_errors(json.loads(gh(*args)))["data"]["nodes"]:
+        data = json.loads(gh(*args, graphql_errors=True))
+        # 本体の取得から今までの間に発言が消えると、その id は NOT_FOUND で null になる。それだけは進め、ほかのエラーは止める
+        stop_on_errors({"errors": [e for e in data.get("errors") or [] if e.get("type") != "NOT_FOUND"]})
+        for node in data["data"]["nodes"]:
             if not node:
                 continue
             reactors[node["id"]] = {
@@ -1237,7 +1249,7 @@ def fill_reactions(waits):
             }
             limits.append(truncated(node["reactions"], "リアクション", node["id"]))
     for who, info, _ in waits:
-        info["reacted"] = who in reactors.get(info["post_id"], set())
+        info["reacted"] = any(same_login(who, r) for r in reactors.get(info["post_id"], ()))
     return [w for w in limits if w]
 
 
@@ -1335,12 +1347,12 @@ def report(a):
                           "戻す前のレビュー依頼をレビュアーのターンに数えた恐れがある")
         for who, ball in pr_tiers(p).items():
             balls[(who, p["number"])] = ball
-        pr_waits += [(who, info, p) for who, info in pr_unanswered(p).items()]
+        pr_waits += [(who, info, p) for who, info in pr_unanswered(p, [me]).items()]
     issue_waits = []
     for i in issues:
         limits += limits_of_issue(i)
         issue_waits += [
-            (who, info, i) for who, info in unanswered(posts_of_issue(i)).items()
+            (who, info, i) for who, info in unanswered(posts_of_issue(i), [me]).items()
         ]
     limits += fill_reactions(pr_waits + issue_waits)
     limits = [w for w in limits if w]
@@ -1410,7 +1422,7 @@ def report(a):
     people = sorted({w for w, _ in balls}, key=str) if a.all else [me]
     # 呼びかけは古い順。ここで一度並べ、絞った部分集合も同じ順のまま使う
     waits_all = sorted(pr_waits + issue_waits, key=lambda w: w[1]["since"])
-    waits = waits_all if a.all else [w for w in waits_all if w[0] == me]
+    waits = waits_all if a.all else [w for w in waits_all if same_login(w[0], me)]
     asg = [i for i in issues if me in {x["login"] for x in i["assignees"]["nodes"]}]
 
     def owed_threads():

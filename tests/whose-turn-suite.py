@@ -1382,6 +1382,15 @@ class UnverifiedReplies(unittest.TestCase):
             ["@alice ここどうしますか"],
         )
 
+    def test_login_case_does_not_matter(self):
+        p = pr(
+            comments=conn(
+                comment(user("bob"), T1, "@Alice ここどうしますか"),
+                comment(user("alice"), T2, "別件ですが CI を直しました"),
+            )
+        )
+        self.assertEqual(len(flow.unverified_replies(p, "alice")), 1)
+
     def test_a_call_with_no_reply_is_not_counted(self):
         """それは呼びかけのセクションが拾う。ここは『返したことになっている』分だけ"""
         p = pr(comments=conn(comment(user("bob"), T1, "@alice ここどうしますか")))
@@ -1661,6 +1670,12 @@ class Mentions(unittest.TestCase):
             "@alice) 様 確認ください",
         )
 
+    def test_tilde_fences_are_ignored_too(self):
+        """GFM の柵は ~~~ もある。中の @name と #12 は数えない。柵は開いた文字と同じ文字で閉じる"""
+        self.assertEqual(flow.mentions("~~~\n@pytest.fixture\n~~~\n@real"), {"real"})
+        self.assertEqual(flow.mentions("```\n~~~\n@fence\n```\n@real"), {"real"})
+        self.assertEqual(flow.repo_refs("~~~\n#123\n~~~\n#7", "o/r"), {7})
+
     def test_unanswered_until_mentioned_person_comments(self):
         posts = flow.posts_of_issue(issue(comments=[(user("alice"), T1, "@bob 見て")]))
         self.assertEqual(flow.unanswered(posts)["bob"]["since"], T1)
@@ -1670,6 +1685,36 @@ class Mentions(unittest.TestCase):
             )
         )
         self.assertEqual(flow.unanswered(posts), {})
+
+    def test_mention_matches_login_case_insensitively(self):
+        """@Bob は bob を呼んでいる。返した判定も自己言及の判定も大文字小文字を区別しない"""
+        posts = flow.posts_of_issue(
+            issue(
+                comments=[
+                    (user("bob"), T1, "質問です"),
+                    (user("alice"), T2, "@Bob 見て"),
+                    (user("carol"), T3, "@Alice @BOB"),
+                ]
+            )
+        )
+        out = flow.unanswered(posts)
+        # キーは発言者の綴り（bob）。打たれたまま（Bob）では出ない
+        self.assertEqual(sorted(out), ["alice", "bob"])
+        self.assertEqual(out["bob"]["since"], T2)
+        self.assertTrue(out["bob"]["reply_to_own"])
+        self.assertEqual(out["bob"]["excerpt"], "@Bob 見て")
+        # 本人のコメントが後にあれば、打たれた綴りが違っても返したことになる
+        replied = flow.posts_of_issue(
+            issue(comments=[(user("alice"), T1, "@BOB 見て"), (user("bob"), T2, "見た")])
+        )
+        self.assertEqual(flow.unanswered(replied), {})
+        # 自己言及も同じ
+        own = flow.posts_of_issue(issue(body="@ALICE @bob", author=user("alice")))
+        self.assertEqual(list(flow.unanswered(own)), ["bob"])
+        # 発言のない人は打たれた綴りのまま。呼ぶ側が知っている login（known）があればその綴り
+        quiet = flow.posts_of_issue(issue(comments=[(user("alice"), T1, "@Dave 見て")]))
+        self.assertEqual(list(flow.unanswered(quiet)), ["Dave"])
+        self.assertEqual(list(flow.unanswered(quiet, ["dave"])), ["dave"])
 
     def test_mention_after_reply_reopens(self):
         posts = flow.posts_of_issue(
@@ -1785,7 +1830,7 @@ class Mentions(unittest.TestCase):
             }
         }
         original = flow.gh
-        flow.gh = lambda *_args: json.dumps(payload)
+        flow.gh = lambda *_args, **_kw: json.dumps(payload)
         try:
             limits = flow.fill_reactions(waits)
         finally:
@@ -1793,6 +1838,39 @@ class Mentions(unittest.TestCase):
         self.assertTrue(waits[0][1]["reacted"])
         self.assertFalse(waits[1][1]["reacted"])
         self.assertEqual(limits, ["C2: リアクション 60 件のうち 50 件しか見ていない"])
+
+    def test_fill_reactions_matches_login_case_insensitively(self):
+        waits = [("Bob", {"post_id": "C1", "reacted": False}, None)]
+        payload = {"data": {"nodes": [{"id": "C1", "reactions": {"totalCount": 1, "nodes": [{"user": {"login": "bob"}}]}}]}}
+        original = flow.gh
+        flow.gh = lambda *_args, **_kw: json.dumps(payload)
+        try:
+            flow.fill_reactions(waits)
+        finally:
+            flow.gh = original
+        self.assertTrue(waits[0][1]["reacted"])
+
+    def test_fill_reactions_skips_not_found_but_stops_on_other_errors(self):
+        """取得の間に発言が消えると nodes の該当が null で NOT_FOUND が付く。それで report 全体を落とさない"""
+        waits = [("bob", {"post_id": "C1", "reacted": False}, None)]
+        gone = {"data": {"nodes": [None]}, "errors": [{"type": "NOT_FOUND", "path": ["nodes", 0]}]}
+        seen = []
+
+        def fake(*_args, **kw):
+            seen.append(kw)
+            return json.dumps(gone)
+
+        original = flow.gh
+        flow.gh = fake
+        try:
+            self.assertEqual(flow.fill_reactions(waits), [])
+            self.assertFalse(waits[0][1]["reacted"])
+            self.assertEqual(seen, [{"graphql_errors": True}])
+            gone["errors"].append({"type": "FORBIDDEN"})
+            with self.assertRaises(SystemExit):
+                flow.fill_reactions(waits)
+        finally:
+            flow.gh = original
 
 
 def gh_runs(calls, *responses):
@@ -1942,7 +2020,7 @@ def report(*prs, issues=(), who="bob", args=(), legacy=False):
             raise flow.MissingField()
         return list(prs) if field == "pullRequests" else list(issues)
 
-    def gh(*_args):  # 呼びかけがあるとき fill_reactions が引くリアクション。空で返す
+    def gh(*_args, **_kw):  # 呼びかけがあるとき fill_reactions が引くリアクション。空で返す
         return json.dumps({"data": {"nodes": []}})
 
     buf = io.StringIO()
@@ -2421,7 +2499,7 @@ class Json(unittest.TestCase):
         buf = io.StringIO()
         with (
             mock.patch.object(flow, "fetch_all", lambda _q, _o, _n, field, optional=(): [p] if field == "pullRequests" else []),
-            mock.patch.object(flow, "gh", lambda *_a: json.dumps(cut)),
+            mock.patch.object(flow, "gh", lambda *_a, **_kw: json.dumps(cut)),
             contextlib.redirect_stdout(buf),
         ):
             flow.main(["bob", "--repo", "o/n", "--json"])
@@ -2493,6 +2571,12 @@ class Json(unittest.TestCase):
         self.assertEqual({w["number"]: w["before_draft"] for w in out["waits"]}, {5: False, 6: True})
         self.assertIn("draft へ戻す前", report(fresh, stale, who="bob"))
 
+    def test_json_a_mention_typed_in_other_case_is_a_wait_for_that_person(self):
+        # @Bob は bob の呼びかけ。出力の login は GitHub の綴り（bob）で、打たれた綴り（Bob）にしない
+        called = pr(number=5, comments=conn(comment(user("alice"), T1, "@Bob 見て"), comment(user("bob"), T0, "先に")))
+        out = json.loads(report(called, who="bob", args=("--json",)))
+        self.assertEqual([(w["number"], w["who"]) for w in out["waits"]], [(5, "bob")])
+
     def test_json_a_mention_after_going_back_to_draft_is_not_set_aside(self):
         # ready → draft へ戻す → 呼びかけ: 戻した後の頼み。戻す前の呼びかけが残っていても、後の頼みを材料にする
         back = event("ConvertToDraftEvent", T1)
@@ -2558,7 +2642,7 @@ class Json(unittest.TestCase):
         buf = io.StringIO()
         with (
             mock.patch.object(flow, "fetch_all", lambda _q, _o, _n, field, optional=(): [pr(number=1)] if field == "pullRequests" else []),
-            mock.patch.object(flow, "gh", lambda *_a: json.dumps({"data": {"nodes": []}})),
+            mock.patch.object(flow, "gh", lambda *_a, **_kw: json.dumps({"data": {"nodes": []}})),
             contextlib.redirect_stdout(buf),
         ):
             flow.main(["bob", "--repo", "o/n", "--json", "--out"])
