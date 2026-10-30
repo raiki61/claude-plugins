@@ -100,7 +100,15 @@ def start_background(row, pane, name, settings, text, h=term, posix=None, pause=
         h.run(pane, command)
         pause()
         while not h.shell_in_front(pane):
-            if h.agent(pane).get("agent_status") == "blocked":
+            # 打ち込んだ直後は herdr がまだ会話を見つけておらず、agent get が agent_not_found で落ちる（herdr.wait_ready と同じ遅れ）。
+            # 会話はそのまま始まるので、落ちた扱いにせず待って見直す
+            try:
+                status = h.agent(pane).get("agent_status")
+            except h.Error as e:
+                if getattr(e, "detail", None) != "agent_not_found":
+                    raise
+                status = None
+            if status == "blocked":
                 result.update(status="blocked", detail="起動するときに確認の画面で止まっている（フォルダの信頼・ログインなど）。"
                                                        "そのペインで答えると会話が裏で始まる")
                 return result

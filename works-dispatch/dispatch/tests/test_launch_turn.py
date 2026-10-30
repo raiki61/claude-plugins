@@ -146,6 +146,33 @@ class StartBackground(unittest.TestCase):
         self.assertEqual(got["status"], "pane_busy")
         self.assertFalse([c for c in h.calls if c[0] in ("rename_pane", "run")])
 
+    def test_a_conversation_herdr_has_not_found_yet_is_looked_at_again(self):
+        # 打ち込んだ直後は herdr がまだ会話を見つけておらず、agent get が agent_not_found で落ちる。会話はそのまま始まるので、
+        # launch_failed にせず（持ち主の居ない会話が残る）、待って見直す
+        h = FakeHerdr(shell=[True, False, False, True])
+        answers = [real_herdr.Error(["herdr", "agent", "get"], "agent_not_found"), {"agent": "claude", "agent_status": "working"}]
+
+        def agent(pane):
+            h.calls.append(("agent", pane))
+            got = answers.pop(0) if len(answers) > 1 else answers[0]
+            if isinstance(got, Exception):
+                raise got
+            return got
+        h.agent = agent
+        got = launch.start_background(ROW, "w:p1", "直し", "/s", "頼み", h, posix=True, pause=lambda: None)
+        self.assertEqual(got["status"], "sent")
+        self.assertEqual(len([c for c in h.calls if c[0] == "agent"]), 2)
+
+    def test_other_herdr_errors_while_waiting_are_launch_failed(self):
+        h = FakeHerdr(shell=[True, False, True])
+
+        def agent(pane):
+            raise real_herdr.Error(["herdr", "agent", "get"], "pane_not_found")
+        h.agent = agent
+        got = launch.start_background(ROW, "w:p1", "直し", "/s", "頼み", h, posix=True, pause=lambda: None)
+        self.assertEqual(got["status"], "launch_failed")
+        self.assertIn("pane_not_found", got["detail"])
+
     def test_herdr_error_is_launch_failed(self):
         got = launch.start_background(ROW, "w:p1", "直し", "/s", "頼み", FakeHerdr(run_error="pane_not_found"), posix=True,
                                       pause=lambda: None)
