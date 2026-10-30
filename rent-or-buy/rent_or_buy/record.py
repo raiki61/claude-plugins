@@ -44,12 +44,13 @@ def read_records(path, since: Optional[str] = None, until: Optional[str] = None)
     p = Path(path)
     for f in (_old(p), p):
         try:
-            text = f.read_text(encoding="utf-8")
+            data = f.read_bytes()
         except FileNotFoundError:
             continue
-        for line in text.splitlines():
+        for line in data.splitlines():
             try:
-                row = json.loads(line)
+                # 字の読みは行ごと（書きかけで多バイト字の途中で切れた行も、その行だけ飛ばす。UnicodeDecodeError も ValueError）
+                row = json.loads(line.decode("utf-8"))
             except ValueError:
                 continue
             ts = row.get("ts") if isinstance(row, dict) else None
