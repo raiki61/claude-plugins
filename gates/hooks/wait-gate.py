@@ -65,9 +65,9 @@ VALUE_OPTION = re.compile(r"-\w*[oO]")
 OPTION_VALUE = re.compile(r"[\w-]+")
 SHELL_ARGUMENT_REACH = 1000   # シェルの語と `-c` の間に置ける語の数の上限(ふつうは数個)
 # ヒアドキュメントを読むのがシェルか(`bash <<EOF`)
-# `bash -s -- a b <<X`・`bash - <<X` も中身を走らせる(`-s`・`-` の後の語は、走る文に渡す引数)
+# `bash -s -- a b <<X`・`bash - <<X` も中身を走らせる(`-s` の後の語は走る文に渡す引数。`bash - x` は x を走らせる)
 SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])" + _SHELL + r"(?:\s+" + _SHELL_OPTS
-                         + r"(?:(?:-\w*s\w*|-)(?:\s+--)?(?:\s+[^\s;&|()<>'\"`\\-][^\s;&|()<>'\"`\\]*)*)?)?\s*$")
+                         + r"(?:-\w*s\w*(?:\s+--)?(?:\s+[^\s;&|()<>'\"`\\-][^\s;&|()<>'\"`\\]*)*|-)?)?\s*$")
 # `<<<`(here-string)は除く。終わりの語は引用符で囲む形(`<<'END-1'`)と、`\` を前に付けて引用する形(`<<\EOF`)と、
 # 引用した片とそのままの片を続けた形(`<<"EO"F`・`<<E\OF`)も読み、シェルと同じく引用を外した字を終わりの語にする。
 # 引用の無い頭は英字か _ だけにする(`$((1<<2))` の 2 を終わりの語と読んで後の行を中身と見て落とさない)
@@ -454,12 +454,8 @@ def drop_heredoc_bodies(command):
             # シェルが読む中身はコードなので残す。中身の中のヒアドキュメントは外の読みが飛ばしたので、ここで除く
             # (`bash <<'X'` の中の `cat <<'E'` の中身の `'` で、後の行のループを引用符の中と取り違えない)
             out.append(command[copied:body_start])
-            body = command[body_start:abs(keep)]
-            if command.startswith("<<-", start):
-                body = re.sub(r"(?m)^\t+", "", body)   # 外のシェルが行の頭のタブを除いてから渡す(中の <<X は X の行で閉じる)
-            if not any(quote in HEREDOC.match(command, start).group("raw") for quote in "'\"\\"):
-                # 終わりの語を引用しない中身は、外のシェルが `\\`・`\$`・`` \` `` の `\` と `\` + 改行を外してから渡す
-                body = re.sub(r"\\(?:([\\$`])|\n)", lambda hit: hit.group(1) or "", body)
+            body = shell_read_body(command[body_start:abs(keep)], command.startswith("<<-", start), keep < 0,
+                                   any(quote in HEREDOC.match(command, start).group("raw") for quote in "'\"\\"))
             out.append(drop_heredoc_bodies(body))
             copied = abs(keep)
             continue
@@ -469,6 +465,26 @@ def drop_heredoc_bodies(command):
         copied = abs(keep)
     out.append(command[copied:])
     return "".join(out)
+
+
+def shell_read_body(body, dash, closed, quoted):
+    r"""シェルが読むヒアドキュメントの中身を、外のシェルが中のシェルに渡す形にする。
+
+    `<<-` は行の頭のタブを除く。終わりの語を引用しない中身は、`\\`・`\$`・`` \` `` の `\` と `\` + 改行を外す
+    (外した `\` + 改行の次の行は、外のシェルが続きの行と読むので、頭のタブも除かない)。終わりの語の行(closed のとき
+    末尾の行)と、その前の行の末尾の `\` + 改行は外さずに残す(つないで、閉じる行を消さない)。"""
+    tail = ""
+    if closed:
+        cut = body.rfind("\n", 0, len(body) - 1) + 1 if body.endswith("\n") else body.rfind("\n") + 1
+        body, tail = body[:cut], body[cut:]
+    if dash:
+        tail = tail.lstrip("\t")
+    if quoted:
+        return (re.sub(r"(?m)^\t+", "", body) if dash else body) + tail
+    if tail and body.endswith("\\\n") and (len(body) - 1 - len(body[:-1].rstrip("\\"))) % 2:
+        body, tail = body[:-2], body[-2:] + tail   # 終わりの語の行の前の行の `\` + 改行も残す
+    pattern = r"\\([\\$`])|\\\n(\t*)" + (r"|(?m:^)\t+" if dash else "")
+    return re.sub(pattern, lambda hit: hit.group(1) or hit.group(2) or "", body) + tail
 
 
 def logical_line_start(text, index, starts):

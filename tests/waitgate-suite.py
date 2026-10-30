@@ -218,6 +218,10 @@ class SleepLoops(unittest.TestCase):
         "ssh h bash <<EOF\nst=\\`until test -f x; do sleep 1; done; echo ok\\`\nEOF",
         # ダブルクォートの中のバッククォートの \" は、シェルが " にして読む
         'x="`echo \\"it\'s\\"; until test -f x; do sleep 1; done`"',
+        # 引用しない <<- の \ + 改行の次の行は、外のシェルが頭のタブを残してつなぐ(`do\` と `\t\tsleep` は別の語)
+        "bash <<-EOF\n\tuntil test -f x; do\\\n\t\tsleep 1; done\n\tEOF",
+        # 終わりの語の前の行の末尾の \ を外しても、終わりの語の行を消さない
+        "bash <<EOF\ncd /tmp && \\\nEOF\n# wait until the build's done\nuntil test -f x; do\n  [ ${#errs} -gt 0 ] && break; sleep 1\ndone",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -239,6 +243,7 @@ class SleepLoops(unittest.TestCase):
         "bash <<'X'\ngit commit -m \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"\nX",
         # `bash script.sh` は中身を走らせず、データとして読ませる
         "bash script.sh arg <<'EOF'\nwhile true; do sleep 5; done\nEOF",
+        "bash - script.sh <<'EOF'\nwhile true; do sleep 5; done\nEOF",
         # 終わりの語がループの語のヒアドキュメント。終わりの語の行を残すと、ループの語に見えて止めていた
         "cat <<until\nx\nuntil\nsleep 1\n",
         "(true)# it's fine\necho ok",
