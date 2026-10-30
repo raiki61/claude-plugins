@@ -13,8 +13,8 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 
 ## 0. 要る物
 
-- macOS か Linux、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、Claude Code の `claude`。
-- 足りない物は、殻が入れ方のコマンドを出して止まる。打ってから起動し直す。
+- macOS か Linux、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、`uv`（工場のノードが台本を走らせるのに使う）、Claude Code の `claude`。
+- 足りない物は、殻（1. の `bin/works-factory`）が入れ方のコマンドを出して止まる。打ってから起動し直す。`uv` だけは殻が確かめず（仕様の表から進める起動、2. の `spec_table`、を除く）、run の最初のノードで落ちるので、先に入れておく。
 - 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）・会話のキャッシュの寿命（既定 5 分）を変える時は、[references/auth.md](references/auth.md) を読む。
 
 ## 1. 殻
@@ -33,8 +33,8 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 WF workflow run works-factory-line --cwd <対象のリポジトリ> --input request=<依頼のファイル> [--input test_cmd=<試験のコマンド>] [--from <枝か commit>]
 ```
 
-- `request` は依頼を書いた JSON のファイルのパス。文を渡すとファイル名として読まれて止まる。PR の差分だけを見せる時は [references/pr.md](references/pr.md)。
-  - 形: `{"findings": [{"where": "<ファイル:行>", "text": "<何が困っているか・どうなってほしいか>"}], "pr": [<番号>], "issue": [<番号>]}`。`pr`・`issue` は省ける。前の run の答え（`answers`）だけを渡す時は `findings` も省ける。ただし仕様の段（`spec=on`）は、`findings` か PR の題・本文が無いと止まる。
+- `request` は依頼を書いた JSON のファイルのパス。文を渡すとファイル名として読まれて止まる。ファイルは対象の外に置いて絶対パスで渡す（相対パスは run の作業ツリーの根から読まれ、対象の中に置いた commit していないファイルは、run が作業ツリーを切る元の commit に自動で commit されて入り、依頼の差分が混ざる）。PR の差分だけを見せる時は [references/pr.md](references/pr.md)。
+  - 形: `{"findings": [{"where": "<ファイル:行>", "text": "<何が困っているか・どうなってほしいか>"}], "pr": [<番号>], "issue": [<番号>]}`。`pr`・`issue` は省ける。前の run の答え（依頼 JSON の鍵 `answers`。工場が次の run の依頼のファイルに書く）だけを渡す時は `findings` も省ける。ただし仕様の段（人と固めた仕様から進める 2. の設定 `spec=on`）は、`findings` か PR の題・本文が無いと止まる。
   - `text` には問題と目的を書き、直し方は書かない。案は `text` の中に「案: …」と分けて添える（工場は案を世の中の定石と比べる）。
   - `findings` の形は `workflows/.shared/schemas/request.schema.json`。依頼の全項目と省略は `lib/carry.py` の `parts()`。
 - 人と固めた仕様から進める時は、`request` の代わりに `--input spec_table=<仕様の表>` を渡す。準備と必須の審査は [references/spec.md](references/spec.md) を読む。
@@ -44,13 +44,13 @@ WF workflow run works-factory-line --cwd <対象のリポジトリ> --input requ
   - 別の所から切るなら `--from <版>` を名指す。`--base` か `--branch` を名指した時は殻が足さず、切り元は Archon が決める。
 - `test_cmd` は、工場の中で走らせる試験のコマンド。
   - 変更に関わる試験だけを走らせるコマンドがあれば渡す。
-  - 省くと `.review-checks.json` を使い、無ければ AI が試験の実行器を用意する。関係する試験が無ければ通常は省くが、選べない・絞れない場合や実行器が試験結果を JUnit 形式で出せるか確かめる時は全試験が走る。未実行を緑とは扱わない。
+  - 省くと `.review-checks.json` を使う。それも無ければ、AI が対象の CI の定義から試験の実行器を書き、工場は変更に関わる試験だけを走らせる（選べない時は全部）。全部の試験は CI と人に任せる。`test_cmd` も `.review-checks.json` も無く AI が実行器を書いた時の緑は機械が確かめた緑には数えない。未実行を緑とは扱わない。
   - 対象の手元（元の clone・ほかの作業ツリー）を絶対パスや `~` で指す形は、直しでなく手元を試してしまう。run は AI を起動する前に止まり、訳が `WF workflow status` に出る。git が無視する物（`.venv` など）を相対で指す形は注意の行が報告に載る（そのパスが `test_cmd` の最初の語なら判定（直す物を決める段）の前で止まる）。どちらも作業ツリーの中で環境を作る 1 行（依存を入れてから試験を走らせるなど）にする。
 - 試験のコマンドは、利用者の家（HOME と設定の置き場）で走る。AI が書いた試験のコードが利用者の権限で走り、書く物も家に入る（殻が起動のたびに告げる）。守りが要れば工場ごとコンテナか VM で回す。
   - 新しい作業ツリーで準備が要るツールは、対象の `.review-checks.json` の `suite` の横に `setup`（argv の並び）を書く。修正の前の試験が 1 段も走らない時は、判定の前で止まり、ツールの誤りの文と準備の案内を出す。
 - 人が承認ノードで答えない run は `--input unattended=true`。始める時の承認ノードは飛ばし、ほかを開くはずの時は、項目の推しが全部「進む」なら進み、そうでなければ開かずに止める（報告は出る）。最後の承認ノードは推しが無く、開くはずなら止まる（差分を当てるなら 5. の `--allow-stopped`）。計画と審査の往復が上限 20 周で止まった時も推しで越えない。`spec=on` とは組めない。
 - 起動は長いので Bash の run_in_background で打ち、終わりの知らせで次の手を打つ。`nohup` や `&` で切り離さない（知らせが来ず、承認ノードで止まった run に気づけない）。
-- run の記録（Archon の家）は対象のリポジトリごとに分かれる。対象の外から打つ時は、どれにも `--cwd <対象>` を付ける。
+- run の記録（Archon の家）は対象のリポジトリごとに分かれる。対象の外から打つ時は、WF のどのコマンドにも `--cwd <対象>` を付ける。`WORKS_FACTORY_HOME`（絶対パス）で家を替えて起動した run は、後の `respond`・`get`・`status`・`apply` にも同じ値を付ける（Bash の呼び出しの間で環境は継がれない）。
 - 何周もつなぐ時（周の鎖）は [references/chain.md](references/chain.md) を読む。
 
 ## 3. 承認ノードで答える

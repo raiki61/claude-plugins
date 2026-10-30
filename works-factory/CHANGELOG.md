@@ -6,6 +6,15 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Fixed
+
+- 殻 `bin/works-factory`: 工場の固定 commit（PIN）の版の初回の取り寄せ（工場を git から取ってくる操作）を 2 つの起動が同時に行うと、後に終わった方が、先に置かれて走っている工場の置き場（起動ごとに作られる作業用の場所）を消していた（spec の部品を一度に起動した時など）。今は、先に置かれた置き場が在ればそれを使い、消さない。中身の欠けた置き場が残っている時は、別の名に移してから消して置き直し、置けない時は訳（OS の誤りの文）を 1 行出して止まる。
+- 殻 `bin/works-factory`: Python が見つからない時の案内に Linux の入れ方（`uv python install 3.12` か配布のパッケージ）を足した。
+- スキル `references/auth.md`: 会話のキャッシュの寿命を殻を起動する環境の `CLAUDE_CODE_PROMPT_CACHE_TTL` で変えられると書いていたが、今の工場ではこの値は AI の役の会話に効かず 5 分のまま。変える道を、殻の `--config`（Archon の設定のファイル）か対象の `.archon/config.yaml`（Archon の対象ごとの設定）の `env:` だけにし、工場の文書へのリンクを今の PIN の版に替えた。
+- スキル `SKILL.md`: 要る物に `uv` を足した（殻は `spec_table` の起動の時のほかは確かめず、無いと run の最初のノード〔工場の流れの 1 つの段〕で失敗して止まる）。依頼のファイルは対象の外に置いて絶対パスで渡すこと、`WORKS_FACTORY_HOME` で run の記録の置き場（Archon の家）を替えた run は後のコマンドにも同じ値を付けることを書き足した。`test_cmd`（対象の試験を 1 行で走らせる入力）を省いた時の説明を工場に合わせた（`.review-checks.json` も無ければ、AI が対象の CI の定義から試験の実行器を書き、工場は変更に関わる試験だけを走らせる。全部の試験は CI と人に任せ、この道の緑は機械が確かめた緑には数えない）。
+- スキル `references/pr.md`: `--cwd` の作業ツリーに commit していない変更や未追跡のファイルが在ると run が始めに止まることを書き足した。
+- スキル `references/chain.md`: 鎖（`chain`、段を連ねて回す流れ）が入力 `design_talk`・`fix_fixture`・`spec_table` に値が在れば（`false` も含む）、`unattended`（人が答えない run の入力）の有無に依らず起動の時に拒むことを、`unattended` の項から分けて書いた。
+
 ### Changed
 
 - 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を bb05cb34 から 367f148f に上げた。取り込んだ PR は raiki61/works-factory#934。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/bb05cb34875b...367f148f69a6 。この差分から、スキルと殻の使い方に効く変更（スキルが引く語やパスの消え・ワークフローの入力の出入り・環境変数の出入り・README と殻の変更）を `scripts/works-factory-pin.py` の照合で探して見つからなかったので、利用者の手順は変わらない。

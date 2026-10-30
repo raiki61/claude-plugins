@@ -8,6 +8,7 @@ WF workflow run works-factory-line --cwd <PR の head のブランチを checkou
 
 - `request` は渡さない。PR は `--input pr=<番号>` で名指す。
 - `--cwd` は、その PR の head のブランチを checkout した作業ツリーにする。run は `gh` のログインで PR の base と head を読み、PR の head の commit が `--cwd` で checkout した commit（対象の `HEAD`）と違えば止まる。
+- `--cwd` の作業ツリーには、commit していない変更も、git が無視しない未追跡のファイルも置かない。在ると run はそれを包んだ commit から切られ、PR の head と違うので始めに止まる。依頼のファイルなどは対象の外に置く。
 - run の始めに、入口の検査（AI の役が動く前に入力を確かめる所）が 1 行を出し、その行は「diff <base>..HEAD (N files), 0 requests」になる。依頼の行が 0 件の run で正しく、判定の段は PR の差分だけを見る。
 
 ## 入口が断る形

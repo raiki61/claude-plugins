@@ -12,7 +12,7 @@ esac
 [ "${#pin}" -eq 40 ] || { echo "works-factory: PIN が 40 桁の commit でない: $pin" >&2; exit 2; }
 
 # 工場は Python 3.12 以上で動く。python3・python・版の付いた名前（python3.20 から python3.12 まで新しい順）・py -3 の順に、
-# 実際に起きる 3.12 以上の物を選ぶ（docs/standards/cross-os.md の決まり 1。rent-or-buy の bin/rent-or-buy と同じ作り）。
+# 実際に起きる 3.12 以上の物を選ぶ（docs/standards/cross-os.md の決まり 1。候補の順は rent-or-buy の bin/rent-or-buy と同じで、下限は工場の 3.12）。
 # PATH の python3 をそのまま使わないのは、macOS 付属の python3 が 3.9 で、uv で入れた python は版の付いた名前でだけ PATH に在り、
 # Windows の python3 は Python を入れていないと Microsoft Store へ誘う代わりの物に当たるため。
 py=
@@ -23,7 +23,7 @@ for cand in python3 python $named "py -3"; do
   # shellcheck disable=SC2086
   $cand -c 'import sys; sys.exit(sys.version_info < (3, 12))' >/dev/null 2>&1 && { py=$cand; break; }
 done
-[ -n "$py" ] || { echo "works-factory: python 3.12 以上が見つからない（python3・python・python3.20〜python3.12・py -3 を試した）。python 3.12 以上を入れる（例: brew install python）。入っているのに見つからないときは、入れた場所を PATH に足す" >&2; exit 2; }
+[ -n "$py" ] || { echo "works-factory: python 3.12 以上が見つからない（python3・python・python3.20〜python3.12・py -3 を試した）。python 3.12 以上を入れる（例: macOS は brew install python、Linux は uv python install 3.12 か配布のパッケージ）。入っているのに見つからないときは、入れた場所を PATH に足す" >&2; exit 2; }
 
 repo=${WORKS_FACTORY_PLUGIN_REPO:-https://github.com/raiki61/works-factory.git}
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/works-factory-plugin
@@ -38,8 +38,22 @@ if [ ! -x "$dir/bin/works-factory" ]; then
   git -C "$tmp" fetch -q --depth 1 "$repo" "$pin"
   git -C "$tmp" -c advice.detachedHead=false checkout -q FETCH_HEAD
   [ "$(git -C "$tmp" rev-parse HEAD)" = "$pin" ] || { echo "works-factory: 取った commit が PIN と違う" >&2; exit 2; }
-  rm -rf "${dir:?}"
-  mv "$tmp" "$dir"
+  # 置き場へは rename で置く。rename は中身の在る置き場を上書きせずに失敗するので、同時に起動した別の殻が先に置いた時は、
+  # 先の物（走っているかもしれない）を消さずに使う。置き場が在って中身が欠けている時だけ、別の名に移してから消し、もう一度 rename で置く
+  # （その場で消すと、同時に起動した別の殻が間に置いた物まで消しうる）
+  place() {
+    # shellcheck disable=SC2086
+    $py -c 'import os, sys
+try: os.rename(sys.argv[1], sys.argv[2])
+except OSError as e: sys.exit(f"works-factory: 取り置きの置き場に置けない: {e}")' "$1" "$2" || [ -x "$dir/bin/works-factory" ]
+  }
+  if ! place "$tmp" "$dir" 2>/dev/null; then
+    stale=$(mktemp -d "$cache/.stale.XXXXXX")
+    place "$dir" "$stale/old" 2>/dev/null || true
+    rm -rf "${stale:?}"
+    place "$tmp" "$dir" || exit 2
+  fi
+  rm -rf "${tmp:?}"
   trap - EXIT
 fi
 
