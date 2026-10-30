@@ -19,6 +19,7 @@ from . import names
 HERE = Path(__file__).resolve().parent
 LITELLM_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 COMMIT_URL = "https://api.github.com/repos/BerriAI/litellm/commits/main"
+LITELLM_AT_URL = "https://raw.githubusercontent.com/BerriAI/litellm/%s/model_prices_and_context_window.json"  # commit を指して取る口
 DAY = 24 * 3600
 FETCH_TIMEOUT_S = 5  # 1 日 1 回の取り直し全体（2 回の HTTP をまとめて）の持ち時間。keepalive のたびに裏で呼ばれるので、ネットワークが固まっても判断を待たせない
 LATEST_MAX_AGE_DAYS = 7  # 最新の控えがこれより古ければ使わない
@@ -124,10 +125,11 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 def fetch_snapshot(today: str, timeout: float = FETCH_TIMEOUT_S) -> dict:
-    """LiteLLM の main から値段表と commit を取って、写しの形にする。2 回の取得をまとめて timeout 秒で打ち切る。失敗は例外のまま出す。"""
+    """LiteLLM の main の commit を取り、その commit の値段表を取って、写しの形にする。2 回の取得をまとめて timeout 秒で打ち切る。
+    失敗は例外のまま出す。値段表を main の URL から取らないのは、CDN の写しが数分遅れて別の commit の値段になりうるため。"""
     deadline = time.monotonic() + timeout
     commit = _http_json(COMMIT_URL, deadline)["sha"]
-    return build_snapshot(_http_json(LITELLM_URL, deadline), commit, today)
+    return build_snapshot(_http_json(LITELLM_AT_URL % commit, deadline), commit, today)
 
 
 def _fetch_within_deadline(today: str) -> dict:

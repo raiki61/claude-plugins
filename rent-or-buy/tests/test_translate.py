@@ -157,6 +157,18 @@ class TranslateTest(unittest.TestCase):
                 prices.refresh_latest(env, now=time.time())
                 self.assertFalse((pathlib.Path(env["RENT_OR_BUY_CACHE_DIR"]) / "latest.json").exists())
 
+    def test_fetch_snapshot_takes_prices_at_the_fetched_commit(self):
+        # main の URL は CDN の写しが数分遅れうるので、値段表は取った commit の URL から取る（記録の source は変えない）
+        urls = []
+
+        def fake(url, deadline):
+            urls.append(url)
+            return {"sha": "abc123"} if url == prices.COMMIT_URL else {}
+        with mock.patch.object(prices, "_http_json", side_effect=fake):
+            snap = prices.fetch_snapshot("2026-10-30")
+        self.assertEqual((urls[0], snap["commit"], snap["source"]), (prices.COMMIT_URL, "abc123", prices.LITELLM_URL))
+        self.assertIn("/abc123/", urls[1])
+
     def test_compact_numbers_and_haiku_tier(self):
         facts = {"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": 150000, "spent": 0}
         out = translate.compact(facts, env=self.env)
@@ -288,6 +300,15 @@ class TranslateTest(unittest.TestCase):
         r = self.run_cli("records", "--since", "2026-10-02T00:00:00Z", "--until", "2026-10-03T00:00:00Z", RENT_OR_BUY_RECORD=str(log))
         self.assertEqual([json.loads(x)["scene"] for x in r.stdout.splitlines()], ["compact"])
         self.assertEqual(self.run_cli("records").stdout, "")  # 記録を止めていれば何も出さない
+
+    def test_records_skips_a_line_cut_in_a_multibyte_char(self):
+        # 書きかけで切れた行（多バイト字の途中）は UTF-8 として読めない。その行だけ飛ばして残りを返す
+        log = pathlib.Path(self.tmp.name) / "log.jsonl"
+        log.write_bytes('{"scene":"判'.encode("utf-8")[:-1] + b"\n"
+                        + (line(scene="compact", ts="2026-10-02T00:00:00Z") + "\n").encode("utf-8"))
+        r = self.run_cli("records", RENT_OR_BUY_RECORD=str(log))
+        self.assertEqual((r.returncode, [json.loads(x)["ts"] for x in r.stdout.splitlines()]),
+                         (0, ["2026-10-02T00:00:00Z"]), r.stdout + r.stderr)
 
     def test_snapshot_write_failure_exits_1(self):
         # 書き込みを失敗させるため、取得を差し替えた台本を同じ口から呼ぶ（ネットワークには出ない）
