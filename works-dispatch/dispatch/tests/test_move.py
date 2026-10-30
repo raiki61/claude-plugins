@@ -902,21 +902,21 @@ class LimitHook(unittest.TestCase):
         base = {"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"}
         self.assertIsNone(limit_hook.plan(base))   # 頼みを受けていない tmp の部署
         provision.mark(self.place, self.src, {"ask": "q1"}, self.g)   # 頼みの途中の tmp の部署（on-demand の受け持ち）は移す
-        self.assertEqual(limit_hook.plan(base)[0][2:4], ["--move", "調べ"])
+        self.assertEqual(limit_hook.plan(base)[0][2:4], ["--move", "src/調べ"])
         provision.mark(self.place, self.src, {"ask": None, "lifecycle": "persistent"}, self.g)
         argv, cwd, out = limit_hook.plan(base)
-        self.assertEqual(argv[2:5], ["--move", "調べ", "--if-limited"])
+        self.assertEqual(argv[2:5], ["--move", "src/調べ", "--if-limited"])
         self.assertEqual(cwd, self.place)
         self.assertIsNone(limit_hook.plan({**base, "error": "overloaded"}))
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk"}, self.g)
         self.assertIsNone(limit_hook.plan({"cwd": self.src, "session_id": "s-other", "error": "rate_limit"}))
-        self.assertEqual(limit_hook.plan({"cwd": self.src, "session_id": "s-desk", "error": "rate_limit"})[0][3], "窓口")
+        self.assertEqual(limit_hook.plan({"cwd": self.src, "session_id": "s-desk", "error": "rate_limit"})[0][3], "src/窓口")
 
     def test_other_errors_move_only_when_the_account_is_outside_its_hours(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         base = {"cwd": self.place, "session_id": "s-dept", "error": "unknown"}
         self.assertIsNone(limit_hook.plan(base, closed_of=lambda attrs: False))
-        self.assertEqual(limit_hook.plan(base, closed_of=lambda attrs: True)[0][2:5], ["--move", "調べ", "--if-limited"])
+        self.assertEqual(limit_hook.plan(base, closed_of=lambda attrs: True)[0][2:5], ["--move", "src/調べ", "--if-limited"])
         self.assertIsNone(limit_hook.plan({**base, "error": None}, closed_of=lambda attrs: True))
         cfg = pathlib.Path(self.src) / "hours.toml"
         cfg.write_text('accounts = [{ name = "cheap", command = "c", limits = false, hours = "08:00-16:00 UTC" }]\n', encoding="utf-8")
@@ -933,6 +933,29 @@ class LimitHook(unittest.TestCase):
             limit_hook.main(io.StringIO(payload), spawn=lambda argv, **kw: spawned.append(argv), now=lambda: time.time())
         self.assertEqual(len(spawned), 1)
         self.assertTrue(os.listdir(os.path.join(self.inbox, limit_hook.MOVES)))
+
+    def test_a_restart_for_a_changed_shape_in_the_same_folder_does_not_hold_back_the_move(self):
+        # 会社の形の model・effort が変わって起動し直した --move（wake_hook の restart_first）も moves/ に <名前>-<秒>.log を残す。
+        # それを上限の --move の跡と読んで、10 分の間の上限の --move を走らせていなかった
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
+        moves = os.path.join(self.inbox, limit_hook.MOVES)
+        os.makedirs(moves, exist_ok=True)
+        pathlib.Path(moves, f"調べ-{int(time.time()) - 60}.log").write_text("", encoding="utf-8")
+        spawned = []
+        payload = json.dumps({"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"})
+        limit_hook.main(io.StringIO(payload), spawn=lambda argv, **kw: spawned.append(argv), now=lambda: time.time())
+        self.assertEqual(len(spawned), 1)
+
+    def test_the_move_names_the_company_so_a_same_named_department_elsewhere_is_not_hit(self):
+        # ほかの会社にも同じ名前の部署が在ると、名前だけの --move は「2 つ以上ある」で止まる。会社を添えて宛てる
+        provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
+        argv, _, _ = limit_hook.plan({"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"})
+        mine = test_deliver.dept_row(name="調べ", role="調べ役", path=self.place)
+        companies = [test_deliver.company("src", self.src, mine),
+                     test_deliver.company("other", "/r/other", test_deliver.dept_row(name="調べ", role="調べ役", path="/r/other-w"))]
+        with self.assertRaises(deliver.DeliverError):
+            deliver.find_target(companies, self.src, "調べ")
+        self.assertIs(deliver.find_target(companies, self.src, argv[3])["department"], mine)
 
 
 if __name__ == "__main__":
