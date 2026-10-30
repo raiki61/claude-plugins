@@ -133,7 +133,7 @@ query($owner:String!,$name:String!,$num:Int!){
           commit{oid}}}
         latestReviews(first:100){nodes{author{__typename login}}}
         """ + turn.OPINIONS + """
-        reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line
+        reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line diffSide
           comments(first:60){nodes{createdAt body url author{__typename login} originalCommit{oid}}}}}
         allCommits: commits(last:100){totalCount nodes{commit{
           oid committedDate messageHeadline additions deletions parents{totalCount}
@@ -1690,7 +1690,9 @@ def unresolved_threads(node, me):
         if not theirs:
             continue
         mine = [c for c in cs if login_of(c["author"]) == me]
+        # 削除された行への指摘（diffSide が LEFT）は、line が base の版の行番号。head の行として読むと別の行になる
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
+                    "left": th.get("diffSide") == "LEFT",
                     "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me and bool(mine or own),
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が
                     # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
@@ -1872,7 +1874,7 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
         since_turn = th["my_turn"] and bool(th["mine_t"])
         lines = read_lines(th["path"]) if th["line"] or since_turn else None
         lo = hi = whole = None
-        if th["line"] and lines is not None and th["line"] <= len(lines):
+        if th["line"] and not th["left"] and lines is not None and th["line"] <= len(lines):
             lo, hi, whole = func_span(lines, th["line"])
         if since_turn:
             since_out, framed = render_since_thread(th, node, lines, lo, hi, diff_since, full)
@@ -1881,6 +1883,9 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
                 continue  # 変更に帯を入れた関数まるごとが出た。今の姿だけの行を重ねない
         if not th["line"]:
             w("  行: 今の head に無い（消えた行か、diff の外）")
+            continue
+        if th["left"]:
+            w(f"  行: 削除された側の行 {th['line']}（base の版）への指摘。head にこの行は無い（gh pr diff で見る）")
             continue
         if lines is None:
             w("  行: 取れない（手元にその commit が無く、GitHub からも読めなかった）")
@@ -2605,8 +2610,8 @@ def page_threads(node, me, url, by_path, read_lines, since_paths, full):
     for th in (threads if full else threads[:THREAD_CAP]):
         c = th["last"]
         f = by_path.get(th["path"])
-        ex = catchup_html.excerpt(f, th["line"]) if f and th["line"] else None
-        if ex is None and th["line"] and read_lines:
+        ex = catchup_html.excerpt(f, th["line"], old=th["left"]) if f and th["line"] else None
+        if ex is None and th["line"] and not th["left"] and read_lines:
             ex = catchup_html.context_excerpt(th["path"], read_lines(th["path"]), th["line"])
         mine = th.get("mine_last")
         out.append({

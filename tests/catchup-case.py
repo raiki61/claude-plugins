@@ -574,6 +574,29 @@ def _threads_quote_only():
     return verdict("THREADS_QUOTE", want, out + str([t["quote"] for t in page]))
 
 
+@case("threads-left")
+def _threads_left():
+    """削除された行への指摘（diffSide が LEFT。line は base の版の行番号）は、head の同じ番号の行を出さない。端末は
+    削除された側への指摘と言い、HTML の抜粋は削除された行の前後を出す。前は head の無関係な行を指摘の行として出した。"""
+    old = [f"old {i}" for i in range(1, 31)]
+    new = old[:5] + old[25:]
+    diff = ("diff --git a/app/m.py b/app/m.py\n--- a/app/m.py\n+++ b/app/m.py\n@@ -1,30 +1,10 @@\n"
+            + "".join(" " + x + "\n" for x in old[:5]) + "".join("-" + x + "\n" for x in old[5:25])
+            + "".join(" " + x + "\n" for x in old[25:]))
+    th = thread("app/m.py", False, comment(T1, "other", "なぜ消した？"))
+    th["line"], th["diffSide"] = 20, "LEFT"
+    node = pr(author=user(ME), reviewThreads=conn([th]))
+    out = catchup.render_threads(node, ME, lambda p: new)
+    by_path = {f["path"]: f for f in catchup.catchup_html.parse_diff(diff)}
+    page = catchup.page_threads(node, ME, "", by_path, lambda p: new, None, False)[0]
+    ex = page[0]["excerpt"] or ""
+    want = {
+        "text_says_left": "削除された側の行 20（base の版）への指摘" in out and "\n  | " not in out,
+        "page_excerpt_deleted": "-old 20" in ex and "+" not in ex.split("@@")[-1],
+    }
+    return verdict("THREADS_LEFT", want, out + "\n" + ex)
+
+
 @case("threads-since")
 def _threads_since():
     """私が返すターンで相手が私の発言の後に返している件は、私の発言以降のこの file の変更を今の姿に帯で出し（-U0 の

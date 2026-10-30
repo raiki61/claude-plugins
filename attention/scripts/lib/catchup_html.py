@@ -126,11 +126,13 @@ def summary(files, since_paths=()):
              "since": f["path"] in since_paths} for f in files]
 
 
-def excerpt(f, line, before=5, after=4):
+def excerpt(f, line, before=5, after=4, old=False):
     """指摘の行を含む hunk から、その行の前後を抜いた小さな unified diff を作る（無ければ None）。
-    GitHub のレビューのスレッドが出す断片と同じ形。"""
+    GitHub のレビューのスレッドが出す断片と同じ形。old は削除された側（diffSide が LEFT）への指摘で、line は
+    base の版の行番号。"""
+    col = 1 if old else 2
     for h in f["hunks"]:
-        idx = next((i for i, r in enumerate(h["rows"]) if r[2] == line), None)
+        idx = next((i for i, r in enumerate(h["rows"]) if r[col] == line), None)
         if idx is None:
             continue
         rows = h["rows"][max(0, idx - before):idx + after + 1]
