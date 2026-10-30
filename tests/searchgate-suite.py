@@ -317,6 +317,13 @@ class FailClosed(unittest.TestCase):
         reason, _ = run(None, None, raw="not json")
         self.assertIn("検査自体に失敗した", reason)
 
+    def test_unnormalizable_command_is_read_as_text(self):
+        # coldread の正規化が読めない形(`$[ ]`)と見たコマンドも、字面の find で見る(前は検査自体の失敗で、どれも止めていた)
+        reason, _ = run("Bash", {"command": "echo $[1+1]; find / -name a"})
+        self.assertIn("find の起点 / は", reason or "")
+        reason, out = run("Bash", {"command": "echo $[1+1]; find . -name a"})
+        self.assertNotIn("検査自体に失敗した", reason or "", out)
+
     def test_stop_is_logged(self):
         with tempfile.TemporaryDirectory() as cfg:
             env = dict(os.environ, HOME=HOME, CLAUDE_CONFIG_DIR=cfg)

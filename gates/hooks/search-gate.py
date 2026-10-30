@@ -349,8 +349,10 @@ def check_command(cr, command, cwd, depth=0, outer=None):
     text, bodies = cr.prepare(command)
     tokens = cr.tokenize(text)
     if tokens is None:
-        # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)
-        m = re.search(r"(?:^|[\s;&|(`])(?:find|bfs|gfind)\s+(?:-[HLP]\s+)*(\S+)", text)
+        # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)。
+        # 正規化で読めない形(`$[`・置換の中の case など。prepare が None を返す)は、生のコマンドの字面で拾う。前は None に
+        # 正規表現を掛けて落ち、どのコマンドも「検査自体に失敗した」で止めていた(`echo $[1+1]; find . -name a` も)
+        m = re.search(r"(?:^|[\s;&|(`])(?:find|bfs|gfind)\s+(?:-[HLP]\s+)*(\S+)", command if text is None else text)
         if m:
             check_path(m.group(0).split()[0].lstrip(";&|(`"), m.group(1).strip("'\""), cwd)
         return
