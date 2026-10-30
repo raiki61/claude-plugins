@@ -37,15 +37,17 @@ def read(path) -> dict:
     order: list = []      # compact の後に出た id の順
     skipped = 0
     try:
-        with open(path, encoding="utf-8") as f:
+        # バイトのまま行に割る（bytes.splitlines は \n と \r だけで割る。str.splitlines は JSON の文字列の中の U+2028 などでも割る）。
+        # 書き込み中の記録は最後で多バイトの字が切れていることがあるので、字への直しは行ごとにして、その行だけ飛ばす
+        with open(path, "rb") as f:
             lines = f.read().splitlines()
-    except (OSError, UnicodeDecodeError) as e:
+    except OSError as e:
         raise TranscriptError("cannot open the transcript: %s" % e)
     for line in lines:
         if not line.strip():
             continue
         try:
-            row = json.loads(line)
+            row = json.loads(line.decode("utf-8"))
             kind = row.get("type")
             if kind == "api-request":
                 if row.get("querySource") == "repl_main_thread" and row.get("timestamp"):

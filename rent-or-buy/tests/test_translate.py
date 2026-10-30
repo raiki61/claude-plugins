@@ -67,6 +67,24 @@ class TranslateTest(unittest.TestCase):
         with self.assertRaises(transcript.TranscriptError):
             transcript.read(empty)
 
+    def test_transcript_with_truncated_multibyte_char_at_end_still_reads(self):
+        # 書き込み中の記録は、最後の行で多バイトの字が途中で切れていることがある。その行だけ飛ばし、ほかの行は読む
+        good = line(type="assistant", message={"id": "m1", "model": "claude-opus-5-5", "usage": usage(1000)})
+        path = pathlib.Path(self.tmp.name) / "cut.jsonl"
+        path.write_bytes((good + "\n").encode("utf-8") + '{"type": "user", "text": "あ'.encode("utf-8")[:-1])
+        tr = transcript.read(path)
+        self.assertEqual((tr["model"], tr["context_tokens"], tr["skipped_lines"]), ("claude-opus-5-5", 1002, 1))
+
+    def test_transcript_line_with_unicode_line_separator_is_read_whole(self):
+        # JSON の文字列の値の中の U+2028・U+2029・U+0085 で、行を割らない（割るのは \n と \r だけ）
+        rows = [json.dumps({"type": "api-request", "timestamp": "2026-10-24T04:00:00.000Z",
+                            "querySource": "repl_main_thread", "note": "a b c\u0085d"}, ensure_ascii=False),
+                line(type="assistant", message={"id": "m1", "model": "claude-opus-5-5", "usage": usage(1000)})]
+        path = pathlib.Path(self.tmp.name) / "sep.jsonl"
+        path.write_bytes(("\n".join(rows) + "\n").encode("utf-8"))
+        tr = transcript.read(path)
+        self.assertEqual((tr["skipped_lines"], tr["last_request_at"]), (0, "2026-10-24T04:00:00.000Z"))
+
     def test_keepalive_numbers(self):
         out = translate.keepalive({"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": 100000, "spent": 0,
                                    "certain": True, "last_request_at": "2026-10-24T04:48:48.895Z"}, env=self.env)
