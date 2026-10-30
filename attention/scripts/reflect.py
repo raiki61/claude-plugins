@@ -778,8 +778,10 @@ def leaks(fields, data):
     errs = []
     for repo in priv.get("repos") or []:
         names = {repo} | ({repo.split("/", 1)[1]} if "/" in repo and len(repo.split("/", 1)[1]) >= 4 else set())
-        # 語の切れ目で当てる（名前が一般の語のとき、id の「unknown-one」のような語の一部に当てない）
-        hit = sorted(n for n in names if re.search(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", text))
+        # 語の切れ目で当てる（名前が一般の語のとき、id の「unknown-one」のような語の一部に当てない）。切れ目は ASCII の
+        # 英数字で見る——\w は日本語の字も語に数え、「secret-appで直した」の名前を見逃す。GitHub の名前は大小を区別しない
+        hit = sorted(n for n in names
+                     if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(n) + r"(?![A-Za-z0-9_-])", text, re.I))
         if hit:
             errs.append(f"非公開のリポジトリの名前を書いている: {'、'.join(hit)}")
     nums = set(priv.get("numbers") or [])

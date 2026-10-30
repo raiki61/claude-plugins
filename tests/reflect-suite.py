@@ -304,7 +304,9 @@ class Privacy(unittest.TestCase):
         data = {"private": priv}
         ok = fields(headline="me/open-tool の #42 と PR 43 を直した。レビュー 14 件")
         self.assertEqual(rf.leaks(ok, data), [])
-        for bad in ("#1971 をレビュー", "PR 1665 を直した", "secret-app の検索を直した", "corp/secret-app で"):
+        # 日本語の字に直に続く名前と、大小の違う綴りも当てる（前は \w の切れ目で日本語に続く名前を見逃した）
+        for bad in ("#1971 をレビュー", "PR 1665 を直した", "secret-app の検索を直した", "corp/secret-app で",
+                    "secret-appで直した", "でsecret-app", "Secret-App を直した"):
             with self.subTest(bad=bad):
                 self.assertTrue(rf.leaks(fields(diary=bad), data))
 
