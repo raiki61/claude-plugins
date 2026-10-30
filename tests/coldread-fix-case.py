@@ -2,7 +2,8 @@
 """coldread-gate.py の正しさの穴 13 件(頼み cae1e2 のレビューで再現した物)の回帰。tests/coldread-table-case.py から呼ぶ。
 
 1 件ずつ、前の版では赤になり直した版では緑になる形で書く。穴の番号は頼みの番号のまま。読む本体は引数(無ければ
-gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が赤になることを確かめられる。
+gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が赤になることを確かめられる。14・15 は 1〜13 の直し
+(commit 8eb61ffd)が持ち込んだ止めすぎで、8eb61ffd の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -314,7 +315,48 @@ def f13():
     check(13, len(asked) == 2, "モデルを替えても前の答えを使った(問うた回数 %d)" % len(asked))
 
 
-for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13), 1):
+# 14. graphql の query が単一引用なら、query の中の $名前 は字のまま。同じ名前のシェルの変数が在っても止めない
+def f14():
+    q_resolve = "mutation($t: ID!) { resolveReviewThread(input: {threadId: $t}) { thread { id } } }"
+    q_pr = 'query($pr: Int!) { repository(owner:"o",name:"r"){ pullRequest(number: $pr){ title } } }'
+    q_owner = 'query($owner: String!) { repository(owner: $owner, name: "r") { id } }'
+    q_body = 'mutation($body: String!) { addComment(input:{subjectId: "x", body: $body}) { clientMutationId } }'
+    for cmd in ("for t in PRRT_a PRRT_b; do gh api graphql -f query='%s' -f t=\"$t\"; done" % q_resolve,
+                "for pr in 1 2; do gh api graphql -f query='%s' -F pr=$pr; done" % q_pr,
+                "owner=x; gh api graphql -f query='%s' -F owner=\"$owner\"" % q_owner):
+        cands, blk, _ = g.posting_bodies(cmd, WORK)
+        check(14, not blk and not cands, "単一引用の query を読めないと見た: %s → %r %r" % (cmd[:50], cands, blk))
+    cands, blk, _ = g.posting_bodies("body=\"%s\"; gh api graphql -f query='%s' -f body=\"$body\"" % (BODY, q_body), WORK)
+    check(14, cands == [BODY] and not blk, "同じ名前の本文の変数を読まない・止めた: %r %r" % (cands, blk))
+    # 止める側は残す: 本文の変数が解けない・query の展開される所に置換や変数が在る
+    for cmd in ("for t in a b; do gh api graphql -f query='%s' -f body=\"$t\"; done" % q_body,
+                "gh api graphql -f query='%s' -f body=\"$body\"" % q_body,
+                "body=x; gh api graphql -f query='mutation { addComment(input:{subjectId: \"x\", body: \"'\"$(cat f)\"'\"}) { x } }'",
+                "gh api graphql -f query='mutation { addComment(input:{subjectId: \"x\", body: \"'\"$B\"'\"}) { x } }'",
+                "t=1; gh api graphql -f query=\"$Q\""):
+        _, blk, _ = g.posting_bodies(cmd, WORK)
+        check(14, bool(blk), "読めない本文・query を通した: %s" % cmd[:60])
+
+
+# 15. 単一引用の本文の中の $( や ` は字。ほかの語の展開される置換の頭と突き合わせて止めない
+def f15():
+    for cmd, want in (("X=$((1+2)); gh pr comment 1 --body 'run $(npm bin)/x %s'" % BODY, "run $(npm bin)/x "),
+                      ("X=\"`date`\"; gh issue comment 1 --body 'use `foo` here %s'" % BODY, "use `foo` here "),
+                      ("Y=$(date); gh api repos/o/r/issues/1/comments -f body='see $(cat f) %s'" % BODY, "see $(cat f) ")):
+        cands, blk, _ = g.posting_bodies(cmd, WORK)
+        check(15, len(cands) == 1 and cands[0].startswith(want) and not blk,
+              "単一引用の本文を置換渡しと見た: %s → %r %r" % (cmd[:50], [c[:30] for c in cands], blk))
+    # 止める側は残す: 二重引用・引用の外の置換は、値の途中でも止める
+    for cmd in ("gh api repos/o/r/issues/1/comments -f body=\"See: $(cat f) %s\"" % BODY,
+                "gh pr comment 1 --body \"See: `cat f` %s\"" % BODY,
+                "gh pr comment 1 --body '%s '\"$(cat f)\"" % BODY,
+                "X=$(date); gh pr comment 1 --body \"%s $(cat f)\"" % BODY,
+                "gh pr comment 1 --body $(cat f)"):
+        _, blk, _ = g.posting_bodies(cmd, WORK)
+        check(15, bool(blk), "展開される置換を通した: %s" % cmd[:60])
+
+
+for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15), 1):
     guarded(n, fn)
 
 shutil.rmtree(WORK, ignore_errors=True)

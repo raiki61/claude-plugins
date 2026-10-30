@@ -576,8 +576,8 @@ def live_substitutions(text):
     """引用の外と二重引用の中の $( と ` の、頭の字の並び(has_live_substitution が真になる所)。
 
     本文の値がこの頭を含めば、その所は展開される置換と見る(_body_sink の add)。値の先頭だけを見ていた頃は、
-    `--body "See: $(cat x)"` の $(…) を字のまま読ませ、ファイルの中身が出ていた。単一引用の中に同じ字が在る本文も止まるが、
-    止める側に倒す。"""
+    `--body "See: $(cat x)"` の $(…) を字のまま読ませ、ファイルの中身が出ていた。使うのは語の印(mark_words)が
+    重ねられなかったときだけで、そのときは単一引用の中に同じ字が在る本文も止まる(止める側に倒す)。"""
     heads = []
 
     def hit(t, i):
@@ -586,6 +586,57 @@ def live_substitutions(text):
         return False
     _live(text, hit)
     return heads
+
+
+# 展開される $ と `、字のままの $ を一時に退ける字(私用の領域の字)。語ごとに、どの $・` が展開されるかを運ぶ(mark_words)
+LIVE_DOLLAR, LIVE_TICK, HELD_DOLLAR = "", "", ""
+
+
+class Word(str):
+    """tokenize の語 1 つ。marked は同じ長さの写しで、展開される $・` だけを LIVE_DOLLAR・LIVE_TICK に替えた物
+    (重ねられなければ None)。shlex は引用を落とすので、語の字だけでは '$t'(字のまま)と "$t"(展開)を見分けられない。"""
+    marked = None
+
+
+def word_tail(tok, start):
+    """語の start から後ろ(-f の key= の後・--body= の後)。語に印が有れば、印も同じ所で切って付ける。"""
+    w = Word(tok[start:])
+    marked = getattr(tok, "marked", None)
+    if marked is not None:
+        w.marked = marked[start:]
+    return w
+
+
+def mark_words(norm, tokens):
+    """tokenize の語の列(tokens)に、どの $・` が展開されるかの印(Word.marked)を重ねる。重ねられなければ tokens のまま。
+
+    印が無い頃は、本文の値の $名前 と置換の頭をコマンド全体で見ていた。`for t in …; do gh api graphql -f query='mutation($t: ID!) …'
+    -f t="$t"` の query は単一引用で字のままなのに、同じ名前が展開される所にも在るので読めない物と見て止め、`X=$((1+2)); gh pr comment
+    1 --body 'run $(npm bin)/x'` の本文は、ほかの語の $( の頭を含むので止めていた。印は、展開される $・`(_live と同じ見方)を
+    私用の字に替えた写しを同じ shlex に通して作る。替えるのは 1 字を 1 字にだけで、引用と区切りの字は替えないので語の切れ目は
+    変わらない。それでも写しの語を元の字に戻して元の語と 1 つでも違えば、印を付けずに元の見方(全体で見る)に倒す。
+    字のままの $ が後ろの字と $名前 の語を作りうるコマンド('$'S・"$"S。_DOLLAR_JOIN_RE)と、私用の字を元から含むコマンドも同じ。
+    """
+    if any(c in norm for c in (LIVE_DOLLAR, LIVE_TICK, HELD_DOLLAR)) or _DOLLAR_JOIN_RE.search(norm):
+        return tokens
+    spots = []
+    _live(norm, lambda t, i: t[i] in "$`" and spots.append(i))
+    if not spots:
+        return tokens
+    chars = list(norm)
+    for i in spots:
+        chars[i] = LIVE_DOLLAR if norm[i] == "$" else LIVE_TICK
+    marked = tokenize("".join(chars))
+    if marked is None or len(marked) != len(tokens):
+        return tokens
+    words = []
+    for tok, m in zip(tokens, marked):
+        if m.replace(LIVE_DOLLAR, "$").replace(LIVE_TICK, "`") != tok:
+            return tokens
+        w = Word(tok)
+        w.marked = m
+        words.append(w)
+    return words
 
 
 def _live(text, hit, where=(None, '"')):
@@ -980,15 +1031,23 @@ def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
             # "`cat" のような断片になって届く。断片かどうかは形だけでは決まらない
             # (単一引用の中の ``` や $ は普通の文字)ので、生の文字列側の判定と併せて見る。
             # 本文の一部だけが変数の形("See: $B")も同じ——字のまま読ませると、実際に出る本文と違う。
-            looks_sub = (value in ("$", "") or value.endswith("$")
-                         or value.startswith("`") or value.startswith("$("))
+            # 語の印(mark_words)が有れば、値の語の中で展開される $・` だけを見る。単一引用の中の $( や ` は字で、
+            # ほかの語の置換の頭とも、ほかの語の同じ名前の変数とも関わらない。印が無ければコマンド全体で見る(止める側)。
+            marked = getattr(value, "marked", None)
+            if marked is not None:
+                looks_sub = (value == "" or LIVE_TICK in marked or LIVE_DOLLAR + "(" in marked
+                             or marked.endswith(LIVE_DOLLAR))
+            else:
+                looks_sub = (value in ("$", "") or value.endswith("$")
+                             or value.startswith("`") or value.startswith("$(")
+                             or any(h in value for h in heads))
             if "$" in value and (live_variable or VAR_RE.match(value)):
-                got = ctx.var(value) if ctx else None
+                got = ctx.var(value, marked) if ctx else None
                 if got is None:
                     blocked.append("変数・コマンド置換渡し")
                 else:
                     candidates.append(got)
-            elif live_substitution and (looks_sub or any(h in value for h in heads)):
+            elif live_substitution and looks_sub:
                 blocked.append("変数・コマンド置換渡し")
             else:
                 candidates.append(value)
@@ -1103,16 +1162,18 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         elif not seen_ddash and tok.startswith("-") and tok != "-":
             name, val = tok, None
             if tok.startswith("--") and "=" in tok:
-                name, val = tok.split("=", 1)
+                name = tok.split("=", 1)[0]
+                val = word_tail(tok, len(name) + 1)   # 値の側に語の印(mark_words)を残す
             elif not tok.startswith("--") and len(tok) > 2:
-                name, val = tok[:2], tok[2:]  # -b本文 の密着形
+                name, val = tok[:2], word_tail(tok, 2)  # -b本文 の密着形
             if is_api:
                 if name in ("-f", "-F", "--field", "--raw-field"):
                     if val is None and i + 1 < n:
                         i += 1
                         val = args[i]
                     if val and "=" in val:
-                        key, fval = val.split("=", 1)
+                        key = val.split("=", 1)[0]
+                        fval = word_tail(val, len(key) + 1)
                         typed = name in ("-F", "--field")
                         if is_graphql:
                             gql_fields[key] = (typed, fval)
@@ -1482,15 +1543,27 @@ class BodyFiles:
                     return None
         return value
 
-    def var(self, value):
+    def var(self, value, marked=None):
         """$名前・${名前} を同じコマンドの中の代入で置き換えた値。解けなければ None。
 
-        単一引用の中(と \\$ の後)の $名前 は字のまま残す。語の側では引用が落ちていて '$S' と "$S" を見分けられないので、
-        名前で見分ける: コマンドの中で字のままの所にだけ在る名前は字のまま、展開される所にも在る名前は解かない。前は単一引用の中に
-        $ が 1 つでも在れば全部の変数を解かず、`D=/; find "$D" -name 'x$'` の起点を読めずに通していた(探す範囲のゲートも同じ口)。
+        単一引用の中(と \\$ の後)の $名前 は字のまま残す。語の印(marked。mark_words の Word.marked)が有れば、印の無い $ を
+        字のままと見て退け、印の付いた(展開される)$名前 だけを解く。印が無ければ語の側では引用が落ちていて '$S' と "$S" を
+        見分けられないので、名前で見分ける: コマンドの中で字のままの所にだけ在る名前は字のまま、展開される所にも在る名前は解かない。
+        前は単一引用の中に $ が 1 つでも在れば全部の変数を解かず、`D=/; find "$D" -name 'x$'` の起点を読めずに通していた
+        (探す範囲のゲートも同じ口)。
         """
         if "$" not in value:
             return value
+        if marked is not None and len(marked) == len(value) and HELD_DOLLAR not in value:
+            held = "".join(HELD_DOLLAR if c == "$" and m != LIVE_DOLLAR else c for c, m in zip(value, marked))
+            if "$" not in held:
+                return value   # 語の中の $ は全部字のまま(単一引用の中・\\$ の後)
+            got = self._var(held, True)
+            return None if got is None else got.replace(HELD_DOLLAR, "$")
+        return self._var(value, False)
+
+    def _var(self, value, live_here):
+        """var の本体。live_here なら value に残る $名前 は全部展開される所(語の印で確かめた)で、字のままの名前と見ない。"""
         if self._sq is None:
             self._sq = _dollar_names(self.norm) or ()
         if not self._sq:
@@ -1507,8 +1580,8 @@ class BodyFiles:
             kept.append(m.group(0))
             return "\0%d\0" % (len(kept) - 1)
 
-        def shared(m):
-            if (m.group(1) or m.group(2)) in literal:
+        def shared(m, top=False):
+            if (m.group(1) or m.group(2)) in literal and not top:
                 return plain(m)
             got = self.inherited(m.group(1) or m.group(2))
             if got is None:
@@ -1517,10 +1590,10 @@ class BodyFiles:
 
         def sub(m):
             name = m.group(1) or m.group(2)
-            if name in literal:
+            if name in literal and not live_here:
                 return plain(m)
             if name not in table:
-                return shared(m)
+                return shared(m, live_here)
             entry = table[name]
             if not entry or not self._flows(entry[1]) or "`" in entry[0]:
                 failed.append(m.group(0))
@@ -1766,6 +1839,8 @@ def analyze(command, cwd=None, prepared=None):
     # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
     live = live_substitutions(norm)   # 空でなければ has_live_substitution と同じ真
     live_var = has_live_variable(norm)
+    if live or live_var:
+        tokens = mark_words(norm, tokens)   # 展開される $・` が無ければ印は要らない(100KB の本文で字句解析を 2 度回さない)
     cmds = split_commands(tokens)
     files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
     out = Analysis(True)

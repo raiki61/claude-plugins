@@ -207,7 +207,10 @@ The following are accepted as out of scope in principle, or as forms that are st
   (an unknown global flag comes before it), the text is passed via command substitution or a variable that cannot be resolved, the `--input` JSON has
   a long string outside the text positions (`.body` and a review's `comments[].body`), or the value of a graphql mutation's text field
   cannot be determined — all of these are stopped as "cannot be checked". However, `` ` `` and `$(` inside single quotes are not expanded, so
-  they are read as part of the text (so that normal prose containing code fences is not stopped)
+  they are read as part of the text (so that normal prose containing code fences is not stopped). This is decided for each word on its own:
+  a substitution elsewhere in the command (`X=$(date); gh pr comment 1 --body 'run $(npm bin)/x'`) does not stop a single-quoted body,
+  and `$t` inside a single-quoted graphql query is the GraphQL variable, even when a shell variable `t` is expanded in another word
+  (`for t in …; do gh api graphql -f query='mutation($t: ID!) {…}' -f t="$t"; done`)
 - For works-dispatch, a send whose command does not start as above (`uv run …/dispatch.py`, `sh -c "python3 …/dispatch.py …"`, `dispatch.py` named through a variable) is outside the decision and passes;
   when its simple command still has the word `dispatch.py` and a body flag, the flag and the first word go to `misses.log`, as for `gh`
 - A heredoc is treated only as the text of the simple command it is attached to. Even if another command's
