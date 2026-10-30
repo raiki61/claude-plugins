@@ -197,6 +197,21 @@ class Load(unittest.TestCase):
         self.assertIn("keychain_service", str(e.exception))
         self.assertIn("limits", str(e.exception))
 
+    def test_repos_that_are_not_tables_are_listed_as_problems(self):
+        # repos = ["o/r"] で AttributeError の traceback になり、ほかの問題も並ばなかった（頼み cce9a3）
+        with self.assertRaises(config.ConfigError) as e:
+            config.load(write(self.d, "c.toml", 'limit_percent = "x"\nrepos = ["o/r"]\n'), env={})
+        self.assertIn("repos[0] が表で無い", str(e.exception))
+        self.assertIn("limit_percent", str(e.exception))
+
+    def test_two_accounts_with_the_same_name_stop(self):
+        # 名前で引く表（使用率の控えのファイル・会話の居る場所）で、後の 1 つが前の 1 つを隠す（頼み cce9a3）
+        body = ('accounts = [{ name = "a", command = "c" }, { name = "a", command = "c2" }]\n'
+                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
+        with self.assertRaises(config.ConfigError) as e:
+            config.load(write(self.d, "c.toml", body), env={})
+        self.assertIn("accounts[1]: name の a が accounts[0] と重なる", str(e.exception))
+
     def test_plan_is_told_per_account(self):
         # ログインの記録からプランが読めないアカウント（setup-token の鍵だけで動く物）に、持ち主が教えたプランを書く
         repo = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'

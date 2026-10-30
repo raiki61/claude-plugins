@@ -175,7 +175,7 @@ def load(path=None, env=os.environ, missing_ok=False):
         problems.append("hours_margin_minutes が 0 以上の数で無い")
         margin = DEFAULT_HOURS_MARGIN_MINUTES
 
-    accounts = []
+    accounts, seen = [], {}
     for i, a in enumerate(raw.get("accounts", [])):
         where = f"accounts[{i}]"
         if not isinstance(a, dict):
@@ -183,6 +183,11 @@ def load(path=None, env=os.environ, missing_ok=False):
             continue
         notes += _odd("accounts", a, f"{path}: {where}")
         name, command = _str(a, "name", where, problems), _str(a, "command", where, problems)
+        if name in seen:
+            # 名前で引く表（会話の居る場所・使用率の控えのファイル <limits_dir>/<name>.json）で、後の 1 つが前の 1 つを隠す
+            problems.append(f"{where}: name の {name} が {seen[name]} と重なる")
+        elif name:
+            seen[name] = where
         cdir = a.get("config_dir")
         if cdir is not None and not isinstance(cdir, str):
             problems.append(f"{where}: config_dir が文字列で無い")
@@ -226,6 +231,9 @@ def load(path=None, env=os.environ, missing_ok=False):
     repos = []
     for i, r in enumerate(raw.get("repos", [])):
         where = f"repos[{i}]"
+        if not isinstance(r, dict):
+            problems.append(f"{where} が表で無い")
+            continue
         name = _str(r, "repo", where, problems)
         notes += _odd("repos", r, f"{path}: {where}（{name}）")
         pfile = r.get("second_prompt_file")
