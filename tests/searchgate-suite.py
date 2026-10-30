@@ -169,8 +169,16 @@ class Bash(unittest.TestCase):
         # 探すコマンドより後ろの繰り返しの語は、前の cd が走るかを変えない
         self.assertIsNotNone(run("Bash", {"command": "cd / && find . -name x | while read f; do echo $f; done"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd / && find . -name x; for f in a; do :; done"})[0])
-        # 前の繰り返しの中の cd は走るとは限らないので、今までどおり解かない
-        self.assertIsNone(run("Bash", {"command": "for d in a; do cd /; done; find . -name x"})[0])
+        # 前の繰り返しの中の cd は走りうるので、行き先と前の場所の両方を見る(前は解かずに通していた)
+        self.assertIsNotNone(run("Bash", {"command": "for d in a; do cd /; done; find . -name x"})[0])
+        self.assertIsNone(run("Bash", {"command": "for d in a; do cd /tmp; done; find . -name x"})[0])
+        # 前の繰り返しの中の代入で、後ろの cd まで解くのをやめない
+        self.assertIsNotNone(run("Bash", {"command": "for f in *; do n=$f; done; cd / && find . -name x"})[0])
+        # 相対の cd は、そこまでに決まった場所に繋ぐ
+        self.assertIsNotNone(run("Bash", {"command": "cd .. && find . -name x"}, cwd=HOME + "/src")[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd ../.. && rg needle"})[0])
+        self.assertIsNone(run("Bash", {"command": "cd .. && find . -name x"})[0])
+        self.assertIsNotNone(run("Bash", {"command": "cd ~ || exit 1; find ."})[0])
         # 前の繰り返しが cd・代入を持たなければ、後ろの cd はそのまま走る(前は語が在るだけで解くのをやめていた)
         self.assertIsNotNone(run("Bash", {"command": "for f in *.md; do echo $f; done; cd / && find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd /; while read f; do :; done < list; find . -name x"})[0])
@@ -187,6 +195,48 @@ class Bash(unittest.TestCase):
         # nice・sudo の後ろの timeout・env も前置きとして飛ばす
         self.assertIsNotNone(run("Bash", {"command": "nice -n 19 timeout 300 find / -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "sudo env X=1 find / -name x"})[0])
+
+    def test_wrappers_written_as_full_paths_are_skipped(self):
+        for command in ("/usr/bin/time find / -name x", "/usr/bin/env find / -name x", "/usr/bin/timeout 60 find / -name x"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+
+    def test_find_paths_after_the_expression_are_read(self):
+        # Claude Code の find は bfs で走り、式の後ろに書いたパスも起点にする
+        for command in ("find -name x /", "find . -name x /", "find -maxdepth 3 ~", "find . -type f -name '*.json' /Users"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # 値を取る式の値(-path の値・-newer のファイル)と -exec の中は起点でない
+        for command in ('find . -path "/Users/me/*" -name x', "find src -name '*.py' -newer Makefile",
+                        "find . -name x -exec grep -l y {} \\;"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+
+    def test_grep_with_a_number_flag_is_recursive(self):
+        # Claude Code の grep は ugrep で走り、-NUM と --depth は下をたどる深さ
+        self.assertIsNotNone(run("Bash", {"command": "git log | grep -5 needle"}, cwd=HOME)[0])
+        for command in ("grep -9 needle ~", "grep --depth=5 needle /", "grep -5r needle /", "rgrep needle /"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        self.assertIsNone(run("Bash", {"command": "grep -5 needle file.txt"})[0])
+        self.assertIsNone(run("Bash", {"command": "grep -A5 needle file.txt"})[0])
+
+    def test_scripts_given_to_a_shell_are_read(self):
+        # stdin に渡すスクリプト・bash -c と eval の中の外の変数・名前付きのホーム
+        for command in ("bash <<'EOF'\nfind / -name x\nEOF", "sh -s <<EOF\nfind / -name x\nEOF",
+                        'D=/; bash -c "find $D -name x"', 'D=/; eval "find $D -name x"', "D=/; eval 'find $D -name x'",
+                        "find ~tester -name x"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # bash script.sh は stdin をデータとして読ませる
+        self.assertIsNone(run("Bash", {"command": "bash script.sh <<EOF\nfind / -name x\nEOF"})[0])
+        self.assertIsNone(run("Bash", {"command": 'D=src; eval "find $D -name x"'})[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_backticks_run_in_the_cwd_of_their_command(self):
+        for command in ("cd / && for f in `find . -name '*.json'`; do :; done", "cd / && a=`find . -name x`"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
 
     def test_recursive_grep_after_a_pipe_searches_cwd(self):
         # grep -r は起点が無ければ、前がパイプでも cwd を探す(stdin を読まない)。rg は stdin を読む

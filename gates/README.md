@@ -516,14 +516,19 @@ not reach sessions working on other repositories, and a session can still miss i
   `/opt/homebrew`, `/usr/local/lib`, the working folder) passes. Only the start is checked: an allowed search is not limited in depth or running time
 - A Windows drive is the same place however it is written: `C:/…`, `C:\…`, Git Bash's `/c/…`, Cygwin's `/cygdrive/c/…` or WSL's `/mnt/c/…`.
   Upper and lower case are not told apart (the default file systems of macOS and Windows do not, so `/users` searches the same folder as `/Users`)
-- What it reads (a PreToolUse hook, which runs before each Bash, Glob and Grep call): `find`, `bfs`, `gfind`, `fd`, `rg` and `grep -r` in Bash, also behind `nice`, `sudo`,
-  `xargs`, `timeout` and so on, and inside `bash -c "…"`, `eval`, `$( … )` and `` ` … ` ``; the `path` of the Glob and Grep tools and the
+- What it reads (a PreToolUse hook, which runs before each Bash, Glob and Grep call): `find`, `bfs`, `gfind`, `fd`, `rg`, `rgrep` and a
+  recursive `grep` in Bash (`-r`, and also `-NUM` and `--depth`, because Claude Code runs grep as ugrep, where these set a recursion depth),
+  also behind `nice`, `sudo`, `xargs`, `timeout` and so on (also when written as a full path, like `/usr/bin/time`), and inside
+  `bash -c "…"`, `eval`, a script given to a shell on stdin (`bash <<'EOF'`, `sh -s <<EOF`), `$( … )` and `` ` … ` ``. For `find`, paths
+  written after the expression are starts too (`find . -name x /`; Claude Code runs find as `bfs`, which walks them); the `path` of the Glob and Grep tools and the
   fixed head of a Glob pattern (`/Users/**/x` starts at `/Users`; a pattern with no wildcard looks at one path and passes). A start with a shell
   wildcard counts as the folder above the wildcard (`find ~/*` starts at the home folder). With no path, the start is the session's working folder
-- Variables in the start (the folder the search begins from) are resolved from assignments in the same command (`D=/; find $D`), from `~`/`$HOME` and from `$CLAUDE_JOB_DIR` (resolved from the hook's environment under the same conditions as for body-file paths in the post gatekeeper above); a relative start is resolved
-  from a preceding `cd <absolute path>` (followed by `&&`, `;` or a new line; a bare `cd` is the home folder) or the session's working folder.
-  Calls that take no start (`--help`, `--version`, `command -v rg`) pass. A start it cannot resolve (an unknown variable, an assignment inside an
-  `if`) is not stopped, because nothing in the command text says it is wide
+- Variables in the start (the folder the search begins from) are resolved from assignments in the same command (`D=/; find $D`, also inside
+  `bash -c "…"` and `eval`), from `~`/`$HOME` (and `~user` for the current user) and from `$CLAUDE_JOB_DIR` (resolved from the hook's environment under the same conditions as for body-file paths in the post gatekeeper above); a relative start is resolved
+  from a preceding `cd` (followed by `&&`, `;` or a new line; a bare `cd` is the home folder; a relative target such as `cd ..` is joined to
+  the folder reached so far; a `cd` inside an `if`, a loop or after `||` may or may not run, so both the target and the folder before it are
+  checked) or the session's working folder.
+  Calls that take no start (`--help`, `--version`, `command -v rg`) pass. A start it cannot resolve (an unknown variable, `cd -`) is not stopped, because nothing in the command text says it is wide
 - The decision is deterministic (no LLM) and **there is no escape hatch**. It fails closed: if the check itself fails (input it cannot read),
   the call is stopped. Stops are logged to `$CLAUDE_CONFIG_DIR/searchgate/denies.log` (the Claude Code
   settings folder, `~/.claude` by default)

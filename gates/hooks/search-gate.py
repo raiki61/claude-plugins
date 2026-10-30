@@ -20,10 +20,12 @@ Claude Code の Glob・Grep のツール。`bash -c "…"`・`eval`・`$( … )`
 止めるのは決定的(LLM なし)で、逃げ道は無い。検査そのものが落ちたら止める(coldread・destgate と同じ倒し方)。
 解析部(トークン化・単純コマンド分割・変数と cd の追い方)は coldread-gate.py から読み込んで共有する。
 """
+import copy
 import json
 import os
 import posixpath
 import re
+import shlex
 import sys
 
 # `sys.path[0]` に頼らない(coldread-gate.py が claude_auth を読むのと同じ)
@@ -31,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gate_shell  # noqa: E402
 
 FIND = {"find", "bfs", "gfind"}
-GREP = {"grep", "egrep", "fgrep", "ggrep"}
+GREP = {"grep", "egrep", "fgrep", "ggrep", "rgrep"}
 FD = {"fd", "fdfind"}
 RG = {"rg"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
@@ -42,10 +44,11 @@ HOPS = {"nice": {"-n"}, "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t",
         "stdbuf": {"-i", "-o", "-e"}, "ionice": {"-c", "-n", "-p"}, "taskpolicy": {"-c", "-t", "-l", "-p"},
         "arch": set(), "chrt": set(), "builtin": set()}
 # 前段の粗選別: 探すツールの語もシェルの入れ子も無いコマンドは、解析部を読み込まずに通す(Bash のたびに走るので)
-# grep は再帰の旗の在るときだけ読む(`| grep foo` のたびに解析部を読み込まない)
-WORD_RE = re.compile(r"(?<![\w.-])(?:find|bfs|gfind|fd|fdfind|rg)(?![\w.-])"
-                     r"|(?<![\w.-])(?:e?grep|fgrep|ggrep)(?![\w.-]).*?(?:\s-[A-Za-z]*[rRd]|--recursive|--dereference-recursive"
-                     r"|--directories)", re.S)
+# grep は再帰の旗の在るときだけ読む(`| grep foo` のたびに解析部を読み込まない)。Claude Code の grep は ugrep で走り、
+# -NUM(-5・-5r)と --depth も下をたどるので、数の旗も読む。旗を引用符で囲んでも('-r')シェルは同じに渡す
+WORD_RE = re.compile(r"(?<![\w.-])(?:find|bfs|gfind|fd|fdfind|rg|rgrep)(?![\w.-])"
+                     r"|(?<![\w.-])(?:e?grep|fgrep|ggrep)(?![\w.-]).*?(?:\s['\"]?-[A-Za-z0-9]*[rRd0-9]|--recursive"
+                     r"|--dereference-recursive|--directories|--depth)", re.S)
 # 入れ子は 8 段まで読む(`bash -c "bash -c '…'"` の深さ。それより深い物はそのまま通す)
 MAX_DEPTH = 8
 
@@ -105,11 +108,26 @@ def is_abs(path):
     return path.startswith("/") or re.match(r"[A-Za-z]:(?:/|\Z)", path) is not None
 
 
+def user_home(name):
+    """~名前 のホーム(シェルと同じく利用者の台帳で引く)。引けなければ、名前がホームのフォルダの名前と同じときだけホーム。"""
+    try:
+        import pwd
+        return pwd.getpwnam(name).pw_dir
+    except (ImportError, KeyError):
+        h = norm(home())
+        return h if posixpath.basename(h) == name else None
+
+
 def expand_home(value):
-    """~・~/…・$HOME・${HOME} をホームに置き換える(Bash のシェルと同じ利用者・同じ HOME で起動されるので)。"""
+    """~・~/…・~名前・$HOME・${HOME} をホームに置き換える(Bash のシェルと同じ利用者・同じ HOME で起動されるので)。"""
     h = home().rstrip("/") or "/"
     if value == "~" or value.startswith("~/"):
         value = h + value[1:]
+    else:
+        m = re.match(r"~([A-Za-z0-9._][A-Za-z0-9._-]*)(?=/|\Z)", value)
+        d = m and user_home(m.group(1))
+        if d:
+            value = (d.rstrip("/") or "/") + value[m.end():]
     return re.sub(r"\$(?:\{HOME\}|HOME(?![A-Za-z0-9_]))", lambda m: h, value)
 
 
@@ -176,9 +194,22 @@ def scan(args, short_val, long_val):
     return opts, pos
 
 
+# find の式のうち値を取る物(値は起点でない)。-newerXY は FIND_NEWER_RE で見る。-fprintf は値を 2 つ取る
+FIND_VALUE = {"-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-lname", "-ilname", "-type", "-xtype",
+              "-newer", "-anewer", "-cnewer", "-mnewer", "-Bnewer", "-maxdepth", "-mindepth", "-perm", "-size", "-user",
+              "-group", "-uid", "-gid", "-regex", "-iregex", "-regextype", "-printf", "-fprint", "-fprint0", "-fls",
+              "-samefile", "-inum", "-links", "-atime", "-ctime", "-mtime", "-Btime", "-amin", "-cmin", "-mmin", "-Bmin",
+              "-used", "-context", "-files0-from", "-fstype", "-flags", "-xattrname", "-limit"}
+FIND_NEWER_RE = re.compile(r"-newer[aBcmt][aBcmt]")
+FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+
+
 def find_starts(args):
     """find・bfs・gfind の起点。前の旗(-H -L -P -E -X -d -s -x -O3 -j8・値を取る -D -S・BSD の -f <起点>)の後、
-    式(- か ( か ! で始まる語)の前までの語。起点が無ければ . (GNU と bfs の既定)。"""
+    式(- か ( か ! で始まる語)の前までの語。起点が無ければ . (GNU と bfs の既定)。
+
+    式の後ろの語も起点と読む: Claude Code は find を bfs で走らせ、bfs はどこに書いた起点もたどる(`find . -name x /`)。
+    式の中では、値を取る旗の値(FIND_VALUE。`-path "/Users/me/*"` の型は起点でない)と、-exec などの後ろの ; か + までを飛ばす。"""
     starts, i = [], 0
     while i < len(args) and args[i].startswith("-") and args[i] != "-":
         a = args[i]
@@ -193,10 +224,34 @@ def find_starts(args):
             i += 1
         else:
             break
-    while i < len(args) and not args[i].startswith(("-", "(", "!", ")")):
-        starts.append(args[i])
+    while i < len(args):
+        a = args[i]
+        if a in FIND_EXEC:
+            i += 1
+            while i < len(args) and args[i] not in (";", "+"):
+                i += 1
+        elif a in FIND_VALUE or FIND_NEWER_RE.fullmatch(a):
+            i += 1
+        elif a == "-fprintf":
+            i += 2
+        elif not a.startswith(("-", "(", "!", ")")) and a != ",":
+            starts.append(a)
         i += 1
     return starts or ["."]
+
+
+def find_execs(args):
+    """find の -exec・-ok(cwd で走る)と -execdir・-okdir(見つけた物の所で走る)の後ろのコマンド → (語の列, 所で走るか) の列。"""
+    out, i = [], 0
+    while i < len(args):
+        if args[i] in FIND_EXEC:
+            j = i + 1
+            while j < len(args) and args[j] not in (";", "+"):
+                j += 1
+            out.append((args[i + 1:j], args[i].endswith("dir")))
+            i = j
+        i += 1
+    return out
 
 
 FD_SHORT = set("etEdjSocxX")
@@ -212,7 +267,7 @@ RG_LONG = {"--after-context", "--before-context", "--context", "--regexp", "--fi
            "--hyperlink-format", "--hostname-bin"}
 GREP_SHORT = set("efmABCdD")
 GREP_LONG = {"--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--directories",
-             "--devices", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--label", "--binary-files"}
+             "--devices", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--label", "--binary-files", "--depth"}
 
 
 def starts_of(name, args, piped, xargs=False):
@@ -242,8 +297,10 @@ def starts_of(name, args, piped, xargs=False):
         return paths or ([] if piped else ["."])
     if name in GREP:
         opts, pos = scan(args, GREP_SHORT, GREP_LONG)
-        recursive = any(o in ("-r", "-R", "--recursive", "--dereference-recursive") for o, _ in opts) or any(
-            o in ("-d", "--directories") and v == "recurse" for o, v in opts)
+        # Claude Code の grep は ugrep で走り、-NUM(-5・-5r・-i5)は下をたどる深さ、--depth も同じ。rgrep は grep -r
+        recursive = name == "rgrep" or any(
+            o in ("-r", "-R", "--recursive", "--dereference-recursive", "--depth") or re.fullmatch(r"-\d", o)
+            for o, _ in opts) or any(o in ("-d", "--directories") and v == "recurse" for o, v in opts)
         if not recursive:
             return []
         given = any(o in ("-e", "--regexp", "-f", "--file") for o, _ in opts)
@@ -285,11 +342,11 @@ def check_path(tool, value, cwd):
 
 
 def check_command(cr, command, cwd, depth=0, outer=None):
-    """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。outer は、このコマンドが外のコマンドの $( … ) の中身のとき、
-    外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。"""
+    """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。outer は、このコマンドが外のコマンドの $( … )・bash -c・eval・
+    ヒアドキュメントの中身のとき、外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。"""
     if depth > MAX_DEPTH or not command.strip():
         return
-    text, _ = cr.prepare(command)
+    text, bodies = cr.prepare(command)
     tokens = cr.tokenize(text)
     if tokens is None:
         # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)
@@ -298,44 +355,141 @@ def check_command(cr, command, cwd, depth=0, outer=None):
             check_path(m.group(0).split()[0].lstrip(";&|(`"), m.group(1).strip("'\""), cwd)
         return
     cmds = cr.split_commands(tokens)
-    files = Scope(cmds, cwd, [], text, tokens)
-    seen = set()
+    files = Scope(cmds, cwd, bodies, text, tokens)
+    files.outer = outer
+    seen, places = set(), {cwd}
     for k, c in enumerate(cmds):
         at = cr.command_start(c.args)
-        here = files.at(k, c.args[:at]).cwd_here()
-        # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、
-        # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
-        for inner in {x for a in c.args for x in substitutions(a)}:
-            seen.add(inner)
-            check_command(cr, inner, here, depth + 1, files)
-        files.at(k, c.args[:at])
-        words, hops = c.args[at:], False
-        # 前置を越える(nice -n 19 find …・xargs -0 rg …)。前置の後の env・timeout なども越える(nice -n 19 timeout 300 find …)
-        while words and os.path.basename(words[0]) in HOPS:
-            hops = hops or os.path.basename(words[0]) == "xargs"
-            words = after_hop(words)
-            words = words[cr.command_start(words):]
-        if not words or ("command" in c.args[:at] and {"-v", "-V"} & set(c.args[:at])):
-            continue   # command -v rg は在るかを引くだけ
-        name = os.path.basename(words[0])
-        if name in SHELLS:
-            script = shell_script(words[1:])
-            if script is not None:
-                check_command(cr, script, here, depth + 1)
-            continue
-        if name == "eval":
-            check_command(cr, " ".join(words[1:]), here, depth + 1)
-            continue
-        piped = any(op == "|" for op, _ in c.ops)
-        for start in starts_of(name, words[1:], piped, hops):
-            if "$" in start:
-                got = files.var(start)
-                start = outer.var(start) if got is None and outer is not None else got
-            check_path(name, start, here)
-    # 語に割れなかった中身(` … ` など)は、フックの cwd で見る。引用の外の $( … ) はトークン化が単純コマンドに割って上で見た
+        heres = files.at(k, c.args[:at]).cwds_here()
+        places.update(heres)
+        inners = {x for a in c.args for x in substitutions(a)}
+        seen |= inners
+        for here in heres:
+            # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、
+            # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
+            for inner in inners:
+                check_command(cr, inner, here, depth + 1, files.at(k, c.args[:at]))
+            check_simple(cr, files.at(k, c.args[:at]), cmds, k, c.args[at:], bodies, here, depth)
+    # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、このコマンドの中で走りうる場所
+    # (フックの cwd と、各コマンドの cwd)のどれでも見る。前はフックの cwd だけで見て、`cd / && a=`find . …`` を通していた。
+    # 引用の外の $( … ) はトークン化が単純コマンドに割って上で見た
+    if cmds:
+        files.at(len(cmds) - 1, ())   # 変数は、このコマンドの中のどの代入からでも解く
     for inner in substitutions(text, bare=False):
         if inner not in seen:
-            check_command(cr, inner, cwd, depth + 1)
+            for place in places:
+                check_command(cr, inner, place, depth + 1, files if cmds else outer)
+
+
+def command_words(cr, words):
+    """前置を越えた語の列と、xargs の後ろか。前置(nice -n 19 find …・xargs -0 rg …)の後の env・timeout なども越える
+    (nice -n 19 timeout 300 find …)。パスで書いた前置(/usr/bin/time・/usr/bin/env)も名前で越える。"""
+    hops = False
+    while words:
+        base = os.path.basename(words[0])
+        if base in HOPS:
+            hops = hops or base == "xargs"
+            words = after_hop(words)
+        elif base in cr.WRAPPERS and base != words[0]:
+            words = [base] + words[1:]
+        else:
+            break
+        words = words[cr.command_start(words):]
+    return words, hops
+
+
+def glued_find_args(cmds, k):
+    r"""find の引数。式の \( \) と -exec の後ろの \; はトークン化で区切りと読まれ、後ろが別のコマンドに割れるので、
+    括弧だけ(または開いた -exec の後の ; だけ)で続くコマンドを繋ぎ直す。閉じる括弧が開いた数を超えたら(本物のサブシェルの
+    閉じ)そこで止める。"""
+    args, open_ = list(cmds[k].args), 0
+    for m in range(k + 1, len(cmds)):
+        ops = [op for op, _ in cmds[m].ops]
+        exec_open = any(a in FIND_EXEC for a in args) and not any(
+            a in (";", "+") for a in args[max(i for i, a in enumerate(args) if a in FIND_EXEC):])
+        if ops == [";"] and exec_open:
+            args += [";"] + cmds[m].args
+            continue
+        if not ops or not all(op in "()" for op in ops):
+            break
+        for op in ops:
+            open_ += 1 if op == "(" else -1
+            if open_ < 0:
+                return args
+        args += ops + cmds[m].args
+    return args
+
+
+def shell_stdin(args):
+    """bash・sh などが標準入力のスクリプトを走らせるか(-c が無く、スクリプトのファイルを取らないか、-s が在る)。"""
+    args = [a for a in args if not re.fullmatch(r"__HEREDOC\d+__", a)]
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            return i + 1 == len(args)
+        if not a.startswith(("-", "+")):
+            return False   # スクリプトのファイル
+        if not a.startswith("--"):
+            if "c" in a[1:]:
+                return False
+            if "s" in a[1:]:
+                return True
+            if a[-1:] in ("o", "O"):
+                i += 1   # 値を取る旗(-o pipefail)
+        i += 1
+    return True
+
+
+def stdin_scripts(cr, cmds, k, c, bodies):
+    """k 番目のコマンド(標準入力を読むシェル)が読むスクリプト: 自分のヒアドキュメント・<<< の文字列・前の echo・printf からの
+    パイプの中身。"""
+    out = list(cr.own_heredocs(c.args, bodies)) + [t for op, t in c.redirects if op == "<<<"]
+    if k and any(op == "|" for op, _ in c.ops):
+        words, _ = command_words(cr, cmds[k - 1].args[cr.command_start(cmds[k - 1].args):])
+        if words[:1] in (["echo"], ["printf"]):
+            rest = [w for w in words[1:] if not re.fullmatch(r"-[neE]+", w)]
+            out.append(" ".join(rest).replace("\\n", "\n"))
+    return out
+
+
+def check_simple(cr, files, cmds, k, words, bodies, here, depth):
+    """k 番目の単純コマンド(前置の環境変数と env などを除いた語 words)を、cwd が here のときとして見る。"""
+    words, hops = command_words(cr, words)
+    c = cmds[k]
+    at = cr.command_start(c.args)
+    if not words or ("command" in c.args[:at] and {"-v", "-V"} & set(c.args[:at])):
+        return   # command -v rg は在るかを引くだけ
+    name = os.path.basename(words[0])
+    if name in SHELLS:
+        script = shell_script(words[1:])
+        if script is not None:
+            check_command(cr, script, here, depth + 1, files)
+        elif shell_stdin(words[1:]):
+            for script in stdin_scripts(cr, cmds, k, c, bodies):
+                check_command(cr, script, here, depth + 1, files)
+        return
+    if name == "eval":
+        # coldread の Scope は eval が在ると全部の変数を解かない(eval が入れ直しうる)。eval の引数は eval より前の代入で
+        # 展開されるので、eval をただのコマンドに替えた列で解く(前は `D=/; eval "find $D -name x"` を通していた)。
+        # 引数の中の $ は、引用(`eval 'find $D'`)や `\$` の後でも eval が展開するので、字のままと見ない
+        stub = copy.copy(c)
+        stub.args = [":"]
+        live = "; ".join(" ".join(cc.args) for cc in cmds[:k] + [stub]) + "; " + " ".join(words[1:])
+        before = Scope(cmds[:k] + [stub], files.cwd, bodies, live).at(k, [])
+        before.outer = files.outer
+        check_command(cr, " ".join(words[1:]), here, depth + 1, before)
+        return
+    args = words[1:]
+    if name in FIND:
+        args = glued_find_args(cmds, k)[len(c.args) - len(words) + 1:]
+        for run, in_place in find_execs(args):
+            check_command(cr, shlex.join(run), None if in_place else here, depth + 1, files)
+    piped = any(op == "|" for op, _ in c.ops)
+    for start in starts_of(name, args, piped, hops):
+        if "$" in start:
+            start = files.var(start)
+        check_path(name, start, here)
 
 
 def after_hop(words):
@@ -434,12 +588,76 @@ def main():
         deny(cr, hit.args[0], hit.args[1])
 
 
+def layout(cr, tokens):
+    """単純コマンドごと(split_commands と同じ順)の (囲むブロックの道, 括弧の深さ, 直前の区切り((演算子, 深さ) の列), 語の頭)。
+    split_commands と数が合わなければ None。
+
+    道は外から順の (ブロックの番号, 区画の番号, 条件の区画か)。区画は if の条件・then・elif の条件・else、繰り返しの条件と do の後、
+    case の ;; ごとに分ける。case の型の閉じ `a)` は括弧に数えない(coldread の深さはそこで負になり、cd が届くかを読み違える)。"""
+    out, stack, ops, depth, cur, head, nid = [], [], [], 0, [], None, 0
+
+    def close():
+        if cur:
+            out.append(head)
+            cur.clear()
+
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok and all(ch in cr.OP_CHARS for ch in tok):
+            if tok in cr.REDIRECT_OPS:
+                if cur and cur[-1].isdigit():
+                    cur.pop()
+                i += 2
+                continue
+            close()
+            for op in cr._OP_RE.findall(tok):
+                top = stack[-1] if stack else None
+                if top and top[1] == "case" and top[4] and op in "()":
+                    top[4] = op == "("   # 型の頭の ( と閉じの ): 括弧ではない
+                    continue
+                if op == ";;" and top and top[1] == "case":
+                    top[2], top[4] = top[2] + 1, True
+                if op == ")":
+                    depth -= 1
+                ops.append((op, depth))
+                if op == "(":
+                    depth += 1
+            i += 1
+            continue
+        if not cur and tok in cr.RESERVED:
+            top = stack[-1] if stack else None
+            if tok in ("if", "while", "until"):
+                nid += 1
+                stack.append([nid, tok, 0, True, False])
+            elif top and tok in ("then", "do", "else"):
+                top[2], top[3] = top[2] + 1, False
+            elif top and tok == "elif":
+                top[2], top[3] = top[2] + 1, True
+            i += 1
+            continue
+        if not cur:
+            head = (tuple((e[0], e[2], e[3]) for e in stack), depth, ops, tok)
+            ops = []
+            if tok in ("for", "select", "case"):
+                nid += 1
+                stack.append([nid, tok, 1 if tok == "case" else 0, False, tok == "case"])
+            elif tok in ("fi", "done", "esac") and stack:
+                stack.pop()
+        cur.append(tok)
+        i += 1
+    close()
+    return out
+
+
 def load_coldread():
     cr = gate_shell.load_coldread()
     global Scope
 
     class Scope(cr.BodyFiles):
         """変数と cd の追い方は coldread と同じ 1 本。~ と $HOME だけ先にホームへ開く(coldread は本文のパスでしか開かない)。"""
+
+        outer = None   # 外のコマンドの Scope(このコマンドが $( … )・bash -c・eval・ヒアドキュメントの中身のとき)
 
         def assigned(self):
             if self._assigned is None:
@@ -449,31 +667,101 @@ def load_coldread():
             return self._assigned
 
         def var(self, value):
-            if "HOME" not in self.assigned():
-                value = expand_home(value)
-            return super().var(value)
-
-        # coldread の cwd_here と同じ読み方に、2 つを足す: ; と改行の後の cd も読む(coldread は本文のパスを取り違えない
-        # ように && の後だけ)・引数の無い cd はホーム
-        CD_BETWEEN = cr._SEQUENTIAL
+            got = super().var(expand_home(value) if "HOME" not in self.assigned() else value)
+            if got is None and self.outer is not None:
+                got = self.outer.var(value)   # 中で解けない変数は外の代入で解く(D=/; bash -c "find $D")
+            return got
 
         def __init__(self, cmds, cwd, heredocs, norm, tokens=()):
             super().__init__(cmds, cwd, heredocs, norm, tokens)
-            # 起点を解けない(=止めない)側に倒すのは、最初の探すコマンドより前の if・繰り返しの中に cd か代入が在るときだけ。
-            # 後ろの語(`cd / && find . | while read f`)・閉じた繰り返し(`for f in *; do echo; done; cd / && find .`)・探す
-            # コマンドを囲む繰り返し(`cd ~ && for f in $(find .)`)は、前の cd・代入が走るかを変えないのに、在るだけで通していた
-            first = next((i for i, t in enumerate(tokens) if os.path.basename(t) in FIND | FD | RG | GREP), len(tokens))
-            depth, self.conditional = 0, False
-            for t in tokens[:first]:
-                if t in ("if", "case", "while", "until", "for", "select"):
-                    depth += 1
-                elif t in ("fi", "esac", "done"):
-                    depth = max(depth - 1, 0)
-                elif depth and (t in cr.CD_WORDS or cr.ENV_PREFIX_RE.match(t)):
-                    self.conditional = True
+            # 代入は、if・繰り返しの中でも解く(走ったときの値を起点として見る。止める側に倒す)。前は 1 つでも在れば
+            # コマンド全体で変数と cd を解かず、`for f in *; do n=$f; done; cd / && find .` を通していた。
+            # cd が走るかは、cd ごとに cwds_here で見る
+            self.conditional = False
+            lay = layout(cr, tokens)
+            self.lay = lay if lay is not None and len(lay) == len(cmds) else None
 
-        def cd_dest(self, args):
-            return home() if args == ["cd"] else super().cd_dest(args)
+        def _reaches(self, j, k):
+            """j 番目の cd の効果が k 番目に届くか(同じシェルの中か)。届かないのは、パイプの中・& で後ろに回した・
+            サブシェル(`( … )`・`$( … )`)が k より前に閉じたとき。"""
+            _, d, ops, _ = self.lay[j]
+            if any(op == "|" and dep == d for op, dep in ops):
+                return False
+            if any(op in ("|", "&") and dep == d for op, dep in self.lay[j + 1][2]):
+                return False
+            for m in range(j + 1, k + 1):
+                if any(op == ")" and dep < d for op, dep in self.lay[m][2]):
+                    return False
+            return self.lay[k][1] >= d
+
+        def _surely(self, j, k):
+            """届く cd(j 番目)が、k 番目が走るときには必ず走ったか。前の区切りが ; 改行 && だけで、k までに || が無い
+            (`cd x || exit 1` の || は除く)うえ、cd を囲むブロックがどれも k も囲むか、k が後ろに在る if・繰り返しの条件の中のとき。"""
+            path, d, ops, _ = self.lay[j]
+            if any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()"):
+                return False
+            for m in range(j + 1, k + 1):
+                for op, dep in self.lay[m][2]:
+                    if op == "||" and dep <= d and not (m == j + 1 and self.lay[m][3] in ("exit", "return")):
+                        return False
+            kpath = self.lay[k][0]
+            same = 0
+            while same < min(len(path), len(kpath)) and path[same] == kpath[same]:
+                same += 1
+            return all(cond for _, _, cond in path[same:])
+
+        def cwds_here(self, k=None):
+            """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、
+            走るとは限らない cd(if・繰り返し・|| の中)は行き先と前の場所の両方、効果が届かない cd(サブシェル・パイプ)は
+            前の場所のまま。行き先の読めない cd(`cd -`・`cd $X`)の後は決まらない(今までどおり)。相対の行き先は、そこまでに
+            決まった場所に繋ぐ(`cd .. && find .`)。"""
+            k = self.k if k is None else k
+            if self.moved:
+                return [None]
+            places = [self.cwd]
+            for j in range(k):
+                c = self.cmds[j]
+                if not any(t in cr.CD_WORDS for t in c.args):
+                    continue
+                reach, surely = (self._reaches(j, k), self._surely(j, k)) if self.lay else (True, False)
+                if not reach:
+                    continue
+                new = []
+                for place in places:
+                    dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
+                    dest = cr.native_path(dest) if dest else None
+                    if not (dest and os.path.isabs(dest)):
+                        new.append(None)
+                    else:
+                        new += [dest] if surely else [dest, place]
+                places = list(dict.fromkeys(new))
+            return places
+
+        def cd_dest(self, args, base=None):
+            """`cd <行き先>`・`pushd <行き先>` の行き先。引数の無い cd はホーム。相対の行き先は base に繋ぐ。読めなければ None。"""
+            while args[:1] in (["builtin"], ["command"]):
+                args = args[1:]
+            if args[:1] not in (["cd"], ["pushd"]):
+                return None
+            rest = args[1:]
+            if args[0] == "cd":
+                while rest[:1] and rest[0] in ("-P", "-L", "-e", "-@", "-Pe", "-eP"):
+                    rest = rest[1:]
+                if rest[:1] == ["--"]:
+                    rest = rest[1:]
+                if not rest:
+                    return home()
+            if len(rest) != 1 or rest[0] == "-" or rest[0].startswith(("-", "+")) and args[0] == "pushd":
+                return None
+            dest = self.var(rest[0])
+            if dest is None:
+                return None
+            dest = expand_home(dest)
+            if os.path.isabs(dest):
+                return dest
+            if dest.startswith("~") or not base or not os.path.isabs(base):
+                return None
+            return os.path.normpath(os.path.join(base, dest))
 
     return cr
 
