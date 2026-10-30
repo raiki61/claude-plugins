@@ -3015,6 +3015,17 @@ class WakeFlow(unittest.TestCase):
         taken = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
         self.assertEqual([(r["id"], r["to"], r["name"]) for r in taken], [(urgent["id"], {"ask": "作業"}, "調べ：急ぎ"), (first["id"], {"ask": "作業"}, "調べ：先")])
 
+    def test_take_with_ask_and_text_keeps_the_original_body_when_the_hand_on_fails(self):
+        # 添え書きを足した本文は元の頼みと同じファイルに書く。頼み直しが断られて順番待ちに戻すときは、元の本文に戻す
+        first, _ = self.queue_two()
+        before = pathlib.Path(first["file"]).read_text(encoding="utf-8")
+        with mock.patch.object(orders, "ask", lambda *a: 2):
+            for _ in range(2):
+                rc, out = self.main(self.place, "--take", first["id"], "--ask", "作業", "--task", "調べ：先", "--branch", "b/y",
+                                    "--text", "割り振りが回した")
+                self.assertEqual(rc, 2, out)
+        self.assertEqual(pathlib.Path(first["file"]).read_text(encoding="utf-8"), before)
+
     def test_withdraw_drops_an_ask_and_leaves_it_in_the_ledger(self):
         first, urgent = self.queue_two()
         rc, out = self.main(self.place, "--withdraw", first["id"], "--dry-run")

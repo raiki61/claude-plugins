@@ -1148,6 +1148,9 @@ def take(a, ports, cwd, task):
                                "from_boss": {k: v for k, v in marks.items() if k == "boss" or k.startswith("boss-")}})
     rc = ask(ns, ports, cwd, task)
     if rc != 0:
+        if a.text:
+            # 添え書きを足した本文は元の頼みのファイルと同じ名前に書くので、戻す頼みは元の本文に戻す（重ねて包まないように）
+            pathlib.Path(item["file"]).write_text(body, encoding="utf-8")
         wake.put_back(item)
         print(f"受付 {a.take} を {a.ask} に頼み直せなかったので、元の順番待ちの同じ場所に戻した")
         return rc
