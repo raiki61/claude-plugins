@@ -319,6 +319,22 @@ class TranslateTest(unittest.TestCase):
         self.assertEqual([json.loads(x)["scene"] for x in r.stdout.splitlines()], ["compact"])
         self.assertEqual(self.run_cli("records").stdout, "")  # 記録を止めていれば何も出さない
 
+    def test_records_compares_since_and_until_as_instants_and_refuses_unreadable_ones(self):
+        # 字の並びで比べると、+09:00 の書き方や秒の無い書き方で前後を取り違える。日時として読んで比べる
+        log = pathlib.Path(self.tmp.name) / "log.jsonl"
+        log.write_text("".join(line(scene=s, ts=t) + "\n" for s, t in (("a", "2026-10-01T23:59:59Z"),
+                                                                       ("b", "2026-10-02T00:00:00Z"),
+                                                                       ("c", "2026-10-02T09:00:00Z"))), encoding="utf-8")
+        for since, until, want in (("2026-10-02T09:00:00+09:00", "2026-10-02T18:01+09:00", ["b", "c"]),
+                                   ("2026-10-02", "2026-10-02T09:00:00Z", ["b"]),
+                                   ("2026-10-01T23:59:59.5Z", None, ["b", "c"])):
+            r = self.run_cli("records", "--since", since, *(("--until", until) if until else ()), RENT_OR_BUY_RECORD=str(log))
+            self.assertEqual((r.returncode, [json.loads(x)["scene"] for x in r.stdout.splitlines()]), (0, want), since)
+        for bad in (("--since", "yesterday"), ("--until", "2026-13-01T00:00:00Z")):
+            for env in (str(log), "off"):  # 記録を止めていても、読めない値は断る
+                r = self.run_cli("records", *bad, RENT_OR_BUY_RECORD=env)
+                self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (2, "invalid_input"), (bad, env))
+
     def test_records_skips_a_line_cut_in_a_multibyte_char(self):
         # 書きかけで切れた行（多バイト字の途中）は UTF-8 として読めない。その行だけ飛ばして残りを返す
         log = pathlib.Path(self.tmp.name) / "log.jsonl"

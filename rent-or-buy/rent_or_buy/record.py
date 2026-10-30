@@ -5,6 +5,7 @@
 import json
 import math
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -38,10 +39,30 @@ def append_record(path, row: dict, max_bytes: int = MAX_BYTES) -> Optional[str]:
     return None
 
 
+def _instant(text: str) -> Optional[datetime]:
+    """ISO 8601 の日時の字を時刻に読む（Z と +09:00 の時差・秒の有無・日付だけのどれでも）。時差の無い値は UTC と読む（記録の ts は
+    UTC）。読めなければ None。"""
+    try:
+        t = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo is not None else t.replace(tzinfo=timezone.utc)
+
+
 def read_records(path, since: Optional[str] = None, until: Optional[str] = None) -> Iterator[dict]:
-    """記録の行を古い順に返す（切った古い物 `<名前>.1<拡張子>` が先）。since ≤ ts < until の行だけ（時刻は記録と同じ
-    `YYYY-MM-DDTHH:MM:SSZ` の字で比べる）。読めない行と ts の無い行は飛ばす。ファイルが無ければ何も返さない。"""
-    p = Path(path)
+    """記録の行を古い順に返す（切った古い物 `<名前>.1<拡張子>` が先）。since ≤ ts < until の行だけ（字の並びでなく日時として比べる。
+    読み方は _instant）。since・until が日時として読めなければ、何も返さずに InputError。読めない行と ts の無い行・ts を日時として
+    読めない行は飛ばす。ファイルが無いか path が None なら何も返さない。"""
+    bounds = []
+    for name, text in (("since", since), ("until", until)):
+        t = _instant(text) if text else None
+        if text and t is None:
+            raise InputError("--%s must be an ISO 8601 date and time such as 2026-10-30T00:00:00Z: %r" % (name, text))
+        bounds.append(t)
+    return _rows(Path(path), *bounds) if path is not None else iter(())
+
+
+def _rows(p: Path, since: Optional[datetime], until: Optional[datetime]) -> Iterator[dict]:
     for f in (_old(p), p):
         try:
             data = f.read_bytes()
@@ -54,7 +75,8 @@ def read_records(path, since: Optional[str] = None, until: Optional[str] = None)
             except ValueError:
                 continue
             ts = row.get("ts") if isinstance(row, dict) else None
-            if not isinstance(ts, str) or (since and ts < since) or (until and ts >= until):
+            t = _instant(ts) if isinstance(ts, str) else None
+            if t is None or (since and t < since) or (until and t >= until):
                 continue
             yield row
 

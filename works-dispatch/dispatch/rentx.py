@@ -99,7 +99,7 @@ def prices(model, here=None, runner=subprocess.run, env=None):
 
 
 def records(since=None, until=None, here=None, runner=subprocess.run, env=None):
-    """部品の判断の記録の行（since ≤ ts < until。時刻は YYYY-MM-DDTHH:MM:SSZ）。(行の並び, None) か (None, 訳)。"""
+    """部品の判断の記録の行（since ≤ ts < until。時刻は ISO 8601 の日時の字で、部品が日時として比べる）。(行の並び, None) か (None, 訳)。"""
     args = ["records"] + (["--since", since] if since else []) + (["--until", until] if until else [])
     return _run(args, "", here, runner, env, lines=True)
 

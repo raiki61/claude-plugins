@@ -226,7 +226,7 @@ compact の翻訳を、会話の記録から計った実測値と項ごとに照
 - `rent-or-buy prices MODEL`: 正規化した名前と、使う値段と、その出どころ（調べるとき用）。
 - `rent-or-buy snapshot`: LiteLLM の main ブランチから同梱の写しを作り直す（保守する人が打つ）。
 - `rent-or-buy outcome`: 結果の行（3.6）を足す。標準入力は結果 1 件か `{"outcomes": [...]}` で、1 件でも形が違えば何も足さない（終了コード 2）。結果の在る鍵は飛ばす。出力は `{"recorded", "duplicates"}`。`RENT_OR_BUY_RECORD=off` なら終了コード 2（`record_off`）。
-- `rent-or-buy records [--since T] [--until T]`: `since <= ts < until` の記録の行を JSON Lines で出す（`T` は `ts` と同じ `YYYY-MM-DDTHH:MM:SSZ` の形）。呼ぶ側はファイルを開かずにこれで読み、置き場は部品の側だけが知る。
+- `rent-or-buy records [--since T] [--until T]`: `since <= ts < until` の記録の行を JSON Lines で出す（`T` は ISO 8601 の日時。`T` と `ts` は字の並びでなく日時として比べるので、時差は `Z` でも `+09:00` でもよく、秒は省いてよい。時差の無い値は `ts` と同じ UTC と読む。読めない `T` は終わりのコード 2 の `invalid_input` で断る）。呼ぶ側はファイルを開かずにこれで読み、置き場は部品の側だけが知る。
 
 終了コード: 0 は判断できた、1 は `snapshot` の失敗か結果を書けない、2 は入力の形の誤り、3 は知らないモデル、4 は記録を読めない。0 以外でも、出力は `{"error": "<キー>", "why": "<英語>"}`。`decide`・`keepalive`・`compact` の失敗は、入力ごと判断の記録に足す。知らないモデル名を集めるため（`prices` の失敗は記録しない）。出力の `version` は、プラグインの `plugin.json` の `version`。
 

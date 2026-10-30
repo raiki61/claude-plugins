@@ -22,7 +22,7 @@ exit 1
   rent-or-buy compact [--transcript FILE]    compact の判断（記録からモデル・文脈・compact の後の文脈・余分に読んだ累計を埋める）
   rent-or-buy prices MODEL                   揃えた名前と、使う単価と、その出どころ
   rent-or-buy outcome                        判断の鍵（key）に結果の行を足す（同じ鍵の結果が在れば足さない）
-  rent-or-buy records [--since T] [--until T] 判断の記録の行を JSON Lines で出す（T は YYYY-MM-DDTHH:MM:SSZ）
+  rent-or-buy records [--since T] [--until T] 判断の記録の行を JSON Lines で出す（T は ISO 8601 の日時）
   rent-or-buy snapshot                       LiteLLM の main から同梱の値段の写しを作り直す
 
 終わりのコード: 0 判断できた / 2 入力の形が違う / 3 知らないモデル / 4 記録を読めない（snapshot と、outcome の書けない失敗は 1）。
@@ -107,7 +107,11 @@ def _outcome() -> int:
 
 def _records(args) -> int:
     path = _record_path()
-    for row in rent_or_buy.read_records(path, args.since, args.until) if path is not None else ():
+    try:
+        rows = rent_or_buy.read_records(path, args.since, args.until)
+    except rent_or_buy.InputError as e:
+        return _fail("invalid_input", str(e), 2)
+    for row in rows:
         print(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
     return 0
 
