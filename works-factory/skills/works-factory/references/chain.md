@@ -12,6 +12,6 @@ WF workflow run works-factory-chain --cwd <対象> --input rounds=<1〜5> --inpu
 - 費用の上限（`budget_usd`）を付けると、次の周を起動する前に、累計と最大の周の費用の和が上限を越えうる時と、費用が読めない周が在る時に止める。済んだ周の差分はそのまま残る。付けなければ費用では止まらない。
 - 周の中の承認ノードは子の run で止まる。答えるのは子の run の id（`WF workflow status --cwd <対象>` で見る）で、答え方は SKILL.md の「3. 承認ノードで答える」と同じ `WF workflow respond <子の run> approve|stop|revise [一言] --cwd <対象>`。答えると鎖が続く。
 - 人が答えない時は `--input unattended=true` を付けられ、どの周の子の run にも渡る。
-- 鎖は `design_talk`・`fix_fixture`・`spec_table` のどれかに値（`false` も含む）が在れば、`unattended` の有無に依らず起動の時に拒む（工場の `workflows/chain/scripts/chain_start.py`）。
+- 鎖は、本線の run の入力のうち `design_talk`（設計だけの run）・`fix_fixture`（固定材料。1 つの run の修正の前の写し）・`spec_table`（仕様の表）のどれかに値（`false` も含む）が在れば、`unattended` の有無に依らず起動の時に拒む（工場の `workflows/chain/scripts/chain_start.py`）。
 - 当てるのは鎖の run（`WF apply <鎖の run> --cwd <対象>`）。採る周は工場が決める: 最後の周から戻り、止まっていない最初の周。元の基からその周までの差分をまとめて当てる。止まった周の差分は採らず、別に残す。
 - 周ごとの表と合計を書いた `chain.md` と、採らなかった周の差分は、鎖の run の記録の場所（対象の作業ツリーではない）に出る。在りかは `WF workflow get <鎖の run> --cwd <対象>` の結果に出る。
