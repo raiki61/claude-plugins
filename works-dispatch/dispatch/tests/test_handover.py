@@ -416,6 +416,25 @@ class Handover(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(deliver.parked_of(self.g.worktree_attrs(self.place)), [])
 
+    def test_a_failed_parked_write_is_finished_by_running_it_again(self):
+        # 後継の属性のうち保留の頼みを書けずに落ちても、打ち直しで保留の頼みを後継へ移す（引き継ぎの印を先に書いて落とさない）
+        provision.mark(self.src, self.src, {deliver.PARKED: json.dumps([{"id": "p1", "boss": "窓口をたたむ"}])}, self.g)
+        real = self.g.set_worktree_attr
+        calls = []
+
+        def fail(cwd, name, value):   # 後継の場所の保留を 1 度だけ書けない（.lock を握られた形）
+            if name == deliver.PARKED and os.path.realpath(cwd) == os.path.realpath(self.place) and not calls:
+                calls.append(name)
+                raise gitx.GitError("error: could not lock config file")
+            return real(cwd, name, value)
+        with mock.patch.object(self.g, "set_worktree_attr", fail):
+            rc, out = self.main("--handover", "段取り")
+        self.assertEqual(rc, 1, out)
+        rc, out = self.main("--handover", "段取り")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([p["id"] for p in deliver.parked_of(self.g.worktree_attrs(self.place))], ["p1"])
+        self.assertEqual(len(gitx.inherited(self.g.worktree_attrs(self.place))), 1)
+
     def test_the_head_office_cannot_take_the_inherited_name_with_desk(self):
         rc, out = self.main("--handover", "段取り")
         self.assertEqual(rc, 0, out)

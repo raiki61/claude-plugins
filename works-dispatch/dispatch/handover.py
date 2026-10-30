@@ -285,9 +285,10 @@ def _apply(ports, source, inbox, log, hid, row, old, prev, attrs, here, place, m
     former = [n for n in gitx.former_names(succ) + [old] + list(gitx.former_names(prev["attrs"])) if n != succ.get("name")]
     parked = deliver.parked_of(succ)
     moved = [p for p in parked_prev if p["id"] not in {x["id"] for x in parked}] if first else []
+    # 引き継ぎの印は最後に書く（mark は 1 つずつ書くので、印を先に書いて保留を書けずに落ちると、打ち直しが first=False で保留を移さない）
     provision.mark(here, source, {"former-names": json.dumps(list(dict.fromkeys(former)), ensure_ascii=False),
-                                  gitx.INHERITED: json.dumps(entries, ensure_ascii=False),
-                                  deliver.PARKED: json.dumps(parked + moved, ensure_ascii=False) if parked or moved else None},
+                                  deliver.PARKED: json.dumps(parked + moved, ensure_ascii=False) if parked or moved else None,
+                                  gitx.INHERITED: json.dumps(entries, ensure_ascii=False)},
                    ports.git)
     out.append(f"- company.former-names に {old} を足し、company.{gitx.INHERITED} に引き継ぎ {hid} を書いた")
     if moved:
