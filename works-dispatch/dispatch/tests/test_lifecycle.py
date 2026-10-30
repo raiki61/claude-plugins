@@ -128,6 +128,16 @@ class TurnEnd(unittest.TestCase):
         self.assertEqual(got, "blocked")
         self.assertEqual(len([c for c in h.calls if c[0] == "prompt"]), 1)
 
+    def test_a_pane_that_goes_away_during_the_first_turn_is_send_failed(self):
+        # 1 ターン目の間に窓が閉じると herdr が Error を投げる。dispatch の全体を traceback で止めず、その PR を send_failed にする
+        h = TurnHerdr(prompts=["working"], agent={"agent": "claude", "agent_status": "working"})
+
+        def gone(pane):
+            raise TurnHerdr.Error(["herdr", "agent"], "pane_not_found")
+        h.agent = gone
+        got = turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP, state=lambda: "busy", pause=lambda: None)
+        self.assertEqual(got, "send_failed")
+
     def test_close_session_sends_exit_and_reads_the_shell_back(self):
         h = FakeHerdr()
         h.talking.add("P0")

@@ -130,7 +130,10 @@ def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pa
     if first["status"] == "failed":
         return "send_failed"
     if state is not None and first["status"] == "working":
-        first["status"] = _turn_end(pane, h, state, pause)
+        try:
+            first["status"] = _turn_end(pane, h, state, pause)
+        except h.Error:   # 長い 1 ターン目の間に窓が閉じた・herdr が落ちた。ほかの PR の結末を道連れにしない
+            return "send_failed"
     if first["status"] not in FINISHED:
         return first["status"]  # blocked か stalled
     second_result = send(pane, with_carry(second, catchup, earlier), False, h)
