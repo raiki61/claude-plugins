@@ -716,7 +716,7 @@ def thread_turns(pr):
     返信で、渡す前に作者が返した分も含めて済む。返すターンは持ち主に立つ。側の人が立てたスレッドは
     側の残りの人への問いで、答えるのも返すターンを負うのも残りの人（作者も含む）。残りに返答できる人
     （answerable）がいないスレッドは自注で、返す義務の起点にならないので見ない——持ち主が作者で
-    作者が立てたものと、返答できない作者（退会済み・Bot・Mannequin）の PR で受けた人が立てたもの。
+    作者が立てて側の外の人が返していないものと、返答できない作者（退会済み・Bot・Mannequin）の PR で受けた人が立てたもの。
     返答できない名義にターンを立てても誰も読まず、立てた人には来ない返事の返答待ちが残る。"""
     holders = owners(pr)
     side = owner_side(pr)
@@ -727,7 +727,9 @@ def thread_turns(pr):
         if t["isResolved"] or not humans:
             continue
         opener = login(humans[0]["author"])
-        if opener in side:
+        # 側を 1 人で持つ人の自注でも、側の外の人（返答できる人）が返したら、その人への返事のスレッドになる
+        outsiders = {answerable(c["author"]) for c in humans} - side - {None}
+        if opener in side and (side != {opener} or not outsiders):
             answer = owe = side - {opener} - mute
         else:
             answer, owe = side, set(holders)
@@ -1152,7 +1154,9 @@ def pr_unanswered(pr, known=()):
     if back:
         for who, info in unanswered([q for q in posts if q["at"] > back], known).items():
             out = {k: v for k, v in out.items() if not same_login(k, who)}
-            out[who] = info
+            # 直前の発言は戻す前の物も含めて見る（戻した後の最初の呼びかけで「直前はあなたの発言」を落とさない）
+            prev = latest_human_post([q for q in posts if q["at"] < info["since"]])
+            out[who] = {**info, "reply_to_own": bool(prev) and same_login(login(prev["author"]), who)}
     return out
 
 

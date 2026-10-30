@@ -426,6 +426,13 @@ def repo_label(top):
     return changemap.repo_of(url) or os.path.basename(top)
 
 
+def on_github(top):
+    """origin が github.com か。ほかの host（GitLab・GHE）の "owner/name" を github.com に問い合わせると、同じ名前の
+    別の公開リポジトリを見て公開と答えてしまう"""
+    url = run(["git", "-C", top, "remote", "get-url", "origin"]) or ""
+    return bool(re.search(r"(?:^|[@/])github\.com[:/]", url.strip()))
+
+
 def repo_tops(cwds):
     """作業フォルダから引いたリポジトリ（worktree は同じリポジトリにまとめる）。{共通の .git: 最初に見たルート}。"""
     repos = {}
@@ -528,7 +535,8 @@ def github(start, end, unseen=None):
                 break
         kinds = collections.Counter(r["type"] for r in rows)
         truncated = full and bool(oldest) and oldest >= start
-        out.append({"login": login, "count": len(rows), "kinds": dict(kinds), "events": rows[:200],
+        # all_events は非公開の名前・番号を集める privacy だけが読む（ページに出すのは先頭の 200 件。collect が消す）
+        out.append({"login": login, "count": len(rows), "kinds": dict(kinds), "events": rows[:200], "all_events": rows,
                     "truncated": truncated, "from": local(oldest.isoformat()) if oldest else None,
                     "search": search(login, start, end, env, unseen) if truncated else None})
     return out
@@ -728,15 +736,20 @@ def repo_private(label):
     return True
 
 
-def privacy(commit_rows, gh_rows, ask=repo_private):
+def privacy(commit_rows, gh_rows, ask=repo_private, local=()):
     """非公開のリポジトリの名前と、そこで出てきた PR・issue の番号。AI の文に書かせない（render が見る）。
 
-    公開・非公開は、GitHub の動きの記録の public の印を先に使い、無いリポジトリだけ問い合わせる。"""
+    公開・非公開は、GitHub の動きの記録の public の印を先に使い、無いリポジトリだけ問い合わせる。local は会話の
+    作業フォルダのリポジトリ [(呼び名, origin が github.com か)]——commit の無いリポジトリも、フォルダの名前と会話が
+    AI に渡る。github.com でない物は問い合わせずに非公開。動きの記録は、ページで切った後の 200 件でなく全件を見る。"""
     known = {}
     for g in gh_rows:
-        for r in g["events"]:
+        for r in g.get("all_events") or g["events"]:
             if r.get("repo"):
                 known.setdefault(r["repo"], bool(r.get("private")))
+    for label, hub in local:
+        if label not in known:
+            known[label] = ask(label) if hub else True
     for c in commit_rows:
         if c["repo"] not in known:
             known[c["repo"]] = ask(c["repo"])
@@ -748,16 +761,24 @@ def privacy(commit_rows, gh_rows, ask=repo_private):
             known[it["repo"]] = ask(it["repo"])
         it["private"] = known.get(it.get("repo"), True)
     repos = sorted(k for k, v in known.items() if v)
-    numbers = {r["number"] for g in gh_rows for r in g["events"] if r.get("private") and r.get("number")}
+    numbers = {r["number"] for g in gh_rows for r in g.get("all_events") or g["events"] if r.get("private") and r.get("number")}
     numbers |= {it["number"] for it in found if it["private"] and it.get("number")}
-    numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in REF.findall(x["subject"])}
+    numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in ref_numbers(x["subject"])}
     return {"repos": repos, "numbers": sorted(numbers)}
 
 
 # 非公開の番号を集める・フィールドの文から探す用。lib/ghtext.py の refs（コードと引用の中を数えない）より広く、
 # 「PR 12」の形も、コードの中の #12 も当てる——ここは漏れを防ぐ側なので、外すより当て過ぎに倒す。PR・issue の前の
-# 切れ目は ASCII の英数字で見る（\b は日本語の字も語に数え、「このPR 12」を見逃す）。全角の ＃ も当てる
-REF = re.compile(r"(?:[#＃]|(?<![A-Za-z0-9_])(?:pr|issue)\s*[#＃]?)(\d+)", re.I)
+# 切れ目は ASCII の英数字で見る（\b は日本語の字も語に数え、「このPR 12」を見逃す）。全角の ＃ も当てる。
+# 呼び方は PR・PRs・issue・issues・pull request・pull/12 で、間に空白・#・-・/ を挟んでよい。続けて並べた番号
+# （PR 12・13、#5 と #6、issues 3, 4）も当てる——最初の 1 つだけだと後ろの番号が漏れる
+REF = re.compile(r"(?:[#＃]|(?<![A-Za-z0-9_])(?:pull[\s-]*requests?|prs?|issues?|pull)(?![A-Za-z])[\s#＃/-]*)"
+                 r"(\d+(?:\s*(?:[・、,/]|and|と)\s*[#＃]?\d+)*)", re.I)
+
+
+def ref_numbers(text):
+    """文に出てくる PR・issue の番号（REF の当て方）"""
+    return {int(n) for m in REF.findall(text or "") for n in re.findall(r"\d+", m)}
 
 
 def leaks(fields, data):
@@ -789,7 +810,7 @@ def leaks(fields, data):
         if hit:
             errs.append(f"非公開のリポジトリの名前を書いている: {'、'.join(hit)}")
     nums = set(priv.get("numbers") or [])
-    hit = sorted({int(n) for n in REF.findall(text)} & nums)
+    hit = sorted(ref_numbers(text) & nums)
     if hit:
         errs.append("非公開のリポジトリの PR・issue の番号を書いている: " + "、".join(f"#{n}" for n in hit))
     if errs:
@@ -811,7 +832,10 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     gh_unseen = []
     gh = github(start, end, gh_unseen) if with_github else []
     commit_rows = commits(cwds, start, end)
-    private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True))
+    local = [(repo_label(top), on_github(top)) for top in repo_tops(cwds).values()]
+    private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True), local)
+    for g in gh:
+        g.pop("all_events", None)
     try:
         ledger, ledger_error = read_ledger(ledger_path(env)), None
     except ValueError as e:

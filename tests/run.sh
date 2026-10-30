@@ -5760,6 +5760,10 @@ expect_output 0 "PASS2_THREADS_OK" \
     "catchup: @Me は me への呼びかけ・他の人同士のスレッドを私が最後に発言したと言わない・空行で終わる引用だけの発言も全文を出す・自分の PR の未返信の指摘を 1 行目の理由に数える・削除された行の場所に base の版と添える・渡した PR で担当の仲間が返したスレッドを私のターンにしない" \
     "$PY_BIN" "$CU_CASE" pass2-threads
 
+expect_output 0 "PASS3_FIXES_OK" \
+    "catchup: 私の後の発言より前の指摘を依頼にしない・担当に渡した自分の PR の新しい指摘を私のターンにしない・解決済みのスレッドの @me を依頼にしない・CI の材料も見ていない残りを断る・削除された側の行への指摘で file まるごとを枠にしない・HTML も持ち主の側の人が最後に返したと言う・commit の無いリポジトリでも HTML に差分を出す" \
+    "$PY_BIN" "$CU_CASE" pass3-fixes
+
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元のセクションにも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring

@@ -613,6 +613,58 @@ def _pass2_threads():
     return verdict("PASS2_THREADS", want, str(want))
 
 
+@case("pass3-fixes")
+def _pass3_fixes():
+    """3 巡目のレビューの指摘。私の後の発言より前の新しい指摘を「その後に私は発言していない」依頼にしない（名指しの無い
+    スレッドは名指しが無いと断る）。担当に渡した自分の PR の新しい指摘は担当のターン。解決済みのスレッドの @me は依頼に
+    しない。CI の材料のセクションも見ていない残りを断る。削除された側の行への指摘で file まるごとを枠にしない。HTML の
+    スレッドも持ち主の側の人が最後に返したと言う。commit の無いリポジトリでも HTML に未コミットの差分を出す。"""
+    import os
+    import subprocess
+    import tempfile
+    rev_then_me = pr(author=user(ME), comments=conn([comment(T2, ME, "明日見ます")]),
+                     reviewThreads=conn([thread("app/a.py", False, comment(T1, "rev", "ここは？"))]))
+    ev, _, _ = catchup.collect_events(rev_then_me, ME, "")
+    stale = catchup.find_ask(ev, rev_then_me, ME, catchup.ts(T2), True)
+    fresh = catchup.find_ask(ev, rev_then_me, ME, None, True)
+    handed = pr(author=user(ME), assignees=conn([user("bob")]),
+                reviewThreads=conn([thread("app/h.py", False, comment(T1, "rev", "ここは？"))]))
+    done = pr(reviewThreads=conn([thread("app/c.py", True, comment(T1, "rev", "@me 名前を変えて"))]))
+    ev3, _, _ = catchup.collect_events(done, ME, "")
+    head = checks(*[check_run(f"job{i}", "SUCCESS") for i in range(100)])
+    head["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 120
+    ci = catchup.render_ci(pr(head=head), "o", "r", failures=([], 0))
+    left = thread("app/m.py", False, comment(T1, "rev", "なぜ消した？"), comment(T2, ME, "不要なので"),
+                  comment(T3, "rev", "でも使っている"))
+    left["diffSide"] = "LEFT"
+    lefty = pr(author=user("rev"), headRefOid="bbb", allCommits=conn([commit(T1, "aaa", "最初"), commit(T3, "bbb", "次")]),
+               reviewThreads=conn([left]))
+    body = "\n".join(f"line {i}" for i in range(1, 30))
+    since = ("diff --git a/app/m.py b/app/m.py\n--- a/app/m.py\n+++ b/app/m.py\n@@ -3 +3 @@\n-old 3\n+line 3\n")
+    left_out = catchup.render_threads(lefty, ME, lambda p: body.split("\n"), diff_since=lambda p, b, h: since)
+    side = pr(author=user(ME), assignees=conn([user("bob")]),
+              reviewThreads=conn([thread("app/h.py", False, comment(T1, "rev", "ここは？"), comment(T2, ME, "見ます"),
+                                         comment(T3, "bob", "直した"))]))
+    page = catchup.page_threads(side, ME, "", {}, None, None, False)[0]
+    with tempfile.TemporaryDirectory() as top:
+        subprocess.run(["git", "init", "-q", top], check=True)
+        with open(os.path.join(top, "a.py"), "w") as f:
+            f.write("print(1)\n")
+        subprocess.run(["git", "-C", top, "add", "a.py"], check=True)
+        views = [v["key"] if "key" in v else v.get("id") for v in catchup.page_local(cwd=top)["views"]]
+    want = {
+        "ask_not_before_my_word": stale is None,
+        "ask_unaddressed": bool(fresh) and fresh.get("unaddressed") is True,
+        "handed_not_my_turn": catchup.my_turn(handed, ME, False) == [],
+        "resolved_mention_not_ask": catchup.find_ask(ev3, done, ME, None, False) is None,
+        "ci_section_unseen": "取った分に赤いチェックは無い（残り 20 件は見ていない）" in ci,
+        "left_no_whole_file": "削除された側の行 10（base の版）への指摘" in left_out and "以降のこの file の変更" not in left_out,
+        "page_side_last": page[0].get("side_last") == "bob" and page[0]["my_turn"] is False,
+        "empty_repo_page_diff": len(views) == 1,
+    }
+    return verdict("PASS3_FIXES", want, str(want) + "\n" + left_out)
+
+
 @case("threads-left")
 def _threads_left():
     """削除された行への指摘（diffSide が LEFT。line は base の版の行番号）は、head の同じ番号の行を出さない。端末は

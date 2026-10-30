@@ -310,9 +310,36 @@ class Privacy(unittest.TestCase):
         for bad in ("#1971 をレビュー", "PR 1665 を直した", "secret-app の検索を直した", "corp/secret-app で",
                     "secret-appで直した", "でsecret-app", "Secret-App を直した",
                     # 日本語に続く PR・issue と全角の ＃、- を含む名前が id の語の一部になった物も当てる
-                    "このPR 1665で直した", "非公開のissue 1971", "＃1971", "fix-secret-app", "secret-app-v2"):
+                    "このPR 1665で直した", "非公開のissue 1971", "＃1971", "fix-secret-app", "secret-app-v2",
+                    # 並べた番号の 2 つ目と、PRs・issues・PR-・pull request・pull/ の書き方も当てる
+                    "PR 42・1665 を直した", "PR 42 と 1971", "#42, 7", "issues 1971", "PR-1665", "PR # 1665",
+                    "pull request 1665", "pull/1971"):
             with self.subTest(bad=bad):
                 self.assertTrue(rf.leaks(fields(diary=bad), data))
+
+    def test_repos_seen_only_in_conversations_and_on_other_hosts_are_checked(self):
+        # commit の無い作業フォルダのリポジトリも問い合わせる。github.com でない host の物は問い合わせずに非公開
+        # （同じ名前の公開リポジトリが github.com に在ると公開と答える）
+        asked = []
+        priv = rf.privacy([], [], ask=lambda label: asked.append(label) or label == "me/talked",
+                          local=[("me/talked", True), ("me/notes", False)])
+        self.assertEqual(asked, ["me/talked"])
+        self.assertEqual(priv["repos"], ["me/notes", "me/talked"])
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            for url, hub in (("git@gitlab.corp:me/notes.git", False), ("https://github.com/me/notes.git", True),
+                             ("git@github.com:me/notes.git", True)):
+                subprocess.run(["git", "-C", tmp, "remote", "remove", "origin"], capture_output=True)
+                subprocess.run(["git", "-C", tmp, "remote", "add", "origin", url], check=True)
+                with self.subTest(url=url):
+                    self.assertEqual(rf.on_github(tmp), hub)
+
+    def test_private_events_past_the_page_cut_are_counted(self):
+        # ページに出す動きは先頭の 200 件だが、非公開の名前と番号は全件から集める
+        rows = [{"repo": "me/open", "number": i, "private": False} for i in range(200)]
+        rows.append({"repo": "corp/late", "number": 9001, "private": True})
+        priv = rf.privacy([], [{"events": rows[:200], "all_events": rows}], ask=lambda label: True)
+        self.assertEqual((priv["repos"], priv["numbers"]), (["corp/late"], [9001]))
 
     def test_render_stops_on_a_leak(self):
         with tempfile.TemporaryDirectory() as tmp:

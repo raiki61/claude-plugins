@@ -1465,7 +1465,8 @@ function thread(th, i) {
   const where = [pathEl(th.path, th.line), th.left && th.line ? "（削除された側。base の版の行）" : null].filter(Boolean);
   box.append(el("div", { class: "thread-head" }, th.href ? el("a", { href: th.href, class: "path-link" }, where) : el("span", { class: "path-link" }, where),
     el("span", { class: "right" }, th.outdated ? el("span", { class: "label" }, "行がずれている") : null, status,
-      th.my_turn ? el("span", { class: "label severe" }, "私が返すターン") : el("span", { class: "label" }, "相手のターン"))));
+      th.my_turn ? el("span", { class: "label severe" }, "私が返すターン")
+        : el("span", { class: "label" }, th.side_last ? `持ち主の側の ${th.side_last} が最後に返している（相手のターン）` : "相手のターン"))));
   if (th.excerpt) {
     const ex = drawDiff(el("div", { class: "excerpt" }), th.excerpt);
     // 指摘の行の印は、削除された側への指摘なら base の版の番号（.line-num1）で、ほかは head の版の番号（.line-num2）で探す
@@ -1473,12 +1474,13 @@ function thread(th, i) {
     ex.querySelectorAll("tr").forEach(tr => { const n = tr.querySelector(numCls); if (n && +n.textContent.trim() === th.line) tr.classList.add("is-commented"); });
     box.append(ex);
   }
-  // 発言は GitHub と同じく古い順。私が返すターンなら私が先、相手のターンなら私が後（私が最後に発言している）
+  // 発言は GitHub と同じく古い順。私が返すターンか、持ち主の側の人が最後に返しているなら私が先、
+  // ほかの相手のターンなら私が後（私が最後に発言している）
   const mineEl = th.mine && th.mine.quote ? el("div", { class: "comment" }, avatar("私"),
     el("div", {}, el("div", { class: "c-head" }, el("b", {}, "私"), ` · ${th.mine.when}（冒頭だけ）`), body(th.mine.quote, "c-body clamp"))) : null;
   const theirEl = th.quote ? el("div", { class: "comment" }, avatar(th.who || "?"),
     el("div", {}, el("div", { class: "c-head" }, el("b", {}, th.who), ` · ${th.when}`), body(th.quote))) : null;
-  box.append(...(th.my_turn ? [mineEl, theirEl] : [theirEl, mineEl]).filter(Boolean));
+  box.append(...(th.my_turn || th.side_last ? [mineEl, theirEl] : [theirEl, mineEl]).filter(Boolean));
   const f = th.changed && sinceView ? sinceView.files.find(x => x.path === th.path) : null;
   if (f) box.append(el("div", { class: "after" },
     el("div", { class: "after-head" }, icon("dot"), el("span", {}, "このあと ", el("b", {}, rich(sinceView.label)), " でこの file が変わった"),

@@ -1433,6 +1433,15 @@ class TurnThreads(unittest.TestCase):
             ["これはどうなりますか"],
         )
 
+    def test_a_reviewer_reply_in_the_authors_own_note_is_the_authors_turn(self):
+        # 作者の自注に bob が問いを返した: 作者が答えるターンで、bob は返事待ち（/catchup と同じ判定）
+        p = pr(reviewThreads=conn(thread(comment(user("alice"), T1, "メモ"), comment(user("bob"), T2, "Y ではだめ？"))))
+        self.assertEqual([c["body"] for _, c in flow.turn_threads(p, "alice")], ["Y ではだめ？"])
+        self.assertEqual(flow.turn_threads(p, "bob"), [])
+        # 側の外の人が返していない自注は、これまでどおり誰のターンにもしない
+        quiet = pr(reviewThreads=conn(thread(comment(user("alice"), T1, "メモ"), comment(user("alice"), T2, "追記"))))
+        self.assertEqual(flow.turn_threads(quiet, "alice"), [])
+
     def test_bot_only_thread_belongs_to_nobody(self):
         p = pr(reviewThreads=conn(thread(comment(bot(), T1, "[block] fail-open です"))))
         self.assertEqual(flow.turn_threads(p, "alice"), [])
@@ -1675,6 +1684,13 @@ class Mentions(unittest.TestCase):
         self.assertEqual(flow.mentions("~~~\n@pytest.fixture\n~~~\n@real"), {"real"})
         self.assertEqual(flow.mentions("```\n~~~\n@fence\n```\n@real"), {"real"})
         self.assertEqual(flow.repo_refs("~~~\n#123\n~~~\n#7", "o/r"), {7})
+
+    def test_fences_follow_gfm(self):
+        # 行の頭の ```npm test``` は行内のコードで囲みではない。リストの中の字下げした囲みと、閉じの無い囲みは消す
+        self.assertEqual(flow.mentions("```npm test``` は失敗\n@bob 見て\n```\nlog\n```"), {"bob"})
+        self.assertEqual(flow.mentions("1. a\n   - b:\n     ```python\n     @pytest.fixture\n     ```\n@ann"), {"ann"})
+        self.assertEqual(flow.mentions("log:\n```\n@dave\n"), set())
+        self.assertEqual(flow.mentions("ありがとう~~~ @gina ~~~"), {"gina"})
 
     def test_unanswered_until_mentioned_person_comments(self):
         posts = flow.posts_of_issue(issue(comments=[(user("alice"), T1, "@bob 見て")]))
@@ -2600,6 +2616,14 @@ class Json(unittest.TestCase):
                              comment(user("alice"), T2, "@Bob 設計書のレビューをお願いします")))
         out = json.loads(report(p, who="bob", args=("--json",)))
         self.assertEqual([(w["number"], w["who"]) for w in out["waits"]], [(5, "bob")])
+
+    def test_a_mention_after_going_back_to_draft_keeps_the_reply_to_own_flag(self):
+        # bob の指摘 → draft へ戻す → alice が @bob と返す。直前は bob の発言なので reply_to_own は真のまま
+        back = event("ConvertToDraftEvent", T1)
+        p = pr(number=5, isDraft=True, timelineItems=conn(back),
+               comments=conn(comment(user("bob"), T0, "ここを直して"),
+                             comment(user("alice"), T2, "@bob 直しました。もう一度見て")))
+        self.assertTrue(flow.pr_unanswered(p)["bob"]["reply_to_own"])
 
     def test_json_a_mention_of_the_silent_author_uses_the_authors_spelling(self):
         # 作者 carol は発言していない。@Carol は作者への呼びかけで、別の人（レビュアー）にしない

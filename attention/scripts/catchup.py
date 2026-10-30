@@ -1024,7 +1024,7 @@ def find_ask(ev, node, me, cutoff, own):
     見ない——本文なしの承認や、push で直して閉じたスレッドが「求められていること」に化ける。"""
     later = [e for e in ev if cutoff is None or e["t"] > cutoff]
     hits = [e for e in later if (
-        (e["cat"] == SPOKEN and mentioned(e["text"], me))
+        (e["cat"] == SPOKEN and mentioned(e["text"], me) and not e["resolved"])
         or (e["key"] == "review_request" and e["to"] == me))]
     if hits:
         # 本文を持つ発言を、レビュー依頼ボタンより優先する。ボタンは中身が無く、押された順序も
@@ -1037,15 +1037,17 @@ def find_ask(ev, node, me, cutoff, own):
             chosen = dict(chosen, followup=buttons[-1])
         return chosen
 
-    # 名指しが無くても、私が入っている未解決スレッドに相手が返していれば、それが依頼にあたる。新しい返事のものを取る
-    waiting = threads_awaiting(node, me)
+    # 名指しが無くても、私が返すターンの未解決スレッドに cutoff より後に相手が返していれば、それが依頼にあたる。
+    # 新しい返事のものを取る。私がまだ入っていないスレッド（自分の件の新しい指摘）は名指しが無いと断る
+    waiting = [th for th in threads_awaiting(node, me) if cutoff is None or ts(th["last"]["createdAt"]) > cutoff]
     if waiting:
         th = max(waiting, key=lambda th: ts(th["last"]["createdAt"]))
         c = th["last"]
-        return {"t": ts(c["createdAt"]), "who": login_of(c["author"]),
-                "kind": f"スレッド {thread_where(th)}（未解決）", "text": c["body"],
-                "bot": is_bot(c["author"]), "cat": SPOKEN,
-                "key": "thread", "to": None, "resolved": False}
+        ask = {"t": ts(c["createdAt"]), "who": login_of(c["author"]),
+               "kind": f"スレッド {thread_where(th)}（未解決）", "text": c["body"],
+               "bot": is_bot(c["author"]), "cat": SPOKEN,
+               "key": "thread", "to": None, "resolved": False}
+        return ask if th["mine_last"] else dict(ask, unaddressed=True)
 
     if own:
         others = [e for e in later if e["cat"] == SPOKEN and e["who"] != me and not e["bot"]
@@ -1716,7 +1718,9 @@ def unresolved_threads(node, me):
         # 削除された行への指摘（diffSide が LEFT）は、line が base の版の行番号。head の行として読むと別の行になる
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
                     "left": th.get("diffSide") == "LEFT",
-                    "last": theirs[-1], "my_turn": last not in ours and bool(mine or own),
+                    # 私が入っていないスレッドが私のターンになるのは、私が持ち主（turn.owners）のときだけ。作者でも担当に
+                    # 渡した後は担当のターンで（/whose-turn の thread_turns と同じ）、持ち主でない共同の担当も同じ
+                    "last": theirs[-1], "my_turn": last not in ours and bool(mine or (own and me in turn.owners(node))),
                     # 人の最後の発言が私の側（私以外の持ち主）か。端末の「相手のターン」の言い方を分ける
                     "side_last": last if last != me and last in ours else None,
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が
@@ -1903,7 +1907,8 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
             w("    " + ln)
         if len(body) > THREAD_BODY_CAP:
             w(f"    （発言はあと {len(body) - THREAD_BODY_CAP} 行。gh api で見る）")
-        since_turn = th["my_turn"] and bool(th["mine_t"])
+        # 削除された側の行への指摘は head に行が無い。行の無い指摘と同じく file まるごとを枠にしない
+        since_turn = th["my_turn"] and bool(th["mine_t"]) and not th["left"]
         lines = read_lines(th["path"]) if th["line"] or since_turn else None
         lo = hi = whole = None
         if th["line"] and not th["left"] and lines is not None and th["line"] <= len(lines):
@@ -1982,7 +1987,9 @@ def render_ci(node, owner, name, run_log=None, full=False, failures=None):
     w = out.append
     w("## CI が落ちた理由（材料。赤いチェックごとに、失敗した step のログの末尾）")
     if not fails:
-        w("  赤いチェックは無い")
+        unseen = ci_unseen(node)
+        # 取得の上限を超えた PR は、見ていない残りに赤が在りうる（ci_summary と同じ断り）
+        w(f"  取った分に赤いチェックは無い（残り {unseen} 件は見ていない）" if unseen else "  赤いチェックは無い")
         return "\n".join(out)
     for f in fails:
         w(f"  === {f['name']}  {f['url'] or '（URL なし）'} （言語名 plaintext）")
@@ -2648,7 +2655,7 @@ def page_threads(node, me, url, by_path, read_lines, since_paths, full):
             ex = catchup_html.context_excerpt(th["path"], read_lines(th["path"]), th["line"])
         mine = th.get("mine_last")
         out.append({
-            "path": th["path"], "line": th["line"], "left": bool(th["left"]), "my_turn": th["my_turn"], "outdated": bool(th["outdated"]),
+            "path": th["path"], "line": th["line"], "left": bool(th["left"]), "my_turn": th["my_turn"], "side_last": th["side_last"], "outdated": bool(th["outdated"]),
             "who": login_of(c["author"]), "when": hhmm(ts(c["createdAt"])),
             "quote": "\n".join(their_lines(c["body"])).strip(),
             "mine": {"when": hhmm(ts(mine["createdAt"])), "quote": excerpt(mine["body"], 300)} if mine else None,
@@ -2835,7 +2842,7 @@ def page_local(cwd=None, pre_lines=()):
     head = local_head("local", branch or "（detached）", f"今のブランチ {branch or '（detached）'}")
     page = page_base("local", f"{slug}/branch-{catchup_html._safe(branch or 'detached')}", repo, head)
     views = []
-    text = plain_diff("HEAD", cwd)
+    text = plain_diff(changemap.diff_base("HEAD", cwd), cwd)  # commit がまだ無ければ空の木と比べる（端末と同じ）
     if text:
         views.append(catchup_html.view("local", f"未コミット（{len(catchup_html.parse_diff(text))} files）", text,
                                        note="追跡している file だけ。未追跡の新規 file は手元のセクションの木に出る。"))

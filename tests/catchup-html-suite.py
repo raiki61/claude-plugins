@@ -736,6 +736,14 @@ class PageItemTest(unittest.TestCase):
         self.assertIn('th.left ? ".line-num1" : ".line-num2"', body)
         self.assertIn("（削除された側。base の版の行）", body)  # 端末の thread_where と同じ言葉
 
+    def test_thread_where_a_teammate_replied_last_keeps_my_comment_first(self):
+        # 持ち主の側の人（担当）が最後に返したスレッドは私のターンでないが、私が最後に発言したのでもない。
+        # 発言を「相手が先・私が後」に並べると、担当の返事が私より前に見えた。端末と同じ言い方も出す
+        tpl = (ROOT / "attention" / "templates" / "catchup.html").read_text(encoding="utf-8")
+        body = tpl.split("\nfunction thread(", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("th.my_turn || th.side_last ? [mineEl, theirEl]", body)
+        self.assertIn("持ち主の側の ${th.side_last} が最後に返している", body)
+
     def test_own_pr_reviewed_after_request_hides_candidates(self):
         # GitHub はレビューを送った人を依頼の一覧から外す（#1901）。依頼の記録とレビューがあれば候補の札は出さない
         rev = conn([{"author": user("rev")}])
