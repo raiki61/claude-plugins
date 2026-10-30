@@ -179,6 +179,10 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "cd ../.. && rg needle"})[0])
         self.assertIsNone(run("Bash", {"command": "cd .. && find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd ~ || exit 1; find ."})[0])
+        # && の後の cd は、; の後ろのコマンドが走るときに走ったとは限らない。行き先の読めない cd も、走るとは限らなければ前の場所を見る
+        self.assertIsNotNone(run("Bash", {"command": "test -d sub && cd sub; find . -name x"}, cwd=HOME)[0])
+        self.assertIsNone(run("Bash", {"command": "test -d sub && cd sub && find . -name x"}, cwd=HOME)[0])
+        self.assertIsNotNone(run("Bash", {"command": 'cd /; if [ -n "$X" ]; then cd "$X"; fi; find . -name x'})[0])
         # 前の繰り返しが cd・代入を持たなければ、後ろの cd はそのまま走る(前は語が在るだけで解くのをやめていた)
         self.assertIsNotNone(run("Bash", {"command": "for f in *.md; do echo $f; done; cd / && find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd /; while read f; do :; done < list; find . -name x"})[0])
@@ -225,6 +229,8 @@ class Bash(unittest.TestCase):
         # stdin に渡すスクリプト・bash -c と eval の中の外の変数・名前付きのホーム
         for command in ("bash <<'EOF'\nfind / -name x\nEOF", "sh -s <<EOF\nfind / -name x\nEOF",
                         'D=/; bash -c "find $D -name x"', 'D=/; eval "find $D -name x"', "D=/; eval 'find $D -name x'",
+                        "export D=/; bash -c 'find $D -name x'", "D=/ bash -c 'find $D -name x'",
+                        "D=/ bash <<'EOF'\nfind $D -name x\nEOF",
                         "find ~tester -name x"):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command})[0])
@@ -237,6 +243,8 @@ class Bash(unittest.TestCase):
         for command in ("cd / && for f in `find . -name '*.json'`; do :; done", "cd / && a=`find . -name x`"):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # 語に割れないバッククォートは、` を持つコマンドの場所で見て、後ろの cd の行き先では見ない
+        self.assertIsNone(run("Bash", {"command": "cd /tmp && n=`find . -name '*.py' | wc -l` && cd ~ && echo $n"})[0])
 
     def test_recursive_grep_after_a_pipe_searches_cwd(self):
         # grep -r は起点が無ければ、前がパイプでも cwd を探す(stdin を読まない)。rg は stdin を読む

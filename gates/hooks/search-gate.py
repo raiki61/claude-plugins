@@ -357,11 +357,13 @@ def check_command(cr, command, cwd, depth=0, outer=None):
     cmds = cr.split_commands(tokens)
     files = Scope(cmds, cwd, bodies, text, tokens)
     files.outer = outer
-    seen, places = set(), {cwd}
+    seen, places, ticks = set(), {cwd}, set()
     for k, c in enumerate(cmds):
         at = cr.command_start(c.args)
         heres = files.at(k, c.args[:at]).cwds_here()
         places.update(heres)
+        if any("`" in a for a in c.args):
+            ticks.update(heres)
         inners = {x for a in c.args for x in substitutions(a)}
         seen |= inners
         for here in heres:
@@ -370,14 +372,15 @@ def check_command(cr, command, cwd, depth=0, outer=None):
             for inner in inners:
                 check_command(cr, inner, here, depth + 1, files.at(k, c.args[:at]))
             check_simple(cr, files.at(k, c.args[:at]), cmds, k, c.args[at:], bodies, here, depth)
-    # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、このコマンドの中で走りうる場所
-    # (フックの cwd と、各コマンドの cwd)のどれでも見る。前はフックの cwd だけで見て、`cd / && a=`find . …`` を通していた。
+    # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、` を語に持つコマンドの走りうる
+    # 場所のどれでも見る(` の語が無ければ、フックの cwd と各コマンドの cwd)。前はフックの cwd だけで見て、
+    # `cd / && a=`find . …`` を通していた。後ろの cd の行き先では見ない(`cd ~/p && n=`find .` && cd ~` を止めない)。
     # 引用の外の $( … ) はトークン化が単純コマンドに割って上で見た
     if cmds:
         files.at(len(cmds) - 1, ())   # 変数は、このコマンドの中のどの代入からでも解く
     for inner in substitutions(text, bare=False):
         if inner not in seen:
-            for place in places:
+            for place in ticks or places:
                 check_command(cr, inner, place, depth + 1, files if cmds else outer)
 
 
@@ -464,21 +467,13 @@ def check_simple(cr, files, cmds, k, words, bodies, here, depth):
     if name in SHELLS:
         script = shell_script(words[1:])
         if script is not None:
-            check_command(cr, script, here, depth + 1, files)
+            check_command(cr, script, here, depth + 1, before_scope(cr, cmds, k, files, bodies, script))
         elif shell_stdin(words[1:]):
             for script in stdin_scripts(cr, cmds, k, c, bodies):
-                check_command(cr, script, here, depth + 1, files)
+                check_command(cr, script, here, depth + 1, before_scope(cr, cmds, k, files, bodies, script))
         return
     if name == "eval":
-        # coldread の Scope は eval が在ると全部の変数を解かない(eval が入れ直しうる)。eval の引数は eval より前の代入で
-        # 展開されるので、eval をただのコマンドに替えた列で解く(前は `D=/; eval "find $D -name x"` を通していた)。
-        # 引数の中の $ は、引用(`eval 'find $D'`)や `\$` の後でも eval が展開するので、字のままと見ない
-        stub = copy.copy(c)
-        stub.args = [":"]
-        live = "; ".join(" ".join(cc.args) for cc in cmds[:k] + [stub]) + "; " + " ".join(words[1:])
-        before = Scope(cmds[:k] + [stub], files.cwd, bodies, live).at(k, [])
-        before.outer = files.outer
-        check_command(cr, " ".join(words[1:]), here, depth + 1, before)
+        check_command(cr, " ".join(words[1:]), here, depth + 1, before_scope(cr, cmds, k, files, bodies, " ".join(words[1:])))
         return
     args = words[1:]
     if name in FIND:
@@ -490,6 +485,25 @@ def check_simple(cr, files, cmds, k, words, bodies, here, depth):
         if "$" in start:
             start = files.var(start)
         check_path(name, start, here)
+
+
+def before_scope(cr, cmds, k, files, bodies, inner):
+    """k 番目の eval・bash -c・殻の標準入力の中身 inner の変数を解く Scope。coldread の Scope は eval が在ると全部の変数を
+    解かず、inner の中の引用(`bash -c 'find $D'`)や `\\$` の後の $ を字のままと見るが、eval と中の殻はそれも展開する。
+    そこで k 番目をただの代入(前置の代入 `D=/ bash -c …` は中の殻の環境に入る)か : に替えた列で、inner の $ を生きた物として
+    解く(前は `D=/; eval 'find $D'`・`export D=/; bash -c 'find $D'`・`D=/ bash -c 'find $D'` を通していた)。
+    export しない代入も中の殻に渡ると見る(止める側に倒す)。"""
+    c = cmds[k]
+    stubs = []
+    for args in (c.args[:cr.command_start(c.args)], [":"]):
+        if args:
+            stubs.append(copy.copy(c))
+            stubs[-1].args = args
+    line = cmds[:k] + stubs
+    live = "; ".join(" ".join(cc.args) for cc in line) + "; " + inner
+    before = Scope(line, files.cwd, bodies, live).at(len(line) - 1, [])
+    before.outer = files.outer
+    return before
 
 
 def after_hop(words):
@@ -695,11 +709,17 @@ def load_coldread():
             return self.lay[k][1] >= d
 
         def _surely(self, j, k):
-            """届く cd(j 番目)が、k 番目が走るときには必ず走ったか。前の区切りが ; 改行 && だけで、k までに || が無い
+            """届く cd(j 番目)が、k 番目が走るときには必ず走ったか。前の区切りが ; 改行 && だけ(&& なら k までも && だけ)で、k までに || が無い
             (`cd x || exit 1` の || は除く)うえ、cd を囲むブロックがどれも k も囲むか、k が後ろに在る if・繰り返しの条件の中のとき。"""
             path, d, ops, _ = self.lay[j]
             if any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()"):
                 return False
+            if any(op == "&&" for op, _ in ops):
+                # `test -d sub && cd sub; find .` の cd は前が落ちると走らず、; の後ろの find はそれでも走る。&& の後の cd は、
+                # k までが && だけで繋がる(同じ深さ以浅に ; 改行 & が無い)ときだけ必ず走った
+                for m in range(j + 1, k + 1):
+                    if any(op in (";", "\n", "&") and dep <= d for op, dep in self.lay[m][2]):
+                        return False
             for m in range(j + 1, k + 1):
                 for op, dep in self.lay[m][2]:
                     if op == "||" and dep <= d and not (m == j + 1 and self.lay[m][3] in ("exit", "return")):
@@ -713,7 +733,8 @@ def load_coldread():
         def cwds_here(self, k=None):
             """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、
             走るとは限らない cd(if・繰り返し・|| の中)は行き先と前の場所の両方、効果が届かない cd(サブシェル・パイプ)は
-            前の場所のまま。行き先の読めない cd(`cd -`・`cd $X`)の後は決まらない(今までどおり)。相対の行き先は、そこまでに
+            前の場所のまま。行き先の読めない cd(`cd -`・`cd $X`)の行き先は決まらない(走るとは限らない cd なら前の場所も見る。
+            前は `cd /; if [ -n "$X" ]; then cd "$X"; fi; find .` を通していた)。相対の行き先は、そこまでに
             決まった場所に繋ぐ(`cd .. && find .`)。"""
             k = self.k if k is None else k
             if self.moved:
@@ -731,7 +752,7 @@ def load_coldread():
                     dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
                     dest = cr.native_path(dest) if dest else None
                     if not (dest and os.path.isabs(dest)):
-                        new.append(None)
+                        new += [None] if surely else [None, place]
                     else:
                         new += [dest] if surely else [dest, place]
                 places = list(dict.fromkeys(new))
@@ -756,7 +777,6 @@ def load_coldread():
             dest = self.var(rest[0])
             if dest is None:
                 return None
-            dest = expand_home(dest)
             if os.path.isabs(dest):
                 return dest
             if dest.startswith("~") or not base or not os.path.isabs(base):
