@@ -103,6 +103,12 @@ class SleepLoops(unittest.TestCase):
         "for ((;;)); do grep -q X f && break; sleep 3; done",
         "for (( ; ; )); do sleep 1; done",
         "bash -o pipefail -c 'until test -f x; do sleep 1; done'",
+        # パスで呼ぶシェル・長いオプションのシェルの中も見る
+        "/bin/bash -c 'while [ ! -f x ]; do sleep 5; done'",
+        "bash --norc -c 'while [ ! -f x ]; do sleep 5; done'",
+        "/bin/bash <<'EOF'\nwhile true; do sleep 5; done\nEOF",
+        # コメントの中の引用符で、後の行のループを引用符の中と取り違えない
+        "# don't spin\nwhile [ ! -f done ]; do sleep 5; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -113,6 +119,9 @@ class SleepLoops(unittest.TestCase):
         "while read u; do curl $u; sleep 1; done < urls",
         "while IFS= read -r u; do sleep 1; done < urls",
         "for ((i = 0; i < 3; i++)); do sleep 1; done",
+        # コメントの中のループは走らない。$# と ${#x} はコメントでない
+        "# while true; do sleep 5; done\necho ok",
+        'echo $# ${#x}; for i in 1 2; do sleep 1; done',
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):

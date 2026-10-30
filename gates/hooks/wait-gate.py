@@ -17,7 +17,7 @@
 
 写した元: my_notes の master 2d951aab の tools/no_wait_loop.py(判定)と tools/no_preread.py の executed_text
 (引用符とヒアドキュメントを外す)。変えたのは、落ちたら止める・止めた記録を書く・`while read` を外す・`for ((;;))` を待ちと見る・`bash -o pipefail -c`
-の中も見る、の 5 つ。
+の中も見る・コメントを外す・パスで呼ぶシェルと長いオプションのシェル(`/bin/bash -c`・`bash --norc -c`)の中も見る、の 7 つ。
 """
 
 import json
@@ -49,11 +49,13 @@ SLEEP = re.compile(r"\bsleep\b")
 LOOP_WORD_RE = re.compile(r"\b(?:while|until|for)\b")
 
 # 後に続く引用符の中身をシェルとして走らせるもの(`bash -c '…'`、`eval "…"`)
-# 値を取る -o・-O(`bash -o pipefail -c`・`bash -euo pipefail -c`)の値も飛ばす(写した元から足した)
-_SHELL_OPTS = r"(?:(?:-\w*[oO]\s+[\w-]+|-\w+)\s+)*"
-SHELL_ARGUMENT = re.compile(r"(?:^|[\s;&|(`])(?:(?:ba|z|da)?sh\s+" + _SHELL_OPTS + r"-\w*c\w*|eval)\s*$")
+# 値を取る -o・-O(`bash -o pipefail -c`・`bash -euo pipefail -c`)の値と、長いオプション(`bash --norc -c`)も飛ばす。
+# パスで呼ぶシェル(`/bin/bash -c`)も同じに見る(写した元から足した)
+_SHELL_OPTS = r"(?:(?:-\w*[oO]\s+[\w-]+|--[\w-]+|-\w+)\s+)*"
+_SHELL = r"(?:[^\s;&|(`'\"]*/)?(?:ba|z|da)?sh"
+SHELL_ARGUMENT = re.compile(r"(?:^|[\s;&|(`])(?:" + _SHELL + r"\s+" + _SHELL_OPTS + r"-\w*c\w*|eval)\s*$")
 # ヒアドキュメントを読むのがシェルか(`bash <<EOF`)
-SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])(?:ba|z|da)?sh(?:\s+" + _SHELL_OPTS + r")?\s*$")
+SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])" + _SHELL + r"(?:\s+" + _SHELL_OPTS + r")?\s*$")
 # `<<<`(here-string)は除く
 HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)\s*(['\"]?)([A-Za-z_]\w*)\2")
 
@@ -89,6 +91,10 @@ def executed_text(command):
         if char == "\\":
             out.append(" ")
             index += 2
+        elif char == "#" and (index == 0 or command[index - 1] in " \t\n;&|()"):
+            # 語の頭の # から行末まではコメントで走らない。中の引用符を数えると、後の行のループを引用符の中と取り違える
+            end = command.find("\n", index)
+            index = len(command) if end < 0 else end
         elif char in "'\"":
             end = quote_end(command, index)
             inner = command[index + 1:end]
