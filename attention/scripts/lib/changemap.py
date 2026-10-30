@@ -624,8 +624,16 @@ def pathspecs(names):
 
 def name_status(cwd=None, rev="HEAD"):
     """rev と比べて変わった file を [(状態, 改名・複写の元の path か None, path)]。-z なので path は引用形に
-    ならない。失敗なら None。"""
-    text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "--name-status", "-z", rev, "--", cwd=cwd)
+    ならない。失敗なら None。複写（C。diff.renames=copies）が出たら、組は改名だけを探す -M で取り直し、
+    -M で新規（A）になった file にだけ複写の元を添える（with_copy_sources）。"""
+    recs = _name_status(cwd, rev)
+    if recs is None or not any(status[:1] == "C" for status, _, _ in recs):
+        return recs
+    return with_copy_sources(_name_status(cwd, rev, "-M"), {path: old for _, old, path in recs if old})
+
+
+def _name_status(cwd, rev, *extra):
+    text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, *extra, "--name-status", "-z", rev, "--", cwd=cwd)
     if text is None:
         return None
     parts = [p for p in text.split("\0") if p]
@@ -640,11 +648,23 @@ def name_status(cwd=None, rev="HEAD"):
     return out
 
 
+def with_copy_sources(recs, sources):
+    """改名だけを探した組（-M）の新規（A）に、複写を探した組（copies）の元を添えて「C」にする。中身と行数は
+    no_copies（-M）で取るので、組も -M に揃えないと、1 つの元から複写と改名の両方が出た commit（file の
+    分割）で、木は c を「旧: a」の改名、行数と枠は -M が選んだ b を改名にして食い違う（実測）。
+    recs は (状態, 元, path) の列。sources は copies の組の path → 元。失敗なら None のまま。"""
+    if recs is None:
+        return None
+    return [("C" + status[1:], sources[path], path) if status[:1] == "A" and path in sources else (status, old, path)
+            for status, old, path in recs]
+
+
 def changed_pairs(cwd=None, rev="HEAD"):
     """rev と比べて変わった file を [(振り分けに使う path, git に渡す path の組)]。改名は新旧を 1 組で
     返す——新側だけを pathspec に渡すと git が対を作れず、中身の変更が消えて全行 + の「新規」diff に
     なる（実測）。複写（C。diff.renames=copies）は組にしない——元は残っているので、複写先は単独で渡す。
-    中身の diff は no_copies を足して取るので、複写先は新規の diff になる。失敗なら None。"""
+    組は name_status が -M に揃え、中身の diff も no_copies を足して取るので、複写先は新規の diff になる。
+    失敗なら None。"""
     recs = name_status(cwd=cwd, rev=rev)
     if recs is None:
         return None
@@ -663,7 +683,7 @@ def no_copies(cwd=None):
     """中身と行数を取る git diff に足す引数。diff.renames=copies だと git は複写先を元との差にし、そのままの
     複写は hunk も行数も無い（commit の木で「+0」、枠で「中身が diff に無い。…改名だけ」。元も変わった
     commit では、元を一緒に渡すので複写先だけ渡しても防げない。実測）。-M で改名だけを探す既定に戻す。
-    木の振り分け（name_status）は「複写元」を出すために設定のまま読む。設定が copies でなければ何も
+    木の振り分け（name_status・working_tree）も複写が出たら -M の組に取り直し、「複写元」だけ添える。設定が copies でなければ何も
     足さない（false のときに -M を足すと、name_status が削除と新規に分けた対を diff だけが改名に組む）。"""
     val = (git("config", "--get", "diff.renames", cwd=cwd) or "").strip().lower()
     return ("-M",) if val in ("copies", "copy") else ()
@@ -942,9 +962,14 @@ def status_mark(codes):
 
 def entries_from_porcelain(porcelain, numstat=None):
     """git status --porcelain -z の出力を木の entries にする。numstat は path → (追加, 削除)。"""
+    return entries_from_records(porcelain_records(porcelain), numstat)
+
+
+def entries_from_records(records, numstat=None):
+    """porcelain_records の列を木の entries にする。"""
     numstat = numstat or {}
     entries = []
-    for xy, path, old in porcelain_records(porcelain):
+    for xy, path, old in records:
         whole_dir = path.endswith("/")  # "?? newdir/"（-uall なし）。階層ごと新規
         path = path.rstrip("/")
         if not path:
@@ -976,9 +1001,18 @@ def working_tree(cwd=None):
     porcelain = git("status", "--porcelain", "-z", "--untracked-files=all", cwd=cwd)
     if porcelain is None:
         return None, None
-    entries = entries_from_porcelain(
-        porcelain, parse_numstat(git("diff", *DIFF_SANE, *no_copies(cwd), diff_base("HEAD", cwd), "--numstat", "-z",
-                                     cwd=cwd)))
+    records = porcelain_records(porcelain)
+    if any("C" in xy for xy, _, _ in records):
+        # 複写が出たら組を改名だけで取り直す（行数は -M で取るので。name_status の with_copy_sources と同じ）
+        renamed = git("-c", "status.renames=true", "status", "--porcelain", "-z", "--untracked-files=all", cwd=cwd)
+        if renamed is None:
+            return None, None
+        sources = {path: old for _, path, old in records if old}
+        records = [(xy.replace("A", "C", 1), path, sources[path]) if "A" in xy and path in sources else (xy, path, old)
+                   for xy, path, old in porcelain_records(renamed)]
+    entries = entries_from_records(
+        records, parse_numstat(git("diff", *DIFF_SANE, *no_copies(cwd), diff_base("HEAD", cwd), "--numstat", "-z",
+                                   cwd=cwd)))
     return _tree(entries, cwd)
 
 

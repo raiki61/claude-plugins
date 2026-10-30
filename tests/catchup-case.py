@@ -739,6 +739,38 @@ def _pass4_fixes():
     return verdict("PASS4_FIXES", want, str(want))
 
 
+@case("pass5-fixes")
+def _pass5_fixes():
+    """5 巡目のレビューの指摘。担当に渡した自分の PR で、担当が立てたスレッドは私（側の残り）のターン（/whose-turn と
+    同じ）。名指しの無い発言を見ていないのに「私の件への発言も無い」と言わない。日付のブランチ名の年を番号にしない。
+    他の人が rebase した私の commit を私の push に数えない。"""
+    asked = pr(author=user(ME), assignees=conn([user("bob")]),
+               reviewThreads=conn([thread("app/h.py", False, comment(T1, "bob", "作者に聞きたい。これは要る？"))]))
+    handed = pr(author=user(ME), assignees=conn([user("bob")]),
+                comments=conn([comment(T1, ME, "bob に渡します"), comment(T2, "rev", "rebase して")]))
+    ev, _, _ = catchup.collect_events(handed, ME, "")
+    _, ask, spoke, own = catchup.turn_reasons(handed, ME, ev, False)
+    rebased = commit(T3, "ccc", "私の直し", login=ME)
+    rebased["commit"]["committer"] = {"user": {"login": "bob"}}
+    ui = commit(T3, "ddd", "提案を取り込む", login=ME)
+    ui["commit"]["committer"] = {"user": {"login": "web-flow"}}
+    ev2, _, _ = catchup.collect_events(pr(author=user(ME), comments=conn([comment(T1, ME, "直しました"),
+                                                                          comment(T2, "rev", "まだ赤い")]),
+                                          allCommits=conn([rebased])), ME, "")
+    ev3, _, _ = catchup.collect_events(pr(author=user(ME), allCommits=conn([ui])), ME, "")
+    want = {
+        "assignee_thread_mine": [th["my_turn"] for th in catchup.unresolved_threads(asked, ME)] == [True]
+        and "私は入っていない" not in catchup.render_threads(asked, ME, lambda p: None),
+        "no_blanket_claim": ask is None and not any("私の件への発言も" in ln
+                                                    for ln in catchup.asked_lines(ME, ask, spoke, own, False)),
+        "date_branch": [catchup.branch_number(b) for b in ("release/2026-10-30", "hotfix/2026-10", "chore/1513-fold")]
+        == [None, None, 1513],
+        "rebase_not_my_push": catchup.find_anchor(ev2, None, ME)[0]["kind"] != "push",
+        "ui_commit_mine": catchup.find_anchor(ev3, None, ME)[0]["kind"] == "push",
+    }
+    return verdict("PASS5_FIXES", want, str(want))
+
+
 @case("threads-left")
 def _threads_left():
     """削除された行への指摘（diffSide が LEFT。line は base の版の行番号）は、head の同じ番号の行を出さない。端末は

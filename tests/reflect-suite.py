@@ -214,6 +214,25 @@ class Commits(unittest.TestCase):
             self.assertEqual(len(out), 1)
             self.assertEqual([c["subject"] for c in out[0]["commits"]], ["mine"])
 
+    def test_author_is_matched_as_the_exact_email(self):
+        # email は正規表現でなく <email> の固定の文字で当てる。grep.patternType が perl だと + が繰り返しになり
+        # noreply の email の commit が 0 件になった。囲みが無いと me+x@ が jimme+x@ の commit にも当たった
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp) / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q", "-b", "main")
+            git(repo, "config", "user.email", "1+me@users.noreply.github.com")
+            git(repo, "config", "user.name", "me")
+            git(repo, "config", "grep.patternType", "perl")
+            when = dt.datetime.combine(DAY, dt.time(12)).astimezone().isoformat()
+            stamp = {"GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+            git(repo, "commit", "-q", "--allow-empty", "-m", "mine", env=stamp)
+            git(repo, "commit", "-q", "--allow-empty", "-m", "theirs",
+                "--author", "j <j1+me@users.noreply.github.com>", env=stamp)
+            start, end = rf.bounds(DAY, DAY)
+            out = rf.commits([str(repo)], start, end)
+            self.assertEqual([c["subject"] for row in out for c in row["commits"]], ["mine"])
+
 
 class GitHub(unittest.TestCase):
     def test_events_are_filtered_to_the_period_per_login(self):
@@ -325,7 +344,7 @@ class Privacy(unittest.TestCase):
         # （同じ名前の公開リポジトリが github.com に在ると公開と答える）
         asked = []
         priv = rf.privacy([], [], ask=lambda label: asked.append(label) or label == "me/talked",
-                          local=[("me/talked", True), ("me/notes", False)])
+                          local=[("me/talked", True, []), ("me/notes", False, [])])
         self.assertEqual(asked, ["me/talked"])
         self.assertEqual(priv["repos"], ["me/notes", "me/talked"])
         with tempfile.TemporaryDirectory() as tmp:
@@ -348,7 +367,39 @@ class Privacy(unittest.TestCase):
             for top in (bg, docs):
                 subprocess.run(["git", "init", "-q", top], check=True)
             subprocess.run(["git", "-C", bg, "remote", "add", "origin", "git@gitlab.corp:corp/oms.git"], check=True)
-            self.assertEqual(rf.local_repos([docs], [{"cwd": bg}, {"cwd": None}]), [("corp/oms", False)])
+            human = [{"cwd": docs, "asks": ["PR 3 を見て"], "first_prompt": "PR 3 を見て"}]
+            background = [{"cwd": bg, "asks": [], "first_prompt": "issue 812 を直して"}, {"cwd": None}]
+            self.assertEqual(rf.local_repos(human, background), [("corp/oms", False, ["issue 812 を直して"])])
+
+    def test_numbers_said_in_private_repo_conversations_are_counted(self):
+        # 非公開のリポジトリの会話（人の頼み・裏の claude -p の頼みの頭）は AI に渡るので、中の番号も書かせない。
+        # 公開のリポジトリの会話の番号は書いてよい（前は commit と動きの記録の番号だけを集め、会話の番号が漏れた）
+        priv = rf.privacy([], [], ask=lambda label: label != "me/open",
+                          local=[("corp/oms", True, ["PR 812 を直して", "#813"]), ("me/open", True, ["#5"])])
+        self.assertEqual((priv["repos"], priv["numbers"]), (["corp/oms"], [812, 813]))
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            human = [{"cwd": tmp, "asks": ["PR 7 と 8"], "first_prompt": "PR 7 と 8"}]
+            with mock.patch.object(rf, "repo_label", return_value="corp/oms"), \
+                    mock.patch.object(rf, "on_github", return_value=False):
+                local = rf.local_repos(human, [{"cwd": tmp, "asks": [], "first_prompt": "#9"}])
+            self.assertEqual(rf.privacy([], [], ask=lambda label: True, local=local)["numbers"], [7, 8, 9])
+
+    def test_folder_names_and_local_path_origins_are_not_private_names(self):
+        # origin の無いリポジトリの commit は呼び名がフォルダの名前（docs）。名前は並べず、番号は集める。origin が手元の
+        # path のリポジトリも、path の末尾 2 つを owner/name と読まない
+        rows = [{"repo": "docs", "commits": [{"subject": "memo (#31)"}]}]
+        asked = []
+        priv = rf.privacy(rows, [], ask=lambda label: asked.append(label) or True)
+        self.assertEqual((asked, priv["repos"], priv["numbers"], rows[0]["private"]), ([], [], [31], True))
+        with tempfile.TemporaryDirectory() as tmp:
+            top = os.path.join(tmp, "work")
+            subprocess.run(["git", "init", "-q", top], check=True)
+            for url in ("/srv/git/corp/oms.git", "file:///srv/git/corp/oms.git", "../corp/oms.git"):
+                subprocess.run(["git", "-C", top, "remote", "remove", "origin"], capture_output=True)
+                subprocess.run(["git", "-C", top, "remote", "add", "origin", url], check=True)
+                with self.subTest(url=url):
+                    self.assertEqual((rf.repo_label(top), rf.on_github(top)), ("work", False))
 
     def test_private_events_past_the_page_cut_are_counted(self):
         # ページに出す動きは先頭の 200 件だが、非公開の名前と番号は全件から集める

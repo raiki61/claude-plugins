@@ -662,6 +662,33 @@ class RealGitConfig(unittest.TestCase):
         self.assertIn("=== sub/big2.txt", frames)
         self.assertIn("50", frames.split("=== sub/big2.txt")[1])    # 複写先の中身（元との差でなく新規）
 
+    def test_split_file_tree_agrees_with_counts_and_frames(self):
+        """diff.renames=copies で 1 つの元から複写と改名の両方が出る（file の分割）と、copies の組と -M の組で
+        改名に選ぶ先が違う。木は c を「旧: a」の改名、行数と枠は -M が選んだ b を改名にして食い違っていた
+        （4 巡目の直しの戻り。実測）。手元の add 済みも commit も、木を -M の組に揃える。"""
+        self.git("init", "-q")
+        self.git("config", "diff.renames", "copies")
+        body = "".join(f"v{i}=1\n" for i in range(1, 61)).encode()
+        self.write("a.py", body)
+        self.commit_all()
+        self.write("b.py", body + b"x=1\n")
+        self.git("mv", "a.py", "c.py")
+        self.write("c.py", body + b"y=2\nz=3\n")
+        self.git("add", "-A")
+        for tree in (cm.working_tree(self.top)[1], None):
+            if tree is None:
+                self.commit_all()
+                rev = cm.commit_range(cm.commit_oid("HEAD", self.top), self.top)
+                tree = cm.commit_tree(rev, self.top)[1]
+            text = "\n".join(tree)
+            self.assertRegex(text, r"(?m)^~\s+b\.py\s+\+1  旧: a\.py$")
+            self.assertRegex(text, r"(?m)^\+\s+c\.py\s+\+62  複写元: a\.py$")
+        frames = "\n".join(cm.frames_section(self.top, ["b.py", "c.py"], rev=rev, new_from_file=False))
+        b_frame, c_frame = frames.split("=== c.py")
+        self.assertIn("| v1=1", c_frame)                            # c は新規の中身
+        self.assertIn("x=1", b_frame)                               # b は a との差（x=1 の所だけ）
+        self.assertNotIn("| v1=1", b_frame)
+
 
 class Prose(unittest.TestCase):
     """散文・設定も枠で出す（file の種類で地図の中身を出し分けない）。文脈 3 行の diff から枠と飛び先。"""

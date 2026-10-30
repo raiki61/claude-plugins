@@ -331,6 +331,18 @@ class FieldsTest(unittest.TestCase):
         self.assertIn("function showPop(", page)
         self.assertNotIn("scrollIntoView", page.split("function showPop(")[1].split("\nfunction ")[0])
         self.assertNotIn("function openPoints(", page)
+        # もう一度押したかは押した所で比べる。題で比べると、同じ言葉の別の線（「呼ぶ」が 2 本）で開かずに閉じた
+        pop = page.split("function showPop(")[1].split("\nfunction ")[0]
+        self.assertIn("pop.anchor === anchorEl", pop)
+        self.assertNotIn("dataset.for === title", pop)
+
+    def test_file_boxes_pair_with_their_own_counts_by_order(self):
+        # 名前の後ろ一致で組むと、package.json が packages/web/package.json の箱を取り（±・GitHub の link・飛び先の
+        # id が別の file の物）、同じ階層の改名（src/{a.py → b.py}）はどれにも当たらなかった
+        page = ch.TEMPLATE.read_text(encoding="utf-8")
+        draw = page.split("const draw = v => {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("wrappers.length === v.files.length ? v.files[i]", draw)
+        self.assertNotIn("v.files.find(x => fileName(w).endsWith(x.path))", draw)
 
     def test_several_figures_of_different_kinds_are_numbered_in_errors(self):
         figs = [{"kind": "compare", "rows": [{"name": "待ち", "before": "30 秒", "after": "10 秒"}]},

@@ -137,7 +137,7 @@ query($owner:String!,$name:String!,$num:Int!){
           comments(first:60){nodes{createdAt body url author{__typename login} originalCommit{oid}}}}}
         allCommits: commits(last:100){totalCount nodes{commit{
           oid committedDate messageHeadline additions deletions parents{totalCount}
-          author{user{login} name email}}}}
+          author{user{login} name email} committer{user{login}}}}}
         head: commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){
           totalCount nodes{__typename
             ... on CheckRun{name conclusion status detailsUrl}
@@ -242,10 +242,16 @@ def pick_tails(is_pr, focus, has_threads, has_red):
     return True, has_threads, has_red
 
 
+# ブランチ名の日付（release/2026-10-30・hotfix/2026-10・backup-20261030）。年を issue の番号に読むと、関係の無い
+# #2026 の報告を出すか「#2026 が無い」で止まる
+DATE_IN_BRANCH = re.compile(r"(?<!\d)(?:19|20)\d{2}(?:[-_.](?:0[1-9]|1[0-2])(?:[-_.](?:0[1-9]|[12]\d|3[01]))?"
+                            r"|(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01]))(?!\d)")
+
+
 def branch_number(branch):
     """ブランチ名の中の issue / PR 番号。区切り（/ _ -）に挟まれた数字だけを取る——`python3.12` の
-    12 や `node-20.x` の 20 を番号にしない。1 桁も通す（issue-9）。無ければ None。"""
-    m = re.search(r"(?:^|[/_-])#?(\d+)(?=[/_-]|$)", branch or "")
+    12 や `node-20.x` の 20 を番号にしない。1 桁も通す（issue-9）。日付（DATE_IN_BRANCH）は番号にしない。無ければ None。"""
+    m = re.search(r"(?:^|[/_-])#?(\d+)(?=[/_-]|$)", DATE_IN_BRANCH.sub("/", branch or ""))
     return int(m.group(1)) if m else None
 
 
@@ -464,6 +470,12 @@ def collect_events(node, me, my_email=""):
             else:
                 who = name
                 unlinked.add(name)
+        # 私の commit を他の人が rebase して push すると、作者は私のまま committedDate だけ新しくなる。それを私の push
+        # に数えると「私が最後にしたこと」が rebase の時刻へ進み、その間の相手の発言が「その後」から消える。committer
+        # が私でない人なら、その人の push にする（web-flow は GitHub の画面で私が出した commit。提案の取り込みなど）
+        pusher = ((c.get("committer") or {}).get("user") or {}).get("login")
+        if who == me and pusher and pusher not in (me, "web-flow"):
+            who = pusher
         add(c["committedDate"], who, "push",
             f"{c['oid'][:9]} {c['messageHeadline']} (+{c['additions']}/-{c['deletions']})",
             PUSH, oid=c["oid"], key="push")
@@ -1017,7 +1029,7 @@ def find_ask(ev, node, me, cutoff, own):
     限ると、その依頼が丸ごと消えて「依頼は来ていない」と出る（実測: レビュー依頼の 27 分前に
     本文で 3 点を名指しで委ねられていた PR で発生）。
 
-    own（自分の PR / 担当の issue）では、名指しの無い発言も最後の 1 件だけ拾う。自分の件への
+    own（私が持っている自分の PR〔担当に渡していない〕/ 担当の issue）では、名指しの無い発言も最後の 1 件だけ拾う。自分の件への
     発言は宛先を書かないのが普通で（実測: 「main を取り込むと lint が赤になるので合わせて
     ほしい」が @ 無しで来ていた）、名指しだけを待つと丸ごと落ちる。unaddressed=True を付けて
     返し、表示側で「名指しは無い」と断る。拾うのは本文のある発言だけで、解決済みスレッドは
@@ -1052,8 +1064,8 @@ def find_ask(ev, node, me, cutoff, own):
         return ask if th["mine_last"] else dict(ask, unaddressed=True)
 
     # スレッドの発言は上の threads_awaiting が私のターンかを決め終えているので、ここでは見ない。担当に渡した自分の
-    # PR は担当のターンで（unresolved_threads・/whose-turn と同じ）、名指しの無い発言を私への依頼にしない
-    if own and (node["__typename"] != "PullRequest" or me in turn.owners(node)):
+    # PR は担当のターンで（unresolved_threads・/whose-turn と同じ）、own が偽で来る（turn_reasons）
+    if own:
         others = [e for e in later if e["cat"] == SPOKEN and e["key"] != "thread" and e["who"] != me
                   and not e["bot"] and not e["resolved"] and (e["text"] or "").strip()]
         if others:
@@ -1062,11 +1074,14 @@ def find_ask(ev, node, me, cutoff, own):
 
 
 def turn_reasons(node, me, ev, red):
-    """私の番の理由と、それを決めた材料。戻り値は (理由の列, 私宛の依頼か None, 私の最後の発言か None, 自分の件か)。
+    """私の番の理由と、それを決めた材料。戻り値は (理由の列, 私宛の依頼か None, 私の最後の発言か None,
+    名指しの無い発言も見たか〔自分の件を私が持っている〕)。
     端末の報告（render）と HTML の材料（page_item）が同じ式を通る。"""
     reasons = my_turn(node, me, red)
     spoke = last_spoken(ev, me)
-    own = owns(node, me)
+    # 名指しの無い発言も私への依頼に読むのは、自分の件を私が持っているときだけ。担当に渡した自分の PR は担当のターン
+    # で、名指しの無い発言を見ない。見ていないのに「私の件への発言も無い」と言わないよう、戻り値の 4 つ目もこれにする
+    own = owns(node, me) and (node["__typename"] != "PullRequest" or me in turn.owners(node))
     ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
     # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
     # 形式の信号が 1 つも立たないときの取りこぼしを、これで塞ぐ。他の理由があっても足す——
@@ -1719,12 +1734,16 @@ def unresolved_threads(node, me):
         # 仲間の返事を私の側に数えるのは、スレッドに持ち主の側の外の人（レビュアー）が居るときだけ。私と担当だけの
         # スレッドで担当が返せば、それは私への返事で私が返すターン
         ours = side if any(login_of(c["author"]) not in side for c in cs) else {me}
+        opener = login_of(cs[0]["author"])
         # 削除された行への指摘（diffSide が LEFT）は、line が base の版の行番号。head の行として読むと別の行になる
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
                     "left": th.get("diffSide") == "LEFT",
-                    # 私が入っていないスレッドが私のターンになるのは、私が持ち主（turn.owners）のときだけ。作者でも担当に
-                    # 渡した後は担当のターンで（/whose-turn の thread_turns と同じ）、持ち主でない共同の担当も同じ
-                    "last": theirs[-1], "my_turn": last not in ours and bool(mine or (own and me in turn.owners(node))),
+                    # 私が入っていないスレッドが私のターンになるのは、私が持ち主（turn.owners）のときと、持ち主の側の
+                    # 私以外の人（渡した担当など）が立てたとき（側の残りの私への問い）。作者でも担当に渡した後は、外の人が
+                    # 立てたスレッドは担当のターンで、持ち主でない共同の担当も同じ（どれも /whose-turn の thread_turns と同じ）
+                    "last": theirs[-1],
+                    "my_turn": last not in ours and bool(mine or (own and (me in turn.owners(node)
+                                                                           or opener in side - {me}))),
                     # 人の最後の発言が私の側（私以外の持ち主）か。端末の「相手のターン」の言い方を分ける
                     "side_last": last if last != me and last in ours else None,
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が

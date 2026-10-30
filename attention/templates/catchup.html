@@ -1218,7 +1218,8 @@ function closePop() { if (pop) { pop.remove(); pop = null; document.querySelecto
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
 document.addEventListener("click", e => { if (pop && !pop.contains(e.target) && !e.target.closest(".hit")) closePop(); });
 function showPop(anchorEl, title, pts, own, ownLabel) {
-  const again = pop && pop.dataset.for === title;
+  // 同じ所をもう一度押したら閉じるだけ。題で比べると、同じ言葉の別の線・箱（「呼ぶ」が 2 本など）で開かずに閉じる
+  const again = pop && pop.anchor === anchorEl;
   closePop();
   if (again) return;
   anchorEl.classList.add("pop-on");
@@ -1238,6 +1239,7 @@ function showPop(anchorEl, title, pts, own, ownLabel) {
     own.length ? el("button", { type: "button", class: "pk-cbtn pop-own", onclick: () => openCode(title, own) },
       `${ownLabel}（${[...new Set(own.map(c => c.path.split("/").pop()))].join("・")}）`) : null,
     items);
+  pop.anchor = anchorEl;
   document.body.append(pop);
   // 押した所の右に置き、入らなければ左、それも無理なら下。画面の外へははみ出さない
   const r = anchorEl.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, gap = 10;
@@ -1516,8 +1518,12 @@ if (views.length) {
     noteEl.replaceChildren(...[v.note || null, v.url ? [v.note ? " " : null, el("a", { href: v.url }, "GitHub で開く")] : null].flat().filter(Boolean));
     if (!v.text) return;
     drawDiff(holder, v.text);
-    holder.querySelectorAll(".d2h-file-wrapper").forEach(w => {
-      const f = v.files.find(x => fileName(w).endsWith(x.path)) || byPath.get(fileName(w));
+    // file の箱と v.files は同じ diff の同じ順（v.files は parse_diff）なので、数が合えば順で組む。名前の後ろ一致で
+    // 組むと、package.json が packages/web/package.json の箱を取り、同じ階層の改名（src/{a.py → b.py}）はどれにも当たらない
+    const wrappers = [...holder.querySelectorAll(".d2h-file-wrapper")];
+    const named = name => v.files.filter(x => name.endsWith(x.path)).sort((a, b) => b.path.length - a.path.length)[0];
+    wrappers.forEach((w, i) => {
+      const f = (wrappers.length === v.files.length ? v.files[i] : named(fileName(w))) || byPath.get(fileName(w));
       const head = w.querySelector(".d2h-file-header");
       if (f) w.id = "file-" + f.anchor;
       head.prepend(el("span", { class: "chev", "aria-hidden": "true" }, "▾"));

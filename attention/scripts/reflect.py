@@ -420,10 +420,22 @@ def gh_env(login):
     return {**os.environ, "GH_TOKEN": token} if token else None
 
 
+def origin_url(top):
+    return (run(["git", "-C", top, "remote", "get-url", "origin"]) or "").strip()
+
+
+def url_host(url):
+    """remote URL の host（小文字）。host の無い URL（手元の path・file://）は空。"""
+    m = (re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)", url)
+         or re.match(r"^(?:[^@/:]*@)?([^/:]+):(?!//)", url))
+    return m.group(1).lower() if m else ""
+
+
 def repo_label(top):
-    """リポジトリの呼び名。origin の "owner/name"（読み方は lib/changemap.py の repo_of）か、無ければフォルダの名前。"""
-    url = run(["git", "-C", top, "remote", "get-url", "origin"]) or ""
-    return changemap.repo_of(url) or os.path.basename(top)
+    """リポジトリの呼び名。origin の "owner/name"（読み方は lib/changemap.py の repo_of）か、無ければフォルダの名前。
+    origin が手元の path（host の無い URL）なら origin の無い物と同じに扱う——path の末尾 2 つは owner/name でない"""
+    url = origin_url(top)
+    return (changemap.repo_of(url) if url_host(url) else None) or os.path.basename(top)
 
 
 GITHUB_HOSTS = ("github.com", "ssh.github.com", "www.github.com")
@@ -434,10 +446,8 @@ def on_github(top):
     別の公開リポジトリを見て公開と答えてしまう。host は URL の host の部分で見る（path の中の github.com で当てない）。
     ssh の別名（github.com-仕事用 などの複数アカウントの書き方）は、名前の形と ssh -G の hostname で github.com に
     戻す——別名を github.com でないと読むと、自分の公開リポジトリの名前と番号を非公開として書かせない（実測）"""
-    url = (run(["git", "-C", top, "remote", "get-url", "origin"]) or "").strip()
-    m = (re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)", url)
-         or re.match(r"^(?:[^@/:]*@)?([^/:]+):(?!//)", url))
-    host = m.group(1).lower() if m else ""
+    url = origin_url(top)
+    host = url_host(url)
     if not host or host in GITHUB_HOSTS or host.startswith("github.com-"):
         return bool(host)
     if url.lower().startswith(("http://", "https://", "git://")) or host.startswith("-"):
@@ -448,24 +458,39 @@ def on_github(top):
     return real in GITHUB_HOSTS
 
 
-def local_repos(cwds, background=()):
-    """privacy の local: 会話の作業フォルダのリポジトリ [(呼び名, origin が github.com か)]。裏の claude -p だけが動いた
-    リポジトリも入れる——作業フォルダと頼みの頭が AI に渡る（background の行）。origin の無いリポジトリ（呼び名が
-    フォルダの名前）は入れない——docs・notes などの一般の語を書けなくなる。commit が在れば privacy が commit の側で見る"""
-    tops = repo_tops(sorted(set(cwds) | {s["cwd"] for s in background if s.get("cwd")})).values()
-    return [(label, on_github(top)) for top in tops for label in [repo_label(top)] if "/" in label]
+def local_repos(human, background=()):
+    """privacy の local: 会話の作業フォルダのリポジトリ [(呼び名, origin が github.com か, そこでの会話の文)]。会話の文は
+    人の頼みと裏の claude -p の最初の頼み——どちらも AI に渡るので、非公開のリポジトリなら中の番号も書かせない。裏の
+    claude -p だけが動いたリポジトリも入れる。origin の無いリポジトリ（呼び名がフォルダの名前）は入れない——docs・notes
+    などの一般の語を書けなくなる。commit が在れば privacy が commit の側で見る"""
+    sessions = sorted((s for s in [*human, *background] if s.get("cwd")), key=lambda s: s["cwd"])
+    tops, texts, seen = {}, {}, {}
+    for s in sessions:
+        if s["cwd"] not in seen:
+            seen[s["cwd"]] = git_root(s["cwd"])
+        if seen[s["cwd"]]:
+            common, top = seen[s["cwd"]]
+            tops.setdefault(common, top)
+            texts.setdefault(common, []).extend([*s.get("asks", []), s.get("first_prompt") or ""])
+    return [(label, on_github(top), texts[common]) for common, top in tops.items()
+            for label in [repo_label(top)] if "/" in label]
+
+
+def git_root(cwd):
+    """作業フォルダのリポジトリの (共通の .git, ルート)。リポジトリでなければ None。"""
+    if not cwd or not os.path.isdir(cwd):
+        return None
+    common = (run(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]) or "").strip()
+    top = (run(["git", "-C", cwd, "rev-parse", "--show-toplevel"]) or "").strip()
+    return (common, top) if common and top else None
 
 
 def repo_tops(cwds):
     """作業フォルダから引いたリポジトリ（worktree は同じリポジトリにまとめる）。{共通の .git: 最初に見たルート}。"""
     repos = {}
-    for cwd in cwds:
-        if not cwd or not os.path.isdir(cwd):
-            continue
-        common = (run(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]) or "").strip()
-        top = (run(["git", "-C", cwd, "rev-parse", "--show-toplevel"]) or "").strip()
-        if common and top and common not in repos:
-            repos[common] = top
+    for root in map(git_root, cwds):
+        if root:
+            repos.setdefault(*root)
     return repos
 
 
@@ -476,14 +501,16 @@ def commits(cwds, start, end):
     - --all でなくローカルブランチとリモート追跡ブランチだけ。git subrepo などが持つ別の ref（refs/subrepo/…）は、取り込んだ先の
       他のリポジトリの commit を同じ author で抱えている
     - --first-parent。取り込み（subrepo pull・main の取り込み）で第 2 親から入った他所の commit を外す
-    - 同じ origin の別の clone は 1 つのリポジトリにまとめ、同じ commit は 1 回だけ数える"""
+    - 同じ origin の別の clone は 1 つのリポジトリにまとめ、同じ commit は 1 回だけ数える
+    author は <email> の固定の文字で当てる——正規表現で読むと、grep.patternType の設定で + を含む noreply の email が
+    何にも当たらず、囲みが無いと bob@x が jimbob@x にも当たる"""
     by_label, seen = {}, set()
     for top in repo_tops(cwds).values():
         email = (run(["git", "-C", top, "config", "user.email"]) or "").strip()
         if not email:
             continue
         log = run(["git", "-C", top, "log", "--branches", "--remotes", "--first-parent", "--no-merges",
-                   f"--author={email}", f"--since={start.isoformat()}", f"--until={end.isoformat()}",
+                   "-F", f"--author=<{email}>", f"--since={start.isoformat()}", f"--until={end.isoformat()}",
                    "--format=%H%x1f%aI%x1f%s", f"-n{COMMITS_PER_REPO}"]) or ""
         label = repo_label(top)
         for line in log.splitlines():
@@ -763,19 +790,21 @@ def privacy(commit_rows, gh_rows, ask=repo_private, local=()):
     """非公開のリポジトリの名前と、そこで出てきた PR・issue の番号。AI の文に書かせない（render が見る）。
 
     公開・非公開は、GitHub の動きの記録の public の印を先に使い、無いリポジトリだけ問い合わせる。local は会話の
-    作業フォルダのリポジトリ [(呼び名, origin が github.com か)]——commit の無いリポジトリも、フォルダの名前と会話が
-    AI に渡る。github.com でない物は問い合わせずに非公開。動きの記録は、ページで切った後の 200 件でなく全件を見る。"""
+    作業フォルダのリポジトリ [(呼び名, origin が github.com か, そこでの会話の文)]——commit の無いリポジトリも、フォルダの
+    名前と会話が AI に渡る。github.com でない物は問い合わせずに非公開で、非公開のリポジトリの会話の文に出た番号も集める。
+    動きの記録は、ページで切った後の 200 件でなく全件を見る。origin の無いリポジトリ（呼び名に / が無い。commit の側から
+    来る）は名前を並べない——フォルダの名前は docs・notes などの一般の語で、書けなくなる。番号は集める。"""
     known = {}
     for g in gh_rows:
         for r in g.get("all_events") or g["events"]:
             if r.get("repo"):
                 known.setdefault(r["repo"], bool(r.get("private")))
-    for label, hub in local:
+    for label, hub, _texts in local:
         if label not in known:
             known[label] = ask(label) if hub else True
     for c in commit_rows:
         if c["repo"] not in known:
-            known[c["repo"]] = ask(c["repo"])
+            known[c["repo"]] = ask(c["repo"]) if "/" in c["repo"] else True
         c["private"] = known[c["repo"]]
     # 検索の API の項目は公開・非公開の印を持たないので、リポジトリごとに問い合わせる
     found = [it for g in gh_rows for it in ((g.get("search") or {}).get("items") or [])]
@@ -783,10 +812,11 @@ def privacy(commit_rows, gh_rows, ask=repo_private, local=()):
         if it.get("repo") and it["repo"] not in known:
             known[it["repo"]] = ask(it["repo"])
         it["private"] = known.get(it.get("repo"), True)
-    repos = sorted(k for k, v in known.items() if v)
+    repos = sorted(k for k, v in known.items() if v and "/" in k)
     numbers = {r["number"] for g in gh_rows for r in g.get("all_events") or g["events"] if r.get("private") and r.get("number")}
     numbers |= {it["number"] for it in found if it["private"] and it.get("number")}
     numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in ref_numbers(x["subject"])}
+    numbers |= {n for label, _hub, texts in local if known[label] for t in texts for n in ref_numbers(t)}
     return {"repos": repos, "numbers": sorted(numbers)}
 
 
@@ -858,7 +888,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     gh = github(start, end, gh_unseen) if with_github else []
     commit_rows = commits(cwds, start, end)
     private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True),
-                      local_repos(cwds, background))
+                      local_repos(human, background))
     for g in gh:
         g.pop("all_events", None)
     try:
