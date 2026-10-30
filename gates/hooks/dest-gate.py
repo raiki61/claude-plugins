@@ -34,10 +34,16 @@ DENY_LOG = os.path.join(CONFIG_DIR, "destgate", "denies.log")
 # Claude Code は止めずに通すので、引き切れないときはこのゲートが自分で止める(宛先不明)
 GH_BUDGET = 20
 _DEADLINE = None   # coldread-gate.py を読んだ時から GH_BUDGET 秒
-# 値に本文・題を取る旗(その値は宛先でない)
-TEXT_FLAGS = {"-b", "--body", "-t", "--title"}
-# 投稿先を指す issue・PR・discussion の URL(gh はこれを位置引数に受ける)
-ITEM_URL_RE = re.compile(r"https?://[^/\s]+/(?P<o>[^/\s]+)/(?P<r>[^/\s]+)/(?:issues|pull|discussions)/\d+")
+# どのサブコマンドでも値に本文・題を取ると見る旗(その値は宛先でない)。ほかの本文の旗は coldread の表(text_value)
+TEXT_FLAGS = {"-b", "--body", "-t", "--title", "--subject"}
+# 投稿先を指す issue・PR・discussion の URL(gh はこれを位置引数に受ける)。gh は綴りの大文字の scheme(HTTPS://)も受けるので
+# scheme だけは大小を問わない(パスの issues・pull は gh も小文字しか受けないので、大文字を宛先と読まない)
+ITEM_URL_RE = re.compile(r"(?i:https?)://[^/\s]+/(?P<o>[^/\s]+)/(?P<r>[^/\s]+)/(?:issues|pull|discussions)/\d+")
+# 位置引数に issue・PR の URL を受け、その repo へ投稿するサブコマンドの頭の語
+URL_SELECTOR_SUBS = {"issue", "pr", "discussion"}
+# gh が -R の無い投稿の宛先を決めるのに読む環境変数(GH_REPO。https://cli.github.com/manual/gh_help_environment)と、
+# gh が宛先を引く git の repo と remote を差し替える git の環境変数(GIT_DIR など。https://git-scm.com/docs/git#_environment_variables)
+DEST_ENV_RE = re.compile(r"GH_REPO|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_CONFIG\w*")
 
 
 def patterns():
@@ -96,42 +102,75 @@ def current_repo(cwd):
     return name
 
 
-def dest_of(args, sub, cwd, gh_repo_env=False):
-    """gh 引数列から投稿の宛先を決める。分からなければ None。
+def text_value(args, i, sub):
+    """args[i] が、本文・題を値に取る旗の値か(その値は宛先でない)。
 
-    cwd はその gh が走る場所(前の `cd <絶対パス> &&` を読んだもの。決まらなければ None)。gh_repo_env は、コマンドが
-    環境変数 GH_REPO を書いている(gh は -R の無いとき GH_REPO の repo へ投稿する。https://cli.github.com/manual/gh_help_environment)。"""
+    本文の旗の表は coldread と同じ物を引く(長い旗はどのサブコマンドでも本文。短縮形は本文を意味するサブコマンドでだけ)。
+    前は -b・--body・-t・--title しか見ず、`gh issue close 5 -c "https://…/pull/9 で直した"` の本文の頭の URL を宛先と読み、
+    走る場所の repo へ出す投稿を、URL の repo(許可一覧の repo)と取り違えて通していた。"""
+    if not i:
+        return False
+    prev = args[i - 1]
+    if prev in TEXT_FLAGS:
+        return True
+    if prev in cr.LONG_TEXT_FLAGS:
+        return (prev, sub) not in cr.LONG_FLAG_NOT_BODY
+    if prev in cr.SHORT_TEXT_FLAGS:
+        return sub in cr.SHORT_TEXT_FLAGS[prev][1]
+    # 新しく作る PR・issue は、値を取る旗の表(coldread の CREATE_VALUE_FLAGS)がある。-R の値は宛先なので除く
+    return sub in cr.NEW_ITEM_SUBS and prev in ({*cr.CREATE_VALUE_FLAGS, *cr.CREATE_VALUE_FLAGS.values()} - {"-R", "--repo"})
+
+
+def dest_of(args, sub, cwd, dest_env=False):
+    """gh 引数列から投稿の宛先になりうる repo の集まりを返す。分からなければ None。
+
+    呼び元は、集まりの全部が許可一覧に在るときだけ通す。cwd はその gh が走る場所(前の `cd <絶対パス> &&` を読んだもの。
+    決まらなければ None)。dest_env は、gh が -R の無い投稿の宛先を引く環境変数(GH_REPO・GIT_DIR など。DEST_ENV_RE)を、
+    コマンドが書いているか殻の環境に在る。"""
     # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)。旗の読み方は coldread と同じ 1 本(cr.flag_value)。
     # 何度も書けば gh は最後の値を使うので、全部を読み、食い違えば宛先不明にする(前は最初の値だけを見ていて、
     # `-R 許可した/repo -R 外/repo` を許可一覧の repo と取り違えて通していた)
-    values = {owner_repo(v) for i, tok in enumerate(args) if tok.startswith(("-R", "--repo"))
-              for v in [cr.flag_value(args[i:i + 2], "-R", "--repo")] if v is not None}
-    # 本文・題の値が -R で始まる(`--title -Ro/r`)なら、gh はそれを -R と読まない。どちらか決めずに宛先不明にする
-    if any(tok.startswith(("-R", "--repo")) and args[i - 1] in TEXT_FLAGS for i, tok in enumerate(args) if i):
+    repos = {owner_repo(v) for i, tok in enumerate(args) if tok.startswith(("-R", "--repo"))
+             for v in [cr.flag_value(args[i:i + 2], "-R", "--repo")] if v is not None}
+    # 本文・題の値が -R で始まる(`--title -Ro/r`・`-c -Ro/r`)なら、gh はそれを -R と読まない。どちらか決めずに宛先不明にする
+    if any(tok.startswith(("-R", "--repo")) and text_value(args, i, sub) for i, tok in enumerate(args)):
         return None
     # 投稿先の issue・PR を URL で書けば、gh は -R でも走る場所でもなく URL の repo へ投稿する
-    # (`gh pr comment https://github.com/o/r/pull/3`。前は走る場所の repo を宛先と取り違えて通していた)
-    values |= {f"{m['o']}/{m['r']}" for i, tok in enumerate(args) if not (i and args[i - 1] in TEXT_FLAGS)
-               for m in [ITEM_URL_RE.match(tok)] if m}
-    if values:
-        return values.pop() if len(values) == 1 else None
+    # (`gh pr comment https://github.com/o/r/pull/3`。前は走る場所の repo を宛先と取り違えて通していた)。本文・題の値の URL は宛先でない
+    urls = {f"{m['o']}/{m['r']}" for i, tok in enumerate(args) if not text_value(args, i, sub)
+            for m in [ITEM_URL_RE.match(tok)] if m}
+    explicit = repos | urls
+    if None in explicit or len(explicit) > 1:
+        return None
     if sub and sub[0] == "api":
         if len(sub) < 2:
             return None
         path = re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/")
         seg = [p for p in path.split("/") if p]
         if len(seg) >= 3 and seg[0] == "repos":
-            return f"{seg[1]}/{seg[2]}"
+            return {f"{seg[1]}/{seg[2]}"} | explicit
         if len(seg) >= 2 and seg[0] == "orgs":
-            return f"{seg[1]}/*"
+            return {f"{seg[1]}/*"} | explicit
         return None  # graphql・users/... 等は宛先を特定できない
     if sub and sub[0] == "gist":
-        return "gist"
-    # 明示が無ければ gh が GH_REPO か、走る場所のリポジトリから選んだ repo へ投稿する。GH_REPO の値と走る場所が
-    # 読み切れないときは宛先不明にする(フックの cwd で引くと、別のリポジトリへの投稿を許可一覧の repo と取り違える)
-    if gh_repo_env or not cwd:
+        return {"gist"} | explicit
+    if repos:
+        return explicit
+    # サブコマンドを読めない(`gh api --知らない旗 …`)なら、URL がどの位置かも決まらず、宛先は -R でしか決まらない。
+    # 走る場所の repo に倒さない(前は倒していて、`gh api --bogus repos/外/x/… -f body=…` を走る場所の repo と取り違えて通していた)
+    if sub is None:
         return None
-    return current_repo(cwd)
+    # URL が投稿先を選ぶ位置(サブコマンドの後の最初の位置引数)に在れば、それが宛先。旗の後ろの URL(`--approve <URL>`)は
+    # 旗の値か投稿先かを決めきれないので、URL の repo と、-R の無いときの宛先の両方を宛先になりうると見る
+    selector = cr.positional_after(args, sub)
+    if urls and sub and sub[0] in URL_SELECTOR_SUBS and selector and ITEM_URL_RE.match(selector):
+        return explicit
+    # 明示が無ければ gh が GH_REPO か、走る場所のリポジトリから選んだ repo へ投稿する。GH_REPO・GIT_DIR などの値と走る場所が
+    # 読み切れないときは宛先不明にする(フックの cwd で引くと、別のリポジトリへの投稿を許可一覧の repo と取り違える)
+    if dest_env or not cwd:
+        return None
+    here = current_repo(cwd)
+    return None if here is None else explicit | {here}
 
 
 def main():
@@ -163,22 +202,24 @@ def main():
         gate_shell.refuse(cr, "destgate", "deny 解析不能: " + snippet,
                           "外部投稿ゲート(destgate): 宛先の許可制が有効だが、このコマンドを解析できず、宛先を確かめられない。"
                           "引用符の閉じ忘れなどを直し、-R owner/repo で宛先を明示して再実行すること。")
-    # GH_REPO はコマンドのどこで書いても(前置・export)後の gh に効くので、値を追わず、書いてあれば -R の無い宛先を不明にする。
-    # Bash のコマンドは Claude Code の環境を継ぐので、この殻の環境に GH_REPO が在るときも同じに見る
-    gh_repo_env = "GH_REPO" in cr.prepare(command)[0] or bool(os.environ.get("GH_REPO"))
+    # GH_REPO・GIT_DIR などはコマンドのどこで書いても(前置・export)後の gh に効くので、値を追わず、書いてあれば -R の無い
+    # 宛先を不明にする。Bash のコマンドは Claude Code の環境を継ぐので、この殻の環境に在るときも同じに見る
+    # (前は GH_REPO だけを見ていて、`GIT_DIR=<別の repo>/.git gh …` を走る場所の repo と取り違えて通していた)
+    dest_env = bool(DEST_ENV_RE.search(cr.prepare(command)[0])
+                    or any(DEST_ENV_RE.fullmatch(k) and v for k, v in os.environ.items()))
     for sub, args, candidates, blocked, cwd in analysis.calls:
         if not candidates and not blocked:
             continue  # 投稿の形をしていない
         if sub and sub[0] == cr.DISPATCH_SUB:
             continue  # works-dispatch の納品・頼みは手元の会社の中で届き、GitHub の宛先を持たない(本文は coldread が読む)
-        dest = dest_of(args, sub, cwd, gh_repo_env)
-        if dest is None:
+        dests = dest_of(args, sub, cwd, dest_env)
+        if dests is None:
             gate_shell.refuse(cr, "destgate", "deny 宛先不明: " + snippet,
                               "外部投稿ゲート(destgate): 宛先の許可制が有効だが、この投稿の宛先を"
                               "コマンドから特定できない。-R owner/repo で宛先を明示して再実行すること。")
-        matched = any(fnmatch.fnmatchcase(dest.lower(), pat.lower())
-                      for pat in allow_patterns)
-        if not matched:
+        for dest in sorted(dests):
+            if any(fnmatch.fnmatchcase(dest.lower(), pat.lower()) for pat in allow_patterns):
+                continue
             gate_shell.refuse(cr, "destgate", f"deny {dest}: " + snippet,
                               f"外部投稿ゲート(destgate): この投稿の宛先 {dest} は許可一覧に無い。\n"
                               f"許可一覧は {ALLOWLIST}(owner/repo か owner/* を 1 行ずつ)。\n"

@@ -17,7 +17,8 @@
 
 写した元: my_notes の master 2d951aab の tools/no_wait_loop.py(判定)と tools/no_preread.py の executed_text
 (引用符とヒアドキュメントを外す)。変えたのは、落ちたら止める・止めた記録を書く・`while read` を外す・`for ((;;))` を待ちと見る・`bash -o pipefail -c`
-の中も見る・コメントを外す・パスで呼ぶシェルと長いオプションのシェル(`/bin/bash -c`・`bash --norc -c`)の中も見る・引用符とコメントの中の `<<WORD` をヒアドキュメントと読まない、の 8 つ。
+の中も見る・コメントを外す・パスで呼ぶシェルと長いオプションのシェル(`/bin/bash -c`・`bash --norc -c`)の中も見る・引用符とコメントの中の `<<WORD` をヒアドキュメントと読まない(ダブルクォートの中の `$( )` の中は読む)・
+終わりの語を `\\` で引用する形と `-` を持つ形(`<<\\EOF`・`<<'END-1'`)もヒアドキュメントと読む、の 9 つ。
 """
 
 import json
@@ -56,8 +57,8 @@ _SHELL = r"(?:[^\s;&|(`'\"]*/)?(?:ba|z|da)?sh"
 SHELL_ARGUMENT = re.compile(r"(?:^|[\s;&|(`])(?:" + _SHELL + r"\s+" + _SHELL_OPTS + r"-\w*c\w*|eval)\s*$")
 # ヒアドキュメントを読むのがシェルか(`bash <<EOF`)
 SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])" + _SHELL + r"(?:\s+" + _SHELL_OPTS + r")?\s*$")
-# `<<<`(here-string)は除く
-HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)\s*(['\"]?)([A-Za-z_]\w*)\2")
+# `<<<`(here-string)は除く。終わりの語は引用符で囲む形(`<<'END-1'`)と、`\` を前に付けて引用する形(`<<\EOF`)も読む
+HEREDOC = re.compile(r"(?<!<)<<(?!<)(?P<dash>-?)[ \t]*(?:'(?P<sq>[^'\n]+)'|\"(?P<dq>[^\"\n]+)\"|\\?(?P<word>[A-Za-z_][\w.-]*))")
 
 HOW_TO_WAIT = (
     "待つ対象のコマンドそのものを Bash の `run_in_background` で走らせ、ターンを終えて終わりの知らせを待つ"
@@ -183,51 +184,99 @@ def backtick_end(text, start):
 
 def drop_heredoc_bodies(command):
     """シェルでないコマンドに渡すヒアドキュメントの中身を除く。"""
-    lines = command.split("\n")
-    kept = []
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        kept.append(line)
-        index += 1
-        code = code_mask(line)
-        for match in HEREDOC.finditer(line):
-            if not code[match.start()]:
-                continue   # 引用符の中・コメントの中の `<<WORD` はヒアドキュメントを始めない(後の行を落とすとループが見えない)
-            body_end = heredoc_end(lines, index, match)
-            if SHELL_STDIN.search(line[:match.start()]):
-                kept.extend(lines[index:body_end])
-            index = body_end + 1
-    return "\n".join(kept)
+    found = []
+    scan_code(command, 0, None, found)
+    out = []
+    copied = 0
+    for start, body_start, body_end in sorted(found, key=lambda item: item[1]):
+        line_start = command.rfind("\n", 0, start) + 1
+        if body_start < copied or SHELL_STDIN.search(command[line_start:start]):
+            continue
+        out.append(command[copied:body_start])
+        copied = body_end
+    out.append(command[copied:])
+    return "".join(out)
 
 
-def code_mask(line):
-    """line の各位置が、引用符の外かつコメントの外なら True。"""
-    mask = [True] * (len(line) + 1)
-    index = 0
-    while index < len(line):
-        char = line[index]
+def scan_code(text, index, stop, found):
+    """text の index から、シェルが語として読む所を読み、閉じる位置(stop の `)` か `` ` ``。無ければ末尾)を返す。
+
+    ヒアドキュメントの演算子を見つけたら、(演算子の位置, 中身の頭, 終わりの語の行の後)を found に積む。引用符とコメントの
+    中の `<<WORD` はヒアドキュメントを始めない(後の行を中身と見て落とすとループが見えない)。ダブルクォートの中の `$(…)` と
+    `` `…` `` はシェルが走らせるので、中のヒアドキュメントも読む(`git commit -m "$(cat <<'EOF'` の中身の `'` で、後の行の
+    ループを引用符の中と取り違えない)。行ごとでなくコマンドの全体で読むので、複数の行にまたがる引用符も閉じる所まで読む。"""
+    pending = []
+    depth = 0
+    while index < len(text):
+        char = text[index]
         if char == "\\":
             index += 2
-        elif char in "'\"":
-            end = min(quote_end(line, index), len(line) - 1)
-            mask[index:end + 1] = [False] * (end + 1 - index)
-            index = end + 1
-        elif char == "#" and (index == 0 or line[index - 1] in " \t;&|()"):
-            mask[index:len(line)] = [False] * (len(line) - index)
-            break
+        elif char == "\n":
+            index += 1
+            for match in pending:
+                index = heredoc_end(text, index, match, found)
+            pending = []
+        elif char == "#" and (index == 0 or text[index - 1] in " \t\n;&|()"):
+            end = text.find("\n", index)
+            index = len(text) if end < 0 else end
+        elif char == "'":
+            end = text.find("'", index + 1)
+            index = len(text) if end < 0 else end + 1
+        elif char == '"':
+            index = scan_double_quote(text, index, found) + 1
+        elif text.startswith("$(", index):
+            index = scan_code(text, index + 2, ")", found) + 1
+        elif char == "`":
+            if stop == "`":
+                return index
+            index = scan_code(text, index + 1, "`", found) + 1
+        elif char == "(":
+            depth += 1
+            index += 1
+        elif char == ")":
+            if stop == ")" and depth == 0:
+                return index
+            depth = max(depth - 1, 0)
+            index += 1
+        else:
+            match = HEREDOC.match(text, index) if char == "<" else None
+            if match:
+                pending.append(match)
+                index = match.end()
+            else:
+                index += 1
+    return len(text)
+
+
+def scan_double_quote(text, start, found):
+    """start のダブルクォートを閉じる位置(閉じていなければ末尾)。中の `$(…)` と `` `…` `` は scan_code で読む。"""
+    index = start + 1
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+        elif text[index] == '"':
+            return index
+        elif text.startswith("$(", index):
+            index = scan_code(text, index + 2, ")", found) + 1
+        elif text[index] == "`":
+            index = scan_code(text, index + 1, "`", found) + 1
         else:
             index += 1
-    return mask
+    return len(text)
 
 
-def heredoc_end(lines, start, match):
-    word = match.group(3)
-    for index in range(start, len(lines)):
-        line = lines[index].lstrip("\t") if match.group(1) else lines[index]
-        if line == word:
-            return index
-    return len(lines)
+def heredoc_end(text, index, match, found):
+    """index の行から始まるヒアドキュメントの中身を found に積み、終わりの語の行の後の位置を返す。終わりが無ければ末尾。"""
+    word = match.group("sq") or match.group("dq") or match.group("word")
+    body_start = index
+    while index < len(text):
+        end = text.find("\n", index)
+        line = text[index:len(text) if end < 0 else end]
+        index = len(text) if end < 0 else end + 1
+        if (line.lstrip("\t") if match.group("dash") else line) == word:
+            break
+    found.append((match.start(), body_start, index))
+    return index
 
 
 def reason_for(command):

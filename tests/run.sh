@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=810
+EXPECTED_CHECKS=817
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5562,6 +5562,25 @@ expect_output 0 "許可一覧に無い" "destgate: 旗の後ろに書いた PR �
 # 題の値が -R で始まっても gh は -R と読まない。前はそれを宛先と読み、走る場所の repo へ出す投稿を通していた
 expect_output 0 "特定できない" "destgate: 題・本文の値が -R で始まる投稿は、宛先不明で止める" \
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue create --title -Rallowed/repo --body-file p.md"
+expect_output 0 "特定できない" "destgate: 閉じる時のコメント(-c)の値が -R で始まる投稿も、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue close 5 -c -Rallowed/repo"
+# 本文の旗(-c・--comment・--notes・-n)の値の頭の URL は宛先でない。前は -b・-t の値しか外さず、URL の repo を宛先と読み、
+# 走る場所の repo(一覧外)へ出す投稿を通していた
+expect_output 0 "許可一覧に無い" "destgate: 閉じる時のコメント(-c)の頭の URL を宛先と読まない" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue close 5 -c 'https://github.com/good/things/pull/9 で直した'"
+expect_output 0 "許可一覧に無い" "destgate: リリースノート(--notes)の頭の URL を宛先と読まない" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh release create v1 --notes 'https://github.com/good/things/pull/12 を入れた'"
+# gh は大文字の scheme の URL(HTTPS://)も受けて、その repo へ投稿する。前は URL と読まず、走る場所の repo を宛先にしていた
+expect_output 0 "許可一覧に無い" "destgate: 大文字の scheme の PR の URL の repo を宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh pr comment HTTPS://github.com/evil/place/pull/3 --body 'テストの本文です'"
+# gh は GIT_DIR などの git の環境変数に従って宛先の repo を引く。前は GH_REPO だけを見て、走る場所の repo と取り違えて通していた
+expect_output 0 "特定できない" "destgate: GIT_DIR を書いたコマンドの -R 無しの投稿は、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "GIT_DIR=$DG_REPO_NG/.git gh issue comment 1 --body 'テストの本文です'"
+expect_output 0 "特定できない" "destgate: 環境に GIT_DIR が在れば、-R 無しの投稿は宛先不明で止める" \
+    env GIT_DIR="$DG_REPO_NG/.git" COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
+# サブコマンドを読めない gh は、走る場所の repo に倒さない。前は倒していて、api のパスの repo(一覧外)への投稿を通していた
+expect_output 0 "特定できない" "destgate: サブコマンドを読めない投稿は、-R が無ければ宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh api --bogus repos/evil/place/issues/1/comments -f body='宛先検査のテスト本文です'"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib
@@ -7324,6 +7343,7 @@ row = lambda i, st, f="a.py", ev="印": {"id": i, "status": st, "file": f, "evid
 prev = {**ok, "arms": [row("k1", "Killed"), row("t1", "Timeout"), {**row("c1", "Killed"), "carried": True}, row("i1", "Ignored"),
                        row("x9", "Killed"), {**row("u1", "Survived"), "confirm_rc": "timeout"},
                        {**row("v1", "Survived"), "pytest": {"confirmed": "timeout"}}, {**row("w1", "Survived"), "pytest": {"rc": "timeout"}},
+                       {**row("y1", "Killed"), "script_rc": "timeout"},
                        row("s1", "Survived"), row("k2", "Killed", "b.py"), row("k3", "Killed")]}
 out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1', 'u1', 'v1', 'w1', 'y1'})}"]
 same = {**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}
@@ -7343,7 +7363,6 @@ for k, pv in {"partial": {**prev, "partial": True}, "no_reuse": {**prev, "summar
 src = pathlib.Path(tempfile.mkdtemp()) / "src"
 (src / "tests").mkdir(parents=True)
 (src / "a.py").write_text("A = 1\nB = 2\n", encoding="utf-8")
-                       {**row("y1", "Killed"), "script_rc": "timeout"},
 arms = [{"id": i, "title": i, "file": "a.py", "suite": "root", "old": o, "new": "Z = 0", "marker": {"where": "before"}} for i, o in (("k1", "A = 1"), ("s1", "B = 2"))]
 (src / "tests" / "mutations.json").write_text(json.dumps({"arms": arms}), encoding="utf-8")
 subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)

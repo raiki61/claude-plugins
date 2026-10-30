@@ -112,6 +112,13 @@ class SleepLoops(unittest.TestCase):
         # コメント・引用符の中の <<WORD はヒアドキュメントを始めないので、後の行を中身と見て落とさない
         "echo x\n# cat <<EOF\nuntil false; do sleep 2; done",
         'git log --grep "a <<EOF"\nwhile ! test -f out; do sleep 2; done',
+        # ダブルクォートの中の $( ) のヒアドキュメントも読む。前は中身の ' を引用符の頭と読み、後のループを見落として通していた
+        "git commit -m \"$(cat <<'EOF'\nfix: don't drop the cache\nEOF\n)\" && git push && until gh run view --exit-status; do sleep 30; done",
+        # 複数の行にまたがる引用符の後の行の <<WORD も、ヒアドキュメントを始めない
+        'git commit -m "subj\n\nuse cat <<EOF in scripts"\nwhile ! test -f out; do sleep 2; done',
+        # 終わりの語を \ で引用する形・引用符の中に - を持つ形も、ヒアドキュメントと読む(中身の ' で後のループを隠さない)
+        "cat <<\\EOF\ndon't\nEOF\nuntil test -f x; do sleep 1; done",
+        "cat <<'END-1'\ndon't\nEND-1\nuntil test -f x; do sleep 1; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -127,6 +134,7 @@ class SleepLoops(unittest.TestCase):
         'echo $# ${#x}; for i in 1 2; do sleep 1; done',
         # 本物のヒアドキュメントの中身(シェルでないコマンドが読む)は、今までどおり見ない
         "cat <<'EOF' > note.md\nwhile true; do sleep 5; done\nEOF",
+        "git commit -m \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
