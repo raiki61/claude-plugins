@@ -3,7 +3,8 @@
 
 1 件ずつ、前の版では赤になり直した版では緑になる形で書く。穴の番号は頼みの番号のまま。読む本体は引数(無ければ
 gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が赤になることを確かめられる。14・15 は 1〜13 の直し
-(commit 8eb61ffd)が持ち込んだ止めすぎで、8eb61ffd の版を渡すと赤になる。
+(commit 8eb61ffd)が持ち込んだ止めすぎで、8eb61ffd の版を渡すと赤になる。16・17 は 14・15 の直し(commit 0bd1e0a2)の
+後に見つけた素通しで、0bd1e0a2 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -356,7 +357,27 @@ def f15():
         check(15, bool(blk), "展開される置換を通した: %s" % cmd[:60])
 
 
-for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15), 1):
+# 16. 二重引用の本文の `…` は、同じ語に解ける変数や字のままの $ が在っても置換渡し(変数を解いても置換の中身は実行時に替わる)
+def f16():
+    for cmd in ('gh pr comment 1 --body "Fixed `cat f` in $HOME %s"' % BODY,
+                'B=v2; gh pr comment 1 --body "Fixed `cat f` in $B %s"' % BODY,
+                'gh api repos/o/r/issues/1/comments -f body="%s `cat f` $HOME"' % BODY,
+                'R=o/r; gh pr comment 1 -R "$R" --body "Fixed `cat f` (price: \\$5) %s"' % BODY,
+                'B=v2; echo \'$B\'; gh pr comment 1 --body "Fixed `cat f` in $B %s"' % BODY):
+        cands, blk, _ = g.posting_bodies(cmd, WORK)
+        check(16, bool(blk), "同じ語の置換を通した: %s → %r" % (cmd[:60], [c[:30] for c in cands]))
+
+
+# 17. 展開される $( )・${ }・`…` の中の引用符は bash が数え直す。語の印が bash と食い違うので、全体で見る側に倒す
+def f17():
+    for cmd in ("gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '$(cat f)\" #'",
+                "gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '`cat f`\" #'",
+                "B=secret; echo \"$B\"; gh pr comment 1 -R \"${X:-\"'\"}\" -b \"' --body '$B\" #'"):
+        _, blk, _ = g.posting_bodies(cmd, WORK)
+        check(17, bool(blk), "置換の中の引用符で印がずれた本文を通した: %s" % cmd[:60])
+
+
+for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17), 1):
     guarded(n, fn)
 
 shutil.rmtree(WORK, ignore_errors=True)

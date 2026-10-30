@@ -621,7 +621,7 @@ def mark_words(norm, tokens):
         return tokens
     spots = []
     _live(norm, lambda t, i: t[i] in "$`" and spots.append(i))
-    if not spots:
+    if not spots or _quote_in_substitution(norm, spots):
         return tokens
     chars = list(norm)
     for i in spots:
@@ -637,6 +637,27 @@ def mark_words(norm, tokens):
         w.marked = m
         words.append(w)
     return words
+
+
+def _quote_in_substitution(norm, spots):
+    """展開される $( ・ ${ ・ `…` の中に引用符が在るか。在れば、bash が置換の中で引用を数え直す所を、_live・shlex は外の引用の
+    続きと読む(`"$(printf %s "'")"`・`"${X:-"'"}"`)ので、語の印が bash と食い違う。mark_words は印を付けずに全体で見る側へ倒す。"""
+    ticks = [i for i in spots if norm[i] == "`"]
+    for a, b in zip(ticks[::2], ticks[1::2] + [len(norm)]):
+        if "'" in norm[a + 1:b] or '"' in norm[a + 1:b]:
+            return True
+    for i in spots:
+        if norm[i] != "$" or norm[i + 1:i + 2] not in ("(", "{"):
+            continue
+        opener = norm[i + 1]
+        closer, depth = ")" if opener == "(" else "}", 0
+        for c in norm[i + 1:]:
+            if c in "'\"":
+                return True
+            depth += (c == opener) - (c == closer)
+            if depth == 0:
+                break
+    return False
 
 
 def _live(text, hit, where=(None, '"')):
@@ -1041,14 +1062,15 @@ def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
                 looks_sub = (value in ("$", "") or value.endswith("$")
                              or value.startswith("`") or value.startswith("$(")
                              or any(h in value for h in heads))
-            if "$" in value and (live_variable or VAR_RE.match(value)):
+            # 置換の形を変数より先に見る。変数を解けた値でも、同じ語の置換(`--body "Fixed `cat f` in $HOME"`)は実行時に中身が替わる
+            if live_substitution and looks_sub:
+                blocked.append("変数・コマンド置換渡し")
+            elif "$" in value and (live_variable or VAR_RE.match(value)):
                 got = ctx.var(value, marked) if ctx else None
                 if got is None:
                     blocked.append("変数・コマンド置換渡し")
                 else:
                     candidates.append(got)
-            elif live_substitution and looks_sub:
-                blocked.append("変数・コマンド置換渡し")
             else:
                 candidates.append(value)
         elif kind == "file":
