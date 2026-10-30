@@ -669,6 +669,20 @@ class Tidy(LandCase):
         self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": head})
         self.assertIn("入れたブランチは、部署が次のブランチに移った後", out)
 
+    def test_resident_department_that_committed_while_the_gate_ran_does_not_mark_its_branch_landed(self):
+        w = FakeWorld(self.tmp, CI_FILES)
+        head = w.work()
+        row = {"path": w.dept, "branch": "feat/a", "name": "a", "removable": False, "reason": "persistent", "session": None,
+               "pr_head": head}
+
+        def rows(*a):
+            w.work("c.txt", "c\n")   # ゲートを待つ間に部署が足した commit（入れた物に含まれない）
+            return [row]
+        code, out = self.land(w, FakePorts(w), rows=rows)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("landed-branches", w.g.worktree_attrs(w.dept), "書くと、入っていない commit ごとブランチが消える")
+        self.assertIn("入れた後の commit が在る", out)
+
     def test_landed_department_is_retired_with_the_clean_parts(self):
         w = World(self.tmp, CI_FILES)
         head = w.work()

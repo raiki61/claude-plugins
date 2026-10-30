@@ -832,9 +832,14 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         later = "入れたブランチは、部署が次のブランチに移った後の --land か --clean --apply が消す"
         if row["branch"]:
             try:
-                # 書くのは部署のブランチの先頭（版を上げる commit はメインブランチの側にだけ在り、部署のブランチの先頭と違う）
-                landed_map = {**clean.landed_of(ports.attrs(path), strict=True), row["branch"]: ports.git.rev(path, "HEAD")}
-                provision.mark(path, repo.source, {clean.LANDED_BRANCHES: json.dumps(landed_map, ensure_ascii=False)}, ports.git)
+                # 書くのは部署のブランチの先頭（版を上げる commit はメインブランチの側にだけ在り、部署のブランチの先頭と違う）。
+                # ゲートを待つ間に部署が commit を足していれば、先頭は入れた物に含まれない。書くと、入っていない commit ごとブランチが消える
+                tip = ports.git.rev(path, "HEAD")
+                if ports.git.is_ancestor(path, tip, landed):
+                    landed_map = {**clean.landed_of(ports.attrs(path), strict=True), row["branch"]: tip}
+                    provision.mark(path, repo.source, {clean.LANDED_BRANCHES: json.dumps(landed_map, ensure_ascii=False)}, ports.git)
+                else:
+                    later = f"ブランチ {row['branch']} に入れた後の commit が在るので、入れたブランチとは書かない（続きを入れれば消える）"
             except (gitx.GitError, OSError) as e:
                 later = f"入れたブランチを書けなかった（{e}）ので、手元のブランチ {row['branch']} は手で消す"
         print(f"部署は残した（{reasons[row['reason']]}）。{later}")
