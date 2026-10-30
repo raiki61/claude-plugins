@@ -6,6 +6,8 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-30
+
 ### Fixed
 
 - statusline で、GitHub CLI（gh）が失敗しても、控えておいた PR の表示を消さない（頼み cce9a3）。

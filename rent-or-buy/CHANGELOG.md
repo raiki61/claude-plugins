@@ -6,6 +6,8 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-30
+
 ### Fixed
 
 - LiteLLM の最新の値段表を、先に取った最新 commit を指して取る（CDN の遅れで、写しに書く commit と別の commit の値段が混ざらない）（頼み cce9a3）。
