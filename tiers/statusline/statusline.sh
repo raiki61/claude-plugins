@@ -55,7 +55,10 @@ if [ "${HERDR_ENV:-}" = 1 ]; then
   if [ -e "$hd_remote" ] && { { [ ! -e "$hd_over" ] && ! { [ "$hd_failed" -nt "$hd_remote" ] && [ "$hd_failed" -nt "$here/claude-rule.toml" ]; }; } \
        || { head -n 1 "$hd_over" 2>/dev/null | grep -qF '# tiers-statusline が作った herdr の判定ルールの上書き。' \
        && { [ "$hd_remote" -nt "$hd_over" ] || [ "$here/claude-rule.toml" -nt "$hd_over" ]; }; }; }; then
-    "$here/../bin/tiers-statusline" refresh >/dev/null 2>>"$err_log" &
+    # 入口が Python 3.11 以上を見つけられず（PATH の python3 が 3.10 まで）に落ちると、refresh は Python を読み込む前に終わるので、
+    # 失敗の印を書けない。上書きが無いままそう落ちたら、ここで印を書く（書かないと 30 秒ごとにペインの数だけ入口が同じ失敗を繰り返す）
+    { "$here/../bin/tiers-statusline" refresh >/dev/null 2>>"$err_log" \
+      || [ -e "$hd_over" ] || { mkdir -p "${hd_over%/*}" && : > "$hd_failed"; } 2>/dev/null; } &
   fi
 fi
 

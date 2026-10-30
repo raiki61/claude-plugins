@@ -271,6 +271,8 @@ class Shell(Base):
         env = {**os.environ, "HERDR_ENV": "1", "HERDR_PANE_ID": "", "HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / ".config"),
                "XDG_STATE_HOME": str(self.home / ".local" / "state"), "XDG_CACHE_HOME": str(self.home / "cache"), "TMPDIR": str(self.home)}
 
+        self.sh_env, self.sh_top = env, top
+
         def started():
             if called.exists():
                 called.unlink()
@@ -318,6 +320,29 @@ class Shell(Base):
         self.put(self.remote, BASE)
         self.assertTrue(sl.refresh(self.env, run=self.run_)[0])
         self.assertFalse(stamp.exists(), "作れたら失敗の印を消す")
+
+    @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "jq と bash が要る")
+    def test_a_launcher_that_finds_no_python_3_11_still_leaves_the_failed_stamp(self):
+        # PATH の python3 が 3.10 までだと、入口（bin/tiers-statusline）は Python を読み込む前に非ゼロで終わるので、refresh の
+        # 失敗の印の書き込みまで行かない。statusline.sh の側で印を書かないと、30 秒ごとに入口を起動し直す
+        top, _ = self.starter()
+        shutil.copy(sl.ROOT / "bin" / "tiers-statusline", top / "bin" / "tiers-statusline")
+        old = self.home / "oldpy"
+        old.mkdir()
+        for name in ["python3", "python", "py"] + [f"python3.{n}" for n in range(11, 21)]:
+            (old / name).write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")   # 版の確かめ（3.11 以上か）に必ず落ちる Python
+            (old / name).chmod(0o755)
+        self.put(self.remote, BASE)
+        env = {**self.sh_env, "PATH": f"{old}{os.pathsep}{os.environ['PATH']}"}
+        stamp = self.over.with_name(self.over.name + ".tiers-failed")
+        subprocess.run(["bash", str(top / "statusline" / "statusline.sh")], input='{"model": {"display_name": "Opus"}}',
+                       env=env, capture_output=True, text=True, encoding="utf-8", check=True)
+        for _ in range(50):   # 裏で起動するので、少し待つ
+            if stamp.exists():
+                break
+            subprocess.run(["sleep", "0.1"])
+        self.assertTrue(stamp.exists(), "入口が落ちたときも失敗の印を残す")
+        self.assertFalse(self.over.exists())
 
 
 @unittest.skipIf(os.name == "nt", "statusline.sh は macOS と Linux だけで動く")
@@ -430,6 +455,35 @@ class BgAgentsBorn(unittest.TestCase):
                                  env={**os.environ, "LC_ALL": "ja_JP.UTF-8", "LANG": "ja_JP.UTF-8"},
                                  capture_output=True, text=True, encoding="utf-8").stdout.strip()
             self.assertEqual(got, "0")
+
+
+class BgAgentsBornEtime(unittest.TestCase):
+    """bg-count.sh が、Claude のプロセスの起きた時刻を BSD の date に頼らず ps の経過時間で出す所。"""
+
+    def born(self, etime):
+        # 偽の ps は経過時間 etime を答える。偽の date は GNU の物（-j を知らず、illegal option で落ちる）のふりをする
+        with tempfile.TemporaryDirectory() as d:
+            bin_ = pathlib.Path(d)
+            (bin_ / "ps").write_text(f'#!/bin/sh\ncase "$*" in\n  "-o etime= -p 77") echo "  {etime}" ;;\nesac\n', encoding="utf-8")
+            (bin_ / "date").write_text('#!/bin/sh\nfor a in "$@"; do [ "$a" = -j ] && { echo "date: illegal option -- j" >&2; exit 1; }; done\n'
+                                       f'exec {shutil.which("date")} "$@"\n', encoding="utf-8")
+            for f in bin_.iterdir():
+                f.chmod(0o755)
+            script = (sl.ROOT / "statusline" / "bg-count.sh").read_text(encoding="utf-8")
+            born = re.search(r"^born=\"\"\n.*?(?=^echo )", script, re.M | re.S).group(0)
+            now = int(subprocess.run(["date", "+%s"], capture_output=True, text=True).stdout)
+            out = subprocess.run(["bash", "-c", "claude_pid=77\n" + born + 'echo "$born"'], env={**os.environ, "PATH": f"{d}:{os.environ['PATH']}"},
+                                 capture_output=True, text=True, encoding="utf-8").stdout.strip()
+            return now, out
+
+    def test_the_born_time_comes_from_etime_in_every_format_even_with_a_gnu_date(self):
+        # macOS で GNU coreutils の date が先に PATH に在る（Homebrew の gnubin）と、date -j は落ちて起きた時刻が空になり、
+        # 知らせ無しに終わった下請けを 6 時間走っていると数える
+        for etime, secs in (("05:09", 5 * 60 + 9), ("03:05:09", 3 * 3600 + 5 * 60 + 9), ("2-03:05:09", 2 * 86400 + 3 * 3600 + 5 * 60 + 9),
+                            ("08:08", 8 * 60 + 8)):
+            now, out = self.born(etime)
+            self.assertTrue(out.isdigit(), (etime, out))
+            self.assertAlmostEqual(int(out), now - secs, delta=5, msg=etime)
 
 
 class Check(Base):

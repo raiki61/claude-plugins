@@ -135,9 +135,9 @@ esac
 shells=0
 [ -n "$claude_pid" ] && shells=$(bg_pids "$claude_pid" | wc -l | tr -d ' ')
 born=""
-# macOS の date は -j -f で読み、Linux（GNU の date に -j が無い）は ps の経過秒（etimes）を今から引く。
-# date も C の言葉で読む。LC_TIME などが日本語だと C の言葉の lstart（"Fri Oct 30 …"）を読めず、macOS の ps には etimes も無いので
-# 起きた時刻が空になり、知らせ無しに終わったサブエージェントを 6 時間走っていると数える
-[ -n "$claude_pid" ] && born=$(LC_ALL=C date -j -f "%a %b %d %T %Y" "$(LC_ALL=C ps -o lstart= -p "$claude_pid")" +%s 2>/dev/null \
-  || { e=$(ps -o etimes= -p "$claude_pid" 2>/dev/null | tr -d ' '); [ -n "$e" ] && echo $(( $(date +%s) - e )); })
+# 起きた時刻は ps の経過時間（etime。[[dd-]hh:]mm:ss。macOS にも Linux にも在る）を今から引いて出す。BSD の date -j -f で ps の lstart を
+# 読むと、macOS でも GNU coreutils の date が先に PATH に在る（Homebrew の gnubin）環境では date が -j を知らず空になり、知らせ無しに
+# 終わったサブエージェントを 6 時間走っていると数える。lstart を読むと LC_TIME が日本語のときも読めなかったが、etime は数字だけで言葉に依らない
+[ -n "$claude_pid" ] && born=$(ps -o etime= -p "$claude_pid" 2>/dev/null | tr -d ' ' \
+  | awk -F'[-:]' -v now="$(date +%s)" 'NF >= 2 && NF <= 4 { s = $1; for (i = 2; i <= NF; i++) s = s * (NF == 4 && i == 2 ? 24 : 60) + $i; print now - s }')
 echo $(( shells + $(bg_agents "${1:-}" "$born") ))
