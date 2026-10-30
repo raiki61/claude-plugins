@@ -237,6 +237,7 @@ class Bash(unittest.TestCase):
                         'D=/; bash -c "find $D -name x"', 'D=/; eval "find $D -name x"', "D=/; eval 'find $D -name x'",
                         "export D=/; bash -c 'find $D -name x'", "D=/ bash -c 'find $D -name x'",
                         "D=/ bash <<'EOF'\nfind $D -name x\nEOF",
+                        "D=/ timeout 60 bash -c 'find $D -name x'", "env D=/ sh -c 'find \"$D\" -name x'",
                         "find ~tester -name x"):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command})[0])
