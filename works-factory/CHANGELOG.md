@@ -6,6 +6,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 殻 `bin/works-factory` が工場を起動する Python の選び方を変えた。前は PATH の `python3` をそのまま使い、それが 3.12 より古くても（macOS 付属の 3.9 など）そのまま起動していた。今は `python3`・`python`・版の付いた名前（`python3.20` から `python3.12` まで新しい順）・`py -3` の順に実際に起動し、最初に見つかった 3.12 以上の物を使う（リポジトリの `docs/standards/cross-os.md` の決まり 1）。どれも 3.12 以上でなければ、試した物と入れ方を 1 行出して、工場を取り寄せる前に終了の値 2 で止まる。PATH の `python3` が 3.12 以上なら、使う Python は前と同じ。
+
 ## [0.33.0] - 2026-10-30
 
 ### Changed

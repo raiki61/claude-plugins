@@ -11,6 +11,20 @@ case "$pin" in
 esac
 [ "${#pin}" -eq 40 ] || { echo "works-factory: PIN が 40 桁の commit でない: $pin" >&2; exit 2; }
 
+# 工場は Python 3.12 以上で動く。python3・python・版の付いた名前（python3.20 から python3.12 まで新しい順）・py -3 の順に、
+# 実際に起きる 3.12 以上の物を選ぶ（docs/standards/cross-os.md の決まり 1。rent-or-buy の bin/rent-or-buy と同じ作り）。
+# PATH の python3 をそのまま使わないのは、macOS 付属の python3 が 3.9 で、uv で入れた python は版の付いた名前でだけ PATH に在り、
+# Windows の python3 は Python を入れていないと Microsoft Store へ誘う代わりの物に当たるため。
+py=
+named='' n=20
+while [ "$n" -ge 12 ]; do named="$named python3.$n"; n=$((n - 1)); done
+for cand in python3 python $named "py -3"; do
+  command -v "${cand%% *}" >/dev/null 2>&1 || continue
+  # shellcheck disable=SC2086
+  $cand -c 'import sys; sys.exit(sys.version_info < (3, 12))' >/dev/null 2>&1 && { py=$cand; break; }
+done
+[ -n "$py" ] || { echo "works-factory: python 3.12 以上が見つからない（python3・python・python3.20〜python3.12・py -3 を試した）。python 3.12 以上を入れる（例: brew install python）。入っているのに見つからないときは、入れた場所を PATH に足す" >&2; exit 2; }
+
 repo=${WORKS_FACTORY_PLUGIN_REPO:-https://github.com/raiki61/works-factory.git}
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/works-factory-plugin
 dir=$cache/$pin
@@ -31,6 +45,8 @@ fi
 
 if [ "${1:-}" = apply ]; then
   shift
-  exec python3 "$dir/bin/apply" "$@"
+  # shellcheck disable=SC2086
+  exec $py "$dir/bin/apply" "$@"
 fi
-exec python3 "$dir/bin/works-factory" "$@"
+# shellcheck disable=SC2086
+exec $py "$dir/bin/works-factory" "$@"

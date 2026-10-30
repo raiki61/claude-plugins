@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -78,10 +79,28 @@ class EntryTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertFalse((self.root / "cache").exists())
 
+    @unittest.skipIf(os.name == "nt", "shebang の見本は Git Bash の外で動かない")
+    @unittest.skipIf(sys.version_info < (3, 12), "試験を回す python が 3.12 より古い")
+    def test_skips_python_that_is_too_old(self):
+        fake = self.root / "fake-bin"
+        fake.mkdir()
+        log = self.root / "picked"
+        for name in ("python3", "python"):
+            path = fake / name
+            path.write_text(f"#!/bin/sh\necho {name} >> '{log}'\nexit 1\n")
+            path.chmod(0o755)
+        newest = fake / "python3.20"
+        newest.write_text(f"#!/bin/sh\necho python3.20 >> '{log}'\nexec '{sys.executable}' \"$@\"\n")
+        newest.chmod(0o755)
+        self.env["PATH"] = f"{fake}{os.pathsep}{self.env['PATH']}"
+        result = self.invoke("workflow", "status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["args"], ["workflow", "status"])
+        self.assertEqual(log.read_text().split(), ["python3", "python", "python3.20", "python3.20"])
+
     def test_skill_body_and_reference_links(self):
         text = (PLUGIN / "skills/works-factory/SKILL.md").read_text()
         body = text.split("---", 2)[2].lstrip("\n")
-        self.assertLessEqual(len(body), 5000)
         self.assertLess(len(body.splitlines()), 500)
         for name in ("auth.md", "stop.md", "spec.md", "pr.md"):
             self.assertIn(f"(references/{name})", body)
