@@ -3,6 +3,7 @@
   "rule3": 2
  },
  "attention/scripts/reflect.py": {
+  "rule3": 1,
   "rule4": 3
  },
  "attention/scripts/what-am-i-doing.py": {
@@ -191,7 +192,7 @@
   "rule3": 333
  },
  "tests/catchup-case.py": {
-  "rule3": 213
+  "rule3": 219
  },
  "tests/catchup-html-suite.py": {
   "rule3": 44

@@ -810,15 +810,16 @@ def _resolve(files, refs):
 
 
 def point_code(data, fields, read=None):
-    """指したコードの差分。{"points": [変更点ごとの並び], "nodes": {箱の id: 並び}, "edges": {"図の番号.線の番号": 並び}}。引けないものは空。
-    線は同じ箱の間に何本でも引けるので、"from>to" でなく図（figure の並びの何番目か）と線の何番目かで鍵にする。"""
+    """指したコードの差分。{"points": [変更点ごとの並び], "nodes": {"図の番号.箱の id": 並び}, "edges": {"図の番号.線の番号": 並び}}。
+    引けないものは空。線は同じ箱の間に何本でも引けるので、"from>to" でなく図（figure の並びの何番目か）と線の何番目かで鍵にする。
+    箱の id は図ごとにしか一意でない（変更前と変更後の図で "api" を両方に置くなど）ので、箱も図の番号を付けて鍵にする。"""
     files = _diff_files(data, read)
     fields = fields or {}
     items = (fields.get("points") or {}).get("items") or []
     figs = fields.get("figure") or []
     dicts = [f1 for f1 in (figs if isinstance(figs, list) else [figs]) if isinstance(f1, dict)]  # ページ側の FIGS と同じ並び
-    graphs = [f1 for f1 in dicts if f1.get("kind") == "graph"]
-    found = {n["id"]: _resolve(files, n.get("code")) for g in graphs for n in g.get("nodes") or [] if n.get("code")}
+    found = {f"{fi}.{n['id']}": _resolve(files, n.get("code")) for fi, g in enumerate(dicts) if g.get("kind") == "graph"
+             for n in g.get("nodes") or [] if n.get("code")}
     edges = {}
     for fi, g in enumerate(dicts):
         for ei, e in enumerate(g.get("edges") or [] if g.get("kind") == "graph" else []):

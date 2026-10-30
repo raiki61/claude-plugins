@@ -292,7 +292,12 @@ def _cap_checks():
     head = checks(*[check_run(f"job{i}", "SUCCESS") for i in range(100)])
     head["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 120
     out = render(pr(head=head))
-    want = {"cap_line": "CI のチェックの残り 20 件（120 件中、100 件だけ取った）" in out}
+    node = pr(head=head)
+    status = {s["key"]: s for s in catchup.page_status(node, ME, [], 0, 100)}
+    want = {"cap_line": "CI のチェックの残り 20 件（120 件中、100 件だけ取った）" in out,
+            # いまの状態の CI の行も、取った分だけで「全 pass」と言い切らない。HTML の札は緑にしない
+            "ci_line": "CI: 取った 100 件は全 pass（残り 20 件は見ていない）" in out,
+            "badge_not_ok": status["ci"]["tone"] == "warn"}
     return verdict("CAP_CHECKS", want, out)
 
 
@@ -592,7 +597,12 @@ def _pass2_threads():
         thread("app/c.py", False, comment(T1, "rev", "B"))]))
     left = thread("app/m.py", False, comment(T1, "other", "なぜ消した？"))
     left["diffSide"] = "LEFT"
+    # 私が作って bob に渡した PR で、レビュアーの指摘に bob が返した。相手（レビュアー）のターンで、私のターンでない
+    handed = pr(author=user(ME), assignees=conn([user("bob")]),
+                reviewThreads=conn([thread("app/h.py", False, comment(T1, "rev", "ここは？"), comment(T2, "bob", "直した"))]))
     want = {
+        "teammate_reply_not_mine": [th["my_turn"] for th in catchup.unresolved_threads(handed, ME)] == [False]
+        and "持ち主の側の bob が最後に返している" in catchup.render_threads(handed, ME, lambda p: None),
         "mention_any_case": bool(ask) and ask["text"] == "@Me ここを見てください",
         "others_not_mine_last": "私は入っていない" in catchup.render_threads(others, ME, lambda p: None),
         "alert_body_kept": catchup.their_lines(alert) == ["> [!NOTE]", "> fix this", ""],

@@ -444,10 +444,14 @@ class FrameDiff(unittest.TestCase):
             return "M\0src/a.py\0M\0docs/b.md\0"
         return "diff " + " ".join(args[-2:]) + "\n"
 
+    def diffs(self):
+        """中身の diff の呼び出しだけ（HEAD の有無を聞く rev-parse と、変更 file を聞く --name-status を除く）。"""
+        return [a for a in self.calls if "diff" in a and "--name-status" not in a]
+
     def test_code_uses_W_and_prose_uses_three_lines(self):
         out = cm.frame_diff(cwd="/x", rev="HEAD", paths=("src/a.py", "docs/b.md"))
-        wide = [a for a in self.calls if "-W" in a]
-        narrow = [a for a in self.calls if "-W" not in a]
+        wide = [a for a in self.diffs() if "-W" in a]
+        narrow = [a for a in self.diffs() if "-W" not in a]
         self.assertEqual([a[-1] for a in wide], [":(top,literal)src/a.py"])    # -W はコードだけ
         self.assertEqual([a[-1] for a in narrow], [":(top,literal)docs/b.md"])  # 散文は -U10
         self.assertTrue(all("-U10" in a for a in narrow))
@@ -459,14 +463,14 @@ class FrameDiff(unittest.TestCase):
         for args in self.calls or [cm.frame_diff(cwd="/x", paths=("src/a.py",)) or self.calls[0]]:
             pass
         cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md"))
-        for args in self.calls:
+        for args in [a for a in self.calls if "diff" in a]:
             for flag in ("--no-color", "--no-ext-diff", "--no-textconv",
                          "--src-prefix=a/", "--dst-prefix=b/"):
                 self.assertIn(flag, args)
 
     def test_paths_omitted_asks_git_which_files_changed(self):
         cm.frame_diff(cwd="/x", rev="a...b")
-        self.assertEqual(self.calls[0][-4:], ("--name-status", "-z", "a...b", "--"))
+        self.assertEqual(self.calls[0][-4:], ("--name-status", "-z", "a...b", "--"))  # HEAD でなければ rev-parse しない
         self.assertEqual([a[-1] for a in self.calls[1:]],
                          [":(top,literal)src/a.py", ":(top,literal)docs/b.md"])
 
@@ -484,15 +488,15 @@ class FrameDiff(unittest.TestCase):
                                        ("R096\0src/old.py\0docs/new.md\0" if "--name-status" in a
                                         else "diff\n"))
         cm.frame_diff(cwd="/x")
-        diffs = [a for a in self.calls if "--name-status" not in a]
+        diffs = self.diffs()
         self.assertEqual(len(diffs), 1)                             # 1 本にまとまる
         self.assertNotIn("-W", diffs[0])                            # 振り分けは新側（md）で決まる
         self.assertEqual(diffs[0][-2:], (":(top,literal)src/old.py", ":(top,literal)docs/new.md"))
 
     def test_one_group_only_runs_one_diff(self):
         cm.frame_diff(cwd="/x", paths=("docs/b.md",))
-        self.assertEqual(len(self.calls), 1)
-        self.assertNotIn("-W", self.calls[0])
+        self.assertEqual(len(self.diffs()), 1)
+        self.assertNotIn("-W", self.diffs()[0])
 
     def test_any_failure_returns_none(self):
         """半分の diff を返すと、落ちた側の file が「変更なし」に見える。"""
@@ -579,6 +583,64 @@ class RealGitConfig(unittest.TestCase):
         self.assertIn("=== out.py", text)
         self.assertIn("blob.bin （中身が diff に無い", text)   # バイナリは追跡 file として断る（tracked_set が当たる）
         self.assertIn("=== new.txt （未追跡の新規", text)       # 下の階層から呼んでもルートに繋いで読める
+
+    def commit_all(self):
+        self.git("add", ".")
+        self.git("commit", "-qm", "init")
+
+    def test_frame_of_a_renamed_file_is_the_edit_not_a_new_file(self):
+        """--frame 新しい名前（paths に新側だけ）でも旧側を足す。新側だけを pathspec にすると git が対を作れず、
+        全行 + の「新規」になる（what-am-i-doing.py --frame b.py が「（新規）」と出した。実測）。"""
+        self.git("init", "-q")
+        self.write("a.py", b"def f():\n    return 1\n\n\ndef g():\n    return 2\n")
+        self.commit_all()
+        self.git("mv", "a.py", "b.py")
+        self.write("b.py", b"def f():\n    return 1\n\n\ndef g():\n    return 3\n")
+        info = cm.framed_diff(cm.frame_diff(cwd=self.sub, paths=("b.py",))).get("b.py")
+        self.assertIsNotNone(info)
+        self.assertFalse(info["new"])
+        self.assertIn("    return 3", "\n".join(info["blocks"][0]))
+
+    def test_repo_without_commits_frames_new_files(self):
+        """git init の直後（HEAD が無い）は空の木と比べる。HEAD のまま渡すと git diff が失敗し、木は出るのに
+        中身が「出せない」、--frame は「git diff が失敗した」で止まった（実測）。"""
+        self.git("init", "-q")
+        self.write("new.py", b"print(1)\n")
+        self.write("sub/x.md", b"# x\n")
+        self.git("add", "sub/x.md")
+        paths, tree = cm.working_tree(self.top)
+        self.assertCountEqual(paths, ["new.py", "sub/x.md"])
+        self.assertRegex("\n".join(tree), r"x\.md\s+\+1")              # numstat も空の木と比べて取れる
+        text = "\n".join(cm.frames_section(self.top, paths))
+        self.assertNotIn("出せない", text)
+        self.assertIn("=== sub/x.md （add 済みの新規", text)
+        self.assertIn("=== new.py （未追跡の新規", text)
+        info = cm.framed_diff(cm.frame_diff(cwd=self.top, paths=("sub/x.md",)) or "").get("sub/x.md")
+        self.assertTrue(info and info["new"])
+
+    def test_staged_copy_is_new_in_the_tree_and_the_frames(self):
+        """diff.renames=copies で add 済みの複写は status が "C  元 -> 先"。木は "~" と「旧:」（改名に読める）、
+        枠は元との差で hunk が無く「中身が diff に無い。…改名だけ」だった（実測）。"""
+        self.git("init", "-q")
+        self.git("config", "diff.renames", "copies")
+        self.write("sub/big.txt", "".join(f"{i}\n" for i in range(1, 51)).encode())
+        self.commit_all()
+        shutil.copy(os.path.join(self.top, "sub/big.txt"), os.path.join(self.top, "sub/big2.txt"))
+        with open(os.path.join(self.top, "sub/big.txt"), "ab") as f:
+            f.write(b"51\n")
+        self.git("add", "sub")
+        paths, tree = cm.working_tree(self.top)
+        self.assertCountEqual(paths, ["sub/big.txt", "sub/big2.txt"])
+        text = "\n".join(tree)
+        self.assertRegex(text, r"(?m)^\+\s+big2\.txt")
+        self.assertIn("複写元: sub/big.txt", text)
+        self.assertNotIn("旧:", text)
+        frames = "\n".join(cm.frames_section(self.top, paths))
+        self.assertIn("=== sub/big2.txt （add 済みの新規", frames)
+        self.assertNotIn("中身が diff に無い", frames)
+        # --frame 複写先: 元と組にせず新規の diff にする（組にすると元との差で hunk が無い）
+        info = cm.framed_diff(cm.frame_diff(cwd=self.top, paths=("sub/big2.txt",))).get("sub/big2.txt")
+        self.assertTrue(info and info["new"])
 
 
 class Prose(unittest.TestCase):

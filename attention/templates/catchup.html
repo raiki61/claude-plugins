@@ -985,10 +985,13 @@ function graphFigure(F) {
     return "";
   };
   const edgeCls = (e, ph) => [e.tone || (phased && e.in === "after" ? "good" : phased && e.in === "before" ? "bad" : ""), phased && e.in === "before" ? "gone" : ""].filter(Boolean).join(" ");
+  // 箱の id は図ごとにしか一意でない（変更前と変更後の図に同じ id を置ける）ので、コードと変更点の光らせは図の番号.id で引く
+  const nkey = n => `${FIGS.indexOf(F)}.${n.id}`;
+  const nodeHit = n => (n.points || []).length || (CODE.nodes || {})[nkey(n)];
   const nodeEl = (n, ph) => {
     const cls = nodeCls(n, ph);
-    const hit = (n.points || []).length || (CODE.nodes || {})[n.id];
-    return el("div", { class: ["g-node", cls, hit ? "hit" : ""].filter(Boolean).join(" "), "data-id": n.id,
+    const hit = nodeHit(n);
+    return el("div", { class: ["g-node", cls, hit ? "hit" : ""].filter(Boolean).join(" "), "data-id": n.id, "data-nk": nkey(n),
       role: hit ? "button" : null, tabindex: hit ? "0" : null, title: hit ? "押すと、この箱の変えたことが横に出る" : null,
       onclick: hit ? ev => openDetail(n, ev) : null, onkeydown: hit ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(n, e); } } : null },
       cls === "new" ? el("span", { class: "tag" }, "新") : cls === "gone" ? el("span", { class: "tag" }, "消") : null,
@@ -1116,7 +1119,7 @@ function graphFigure(F) {
       : panel(null)));
   const legend = [phased && nodes.some(n => n.in === "after" || n.was) ? [el("span", {}, el("i", { class: "lg-new" }), "この PR で増える・変わった後")] : null,
     phased && nodes.some(n => n.in === "before" || n.was) ? [el("span", {}, el("i", { class: "lg-gone" }), "この PR で無くなる・変わる前")] : null,
-    nodes.some(n => (n.points || []).length || (CODE.nodes || {})[n.id]) || edges.some(edgeHit)
+    nodes.some(nodeHit) || edges.some(edgeHit)
       ? el("span", {}, el("i", { class: "lg-hit" }), edges.some(edgeHit) ? "数字の付いた箱と線の字は押せる（変えたことが横に出る）" : "数字の付いた箱は押せる（変えたことが横に出る）") : null].filter(Boolean);
   // 押した箱や線のすぐ横に札を出す（ページを動かさず、コードの窓も勝手に開かない。凡例の項へ飛ばしたり、
   // 窓をいきなり開いたりすると、読んでいた所を見失って「ストレスが大きい」と言われた。2026-10-16）
@@ -1124,7 +1127,7 @@ function graphFigure(F) {
     showPop(ev.currentTarget, e.text || `${e.from} → ${e.to}`, e.points || [], (CODE.edges || {})[ekey(e)] || [], "流れるデータの形を見る");
   }
   function openDetail(n, ev) {
-    showPop(ev.currentTarget, n.text, n.points || [], (CODE.nodes || {})[n.id] || [], "この箱のコードを見る");
+    showPop(ev.currentTarget, n.text, n.points || [], (CODE.nodes || {})[nkey(n)] || [], "この箱のコードを見る");
   }
   // コマ送り: 光らせる箱と線は、変更前と変更後の 2 枚で同時に光る（同じ流れを前後で並べて動かす）。線の上を点が流れる
   const applyGraph = k => {
@@ -1202,11 +1205,11 @@ function fillCode(box, code) {
     if (f && allView) box.append(el("p", { class: "note" }, jump(f, `${c.path} の変更をまるごと読む ↓`, "go", allView.id)));
   }
 }
-const POINT_NODES = new Map();  // 変更点の番号 → 図の箱の id の並び
+const POINT_NODES = new Map();  // 変更点の番号 → 図の箱の鍵（図の番号.箱の id。id は図ごとにしか一意でない）の並び
 const POINT_EDGES = new Map();  // 変更点の番号 → 図の線の鍵（図の番号.線の番号）の並び
 const keyItems = [];
 function lightNodes(p, on) {
-  for (const id of POINT_NODES.get(p) || []) document.querySelectorAll(`.g-node[data-id="${CSS.escape(id)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
+  for (const k of POINT_NODES.get(p) || []) document.querySelectorAll(`.g-node[data-nk="${CSS.escape(k)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
   for (const k of POINT_EDGES.get(p) || []) document.querySelectorAll(`.g-edge[data-ek="${CSS.escape(k)}"], .g-elabel[data-ek="${CSS.escape(k)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
 }
 // 押した所の横の札。変えたことの項（前と後）を並べ、コードはボタンを押したときだけ窓で開く
@@ -1247,7 +1250,7 @@ function showPop(anchorEl, title, pts, own, ownLabel) {
   pop.style.top = `${y + scrollY}px`;
 }
 function pointsKey(P) {
-  for (const f of FIGS) if (f.kind === "graph") for (const n of f.nodes || []) for (const p of n.points || []) POINT_NODES.set(p, [...(POINT_NODES.get(p) || []), n.id]);
+  FIGS.forEach((f, fi) => { if (f.kind === "graph") for (const n of f.nodes || []) for (const p of n.points || []) POINT_NODES.set(p, [...(POINT_NODES.get(p) || []), `${fi}.${n.id}`]); });
   FIGS.forEach((f, fi) => { if (f.kind === "graph") (f.edges || []).forEach((e, ei) => { for (const p of e.points || []) POINT_EDGES.set(p, [...(POINT_EDGES.get(p) || []), `${fi}.${ei}`]); }); });
   const onFig = POINT_NODES.size + POINT_EDGES.size > 0;
   const rows = [];
@@ -1458,12 +1461,16 @@ function thread(th, i) {
   const box = el("article", { class: "thread", id: "thread-" + (i + 1) });
   const status = th.changed === false ? el("span", { class: "label" }, "前回から変わっていない")
     : th.changed ? el("span", { class: "label severe-outline" }, "前回から変更あり") : null;
-  box.append(el("div", { class: "thread-head" }, th.href ? el("a", { href: th.href, class: "path-link" }, pathEl(th.path, th.line)) : pathEl(th.path, th.line),
+  // 削除された行への指摘（diffSide が LEFT）は、行番号が base の版の物。端末の thread_where と同じ言葉を添える
+  const where = [pathEl(th.path, th.line), th.left && th.line ? "（削除された側。base の版の行）" : null].filter(Boolean);
+  box.append(el("div", { class: "thread-head" }, th.href ? el("a", { href: th.href, class: "path-link" }, where) : el("span", { class: "path-link" }, where),
     el("span", { class: "right" }, th.outdated ? el("span", { class: "label" }, "行がずれている") : null, status,
       th.my_turn ? el("span", { class: "label severe" }, "私が返すターン") : el("span", { class: "label" }, "相手のターン"))));
   if (th.excerpt) {
     const ex = drawDiff(el("div", { class: "excerpt" }), th.excerpt);
-    ex.querySelectorAll("tr").forEach(tr => { const n = tr.querySelector(".line-num2"); if (n && +n.textContent.trim() === th.line) tr.classList.add("is-commented"); });
+    // 指摘の行の印は、削除された側への指摘なら base の版の番号（.line-num1）で、ほかは head の版の番号（.line-num2）で探す
+    const numCls = th.left ? ".line-num1" : ".line-num2";
+    ex.querySelectorAll("tr").forEach(tr => { const n = tr.querySelector(numCls); if (n && +n.textContent.trim() === th.line) tr.classList.add("is-commented"); });
     box.append(ex);
   }
   // 発言は GitHub と同じく古い順。私が返すターンなら私が先、相手のターンなら私が後（私が最後に発言している）

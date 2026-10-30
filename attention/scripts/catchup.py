@@ -1222,12 +1222,23 @@ def after_lines(me, ev, anchor_t, full, limit):
     return out
 
 
-def ci_summary(red, running, green):
-    """CI の 1 行の値。端末の「いまの状態」と HTML の札が同じ文を使う。"""
+def ci_unseen(node):
+    """head のチェックのうち、取得の上限で取れなかった数。"""
+    heads = node.get("head", {}).get("nodes", [])
+    rollup = heads[0]["commit"].get("statusCheckRollup") if heads else None
+    conn = (rollup or {}).get("contexts") or {}
+    return max(0, (conn.get("totalCount") or 0) - len(conn.get("nodes") or []))
+
+
+def ci_summary(red, running, green, unseen=0):
+    """CI の 1 行の値。端末の「いまの状態」と HTML の札が同じ文を使う。unseen は取得の上限で取れなかったチェックの数で、
+    あれば取った分だけで「全 pass」と言い切らない（残りに赤があっても見えていない）。"""
     # チェックが 1 本も無い状態を「全 pass」と言うと、検査が無いことが緑に化ける
     if not (red or running or green):
         return "報告なし"
     if not (red or running):
+        if unseen:
+            return f"取った {green} 件は全 pass（残り {unseen} 件は見ていない）"
         return f"全 pass（緑 {green}）"
     parts = []
     if red:
@@ -1237,6 +1248,8 @@ def ci_summary(red, running, green):
         parts.append(f"実行中 {running} 件")
     if green:
         parts.append(f"緑 {green}")
+    if unseen:
+        parts.append(f"見ていない {unseen} 件")
     return "／".join(parts)
 
 
@@ -1251,7 +1264,7 @@ def state_lines(node, me, red, running, green, human):
         state.extend(base_lines(node, me))
         if shows_candidates(node, me):
             st(suggested_line(node))
-        st("  CI: " + ci_summary(red, running, green))
+        st("  CI: " + ci_summary(red, running, green, ci_unseen(node)))
         # 赤の行き先を出す。「CI 赤は作者しか外せない」と告げておいて理由への道が無いと、
         # 読む人は自分で探しに行くことになる
         for n, url in red[:3]:
@@ -1685,6 +1698,9 @@ def unresolved_threads(node, me):
     私が返すターンではない）。"""
     out = []
     own = owns(node, me)
+    # 自分の件では、持ち主の側（作者と、作者から渡された担当）の返事も私の側の返事。担当の仲間が最後に返したスレッドは
+    # 相手（レビュアー）のターンで、私が返すターンではない
+    side = {me} | (set(turn.owner_side(node)) if own and node.get("assignees") else set())
     for th in node.get("reviewThreads", {}).get("nodes", []):
         if th["isResolved"]:
             continue
@@ -1693,10 +1709,16 @@ def unresolved_threads(node, me):
         if not theirs:
             continue
         mine = [c for c in cs if login_of(c["author"]) == me]
+        last = login_of(cs[-1]["author"])
+        # 仲間の返事を私の側に数えるのは、スレッドに持ち主の側の外の人（レビュアー）が居るときだけ。私と担当だけの
+        # スレッドで担当が返せば、それは私への返事で私が返すターン
+        ours = side if any(login_of(c["author"]) not in side for c in cs) else {me}
         # 削除された行への指摘（diffSide が LEFT）は、line が base の版の行番号。head の行として読むと別の行になる
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
                     "left": th.get("diffSide") == "LEFT",
-                    "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me and bool(mine or own),
+                    "last": theirs[-1], "my_turn": last not in ours and bool(mine or own),
+                    # 人の最後の発言が私の側（私以外の持ち主）か。端末の「相手のターン」の言い方を分ける
+                    "side_last": last if last != me and last in ours else None,
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が
                     # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
                     "mine_t": ts(mine[-1]["createdAt"]) if mine else None,
@@ -1867,6 +1889,8 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
     for i, th in enumerate(threads if full else threads[:THREAD_CAP], 1):
         if th["my_turn"]:
             turn = "← 私が返すターン"
+        elif th["side_last"]:
+            turn = f"← 持ち主の側の {th['side_last']} が最後に返している（相手のターン）"
         elif th["mine_last"]:
             turn = "← 私が最後に発言している（相手のターン）"
         else:
@@ -2591,8 +2615,9 @@ def page_status(node, me, red, running, green):
         add("threads", "未解決の会話", f"{len(unresolved)} 件（うち人が入っているもの {len(human)} 件）"
             + (f" · 私が返すターン {mine_n} 件" if mine_n else ""),
             "mine" if mine_n else "warn" if human else "ok")
-        add("ci", "CI", ci_summary(red, running, green),
-            "bad" if red else "warn" if running else "ok" if green else "neutral")
+        unseen = ci_unseen(node)
+        add("ci", "CI", ci_summary(red, running, green, unseen),
+            "bad" if red else "warn" if running or unseen else "ok" if green else "neutral")
         decision = node["reviewDecision"]
         add("approval", "承認", approval(decision),
             "ok" if decision == "APPROVED" else "warn" if decision in ("REVIEW_REQUIRED", "CHANGES_REQUESTED") else "neutral")
@@ -2623,7 +2648,7 @@ def page_threads(node, me, url, by_path, read_lines, since_paths, full):
             ex = catchup_html.context_excerpt(th["path"], read_lines(th["path"]), th["line"])
         mine = th.get("mine_last")
         out.append({
-            "path": th["path"], "line": th["line"], "my_turn": th["my_turn"], "outdated": bool(th["outdated"]),
+            "path": th["path"], "line": th["line"], "left": bool(th["left"]), "my_turn": th["my_turn"], "outdated": bool(th["outdated"]),
             "who": login_of(c["author"]), "when": hhmm(ts(c["createdAt"])),
             "quote": "\n".join(their_lines(c["body"])).strip(),
             "mine": {"when": hhmm(ts(mine["createdAt"])), "quote": excerpt(mine["body"], 300)} if mine else None,

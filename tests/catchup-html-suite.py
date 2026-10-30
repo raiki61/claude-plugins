@@ -124,8 +124,8 @@ class FieldsTest(unittest.TestCase):
         self.assertTrue(any("nodes[1].code[0].path nope.py は差分に無い" in e for e in errs), errs)
         self.assertFalse(any("nodes[0]" in e for e in errs), errs)
         code = ch.point_code(data, fields(points=pts, figure=fig))
-        self.assertEqual(list(code["nodes"]), ["a"])
-        self.assertIn("+    new = 1", code["nodes"]["a"][0]["text"])
+        self.assertEqual(list(code["nodes"]), ["0.a"])  # 図の番号.箱の id
+        self.assertIn("+    new = 1", code["nodes"]["0.a"][0]["text"])
         # 増える・変わる箱に番号を付け忘れると、押してもコードが開かない。差分の外の物は [] で無いと示す
         fig2 = {"kind": "graph", "nodes": [{"id": "a", "text": "受け口の制限", "in": "after"},
                                            {"id": "b", "text": "手で作る値", "in": "after", "points": []},
@@ -177,6 +177,27 @@ class FieldsTest(unittest.TestCase):
         page = ch.TEMPLATE.read_text(encoding="utf-8")
         self.assertIn('"data-ek": ekey(e)', page)
         self.assertIn('.g-edge[data-ek=', page)
+
+    def test_boxes_with_the_same_id_in_two_figures_keep_their_own_code_and_highlight(self):
+        # 箱の id は図ごとにしか一意でない（変更前と変更後の図に同じ "api" を置く）。id だけの鍵だと、後の図のコードが
+        # 前の図の箱を上書きし、コードの無い箱が押せる箱になって別の図のコードを開き、変更点の光らせが別の図の箱にも出た
+        data = {"views": [{"id": "all", "text": DIFF}]}
+        pts = {"items": [{"title": "終了コード", "after": "連鎖をたどる"}, {"title": "文書", "after": "直す"}]}
+        g1 = {"kind": "graph", "nodes": [{"id": "api", "text": "前の受け口", "points": [1],
+                                          "code": [{"path": "app/retry.py", "find": "new = 1"}]}]}
+        g2 = {"kind": "graph", "nodes": [{"id": "api", "text": "後の受け口", "points": [2],
+                                          "code": [{"path": "docs/x.md", "find": "b"}]}, {"id": "db", "text": "表"}]}
+        code = ch.point_code(data, fields(points=pts, figure=[g1, {"kind": "compare", "rows": []}, g2]))["nodes"]
+        self.assertEqual(sorted(code), ["0.api", "2.api"])  # 図の番号.箱の id。図の並びのまま（compare も数える）
+        self.assertIn("new = 1", code["0.api"][0]["text"])
+        self.assertIn("+b", code["2.api"][0]["text"])
+        # ページの側も、コード・押せるか・変更点の光らせを図の番号.id で引き、光らせる箱を図の中の物に絞る
+        page = ch.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('"data-nk": nkey(n)', page)
+        self.assertIn(".g-node[data-nk=", page)
+        self.assertNotIn(".g-node[data-id=", page)
+        self.assertNotIn("(CODE.nodes || {})[n.id]", page)
+        self.assertIn("`${fi}.${n.id}`", page.split("function pointsKey(", 1)[1].split("\nfunction ", 1)[0])
         page = ch.TEMPLATE.read_text(encoding="utf-8")
         self.assertIn("この PR では変えていない", page)
         self.assertIn("POINT_EDGES", page)
@@ -293,7 +314,7 @@ class FieldsTest(unittest.TestCase):
         f = dict(ch.SAMPLE_FIELDS)
         page = ch.build_html(ch.TEMPLATE.read_text(encoding="utf-8"), data, f, ch.index_entry(data, f, "x.html", ch.dt.datetime(2026, 1, 1)))
         self.assertIn('"code": {"points": [[{"path": "app/retry.py"', page)
-        self.assertIn('"nodes": {"walk": [{"path": "app/retry.py"', page)
+        self.assertIn('"nodes": {"0.walk": [{"path": "app/retry.py"', page)
         self.assertIn("埋め込み: @dagrejs/dagre 3.1.1", page)
         self.assertIn("Copyright (c) 2012-2014 Chris Pettitt", page)
 
@@ -703,6 +724,17 @@ class PageItemTest(unittest.TestCase):
         self.assertIn("GitHub の外（チャット・口頭・メール）でのやり取り", page["unseen"])
         self.assertEqual([e["who"] for e in page["events"]], ["hanako"])
         json.dumps(page)  # JSON に書ける（datetime を持ち込まない）
+
+    def test_thread_on_a_deleted_line_is_marked_by_the_base_line_number(self):
+        # 削除された行への指摘（diffSide が LEFT）は、line が base の版の番号。ページが head の番号（.line-num2）で
+        # 指摘の行を探すと、別の（+ の）行に印が付くか、どこにも付かない。見出しも head の行のように見えた
+        th = pr_node()["reviewThreads"]["nodes"][0]
+        page = self.build(pr_node(reviewThreads=conn([dict(th, diffSide="LEFT"), th])))
+        self.assertEqual([t["left"] for t in page["threads"]], [True, False])
+        tpl = (ROOT / "attention" / "templates" / "catchup.html").read_text(encoding="utf-8")
+        body = tpl.split("\nfunction thread(", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn('th.left ? ".line-num1" : ".line-num2"', body)
+        self.assertIn("（削除された側。base の版の行）", body)  # 端末の thread_where と同じ言葉
 
     def test_own_pr_reviewed_after_request_hides_candidates(self):
         # GitHub はレビューを送った人を依頼の一覧から外す（#1901）。依頼の記録とレビューがあれば候補の札は出さない

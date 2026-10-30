@@ -5745,7 +5745,7 @@ expect_output 0 "RANGE_DOTTED_OK" \
     "$PY_BIN" "$CU_CASE" range-dotted
 
 expect_output 0 "CAP_CHECKS_OK" \
-    "catchup: CI のチェックが取得の上限を超えていれば、取った分だけで全 pass と言い切らず、残りを見ていないものに書く" \
+    "catchup: CI のチェックが取得の上限を超えていれば、取った分だけで全 pass と言い切らず、残りを見ていないものに書く。CI の行も「取った N 件は全 pass」と言い、HTML の札を緑にしない" \
     "$PY_BIN" "$CU_CASE" cap-checks
 
 expect_output 0 "THREADS_QUOTE_OK" \
@@ -5757,7 +5757,7 @@ expect_output 0 "THREADS_LEFT_OK" \
     "$PY_BIN" "$CU_CASE" threads-left
 
 expect_output 0 "PASS2_THREADS_OK" \
-    "catchup: @Me は me への呼びかけ・他の人同士のスレッドを私が最後に発言したと言わない・空行で終わる引用だけの発言も全文を出す・自分の PR の未返信の指摘を 1 行目の理由に数える・削除された行の場所に base の版と添える" \
+    "catchup: @Me は me への呼びかけ・他の人同士のスレッドを私が最後に発言したと言わない・空行で終わる引用だけの発言も全文を出す・自分の PR の未返信の指摘を 1 行目の理由に数える・削除された行の場所に base の版と添える・渡した PR で担当の仲間が返したスレッドを私のターンにしない" \
     "$PY_BIN" "$CU_CASE" pass2-threads
 
 expect_output 0 "BRANCH_WIRING_OK" \

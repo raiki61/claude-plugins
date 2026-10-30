@@ -643,20 +643,35 @@ def name_status(cwd=None, rev="HEAD"):
 def changed_pairs(cwd=None, rev="HEAD"):
     """rev と比べて変わった file を [(振り分けに使う path, git に渡す path の組)]。改名は新旧を 1 組で
     返す——新側だけを pathspec に渡すと git が対を作れず、中身の変更が消えて全行 + の「新規」diff に
-    なる（実測）。失敗なら None。"""
+    なる（実測）。複写（C。diff.renames=copies）は組にしない——元は残っているので、複写先だけを渡して
+    新規の diff にする（元と組にすると元との差になり、そのままの複写は hunk が無い）。失敗なら None。"""
     recs = name_status(cwd=cwd, rev=rev)
     if recs is None:
         return None
-    return [(path, (old, path) if old else (path,)) for _, old, path in recs]
+    return [(path, (old, path) if old and status[:1] == "R" else (path,)) for status, old, path in recs]
+
+
+def diff_base(rev="HEAD", cwd=None):
+    """diff の比べる元。HEAD がまだ無い（git init の直後で commit が 1 つも無い）なら空の木——HEAD のまま
+    渡すと git diff が失敗し、木は出るのに中身が「出せない」になる（実測）。HEAD 以外はそのまま。"""
+    if rev == "HEAD" and git("rev-parse", "--verify", "-q", "HEAD", cwd=cwd) is None:
+        return EMPTY_TREE
+    return rev
 
 
 def frame_diff(cwd=None, rev="HEAD", paths=()):
     """枠のための diff。コードは関数まるごと（git diff -W）、散文・設定は文脈 PROSE_CONTEXT 行（-W は関数の境目を
     探すので、境目の無い file では文脈が file 全体に広がる）。rev は比べる元（手元なら HEAD、PR なら
-    base...head）。paths を省くと rev の変更 file を git に聞いて振り分ける（改名は新旧を同じ側に入れる
-    ——割ると対が作れない）。どれか 1 本でも失敗したら None（半分の diff を返すと、落ちた側の file が
-    「変更なし」に見える）。"""
-    pairs = [(p, (p,)) for p in paths] if paths else changed_pairs(cwd=cwd, rev=rev)
+    base...head。HEAD がまだ無ければ空の木と比べる）。paths を省くと rev の変更 file を git に聞いて振り分ける
+    （改名は新旧を同じ側に入れる——割ると対が作れない）。paths を渡しても改名の新側には旧側を足す（--frame
+    新しい名前で、全行 + の「新規」にしない。changed_pairs の注意と同じ）。どれか 1 本でも失敗したら None
+    （半分の diff を返すと、落ちた側の file が「変更なし」に見える）。"""
+    rev = diff_base(rev, cwd)
+    pairs = changed_pairs(cwd=cwd, rev=rev)
+    if pairs is not None and paths:
+        # 変更の一覧に無い path（未追跡・変更なし）はそのまま渡す
+        known = dict(pairs)
+        pairs = [(p, known.get(p, (p,))) for p in paths]
     if pairs is None:
         return None
     parts = []
@@ -903,6 +918,18 @@ def porcelain_records(porcelain):
     return out
 
 
+def status_mark(codes):
+    """状態の文字（git status --porcelain の XY か、--name-status の 1 字目）を (木の印, 元の path の呼び名) に。
+    手元の木（entries_from_porcelain）と commit の木（commit_tree）が共用する——片方だけ直すと、同じ複写が
+    手元では改名、commit では新規に読める。複写（C。status.renames か diff.renames が copies）は元が残る
+    新規なので "+" と「複写元」。"~" と「旧」だと改名に読める（元は消えていない）。"""
+    if "?" in codes or "A" in codes or "C" in codes:
+        return "+", "複写元" if "C" in codes else "旧"
+    if "D" in codes:
+        return "-", "旧"
+    return "~", "旧"
+
+
 def entries_from_porcelain(porcelain, numstat=None):
     """git status --porcelain -z の出力を木の entries にする。numstat は path → (追加, 削除)。"""
     numstat = numstat or {}
@@ -912,13 +939,8 @@ def entries_from_porcelain(porcelain, numstat=None):
         path = path.rstrip("/")
         if not path:
             continue
-        if xy == "??" or "A" in xy:
-            mark = "+"
-        elif "D" in xy:
-            mark = "-"
-        else:
-            mark = "~"
-        note = change_note(mark, *numstat.get(path, (None, None)), whole_dir=whole_dir, old=old)
+        mark, label = status_mark(xy)
+        note = change_note(mark, *numstat.get(path, (None, None)), whole_dir=whole_dir, old=old, label=label)
         entries.append({"path": path, "mark": mark, "note": note})
     return entries
 
@@ -945,7 +967,7 @@ def working_tree(cwd=None):
     if porcelain is None:
         return None, None
     entries = entries_from_porcelain(
-        porcelain, parse_numstat(git("diff", *DIFF_SANE, "HEAD", "--numstat", "-z", cwd=cwd)))
+        porcelain, parse_numstat(git("diff", *DIFF_SANE, diff_base("HEAD", cwd), "--numstat", "-z", cwd=cwd)))
     return _tree(entries, cwd)
 
 
@@ -999,11 +1021,9 @@ def commit_tree(rev, cwd=None):
     nums = parse_numstat(git("diff", *DIFF_SANE, "--numstat", "-z", rev, "--", cwd=cwd))
     entries = []
     for status, old, path in recs:
-        # 複写（C。diff.renames=copies）は元が残る新規なので "+"。"~" と "旧:" だと改名に読める
-        mark = {"A": "+", "C": "+", "D": "-"}.get(status[:1], "~")
+        mark, label = status_mark(status[:1])
         entries.append({"path": path, "mark": mark,
-                        "note": change_note(mark, *nums.get(path, (None, None)), old=old,
-                                            label="複写元" if status[:1] == "C" else "旧")})
+                        "note": change_note(mark, *nums.get(path, (None, None)), old=old, label=label)})
     return _tree(entries, cwd)
 
 
@@ -1040,6 +1060,13 @@ def parse_numstat(text):
         except ValueError:
             out[path] = (None, None)  # バイナリは "-"
     return out
+
+
+def copy_targets(text):
+    """git diff の全文から、複写（"copy to 新"の見出し）の新側の path の集合。hunk の行は "+"・"-"・" "・"@"・
+    "\\" で始まるので、"copy to " で始まる行は見出しだけ。"""
+    return {unquote_git_path(line[len("copy to "):].strip())
+            for line in (text or "").split("\n") if line.startswith("copy to ")}
 
 
 def tracked_set(cwd, paths):
@@ -1085,11 +1112,17 @@ def frames_section(cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=Tr
     frames = framed_diff(text)
     hunks, _ = split_diff(text)
     tracked = tracked_set(cwd, paths) if new_from_file else set(paths)
+    # add 済みの複写（diff.renames=copies で git が元との差にした file）は新規として手元の file から出す。
+    # 元との差のままだと、そのままの複写は hunk が無く「中身が diff に無い。…改名だけ」と誤って断る（実測）
+    copied = copy_targets(text) if new_from_file else set()
     w("  変更の中身（" + FRAME_NOTE + cap_note(frame_cmd)
       + f"。合計は {FRAME_TOTAL_CAP} 行まで。" + jump_note + "）:")
     total = 0
     for path in sorted(paths):
         info = frames.get(path)
+        if path in copied:
+            out.extend(new_file_rows(cwd, path, "add 済みの新規", frame_cmd))
+            continue
         if info is None and path in tracked:
             w(f"    === {path} （中身が diff に無い。バイナリ・mode・改名だけ）")
             continue
