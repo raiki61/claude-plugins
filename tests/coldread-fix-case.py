@@ -368,16 +368,33 @@ def f16():
         check(16, bool(blk), "同じ語の置換を通した: %s → %r" % (cmd[:60], [c[:30] for c in cands]))
 
 
-# 17. 展開される $( )・${ }・`…` の中の引用符は bash が数え直す。語の印が bash と食い違うので、全体で見る側に倒す
+# 17. 展開される $( )・${ }・`…` の中の引用符は bash が数え直す。語の印が bash と食い違うので、全体で見る側に倒すか止める(18)
 def f17():
     for cmd in ("gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '$(cat f)\" #'",
                 "gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '`cat f`\" #'",
                 "B=secret; echo \"$B\"; gh pr comment 1 -R \"${X:-\"'\"}\" -b \"' --body '$B\" #'"):
-        _, blk, _ = g.posting_bodies(cmd, WORK)
-        check(17, bool(blk), "置換の中の引用符で印がずれた本文を通した: %s" % cmd[:60])
+        _, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(17, bool(blk) or not parsed, "置換の中の引用符で印がずれた本文を通した: %s" % cmd[:60])
 
 
-for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17), 1):
+# 18. 二重引用の中の置換が、shlex の閉じる " より前に閉じると言い切れなければ、語の切れ目が bash と違いうるので解析できない物として止める
+#     (印を付けない見方に倒しても、ずれた語を本文と読んで通していた)。閉じると言い切れる正直な形は今までどおり読む
+def f18():
+    for cmd in ("gh issue create -R o/r -t \"$(printf %s \"'\")\" -b \"' -t '$(cat f)' --body 'hello\" #'",
+                "gh pr comment 1 -R \"$(case a in a) printf %s \"'\";; esac)\" -b \"' --body '$(cat f)\" #'",
+                "gh pr comment 1 -R \"${x//)/}\" -b \"' --body '$(cat f)\" #'",
+                "gh pr comment 1 -R \"`echo \"'\"`\" -b \"' --body '$(cat f)\" #'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(18, not parsed, "置換の中の引用符で語のずれる形を読めた物と見た: %s → %r %r" % (cmd[:60], [c[:30] for c in cands], blk))
+    for cmd, want in (("gh pr create --title \"$(git log -1 --format='%%s')\" --body 'plain %s'" % BODY, "plain "),
+                      ("gh pr comment 1 -R \"${R:-o/r}\" --body 'plain %s'" % BODY, "plain "),
+                      ("gh pr comment 1 -R \"$((1+2))\" --body 'plain %s'" % BODY, "plain ")):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(18, parsed and len(cands) == 1 and cands[0].startswith(want) and not blk,
+              "閉じると言い切れる置換を読めない物と見た: %s → %r %r %r" % (cmd[:60], [c[:30] for c in cands], blk, parsed))
+
+
+for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18), 1):
     guarded(n, fn)
 
 shutil.rmtree(WORK, ignore_errors=True)

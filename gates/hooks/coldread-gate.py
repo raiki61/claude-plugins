@@ -660,6 +660,63 @@ def _quote_in_substitution(norm, spots):
     return False
 
 
+def unsure_substitution(norm):
+    """二重引用の中の $( ・ ${ ・ `…` のどれかが、shlex が二重引用を閉じる " より前に閉じると言い切れないか。
+
+    bash は置換の中で引用を数え直すので、`-t "$(printf %s "'")" -b "' -t '$(cat f)' --body 'hello" #'` は bash では -b の
+    本文が置換を含むのに、shlex は "'" の " で二重引用を閉じ、その後ろを別の語に切る。語の切れ目が bash と違うと、印を
+    付けない見方(全体で見る)でも別の旗の値を本文と読むので、言い切れないコマンドは解析できない物として止める。
+    置換の頭から次の " までを、置換の入れ子の段を数えながら読む。単一引用は $( ) の段の中でだけ組を飛ばす。
+    \\・$'・case・語の頭の #・`…` の入れ子・${ } の段の中の ( { ' は数え方が bash とずれうるので、言い切れない側に倒す。"""
+    unsure, ticks = [], []
+
+    def hit(t, i):
+        if t[i] == "`":
+            ticks.append(i)
+        if (t[i] == "`" and len(ticks) % 2) or t.startswith("$(", i) or t.startswith("${", i):
+            end = t.find('"', i)
+            if not _closes_before(t[i:len(t) if end < 0 else end]):
+                unsure.append(i)
+        return False
+    _live(norm, hit, where=('"',))
+    return bool(unsure)
+
+
+def _closes_before(s):
+    """s(置換の頭から、shlex が二重引用を閉じる " の手前まで)の中で、頭の置換が閉じると言い切れるか。"""
+    if s[0] == "`":
+        end = s.find("`", 1)
+        return end > 0 and "\\" not in s[1:end]
+    if re.search(r"\b(case|esac)\b", s):
+        return False
+    stack, i = [], 1
+    while i < len(s):
+        c, top = s[i], stack[-1] if stack else None
+        if c == "'":
+            j = s.find("'", i + 1)
+            if top != ")" or j < 0:
+                return False
+            i = j
+        elif c in "`\\" or s.startswith("$'", i) or (c == "#" and top == ")" and s[i - 1] in " \t\n;(|&"):
+            return False
+        elif c == "(":
+            if top == "}" and s[i - 1] != "$":
+                return False
+            stack.append(")")
+        elif c == "{" and s[i - 1] == "$":
+            stack.append("}")
+        elif c == "{" and top == "}":
+            return False
+        elif c in ")}" and top == c:
+            stack.pop()
+            if not stack:
+                return True
+        elif c == ")":
+            return False
+        i += 1
+    return False
+
+
 def _live(text, hit, where=(None, '"')):
     """where に挙げた引用の中(None は引用の外)で hit(text, 位置) が真になる位置が在るか。既定は単一引用の外。"""
     i, quote = 0, None
@@ -1861,6 +1918,8 @@ def analyze(command, cwd=None, prepared=None):
     # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
     live = live_substitutions(norm)   # 空でなければ has_live_substitution と同じ真
     live_var = has_live_variable(norm)
+    if (live or live_var) and unsure_substitution(norm):
+        return Analysis(False)
     if live or live_var:
         tokens = mark_words(norm, tokens)   # 展開される $・` が無ければ印は要らない(100KB の本文で字句解析を 2 度回さない)
     cmds = split_commands(tokens)
