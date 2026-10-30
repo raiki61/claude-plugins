@@ -833,6 +833,10 @@ def normalize_shell(text):
         return None
     out, i, n, copied, gap = [], 0, len(text), 0, ""
     escaped_end = -1   # \ で引用した字の次の位置。そこの # は語の途中(`a\ #x`)
+    gap_at = -1   # gap の位置
+    # 引用の外の ( の種類("word"=置換・プロセス置換・配列の括弧で、閉じる ) の後も語が続く。"group"=サブシェル・関数・
+    # (( )) の括弧で、閉じる ) の後は語頭)と、閉じた ) の位置ごとの種類(_head が # の前の ) を見る)
+    parens, closed = [], {}
     stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
     while True:
         m = _EVENT_RE.search(text, i)
@@ -848,7 +852,7 @@ def normalize_shell(text):
             if text.startswith(("\\\r\n", "\\\n"), i):
                 # 連結するので gap(直前に出力した 1 文字)は据え置く。ここを改行や空白に
                 # すると `echo x\<改行>#y` の # が語頭に見え、注釈として次の gh まで消える
-                gap = text[i - 1] if i > copied else gap
+                gap, gap_at = (text[i - 1], i - 1) if i > copied else (gap, gap_at)
                 out.append(text[copied:i])
                 i += 3 if text[i + 1] == "\r" else 2
                 copied = i
@@ -888,16 +892,29 @@ def normalize_shell(text):
             if c == "}":
                 stack.pop()
             i += 1
-        elif c in "()" and top[0] == "(":
-            top[1] += 1 if c == "(" else -1
-            if not top[1]:
+        elif c in "()":
+            if top[0] == "(":
+                top[1] += 1 if c == "(" else -1
+            if c == "(":
+                parens.append("word" if i and text[i - 1] in "$<>=" else "group")
+            elif top[0] == "(" and not top[1]:
                 stack.pop()
+                closed[i] = "word"
+            else:
+                # 開きの無い ) は case のパターンか、置換の中の case が置換の括弧を先に閉じた後の ) で、どちらか言い切れない
+                closed[i] = parens.pop() if parens else None
             i += 1
-        elif c == "#" and i != escaped_end and _head(text, i, copied, gap):
+        elif c == "#" and i != escaped_end:
+            head = _head(text, i, copied, gap, gap_at, closed)
+            if head is None:
+                return None
+            if not head:
+                i += 1
+                continue
             line = text[text.rfind("\n", 0, i) + 1:i]
-            if "))" not in line[line.rfind("$(("):] if "$((" in line else False:
-                return None   # 算術の $(( )) の中の # は字で、bash は注釈にしない。どこで閉じるかを言い切れない
-            gap = text[i - 1] if i > copied else gap
+            if "))" not in line[line.rfind("(("):] if "((" in line else False:
+                return None   # 算術の (( ))・$(( )) の中の # は字で、bash は注釈にしない。どこで閉じるかを言い切れない
+            gap, gap_at = (text[i - 1], i - 1) if i > copied else (gap, gap_at)
             out.append(text[copied:i])
             nl = text.find("\n", i)
             i = n if nl < 0 else nl  # 改行は残す(単純コマンドの区切り)
@@ -910,18 +927,23 @@ def normalize_shell(text):
     return "".join(out)
 
 
-def _head(text, i, copied, gap):
+def _head(text, i, copied, gap, gap_at=-1, closed=None):
     r"""text[i] が語頭か——注釈の始まりかどうかの判定。
 
-    `)` の後は語頭と見ない。置換を閉じる `)`(`$(echo a)#x`・`$((1+2))#x`)の後の # は語の途中で、注釈と見て落とすと
-    同じ行の後ろの gh を見落とす。サブシェルの `(cd x)# …` の注釈は落とさずに語として読み、中の引用符で読めなければ止める。
+    `)` の後は、閉じた括弧の種類(closed。normalize_shell が積む)で分ける。置換・プロセス置換・配列の括弧を閉じる `)`
+    (`$(echo a)#x`・`$((1+2))#x`・`<(ls)#x`・`a=(x)#x`)の後の # は語の途中で、注釈と見て落とすと同じ行の後ろの gh を
+    見落とす。サブシェル・関数・`(( ))` の括弧を閉じる `)`(`(cd x)# …`・`f()# …`)の後は語頭で、注釈の中の引用符を語と
+    読むと次の行の gh を引用の中と取り違える。開きの無い `)`(case のパターン)の後は、置換の中の case と言い切れないので
+    読めない物とする(None を返し、normalize_shell も None を返す)。
 
     見るのは「直前に出力した 1 文字」で、入力側の text[i-1] ではない。複製待ちの区間が
     残っていればその末尾が直前の出力、区間が空なら直前の削除の手前の 1 文字(gap)。
     この違いが出るのが `echo x\<改行>#y` で、行継続を落とした後の直前の出力は x なので
     # は語中=注釈ではない。入力側で見ると改行が直前になり、注釈として後ろの gh まで消える。
     """
-    prev = text[i - 1] if i > copied else gap
+    prev, at = (text[i - 1], i - 1) if i > copied else (gap, gap_at)
+    if prev == ")" and closed is not None:
+        return None if closed.get(at) is None else closed[at] == "group"
     return not prev or prev in " \t\n;|&("
 
 
@@ -1903,8 +1925,11 @@ class BodyFiles:
         # 二重引用の中の置換で走るコマンド(`x="$(cp a f)"; gh … --body-file f`)。走る順は読まずに書き手に数える。
         # 置換の中の代入(`"$(f=note.md; cp evil $f)"`)は外から見えないので、置換の中で代入した名前を使う語は同じファイルかもしれない物と見る
         assigned = {t.split("=", 1)[0] for args, _ in self.hidden for t in args[:command_start(args)] if ENV_PREFIX_RE.match(t)}
-        assigned.update(t for args, _ in self.hidden if args[command_start(args):][:1] and args[command_start(args)] in REASSIGN_CMDS
-                        for t in args if re.fullmatch(r"[A-Za-z_]\w*", t))
+        assigned.update(re.match(r"[A-Za-z_]\w*", t).group() for args, _ in self.hidden
+                        if args[command_start(args):][:1] and args[command_start(args)] in REASSIGN_CMDS | {"export"}
+                        for t in args if re.match(r"[A-Za-z_]\w*(?:\+?=|$)", t))
+        assigned.update(m.group(1) for args, redirects in self.hidden for t in list(args) + [d for _, d in redirects]
+                        for m in re.finditer(r"\$\{([A-Za-z_]\w*):?=", t))
         named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))
 
         def hidden_target(t):

@@ -448,12 +448,18 @@ def f20():
                 "echo \"S $$(\" #\"\n)\"; gh pr comment 1 --body EVILBODY #\"",
                 "echo \"S $${\" #\"\n}\"; gh pr comment 1 --body EVILBODY #\"",
                 "false && echo \"S $[ \" #\"\n]\"; gh pr comment 1 --body EVILBODY #\"",
-                "false && echo $(( 1 #\"\n\" )); gh pr comment 1 --body EVILBODY #\""):
+                "false && echo $(( 1 #\"\n\" )); gh pr comment 1 --body EVILBODY #\"",
+                "(( x = 1 # )); gh pr comment 1 --body EVILBODY",
+                "for (( i=0; i<1 # ; i++ )); do :; done; gh pr comment 1 --body EVILBODY"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(20, bool(blk) or not parsed or "EVILBODY" in cands, "読めない形の後の本文を見落とした: %r → %r %r" % (cmd[:30], cands, blk))
     # \ で引用した字と、置換を閉じる ) の後の # は語の途中で、同じ行の後ろの gh は走る
     for cmd in ("echo a\\ #x; gh pr comment 1 --body EVILBODY", "echo a\\;#x; gh pr comment 1 --body EVILBODY",
-                "echo $(echo a)#x; gh pr comment 1 --body EVILBODY", "echo $((1+2))#x; gh pr comment 1 --body EVILBODY"):
+                "echo $(echo a)#x; gh pr comment 1 --body EVILBODY", "echo $((1+2))#x; gh pr comment 1 --body EVILBODY",
+                "cat <(echo a)#x; gh pr comment 1 --body EVILBODY", "a=(x)#x; gh pr comment 1 --body EVILBODY",
+                # サブシェル・関数・(( ))・case のパターンを閉じる ) の後の # は注釈で、中の ' の後の行の gh は走る
+                "(cd sub)# '\ngh pr comment 1 --body EVILBODY\n# '", "f()# '\n{ :; }\ngh pr comment 1 --body EVILBODY\n# '",
+                "(( x=1 ))# '\ngh pr comment 1 --body EVILBODY\n# '", "case a in a)# '\ngh pr comment 1 --body EVILBODY\n# '\n;; esac"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(20, bool(blk) or not parsed or "EVILBODY" in cands, "語の途中の # を注釈と見て本文を見落とした: %r → %r %r" % (cmd[:30], cands, blk))
     for cmd in ("printf EVIL > note.md; u=\"$(gh issue comment 1 --body-file \"note.md\")\"",
@@ -463,6 +469,9 @@ def f20():
                 "x=\"$(f=note.md; cp sub/note.md $f)\"; gh issue comment 1 --body-file note.md",
                 "f=a; x=\"$(f=note.md; cat sub/note.md > $f)\"; gh issue comment 1 --body-file note.md",
                 "x=\"$(python3 - <<'EOF'\nopen('note.md','w').write('EVIL BODY')\nEOF\n)\"; gh issue comment 1 --body-file note.md",
+                "F=a.md; x=\"$(export F=note.md; cp other.md $F)\"; gh issue comment 1 --body-file note.md",
+                "x=\"$(declare F=note.md; cp other.md \"$F\")\"; gh issue comment 1 --body-file note.md",
+                "x=\"$(: ${F:=note.md}; cp other.md $F)\"; gh issue comment 1 --body-file note.md",
                 "______________=\"benign\"; gh issue comment 1 --body \"${x:-\"REAL BODY\"}\""):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(20, (bool(blk) and not cands) or not parsed, "外の効果の見えない本文を読んで通した: %s → %r" % (cmd[:50], cands))
@@ -472,6 +481,8 @@ def f20():
                 "LOG=\"$(git log --oneline \"$BASE\"..HEAD)\"; gh pr comment 1 --body-file note.md"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(20, parsed and cands == ["BENIGN NOTE"] and not blk, "置換の中の $ を持つ語を書き手と見て止めた: %r → %r %r" % (cmd[:40], cands, blk))
+    cands, blk, parsed = g.posting_bodies("(cd sub)# it's fine\ngh pr comment 1 --body ok", WORK)
+    check(20, parsed and cands == ["ok"] and not blk, "サブシェルの後の注釈を語と読んで止めた: %r %r %r" % (cands, blk, parsed))
     deep = "x=" + "\"$(echo a " * 400 + "z" + ")\"" * 400 + "; gh issue comment 1 --body-file note.md"
     started = time.monotonic()
     cands, blk, parsed = g.posting_bodies(deep, WORK)
