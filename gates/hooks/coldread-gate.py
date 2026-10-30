@@ -660,61 +660,96 @@ def _quote_in_substitution(norm, spots):
     return False
 
 
-def unsure_substitution(norm):
-    """二重引用の中の $( ・ ${ ・ `…` のどれかが、shlex が二重引用を閉じる " より前に閉じると言い切れないか。
+def substitution_spans(norm):
+    """bash が 1 つの語の中で走らせる置換の、(頭, 閉じる字の位置, 種類, 二重引用の中か) の並び。閉じる所を言い切れなければ None。
 
-    bash は置換の中で引用を数え直すので、`-t "$(printf %s "'")" -b "' -t '$(cat f)' --body 'hello" #'` は bash では -b の
-    本文が置換を含むのに、shlex は "'" の " で二重引用を閉じ、その後ろを別の語に切る。語の切れ目が bash と違うと、印を
-    付けない見方(全体で見る)でも別の旗の値を本文と読むので、言い切れないコマンドは解析できない物として止める。
-    置換の頭から次の " までを、置換の入れ子の段を数えながら読む。単一引用は $( ) の段の中でだけ組を飛ばす。
-    \\・$'・case・語の頭の #・`…` の入れ子・${ } の段の中の ( { ' は数え方が bash とずれうるので、言い切れない側に倒す。"""
-    unsure, ticks = [], []
-
-    def hit(t, i):
-        if t[i] == "`":
-            ticks.append(i)
-        if (t[i] == "`" and len(ticks) % 2) or t.startswith("$(", i) or t.startswith("${", i):
-            end = t.find('"', i)
-            if not _closes_before(t[i:len(t) if end < 0 else end]):
-                unsure.append(i)
-        return False
-    _live(norm, hit, where=('"',))
-    return bool(unsure)
-
-
-def _closes_before(s):
-    """s(置換の頭から、shlex が二重引用を閉じる " の手前まで)の中で、頭の置換が閉じると言い切れるか。"""
-    if s[0] == "`":
-        end = s.find("`", 1)
-        return end > 0 and "\\" not in s[1:end]
-    if re.search(r"\b(case|esac)\b", s):
-        return False
-    stack, i = [], 1
-    while i < len(s):
-        c, top = s[i], stack[-1] if stack else None
-        if c == "'":
-            j = s.find("'", i + 1)
-            if top != ")" or j < 0:
-                return False
-            i = j
-        elif c in "`\\" or s.startswith("$'", i) or (c == "#" and top == ")" and s[i - 1] in " \t\n;(|&"):
-            return False
-        elif c == "(":
-            if top == "}" and s[i - 1] != "$":
-                return False
-            stack.append(")")
-        elif c == "{" and s[i - 1] == "$":
-            stack.append("}")
-        elif c == "{" and top == "}":
-            return False
-        elif c in ")}" and top == c:
-            stack.pop()
-            if not stack:
-                return True
-        elif c == ")":
-            return False
+    見るのは、二重引用の中の $( )・${ } と、`…` と、引用の外の ${ }。引用の外の $( ) は shlex が語に割って、中の gh も
+    単純コマンドとして見えるので並べない(その中は 1 字ずつ読み進める)。二重引用の中の $( ) と `…` は shlex には 1 語で、
+    中の gh の投稿(`u="$(gh pr create --body '…')"`)が見えないので、analyze が中身を別のコマンドとして読む。
+    bash は置換の中で引用符を数え直す。中に " を持つ置換は、shlex が置換の途中で二重引用を閉じて語の切れ目が bash と違う
+    (`-t "$(printf %s "'")" -b "' -t '$(cat f)' --body 'hello" #'`)ので、analyze が中身を字のままの埋め草に替えてから語に割る。"""
+    spans, i, quote = [], 0, None
+    while i < len(norm):
+        c = norm[i]
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif c == "\\":
+            i += 1
+        elif c == "`" or norm.startswith("${", i) or (quote == '"' and norm.startswith("$(", i)):
+            end = substitution_end(norm, i)
+            if end is None:
+                return None
+            spans.append((i, end, "`" if c == "`" else norm[i + 1], quote == '"'))
+            i = end
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+        elif c == "'" and quote is None:
+            quote = "'"
         i += 1
-    return False
+    return spans
+
+
+def substitution_end(text, start):
+    """start の $( ・ ${ ・ ` を bash が閉じる字の位置。言い切れなければ None。
+
+    段(置換・二重引用)を積んで読む。単一引用は組を飛ばす(${ } の段では、組の中に } が在れば読み方が版で割れるので None)。
+    `…` の入れ子・$'…'・case(パターンの ) が閉じに見える)・語の頭の #(コメント。${ } の中では bash は読まないが、
+    normalize_shell は読む)・${ } の段の中の ( { \\・$( ) の段の中の対にならない ) は、数え方が bash とずれうるので None。"""
+    if text[start] == "`":
+        j = start + 1
+        while j < len(text):
+            if text[j] == "\\":
+                j += 2
+            elif text[j] == "`":
+                return j
+            else:
+                j += 1
+        return None
+    stack, i = [")" if text[start + 1] == "(" else "}"], start + 2
+    while i < len(text):
+        c, top = text[i], stack[-1]
+        opens = text.startswith("$(", i) or text.startswith("${", i)
+        if top == '"':
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                stack.pop()
+            elif c == "`":
+                return None
+            elif opens:
+                stack.append(")" if text[i + 1] == "(" else "}")
+                i += 1
+        elif c == "`" or text.startswith("$'", i) or (c == "\\" and top == "}"):
+            return None
+        elif c == "\\":
+            i += 1
+        elif c == "'":
+            j = text.find("'", i + 1)
+            if j < 0 or (top == "}" and "}" in text[i:j]):
+                return None
+            i = j
+        elif c == '"':
+            stack.append('"')
+        elif c == "#" and top == ")" and not (text[i - 1].isalnum() or text[i - 1] in "_$"):
+            return None
+        elif opens:
+            stack.append(")" if text[i + 1] == "(" else "}")
+            i += 1
+        elif c == "(":
+            if top == "}":
+                return None
+            stack.append(")")
+        elif c == "{" and top == "}":
+            return None
+        elif c in ")}":
+            if c == top:
+                stack.pop()
+                if not stack:
+                    return None if re.search(r"\b(?:case|esac)\b", text[start:i]) else i
+            elif c == ")":
+                return None
+        i += 1
+    return None
 
 
 def _live(text, hit, where=(None, '"')):
@@ -1911,6 +1946,12 @@ def analyze(command, cwd=None, prepared=None):
 
     prepared は呼び元が先に通した prepare(command) の結果(渡せば prepare を 2 度回さない)。"""
     norm, heredoc_bodies = prepared or prepare(command)
+    spans = substitution_spans(norm)
+    if spans is None:
+        return Analysis(False)
+    inner, norm = read_substitutions(norm, spans, cwd, heredoc_bodies)
+    if inner is None:
+        return Analysis(False)
     tokens = tokenize(norm)
     if tokens is None:
         return Analysis(False)
@@ -1918,8 +1959,6 @@ def analyze(command, cwd=None, prepared=None):
     # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
     live = live_substitutions(norm)   # 空でなければ has_live_substitution と同じ真
     live_var = has_live_variable(norm)
-    if (live or live_var) and unsure_substitution(norm):
-        return Analysis(False)
     if live or live_var:
         tokens = mark_words(norm, tokens)   # 展開される $・` が無ければ印は要らない(100KB の本文で字句解析を 2 度回さない)
     cmds = split_commands(tokens)
@@ -1958,7 +1997,41 @@ def analyze(command, cwd=None, prepared=None):
                 flag = next((dispatch_flag(t)[0] for t in c.args if dispatch_flag(t)[0]), None)
                 if flag:
                     out.misses.append((flag, _head_word(c.args)))
+    for sub in inner:
+        out.calls += sub.calls
+        out.lost += sub.lost
+        out.candidates += sub.candidates
+        out.blocked += sub.blocked
+        out.misses += sub.misses
     return out
+
+
+def read_substitutions(norm, spans, cwd, heredoc_bodies):
+    """substitution_spans の置換の中身を、別のコマンドとして読む → (中の Analysis の並び, 語に割る写し)。読めなければ (None, norm)。
+
+    中の gh は、前の cd・pushd の先で走りうるので、コマンドに cd・pushd・popd が在れば走る場所を知らない物として読む
+    (本文ファイルを読まない側に倒れる)。前の代入も中には届けない(変数の本文は止まる側に倒れる)。${ } の中の $( )・`…` は
+    走るかが値しだいなので読めない物とする。中に " を持つ置換と、引用符を持つ `…` は、語の切れ目を bash に合わせるため、
+    写しの中身を埋め草(_)に替える(頭の $( ・` と閉じる字は残すので、本文に在れば置換渡しとして止まる)。"""
+    inner, chars = [], None
+    moves = re.search(r"(?:^|[\s;&|(])(?:cd|pushd|popd)(?=[\s;&|)]|$)", norm)
+    for start, end, kind, in_dq in spans:
+        head = start + (1 if kind == "`" else 2)
+        body = norm[head:end]
+        if kind == "{":
+            if "$(" in body or "`" in body:
+                return None, norm
+            blank = in_dq and '"' in body
+        else:
+            sub = analyze(None, None if moves else cwd, (body, heredoc_bodies))
+            if not sub.parsed:
+                return None, norm
+            inner.append(sub)
+            blank = '"' in body or (kind == "`" and "'" in body)
+        if blank:
+            chars = chars or list(norm)
+            chars[head:end] = "_" * (end - head)
+    return inner, norm if chars is None else "".join(chars)
 
 
 def posting_bodies(command, cwd=None):

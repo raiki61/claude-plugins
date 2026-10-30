@@ -377,7 +377,7 @@ def f17():
         check(17, bool(blk) or not parsed, "置換の中の引用符で印がずれた本文を通した: %s" % cmd[:60])
 
 
-# 18. 二重引用の中の置換が、shlex の閉じる " より前に閉じると言い切れなければ、語の切れ目が bash と違いうるので解析できない物として止める
+# 18. 二重引用の中の置換の閉じる所を言い切れなければ、語の切れ目が bash と違いうるので解析できない物として止める
 #     (印を付けない見方に倒しても、ずれた語を本文と読んで通していた)。閉じると言い切れる正直な形は今までどおり読む
 def f18():
     for cmd in ("gh issue create -R o/r -t \"$(printf %s \"'\")\" -b \"' -t '$(cat f)' --body 'hello\" #'",
@@ -394,7 +394,32 @@ def f18():
               "閉じると言い切れる置換を読めない物と見た: %s → %r %r %r" % (cmd[:60], [c[:30] for c in cands], blk, parsed))
 
 
-for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18), 1):
+# 19. 二重引用の中の $( ) と `…` の中の gh の投稿も読む(shlex には 1 語で、前は中の本文を読み手に回さずに通していた)。
+#     置換の中に " を書いた正直な形は、語の切れ目を bash に合わせて読む。閉じる所を言い切れない形(語の頭の #・引用の外の ${ } の中の #)は止める
+def f19():
+    for cmd, want in (("u=\"$(gh pr create --title t --body 'inner %s')\"" % BODY, "inner "),
+                      ("u=`gh pr create --title t --body 'inner %s'`" % BODY, "inner "),
+                      ("echo \"url: $(gh issue comment 1 --body \"inner %s\")\"" % BODY, "inner "),
+                      ("gh pr comment 1 -R \"${REPO:-\"o/r\"}\" --body 'plain %s'" % BODY, "plain "),
+                      ("gh pr comment 1 -R \"$(printf '%%s' \"o/r\")\" --body 'plain %s'" % BODY, "plain ")):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(19, parsed and len(cands) == 1 and cands[0].startswith(want) and not blk,
+              "置換の中の投稿か正直な形を読めなかった: %s → %r %r %r" % (cmd[:60], [c[:30] for c in cands], blk, parsed))
+    for cmd in ("for f in a b; do echo \"$(basename \"$f\")\"; done; gh pr list",
+                "gh api \"repos/$(gh repo view --json nameWithOwner -q \".nameWithOwner\")/pulls\""):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(19, parsed and not cands and not blk, "読むだけの gh を止めた: %s → %r %r %r" % (cmd[:60], cands, blk, parsed))
+    for cmd in ("cd sub && echo \"url: $(gh pr create --title t --body-file note.md)\"",
+                "x=\"$(gh pr comment 1 --body \"$(cat f)\")\""):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(19, bool(blk) or not parsed, "置換の中の読めない本文を通した: %s → %r" % (cmd[:60], [c[:30] for c in cands]))
+    for cmd in ("gh issue comment 1 --body \"%s\" -t \"$( (true)#)\" '\n)\" --body 'EVIL' #'" % BODY,
+                "gh issue comment 1 ${x:- #'}'} --body 'EVIL %s'" % BODY):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(19, not parsed, "閉じる所を言い切れない置換を読めた物と見た: %s → %r %r" % (cmd[:60], [c[:30] for c in cands], blk))
+
+
+for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19), 1):
     guarded(n, fn)
 
 shutil.rmtree(WORK, ignore_errors=True)
