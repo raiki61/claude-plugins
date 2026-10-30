@@ -143,6 +143,7 @@ def reorg(a, ports, cwd):
     if not any([a.name, a.role, a.persistent, a.ephemeral, a.boss]):
         print("止めた: --reorg には、替える物（--name・--role・--persistent か --ephemeral・--boss）を 1 つ以上渡す")
         return 2
+    cwd = ports.git.toplevel(cwd) or cwd   # 作業場の下のフォルダから打っても、部署の行（作業場のルート）と比べる
     attrs = ports.attrs(cwd)
     common = ports.git.common_dir(cwd)
     if not attrs.get("role") or not common:
@@ -197,6 +198,7 @@ def reorg(a, ports, cwd):
 
 def desk(a, ports, cwd):
     """--desk [名前]。本社で持ち主と話す会話を窓口として名付ける。終了の値。"""
+    cwd = ports.git.toplevel(cwd) or cwd   # 本社の下のフォルダから打っても、本社の行（代表の clone のルート）と比べる
     common = ports.git.common_dir(cwd)
     if not common:
         print(f"止めた: {cwd} が git でない（窓口は会社の代表の clone で開く）")

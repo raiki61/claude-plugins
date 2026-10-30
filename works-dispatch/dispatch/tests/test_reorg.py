@@ -105,6 +105,29 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("部署でない", out)
 
+    def test_reorg_and_desk_typed_from_a_folder_under_the_place_find_their_own_row(self):
+        # 作業場の下のフォルダから打つと、打った場所を作業場のルートと比べられず、自分の名前をぶつかりと見て止め、表示も付け直さなかった
+        sub = os.path.join(self.place, "sub")
+        os.makedirs(sub)
+        self.ports._cwd = sub
+        rc, out = self.main("--reorg", "--name", "振り分け", "--role", "担当")
+        self.assertEqual(rc, 0, out)   # 自分の今の名前はぶつからない
+        rc, out = self.main("--reorg", "--name", "割り振り")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(("rename_pane", self.pane, "割り振り"), self.ports.term.writes)
+        self.ports.term.writes.clear()
+        office = os.path.join(self.src, "sub")
+        os.makedirs(office)
+        self.ports._cwd = office
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        for p in self.ports.term._panes:
+            if p["pane_id"] == self.office_pane:
+                p["agent_session"] = "s-desk"
+        for _ in range(2):   # 2 度目は、本社が今持つ名前と同じ名前を名乗る
+            rc, out = self.main("--desk")
+            self.assertEqual(rc, 0, out)
+        self.assertIn(("rename_pane", self.office_pane, "窓口"), self.ports.term.writes)
+
     def test_a_name_another_department_has_stops(self):
         other = str(pathlib.Path(self.root) / "other")
         self.g.add_worktree(other, "work/other", "origin/main")
