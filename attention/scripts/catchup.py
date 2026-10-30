@@ -1103,9 +1103,15 @@ def closing_issues(node):
     return node.get("closingIssuesReferences", {}).get("nodes", [])
 
 
+CHECKS = "CI のチェック"
+
+
 def cap_text(label, total, got):
     # 上限は「何件切れたか」ではなく「それで何を見落としうるか」まで書く。件数だけでは、
     # 読む人がこの報告のどこを疑えばよいか分からない
+    if label == CHECKS:
+        return (f"{label}の残り {total - got} 件（{total} 件中、{got} 件だけ取った）。赤がそこにあれば見落とす"
+                "（CI の判定は取った分だけで出している）")
     return (f"{label}の古い方 {total - got} 件（{total} 件中、新しい {got} 件だけ取った）。"
             "私の痕跡や私宛の依頼がそこにあれば見落とす")
 
@@ -2846,6 +2852,11 @@ def collect_caps(node):
         conn = node.get(field)
         if conn and conn.get("totalCount", 0) > len(conn["nodes"]):
             caps.append((label, conn["totalCount"], len(conn["nodes"])))
+    # CI のチェックは先頭の 100 件だけ取る。切れていれば「全 pass」は取った分だけの話（/whose-turn の limits_of_pr と同じ）
+    for h in node.get("head", {}).get("nodes", [])[:1]:
+        conn = (h["commit"].get("statusCheckRollup") or {}).get("contexts")
+        if conn and conn.get("totalCount", 0) > len(conn["nodes"]):
+            caps.append((CHECKS, conn["totalCount"], len(conn["nodes"])))
     return caps
 
 

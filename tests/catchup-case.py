@@ -285,6 +285,17 @@ def _cap():
     return render(pr(comments=conn([comment(T1, "other", "本文")], total=140)))
 
 
+@case("cap-checks")
+def _cap_checks():
+    """CI のチェックが取得の上限（100 件）を超えていれば、緑の 100 件だけで「全 pass」と言い切らず、残りを見ていないと
+    申告する。前は totalCount を取っていて比べず、101 件目以降の赤を黙って落とした。"""
+    head = checks(*[check_run(f"job{i}", "SUCCESS") for i in range(100)])
+    head["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 120
+    out = render(pr(head=head))
+    want = {"cap_line": "CI のチェックの残り 20 件（120 件中、100 件だけ取った）" in out}
+    return verdict("CAP_CHECKS", want, out)
+
+
 @case("quote-only")
 def _quote_only():
     """引用だけの返信を自分の発言として扱わない（抜粋から引用行を落とす）。"""
