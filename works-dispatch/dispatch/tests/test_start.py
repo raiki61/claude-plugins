@@ -1,6 +1,7 @@
 """受け持ちの起動方法（[skills.start]）: フィールドの読み（start ノード・tree）と、--start・--due を入口から。
 git（tests/fakegit.py）・herdr・claude は偽物で回す。部署は test_deliver の Flow の keep の部署「調べ」（役 調べ役）。"""
 
+import argparse
 import os
 import pathlib
 import unittest
@@ -154,6 +155,13 @@ class Start(unittest.TestCase):
         summary.write_text("## 結論\n直した。\n", encoding="utf-8")
         rc, out = self.main(self.place, "--deliver", str(summary))   # 送らなかった納品（項目が足りない）の後は打たない
         self.assertEqual((rc, len(self.ports.spawned)), (2, 2), out)
+
+    def test_due_in_the_back_does_not_inherit_the_callers_effort_or_job(self):
+        # 打った会話の effort を渡すと、effort = "inherit" の受け持ちが最後に頼んだ会話の effort で起動する（OS の予定から打つ --due と変わる）
+        self.ports.env = {"CLAUDE_EFFORT": "max", "CLAUDE_JOB_DIR": "/jobs/abc", "LANG": "C"}
+        starts.due_later(argparse.Namespace(config=self.cfg), self.ports, self.src, "頼み")
+        ((_, _, _, env),) = self.ports.spawned
+        self.assertEqual(env, {"LANG": "C"})
 
     def test_due_skips_a_company_another_due_is_counting(self):
         # 裏の --due が 2 つ並ぶと、会社の錠を持つ方だけが数えて起動し、もう一方は待たずにその会社を飛ばす（同じ受け持ちを 2 度

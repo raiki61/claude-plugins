@@ -32,7 +32,7 @@ from nodes import deliver, role, start, tree
 DISPATCH_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch.py")
 DUE_LOG = "due.log"   # 受付箱の下の、頼みと納品が裏で打った --due の出力の置き場（打つたびに書き足す）
 DUE_LOCK = "due.lock"   # 受付箱の下の、--due が会社ごとに掛ける錠（_due_lock）
-CALLER_ENV = (chat.SESSION_ENV, term.PANE_ENV)   # 打った会話の印。裏の --due には渡さない（due_later）
+CALLER_ENV = (chat.SESSION_ENV, term.PANE_ENV, chat.EFFORT_ENV, chat.JOB_ENV)   # 打った会話の印（id・窓・effort・裏の処理の置き場）。裏の --due には渡さない（due_later）
 
 
 def _skill(info, name):
@@ -211,7 +211,8 @@ def due_all(a, ports, task):
 def due_later(a, ports, cwd, trigger):
     """入口の --ask か --deliver が通った後に、--due を会話から切り離して裏で打つ（頼みと納品が周期を刻む。終わりを待たない）。
     出力は打った場所の会社の受付箱の due.log に書き足す。trigger は出力の頭に書く、打たせた物（頼みか納品）。
-    裏の --due には打った会話の印（会話の id と窓）を渡さない。渡すと --due が打った会話から頼んだことになり、打った部署自身の
+    裏の --due には打った会話の印（会話の id・窓・effort・裏の処理の置き場）を渡さない。effort を渡すと、effort = "inherit" の受け持ちが
+    最後に頼んだ会話の effort で起動する。渡すと --due が打った会話から頼んだことになり、打った部署自身の
     受け持ちを起動する頼みが「宛先はこの会話自身」で止まる（OS の予定から打つ --due と同じく、Claude Code の外から打った形にする）。"""
     try:
         common = ports.git.common_dir(cwd)
