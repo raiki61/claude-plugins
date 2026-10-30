@@ -91,6 +91,14 @@ class Retire(unittest.TestCase):
         deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent"})
         self.assertEqual(self.main(self.place, "--done")[0], 0)
 
+    def test_done_counts_an_ask_made_from_a_folder_under_the_workspace(self):
+        # 頼みの行の場所は --ask を打った所。作業場の下のフォルダ（cd works-dispatch など）から出した頼みも、返事待ちに数える
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
+                                 "from": {"name": "調べ", "place": os.path.join(self.place, "sub")}, "to": {"company": "co", "name": "点検"}})
+        rc, out = self.main(self.place, "--done")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("返事の来ていない頼みが在る（受付 c1）", out)
+
     def test_done_passes_when_the_unanswered_ask_is_a_holder_of_the_delivery(self):
         # 測りの頼みを残った疑問の担当者に書いて納品した部署は、返事を待たずに畳める（--todo がその受付で追う。受付 20261020-054702-182900）
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)

@@ -1547,7 +1547,7 @@ def finish_here(a, ports, cwd):
     if wake.queued(deliver.inbox_of(common), place):
         print("止めた: 順番待ちに頼みが在る。待ち受けが渡す次の頼みを済ませてから印す")
         return 2
-    waiting = asked_open(deliver.inbox_of(common), attrs, cwd)
+    waiting = asked_open(deliver.inbox_of(common), attrs, ports.git.toplevel(cwd) or cwd)
     if waiting:
         # この部署が頼んで、まだ返事（納品）の来ていない頼み。畳むと、返事が届いても受ける会話が居ない（業務改革が社長室の答えを待つ間など）。
         # この部署の納品の残った疑問の担当者に書いた受付は数えない（handed_over）
@@ -1599,11 +1599,14 @@ def asked_open(inbox, attrs, cwd):
     return [r["id"] for r in deliver.open_asks(deliver.records(inbox)) if asked_here(r, attrs, cwd) and r["id"] not in handed]
 
 
-def asked_here(row, attrs, cwd):
-    """台帳の頼みの行 row を、この部署（名前と場所 cwd）が出したか。"""
+def asked_here(row, attrs, top):
+    """台帳の頼みの行 row を、この部署（名前と作業場 top）が出したか。行の場所は --ask を打った所なので、作業場の下のフォルダも当てる。"""
     sender = row.get("from") or {}
-    return sender.get("name") == attrs.get("name") and bool(sender.get("place")) \
-        and os.path.realpath(sender["place"]) == os.path.realpath(cwd)
+    if sender.get("name") != attrs.get("name") or not sender.get("place"):
+        return False
+    place, top = os.path.realpath(sender["place"]), os.path.realpath(top)
+    return place == top or place.startswith(top + os.sep)
+
 
 def handed_over(inbox, attrs):
     """この部署（名前）が納品の残った疑問の担当者（納品の行の holders の ask）に書いた受付の集まり。今の頼みの納品に限らず、順番待ちから
