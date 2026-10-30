@@ -166,6 +166,14 @@ class SleepLoops(unittest.TestCase):
         # シェルが読むヒアドキュメントの中の、ヒアドキュメントの中身を除く
         "bash <<'X'\ncat <<'E'\nit's\nE\nwhile true; do sleep 1; done\nX",
         "bash -- <<'EOF'\nwhile true; do sleep 1; done\nEOF",
+        # 本物のコメントは、迷う # を読まない読みでもコメントのまま。前はコメントの中の <<WORD・' をコードと読み、
+        # 置換の後・\ で引用した空白の後・${ }・[[ =~ ]] の中の # の後ろのループを見落としていた
+        "# see <<X\necho $(true)# ; until test -f x; do sleep 1; done",
+        "# it's\necho $(true)#'\n'\nuntil test -f x; do sleep 1; done",
+        "# feed it with cat <<EOF\necho a\\ #; until test -f x; do sleep 1; done",
+        ": # it's\necho a\\ #'\n'\nuntil test -f x; do sleep 1; done",
+        "# it's\nx=a; : ${x%% #*}; until test -f x; do sleep 1; done",
+        "# don't\n[[ a =~ (a|#) ]]; until test -f x; do sleep 1; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -191,6 +199,11 @@ class SleepLoops(unittest.TestCase):
         'bash -c "cat <<A\n$(cat <<B\nb\nB\n)\n  sleep 1 done;\nA\nuntil [ -f x ]; do :; done"',
         "echo x # it's fine\nls",
         "cat <<E\"OF\"\nuntil x; do sleep 1; done\nEOF\necho ok",
+        # 本物のコメントの中のループの語・' をコードと読まない
+        "# Create a helper that's used by CI\ncat > /tmp/retry_x.sh <<'EOF'\n# Retry until it succeeds (don't give up)\n"
+        "until \"$@\"; do sleep 2; done\nEOF\nchmod +x /tmp/retry_x.sh",
+        "sleep 0 # then while it builds, check logs",
+        "# Poll the service (until healthy) and sleep between tries\ncurl -s localhost:8080/health",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
@@ -265,6 +278,11 @@ class LongCommands(unittest.TestCase):
     def test_many_option_words_are_read_in_time(self):
         # 前は -o の値に - で始まる語を許し、`-o -o …` の割り方が語の数の指数で増えて 40 語で約 60 秒かかった(時間切れで通る)
         reason, _ = run(": bash " + "-o " * 40 + "a-c 'x'; while true; do sleep 1; done", timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_many_blank_lines_are_read_in_time(self):
+        # 前はループの語の前の空白に改行も数え、空の行の続きを改行ごとに読み直して 8 万行で約 50 秒かかった(時間切れで通る)
+        reason, _ = run("true" + "\n" * 80000 + ":\nuntil test -f x; do sleep 1; done", timeout=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
 

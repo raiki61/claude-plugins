@@ -33,7 +33,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gate_shell  # noqa: E402
 
 # コマンドの頭(行頭・区切りの記号・括弧・do/then/else/time の後)に在るループの語
-_LOOP_HEAD = r"(?:^|[;&|(){}!\n]|\b(?:do|then|else|time)\b)\s*"
+# 区切りの後は空白とタブだけを飛ばす(改行は区切りの側で読む)。\s* にすると、空の行が続く所で改行ごとに残りの改行の全部を
+# 読み直して長さの 2 乗の手間になり、8 万行で 50 秒かかってフックの時間切れで通っていた
+_LOOP_HEAD = r"(?:^|[;&|(){}!\n]|\b(?:do|then|else|time)\b)[ \t]*"
 FOR = re.compile(_LOOP_HEAD + r"for\s")
 # `while read` は行を読み終えれば終わるので待ちでない(`ps aux | grep x | while read p; do kill $p; done`)。
 # 終わる条件の無い `for ((;;))` は while と同じに見る(写した元から足した)
@@ -89,21 +91,84 @@ REASON_SLEEP = (
 )
 
 
-# コメントと読むか。reason_for が、読む読み(真)で止まらずコメントを読んだ(COMMENTED)ときは、読まない読み(偽)でも見る
+# 迷う # (comment_at)をコメントと読むか。reason_for が、読む読み(真)で止まらず迷う # を読んだ(COMMENTED)ときは、
+# 読まない読み(偽)でも見る。迷わない # は、どちらの読みでもコメントか、どちらでも語の中の字に読む
 COMMENTS = True
 COMMENTED = []
+# 行ごとの、${ }・[[ ]]・(( )) の中の位置(inside_brackets)。reason_for が読むたびに空にする
+INSIDE = {}
 
 
 def comment_at(text, index):
-    """text[index] の # をコメントの始まり(語の頭)と読むか。空白・改行・演算子の後の # は全部コメントと読む。
+    """text[index] の # をコメントの始まり(語の頭)と読むか。
 
-    シェルがコメントにしない所(`${x%% #*}`・`[[ x =~ (a|#) ]]`・`$(date)#notes`・`my\\ #1`)もコメントと読むが、
-    reason_for がコメントを読まない読みでも見るので、後のループは見落とさない。逆に、コメントを語の途中と読むと中の `'` で
-    後の行のループを引用符の中と取り違える(`case a in a)# it's`)ので、迷う所はコメントと読む側に倒す。"""
-    if COMMENTS and (index == 0 or text[index - 1] in " \t\n;&|()<>"):
+    - 行の頭(`\\` と改行で前の行とつないだ所は、つないだ先の前の字で見る)と、空白・`;`・`&`・`|`・`(`・`<`・`>` の
+      後の # はコメント。ただし同じ行の ${ }・[[ ]]・(( )) の中(`${x%% #*}`・`[[ x =~ (a|#) ]]`・`(( x = 1 #2 ))`)では
+      コメントでないことがあるので迷う。
+    - `)` の後の # は、case のパターンや `( )` の後ならコメント、置換・配列を閉じる `)`(`$(date)#notes`・`a=(x)#`)の後なら
+      語の中の字なので迷う。
+    - `\\` で引用した字の後(`my\\ #1`)とほかの字の後の # は語の中の字。
+    迷う # は COMMENTS のとおりに読む(reason_for が両方で見る)。迷わない # まで読み替えると、本物のコメントの中の `'`・
+    `<<WORD`・ループの語をコードと読み、後の行のループを見落としたり、走らないループの語で止めたりする。"""
+    at = index - 1
+    while at >= 1 and text[at] == "\n" and escapes(text, at):
+        at -= 2   # \ と改行は行をつなぐだけ
+    if at >= 0 and escapes(text, at):
+        return False
+    prev = text[at] if at >= 0 else "\n"
+    if prev == ")" or (prev in " \t;&|(<>" and inside_brackets(text, index)):
         COMMENTED.append(index)
-        return True
-    return False
+        return COMMENTS
+    return prev in " \t\n;&|(<>"
+
+
+def escapes(text, at):
+    """text[at] が、\\ で引用された字か(前に続く \\ が奇数個)。"""
+    count = 0
+    while at - count - 1 >= 0 and text[at - count - 1] == "\\":
+        count += 1
+    return count % 2 == 1
+
+
+def inside_brackets(text, index):
+    """index が、同じ行の ${ }・[[ ]]・(( )) の中か。行の頭が引用符の中で、行の中の読みが index で引用符の中に居るときも、
+    中と見る(迷う側に倒す)。行ごとに一度だけ読んで INSIDE に置く(# の多い長い行で手間を掛け算にしない)。"""
+    line_start = text.rfind("\n", 0, index) + 1
+    key = (text, line_start)
+    if key not in INSIDE:
+        line_end = text.find("\n", index)
+        line = text[line_start:len(text) if line_end < 0 else line_end]
+        flags = bytearray(len(line))
+        depth = {"${": 0, "[[": 0, "((": 0}
+        closer = {"}": "${", "]]": "[[", "))": "(("}
+        at = 0
+        while at < len(line):
+            flags[at] = 1 if any(depth.values()) else 0
+            char = line[at]
+            if char == "\\":
+                flags[at + 1:at + 2] = flags[at:at + 1]
+                at += 2
+                continue
+            if char in "'\"":
+                end = quote_end(line, at)
+                for inner in range(at + 1, min(end + 1, len(line))):
+                    flags[inner] = 1   # 引用符の中に index が居れば、行の頭が引用符の中だった
+                at = end + 1
+                continue
+            two = line[at:at + 2]
+            if two in depth:
+                depth[two] += 1
+                at += 2
+            elif two in closer and depth[closer[two]]:
+                depth[closer[two]] -= 1
+                at += 2
+            elif char == "}" and depth["${"]:
+                depth["${"] -= 1
+                at += 1
+            else:
+                at += 1
+        INSIDE[key] = flags
+    return bool(INSIDE[key][index - line_start])
 
 
 def executed_text(command):
@@ -429,6 +494,7 @@ def reason_for(command):
         for COMMENTS in (True, False):
             del EARLY_CLOSED[:]
             del COMMENTED[:]
+            INSIDE.clear()
             EARLY_CLOSE = True
             reason = reason_in(command)
             if reason is None and EARLY_CLOSED:
@@ -438,6 +504,7 @@ def reason_for(command):
                 break
     finally:
         EARLY_CLOSE, COMMENTS = True, True
+        INSIDE.clear()
     return reason
 
 
