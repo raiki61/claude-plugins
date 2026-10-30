@@ -154,16 +154,54 @@ class FieldsTest(unittest.TestCase):
         self.assertTrue(any("edges[3].code[0].find 'class Nope'" in e for e in errs), errs)
         # 読めないとき（材料に head.oid が無い）は、差分の外は今まで通り止める
         self.assertTrue(any("edges[0].code[0].path app/schema.py は差分に無い" in e for e in ch.validate_fields(f, data=data)))
-        code = ch.point_code(data, f, read)["edges"]["a>b"][0]
+        code = ch.point_code(data, f, read)["edges"]["0.0"][0]
         self.assertTrue(code["outside"])
         self.assertIn("@@ -1,5 +1,5 @@", code["text"])
         self.assertIn(" class Order:", code["text"])
+
+    def test_parallel_edges_between_the_same_boxes_keep_their_own_code_and_highlight(self):
+        # 同じ箱の間に線が 2 本在っても、コードと光り方は線ごと（"from>to" の鍵だと 2 本が 1 つに混ざる）
+        data = {"views": [{"id": "all", "text": DIFF}]}
+        nodes = [{"id": "a", "text": "入口"}, {"id": "b", "text": "出口"}]
+        g1 = {"kind": "graph", "nodes": nodes, "edges": [
+            {"from": "a", "to": "b", "text": "一本目", "code": [{"path": "app/retry.py", "find": "new = 1"}]},
+            {"from": "a", "to": "b", "text": "二本目", "code": [{"path": "docs/x.md", "find": "b"}]}]}
+        g2 = {"kind": "graph", "nodes": nodes, "edges": [{"from": "a", "to": "b", "code": [{"path": "docs/x.md", "find": "b"}]}]}
+        code = ch.point_code(data, fields(figure=[g1, {"kind": "compare", "rows": []}, g2]))["edges"]
+        self.assertEqual(sorted(code), ["0.0", "0.1", "2.0"])  # 図の番号.線の番号。図の並びのまま（compare も数える）
+        self.assertIn("new = 1", code["0.0"][0]["text"])
+        self.assertIn("+b", code["0.1"][0]["text"])
+        # コマ送りは AI の書く "from>to" のまま（2 本とも光る）。ページの側は線の番号で光らせる
+        play = dict(g1, play=[{"text": "x", "edges": ["a>b"]}, {"text": "y", "nodes": ["a"]}])
+        self.assertEqual(ch.validate_fields(fields(figure=play)), [])
+        page = ch.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('"data-ek": ekey(e)', page)
+        self.assertIn('.g-edge[data-ek=', page)
         page = ch.TEMPLATE.read_text(encoding="utf-8")
         self.assertIn("この PR では変えていない", page)
         self.assertIn("POINT_EDGES", page)
         long = {"kind": "graph", "nodes": [{"id": "a", "text": "入口"}, {"id": "b", "text": "出口"}],
                 "edges": [{"from": "a", "to": "b", "text": "あ" * (ch.EDGE_TEXT_CAP + 1)}]}
         self.assertTrue(any(f"edges[0].text は {ch.EDGE_TEXT_CAP} 字まで" in e for e in ch.validate_fields(fields(figure=long))))
+
+    def test_id_fields_given_a_list_or_object_are_reported_not_crashed(self):
+        # id を書く所に並びや辞書を書いても、TypeError（unhashable）で落とさず、直す所として返す
+        for v in ([], {}, ["a"], {"id": "a"}):
+            graph = {"kind": "graph", "groups": [{"id": "g", "text": "囲み"}],
+                     "nodes": [{"id": "a", "text": "あ", "group": v}, {"id": "b", "text": "い"}],
+                     "edges": [{"from": v, "to": "b"}, {"from": "a", "to": v}],
+                     "play": [{"text": "x", "nodes": [v], "edges": [v]}, {"text": "y", "nodes": ["a"]}]}
+            errs = ch.validate_fields(fields(figure=graph))
+            for want in ("nodes[0].group は figure.groups の id", "edges[0].from は figure.nodes の id", "edges[1].to は figure.nodes の id",
+                         "play[0].nodes は figure.nodes の id", "play[0].edges は figure.edges の線"):
+                self.assertTrue(any(want in e for e in errs), (v, want, errs))
+            seq = {"kind": "sequence", "actors": [{"id": "a", "text": "a"}, {"id": "b", "text": "b"}],
+                   "steps": [{"from": v, "to": "b", "text": "t"}]}
+            self.assertTrue(any("steps[0].from は figure.actors の id" in e for e in ch.validate_fields(fields(figure=seq))))
+            steps = {"kind": "steps", "lanes": [{"id": "l", "text": "担い手"}], "steps": [{"text": "t", "lane": v}]}
+            self.assertTrue(any("steps[0].lane は figure.lanes の id" in e for e in ch.validate_fields(fields(figure=steps))))
+            errs = ch.validate_fields(fields(terms=[{"term": v, "means": "m"}, {"term": v, "means": "m"}]))
+            self.assertTrue(any("terms[0].term は空でない文字列" in e for e in errs), errs)
 
     def test_sequence_lists_exchanges_between_actors(self):
         ok = {"kind": "sequence", "actors": [{"id": "ui", "text": "画面"}, {"id": "be", "text": "backend"}],
@@ -539,6 +577,18 @@ class SettingsTest(unittest.TestCase):
         backup = self.path.with_name("settings.json.bak-20261015-090000")
         self.assertEqual(json.loads(backup.read_text(encoding="utf-8")), {"a.b": 1, ch.ASSOC_KEY: {"*.x": "v"}})
         self.assertEqual(ch.merge_settings(self.path)[0], [f"設定は揃っている（{self.path}）"])
+
+    def test_symlinked_settings_stay_a_link_and_keep_their_mode(self):
+        # dotfiles 管理の symlink を普通の file に置き換えない。権限（0600 の既定ではなく元の値）も保つ
+        real = self.path.with_name("real.json")
+        real.write_text(json.dumps({"a.b": 1}), encoding="utf-8")
+        os.chmod(real, 0o644)
+        self.path.symlink_to(real)
+        lines, ok = ch.merge_settings(self.path)
+        self.assertTrue(ok, lines)
+        self.assertTrue(self.path.is_symlink())
+        self.assertEqual(os.stat(real).st_mode & 0o777, 0o644)
+        self.assertEqual(ch.settings_gaps(json.loads(real.read_text(encoding="utf-8"))), [])
 
     def test_commas_and_brackets_inside_strings_survive_the_rewrite(self):
         self.path.write_text(json.dumps({"editor.wordSeparators": "a,]b", "x": "[1,}"}), encoding="utf-8")

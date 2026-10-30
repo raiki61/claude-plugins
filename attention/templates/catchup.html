@@ -1009,9 +1009,10 @@ function graphFigure(F) {
     return [n.id, { w: Math.max(...rs.map(r => r.w)), h: Math.max(...rs.map(r => r.h)) }];
   }));
   // 線も番号（points）かコードを持てば押せる。字の無い線でも、番号の札だけの字を置いて押せるようにする
-  const ekey = e => `${e.from}>${e.to}`;
+  // 線の鍵は図の番号と線の番号（同じ箱の間に平行する線が 2 本あっても、光り方とコードが混ざらない）。コマ送りの "from>to" は data-e に別に持つ
+  const ekey = e => `${FIGS.indexOf(F)}.${edges.indexOf(e)}`;
   const edgeHit = e => (e.points || []).length || (CODE.edges || {})[ekey(e)];
-  const edgeLabel = (e, cls) => el("span", { class: ["g-elabel", cls, edgeHit(e) ? "hit" : ""].filter(Boolean).join(" "), "data-e": ekey(e),
+  const edgeLabel = (e, cls) => el("span", { class: ["g-elabel", cls, edgeHit(e) ? "hit" : ""].filter(Boolean).join(" "), "data-e": `${e.from}>${e.to}`, "data-ek": ekey(e),
       role: edgeHit(e) ? "button" : null, tabindex: edgeHit(e) ? "0" : null,
       title: edgeHit(e) ? "押すと、この線の変えたことが横に出る" : null,
       onclick: edgeHit(e) ? ev => openEdge(e, ev) : null,
@@ -1097,7 +1098,7 @@ function graphFigure(F) {
     edges.forEach((e, i) => {
       if (!inPanel(e, ph) || !inPanel(nodes.find(n => n.id === e.from), ph) || !inPanel(nodes.find(n => n.id === e.to), ph)) return;
       const ge = g.edge(e.from, e.to, "e" + i), cls = edgeCls(e, ph);
-      svg.append(el("svg:path", { class: ["g-edge", cls, e.dashed ? "dashed" : ""].filter(Boolean).join(" "), d: curve(ge.points), "marker-end": `url(#${uid}-${cls.split(" ")[0]})`, "data-e": `${e.from}>${e.to}` }));
+      svg.append(el("svg:path", { class: ["g-edge", cls, e.dashed ? "dashed" : ""].filter(Boolean).join(" "), d: curve(ge.points), "marker-end": `url(#${uid}-${cls.split(" ")[0]})`, "data-e": `${e.from}>${e.to}`, "data-ek": ekey(e) }));
       if (e.text || edgeHit(e)) { const lb = edgeLabel(e, cls); lb.style.cssText = `left:${ge.x}px;top:${ge.y}px`; inner.append(lb); }
     });
     for (const n of nodes) {
@@ -1202,11 +1203,11 @@ function fillCode(box, code) {
   }
 }
 const POINT_NODES = new Map();  // 変更点の番号 → 図の箱の id の並び
-const POINT_EDGES = new Map();  // 変更点の番号 → 図の線の "from>to" の並び
+const POINT_EDGES = new Map();  // 変更点の番号 → 図の線の鍵（図の番号.線の番号）の並び
 const keyItems = [];
 function lightNodes(p, on) {
   for (const id of POINT_NODES.get(p) || []) document.querySelectorAll(`.g-node[data-id="${CSS.escape(id)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
-  for (const k of POINT_EDGES.get(p) || []) document.querySelectorAll(`.g-edge[data-e="${CSS.escape(k)}"], .g-elabel[data-e="${CSS.escape(k)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
+  for (const k of POINT_EDGES.get(p) || []) document.querySelectorAll(`.g-edge[data-ek="${CSS.escape(k)}"], .g-elabel[data-ek="${CSS.escape(k)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
 }
 // 押した所の横の札。変えたことの項（前と後）を並べ、コードはボタンを押したときだけ窓で開く
 let pop = null;
@@ -1247,7 +1248,7 @@ function showPop(anchorEl, title, pts, own, ownLabel) {
 }
 function pointsKey(P) {
   for (const f of FIGS) if (f.kind === "graph") for (const n of f.nodes || []) for (const p of n.points || []) POINT_NODES.set(p, [...(POINT_NODES.get(p) || []), n.id]);
-  for (const f of FIGS) if (f.kind === "graph") for (const e of f.edges || []) for (const p of e.points || []) POINT_EDGES.set(p, [...(POINT_EDGES.get(p) || []), `${e.from}>${e.to}`]);
+  FIGS.forEach((f, fi) => { if (f.kind === "graph") (f.edges || []).forEach((e, ei) => { for (const p of e.points || []) POINT_EDGES.set(p, [...(POINT_EDGES.get(p) || []), `${fi}.${ei}`]); }); });
   const onFig = POINT_NODES.size + POINT_EDGES.size > 0;
   const rows = [];
   // 同じ束ね（group）の項は、その束ねが最初に出た所へ寄せる。番号は図と合わせるので付け直さない

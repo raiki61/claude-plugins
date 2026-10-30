@@ -294,9 +294,10 @@ def _terms_errors(terms):
         at = f"terms[{i}]"
         errs += _keys(t, at, ("term", "means")) + _label(t.get("term"), f"{at}.term", cap=30)
         errs += _label(t.get("means"), f"{at}.means", cap=160)
-        if t.get("term") in seen:
-            errs.append(f"{at}.term {t.get('term')} が重なっている")
-        seen.add(t.get("term"))
+        if isinstance(t.get("term"), str):  # 文字列でない term は _label が既に指す（並びや辞書は set に入れられず TypeError になる）
+            if t["term"] in seen:
+                errs.append(f"{at}.term {t['term']} が重なっている")
+            seen.add(t["term"])
     return errs
 
 
@@ -337,6 +338,11 @@ def _ids(items, at, what):
         else:
             seen.add(v)
     return errs, seen
+
+
+def _has(ids, v):
+    """id の集合に入っているか。文字列でない値（並び・辞書）は set に入れられず TypeError になるので、入っていない扱いにする。"""
+    return isinstance(v, str) and v in ids
 
 
 def _list(fig, k, at, lo, hi, what):
@@ -405,7 +411,7 @@ def _graph_errors(fig, files, n_points):
             errs += _label(n.get("sub"), f"{at}.sub", cap=SUB_CAP, required=False) + _tone(n, at) + _phase(n, at)
             if "was" in n and "in" in n:
                 errs.append(f"{at}.was（変更前の字）は前後の両方に在る箱にだけ書く（in と一緒に書かない）")
-            if "group" in n and n["group"] not in gids:
+            if "group" in n and not _has(gids, n["group"]):
                 errs.append(f"{at}.group は figure.groups の id のどれか（{'・'.join(sorted(gids)) or 'なし'}）にする")
             errs += _point_refs(n.get("points", []), at, n_points)
             # 増える・消える・変わる箱に番号が無いと、押してもコードが開かず、凡例の項も「図の外」になる（付け忘れが起きた）
@@ -418,7 +424,7 @@ def _graph_errors(fig, files, n_points):
             at = f"figure.edges[{i}]"
             errs += _keys(ed, at, ("from", "to", "text", "tone", "in", "dashed", "points", "code"))
             for k in ("from", "to"):
-                if ed.get(k) not in nids:
+                if not _has(nids, ed.get(k)):
                     errs.append(f"{at}.{k} は figure.nodes の id のどれかにする（今 {ed.get(k)!r}）")
             errs += _label(ed.get("text"), f"{at}.text", cap=EDGE_TEXT_CAP, required=False) + _tone(ed, at) + _phase(ed, at)
             if "dashed" in ed and not isinstance(ed["dashed"], bool):
@@ -451,9 +457,9 @@ def _graph_play_errors(play, nids, eids):
         at = f"figure.play[{i}]"
         errs += _keys(f, at, ("text", "nodes", "edges")) + _label(f.get("text"), f"{at}.text", cap=60)
         ns, es = f.get("nodes", []), f.get("edges", [])
-        if not isinstance(ns, list) or any(n not in nids for n in ns):
+        if not isinstance(ns, list) or not all(_has(nids, n) for n in ns):
             errs.append(f"{at}.nodes は figure.nodes の id の並びにする")
-        if not isinstance(es, list) or any(e not in eids for e in es):
+        if not isinstance(es, list) or not all(_has(eids, e) for e in es):
             errs.append(f"{at}.edges は figure.edges の線を \"from>to\" で書いた並びにする（在る線: {'・'.join(sorted(eids)) or 'なし'}）")
         if not ns and not es:
             errs.append(f"{at} は光らせる箱か線を 1 つ以上書く")
@@ -483,7 +489,7 @@ def _sequence_errors(fig):
             at = f"figure.steps[{i}]"
             errs += _keys(s, at, ("from", "to", "text", "tone", "in"))
             for k in ("from", "to"):
-                if s.get(k) not in ids:
+                if not _has(ids, s.get(k)):
                     errs.append(f"{at}.{k} は figure.actors の id のどれかにする（今 {s.get(k)!r}）")
             errs += _label(s.get("text"), f"{at}.text") + _tone(s, at) + _phase(s, at)
     return errs
@@ -560,7 +566,7 @@ def _steps_errors(fig):
         errs += _label(st.get("text"), f"{at}.text", cap=60) + _label(st.get("when"), f"{at}.when", cap=24, required=False)
         errs += _label(st.get("tag"), f"{at}.tag", cap=12, required=False) + _label(st.get("note"), f"{at}.note", cap=120, required=False)
         errs += _tone(st, at) + _phase(st, at)
-        if lids and st.get("lane") not in lids:
+        if lids and not _has(lids, st.get("lane")):
             errs.append(f"{at}.lane は figure.lanes の id のどれか（{'・'.join(sorted(lids))}）にする")
         elif not lids and "lane" in st:
             errs.append(f"{at}.lane は figure.lanes を書いたときだけ使う")
@@ -802,18 +808,20 @@ def _resolve(files, refs):
 
 
 def point_code(data, fields, read=None):
-    """指したコードの差分。{"points": [変更点ごとの並び], "nodes": {箱の id: 並び}, "edges": {"from>to": 並び}}。引けないものは空。"""
+    """指したコードの差分。{"points": [変更点ごとの並び], "nodes": {箱の id: 並び}, "edges": {"図の番号.線の番号": 並び}}。引けないものは空。
+    線は同じ箱の間に何本でも引けるので、"from>to" でなく図（figure の並びの何番目か）と線の何番目かで鍵にする。"""
     files = _diff_files(data, read)
     fields = fields or {}
     items = (fields.get("points") or {}).get("items") or []
     figs = fields.get("figure") or []
-    graphs = [f1 for f1 in (figs if isinstance(figs, list) else [figs])
-              if isinstance(f1, dict) and f1.get("kind") == "graph"]
+    dicts = [f1 for f1 in (figs if isinstance(figs, list) else [figs]) if isinstance(f1, dict)]  # ページ側の FIGS と同じ並び
+    graphs = [f1 for f1 in dicts if f1.get("kind") == "graph"]
     found = {n["id"]: _resolve(files, n.get("code")) for g in graphs for n in g.get("nodes") or [] if n.get("code")}
     edges = {}
-    for e in (e for g in graphs for e in g.get("edges") or []):
-        if e.get("code"):
-            edges.setdefault(f"{e.get('from')}>{e.get('to')}", []).extend(_resolve(files, e.get("code")))
+    for fi, g in enumerate(dicts):
+        for ei, e in enumerate(g.get("edges") or [] if g.get("kind") == "graph" else []):
+            if e.get("code"):
+                edges.setdefault(f"{fi}.{ei}", []).extend(_resolve(files, e.get("code")))
     return {"points": [_resolve(files, it.get("code")) for it in items],
             "nodes": {k: v for k, v in found.items() if v},
             "edges": {k: v for k, v in edges.items() if v}}
@@ -868,11 +876,14 @@ def build_html(template, data, fields, entry, read=None):
 
 def _write_atomic(path, text):
     """同じ階層の一時ファイルに書いてから置き換える。拡張の autoRefresh（onFileChange）が書きかけを読まない。"""
+    path = pathlib.Path(os.path.realpath(path))  # symlink の設定（dotfiles 管理）は、置き換えて普通の file にせず、指す先に書く
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix="." + path.name + ".", dir=str(path.parent))
     try:
         with open(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
+        if path.exists():
+            shutil.copymode(path, tmp)  # mkstemp は 0600 で作るので、元の権限を引き継ぐ
         os.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
