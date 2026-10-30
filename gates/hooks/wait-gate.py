@@ -53,7 +53,8 @@ LOOP_WORD_RE = re.compile(r"\b(?:while|until|for)\b")
 # 後に続く引用符の中身をシェルとして走らせるもの(`bash -c '…'`、`eval "…"`)
 # 値を取る -o・-O(`bash -o pipefail -c`・`bash -euo pipefail -c`)の値と、長いオプション(`bash --norc -c`)も飛ばす。
 # パスで呼ぶシェル(`/bin/bash -c`)も同じに見る(写した元から足した)
-_SHELL_OPTS = r"(?:(?:-\w*[oO]\s+[\w-]+|--[\w-]+|-\w+)\s+)*"
+# -o の値は - で始めない。始めてよいと `-o -o -o …` の割り方が語の数の指数で増え、当たらないときに読み終えずフックの時間切れで通る
+_SHELL_OPTS = r"(?:(?:-\w*[oO]\s+\w[\w-]*|--[\w-]*|-\w+)\s+)*"
 _SHELL = r"(?:[^\s;&|(`'\"]*/)?(?:ba|z|da)?sh"
 SHELL_ARGUMENT = re.compile(r"(?:^|[\s;&|(`])(?:" + _SHELL + r"\s+" + _SHELL_OPTS + r"-\w*c\w*|eval)\s*$")
 # SHELL_ARGUMENT の当たりの末尾の語と、シェルの語の後に置ける -o・-O の値(shell_argument_before が後ろから戻るのに使う)
@@ -63,8 +64,12 @@ OPTION_VALUE = re.compile(r"[\w-]+")
 SHELL_ARGUMENT_REACH = 1000   # シェルの語と `-c` の間に置ける語の数の上限(ふつうは数個)
 # ヒアドキュメントを読むのがシェルか(`bash <<EOF`)
 SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])" + _SHELL + r"(?:\s+" + _SHELL_OPTS + r")?\s*$")
-# `<<<`(here-string)は除く。終わりの語は引用符で囲む形(`<<'END-1'`)と、`\` を前に付けて引用する形(`<<\EOF`)も読む
-HEREDOC = re.compile(r"(?<!<)<<(?!<)(?P<dash>-?)[ \t]*(?:'(?P<sq>[^'\n]+)'|\"(?P<dq>[^\"\n]+)\"|\\?(?P<word>[A-Za-z_][\w.-]*))")
+# `<<<`(here-string)は除く。終わりの語は引用符で囲む形(`<<'END-1'`)と、`\` を前に付けて引用する形(`<<\EOF`)と、
+# 引用した片とそのままの片を続けた形(`<<"EO"F`・`<<E\OF`)も読み、シェルと同じく引用を外した字を終わりの語にする。
+# 引用の無い頭は英字か _ だけにする(`$((1<<2))` の 2 を終わりの語と読んで後の行を中身と見て落とさない)
+_HEREDOC_PIECE = r"'[^'\n]*'|\"[^\"\n]*\"|\\[^\n]"
+HEREDOC = re.compile(r"(?<!<)<<(?!<)(?P<dash>-?)[ \t]*(?P<raw>(?:%s|[A-Za-z_])(?:%s|[^\s;&|()<>'\"\\`])*)" % (_HEREDOC_PIECE, _HEREDOC_PIECE))
+HEREDOC_PIECE = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"|\\([^\n])|(.)")
 
 HOW_TO_WAIT = (
     "待つ対象のコマンドそのものを Bash の `run_in_background` で走らせ、ターンを終えて終わりの知らせを待つ"
@@ -84,30 +89,21 @@ REASON_SLEEP = (
 )
 
 
-def comment_at(text, index, inside):
-    """text[index] の # がコメントの始まり(語の頭)か。inside は、直前の字が語の中の字である位置の集まり。
-
-    `\\ ` の空白と、置換(`$( )`・`$(( ))`・`<( )`)を閉じる `)` は語の中の字で、その後の # は語の途中(`$(date)#notes`)。"""
-    return index == 0 or (text[index - 1] in " \t\n;&|()" and index not in inside)
+# コメントと読むか。reason_for が、読む読み(真)で止まらずコメントを読んだ(COMMENTED)ときは、読まない読み(偽)でも見る
+COMMENTS = True
+COMMENTED = []
 
 
-def close_paren(text, index, groups, inside):
-    """text[index] の括弧で groups(開いている括弧が置換か)を進め、置換を閉じる `)` の後の位置を inside に足す。
+def comment_at(text, index):
+    """text[index] の # をコメントの始まり(語の頭)と読むか。空白・改行・演算子の後の # は全部コメントと読む。
 
-    `$`・`<`・`>` の後の `(` と、置換の `(` の直後の `(`(`$((`)は置換を開く。ほかの `(` はサブシェル(`(true)#x` の # はコメント)。"""
-    if text[index] == "(":
-        prev = text[index - 1] if index else ""
-        groups.append(prev in "$<>" and prev != "" or (prev == "(" and bool(groups) and groups[-1]))
-    elif groups.pop() if groups else True:
-        # 対の無い `)` は、case のパターンの `a)` が置換の括弧を先に閉じた後の物でありうるので、語の中の字と見る
-        inside.add(index + 1)
-
-
-def escaped(text, index, inside):
-    """text[index] の `\\` の後の位置を、語の中か inside で示す。`\\` と改行(行継続)は行をつなぐだけなので、`\\` の位置が
-    語の頭なら後ろも語の頭(`echo a \\<改行># it's` の # はコメント)。ほかの字を引用した後は語の中(`my\\ #1`)。"""
-    if text[index + 1:index + 2] != "\n" or not comment_at(text, index, inside):
-        inside.add(index + 2)
+    シェルがコメントにしない所(`${x%% #*}`・`[[ x =~ (a|#) ]]`・`$(date)#notes`・`my\\ #1`)もコメントと読むが、
+    reason_for がコメントを読まない読みでも見るので、後のループは見落とさない。逆に、コメントを語の途中と読むと中の `'` で
+    後の行のループを引用符の中と取り違える(`case a in a)# it's`)ので、迷う所はコメントと読む側に倒す。"""
+    if COMMENTS and (index == 0 or text[index - 1] in " \t\n;&|()<>"):
+        COMMENTED.append(index)
+        return True
+    return False
 
 
 def executed_text(command):
@@ -118,7 +114,6 @@ def executed_text(command):
     """
     command = drop_heredoc_bodies(command)
     out = []
-    groups, inside = [], set()   # 開いている括弧が置換か(comment_at)と、直前の字が語の中の字である位置
     solid = 0   # out の、空白だけでない最後の片の次の位置(shell_argument_before が末尾の空白を読み直さないため)
     index = 0
     while index < len(command):
@@ -127,13 +122,8 @@ def executed_text(command):
         char = command[index]
         if char == "\\":
             out.append(" ")
-            escaped(command, index, inside)
             index += 2
-        elif char in "()":
-            close_paren(command, index, groups, inside)
-            out.append(char)
-            index += 1
-        elif char == "#" and comment_at(command, index, inside):
+        elif char == "#" and comment_at(command, index):
             # 語の頭の # から行末まではコメントで走らない。中の引用符を数えると、後の行のループを引用符の中と取り違える
             end = command.find("\n", index)
             index = len(command) if end < 0 else end
@@ -276,7 +266,14 @@ def drop_heredoc_bodies(command):
     copied = 0
     for start, body_start, keep, word in sorted(found, key=lambda item: item[1]):
         line_start = command.rfind("\n", 0, start) + 1
-        if body_start < copied or SHELL_STDIN.search(command[line_start:start]):
+        if body_start < copied:
+            continue
+        if SHELL_STDIN.search(command[line_start:start]):
+            # シェルが読む中身はコードなので残す。中身の中のヒアドキュメントは外の読みが飛ばしたので、ここで除く
+            # (`bash <<'X'` の中の `cat <<'E'` の中身の `'` で、後の行のループを引用符の中と取り違えない)
+            out.append(command[copied:body_start])
+            out.append(drop_heredoc_bodies(command[body_start:abs(keep)]))
+            copied = abs(keep)
             continue
         out.append(command[copied:body_start])
         if keep < 0:
@@ -295,14 +292,12 @@ def scan_code(text, index, stop, found):
     ループを引用符の中と取り違えない)。行ごとでなくコマンドの全体で読むので、複数の行にまたがる引用符も閉じる所まで読む。"""
     pending = []
     depth = 0
-    groups, inside = [], set()
     # `` ` `` の中は、シェルが先に閉じる `` ` ``(`\` で引用していない物)で閉じる。中の引用符はそこを越えない
     close = next_backtick(text, index) if stop == "`" else len(text)
     while index < len(text):
         index = min(index, close)
         char = text[index]
         if char == "\\":
-            escaped(text, index, inside)
             index += 2
         elif char == "\n":
             index += 1
@@ -311,7 +306,7 @@ def scan_code(text, index, stop, found):
                 if closed:
                     break   # 置き換えが閉じた。残りのヒアドキュメントの中身は落とさない(見える側に倒す)
             pending = []
-        elif char == "#" and comment_at(text, index, inside):
+        elif char == "#" and comment_at(text, index):
             end = text.find("\n", index)
             index = len(text) if end < 0 else end
         elif char == "'":
@@ -321,20 +316,17 @@ def scan_code(text, index, stop, found):
             index = scan_double_quote(text, index, found) + 1
         elif text.startswith("$(", index):
             index = scan_code(text, index + 2, ")", found) + 1
-            inside.add(index)
         elif char == "`":
             if stop == "`":
                 return index
             index = scan_code(text, index + 1, "`", found) + 1
         elif char == "(":
             depth += 1
-            close_paren(text, index, groups, inside)
             index += 1
         elif char == ")":
             if stop == ")" and depth == 0:
                 return index
             depth = max(depth - 1, 0)
-            close_paren(text, index, groups, inside)
             index += 1
         else:
             match = HEREDOC.match(text, index) if char == "<" else None
@@ -381,7 +373,7 @@ def heredoc_end(text, index, match, found, stop=None):
       zsh は終わりの語だけの行まで中身と読むので、EARLY_CLOSE が偽のときはこの閉じ方をしない(reason_for が両方で見る。
       `EOF handling (#12) is fixed; it's …` のような中身の行を閉じと読むと、後の中身の `'` で後の行のループが引用符に隠れる)。
     閉じたときは、閉じる記号の手前(`$( )` は終わりの語の後)の位置を返し、呼び元はその記号から読み続ける。"""
-    word = match.group("sq") or match.group("dq") or match.group("word")
+    word = "".join("".join(piece) for piece in HEREDOC_PIECE.findall(match.group("raw")))
     body_start = index
     closed = False
     keep = len(text)
@@ -429,16 +421,23 @@ def unescaped_backtick(line, index=0):
 
 def reason_for(command):
     """止める訳。通すなら None。`$( )` の中のヒアドキュメントの閉じ方はシェルで違う(EARLY_CLOSE)ので、閉じる読みで止まらず、
-    その読みで実際に閉じた所が在れば、閉じない読みでも見る。"""
-    global EARLY_CLOSE
-    del EARLY_CLOSED[:]
-    reason = reason_in(command)
-    if reason is None and EARLY_CLOSED:
-        EARLY_CLOSE = False
-        try:
-            reason = reason_in(command)
-        finally:
+    その読みで実際に閉じた所が在れば、閉じない読みでも見る。コメントと読んだ # がシェルではコメントでないことがある
+    (comment_at)ので、コメントを読む読みで止まらず、コメントを読んだ所が在れば、読まない読みでも同じように見る。"""
+    global EARLY_CLOSE, COMMENTS
+    reason = None
+    try:
+        for COMMENTS in (True, False):
+            del EARLY_CLOSED[:]
+            del COMMENTED[:]
             EARLY_CLOSE = True
+            reason = reason_in(command)
+            if reason is None and EARLY_CLOSED:
+                EARLY_CLOSE = False
+                reason = reason_in(command)
+            if reason is not None or not COMMENTED:
+                break
+    finally:
+        EARLY_CLOSE, COMMENTS = True, True
     return reason
 
 

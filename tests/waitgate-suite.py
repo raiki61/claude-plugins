@@ -153,6 +153,19 @@ class SleepLoops(unittest.TestCase):
         'bash -c "cat <<A\n$(cat <<B\nb\nB\n)\nit\'s\nA\nwhile true; do sleep 1; done"',
         # case のパターンの ) が置換の括弧を先に閉じても、置換を閉じる ) の後の # をコメントと見ない
         "echo $(case a in a) echo x;; esac)#x; while true; do sleep 1; done",
+        # ${ }・[[ =~ ]]・(( ))・配列の ( ) の中や後の # はコメントでない。コメントと読んでも、読まない読みでも見る
+        "echo ${line%% #*}; while true; do sleep 1; done",
+        "[[ x =~ (a|#) ]]; while true; do sleep 1; done",
+        "(( x = 1 #2 )); while true; do sleep 1; done",
+        "a=(x)#; while true; do sleep 1; done",
+        # case のパターンの ) の後の # はコメント(中の ' で後の行を引用符の中と見ない)
+        "case a in a)# it's\nwhile true; do sleep 1; done;;\nesac",
+        # 引用した片とそのままの片を続けた終わりの語は、引用を外した字で閉じる
+        "cat <<\"EO\"F\nhi\nEOF\nwhile true; do sleep 1; done",
+        "cat <<E\\OF\nhi\nEOF\nwhile true; do sleep 1; done",
+        # シェルが読むヒアドキュメントの中の、ヒアドキュメントの中身を除く
+        "bash <<'X'\ncat <<'E'\nit's\nE\nwhile true; do sleep 1; done\nX",
+        "bash -- <<'EOF'\nwhile true; do sleep 1; done\nEOF",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -176,6 +189,8 @@ class SleepLoops(unittest.TestCase):
         "cat <<until\nx\nuntil\nsleep 1\n",
         "(true)# it's fine\necho ok",
         'bash -c "cat <<A\n$(cat <<B\nb\nB\n)\n  sleep 1 done;\nA\nuntil [ -f x ]; do :; done"',
+        "echo x # it's fine\nls",
+        "cat <<E\"OF\"\nuntil x; do sleep 1; done\nEOF\necho ok",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):
@@ -245,6 +260,12 @@ class LongCommands(unittest.TestCase):
         command = "for f in *; do :; done\nx " + " ".join("-c 'a'" for _ in range(1100))
         reason, _ = run(command, timeout=20)
         self.assertIn("検査自体に失敗した", reason)
+
+
+    def test_many_option_words_are_read_in_time(self):
+        # 前は -o の値に - で始まる語を許し、`-o -o …` の割り方が語の数の指数で増えて 40 語で約 60 秒かかった(時間切れで通る)
+        reason, _ = run(": bash " + "-o " * 40 + "a-c 'x'; while true; do sleep 1; done", timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
 
 
 class FailClosed(unittest.TestCase):
