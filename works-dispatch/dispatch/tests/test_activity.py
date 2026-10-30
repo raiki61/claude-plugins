@@ -69,6 +69,18 @@ class Handle(unittest.TestCase):
         self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
         self.assertEqual(len(self.sent), 3)
 
+    def test_the_memo_is_dropped_when_herdr_cannot_be_asked(self):
+        # --resume で別のペインに出た直後に herdr に問い合わせられないと、控えの前のペイン（今はほかの会話の物かもしれない）が残り、
+        # その後のツールの呼び出しの印をそこへ送っていた
+        self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "前のターン"})
+
+        def down(cwd, sid):
+            raise activity.herdr.HerdrError(["herdr", "pane", "list"], "herdr に繋がらない")
+        self.find = down
+        self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "次のターン"})
+        self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
+        self.assertEqual(self.sent, [("w1:p1", "前のターン")])
+
     def test_tool_calls_do_not_wait_for_herdr_before_the_pane_is_known(self):
         self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
         self.assertEqual((self.sent, self.looked), ([], []))

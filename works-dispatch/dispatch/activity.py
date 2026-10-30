@@ -95,7 +95,7 @@ def pane_of(payload, tmp, find=None):
     try:
         pane = find(payload.get("cwd"), sid) if find else confirmed_pane(payload.get("cwd"), sid)
     except herdr.HerdrError:
-        return None
+        pane = None
     if memo:
         if pane:
             memo.write_text(pane, encoding="utf-8")
