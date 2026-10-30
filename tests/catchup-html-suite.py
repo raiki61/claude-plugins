@@ -436,6 +436,17 @@ class DiffTest(unittest.TestCase):
         self.assertEqual(got, ["x b/y.md", 'q"t.md'])
         self.assertEqual(got, list(ch.changemap.split_diff(d)[0]))
 
+    def test_lines_split_only_at_newlines(self):
+        """改ページ（^L）や U+2028 を含む行で 1 行を 2 行に分けない。分けると後ろの行番号が 1 つずれ、指摘の行の
+        抜き出しが 1 行上を指した。"""
+        body = "".join(f" line{i}\n" if i not in (4, 6) else (" \x0c\n" if i == 4 else " a\u2028b\n")
+                       for i in range(1, 9))
+        d = ("diff --git a/x.el b/x.el\n--- a/x.el\n+++ b/x.el\n@@ -1,10 +1,10 @@\n" + body
+             + "-old9\n+new9\n line10\n")
+        ex = ch.excerpt(ch.parse_diff(d)[0], 9)
+        self.assertIn("+new9", ex)
+        self.assertIn("@@ -5,6 +5,6 @@ \n line5\n a\u2028b\n line7", ex)
+
     def test_excerpt_around_the_commented_line(self):
         f = ch.parse_diff(DIFF)[0]
         ex = ch.excerpt(f, 12)

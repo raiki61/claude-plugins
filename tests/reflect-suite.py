@@ -385,6 +385,24 @@ class Privacy(unittest.TestCase):
                 local = rf.local_repos(human, [{"cwd": tmp, "asks": [], "first_prompt": "#9"}])
             self.assertEqual(rf.privacy([], [], ask=lambda label: True, local=local)["numbers"], [7, 8, 9])
 
+    def test_numbers_in_titles_summaries_and_removed_folders_are_counted(self):
+        # 非公開の PR の題の中の番号（revert の題）、/insights の会話の要約、作業フォルダが消えた会話（畳んだ worktree）の
+        # 番号も AI に渡るので集める。消えたフォルダはどのリポジトリか分からないので、名前は並べずに番号だけ当て過ぎに倒す
+        gh = [{"events": [{"repo": "corp/oms", "number": 900, "private": True, "title": 'Revert "fix: x (#811)"'},
+                          {"repo": "me/open", "number": 5, "private": False, "title": "fix (#6)"}]}]
+        self.assertEqual(rf.privacy([], gh, ask=lambda label: True)["numbers"], [811, 900])
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            gone = os.path.join(tmp, "removed-worktree")
+            human = [{"id": "s1", "cwd": tmp, "asks": ["見て"], "first_prompt": "見て"},
+                     {"id": "s2", "cwd": gone, "asks": ["issue 812 を直して"], "first_prompt": "issue 812 を直して"}]
+            facets = [{"session_id": "s1", "brief_summary": "Fixed PR #813", "friction_detail": None}]
+            with mock.patch.object(rf, "repo_label", return_value="corp/oms"), \
+                    mock.patch.object(rf, "on_github", return_value=False):
+                local = rf.local_repos(human, [], facets)
+            priv = rf.privacy([], [], ask=lambda label: True, local=local)
+            self.assertEqual((priv["repos"], priv["numbers"]), (["corp/oms"], [812, 813]))
+
     def test_folder_names_and_local_path_origins_are_not_private_names(self):
         # origin の無いリポジトリの commit は呼び名がフォルダの名前（docs）。名前は並べず、番号は集める。origin が手元の
         # path のリポジトリも、path の末尾 2 つを owner/name と読まない

@@ -74,7 +74,11 @@ def parse_diff(text):
     """unified diff を file ごと・hunk ごとに分ける。各行は (印, 前の行番号, 今の行番号, 中身)。"""
     files, f, h = [], None, None
     o = n = 0
-    for raw in (text or "").splitlines():
+    # 行は改行でだけ分ける。splitlines は ^L（改ページ）・U+2028 などでも分け、1 行が 2 行になって後ろの行番号がずれる
+    lines = re.split(r"\r?\n", text or "")
+    if lines and lines[-1] == "":
+        lines.pop()
+    for raw in lines:
         if raw.startswith("diff --git "):
             # path の読み方（引用形・a/ b/ の外し方・' b/' を含む path）は changemap と 1 つにしてある
             old, new = changemap.head_paths(raw) or ("", raw[len("diff --git "):])

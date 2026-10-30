@@ -472,10 +472,14 @@ def collect_events(node, me, my_email=""):
                 unlinked.add(name)
         # 私の commit を他の人が rebase して push すると、作者は私のまま committedDate だけ新しくなる。それを私の push
         # に数えると「私が最後にしたこと」が rebase の時刻へ進み、その間の相手の発言が「その後」から消える。committer
-        # が私でない人なら、その人の push にする（web-flow は GitHub の画面で私が出した commit。提案の取り込みなど）
+        # が私でない人なら、その人の push にする（web-flow は GitHub の画面で私が出した commit。提案の取り込みなど）。
+        # 逆に、他の人の commit を私が rebase して push したら私の push にする——相手の push に数えると、私の push の
+        # 後に「相手が push」が並ぶ
         pusher = ((c.get("committer") or {}).get("user") or {}).get("login")
         if who == me and pusher and pusher not in (me, "web-flow"):
             who = pusher
+        elif who != me and pusher == me:
+            who = me
         add(c["committedDate"], who, "push",
             f"{c['oid'][:9]} {c['messageHeadline']} (+{c['additions']}/-{c['deletions']})",
             PUSH, oid=c["oid"], key="push")
@@ -1029,7 +1033,7 @@ def find_ask(ev, node, me, cutoff, own):
     限ると、その依頼が丸ごと消えて「依頼は来ていない」と出る（実測: レビュー依頼の 27 分前に
     本文で 3 点を名指しで委ねられていた PR で発生）。
 
-    own（私が持っている自分の PR〔担当に渡していない〕/ 担当の issue）では、名指しの無い発言も最後の 1 件だけ拾う。自分の件への
+    own（私が持っている自分の PR〔担当に渡していない〕/ 担当の issue・assignee の無い自分の issue）では、名指しの無い発言も最後の 1 件だけ拾う。自分の件への
     発言は宛先を書かないのが普通で（実測: 「main を取り込むと lint が赤になるので合わせて
     ほしい」が @ 無しで来ていた）、名指しだけを待つと丸ごと落ちる。unaddressed=True を付けて
     返し、表示側で「名指しは無い」と断る。拾うのは本文のある発言だけで、解決済みスレッドは
@@ -1080,8 +1084,14 @@ def turn_reasons(node, me, ev, red):
     reasons = my_turn(node, me, red)
     spoke = last_spoken(ev, me)
     # 名指しの無い発言も私への依頼に読むのは、自分の件を私が持っているときだけ。担当に渡した自分の PR は担当のターン
-    # で、名指しの無い発言を見ない。見ていないのに「私の件への発言も無い」と言わないよう、戻り値の 4 つ目もこれにする
-    own = owns(node, me) and (node["__typename"] != "PullRequest" or me in turn.owners(node))
+    # で、名指しの無い発言を見ない。issue も、ほかの人だけが assignee の物は起票者でなく assignee が持つ（/whose-turn
+    # も issue のターンを assignee と名指しで決める）。見ていないのに「私の件への発言も無い」と言わないよう、戻り値の
+    # 4 つ目もこれにする
+    if node["__typename"] == "PullRequest":
+        own = owns(node, me) and me in turn.owners(node)
+    else:
+        assigned = [a["login"] for a in node.get("assignees", {}).get("nodes", [])]
+        own = me in assigned or (login_of(node.get("author")) == me and not assigned)
     ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
     # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
     # 形式の信号が 1 つも立たないときの取りこぼしを、これで塞ぐ。他の理由があっても足す——
@@ -1735,6 +1745,13 @@ def unresolved_threads(node, me):
         # スレッドで担当が返せば、それは私への返事で私が返すターン
         ours = side if any(login_of(c["author"]) not in side for c in cs) else {me}
         opener = login_of(cs[0]["author"])
+        # 持ち主の側の私以外の人（渡した担当など）が立てたスレッドは、側の残り（私を含む）への問い。答える側は立てた人を
+        # 除いた残りで、立てた人の後の発言は側の返事に数えない（/whose-turn の thread_turns と同じ）。私が側に居ない
+        # とき（持ち主でない共同の担当）は当たらない
+        osd = set(turn.owner_side(node)) if own else set()
+        asked_me = me in osd and opener in osd - {me}
+        if asked_me:
+            ours = osd - {opener}
         # 削除された行への指摘（diffSide が LEFT）は、line が base の版の行番号。head の行として読むと別の行になる
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
                     "left": th.get("diffSide") == "LEFT",
@@ -1742,8 +1759,7 @@ def unresolved_threads(node, me):
                     # 私以外の人（渡した担当など）が立てたとき（側の残りの私への問い）。作者でも担当に渡した後は、外の人が
                     # 立てたスレッドは担当のターンで、持ち主でない共同の担当も同じ（どれも /whose-turn の thread_turns と同じ）
                     "last": theirs[-1],
-                    "my_turn": last not in ours and bool(mine or (own and (me in turn.owners(node)
-                                                                           or opener in side - {me}))),
+                    "my_turn": last not in ours and bool(mine or (own and (me in turn.owners(node) or asked_me))),
                     # 人の最後の発言が私の側（私以外の持ち主）か。端末の「相手のターン」の言い方を分ける
                     "side_last": last if last != me and last in ours else None,
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が

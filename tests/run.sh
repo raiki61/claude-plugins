@@ -5770,6 +5770,9 @@ expect_output 0 "PASS4_FIXES_OK" \
 expect_output 0 "PASS5_FIXES_OK" \
     "catchup: 担当に渡した自分の PR で担当が立てたスレッドを私のターンにする・名指しの無い発言を見ていないのに「私の件への発言も無い」と言わない・日付のブランチ名の年を番号にしない・他の人が rebase した私の commit を私の push に数えない" \
     "$PY_BIN" "$CU_CASE" pass5-fixes
+expect_output 0 "PASS6_FIXES_OK" \
+    "catchup: ほかの人だけが assignee の自分の issue で名指しの無い発言を私への依頼に読まない・他の人の commit を私が rebase して push したら私の push に数える・持ち主でない共同の担当に作者のスレッドのターンを立てない・担当が立てて重ねて聞いたスレッドを私のターンにする" \
+    "$PY_BIN" "$CU_CASE" pass6-fixes
 
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元のセクションにも残す）" \

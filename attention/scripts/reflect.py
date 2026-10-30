@@ -458,22 +458,29 @@ def on_github(top):
     return real in GITHUB_HOSTS
 
 
-def local_repos(human, background=()):
+def local_repos(human, background=(), facets=()):
     """privacy の local: 会話の作業フォルダのリポジトリ [(呼び名, origin が github.com か, そこでの会話の文)]。会話の文は
-    人の頼みと裏の claude -p の最初の頼み——どちらも AI に渡るので、非公開のリポジトリなら中の番号も書かせない。裏の
-    claude -p だけが動いたリポジトリも入れる。origin の無いリポジトリ（呼び名がフォルダの名前）は入れない——docs・notes
-    などの一般の語を書けなくなる。commit が在れば privacy が commit の側で見る"""
+    人の頼み・裏の claude -p の最初の頼み・/insights の会話の要約（facets）——どれも AI に渡るので、非公開のリポジトリ
+    なら中の番号も書かせない。裏の claude -p だけが動いたリポジトリも入れる。origin の無いリポジトリ（呼び名がフォルダの
+    名前）は入れない——docs・notes などの一般の語を書けなくなる。commit が在れば privacy が commit の側で見る。
+    作業フォルダが消えた会話（main に入れた後に畳んだ worktree など）は、どのリポジトリか分からないので呼び名 "" に
+    まとめ、非公開として番号を集める（外すより当て過ぎに倒す）"""
+    summary = {f.get("session_id"): [v for k in ("brief_summary", "friction_detail", "underlying_goal")
+                                     for v in [f.get(k)] if isinstance(v, str)] for f in facets}
     sessions = sorted((s for s in [*human, *background] if s.get("cwd")), key=lambda s: s["cwd"])
-    tops, texts, seen = {}, {}, {}
+    tops, texts, seen, gone = {}, {}, {}, []
     for s in sessions:
+        said = [*s.get("asks", []), s.get("first_prompt") or "", *summary.get(s.get("id"), [])]
         if s["cwd"] not in seen:
             seen[s["cwd"]] = git_root(s["cwd"])
         if seen[s["cwd"]]:
             common, top = seen[s["cwd"]]
             tops.setdefault(common, top)
-            texts.setdefault(common, []).extend([*s.get("asks", []), s.get("first_prompt") or ""])
+            texts.setdefault(common, []).extend(said)
+        elif not os.path.isdir(s["cwd"]):
+            gone.extend(said)
     return [(label, on_github(top), texts[common]) for common, top in tops.items()
-            for label in [repo_label(top)] if "/" in label]
+            for label in [repo_label(top)] if "/" in label] + ([("", False, gone)] if gone else [])
 
 
 def git_root(cwd):
@@ -793,7 +800,8 @@ def privacy(commit_rows, gh_rows, ask=repo_private, local=()):
     作業フォルダのリポジトリ [(呼び名, origin が github.com か, そこでの会話の文)]——commit の無いリポジトリも、フォルダの
     名前と会話が AI に渡る。github.com でない物は問い合わせずに非公開で、非公開のリポジトリの会話の文に出た番号も集める。
     動きの記録は、ページで切った後の 200 件でなく全件を見る。origin の無いリポジトリ（呼び名に / が無い。commit の側から
-    来る）は名前を並べない——フォルダの名前は docs・notes などの一般の語で、書けなくなる。番号は集める。"""
+    来る。作業フォルダが消えた会話の呼び名 "" も）は名前を並べない——フォルダの名前は docs・notes などの一般の語で、書けなく
+    なる。番号は集める。"""
     known = {}
     for g in gh_rows:
         for r in g.get("all_events") or g["events"]:
@@ -813,8 +821,11 @@ def privacy(commit_rows, gh_rows, ask=repo_private, local=()):
             known[it["repo"]] = ask(it["repo"])
         it["private"] = known.get(it.get("repo"), True)
     repos = sorted(k for k, v in known.items() if v and "/" in k)
-    numbers = {r["number"] for g in gh_rows for r in g.get("all_events") or g["events"] if r.get("private") and r.get("number")}
-    numbers |= {it["number"] for it in found if it["private"] and it.get("number")}
+    private_rows = [r for g in gh_rows for r in g.get("all_events") or g["events"] if r.get("private")]
+    private_rows += [it for it in found if it["private"]]
+    # 題の中の番号も AI に渡る（revert の PR の題「Revert "fix: x (#811)"」など）
+    numbers = {r["number"] for r in private_rows if r.get("number")}
+    numbers |= {n for r in private_rows for n in ref_numbers(r.get("title"))}
     numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in ref_numbers(x["subject"])}
     numbers |= {n for label, _hub, texts in local if known[label] for t in texts for n in ref_numbers(t)}
     return {"repos": repos, "numbers": sorted(numbers)}
@@ -887,8 +898,9 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     gh_unseen = []
     gh = github(start, end, gh_unseen) if with_github else []
     commit_rows = commits(cwds, start, end)
+    usage = insights(dirs, {s["id"] for s in human})
     private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True),
-                      local_repos(human, background))
+                      local_repos(human, background, usage["facets"]))
     for g in gh:
         g.pop("all_events", None)
     try:
@@ -913,7 +925,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
         "commits": commit_rows,
         "github": gh,
         "private": private,
-        "insights": insights(dirs, {s["id"] for s in human}),
+        "insights": usage,
         "assets": assets(dirs, cwds),
         "ledger": ledger["proposals"],
         "diary_dir": env.get(DIARY_ENV) or None,
