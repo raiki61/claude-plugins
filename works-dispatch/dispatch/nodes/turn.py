@@ -12,7 +12,7 @@ stalled（送って動き出さなかった。herdr の組み込みの見張り�
 同じ場所で前に開いた会話が残した報告（1 ターン目の後のターンの最後の答え）は、keep_report が場所の git の置き場に書き残し、
 そのパスを渡す一言（EARLIER）を同じ道で足す（GitHub に出していない下書きや前の回の発見を、次の会話が読めるように。持ち主
 2026-10-27「前の回の発見もいい情報なので、枝になるかもしれないし、議題になるかもしれないしね」）。前の報告が無ければ足さない。
-1 ターン目の終わりは、入口が state を渡せば、Claude Code 自身が返す会話の状態（claude agents --json の status。idle・busy）で見る。
+1 ターン目の終わりは、入口が state を渡せば、Claude Code 自身が返す会話の状態（claude agents --json の status。idle・busy・waiting）で見る。
 herdr は画面の下の行で作業中かを決めるので、会話が裏に待ちのコマンドを残すと、ターンが終わっても作業中と見続ける（2026-10-15 に
 #2003 で 54 分止まり、2 ターン目も報告も出なかった）。動き出したことだけは herdr の --wait --until working で見る（herdr の
 組み込みの見張りが、動き出さなければ stalled で返す）。その後、Claude Code が idle を返すまで間をおいて見る。herdr が blocked
@@ -101,12 +101,14 @@ def _until(check, tries, pause):
 
 
 def _turn_end(pane, h, state, pause):
-    """動き出した後、Claude Code が idle を返すまで待つ。idle・blocked のどちらか。state() が None（会話が見えない）の回は
-    herdr の見立てを使う。"""
+    """動き出した後、Claude Code が idle を返すまで待つ。idle・blocked のどちらか。Claude Code が waiting（確かめの画面で人の答えを
+    待つ）を返せば blocked。state() が None（会話が見えない）の回は herdr の見立てを使う。"""
     while True:
         got = state()
         if got == "idle":
             return "idle"
+        if got == chat.WAITING:
+            return "blocked"
         if got is None:
             seen = (h.agent(pane) or {}).get("agent_status")
             if seen in FINISHED:
@@ -122,7 +124,7 @@ def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pa
     """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。
     catchup は送るコマンドの名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。
     earlier は前の会話の報告を残したパス（keep_report。無ければ None）。
-    state() は、その会話の状態を Claude Code 自身に問う口（idle・busy・None）。None を渡すと、終わりも herdr の見立てで待つ。"""
+    state() は、その会話の状態を Claude Code 自身に問う口（idle・busy・waiting・None）。None を渡すと、終わりも herdr の見立てで待つ。"""
     if second is None:
         only = send(pane, f"{catchup} {number}", False, h)
         return "sent" if only["status"] == "sent" else "send_failed"

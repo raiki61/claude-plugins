@@ -128,6 +128,13 @@ class TurnEnd(unittest.TestCase):
         self.assertEqual(got, "blocked")
         self.assertEqual(len([c for c in h.calls if c[0] == "prompt"]), 1)
 
+    def test_waiting_from_claude_stops_before_the_second_turn(self):
+        # Claude Code が waiting（確かめの画面で人の答えを待つ）を返せば、herdr が作業中と見ていても blocked で止める
+        h = TurnHerdr(prompts=["working"], agent={"agent": "claude", "agent_status": "working"})
+        got = turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP, state=lambda: "waiting", pause=lambda: None)
+        self.assertEqual(got, "blocked")
+        self.assertEqual(len([c for c in h.calls if c[0] == "prompt"]), 1)
+
     def test_a_pane_that_goes_away_during_the_first_turn_is_send_failed(self):
         # 1 ターン目の間に窓が閉じると herdr が Error を投げる。dispatch の全体を traceback で止めず、その PR を send_failed にする
         h = TurnHerdr(prompts=["working"], agent={"agent": "claude", "agent_status": "working"})

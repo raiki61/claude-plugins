@@ -463,7 +463,7 @@ class Ports:
         filex.replace(pathlib.Path(limits_dir) / SENT_FILE, json.dumps(sent, ensure_ascii=False, indent=1, sort_keys=True))
 
     def state(self, config_dir, path):
-        """そのフォルダの中の会話の状態を Claude Code 自身に問う（claude agents --json の status。idle・busy など）。
+        """そのフォルダの中の会話の状態を Claude Code 自身に問う（claude agents --json の status。idle・busy・waiting など）。
         会話が見えない・読めなければ None。"""
         try:
             items = self.list_sessions(config_dir)

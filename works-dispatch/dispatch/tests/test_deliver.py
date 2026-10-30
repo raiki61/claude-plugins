@@ -729,6 +729,15 @@ class Flow(unittest.TestCase):
         status, detail = deliver.send_confirmed("P", line, h, lambda: None, lambda: True)
         self.assertEqual((status, [w[0] for w in h.writes]), ("sent", ["prompt"]))
         self.assertIn("打ち直さない", detail)
+        # 確かめの画面（許可など）で人の答えを待っている会話には打たない（打った字と Enter を確かめの画面が受ける）
+        h = H([""])
+
+        def waiting():
+            return True
+        waiting.waiting = True
+        status, detail = deliver.send_confirmed("P", line, h, lambda: None, waiting)
+        self.assertEqual((status, h.writes), ("failed", []))
+        self.assertIn("確かめの画面", detail)
         # 促しの 1 行は時刻で前の促しと字を分ける
         import orders
         self.assertNotEqual(orders.nudge_line("X", "desk", 1_000_000)[:20], orders.nudge_line("X", "desk", 1_000_007)[:20])
@@ -1384,6 +1393,29 @@ class Flow(unittest.TestCase):
         pos.parent.mkdir(parents=True, exist_ok=True)
         pos.write_text("0", encoding="utf-8")
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(sent(), [])
+        self.assertIn("順番待ちに積んだ", out)
+        self.assertEqual(len(wake.queued(self.inbox, place_dir)), 1)
+
+    def test_a_department_waiting_on_a_permission_prompt_is_not_typed_into(self):
+        # 確かめの画面（許可など）で人の答えを待つ部署（status=waiting）の窓には打たない（打った字と Enter を確かめの画面が受ける）。
+        # 待ち受けの跡が在れば順番待ちに積み、無ければ訳を出して止める。fresh でない役でも同じ
+        self.shape('[[roles]]\nname = "調べ役"\npersistent = true\n')
+        sent = lambda: [w[2] for w in self.prompts() if w[1] != self.desk]   # noqa: E731
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
+            {"id": "s", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "blocked",
+             "status": "waiting", "waitingFor": "permission prompt"}]
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(sent(), [])
+        self.assertIn("確かめの画面", out)
+        place_dir = self.g.git_dir(self.place)
+        pos = pathlib.Path(wake.pos_path(self.inbox, place_dir))
+        pos.parent.mkdir(parents=True, exist_ok=True)
+        pos.write_text("0", encoding="utf-8")
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         self.assertEqual(sent(), [])
         self.assertIn("順番待ちに積んだ", out)

@@ -96,11 +96,12 @@ def _reopens(hours, now):
 
 
 def is_running(item):
-    """`claude agents --json` の 1 件が動いている会話か。背景の会話は state、state の無い対話の会話は status で見る。"""
+    """`claude agents --json` の 1 件が動いている会話か。背景の会話は state、state の無い対話の会話は status で見る。
+    確かめの画面で人の答えを待つ waiting もターンの途中なので数える（裏の会話の同じ待ちは state が blocked で数えている）。"""
     state = item.get("state")
     if state is not None:
         return state in RUNNING_STATES
-    return item.get("status") == "busy"
+    return item.get("status") in chat.MID_TURN
 
 
 def count_running(listed):

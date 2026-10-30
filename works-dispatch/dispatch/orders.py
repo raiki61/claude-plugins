@@ -188,12 +188,12 @@ def listener(inbox, company_name, name):
 
 
 def resting_listener(inbox, company_name, entry, ports):
-    """会話の一覧の 1 件 entry の頼み元の会話が、ターンの途中（status が busy）で待ち受けが止まっているだけなら、ターンの終わりに
+    """会話の一覧の 1 件 entry の頼み元の会話が、ターンの途中（status が busy か waiting。chat.MID_TURN）で待ち受けが止まっているだけなら、ターンの終わりに
     張り直す待ち受けが受ける宛先の並び（wake_hook.plan と同じ作り方）。ほかは []。見るのは、会話の作業フォルダに待ち受けの居た跡
     （wake.has_history）が在り、その場所の属性の会話がこの会話であること（plan は属性の会話でない会話には待ち受けを張らない。本社の
     窓口でないほかの会話の頼みを、窓口の待ち受けに宛てない）。跡の無い場所はフックの無い前の版の会話なので、窓に打ち込む。"""
     cwd = (entry or {}).get("cwd")
-    if not (inbox and company_name and cwd and entry.get("status") == "busy"):
+    if not (inbox and company_name and cwd and entry.get("status") in chat.MID_TURN):
         return []
     place = ports.git.git_dir(cwd)
     if not (place and wake.has_history(inbox, place)):
@@ -379,11 +379,13 @@ def dept_talk(dept, items):
 
 
 def busy_check(dept, accounts_, ports):
-    """部署の会話が動いている（会話の一覧の status が busy）かを見る関数。送った 1 行が届いたかの確かめに使う。
-    見つけた会話の id を関数の found に残す（属性の id が古ければ、頼みの属性と一緒に書き直す）。"""
+    """部署の会話がターンの途中（会話の一覧の status が busy か waiting。chat.MID_TURN）かを見る関数。送った 1 行が届いたかの確かめに使う。
+    見つけた会話の id を関数の found に、確かめの画面で人の答えを待っている（waiting）かを waiting に残す（属性の id が古ければ、
+    頼みの属性と一緒に書き直す。waiting の会話の窓には打たない。deliver.send_confirmed）。"""
     acc = account_of(dept, accounts_)
 
     def busy():
+        busy.waiting = False   # 一覧を読めない回に、前の回の印を残さない
         try:
             items = ports.list_sessions(acc.config_dir if acc else None)
         except chat.Error:
@@ -391,8 +393,9 @@ def busy_check(dept, accounts_, ports):
         talk = dept_talk(dept, items)
         if talk:
             busy.found = talk.get("sessionId")
-        return bool(talk) and talk.get("status") == "busy"
-    busy.found = None
+        busy.waiting = bool(talk) and talk.get("status") == chat.WAITING
+        return bool(talk) and talk.get("status") in chat.MID_TURN
+    busy.found, busy.waiting = None, False
     return busy
 
 
@@ -624,8 +627,10 @@ def _ask(a, ports, cwd, task, sent):
         place_dir = ports.git.git_dir(dept["path"])
         to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
         fresh = bool((the_role or {}).get("fresh"))
-        # 待ち受けの跡の在る fresh の部署が、納品し終えてターンの途中（待ち受けが止まっている）なら積む。ターンの終わりの待ち受けが空にしてから渡す
-        mid_turn = fresh and held and not pending and busy_check(dept, accounts_, ports)()
+        # 待ち受けの跡の在る fresh の部署が、納品し終えてターンの途中（待ち受けが止まっている）なら積む。ターンの終わりの待ち受けが空にしてから渡す。
+        # 確かめの画面で人の答えを待っている（waiting）部署も積む（窓に打つと確かめの画面が受ける）
+        check = busy_check(dept, accounts_, ports)
+        mid_turn = not pending and check() and (fresh and held or check.waiting)
         def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
                              {"id": ask_id, "sender": sender, "body": body, "title": title, "inbox": inbox, "required": required, "boss": boss,

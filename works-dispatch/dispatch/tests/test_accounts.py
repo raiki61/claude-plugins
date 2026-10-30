@@ -239,9 +239,10 @@ class Running(unittest.TestCase):
             {"kind": "interactive", "status": "busy"},
             {"kind": "interactive", "status": "idle"},
             {"kind": "interactive"},
+            {"kind": "interactive", "status": "waiting", "waitingFor": "permission prompt"},
         ]
-        self.assertEqual([accounts.is_running(i) for i in items], [True, True, False, True, False, False])
-        self.assertEqual(accounts.count_running({"a": items, "b": []}), {"a": 3, "b": 0})
+        self.assertEqual([accounts.is_running(i) for i in items], [True, True, False, True, False, False, True])
+        self.assertEqual(accounts.count_running({"a": items, "b": []}), {"a": 4, "b": 0})
 
     def test_unreadable_account_counts_as_zero_with_a_note(self):
         def list_sessions(cdir):

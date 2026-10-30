@@ -3401,6 +3401,10 @@ class WakeFlow(unittest.TestCase):
         company = orders.inbox_company(self.inbox, os.path.dirname(self.cfg), self.g)
         talk = self.ports.list_sessions(None)[0]
         self.assertEqual(orders.resting_listener(self.inbox, company, {**talk, "status": "idle"}, self.ports), [])   # 手が空いている
+        # 確かめの画面で人の答えを待つ（waiting）のもターンの途中。窓に打たず台帳に置く（打つと確かめの画面が受ける）
+        self.assertEqual(orders.resting_listener(self.inbox, company, {**talk, "status": "waiting"}, self.ports),
+                         orders.resting_listener(self.inbox, company, talk, self.ports))
+        self.assertNotEqual(orders.resting_listener(self.inbox, company, talk, self.ports), [])
         provision.mark(self.src, self.src, {"session": "s-other"}, self.g)   # 属性の会話が頼み元でない場所（本社のほかの会話の頼み）
         self.assertEqual(orders.resting_listener(self.inbox, company, talk, self.ports), [])
         provision.mark(self.src, self.src, {"session": "s-desk"}, self.g)

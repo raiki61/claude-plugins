@@ -246,6 +246,16 @@ class Agents(unittest.TestCase):
         listed = [{"status": "busy"}, {"status": "paused"}, {"status": "paused", "state": "queued"}]
         self.assertEqual(claudex.unknown_values(listed), {"status=paused": 2, "state=queued": 1})
 
+    def test_waiting_is_mid_turn_and_marked(self):
+        # waiting（確かめの画面で人の答えを待つ）はターンの途中。部署の busy は真で、窓に打たない印 waiting が立つ
+        import types
+        import orders
+        dept = {"attrs": {"session": "s1"}, "path": "/r/co-w"}
+        for status, mid, waiting in (("busy", True, False), ("waiting", True, True), ("idle", False, False)):
+            ports = types.SimpleNamespace(list_sessions=lambda cdir, s=status: [{"sessionId": "s1", "status": s}])
+            busy = orders.busy_check(dept, (), ports)
+            self.assertEqual((busy(), busy.waiting), (mid, waiting), status)
+
     @unittest.skipIf(os.name == "nt", "見本は macOS のパス（Windows では abspath がドライブを足す）")
     def test_the_talk_folder_name_matches_what_claude_code_makes(self):
         # 2026-10-19 に 2.1.303 の projects/ に在った名前（. と _ も - になる）

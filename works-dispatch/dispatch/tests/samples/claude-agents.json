@@ -67,5 +67,17 @@
   "sessionId": "00000006-0000-4000-8000-000000000000",
   "name": "部署",
   "status": "busy"
+ },
+ {
+  "pid": 1007,
+  "id": "00000007",
+  "cwd": "/r/co-w",
+  "kind": "background",
+  "startedAt": 1793376108999,
+  "sessionId": "00000007-0000-4000-8000-000000000000",
+  "name": "部署",
+  "status": "waiting",
+  "waitingFor": "permission prompt",
+  "state": "blocked"
  }
 ]

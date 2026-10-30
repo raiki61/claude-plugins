@@ -101,9 +101,16 @@ def sessions(config_dir, runner=_default_runner, base_env=None, include_done=Fal
 
 
 # 会話の一覧の 1 件の status（対話の会話のターン）と state（裏の会話）の、読み方を知っている値。None はフィールドの無い物（対話の会話に
-# state は無く、終わった裏の会話に status は無い）。2026-10-19 に 2.1.303 で見た値（tests/samples/claude-agents.json）
-KNOWN_STATUS = ("busy", "idle", None)
+# state は無く、終わった裏の会話に status は無い）。2026-10-19 に 2.1.303 で見た値（tests/samples/claude-agents.json。waiting の 1 件は
+# 2026-10-31 に 2.1.314 で見た物の id と時刻を伏せた写し）と、文書の値（https://code.claude.com/docs/en/agent-view の「List sessions as
+# JSON」の表。status は busy・waiting・idle のどれか）
+KNOWN_STATUS = ("busy", "waiting", "idle", None)
 KNOWN_STATE = ("working", "blocked", "done", "failed", "stopped", None)
+# status のうち、ターンの途中の物。動いている busy と、確かめの画面（許可・Claude の問い・sandbox など）を開いて人の答えを待つ
+# waiting（何を待つかはフィールド waitingFor に入る。同じ表の「What the session is blocked on」。2026-10-31 に 2.1.314 で、許可の確認で止まった裏の
+# 会話が status=waiting・waitingFor=permission prompt・state=blocked なのを見た）。waiting の会話の窓に字を打つと、確かめの画面が受ける
+MID_TURN = ("busy", "waiting")
+WAITING = "waiting"
 
 
 def unknown_values(listed):
