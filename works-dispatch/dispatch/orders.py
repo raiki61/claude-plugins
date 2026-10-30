@@ -488,7 +488,7 @@ def text_of(a, flag, what):
         return a.text
     try:
         return pathlib.Path(os.path.expanduser(a.brief)).read_text(encoding="utf-8")
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:   # UTF-8 でないファイル（Windows の Shift_JIS など）も訳を出して止める
         print(f"止めた: {what}のファイルを読めない（{e}）")
         return None
 
@@ -1883,7 +1883,7 @@ def deliver_summary(a, ports, cwd):
     try:
         text = sys.stdin.read() if a.deliver == "-" else \
             pathlib.Path(os.path.expanduser(a.deliver)).read_text(encoding="utf-8")
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         print(f"止めた: 要約のファイルを読めない（{e}）")
         return 2
     def refuse(lines):

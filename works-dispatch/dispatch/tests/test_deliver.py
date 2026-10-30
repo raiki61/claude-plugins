@@ -1058,6 +1058,18 @@ class Flow(unittest.TestCase):
         # 納品の後は Stop フックが差し戻さない
         self.assertIsNone(deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
 
+    def test_a_brief_or_summary_not_in_utf8_stops_with_a_reason(self):
+        # Shift_JIS などで書いたファイルは、traceback でなく訳を出して止める
+        sjis = pathlib.Path(self.root).parent / "sjis.md"
+        sjis.write_bytes("頼み".encode("shift_jis"))
+        rc, out = self.main(self.src, "--ask", "調べ", "--brief", str(sjis))
+        self.assertEqual(rc, 2, out)
+        self.assertIn("止めた: 頼みのファイルを読めない", out)
+        self.ask_then_summary(GOOD)
+        rc, out = self.main(self.place, "--deliver", str(sjis))
+        self.assertEqual(rc, 2, out)
+        self.assertIn("止めた: 要約のファイルを読めない", out)
+
     def test_a_second_deliver_to_the_delivered_ask_stops_until_again(self):
         # 納品した頼みへ、--again も --for も無い 2 通目は送らない。前は、ほかの頼みの要約が済んだ頼みの納品として届いた（受付 b54685）
         summary = self.ask_then_summary(GOOD)
