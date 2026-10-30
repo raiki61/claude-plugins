@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.144.2] - 2026-10-31
+
 ### Fixed
 
 - Claude Code の会話の一覧（`claude agents --json`）の `status=waiting`（許可などの確かめの画面で人の答えを待つ）を、読み方を知っている値にした。一覧に waiting の会話が在ると `--ask`・`--note` のたびに出ていた「読み方を知らない値がある」の警告が消える。waiting の会話はターンの途中として扱い、打つ直前の一覧で waiting なら窓に字を打たない（前は手が空いた会話と見て頼み・足し・納品の 1 行を打ち、確かめの画面がその字と Enter を受けて、人が決める許可を選びうる状態だった）。打てないときは台帳の順番待ちに積むか、訳を出して止める。アカウントの動いている会話の数（アカウント選びに使う）にも waiting の対話の会話を数える。`/catchup` の 1 ターン目が waiting になれば、2 ターン目を送らずに blocked で止める（頼み dc0ab9）。
