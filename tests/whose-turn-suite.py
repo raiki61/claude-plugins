@@ -1716,6 +1716,21 @@ class Mentions(unittest.TestCase):
         self.assertEqual(list(flow.unanswered(quiet)), ["Dave"])
         self.assertEqual(list(flow.unanswered(quiet, ["dave"])), ["dave"])
 
+    def test_unknown_logins_typed_in_two_cases_are_one_person(self):
+        """発言の無い人を @Dave と @dave で呼んでも 1 人。綴りは最初に打たれた物"""
+        posts = flow.posts_of_issue(
+            issue(comments=[(user("alice"), T1, "@Dave 見て"), (user("carol"), T2, "@dave ping")])
+        )
+        out = flow.unanswered(posts)
+        self.assertEqual(list(out), ["Dave"])
+        self.assertEqual(out["Dave"]["since"], T1)
+
+    def test_fences_open_only_at_line_start(self):
+        """文の中の ~~~（ありがとう~~~）はコードブロックの囲みではない。間の @name を消さない"""
+        self.assertEqual(flow.mentions("ありがとう~~~ @bob レビューお願いします~~~"), {"bob"})
+        self.assertEqual(flow.mentions("  ```\n@fixture\n  ```\n@real"), {"real"})
+        self.assertEqual(flow.mentions("````\n```\n@inner\n```\n````\n@real"), {"real"})
+
     def test_mention_after_reply_reopens(self):
         posts = flow.posts_of_issue(
             issue(
@@ -2576,6 +2591,21 @@ class Json(unittest.TestCase):
         called = pr(number=5, comments=conn(comment(user("alice"), T1, "@Bob 見て"), comment(user("bob"), T0, "先に")))
         out = json.loads(report(called, who="bob", args=("--json",)))
         self.assertEqual([(w["number"], w["who"]) for w in out["waits"]], [(5, "bob")])
+
+    def test_json_a_mention_after_going_back_to_draft_keeps_one_spelling(self):
+        # bob は戻す前に発言し、戻した後に @Bob と呼ばれた。戻した後の発言だけを見る回でも bob の 1 人にする
+        back = event("ConvertToDraftEvent", T1)
+        p = pr(number=5, isDraft=True, timelineItems=conn(back),
+               comments=conn(comment(user("bob"), T0, "先に"),
+                             comment(user("alice"), T2, "@Bob 設計書のレビューをお願いします")))
+        out = json.loads(report(p, who="bob", args=("--json",)))
+        self.assertEqual([(w["number"], w["who"]) for w in out["waits"]], [(5, "bob")])
+
+    def test_json_a_mention_of_the_silent_author_uses_the_authors_spelling(self):
+        # 作者 carol は発言していない。@Carol は作者への呼びかけで、別の人（レビュアー）にしない
+        p = pr(number=5, author=user("carol"), comments=conn(comment(user("alice"), T1, "@Carol これは準備できた？")))
+        out = json.loads(report(p, who="carol", args=("--json", "--all")))
+        self.assertEqual([(w["number"], w["who"]) for w in out["waits"]], [(5, "carol")])
 
     def test_json_a_mention_after_going_back_to_draft_is_not_set_aside(self):
         # ready → draft へ戻す → 呼びかけ: 戻した後の頼み。戻す前の呼びかけが残っていても、後の頼みを材料にする

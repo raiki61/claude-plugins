@@ -1124,7 +1124,8 @@ def unanswered(posts, known=()):
             continue
         later = {login(q["author"]).casefold() for q in posts[n + 1 :] if login(q["author"])}
         prev = latest_human_post(posts[:n])
-        for who in sorted({canon.get(m.casefold(), m) for m in mentions(p["body"])}):
+        # 知らない login は最初に打たれた綴りに寄せる（@Dave と後の @dave を 2 人にしない）
+        for who in sorted({canon.setdefault(m.casefold(), m) for m in mentions(p["body"])}):
             if same_login(who, login(p["author"])) or who.casefold() in later or who in out:
                 continue
             out[who] = {
@@ -1144,11 +1145,21 @@ def pr_unanswered(pr, known=()):
     材料にする——戻す前の呼びかけが残ったまま戻した後に新しく頼まれると、最初の 1 件だけでは before_draft が真になり、
     後の頼みの本文も読む側に届かない"""
     posts = posts_of_pr(pr)
+    # 戻した後の発言だけで呼ぶ回も、PR 全体の発言者の綴りで突き合わせる（@Bob と bob を 2 人にしない）
+    known = [*known, *(login(p["author"]) for p in posts)]
     out = unanswered(posts, known)
     back = back_to_draft_at(pr)
     if back:
-        out.update(unanswered([q for q in posts if q["at"] > back], known))
+        for who, info in unanswered([q for q in posts if q["at"] > back], known).items():
+            out = {k: v for k, v in out.items() if not same_login(k, who)}
+            out[who] = info
     return out
+
+
+def participants(node):
+    """PR・issue の作者・assignee・レビューを頼まれた人。呼びかけの login の正しい綴りを引くのに使う"""
+    asked = (reviewer(rq["requestedReviewer"]) for rq in node.get("reviewRequests", {}).get("nodes", []))
+    return [login(node.get("author")), *map(login, node.get("assignees", {}).get("nodes", [])), *asked]
 
 
 def open_prs_referencing(issue, prs=()):
@@ -1347,12 +1358,12 @@ def report(a):
                           "戻す前のレビュー依頼をレビュアーのターンに数えた恐れがある")
         for who, ball in pr_tiers(p).items():
             balls[(who, p["number"])] = ball
-        pr_waits += [(who, info, p) for who, info in pr_unanswered(p, [me]).items()]
+        pr_waits += [(who, info, p) for who, info in pr_unanswered(p, [me, *participants(p)]).items()]
     issue_waits = []
     for i in issues:
         limits += limits_of_issue(i)
         issue_waits += [
-            (who, info, i) for who, info in unanswered(posts_of_issue(i), [me]).items()
+            (who, info, i) for who, info in unanswered(posts_of_issue(i), [me, *participants(i)]).items()
         ]
     limits += fill_reactions(pr_waits + issue_waits)
     limits = [w for w in limits if w]

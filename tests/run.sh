@@ -5756,6 +5756,10 @@ expect_output 0 "THREADS_LEFT_OK" \
     "catchup: 削除された行への指摘（diffSide が LEFT）は head の同じ番号の行を出さず、端末は削除された側と言い、HTML の抜粋は削除された行の前後" \
     "$PY_BIN" "$CU_CASE" threads-left
 
+expect_output 0 "PASS2_THREADS_OK" \
+    "catchup: @Me は me への呼びかけ・他の人同士のスレッドを私が最後に発言したと言わない・空行で終わる引用だけの発言も全文を出す・自分の PR の未返信の指摘を 1 行目の理由に数える・削除された行の場所に base の版と添える" \
+    "$PY_BIN" "$CU_CASE" pass2-threads
+
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元のセクションにも残す）" \
     "$PY_BIN" "$CU_CASE" branch-wiring

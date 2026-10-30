@@ -20,8 +20,9 @@ def is_bot(actor):
     return (actor or {}).get("__typename") == "Bot"
 
 
-# GFM のコードブロックの囲みは ``` と ~~~ の両方。開いた囲みと同じ文字で閉じる
-_FENCE = re.compile(r"(```|~~~).*?\1", re.S)
+# GFM のコードブロックの囲みは ``` と ~~~ の両方。行の頭（字下げ 3 つまで）で開き、開いた囲みと同じ文字で閉じる。
+# 行の頭に限らないと、文の中の 2 つの ~~~（ありがとう~~~）の間を消す
+_FENCE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,}).*?^[ ]{0,3}\1", re.S | re.M)
 _INLINE = re.compile(r"`[^`\n]*`")
 _QUOTE = re.compile(r"^[ \t]*>.*$", re.M)
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
@@ -56,6 +57,11 @@ def readable(text):
 def mentions(text):
     """本文が呼びかけている login の集合（コード・引用の中は数えない）。"""
     return set(_MENTION.findall(clean(text)))
+
+
+def mentioned(text, who):
+    """本文が who を呼びかけているか。GitHub の login は大文字小文字を区別しない（@Bob は bob を呼んでいる）"""
+    return bool(who) and who.casefold() in {m.casefold() for m in mentions(text)}
 
 
 def refs(text):

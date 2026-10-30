@@ -574,6 +574,35 @@ def _threads_quote_only():
     return verdict("THREADS_QUOTE", want, out + str([t["quote"] for t in page]))
 
 
+@case("pass2-threads")
+def _pass2_threads():
+    """2 巡目のレビューの指摘。@Me は me への呼びかけ（login は大文字小文字を区別しない。/whose-turn と同じ）。人の PR の
+    他の人同士のスレッドを「私が最後に発言している」と言わない。空行で終わる引用だけの発言も全文を出す。自分の PR で私がまだ入っていない指摘も 1 行目の理由に数える。削除された行への指摘は、場所の
+    行番号が base の版だと添える。"""
+    called = pr(comments=conn([comment(T1, "other", "@Me ここを見てください")]))
+    ev, _, _ = catchup.collect_events(called, ME, "")
+    ask = catchup.find_ask(ev, called, ME, None, False)
+    others = pr(reviewThreads=conn([thread("app/b.py", False, comment(T1, "bob", "なぜ？"), comment(T2, "alice", "理由は…"))]))
+    alert = "> [!NOTE]\n> fix this\n\n"
+    quoted = pr(reviewThreads=conn([thread("app/q.py", False, comment(T1, ME, "q"), comment(T2, "rev", alert))]))
+    ev2, _, _ = catchup.collect_events(quoted, ME, "")
+    ask2 = catchup.find_ask(ev2, quoted, ME, None, False)
+    own = pr(author=user(ME), reviewThreads=conn([
+        thread("app/a.py", False, comment(T1, "rev", "A"), comment(T3, ME, "直した")),
+        thread("app/c.py", False, comment(T1, "rev", "B"))]))
+    left = thread("app/m.py", False, comment(T1, "other", "なぜ消した？"))
+    left["diffSide"] = "LEFT"
+    want = {
+        "mention_any_case": bool(ask) and ask["text"] == "@Me ここを見てください",
+        "others_not_mine_last": "私は入っていない" in catchup.render_threads(others, ME, lambda p: None),
+        "alert_body_kept": catchup.their_lines(alert) == ["> [!NOTE]", "> fix this", ""],
+        "ask_text_kept": bool(ask2) and ask2["text"] == alert,
+        "own_new_thread_counted": "未解決スレッド 1 件" in " ".join(catchup.my_turn(own, ME, False)),
+        "left_where": catchup.thread_where(left) == "app/m.py:10（削除された側。base の版の行）",
+    }
+    return verdict("PASS2_THREADS", want, str(want))
+
+
 @case("threads-left")
 def _threads_left():
     """削除された行への指摘（diffSide が LEFT。line は base の版の行番号）は、head の同じ番号の行を出さない。端末は

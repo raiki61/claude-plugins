@@ -66,7 +66,7 @@ import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/wh
 from stance import stance  # noqa: E402 — 立場の判定。/what-am-i-doing と共用
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/whose-turn と共用
 from ghcli import GH_TIMEOUT_SEC, gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn と共用
-from ghtext import DONE_NOT_RED, is_bot, mentions, refs  # noqa: E402 — 発言の読み方。/whose-turn と共用
+from ghtext import DONE_NOT_RED, is_bot, mentioned, refs  # noqa: E402 — 発言の読み方。/whose-turn と共用
 import turn  # noqa: E402 — PR のターンの持ち主と指摘対応の判定。/whose-turn と共用
 import catchup_html  # noqa: E402 — 報告を 1 枚の HTML に描く部品（--render と --setup）
 
@@ -386,8 +386,10 @@ def login_of(actor):
 
 
 def thread_where(th):
-    """スレッドの場所（path:行。行が無ければ path だけ）。"""
-    return th["path"] + (f":{th['line']}" if th["line"] else "")
+    """スレッドの場所（path:行。行が無ければ path だけ）。削除された行への指摘（diffSide が LEFT）は、行番号が base の版の
+    物なので、そう添える（head の同じ番号の行を開くと別のコードを読む）"""
+    left = th.get("left") or th.get("diffSide") == "LEFT"
+    return th["path"] + (f":{th['line']}" if th["line"] else "") + ("（削除された側。base の版の行）" if left and th["line"] else "")
 
 
 def unquoted_lines(body):
@@ -397,14 +399,15 @@ def unquoted_lines(body):
 
 def their_lines(body):
     """指摘の相手の発言の全文の行。引用は落とすが、引用行だけの発言（GitHub の alert 記法 `> [!NOTE]`）は落とさずに
-    そのまま（落とすと本文が空のまま出る。excerpt の keep_quotes と同じ理由）。"""
-    return unquoted_lines(body) or (body or "").splitlines()
+    そのまま（落とすと本文が空のまま出る。excerpt の keep_quotes と同じ理由）。空行しか残らないときも同じ。"""
+    kept = unquoted_lines(body)
+    return kept if any(ln.strip() for ln in kept) else (body or "").splitlines()
 
 
 def threads_awaiting(node, me):
-    """私が入っている未解決スレッドのうち、私が返すターンのもの（相手が返している）。判定は unresolved_threads の
-    my_turn と同じ式（bot の発言は数えない。前は bot の「Thanks!」が最後でも相手が返した扱いだった）。"""
-    return [th for th in unresolved_threads(node, me) if th["my_turn"] and th["mine_last"]]
+    """未解決スレッドのうち、私が返すターンのもの。判定は unresolved_threads の my_turn そのもの（bot の発言は数えない。
+    自分の件で私がまだ入っていない新しい指摘も数える——指摘の一覧で「私が返すターン」と出る物を 1 行目の理由から落とさない）。"""
+    return [th for th in unresolved_threads(node, me) if th["my_turn"]]
 
 
 # ---- 出来事の並び ------------------------------------------------------------
@@ -508,7 +511,7 @@ def find_anchor(ev, node, me):
     for e in ev:
         if e["key"] in ("review_request", "assign") and e["to"] == me:
             handover.append(e)
-        elif e["cat"] == SPOKEN and me in mentions(e["text"]):
+        elif e["cat"] == SPOKEN and mentioned(e["text"], me):
             handover.append(e)
     if handover:
         return handover[-1], "handover"
@@ -1021,7 +1024,7 @@ def find_ask(ev, node, me, cutoff, own):
     見ない——本文なしの承認や、push で直して閉じたスレッドが「求められていること」に化ける。"""
     later = [e for e in ev if cutoff is None or e["t"] > cutoff]
     hits = [e for e in later if (
-        (e["cat"] == SPOKEN and me in mentions(e["text"]))
+        (e["cat"] == SPOKEN and mentioned(e["text"], me))
         or (e["key"] == "review_request" and e["to"] == me))]
     if hits:
         # 本文を持つ発言を、レビュー依頼ボタンより優先する。ボタンは中身が無く、押された順序も
@@ -1862,7 +1865,12 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
         w("  人が入っている未解決スレッドは無い")
         return "\n".join(out)
     for i, th in enumerate(threads if full else threads[:THREAD_CAP], 1):
-        turn = "← 私が返すターン" if th["my_turn"] else "← 私が最後に発言している（相手のターン）"
+        if th["my_turn"]:
+            turn = "← 私が返すターン"
+        elif th["mine_last"]:
+            turn = "← 私が最後に発言している（相手のターン）"
+        else:
+            turn = "← 私は入っていない（他の人同士の会話）"
         w(f"  === {i}/{len(threads)} {thread_where(th)}  {turn} {changemap.lang_tag(th['path'])}")
         c = th["last"]
         w(f"  {login_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
