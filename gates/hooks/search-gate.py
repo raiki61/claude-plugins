@@ -26,10 +26,6 @@ import posixpath
 import re
 import sys
 
-for _stream in (sys.stdin, sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
-
 # `sys.path[0]` に頼らない(coldread-gate.py が claude_auth を読むのと同じ)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gate_shell  # noqa: E402
@@ -380,8 +376,8 @@ def check_tool(tool, args, cwd):
 
 
 def deny(cr, tool, start):
-    cr.log_line(DENY_LOG, "deny %s %s" % (tool, start))
-    cr.deny(
+    gate_shell.refuse(
+        cr, "searchgate", "deny %s %s" % (tool, start),
         "searchgate: %s の起点 %s は / やホームの全体なので止めた。全体を探すとマシン全体が重くなり"
         "（2026-10-24 に / からの find 2 本で 1 時間に CPU 860%%）、時間切れの後も残る。"
         "作業場の中か、探す物の置き場（例: ~/.cache/<ツール>/・~/src/<リポジトリ>）を起点にして打ち直すこと。"
@@ -417,8 +413,7 @@ def main():
 
 def load_coldread():
     cr = gate_shell.load_coldread()
-    global Scope, DENY_LOG
-    DENY_LOG = os.path.join(cr.CONFIG_DIR, "searchgate", "denies.log")
+    global Scope
 
     class Scope(cr.BodyFiles):
         """変数と cd の追い方は coldread と同じ 1 本。~ と $HOME だけ先にホームへ開く(coldread は本文のパスでしか開かない)。"""
@@ -435,31 +430,17 @@ def load_coldread():
                 value = expand_home(value)
             return super().var(value)
 
-        def cwd_here(self, k=None):
-            """coldread の cwd_here と同じ読み方に、2 つを足す: ; と改行の後の cd も読む(coldread は本文のパスを取り違えない
-            ように && の後だけ)・引数の無い cd はホーム。"""
-            k = self.k if k is None else k
-            if self.moved:
-                return None
-            cwd = self.cwd
-            for j in range(k):
-                c = self.cmds[j]
-                if not any(t in cr.CD_WORDS for t in c.args):
-                    continue
-                args = c.args[cr.command_start(c.args):]
-                dest = None
-                if args[:1] == ["cd"]:
-                    dest = home() if len(args) == 1 else self.var(args[1]) if len(args) == 2 else None
-                dest = cr.native_path(dest) if dest else None
-                ok = (dest and os.path.isabs(dest) and not self.conditional and self._runs(j, ("&&",))
-                      and self._between(j, k, cr._SEQUENTIAL, below_ok=False))
-                cwd = dest if ok else None
-            return cwd
+        # coldread の cwd_here と同じ読み方に、2 つを足す: ; と改行の後の cd も読む(coldread は本文のパスを取り違えない
+        # ように && の後だけ)・引数の無い cd はホーム
+        CD_BETWEEN = cr._SEQUENTIAL
+
+        def cd_dest(self, args):
+            return home() if args == ["cd"] else super().cd_dest(args)
 
     return cr
 
 
-Scope = DENY_LOG = None
+Scope = None
 
 
 if __name__ == "__main__":

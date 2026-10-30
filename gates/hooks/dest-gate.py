@@ -12,31 +12,28 @@ coldread と別フックにしてあるのは、通じやすさの検査の倒�
 解析部(トークン化・単純コマンド分割・旗表)は coldread-gate.py から読み込んで共有する。
 """
 import fnmatch
+import functools
 import json
 import os
 import re
 import sys
 import time
 
-for _stream in (sys.stdin, sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
-
 # `sys.path[0]` に頼らない(coldread-gate.py が claude_auth を読むのと同じ)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import claude_auth  # noqa: E402
 import gate_shell  # noqa: E402
 
-cr = gate_shell.load_coldread()
+# 解析部の coldread-gate.py は、許可一覧が在るときだけ読む(眠っている既定の形では、Bash のたびに読まない)
+cr = None
 
-CONFIG_DIR = cr.CONFIG_DIR   # 隣の coldread-gate と同じ置き場（決め方の正本は共通の claude_auth）
-STATE_DIR = os.path.join(CONFIG_DIR, "destgate")
-ALLOWLIST = os.path.join(STATE_DIR, "allowlist")
-DENY_LOG = os.path.join(STATE_DIR, "denies.log")
+CONFIG_DIR = claude_auth.config_dir(os.environ)   # 隣の coldread-gate と同じ置き場（決め方の正本は共通の claude_auth）
+ALLOWLIST = os.path.join(CONFIG_DIR, "destgate", "allowlist")
+DENY_LOG = os.path.join(CONFIG_DIR, "destgate", "denies.log")
 # gh に宛先を引かせる時間の合計。hooks.json の destgate の timeout(30 秒)より短くする: フックが時間切れで終わると
 # Claude Code は止めずに通すので、引き切れないときはこのゲートが自分で止める(宛先不明)
 GH_BUDGET = 20
-_DEADLINE = time.time() + GH_BUDGET
-_REPOS = {}   # cwd → current_repo の答え(1 本のコマンドの中の、-R の無い gh を同じ cwd で何度も引かない)
+_DEADLINE = None   # coldread-gate.py を読んだ時から GH_BUDGET 秒
 
 
 def patterns():
@@ -57,10 +54,7 @@ def owner_repo(value):
     : 以降がパスなので同じ規則で拾える。
 
     読むのは利用者が打った -R の値だけ。-R の無い投稿の宛先は git の remote の URL を読まず gh に解かせる(current_repo)。
-    前はここで origin の URL も読み、attention の changemap.py の REPO_TAIL(git の remote の URL を読む)の印の無い
-    写しだった(2026-09-16 にそちらだけ `\` 区切りを直して、この写しが `/` 固定で残った)。remote を読まなくなったので、
-    受ける形が gh の -R の形だけになり、REPO_TAIL と同じ規則を持つ理由が無くなった。`\` を `/` に替えるのは、
-    Windows で打った URL の綴りを受ける前のままの振る舞い。
+    `\` を `/` に替えるのは、Windows で打った URL の綴りを受けるため。
     """
     v = value.strip().replace("\\", "/").rstrip("/")
     v = re.sub(r"^[a-z+]+://", "", v)
@@ -75,19 +69,14 @@ def owner_repo(value):
     return f"{o}/{r}"
 
 
+@functools.lru_cache(maxsize=None)
 def current_repo(cwd):
     """-R の無い投稿の宛先。gh 自身に解かせて owner/repo を返す。解けなければ None(宛先不明で止める)。
 
     origin を読まない: gh は -R の無いとき、gh repo set-default で決めた repo か、remote の中から選んだ repo へ投稿する
     (origin とは限らない。https://cli.github.com/manual/gh_repo_set-default)。投稿と同じ解き方の
     `gh repo view --json nameWithOwner` で引く(機械向けの形。docs/standards/machine-readable-values.md の決まり 2)。
-    cwd ごとに 1 回だけ引き、引く時間の合計は GH_BUDGET で縛る。"""
-    if cwd not in _REPOS:
-        _REPOS[cwd] = _resolve(cwd)
-    return _REPOS[cwd]
-
-
-def _resolve(cwd):
+    cwd ごとに 1 回だけ引き(1 本のコマンドの中の、-R の無い gh を同じ cwd で何度も引かない)、引く時間の合計は GH_BUDGET で縛る。"""
     try:
         # gh の呼び方(差し替えの口 COLDREAD_GH_CMD・時間の上限)は coldread の画面の取得と同じ 1 本
         screen = cr.Screen(cwd)
@@ -132,29 +121,34 @@ def dest_of(args, sub, cwd, gh_repo_env=False):
 
 
 def main():
+    global cr, _DEADLINE
     allow_patterns = patterns()
     if not allow_patterns:
         return   # 一覧が無ければ眠る(入力も読まない)
+    cr = gate_shell.load_coldread()
+    _DEADLINE = time.time() + GH_BUDGET
     try:
         raw = json.load(sys.stdin)
         command = raw.get("tool_input", {}).get("command", "") if raw.get("tool_name") == "Bash" else ""
         if not isinstance(command, str):
             raise ValueError("tool_input.command が文字列でない")
     except Exception as exc:
-        # 読めない入力を通さない(決まり 4: ゲートは入力を読めなかったら通さない側に倒す)。前は例外のまま落ちて素通しだった
-        cr.log_line(DENY_LOG, "deny 入力を読めない: %s" % str(exc)[:150])
-        cr.deny("外部投稿ゲート(destgate): フックの入力(JSON)を読めないので、宛先を検査できない: %s" % str(exc)[:150])
+        # 読めない入力を通さない(決まり 4: ゲートは入力を読めなかったら通さない側に倒す)
+        why = str(exc)[:150]
+        gate_shell.refuse(cr, "destgate", "deny 入力を読めない: %s" % why,
+                          "外部投稿ゲート(destgate): フックの入力(JSON)を読めないので、宛先を検査できない: %s" % why)
     if not cr.GH_WORD_RE.search(command):
         return
     # 解析の入口は coldread と同じ cr.analyze 1 本。ここで独自に組むと、片方だけ
     # 正規化が入って宛先検査が黙って外れる(行継続の穴のとき現にそうなっていた)。gh が走る場所(前の cd)も同じ読み方で取る
     analysis = cr.analyze(command, raw.get("cwd") or None)
+    snippet = command[:150].replace("\n", " ")
     if not analysis.parsed:
-        # 解析できない gh のコマンドは宛先を確かめられないので通さない。前は coldread に任せて通していたが、coldread は
-        # 通じやすさの軸で、逃げ道(COLDREAD_SKIP=1)や切る口で外れる。宛先の軸はこのゲートが自分で止める
-        cr.log_line(DENY_LOG, "deny 解析不能: " + command[:150].replace("\n", " "))
-        cr.deny("外部投稿ゲート(destgate): 宛先の許可制が有効だが、このコマンドを解析できず、宛先を確かめられない。"
-                "引用符の閉じ忘れなどを直し、-R owner/repo で宛先を明示して再実行すること。")
+        # 解析できない gh のコマンドは宛先を確かめられないので通さない。宛先の軸は coldread(通じやすさの軸)に任せず
+        # このゲートが自分で止める
+        gate_shell.refuse(cr, "destgate", "deny 解析不能: " + snippet,
+                          "外部投稿ゲート(destgate): 宛先の許可制が有効だが、このコマンドを解析できず、宛先を確かめられない。"
+                          "引用符の閉じ忘れなどを直し、-R owner/repo で宛先を明示して再実行すること。")
     # GH_REPO はコマンドのどこで書いても(前置・export)後の gh に効くので、値を追わず、書いてあれば -R の無い宛先を不明にする
     gh_repo_env = "GH_REPO" in cr.prepare(command)[0]
     for sub, args, candidates, blocked, cwd in analysis.calls:
@@ -164,22 +158,19 @@ def main():
             continue  # works-dispatch の納品・頼みは手元の会社の中で届き、GitHub の宛先を持たない(本文は coldread が読む)
         dest = dest_of(args, sub, cwd, gh_repo_env)
         if dest is None:
-            cr.log_line(DENY_LOG, "deny 宛先不明: " + command[:150].replace("\n", " "))
-            cr.deny(
-                "外部投稿ゲート(destgate): 宛先の許可制が有効だが、この投稿の宛先を"
-                "コマンドから特定できない。-R owner/repo で宛先を明示して再実行すること。"
-            )
+            gate_shell.refuse(cr, "destgate", "deny 宛先不明: " + snippet,
+                              "外部投稿ゲート(destgate): 宛先の許可制が有効だが、この投稿の宛先を"
+                              "コマンドから特定できない。-R owner/repo で宛先を明示して再実行すること。")
         matched = any(fnmatch.fnmatchcase(dest.lower(), pat.lower())
                       for pat in allow_patterns)
         if not matched:
-            cr.log_line(DENY_LOG, f"deny {dest}: " + command[:150].replace("\n", " "))
-            cr.deny(
-                f"外部投稿ゲート(destgate): この投稿の宛先 {dest} は許可一覧に無い。\n"
-                f"許可一覧は {ALLOWLIST}(owner/repo か owner/* を 1 行ずつ)。\n"
-                "一覧の管理は人の仕事——この deny を受けたモデルは一覧を自分で編集せず、"
-                "宛先を許してよいか人に確認すること。"
-            )
+            gate_shell.refuse(cr, "destgate", f"deny {dest}: " + snippet,
+                              f"外部投稿ゲート(destgate): この投稿の宛先 {dest} は許可一覧に無い。\n"
+                              f"許可一覧は {ALLOWLIST}(owner/repo か owner/* を 1 行ずつ)。\n"
+                              "一覧の管理は人の仕事——この deny を受けたモデルは一覧を自分で編集せず、"
+                              "宛先を許してよいか人に確認すること。")
 
 
 if __name__ == "__main__":
-    gate_shell.run(main, lambda why: "外部投稿ゲート(destgate): 検査自体に失敗した(%s)。" % why, cr.deny)
+    gate_shell.run(main, lambda why: "外部投稿ゲート(destgate): 検査自体に失敗した(%s)。" % why,
+                   lambda reason: gate_shell.load_coldread().deny(reason))

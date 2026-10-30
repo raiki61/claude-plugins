@@ -427,24 +427,26 @@ def has_live_substitution(text):
     return _live(text, lambda t, i: t[i] == "`" or t.startswith("$(", i))
 
 
-def _live(text, hit):
-    """単一引用の外で hit(text, 位置) が真になる位置が在るか。"""
+def _live(text, hit, where=(None, '"')):
+    """where に挙げた引用の中(None は引用の外)で hit(text, 位置) が真になる位置が在るか。既定は単一引用の外。"""
     i, quote = 0, None
     while i < len(text):
         c = text[i]
         if quote == "'":
             if c == "'":
                 quote = None
-        elif c == "\\" and quote != "'":
+            elif "'" in where and hit(text, i):
+                return True
+        elif c == "\\":
             i += 1
         elif quote == '"':
             if c == '"':
                 quote = None
-            elif hit(text, i):
+            elif '"' in where and hit(text, i):
                 return True
         elif c in "'\"":
             quote = c
-        elif hit(text, i):
+        elif None in where and hit(text, i):
             return True
         i += 1
     return False
@@ -695,6 +697,14 @@ def dispatch_args(tokens):
     return None
 
 
+def global_flag_width(tok):
+    """tok が値を取る gh の全体の旗なら、旗と値で飛ばす語の数(値が次の語なら 2・融合形なら 1)。違えば 0。
+    -R o/r・--repo=o/r・-Ro/r のどれでも来る(gh は pflag の融合形を受ける)。"""
+    if tok in GLOBAL_VALUE_FLAGS:
+        return 2
+    return int(any(tok.startswith(f + "=") or (not f.startswith("--") and tok.startswith(f)) for f in GLOBAL_VALUE_FLAGS))
+
+
 def subcommand(args):
     """引数列の先頭の位置引数(最大 2 語)。旗の意味が api 系かどうかで変わるため先に確定する。
 
@@ -705,13 +715,9 @@ def subcommand(args):
     words, i = [], 0
     while i < len(args) and len(words) < 2:
         tok = args[i]
-        # -R o/r・--repo=o/r・-Ro/r のどれでも来る(gh は pflag の融合形を受ける)
-        if tok in GLOBAL_VALUE_FLAGS:
-            i += 2
-            continue
-        if any(tok.startswith(f + "=") or (not f.startswith("--") and tok.startswith(f))
-               for f in GLOBAL_VALUE_FLAGS):
-            i += 1
+        width = global_flag_width(tok)
+        if width:
+            i += width
             continue
         if words == ["api"] and tok.startswith("-") and tok != "-":
             name = tok.split("=", 1)[0]
@@ -974,10 +980,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
             blocked.append("実ファイル指定")
 
     if is_graphql:
-        query = None
-        if "query" in gql_fields:
-            typed, qv = gql_fields.pop("query")
-            query = read_file(qv[1:]) if typed and qv.startswith("@") and qv != "@-" else qv
+        query = _gql_field_value(gql_fields.pop("query"), read_file) if "query" in gql_fields else None
         if query and re.search(r"\bmutation\b", query):
             # mutation が本文を運ぶのは body(と readme)のフィールドだけ。フィールドの値だけを抜き、ほかのフィールド(ID・トークン・
             # 設定値)は読み役へ送らない。フィールドを持たない mutation(resolveReviewThread など)は投稿でない——
@@ -1116,27 +1119,6 @@ _VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-
 # CLAUDE_CONFIG_DIR はアカウントを切り替える人が shell の設定ファイル(Bash のツールは読み、フックは読まない)で別の値を
 # export しうるので入れない
 SHARED_ENV = ("HOME", "CLAUDE_JOB_DIR")
-
-
-def single_quoted_dollar(text):
-    """単一引用の中に $ が在るか。shlex は引用を落とすので、'$S' と "$S" を語の側では見分けられない。"""
-    i, quote = 0, None
-    while i < len(text):
-        c = text[i]
-        if quote == "'":
-            if c == "'":
-                quote = None
-            elif c == "$":
-                return True
-        elif c == "\\" and quote != "'":
-            i += 1
-        elif quote == '"':
-            if c == '"':
-                quote = None
-        elif c in "'\"":
-            quote = c
-        i += 1
-    return False
 
 
 _MSYS_DRIVE_RE = re.compile(r"/([A-Za-z])(?=/|$)")
@@ -1290,7 +1272,8 @@ class BodyFiles:
         if "$" not in value:
             return value
         if self._sq is None:
-            self._sq = single_quoted_dollar(self.norm)
+            # 単一引用の中に $ が在るか。shlex は引用を落とすので、'$S' と "$S" を語の側では見分けられない
+            self._sq = _live(self.norm, lambda t, i: t[i] == "$", ("'",))
         if self._sq:
             return None   # '$S' は字のまま。語の側では引用が落ちていて見分けられない
         table = self.assigned()
@@ -1319,7 +1302,7 @@ class BodyFiles:
         """k 番目(既定は gh)のコマンドが走る cwd。決まらなければ None。
 
         cwd を変えるコマンド(cd・pushd・popd を語のどこかに持つもの。`if cd x`・`builtin cd x` も)が前に在れば、
-        `cd <絶対パス>` が必ず走り、そこから k まで && だけで続く形でだけ、その先を cwd と見る。
+        `cd <絶対パス>` が必ず走り、そこから k まで CD_BETWEEN(既定は && だけ)で続く形でだけ、その先を cwd と見る。
         """
         k = self.k if k is None else k
         if self.moved:
@@ -1329,13 +1312,18 @@ class BodyFiles:
             c = self.cmds[j]
             if not any(t in CD_WORDS for t in c.args):
                 continue
-            args = c.args[command_start(c.args):]
-            dest = self.var(args[1]) if args[:1] == ["cd"] and len(args) == 2 else None
+            dest = self.cd_dest(c.args[command_start(c.args):])
             dest = native_path(dest) if dest else None
             ok = (dest and os.path.isabs(dest) and not self.conditional and self._runs(j, ("&&",))
-                  and self._between(j, k, ("&&",), below_ok=False))
+                  and self._between(j, k, self.CD_BETWEEN, below_ok=False))
             cwd = dest if ok else None
         return cwd
+
+    CD_BETWEEN = ("&&",)   # cd から k までをつないでよい区切り
+
+    def cd_dest(self, args):
+        """`cd <行き先>` の行き先(変数を解いた字)。cd でないか読めなければ None。"""
+        return self.var(args[1]) if args[:1] == ["cd"] and len(args) == 2 else None
 
     def path(self, value, k=None):
         """本文ファイルの実パス(k 番目のコマンドの cwd で解く)。字のまま決まらなければ None。"""
@@ -1697,12 +1685,9 @@ def positional_after(args, sub):
     i, seen, after_flag = 0, 0, False
     while i < len(args):
         tok = args[i]
-        if tok in GLOBAL_VALUE_FLAGS:
-            i += 2
-            continue
-        if any(tok.startswith(f + "=") or (not f.startswith("--") and tok.startswith(f))
-               for f in GLOBAL_VALUE_FLAGS):
-            i += 1
+        width = global_flag_width(tok)
+        if width:
+            i += width
             continue
         if seen < len(sub):
             seen += 1
@@ -2281,11 +2266,17 @@ def owner_note():
 
 
 def deny(reason: str) -> None:
+    decide("deny", "\n".join(filter(None, (reason, notices()))))
+
+
+def decide(decision, reason, **extra):
+    """PreToolUse の答え(decision・reason と extra の項目)を出して終える。"""
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": "\n".join(filter(None, (reason, notices()))),
+            "permissionDecision": decision,
+            "permissionDecisionReason": reason,
+            **extra,
         },
         **owner_note(),
     }, ensure_ascii=False))
@@ -2311,6 +2302,19 @@ def _rotate(path):
         pass   # ほかの口が先に替えたか消した: 替える物が無い
     except OSError as exc:
         _lost("記録を回せない(%s。書き足しは続ける)" % path, exc)
+
+
+def _replace_text(path, text, tmp):
+    """path を text に替える。tmp に書き切ってから名前を替えるので、読む口は書きかけを見ない。"""
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def _drop_oldest(folder, keep):
+    """folder の中を、新しい keep 個を残して古い順に消す。"""
+    for e in sorted(os.scandir(folder), key=lambda e: e.stat().st_mtime)[:-keep]:
+        os.remove(e.path)
 
 
 def log_line(path: str, text: str) -> None:
@@ -2535,10 +2539,7 @@ def _expiry_lines(today=None):
                     _EXPIRY_SHOWN[svc] = None if told.get(svc) == today else _EXPIRY[svc]
                     told[svc] = today
                 try:
-                    tmp = "%s.%d.tmp" % (EXPIRY_TOLD, os.getpid())
-                    with open(tmp, "w", encoding="utf-8") as f:
-                        json.dump(told, f, ensure_ascii=False)
-                    os.replace(tmp, EXPIRY_TOLD)
+                    _replace_text(EXPIRY_TOLD, json.dumps(told, ensure_ascii=False), "%s.%d.tmp" % (EXPIRY_TOLD, os.getpid()))
                 except OSError as exc:
                     _lost("期限を知らせた日を書けない(%s。次の起動でも知らせる)" % EXPIRY_TOLD, exc)
         return [note for _, note in sorted(_EXPIRY_SHOWN.items()) if note]
@@ -3303,16 +3304,7 @@ def main() -> None:
             section("投稿は通したが、coldreader(初見の読み手)に残った疑問"
                     "(必要なら本文に反映して編集してよい):", questions),
         )))
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": "coldreader の検査を通過(詰まりゼロ)",
-                "additionalContext": extra,
-            },
-            **owner_note(),
-        }, ensure_ascii=False))
-        sys.exit(0)
+        decide("allow", "coldreader の検査を通過(詰まりゼロ)", additionalContext=extra)
 
     role = {"screen": "この返信を受け取る相手として、スレッドの画面と本文を読んだ別プロセスの読み手",
             "new": "この %s を初めて開く人として、GitHub が本文の周りに出すものと本文を読んだ別プロセスの読み手" % noun,
@@ -3548,10 +3540,7 @@ def _take_pending(pending):
         for took, old, got in left:   # 読み終えた中身は覚えたままなので、パスを足しても読み直さない
             lines += _claim_parts(got)[0]
         try:
-            tmp = "%s.tmp" % claim
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write("".join(line + "\n" for line in lines))
-            os.replace(tmp, claim)
+            _replace_text(claim, "".join(line + "\n" for line in lines), "%s.tmp" % claim)
         except OSError as exc:
             _lost("残った読みかけを取り戻せない(%s)" % claim, exc)
             return None, []
@@ -3801,10 +3790,7 @@ def _ledger(path):
             if os.path.getsize(path) > LEDGER_MAX:
                 cut = time.time() - DOC_SNAP_KEEP
                 rows = [r for r in rows if (r.get("t1") or r.get("t") or 0) >= cut]
-                tmp = "%s.%d" % (path, os.getpid())
-                with open(tmp, "w", encoding="utf-8") as f:
-                    f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-                os.replace(tmp, path)
+                _replace_text(path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), "%s.%d" % (path, os.getpid()))
                 if bad:   # 書き直しは読めた行だけを残す。読めなかった行も消えたことを、消えた後に分かるように残す
                     _lost("帳面の古い行を捨てるときに、読めない行も捨てた(%s)" % path, "%d 行" % bad)
         except OSError as exc:
@@ -4044,7 +4030,7 @@ def _tool_docs(payload):
 
 def _base_dir(session, agent):
     """書いた役ごとの、前の版の控えの置き場(待ちの一覧と同じ名前)。"""
-    return os.path.join(DOC_BASE_DIR, os.path.basename(_pending(session, agent))[:-len(".pending")])
+    return os.path.join(DOC_BASE_DIR, _role(session, agent))
 
 
 def _base_file(where, path):
@@ -4135,33 +4121,26 @@ def _seen():
 
 
 def _remember(digests):
-    if not digests:
-        return
-    try:
-        with _locked(DOC_SEEN):   # 並んだ読みどうしで、片方が覚えた分を書き直しで消さない
-            lines = [*_seen_list(), *digests][-DOC_SEEN_KEEP:]
-            tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + "\n")
-            os.replace(tmp, DOC_SEEN)
-    except OSError as exc:
-        _lost("読んだ中身の一覧に書けない(同じ中身をまた読む)", exc)
+    if digests:
+        _rewrite_seen(lambda old: [*old, *digests][-DOC_SEEN_KEEP:], "読んだ中身の一覧に書けない(同じ中身をまた読む)")
 
 
 def _forget(digests):
     """覚えた中身のハッシュから digests を外す(読む前に覚えたが、読めなかった物)。"""
-    if not digests:
-        return
-    drop = set(digests)
+    if digests:
+        drop = set(digests)
+        _rewrite_seen(lambda old: [d for d in old if d not in drop], "読んだ中身の一覧から外せない(読めなかった中身を次も読まない)")
+
+
+def _rewrite_seen(new_lines, failed):
+    """覚えた中身の一覧を new_lines(今の一覧) に書き直す。書けなければ failed を残す。"""
     try:
-        with _locked(DOC_SEEN):
-            lines = [d for d in _seen_list() if d not in drop]
-            tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + ("\n" if lines else ""))
-            os.replace(tmp, DOC_SEEN)
+        with _locked(DOC_SEEN):   # 並んだ読みどうしで、片方が覚えた分を書き直しで消さない
+            lines = new_lines(_seen_list())
+            # 一時のファイルは口ごとに分ける(並んだ読みどうしで同じ一時のファイルを取り合わない)
+            _replace_text(DOC_SEEN, "\n".join(lines) + ("\n" if lines else ""), "%s.%d.tmp" % (DOC_SEEN, os.getpid()))
     except OSError as exc:
-        _lost("読んだ中身の一覧から外せない(読めなかった中身を次も読まない)", exc)
+        _lost(failed, exc)
 
 
 def _seen_list():
@@ -4773,9 +4752,7 @@ def _write_findings(session, body):
     with open(path, "w", encoding="utf-8") as f:
         f.write(body + "\n")
     try:
-        old = sorted(os.scandir(DOC_FINDINGS), key=lambda e: e.stat().st_mtime)[:-DOC_FINDINGS_KEEP]
-        for e in old:
-            os.remove(e.path)
+        _drop_oldest(DOC_FINDINGS, DOC_FINDINGS_KEEP)
     except OSError:
         pass   # 古い指摘のファイルを消せなければ次の回にまた消す(今の指摘は上で書けている)
     return path
@@ -4916,9 +4893,13 @@ def _branch_docs(root, base):
     if not mb:
         return None
     mb = mb.decode("ascii", "replace").strip()
-    out = _git(["diff", "--name-only", "-z", "--no-renames", "--diff-filter=AM", mb, "HEAD", "--"], root) or b""
-    rels = [r for r in out.decode("utf-8", "replace").split("\0") if r.lower().endswith(DOC_EXTS)]
-    return mb, [(r, os.path.join(root, r)) for r in rels if os.path.isfile(os.path.join(root, r))]
+    return mb, [(r, os.path.join(root, r)) for r in _diff_docs(root, mb, "AM") if os.path.isfile(os.path.join(root, r))]
+
+
+def _diff_docs(root, mb, kinds):
+    """分かれ目 mb から HEAD までに、kinds(git diff の --diff-filter の字)の変わり方をした文書の、作業ツリーのルートからのパス。"""
+    out = _git(["diff", "--name-only", "-z", "--no-renames", "--diff-filter=" + kinds, mb, "HEAD", "--"], root) or b""
+    return [r for r in out.decode("utf-8", "replace").split("\0") if r.lower().endswith(DOC_EXTS)]
 
 
 # ブランチが足した文書のうち、ブランチが消した・変えた文書の分かれ目の版に在った行は、移しただけの行として読み直さない(git の copy の
@@ -4933,8 +4914,7 @@ def _line_key(line):
 
 def _moved_lines(root, mb):
     """ブランチが消した・変えた文書の、分かれ目の版の行(_line_key で比べる形)の集まり。"""
-    out = _git(["diff", "--name-only", "-z", "--no-renames", "--diff-filter=DM", mb, "HEAD", "--"], root) or b""
-    rels = [r for r in out.decode("utf-8", "replace").split("\0") if r.lower().endswith(DOC_EXTS)]
+    rels = _diff_docs(root, mb, "DM")
     keys = set()
     for blob in _cat_blobs(root, ["%s:%s" % (mb, r) for r in rels]) if rels else ():
         keys.update(_line_key(line) for line in (blob or "").replace("\r\n", "\n").split("\n"))
@@ -4968,8 +4948,7 @@ def _branch_cached(key, compute, valid):
         os.makedirs(DOC_BRANCH, exist_ok=True)
         with open(where, "w", encoding="utf-8") as f:
             json.dump(found, f, ensure_ascii=False)
-        for e in sorted(os.scandir(DOC_BRANCH), key=lambda e: e.stat().st_mtime)[:-DOC_BRANCH_KEEP]:
-            os.remove(e.path)
+        _drop_oldest(DOC_BRANCH, DOC_BRANCH_KEEP)
     except OSError as exc:
         _lost("ブランチの読みの結果を覚えられない(次も読み直す)", exc)
     return found, False
@@ -5211,12 +5190,9 @@ def _load_last(path):
 def _save_last(path, text, premise, found, quoted):
     try:
         os.makedirs(DOC_BRANCH_LAST, exist_ok=True)
-        tmp = "%s.%d.tmp" % (path, os.getpid())
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"sig": _last_sig(), "text": text, "premise": premise, "found": found, "quoted": quoted}, f, ensure_ascii=False)
-        os.replace(tmp, path)
-        for e in sorted(os.scandir(DOC_BRANCH_LAST), key=lambda e: e.stat().st_mtime)[:-DOC_BRANCH_KEEP]:
-            os.remove(e.path)
+        _replace_text(path, json.dumps({"sig": _last_sig(), "text": text, "premise": premise, "found": found, "quoted": quoted},
+                                       ensure_ascii=False), "%s.%d.tmp" % (path, os.getpid()))
+        _drop_oldest(DOC_BRANCH_LAST, DOC_BRANCH_KEEP)
     except OSError as exc:
         _lost("前の回の控えを書けない(次の回は分かれ目から読む)", exc)
 
@@ -5346,14 +5322,14 @@ def branch_check(argv):
             log_line(DOC_LOG, "reader-down\t%s\tbranch\t%s" % (str(exc)[:150].replace("\n", " "), rel))
             down.append("%s: %s" % (rel, _down_reason(exc)))
             continue
+        kept = [item for k, item in enumerate(found["stuck"]) if k not in old]
         if lpath and asked:
-            kept = [item for k, item in enumerate(found["stuck"]) if k not in old]
             _save_last(lpath, text, premise, dict(found, stuck=kept), [item for item in quoted if item in kept])
         fresh += not cached
         log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["stuck"] or found["guess"] else "clean",
                                                   "(覚えた判定)" if cached else "", rel))
         carried = [finding_line("stuck", item) for k, item in enumerate(found["stuck"]) if k in old]
-        found = dict(found, stuck=[item for k, item in enumerate(found["stuck"]) if k not in old])
+        found = dict(found, stuck=kept)
         note = doc_feedback(rel, found, focus, carried)
         if note:
             notes.append(note)

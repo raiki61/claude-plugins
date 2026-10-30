@@ -162,6 +162,12 @@ def anchored(node, get_git=lambda base, head: None, get_gh=lambda sha: None):
 CASES = {}
 
 
+def verdict(tag, want, detail):
+    """want の値がどれも真なら「<tag>_OK」、偽が在れば「<tag>_NG <偽の名前,…>」の行に detail を続ける。"""
+    bad = [k for k, v in want.items() if not v]
+    return tag + "_OK" if not bad else tag + "_NG " + ",".join(bad) + "\n" + detail
+
+
 def case(name):
     def deco(fn):
         CASES[name] = fn
@@ -358,8 +364,7 @@ def _issue_not_seen():
         "no_body_line": "本文" not in tail,
         "cut": "本文の残り 39 行（--full か gh issue view で見る）" in long,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "ISSUE_UNSEEN_OK" if not bad else "ISSUE_UNSEEN_NG " + ",".join(bad) + "\n" + tail
+    return verdict("ISSUE_UNSEEN", want, tail)
 
 
 @case("body-material")
@@ -400,8 +405,7 @@ def _body_material():
         and "本文と diff" not in seen and "diff の中身（gh pr diff で見る" in seen,
         "unseen_full": "本文の残り" not in render(node, full=True),
     }
-    bad = [k for k, v in want.items() if not v]
-    return "BODY_OK" if not bad else "BODY_NG " + ",".join(bad) + "\n" + out + "\n" + seen
+    return verdict("BODY", want, out + "\n" + seen)
 
 
 @case("body-refs")
@@ -432,8 +436,7 @@ def _body_refs():
         "rest": "（本文が指す番号は他に 1 件。--full で全部）" in out,
         "no_fetch_without_hook": "本文が指す" not in catchup.render_body(node, full=False),
     }
-    bad = [k for k, v in want.items() if not v]
-    return "REFS_OK" if not bad else "REFS_NG " + ",".join(bad) + "\n" + out
+    return verdict("REFS", want, out)
 
 
 @case("split-words")
@@ -484,8 +487,7 @@ def _tails_default_wording():
         "map_attached": "diff の全文（下の地図は" in out and "地図 を付けて呼ぶと" not in out,
         "threads_attached": "スレッドの経緯（下の指摘は" in out and "指摘 を付けて呼ぶと" not in out,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "WORDING_OK" if not bad else "WORDING_NG " + ",".join(bad) + "\n" + out
+    return verdict("WORDING", want, out)
 
 
 @case("threads-material")
@@ -515,8 +517,7 @@ def _threads_material():
         "skip": "util.py" not in out and "only-me" not in out,
         "human_count": len(catchup.unresolved_threads(node, ME)) == 4,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "THREADS_OK" if not bad else "THREADS_NG " + ",".join(bad) + "\n" + out
+    return verdict("THREADS", want, out)
 
 
 @case("threads-since")
@@ -580,8 +581,7 @@ def _threads_since():
                         and "|   16     ) VALUES (%s)" in sql_s and "|   18     return query" in sql_s,
         "silent_me_no_since": "私の発言" not in deep_s and "私の発言" not in sql_s,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+    return verdict("SINCE", want, out)
 
 
 @case("branch-number")
@@ -659,8 +659,7 @@ def _ci_material():
         "lang": "=== lint  https://github.com/o/r/actions/runs/11/job/22 （言語名 plaintext）" in out,
         "green_hidden": "=== ok" not in out,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "CI_OK" if not bad else "CI_NG " + ",".join(bad) + "\n" + out
+    return verdict("CI", want, out)
 
 
 @case("stacked")
@@ -694,8 +693,7 @@ def _stacked():
         "forks_only": "  そのブランチの PR: 新しい 1 件は fork の同名のブランチの分（全 748 件。gh pr list --head feat/x --state all で見る）" in forks,
         "no_section_without": "## つながっている先" not in render(node),
     }
-    bad = [k for k, v in want.items() if not v]
-    return "STACKED_OK" if not bad else "STACKED_NG " + ",".join(bad) + "\n" + out
+    return verdict("STACKED", want, out)
 
 
 @case("stacked-default")
@@ -736,8 +734,7 @@ def _suggested():
         "hidden": all("依頼先の候補" not in h and "依頼先を決めるのは私" not in h for h in hidden),
         "received": "  依頼先の候補（GitHub の提案。決めるのは私）: enj" in received,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "SUGGESTED_OK" if not bad else "SUGGESTED_NG " + ",".join(bad) + "\n" + out
+    return verdict("SUGGESTED", want, out)
 
 
 @case("formal-state")
@@ -1036,8 +1033,7 @@ def _fetch_legacy():
         "plain_failure_stops": str(failed).startswith("EXIT gh api graphql が失敗"),
         "second_504_stops": str(twice).startswith("EXIT gh api graphql が失敗"),
     }
-    bad = [k for k, v in want.items() if not v]
-    return "FETCH_OK" if not bad else "FETCH_NG " + ",".join(bad) + "\n" + repr((legacy, plain, other, retried, failed))
+    return verdict("FETCH", want, repr((legacy, plain, other, retried, failed)))
 
 
 _SINCE_COMMITS = conn([
@@ -1108,8 +1104,7 @@ def _since_review():
         "failed": "  （commit 1 本の file は取れなかった。gh api が失敗した）"
         in render(node, since=anchored(node, get_gh=lambda sha: _SINCE_FILES.get(sha) if sha != "eee5555" else None)),
     }
-    bad = [k for k, v in want.items() if not v]
-    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+    return verdict("SINCE", want, out)
 
 
 @case("since-approx")
@@ -1126,8 +1121,7 @@ def _since_approx():
         "unseen": "  - 変わった file の基準は commit の日付で置いた近似。rebase や merge で前後していれば数件ずれる" in out,
         "too_early": anchored(early) is None,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+    return verdict("SINCE", want, out)
 
 
 @case("since-rewritten")
@@ -1145,8 +1139,7 @@ def _since_rewritten():
         "line": sect.strip() == "基準の commit 0ld0ld0 は今の head の履歴に無い（履歴が書き換えられた）。git range-diff で見る",
         "no_count": "件（作者側" not in out,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+    return verdict("SINCE", want, out)
 
 
 @case("since-outside")
@@ -1170,8 +1163,7 @@ def _since_outside():
         "early": early["outside"] and "  基準（私の痕跡の時点）は取った新しい 3 本より前（commit 150 本中）" in early_out,
         "unseen_silent": "近似" not in out,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+    return verdict("SINCE", want, out)
 
 
 _MAP_DIFF = """diff --git a/src/a.py b/src/a.py
@@ -1234,8 +1226,7 @@ def _map_jumps():
                 and "=== docs/guide.md  (MODIFIED +1/-0) （言語名 markdown）" in out
                 and "=== src/n.py  (" in out and "行) （言語名 python）" in out,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "MAP_JUMPS_OK" if not bad else "MAP_JUMPS_NG " + ",".join(bad) + "\n" + out
+    return verdict("MAP_JUMPS", want, out)
 
 
 @case("no-target")
@@ -1273,8 +1264,7 @@ def _no_target():
         "frames": "    飛び先 src/a.py:1\n    | def f():" in out,   # 木だけでなく中身も出す
         "frame_cmd": seen == {"dirty": ["src/a.py"], "cmd": "what-am-i-doing.py --frame"},
     }
-    bad = [k for k, v in want.items() if not v]
-    return "NO_TARGET_OK" if not bad else "NO_TARGET_NG " + ",".join(bad) + "\n" + out
+    return verdict("NO_TARGET", want, out)
 
 
 @case("range")
@@ -1337,8 +1327,7 @@ def _range():
                      and "commit bbbbbbb の版" in one,
         "unseen": "範囲の外の commit（aaaaaaa より前と bbbbbbb より後）" in out,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "RANGE_OK" if not bad else "RANGE_NG " + ",".join(bad) + "\n" + out
+    return verdict("RANGE", want, out)
 
 
 @case("commit")
@@ -1392,8 +1381,7 @@ def _commit():
         "frame_one": one.startswith("    === src/a.py （") and "| def f():" in one
                      and "変更の地図" not in one and "）（言語名 python）\n" in one,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "COMMIT_OK" if not bad else "COMMIT_NG " + ",".join(bad) + "\n" + out
+    return verdict("COMMIT", want, out)
 
 
 @case("main-wiring")
@@ -1437,8 +1425,7 @@ def _main_wiring():
         "none_frame_stops": rc5 is None and "PR か commit" in out5 and "what-am-i-doing.py --frame" in out5,
         "none_switch_note": rc6 == 0 and "ブランチ: this では移らない（今のブランチのまま）" in out6,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "WIRING_OK" if not bad else "WIRING_NG " + ",".join(bad) + "\n" + out1 + out4 + (out5 or "")
+    return verdict("WIRING", want, out1 + out4 + (out5 or ""))
 
 
 def main():

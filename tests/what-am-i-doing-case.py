@@ -10,7 +10,7 @@ import io
 import json
 import os
 import pathlib
-import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -89,6 +89,17 @@ def run(argv=()):
 
 
 CASES = {}
+
+
+def verdict(tag, want, detail):
+    """want の値がどれも真なら「<tag>_OK」、偽が在れば「<tag>_NG <偽の名前,…>」の行に detail を続ける。"""
+    bad = [k for k, v in want.items() if not v]
+    return tag + "_OK" if not bad else tag + "_NG " + ",".join(bad) + "\n" + detail
+
+
+def git(cwd, *args):
+    """試しの作業場で git を打つ(名前と宛先は試し用の物)。"""
+    subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args], cwd=cwd, check=True)
 
 
 def case(name):
@@ -197,8 +208,7 @@ def _dotted(tmp):
         "no_sid": "ドットの作業場のお願い" in without
                   and "注意: CLAUDE_CODE_SESSION_ID が無いので" in without,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "DOTTED_OK" if not bad else "DOTTED_NG " + ",".join(bad) + "\n" + with_sid + "\n" + without
+    return verdict("DOTTED", want, with_sid + "\n" + without)
 
 
 @case("other-session")
@@ -241,8 +251,7 @@ def _topic(tmp):
         # 複数の語は 1 つの語句として当てる（語ごとの OR だと「の」でほぼ全部残る）
         "phrase": "往復 1 件だけを出す" in run(["--topic", "A", "の話"]),
     }
-    bad = [k for k, v in want.items() if not v]
-    return "TOPIC_OK" if not bad else "TOPIC_NG " + ",".join(bad) + "\n" + out
+    return verdict("TOPIC", want, out)
 
 
 @case("unseen-wording")
@@ -260,8 +269,7 @@ def _unseen_wording(tmp):
         "full": "冒頭だけ" in full and "間の" not in full,
         "topic": "出なかった往復 29 件" in topic and "（全 30 往復）" in topic,
     }
-    bad = [k for k, v in want.items() if not v]
-    return "UNSEEN_OK" if not bad else "UNSEEN_NG " + ",".join(bad) + "\n" + plain
+    return verdict("UNSEEN", want, plain)
 
 
 @case("stance")
@@ -280,16 +288,14 @@ def _stance(tmp):
 def _dirty_tree(tmp):
     """未コミットの変更が木で出る。周辺の追跡ファイルも薄く並び、新規は行頭 +、変更は ~。
     そのまま diff の枠に貼れる形（行頭 1 桁が印）。"""
-    import subprocess
     cwd = build(tmp, [ask("木を見せて"), reply("はい")])
-    git = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
-    subprocess.run([*git, "init", "-q"], cwd=cwd, check=True)
+    git(cwd, "init", "-q")
     (cwd / "docs").mkdir()
     (cwd / "src").mkdir()
     for rel, text in (("docs/a.md", "a\n"), ("docs/b.md", "b\n"), ("src/x.py", "x = 1\n")):
         (cwd / rel).write_text(text, encoding="utf-8")
-    subprocess.run([*git, "add", "."], cwd=cwd, check=True)
-    subprocess.run([*git, "commit", "-q", "-m", "init"], cwd=cwd, check=True)
+    git(cwd, "add", ".")
+    git(cwd, "commit", "-q", "-m", "init")
     (cwd / "docs" / "a.md").write_text("a\nmore\n", encoding="utf-8")
     (cwd / "docs" / "new.md").write_text("n\n", encoding="utf-8")
     (cwd / "newdir").mkdir()
@@ -306,8 +312,7 @@ def _dirty_tree(tmp):
         "untracked_dir_expanded": any(l.startswith("+") and l[1:].strip().startswith("n.txt") for l in lines),
         "no_nameless_row": not any(l.startswith("+") and l[1:].strip().startswith("新規") for l in lines),
     }
-    bad = [k for k, v in want.items() if not v]
-    return "TREE_OK" if not bad else "TREE_NG " + ",".join(bad) + "\n" + out
+    return verdict("TREE", want, out)
 
 
 @case("frames")
@@ -315,10 +320,8 @@ def _frames(tmp):
     """未コミットの変更の中身は、今の姿に機械が帯を入れた枠で出る（関数まるごと、言語のコメント記法）。
     未追跡の新規 file は diff に無いので先頭と骨組みだけ。--frame path は 1 file を上限なしで出す。
     各枠の前の「飛び先 path:行」は手元の file の行番号（-W なので関数の先頭。def f() は 1 行目）。"""
-    import subprocess
     cwd = build(tmp, [ask("中身を見せて"), reply("はい")])
-    git = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
-    subprocess.run([*git, "init", "-q"], cwd=cwd, check=True)
+    git(cwd, "init", "-q")
     (cwd / "src").mkdir()
     # 変更行の後ろに変わらない行を 5 行置く——unified diff の既定の文脈は 3 行なので、-W が無いと
     # 関数の末尾が落ちて「関数まるごと」の検査が赤くなる。空行は実物の " " の文脈行を通すため
@@ -330,17 +333,17 @@ def _frames(tmp):
     # 変更の 11 行下の「末尾」が枠に入らず、10 行下の「え」は入ることで、文脈 10 行が効いていることを見る
     filler = "".join(f"行{i}\n" for i in range(1, 9))  # 本文 + 8 行で、え が変更の 10 行下・末尾が 11 行下
     (cwd / "doc.md").write_text("# 見出し\n本文\n" + filler + "え\n末尾\n", encoding="utf-8")
-    subprocess.run([*git, "add", "."], cwd=cwd, check=True)
-    subprocess.run([*git, "commit", "-q", "-m", "init"], cwd=cwd, check=True)
+    git(cwd, "add", ".")
+    git(cwd, "commit", "-q", "-m", "init")
     (cwd / "src" / "x.py").write_text("def f():\n    x = 2\n    y = 3\n" + tail, encoding="utf-8")
     (cwd / "src" / "n.py").write_text('"""new one"""\ndef g():\n    pass\n', encoding="utf-8")
     (cwd / "src" / "s.py").write_text('"""staged"""\ndef h():\n    pass\n', encoding="utf-8")
     (cwd / "doc.md").write_text("# 見出し\n足した行\n本文\n" + filler + "え\n末尾\n", encoding="utf-8")
-    subprocess.run([*git, "add", "src/s.py"], cwd=cwd, check=True)
+    git(cwd, "add", "src/s.py")
     (cwd / "img.bin").write_bytes(b"\x00\x02")
     # 改名 ＋ 中身の変更。git は変更 file を新側の path だけで挙げるので、それをそのまま pathspec に
     # 渡すと対が作れず「新規」に化けて中身の変更が消える（実測。新旧を同じ pathspec に入れて防ぐ）
-    subprocess.run([*git, "mv", "src/old_name.py", "src/new_name.py"], cwd=cwd, check=True)
+    git(cwd, "mv", "src/old_name.py", "src/new_name.py")
     (cwd / "src" / "new_name.py").write_text("def moved():\n    return 99\n" + tail, encoding="utf-8")
     out = run()
     one = run(["--frame", "src/x.py"])
@@ -380,8 +383,7 @@ def _frames(tmp):
         wai.changemap.frame_diff = saved
     want["diff_failure_is_not_a_verdict"] = (
         failed == "  変更の中身: 出せない（git diff が失敗した。木と件数だけが上の材料）")
-    bad = [k for k, v in want.items() if not v]
-    return "FRAMES_OK" if not bad else "FRAMES_NG " + ",".join(bad) + "\n" + out + "\n" + failed + "\n---\n" + one
+    return verdict("FRAMES", want, out + "\n" + failed + "\n---\n" + one)
 
 
 @case("pick-reference")
@@ -412,8 +414,7 @@ def _sources(tmp):
     build(tmp, [said("x", "keyboard"), reply("ok")], work="none-human")
     zero = run()
     want["zero_told"] = "打った発言が 0 件" in zero and "keyboard 1 件" in zero
-    bad = [k for k, v in want.items() if not v]
-    return "SOURCES_OK" if not bad else "SOURCES_NG " + ",".join(bad) + "\n" + out + "\n---\n" + zero
+    return verdict("SOURCES", want, out + "\n---\n" + zero)
 
 
 def main():

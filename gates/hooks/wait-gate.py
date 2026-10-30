@@ -26,10 +26,6 @@ import re
 import sys
 
 sys.dont_write_bytecode = True
-for _stream in (sys.stdin, sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
-
 # `sys.path[0]` に頼らない(coldread-gate.py が claude_auth を読むのと同じ)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gate_shell  # noqa: E402
@@ -237,10 +233,7 @@ def main():
     reason = reason_for(command)
     if reason is None:
         return
-    cr = gate_shell.load_coldread()
-    log = os.path.join(cr.CONFIG_DIR, "waitgate", "denies.log")
-    cr.log_line(log, "deny %s" % " ".join(command.split())[:200])
-    cr.deny(reason)
+    gate_shell.refuse(gate_shell.load_coldread(), "waitgate", "deny %s" % " ".join(command.split())[:200], reason)
 
 
 if __name__ == "__main__":
