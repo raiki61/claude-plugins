@@ -30,7 +30,7 @@ allowed-tools: Bash, Read, Write
 - 番号・URL・ブランチ名 → `catchup.py --switch <それ> --out`。番号はいま居るリポジトリの物で、別のリポジトリは URL か、`catchup.py` の旗 `-R owner/repo` で指す。
 - 引数なし・`this`・焦点の語だけ → `catchup.py this --out`
 - commit・範囲 `A..B` → `catchup.py <それ> --out`
-- 会話の話題 → 会話の中で番号・ブランチ・commit に結び付けば、その対象を `--switch` 無しで呼ぶ。結び付かなければ、会話の往復を材料にし（取り方は targets.md）、`catchup.py` は手順 9 の `--render` だけを呼ぶ。
+- 会話の話題 → 会話の中で番号・ブランチ・commit に結び付けば、その対象を `--switch` 無しで呼ぶ。結び付かなければ、会話の往復を材料にし（取り方は [references/targets.md](references/targets.md) の「会話の話題」）、`catchup.py` は手順 9 の `--render` だけを呼ぶ。
 - `setup` → [references/setup.md](references/setup.md)（準備のコマンドと、機械がすること）を読んで従う。
 
 焦点の語と旗は対象の後ろにそのまま置き、`--out` を末尾にする（`catchup.py --switch 1569 指摘 --out`）。

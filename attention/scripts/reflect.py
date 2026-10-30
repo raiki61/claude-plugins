@@ -91,25 +91,21 @@ def bounds(start, end):
 
 
 def when(entry):
-    ts = entry.get("timestamp")
-    if not isinstance(ts, str):
-        return None
-    try:
-        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    return transcript.timestamp(entry.get("timestamp"))
 
 
 # ---- 読む設定のフォルダ -----------------------------------------------------------
 
 
+def named_dirs(env, extra=()):
+    """足すと言われた設定のフォルダ（ATTENTION_REFLECT_CONFIG_DIRS と --config-dir）。在るかは見ない。"""
+    return [p.strip() for p in (env.get(DIRS_ENV) or "").split(os.pathsep) if p.strip()] + list(extra)
+
+
 def config_dirs(env, extra=()):
     """今の設定のフォルダと、足すと言われたフォルダ（在るものだけ、重なりを除いて）。"""
-    raw = [claude_auth.config_dir(env)]
-    raw += [p for p in (env.get(DIRS_ENV) or "").split(os.pathsep) if p.strip()]
-    raw += list(extra)
     out, seen = [], set()
-    for p in raw:
+    for p in [claude_auth.config_dir(env), *named_dirs(env, extra)]:
         path = pathlib.Path(os.path.expanduser(p.strip()))
         try:
             key = path.resolve()
@@ -129,8 +125,7 @@ def dir_notes(env, dirs, extra=()):
     在るのに読んでいないフォルダは、ホームの `.claude*` のうち会話の記録（projects/）を持つ物。アカウントを
     足しても ATTENTION_REFLECT_CONFIG_DIRS を書き足し忘れると、その会話が黙って数えられない"""
     notes = []
-    named = [p.strip() for p in (env.get(DIRS_ENV) or "").split(os.pathsep) if p.strip()] + list(extra)
-    gone = [p for p in named if not pathlib.Path(os.path.expanduser(p)).is_dir()]
+    gone = [p for p in named_dirs(env, extra) if not pathlib.Path(os.path.expanduser(p)).is_dir()]
     if gone:
         notes.append("読むと言われた設定のフォルダが無い: " + "・".join(home_short(os.path.expanduser(p)) for p in gone))
     home = pathlib.Path(env.get("HOME") or os.path.expanduser("~"))
@@ -410,6 +405,21 @@ def run(args, cwd=None, env=None):
     return p.stdout if p.returncode == 0 else None
 
 
+def run_json(args, env=None):
+    """外部コマンドの標準出力を JSON として。失敗・JSON でないなら None。"""
+    raw = run(args, env=env)
+    try:
+        return json.loads(raw) if raw is not None else None
+    except ValueError:
+        return None
+
+
+def gh_env(login):
+    """login のトークンを GH_TOKEN に入れた環境。トークンが取れなければ None（gh の今のアカウントのまま）。"""
+    token = (run(["gh", "auth", "token", "--hostname", "github.com", "--user", login]) or "").strip()
+    return {**os.environ, "GH_TOKEN": token} if token else None
+
+
 def repo_label(top):
     """リポジトリの呼び名。origin の "owner/name"（読み方は lib/changemap.py の repo_of）か、無ければフォルダの名前。"""
     url = run(["git", "-C", top, "remote", "get-url", "origin"]) or ""
@@ -487,7 +497,7 @@ def event_row(e):
 
 
 def local(ts):
-    t = when({"timestamp": ts})
+    t = transcript.timestamp(ts)
     return t.astimezone().isoformat(timespec="minutes") if t else ts
 
 
@@ -497,22 +507,17 @@ def github(start, end, unseen=None):
     unseen = [] if unseen is None else unseen
     out = []
     for login in gh_logins(unseen):
-        token = (run(["gh", "auth", "token", "--hostname", "github.com", "--user", login]) or "").strip()
-        env = {**os.environ, "GH_TOKEN": token} if token else None
+        env = gh_env(login)
         rows, oldest, full = [], None, True
         for page in range(1, EVENT_PAGES + 1):
-            raw = run(["gh", "api", f"/users/{login}/events?per_page=100&page={page}"], env=env)
-            try:
-                events = json.loads(raw) if raw is not None else None
-            except ValueError:
-                events = None
+            events = run_json(["gh", "api", f"/users/{login}/events?per_page=100&page={page}"], env=env)
             if not isinstance(events, list):
                 unseen.append(f"GitHub の動き: {login} の {page} ページ目を読めなかった（gh api が失敗したか、形が違う）。"
                               "そこから先の動きは数えていない")
                 full = False
                 break
             for e in events:
-                t = when({"timestamp": e.get("created_at")})
+                t = transcript.timestamp(e.get("created_at"))
                 if t is None:
                     continue
                 oldest = t if oldest is None or t < oldest else oldest
@@ -536,12 +541,8 @@ def search(login, start, end, env, unseen):
     q = f"involves:{login} updated:{start.isoformat(timespec='seconds')}..{end.isoformat(timespec='seconds')}"
     items, total, incomplete = [], 0, False
     for page in range(1, SEARCH_PAGES + 1):
-        raw = run(["gh", "api", "-X", "GET", "search/issues", "-f", f"q={q}", "-f", "sort=updated",
-                   "-f", "per_page=100", "-f", f"page={page}"], env=env)
-        try:
-            got = json.loads(raw) if raw is not None else None
-        except ValueError:
-            got = None
+        got = run_json(["gh", "api", "-X", "GET", "search/issues", "-f", f"q={q}", "-f", "sort=updated",
+                        "-f", "per_page=100", "-f", f"page={page}"], env=env)
         if not isinstance(got, dict) or not isinstance(got.get("items"), list):
             unseen.append(f"GitHub の動き: {login} の検索（期間の頭の補い）の {page} ページ目を読めなかった"
                           "（gh api が失敗したか、形が違う）。そこから先は補っていない")
@@ -721,8 +722,7 @@ def repo_private(label):
     if "/" not in label:
         return True
     for login in gh_logins():
-        token = (run(["gh", "auth", "token", "--hostname", "github.com", "--user", login]) or "").strip()
-        raw = (run(["gh", "api", f"repos/{label}", "--jq", ".private"], env={**os.environ, "GH_TOKEN": token} if token else None) or "").strip()
+        raw = (run(["gh", "api", f"repos/{label}", "--jq", ".private"], env=gh_env(login)) or "").strip()
         if raw in ("true", "false"):
             return raw == "true"
     return True
@@ -795,6 +795,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     env = dict(os.environ if env is None else env)
     first, last = period(spec, today)
     start, end = bounds(first, last)
+    days = (last - first).days + 1
     dirs = config_dirs(env, extra_dirs)
     session_notes = []
     human, background = sessions(dirs, start, end, session_notes)
@@ -811,7 +812,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
         ledger, ledger_error = {"proposals": []}, str(e)
     return {
         "schema": SCHEMA,
-        "period": {"spec": spec or "week", "start": first.isoformat(), "end": last.isoformat(), "days": (last - first).days + 1},
+        "period": {"spec": spec or "week", "start": first.isoformat(), "end": last.isoformat(), "days": days},
         "config_dirs": [str(d) for d in dirs],
         "counts": {
             "human_sessions": len(human), "asks": sum(len(s["asks"]) for s in human),
@@ -821,7 +822,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
             "human_output_by_model": tokens_by_model(human),
             "background_output_by_model": tokens_by_model(background),
         },
-        "sessions": human_rows(human, (last - first).days + 1),
+        "sessions": human_rows(human, days),
         "background": background_rows(background),
         "repeats": {"asks": asks, "commands": cmds},
         "commits": commit_rows,
@@ -948,8 +949,13 @@ def merge_ledger(ledger, proposals, today):
     return kept, dropped
 
 
+def reflect_root():
+    """ページと材料の置き場（/catchup のキャッシュの隣）。"""
+    return catchup_html.cache_root().parent / "reflect"
+
+
 def page_path(data, root=None):
-    root = pathlib.Path(root) if root else catchup_html.cache_root().parent / "reflect"
+    root = pathlib.Path(root) if root else reflect_root()
     p = data["period"]
     return root / f"{p['start']}_{p['end']}.html"
 
@@ -1056,7 +1062,7 @@ def main(argv=None):
     if not a.out:
         print(text)
         return 0
-    out = catchup_html.cache_root().parent / "reflect" / "materials" / f"{data['period']['start']}_{data['period']['end']}.json"
+    out = reflect_root() / "materials" / f"{data['period']['start']}_{data['period']['end']}.json"
     catchup_html._write_atomic(out, text + "\n")
     c = data["counts"]
     print(f"{out}\n人の会話 {c['human_sessions']} 本・発言 {c['asks']} 件・裏の会話 {c['background_sessions']} 本・"

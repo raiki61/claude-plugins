@@ -5,6 +5,7 @@
 読み方はここに 1 つだけ置く（docs/standards/machine-readable-values.md の「直さないと決めた物」）。
 """
 
+import datetime as dt
 import re
 
 # Bash の中身から「区切りになる操作」を拾う。全部のコマンドを並べても追いつく助けにならないので、
@@ -48,6 +49,16 @@ def unknown_sources_note(counts):
     return ("会話の記録に、知らない promptSource（発言の出どころ）の値があった: "
             + "・".join(f"{k} {n} 件" for k, n in sorted(counts.items()))
             + "。人の発言かどうか決められないので、人の発言に数えていない")
+
+
+def timestamp(raw):
+    """記録の timestamp（ISO 8601。末尾は Z）を時刻帯付きの datetime に。文字列でない・読めないなら None。"""
+    if not isinstance(raw, str):
+        return None
+    try:
+        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def landmarks(command):

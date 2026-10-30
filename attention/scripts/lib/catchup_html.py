@@ -85,10 +85,11 @@ def parse_diff(text):
             continue
         elif h is None and not raw.startswith("@@"):
             f["head"].append(raw)
-            if raw.startswith("+++ ") and changemap.side_path(raw):
-                f["path"] = changemap.side_path(raw)
-            elif raw.startswith("--- ") and changemap.side_path(raw) and not f["old"]:
-                f["old"] = changemap.side_path(raw)
+            side = changemap.side_path(raw) if raw.startswith(("+++ ", "--- ")) else None
+            if raw.startswith("+++ ") and side:
+                f["path"] = side
+            elif raw.startswith("--- ") and side and not f["old"]:
+                f["old"] = side
         elif raw.startswith("@@"):
             m = HUNK.match(raw)
             if not m:
@@ -96,9 +97,7 @@ def parse_diff(text):
             h = {"o": int(m.group(1)), "n": int(m.group(3)), "ctx": m.group(5).strip(), "rows": []}
             f["hunks"].append(h)
             o, n = h["o"], h["n"]
-        elif raw.startswith("\\"):
-            continue
-        elif raw.startswith("diff ") or raw.startswith("index "):
+        elif raw.startswith(("\\", "diff ", "index ")):
             continue
         else:
             mark, body = raw[:1] or " ", raw[1:]
@@ -149,10 +148,14 @@ def context_excerpt(path, lines, line, before=5, after=4):
     if not lines or not line or line > len(lines):
         return None
     lo, hi = max(1, line - before), min(len(lines), line + after)
-    body = "\n".join(" " + lines[k - 1] for k in range(lo, hi + 1))
-    n = hi - lo + 1
-    return (f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n"
-            f"@@ -{lo},{n} +{lo},{n} @@\n{body}\n")
+    return _context_diff(path, lines[lo - 1:hi], lo)
+
+
+def _context_diff(path, rows, first):
+    """変わっていない行だけの unified diff（first は rows の先頭の行番号）。差分と同じ部品で描ける。"""
+    n = len(rows)
+    head = [f"diff --git a/{path} b/{path}", f"--- a/{path}", f"+++ b/{path}", f"@@ -{first},{n} +{first},{n} @@"]
+    return "\n".join(head + [" " + x for x in rows]) + "\n"
 
 
 def filter_diff(text, paths):
@@ -256,7 +259,7 @@ def validate_fields(obj, need_title=False, data=None, read=None):
             errs.append(f"{k} は {lo}〜{hi} 個にする（今 {len(v)} 個）")
 
     str_list("next", 1, NEXT_CAP, True)
-    for i, x in enumerate(obj.get("next") or [] if isinstance(obj.get("next"), list) else []):
+    for i, x in enumerate(obj["next"] if isinstance(obj.get("next"), list) else []):
         if isinstance(x, str) and len(x) > NEXT_TEXT_CAP:
             errs.append(f"next[{i}] は {NEXT_TEXT_CAP} 字までの 1 手にする（今 {len(x)} 字。理由は止めているものへ）")
     str_list("unseen", 0, 20, False)
@@ -704,7 +707,6 @@ def _ref_errors(ref, at, files):
     # 行番号では指さない。行を知るには差分の枠まで読むことになり、読む量が 1 件 4 万〜6 万字増える（2026-10-16 実測）。
     # 関数・テスト・設定の名前は、もともと読む骨組みに出ているので、それで指す
     errs = _keys(ref, at, ("path", "find"))
-    lines = None
     if "find" in ref and (not isinstance(ref["find"], str) or not ref["find"].strip()):
         errs.append(f"{at}.find は差分の中に在る空でない文字列にする")
     if errs or files is None:
@@ -721,7 +723,7 @@ def _ref_errors(ref, at, files):
     if f is None:
         return [f"{at}.path {ref['path']} は差分に無い（差分の file: {'・'.join(sorted(files)) or 'なし'}。"
                 "変えていない file を指すなら find も書く。PR の先頭の版から読む）"]
-    if not pick_hunks(f, lines, ref.get("find")):
+    if not pick_hunks(f, ref.get("find")):
         return [f"{at} に当たる変更の塊が無い（find の {ref.get('find')!r} が {ref['path']} の差分に無い）"]
     return []
 
@@ -764,25 +766,13 @@ def _outside_text(path, lines, find):
         end += 1
     while end > k + 1 and not lines[end - 1].strip():
         end -= 1
-    lo, hi = max(0, k - OUTSIDE_BEFORE), end
-    n = hi - lo
-    head = [f"diff --git a/{path} b/{path}", f"--- a/{path}", f"+++ b/{path}", f"@@ -{lo + 1},{n} +{lo + 1},{n} @@"]
-    return "\n".join(head + [" " + x for x in lines[lo:hi]]) + "\n"
+    lo = max(0, k - OUTSIDE_BEFORE)
+    return _context_diff(path, lines[lo:end], lo + 1)
 
 
-def pick_hunks(f, lines=None, find=None):
-    """file の変更の塊（hunk）のうち、lines（今の版の行の範囲）に重なるか、find の文字列を含むもの。
-    どちらも無ければ全部。"""
-    out = []
-    for h in f["hunks"]:
-        news = [r[2] for r in h["rows"] if r[2] is not None]
-        lo, hi = (min(news), max(news)) if news else (h["n"], h["n"])
-        if lines and (hi < lines[0] or lo > lines[1]):
-            continue
-        if find and find not in h["ctx"] and not any(find in r[3] for r in h["rows"]):
-            continue
-        out.append(h)
-    return out
+def pick_hunks(f, find=None):
+    """file の変更の塊（hunk）のうち、find の文字列を含むもの。find が無ければ全部。"""
+    return [h for h in f["hunks"] if not find or find in h["ctx"] or any(find in r[3] for r in h["rows"])]
 
 
 def hunks_text(f, hunks):
@@ -800,7 +790,7 @@ def _resolve(files, refs):
     out = []
     for ref in refs or []:
         f = files.get(ref.get("path"))
-        hs = pick_hunks(f, None, ref.get("find")) if f else []
+        hs = pick_hunks(f, ref.get("find")) if f else []
         if hs:
             out.append({"path": f["path"], "anchor": anchor(f["path"]), "text": hunks_text(f, hs)})
         elif f is None and files.read and ref.get("find"):
@@ -817,15 +807,13 @@ def point_code(data, fields, read=None):
     fields = fields or {}
     items = (fields.get("points") or {}).get("items") or []
     figs = fields.get("figure") or []
-    figs = figs if isinstance(figs, list) else [figs]
-    nodes = [n for f1 in figs if isinstance(f1, dict) and f1.get("kind") == "graph" for n in f1.get("nodes") or []]
-    found = {n["id"]: _resolve(files, n.get("code")) for n in nodes if n.get("code")}
+    graphs = [f1 for f1 in (figs if isinstance(figs, list) else [figs])
+              if isinstance(f1, dict) and f1.get("kind") == "graph"]
+    found = {n["id"]: _resolve(files, n.get("code")) for g in graphs for n in g.get("nodes") or [] if n.get("code")}
     edges = {}
-    for f1 in figs:
-        if isinstance(f1, dict) and f1.get("kind") == "graph":
-            for e in f1.get("edges") or []:
-                if e.get("code"):
-                    edges.setdefault(f"{e.get('from')}>{e.get('to')}", []).extend(_resolve(files, e.get("code")))
+    for e in (e for g in graphs for e in g.get("edges") or []):
+        if e.get("code"):
+            edges.setdefault(f"{e.get('from')}>{e.get('to')}", []).extend(_resolve(files, e.get("code")))
     return {"points": [_resolve(files, it.get("code")) for it in items],
             "nodes": {k: v for k, v in found.items() if v},
             "edges": {k: v for k, v in edges.items() if v}}
@@ -1010,6 +998,10 @@ def index_html(entries):
 # ---- VS Code で開く -------------------------------------------------------------
 
 
+def _vscode_server(home=None):
+    return pathlib.Path(home or pathlib.Path.home()) / ".vscode-server"
+
+
 def run_code(args, env):
     """code を呼んで終了コードを返す。起動できない・時間内に返らないなら None。"""
     try:
@@ -1025,9 +1017,9 @@ def code_cli(home=None, which=shutil.which):
     exe = which("code")
     if exe:
         return exe
-    home = pathlib.Path(home or pathlib.Path.home())
-    found = glob.glob(str(home / ".vscode-server" / "cli" / "servers" / "*" / "server" / "bin" / "remote-cli" / "code"))
-    found += glob.glob(str(home / ".vscode-server" / "bin" / "*" / "bin" / "remote-cli" / "code"))
+    server = _vscode_server(home)
+    found = glob.glob(str(server / "cli" / "servers" / "*" / "server" / "bin" / "remote-cli" / "code"))
+    found += glob.glob(str(server / "bin" / "*" / "bin" / "remote-cli" / "code"))
     return max(found, key=_mtime) if found else None
 
 
@@ -1052,6 +1044,11 @@ def ipc_sockets(env):
     return sorted(found, key=_mtime, reverse=True)
 
 
+def _open_all(cli, socks, path, env, run=run_code):
+    """socks の窓のすべてで path を開き、開けた窓の数を返す。"""
+    return sum(1 for s in socks if run([cli, "--reuse-window", str(path)], {**env, "VSCODE_IPC_HOOK_CLI": s}) == 0)
+
+
 def live_sockets(cli, socks, env, run=run_code):
     """`code --status` が 0 で返る socket だけ。herdr などの中の会話は、起動した時の古い VSCODE_IPC_HOOK_CLI を
     継いでいる。持ち主が見ていた窓は 2 つの生きた socket の古い方で答えた（2026-10-15 実測）ので、全部を試す。"""
@@ -1070,7 +1067,7 @@ def open_in_vscode(path, env=None, home=None, run=run_code, which=shutil.which):
         live = live_sockets(cli, ipc_sockets(env), env, run)
         if not live:
             return "開いていない（VS Code が繋がっていない。path を開く）"
-        ok = sum(1 for s in live if run([cli, "--reuse-window", str(path)], {**env, "VSCODE_IPC_HOOK_CLI": s}) == 0)
+        ok = _open_all(cli, live, path, env, run)
         return f"VS Code の窓 {ok} 個で開いた" if ok else "開けなかった（code --reuse-window が失敗した）"
     except Exception as e:  # noqa: BLE001 — 開けないことで catchup を落とさない
         return f"開けなかった（{type(e).__name__}: {e}）"
@@ -1080,7 +1077,7 @@ def open_in_vscode(path, env=None, home=None, run=run_code, which=shutil.which):
 
 
 def settings_path(home=None):
-    return pathlib.Path(home or pathlib.Path.home()) / ".vscode-server" / "data" / "Machine" / "settings.json"
+    return _vscode_server(home) / "data" / "Machine" / "settings.json"
 
 
 def _strip_jsonc(text):
@@ -1089,11 +1086,9 @@ def _strip_jsonc(text):
     while i < n:
         c = text[i]
         if c == '"':
-            j = i + 1
-            while j < n and text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            out.append(text[i:j + 1])
-            i = j + 1
+            j = _string_end(text, i)
+            out.append(text[i:j])
+            i = j
         elif text.startswith("//", i):
             comments = True
             while i < n and text[i] != "\n":
@@ -1108,17 +1103,23 @@ def _strip_jsonc(text):
     return _drop_trailing_commas("".join(out)), comments
 
 
+def _string_end(text, i):
+    """text[i] の '"' で始まる文字列の、閉じの次の位置（閉じが無ければ末尾）。"""
+    j = i + 1
+    while j < len(text) and text[j] != '"':
+        j += 2 if text[j] == "\\" else 1
+    return j + 1
+
+
 def _drop_trailing_commas(text):
     """閉じ括弧の前の余分な , を、文字列の外でだけ落とす（文字列の中の ",]" を壊さない）。注記を落とした後に呼ぶ。"""
     out, i, n = [], 0, len(text)
     while i < n:
         c = text[i]
         if c == '"':
-            j = i + 1
-            while j < n and text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            out.append(text[i:j + 1])
-            i = j + 1
+            j = _string_end(text, i)
+            out.append(text[i:j])
+            i = j
             continue
         if c == ",":
             j = i + 1
@@ -1192,8 +1193,7 @@ def merge_settings(path, now=None):
 
 
 def extension_dirs(home=None):
-    home = pathlib.Path(home or pathlib.Path.home())
-    return sorted(glob.glob(str(home / ".vscode-server" / "extensions" / f"{EXTENSION_ID}-*")))
+    return sorted(glob.glob(str(_vscode_server(home) / "extensions" / f"{EXTENSION_ID}-*")))
 
 
 def setup(check=False, home=None, env=None, root=None, run=run_code, which=shutil.which, now=None):
@@ -1210,7 +1210,7 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
     else:
         did.append(f"VS Code の窓 {len(live)} 個が繋がっている（{live[0]} ほか）")
 
-    server = pathlib.Path(home or pathlib.Path.home()) / ".vscode-server"
+    server = _vscode_server(home)
     if not server.is_dir():
         # Remote-SSH で繋いだことの無いマシン。手元の VS Code は拡張と設定を別の置き場から読むので、ここに書いても効かない。
         # 置き場を作らずに訳を返す（code が無いときの訳は上で出している）
@@ -1253,8 +1253,7 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
         rebuild_index(root)
         did.append(f"見本のページを {sample} に描いた")
         if live:
-            opened = sum(1 for s in live
-                         if run([cli, "--reuse-window", str(sample)], {**env, "VSCODE_IPC_HOOK_CLI": s}) == 0)
+            opened = _open_all(cli, live, sample, env, run)
             did.append(f"見本を VS Code の窓 {opened} 個で開いた（色付きのページが出れば準備は済み。"
                        "ソースのまま出たら、拡張が入っていないか設定が効いていない）")
     return _setup_report(did, missing)

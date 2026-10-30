@@ -245,31 +245,24 @@ class MissingField(Exception):
     """問い合わせたフィールドをその GitHub が持たない（graphql-ruby の静的検証の undefinedField）"""
 
 
+def stop_on_errors(data):
+    """GraphQL の答えにエラーがあれば止める。無ければそのまま返す"""
+    if data.get("errors"):
+        sys.exit("GraphQL エラー: " + json.dumps(data["errors"], ensure_ascii=False))
+    return data
+
+
 def fetch_all(query, owner, name, field, optional=()):
     """field の全ページ。optional に挙げたフィールドが無いと返ったときだけ MissingField を投げ、ほかのエラーは止める"""
     nodes, cursor = [], None
     while True:
-        args = [
-            "api",
-            "graphql",
-            "-f",
-            "query=" + query,
-            "-f",
-            "owner=" + owner,
-            "-f",
-            "name=" + name,
-        ]
+        args = ["api", "graphql", "-f", "query=" + query, "-f", "owner=" + owner, "-f", "name=" + name]
         if cursor:
             args += ["-f", "cursor=" + cursor]
         data = json.loads(gh(*args, graphql_errors=bool(optional)))
-        errors = data.get("errors")
-        if turn.missing_only(errors, optional):
+        if turn.missing_only(data.get("errors"), optional):
             raise MissingField()
-        if errors:
-            sys.exit(
-                "GraphQL エラー: " + json.dumps(data["errors"], ensure_ascii=False)
-            )
-        conn = data["data"]["repository"][field]
+        conn = stop_on_errors(data)["data"]["repository"][field]
         nodes += conn["nodes"]
         if not conn["pageInfo"]["hasNextPage"]:
             return nodes
@@ -342,6 +335,10 @@ def latest(values):
     return max(values) if values else None
 
 
+def head_commit(pr):
+    return pr["commits"]["nodes"][0]["commit"]
+
+
 def to_owners(pr, rows):
     """作者の名義で積んだ行を持ち主へ写す（持ち主が 2 人なら 2 人とも）"""
     holders = owners(pr)
@@ -409,13 +406,7 @@ def formal_rows(pr):
     red = red_checks(pr)
     if red:
         since = latest(c.get("completedAt") or c.get("createdAt") for c in red)
-        rows.append(
-            (
-                author,
-                "ci_red",
-                since or pr["commits"]["nodes"][0]["commit"]["committedDate"],
-            )
-        )
+        rows.append((author, "ci_red", since or head_commit(pr)["committedDate"]))
     elif turn.owes_change_requests(pr):
         since = last_review(lambda r: r["state"] == "CHANGES_REQUESTED")
         rows.append((author, "changes_requested", since or created))
@@ -432,13 +423,7 @@ def formal_rows(pr):
     # 形式上の状態（依頼が残っていなければ持ち主のターン）。CI 赤・指摘対応があればそちらが持ち主の行
     if not pending and not rows:
         if pr["reviewDecision"] == "APPROVED":
-            rows.append(
-                (
-                    author,
-                    "merge",
-                    last_review(lambda r: r["state"] == "APPROVED") or created,
-                )
-            )
+            rows.append((author, "merge", last_review(lambda r: r["state"] == "APPROVED") or created))
         # reviewDecision はレビューが 1 件も無い間 null で、Bot の COMMENTED が 1 件付いた
         # 瞬間に REVIEW_REQUIRED になる（実測 2026-08-23・IL-SW-AI/guided-resolver: レビュー 0 件の
         # #1478 は null、Copilot の COMMENTED だけ付いた #1476 は REVIEW_REQUIRED）。null を
@@ -461,19 +446,8 @@ def formal_rows(pr):
                 # 誰にも頼んでいない PR には待たせている相手がいない。作成日から数えると、書きかけを
                 # 寝かせた期間まで「待ち」に入る（実測: #1276 は作成 21 日前・最後の push は 3 日前で、
                 # 21 日と出ると放置に見える）。最後に動かした日から数えて、本当に止まった分だけ伸ばす
-                rows.append(
-                    (
-                        author,
-                        "unrequested",
-                        latest(
-                            (
-                                last_event("ReadyForReviewEvent"),
-                                pr["commits"]["nodes"][0]["commit"]["committedDate"],
-                                created,
-                            )
-                        ),
-                    )
-                )
+                moved = latest((last_event("ReadyForReviewEvent"), head_commit(pr)["committedDate"], created))
+                rows.append((author, "unrequested", moved))
         else:
             rows.append((author, "unclassified", created))
 
@@ -710,7 +684,7 @@ def red_checks(pr):
     別々の workflow が同名の job を持つと畳んでしまうが、必須チェックは名前で指定するもので、
     その状態は元から区別がつかない。
     """
-    rollup = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]
+    rollup = head_commit(pr)["statusCheckRollup"]
     checks = rollup["contexts"]["nodes"] if rollup else []
     newest = {}
     for c in checks:
@@ -824,23 +798,22 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
         facts.append("下書き")
     facts += role_facts(pr, who)
     # 担当に渡した作者は自分の PR でも直す側ではないが、本文は自分が書いたので添えない
-    if who and author != who:
-        if intro:
-            line = intro_line(pr.get("body"))
-            if line:
-                facts.append("本文: " + line)
-            if pr.get("changedFiles") is not None:
-                facts.append(
-                    f"規模: {pr['changedFiles']} ファイル "
-                    f"+{pr.get('additions', 0)}/-{pr.get('deletions', 0)}"
-                )
-    asked = [reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]]
-    asked = [a for a in asked if a]
+    if intro and who and author != who:
+        line = intro_line(pr.get("body"))
+        if line:
+            facts.append("本文: " + line)
+        if pr.get("changedFiles") is not None:
+            facts.append(
+                f"規模: {pr['changedFiles']} ファイル "
+                f"+{pr.get('additions', 0)}/-{pr.get('deletions', 0)}"
+            )
     counted = counted_requests(pr)
     if counted:
         facts.append("レビュー依頼: " + ", ".join(sorted(counted)))
     # draft の PR で数えない依頼（最後に draft へ戻す前の物か、日時が履歴に無い物）。依頼先には相手の番にも出ない
-    held = sorted(a for a in asked if a not in counted)
+    held = sorted(
+        w for w in (reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]) if w and w not in counted
+    )
     if held:
         facts.append("draft へ戻す前のレビュー依頼（作者が ready にするまで数えない）: " + ", ".join(held))
     pending = pr.get("pendingReview")
@@ -949,6 +922,11 @@ def role_facts(pr, who):
     if who in holders:
         return [f"担当として受けた PR（起票は {author or '退会済み'}）"]
     return [f"作者: {author or '退会済み'}"]
+
+
+def role_key(pr, who):
+    """--json の role。直す側（持ち主。担当として受けた人も）か、それ以外か。担当に渡した作者は直す側ではない"""
+    return "implementer" if who in owners(pr) else "reviewer"
 
 
 def only_owner_can(who, pr):
@@ -1070,34 +1048,27 @@ def stale_reference_facts(pr, targets, repo):
 
 
 def posts_of_issue(issue):
-    posts = [post(issue["id"], issue["author"], issue["createdAt"], issue["body"])]
-    posts += [
-        post(c["id"], c["author"], c["createdAt"], c["body"])
-        for c in issue["comments"]["nodes"]
-    ]
-    return posts
+    return [post(issue["id"], issue["author"], issue["createdAt"], issue["body"])] + comment_posts(issue["comments"])
 
 
 def posts_of_pr(pr):
-    posts = [
-        post(c["id"], c["author"], c["createdAt"], c["body"])
-        for c in pr["comments"]["nodes"]
-    ]
+    posts = comment_posts(pr["comments"])
     posts += [
         post(r["id"], r["author"], r["submittedAt"], r["body"])
         for r in pr["reviews"]["nodes"]
         if r.get("body")
     ]
     for t in pr["reviewThreads"]["nodes"]:
-        posts += [
-            post(c["id"], c["author"], c["createdAt"], c["body"])
-            for c in t["comments"]["nodes"]
-        ]
+        posts += comment_posts(t["comments"])
     return sorted(posts, key=lambda p: p["at"])
 
 
 def post(node_id, actor, at, body):
     return {"id": node_id, "author": actor, "at": at, "body": body or ""}
+
+
+def comment_posts(conn):
+    return [post(c["id"], c["author"], c["createdAt"], c["body"]) for c in conn["nodes"]]
 
 
 def latest_human_post(posts):
@@ -1234,7 +1205,7 @@ def limits_of_pr(pr):
         # 切れていると指摘対応を集約値どおり残す（turn.owes_change_requests）
         (pr["latestOpinionatedReviews"], "人ごとの意見"),
     ] + post_conns(pr)
-    rollup = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]
+    rollup = head_commit(pr)["statusCheckRollup"]
     if rollup:
         conns.append((rollup["contexts"], "チェック"))
     return [truncated(c, w, where) for c, w in conns]
@@ -1258,12 +1229,7 @@ def fill_reactions(waits):
         args = ["api", "graphql", "-f", "query=" + REACTIONS_QUERY] + [
             a for i in batch for a in ("-f", f"ids[]={i}")
         ]
-        data = json.loads(gh(*args))
-        if data.get("errors"):
-            sys.exit(
-                "GraphQL エラー: " + json.dumps(data["errors"], ensure_ascii=False)
-            )
-        for node in data["data"]["nodes"]:
+        for node in stop_on_errors(json.loads(gh(*args)))["data"]["nodes"]:
             if not node:
                 continue
             reactors[node["id"]] = {
@@ -1283,12 +1249,12 @@ def width(s):
 
 
 def cut(s, w):
-    out = ""
-    for c in s:
-        if width(out + c) > w:
-            return out + "…"
-        out += c
-    return out
+    used = 0
+    for i, c in enumerate(s):
+        used += width(c)
+        if used > w:
+            return s[:i] + "…"
+    return s
 
 
 def parser():
@@ -1403,27 +1369,24 @@ def report(a):
 
     def wait_lines(waits, indent=""):
         lines = []
-        for who, info, item in sorted(waits, key=lambda w: w[1]["since"]):
+        for who, info, item in waits:
             tags = []
             if info["reply_to_own"]:
                 tags.append("直前はあなたの発言")
             if info["reacted"]:
                 tags.append("あなたが 👍 済み")
-            refs = (
-                open_prs_referencing(item, prs)
-                if "comments" in item and "reviewThreads" not in item
-                else []
-            )
+            is_pr = "reviewThreads" in item
+            refs = [] if is_pr else open_prs_referencing(item, prs)
             if refs:
                 tags.append("open PR " + ", ".join(f"#{r}" for r in refs) + " が参照")
-            if "reviewThreads" in item and before_draft(item, info["since"]):
+            if is_pr and before_draft(item, info["since"]):
                 tags.append("draft へ戻す前")
             lines.append(
                 f"{indent}  #{item['number']:<5} {local_time(info['since'], '%Y-%m-%d')} から {days(info['since']):>3} 日  {cut(item['title'], 56)}"
             )
             lines.append(f"{indent}    {item['url']}")
             # PR の呼びかけには役割の行を添える。読む側がその番号を自分の番へ移すとき、役割を引き直さずに済む
-            if "reviewThreads" in item:
+            if is_pr:
                 lines += [f"{indent}    {f}" for f in role_facts(item, who)]
             lines.append(
                 f"{indent}         {info['by']}: 「{info['excerpt']}」"
@@ -1437,22 +1400,27 @@ def report(a):
             at = assigned_at(i, me)
             stamp = f"{days(at):>3} 日" if at else f"最終更新 {local_time(i['updatedAt'], '%Y-%m-%d')}"
             refs = open_prs_referencing(i, prs)
-            lines.append(
-                f"{indent}  #{i['number']:<5} {stamp}  {cut(i['title'], 62)}"
-                + (
-                    f"  [open PR {', '.join('#' + str(r) for r in refs)} が参照]"
-                    if refs
-                    else ""
-                )
-            )
+            tag = f"  [open PR {', '.join('#' + str(r) for r in refs)} が参照]" if refs else ""
+            lines.append(f"{indent}  #{i['number']:<5} {stamp}  {cut(i['title'], 62)}{tag}")
             lines.append(f"{indent}    {i['url']}")
         return lines
 
     # 自分の番か・誰のスレッドかなどの見出しの外の値（日数・役割・URL・数）は、ここで構造に組んでから出す。
     # --json は全部を構造で、文の報告は同じ値から人向けに組む（docs/standards/machine-readable-values.md の決まり 1）
     people = sorted({w for w, _ in balls}, key=str) if a.all else [me]
-    waits_all = pr_waits + issue_waits
+    # 呼びかけは古い順。ここで一度並べ、絞った部分集合も同じ順のまま使う
+    waits_all = sorted(pr_waits + issue_waits, key=lambda w: w[1]["since"])
     waits = waits_all if a.all else [w for w in waits_all if w[0] == me]
+    asg = [i for i in issues if me in {x["login"] for x in i["assignees"]["nodes"]}]
+
+    def owed_threads():
+        """返すターンがあるスレッド。[(誰, 番号, スレッド, 読む発言)] を人の順・番号の順で"""
+        return [
+            (who, n, t, last)
+            for who in people
+            for n in sorted(n for w, n in balls if w == who)
+            for t, last in turn_threads(by_number[n], who)
+        ]
     # draft へ戻す前の Team 宛の依頼は数えない——死角の確認（スキルの手順 5）が Team の所属を引いて自分の番に足すため
     teams = sum(
         1
@@ -1489,8 +1457,7 @@ def report(a):
                 "title": p["title"],
                 "head": p["headRefName"],
                 "author": author,
-                # 直す側（持ち主。担当として受けた人も）か、それ以外か。担当に渡した作者は直す側ではない
-                "role": "implementer" if who in owners(p) else "reviewer",
+                "role": role_key(p, who),
                 "days": days(since),
                 # 文の報告の各行の下に並ぶ事実の行（人向けの文。読む側が写す物で、語で分岐しない）
                 "facts": pr_facts(p, who, targets, repo, intro=intro),
@@ -1520,7 +1487,7 @@ def report(a):
                 "reacted": bool(info["reacted"]),
                 "referenced_by_open_prs": refs,
                 # PR の呼びかけの役割（sections の role と同じ決め方）。issue には PR の役割が無いので null
-                "role": ("implementer" if who in owners(item) else "reviewer") if kind == "pr" else None,
+                "role": role_key(item, who) if kind == "pr" else None,
                 # draft の PR で、最後に draft へ戻した時以前の呼びかけか。戻す前のレビューの頼みは、作者が直している間は
                 # 返さなくてよい（中身がレビューの頼みかは読む側が決める）。issue は false
                 "before_draft": kind == "pr" and before_draft(item, info["since"]),
@@ -1529,7 +1496,6 @@ def report(a):
                 out["text"] = cut(info["text"], 1500)
             return out
 
-        asg = [i for i in issues if me in {x["login"] for x in i["assignees"]["nodes"]}]
         data = {
             "schema": 1,
             "repo": repo,
@@ -1542,7 +1508,7 @@ def report(a):
                     "url": by_number[n]["url"],
                     "title": by_number[n]["title"],
                     "head": by_number[n]["headRefName"],
-                    "role": "implementer" if me in owners(by_number[n]) else "reviewer",
+                    "role": role_key(by_number[n], me),
                     "days": days(since),
                 }
                 for t, since, n in pr_rows(me) if t in MINE
@@ -1564,7 +1530,7 @@ def report(a):
                 for who in people
             ],
             # 返していない呼びかけ（古い順）。--materials なら text に投稿の全文（1500 字まで）
-            "waits": [wait_item(*w) for w in sorted(waits, key=lambda w: w[1]["since"])],
+            "waits": [wait_item(*w) for w in waits],
             # 担当 issue（me の分。文の報告は --all のときは出さない）
             "assigned_issues": [
                 {
@@ -1599,9 +1565,7 @@ def report(a):
                     "at": last["createdAt"],
                     "text": cut(readable(last["body"]), 1500),
                 }
-                for who in people
-                for n in sorted(n for w, n in balls if w == who)
-                for t, last in turn_threads(by_number[n], who)
+                for who, n, t, last in owed_threads()
             ]
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return
@@ -1617,15 +1581,15 @@ def report(a):
     if a.all:
         for key, title, keep in BUCKETS:
             print(f"\n## {title} — PR")
-            for who in sorted({w for w, _ in balls}, key=str):
+            for who in people:
                 rows = [r for r in pr_rows(who) if keep(r[0])]
                 if not rows:
                     continue
                 print(f"  {who} — {len(rows)} 件")
                 print("\n".join(pr_lines(who, rows, "  ", intro=key == "mine")))
         print("\n## 返していない呼びかけ")
-        for who in sorted({w for w, _, _ in pr_waits + issue_waits}):
-            mine = [w for w in pr_waits + issue_waits if w[0] == who]
+        for who in sorted({w for w, _, _ in waits_all}):
+            mine = [w for w in waits_all if w[0] == who]
             print(f"  {who} — {len(mine)} 件")
             print("\n".join(wait_lines(mine, "  ")))
     else:
@@ -1635,10 +1599,8 @@ def report(a):
             print(f"\n## {title} — PR {len(bucket)} 件")
             print("\n".join(pr_lines(me, bucket, intro=key == "mine")))
         # PR と issue は番号が 1 本なので、呼びかけは種別で分けずに古い順に並べる
-        mine = [w for w in pr_waits + issue_waits if w[0] == me]
-        print(f"\n## 返していない呼びかけ — {len(mine)} 件")
-        print("\n".join(wait_lines(mine)))
-        asg = [i for i in issues if me in {x["login"] for x in i["assignees"]["nodes"]}]
+        print(f"\n## 返していない呼びかけ — {len(waits)} 件")
+        print("\n".join(wait_lines(waits)))
         print(f"\n## 担当 issue — {len(asg)} 件")
         print("\n".join(issue_lines(asg)))
     print("\n走査の上限に当たったもの: " + ("なし" if not limits else ""))
@@ -1647,22 +1609,20 @@ def report(a):
     print("\n" + not_seen)
     if a.materials:
         print(f"\n{MATERIALS_MARK}")
-        for who, info, item in sorted(waits, key=lambda w: w[1]["since"]):
+        for who, info, item in waits:
             kind = "PR" if "reviewThreads" in item else "issue"
             print(
                 f"\n### {kind} #{item['number']} → {who}  {info['by']} {local_time(info['since'], '%Y-%m-%d')}"
             )
             print(cut(info["text"], 1500))
-        for who in people:
-            for n in sorted(n for w, n in balls if w == who):
-                for t, last in turn_threads(by_number[n], who):
-                    where = t["path"] + (f":{t['line']}" if t["line"] else "")
-                    moved = "・差分が動いた" if t["isOutdated"] else ""
-                    print(
-                        f"\n### PR #{n} スレッド → {who}  {where}"
-                        f"  {login(last['author'])} {local_time(last['createdAt'], '%Y-%m-%d')}{moved}"
-                    )
-                    print(cut(readable(last["body"]), 1500))
+        for who, n, t, last in owed_threads():
+            where = t["path"] + (f":{t['line']}" if t["line"] else "")
+            moved = "・差分が動いた" if t["isOutdated"] else ""
+            print(
+                f"\n### PR #{n} スレッド → {who}  {where}"
+                f"  {login(last['author'])} {local_time(last['createdAt'], '%Y-%m-%d')}{moved}"
+            )
+            print(cut(readable(last["body"]), 1500))
 
 
 if __name__ == "__main__":

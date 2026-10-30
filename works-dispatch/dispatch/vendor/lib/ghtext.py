@@ -59,11 +59,7 @@ def mentions(text):
 
 def refs(text):
     """本文が # で指す番号を、出た順・重複なしで返す（コード・引用の中は数えない）。"""
-    out = []
-    for n in _REF_RE.findall(clean(text)):
-        if int(n) not in out:
-            out.append(int(n))
-    return out
+    return list(dict.fromkeys(int(n) for n in _REF_RE.findall(clean(text))))
 
 
 def repo_refs(text, repo):

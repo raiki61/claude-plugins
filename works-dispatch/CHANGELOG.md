@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- attention から写した `/whose-turn` のスクリプト（`dispatch/vendor/whose-turn.py`・`dispatch/vendor/lib/ghtext.py`）を、attention の簡潔にした版に揃えた。出力は変わらない。
+
 ## [0.143.0] - 2026-10-30
 
 ### Changed

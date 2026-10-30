@@ -38,7 +38,6 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 
-
 def pick_reference(asks):
     """会話で呼ばれた番号を、本題である見込みの高い順に並べる。
 
@@ -150,14 +149,15 @@ def read(path):
 
             if kind == "ai-title" and o.get("aiTitle"):
                 title = o["aiTitle"]
-            elif kind == "user" and transcript.prompt_source(o) == "human":
-                body = text_of(o.get("message", {}).get("content"))
-                if body.strip():
-                    turns.append({"at": o.get("timestamp"), "ask": body.strip(),
+            elif kind == "user":
+                source = transcript.prompt_source(o)
+                body = text_of(o.get("message", {}).get("content")).strip() if source == "human" else ""
+                if body:
+                    turns.append({"at": o.get("timestamp"), "ask": body,
                                   "reply": "", "tools": {}, "marks": []})
-            elif kind == "user" and transcript.prompt_source(o) == "unknown":
-                unknown[o["promptSource"]] = unknown.get(o["promptSource"], 0) + 1
-            if kind == "assistant":
+                elif source == "unknown":
+                    unknown[o["promptSource"]] = unknown.get(o["promptSource"], 0) + 1
+            elif kind == "assistant":
                 replies += 1
             if kind == "assistant" and turns:
                 turn = turns[-1]
@@ -190,12 +190,8 @@ def about(turn, phrase):
 
 
 def stamp(raw):
-    if not raw:
-        return None
-    try:
-        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone()
-    except ValueError:
-        return None
+    t = transcript.timestamp(raw)
+    return t.astimezone() if t else None
 
 
 def squeeze(text, limit):
@@ -383,7 +379,5 @@ if __name__ == "__main__":
         sys.exit(main())
     except KeyboardInterrupt:
         sys.exit(130)
-    except SystemExit:
-        raise
     except Exception as e:  # noqa: BLE001
         sys.exit(f"what-am-i-doing.py が想定外の例外で停止: {type(e).__name__}: {e}")

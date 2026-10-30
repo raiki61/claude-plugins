@@ -107,13 +107,13 @@ def split_diff(text):
                 files[cur].append(line)
             continue
         # ここから下は @@ より前の見出し
-        if line.startswith("+++ ") and side_path(line):
-            path = side_path(line)
-            if cur != path:
-                files[path] = files.pop(cur, []) if cur is not None else []
-                cur = path
-        elif line.startswith("--- ") and side_path(line) and cur is None:
-            cur = side_path(line)
+        side = side_path(line) if line.startswith(("+++ ", "--- ")) else None
+        if line.startswith("+++ ") and side:
+            if cur != side:
+                files[side] = files.pop(cur, []) if cur is not None else []
+                cur = side
+        elif line.startswith("--- ") and side and cur is None:
+            cur = side
             files.setdefault(cur, [])
         elif line.startswith("rename from "):
             renames["__from__"] = unquote_git_path(line[len("rename from "):].strip())
@@ -619,10 +619,9 @@ def pathspecs(names):
     return [f":(top,literal){n}" for n in names]
 
 
-def changed_pairs(cwd=None, rev="HEAD"):
-    """rev と比べて変わった file を [(振り分けに使う path, git に渡す path の組)]。改名は新旧を 1 組で
-    返す——新側だけを pathspec に渡すと git が対を作れず、中身の変更が消えて全行 + の「新規」diff に
-    なる（実測）。-z なので path は引用形にならない。失敗なら None。"""
+def name_status(cwd=None, rev="HEAD"):
+    """rev と比べて変わった file を [(状態, 改名・複写の元の path か None, path)]。-z なので path は引用形に
+    ならない。失敗なら None。"""
     text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "--name-status", "-z", rev, "--", cwd=cwd)
     if text is None:
         return None
@@ -630,12 +629,22 @@ def changed_pairs(cwd=None, rev="HEAD"):
     out, i = [], 0
     while i + 1 < len(parts):
         if parts[i][:1] in ("R", "C"):     # R100\0旧\0新
-            out.append((parts[i + 2], (parts[i + 1], parts[i + 2])))
+            out.append((parts[i], parts[i + 1], parts[i + 2]))
             i += 3
         else:
-            out.append((parts[i + 1], (parts[i + 1],)))
+            out.append((parts[i], None, parts[i + 1]))
             i += 2
     return out
+
+
+def changed_pairs(cwd=None, rev="HEAD"):
+    """rev と比べて変わった file を [(振り分けに使う path, git に渡す path の組)]。改名は新旧を 1 組で
+    返す——新側だけを pathspec に渡すと git が対を作れず、中身の変更が消えて全行 + の「新規」diff に
+    なる（実測）。失敗なら None。"""
+    recs = name_status(cwd=cwd, rev=rev)
+    if recs is None:
+        return None
+    return [(path, (old, path) if old else (path,)) for _, old, path in recs]
 
 
 def frame_diff(cwd=None, rev="HEAD", paths=()):
@@ -732,8 +741,7 @@ def repo_of(url):
 def origin_is(url, owner, name):
     """url が owner/name か。末尾 2 セグメントの等値で見る——部分一致だと org/platform-docs の
     checkout を org/platform と誤認し、別リポジトリの名前が「同じ階層の既存」に混ざる（実測）。"""
-    m = REPO_TAIL.search(url.strip())
-    return bool(m) and (m.group(2).lower(), m.group(4).lower()) == (owner.lower(), name.lower())
+    return (repo_of(url) or "").lower() == f"{owner}/{name}".lower()
 
 
 def swap_repo(url, repo):
@@ -770,7 +778,7 @@ def tracked_names(top, d):
 
 def siblings_for(top, paths):
     """変更ファイルの各階層について、同じ階層の追跡ファイル名を引く。"""
-    dirs = sorted({p.rsplit("/", 1)[0] if "/" in p else "." for p in paths})
+    dirs = sorted({_parent(p) for p in paths})
     return {d: tracked_names(top, d) for d in dirs}
 
 
@@ -804,6 +812,10 @@ def rank_siblings(names, changed, shown=SIBLINGS_SHOWN):
     return sorted(pool, key=score)[:shown]
 
 
+def _parent(path):
+    return path.rsplit("/", 1)[0] if "/" in path else "."
+
+
 def render_tree(entries, siblings=None, root_label="."):
     """変更ファイルの木。entries は {path, mark, note} の列（mark は "+" 新規 / "~" 変更 / "-" 削除、
     note は "+526" や "+5/-1"）。siblings は 階層 → 追跡ファイル名（None なら周辺は出さない）。
@@ -824,8 +836,7 @@ def render_tree(entries, siblings=None, root_label="."):
     def label(d, depth, marker=" "):
         names = siblings.get(d)
         shown_children = {b for b, _ in by_dir.get(d, [])}
-        shown_children |= {c.split("/")[-1] for c in dirs if c != "." and (
-            (c.rsplit("/", 1)[0] if "/" in c else ".") == d)}
+        shown_children |= {c.split("/")[-1] for c in dirs if c != "." and _parent(c) == d}
         picked = rank_siblings(names, shown_children) if names else []
         bare = {n.rstrip("/") for n in names} if names else set()
         rest = len(names) - len(shown_children & bare) - len(picked) if names else 0
@@ -858,8 +869,7 @@ def render_tree(entries, siblings=None, root_label="."):
                     out.append(line)
                     line = " " + "  " * (depth + 1) + "  " + note
             out.append(line)
-        children = sorted(c for c in dirs if c != "." and c != d and (
-            (c.rsplit("/", 1)[0] if "/" in c else ".") == d))
+        children = sorted(c for c in dirs if c != "." and c != d and _parent(c) == d)
         for c in children:
             walk(c, depth + 1)
 
@@ -930,12 +940,7 @@ def working_tree(cwd=None):
     porcelain = git("status", "--porcelain", "-z", "--untracked-files=all", cwd=cwd) or ""
     entries = entries_from_porcelain(
         porcelain, parse_numstat(git("diff", *DIFF_SANE, "HEAD", "--numstat", "-z", cwd=cwd)))
-    if not entries:
-        return [], []
-    top = repo_top(cwd)
-    sib = siblings_for(top, [e["path"] for e in entries]) if top else None
-    label = os.path.basename(top) if top else "."
-    return [e["path"] for e in entries], render_tree(entries, sib, root_label=label)
+    return _tree(entries, cwd)
 
 
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git の空の木。最初の commit には親が無い
@@ -981,21 +986,20 @@ def commit_range(oid, cwd=None):
 def commit_tree(rev, cwd=None):
     """commit（範囲）の変更を (パスの一覧, 木の行) で。working_tree の commit 版で、
     出す形は同じ——読む人が「手元の木」と「commit の木」で読み方を変えなくていい。"""
-    text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "--name-status", "-z",
-               rev, "--", cwd=cwd)
-    if text is None:
+    recs = name_status(cwd=cwd, rev=rev)
+    if recs is None:
         return [], []
     nums = parse_numstat(git("diff", *DIFF_SANE, "--numstat", "-z", rev, "--", cwd=cwd))
-    parts = [p for p in text.split("\0") if p]
-    entries, i = [], 0
-    while i + 1 < len(parts):
-        status = parts[i]
-        old = parts[i + 1] if status[:1] in ("R", "C") else None
-        path = parts[i + 2] if old else parts[i + 1]
-        i += 3 if old else 2
+    entries = []
+    for status, old, path in recs:
         mark = {"A": "+", "D": "-"}.get(status[:1], "~")
         entries.append({"path": path, "mark": mark,
                         "note": change_note(mark, *nums.get(path, (None, None)), old=old)})
+    return _tree(entries, cwd)
+
+
+def _tree(entries, cwd):
+    """entries を (パスの一覧, 木の行) に。周辺はリポジトリのルートから引く。entries が空なら ([], [])。"""
     if not entries:
         return [], []
     top = repo_top(cwd)
@@ -1069,12 +1073,11 @@ def frames_section(cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=Tr
         return ["  変更の中身: 出せない（git diff が失敗した。木と件数だけが上の材料）"]
     frames = framed_diff(text)
     hunks, _ = split_diff(text)
-    dirty = paths
-    tracked = tracked_set(cwd, dirty) if new_from_file else set(dirty)
+    tracked = tracked_set(cwd, paths) if new_from_file else set(paths)
     w("  変更の中身（" + FRAME_NOTE + cap_note(frame_cmd)
       + f"。合計は {FRAME_TOTAL_CAP} 行まで。" + jump_note + "）:")
     total = 0
-    for path in sorted(dirty):
+    for path in sorted(paths):
         info = frames.get(path)
         if info is None and path in tracked:
             w(f"    === {path} （中身が diff に無い。バイナリ・mode・改名だけ）")
