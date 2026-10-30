@@ -122,6 +122,23 @@ class Move(unittest.TestCase):
             self.assertEqual(self.main(self.src, "--move", "調べ")[0], 0)
         self.assertNotIn("前の会話が書いた引継ぎ", seen[2]["brief"])   # 後の --move は、前の頼みの引継ぎを指さない
 
+    def test_the_desk_keeps_the_handoff_when_it_does_not_start_again_now(self):
+        # 窓口の --move は、ターンの途中で今は起動し直さないと決める前に引継ぎを時刻の名前へ退けていて、次の起動し直しが引継ぎを指さなかった
+        self.desk_world()
+        handoff = os.path.join(self.g.git_dir(self.src), wake.HANDOFF)
+        pathlib.Path(handoff).write_text("# 引継ぎ\n", encoding="utf-8")
+        h = self.ports.term
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, move.NOT_NOW, out)
+        self.assertTrue(os.path.exists(handoff))   # 起動し直さなければ退けない
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "idle"}
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(handoff))
+        (run,) = [w[2] for w in h.writes if w[1] == self.desk and w[0] == "run"]
+        self.assertIn("前の会話が書いた引継ぎ", run)
+
     def test_a_department_that_does_not_start_again_is_attached_back_only_when_no_new_talk_rose(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "session": "s-dept", "account": "a1"}, self.g)
         seen, task = self.fake_task(rc=1)

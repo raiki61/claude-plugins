@@ -412,9 +412,8 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
     old = attrs.get("account")
     acc = {x.name: x for x in cfg.accounts}
     if head:
-        text = _first_text(attrs, dept, old, chosen, why, head) + _handoff_line(
-            os.path.join(ports.git.git_dir(company["root"]), wake.HANDOFF))
-        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings, acc.get(old), hold)
+        rc, said = _move_desk(company, dept, acc[chosen], lambda: _first_text(attrs, dept, old, chosen, why, head) + _handoff_line(
+            os.path.join(ports.git.git_dir(company["root"]), wake.HANDOFF)), ports, settings, acc.get(old), hold)
     else:
         rc, said = _move_dept(a, cfg, company, dept, acc.get(old), chosen, lambda at: _first_text(at, dept, old, chosen, why, head),
                               ports, task, settings, hold)
@@ -648,8 +647,9 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, set
     return rc, "--task と同じ道で起動できなかった（上の出力を見る）。" + ("前の会話を attach で戻した" if back is None else f"前の会話も戻せなかった（{back}）")
 
 
-def _move_desk(company, dept, acc, text, ports, settings, old_acc=None, hold=None):
-    """窓口の会話を /exit で終え、同じペインで移る先のアカウントの会話を窓口の名前（と役の起動の設定）で起動する。(終了の値, 言葉)。"""
+def _move_desk(company, dept, acc, text_of, ports, settings, old_acc=None, hold=None):
+    """窓口の会話を /exit で終え、同じペインで移る先のアカウントの会話を窓口の名前（と役の起動の設定）で起動する。(終了の値, 言葉)。
+    text_of は最初の文を作る（引継ぎを時刻の名前へ退けるので、起動する直前にだけ呼ぶ。今は起動し直さないときに退けると、次が指さない）。"""
     attrs = dept["attrs"]
     sid = attrs.get("session")
     pane = next((p["pane_id"] for p in dept["panes"] if sid and p.get("agent_session") == sid), None)
@@ -680,7 +680,7 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None, hold=Non
                                                       wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None, wake.MOVE_TO: None,
                                                       wake.MOVE_KEPT: None, wake.MOVE_SKIPPED: None, wake.LIMIT_HOLD: hold},
                    ports.git)
-    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.term, settings=conf, model=model, effort=effort)
+    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text_of(), ports.term, settings=conf, model=model, effort=effort)
     if got["status"] == "ready":
         return 0, warn
     # 新しい会話が立たなかった: 前の会話を --resume で同じペインに戻す（窓口を消したままにしない。2026-10-17 に段取りが 22 分消えた）
