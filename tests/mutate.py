@@ -922,8 +922,11 @@ def run_selected(repo, tests, failfast=False):
         rcs.append("no-test" if NO_TEST in body else rc)
         failed += [l.strip()[5:].strip() for l in body.splitlines() if l.startswith("  FAIL ")]
     bad = [x for x in rcs if x != 0]
+    # 赤の rc は、台本の並びによらず本物の赤（時間切れ・撃てない台本でない物）を先に取る。前は先頭の外れを取り、先の台本が時間切れなら
+    # 後の台本の FAIL を捨てて Timeout にしていた
+    rc = next((x for x in bad if x not in ("timeout", "no-test")), bad[0] if bad else 0)
     # 先の台本の赤で rc が赤になっても、時間切れの台本が在れば印を残す（次の回でその台本が当たりを出すと、当たりの証拠が変わる）
-    return {"rc": bad[0] if bad else 0, "failed": failed, "tail": [], "selected": True, **({"timed_out": True} if "timeout" in rcs else {})}
+    return {"rc": rc, "failed": failed, "tail": [], "selected": True, **({"timed_out": True} if "timeout" in rcs else {})}
 
 
 PYTEST_CACHE = ".pytest_cache"   # 写しの中で pytest が書く控え。前の腕の失敗の記録を次の腕に渡さないよう、腕ごとに消す
