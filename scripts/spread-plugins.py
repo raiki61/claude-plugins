@@ -177,9 +177,13 @@ def offered(name, market, env, runner=run):
     （別の会話が取り直している間。mend_clone と同じ）は失敗に数えず、次の配布で入れる。載っている物の形が違えば失敗に数える
     （黙って入れずに「配った」と出さない）。"""
     loc = clone_location(market, env, runner)
-    code, out = runner(["git", "-C", loc, "show", "HEAD:.claude-plugin/marketplace.json"]) if loc else (1, "")
+    if not loc:
+        # 置き場を読めないのは marketplace list が落ちたか形が変わったときで、取り直しの間（置き場は返るが無い）と違う。
+        # 失敗に数えないと、入れていない物を後で見る口が無く「配った」と出る（mend_clone の側は入った写しの検査が拾う）
+        return [], (True, f"{name}: marketplace の clone の置き場を読めない 失敗（claude plugin marketplace list --json）")
+    code, out = runner(["git", "-C", loc, "show", "HEAD:.claude-plugin/marketplace.json"])
     if code != 0:
-        if not loc or not pathlib.Path(loc).is_dir():
+        if not pathlib.Path(loc).is_dir():
             return [], (False, f"{name}: marketplace の clone が無いので、入っていないプラグインを確かめずに進む（別の会話が取り直している間か）")
         return [], (True, f"{name}: marketplace の clone の一覧を読めない 失敗（{out.strip()[:200]}）")
     try:

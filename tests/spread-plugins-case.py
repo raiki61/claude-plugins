@@ -373,6 +373,10 @@ def install_missing():
     rc, out = run(shapeless, {})
     names, (failed, _) = sp.offered("main", MARKET, {}, shapeless)
     assert rc == 1 and names == [] and failed, out   # 一覧の形が違えば、入れずに失敗に数える
+    def no_location(argv, env=None):   # marketplace list が落ちて clone の置き場を読めない（取り直しの間と別に、失敗に数える）
+        return (1, "boom") if argv[:4] == ["claude", "plugin", "marketplace", "list"] else runner(argv, env)
+    names, (failed, line) = sp.offered("main", MARKET, {}, no_location)
+    assert names == [] and failed and "置き場を読めない" in line, line
     print("INSTALL_MISSING_OK")
 
 
