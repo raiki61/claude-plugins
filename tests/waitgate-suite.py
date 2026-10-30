@@ -127,6 +127,12 @@ class SleepLoops(unittest.TestCase):
         # `` ` ` `` の中のヒアドキュメントは、中身の `` ` `` で閉じる
         'x="`cat <<EOF\nDone.\nEOF`"\nuntil gh pr checks 5 | grep -q pass; do sleep 30; done',
         "x=`cat <<EOF\nit's done\nEOF `\nuntil gh pr checks 5 | grep -q pass; do sleep 30; done",
+        # zsh は $( ) の中のヒアドキュメントを終わりの語だけの行で閉じる。終わりの語で始まり ) を持つ中身の行で閉じたと読むと、
+        # 後の中身の ' で後のループを引用符の中と取り違える。閉じない読みでも見る
+        "gh pr comment 5 --body \"$(cat <<'EOF'\nEOF handling (#12) is fixed; it's covered now\nEOF\n)\"\nuntil gh pr checks 5; do sleep 30; done",
+        # `` ` ` `` の中の ' は、シェルが先に閉じる `` ` `` を越えない
+        "x=`echo it's`\nwhile true; do sleep 5; done",
+        "x=`cat <<'EOF'\nrun `ls` it's\nEOF\n`\nwhile true; do sleep 5; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -143,6 +149,8 @@ class SleepLoops(unittest.TestCase):
         # 本物のヒアドキュメントの中身(シェルでないコマンドが読む)は、今までどおり見ない
         "cat <<'EOF' > note.md\nwhile true; do sleep 5; done\nEOF",
         "git commit -m \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"",
+        "gh pr comment 5 --body \"$(cat <<'EOF'\nEOF handling (#12) is fixed; it's covered now\nEOF\n)\"",
+        "x=`echo 'a b'`; echo \"$x\"",
     ]
 
     def test_stops_in_the_foreground_and_the_background(self):

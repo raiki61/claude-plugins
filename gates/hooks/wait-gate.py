@@ -87,8 +87,8 @@ REASON_SLEEP = (
 def executed_text(command):
     """シェルが走らせる所だけを残したコマンド。
 
-    引用符の中の文字は空白に替え、走る中身(`bash -c` と `eval` の引数、ダブルクォートの中の `$(…)` と `` `…` ``)は
-    括弧で囲んで残す。
+    引用符の中の文字は空白に替え、走る中身(`bash -c` と `eval` の引数、ダブルクォートの中の `$(…)` と `` `…` ``、
+    引用符の外の `` `…` ``)は括弧で囲んで残す。
     """
     command = drop_heredoc_bodies(command)
     out = []
@@ -109,6 +109,11 @@ def executed_text(command):
             end = quote_end(command, index)
             inner = command[index + 1:end]
             out.append(quoted_text(inner, char, out, solid))
+            index = end + 1
+        elif char == "`":
+            # シェルは先に閉じる `` ` `` で閉じる。中の引用符をその先まで数えると、後の行のループを引用符の中と取り違える
+            end = next_backtick(command, index + 1)
+            out.append(" (%s) " % executed_text(command[index + 1:end]))
             index = end + 1
         else:
             out.append(char)
@@ -244,7 +249,10 @@ def scan_code(text, index, stop, found):
     ループを引用符の中と取り違えない)。行ごとでなくコマンドの全体で読むので、複数の行にまたがる引用符も閉じる所まで読む。"""
     pending = []
     depth = 0
+    # `` ` `` の中は、シェルが先に閉じる `` ` ``(`\` で引用していない物)で閉じる。中の引用符はそこを越えない
+    close = next_backtick(text, index) if stop == "`" else len(text)
     while index < len(text):
+        index = min(index, close)
         char = text[index]
         if char == "\\":
             index += 2
@@ -304,6 +312,12 @@ def scan_double_quote(text, start, found):
     return len(text)
 
 
+# `$( )` の中のヒアドキュメントを、終わりの語で始まり `)` を持つ行で閉じるか(bash の読み)。zsh は終わりの語だけの行でしか
+# 閉じない。reason_for が両方の読みで見る。EARLY_CLOSED には、閉じる読みで実際に閉じた数を積む
+EARLY_CLOSE = True
+EARLY_CLOSED = []
+
+
 def heredoc_end(text, index, match, found, stop=None):
     """index の行から始まるヒアドキュメントの中身を found に積み、(読み終えた位置, 置き換えが閉じたか)を返す。
 
@@ -313,6 +327,8 @@ def heredoc_end(text, index, match, found, stop=None):
     - `` ` ` `` の中: シェルは先に閉じる `` ` `` を探すので、中身の `` ` `` の所で閉じる(bash・zsh)。
     - `$( )` の中: 終わりの語で始まり、後に `)` を持つ行(`EOF)"`・`EOF )`)で閉じ、語の後はコードとして読む(bash 5 の読み方。
       bash 3.2 は先に `)` を探して閉じるので、どちらでも後の行は走る)。
+      zsh は終わりの語だけの行まで中身と読むので、EARLY_CLOSE が偽のときはこの閉じ方をしない(reason_for が両方で見る。
+      `EOF handling (#12) is fixed; it's …` のような中身の行を閉じと読むと、後の中身の `'` で後の行のループが引用符に隠れる)。
     閉じたときは、閉じる記号の手前(`$( )` は終わりの語の後)の位置を返し、呼び元はその記号から読み続ける。"""
     word = match.group("sq") or match.group("dq") or match.group("word")
     body_start = index
@@ -329,17 +345,23 @@ def heredoc_end(text, index, match, found, stop=None):
         if stripped == word:
             index = len(text) if end < 0 else end + 1
             break
-        if stop == ")" and stripped.startswith(word) and ")" in stripped[len(word):]:
+        if stop == ")" and EARLY_CLOSE and stripped.startswith(word) and ")" in stripped[len(word):]:
             index, closed = line_end - len(stripped) + len(word), True
+            EARLY_CLOSED.append(index)
             break
         index = len(text) if end < 0 else end + 1
     found.append((match.start(), body_start, index))
     return index, closed
 
 
-def unescaped_backtick(line):
-    """line の中の、`\\` で引用していない最初の `` ` `` の位置。無ければ -1。"""
-    index = 0
+def next_backtick(text, start):
+    """text の start から後の、`\\` で引用していない最初の `` ` `` の位置。無ければ末尾。"""
+    found = unescaped_backtick(text, start)
+    return len(text) if found < 0 else found
+
+
+def unescaped_backtick(line, index=0):
+    """line の index から後の、`\\` で引用していない最初の `` ` `` の位置。無ければ -1。"""
     while index < len(line):
         if line[index] == "\\":
             index += 2
@@ -351,7 +373,21 @@ def unescaped_backtick(line):
 
 
 def reason_for(command):
-    """止める訳。通すなら None。"""
+    """止める訳。通すなら None。`$( )` の中のヒアドキュメントの閉じ方はシェルで違う(EARLY_CLOSE)ので、閉じる読みで止まらず、
+    その読みで実際に閉じた所が在れば、閉じない読みでも見る。"""
+    global EARLY_CLOSE
+    del EARLY_CLOSED[:]
+    reason = reason_in(command)
+    if reason is None and EARLY_CLOSED:
+        EARLY_CLOSE = False
+        try:
+            reason = reason_in(command)
+        finally:
+            EARLY_CLOSE = True
+    return reason
+
+
+def reason_in(command):
     text = executed_text(command)
     while_until = WHILE_UNTIL.search(text)
     sleeps = SLEEP.search(text)
