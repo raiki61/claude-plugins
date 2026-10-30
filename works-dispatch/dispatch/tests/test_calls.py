@@ -464,6 +464,10 @@ class ToolPlace(unittest.TestCase):
             rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
         self.assertEqual(rc, 1, out)
         self.assertIn("止めた: ツールを走らせる場所を作れない（fatal: index.lock）", out)
+        # 失敗は台帳に残す（後から追えるように）。ツールは走っていないので外れとは数えず、ほかの部署へも回さない（頼み 2827a8）
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") in ("call", "miss", "ask")]
+        self.assertEqual([(r["kind"], r.get("status"), r.get("tool")) for r in rows], [("call", "failed", "spread-plugins")], rows)
+        self.assertIn("fatal: index.lock", rows[0]["why"])
         self.assertTrue(made)
         self.assertFalse(any(os.path.exists(d) for d in made))
 

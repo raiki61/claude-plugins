@@ -99,7 +99,10 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
         with tools.place(root, ports.git) as (here, note):
             code, out, both = run_tool(tool["command"], here, value, env)
     except (gitx.GitError, OSError) as e:
-        # 一時の worktree を作れない（残ったパス・index.lock など）。--land の後の合図（fire）も、残りのツールと片付けまで進める
+        # 一時の worktree を作れない（残ったパス・index.lock など）。--land の後の合図（fire）も、残りのツールと片付けまで進める。
+        # ツールは走っていないので外れ（miss）とは数えず、ほかの部署へも回さない。後から追えるように失敗の行だけ台帳に残す
+        deliver.log(inbox, {"kind": "call", "status": "failed", "role": role_name, "tool": tool_name, "input": value,
+                            "why": f"ツールを走らせる場所を作れない（{e}）", "at": ports.now()})
         return 1, [f"止めた: ツールを走らせる場所を作れない（{e}）"]
     if code == 0:
         deliver.log(inbox, {"kind": "call", "status": "done", "role": role_name, "tool": tool_name, "at": ports.now()})

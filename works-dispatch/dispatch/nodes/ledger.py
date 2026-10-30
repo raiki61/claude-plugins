@@ -71,7 +71,7 @@ KINDS = {
                           # 機械が書くので、頼みの更新の時刻を進めない
     "hopped": None,       # 前の版の待ち受けが、今入っている版の待ち受けに替わった（from・to に版の置き場。wake_hook.newer_self）
     "retired": None,      # tmp の部署を畳んだ（--retire）
-    "call": None,         # 機械窓口のツールを呼んで片づいた（--call）
+    "call": None,         # 機械窓口のツールを呼んで片づいた（--call）。status failed はツールを走らせる場所を作れず走らせなかった（why に訳）
     "miss": None,         # 機械窓口のツールが片づかなかった
     "remind": None,       # リマインダーを立てた（--remind。id はリマインダーの受付で、頼みではない。nodes/remind）
     "reminded": None,     # 見る時の来たリマインダーを担当者に知らせた（--due）
