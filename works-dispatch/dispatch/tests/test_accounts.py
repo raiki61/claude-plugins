@@ -373,6 +373,16 @@ class ReadLimits(unittest.TestCase):
         self.assertIsNone(got["p2"])
         self.assertIsNone(got["p3"])
 
+    def test_a_null_window_keeps_the_other_and_the_account_is_over_the_limit(self):
+        # 5 時間の枠が 429 で断られ、7 日の枠の見出しが無い控え（limits.from_headers が seven_day を null で書く）。全体を捨てると、
+        # 断られているアカウントを使用率の分からない物として選んでいた
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / "p1.json").write_text(json.dumps({"five_hour": {"used_percentage": 100, "resets_at": 2000}, "seven_day": None}), encoding="utf-8")
+        got = accounts.read_limits(str(d), ["p1"])
+        self.assertEqual(got["p1"]["five_hour"]["used_percentage"], 100)
+        (row,) = accounts.rank([config.Account(name="p1", command="claude")], got, 95, 1000)
+        self.assertFalse(row["eligible"])
+
 
 if __name__ == "__main__":
     unittest.main()

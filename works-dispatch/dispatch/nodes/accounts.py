@@ -338,14 +338,15 @@ def overview_lines(items):
 
 
 def read_limits(limits_dir, names):
-    """<limits_dir>/<名>.json を読む。無い・JSON でない・枠が表でないものは None。"""
+    """<limits_dir>/<名>.json を読む。無い・JSON でない・枠が表でないものは None。枠が null（429 で断られた枠の片方だけが見出しに
+    載った控えなど）は、その枠だけ分からないとして読む（全体を None にすると、断られているアカウントを使用率の分からない物として選ぶ）。"""
     out = {}
     for n in names:
         try:
             raw = json.loads((pathlib.Path(limits_dir) / f"{n}.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             raw = None
-        if not isinstance(raw, dict) or not all(isinstance(raw.get(k, {}), dict) for k in WINDOWS):
+        if not isinstance(raw, dict) or not all(raw.get(k) is None or isinstance(raw[k], dict) for k in WINDOWS):
             raw = None
         out[n] = raw
     return out
