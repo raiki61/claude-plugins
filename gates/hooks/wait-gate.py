@@ -32,10 +32,10 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gate_shell  # noqa: E402
 
-# コマンドの頭(行頭・区切りの記号・括弧・do/then/else/time の後)に在るループの語
+# コマンドの頭(行頭・区切りの記号・括弧・do/then/else/if/elif/coproc/time〔-p〕の後)に在るループの語
 # 区切りの後は空白とタブだけを飛ばす(改行は区切りの側で読む)。\s* にすると、空の行が続く所で改行ごとに残りの改行の全部を
 # 読み直して長さの 2 乗の手間になり、8 万行で 50 秒かかってフックの時間切れで通っていた
-_LOOP_HEAD = r"(?:^|[;&|(){}!\n]|\b(?:do|then|else|time)\b)[ \t]*"
+_LOOP_HEAD = r"(?:^|[;&|(){}!\n]|\b(?:do|then|else|if|elif|coproc|time(?:[ \t]+-p)?)\b)[ \t]*"
 FOR = re.compile(_LOOP_HEAD + r"for\s")
 # `while read` は行を読み終えれば終わるので待ちでない(`ps aux | grep x | while read p; do kill $p; done`)。
 # 終わる条件の無い `for ((;;))` は while と同じに見る(写した元から足した)
@@ -95,80 +95,154 @@ REASON_SLEEP = (
 # 読まない読み(偽)でも見る。迷わない # は、どちらの読みでもコメントか、どちらでも語の中の字に読む
 COMMENTS = True
 COMMENTED = []
-# 行ごとの、${ }・[[ ]]・(( )) の中の位置(inside_brackets)。reason_for が読むたびに空にする
-INSIDE = {}
+# 文字列ごとの、# の位置と読み方(hash_kinds)。reason_for が読むたびに空にする
+KINDS = {}
+CODE, COMMENT, UNSURE = 0, 1, 2
+_HASH_EVENT = re.compile(r"[\\\n'\"`$(){}\[\]#<]")
+_HASH_QUOTED_EVENT = re.compile(r'[\\"`]|\$\(')
+_ANSI_QUOTED = re.compile(r"(?:[^'\\]|\\.)*'?", re.S)
 
 
 def comment_at(text, index):
-    """text[index] の # をコメントの始まり(語の頭)と読むか。
-
-    - 行の頭(`\\` と改行で前の行とつないだ所は、つないだ先の前の字で見る)と、空白・`;`・`&`・`|`・`(`・`<`・`>` の
-      後の # はコメント。ただし同じ行の ${ }・[[ ]]・(( )) の中(`${x%% #*}`・`[[ x =~ (a|#) ]]`・`(( x = 1 #2 ))`)では
-      コメントでないことがあるので迷う。
-    - `)` の後の # は、case のパターンや `( )` の後ならコメント、置換・配列を閉じる `)`(`$(date)#notes`・`a=(x)#`)の後なら
-      語の中の字なので迷う。
-    - `\\` で引用した字の後(`my\\ #1`)とほかの字の後の # は語の中の字。
-    迷う # は COMMENTS のとおりに読む(reason_for が両方で見る)。迷わない # まで読み替えると、本物のコメントの中の `'`・
-    `<<WORD`・ループの語をコードと読み、後の行のループを見落としたり、走らないループの語で止めたりする。"""
-    at = index - 1
-    while at >= 1 and text[at] == "\n" and escapes(text, at):
-        at -= 2   # \ と改行は行をつなぐだけ
-    if at >= 0 and escapes(text, at):
-        return False
-    prev = text[at] if at >= 0 else "\n"
-    if prev == ")" or (prev in " \t;&|(<>" and inside_brackets(text, index)):
+    """text[index] の # をコメントの始まり(語の頭)と読むか。迷う # は COMMENTS のとおりに読む(reason_for が両方で見る)。
+    迷わない # まで読み替えると、本物のコメントの中の `'`・`<<WORD`・ループの語をコードと読み、後の行のループを見落としたり、
+    走らないループの語で止めたりする。"""
+    kind = hash_kinds(text).get(index, UNSURE)
+    if kind == UNSURE:
         COMMENTED.append(index)
         return COMMENTS
-    return prev in " \t\n;&|(<>"
+    return kind == COMMENT
 
 
-def escapes(text, at):
-    """text[at] が、\\ で引用された字か(前に続く \\ が奇数個)。"""
-    count = 0
-    while at - count - 1 >= 0 and text[at - count - 1] == "\\":
-        count += 1
-    return count % 2 == 1
+def hash_kinds(text):
+    r"""text の、引用符の外の # の位置ごとの読み方(CODE・COMMENT・UNSURE)。載っていない位置は UNSURE。
 
-
-def inside_brackets(text, index):
-    """index が、同じ行の ${ }・[[ ]]・(( )) の中か。行の頭が引用符の中で、行の中の読みが index で引用符の中に居るときも、
-    中と見る(迷う側に倒す)。行ごとに一度だけ読んで INSIDE に置く(# の多い長い行で手間を掛け算にしない)。"""
-    line_start = text.rfind("\n", 0, index) + 1
-    key = (text, line_start)
-    if key not in INSIDE:
-        line_end = text.find("\n", index)
-        line = text[line_start:len(text) if line_end < 0 else line_end]
-        flags = bytearray(len(line))
-        depth = {"${": 0, "[[": 0, "((": 0}
-        closer = {"}": "${", "]]": "[[", "))": "(("}
-        at = 0
-        while at < len(line):
-            flags[at] = 1 if any(depth.values()) else 0
-            char = line[at]
+    - 語の頭(行の頭・空白・`;`・`&`・`|`・`<`・`>` の後)の # はコメント。ただし、閉じていない `{`・`[`・`(` の中
+      (`${x%% #*}`・`[[ x =~ (a|#) ]]`・`(( x = 1 #2 ))`・`${y:-` の次の行の #)では、シェルがコメントにしないことがあるので迷う。
+      括弧はコマンドの全体で数え、`$( )` と `` ` ` `` の中は別に数える(中の `}` で外の `${` を閉じない)。
+    - `(`・`)` の後の # は迷う(`$(date)#notes`・`a=(x)#` は語の中の字、`case a in a)# it's` はコメント、zsh の `(#i)` と
+      bash の `@(#|x)` はパターンの字)。
+    - `\` で引用した字の後(`my\ #1`)と、ほかの字の後の # は語の中の字。`\` と改行は行をつなぐので、つないだ先の前の字で見る。
+      コメントの中の `\` は行をつながない(コメントは行の終わりまで飛ばす)。
+    - 迷う # の後は、同じ行の # と、その行の `\` でつないだ次の行の # も迷う(迷う # がコメントなら、その後の字は読めない)。
+    - ヒアドキュメントの中身(終わりの語だけの行まで)は読まない。
+    一度だけ読んで KINDS に置く(# の多い長いコマンドで手間を掛け算にしない)。"""
+    if text in KINDS:
+        return KINDS[text]
+    kinds = {}
+    frames = [["code", 0, 0, 0]]   # 段(code・sub=$( )・`=`…`・"=二重引用)と、{・[・( の開いた数
+    joins = {}       # 行をつなぐ \ と改行の、改行の位置 → 迷う # の後のつなぎか
+    escaped = set()  # \ で引用した字の位置
+    pending = []
+    unsure_until = line_end = -1
+    index, size = 0, len(text)
+    while index < size:
+        frame = frames[-1]
+        if frame[0] == '"':
+            match = _HASH_QUOTED_EVENT.search(text, index)
+            if match is None:
+                break
+            index = match.start()
+            char = text[index]
             if char == "\\":
-                flags[at + 1:at + 2] = flags[at:at + 1]
-                at += 2
-                continue
-            if char in "'\"":
-                end = quote_end(line, at)
-                for inner in range(at + 1, min(end + 1, len(line))):
-                    flags[inner] = 1   # 引用符の中に index が居れば、行の頭が引用符の中だった
-                at = end + 1
-                continue
-            two = line[at:at + 2]
-            if two in depth:
-                depth[two] += 1
-                at += 2
-            elif two in closer and depth[closer[two]]:
-                depth[closer[two]] -= 1
-                at += 2
-            elif char == "}" and depth["${"]:
-                depth["${"] -= 1
-                at += 1
+                index += 2
+            elif char == '"':
+                frames.pop()
+                index += 1
+            elif char == "`":
+                frames.append(["`", 0, 0, 0])
+                index += 1
             else:
-                at += 1
-        INSIDE[key] = flags
-    return bool(INSIDE[key][index - line_start])
+                frames.append(["sub", 0, 0, 0])
+                index += 2
+            continue
+        match = _HASH_EVENT.search(text, index)
+        if match is None:
+            break
+        index = match.start()
+        char = text[index]
+        if char == "\\":
+            if text.startswith("\n", index + 1):
+                joins[index + 1] = index < unsure_until
+            else:
+                escaped.add(index + 1)
+            index += 2
+        elif char == "\n":
+            index += 1
+            for word, dash in pending:
+                index = heredoc_body_end(text, index, word, dash)
+            pending = []
+        elif char == "'":
+            if index and text[index - 1] == "$" and index - 1 not in escaped:
+                index = _ANSI_QUOTED.match(text, index + 1).end()
+            else:
+                found = text.find("'", index + 1)
+                index = size if found < 0 else found + 1
+        elif char == '"':
+            frames.append(['"', 0, 0, 0])
+            index += 1
+        elif char == "`":
+            if frame[0] == "`":
+                frames.pop()
+            else:
+                frames.append(["`", 0, 0, 0])
+            index += 1
+        elif text.startswith("$(", index):
+            frames.append(["sub", 0, 0, 0])
+            index += 2
+        elif char in "{[(":
+            frame[1 + "{[(".index(char)] += 1
+            index += 1
+        elif char in "}])":
+            slot = 1 + "}])".index(char)
+            if char == ")" and frame[0] == "sub" and not frame[3]:
+                frames.pop()
+            else:
+                frame[slot] = max(frame[slot] - 1, 0)
+            index += 1
+        elif char == "#":
+            at, sure = index - 1, True
+            while at >= 1 and text[at] == "\n" and at in joins:
+                sure = sure and not joins[at]
+                at -= 2
+            prev = text[at] if at >= 0 else "\n"
+            if at in escaped or prev not in " \t\n;&|<>()":
+                kind = CODE
+            elif prev in "()" or frame[1] or frame[2] or frame[3] or not sure or index < unsure_until:
+                kind = UNSURE
+            else:
+                kind = COMMENT
+            kinds[index] = kind
+            if line_end < index:   # 同じ行の # ごとに行の終わりを探し直さない(改行の無い長い行で掛け算にしない)
+                line_end = text.find("\n", index)
+                line_end = size if line_end < 0 else line_end
+            if kind == UNSURE:
+                unsure_until = line_end
+            if kind == COMMENT:
+                index = min(line_end, next_backtick(text, index)) if frame[0] == "`" else line_end
+            else:
+                index += 1
+        else:
+            match = HEREDOC.match(text, index)
+            if match:
+                word = "".join("".join(piece) for piece in HEREDOC_PIECE.findall(match.group("raw")))
+                pending.append((word, match.group("dash")))
+                index = match.end()
+            else:
+                index += 1
+    KINDS[text] = kinds
+    return kinds
+
+
+def heredoc_body_end(text, index, word, dash):
+    """index の行から始まるヒアドキュメントの中身の、終わりの語の行(印の行も)の後の位置。無ければ末尾。"""
+    while index < len(text):
+        end = text.find("\n", index)
+        line = text[index:len(text) if end < 0 else end]
+        index = len(text) if end < 0 else end + 1
+        if (line.lstrip("\t") if dash else line) == word or line == end_mark(word):
+            break
+    return index
 
 
 def executed_text(command):
@@ -494,7 +568,7 @@ def reason_for(command):
         for COMMENTS in (True, False):
             del EARLY_CLOSED[:]
             del COMMENTED[:]
-            INSIDE.clear()
+            KINDS.clear()
             EARLY_CLOSE = True
             reason = reason_in(command)
             if reason is None and EARLY_CLOSED:
@@ -504,7 +578,7 @@ def reason_for(command):
                 break
     finally:
         EARLY_CLOSE, COMMENTS = True, True
-        INSIDE.clear()
+        KINDS.clear()
     return reason
 
 

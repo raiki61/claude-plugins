@@ -174,6 +174,28 @@ class SleepLoops(unittest.TestCase):
         ": # it's\necho a\\ #'\n'\nuntil test -f x; do sleep 1; done",
         "# it's\nx=a; : ${x%% #*}; until test -f x; do sleep 1; done",
         "# don't\n[[ a =~ (a|#) ]]; until test -f x; do sleep 1; done",
+        # コメントの中の \ は行をつながない(前は次の行のコメントを語の中の字と読み、中の ' や <<EOF で後ろのループを見落とした)
+        "# see C:\\tmp\\\n# don't wait forever\nuntil test -f x; do sleep 1; done",
+        "ls  # trailing\\\n# note: it's flaky\nuntil test -f x; do sleep 1; done",
+        "# usage: foo\\\n# cat <<EOF\nuntil test -f x; do sleep 1; done",
+        # ( の後の # はパターンの字のことがある(zsh の (#i)・bash の @(#|x)・case の (#*))
+        "setopt extendedglob; ls -d /(#i)TMP; until test -f x; do sleep 1; done",
+        "for l in '#x'; do case $l in (#*) echo c;; esac; done; until test -f x; do sleep 1; done",
+        "echo /(#|tmp); until test -f x; do sleep 1; done",
+        "shopt -s extglob\necho /@(#|tmp); until test -f x; do sleep 1; done",
+        # 複数の行にまたがる ${ }・[[ ]]・$(( ))・入れ子の括弧の中の #
+        "x=${y:-\n#}; until test -f x; do sleep 1; done",
+        "echo ${x%%\n #*}; until test -f x; do sleep 1; done",
+        "[[ a =~ (a|\n#) ]]; until test -f x; do sleep 1; done",
+        "echo $((1+\n#2)); until test -f x; do sleep 1; done",
+        "(( x = (1+(2)) #3 )); until test -f x; do sleep 1; done",
+        # ${ } の中の $( )・` `・{ } の } で ${ } を閉じない
+        "echo ${x:-`echo }` #}; until test -f x; do sleep 1; done",
+        "echo ${x:-$(echo }) #}; until test -f x; do sleep 1; done",
+        "echo ${x:-{a} #}; until test -f x; do sleep 1; done",
+        # if・time -p の直後のループ
+        "if until test -f x; do sleep 1; done; then :; fi",
+        "time -p until test -f x; do sleep 1; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -283,6 +305,12 @@ class LongCommands(unittest.TestCase):
     def test_many_blank_lines_are_read_in_time(self):
         # 前はループの語の前の空白に改行も数え、空の行の続きを改行ごとに読み直して 8 万行で約 50 秒かかった(時間切れで通る)
         reason, _ = run("true" + "\n" * 80000 + ":\nuntil test -f x; do sleep 1; done", timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
+
+    def test_many_hashes_in_nested_substitutions_are_read_in_time(self):
+        # 前は # ごとに行の終わりを探し直し、改行の無い長い行を入れ子の置換ごとに読んで約 40 秒かかった(時間切れで通る)
+        command = 'echo "$(' * 40 + "echo ${x" + " #" * 45000 + "}; until test -f x; do sleep 1; done" + ')"' * 40
+        reason, _ = run(command, timeout=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
 
