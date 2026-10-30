@@ -605,15 +605,6 @@ KNOT = "knot"     # 台帳の種類: 返事待ちの輪を見つけ、輪の頼�
 UNTIE_TRIES = 3   # 1 つの待ち受けが同じ輪の頼みを回す回数の上限（最初の回を含む。--take が 0 以外で終わったときだけ回し直す）
 
 
-def _exit_of(done):
-    """切り離して走らせた --take の終わりの値（wake.detached の done のファイル）。まだ書かれていなければ None。"""
-    try:
-        text = pathlib.Path(done).read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return int(text) if text.lstrip("-").isdigit() else (1 if text else None)
-
-
 def _root_of(path):
     return os.path.realpath(gitx.toplevel(path) or path)
 
@@ -703,7 +694,8 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
     （段取りが手で打っていた物。受付番号と頼み元はそのまま）。会社と既定の役は、積まれた部署の会社の会社の形から読み、--take は
     その会社の代表の clone で打つ（回す頼みの本文の写しをその会社の受付箱に置く）。会話から切り離して走らせ、終わりを待たない
     （--take は herdr を読んで部署を立てる。取り合いは --take が順番待ちのファイルを消す所で 1 つに決まる）。出力は輪を見つけた部署の
-    受付箱の takes/ に残し、台帳に kind knot の行を足す。走らせたら (回した受付, 終わりの値を書くファイル)、走らせられなければ None。
+    受付箱の takes/ に残し、台帳に kind knot の行を足す。走らせたら (回した受付, 終わりを見る口〔poll で終わりの値。まだなら None〕)、
+    走らせられなければ None。
     会社の形を読めない・既定の役が会社の形に無いときは、回さずに UntieError を投げる。"""
     ask_id, _, owner, where = edges[0]
     attrs = gitx.worktree_attrs(got["cwd"])
@@ -728,15 +720,14 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
     argv = ([sys.executable, "-u", DISPATCH_PY, "--take", ask_id, "--ask", f"{company}/{crew}", "--task", f"{owner}：{tail}",
              "--branch", f"work/ask-{tail}", "--text", note] + (["--config", attrs["config"]] if attrs.get("config") else []))
     try:   # 会話の処理が止まっても --take を止めない（restart_first と同じ殻）
-        out, _ = _run_logged(argv, os.path.join(got["inbox"], TAKES), ask_id, root, spawn, now, detach)
+        out, waiter = _run_logged(argv, os.path.join(got["inbox"], TAKES), ask_id, root, spawn, now, detach)
     except OSError:
         return None
-    done = out[:-len(".log")] + ".done"
     deliver.log(got["inbox"], {"id": ask_id, "kind": KNOT, "at": now(), "place": got["cwd"], "session": got["session"],
                                "chain": chain, "edges": [e[0] for e in edges], "out": out,
                                "detail": f"返事待ちの輪（{' → '.join(chain)}）をほどくため、受付 {ask_id} を {owner} の順番待ちから"
                                          f"{company} の{crew}の部署へ回す"})
-    return ask_id, done
+    return ask_id, waiter
 
 
 def must_clear(payload, attrs):
@@ -992,7 +983,8 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
             if not edges:
                 return
             tries = untied.get(edges[0][0], [])
-            if tries and (len(tries) >= UNTIE_TRIES or tries[-1] and _exit_of(tries[-1]) in (None, 0)):
+            # 終わりは _run_logged の口で見る（殻の .done は POSIX でだけ書かれる。Windows は Popen の poll）
+            if tries and (len(tries) >= UNTIE_TRIES or tries[-1] and tries[-1].poll() in (None, 0)):
                 return
         except Exception as e:
             return trouble("返事待ちの輪を確かめられない", e)

@@ -996,7 +996,7 @@ class Hook(unittest.TestCase):
         self.asked("20261018-000002-q00002", "点検", other, self.place)
         tied, done = [], os.path.join(self.inbox, "take.done")
         check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
-                                  unknot=lambda got, edges: tied.append(edges) or (edges[0][0], done))
+                                  unknot=lambda got, edges: tied.append(edges) or (edges[0][0], wake_hook._DoneFile(done)))
         self.assertIsNone(check())
         self.assertEqual(tied, [], "点検の待ち受けが居ない間は、点検は止まっていると見ない")
         self.listens(other, "点検")
@@ -1160,6 +1160,17 @@ class Hook(unittest.TestCase):
         self.assertEqual(cwd, got["root"])
         line = deliver.records(self.inbox)[-1]
         self.assertEqual((line["kind"], line["id"], line["chain"]), (wake_hook.KNOT, "20261018-000001-bbbbbb", ["点検", "調べ", "点検"]))
+
+    def test_untie_without_the_detached_shell_watches_the_take_itself(self):
+        # Windows（殻で切り離さない）では .done が書かれない。前は .done だけを見て、落ちた --take を「まだ走っている」と見て回し直さなかった
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
+
+        class Run:
+            def poll(self):
+                return 2
+        edges = [("20261018-000001-bbbbbb", "点検", "調べ", self.place), ("20261018-000002-aaaaaa", "調べ", "点検", "/x/点検")]
+        ask_id, waiter = wake_hook.untie(self.plan(), edges, spawn=lambda argv, **kw: Run(), now=lambda: 9, detach=False)
+        self.assertEqual(waiter.poll(), 2)
 
     def test_untie_stops_when_the_default_role_is_not_in_the_shape(self):
         # 前は既定の役（作業）に倒して回し、役の名前を英語で書いた会社では役の無い部署を立てえた
