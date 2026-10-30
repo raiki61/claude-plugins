@@ -164,6 +164,17 @@ class Watch(unittest.TestCase):
         wake.release(self.inbox, self.place, "t")
         self.assertIsNone(wake.read_mark(self.inbox, self.place))
 
+    def test_looking_for_a_listener_leaves_the_notes_beside_the_marks(self):
+        # keepalive・compact・待ちの控えは印と同じ置き場に在る。前は印と読み、持ち主の無い印として消していた（keepalive の本数の上限が効かない）
+        with posix_kill():
+            wake.warm_note(self.inbox, self.place, "s1", ["t1"], 3, stopped=True)
+            wake.compact_note(self.inbox, self.place, "s1", deferred=2)
+            notes = [wake.warm_path(self.inbox, self.place), wake.compact_path(self.inbox, self.place)]
+            self.assertIsNone(wake.listening(self.inbox, "co/調べ", posix=True))
+            self.assertIsNone(wake.listening(self.inbox, "co/調べ", time.time(), posix=False), "Windows でも控えを待ち受けと読まない")
+        self.assertTrue(all(os.path.exists(p) for p in notes))
+        self.assertEqual(wake.warm_state(self.inbox, self.place, "s1", ["t1"])["sent"], 3)
+
     @unittest.skipIf(os.name == "nt", "死んだ印を消すのは POSIX だけ")
     def test_a_dead_mark_is_not_removed_while_a_new_one_is_being_written(self):
         import threading

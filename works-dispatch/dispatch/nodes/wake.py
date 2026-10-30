@@ -112,6 +112,9 @@ def _dir(inbox):
     return os.path.join(inbox, WAKE_DIR)
 
 
+MARK_NAME = re.compile(r"[0-9a-f]{16}\.json")   # 印のファイルの名前（key の 16 字と .json）
+
+
 def mark_path(inbox, place):
     return os.path.join(_dir(inbox), key(place) + ".json")
 
@@ -453,8 +456,8 @@ def _living(inbox, now, posix, starts=None):
     if posix and starts is None:
         starts = chat.start_times()
     for n in names:
-        if not n.endswith(".json"):
-            continue
+        if not MARK_NAME.fullmatch(n):
+            continue   # 同じ置き場の控え（<鍵>.warm.json など）は印でない。印と読むと持ち主の無い印として消していた
         path = os.path.join(_dir(inbox), n)
         try:
             mtime = os.stat(path).st_mtime
