@@ -5728,6 +5728,10 @@ expect_output 0 "OK" \
     "catchup: ブランチ名で呼ぶと移る（手元のブランチ／origin にだけ有るブランチは作って／既に居る／未コミットで移らない）。移ったブランチでは既定ブランチより先の commit の変更が木と枠で出て、main では出ない" \
     "$PY_BIN" "$ROOT/tests/catchup-switch-case.py" branch-name
 
+expect_output 0 "BRANCH_WIRING_OK" \
+    "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元の欄にも残す）" \
+    "$PY_BIN" "$CU_CASE" branch-wiring
+
 expect_output 0 "WIRING_OK" \
     "catchup: main() の受け口の配線——焦点の断りは人の語（内部 key を出さない）、commit の 地図 は断らない、none の --frame は PR か commit に案内して止まる、commit の --switch は移る先が無いと言う" \
     "$PY_BIN" "$CU_CASE" main-wiring

@@ -1428,6 +1428,65 @@ def _main_wiring():
     return verdict("WIRING", want, out1 + out4 + (out5 or ""))
 
 
+@case("branch-wiring")
+def _branch_wiring():
+    """ブランチ名で呼んだときの report() の配線。origin にだけ在って PR も無いブランチ（移らない回）は、短い名前で
+    引けない tip を origin/<名前> から引いて commit として出す（前は oid が None のまま描いて TypeError で止まった）。
+    両方に無ければ例外でなく理由を言って止まる。移れた先に PR も番号も無いときは、移った行を出し「移らない」とは言わず、
+    HTML の手元の欄にも移った行を残す（前は「this では移らない」と出て、移った行が落ちていた）。"""
+    import argparse
+    import contextlib
+    import io
+    names = ("resolve_target", "switch_to_branch", "gh_try", "render_commit", "page_commit", "render_no_target",
+             "render_local", "plain_diff", "local_slug")
+    saved = {n: getattr(catchup, n) for n in names}
+    saved_oid, saved_branch = catchup.changemap.commit_oid, catchup.changemap.current_branch
+    state = {"moved": False, "oids": {"refs/remotes/origin/feat-x": "OID"}}
+    catchup.resolve_target = lambda token, repo: ((None, None, None, "none") if token == "this"
+                                                  else (None, None, "feat-x", "branchname"))
+    catchup.switch_to_branch = lambda name, cwd=None: (
+        (["ブランチ feat-x: main から移った"], True) if state["moved"]
+        else (["ブランチ feat-x: 未コミットの変更 1 件があるので移らない（手元は main のまま）"], False))
+    catchup.gh_try = lambda *args, **kw: ""
+    catchup.changemap.commit_oid = lambda token, cwd=None: state["oids"].get(token)
+    catchup.changemap.current_branch = lambda cwd=None: "feat-x"
+    catchup.render_commit = lambda oid, cwd=None, frame=None, full=False: f"COMMIT {oid}"
+    catchup.page_commit = lambda oid, cwd=None: {"local": ""}
+    catchup.render_no_target = lambda cwd=None: "NONE"
+    catchup.render_local = lambda *args, **kw: "LOCAL"
+    catchup.plain_diff = lambda *args, **kw: ""
+    catchup.local_slug = lambda cwd=None: ("o/r", "o/r")
+
+    def run():
+        a = argparse.Namespace(words=["feat-x"], repo=None, switch=True, frame=None, full=False)
+        sink, buf = {}, io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = catchup.report(a, sink)
+        except SystemExit as e:
+            return None, str(e), sink
+        return rc, buf.getvalue(), sink
+    try:
+        rc1, out1, _ = run()
+        state["oids"] = {}
+        rc2, out2, _ = run()
+        state["moved"] = True
+        rc3, out3, sink3 = run()
+    finally:
+        for n, f in saved.items():
+            setattr(catchup, n, f)
+        catchup.changemap.commit_oid, catchup.changemap.current_branch = saved_oid, saved_branch
+    local3 = (sink3.get("page") or {}).get("local", "")
+    want = {
+        "origin_only_tip": rc1 == 0 and "COMMIT OID" in out1,
+        "no_tip_stops": rc2 is None and "tip の commit が引けない" in out2,
+        "moved_line": rc3 == 0 and "ブランチ feat-x: main から移った" in out3 and "移らない" not in out3
+                      and "NONE" in out3,
+        "moved_in_page": local3.startswith("ブランチ feat-x: main から移った") and "LOCAL" in local3,
+    }
+    return verdict("BRANCH_WIRING", want, out1 + out2 + out3 + local3 + str(sink3.get("error")))
+
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: catchup-case.py <" + "|".join(CASES) + ">")

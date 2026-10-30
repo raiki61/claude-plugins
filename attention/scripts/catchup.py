@@ -2761,8 +2761,9 @@ def page_range(rev, cwd=None):
     return page
 
 
-def page_local(cwd=None):
-    """PR も番号も無いブランチ。未コミットの変更（追跡している file）と、既定ブランチより先の commit の差。"""
+def page_local(cwd=None, pre_lines=()):
+    """PR も番号も無いブランチ。未コミットの変更（追跡している file）と、既定ブランチより先の commit の差。
+    pre_lines はブランチ名で移った行で、手元のセクションの前に置く（PR の page_item と同じ並び）。"""
     cwd = cwd or changemap.repo_top() or os.getcwd()
     branch = changemap.current_branch(cwd) or ""
     slug, repo = local_slug(cwd)
@@ -2779,7 +2780,7 @@ def page_local(cwd=None):
     if ahead:
         views.append(catchup_html.view("ahead", f"{base} より先（{len(catchup_html.parse_diff(ahead))} files）", ahead))
     page["views"] = views
-    page["local"] = render_local(why="this で呼んだので出す", cwd=cwd)
+    page["local"] = "\n".join([ln.strip() for ln in pre_lines] + [render_local(why="this で呼んだので出す", cwd=cwd)])
     page["unseen"] = ["GitHub の PR / issue（今のブランチに PR が無く、名前にも番号が無い。番号か URL を渡せば出る）",
                       "他のブランチ・他の worktree の状態"]
     return page
@@ -2924,7 +2925,10 @@ def report(a, sink=None):
             else:
                 print("\n".join("  " + ln for ln in pre_lines))
                 print()
-                oid = changemap.commit_oid(num)
+                # origin にだけ在るブランチは、短い名前では rev-parse が解けない（refs/remotes/origin/ を付けて引く）
+                oid = changemap.commit_oid(num) or changemap.commit_oid(f"refs/remotes/origin/{num}")
+                if not oid:
+                    sys.exit(f"ブランチ {num} の tip の commit が引けない（手元にも origin/{num} にも無い）")
                 print(render_commit(oid, frame=a.frame, full=a.full))
                 keep(lambda: dict(page_commit(oid), local="\n".join(ln.strip() for ln in pre_lines)))
                 print()
@@ -2949,11 +2953,15 @@ def report(a, sink=None):
         if a.frame:
             sys.exit("--frame は PR か commit でだけ使える（今のブランチに PR が無い。手元の未コミットの 1 file は"
                      " what-am-i-doing.py --frame path で）")
-        if a.switch:
+        if pre_lines:
+            # ブランチ名で移った先に PR も番号も無い。移ったことは見出しに残す（「移らない」と言わない）
+            print("\n".join("  " + ln for ln in pre_lines))
+            print()
+        elif a.switch:
             print("ブランチ: this では移らない（今のブランチのまま）")
             print()
         print(render_no_target())
-        keep(page_local)
+        keep(lambda: page_local(pre_lines=pre_lines))
         if focus:
             print()
             print(f"（{focus_words(focus)} の材料は PR / issue のもの。今のブランチには PR が無い）")
