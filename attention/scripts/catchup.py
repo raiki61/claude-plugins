@@ -1053,9 +1053,12 @@ def find_ask(ev, node, me, cutoff, own):
             chosen = dict(chosen, followup=buttons[-1])
         return chosen
 
-    # 名指しが無くても、私が返すターンの未解決スレッドに cutoff より後に相手が返していれば、それが依頼にあたる。
-    # 新しい返事のものを取る。私がまだ入っていないスレッド（自分の件の新しい指摘）は名指しが無いと断る
-    waiting = [th for th in threads_awaiting(node, me) if cutoff is None or ts(th["last"]["createdAt"]) > cutoff]
+    # 名指しが無くても、私が返すターンの未解決スレッドに相手が返していれば、それが依頼にあたる。新しい返事のものを取る。
+    # 私が入っているスレッドは、そのスレッドの私の発言の後に相手が返している（my_turn）ので、cutoff（ほかの所の私の
+    # 発言かもしれない）で落とさない。落とすと、まだ返していない返事が「求められていること」から消える。私がまだ
+    # 入っていないスレッド（自分の件の新しい指摘）は、cutoff より後の物だけを取り、名指しが無いと断る
+    waiting = [th for th in threads_awaiting(node, me)
+               if th["mine_last"] or cutoff is None or ts(th["last"]["createdAt"]) > cutoff]
     if waiting:
         # 私が入っているスレッドの返事を、私がまだ入っていない新しい指摘より先に取る（名指しの無い方を取ると、私への
         # 返事が「求められていること」から消え、理由も「問いかは本文で確かめる」に弱まる）

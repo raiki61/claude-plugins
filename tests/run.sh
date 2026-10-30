@@ -5776,6 +5776,9 @@ expect_output 0 "PASS6_FIXES_OK" \
 expect_output 0 "PASS7_FIXES_OK" \
     "catchup: Bot だけが assignee の自分の issue で名指しの無い発言を依頼に読む・私が rebase して push した結び付き無しの commit を挙げない・変わった file を path 順に並べる・head の file の行を改行でだけ分ける" \
     "$PY_BIN" "$CU_CASE" pass7-fixes
+expect_output 0 "FRESH_REVIEW_FIXES_OK" \
+    "catchup: 私が返すターンのスレッドは、ほかの所で後から私が発言しても依頼から落とさない" \
+    "$PY_BIN" "$CU_CASE" fresh-review-fixes
 
 expect_output 0 "BRANCH_WIRING_OK" \
     "catchup: ブランチ名で呼んだ回の配線——origin にだけ在る PR の無いブランチは origin/<名前> の tip を commit として出し、引けなければ理由で止まる。移れた先に PR が無ければ移った行を出し「移らない」と言わない（HTML の手元のセクションにも残す）" \

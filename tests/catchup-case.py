@@ -836,6 +836,22 @@ def _pass7_fixes():
     return verdict("PASS7_FIXES", want, str(want))
 
 
+@case("fresh-review-fixes")
+def _fresh_review_fixes():
+    """初見のレビューの指摘。私が入っていて相手が返したスレッド（私が返すターン）は、その後にほかのスレッドで私が
+    発言しても依頼から落とさない。前は私の最後の発言（どこでも）より後の返事だけを見て、まだ返していない返事が
+    「求められていること」から消えた。"""
+    owed = thread("app/b.py", False, comment(T1, ME, "これでどう？"), comment(T2, "rev", "まだ足りない"))
+    other = thread("app/a.py", False, comment(T1, "rev", "ここは？"), comment(T3, ME, "直した"))
+    node = pr(author=user(ME), reviewThreads=conn([owed, other]))
+    ev, _, _ = catchup.collect_events(node, ME, "")
+    ask = catchup.find_ask(ev, node, ME, catchup.ts(T3), True)
+    want = {
+        "owed_thread_kept": bool(ask) and ask["t"] == catchup.ts(T2) and ask["who"] == "rev" and not ask.get("unaddressed"),
+    }
+    return verdict("FRESH_REVIEW_FIXES", want, str(want))
+
+
 @case("threads-left")
 def _threads_left():
     """削除された行への指摘（diffSide が LEFT。line は base の版の行番号）は、head の同じ番号の行を出さない。端末は
