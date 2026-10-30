@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `dispatch/` の dispatch.py・orders.py・wake_hook.py・landing.py で、何か所にも写してあった処理（作業場の会話の絞り込み・手元にしか無い作業の判定・頼みの文の読み込み・台帳の行の組み立てなど）を 1 つの関数にまとめた。利用者の操作・出力・終了コードは変えていない（頼み 486c02）。
+
 ## [0.142.0] - 2026-10-29
 
 ### Changed

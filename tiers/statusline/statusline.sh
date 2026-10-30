@@ -206,9 +206,7 @@ metrics=$(printf '%s' "$json" | jq -r '
       else "" end )
 ' 2>>"$err_log") || { log_fail "metrics の jq が失敗"; exit 0; }
 
-hot=$(printf '%s\n' "$metrics" | sed -n 1p)
-lim=$(printf '%s\n' "$metrics" | sed -n 2p)
-mdl=$(printf '%s\n' "$metrics" | sed -n 3p)
+{ IFS= read -r hot; IFS= read -r lim; IFS= read -r mdl; } <<< "$metrics"
 
 # サイドバーに出すブランチ名と、ブランチに紐づく PR 番号。サイドバーのエージェントの列の組み込みトークンには
 # ブランチが無い（branch と git_status は spaces 行専用）ので、コンテキスト量や
@@ -269,7 +267,6 @@ branch_pr_info() {
   [ -n "$val" ] && [ "$val" != "-" ] && printf '%s' "$val"
 }
 
-timeout_cmd=""
 timeout_cmd=$(command -v timeout || command -v gtimeout || true)
 
 # ワークスペース名と同じブランチ（work5 の worktree に居て work5 ブランチ、という既定の
@@ -372,7 +369,6 @@ else
   args+=(--token "lim=$lim" --clear-token limhot)
 fi
 [ -n "$mdl" ] && args+=(--token "mdl=$mdl")
-[ ${#args[@]} -gt 0 ] || exit 0
 
 # TTL は refreshInterval（30 秒）の 10 倍。セッションが死んだら数値も消える。
 herdr pane report-metadata "$HERDR_PANE_ID" \

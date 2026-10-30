@@ -132,11 +132,7 @@ class Probe:
 
     def read(self, path):
         """ファイルの中身。無ければ None。読めなければ OSError。"""
-        try:
-            with open(path, encoding="utf-8") as f:
-                return f.read()
-        except FileNotFoundError:
-            return None
+        return statusline.read_file(path)
 
     def isdir(self, path):
         return os.path.isdir(path)
@@ -274,11 +270,12 @@ def check_plugins(probe, config_dirs):
         gone = []
         for name, entries in plugins.items():
             for e in entries if isinstance(entries, list) else [entries]:
-                path = e.get("installPath") if isinstance(e, dict) else None
+                e = e if isinstance(e, dict) else {}
+                path = e.get("installPath")
                 # 前の版の印（.orphaned_at）の付いた置き場は、Claude Code が 14 日で消すので、消えた物と同じに扱う
                 if not isinstance(path, str) or not probe.isdir(path) or probe.read(os.path.join(path, ".orphaned_at")) is not None:
-                    where = f"、{e['projectPath']}" if isinstance(e, dict) and e.get("projectPath") else ""
-                    gone.append((name, (e.get("scope") if isinstance(e, dict) else None) or "?", where, path))
+                    where = f"、{e['projectPath']}" if e.get("projectPath") else ""
+                    gone.append((name, e.get("scope") or "?", where, path))
         if not gone:
             out.append(_item(0, label, found=f"{sum(len(v) if isinstance(v, list) else 1 for v in plugins.values())} 項目の置き場が在る"))
             continue
@@ -399,11 +396,9 @@ def check_settings(probe, launchers, dirs, config_dirs):
             state, said = need.state(got)
             if state == settings.OK:
                 out.append(_item(2, label, found=f"{said}（{path}{who}）"))
-            elif state == settings.MISSING:
-                out.append(_item(2, label, problem=f"{path} の{said}（{need.why}{who}）", fix=fix))
             else:   # 形が違うと setup は書かないので、先に手で直させる
                 out.append(_item(2, label, problem=f"{path} の{said}（{need.why}{who}）",
-                                 fix=[f"{path} の形を直してから、下のどれか"] + fix))
+                                 fix=fix if state == settings.MISSING else [f"{path} の形を直してから、下のどれか"] + fix))
     return out
 
 
@@ -414,17 +409,13 @@ def _same_path(d):
 
 def check_gh(probe):
     item, path = _installed(probe, 1, "gh", "gh", ["--version"])
-    out = [item]
-    if path:
-        code, text = probe.run([path, "auth", "status"])
-        if code != 0:
-            out.append(_item(1, "gh のログイン", problem=f"gh auth status が通らない（ログインしていない）: {_first_line(text)[:200]}",
-                             fix=["gh auth login"]))
-        else:
-            out.append(_item(1, "gh のログイン", found="gh auth status が通る"))
-    return out
-
-
+    if not path:
+        return [item]
+    code, text = probe.run([path, "auth", "status"])
+    if code != 0:
+        return [item, _item(1, "gh のログイン", problem=f"gh auth status が通らない（ログインしていない）: {_first_line(text)[:200]}",
+                            fix=["gh auth login"])]
+    return [item, _item(1, "gh のログイン", found="gh auth status が通る")]
 
 
 def herdr_link_guide(os_key):

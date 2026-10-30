@@ -455,6 +455,22 @@ MOVES = "moves"   # 受付箱の下の、--move を走らせた出力の置き�
 NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起動した）は、旗なしで起動したと見る
 
 
+def _run_logged(argv, folder, label, cwd, spawn, now, detach):
+    """argv を会話から切り離して走らせ、出力を folder/<label の英数字>-<秒>.log に残す（detach が既定の None なら、POSIX で本物の Popen のとき
+    detached の殻で走らせ、終わりの値を .done に書く）。(出力のファイル, 終わりを見る口〔殻なら _DoneFile、そうでなければ spawn の返り値〕)。
+    走らせられなければ OSError。"""
+    out = os.path.join(folder, f"{''.join(c for c in label if c.isalnum())}-{int(now())}.log")
+    detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    if detach:
+        done = out[:-len(".log")] + ".done"
+        spawn(wake.detached(argv, out, done), cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL, start_new_session=True).wait()
+        return out, _DoneFile(done)
+    with open(out, "w", encoding="utf-8") as f:
+        return out, spawn(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+
+
 def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time, detach=None):
     """終わりと印した tmp の部署（--done）の印を外し、dispatch.py --retire <会社/部署> を会話から切り離して裏で走らせる。走らせたら True。
     走らせられなければ、残った訳を属性に書いて False（印は外したまま。打ち直しはしない）。detach（既定は POSIX で本物の Popen のとき）
@@ -462,17 +478,9 @@ def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time, detach=None)
     name = attrs["name"]
     argv = ([sys.executable, "-u", DISPATCH_PY, "--retire", f"{got['company']}/{name}"]
             + (["--config", attrs["config"]] if attrs.get("config") else []))
-    out = os.path.join(got["inbox"], RETIRES, f"{''.join(c for c in name if c.isalnum())}-{int(now())}.log")
-    detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
     provision.mark(got["cwd"], got["root"], {wake.FINISHED: None}, gitx)
     try:
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        if detach:
-            spawn(wake.detached(argv, out, out[:-len(".log")] + ".done"), cwd=got["root"], stdin=subprocess.DEVNULL,
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).wait()
-            return True
-        with open(out, "w", encoding="utf-8") as f:
-            spawn(argv, cwd=got["root"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+        _run_logged(argv, os.path.join(got["inbox"], RETIRES), name, got["root"], spawn, now, detach)
     except OSError as e:
         provision.mark(got["cwd"], got["root"], {wake.RETIRE_KEPT: f"--retire を走らせられなかった（{e}）"}, gitx)
         return False
@@ -548,7 +556,7 @@ def open_children(got, attrs, records=None, read=None):
     次の頼みの納品で空にすると、子の返事を受ける会話が黙って居なくなる。compact・resume で会話の id が替わっても、時刻で数え落とさない。
     会話の id の無い古い版の行も時刻で数える）。閉じたとみるのは、待ち受けが読み終えた所（read。省けば台帳の全部）までに、
     その受付への納品・取り下げ・回して閉じる、の行が在る物（返事の知らせを会話が受ける前に空にしない）。"""
-    root = os.path.realpath(gitx.toplevel(got["cwd"]) or got["cwd"])
+    root = _root_of(got["cwd"])
     names = {attrs.get("name"), *gitx.former_names(attrs)} - {None}
     talk = got.get("session") or attrs.get("session")
     rows = deliver.records(got["inbox"]) if records is None else records
@@ -719,19 +727,11 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
     tail = ask_id[-6:]
     argv = ([sys.executable, "-u", DISPATCH_PY, "--take", ask_id, "--ask", f"{company}/{crew}", "--task", f"{owner}：{tail}",
              "--branch", f"work/ask-{tail}", "--text", note] + (["--config", attrs["config"]] if attrs.get("config") else []))
-    out = os.path.join(got["inbox"], TAKES, f"{''.join(ch for ch in ask_id if ch.isalnum())}-{int(now())}.log")
-    done = out[:-len(".log")] + ".done"
-    detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
-    try:
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        if detach:   # 会話の処理が止まっても --take を止めない（restart_first と同じ殻）
-            spawn(wake.detached(argv, out, done), cwd=root, stdin=subprocess.DEVNULL,
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).wait()
-        else:
-            with open(out, "w", encoding="utf-8") as f:
-                spawn(argv, cwd=root, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+    try:   # 会話の処理が止まっても --take を止めない（restart_first と同じ殻）
+        out, _ = _run_logged(argv, os.path.join(got["inbox"], TAKES), ask_id, root, spawn, now, detach)
     except OSError:
         return None
+    done = out[:-len(".log")] + ".done"
     deliver.log(got["inbox"], {"id": ask_id, "kind": KNOT, "at": now(), "place": got["cwd"], "session": got["session"],
                                "chain": chain, "edges": [e[0] for e in edges], "out": out,
                                "detail": f"返事待ちの輪（{' → '.join(chain)}）をほどくため、受付 {ask_id} を {owner} の順番待ちから"
@@ -790,8 +790,9 @@ def follow_main(got, attrs, catch_up=None, adopt=None):
     先に受け取って（adopt_batch）から進める（束の設計 8.2 の 5）。"""
     if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
         return None
+    catch_up = catch_up or (lambda cwd: provision.follow_main(cwd, gitx))
     try:
-        r = (catch_up or (lambda cwd: provision.follow_main(cwd, gitx)))(got["cwd"])
+        r = catch_up(got["cwd"])
     except Exception as e:  # 取れない・未コミットの変更と重なるなどでも、頼みは渡す
         return f"作業場のブランチをメインブランチの先頭へ進められなかったので、この作業場のまま渡す（{type(e).__name__}: {e}）"
     main, lead = r["main"], ""
@@ -799,7 +800,7 @@ def follow_main(got, attrs, catch_up=None, adopt=None):
         try:
             took = (adopt or adopt_batch)(got, attrs, main)
             if took:
-                r, lead = (catch_up or (lambda cwd: provision.follow_main(cwd, gitx)))(got["cwd"]), took + "。"
+                r, lead = catch_up(got["cwd"]), took + "。"
         except Exception as e:  # 受け取れなくても、頼みは渡す
             return f"束で入った中身を受け取れなかったので、この作業場のまま渡す（{type(e).__name__}: {e}）"
     if r["status"] == "local_only":
@@ -914,20 +915,10 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
     name = attrs["name"]
     argv = ([sys.executable, "-u", DISPATCH_PY, "--move", f"{got['company']}/{name}", "--if-changed"]
             + (["--config", attrs["config"]] if attrs.get("config") else []))   # -u: 途中で止まっても、そこまでの出力を残す
-    out = os.path.join(got["inbox"], MOVES, f"{''.join(c for c in name if c.isalnum())}-{int(now())}.log")
-    done = out[:-len(".log")] + ".done"
-    detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
     provision.mark(got["cwd"], got["root"], {wake.RESTARTING: got["session"]}, gitx)
     token = (wake.read_mark(got["inbox"], got["place"]) or {}).get("token")
     try:
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        if detach:
-            spawn(wake.detached(argv, out, done), cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                  stderr=subprocess.DEVNULL, start_new_session=True).wait()
-            proc = _DoneFile(done)
-        else:
-            with open(out, "w", encoding="utf-8") as f:
-                proc = spawn(argv, cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+        _, proc = _run_logged(argv, os.path.join(got["inbox"], MOVES), name, got["cwd"], spawn, now, detach)
     except OSError:
         proc = None
     while proc is not None and proc.poll() is None:

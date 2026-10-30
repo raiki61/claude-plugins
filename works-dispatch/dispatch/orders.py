@@ -48,7 +48,6 @@ except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
     # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
     # 会話ごとに 1 回だけ出す（hooks/run-python.sh の --once と同じ。会話の id はフックの入力から読む）
-    import tempfile
     try:
         _sid = (json.loads(sys.stdin.read() or "{}") or {}).get("session_id") or "none"
     except ValueError:
@@ -121,6 +120,11 @@ def survey(config_path, ports):
     return cfg, accounts_, sessions_, panes, companies, settings, notes
 
 
+def account_of(dept, accounts_):
+    """部署の属性のアカウント（company.account）の設定。無ければ、アカウントが 1 つだけならそれ、ほかは None。"""
+    return next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+
+
 def current_role(settings, g=gitx):
     """find_target に渡す (会社, 役の名前) → 今の役の名前（その会社の形の former_names）。会社ごとに 1 度だけ読む。"""
     shapes = {}
@@ -163,6 +167,10 @@ REVIVE_LOOKS = 20
 FALLEN = ("stopped", "failed")
 # attach の画面が終わったときに Claude Code がペインに出す行（「Session cb2d81c3 has exited.」。2.1.301 で見た）
 EXITED = re.compile(r"Session \S+ has exited\.")
+
+# 頼み元の属性の鍵と、台帳の行の頼み元（forwarded の行の boss・cause_boss）の鍵
+BOSS_KEYS = ("boss", "boss-session", "boss-account", "boss-pane", "boss-inbox")
+BOSS_FIELDS = dict(zip(BOSS_KEYS, ("name", "session", "account", "pane", "inbox")))
 
 
 def inbox_company(inbox, settings, g=gitx):
@@ -290,7 +298,7 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
         account, entry = found
         full = entry["sessionId"]
         dept = {**dept, "attrs": {**dept["attrs"], "session": full, "job": chat.attach_id(entry), "account": account}}
-    acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+    acc = account_of(dept, accounts_)
     entry = next((x for items in (sessions_ or {}).values() for x in items if x.get("sessionId") == full), None)
     # attach は短い id で打つ（部署を立てるときと同じ）。一覧に無ければ属性の短い id（company.job。/clear で会話の id が変わっても
     # 変わらない）
@@ -373,7 +381,7 @@ def dept_talk(dept, items):
 def busy_check(dept, accounts_, ports):
     """部署の会話が動いている（会話の一覧の status が busy）かを見る関数。送った 1 行が届いたかの確かめに使う。
     見つけた会話の id を関数の found に残す（属性の id が古ければ、頼みの属性と一緒に書き直す）。"""
-    acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+    acc = account_of(dept, accounts_)
 
     def busy():
         try:
@@ -454,8 +462,7 @@ def forwarded(attrs, sent, ports, cwd):
     common = ports.git.common_dir(cwd)
     record = {"id": held, "kind": "forwarded", "at": ports.now(), "child": sent["id"], "to": sent["to"],
               "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd},
-              "boss": {"name": attrs.get("boss"), "session": attrs.get("boss-session"), "account": attrs.get("boss-account"),
-                       "pane": attrs.get("boss-pane"), "inbox": attrs.get("boss-inbox")}}
+              "boss": {f: attrs.get(k) for k, f in BOSS_FIELDS.items()}}
     boss_inbox = attrs.get("boss-inbox")
     for inbox in dict.fromkeys([deliver.inbox_of(common)] + ([boss_inbox] if boss_inbox and os.path.isdir(boss_inbox) else [])):
         deliver.log(inbox, record)
@@ -472,18 +479,25 @@ def on_demand_name(target, ask_id):
     return role.per_ask_name(target["on_demand"], ask_id) if target.get("per_ask") else target["on_demand"]
 
 
+def text_of(a, flag, what):
+    """--text <文> か --brief <ファイル> の本文。どちらか 1 つでないか、ファイルを読めなければ、止めた訳を出して None。"""
+    if bool(a.text) == bool(a.brief):
+        print(f"止めた: {flag} には --text <文> か --brief <ファイル> のどちらか 1 つが要る")
+        return None
+    if not a.brief:
+        return a.text
+    try:
+        return pathlib.Path(os.path.expanduser(a.brief)).read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"止めた: {what}のファイルを読めない（{e}）")
+        return None
+
+
 def _ask(a, ports, cwd, task, sent):
     """--ask の本体。頼みが宛先に届いた（送った・積んだ・同じ中身が動いている）なら、sent に回した先の頼みの id と宛先（to）を書く。"""
-    if bool(a.text) == bool(a.brief):
-        print("止めた: --ask には --text <文> か --brief <ファイル> のどちらか 1 つが要る")
+    body = text_of(a, "--ask", "頼み")
+    if body is None:
         return 2
-    body = a.text
-    if a.brief:
-        try:
-            body = pathlib.Path(os.path.expanduser(a.brief)).read_text(encoding="utf-8")
-        except OSError as e:
-            print(f"止めた: 頼みのファイルを読めない（{e}）")
-            return 2
     data, rest, bad = deliver.front(body)
     bad += deliver.front_problems(data, deliver.ASK_FIELDS)
     title = deliver.ask_title_of(body) or getattr(a, "title", None)   # 回し直し（--take）は順番待ちの件の題
@@ -586,7 +600,10 @@ def _ask(a, ports, cwd, task, sent):
         sender = name or sender
     if not boss.get("boss"):
         notes.append("頼み元が分からないので、この頼みの納品の返り先が無い（会話の中から打つか --from-name を渡す）")
-    causes = {"causes": a.causes} if getattr(a, "causes", None) else {}   # 束の合図で回した頼み: 乗った部署の頼みも親に並べる（calls.fire）
+    # 頼みの行の親の鍵。束の合図で回した頼みは、乗った部署の頼みも親に並べる（calls.fire）
+    links = {"cause": cause, **({"causes": a.causes} if getattr(a, "causes", None) else {}),
+             **({"cause_boss": cause_boss} if cause_boss else {})}
+    origin = {"name": name, "account": account, "session": boss["boss-session"], "place": cwd}
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if (the_role or {}).get("machine"):
         print("\n".join(notes + [f"止めた: 役「{role}」は機械だけの役（AI の部署を持たない）なので頼めない。ツールを --call で呼ぶ"
@@ -610,8 +627,7 @@ def _ask(a, ports, cwd, task, sent):
         def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
                              {"id": ask_id, "sender": sender, "body": body, "title": title, "inbox": inbox, "required": required, "boss": boss,
-                              "fresh": fresh, "cause": cause, **causes, "cause_boss": cause_boss, "from": {"name": name, "account": account,
-                              "session": boss["boss-session"], "place": cwd}, "company": company["name"], "role": role},
+                              "fresh": fresh, "links": links, "from": origin, "company": company["name"], "role": role},
                              accounts_, sessions_, company["root"], sent)
         if to and dest_inbox and place_dir and (heard or (pending or mid_turn) and wake.has_history(dest_inbox, place_dir)):
             return queue(dept)
@@ -656,7 +672,7 @@ def _ask(a, ports, cwd, task, sent):
                 return 1
             raced = now.get("ask") != held
             if not raced and fresh:
-                acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+                acc = account_of(dept, accounts_)
                 # 記録はペインのシェルで起きた会話のアカウントの下に在る。頼む会話の CLAUDE_CONFIG_DIR（別のアカウント）で探さない
                 # （設定のフォルダを書かないアカウントの部署を、別のアカウントの段取りから頼むと、記録が見つからず止まった。
                 # my_notes の受付 20261017-075753-01991f）
@@ -691,9 +707,7 @@ def _ask(a, ports, cwd, task, sent):
             print("\n".join(notes + [f"止めた: 宛先の部署 {where} は、読んでから打つまでの間に受付 {now.get('ask')}（頼み元 "
                                      f"{now.get('boss') or '-'}）を受けた。納品を待つか、別の部署に頼む"]))
             return 2
-        deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, "cause": cause, **causes,
-                            **({"cause_boss": cause_boss} if cause_boss else {}),
-                            "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
+        deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, **links, "from": origin,
                             "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
                                    "branch": dept["branch"], "path": dept["path"], "pane": pane}, "file": path, "title": title})
         if status == "sent":
@@ -752,8 +766,7 @@ def _ask(a, ports, cwd, task, sent):
     status = "sent" if attrs.get("ask") == ask_id and (attrs.get("session") or rc == 0) else "failed"
     deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status,
                         "detail": None if status == "sent" and attrs.get("session") else (why_not(said.getvalue()) or f"rc={rc}"),
-                        "cause": cause, **causes, **({"cause_boss": cause_boss} if cause_boss else {}),
-                        "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
+                        **links, "from": origin,
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
                                "path": got and got["path"], "pane": None}, "file": path, "title": title})
     if status == "sent":
@@ -788,8 +801,7 @@ def lent_boss(given, cause_boss, desk):
     if lent.get("boss") or lent.get("boss-session"):
         return lent
     if cause_boss:
-        return {"boss": cause_boss.get("name"), "boss-session": cause_boss.get("session"), "boss-account": cause_boss.get("account"),
-                "boss-pane": cause_boss.get("pane"), "boss-inbox": cause_boss.get("inbox")}
+        return {k: cause_boss.get(f) for k, f in BOSS_FIELDS.items()}
     return desk() or lent
 
 
@@ -835,8 +847,7 @@ def cause_boss_of(a, here, ports, cause):
             return None
     if not (boss.get("boss") or boss.get("boss-session")):
         return None   # 頼み元の分からない頼み: 中身の無い写しを書かない（--for は元の頼みの行から引き直す）
-    return {"name": boss.get("boss"), "session": boss.get("boss-session"), "account": boss.get("boss-account"),
-            "pane": boss.get("boss-pane"), "inbox": boss.get("boss-inbox")}
+    return {f: boss.get(k) for k, f in BOSS_FIELDS.items()}
 
 
 def moved_away(seen, now):
@@ -888,8 +899,7 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     n = len(wake.queued(dest_inbox, place_dir))
     detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
     deliver.log(ask["inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
-                               "cause": ask.get("cause"), **({"causes": ask["causes"]} if ask.get("causes") else {}), **({"cause_boss": ask["cause_boss"]} if ask.get("cause_boss") else {}),
-                               "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
+                               **ask["links"], "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
                                                           "role": ask["role"], "branch": dept["branch"], "path": dept["path"],
                                                           "pane": None, "wake": to}, "file": path, "title": ask.get("title")})
     sent.update(id=ask["id"], to=dest)
@@ -964,11 +974,14 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
         return []
     head = f"宛先の部署 {where} の順番待ちが止まっていた（{why}）"
     first_id = (wake.queued(dest_inbox, place_dir) or [{}])[0].get("id")
+
+    def logged(status, detail):
+        deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane,
+                                 "why": why, "status": status, "detail": detail})
     pane = live_window(dept, ports)
     if pane is None:
         pane, said = revive(dept, accounts_, ports, sessions_, source)
-        deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane,
-                                 "why": why, "status": "revived" if pane else "failed", "detail": said})
+        logged("revived" if pane else "failed", said)
         if pane and moved is not None:
             moved.append(True)
         return [f"{head}。{said}"]
@@ -1000,14 +1013,12 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
             reloaded, detail = "failed", detail or f"{chat.RELOAD} の後に、会話が動き出したか入力フィールドに字が入った"
     if reloaded != "sent":
         detail = _put_back(dept, keep, ports, detail)
-        deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(),
-                                 "place": dept["path"], "pane": pane, "why": why, "status": "failed", "detail": detail})
+        logged("failed", detail)
         return [f"{head}。窓 {pane} で {chat.RELOAD} の後に手が空いて入力フィールドが空なのを見られないので、1 行を打たなかった（{detail}。"
                 f"部署の窓を見て、{again}）"]
     sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.term, ports.pause, busy_check(dept, accounts_, ports))
     detail = _put_back(dept, keep, ports, detail)
-    deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(),
-                             "place": dept["path"], "pane": pane, "why": why, "status": sent, "detail": detail})
+    logged(sent, detail)
     if sent == "sent" and moved is not None:
         moved.append(True)
     return [f"{head}。窓 {pane} で {chat.RELOAD} を打ち、1 行打ってターンを回した（{sent}" + (f"。{detail}" if detail else "") + "）。ターンの終わりに待ち受けが渡す"]
@@ -1064,28 +1075,25 @@ def _forwarded_to(ask_id, ports, cwd, companies):
 
 def _ledger(ports, cwd, companies):
     """打った場所の会社と herdr に開いている会社の受付箱から、--todo と同じく行が指すほかの会社の受付箱へたどった (受付箱の並び, 全部の行)。"""
-    inboxes = [deliver.inbox_of(got) for got in [ports.git.common_dir(cwd)] + [ports.git.common_dir(c["root"]) for c in companies] if got]
-    return todo.inboxes_from(inboxes, ports.git.common_dir)
+    return todo.inboxes_from(_inboxes(ports, cwd, companies), ports.git.common_dir)
+
+
+def _inboxes(ports, cwd, companies):
+    """打った場所の会社と、companies（会社の並び）の受付箱の並び。"""
+    return [deliver.inbox_of(got) for got in [ports.git.common_dir(cwd)] + [ports.git.common_dir(c["root"]) for c in companies] if got]
 
 
 def _find_queued(ask_id, config_path, ports, cwd, companies=None):
     """受付 ask_id の順番待ちの件を、打った場所の会社と herdr に開いている会社の受付箱から探す。(件か None, 注記)。
     companies（survey の会社の並び）を渡せば herdr を読み直さない。"""
-    inboxes, notes = [], []
-    common = ports.git.common_dir(cwd)
-    if common:
-        inboxes.append(deliver.inbox_of(common))
+    notes = []
     if companies is None:
         try:
             companies = survey(config_path, ports)[4]
         except term.Error as e:
             companies = []
             notes.append(f"{term.NAME} を読めないので、打った場所の会社の順番待ちだけを探した（{e}）")
-    for c in companies:
-        got = ports.git.common_dir(c["root"])
-        if got:
-            inboxes.append(deliver.inbox_of(got))
-    for inbox in dict.fromkeys(inboxes):
+    for inbox in dict.fromkeys(_inboxes(ports, cwd, companies)):
         item = wake.find(inbox, ask_id)
         if item:
             return item, notes
@@ -1287,16 +1295,9 @@ def note(a, ports, cwd):
     （kind note）を足し、部署の待ち受けがターンの終わりに会話を再開させて渡す（ターンの途中の会話の入力フィールドには打たない）。待ち受けの跡の無い
     部署（フックの無い古い版の会話）には、今までどおり窓に打ち込む。打った場所・頼み元・宛先の受付箱の台帳に kind note で残す。
     終了の値を返す。"""
-    if bool(a.text) == bool(a.brief):
-        print("止めた: --note には --text <文> か --brief <ファイル> のどちらか 1 つが要る")
+    body = text_of(a, "--note", "足し")
+    if body is None:
         return 2
-    body = a.text
-    if a.brief:
-        try:
-            body = pathlib.Path(os.path.expanduser(a.brief)).read_text(encoding="utf-8")
-        except OSError as e:
-            print(f"止めた: 足しのファイルを読めない（{e}）")
-            return 2
     common = ports.git.common_dir(cwd)
     if not common:
         print(f"止めた: 打った場所 {cwd} が git でないので、受付箱を置けない（会社の本社か部署の場所から打つ）")
@@ -1390,7 +1391,6 @@ def note(a, ports, cwd):
 # 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる
 WAITING, WAITING_WHY = "waiting", "waiting-why"
 PARKED, parked_of = deliver.PARKED, deliver.parked_of   # 保留にした頼み（--wait <訳> --park）
-BOSS_KEYS = ("boss", "boss-session", "boss-account", "boss-pane", "boss-inbox")
 
 
 def wait_for_input(a, ports, cwd):
@@ -1593,10 +1593,14 @@ def asked_open(inbox, attrs, cwd):
     """この部署（名前と場所）が頼んで、まだ返事（納品）の来ていない頼みの受付の並び。頼みの行は頼んだ側の会社の受付箱に残る。
     この部署の納品で、残った疑問の担当者に書いた受付（handed_over）は除く。"""
     handed = handed_over(inbox, attrs)
-    return [r["id"] for r in deliver.open_asks(deliver.records(inbox))
-            if (r.get("from") or {}).get("name") == attrs.get("name") and (r.get("from") or {}).get("place")
-            and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd) and r["id"] not in handed]
+    return [r["id"] for r in deliver.open_asks(deliver.records(inbox)) if asked_here(r, attrs, cwd) and r["id"] not in handed]
 
+
+def asked_here(row, attrs, cwd):
+    """台帳の頼みの行 row を、この部署（名前と場所 cwd）が出したか。"""
+    sender = row.get("from") or {}
+    return sender.get("name") == attrs.get("name") and bool(sender.get("place")) \
+        and os.path.realpath(sender["place"]) == os.path.realpath(cwd)
 
 def handed_over(inbox, attrs):
     """この部署（名前）が納品の残った疑問の担当者（納品の行の holders の ask）に書いた受付の集まり。今の頼みの納品に限らず、順番待ちから
@@ -1629,8 +1633,7 @@ def handed_open(common, attrs, cwd, g=gitx):
         after = min(done) if done else None
         return [r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and not isinstance(r.get("to"), str)
                 and (r.get("cause") == ask or "cause" in r and r["cause"] is None and after is not None and (r.get("at") or 0) >= after)
-                and (r.get("from") or {}).get("name") == attrs.get("name") and (r.get("from") or {}).get("place")
-                and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
+                and asked_here(r, attrs, cwd)]
 
     # 手元と頼み元の受付箱だけで出した頼みが無ければ、会社をまたいでたどらない
     starts = [x for x in dict.fromkeys([deliver.inbox_of(common), attrs.get("boss-inbox")]) if x and os.path.isdir(x)]
@@ -1813,9 +1816,7 @@ def delivered_already(attrs):
 
 def for_attrs(attrs, record):
     """回して閉じた頼みへ納品するときの属性: 受けた頼みと頼み元を forwarded の行の物に替える（ほかの属性は今の場所の物）。"""
-    boss = record.get("boss") or {}
-    return {**attrs, "ask": record["id"], "boss": boss.get("name"), "boss-session": boss.get("session"),
-            "boss-account": boss.get("account"), "boss-pane": boss.get("pane"), "boss-inbox": boss.get("inbox")}
+    return {**attrs, "ask": record["id"], **{k: (record.get("boss") or {}).get(f) for k, f in BOSS_FIELDS.items()}}
 
 
 def ledger_asks(attrs, ports, cwd):
@@ -2159,6 +2160,15 @@ def stalled(attrs, settings_dir, company_of=None, now=time.time):
     return True
 
 
+def read_sent_back(payload, key, tmp_dir):
+    """この会話・key（頼みの受付）で差し戻した数の控えの (置き場, 数)。読めなければ数は 0。"""
+    path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", key)
+    try:
+        return path, int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return path, 0
+
+
 def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
     """部署の会話がターンを終えるときの差し戻しの文か None（差し戻さない）。差し戻すなら、この会話・この頼みで差し戻した数を控えに
     1 つ進める。納品の前は deliver.stop_verdict、納品の後（ブランチをメインブランチに入れていない・tmp の部署が終わりの印を
@@ -2167,11 +2177,7 @@ def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
     待ち受け（wake_hook.Late）。"""
     if attrs.get(wake.COMPACT) and attrs[wake.COMPACT] == payload.get("session_id"):
         return None   # 会話が compact の区切りと印して（--compact）ターンを終える。待ち受けが compact し、続きをさせる
-    path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", attrs["ask"])
-    try:
-        count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
-    except (OSError, ValueError):
-        count = 0
+    path, count = read_sent_back(payload, attrs["ask"], tmp_dir)
     reason = deliver.stop_verdict(payload, attrs, count, RUN)
     if reason is None and count == deliver.STOP_LIMIT and deliver.stop_verdict(payload, attrs, 0, RUN):
         # 差し戻しを使い切った: 止まるのは通すが、知られずに止まらないよう頼み元へ 1 度だけ知らせる（数を上限より 1 つ進めて、2 度は知らせない）
@@ -2183,11 +2189,7 @@ def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
         return None
     if reason is None and attrs.get("delivered") == attrs["ask"]:
         # 納品の後: ブランチをメインブランチに入れずに、か tmp の部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
-        path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", f"{attrs['ask']}-after")
-        try:
-            count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
-        except (OSError, ValueError):
-            count = 0
+        path, count = read_sent_back(payload, f"{attrs['ask']}-after", tmp_dir)
         reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), gitx,
                             rearm=lambda: pathlib.Path(path).unlink(missing_ok=True), gh=ghx)   # gh の口も呼ぶ時に引く（試験は偽物に替える）
     if reason is None:

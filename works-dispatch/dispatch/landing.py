@@ -266,12 +266,7 @@ def _gate(run, head, candidate, where, riders=()):
             _sweep(where, g.untracked(where) - before)
         return ({"result": "green" if code == 0 else "red"}, f"手元の検証 {rules['check']}",
                 said.splitlines()[-land.FAIL_LINES:], None)
-    ref = land.gate_branch(rules["gate"], run.name, run.branch)
-    if ref in (run.main, run.branch, *riders):
-        raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
-    if not land.ci_on(where, rules["gate"]):
-        raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
-                         f"{rules['gate'].split('*', 1)[0]} を書いていない）")
+    ref = _gate_ref(rules["gate"], run.name, run.branch, where, (run.main, run.branch, *riders))
     land.publish(where if riders else run.path, candidate, ref, g)   # push は部署の作業場から（下の advance と同じ訳）。束は候補の木から
     print(f"ゲートに出した: {ref}（commit {candidate[:7]}）")
     verdict = land.wait_gate(run.repo.repo, ref, candidate, run.ports.gh, run.env, run.pause)
@@ -279,6 +274,18 @@ def _gate(run, head, candidate, where, riders=()):
     points = run.ports.gh.run_failure(run.repo.repo, verdict["run"]["id"], land.FAIL_LINES, env=run.env) \
         if verdict["result"] == "red" else []
     return verdict, label, points, ref
+
+
+def _gate_ref(gate, name, branch, where, taken):
+    """CI のブランチの形のゲートが push する先を決める。taken（メインブランチと部署のブランチ）と同じ名前になるか、where の
+    GitHub Actions の設定がその頭を書いていなければ ValueError。"""
+    ref = land.gate_branch(gate, name, branch)
+    if ref in taken:
+        raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
+    if not land.ci_on(where, gate):
+        raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
+                         f"{gate.split('*', 1)[0]} を書いていない）")
+    return ref
 
 
 def _publish(run, candidate):
@@ -762,12 +769,7 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
         if rules["gate"] == land.GATE_CHECK:
             print(f"ゲート: 手元の検証 {rules['check']} を、" + ("版を上げた一時の場所" if rules["bump"] else "部署の場所") + "で回す")
         else:
-            ref = land.gate_branch(rules["gate"], name, branch)
-            if ref in (main, branch):
-                raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
-            if not land.ci_on(path, rules["gate"]):
-                raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
-                                 f"{rules['gate'].split('*', 1)[0]} を書いていない）")
+            ref = _gate_ref(rules["gate"], name, branch, path, (main, branch))
             print(f"ゲート: 候補の commit をブランチ {ref} に push し、その run の結末を待つ（緑ならゲートのブランチを消す）")
     except (gitx.GitError, bump.BumpError, OSError, ValueError) as e:
         print(f"止めた: {e}")
@@ -804,15 +806,16 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
     """入れた部署を片付ける（--clean の部署の決まりと部品）。片付けられない tmp の部署には、入れた印 company.landed（入れた commit）を
     書いて残す。前の --land が残した部署（印の有る部署）も、片付けられる形になっていれば片付ける。終わりの値は入れた部署の分だけ。
     dry_run なら、片付けるか残すかの見立てを出すだけ（印を書かず、片付けない）。"""
+    def retire(r):
+        return clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git, chat, ports.account_env)
     notes = []
     all_rows = rows(cfg, repo, ports, found, notes)
     for n in notes:
         print(n)
-    me = os.path.realpath(path)
+    me, code = os.path.realpath(path), 0
     row = next((r for r in all_rows if os.path.realpath(r["path"]) == me), None)
     if row is None:
         print(f"部署は残{'す' if dry_run else 'した'}（片付けの候補にならない。会話の属性 company.session も company.job も無い部署は、部署の会話の中から --done を打つと id が書かれる）")
-        code = 0
     elif dry_run:
         if row["removable"]:
             print("入れた後、部署を片付ける（--clean と同じ部品）")
@@ -820,9 +823,8 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
             print(f"部署は残す（{reasons[row['reason']]}）")
         else:
             print(f"部署は残し、入れた印（company.landed）を書く（{reasons[row['reason']]}）")
-        code = 0
     elif row["removable"]:
-        got = clean.retire(row, repo.source, provision.label(repo, row["branch"]), ports.term, ports.git, chat, ports.account_env)
+        got = retire(row)
         print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
         code = 0 if got["removed"] else 1
     elif row["reason"] == "persistent":
@@ -836,7 +838,6 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
             except (gitx.GitError, OSError) as e:
                 later = f"入れたブランチを書けなかった（{e}）ので、手元のブランチ {row['branch']} は手で消す"
         print(f"部署は残した（{reasons[row['reason']]}）。{later}")
-        code = 0
     else:
         try:
             provision.mark(path, repo.source, {"landed": landed}, ports.git)
@@ -844,7 +845,6 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         except (gitx.GitError, OSError) as e:
             later = f"入れた印を書けなかった（{e}）ので、次の --land は拾わない。片付けられる形になれば --clean --apply で片付ける"
         print(f"部署は残した（{reasons[row['reason']]}）。{later}")
-        code = 0
     for r in all_rows:
         if os.path.realpath(r["path"]) == me or not r["removable"] or not ports.attrs(r["path"]).get("landed"):
             continue
@@ -852,7 +852,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         if dry_run:
             print(f"前の --land で残した部署 {who} も片付ける")
             continue
-        got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git, chat, ports.account_env)
+        got = retire(r)
         print(f"前の --land で残した部署 {who} を片付けた" if got["removed"]
               else f"前の --land で残した部署 {who} を片付けられなかった: {got['detail']}")
     if not dry_run:

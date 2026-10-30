@@ -165,10 +165,40 @@ def _earlier_report(cfg, ports, r, notes):
         return None
 
 
-def _sessions_in(cfg, ports, path):
-    """その場所かその下を作業フォルダにする会話（全アカウント）。読めなければ ClaudeError。"""
-    return [s for acc in cfg.accounts for s in ports.list_sessions(acc.config_dir)
-            if s.get("cwd") and filex.inside(s["cwd"], path)]
+def _at(items, path):
+    """会話の並びのうち、その場所かその下を作業フォルダにする物。"""
+    return [s for s in items if s.get("cwd") and filex.inside(s["cwd"], path)]
+
+
+def _local_work(ports, path, branch, rec):
+    """手元にしか無い作業が有るか。HEAD が前に送った時の head のままなら、remote に見えない commit は作者の force-push で消えた物
+    （手元で積んだ物でない）。"""
+    return ports.stashed(path, branch) if rec["head"] and ports.head_sha(path) == rec["head"] else ports.unpushed(path)
+
+
+def _trust_note(ports, account, source, path, accounts_):
+    """元の clone の信頼の印を作業場に付ける。付けば None、付かなければ注記の文。"""
+    try:
+        trusted = ports.trust(account, source, path, accounts_)
+    except OSError as e:
+        trusted = f"書けない（{e}）"
+    if trusted in ("inherited", "already"):
+        return None
+    return (f"どのアカウントも元の clone を信頼していないので、{chat.NAME} がフォルダの信頼の確認を出す" if trusted == "source_untrusted"
+            else f"信頼の印を付けられない（{trusted}）。{chat.NAME} がフォルダの信頼の確認を出す")
+
+
+def _candidates(repo, ports, found, cwds, changed):
+    """閉じた PR の場所の片付けの候補（clean.candidates）。"""
+    return clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha,
+                            source=repo.source, changed=changed, is_ancestor=ports.is_ancestor)
+
+
+def _overview(accounts_, ports):
+    """アカウントごとの選び方（自動か名指しだけか・名指しで同時に立てる数）とモデルの別名の読み替え先。アカウントが 1 つで、named_only も
+    max_open も読み替え先も無ければ空。"""
+    shown = accounts.overview(accounts_, ports.account_env)
+    return shown if len(shown) > 1 or any(x["named_only"] or x["max_open"] != 1 or x["models"] for x in shown) else []
 
 
 def _cost_note(est, limit_percent):
@@ -597,7 +627,7 @@ def main(argv=None, ports=None):
     keys = sessions.open_keys(sess)
     for p in (my_prs if listing else []):
         path = places.get(p["head"])
-        inside = [x for x in sess if x["cwd"] and path and filex.inside(x["cwd"], path)]
+        inside = _at(sess, path) if path else []
         if not inside:
             # 会話が開いていない PR: 前に送った後に動きが無ければ、開き直さない（返事待ちの PR を、持ち主が会話を閉じただけで
             # もう一度レビューしない。持ち主 2026-10-15）。--pr で名指したときはここを通らない
@@ -618,9 +648,7 @@ def main(argv=None, ports=None):
             notes.append(f"#{p['number']}: {e}（送り直さない）")
             continue
         rec = _sent_record(sent.get(_key(repo, p["number"])))
-        # HEAD が前に送った時の head のままなら、remote に見えない commit は作者の force-push で消えた物（手元で積んだ物でない）
-        local = (ports.stashed(path, p["head"]) if rec["head"] and ports.head_sha(path) == rec["head"]
-                 else ports.unpushed(path))
+        local = _local_work(ports, path, p["head"], rec)
         v = "busy" if len(inside) > 1 else fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local,
                                                         sent_head=rec["head"])
         if v == "refresh":
@@ -646,7 +674,7 @@ def main(argv=None, ports=None):
     if any(r["outcome"] in ("assigned", "no_account") for r in the_plan):
         notes.append(_cost_note(est, cfg.limit_percent))
 
-    results = {n: v for n, v in verdicts.items()}
+    results = dict(verdicts)
     assigned = [r for r in the_plan if r["outcome"] == "assigned"]
     # fork の PR（head が別のリポジトリ）は作業場を作らない。whose-turn の一覧は fork かを持たないので、開く PR だけ問う
     for r in assigned:
@@ -708,14 +736,9 @@ def main(argv=None, ports=None):
                         provision.drop_copies(prov["path"], ports.git)
                 except (gitx.GitError, OSError) as e:
                     notes.append(f"{name}: 本社から写った属性を消せなかった（{e}）。この作業場の会話が本社の役の本文を受ける")
-            try:
-                trusted = ports.trust(r["account"], repo.source, prov["path"], cfg.accounts)
-            except OSError as e:
-                trusted = f"書けない（{e}）"
-            if trusted not in ("inherited", "already"):
-                notes.append(f"{name}: どのアカウントも元の clone を信頼していないので、"
-                             f"{chat.NAME} がフォルダの信頼の確認を出す" if trusted == "source_untrusted" else
-                             f"{name}: 信頼の印を付けられない（{trusted}）。{chat.NAME} がフォルダの信頼の確認を出す")
+            untrusted = _trust_note(ports, r["account"], repo.source, prov["path"], cfg.accounts)
+            if untrusted:
+                notes.append(f"{name}: {untrusted}")
             if r["kind"] == "pr" and not prov["created"] and not a.no_second and r["number"] not in catchup_only:
                 r["earlier"] = _earlier_report(cfg, ports, r, notes)   # 新しい会話を起動する前に（起動すると、それがいちばん新しい記録になる）
             got = launch.start(r, prov["pane"], ports.term)
@@ -838,9 +861,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
         return [f"片付けを飛ばした（開いている会話を読めない: {e}）"]
     sess = sessions.collect(listed, ports.branch, ports.origin)
     changed = _changed(repo)
-    rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), {x["cwd"] for x in sess if x["cwd"]},
-                            ports.is_clean, ports.stashed, ports.head_sha, source=repo.source, changed=changed,
-                            is_ancestor=ports.is_ancestor)
+    rows = _candidates(repo, ports, found, {x["cwd"] for x in sess if x["cwd"]}, changed)
     out = []
     for r in rows:
         if r["reason"] == "pr_open" and turn_numbers is not None and r["number"] not in turn_numbers:
@@ -848,7 +869,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
             continue
         finished = r["state"] in clean.FINISHED
         if r["reason"] == "session" and finished:
-            mine = [x for x in sess if x["cwd"] and filex.inside(x["cwd"], r["path"])]
+            mine = _at(sess, r["path"])
             files = changed(r["path"])
             head = clean.in_pr(r["path"], r["pr_head"], ports.head_sha, ports.is_ancestor)
             local = (not ports.is_clean(r["path"]) or ports.stashed(r["path"], r["branch"]) or not head or files)
@@ -866,7 +887,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limite
                 out.append(f"{_where(r)}: 閉じた PR の会話を終えられなかったので残した（{why}）")
                 continue
             try:
-                left = _sessions_in(cfg, ports, r["path"])
+                left = _at([s for acc in cfg.accounts for s in ports.list_sessions(acc.config_dir)], r["path"])
             except chat.Error as e:
                 out.append(f"{_where(r)}: 会話を終えた後の一覧を読めないので残した（{e}）")
                 continue
@@ -898,7 +919,7 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     だけを閉じる。持ち主が自分で開いた会話と、--pr・--issue で開いた会話と、印を書く前の版の控えの会話には触らず、触らない訳を報告の
     行に書く（_not_listed_why）。limited（whose-turn がその PR の材料を取り切れなかった）なら、自分の番でないという判定が取りこぼしの上に立つので閉じない。返すのは報告の行。"""
     rec = _sent_record(sent.get(_key(repo, r["number"])))
-    mine = [x for x in sess if x["cwd"] and filex.inside(x["cwd"], r["path"])]
+    mine = _at(sess, r["path"])
     if not mine:
         return []
     why = _not_listed_why(rec, mine)
@@ -907,8 +928,7 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     if limited:
         return [f"{_where(r)}: 自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので会話を残した"]
     path = r["path"]
-    local = (ports.stashed(path, r["branch"]) if rec["head"] and ports.head_sha(path) == rec["head"]
-             else ports.unpushed(path))
+    local = _local_work(ports, path, r["branch"], rec)
     if mine[0]["status"] != "idle" or not ports.is_clean(path) or local:
         return [f"{_where(r)}: 自分の番でない PR だが、会話が作業中か手元の作業が有るので会話を残した"]
     if dry_run:
@@ -953,7 +973,7 @@ def _step_back_departments(cfg, repo, ports, dry_run, places, names, turn_number
         if got["number"] in limited:
             out.append(f"{where}: 自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので窓を残した")
             continue
-        why = _department_busy(ports, path, [s for s in listed if s.get("cwd") and filex.inside(s["cwd"], path)])
+        why = _department_busy(ports, path, _at(listed, path))
         if why:
             out.append(f"{where}: 自分の番でない PR だが、{why}ので窓を残した")
             continue
@@ -1127,7 +1147,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     if not a.dry_run:
         ports.refresh_limits(cfg, metered)
     # --move はアカウントを名指して起動し直す（only_account）。ほかの回は、使用率の順の頭
-    pool = [x for x in cfg.accounts if x.name == getattr(a, "only_account", None)] or cfg.accounts
+    only = getattr(a, "only_account", None)
+    pool = [x for x in cfg.accounts if x.name == only] or cfg.accounts
     if taken:
         free = [x for x in pool if x.name not in taken]
         if not free:
@@ -1142,9 +1163,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                            accounts.count_running(listed), margin_minutes=cfg.hours_margin_minutes)
     # 会社の形の役か受け持ちが名指したアカウント（account）は、使えれば順の頭へ。使えなければ使用率の順のまま、訳を注記に出す。
     # --move の起動し直し（only_account）では名指しを見ない（アカウントを替えるのは --move の受け持ち）
-    wish, wisher = (None, None) if getattr(a, "only_account", None) else role.launch_account(the_role, duty)
-    if getattr(a, "only_account", None):
-        ranked = accounts.named(ranked, a.only_account)   # --move の名指しは、名指しのときだけ使うアカウントも使う
+    wish, wisher = (None, None) if only else role.launch_account(the_role, duty)
+    if only:
+        ranked = accounts.named(ranked, only)   # --move の名指しは、名指しのときだけ使うアカウントも使う
     wished = next((x for x in cfg.accounts if x.name == wish), None)
     ranked, wish_note = accounts.prefer(ranked, wish, accounts.count_open(listed.get(wish, [])), wisher,
                                         wished.max_open if wished else 1, bool(wished and wished.named_only))
@@ -1201,14 +1222,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     result = prov["status"]
     pane = prov["pane"]
     if prov["status"] == "ready":
-        try:
-            trusted = ports.trust(row["account"], repo.source, prov["path"], cfg.accounts)
-        except OSError as e:
-            trusted = f"書けない（{e}）"
-        if trusted not in ("inherited", "already"):
-            notes.append(f"どのアカウントも元の clone を信頼していないので、{chat.NAME} がフォルダの信頼の確認を出す"
-                         if trusted == "source_untrusted" else
-                         f"信頼の印を付けられない（{trusted}）。{chat.NAME} がフォルダの信頼の確認を出す")
+        untrusted = _trust_note(ports, row["account"], repo.source, prov["path"], cfg.accounts)
+        if untrusted:
+            notes.append(untrusted)
         try:
             provision.hide_claude_dir(repo.source, ports.git)
             # 本社の属性が部署に写って残ると、部署が窓口の会話を自分の会話と取り違える（まっさらな環境での 4 回目の試しの 3）。
@@ -1331,11 +1347,7 @@ def _company(a, ports):
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     calls.annotate(companies, settings, ports.git)
-    # アカウントごとの選び方（自動か名指しだけか・名指しで同時に立てる数）とモデルの別名の読み替え先。アカウントが 1 つで、named_only も
-    # max_open も読み替え先も無ければ出さない
-    shown = accounts.overview(accounts_, ports.account_env)
-    if len(shown) < 2 and not any(x["named_only"] or x["max_open"] != 1 or x["models"] for x in shown):
-        shown = []
+    shown = _overview(accounts_, ports)
     if a.json:
         jsonio.dump({"companies": companies, "accounts": shown, "notes": notes}, None)
         return 0
@@ -1523,8 +1535,8 @@ def _check(cfg, ports, task=None, lead=None):
             ports.list_sessions(acc.config_dir)
         except chat.Error as e:
             problems.append(f"アカウント {acc.name}: {e}（開いている会話を読む {chat.LIST_COMMAND} が通らない。{chat.NAME} を新しくする）")
-    shown = accounts.overview(cfg.accounts, ports.account_env)
-    if len(shown) > 1 or any(x["named_only"] or x["max_open"] != 1 or x["models"] for x in shown):
+    shown = _overview(cfg.accounts, ports)
+    if shown:
         notes += accounts.overview_lines(shown)
     print("\n".join(notes))
     if problems:
@@ -1973,7 +1985,8 @@ def _clean(cfg, repo, apply, ports):
               + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else "")
                   + _boards_note(d["path"], ports))
                  if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}{_running_note(d, ports.attrs(d['path']), ports)}）"))
-    print("\n".join(notes + swept) if notes or swept else "", end="\n" if notes or swept else "")
+    if notes or swept:
+        print("\n".join(notes + swept))
     failed, stale = _tool_places(repo, ports, apply)
     if apply:
         for d in (d for d in depts if d["removable"]):
@@ -1983,18 +1996,13 @@ def _clean(cfg, repo, apply, ports):
     found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths and not tools.is_place(p.get("path"))]
     removable = stale or any(d["removable"] for d in depts)
     cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
-    if not any(os.path.realpath(r.source) == os.path.realpath(repo.source) for r in cfg.repos):
-        # 設定の [[repos]] に無い会社: PR の作業場は見ない（PR の状態を GitHub に問うのは、PR を開く回に使うリポジトリだけ）
-        if not depts:
-            print(f"元の clone {repo.source} に部署は無い（設定の [[repos]] に無いので、PR の作業場は見ない）")
-        if not apply and removable:
-            print("消すには --clean --apply を付けて打ち直す")
-        return 1 if failed else 0
-    rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha,
-                            source=repo.source, changed=_changed(repo), is_ancestor=ports.is_ancestor)
+    # 設定の [[repos]] に無い会社: PR の作業場は見ない（PR の状態を GitHub に問うのは、PR を開く回に使うリポジトリだけ）
+    known = any(os.path.realpath(r.source) == os.path.realpath(repo.source) for r in cfg.repos)
+    rows = _candidates(repo, ports, found, cwds, _changed(repo)) if known else []
     if not rows:
         if not depts:
-            print(f"元の clone {repo.source} の worktree は無い")
+            print(f"元の clone {repo.source} の worktree は無い" if known else
+                  f"元の clone {repo.source} に部署は無い（設定の [[repos]] に無いので、PR の作業場は見ない）")
         if not apply and removable:
             print("消すには --clean --apply を付けて打ち直す")
         return 1 if failed else 0
