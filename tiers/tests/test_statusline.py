@@ -498,7 +498,7 @@ class FindClaude(unittest.TestCase):
         self.assertEqual(self.find("2.1.302", "/usr/bin/node"), "")
 
 
-@unittest.skipUnless(sys.platform == "darwin", "Claude のプロセスが起きた時刻を BSD の date で読む所")
+@unittest.skipUnless(sys.platform == "darwin", "日本語のロケールの ps で Claude のプロセスの経過時間を読む所（macOS の ps で確かめる）")
 class BgAgentsBorn(unittest.TestCase):
     """bg-count.sh が、Claude のプロセスより前に最後の行を書いた背景のサブエージェントを数えない所。"""
 

@@ -364,7 +364,7 @@ def ci_on(root, gate):
 def wait_gate(repo, ref, sha, gh, env=None, pause=lambda: None):
     """そのブランチのその commit の run が現れるまで見に行き（回数に上限を置かない。CI が起きる設定は ci_on で先に確かめる）、
     現れた run を全部（ゲートのブランチを書いたワークフローが複数在れば、1 つの push で run も複数起きる）終わりまで待つ。
-    ワークフローごとの run は並びに載るのが数秒ずれることがあるので、待ち終えたら並びを読み直し、新しい run が無くなるまで待つ。
+    ワークフローごとの run は並びに載るのが数秒ずれることがあるので、待ち終えたら一息おいて並びを読み直し、新しい run が出ていればそれも待つ（その読み直しより遅れて出た run は見ない）。
     {result: green・red, run}。run は赤ければ最初の赤の run、緑なら一番新しい run。job が全部飛んだ run（skipped）と neutral は
     赤と数えない（GitHub は飛んだ job を成功と数える）が、success の run が 1 つも無ければ赤。"""
     done = {}
