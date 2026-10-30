@@ -166,6 +166,7 @@ def mine(inbox, place_common):
     marker = f"/{TOOL} "
     _, rows = todo.inboxes_from([inbox], place_common)
     ids = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")}
+    own = set(ids)
     # 回した頼みが生んだ頼み（cause がそれを指す頼み。孫まで辿る）も数える。点検が直しをほかの部署へ回して納品すると、回した頼みは
     # 閉じても直しは開いたままで、閉じる前の push の run が後で赤で決着すると同じ赤を頼み直していた（2026-10-29、頼み 1e203a の
     # 30 分後の頼み 2bd197）
@@ -175,17 +176,21 @@ def mine(inbox, place_common):
     # 閉じた時刻は、閉じたと数える行（deliver.closed_ids と同じ見分け。知らせられなかった納品と --for の返しは数えない）の時刻
     at = [r["at"] for r in rows if isinstance(r.get("at"), (int, float)) and deliver.closed_ids([r]) & ids]
     closed_at = stamp(max(at)) if at else None
-    # 渡せなかった頼みが、渡せた頼みのどれより新しいか。渡せなかったのは、頼みの最後の行が failed（開いても閉じてもいない）か、
-    # このツールの外れの行（kind miss。works-dispatch の calls.call が回す前に書く）の ask に頼みの行が 1 つも無い物（回す先の部署が
-    # 引けない・orders.ask が行を書かずに落ちた）。知らせた件は覚えたので、渡せなかった後は頼みが開いていても閉じていても黙り続けた
+    # 渡せなかった頼みが、渡せた頼みのどれより新しいか。渡せなかったのは、このツールが回した頼み（題で見分けた物。生んだ頼みは数えない。
+    # 直しを回した頼みの失敗や送り出しで、知らせた件の渡し損ねを決めない）の最後の行が failed（開いても閉じてもいない）か、このツールの
+    # 外れの行（kind miss。works-dispatch の calls.call が回す前に書く）の ask に頼みの行が 1 つも無い物（回す先の部署が引けない・
+    # orders.ask が行を書かずに落ちた）。ただし、同じ出力の外れが開いている頼みに渡っていれば、orders.ask が同じ中身の頼みに重ねた
+    # （行を書かずに 0 で返す）ので渡せたに数える。知らせた件は覚えたので、渡せなかった後は頼みが開いていても閉じていても黙り続けた
     # （前の頼みが閉じた時刻・開いている頼みで黙った）。渡せた頼みより新しい間は、知らせた件も知らせ直す
-    last = {r["id"]: r for r in rows if r.get("kind") == "ask" and r.get("id") in ids}
+    last = {r["id"]: r for r in rows if r.get("kind") == "ask" and r.get("id") in own}
     shut, held = deliver.closed_ids(rows), {r["id"] for r in still}
     when = lambda r: r["at"] if isinstance(r.get("at"), (int, float)) else None
+    misses = [r for r in rows if r.get("kind") == "miss" and r.get("tool") == TOOL and r.get("ask")]
+    same = lambda r: json.dumps([r.get("role"), r.get("input"), r.get("code"), r.get("tail")], ensure_ascii=False, sort_keys=True)
+    merged = {same(r) for r in misses if r["ask"] in held}
     lost = [when(r) for r in last.values() if r.get("status") == "failed" and r["id"] not in shut | held]
-    lost += [when(r) for r in rows if r.get("kind") == "miss" and r.get("tool") == TOOL and r.get("ask")
-             and r["ask"] not in last and r["ask"] not in shut | held]
-    handed = [when(r) for r in rows if r.get("kind") == "ask" and r.get("id") in ids and r.get("status") != "failed"]
+    lost += [when(r) for r in misses if r["ask"] not in last and r["ask"] not in shut | held and same(r) not in merged]
+    handed = [when(r) for r in rows if r.get("kind") == "ask" and r.get("id") in own and r.get("status") != "failed"]
     lost, handed = [t for t in lost if t is not None], [t for t in handed if t is not None]
     relay = bool(lost) and (not handed or max(lost) > max(handed))
     return still, closed_at, relay

@@ -261,6 +261,28 @@ def reopen_after_close():
     log({"kind": "ask", "status": "sent", "id": "20261019-000000-eeeeee", "title": TITLE, "at": at((9, 30))})
     code, out = go(fake)
     check(code == 0, f"渡し直せた頼みが開いているのに知らせ直した: {code} {out}")
+    # 回した頼みが生んだ頼み（直しの頼み）の失敗は、知らせた件の渡し損ねではない。生んだ頼みを送り出しても、渡し損ねは消えない
+    d = setup([held])
+    fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
+    go(fake)
+    log({"kind": "ask", "status": "failed", "id": "20261019-000000-ffffff", "title": "直しの頼み", "cause": held["id"], "at": at((9, 0))})
+    code, out = go(fake)
+    check(code == 0, f"生んだ頼みの失敗を、知らせた件の渡し損ねと見た: {code} {out}")
+    log({"kind": "miss", "role": "点検", "tool": cw.TOOL, "ask": "20261019-000000-dddddd", "code": 1, "at": at((9, 10))},
+        {"kind": "ask", "status": "sent", "id": "20261019-000000-gggggg", "title": "直しの頼み", "cause": held["id"], "at": at((9, 30))})
+    code, out = go(fake)
+    check(code == 1 and "disabled_manually" in out, f"生んだ頼みを送り出したので、渡し損ねを渡せたと見た: {code} {out}")
+    # 同じ出力の外れが開いている頼みに渡っていれば、orders.ask は同じ中身の頼みに重ねて頼みの行を書かない。渡し損ねに数えない
+    d = setup([held])
+    fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
+    go(fake)
+    miss = {"kind": "miss", "role": "点検", "tool": cw.TOOL, "input": {}, "code": 1, "tail": "- 止められた"}
+    log({**miss, "ask": held["id"], "at": at((8, 0))}, {**miss, "ask": "20261019-000000-hhhhhh", "at": at((9, 0))})
+    code, out = go(fake)
+    check(code == 0, f"開いている頼みに重ねた外れを、渡し損ねと見た: {code} {out}")
+    log({**miss, "tail": "- 別の件", "ask": "20261019-000000-iiiiii", "at": at((9, 10))})
+    code, out = go(fake)
+    check(code == 1 and "disabled_manually" in out, f"出力の違う外れを、重ねたと見て黙った: {code} {out}")
     print("REOPEN_AFTER_CLOSE_OK")
 
 
