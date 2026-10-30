@@ -17,15 +17,16 @@ sys.dont_write_bytecode = True
 HOOK = pathlib.Path(__file__).resolve().parents[1] / "gates" / "hooks" / "wait-gate.py"
 
 
-def run(command, tool="Bash", background=False, raw=None, cfg=None):
-    """フックを起動する → (deny の理由か None, 標準出力)。"""
+def run(command, tool="Bash", background=False, raw=None, cfg=None, timeout=None):
+    """フックを起動する → (deny の理由か None, 標準出力)。timeout(秒)を過ぎたら subprocess.TimeoutExpired。"""
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, CLAUDE_CONFIG_DIR=cfg or tmp)
         tool_input = {"command": command}
         if background:
             tool_input["run_in_background"] = True
         data = raw if raw is not None else json.dumps({"tool_name": tool, "tool_input": tool_input, "cwd": tmp})
-        p = subprocess.run([sys.executable, str(HOOK)], input=data.encode("utf-8"), capture_output=True, env=env)
+        p = subprocess.run([sys.executable, str(HOOK)], input=data.encode("utf-8"), capture_output=True, env=env,
+                           timeout=timeout)
         out = p.stdout.decode("utf-8")
         if p.returncode != 0:
             raise AssertionError("フックが落ちた(rc=%d): %s" % (p.returncode, p.stderr.decode("utf-8", "replace")))
@@ -119,6 +120,13 @@ class SleepLoops(unittest.TestCase):
         # 終わりの語を \ で引用する形・引用符の中に - を持つ形も、ヒアドキュメントと読む(中身の ' で後のループを隠さない)
         "cat <<\\EOF\ndon't\nEOF\nuntil test -f x; do sleep 1; done",
         "cat <<'END-1'\ndon't\nEND-1\nuntil test -f x; do sleep 1; done",
+        # $( ) の中のヒアドキュメントは、終わりの語で始まり ) を持つ行(`EOF)"`・`EOF )"`)で閉じ、後の行は走る。
+        # 前は終わりの語の行と読まず、後の行を全部中身と見て落とし、後のループを見落として通していた
+        "gh pr comment 5 --body \"$(cat <<'EOF'\nDone.\nEOF)\"\nuntil gh pr checks 5 | grep -q pass; do sleep 30; done",
+        "gh pr comment 5 --body \"$(cat <<'EOF'\nDone.\nEOF )\"\nuntil gh pr checks 5 | grep -q pass; do sleep 30; done",
+        # `` ` ` `` の中のヒアドキュメントは、中身の `` ` `` で閉じる
+        'x="`cat <<EOF\nDone.\nEOF`"\nuntil gh pr checks 5 | grep -q pass; do sleep 30; done',
+        "x=`cat <<EOF\nit's done\nEOF `\nuntil gh pr checks 5 | grep -q pass; do sleep 30; done",
     ]
     PASS = [
         "python3 tools/check_route.py",
@@ -186,6 +194,24 @@ class Passes(unittest.TestCase):
 
     def test_bash_without_command_passes(self):
         self.assertIsNone(run(None, raw=json.dumps({"tool_name": "Bash", "tool_input": {}}))[0])
+
+
+class LongCommands(unittest.TestCase):
+    """長いコマンドも、hooks.json の時間の上限(30 秒)の内に読み終える。時間切れのフックは止めずに通す。"""
+
+    def test_many_quotes_are_read_in_time(self):
+        # 前は引用符ごとに前の出力の全体を探し、52KB で約 50 秒かかった(時間切れで通る)
+        command = "for f in *; do :; done\n" + "\n".join("echo 'a' 'b'" for _ in range(4000))
+        command += "\nwhile [ ! -f done ]; do sleep 5; done"
+        reason, _ = run(command, timeout=20)
+        self.assertIsNotNone(reason, "止まらなかった")
+        self.assertIn("前景でも裏でも", reason)
+
+    def test_too_many_words_before_dash_c_are_stopped(self):
+        # `bash -c` の形を探して戻る語が多すぎるときは、読めないとして止める(通す側に倒さない)
+        command = "for f in *; do :; done\nx " + " ".join("-c 'a'" for _ in range(1100))
+        reason, _ = run(command, timeout=20)
+        self.assertIn("検査自体に失敗した", reason)
 
 
 class FailClosed(unittest.TestCase):

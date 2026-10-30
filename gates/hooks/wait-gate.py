@@ -18,7 +18,8 @@
 写した元: my_notes の master 2d951aab の tools/no_wait_loop.py(判定)と tools/no_preread.py の executed_text
 (引用符とヒアドキュメントを外す)。変えたのは、落ちたら止める・止めた記録を書く・`while read` を外す・`for ((;;))` を待ちと見る・`bash -o pipefail -c`
 の中も見る・コメントを外す・パスで呼ぶシェルと長いオプションのシェル(`/bin/bash -c`・`bash --norc -c`)の中も見る・引用符とコメントの中の `<<WORD` をヒアドキュメントと読まない(ダブルクォートの中の `$( )` の中は読む)・
-終わりの語を `\\` で引用する形と `-` を持つ形(`<<\\EOF`・`<<'END-1'`)もヒアドキュメントと読む、の 9 つ。
+終わりの語を `\\` で引用する形と `-` を持つ形(`<<\\EOF`・`<<'END-1'`)もヒアドキュメントと読む・
+`$( )` と `` ` ` `` の中のヒアドキュメントは閉じる記号(`EOF)`・`` EOF` ``)でも終わると読む、の 10 個。
 """
 
 import json
@@ -55,6 +56,11 @@ LOOP_WORD_RE = re.compile(r"\b(?:while|until|for)\b")
 _SHELL_OPTS = r"(?:(?:-\w*[oO]\s+[\w-]+|--[\w-]+|-\w+)\s+)*"
 _SHELL = r"(?:[^\s;&|(`'\"]*/)?(?:ba|z|da)?sh"
 SHELL_ARGUMENT = re.compile(r"(?:^|[\s;&|(`])(?:" + _SHELL + r"\s+" + _SHELL_OPTS + r"-\w*c\w*|eval)\s*$")
+# SHELL_ARGUMENT の当たりの末尾の語と、シェルの語の後に置ける -o・-O の値(shell_argument_before が後ろから戻るのに使う)
+SHELL_ARGUMENT_WORD = re.compile(r"(?:-\w*c\w*|eval)$")
+VALUE_OPTION = re.compile(r"-\w*[oO]")
+OPTION_VALUE = re.compile(r"[\w-]+")
+SHELL_ARGUMENT_REACH = 1000   # シェルの語と `-c` の間に置ける語の数の上限(ふつうは数個)
 # ヒアドキュメントを読むのがシェルか(`bash <<EOF`)
 SHELL_STDIN = re.compile(r"(?:^|[\s;&|(`])" + _SHELL + r"(?:\s+" + _SHELL_OPTS + r")?\s*$")
 # `<<<`(here-string)は除く。終わりの語は引用符で囲む形(`<<'END-1'`)と、`\` を前に付けて引用する形(`<<\EOF`)も読む
@@ -86,8 +92,11 @@ def executed_text(command):
     """
     command = drop_heredoc_bodies(command)
     out = []
+    solid = 0   # out の、空白だけでない最後の片の次の位置(shell_argument_before が末尾の空白を読み直さないため)
     index = 0
     while index < len(command):
+        if len(out) > solid and not out[-1].isspace():
+            solid = len(out)
         char = command[index]
         if char == "\\":
             out.append(" ")
@@ -99,7 +108,7 @@ def executed_text(command):
         elif char in "'\"":
             end = quote_end(command, index)
             inner = command[index + 1:end]
-            out.append(quoted_text(inner, char, "".join(out)))
+            out.append(quoted_text(inner, char, out, solid))
             index = end + 1
         else:
             out.append(char)
@@ -107,14 +116,42 @@ def executed_text(command):
     return "".join(out)
 
 
-def quoted_text(inner, quote, before):
-    if SHELL_ARGUMENT.search(before):
+def quoted_text(inner, quote, out, solid):
+    if shell_argument_before(out, solid):
         if quote == '"':
             inner = re.sub(r"\\([\"\\$`])", r"\1", inner)
         return " (%s) " % executed_text(inner)
     if quote == '"':
         return "".join(" (%s) " % found for found in substitutions(inner)) or " "
     return " "
+
+
+def shell_argument_before(out, solid):
+    """out(executed_text が組んでいる途中の出力。solid は空白だけでない最後の片の次の位置)の末尾が、次の引用符をシェル
+    として走らせる形(SHELL_ARGUMENT)か。
+
+    出力の全体を引用符ごとに探すと、引用符の数 × 長さの手間になり、50KB ほどのコマンドで hooks.json の時間の上限
+    (30 秒)を超える(時間切れのフックは止めずに通す)。SHELL_ARGUMENT の当たりの中で、シェルの語の後の語は `-` で始まるか、
+    `-o`・`-O` の値(`[\\w-]+`)だけなので、末尾から語をそこまで戻り、戻った先の語から後だけを探す(答えは全体を探すのと同じ)。
+    戻る語が SHELL_ARGUMENT_REACH を超えたら、読めないとして落とす(フックの失敗は止める側に倒れる)。"""
+    size = 16
+    while True:
+        start = max(solid - size, 0)
+        words = "".join(out[start:solid]).split()
+        # words[0] は片の途中から始まりうるので、決めるのに words[0] を使わずに済んだときか、頭まで読んだときに止める
+        last = len(words) - 1
+        if last >= 1 or start == 0:
+            if not words or not SHELL_ARGUMENT_WORD.search(words[last]):
+                return False
+        at = last
+        while at > 0 and (words[at].startswith("-") or (OPTION_VALUE.fullmatch(words[at])
+                                                         and VALUE_OPTION.fullmatch(words[at - 1]))):
+            at -= 1
+            if last - at > SHELL_ARGUMENT_REACH:
+                raise ValueError("`bash -c`・`eval` の形を探す語が多すぎて読めない")
+        if at >= 2 or start == 0:
+            return bool(SHELL_ARGUMENT.search(" ".join(words[at:])))
+        size *= 4
 
 
 def substitutions(text):
@@ -214,7 +251,9 @@ def scan_code(text, index, stop, found):
         elif char == "\n":
             index += 1
             for match in pending:
-                index = heredoc_end(text, index, match, found)
+                index, closed = heredoc_end(text, index, match, found, stop)
+                if closed:
+                    break   # 置き換えが閉じた。残りのヒアドキュメントの中身は落とさない(見える側に倒す)
             pending = []
         elif char == "#" and (index == 0 or text[index - 1] in " \t\n;&|()"):
             end = text.find("\n", index)
@@ -265,18 +304,50 @@ def scan_double_quote(text, start, found):
     return len(text)
 
 
-def heredoc_end(text, index, match, found):
-    """index の行から始まるヒアドキュメントの中身を found に積み、終わりの語の行の後の位置を返す。終わりが無ければ末尾。"""
+def heredoc_end(text, index, match, found, stop=None):
+    """index の行から始まるヒアドキュメントの中身を found に積み、(読み終えた位置, 置き換えが閉じたか)を返す。
+
+    ふつうは終わりの語の行の後の位置を返す。終わりが無ければ末尾。`$( )` と `` ` ` `` の中(stop)では、終わりの語の行より
+    前に置き換えが閉じることがあり、閉じた後の行はシェルが走らせる。中身と見て末尾まで落とすと、後の行のループが見えない
+    (`gh pr comment 5 --body "$(cat <<'EOF'` の終わりを `EOF)"` と書いた後の `until …; do sleep 30; done` を見落として通していた)。
+    - `` ` ` `` の中: シェルは先に閉じる `` ` `` を探すので、中身の `` ` `` の所で閉じる(bash・zsh)。
+    - `$( )` の中: 終わりの語で始まり、後に `)` を持つ行(`EOF)"`・`EOF )`)で閉じ、語の後はコードとして読む(bash 5 の読み方。
+      bash 3.2 は先に `)` を探して閉じるので、どちらでも後の行は走る)。
+    閉じたときは、閉じる記号の手前(`$( )` は終わりの語の後)の位置を返し、呼び元はその記号から読み続ける。"""
     word = match.group("sq") or match.group("dq") or match.group("word")
     body_start = index
+    closed = False
     while index < len(text):
         end = text.find("\n", index)
-        line = text[index:len(text) if end < 0 else end]
-        index = len(text) if end < 0 else end + 1
-        if (line.lstrip("\t") if match.group("dash") else line) == word:
+        line_end = len(text) if end < 0 else end
+        line = text[index:line_end]
+        tick = unescaped_backtick(line) if stop == "`" else -1
+        if tick >= 0:
+            index, closed = index + tick, True
             break
+        stripped = line.lstrip("\t") if match.group("dash") else line
+        if stripped == word:
+            index = len(text) if end < 0 else end + 1
+            break
+        if stop == ")" and stripped.startswith(word) and ")" in stripped[len(word):]:
+            index, closed = line_end - len(stripped) + len(word), True
+            break
+        index = len(text) if end < 0 else end + 1
     found.append((match.start(), body_start, index))
-    return index
+    return index, closed
+
+
+def unescaped_backtick(line):
+    """line の中の、`\\` で引用していない最初の `` ` `` の位置。無ければ -1。"""
+    index = 0
+    while index < len(line):
+        if line[index] == "\\":
+            index += 2
+        elif line[index] == "`":
+            return index
+        else:
+            index += 1
+    return -1
 
 
 def reason_for(command):

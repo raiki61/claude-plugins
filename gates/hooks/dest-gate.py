@@ -44,6 +44,31 @@ URL_SELECTOR_SUBS = {"issue", "pr", "discussion"}
 # gh が -R の無い投稿の宛先を決めるのに読む環境変数(GH_REPO。https://cli.github.com/manual/gh_help_environment)と、
 # gh が宛先を引く git の repo と remote を差し替える git の環境変数(GIT_DIR など。https://git-scm.com/docs/git#_environment_variables)
 DEST_ENV_RE = re.compile(r"GH_REPO|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_CONFIG\w*")
+# 位置引数に issue・PR を受けるサブコマンドの、値を取らない旗(gh 2.102.0 の `gh <サブコマンド> --help` の FLAGS と
+# https://cli.github.com/manual/ の各ページ)。同じ短い旗がサブコマンドで意味を変える(pr merge の -r は rebase で値を取らず、
+# pr close の -c は本文の値を取る)ので、サブコマンドごとに引く。表に無い旗は今までどおり値を取ると見る(後の URL を投稿先と
+# 読まず、URL の repo と走る場所の repo の両方を宛先と見る側に倒す)
+_COMMENT_SWITCHES = {"--create-if-none", "--delete-last", "--edit-last", "-e", "--editor", "-w", "--web", "--yes"}
+SWITCH_FLAGS = {
+    ("pr", "merge"): {"--admin", "--auto", "-d", "--delete-branch", "--disable-auto",
+                      "-m", "--merge", "-r", "--rebase", "-s", "--squash"},
+    ("pr", "review"): {"-a", "--approve", "-c", "--comment", "-r", "--request-changes"},
+    ("pr", "comment"): _COMMENT_SWITCHES,
+    ("issue", "comment"): _COMMENT_SWITCHES,
+    ("pr", "close"): {"-d", "--delete-branch"},
+    ("pr", "edit"): {"--remove-milestone"},
+    ("issue", "edit"): {"--remove-milestone", "--remove-parent", "--remove-type"},
+}
+# gh api のパスの中の、gh が走る場所の repo(GH_REPO が在ればそれ)で埋める印(https://cli.github.com/manual/gh_api。
+# gh は古い書き方の :owner・:repo も埋める)
+API_OWNER_RE = re.compile(r"\{owner\}|:owner\b")
+API_REPO_RE = re.compile(r"\{repo\}|:repo\b")
+# -R の無い投稿の宛先を gh が引く repo と remote を、同じコマンドの中で替えうるコマンド(gh repo set-default・remote の
+# 追加と書き換え・clone・init など)。gh repo view を引くのはコマンドが走る前なので、引いた repo が投稿の宛先と違いうる
+GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
+GIT_RETARGET_SUBS = {"init", "clone"}
+GIT_REMOTE_READS = {"get-url", "show"}
+GH_RETARGET_SUBS = {("repo", "set-default"), ("repo", "clone"), ("repo", "fork"), ("repo", "create"), ("repo", "rename")}
 
 
 def patterns():
@@ -87,6 +112,11 @@ def current_repo(cwd):
     (origin とは限らない。https://cli.github.com/manual/gh_repo_set-default)。投稿と同じ解き方の
     `gh repo view --json nameWithOwner` で引く(機械向けの形。docs/standards/machine-readable-values.md の決まり 2)。
     cwd ごとに 1 回だけ引き(1 本のコマンドの中の、-R の無い gh を同じ cwd で何度も引かない)、引く時間の合計は GH_BUDGET で縛る。"""
+    if not os.path.isdir(cwd):
+        # まだ無い場所(`git clone … /tmp/p && cd /tmp/p && gh …`)。cr.Screen は無い場所をフックの場所に替えて引くので、
+        # 引かずに宛先不明にする(前はフックの場所の repo を宛先と取り違えて通していた)
+        cr.log_line(DENY_LOG, "gh が走る場所が無い: %s" % cwd[:150])
+        return None
     try:
         # gh の呼び方(差し替えの口 COLDREAD_GH_CMD・時間の上限)は coldread の画面の取得と同じ 1 本
         screen = cr.Screen(cwd)
@@ -121,12 +151,71 @@ def text_value(args, i, sub):
     return sub in cr.NEW_ITEM_SUBS and prev in ({*cr.CREATE_VALUE_FLAGS, *cr.CREATE_VALUE_FLAGS.values()} - {"-R", "--repo"})
 
 
-def dest_of(args, sub, cwd, dest_env=False):
+def selector_of(args, sub):
+    """サブコマンドの後の最初の位置引数(投稿先の issue・PR を選ぶ語)。無ければ None。
+
+    読み方は coldread の positional_after と同じで、違うのは、サブコマンドごとの値を取らない旗(SWITCH_FLAGS)の後の語を
+    旗の値と見ないこと。前は全部の旗を値を取ると見て、`gh pr merge --squash <URL>` の URL を旗の値と読み、URL の repo に加えて
+    走る場所の repo も宛先と見て止めていた。"""
+    switches = SWITCH_FLAGS.get(tuple(sub[:2]), set())
+    i, seen, after_flag = 0, 0, False
+    while i < len(args):
+        tok = args[i]
+        width = cr.global_flag_width(tok)
+        if width:
+            i += width
+            continue
+        if seen < len(sub):
+            seen += 1
+            i += 1
+            continue
+        if tok.startswith("-") and tok != "-":
+            after_flag = "=" not in tok and tok not in switches   # --旗=値 は値込みなので次の語は位置引数
+        elif after_flag:
+            after_flag = False  # 直前の旗の値
+        elif not tok.startswith("__HEREDOC"):
+            return tok
+        i += 1
+    return None
+
+
+def retargets(args):
+    """単純コマンド 1 件(語の列)が、-R の無い gh が宛先に選ぶ repo を替えうるか(GIT_RETARGET_SUBS・GH_RETARGET_SUBS など)。"""
+    i = cr.command_start(args)
+    name = os.path.basename(args[i]) if i < len(args) else ""
+    rest = args[i + 1:]
+    if name == "gh":
+        sub = cr.subcommand(rest)
+        if sub is None:
+            return False   # サブコマンドを読めない gh は、投稿なら dest_of が宛先不明にする
+        # `gh repo set-default --view`(-v)は今の設定を出すだけ
+        return tuple(sub) in GH_RETARGET_SUBS and not (sub == ("repo", "set-default") and {"-v", "--view"} & set(rest))
+    if name != "git":
+        return False
+    j = 0
+    while j < len(rest) and rest[j].startswith("-"):
+        j += 2 if rest[j] in GIT_VALUE_OPTS else 1
+    if j >= len(rest):
+        return False
+    sub, more = rest[j], rest[j + 1:]
+    if sub in GIT_RETARGET_SUBS:
+        return True
+    if sub == "remote":
+        # 一覧を出すだけの形(`git remote`・`git remote -v`・get-url・show)は替えない
+        words = [t for t in more if t not in ("-v", "--verbose")]
+        return bool(words) and words[0] not in GIT_REMOTE_READS
+    if sub == "config":
+        # remote.<名>.url・remote.<名>.gh-resolved(gh repo set-default の印)を書く形
+        return any(t.lower().startswith("remote.") for t in more)
+    return False
+
+
+def dest_of(args, sub, cwd, here_unknown=False):
     """gh 引数列から投稿の宛先になりうる repo の集まりを返す。分からなければ None。
 
     呼び元は、集まりの全部が許可一覧に在るときだけ通す。cwd はその gh が走る場所(前の `cd <絶対パス> &&` を読んだもの。
-    決まらなければ None)。dest_env は、gh が -R の無い投稿の宛先を引く環境変数(GH_REPO・GIT_DIR など。DEST_ENV_RE)を、
-    コマンドが書いているか殻の環境に在る。"""
+    決まらなければ None)。here_unknown は、gh が -R の無い投稿の宛先を引く環境変数(GH_REPO・GIT_DIR など。DEST_ENV_RE)を
+    コマンドが書いているか殻の環境に在るか、同じコマンドの中に宛先の repo を替えうるコマンド(retargets)が在る。"""
     # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)。旗の読み方は coldread と同じ 1 本(cr.flag_value)。
     # 何度も書けば gh は最後の値を使うので、全部を読み、食い違えば宛先不明にする(前は最初の値だけを見ていて、
     # `-R 許可した/repo -R 外/repo` を許可一覧の repo と取り違えて通していた)
@@ -146,6 +235,14 @@ def dest_of(args, sub, cwd, dest_env=False):
         if len(sub) < 2:
             return None
         path = re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/")
+        if API_OWNER_RE.search(path) or API_REPO_RE.search(path):
+            # `repos/{owner}/{repo}/…` の印は、gh が -R の無い投稿と同じ repo で埋める。同じ解き方で引いて埋める
+            # (前は字のまま `{owner}/{repo}` を宛先と読み、一覧の repo への投稿まで止めていた)
+            here = None if here_unknown or not cwd else current_repo(cwd)
+            if here is None:
+                return None
+            owner, name = here.split("/")
+            path = API_REPO_RE.sub(lambda _: name, API_OWNER_RE.sub(lambda _: owner, path))
         seg = [p for p in path.split("/") if p]
         if len(seg) >= 3 and seg[0] == "repos":
             return {f"{seg[1]}/{seg[2]}"} | explicit
@@ -162,12 +259,13 @@ def dest_of(args, sub, cwd, dest_env=False):
         return None
     # URL が投稿先を選ぶ位置(サブコマンドの後の最初の位置引数)に在れば、それが宛先。旗の後ろの URL(`--approve <URL>`)は
     # 旗の値か投稿先かを決めきれないので、URL の repo と、-R の無いときの宛先の両方を宛先になりうると見る
-    selector = cr.positional_after(args, sub)
+    selector = selector_of(args, sub)
     if urls and sub and sub[0] in URL_SELECTOR_SUBS and selector and ITEM_URL_RE.match(selector):
         return explicit
     # 明示が無ければ gh が GH_REPO か、走る場所のリポジトリから選んだ repo へ投稿する。GH_REPO・GIT_DIR などの値と走る場所が
-    # 読み切れないときは宛先不明にする(フックの cwd で引くと、別のリポジトリへの投稿を許可一覧の repo と取り違える)
-    if dest_env or not cwd:
+    # 読み切れないとき・同じコマンドの中で宛先の repo を替えうるとき(`gh repo set-default 外/repo && gh pr create …`・
+    # `git remote set-url …`)は宛先不明にする(フックの cwd で引くと、別のリポジトリへの投稿を許可一覧の repo と取り違える)
+    if here_unknown or not cwd:
         return None
     here = current_repo(cwd)
     return None if here is None else explicit | {here}
@@ -194,7 +292,8 @@ def main():
         return
     # 解析の入口は coldread と同じ cr.analyze 1 本。ここで独自に組むと、片方だけ
     # 正規化が入って宛先検査が黙って外れる(行継続の穴のとき現にそうなっていた)。gh が走る場所(前の cd)も同じ読み方で取る
-    analysis = cr.analyze(command, raw.get("cwd") or None)
+    prepared = cr.prepare(command)
+    analysis = cr.analyze(command, raw.get("cwd") or None, prepared)
     snippet = command[:150].replace("\n", " ")
     if not analysis.parsed:
         # 解析できない gh のコマンドは宛先を確かめられないので通さない。宛先の軸は coldread(通じやすさの軸)に任せず
@@ -205,14 +304,16 @@ def main():
     # GH_REPO・GIT_DIR などはコマンドのどこで書いても(前置・export)後の gh に効くので、値を追わず、書いてあれば -R の無い
     # 宛先を不明にする。Bash のコマンドは Claude Code の環境を継ぐので、この殻の環境に在るときも同じに見る
     # (前は GH_REPO だけを見ていて、`GIT_DIR=<別の repo>/.git gh …` を走る場所の repo と取り違えて通していた)
-    dest_env = bool(DEST_ENV_RE.search(cr.prepare(command)[0])
+    dest_env = bool(DEST_ENV_RE.search(prepared[0])
                     or any(DEST_ENV_RE.fullmatch(k) and v for k, v in os.environ.items()))
+    # 宛先の repo を替えうるコマンドは、gh の前でも後でも見る(繰り返しの中・`&` で並べた物は後に書いても先に走りうる)
+    retargeted = any(retargets(c.args) for c in cr.split_commands(cr.tokenize(prepared[0])))
     for sub, args, candidates, blocked, cwd in analysis.calls:
         if not candidates and not blocked:
             continue  # 投稿の形をしていない
         if sub and sub[0] == cr.DISPATCH_SUB:
             continue  # works-dispatch の納品・頼みは手元の会社の中で届き、GitHub の宛先を持たない(本文は coldread が読む)
-        dests = dest_of(args, sub, cwd, dest_env)
+        dests = dest_of(args, sub, cwd, dest_env or retargeted)
         if dests is None:
             gate_shell.refuse(cr, "destgate", "deny 宛先不明: " + snippet,
                               "外部投稿ゲート(destgate): 宛先の許可制が有効だが、この投稿の宛先を"

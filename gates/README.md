@@ -490,9 +490,12 @@ The second gatekeeper, restricting a different axis from coldread: "may this be 
 - If `$CLAUDE_CONFIG_DIR/destgate/allowlist` does not exist, it does nothing. Creating it turns it on
 - The format is one pattern per line: `owner/repo`, `owner/*`, `gist` (lines starting with # and empty lines are ignored)
 - The destination is determined in the same order gh itself resolves it: `-R/--repo` → the `gh api`
-  path `repos/{owner}/{repo}` or `orgs/{org}` → if neither, the repository gh picks for the current directory
+  path `repos/<owner>/<repo>` or `orgs/<org>` (the `{owner}`/`{repo}` and `:owner`/`:repo` placeholders are filled with the
+  repository gh picks for the current directory, as gh does) → if neither, the repository gh picks for the current directory
   (`gh repo view --json nameWithOwner`; not `origin`, because gh may pick the `gh repo set-default` repository or another remote).
-  Posts whose destination cannot be identified are stopped with a request to specify `-R` explicitly
+  Posts whose destination cannot be identified are stopped with a request to specify `-R` explicitly. This includes a post run from a
+  directory that does not exist yet, and a post whose command also runs something that can change which repository gh picks
+  (`gh repo set-default`/`clone`/`fork`/`create`/`rename`, `git init`/`clone`, `git remote add`/`set-url`/…, `git config remote.*`)
 - **There is no escape hatch**. To let something through, a person adds it to the list — that addition becomes the record
 - **Managing the list is a person's job**. A model that received a deny editing the list itself to get through would be disabling the gatekeeper,
   and the deny message forbids it too (it cannot be enforced by machine, so it is stated as a rule)

@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=817
+EXPECTED_CHECKS=828
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5581,6 +5581,33 @@ expect_output 0 "特定できない" "destgate: 環境に GIT_DIR が在れば�
 # サブコマンドを読めない gh は、走る場所の repo に倒さない。前は倒していて、api のパスの repo(一覧外)への投稿を通していた
 expect_output 0 "特定できない" "destgate: サブコマンドを読めない投稿は、-R が無ければ宛先不明で止める" \
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh api --bogus repos/evil/place/issues/1/comments -f body='宛先検査のテスト本文です'"
+# 値を取らない旗(--squash・--edit-last・pr review の -c など。サブコマンドごとの表)の後の PR の URL は、投稿先を選ぶ位置引数。
+# 前は全部の旗を値を取ると見て、URL の repo に加えて走る場所の repo(一覧外)も宛先と見て止めていた
+expect_output 0 "ALLOW_EMPTY" "destgate: 値を取らない旗(--squash --delete-branch)の後の PR の URL の repo を宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh pr merge --squash --delete-branch https://github.com/good/things/pull/3 --body 'テストの本文です'"
+expect_output 0 "ALLOW_EMPTY" "destgate: 値を取らない旗(--edit-last)の後の PR の URL の repo を宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh pr comment --edit-last https://github.com/good/things/pull/3 -b 'テストの本文です'"
+expect_output 0 "ALLOW_EMPTY" "destgate: pr review の -c(値を取らない)の後の PR の URL の repo を宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh pr review -c https://github.com/good/things/pull/3 -b 'テストの本文です'"
+expect_output 0 "許可一覧に無い" "destgate: pr close の -c(本文の値を取る)の値の URL は投稿先と読まない" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh pr close -c https://github.com/good/things/pull/3 5"
+# まだ無い場所では gh に宛先を引かせない(前はフックの場所で引き、その repo を宛先と取り違えて通していた)。フックは一覧内の repo で起動する
+expect_output 0 "特定できない" "destgate: 移った先がまだ無い場所なら、宛先不明で止める" \
+    sh -c 'cd "$0" && exec "$@"' "$DG_REPO_OK" env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "git clone https://github.com/evil/place $WORK/dg-not-yet && cd $WORK/dg-not-yet && gh issue create -t t -b 'テストの本文です'"
+# 同じコマンドの中で gh が宛先に選ぶ repo を替える(set-default・remote の書き換え)なら、走る前に引いた repo は宛先と違いうる
+expect_output 0 "特定できない" "destgate: 同じコマンドで gh repo set-default を打った -R 無しの投稿は、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh repo set-default evil/place && gh pr create -t t -b 'テストの本文です'"
+expect_output 0 "特定できない" "destgate: 同じコマンドで git remote set-url を打った -R 無しの投稿は、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "git remote set-url origin https://github.com/evil/place && gh issue comment 1 --body 'テストの本文です'"
+expect_output 0 "ALLOW_EMPTY" "destgate: remote の一覧を出すだけ(git remote -v)なら、今までどおり宛先を引く" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "git remote -v && gh issue comment 1 --body 'テストの本文です'"
+# gh api のパスの {owner}・{repo} は、gh が -R 無しの投稿と同じ repo で埋める。前は字のまま {owner}/{repo} を宛先と読んで止めていた
+expect_output 0 "ALLOW_EMPTY" "destgate: gh api の {owner}/{repo} を走る場所の repo で埋める(一覧内)" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh api repos/{owner}/{repo}/pulls/3/comments/9/replies -f body='宛先検査のテスト本文です'"
+expect_output 0 "宛先 evil/place は" "destgate: gh api の {owner}/{repo} を埋めた repo が一覧外なら deny" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh api repos/{owner}/{repo}/pulls/3/comments/9/replies -f body='宛先検査のテスト本文です'"
+expect_output 0 "宛先 evil/things は" "destgate: gh api の字の owner と {repo} の組は、{repo} だけを埋める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh api repos/evil/{repo}/issues/1/comments -f body='宛先検査のテスト本文です'"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib
