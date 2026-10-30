@@ -75,9 +75,15 @@ def check(gs):
             print(f"NG {where[0]}: 写しだと名乗っているのに写し先が無い(配られていない。印を外すか、配れ)")
             bad = 1
             continue
-        if len({p.read_bytes() for p in ps}) > 1:
-            print(f"NG {name}: 写しが割れている({where})——1 か所で直して配れ: "
-                  f"python3 scripts/shared-copies.py --sync {where[0]}")
+        kinds = {}
+        for p in ps:
+            kinds.setdefault(p.read_bytes(), []).append(rel(p))
+        if len(kinds) > 1:
+            # 配る元は直した 1 本で、どれかは機械に決められない。並びの頭の 1 本を案内していたとき、古い写しで
+            # 直した 1 本を上書きさせた。中身ごとの組を出し、指すのは直した 1 本と書く
+            split = " / ".join("・".join(fs) for fs in sorted(kinds.values(), key=len))
+            print(f"NG {name}: 写しが割れている(中身の同じ組: {split})——直した 1 本を指して配れ: "
+                  f"python3 scripts/shared-copies.py --sync <直した 1 本>")
             bad = 1
     if bad:
         return 1

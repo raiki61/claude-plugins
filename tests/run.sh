@@ -2459,7 +2459,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=818
+EXPECTED_CHECKS=804
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6217,7 +6217,9 @@ expect_output 0 "PYTHON_LAUNCH_OK" "Python の起動の形のチェック: 全�
 # **配布の必須依存は増えない**: shellcheck は利用者が入れる物ではなく、CI と開発者の手元で動くツールである
 # （README の「必須」は git / python3 / bash のまま）。
 # 手元に在れば回す。無ければ回さないが、**黙って消えない**——下の CI_LINT_OK が「CI が回す設定か」を見る。
-if command -v shellcheck >/dev/null 2>&1; then
+if [ "${TESTS_COUNT_ONLY:-}" = 1 ]; then
+    :   # 数えるだけの回は走らせない（件数は下で数える）
+elif command -v shellcheck >/dev/null 2>&1; then
     sc_bad=0
     while IFS= read -r f; do
         shellcheck -S warning "$f" || sc_bad=1
@@ -8832,6 +8834,25 @@ expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループ
 # 直す側と見る側が別々に古くなる。走査対象は印から導く（名前を手で並べない）。
 expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(認証の段)が、写し先を持ちバイト単位で同一" \
     "$PY_BIN" "$ROOT/scripts/shared-copies.py"
+# 割れたときの案内が、並びの頭の写しを配る元に名指ししない（頭が古い写しだと、直した 1 本をそれで上書きさせた）
+expect_output 0 "SHARED_SPLIT_HINT_OK" "写しが割れたときの案内が、古い写しを配る元に名指しせず、中身の同じ組を出す" \
+    "$PY_BIN" - "$ROOT/scripts/shared-copies.py" "$WORK/shared-split" <<'PY'
+import contextlib, importlib.util, io, pathlib, sys
+spec = importlib.util.spec_from_file_location("shared_copies", sys.argv[1])
+sc = importlib.util.module_from_spec(spec); spec.loader.exec_module(sc)
+root = pathlib.Path(sys.argv[2]); sc.ROOT = root
+ps = []
+for d, body in (("a", b"old"), ("b", b"old"), ("c", b"new")):
+    (root / d).mkdir(parents=True); (root / d / "x.py").write_bytes(body); ps.append(root / d / "x.py")
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    rc = sc.check({"x.py": ps})
+got = out.getvalue()
+assert rc == 1, rc
+assert "--sync a/x.py" not in got, got
+assert "c/x.py / a/x.py・b/x.py" in got and "--sync <直した 1 本>" in got, got
+print("SHARED_SPLIT_HINT_OK")
+PY
 # **リポジトリの文の、IT の定着語でない言い方の件数が、ファイルごとに基準どおりであること。** 見る口は scripts/terms.py の 1 本
 # （基準は scripts/terms-baseline.json）。--land のゲート（会社の形 .claude/company.toml の [land] の check）でも回すが、main は
 # GitHub で保護しておらず、--land を通さずに手で push する道もある（docs/releasing.md）ので、main に入った後の CI でも同じ口で見る
@@ -9076,9 +9097,14 @@ print("LAND_CHECK_OK")
 PY
 
 # 数えるだけの回の件数が、全部を回したこの回の件数（下のチェック）と合う。合わなくなるのは、前の検査の結果で検査を足し引きする書き方を
-# 入れたとき（数えるだけの回は結果を作らない）。数えるだけの回では、この検査自身も走らずに 1 件に数える
+# 入れたとき（数えるだけの回は結果を作らない）。数えるだけの回では、この検査自身も走らずに 1 件に数える。
+# 子の見送りの行は落として渡す——子は expect_output の外で出す見送り（FIFO・shellcheck など）をこの回と同じに出すので、
+# そのまま expect_output の note_skips に渡ると同じ見送りを二重に数える
 expect_output 0 "COUNT_ONLY_MATCH" "数えるだけの回（TESTS_COUNT_ONLY=1）の検査の件数が、全部を回した回の件数のチェックと合う" \
-    env TESTS_COUNT_ONLY=1 bash "$ROOT/tests/run.sh"
+    bash -c 'set -o pipefail; env TESTS_COUNT_ONLY=1 bash "$1" | grep -v -F "$2"' _ "$ROOT/tests/run.sh" "$SKIP_MARK"
+# 同じ見送りを二重に数えていない（上の子の見送りの行をそのまま数えていたとき、見送りの件数と FAIL_ON_SKIP の数が倍になった）
+expect_output 0 "SKIPS_UNIQUE" "同じ見送りの行を二重に数えていない" \
+    bash -c 'd=$(printf "%s\n" "$@" | sort | uniq -d); [ -z "$d" ] && echo SKIPS_UNIQUE || printf "二重に数えた見送り:\n%s\n" "$d"' _ ${SKIPS[@]+"${SKIPS[@]}"}
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"
