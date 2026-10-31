@@ -596,12 +596,17 @@ def without_quoted_bodies(cr, command):
     return "".join(out) + command[at:]
 
 
-def check_command(cr, command, cwd, depth=0, outer=None):
+def check_command(cr, command, cwd, depth=0, outer=None, held=None):
     """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。outer は、このコマンドが外のコマンドの $( … )・bash -c・eval・
-    ヒアドキュメントの中身のとき、外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。"""
+    ヒアドキュメントの中身のとき、外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。held は、
+    command が外のコマンドの $( … )・<( … )・` … ` の中身のとき、外の prepare が抜いたヒアドキュメントの本文の並び。"""
     if depth > MAX_DEPTH or not command.strip():
         return
     text, bodies = cr.prepare(command)
+    if held and not bodies:
+        # 外の prepare が本文を印(__HEREDOC0__)に替えた後の中身なので、中の印は外の本文を指す(前は本文を持たずに読み直し、
+        # `x=$(bash <<'EOF'` の本文の rg foo /・`$(cat <<EOF` の本文の `$(find / …)` を通していた)
+        bodies = held
     if text is None:
         # 正規化で読めない形(`$[`・`$$(`・`<<\EOF` など。prepare が None を返す)は、どのコマンドがどこで走るかを決められない
         # ので止める(検査自体の失敗として)。字面の find だけを拾うと、`: $[0]; rg foo /`・`: $[0]; cd / && find .` を通す。
@@ -644,7 +649,7 @@ def check_command(cr, command, cwd, depth=0, outer=None):
             # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、
             # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
             for inner in inners:
-                check_command(cr, inner, here, depth + 1, files.at(k, c.args[:at]))
+                check_command(cr, inner, here, depth + 1, files.at(k, c.args[:at]), bodies)
             check_simple(cr, files.at(k, c.args[:at]), cmds, k, c.args[at:], bodies, here, depth)
     # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、` を語に持つコマンドの走りうる
     # 場所のどれでも見る(` の語が無ければ、フックの cwd と各コマンドの cwd)。前はフックの cwd だけで見て、
@@ -655,7 +660,7 @@ def check_command(cr, command, cwd, depth=0, outer=None):
     for inner in substitutions(text, bare=False):
         if inner not in seen:
             for place in ticks or places:
-                check_command(cr, inner, place, depth + 1, files if cmds else outer)
+                check_command(cr, inner, place, depth + 1, files if cmds else outer, bodies)
 
 
 def command_words(cr, words):

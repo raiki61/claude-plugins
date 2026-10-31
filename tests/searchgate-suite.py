@@ -640,6 +640,20 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0])
 
+    def test_heredocs_inside_a_substitution_are_read(self):
+        # $( )・<( ) の中のヒアドキュメントの本文も読む(中のシェルが走らせる本文と、区切りを引用しない本文の $( ))。前は中身を
+        # 読み直すときに本文を持たず、`x=$(bash <<'EOF'` の本文の rg foo / を通していた。区切りを引用した本文の字は今までどおり通す
+        for command in ("x=$(bash <<'EOF'\nrg foo /\nEOF\n)", "x=$(sh -s <<EOF\nfind / -name x\nEOF\n)",
+                        "for f in $(cat <<EOF\n$(find / -name '*.log')\nEOF\n); do echo $f; done",
+                        "diff <(cat <<EOF\n$(rg foo /)\nEOF\n) b", "x=$(bash <<'EOF'\ncd /\nrg foo .\nEOF\n)",
+                        "x=\"$(bash <<'EOF'\nrg foo /\nEOF\n)\"", "echo \"$(cat <<EOF\n$(rg foo /)\nEOF\n)\"",
+                        "x=`bash <<'EOF'\nrg foo /\nEOF\n`"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        for command in ("x=$(cat <<'EOF'\nrg foo /\nEOF\n)", "x=$(bash <<'EOF'\nrg foo src\nEOF\n)"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+
     def test_fd_exec_command_is_read(self):
         # fd の -x・-X・--exec・--exec-batch の後ろのコマンドも探すコマンドとして読む(前は読まず、`fd foo -x rg y / {}` を通していた)
         for command in ("fd foo -x rg y / {}", "fd -e py -X rg -l foo /", "fd -Hx rg y /", "fd --exec=rg y /",
