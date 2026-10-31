@@ -3347,8 +3347,9 @@ SUB_DEPTH = 4
 # 中に引用符を持つ置換の中身を替える埋め草。変数の名前に使えない字にする(_ だと `${x:-"…"}` が `${____}` という名前の
 # 変数に見え、前の `____=…` の代入の値を本文と読んでいた)
 SUB_FILL = "."
-# ${ } の中身の頭の、変数の名前(長さの # と間接の ! と、配列の添字を含む)
-_PARAM_NAME_RE = re.compile(r"^[#!]?(?:\w+(?:\[[^\]]*\])?|[@*#?$!-])")
+# ${ } の中身の頭の、変数の名前(長さの # と間接の !)。配列の添字は外さない(添字の中の $( ) も走るので、`"${a[$(gh …)]}"` の
+# gh を落としていた)
+_PARAM_NAME_RE = re.compile(r"^[#!]?(?:\w+|[@*#?$!-])")
 
 
 def read_substitutions(norm, spans, heredoc_bodies, depth):
@@ -3370,7 +3371,9 @@ def read_substitutions(norm, spans, heredoc_bodies, depth):
                 # 中の $( )・`…` は走るかが値しだいなので、走る物として読む(前は読めない物として止め、`B=${B:-$(git branch
                 # --show-current)}; gh pr list` のような読むだけのコマンドまで止めていた)。名前を外した残り(:-$(…) など)を
                 # : の引数の語にして読む
-                if depth >= SUB_DEPTH:
+                # 二重引用の中の ${ } の ' は引用でなく字で、`"${X:-'$(gh …)'}"` の gh も走る。: の語にすると ' が中身を隠すので、
+                # 前と同じく読めない物とする
+                if depth >= SUB_DEPTH or (in_dq and "'" in body):
                     return None, None
                 sub = analyze(None, None, (": " + _PARAM_NAME_RE.sub("", body, count=1), heredoc_bodies), depth + 1)
                 if not sub.parsed:

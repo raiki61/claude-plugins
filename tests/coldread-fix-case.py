@@ -17,7 +17,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 commit 9d3d014e の版を渡すと赤になる。70 以降は投稿の前のゲートの 20 回目のレビュー(頼み cae1e2)の直しで、
 commit d54ac54b の版を渡すと赤になる。73 以降は投稿の前のゲートの 21 回目のレビュー(頼み cae1e2)の直しで、
 commit 13863e1c の版を渡すと赤になる。76 以降は投稿の前のゲートの 22 回目のレビュー(頼み cae1e2)の直しで、
-commit 534be7ad の版を渡すと赤になる。
+commit 534be7ad の版を渡すと赤になる。79・80 は land の前のレビュー(頼み cae1e2)の直しで、81 は 79 の直し(commit c50bc73d)
+が持ち込んだ素通しで、c50bc73d の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1465,8 +1466,21 @@ def f80():
         _, out = run_main("gh issue comment 1 --body-file /nonexistent/x.md", WORK)
     check(80, '"deny"' in out, "wants_skip が落ちたときに止めなかった: %r" % out[:200])
 
+# 81. 二重引用の中の ${ } の ' は引用でなく字で、中の $( ) は走る。配列の添字の中の $( ) も走る(c50bc73d4 で ${ } の中を読むように
+# したとき、' と添字が中の gh を隠し、`X="${X:-'$(gh …)'}"`・`"${a[$(gh …)]}"` の投稿を無検査で通していた)
+def f81():
+    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
+        f.write(BODY)
+    for cmd in ("X=\"${X:-'$(gh pr comment 1 --body-file x.md)'}\"", "X=\"${X:+'`gh pr comment 1 --body-file x.md`'}\"",
+                "X=\"${Y:-${X:-'$(gh pr comment 1 --body-file x.md)'}}\"", 'echo "${arr[$(gh pr comment 1 --body-file x.md)]}"',
+                'echo ${arr["$(gh pr comment 1 --body-file x.md)"]}'):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(81, not parsed or cands == [BODY] or bool(blk), "${ } の中の ' か添字が gh の投稿を隠した: %r → %r %r %r" % (cmd, cands, blk, parsed))
+    a = g.analyze("X=${X:-'$(gh pr comment 1 --body-file x.md)'}; gh pr list", WORK)
+    check(81, a.parsed, "引用の外の ${ } の中の単一引用(走らない)まで読めない物とした: %r" % (a.why,))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77, 78: f78, 79: f79, 80: f80})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77, 78: f78, 79: f79, 80: f80, 81: f81})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
