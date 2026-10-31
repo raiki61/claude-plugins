@@ -78,6 +78,11 @@ jobs:
       - name: install pyyaml
         shell: bash
         run: '"$(command -v python3 || command -v python)" -m pip install pyyaml==6.0.3'
+      # 台帳の検査（tests/run.sh の「graphloops: 台帳の検査」。pytest graphloops/tests/py -k test_ledger）が使う。版は下の pytest の job と同じ。
+      # 無ければ「# SKIP pytest」の見送りになり、SKIP_ALLOW に無いので FAIL_ON_SKIP=1 で赤になる。入れる先は上の pyyaml と同じ解釈系
+      - name: install pytest
+        shell: bash
+        run: '"$(command -v python3 || command -v python)" -m pip install pytest==9.1.1'
       # 独立した段は OS のうち 1 本だけで回す（tests/run.sh の中の同じ検査と ubuntu で二重に走るのは数秒で、段を残しても能力は減らない）。深さは tests/run.sh の
       # 手元の検査と同じ -S warning——片方だけ深くすると、手元で緑・CI で赤（またはその逆）になって、どちらが正本か分からなくなる。
       - name: shellcheck

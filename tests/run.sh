@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=876
+EXPECTED_CHECKS=877
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6957,6 +6957,22 @@ else
 expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・チェックの腕）が通り、件数が期待どおり" \
     env ${GL_SHARD_ENV[@]+"${GL_SHARD_ENV[@]}"} bash "$ROOT/graphloops/tests/run.sh"
 fi
+# ---- graphloops: 台帳（graphloops/tests/py/ledger.py。台本の check ごとの行き先と、MIGRATION.md の刷った塊） ----
+# 上の模擬実行はメインブランチに入れるゲートの回で見送るので、台本を変えて塊を刷り直し忘れた変更が、main に入った後の CI の pytest の job で
+# 初めて赤になった（2026-10-31 の run 41198607323。頼み e70e75）。台帳だけなら 10 秒ほどなので、入力が変わった回はゲートでも回す（頼み 992323）。
+# 入力は台本（graphloops/tests/ の直下の .py。印が名乗るモジュールを ledger.py が読む）と置き場（graphloops/tests/py/。印・台帳・塊）。
+# 台帳は置き場のテストを全部集めた回でしか組めない（test_ledger.py の _found）ので、置き場を丸ごと渡して -k で選ぶ。-n は付けない（pytest-xdist を要らなくする）
+scope graphloops/tests/
+if "$PY_BIN" -c 'import pytest' 2>/dev/null; then
+expect_output 0 " passed" "graphloops: 台帳の検査（台本の check ごとの行き先と MIGRATION.md の刷った塊が今の台本と印に合う。pytest graphloops/tests/py -k test_ledger）" \
+    "$PY_BIN" -m pytest -q -p no:cacheprovider "$ROOT/graphloops/tests/py" -k test_ledger
+else
+    ledger_skip="  ok   graphloops: 台帳の検査 # SKIP pytest: pytest が手元に無い（CI の test の job は入れる。版は .github/workflows/test.yml の pytest の job と同じ）"
+    echo "$ledger_skip"
+    note_skips "$ledger_skip"
+    ran=$((ran + 1))
+fi
+scope
 
 # **変異の腕の字列が、今の版に 1 か所ずつ在る。** 腕の一覧（tests/mutations.json）はリポジトリに置き、チェックを直す差分が
 # 同じ変更で腕も直す（経緯は tests/mutate.py の docstring）。撃つのは重いので台本では走らせず、字列と証拠の口
