@@ -1325,8 +1325,34 @@ def f73():
             check(73, '"deny"' in proc.stdout, "%s が展開を重ねた語の後ろのコマンドを止めなかった: %r → %r %r"
                   % (hook, cmd[:40], proc.stdout[:200], proc.stderr[-200:]))
 
+# 74. 引用の中の ( ) が語の一部なら(`--title "feat(gates): y"`・`cd "$(dirname …)"`)、gh より前に閉じたサブシェル・置換の中の cd を
+# 今までどおり見ない(前はコマンドのどこかに引用か \ の後の ( ) が 1 つでも在れば閉じたと読まず、本文ファイルの相対のパスを
+# 決まらない物として止めた)。引用か \ の後の ( ) だけの語(`echo ")"`・`echo \)`)は字句解析が区切りに数えるので、今までどおり止める
+def f74():
+    sub = os.path.join(WORK, "sub")
+    os.makedirs(sub, exist_ok=True)
+    other = BODY + "(sub)"
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    for cmd in ('(cd %s && make) && gh pr create --title "feat(gates): y" --body-file x.md',
+                'out=$(cd %s && git log -1); gh pr create --title "fix(x): y" --body-file x.md',
+                'root=$(cd "$(dirname %s/x.md)" && pwd); gh pr comment 1 --body-file x.md',
+                "x=$(cd %s && echo '(a)'); gh pr comment 1 --body-file x.md", "x=$(cd %s && echo a\\(b); gh pr comment 1 --body-file x.md"):
+        cmd = cmd % sub
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(74, parsed and cands == [BODY] and not blk, "語の一部の引用の中の ( ) で閉じたサブシェルを読まなかった: %r → %r %r" % (cmd, cands, blk))
+    calls = g.analyze('(cd %s && make) && gh pr create --title "feat(gates): y" -b hi' % sub, WORK).calls
+    check(74, [c[4] for c in calls if c[0] == ("pr", "create")] == [WORK], "引用の中の ( ) で宛先の場所を見失った: %r" % calls)
+    for cmd in ('(cd %s && echo ")" && gh pr comment 1 --body-file x.md)', "(cd %s && echo ')' && gh pr comment 1 --body-file x.md)",
+                "(cd %s && echo $')' && gh pr comment 1 --body-file x.md)", '(cd %s && echo ")"")" && gh pr comment 1 --body-file x.md)',
+                "(cd %s && echo \\) && gh pr comment 1 --body-file x.md)", 'x=$(cd %s && echo ")"); gh pr comment 1 --body-file x.md'):
+        cmd = cmd % sub
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(74, not parsed or bool(blk), "引用か \\ の後の ) だけの語を閉じと読んで本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

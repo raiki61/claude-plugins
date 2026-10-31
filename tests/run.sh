@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=843
+EXPECTED_CHECKS=844
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5754,6 +5754,17 @@ for c in "(cd $ng && gh issue comment 1 --body hi)" "cd $ng && (gh issue comment
   "$@" "$c" | grep -q "宛先 evil/place は" || { ok=0; echo "通した: $c"; }
 done
 [ $ok = 1 ] && echo DG_SUBSHELL_CD_OK' sh "$DG_REPO_NG" env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
+# 引用の中の ( ) が語の一部なら(`--title "feat(x): y"`)、閉じたサブシェルの中の cd は今までどおり見ない(前はコマンドのどこかに
+# 引用の中の ( ) が在れば宛先不明にした)。引用の ) だけの語(`echo ")"`)は字句解析が閉じに数えるので、今までどおり宛先不明にする
+expect_output 0 "DG_QUOTED_PAREN_CD_OK" "destgate: 語の一部の引用の中の ( ) は、閉じたサブシェルの中の cd の読みを止めない" \
+    sh -c 'ok=1; ng=$1; shift
+for c in "(cd $ng && make) && gh issue comment 1 --body \"feat(x): y\"" "root=\$(cd \"\$(dirname $ng/x)\" && pwd); gh issue comment 1 --body hi"; do
+  [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+done
+for c in "(cd $ng && echo \")\" && gh issue comment 1 --body hi)" "(cd $ng && echo \\) && gh issue comment 1 --body hi)"; do
+  "$@" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
+done
+[ $ok = 1 ] && echo DG_QUOTED_PAREN_CD_OK' sh "$DG_REPO_NG" env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
 # コマンド名の位置の展開だけの語(`$(true) gh …`・`env $(cat .env | xargs) gh …`)は越えて後ろの gh の宛先を見る。展開は GH_REPO= にも
 # 開きうるので、-R の無い投稿は宛先不明にする(前はその語をコマンド名と読み、gh を見ずに通していた)
 expect_output 0 "DG_EXPANSION_HEAD_OK" "destgate: 展開だけのコマンド名の後ろの gh の宛先を見て、-R が無ければ宛先不明にする" \

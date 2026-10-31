@@ -999,6 +999,9 @@ class Word(str):
     marked = None
     subs = ()
     rest = None
+    # 引用か \ の後の ( ) だけでできた語(`echo ")"` の `)`・`\(`)。split_commands は演算子の字だけの語を区切りと読むので、括弧の
+    # 区切りに数えるが、シェルは字と読む。tokenize が印を付け、閉じたサブシェルの読み(BodyFiles._closed_before)は印が在れば止める側に倒す
+    quoted_op = False
 
 
 def word_tail(tok, start):
@@ -1039,6 +1042,7 @@ def mark_words(norm, tokens):
             return tokens
         w = Word(tok)
         w.marked, w.subs, w.rest = m, getattr(tok, "subs", ()), getattr(tok, "rest", None)
+        w.quoted_op = getattr(tok, "quoted_op", False)
         words.append(w)
     return words
 
@@ -1490,19 +1494,82 @@ def tokenize(text, words=True):
             parts += [text[at:a], "%s%d%s" % (SUB_OPEN, k, SUB_CLOSE)]
             at = b + 1
         shown = "".join(parts) + text[at:]
-    lex = shlex.shlex(shown, posix=True, punctuation_chars="();<>|&\n")
+    tokens = _shlex_words(shown)
+    if tokens is None:
+        return None
+    if any(_paren_word(t) for t in tokens):
+        tokens = _mark_quoted_ops(shown, tokens)
+    if spans:
+        tokens = [_slot_word(t, text, spans) if SUB_OPEN in t else t for t in tokens]
+    return tokens
+
+
+def _shlex_words(text):
+    """text を shlex で語と区切りに割った並び。引用が閉じない等で割れなければ None。"""
+    lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"  # 改行は区切りの演算子として残す
     # shlex 自身の注釈処理は使わない(上で bash の規則どおりに落とした)。既定のままだと
     # 語の途中の # でも行末まで読み捨てるので、`--title fix#123 \` の次行の本文旗が消える。
     lex.commenters = ""
     lex.whitespace_split = True
     try:
-        tokens = list(lex)
+        return list(lex)
     except ValueError:
         return None
-    if spans:
-        tokens = [_slot_word(t, text, spans) if SUB_OPEN in t else t for t in tokens]
-    return tokens
+
+
+def _paren_word(tok):
+    """語 tok が、split_commands が区切りと読む演算子の字だけでできていて、( か ) を含むか。"""
+    return bool(tok) and ("(" in tok or ")" in tok) and all(c in OP_CHARS for c in tok)
+
+
+def _quoted_parens(text):
+    """text の、shlex が引用の中か \\ の後と読む ( ) の位置の並び。"""
+    out, i, quote = [], 0, None
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+            elif c in "()":
+                out.append(i)
+        elif c == "\\":
+            if text[i + 1:i + 2] in ("(", ")"):
+                out.append(i + 1)
+            i += 1
+        elif quote == '"':
+            if c == '"':
+                quote = None
+            elif c in "()":
+                out.append(i)
+        elif c in "'\"":
+            quote = c
+        i += 1
+    return out
+
+
+def _mark_quoted_ops(text, tokens):
+    """text を割った語の並び tokens のうち、引用か \\ の後の ( ) から来た括弧の語(`echo ")"` の `)`)に印(Word.quoted_op)を付けた並び。
+
+    引用・\\ の後の ( ) を字に替えた写しを同じ shlex に通し、括弧の語が写しで違う語になれば、その語は引用から来た物。替えるのは
+    1 字を 1 字にだけなので、語の切れ目は変わらない。それでも語の数が違えば、括弧の語の全部に印を付ける(止める側に倒す)。
+    前は引用か \\ の後の ( ) がコマンドのどこかに 1 つでも在れば閉じたサブシェルを読まず、`(cd sub && make) && gh pr create
+    --title "feat(gates): y"` の宛先と本文ファイルを決まらない物として止めていた。"""
+    spots = _quoted_parens(text)
+    if not spots:
+        return tokens
+    chars = list(text)
+    for i in spots:
+        chars[i] = "_"
+    masked = _shlex_words("".join(chars))
+    same = masked is not None and len(masked) == len(tokens)
+    out = []
+    for n, tok in enumerate(tokens):
+        if _paren_word(tok) and not (same and masked[n] == tok):
+            tok = Word(tok)
+            tok.quoted_op = True
+        out.append(tok)
+    return out
 
 
 def _slot_word(tok, text, spans):
@@ -2662,7 +2729,7 @@ class BodyFiles:
         # if・case・繰り返しの中のコマンドは、区切りが ; でも走るとは限らない(予約語は単純コマンドから落ちるので、語の列で見る)
         self.conditional = any(t in CONDITIONAL_WORDS for t in tokens)
         self._branchy = self.conditional   # 探しのゲート(search-gate.py の Scope)は conditional を落とすので、cwd_here 用に別に持つ
-        self._plain_parens = None
+        self._plain_parens, self._tokens = None, tokens
         self.cwd = cwd if cwd and os.path.isabs(cwd) else None
         self.k, self.moved = 0, False
         self._assigned = None
@@ -2859,17 +2926,17 @@ class BodyFiles:
         k に届かない(前は届き方を読めない cd と見て、`root=$(cd /a && pwd); gh pr comment 1 --body-file x.md` の本文ファイルの
         パスと -R の無い宛先を決まらない物として止めた)。
 
-        括弧の区切りが本物と言い切れるときだけ閉じたと見る: 字句解析は引用・\\ の後の ( ) も区切りと同じ語にし(`echo ")"`)、
-        case の型の ) も閉じに数えるので、引用か \\ の後に ( ) が在るコマンドと、if・case・繰り返しの在るコマンドでは、今までどおり
-        届き方を読めない cd と見る(止める側に倒す)。"""
+        括弧の区切りが本物と言い切れるときだけ閉じたと見る: 字句解析は引用・\\ の後の ( ) だけの語も区切りと同じ語にし(`echo ")"`)、
+        case の型の ) も閉じに数えるので、そういう語(tokenize が Word.quoted_op の印を付ける)が在るコマンドと、if・case・繰り返しの
+        在るコマンドでは、今までどおり届き方を読めない cd と見る(止める側に倒す)。語の一部の引用の中の ( )(`--title "feat(x): y"`)は
+        区切りにならないので見ない(前はコマンドのどこかに 1 つでも在れば止めていた)。"""
         d = self.cmds[j].depth
         if self._branchy or d <= 0:
             return False
         if not any(op == ")" and dep < d for m in range(j + 1, k + 1) for op, dep in self.cmds[m].ops):
             return False
         if self._plain_parens is None:
-            self._plain_parens = not (re.search(r"\\[()]", self.norm)
-                                      or _live(self.norm, lambda t, i: t[i] in "()", where=("'", '"')))
+            self._plain_parens = not any(getattr(t, "quoted_op", False) for t in self._tokens)
         return self._plain_parens
 
     def place_lost(self, k=None):
