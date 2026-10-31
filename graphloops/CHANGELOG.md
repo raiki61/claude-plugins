@@ -7,7 +7,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ## [Unreleased]
 
 ### Fixed
-- 利用者の動きは変わらない直し（試験だけ）。CI の Windows で欠けてよい能力の一覧（`.github/workflows/test.yml` と `mutation.yml` の `SKIP_ALLOW`）に `posix-os` を足した。リポジトリのルートの `tests/run.sh` が、macOS と Linux だけで動く works-factory の試験を Windows で見送るときの名前。`tests/py/test_mutate_shard.py` は、mutation.yml の Windows の一覧が test.yml の物と同じ字かを見ていて、その見本の字（`WIN_ALLOW`）を同じ一覧にそろえた。
+- 利用者の動きは変わらない直し（試験だけ）。CI の Windows で欠けてよい能力の一覧（リポジトリの `.github/workflows/test.yml` と `mutation.yml` に書く物）に `posix-os` を足した。リポジトリのルートの `tests/run.sh` が、macOS と Linux だけで動く works-factory の試験を Windows で見送るときの名前。`tests/py/test_mutate_shard.py` は、mutation.yml の Windows の一覧が test.yml の物と同じ字かを見ていて、その見本の字（`WIN_ALLOW`）を同じ一覧にそろえた。
 
 ## [0.46.1] - 2026-10-31
 
