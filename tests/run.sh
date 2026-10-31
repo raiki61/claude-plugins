@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=836
+EXPECTED_CHECKS=838
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -4586,8 +4586,13 @@ expect_output 0 "ALLOW_EMPTY" "variable set の値(--body)は読み役に送ら�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh variable set CONF --body '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "workflow run の -F は本文ではないので止めない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh workflow run deploy.yml -F name=scully -F greeting=hello # $CR_PAD"
+# ファイルの名前の無い gh gist create は標準入力を読む(- と同じ)ので、説明文の検査は短い中身のヒアドキュメントを付けて回す
 expect_output 0 "ALLOW_EMPTY" "gist create の説明文(-d)だけでは本文と見なさない" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh gist create -d '$CR_BODY $CR_PAD' # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh gist create -d '$CR_BODY $CR_PAD' - <<'EOF'
+短い中身
+EOF"
+expect_output 0 "別プロセスからの stdin 渡し" "gist create にファイルの名前が無ければ、標準入力を本文と見る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat notes.md | gh gist create -d desc"
 # 部分文字列で拾うと、gh コマンドの無い長文が「解析できない」で止まる(引用未終端で判別できる)
 expect_output 0 "ALLOW_EMPTY" "gh を含む語(highlight 等)だけでは解析に入らない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "echo it's a highlight of the day # $CR_PAD"
@@ -5672,6 +5677,9 @@ done
 "$1" "$2" "$3" "gh gist new a.md" | grep -q "宛先 gist は" || { ok=0; echo "一覧に無い gist を通した"; }
 [ "$("$1" "$2" "$3" "gh issue new -R allowed/repo -t T -b hi")" = ALLOW_EMPTY ] || { ok=0; echo "一覧に在る repo への投稿を止めた"; }
 [ $ok = 1 ] && echo DG_ALIAS_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
+# ファイルの名前の無い gh gist create は標準入力を gist に出す。前は coldread が本文と見ず、一覧に gist が無いのに通していた
+expect_output 0 "宛先 gist は" "destgate: ファイルの名前の無い gh gist create も、宛先 gist の投稿と見る" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "cat notes.md | gh gist create -d desc"
 # xargs・find -exec が語を足す・差し込む gh のうち、本文・コメント・メッセージの旗を持たないサブコマンド(gist view、run rerun・cancel、
 # cache delete、pr checkout など)は投稿でないので、宛先を確かめずに通す(前は coldread が止め、それを投稿と見て宛先不明で止めていた)。
 # 本文を運びうる pr edit・issue close は今までどおり宛先不明で止める

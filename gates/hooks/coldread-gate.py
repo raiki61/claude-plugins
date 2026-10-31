@@ -2138,11 +2138,14 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
 
     # gist は本文旗を持たず、位置引数(- は stdin)が本文そのもの。
     # -d/--desc・-f/--filename は値を取るので、その値を位置引数と数えない。
+    # ファイルの名前が 1 つも無ければ、gh は - と同じに標準入力を読む(`cat a.md | gh gist create`。cli/cli の
+    # pkg/cmd/gist/create/create.go)。名前が在れば、- の無い限り標準入力を読まないので、ヒアドキュメントは名前の代わりに読まない。
+    # 前は名前の無い形を本文と見ず、標準入力の中身を読まずに通し、`gh gist create a.md <<'E' 短い字 E` はヒアドキュメントだけを読んでいた
     if sub == ("gist", "create"):
-        pos = gist_positionals(args, GIST_VALUE_FLAGS[sub])[0]
-        if "-" in pos or any(t.startswith("__HEREDOC") for t in pos):
+        files = [t for t in gist_positionals(args, GIST_VALUE_FLAGS[sub])[0] if not t.startswith("__HEREDOC")]
+        if not files or "-" in files:
             add("file", "-")
-        elif pos:
+        if any(t != "-" for t in files):
             blocked.append("実ファイル指定")
     # gh gist edit は、id の後ろの位置引数(- は stdin)の中身で -f のファイル(無ければ gist の唯一のファイル)を置き換え、-a は
     # そのファイルを足す(位置引数が無ければ -a の名前の手元のファイルを読む。cli/cli の pkg/cmd/gist/edit/edit.go)。中身は

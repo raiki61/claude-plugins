@@ -1022,7 +1022,7 @@ def f59():
         cands, blk, parsed = g.posting_bodies(cmd % BODY, WORK)
         check(59, parsed and cands == [BODY] and not blk, "gh gist edit の標準入力の中身を読まなかった: %r → %r %r" % (cmd, cands, blk))
     for cmd in ("gh gist edit abc", "gh gist edit", "gh gist edit abc -d '" + BODY + "'", "gh gist edit abc -r a.md",
-                "gh gist edit abc -f a.md", "gh gist create -d '" + BODY + "'"):
+                "gh gist edit abc -f a.md"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(59, parsed and not cands and not blk, "本文を運ばない gh gist edit を止めたか読んだ: %r → %r %r" % (cmd[:60], cands, blk))
 
@@ -1084,8 +1084,20 @@ def f62():
     cands, blk, parsed = g.posting_bodies("echo 1 | xargs -I{} gh pr co {}", WORK)
     check(62, parsed and not cands and not blk, "別名の pr co を xargs で止めた: %r" % blk)
 
+# 63. gh gist create はファイルの名前が無ければ標準入力を読む(- と同じ)ので、名前の無い形は - と同じに読む(パイプ・< ・<<< の標準入力は
+# 止め、ヒアドキュメントは読む)。名前が在れば - の無い限り標準入力を読まないので、ヒアドキュメントを名前の代わりに読まない
+def f63():
+    for cmd in ("cat a.md | gh gist create", "cat <<'E' | gh gist create -f notes.md -d desc\n%s\nE" % BODY, "gh gist create < a.md",
+                "gh gist create <<< '%s'" % BODY, "gh gist create -d '%s'" % BODY, "gh gist new -p < a.md",
+                "gh gist create zz-no-such.md <<'E'\nshort\nE"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(63, not parsed or bool(blk), "gh gist create の標準入力か名前のファイルを読まずに通した: %r → %r %r" % (cmd[:60], cands, parsed))
+    for cmd in ("gh gist create <<'E'\n%s\nE", "gh gist create -f notes.md -d desc <<'E'\n%s\nE", "gh gist create - <<'E'\n%s\nE"):
+        cands, blk, parsed = g.posting_bodies(cmd % BODY, WORK)
+        check(63, parsed and cands == [BODY] and not blk, "gh gist create のヒアドキュメントを読まなかった: %r → %r %r" % (cmd, cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
