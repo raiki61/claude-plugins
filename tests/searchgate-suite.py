@@ -640,6 +640,27 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0])
 
+    def test_nested_substitutions_after_maybe_cds_stop_before_the_timeout(self):
+        # $( ) の中身は外のコマンドの走りうる cwd ごとに読み直すので、走るとは限らない cd の後の入れ子の $( ) は掛け算で増える
+        # (前は 7 段で 2 分かかり、時間切れは通す)。cd の無いコマンドを並べた長い 1 本も、cd をたどる数が増える(前は 2 万本で
+        # 40 秒)。どちらも時間切れの前に、読み切れないとして止める
+        nest = "rg foo src"
+        for _ in range(7):
+            nest = "[ -d a ] && cd a; [ -d b ] && cd b; [ -d c ] && cd c; echo $(%s)" % nest
+        for command in (nest, ":; " * 20000 + "rg foo src"):
+            with self.subTest(command=command[:40]):
+                started = time.monotonic()
+                self.assertIn("読み切れない", run("Bash", {"command": command})[0] or "")
+                self.assertLess(time.monotonic() - started, 15)
+        # 浅い入れ子と、cd の無いコマンドを数千本並べた 1 本は今までどおり読み切る
+        shallow = "rg foo src"
+        for _ in range(3):
+            shallow = "[ -d a ] && cd a; [ -d b ] && cd b; [ -d c ] && cd c; echo $(%s)" % shallow
+        for command in (shallow, ":; " * 3000 + "rg foo src"):
+            with self.subTest(command=command[:40]):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+        self.assertIsNotNone(run("Bash", {"command": shallow.replace("src", "/")})[0])
+
     def test_heredocs_inside_a_substitution_are_read(self):
         # $( )・<( ) の中のヒアドキュメントの本文も読む(中のシェルが走らせる本文と、区切りを引用しない本文の $( ))。前は中身を
         # 読み直すときに本文を持たず、`x=$(bash <<'EOF'` の本文の rg foo / を通していた。区切りを引用した本文の字は今までどおり通す

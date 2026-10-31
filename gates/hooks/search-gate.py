@@ -602,6 +602,12 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
     command が外のコマンドの $( … )・<( … )・` … ` の中身のとき、外の prepare が抜いたヒアドキュメントの本文の並び。"""
     if depth > MAX_DEPTH or not command.strip():
         return
+    if depth == 0:
+        SPENT.update(reads=0, walks=0, steps=0)
+    else:
+        SPENT["reads"] += len(command) + READ_COST   # 中身の読み直しは掛け算で増えうる(READS_MAX)
+        if SPENT["reads"] > READS_MAX:
+            raise ValueError("入れ子の $( ) と cd が多く、探す場所を読み切れない")
     text, bodies = cr.prepare(command)
     if held and not bodies:
         # 外の prepare が本文を印(__HEREDOC0__)に替えた後の中身なので、中の印は外の本文を指す(前は本文を持たずに読み直し、
@@ -1106,7 +1112,6 @@ def load_coldread():
             self.braces = {}   # `{ }` のまとまりの最初のコマンドの番号 → 閉じの `}` の番号(layout)
             # cwds_here の控え: (cd, k) → (届くか, 必ず走ったか)・(cd, 前の場所) → 行き先・繰り返しの番号 → 中のコマンド・回の頭の場所
             self._flow, self._dests, self._insides, self._tops = {}, {}, {}, {}
-            self._spent = 0   # _heads で回の中身をたどったコマンドの数(WALKS_MAX まで)
             self._passes, self._afters = {}, {}   # (繰り返し, 1 回目の頭の場所) → 回の頭の場所・(繰り返し, 場所, k) → 抜けた後の場所
             self._ends = {}   # 条件の中の cd の番号 → then・do の後ろのコマンドの番号(_then_end)
             self._units = {}   # cd の番号 → まとめて走る組の後ろのコマンドの番号(_unit_end)
@@ -1339,8 +1344,8 @@ def load_coldread():
                     seen = [place]
                     ever, frontier = set(seen), seen
                     for _ in range(min(PLACES_MAX, 2 + (place or "").count("/"))):
-                        self._spent += len(inside)
-                        if self._spent > WALKS_MAX:
+                        SPENT["walks"] += len(inside)
+                        if SPENT["walks"] > WALKS_MAX:
                             raise ValueError("繰り返しの入れ子の cd が多く、探す場所を読み切れない")
                         frontier = [p for p in self._walk(inside[:-1], frontier, inside[-1], bid) if p not in ever]
                         if not frontier:
@@ -1385,6 +1390,13 @@ def load_coldread():
             path = path[path.index(within) + 1:] if within in path else path
             return next((bid for bid in path if self.kinds.get(bid) in LOOPS and self._inside(bid)[-1] < k), None)
 
+        @staticmethod
+        def _spend(steps):
+            """_walk がたどった数を足し、1 つのコマンドの検査の全体で STEPS_MAX を超えたら読み切れないとして止める。"""
+            SPENT["steps"] += steps
+            if SPENT["steps"] > STEPS_MAX:
+                raise ValueError("コマンドと cd が多く、探す場所を読み切れない")
+
         def _walk(self, js, places, k, within=None):
             """js の順の単純コマンドのうちの cd を、places から k 番目までたどった場所の列(届くか・必ず走ったかは k から見る)。
             k より前に閉じる繰り返しの中の cd は、回の頭の走りうる場所(_heads。回ごとに cd が重なる)から回の中身をたどった場所に
@@ -1395,6 +1407,7 @@ def load_coldread():
             stays = []    # 条件の中の cd が落ちて、then・do を飛ばす場所と、then・do の後ろのコマンドの番号の組の列(_then_end)
             entered = set()   # 入らなかった側の場所を stays に回した区画の道(後ろの cd の場所は、どれも区画に入った側の物)
             escape = -1   # 前の cd の逃げ口(_escapes)の最後のコマンドの番号。逃げ口の中の cd は k に届かない
+            self._spend(len(js))
             for j in js:
                 if stays and j >= stays[0][0]:
                     places = _shallow(list(dict.fromkeys(places + [p for r, p in stays if r <= j])))
@@ -1439,6 +1452,7 @@ def load_coldread():
                         entered.add(key)
                 if end is not None:
                     stays = sorted(stays + [(end, p) for p in places], key=lambda e: e[0])
+                self._spend(STEP_COST * len(places))
                 new = []
                 for place in places:
                     if (j, place) not in self._dests:
@@ -1574,6 +1588,19 @@ LOOPS = {"for", "select", "while", "until"}
 # 上限で止めるまで 1.5 秒ほど)
 WALKS_MAX = 400000
 DESTS_MAX = 200000
+# 1 つのコマンドの検査で、$( )・bash -c・eval などの中身を読み直した字の数(1 回ごとに READ_COST を足す。reads)と、_walk が
+# たどったコマンドの数(cd では場所 1 つごとに STEP_COST を足す。steps)の上限。超えたら読み切れないとして止める。中身は外の
+# コマンドの走りうる cwd ごとに読み直すので、入れ子の $( ) ごとに掛け算で増える(7 段の `[ -d a ] && cd a; … echo $(…)` で 2 分。
+# 時間切れは通す)。集めたコマンド(3 万 4 千本)で最も多いのは reads が 2 千 3 百・steps が 1 千 7 百ほど。上限で止めるまで
+# reads は 1 秒・steps は 5 秒ほど(steps は、cd の無い 7 千ほどのコマンドを並べた 1 本で上限に当たる)
+READS_MAX = 3000000
+READ_COST = 200
+STEPS_MAX = 25000000
+STEP_COST = 20
+# 読んだ数(reads・steps と、回の中身をたどった数 walks〔_heads で、上の WALKS_MAX まで〕)。中身を読み直すたびに Scope が新しく
+# 作られるので、1 つのコマンドの検査の全体で数える(前は walks を Scope ごとに数え、入れ子の $( ) ごとに上限が新しくなっていた)。
+# 外の検査(check_command の depth 0)の頭で 0 に戻す
+SPENT = {"reads": 0, "walks": 0, "steps": 0}
 
 
 def _shallow(places):
