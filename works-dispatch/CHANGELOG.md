@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.147.0] - 2026-10-31
+
 ### Changed
 
 - 会社の形（`.claude/company.toml`。部署の役〔`[[roles]]`〕と受け持ち〔`[[skills]]`〕を書く設定のファイル）の、部署の寿命・会話・keepalive の鍵を 3 つに入れ替えた（持ち主 2026-10-31。頼み 755c1f。設計は `docs/specs/2026-10-31-lifetime-context-design.md`）。寿命は `lifetime`（`per-ask`・`on-demand`・`always`。役には `per-ask` か `always`、受け持ちには 3 つのどれでも書け、省けば役の寿命を継ぐ）、次の頼みのときの会話は役の `context`（`carry`・`new`）、keepalive と compact の判断は `rent_or_buy`（役と受け持ち。省けば有効で、切るのは `rent_or_buy = false` だけ）。前の鍵（役の `persistent`・`fresh`・`keepalive`、受け持ちの `on_demand`・`per_ask`・`keepalive`）は読まず、書いてあれば外した鍵として注記に出して効かせない。置き換えは `persistent = true` → `lifetime = "always"`、`fresh = true` → `context = "new"`、`on_demand = true` → `lifetime = "on-demand"`、`on_demand = true` と `per_ask = true` → `lifetime = "per-ask"`、`keepalive = true` → 消す（既定で有効）。`[roles.keepalive]`・`[skills.keepalive]` の `every`・`text` も無くした。
