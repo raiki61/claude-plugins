@@ -226,7 +226,12 @@ The following are accepted as out of scope in principle, or as forms that are st
     A variable is resolved only when the text shows that the assignment always runs and reaches gh: assigned only once, not inside a condition (`if`, `||`), a loop,
     a pipe, `&`, or a subshell that closes first, and not reassigned with `+=`, `read`, `printf -v`, `declare`, `for`, `eval`, etc.
     (`$( … )` and pipes of other commands in between are not looked at). Unresolvable variables, `~user`, globs, relative paths after a cd followed by `;` or after `if cd …`,
-    and relative paths after `env -C` are stopped
+    and relative paths after `env -C` are stopped.
+    A cd inside a subshell or `$( … )` that closes before gh (`root=$(cd /abs && pwd); gh …`, `(cd sub && make) && gh …`) is ignored, because it does not change where gh runs.
+    This is not trusted, and the cd still makes relative paths unknown, when the command has an `if`, a `case` or a loop, or a word made only of quoted or escaped parentheses
+    (`echo ")"`, `echo \)`; the parser counts it as a parenthesis). In a loop or a function, a cd written after gh can run before gh's next run, so it also makes relative paths unknown.
+    When the command-name position holds a word that is only an expansion (`$(true) gh …`, `$SUDO gh …`, `env $(cat .env) gh …`), the gh after it is still checked,
+    but the expansion can become `env -C` or `GH_REPO=`, so relative body-file paths are stopped and the destination of a post without `-R` is unknown (destgate stops it)
   - If the same command contains a command that writes the body file, and it is a single `cat > f <<'EOF'` that always runs before gh
     (not inside a condition, `||`, a pipe, or `&`), that heredoc is read instead of the file (the hook runs before the `cat`, so the file on disk at that time still has its old content). It is also read when the file
     does not exist yet and the `cat` may be skipped only because a command before it fails (`mkdir -p d && cat > d/f <<'EOF'` and then gh on a new line):
@@ -495,7 +500,8 @@ The second gatekeeper, restricting a different axis from coldread: "may this be 
   (`gh repo view --json nameWithOwner`; not `origin`, because gh may pick the `gh repo set-default` repository or another remote).
   Posts whose destination cannot be identified are stopped with a request to specify `-R` explicitly. This includes a post run from a
   directory that does not exist yet, and a post whose command also runs something that can change which repository gh picks
-  (`gh repo set-default`/`clone`/`fork`/`create`/`rename`, `git init`/`clone`, `git remote add`/`set-url`/…, `git config remote.*`)
+  (`gh repo set-default`/`clone`/`fork`/`create`/`rename`, `git init`/`clone`, `git remote add`/`set-url`/…, `git config remote.*`),
+  and a post whose place cannot be read (the rules for cd and for a command-name word that is only an expansion are in the body-file paragraph of the coldread section)
 - A `gh api` call that sends `--input` (a file or `-`) to graphql or a gist counts as a post even when coldread finds no text in the
   JSON (coldread does not read short strings outside `.body`, such as a short comment in a mutation). graphql has no repository in its
   path, so such a call is stopped as destination unknown, the same as `-f query='mutation{…}'`
