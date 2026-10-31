@@ -2125,7 +2125,8 @@ GIST_CONTENT_RE = re.compile(r"files\[[^\]]*\]\[content\]")
 
 def api_endpoint_path(endpoint):
     """gh api の宛先が送る先の URL のパスの語の列(ホストと ? 以降を落とし、%xx を解き、. と .. を畳んだ物)と、. か .. を畳んだか。"""
-    path = re.split(r"[?#]", re.sub(r"(?i)^[a-z][a-z0-9+.-]*://[^/]*", "", endpoint), 1)[0]
+    # maxsplit は名前で渡す(位置で渡すと Python 3.13 から DeprecationWarning が出る)
+    path = re.split(r"[?#]", re.sub(r"(?i)^[a-z][a-z0-9+.-]*://[^/]*", "", endpoint), maxsplit=1)[0]
     segs, dotted = [], False
     for seg in urllib.parse.unquote(path).split("/"):
         if seg in (".", ".."):

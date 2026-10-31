@@ -8,7 +8,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 番号から 20 を引くとレビューの番号になる(29 はレビューの F9 で、探しのゲートの側の直しなので tests/searchgate-suite.py に置く)。
 34 は 21〜28 を直す間に見つけた素通しで、commit 69816318 の版を渡すと赤になる。35 以降は 3 度目のレビュー(頼み cae1e2)の
 直しで、commit 812accd7 の版を渡すと赤になる。
-49 以降はその後のレビュー(頼み cae1e2)の直しで、commit ef2d1702 の版を渡すと赤になる。
+49 以降はその後のレビュー(頼み cae1e2)の直しで、commit ef2d1702 の版を渡すと赤になる。53 以降は 15 回目のレビュー(頼み cae1e2)
+の直しで、commit 12d08013 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -906,8 +907,27 @@ def f52():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(52, parsed and not cands and not blk, "読むだけの gh を止めた: %r → %r %r" % (cmd, blk, parsed))
 
+# 53. re.split・re.sub・re.subn の maxsplit・count・flags を位置で渡さない(Python 3.13 から DeprecationWarning が出て、フックの
+# 標準エラーに毎回残る。前は gh api の宛先のパスを割る所で位置で渡していた)。動かして警告が出ないことと、書き方そのものを見る
+def f53():
+    import ast
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        segs = g.api_endpoint_path("https://api.github.com/repos/o/r/issues?per_page=1")[0]
+    check(53, segs == ["repos", "o", "r", "issues"], "宛先のパスを読み違えた: %r" % segs)
+    hooks = os.path.join(ROOT, "gates", "hooks")
+    for path in (GATE, os.path.join(hooks, "dest-gate.py"), os.path.join(hooks, "search-gate.py")):
+        with open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "re" and node.func.attr in ("split", "sub", "subn")
+                    and len(node.args) > (2 if node.func.attr == "split" else 3)):
+                check(53, False, "%s の %d 行で re.%s の数を位置で渡した" % (os.path.basename(path), node.lineno, node.func.attr))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
