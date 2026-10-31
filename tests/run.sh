@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=881
+EXPECTED_CHECKS=882
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -2790,6 +2790,8 @@ expect_output 0 "詰まり" "gist create - のヒアドキュメントもゲー�
 # gh agent-task create(Copilot のエージェントに仕事を渡す)の説明は GitHub へ出る本文。位置引数と -F のファイル・標準入力を読む(頼み 76475f)
 expect_output 0 "詰まり" "gh agent-task create の位置引数の説明もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent-task create --base main '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "gh agent-task の別名(gh agent create)の説明もゲートに掛かる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent create '$CR_BODY $CR_PAD'"
 expect_output 0 "詰まり" "gh agent-task create -F - のヒアドキュメントもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent-task create -F - <<'EOF'
 $CR_BODY
@@ -5741,7 +5743,8 @@ done
 # gh agent-task create(Copilot のエージェントに仕事を渡す。説明が GitHub へ出る)も投稿と見て宛先を確かめる。説明の中の URL は宛先でない(頼み 76475f)
 expect_output 0 "DG_AGENT_TASK_OK" "destgate: gh agent-task create も投稿と見て宛先を確かめ、説明の中の URL は宛先と読まない" \
     sh -c 'ok=1
-for c in "gh agent-task create -R evil/place \"仕事の説明\"" "gh agent-task create --repo=evil/place -F - <<E
+for c in "gh agent-task create -R evil/place \"仕事の説明\"" "gh agent create -R evil/place \"仕事の説明\"" \
+         "gh agents create -R evil/place \"仕事の説明\"" "gh agent-tasks create -R evil/place \"仕事の説明\"" "gh agent-task create --repo=evil/place -F - <<E
 仕事の説明
 E"; do
   "$1" "$2" "$3" "$c" | grep -q "許可一覧に無い" || { ok=0; echo "一覧の外への投稿を通した: $c"; }

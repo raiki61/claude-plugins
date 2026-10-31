@@ -275,7 +275,7 @@ The following are accepted as out of scope in principle, or as forms that are st
   So `gh pr checkout -b <branch name>`, `gh issue view -c`, `gh run download -n`, etc. are
   not posts and are not caught by the net. Conversely, even if gh adds posting subcommands, they are caught by the net if written with long flags.
   New subcommands used only with short forms are missed
-- `gh agent-task create` (hands a task to the GitHub Copilot agent; the task description goes out to GitHub) has no body flag: its first
+- `gh agent-task create` (and its aliases `gh agent-tasks`/`agent`/`agents create`; hands a task to the GitHub Copilot agent; the task description goes out to GitHub) has no body flag: its first
   positional argument and the file of `-F`/`--from-file` (`-` is stdin) are read as the text. Its `-b` is `--base` (a branch), not text.
   Without either, gh opens an editor, and that form is not read (the same as `gh pr create --fill`)
 - The hook's start line runs `hooks/run-python.sh` with bash. It tries `python3`, `python`, the versioned names from `python3.20`

@@ -283,6 +283,9 @@ SUB_ALIASES = {
     ("gist", "new"): ("gist", "create"), ("gist", "ls"): ("gist", "list"),
     ("repo", "new"): ("repo", "create"), ("repo", "ls"): ("repo", "list"),
     ("run", "ls"): ("run", "list"), ("workflow", "ls"): ("workflow", "list"), ("cache", "ls"): ("cache", "list"),
+    # gh agent-task のグループの別名(gh 2.102.0 の `gh agent-task --help` の ALIASES。頼み 76475f)
+    ("agent-tasks", "create"): ("agent-task", "create"), ("agent", "create"): ("agent-task", "create"),
+    ("agents", "create"): ("agent-task", "create"),
 }
 # 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)。-H/-X は api の前置で挟まりうる。
 GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
