@@ -307,6 +307,10 @@ GREP_LONG = {"--regexp", "--file", "--max-count", "--after-context", "--before-c
              "--devices", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--label", "--binary-files", "--depth"}
 
 
+# fd の -x・-X の後ろのコマンドの、見つけた物に置き換える印(fd の README の「Placeholder syntax」)
+FD_PLACEHOLDER_RE = re.compile(r"\{(?:/|//|\.|/\.)?\}")
+
+
 def fd_split(args):
     """fd の引数 → (fd そのものの引数, -x・-X・--exec・--exec-batch の後ろの走らせるコマンドの語の列の列)。走らせるコマンドは、
     ; の語か fd の引数の終わりまで(fd は ; の後ろをまた fd の引数と読む)。"""
@@ -777,6 +781,10 @@ def check_simple(cr, files, cmds, k, words, bodies, here, depth):
         # fd の -x・-X の後ろのコマンドは fd の cwd で走る(前は読まず、`fd foo -x rg y / {}` を通していた)
         for run in fd_split(args)[1]:
             if run:
+                # 置き換えの印({}・{/}・{//}・{.}・{/.})の無いコマンドには、fd が終わりに {} を足す(見つけた物だけを渡す。前は
+                # 足さずに読み、`fd . src -X rg TODO` をホームで打つと rg がホーム全体を探すと読んで止めていた)
+                if not any(FD_PLACEHOLDER_RE.search(w) for w in run[1:]):
+                    run = run + ["{}"]
                 check_command(cr, shlex.join(run), here, depth + 1, files)
     piped = any(op == "|" for op, _ in c.ops)
     for start in starts_of(name, args, piped, hops):

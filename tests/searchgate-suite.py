@@ -565,6 +565,15 @@ class Bash(unittest.TestCase):
                         "fd foo -x echo {} \\; src"):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command})[0])
+        # 置き換えの印の無いコマンドには fd が {} を足すので、ホームで打っても見つけた物だけを探す(前は止めていた)。fd そのものが
+        # / やホームを探す形と、印の外で / やホームを渡す形・中の殻が cwd を探す形は今までどおり止める
+        for command in ("fd -e py . ~/src/repo -x rg -l TODO", "fd . src -X rg TODO", "fd . src -x grep -rl foo",
+                        "fd . src -x rg TODO {//}"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
+        for command in ("fd . / -x rg TODO", "fd . -x rg TODO", "fd . src -x rg TODO ~ {}", "fd . src -x sh -c 'rg TODO'"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
     def test_grep_with_a_number_flag_is_recursive(self):
         # Claude Code の grep は ugrep で走り、-NUM と --depth は下をたどる深さ
