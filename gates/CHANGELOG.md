@@ -95,6 +95,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 探しのゲート(searchgate)が、`xargs --arg-file list rg foo /`・`parallel --block-size 1M rg foo ::: /`・`parallel -kS host rg foo ::: /` のように、値を取る長い旗と束ねた 1 字の旗の値を走らせるコマンドと読み、後ろの rg を見落として通していた。xargs の長い形の旗と、parallel の値を取る旗(GNU parallel のソースの一覧から取った)を足し、束ねた旗の終わりの字が値を取るときは次の語を値と見るようにした。
 - 探しのゲート(searchgate)が、`find . -exec rg + -newer / \;` のように、`-exec` で走らせるコマンドの引数の `+` を `-exec` の閉じと読み、後ろの `/` を見落として通していた。`-exec` は `;` か、`{}` の直後の `+` でだけ閉じると見るようにした。
 - 探しのゲート(searchgate)が、`find fd -name ')' -exec rg x / \;`・`cd /; echo ')'; rg x .` のように引用符で囲んだ閉じ括弧をサブシェルの閉じと読み、find の後ろを繋がず、cd が後ろのコマンドに届かないと読んで通していた。囲むサブシェルの無い所の閉じ括弧は、ただの字と見るようにした。
+- 投稿の前のゲート(coldread)が、`gh gist edit abc -f a.md x.md`・`gh gist edit abc -a new.md` のように、gist のファイルの中身を手元のファイルか標準入力で置き換える形・足す形を本文と見ていなかった。宛先のゲート(destgate)も、許可一覧に `gist` が無いのに通していた。`gh gist create` の位置引数と同じに読み(`-` はヒアドキュメントの中身を読み、手元のファイルは止める)、宛先を `gist` と見るようにした。説明(`-d`)だけ・ファイルの削除(`-r`)だけの形と、エディタで直す形は、今までどおり本文と見ない。
+- 投稿の前のゲート(coldread)が、`gh gist list | cut -f1 | xargs -I{} gh gist view {} --raw`・`… | xargs -n1 gh run cancel` のように、本文・コメントの旗を持たない gh のサブコマンドに xargs・find -exec が語を足す形を、足す語が本文の旗になりうると見て止めていた。宛先のゲート(destgate)も宛先不明で止めていた。`gist view`・`gist list`・`run rerun`・`run cancel`・`run watch`・`run download`・`workflow view`・`workflow list`・`cache list`・`cache delete`・`pr checkout` は通すようにした。`pr edit`・`issue close` など本文を運びうる物は、今までどおり止める。
 
 ## [0.46.0] - 2026-10-30
 
