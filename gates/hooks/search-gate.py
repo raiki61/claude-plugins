@@ -891,7 +891,7 @@ def load_coldread():
 
         def _surely(self, j, k):
             """届く cd(j 番目)が、k 番目が走るときには必ず走ったか。前の区切りが ; 改行 && だけ(&& なら k までも && だけ)で、k までに || が無い
-            (`cd x || exit 1` の || は除く)うえ、cd を囲むブロックがどれも k も囲むか、cd が if・elif・while の条件の中で、k がその
+            (`cd x || exit 1`・繰り返しの中の `cd x || continue` のような逃げ口〔_escapes〕の || は除く)うえ、cd を囲むブロックがどれも k も囲むか、cd が if・elif・while の条件の中で、k がその
             条件が通ったときに走る区画(then・do)の中のとき。条件が落ちたときに走る else・繰り返しの後ろ・until の do では、cd が
             落ちて移っていないことがある(前は条件の中の cd をそこでも必ず移ったと見て、`if cd sub; then …; else find .; fi` を
             通していた)。"""
@@ -906,7 +906,7 @@ def load_coldread():
                         return False
             for m in range(j + 1, k + 1):
                 for op, dep in self.lay[m][2]:
-                    if op == "||" and dep <= d and not (m == j + 1 and self.lay[m][3] in ("exit", "return")):
+                    if op == "||" and dep <= d and not (m == j + 1 and self._escapes(j, k)):
                         return False
             kpath = self.lay[k][0]
             same = 0
@@ -918,6 +918,28 @@ def load_coldread():
             bid, sec, cond = rest[0]
             return (len(rest) == 1 and cond and self.kinds.get(bid) in ("if", "while") and same < len(kpath)
                     and kpath[same][:2] == (bid, sec + 1))
+
+        def _escapes(self, j, k):
+            """j 番目の cd の後ろの `|| <コマンド>` が、cd が落ちたときに k 番目を走らせない逃げ口か。exit・return はシェルを抜ける。
+            continue・break は、その繰り返しのこの回の残り(break は繰り返しの全部)を飛ばすので、k が同じ繰り返しの中で、閉じの
+            done より前に在るときだけ逃げ口になる(前は exit・return だけを見て、`for d in */; do cd "$d" || continue; rg x .; cd ..;
+            done` の cd を走るとは限らないと見て、動かなかった場所からの `cd ..` で / やホームに届いたと読み、止めていた)。
+            サブシェルの中の exit(`|| ( exit 1 )`)はサブシェルを抜けるだけなので逃げ口でない。"""
+            m = j + 1
+            _, d, _, _ = self.lay[j]
+            mpath, mdepth, _, head = self.lay[m]
+            if mdepth != d:
+                return False
+            if head in ("exit", "return"):
+                return True
+            args = self.cmds[m].args
+            if head not in ("continue", "break") or args[1:] not in ([], ["1"]):
+                return False
+            loop = next((bid for bid, _, _ in reversed(mpath) if self.kinds.get(bid) in LOOPS), None)
+            if loop is None:
+                return False
+            inside = self._inside(loop)
+            return k in inside and k < inside[-1]
 
         def cwds_here(self, k=None):
             """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、

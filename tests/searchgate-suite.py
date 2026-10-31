@@ -217,6 +217,23 @@ class Bash(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 10)
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_or_continue_skips_the_rest_of_the_pass(self):
+        # `cd "$d" || continue`・`|| break` の cd が落ちると、この回の残り(後ろの cd .. も)を飛ばすので、動かなかった場所から
+        # cd .. で / やホームに届くことはない(前は届くと読み、/tmp や ~/work の下を回る繰り返しを止めていた)
+        for cwd in ("/tmp", HOME + "/work", "/usr/src"):
+            for command in ('for d in */; do cd "$d" || continue; rg -l TODO .; cd ..; done',
+                            'for d in */; do cd "$d" || break; rg -l TODO .; cd ..; done',
+                            'for d in */; do cd "$d" || continue; find . -name x; cd ..; done'):
+                with self.subTest(command=command, cwd=cwd):
+                    self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # 外の繰り返しへ抜ける continue 2・繰り返しの後ろ・サブシェルの中の exit は、落ちた cd の後ろを飛ばさない
+        for command in ('for d in */; do cd "$d" || continue 2; rg x .; cd ..; done',
+                        'for d in */; do cd "$d" || break; cd ..; done; rg x .',
+                        "for d in a; do cd /tmp || continue; done; rg x .", "cd /tmp || ( exit 1 ); rg x ."):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_in_a_condition_is_sure_only_where_the_condition_held(self):
         # 条件の中の cd は、else・繰り返しの後ろ・until の do では落ちて移っていないことがある
         for command in ("if cd sub; then echo ok; else find . -name x; fi", "while cd sub; do break; done; find . -name x",
