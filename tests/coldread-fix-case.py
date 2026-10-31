@@ -895,8 +895,19 @@ def f51():
     cands, blk, parsed = g.posting_bodies("gh api repos/o/r/dispatches -f 'files[a][content]=x'", WORK)
     check(51, parsed and not cands and not blk, "gist でない宛先のフィールドを本文と読んだ: %r %r" % (cands, blk))
 
+# 52. xargs の -I に -n・-L を重ねた形(何語になるか決まらない側)でも、語の途中の印を替える(macOS の xargs は語の途中にも差し込み、
+# `echo rev | xargs -n1 -I v gh pr view 1 -c -b x` は gh pr review を走らせる。前は語の全体が印のときだけ替え、読むだけの
+# pr view と見て通した)。印の無い読むだけの形は今までどおり通す
+def f52():
+    for cmd in ("echo rev | xargs -n1 -I v gh pr view 1 -c -b x", "echo r | xargs -L1 -I e gh pr view 1 -b x"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(52, bool(blk) or not parsed, "語の途中の印で投稿に変わる gh を通した: %r → %r" % (cmd, cands))
+    for cmd in ("ls | xargs -n1 -I{} gh pr view {}", "ls | xargs -I a -I b gh pr view 1"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(52, parsed and not cands and not blk, "読むだけの gh を止めた: %r → %r %r" % (cmd, blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

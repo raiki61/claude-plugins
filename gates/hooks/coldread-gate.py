@@ -1634,7 +1634,9 @@ def _gh_call(tokens, i):
         repl, multi, end = replace_string(name, tokens[fed[0] + 1:i])
         after = tokens[fed[0] + 1 + end:i]
         if repl and multi and len(fed) == 1:
-            args = [FED_MARK if t == repl else t for t in args]
+            # 語の中の印も替える(xargs -I は語の途中にも差し込む。前は語の全体が印のときだけ替え、`xargs -n1 -I v gh pr view …` を
+            # 読むだけの pr view と見て通していたが、走るのは標準入力の語で替えた gh pr <語>iew)
+            args = [t.replace(repl, FED_MARK) for t in args]
             if FED_MARK not in args:
                 args.append(FED_MARK)
         elif (repl and len(fed) == 1 and not any(repl in t for t in after)
