@@ -522,6 +522,7 @@ class BgAgentsBorn(unittest.TestCase):
             self.assertEqual(got, "0")
 
 
+@unittest.skipIf(os.name == "nt", "bg-count.sh は macOS と Linux だけで動く（Windows の bash は WSL の bash.exe に当たることもある）")
 class BgAgentsBornEtime(unittest.TestCase):
     """bg-count.sh が、Claude のプロセスの起きた時刻を BSD の date に頼らず ps の経過時間で出す所。"""
 
