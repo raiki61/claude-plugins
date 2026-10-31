@@ -306,6 +306,21 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "nice -n 19 timeout 300 find / -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "sudo env X=1 find / -name x"})[0])
 
+    def test_parallel_runs_the_command_after_it(self):
+        # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
+        # (前は parallel を前置と見ず、`parallel rg {} / ::: foo bar` を通していた)
+        for command in ("parallel rg {} / ::: foo bar", "parallel -j 4 rg foo ::: / ~", "parallel find / -name {} ::: a b",
+                        "parallel find {} -name x ::: / ~", "parallel --jobs 4 grep -rn x / ::: a", "ls | parallel -j4 rg x /",
+                        "parallel -S host1 find / -name x"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # 探さないコマンド・作業場の中の値・標準入力やファイルから値を読む形は通す
+        for command in ("parallel gzip ::: *.log", "parallel -j 8 gzip ::: *.log", "parallel rg -l {} ::: TODO FIXME",
+                        "parallel -j4 find {} -name '*.py' ::: src tests", "ls *.txt | parallel grep -r foo",
+                        "parallel rg foo :::: list.txt"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
+
     def test_wrappers_written_as_full_paths_are_skipped(self):
         for command in ("/usr/bin/time find / -name x", "/usr/bin/env find / -name x", "/usr/bin/timeout 60 find / -name x"):
             with self.subTest(command=command):

@@ -41,6 +41,13 @@ SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 # 前置の旗のうち値を取る物(値ごと飛ばす)。旗と数(chrt の優先度・nice -19)を飛ばした次の語を、走るコマンドと見る
 HOPS = {"nice": {"-n"}, "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"}, "doas": {"-u", "-C"},
         "xargs": {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "-J", "-R", "-S"}, "caffeinate": {"-t", "-w"},
+        # GNU parallel。後ろのコマンドの引数は ::: の後ろの値を足した物(parallel_words)
+        "parallel": {"-j", "-P", "-S", "-a", "-d", "-E", "-I", "-C", "-n", "-N", "-L", "-s", "-J", "--jobs", "--sshlogin",
+                     "--sshloginfile", "--slf", "--arg-file", "--delimiter", "--colsep", "--max-args", "--max-lines",
+                     "--max-chars", "--joblog", "--results", "--res", "--tmpdir", "--timeout", "--delay", "--retries",
+                     "--load", "--memfree", "--nice", "--tagstring", "--tag-string", "--workdir", "--wd", "--basefile",
+                     "--bf", "--env", "--halt", "--block", "--header", "--transferfile", "--tf", "--return", "--trc",
+                     "--profile", "--termseq", "--limit", "--rpl", "--replace", "--arg-sep", "--arg-file-sep"},
         "stdbuf": {"-i", "-o", "-e"}, "ionice": {"-c", "-n", "-p"}, "taskpolicy": {"-c", "-t", "-l", "-p"},
         "arch": set(), "chrt": set(), "builtin": set()}
 # 前段の粗選別: 探すツールの語もシェルの入れ子も無いコマンドは、解析部を読み込まずに通す(Bash のたびに走るので)
@@ -571,13 +578,14 @@ def check_command(cr, command, cwd, depth=0, outer=None):
 
 
 def command_words(cr, words):
-    """前置を越えた語の列と、xargs の後ろか。前置(nice -n 19 find …・xargs -0 rg …)の後の env・timeout なども越える
-    (nice -n 19 timeout 300 find …)。パスで書いた前置(/usr/bin/time・/usr/bin/env)も名前で越える。"""
+    """前置を越えた語の列と、xargs・parallel の後ろか(parallel の後ろなら "parallel")。前置(nice -n 19 find …・xargs -0 rg …)の
+    後の env・timeout なども越える(nice -n 19 timeout 300 find …)。パスで書いた前置(/usr/bin/time・/usr/bin/env)も名前で越える。
+    語の列は元の語の列の後ろの部分のまま返す(find の引数を元の語の列から取り直すので)。"""
     hops = False
     while words:
         base = os.path.basename(words[0])
         if base in HOPS:
-            hops = hops or base == "xargs"
+            hops = "parallel" if base == "parallel" else hops or base == "xargs"
             words = after_hop(words)
         elif base in cr.WRAPPERS and base != words[0]:
             words = [base] + words[1:]
@@ -664,6 +672,9 @@ def check_simple(cr, files, cmds, k, words, bodies, here, depth):
     args = words[1:]
     if name in FIND:
         args = glued_find_args(cmds, k)[len(c.args) - len(words) + 1:]
+    if hops == "parallel":
+        args = parallel_words(args)
+    if name in FIND:
         for run, in_place in find_execs(args):
             check_command(cr, shlex.join(run), None if in_place else here, depth + 1, files)
     piped = any(op == "|" for op, _ in c.ops)
@@ -692,6 +703,21 @@ def before_scope(cr, cmds, k, files, bodies, inner):
     before = Scope(line, files.cwd, bodies, live).at(len(line) - 1, [])
     before.outer = files.outer
     return before
+
+
+def parallel_words(words):
+    """GNU parallel の後ろのコマンドの語。::: の後ろの値は、コマンドに {} が在ればそこに、無ければ後ろに足して走らせるので、
+    ::: の印を除いて後ろに並べる(`parallel rg foo ::: / ~` は rg foo / と rg foo ~ を走らせる)。:::: の後ろは値を読むファイル
+    なので、決まらない値の印 {} に替える。"""
+    out, files = [], False
+    for w in words:
+        if w in (":::", ":::+", "::::", "::::+"):
+            files = w.startswith("::::")
+            if files:
+                out.append("{}")   # ファイルから読む値(字面では決まらない)
+        elif not files:
+            out.append(w)
+    return out
 
 
 def after_hop(words):
