@@ -1593,6 +1593,16 @@ class TurnThreads(unittest.TestCase):
             [("bob", "thread_reply", T1), ("alice", "awaiting_reply", T1), ("dave", "awaiting_reply", T1)],
         )
 
+    def test_a_reviewer_replying_to_the_assignees_note_is_the_assignees_turn(self):
+        """渡した PR で担当のメモにレビュアーが返したら、渡し終えた作者でなく担当のターン（受付 e07d56）。担当が返せば
+        レビュアーの再確認で、作者には何も立たない"""
+        note = [comment(user("bob"), T0, "後で直すメモ"), comment(user("carol"), T1, "今直してほしい")]
+        p = pr(assignees=conn(user("bob")), reviewThreads=conn(thread(*note)))
+        self.assertEqual(flow.conversation_balls(p), [("bob", "thread_reply", T1), ("carol", "awaiting_reply", T1)])
+        answered = pr(assignees=conn(user("bob")),
+                      reviewThreads=conn(thread(*note, comment(user("bob"), T2, "直しました"))))
+        self.assertEqual(flow.conversation_balls(answered), [("carol", "recheck", T2)])
+
     def test_a_deleted_or_bot_author_cannot_be_asked(self):
         for author, named in ((None, "退会済み"), (bot("dependabot"), "dependabot"), (mannequin("old-alice"), "old-alice")):
             with self.subTest(author=author):
@@ -1600,16 +1610,24 @@ class TurnThreads(unittest.TestCase):
                     author=author,
                     isDraft=True,
                     assignees=conn(user("bob")),
-                    reviewThreads=conn(
-                        thread(comment(user("bob"), T1, "この仕様で合っていますか")),
-                        thread(comment(user("bob"), T1, "ここも？"), comment(user("carol"), T2, "同じ疑問です")),
-                    ),
+                    reviewThreads=conn(thread(comment(user("bob"), T1, "この仕様で合っていますか"))),
                 )
                 self.assertEqual(flow.pr_balls(p), [("bob", "draft", T0)])
                 facts = flow.pr_facts(p, "bob")
                 self.assertIn(f"担当として受けた PR（起票は {named}）", facts)
-                self.assertIn("未解決 2 スレッド（人は bob だけ 1・人は bob, carol だけ 1）", facts)
+                self.assertIn("未解決 1 スレッド（人は bob だけ 1）", facts)
                 self.assertEqual(flow.pr_tiers(p)["bob"][0], 2)
+                # 側の外の人が返したら、担当が立てたスレッドでもその人への返事で、担当のターン（受付 e07d56）
+                joined = pr(
+                    author=author,
+                    isDraft=True,
+                    assignees=conn(user("bob")),
+                    reviewThreads=conn(thread(comment(user("bob"), T1, "ここも？"), comment(user("carol"), T2, "同じ疑問です"))),
+                )
+                self.assertEqual(
+                    flow.pr_balls(joined),
+                    [("bob", "draft", T0), ("bob", "thread_reply", T2), ("carol", "awaiting_reply", T2)],
+                )
                 third = pr(
                     author=author,
                     assignees=conn(user("bob")),
@@ -2227,14 +2245,16 @@ class Buckets(unittest.TestCase):
         self.assertEqual(flow.pr_tiers(asked)["carol"], (3, T0))
 
     def test_a_reply_in_the_holders_question_thread_counts_like_one_in_the_body(self):
-        """持ち主の問いのスレッドで外すのは持ち主本人の発言だけ。相手がそこに書いた答えは本文の答えと同じく数える"""
+        """持ち主の問いのスレッドで外すのは持ち主本人の発言だけ。相手がそこに書いた答えは本文の答えと同じく数える。
+        側の外の人（dave）がスレッドに返したら、持ち主の問いでなく dave とのやり取りで、持ち主が重ねて聞けば dave の返事
+        待ち（作者が持つ PR と同じ。受付 e07d56）"""
         for replier in ("alice", "dave"):
             reply = comment(user(replier), T2, "合っています")
             body = [comment(user("bob"), T0, "マージします")]
             question = [comment(user("bob"), T1, "この仕様で合っていますか"), comment(user("bob"), T3, "例外も？")]
-            for where, comments, threaded in (
-                ("スレッド", body, [question[0], reply, question[1]]),
-                ("本文", body + [reply], question),
+            for where, in_thread, comments, threaded in (
+                ("スレッド", True, body, [question[0], reply, question[1]]),
+                ("本文", False, body + [reply], question),
             ):
                 with self.subTest(replier=replier, where=where):
                     p = pr(
@@ -2244,7 +2264,7 @@ class Buckets(unittest.TestCase):
                         comments=conn(*comments),
                         reviewThreads=conn(thread(*threaded)),
                     )
-                    self.assertEqual(tiers(p)["bob"], 0)
+                    self.assertEqual(tiers(p)["bob"], 3 if replier == "dave" and in_thread else 0)
 
     def test_a_co_holders_reply_in_the_question_thread_does_not_sink_the_merge(self):
         p = pr(

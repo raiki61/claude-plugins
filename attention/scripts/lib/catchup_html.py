@@ -1010,7 +1010,12 @@ def index_html(entries):
                 f'<div class="next">次: {html.escape(e.get("next") or "")}</div></li>')
     body = ("<ul>" + "".join(row(e) for e in entries) + "</ul>") if entries else \
         '<p class="empty">まだページが無い。/catchup を打つと、ここに 1 件ずつ並ぶ。</p>'
+    # 雛形と同じく外から何も読まない。一覧はスクリプトを持たないが、HTML ビューアの拡張が body の末尾に足す zoom の
+    # スクリプトを止めないよう、ページの中のスクリプトは許す
     return ("<!doctype html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n"
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; "
+            "style-src 'unsafe-inline'; "
+            "base-uri 'none'; form-action 'none'\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             f"<title>catchup の一覧</title>\n<style>{INDEX_CSS}</style>\n</head>\n<body>\n<main>\n"
             f"<h1>catchup の一覧</h1>\n<p class=\"sub\">{len(entries)} 件。新しく描いた順。"

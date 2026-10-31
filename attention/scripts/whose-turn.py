@@ -107,7 +107,7 @@ import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/c
 from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/catchup と共用
 from ghtext import DONE_NOT_RED, is_bot, mentions, readable, repo_refs  # noqa: E402 — 発言の読み方。/catchup と共用
 import turn  # noqa: E402 — PR のターンの持ち主と指摘対応の判定。/catchup と共用
-from turn import answerable, assigned_people, login, owner_side, owners  # noqa: E402
+from turn import answerable, assigned_people, login, owner_side, owners, thread_turns  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -697,55 +697,6 @@ def red_checks(pr):
         for c in newest.values()
         if (c.get("conclusion") or c.get("state") or "") not in GREEN
     ]
-
-
-def thread_turns(pr):
-    """未解決スレッドで返すターンがある人と、その人が読むべき発言。
-    [(スレッド, ターンの人, 読む発言, その人の返事を待っている人)]。4 つ目は返すターンの行だけ非空で、
-    再確認の行は空。
-
-    ターンは人数で決まらない。1 つのスレッドが同時に複数人に載る——答える側は自分たちの最後の発言より
-    後に来た指摘に答えるターン、レビュアーは自分の指摘の後に答える側が返した内容を再確認するターンで、
-    レビュアーが 2 人以上入ると両方が同時に立つ。作者が bob に答えた後 carol が別の問いを足したら、
-    bob は再確認するターンで、作者は carol に答えるターンである。
-
-    ここを「スレッドごとに 1 人」に潰すと、潰した側が黙って落ちる。最後の発言者で決めると
-    carol の相槌ひとつで bob の再確認が消え（材料も bob の指摘から carol の相槌に化ける）、
-    立てた人と作者の往復だけで決めると carol の問いが誰の一覧にも出ない。
-
-    答える側は持ち主の側（作者と持ち主）で、側の誰が返しても返したことになる——受けた assignee の
-    返信で、渡す前に作者が返した分も含めて済む。返すターンは持ち主に立つ。側の人が立てたスレッドは
-    側の残りの人への問いで、答えるのも返すターンを負うのも残りの人（作者も含む）。残りに返答できる人
-    （answerable）がいないスレッドは自注で、返す義務の起点にならないので見ない——持ち主が作者で
-    作者が立てて側の外の人が返していないものと、返答できない作者（退会済み・Bot・Mannequin）の PR で受けた人が立てたもの。
-    返答できない名義にターンを立てても誰も読まず、立てた人には来ない返事の返答待ちが残る。"""
-    holders = owners(pr)
-    side = owner_side(pr)
-    mute = set() if answerable(pr["author"]) else {login(pr["author"])}
-    out = []
-    for t in pr["reviewThreads"]["nodes"]:
-        humans = [c for c in t["comments"]["nodes"] if not is_bot(c["author"])]
-        if t["isResolved"] or not humans:
-            continue
-        opener = login(humans[0]["author"])
-        # 側を 1 人で持つ人の自注でも、側の外の人（返答できる人）が返したら、その人への返事のスレッドになる
-        outsiders = {answerable(c["author"]) for c in humans} - side - {None}
-        # 返答できない作者の自注は、外の人が返しても返す人がいない（ターンを立てると誰も読まない）
-        if opener in side and (side != {opener} or not outsiders or opener in mute):
-            answer = owe = side - {opener} - mute
-        else:
-            answer, owe = side, set(holders)
-        if not answer:
-            continue
-        mine = [i for i, c in enumerate(humans) if login(c["author"]) in answer]
-        after = humans[mine[-1] + 1 :] if mine else humans
-        waiting = {login(c["author"]) for c in after}
-        if after:
-            out += [(t, o, after[-1], waiting) for o in sorted(owe, key=str)]
-        others = {login(c["author"]) for c in humans} - answer - waiting
-        for p in sorted(others, key=str):
-            out.append((t, p, humans[mine[-1]], set()))
-    return out
 
 
 def answered_threads(pr):

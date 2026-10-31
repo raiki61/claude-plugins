@@ -121,3 +121,63 @@ def request_kind(pr, reviews, asked):
     if reviews_by_others(pr, reviews):
         return "rerequest"
     return "review_requested" if asked else "unrequested"
+
+
+def thread_turns(pr):
+    """未解決スレッドで返すターンがある人と、その人が読むべき発言。
+    [(スレッド, ターンの人, 読む発言, その人の返事を待っている人)]。4 つ目は返すターンの行だけ非空で、
+    再確認の行は空。
+
+    ターンは人数で決まらない。1 つのスレッドが同時に複数人に載る——答える側は自分たちの最後の発言より
+    後に来た指摘に答えるターン、レビュアーは自分の指摘の後に答える側が返した内容を再確認するターンで、
+    レビュアーが 2 人以上入ると両方が同時に立つ。作者が bob に答えた後 carol が別の問いを足したら、
+    bob は再確認するターンで、作者は carol に答えるターンである。
+
+    ここを「スレッドごとに 1 人」に潰すと、潰した側が黙って落ちる。最後の発言者で決めると
+    carol の相槌ひとつで bob の再確認が消え（材料も bob の指摘から carol の相槌に化ける）、
+    立てた人と作者の往復だけで決めると carol の問いが誰の一覧にも出ない。
+
+    答える側は持ち主の側（作者と持ち主）で、側の誰が返しても返したことになる——受けた assignee の
+    返信で、渡す前に作者が返した分も含めて済む。返すターンは持ち主に立つ。側の人が立てて側の外の人が
+    返していないスレッドは側の残りの人への問いで、答えるのも返すターンを負うのも残りの人（作者も含む）。
+    側の外の人（返答できる人）が返したら、立てたのが側の誰でも、その人への返事のスレッドで、返すターンは
+    持ち主に立つ——担当に渡した PR で担当が残したメモにレビュアーが返したら、渡し終えた作者でなく担当の
+    ターン（持ち主 2026-10-31。受付 e07d56）。立てた人が持ち主でなければ（渡した作者が担当に聞いた問い）、
+    立てた人の発言は答えに数えず、立てた人も担当の答えを待つ。残りに返答できる人（answerable）がいないスレッドは自注で、
+    返す義務の起点にならないので見ない——持ち主が作者で作者が立てて側の外の人が返していないものと、
+    返答できない作者（退会済み・Bot・Mannequin）の PR で受けた人が立てたもの。返答できない名義にターンを
+    立てても誰も読まず、立てた人には来ない返事の返答待ちが残る。
+
+    /whose-turn の一覧と /catchup の「私が返すターン」は、どちらもこの式で決める（別々に書いていた間は、
+    渡した PR のスレッドと、ほかの人の PR で作者でないレビュアーが重ねて返したスレッドで割れていた）。"""
+    holders = owners(pr)
+    side = owner_side(pr)
+    mute = set() if answerable(pr["author"]) else {login(pr["author"])}
+    out = []
+    for t in pr["reviewThreads"]["nodes"]:
+        humans = [c for c in t["comments"]["nodes"] if not is_bot(c["author"])]
+        if t["isResolved"] or not humans:
+            continue
+        opener = login(humans[0]["author"])
+        # 側の人が立てたスレッドでも、側の外の人（返答できる人）が返したら、その人への返事のスレッドになる
+        outsiders = {answerable(c["author"]) for c in humans} - side - {None}
+        # 返答できない作者の自注は、外の人が返しても返す人がいない（ターンを立てると誰も読まない）
+        if opener in side and (not outsiders or opener in mute):
+            answer = owe = side - {opener} - mute
+        elif opener in side:
+            # 返すのは持ち主。立てた人の発言を答えに数えるのは、立てた人が持ち主のときだけ——渡した作者が担当に聞いた
+            # 問いは、外の人が重ねて聞いても、作者の問いのまま担当の答えを待つ
+            answer, owe = (side - {opener} - mute) | set(holders), set(holders)
+        else:
+            answer, owe = side, set(holders)
+        if not answer:
+            continue
+        mine = [i for i, c in enumerate(humans) if login(c["author"]) in answer]
+        after = humans[mine[-1] + 1 :] if mine else humans
+        waiting = {login(c["author"]) for c in after}
+        if after:
+            out += [(t, o, after[-1], waiting) for o in sorted(owe, key=str)]
+        others = {login(c["author"]) for c in humans} - answer - waiting
+        for p in sorted(others, key=str):
+            out.append((t, p, humans[mine[-1]], set()))
+    return out

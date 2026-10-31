@@ -257,8 +257,8 @@ def _thread_turn_rules():
     others = pr(reviewThreads=conn([thread("app/b.py", False, comment(T1, "bob", "なぜ？"), comment(T2, "alice", "理由は…"))]))
     own_new = pr(author=user(ME), reviewThreads=conn([thread("app/c.py", False, comment(T1, "rev", "ここ直して"))]))
     two = pr(reviewThreads=conn([
-        thread("app/old.py", False, comment(T1, ME, "q1"), comment(T2, "rev", "古い返事")),
-        thread("app/new.py", False, comment(T1, ME, "q2"), comment(T4, "rev", "新しい返事"))]))
+        thread("app/old.py", False, comment(T1, ME, "q1"), comment(T2, "other", "古い返事")),
+        thread("app/new.py", False, comment(T1, ME, "q2"), comment(T4, "other", "新しい返事"))]))
 
     def turns(node):
         return [th["my_turn"] for th in catchup.unresolved_threads(node, ME)]
@@ -590,7 +590,7 @@ def _pass2_threads():
     ask = catchup.find_ask(ev, called, ME, None, False)
     others = pr(reviewThreads=conn([thread("app/b.py", False, comment(T1, "bob", "なぜ？"), comment(T2, "alice", "理由は…"))]))
     alert = "> [!NOTE]\n> fix this\n\n"
-    quoted = pr(reviewThreads=conn([thread("app/q.py", False, comment(T1, ME, "q"), comment(T2, "rev", alert))]))
+    quoted = pr(reviewThreads=conn([thread("app/q.py", False, comment(T1, ME, "q"), comment(T2, "other", alert))]))
     ev2, _, _ = catchup.collect_events(quoted, ME, "")
     ask2 = catchup.find_ask(ev2, quoted, ME, None, False)
     own = pr(author=user(ME), reviewThreads=conn([
@@ -799,10 +799,45 @@ def _pass6_fixes():
         # 担当が立てて私に聞いたスレッドで、担当がもう一度聞いたら私のターン（担当の後の発言を側の返事に数えない）
         "asked_again_mine": turns(pr(author=user(ME), assignees=conn([user("bob")]),
                                      reviewThreads=conn([thread("c.py", False, comment(T1, "bob", "@me 要る？"),
-                                                                comment(T2, "rev", "要ると思う"),
                                                                 comment(T3, "bob", "@me どう？"))]))) == [True],
     }
     return verdict("PASS6_FIXES", want, str(want))
+
+
+@case("handed-thread-turns")
+def _handed_thread_turns():
+    """スレッドのターンを /whose-turn と揃える（受付 e07d56。持ち主 2026-10-31）。担当に渡した自分の PR で、担当のメモに
+    レビュアーが返したら担当のターン（受けた担当の私から見れば私のターン）。担当に渡した自分の PR で、私も書いたスレッドに
+    レビュアーが返したら担当のターン。ほかの人の PR で、私の返事の後に作者でないレビュアーが返したら作者のターン。"""
+    def turns(node):
+        return [th["my_turn"] for th in catchup.unresolved_threads(node, ME)]
+    memo = [comment(T1, "bob", "後で直すメモ"), comment(T2, "rev", "今直してほしい")]
+    handed_memo = pr(author=user(ME), assignees=conn([user("bob")]), reviewThreads=conn([thread("a.py", False, *memo)]))
+    received_memo = pr(author=user("alice"), assignees=conn([user(ME)]),
+                       reviewThreads=conn([thread("a.py", False, comment(T1, ME, "後で直すメモ"),
+                                                  comment(T2, "rev", "今直してほしい"))]))
+    handed_joined = pr(author=user(ME), assignees=conn([user("bob")]),
+                       reviewThreads=conn([thread("b.py", False, comment(T1, "rev", "ここは？"), comment(T2, ME, "意図です"),
+                                                  comment(T3, "rev", "でも遅い"))]))
+    others = pr(author=user("other"),
+                reviewThreads=conn([thread("c.py", False, comment(T1, "rev", "ここは？"), comment(T2, ME, "同感です"),
+                                           comment(T3, "dave", "私もそう思う"))]))
+    page = catchup.page_threads(others, ME, "https://example.invalid/pull/1", {}, lambda p: None, None, False)[0]
+    # 退会済みの作者（author が null）の PR は返す人がいない。名義の無い人を「返すターン」に挙げない
+    ghost = pr(author=None, reviewThreads=others["reviewThreads"])
+    want = {
+        "handed_memo_not_mine": turns(handed_memo) == [False] and catchup.my_turn(handed_memo, ME, False) == [],
+        "handed_memo_label": "← bob が返すターン（相手のターン）" in catchup.render_threads(handed_memo, ME, lambda p: None),
+        "received_memo_mine": turns(received_memo) == [True],
+        "handed_joined_not_mine": turns(handed_joined) == [False]
+        and "← bob が返すターン（相手のターン）" in catchup.render_threads(handed_joined, ME, lambda p: None),
+        "others_author_turn": turns(others) == [False] and catchup.my_turn(others, ME, False) == []
+        and "← other が返すターン（相手のターン）" in catchup.render_threads(others, ME, lambda p: None),
+        "page_owes": page[0]["owes"] == ["other"] and page[0]["my_turn"] is False,
+        "ghost_author_no_owes": [th["owes"] for th in catchup.unresolved_threads(ghost, ME)] == [[]]
+        and isinstance(catchup.render_threads(ghost, ME, lambda p: None), str),
+    }
+    return verdict("HANDED_THREAD_TURNS", want, str(want))
 
 
 @case("pass7-fixes")
@@ -1245,8 +1280,12 @@ def _formal_state():
                                latestReviews=conn([dict(review(T1, "x"), author=None)])))
     deleted_reviewed = render(pr(author=None, assignees=conn([user(ME)]), latestReviews=conn([review(T1, "carol")])))
     co_assignee = render(pr(author=user("alice"), assignees=conn([user("alice"), user(ME)])))
+    # issue は担当がいれば担当を待つ（受付 e07d56）。Bot だけが担当なら起票者、担当も起票者も私でなければ起票者
     issue_waits = [render(issue(author=user("alice"), assignees=conn([user("bob")]))),
-                   render(issue(author=user(ME), assignees=conn([user("bob")])))]
+                   render(issue(author=user(ME), assignees=conn([user("bob")]))),
+                   render(issue(author=user("alice"), assignees=conn([user("copilot", bot=True)]))),
+                   render(issue(author=user("alice"))),
+                   render(issue(author=user(ME)))]
 
     def legacy(node):
         # assignedActors の無い GitHub で取り直した形。assignee は login しか持たない
@@ -1310,8 +1349,9 @@ def _formal_state():
         "deleted_author": all("○ 待ち — 作者 （不明） 待ち" in h for h in deleted_author)
         and f"● 私の番 — {reason}" in deleted_handed and f"● 私の番 — {norec}" in deleted_reviewed,
         "co_assignee": "● 私の番 — 私が担当（assignee）" in co_assignee,
-        "issue_waits": "○ 待ち — 起票者 alice 待ち" in issue_waits[0]
-        and "○ 待ち — 待っている相手は記録に無い" in issue_waits[1],
+        "issue_waits": "○ 待ち — 担当 bob 待ち" in issue_waits[0] and "○ 待ち — 担当 bob 待ち" in issue_waits[1]
+        and "○ 待ち — 起票者 alice 待ち" in issue_waits[2] and "○ 待ち — 起票者 alice 待ち" in issue_waits[3]
+        and "○ 待ち — 待っている相手は記録に無い" in issue_waits[4],
         "third_party": "○ 待ち — 担当 rev 待ち" in third and "○ 待ち — 作者 other 待ち" in render(pr()),
         "third_before": all("○ 待ち — 担当 rev 待ち" in h for h in third_before + [third_before_red, third_deleted_before]),
         "before_red": "○ 待ち — 担当 rev 待ち" in before_red and all(

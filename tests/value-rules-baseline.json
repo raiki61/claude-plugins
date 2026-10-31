@@ -192,7 +192,7 @@
   "rule3": 333
  },
  "tests/catchup-case.py": {
-  "rule3": 229
+  "rule3": 235
  },
  "tests/catchup-html-suite.py": {
   "rule3": 44

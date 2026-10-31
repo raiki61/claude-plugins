@@ -2,6 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
+<!-- 外のサイトから何も読まない（ページの中のスクリプトと style だけ）。発言の本文の画像はリンクにして描かず、
+     ライブラリは下に埋め込んである。HTML ビューアの拡張が足す CSP とは両方が効く。拡張が head の先頭に足す
+     stylesheet はこの meta より前なので止まらず、body の末尾に足す zoom のスクリプトは 'unsafe-inline' で通る -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>catchup</title>
 <script type="application/json" id="catchup-index">/*__INDEX__*/null</script>
@@ -1469,6 +1473,7 @@ function thread(th, i) {
     el("span", { class: "right" }, th.outdated ? el("span", { class: "label" }, "行がずれている") : null, status,
       th.my_turn ? el("span", { class: "label severe" }, "私が返すターン")
         : el("span", { class: "label" }, th.side_last ? `持ち主の側の ${th.side_last} が最後に返している（相手のターン）`
+          : th.owes && th.owes.length ? `${th.owes.join(", ")} が返すターン（相手のターン）`
           : th.mine ? "私が最後に発言している（相手のターン）" : "私は入っていない（他の人同士の会話）"))));
   if (th.excerpt) {
     const ex = drawDiff(el("div", { class: "excerpt" }), th.excerpt);
@@ -1477,13 +1482,13 @@ function thread(th, i) {
     ex.querySelectorAll("tr").forEach(tr => { const n = tr.querySelector(numCls); if (n && +n.textContent.trim() === th.line) tr.classList.add("is-commented"); });
     box.append(ex);
   }
-  // 発言は GitHub と同じく古い順。私が返すターンか、持ち主の側の人が最後に返しているなら私が先、
-  // ほかの相手のターンなら私が後（私が最後に発言している）
+  // 発言は GitHub と同じく古い順。私が返すターンか、持ち主の側の人が最後に返しているか、私でない人が返すターン（人の
+  // 最後の発言が私でない）なら私が先、ほかの相手のターンなら私が後（私が最後に発言している）
   const mineEl = th.mine && th.mine.quote ? el("div", { class: "comment" }, avatar("私"),
     el("div", {}, el("div", { class: "c-head" }, el("b", {}, "私"), ` · ${th.mine.when}（冒頭だけ）`), body(th.mine.quote, "c-body clamp"))) : null;
   const theirEl = th.quote ? el("div", { class: "comment" }, avatar(th.who || "?"),
     el("div", {}, el("div", { class: "c-head" }, el("b", {}, th.who), ` · ${th.when}`), body(th.quote))) : null;
-  box.append(...(th.my_turn || th.side_last ? [mineEl, theirEl] : [theirEl, mineEl]).filter(Boolean));
+  box.append(...(th.my_turn || th.side_last || (th.owes && th.owes.length) ? [mineEl, theirEl] : [theirEl, mineEl]).filter(Boolean));
   const f = th.changed && sinceView ? sinceView.files.find(x => x.path === th.path) : null;
   if (f) box.append(el("div", { class: "after" },
     el("div", { class: "after-head" }, icon("dot"), el("span", {}, "このあと ", el("b", {}, rich(sinceView.label)), " でこの file が変わった"),

@@ -2459,7 +2459,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=817
+EXPECTED_CHECKS=818
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5773,6 +5773,9 @@ expect_output 0 "PASS5_FIXES_OK" \
 expect_output 0 "PASS6_FIXES_OK" \
     "catchup: ほかの人だけが assignee の自分の issue で名指しの無い発言を私への依頼に読まない・他の人の commit を私が rebase して push したら私の push に数える・持ち主でない共同の担当に作者のスレッドのターンを立てない・担当が立てて重ねて聞いたスレッドを私のターンにする" \
     "$PY_BIN" "$CU_CASE" pass6-fixes
+expect_output 0 "HANDED_THREAD_TURNS_OK" \
+    "catchup: スレッドのターンを /whose-turn と同じ式で決める——担当に渡した PR で担当のメモや私も書いたスレッドにレビュアーが返したら担当のターン、ほかの人の PR で作者でないレビュアーが重ねたら作者のターン" \
+    "$PY_BIN" "$CU_CASE" handed-thread-turns
 expect_output 0 "PASS7_FIXES_OK" \
     "catchup: Bot だけが assignee の自分の issue で名指しの無い発言を依頼に読む・私が rebase して push した結び付き無しの commit を挙げない・変わった file を path 順に並べる・head の file の行を改行でだけ分ける" \
     "$PY_BIN" "$CU_CASE" pass7-fixes

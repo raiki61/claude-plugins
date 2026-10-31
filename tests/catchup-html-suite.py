@@ -542,6 +542,23 @@ class TemplateTest(unittest.TestCase):
         for s in ("my_notes", "/Users/", "raiki61", "190578"):
             self.assertNotIn(s, self.TPL)
 
+    def test_pages_load_nothing_from_outside(self):
+        # CSP で外のサイトからの読み込みを塞ぐ（受付 e07d56）。meta の CSP はそれより後の読み込みにだけ効くので、
+        # head の中で最初のスクリプトと style より前に置く。ページの中のスクリプトと style だけを許す
+        import re
+        index = ch.index_html([])
+        for name, page, allowed in (("雛形", self.TPL, {"script-src", "style-src"}), ("一覧", index, {"script-src", "style-src"})):
+            with self.subTest(name):
+                m = re.search(r'<meta http-equiv="Content-Security-Policy" content="([^"]*)">', page)
+                self.assertIsNotNone(m)
+                first = min(i for i in (page.find("<script"), page.find("<style")) if i >= 0)
+                self.assertLess(m.start(), first)
+                rules = dict(r.strip().split(" ", 1) for r in m.group(1).split(";") if r.strip())
+                self.assertEqual(rules["default-src"], "'none'")
+                self.assertEqual({k for k, v in rules.items() if v != "'none'"}, allowed)
+                self.assertTrue(all(v == "'unsafe-inline'" for k, v in rules.items() if k in allowed))
+                self.assertIsNone(re.search(r'<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)="(?:https?:)?//', page))
+
 
 class VscodeTest(unittest.TestCase):
     def setUp(self):
@@ -764,8 +781,10 @@ class PageItemTest(unittest.TestCase):
         # 発言を「相手が先・私が後」に並べると、担当の返事が私より前に見えた。端末と同じ言い方も出す
         tpl = (ROOT / "attention" / "templates" / "catchup.html").read_text(encoding="utf-8")
         body = tpl.split("\nfunction thread(", 1)[1].split("\nfunction ", 1)[0]
-        self.assertIn("th.my_turn || th.side_last ? [mineEl, theirEl]", body)
+        self.assertIn("th.my_turn || th.side_last || (th.owes && th.owes.length) ? [mineEl, theirEl]", body)
         self.assertIn("持ち主の側の ${th.side_last} が最後に返している", body)
+        # 私でない人が返すターン（人の最後の発言が私でない）も私が先。端末と同じ言い方を出す（受付 e07d56）
+        self.assertIn('${th.owes.join(", ")} が返すターン（相手のターン）', body)
         # 端末と同じく、私が最後に発言したのか、私が入っていないのかを分ける（どちらも「相手のターン」だけだった）
         self.assertIn('th.mine ? "私が最後に発言している（相手のターン）" : "私は入っていない（他の人同士の会話）"', body)
 

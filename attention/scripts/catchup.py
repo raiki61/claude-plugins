@@ -750,7 +750,7 @@ def judge_cap_lines(node, me):
 
 def waiting_on(node, me):
     """私の番でないときに待っている相手。PR は依頼先、無ければ形式上の理由を持つ人（持ち主を先に、次に返答できる
-    作者）、それも無ければ担当がターンの根拠の人。担当の印だけで選ばない——作者が持ち主のまま担当を付けた PR（assignee の種別が
+    作者）、それも無ければ担当がターンの根拠の人。issue は担当、いなければ起票者。担当の印だけで選ばない——作者が持ち主のまま担当を付けた PR（assignee の種別が
     取れない GitHub）で依頼先を決めるターンが作者にあるとき、作者本人には私の番と出しながら第三者には担当待ちと出す"""
     is_pr = node["__typename"] == "PullRequest"
     author = turn.login(node["author"])
@@ -771,6 +771,10 @@ def waiting_on(node, me):
             return "担当 " + ", ".join(who) + " 待ち"
         if author != me:
             return f"作者 {shown} 待ち"
+    # issue を持つのは、担当（返答できる assignee）がいれば担当で、いなければ起票者（turn_reasons の own と同じ。Bot だけが
+    # assignee の issue は起票者が持つ）。私が担当なら私の番なので、ここへは来ない
+    elif assigned := [a for a in turn.assigned_people(node) if a != me]:
+        return "担当 " + ", ".join(assigned) + " 待ち"
     elif author != me:
         return f"起票者 {shown} 待ち"
     return "待っている相手は記録に無い"
@@ -1728,11 +1732,12 @@ def owns(node, me):
 
 def unresolved_threads(node, me):
     """未解決で人が入っているスレッド。相手（私でない人）の最後の発言と、私が返すターンかを添える。
-    私しか発言していないスレッドは出さない——それは指摘ではなく、私が出した側。私が返すターンは、人の最後の発言が
-    相手のもので、私がそのスレッドで発言しているか自分の件のとき（人の PR で他の人同士が話しているスレッドは、
-    私が返すターンではない）。"""
+    私しか発言していないスレッドは出さない——それは指摘ではなく、私が出した側。私が返すターンかは /whose-turn と
+    同じ turn.thread_turns で決める（人の PR で他の人同士が話しているスレッドは、私が返すターンではない）。"""
     out = []
     own = owns(node, me)
+    # 返すターンと再確認のターン。私が返すターンかと、私でない誰が返すターンかを、スレッドごとに引く
+    turns = turn.thread_turns(node) if "reviewThreads" in node else []
     # 自分の件では、持ち主の側（作者と、作者から渡された担当）の返事も私の側の返事。担当の仲間が最後に返したスレッドは
     # 相手（レビュアー）のターンで、私が返すターンではない
     side = {me} | (set(turn.owner_side(node)) if own and node.get("assignees") else set())
@@ -1749,23 +1754,27 @@ def unresolved_threads(node, me):
         # スレッドで担当が返せば、それは私への返事で私が返すターン
         ours = side if any(login_of(c["author"]) not in side for c in cs) else {me}
         opener = login_of(cs[0]["author"])
-        # 持ち主の側の私以外の人（渡した担当など）が立てたスレッドは、側の残り（私を含む）への問い。答える側は立てた人を
-        # 除いた残りで、立てた人の後の発言は側の返事に数えない（/whose-turn の thread_turns と同じ）。私が側に居ない
-        # とき（持ち主でない共同の担当）は当たらない
+        # 持ち主の側の私以外の人（渡した担当など）が立てて、側の外の人（返答できる人）が返していないスレッドは、側の残り
+        # （私を含む）への問い。答える側は立てた人を除いた残り（turn.thread_turns と同じ）。私が側に居ないとき（持ち主でない
+        # 共同の担当）は当たらない
         osd = set(turn.owner_side(node)) if own else set()
-        asked_me = me in osd and opener in osd - {me}
-        if asked_me:
+        outsiders = {turn.answerable(c["author"]) for c in cs} - osd - {None}
+        if me in osd and opener in osd - {me} and not outsiders:
             ours = osd - {opener}
+        mine_turn = any(t is th and w == me for t, w, _, _ in turns)
+        # 私でない人が返すターン。人の最後の発言が私でなく、私が書いたか自分の件のスレッドだけに添える（私が最後なら「私が
+        # 最後に発言している」、人の PR で私の入っていないスレッドは「私は入っていない」）
+        # 返答できない名義（退会済みの作者は None）は返せないので挙げない
+        owes = ([w for t, w, _, ps in turns if t is th and ps and w and w != me]
+                if last != me and not mine_turn and (mine or own) else [])
         # 削除された行への指摘（diffSide が LEFT）は、line が base の版の行番号。head の行として読むと別の行になる
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
                     "left": th.get("diffSide") == "LEFT",
-                    # 私が入っていないスレッドが私のターンになるのは、私が持ち主（turn.owners）のときと、持ち主の側の
-                    # 私以外の人（渡した担当など）が立てたとき（側の残りの私への問い）。作者でも担当に渡した後は、外の人が
-                    # 立てたスレッドは担当のターンで、持ち主でない共同の担当も同じ（どれも /whose-turn の thread_turns と同じ）
                     "last": theirs[-1],
-                    "my_turn": last not in ours and bool(mine or (own and (me in turn.owners(node) or asked_me))),
+                    "my_turn": mine_turn,
                     # 人の最後の発言が私の側（私以外の持ち主）か。端末の「相手のターン」の言い方を分ける
-                    "side_last": last if last != me and last in ours else None,
+                    "side_last": last if last != me and last in ours and not mine_turn else None,
+                    "owes": owes,
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が
                     # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
                     "mine_t": ts(mine[-1]["createdAt"]) if mine else None,
@@ -1946,6 +1955,8 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
             turn = "← 私が返すターン"
         elif th["side_last"]:
             turn = f"← 持ち主の側の {th['side_last']} が最後に返している（相手のターン）"
+        elif th["owes"]:
+            turn = f"← {', '.join(th['owes'])} が返すターン（相手のターン）"
         elif th["mine_last"]:
             turn = "← 私が最後に発言している（相手のターン）"
         else:
@@ -2707,7 +2718,7 @@ def page_threads(node, me, url, by_path, read_lines, since_paths, full):
             ex = catchup_html.context_excerpt(th["path"], read_lines(th["path"]), th["line"])
         mine = th.get("mine_last")
         out.append({
-            "path": th["path"], "line": th["line"], "left": bool(th["left"]), "my_turn": th["my_turn"], "side_last": th["side_last"], "outdated": bool(th["outdated"]),
+            "path": th["path"], "line": th["line"], "left": bool(th["left"]), "my_turn": th["my_turn"], "side_last": th["side_last"], "owes": th["owes"], "outdated": bool(th["outdated"]),
             "who": login_of(c["author"]), "when": hhmm(ts(c["createdAt"])),
             "quote": "\n".join(their_lines(c["body"])).strip(),
             "mine": {"when": hhmm(ts(mine["createdAt"])), "quote": excerpt(mine["body"], 300)} if mine else None,
