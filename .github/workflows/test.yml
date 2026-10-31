@@ -48,7 +48,7 @@ jobs:
           - os: ubuntu-latest
             skip_allow: "version-bump"
           - os: windows-latest
-            skip_allow: "posix-mode process-group fifo read-permission version-bump"
+            skip_allow: "posix-mode process-group fifo read-permission posix-os version-bump"
     runs-on: ${{ matrix.os }}
     steps:
       # 履歴を丸ごと取る。tests/run.sh の VERSION_BUMP_OK が、plugin.json の version を最後に変えた commit より後の変更を
