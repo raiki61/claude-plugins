@@ -10,7 +10,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 直しで、commit 812accd7 の版を渡すと赤になる。
 49 以降はその後のレビュー(頼み cae1e2)の直しで、commit ef2d1702 の版を渡すと赤になる。53 以降は 15 回目のレビュー(頼み cae1e2)
 の直しで、commit 12d08013 の版を渡すと赤になる。58 は 55 の直し(commit b46a0bfe)が持ち込んだ止めすぎで、b46a0bfe の版を
-渡すと赤になる。59 以降は 17 回目のレビュー(頼み cae1e2)の直しで、commit 7e850025 の版を渡すと赤になる。
+渡すと赤になる。59 以降は 17 回目のレビュー(頼み cae1e2)の直しで、commit 7e850025 の版を渡すと赤になる。61 は探しのゲートの
+11 回目のレビュー(頼み cae1e2)の直しで、commit fce0c115 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1042,8 +1043,26 @@ def f60():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(60, not parsed or bool(blk), "本文を運びうる gh の xargs を通した: %r → %r %r" % (cmd, cands, parsed))
 
+# 61. リダイレクトの行き先のプロセス置換(`< <(…)`・`> >(…)`)の中は別のコマンドとして読む(前は `<(` ごと読み飛ばして中の語を
+# 外のコマンドの引数にし、`cat < <(gh pr comment 1 --body-file x.md)` の gh を見落として通した)。--body-file <(…) と、
+# 標準入力をプロセス置換から渡す形は今までどおり止める
+def f61():
+    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
+        f.write(BODY)
+    for cmd in ("cat < <(gh pr comment 1 --body-file x.md)", "cat < <(gh pr comment 1 --body '%s')" % BODY):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(61, parsed and cands == [BODY] and not blk, "プロセス置換の中の gh を読まなかった: %r → %r %r" % (cmd[:60], cands, blk))
+    for cmd in ("gh pr comment 1 --body-file <(cat x.md)", "gh pr comment 1 --body-file - < <(cat x.md)",
+                "echo x > >(gh pr comment 1 --body-file -)"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(61, not parsed or bool(blk), "プロセス置換の本文を通した: %r → %r %r" % (cmd, cands, parsed))
+    cmds = g.split_commands(g.tokenize("mapfile -t a < <(cd src && ls); gh pr view 1"))
+    check(61, [c.args for c in cmds] == [["mapfile", "-t", "a"], ["cd", "src"], ["ls"], ["gh", "pr", "view", "1"]]
+          and cmds[0].redirects == [("<", "<(")] and cmds[1].depth == 1 and cmds[3].depth == 0,
+          "プロセス置換の中を外のコマンドに繋いだ: %r" % [(c.args, c.redirects, c.depth) for c in cmds])
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

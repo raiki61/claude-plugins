@@ -531,6 +531,19 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
 
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_process_substitution_after_a_redirect_is_a_subshell(self):
+        # リダイレクトの行き先のプロセス置換(`< <(…)`・`> >(…)`)は別のプロセスで、中の cd は後ろに届かない(前は `<(` ごと
+        # 読み飛ばして中の語を外のコマンドに繋ぎ、`(` を数えず、中の cd が後ろに届くと読んでホームの `rg foo .` を通していた)
+        for command, cwd in (("mapfile -t a < <(cd src && ls); rg foo .", HOME), ("cat < <(cd src; ls); rg foo .", HOME),
+                             ("echo hi > >(cd src; cat); rg foo .", HOME), ("cd /; exec > >(tee log) 2>&1; rg x .", WORK),
+                             ("cat < <(rg foo /)", WORK)):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        for command in ("cat < <(cd /; ls); rg foo src", 'while read f; do rg foo "$f"; done < <(ls)', "cat < <(rg foo .)"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0])
+
     def test_fd_exec_command_is_read(self):
         # fd の -x・-X・--exec・--exec-batch の後ろのコマンドも探すコマンドとして読む(前は読まず、`fd foo -x rg y / {}` を通していた)
         for command in ("fd foo -x rg y / {}", "fd -e py -X rg -l foo /", "fd -Hx rg y /", "fd --exec=rg y /",

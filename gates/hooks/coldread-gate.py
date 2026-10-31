@@ -1480,7 +1480,9 @@ def split_commands(tokens):
                 if cur and cur[-1].isdigit():
                     cur.pop()
                 redirects.append((tok, tokens[i + 1] if i + 1 < len(tokens) else ""))
-                i += 2  # 演算子とその行き先(fd かファイル名)を読み飛ばす
+                # 行き先がプロセス置換(`< <(…)`・`> >(…)`)なら演算子だけを読み飛ばし、`(` をサブシェルの開きに数える。
+                # 前は `<(` ごと読み飛ばして中の語を外のコマンドの引数にし、`cat < <(gh pr comment 1 --body-file x.md)` の gh を見落とした
+                i += 1 if tokens[i + 1:i + 2] and tokens[i + 1][:2] in ("<(", ">(") else 2
                 continue
             # ; | & && || 改行 () は単純コマンドの区切り。shlex は続いた区切りを 1 語にする(`);`)ので演算子に割る
             if cur:

@@ -978,7 +978,8 @@ def layout(cr, tokens, kinds=None, negs=None, braces=None):
             if tok in cr.REDIRECT_OPS:
                 if cur and cur[-1].isdigit():
                     cur.pop()
-                i += 2
+                # 行き先がプロセス置換(`< <(…)`)なら、split_commands と同じく `(` をサブシェルの開きに数える
+                i += 1 if tokens[i + 1:i + 2] and tokens[i + 1][:2] in ("<(", ">(") else 2
                 continue
             close()
             if neg and "(" in tok:
