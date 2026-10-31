@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,13 @@ sys.dont_write_bytecode = True
 HOOK = pathlib.Path(__file__).resolve().parents[1] / "gates" / "hooks" / "search-gate.py"
 HOME = "/home/tester"
 WORK = HOME + "/src/repo"
+CD_WORD = re.compile(r"(?<![\w-])cd(?=[\s;&|)]|$)")
+
+
+def posix_cd(items):
+    """止める側に置いた cd を持つ形を Windows では外す。フックは cd の行き先を cygpath で Windows の形に直す(coldread と同じ読み方)ので、
+    Windows では `cd /` が広い場所にならない。項目はコマンドの字か、(コマンド, cwd) の組。"""
+    return [i for i in items if os.name != "nt" or not CD_WORD.search(i if isinstance(i, str) else i[0])]
 
 
 def run(tool, tool_input, cwd=WORK, raw=None):
@@ -508,8 +516,8 @@ class Bash(unittest.TestCase):
     def test_bare_substitution_after_a_wrapper_is_skipped(self):
         # env・sudo の後ろの引用の外の置換だけの語(`env $(cat .env | xargs)`)は代入と同じに越え、後ろのコマンドを見る
         # (前は置換を語に留めた後、その語をコマンド名と読み、後ろの find・rg を見ずに通していた。頼み cae1e2)
-        for command in ("env $(cat .env | xargs) find / -name x", "sudo env $(cat .env) rg foo /",
-                        'env $(cat .env) sh -c "cd / && find ."'):
+        for command in posix_cd(("env $(cat .env | xargs) find / -name x", "sudo env $(cat .env) rg foo /",
+                                 'env $(cat .env) sh -c "cd / && find ."')):
             self.assertIsNotNone(run("Bash", {"command": command})[0], command)
         self.assertIsNone(run("Bash", {"command": "env $(cat .env | xargs) find . -name x"})[0])
         # 前置の無い頭の展開だけの語(`$(true)`・`$SUDO`・`` `true` ``)も越える。展開は空にも前置にもなりうるので、後ろの語を
@@ -520,7 +528,7 @@ class Bash(unittest.TestCase):
         for command in ("$(true) find . -name x", "$(cd /) rg foo .", "$SUDO rg foo src"):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
         # 頭の展開だけの語の後ろの cd も行き先を見る(前は cd を見ず、`$(true) cd /; rg foo .` を作業場の中の . と読んで通していた)
-        for command in ("$(true) cd /; rg foo .", "$X cd ~ && rg foo .", "`true` cd /; find . -name x"):
+        for command in posix_cd(("$(true) cd /; rg foo .", "$X cd ~ && rg foo .", "`true` cd /; find . -name x")):
             self.assertIsNotNone(run("Bash", {"command": command})[0], command)
         for command in ("$(true) cd src; rg foo .", "echo cd /; rg foo ."):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
@@ -545,8 +553,8 @@ class Bash(unittest.TestCase):
     def test_backticks_inside_a_bare_substitution_are_read(self):
         # 引用の外の $( … ) の中の ` … ` も読む(中に ` が在るとトークン化が単純コマンドに割り、割った語は ` の中身を持たない。
         # 前は外の読み直しが $( … ) ごと飛ばし、`x=$(echo `rg foo /`)` を通していた。頼み cae1e2)
-        for command in ("x=$(echo `rg foo /`)", "x=$(cd / && n=`find . -name x`)", "x=$(echo $(echo `rg foo /`))",
-                        "cat <(echo `find / -name x`)"):
+        for command in posix_cd(("x=$(echo `rg foo /`)", "x=$(cd / && n=`find . -name x`)", "x=$(echo $(echo `rg foo /`))",
+                                 "cat <(echo `find / -name x`)")):
             self.assertIsNotNone(run("Bash", {"command": command})[0], command)
         for command in ("x=$(echo `rg foo src`)", "x=$(cd ~/p && n=`find . -name x`)"):
             self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0], command)
@@ -563,10 +571,10 @@ class Bash(unittest.TestCase):
     def test_quoted_open_parens_do_not_keep_a_substitution_open(self):
         # 置換の中の引用の中や \ の後の ( では置換を開いたままにしない(前は引用を見ない数え方の閉じない遠い所まで中身と読み、
         # 後ろの ` … ` を外のコマンドとして見ずに通していた。頼み cae1e2)
-        for command, cwd in (("x=$(sed 's/(.*//' f); n=`rg foo /`", WORK), ("x=$(grep -c '(' f); n=`find / -name x`", WORK),
-                             ("echo \"$(echo '(')\"; echo `rg foo /`", WORK), ("x=$(echo \\(); n=`rg foo /`", WORK),
-                             ("x=$(echo '(' ); cd /; y=`rg foo .`", WORK),
-                             ("cd ~ && x=$(git log --format='%s (%h' -1); n=`rg -l TODO .`", HOME)):
+        for command, cwd in posix_cd((("x=$(sed 's/(.*//' f); n=`rg foo /`", WORK), ("x=$(grep -c '(' f); n=`find / -name x`", WORK),
+                                      ("echo \"$(echo '(')\"; echo `rg foo /`", WORK), ("x=$(echo \\(); n=`rg foo /`", WORK),
+                                      ("x=$(echo '(' ); cd /; y=`rg foo .`", WORK),
+                                      ("cd ~ && x=$(git log --format='%s (%h' -1); n=`rg -l TODO .`", HOME))):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0], command)
         for command in ("x=$(sed 's/(.*//' f); n=`rg foo src`", "x=$(echo \\(); n=`rg foo src`"):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
@@ -708,9 +716,9 @@ class Bash(unittest.TestCase):
     def test_quoted_closing_parenthesis_is_not_a_subshell_close(self):
         # 囲むサブシェルの無い所の閉じ括弧(`')'`・`\)`。トークン化で引用符が落ちる)は字と見る(前はサブシェルの閉じと見て、
         # find の後ろを繋がず、cd が後ろに届かないと読んで通していた)
-        for command in ("find fd -name ')' -exec rg x / \\;", "find fd -exec echo \\) \\; -exec rg x / \\;",
-                        "cd /; echo ')'; rg x .", "cd / && echo ')' && rg x .",
-                        "echo ')'; find fd -name ')' -exec rg x / \\;", "(find . -name x) && rg y /"):
+        for command in posix_cd(("find fd -name ')' -exec rg x / \\;", "find fd -exec echo \\) \\; -exec rg x / \\;",
+                                 "cd /; echo ')'; rg x .", "cd / && echo ')' && rg x .",
+                                 "echo ')'; find fd -name ')' -exec rg x / \\;", "(find . -name x) && rg y /")):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
         # 本物のサブシェルの閉じと、括弧の字を探す作業場の中のコマンドは通す
@@ -735,8 +743,8 @@ class Bash(unittest.TestCase):
     def test_words_after_an_unquoted_substitution_belong_to_the_same_command(self):
         # 引用の外の `$( )`・`<( )` の閉じの後ろの語も同じコマンドの語(前は ( を区切りと読み、閉じの ) の後ろを別のコマンドに割って、
         # 作業場の中の `rg $(cat pat.txt) /` の起点 / を見なかった)。置換の中の探すコマンドと cd は今までどおり読む
-        for command in ("rg $(cat pat.txt) /", 'grep -r "$(cat p)" /', "rg foo < <(echo) /", "grep -r $((1+1)) /",
-                        "echo $(cd /; rg foo .)", "x=$(echo $(rg foo /))"):
+        for command in posix_cd(("rg $(cat pat.txt) /", 'grep -r "$(cat p)" /', "rg foo < <(echo) /", "grep -r $((1+1)) /",
+                                 "echo $(cd /; rg foo .)", "x=$(echo $(rg foo /))")):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0])
         for command in ("cd $(git rev-parse --show-toplevel) && rg x .", "rg $(cat pat.txt) src", "rg foo < <(echo) src"):
@@ -833,11 +841,11 @@ class Bash(unittest.TestCase):
     def test_heredocs_inside_a_substitution_are_read(self):
         # $( )・<( ) の中のヒアドキュメントの本文も読む(中のシェルが走らせる本文と、区切りを引用しない本文の $( ))。前は中身を
         # 読み直すときに本文を持たず、`x=$(bash <<'EOF'` の本文の rg foo / を通していた。区切りを引用した本文の字は今までどおり通す
-        for command in ("x=$(bash <<'EOF'\nrg foo /\nEOF\n)", "x=$(sh -s <<EOF\nfind / -name x\nEOF\n)",
-                        "for f in $(cat <<EOF\n$(find / -name '*.log')\nEOF\n); do echo $f; done",
-                        "diff <(cat <<EOF\n$(rg foo /)\nEOF\n) b", "x=$(bash <<'EOF'\ncd /\nrg foo .\nEOF\n)",
-                        "x=\"$(bash <<'EOF'\nrg foo /\nEOF\n)\"", "echo \"$(cat <<EOF\n$(rg foo /)\nEOF\n)\"",
-                        "x=`bash <<'EOF'\nrg foo /\nEOF\n`"):
+        for command in posix_cd(("x=$(bash <<'EOF'\nrg foo /\nEOF\n)", "x=$(sh -s <<EOF\nfind / -name x\nEOF\n)",
+                                 "for f in $(cat <<EOF\n$(find / -name '*.log')\nEOF\n); do echo $f; done",
+                                 "diff <(cat <<EOF\n$(rg foo /)\nEOF\n) b", "x=$(bash <<'EOF'\ncd /\nrg foo .\nEOF\n)",
+                                 "x=\"$(bash <<'EOF'\nrg foo /\nEOF\n)\"", "echo \"$(cat <<EOF\n$(rg foo /)\nEOF\n)\"",
+                                 "x=`bash <<'EOF'\nrg foo /\nEOF\n`")):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command})[0])
         for command in ("x=$(cat <<'EOF'\nrg foo /\nEOF\n)", "x=$(bash <<'EOF'\nrg foo src\nEOF\n)"):
@@ -877,13 +885,13 @@ class Bash(unittest.TestCase):
 
     def test_scripts_given_to_a_shell_are_read(self):
         # stdin に渡すスクリプト・bash -c と eval の中の外の変数・名前付きのホーム
-        for command in ("bash <<'EOF'\nfind / -name x\nEOF", "sh -s <<EOF\nfind / -name x\nEOF",
-                        'D=/; bash -c "find $D -name x"', 'D=/; eval "find $D -name x"', "D=/; eval 'find $D -name x'",
-                        "export D=/; bash -c 'find $D -name x'", "D=/ bash -c 'find $D -name x'",
-                        "D=/ bash <<'EOF'\nfind $D -name x\nEOF",
-                        "D=/ timeout 60 bash -c 'find $D -name x'", "env D=/ sh -c 'find \"$D\" -name x'",
-                        "echo \"it's\"; D=/; bash -c 'find $D -name x'", "printf 'cd /\\nfind . -name x\\n' | sh",
-                        "find ~tester -name x"):
+        for command in posix_cd(("bash <<'EOF'\nfind / -name x\nEOF", "sh -s <<EOF\nfind / -name x\nEOF",
+                                 'D=/; bash -c "find $D -name x"', 'D=/; eval "find $D -name x"', "D=/; eval 'find $D -name x'",
+                                 "export D=/; bash -c 'find $D -name x'", "D=/ bash -c 'find $D -name x'",
+                                 "D=/ bash <<'EOF'\nfind $D -name x\nEOF",
+                                 "D=/ timeout 60 bash -c 'find $D -name x'", "env D=/ sh -c 'find \"$D\" -name x'",
+                                 "echo \"it's\"; D=/; bash -c 'find $D -name x'", "printf 'cd /\\nfind . -name x\\n' | sh",
+                                 "find ~tester -name x")):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command})[0])
         # bash script.sh は stdin をデータとして読ませる
@@ -915,10 +923,11 @@ class Bash(unittest.TestCase):
         # grep -r は起点が無ければ、前がパイプでも cwd を探す(stdin を読まない)。rg は stdin を読む
         self.assertIsNotNone(run("Bash", {"command": "ls | grep -r needle"}, cwd=HOME)[0])
         self.assertIsNone(run("Bash", {"command": "ls | rg needle"}, cwd=HOME)[0])
-        self.assertIsNone(run("Bash", {"command": "cd /tmp && find . -name x"})[0])
-        self.assertIsNotNone(run("Bash", {"command": "cd ~; find . -name x"})[0])
-        self.assertIsNotNone(run("Bash", {"command": "cd /\nrg needle"})[0])
-        self.assertIsNotNone(run("Bash", {"command": "cd && find . -name x"})[0])
+        if os.name != "nt":   # cd の行き先は Windows では cygpath で Windows の形に直る(posix_cd と同じ)
+            self.assertIsNone(run("Bash", {"command": "cd /tmp && find . -name x"})[0])
+            self.assertIsNotNone(run("Bash", {"command": "cd ~; find . -name x"})[0])
+            self.assertIsNotNone(run("Bash", {"command": "cd /\nrg needle"})[0])
+            self.assertIsNotNone(run("Bash", {"command": "cd && find . -name x"})[0])
         # xargs の後ろの grep -r は、xargs が渡すパスを探す(cwd ではない)
         self.assertIsNone(run("Bash", {"command": "ls *.txt | xargs grep -r foo"}, cwd=HOME)[0])
 
