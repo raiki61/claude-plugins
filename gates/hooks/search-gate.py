@@ -933,6 +933,9 @@ def load_coldread():
             self.braces = {}   # `{ }` のまとまりの最初のコマンドの番号 → 閉じの `}` の番号(layout)
             # cwds_here の控え: (cd, k) → (届くか, 必ず走ったか)・(cd, 前の場所) → 行き先・繰り返しの番号 → 中のコマンド・回の頭の場所
             self._flow, self._dests, self._insides, self._tops = {}, {}, {}, {}
+            self._spent = 0   # _heads で回の中身をたどったコマンドの数(WALKS_MAX まで)
+            self._passes, self._afters = {}, {}   # (繰り返し, 1 回目の頭の場所) → 回の頭の場所・(繰り返し, 場所, k) → 抜けた後の場所
+            self._via = False   # _surely の中で、cd が落ちた側が後ろの cd を飛ばして k に来ると見たか(_skips_pass)
             lay = layout(cr, tokens, self.kinds, self.negs, self.braces)
             self.lay = lay if lay is not None and len(lay) == len(cmds) else None
 
@@ -1036,27 +1039,40 @@ def load_coldread():
             for m in inside[:-1]:
                 p, dep, ops, head = self.lay[m]
                 if (len(p) == at + 1 and p[at] == (bid, sec, False) and dep == d
-                        and (head in ("exit", "return") or self._skips_pass(m, k))
+                        and (head in ("exit", "return") or self._skips_pass(m, k, [x for x in inside if x < m and
+                                                                                   self.lay[x][0][at:at + 1] == p[at:]]))
                         and all(op in (";", "\n") for op, _ in ops)
                         and not any(op in ("|", "&") for op, _ in self.lay[m + 1][2])):
                     return True
             return False
 
-        def _skips_pass(self, m, k):
-            """m 番目のコマンドが continue・break(引数が無いか 1)で、k を飛ばすか: continue はその繰り返しのこの回の残り、break は
-            繰り返しの全部を飛ばすので、k が m を囲むいちばん内の繰り返しの中の、閉じの done より前に在るとき。"""
+        def _skips_pass(self, m, k, before):
+            """m 番目のコマンドが continue・break(引数が無いか 1)で、cd が落ちたときに k を走らせないか(before は、cd が落ちたときに
+            m の前に走るコマンドの番号の列)。continue はその繰り返しのこの回の残り、break は繰り返しの全部を飛ばすので、k が m を囲む
+            いちばん内の繰り返しの中の、閉じの done より前に在るとき。k がその done(次の回の頭の場所を引くとき。_heads)なら、break は
+            done に来させず、continue は cd の前の場所のまま done に来させる(_walk はそれを、移れた場所の列とは別に足す。self._via に
+            印を付ける)。continue のこの形は、before に cd が在れば取らない(落ちた側の場所が cd の前の場所でなくなる)。"""
             if self.lay[m][3] not in ("continue", "break") or self.cmds[m].args[1:] not in ([], ["1"]):
                 return False
-            loop = next((bid for bid, _, _ in reversed(self.lay[m][0]) if self.kinds.get(bid) in LOOPS), None)
+            loop = self._loop_of(m)
             if loop is None:
                 return False
             inside = self._inside(loop)
-            return k in inside and k < inside[-1]
+            if k in inside and k < inside[-1] or k == inside[-1] and self.lay[m][3] == "break":
+                return True
+            if k != inside[-1] or any(t in cr.CD_WORDS for x in before for t in self.cmds[x].args):
+                return False
+            self._via = True
+            return True
+
+        def _loop_of(self, m):
+            """m 番目を囲むいちばん内の繰り返しの番号(無ければ None)。"""
+            return next((bid for bid, _, _ in reversed(self.lay[m][0]) if self.kinds.get(bid) in LOOPS), None)
 
         def _escapes(self, j, k):
             """j 番目の cd の後ろの `|| <コマンド>`・`|| { …; <コマンド>; }` が、cd が落ちたときに k 番目を走らせない逃げ口なら、
             逃げ口の最後のコマンドの番号(でなければ None)。逃げ口は、exit・return(シェルを抜ける)と、continue・break(その繰り返しの
-            この回の残り〔break は繰り返しの全部〕を飛ばすので、k が同じ繰り返しの中で、閉じの done より前に在るときだけ)。
+            この回の残り〔break は繰り返しの全部〕を飛ばす。_skips_pass)。
             `{ }` のまとまりは、最後のじかのコマンドが逃げ口なら逃げ口(前は exit・return だけを、`{ }` で囲まずに書いたときだけ見て、
             `for d in */; do cd "$d" || continue; rg x .; cd ..; done` の cd を走るとは限らないと見て、動かなかった場所からの `cd ..` で
             / やホームに届いたと読み、`cd proj || { echo no; exit 1; }; rg foo .` も止めていた)。サブシェルの中の exit
@@ -1079,7 +1095,7 @@ def load_coldread():
                 ops.remove("||")
             if mdepth != d or any(op not in (";", "\n") for op in ops) or k <= stop:
                 return None
-            return stop if head in ("exit", "return") or self._skips_pass(last, k) else None
+            return stop if head in ("exit", "return") or self._skips_pass(last, k, range(m, last)) else None
 
         def cwds_here(self, k=None):
             """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、
@@ -1124,33 +1140,99 @@ def load_coldread():
             数で足りる(絶対の行き先の cd は 1・2 回で増えなくなる)。前に落とした深い場所は、また出ても新しいと数えない(数えると
             増え続けて時間切れになる)。"""
             if bid not in self._tops:
-                inside = self._inside(bid)
-                first, end = inside[0], inside[-1]
-                seen = self._places(first, skip=bid)
-                ever, frontier = set(seen), seen
-                for _ in range(min(PLACES_MAX, 2 + max((p or "").count("/") for p in seen))):
-                    frontier = [p for p in self._walk(inside[:-1], frontier, end) if p not in ever]
-                    if not frontier:
-                        break
-                    ever.update(frontier)
-                    seen = _shallow(seen + frontier)
-                self._tops[bid] = seen
+                self._tops[bid] = self._heads(bid, self._places(self._inside(bid)[0], skip=bid))
             return self._tops[bid]
 
-        def _walk(self, js, places, k):
-            """js の順の単純コマンドのうちの cd を、places から k 番目までたどった場所の列(届くか・必ず走ったかは k から見る)。"""
+        def _heads(self, bid, places):
+            """1 回目の回の頭の場所の列 places から、繰り返し bid の回の頭の走りうる cwd の列(_top の中身)。cd は場所ごとに
+            別々に効くので、場所ごとに引いて控える(入れ子の繰り返しで、外の回ごとに中の繰り返しを引き直すと時間切れになる)。"""
+            inside = self._inside(bid)
+            out = []
+            for place in places:
+                if (bid, place) not in self._passes:
+                    seen = [place]
+                    ever, frontier = set(seen), seen
+                    for _ in range(min(PLACES_MAX, 2 + (place or "").count("/"))):
+                        self._spent += len(inside)
+                        if self._spent > WALKS_MAX:
+                            raise ValueError("繰り返しの入れ子の cd が多く、探す場所を読み切れない")
+                        frontier = [p for p in self._walk(inside[:-1], frontier, inside[-1], bid) if p not in ever]
+                        if not frontier:
+                            break
+                        ever.update(frontier)
+                        seen = _shallow(seen + frontier)
+                    self._passes[bid, place] = seen
+                out += self._passes[bid, place]
+            return _shallow(list(dict.fromkeys(out)))
+
+        def _through(self, bid, places, k):
+            """places から繰り返し bid に入り、抜けて k 番目に来るまでの場所の列。for・select は回の頭で抜けるので回の頭の走りうる
+            場所(_heads)、while・until は回の頭から条件をたどった場所。中の cd が k に届かなければ(サブシェル・パイプの中)入る前の
+            場所のまま。break・continue 2 などで回の途中から抜けうるときと、届き方が cd ごとに違うときは、回の頭から回の中身を、
+            どの cd も走るとは限らないとしてたどる(途中で抜けた場所も入る)。"""
+            inside = self._inside(bid)
+            cds = [m for m in inside if any(t in cr.CD_WORDS for t in self.cmds[m].args)]
+            reach = {self._reaches(m, k) for m in cds}
+            if reach == {False}:
+                return places
+            out = []
+            for place in places:
+                if (bid, place, k) not in self._afters:
+                    heads = self._heads(bid, [place])
+                    if (reach != {True} or any(self.lay[m][3] == "break" or self.lay[m][3] == "continue"
+                                               and self.cmds[m].args[1:] not in ([], ["1"]) for m in inside)):
+                        after = self._walk(inside[:-1], heads, k, bid)
+                    elif self.kinds.get(bid) in ("while", "until"):
+                        after = self._walk([m for m in inside if (bid, 0, True) in self.lay[m][0]], heads, k, bid)
+                    else:
+                        after = heads
+                    # 前の読み方(回の中身を 1 回だけ、どの cd も走るとは限らないとしてたどる)の場所も足す(if の中の cd と同じく、
+                    # `for d in a b; do cd $d; make; cd ..; done; rg y .` を ~/src で止めるのは変えない)
+                    after = after + self._walk(inside, [place], k, bid)
+                    self._afters[bid, place, k] = _shallow(list(dict.fromkeys(after)))
+                out += self._afters[bid, place, k]
+            return _shallow(list(dict.fromkeys(out)))
+
+        def _closed(self, j, k, within):
+            """j 番目を囲む繰り返しのうち、繰り返し within(None は無し)の中で k より前に閉じる、いちばん外の物の番号(無ければ None)。"""
+            path = [bid for bid, _, _ in self.lay[j][0]]
+            path = path[path.index(within) + 1:] if within in path else path
+            return next((bid for bid in path if self.kinds.get(bid) in LOOPS and self._inside(bid)[-1] < k), None)
+
+        def _walk(self, js, places, k, within=None):
+            """js の順の単純コマンドのうちの cd を、places から k 番目までたどった場所の列(届くか・必ず走ったかは k から見る)。
+            k より前に閉じる繰り返しの中の cd は、回の頭の走りうる場所(_heads。回ごとに cd が重なる)から回の中身をたどった場所に
+            する(_through。前は 1 回だけたどり、`for i in 1 2; do cd ..; done; find .` の 2 回目の cd .. を見落として通していた)。js が繰り返し
+            within の中身なら、within そのものはまとめない。"""
+            closed = -1   # 回の頭からまとめてたどった繰り返しの、閉じの done の番号
+            passed = []   # cd が落ちて、後ろの cd を飛ばして k に来る場所
             for j in js:
+                if j <= closed:
+                    continue
                 c = self.cmds[j]
+                if (within is not None and self.lay[j][3] == "continue" and c.args[1:] in ([], ["1"])
+                        and k == self._inside(within)[-1] and self._loop_of(j) == within):
+                    passed += places   # この繰り返しの continue は、そこまでの場所のまま次の回の頭に来る(_heads)
                 if not any(t in cr.CD_WORDS for t in c.args):
                     continue
+                loop = self._closed(j, k, within) if self.lay else None
+                if loop is not None:
+                    places, closed = self._through(loop, places, k), self._inside(loop)[-1]
+                    continue
                 if (j, k) not in self._flow:
-                    self._flow[j, k] = (self._reaches(j, k), self._surely(j, k)) if self.lay else (True, False)
-                reach, surely = self._flow[j, k]
+                    self._via = False
+                    flow = (self._reaches(j, k), self._surely(j, k)) if self.lay else (True, False)
+                    self._flow[j, k] = flow + (flow[1] and self._via,)
+                reach, surely, via = self._flow[j, k]
                 if not reach:
                     continue
+                if via:
+                    passed += places   # cd が落ちると、continue・break で後ろの cd を飛ばして k に来る(_skips_pass)
                 new = []
                 for place in places:
                     if (j, place) not in self._dests:
+                        if len(self._dests) >= DESTS_MAX:
+                            raise ValueError("繰り返しの中の cd が多く、探す場所を読み切れない")
                         dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
                         self._dests[j, place] = cr.native_path(dest) if dest else None
                     dest = self._dests[j, place]
@@ -1159,7 +1241,7 @@ def load_coldread():
                     else:
                         new += [dest] if surely else [dest, place]
                 places = _shallow(list(dict.fromkeys(new)))
-            return places
+            return _shallow(list(dict.fromkeys(places + passed))) if passed else places
 
         def cd_dest(self, args, base=None):
             """`cd <行き先>`・`pushd <行き先>` の行き先。引数の無い cd はホーム。相対の行き先は base に繋ぐ。読めなければ None。"""
@@ -1192,6 +1274,11 @@ def load_coldread():
 Scope = None
 PLACES_MAX = 32   # 1 つのコマンドが走りうる cwd を覚える数の上限(cwds_here)
 LOOPS = {"for", "select", "while", "until"}
+# 1 つのコマンドで、繰り返しの回の中身をたどったコマンドの数(_heads)と、cd の行き先を場所ごとに引く数(_walk)の上限。超えたら読み切れないと
+# して止める(入れ子の繰り返しの cd で場所が増え続けると掛け算で増え、時間切れは通す。5 重の `for …; do cd d; done` で 38 万・1.3 秒。
+# 上限で止めるまで 1.5 秒ほど)
+WALKS_MAX = 400000
+DESTS_MAX = 200000
 
 
 def _shallow(places):

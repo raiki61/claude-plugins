@@ -71,6 +71,7 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 投稿の前のゲート(coldread)が、find の 2 つ目からの `-exec` の gh(`find . -exec true \; -exec gh pr comment …`)と、`\( \)`・`\;` で割れた後ろの `-exec` の gh を見ず、本文を読まずに通していた。また `-execdir`・`-okdir`・`sudo -D`・`env -C` の後ろの gh は別の所で走るのに、本文ファイルの相対のパスをフックの場所で読んでいた。find の `-exec` を全部 1 度の走査で読み、場所の変わる前置の後ろでは相対のパスを読めない側に倒すようにした。
 - 投稿の前のゲート(coldread)が、xargs・find が差し込む語の在る gh の投稿を、語の途中の差し込み(`xargs -I{} gh api repos/o/r/pulls/{}/comments`)や本文の見えている形(`xargs -I{} gh pr comment {} --body "LGTM"`)まで一律に止めていた。逆に、サブコマンドの語に差し込む形(`printf comment | xargs -I view gh pr view 1 --body-file view.md` は gh pr comment として走る)は読むだけの形と見て通していた。差し込む語の在る所だけに印を置き、旗・旗の値・サブコマンドの語・本文の旗より後ろの位置引数に在るときだけ止めるようにした。
 - 探しのゲート(searchgate)が、`for d in */; do if ! cd "$d"; then continue; fi; rg x .; cd ..; done`(cd が落ちたときに走る then が continue で終わる形)を、cd が移れたと限らないと見て、動かなかった場所からの `cd ..` でホームに届いたと読んで止めていた。今は、cd が落ちたときに走る区画が exit・return で終わるときと同じく、continue・break(引数が無いか 1)で終わり、探すコマンドが同じ繰り返しの中の done より前に在るときも、cd が移れた後と見る。
+- 探しのゲート(searchgate)が、`for i in 1 2; do cd ..; done; find . -name x`・`while [ ! -d .git ]; do cd ..; done; rg foo .`(探すコマンドより前に閉じる繰り返しの中の cd)を、回の中身を 1 回だけたどって読み、2 回目からの `cd ..` で / やホームに届くのを見落として通していた。今は、繰り返しの中の cd を場所が増えなくなるまで重ねてたどる。入れ子の繰り返しの cd で場所が増え続け、読み切れないときは止める。
 
 ## [0.46.0] - 2026-10-30
 

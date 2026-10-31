@@ -217,6 +217,28 @@ class Bash(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 10)
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_in_a_loop_before_the_search_repeats(self):
+        # 探すコマンドより前に閉じる繰り返しの中の cd は、回ごとに重なる(前は 1 回だけたどり、2 回目の cd .. を見落として通していた)
+        cwd = HOME + "/src/repo"
+        for command in ("for i in 1 2; do cd ..; done; find . -name x", "for i in 1 2 3; do cd ..; done; find . -name x",
+                        "while [ ! -d .git ]; do cd ..; done; rg foo .", "for i in 1 2; do cd ..; done && find . -name x",
+                        "for i in 1; do for j in 1 2; do cd ..; done; done; find . -name x"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # 戻ってくる cd・絶対の行き先・サブシェルの中の cd・抜けた後の cd は、探す場所を広げない
+        for command in ('for d in */; do cd "$d" || continue; make; cd ..; done; rg y .',
+                        "for i in 1 2; do cd /tmp; done; find . -name x", "for i in 1 2; do (cd ..); done; find . -name x",
+                        "while [ ! -d .git ]; do cd ..; done; cd /tmp; rg foo .",
+                        "for d in a b; do cd a; make; cd ..; done; rg y ."):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # 入れ子の繰り返しの cd で場所が増え続けても、時間切れ(時間切れは通す)の前に、読み切れないとして止める
+        nest = "for a in 1; do " * 6 + "cd d; " + "done; " * 6 + "find . -name x"
+        started = time.monotonic()
+        self.assertIsNotNone(run("Bash", {"command": nest}, cwd=cwd)[0])
+        self.assertLess(time.monotonic() - started, 10)
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_or_continue_skips_the_rest_of_the_pass(self):
         # `cd "$d" || continue`・`|| break` の cd が落ちると、この回の残り(後ろの cd .. も)を飛ばすので、動かなかった場所から
         # cd .. で / やホームに届くことはない(前は届くと読み、/tmp や ~/work の下を回る繰り返しを止めていた)
