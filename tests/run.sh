@@ -5238,8 +5238,8 @@ expect_output 0 "疑問: (止めない。読み手が解けないと言い切っ
     env COLDREAD_TEST_SESSION=sure1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_UNSURE" "$CR_POST"
 expect_output 0 "投稿を止めている詰まり" "1 回目は、言い切っていない詰まりでも止める" \
     env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_UNSURE" "$CR_POST"
-expect_output 0 "sure を true にする が届いた" "2 回目の読み手には、言い切れる物にだけ sure を付けよと頼む" \
-    env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees 'sure を true にする')" "$CR_POST"
+expect_output 0 "解けないと言い切れるときだけ が届いた" "2 回目の読み手には、言い切れる物にだけ sure を付けよと頼む" \
+    env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees '解けないと言い切れるときだけ')" "$CR_POST"
 # 読み手が詰まりの根拠に引いた字(quotes)が本文に無い指摘は、1 回目から止めない(型 D)。引いた字が本文に在れば止める。
 # 空白・頭と終わりの括弧・途中を省いた「…」は外して比べる
 CR_STUB_MISQUOTE='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word=ZZMISQUOTE が分からない::本文に無い言い換えの文"'
