@@ -742,7 +742,7 @@ def f44():
     for cmd in ("coproc X { " + post + "; }", "find . -maxdepth 0 -exec " + post + " \\;"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(44, parsed and cands == [BODY] and not blk, "gh の本文を読まなかった: %r → %r %r" % (cmd[:30], blk, parsed))
-    for cmd in ("printf '%s\\n' 12 13 | xargs -I{} gh pr comment {} --body '" + BODY + "'",
+    for cmd in ("printf '%s\\n' 12 13 | xargs -I{} gh pr comment 1 --body '" + BODY + "' {}",
                 "echo /etc/hosts | xargs gh pr comment 1 --body-file", 'echo "pr comment 1 --body-file /etc/hosts" | xargs gh',
                 "parallel gh pr comment {} --body-file /etc/hosts ::: 1 2", "find . -name '*.md' -exec gh pr comment 1 --body-file {} \\;",
                 "find . -name '*.md' -exec nice gh pr comment 1 --body-file {} +"):
@@ -810,8 +810,39 @@ def f47():
         took = time.monotonic() - started
         check(47, took < 8 and parsed and len(cands) == 1, "%d 字の find を %.1f 秒で読み、%r %r" % (len(cmd), took, blk, parsed))
 
+# 48. xargs -I・-i・--replace・parallel -I・find -exec の {} は、差し込む印の在る所だけに印を付ける(FED_WORD)。語の途中
+# (`repos/o/r/pulls/{}/comments`)・-- の後ろ・後ろに本文の旗が見えている pr/issue comment の位置引数(gh は本文の旗を 2 つ
+# 受けない)は旗にならないので通し、見えている本文は読む。旗の語の中・旗の値・サブコマンドの語(`xargs -I view gh pr view …`
+# は gh pr comment にもなる)・本文の旗より後ろの位置引数(--body を重ねると後ろが勝つ)は止める(前は差し込む語の在る gh の
+# 投稿を全部止め、サブコマンドの語の印を読むだけの形と見て通していた)。xargs の -n・-L と、parallel の -m などの {} を何語にも
+# する旗が在れば、今までどおり止める
+def f48():
+    for cmd in ("gh pr list --json number -q '.[].number' | xargs -I{} gh api repos/o/r/pulls/{}/comments",
+                "git diff --name-only | xargs -I{} gh api repos/o/r/contents/{}", "find . -exec gh api repos/x/{} \\;",
+                "ls | xargs -0I{} gh api repos/o/r/contents/{}", "parallel -I@ gh api repos/o/r/pulls/@ ::: 1 2"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(48, parsed and not cands and not blk, "語の途中の差し込みで読むだけの gh api を止めた: %r → %r %r" % (cmd[:50], blk, parsed))
+    for cmd in ("ls | xargs -I{} gh pr comment {} --body '" + BODY + "'", "ls | xargs -i gh issue comment {} -b '" + BODY + "'",
+                "ls | xargs --replace=@ gh pr comment @ --body '" + BODY + "'",
+                "ls | xargs -I{} gh api repos/o/r/issues/{}/comments -f body='" + BODY + "'",
+                "find . -exec gh pr comment {} --body '" + BODY + "' \\;", "ls | xargs -I{} gh pr comment -R o/r --body '" + BODY + "' -- {}"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(48, parsed and cands == [BODY] and not blk, "差し込む語の在る gh の見えている本文を読まなかった: %r → %r %r" % (cmd[:50], blk, parsed))
+    with open(os.path.join(WORK, "view.md"), "w") as f:
+        f.write("BENIGN VIEW")
+    for cmd in ("printf comment | xargs -I view gh pr view 1 --body-file view.md", "ls | xargs -I{} gh pr comment 1 --body-file {}",
+                "ls | xargs -I{} gh pr comment 1 --body={}", "ls | xargs -I{} gh pr comment {} -R {} --body x",
+                "ls | xargs -I{} gh pr comment 1 {}", "ls | xargs -I{} gh pr comment 1 --body x {}",
+                "ls | xargs -I{} gh api repos/o/r/issues/1/comments -f body={}", "ls | xargs -I{} gh api {}",
+                "ls | xargs -I a -I {} gh pr comment 1 --body-file {}", "ls | xargs -J % gh pr comment 1 --body x %",
+                "parallel gh pr comment {} --body x ::: 1", "find . -exec gh pr comment 1 --body-file {} +",
+                "find . -exec gh pr comment 1 {} \\;", "printf issue | xargs -I@ gh @ comment 1 --body x",
+                "ls | xargs -n1 -I{} gh pr comment {} --body x", "parallel -m -I@ gh pr comment @ --body x ::: a b"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(48, (bool(blk) or not parsed) and "BENIGN VIEW" not in cands, "差し込む語で中身か宛先の変わる gh を通した: %r → %r" % (cmd, cands))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

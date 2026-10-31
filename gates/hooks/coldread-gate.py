@@ -310,9 +310,18 @@ WRAPPER_VALUE_OPTS = {
                  "--timeout", "--joblog", "--results", "--res", "--tmpdir", "--tagstring", "--basefile", "--bf",
                  "--workdir", "--wd", "--env", "--memfree", "--load", "--retries", "--halt"},
 }
-# xargs・parallel・find -exec が後ろの gh に足す語(標準入力の語・見つけたファイル)の印。足す語は旗にもなりうる
-# (`xargs -I{} gh pr comment {}` の {} が --body-file=… の行)ので、印の在る投稿は止める(classify。FED_READ_SUBS は除く)
+# xargs・parallel・find -exec が後ろの gh に足す語(標準入力の語・見つけたファイル)の印。FED_MARK は何語になるか分からない語
+# (末尾に足す語・`{} +`・xargs -J)の所に置き、旗にもなりうるので、印の在る投稿は止める(classify。FED_READ_SUBS は除く)。
+# FED_WORD は 1 語の中に差し込む語(xargs -I・-i、parallel -I、find の `{} ;` の {})の所に置き、旗・旗の値・サブコマンドの語の
+# 位置に在るときだけ止める(fed_word_risk)。前は差し込む語も一律に止め、`xargs -I{} gh api repos/o/r/pulls/{}/comments` も止めた
 FED_MARK = "__FED_ARGS__"
+FED_WORD = "__FED_WORD__"
+# 本文の旗の重ね書きを gh が拒む(--body・--body-file・--editor・--web のうち 2 つで止まる。cli/cli の
+# pkg/cmd/pr/shared/commentable.go の CommentablePreRun)サブコマンド。差し込む語が語の頭に在っても、後ろに本文の旗が見えて
+# いれば、差し込む語が本文の旗になっても、見えている本文が勝つ(同じ旗は後ろが勝つ)か gh が止まる
+FED_COMMENT_SUBS = {("pr", "comment"), ("issue", "comment")}
+# parallel の旗のうち、-I の印を 1 語の中に差し込むままにする物(ほかの旗は {} を何語にもしうるので、FED_MARK の側に倒す)
+FED_PLAIN_PARALLEL = {"-I", "-i", "--replace", "-j", "--jobs", "-k", "--keep-order"}
 # 足す語に何が来ても投稿しない gh のサブコマンド(旗を足しても、本文を運ぶ旗を持たない)。xargs で番号ごとに読む形を止めない
 FED_READ_SUBS = {("pr", "view"), ("pr", "list"), ("pr", "diff"), ("pr", "checks"), ("pr", "status"), ("issue", "view"),
                  ("issue", "list"), ("issue", "status"), ("repo", "view"), ("repo", "list"), ("run", "view"),
@@ -1565,14 +1574,76 @@ def _base(tok):
     return re.split(r"[\\/]", tok)[-1]
 
 
+def replace_string(name, words):
+    """xargs・parallel(name)の後ろの語の列 words から、差し込む語の印(-I の値)。(印, 何語になるか分からないか, 旗の後ろの位置)。
+    印が無ければ印は None。印の旗が 2 つ以上なら、どれが効くか言い切らず、何語になるか分からない側に倒す。
+
+    xargs は -I R・-IR・-i[R](R を省けば {})・--replace[=R]・-J R(BSD。何語にもなる)、parallel は -I R・-i[R]・--replace[=R]。
+    束ねた短い旗(`-0I{}`)も 1 字ずつ読む(wrapper_flag_width と同じ)。xargs の -n・-L・-l(GNU は -I を打ち消して末尾に足す
+    版が有る)と、parallel の FED_PLAIN_PARALLEL でない旗(-m・-X・-N は {} を何語にもする)が在れば、何語になるか分からない側に倒す。"""
+    opts, optional = WRAPPER_VALUE_OPTS.get(name, ()), WRAPPER_OPTIONAL_OPTS.get(name, ())
+    found, seen, k = [], [], 0
+    while k < len(words):
+        t = words[k]
+        if not t.startswith("-") or t in ("-", "--"):
+            break
+        if t.startswith("--"):
+            key, eq, val = t.partition("=")
+            seen.append(key)
+            if key == "--replace":
+                found.append((val if eq else "{}", False))
+            k += 2 if t in opts else 1
+            continue
+        for j in range(1, len(t)):
+            ch, rest = t[j], t[j + 1:]
+            seen.append("-" + ch)
+            if ch == "i":
+                found.append((rest or "{}", False))
+                break
+            if ch == "I" or (ch == "J" and name == "xargs"):
+                found.append((rest or (words[k + 1] if k + 1 < len(words) else ""), ch == "J"))
+                k += 0 if rest else 1
+                break
+            if "-" + ch in optional:
+                break
+            if "-" + ch in opts:
+                k += 0 if rest else 1
+                break
+        k += 1
+    if not found:
+        return None, False, k
+    loose = (name == "xargs" and any(o in seen for o in ("-n", "-L", "-l", "--max-args", "--max-lines"))
+             or name == "parallel" and any(o not in FED_PLAIN_PARALLEL for o in seen))
+    return found[-1][0], found[-1][1] or len(found) > 1 or loose, k
+
+
 def _gh_call(tokens, i):
-    """tokens[i] が gh のとき (gh より前の語, gh の引数列)。xargs・parallel の後ろなら、足す語の印(FED_MARK)を末尾に置く。"""
+    """tokens[i] が gh のとき (gh より前の語, gh の引数列)。xargs・parallel の後ろなら、足す語の印を置く。
+
+    差し込む語の印(-I の値)が有れば、その所だけを FED_WORD に替える(xargs は印の無い所には足さない)。印が無ければ(末尾に
+    足す)・-J・xargs と parallel が 2 つ以上・印が gh より前の前置の語に在る・parallel の {} などの別の置き換えの印が残る、の
+    どれかなら、何語になるか分からないので FED_MARK を末尾(-J は印の所)に置く。"""
     args = tokens[i + 1:]
-    if any(_base(t) in FEEDERS for t in tokens[:i]):
-        if "parallel" in (_base(t) for t in tokens[:i]):
+    fed = [k for k, t in enumerate(tokens[:i]) if _base(t) in FEEDERS]
+    if fed:
+        name = _base(tokens[fed[0]])
+        if name == "parallel":
             # ::: の後ろは parallel が読む入力の語(gh の引数ではない)
             args = args[:next((k for k, t in enumerate(args) if t in (":::", "::::", ":::+", "::::+")), len(args))]
-        args = args + [FED_MARK]
+        # 印より後ろの前置の語(`xargs -I{} env {} gh …`)に差し込む語は、gh の前の語を変えるので、何が走るか分からない
+        repl, multi, end = replace_string(name, tokens[fed[0] + 1:i])
+        after = tokens[fed[0] + 1 + end:i]
+        if repl and multi and len(fed) == 1:
+            args = [FED_MARK if t == repl else t for t in args]
+            if FED_MARK not in args:
+                args.append(FED_MARK)
+        elif (repl and len(fed) == 1 and not any(repl in t for t in after)
+              and not (name == "parallel" and re.search(r"\{[^{}]*\}", "".join(t.replace(repl, "") for t in args)))):
+            args = [t.replace(repl, FED_WORD) for t in args]
+            if name == "parallel" and not any(FED_WORD in t for t in args):
+                args.append(FED_MARK)   # parallel は印が無ければ末尾に足す
+        else:
+            args = args + [FED_MARK]
     # コマンド名の前のヒアドキュメントの印は、後ろに書いたのと同じに引数の末尾へ回す(own_heredocs が gh の本文と見る)
     return tokens[:i], args + [t for t in tokens[:i] if HEREDOC_MARK_RE.fullmatch(t)]
 
@@ -1607,7 +1678,9 @@ def gh_calls(tokens):
         j = command_start(seg, feeders=True)
         if j < len(seg) and _is_gh(seg[j]):
             before, args = _gh_call(seg, j)
-            args = [t.replace("{}", FED_MARK) for t in args] + ([FED_MARK] if fed else [])
+            # `{} ;` の {} は見つけた物 1 つ(1 語の中に差し込む)、`{} +` の {} は見つけた物の全部(何語にもなる)
+            mark = FED_MARK if tokens[m:m + 1] == ["+"] else FED_WORD
+            args = [t.replace("{}", mark) for t in args] + ([FED_MARK] if fed else [])
             calls.append((tokens[:i] + [tokens[k]] + before, args + [t for t in marks if t not in args]))
         k = m + 1
     return calls
@@ -1879,6 +1952,42 @@ def classify_dispatch(args, heredoc_bodies, live_substitution=False, ctx=None, l
     return candidates, blocked
 
 
+def _body_flag(tok):
+    """tok が gh の本文の旗(--body・-b・--body-file・-F。値の融合形も)か。"""
+    return (tok in ("--body", "-b", "--body-file", "-F") or tok.startswith(("--body=", "--body-file="))
+            or (not tok.startswith("--") and tok[:2] in ("-b", "-F")))
+
+
+def fed_word_risk(args, sub):
+    """1 語の中に差し込む語(FED_WORD)が、投稿の中身か宛先を変えうる所に在るか。
+
+    変えうるのは: サブコマンドの語(`xargs -I view gh pr view …` は gh pr comment にもなる。api は先頭の api だけ。宛先のパスは
+    位置引数)・旗の語の中(`--body={}`)・旗の直後の語(旗の値。-R の値・-f body={} も)・-- の前の語の頭(差し込む語が - で
+    始まれば旗になる。FED_COMMENT_SUBS で、後ろに本文の旗が見えているときは除く)。語の途中(`repos/o/r/pulls/{}/comments`)と
+    -- の後ろの位置引数は、旗にならないので通す。"""
+    if not any(FED_WORD in a for a in args):
+        return False
+    is_api = sub[:1] == ("api",)
+    if any(FED_WORD in w for w in (sub[:1] if is_api else sub)):
+        return True
+    ddash, prev_flag = False, False
+    for i, t in enumerate(args):
+        if t == "--" and not ddash:
+            ddash, prev_flag = True, False
+            continue
+        flag = not ddash and t.startswith("-") and t != "-"
+        if FED_WORD in t:
+            if flag or prev_flag:
+                return True
+            if not ddash and t.startswith(FED_WORD):
+                later = args[i + 1:]
+                later = later[:later.index("--")] if "--" in later else later
+                if not (sub in FED_COMMENT_SUBS and any(_body_flag(w) for w in later)):
+                    return True
+        prev_flag = flag and "=" not in t and not (is_api and t in API_BOOL_FLAGS)
+    return False
+
+
 def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_variable=True):
     """gh の引数列から (本文候補, 検査できない本文の説明) を返す。
 
@@ -1904,8 +2013,8 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         return candidates, blocked
     if sub in NON_POSTING:
         return candidates, blocked  # 投稿でないので本文検出も検査もしない
-    if sub not in FED_READ_SUBS and any(FED_MARK in a for a in args):
-        # xargs・parallel・find -exec が足す語(gh_calls の FED_MARK)は、本文の旗にも本文ファイルの名前にもなりうる
+    if sub not in FED_READ_SUBS and (any(FED_MARK in a for a in args) or fed_word_risk(args, sub)):
+        # xargs・parallel・find -exec が足す語(gh_calls の FED_MARK・FED_WORD)は、本文の旗にも本文ファイルの名前にもなりうる
         blocked.append("xargs・find -exec などが足す引数")
         return candidates, blocked
     is_api = sub[:1] == ("api",)
@@ -2933,10 +3042,11 @@ def destination(args, sub):
             if m:
                 return (kind, m.group(1) + "/" + m.group(2), m.group(3))
         return None
-    if sub in PR_THREAD_SUBS:
-        return ("pr", repo_flag(args), positional_after(args, sub))
-    if sub in ISSUE_THREAD_SUBS:
-        return ("issue", repo_flag(args), positional_after(args, sub))
+    for kind, subs in (("pr", PR_THREAD_SUBS), ("issue", ISSUE_THREAD_SUBS)):
+        if sub in subs:
+            dest = (kind, repo_flag(args), positional_after(args, sub))
+            # xargs・find が差し込む番号(`xargs -I{} gh pr comment {}`)は、どのスレッドか決まらない(画面を引かない)
+            return None if any(FED_WORD in (x or "") or FED_MARK in (x or "") for x in dest[1:]) else dest
     return None
 
 
