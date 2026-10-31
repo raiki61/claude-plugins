@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.149.0] - 2026-11-01
+
 ### Changed
 
 - 部署の寿命（会社の形〔`.claude/company.toml`〕の `lifetime`）の値 `on-demand` を `until-idle` に替えた（持ち主 2026-11-01。頼み 76a031。設計は `docs/specs/2026-10-31-lifetime-context-design.md` の 5）。`until-idle` も `always` も「受け持ちに部署が 1 つ・次の頼みはその部署の順番待ち」で、違いは手が空いたら畳むかだけ。前の名前は「頼まれたら立てる」を言っていて、その違いが名前に出なかった。席のキー（`until-idle.new` など）・表示（`until-idle · new`）・部署の会話の始まりに足す文（「この受け持ちの寿命は until-idle（頼まれたときに立て、手が空いたら畳む）。」）も替わる。
