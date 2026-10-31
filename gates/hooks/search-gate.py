@@ -935,6 +935,7 @@ def load_coldread():
             self._flow, self._dests, self._insides, self._tops = {}, {}, {}, {}
             self._spent = 0   # _heads で回の中身をたどったコマンドの数(WALKS_MAX まで)
             self._passes, self._afters = {}, {}   # (繰り返し, 1 回目の頭の場所) → 回の頭の場所・(繰り返し, 場所, k) → 抜けた後の場所
+            self._ends = {}   # 条件の中の cd の番号 → then・do の後ろのコマンドの番号(_then_end)
             self._via = False   # _surely の中で、cd が落ちた側が後ろの cd を飛ばして k に来ると見たか(_skips_pass)
             lay = layout(cr, tokens, self.kinds, self.negs, self.braces)
             self.lay = lay if lay is not None and len(lay) == len(cmds) else None
@@ -1206,7 +1207,11 @@ def load_coldread():
             within の中身なら、within そのものはまとめない。"""
             closed = -1   # 回の頭からまとめてたどった繰り返しの、閉じの done の番号
             passed = []   # cd が落ちて、後ろの cd を飛ばして k に来る場所
+            stays = []    # 条件の中の cd が落ちて、then・do を飛ばす場所と、then・do の後ろのコマンドの番号の組の列(_then_end)
             for j in js:
+                if stays and j >= stays[0][0]:
+                    places = _shallow(list(dict.fromkeys(places + [p for r, p in stays if r <= j])))
+                    stays = [(r, p) for r, p in stays if r > j]
                 if j <= closed:
                     continue
                 c = self.cmds[j]
@@ -1228,6 +1233,9 @@ def load_coldread():
                     continue
                 if via:
                     passed += places   # cd が落ちると、continue・break で後ろの cd を飛ばして k に来る(_skips_pass)
+                end = None if surely else self._then_end(j)
+                if end is not None:
+                    stays = sorted(stays + [(end, p) for p in places], key=lambda e: e[0])
                 new = []
                 for place in places:
                     if (j, place) not in self._dests:
@@ -1236,12 +1244,34 @@ def load_coldread():
                         dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
                         self._dests[j, place] = cr.native_path(dest) if dest else None
                     dest = self._dests[j, place]
+                    alone = surely or end is not None   # 落ちた側の場所は stays で then・do を飛ばす
                     if not (dest and os.path.isabs(dest)):
-                        new += [None] if surely else [None, place]
+                        new += [None] if alone else [None, place]
                     else:
-                        new += [dest] if surely else [dest, place]
+                        new += [dest] if alone else [dest, place]
                 places = _shallow(list(dict.fromkeys(new)))
+            # then・do を飛ばした場所は、k が then・do の後ろなら k に来る(k が then・do の中なら、cd が移れたときにだけ走る)
+            passed += [p for r, p in stays if r <= k]
             return _shallow(list(dict.fromkeys(places + passed))) if passed else places
+
+        def _then_end(self, j):
+            """j 番目の cd が if・elif・while の条件の最後のコマンドで、then・do が cd の移れたときにだけ走るなら、then・do の後ろの
+            コマンドの番号(でなければ None)。cd の前が || でなく(`a || cd x` の条件は cd が走らずに通る)、裏返さない(`!`)とき。
+            _walk は、cd が落ちた側の場所を then・do の中の cd に通さず、then・do の後ろに足す(前は落ちた側の場所にも then の
+            `cd ..` を当て、`if cd sub; then make; cd ..; fi; rg bar .` を ~/src で打つとホームに届いたと読んで止めていた)。"""
+            if j not in self._ends:
+                self._ends[j] = None
+                path, d, ops, _ = self.lay[j]
+                if path and path[-1][2] and self.kinds.get(path[-1][0]) in ("if", "while") and not self.negs.get(j):
+                    bid, sec, _ = path[-1]
+                    at = len(path) - 1
+                    inside = self._inside(bid)
+                    cond = [m for m in inside if len(self.lay[m][0]) > at and self.lay[m][0][at] == (bid, sec, True)]
+                    body = [m for m in inside if len(self.lay[m][0]) > at and self.lay[m][0][at] == (bid, sec + 1, False)]
+                    if (cond[-1] == j and body and (j == cond[0] or all(op in (";", "\n", "&&") for op, _ in ops))
+                            and all(op in (";", "\n") for op, _ in self.lay[j + 1][2]) and self.lay[j + 1][1] == d):
+                        self._ends[j] = body[-1] + 1
+            return self._ends[j]
 
         def cd_dest(self, args, base=None):
             """`cd <行き先>`・`pushd <行き先>` の行き先。引数の無い cd はホーム。相対の行き先は base に繋ぐ。読めなければ None。"""

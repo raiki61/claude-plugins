@@ -276,6 +276,32 @@ class Bash(unittest.TestCase):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_then_after_a_condition_cd_runs_only_where_the_cd_moved(self):
+        # 条件の最後の cd が移れたときにだけ走る then・do の cd は、cd が落ちた場所には当てない(前は落ちた場所にも then の cd .. を
+        # 当て、~/src で打つとホームに届いたと読んで止めていた)
+        for command in ("if cd sub; then make; cd ..; fi; rg bar .", "if [ -d sub ] && cd sub; then make; cd ..; fi; rg bar .",
+                        "if cd sub; then make; cd ..; else echo no; fi; rg bar .",
+                        "if x; then :; elif cd sub; then cd ..; fi; rg bar .",
+                        "while cd sub; do cd ..; break; done; rg bar .",
+                        "for d in a b; do if cd $d; then make; cd ..; fi; done; rg bar ."):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src")[0])
+        # 条件が cd を走らせずに通る(||)・裏返す(!)・cd の後ろに条件が続く・then の後ろの cd・cd が落ちた場所そのものは、今までどおり
+        for command, cwd in (("if foo || cd sub; then cd ..; fi; rg bar .", HOME + "/src"),
+                             ("if ! cd sub; then cd ..; fi; rg bar .", HOME + "/src"),
+                             ("if cd sub; [ -f y ]; then cd ..; fi; rg bar .", HOME + "/src"),
+                             ("if cd sub; then make; fi; cd ..; rg bar .", HOME + "/src"),
+                             ("if cd /tmp; then :; fi; rg foo .", HOME),
+                             ("if cd sub; then make; cd ..; fi; rg bar .", HOME)):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # 条件の中の cd を持つ if を並べても、時間切れ(時間切れは通す)にならない
+        many = "".join("if cd d%d; then make; cd ..; fi\n" % i for i in range(60))
+        started = time.monotonic()
+        self.assertIsNone(run("Bash", {"command": many + "rg y ."}, cwd=HOME + "/src/repo")[0])
+        self.assertLess(time.monotonic() - started, 10)
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_or_a_group_that_exits_and_and_chained_cd_in_a_condition(self):
         # `|| { …; exit 1; }` のまとまりも、最後が exit なら cd が落ちたときに後ろを走らせない。条件の中で && で繋いだ cd は、
         # 条件が通ったときに走る then で移れた(前はどちらも止めていた)
