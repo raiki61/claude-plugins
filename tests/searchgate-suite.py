@@ -595,8 +595,13 @@ class Bash(unittest.TestCase):
                         'echo "$(echo "((" ; case a in a) :;; esac; echo "hi"; rg foo /)" && echo ok',
                         # 中に " を持つ二重引用の中の置換の後ろのコマンドも、語の切れ目を bash に合わせて見る(前は ( をコマンドの名前と読み、
                         # 後ろの find・rg を引数と見て通していた)
-                        'x="$(echo "(" ; true)" find / -name x', 'x="$(echo ")" ; true)" rg foo /', 'x="$(echo "(" ; true)" xargs rg foo /'):
+                        'x="$(echo "(" ; true)" find / -name x', 'x="$(echo ")" ; true)" rg foo /', 'x="$(echo "(" ; true)" xargs rg foo /',
+                        # 中に空白か ; を持つ ` … ` を前置きの代入に置いた後ろのコマンドも見る(前は ` … ` が空白で割れ、find を引数と見ていた)
+                        'x=`echo a` find / -name x', 'x=`echo a; echo b` find / -name x', 'FOO=1 x=`echo a` rg foo ~',
+                        'x=`git rev-parse HEAD` sudo rg foo /'):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
+        for command in ('x=`git rev-parse HEAD` rg foo src', "v=`git log -1 --format='%s'`; echo \"$v\""):
+            self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
         # 閉じない $( を 9000 並べた 99KB の語も、$( ごとに終わりまで数え直さず、時間切れの前に読み終える(頼み cae1e2)
         started = time.monotonic()
         self.assertIsNotNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 9000 + '"; rg foo /'}, cwd=WORK)[0])

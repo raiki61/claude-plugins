@@ -741,8 +741,9 @@ def without_quoted_bodies(cr, command):
 
 
 def _filled_copy(cr, text):
-    """text の置換のうち、中に " を持つ二重引用の中の $( )・${ } と、引用符を持つ ` … ` の中身を、投稿の前のゲートと同じ埋め草に
-    替えた写し(read_substitutions と同じ選び方)。替える物が無いか、閉じる所を言い切れなければ None。"""
+    """text の置換のうち、中に " を持つ二重引用の中の $( )・${ } と、全ての ` … ` の中身を、投稿の前のゲートと同じ埋め草に
+    替えた写し。` … ` は語に割ると中の空白・; で割れ、x=`echo a` find / の後ろの find をコマンドと読まないので、中身を問わず替える。
+    替える物が無いか、閉じる所を言い切れなければ None。"""
     spans = cr.substitution_spans(text)
     chars = None
     for start, end, kind, in_dq in spans or ():
@@ -750,7 +751,7 @@ def _filled_copy(cr, text):
             continue
         head = start + (1 if kind == "`" else 2)
         body = text[head:end]
-        if (in_dq and '"' in body) if kind == "{" else ('"' in body or (kind == "`" and "'" in body)):
+        if (in_dq and '"' in body) if kind == "{" else (kind == "`" or '"' in body):
             chars = chars or list(text)
             chars[head:end] = cr.SUB_FILL * (end - head)
     return None if chars is None else "".join(chars)
