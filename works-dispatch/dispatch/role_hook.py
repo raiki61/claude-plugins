@@ -37,7 +37,8 @@ chat.CONTEXT_PREVIEW 字と置き場のパスだけを入れ、そのファイ�
 読めという 1 行を足す（fit。頭の字は会話に入る。待ち受けが再開させる字〔Stop のフックの差し戻し〕には上限の記述が無いので足さない）。
 
 会社（会社の形の在るリポジトリ。読み方は上と同じ tree.read_info）の場所で、役の本文を足さない会話（部署の属性の無い作業場の会話、
-本社の窓口でない会話）には、ほかの会社への頼み方の 1 行（HINT。--ask <会社の名前> でその会社の窓口に届く）を足す。SendMessage で
+本社の窓口でない会話）には、ほかの会社への頼み方の 1 行（HINT。--ask <会社の名前> でその会社の窓口に届く）を足す。本社の窓口でない会話には、
+前の窓口の会話を継ぐなら --desk で席を取り直す 1 行（DESK_HINT）も足す。SendMessage で
 頼むと受付の台帳に頼み元が残らず、受けた側が返し先を覚えておくしかなかった（2026-10-17 に guided-resolver のブランチの会話が my_notes の
 段取りに頼んだ）。会社になる前から動いている会話にも届くよう、UserPromptSubmit でも、この会話にまだ何も足していなければ足す
 （会社でない場所では何も書かないので、会社になった後のターンで届く。その代わり、会社でない git の場所の会話ではターンごとに会社の形を
@@ -77,6 +78,11 @@ RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable,
 HINT = ("works-dispatch: ここは会社「{company}」のリポジトリだが、この会話は部署ではない。ほかの会社に頼むときは SendMessage でなく "
         "`{run} --ask <会社の名前> --text <頼み>` を打つ（その会社の窓口に届き、受付の台帳に頼み元が残って、納品はこの会話の "
         f"{term.NAME} の窓に返る。会社と仕事ごとの宛て方は同じコマンドの `--tree`）。")
+# 本社（代表の clone）の、窓口の席を持たない会話に HINT の後ろに足す 1 行。窓口の会話を開き直した会話が席を取り直さないと、待ち受けが
+# 張られず、納品は予備の道の打ち込みで人の入力フィールドに入る（2026-10-30 の my_notes の司令塔。受付 d46e09、頼み 2827a8）
+DESK_HINT = ("works-dispatch: この本社の窓口の席は窓口「{name}」の会話（会話 {session}）が持つ。前の窓口の会話を継ぐなら "
+             "`{run} --desk` で席を取り直す（席の無い会話には待ち受けが張られず、納品は予備の道としてこの窓に打ち込まれ、人の入力とくっつきうる。"
+             "前の会話がまだ動いていると断られたら、出力のとおりにその会話を終えてから打ち直す）。")
 
 
 def put_env(attrs, env):
@@ -288,7 +294,8 @@ def fit(text):
 
 
 def hint_for(cwd, env=os.environ, attrs=None):
-    """部署でない会話に足す頼み方の 1 行（HINT）。会社の場所でなければ None。"""
+    """部署でない会話に足す頼み方の 1 行（HINT）。本社の窓口でない会話には、窓口の席を取り直す 1 行（DESK_HINT）を足す。
+    会社の場所でなければ None。"""
     common = gitx.common_dir(cwd)
     if not common:
         return None
@@ -297,7 +304,11 @@ def hint_for(cwd, env=os.environ, attrs=None):
     info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)), gitx)
     if not info.get("source"):
         return None
-    return HINT.format(company=tree.company_name(root, info), run=RUN)
+    text = HINT.format(company=tree.company_name(root, info), run=RUN)
+    here = gitx.git_dir(cwd)
+    if attrs.get("role") and here and os.path.realpath(here) == os.path.realpath(common):   # 本社で、席は別の会話が持つ
+        text += "\n" + DESK_HINT.format(name=attrs.get("name") or attrs["role"], session=attrs.get("session") or "-", run=RUN)
+    return text
 
 
 def seen_path(sid, env=os.environ):

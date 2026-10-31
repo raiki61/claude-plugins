@@ -246,9 +246,14 @@ def desk(a, ports, cwd):
         held = attrs.get("pid")
         if not linked and held and held != str(pid) and session != attrs.get("session") and ports.running_chat(held):
             # 窓口の席は 1 つ。窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が席を取ると、納品がそちらに届き、
-            # 同じ役の会話が 2 つ動く（53d5d1・6be241）
-            print("\n".join(notes + [f"止めた: 窓口 {attrs.get('name') or '-'} の会話（処理 {held}、会話 {attrs.get('session') or '-'}）"
-                                     "がまだ動いている。席を移すなら、先にその会話を終える（/exit）"]))
+            # 同じ役の会話が 2 つ動く（53d5d1・6be241）。一時停止の会話は /exit を受けないので、戻し方を添える（受付 d46e09）
+            who = f"窓口 {attrs.get('name') or '-'} の会話（処理 {held}、会話 {attrs.get('session') or '-'}）"
+            tty = ports.paused_chat(held)
+            print("\n".join(notes + ([f"止めた: {who}が一時停止のまま残っている（ps の状態 T。端末の Ctrl+Z などで止まった物）。"
+                                      f"止まった会話は /exit を受けないので、端末 {tty} で fg を打って会話を戻し、/exit で終えてから --desk を打ち直す"
+                                      f"（端末を閉じて fg で戻せないなら、ps -p {held} -o command= で {chat.NAME} と確かめてから kill {held}; "
+                                      f"kill -CONT {held} で終える。止まった処理は SIGCONT で再開するまで終わらない）"] if tty else
+                                     [f"止めた: {who}がまだ動いている。席を移すなら、先にその会話を終える（/exit）"])))
             return 2
         changes.update({"account": account, "session": session, "pid": str(pid) if pid else None})
         if session != attrs.get("session"):

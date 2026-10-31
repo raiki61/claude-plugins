@@ -472,6 +472,24 @@ def running(pid, runner=_default_runner):
     return p.returncode == 0 and _is_claude((p.stdout or "").strip())
 
 
+def paused(pid, runner=_default_runner):
+    """その番号の処理が一時停止（ps の状態 T。端末の Ctrl+Z などで止まった物）なら、その処理の端末の名前（ps の tty。macOS の s023 は
+    ttys023 と書く。端末の無い処理は "-"）。動いているか、もう居ないか、分からなければ None。止まった Claude Code は /exit を受けない
+    ので、--desk が終え方（fg で戻して /exit）を添えるのに使う（受付 d46e09。ps の状態の字は https://man7.org/linux/man-pages/man1/ps.1.html の
+    PROCESS STATE CODES）。"""
+    if not str(pid or "").isdigit():
+        return None
+    try:
+        p = runner(["ps", "-p", str(pid), "-o", "stat=,tty="])
+    except OSError:
+        return None
+    stat, _, tty = (p.stdout or "").strip().partition(" ") if p.returncode == 0 else ("", "", "")
+    if not stat.startswith("T"):
+        return None
+    tty = tty.strip()
+    return ("tty" + tty if re.fullmatch(r"s\d+", tty) else tty) if tty and tty not in ("?", "??") else "-"
+
+
 def _elapsed(text):
     """ps の etime（[[日-]時:]分:秒）を秒に。読めなければ None。"""
     days, _, rest = text.strip().rpartition("-")

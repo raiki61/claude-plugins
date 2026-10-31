@@ -666,6 +666,18 @@ class Hook(unittest.TestCase):
         self.assertFalse(claudex.running("12", runner("", rc=1)))                     # もう居ない
         self.assertFalse(claudex.running(None, runner("claude")))
 
+    def test_paused_reads_the_state_and_the_terminal_of_the_process(self):
+        # 一時停止の前の窓口の会話は /exit を受けないので、--desk が端末と戻し方を添える（受付 d46e09）
+        import subprocess
+        def runner(out, rc=0):
+            return lambda argv: subprocess.CompletedProcess(argv, rc, out, "")
+        self.assertEqual(claudex.paused("12", runner("T    s023\n")), "ttys023")   # macOS の ps の tty
+        self.assertEqual(claudex.paused("12", runner("T+ pts/3\n")), "pts/3")
+        self.assertEqual(claudex.paused("12", runner("T ??\n")), "-")
+        self.assertIsNone(claudex.paused("12", runner("S+ s023\n")))   # 動いている（眠って待つ）
+        self.assertIsNone(claudex.paused("12", runner("", rc=1)))       # もう居ない
+        self.assertIsNone(claudex.paused(None, runner("T s023")))
+
     def test_a_former_role_name_reads_as_the_current_role_and_is_rewritten(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml",
               'name = "co"\ndesk_role = "窓口"\n[[roles]]\nname = "段取り"\nformer_names = ["窓口"]\ninstructions = "頼みを配る。"\n')
@@ -744,10 +756,13 @@ class Hook(unittest.TestCase):
         self.assertIn(f"{role_hook.RUN} --ask <会社の名前> --text <頼み>", got)
         self.assertEqual(len(got.splitlines()), 1)   # 毎回の起動の量に入るので 1 行
         provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, self.g)
-        self.assertEqual(started(self.src, "s-c"), got)   # 本社の、窓口でない会話
+        desk = started(self.src, "s-c")   # 本社の、窓口でない会話には、前の窓口の会話を継ぐなら席を取り直す道も足す（受付 d46e09、頼み 2827a8）
+        self.assertEqual(desk.splitlines()[0], got)
+        self.assertIn(f"窓口「調べ」の会話（会話 s-desk）が持つ。前の窓口の会話を継ぐなら `{role_hook.RUN} --desk` で席を取り直す", desk)
         self.assertEqual(started(self.src, "s-desk"), role_hook.text_for(self.src, self.env))   # 窓口と部署は役の本文だけ（今までどおり）
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertEqual(started(self.place, "s-d"), role_hook.text_for(self.place, self.env))
+        self.assertEqual(role_hook.hint_for(self.place, self.env), got)   # ブランチの作業場では、役の属性が在っても席の道を足さない
 
     def test_a_talk_running_before_the_repo_became_a_company_gets_the_hint_once_on_its_next_prompt(self):
         def prompt(sid="s1", cwd=None):

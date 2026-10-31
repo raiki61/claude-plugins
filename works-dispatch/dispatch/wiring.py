@@ -432,6 +432,10 @@ class Ports:
         """その番号の処理が今動いている Claude Code か（--desk が、窓口の席に座っている会話が動いているかを見る）。"""
         return chat.running(pid)
 
+    def paused_chat(self, pid):
+        """その番号の処理が一時停止なら、その端末の名前（claudex.paused）。動いているか居なければ None。"""
+        return chat.paused(pid)
+
     def trust(self, account, source, clone, others=()):
         """元の clone をこのアカウントかほかのアカウント（others。設定の accounts）のどれかが信頼済みなら、ブランチの場所（worktree）にも
         信頼の印を付ける（claudex.inherit_trust）。"""

@@ -235,6 +235,11 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("窓口 窓口 の会話（処理 777、会話 s-old）がまだ動いている", out)
         self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-old")
+        self.ports.paused_chat = lambda pid: "ttys023" if pid == "777" else None   # 一時停止の会話は /exit を受けない（受付 d46e09）
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("窓口 窓口 の会話（処理 777、会話 s-old）が一時停止のまま残っている", out)
+        self.assertIn("端末 ttys023 で fg を打って会話を戻し、/exit で終えてから --desk を打ち直す", out)
         self.ports.running_chat = lambda pid: False   # 前の窓口を終えた（アカウントを移すときなど）
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
