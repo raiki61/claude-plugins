@@ -168,7 +168,7 @@ def f5():
     check(5, files.var("$D") == "/", "単引用の $ 1 つで $D まで読まなくなった: %r" % files.var("$D"))
     proc = subprocess.run([sys.executable, os.path.join(ROOT, "gates", "hooks", "search-gate.py")],
                           input=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": WORK}),
-                          capture_output=True, text=True, timeout=60,
+                          capture_output=True, text=True, encoding="utf-8", timeout=60,
                           env=dict(os.environ, CLAUDE_CONFIG_DIR=os.path.join(WORK, "cfg")))
     if GATE == os.path.join(ROOT, "gates", "hooks", "coldread-gate.py"):   # searchgate は隣の本体を読むので、本体を差し替えた回は見ない
         check(5, '"deny"' in proc.stdout, "searchgate が find \"$D\"(D=/)を通した: %r" % proc.stdout[:200])
@@ -242,7 +242,7 @@ def f10():
 
 def git(root, *args):
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", *args],
-                          cwd=root, capture_output=True, text=True, check=True).stdout.strip()
+                          cwd=root, capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
 
 
 # 11. HEAD が在るのに記録の頭を読めなかった控えを、最初の commit と取り違えない
@@ -1318,7 +1318,7 @@ def f73():
                                 ("search-gate.py", "; rg foo /", os.environ["CLAUDE_CONFIG_DIR"])):
             cmd = head + tail
             try:
-                proc = subprocess.run([sys.executable, os.path.join(hooks, hook)], capture_output=True, text=True, timeout=20, cwd=WORK,
+                proc = subprocess.run([sys.executable, os.path.join(hooks, hook)], capture_output=True, text=True, encoding="utf-8", timeout=20, cwd=WORK,
                                       input=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": WORK}),
                                       env=dict(env, CLAUDE_CONFIG_DIR=cfg))
             except subprocess.TimeoutExpired:

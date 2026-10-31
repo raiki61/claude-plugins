@@ -6714,6 +6714,8 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "TEMP", "TMP",
                   # 外のツール（mise・gh・herdr のインストーラ）の設定の環境変数
                   "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN", "HERDR_INSTALL_DIR",
+                  # git が宛先の repo を引く環境変数と、ヒアドキュメントの終わりの語（gates の CHANGELOG が名指す）
+                  "GIT_DIR", "GIT_WORK_TREE", "EOF",
                   # Claude Code がフックに渡す、Bash のコマンドごとに先に走らせるファイルの環境変数（works-dispatch の role_hook.py が読む）
                   "CLAUDE_ENV_FILE",
                   # Claude Code が会話とその子に渡す環境変数（works-dispatch が effort の継ぎと待ち受けの窓の確かめに読む）
@@ -9144,6 +9146,9 @@ expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(�
 expect_output 0 "SHARED_SPLIT_HINT_OK" "写しが割れたときの案内が、古い写しを配る元に名指しせず、中身の同じ組を出す" \
     "$PY_BIN" - "$ROOT/scripts/shared-copies.py" "$WORK/shared-split" <<'PY'
 import contextlib, importlib.util, io, pathlib, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 spec = importlib.util.spec_from_file_location("shared_copies", sys.argv[1])
 sc = importlib.util.module_from_spec(spec); spec.loader.exec_module(sc)
 root = pathlib.Path(sys.argv[2]); sc.ROOT = root
