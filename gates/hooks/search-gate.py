@@ -41,14 +41,37 @@ SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 # 後ろに走らせるコマンドを取る前置。coldread の command_start が飛ばす物(env・timeout など)のほかに、ここで越える
 # 前置の旗のうち値を取る物(値ごと飛ばす)。旗と数(chrt の優先度・nice -19)を飛ばした次の語を、走るコマンドと見る
 HOPS = {"nice": {"-n"}, "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"}, "doas": {"-u", "-C"},
-        "xargs": {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "-J", "-R", "-S"}, "caffeinate": {"-t", "-w"},
-        # GNU parallel。後ろのコマンドの引数は ::: の後ろの値を足した物(parallel_words)
-        "parallel": {"-j", "-P", "-S", "-a", "-d", "-E", "-I", "-C", "-n", "-N", "-L", "-s", "-J", "--jobs", "--sshlogin",
-                     "--sshloginfile", "--slf", "--arg-file", "--delimiter", "--colsep", "--max-args", "--max-lines",
-                     "--max-chars", "--joblog", "--results", "--res", "--tmpdir", "--timeout", "--delay", "--retries",
-                     "--load", "--memfree", "--nice", "--tagstring", "--tag-string", "--workdir", "--wd", "--basefile",
-                     "--bf", "--env", "--halt", "--block", "--header", "--transferfile", "--tf", "--return", "--trc",
-                     "--profile", "--termseq", "--limit", "--rpl", "--replace", "--arg-sep", "--arg-file-sep"},
+        # xargs は GNU と BSD の値を取る旗(GNU の長い形も)。-e・-i・-l と --eof・--replace・--max-lines の値は
+        # = か語に付けてだけ渡る
+        "xargs": {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "-J", "-R", "-S", "--arg-file", "--delimiter",
+                  "--max-args", "--max-procs", "--max-chars", "--process-slot-var"},
+        "caffeinate": {"-t", "-w"},
+        # GNU parallel。後ろのコマンドの引数は ::: の後ろの値を足した物(parallel_words)。旗は parallel の
+        # options_completion_hash の =s・=i の物と、:s の -i・-e・--replace・--eof(Getopt::Long は次の語を値に取る)。
+        # :f の -l・--max-lines は数のときだけ次の語を取る(数は after_hop が飛ばす)ので入れない
+        "parallel": {"-a", "-B", "-C", "-D", "-d", "-E", "-e", "-H", "-I", "-i", "-J", "-j", "-L", "-N", "-n", "-P",
+                      "-S", "-s", "-U", "-W", "--arg-file", "--arg-file-sep", "--arg-sep", "--argfile", "--argfilesep",
+                      "--argsep", "--basefile", "--basenameextensionreplace", "--basenamereplace", "--bf", "--bin",
+                      "--block", "--block-size", "--block-timeout", "--blocksize", "--blocktimeout", "--bner", "--bnr",
+                      "--bt", "--col-sep", "--colsep", "--combine-exec", "--combine-executable", "--combineexec",
+                      "--combineexecutable", "--compressprogram", "--ctag-string", "--ctagstring", "--debug",
+                      "--decompressprogram", "--delay", "--delimiter", "--dirnamereplace", "--dnr", "--env", "--eof",
+                      "--er", "--extensionreplace", "--filter", "--group-by", "--groupby", "--halt", "--halt-on-error",
+                      "--haltonerror", "--header", "--id", "--jl", "--joblog", "--jobs", "--limit",
+                      "--linkinputsource", "--load", "--match", "--max-args", "--max-chars", "--max-procs",
+                      "--max-replace-args", "--maxargs", "--maxchars", "--maxprocs", "--maxreplaceargs", "--memfree",
+                      "--memsuspend", "--milestone", "--min-version", "--minversion", "--ms", "--nice", "--parens",
+                      "--process-slot-var", "--processslotvar", "--profile", "--recend", "--recstart", "--replace",
+                      "--res", "--result", "--results", "--retries", "--return", "--rpl", "--rsync-opts",
+                      "--rsyncopts", "--semaphore-name", "--semaphore-timeout", "--semaphorename",
+                      "--semaphoretimeout", "--seqreplace", "--shard", "--shell-completion", "--shellcompletion",
+                      "--slf", "--slotreplace", "--sql", "--sql-and-worker", "--sql-master", "--sql-worker",
+                      "--sqlandworker", "--sqlmaster", "--sqlworker", "--ssh", "--ssh-delay", "--sshdelay",
+                      "--sshlogin", "--sshloginfile", "--st", "--tag-string", "--tagstring", "--tempdir", "--template",
+                      "--term-seq", "--termseq", "--tf", "--timeout", "--tmpdir", "--tmpl", "--total", "--total-jobs",
+                      "--totaljobs", "--transfer-file", "--transfer-files", "--transferfile", "--transferfiles",
+                      "--trc", "--trim", "--usecompressprogram", "--usedecompressprogram", "--wd", "--work-dir",
+                      "--workdir", "--xapplyinputsource"},
         "stdbuf": {"-i", "-o", "-e"}, "ionice": {"-c", "-n", "-p"}, "taskpolicy": {"-c", "-t", "-l", "-p"},
         "arch": set(), "chrt": set(), "builtin": set()}
 # 前段の粗選別: 探すツールの語もシェルの入れ子も無いコマンドは、解析部を読み込まずに通す(Bash のたびに走るので)
@@ -826,11 +849,15 @@ def parallel_lines(words):
 
 
 def after_hop(words):
-    """前置(words[0])の旗と、値を取る旗の値と、数を飛ばした残り。"""
+    """前置(words[0])の旗と、値を取る旗の値と、数を飛ばした残り。1 字の旗を束ねた語(`-0n 2`・`-kS host`)は、値を取る旗が
+    語の終わりに在れば次の語を値に取る(語の途中に在れば残りの字が値)。"""
     values, i = HOPS[os.path.basename(words[0])], 1
     while i < len(words):
         w = words[i]
         if w in values:
+            i += 2
+        elif re.fullmatch(r"-[A-Za-z0-9]{2,}", w) and next(
+                (k for k, c in enumerate(w[1:], 1) if "-" + c in values), None) == len(w) - 1:
             i += 2
         elif w.startswith("-") or w.isdigit() or re.match(r"[A-Za-z_][A-Za-z0-9_]*=", w):
             i += 1

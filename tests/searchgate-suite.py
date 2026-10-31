@@ -442,6 +442,23 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
+    def test_long_and_bundled_flags_of_xargs_and_parallel_take_their_values(self):
+        # xargs の長い形の旗(--arg-file・--delimiter など)と parallel の値を取る旗(--block-size など)と、束ねた 1 字の旗
+        # (-0n 2・-kS host)の値を飛ばす(前は値をコマンドと読み、後ろの rg を見落とした)
+        for command in ("xargs --arg-file list rg foo /", "xargs --delimiter , rg foo /", "xargs --max-args 2 rg foo /",
+                        "xargs --max-procs 4 find / -name x", "xargs --process-slot-var S rg foo /",
+                        "xargs -0n 2 rg foo /", "parallel --block-size 1M rg foo ::: /", "parallel --pipe --block 1M rg foo /",
+                        "parallel -kS host rg foo ::: /", "parallel --max-lines rg foo ::: /",
+                        "parallel --max-lines 3 rg foo ::: /"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # 作業場の中を探す形と、値を = で付けた形・数だけを取る旗(-l 3)は通す
+        for command in ("xargs --max-args=2 rg foo", "xargs --arg-file list rg foo src", "xargs -0n 2 rg foo src",
+                        "parallel --block-size 1M rg foo ::: src", "parallel -l 3 rg foo ::: src", "sudo -Eu root rg foo src",
+                        "nice -n19 rg foo src", "xargs -r0 rg foo"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
+
     def test_parallel_runs_a_one_word_command_through_the_shell(self):
         # 1 語の文字列で渡したコマンド・シェルに渡すコマンド・コマンドの無い parallel は、::: の値を {} に入れるか後ろに足した
         # 文字列をシェルが走らせる(前は 1 語のコマンドを名前と読み、どれも通していた)
