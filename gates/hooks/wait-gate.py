@@ -54,10 +54,10 @@ LOOP_WORD_RE = re.compile(r"\b(?:while|until|for)\b")
 
 # 後に続く引用符の中身をシェルとして走らせるもの(`bash -c '…'`、`eval "…"`)
 # 値を取る -o・-O(`bash -o pipefail -c`・`bash -euo pipefail -c`)の値と、長いオプション(`bash --norc -c`)も飛ばす。
-# パスで呼ぶシェル(`/bin/bash -c`)も同じに見る(写した元から足した)
+# パスで呼ぶシェル(`/bin/bash -c`)も同じに見る(写した元から足した)。ksh も見る(前は `ksh -c '…'` の中を読まず、ループを通していた)
 # -o の値は - で始めない。始めてよいと `-o -o -o …` の割り方が語の数の指数で増え、当たらないときに読み終えずフックの時間切れで通る
 _SHELL_OPTS = r"(?:(?:-\w*[oO]\s+\w[\w-]*|--[\w-]*|-\w+)\s+)*"
-_SHELL = r"(?:[^\s;&|(`'\"]*/)?(?:ba|z|da)?sh"
+_SHELL = r"(?:[^\s;&|(`'\"]*/)?(?:ba|z|da|k)?sh"
 SHELL_ARGUMENT = re.compile(r"(?:^|[\s;&|(`])(?:" + _SHELL + r"\s+" + _SHELL_OPTS + r"-\w*c\w*|eval)\s*$")
 # SHELL_ARGUMENT の当たりの末尾の語と、シェルの語の後に置ける -o・-O の値(shell_argument_before が後ろから戻るのに使う)
 SHELL_ARGUMENT_WORD = re.compile(r"(?:-\w*c\w*|eval)$")

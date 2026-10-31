@@ -107,6 +107,7 @@ class SleepLoops(unittest.TestCase):
         # パスで呼ぶシェル・長いオプションのシェルの中も見る
         "/bin/bash -c 'while [ ! -f x ]; do sleep 5; done'",
         "bash --norc -c 'while [ ! -f x ]; do sleep 5; done'",
+        "ksh -c 'while true; do sleep 5; done'",
         "/bin/bash <<'EOF'\nwhile true; do sleep 5; done\nEOF",
         # コメントの中の引用符で、後の行のループを引用符の中と取り違えない
         "# don't spin\nwhile [ ! -f done ]; do sleep 5; done",
