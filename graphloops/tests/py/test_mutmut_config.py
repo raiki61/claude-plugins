@@ -19,6 +19,10 @@ NOT_READ = {"skills": "スキルの本文。mutmut が選ぶ試験（medium で�
 # also_copy に並べなくても mutmut が写す物（mutmut 3.8.0 の src/mutmut/configuration.py の _load_config が also_copy に足す一覧のうち、
 # graphloops/ に在る物）
 COPIED_ANYWAY = {"setup.cfg"}
+# mutmut が写し（mutants/）の直下に自分で書くファイル。写した物ではないので also_copy と比べない（mutmut 3.8.0 の src/mutmut/stats.py が
+# mutmut-stats.json を、__main__.py の save_cicd_stats が mutmut-cicd-stats.json を、configuration.py の log_file_path の既定が
+# mutmut-debug.log を書く。10-31 の run 41216900355 で、試験ごとに通った関数を数える回〔stats〕の後の試験が mutmut-stats.json を並べ漏れと数えて落ちた）
+WRITTEN_BY_MUTMUT = {"mutmut-stats.json", "mutmut-cicd-stats.json", "mutmut-debug.log"}
 
 
 def _mutmut():
@@ -30,7 +34,7 @@ def _mutmut():
 @pytest.mark.small
 def test_also_copy_lists_every_place_the_tests_read():
     m = _mutmut()
-    have = set(m["source_paths"]) | set(m["also_copy"]) | set(NOT_READ) | COPIED_ANYWAY
+    have = set(m["source_paths"]) | set(m["also_copy"]) | set(NOT_READ) | COPIED_ANYWAY | WRITTEN_BY_MUTMUT
     # mutants/ の写しの中で走るときは、写した物だけが在る（足りない物は、写しの外の graphloops/ で走る回が名指す）。
     # . で始まる物は、also_copy に並べた物（.claude-plugin）のほかは手元のキャッシュ（.pytest_cache・.venv・.DS_Store など）として見ない。
     # ファイルも見る（README.md が抜けて、README の見出しを読む試験が写しの側で落ちた）
