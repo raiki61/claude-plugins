@@ -1692,6 +1692,10 @@ def gh_calls(tokens):
     return calls
 
 
+# 式の括弧か -exec が開いたまま区切りが来た find の後ろに gh の語が在って、解析できないときの訳(フックの止める文に出す)
+FIND_OPEN_WHY = "find の -exec か括弧が閉じていない"
+
+
 def glued_find(cmds, k):
     r"""k 番目のコマンド(find)の引数と、繋ぎ切れたか。式の \( \) と -exec の後ろの \; はトークン化で区切りと読まれ、後ろが別の
     コマンドに割れるので、括弧と、開いた -exec の後の ; だけで続くコマンドを繋ぎ直す。区切りは 1 つずつ読む(`\; \)`・`\; \(`
@@ -2775,10 +2779,11 @@ def read_body_file(path):
 class Analysis:
     """コマンド 1 本の解析の結果。calls は gh と works-dispatch の dispatch.py の呼び出しごとの
     (サブコマンド, 引数列, 本文候補, 止めた理由, cwd)。dispatch.py のサブコマンドは dispatch_mode の形(頭が DISPATCH_SUB)。
-    cwd はその呼び出しが走る場所(前の cd を読んだもの。決まらなければ None)。"""
+    cwd はその呼び出しが走る場所(前の cd を読んだもの。決まらなければ None)。why は解析できなかった訳(分かるときだけ。
+    無ければ止める文は引用の閉じ忘れなどと書く)。"""
 
-    def __init__(self, parsed, candidates=(), blocked=(), calls=(), misses=()):
-        self.parsed, self.candidates, self.blocked = parsed, list(candidates), list(blocked)
+    def __init__(self, parsed, candidates=(), blocked=(), calls=(), misses=(), why=None):
+        self.parsed, self.candidates, self.blocked, self.why = parsed, list(candidates), list(blocked), why
         self.calls, self.misses = list(calls), list(misses)
         self.lost = []   # calls と同じ順。前の cd・-C で走る場所が読めなくなった呼び出しは True
         self.runs = []   # 走る単純コマンド (引数列, リダイレクト) の全部(置換の中の物も)。外の BodyFiles が書き手を探す
@@ -2823,9 +2828,10 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     spans = None if norm is None else substitution_spans(norm)
     if spans is None:
         return Analysis(False)
-    inner, norm = read_substitutions(norm, spans, heredoc_bodies, depth)
+    inner, rest = read_substitutions(norm, spans, heredoc_bodies, depth)
     if inner is None:
-        return Analysis(False)
+        return Analysis(False, why=rest)
+    norm = rest
     tokens = tokenize(norm)
     if tokens is None:
         return Analysis(False)
@@ -2845,7 +2851,9 @@ def analyze(command, cwd=None, prepared=None, depth=0):
         if at < len(c.args) and _base(c.args[at]) in FIND_NAMES:
             glued, whole = glued_find(cmds, k)
             if not whole:
-                return Analysis(False)   # find の式を読み切れず、後ろの gh が -exec の中かも決まらない
+                # find の式を読み切れず、後ろの gh が -exec の中かも決まらない。引用は閉じているので、止める文に訳を書く(前は
+                # `find . -exec cat {} && gh …` を「引用が閉じていない等」で止め、どこを直せばよいか分からなかった)
+                return Analysis(False, why=FIND_OPEN_WHY)
             found = gh_calls(glued)
         else:
             found = gh_calls(c.args)
@@ -2904,7 +2912,8 @@ SUB_FILL = "."
 
 
 def read_substitutions(norm, spans, heredoc_bodies, depth):
-    """substitution_spans の置換の中身を、別のコマンドとして読む → (中の Analysis の並び, 語に割る写し)。読めなければ (None, norm)。
+    """substitution_spans の置換の中身を、別のコマンドとして読む → (中の Analysis の並び, 語に割る写し)。読めなければ
+    (None, 読めなかった訳か None)。
 
     中の gh は、外のコマンドの cd・代入・ファイルへの書き込みの後で走るが、中を読むときにはそれが見えないので、走る場所を
     知らない物として読む(本文ファイルと変数の本文は止まる側に倒れる)。`…` の中身は、bash と同じく \\$ \\` \\\\
@@ -2917,17 +2926,17 @@ def read_substitutions(norm, spans, heredoc_bodies, depth):
         body = norm[head:end]
         if kind == "{":
             if "$(" in body or "`" in body:
-                return None, norm
+                return None, None
             blank = in_dq and '"' in body
         else:
             if depth >= SUB_DEPTH:
-                return None, norm
+                return None, None
             code = body
             if kind == "`":
                 code = normalize_shell(re.sub(r'\\([$`\\%s])' % ('"' if in_dq else ""), r"\1", body), len(heredoc_bodies))
             sub = analyze(None, None, (code, heredoc_bodies), depth + 1)
             if not sub.parsed:
-                return None, norm
+                return None, sub.why
             inner.append(sub)
             blank = '"' in body or (kind == "`" and "'" in body)
         if blank:
@@ -4582,12 +4591,13 @@ def main() -> None:
         analysis = Analysis(False)
         parse_error = str(exc)[:150]
     else:
-        parse_error = "引用が閉じていない等"
+        parse_error = analysis.why or "引用が閉じていない等"
     if not analysis.parsed:
         stop("parse-fail",
              "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
              + "gh か works-dispatch の dispatch.py を含むため、送るかどうか確かめられないものは通せない。\n"
-             "引用を直して再実行すること。\n" + OWNER_NOTE)
+             + ("find の -exec を \\; か {} + で、式の括弧を \\) で閉じて再実行すること。\n" if analysis.why == FIND_OPEN_WHY
+                else "引用を直して再実行すること。\n") + OWNER_NOTE)
 
     # 素通しの疑いは判定より前に残す(止める分岐・通す分岐のどちらに進んでも数える)。残すのは当たった旗の綴りと
     # 先頭の語だけで、コマンドの抜粋は残さない——`gh secret set --body <値>` のような値は秘密そのもので、

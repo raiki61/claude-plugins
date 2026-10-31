@@ -974,8 +974,21 @@ def f56():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(56, parsed and cands == [BODY] and not blk, "find の後ろの gh を読まなかったか止めた: %r → %r %r" % (cmd, blk, parsed))
 
+# 57. find の -exec か式の括弧が開いたまま区切りが来て、後ろの gh を読み切れないときは、止める文に「find の -exec か括弧が
+# 閉じていない」と書く(前は引用が正しいのに「引用が閉じていない等」と書き、どこを直せばよいか分からなかった)。置換の中の find も
+# 同じ訳を返す。引用の閉じ忘れは今までどおりの文
+def f57():
+    for cmd in ("find . -exec cat {} && gh pr comment 1 --body hi", "x=$(find . -exec cat {} && gh pr comment 1 --body hi)",
+                r"find . \( -name a && gh pr comment 1 --body hi"):
+        a = g.analyze(cmd, WORK)
+        check(57, not a.parsed and a.why == "find の -exec か括弧が閉じていない", "find の閉じ忘れの訳を返さなかった: %r → %r" % (cmd, a.why))
+        _, out = run_main(cmd, WORK)
+        check(57, "find の -exec か括弧が閉じていない" in out and "引用が閉じていない等" not in out, "止める文に find の訳が無い: %r → %r" % (cmd, out[:200]))
+    _, out = run_main("gh pr comment 1 --body 'hi", WORK)
+    check(57, "引用が閉じていない等" in out, "引用の閉じ忘れの止める文が変わった: %r" % out[:200])
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
