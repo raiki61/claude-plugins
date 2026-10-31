@@ -6,6 +6,10 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Fixed
+
+- 試験だけの直し（tiers の動きは変わらない）: Windows の CI で赤だった 1 つを直した。`tests/test_statusline.py` の、Claude の起動時刻を ps の経過時間から出す所の試験が、`bash` を起動して Windows の WSL の `bash.exe`（Linux の入っていない物）に当たっていた。`bg-count.sh` は macOS と Linux だけで動くので、隣の試験と同じく Windows では見送る（頼み 7b27e1）。
+
 ## [0.13.1] - 2026-10-30
 
 ### Fixed
