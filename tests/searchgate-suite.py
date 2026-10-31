@@ -720,6 +720,16 @@ class Bash(unittest.TestCase):
                 self.assertIsNone(run("Bash", {"command": command})[0])
         self.assertIsNotNone(run("Bash", {"command": shallow.replace("src", "/")})[0])
 
+    def test_many_unclosed_substitutions_are_read_before_the_timeout(self):
+        # 閉じない $( が多く並んでも、閉じる所を $( ごとに初めから読み直さない(前は字の数の 2 乗の時間がかかり、10 万字の
+        # ヒアドキュメントで 60 秒・二重引用で 40 秒を超え、フックの時間切れで後ろの rg foo / を通していた。頼み cae1e2)
+        for command in ("cat <<EOF >/dev/null\n" + "$($\\)" * 20000 + "\nEOF\nrg foo /",
+                        'echo "' + "$(\\)" * 25000 + '"; rg foo /'):
+            with self.subTest(command=command[:40]):
+                started = time.monotonic()
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+                self.assertLess(time.monotonic() - started, 10)
+
     def test_long_scripts_with_cds_and_assignments_are_read_to_the_end(self):
         # cd と置換の多い数百行の手書きの台本は読み切って通す。前は、代入だけのコマンドの語の置換を 2 度読み直し、cd ごとの
         # 場所の動きも cd の後ろのコマンドごとに引き直していたので、600 行の台本と、`a=$(pwd) b=$(rg -c x .)` の並ぶ 100 行を

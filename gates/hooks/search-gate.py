@@ -163,46 +163,77 @@ def expand_home(value):
     return re.sub(r"\$(?:\{HOME\}|HOME(?![A-Za-z0-9_]))", lambda m: h, value)
 
 
+# _close の答え(text → {$( の位置: 閉じる ) の次の位置か None})。1 つのコマンドの検査で同じ字を何度も渡すので覚えておく
+_CLOSES = {}
+
+
 def _close(text, i):
-    """i の $( を閉じる ) の次の位置を、中の単一引用・二重引用・\\・` … `・入れ子の $( ) を見て決める。閉じなければ None。"""
-    depth, j, n = 1, i + 2, len(text)
-    while j < n:
+    """i の $( を閉じる ) の次の位置を、中の単一引用・二重引用・\\・` … `・入れ子の $( ) を見て決める。閉じなければ None。
+    中の $( は、その $( から読んだ答えを使う(引用の外でも二重引用の中でも、そこから閉じるまでの読み方は外の $( と同じ)。
+    答えは text ごとに覚え、字を 1 度ずつ読む(前は $( ごとに初めから読み直し、閉じない $( が並ぶと字の数の 2 乗の時間が
+    かかって、`$($\\)` を 2 万並べたヒアドキュメントで 60 秒かかり、フックの時間切れで探すコマンドを通していた)。それでも
+    読んだ字が多すぎれば、読み切れないとして止める(READS_MAX)。"""
+    memo = _CLOSES.get(text)
+    if memo is None:
+        if len(_CLOSES) > 64:
+            _CLOSES.clear()
+        memo = _CLOSES[text] = {}
+    if i in memo:
+        return memo[i]
+    n, read = len(text), 0
+    # 読んでいる途中の $( ごとに [始まり, 括弧の深さ, 二重引用の中か]。内側の $( が閉じたら外側の続きに戻る
+    stack, j = [[i, 1, False]], i + 2
+    while stack:
+        top = stack[-1]
+        if j >= n:
+            break
         c = text[j]
         if c == "\\":
+            j += 2
+        elif text.startswith("$(", j):
+            if j in memo:
+                if memo[j] is None:
+                    break
+                j = memo[j]
+            else:
+                stack.append([j, 1, False])
+                j += 2
+        elif c == "`":
+            end = _tick_end(text, j)
+            if end is None:
+                break
+            read += end - j
+            j = end + 1
+        elif top[2]:
+            if c == '"':
+                top[2] = False
             j += 1
         elif c == "'":
-            j = text.find("'", j + 1)
-            if j < 0:
-                return None
-        elif c == "`":
-            j = _tick_end(text, j)
-            if j is None:
-                return None
+            end = text.find("'", j + 1)
+            if end < 0:
+                break
+            read += end - j
+            j = end + 1
         elif c == '"':
+            top[2] = True
             j += 1
-            while j < n and text[j] != '"':
-                if text[j] == "\\":
-                    j += 1
-                elif text.startswith("$(", j):
-                    j = _close(text, j)
-                    if j is None:
-                        return None
-                    continue
-                elif text[j] == "`":
-                    j = _tick_end(text, j)
-                    if j is None:
-                        return None
-                j += 1
-            if j >= n:
-                return None
         elif c == "(":
-            depth += 1
+            top[1] += 1
+            j += 1
         elif c == ")":
-            depth -= 1
-            if not depth:
-                return j + 1
-        j += 1
-    return None
+            top[1] -= 1
+            j += 1
+            if not top[1]:
+                memo[stack.pop()[0]] = j
+        else:
+            j += 1
+        read += 1
+    for start, _, _ in stack:   # 閉じなかった $( (中の $( が閉じないなら外も閉じない)
+        memo[start] = None
+    SPENT["reads"] += read
+    if SPENT["reads"] > READS_MAX:
+        raise ValueError("$( ) と引用が多く、探す場所を読み切れない")
+    return memo[i]
 
 
 def _tick_end(text, i):
