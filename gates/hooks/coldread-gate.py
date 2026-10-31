@@ -2028,8 +2028,9 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     is_graphql = is_api and len(sub) > 1 and api_is_graphql(sub[1])
     # gist の作成・書き換え(POST gists・PATCH gists/<id>)は、ファイルの中身(files[<名前>][content])が本文。前は body の
     # フィールドだけを見て、`gh api gists -f 'files[notes.md][content]=…' -F public=true` を読まずに通していた(gh gist create の
-    # 実ファイルは止めている)
-    is_gist = is_api and len(sub) > 1 and api_endpoint_path(sub[1])[0][:1] == ["gists"]
+    # 実ファイルは止めている)。GitHub Enterprise Server の REST の頭(https://<host>/api/v3/)は落として見る(api_is_graphql と同じ。
+    # 前は `gh api https://ghe.example.com/api/v3/gists -f 'files[a.md][content]=…'` を gist と見ず、中身を読まずに通していた)
+    is_gist = is_api and len(sub) > 1 and api_is_gist(sub[1])
     gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る
 
     i, n, seen_ddash = 0, len(args), False
@@ -2136,6 +2137,12 @@ def api_endpoint_path(endpoint):
         elif seg:
             segs.append(seg)
     return segs, dotted
+
+
+def api_is_gist(endpoint):
+    """gh api の宛先が gist(`gists`・`gists/<id>`。GitHub Enterprise Server の `api/v3/gists` も)か。大文字・小文字は分けない"""
+    segs = [seg.lower() for seg in api_endpoint_path(endpoint)[0]]
+    return (segs[2:] if segs[:2] == ["api", "v3"] else segs)[:1] == ["gists"]
 
 
 def api_is_graphql(endpoint):

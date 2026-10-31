@@ -926,8 +926,18 @@ def f53():
                     and len(node.args) > (2 if node.func.attr == "split" else 3)):
                 check(53, False, "%s の %d 行で re.%s の数を位置で渡した" % (os.path.basename(path), node.lineno, node.func.attr))
 
+# 54. GitHub Enterprise Server の REST の頭(`https://<host>/api/v3/`)を付けた gist の宛先も gist と見て、files[<名前>][content] を
+# 本文として読む(前は頭の api・v3 を gist の語と比べ、中身を読まずに通した)。gist でない GHE の宛先は今までどおり本文と見ない
+def f54():
+    for cmd in ("gh api https://ghe.example.com/api/v3/gists -f 'files[a.md][content]=" + BODY + "'",
+                "gh api /api/v3/gists/abc -X PATCH -f 'files[a.md][content]=" + BODY + "'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(54, parsed and cands == [BODY] and not blk, "GHE の gist のファイルの中身を読まなかった: %r → %r %r" % (cmd[:60], blk, parsed))
+    cands, blk, parsed = g.posting_bodies("gh api https://ghe.example.com/api/v3/repos/o/r/dispatches -f 'files[a][content]=x'", WORK)
+    check(54, parsed and not cands and not blk, "gist でない GHE の宛先のフィールドを本文と読んだ: %r %r" % (cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
