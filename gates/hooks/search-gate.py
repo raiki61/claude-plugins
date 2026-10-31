@@ -20,6 +20,7 @@ Claude Code の Glob・Grep のツール。`bash -c "…"`・`eval`・`$( … )`
 止めるのは決定的(LLM なし)で、逃げ道は無い。検査そのものが落ちたら止める(coldread・destgate と同じ倒し方)。
 解析部(トークン化・単純コマンド分割・変数と cd の追い方)は coldread-gate.py から読み込んで共有する。
 """
+import bisect
 import copy
 import itertools
 import json
@@ -653,20 +654,23 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
             ticks.update(heres)
         # 引用の外の $( … )・<( … ) などは、tokenize が 1 語に留めて中身を語の subs に残す(リダイレクトの行き先の `< <(…)` も)。
         # 語の残りの字(二重引用の中の $( … ) と ` … `)は語から読む
-        inners = {x for a in list(c.args) + [d for _, d in c.redirects] for x in getattr(a, "subs", ())}
-        inners |= {x for a in c.args for x in word_substitutions(a)}
         # 代入だけのコマンド(`D=/ x=$(rg foo $D)`)は、bash が左から順に代入するので、語の中の置換は前の語の代入を見る
-        # (前は同じコマンドの代入を見ず、起点の $D を解けずに通していた)。中身ごとに、前の語までの代入を足した Scope で見る
-        assigns = []
-        if at == len(c.args) > 1:
-            assigns = [(x, before_scope(cr, cmds, k, files, bodies, x, upto=i)) for i, a in enumerate(c.args) if i
-                       for x in dict.fromkeys(tuple(getattr(a, "subs", ())) + tuple(word_substitutions(a)))]
+        # (前は同じコマンドの代入を見ず、起点の $D を解けずに通していた)。中身ごとに、前の語までの代入を足した Scope で見る。
+        # その語の置換は inners に入れない(前の語までの代入を足した Scope は、files.at の解く変数も解く。前は両方で読み、
+        # 置換ごとに読む数が 2 倍になって、長いスクリプトで読む字の上限に当たっていた)
+        chained = range(1, len(c.args)) if at == len(c.args) > 1 else range(0)
+        assigns = [(x, before_scope(cr, cmds, k, files, bodies, x, upto=i)) for i in chained
+                   for x in dict.fromkeys(tuple(getattr(c.args[i], "subs", ())) + tuple(word_substitutions(c.args[i])))]
+        own = [a for i, a in enumerate(c.args) if i not in chained]
+        inners = {x for a in own + [d for _, d in c.redirects] for x in getattr(a, "subs", ())}
+        inners |= {x for a in own for x in word_substitutions(a)}
         # 区切りを引用しないヒアドキュメントの本文の $( … ) と ` … ` は、どのコマンドの本文でも、そのコマンドの場所で走る
         # (前は本文をシェルに渡すときだけ読み、`cat <<EOF > out.txt` の次の行の `$(find / …)` を通していた)。
         # 区切りを引用した本文(Expands でない)は展開しないので読まない
         inners |= {x for b in cr.own_heredocs(c.args, bodies) if isinstance(b, cr.Expands)
                    for x in substitutions(b, heredoc=True)}
         seen |= inners
+        seen.update(x for x, _ in assigns)
         for here in heres:
             # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、
             # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
@@ -1144,6 +1148,9 @@ def load_coldread():
             self._passes, self._afters = {}, {}   # (繰り返し, 1 回目の頭の場所) → 回の頭の場所・(繰り返し, 場所, k) → 抜けた後の場所
             self._ends = {}   # 条件の中の cd の番号 → then・do の後ろのコマンドの番号(_then_end)
             self._units = {}   # cd の番号 → まとめて走る組の後ろのコマンドの番号(_unit_end)
+            self._facts = {}   # cd の番号 → k に依らない届き方の控え(_fact)
+            self._moves = {}   # (cd の番号, 前の場所だけが来るか, 前の場所の列) → 後の場所の列(_walk)
+            self._cds = {m for m, c in enumerate(cmds) if any(t in cr.CD_WORDS for t in c.args)}
             self._via = False   # _surely の中で、cd が落ちた側が後ろの cd を飛ばして k に来ると見たか(_skips_pass)
             lay = layout(cr, tokens, self.kinds, self.negs, self.braces)
             self.lay = lay if lay is not None and len(lay) == len(cmds) else None
@@ -1153,30 +1160,45 @@ def load_coldread():
             サブシェル(`( … )`・`$( … )`)が k より前に閉じたとき。cd を囲む `{ }` のまとまりがパイプの中か & で後ろに回したとき
             も、まとまりは別のシェルで走るので、閉じの `}` より後ろには届かない(前は届くと見て、`{ cd proj; } | cat; rg x .` を
             ホームで打つと ~/proj で探すと読んで通していた)。"""
-            _, d, ops, _ = self.lay[j]
-            if any(op == "|" and dep == d for op, dep in ops):
-                return False
-            if any(op in ("|", "&") and dep == d for op, dep in self.lay[j + 1][2]):
-                return False
-            for start, end in self.braces.items():
-                if start <= j < end < k and (
-                        any(op == "|" and dep == self.lay[start][1] for op, dep in self.lay[start][2])
-                        or any(op in ("|", "&") and dep == self.lay[end][1] for op, dep in self.lay[end + 1][2])):
-                    return False
-            for m in range(j + 1, k + 1):
-                if any(op == ")" and dep < d for op, dep in self.lay[m][2]):
-                    return False
-            return self.lay[k][1] >= d
+            cut, _, _, _, _ = self._fact(j)
+            return cut > k and self.lay[k][1] >= self.lay[j][1]
+
+        def _fact(self, j):
+            """j 番目の cd の、後ろのコマンド(k)に依らない届き方の控え: (届かなくなる最初のコマンドの番号〔0 は、パイプの中か & で
+            後ろに回して、どこにも届かない〕, 前の区切りが ; 改行 && だけか, 前の区切りに && が在るか, j より後ろで同じ深さ以浅に ; 改行 &
+            が来る最初の番号, 同じ深さ以浅に || が来る番号の列)。届かなくなるのは、cd を囲む `{ }` のまとまりがパイプの中か & で後ろに
+            回したときの閉じの `}` の次と、囲むサブシェル(`( … )`・`$( … )`)の閉じる所。cd ごとに 1 度だけ引く(前は _reaches・_surely の
+            たびに k までを読み直し、長いスクリプトで cd の数 × コマンドの数 × コマンドの数の時間がかかっていた)。"""
+            if j not in self._facts:
+                _, d, ops, _ = self.lay[j]
+                n = len(self.lay)
+                cut = n
+                if (any(op == "|" and dep == d for op, dep in ops)
+                        or any(op in ("|", "&") and dep == d for op, dep in self.lay[j + 1][2])):
+                    cut = 0
+                for start, end in self.braces.items():
+                    if start <= j < end < n - 1 and (
+                            any(op == "|" and dep == self.lay[start][1] for op, dep in self.lay[start][2])
+                            or any(op in ("|", "&") and dep == self.lay[end][1] for op, dep in self.lay[end + 1][2])):
+                        cut = min(cut, end + 1)
+                cut = min(cut, next((m for m in range(j + 1, n) if any(op == ")" and dep < d for op, dep in self.lay[m][2])), n))
+                # cd を囲む `{ }` のまとまりは、頭の前の && || で全部が走るか決まるので、頭の前の区切りも cd の物と見る(前は見ず、
+                # `[ -d proj ] && { echo found; cd proj; }; rg foo .` の cd を必ず走ると読み、ホームで打つと通していた)
+                ops = list(ops) + [op for start, _ in self._groups(j) for op in self.lay[start][2]]
+                plain = not any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()")
+                chained = any(op == "&&" for op, _ in ops)
+                sep = next((m for m in range(j + 1, n) if any(op in (";", "\n", "&") and dep <= d for op, dep in self.lay[m][2])), n)
+                ors = [m for m in range(j + 1, n) if any(op == "||" and dep <= d for op, dep in self.lay[m][2])]
+                self._facts[j] = (cut, plain, chained, sep, ors)
+            return self._facts[j]
 
         def _surely(self, j, k):
             """届く cd(j 番目)が、k 番目が走るときには必ず走ったか。前の区切りが ; 改行 && だけ(&& なら k までも && だけ)で、k までに || が無い
             (`cd x || exit 1`・繰り返しの中の `cd x || continue` のような逃げ口〔_escapes〕の || は除く)うえ、cd を囲むブロックがどれも
             k も囲むか、cd が if・elif・while・until の条件の中で、k が cd の移れたときにだけ走る所に在るとき(_by_condition)。"""
-            path, d, ops, _ = self.lay[j]
-            # cd を囲む `{ }` のまとまりは、頭の前の && || で全部が走るか決まるので、頭の前の区切りも cd の物と見る(前は見ず、
-            # `[ -d proj ] && { echo found; cd proj; }; rg foo .` の cd を必ず走ると読み、ホームで打つと通していた)
-            ops = list(ops) + [op for start, _ in self._groups(j) for op in self.lay[start][2]]
-            if any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()"):
+            path, d, _, _ = self.lay[j]
+            _, plain, chained, sep, ors = self._fact(j)
+            if not plain:
                 return False
             kpath = self.lay[k][0]
             same = 0
@@ -1186,19 +1208,15 @@ def load_coldread():
             # 条件の中の cd から、同じブロックの後ろの区画の k を見るときは、&& の繋がりを条件の終わりまでで見る(_by_condition。
             # `if [ -d x ] && cd x; then find .; fi` の then の前の ; は、条件が通ったときにだけ then へ進む)
             in_block = len(rest) == 1 and rest[0][2] and len(kpath) > same and kpath[same][0] == rest[0][0]
-            if any(op == "&&" for op, _ in ops) and not in_block:
+            if chained and not in_block and sep <= k:
                 # `test -d sub && cd sub; find .` の cd は前が落ちると走らず、; の後ろの find はそれでも走る。&& の後の cd は、
                 # k までが && だけで繋がる(同じ深さ以浅に ; 改行 & が無い)ときだけ必ず走った
-                for m in range(j + 1, k + 1):
-                    if any(op in (";", "\n", "&") and dep <= d for op, dep in self.lay[m][2]):
-                        return False
+                return False
             escape = self._escapes(j, k)
-            for m in range(j + 1, k + 1):
-                if escape is not None and m <= escape:
-                    continue   # 逃げ口の中(cd が落ちたときにだけ走る)
-                for op, dep in self.lay[m][2]:
-                    if op == "||" and dep <= d:
-                        return False
+            # 逃げ口の中(cd が落ちたときにだけ走る)の || は除いて、k までに || が在れば必ず走ったとは限らない
+            at = bisect.bisect_right(ors, j if escape is None else max(j, escape))
+            if at < len(ors) and ors[at] <= k:
+                return False
             if not rest:
                 return True
             bid, sec, cond = rest[0]
@@ -1447,13 +1465,14 @@ def load_coldread():
                 if (within is not None and self.lay[j][3] == "continue" and c.args[1:] in ([], ["1"])
                         and k == self._inside(within)[-1] and self._loop_of(j) == within):
                     passed += places   # この繰り返しの continue は、そこまでの場所のまま次の回の頭に来る(_heads)
-                if not any(t in cr.CD_WORDS for t in c.args):
+                if j not in self._cds:
                     continue
                 loop = self._closed(j, k, within) if self.lay else None
                 if loop is not None:
                     places, closed = self._through(loop, places, k), self._inside(loop)[-1]
                     continue
                 if (j, k) not in self._flow:
+                    self._spend(STEP_COST)   # 届き方を k ごとに引く(_reaches・_surely・_escapes)
                     self._via = False
                     flow = (self._reaches(j, k), self._surely(j, k)) if self.lay else (True, False)
                     via = flow[1] and self._via
@@ -1481,6 +1500,14 @@ def load_coldread():
                         entered.add(key)
                 if end is not None:
                     stays = sorted(stays + [(end, p) for p in places], key=lambda e: e[0])
+                alone = surely or end is not None   # 落ちた側の場所は stays で then・do を飛ばす
+                move = (j, alone, tuple(places))
+                if move in self._moves:
+                    # 同じ cd を同じ場所の列から引くのは、後ろのコマンド(k)ごとに頭からたどり直すときに繰り返す。控えから引き、
+                    # 列を写す分だけ数える(前は毎回場所ごとに引き直し、長いスクリプトで、読む字の上限より先にたどる数の上限に当たった)
+                    self._spend(len(places))
+                    places = list(self._moves[move])
+                    continue
                 self._spend(STEP_COST * len(places))
                 new = []
                 for place in places:
@@ -1490,12 +1517,12 @@ def load_coldread():
                         dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
                         self._dests[j, place] = cr.native_path(dest) if dest else None
                     dest = self._dests[j, place]
-                    alone = surely or end is not None   # 落ちた側の場所は stays で then・do を飛ばす
                     if not (dest and os.path.isabs(dest)):
                         new += [None] if alone else [None, place]
                     else:
                         new += [dest] if alone else [dest, place]
                 places = _shallow(list(dict.fromkeys(new)))
+                self._moves[move] = tuple(places)
             # then・do を飛ばした場所は、k が then・do の後ろなら k に来る(k が then・do の中なら、cd が移れたときにだけ走る)
             passed += [p for r, p in stays if r <= k]
             return _shallow(list(dict.fromkeys(places + passed))) if passed else places

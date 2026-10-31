@@ -8,6 +8,7 @@ HOME と設定のフォルダ(CLAUDE_CONFIG_DIR。止めた記録の置き場)�
 import json
 import os
 import pathlib
+import random
 import subprocess
 import sys
 import tempfile
@@ -687,6 +688,50 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command[:40]):
                 self.assertIsNone(run("Bash", {"command": command})[0])
         self.assertIsNotNone(run("Bash", {"command": shallow.replace("src", "/")})[0])
+
+    def test_long_scripts_with_cds_and_assignments_are_read_to_the_end(self):
+        # cd と置換の多い数百行の手書きの台本は読み切って通す。前は、代入だけのコマンドの語の置換を 2 度読み直し、cd ごとの
+        # 場所の動きも cd の後ろのコマンドごとに引き直していたので、600 行の台本と、`a=$(pwd) b=$(rg -c x .)` の並ぶ 100 行を
+        # 読み切れないとして止めていた
+        rand = random.Random(1)
+        subs = ["src", "tests", "docs", "pkg/a", "pkg/b", "tools", "web/app"]
+        lines = ['#!/bin/bash', 'set -euo pipefail', 'ROOT="$(git rev-parse --show-toplevel)"', 'cd "$ROOT"']
+        while len(lines) < 600:
+            r, s = rand.random(), rand.choice(subs)
+            if r < 0.15:
+                lines += ['cd "$ROOT/%s"' % s, 'rg -n "TODO" . | head -5 || true', 'cd "$ROOT"']
+            elif r < 0.25:
+                lines += ['if [ -d %s ]; then' % s, '  cd %s' % s, '  find . -name "*.py" -newer Makefile | wc -l',
+                          '  cd - >/dev/null', 'fi']
+            elif r < 0.35:
+                lines += ['for f in $(find %s -name "*.sh"); do' % s, '  echo "checking $f"',
+                          '  shellcheck "$f" || echo "fail $f"', 'done']
+            elif r < 0.45:
+                lines += ['count=$(grep -rc "import" %s | wc -l)' % s, 'echo "count=$count"']
+            elif r < 0.55:
+                lines += ['pushd %s >/dev/null' % s, 'fd -e md . | xargs wc -l', 'popd >/dev/null']
+            elif r < 0.65:
+                lines += ['while read -r line; do', '  echo "$line" | cut -d: -f1', 'done < <(rg -l "fixme" %s)' % s]
+            elif r < 0.72:
+                lines += ['(cd %s && make -s test) || echo "make failed"' % s]
+            elif r < 0.8:
+                lines += ['ver=$(python3 -c "import sys; print(sys.version)")', 'echo "$ver $(date +%s) $(basename "$PWD")"']
+            elif r < 0.88:
+                lines += ['case "$1" in', '  build) make;;', '  test) "$ROOT/scripts/test.sh" %s;;' % s, '  *) echo usage;;',
+                          'esac']
+            else:
+                lines += ['f%d() {' % len(lines), '  local d="$1"', '  grep -rn "def " "$d" | head', '}', 'f%d %s' % (len(lines), s)]
+        script = "\n".join(lines + ['rg -n "main" src'])
+        multi = "\n".join(["cd ~/src/repo"] + ["cd pkg/a%d && a=$(pwd) b=$(rg -c x .) c=$(git log -1) && cd ../.." % i
+                                               for i in range(100)])
+        for command in (script, multi):
+            with self.subTest(command=command[-60:]):
+                started = time.monotonic()
+                self.assertIsNone(run("Bash", {"command": command})[0])
+                self.assertLess(time.monotonic() - started, 10)
+        # 読み切った上で、末尾の / からの探しと、代入の語の置換の中の / からの探しは今までどおり止める
+        self.assertIsNotNone(run("Bash", {"command": script + "\nrg foo /"})[0])
+        self.assertIsNotNone(run("Bash", {"command": multi + "\na=$(pwd) b=$(rg -c x /)"})[0])
 
     def test_contents_past_the_deepest_level_are_not_passed_unread(self):
         # 読む段の終わり(8 段)より深い二重引用の中の $( )・bash -c に探すツールの語が在れば、読み切れないとして止める(前は黙って
