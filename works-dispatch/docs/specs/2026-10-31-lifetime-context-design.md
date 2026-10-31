@@ -2,6 +2,8 @@
 
 会社の形（`.claude/company.toml`）で、部署の寿命・次の頼みのときの会話・keepalive を決める鍵を、3 つにまとめ直した記録。頼み 755c1f。持ち主の決め（2026-10-31「おｋ」「しばらく読めるように残さなくていいよ。全部入れ替えたらいいでしょ？」）。使い方は `skills/dispatch/references/roles.md` の「部署の寿命と会話の引き継ぎ」と「仕事が終わるまでの keepalive」に在る。
 
+会社の形を書く人は、2 の鍵で書く。前の鍵を書いた会社の形は、そのままでは前の鍵が効かないので、2 の後の置き換え（roles.md の「部署の寿命と会話の引き継ぎ」に表が在る）で書き直す。works-dispatch を直す人は、3 の、鍵を役と受け持ちのどちらに置くかの決めに合わせる。
+
 ## 1. 前の形で困っていたこと
 
 - 鍵が 5 つ（役の `persistent`・`fresh`・`keepalive`、受け持ちの `on_demand`・`per_ask`）に散り、同じ軸を役と受け持ちの別々の鍵で書いていた（寿命を役は `persistent`、受け持ちは `on_demand`・`per_ask` の組で書く）。`per_ask` は `on_demand = true` と組でしか効かず、組の 4 通りのうち 1 つは意味が無かった。
@@ -16,7 +18,7 @@
 
 表示（herdr の作業場の印・`--tree`）は `<lifetime> · <context>`（例 `always · carry`・`on-demand · new`）。per-ask は次の頼みが無いので `per-ask` だけ。`rent_or_buy = false` の部署にだけ ` · rent-or-buy off` を足す。機械が比べる値は「.」でつないだ ASCII のキー（`always.new` など。docs/standards/machine-readable-values.md の決まり 3）で、表示の語は表示にだけ使う。
 
-前の鍵は読まない（読み替えの期間を置かない。持ち主の決め）。書いてあれば外した鍵として注記に出し、新しい鍵を添える（`known_keys.COMPANY_RETIRED`）。部署の属性（`company.lifecycle` の `persistent`・`ephemeral` と `company.fresh`）は git の設定に残る正本なので、名前を替えずに新しい鍵から書く。属性の名前を替えると、立っている部署の全部が読めなくなるため。
+前の鍵は読まない（読み替えの期間を置かない。持ち主の決め）。書いてあれば外した鍵として注記に出し、新しい鍵を添える（`known_keys.COMPANY_RETIRED`）。部署の属性（`company.lifecycle` の `persistent`・`ephemeral` と `company.fresh`）は git の設定に残る正本なので、名前を替えずに新しい鍵から書く。部署の寿命が `always` なら `company.lifecycle` は `persistent`、`per-ask` と `on-demand` なら `ephemeral`。役の `context` が `new` なら `company.fresh` は `true`、`carry` なら書かない。属性の名前を替えると、立っている部署の全部が読めなくなるため。
 
 ## 3. 役に書くか、受け持ちに書くか
 
