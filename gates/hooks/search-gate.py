@@ -384,12 +384,26 @@ def _closes_in(text, s, end, comments):
     return False
 
 
+# 標準入力や置換の中身をスクリプトとして走らせうる語(bash <<'EOF'・ssh host bash <<'EOF'・bash -c "$(cat <<'EOF'"・eval)
+_SHELL_WORD_RE = re.compile(r"(?<![\w.-])(?:bash|sh|zsh|dash|ksh|eval|source)(?![\w.-])")
+
+
+def _opening_lines(command, at, start):
+    """at の `<<` を書いた開始行(\\ で前の行からつながるなら、つないだ行の全部)から、本文の前(start)まで。"""
+    head = command.rfind("\n", 0, at) + 1
+    while head > 1 and command[head - 2] == "\\" and (head < 3 or command[head - 3] != "\\"):
+        head = command.rfind("\n", 0, head - 1) + 1
+    return command[head:start]
+
+
 def without_quoted_bodies(cr, command):
     """区切りを引用したヒアドキュメント(`<<'EOF'`・`<<"EOF"`・`<<\\EOF`・`<<E"OF"`)の本文を除いたコマンド。シェルはその本文を
     展開も実行もしないので、本文の中の字は探すツールの語でない。除く本文が無いか、読み切れない形(閉じない引用・バッククォート・
     `$((`・`$'`・中身の在る `${ }`・case・迷う #・終わりの行の無い本文・bash 3.2 が本文の中で置換を閉じる形)なら None。
 
-    区切りを引用しない本文は除かない(シェルが中の `$( )` を走らせる)。開始行が \\ で次の行へつながるときは、つないだ行の後から
+    区切りを引用しない本文は除かない(シェルが中の `$( )` を走らせる)。開始行(\\ でつないだ行を含む)にシェル・eval・source の語が
+    在る本文も除かない(`bash <<'EOF'`・`ssh host bash <<'EOF'`・`bash -s <<'EOF'` の本文はシェルが走らせるスクリプト。前は除いて、
+    `x=$[1+1]; bash <<'EOF'` の本文の `find / -name x` を通していた)。開始行が \\ で次の行へつながるときは、つないだ行の後から
     本文を読む(bash と同じ。つないだ行はコマンドとして残る)。置換の中では、終わりの語に ) を続けた行(`EOF)`)でも本文を閉じる
     (bash 5 の読み。zsh は `EOF` だけの行で閉じるので、zsh の本文はこれより長く、除く字はどちらでも本文の中に在る)。"""
     stack, pending, spans = [], [], []
@@ -460,12 +474,12 @@ def without_quoted_bodies(cr, command):
             if not cr._DELIM_RE.fullmatch(delim) or not cr._WORD_END_RE.match(command, j):
                 return None
             pending.append((any(w[0] in "\\'\"" for w in parts), bool(head.group(1)), delim,
-                            [at for kind, at in stack if kind == "$("], top == "$("))
+                            [at for kind, at in stack if kind == "$("], top == "$(", i))
             i = j
             continue
         elif c == "\n" and pending:
             i += 1
-            for quoted, dash, delim, subs, in_sub in pending:
+            for quoted, dash, delim, subs, in_sub, at in pending:
                 start, close = i, None
                 while close is None:
                     if i >= n:
@@ -484,7 +498,7 @@ def without_quoted_bodies(cr, command):
                         i = end + 1
                 if any(_closes_in(command, s, i, comments) for s in subs for comments in (True, False)):
                     return None
-                if quoted and i > start:
+                if quoted and i > start and not _SHELL_WORD_RE.search(_opening_lines(command, at, start)):
                     spans.append((start, i))
                 i = close
             pending = []

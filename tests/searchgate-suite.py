@@ -456,6 +456,20 @@ class FailClosed(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
+    def test_quoted_bodies_given_to_a_shell_are_not_skipped(self):
+        # 読めない形のコマンドでも、シェルが走らせる本文(bash・ssh … bash・bash -s・bash -c "$(cat <<'EOF'"・行を \ でつないだ
+        # シェル・パイプの先のシェル)は除かずに見る(前は区切りを引用した本文をどれも除いて、本文の find / を通していた)
+        for command in ("x=$[1+1]; bash <<'EOF'\nfind / -name x\nEOF", "x=$[1+1]; ssh host bash <<'EOF'\nfind / -name x\nEOF",
+                        "x=$[1+1]; bash -s <<'EOF'\nfind / -name x\nEOF", "x=$[1+1]; /bin/sh \\\n  <<'EOF'\nfind / -name x\nEOF",
+                        "x=$[1+1]; bash -c \"$(cat <<'EOF'\nfind / -name x\nEOF\n)\"",
+                        "x=$[1+1]; cat <<'EOF' | bash\nfind / -name x\nEOF"):
+            with self.subTest(command=command):
+                self.assertIn("読めない形", run("Bash", {"command": command})[0] or "")
+        # シェルに渡さない本文は今までどおり除く
+        for command in ("x=$[1+1]; cat <<'EOF' > notes.md\nfind / -name x\nEOF", "x=$[1+1]; cat \\\n  <<'EOF'\nfind / -name x\nEOF"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+
     def test_stop_is_logged(self):
         with tempfile.TemporaryDirectory() as cfg:
             env = dict(os.environ, HOME=HOME, CLAUDE_CONFIG_DIR=cfg)
