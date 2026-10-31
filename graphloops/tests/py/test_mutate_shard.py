@@ -375,7 +375,7 @@ def test_the_mutation_workflow_has_no_shape_problems():
     assert mutation_workflow_problems(*_workflows()) == []
 
 
-WIN_ALLOW = '    env:\n      SKIP_ALLOW: "posix-mode process-group fifo read-permission version-bump"\n'
+WIN_ALLOW = '    env:\n      SKIP_ALLOW: "posix-mode process-group fifo read-permission posix-os version-bump"\n'
 
 
 @pytest.mark.small

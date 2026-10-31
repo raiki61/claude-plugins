@@ -6365,7 +6365,7 @@ scope
 # Windows では丸ごと見送る: works-factory は macOS と Linux だけで動き（works-factory/skills/works-factory/SKILL.md の必要な物）、
 # 試験が裸の名前で起動する bash は、Windows では CreateProcess が PATH より先にシステムのディレクトリを探すので、
 # Git の bash でなく WSL の起動口（C:\Windows\System32\bash.exe）に当たる（tests/mutate.py の BASH と同じ訳）
-wf_desc="works-factory: 殻が止めた commit の取り置きを 1 度だけ取り寄せ、引数をそのまま渡し、3.12 以上の python を選ぶ"
+wf_desc="works-factory: 殻が止めた commit の取り置きを 1 度だけ取り寄せ、引数をそのまま渡し、3.12 以上の python を選び、スキルの本文が長すぎず参照の先が在る"
 scope works-factory
 if "$PY_BIN" -c 'import os, sys; sys.exit(os.name != "posix")'; then
     expect_output 0 "OK" "$wf_desc" \

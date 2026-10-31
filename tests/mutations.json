@@ -7796,7 +7796,7 @@
    "title": "変異の CI の Windows の組に SKIP_ALLOW を渡す",
    "file": ".github/workflows/mutation.yml",
    "suite": "root",
-   "old": "      SKIP_ALLOW: \"posix-mode process-group fifo read-permission version-bump\"\n",
+   "old": "      SKIP_ALLOW: \"posix-mode process-group fifo read-permission posix-os version-bump\"\n",
    "new": "",
    "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
    "tests": {

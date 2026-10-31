@@ -102,7 +102,7 @@ jobs:
   shard-windows:
     runs-on: windows-latest
     env:
-      SKIP_ALLOW: "posix-mode process-group fifo read-permission version-bump"
+      SKIP_ALLOW: "posix-mode process-group fifo read-permission posix-os version-bump"
     strategy:
       fail-fast: false
       matrix:
