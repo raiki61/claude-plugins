@@ -211,7 +211,7 @@ compact:
 
 compact の翻訳を、会話の記録から計った実測値と項ごとに照合して、抜けが見つかった（2026-10-25。計画は [works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md](https://github.com/raiki61/claude-plugins/blob/main/works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md) のセクション 3「compact の損得の式を、項ごとに見直す」）。要約の要求が今の文脈を読む分と compact の後の大きさは 0.4.0 で（4.4・4.5）、要約の出力は 0.3.0 で（4.2）直した。残りは次の 2 つで（1 つ目の問い合わせの費用は、計画のセクション 7 の 2 で足した）、実装の順は計画のセクション 7 にある。記号は 4.4 と同じ。
 
-- 問い合わせの費用: 呼ぶ側が `Q_each / (1 - w) + Q_answer` を渡す。口は、問いを会話に届ける道（単独の要求・どのみち起きる要求に添える注記・keepalive と差し替える問い）で、`Q_each` はその口で問うたびに払う分、`Q_answer` は焦点が返った時だけ払う分、`w` はその口で焦点（compact の要約で残す話題の指定）が返らない割合。単価を呼ぶ側に写させないよう、額の `consult_cost` のほかに、`Q_each` を出力のトークン（`consult_output_tokens`）で、`w` を `consult_miss` で受け、部品が出力の単価で額にする（計画の 6 の足す 4）。works-dispatch は keepalive の時刻の問い（keepalive と差し替える口）で渡す。済んだ。
+- 問い合わせの費用: 1 回の判断に足す額は `Q_each / (1 - w) + Q_answer`。口は、問いを会話に届ける道（単独の要求・どのみち起きる要求に添える注記・keepalive と差し替える問い）で、`Q_each` はその口で問うたびに払う分、`Q_answer` は焦点が返った時だけ払う分、`w` はその口で焦点（compact の要約で残す話題の指定）が返らない割合。呼ぶ側は、この式の値を額で `consult_cost` に入れるか、式の部品を入れる（`Q_each` を出力のトークンで `consult_output_tokens` に、`w` を `consult_miss` に）。部品を入れたときは、部品（この rent-or-buy）が `consult_output_tokens` を出力の単価で額にして `1 - consult_miss` で割り、`consult_cost` に足す。部品で入れる形は、単価を呼ぶ側に写させないため（計画の 6 の足す 4）。works-dispatch は keepalive の時刻の問い（keepalive と差し替える口）で、部品の形の 2 つだけを渡す（`Q_answer` にあたる額は渡さない）。済んだ。
 - キャッシュを切らせる直前の compact のための入力 `expiring`（真偽。呼ぶ側が keepalive の止め時に立てる）: その時は `C * (write - read) > C' * write + summary * output + consult_cost` で buy。
 
 直した項で 7 日分の記録を流すと、compact が初めて得になる文脈は、中央値で約 8 万トークンから約 13 万に移る（Opus、寿命 1 時間。1 時間は Claude Code がサブスクリプションの枠の中で会話の本体に付ける寿命）。
