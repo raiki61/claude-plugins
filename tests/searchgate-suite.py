@@ -368,7 +368,10 @@ class Bash(unittest.TestCase):
         # 抜けないまとまり・サブシェルの exit・|| の後ろのただの cd・逃げ口の中で探すコマンド・繰り返しの後ろは、今までどおり
         for command in ("cd sub || { cd ..; }; cd ../..; rg foo .", "cd sub || { cd ..; ( exit 1 ); }; cd ../..; rg foo .",
                         "cd sub || cd ..; cd ../..; rg foo .", "cd sub || { cd /; rg foo .; exit 1; }",
-                        'for d in */; do cd "$d" || { cd ..; continue; }; done; rg x .'):
+                        'for d in */; do cd "$d" || { cd ..; continue; }; done; rg x .',
+                        # return で終わる逃げ口の中の cd は後ろに届く(関数の中では呼んだ所に戻り、関数の外では return が落ちる)
+                        "f() { cd sub || { cd /; return 1; }; }; f; rg foo .", "cd sub || { cd /; return 1; }; rg foo .",
+                        "cd sub || { cd ..; return 1; }; cd ../..; rg foo ."):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME + "/src/a")[0])
 

@@ -1228,14 +1228,15 @@ def load_coldread():
             """m 番目を囲むいちばん内の繰り返しの番号(無ければ None)。"""
             return next((bid for bid, _, _ in reversed(self.lay[m][0]) if self.kinds.get(bid) in LOOPS), None)
 
-        def _escapes(self, j, k):
+        def _escapes(self, j, k, leaves=("exit", "return")):
             """j 番目の cd の後ろの `|| <コマンド>`・`|| { …; <コマンド>; }` が、cd が落ちたときに k 番目を走らせない逃げ口なら、
             逃げ口の最後のコマンドの番号(でなければ None)。逃げ口は、exit・return(シェルを抜ける)と、continue・break(その繰り返しの
             この回の残り〔break は繰り返しの全部〕を飛ばす。_skips_pass)。
             `{ }` のまとまりは、最後のじかのコマンドが逃げ口なら逃げ口(前は exit・return だけを、`{ }` で囲まずに書いたときだけ見て、
             `for d in */; do cd "$d" || continue; rg x .; cd ..; done` の cd を走るとは限らないと見て、動かなかった場所からの `cd ..` で
             / やホームに届いたと読み、`cd proj || { echo no; exit 1; }; rg foo .` も止めていた)。サブシェルの中の exit
-            (`|| ( exit 1 )`)はサブシェルを抜けるだけなので逃げ口でない。逃げ口の後ろが & やパイプなら、cd ごと別のシェルで走る。"""
+            (`|| ( exit 1 )`)はサブシェルを抜けるだけなので逃げ口でない。逃げ口の後ろが & やパイプなら、cd ごと別のシェルで走る。
+            leaves は、逃げ口と見る最後のコマンドの頭の語(continue・break のほかに)。"""
             m = j + 1
             if m >= len(self.lay) or not any(op == "||" for op, _ in self.lay[m][2]):
                 return None
@@ -1254,7 +1255,7 @@ def load_coldread():
                 ops.remove("||")
             if mdepth != d or any(op not in (";", "\n") for op in ops) or k <= stop:
                 return None
-            return stop if head in ("exit", "return") or self._skips_pass(last, k, range(m, last)) else None
+            return stop if head in leaves or self._skips_pass(last, k, range(m, last)) else None
 
         def cwds_here(self, k=None):
             """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、
@@ -1390,7 +1391,9 @@ def load_coldread():
                     via = flow[1] and self._via
                     # 逃げ口(`cd x || { cd ..; exit 1; }`)は、cd が落ちたときに走って抜けるので、中の cd は k に来る場所を変えない
                     # (前は中の `cd ..` を移れた側の場所にも当て、`cd sub || { cd ..; exit 1; }; cd ../..; rg foo .` を止めていた)
-                    out = self._escapes(j, k) if self.lay and flow[0] else None
+                    # return で終わる逃げ口は除く: 関数の中では呼んだ所に戻って後ろが走り、関数の外では return が落ちて後ろが走る
+                    # ので、中の cd は後ろに届く(前は除かず、`cd sub || { cd /; return 1; }; rg foo .` を通していた)
+                    out = self._escapes(j, k, ("exit",)) if self.lay and flow[0] else None
                     self._flow[j, k] = flow + (via, -1 if out is None else out)
                 reach, surely, via, out = self._flow[j, k]
                 if not reach:
