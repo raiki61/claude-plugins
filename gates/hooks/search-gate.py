@@ -279,6 +279,51 @@ GREP_LONG = {"--regexp", "--file", "--max-count", "--after-context", "--before-c
              "--devices", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--label", "--binary-files", "--depth"}
 
 
+def fd_split(args):
+    """fd の引数 → (fd そのものの引数, -x・-X・--exec・--exec-batch の後ろの走らせるコマンドの語の列の列)。走らせるコマンドは、
+    ; の語か fd の引数の終わりまで(fd は ; の後ろをまた fd の引数と読む)。"""
+    own, runs, i, rest = [], [], 0, False
+    while i < len(args):
+        a, start = args[i], None
+        if rest or a == "-" or not a.startswith("-"):
+            own.append(a)
+        elif a == "--":
+            rest = True
+            own.append(a)
+        elif a.startswith("--"):
+            name, eq, val = a.partition("=")
+            if name in ("--exec", "--exec-batch"):
+                start = [val] if eq else []
+            else:
+                own.append(a)
+                if not eq and name in FD_LONG and i + 1 < len(args):
+                    i += 1
+                    own.append(args[i])
+        else:
+            for j in range(1, len(a)):
+                if a[j] in "xX":
+                    start = [a[j + 1:]] if a[j + 1:] else []
+                    if j > 1:
+                        own.append(a[:j])
+                    break
+                if a[j] in FD_SHORT:
+                    own.append(a)
+                    if j + 1 == len(a) and i + 1 < len(args):
+                        i += 1
+                        own.append(args[i])
+                    break
+            else:
+                own.append(a)
+        if start is not None:
+            j = i + 1
+            while j < len(args) and args[j] != ";":
+                j += 1
+            runs.append(start + args[i + 1:j])
+            i = j
+        i += 1
+    return own, runs
+
+
 def starts_of(name, args, piped, xargs=False):
     """ツール name の引数 args から起点を返す。探さない形(grep の再帰でない・stdin を読む)なら []。
 
@@ -290,10 +335,7 @@ def starts_of(name, args, piped, xargs=False):
     if name in FIND:
         return find_starts(args)
     if name in FD:
-        for k, a in enumerate(args):
-            if a in ("-x", "-X", "--exec", "--exec-batch") or a.startswith(("--exec=", "--exec-batch=")):
-                args = args[:k + 1]   # 後ろは fd が走らせるコマンド
-                break
+        args, _ = fd_split(args)   # -x・-X の後ろは fd が走らせるコマンド
         opts, pos = scan(args, FD_SHORT, FD_LONG)
         base = next((v for o, v in opts if o == "--base-directory"), None)
         paths = pos[1:] + [v for o, v in opts if o == "--search-path"]
@@ -701,6 +743,11 @@ def check_simple(cr, files, cmds, k, words, bodies, here, depth):
     if name in FIND:
         for run, in_place in find_execs(args):
             check_command(cr, shlex.join(run), None if in_place else here, depth + 1, files)
+    if name in FD:
+        # fd の -x・-X の後ろのコマンドは fd の cwd で走る(前は読まず、`fd foo -x rg y / {}` を通していた)
+        for run in fd_split(args)[1]:
+            if run:
+                check_command(cr, shlex.join(run), here, depth + 1, files)
     piped = any(op == "|" for op, _ in c.ops)
     for start in starts_of(name, args, piped, hops):
         if "$" in start:

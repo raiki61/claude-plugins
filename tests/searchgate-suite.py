@@ -489,6 +489,19 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command})[0])
 
+    def test_fd_exec_command_is_read(self):
+        # fd の -x・-X・--exec・--exec-batch の後ろのコマンドも探すコマンドとして読む(前は読まず、`fd foo -x rg y / {}` を通していた)
+        for command in ("fd foo -x rg y / {}", "fd -e py -X rg -l foo /", "fd -Hx rg y /", "fd --exec=rg y /",
+                        "fd --exec-batch rg -l foo ~", "fd -e x foo -x find / -name {}", 'fd -e x foo -x sh -c "rg y /"',
+                        "fd foo / -x echo"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # fd が見つけた物({})や作業場の中を探すコマンド、旗の値の x、; の後ろの fd の起点は通す
+        for command in ("fd foo -x rg y {}", "fd -e py -X rg -l foo", "fd -e x foo", "fd -tf -x wc -l",
+                        "fd foo -x echo {} \\; src"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+
     def test_grep_with_a_number_flag_is_recursive(self):
         # Claude Code の grep は ugrep で走り、-NUM と --depth は下をたどる深さ
         self.assertIsNotNone(run("Bash", {"command": "git log | grep -5 needle"}, cwd=HOME)[0])
