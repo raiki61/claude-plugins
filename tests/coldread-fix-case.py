@@ -728,8 +728,34 @@ def f43():
         _, blk, _ = g.posting_bodies(cmd, WORK)
         check(43, bool(blk), "二重引用の中の置換の中の引用符で印がずれた本文を通した: %s" % cmd[:60])
 
+# 44. nice・sudo・stdbuf・caffeinate・ionice・doas・arch・chronic・unbuffer・exec -a・builtin command・coproc・パスで書いた前置
+# (/usr/bin/env)と、find -exec の後ろの gh を呼び出しと見て本文を読む。xargs・parallel の後ろの gh と、find -exec の {} を持つ gh
+# の投稿は、足す語が本文の旗にもなりうるので止める(前はどれも gh が見えず素通しだった)。読むだけのサブコマンドと gh でない
+# コマンドは今までどおり通す
+def f44():
+    post = "gh pr comment 1 --body '" + BODY + "'"
+    for pre in ("nice -n 19 ", "sudo -u $USER ", "stdbuf -oL ", "caffeinate -i ", "ionice -c 3 ", "doas -u root ",
+                "arch -arm64 ", "arch -arch arm64 ", "chronic ", "unbuffer ", "exec -a foo ", "builtin command ",
+                "/usr/bin/env ", "/usr/bin/nice -n 5 ", "/usr/bin/time -o t.log ", "coproc "):
+        cands, blk, parsed = g.posting_bodies(pre + post, WORK)
+        check(44, parsed and cands == [BODY] and not blk, "前置の後ろの gh の本文を読まなかった: %r → %r %r" % (pre, blk, parsed))
+    for cmd in ("coproc X { " + post + "; }", "find . -maxdepth 0 -exec " + post + " \\;"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(44, parsed and cands == [BODY] and not blk, "gh の本文を読まなかった: %r → %r %r" % (cmd[:30], blk, parsed))
+    for cmd in ("printf '%s\\n' 12 13 | xargs -I{} gh pr comment {} --body '" + BODY + "'",
+                "echo /etc/hosts | xargs gh pr comment 1 --body-file", 'echo "pr comment 1 --body-file /etc/hosts" | xargs gh',
+                "parallel gh pr comment {} --body-file /etc/hosts ::: 1 2", "find . -name '*.md' -exec gh pr comment 1 --body-file {} \\;",
+                "find . -name '*.md' -exec nice gh pr comment 1 --body-file {} +"):
+        _, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(44, bool(blk) or not parsed, "xargs・find -exec の後ろの gh の投稿を通した: %r" % cmd[:60])
+    for cmd in ("gh pr list --json number --jq '.[].number' | xargs -I{} gh pr view {} --json title",
+                "gh pr list --json number --jq '.[].number' | xargs -n1 gh pr view", "nice -n 19 python3 x.py",
+                "xargs -n1 echo", "sudo -u root ls", "time -p ls", "find . -name '*.py' -exec grep -l gh {} \\;"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(44, parsed and not cands and not blk, "読むだけの形・gh でないコマンドで止めた: %r → %r %r" % (cmd[:40], blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

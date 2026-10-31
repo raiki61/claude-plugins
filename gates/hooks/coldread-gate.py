@@ -279,14 +279,44 @@ GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
 API_VALUE_FLAGS = {"--cache", "-F", "--field", "-H", "--header", "--hostname", "--input", "-q", "--jq",
                    "-X", "--method", "-p", "--preview", "-f", "--raw-field", "-t", "--template"}
 API_BOOL_FLAGS = {"--allow-escape-sequences", "-i", "--include", "--paginate", "--silent", "--slurp", "--verbose"}
-WRAPPERS = {"env", "command", "exec", "nohup", "time", "timeout", "gtimeout"}
+# 後ろの語を走らせるコマンドとして取る前置。名前はパスの最後(/usr/bin/env)で見る。nice・sudo などを入れていなかった頃は、
+# `nice -n 19 gh pr comment …`・`sudo -u $USER gh …` の gh が見えず素通しだった(探す範囲のゲートは自分の表で越えていた)
+WRAPPERS = {"env", "command", "exec", "nohup", "time", "timeout", "gtimeout", "nice", "sudo", "doas", "stdbuf",
+            "caffeinate", "ionice", "arch", "chronic", "unbuffer", "builtin", "coproc"}
+# 標準入力から読んだ語を足して後ろのコマンドを走らせる前置。gh_args だけが越える(command_start の feeders)。探す範囲の
+# ゲートは xargs の後ろかを自分で見る(起点が標準入力から来る)ので、共有する command_start の既定では越えない
+FEEDERS = {"xargs", "parallel"}
 # 前置の旗のうち値を取るもの(値ごと読み飛ばす)と、前置が取る位置引数の数(timeout の時間)。
-# timeout を前置に入れていなかった頃は `timeout 180 gh pr create …` の gh が見えず素通しだった
+# timeout を前置に入れていなかった頃は `timeout 180 gh pr create …` の gh が見えず素通しだった。値を取らない旗を
+# ここに入れると、後ろの gh を旗の値と見て見落とすので、値を省ける旗(sudo -h・xargs -i・-e・-l。値は融合形だけ)は入れない
 WRAPPER_VALUE_OPTS = {
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "gtimeout": {"-s", "--signal", "-k", "--kill-after"},
     "env": {"-u", "--unset", "-C", "--chdir"},
+    "exec": {"-a"},
+    "time": {"-o", "--output", "-f", "--format"},
+    "nice": {"-n", "--adjustment"},
+    "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir", "-p", "--prompt", "-r", "--role",
+             "-t", "--type", "-U", "--other-user", "-T", "--command-timeout", "-R", "--chroot", "--host"},
+    "doas": {"-u", "-C"},
+    "stdbuf": {"-i", "--input", "-o", "--output", "-e", "--error"},
+    "caffeinate": {"-t", "-w"},
+    "ionice": {"-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"},
+    "arch": {"-arch", "-d", "-e"},
+    "xargs": {"-I", "-J", "-n", "--max-args", "-P", "--max-procs", "-L", "--max-lines", "-s", "--max-chars", "-d",
+              "--delimiter", "-E", "-a", "--arg-file", "-R", "-S", "--process-slot-var"},
+    "parallel": {"-j", "--jobs", "-P", "-S", "--sshlogin", "--slf", "--sshloginfile", "-N", "-n", "--max-args", "-L",
+                 "--max-lines", "-I", "-C", "--colsep", "-d", "--delimiter", "-E", "-a", "--arg-file", "--delay",
+                 "--timeout", "--joblog", "--results", "--res", "--tmpdir", "--tagstring", "--basefile", "--bf",
+                 "--workdir", "--wd", "--env", "--memfree", "--load", "--retries", "--halt"},
 }
+# xargs・parallel・find -exec が後ろの gh に足す語(標準入力の語・見つけたファイル)の印。足す語は旗にもなりうる
+# (`xargs -I{} gh pr comment {}` の {} が --body-file=… の行)ので、印の在る投稿は止める(classify。FED_READ_SUBS は除く)
+FED_MARK = "__FED_ARGS__"
+# 足す語に何が来ても投稿しない gh のサブコマンド(旗を足しても、本文を運ぶ旗を持たない)。xargs で番号ごとに読む形を止めない
+FED_READ_SUBS = {("pr", "view"), ("pr", "list"), ("pr", "diff"), ("pr", "checks"), ("pr", "status"), ("issue", "view"),
+                 ("issue", "list"), ("issue", "status"), ("repo", "view"), ("repo", "list"), ("run", "view"),
+                 ("run", "list"), ("release", "view"), ("release", "list")}
 WRAPPER_POSITIONALS = {"timeout": 1, "gtimeout": 1}
 # シェルの予約語。単純コマンドの先頭語になりうるが、コマンド名ではないので読み飛ばす。
 # 飛ばさないと `{ gh …; }`・`if …; then gh …`・`while …; do gh …`・`! gh …` の gh が
@@ -1445,12 +1475,13 @@ def simple_commands(tokens):
     return [c.args for c in split_commands(tokens)]
 
 
-def command_start(tokens):
+def command_start(tokens, feeders=False):
     """単純コマンドのコマンド名の位置。前置(環境変数の代入・env/timeout 等とその旗と値)を読み飛ばす。無ければ len(tokens)。
+    feeders なら xargs・parallel(FEEDERS)も前置として越える。
 
     gh_args と wants_skip の両方がここを通る——読み飛ばす範囲を 2 か所に書くと、片方だけ外れる。
     コマンド名の前に書いたヒアドキュメント(`<<'EOF' gh …`。盾の印が残る)も読み飛ばす。前は印をコマンド名と読み、後ろの
-    gh を引数と見て通していた(ほかのリダイレクトは split_commands が先に除く)。
+    gh を引数と見て通していた(ほかのリダイレクトは split_commands が先に除く)。`coproc 名前 { gh …; }` の名前と { も越える。
     """
     i, wrapper, need = 0, None, 0
     while i < len(tokens):
@@ -1458,6 +1489,11 @@ def command_start(tokens):
         if HEREDOC_MARK_RE.fullmatch(tok):
             i += 1
             continue
+        if wrapper == "coproc":
+            wrapper = None
+            if tok == "{" or tokens[i + 1:i + 2] == ["{"]:
+                i += 1 if tok == "{" else 2
+                continue
         if wrapper and tok.startswith("-") and tok != "-":
             # 値を取る旗は値ごと飛ばす(--signal=KILL・-sKILL の融合形は 1 語)
             i += 2 if tok in WRAPPER_VALUE_OPTS.get(wrapper, ()) else 1
@@ -1469,20 +1505,46 @@ def command_start(tokens):
         if ENV_PREFIX_RE.match(tok):
             i += 1
             continue
-        if tok in WRAPPERS:
-            wrapper, need = tok, WRAPPER_POSITIONALS.get(tok, 0)
+        base = re.split(r"[\\/]", tok)[-1]
+        if base in WRAPPERS or (feeders and base in FEEDERS):
+            wrapper, need = base, WRAPPER_POSITIONALS.get(base, 0)
             i += 1
             continue
         return i
     return i
 
 
+def _is_gh(tok):
+    return tok == "gh" or tok.endswith("/gh")
+
+
 def gh_args(tokens):
-    """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。"""
-    i = command_start(tokens)
-    if i < len(tokens) and (tokens[i] == "gh" or tokens[i].endswith("/gh")):
+    """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。
+
+    xargs・parallel の後ろの gh と、find の -exec・-execdir・-ok・-okdir の後ろの gh も呼び出しと見る(前は見えず素通しだった)。
+    足す語の所には印(FED_MARK)を置く: xargs・parallel は後ろに足す語の印を末尾に、find は {} の所に。"""
+    i = command_start(tokens, feeders=True)
+    if i < len(tokens) and _is_gh(tokens[i]):
+        args = tokens[i + 1:]
+        if any(re.split(r"[\\/]", t)[-1] in FEEDERS for t in tokens[:i]):
+            if "parallel" in (re.split(r"[\\/]", t)[-1] for t in tokens[:i]):
+                # ::: の後ろは parallel が読む入力の語(gh の引数ではない)
+                args = args[:next((k for k, t in enumerate(args) if t in (":::", "::::", ":::+", "::::+")), len(args))]
+            args = args + [FED_MARK]
         # コマンド名の前のヒアドキュメントの印は、後ろに書いたのと同じに引数の末尾へ回す(own_heredocs が gh の本文と見る)
-        return tokens[i + 1:] + [t for t in tokens[:i] if HEREDOC_MARK_RE.fullmatch(t)]
+        return args + [t for t in tokens[:i] if HEREDOC_MARK_RE.fullmatch(t)]
+    if i < len(tokens) and re.split(r"[\\/]", tokens[i])[-1] in ("find", "gfind", "bfs"):
+        for k in range(i + 1, len(tokens)):
+            if tokens[k] not in ("-exec", "-execdir", "-ok", "-okdir"):
+                continue
+            rest = tokens[k + 1:]
+            j = command_start(rest, feeders=True)
+            if j < len(rest) and _is_gh(rest[j]):
+                args = rest[j + 1:]
+                # `{} +` で -exec が閉じる(; は split_commands が区切りとして先に切った)
+                end = next((m for m in range(1, len(args)) if args[m] == "+" and args[m - 1] == "{}"), len(args))
+                return [t.replace("{}", FED_MARK) for t in args[:end]] + [
+                    t for t in tokens if HEREDOC_MARK_RE.fullmatch(t) and t not in args[:end]]
     return None
 
 
@@ -1743,6 +1805,10 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         return candidates, blocked
     if sub in NON_POSTING:
         return candidates, blocked  # 投稿でないので本文検出も検査もしない
+    if sub not in FED_READ_SUBS and any(FED_MARK in a for a in args):
+        # xargs・parallel・find -exec が足す語(gh_args の FED_MARK)は、本文の旗にも本文ファイルの名前にもなりうる
+        blocked.append("xargs・find -exec などが足す引数")
+        return candidates, blocked
     is_api = sub[:1] == ("api",)
     is_graphql = sub == ("api", "graphql")
     gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る

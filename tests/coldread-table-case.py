@@ -124,6 +124,18 @@ WRAPPER_CASES = [
     # timeout は時間の値(位置引数 1 つ)と -s・-k の値を読み飛ばす(読み飛ばさないと gh が見えず素通しだった)
     ("timeout", "timeout -s KILL -k 5 180 gh issue comment 1 --body %s" % TEXT),
     ("gtimeout", "gtimeout --signal=TERM 2m gh issue comment 1 --body %s" % TEXT),
+    # nice・sudo などは値を取る旗の値ごと読み飛ばす(前置に入れていなかった頃は gh が見えず素通しだった)
+    ("nice", "nice -n 19 gh issue comment 1 --body %s" % TEXT),
+    ("sudo", "sudo -u $USER gh issue comment 1 --body %s" % TEXT),
+    ("doas", "doas -u root gh issue comment 1 --body %s" % TEXT),
+    ("stdbuf", "stdbuf -o L gh issue comment 1 --body %s" % TEXT),
+    ("caffeinate", "caffeinate -t 60 gh issue comment 1 --body %s" % TEXT),
+    ("ionice", "ionice -c 3 gh issue comment 1 --body %s" % TEXT),
+    ("arch", "arch -arch arm64 gh issue comment 1 --body %s" % TEXT),
+    ("chronic", "chronic gh issue comment 1 --body %s" % TEXT),
+    ("unbuffer", "unbuffer -p gh issue comment 1 --body %s" % TEXT),
+    ("builtin", "builtin command gh issue comment 1 --body %s" % TEXT),
+    ("coproc", "coproc C { gh issue comment 1 --body %s; }" % TEXT),
 ]
 # シェルの予約語 1 メンバー = ここ 1 行。( gh … ) は元からゲートに掛かるのに { gh …; } は抜ける、
 # という「書き方だけで片方が抜ける」状態だったので、全メンバーを実際に発火させて突合する
@@ -235,6 +247,8 @@ BLOCKED_CASES = [
     ("本文旗の値を判定できない", "gh issue comment 1 %s %s" % (PATCH_FLAG, TEXT)),
     # $'…' の中の \c(制御の字)は開かずに止める(shield_heredocs の _ansi_c)
     ("$'…' の引用を読めない", "gh issue comment 1 --body $'%s\\cA' # %s" % (BODY, PAD)),
+    # xargs・find -exec が足す語は本文の旗にもなりうる(gh_args の FED_MARK)
+    ("xargs・find -exec などが足す引数", "printf '%%s\\n' 12 | xargs -I{} gh issue comment {} --body %s" % TEXT),
     # works-dispatch の送るコマンドも、gh と同じ口(_body_sink)で倒れる
     ("別プロセスからの stdin 渡し", "cat /tmp/b.md | %s --deliver - # %s" % (DISPATCH, PAD)),
     ("本文ファイルのパスが決まらない", "%s --deliver rel/summary.md # %s" % (DISPATCH, PAD)),
