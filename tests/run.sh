@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=834
+EXPECTED_CHECKS=835
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5662,6 +5662,19 @@ for c in "gh gist edit abc --filename a.md x.md" "gh gist edit abc x.md" "gh gis
 done
 [ "$("$1" "$2" "$3" "gh gist edit abc -d desc")" = ALLOW_EMPTY ] || { ok=0; echo "説明だけの gh gist edit を止めた"; }
 [ $ok = 1 ] && echo DG_GIST_EDIT_OK' sh "$DG_CASE" "$DG_CFG" "$WORK" "$DG_GIST_CFG"
+# xargs・find -exec が語を足す・差し込む gh のうち、本文・コメント・メッセージの旗を持たないサブコマンド(gist view、run rerun・cancel、
+# cache delete、pr checkout など)は投稿でないので、宛先を確かめずに通す(前は coldread が止め、それを投稿と見て宛先不明で止めていた)。
+# 本文を運びうる pr edit・issue close は今までどおり宛先不明で止める
+expect_output 0 "DG_FED_READ_OK" "destgate: xargs が語を足す本文の旗の無い gh は、投稿と見ずに通す" \
+    sh -c 'ok=1
+for c in "gh gist list | cut -f1 | xargs -I{} gh gist view {} --raw" "echo 1 | xargs -n1 gh run cancel" \
+         "echo 1 | xargs -I{} gh run rerun {} --failed" "echo 1 | xargs -I{} gh cache delete {}" "echo 1 | xargs -I{} gh pr checkout {}"; do
+  [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+done
+for c in "echo 1 | xargs -I{} gh pr edit {} --add-label x" "echo 1 | xargs -n1 gh issue close"; do
+  "$@" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
+done
+[ $ok = 1 ] && echo DG_FED_READ_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
 # gh api の --input の JSON は、coldread が .body の外の短い文字列を本文と見ないので、graphql の mutation の短いコメントと gist の短い
 # 中身は本文が見つからない。宛先が graphql・gist になりうる --input は投稿と見る(前は投稿でないと見て、一覧の外へコメントを出せた)
 DG_INPUT="$WORK/destgate-input"; mkdir -p "$DG_INPUT"

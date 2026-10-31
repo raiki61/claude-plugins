@@ -1024,8 +1024,26 @@ def f59():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(59, parsed and not cands and not blk, "本文を運ばない gh gist edit を止めたか読んだ: %r → %r %r" % (cmd[:60], cands, blk))
 
+# 60. xargs・find -exec が足す語・差し込む語は、本文・コメント・メッセージの旗を持たない gh のサブコマンド(gist view・list、run rerun・
+# cancel・watch・download、workflow view・list、cache list・delete、pr checkout)では投稿にならないので止めない(前は FED_READ_SUBS に
+# 無く、`gh gist list | cut -f1 | xargs -I{} gh gist view {} --raw` まで止めていた)。本文を運びうる pr edit・issue close などは今までどおり止める
+def f60():
+    for cmd in ("gh gist list | cut -f1 | xargs -I{} gh gist view {} --raw", "gh gist list | cut -f1 | xargs -n1 gh gist view",
+                "echo 1 | xargs -I{} gh run rerun {} --failed", "echo 1 | xargs -n1 gh run cancel", "echo 1 | xargs -n1 gh run watch",
+                "echo 1 | xargs -I{} gh run download {}", "echo ci.yml | xargs -I{} gh workflow view {}",
+                "echo x | xargs gh workflow list", "echo x | xargs gh gist list", "echo x | xargs gh cache list",
+                "echo 1 | xargs -I{} gh cache delete {}", "echo 1 | xargs -I{} gh pr checkout {}",
+                r"find . -name '*.id' -exec gh gist view {} \;"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(60, parsed and not cands and not blk, "本文の旗を持たない gh の xargs を止めた: %r → %r %r" % (cmd, blk, parsed))
+    for cmd in ("echo 1 | xargs gh pr edit --body x", "echo 1 | xargs -I{} gh pr edit {} --add-label x", "echo 1 | xargs -n1 gh issue close",
+                "echo 1 | xargs -n1 gh pr merge", "echo 1 | xargs -I{} gh issue edit {} --add-label x",
+                "echo 1 | xargs -I{} gh gist edit {} -", "echo 1 | xargs -I{} gh gist create {}"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(60, not parsed or bool(blk), "本文を運びうる gh の xargs を通した: %r → %r %r" % (cmd, cands, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

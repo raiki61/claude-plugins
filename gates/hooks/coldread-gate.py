@@ -322,10 +322,14 @@ FED_WORD = "__FED_WORD__"
 FED_COMMENT_SUBS = {("pr", "comment"), ("issue", "comment")}
 # parallel の旗のうち、-I の印を 1 語の中に差し込むままにする物(ほかの旗は {} を何語にもしうるので、FED_MARK の側に倒す)
 FED_PLAIN_PARALLEL = {"-I", "-i", "--replace", "-j", "--jobs", "-k", "--keep-order"}
-# 足す語に何が来ても投稿しない gh のサブコマンド(旗を足しても、本文を運ぶ旗を持たない)。xargs で番号ごとに読む形を止めない
+# 足す語に何が来ても投稿しない gh のサブコマンド(旗を足しても、本文を運ぶ旗を持たない)。xargs で番号ごとに読む形を止めない。
+# gist・run・workflow・cache・pr checkout の物は、gh 2.102.0 の `--help` の FLAGS に本文・コメント・メッセージの旗が無いことを
+# 確かめて足した(前は `gh gist list | cut -f1 | xargs -I{} gh gist view {} --raw`・`… | xargs -n1 gh run cancel` まで止めていた)
 FED_READ_SUBS = {("pr", "view"), ("pr", "list"), ("pr", "diff"), ("pr", "checks"), ("pr", "status"), ("issue", "view"),
                  ("issue", "list"), ("issue", "status"), ("repo", "view"), ("repo", "list"), ("run", "view"),
-                 ("run", "list"), ("release", "view"), ("release", "list")}
+                 ("run", "list"), ("release", "view"), ("release", "list"), ("gist", "view"), ("gist", "list"),
+                 ("run", "rerun"), ("run", "cancel"), ("run", "watch"), ("run", "download"), ("workflow", "view"),
+                 ("workflow", "list"), ("cache", "list"), ("cache", "delete"), ("pr", "checkout")}
 WRAPPER_POSITIONALS = {"timeout": 1, "gtimeout": 1}
 # 値を省ける短い旗(値は融合形だけ)。束ねた短い旗(`-ti{}`)の中でこれが来たら、残りの字はその値で、次の語は取らない
 WRAPPER_OPTIONAL_OPTS = {"xargs": {"-e", "-i", "-l"}, "sudo": {"-h"}}
