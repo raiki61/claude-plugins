@@ -110,6 +110,12 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 探しのゲート(searchgate)が、`true && { cd ..; if [ -d build ]; then cd build; fi; }; rg foo .` のように、`&&`・`||` の後ろの `{ }` のまとまりの中で if・case・サブシェルの中に在る cd も、まとまりが走れば必ず走ると読み、~/src で打つとホームで探すのを通していた。まとまりの組に入れるのは、まとまりのじかのコマンドの cd だけにした。
 - 探しのゲート(searchgate)が、`time { rg foo /; }`・`time ! rg foo /`・`function f { cd /; }; f; rg foo .` のように、`time` と `function 名前` の後ろに書いた `{`・`!`・if などの予約語をコマンドの頭と見ず、中の探すコマンドと cd を見落として通していた。`time`(`-p`・`--` を付けた形も)の後ろの予約語と、`function 名前` の後ろの本体の頭をコマンドの頭と読み、`function f { … }` を `f() { … }` と同じに読むようにした。
 - 投稿の前のゲート(coldread)が、`time { gh pr comment 1 --body-file x.md; }`・`function f { gh pr comment 1 --body-file x.md; }; f` のように、`time` と `function 名前` の後ろの予約語をコマンドの頭と見ず、本文を読まずに通していた。宛先のゲート(destgate)も投稿と見ていなかった。探しのゲートと同じに、予約語からを 1 つのコマンドとして読むようにした。
+- 投稿の前のゲート(coldread)が、`gh pr comment $(cat n.txt) --body-file long.md`・`gh issue comment $(cat n.txt) --body "…"` のように、引用の外の `$( )`・`$(( ))`・`<( )` の閉じより後ろの語を別のコマンドと読み、本文の旗を落として本文を読まずに通していた。引用の外の置換も `"$( )"` と同じく 1 つの語に留め、後ろの旗まで同じ gh の語として読むようにした。置換の中のコマンドは、今までどおり別のコマンドとして読む。
+- 宛先のゲート(destgate)が、`gh issue comment $(cat n.txt) -R evil/x --body hi`・`gh api repos/evil/x/issues/$(cat n.txt)/comments -f body=hi` のように、引用の外の `$( )` より後ろの `-R` と宛先のパスを別のコマンドと読み、走る場所の repo を宛先と見て通していた。置換を 1 つの語に留め、後ろの `-R` とパスを宛先として読むようにした。
+- 探しのゲート(searchgate)が、`rg $(cat pat.txt) /`・`rg foo < <(echo) /` のように、引用の外の置換より後ろに書いた探し始めの場所を別のコマンドと読み、/ から探すのを通していた。置換を 1 つの語に留め、後ろの場所まで同じコマンドとして読むようにした。
+- 投稿の前のゲート(coldread)が、`cat long.md | gh gist create -pf short.md` のように束ねた短い旗の値を投稿するファイルと読み、gh が gist に出す標準入力を読まずに通していた。`gh gist create -pd "my desc" a.md` は、説明をファイルと読んで止めていた。束ねた短い旗を gh と同じく 1 字ずつ読み、値を取る字は語の残りか次の語を値に取るようにした。
+- 投稿の前のゲート(coldread)が、`gh release create v1 --target -h --notes "…"`・`gh pr edit 1 --add-label -h --body-file long.md` のように、値を取る旗の表に無い旗の直後の `-h` を案内と見て、本文を読まずに通していた。直前の語が `=` の無い旗なら、値を取らないと確かめた旗でない限り、`-h` をその旗の値と見るようにした。
+- 宛先のゲート(destgate)が、`u=https://github.com/evil/x/pull/1; gh pr comment "$u" --body-file short.md` のように、投稿先を選ぶ語が同じコマンドの中で URL を代入した変数のとき、走る場所の repo を宛先と見て通していた。変数を代入から解き、URL ならその repo を宛先と見るようにした。
 
 ## [0.46.0] - 2026-10-30
 
