@@ -968,31 +968,6 @@ def wipe_box(pane, h, pause):
     return chat.typed(h.read(pane, 40, ansi=True))
 
 
-def reload_talk(pane, h, pause):
-    """手が空いていて入力フィールドが空と確かめた窓に /reload-plugins を打ち、入力フィールドから出たのを見てから返す。書く口。
-    (sent・failed, 訳)。入力フィールドに残っていれば Enter を 1 回足す。残ったまま次の 1 行を打つと、/reload-plugins の後ろに続いて届くので、
-    出たのを見られなければ failed（次を打たない）。--nudge が 1 行を打つ前に使う（wake_stuck）。"""
-    try:
-        h.prompt(pane, chat.RELOAD, False)
-    except h.Error as e:
-        return "failed", str(e)
-    entered = False
-    for _ in range(CONFIRM_LOOKS):
-        pause()
-        try:
-            box = chat.input_box(h.read(pane, 40))
-        except h.Error:
-            continue   # 読めない回は見直す。最後まで見られなければ failed を返し、次の 1 行を打たない
-        if box is None:
-            continue
-        if chat.RELOAD not in box:
-            return "sent", None
-        if not entered:
-            press_enter(h, pane)
-            entered = True
-    return "failed", f"{chat.RELOAD} を打ったが、入力フィールドから出たのを見られなかった"
-
-
 def press_enter(h, pane):
     """入力フィールドに残った文に Enter を足す。Enter は足しの手なので、herdr の誤りは捨てる（届かなければ文は入力フィールドに
     残ったままになり、見直す呼び元はその末に failed か unconfirmed を返す）。"""

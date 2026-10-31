@@ -931,11 +931,6 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
 
 POSTED = "posted"   # 納品の台帳の status: 頼み元の窓が無いので、頼み元の名前に宛てた知らせを台帳に置いた（納品済みにする）
 
-# 順番待ちが渡らずに止まった部署の会話に打つ 1 行（wake_stuck）。ターンを 1 つ回すだけで、返事も仕事も要らない
-STUCK_LINE = ("順番待ちの知らせです: この部署の順番待ちが渡らずに止まっていたので、ターンを 1 つ回す。返事は要らない。受けている頼みが"
-              "途中なら、それを続ける。無ければ何もせずにこのターンを終える（ターンの終わりに待ち受けが張り直して、次の頼みを渡す）。")
-
-
 STALLED = "渡す待ち受けが居ない"   # stuck_why の訳のうち、ターンを終えたのに渡す待ち受けが居ない物
 
 
@@ -977,20 +972,14 @@ def seat_lost(dept, pane):
             f"窓の会話を確かめ、要らなければ終えてから --nudge で部署の会話を attach で戻す（戻った会話が{task}を続ける）")
 
 
-# 待ち受けが渡さずに待つ訳のうち、すぐ替わる物（待ち受けが 5 秒ごとに試し直して自分で抜ける）。この訳では窓に打たない（待ち受けの
-# /clear と打ち込みがぶつからないように）。中身は wake_hook.clear_now の訳の頭（窓の入力フィールドが見えない・打ちかけの字が在る）。
+# 待ち受けが渡さずに待つ訳のうち、すぐ替わる物（待ち受けが 5 秒ごとに試し直して自分で抜ける）。この訳では会話を起動し直さない（待ち受けの
+# /clear とぶつからないように）。中身は wake_hook.clear_now の訳の頭（窓の入力フィールドが見えない・打ちかけの字が在る）。
 # 子の頼みの返事待ちと裏の処理は、何時間も替わらないことがあるので入れない（今の版の待ち受けはこの 2 つでは止めずに渡す。台帳にこの
-# 訳が在れば前の版の待ち受けなので、プラグインを読み直させてから 1 行打ってターンを回し、今の版の待ち受けに張り替える。2026-10-18 に
-# claude-plugins の割り振りが子の頼みの返事待ちで半日止まり、--nudge が「訳がすぐ替わる」で何もしなかった）
+# 訳が在れば前の版の待ち受けなので、会話を起動し直して今の版の待ち受けに張り替える。2026-10-18 に claude-plugins の割り振りが子の頼みの
+# 返事待ちで半日止まり、--nudge が「訳がすぐ替わる」で何もしなかった）
 PASSING = ("会話がまだ動いている", "窓の入力フィールド")
-# 人の文でターンが始まると外れる印（wake_hook.resume_from_wait）。STUCK_LINE は人の文ではないので、打った後に書き戻す
+# 人の文でターンが始まると外れる印（wake_hook.resume_from_wait）。使用上限の後に続きの 1 行を打つ move の字は人の文ではないので、打った後に書き戻す
 KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished", "compact", "compact-focus")
-
-
-def _free(pane, ports):
-    """窓の会話の手が空いていて（idle か done）、入力フィールドが見えて空か。読めなければ term.Error を投げる。"""
-    status = (ports.term.agent(pane) or {}).get("agent_status")
-    return status in ("idle", "done") and chat.typed(ports.term.read(pane, 40, ansi=True)) == ""
 
 
 def _put_back(dept, keep, ports, detail):
@@ -1005,22 +994,17 @@ def _put_back(dept, keep, ports, detail):
 
 
 def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=None, source=None, moved=None):
-    """順番待ちが渡らずに止まった部署（stuck_why）を、人の手なしに動かす。出す注記の並びを返す（止まっていなければ空）。
-    - 受けたままの頼みを持つ会話がもう居なく、打っても戻しても待ち受けが張られない形（seat_lost）なら、打たずに動かす手を返す。
+    """順番待ちが渡らずに止まった部署（stuck_why）を、人の手なしに、窓に字を打たずに動かす。出す注記の並びを返す（止まっていなければ空）。
+    - 受けたままの頼みを持つ会話がもう居なく、起動し直しても戻しても待ち受けが張られない形（seat_lost）なら、動かさずに手を返す。
     - 窓に会話が居なければ（live_window）、attach で戻す（revive。戻った会話の始まりの待ち受けが渡す）。
-    - 窓に会話が居て、手が空いていて（herdr の状態が idle か done）入力フィールドが空なら、プラグインを読み直させ（deliver.reload_talk）、
-      STUCK_LINE を 1 行打ってターンを 1 つ回す。ターンの初めに前の待ち受けが止まり（--pause）、ターンの終わりに今の版の待ち受けが張り直して、
-      空にしてから次を渡す。読み直させるのは、会話が前の版のプラグインのままだと、ターンの終わりに張り直すのも前の版の待ち受けで、同じ訳で
-      また止めるため（2026-10-19 の 06:04 に割り振りへ打った 1 行は、11 秒後に同じ訳で止まった。配るツールが読み直させた後の 06:07 に
-      打ち直して渡った）。読み直しは待っている待ち受けを止めないので、読み直しだけでは足りず、1 行で次のターンを回す。前の版かは外から
-      確かには分からない（窓の前に見えるのは裏の会話へ attach した処理で、裏の会話の処理が起きた時刻が分からない）ので、版を見分けずに
-      毎回打つ（今の版の会話に打っても、ターンを始めず会話も消さず、読み直すだけで害は無い）。読み直しの後は、1 拍おいて手が空いて入力
-      フィールドが空なのをもう一度見てから 1 行を打ち、見られなければ打たない（読み直しを待つ間に人が打ち始めた字に 1 行を足さない）。
-    - 会話が動いている・入力フィールドに字が在るとき、待ち受けが渡さない訳がすぐ替わる物（PASSING）のときは打たない（ターンの終わりに待ち受けが
-      張り直すか、待ち受けが自分で抜ける。人の打ちかけの字と待ち受けの /clear を壊さない）。入力フィールドの字が、待ち受けが打って
-      送られずに残った /clear（wake.own_clear）なら、待ち受けが居ないときは消してから打つ（居れば待ち受けが Enter で送り直す）。
-    打ったか戻したかは受付箱の台帳に kind nudged で残し、動かしたら moved（並び）に True を足す。打った字で外れる印（KEPT_MARKS）は、
-    1 行を打たずに終えたときも書き戻す。以前は「部署の窓に 1 文打つ」と持ち主に打たせていた（2026-10-17 の割り振り・説明書）。"""
+    - 待ち受けが渡さない訳がすぐ替わる物（PASSING）なら動かさない（待ち受けが 5 秒ごとに試し直して自分で抜ける）。
+    - ほかは、裏の会話を止めて attach で起動し直す（restart_quiet。戻った会話の始まりに今の版の待ち受けが張られて渡す）。会話が動いている・
+      入力フィールドに人の打ちかけの字が在る・裏の処理を残しているときは起動し直さず、その訳を返す。
+    以前は窓にプラグインの読み直し（/reload-plugins）と 1 行（ターンを 1 つ回す知らせ）を打っていた（2026-10-19 の 06:04 に割り振りへ打った
+    1 行は、前の版の待ち受けが同じ訳でまた止めたので、読み直しを足した）。起動し直すと会話は今の版のプラグインを読み込むので、読み直しは
+    要らない。窓に直に打たないのは持ち主 2026-11-01「herdrが逆に直でうたれるとまずい。裏で送ってほしい」（受付 9dccfe）。
+    動かしたかは受付箱の台帳に kind nudged で残し、動かしたら moved（並び）に True を足す。以前は「部署の窓に 1 文打つ」と持ち主に
+    打たせていた（2026-10-17 の割り振り・説明書）。"""
     why = stuck_why(dest_inbox, place_dir, dept)
     if not why:
         return []
@@ -1043,41 +1027,73 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
         return [f"{head}。{said}"]
     if any(x in why for x in PASSING):
         return [f"{head}。訳がすぐ替わる物なので打たなかった（待ち受けが 5 秒ごとに試し直す）"]
-    again = f"--nudge {dept['attrs'].get('name') or where} で打ち直す"
-    try:
-        if why.startswith(STALLED) and wake.own_clear(chat.typed(ports.term.read(pane, 40, ansi=True)), dept["attrs"]):
-            # 待ち受けが打って送られずに残った /clear（渡す待ち受けが居ないので、送り直す者が居ない）は消してから 1 行を打つ
-            # （後ろに続けて打つと /clear/reload-plugins になる。送って空にすると、空にした印を書く待ち受けが居ない）
-            deliver.wipe_box(pane, ports.term, ports.pause)   # 消えたかは、続く _free が入力フィールドを読んで見る
-        free = _free(pane, ports)
-    except term.Error as e:
-        return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。{again}"]
-    if not free:
-        return [f"{head}。会話が動いているか入力フィールドに字が在るので打たなかった（ターンの終わりに待ち受けが張り直す。止まったままなら "
-                f"{again}）"]
-    keep = {k: dept["attrs"][k] for k in KEPT_MARKS if dept["attrs"].get(k)}
-    reloaded, detail = deliver.reload_talk(pane, ports.term, ports.pause)
-    if reloaded == "sent":
-        # 読み直しを待つ間に人が打ち始めたか、会話が動き出したなら、1 行を人の字に足さない（入力フィールドから出たのは受け付けた印でしか
-        # なく、読み直しの済んだ印ではないので、1 拍おいて手が空いて入力フィールドが空なのをもう一度見る）
-        ports.pause()
-        try:
-            free = _free(pane, ports)
-        except term.Error as e:
-            free, detail = False, str(e)
-        if not free:
-            reloaded, detail = "failed", detail or f"{chat.RELOAD} の後に、会話が動き出したか入力フィールドに字が入った"
-    if reloaded != "sent":
-        detail = _put_back(dept, keep, ports, detail)
-        logged("failed", detail)
-        return [f"{head}。窓 {pane} で {chat.RELOAD} の後に手が空いて入力フィールドが空なのを見られないので、1 行を打たなかった（{detail}。"
-                f"部署の窓を見て、{again}）"]
-    sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.term, ports.pause, busy_check(dept, accounts_, ports))
-    detail = _put_back(dept, keep, ports, detail)
-    logged(sent, detail)
-    if sent == "sent" and moved is not None:
+    said, pane2 = restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_, source)
+    logged("restarted" if pane2 else "failed", said)
+    if pane2 and moved is not None:
         moved.append(True)
-    return [f"{head}。窓 {pane} で {chat.RELOAD} を打ち、1 行打ってターンを回した（{sent}" + (f"。{detail}" if detail else "") + "）。ターンの終わりに待ち受けが渡す"]
+    return [f"{head}。{said}"]
+
+
+# 裏の会話を止めてから attach で戻すまでに、会話の一覧で止まったのを見る回数（1 回ごとに pause）
+STOP_LOOKS = 20
+
+
+def restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_=None, source=None):
+    """窓に会話が居るのに待ち受けが居ない（か前の版の待ち受けが渡さずに待つ）部署の裏の会話（claude --bg）を、窓に字を打たずに
+    起動し直す: 窓の attach の画面をシェルに戻し（launch.to_shell）、claude stop で止め、attach で戻す（revive）。戻った会話の始まり
+    （SessionStart）に今の版の待ち受けが張られ、台帳の知らせと順番待ちを渡す。会話の記録は残り、続きから再開する。(言葉, 戻った窓か None)。
+    以前は窓にプラグインの読み直し（/reload-plugins）と 1 行を打ってターンを回していたが、窓に直に打つと人の打ちかけや会話の
+    状態とぶつかるので、打たずに裏で起動し直す（持ち主 2026-11-01「herdrが逆に直でうたれるとまずい。裏で送ってほしい」。受付 9dccfe）。
+    起動し直さない（訳を返す）のは、本社の窓口（手前の会話で attach で戻せない）・会話が動いているか確かめの画面で止まっている・
+    入力フィールドに人の打ちかけの字が在る（attach の画面を閉じると消える）・前のターンが裏の処理を残した（止めると消える。処理が
+    終われば知らせでターンが回り、ターンの終わりに待ち受けが張られる）とき。"""
+    a = dept["attrs"]
+    name = a.get("name") or os.path.basename(dept["path"])
+    if dept.get("head_office"):
+        return ("窓口の会話は手前の会話なので、裏で起動し直せない。窓口の会話の次のターンの終わりに待ち受けが張られる"), None
+    pane = live_window(dept, ports)
+    if pane is None:
+        return revive(dept, accounts_, ports, sessions_, source)[::-1]
+    job = a.get("job") or a.get("session")
+    if not job:
+        return "部署の属性に会話の id（company.job・company.session）が無いので、裏で起動し直せない", None
+    try:
+        status = (ports.term.agent(pane) or {}).get("agent_status")
+        typed = chat.typed(ports.term.read(pane, 40, ansi=True))
+    except term.Error as e:
+        return f"窓 {pane} を読めないので起動し直さなかった（{e}）", None
+    if status not in ("idle", "done"):
+        return f"部署の会話が{'確かめの画面で人の答えを待っている' if status == 'blocked' else '動いている'}ので起動し直さなかった（ターンの終わりに待ち受けが張られる）", None
+    if typed is None or (typed and not wake.own_clear(typed, a)):
+        return (f"窓 {pane} の" + ("入力フィールドが見えない" if typed is None else "入力フィールドに人の打ちかけの字が在る")
+                + f"ので起動し直さなかった（attach の画面を閉じると消える。字を送るか消してから --nudge {name}）"), None
+    kept = wake.waiting_of(dest_inbox, place_dir) if dest_inbox and place_dir else {}
+    if kept.get("tasks") and (not a.get("session") or kept.get("session") == a.get("session")):
+        return ("部署の会話は前のターンで裏の処理を残している（止めると消える）ので起動し直さなかった。処理が終われば知らせでターンが回り、"
+                "ターンの終わりに待ち受けが張られる"), None
+    acc = account_of(dept, accounts_)
+    try:
+        if not launch.to_shell(pane, ports.term, ports.pause):
+            return f"部署の窓 {pane} をシェルに戻せないので起動し直さなかった（attach の画面を手で閉じてから --nudge {name}）", None
+    except term.Error as e:
+        return f"部署の窓 {pane} をシェルに戻せない（{e}）", None
+    ok, said = ports.stop_session(acc.config_dir if acc else None, job)
+    if not ok:
+        back, why = revive(dept, accounts_, ports, sessions_, source)
+        return f"部署の会話 {job} を止められなかった（{said}）。" + ("窓は attach で戻した" if back else why), None
+    for _ in range(STOP_LOOKS):
+        try:
+            items = ports.list_sessions(acc.config_dir if acc else None)
+        except chat.Error:
+            break
+        talk = dept_talk(dept, items)
+        if not talk or talk.get("state") in ("done", "failed", "stopped"):
+            break
+        ports.pause()
+    back, why = revive(dept, accounts_, ports, sessions_, source)
+    if not back:
+        return f"部署の会話 {job} を止めたが、戻せなかった（{why}）", None
+    return (f"窓に字を打たずに、部署の裏の会話 {job} を止めて attach で起動し直した（戻った会話の始まりに今の版の待ち受けが張られ、渡す）"), back
 
 
 def nudge(a, ports, cwd):
@@ -1113,7 +1129,7 @@ def nudge(a, ports, cwd):
             lost = None
         print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。" + (
             f"--nudge では動かせない: {lost}" if lost else
-            "窓に会話が居なければ attach で戻し、居ればプラグインを読み直させてから 1 行打ってターンを回す")]))
+            "窓に会話が居なければ attach で戻し、居れば窓に字を打たずに裏の会話を止めて attach で起動し直す")]))
         return 0
     moved = []
     print("\n".join(notes + wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], moved)))
@@ -1528,26 +1544,38 @@ def _say_target(a, ports, cwd, cfg, companies, settings):
     raise deliver.DeliverError(f"{why}。ブランチの名前の作業場も無い（宛先は --tree で見る）")
 
 
-def _pane_busy(pane, ports):
-    """役の無い会話（--pr・--issue で開いた物）の窓が、ターンの途中かを見る関数（deliver.send_confirmed の busy）。会話の一覧の
-    部署の会話（dept_talk）は引けないので、herdr のペインの会話の状態で見る。blocked（確かめの画面で人の答えを待っている）は
-    waiting に残し、打たせない。"""
-    def busy():
-        try:
-            status = (ports.term.agent(pane) or {}).get("agent_status")
-        except term.Error:
-            status = None
-        busy.waiting = status == "blocked"
-        return status == "working"
-    busy.waiting = False
-    return busy
+def _say_handoff(dept, heard, pane, plain, dest_inbox, place_dir, accounts_, ports, sessions_, source):
+    """台帳に置いた --say の知らせが、どう渡るか（台帳の detail と画面に出す言葉）。窓には打たない。
+    - 待ち受けが居れば、待ち受けが渡す。
+    - 役の無い会話（--pr・--issue で開いた物）は、ターンの終わりに張られる待ち受けか、その場所で次に始まる会話の始まりの待ち受けが
+      渡す（手前の会話なので、裏で起動し直せない）。
+    - 部署で窓に会話が居なければ、attach で戻し（revive）、戻った会話の始まりの待ち受けが渡す。
+    - 部署の会話がターンの途中なら、ターンの終わりの待ち受けが渡す。手が空いていれば、裏の会話を止めて attach で起動し直し
+      （restart_quiet）、戻った会話の始まりの待ち受けが渡す。起動し直せない訳が在れば、その訳と、次のターンの終わりに渡ることを返す。"""
+    if heard:
+        return "待ち受けが渡す"
+    if plain:
+        return ("待ち受けが居ない。その会話の次のターンの終わりに張られる待ち受けか、その場所で次に始まる会話の始まりの待ち受けが渡す"
+                + ("（窓に会話が居ない）" if pane is None else ""))
+    if pane is None:
+        back, said = revive(dept, accounts_, ports, sessions_, source)
+        return f"窓に会話が居なかった。{said}" + ("。戻った会話の始まりに待ち受けが渡す" if back else "。会話が戻れば、その始まりに待ち受けが渡す")
+    try:
+        status = (ports.term.agent(pane) or {}).get("agent_status")
+    except term.Error:
+        status = None
+    if status in ("working", "blocked"):
+        return "部署の会話がターンの途中なので、ターンの終わりの待ち受けが渡す"
+    said, back = restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_, source)
+    return said if back else f"{said}。知らせは台帳に置いたので、部署の会話の次のターンの終わりに待ち受けが渡す"
 
 
 def say(a, ports, cwd):
     """--say <宛先>（--text か --brief）。頼みに結び付かない、返事の要らない知らせを、部署・窓口・--pr や --issue で開いた会話に届ける。
     herdr のペインに直に打つ（pane send-text・pane run）代わりの口（受付 23101c。窓口が PR の会話への頼み・再開の合図・返しを直に打って
-    いた）。宛先に待ち受けが居るか、居た跡が在って会話がターンの途中なら、宛先の会社の台帳に知らせ（kind say）を足し、待ち受けか
-    ターンの終わりのフックが渡す。ほか（止まっている会話・役の無い会話・フックの無い古い版の会話）は、入力フィールドが空なのを見てから窓に打ち込む。
+    いた）。窓には打たず、いつも宛先の会社の台帳に知らせ（kind say）を足し、待ち受けが裏で渡す（_say_handoff。持ち主 2026-11-01
+    「herdrが逆に直でうたれるとまずい。裏で送ってほしい」。受付 9dccfe）。宛先は、部署なら「会社/名前」、役の無い会話なら場所の鍵
+    （wake.place_address）。役の無い会話の作業場に開いた印（company.opened）が無ければ書く（待ち受けが張られるように）。
     コマンドの形の字（/model・/exit など）は断る（知らせの文の中に入るだけで効かず、効いたと取り違える）。打った場所と宛先の受付箱の台帳に kind say で残す。終了の値を返す。"""
     body = text_of(a, "--say", "知らせ")
     if body is None:
@@ -1579,49 +1607,44 @@ def say(a, ports, cwd):
     dest_common = ports.git.common_dir(company["root"])
     dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
     place_dir = ports.git.git_dir(dept["path"])
-    to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
+    attrs = dept["attrs"]
+    if not (dest_inbox and place_dir):
+        print("\n".join(notes + [f"止めた: {where} の受付箱か作業場の git の場所を引けない（知らせを置けない）"]))
+        return 1
+    plain = not attrs.get("role")
+    if plain and dept.get("head_office"):
+        print("\n".join(notes + [f"止めた: {where} は役の無い本社（代表の clone）で、知らせを受ける待ち受けが張られない（--desk で席に付いた窓口に宛てる）"]))
+        return 2
+    to = wake.place_address(place_dir) if plain else wake.address(company["name"], attrs.get("name"))
+    heard = wake.listening(dest_inbox, to)
     path = os.path.join(inbox, f"{say_id}-say.md")
     line = say_line(say_id, name or "名の無い会話", body, path)
-    # 台帳に置くのは、待ち受けが居るときか、居た跡が在って会話がターンの途中のとき（ターンの終わりのフックが渡す）。
-    # 跡だけ在って止まっている会話は、次のターンまで台帳を読まないので窓に打つ（--ask と同じ線）
-    ledgered = bool(to and dest_inbox and place_dir)
-    by_ledger = ledgered and bool(heard)
-    pane, busy = None, None
-    if not by_ledger:
-        pane = live_window(dept, ports)
-        if pane is None:
-            print("\n".join(notes + [f"止めた: {where} は待ち受けが居ず、窓にも会話が居ない（会話を戻してから打ち直す）"]))
-            return 1
-        busy = busy_check(dept, accounts_, ports) if dept["attrs"].get("role") else _pane_busy(pane, ports)
-        if ledgered and wake.has_history(dest_inbox, place_dir) and (busy() or busy.waiting):
-            by_ledger = True
+    pane = None if heard else live_window(dept, ports)
     if a.dry_run:
-        print("\n".join(notes + [f"知らせる先: {where}  " + ("台帳に知らせを足す（待ち受けがターンの終わりに渡す）" if by_ledger
-                                                          else f"窓 {pane} に打ち込む"), f"会話に渡す 1 行: {line}"]))
+        how = ("待ち受けが渡す" if heard else "窓に会話が居ないので、" + ("attach で戻した会話の始まりに待ち受けが渡す" if not plain
+                                                                    else "その場所で次に始まる会話の始まりに待ち受けが渡す")
+               if pane is None else "ターンの終わりの待ち受けが渡す（手が空いた部署の会話は裏で起動し直す）" if not plain
+               else "その会話の次のターンの終わりに張られる待ち受けが渡す")
+        print("\n".join(notes + [f"知らせる先: {where}  台帳に知らせを足す（窓には打たない。{how}）", f"会話に渡す 1 行: {line}"]))
         return 0
-    if not by_ledger:
-        try:
-            typed = chat.typed(ports.term.read(pane, 40, ansi=True))
-        except term.Error as e:
-            print("\n".join(notes + [f"止めた: {where} の窓 {pane} を読めない（{e}）"]))
-            return 1
-        if typed is None or typed:
-            print("\n".join(notes + [f"止めた: {where} の窓 {pane} の" + (
-                "入力フィールドが出ていない（確かめの画面〔許可など〕で人の答えを待っているか、会話が起動の途中）" if typed is None
-                else "入力フィールドに打ちかけの字がある（人の字に足さない）") + "。窓が空いてから打ち直す"]))
-            return 1
     path = deliver.put(inbox, f"{say_id}-say.md", body)
-    if by_ledger:
-        deliver.log(dest_inbox, wake.notice(to, say_id, wake.SAY, path, line, ports.now()))
-        status, detail = "noticed", ("待ち受けが渡す" if heard else "ターンの終わりに待ち受けが渡す")
-    else:
-        status, detail = deliver.send_confirmed(pane, line, ports.term, ports.pause, busy)
+    try:
+        if plain and not attrs.get(wake.OPENED):
+            # 前の版の dispatch が開いた作業場や手で開いた作業場には、開いた印が無い。印が無いと待ち受けが張られない（wake_hook.plain_plan）
+            provision.mark(dept["path"], gitx.root_of(dest_common), {wake.OPENED: "say"}, ports.git)
+        # 初めての待ち受けは台帳の終わりから読み始める。読んだ所が無ければ、知らせを足す前の終わりを書いておき、取りこぼさせない
+        wake.start_at_end(dest_inbox, place_dir)
+    except (gitx.GitError, OSError) as e:
+        notes.append(f"作業場に待ち受けの印か読んだ所を書けなかった（{e}）。知らせは台帳に置くが、待ち受けが渡さないことがある")
+    deliver.log(dest_inbox, wake.notice(to, say_id, wake.SAY, path, line, ports.now()))
+    status, detail = "noticed", _say_handoff(dept, heard, pane, plain, dest_inbox, place_dir, accounts_, ports, sessions_,
+                                             company["root"])
     _log_each([inbox, dest_inbox],
               {"id": say_id, "kind": "say", "at": ports.now(), "status": status, "detail": detail, "from": by,
-               "to": {"company": company["name"], "name": dept["attrs"].get("name"), "branch": dept.get("branch"),
-                      "path": dept["path"], "pane": pane, "wake": to if by_ledger else None}, "file": path})
+               "to": {"company": company["name"], "name": attrs.get("name"), "branch": dept.get("branch"),
+                      "path": dept["path"], "pane": pane, "wake": to}, "file": path})
     print("\n".join(notes + [f"知らせ {say_id} → {where}  {status}" + (f"（{detail}）" if detail else ""), f"- 本文: {path}"]))
-    return 0 if status in ("noticed", "sent") else 1
+    return 0
 
 
 # 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる

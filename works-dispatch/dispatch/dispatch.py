@@ -140,7 +140,7 @@ def _end_conversation(ports, path):
         return "close_failed", f"その場所に {term.NAME} の会話のペインが無い（{term.NAME} の外の会話は終えない）"
     got = turn.close_session(pane, ports.term)
     if got == turn.ATTACHED:
-        return "close_failed", (f"ペイン {pane} は裏の会話（claude --bg）を開いた attach の窓なので /exit を打たない"
+        return "close_failed", (f"ペイン {pane} は裏の会話を開いた attach の窓なので /exit を打たない"
                                 "（/exit は attach だけを閉じ、窓に会話の一覧の画面が残る。部署の会話なら --retire で畳む）")
     return got, None if got == "closed" else f"ペイン {pane} の会話が /exit で終わらなかった"
 
@@ -333,13 +333,14 @@ def main(argv=None, ports=None):
     ap.add_argument("--withdraw", metavar="受付", help="順番待ちの 1 件を、渡さずに取り下げる（台帳に残す）。順番待ちに無い受付なら、台帳で開いていると出る頼みを、"
                     "取り下げの行を足して閉じる（受けた部署がまだ受けていれば止まる）")
     ap.add_argument("--nudge", metavar="部署", help="順番待ちが渡らずに止まった部署を動かす（会話が落ちていれば attach で戻し、"
-                    "待ち受けが居ないか渡さずに待っていれば、手の空いた窓でプラグインを読み直させてから 1 行打ってターンを回す。台帳に残す）")
+                    "待ち受けが居ないか渡さずに待っていれば、窓に字を打たずに、手の空いた裏の会話を止めて attach で起動し直す。台帳に残す）")
     ap.add_argument("--first", metavar="受付", help="順番待ちの 1 件を、その順番待ちの先頭に回す（急ぐ物を先にする。台帳に残す）")
     ap.add_argument("--note", metavar="受付", help="受付の頼みに、変更・足し・取り下げを届ける（--text か --brief。部署がターンの途中でも、"
                     "台帳の知らせでターンの終わりに待ち受けが渡す。順番待ちの頼みなら、渡すときの 1 行に添える）")
     ap.add_argument("--say", metavar="宛先", help="頼みに結び付かない、返事の要らない知らせを届ける（--text か --brief。宛先は部署の名前・"
-                    "「会社/名前」・会社の名前〔窓口〕・作業場のブランチの名前・PR の「#番号」か「会社/#番号」。待ち受けが居れば台帳の"
-                    "知らせでターンの終わりに渡し、居なければ入力フィールドが空なのを見て窓に打つ。端末のペインに直に打つ代わり）")
+                    "「会社/名前」・会社の名前〔窓口〕・作業場のブランチの名前・PR の「#番号」か「会社/#番号」。窓には打たず、いつも台帳に"
+                    "知らせを置き、待ち受けが裏で渡す〔居なければ、ターンの終わりか会話の始まりに張られる待ち受けが渡す。手の空いた部署の"
+                    "会話は裏で起動し直す〕。端末のペインに直に打つ代わり）")
     ap.add_argument("--call", nargs=2, metavar=("会社/役", "ツール"),
                     help="役の機械窓口のツールを呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
     ap.add_argument("--input", help="--call と一緒に: ツールへの入力（JSON の字か @ファイル。省けば {}）")
@@ -750,6 +751,12 @@ def main(argv=None, ports=None):
                         provision.drop_copies(prov["path"], ports.git)
                 except (gitx.GitError, OSError) as e:
                     notes.append(f"{name}: 本社から写った属性を消せなかった（{e}）。この作業場の会話が本社の役の本文を受ける")
+            try:
+                # dispatch が開いた役の無い会話の作業場の印。その会話のターンの終わりに、--say の知らせだけを受ける待ち受けが張られる（wake_hook.plain_plan）
+                if not ports.attrs(prov["path"]).get(wake.OPENED):
+                    provision.mark(prov["path"], repo.source, {wake.OPENED: r["kind"]}, ports.git)
+            except (gitx.GitError, OSError) as e:
+                notes.append(f"{name}: 作業場に開いた印を書けなかった（{e}）。この会話には --say の知らせが届かない")
             untrusted = _trust_note(ports, r["account"], repo.source, prov["path"], cfg.accounts)
             if untrusted:
                 notes.append(f"{name}: {untrusted}")

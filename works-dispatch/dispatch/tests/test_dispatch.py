@@ -22,6 +22,7 @@ import gitx
 import herdr as real_herdr
 from nodes import clean
 from nodes import provision
+from nodes import wake
 from nodes import launch
 from nodes import prs as prs_node
 from nodes import report
@@ -497,7 +498,8 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0, out)
         place = next(w["path"] for w in ports.term.worktrees(src) if w["linked"])
-        self.assertEqual(self.g.worktree_attrs(place, copies=True), {})   # 写しは読み飛ばすだけでなく、消す
+        # 写しは読み飛ばすだけでなく、消す。残るのは dispatch が開いた印（--say の知らせを受ける待ち受けが張られる）だけ
+        self.assertEqual(self.g.worktree_attrs(place, copies=True), {wake.OPENED: "pr"})
         self.assertEqual(self.g.worktree_attrs(src)["role"], "窓口")
 
     def test_untrusted_source_still_launches_and_says_the_dialog_will_show(self):

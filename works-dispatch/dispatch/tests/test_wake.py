@@ -925,6 +925,27 @@ class Hook(unittest.TestCase):
         self.assertEqual(os.path.realpath(got["inbox"]), os.path.realpath(self.inbox))
         self.assertFalse(got["adopt"])
 
+    def test_a_role_less_place_dispatch_opened_waits_only_for_say_notices_to_its_place(self):
+        # --pr・--issue で開いた役の無い会話の作業場（開いた印 company.opened）にだけ、場所の鍵の宛先で --say の知らせを受ける
+        # 待ち受けを張る。印の無い worktree（試しの一時の作業場・工場の作業場）と本社には張らない（受付 9dccfe）
+        self.assertIsNone(self.plan())
+        provision.mark(self.place, self.src, {wake.OPENED: "pr"}, self.g)
+        self.assertIsNone(self.plan())   # 会社の受付箱がまだ無い（誰も知らせていない）
+        os.makedirs(self.inbox, exist_ok=True)
+        got = self.plan()
+        place = self.g.git_dir(self.place)
+        self.assertEqual((got["names"], got["plain"], got["session"], got["owner"]), ([wake.place_address(place)], True, "s1", 7))
+        provision.mark(self.src, self.src, {wake.OPENED: "pr"}, self.g)
+        self.assertIsNone(self.plan(cwd=self.src))
+        # 待ち受けは知らせの字で会話を再開させ、人の文のターンの初めの --pause で止まる
+        seen = []
+        with mock.patch.object(wake_hook.signal, "signal"):   # 試験の処理の Ctrl+C などを替えない
+            self.assertEqual(wake_hook.watch_plain(got, io.StringIO(), watch=lambda *a: seen.append(a) or 2), 2)
+        self.assertEqual(seen[0][:5], (self.inbox, place, [wake.place_address(place)], "s1", 7))
+        wake.claim(self.inbox, place, got["names"], "s1", 7, "t", time.time())
+        wake_hook.pause_here({"cwd": self.place, "session_id": "s1"})
+        self.assertEqual(wake.read_mark(self.inbox, place)["token"], "paused")
+
     def test_the_desk_needs_its_conversation_id(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
         self.assertIsNone(self.plan(cwd=self.src))   # 代表の clone のほかの会話に横取りさせない
@@ -2926,6 +2947,38 @@ class WakeFlow(unittest.TestCase):
         self.assertNotIn("ask", self.g.worktree_attrs(self.place))   # 属性は待ち受けが渡すときに書く
         self.assertIn("順番待ちに積んだ（1 件目。待ち受けが渡す）", out)
 
+    def restartable(self, stop_ok=True):
+        """部署の裏の会話を止めて attach で戻せる形。窓は attach の画面で、Ctrl+Z の後の Esc でシェルに戻り、attach を打つと会話が戻る。
+        止めた会話の id は self.stopped に残り、会話の一覧ではその会話が stopped に替わる。"""
+        h = self.ports.term
+        self.stopped = []
+        h.front[self.window] = ["claude-a1", "attach", "d"]
+        real_keys, real_run, listed = h.send_keys, h.run, self.ports.list_sessions
+
+        def keys(pane, *k):
+            real_keys(pane, *k)
+            if k == ("escape",):
+                h.talking.discard(pane)
+                h.front.pop(pane, None)
+
+        def run(pane, command):
+            real_run(pane, command)
+            if " attach " in command:
+                h.talking.add(pane)
+                h.front[pane] = command.split()
+
+        def stop(cdir, job):
+            if not stop_ok:
+                return False, "No job matching"
+            self.stopped.append(job)
+            return True, ""
+        h.send_keys, h.run, self.ports.stop_session = keys, run, stop
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {**x, "state": "stopped"} if x.get("sessionId") in self.stopped else x for x in listed(cdir, include_done)]
+
+    def attaches(self):
+        return [w[2] for w in self.ports.term.writes if w[0] == "run" and " attach " in w[2]]
+
     @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
     def test_ask_to_a_stopped_department_without_a_running_waiter_says_so(self):
         self.listen("調べ", self.dept_place())
@@ -2933,85 +2986,72 @@ class WakeFlow(unittest.TestCase):
         with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
             json.dump({**mark, "pid": dead_pid()}, f)   # 会話は生きているが、待ち受けの台本が居ない
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"   # 手の空いた窓（入力フィールドが空）
+        self.restartable()
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
         self.assertIn("渡す待ち受けが居ない", out)
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
-        # 持ち主に打たせず、窓に 1 行打ってターンを回す（ターンの終わりに待ち受けが張り直して渡す）
-        self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
-        self.assertIn("1 行打ってターンを回した", out)
+        # 持ち主に打たせず、窓にも打たずに、裏の会話を止めて attach で起動し直す（戻った会話の始まりの待ち受けが渡す。受付 9dccfe）
+        self.assertEqual((self.prompts(), self.stopped, self.attaches()), ([], ["s-dept"], ["claude-a1 attach d"]))
+        self.assertIn("窓に字を打たずに、部署の裏の会話 s-dept を止めて attach で起動し直した", out)
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
-        self.assertEqual([(r["why"], r["id"]) for r in nudged], [("渡す待ち受けが居ない", wake.queued(self.inbox, self.dept_place())[0]["id"])])
+        self.assertEqual([(r["why"], r["id"], r["status"]) for r in nudged],
+                         [("渡す待ち受けが居ない", wake.queued(self.inbox, self.dept_place())[0]["id"], "restarted")])
 
     def test_nudge_moves_a_held_department_and_leaves_a_typing_window_alone(self):
         self.listen("調べ", self.dept_place())
         provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0"}, self.g)
+        self.restartable()
         rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts()), (0, []), out)
+        self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
         self.assertIn("順番待ちが空", out)   # 止まっていない
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "会話がまだ動いている"})
         rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts()), (1, []), out)   # すぐ替わる訳なら打たない（待ち受けの /clear とぶつけない）
+        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)   # すぐ替わる訳なら動かさない（待ち受けの /clear とぶつけない）
         self.assertIn("訳がすぐ替わる物なので打たなかった", out)
-        # 子の返事待ち・裏の処理で止めるのは古い版の待ち受けだけなので、1 行を打って今の版で数え直させる（2026-10-18 の割り振り）
+        # 子の返事待ち・裏の処理で止めるのは古い版の待ち受けだけなので、起動し直して今の版で数え直させる（2026-10-18 の割り振り）
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
         for detail in ("子の頼みの返事を待っている（受付 c1）", wake_hook.NOT_CLEARED_BACKGROUND):
             deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": detail})
             rc, out = self.main(self.src, "--nudge", "調べ")
-            self.assertEqual(rc, 0, out)
-            self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
-            self.ports.term.writes.clear()
+            self.assertEqual((rc, self.prompts(), self.stopped), (0, [], ["s-dept"]), out)
+            self.stopped.clear()
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
         provision.mark(self.place, self.src, {"rest": "s"}, self.g)
         self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts()), (1, []), out)   # 人の打ちかけの字を壊さない
-        self.assertIn("入力フィールドに字が在るので打たなかった", out)
+        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)   # 人の打ちかけの字を消さない（attach の画面を閉じると消える）
+        self.assertIn("入力フィールドに人の打ちかけの字が在るので起動し直さなかった", out)
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertIn("待ち受けが渡さずに待っている（窓を確かめられない）", out)
-        self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
-        self.assertEqual(self.g.worktree_attrs(self.place).get("rest"), "s")   # 打った 1 行で外れる区切りの印は残す
+        self.assertEqual((self.prompts(), self.stopped), ([], ["s-dept"]))
+        self.assertEqual(self.g.worktree_attrs(self.place).get("rest"), "s")   # 字を打たないので区切りの印は外れない
 
     @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
-    def test_nudge_drops_a_clear_the_gone_watcher_left_unsent_before_typing(self):
-        # 渡す待ち受けが居ないまま、待ち受けが打った /clear が入力フィールドに残った（送り直す者が居ない）: 消してから 1 行を打つ。
-        # 人の打ちかけの字と、前の会話で打った物は消さない。待ち受けが居るとき（渡さずに待っている）は、待ち受けが送り直すので消さない
+    def test_nudge_restarts_over_a_clear_the_gone_watcher_left_unsent_but_not_over_other_text(self):
+        # 渡す待ち受けが居ないまま、待ち受けが打った /clear が入力フィールドに残った（送り直す者が居ない）: attach の画面を閉じると
+        # 消えるので、そのまま起動し直す。前の会話で打った物（人の字かもしれない）が残るときは起動し直さない
         self.listen("調べ", self.dept_place())
-        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s"}, self.g)
-        wake.enqueue(self.inbox, self.dept_place(), {"id": "a0", "line": "a0"})
-        deliver.log(self.inbox, {"id": "a0", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
-        self.ports.term.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
-        self.main(self.src, "--nudge", "調べ")
-        self.assertFalse([w for w in self.ports.term.writes if w[0] == "send_keys" and w[2:] == ("ctrl+u",)])
-        wake.take(self.inbox, self.dept_place())
         mark = wake.read_mark(self.inbox, self.dept_place())
         with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
             json.dump({**mark, "pid": dead_pid()}, f)
-        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s", wake.CLEAR_TYPED: "s0"}, self.g)
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "session": "s-dept", wake.CLEAR_TYPED: "s0"}, self.g)
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
-        term_ = self.ports.term
-        term_.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
+        self.restartable()
+        self.ports.term.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts()), (1, []), out)
-        self.assertFalse([w for w in term_.writes if w[0] == "send_keys"])
-        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s"}, self.g)
-
-        def keys(pane, *k):
-            term_.writes.append(("send_keys", pane, *k))
-            if k == ("ctrl+u",):
-                term_.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
-        with mock.patch.object(term_, "send_keys", keys):
-            rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual(rc, 0, out)
-        self.assertEqual([w[2:] for w in term_.writes if w[0] == "send_keys"][0], ("ctrl+u",))
-        self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
+        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)
+        self.assertFalse([w for w in self.ports.term.writes if w[0] == "send_keys"])
+        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s-dept"}, self.g)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts(), self.stopped), (0, [], ["s-dept"]), out)
 
     def test_a_gone_talk_holding_an_ask_is_stalled_and_nudge_says_how_to_move_it(self):
         # 受けたままの頼みを持つ会話（company.session）が会話の一覧から消え、窓には別の会話が居る: 待ち受けを張る者が居ないので
-        # 止まっていると見分ける。1 行を打っても別の会話には待ち受けが張られないので打たず、動かす手を出す（2026-10-31 の
+        # 止まっていると見分ける。起動し直しても別の会話には待ち受けが張られないので動かさず、動かす手を出す（2026-10-31 の
         # guided-resolver の本社。頼み 8908ab）
         provision.mark(self.place, self.src, {"ask": "a0"}, self.g)   # 受けたまま、納品していない
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
@@ -3020,6 +3060,7 @@ class WakeFlow(unittest.TestCase):
                 p["agent_session"] = "s-other"
         living = self.ports.list_sessions
         self.ports.list_sessions = lambda cdir, include_done=False: [s for s in living(cdir, include_done) if s["sessionId"] != "s-dept"]
+        self.restartable()
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
         rc, out = self.main(self.src, "--tree")
         self.assertIn("! 渡す待ち受けが居ない（受けたままの頼みを持つ会話がもう居ない）（--nudge 調べ --dry-run で動かし方を見る）", out)
@@ -3028,64 +3069,45 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("止まっている（渡す待ち受けが居ない（受けたままの頼み a0 を持つ会話 s-dept がもう居ない））", out)
         self.assertIn(f"--nudge では動かせない: 窓 {self.window} の会話 s-other は部署の会話（s-dept）でない", out)
         rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts()), (1, []), out)
+        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)
         self.assertIn("部署の会話（s-dept）でない", out)
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
-        # 窓の会話の印が無い（herdr が落とした）形は、今までどおり 1 行を打つ。送られずに残った待ち受けの /clear は先に消す
+        # 窓の会話の印が無い（herdr が落とした）形は、部署の会話を止めて attach で起動し直す
         for p in self.ports.term._panes:
             if p["pane_id"] == self.window:
                 p["agent_session"] = None
-        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s-dept"}, self.g)
-        term_ = self.ports.term
-        term_.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
-
-        def keys(pane, *k):
-            term_.writes.append(("send_keys", pane, *k))
-            if k == ("ctrl+u",):
-                term_.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
-        with mock.patch.object(term_, "send_keys", keys):
-            rc, out = self.main(self.src, "--nudge", "調べ")   # 動き出したかは偽の一覧が s-dept でしか見せないので見ない
-        self.assertEqual([w[2:] for w in term_.writes if w[0] == "send_keys"][0], ("ctrl+u",))
-        self.assertEqual([w[2] for w in self.prompts()][:2], [orders.chat.RELOAD, orders.STUCK_LINE])
+        rc, out = self.main(self.src, "--nudge", "調べ")   # 動き出したかは偽の一覧が s-dept でしか見せないので見ない
+        self.assertEqual((self.prompts(), self.stopped), ([], ["s-dept"]), out)
         # 会話が一覧に居れば、受けたままの頼みの間はターンの終わりに張られるので、止まっていない
         self.ports.list_sessions = living
         rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
         self.assertIn("止まっていない（待ち受けが渡す）", out)
 
-    def test_nudge_does_not_type_the_line_when_the_reload_does_not_leave_the_box(self):
-        # 前の版のプラグインのままの会話は、ターンの終わりに前の版の待ち受けが同じ訳でまた止める（2026-10-19 の割り振り）ので、
-        # 1 行の前に読み直させる。読み直しが済んだのを見られなければ、1 行を打たない（/reload-plugins の後ろに続いて届く）
+    def test_nudge_puts_the_window_back_when_the_talk_cannot_be_stopped(self):
+        # 裏の会話を止められなければ、シェルに戻した窓を attach で戻し、動かせなかったと台帳に残す
         self.listen("調べ", self.dept_place())
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
-        with mock.patch.object(orders.deliver, "reload_talk", return_value=("failed", "見られなかった")) as reload:
-            rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts(), reload.call_count), (1, [], 1), out)
-        self.assertIn("1 行を打たなかった", out)
+        self.restartable(stop_ok=False)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts(), self.attaches()), (1, [], ["claude-a1 attach d"]), out)
+        self.assertIn("部署の会話 s-dept を止められなかった（No job matching）。窓は attach で戻した", out)
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
 
-    def test_nudge_does_not_add_the_line_to_text_typed_while_reloading(self):
-        # 読み直しを待つ間に人が打ち始めたら、1 行を人の字に足さない。外れうる区切りの印は書き戻す
+    def test_nudge_does_not_restart_a_talk_that_left_background_tasks(self):
+        # 前のターンが裏の処理を残した会話は、止めるとその処理が消えるので起動し直さない（処理が終われば知らせでターンが回る）
         self.listen("調べ", self.dept_place())
         wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
-        provision.mark(self.place, self.src, {"rest": "s"}, self.g)
+        wake.waiting_note(self.inbox, self.dept_place(), "s-dept", "a0", ["t1"], time.time())
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
-        real = self.ports.term.prompt
-
-        def typed_meanwhile(target, text, wait, until=()):
-            real(target, text, wait, until)
-            if text == orders.chat.RELOAD:
-                self.g.unset_worktree_attr(self.place, "rest")   # 読み直しで人の文のフックが走り、区切りの印が外れたとする
-                self.ports.term.screen = f"{'─' * 20}\n❯ 人の打ちかけ\n{'─' * 20}\n"
-        with mock.patch.object(self.ports.term, "prompt", typed_meanwhile):
-            rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, [w[2] for w in self.prompts()]), (1, [orders.chat.RELOAD]), out)
-        self.assertIn("1 行を打たなかった", out)
-        self.assertEqual(self.g.worktree_attrs(self.place).get("rest"), "s")
+        self.restartable()
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts(), self.stopped, self.attaches()), (1, [], [], []), out)
+        self.assertIn("前のターンで裏の処理を残している", out)
 
     def test_the_same_ask_twice_returns_the_first_number(self):
         self.listen("調べ", self.dept_place())
@@ -3372,49 +3394,50 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((rec["status"], rec["to"]["wake"], rec["to"]["name"]), ("noticed", to, "調べ"))
         self.assertIsNone(ledger.subject(rec))   # 頼みを指さない行
 
-    def test_say_to_a_pr_conversation_types_into_its_window_after_the_input_field_is_seen_empty(self):
-        # --pr で開いた会話（役の無い作業場）には待ち受けが居ないので、入力フィールドが空なのを見てから窓に打つ。PR の番号でも
-        # ブランチの名前でも引ける
+    def test_say_to_a_pr_conversation_goes_through_the_ledger_to_its_place_without_typing(self):
+        # --pr で開いた会話（役の無い作業場）にも窓には打たず、場所の鍵の宛先（wake.place_address）で台帳に置く。作業場に開いた印
+        # （company.opened）を書き、読んだ所を知らせの前に置いて、次に張られる待ち受けが取りこぼさないようにする（受付 9dccfe）。
+        # PR の番号でもブランチの名前でも引ける
         place = str(pathlib.Path(self.root) / "pr7")
         self.g.add_worktree(place, "feat/7", "origin/main")
         pane = self.ports.term.open_at(place, agent="claude")["pane_id"]
         self.ports.term.talking.add(pane)
         self.ports.term.screen = self.EMPTY_BOX
-        self.ports.term.agent = lambda p: {"agent": "claude", "agent_status": "working" if any(
-            w[0] == "prompt" and w[1] == p for w in self.ports.term.writes) else "idle"}
         rc, out = self.main(self.src, "--say", "feat/7", "--text", "x", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"窓 {pane} に打ち込む", out)
+        self.assertIn("台帳に知らせを足す（窓には打たない。その会話の次のターンの終わりに張られる待ち受けが渡す）", out)
         rc, out = self.main(self.src, "--say", "#7", "--text", "レビューの指摘を見てから push する")
-        self.assertEqual(rc, 0, out)
-        (typed,) = self.prompts()
-        self.assertEqual(typed[1], pane)
-        self.assertIn("知らせです（desk から。受付", typed[2])
-        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "say"]
-        self.assertEqual((rec["status"], rec["to"]["branch"], rec["to"]["pane"], rec["to"]["wake"]), ("sent", "feat/7", pane, None))
+        self.assertEqual((rc, self.prompts()), (0, []), out)
+        here = self.g.git_dir(place)
+        to = wake.place_address(here)
+        (notice,) = [r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)]
+        self.assertEqual((notice["to"], notice["kind"]), (to, wake.SAY))
+        self.assertIn("知らせです（desk から。受付", notice["text"])
+        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), dict)]
+        self.assertEqual((rec["status"], rec["to"]["branch"], rec["to"]["wake"]), ("noticed", "feat/7", to))
+        self.assertEqual(self.g.worktree_attrs(place).get(wake.OPENED), "say")
+        # 次に張られる待ち受け（場所の鍵の宛先だけを受ける）が、その知らせを渡す
+        err = io.StringIO()
+        got = wake.watch(self.inbox, here, [to], "s-pr", os.getppid(), "t", err, pause=lambda s: None)
+        self.assertEqual(got, 2)
+        self.assertIn("レビューの指摘を見てから push する", err.getvalue())
 
-    def test_say_to_a_stopped_department_with_only_a_trace_types_into_the_window_but_mid_turn_goes_to_the_ledger(self):
-        # 待ち受けが死んで跡だけ在る部署: 止まっていれば台帳は次のターンまで読まれないので窓に打つ。ターンの途中なら台帳に置き、
-        # ターンの終わりのフックが渡す（--ask と同じ線。点検の指摘）
+    def test_say_to_a_department_without_a_listener_restarts_an_idle_talk_but_not_a_busy_one(self):
+        # 待ち受けの居ない部署: 窓には打たず台帳に置く。ターンの途中なら、ターンの終わりの待ち受けが渡す。手が空いていれば、
+        # 裏の会話を止めて attach で起動し直し、戻った会話の始まりの待ち受けが渡す（受付 9dccfe）
         to = self.listen("調べ", self.dept_place(), owner=dead_pid())
         self.ports.term.screen = self.EMPTY_BOX
-
-        def check(dept, accounts_, ports):
-            def busy():   # 打った 1 行で会話が動き出す
-                return bool(self.prompts())
-            busy.waiting = False
-            return busy
-        with mock.patch.object(orders, "busy_check", check):
-            rc, out = self.main(self.src, "--say", "調べ", "--text", "main が進んだ")
-            self.assertEqual(rc, 0, out)
-            self.assertEqual(len(self.prompts()), 1)
-            self.assertEqual([r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)], [])
-            # 動き出した（ターンの途中の）会話への次の知らせは、窓に打たず台帳に置く
-            rc, out = self.main(self.src, "--say", "調べ", "--text", "もう 1 つ")
-            self.assertEqual(rc, 0, out)
-            self.assertEqual(len(self.prompts()), 1)
-            (notice,) = [r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)]
-            self.assertEqual((notice["to"], notice["kind"]), (to, wake.SAY))
+        self.restartable()
+        self.ports.term.agent = lambda p: {"agent": "claude", "agent_status": "working"}
+        rc, out = self.main(self.src, "--say", "調べ", "--text", "main が進んだ")
+        self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
+        self.assertIn("ターンの終わりの待ち受けが渡す", out)
+        self.ports.term.agent = lambda p: {"agent": "claude", "agent_status": "idle"}
+        rc, out = self.main(self.src, "--say", "調べ", "--text", "もう 1 つ")
+        self.assertEqual((rc, self.prompts(), self.stopped), (0, [], ["s-dept"]), out)
+        self.assertIn("attach で起動し直した", out)
+        notices = [r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)]
+        self.assertEqual([(n["to"], n["kind"]) for n in notices], [(to, wake.SAY)] * 2)
 
     def test_say_to_a_fork_pr_refuses_instead_of_matching_a_same_named_branch(self):
         # fork の PR のブランチの名前（main など）は、この会社の同じ名前の作業場と取り違える
@@ -3424,7 +3447,7 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("fork の PR", out)
         self.assertEqual(self.prompts(), [])
 
-    def test_say_refuses_slash_text_unknown_targets_and_windows_it_cannot_type_into(self):
+    def test_say_refuses_slash_text_and_unknown_targets_and_never_types_over_a_draft(self):
         rc, out = self.main(self.src, "--say", "調べ", "--text", "/model opus")
         self.assertEqual(rc, 2, out)
         self.assertIn("コマンド（/model・/exit など）を送らない", out)
@@ -3435,17 +3458,15 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("ブランチの名前の作業場も無い", out)
         rc, out = self.main(self.src, "--say", "調べ")
         self.assertEqual(rc, 2, out)
-        # 待ち受けの居ない部署の窓: 打ちかけの字が在るか、入力フィールドが出ていない（確かめの画面）なら打たない
+        # 待ち受けの居ない部署の窓に打ちかけの字が在っても、窓には打たず、起動し直しもしない（知らせは台帳に置く）
+        self.restartable()
         self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
         rc, out = self.main(self.src, "--say", "調べ", "--text", "x")
-        self.assertEqual(rc, 1, out)
-        self.assertIn("打ちかけの字", out)
-        self.ports.term.screen = "Do you want to proceed?\n❯ 1. Yes\n  2. No\n"
-        rc, out = self.main(self.src, "--say", "調べ", "--text", "x")
-        self.assertEqual(rc, 1, out)
-        self.assertIn("入力フィールドが出ていない", out)
-        self.assertEqual(self.prompts(), [])
-        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "say"], [])
+        self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
+        self.assertIn("打ちかけの字が在るので起動し直さなかった", out)
+        self.assertIn("次のターンの終わりに待ち受けが渡す", out)
+        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), dict)]), 1)
+        self.assertEqual(self.ports.term.read(self.window, 40), f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n")
 
     def test_forward_closes_the_held_ask_without_waking_its_asker_and_links_it_in_the_ledger(self):
         # 窓口が受けた頼みを部署へ回しただけなら、頼み元（社長室）の会話を再開させない。回した先は台帳にだけ結ぶ

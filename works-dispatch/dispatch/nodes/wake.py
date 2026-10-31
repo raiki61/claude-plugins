@@ -98,6 +98,14 @@ def address(company, name):
     return f"{company}/{name}"
 
 
+OPENED = "opened"   # 場所の属性 company.opened: dispatch が --pr・--issue・一覧の回で開いた、役の無い会話の作業場（値は pr か issue）
+
+
+def place_address(place):
+    """役の無い作業場（OPENED の場所）が受ける宛先。名前が無いので、場所の鍵で宛てる（--say。台帳は会社ごとなので会社の名前は付けない）。"""
+    return "@" + key(place)
+
+
 def addresses(company, attrs, former=()):
     """その場所が受ける宛先の並び（今の名前が先、前の名前が後）。名前が無ければ空（待ち受けを張らない）。"""
     names = [attrs.get("name")] + list(former) if attrs.get("name") else []
@@ -231,6 +239,11 @@ def turned(path, pos):
 def waiting_path(inbox, place):
     """裏の処理を残して終えたターンの控え（{session, ask, tasks, at, transcript, pos}。--tree の long_wait が読む）。"""
     return os.path.join(_dir(inbox), key(place) + ".waiting.json")
+
+
+def waiting_of(inbox, place):
+    """裏の処理を残して終えたターンの控え（waiting_path）の中身。無いか読めなければ空の dict。"""
+    return _read_json(waiting_path(inbox, place))
 
 
 def waiting_note(inbox, place, session, ask, tasks, at, transcript=None):
@@ -679,6 +692,11 @@ def start_pos(inbox, place, pos):
     """その場所に読んだ所が無ければ pos を書く（初めての待ち受けが台帳の終わりから読み始めて、その前に置いた行を取りこぼさない）。"""
     if read_pos(inbox, place) is None:
         _replace(pos_path(inbox, place), str(pos))
+
+
+def start_at_end(inbox, place):
+    """その場所に読んだ所が無ければ、今の台帳の終わりを書く（start_pos）。知らせを足す前に呼ぶと、初めての待ち受けもその知らせから読む。"""
+    start_pos(inbox, place, _size(os.path.join(inbox, LOG)))
 
 
 def _names_at(names, since, pos):

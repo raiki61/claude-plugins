@@ -256,7 +256,8 @@ def commands_text(dept, ephemeral, desk=False):
     talk = [f"- 頼む: {RUN} --ask <宛先> --text <頼み>（長い頼みは --text の代わりに --brief <ファイル>）",
             f"- 頼んだ後の変更・足し・取り下げ: {RUN} --note <受付> --text <足し>",
             f"- 返事の要らない知らせ（一言・再開の合図・PR の会話への連絡）: {RUN} --say <部署の名前かブランチか #PR の番号> --text <知らせ>"
-            f"（ほかの会話の {term.NAME} のペインに直に打たない。/model・/exit など / で始まる字は送らず、会社の形と --move・--retire で替える）"]
+            f"（ほかの会話の {term.NAME} のペインに直に打たない。--say も窓には打たず、台帳から待ち受けが裏で渡す。/model・/exit など / で始まる字は送らず、"
+            "会社の形と --move・--retire で替える）"]
     if desk:
         lines = talk
     else:

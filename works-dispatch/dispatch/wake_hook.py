@@ -113,7 +113,9 @@ def plan(payload, env=os.environ, attrs_of=_attrs, parent=os.getppid, same=chat.
     cwd = payload.get("cwd") or os.getcwd()
     sid = payload.get("session_id")
     attrs = attrs_of(cwd)
-    if not attrs.get("role") or not attrs.get("name"):
+    if not attrs.get("role"):
+        return plain_plan(cwd, sid, attrs, parent, env)
+    if not attrs.get("name"):
         return None
     common, place = gitx.common_dir(cwd), gitx.git_dir(cwd)
     if not common or not place:
@@ -138,6 +140,23 @@ def plan(payload, env=os.environ, attrs_of=_attrs, parent=os.getppid, same=chat.
 
 
 job_of = chat.job_of
+
+
+def plain_plan(cwd, sid, attrs, parent=os.getppid, env=os.environ):
+    """役の無い会話（dispatch が --pr・--issue・一覧の回で開いた作業場。属性 company.opened）の待ち受けの plan か None。
+    受けるのは場所の鍵の宛先（wake.place_address）への知らせ（--say）だけで、頼みの順番待ち・空にする・keepalive・compact は持たない
+    （plain が真）。役の無い会話の窓に --say が 1 行を打っていたのをやめ、止まっている会話にも窓に打たずに届けるため（受付 9dccfe）。
+    dispatch が開いた作業場に限るのは、ほかの worktree（試しの一時の worktree・claude -p で回す工場の作業場など）に待ち受けを張らないため。"""
+    if not attrs.get(wake.OPENED):
+        return None
+    common, place = gitx.common_dir(cwd), gitx.git_dir(cwd)
+    if not common or not place or os.path.realpath(common) == os.path.realpath(place):
+        return None   # 本社（代表の clone）は窓口の席なので、役の無い会話に知らせを渡さない
+    inbox = deliver.inbox_of(common)
+    if not os.path.isdir(inbox):
+        return None   # 受付箱が無い会社には、まだ誰も知らせていない（--say は受付箱の台帳に置く）
+    return {"cwd": cwd, "root": gitx.root_of(common), "inbox": inbox, "place": place, "names": [wake.place_address(place)],
+            "session": sid, "owner": parent(), "adopt": False, "company": None, "job": job_of(env), "since": {}, "plain": True}
 
 
 # herdr が会話の手が空いたと見る状態（done はターンを終えたまま見られていない物）
@@ -1650,6 +1669,20 @@ class WithRole:
         self.err.flush()
 
 
+def watch_plain(got, err, watch=wake.watch):
+    """役の無い会話の待ち受け（plain_plan）。知らせが来れば、その字で会話を再開させる。今の版への替わり（hop）はしない（知らせを
+    渡すだけで、版で替わる振る舞いを持たない）。"""
+    token = wake.new_token()
+
+    def stop(*_):
+        wake.release(got["inbox"], got["place"], token)
+        sys.exit(0)
+    for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), stop)
+    return watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, err)
+
+
 def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop, now=time.time, env=os.environ):
     argv = sys.argv[1:] if argv is None else argv
     try:
@@ -1675,6 +1708,8 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
     got = plan(payload)
     if not got:
         return 0
+    if got.get("plain"):
+        return watch_plain(got, err)
     if handed and (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != handed:
         return 0   # 替わる間に、人の文で止められた（--pause）か、新しい待ち受けに替わった
     if got["adopt"]:
