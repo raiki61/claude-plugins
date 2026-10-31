@@ -29,13 +29,13 @@ COMPANY = {
 # 会社の形の外した鍵: 表 → {鍵: 行き先（読まなくなった訳と、代わりに書く所）}。読まずに注記を出すだけ（古い鍵を読む期間は置かない。
 # 持ち主 2026-10-31「全部入れ替えたらいいでしょ？」）。外した鍵の役も --deliver・--ask を止める（role.load の odd）が、ゲートの鍵でない
 # 寿命・会話・keepalive の鍵（RETIRED_UNGATED）は止めない（会社の形を書き直すまで、その会社の部署が頼みも納品もできなくなるため）
-_LIFE = "部署の寿命は lifetime（per-ask・on-demand・always）に替えた"
+_LIFE = "部署の寿命は lifetime（per-ask・until-idle・always）に替えた"
 _ROB = "keepalive と要約（compact）の判断は、書かなくても全部の部署で効く。切るときだけ rent_or_buy = false を書く"
 COMPANY_RETIRED = {
     "roles": {"persistent": f"{_LIFE}。persistent = true は lifetime = \"always\"",
               "fresh": "次の頼みのときの会話は context（new・carry）に替えた。fresh = true は context = \"new\"",
               "keepalive": _ROB},
-    "skills": {"on_demand": f"{_LIFE}。on_demand = true は lifetime = \"on-demand\"",
+    "skills": {"on_demand": f"{_LIFE}。on_demand = true は lifetime = \"until-idle\"",
                "per_ask": f"{_LIFE}。on_demand = true と per_ask = true は lifetime = \"per-ask\"",
                "keepalive": _ROB},
 }

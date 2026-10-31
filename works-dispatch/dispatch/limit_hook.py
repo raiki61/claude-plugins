@@ -68,7 +68,7 @@ def plan(payload, attrs_of=_attrs, closed_of=closed):
     if head and attrs.get("session") != payload.get("session_id"):
         return None   # 窓口の席（本社か、本社の属性が写った作業場）の、窓口でない会話
     if not head and attrs.get("lifecycle") != gitx.PERSISTENT and not (attrs.get("ask") and attrs.get("delivered") != attrs["ask"]):
-        return None   # 畳む部署は、頼みを受けている間だけ移す（on-demand の受け持ちの部署は、頼みの途中で枠が尽きうる）
+        return None   # 畳む部署は、頼みを受けている間だけ移す（until-idle の受け持ちの部署は、頼みの途中で枠が尽きうる）
     # 会社を添えて宛てる（ほかの会社に同じ名前の部署が在ると、名前だけの --move は止まる。wake_hook.py の起動し直しと同じ宛て方）
     root = gitx.root_of(common)
     info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), gitx)

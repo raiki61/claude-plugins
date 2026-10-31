@@ -235,7 +235,7 @@ def text_for(cwd, env=os.environ, attrs=None):
     name = role.current(shape, attrs["role"])
     company = info.get("name") or os.path.basename(os.path.normpath(root))
     duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None) \
-        or role.on_demand_of(info.get("skills", []), attrs.get("name"))   # 頼みごとの部署（per-ask）は受け持ちの名前で始まる
+        or role.asked_of(info.get("skills", []), attrs.get("name"))   # 頼みごとの部署（per-ask）は受け持ちの名前で始まる
     head_office = gitx.is_main_worktree(cwd) is True
     text = role.context(name, shape["roles"].get(name), company, duty, head_office, attrs.get("lifecycle"), shape["shared"])
     if attrs.get("name") and not head_office:

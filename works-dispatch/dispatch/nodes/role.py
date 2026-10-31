@@ -37,7 +37,7 @@
 - ask_holders: holders と同じ形で、この役へ宛てた --ask の本文の頭書きに [[open]] が在れば、同じ検査を掛ける（頼み元の名前は頼む側の
   名前に読み替える。問いを受ける相談の役に書く）
 - lifetime: その役の部署の寿命。per-ask（頼みごとに部署を立て、済んだら畳む。既定）か always（いつも立てておく。担当のように受け持ちごとに
-  置く役や、相談の役に書く）。on-demand は受け持ち（[[skills]]）にだけ書く（受け持ちごとに 1 つ立てる寿命で、役には受け持ちの単位が無い）。
+  置く役や、相談の役に書く）。until-idle は受け持ち（[[skills]]）にだけ書く（受け持ちごとに 1 つ立てる寿命で、役には受け持ちの単位が無い）。
   受け持ちの lifetime が役の物より先に効く（lifetime_at）。--persistent を付けたのは always と同じ
 - context: その役の部署が次の頼みを受けるときの会話。new（頼みごとに空の会話で受ける。前の頼みを納品し終えていれば、--ask が新しい頼みを
   打つ前に /clear を打つ）か carry（前の会話で続ける。既定）。lifetime とは別の軸で、always の席（順番を 1 本にする・宛先の名前・決まった窓）は
@@ -80,7 +80,10 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultracode")
 INHERIT = "inherit"
 
 # 部署の寿命（会社の形の lifetime の値）と、次の頼みのときの会話（context の値）。書かなければ per-ask と carry
-LIFETIMES = PER_ASK, ON_DEMAND, ALWAYS = ("per-ask", "on-demand", "always")
+LIFETIMES = PER_ASK, UNTIL_IDLE, ALWAYS = ("per-ask", "until-idle", "always")
+# 外した寿命の値 → 今の値。読まずに注記を出すだけ（古い値を読む期間は置かない。外した鍵の known_keys.COMPANY_RETIRED と同じ扱い）。
+# on-demand は「頼まれたら立てる」を言い、always との違い（手が空いたら畳むか）が名前に出なかったので until-idle に替えた（持ち主 2026-11-01。頼み 76a031）
+LIFETIMES_RETIRED = {"on-demand": UNTIL_IDLE}
 CONTEXTS = NEW, CARRY = ("new", "carry")
 # 頼みごとに空の会話で受ける部署の属性 company.fresh の値（役の context = "new" を写す。無ければ会話を引き継ぐ）
 FRESH = "true"
@@ -99,15 +102,15 @@ SEAT_WORDS = {ROB_OFF: "rent-or-buy off"}
 
 
 def seat(attrs, skills=(), shape=None):
-    """部署の席のキー（例 always.carry・on-demand.new・per-ask・per-ask.rent-or-buy-off）。役が無ければ None。寿命は属性
-    company.lifecycle（部署を立てたときの寿命の印）が persistent なら always、ほかは部署の名前で引いた受け持ち（on_demand_of。
-    skills は tree.read_info の受け持ちの並び）の on-demand か per-ask、無ければ per-ask。会話は属性 company.fresh（役の context を
+    """部署の席のキー（例 always.carry・until-idle.new・per-ask・per-ask.rent-or-buy-off）。役が無ければ None。寿命は属性
+    company.lifecycle（部署を立てたときの寿命の印）が persistent なら always、ほかは部署の名前で引いた受け持ち（asked_of。
+    skills は tree.read_info の受け持ちの並び）の until-idle か per-ask、無ければ per-ask。会話は属性 company.fresh（役の context を
     写した物）。rent-or-buy は会社の形（shape。role.load の結果）の役と受け持ちの rent_or_buy（rent_or_buy_of）。"""
     attrs = attrs or {}
     if not attrs.get("role"):
         return None
     name = attrs.get("name")
-    duty = on_demand_of(skills, name)
+    duty = asked_of(skills, name)
     life = ALWAYS if attrs.get("lifecycle") == gitx.PERSISTENT else duty["lifetime"] if duty else PER_ASK
     parts = [life] + ([] if life == PER_ASK else [NEW if attrs.get("fresh") else CARRY])
     the_role = (shape or {}).get("roles", {}).get(current(shape, attrs["role"])) if shape else None
@@ -122,12 +125,12 @@ def seat_label(key):
 
 
 # 部署を並べる仕事の流れの順（席のキーの頭 2 語 → 順。持ち主 2026-10-17 の案 A）。役の無い場所は最後
-FLOW = ("always.carry", "always.new", "on-demand.carry", "on-demand.new", "per-ask")
+FLOW = ("always.carry", "always.new", "until-idle.carry", "until-idle.new", "per-ask")
 
 
 def flow_rank(key, name, duties):
     """部署の、仕事の流れの順の鍵（小さい方が先）。key は席のキー（seat）、name は部署の名前。always · carry（相談の社長室など）、
-    always · new（担当）、on-demand（この中と always · new の中は duties の並び〔会社の形の [[skills]] の名前の書き順〕）、per-ask（作業）、
+    always · new（担当）、until-idle（この中と always · new の中は duties の並び〔会社の形の [[skills]] の名前の書き順〕）、per-ask（作業）、
     役の無い場所。同じ鍵の物の順は呼ぶ側が決める（herdr の並びは今の順、--tree はブランチの名前）。herdr の作業場の並び
     （sync.flow_order）と --tree の部署の並び（tree.build）が同じ鍵を使う。"""
     head = ".".join(w for w in (key or "").split(".") if w != ROB_OFF)
@@ -138,9 +141,14 @@ def flow_rank(key, name, duties):
 
 
 def lifetime_of(value, where, problems, allowed=LIFETIMES):
-    """会社の形の lifetime の値を読む。書いていなければ None。形が違えば problems に書いて None（書いていないのと同じ）。"""
+    """会社の形の lifetime の値を読む。書いていなければ None。形が違えば problems に書いて None（書いていないのと同じ）。外した値
+    （LIFETIMES_RETIRED）は、今の値を添えて problems に書き、同じく None。"""
     if value is None or value in allowed:
         return value
+    now = LIFETIMES_RETIRED.get(value) if isinstance(value, str) else None
+    if now in allowed:
+        problems.append(f"{where}: 外した値 lifetime = \"{value}\" は読まない（{now} に名前を替えた。lifetime = \"{now}\" と書く）")
+        return None
     problems.append(f"{where}: lifetime は {'・'.join(allowed)} のどれか。外す")
     return None
 
@@ -271,7 +279,7 @@ def load(path, text=None):
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、account は空でない文字列、settings は表、"
                                    f"deliver は空でない文字列の並び、deliver_check・ask_check は空でない文字列、machine・rent_or_buy は true か false、"
-                                   f"lifetime は {PER_ASK}・{ALWAYS}（{ON_DEMAND} は受け持ちに書く）、context は {'・'.join(CONTEXTS)}、"
+                                   f"lifetime は {PER_ASK}・{ALWAYS}（{UNTIL_IDLE} は受け持ちに書く）、context は {'・'.join(CONTEXTS)}、"
                                    f"holders・ask_holders は true・false か名前の並び、"
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
             continue
@@ -312,7 +320,7 @@ def load(path, text=None):
         else:
             out["former"][old] = now[0]
     # 回す先は --ask 会社/<名前> と同じ宛て方なので、受け持ちの名前（[[skills]] の name）でも書ける。その受け持ちの役で確かめる。
-    # 引く順は deliver.find_target と同じ（on-demand の受け持ちが役より先、同じ名前の受け持ちは先の物）
+    # 引く順は deliver.find_target と同じ（until-idle の受け持ちが役より先、同じ名前の受け持ちは先の物）
     duties = {}
     for s in raw.get("skills", []) if isinstance(raw.get("skills", []), list) else []:
         if isinstance(s, dict) and isinstance(s.get("name"), str):
@@ -323,7 +331,7 @@ def load(path, text=None):
             name, duty = t["fallback_role"], duties.get(t["fallback_role"])
             owner = out["roles"].get(current(out, duty["role"])) if duty is not None and isinstance(duty.get("role"), str) else None
             life = (duty.get("lifetime") if duty is not None and duty.get("lifetime") in LIFETIMES else None) or (owner or {}).get("lifetime")
-            if duty is not None and (life in (ON_DEMAND, PER_ASK) or name not in out["roles"]):
+            if duty is not None and (life in (UNTIL_IDLE, PER_ASK) or name not in out["roles"]):
                 to = out["roles"].get(current(out, duty["role"])) if isinstance(duty.get("role"), str) else None
                 why = f"受け持ち {name} の役" + ("が無い" if to is None else "が機械だけの役（AI の部署を持たない）")
             else:
@@ -386,7 +394,7 @@ def seat_problem(shape, role_name, role, duties, name):
     「調べもの：指示の細かさと下位モデルの精度」が担当の always の部署で立ち、--clean で畳まれず、使用上限で移るフックが起動し直し続けた）。
     受け持ちに名指されない always の役（相談の社長室など）は、名前を問わない。"""
     if lifetime_at(role, duties, name) != ALWAYS:
-        return None   # on-demand と per-ask の部署は、受け持ちの名前でなくても畳まれるので席を残さない
+        return None   # until-idle と per-ask の部署は、受け持ちの名前でなくても畳まれるので席を残さない
     held = [s["name"] for s in duties if s.get("role") and current(shape, s["role"]) == current(shape, role_name)]
     if not held or name in held:
         return None
@@ -402,7 +410,7 @@ DUTY_SEP = "："
 
 
 def duty_of(skills, name):
-    """部署の名前（name）で引く受け持ち（[[skills]] の項目）。名前が受け持ちの name と同じ物（always・on-demand の部署）を先に、無ければ名前の
+    """部署の名前（name）で引く受け持ち（[[skills]] の項目）。名前が受け持ちの name と同じ物（always・until-idle の部署）を先に、無ければ名前の
     DUTY_SEP より前（長い方から）が受け持ちの name と同じ物（「<受け持ち>：<何をするか>」の一度きりの部署）。どちらも無ければ None。
     起動の設定（model・effort・settings）を引くときに使う（launch_flags・launch_key・settings_for）。"""
     if not name:
@@ -412,19 +420,19 @@ def duty_of(skills, name):
     return next((x for h in heads for x in skills if x.get("name") == h), None)
 
 
-def on_demand_of(skills, name):
-    """部署の名前（name）で引く、頼まれたときだけ立てる受け持ち（lifetime が on-demand か per-ask。tree.read_info が受け持ちの役の
-    lifetime まで解いた物）。名前が on-demand の受け持ちの name と同じ物か、頼みごとの部署（per-ask の受け持ちの
+def asked_of(skills, name):
+    """部署の名前（name）で引く、頼まれたときだけ立てる受け持ち（lifetime が until-idle か per-ask。tree.read_info が受け持ちの役の
+    lifetime まで解いた物）。名前が until-idle の受け持ちの name と同じ物か、頼みごとの部署（per-ask の受け持ちの
     「<受け持ち>：<何をするか>」の部署。per_ask_name が名付ける）。どちらでもなければ None。"""
     duty = duty_of(skills, name)
     life = duty.get("lifetime") if duty else None
-    return duty if life == PER_ASK or life == ON_DEMAND and duty["name"] == name else None
+    return duty if life == PER_ASK or life == UNTIL_IDLE and duty["name"] == name else None
 
 
 def asked(duty):
-    """受け持ち（tree.read_info の 1 件）が、頼まれたときだけ立てる物（lifetime が on-demand か per-ask）か。宛て方 --ask <会社>/<受け持ち> で
+    """受け持ち（tree.read_info の 1 件）が、頼まれたときだけ立てる物（lifetime が until-idle か per-ask）か。宛て方 --ask <会社>/<受け持ち> で
     その受け持ちの部署を立てる（deliver.find_target）。"""
-    return bool(duty) and duty.get("lifetime") in (ON_DEMAND, PER_ASK)
+    return bool(duty) and duty.get("lifetime") in (UNTIL_IDLE, PER_ASK)
 
 
 def per_ask_name(duty_name, ask_id):
@@ -638,7 +646,7 @@ def context(role_name, role, company, duty=None, head_office=False, lifecycle=No
 
 
 # 頼まれたときだけ立てる受け持ちの部署の会話の始まりに足す文（役の本文がこの字で寿命を見分ける。claude-plugins の会社の形の担当）
-LIFETIME_LINES = {ON_DEMAND: "この受け持ちの寿命は on-demand（頼まれたときに立て、手が空いたら畳む）。",
+LIFETIME_LINES = {UNTIL_IDLE: "この受け持ちの寿命は until-idle（頼まれたときに立て、手が空いたら畳む）。",
                   PER_ASK: "この受け持ちの寿命は per-ask（頼みごとに部署を立て、済んだら畳む）。"}
 
 SETTINGS_FILE = "company-settings.json"

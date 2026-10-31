@@ -226,14 +226,18 @@ class Info(unittest.TestCase):
         # lifetime（部署の寿命）: 受け持ちに書けばそれ、無ければ受け持ちの役の lifetime、役も無ければ per-ask。形が違えば外して役の値
         write(os.path.join(self.root, ".claude", "company.toml"),
               '[[roles]]\nname = "担当"\nlifetime = "always"\n'
-              '[[skills]]\nname = "a"\nlifetime = "on-demand"\n[[skills]]\nname = "b"\nlifetime = "per-ask"\nrole = "担当"\n'
+              '[[skills]]\nname = "a"\nlifetime = "until-idle"\n[[skills]]\nname = "b"\nlifetime = "per-ask"\nrole = "担当"\n'
               '[[skills]]\nname = "c"\nrole = "担当"\n[[skills]]\nname = "d"\n'
-              '[[skills]]\nname = "e"\nlifetime = "keep"\nrole = "担当"\n[[skills]]\nname = "f"\nrent_or_buy = "no"\n')
+              '[[skills]]\nname = "e"\nlifetime = "keep"\nrole = "担当"\n[[skills]]\nname = "f"\nrent_or_buy = "no"\n'
+              '[[skills]]\nname = "g"\nlifetime = "on-demand"\nrole = "担当"\n')
         got = tree.read_info(self.root, self.settings)
-        self.assertEqual([s["lifetime"] for s in got["skills"]], ["on-demand", "per-ask", "always", "per-ask", "always", "per-ask"])
+        self.assertEqual([s["lifetime"] for s in got["skills"]],
+                         ["until-idle", "per-ask", "always", "per-ask", "always", "per-ask", "always"])
+        # 外した値 on-demand（2026-11-01 に until-idle に名前を替えた）は読まず、今の値を添えて注記に出す。役の値で扱う
         self.assertEqual(got["problems"], [
-            f"{got['path']}: skills[4]（e）: lifetime は per-ask・on-demand・always のどれか。外す",
-            f"{got['path']}: skills[5]（f）の rent_or_buy は true か false。外して、役の値で扱う"])
+            f"{got['path']}: skills[4]（e）: lifetime は per-ask・until-idle・always のどれか。外す",
+            f"{got['path']}: skills[5]（f）の rent_or_buy は true か false。外して、役の値で扱う",
+            f"{got['path']}: skills[6]（g）: 外した値 lifetime = \"on-demand\" は読まない（until-idle に名前を替えた。lifetime = \"until-idle\" と書く）"])
 
     def test_repo_file_wins_and_unknown_fields_are_skipped(self):
         write(tree.settings_info_path(self.settings, self.root), 'name = "手元"\n')
@@ -470,7 +474,7 @@ class Build(unittest.TestCase):
         self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  頼み元 -  窓 なし", text)
 
     def test_contacts_show_who_to_ask_and_the_desk(self):
-        # 受ける仕事ごとの宛て方（always の受け持ちは部署の名前、まだ立っていなければ役と --task、on-demand・per-ask の受け持ちは受け持ちの名前）と窓口を出す。
+        # 受ける仕事ごとの宛て方（always の受け持ちは部署の名前、まだ立っていなければ役と --task、until-idle・per-ask の受け持ちは受け持ちの名前）と窓口を出す。
         # 頼み元（company.boss）は納品の返し先なので、宛て方にも窓口にも使わない
         shape = role.load("t", '[[roles]]\nname = "担当"\nlifetime = "always"\n[[roles]]\nname = "作業"\n'
                                '[[roles]]\nname = "配布"\nmachine = true\n')

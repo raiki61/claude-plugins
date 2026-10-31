@@ -119,8 +119,8 @@ deliver_check = ""
         self.assertEqual((got["default_role"], got["roles"]["a"]["lifetime"], got["roles"]["b"]["lifetime"], got["problems"]),
                          ("b", "always", None, []))
         self.assertEqual(role.default(got, "作業"), ("b", None))
-        # on-demand は受け持ちごとの寿命なので、役には書けない
-        got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\nlifetime = "on-demand"\n'
+        # until-idle は受け持ちごとの寿命なので、役には書けない
+        got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\nlifetime = "until-idle"\n'
                                                   '[[roles]]\nname = "c"\n'))
         self.assertIsNone(got["default_role"])
         self.assertEqual(list(got["roles"]), ["c"])
@@ -187,10 +187,10 @@ class Seat(unittest.TestCase):
         self.assertIn("context の形が違う", got["problems"][0])
         # herdr の作業場の印に、寿命と会話の扱いを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
         from nodes import sync
-        skills = [{"name": "見渡し", "lifetime": "on-demand"}, {"name": "直し", "lifetime": "per-ask"}]
+        skills = [{"name": "見渡し", "lifetime": "until-idle"}, {"name": "直し", "lifetime": "per-ask"}]
         self.assertEqual(role.seat({"role": "担当", "lifecycle": "persistent", "fresh": "true"}, skills, got), "always.new")
         self.assertEqual(role.seat({"role": "相談", "lifecycle": "persistent"}, skills, got), "always.carry")
-        self.assertEqual(role.seat({"role": "担当", "lifecycle": "ephemeral", "fresh": "true", "name": "見渡し"}, skills, got), "on-demand.new")
+        self.assertEqual(role.seat({"role": "担当", "lifecycle": "ephemeral", "fresh": "true", "name": "見渡し"}, skills, got), "until-idle.new")
         self.assertEqual(role.seat({"role": "担当", "lifecycle": "ephemeral", "name": "直し：abcdef"}, skills, got), "per-ask")
         self.assertEqual(role.seat({"role": "作業", "lifecycle": "ephemeral"}, skills, got), "per-ask.rent-or-buy-off")
         self.assertIsNone(role.seat({}))
@@ -340,7 +340,7 @@ class ModelAndEffort(unittest.TestCase):
         # herdr の作業場の並びと --tree の部署の並びが同じ鍵を使う（持ち主 2026-10-17 の案 A）。rent-or-buy off は並びに効かない
         duties = ["ノートの手入れ", "調べもの", "見渡し"]
         rows = {"社長室": "always.carry", "調べもの": "always.new", "ノートの手入れ": "always.new.rent-or-buy-off",
-                "新しい担当": "always.new", "見渡し": "on-demand.new", "作業：1": "per-ask", "手で開いた": None}
+                "新しい担当": "always.new", "見渡し": "until-idle.new", "作業：1": "per-ask", "手で開いた": None}
         self.assertEqual(sorted(rows, key=lambda n: role.flow_rank(rows[n], n, duties)),
                          ["社長室", "ノートの手入れ", "調べもの", "新しい担当", "見渡し", "作業：1", "手で開いた"])
 
@@ -501,12 +501,12 @@ class Hook(unittest.TestCase):
         self.g.remove_worktree(self.place, force=True)
         self.assertEqual((health.oversize(inbox), kept()), ([], []))
 
-    def test_a_department_per_ask_gets_the_on_demand_line_of_its_duty(self):
-        # 頼みごとの部署（lifetime = "per-ask"）は名前が「<受け持ち>：…」でも、受け持ちの説明と寿命の文が足される。on-demand の
+    def test_a_department_per_ask_gets_the_lifetime_line_of_its_duty(self):
+        # 頼みごとの部署（lifetime = "per-ask"）は名前が「<受け持ち>：…」でも、受け持ちの説明と寿命の文が足される。until-idle の
         # 受け持ちの「<受け持ち>：…」の部署には足さない
         write(pathlib.Path(self.src) / ".claude" / "company.toml",
               SHAPE + '[[skills]]\nname = "見渡し"\ndescription = "調べる"\nrole = "調べ役"\nlifetime = "per-ask"\n'
-                      '[[skills]]\nname = "直し"\ndescription = "直す"\nrole = "調べ役"\nlifetime = "on-demand"\n')
+                      '[[skills]]\nname = "直し"\ndescription = "直す"\nrole = "調べ役"\nlifetime = "until-idle"\n')
         provision.mark(self.place, self.src, {"role": "調べ役", "name": "見渡し：d14822", "lifecycle": "ephemeral"}, self.g)
         text = role_hook.text_for(self.place, self.env)
         self.assertIn("受け持ちは「見渡し」（調べる）。この受け持ちの寿命は per-ask", text)

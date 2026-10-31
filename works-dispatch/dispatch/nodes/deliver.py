@@ -46,8 +46,8 @@ BRANCH_ITEM = "ブランチ"                 # 書かなければ部署のブラ
 OPEN = "残った疑問"                      # 頭書きの open から作る項目（本文に見出しで書かない）
 # 項目の前の名前 → 今の名前（IT の定着語に替える前の名前。前の版の役の本文や会社の形の deliver に従って書いた要約も通す）
 ITEM_ALIASES = {"枝": BRANCH_ITEM}
-# 頼まれたときだけ立てる受け持ちの lifetime（role.ON_DEMAND・role.PER_ASK。このノードは role を読まないので値を写す）
-ASKED = ("on-demand", "per-ask")
+# 頼まれたときだけ立てる受け持ちの lifetime（role.UNTIL_IDLE・role.PER_ASK。このノードは role を読まないので値を写す）
+ASKED = ("until-idle", "per-ask")
 CONCLUSION_ITEM, CONCLUSION_LINES = "結論", 3
 URL_ITEMS = ("決め手",)            # 原典の URL を含むこと
 URL = re.compile(r"https?://\S+")
@@ -164,11 +164,11 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                 "role": current(company, mine[0]["attrs"].get("role") or name if mine else name)}
     duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("lifetime") in ASKED), None)
     if duty and duty.get("role"):
-        # 頼まれたときだけ立てる受け持ち（lifetime が on-demand か per-ask。tree.read_info が受け持ちの役の lifetime まで解いた物）で、
-        # その名前の部署が今は無い: その名前の畳む部署を立てる（orders.ask が部署の名前とブランチを決める）。on-demand の受け持ちで立つ
+        # 頼まれたときだけ立てる受け持ち（lifetime が until-idle か per-ask。tree.read_info が受け持ちの役の lifetime まで解いた物）で、
+        # その名前の部署が今は無い: その名前の畳む部署を立てる（orders.ask が部署の名前とブランチを決める）。until-idle の受け持ちで立つ
         # 部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む。per-ask の受け持ちは、頼みごとに別の部署
         # （「<受け持ち>：<受付番号の終わり 6 字>」）を立てるので、積まずに並ぶ
-        return {"company": company, "department": None, "role": current(company, duty["role"]), "on_demand": duty["name"],
+        return {"company": company, "department": None, "role": current(company, duty["role"]), "asked": duty["name"],
                 "per_ask": duty["lifetime"] == "per-ask"}
     name = current(company, name)
     persistent = [d for d in company["departments"]

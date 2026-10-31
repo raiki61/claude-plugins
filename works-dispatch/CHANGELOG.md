@@ -6,6 +6,15 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 部署の寿命（会社の形〔`.claude/company.toml`〕の `lifetime`）の値 `on-demand` を `until-idle` に替えた（持ち主 2026-11-01。頼み 76a031。設計は `docs/specs/2026-10-31-lifetime-context-design.md` の 5）。`until-idle` も `always` も「受け持ちに部署が 1 つ・次の頼みはその部署の順番待ち」で、違いは手が空いたら畳むかだけ。前の名前は「頼まれたら立てる」を言っていて、その違いが名前に出なかった。席のキー（`until-idle.new` など）・表示（`until-idle · new`）・部署の会話の始まりに足す文（「この受け持ちの寿命は until-idle（頼まれたときに立て、手が空いたら畳む）。」）も替わる。
+- 語の検査（`dispatch/terms.py`）は、部署の話の形の `on-demand`（「on-demand の受け持ち」など）も `until-idle` に直す。
+
+### Removed
+
+- 寿命の値 `lifetime = "on-demand"` は読まない（読み替えの期間を置かない）。受け持ちに書いてあれば、外した値として注記に `lifetime = "until-idle"` を添えて出し、書いていないのと同じく役の寿命を継ぐ（役が `always` なら `always`）。会社の形を書き直すまで、その受け持ちは `--ask <会社>/<受け持ち>` で部署が立たない。役の本文が「この受け持ちの寿命は on-demand」の字で寿命を見分けていれば、その字も替える。
+
 ## [0.148.1] - 2026-11-01
 
 ### Changed

@@ -167,10 +167,10 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
         return 1, [f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）が、{to} に回せなかった（{e}）"]
     ask, task_name = f"{company}/{to}", tools.auto_name(role_name, tool)
     duty = next((s for s in target["company"].get("skills", []) if s.get("name") == to), None)
-    if target["department"] is None and duty and not target.get("on_demand") and duty.get("role"):
+    if target["department"] is None and duty and not target.get("asked") and duty.get("role"):
         # 立っていない受け持ちの部署には、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じく、受け持ちの役でその名前の部署を立てる
         ask, task_name = f"{company}/{duty['role']}", to
-    auto = target["department"] is None and not target.get("on_demand")   # on-demand の受け持ちは orders.ask が部署の名前とブランチを決める
+    auto = target["department"] is None and not target.get("asked")   # until-idle の受け持ちは orders.ask が部署の名前とブランチを決める
     ns = argparse.Namespace(**{**vars(a), "ask": ask, "text": None, "brief": brief, "dry_run": False,
                                "task": task_name if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,

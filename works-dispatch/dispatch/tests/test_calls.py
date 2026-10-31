@@ -266,11 +266,11 @@ class Call(unittest.TestCase):
         self.assertEqual(companies[0]["tools"], [])
         self.assertIn("回す先 見張り が会社の形の役にも受け持ちにも無いので外す", companies[0]["problems"][0])
 
-    def test_handing_over_to_an_on_demand_duty_lets_ask_name_its_department(self):
-        # on-demand の受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
+    def test_handing_over_to_an_until_idle_duty_lets_ask_name_its_department(self):
+        # until-idle の受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
         self.use("true", fallback='fallback_role = "見渡し"')
         with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
-            f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\nlifetime = "on-demand"\n')
+            f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\nlifetime = "until-idle"\n')
         seen = {}
 
         def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
@@ -284,7 +284,7 @@ class Call(unittest.TestCase):
         self.assertEqual((seen.get("name"), seen.get("role")), ("見渡し", "調べ役"))
 
     def test_handing_over_to_a_duty_whose_department_is_down_raises_it_with_the_duty_role(self):
-        # on-demand でない受け持ち「調べ物」の部署が立っていなければ（立っているのは別の名前の「調べ」）、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じ形で立てる
+        # until-idle でない受け持ち「調べ物」の部署が立っていなければ（立っているのは別の名前の「調べ」）、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じ形で立てる
         self.use("true", fallback='fallback_role = "調べ物"')
         with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
             f.write('\n[[skills]]\nname = "調べ物"\nrole = "調べ役"\n')

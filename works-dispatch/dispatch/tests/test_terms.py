@@ -36,7 +36,8 @@ class Fix(unittest.TestCase):
 
     def test_former_names_of_department_lifetimes_are_fixed_but_ordinary_words_are_not(self):
         # 2026-10-31 に寿命の語を会社の形の鍵の値にそろえた（keep → always・clear → new・continue → carry。tmp は per-ask と
-        # on-demand に分かれたので「畳む部署」）。前の語（常設・都度・永続・エフェメラル・毎回クリア・引き継ぎ・keep・tmp・clear）も直す
+        # on-demand に分かれたので「畳む部署」）。前の語（常設・都度・永続・エフェメラル・毎回クリア・引き継ぎ・keep・tmp・clear）も直す。
+        # 2026-11-01 に on-demand を until-idle に替えた（頼み 76a031）ので、部署の話の形の on-demand も直す
         cases = {"常設の部署": "always の部署", "都度の部署": "畳む部署", "常設・毎回空": "always · new",
                  "担当は常設で 1 人": "担当は always で 1 人", "その都度の部署": "その都度の部署",
                  "その都度確かめる": "その都度確かめる", "常設の展示": "常設の展示",
@@ -46,7 +47,9 @@ class Fix(unittest.TestCase):
                  "常設の席": "常設の席", "エフェメラルの部署": "畳む部署",
                  "永続の部署": "always の部署", "永続・毎回クリア": "always · new", "永続・引き継ぎ": "always · carry",
                  "常設・持ち越し": "always · carry", "毎回クリアする部署": "new の部署", "毎回クリアする担当": "new の担当",
-                 "毎回空にする部署": "new の部署", "オンデマンドの受け持ち": "on-demand の受け持ち", "永続に上げる": "always に上げる",
+                 "毎回空にする部署": "new の部署", "オンデマンドの受け持ち": "until-idle の受け持ち", "on-demand の受け持ち": "until-idle の受け持ち",
+                 "on-demand · new": "until-idle · new", "on-demand なら畳む": "until-idle なら畳む",
+                 "AWS の on-demand instances": "AWS の on-demand instances", "--on-demand の部署": "--on-demand の部署", "永続に上げる": "always に上げる",
                  "keep の部署": "always の部署", "tmp の部署": "畳む部署", "keep・clear": "always · new",
                  "keep・continue": "always · carry", "clear の部署": "new の部署", "keep の担当": "always の担当",
                  "/clear の後": "/clear の後", "reset --keep で": "reset --keep で", "$CLAUDE_JOB_DIR/tmp の中": "$CLAUDE_JOB_DIR/tmp の中",
@@ -56,9 +59,9 @@ class Fix(unittest.TestCase):
         for before, after in cases.items():
             self.assertEqual(terms.fix_line(before), after, before)
         self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "new")])
-        # per-ask か on-demand かを文から決める tmp は、見つけるだけで直さない
+        # per-ask か until-idle かを文から決める tmp は、見つけるだけで直さない
         self.assertEqual(terms.fix_line("tmp で立てる"), "tmp で立てる")
-        self.assertEqual(terms.line_problems("tmp で立てる"), [("tmp", "畳む部署（per-ask か on-demand）")])
+        self.assertEqual(terms.line_problems("tmp で立てる"), [("tmp", "畳む部署（per-ask か until-idle）")])
 
     def test_a_plan_written_as_a_step_is_fixed_but_steps_and_layers_are_not(self):
         # サブスクのプランの意味の 段 だけを当てる（my_notes の tools/checks/terms.py の項を元にした形）

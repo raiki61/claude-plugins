@@ -897,8 +897,8 @@ class Flow(unittest.TestCase):
         self.assertFalse(os.path.exists(self.inbox))
 
     def test_ask_to_a_duty_raised_only_when_asked_starts_its_department_with_a_branch_of_its_own(self):
-        # on-demand の受け持ち（lifetime = "on-demand"）: --task・--branch を渡さなくても、受け持ちの名前の部署を立てる（813bb8）
-        self.shape('[[roles]]\nname = "担当"\nlifetime = "always"\n[[skills]]\nname = "見渡し"\nrole = "担当"\nlifetime = "on-demand"\n')
+        # until-idle の受け持ち（lifetime = "until-idle"）: --task・--branch を渡さなくても、受け持ちの名前の部署を立てる（813bb8）
+        self.shape('[[roles]]\nname = "担当"\nlifetime = "always"\n[[skills]]\nname = "見渡し"\nrole = "担当"\nlifetime = "until-idle"\n')
         seen = {}
 
         def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
@@ -912,10 +912,10 @@ class Flow(unittest.TestCase):
                 orders.ask(a, self.ports, self.src, task)
         self.assertEqual((seen["name"], seen["role"]), ("見渡し", "担当"), buf.getvalue())
         self.assertRegex(seen["branch"], r"^work/ask-[0-9a-f]{6}$")
-        self.assertIn("on-demand の受け持ち", buf.getvalue())
+        self.assertIn("until-idle の受け持ち", buf.getvalue())
         companies = [{"name": "co", "root": self.src, "departments": [],
-                      "skills": [{"name": "見渡し", "role": "担当", "lifetime": "on-demand"}]}]
-        self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["on_demand"], "見渡し")
+                      "skills": [{"name": "見渡し", "role": "担当", "lifetime": "until-idle"}]}]
+        self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["asked"], "見渡し")
         companies[0]["departments"] = [dept_row(name="見渡し", role="担当", path="/r/w")]   # 立っている間は、その部署に届ける
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
 
@@ -945,8 +945,8 @@ class Flow(unittest.TestCase):
         companies = [{"name": "co", "root": self.src, "skills": [duty],
                       "departments": [dept_row(name="見渡し：abc123", role="担当", path="/r/a")]}]
         got = deliver.find_target(companies, self.src, "co/見渡し")   # 頼みごとの部署が立っていても、次の頼みは別の部署
-        self.assertEqual((got["department"], got["on_demand"], got["per_ask"]), (None, "見渡し", True))
-        self.assertEqual(orders.on_demand_name(got, "20261026-092520-d14822"), "見渡し：d14822")
+        self.assertEqual((got["department"], got["asked"], got["per_ask"]), (None, "見渡し", True))
+        self.assertEqual(orders.asked_name(got, "20261026-092520-d14822"), "見渡し：d14822")
         companies[0]["departments"].append(dept_row(name="見渡し", role="担当", path="/r/w"))   # 受け持ちの名前の部署（移す前の always）へは届く
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
 

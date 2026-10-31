@@ -6,7 +6,7 @@
 （patterns）の組を並べる（https://github.com/textlint-rule/textlint-rule-prh）。語は my_notes の tools/checks/terms.py と
 同じにそろえ（「本流」は、my_notes では master、ここでは会社ごとに名前の違うメインブランチと書く）、claude-plugins に多い
 4 つ（持ち手・関門・柵・根）を足した。
-正しい表記には、英語のまま通じる短い語（always・on-demand・fast-forward など）も置く（持ち主 2026-10-29「別に英単語もつかっていいんじゃない？」。
+正しい表記には、英語のまま通じる短い語（always・until-idle・fast-forward など）も置く（持ち主 2026-10-29「別に英単語もつかっていいんじゃない？」。
 どこまで英単語を許すかの線は claude-plugins のルートの CLAUDE.md の「会話」）。
 
 見ないもの: 引用（`>` の行）と脚注の定義の行と、「」の中（人の言葉やほかの文書の見出しをそのまま引く）と、`` ` `` の中
@@ -46,7 +46,8 @@ _TURN = r"(?<![一二三四五六七八九十順当本交輪週張定出門連�
 # 毎回クリア → clear（Claude Code の /clear）、引き継ぎ → continue（claude --continue）、オンデマンド → on-demand。
 # 2026-10-31 に会社の形の鍵を lifetime（per-ask・on-demand・always）と context（new・carry）に入れ替え（持ち主「全部入れ替えたら
 # いいでしょ？」。頼み 755c1f）、語も鍵の値にそろえた: keep → always、clear → new、continue → carry。tmp（always でない部署）は
-# per-ask と on-demand に分かれたので、両方を指す所は「畳む部署」と書く。
+# per-ask と on-demand に分かれたので、両方を指す所は「畳む部署」と書く。2026-11-01 に on-demand を until-idle に替えた（always との
+# 違いの「手が空いたら畳む」が名前に出るように。持ち主 2026-11-01「A」。頼み 76a031）。部署の話の形の on-demand も until-idle に直す。
 # 「その都度」「常設の展示」「永続化」「ディスク永続の checkpointer」「永続ボリューム」「オンデマンドインスタンス」、/clear・
 # claude --continue・reset --keep・$CLAUDE_JOB_DIR/tmp などのふつうの言い方は当てず、部署の話の形だけを当てる
 _DEPT = r"\s?(?:の(?:部署|役(?![員割])|担当|受け持ち|会話)|で立|でな|なら)"   # 部署の話の形（英単語の後ろ）
@@ -59,7 +60,7 @@ _CLEARED = (r"(?<=常設・|永続・)毎回空|毎回空(?=の部署|で立|に
             rf"|(?<=keep・)clear|(?<![A-Za-z/.-])clear(?=\s?の(?:部署|担当|役(?![員割]))|\s?で立)")
 _CARRY = (r"(?:(?<=常設・)|(?<=永続・)|(?<=keep・)|(?<=毎回空・)|(?<=毎回クリア・)|(?<=clear・))(?:持ち越し|引き継ぎ|continue)"
           r"|(?:(?<=毎回空、)|(?<=毎回クリア、))持ち越し")
-_ON_DEMAND = r"オンデマンド(?![ァ-ヶ]|配信|印刷)"
+_UNTIL_IDLE = rf"オンデマンド(?![ァ-ヶ]|配信|印刷)|(?<![A-Za-z/.$_-])on-demand(?={_DEPT}|\s?·)"
 # 段 は順序や層（3 段・段ごと・tiers の段 0〜3・段取り・段落）にも使うので、契約・アカウント・プランの名前に付いた形（契約の段・
 # Max 20x の段）と、段の直後に括弧でプランの名前を添えた形（段（Pro））だけを当てる。my_notes の tools/checks/terms.py の項を元に、
 # サブスクの後ろを語の形に限り（\w* だと「サブスクを替えて 3 段」まで伸びる）、英字の語の末尾の Pro（GoPro）を外し、段ごと と Free を足した
@@ -93,10 +94,10 @@ TERMS = (
     ("ルート", r"(?<![屋垣大羽心球尾草禍性精島箱])根(?![拠本気性底幹深元源っ強絶回菜付差づ])"),
     ("プラン", _PLAN_OF + _PLAN_TAIL + "|" + _PLAN_NAMED),
     ("always", _PERSISTENT),
-    ("畳む部署（per-ask か on-demand）", _EPHEMERAL),
+    ("畳む部署（per-ask か until-idle）", _EPHEMERAL),
     ("new", _CLEARED),
     ("carry", _CARRY),
-    ("on-demand", _ON_DEMAND),
+    ("until-idle", _UNTIL_IDLE),
 )
 PATTERNS = tuple((expected, re.compile(p)) for expected, p in TERMS)
 SKIPPED_LINE = re.compile(r"^\s*(>|\[\^[^\]]+\]:)")
@@ -173,14 +174,14 @@ FIXES = (
     (rf"({_PLAN_OF})" + _PLAN_TAIL, "\\1プラン"),
     (_PLAN_NAMED, "プラン"),
     # 寿命の語は、2 語の組（席の見え方）を先に、前の語を後ろ読みに使う物（都度・引き継ぎ・毎回クリア）を永続を直す前に直す。
-    # 「tmp の部署」のほかの tmp（tmp で立てる、など）は per-ask か on-demand かを文から決めるので、直さずに残す
+    # 「tmp の部署」のほかの tmp（tmp で立てる、など）は per-ask か until-idle かを文から決めるので、直さずに残す
     (r"(?:keep|常設|永続)・(?:clear|毎回空|毎回クリア)", "\x01always · new\x02"),
     (r"(?:keep|常設|永続)・(?:continue|持ち越し|引き継ぎ)", "\x01always · carry\x02"),
     (rf"(?:(?<=[{_CJK}、（]) )?(?:(?<![A-Za-z/.$_-])tmp|(?<!その)都度|エフェメラル) ?の部署", "畳む部署"),
     (r"(?:毎回空にする|毎回クリアする)(?=部署|担当)", "\x01new\x02の"),
     (_CLEARED, "\x01new\x02"),
     (_PERSISTENT, "\x01always\x02"),
-    (_ON_DEMAND, "\x01on-demand\x02"),
+    (_UNTIL_IDLE, "\x01until-idle\x02"),
 )
 FIX_PATTERNS = tuple((re.compile(p), r) for p, r in FIXES)
 

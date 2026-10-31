@@ -1094,7 +1094,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     if why:
         print(f"止めた: {why}")
         return 2
-    # 寿命が always（役か受け持ちの lifetime。role.lifetime_at）なら --persistent と同じ。on-demand・per-ask の受け持ちの部署は畳む部署で立てる
+    # 寿命が always（役か受け持ちの lifetime。role.lifetime_at）なら --persistent と同じ。until-idle・per-ask の受け持ちの部署は畳む部署で立てる
     persistent = a.persistent or bool(the_role) and role.lifetime_at(the_role, info["skills"], a.task) == role.ALWAYS
     model, effort, flags_note = role.launch_flags(the_role, ports.env, duty)
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
@@ -1648,7 +1648,7 @@ role = "担当"
 # model = "sonnet"   # この受け持ちの部署を起動するときの --model（役の model より優先する。省けば役の値、それも無ければアカウントの既定）
 # effort = "low"     # この受け持ちの部署を起動するときの --effort（役の effort より優先する。書ける値は役の effort と同じ）
 # settings = {{ promptCacheTtl = "5m" }}   # この受け持ちの部署の --settings に、役の [roles.settings] の上から重ねる {chat} の設定
-# lifetime = "on-demand"   # この受け持ちの部署の寿命（per-ask・on-demand・always。省けば役の lifetime）。on-demand は頼まれたときに立て、手が空いたら畳む
+# lifetime = "until-idle"   # この受け持ちの部署の寿命（per-ask・until-idle・always。省けば役の lifetime）。until-idle は頼まれたときに立て、手が空いたら畳む
 # rent_or_buy = false   # この受け持ちの部署に借りるか買うかの判断（キャッシュの寿命の前に短い文を送る keepalive と、費用で決める compact）を効かせない（省けば効かせる）
 
 [[skills]]

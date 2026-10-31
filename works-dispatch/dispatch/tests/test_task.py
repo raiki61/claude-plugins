@@ -197,9 +197,9 @@ class Task(unittest.TestCase):
         self.assertEqual(len(ports.spawned), 1)
 
     def test_a_duty_raised_only_when_asked_starts_per_task_even_under_a_resident_role(self):
-        # 受け持ちの lifetime = "on-demand"（on-demand）は、役が lifetime = "always" でも畳む部署で立つ（--done で畳まれる）
+        # 受け持ちの lifetime = "until-idle" は、役が lifetime = "always" でも畳む部署で立つ（--done で畳まれる）
         push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\nlifetime = "always"\n'
-                                          '[[skills]]\nname = "直し"\nrole = "担当"\nlifetime = "on-demand"\n')
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\nlifetime = "until-idle"\n')
         ports = self.ports()
         rc, out = self.run_task(ports)   # 部署の名前（直し）が受け持ちの名前
         self.assertEqual(rc, 0, out)
@@ -215,9 +215,9 @@ class Task(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         attrs = self.g.worktree_attrs(self.place(ports, "work/ask-d14822"))
         self.assertEqual((attrs["role"], attrs["lifecycle"], attrs["name"]), ("担当", "ephemeral", "直し：d14822"))
-        # on-demand の受け持ちの「<受け持ち>：…」は、今までどおり担当の役では止める
+        # until-idle の受け持ちの「<受け持ち>：…」は、今までどおり担当の役では止める
         push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\nlifetime = "always"\n[[roles]]\nname = "作業"\n'
-                                          '[[skills]]\nname = "直し"\nrole = "担当"\nlifetime = "on-demand"\n')
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\nlifetime = "until-idle"\n')
         rc, out = self.run_task(ports, "--role", "担当", name="直し：題", branch="task/topic")
         self.assertEqual(rc, 2, out)
         self.assertIn("止めた: 役 担当 は受け持ちごとに 1 つの always の部署", out)

@@ -78,7 +78,7 @@ role = "担当"
 [[skills]]
 id = "reform"
 name = "業務改革"
-lifetime = "on-demand"
+lifetime = "until-idle"
 description = "x"
 role = "担当"
 [skills.start]

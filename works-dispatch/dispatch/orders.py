@@ -475,10 +475,10 @@ def forwarded(attrs, sent, ports, cwd):
     return [f"回した元の受付 {held} を閉じた（頼み元 {attrs.get('boss') or '-'} の会話は起動せず、回した先を台帳に書いた）"]
 
 
-def on_demand_name(target, ask_id):
-    """頼まれたときだけ立てる受け持ちへの頼み（deliver.find_target が on_demand を付けた宛先）で立てる部署の名前。受け持ちの名前か、
+def asked_name(target, ask_id):
+    """頼まれたときだけ立てる受け持ちへの頼み（deliver.find_target が asked を付けた宛先）で立てる部署の名前。受け持ちの名前か、
     lifetime = "per-ask" なら頼みごとの部署の名前（role.per_ask_name）。"""
-    return role.per_ask_name(target["on_demand"], ask_id) if target.get("per_ask") else target["on_demand"]
+    return role.per_ask_name(target["asked"], ask_id) if target.get("per_ask") else target["asked"]
 
 
 def text_of(a, flag, what):
@@ -736,13 +736,13 @@ def _ask(a, ports, cwd, task, sent):
                                  f"- 本文: {path}"]))
         return 0 if status == "sent" else 1
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。ブランチの名前は頼む側が渡す）
-    if target.get("on_demand"):
-        # 頼まれたときだけ立てる受け持ち（lifetime が on-demand か per-ask）: 部署の名前は受け持ちの名前、ブランチは受付番号から作る
+    if target.get("asked"):
+        # 頼まれたときだけ立てる受け持ち（lifetime が until-idle か per-ask）: 部署の名前は受け持ちの名前、ブランチは受付番号から作る
         # （--task・--branch を渡さなくてよい）。部署は畳む部署で立ち（dispatch._task が role.lifetime_at を見る）、納品してメインブランチに
         # 入れたら --done で畳まれる。per-ask の受け持ちは、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる（並べて進む）
-        a = argparse.Namespace(**{**vars(a), "task": on_demand_name(target, ask_id), "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
-        notes.append(f"{target['on_demand']} は " + ("per-ask の受け持ち（頼みごとに別の部署で受ける）" if target.get("per_ask")
-                                                     else "on-demand の受け持ち（頼まれたときだけ立てる）")
+        a = argparse.Namespace(**{**vars(a), "task": asked_name(target, ask_id), "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
+        notes.append(f"{target["asked"]} は " + ("per-ask の受け持ち（頼みごとに別の部署で受ける）" if target.get("per_ask")
+                                                     else "until-idle の受け持ち（頼まれたときに立て、手が空いたら畳む）")
                      + f"なので、部署 {a.task}（ブランチ {a.branch}）を立てる")
     if not (a.task and a.task.strip() and a.branch):
         print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の always の部署が無いので新しく立てる。"

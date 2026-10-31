@@ -12,7 +12,7 @@
   出すため。本社（元の clone。--desk で窓口の属性を書く）の作業場は herdr の木の親なので、属性を持てば会社の名前を付ける（会社の
   名前は親の作業場にだけ出し、部署の名前には付けない。持ち主 2026-10-16）。今の名前と同じなら付け直さず、属性を持つ場所が
   2 つ以上居る作業場は触らない。
-- 作業場には、席の見え方（always · carry、always · new、on-demand · new、per-ask など。rent-or-buy を切った部署は rent-or-buy off を
+- 作業場には、席の見え方（always · carry、always · new、until-idle · new、per-ask など。rent-or-buy を切った部署は rent-or-buy off を
   足す）を印 kind として付ける（サイドバーの作業場の行に herdr の設定の $kind で出す。会話の行でなく作業場の行で見せる。持ち主
   2026-10-16・17・31）。見せる語と並べて、席のキー（role.seat の always.carry など）を印 seat に付け、今の値と比べるのは seat で行う
   （見せる語は言い方を変えれば変わるので、機械の比べに使わない。
@@ -20,7 +20,7 @@
   場所が 2 つ以上居る作業場は触らない。前の版の席のキーの作業場には、次の --sync で一度だけ kind と seat を付け直す。
 - 会社ごとの部署の作業場（元の clone の linked worktree の作業場）は、仕事の流れの順に並べる（flow_order。順の鍵は role.flow_rank で、
   --tree の部署の並びと同じ。持ち主 2026-10-17 の案 A）。
-  always · carry（相談の社長室など）、always · new（担当）、on-demand（この中と always · new の中は会社の形の [[skills]] の書き順）、
+  always · carry（相談の社長室など）、always · new（担当）、until-idle（この中と always · new の中は会社の形の [[skills]] の書き順）、
   per-ask（作業。この中は今の並び。
   herdr は新しい作業場を後ろに足すので、起動した順）、属性の無い作業場（手で開いた場所）の順。順は属性と会社の形から毎回出し、
   順の表は持たない。本社（元の clone）の作業場は herdr が会社のまとまりの頭に置くので動かさない。会社の部署の作業場が herdr の

@@ -85,7 +85,7 @@ def _skills(raw, where, problems, lifetimes=None):
             got["settings"] = s["settings"]
         # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
-        # lifetime（部署の寿命）: on-demand は受け持ちの名前の部署を頼まれたときだけ立て（--ask が立て、手が空いたら --done で畳む）、
+        # lifetime（部署の寿命）: until-idle は受け持ちの名前の部署を頼まれたときだけ立て（--ask が立て、手が空いたら --done で畳む）、
         # per-ask は頼みごとに別の一度きりの部署（「<受け持ち>：<受付番号の終わり 6 字>」。role.per_ask_name）で受けて並べて進め、
         # always はいつも立てておく。書かなければ受け持ちの役の lifetime（lifetimes。無ければ per-ask）。形が違えば外して役の値で扱う
         own = role.lifetime_of(s.get("lifetime"), f"{where}: skills[{i}]（{s['name']}）", problems)
@@ -323,7 +323,7 @@ def contacts(company, shape):
     外の会社の部署も中の部署も、仕事が決まれば受ける仕事の宛先へ、決まらない件と部署をまたぐ件は窓口へ頼む。窓口は会社の部署すべてを
     見渡す本社の会話で、部署をまたぐ件の上げ先を関わる部署すべてを見渡す段とする組織論の原典（Galbraith 1974）と、外の入口を 1 つに
     する形（ITIL のサービスデスク）に当たる。受ける仕事ごとの宛先は働きごとに宛先を分ける形（RFC 2142）に当たる。
-    宛先の決まりは deliver.find_target と同じ: always の受け持ちと、頼まれたときだけ立てる受け持ち（on-demand・per-ask）は部署の名前（＝受け持ちの名前。役を足す
+    宛先の決まりは deliver.find_target と同じ: always の受け持ちと、頼まれたときだけ立てる受け持ち（until-idle・per-ask）は部署の名前（＝受け持ちの名前。役を足す
     フックが同じ名前で結ぶ）で宛て、always の受け持ちの部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。役の無い受け持ちは役で宛てて --task に
     部署の名前を添える。立てるときはブランチ（--branch）も要る（orders.ask）。頼み元（属性 company.boss）は納品の返し先で、ここでは使わない。"""
     plain = company["name"]
