@@ -6,6 +6,7 @@ import ast
 import pathlib
 import subprocess
 import textwrap
+import types
 import warnings
 
 import fence
@@ -33,6 +34,15 @@ def test_migration_block_is_exactly_the_ledger(request):
     table, _ = ledger.build(_found(request), (), ledger.removed(_text()))
     assert ledger.block(_text()) == ledger.render_md(table), \
         "MIGRATION.md の刷った塊（ledger:begin と ledger:end の間）が古い——python3 graphloops/tests/py/ledger.py で刷り直して貼れ"
+
+
+@pytest.mark.small
+@pytest.mark.parametrize("given", ["test_a.py::test_b[x::y]", "tests/py/test_a.py::test_b[x::y]"], ids=["rootdir-here", "rootdir-mutmut"])
+def test_ledger_names_tests_from_this_folder_whatever_the_rootdir(given):
+    """台帳の名前は rootdir に依らずこの置き場から数える——mutmut は写しの graphloops/ を rootdir にして走らせ、item.nodeid の頭に
+    tests/py/ が付く（2026-10-31 の run 41213036540 で、写しの側でだけ MIGRATION.md の塊と食い違った）"""
+    item = types.SimpleNamespace(nodeid=given, path=ledger.HERE / "test_a.py")
+    assert ledger.nodeid(item) == "test_a.py::test_b[x::y]"
 
 
 @pytest.mark.medium

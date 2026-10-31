@@ -45,9 +45,19 @@ def pytest_configure(config):
     config.stash[ENTRIES] = []
 
 
+def nodeid(item):
+    """台帳に書くテストの名前（この置き場 tests/py から数えた nodeid）。ふだんは pytest.ini の在るこの置き場が rootdir で、item.nodeid と
+    同じ。変異のツール mutmut は --rootdir=. を付けて写しの graphloops/mutants/ で走らせるので、item.nodeid の頭に tests/py/ が付き、
+    MIGRATION.md の刷った塊と食い違って test_ledger が写しの側でだけ赤になった（2026-10-31 の mutation.yml の run 41213036540。
+    mutmut 3.8.0 の src/mutmut/runners/harness.py の execute_pytest）。この名前を coverage の文脈（item.nodeid）と突き合わせる
+    cover_moved.py は、pytest をこの置き場を cwd にして起動するので、そこでは 2 つが同じ"""
+    _, sep, rest = item.nodeid.partition("::")
+    return item.path.resolve().relative_to(HERE).as_posix() + sep + rest
+
+
 def pytest_itemcollected(item):
     for m in item.iter_markers(MARK):
-        item.config.stash[ENTRIES].append({"nodeid": item.nodeid, "file": item.path.name, "script": m.args[0], "head": m.args[1],
+        item.config.stash[ENTRIES].append({"nodeid": nodeid(item), "file": item.path.name, "script": m.args[0], "head": m.args[1],
                                            "kept": m.kwargs.get("kept")})
 
 

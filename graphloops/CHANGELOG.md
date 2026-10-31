@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の mutmut の job で、`tests/py/test_ledger.py` の `test_migration_block_is_exactly_the_ledger` が赤だったのを直した（0.46.4 で直した別の赤が先に止めていて、見えていなかった）。この試験は、`tests/py/MIGRATION.md` の中の台帳の表（模擬実行の台本の各確かめが、pytest のどのテストへ移ったかの表。テストを `test_x.py::test_y` の形の名前〔nodeid〕で並べる）が、pytest が集めたテストの印から作り直した表と同じかを見る。mutmut は graphloops/ を graphloops/mutants/ に写し、その写しで `--rootdir=.` を付けて pytest を走らせるので、テストの名前の頭に `tests/py/` が付き、表と食い違っていた。直したのは表を作る側（`tests/py/ledger.py`）で、テストの名前を rootdir に依らず `tests/py/` から数える。`MIGRATION.md` は変えていない。名前の頭が rootdir で変わることに頼る試験は、ほかに見当たらなかった。
+
 ## [0.46.4] - 2026-11-01
 
 ### Fixed
