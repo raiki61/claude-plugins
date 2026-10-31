@@ -41,10 +41,11 @@ BEAT = 5.0          # 印の更新の時刻を進める間（秒）
 FRESH = 15.0        # 送る側が待ち受けを居ると見る、印の更新からの秒
 GRACE = 2.0         # 新しい待ち受けが、前の待ち受けが終わるのを待つ秒（前の物は POLL ごとに印を見る）
 SLACK = 2.0         # 処理の起きた時刻（ps の etime は秒の刻み）と印を書いた時刻の比べの遊び
-KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み", "note": "頼みの足し"}
+KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み", "note": "頼みの足し", "say": "知らせ"}
 HOLD = ("hold", None)  # check の返り: 今は渡さず、BEAT ごとに check を呼び直す（fresh の部署を空にできるまで待つ）
 QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受けは check で渡す頼みを決める）
 NOTE = "note"       # 今受けている頼みへの足し（--note）。納品と同じに text をそのまま渡す（ターンの途中なら、ターンの終わりの待ち受けが渡す）
+SAY = "say"         # 頼みに結び付かない、返事の要らない知らせ（--say）。足しと同じに text をそのまま渡す
 REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
                     # ターンの終わりの待ち受けが窓に /clear を打って消す。人の文でターンが始まると外れる
 COMPACT = "compact"   # 部署と窓口の属性 company.compact: 会話が自分で「ここで compact してよい区切り」と印した（--compact）。値は印した時の
@@ -606,7 +607,7 @@ def notice(to, ask_id, kind, file, text, now):
 
 
 def mine(record, names):
-    """宛先が自分の知らせか。知らせは to が字で、種類が知らせの種類（KINDS。頼み・納品・順番待ち・足し）の行だけ（記録の行に字の
+    """宛先が自分の知らせか。知らせは to が字で、種類が知らせの種類（KINDS。頼み・納品・順番待ち・足し・知らせ）の行だけ（記録の行に字の
     to を書いても、空の知らせで会話を再開させない）。"""
     return isinstance(record.get("to"), str) and record["to"] in names and record.get("kind") in KINDS
 

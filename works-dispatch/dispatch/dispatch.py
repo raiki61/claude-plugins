@@ -27,8 +27,8 @@
 
 --task 名前 は、部署を 1 つ立てる（_task）。ブランチの場所を PR と同じ決まりで開き（herdr の、元の clone の子の作業場）、使用率でアカウントを
 1 つ選び（会社の形の役か受け持ちが account で名指したアカウントは、使えれば先に選ぶ）、その作業場で Claude Code の裏の会話（claude --bg）を、名前と頼みのファイルを読ませる最初の文を付けて起動し、同じペインで
-attach して画面を出す（会社の形の設計 9.1）。最初の文の後ろに、呼んだ会話への連絡の道（同じアカウントなら SendMessage、違えば画面に
-書いて止まる）を書き足す。作業の終わりは待たない。作業場の git の設定 company.<名前> に、部署の属性（役・アカウント・会話の名前と
+attach して画面を出す（会社の形の設計 9.1）。最初の文の後ろに、呼んだ会話への連絡の道（同じアカウントなら SendMessage、違えば
+--say）を書き足す。作業の終わりは待たない。作業場の git の設定 company.<名前> に、部署の属性（役・アカウント・会話の名前と
 id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--clean は、会話が終わりブランチがメインブランチに入った部署を、claude rm と一緒に片付ける。
 
 --tree は、herdr に開いている会社（リポジトリ）ごとに、会社の情報（名前と受ける仕事）と部署（ブランチ・役・アカウント・頼み元・herdr の
@@ -41,6 +41,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
                             [--from-name <呼んだ会話の名前>] [--from-account <アカウントの名>] [--role <役>] [--dry-run]
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
         python3 dispatch.py --ask <会社/役 か部署の名前か会社の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <ブランチ>] [--dry-run]
+        python3 dispatch.py --say <部署の名前か会社の名前かブランチか #PR の番号> (--text <文> | --brief <ファイル>) [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--for <受付> | --again] [--dry-run]
         python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
         python3 dispatch.py --compact [焦点]（部署か窓口の場所から。同じ仕事の前の部分が済んだので、ここで compact してよい区切りと印す）
@@ -69,6 +70,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import sys
 import time
 import tomllib
@@ -311,7 +313,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--html", metavar="ファイル", help="--todo と一緒に: 1 枚の HTML のページに書く（--all も受付も無ければ済んだブランチを初めは隠し、ページの中で出せる）")
     ap.add_argument("--sync", action="store_true", help=f"部署の属性から、{term.NAME} のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署か、会社の名前だけならその会社の窓口に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
-    ap.add_argument("--text", help="--ask か --note と一緒に: 頼みか足しの文（長い物は --brief のファイルで渡す）")
+    ap.add_argument("--text", help="--ask・--note・--say と一緒に: 頼み・足し・知らせの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--forward", action="store_true", help="--ask と一緒に: 部署か窓口の場所から、受けている頼みをこの頼みで回したとして"
                     "閉じる（回した先は台帳にだけ書き、頼み元の会話は起動しない。結果と問いは今までどおり --deliver で返す）")
     ap.add_argument("--take", metavar="受付", help="順番待ちの 1 件を、積んだ順を飛ばして取り出す。部署の場所から打てばその部署が今受け、"
@@ -332,6 +334,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--first", metavar="受付", help="順番待ちの 1 件を、その順番待ちの先頭に回す（急ぐ物を先にする。台帳に残す）")
     ap.add_argument("--note", metavar="受付", help="受付の頼みに、変更・足し・取り下げを届ける（--text か --brief。部署がターンの途中でも、"
                     "台帳の知らせでターンの終わりに待ち受けが渡す。順番待ちの頼みなら、渡すときの 1 行に添える）")
+    ap.add_argument("--say", metavar="宛先", help="頼みに結び付かない、返事の要らない知らせを届ける（--text か --brief。宛先は部署の名前・"
+                    "「会社/名前」・会社の名前〔窓口〕・作業場のブランチの名前・PR の「#番号」か「会社/#番号」。待ち受けが居れば台帳の"
+                    "知らせでターンの終わりに渡し、居なければ入力フィールドが空なのを見て窓に打つ。端末のペインに直に打つ代わり）")
     ap.add_argument("--call", nargs=2, metavar=("会社/役", "ツール"),
                     help="役の機械窓口のツールを呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
     ap.add_argument("--input", help="--call と一緒に: ツールへの入力（JSON の字か @ファイル。省けば {}）")
@@ -467,6 +472,8 @@ def main(argv=None, ports=None):
         return orders.nudge(a, ports, os.getcwd())
     if a.note is not None:
         return orders.note(a, ports, os.getcwd())
+    if a.say is not None:
+        return orders.say(a, ports, os.getcwd())
     if a.ask is not None:
         cwd = os.getcwd()
         rc = orders.ask(a, ports, cwd, _task)
@@ -1041,16 +1048,16 @@ def _not_listed_why(rec, mine):
 def _contact(caller, account):
     """サブエージェントの最初の文の後ろに書き足す、連絡の道の 1 文。呼んだ会話と同じアカウントで、その名前が分かれば SendMessage。
     アカウントが違うと SendMessage が届かない（2026-10-16 に持ち主の手元で、別のアカウントの会話どうしで両方向とも
-    「No agent named … is reachable」になり、各会話の一覧にも同じアカウントの会話しか出なかった）ので、画面に書いて止まらせる。"""
+    「No agent named … is reachable」になり、各会話の一覧にも同じアカウントの会話しか出なかった）ので、受付を通す --say で
+    呼んだ会話へ送らせる（前は画面に書いて止まらせ、呼んだ側が herdr でこの画面に打ち込んで読んでいた。受付 23101c）。呼んだ会話の
+    名前が分からなければ --say の宛先も決められないので、画面に書いて止まらせる。"""
     if caller["name"] and caller["account"] == account:
         return f"報告は区切りごとに SendMessage で「{caller['name']}」へ送る（呼んだ会話と同じアカウントなので届く）。"
-    if not caller["account"]:
-        why = "呼んだ会話が分からず、SendMessage の宛先を決められない"
-    elif caller["account"] == account:
-        why = "呼んだ会話の名前が分からず、SendMessage の宛先を決められない"
-    else:
-        why = f"呼んだ会話{'「' + caller['name'] + '」' if caller['name'] else ''}とはアカウントが違い、SendMessage が届かない"
-    return f"報告は区切りごとにこの画面に短く書いて止まる（{why}。呼んだ側が {term.NAME} でこの画面を読む）。"
+    if caller["name"]:
+        return (f"報告は区切りごとに {orders.RUN} --say {shlex.quote(caller['name'])} --text <報告> で「{caller['name']}」へ送る"
+                "（呼んだ会話とはアカウントが違い、SendMessage が届かない。--say が宛先を見つけられずに止めたら、画面に短く書いて止まる）。")
+    why = "呼んだ会話が分からず" if not caller["account"] else "呼んだ会話の名前が分からず"
+    return f"報告は区切りごとにこの画面に短く書いて止まる（{why}、SendMessage と --say の宛先を決められない）。"
 
 
 def _brief_text(brief, caller, account, tail=None):
@@ -1196,7 +1203,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
              # 起動したときの会社の形の model・effort（new の部署の待ち受けが、今の値と比べて起動し直すかを決める）
              wake.LAUNCHED: role.launch_key(the_role, duty), **{k: v for k, v in (extra_attrs or {}).items() if v}}
     route = ("納品のコマンドで頼み元の窓へ" if tail else f"SendMessage で「{caller['name']}」へ"
-             if caller["name"] and caller["account"] == account else "区切りで画面に書いて止まる")
+             if caller["name"] and caller["account"] == account else f"--say で「{caller['name']}」へ"
+             if caller["name"] else "区切りで画面に書いて止まる")
     if a.dry_run:
         print("\n".join(notes + [
             f"部署 {a.task}  {a.branch}  {account}  {provision.would(row, found)}",

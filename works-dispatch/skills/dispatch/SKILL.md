@@ -23,13 +23,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 
 - `setup` はスクリプトの引数ではない。`/works-dispatch:dispatch setup` と呼ばれたら、[references/setup.md](references/setup.md) の「初めて」の手順を上から持ち主と進める。
 - PR を開く回（引数なし・`--pr`・`--issue`）と `--land` は、Bash のツールの `run_in_background` で走らせ、終わりの知らせが来てから出力を見せる。PR を開く回は各 PR の `/catchup` が終わるのを待ってから 2 ターン目を送るので数分かかり、`--land` はゲート（CI など）を待つ間は戻らない。前景で（`run_in_background` を付けずに）走らせると、Bash のツールの時間の上限で止められ、2 ターン目も報告も出ない。
-- `--dry-run`・`--check`・`--clean`・`--init`・`--todo`・`--remind`・`--remind-done` はすぐ終わり、`--task` は部署の会話が起きて attach するまでで終わり、`--ask`・`--deliver`・`--take`・`--withdraw`・`--first`・`--nudge`・`--note` は相手の作業の終わりを待たないので、前景で走らせてよい。
+- `--dry-run`・`--check`・`--clean`・`--init`・`--todo`・`--remind`・`--remind-done` はすぐ終わり、`--task` は部署の会話が起きて attach するまでで終わり、`--ask`・`--deliver`・`--take`・`--withdraw`・`--first`・`--nudge`・`--note`・`--say` は相手の作業の終わりを待たないので、前景で走らせてよい。
 
 ## 落とし穴
 
 - 部署の会話が打つ `--land` が、Claude Code の自動の権限の判定（auto mode）に止められたら、打ち直さずに納品で知らせ、窓口が `--land <部署の名前>` を打つ。
 - 納品の要約の既定の項目「決め手」（結論の根拠にした原典の一句と URL。調べものの役のための項目）が要らない役（コードを直す役など）の部署が、検査を通すために、在りもしない URL や決め手の根拠でない URL を要約に書き足してはいけない（要らない役は、会社の形〔`.claude/company.toml`〕のその役の `deliver` から決め手を外す）。
 - 頼んだ後で頼みを変える・足す・取り下げるときは、部署の窓に直に打たず `--note` で足す（取り下げも、その旨を `--note` で足す。部署がまだ受けていない順番待ちの頼みを取り除くのは `--withdraw`）。持ち主に部署の窓へ打たせない。
+- 頼みに結び付かない知らせ（返事の要らない連絡・再開の合図・`--pr` や `--issue` で開いた会話への一言）も、`herdr pane send-text`・`pane run` で窓に直に打たず `--say <宛先>` で送る（宛先は部署の名前・会社の名前・作業場のブランチ・PR の `#番号`）。モデル・effort の替え（`/model` など）は会社の形と `--move`、会話を閉じるのは `--retire` か引数なしの dispatch で、窓に打たない。
 - 部署の会話を止める前に、[references/clean.md](references/clean.md) の「部署の会話を止める」を読む（attach の画面を開いたまま `claude stop` を打つと、attach が会話を再開させる）。
 
 ## 何をいつ読むか
@@ -44,7 +45,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 - 部署を立てる前に `model`・`effort` の値を選ぶ（今の世代のモデルの格と effort の段ごとの成績・費用。原典の URL と確かめた日つき。重み付けは書かない）: [references/models.md](references/models.md)
 - herdr の表示を付け直す `--sync`・組み直す `--reorg` と `--desk`・席の確かめ `--desk --dry-run`・受け持ちを移す `--handover`・手で立てる会話のアカウントを選ぶ `nodes/accounts.py --pick`: [references/reorg.md](references/reorg.md)
 - ほかのアカウントで起動し直す `--move`（使用上限や会社の形の起動の設定が替わったときの自動の起動し直しも）: [references/move.md](references/move.md)
-- 頼む `--ask`（宛先・待ち受け・順番待ち・`--note`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・後で見ることを残すリマインダー `--remind`・受付箱）: [references/ask.md](references/ask.md)
+- 頼む `--ask`（宛先・待ち受け・順番待ち・`--note`・知らせ `--say`・`--forward` と、回した先の結果を頼み元へ返す `--deliver --for`・頼みの一覧 `--todo`・後で見ることを残すリマインダー `--remind`・受付箱）: [references/ask.md](references/ask.md)
 - 順番待ちを動かす `--take`・`--withdraw`・`--first`・`--nudge`・返事待ちの輪・落ちた部署の会話: [references/queue.md](references/queue.md)
 - 納品する `--deliver`（要約の項目・納品の検査 `deliver_check`）: [references/deliver.md](references/deliver.md)
 - 答え待ち `--wait`（`--park`）・区切り `--rest`・compact の区切り `--compact`・止める前の差し戻し: [references/rest.md](references/rest.md)

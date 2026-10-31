@@ -77,7 +77,8 @@ RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable,
 # 部署でない会話に足す、ほかの会社への頼み方（毎回の起動の量に入るので 1 行に保つ）
 HINT = ("works-dispatch: ここは会社「{company}」のリポジトリだが、この会話は部署ではない。ほかの会社に頼むときは SendMessage でなく "
         "`{run} --ask <会社の名前> --text <頼み>` を打つ（その会社の窓口に届き、受付の台帳に頼み元が残って、納品はこの会話の "
-        f"{term.NAME} の窓に返る。会社と仕事ごとの宛て方は同じコマンドの `--tree`）。")
+        f"{term.NAME} の窓に返る。会社と仕事ごとの宛て方は同じコマンドの `--tree`）。部署や PR の会話への返事の要らない一言も、"
+        f"{term.NAME} のペインに直に打たず `{{run}} --say <宛先> --text <知らせ>` で送る。")
 # 本社（代表の clone）の、窓口の席を持たない会話に HINT の後ろに足す 1 行。窓口の会話を開き直した会話が席を取り直さないと、待ち受けが
 # 張られず、納品は予備の道の打ち込みで人の入力フィールドに入る（2026-10-30 の my_notes の司令塔。受付 d46e09、頼み 2827a8）
 DESK_HINT = ("works-dispatch: この本社の窓口の席は窓口「{name}」の会話（会話 {session}）が持つ。前の窓口の会話を継ぐなら "
@@ -238,22 +239,32 @@ def text_for(cwd, env=os.environ, attrs=None):
         or role.asked_of(info.get("skills", []), attrs.get("name"))   # 頼みごとの部署（per-ask）は受け持ちの名前で始まる
     head_office = gitx.is_main_worktree(cwd) is True
     text = role.context(name, shape["roles"].get(name), company, duty, head_office, attrs.get("lifecycle"), shape["shared"])
-    if attrs.get("name") and not head_office:
-        text += commands_text(attrs["name"], attrs.get("lifecycle") != gitx.PERSISTENT)
+    if attrs.get("name"):
+        text += commands_text(attrs["name"], attrs.get("lifecycle") != gitx.PERSISTENT, desk=head_office)
     problems = info.get("problems", []) + shape["problems"]
     if problems:
         text += f"\n（会社の形を読めない所がある: {problems[0]}）"
     return text + parked_text(attrs)
 
 
-def commands_text(dept, ephemeral):
+def commands_text(dept, ephemeral, desk=False):
     """部署の会話に足す、よく打つコマンドの全文。部署の会話はこれらを打つたびにスキルの別ファイル（deliver.md・land.md・clean.md）を
-    読んでいた（2026-10-22〜29 の会話の記録で、スキルとして読んだ別ファイルの字数の 7 割がこの 3 本。頼み af40f6）ので、字を渡して読まずに済ませる。"""
-    lines = [f"- 納品: {RUN} --deliver <要約のファイル>（納品した頼みの続きを返し直すときは --again を足す）",
-             f"- main に入れる: {RUN} --land {shlex.quote(dept)}（Bash の run_in_background で打ち、終わりの知らせで結果を見る。自動の権限の判定〔auto mode〕に止められたら打ち直さず、納品で窓口に知らせる）",
-             f"- 頼む: {RUN} --ask <宛先> --text <頼み>（長い頼みは --text の代わりに --brief <ファイル>）"]
-    if ephemeral:
-        lines.append(f"- 終わりの印（納品して main に入れ終えたら）: {RUN} --done")
+    読んでいた（2026-10-22〜29 の会話の記録で、スキルとして読んだ別ファイルの字数の 7 割がこの 3 本。頼み af40f6）ので、字を渡して読まずに済ませる。
+    本社の窓口（desk）には、納品・main に入れる・終わりの印を足さず、頼む・足す・知らせるだけを足す。足す・知らせるは、ほかの会話の
+    herdr のペインに直に打つ（pane send-text・pane run）代わりの口（2026-10-23〜29 に guided-resolver の窓口が、PR の会話への頼み・
+    再開の合図・返しを 52 回直に打っていた。受付 23101c）。"""
+    talk = [f"- 頼む: {RUN} --ask <宛先> --text <頼み>（長い頼みは --text の代わりに --brief <ファイル>）",
+            f"- 頼んだ後の変更・足し・取り下げ: {RUN} --note <受付> --text <足し>",
+            f"- 返事の要らない知らせ（一言・再開の合図・PR の会話への連絡）: {RUN} --say <部署の名前かブランチか #PR の番号> --text <知らせ>"
+            f"（ほかの会話の {term.NAME} のペインに直に打たない。/model・/exit など / で始まる字は送らず、会社の形と --move・--retire で替える）"]
+    if desk:
+        lines = talk
+    else:
+        lines = [f"- 納品: {RUN} --deliver <要約のファイル>（納品した頼みの続きを返し直すときは --again を足す）",
+                 f"- main に入れる: {RUN} --land {shlex.quote(dept)}（Bash の run_in_background で打ち、終わりの知らせで結果を見る。自動の権限の判定〔auto mode〕に止められたら打ち直さず、納品で窓口に知らせる）",
+                 *talk]
+        if ephemeral:
+            lines.append(f"- 終わりの印（納品して main に入れ終えたら）: {RUN} --done")
     return ("\n\nworks-dispatch のコマンド（この字のまま打つ。打つ前にスキル /works-dispatch:dispatch や別ファイルを読まない。"
             "断られたら出力の訳どおりに直して打ち直し、それで直せないときと、ほかのコマンドを打つときだけスキルを読む）:\n" + "\n".join(lines))
 

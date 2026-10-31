@@ -24,7 +24,7 @@ import orders
 import role_hook
 import wake_hook
 from ports import chat
-from nodes import deliver, provision, role, tree, wake
+from nodes import deliver, ledger, provision, role, tree, wake
 
 
 def write_line(log, record):
@@ -3354,6 +3354,98 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("どの部署も受けておらず", out)
         rc, out = self.main(self.src, "--note", "a0")
         self.assertEqual(rc, 2, out)
+
+    EMPTY_BOX = f"{'─' * 20}\n❯ \n{'─' * 20}\n"   # 手の空いた窓（入力フィールドが空）
+
+    def test_say_to_a_listening_department_goes_through_the_ledger(self):
+        # 頼みに結び付かない知らせも、待ち受けの居る部署には窓に打たずに台帳で届く（herdr で直に打たない。受付 23101c）
+        to = self.listen("調べ", self.dept_place())
+        rc, out = self.main(self.src, "--say", "調べ", "--text", "main が進んだので取り込んでから続ける")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([w for w in self.ports.term.writes if w[0] in ("prompt", "run")], [])
+        notice = next(r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str))
+        self.assertEqual((notice["to"], notice["kind"]), (to, wake.SAY))
+        self.assertTrue(wake.mine(notice, [to]))
+        self.assertIn("知らせです（desk から。受付", notice["text"])
+        self.assertIn("main が進んだので取り込んでから続ける 返事は要らない", notice["text"])
+        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and not isinstance(r.get("to"), str)]
+        self.assertEqual((rec["status"], rec["to"]["wake"], rec["to"]["name"]), ("noticed", to, "調べ"))
+        self.assertIsNone(ledger.subject(rec))   # 頼みを指さない行
+
+    def test_say_to_a_pr_conversation_types_into_its_window_after_the_input_field_is_seen_empty(self):
+        # --pr で開いた会話（役の無い作業場）には待ち受けが居ないので、入力フィールドが空なのを見てから窓に打つ。PR の番号でも
+        # ブランチの名前でも引ける
+        place = str(pathlib.Path(self.root) / "pr7")
+        self.g.add_worktree(place, "feat/7", "origin/main")
+        pane = self.ports.term.open_at(place, agent="claude")["pane_id"]
+        self.ports.term.talking.add(pane)
+        self.ports.term.screen = self.EMPTY_BOX
+        self.ports.term.agent = lambda p: {"agent": "claude", "agent_status": "working" if any(
+            w[0] == "prompt" and w[1] == p for w in self.ports.term.writes) else "idle"}
+        rc, out = self.main(self.src, "--say", "feat/7", "--text", "x", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"窓 {pane} に打ち込む", out)
+        rc, out = self.main(self.src, "--say", "#7", "--text", "レビューの指摘を見てから push する")
+        self.assertEqual(rc, 0, out)
+        (typed,) = self.prompts()
+        self.assertEqual(typed[1], pane)
+        self.assertIn("知らせです（desk から。受付", typed[2])
+        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "say"]
+        self.assertEqual((rec["status"], rec["to"]["branch"], rec["to"]["pane"], rec["to"]["wake"]), ("sent", "feat/7", pane, None))
+
+    def test_say_to_a_stopped_department_with_only_a_trace_types_into_the_window_but_mid_turn_goes_to_the_ledger(self):
+        # 待ち受けが死んで跡だけ在る部署: 止まっていれば台帳は次のターンまで読まれないので窓に打つ。ターンの途中なら台帳に置き、
+        # ターンの終わりのフックが渡す（--ask と同じ線。点検の指摘）
+        to = self.listen("調べ", self.dept_place(), owner=dead_pid())
+        self.ports.term.screen = self.EMPTY_BOX
+
+        def check(dept, accounts_, ports):
+            def busy():   # 打った 1 行で会話が動き出す
+                return bool(self.prompts())
+            busy.waiting = False
+            return busy
+        with mock.patch.object(orders, "busy_check", check):
+            rc, out = self.main(self.src, "--say", "調べ", "--text", "main が進んだ")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(len(self.prompts()), 1)
+            self.assertEqual([r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)], [])
+            # 動き出した（ターンの途中の）会話への次の知らせは、窓に打たず台帳に置く
+            rc, out = self.main(self.src, "--say", "調べ", "--text", "もう 1 つ")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(len(self.prompts()), 1)
+            (notice,) = [r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)]
+            self.assertEqual((notice["to"], notice["kind"]), (to, wake.SAY))
+
+    def test_say_to_a_fork_pr_refuses_instead_of_matching_a_same_named_branch(self):
+        # fork の PR のブランチの名前（main など）は、この会社の同じ名前の作業場と取り違える
+        self.ports.pr_info = lambda repo, n: {"number": n, "title": "t", "head": "main", "url": None, "state": "OPEN", "fork": True}
+        rc, out = self.main(self.src, "--say", "#9", "--text", "x")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("fork の PR", out)
+        self.assertEqual(self.prompts(), [])
+
+    def test_say_refuses_slash_text_unknown_targets_and_windows_it_cannot_type_into(self):
+        rc, out = self.main(self.src, "--say", "調べ", "--text", "/model opus")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("コマンド（/model・/exit など）を送らない", out)
+        rc, out = self.main(self.src, "--say", "調べ", "--text", "/Users/x/a.md を読んだ", "--dry-run")   # パスで始まる文は通す
+        self.assertNotIn("コマンド（/model", out)
+        rc, out = self.main(self.src, "--say", "nope", "--text", "x")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("ブランチの名前の作業場も無い", out)
+        rc, out = self.main(self.src, "--say", "調べ")
+        self.assertEqual(rc, 2, out)
+        # 待ち受けの居ない部署の窓: 打ちかけの字が在るか、入力フィールドが出ていない（確かめの画面）なら打たない
+        self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
+        rc, out = self.main(self.src, "--say", "調べ", "--text", "x")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("打ちかけの字", out)
+        self.ports.term.screen = "Do you want to proceed?\n❯ 1. Yes\n  2. No\n"
+        rc, out = self.main(self.src, "--say", "調べ", "--text", "x")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("入力フィールドが出ていない", out)
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "say"], [])
 
     def test_forward_closes_the_held_ask_without_waking_its_asker_and_links_it_in_the_ledger(self):
         # 窓口が受けた頼みを部署へ回しただけなら、頼み元（社長室）の会話を再開させない。回した先は台帳にだけ結ぶ

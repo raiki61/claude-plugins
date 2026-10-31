@@ -453,8 +453,15 @@ class Hook(unittest.TestCase):
         # always の部署は --done を断られるので書かない。本社の窓口には足さない
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.assertNotIn("--done", role_hook.text_for(self.place, self.env))
+        self.assertIn(f"{role_hook.RUN} --say <部署の名前かブランチか #PR の番号> --text <知らせ>", text)
+        self.assertIn(f"{role_hook.RUN} --note <受付> --text <足し>", text)
+        # 本社の窓口には、納品・main に入れる・終わりの印を足さず、頼む・足す・知らせるだけを足す（ほかの会話のペインに直に打たせない。受付 23101c）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
-        self.assertNotIn("--deliver", role_hook.text_for(self.src, self.env))
+        desk = role_hook.text_for(self.src, self.env)
+        self.assertNotIn("--deliver", desk)
+        self.assertNotIn("--land", desk)
+        self.assertIn(f"{role_hook.RUN} --say <部署の名前かブランチか #PR の番号> --text <知らせ>", desk)
+        self.assertIn(f"{role_hook.RUN} --ask <宛先> --text <頼み>", desk)
 
     def test_a_role_text_over_the_hook_limit_is_flagged_in_the_notes_and_at_its_head(self):
         # 上限（1 万字）を超えた文は、会話に頭の 2,000 字しか入らない。頭に置き場を読めという 1 行を足し、--tree・--todo の注記に出す

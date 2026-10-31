@@ -1467,6 +1467,163 @@ def note(a, ports, cwd):
     return 0 if status in ("noticed", "sent") else 1
 
 
+SAY_PR = re.compile(r"^(?:(?P<company>.+)/)?#(?P<number>\d+)$")   # --say の宛先の「#番号」か「会社/#番号」（PR の番号）
+SAY_COMMAND = re.compile(r"^/[A-Za-z][\w:-]*(?:\s|$)")   # --say が断る、会話のコマンドの形（/model・/exit。名前の後に / が続くパスは当たらない）
+
+
+def say_line(say_id, sender, text, file):
+    """返事の要らない知らせ（--say）を、宛先の会話に渡す 1 行。短い文は本文ごと、長い物は受付箱のファイルを指す。"""
+    body = text if text and "\n" not in text and len(text) <= deliver.SHORT_TEXT else f"{file} を読む。"
+    return (f"知らせです（{sender} から。受付 {say_id}）: {body} "
+            "返事は要らない（今の作業に入れて続ける。返すことがあれば、受けている頼みの納品に書くか、--ask で頼む）。")
+
+
+def _say_target(a, ports, cwd, cfg, companies, settings):
+    """--say の宛先から (会社, 部署の 1 行（tree.build の物）)。当たらなければ DeliverError。引く順は、PR の番号（「#番号」か
+    「会社/#番号」。その PR のブランチの作業場）、部署の名前・前の名前・「会社/名前」・会社の名前（その会社の窓口。deliver.find_target）、
+    作業場のブランチの名前（--pr・--issue で開いた、役の無い会話の作業場も引ける）。役で当たって立っている部署が無いときは止める
+    （--say は部署を立てない）。"""
+    common = ports.git.common_dir(cwd)
+    here_root = gitx.root_of(common) if common else None
+    target = a.say.strip()
+    pr = SAY_PR.match(target)
+    if pr:
+        name = pr.group("company")
+        pool = [c for c in companies if ((c["name"] == name or os.path.basename(os.path.normpath(c["root"])) == name) if name
+                                         else here_root and os.path.realpath(c["root"]) == os.path.realpath(here_root))]
+        if not pool:
+            raise deliver.DeliverError(f"「{target}」の会社が {term.NAME} に開いていない" + (
+                "" if name else "（ほかの会社の PR なら「会社/#番号」で宛てる）"))
+        company = deliver.one_company(pool, pool[0]["name"])
+        if cfg is None:
+            raise deliver.DeliverError(f"設定を読めないので、PR #{pr.group('number')} のリポジトリを決められない"
+                                       "（部署の名前かブランチの名前で宛てる）")
+        try:
+            info = ports.pr_info(config.repo_at(cfg, company["root"], ports.origin), int(pr.group("number"))) or {}
+        except ghx.GhError as e:
+            raise deliver.DeliverError(f"PR #{pr.group('number')} を読めない（{e}）") from e
+        if info.get("fork"):
+            # fork の PR のブランチの名前は別のリポジトリの物で、この会社の同じ名前のブランチ（main など）と取り違える
+            raise deliver.DeliverError(f"PR #{pr.group('number')} は fork の PR で、ブランチの名前から作業場を引けない"
+                                       "（開いた作業場のブランチの名前で宛てる）")
+        head = info.get("head")
+        hits = [d for d in company["departments"] if head and d.get("branch") == head]
+        if len(hits) != 1:
+            raise deliver.DeliverError(f"PR #{pr.group('number')} のブランチ {head or '-'} の作業場が {company['name']} に"
+                                       + ("無い（--pr で開いてから打つ）" if not hits else "2 つ以上ある"))
+        return company, hits[0]
+    try:
+        got = deliver.find_target(companies, here_root, target, None, current_role(settings, ports.git))
+        if got["department"] is not None:
+            return got["company"], got["department"]
+        why = f"「{target}」の役の部署が立っていない（--say は部署を立てない。頼むなら --ask で頼む）"
+    except deliver.DeliverError as e:
+        why = str(e)
+    hits = [(c, d) for c in companies for d in c["departments"] if d.get("branch") == target]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise deliver.DeliverError(f"ブランチ {target} の作業場が 2 つ以上ある（{'、'.join(c['name'] for c, _ in hits)}）。"
+                                   "部署の名前か「会社/#番号」で宛てる")
+    raise deliver.DeliverError(f"{why}。ブランチの名前の作業場も無い（宛先は --tree で見る）")
+
+
+def _pane_busy(pane, ports):
+    """役の無い会話（--pr・--issue で開いた物）の窓が、ターンの途中かを見る関数（deliver.send_confirmed の busy）。会話の一覧の
+    部署の会話（dept_talk）は引けないので、herdr のペインの会話の状態で見る。blocked（確かめの画面で人の答えを待っている）は
+    waiting に残し、打たせない。"""
+    def busy():
+        try:
+            status = (ports.term.agent(pane) or {}).get("agent_status")
+        except term.Error:
+            status = None
+        busy.waiting = status == "blocked"
+        return status == "working"
+    busy.waiting = False
+    return busy
+
+
+def say(a, ports, cwd):
+    """--say <宛先>（--text か --brief）。頼みに結び付かない、返事の要らない知らせを、部署・窓口・--pr や --issue で開いた会話に届ける。
+    herdr のペインに直に打つ（pane send-text・pane run）代わりの口（受付 23101c。窓口が PR の会話への頼み・再開の合図・返しを直に打って
+    いた）。宛先に待ち受けが居るか、居た跡が在って会話がターンの途中なら、宛先の会社の台帳に知らせ（kind say）を足し、待ち受けか
+    ターンの終わりのフックが渡す。ほか（止まっている会話・役の無い会話・フックの無い古い版の会話）は、入力フィールドが空なのを見てから窓に打ち込む。
+    コマンドの形の字（/model・/exit など）は断る（知らせの文の中に入るだけで効かず、効いたと取り違える）。打った場所と宛先の受付箱の台帳に kind say で残す。終了の値を返す。"""
+    body = text_of(a, "--say", "知らせ")
+    if body is None:
+        return 2
+    if SAY_COMMAND.match(body.lstrip()):
+        print("止めた: --say はコマンド（/model・/exit など）を送らない（知らせの文の中に入るだけで効かない）。モデル・effort を替えるなら会社の形を直して --move、"
+              "部署を畳むなら --retire、PR の会話を閉じるなら dispatch を引数なしで打つ。確かめの画面（許可など）は持ち主が答える")
+        return 2
+    common = ports.git.common_dir(cwd)
+    if not common:
+        print(f"止めた: 打った場所 {cwd} が git でないので、受付箱を置けない（会社の本社か部署の場所から打つ）")
+        return 2
+    try:
+        cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
+        company, dept = _say_target(a, ports, cwd, cfg, companies, settings)
+    except term.Error as e:
+        print(f"止めた: {term.NAME} を読めない（{e}）")
+        return 1
+    except deliver.DeliverError as e:
+        print(f"止めた: {e}")
+        return 2
+    inbox = deliver.inbox_of(common)
+    sid = chat.session_of(ports.env)
+    found_account, found_name = ports.caller(sessions_)
+    name = a.from_name or place_name(cwd, sid, ports) or found_name
+    by = {"name": name, "account": a.from_account or found_account, "session": sid, "place": cwd}
+    say_id = deliver.new_id(ports.now())
+    where = f"{company['name']}/{dept['attrs'].get('name') or dept.get('branch') or dept['path']}"
+    dest_common = ports.git.common_dir(company["root"])
+    dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
+    place_dir = ports.git.git_dir(dept["path"])
+    to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
+    path = os.path.join(inbox, f"{say_id}-say.md")
+    line = say_line(say_id, name or "名の無い会話", body, path)
+    # 台帳に置くのは、待ち受けが居るときか、居た跡が在って会話がターンの途中のとき（ターンの終わりのフックが渡す）。
+    # 跡だけ在って止まっている会話は、次のターンまで台帳を読まないので窓に打つ（--ask と同じ線）
+    ledgered = bool(to and dest_inbox and place_dir)
+    by_ledger = ledgered and bool(heard)
+    pane, busy = None, None
+    if not by_ledger:
+        pane = live_window(dept, ports)
+        if pane is None:
+            print("\n".join(notes + [f"止めた: {where} は待ち受けが居ず、窓にも会話が居ない（会話を戻してから打ち直す）"]))
+            return 1
+        busy = busy_check(dept, accounts_, ports) if dept["attrs"].get("role") else _pane_busy(pane, ports)
+        if ledgered and wake.has_history(dest_inbox, place_dir) and (busy() or busy.waiting):
+            by_ledger = True
+    if a.dry_run:
+        print("\n".join(notes + [f"知らせる先: {where}  " + ("台帳に知らせを足す（待ち受けがターンの終わりに渡す）" if by_ledger
+                                                          else f"窓 {pane} に打ち込む"), f"会話に渡す 1 行: {line}"]))
+        return 0
+    if not by_ledger:
+        try:
+            typed = chat.typed(ports.term.read(pane, 40, ansi=True))
+        except term.Error as e:
+            print("\n".join(notes + [f"止めた: {where} の窓 {pane} を読めない（{e}）"]))
+            return 1
+        if typed is None or typed:
+            print("\n".join(notes + [f"止めた: {where} の窓 {pane} の" + (
+                "入力フィールドが出ていない（確かめの画面〔許可など〕で人の答えを待っているか、会話が起動の途中）" if typed is None
+                else "入力フィールドに打ちかけの字がある（人の字に足さない）") + "。窓が空いてから打ち直す"]))
+            return 1
+    path = deliver.put(inbox, f"{say_id}-say.md", body)
+    if by_ledger:
+        deliver.log(dest_inbox, wake.notice(to, say_id, wake.SAY, path, line, ports.now()))
+        status, detail = "noticed", ("待ち受けが渡す" if heard else "ターンの終わりに待ち受けが渡す")
+    else:
+        status, detail = deliver.send_confirmed(pane, line, ports.term, ports.pause, busy)
+    _log_each([inbox, dest_inbox],
+              {"id": say_id, "kind": "say", "at": ports.now(), "status": status, "detail": detail, "from": by,
+               "to": {"company": company["name"], "name": dept["attrs"].get("name"), "branch": dept.get("branch"),
+                      "path": dept["path"], "pane": pane, "wake": to if by_ledger else None}, "file": path})
+    print("\n".join(notes + [f"知らせ {say_id} → {where}  {status}" + (f"（{detail}）" if detail else ""), f"- 本文: {path}"]))
+    return 0 if status in ("noticed", "sent") else 1
+
+
 # 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる
 WAITING, WAITING_WHY = "waiting", "waiting-why"
 PARKED, parked_of = deliver.PARKED, deliver.parked_of   # 保留にした頼み（--wait <訳> --park）

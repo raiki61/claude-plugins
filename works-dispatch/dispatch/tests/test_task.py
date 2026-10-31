@@ -367,7 +367,8 @@ class Task(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
 
-    def test_other_account_caller_gets_the_screen_route(self):
+    def test_other_account_caller_gets_the_say_route(self):
+        # アカウントが違えば SendMessage が届かないので、受付を通す --say で呼んだ会話へ返させる（herdr で画面に打ち込ませない。受付 23101c）
         dirs = two_accounts(self.cfg)
         ports = self.ports({dirs["a1"]: [{"sessionId": "s-caller", "name": "窓口", "cwd": "/x"}]})
         ports.limits_seq = [over("a1")]
@@ -377,8 +378,10 @@ class Task(unittest.TestCase):
         [command] = self.sent(ports)
         self.assertTrue(command.startswith("claude-a2 --bg "), command)
         self.assertIn(("run", "P0", "claude-a2 attach bg0"), ports.term.writes)
-        self.assertIn("この画面に短く書いて止まる", command)
-        self.assertIn("「窓口」とはアカウントが違い", command)
+        self.assertIn("--say", command)
+        self.assertIn("で「窓口」へ送る", command)
+        self.assertIn("アカウントが違い", command)
+        self.assertNotIn("この画面に短く書いて止まる（", command)
         self.assertNotIn("SendMessage で「", command)
 
     def test_account_with_fewer_running_conversations_gets_the_department(self):
