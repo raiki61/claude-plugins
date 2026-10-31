@@ -97,6 +97,12 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 探しのゲート(searchgate)が、`find fd -name ')' -exec rg x / \;`・`cd /; echo ')'; rg x .` のように引用符で囲んだ閉じ括弧をサブシェルの閉じと読み、find の後ろを繋がず、cd が後ろのコマンドに届かないと読んで通していた。囲むサブシェルの無い所の閉じ括弧は、ただの字と見るようにした。
 - 投稿の前のゲート(coldread)が、`gh gist edit abc -f a.md x.md`・`gh gist edit abc -a new.md` のように、gist のファイルの中身を手元のファイルか標準入力で置き換える形・足す形を本文と見ていなかった。宛先のゲート(destgate)も、許可一覧に `gist` が無いのに通していた。`gh gist create` の位置引数と同じに読み(`-` はヒアドキュメントの中身を読み、手元のファイルは止める)、宛先を `gist` と見るようにした。説明(`-d`)だけ・ファイルの削除(`-r`)だけの形と、エディタで直す形は、今までどおり本文と見ない。
 - 投稿の前のゲート(coldread)が、`gh gist list | cut -f1 | xargs -I{} gh gist view {} --raw`・`… | xargs -n1 gh run cancel` のように、本文・コメントの旗を持たない gh のサブコマンドに xargs・find -exec が語を足す形を、足す語が本文の旗になりうると見て止めていた。宛先のゲート(destgate)も宛先不明で止めていた。`gist view`・`gist list`・`run rerun`・`run cancel`・`run watch`・`run download`・`workflow view`・`workflow list`・`cache list`・`cache delete`・`pr checkout` は通すようにした。`pr edit`・`issue close` など本文を運びうる物は、今までどおり止める。
+- 探しのゲート(searchgate)が、`mapfile -t a < <(cd src && ls); rg foo .`・`echo hi > >(cd src; cat); rg foo .` のように、リダイレクトの行き先のプロセス置換の中の cd を外のコマンドに繋ぎ、後ろのコマンドに届くと読んで、ホームで打つと通していた。行き先のプロセス置換は、別のプロセスで走るサブシェルと見るようにした。
+- 投稿の前のゲート(coldread)が、`cat < <(gh pr comment 1 --body-file x.md)`・`echo x > >(gh pr comment 1 --body-file -)` のように、リダイレクトの行き先のプロセス置換の中の gh を外のコマンドの引数と読み、本文を読まずに通していた。中を別のコマンドとして読むようにした。
+- 探しのゲート(searchgate)が、`for i in 1 2; do if true; then cd ..; if [ -f .zshrc ]; then break; fi; cd src; fi; done; rg foo .` のように、then の区画の中の cd より前で break・continue・return(入れ子の中も)で抜けた場合にも、区画の後ろの cd が走ると見て、~/src で打つと通していた。区画の中で cd より前に break・continue・return が在れば、区画の cd をまとめて走る組と見ないようにした。
+- 探しのゲート(searchgate)が、`fd . src -X rg TODO`・`fd -e py . ~/src/repo -x rg -l TODO` のように置き換えの印(`{}` など)の無い fd の `-x`・`-X` のコマンドを、fd が終わりに足す `{}` を見ずに cwd を探すと読み、ホームで打つと止めていた。印の無いコマンドには `{}` を足して読むようにした。
+- 探しのゲート(searchgate)が、`cd sub || { cd /; return 1; }; rg foo .`・`f() { cd sub || { cd /; return 1; }; }; f; rg foo .` のように return で終わる逃げ口の中の cd を後ろのコマンドに届かないと読み、/ を探すのを通していた。return は関数の中では呼んだ所に戻り、関数の外では失敗して次へ進むので、return で終わる逃げ口の中の cd は後ろに届くと見るようにした。
+- 探しのゲート(searchgate)が、`[ -d proj ] && { echo found; cd proj; }; rg foo .`・`[ -d proj ] || { git clone url proj; cd proj; }; rg foo .` のように、`&&`・`||` の後ろの `{ }` のまとまりの中の、頭でない cd を必ず走ると読み、ホームで打つと通していた。まとまりの頭の前の `&&`・`||` も、中の cd の区切りと見るようにした。あわせて `[ -d build ] && { cd build; make; cd ..; }; rg x .` のまとまりを、全部が走るか、どれも走らないかの組と見て、入らなかったときの場所に `cd ..` を当てないようにした(前は ~/src で打つとホームに届いたと読んで止めていた)。
 
 ## [0.46.0] - 2026-10-30
 
