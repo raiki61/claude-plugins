@@ -16,7 +16,7 @@ import calls
 import filex
 import orders
 import gitx
-from nodes import deliver, land, provision, role, tools, tree
+from nodes import deliver, land, provision, role, tools, tree, wake
 
 
 def shape_text(command, fallback='fallback_role = "調べ役"', machine="machine = true"):
@@ -329,6 +329,39 @@ class Call(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place)   # 回した頼みの頼み元は、メインブランチに入れた部署の頼み元
         self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
         self.assertEqual(len(self.prompts()), 1)
+
+    def test_fire_from_the_fallback_department_itself_queues_the_ask_for_after_its_turn(self):
+        # 回す先の部署（調べ）が自分で --land を打った合図: 前は「宛先はこの会話自身」で止まり、訳も合図の行から離れた所に出た
+        # （2026-10-31 に点検の --land の後の CI の見張り。受付 20261031-122658-baff87。頼み c02eef）
+        self.use(self.script("print('main の CI が赤'); raise SystemExit(1)"))
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept", "HERDR_PANE_ID": self.window}   # --land を打ったのは部署の会話
+        provision.mark(self.place, self.src, {"ask": "20261031-000000-aaaaaa", "boss": "窓口", "boss-inbox": self.inbox}, self.g)
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        place_dir = self.g.git_dir(self.place)
+        fire = lambda: calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None,
+                                  self.g.worktree_attrs(self.place))
+        # 待ち受けの居た跡が無ければ積んでも渡す者が居ないので止める。訳は合図の行のすぐ下に出る
+        lines = fire()
+        self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回さなかったか回せなかった（訳は下の行）")
+        self.assertIn("頼みが通らなかった（終了の値 2）。--ask の出力:", lines[1])
+        self.assertIn("この会話自身（調べ）で、この作業場に待ち受けの居た跡が無い", lines[2])
+        # 跡が在れば順番待ちに積み、窓には打たない（今の頼みの納品の後に待ち受けが渡す）
+        pos = pathlib.Path(wake.pos_path(self.inbox, place_dir))
+        pos.parent.mkdir(parents=True, exist_ok=True)
+        pos.write_text("0", encoding="utf-8")
+        lines = fire()
+        self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した", lines)
+        self.assertIn("順番待ちに積んだ", "\n".join(lines))
+        (item,) = wake.queued(self.inbox, place_dir)
+        self.assertEqual(self.prompts(), [])
+        (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        # 頼み元は合図が借りた物（窓口）なので、部署が自分で出した頼み（返事を待つ子）には数えない
+        self.assertEqual((row["id"], row["from"]["name"], row["cause"]), (item["id"], "窓口", "20261031-000000-aaaaaa"))
+        # 会話が自分で打つ --ask は、今までどおり自分には頼めない
+        rc, out = self.main(self.place, "--ask", "調べ", "--text", "自分へ")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("はこの会話自身（調べ）", out)
 
     def test_fire_after_a_land_by_a_department_without_a_boss_hands_over_with_the_desk(self):
         # 機械の上げ（works-factory-pin）が自分の作業場から打った --land は、部署に頼み元が無い。頼み元の無いまま回すと、立った部署の納品が

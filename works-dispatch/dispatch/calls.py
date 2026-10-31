@@ -14,6 +14,8 @@
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -173,12 +175,21 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
                                "task": task_name if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,
                                "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss, "causes": list(causes),
-                               "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
+                               "self_queue": True, "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
     head = f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）。{to} に回した"
-    rc = orders.ask(ns, ports, cwd, task)
+    # --ask の出す行（止めた訳・積んだ先）は、この行の下に並べて返す。そのまま書かせると、--land の合図では合図の行より前の、
+    # 離れた所に出て、「頼みが通らなかった」の訳が読めなかった（受付 20261031-122658-baff87。頼み c02eef）
+    said = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(said):
+            rc = orders.ask(ns, ports, cwd, task)
+    except BaseException:
+        sys.stdout.write(said.getvalue())   # 誤りで抜けても、そこまでに書いた物を捨てない
+        raise
+    told = [x for x in said.getvalue().splitlines() if x.strip()]
     if rc != 0:
-        return 1, [f"{head}が、頼みが通らなかった（終了の値 {rc}。上の出力を見る）"]
-    return CALLED, [f"{head}: 受付 {ask_id}" + (f"（部署 {ns.task} を立てた）" if auto else "")]
+        return 1, [f"{head}が、頼みが通らなかった（終了の値 {rc}）。--ask の出力:"] + [f"  {x}" for x in told]
+    return CALLED, [f"{head}: 受付 {ask_id}" + (f"（部署 {ns.task} を立てた）" if auto else "")] + [f"  {x}" for x in told]
 
 
 def call(a, ports, cwd, task):
@@ -318,7 +329,9 @@ def _signal(after, when, root, company, shape, ports, a, task, boss, env=None, c
     for x in after:
         rc, out = invoke(root, company, role.current(shape, x["role"]), x["tool"], x.get("input") or {}, shape["roles"], ports, a, task,
                          boss=boss, env=env, causes=causes)
-        state = {0: "片づいた", CALLED: "AI に回した"}.get(rc, "呼べなかった")
+        # 1 は、ツールが片づけず（知らせる物が在る、など。ツールの正しい終わり方）AI に回そうとして回せなかったか、空打ちなので回さなかったか、
+        # ツールを走らせる場所を作れなかった。どれも訳は下の行に在る。前は 1 も「呼べなかった」と出し、ツールが壊れたように読めた（頼み c02eef）
+        state = {0: "片づいた", CALLED: "AI に回した", 2: "呼べなかった"}.get(rc, "AI に回さなかったか回せなかった（訳は下の行）")
         lines.append(f"合図（{when}）: {x['role']}/{x['tool']} {state}")
         lines += [f"  {line}" for item in out for line in item.splitlines()]
     return lines

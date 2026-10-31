@@ -578,7 +578,12 @@ def _ask(a, ports, cwd, task, sent):
         print("\n".join(notes + [f"止めた: 宛先の役「{role}」は頼みの残った疑問（頭書きの [[open]]）を受けない（役に ask_holders が無い）。"
                                  "疑問は本文に書く"]))
         return 2
-    if dept is not None and sid and dept["attrs"].get("session") == sid:   # 宛先の会話が、頼むこの会話
+    self_ask = dept is not None and bool(sid) and dept["attrs"].get("session") == sid   # 宛先の会話が、頼むこの会話
+    # 機械のツールが片づかずに回した頼み（calls.hand_over。頼み元は合図の物を借りる）は、頼んだのがこの会話でなくツールなので、
+    # 宛先がこの会話でも止めず、下で順番待ちに積む（--land を打った点検の部署へ、合図の CI の見張りが赤を回すと、ここで止まって
+    # 赤がどこにも届かなかった。受付 20261031-122658-baff87。頼み c02eef）
+    to_self_queue = self_ask and getattr(a, "self_queue", False) and getattr(a, "from_boss", None)
+    if self_ask and not to_self_queue:
         print("\n".join(notes + [f"止めた: 宛先「{a.ask}」はこの会話自身（{dept['attrs'].get('name') or dept['path']}）"
                                  + (f"。{target['via']}が、この会話だった" if target.get("via") else "")]))
         return 2
@@ -633,8 +638,17 @@ def _ask(a, ports, cwd, task, sent):
         def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
                              {"id": ask_id, "sender": sender, "body": body, "title": title, "inbox": inbox, "required": required, "boss": boss,
-                              "fresh": fresh, "links": links, "from": origin, "company": company["name"], "role": role},
+                              "fresh": fresh, "links": links, "from": origin, "company": company["name"], "role": role,
+                              "own": self_ask},
                              accounts_, sessions_, company["root"], sent)
+        if to_self_queue:
+            # この会話のターンの終わりの待ち受け（wake_hook）が、今の頼みの後に渡す。窓には打たない（打つと、動いているこの会話の入力に混ざる）
+            if to and dest_inbox and place_dir and wake.has_history(dest_inbox, place_dir):
+                return queue(dept)
+            print("\n".join(notes + [f"止めた: 宛先「{a.ask}」はこの会話自身（{dept['attrs'].get('name') or dept['path']}）で、"
+                                     "この作業場に待ち受けの居た跡が無いので、順番待ちに積んでも渡す者が居ない。"
+                                     "この会話で上のツールの出力を読んで進めるか、ほかの部署に頼む"]))
+            return 2
         if to and dest_inbox and place_dir and (heard or (pending or mid_turn) and wake.has_history(dest_inbox, place_dir)):
             return queue(dept)
         pane, revived = live_window(dept, ports), False
@@ -898,7 +912,9 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
         wake.enqueue(dest_inbox, place_dir, {"id": ask["id"], "to": to, "file": path, "line": line, "digest": digest, "marks": marks,
                                              "at": ports.now(), "from": ask["sender"], "title": ask.get("title")})
     deliver.log(dest_inbox, wake.notice(to, ask["id"], wake.QUEUED, path, None, ports.now()))
-    if not heard and live_window(dept, ports) is None:
+    if ask.get("own"):
+        pass   # 宛先は頼んだこの会話（calls.hand_over）で、動いている。戻しも 1 行も要らない（ターンの終わりの待ち受けが渡す）
+    elif not heard and live_window(dept, ports) is None:
         notes.append(revive(dept, accounts_, ports, sessions_, source)[1])
     elif heard:   # 会話の処理は生きている（ターンの途中で待ち受けが居ないのは、ターンの終わりに張られる）
         notes += wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, source)
