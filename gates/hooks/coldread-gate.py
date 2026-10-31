@@ -2717,7 +2717,7 @@ def _dest_unresolved(args, at, resolve):
 
 # eval・source・. の引数の字の中の cd などの語(`eval "cd /x"`・`eval "x=1; cd $d"`)。語の前後は空白・区切り・引用か字の端で、
 # `./cd.sh`・`$cd`・`--cd` は語に数えない
-_TEXT_CD_RE = re.compile(r"(?:^|(?<=[\s;&|(){}'\"`!]))(?:%s)(?=$|[\s;&|()<>{}'\"`])" % "|".join(sorted(CD_WORDS)))
+_TEXT_CD_RE = re.compile(r"(?:^|(?<=[\s;&|(){}'\"`!\\]))(?:%s)(?=$|[\s;&|()<>{}'\"`])" % "|".join(sorted(CD_WORDS)))
 
 
 def changes_dir(args):

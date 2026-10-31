@@ -1428,7 +1428,7 @@ def f78():
         with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
             f.write(text)
     for cmd in ('eval "cd %s"; gh pr comment 1 --body-file x.md', "eval 'x=1; pushd %s'; gh pr comment 1 --body-file x.md",
-                'command eval "cd %s" && gh pr comment 1 --body-file x.md',
+                'command eval "cd %s" && gh pr comment 1 --body-file x.md', 'eval "\\cd %s"; gh pr comment 1 --body-file x.md',
                 'for d in /tmp %s; do gh pr comment 1 --body-file x.md; eval "cd $d"; done'):
         cmd = cmd % sub
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
