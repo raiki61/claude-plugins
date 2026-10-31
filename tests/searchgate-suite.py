@@ -574,6 +574,14 @@ class Bash(unittest.TestCase):
         for command in ('x="$(echo "(" ; case a in a) :;; esac; rg foo /)"', "echo \"$(echo '(' ; case $x in a) :;; esac; find / -name x)\"",
                         'echo "$(echo "(" ${x:-)} ; rg foo /)"'):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
+        # 数え方が閉じないときは、終わりまでを中身として読まない。後ろの引用の中の字をコマンドと読まず、引用した ( を持つ置換を
+        # 600 並べた語も時間切れの前に読み終える(頼み cae1e2)
+        for command in ("echo \"$(echo '(')\"; git commit -m \"note; find / -name x\"", "x=\"$(grep -c '(' f)\"; echo \"hint; rg foo /\"",
+                        "x=\"$(echo \"(\")\"; echo '\"; rg foo /'"):
+            self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
+        started = time.monotonic()
+        self.assertIsNotNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 600 + '"; rg foo /'}, cwd=WORK)[0])
+        self.assertLess(time.monotonic() - started, 10)
 
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る

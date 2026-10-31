@@ -277,10 +277,15 @@ def substitutions(text, bare=True, heredoc=False):
             # 閉じずに終わりまで中身と読み、後ろの ` … ` を外のコマンドとして見ずに通していた)
             jq = _close(text, i)
             if bare or quote == '"':
-                if jq and jq < j:
-                    # 引用を見る閉じが数え方より手前のときは、数え方の中身も読む(引用を見る閉じは case の型・# の注釈・${ } の中の
-                    # ) を知らないので、`x="$(echo "(" ; case a in a) :;; esac; rg foo /)"` を手前で閉じ、rg を落としていた)
+                if jq and jq < j and not depth:
+                    # 引用を見る閉じが数え方の閉じより手前のときは、数え方の中身も読む(引用を見る閉じは case の型・# の注釈・${ } の
+                    # 中の ) を知らないので、`x="$(echo "(" ; case a in a) :;; esac; rg foo /)"` を手前で閉じ、rg を落としていた)。
+                    # 数え方が閉じないときは読まない(終わりまでを中身として $( ごとに読み直し、引用した ( を持つ置換を 600 並べた
+                    # 語で 30 秒を超えていた)。読んだ字は予算に数える
                     out.append(text[i + 2:j - 1])
+                    SPENT["reads"] += j - i
+                    if SPENT["reads"] > READS_MAX:
+                        raise ValueError("$( ) と引用が多く、探す場所を読み切れない")
                 j = jq or j
                 out.append(text[i + 2:j - 1])
             else:
