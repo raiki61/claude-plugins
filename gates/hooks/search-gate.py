@@ -994,6 +994,7 @@ def load_coldread():
             self._spent = 0   # _heads で回の中身をたどったコマンドの数(WALKS_MAX まで)
             self._passes, self._afters = {}, {}   # (繰り返し, 1 回目の頭の場所) → 回の頭の場所・(繰り返し, 場所, k) → 抜けた後の場所
             self._ends = {}   # 条件の中の cd の番号 → then・do の後ろのコマンドの番号(_then_end)
+            self._units = {}   # cd の番号 → まとめて走る組の後ろのコマンドの番号(_unit_end)
             self._via = False   # _surely の中で、cd が落ちた側が後ろの cd を飛ばして k に来ると見たか(_skips_pass)
             lay = layout(cr, tokens, self.kinds, self.negs, self.braces)
             self.lay = lay if lay is not None and len(lay) == len(cmds) else None
@@ -1266,6 +1267,7 @@ def load_coldread():
             closed = -1   # 回の頭からまとめてたどった繰り返しの、閉じの done の番号
             passed = []   # cd が落ちて、後ろの cd を飛ばして k に来る場所
             stays = []    # 条件の中の cd が落ちて、then・do を飛ばす場所と、then・do の後ろのコマンドの番号の組の列(_then_end)
+            entered = set()   # 入らなかった側の場所を stays に回した区画の道(後ろの cd の場所は、どれも区画に入った側の物)
             for j in js:
                 if stays and j >= stays[0][0]:
                     places = _shallow(list(dict.fromkeys(places + [p for r, p in stays if r <= j])))
@@ -1292,6 +1294,15 @@ def load_coldread():
                 if via:
                     passed += places   # cd が落ちると、continue・break で後ろの cd を飛ばして k に来る(_skips_pass)
                 end = None if surely else self._then_end(j)
+                if end is not None:
+                    path = self.lay[j][0]
+                    entered.add(path[:-1] + ((path[-1][0], path[-1][1] + 1, False),))
+                elif not surely:
+                    end, key = self._unit_end(j)
+                    if key in entered:
+                        surely, end = True, None   # 区画に入った側の場所だけが来る: 区画のじかの cd は必ず走る
+                    elif key is not None:
+                        entered.add(key)
                 if end is not None:
                     stays = sorted(stays + [(end, p) for p in places], key=lambda e: e[0])
                 new = []
@@ -1330,6 +1341,35 @@ def load_coldread():
                             and all(op in (";", "\n") for op, _ in self.lay[j + 1][2]) and self.lay[j + 1][1] == d):
                         self._ends[j] = body[-1] + 1
             return self._ends[j]
+
+        def _unit_end(self, j):
+            """j 番目の cd が、まとめて走るか走らない組(if の then・elif・else の区画と、&& の繋がり)の中に在り、組が走れば必ず
+            走るなら、(組の後ろのコマンドの番号, 区画の組なら区画の道) (でなければ (None, None))。区画の組は、cd が区画のじかのコマンドで、区画の頭から cd までが
+            ; 改行だけで繋がり、cd の後ろが || でないとき。&& の組は、cd の前が && のときで、組は cd の後ろの && だけで繋がる所まで。
+            _walk は _then_end と同じく、組に入らなかった側の場所を組の中の後ろの cd に通さず、組の後ろに足す(前は入らなかった側の
+            場所にも組の後ろの `cd ..` を当て、`for d in a b; do if [ -d build ]; then cd build; make; cd ..; fi; done; rg x .` を、回ごとに
+            1 つずつ上がって / に届いたと読んで止めていた)。区画の 2 つ目からの cd(と、条件の cd が移れたときに入る then の cd)には、
+            区画に入った側の場所だけが来るので、_walk は必ず走ると見る。繰り返しの do の後の区画は組にしない(回ごとに重ねてたどる。_heads)。"""
+            if j not in self._units:
+                self._units[j] = (None, None)
+                path, d, ops, _ = self.lay[j]
+                after = self.lay[j + 1][2] if j + 1 < len(self.lay) else []
+                if any(op == "||" and dep <= d for op, dep in after):
+                    return self._units[j]   # cd が落ちても後ろが走る
+                plain = [(op, dep) for op, dep in ops if op not in "()"]
+                if plain and all(op == "&&" and dep == d for op, dep in plain):
+                    for m in range(j + 1, len(self.lay)):
+                        if len(self.lay[m][0]) <= len(path) and any(
+                                op not in ("&&", "(", ")") and dep <= d or op == ")" and dep < d
+                                for op, dep in self.lay[m][2]):
+                            self._units[j] = (m, None)
+                            break
+                elif path and not path[-1][2] and self.kinds.get(path[-1][0]) == "if":
+                    inside = [m for m in self._inside(path[-1][0]) if self.lay[m][0] == path]
+                    if all(op in (";", "\n", "(", ")") for m in inside if m <= j and self.lay[m][1] == d
+                           for op, _ in self.lay[m][2]):
+                        self._units[j] = (inside[-1] + 1, path)
+            return self._units[j]
 
         def cd_dest(self, args, base=None):
             """`cd <行き先>`・`pushd <行き先>` の行き先。引数の無い cd はホーム。相対の行き先は base に繋ぐ。読めなければ None。"""

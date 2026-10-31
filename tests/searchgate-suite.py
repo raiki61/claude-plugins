@@ -302,6 +302,32 @@ class Bash(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 10)
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cds_of_one_then_section_or_and_chain_run_together(self):
+        # then・else の区画と && の繋がりの中の cd は、組に入らなければどれも走らない。入らなかった場所に組の後ろの cd .. を
+        # 当てない(前は当てて、繰り返しの回ごとに 1 つずつ上がり、/ やホームに届いたと読んで止めていた)
+        for command, cwd in (('for d in */; do [ -d "$d/.git" ] && cd "$d" && git pull && cd ..; done; rg x .', WORK + "/a/b"),
+                             ("for d in a b; do if [ -d build ]; then cd build; make; cd ..; fi; done; rg x .", WORK + "/a/b"),
+                             ('for d in */; do if [ -f "$d/Makefile" ]; then cd "$d" && make && cd ..; fi; done; rg TODO .',
+                              WORK + "/a/b"),
+                             ("for d in a b; do rg -l x .; if [ -d build ]; then cd build; make; cd ..; fi; done", WORK),
+                             ("if [ -d build ]; then cd build; make; cd ..; fi; if [ -d docs ]; then cd docs; make; cd ..; fi; "
+                              "rg x .", WORK),
+                             ("if [ -d b ]; then cd /; cd /tmp; fi; rg x .", HOME + "/src"),
+                             ("for a in x y; do cd a1; for b in p q; do cd b1; for c in 1 2; do if cd c1; then make; cd ..; fi; "
+                              "done; cd ..; done; cd ..; done; rg x src", WORK)):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # 組に入ったときに上がる cd・組の中で cd が落ちても走る後ろの cd(; の後ろ・|| の後ろ)・&& の途中で止まった場所は、今までどおり
+        for command in ("if [ -d x ]; then cd ..; fi; rg x .", "for d in a b; do if [ -d build ]; then cd ..; fi; done; rg x .",
+                        'for d in */; do [ -d "$d" ] && cd "$d" && make; cd ..; done; rg x .',
+                        "if [ -d build ]; then cd build || true; cd ..; fi; rg x .",
+                        "if [ -d b ]; then make && cd build; cd ..; fi; rg x .",
+                        "[ -d x ] && cd / && false && cd /tmp; rg x .", "if [ -d b ]; then cd /; make; fi; rg x .",
+                        "for d in a b; do if [ -d build ]; then cd build; make; cd ../..; fi; done; rg x ."):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME + "/src")[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_or_a_group_that_exits_and_and_chained_cd_in_a_condition(self):
         # `|| { …; exit 1; }` のまとまりも、最後が exit なら cd が落ちたときに後ろを走らせない。条件の中で && で繋いだ cd は、
         # 条件が通ったときに走る then で移れた(前はどちらも止めていた)
