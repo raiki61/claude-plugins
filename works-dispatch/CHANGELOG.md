@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.145.0] - 2026-10-31
+
 ### Changed
 
 - 自分の番の PR の一覧に使う同梱の whose-turn の写し（attention プラグインの `/whose-turn` スクリプトのコピー）を、attention 側の直し（スレッドの番の判定を `/catchup` と同じ式にそろえた。attention の CHANGELOG の Unreleased）に合わせて更新した。自分の PR を担当者（assignee）に渡した後、担当者だけが書き込んだスレッド（担当者が自分用に残したメモ）や、作者も書き込んだスレッドにレビュアーが返したら、番を担当者にする。そのため、dispatch が自分の番として作業場に開く PR と、自分の番でなくなったので作業場の会話を終える PR が、この直しの分だけ変わりうる（頼み e07d56。持ち主が 2026-10-31 に決めた直しの頼みの受付番号）。
