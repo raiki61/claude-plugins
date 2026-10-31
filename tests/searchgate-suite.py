@@ -540,6 +540,15 @@ class Bash(unittest.TestCase):
         for command in ("x=$(echo `rg foo src`)", "x=$(cd ~/p && n=`find . -name x`)"):
             self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0], command)
 
+    def test_quoted_close_parens_do_not_end_a_substitution(self):
+        # 置換の中の引用の中の ) では置換を閉じない(前は引用を見ずに数え、' の中の ) で閉じたと読んで、後ろの ` … ` と rg を
+        # 単一引用の中と見て通していた)
+        for command in ("x=$(echo ')' `rg foo /`)", "x=$(printf '%s)' `rg foo /`)", "echo \"$(printf '%s)\\n' x; rg foo /)\"",
+                        'x=$(echo ")" `rg foo /`)', 'x=$(echo "(" `rg foo /`)'):
+            self.assertIsNotNone(run("Bash", {"command": command})[0], command)
+        for command in ("x=$(echo ')' `rg foo src`)", "echo \"$(printf '%s)\\n' x; rg foo src)\""):
+            self.assertIsNone(run("Bash", {"command": command})[0], command)
+
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
         # (前は parallel を前置と見ず、`parallel rg {} / ::: foo bar` を通していた)

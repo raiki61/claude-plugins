@@ -163,6 +163,61 @@ def expand_home(value):
     return re.sub(r"\$(?:\{HOME\}|HOME(?![A-Za-z0-9_]))", lambda m: h, value)
 
 
+def _close(text, i):
+    """i の $( を閉じる ) の次の位置を、中の単一引用・二重引用・\\・` … `・入れ子の $( ) を見て決める。閉じなければ None。"""
+    depth, j, n = 1, i + 2, len(text)
+    while j < n:
+        c = text[j]
+        if c == "\\":
+            j += 1
+        elif c == "'":
+            j = text.find("'", j + 1)
+            if j < 0:
+                return None
+        elif c == "`":
+            j = _tick_end(text, j)
+            if j is None:
+                return None
+        elif c == '"':
+            j += 1
+            while j < n and text[j] != '"':
+                if text[j] == "\\":
+                    j += 1
+                elif text.startswith("$(", j):
+                    j = _close(text, j)
+                    if j is None:
+                        return None
+                    continue
+                elif text[j] == "`":
+                    j = _tick_end(text, j)
+                    if j is None:
+                        return None
+                j += 1
+            if j >= n:
+                return None
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if not depth:
+                return j + 1
+        j += 1
+    return None
+
+
+def _tick_end(text, i):
+    """i の ` を閉じる ` の位置(\\ の後の字は飛ばす)。閉じなければ None。"""
+    j = i + 1
+    while j < len(text):
+        if text[j] == "\\":
+            j += 2
+        elif text[j] == "`":
+            return j
+        else:
+            j += 1
+    return None
+
+
 def substitutions(text, bare=True, heredoc=False):
     """引用の単一の外にある $( … ) と ` … ` の中身。二重引用の中も読む(シェルが展開する)。bare が偽なら、引用の外の $( … ) は
     返さない(トークン化がその語に中身を subs として残すか、閉じる所を言い切れなければ単純コマンドに割り、外のコマンドの cd と
@@ -185,6 +240,9 @@ def substitutions(text, bare=True, heredoc=False):
             while j < n and depth:
                 depth += {"(": 1, ")": -1}.get(text[j], 0)
                 j += 1
+            # 引用の中の ) では閉じない(前は引用を見ずに数え、`x=$(echo ')' `rg foo /`)` の ' の中の ) で閉じたと読んで、後ろの
+            # ` … ` を単一引用の中と見て通していた)。引用を見て閉じる所が決まれば、引用を見ない数え方と遠い方まで中身にする
+            j = max(j, _close(text, i) or 0)
             if bare or quote == '"':
                 out.append(text[i + 2:j - 1])
             elif "`" in text[i + 2:j - 1]:
