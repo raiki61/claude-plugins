@@ -754,8 +754,21 @@ def f44():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(44, parsed and not cands and not blk, "読むだけの形・gh でないコマンドで止めた: %r → %r %r" % (cmd[:40], blk, parsed))
 
+# 45. [[ の後が空白でない区切り(行継続の \・括弧)でも [[ を開きと見て、=~ の右の # を注釈と読まない。=~ の左の $( ) の中の
+# [[ … ]] は、外の [[ を閉じない(前はどちらも =~ の範囲を見失い、# から後ろの gh を注釈として落とした)。閉じた [[ の後の
+# `d=~/w # w` は今までどおり通す(42)
+def f45():
+    for cmd in ("[[\\\n $x =~ ^(a)#x ]]; " + GH, "[[($x =~ ^(a)#x) ]]; " + GH,
+                "x=a; [[ $([[ -n a ]] && echo a) =~ ^(a)#x ]]; " + GH, "[[ $( [[ -n a ]] ) =~ (a)#x ]]; " + GH,
+                "[[\t$x =~ ^(a)#x ]]; " + GH):
+        stops(45, cmd)
+    for cmd in ("[[ $([[ -n a ]] && echo a) == a ]] && d=~/w # w\ngh pr comment 1 --body '" + BODY + "'",
+                "[[(-d a) ]] && X=~/f.md # note\ngh pr comment 1 --body '" + BODY + "'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(45, parsed and cands == [BODY] and not blk, "閉じた [[ の後の =~ の後の注釈で止めた: %r → %r %r" % (cmd[:40], blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

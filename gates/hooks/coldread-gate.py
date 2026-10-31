@@ -1180,7 +1180,9 @@ def _cond_word(text, i, at, escaped_at):
         return before
     nxt = text[i + 2:i + 3]
     if text.startswith("[[", i):
-        return nxt in (" ", "\t", "\n")
+        # 後が語の字でなければ開く(空白・区切り・括弧・<>・行継続の \)。前は空白だけで見て、`[[\<改行> $x =~ …`・`[[($x =~ …)`
+        # の [[ を開きと見ず、=~ の右の # を注釈と読んで後ろの gh を落とした。多めに開く分には止めすぎに倒れるだけ
+        return nxt in ("", " ", "\t", "\r", "\n", ";", "&", "|", "(", ")", "<", ">", "\\")
     return before and at >= 0 and text[at] in " \t\n" and (nxt in ("", " ", "\t", "\r", "\n", ";", "&", "|", ")"))
 
 
@@ -1244,8 +1246,10 @@ def normalize_shell(text, marks=None):
     # 引用の外の ( の積み(_open_paren)と、閉じた ) の位置ごとの種類(_comment_at が # の前の ) を見る)
     parens, closed, case_marks = [], {}, []
     case_at = _case_at(text)
-    # 開いた [[ の段の深さ(段の数, 括弧の積みの数)と、その中の =~ の正規表現の範囲に居るか(_cond_word)。同じ深さの ]] で閉じる
-    cond, in_regex = None, False
+    # 開いた [[ の積み。1 つの [[ ごとに [段の数, 括弧の積みの数, その中の =~ の正規表現の範囲に居るか](_cond_word)。]] は同じ深さの
+    # 一番上の [[ だけを閉じる。前は 1 つしか覚えず、=~ の左の $( ) の中の [[ … ]](`[[ $([[ -n a ]] && echo a) =~ ^(a)#x ]]`)が外の
+    # [[ を忘れさせ、=~ の右の # を注釈と読んで後ろの gh を落とした。どれかの [[ の正規表現の範囲に居れば、# は読めない物とする
+    cond = []
     stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
     while True:
         m = _EVENT_RE.search(text, i)
@@ -1311,11 +1315,11 @@ def normalize_shell(text, marks=None):
         elif c in "=[]":   # 引用の外の =~・[[・]]
             word = _cond_word(text, i, i - 1 if i > copied else gap_at, escaped_at)
             if c == "[" and word:
-                cond = (len(stack), len(parens))
-            elif c == "=" and word and cond is not None:
-                in_regex = True
-            elif c == "]" and word and cond == (len(stack), len(parens)):
-                cond, in_regex = None, False
+                cond.append([len(stack), len(parens), False])
+            elif c == "=" and word and cond:
+                cond[-1][2] = True
+            elif c == "]" and word and cond and cond[-1][:2] == [len(stack), len(parens)]:
+                cond.pop()
             i += 2
         elif c == "(":
             if top[0] == "(":
@@ -1350,7 +1354,7 @@ def normalize_shell(text, marks=None):
             if head is False:
                 i += 1
                 continue
-            if head is None or (parens and parens[-1][1]) or in_regex:
+            if head is None or (parens and parens[-1][1]) or any(e[2] for e in cond):
                 # 注釈か言い切れない。算術の (( ))・$(( )) の中の # は字で bash は注釈にしないが、どこで閉じるかを
                 # 括弧の数え方だけでは言い切れない。=~ の右の # も字(_cond_word)
                 return None
