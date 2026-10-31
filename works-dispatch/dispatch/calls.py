@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """機械窓口の流れ（受付の設計 docs/specs/2026-10-17-reception-design.md の 5 章）。入口の dispatch.py --call と、--land の合図
-（会社の形の [[land.after]]）から呼ぶ。ツールの中身（入力の確かめ・回す頼みの字）は nodes/tools.py、ツールの定義を読むのは role ノード。
+（会社の形の [[land.after]]）と、部署を立てた後の合図（[[task.after]]）から呼ぶ。ツールの中身（入力の確かめ・回す頼みの字）は nodes/tools.py、ツールの定義を読むのは role ノード。
 
 --call <会社/役> <ツール>（call）: ツールを origin の既定のブランチの中身（一時の worktree。tools.place）のルートで走らせ、入力の JSON を標準入力に渡す。終了の値 0 なら片づいた（答えを出して
 0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の keep の部署が
 在ればその順番待ちに積み、無ければ一度きりの部署を自動で立てる）。回したら受付番号を出して 3 で終わる。ただし、打った部署が受けている
 頼みが、同じツールの同じ入力が片づかずに回った頼みなら（その頼みの中での打ち直し）、回さずに失敗を出して 1 で終わる（rerun_of）。
+入力の dry_run が true の呼び（空打ち）も、片づかなければ回さずに 1 で終わる（DRY_RUN）。
 合図（fire）: --land がメインブランチへ push し終えた後に、[[land.after]] の並びの順に同じ走らせ方で呼ぶ。回した頼みの頼み元は、メインブランチに入れた
 部署の頼み元。
+部署を立てた後の合図（task_later・after_task）: 部署を新しく立てたら（dispatch._task）、[[task.after]] の並びを --after-task で会話から
+切り離して裏で同じ走らせ方で呼ぶ。回した頼みの頼み元は、その会社の窓口（orders.lent_boss）。
 """
 
 import argparse
@@ -17,15 +20,24 @@ import pathlib
 import subprocess
 import sys
 import time
+import tomllib
 
 import config
+import filex
 import gitx
 from ports import term
 import orders
 import health
-from nodes import clean, deliver, role, tools, tree, wake
+import starts
+from nodes import clean, deliver, land, role, tools, tree, wake
 
 CALLED = 3   # 片づかず AI に回した --call の終了の値
+# ツールの入力のうち、空打ち（知らせる物を出すだけで、覚えず何も打たない）を頼む鍵。この鍵が true の呼びは、片づかなくても AI に回さない
+# （ツールは知らせる物が在ると 1 で終わるので、回すと空打ちのたびに部署が立つ）
+DRY_RUN = "dry_run"
+TASK_AFTER_LOG = "task-after.log"     # 受付箱の下の、部署を立てた後の合図の出力の置き場（打つたびに書き足す。task_later）
+TASK_AFTER_LOCK = "task-after.lock"   # 受付箱の下の、部署を立てた後の合図が会社ごとに掛ける錠（after_task）
+DISPATCH_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch.py")
 WORKS_LAND_MEMBERS = "WORKS_LAND_MEMBERS"   # 束の合図でツールに渡す、束の部署の名前の並び（改行で区切る。束の設計 9）
 # ツールに渡す環境変数の名（ツールが works-dispatch を打ち返すため。docs/land.md の「外のツールが列に並ぶ」）
 WORKS_DISPATCH, WORKS_DISPATCH_PYTHON = "WORKS_DISPATCH", "WORKS_DISPATCH_PYTHON"
@@ -107,6 +119,10 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
     if code == 0:
         deliver.log(inbox, {"kind": "call", "status": "done", "role": role_name, "tool": tool_name, "at": ports.now()})
         return 0, [x for x in [note, out.rstrip("\n")] if x and x.strip()]
+    if isinstance(value, dict) and value.get(DRY_RUN) is True:
+        # 空打ちの外れは回さず、外れとも数えない（台帳に残さない。ツールは何も打っていない）
+        return 1, [x for x in [note, out.rstrip("\n")] if x and x.strip()] + [
+            f"ツール {role_name}/{tool_name} は片づかなかった（終了の値 {code}）が、空打ち（入力の {DRY_RUN} が true）なので AI に回さない"]
     out_tail = tools.tail(both)
     again = rerun_of(inbox, cwd or root, role_name, tool_name, value, ports, a) if boss is None else None
     ask_id = None if again else deliver.new_id(ports.now())
@@ -162,7 +178,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
 
 
 def call(a, ports, cwd, task):
-    """--call。終了の値（0 片づいた・3 AI に回した・1 回せなかったか打ち直しなので回さなかった・2 使い方の誤り）。"""
+    """--call。終了の値（0 片づいた・3 AI に回した・1 回せなかったか、打ち直しか空打ちなので回さなかった・2 使い方の誤り）。"""
     target, tool_name = a.call
     got, why = _company_root(target, ports, cwd, a.config)
     if why:
@@ -287,11 +303,79 @@ def fire(after, root, ports, a, task, attrs, members=()):
     boss = {k: attrs.get(k) for k in ("ask", "boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")}
     env = {WORKS_LAND_MEMBERS: "\n".join(m.get("name") or "" for m in [attrs, *members])} if members else None
     causes = [m["ask"] for m in members if m.get("ask") and m.get("delivered") != m["ask"] and m["ask"] != attrs.get("ask")]
+    return _signal(after, "メインブランチに入れた後", root, company, shape, ports, a, task, boss, env, causes)
+
+
+def _signal(after, when, root, company, shape, ports, a, task, boss, env=None, causes=()):
+    """合図の並び after のツールを順に呼んだ出す行の並び。when は行の頭に書く、いつの合図か。"""
     lines = []
     for x in after:
         rc, out = invoke(root, company, role.current(shape, x["role"]), x["tool"], x.get("input") or {}, shape["roles"], ports, a, task,
                          boss=boss, env=env, causes=causes)
         state = {0: "片づいた", CALLED: "AI に回した"}.get(rc, "呼べなかった")
-        lines.append(f"合図（メインブランチに入れた後）: {x['role']}/{x['tool']} {state}")
+        lines.append(f"合図（{when}）: {x['role']}/{x['tool']} {state}")
         lines += [f"  {line}" for item in out for line in item.splitlines()]
     return lines
+
+
+def task_rules(info):
+    """会社の形の [[task.after]]（部署を立てた後に呼ぶツールの並び。形は [[land.after]] と同じ）。(並び, 注記の並び)。
+    info は tree.read_info の答え。形の違う項目は注記に書いて外す。"""
+    try:
+        raw = tomllib.loads(info["text"]).get("task") if info.get("text") else None
+    except tomllib.TOMLDecodeError:
+        return [], []   # 読めない会社の形は tree.read_info が problems に書いている
+    if raw is None:
+        return [], []
+    if not isinstance(raw, dict):
+        return [], [f"{info.get('path')}: task が表で無い"]
+    problems = []
+    return land._after(raw.get("after", []), info.get("path"), problems, "task.after"), problems
+
+
+def task_later(a, ports, source, place):
+    """部署を新しく立てた後に、会社の形の [[task.after]] を、--after-task <部署の場所> で会話から切り離して裏で呼ぶ（終わりを待たない。
+    ツールが --land まで打つと何分もかかるので、部署を立てる --task・--ask を待たせない。starts.due_later と同じ形）。出力は会社の受付箱の
+    task-after.log に書き足す。打った会話の印（starts.CALLER_ENV）は渡さない。打てなければ注記の 1 行、打てたら None を返す。"""
+    try:
+        common = ports.git.common_dir(source)
+        log = os.path.join(deliver.inbox_of(common), TASK_AFTER_LOG)
+        argv = [sys.executable, DISPATCH_PY, "--after-task", place] + (["--config", a.config] if a.config else [])
+        env = {k: v for k, v in ports.env.items() if k not in starts.CALLER_ENV}
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"--- {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(ports.now()))} 部署 {os.path.basename(place)} を立てた後\n")
+        ports.spawn(argv, source, log, env)
+    except Exception as e:  # 部署はもう立った。合図を打てなくても、--task の終了の値を変えない
+        return f"注記: 部署を立てた後の合図（[[task.after]]）を裏で打てなかった（{e}）。要れば dispatch.py --after-task {place} を手で打つ"
+    return None
+
+
+def after_task(a, ports, task):
+    """--after-task <部署の場所>: その部署の会社の [[task.after]] のツールを順に呼ぶ。終了の値（0 呼んだか呼ぶ物が無い・2 場所が違う）。
+    回した頼みの頼み元はその会社の窓口（頼み元を空で渡し、orders.lent_boss が窓口に決める。立った部署の頼み元は、この合図を頼んでいない）。
+    同じ会社の合図が裏で並んだら、待たずに後の方を飛ばす（先の方が同じツールを呼んでいる）。"""
+    place = os.path.abspath(a.after_task)
+    common = ports.git.common_dir(place)
+    if not common:
+        print(f"止めた: {place} は git の作業場で無い")
+        return 2
+    root = gitx.root_of(common)
+    info = tree.read_info(root, os.path.dirname(config.path_of(a.config, os.environ)), ports.git)
+    after, notes = task_rules(info)
+    lines = [f"注記: {n}" for n in notes]
+    if not after:
+        print("\n".join(lines + ["呼ぶ物は無い（会社の形に [[task.after]] が無い）"]))
+        return 0
+    inbox = deliver.inbox_of(common)
+    os.makedirs(inbox, exist_ok=True)
+    with filex.lock(os.path.join(inbox, TASK_AFTER_LOCK), wait=False) as got:
+        if not got:
+            print("\n".join(lines + ["飛ばした: 同じ会社の、部署を立てた後のほかの合図が呼んでいる"]))
+            return 0
+        shape = role.load(info["path"], info["text"])
+        name = (ports.attrs(place) or {}).get("name") or os.path.basename(place)
+        lines += _signal(after, f"部署 {name} を立てた後", root, tree.company_name(root, info), shape, ports, a, task,
+                         boss={"boss": None})
+    print("\n".join(lines))
+    return 0

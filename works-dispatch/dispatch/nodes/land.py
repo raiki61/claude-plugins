@@ -44,16 +44,17 @@ def _queue(raw, path, problems):
     return raw.strip()
 
 
-def _after(raw, path, problems):
-    """[[land.after]]（メインブランチに入れた後に呼ぶツールの並び。受付の設計 5.5）を読む。形の違う項目は problems に書いて外す。"""
+def _after(raw, path, problems, name="land.after"):
+    """[[land.after]]（メインブランチに入れた後に呼ぶツールの並び。受付の設計 5.5）を読む。形の違う項目は problems に書いて外す。
+    name は注記に出す表の名前（[[task.after]] も同じ形で読む。calls.task_rules）。"""
     if not isinstance(raw, list):
-        problems.append(f"{path}: land.after が表の並び（[[land.after]]）で無い")
+        problems.append(f"{path}: {name} が表の並び（[[{name}]]）で無い")
         return []
     out = []
     for i, x in enumerate(raw):
         if not (isinstance(x, dict) and all(isinstance(x.get(k), str) and x[k].strip() for k in ("role", "tool"))
                 and isinstance(x.get("input", {}), dict)):
-            problems.append(f"{path}: land.after[{i}] は role・tool（空でない文字列）と input（表。省けば空）で書く")
+            problems.append(f"{path}: {name}[{i}] は role・tool（空でない文字列）と input（表。省けば空）で書く")
             continue
         out.append({"role": x["role"].strip(), "tool": x["tool"].strip(), "input": x.get("input") or {}})
     return out

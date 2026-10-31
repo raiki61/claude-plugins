@@ -71,14 +71,16 @@ class Samples(unittest.TestCase):
         text = text.replace('effort = "high"', 'effort = "high"\nondemand = true', 1)
         text = text.replace('report_to = "my_notes/社長室"', 'report_to = "my_notes/社長室"\nevry = "7d"', 1)
         text = text.replace('[[land.after]]', '[[land.after]]\ninputs = {}', 1)
+        text = text.replace('[[task.after]]', '[[task.after]]\nwhen = "x"', 1)
         info, shape = read(text, self.tmp)
         got = [n.split(": ", 1)[1] for n in info["keys"]]
-        self.assertEqual(len(got), 5, got)
+        self.assertEqual(len(got), 6, got)
         self.assertIn("知らない鍵 owner（読まない", got[0])
         self.assertIn("の tools[0]: 知らない鍵 fallback（読まない", got[1])
         self.assertIn("skills[1]（割り振り）: 知らない鍵 ondemand", got[2])
         self.assertIn("の start: 知らない鍵 evry", got[3])
         self.assertIn("land.after[0]: 知らない鍵 inputs", got[4])
+        self.assertIn("task.after[0]: 知らない鍵 when", got[5])
         self.assertEqual({n: r["odd"] for n, r in shape["roles"].items() if r["odd"]}, {})   # ツールの鍵は役のゲートでない
 
     def test_the_contents_handed_to_others_are_not_read(self):

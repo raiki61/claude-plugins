@@ -7,13 +7,14 @@ docs/standards/breakage-detection.md の決まり 3）。止めるかは読む�
 https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation ）。消えた鍵や書き間違えた鍵がゲートだった場合、黙って
 通すとチェックを緩めるため。
 
-中を見ない表: 役の [roles.settings] と受け持ちの settings（Claude Code に渡す中身）、ツールの inputSchema（JSON Schema）、[[land.after]] の input（ツールに渡す中身）。
+中を見ない表: 役の [roles.settings] と受け持ちの settings（Claude Code に渡す中身）、ツールの inputSchema（JSON Schema）、[[land.after]] と [[task.after]] の input（ツールに渡す中身）。
 鍵を足す・外すときは、読む側と一緒にここを直す（試験 test_known_keys が今の会社の形の見本で、知らない鍵が 0 件かを確かめる）。
 """
 
 # 会社の形の表ごとの、読む鍵。表の名前は TOML の書き方の表の名前（頂きは ""、[land.roles.<役>] は land.roles）
 COMPANY = {
-    "": ("name", "description", "desk", "gh_user", "shared_instructions", "default_role", "desk_role", "roles", "skills", "land"),
+    "": ("name", "description", "desk", "gh_user", "shared_instructions", "default_role", "desk_role", "roles", "skills", "land",
+           "task"),
     "roles": ("name", "instructions", "model", "effort", "account", "settings", "deliver", "deliver_check", "holders", "ask_check",
               "ask_holders", "persistent", "fresh", "machine", "tools", "former_names", "keepalive"),
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
@@ -24,6 +25,8 @@ COMPANY = {
     "land": ("mode", "gate", "check", "bump", "main", "queue", "batch", "roles", "after"),
     "land.roles": ("mode", "gate", "check", "bump", "main"),
     "land.after": ("role", "tool", "input"),
+    "task": ("after",),
+    "task.after": ("role", "tool", "input"),
 }
 # 会社の形の外した鍵: 表 → {鍵: 行き先（読まなくなった訳と、代わりに書く所）}。今は無い
 COMPANY_RETIRED = {}
@@ -80,6 +83,11 @@ def company(raw, path):
             out += [say(f"{path}: skills[{i}]{name} の start", k, g) for k, g in odd("skills.start", s.get("start"))]
             out += [say(f"{path}: skills[{i}]{name} の keepalive", k, g) for k, g in odd("skills.keepalive", s.get("keepalive"))]
     out += land(raw.get("land"), path)
+    task = raw.get("task")
+    if isinstance(task, dict):
+        out += [say(f"{path}: task", k, g) for k, g in odd("task", task)]
+        for i, x in enumerate(_rows(task, "after")):
+            out += [say(f"{path}: task.after[{i}]", k, g) for k, g in odd("task.after", x)]
     return out
 
 

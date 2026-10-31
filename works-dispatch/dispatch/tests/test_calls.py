@@ -13,6 +13,7 @@ import unittest
 from . import test_deliver
 from .test_provision import git
 import calls
+import filex
 import orders
 import gitx
 from nodes import deliver, land, provision, role, tools, tree
@@ -96,6 +97,14 @@ class Fields(unittest.TestCase):
         got = land.read_rules("/c.toml", None, text)
         self.assertEqual(got["after"], [{"role": "配布", "tool": "spread-plugins", "input": {}}])
         self.assertIn("land.after[1] は role・tool", got["problems"][0])
+
+    def test_task_after_is_read_like_land_after(self):
+        text = '[[task.after]]\nrole = "配布"\ntool = "spread-plugins"\ninput = { dry_run = true }\n[[task.after]]\ntool = "x"\n'
+        got, problems = calls.task_rules({"path": "/c.toml", "text": text})
+        self.assertEqual(got, [{"role": "配布", "tool": "spread-plugins", "input": {"dry_run": True}}])
+        self.assertEqual(problems, ["/c.toml: task.after[1] は role・tool（空でない文字列）と input（表。省けば空）で書く"])
+        self.assertEqual(calls.task_rules({"path": "/c.toml", "text": 'task = 1\n'}), ([], ["/c.toml: task が表で無い"]))
+        self.assertEqual(calls.task_rules({"path": None, "text": None}), ([], []))
 
 
 class ToolEnv(unittest.TestCase):
@@ -190,6 +199,47 @@ class Call(unittest.TestCase):
                    {"ask": first, "boss": "窓口", "boss-inbox": self.inbox})
         last = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"][-1]
         self.assertEqual((last.get("rerun_of"), bool(last.get("ask"))), (None, True))
+
+    def test_a_dry_run_that_does_not_settle_is_not_handed_over(self):
+        # 空打ち（入力の dry_run が true）は、ツールが知らせる物を出して 1 で終わっても AI に回さず、外れとも数えない（頼み 2827a8。
+        # 工場の版の見張りの空打ちで上げ先が在ると、作業の部署が立っていた）
+        self.use(self.script("import sys; print('上げ先が在る'); sys.exit(1)"))
+        self.shape(shape_text(self.script("import sys; print('上げ先が在る'); sys.exit(1)")).replace("dry = ", "dry_run = "))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"dry_run": true}')
+        self.assertEqual(rc, 1, out)
+        self.assertIn("上げ先が在る", out)
+        self.assertIn("空打ち（入力の dry_run が true）なので AI に回さない", out)
+        self.assertEqual((deliver.records(self.inbox), self.prompts()), ([], []))
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins", "--input", '{"dry_run": false}')
+        self.assertEqual(rc, calls.CALLED, out)   # 空打ちでなければ今までどおり回す
+
+    def test_after_task_calls_the_task_after_tools_with_the_desk_as_the_boss(self):
+        # 部署を立てた後の合図（[[task.after]]）。回した頼みの頼み元は会社の窓口（立った部署の頼み元はこの合図を頼んでいない）
+        self.use(self.script("raise SystemExit(1)"))
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False, after_task=self.place)
+        rc, out = self.capture(lambda: calls.after_task(a, self.ports, None))
+        self.assertEqual((rc, out.strip()), (0, "呼ぶ物は無い（会社の形に [[task.after]] が無い）"))
+        with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
+            f.write('\n[[task.after]]\nrole = "配布"\ntool = "spread-plugins"\n')
+        provision.mark(self.src, self.src, {"name": "受付", "lifecycle": "persistent"}, self.g)   # 本社の名付いた会話（窓口）
+        provision.mark(self.place, self.src, {"name": "調べ", "boss": "別の部署", "boss-inbox": "/elsewhere"}, self.g)
+        with filex.lock(os.path.join(self.inbox, calls.TASK_AFTER_LOCK), wait=False):   # 同じ会社のほかの合図が呼んでいる
+            rc, out = self.capture(lambda: calls.after_task(a, self.ports, None))
+        self.assertEqual((rc, out.strip(), deliver.records(self.inbox)), (0, "飛ばした: 同じ会社の、部署を立てた後のほかの合図が呼んでいる", []))
+        rc, out = self.capture(lambda: calls.after_task(a, self.ports, None))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("合図（部署 調べ を立てた後）: 配布/spread-plugins AI に回した", out)
+        (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        self.assertEqual((row["from"]["name"], row.get("cause")), ("受付", None))   # 立った部署の頼みは親にしない
+
+    def capture(self, fn):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = fn()
+        return rc, buf.getvalue()
 
     def test_bad_input_stops_before_running(self):
         self.use(self.script("raise SystemExit(9)"))
@@ -292,7 +342,7 @@ class Call(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place)   # 回した頼みの頼み元は会社の窓口
         self.assertEqual((attrs.get("boss"), attrs.get("boss-inbox")), ("受付", self.inbox))
         (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
-        self.assertEqual(row["from"]["name"], "受付")
+        self.assertEqual((row["from"]["name"], row.get("cause")), ("受付", None))   # 立った部署の頼みは親にしない
 
     def test_fire_after_a_land_by_a_department_without_a_boss_hands_over_with_the_held_asks_boss(self):
         # 受付 cee7e1 の形: --land を打った場所が頼みを受けていれば、その頼みの頼み元（cause_boss）を頼み元にする

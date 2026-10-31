@@ -137,3 +137,7 @@ tool = "spread-plugins"
 [[land.after]]
 role = "CI の見張り"
 tool = "ci-watch"
+
+[[task.after]]
+role = "工場の版の見張り"
+tool = "works-factory-pin"

@@ -178,6 +178,24 @@ class Task(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place(ports, "task/other"))
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("作業", "ephemeral"))
 
+    def test_a_new_department_fires_the_task_after_tools_in_the_background_but_a_reopened_one_does_not(self):
+        # 部署を新しく立てたら、会社の形の [[task.after]] を --after-task で裏で打つ（頼み 2827a8。工場の版の見張りを部署が立つたびに呼ぶ）。
+        # 打った会話の印は渡さない。開き直し（--task の打ち直し・--move）では打たない
+        push_shape(self.g, '[[roles]]\nname = "作業"\n[[task.after]]\nrole = "見張り"\ntool = "watch"\n[[task.after]]\nrole = ""\n')
+        ports = self.ports()
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        path = self.place(ports)
+        ((argv, cwd, log, env),) = ports.spawned
+        self.assertEqual((argv[1:4], cwd), ([dispatch.calls.DISPATCH_PY, "--after-task", path], gitx_source(self.cfg)))
+        self.assertEqual(os.path.basename(log), dispatch.calls.TASK_AFTER_LOG)
+        self.assertIn("部署 task-fix を立てた後", pathlib.Path(log).read_text(encoding="utf-8"))
+        self.assertNotIn("CLAUDE_CODE_SESSION_ID", env)
+        self.assertIn("task.after[1] は role・tool", out)   # 形の違う項目は注記に出して外す
+        rc, out = self.run_task(self.ports())
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(ports.spawned), 1)
+
     def test_a_duty_raised_only_when_asked_starts_per_task_even_under_a_resident_role(self):
         # 受け持ちの on_demand = true（on-demand）は、役が persistent = true でも tmp の部署で立つ（--done で畳まれる）
         push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'

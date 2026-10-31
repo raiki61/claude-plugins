@@ -377,7 +377,7 @@ fallback_role = "点検"
 # main で CI が緑の commit が在れば上げる。スキルに効く変更の照合に当たりが無ければ、AI を立てずにツールが PIN と CHANGELOG を書いて --land で入れる
 # （機械の上げ。持ち主 2026-10-28「いやLLMも要らないような自動のあげかた」。設計の 3.7）。照合に当たったときと機械の上げが失敗したときだけ、
 # 上げる頼みを作業に回す。作業は --write で PIN と CHANGELOG を書き、照合で当たればスキルも直して --land で入れる。
-# main に入れるたびに下の [[land.after]] の合図で呼ばれる。工場の CI の緑だけで上げる（持ち主 2026-10-26「おし」で案 A。設計 docs/specs/2026-10-26-works-factory-pin-design.md の 1）。
+# main に入れるたびに下の [[land.after]] の合図で、部署が新しく立つたびに下の [[task.after]] の合図で呼ばれる（部署の合図は頼み 2827a8）。工場の CI の緑だけで上げる（持ち主 2026-10-26「おし」で案 A。設計 docs/specs/2026-10-26-works-factory-pin-design.md の 1）。
 # 手で呼ぶなら dispatch.py --call claude-plugins/工場の版の見張り works-factory-pin（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えない）
 [[roles]]
 name = "工場の版の見張り"
@@ -432,6 +432,12 @@ tool = "ci-watch"
 
 # main に入れた後の合図: 工場の版の上げ先を見る（CI の見張りの後）。工場の main に CI の緑の新しい commit が在れば、上げる頼みが作業に回る
 [[land.after]]
+role = "工場の版の見張り"
+tool = "works-factory-pin"
+
+# 部署を立てた後の合図（works-dispatch の [[task.after]]。頼み 2827a8）: 部署が新しく立つたびに、工場の版の上げ先を裏で見る。
+# main へ入れる合図だけだと、main へ誰も入れない間は工場の新しい版を追えなかった。頼み元は会社の窓口で、部署を開き直したときは呼ばない
+[[task.after]]
 role = "工場の版の見張り"
 tool = "works-factory-pin"
 

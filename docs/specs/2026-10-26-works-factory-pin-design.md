@@ -26,9 +26,10 @@ works-factory プラグインの殻（`works-factory/bin/works-factory`）は、
 
 ## 3. 決めた事（案・推し・代償）
 
-### 3.1 きっかけ: claude-plugins の main に入れた後の合図
+### 3.1 きっかけ: claude-plugins の main に入れた後の合図と、部署を立てた後の合図
 
 - 採った: `[[land.after]]`（tests/ci-watch.py と同じ形）。代償は、claude-plugins の main に誰も入れない間は見張りも止まること。手で `--call` を打てば回る。
+- 足した（頼み 2827a8。持ち主 2026-10-31「全部おしで」）: `[[task.after]]`。claude-plugins で部署が新しく立つたびに、works-dispatch が裏で見張りを呼ぶ。main へ入れる合図だけでは、main に誰も入れない間に工場の新しい版を追えなかった。頼み元は会社の窓口で、開き直した部署（`--task` の打ち直し・`--move`）では呼ばない。同じ会社でほかの部署の合図が呼んでいる間は飛ばす。
 - 採らない: 手元の定期の起動（cron・launchd）。持ち主が置かないと決めている（works-dispatch/docs/ledger.md の「cron・launchd で刻む形: 採らない」）。
 - 採らない: 工場からの知らせ（工場の GitHub Actions から claude-plugins へ repository_dispatch を送る）。works-factory の側に常駐の仕組みを足すことになり、works-factory の決まり E10 で先に持ち主の決めが要る。
 - 採らない: claude-plugins の GitHub Actions の定期。版の上げ（`--land`）と配布（spread-plugins）が手元にしか無く、Actions から main へ直に push すると `--land` の列とゲートを外れる。機械の上げ（3.7）も同じ訳で、ツールの中で push せずに `--land` を打つ。

@@ -335,6 +335,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--call", nargs=2, metavar=("会社/役", "ツール"),
                     help="役の機械窓口のツールを呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
     ap.add_argument("--input", help="--call と一緒に: ツールへの入力（JSON の字か @ファイル。省けば {}）")
+    ap.add_argument("--after-task", metavar="部署の場所", help="部署を立てた後の合図: その部署の会社の形の [[task.after]] のツールを順に呼ぶ"
+                    "（部署を新しく立てるたびに裏で打つ。手で打ってもよい）")
     ap.add_argument("--start", metavar="受け持ち", help="会社の形の起動方法（[skills.start]）の有る受け持ちを今起動する（名前か「会社/名前」。"
                     "納品は起動方法の report_to に返る）")
     ap.add_argument("--due", action="store_true", help=f"{term.NAME} に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起動し、"
@@ -421,6 +423,8 @@ def main(argv=None, ports=None):
         return reminds.close(a, ports, os.getcwd())
     if a.call is not None:
         return calls.call(a, ports, os.getcwd(), _task)
+    if a.after_task is not None:
+        return calls.after_task(a, ports, _task)
     if a.start is not None or a.due:
         if a.start is not None and a.due:
             print("止めた: --start と --due は一緒に使えない（--start は 1 つを今、--due は周期の来た物を全部）")
@@ -1287,6 +1291,12 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                     notes += [f"作業場に keep か tmp かの印を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
                     notes += _order_company(repo.source, info["skills"], ports)
                 route += f"（会話 {sid}）"
+    if result == "started" and not existed:
+        # 部署を新しく立てた後の合図（会社の形の [[task.after]]）。開き直し（--task の打ち直し・--move）では呼ばない
+        after, bad = calls.task_rules(info)
+        notes += [f"注記: {b}" for b in bad]
+        if after:
+            notes += [n for n in [calls.task_later(a, ports, repo.source, prov["path"])] if n]
     print("\n".join(notes + [f"部署 {a.task}  {a.branch}  {account}  {result}"] +
                     ([f"- ペイン {pane}（{pane_label}）、作業場 {prov['path']}、連絡の道: {route}"] if pane else [])))
     return 0 if result == "started" else 1   # 起きなかった（launch_failed・blocked など）を、呼んだ側（--ask・台本）に終了の値で知らせる
