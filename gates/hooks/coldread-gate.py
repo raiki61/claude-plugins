@@ -596,6 +596,8 @@ def _heredoc_at(text, i, in_sub, top_level):
         return None
     if not top_level and (len(parts) > 1 or parts[0][0] == "\\"):
         return None   # 置換の中の、一部だけ引用した区切り
+    if not in_sub and len(parts) == 1 and parts[0][0] != "\\":
+        return None   # HEREDOC_RE が読めなかった 1 語の区切り(終わりの行が無い)。同じ探しを 2 度しない
     tail = re.compile(r"([^\r\n]*)\r?\n(?:(.*?)\r?\n)??%s%s(?:\r?\n|\r?$%s)"
                       % ("\t*" if head.group(1) else "", re.escape(delim), r"|(?P<paren>)(?=\))" if in_sub else ""), re.S)
     tm = tail.match(text, j)
