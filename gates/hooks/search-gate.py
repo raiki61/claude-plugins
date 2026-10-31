@@ -21,6 +21,7 @@ Claude Code の Glob・Grep のツール。`bash -c "…"`・`eval`・`$( … )`
 解析部(トークン化・単純コマンド分割・変数と cd の追い方)は coldread-gate.py から読み込んで共有する。
 """
 import copy
+import itertools
 import json
 import os
 import posixpath
@@ -657,6 +658,12 @@ def check_simple(cr, files, cmds, k, words, bodies, here, depth):
     at = cr.command_start(c.args)
     if not words or ("command" in c.args[:at] and {"-v", "-V"} & set(c.args[:at])):
         return   # command -v rg は在るかを引くだけ
+    if hops == "parallel":
+        lines = parallel_lines(words)
+        if lines is not None:
+            for line in lines:
+                check_command(cr, line, here, depth + 1, files)
+            return
     name = os.path.basename(words[0])
     if name in SHELLS:
         script = shell_script(words[1:])
@@ -718,6 +725,40 @@ def parallel_words(words):
         elif not files:
             out.append(w)
     return out
+
+
+def parallel_lines(words):
+    """GNU parallel が、後ろのコマンドを 1 語の文字列で渡されたとき(`parallel "rg foo {}" ::: /`)・シェルか eval に渡すとき
+    (`parallel bash -c 'find {} -name x' ::: /`)・コマンドを持たないとき(`parallel ::: "find / -name x"`。値そのものを走らせる)に、
+    シェルが走らせるコマンドの文字列の列(でなければ None)。parallel は ::: の後ろの値を {} に入れるか後ろに足し、シェルに
+    渡して走らせる(前は 1 語のコマンドを名前と読み、どれも通していた)。:::: の後ろ(値を読むファイル)と標準入力の値は
+    決まらないので {} のまま残す。値の組は PARALLEL_MAX 個までにし、超えたら値を 1 つずつ入れる。"""
+    marks = (":::", ":::+", "::::", "::::+")
+    cut = next((i for i, w in enumerate(words) if w in marks), len(words))
+    cmd = words[:cut]
+    if not (not cmd or len(cmd) == 1 and re.search(r"\s", cmd[0])
+            or os.path.basename(cmd[0]) in SHELLS or os.path.basename(cmd[0]) == "eval"):
+        return None
+    template = cmd[0] if len(cmd) == 1 else shlex.join(cmd)
+    groups, files = [], False
+    for w in words[cut:]:
+        if w in marks:
+            files = w.startswith("::::")
+            groups.append(["{}"] if files else [])
+        elif not files:
+            groups[-1].append(w)
+    groups = [g for g in groups if g]
+    if not groups:
+        return [template] if template else []
+    count = 1
+    for g in groups:
+        count *= len(g)
+    combos = itertools.product(*groups) if count <= PARALLEL_MAX else [(v,) for g in groups for v in g]
+    lines = []
+    for combo in combos:
+        values = " ".join(combo)
+        lines.append(template.replace("{}", values) if "{}" in template else (template + " " + values).strip())
+    return lines
 
 
 def after_hop(words):
@@ -1303,6 +1344,7 @@ def load_coldread():
 
 Scope = None
 PLACES_MAX = 32   # 1 つのコマンドが走りうる cwd を覚える数の上限(cwds_here)
+PARALLEL_MAX = 64   # parallel の ::: の値の組を、組ごとに入れて見る数の上限(parallel_lines)
 LOOPS = {"for", "select", "while", "until"}
 # 1 つのコマンドで、繰り返しの回の中身をたどったコマンドの数(_heads)と、cd の行き先を場所ごとに引く数(_walk)の上限。超えたら読み切れないと
 # して止める(入れ子の繰り返しの cd で場所が増え続けると掛け算で増え、時間切れは通す。5 重の `for …; do cd d; done` で 38 万・1.3 秒。

@@ -389,6 +389,21 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
+    def test_parallel_runs_a_one_word_command_through_the_shell(self):
+        # 1 語の文字列で渡したコマンド・シェルに渡すコマンド・コマンドの無い parallel は、::: の値を {} に入れるか後ろに足した
+        # 文字列をシェルが走らせる(前は 1 語のコマンドを名前と読み、どれも通していた)
+        for command in ('parallel "rg foo {}" ::: /', "parallel 'find {} -name x' ::: /",
+                        "parallel bash -c 'find {} -name x' ::: /", 'parallel ::: "find / -name x"',
+                        "parallel -j4 'rg foo {}' ::: src /", 'parallel "rg foo" ::: /', "parallel ::: find ::: /"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # 探さないコマンド・作業場の中の値・標準入力やファイルから読む値(決まらない)は通す
+        for command in ("parallel gzip ::: *.log", 'parallel -j4 "gzip {}" ::: *.log', "ls | parallel rg foo {}",
+                        'parallel "rg foo {}" ::: src lib', 'ls | parallel "rg foo {}"', 'parallel "rg foo {}" :::: list.txt',
+                        "parallel bash -c 'echo {}' ::: a b", 'parallel ::: "echo a" "echo b"'):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
+
     def test_wrappers_written_as_full_paths_are_skipped(self):
         for command in ("/usr/bin/time find / -name x", "/usr/bin/env find / -name x", "/usr/bin/timeout 60 find / -name x"):
             with self.subTest(command=command):
