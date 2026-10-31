@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=872
+EXPECTED_CHECKS=874
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -4702,7 +4702,7 @@ expect_output 0 "F3 が届いていない" "前の版の回の記録は引き継
 # この検査が見るのは通じやすさだけ。中身の審査の問い(判断の材料・根拠・実例)は止める詰まりでなく疑問に回すよう、
 # どの依頼文にも書く。前は 3 回目の読み手が「許していない範囲は前の点検と同じか」で止め、根拠を足すたびに足した文が
 # また問われて、本文が 473 → 1,351 字に膨らんだ(2026-10-17 の works-factory の PR #677)
-expect_output 0 "CLARITY_ONLY_OK" "依頼文は詰まりを語・指す先・筋の 3 つに絞り、中身の審査の問いを疑問に回す" \
+expect_output 0 "CLARITY_ONLY_OK" "依頼文は詰まりを語・指す先・筋・求めることの 4 つに絞り、中身の審査の問いを疑問に回す" \
     "$PY_BIN" -c "$CR_LOAD"$'\n''prompts = [g.COLD_PROMPT, g.reader_prompt("画面", "PR"), g.reader_prompt("画面")]
 ok = all(all(w in p for w in ("word", "referent", "flow", "判断の材料", "疑問")) for p in prompts) and "判断の材料" in g.FOLLOWUP_NOTE
 print("CLARITY_ONLY_OK" if ok else "BAD")' "$ROOT/gates/hooks/coldread-gate.py"
@@ -5253,6 +5253,14 @@ expect_output 0 "投稿を止めている詰まり" "引いた字が本文に在
 CR_STUB_ASK='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/ask=ZZASK 何を求めているか言えない" "stuck/word=ZZWORD が分からない"'
 expect_output 0 "詰まり: (求めること・急ぐか) ZZASK" "投稿の前の検査は、求めること・急ぐかの詰まりで止める" \
     env COLDREAD_TEST_SESSION=ask1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_ASK" "$CR_POST"
+# 求めること・急ぐかの詰まりは本文に無い事への詰まりで写す字が無いので、引いた字が本文に無くても止める
+CR_STUB_ASK_Q='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/ask=ZZASKQ 何を求めているか言えない::本文に無い言い換えの文"'
+expect_output 0 "詰まり: (求めること・急ぐか) ZZASKQ" "求めること・急ぐかの詰まりは、引いた字が本文に無くても止める" \
+    env COLDREAD_TEST_SESSION=ask2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_ASK_Q" "$CR_POST"
+# 画面を添えて読んだ返信では、画面(元の指摘など)の字を引いた詰まりも在る物として止める
+CR_STUB_SCREEN_Q='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word=ZZSCREENQ が分からない::fixture 3 の略"'
+expect_output 0 "投稿を止めている詰まり" "画面を添えて読んだ返信は、画面の字を引いた詰まりで止める" \
+    env COLDREAD_TEST_SESSION=screenq "$CR_CASE" "$CR_CFG" "$CR_STUB_SCREEN_Q" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 expect_output 0 "DOC_ASK_OK" "文書の検査は、求めること・急ぐかの詰まりを止めない側(疑問)に移し、ほかの詰まりは止める" \
     env CLAUDE_CONFIG_DIR="$CR_CARRY_CFG" COLDREAD_READER_CMD="$CR_STUB_ASK" "$PY_BIN" -c "$CR_LOAD"$'\n''found = g.read_doc("本文")
 stuck = [i["text"] for i in found["stuck"]]

@@ -4132,7 +4132,9 @@ def demote(found, keeps, label):
 
 # 投稿の前の検査で、読み手が詰まりの根拠に引いた字(quotes)が本文に無い指摘は止めない。同じ本文が次の回には通る、読み手の揺れだった
 # (gates/docs/coldread-stop-cost-2026-10-29.md の型 D。持ち主 2026-10-31 に採った)。引いた字の在る・無いは、空白を除いて比べ、
-# 頭と終わりの括弧と、途中を省いた「…」は外して比べる(読み手の写し方の癖で、正しい指摘を落とさない向きに倒す)。quotes の無い指摘は今までどおり止める
+# 頭と終わりの括弧と、途中を省いた「…」は外して比べる(読み手の写し方の癖で、正しい指摘を落とさない向きに倒す)。quotes の無い指摘は今までどおり止める。
+# 画面を添えて読んだ回は、画面(題・元の指摘など)の字を引いた詰まりも在る物として比べる。求めること・急ぐかの詰まり(cause の ask)は、
+# 本文に書かれていない事への詰まりで写す字が無いので、引いた字では移さない
 MISQUOTED_NOTE = "止めない。読み手が引いた字が本文に無い"
 _QUOTE_EDGE = "「」『』\"'“”‘’"
 
@@ -5239,7 +5241,8 @@ def main() -> None:
              + "検査できていないので止めた。手で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
              + OWNER_NOTE, len(body), fp)
 
-    found = demote(found, lambda item: quoted_in(item, text), MISQUOTED_NOTE)
+    seen = "%s\n%s" % (text, screen or "")
+    found = demote(found, lambda item: item["cause"] == "ask" or quoted_in(item, seen), MISQUOTED_NOTE)
     if round_no >= 2:
         found = demote(found, lambda item: item["sure"], UNSURE_NOTE)
     if round_no >= CARRY_ONLY_ROUND:
@@ -5278,7 +5281,8 @@ def main() -> None:
         "(再実行時は新しい coldreader が、この回の指摘と直した差分を渡されて読み、回を追って止める物を絞る):"
         % (role, "%d 回目の検査。前の回から残った詰まり・なぞりだけで止めた(止める数は直すたびに減る)" % round_no
                  if round_no >= CARRY_ONLY_ROUND else
-                 "%d 回目の検査。前の回の指摘が解けたかと、直しが持ち込んだ物だけを見た" % round_no if prev
+                 "%d 回目の検査。前の回の指摘が解けたかと、直しが持ち込んだ物だけを見て、読み手が解けないと言い切った物で止めた"
+                 % round_no if prev
                  else "1 回目の検査。本文の全体を読んだ")
     )
     # 見出しで分ける。混ぜて並べると、直さなくてよい補完・疑問が過半を占めたまま
