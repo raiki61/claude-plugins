@@ -116,6 +116,9 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 投稿の前のゲート(coldread)が、`cat long.md | gh gist create -pf short.md` のように束ねた短い旗の値を投稿するファイルと読み、gh が gist に出す標準入力を読まずに通していた。`gh gist create -pd "my desc" a.md` は、説明をファイルと読んで止めていた。束ねた短い旗を gh と同じく 1 字ずつ読み、値を取る字は語の残りか次の語を値に取るようにした。
 - 投稿の前のゲート(coldread)が、`gh release create v1 --target -h --notes "…"`・`gh pr edit 1 --add-label -h --body-file long.md` のように、値を取る旗の表に無い旗の直後の `-h` を案内と見て、本文を読まずに通していた。直前の語が `=` の無い旗なら、値を取らないと確かめた旗でない限り、`-h` をその旗の値と見るようにした。
 - 宛先のゲート(destgate)が、`u=https://github.com/evil/x/pull/1; gh pr comment "$u" --body-file short.md` のように、投稿先を選ぶ語が同じコマンドの中で URL を代入した変数のとき、走る場所の repo を宛先と見て通していた。変数を代入から解き、URL ならその repo を宛先と見るようにした。
+- 投稿の前のゲート(coldread)と宛先のゲート(destgate)が、`env $(cat .env | xargs) gh pr comment …`・`$(true) gh …` のようにコマンド名の位置に展開だけの語を置いた gh を見ずに通していたのを直す（展開は走る場所と宛先を変えうるので、相対のパスの本文ファイルと -R の無い宛先は止める）。前置（env・sudo など）の後ろの置換だけの語は、探しのゲート(searchgate)でも代入と同じに越えて、後ろの find・rg を見る。
+- 宛先のゲート(destgate)が、`u=<URL> && gh pr comment "$u" …; gh pr checks 1` のように後ろに別の gh が在ると、投稿先の変数を最後の gh の位置で解き、URL の repo を見ずに通していたのを直す。
+- 投稿の前のゲート(coldread)と宛先のゲート(destgate)が、`root=$(cd /abs && pwd); gh pr comment …` のように gh より前に閉じたサブシェル・置換の中の cd で、本文ファイルのパスと -R の無い宛先を決まらない物として止めていたのを直す。
 
 ## [0.46.0] - 2026-10-30
 
