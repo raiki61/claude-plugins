@@ -671,8 +671,9 @@ def glued_find_args(cmds, k):
     括弧と、開いた -exec の後の ; だけで続くコマンドを繋ぎ直す。区切りは 1 つずつ読む(`\; \)`・`\; \(` のように閉じの ; と
     括弧が並んでも繋ぐ。前は区切りの組で見て、`find . \( -name a -exec true \; \) -exec rg x / \;`・
     `find . -exec true \; \( -exec rg x / \; \)` の rg を見落とした)。-exec は `{} +` の + か ; でだけ閉じる(前は + の語で閉じたと見て、
-    `find . -exec echo + \; -exec rg x / \;` の rg を見落とした)。閉じる括弧が開いた数を超えたら(本物のサブシェルの閉じ)そこで
-    止める。式の括弧か -exec が開いたまま、ほかの区切りで止まったら(読み切れない)、後ろに探すツールの語が在れば止める
+    `find . -exec echo + \; -exec rg x / \;` の rg を見落とした)。閉じる括弧が開いた数を超えたら、find を囲むサブシェルが在れば
+    (本物のサブシェルの閉じ)そこで止め、無ければ引用符で囲んだ字と見て繋ぐ(前はどちらも止め、`find fd -name ')' -exec rg x / \;`
+    の rg を見落とした)。式の括弧か -exec が開いたまま、ほかの区切りで止まったら(読み切れない)、後ろに探すツールの語が在れば止める
     (投稿の前のゲート〔coldread-gate.py の glued_find〕と同じ読み方)。"""
     args, open_, closed = [], 0, True
 
@@ -692,8 +693,9 @@ def glued_find_args(cmds, k):
                 add([";"])
             elif op in ("(", ")"):
                 open_ += 1 if op == "(" else -1
-                if open_ < 0:
+                if open_ < 0 and cmds[k].depth > 0:
                     return args
+                open_ = max(open_, 0)   # 囲むサブシェルの無い所の閉じ括弧は、引用符で囲んだ字(`-name ')'`・`\)`)
                 args.append(op)
             else:
                 if (open_ > 0 or not closed) and any(WORD_RE.search(" ".join(c.args)) for c in cmds[m:]):
@@ -988,6 +990,8 @@ def layout(cr, tokens, kinds=None, negs=None, braces=None):
                     continue
                 if op == ";;" and top and top[1] == "case":
                     top[2], top[4] = top[2] + 1, True
+                if op == ")" and not depth:
+                    continue   # 開いていない閉じ括弧は引用符で囲んだ字(`echo ')'`。トークン化で引用符が落ちる)。区切りでない
                 if op == ")":
                     depth -= 1
                 ops.append((op, depth))

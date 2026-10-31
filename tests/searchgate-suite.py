@@ -517,6 +517,20 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
 
+    def test_quoted_closing_parenthesis_is_not_a_subshell_close(self):
+        # 囲むサブシェルの無い所の閉じ括弧(`')'`・`\)`。トークン化で引用符が落ちる)は字と見る(前はサブシェルの閉じと見て、
+        # find の後ろを繋がず、cd が後ろに届かないと読んで通していた)
+        for command in ("find fd -name ')' -exec rg x / \\;", "find fd -exec echo \\) \\; -exec rg x / \\;",
+                        "cd /; echo ')'; rg x .", "cd / && echo ')' && rg x .",
+                        "echo ')'; find fd -name ')' -exec rg x / \\;", "(find . -name x) && rg y /"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
+        # 本物のサブシェルの閉じと、括弧の字を探す作業場の中のコマンドは通す
+        for command in ("find . -name ')' -print", "find fd -exec echo \\) \\; -print", "(find . -name x); rg y src",
+                        "(cd /; echo ')'); rg x .", "(cd /tmp); rg x .", "echo ')'; rg x src"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
+
     def test_fd_exec_command_is_read(self):
         # fd の -x・-X・--exec・--exec-batch の後ろのコマンドも探すコマンドとして読む(前は読まず、`fd foo -x rg y / {}` を通していた)
         for command in ("fd foo -x rg y / {}", "fd -e py -X rg -l foo /", "fd -Hx rg y /", "fd --exec=rg y /",
