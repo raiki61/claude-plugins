@@ -2769,9 +2769,18 @@ def test_answer_vocabulary():
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
+    # 的は諮りの選択肢をまとめて組む `_ask_decision` の 1 か所（上限・未収束のどちらの諮りもここを通る）。
+    # 前は呼ぶ側の字 `["continue", "stop"]` を的にしていて、重複まとめ（5744582f2）でその字が
+    # 引数へ移ると置き換えが空振りし、諮りが壊れないまま下の検査だけが赤になった。**当たらなければ先に落とす**
     rp = tmp / "rules" / "research-loop.py"
-    rp.write_text(rp.read_text(encoding="utf-8").replace(
-        '"options": ["continue", "stop"]', '"options": ["continue", "halt"]'), encoding="utf-8")
+    src = rp.read_text(encoding="utf-8")
+    target = '"options": options}}'
+    if src.count(target) != 1:
+        check(False, f"置き換えの的 {target} が research-loop.py にちょうど 1 か所ある（{src.count(target)} か所）")
+        rm(tmp)
+        rm(run.tmp)
+        return
+    rp.write_text(src.replace(target, '"options": ["continue", "halt"]}}'), encoding="utf-8")
     gp = tmp / "graphs" / "research-loop.json"
     gp.write_text((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"), encoding="utf-8")
     r2 = Run("ansopt", graph=gp)
