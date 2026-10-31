@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=831
+EXPECTED_CHECKS=832
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5639,6 +5639,19 @@ done
 # 前は coldread が一律に止め、それを投稿と見て宛先不明で止めていた
 expect_output 0 "ALLOW_EMPTY" "destgate: 差し込む語の在る gist の読むだけの gh api は、投稿と見ずに通す" \
     "$DG_CASE" "$DG_CFG" "$WORK" "gh gist list | awk '{print \$1}' | xargs -I{} gh api gists/{} --jq '.files[].raw_url'"
+# gh api の gist の宛先(`gists`・`gists/<id>`・GitHub Enterprise Server の `api/v3/gists`)は、gh gist create と同じ gist。前は宛先不明と
+# 見て、一覧に gist が在っても止めていた。一覧に gist が無ければ今までどおり止める
+DG_GIST_CFG="$WORK/destgate-gist-cfg"; mkdir -p "$DG_GIST_CFG/destgate"
+printf 'allowed/repo\ngist\n' > "$DG_GIST_CFG/destgate/allowlist"
+expect_output 0 "DG_API_GIST_OK" "destgate: gh api の gist の宛先は gist と見る" \
+    sh -c 'ok=1
+for c in "gh api gists -f \"files[a.md][content]=x\"" "gh api https://ghe.example.com/api/v3/gists -f \"files[a.md][content]=x\"" \
+         "gh api -X PATCH gists/abc -f \"files[a.md][content]=x\"" "gh api gists/abc/comments -f body=x"; do
+  [ "$("$3" "$1" "$4" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+  "$3" "$2" "$4" "$c" | grep -q "宛先 gist は" || { ok=0; echo "一覧に無い gist を通した: $c"; }
+done
+"$3" "$1" "$4" "gh api gists/abc/../../repos/evil/place/issues/1/comments -f body=x" | grep -q 特定できない || { ok=0; echo ".. で外へ出る gist のパスを通した"; }
+[ $ok = 1 ] && echo DG_API_GIST_OK' sh "$DG_GIST_CFG" "$DG_CFG" "$DG_CASE" "$WORK"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib

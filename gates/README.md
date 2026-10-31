@@ -491,7 +491,7 @@ The second gatekeeper, restricting a different axis from coldread: "may this be 
 - The format is one pattern per line: `owner/repo`, `owner/*`, `gist` (lines starting with # and empty lines are ignored)
 - The destination is determined in the same order gh itself resolves it: `-R/--repo` → the `gh api`
   path `repos/<owner>/<repo>` or `orgs/<org>` (the `{owner}`/`{repo}` and `:owner`/`:repo` placeholders are filled with the
-  repository gh picks for the current directory, as gh does) → if neither, the repository gh picks for the current directory
+  repository gh picks for the current directory, as gh does), or `gists` (the destination is `gist`, as for `gh gist create`) → if neither, the repository gh picks for the current directory
   (`gh repo view --json nameWithOwner`; not `origin`, because gh may pick the `gh repo set-default` repository or another remote).
   Posts whose destination cannot be identified are stopped with a request to specify `-R` explicitly. This includes a post run from a
   directory that does not exist yet, and a post whose command also runs something that can change which repository gh picks

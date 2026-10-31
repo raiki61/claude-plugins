@@ -258,6 +258,10 @@ def dest_of(args, sub, cwd, here_unknown=False):
         # (`repos/許可した/repo/../../外/repo/…`)は、送る先で畳まれると別の repo を指しうるので、宛先と読まない
         if cr.api_is_graphql(sub[1]) or cr.api_endpoint_path(sub[1])[1]:
             return None
+        if cr.api_is_gist(sub[1]):
+            # gist の作成・書き換え(`gists`・`gists/<id>`。GitHub Enterprise Server の `api/v3/gists` も)の宛先は、gh gist create と
+            # 同じ gist。前は repos/・orgs/ でないパスと見て宛先不明にし、一覧に gist が在っても -R の明示を求めて止めていた
+            return {"gist"} | explicit
         path = re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/")
         if API_OWNER_RE.search(path) or API_REPO_RE.search(path):
             # `repos/{owner}/{repo}/…` の印は、gh が -R の無い投稿と同じ repo で埋める。同じ解き方で引いて埋める
