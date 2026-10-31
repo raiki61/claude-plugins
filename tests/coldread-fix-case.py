@@ -1443,8 +1443,22 @@ def f78():
     calls = g.analyze('eval "$(ssh-agent -s)"; gh pr comment 1 -b hi', WORK).calls
     check(78, [c[4] for c in calls if c[0] == ("pr", "comment")] == [WORK], "cd の語の無い eval で宛先の場所を見失った: %r" % calls)
 
+# 79. ${ } の中の $( )・`…` は走る物として読む(前は読めない物として止め、`B=${B:-$(git branch --show-current)}; gh pr list` のような
+# 読むだけのコマンドまで止めていた)。中の gh の投稿は本文ファイルまで読む
+def f79():
+    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
+        f.write(BODY)
+    for cmd in ("B=${B:-$(git branch --show-current)}; gh pr list", 'echo "${X:-$(date)}"; gh pr list',
+                'echo "${arr[0]:-$(date)}" ${#X} ${!p} ${X//a/$(echo b)}; gh pr list'):
+        a = g.analyze(cmd, WORK)
+        check(79, a.parsed, "${ } の中の $( ) で読むだけのコマンドを読めない物とした: %r → %r" % (cmd, a.why))
+    for cmd in ("X=${X:-$(gh pr comment 1 --body-file x.md)}", 'echo "${X:-$(gh pr comment 1 --body-file x.md)}"',
+                "echo ${X:-${Y:-$(gh pr comment 1 --body-file x.md)}}"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(79, not parsed or cands == [BODY] or bool(blk), "${ } の中の gh の投稿の本文を読まなかった: %r → %r %r %r" % (cmd, cands, blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77, 78: f78})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77, 78: f78, 79: f79})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

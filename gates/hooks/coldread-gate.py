@@ -3347,6 +3347,8 @@ SUB_DEPTH = 4
 # 中に引用符を持つ置換の中身を替える埋め草。変数の名前に使えない字にする(_ だと `${x:-"…"}` が `${____}` という名前の
 # 変数に見え、前の `____=…` の代入の値を本文と読んでいた)
 SUB_FILL = "."
+# ${ } の中身の頭の、変数の名前(長さの # と間接の ! と、配列の添字を含む)
+_PARAM_NAME_RE = re.compile(r"^[#!]?(?:\w+(?:\[[^\]]*\])?|[@*#?$!-])")
 
 
 def read_substitutions(norm, spans, heredoc_bodies, depth):
@@ -3356,7 +3358,7 @@ def read_substitutions(norm, spans, heredoc_bodies, depth):
     中の gh は、外のコマンドの cd・代入・ファイルへの書き込みの後で走るが、中を読むときにはそれが見えないので、走る場所を
     知らない物として読む(本文ファイルと変数の本文は止まる側に倒れる)。`…` の中身は、bash と同じく \\$ \\` \\\\
     (二重引用の中なら \\" も)の \\ を外し、注釈を落としてから読む。${ } の中の $( )・`…` は走るかが値しだいなので
-    読めない物とする。中に " を持つ置換と、引用符を持つ `…` は、語の切れ目を bash に合わせるため、写しの中身を埋め草に
+    走る物として読む。中に " を持つ置換と、引用符を持つ `…` は、語の切れ目を bash に合わせるため、写しの中身を埋め草に
     替える(頭の $( ・` と閉じる字は残すので、本文に在れば置換渡しとして止まる)。引用の外の $( )・<( ) などは替えない
     (tokenize が中身ごと 1 語にする)。"""
     inner, chars = [], None
@@ -3365,7 +3367,15 @@ def read_substitutions(norm, spans, heredoc_bodies, depth):
         body = norm[head:end]
         if kind == "{":
             if "$(" in body or "`" in body:
-                return None, None
+                # 中の $( )・`…` は走るかが値しだいなので、走る物として読む(前は読めない物として止め、`B=${B:-$(git branch
+                # --show-current)}; gh pr list` のような読むだけのコマンドまで止めていた)。名前を外した残り(:-$(…) など)を
+                # : の引数の語にして読む
+                if depth >= SUB_DEPTH:
+                    return None, None
+                sub = analyze(None, None, (": " + _PARAM_NAME_RE.sub("", body, count=1), heredoc_bodies), depth + 1)
+                if not sub.parsed:
+                    return None, sub.why
+                inner.append(sub)
             blank = in_dq and '"' in body
         elif kind == "(" and not in_dq:
             continue   # 引用の外の ( の物は、tokenize が中身ごと 1 語に留め、中のコマンドは with_substitutions が外の列に差し込む
