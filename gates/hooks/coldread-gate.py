@@ -283,7 +283,7 @@ API_BOOL_FLAGS = {"--allow-escape-sequences", "-i", "--include", "--paginate", "
 # `nice -n 19 gh pr comment …`・`sudo -u $USER gh …` の gh が見えず素通しだった(探す範囲のゲートは自分の表で越えていた)
 WRAPPERS = {"env", "command", "exec", "nohup", "time", "timeout", "gtimeout", "nice", "sudo", "doas", "stdbuf",
             "caffeinate", "ionice", "arch", "chronic", "unbuffer", "builtin", "coproc"}
-# 標準入力から読んだ語を足して後ろのコマンドを走らせる前置。gh_args だけが越える(command_start の feeders)。探す範囲の
+# 標準入力から読んだ語を足して後ろのコマンドを走らせる前置。gh_calls だけが越える(command_start の feeders)。探す範囲の
 # ゲートは xargs の後ろかを自分で見る(起点が標準入力から来る)ので、共有する command_start の既定では越えない
 FEEDERS = {"xargs", "parallel"}
 # 前置の旗のうち値を取るもの(値ごと読み飛ばす)と、前置が取る位置引数の数(timeout の時間)。
@@ -1238,7 +1238,7 @@ def normalize_shell(text, marks=None):
 
     落とさないと何が起きるか:
       行継続 …… tokenize は改行を区切りの演算子として残すので、1 つの gh 呼び出しが複数の
-        単純コマンドに割れる。旗だけが載った断片は gh 呼び出しと認識されず(gh_args が None)、
+        単純コマンドに割れる。旗だけが載った断片は gh 呼び出しと認識されず(gh_calls が空)、
         本文を運ぶ旗が引数列から消えて、候補も blocked も無い状態=投稿でないとして素通しになる。
         2026-09-03 の issue 3 本(skip.log 53-55 行)は逃げ道 COLDREAD_SKIP=1 で通ったので記録は
         残るが、同じ 3 本から逃げ道を外して掛け直すと、この経路で記録の無い素通しになることを
@@ -1483,7 +1483,7 @@ def split_commands(tokens):
             continue
         # 予約語はコマンド位置(蓄積中の単純コマンドが空)でだけ読み飛ばす。ここで捌くのは、
         # 同じ意味の `( gh … )` が `(` の区切りとして既に通っていたのに `{ gh …; }` は
-        # 抜ける、という非対称を構成として消すため。gh_args と wants_skip の両方が
+        # 抜ける、という非対称を構成として消すため。gh_calls と wants_skip の両方が
         # simple_commands を通るので、表の読者が増えても片方だけ外れることが起きない。
         # 全トークンから除いてはいけない——`--body do` の本文が空になる(実測)。
         if not cur and tok in RESERVED:
@@ -1507,7 +1507,7 @@ def command_start(tokens, feeders=False):
     """単純コマンドのコマンド名の位置。前置(環境変数の代入・env/timeout 等とその旗と値)を読み飛ばす。無ければ len(tokens)。
     feeders なら xargs・parallel(FEEDERS)も前置として越える。
 
-    gh_args と wants_skip の両方がここを通る——読み飛ばす範囲を 2 か所に書くと、片方だけ外れる。
+    gh_calls と wants_skip の両方がここを通る——読み飛ばす範囲を 2 か所に書くと、片方だけ外れる。
     コマンド名の前に書いたヒアドキュメント(`<<'EOF' gh …`。盾の印が残る)も読み飛ばす。前は印をコマンド名と読み、後ろの
     gh を引数と見て通していた(ほかのリダイレクトは split_commands が先に除く)。`coproc 名前 { gh …; }` の名前と { も越える。
     """
@@ -1546,34 +1546,105 @@ def _is_gh(tok):
     return tok == "gh" or tok.endswith("/gh")
 
 
-def gh_args(tokens):
-    """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。
+FIND_NAMES = ("find", "gfind", "bfs")
+FIND_EXEC = ("-exec", "-execdir", "-ok", "-okdir")
+# 後ろのコマンドの走る場所を変える前置の旗と find の式(BodyFiles.at)。gh が別の所で走るので、本文ファイルの相対のパスを
+# フックの場所で読むと別のファイルを読む。前は env -C・--chdir だけを見て、`sudo -D /x gh …`・`find d -execdir gh … --body-file n.md`
+# の n.md を、gh が走らないフックの場所で読んでいた
+CHDIR_FLAGS = ("--chdir", "--workdir", "--wd", "-execdir", "-okdir")
+
+
+def moves_dir(tok):
+    """gh より前の語 tok が、gh の走る場所を変えうるか。1 つの - で始まる束は、C か D の字を持てば変えうると見る(env -C・
+    sudo -D・`sudo -ED /x`。ほかの意味の -C・-D も数えるが、多めに見る分には本文ファイルを読まずに止める側に倒れるだけ)。"""
+    return tok.startswith(CHDIR_FLAGS) or (tok.startswith("-") and not tok.startswith("--")
+                                           and ("C" in tok[1:] or "D" in tok[1:]))
+
+
+def _base(tok):
+    return re.split(r"[\\/]", tok)[-1]
+
+
+def _gh_call(tokens, i):
+    """tokens[i] が gh のとき (gh より前の語, gh の引数列)。xargs・parallel の後ろなら、足す語の印(FED_MARK)を末尾に置く。"""
+    args = tokens[i + 1:]
+    if any(_base(t) in FEEDERS for t in tokens[:i]):
+        if "parallel" in (_base(t) for t in tokens[:i]):
+            # ::: の後ろは parallel が読む入力の語(gh の引数ではない)
+            args = args[:next((k for k, t in enumerate(args) if t in (":::", "::::", ":::+", "::::+")), len(args))]
+        args = args + [FED_MARK]
+    # コマンド名の前のヒアドキュメントの印は、後ろに書いたのと同じに引数の末尾へ回す(own_heredocs が gh の本文と見る)
+    return tokens[:i], args + [t for t in tokens[:i] if HEREDOC_MARK_RE.fullmatch(t)]
+
+
+def gh_calls(tokens):
+    """単純コマンド 1 件が走らせる gh の呼び出しの列。1 件ごとに (gh より前の語, gh の引数列)。gh を走らせなければ空。
 
     xargs・parallel の後ろの gh と、find の -exec・-execdir・-ok・-okdir の後ろの gh も呼び出しと見る(前は見えず素通しだった)。
-    足す語の所には印(FED_MARK)を置く: xargs・parallel は後ろに足す語の印を末尾に、find は {} の所に。"""
+    足す語の所には印(FED_MARK)を置く: xargs・parallel は後ろに足す語の印を末尾に、find は {} の所に。find は -exec ごとに
+    1 件で、全部の -exec を見る(前は最初の gh で返し、`-exec gh pr view 1 {} + -exec gh pr comment …` の後ろの gh を見落とした)。
+    find の引数は、式の \\( \\) と -exec の閉じの \\; で割れた後ろのコマンドを繋ぎ直した物(glued_find)を渡す。
+    gh より前の語には、find より前の前置・-exec の語・-exec の後ろの前置を並べる(moves_dir が走る場所を見る)。"""
     i = command_start(tokens, feeders=True)
-    if i < len(tokens) and _is_gh(tokens[i]):
-        args = tokens[i + 1:]
-        if any(re.split(r"[\\/]", t)[-1] in FEEDERS for t in tokens[:i]):
-            if "parallel" in (re.split(r"[\\/]", t)[-1] for t in tokens[:i]):
-                # ::: の後ろは parallel が読む入力の語(gh の引数ではない)
-                args = args[:next((k for k, t in enumerate(args) if t in (":::", "::::", ":::+", "::::+")), len(args))]
-            args = args + [FED_MARK]
-        # コマンド名の前のヒアドキュメントの印は、後ろに書いたのと同じに引数の末尾へ回す(own_heredocs が gh の本文と見る)
-        return args + [t for t in tokens[:i] if HEREDOC_MARK_RE.fullmatch(t)]
-    if i < len(tokens) and re.split(r"[\\/]", tokens[i])[-1] in ("find", "gfind", "bfs"):
-        for k in range(i + 1, len(tokens)):
-            if tokens[k] not in ("-exec", "-execdir", "-ok", "-okdir"):
-                continue
-            rest = tokens[k + 1:]
-            j = command_start(rest, feeders=True)
-            if j < len(rest) and _is_gh(rest[j]):
-                args = rest[j + 1:]
-                # `{} +` で -exec が閉じる(; は split_commands が区切りとして先に切った)
-                end = next((m for m in range(1, len(args)) if args[m] == "+" and args[m - 1] == "{}"), len(args))
-                return [t.replace("{}", FED_MARK) for t in args[:end]] + [
-                    t for t in tokens if HEREDOC_MARK_RE.fullmatch(t) and t not in args[:end]]
-    return None
+    if i >= len(tokens):
+        return []
+    if _is_gh(tokens[i]):
+        return [_gh_call(tokens, i)]
+    if _base(tokens[i]) not in FIND_NAMES:
+        return []
+    fed = any(_base(t) in FEEDERS for t in tokens[:i])   # xargs が find に足す語は、別の -exec にもなりうる
+    marks = [t for t in tokens if HEREDOC_MARK_RE.fullmatch(t)]
+    calls, k, n = [], i + 1, len(tokens)
+    while k < n:   # 1 度の走査で読む(-exec の後ろの語を -exec ごとに読み直さない)
+        if tokens[k] not in FIND_EXEC:
+            k += 1
+            continue
+        # -exec の後ろのコマンドは ; か、`{} +` の + で閉じる。閉じが無ければ終わりまで
+        start = m = k + 1
+        while m < n and tokens[m] != ";" and not (tokens[m] == "+" and m > start and tokens[m - 1] == "{}"):
+            m += 1
+        seg = tokens[start:m]
+        j = command_start(seg, feeders=True)
+        if j < len(seg) and _is_gh(seg[j]):
+            before, args = _gh_call(seg, j)
+            args = [t.replace("{}", FED_MARK) for t in args] + ([FED_MARK] if fed else [])
+            calls.append((tokens[:i] + [tokens[k]] + before, args + [t for t in marks if t not in args]))
+        k = m + 1
+    return calls
+
+
+def glued_find(cmds, k):
+    r"""k 番目のコマンド(find)の引数。式の \( \) と -exec の後ろの \; はトークン化で区切りと読まれ、後ろが別のコマンドに割れる
+    ので、括弧だけ(または開いた -exec の後の ; だけ)で続くコマンドを繋ぎ直す。閉じる括弧が開いた数を超えたら(本物のサブシェルの
+    閉じ)そこで止める。前は割れた後ろを見ず、`find . -exec true \; -exec gh …`・`find . \( -name a \) -exec gh …` の gh を
+    見落とした。探す範囲のゲート(search-gate.py の glued_find_args)と同じ読み方。本物の区切りを繋いでも、繋いだ後ろのコマンドは
+    別にも読むので、見落としは増えない。"""
+    args, open_, closed = [], 0, True
+
+    def add(words):
+        nonlocal closed
+        for w in words:   # 足した語だけを見る(繋ぐたびに全体を読み直さない)
+            if w in FIND_EXEC:
+                closed = False
+            elif w in (";", "+"):
+                closed = True
+            args.append(w)
+
+    add(cmds[k].args)
+    for m in range(k + 1, len(cmds)):
+        ops = [op for op, _ in cmds[m].ops]
+        if ops == [";"] and not closed:
+            add([";"])
+        elif ops and all(op in "()" for op in ops):
+            for op in ops:
+                open_ += 1 if op == "(" else -1
+                if open_ < 0:
+                    return args
+            args.extend(ops)
+        else:
+            break
+        add(cmds[m].args)
+    return args
 
 
 def dispatch_args(tokens):
@@ -1834,7 +1905,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     if sub in NON_POSTING:
         return candidates, blocked  # 投稿でないので本文検出も検査もしない
     if sub not in FED_READ_SUBS and any(FED_MARK in a for a in args):
-        # xargs・parallel・find -exec が足す語(gh_args の FED_MARK)は、本文の旗にも本文ファイルの名前にもなりうる
+        # xargs・parallel・find -exec が足す語(gh_calls の FED_MARK)は、本文の旗にも本文ファイルの名前にもなりうる
         blocked.append("xargs・find -exec などが足す引数")
         return candidates, blocked
     is_api = sub[:1] == ("api",)
@@ -2146,9 +2217,9 @@ class BodyFiles:
         self.looped = any(c.args[:1] in (["done"], ["}"]) for c in cmds)
 
     def at(self, k, prefix):
-        """k 番目の gh 呼び出しを見る。prefix は gh より前の語(env -C・-C<dir>・--chdir は cwd を変える)。"""
+        """k 番目の gh 呼び出しを見る。prefix は gh より前の語(env -C・sudo -D・--chdir・find -execdir などは cwd を変える。moves_dir)。"""
         self.k = k
-        self.moved = any(t.startswith(("-C", "--chdir")) for t in prefix)
+        self.moved = any(moves_dir(t) for t in prefix)
         return self
 
     def _flows(self, j, k=None):
@@ -2586,24 +2657,27 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     out = Analysis(True)
     out.runs = [(c.args, c.redirects) for c in cmds] + hidden
     for k, c in enumerate(cmds):
-        args = gh_args(c.args)
-        sent = dispatch_args(c.args) if args is None else None
+        at = command_start(c.args, feeders=True)
+        found = gh_calls(glued_find(cmds, k) if at < len(c.args) and _base(c.args[at]) in FIND_NAMES else c.args)
+        sent = dispatch_args(c.args) if not found else None
         cands, blk, sub = [], [], None
-        if args is not None:
-            here = files.at(k, c.args[:len(c.args) - len(args) - 1])
-            cands, blk = classify(args, heredoc_bodies, live, here, live_var)
-            sub = subcommand(args)
-        elif sent is not None:
-            here = files.at(k, sent[0])
-            args = sent[1]
-            cands, blk = classify_dispatch(args, heredoc_bodies, live, here, live_var)
-            sub = dispatch_mode(args)
-        if args is not None:
+        if sent is not None:
+            found = [(sent[0], sent[1])]
+        for before, args in found:
+            # 走る場所(files.at が覚える)は呼び出しごとに変わるので、classify と cwd_here を続けて読む
+            here = files.at(k, before)
+            if sent is None:
+                got, stop = classify(args, heredoc_bodies, live, here, live_var)
+                sub = subcommand(args)
+            else:
+                got, stop = classify_dispatch(args, heredoc_bodies, live, here, live_var)
+                sub = dispatch_mode(args)
             run = here.cwd_here()
-            out.calls.append((sub, args, cands, blk, run))
+            out.calls.append((sub, args, got, stop, run))
             out.lost.append(run is None and files.place_lost())
-            out.candidates.extend(cands)
-            out.blocked.extend(blk)
+            out.candidates.extend(got)
+            out.blocked.extend(stop)
+            cands, blk = cands + got, blk + stop
         # 素通しの理由が「投稿でない」なのか「ゲートから漏れた」なのかを後から数える。本文旗の綴りが単純コマンドに
         # 在るのに、その単純コマンドが候補も止めた理由も出さなかったら、解析の取りこぼしの疑いがある。
         # 見るのはヒアドキュメントを印に置き換えた後の語(本文の中の綴りは数えない)。gh の語を含む単純コマンドに
@@ -4101,7 +4175,7 @@ def wants_skip(command, prepared=None):
     tokens = tokenize((prepared or prepare(command))[0])
     if tokens is None:
         return False
-    # 読み飛ばす範囲は gh_args と同じ command_start(予約語は simple_commands が先に落とす)。
+    # 読み飛ばす範囲は gh_calls と同じ command_start(予約語は simple_commands が先に落とす)。
     # 前置が途切れたら、そこから先は引数か本文
     return any(SKIP_TOKEN in cmd[:command_start(cmd)] for cmd in simple_commands(tokens))
 

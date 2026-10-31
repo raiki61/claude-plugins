@@ -247,7 +247,7 @@ BLOCKED_CASES = [
     ("本文旗の値を判定できない", "gh issue comment 1 %s %s" % (PATCH_FLAG, TEXT)),
     # $'…' の中の \c(制御の字)は開かずに止める(shield_heredocs の _ansi_c)
     ("$'…' の引用を読めない", "gh issue comment 1 --body $'%s\\cA' # %s" % (BODY, PAD)),
-    # xargs・find -exec が足す語は本文の旗にもなりうる(gh_args の FED_MARK)
+    # xargs・find -exec が足す語は本文の旗にもなりうる(gh_calls の FED_MARK)
     ("xargs・find -exec などが足す引数", "printf '%%s\\n' 12 | xargs -I{} gh issue comment {} --body %s" % TEXT),
     # works-dispatch の送るコマンドも、gh と同じ口(_body_sink)で倒れる
     ("別プロセスからの stdin 渡し", "cat /tmp/b.md | %s --deliver - # %s" % (DISPATCH, PAD)),

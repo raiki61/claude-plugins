@@ -783,8 +783,35 @@ def f46():
     check(46, g.command_start(["sudo", "-Eu", "me", "gh"]) == 3 and g.command_start(["sudo", "-Eun1", "gh"]) == 2,
           "束ねた旗の値の数え方が違う")
 
+# 47. find の 2 つ目からの -exec の gh と、\( \) の式・\; の閉じで割れた後ろの -exec の gh も呼び出しと見る(前は最初の gh で返し、
+# 割れた後ろを見ず、本文を読まずに通した)。-execdir・-okdir・sudo -D・--chdir の後ろの gh は別の所で走るので、本文ファイルの
+# 相対のパスをフックの場所で読まない(前は gh が走らない所の n.md を本文と読んだ)。-exec を連ねた長い find も 1 度の走査で読む
+def f47():
+    with open(os.path.join(WORK, "n.md"), "w") as f:
+        f.write("BENIGN NOTE")
+    for cmd in ("find . -maxdepth 0 -exec true \\; -exec gh pr comment 1 --body-file /etc/hosts \\;",
+                "find . \\( -name a \\) -exec gh pr comment 1 --body-file /etc/hosts \\;",
+                "find . -maxdepth 0 -exec gh pr view 1 {} + -exec gh pr comment 1 --body-file /etc/hosts \\;",
+                "find . -maxdepth 0 -exec gh pr view 1 \\; -exec gh pr comment 1 --body-file /etc/hosts \\;"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(47, parsed and len(cands) == 1 and "localhost" in cands[0] and not blk,
+              "find の後ろの -exec の gh の本文を読まなかった: %r → %r %r" % (cmd[:50], blk, parsed))
+    for cmd in ("find d -name n.md -execdir gh pr comment 1 --body-file n.md \\;", "find d -okdir gh pr comment 1 --body-file n.md \\;",
+                "sudo -D /other gh pr comment 1 --body-file n.md", "sudo -ED /other gh pr comment 1 --body-file n.md",
+                "sudo --chdir=/other gh pr comment 1 --body-file n.md", "env -C /other gh pr comment 1 --body-file n.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(47, bool(blk) and "BENIGN NOTE" not in cands, "別の所で走る gh の本文をフックの場所で読んだ: %r → %r" % (cmd, cands))
+    cands, blk, parsed = g.posting_bodies("find . -maxdepth 0 -exec gh pr comment 1 --body-file n.md \\;", WORK)
+    check(47, cands == ["BENIGN NOTE"] and not blk, "-exec の gh の本文ファイルを読まなかった: %r %r" % (cands, blk))
+    for cmd in ("find . " + "-exec nice " * 9000 + "gh pr comment 1 --body-file /etc/hosts \\;",
+                "find . " + "-exec true \\; " * 7000 + "-exec gh pr comment 1 --body-file /etc/hosts \\;"):
+        started = time.monotonic()
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        took = time.monotonic() - started
+        check(47, took < 8 and parsed and len(cands) == 1, "%d 字の find を %.1f 秒で読み、%r %r" % (len(cmd), took, blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
