@@ -544,8 +544,8 @@ class RealGitConfig(unittest.TestCase):
     読めること。"""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.top = os.path.realpath(self.tmp)
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.top = os.path.realpath(self.tmp.name)
         self.sub = os.path.join(self.top, "sub")
         os.makedirs(self.sub)
         self.saved_env = dict(os.environ)
@@ -553,7 +553,7 @@ class RealGitConfig(unittest.TestCase):
                            "GIT_CONFIG_VALUE_0": "true", "GIT_CONFIG_KEY_1": "diff.relative",
                            "GIT_CONFIG_VALUE_1": "true", "GIT_CONFIG_GLOBAL": os.devnull,
                            "GIT_CONFIG_NOSYSTEM": "1"})
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(self.tmp.cleanup)
         self.addCleanup(lambda: (os.environ.clear(), os.environ.update(self.saved_env)))
 
     def git(self, *args):

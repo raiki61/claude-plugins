@@ -648,7 +648,10 @@ class SettingsTest(unittest.TestCase):
         lines, ok = ch.merge_settings(self.path)
         self.assertTrue(ok, lines)
         self.assertTrue(self.path.is_symlink())
-        self.assertEqual(os.stat(real).st_mode & 0o777, 0o644)
+        if os.name != "nt":
+            self.assertEqual(os.stat(real).st_mode & 0o777, 0o644)
+        else:   # Windows の chmod は読み取り専用の印だけを変え、0o644 を渡しても 0o666 のまま。書ける印が残ることだけを見る
+            self.assertTrue(os.stat(real).st_mode & 0o200)
         self.assertEqual(ch.settings_gaps(json.loads(real.read_text(encoding="utf-8"))), [])
 
     def test_commas_and_brackets_inside_strings_survive_the_rewrite(self):
