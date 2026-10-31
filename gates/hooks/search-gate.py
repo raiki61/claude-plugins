@@ -275,13 +275,20 @@ def substitutions(text, bare=True, heredoc=False):
             # ` … ` を単一引用の中と見て通していた)。引用を見て閉じる所が決まればそこまでを中身にし、決まらないときだけ引用を
             # 見ない数え方の所にする(前は遠い方まで中身にし、`x=$(sed 's/(.*//' f); n=`rg foo /`` の引用の中の ( で数え方が
             # 閉じずに終わりまで中身と読み、後ろの ` … ` を外のコマンドとして見ずに通していた)
-            j = _close(text, i) or j
+            jq = _close(text, i)
             if bare or quote == '"':
+                if jq and jq < j:
+                    # 引用を見る閉じが数え方より手前のときは、数え方の中身も読む(引用を見る閉じは case の型・# の注釈・${ } の中の
+                    # ) を知らないので、`x="$(echo "(" ; case a in a) :;; esac; rg foo /)"` を手前で閉じ、rg を落としていた)
+                    out.append(text[i + 2:j - 1])
+                j = jq or j
                 out.append(text[i + 2:j - 1])
-            elif "`" in text[i + 2:j - 1]:
-                # 中に ` が在る引用の外の $( … ) は、トークン化が語に留めず単純コマンドに割る。割った語は ` の中身を持たないので、
-                # 中の ` … ` をここで拾う(前は $( … ) ごと飛ばし、`x=$(echo `rg foo /`)` を通していた)
-                out.extend(substitutions(text[i + 2:j - 1], bare=False))
+            else:
+                j = jq or j
+                if "`" in text[i + 2:j - 1]:
+                    # 中に ` が在る引用の外の $( … ) は、トークン化が語に留めず単純コマンドに割る。割った語は ` の中身を持たないので、
+                    # 中の ` … ` をここで拾う(前は $( … ) ごと飛ばし、`x=$(echo `rg foo /`)` を通していた)
+                    out.extend(substitutions(text[i + 2:j - 1], bare=False))
             i = j
             continue
         elif c == "`":

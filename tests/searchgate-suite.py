@@ -570,6 +570,10 @@ class Bash(unittest.TestCase):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0], command)
         for command in ("x=$(sed 's/(.*//' f); n=`rg foo src`", "x=$(echo \\(); n=`rg foo src`"):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
+        # 引用を見る閉じが case の型・${ } の中の ) で手前に来ても、数え方の中身も読む(頼み cae1e2)
+        for command in ('x="$(echo "(" ; case a in a) :;; esac; rg foo /)"', "echo \"$(echo '(' ; case $x in a) :;; esac; find / -name x)\"",
+                        'echo "$(echo "(" ${x:-)} ; rg foo /)"'):
+            self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
 
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
