@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.148.1] - 2026-11-01
+
 ### Changed
 
 - compact の計画（`docs/specs/2026-10-25-compact-restart-plan.md`）に 2 つの決めを書いた。`--compact` は、会話が「ここで compact（会話の文脈を要約で縮めること）してよい」と印すコマンドで、元が取れるかを機械が判断し、取れなければ印を断る。
