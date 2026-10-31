@@ -230,6 +230,8 @@ The following are accepted as out of scope in principle, or as forms that are st
     A cd inside a subshell or `$( … )` that closes before gh (`root=$(cd /abs && pwd); gh …`, `(cd sub && make) && gh …`) is ignored, because it does not change where gh runs.
     This is not trusted, and the cd still makes relative paths unknown, when the command has an `if`, a `case` or a loop, or a word made only of quoted or escaped parentheses
     (`echo ")"`, `echo \)`; the parser counts it as a parenthesis). In a loop or a function, a cd written after gh can run before gh's next run, so it also makes relative paths unknown.
+    An `eval`, `source` or `.` whose argument text contains `cd`, `pushd` or `popd` as a word (`eval "cd /abs"`) counts as a cd whose target is unknown;
+    the output of a substitution passed to `eval` (`eval "$(ssh-agent -s)"`) and the contents of a sourced file are not read.
     When the command-name position holds a word that is only an expansion (`$(true) gh …`, `$SUDO gh …`, `env $(cat .env) gh …`), the gh after it is still checked,
     but the expansion can become `env -C` or `GH_REPO=`, so relative body-file paths are stopped and the destination of a post without `-R` is unknown (destgate stops it)
   - If the same command contains a command that writes the body file, and it is a single `cat > f <<'EOF'` that always runs before gh
