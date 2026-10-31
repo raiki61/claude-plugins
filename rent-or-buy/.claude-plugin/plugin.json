@@ -1,6 +1,6 @@
 {
   "name": "rent-or-buy",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "「少しずつ払い続ける（借りる）か、まとめて 1 回払う（買う）か」を先が分からないまま決める計算だけの部品（ski rental）。Claude Code の会話では、キャッシュを保つ短い要求（keepalive）をあと何本送るか、会話を要約して縮める compact をいつ打つかの判断に当てる。中はアルゴリズム（rent_or_buy）と Claude のプロンプトキャッシュへの当てはめ（prompt_cache。LiteLLM の値段表の写しとモデル名の揃え、会話の記録の読み取り）の 2 つのモジュールで、呼ぶ側は bin/rent-or-buy に JSON を渡して JSON を受け取る（decide・keepalive・compact・prices・snapshot）。状態を持たず、会話の外のどこからでも呼べる。いつ送るか・どう打つかの指針は呼ぶ側が持つ。",
   "author": {
     "name": "raiki61"

@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.146.0] - 2026-10-31
+
 ### Added
 
 - 会社の形に、部署を立てた後の合図 `[[task.after]]`（`role`・`tool`・省けば空の `input`。形は `[[land.after]]` と同じ）を足した。`--task`（`--ask` が立てる部署も）が部署を新しく立てると、`dispatch.py --after-task <部署の場所>` を裏で打ち（終わりを待たない）、書いたツールを順に呼ぶ。呼んだツールが 0 以外で終われば `--call` と同じに外れの行を残して AI の部署に頼みとして回し、その頼みの頼み元は会社の窓口（合図には呼んだ会話が居ないため）。開き直した部署（`--task` の打ち直し・`--move`）では呼ばない。同じ会社の合図が並んだら後の方を飛ばす。出力は受付箱の `task-after.log` に残る。メインブランチに誰も入れない間も、claude-plugins の工場の版の見張り（works-factory-pin）が部署の立つたびに回るようにするため（頼み 2827a8）。
