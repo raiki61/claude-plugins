@@ -457,15 +457,15 @@ pytest の置き場の件数: conftest.py の EXPECTED_ITEMS 1840 → 1878（変
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 2860 | {th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-max-rounds-1]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-max-rounds-1] |  |
-| 2871 | {th}: 上限で人に聞く（{last.get('ask', {}).get('kinds')}） | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-asks-at-max] |  |
-| 2873 | {th}: stop と答えられる | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-answer-stop] |  |
-| 2876 | {th}: 止まった run として終わる（{last['status']}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-ends-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-ends-stopped] |  |
-| 2877 | {th}: ゲートが走る前に止まっても report.md が出る | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-report]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-report] |  |
-| 2879 | {th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.st… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-validator-accepts-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-validator-accepts-stopped] |  |
-| 2883 | {th}: {k} は『飛ばした』と理由つきで残る——{g[k]} | 型紙・1 本以上（条件式の両腕で回数が違う） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cartographer-not-run] |  |
-| 2885 | 標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']… | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cartographer-not-applicable] |  |
-| 2887 | {th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-rederiver-provisional]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-rederiver-provisional] |  |
+| 2869 | {th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-max-rounds-1]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-max-rounds-1] |  |
+| 2880 | {th}: 上限で人に聞く（{last.get('ask', {}).get('kinds')}） | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-asks-at-max] |  |
+| 2882 | {th}: stop と答えられる | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-answer-stop] |  |
+| 2885 | {th}: 止まった run として終わる（{last['status']}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-ends-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-ends-stopped] |  |
+| 2886 | {th}: ゲートが走る前に止まっても report.md が出る | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-report]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-report] |  |
+| 2888 | {th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.st… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-validator-accepts-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-validator-accepts-stopped] |  |
+| 2892 | {th}: {k} は『飛ばした』と理由つきで残る——{g[k]} | 型紙・1 本以上（条件式の両腕で回数が違う） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cartographer-not-run] |  |
+| 2894 | 標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']… | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cartographer-not-applicable] |  |
+| 2896 | {th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-rederiver-provisional]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-rederiver-provisional] |  |
 
 #### simulate.test_unattended_stuck
 
