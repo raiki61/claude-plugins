@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=842
+EXPECTED_CHECKS=843
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5743,6 +5743,17 @@ done
 c="gh pr comment \"\$u\" -R allowed/repo --body hi; u=https://github.com/evil/x/pull/1; gh pr view \"\$u\""
 [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
 [ $ok = 1 ] && echo DG_VAR_URL_AT_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
+# gh より前に閉じたサブシェル・置換の中の cd は、gh の走る場所を変えない(前は宛先不明にして止めた)。閉じていないサブシェルの中の
+# cd は、移った先の repo を宛先にする
+expect_output 0 "DG_SUBSHELL_CD_OK" "destgate: 閉じたサブシェル・置換の中の cd は、-R の無い宛先の場所を変えない" \
+    sh -c 'ok=1; ng=$1; shift
+for c in "root=\$(cd $ng && pwd); gh issue comment 1 --body hi" "(cd $ng && pwd); gh issue comment 1 --body hi"; do
+  [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+done
+for c in "(cd $ng && gh issue comment 1 --body hi)" "cd $ng && (gh issue comment 1 --body hi)"; do
+  "$@" "$c" | grep -q "宛先 evil/place は" || { ok=0; echo "通した: $c"; }
+done
+[ $ok = 1 ] && echo DG_SUBSHELL_CD_OK' sh "$DG_REPO_NG" env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
 # コマンド名の位置の展開だけの語(`$(true) gh …`・`env $(cat .env | xargs) gh …`)は越えて後ろの gh の宛先を見る。展開は GH_REPO= にも
 # 開きうるので、-R の無い投稿は宛先不明にする(前はその語をコマンド名と読み、gh を見ずに通していた)
 expect_output 0 "DG_EXPANSION_HEAD_OK" "destgate: 展開だけのコマンド名の後ろの gh の宛先を見て、-R が無ければ宛先不明にする" \

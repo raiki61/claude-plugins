@@ -2633,6 +2633,8 @@ class BodyFiles:
         self.hidden, self.blind = hidden, blind
         # if・case・繰り返しの中のコマンドは、区切りが ; でも走るとは限らない(予約語は単純コマンドから落ちるので、語の列で見る)
         self.conditional = any(t in CONDITIONAL_WORDS for t in tokens)
+        self._branchy = self.conditional   # 探しのゲート(search-gate.py の Scope)は conditional を落とすので、cwd_here 用に別に持つ
+        self._plain_parens = None
         self.cwd = cwd if cwd and os.path.isabs(cwd) else None
         self.k, self.moved = 0, False
         self._assigned = None
@@ -2805,6 +2807,7 @@ class BodyFiles:
 
         cwd を変えるコマンド(cd・pushd・popd を語のどこかに持つもの。`if cd x`・`builtin cd x` も)が前に在れば、
         `cd <絶対パス>` が必ず走り、そこから k まで CD_BETWEEN(既定は && だけ)で続く形でだけ、その先を cwd と見る。
+        k より前に閉じたサブシェル・置換の中の cd は、k の走る場所を変えないので見ない(_closed_before)。
         """
         k = self.k if k is None else k
         if self.moved:
@@ -2812,7 +2815,7 @@ class BodyFiles:
         cwd = self.cwd
         for j in range(k):
             c = self.cmds[j]
-            if not any(t in CD_WORDS for t in c.args):
+            if not any(t in CD_WORDS for t in c.args) or self._closed_before(j, k):
                 continue
             dest = self.cd_dest(c.args[command_start(c.args):])
             dest = native_path(dest) if dest else None
@@ -2822,6 +2825,24 @@ class BodyFiles:
         return cwd
 
     CD_BETWEEN = ("&&",)   # cd から k までをつないでよい区切り
+
+    def _closed_before(self, j, k):
+        """j 番目のコマンドを囲むサブシェル・置換(`x=$(cd /a && pwd)`・`(cd /a && make)`)が、k より前に閉じるか。閉じれば j の cd は
+        k に届かない(前は届き方を読めない cd と見て、`root=$(cd /a && pwd); gh pr comment 1 --body-file x.md` の本文ファイルの
+        パスと -R の無い宛先を決まらない物として止めた)。
+
+        括弧の区切りが本物と言い切れるときだけ閉じたと見る: 字句解析は引用・\\ の後の ( ) も区切りと同じ語にし(`echo ")"`)、
+        case の型の ) も閉じに数えるので、引用か \\ の後に ( ) が在るコマンドと、if・case・繰り返しの在るコマンドでは、今までどおり
+        届き方を読めない cd と見る(止める側に倒す)。"""
+        d = self.cmds[j].depth
+        if self._branchy or d <= 0:
+            return False
+        if not any(op == ")" and dep < d for m in range(j + 1, k + 1) for op, dep in self.cmds[m].ops):
+            return False
+        if self._plain_parens is None:
+            self._plain_parens = not (re.search(r"\\[()]", self.norm)
+                                      or _live(self.norm, lambda t, i: t[i] in "()", where=("'", '"')))
+        return self._plain_parens
 
     def place_lost(self, k=None):
         """k 番目(既定は gh)が走る場所を、前の cd・-C が読めなくしたか(フックの入力に cwd が無いだけなら False)。"""

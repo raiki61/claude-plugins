@@ -1270,8 +1270,34 @@ def f71():
     got = [r(c[1][2]) for r, c in zip(a.resolvers, a.calls)]
     check(71, got == [None, url], "後ろの代入で前の gh の変数を解いた: %r" % got)
 
+# 72. gh より前に閉じたサブシェル・置換の中の cd(`root=$(cd /abs && pwd); gh …`・`(cd /abs && make); gh …`)は、gh の走る場所を
+# 変えないので見ない(前は届き方を読めない cd と見て、本文ファイルの相対のパスを決まらない物として止めた)。まだ閉じていない
+# サブシェルの中の cd(`(cd /abs && gh …)`)は今までどおり効き、引用の中の ( ) や case の型の ) が在れば今までどおり止める側に倒す
+def f72():
+    sub = os.path.join(WORK, "sub")
+    os.makedirs(sub, exist_ok=True)
+    other = BODY + "(sub)"
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    post = "gh pr comment 1 --body-file x.md"
+    for cmd, want in (("x=$(cd %s && pwd); %s", BODY), ("(cd %s && pwd); %s", BODY), ("x=$(cd %s) && %s", BODY),
+                      ("(pushd %s); %s", BODY), ("f() ( cd %s ); f; %s", BODY), ("(cd %s && gh pr comment 1 --body-file x.md)", other),
+                      ("cd %s && (gh pr comment 1 --body-file x.md)", other), ("cd %s && (cd / && pwd) && %s", other),
+                      ("(cd %s && (cd /; pwd) && gh pr comment 1 --body-file x.md)", other)):
+        cmd = cmd % ((sub, post) if cmd.count("%s") == 2 else (sub,))
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(72, parsed and cands == [want] and not blk, "閉じたサブシェルの中の cd を gh の走る場所と読んだ: %r → %r %r" % (cmd, cands, blk))
+    calls = g.analyze("root=$(cd %s && pwd); gh pr comment 1 -b hi" % sub, WORK).calls
+    check(72, [c[4] for c in calls if c[0] == ("pr", "comment")] == [WORK], "閉じた置換の中の cd で宛先の場所を見失った: %r" % calls)
+    for cmd in ('cd %s && echo ")" && %s', '(cd %s && echo ")" && gh pr comment 1 --body-file x.md)', 'echo "("; cd %s; echo ")"; %s',
+                "case $x in a) cd %s;; b) pwd;; esac; %s", "f() { cd %s; }; f; %s"):
+        cmd = cmd % ((sub, post) if cmd.count("%s") == 2 else (sub,))
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(72, not parsed or bool(blk), "閉じたと言い切れない括弧の中の cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
