@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.46.4] - 2026-11-01
+
 ### Fixed
 - 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の mutmut の job が、印を集める回（mutmut が、どの試験がどの関数を通るかを数える回）で赤になっていたのを直した。mutmut はこの回に環境変数 `MUTANT_UNDER_TEST=stats` を立て、試験が起動した子のプロセス（`loop.py` など）もそれを継ぐ。子は、mutmut が写した engine の関数を呼ぶたびに、mutmut の設定を自分の作業ディレクトリの `setup.cfg` から読む。作業ディレクトリを tmp に置く子（`tests/py/test_intake.py` の `test_unhanded_rows_are_named_on_init_and_status_until_seen`）は `setup.cfg` が見つからずに `FileNotFoundError` で落ちていた。`tests/py/conftest.py` が、この回だけ値を環境から外して子に継がせない（子が数えた印はもともと捨てられるので、数える印は変わらない）。
 
