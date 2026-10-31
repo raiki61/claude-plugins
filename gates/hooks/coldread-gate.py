@@ -1916,6 +1916,8 @@ WRITE_OPS = {">", ">>", ">|", "&>", "&>>"}
 # 本文ファイルの名前を引数に持っていても、ファイルを書き換えないコマンド(書くリダイレクトは別に見る)
 READ_ONLY_CMDS = {"cat", "wc", "head", "tail", "ls", "test", "[", "stat", "file", "grep", "diff", "less",
                   "jq", "echo", "printf", "cd"}
+# 最後の引数を書き込み先に取るコマンド。書き込み先が解けない $ を持つ(`cp a "$F"`)と、本文ファイルを書きうる物と見る
+DEST_CMDS = {"cp", "mv", "install", "ln", "rsync", "scp", "gcp", "gmv", "ginstall", "gln"}
 _SEQUENTIAL = (";", "&&", "\n")   # 前のコマンドの効果(代入・cd)が後ろへ届く区切り
 _RUNS_BEFORE = ("", ";", "\n")     # 直前の区切りがこれなら、そのコマンドは前の成否に関わらず必ず走る
 CD_WORDS = {"cd", "pushd", "popd", "chdir"}
@@ -1999,6 +2001,14 @@ def native_path(p):
             out = m.group(1).upper() + ":\\" + p[3:].replace("/", "\\") if m else None
         _native_cache[p] = out
     return _native_cache[p]
+
+
+def _dest_unresolved(args, at, resolve):
+    """args[at] が最後の引数を書き込み先に取るコマンド(DEST_CMDS)で、その書き込み先が resolve で解けないか。"""
+    if at >= len(args) or os.path.basename(args[at]) not in DEST_CMDS:
+        return False
+    operands = [a for a in args[at + 1:] if not a.startswith("-")]
+    return bool(operands) and "$" in operands[-1] and resolve(operands[-1]) is None
 
 
 class BodyFiles:
@@ -2295,6 +2305,10 @@ class BodyFiles:
                     tv = self.var(t) or t
                     if os.path.basename(tv.rstrip("/")) == base:
                         found.append("writer")
+                # 書き込み先が解けない $ を持つ(`cp /etc/hosts "$F"` の F が外で決まる)と、本文ファイルを書くかを決められない。
+                # 前は字のままの "$F" の名前を照合して書き手に数えず、gh の前に書き換わる古いファイルを読んでいた
+                if _dest_unresolved(c.args, at, self.var):
+                    found.append("writer")
                 # 名前をヒアドキュメントの中に持つ書き手(`python3 - <<'EOF'` の中で open(p, 'w'))も数える。数えないと、フックは
                 # 書き換える前のファイルを読み、直した後の本文に消した文の指摘を出し続けた(2026-10-29 の PR の本文の更新で 4 回。頼み 6d61ca)。
                 # 名前を字として持つだけで数える(読むだけの台本も止める)のは承知の上で、止めても書き換えと投稿を分ければ通る
@@ -2323,7 +2337,7 @@ class BodyFiles:
                 found.append("writer")
             elif at < len(args) and os.path.basename(args[at]) not in READ_ONLY_CMDS:
                 if any(tv is None or os.path.basename(tv.rstrip("/")) == base
-                       for tv in map(hidden_target, args[1:])):
+                       for tv in map(hidden_target, args[1:])) or _dest_unresolved(args, at, self.var):
                     found.append("writer")
                 elif any(named.search(body) for body in own_heredocs(args, self.heredocs)):
                     found.append("writer")

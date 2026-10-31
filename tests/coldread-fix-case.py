@@ -683,8 +683,24 @@ def f40():
     wrote = g._written_by_command("echo $[1+1] '# x' > f40.md", WORK)[0]
     check(40, [os.path.realpath(p) for p in wrote] == [os.path.realpath(doc)], "引用の中の # を注釈と読んだ: %r" % wrote)
 
+# 41. 最後の引数を書き込み先に取るコマンド(cp・mv など)の書き込み先が、同じコマンドの中で解けない $ を持つ(`cp a "$F"`)と、
+# 本文ファイルを書きうる物と見る(前は字のままの名前を照合して書き手に数えず、gh の前に書き換わる古いファイルを読んだ)。
+# 解ける書き込み先(F=other.md)と、書き込み先を取らないコマンドの解けない $(`git log "$BASE"..HEAD`)は今までどおり読む
+def f41():
+    with open(os.path.join(WORK, "note.md"), "w") as f:
+        f.write("BENIGN NOTE")
+    for cmd in ('cp /etc/hosts "$F41_UNSET"; gh pr comment 1 --body-file note.md',
+                'x="$(mv other.md "$F41_UNSET")"; gh pr comment 1 --body-file note.md',
+                'ln -sf /etc/hosts "$F41_UNSET" && gh pr comment 1 --body-file note.md'):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(41, (bool(blk) and not cands) or not parsed, "解けない書き込み先の cp を書き手と見ず、古いファイルを読んだ: %s → %r" % (cmd, cands))
+    for cmd in ('F=other.md; cp /etc/hosts "$F"; gh pr comment 1 --body-file note.md',
+                'git log --oneline "$F41_UNSET"..HEAD; gh pr comment 1 --body-file note.md'):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(41, parsed and cands == ["BENIGN NOTE"] and not blk, "解ける書き込み先・書き込み先を取らないコマンドで止めた: %s → %r %r" % (cmd, cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
