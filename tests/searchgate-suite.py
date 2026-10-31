@@ -602,6 +602,10 @@ class Bash(unittest.TestCase):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
         for command in ('x=`git rev-parse HEAD` rg foo src', "v=`git log -1 --format='%s'`; echo \"$v\""):
             self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
+        # 閉じない置換の後ろの " ごとに切って読まず、)" の後ろでだけ切る(" ごとに切ると、後ろに echo "step" を 150 行続けた 11KB の
+        # 台本で読んだ量が予算に当たり、止めていた。頼み cae1e2)
+        script = 'echo "count: $(grep -c "(" f.txt) done"\n' + 'echo "step"; grep -rn "foo" src/ | head -5\nfind . -name "*.py" | wc -l\n' * 150
+        self.assertIsNone(run("Bash", {"command": script}, cwd=WORK)[0])
         # 閉じない $( を 9000 並べた 99KB の語も、$( ごとに終わりまで数え直さず、時間切れの前に読み終える(頼み cae1e2)
         started = time.monotonic()
         self.assertIsNotNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 9000 + '"; rg foo /'}, cwd=WORK)[0])
