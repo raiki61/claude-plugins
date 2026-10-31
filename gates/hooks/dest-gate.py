@@ -210,12 +210,32 @@ def retargets(args):
     return False
 
 
+def fed_dest(args, sub):
+    """xargs・parallel・find -exec が足す語・差し込む語(coldread の gh_calls が置く FED_MARK・FED_WORD)が、宛先を変えうるか。
+
+    足す語(FED_MARK)は何語になるか分からず、-R にもなりうるので、在れば変えうる。差し込む語(FED_WORD)が変えないのは、本文・題の
+    値の中と、gh api のパスの owner/repo より後ろ(`repos/o/r/pulls/{}/comments` の番号)だけ。投稿先を選ぶ語・-R の値・旗の位置・
+    パスの host と owner/repo に在れば、標準入力の語(URL・`-R 外/repo`)が宛先を決めうる。前は `… | xargs -I{} gh pr comment {}
+    --body-file b.md` の差し込む語を URL でない番号と読み、走る場所の repo を宛先にして通していた(coldread の destination と同じ見方)。"""
+    if any(cr.FED_MARK in t for t in args):
+        return True
+    endpoint = None
+    if sub and sub[0] == "api" and len(sub) > 1:
+        endpoint = next((i for i, t in enumerate(args) if t == sub[1]), None)
+        lead = re.match(r"^(?:[A-Za-z+]+://[^/]*)?/*(?:[^/]+/+){0,2}[^/]*", sub[1]).group(0)
+        if cr.FED_WORD in lead:
+            return True
+    return any(cr.FED_WORD in t for i, t in enumerate(args) if i != endpoint and not text_value(args, i, sub))
+
+
 def dest_of(args, sub, cwd, here_unknown=False):
     """gh 引数列から投稿の宛先になりうる repo の集まりを返す。分からなければ None。
 
     呼び元は、集まりの全部が許可一覧に在るときだけ通す。cwd はその gh が走る場所(前の `cd <絶対パス> &&` を読んだもの。
     決まらなければ None)。here_unknown は、gh が -R の無い投稿の宛先を引く環境変数(GH_REPO・GIT_DIR など。DEST_ENV_RE)を
     コマンドが書いているか殻の環境に在るか、同じコマンドの中に宛先の repo を替えうるコマンド(retargets)が在る。"""
+    if fed_dest(args, sub):
+        return None
     # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)。旗の読み方は coldread と同じ 1 本(cr.flag_value)。
     # 何度も書けば gh は最後の値を使うので、全部を読み、食い違えば宛先不明にする(前は最初の値だけを見ていて、
     # `-R 許可した/repo -R 外/repo` を許可一覧の repo と取り違えて通していた)

@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=828
+EXPECTED_CHECKS=829
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5609,6 +5609,21 @@ expect_output 0 "宛先 evil/place は" "destgate: gh api の {owner}/{repo} を
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh api repos/{owner}/{repo}/pulls/3/comments/9/replies -f body='宛先検査のテスト本文です'"
 expect_output 0 "宛先 evil/things は" "destgate: gh api の字の owner と {repo} の組は、{repo} だけを埋める" \
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh api repos/evil/{repo}/issues/1/comments -f body='宛先検査のテスト本文です'"
+# xargs -I・find -exec が差し込む語は、投稿先を選ぶ語・-R の値・gh api のパスの host と owner/repo に在れば、標準入力の URL や
+# -R が宛先を決める。前は差し込む語を URL でない番号と読み、走る場所の repo(一覧内)を宛先にして通していた。本文の中と、パスの
+# owner/repo より後ろ(番号)の差し込む語は宛先を変えないので、今までどおり通す
+expect_output 0 "DG_FED_OK" "destgate: xargs -I などが差し込む語で宛先の変わる投稿は、宛先不明で止める" \
+    sh -c 'ok=1
+for c in "gh search prs x --json url -q .[].url | xargs -I{} gh pr comment {} --body-file b.md" \
+         "ls | xargs -I{} gh pr comment 1 -R good/{} --body-file b.md" "ls | xargs -I@ gh pr comment 1 --repo=@ --body x" \
+         "ls | xargs -I{} gh api repos/{}/issues/1/comments -f body=x" "ls | xargs -I{} gh api https://{}/repos/good/things/issues/1/comments -f body=x" \
+         "find . -exec gh issue comment {} --body x \\;" "ls | xargs gh pr comment --body x"; do
+  "$@" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
+done
+for c in "ls | xargs -I{} gh api repos/good/things/issues/{}/comments -f body=x" "ls | xargs -I{} gh pr comment 1 --body \"see {}\""; do
+  [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+done
+[ $ok = 1 ] && echo DG_FED_OK' sh env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib
