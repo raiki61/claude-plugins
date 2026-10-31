@@ -4953,6 +4953,33 @@ PASS_CMDS = ("cat", "tee")         # 受けた中身をそのまま書く
 CLOSE_WORDS = ("}", "done", "fi", "esac")   # 複合コマンドを閉じる語(リダイレクトは中のコマンド全部の出力に掛かる)
 
 
+def _drop_comments(text):
+    """語の頭(行の頭・空白・; & | ( ) の後)の # から行末までを落とす。引用の中と \\ の後の # は残す。改行は残す。
+    注釈を落とす前処理(normalize_shell)が読めない形と見たコマンドの書き込み先を、記録を足す側に拾い直すためだけに使う。"""
+    out, i, n, quote, start = [], 0, len(text), None, 0
+    while i < n:
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif quote == '"':
+            if c == '"':
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            nl = text.find("\n", i)
+            nl = n if nl < 0 else nl
+            out.append(text[start:i])
+            start = i = nl
+            continue
+        i += 1
+    out.append(text[start:])
+    return "".join(out)
+
+
 def _written_by_command(command, cwd):
     """コマンドの書き込み先の文書の実パスを、(書いた文書, 外から来た中身の写し, git が作業ツリーを書くコマンドが在るか) に分ける。
 
@@ -4967,6 +4994,10 @@ def _written_by_command(command, cwd):
     if lenient:
         norm = shield_heredocs(command)[0] or command
     tokens = tokenize(norm)
+    if tokens is None and lenient:
+        # 注釈の中の引用符(`a)# don't`)で字句解析が止まる形は、語の頭の # から行末を落として読み直す(前は何も拾わなかった)
+        norm = _drop_comments(norm)
+        tokens = tokenize(norm)
     if tokens is None:
         return [], [], False
     cmds = split_commands(tokens)

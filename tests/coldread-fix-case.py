@@ -670,8 +670,21 @@ def f39():
         stops(39, cmd)
 
 
+# 40. 注釈を落とす前処理が読めない形と見たコマンドで、注釈の中に引用符(`a)# don't`)が在っても、書き込み先の文書を記録する
+# (前は字句解析が引用の閉じを探して止まり、何も拾わなかった)
+def f40():
+    doc = os.path.join(WORK, "f40.md")
+    with open(doc, "w") as f:
+        f.write("a\n")
+    for cmd in ("case $x in a)# don't\n;; esac\necho a > f40.md", "echo $[1+1] # it's\necho a > f40.md"):
+        wrote = g._written_by_command(cmd, WORK)[0]
+        check(40, [os.path.realpath(p) for p in wrote] == [os.path.realpath(doc)],
+              "注釈の中の引用符で書いた文書を記録しなかった: %r → %r" % (cmd, wrote))
+    wrote = g._written_by_command("echo $[1+1] '# x' > f40.md", WORK)[0]
+    check(40, [os.path.realpath(p) for p in wrote] == [os.path.realpath(doc)], "引用の中の # を注釈と読んだ: %r" % wrote)
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
