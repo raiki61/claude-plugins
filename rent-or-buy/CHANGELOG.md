@@ -6,6 +6,10 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+### Added
+
+- `rent-or-buy compact` が、会話に compact の焦点（要約で残す話題）を問う費用を、トークンでも受ける。`consult_output_tokens`（その問いで増える出力のトークン数）に出力トークン 1 つあたりの単価（`prices.toml`）を掛けて額にし、`consult_miss`（問いに焦点が返らない割合。既定 0、1 未満）の分を `1 − consult_miss` で割って増やし、額で渡す `consult_cost` に足す。呼ぶ側は単価を写さずに渡せる。出力には次の 2 つが載る。1 つは、判断に使った問いの費用の合計（`consult_cost`）。もう 1 つは、判断に使った `spent`（今の文脈の要求に払った費用）と `context_tokens`（今の文脈のトークン数）で、呼ぶ側が渡さず会話の記録から読んで補った時も載る（頼み ae8abe。この変更を頼んだ受付の番号）。
+
 ## [0.6.0] - 2026-10-31
 
 ### Changed

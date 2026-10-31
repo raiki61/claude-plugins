@@ -132,6 +132,20 @@ class TranslateTest(unittest.TestCase):
         at = translate.compact({**base, "spent": f + 0.01}, env=self.env)
         self.assertEqual((below["action"], at["action"]), ("rent", "buy"))
 
+    def test_compact_prices_consult_output_tokens_at_the_output_rate(self):
+        # 単価を呼ぶ側に写させないため、問いで増える出力のトークンと焦点が返らない割合で受け、部品が額にする（計画の 6 の足す 4）
+        opus = prices.lookup("claude-opus-5-5", env=self.env)
+        base = {"model": "claude-opus-5-5", "lifetime": 3600, "context_tokens": 130000, "spent": 0}
+        plain = translate.compact(base, env=self.env)
+        out = translate.compact({**base, "consult_output_tokens": 295, "consult_miss": 0.5, "consult_cost": 0.01}, env=self.env)
+        q = 0.01 + 295 * opus.rate("output", 130000) / 0.5
+        self.assertAlmostEqual(out["consult_cost"], q)
+        self.assertAlmostEqual(out["buy"] - plain["buy"], q)
+        self.assertEqual((plain["consult_cost"], plain["spent"], plain["context_tokens"]), (0, 0, 130000))
+        for bad in (1, 1.5, -0.1, True):
+            with self.assertRaises(translate.FactsError):
+                translate.compact({**base, "consult_output_tokens": 295, "consult_miss": bad}, env=self.env)
+
     def test_compact_defaults_come_from_prices_toml(self):
         d = prices.defaults()["compact"]
         opus = prices.lookup("claude-opus-5-5", env=self.env)

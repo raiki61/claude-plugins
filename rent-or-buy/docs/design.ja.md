@@ -187,10 +187,10 @@ keepalive:
 
 compact:
 
-- 受ける物: モデル、compact が書くキャッシュの寿命、文脈の大きさ、前の compact の後の最初の要求がキャッシュに書いた量と読んだ量（`after_write_tokens`・`after_read_tokens`。記号は `C'_w`・`C'_r`。既定は 4.2）、要約の大きさ、前の compact から余分に読んだ額（`spent`）、キャッシュが温かいか、問い合わせ 1 往復の費用、中心の `forced`・`ask`・`deferred`・`defer_limit`・`answer`。
+- 受ける物: モデル、compact が書くキャッシュの寿命、文脈の大きさ、前の compact の後の最初の要求がキャッシュに書いた量と読んだ量（`after_write_tokens`・`after_read_tokens`。記号は `C'_w`・`C'_r`。既定は 4.2）、要約の大きさ、前の compact から余分に読んだ額（`spent`）、キャッシュが温かいか、問い合わせの費用（額の `consult_cost` か、問いで増える出力のトークン `consult_output_tokens` と焦点が返らない割合 `consult_miss`）、中心の `forced`・`ask`・`deferred`・`defer_limit`・`answer`。
 - 当てはめ: `C' = C'_w + C'_r`（compact の後の文脈）と置き、借りる = この要求で余分に読む額 = `(context - C') * read`（負なら 0）。`F' = C'_w * write + C'_r * read + summary * output` は compact が要約の要求のほかに足す費用で、買う = `F' + 借りる + consult_cost`。要約の要求はキャッシュが温かい間、今の文脈の全部をキャッシュから読む（[Claude Code の prompt caching](https://code.claude.com/docs/en/prompt-caching#compacting-the-conversation)）ので、この 1 本は借り賃を浮かせられず、買うに借り 1 回分が入る。中心の規則 `spent + rent >= buy` は、`spent >= F' + consult_cost` になる。`certain` は true。`C'` は前の compact の値で、今回の compact の後の大きさの見積りに使う。
 - キャッシュが温かいか冷えているかは、全部の書き込みが同じ寿命なら判断を変えない。会話のキャッシュが 1 時間で compact が 5 分の環境では、冷えているなら早めに compact する方が得になりうる（次の要求がどのみち文脈の全体を書き直すので、先に compact すればその書き直しが小さくなる）が、測った値が無いので、最初の版は記録に残すだけにする。
-- 返す物: 中心の出力（`buy` なら今 compact する）に、`rent`・`buy`・`compact_cost`（`F'`）・`warm`（受けた値をそのまま）・`prices`・`version` を足した物。呼ぶ側は `rent` を累計に足し、次の回に渡す。
+- 返す物: 中心の出力（`buy` なら今 compact する）に、`rent`・`buy`・`compact_cost`（`F'`）・`warm`（受けた値をそのまま）・`prices`・`version` ・`spent`・`context_tokens`（判断に使った値。会話の記録から埋めた時も）・`consult_cost`（使った問い合わせの費用。`consult_cost` + `consult_output_tokens * output / (1 - consult_miss)`）を足した物。呼ぶ側は `rent` を累計に足し、次の回に渡す。
 
 10 万トークンを超えると上がる値段は、要求の大きさで選ぶ。keepalive の読み・書き込み・出力は文脈の大きさで、compact の後の要求の書き込みと読みは compact の後の大きさ `C'` で、要約の出力は compact の前の文脈の大きさで選ぶ。
 
@@ -209,9 +209,9 @@ compact:
 
 ### 4.6 compact のまだ足していない項（後の版）
 
-compact の翻訳を、会話の記録から計った実測値と項ごとに照合して、抜けが見つかった（2026-10-25。計画は [works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md](https://github.com/raiki61/claude-plugins/blob/main/works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md) のセクション 3「compact の損得の式を、項ごとに見直す」）。要約の要求が今の文脈を読む分と compact の後の大きさは 0.4.0 で（4.4・4.5）、要約の出力は 0.3.0 で（4.2）直した。残りは次の 2 つで、実装の順は計画のセクション 7 にある。記号は 4.4 と同じ。
+compact の翻訳を、会話の記録から計った実測値と項ごとに照合して、抜けが見つかった（2026-10-25。計画は [works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md](https://github.com/raiki61/claude-plugins/blob/main/works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md) のセクション 3「compact の損得の式を、項ごとに見直す」）。要約の要求が今の文脈を読む分と compact の後の大きさは 0.4.0 で（4.4・4.5）、要約の出力は 0.3.0 で（4.2）直した。残りは次の 2 つで（1 つ目の問い合わせの費用は、計画のセクション 7 の 2 で足した）、実装の順は計画のセクション 7 にある。記号は 4.4 と同じ。
 
-- `consult_cost`: 呼ぶ側が `Q_each / (1 - w) + Q_answer` を渡す。口は、問いを会話に届ける道（単独の要求・どのみち起きる要求に添える注記・keepalive と差し替える問い）で、`Q_each` はその口で問うたびに払う分、`Q_answer` は焦点が返った時だけ払う分、`w` はその口で焦点（compact の要約で残す話題の指定）が返らない割合。入力はもう在り、残っているのは呼ぶ側が渡すこと。
+- 問い合わせの費用: 呼ぶ側が `Q_each / (1 - w) + Q_answer` を渡す。口は、問いを会話に届ける道（単独の要求・どのみち起きる要求に添える注記・keepalive と差し替える問い）で、`Q_each` はその口で問うたびに払う分、`Q_answer` は焦点が返った時だけ払う分、`w` はその口で焦点（compact の要約で残す話題の指定）が返らない割合。単価を呼ぶ側に写させないよう、額の `consult_cost` のほかに、`Q_each` を出力のトークン（`consult_output_tokens`）で、`w` を `consult_miss` で受け、部品が出力の単価で額にする（計画の 6 の足す 4）。works-dispatch は keepalive の時刻の問い（keepalive と差し替える口）で渡す。済んだ。
 - キャッシュを切らせる直前の compact のための入力 `expiring`（真偽。呼ぶ側が keepalive の止め時に立てる）: その時は `C * (write - read) > C' * write + summary * output + consult_cost` で buy。
 
 直した項で 7 日分の記録を流すと、compact が初めて得になる文脈は、中央値で約 8 万トークンから約 13 万に移る（Opus、寿命 1 時間。1 時間は Claude Code がサブスクリプションの枠の中で会話の本体に付ける寿命）。
@@ -249,9 +249,9 @@ compact の翻訳を、会話の記録から計った実測値と項ごとに照
 
 - keepalive: `next_at` に送る。送るたびに `rent` を累計に足し、次の呼び出しで `spent` として渡す。すると決め打ちの M 本の上限は、中心の `action` に替わる。`certain` は呼ぶ側が渡す（待っている出来事が確かに来ると分かっているとき true。たとえば自分が起動した処理）。`hazard` と `miss` は省けて、部品は求めないので、測るまでは渡さない（`certain` が false で `hazard` が無ければ `buy`、つまり止める）。送る直前に、待っている出来事がもう届いていないかを見て、届いていれば送らない（見ないと、待っていた結果と同じ秒に keepalive を送ることがある）。
 - compact:
-  1. 判断するのは、待ちの間で会話の入力ボックスが空のとき（人が何も打っていないとき）で、keepalive の時刻と、待ちに入るターンの終わり。`spent` は要求ごとに増えるので、どの待ちもキャッシュの寿命より短い会話は keepalive の時刻が来ず、費用だけでは compact しない。keepalive の時刻には先に compact の判断を聞き、compact するなら keepalive は送らない（compact の要求がキャッシュを読むので、キャッシュは保たれる）。しないなら keepalive の判断を聞く。ターンの終わりは人が次を打とうとしている間でありうるので、問わずに compact するのは `forced` が true のときだけにし、延期の上限を超えた compact は keepalive の時刻に回す。
-  2. compact の判断が `consult: true` を返したら、その回の keepalive の文を問いに替える。問いは「compact する時です。残す焦点を 1 行で返すか、今は困るなら skip: と訳を返してください。ツールは使わないでください」の形。要求は 1 本のままで、足すのは数十トークン。ターンの終わりには問いだけを送り、人がすぐ次を打ちそうなら skip を返すよう添える。
-  3. 答えを会話の記録の最後の応答から読み、2 回目の呼び出しの `answer` に入れる。進めるなら、呼ぶ側が会話に `/compact <焦点>` を打つ。skip なら延期と数え、上限を超えたら焦点なしで compact する。答えが 1 行の焦点でも `skip:` でもなければ、`{"go": true}` を渡す（焦点なしで compact。3.4 の関数の呼び出しが、読めない答えを買いにするのに合わせる）。
+  1. 判断するのは、会話が区切りと印した時と、待ちの間で会話の入力ボックスが空のとき（人が何も打っていないとき）の keepalive の時刻。`spent` は要求ごとに増えるので、どの待ちもキャッシュの寿命より短い会話は keepalive の時刻が来ず、費用だけでは compact しない。その会話は、区切りを自分で印す（何が区切りかは会話が知っている。印した時に部品が損得を決め、`buy` でなければ印を付けずに続けさせる）。keepalive の時刻には先に compact の判断を聞き、compact するなら keepalive は送らない（compact の要求がキャッシュを読むので、キャッシュは保たれる）。しないなら keepalive の判断を聞く。ターンの終わりは人が次を打とうとしている間でありうるので、ターンの終わりには問わず、`forced` が true のときだけ compact する。延期の上限を超えた compact は keepalive の時刻に回す。
+  2. compact の判断が `consult: true` を返したら、その回の keepalive の文を問いに替える。問いは「compact する時です。残す焦点を 1 行で返すか、今は困るなら skip: と訳を返してください。ツールは使わないでください」の形。要求は 1 本のままで、増えるのは答えの出力（数百トークン）。その分を `consult_output_tokens` で渡す。仕事がもうすぐ終わるなら `skip: end` と返すよう添える。
+  3. 答えを会話の記録の最後の応答から読み、2 回目の呼び出しの `answer` に入れる。進めるなら、呼ぶ側が会話に `/compact <焦点>` を打つ。skip なら延期と数え、上限を超えたら焦点なしで compact する。`skip: end` は延期に数えず、その待ちでは問い直さない（終わり際の会話を上限で縮めない）。答えが 1 行の焦点でも `skip:` でもなければ、`{"go": true}` を渡す（焦点なしで compact。3.4 の関数の呼び出しが、読めない答えを買いにするのに合わせる）。
   4. 部品があるときは、決め打ちのしきい値（「10 万トークンを超えたら compact」など）を中心の `action` に替え、しきい値は部品が無いときの代わりにだけ残す。
 - Claude Code の自動の compact: 歯止めとして残すが、動き出す文脈の大きさ（書いた時点の Claude Code の設定 `autoCompactWindow`。今の名前・単位・既定値は [Claude Code の設定](https://code.claude.com/docs/en/settings)で確かめる）を文脈の上限の近くまで上げる。自動の compact は時を選べず、ターンの途中でも動くので、ふだんの道にはしない。
 - 部品の見つけ方: Claude Code が入れたプラグインの控え（`installed_plugins.json`）から `rent-or-buy` を引き、その `bin/rent-or-buy` を起動する。無いか 0 以外で終わったら、決め打ちの数で動く。
