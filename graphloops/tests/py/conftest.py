@@ -64,7 +64,7 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 2044
+EXPECTED_ITEMS = 2048
 # 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
 EXPECTED_SIM_CHECKS = 28
 EXPECTED_SIM_REACHED = 2
@@ -87,6 +87,30 @@ def pytest_runtest_protocol(item, nextitem):
         os.environ[MUTATE_MARK] = "?"
 
 
+# 変異のツール mutmut が今どの回かを示す環境変数。印を集める回（stats）だけ値が "stats" になる
+MUTMUT_PHASE = "MUTANT_UNDER_TEST"
+
+
+def keep_mutmut_stats_out_of_children():
+    """mutmut の印を集める回（stats）だけ、MUTANT_UNDER_TEST=stats を環境から外す（子のプロセスに継がせない）。
+
+    - 子（loop.py など）は環境を継ぎ、mutmut が写した engine の関数を呼ぶたびに、mutmut の設定を子の cwd の setup.cfg から読む
+    - cwd が tmp_path の子には setup.cfg が無く、FileNotFoundError で落ちる
+    - 子が数えた印は親へ戻らずに捨てられるので、外しても数える印は変わらない
+    - 親は、環境に無いときプロセスの中の写し（_mutant_under_test）を読むので、stats のまま数える
+
+    写しが stats でない mutmut（写しの無い版）では外さない——外すと親が印を 1 つも数えず、全部の変異が「試験が無い」に黙って落ちるので、
+    今のとおり子で赤になる方を残す。わざと落とす回（fail）と変異の名前の回は外さない（子も変異を通って変異を殺す）。
+    起きた所は 2026-10-31 の mutation.yml の run 41202847506。mutmut 3.8.0 の src/mutmut/stats.py の record_trampoline_hit が
+    configuration.py の config() を呼び、写しを読むのは mutation/trampoline.py の get_mutant_under_test"""
+    trampoline = sys.modules.get("mutmut.mutation.trampoline")
+    if os.environ.get(MUTMUT_PHASE) == "stats" and getattr(trampoline, "_mutant_under_test", None) == "stats":
+        del os.environ[MUTMUT_PHASE]
+
+
 def pytest_configure(config):
+    # mutmut は 1 つのプロセスで pytest.main を何度も呼ぶ（集める・印を数える・試験を走らせる）。モジュールの頭で外すと、
+    # import の済んだ後の回で効かないことがある。pytest_configure は pytest.main ごとに呼ばれるので、ここで外す
+    keep_mutmut_stats_out_of_children()
     fence.install(config, HERE, EXPECTED_ITEMS)
     fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)

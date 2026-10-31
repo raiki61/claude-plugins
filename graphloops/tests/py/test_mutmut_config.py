@@ -3,8 +3,12 @@
 blocks/ が無くて graph の $ref が解けず、load_graph が None を返した。10-26 は README.md が無くて、README の見出しを読む試験が
 落ちた。mutmut は CI でしか撃たないので、手元の試験で先に止める）"""
 import configparser
+import inspect
+import os
 import pathlib
 import re
+import sys
+import types
 
 import conftest
 import pytest
@@ -44,3 +48,24 @@ def test_tests_find_the_repo_root_by_walking_up():
     hits = [f"{p.name}:{i}" for p in sorted(conftest.HERE.glob("*.py")) if p.name not in ("conftest.py", pathlib.Path(__file__).name)
             for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if parent.search(line)]
     assert hits == [], "PLUGIN.parent でルートを出している（conftest.REPO を使う）"
+
+
+@pytest.mark.small
+@pytest.mark.parametrize("phase, local, kept", [
+    ("stats", "stats", False),   # 印を数える回: 子に継がせない（親はプロセスの中の写しで数える）
+    ("stats", None, True),       # 写しの無い mutmut: 外すと親が印を数えなくなるので外さない
+    ("fail", "fail", True),      # わざと落とす回: 子も落ちてよい
+    ("engine.schema.x_f__mutmut_1", "engine.schema.x_f__mutmut_1", True),   # 変異の回: 子も変異を通る
+])
+def test_mutmut_stats_phase_is_not_inherited_by_children(monkeypatch, phase, local, kept):
+    """mutmut の印を数える回（MUTANT_UNDER_TEST=stats）を継いだ子は、cwd の setup.cfg を読みに行き、cwd が tmp_path だと
+    FileNotFoundError で落ちる（2026-10-31 の run 41202847506 の test_intake）。conftest がその回だけ環境から外すのを縛る"""
+    fake = types.ModuleType("mutmut.mutation.trampoline")
+    if local is not None:
+        fake._mutant_under_test = local
+    monkeypatch.setitem(sys.modules, "mutmut.mutation.trampoline", fake)
+    monkeypatch.setenv(conftest.MUTMUT_PHASE, phase)
+    conftest.keep_mutmut_stats_out_of_children()
+    assert (conftest.MUTMUT_PHASE in os.environ) is kept
+    # pytest.main ごとに外す所（呼ぶのを消すと、上の分岐が正しくても mutmut の回で効かない）
+    assert "keep_mutmut_stats_out_of_children()" in inspect.getsource(conftest.pytest_configure)
