@@ -936,8 +936,30 @@ def f54():
     cands, blk, parsed = g.posting_bodies("gh api https://ghe.example.com/api/v3/repos/o/r/dispatches -f 'files[a][content]=x'", WORK)
     check(54, parsed and not cands and not blk, "gist でない GHE の宛先のフィールドを本文と読んだ: %r %r" % (cands, blk))
 
+# 55. xargs -I・find -exec が gh api の宛先のパスに差し込む語は、`graphql`・`gists`・`../../graphql` になって宛先の種類を変えうるので、
+# 埋めた後に種類が変わると本文になるフィールド(graphql の query・gist の files[…][content])を運ぶときと、埋める前のパスで graphql か
+# gist と決めたときは止める(前は埋める前のパスで REST と見て、mutation・gist の中身を読まずに通した)。語の途中の印の読むだけの宛先と、
+# REST の body のフィールドは今までどおり
+def f55():
+    mutation = "-f query='mutation{addComment(input:{subjectId:\"X\",body:\"" + BODY + "\"}){clientMutationId}}'"
+    for cmd in ("echo graphql | xargs -I{} gh api /{} " + mutation,
+                "echo graphql | xargs -I{} gh api https://api.github.com/{} " + mutation,
+                "echo x | xargs -I{} gh api repos/o/r/issues/{}/comments " + mutation,
+                "echo gists | xargs -I{} gh api /{} -f 'files[a][content]=" + BODY + "'",
+                "echo x | xargs -I{} gh api https://ghe.example.com/api/v3/{} -F 'files[a][content]=@x.md'",
+                "echo x | xargs -I{} gh api graphql/{}/.. -f body=hi", "echo x | xargs -I{} gh api gists/{} -f body=hi",
+                "find . -name graphql -exec gh api {} " + mutation + " \\;"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(55, not parsed or "xargs・find -exec などが足す引数" in blk, "宛先のパスに差し込む語の gh api を通した: %r → %r %r" % (cmd[:70], cands, blk))
+    cands, blk, parsed = g.posting_bodies("ls | xargs -I{} gh api repos/o/r/pulls/{}/comments", WORK)
+    check(55, parsed and not cands and not blk, "読むだけの gh api を止めた: %r %r" % (cands, blk))
+    cands, blk, parsed = g.posting_bodies("ls | xargs -I{} gh api repos/o/r/issues/{}/comments -f body='" + BODY + "'", WORK)
+    check(55, parsed and cands == [BODY] and not blk, "REST の body のフィールドの読み方が変わった: %r %r" % (cands, blk))
+    cands, blk, parsed = g.posting_bodies("ls | xargs -I{} gh api 'search/issues?q={}' -f query=x", WORK)
+    check(55, parsed and not blk, "? の後ろの差し込む語を宛先のパスと見た: %r" % (blk,))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

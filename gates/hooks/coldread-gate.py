@@ -2031,6 +2031,15 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # 実ファイルは止めている)。GitHub Enterprise Server の REST の頭(https://<host>/api/v3/)は落として見る(api_is_graphql と同じ。
     # 前は `gh api https://ghe.example.com/api/v3/gists -f 'files[a.md][content]=…'` を gist と見ず、中身を読まずに通していた)
     is_gist = is_api and len(sub) > 1 and api_is_gist(sub[1])
+    # xargs -I・find -exec の {} などが宛先のパス(? より前)に差し込む語(FED_WORD)は、`graphql`・`gists` にも `../../graphql` にも
+    # なり、宛先の種類(REST・graphql・gist)を変えうる。種類は埋める前のパスで決めているので、埋めた後に種類を変えると本文になる
+    # 物(graphql の query・gist のファイルの中身)を運ぶときと、埋める前のパスで graphql か gist と決めたときは止める。前は
+    # `echo graphql | xargs -I{} gh api /{} -f query='mutation{…}'` を REST と見て、mutation の本文を読まずに通していた。
+    # 語の途中の {} の読むだけの宛先(`repos/o/r/pulls/{}/comments`)と、REST の body のフィールドは今までどおり読む
+    fed_path = is_api and len(sub) > 1 and FED_WORD in re.split(r"[?#]", sub[1], maxsplit=1)[0]
+    if fed_path and (is_graphql or is_gist):
+        blocked.append("xargs・find -exec などが足す引数")
+        return candidates, blocked
     gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る
 
     i, n, seen_ddash = 0, len(args), False
@@ -2054,7 +2063,9 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
                         key = val.split("=", 1)[0]
                         fval = word_tail(val, len(key) + 1)
                         typed = name in ("-F", "--field")
-                        if is_graphql:
+                        if fed_path and (key == "query" or GIST_CONTENT_RE.fullmatch(key)):
+                            blocked.append("xargs・find -exec などが足す引数")
+                        elif is_graphql:
                             gql_fields[key] = (typed, fval)
                         elif key == "body" or key.endswith("[body]") or (is_gist and GIST_CONTENT_RE.fullmatch(key)):
                             # comments[][body] は review の行コメント(gh api の配列のフィールドの書き方)
