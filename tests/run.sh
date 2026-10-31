@@ -5394,8 +5394,9 @@ mkdir -p "$CR_FDIR/b"
 printf 'MARK_OTHER %s %s\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/b/body.md"
 expect_output 0 "取り出せない" "if の条件の cd の後の相対パスは止める(cd が先頭の語でなくても見る)" \
     env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "if cd $CR_FDIR/b; then gh issue comment 1 --body-file body.md; fi"
+# builtin cd も cd と見る(絶対パスへの builtin cd は cd と同じく行き先で解くので、相対の行き先で確かめる)
 expect_output 0 "取り出せない" "builtin cd の後の相対パスも止める" \
-    env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "builtin cd $CR_FDIR/b && gh issue comment 1 --body-file body.md"
+    env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "builtin cd b && gh issue comment 1 --body-file body.md"
 expect_output 0 "取り出せない" "|| の先の cd(走るかどうかが決まらない)の後の相対パスは止める" \
     env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "true || cd $CR_FDIR/b && gh issue comment 1 --body-file body.md"
 expect_output 0 "取り出せない" "env -C<dir> の 1 語の形の後の相対パスも止める" \
