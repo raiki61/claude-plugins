@@ -474,6 +474,24 @@ class Bash(unittest.TestCase):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_reserved_words_after_time_and_function_name_start_a_command(self):
+        # `time`(予約語。旗は -p と --)の後ろの `{`・`!`・if などと、`function 名前` の後ろの `{` はコマンドの頭(前はどれも
+        # `time`・`function` の引数と読み、中の探すコマンドと cd を見落として通していた)。`function f { … }` は `f() { … }` と同じに読む
+        for command, cwd in (("function f { rg foo /; }; f", WORK), ("function f { cd /; }; f; rg foo .", WORK),
+                             ("time { rg foo /; }", WORK), ("time { cd /; }; rg foo .", WORK), ("time ! rg foo /", WORK),
+                             ("time -p { cd /; }; rg foo .", WORK), ("time -- { rg foo /; }", WORK), ("time -p -- ! rg foo /", WORK),
+                             ("! time { rg foo /; }", WORK), ("time function f { rg foo /; }", WORK),
+                             ("time for d in a; do cd /; done; rg foo .", WORK),
+                             ("[ -d src ] && time { cd src; }; rg foo .", HOME), ("f() { cd /; }; f; rg foo .", WORK)):
+            with self.subTest(command=command, cwd=cwd):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        for command, cwd in (("time { cd src; }; rg foo .", HOME), ("function f { cd src; }; f; rg foo .", HOME),
+                             ("echo time { rg foo /; }", WORK), ("echo function f { rg foo /; }", WORK),
+                             ("function f ( cd / ); f; rg foo .", WORK)):
+            with self.subTest(command=command, cwd=cwd):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_substitution_runs_in_the_cwd_of_its_command(self):
         # $( ) の中は、それを持つコマンドの場所(前の cd)と変数で走る
         self.assertIsNotNone(run("Bash", {"command": 'cd / && echo "$(find . -name x)"'})[0])

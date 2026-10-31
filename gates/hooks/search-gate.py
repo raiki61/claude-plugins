@@ -973,6 +973,7 @@ def layout(cr, tokens, kinds=None, negs=None, braces=None):
     道は外から順の (ブロックの番号, 区画の番号, 条件の区画か)。区画は if の条件・then・elif の条件・else、繰り返しの条件と do の後、
     case の ;; ごとに分ける。case の型の閉じ `a)` は括弧に数えない(coldread の深さはそこで負になり、cd が届くかを読み違える)。"""
     out, stack, ops, depth, cur, head, nid, neg, opened = [], [], [], 0, [], None, 0, None, []
+    taken = ([], None)   # 今のコマンドの頭で取った前の区切りと `!`(`time` を捨てるときに戻す)
 
     def close():
         if cur:
@@ -1008,6 +1009,16 @@ def layout(cr, tokens, kinds=None, negs=None, braces=None):
                     depth += 1
             i += 1
             continue
+        brk = cr.head_break(cur, tok)
+        if brk == "time":
+            # split_commands と同じく `time`・`time -p` を捨てて、後ろの予約語からをコマンドにする。`time` の頭で取った前の区切りと
+            # `!` は後ろのコマンドに戻す(`[ -d x ] && time { cd x; }` の cd の前は &&)
+            cur.clear()
+            ops, neg = taken
+            if negs is not None:
+                negs.pop(len(out), None)
+        elif brk == "function":
+            close()   # `function f { …; }` の `function f` は 1 つのコマンド(`f() { …; }` と同じ)
         if not cur and tok in cr.RESERVED:
             top = stack[-1] if stack else None
             if tok == "{":
@@ -1029,6 +1040,7 @@ def layout(cr, tokens, kinds=None, negs=None, braces=None):
             continue
         if not cur:
             head = (tuple((e[0], e[2], e[3]) for e in stack), depth, ops, tok)
+            taken = (ops, neg)
             ops = []
             if neg and negs is not None:
                 negs[len(out)] = neg

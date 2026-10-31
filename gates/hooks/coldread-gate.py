@@ -375,6 +375,12 @@ def wrapper_flag_width(wrapper, tok):
 # 載せるのは「直後にコマンドが来る」語だけ。done・fi・in は後ろにコマンドを取らないので
 # 入れない(入れても発火させられず、表の全メンバーを検査する回帰が張れない)。
 RESERVED = {"{", "!", "then", "else", "elif", "do", "if", "while", "until"}
+# 単純コマンドの頭の `time`(予約語。旗は -p と -- だけ)の後ろで、コマンドの頭として読まれる予約語(bash 5.3 で確かめた)。
+# `function 名前` の後ろで関数の本体の頭になる語(`function f { …; }` は `f() { …; }` と同じ)。どちらも前は予約語をコマンドの
+# 頭でだけ見て、`time { gh …; }`・`time ! gh …`・`function f { gh …; }` の gh を `time`・`function` の引数と読み、見落としていた
+TIME_PREFIXES = (("time",), ("time", "-p"), ("time", "--"), ("time", "-p", "--"))
+TIMED_HEADS = {"{", "!", "if", "while", "until", "for", "select", "case", "function"}
+FUNCTION_BODY_HEADS = {"{", "if", "while", "until", "for", "select", "case"}
 OP_CHARS = set("();<>|&\n")
 # リダイレクト演算子(演算子と行き先を読み飛ばす)。&> >& <& は & を含むが区切りではない。
 REDIRECT_OPS = {"<", ">", ">>", "<<", "<<<", "<&", ">&", "&>", "&>>", ">|"}
@@ -1477,6 +1483,18 @@ class Simple:
 _OP_RE = re.compile(r"&&|\|\||;;|[;&|()\n]")
 
 
+def head_break(cur, tok):
+    """組み立て中の単純コマンドの語 cur の後ろの tok が、コマンドの頭として読まれるか。"time" は cur が `time`・`time -p` などで、
+    tok がその後ろの予約語のとき(cur を捨て、tok からがコマンド)。"function" は cur が `function 名前` で、tok が本体の頭の
+    ときで(cur を 1 つのコマンドとして閉じ、tok からが本体。`f() { …; }` と同じく、本体は定義の所で走ると読む)。でなければ None。
+    split_commands と探しのゲートの layout が同じ所で区切るように、両方がここを通る。"""
+    if tuple(cur) in TIME_PREFIXES and tok in TIMED_HEADS:
+        return "time"
+    if len(cur) == 2 and cur[0] == "function" and tok in FUNCTION_BODY_HEADS:
+        return "function"
+    return None
+
+
 def split_commands(tokens):
     """演算子で区切った単純コマンド(Simple)の列。リダイレクトは引数列から除き、redirects に残す。
 
@@ -1513,6 +1531,12 @@ def split_commands(tokens):
         # 抜ける、という非対称を構成として消すため。gh_calls と wants_skip の両方が
         # simple_commands を通るので、表の読者が増えても片方だけ外れることが起きない。
         # 全トークンから除いてはいけない——`--body do` の本文が空になる(実測)。
+        brk = head_break(cur, tok)
+        if brk == "time":
+            cur = []   # `time { gh …; }` の `time` は予約語で、後ろの予約語からがコマンド(前の区切りは後ろのコマンドに残す)
+        elif brk == "function":
+            cmds.append(Simple(cur, redirects, ops, cmd_depth))   # `function f { gh …; }` の `function f` は 1 つのコマンド
+            cur, redirects, ops = [], [], []
         if not cur and tok in RESERVED:
             i += 1
             continue

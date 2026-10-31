@@ -12,7 +12,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 の直しで、commit 12d08013 の版を渡すと赤になる。58 は 55 の直し(commit b46a0bfe)が持ち込んだ止めすぎで、b46a0bfe の版を
 渡すと赤になる。59 以降は 17 回目のレビュー(頼み cae1e2)の直しで、commit 7e850025 の版を渡すと赤になる。61 は探しのゲートの
 11 回目のレビュー(頼み cae1e2)の直しで、commit fce0c115 の版を渡すと赤になる。62 以降は投稿の前のゲートの
-レビュー(頼み cae1e2)の直しで、commit a192c351 の版を渡すと赤になる。
+レビュー(頼み cae1e2)の直しで、commit a192c351 の版を渡すと赤になる。66 は探しのゲートの 12 回目のレビュー(頼み cae1e2)
+の直しで、commit 3f5cae34 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1129,8 +1130,33 @@ def f65():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(65, parsed and not cands and not blk, "案内を出すだけの gh を読んだか止めた: %r → %r %r" % (cmd, cands, blk))
 
+# 66. `time`(予約語)の後ろの `{`・`!`・if などと、`function 名前` の後ろの `{` は、コマンドの頭として読む(前はどれも `time`・
+# `function` の引数と読み、`time { gh pr comment 1 --body-file x.md; }`・`function f { gh …; }; f` の本文を読まなかった)。
+# 宛先のゲート(destgate)も同じ analyze の calls を見るので、gh の宛先を見る。予約語でない所の `time`・`function` は今までどおり
+def f66():
+    os.makedirs(os.path.join(WORK, "sub"), exist_ok=True)
+    other = BODY + "(sub)"
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    post = "gh pr comment 1 --body-file x.md"
+    for cmd, want in (("function f { %s; }; f", BODY), ("time { %s; }", BODY), ("time ! %s", BODY), ("time -p { %s; }", BODY),
+                      ("time -- { %s; }", BODY), ("time -p -- ! %s", BODY), ("time function f { %s; }", BODY),
+                      ("time if true; then %s; fi", BODY), ("cd " + os.path.join(WORK, "sub") + " && time { %s; }", other)):
+        cands, blk, parsed = g.posting_bodies(cmd % post, WORK)
+        check(66, parsed and cands == [want] and not blk, "time・function の後ろの gh の本文を読まなかった: %r → %r %r" % (cmd, cands, blk))
+    # `function f { … }` の中の cd は、`f() { … }` の中の cd と同じに読む
+    for body in ("cd " + os.path.join(WORK, "sub"), "cd sub", "true"):
+        got = [g.posting_bodies(form % (body, post), WORK) for form in ("function f { %s; }; f; %s", "f() { %s; }; f; %s")]
+        check(66, got[0] == got[1], "function f { %s; } を f() と違えて読んだ: %r" % (body, got))
+    calls = g.analyze("time { gh issue comment 1 -R o/r --body-file x.md; }", WORK).calls
+    check(66, [c[0] for c in calls] == [("issue", "comment")], "time の後ろの gh を宛先のゲートに渡さなかった: %r" % calls)
+    for cmd in ("echo time { %s; }", "echo function f { %s; }"):
+        cands, blk, parsed = g.posting_bodies(cmd % post, WORK)
+        check(66, parsed and not cands and not blk, "予約語でない time・function の後ろを gh と読んだ: %r → %r %r" % (cmd, cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
