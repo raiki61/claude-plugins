@@ -933,9 +933,10 @@ def mark_words(norm, tokens):
     """
     if any(c in norm for c in (LIVE_DOLLAR, LIVE_TICK, HELD_DOLLAR)) or _DOLLAR_JOIN_RE.search(norm):
         return tokens
-    spots = []
+    spots, in_dq = [], set()
     _live(norm, lambda t, i: t[i] in "$`" and spots.append(i))
-    if not spots or _quote_in_substitution(norm, spots):
+    _live(norm, lambda t, i: t[i] == "$" and in_dq.add(i), where=('"',))
+    if not spots or _quote_in_substitution(norm, spots, in_dq):
         return tokens
     chars = list(norm)
     for i in spots:
@@ -953,9 +954,15 @@ def mark_words(norm, tokens):
     return words
 
 
-def _quote_in_substitution(norm, spots):
-    """展開される $( ・ ${ ・ `…` の中に引用符が在るか。在れば、bash が置換の中で引用を数え直す所を、_live・shlex は外の引用の
-    続きと読む(`"$(printf %s "'")"`・`"${X:-"'"}"`)ので、語の印が bash と食い違う。mark_words は印を付けずに全体で見る側へ倒す。
+def _quote_in_substitution(norm, spots, in_dq):
+    """二重引用の中で展開される $( ・ ${ と、`…` の中に引用符が在るか。在れば、bash が置換の中で引用を数え直す所を、_live・shlex は
+    外の引用の続きと読む(`"$(printf %s "'")"`・`"${X:-"'"}"`)ので、語の印が bash と食い違う。mark_words は印を付けずに全体で見る
+    側へ倒す。in_dq は、二重引用の中で展開される $ の位置。
+
+    引用の外の $( と ${ の中は見ない。bash はその中の引用を外と同じに数え、_live・shlex も同じに読むので、印は食い違わない
+    (中で二重引用の中に置いた $( は、in_dq に入るのでここで見る)。前は引用の外の $( の中の引用符でも印を落とし、
+    `id=$(gh api … --jq '.[0].node_id'); gh api graphql -f query='mutation($id: ID!) …' -f id="$id"` の単一引用の中の $id を
+    展開される名前と見て止めた(印の無い見方に倒れた)。
 
     $( と ${ の中は、開く字と閉じる字を数えて閉じる所までとする(\\ も引用も見ない。閉じなければ終わりまで)。前は $( ごとに
     閉じる所まで読み直していたので、閉じない $( が並ぶと長さの 2 乗の時間がかかった(`$(:\\()` を並べた 24KB で 2 秒、
@@ -964,7 +971,7 @@ def _quote_in_substitution(norm, spots):
     for a, b in zip(ticks[::2], ticks[1::2] + [len(norm)]):
         if "'" in norm[a + 1:b] or '"' in norm[a + 1:b]:
             return True
-    heads = {i + 1 for i in spots if norm[i] == "$" and norm[i + 1:i + 2] in ("(", "{")}
+    heads = {i + 1 for i in spots if i in in_dq and norm[i + 1:i + 2] in ("(", "{")}
     if not heads:
         return False
     quotes = [m.start() for m in re.finditer(r"['\"]", norm)]

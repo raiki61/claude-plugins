@@ -713,8 +713,23 @@ def f42():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(42, parsed and cands == [BODY] and not blk, "[[ の外の =~ の後の注釈で止めた: %r → %r %r" % (cmd[:40], blk, parsed))
 
+# 43. 引用の外の $( ) の中の引用符では語の印(mark_words)を落とさない(bash も shlex も、その中の引用を外と同じに数える。前は落として
+# 全体で見る側に倒れ、graphql の query の単一引用の中の $id を、ほかの語で展開される同じ名前と見て止めた)。二重引用の中の $( ) の
+# 中の引用符は、ほかの語に引用の外の $( ) が在っても今までどおり印を落とす(17 の形)
+def f43():
+    for cmd in ("id=$(gh api repos/o/r/pulls/1/comments --jq '.[0].node_id'); gh api graphql -f query='mutation($id: ID!)"
+                "{resolveReviewThread(input:{threadId:$id}){thread{id}}}' -f id=\"$id\"",
+                "id=$(gh api repos/o/r/pulls/1/comments --jq \".[0].node_id\"); gh api graphql -f query='mutation($id: ID!)"
+                "{minimizeComment(input:{subjectId:$id,classifier:OUTDATED}){clientMutationId}}' -f id=\"$id\""):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(43, parsed and not blk, "引用の外の $( ) の中の引用符で印を落として止めた: %r → %r %r" % (cmd[:40], blk, parsed))
+    for cmd in ("id=$(gh api x --jq '.a'); gh pr comment 1 -R \"$(printf %s \"'\")\" -b \"' --body '$id\" #'",
+                "B=$(cat f); X=$(echo '{}'); gh pr comment 1 -R \"${X:-\"'\"}\" -b \"' --body '$B\" #'"):
+        _, blk, _ = g.posting_bodies(cmd, WORK)
+        check(43, bool(blk), "二重引用の中の置換の中の引用符で印がずれた本文を通した: %s" % cmd[:60])
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
