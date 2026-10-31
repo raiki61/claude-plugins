@@ -2118,23 +2118,24 @@ def fed_word_risk(args, sub):
     return False
 
 
+# 案内の旗(-h など)の直前に在っても、値を取らない旗(gh の --help で確かめた)。ここに無い旗の直後の -h は旗の値と見る
+HELP_BOOL_FLAGS = {"--web", "--draft", "--public", "--fill", "--dry-run", "--yes", "--paginate", "--silent", "--verbose"}
+HELP_BOOL_FLAGS_BY_SUB = {("gist", "create"): {"-p", "-w"}}
+_BARE_FLAG_RE = re.compile(r"-[A-Za-z0-9]+|--[A-Za-z0-9][\w-]*")
+
+
 def help_requested(args, sub):
     """gh が案内(--help・-h・--version)を出して終わり、投稿しないか。-- より後ろは見ない。
 
     値を取る旗の直後の語は、- で始まっても旗の値(gh の旗の読み方〔pflag〕は次の語を値に取る)なので、案内と見ない。
-    前は `gh gist create -d -h a.md` の -h(説明の値)を案内と見て、a.md を読まずに通していた。値を取る旗は、ゲートの持つ表
-    (全体の旗・本文の旗・gist の旗・新しい PR・issue の旗・gh api の旗)と --title で引く"""
-    takes = set(GLOBAL_VALUE_FLAGS) | {"--title"}
-    takes |= {f for f in LONG_TEXT_FLAGS if (f, sub) not in LONG_FLAG_NOT_BODY}
-    takes |= {f for f, (_kind, subs) in SHORT_TEXT_FLAGS.items() if sub in subs}
-    takes |= set(GIST_VALUE_FLAGS.get(sub, ()))
-    if sub in NEW_ITEM_SUBS:
-        takes |= {*CREATE_VALUE_FLAGS, *CREATE_VALUE_FLAGS.values()}
-    if (sub or ())[:1] == ("api",):
-        takes |= API_VALUE_FLAGS
+    値を取る旗の表は gh の版ごとに増えて追いつかないので、逆に、直前の語が = の無い旗(`-x`・`--xx`)なら、値を取らないと
+    確かめた旗(HELP_BOOL_FLAGS)でない限り旗の値と見る(`--draft -h` のような値を取らない旗で止めすぎるのは許す)。
+    前は値を取る旗の表で引き、表に無い `gh release create v1 --target -h --notes …`・`gh pr edit 1 --add-label -h --body-file a.md`
+    の -h を案内と見て、本文を読まずに通していた"""
+    bools = HELP_BOOL_FLAGS | HELP_BOOL_FLAGS_BY_SUB.get(sub, set())
     prev = None
     for t in args[:args.index("--")] if "--" in args else args:
-        if t in HELP_FLAGS and prev not in takes:
+        if t in HELP_FLAGS and (prev is None or prev in bools or not _BARE_FLAG_RE.fullmatch(prev)):
             return True
         prev = t
     return False

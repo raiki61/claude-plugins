@@ -1210,8 +1210,24 @@ def f68():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(68, parsed and cands == [BODY] and not blk, "束ねた旗の後ろの gh gist のファイルを読まなかった: %r → %r %r" % (cmd, cands, blk))
 
+# 69. -h・--help・--version の直前が = の無い旗(`-x`・`--xx`)なら、値を取らないと確かめた旗(--draft・gh gist create -p など)で
+# ない限り、その旗の値と見て案内と見ない(前は値を取る旗の表で引き、表に無い --target・--add-label の直後の -h を案内と見て、
+# 本文を読まずに通した)
+def f69():
+    with open(os.path.join(WORK, "a.md"), "w", encoding="utf-8") as f:
+        f.write(BODY)
+    for cmd in ("gh release create v1 --target -h --notes '%s'" % BODY, "gh pr edit 1 --add-label -h --body-file a.md",
+                "gh issue edit 1 --milestone --help --body-file a.md", "gh pr create --base -h --head x -F a.md",
+                "gh issue create -l -h -t T -F a.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(69, parsed and BODY in cands, "表に無い値を取る旗の直後の -h を案内と見て本文を読まなかった: %r → %r %r" % (cmd[:60], cands, blk))
+    for cmd in ("gh -h", "gh pr -h", "gh pr comment -h", "gh pr comment --help", "gh pr comment 1 --body-file a.md -h",
+                "gh pr create --draft -h", "gh issue comment 1 --web --help", "gh gist create -w -h", "gh pr comment --body=x -h"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(69, parsed and not cands and not blk, "案内を出すだけの gh を止めた: %r → %r %r" % (cmd, cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
