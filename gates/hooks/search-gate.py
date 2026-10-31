@@ -312,14 +312,14 @@ def substitutions(text, bare=True, heredoc=False):
                     # 読むと、`echo "$(echo '(')"; git commit -m "note; find / -name x"` の後ろの引用の中の字をコマンドと読んで止めすぎ、
                     # 引用した ( を持つ置換を 600 並べた語で 30 秒を超えていた)。ほかの字が続くなら、手前で閉じたと読み違えた見込みが
                     # あるので終わりまで読む(次の " の手前までにすると、`…; esac; echo "hi"; rg foo /)"` の rg を落とす)。読んだ字は
-                    # 予算に数える。終わりまで読むときは、終わりの 1 字を落とした中身も読む(`x="$(…; rg foo /)"` の外の閉じの " まで
-                    # 中身にすると、中の rg を引用の中と読む)
+                    # 予算に数える。終わりまで読むときは、後ろの " ごとにその手前で切った中身と、終わりの 1 字を落とした中身も読む
+                    # (外の閉じの " まで中身にすると、`x="$(…; rg foo /)"; echo ok` の中の rg を引用の中と読む)
                     end = jc - 1 if jc else n if _plain_end(text, jq) > jq else jq
                     if end > jq:
-                        out.append(text[i + 2:end])
-                        if end == n:
-                            out.append(text[i + 2:n - 1])
-                        SPENT["reads"] += 2 * (end - i)
+                        cuts = [end] if end < n else [k for k in range(jq, n) if text[k] == '"'] + [n - 1, n]
+                        for cut in cuts:
+                            out.append(text[i + 2:cut])
+                            SPENT["reads"] += cut - i
                         if SPENT["reads"] > READS_MAX:
                             raise ValueError("$( ) と引用が多く、探す場所を読み切れない")
                 j = jq or j
@@ -740,6 +740,22 @@ def without_quoted_bodies(cr, command):
     return "".join(out) + command[at:]
 
 
+def _filled_copy(cr, text):
+    """text の置換のうち、中に " を持つ二重引用の中の $( )・${ } と、引用符を持つ ` … ` の中身を、投稿の前のゲートと同じ埋め草に
+    替えた写し(read_substitutions と同じ選び方)。替える物が無いか、閉じる所を言い切れなければ None。"""
+    spans = cr.substitution_spans(text)
+    chars = None
+    for start, end, kind, in_dq in spans or ():
+        if kind == "(" and not in_dq:
+            continue
+        head = start + (1 if kind == "`" else 2)
+        body = text[head:end]
+        if (in_dq and '"' in body) if kind == "{" else ('"' in body or (kind == "`" and "'" in body)):
+            chars = chars or list(text)
+            chars[head:end] = cr.SUB_FILL * (end - head)
+    return None if chars is None else "".join(chars)
+
+
 def check_command(cr, command, cwd, depth=0, outer=None, held=None):
     """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。outer は、このコマンドが外のコマンドの $( … )・bash -c・eval・
     ヒアドキュメントの中身のとき、外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。held は、
@@ -772,64 +788,69 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
         if rest is not None and not WORD_RE.search(rest.replace("\\n", "\n").replace("\\t", "\t")):
             return
         raise ValueError("コマンドを読めない形(`$[ ]`・`<<\\EOF` など)なので、探す起点を決められない")
-    # 引用の外の $( … ) は 1 段ごとに中を読み直すので、読む段の終わり(MAX_DEPTH)では、前の割り方(中も単純コマンドに割る)で
-    # 読む。語に留めたままだと、9 段より深い `$(echo $(…$(rg foo /)…))` の中を読まずに通す
-    tokens = cr.tokenize(text, words=depth < MAX_DEPTH)
-    if tokens is None:
-        # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)
-        m = re.search(r"(?:^|[\s;&|(`])(?:find|bfs|gfind)\s+(?:-[HLP]\s+)*(\S+)", text)
-        if m:
-            check_path(m.group(0).split()[0].lstrip(";&|(`"), m.group(1).strip("'\""), cwd)
-        return
-    cmds = cr.split_commands(tokens)
-    files = Scope(cmds, cwd, bodies, text, tokens)
-    files.outer = outer
-    seen, places, ticks = set(), {cwd}, set()
-    for k, c in enumerate(cmds):
-        at = cr.command_start(c.args)
-        heres = files.at(k, c.args[:at]).cwds_here()
-        places.update(heres)
-        if any("`" in a for a in c.args):
-            ticks.update(heres)
-        # 引用の外の $( … )・<( … ) などは、tokenize が 1 語に留めて中身を語の subs に残す(リダイレクトの行き先の `< <(…)` も)。
-        # 語の残りの字(二重引用の中の $( … ) と ` … `)は語から読む
-        # 代入だけのコマンド(`D=/ x=$(rg foo $D)`)は、bash が左から順に代入するので、語の中の置換は前の語の代入を見る
-        # (前は同じコマンドの代入を見ず、起点の $D を解けずに通していた)。中身ごとに、前の語までの代入を足した Scope で見る。
-        # その語の置換は inners に入れない(前の語までの代入を足した Scope は、files.at の解く変数も解く。前は両方で読み、
-        # 置換ごとに読む数が 2 倍になって、長いスクリプトで読む字の上限に当たっていた)
-        # 頭に並んだ代入の語(`D=/ x=$(rg foo $D) true` の x=…)も同じ(前は代入だけのコマンドでしか前の語を見ず、通していた)
-        lead = next((i for i, a in enumerate(c.args) if not cr.ENV_PREFIX_RE.match(a)), len(c.args))
-        chained = range(1, lead)
-        assigns = [(x, before_scope(cr, cmds, k, files, bodies, x, upto=i)) for i in chained
-                   for x in dict.fromkeys(tuple(getattr(c.args[i], "subs", ())) + tuple(word_substitutions(c.args[i])))]
-        own = [a for i, a in enumerate(c.args) if i not in chained]
-        inners = {x for a in own + [d for _, d in c.redirects] for x in getattr(a, "subs", ())}
-        inners |= {x for a in own for x in word_substitutions(a)}
-        # 区切りを引用しないヒアドキュメントの本文の $( … ) と ` … ` は、どのコマンドの本文でも、そのコマンドの場所で走る
-        # (前は本文をシェルに渡すときだけ読み、`cat <<EOF > out.txt` の次の行の `$(find / …)` を通していた)。
-        # 区切りを引用した本文(Expands でない)は展開しないので読まない
-        inners |= {x for b in cr.own_heredocs(c.args, bodies) if isinstance(b, cr.Expands)
-                   for x in substitutions(b, heredoc=True)}
-        seen |= inners
-        seen.update(x for x, _ in assigns)
-        for here in heres:
-            # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、
-            # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
-            for inner in inners:
-                check_command(cr, inner, here, depth + 1, files.at(k, c.args[:at]), bodies)
-            for inner, before in assigns:
-                check_command(cr, inner, here, depth + 1, before, bodies)
-            check_simple(cr, files.at(k, c.args[:at]), cmds, k, c.args[at:], bodies, here, depth)
-    # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、` を語に持つコマンドの走りうる
-    # 場所のどれでも見る(` の語が無ければ、フックの cwd と各コマンドの cwd)。前はフックの cwd だけで見て、
-    # `cd / && a=`find . …`` を通していた。後ろの cd の行き先では見ない(`cd ~/p && n=`find .` && cd ~` を止めない)。
-    # 引用の外の $( … ) は、トークン化が語の subs に残したか単純コマンドに割ったかで、上で見た
-    if cmds:
-        files.at(len(cmds) - 1, ())   # 変数は、このコマンドの中のどの代入からでも解く
-    for inner in substitutions(text, bare=False):
-        if inner not in seen:
-            for place in ticks or places:
-                check_command(cr, inner, place, depth + 1, files if cmds else outer, bodies)
+    # 中に " を持つ二重引用の中の置換は、shlex が置換の途中で引用を閉じ、語の切れ目が bash と違う(`x="$(echo "(" ; true)" find / -name x`
+    # の ( をコマンドの名前と読み、後ろの find を引数と見て通していた)。投稿の前のゲートと同じく中身を埋め草に替えた写しでも、
+    # 語に割ってコマンドを見る(中身は替える前の写しで見る)
+    filled = _filled_copy(cr, text)
+    for text in [text] + ([filled] if filled else []):
+        # 引用の外の $( … ) は 1 段ごとに中を読み直すので、読む段の終わり(MAX_DEPTH)では、前の割り方(中も単純コマンドに割る)で
+        # 読む。語に留めたままだと、9 段より深い `$(echo $(…$(rg foo /)…))` の中を読まずに通す
+        tokens = cr.tokenize(text, words=depth < MAX_DEPTH)
+        if tokens is None:
+            # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)
+            m = re.search(r"(?:^|[\s;&|(`])(?:find|bfs|gfind)\s+(?:-[HLP]\s+)*(\S+)", text)
+            if m:
+                check_path(m.group(0).split()[0].lstrip(";&|(`"), m.group(1).strip("'\""), cwd)
+            continue
+        cmds = cr.split_commands(tokens)
+        files = Scope(cmds, cwd, bodies, text, tokens)
+        files.outer = outer
+        seen, places, ticks = set(), {cwd}, set()
+        for k, c in enumerate(cmds):
+            at = cr.command_start(c.args)
+            heres = files.at(k, c.args[:at]).cwds_here()
+            places.update(heres)
+            if any("`" in a for a in c.args):
+                ticks.update(heres)
+            # 引用の外の $( … )・<( … ) などは、tokenize が 1 語に留めて中身を語の subs に残す(リダイレクトの行き先の `< <(…)` も)。
+            # 語の残りの字(二重引用の中の $( … ) と ` … `)は語から読む
+            # 代入だけのコマンド(`D=/ x=$(rg foo $D)`)は、bash が左から順に代入するので、語の中の置換は前の語の代入を見る
+            # (前は同じコマンドの代入を見ず、起点の $D を解けずに通していた)。中身ごとに、前の語までの代入を足した Scope で見る。
+            # その語の置換は inners に入れない(前の語までの代入を足した Scope は、files.at の解く変数も解く。前は両方で読み、
+            # 置換ごとに読む数が 2 倍になって、長いスクリプトで読む字の上限に当たっていた)
+            # 頭に並んだ代入の語(`D=/ x=$(rg foo $D) true` の x=…)も同じ(前は代入だけのコマンドでしか前の語を見ず、通していた)
+            lead = next((i for i, a in enumerate(c.args) if not cr.ENV_PREFIX_RE.match(a)), len(c.args))
+            chained = range(1, lead)
+            assigns = [(x, before_scope(cr, cmds, k, files, bodies, x, upto=i)) for i in chained
+                       for x in dict.fromkeys(tuple(getattr(c.args[i], "subs", ())) + tuple(word_substitutions(c.args[i])))]
+            own = [a for i, a in enumerate(c.args) if i not in chained]
+            inners = {x for a in own + [d for _, d in c.redirects] for x in getattr(a, "subs", ())}
+            inners |= {x for a in own for x in word_substitutions(a)}
+            # 区切りを引用しないヒアドキュメントの本文の $( … ) と ` … ` は、どのコマンドの本文でも、そのコマンドの場所で走る
+            # (前は本文をシェルに渡すときだけ読み、`cat <<EOF > out.txt` の次の行の `$(find / …)` を通していた)。
+            # 区切りを引用した本文(Expands でない)は展開しないので読まない
+            inners |= {x for b in cr.own_heredocs(c.args, bodies) if isinstance(b, cr.Expands)
+                       for x in substitutions(b, heredoc=True)}
+            seen |= inners
+            seen.update(x for x, _ in assigns)
+            for here in heres:
+                # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、
+                # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
+                for inner in inners:
+                    check_command(cr, inner, here, depth + 1, files.at(k, c.args[:at]), bodies)
+                for inner, before in assigns:
+                    check_command(cr, inner, here, depth + 1, before, bodies)
+                check_simple(cr, files.at(k, c.args[:at]), cmds, k, c.args[at:], bodies, here, depth)
+        # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、` を語に持つコマンドの走りうる
+        # 場所のどれでも見る(` の語が無ければ、フックの cwd と各コマンドの cwd)。前はフックの cwd だけで見て、
+        # `cd / && a=`find . …`` を通していた。後ろの cd の行き先では見ない(`cd ~/p && n=`find .` && cd ~` を止めない)。
+        # 引用の外の $( … ) は、トークン化が語の subs に残したか単純コマンドに割ったかで、上で見た
+        if cmds:
+            files.at(len(cmds) - 1, ())   # 変数は、このコマンドの中のどの代入からでも解く
+        for inner in substitutions(text, bare=False):
+            if inner not in seen:
+                for place in ticks or places:
+                    check_command(cr, inner, place, depth + 1, files if cmds else outer, bodies)
 
 
 def word_substitutions(word):

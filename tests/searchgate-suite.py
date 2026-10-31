@@ -576,7 +576,8 @@ class Bash(unittest.TestCase):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
         # 数え方が閉じないときは、終わりまでを中身として読まない。後ろの引用の中の字をコマンドと読まず、引用した ( を持つ置換を
         # 600 並べた語も時間切れの前に読み終える(頼み cae1e2)
-        for command in ("echo \"$(echo '(')\"; git commit -m \"note; find / -name x\"", "x=\"$(grep -c '(' f)\"; echo \"hint; rg foo /\"",
+        for command in ("echo \"$(echo '(')\"; git commit -m \"note; find / -name x\"", "n=$(printf '(('); git commit -m \"fix; rg foo /\"",
+                        'x="$(echo "(" ; true)" rg foo src', "x=\"$(grep -c '(' f)\"; echo \"hint; rg foo /\"",
                         "x=\"$(echo \"(\")\"; echo '\"; rg foo /'"):
             self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
         started = time.monotonic()
@@ -588,7 +589,13 @@ class Bash(unittest.TestCase):
                         'x="$(echo "(("; echo ${y%)}; rg foo /)"', "x=\"$(sed 's/(//;s/(//' f; echo ${y%)}; find / -name x)\"",
                         # 手前の閉じの後ろに " や ` … ` が在っても読む(次の " の手前まで読む形では落としていた)
                         'x="$(echo "(("; case a in a) :;; esac; echo "hi"; rg foo /)"', 'x="$(echo "(("; case a in a) :;; esac; echo `date`; rg foo /)"',
-                        'x="$(echo "(("; echo ${y%)}; echo "z"; find / -name x)"'):
+                        'x="$(echo "(("; echo ${y%)}; echo "z"; find / -name x)"',
+                        # 外の閉じの " の後ろに字が続いても読む(終わりの 1 字を落とすだけでは、中の rg を引用の中と読んでいた)
+                        'x="$(echo "((" ; case a in a) :;; esac; echo "hi"; rg foo /)"; echo ok',
+                        'echo "$(echo "((" ; case a in a) :;; esac; echo "hi"; rg foo /)" && echo ok',
+                        # 中に " を持つ二重引用の中の置換の後ろのコマンドも、語の切れ目を bash に合わせて見る(前は ( をコマンドの名前と読み、
+                        # 後ろの find・rg を引数と見て通していた)
+                        'x="$(echo "(" ; true)" find / -name x', 'x="$(echo ")" ; true)" rg foo /', 'x="$(echo "(" ; true)" xargs rg foo /'):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
         # 閉じない $( を 9000 並べた 99KB の語も、$( ごとに終わりまで数え直さず、時間切れの前に読み終える(頼み cae1e2)
         started = time.monotonic()
