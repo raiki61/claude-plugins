@@ -567,6 +567,18 @@ def f28():
         stops(28, cmd)
 
 
+# 33. 注釈を落とす前処理が読めない形と見たコマンドでも、字面に書いた書き込み先の文書を記録する(前は何も拾わず、
+# git の外に書いた文書が検査から漏れた)。読めるコマンドの拾い方は変えない
+def f33():
+    doc = os.path.join(WORK, "f33.md")
+    with open(doc, "w") as f:
+        f.write("a\n")
+    for cmd in ("case $x in a)# c\necho a > f33.md;; esac", "echo $[1+1] > f33.md", "echo a > f33.md"):
+        wrote = g._written_by_command(cmd, WORK)[0]
+        check(33, [os.path.realpath(p) for p in wrote] == [os.path.realpath(doc)],
+              "書いた文書を記録しなかった: %r → %r" % (cmd, wrote))
+
+
 # 34. コマンド名の前に書いたヒアドキュメント(`<<'EOF' gh …`)の後ろの gh を見落とさず、本文も後ろに書いたのと同じに読む
 def f34():
     stops(34, "<<'EOF' " + GH + "\nx\nEOF")
@@ -598,7 +610,7 @@ def f32():
 
 
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 34: f34})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

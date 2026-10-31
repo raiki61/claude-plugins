@@ -4805,6 +4805,13 @@ def _written_by_command(command, cwd):
     書いた文書は在るものだけ。
     """
     norm, heredoc_bodies = prepare(command)
+    # 注釈を落とす前処理が読めない形と見たコマンド(`case $x in a)# c` の後の `echo a > x.md`・`$[1+1]` を含む物)も、
+    # 書き込み先は拾う(前は何も拾わず、一時の置き場に書いた文書が検査から漏れた)。ここは記録を足す側にだけ倒し、
+    # 読み違いで拾い損ねないよう、ヒアドキュメントを抜いただけの写しを注釈を落とさずに読む。外から来た中身の写しと
+    # git の作業ツリーを書くコマンドは、読み違えると変更一覧の差から文書を外してしまうので、読めないときは返さない
+    lenient = norm is None
+    if lenient:
+        norm = shield_heredocs(command)[0] or command
     tokens = tokenize(norm)
     if tokens is None:
         return [], [], False
@@ -4846,7 +4853,7 @@ def _written_by_command(command, cwd):
             if p and p.lower().endswith(DOC_EXTS):
                 copied.append(os.path.realpath(p))
         authored_prev = authored
-    return wrote, copied, git_tree
+    return (wrote, [], False) if lenient else (wrote, copied, git_tree)
 
 
 def _bash_docs(payload):
