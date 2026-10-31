@@ -748,3 +748,19 @@ claude-plugins の窓口からの頼み。持ち主の問い（2026-10-28）「�
 2. claude-plugins の担当・作業の割合が減り、my_notes の割合が同じほどなら、役の本文の英訳が効いたと見る。両方とも減ったなら、差し戻しの文の効き目か、ほかの直しの効き目で、英訳だけの効き目とは言えない。その期間に入った works-dispatch の差し戻し（`deliver.py`・`orders.py`・`wake_hook.py`）の直しを CHANGELOG から書き添える。
 3. 業務改革の行は、上の壊れの直し（題が「会社の形: 業務改革の受け持ちの説明を縮め…」の commit）が main に入った時刻より前に起きた会話を外して見る。
 4. 結果は、この頼みへの納品（`--for 20261029-030038-d32ad0`）で返す。
+
+## 頼み 9e99d6（2026-11-01、compact の計画の 8「入れた後に測る」。頼み元は仕組みの部署〔頼み ae8abe〕）
+
+compact（会話の文脈を要約に縮める操作）の計画 works-dispatch/docs/specs/2026-10-25-compact-restart-plan.md の 7 の 2（口の整理。口は compact を打つきっかけで、役の本文の印・keepalive の時刻の問い・強制の線の 3 つに絞り、ターンの終わりの問いを外す直し）を入れた後に、計画の 8 の比べる値 1 遅れの額・2 空振りの額・3 終わり際の額・4 口の内訳を前と後で比べる頼み。
+
+### 受けた時の状態（2026-11-01）
+
+- 7 の 2 はまだ main に入っていない。仕組みの部署の作業場（頼み 5a88bd・ae8abe のブランチ）に commit 2 本（4ba5c9fe5 と d1311655b）が在り、works-dispatch の CHANGELOG の Unreleased は空のまま。
+- 受付箱の台帳（`.git/company/inbox/log.jsonl`）に `kind` が `compact` の行は、my_notes・claude-plugins とも 0 行。`kind` が `keepalive` の行は my_notes 3,144 行、claude-plugins 442 行（どれも 7 の 2 より前の形で、`reply` は無い）。
+- そのため、この時点では前も後も数えていない。後の期間（2 週間）は、7 の 2 が main に入った時刻（main の works-dispatch の CHANGELOG で、Unreleased の頼み ae8abe の項を版にした版上げの commit の時刻。`git log origin/main --grep=ae8abe -- works-dispatch` で見る）から数える。前の期間は、7 の 1（rent-or-buy 0.4.0。2026-10-25）から 7 の 2 が入るまで。
+
+### これからする事
+
+1. 入れて 1 週間（7 の 2 が入ってから 7 日目。11-08 ごろ）: 両方の会社の台帳に `compact` の行（`marked`・`declined`・`compacted`）と、`keepalive` の行の `reply` が出ているか、計画の 8 の 1〜4 と w_k（役 k の問いで焦点が返らない割合。計画の 4.2。works-dispatch は今 0 と置く）・Q_k（役 k の問いで増える出力のトークン。今は 295 と置く〔答え 300 − keepalive の答え 5〕）を数えられるかを見る。`compact` の行の `status` は、`marked` が `--compact` で印を付けた・`declined` が元が取れないので付けなかった・`compacted` が compact を打った（打った口が `mouth`）。`keepalive` の行の `reply` は問いへの答えの種類。どれかの行が 1 行も出ていないか、比べる値に要る欄が欠けていれば、仕組みの部署に `--ask` で直しを頼む。
+2. 同じ時に、前の期間の会話の記録（`~/.claude*/projects/*/*.jsonl` のうち、10-25 から 7 の 2 が入るまでに動いた物）（開始の時刻が前の期間に入る物）を、`~/claude-records/compact-plan-8/` へ写しておく。Claude Code は既定で 30 日より古い会話の記録を消す（設定 `cleanupPeriodDays`。どのアカウントの設定にも書かれていないので既定の 30 日）。10-25 の記録は 11-24 ごろに消え始めるので、3 で後の期間を延ばすと、比べる時に前の期間の記録が無くなる。
+3. 入れて 2 週間（11-15 ごろ）: 計画の 8 のとおりに、1〜3 の額の合計（要求 100 本あたり）を前と後で比べ、差が前の額の 10% 以内なら同じと見る。4 は内訳として並べる。compact のあった会話が会社ごとに 30 本に満たなければ、後の期間を延ばす。w_k が 0 から大きく外れる役、Q_k が 295 から大きく外れる時は、仕組みの部署に値の直しを頼む。結果と、計画の 8 の「決め方」（ターンの終わりの合図をその役にだけ戻すか、my_notes の `autoCompactWindow` を下げるか）の判断材料を、頼み 9e99d6 の頼み元（仕組みの部署）へ納品で返す。
