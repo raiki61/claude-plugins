@@ -98,7 +98,7 @@ rent-or-buy は、この判断を費用だけから出す小さな部品。状�
 
 - `certain` が true なら、この規則だけで決める。借り賃が一定で `miss = 0` なら、`K = ceil(rho) - 1` 回借りてから買う（`rho = buy / rent`）。2 倍未満の上限の証明: 終わりの出来事が `t` 区間の後に来るとする。`t <= K` なら費用は `t * rent` で、これが最適。そうでなければ `t >= K + 1 >= rho` なので、後から見た最適は `buy` で、費用は `K * rent + buy < buy + buy`。よって費用はいつも最適の 2 倍未満で、これは ski rental の決定的な規則の古典的な上限（[Wikipedia](https://en.wikipedia.org/wiki/Ski_rental_problem)）。`tests/test_core.py` が多くの値段と長さで確かめる。
 - `rho` が整数でないとき、候補がもう 1 つある。`K` 回でなく `K - 1` 回借りて止める規則。最良の決定的な規則は、この 2 つの候補のうち、最悪の場合の倍率（費用を最適で割った値）が小さい方を採る。`fixed` は常に `K` 回の規則を使い、この比べをしない。理由は 2 つ。2 つの候補の差は借り 1 回分で、最悪の倍率はどちらも 2 倍未満に収まる。もう 1 つは、compact の借り賃が回ごとに変わるので、1 回短くする元になる決まった回数 `K` が無いこと。累計を比べる 1 つの規則で両方の場面を扱う。
-- compact も同じ規則で、前の compact から余分に読んだ額（`spent`）に、この要求で余分に読む額（`rent`）を足した額が、compact 1 回の費用（`buy`）に届いたら compact する。
+- compact も同じ規則で、前の compact から余分に読んだ額（`spent`。応答ごとに、compact した後より多く読んだキャッシュの読みの費用を足した合計で、求め方は 4.5）に、この要求で余分に読む額（`rent`）を足した額が、compact 1 回の費用（`buy`）に届いたら compact する。
 - `certain` が false なら、`hazard` が渡され、`hazard > rent / ((1 - miss) * buy)` で、かつ上の規則で借りられる間だけ借りる。比の確かめは、もう 1 回借りる費用と、それで平均して浮く額 `hazard * (1 - miss) * buy` を比べる物（確率 `hazard` で次の区間に出来事が来て、避けられる分の買いが浮く）。借りるのが得なのは `rent < hazard * (1 - miss) * buy` の間だけで、これは比の確かめの式 `hazard > rent / ((1 - miss) * buy)` を移項した物。両方の確かめが通るときだけ借りる。出来事が来そうでも、累計の上限は外さない。`hazard` が無ければ買う。
 
 後の版で足す決め方（最初の版には無い）:
@@ -139,7 +139,7 @@ keepalive を送る時刻の手は、実は 3 つある。送る（借りる）�
 
 ### 4.1 値段
 
-手本は ccusage（Claude Code の会話の記録から使った額を出すツール。同じ記録を読み、値段とモデル名の同じ問題を解いている）。ccusage は LiteLLM の値段表の写しを本体に埋め込み、動くときに最新の表を取りに行き、取れなければ写しで計算する（[ccusage の pricing.rs](https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/pricing.rs) の `load_with_overrides`）。rent-or-buy も同じ形にする。
+手本は ccusage（Claude Code の会話の記録から使った額を出すツール。同じ記録を読み、値段とモデル名の同じ問題を解いている）。ccusage は LiteLLM の値段表（LiteLLM はオープンソースのプロジェクトで、モデルごとの値段を JSON の表 `model_prices_and_context_window.json` で公開している）の写しを本体に埋め込み、動くときに最新の表を取りに行き、取れなければ写しで計算する（[ccusage の pricing.rs](https://github.com/ryoppippi/ccusage/blob/main/rust/crates/ccusage-core/src/pricing.rs) の `load_with_overrides`）。rent-or-buy も同じ形にする。
 
 - 同梱の写し: `prompt_cache/snapshot.json`。[LiteLLM の値段表](https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json)から、Anthropic に直に繋ぐときの項目（名前が `claude-` で始まり、提供元の前置きが無い物）の、下のフィールドだけを残した物。写しには、取った LiteLLM の commit と日付を書く。
 - 使うフィールド（1 トークンあたりのドル）: 入力 `input_cost_per_token`、5 分のキャッシュの書き込み `cache_creation_input_token_cost`、1 時間のキャッシュの書き込み `cache_creation_input_token_cost_above_1hr`、キャッシュの読み `cache_read_input_token_cost`、出力 `output_cost_per_token`。要求の大きさで値段が上がるモデル（10 万トークン超）は、`..._above_100k_tokens` のフィールド（単価の段階）も持つ。値は写しを取ったときに [Anthropic の料金表](https://platform.claude.com/docs/en/about-claude/pricing)と照合した。
