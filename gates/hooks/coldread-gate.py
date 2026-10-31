@@ -993,8 +993,12 @@ LIVE_DOLLAR, LIVE_TICK, HELD_DOLLAR = "", "", ""
 
 class Word(str):
     """tokenize の語 1 つ。marked は同じ長さの写しで、展開される $・` だけを LIVE_DOLLAR・LIVE_TICK に替えた物
-    (重ねられなければ None)。shlex は引用を落とすので、語の字だけでは '$t'(字のまま)と "$t"(展開)を見分けられない。"""
+    (重ねられなければ None)。shlex は引用を落とすので、語の字だけでは '$t'(字のまま)と "$t"(展開)を見分けられない。
+    subs は、語に留めた引用の外の $( )・<( ) など(bare_spans)の中身の並びで、rest はそれらを語から抜いた残り(無ければ None)。
+    語の字は引用を落とした後なので、語から置換を探し直すと引用の中の ) で閉じたと読み違える(探しのゲートは subs を読む)。"""
     marked = None
+    subs = ()
+    rest = None
 
 
 def word_tail(tok, start):
@@ -1034,7 +1038,7 @@ def mark_words(norm, tokens):
         if m.replace(LIVE_DOLLAR, "$").replace(LIVE_TICK, "`") != tok:
             return tokens
         w = Word(tok)
-        w.marked = m
+        w.marked, w.subs, w.rest = m, getattr(tok, "subs", ()), getattr(tok, "rest", None)
         words.append(w)
     return words
 
@@ -1086,18 +1090,28 @@ def _any_between(sorted_positions, a, b):
 def substitution_spans(norm):
     """bash が 1 つの語の中で走らせる置換の、(頭, 閉じる字の位置, 種類, 二重引用の中か) の並び。閉じる所を言い切れなければ None。
 
-    見るのは、二重引用の中の $( )・${ } と、`…` と、引用の外の ${ }。引用の外の $( ) は shlex が語に割って、中の gh も
-    単純コマンドとして見えるので並べない(その中は 1 字ずつ読み進める)。二重引用の中の $( ) と `…` は shlex には 1 語で、
-    中の gh の投稿(`u="$(gh pr create --body '…')"`)が見えないので、analyze が中身を別のコマンドとして読む。
+    見るのは、二重引用の中の $( )・${ } と、`…` と、引用の外の ${ }・$( )・$(( ))・<( )・>( )。種類は ` か ( か { で、
+    引用の外の ( の物(bare_span)は、tokenize が 1 語に留める(前は shlex が ( を区切りと見て語に割り、閉じの ) の後ろの語を
+    別のコマンドと読んで、`gh pr comment $(cat n.txt) --body-file x.md` の本文の旗を落とした)。二重引用の中の $( ) と `…` も
+    shlex には 1 語で、中の gh の投稿(`u="$(gh pr create --body '…')"`)が語からは見えないので、analyze が中身を別のコマンドとして読む。
+    引用の外の ( の物で閉じる所を言い切れない物(case・`…` を含むなど)は並べず、前と同じく 1 字ずつ読み進めて shlex に割らせる。
+    1 つでも言い切れなければ、後ろの引用の外の ( の物も並べない(閉じない $( が並ぶと、閉じを探す読みが長さの 2 乗になる)。
     bash は置換の中で引用符を数え直す。中に " を持つ置換は、shlex が置換の途中で二重引用を閉じて語の切れ目が bash と違う
     (`-t "$(printf %s "'")" -b "' -t '$(cat f)' --body 'hello" #'`)ので、analyze が中身を字のままの埋め草に替えてから語に割る。"""
-    spans, i, quote = [], 0, None
+    spans, i, quote, bare = [], 0, None, True
     while i < len(norm):
         c = norm[i]
         if quote == "'":
             quote = None if c == "'" else quote
         elif c == "\\":
             i += 1
+        elif bare and quote is None and c in "$<>" and norm[i + 1:i + 2] == "(":
+            end = substitution_end(norm, i)
+            if end is None:
+                bare = False
+            else:
+                spans.append((i, end, "(", False))
+                i = end
         elif c == "`" or norm.startswith("${", i) or (quote == '"' and norm.startswith("$(", i)):
             end = substitution_end(norm, i)
             if end is None:
@@ -1442,32 +1456,70 @@ def prepare(command):
     return (None if shielded is None else normalize_shell(shielded, len(bodies))), bodies
 
 
-def tokenize(text):
+# tokenize が引用の外の $( )・<( ) などを 1 語に留めるため、shlex に渡す写しで中身の代わりに置く印の字(私用の領域の字)
+SUB_OPEN, SUB_CLOSE = "\ue003", "\ue004"
+_SUB_SLOT_RE = re.compile(SUB_OPEN + r"(\d+)" + SUB_CLOSE)
+_UNMARK = str.maketrans({LIVE_DOLLAR: "$", LIVE_TICK: "`"})
+
+
+def bare_spans(text):
+    """text の、引用の外の $( )・$(( ))・<( )・>( ) の (頭, 閉じる字の位置) の並び(substitution_spans の、種類が ( で二重引用の
+    外の物)。語の印(mark_words)の字は元の字に戻して読み、印を付けた写しでも元と同じ所を並べる。"""
+    return [(a, b) for a, b, kind, in_dq in substitution_spans(text.translate(_UNMARK)) or () if kind == "(" and not in_dq]
+
+
+def tokenize(text, words=True):
     """POSIX の引用規則でトークン化する。引用が閉じない等で解析できなければ None。
 
     渡すのは prepare() を通した文字列。ここで正規化しないのは、生の文字列を見る検査
     (has_live_substitution)と同じ 1 本を共有させるため——ここに隠すと呼び出し側ごとに
     正規化を掛け直すことになり、100KB の本文で 1 回 6ms を余分に払う。
+
+    引用の外の $( )・$(( ))・<( )・>( )(bare_spans)は、中身ごと 1 語の中に留める(`a$(b)c` は 1 語。二重引用の中の $( ) と同じ)。
+    shlex は ( を区切りと見るので、そのままでは置換を閉じる ) の後ろの語を別のコマンドと読み、`gh pr comment $(cat n.txt)
+    --body-file x.md` の本文の旗を落とした。中のコマンドは、analyze が read_substitutions で、探しのゲートが語の中身から読む。
+    words が偽なら前の割り方のまま(置換の中のコマンドも単純コマンドに割る。書き込み先を拾う _written_by_command と wants_skip)。
     """
     if text is None:
         return None   # normalize_shell が読めない形と見た
-    lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
+    spans = bare_spans(text) if words and SUB_OPEN not in text and SUB_CLOSE not in text else []
+    shown = text
+    if spans:
+        parts, at = [], 0
+        for k, (a, b) in enumerate(spans):
+            parts += [text[at:a], "%s%d%s" % (SUB_OPEN, k, SUB_CLOSE)]
+            at = b + 1
+        shown = "".join(parts) + text[at:]
+    lex = shlex.shlex(shown, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"  # 改行は区切りの演算子として残す
     # shlex 自身の注釈処理は使わない(上で bash の規則どおりに落とした)。既定のままだと
     # 語の途中の # でも行末まで読み捨てるので、`--title fix#123 \` の次行の本文旗が消える。
     lex.commenters = ""
     lex.whitespace_split = True
     try:
-        return list(lex)
+        tokens = list(lex)
     except ValueError:
         return None
+    if spans:
+        tokens = [_slot_word(t, text, spans) if SUB_OPEN in t else t for t in tokens]
+    return tokens
+
+
+def _slot_word(tok, text, spans):
+    """tokenize が置いた印を元の置換の字に戻した語(Word。subs と rest を付ける)。"""
+    held = [spans[int(k)] for k in _SUB_SLOT_RE.findall(tok)]
+    w = Word(_SUB_SLOT_RE.sub(lambda m: text[spans[int(m.group(1))][0]:spans[int(m.group(1))][1] + 1], tok))
+    w.subs = tuple(text[a + 2:b] for a, b in held)
+    w.rest = _SUB_SLOT_RE.sub("", tok)
+    return w
 
 
 class Simple:
     """単純コマンド 1 件: 引数列・リダイレクト((演算子, 行き先) の列)・直前の区切り。
 
     ops は直前の区切りの演算子と、それが現れた括弧の深さの列((演算子, 深さ))。depth はこのコマンドの深さ
-    (サブシェル `( … )`・`$( … )` の中なら 1 以上)。sep は ops のうち括弧でないものの代表(効果が届かない演算子が
+    (サブシェル `( … )` の中なら 1 以上。引用の外の `$( … )` は tokenize が 1 語に留めるので、中を割るのは閉じる所を言い切れない
+    物か、tokenize の words を偽にしたときだけ)。sep は ops のうち括弧でないものの代表(効果が届かない演算子が
     在ればそれ、無ければ最後のもの。先頭のコマンドは "")。
     """
 
@@ -1495,6 +1547,12 @@ def head_break(cur, tok):
     return None
 
 
+def procsub_split(nxt):
+    """リダイレクトの後ろの語(0 か 1 個の並び)が、shlex が区切りに割ったプロセス置換の頭(`<(`・`>(`)か。split_commands と探しの
+    ゲートの layout が同じ所で読み飛ばすように、両方がここを通る。"""
+    return bool(nxt) and nxt[0][:2] in ("<(", ">(") and all(c in OP_CHARS for c in nxt[0])
+
+
 def split_commands(tokens):
     """演算子で区切った単純コマンド(Simple)の列。リダイレクトは引数列から除き、redirects に残す。
 
@@ -1510,9 +1568,10 @@ def split_commands(tokens):
                 if cur and cur[-1].isdigit():
                     cur.pop()
                 redirects.append((tok, tokens[i + 1] if i + 1 < len(tokens) else ""))
-                # 行き先がプロセス置換(`< <(…)`・`> >(…)`)なら演算子だけを読み飛ばし、`(` をサブシェルの開きに数える。
+                # 行き先のプロセス置換(`< <(…)`・`> >(…)`)は、ふつう tokenize が 1 語に留める(中は analyze が別に読む)。閉じる所を
+                # 言い切れずに shlex が `<(` を区切りに割ったときは、演算子だけを読み飛ばし、`(` をサブシェルの開きに数える。
                 # 前は `<(` ごと読み飛ばして中の語を外のコマンドの引数にし、`cat < <(gh pr comment 1 --body-file x.md)` の gh を見落とした
-                i += 1 if tokens[i + 1:i + 2] and tokens[i + 1][:2] in ("<(", ">(") else 2
+                i += 1 if procsub_split(tokens[i + 1:i + 2]) else 2
                 continue
             # ; | & && || 改行 () は単純コマンドの区切り。shlex は続いた区切りを 1 語にする(`);`)ので演算子に割る
             if cur:
@@ -2957,9 +3016,9 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     live_var = has_live_variable(norm)
     if live or live_var:
         tokens = mark_words(norm, tokens)   # 展開される $・` が無ければ印は要らない(100KB の本文で字句解析を 2 度回さない)
-    cmds = split_commands(tokens)
+    cmds, inner_tokens = with_substitutions(split_commands(tokens), depth)
     hidden = [run for sub in inner for run in sub.runs]
-    files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens, hidden, blind=depth > 0)
+    files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens + inner_tokens, hidden, blind=depth > 0)
     out = Analysis(True)
     out.runs = [(c.args, c.redirects) for c in cmds] + hidden
     for k, c in enumerate(cmds):
@@ -3019,6 +3078,44 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     return out
 
 
+def with_substitutions(cmds, depth):
+    """単純コマンドの列に、語に留めた引用の外の $( )・<( ) など(Word.subs)の中のコマンドを差し込んだ列 → (列, 中の語の列)。
+
+    中のコマンドは、置換を持つコマンドの直前に、サブシェル(深さを 1 つ下げ、( と ) の区切りで囲む)として置く。置換は
+    コマンドより先に走り、中の cd・代入は外へ届かないが、外の前のコマンドの cd・代入・書き込みは中に届くので、中の gh の
+    本文ファイルと変数を、外のコマンドの列と同じ見方で読める(前は shlex が置換を語に割っていたので、中の gh は外の列に並んで
+    いた)。外のコマンドの前の区切り(&& など)は、中の頭と外のコマンドの両方に残す。入れ子は SUB_DEPTH 段まで語に留め、
+    その先は前の割り方(中の置換も単純コマンドに割る)で読む。"""
+    out, extra = [], []
+    for c in cmds:
+        subs = [x for a in list(c.args) + [d for _, d in c.redirects] for x in getattr(a, "subs", ())]
+        plain = [(op, dep) for op, dep in c.ops if op not in "()"]
+        ops = c.ops
+        for code in subs:
+            toks = tokenize(code, words=depth + 1 < SUB_DEPTH)
+            if not toks:
+                continue
+            if live_substitutions(code) or has_live_variable(code):
+                toks = mark_words(code, toks)
+            extra += toks
+            got, more = with_substitutions(split_commands(toks), depth + 1)
+            extra += more
+            down = c.depth + 1
+            for m, g in enumerate(got):
+                inner_ops = [(op, dep + down) for op, dep in g.ops]
+                out.append(Simple(g.args, g.redirects, (ops + [("(", c.depth)] if m == 0 else []) + inner_ops, g.depth + down))
+            # 中の末尾の区切り(後ろにコマンドが無いので split_commands が落とす)も残す。`$(find . -exec basename {} \;)` の \; は
+            # find の -exec を閉じる語で、落とすと glued_find が -exec を開いたままと読む
+            tail = []
+            for t in reversed(toks):
+                if not t or t in REDIRECT_OPS or not all(ch in OP_CHARS for ch in t):
+                    break
+                tail[:0] = [(op, down) for op in _OP_RE.findall(t)]
+            ops = tail + [(")", c.depth)] + plain
+        out.append(c if ops is c.ops else Simple(c.args, c.redirects, ops, c.depth))
+    return out, extra
+
+
 # 二重引用の中の置換を、中身を別のコマンドとして読む入れ子の深さの上限。深い入れ子は段ごとに全体を読み直すので、
 # 100KB に 100 段で 1 分かかり、フックの timeout(275s)を過ぎるとコマンドは素通しになる(2026-10-30 に実測。頼み cae1e2)
 SUB_DEPTH = 4
@@ -3035,7 +3132,8 @@ def read_substitutions(norm, spans, heredoc_bodies, depth):
     知らない物として読む(本文ファイルと変数の本文は止まる側に倒れる)。`…` の中身は、bash と同じく \\$ \\` \\\\
     (二重引用の中なら \\" も)の \\ を外し、注釈を落としてから読む。${ } の中の $( )・`…` は走るかが値しだいなので
     読めない物とする。中に " を持つ置換と、引用符を持つ `…` は、語の切れ目を bash に合わせるため、写しの中身を埋め草に
-    替える(頭の $( ・` と閉じる字は残すので、本文に在れば置換渡しとして止まる)。"""
+    替える(頭の $( ・` と閉じる字は残すので、本文に在れば置換渡しとして止まる)。引用の外の $( )・<( ) などは替えない
+    (tokenize が中身ごと 1 語にする)。"""
     inner, chars = [], None
     for start, end, kind, in_dq in spans:
         head = start + (1 if kind == "`" else 2)
@@ -3044,6 +3142,8 @@ def read_substitutions(norm, spans, heredoc_bodies, depth):
             if "$(" in body or "`" in body:
                 return None, None
             blank = in_dq and '"' in body
+        elif kind == "(" and not in_dq:
+            continue   # 引用の外の ( の物は、tokenize が中身ごと 1 語に留め、中のコマンドは with_substitutions が外の列に差し込む
         else:
             if depth >= SUB_DEPTH:
                 return None, None
@@ -4492,7 +4592,7 @@ def wants_skip(command, prepared=None):
     """
     if SKIP_PREFIX_RE.match(command):
         return True
-    tokens = tokenize((prepared or prepare(command))[0])
+    tokens = tokenize((prepared or prepare(command))[0], words=False)   # 置換の中の前置も見る
     if tokens is None:
         return False
     # 読み飛ばす範囲は gh_calls と同じ command_start(予約語は simple_commands が先に落とす)。
@@ -5516,11 +5616,12 @@ def _written_by_command(command, cwd):
     lenient = norm is None
     if lenient:
         norm = shield_heredocs(command)[0] or command
-    tokens = tokenize(norm)
+    # 置換(`$(…)`・`<(…)`)の中の書き込みも拾うよう、置換の中も単純コマンドに割る(前の割り方。tokenize の words)
+    tokens = tokenize(norm, words=False)
     if tokens is None and lenient:
         # 注釈の中の引用符(`a)# don't`)で字句解析が止まる形は、語の頭の # から行末を落として読み直す(前は何も拾わなかった)
         norm = _drop_comments(norm)
-        tokens = tokenize(norm)
+        tokens = tokenize(norm, words=False)
     if tokens is None:
         return [], [], False
     cmds = split_commands(tokens)

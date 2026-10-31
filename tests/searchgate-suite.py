@@ -621,6 +621,17 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0])
 
+    def test_words_after_an_unquoted_substitution_belong_to_the_same_command(self):
+        # 引用の外の `$( )`・`<( )` の閉じの後ろの語も同じコマンドの語(前は ( を区切りと読み、閉じの ) の後ろを別のコマンドに割って、
+        # 作業場の中の `rg $(cat pat.txt) /` の起点 / を見なかった)。置換の中の探すコマンドと cd は今までどおり読む
+        for command in ("rg $(cat pat.txt) /", 'grep -r "$(cat p)" /', "rg foo < <(echo) /", "grep -r $((1+1)) /",
+                        "echo $(cd /; rg foo .)", "x=$(echo $(rg foo /))"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0])
+        for command in ("cd $(git rev-parse --show-toplevel) && rg x .", "rg $(cat pat.txt) src", "rg foo < <(echo) src"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0])
+
     def test_fd_exec_command_is_read(self):
         # fd の -x・-X・--exec・--exec-batch の後ろのコマンドも探すコマンドとして読む(前は読まず、`fd foo -x rg y / {}` を通していた)
         for command in ("fd foo -x rg y / {}", "fd -e py -X rg -l foo /", "fd -Hx rg y /", "fd --exec=rg y /",

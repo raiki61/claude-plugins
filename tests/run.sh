@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=838
+EXPECTED_CHECKS=839
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5707,6 +5707,16 @@ done
 "$1" "$2" "$3" "gh api gists --input g.json" | grep -q "宛先 gist は" || { ok=0; echo "一覧に無い gist への --input を通した"; }
 [ "$("$1" "$4" "$3" "gh api gists --input g.json")" = ALLOW_EMPTY ] || { ok=0; echo "一覧に在る gist への --input を止めた"; }
 [ $ok = 1 ] && echo DG_API_INPUT_OK' sh "$DG_CASE" "$DG_CFG" "$DG_INPUT" "$DG_GIST_CFG"
+# 引用の外の $( )・$(( )) は 1 つの語で、後ろの -R・api の path も同じ gh の語(前は ( を区切りと読み、閉じの ) の後ろを別のコマンドに
+# 割って、-R evil/x を見ずに通していた)
+expect_output 0 "DG_BARE_SUB_OK" "destgate: 引用の外の \$( ) の後ろの -R と、\$( ) を含む api の path を宛先にする" \
+    sh -c 'ok=1
+for c in "gh issue comment \$(cat n.txt) -R evil/x --body hi" "gh pr comment \$((1+1)) -R evil/x --body hi" \
+         "gh api repos/evil/x/issues/\$(cat n.txt)/comments -f body=hi"; do
+  "$@" "$c" | grep -q "宛先 evil/x は" || { ok=0; echo "通した: $c"; }
+done
+[ "$("$@" "gh issue comment \$(cat n.txt) -R allowed/repo --body hi")" = ALLOW_EMPTY ] || { ok=0; echo "一覧に在る repo への投稿を止めた"; }
+[ $ok = 1 ] && echo DG_BARE_SUB_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib

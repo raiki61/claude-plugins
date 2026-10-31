@@ -351,8 +351,9 @@ def main():
     # (前は GH_REPO だけを見ていて、`GIT_DIR=<別の repo>/.git gh …` を走る場所の repo と取り違えて通していた)
     dest_env = bool(DEST_ENV_RE.search(prepared[0])
                     or any(DEST_ENV_RE.fullmatch(k) and v for k, v in os.environ.items()))
-    # 宛先の repo を替えうるコマンドは、gh の前でも後でも見る(繰り返しの中・`&` で並べた物は後に書いても先に走りうる)
-    retargeted = any(retargets(c.args) for c in cr.split_commands(cr.tokenize(prepared[0])))
+    # 宛先の repo を替えうるコマンドは、gh の前でも後でも見る(繰り返しの中・`&` で並べた物は後に書いても先に走りうる)。
+    # 引用の外の $( ) の中のコマンドも見るので、置換を語に留めない割り方(words を偽)で割る
+    retargeted = any(retargets(c.args) for c in cr.split_commands(cr.tokenize(prepared[0], words=False)))
     for sub, args, candidates, blocked, cwd in analysis.calls:
         if not candidates and not blocked and not api_input_post(args, sub):
             continue  # 投稿の形をしていない

@@ -164,7 +164,8 @@ def expand_home(value):
 
 def substitutions(text, bare=True, heredoc=False):
     """引用の単一の外にある $( … ) と ` … ` の中身。二重引用の中も読む(シェルが展開する)。bare が偽なら、引用の外の $( … ) は
-    返さない(トークン化がその中を単純コマンドに割り、外のコマンドの cd と代入の中で見るので)。heredoc が真なら、text は
+    返さない(トークン化がその語に中身を subs として残すか、閉じる所を言い切れなければ単純コマンドに割り、外のコマンドの cd と
+    代入の中で見るので)。heredoc が真なら、text は
     区切りを引用しないヒアドキュメントの本文で、' と " は引用でなく字(シェルは本文の中のどこの $( … ) も走らせる)。"""
     out, i, quote, n = [], 0, None, len(text)
     while i < n:
@@ -610,7 +611,9 @@ def check_command(cr, command, cwd, depth=0, outer=None):
         if rest is not None and not WORD_RE.search(rest.replace("\\n", "\n").replace("\\t", "\t")):
             return
         raise ValueError("コマンドを読めない形(`$[ ]`・`<<\\EOF` など)なので、探す起点を決められない")
-    tokens = cr.tokenize(text)
+    # 引用の外の $( … ) は 1 段ごとに中を読み直すので、読む段の終わり(MAX_DEPTH)では、前の割り方(中も単純コマンドに割る)で
+    # 読む。語に留めたままだと、9 段より深い `$(echo $(…$(rg foo /)…))` の中を読まずに通す
+    tokens = cr.tokenize(text, words=depth < MAX_DEPTH)
     if tokens is None:
         # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)
         m = re.search(r"(?:^|[\s;&|(`])(?:find|bfs|gfind)\s+(?:-[HLP]\s+)*(\S+)", text)
@@ -627,7 +630,10 @@ def check_command(cr, command, cwd, depth=0, outer=None):
         places.update(heres)
         if any("`" in a for a in c.args):
             ticks.update(heres)
-        inners = {x for a in c.args for x in substitutions(a)}
+        # 引用の外の $( … )・<( … ) などは、tokenize が 1 語に留めて中身を語の subs に残す(リダイレクトの行き先の `< <(…)` も)。
+        # 語の残りの字(二重引用の中の $( … ) と ` … `)は語から読む
+        inners = {x for a in list(c.args) + [d for _, d in c.redirects] for x in getattr(a, "subs", ())}
+        inners |= {x for a in c.args for x in substitutions(a if getattr(a, "rest", None) is None else a.rest)}
         # 区切りを引用しないヒアドキュメントの本文の $( … ) と ` … ` は、どのコマンドの本文でも、そのコマンドの場所で走る
         # (前は本文をシェルに渡すときだけ読み、`cat <<EOF > out.txt` の次の行の `$(find / …)` を通していた)。
         # 区切りを引用した本文(Expands でない)は展開しないので読まない
@@ -643,7 +649,7 @@ def check_command(cr, command, cwd, depth=0, outer=None):
     # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、` を語に持つコマンドの走りうる
     # 場所のどれでも見る(` の語が無ければ、フックの cwd と各コマンドの cwd)。前はフックの cwd だけで見て、
     # `cd / && a=`find . …`` を通していた。後ろの cd の行き先では見ない(`cd ~/p && n=`find .` && cd ~` を止めない)。
-    # 引用の外の $( … ) はトークン化が単純コマンドに割って上で見た
+    # 引用の外の $( … ) は、トークン化が語の subs に残したか単純コマンドに割ったかで、上で見た
     if cmds:
         files.at(len(cmds) - 1, ())   # 変数は、このコマンドの中のどの代入からでも解く
     for inner in substitutions(text, bare=False):
@@ -987,8 +993,8 @@ def layout(cr, tokens, kinds=None, negs=None, braces=None):
             if tok in cr.REDIRECT_OPS:
                 if cur and cur[-1].isdigit():
                     cur.pop()
-                # 行き先がプロセス置換(`< <(…)`)なら、split_commands と同じく `(` をサブシェルの開きに数える
-                i += 1 if tokens[i + 1:i + 2] and tokens[i + 1][:2] in ("<(", ">(") else 2
+                # 行き先が、shlex が区切りに割ったプロセス置換(`< <(…)`)なら、split_commands と同じく `(` をサブシェルの開きに数える
+                i += 1 if cr.procsub_split(tokens[i + 1:i + 2]) else 2
                 continue
             close()
             if neg and "(" in tok:

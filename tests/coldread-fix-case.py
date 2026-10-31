@@ -13,7 +13,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 渡すと赤になる。59 以降は 17 回目のレビュー(頼み cae1e2)の直しで、commit 7e850025 の版を渡すと赤になる。61 は探しのゲートの
 11 回目のレビュー(頼み cae1e2)の直しで、commit fce0c115 の版を渡すと赤になる。62 以降は投稿の前のゲートの
 レビュー(頼み cae1e2)の直しで、commit a192c351 の版を渡すと赤になる。66 は探しのゲートの 12 回目のレビュー(頼み cae1e2)
-の直しで、commit 3f5cae34 の版を渡すと赤になる。
+の直しで、commit 3f5cae34 の版を渡すと赤になる。67 以降は投稿の前のゲートの 19 回目のレビュー(頼み cae1e2)の直しで、
+commit 9d3d014e の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1058,10 +1059,16 @@ def f61():
                 "echo x > >(gh pr comment 1 --body-file -)"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(61, not parsed or bool(blk), "プロセス置換の本文を通した: %r → %r %r" % (cmd, cands, parsed))
-    cmds = g.split_commands(g.tokenize("mapfile -t a < <(cd src && ls); gh pr view 1"))
-    check(61, [c.args for c in cmds] == [["mapfile", "-t", "a"], ["cd", "src"], ["ls"], ["gh", "pr", "view", "1"]]
-          and cmds[0].redirects == [("<", "<(")] and cmds[1].depth == 1 and cmds[3].depth == 0,
-          "プロセス置換の中を外のコマンドに繋いだ: %r" % [(c.args, c.redirects, c.depth) for c in cmds])
+    # 中のコマンドは、外のコマンドの前にサブシェルとして差し込む(67 の直しの後。前は shlex が `<(` を区切りに割った)。閉じる所を
+    # 言い切れずに割ったとき(tokenize の words を偽にした形)も、中の語を外のコマンドの引数にしない
+    line = "mapfile -t a < <(cd src && ls); gh pr view 1"
+    for cmds, redirect in ((g.with_substitutions(g.split_commands(g.tokenize(line)), 0)[0], "<(cd src && ls)"),
+                           (g.split_commands(g.tokenize(line, words=False)), "<(")):
+        got = sorted([c.args, c.depth] for c in cmds)
+        mapfile = [c for c in cmds if c.args[:1] == ["mapfile"]]
+        check(61, got == [[["cd", "src"], 1], [["gh", "pr", "view", "1"], 0], [["ls"], 1], [["mapfile", "-t", "a"], 0]]
+              and mapfile[0].redirects == [("<", redirect)],
+              "プロセス置換の中を外のコマンドに繋いだ: %r" % [(c.args, c.redirects, c.depth) for c in cmds])
 
 # 62. gh に組み込みのサブコマンドの別名(`pr new`・`issue new`・`release new`・`gist new`・`ls`・`pr co`)は本当の名前と同じに読む
 # (前は短い本文の旗 -b・-n・-F を本文と見ず、`gh gist new a.md` も投稿と見ずに通した)。新しい PR の題も別名の後ろから読む
@@ -1155,8 +1162,40 @@ def f66():
         cands, blk, parsed = g.posting_bodies(cmd % post, WORK)
         check(66, parsed and not cands and not blk, "予約語でない time・function の後ろを gh と読んだ: %r → %r %r" % (cmd, cands, blk))
 
+# 67. 引用の外の $( )・$(( ))・<( )・>( ) は、`"$( )"` と同じく 1 つの語に留める(前は shlex が ( を区切りと読み、閉じの ) の後ろの語を
+# 別のコマンドに割って、`gh pr comment $(cat n.txt) --body-file x.md` の本文の旗を落として通した)。中のコマンドは今までどおり読み、
+# 外の前の cd・代入・書き込みも中に届く
+def f67():
+    os.makedirs(os.path.join(WORK, "sub"), exist_ok=True)
+    other = BODY + "(sub)"
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other), ("n.txt", "1")):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    for cmd in ("gh pr comment $(cat n.txt) --body-file x.md", "gh pr comment $(gh pr view --json number -q .number) --body-file x.md",
+                "gh issue comment $(cat n.txt) --body '%s'" % BODY, "gh pr review $(cat n.txt) --request-changes -b '%s'" % BODY,
+                "gh pr comment 1 < <(echo y) --body-file x.md", "gh issue create -t T < <(true) -F x.md",
+                "gh pr comment a$(cat n.txt)c --body-file x.md", "gh pr comment $(echo $(cat n.txt)) --body-file x.md",
+                "gh pr comment $(( (1+2) )) --body-file x.md", "gh pr comment $((1+1)) --body-file x.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(67, parsed and cands == [BODY] and not blk, "引用の外の置換の後ろの本文を読まなかった: %r → %r %r" % (cmd[:70], cands, blk))
+    # 中の gh は、外の前の cd・代入の後で走る所として読み、書き換えうる本文ファイルは止める
+    for cmd, want in (("x=$(gh pr comment 1 --body-file x.md)", BODY), ("cd %s && x=$(gh pr comment 1 --body-file x.md)" % os.path.join(WORK, "sub"), other),
+                      ("B=x.md; x=$(gh pr comment 1 --body-file $B)", BODY), ("GH_TOKEN=$(gh auth token) gh issue comment 1 --body-file x.md", BODY),
+                      ("echo $(gh pr comment 1 --body-file x.md) done", BODY), ("cat < <(gh pr comment 1 --body-file x.md)", BODY),
+                      ("x=$(find . -exec basename {} \\;) && gh pr comment 1 --body-file x.md", BODY)):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(67, parsed and cands == [want] and not blk, "置換の中の gh の本文を外の文脈で読まなかった: %r → %r %r" % (cmd[:70], cands, blk))
+    for cmd in ("echo hi > x.md; x=$(gh pr comment 1 --body-file x.md)", "x=$(cd sub; gh pr comment 1 --body-file x.md)",
+                "gh pr comment 1 --body-file <(cat x.md)"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(67, not parsed or bool(blk), "置換の中の読めない本文ファイルを通した: %r → %r %r" % (cmd, cands, parsed))
+    # 外の gh の語は置換を含む 1 語で、後ろの -R も同じ gh の語(宛先のゲートが見る)
+    calls = g.analyze("gh issue comment $(cat n.txt) -R evil/x --body hi", WORK).calls
+    check(67, len(calls) == 1 and calls[0][1][-4:] == ["-R", "evil/x", "--body", "hi"] and calls[0][1][2] == "$(cat n.txt)",
+          "置換の後ろの -R を同じ gh の語と読まなかった: %r" % calls)
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
