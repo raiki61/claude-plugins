@@ -2024,6 +2024,10 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         return candidates, blocked
     is_api = sub[:1] == ("api",)
     is_graphql = is_api and len(sub) > 1 and api_is_graphql(sub[1])
+    # gist の作成・書き換え(POST gists・PATCH gists/<id>)は、ファイルの中身(files[<名前>][content])が本文。前は body の
+    # フィールドだけを見て、`gh api gists -f 'files[notes.md][content]=…' -F public=true` を読まずに通していた(gh gist create の
+    # 実ファイルは止めている)
+    is_gist = is_api and len(sub) > 1 and api_endpoint_path(sub[1])[0][:1] == ["gists"]
     gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る
 
     i, n, seen_ddash = 0, len(args), False
@@ -2049,7 +2053,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
                         typed = name in ("-F", "--field")
                         if is_graphql:
                             gql_fields[key] = (typed, fval)
-                        elif key == "body" or key.endswith("[body]"):
+                        elif key == "body" or key.endswith("[body]") or (is_gist and GIST_CONTENT_RE.fullmatch(key)):
                             # comments[][body] は review の行コメント(gh api の配列のフィールドの書き方)
                             if typed and fval.startswith("@"):
                                 add("file", "@-" if fval == "@-" else fval[1:])
@@ -2111,6 +2115,10 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
                 candidates.append("\n\n".join(texts))
 
     return candidates, blocked
+
+
+# gh api の gist のファイルの中身のフィールド(files[<名前>][content]。https://docs.github.com/rest/gists/gists#create-a-gist)
+GIST_CONTENT_RE = re.compile(r"files\[[^\]]*\]\[content\]")
 
 
 def api_endpoint_path(endpoint):

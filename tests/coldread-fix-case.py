@@ -880,8 +880,23 @@ def f50():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(50, parsed and cands == [BODY] and not blk, "閉じた find の後ろの gh を読まなかった: %r → %r %r" % (cmd, blk, parsed))
 
+# 51. gh api の gist の作成・書き換え(`gists`・`gists/<id>`)の files[<名前>][content] は本文として読む(前は body のフィールド
+# だけを見て、公開の gist に出す中身を読まずに通した)。`-F files[…][content]=@ファイル` は、ほかの @ファイルのフィールドと同じに
+# 読み、読めなければ止める。gist でない宛先の同じ名前のフィールドは、今までどおり本文と見ない
+def f51():
+    with open(os.path.join(WORK, "g51.md"), "w") as f:
+        f.write(BODY)
+    for cmd in ("gh api gists -f 'files[notes.md][content]=" + BODY + "' -F public=true",
+                "gh api /gists/abc -X PATCH -f 'files[n.md][content]=" + BODY + "'", "gh api gists -F 'files[n.md][content]=@g51.md'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(51, parsed and cands == [BODY] and not blk, "gist のファイルの中身を読まなかった: %r → %r %r" % (cmd[:50], blk, parsed))
+    cands, blk, parsed = g.posting_bodies("gh api gists -F 'files[n.md][content]=@missing.md' -F public=true", WORK)
+    check(51, bool(blk), "読めない gist のファイルの中身を通した: %r %r" % (cands, parsed))
+    cands, blk, parsed = g.posting_bodies("gh api repos/o/r/dispatches -f 'files[a][content]=x'", WORK)
+    check(51, parsed and not cands and not blk, "gist でない宛先のフィールドを本文と読んだ: %r %r" % (cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
