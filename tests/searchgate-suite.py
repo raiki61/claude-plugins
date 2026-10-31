@@ -506,6 +506,17 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command})[0])
 
+    def test_find_exec_closes_only_at_a_plus_after_braces(self):
+        # -exec の後ろのコマンドの引数の + は閉じでない(前は + で閉じたと見て、後ろの / を find の式の語と読んで通していた)
+        for command in ("find . -exec rg + -newer / \\;", "find . -exec echo + \\; -name x /", "find . -exec rg x {} + /"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # {} の直後の + と ; で閉じた -exec と、引数に + を持つ作業場の中のコマンドは通す
+        for command in ("find . -name '*.py' -exec rg -l x {} +", "find . -exec rg -l x {} + -name y",
+                        "find src -exec grep -l + {} +", "find . -exec echo + \\; -print"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src/repo")[0])
+
     def test_fd_exec_command_is_read(self):
         # fd の -x・-X・--exec・--exec-batch の後ろのコマンドも探すコマンドとして読む(前は読まず、`fd foo -x rg y / {}` を通していた)
         for command in ("fd foo -x rg y / {}", "fd -e py -X rg -l foo /", "fd -Hx rg y /", "fd --exec=rg y /",

@@ -259,9 +259,7 @@ def find_starts(args):
     while i < len(args):
         a = args[i]
         if a in FIND_EXEC:
-            i += 1
-            while i < len(args) and args[i] not in (";", "+"):
-                i += 1
+            i = exec_end(args, i)
         elif a in FIND_VALUE or FIND_NEWER_RE.fullmatch(a):
             i += 1
         elif a == "-fprintf":
@@ -272,14 +270,21 @@ def find_starts(args):
     return starts or ["."]
 
 
+def exec_end(args, i):
+    r"""args[i] の -exec などを閉じる語(; か、{} の直後の +)の位置。閉じが無ければ len(args)。+ は {} の直後でだけ閉じる
+    (前は + の語で閉じたと見て、`find . -exec rg + -newer / \;` の / を見落とした。glued_find_args と同じ読み方)。"""
+    j = i + 1
+    while j < len(args) and not (args[j] == ";" or (args[j] == "+" and args[j - 1] == "{}")):
+        j += 1
+    return j
+
+
 def find_execs(args):
     """find の -exec・-ok(cwd で走る)と -execdir・-okdir(見つけた物の所で走る)の後ろのコマンド → (語の列, 所で走るか) の列。"""
     out, i = [], 0
     while i < len(args):
         if args[i] in FIND_EXEC:
-            j = i + 1
-            while j < len(args) and args[j] not in (";", "+"):
-                j += 1
+            j = exec_end(args, i)
             out.append((args[i + 1:j], args[i].endswith("dir")))
             i = j
         i += 1
