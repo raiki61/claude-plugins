@@ -347,12 +347,14 @@ def check_command(cr, command, cwd, depth=0, outer=None):
     if depth > MAX_DEPTH or not command.strip():
         return
     text, bodies = cr.prepare(command)
+    if text is None:
+        # 正規化で読めない形(`$[`・`$$(`・`<<\EOF` など。prepare が None を返す)は、どのコマンドがどこで走るかを決められない
+        # ので止める(検査自体の失敗として)。字面の find だけを拾うと、`: $[0]; rg foo /`・`: $[0]; cd / && find .` を通す
+        raise ValueError("コマンドを読めない形(`$[ ]`・`<<\\EOF` など)なので、探す起点を決められない")
     tokens = cr.tokenize(text)
     if tokens is None:
-        # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)。
-        # 正規化で読めない形(`$[`・置換の中の case など。prepare が None を返す)は、生のコマンドの字面で拾う。前は None に
-        # 正規表現を掛けて落ち、どのコマンドも「検査自体に失敗した」で止めていた(`echo $[1+1]; find . -name a` も)
-        m = re.search(r"(?:^|[\s;&|(`])(?:find|bfs|gfind)\s+(?:-[HLP]\s+)*(\S+)", command if text is None else text)
+        # 引用が閉じないなどで読めない: 素の find / だけは字面で拾う(シェルもたいてい走らせないが、落とすと黙って通る)
+        m = re.search(r"(?:^|[\s;&|(`])(?:find|bfs|gfind)\s+(?:-[HLP]\s+)*(\S+)", text)
         if m:
             check_path(m.group(0).split()[0].lstrip(";&|(`"), m.group(1).strip("'\""), cwd)
         return
@@ -503,7 +505,8 @@ def before_scope(cr, cmds, k, files, bodies, inner):
             stubs.append(copy.copy(c))
             stubs[-1].args = args
     line = cmds[:k] + stubs
-    live = "; ".join(" ".join(cc.args) for cc in line) + "; " + inner
+    # 語は二重引用で包んで並べる(`echo "it's"` の ' で引用が割れ、どの変数も解けなくなるのを防ぐ。$ は生きたまま)
+    live = "; ".join(" ".join('"%s"' % re.sub(r'(["\\`])', r"\\\1", a) for a in cc.args) for cc in line) + "; " + inner
     before = Scope(line, files.cwd, bodies, live).at(len(line) - 1, [])
     before.outer = files.outer
     return before
@@ -591,8 +594,8 @@ def main():
         command = args.get("command", "")
         if not isinstance(command, str):
             raise ValueError("tool_input.command が文字列でない")
-        if not WORD_RE.search(command):
-            return   # 探すツールの語が無い(bash -c・eval・$( ) の中も字としては同じ文字列に在る)
+        if not WORD_RE.search(command.replace("\\n", "\n").replace("\\t", "\t")):
+            return   # 探すツールの語が無い(bash -c・eval・$( ) の中も字としては同じ文字列に在る。printf 'cd /\nfind .' | sh の \n は改行と見る)
     elif tool not in ("Glob", "Grep"):
         return
     cr = load_coldread()

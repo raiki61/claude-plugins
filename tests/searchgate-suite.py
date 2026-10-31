@@ -238,6 +238,7 @@ class Bash(unittest.TestCase):
                         "export D=/; bash -c 'find $D -name x'", "D=/ bash -c 'find $D -name x'",
                         "D=/ bash <<'EOF'\nfind $D -name x\nEOF",
                         "D=/ timeout 60 bash -c 'find $D -name x'", "env D=/ sh -c 'find \"$D\" -name x'",
+                        "echo \"it's\"; D=/; bash -c 'find $D -name x'", "printf 'cd /\\nfind . -name x\\n' | sh",
                         "find ~tester -name x"):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command})[0])
@@ -318,12 +319,12 @@ class FailClosed(unittest.TestCase):
         reason, _ = run(None, None, raw="not json")
         self.assertIn("検査自体に失敗した", reason)
 
-    def test_unnormalizable_command_is_read_as_text(self):
-        # coldread の正規化が読めない形(`$[ ]`)と見たコマンドも、字面の find で見る(前は検査自体の失敗で、どれも止めていた)
-        reason, _ = run("Bash", {"command": "echo $[1+1]; find / -name a"})
-        self.assertIn("find の起点 / は", reason or "")
-        reason, out = run("Bash", {"command": "echo $[1+1]; find . -name a"})
-        self.assertNotIn("検査自体に失敗した", reason or "", out)
+    def test_unnormalizable_command_is_stopped(self):
+        # coldread の正規化が読めない形(`$[ ]`)と見たコマンドは、どこで何を探すかを決められないので止める。字面の find だけを
+        # 拾うと rg・cd の後の find を通す(前は None に正規表現を掛けて落ちていた)
+        for command in ("echo $[1+1]; find / -name a", ": $[0]; rg foo /", "echo $[1+1]; cd / && find . -name x"):
+            with self.subTest(command=command):
+                self.assertIn("読めない形", run("Bash", {"command": command})[0] or "")
 
     def test_stop_is_logged(self):
         with tempfile.TemporaryDirectory() as cfg:
