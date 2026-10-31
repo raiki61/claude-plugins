@@ -228,6 +228,23 @@ def fed_dest(args, sub):
     return any(cr.FED_WORD in t for i, t in enumerate(args) if i != endpoint and not text_value(args, i, sub))
 
 
+def api_input_post(args, sub):
+    """gh api の --input(ファイルか -)が、coldread の読みで本文が見つからなくても投稿になりうるか。
+
+    coldread は --input の JSON の .body と comments[].body だけを読み、ほかの所の短い文字列(200 字未満)は本文と見ない。
+    そのため graphql の `{"query":"mutation{addComment(input:{…,body:\"短い本文\"}){…}}"}` と gist の
+    `{"files":{"a.md":{"content":"短い中身"}}}` は投稿と見られない。宛先がこの 2 つになりうるとき(パスが graphql・gist か、
+    xargs・find -exec が宛先のパスに語を差し込む・足すとき)は投稿と見る。前は投稿でないと見て素通しにし、許可一覧が在っても、
+    `gh api graphql --input q.json` で一覧の外へコメントを出せていた(`-f query='mutation{…}'` の形は宛先不明で止めていた)。"""
+    if not (sub and sub[0] == "api" and len(sub) > 1):
+        return False
+    head = args[:args.index("--")] if "--" in args else args
+    if not any(t == "--input" or t.startswith("--input=") for t in head):
+        return False
+    return (cr.api_is_graphql(sub[1]) or cr.api_is_gist(sub[1])
+            or cr.FED_WORD in re.split(r"[?#]", sub[1], maxsplit=1)[0] or any(cr.FED_MARK in t for t in args))
+
+
 def dest_of(args, sub, cwd, here_unknown=False):
     """gh 引数列から投稿の宛先になりうる repo の集まりを返す。分からなければ None。
 
@@ -337,7 +354,7 @@ def main():
     # 宛先の repo を替えうるコマンドは、gh の前でも後でも見る(繰り返しの中・`&` で並べた物は後に書いても先に走りうる)
     retargeted = any(retargets(c.args) for c in cr.split_commands(cr.tokenize(prepared[0])))
     for sub, args, candidates, blocked, cwd in analysis.calls:
-        if not candidates and not blocked:
+        if not candidates and not blocked and not api_input_post(args, sub):
             continue  # 投稿の形をしていない
         if sub and sub[0] == cr.DISPATCH_SUB:
             continue  # works-dispatch の納品・頼みは手元の会社の中で届き、GitHub の宛先を持たない(本文は coldread が読む)

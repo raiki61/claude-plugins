@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=832
+EXPECTED_CHECKS=833
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5652,6 +5652,20 @@ for c in "gh api gists -f \"files[a.md][content]=x\"" "gh api https://ghe.exampl
 done
 "$3" "$1" "$4" "gh api gists/abc/../../repos/evil/place/issues/1/comments -f body=x" | grep -q 特定できない || { ok=0; echo ".. で外へ出る gist のパスを通した"; }
 [ $ok = 1 ] && echo DG_API_GIST_OK' sh "$DG_GIST_CFG" "$DG_CFG" "$DG_CASE" "$WORK"
+# gh api の --input の JSON は、coldread が .body の外の短い文字列を本文と見ないので、graphql の mutation の短いコメントと gist の短い
+# 中身は本文が見つからない。宛先が graphql・gist になりうる --input は投稿と見る(前は投稿でないと見て、一覧の外へコメントを出せた)
+DG_INPUT="$WORK/destgate-input"; mkdir -p "$DG_INPUT"
+printf '%s' '{"query":"mutation{addComment(input:{subjectId:\"I_x\",body:\"short\"}){clientMutationId}}"}' > "$DG_INPUT/q.json"
+printf '%s' '{"files":{"a.md":{"content":"short"}}}' > "$DG_INPUT/g.json"
+expect_output 0 "DG_API_INPUT_OK" "destgate: gh api の graphql・gist への --input は、本文が見つからなくても投稿と見る" \
+    sh -c 'ok=1
+for c in "gh api graphql --input q.json" "gh api --input=q.json https://api.github.com/graphql" \
+         "echo graphql | xargs -I{} gh api /{} --input q.json"; do
+  "$1" "$2" "$3" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
+done
+"$1" "$2" "$3" "gh api gists --input g.json" | grep -q "宛先 gist は" || { ok=0; echo "一覧に無い gist への --input を通した"; }
+[ "$("$1" "$4" "$3" "gh api gists --input g.json")" = ALLOW_EMPTY ] || { ok=0; echo "一覧に在る gist への --input を止めた"; }
+[ $ok = 1 ] && echo DG_API_INPUT_OK' sh "$DG_CASE" "$DG_CFG" "$DG_INPUT" "$DG_GIST_CFG"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib

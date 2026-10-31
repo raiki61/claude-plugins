@@ -496,6 +496,9 @@ The second gatekeeper, restricting a different axis from coldread: "may this be 
   Posts whose destination cannot be identified are stopped with a request to specify `-R` explicitly. This includes a post run from a
   directory that does not exist yet, and a post whose command also runs something that can change which repository gh picks
   (`gh repo set-default`/`clone`/`fork`/`create`/`rename`, `git init`/`clone`, `git remote add`/`set-url`/…, `git config remote.*`)
+- A `gh api` call that sends `--input` (a file or `-`) to graphql or a gist counts as a post even when coldread finds no text in the
+  JSON (coldread does not read short strings outside `.body`, such as a short comment in a mutation). graphql has no repository in its
+  path, so such a call is stopped as destination unknown, the same as `-f query='mutation{…}'`
 - **There is no escape hatch**. To let something through, a person adds it to the list — that addition becomes the record
 - **Managing the list is a person's job**. A model that received a deny editing the list itself to get through would be disabling the gatekeeper,
   and the deny message forbids it too (it cannot be enforced by machine, so it is stated as a rule)
