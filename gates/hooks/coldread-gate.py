@@ -2035,6 +2035,28 @@ def fed_word_risk(args, sub):
     return False
 
 
+def help_requested(args, sub):
+    """gh が案内(--help・-h・--version)を出して終わり、投稿しないか。-- より後ろは見ない。
+
+    値を取る旗の直後の語は、- で始まっても旗の値(gh の旗の読み方〔pflag〕は次の語を値に取る)なので、案内と見ない。
+    前は `gh gist create -d -h a.md` の -h(説明の値)を案内と見て、a.md を読まずに通していた。値を取る旗は、ゲートの持つ表
+    (全体の旗・本文の旗・gist の旗・新しい PR・issue の旗・gh api の旗)と --title で引く"""
+    takes = set(GLOBAL_VALUE_FLAGS) | {"--title"}
+    takes |= {f for f in LONG_TEXT_FLAGS if (f, sub) not in LONG_FLAG_NOT_BODY}
+    takes |= {f for f, (_kind, subs) in SHORT_TEXT_FLAGS.items() if sub in subs}
+    takes |= set(GIST_VALUE_FLAGS.get(sub, ()))
+    if sub in NEW_ITEM_SUBS:
+        takes |= {*CREATE_VALUE_FLAGS, *CREATE_VALUE_FLAGS.values()}
+    if (sub or ())[:1] == ("api",):
+        takes |= API_VALUE_FLAGS
+    prev = None
+    for t in args[:args.index("--")] if "--" in args else args:
+        if t in HELP_FLAGS and prev not in takes:
+            return True
+        prev = t
+    return False
+
+
 def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_variable=True):
     """gh の引数列から (本文候補, 検査できない本文の説明) を返す。
 
@@ -2048,11 +2070,11 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # 縛れるのは倒れ先だけで、候補(candidates)側の網羅は機械では言えない——抽出した文字列が
     # 本文かどうかは判定できないので、候補を足す経路は人が読んで守る。
     candidates, blocked, add, field = _body_sink(heredoc_bodies, live_substitution, ctx, live_variable)
-    if any(t in HELP_FLAGS for t in (args[:args.index("--")] if "--" in args else args)):
+    sub = subcommand(args)
+    if help_requested(args, sub):
         # --help・-h・--version は旗がどこに在っても gh が案内を出して終わる(投稿しない)。短いコマンドを解析の前に
         # 通していた頃は `gh --version` も通っていたので、ここで止めると逆戻りになる
         return candidates, blocked
-    sub = subcommand(args)
     if sub is None:
         # サブコマンドが読めない以上、本文を運ぶ旗があるかも判らない。素通しにすると
         # 「読めなかった」が「投稿でない」に化けるので、検査できない側に倒す。
