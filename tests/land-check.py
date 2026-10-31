@@ -144,6 +144,8 @@ def inner_fails(out, name):
     if not names:   # その場の検査の多くは「NG …」の行か、最後の AssertionError などの行で落ちる
         names = ([l.strip()[:200] for l in block if l.lstrip().startswith("NG ")][:2]
                  or [l.strip()[:200] for l in block if re.match(r"\s*\w*(Error|Exception)\b", l)][-1:])
+    if not names:   # どの形でも無い赤（台本の訳の行だけを出す検査）は、捕った出力の頭の 2 行を出す
+        names = [l.strip()[:200] for l in block if l.strip()][:2]
     return names
 
 
