@@ -341,6 +341,163 @@ def check_path(tool, value, cwd):
         raise Hit(tool, p)
 
 
+# ${名前} のうち、中に引用も置換も持たない物(without_quoted_bodies が読み飛ばせる形)
+_PLAIN_BRACE_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
+_CASE_RE = re.compile(r"(?<![\w.-])(?:case|esac)(?![\w.-])")
+_HERE_HEAD_RE = re.compile(r"<<(-)?[ \t]*")
+
+
+def _closes_in(text, s, end, comments):
+    """s の `$(` を、bash 3.2 のように括弧と引用符を数えて閉じる ) が、end より前に在るか。3.2 は置換の中のヒアドキュメントを
+    知らずに数えるので、本文の中の ) で置換を閉じ、本文の後ろの字をコマンドとして走らせる(`x=$(cat <<'E'` の次の行の
+    `a) echo RAN` は 3.2 で echo が走る)。comments が真なら、語の頭の # から行の終わりまでを数えない。"""
+    depth, i = 1, s + 2
+    while i < end:
+        c = text[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "'":
+            j = text.find("'", i + 1)
+            if j < 0:
+                return False
+            i = j + 1
+            continue
+        if c == '"':
+            j = i + 1
+            while j < len(text) and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            i = j + 1
+            continue
+        if comments and c == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+            nl = text.find("\n", i)
+            i = len(text) if nl < 0 else nl
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if not depth:
+                return True
+        i += 1
+    return False
+
+
+def without_quoted_bodies(cr, command):
+    """区切りを引用したヒアドキュメント(`<<'EOF'`・`<<"EOF"`・`<<\\EOF`・`<<E"OF"`)の本文を除いたコマンド。シェルはその本文を
+    展開も実行もしないので、本文の中の字は探すツールの語でない。除く本文が無いか、読み切れない形(閉じない引用・バッククォート・
+    `$((`・`$'`・中身の在る `${ }`・case・迷う #・終わりの行の無い本文・bash 3.2 が本文の中で置換を閉じる形)なら None。
+
+    区切りを引用しない本文は除かない(シェルが中の `$( )` を走らせる)。開始行が \\ で次の行へつながるときは、つないだ行の後から
+    本文を読む(bash と同じ。つないだ行はコマンドとして残る)。置換の中では、終わりの語に ) を続けた行(`EOF)`)でも本文を閉じる
+    (bash 5 の読み。zsh は `EOF` だけの行で閉じるので、zsh の本文はこれより長く、除く字はどちらでも本文の中に在る)。"""
+    stack, pending, spans = [], [], []
+    i, n, escaped = 0, len(command), -1
+    while i < n:
+        c = command[i]
+        top = stack[-1][0] if stack else None
+        if c == "\\":
+            escaped = i + 1
+            i += 2
+            continue
+        if c == "`" or command.startswith(("$((", "$'", '$"'), i):
+            return None
+        if command.startswith("${", i):
+            m = _PLAIN_BRACE_RE.match(command, i)
+            if m is None:
+                return None
+            i = m.end()
+            continue
+        if command.startswith("$(", i):
+            stack.append(("$(", i))
+            i += 2
+            continue
+        if top == '"':
+            if c == '"':
+                stack.pop()
+            i += 1
+            continue
+        if c == "'":
+            j = command.find("'", i + 1)
+            if j < 0:
+                return None
+            i = j + 1
+            continue
+        if c == '"':
+            stack.append(('"', i))
+        elif c == "(":
+            if command.startswith("((", i):
+                return None
+            stack.append(("(", i))
+        elif c == ")":
+            if not stack:
+                return None
+            stack.pop()
+        elif c == "#":
+            prev = command[i - 1] if i else "\n"
+            if i - 1 != escaped and prev in " \t\n;&|":
+                nl = command.find("\n", i)
+                i = n if nl < 0 else nl
+                continue
+            if i - 1 != escaped and prev in "()<>":
+                return None   # zsh はパターンの字と読みうる(`(#i)`)
+        elif c in "ce" and _CASE_RE.match(command, i):
+            return None   # 型の閉じの ) を括弧と数えてしまう
+        elif command.startswith("<<<", i):
+            i += 3
+            continue
+        elif command.startswith("<<", i):
+            head = _HERE_HEAD_RE.match(command, i)
+            j, parts = head.end(), []
+            while True:
+                p = cr._DELIM_PART_RE.match(command, j)
+                if p is None:
+                    break
+                parts.append(p.group(0))
+                j = p.end()
+            delim = "".join(w[1:] if w[0] == "\\" else w[1:-1] if w[0] in "'\"" else w for w in parts)
+            if not cr._DELIM_RE.fullmatch(delim) or not cr._WORD_END_RE.match(command, j):
+                return None
+            pending.append((any(w[0] in "\\'\"" for w in parts), bool(head.group(1)), delim,
+                            [at for kind, at in stack if kind == "$("], top == "$("))
+            i = j
+            continue
+        elif c == "\n" and pending:
+            i += 1
+            for quoted, dash, delim, subs, in_sub in pending:
+                start, close = i, None
+                while close is None:
+                    if i >= n:
+                        return None   # 終わりの行が無い
+                    nl = command.find("\n", i)
+                    end = n if nl < 0 else nl
+                    line = command[i:end]
+                    word = line.lstrip("\t") if dash else line
+                    if word.rstrip("\r") == delim:
+                        close = end + 1
+                    elif in_sub and word.startswith(delim + ")"):
+                        if len(pending) > 1:
+                            return None
+                        close = i + len(line) - len(word) + len(delim)   # ) からはコマンド
+                    else:
+                        i = end + 1
+                if any(_closes_in(command, s, i, comments) for s in subs for comments in (True, False)):
+                    return None
+                if quoted and i > start:
+                    spans.append((start, i))
+                i = close
+            pending = []
+            continue
+        i += 1
+    if stack or pending or not spans:
+        return None
+    out, at = [], 0
+    for start, end in spans:
+        out.append(command[at:start])
+        at = end
+    return "".join(out) + command[at:]
+
+
 def check_command(cr, command, cwd, depth=0, outer=None):
     """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。outer は、このコマンドが外のコマンドの $( … )・bash -c・eval・
     ヒアドキュメントの中身のとき、外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。"""
@@ -349,7 +506,12 @@ def check_command(cr, command, cwd, depth=0, outer=None):
     text, bodies = cr.prepare(command)
     if text is None:
         # 正規化で読めない形(`$[`・`$$(`・`<<\EOF` など。prepare が None を返す)は、どのコマンドがどこで走るかを決められない
-        # ので止める(検査自体の失敗として)。字面の find だけを拾うと、`: $[0]; rg foo /`・`: $[0]; cd / && find .` を通す
+        # ので止める(検査自体の失敗として)。字面の find だけを拾うと、`: $[0]; rg foo /`・`: $[0]; cd / && find .` を通す。
+        # ただし、探すツールの語が、区切りを引用したヒアドキュメントの本文(シェルが展開も実行もしない字)の中にしか無ければ
+        # 通す(前は `git commit -m "$(cat <<'EOF'` の本文の「grep -r」「find (x)」の字で止めていた)
+        rest = without_quoted_bodies(cr, command)
+        if rest is not None and not WORD_RE.search(rest.replace("\\n", "\n").replace("\\t", "\t")):
+            return
         raise ValueError("コマンドを読めない形(`$[ ]`・`<<\\EOF` など)なので、探す起点を決められない")
     tokens = cr.tokenize(text)
     if tokens is None:

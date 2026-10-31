@@ -326,6 +326,23 @@ class FailClosed(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn("読めない形", run("Bash", {"command": command})[0] or "")
 
+    def test_search_words_only_in_quoted_heredoc_bodies_pass(self):
+        # 読めない形でも、探すツールの語が区切りを引用したヒアドキュメントの本文(展開も実行もしない字)の中にしか無ければ通す
+        # (前は `git commit -m "$(cat <<'EOF'` の本文の字で止めていた)
+        for command in ("git commit -m \"$(cat <<'EOF'\nfix: grep -r handling. Don't\nEOF)\"",
+                        "git commit -m \"$(cat <<'EOF'\nfix: find handles (x)\nEOF)\"",
+                        "git commit -m \"$(cat <<\\EOF\nfind x\nEOF\n)\""):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+        # 本文の外の語・区切りを引用しない本文(中の $( ) が走る)・注釈の中の << と、bash 3.2 が本文の中で置換を閉じる形は止める。
+        # `cat <<'EOF' | \` の次の行の rg は、bash が行をつないだ後のコマンドで本文の外なので、止めたままにする
+        for command in ("git commit -m \"$(cat <<'EOF'\nDon't\nEOF)\" && rg foo /",
+                        ": $[0]; cat <<EOF\n$(find / -name x)\nEOF", ": $[0] # <<'X'\nrg foo /\nX",
+                        "x=$(cat <<'EOF'\na) rg foo /\nEOF)", "cat <<'EOF' | \\\n  rg foo /\nfind\nEOF",
+                        "echo $[1]; find / -name x"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+
     def test_stop_is_logged(self):
         with tempfile.TemporaryDirectory() as cfg:
             env = dict(os.environ, HOME=HOME, CLAUDE_CONFIG_DIR=cfg)
