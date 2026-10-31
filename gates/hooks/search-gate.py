@@ -776,15 +776,16 @@ def main():
         deny(cr, hit.args[0], hit.args[1])
 
 
-def layout(cr, tokens, kinds=None, negs=None):
+def layout(cr, tokens, kinds=None, negs=None, braces=None):
     """単純コマンドごと(split_commands と同じ順)の (囲むブロックの道, 括弧の深さ, 直前の区切り((演算子, 深さ) の列), 語の頭)。
     split_commands と数が合わなければ None。kinds を渡せば、ブロックの番号 → 頭の語(if・while・for など)を書き込む。
     negs を渡せば、`!` で終わりの値を裏返したコマンドの番号 → True を書き込む(`if ! cd x`)。`!` の後に `{`・`(`・if・while・
-    until・`!` が続くときは、裏返すのが中の 1 つのコマンドか分からないので、続く頭のコマンドに "?" を書き込む。
+    until・`!` が続くときは、裏返すのが中の 1 つのコマンドか分からないので、続く頭のコマンドに "?" を書き込む。braces を渡せば、
+    `{ }` のまとまりの最初のコマンドの番号 → 閉じの `}` の番号を書き込む。
 
     道は外から順の (ブロックの番号, 区画の番号, 条件の区画か)。区画は if の条件・then・elif の条件・else、繰り返しの条件と do の後、
     case の ;; ごとに分ける。case の型の閉じ `a)` は括弧に数えない(coldread の深さはそこで負になり、cd が届くかを読み違える)。"""
-    out, stack, ops, depth, cur, head, nid, neg = [], [], [], 0, [], None, 0, None
+    out, stack, ops, depth, cur, head, nid, neg, opened = [], [], [], 0, [], None, 0, None, []
 
     def close():
         if cur:
@@ -819,6 +820,8 @@ def layout(cr, tokens, kinds=None, negs=None):
             continue
         if not cur and tok in cr.RESERVED:
             top = stack[-1] if stack else None
+            if tok == "{":
+                opened.append(len(out))
             if tok == "!":
                 neg = True if neg is None else "?"
             elif neg and tok in ("{", "if", "while", "until"):
@@ -840,6 +843,10 @@ def layout(cr, tokens, kinds=None, negs=None):
             if neg and negs is not None:
                 negs[len(out)] = neg
             neg = None
+            if tok == "}" and opened:
+                at = opened.pop()
+                if braces is not None:
+                    braces[at] = len(out)
             if tok in ("for", "select", "case"):
                 nid += 1
                 stack.append([nid, tok, 1 if tok == "case" else 0, False, tok == "case"])
@@ -883,9 +890,10 @@ def load_coldread():
             self.conditional = False
             self.kinds = {}   # ブロックの番号 → 頭の語
             self.negs = {}   # `!` で裏返したコマンドの番号 → True か "?"(layout)
+            self.braces = {}   # `{ }` のまとまりの最初のコマンドの番号 → 閉じの `}` の番号(layout)
             # cwds_here の控え: (cd, k) → (届くか, 必ず走ったか)・(cd, 前の場所) → 行き先・繰り返しの番号 → 中のコマンド・回の頭の場所
             self._flow, self._dests, self._insides, self._tops = {}, {}, {}, {}
-            lay = layout(cr, tokens, self.kinds, self.negs)
+            lay = layout(cr, tokens, self.kinds, self.negs, self.braces)
             self.lay = lay if lay is not None and len(lay) == len(cmds) else None
 
         def _reaches(self, j, k):
@@ -908,21 +916,27 @@ def load_coldread():
             path, d, ops, _ = self.lay[j]
             if any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()"):
                 return False
-            if any(op == "&&" for op, _ in ops):
-                # `test -d sub && cd sub; find .` の cd は前が落ちると走らず、; の後ろの find はそれでも走る。&& の後の cd は、
-                # k までが && だけで繋がる(同じ深さ以浅に ; 改行 & が無い)ときだけ必ず走った
-                for m in range(j + 1, k + 1):
-                    if any(op in (";", "\n", "&") and dep <= d for op, dep in self.lay[m][2]):
-                        return False
-            for m in range(j + 1, k + 1):
-                for op, dep in self.lay[m][2]:
-                    if op == "||" and dep <= d and not (m == j + 1 and self._escapes(j, k)):
-                        return False
             kpath = self.lay[k][0]
             same = 0
             while same < min(len(path), len(kpath)) and path[same] == kpath[same]:
                 same += 1
             rest = path[same:]
+            # 条件の中の cd から、同じブロックの後ろの区画の k を見るときは、&& の繋がりを条件の終わりまでで見る(_by_condition。
+            # `if [ -d x ] && cd x; then find .; fi` の then の前の ; は、条件が通ったときにだけ then へ進む)
+            in_block = len(rest) == 1 and rest[0][2] and len(kpath) > same and kpath[same][0] == rest[0][0]
+            if any(op == "&&" for op, _ in ops) and not in_block:
+                # `test -d sub && cd sub; find .` の cd は前が落ちると走らず、; の後ろの find はそれでも走る。&& の後の cd は、
+                # k までが && だけで繋がる(同じ深さ以浅に ; 改行 & が無い)ときだけ必ず走った
+                for m in range(j + 1, k + 1):
+                    if any(op in (";", "\n", "&") and dep <= d for op, dep in self.lay[m][2]):
+                        return False
+            escape = self._escapes(j, k)
+            for m in range(j + 1, k + 1):
+                if escape is not None and m <= escape:
+                    continue   # 逃げ口の中(cd が落ちたときにだけ走る)
+                for op, dep in self.lay[m][2]:
+                    if op == "||" and dep <= d:
+                        return False
             if not rest:
                 return True
             bid, sec, cond = rest[0]
@@ -987,26 +1001,40 @@ def load_coldread():
             return False
 
         def _escapes(self, j, k):
-            """j 番目の cd の後ろの `|| <コマンド>` が、cd が落ちたときに k 番目を走らせない逃げ口か。exit・return はシェルを抜ける。
-            continue・break は、その繰り返しのこの回の残り(break は繰り返しの全部)を飛ばすので、k が同じ繰り返しの中で、閉じの
-            done より前に在るときだけ逃げ口になる(前は exit・return だけを見て、`for d in */; do cd "$d" || continue; rg x .; cd ..;
-            done` の cd を走るとは限らないと見て、動かなかった場所からの `cd ..` で / やホームに届いたと読み、止めていた)。
-            サブシェルの中の exit(`|| ( exit 1 )`)はサブシェルを抜けるだけなので逃げ口でない。"""
+            """j 番目の cd の後ろの `|| <コマンド>`・`|| { …; <コマンド>; }` が、cd が落ちたときに k 番目を走らせない逃げ口なら、
+            逃げ口の最後のコマンドの番号(でなければ None)。逃げ口は、exit・return(シェルを抜ける)と、continue・break(その繰り返しの
+            この回の残り〔break は繰り返しの全部〕を飛ばすので、k が同じ繰り返しの中で、閉じの done より前に在るときだけ)。
+            `{ }` のまとまりは、最後のじかのコマンドが逃げ口なら逃げ口(前は exit・return だけを、`{ }` で囲まずに書いたときだけ見て、
+            `for d in */; do cd "$d" || continue; rg x .; cd ..; done` の cd を走るとは限らないと見て、動かなかった場所からの `cd ..` で
+            / やホームに届いたと読み、`cd proj || { echo no; exit 1; }; rg foo .` も止めていた)。サブシェルの中の exit
+            (`|| ( exit 1 )`)はサブシェルを抜けるだけなので逃げ口でない。逃げ口の後ろが & やパイプなら、cd ごと別のシェルで走る。"""
             m = j + 1
-            _, d, _, _ = self.lay[j]
-            mpath, mdepth, _, head = self.lay[m]
-            if mdepth != d:
-                return False
+            if m >= len(self.lay) or not any(op == "||" for op, _ in self.lay[m][2]):
+                return None
+            d = self.lay[j][1]
+            end = self.braces.get(m)
+            last = m if end is None else end - 1
+            if end is not None and (self.lay[last][0] != self.lay[m][0] or self.lay[end][0] != self.lay[m][0]
+                                    or any(op not in (";", "\n") for op, _ in self.lay[end][2])):
+                return None
+            stop = last if end is None else end
+            if stop + 1 < len(self.lay) and any(op in ("|", "&") and dep <= d for op, dep in self.lay[stop + 1][2]):
+                return None
+            mpath, mdepth, ops, head = self.lay[last]
+            ops = [op for op, _ in ops]
+            if last == m:
+                ops.remove("||")
+            if mdepth != d or any(op not in (";", "\n") for op in ops) or k <= stop:
+                return None
             if head in ("exit", "return"):
-                return True
-            args = self.cmds[m].args
-            if head not in ("continue", "break") or args[1:] not in ([], ["1"]):
-                return False
+                return stop
+            if head not in ("continue", "break") or self.cmds[last].args[1:] not in ([], ["1"]):
+                return None
             loop = next((bid for bid, _, _ in reversed(mpath) if self.kinds.get(bid) in LOOPS), None)
             if loop is None:
-                return False
+                return None
             inside = self._inside(loop)
-            return k in inside and k < inside[-1]
+            return stop if k in inside and k < inside[-1] else None
 
         def cwds_here(self, k=None):
             """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、

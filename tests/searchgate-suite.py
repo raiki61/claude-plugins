@@ -234,6 +234,28 @@ class Bash(unittest.TestCase):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_or_a_group_that_exits_and_and_chained_cd_in_a_condition(self):
+        # `|| { …; exit 1; }` のまとまりも、最後が exit なら cd が落ちたときに後ろを走らせない。条件の中で && で繋いだ cd は、
+        # 条件が通ったときに走る then で移れた(前はどちらも止めていた)
+        for command in ("cd proj || { echo no; exit 1; }; rg foo .", "cd proj || { echo no >&2; exit 1; }\nrg foo .",
+                        "if [ -d proj ] && cd proj; then rg foo .; fi",
+                        'for d in */; do cd "$d" || { echo skip; continue; }; rg x .; cd ..; done',
+                        "while [ -d proj ] && cd proj; do rg foo .; break; done"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
+        # 抜けないまとまり・サブシェル・&& の後ろや入れ子の exit・まとまりの中の探すコマンド・& で後ろに回した cd と、条件の値が
+        # cd で決まらない・条件が落ちたときに走る所・ブロックの後ろは、cd が移れたと限らない
+        for command in ("cd proj || { echo no; }; rg foo .", "cd proj || ( echo no; exit 1 ); rg foo .",
+                        "cd proj || { exit 1 & }; rg foo .", "cd proj || { echo no && exit 1; }; rg foo .",
+                        "cd proj || { rg foo .; exit 1; }", "cd proj || { if x; then exit 1; fi; }; rg foo .",
+                        "cd proj || exit 1 & rg foo .", "if [ -d proj ] && cd proj; true; then rg foo .; fi",
+                        "if [ -d proj ] && cd proj; then :; fi; rg foo .", "if [ -d proj ] && cd proj || true; then rg foo .; fi",
+                        "if [ -d proj ] && ! cd proj; then :; else rg foo .; fi",
+                        "if [ -d proj ] && cd proj; then :; else rg foo .; fi"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_in_a_condition_is_sure_only_where_the_condition_held(self):
         # 条件の中の cd は、else・繰り返しの後ろ・until の do では落ちて移っていないことがある
         for command in ("if cd sub; then echo ok; else find . -name x; fi", "while cd sub; do break; done; find . -name x",
