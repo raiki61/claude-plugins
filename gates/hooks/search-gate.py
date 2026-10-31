@@ -308,13 +308,18 @@ def substitutions(text, bare=True, heredoc=False):
                 if jq and (jc is None or jq < jc):
                     # 引用を見る閉じが数え方の閉じより手前のときは、数え方の中身も読む(引用を見る閉じは case の型・# の注釈・${ } の
                     # 中の ) を知らないので、`x="$(echo "(" ; case a in a) :;; esac; rg foo /)"` を手前で閉じ、rg を落としていた)。
-                    # 数え方が閉じないときは、終わりまででなく、引用を見る閉じの後ろの次の " ・` ・$( の手前までを足して読む
-                    # (その字は外の読みが引用の中と見て飛ばす。終わりまで読むと、後ろの引用の中の字をコマンドと読んで止めすぎ、
-                    # 引用した ( を持つ置換を 600 並べた語で 30 秒を超えていた)。読んだ字は予算に数える
-                    end = jc - 1 if jc else _plain_end(text, jq)
+                    # 数え方が閉じないときは、引用を見る閉じの後ろにすぐ " ・` ・$( が来るなら、そこで閉じたと見て足さない(終わりまで
+                    # 読むと、`echo "$(echo '(')"; git commit -m "note; find / -name x"` の後ろの引用の中の字をコマンドと読んで止めすぎ、
+                    # 引用した ( を持つ置換を 600 並べた語で 30 秒を超えていた)。ほかの字が続くなら、手前で閉じたと読み違えた見込みが
+                    # あるので終わりまで読む(次の " の手前までにすると、`…; esac; echo "hi"; rg foo /)"` の rg を落とす)。読んだ字は
+                    # 予算に数える。終わりまで読むときは、終わりの 1 字を落とした中身も読む(`x="$(…; rg foo /)"` の外の閉じの " まで
+                    # 中身にすると、中の rg を引用の中と読む)
+                    end = jc - 1 if jc else n if _plain_end(text, jq) > jq else jq
                     if end > jq:
                         out.append(text[i + 2:end])
-                        SPENT["reads"] += end - i
+                        if end == n:
+                            out.append(text[i + 2:n - 1])
+                        SPENT["reads"] += 2 * (end - i)
                         if SPENT["reads"] > READS_MAX:
                             raise ValueError("$( ) と引用が多く、探す場所を読み切れない")
                 j = jq or j
