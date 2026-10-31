@@ -337,6 +337,38 @@ class Bash(unittest.TestCase):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME + "/src")[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_in_a_group_after_and_or_runs_only_with_the_group(self):
+        # `{ }` のまとまりの中の cd は、頭の前の && || でまとまりごと走らないことがある(前は頭でない cd を必ず走ると読み、
+        # ホームで打つと ~/proj で探すと読んで通していた)
+        for command in ("[ -d proj ] && { echo found; cd proj; }; rg foo .",
+                        "[ -d proj ] || { git clone url proj; cd proj; }; rg foo .",
+                        "[ -d proj ] && { echo; cd proj || exit 1; }; rg foo .", "x && { y; cd ..; }; rg foo ."):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+        # まとまりに入った場所だけが来る所(まとまりの中・後ろの && の繋がり)と、まとまりの前が && || でない形は通す
+        for command in ("[ -d proj ] && { echo found; cd proj; rg foo .; }", "[ -d proj ] && { cd proj; rg foo .; }",
+                        "[ -d proj ] && { echo; cd proj; } && rg foo .", "{ echo; cd proj; }; rg foo ."):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
+        # まとまりは全部が走るか走らないかで、入らなかった場所にまとまりの後ろの cd .. を当てない(前は当てて、~/src で打つと
+        # ホームに届いたと読んで止めていた)
+        for command, cwd in (("[ -d build ] && { cd build; make; cd ..; }; rg x .", WORK + "/a/b"),
+                             ("[ -d build ] && { cd build; make; cd ..; }; rg x .", HOME + "/src"),
+                             ("for d in a b; do [ -d build ] && { cd build; make; cd ..; }; done; rg x .", HOME + "/src"),
+                             ('for d in */; do [ -d "$d" ] && { cd "$d"; git pull; cd ..; }; done; rg x .', HOME + "/src"),
+                             ("[ -d x ] && { cd ..; cd src; }; rg foo .", HOME + "/src")):
+            with self.subTest(command=command, cwd=cwd):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # まとまりに入ったときに上がる cd・まとまりの中で cd の前の break で抜けた場所・まとまりの後ろの || は、今までどおり
+        for command, cwd in (("[ -d x ] && { cd ..; cd ..; }; rg foo .", HOME + "/src/a"),
+                             ("for d in a b; do [ -d build ] && { cd build; make; cd ../..; }; done; rg x .", HOME + "/src"),
+                             ("for i in 1 2; do [ -d x ] && { cd ..; if [ -f .zshrc ]; then break; fi; cd src; }; done; rg foo .",
+                              HOME + "/src"),
+                             ("[ -d x ] && { cd ..; cd src; } || true; rg foo .", HOME + "/src")):
+            with self.subTest(command=command, cwd=cwd):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_or_a_group_that_exits_and_and_chained_cd_in_a_condition(self):
         # `|| { …; exit 1; }` のまとまりも、最後が exit なら cd が落ちたときに後ろを走らせない。条件の中で && で繋いだ cd は、
         # 条件が通ったときに走る then で移れた(前はどちらも止めていた)

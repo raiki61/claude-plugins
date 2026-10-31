@@ -1116,6 +1116,9 @@ def load_coldread():
             (`cd x || exit 1`・繰り返しの中の `cd x || continue` のような逃げ口〔_escapes〕の || は除く)うえ、cd を囲むブロックがどれも
             k も囲むか、cd が if・elif・while・until の条件の中で、k が cd の移れたときにだけ走る所に在るとき(_by_condition)。"""
             path, d, ops, _ = self.lay[j]
+            # cd を囲む `{ }` のまとまりは、頭の前の && || で全部が走るか決まるので、頭の前の区切りも cd の物と見る(前は見ず、
+            # `[ -d proj ] && { echo found; cd proj; }; rg foo .` の cd を必ず走ると読み、ホームで打つと通していた)
+            ops = list(ops) + [op for start, _ in self._groups(j) for op in self.lay[start][2]]
             if any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()"):
                 return False
             kpath = self.lay[k][0]
@@ -1450,6 +1453,12 @@ def load_coldread():
                         self._ends[j] = body[-1] + 1
             return self._ends[j]
 
+        def _groups(self, j, own=False):
+            """j 番目を囲む `{ }` のまとまりの (頭のコマンドの番号, 閉じの } の番号) の列(内から順)。j が頭のまとまりは、own の
+            ときだけ入れる。"""
+            return sorted(((start, end) for start, end in self.braces.items() if (start <= j if own else start < j) and j < end),
+                          reverse=True)
+
         def _unit_end(self, j):
             """j 番目の cd が、まとめて走るか走らない組(if の then・elif・else の区画と、&& の繋がり)の中に在り、組が走れば必ず
             走るなら、(組の後ろのコマンドの番号, 区画の組なら区画の道) (でなければ (None, None))。区画の組は、cd が区画のじかのコマンドで、区画の頭から cd までが
@@ -1457,21 +1466,37 @@ def load_coldread():
             _walk は _then_end と同じく、組に入らなかった側の場所を組の中の後ろの cd に通さず、組の後ろに足す(前は入らなかった側の
             場所にも組の後ろの `cd ..` を当て、`for d in a b; do if [ -d build ]; then cd build; make; cd ..; fi; done; rg x .` を、回ごとに
             1 つずつ上がって / に届いたと読んで止めていた)。区画の 2 つ目からの cd(と、条件の cd が移れたときに入る then の cd)には、
-            区画に入った側の場所だけが来るので、_walk は必ず走ると見る。繰り返しの do の後の区画は組にしない(回ごとに重ねてたどる。_heads)。"""
+            区画に入った側の場所だけが来るので、_walk は必ず走ると見る。繰り返しの do の後の区画は組にしない(回ごとに重ねてたどる。_heads)。
+            && の後ろの `{ }` のまとまりは 1 つのコマンドと見て、まとまりの頭から ; 改行だけで繋がる cd を同じ組に入れ、まとまりの
+            印を区画の道の代わりに返す(2 つ目からの cd は、区画と同じく必ず走ると見る)。"""
             if j not in self._units:
                 self._units[j] = (None, None)
                 path, d, ops, _ = self.lay[j]
                 after = self.lay[j + 1][2] if j + 1 < len(self.lay) else []
                 if any(op == "||" and dep <= d for op, dep in after):
                     return self._units[j]   # cd が落ちても後ろが走る
-                plain = [(op, dep) for op, dep in ops if op not in "()"]
+                # cd がまとまり(`{ }`)の頭か、頭から ; 改行だけで繋がる所に在れば、まとまりを 1 つのコマンドと見て、頭の前の && と
+                # 閉じの } の後ろの && の繋がりまでを組にする(前は cd の前の区切りだけを見て、`[ -d build ] && { cd build; make; cd ..; }`
+                # の組を make の前で切り、入らなかった場所にも cd .. を当てていた)
+                head, scan, key = j, j + 1, None
+                for start, end in self._groups(j, True):
+                    if start < head and (any(op not in (";", "\n", "(", ")") for m in range(start + 1, head + 1)
+                                             if self.lay[m][0] == path and self.lay[m][1] == d for op, _ in self.lay[m][2])
+                                         or any(self.lay[m][3] in ("break", "continue", "return") for m in range(start, head))):
+                        break
+                    head, scan, key = start, end + 1, ("{", start)
+                    if scan < len(self.lay) and any(op == "||" and dep <= d for op, dep in self.lay[scan][2]):
+                        return self._units[j]   # まとまりが落ちても後ろが走る
+                plain = [(op, dep) for op, dep in self.lay[head][2] if op not in "()"]
                 if plain and all(op == "&&" and dep == d for op, dep in plain):
-                    for m in range(j + 1, len(self.lay)):
+                    for m in range(scan, len(self.lay)):
                         if len(self.lay[m][0]) <= len(path) and any(
                                 op not in ("&&", "(", ")") and dep <= d or op == ")" and dep < d
                                 for op, dep in self.lay[m][2]):
-                            self._units[j] = (m, None)
+                            self._units[j] = (m, key)
                             break
+                    else:
+                        self._units[j] = (len(self.lay), key)   # 組がコマンドの終わりまで続く(`a && { b; cd x; rg y .; }`)
                 elif path and not path[-1][2] and self.kinds.get(path[-1][0]) == "if":
                     inside = [m for m in self._inside(path[-1][0]) if self.lay[m][0] == path]
                     # 区画の中で cd より前に break・continue・return が在れば(入れ子の中も)、区画に入った場所が cd の前で抜けて
