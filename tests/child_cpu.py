@@ -67,6 +67,9 @@ def run(argv, data, env, timeout=None, cwd=None):
 if __name__ == "__main__":
     # 手で確かめる口: python3 tests/child_cpu.py → 1 秒ほど回す子と、1 秒眠る子の CPU の秒と壁時計の秒
     import time
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     for code in ("import time\nt = time.process_time()\nwhile time.process_time() - t < 1: pass", "import time; time.sleep(1)"):
         start = time.monotonic()
         _, cpu = run([sys.executable, "-c", code], b"", dict(os.environ))
