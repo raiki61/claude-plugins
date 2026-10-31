@@ -958,8 +958,24 @@ def f55():
     cands, blk, parsed = g.posting_bodies("ls | xargs -I{} gh api 'search/issues?q={}' -f query=x", WORK)
     check(55, parsed and not blk, "? の後ろの差し込む語を宛先のパスと見た: %r" % (blk,))
 
+# 56. 字句解析は引用した区切りの字(`')'`・`'\;'`)を本物の区切りと同じ語にするので、find の -name などの値の所と -exec の中の括弧と、
+# サブシェルの中でない find の後ろの ) は語として繋ぎ、後ろの -exec の gh の本文を読む(前は ) をサブシェルの閉じと読んで繋ぎを止め、
+# gh を見落として通した)。値の所の ( で式が開いたと読んで止めすぎない。サブシェルの本当の閉じの後ろの gh は今までどおり別に読む
+def f56():
+    post = "gh pr comment 1 --body '" + BODY + "'"
+    for cmd in (r"find fd -name ')' -exec %s \;", r"find fd -name ';' -exec %s \;", r"find fd -name x -exec echo \) \; -exec %s \;",
+                r"find fd -name x -exec grep -q ')' {} \; -exec %s \;", r"find fd -exec echo '(' \; -exec %s \;",
+                r"find fd ')' -exec %s \;", r"(find . -name ')' -exec %s \;)",
+                r"case $x in a) find . -name ')' -exec %s \; ;; esac"):
+        cands, blk, parsed = g.posting_bodies(cmd % post, WORK)
+        check(56, parsed and cands == [BODY] and not blk, "引用した区切りの字の後ろの -exec の gh の本文を読まなかった: %r → %r %r" % (cmd, blk, parsed))
+    for cmd in ("find . -name '(' -print; " + post, r"(find . -name x -exec true \;) && " + post,
+                r"find . \( -name a -o -name b \) -print && " + post):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(56, parsed and cands == [BODY] and not blk, "find の後ろの gh を読まなかったか止めた: %r → %r %r" % (cmd, blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

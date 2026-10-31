@@ -1557,6 +1557,10 @@ def _is_gh(tok):
 
 FIND_NAMES = ("find", "gfind", "bfs")
 FIND_EXEC = ("-exec", "-execdir", "-ok", "-okdir")
+# find の式のうち、次の 1 語を値に取る物(GNU と BSD の find)。値の語は区切りの字(`-name ')'`・`-name ';'`)でも式でない
+FIND_VALUE_RE = re.compile(r"-(?:i?name|i?path|i?wholename|i?regex|i?lname|x?type|[abcB]?newer|newer[aBcmt][aBcmt]|user|group|perm"
+                           r"|size|[acmB](?:time|min)|(?:max|min)depth|inum|links|uid|gid|samefile|fstype|f?printf|fprint0?|fls|used"
+                           r"|regextype|context|flags|xattrname)")
 # 後ろのコマンドの走る場所を変える前置の旗と find の式(BodyFiles.at)。gh が別の所で走るので、本文ファイルの相対のパスを
 # フックの場所で読むと別のファイルを読む。前は env -C・--chdir だけを見て、`sudo -D /x gh …`・`find d -execdir gh … --body-file n.md`
 # の n.md を、gh が走らないフックの場所で読んでいた
@@ -1691,32 +1695,46 @@ def gh_calls(tokens):
 def glued_find(cmds, k):
     r"""k 番目のコマンド(find)の引数と、繋ぎ切れたか。式の \( \) と -exec の後ろの \; はトークン化で区切りと読まれ、後ろが別の
     コマンドに割れるので、括弧と、開いた -exec の後の ; だけで続くコマンドを繋ぎ直す。区切りは 1 つずつ読む(`\; \)`・`\; \(`
-    のように閉じの ; と括弧が並んでも繋ぐ)。閉じる括弧が開いた数を超えたら(本物のサブシェルの閉じ)そこで止める。前は割れた後ろを
+    のように閉じの ; と括弧が並んでも繋ぐ)。-name などの値の所の区切りの字と -exec の中の括弧は語として繋ぐ。閉じる括弧が開いた数を
+    超えたら、find がサブシェルの中に在れば(本物のサブシェルの閉じ)そこで止め、無ければ(引用した ) の語)繋ぐ。前は割れた後ろを
     見ず、`find . -exec true \; -exec gh …`・`find . \( -name a \) -exec gh …` の gh を見落とし、その直しの後も、閉じの ; と括弧の
     並ぶ `find . \( -exec true \; \) -exec gh …`・`find . -exec true \; \( -exec gh … \; \)` の gh を見落とした。式の括弧か
     -exec が開いたまま、ほかの区切りで止まったら(読み切れない)、後ろに gh の語が在れば繋ぎ切れなかったと返す(呼び元は止める)。
     探す範囲のゲート(search-gate.py の glued_find_args)と同じ読み方。本物の区切りを繋いでも、繋いだ後ろのコマンドは別にも読むので、
     見落としは増えない。"""
-    args, open_, closed = [], 0, True
+    args, open_, closed, value = [], 0, True, False
 
     def add(words):
-        nonlocal closed
+        nonlocal closed, value
         for w in words:   # 足した語だけを見る(繋ぐたびに全体を読み直さない)
-            if w in FIND_EXEC:
+            if value:
+                value = False   # -name などの値の語(`-name -exec` の -exec も値)
+            elif w in FIND_EXEC:
                 closed = False
             elif w == ";" or (w == "+" and args[-1:] == ["{}"]):   # find は `{} +` の + でだけ閉じる(`-exec echo + \;`)
                 closed = True
+            elif closed and FIND_VALUE_RE.fullmatch(w):
+                value = True
             args.append(w)
 
     add(cmds[k].args)
     for m in range(k + 1, len(cmds)):
         for op, _ in cmds[m].ops:
-            if op == ";" and not closed:
+            # 字句解析は引用した区切りの字(`')'`・`';'`)を本物の区切りと同じ語にするので、find が語として読む所の区切りは語として
+            # 繋ぐ: -name などの値の所と、-exec の中の括弧(find は読まず、走らせるコマンドの引数になる)。前は
+            # `find d -name ')' -exec gh …`・`find d -exec grep -q ')' {} \; -exec gh …` の ) をサブシェルの閉じと読んで繋ぎを止め、gh を
+            # 見落とした
+            if value or (not closed and op in ("(", ")")):
+                add([op])
+            elif op == ";" and not closed:
                 add([";"])
             elif op in ("(", ")"):
                 open_ += 1 if op == "(" else -1
                 if open_ < 0:
-                    return args, True
+                    if cmds[k].depth > 0:
+                        return args, True
+                    # 深さが 0 より上でない find の後ろには閉じるサブシェルが無いので、引用した ) の語として繋ぐ
+                    open_ = 0
                 args.append(op)
             else:
                 stuck = open_ > 0 or not closed
