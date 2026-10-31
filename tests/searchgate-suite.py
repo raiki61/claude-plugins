@@ -248,6 +248,30 @@ class Bash(unittest.TestCase):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_is_sure_where_only_a_moved_cd_reaches(self):
+        # `!` で裏返した条件の cd は else で移れた。cd が落ちた区画が exit で終わる if と、cd が移れるまで回る until・while ! の
+        # 後ろでも移れた(前は then・do の中でだけ移れたと見て止めていた)
+        for command in ("if ! cd proj; then exit 1; fi; rg foo .", "if cd proj; then :; else exit 1; fi; rg foo .",
+                        "until cd proj; do sleep 1; done; rg foo .", "while ! cd proj; do sleep 1; done; rg foo .",
+                        "if ! cd proj; then echo no; else rg foo .; fi",
+                        "if ! cd proj\nthen\n  echo no >&2\n  exit 1\nfi\nrg foo ."):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
+        # 裏返した cd の then は cd が落ちた所(前は移れた所と見て通していた)。落ちた区画が抜けない・抜けるのがサブシェルや
+        # && の後ろ・ブロックが走るとは限らない・条件の値が cd で決まらない・break で抜けうる繰り返しは、後ろで移れたと限らない
+        for command in ("if ! cd proj; then find . -name x; fi", "if ! cd proj; then echo no; fi; rg foo .",
+                        "if cd proj; then exit 1; fi; rg foo .", "until cd proj; do break; done; rg foo .",
+                        "while cd proj; do sleep 1; done; rg foo .", "until ! cd proj; do sleep 1; done; rg foo .",
+                        "if ! cd proj; then (exit 1); fi; rg foo .", "if ! cd proj; then false && exit 1; fi; rg foo .",
+                        "x && if ! cd proj; then exit 1; fi; rg foo .", "if ! cd proj; then exit 1; fi | cat; rg foo .",
+                        "if ! cd proj; true; then exit 1; fi; rg foo .", "if cd proj; true; then rg foo .; fi",
+                        "if ! { cd proj; true; }; then exit 1; fi; rg foo .",
+                        "if a; then :; elif ! cd proj; then exit 1; fi; rg foo .",
+                        "if cd proj; then :; elif x; then :; else exit 1; fi; rg foo ."):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_substitution_runs_in_the_cwd_of_its_command(self):
         # $( ) の中は、それを持つコマンドの場所(前の cd)と変数で走る
         self.assertIsNotNone(run("Bash", {"command": 'cd / && echo "$(find . -name x)"'})[0])

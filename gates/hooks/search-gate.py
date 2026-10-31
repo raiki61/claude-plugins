@@ -776,13 +776,15 @@ def main():
         deny(cr, hit.args[0], hit.args[1])
 
 
-def layout(cr, tokens, kinds=None):
+def layout(cr, tokens, kinds=None, negs=None):
     """単純コマンドごと(split_commands と同じ順)の (囲むブロックの道, 括弧の深さ, 直前の区切り((演算子, 深さ) の列), 語の頭)。
     split_commands と数が合わなければ None。kinds を渡せば、ブロックの番号 → 頭の語(if・while・for など)を書き込む。
+    negs を渡せば、`!` で終わりの値を裏返したコマンドの番号 → True を書き込む(`if ! cd x`)。`!` の後に `{`・`(`・if・while・
+    until・`!` が続くときは、裏返すのが中の 1 つのコマンドか分からないので、続く頭のコマンドに "?" を書き込む。
 
     道は外から順の (ブロックの番号, 区画の番号, 条件の区画か)。区画は if の条件・then・elif の条件・else、繰り返しの条件と do の後、
     case の ;; ごとに分ける。case の型の閉じ `a)` は括弧に数えない(coldread の深さはそこで負になり、cd が届くかを読み違える)。"""
-    out, stack, ops, depth, cur, head, nid = [], [], [], 0, [], None, 0
+    out, stack, ops, depth, cur, head, nid, neg = [], [], [], 0, [], None, 0, None
 
     def close():
         if cur:
@@ -799,6 +801,8 @@ def layout(cr, tokens, kinds=None):
                 i += 2
                 continue
             close()
+            if neg and "(" in tok:
+                neg = "?"
             for op in cr._OP_RE.findall(tok):
                 top = stack[-1] if stack else None
                 if top and top[1] == "case" and top[4] and op in "()":
@@ -815,6 +819,10 @@ def layout(cr, tokens, kinds=None):
             continue
         if not cur and tok in cr.RESERVED:
             top = stack[-1] if stack else None
+            if tok == "!":
+                neg = True if neg is None else "?"
+            elif neg and tok in ("{", "if", "while", "until"):
+                neg = "?"
             if tok in ("if", "while", "until"):
                 nid += 1
                 stack.append([nid, tok, 0, True, False])
@@ -829,6 +837,9 @@ def layout(cr, tokens, kinds=None):
         if not cur:
             head = (tuple((e[0], e[2], e[3]) for e in stack), depth, ops, tok)
             ops = []
+            if neg and negs is not None:
+                negs[len(out)] = neg
+            neg = None
             if tok in ("for", "select", "case"):
                 nid += 1
                 stack.append([nid, tok, 1 if tok == "case" else 0, False, tok == "case"])
@@ -871,9 +882,10 @@ def load_coldread():
             # cd が走るかは、cd ごとに cwds_here で見る
             self.conditional = False
             self.kinds = {}   # ブロックの番号 → 頭の語
+            self.negs = {}   # `!` で裏返したコマンドの番号 → True か "?"(layout)
             # cwds_here の控え: (cd, k) → (届くか, 必ず走ったか)・(cd, 前の場所) → 行き先・繰り返しの番号 → 中のコマンド・回の頭の場所
             self._flow, self._dests, self._insides, self._tops = {}, {}, {}, {}
-            lay = layout(cr, tokens, self.kinds)
+            lay = layout(cr, tokens, self.kinds, self.negs)
             self.lay = lay if lay is not None and len(lay) == len(cmds) else None
 
         def _reaches(self, j, k):
@@ -891,10 +903,8 @@ def load_coldread():
 
         def _surely(self, j, k):
             """届く cd(j 番目)が、k 番目が走るときには必ず走ったか。前の区切りが ; 改行 && だけ(&& なら k までも && だけ)で、k までに || が無い
-            (`cd x || exit 1`・繰り返しの中の `cd x || continue` のような逃げ口〔_escapes〕の || は除く)うえ、cd を囲むブロックがどれも k も囲むか、cd が if・elif・while の条件の中で、k がその
-            条件が通ったときに走る区画(then・do)の中のとき。条件が落ちたときに走る else・繰り返しの後ろ・until の do では、cd が
-            落ちて移っていないことがある(前は条件の中の cd をそこでも必ず移ったと見て、`if cd sub; then …; else find .; fi` を
-            通していた)。"""
+            (`cd x || exit 1`・繰り返しの中の `cd x || continue` のような逃げ口〔_escapes〕の || は除く)うえ、cd を囲むブロックがどれも
+            k も囲むか、cd が if・elif・while・until の条件の中で、k が cd の移れたときにだけ走る所に在るとき(_by_condition)。"""
             path, d, ops, _ = self.lay[j]
             if any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()"):
                 return False
@@ -916,8 +926,65 @@ def load_coldread():
             if not rest:
                 return True
             bid, sec, cond = rest[0]
-            return (len(rest) == 1 and cond and self.kinds.get(bid) in ("if", "while") and same < len(kpath)
-                    and kpath[same][:2] == (bid, sec + 1))
+            return len(rest) == 1 and cond and self._by_condition(j, k, bid, sec, same)
+
+        def _by_condition(self, j, k, bid, sec, at):
+            """ブロック bid(if・while・until)の区画 sec の条件の中の cd(j 番目。囲むブロックの道の at 番目が bid)が、k 番目の走る
+            ときに必ず移れたか。条件の値が cd の値で決まるのは、cd の後ろが && だけで条件の終わりまで繋がる(条件が通れば cd は移れた)
+            か、`!` で裏返した cd が条件の最後で、必ず走る(条件が落ちれば cd は移れた)とき。
+
+            条件が通れば移れた cd は、then・while の do で必ず移れた。条件が落ちれば移れた cd(`if ! cd x`・`until ! cd x`)は、
+            then より後ろの elif・else・until の do で必ず移れた。ブロックの後ろでは、cd が落ちたときに走る区画がシェルを抜ける
+            (exit・return で終わる)とき(`if ! cd x; then exit 1; fi`・`if cd x; then :; else exit 1; fi`)と、cd が移れるまで
+            回る繰り返し(`until cd x; do …; done`・`while ! cd x; do …; done`。中に break が無い)の後ろで必ず移れた(前は条件の中の
+            cd を then・do の中でだけ移れたと見て、これらの後ろの探すコマンドを止め、`if ! cd x; then find .; fi` の then を移れた
+            後と見て通していた)。"""
+            kind = self.kinds.get(bid)
+            neg = self.negs.get(j)
+            if kind not in ("if", "while", "until") or neg == "?":
+                return False
+            _, d, ops, _ = self.lay[j]
+            inside = self._inside(bid)
+            section = [m for m in inside if self.lay[m][0][at:at + 1] == ((bid, sec, True),)]
+            tail = [m for m in section if m > j]
+            # 条件が通れば移れた: 裏返さず、後ろが && だけで条件の終わりまで繋がる
+            held = not neg and not any(op in (";", "\n", "&") and dep <= d for m in tail for op, dep in self.lay[m][2])
+            # 条件が落ちれば移れた: 裏返して条件の最後に在り、必ず走る(前の && は、cd が条件の頭ならブロックの前の物)
+            failed = neg is True and not tail and (section[0] == j or not any(op == "&&" for op, _ in ops))
+            kpath = self.lay[k][0]
+            if len(kpath) > at and kpath[at][0] == bid:   # k はこのブロックの中
+                ksec = kpath[at][1]
+                if kind == "if":
+                    return held if ksec == sec + 1 else failed and ksec > sec + 1
+                return ksec == 1 and (held if kind == "while" else failed)
+            # k はブロックの後ろ。ブロックは必ず走り(前が && || でない)、パイプ・& の中でない
+            end = inside[-1]
+            if k <= end or any(op in ("&&", "||") and dep <= d for op, dep in self.lay[inside[0]][2]):
+                return False
+            if any(op in ("|", "&") and dep <= d for op, dep in self.lay[end + 1][2]):
+                return False
+            if kind == "if":
+                if sec != 0:
+                    return False   # 前の then を通った後ろにも来る
+                if failed:
+                    return self._exits(bid, 1, at, d)
+                sections = {self.lay[m][0][at][1:] for m in inside}
+                return held and sections == {(0, True), (1, False), (2, False)} and self._exits(bid, 2, at, d)
+            if any(self.lay[m][3] == "break" for m in inside):
+                return False
+            return held if kind == "until" else failed
+
+        def _exits(self, bid, sec, at, d):
+            """ブロック bid の区画 sec が、必ずシェルを抜けるか: その区画のじかの(入れ子のブロック・サブシェル・パイプ・&& || の中で
+            ない)exit・return が在る。"""
+            inside = self._inside(bid)
+            for m in inside[:-1]:
+                p, dep, ops, head = self.lay[m]
+                if (len(p) == at + 1 and p[at] == (bid, sec, False) and dep == d and head in ("exit", "return")
+                        and all(op in (";", "\n") for op, _ in ops)
+                        and not any(op in ("|", "&") for op, _ in self.lay[m + 1][2])):
+                    return True
+            return False
 
         def _escapes(self, j, k):
             """j 番目の cd の後ろの `|| <コマンド>` が、cd が落ちたときに k 番目を走らせない逃げ口か。exit・return はシェルを抜ける。
