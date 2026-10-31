@@ -647,8 +647,18 @@ def f37():
     check(37, parsed and cands == [BODY] and not blk, "注釈の中の \\ と ' でつながると読んだ: %r %r" % (blk, parsed))
 
 
+# 38. 引用・注釈の中の「__HEREDOC」の字を、盾(ヒアドキュメントを抜く前処理)の置いた印と見ない(前は読めない物として止めた)。
+# 盾の置いた印が引用の中に在る形は、今までどおり止める
+def f38():
+    for cmd in ("grep -n '__HEREDOC' f; gh pr comment 1 --body '" + BODY + "'",
+                "echo a # __HEREDOC0__\ngh pr comment 1 --body '" + BODY + "'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(38, parsed and cands == [BODY] and not blk, "引用・注釈の中の印の字で止めた: %r → %r %r" % (cmd[:40], blk, parsed))
+    check(38, g.normalize_shell("echo ' __HEREDOC0__ '", 1) is None, "盾の置いた印が引用の中に在るのを読んだ")
+
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

@@ -1093,7 +1093,7 @@ def _regex_end(text, i):
     return len(text) if end < 0 else end
 
 
-def normalize_shell(text):
+def normalize_shell(text, marks=None):
     r"""字句解析の前に、bash が入力段で落とす 2 つ(行継続・注釈)を 1 度の走査で落とす。
 
     bash は行継続の除去と注釈の認識を同じ 1 パスでやる。こちらも 1 パスにしないと、
@@ -1135,8 +1135,15 @@ def normalize_shell(text):
 
     盾(shield_heredocs)と読みが割れた所は、読めない物とする。盾が印に替えなかった << が引用の外に残っていれば(`<<\EOF`
     などの読めない区切りや、盾が注釈と読んで飛ばした行の <<)、本文の行をシェルとして読むことになり、本文の中の ' が後ろの
-    gh を引用の中に隠す。印(__HEREDOC0__)が引用・${ }・注釈の中に在れば、盾とこちらで引用の読みが割れている。
+    gh を引用の中に隠す。印(__HEREDOC0__)が引用・${ }・注釈の中に在れば、盾とこちらで引用の読みが割れている。印と見るのは、
+    盾が置いた番号(marks 個。None なら番号を問わない)の印の形の字だけで、引用の中の「__HEREDOC」の字(`grep '__HEREDOC' f`)は
+    印と見ない(前は見て、そうしたコマンドを読めない物として止めた)。
     """
+
+    def real_mark(k):
+        got = HEREDOC_MARK_RE.match(text, k)
+        return bool(got) and (marks is None or int(got.group(0)[9:-2]) < marks)
+
     if _live(text, lambda t, k: t.startswith(UNREADABLE_OPENERS, k)):
         return None
     out, i, n, copied = [], 0, len(text), 0
@@ -1155,7 +1162,7 @@ def normalize_shell(text):
         i = m.start()
         c, top = text[i], stack[-1]
         if c == "_":   # 盾の印
-            if top[0] in ("'", '"', "{"):
+            if top[0] in ("'", '"', "{") and real_mark(i):
                 return None
             i += len("__HEREDOC")
         elif top[0] == "'":
@@ -1251,7 +1258,7 @@ def normalize_shell(text):
                 return None
             nl = text.find("\n", i)
             nl = n if nl < 0 else nl
-            if "__HEREDOC" in text[i:nl]:
+            if any(real_mark(k.start()) for k in HEREDOC_MARK_RE.finditer(text, i, nl)):
                 return None   # 盾は注釈と読まず、印を置いた
             gap_at = i - 1 if i > copied else gap_at
             out.append(text[copied:i])
@@ -1275,7 +1282,7 @@ def prepare(command):
     食い違う(destgate が現にそうなっていた)。
     """
     shielded, bodies = shield_heredocs(command)
-    return (None if shielded is None else normalize_shell(shielded)), bodies
+    return (None if shielded is None else normalize_shell(shielded, len(bodies))), bodies
 
 
 def tokenize(text):
@@ -2477,7 +2484,7 @@ def read_substitutions(norm, spans, heredoc_bodies, depth):
                 return None, norm
             code = body
             if kind == "`":
-                code = normalize_shell(re.sub(r'\\([$`\\%s])' % ('"' if in_dq else ""), r"\1", body))
+                code = normalize_shell(re.sub(r'\\([$`\\%s])' % ('"' if in_dq else ""), r"\1", body), len(heredoc_bodies))
             sub = analyze(None, None, (code, heredoc_bodies), depth + 1)
             if not sub.parsed:
                 return None, norm
