@@ -5036,7 +5036,11 @@ def main() -> None:
         prepared = prepare(command)
     except Exception:
         prepared = None   # 解析(analyze)が同じ例外で落ち、下で解析できないとして止める
-    if wants_skip(command, prepared) if prepared else SKIP_PREFIX_RE.match(command):
+    try:
+        skip = wants_skip(command, prepared) if prepared else SKIP_PREFIX_RE.match(command)
+    except Exception:
+        skip = None   # 飛ばしの印は断るだけなので、読めなくても下の検査へ進む(ここで落ちるとフックが倒れ、無検査で通る)
+    if skip:
         log_line(SKIP_LOG, "refused\t" + command[:200].replace("\n", " "))
         skip_note = SKIP_REFUSED_NOTE
 

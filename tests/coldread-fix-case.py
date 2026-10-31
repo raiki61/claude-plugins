@@ -1457,8 +1457,16 @@ def f79():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(79, not parsed or cands == [BODY] or bool(blk), "${ } の中の gh の投稿の本文を読まなかった: %r → %r %r %r" % (cmd, cands, blk, parsed))
 
+# 80. 飛ばしの印を見る所(wants_skip)が落ちても、フックを倒さずに下の検査へ進む(前は try の外で、落ちるとフックが倒れ、無検査で通った)
+def f80():
+    def broken(*a, **k):
+        raise RuntimeError("boom")
+    with patched(wants_skip=broken):
+        _, out = run_main("gh issue comment 1 --body-file /nonexistent/x.md", WORK)
+    check(80, '"deny"' in out, "wants_skip が落ちたときに止めなかった: %r" % out[:200])
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77, 78: f78, 79: f79})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77, 78: f78, 79: f79, 80: f80})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
