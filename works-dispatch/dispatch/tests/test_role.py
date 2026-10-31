@@ -744,10 +744,10 @@ class Hook(unittest.TestCase):
 
     def test_a_talk_outside_the_departments_of_a_company_gets_how_to_ask_other_companies(self):
         # 部署でない会話（PR のブランチの会話など）が SendMessage で頼み、受付の台帳に頼み元が残らなかった（2026-10-17 の guided-resolver）
-        def started(cwd, sid):
+        def started(cwd, sid, title=None):
             out = io.StringIO()
             with mock.patch.object(claudex, "running", lambda pid: True), contextlib.redirect_stdout(out):
-                role_hook.main(io.StringIO(json.dumps({"cwd": cwd, "session_id": sid, "source": "startup"})), self.env)
+                role_hook.main(io.StringIO(json.dumps({"cwd": cwd, "session_id": sid, "source": "startup", "session_title": title})), self.env)
             return json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"] if out.getvalue() else None
         self.assertIsNone(started(self.place, "s-a"))   # 会社でないリポジトリには何も足さない
         write(pathlib.Path(self.src) / ".claude" / "company.toml", 'name = "co"\n' + SHAPE.replace('name = "試しの会社"\n', ""))
@@ -756,9 +756,11 @@ class Hook(unittest.TestCase):
         self.assertIn(f"{role_hook.RUN} --ask <会社の名前> --text <頼み>", got)
         self.assertEqual(len(got.splitlines()), 1)   # 毎回の起動の量に入るので 1 行
         provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, self.g)
-        desk = started(self.src, "s-c")   # 本社の、窓口でない会話には、前の窓口の会話を継ぐなら席を取り直す道も足す（受付 d46e09、頼み 2827a8）
+        desk = started(self.src, "s-c", "調べ")   # 本社で窓口の名前を名乗った、窓口でない会話には、席を取り直す道も足す（受付 d46e09、頼み 2827a8）
         self.assertEqual(desk.splitlines()[0], got)
         self.assertIn(f"窓口「調べ」の会話（会話 s-desk）が持つ。前の窓口の会話を継ぐなら `{role_hook.RUN} --desk` で席を取り直す", desk)
+        self.assertEqual(started(self.src, "s-e"), got)   # 名前の無い試し（claude -p）には席の道を足さない（読んで --desk を打ちうる）
+        self.assertEqual(started(self.src, "s-f", "別"), got)
         self.assertEqual(started(self.src, "s-desk"), role_hook.text_for(self.src, self.env))   # 窓口と部署は役の本文だけ（今までどおり）
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertEqual(started(self.place, "s-d"), role_hook.text_for(self.place, self.env))

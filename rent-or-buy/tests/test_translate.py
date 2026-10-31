@@ -330,7 +330,7 @@ class TranslateTest(unittest.TestCase):
                                    ("2026-10-01T23:59:59.5Z", None, ["b", "c"])):
             r = self.run_cli("records", "--since", since, *(("--until", until) if until else ()), RENT_OR_BUY_RECORD=str(log))
             self.assertEqual((r.returncode, [json.loads(x)["scene"] for x in r.stdout.splitlines()]), (0, want), since)
-        for bad in (("--since", "yesterday"), ("--until", "2026-13-01T00:00:00Z")):
+        for bad in (("--since", "yesterday"), ("--until", "2026-13-01T00:00:00Z"), ("--since", "")):   # 空の字も断る
             for env in (str(log), "off"):  # 記録を止めていても、読めない値は断る
                 r = self.run_cli("records", *bad, RENT_OR_BUY_RECORD=env)
                 self.assertEqual((r.returncode, json.loads(r.stdout)["error"]), (2, "invalid_input"), (bad, env))

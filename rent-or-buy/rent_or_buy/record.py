@@ -55,8 +55,8 @@ def read_records(path, since: Optional[str] = None, until: Optional[str] = None)
     読めない行は飛ばす。ファイルが無いか path が None なら何も返さない。"""
     bounds = []
     for name, text in (("since", since), ("until", until)):
-        t = _instant(text) if text else None
-        if text and t is None:
+        t = _instant(text) if text is not None else None
+        if text is not None and t is None:   # 空の字も読めない値として断る
             raise InputError("--%s must be an ISO 8601 date and time such as 2026-10-30T00:00:00Z: %r" % (name, text))
         bounds.append(t)
     return _rows(Path(path), *bounds) if path is not None else iter(())

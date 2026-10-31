@@ -113,9 +113,13 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
     except (gitx.GitError, OSError) as e:
         # 一時の worktree を作れない（残ったパス・index.lock など）。--land の後の合図（fire）も、残りのツールと片付けまで進める。
         # ツールは走っていないので外れ（miss）とは数えず、ほかの部署へも回さない。後から追えるように失敗の行だけ台帳に残す
-        deliver.log(inbox, {"kind": "call", "status": "failed", "role": role_name, "tool": tool_name, "input": value,
-                            "why": f"ツールを走らせる場所を作れない（{e}）", "at": ports.now()})
-        return 1, [f"止めた: ツールを走らせる場所を作れない（{e}）"]
+        lines = [f"止めた: ツールを走らせる場所を作れない（{e}）"]
+        try:   # 台帳にも書けないときは行で知らせ、合図の残りのツールを止めない
+            deliver.log(inbox, {"kind": "call", "status": "failed", "role": role_name, "tool": tool_name, "input": value,
+                                "why": f"ツールを走らせる場所を作れない（{e}）", "at": ports.now()})
+        except OSError as e2:
+            lines.append(f"失敗の行を台帳に書けなかった（{e2}）")
+        return 1, lines
     if code == 0:
         deliver.log(inbox, {"kind": "call", "status": "done", "role": role_name, "tool": tool_name, "at": ports.now()})
         return 0, [x for x in [note, out.rstrip("\n")] if x and x.strip()]

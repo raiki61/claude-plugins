@@ -220,13 +220,13 @@ compact の翻訳を、会話の記録から計った実測値と項ごとに照
 
 `bin/rent-or-buy`（Claude Code は、有効なプラグインの `bin/` を Bash のツールの PATH に入れる）。標準入力に JSON のオブジェクトを受け、標準出力に JSON のオブジェクトを 1 つ返す。Python 3.11 以上で、標準ライブラリだけを使う（Claude Code のプラグインには、使う人の機械に pip の依存を入れる段が無いため）。
 
-- `rent-or-buy decide`: 中心をそのまま呼ぶ。
+- `rent-or-buy decide`: 中心（3 の `decide`）をそのまま呼ぶ。標準入力の値だけで判断し、会話の記録（`--transcript`）から値を埋めない（keepalive・compact は埋める）。
 - `rent-or-buy keepalive [--transcript FILE]`: 4.4 の keepalive。記録を渡せば、モデル・文脈の大きさ・最後の要求の時刻を記録から埋める（標準入力の値が勝つ）。
 - `rent-or-buy compact [--transcript FILE]`: 4.4 の compact。記録を渡せば、モデル・文脈の大きさ・compact の後の大きさ・余分に読んだ額を記録から埋める。
 - `rent-or-buy prices MODEL`: 正規化した名前と、使う値段と、その出どころ（調べるとき用）。
 - `rent-or-buy snapshot`: LiteLLM の main ブランチから同梱の写しを作り直す（保守する人が打つ）。
-- `rent-or-buy outcome`: 結果の行（3.6）を足す。標準入力は結果 1 件か `{"outcomes": [...]}` で、1 件でも形が違えば何も足さない（終了コード 2）。結果の在る鍵は飛ばす。出力は `{"recorded", "duplicates"}`。`RENT_OR_BUY_RECORD=off` なら終了コード 2（`record_off`）。
-- `rent-or-buy records [--since T] [--until T]`: `since <= ts < until` の記録の行を JSON Lines で出す（`T` は ISO 8601 の日時。`T` と `ts` は字の並びでなく日時として比べるので、時差は `Z` でも `+09:00` でもよく、秒は省いてよい。時差の無い値は `ts` と同じ UTC と読む。読めない `T` は終わりのコード 2 の `invalid_input` で断る）。呼ぶ側はファイルを開かずにこれで読み、置き場は部品の側だけが知る。
+- `rent-or-buy outcome`: 結果の行（3.6）を足す。標準入力は結果 1 件か `{"outcomes": [...]}` で、1 件でも形が違えば何も足さない（終了コード 2）。結果の在る鍵（3.6 の判断の `key`）は飛ばし、`duplicates` に数える。出力は `{"recorded", "duplicates"}`。`RENT_OR_BUY_RECORD=off` なら、書く先が無いので終了コード 2（`record_off`）。
+- `rent-or-buy records [--since T] [--until T]`: `since <= ts < until` の記録の行を JSON Lines で出す（`T` は ISO 8601 の日時。`ts` は記録の各行の時刻（UTC）。`T` と `ts` は字の並びでなく日時として比べるので、時差は `Z` でも `+09:00` でもよく、秒は省いてよい。時差の無い値は `ts` と同じ UTC と読む。読めない `T`（空の字も）は終了コード 2 の `invalid_input` で断る。`ts` を日時として読めない行は飛ばす。`--since`・`--until` を省けば、その側は区切らない）。呼ぶ側はファイルを開かずにこれで読み、置き場は部品の側だけが知る。
 
 終了コード: 0 は判断できた、1 は `snapshot` の失敗か結果を書けない、2 は入力の形の誤り、3 は知らないモデル、4 は記録を読めない。0 以外でも、出力は `{"error": "<キー>", "why": "<英語>"}`。`decide`・`keepalive`・`compact` の失敗は、入力ごと判断の記録に足す。知らないモデル名を集めるため（`prices` の失敗は記録しない）。出力の `version` は、プラグインの `plugin.json` の `version`。
 

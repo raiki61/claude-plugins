@@ -28,8 +28,8 @@ works-factory プラグインの殻（`works-factory/bin/works-factory`）は、
 
 ### 3.1 きっかけ: claude-plugins の main に入れた後の合図と、部署を立てた後の合図
 
-- 採った: `[[land.after]]`（tests/ci-watch.py と同じ形）。代償は、claude-plugins の main に誰も入れない間は見張りも止まること。手で `--call` を打てば回る。
-- 足した（頼み 2827a8。持ち主 2026-10-31「全部おしで」）: `[[task.after]]`。claude-plugins で部署が新しく立つたびに、works-dispatch が裏で見張りを呼ぶ。main へ入れる合図だけでは、main に誰も入れない間に工場の新しい版を追えなかった。頼み元は会社の窓口で、開き直した部署（`--task` の打ち直し・`--move`）では呼ばない。同じ会社でほかの部署の合図が呼んでいる間は飛ばす。
+- 採った: `[[land.after]]`（tests/ci-watch.py と同じ形）。会社の形 `.claude/company.toml` に書き、works-dispatch が `--land` で claude-plugins の main に入れ終えた後に、見張り（works-factory-pin のツール。工場の版が遅れていれば上げを頼む）を呼ぶ。代償は、claude-plugins の main に誰も入れない間は見張りも止まること。works-dispatch の `--call`（会社の形のツールを 1 つ手で呼ぶ打ち方）を手で打てば回る。
+- 足した（頼み 2827a8。持ち主 2026-10-31「全部おしで」）: `[[task.after]]`。claude-plugins で部署が新しく立つたびに、works-dispatch が裏で見張りを呼ぶ。main へ入れる合図だけでは、main に誰も入れない間に工場の新しい版を追えなかった。「会社」は works-dispatch の単位で、1 つのリポジトリの会社の形に書いた部署の集まり（ここでは claude-plugins の会社）。見張りが回す頼みの頼み元は、その会社の窓口（持ち主と話して部署に仕事を配る会話）。すでにある部署を開き直したとき（`--task` の打ち直し・`--move`）は呼ばない。同じ会社のほかの部署の合図が呼んでいる間は飛ばす。
 - 採らない: 手元の定期の起動（cron・launchd）。持ち主が置かないと決めている（works-dispatch/docs/ledger.md の「cron・launchd で刻む形: 採らない」）。
 - 採らない: 工場からの知らせ（工場の GitHub Actions から claude-plugins へ repository_dispatch を送る）。works-factory の側に常駐の仕組みを足すことになり、works-factory の決まり E10 で先に持ち主の決めが要る。
 - 採らない: claude-plugins の GitHub Actions の定期。版の上げ（`--land`）と配布（spread-plugins）が手元にしか無く、Actions から main へ直に push すると `--land` の列とゲートを外れる。機械の上げ（3.7）も同じ訳で、ツールの中で push せずに `--land` を打つ。

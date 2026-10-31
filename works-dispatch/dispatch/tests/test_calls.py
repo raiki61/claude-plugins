@@ -520,6 +520,11 @@ class ToolPlace(unittest.TestCase):
         self.assertIn("fatal: index.lock", rows[0]["why"])
         self.assertTrue(made)
         self.assertFalse(any(os.path.exists(d) for d in made))
+        with mock.patch.object(gitx, "add_detached", side_effect=gitx.GitError("fatal: index.lock")), \
+                mock.patch.object(deliver, "log", side_effect=OSError("disk full")):
+            rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 1, out)   # 台帳にも書けないときは、行で知らせて止まる（traceback を出さない）
+        self.assertIn("失敗の行を台帳に書けなかった（disk full）", out)
 
     def test_sweep_with_a_gone_owner_keeps_a_lone_commit_and_leaves_a_dirty_place(self):
         # 居るかの見方を渡して、消し方そのものを OS に依らずに見る（Windows の既定の見方は「居る」で消さない）
