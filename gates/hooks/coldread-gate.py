@@ -381,6 +381,7 @@ SEND_WORD_RE = re.compile(r"\bgh\b|\bdispatch\.py\b")
 
 
 HEREDOC_MARK = "__HEREDOC%d__"
+HEREDOC_MARK_RE = re.compile(r"__HEREDOC\d+__")
 
 
 class Expands(str):
@@ -1274,10 +1275,15 @@ def command_start(tokens):
     """単純コマンドのコマンド名の位置。前置(環境変数の代入・env/timeout 等とその旗と値)を読み飛ばす。無ければ len(tokens)。
 
     gh_args と wants_skip の両方がここを通る——読み飛ばす範囲を 2 か所に書くと、片方だけ外れる。
+    コマンド名の前に書いたヒアドキュメント(`<<'EOF' gh …`。盾の印が残る)も読み飛ばす。前は印をコマンド名と読み、後ろの
+    gh を引数と見て通していた(ほかのリダイレクトは split_commands が先に除く)。
     """
     i, wrapper, need = 0, None, 0
     while i < len(tokens):
         tok = tokens[i]
+        if HEREDOC_MARK_RE.fullmatch(tok):
+            i += 1
+            continue
         if wrapper and tok.startswith("-") and tok != "-":
             # 値を取る旗は値ごと飛ばす(--signal=KILL・-sKILL の融合形は 1 語)
             i += 2 if tok in WRAPPER_VALUE_OPTS.get(wrapper, ()) else 1
@@ -1301,7 +1307,8 @@ def gh_args(tokens):
     """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。"""
     i = command_start(tokens)
     if i < len(tokens) and (tokens[i] == "gh" or tokens[i].endswith("/gh")):
-        return tokens[i + 1:]
+        # コマンド名の前のヒアドキュメントの印は、後ろに書いたのと同じに引数の末尾へ回す(own_heredocs が gh の本文と見る)
+        return tokens[i + 1:] + [t for t in tokens[:i] if HEREDOC_MARK_RE.fullmatch(t)]
     return None
 
 

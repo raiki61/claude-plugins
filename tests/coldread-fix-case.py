@@ -6,6 +6,7 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 (commit 8eb61ffd)が持ち込んだ止めすぎで、8eb61ffd の版を渡すと赤になる。16・17 は 14・15 の直し(commit 0bd1e0a2)の
 後に見つけた素通しで、0bd1e0a2 の版を渡すと赤になる。21〜33 は 2 度目のレビュー(頼み cae1e2)の F1〜F13 で、
 番号から 20 を引くとレビューの番号になる(29 はレビューの F9 で、探しのゲートの側の直しなので tests/searchgate-suite.py に置く)。
+34 は 21〜28 を直す間に見つけた素通しで、commit 69816318 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -566,6 +567,14 @@ def f28():
         stops(28, cmd)
 
 
+# 34. コマンド名の前に書いたヒアドキュメント(`<<'EOF' gh …`)の後ろの gh を見落とさず、本文も後ろに書いたのと同じに読む
+def f34():
+    stops(34, "<<'EOF' " + GH + "\nx\nEOF")
+    stops(34, "<<'EOF' timeout 5 " + GH + "\nx\nEOF")
+    cands, blk, parsed = g.posting_bodies("<<'EOF' gh issue comment 1 -F -\n" + BODY + "\nEOF", WORK)
+    check(34, parsed and cands == [BODY] and not blk, "前に書いたヒアドキュメントの本文を読まなかった: %r %r" % (blk, parsed))
+
+
 # 32. 置換の中の引用符を探す読みが、閉じない $( ・入れ子の ${ の並ぶ長いコマンドで長さの 2 乗の時間をかけない
 # (前は 70KB で 15 秒を超え、100KB の上限の近くで 40 秒。フックの時間切れを過ぎると止めずに通る)
 def f32():
@@ -578,7 +587,7 @@ def f32():
 
 
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 32: f32})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 32: f32, 34: f34})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
