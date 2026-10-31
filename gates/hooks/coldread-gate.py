@@ -559,6 +559,59 @@ def _tick_end(text, i):
     return len(text)
 
 
+def _line_runs_on(rest):
+    r"""ヒアドキュメントの開始行の続き(HEREDOC_RE の群 4)の後で、bash がその行を次の行へつなぐか。行継続(奇数個の \ で終わる)・
+    閉じない引用(' " $'…')・閉じない置換(`$(`・`${`・`` ` ``)で終われば真。bash は本文を、つないだ行の終わりの後から読むので、
+    次の行を本文と読むと、つないだ行のコマンド(`cat <<'EOF' \` の次の行の `| gh pr comment 1 --body-file -`)を見落とす。
+    注釈(語の頭の #)から後ろは見ない(注釈の中の \ と引用符はつながない)。置換の中の注釈は閉じる ) を隠すので真にする。"""
+    stack, i, n, escaped = [], 0, len(rest), -2
+    while i < n:
+        c, top = rest[i], (stack[-1] if stack else None)
+        if c == "\\":
+            if i + 1 >= n:
+                return True
+            escaped = i + 1
+            i += 2
+            continue
+        if top == '"':
+            if c == '"':
+                stack.pop()
+            elif c == "`":
+                stack.append("`")
+            elif rest.startswith(("$(", "${"), i):
+                stack.append(")" if rest[i + 1] == "(" else "}")
+                i += 1
+            i += 1
+            continue
+        if c == "`" and top == "`":
+            stack.pop()
+        elif rest.startswith("$'", i):
+            j = i + 2
+            while j < n and rest[j] != "'":
+                j += 2 if rest[j] == "\\" else 1
+            if j >= n:
+                return True
+            i = j
+        elif c == "'":
+            j = rest.find("'", i + 1)
+            if j < 0:
+                return True
+            i = j
+        elif c in '"`':
+            stack.append(c)
+        elif rest.startswith(("$(", "${"), i):
+            stack.append(")" if rest[i + 1] == "(" else "}")
+            i += 1
+        elif c == "(" and top == ")":
+            stack.append(")")
+        elif c in ")}" and c == top:
+            stack.pop()
+        elif c == "#" and i - 1 != escaped and (i == 0 or rest[i - 1] in " \t;&|"):
+            return bool(stack)
+        i += 1
+    return bool(stack)
+
+
 def shield_heredocs(command):
     """ヒアドキュメント本文を取り出し、解析用の文字列では番号付きの印に置き換える。$'…' は単一引用の形に書き直す。
     → (解析用の文字列, 本文の並び)。読む所を言い切れなければ解析用の文字列を None にする。
@@ -740,6 +793,8 @@ def shield_heredocs(command):
                 continue
             if ticks and hm.end() > stack[ticks[-1]][1]:
                 return None, bodies   # 本文が閉じる ` の後の行に在る。bash はその行をコマンドとして走らせる
+            if _line_runs_on(hm.group(4)):
+                return None, bodies   # 開始行が次の行へつながる。bash は本文を、つないだ行の後から読む
             if parens and parens[-1][1]:
                 # 算術の中の << は桁送りで、bash は後ろの行をコマンドとして走らせる(`$((1<<x))` の後の行)。`((cat <<x)` のように
                 # (( を 2 つのサブシェルと読み直す形ではヒアドキュメントになるので、どちらか言い切れない

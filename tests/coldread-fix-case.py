@@ -637,8 +637,18 @@ def f36():
         stops(36, cmd)
 
 
+# 37. ヒアドキュメントの開始行が、行継続(\\ で終わる)か閉じない引用で次の行へつながる形は読めない物とする(bash は本文を、
+# つないだ行の後から読む。前は次の行を本文と読み、つないだ行の gh を見落とした)。注釈の中の \\ と引用符ではつながない
+def f37():
+    for cmd in ("cat <<'EOF' \\\n| " + GH + "\nbody\nEOF", "cat <<'EOF' > b.md \\\n  && " + GH + "\nbody\nEOF",
+                "cat <<A; echo 'x\ny'; " + GH + "\nA\necho it\\'s", 'cat <<A; echo "$(echo\n)"; ' + GH + "\nA\necho it\\'s"):
+        stops(37, cmd)
+    cands, blk, parsed = g.posting_bodies("cat <<EOF # it's \\\nbody\nEOF\ngh pr comment 1 --body '" + BODY + "'", WORK)
+    check(37, parsed and cands == [BODY] and not blk, "注釈の中の \\ と ' でつながると読んだ: %r %r" % (blk, parsed))
+
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
