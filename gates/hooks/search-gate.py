@@ -131,9 +131,10 @@ def expand_home(value):
     return re.sub(r"\$(?:\{HOME\}|HOME(?![A-Za-z0-9_]))", lambda m: h, value)
 
 
-def substitutions(text, bare=True):
+def substitutions(text, bare=True, heredoc=False):
     """引用の単一の外にある $( … ) と ` … ` の中身。二重引用の中も読む(シェルが展開する)。bare が偽なら、引用の外の $( … ) は
-    返さない(トークン化がその中を単純コマンドに割り、外のコマンドの cd と代入の中で見るので)。"""
+    返さない(トークン化がその中を単純コマンドに割り、外のコマンドの cd と代入の中で見るので)。heredoc が真なら、text は
+    区切りを引用しないヒアドキュメントの本文で、' と " は引用でなく字(シェルは本文の中のどこの $( … ) も走らせる)。"""
     out, i, quote, n = [], 0, None, len(text)
     while i < n:
         c = text[i]
@@ -142,9 +143,9 @@ def substitutions(text, bare=True):
                 quote = None
         elif c == "\\":
             i += 1
-        elif c == "'" and quote is None:
+        elif c == "'" and quote is None and not heredoc:
             quote = "'"
-        elif c == '"':
+        elif c == '"' and not heredoc:
             quote = None if quote == '"' else '"'
         elif text.startswith("$(", i) and not text.startswith("$((", i):
             depth, j = 1, i + 2
@@ -531,6 +532,11 @@ def check_command(cr, command, cwd, depth=0, outer=None):
         if any("`" in a for a in c.args):
             ticks.update(heres)
         inners = {x for a in c.args for x in substitutions(a)}
+        # 区切りを引用しないヒアドキュメントの本文の $( … ) と ` … ` は、どのコマンドの本文でも、そのコマンドの場所で走る
+        # (前は本文をシェルに渡すときだけ読み、`cat <<EOF > out.txt` の次の行の `$(find / …)` を通していた)。
+        # 区切りを引用した本文(Expands でない)は展開しないので読まない
+        inners |= {x for b in cr.own_heredocs(c.args, bodies) if isinstance(b, cr.Expands)
+                   for x in substitutions(b, heredoc=True)}
         seen |= inners
         for here in heres:
             # 1 語に残った $( … )(二重引用の中)は、その語を持つコマンドの cwd と、外の代入で見る(前はフックの cwd だけで見て、

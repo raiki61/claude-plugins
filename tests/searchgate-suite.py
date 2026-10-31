@@ -246,6 +246,19 @@ class Bash(unittest.TestCase):
         self.assertIsNone(run("Bash", {"command": "bash script.sh <<EOF\nfind / -name x\nEOF"})[0])
         self.assertIsNone(run("Bash", {"command": 'D=src; eval "find $D -name x"'})[0])
 
+    def test_substitutions_in_unquoted_heredoc_bodies_are_read(self):
+        # 区切りを引用しないヒアドキュメントの本文の $( ) と ` ` は、シェルに渡さないコマンドの本文でも走る(' は本文の中では字)
+        for command in ("cat <<EOF > out.txt\n$(find / -name x)\nEOF", "cat <<EOF > out.txt\n`find ~ -name x`\nEOF",
+                        'python3 - <<EOF\nprint("""$(rg -l foo /)""")\nEOF', "cat <<EOF\nIt's $(find / -name x)\nEOF",
+                        "D=/; cat <<EOF\n$(find $D -name x)\nEOF"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # 区切りを引用した本文と、\ で引用した $ は展開しない
+        for command in ("cat <<'EOF'\n$(find / -name x)\nEOF", "cat <<\\EOF\n$(find / -name x)\nEOF",
+                        "cat <<EOF\n\\$(find / -name x)\nEOF", "cat <<EOF\n$(find . -name x)\nEOF"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_backticks_run_in_the_cwd_of_their_command(self):
         for command in ("cd / && for f in `find . -name '*.json'`; do :; done", "cd / && a=`find . -name x`"):
