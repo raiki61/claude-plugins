@@ -16,7 +16,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 の直しで、commit 3f5cae34 の版を渡すと赤になる。67 以降は投稿の前のゲートの 19 回目のレビュー(頼み cae1e2)の直しで、
 commit 9d3d014e の版を渡すと赤になる。70 以降は投稿の前のゲートの 20 回目のレビュー(頼み cae1e2)の直しで、
 commit d54ac54b の版を渡すと赤になる。73 以降は投稿の前のゲートの 21 回目のレビュー(頼み cae1e2)の直しで、
-commit 13863e1c の版を渡すと赤になる。
+commit 13863e1c の版を渡すと赤になる。76 以降は投稿の前のゲートの 22 回目のレビュー(頼み cae1e2)の直しで、
+commit 534be7ad の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1375,8 +1376,29 @@ def f75():
     calls = g.analyze("for i in 1 2; do gh pr comment $i -b hi; done", WORK).calls
     check(75, [c[4] for c in calls if c[0] == ("pr", "comment")] == [WORK], "cd の無い繰り返しで宛先の場所を見失った: %r" % calls)
 
+# 76. 関数の本体が `{ }` でない定義(`f() ( gh …; )`・`function f ( … )`・`f() if …; fi`)も、関数の在るコマンドと見て、gh より後ろに書いた
+# cd が在れば gh の走る場所を決まらない物と見る(前は閉じの `done`・`}` だけで繰り返し・関数を見つけ、`f() ( gh pr comment 1
+# --body-file x.md ); cd /o && f` の gh が /o で読む本文ファイルでなく、フックの場所の x.md を読んでいた)。cd の無い関数と、
+# 空の配列の代入(`a=()`)の後ろの cd は今までどおり
+def f76():
+    sub = os.path.join(WORK, "sub")
+    os.makedirs(sub, exist_ok=True)
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    for cmd in ("f() ( gh pr comment 1 --body-file x.md ); cd %s && f", "function f ( gh pr comment 1 --body-file x.md ); cd %s && f",
+                "f() if :; then gh pr comment 1 --body-file x.md; fi; cd %s && f", "f ( ) ( gh pr comment 1 --body-file x.md ); cd %s && f"):
+        cmd = cmd % sub
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(76, not parsed or bool(blk), "本体が { } でない関数の後ろの cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
+    for cmd in ("f() ( gh pr comment 1 --body-file x.md ); f", "a=(); gh pr comment 1 --body-file x.md; cd %s" % sub):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(76, parsed and cands == [BODY] and not blk, "cd の無い関数か配列の代入で本文ファイルを読まなかった: %r → %r %r" % (cmd, cands, blk))
+    calls = g.analyze("f() ( gh pr comment 1 -b hi ); cd %s && f" % sub, WORK).calls
+    check(76, [c[4] for c in calls if c[0] == ("pr", "comment")] == [None], "本体が ( ) の関数の後ろの cd で宛先の場所を読めると見た: %r" % calls)
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

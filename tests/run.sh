@@ -5766,10 +5766,12 @@ for c in "(cd $ng && echo \")\" && gh issue comment 1 --body hi)" "(cd $ng && ec
 done
 [ $ok = 1 ] && echo DG_QUOTED_PAREN_CD_OK' sh "$DG_REPO_NG" env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
 # 繰り返し・関数の在るコマンドでは、gh より後ろに書いた cd も次の回・関数を呼ぶ前に走りうるので、-R の無い投稿は宛先不明にする
-# (前は gh より前のコマンドだけを見て、走る場所の repo を宛先と見て通した)。cd の無い繰り返しは今までどおり
+# (前は gh より前のコマンドだけを見て、走る場所の repo を宛先と見て通した。本体が `( )`・`if` の関数は、その後も閉じの `}` が
+# 無いので関数と見ずに通した)。cd の無い繰り返しは今までどおり
 expect_output 0 "DG_LOOP_CD_AFTER_OK" "destgate: 繰り返し・関数の中の gh の後ろの cd が在れば、-R の無い宛先を不明にする" \
     sh -c 'ok=1; ng=$1; shift
-for c in "for d in /a $ng; do gh issue comment 1 --body hi; cd \$d; done" "f() { gh issue comment 1 --body hi; }; cd $ng && f"; do
+for c in "for d in /a $ng; do gh issue comment 1 --body hi; cd \$d; done" "f() { gh issue comment 1 --body hi; }; cd $ng && f" \
+  "f() ( gh issue comment 1 --body hi ); cd $ng && f" "f() if :; then gh issue comment 1 --body hi; fi; cd $ng && f"; do
   "$@" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
 done
 for c in "for i in 1 2; do gh issue comment \$i --body hi; done" "gh issue comment 1 --body hi; cd $ng"; do

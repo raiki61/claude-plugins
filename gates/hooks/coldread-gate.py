@@ -2715,6 +2715,20 @@ def _dest_unresolved(args, at, resolve):
     return bool(operands) and "$" in operands[-1] and resolve(operands[-1]) is None
 
 
+def defines_function(cmds):
+    """単純コマンドの列(split_commands)が関数の定義を持つか。`function 名前` で始まるコマンドか、1 語のコマンドの直後の空の `()`
+    (`f() { …; }`・`f ( ) …`)が在れば持つ。本体が `{ }` でない定義(`f() ( gh …; )`・`f() if …; fi`)も同じに見る。
+    空の `()` の前が代入の語(`a=()` の空の配列)なら定義に数えない。"""
+    for m, c in enumerate(cmds):
+        if c.args[:1] == ["function"]:
+            return True
+        ops = c.ops
+        if m and len(cmds[m - 1].args) == 1 and "=" not in cmds[m - 1].args[0] and any(
+                ops[i][0] == "(" and ops[i + 1] == (")", ops[i][1]) for i in range(len(ops) - 1)):
+            return True
+    return False
+
+
 class BodyFiles:
     """1 つのコマンド文字列の中で、k 番目の単純コマンド(gh)が読む本文ファイルと変数を静的に解く。
 
@@ -2734,8 +2748,9 @@ class BodyFiles:
         self.k, self.moved = 0, False
         self._assigned = None
         self._sq = None
-        # 繰り返し・関数の中では、gh の後に書いたコマンドも次の gh の前に走る
-        self.looped = any(c.args[:1] in (["done"], ["}"]) for c in cmds)
+        # 繰り返し・関数の中では、gh の後に書いたコマンドも次の gh の前に走る。関数は本体の形(`{ }`・`( )`・`if`)に依らず、
+        # 定義が在れば見る(前は閉じの `done`・`}` だけを見て、`f() ( gh …; ); cd /x && f` の gh の本文ファイルを cd の前の場所で読んでいた)
+        self.looped = any(c.args[:1] in (["done"], ["}"]) for c in cmds) or defines_function(cmds)
 
     def at(self, k, prefix):
         """k 番目の gh 呼び出しを見る。prefix は gh より前の語(env -C・sudo -D・--chdir・find -execdir などは cwd を変える。moves_dir)。"""
