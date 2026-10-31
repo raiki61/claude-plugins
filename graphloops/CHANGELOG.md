@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 利用者の動きは変わらない直し（試験だけ）。0.46.2 で CI の Windows で欠けてよい能力の一覧に足した `posix-os` を外した。リポジトリのルートの `tests/run.sh` が works-factory の試験を Windows でも回すようになり、この名前の見送りが無くなったため。`tests/py/test_mutate_shard.py` の見本の字（`WIN_ALLOW`）も同じ一覧にそろえた。
+
 ## [0.46.6] - 2026-11-01
 
 ### Fixed

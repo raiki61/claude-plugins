@@ -6,6 +6,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 殻 `bin/works-factory` を bash の台本から、sh と Python の両方で読める台本（頭の sh が 3.12 以上の python を選び、同じファイルを Python で起動し直す。rent-or-buy の `bin/rent-or-buy` と同じ作り）に替えた。取り寄せと置き場の扱いは Python で書き、Windows でも動く。sh の無い所（Windows の PowerShell など）では、3.12 以上の python でこのファイルを直に起動すれば同じに動く。Windows では工場の入口を子のプロセスで起動して終わりを待ち、その終わりのコードを返す。工場（raiki61/works-factory）の側の Windows 対応はまだで、スキルの「要る物」にその旨を書いた。
+
 ## [0.42.0] - 2026-10-31
 
 ### Changed

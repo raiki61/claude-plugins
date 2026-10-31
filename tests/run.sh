@@ -6410,19 +6410,10 @@ expect_output 0 "OK" "rent-or-buy: fixed の最悪 2 倍未満・問い合わせ
     "$PY_BIN" -B -m unittest discover -s "$ROOT/rent-or-buy/tests"
 scope
 # ---- works-factory: 起動の殻 bin/works-factory（止めた commit の取り寄せ・引数の受け渡し・Python の選び方・同時起動の取り寄せ）----
-# 試験の中の 3.12 未満の python で回せない腕は、試験の側の skipIf が見送る。
-# Windows では丸ごと見送る: works-factory は macOS と Linux だけで動き（works-factory/skills/works-factory/SKILL.md の必要な物）、
-# 試験が裸の名前で起動する bash は、Windows では CreateProcess が PATH より先にシステムのディレクトリを探すので、
-# Git の bash でなく WSL の起動口（C:\Windows\System32\bash.exe）に当たる（tests/mutate.py の BASH と同じ訳）
-wf_desc="works-factory: 殻が止めた commit の取り置きを 1 度だけ取り寄せ、引数をそのまま渡し、3.12 以上の python を選び、スキルの本文が長すぎず参照の先が在る"
+# sh で起動して頭の python の選びを通す腕と、sh の台本の見本を使う腕は、Windows では試験の側の skipIf が見送る
 scope works-factory
-if "$PY_BIN" -c 'import os, sys; sys.exit(os.name != "posix")'; then
-    expect_output 0 "OK" "$wf_desc" \
-        "$PY_BIN" -B -m unittest discover -s "$ROOT/works-factory/tests"
-else
-    wf_skip="  ok   $wf_desc # SKIP posix-os: works-factory は macOS と Linux だけで動く（Windows で裸の bash を起動すると WSL の起動口に当たる）"
-    echo "$wf_skip"; note_skips "$wf_skip"; ran=$((ran + 1))
-fi
+expect_output 0 "OK" "works-factory: 殻が止めた commit の取り置きを 1 度だけ取り寄せ、引数をそのまま渡し、3.12 以上の python を選び、スキルの本文が長すぎず参照の先が在る" \
+    "$PY_BIN" -B -m unittest discover -s "$ROOT/works-factory/tests"
 scope
 # --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
 expect_output 0 "OUT_FLAG_OK" \

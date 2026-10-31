@@ -1,66 +1,123 @@
-#!/usr/bin/env bash
-# works-factory の薄い入口。止めた commit（隣の PIN）の raiki61/works-factory を取り置きに用意し、その殻 bin/works-factory
-# （apply なら bin/apply）に引数をそのまま渡す。認証・隔離・Archon の取り寄せは向こうの殻が持つので、ここでは何もしない。
-# 使い方: works-factory <Archon の CLI の引数…> ／ works-factory apply <run> --cwd <対象>
-set -euo pipefail
-
-here=$(cd "$(dirname "$0")/.." && pwd)
-pin=$(tr -d '[:space:]' < "$here/PIN")
-case "$pin" in
-  *[!0-9a-f]*|"") echo "works-factory: PIN が 40 桁の commit でない: $pin" >&2; exit 2 ;;
-esac
-[ "${#pin}" -eq 40 ] || { echo "works-factory: PIN が 40 桁の commit でない: $pin" >&2; exit 2; }
-
-# 工場は Python 3.12 以上で動く。python3・python・版の付いた名前（python3.20 から python3.12 まで新しい順）・py -3 の順に、
-# 実際に起きる 3.12 以上の物を選ぶ（docs/standards/cross-os.md の決まり 1。候補の順は rent-or-buy の bin/rent-or-buy と同じで、下限は工場の 3.12）。
+#!/bin/sh
+''':'
+# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。工場は Python 3.12 以上で動くので、python3・python・
+# 版の付いた名前（python3.20 から python3.12 まで新しい順）・py -3 の順に、実際に起きる 3.12 以上の物でこの台本を起動し直す
+# （docs/standards/cross-os.md の決まり 1。候補の順は rent-or-buy の bin/rent-or-buy と同じで、下限は工場の 3.12）。
 # PATH の python3 をそのまま使わないのは、macOS 付属の python3 が 3.9 で、uv で入れた python は版の付いた名前でだけ PATH に在り、
 # Windows の python3 は Python を入れていないと Microsoft Store へ誘う代わりの物に当たるため。
-py=
+# sh の無い所（Windows の PowerShell など）では、3.12 以上の python でこのファイルを直に起動すれば同じに動く。
 named='' n=20
 while [ "$n" -ge 12 ]; do named="$named python3.$n"; n=$((n - 1)); done
+# shellcheck disable=SC2086
 for cand in python3 python $named "py -3"; do
   command -v "${cand%% *}" >/dev/null 2>&1 || continue
   # shellcheck disable=SC2086
-  $cand -c 'import sys; sys.exit(sys.version_info < (3, 12))' >/dev/null 2>&1 && { py=$cand; break; }
+  $cand -c 'import sys; sys.exit(sys.version_info < (3, 12))' >/dev/null 2>&1 && exec $cand "$0" "$@"
 done
-[ -n "$py" ] || { echo "works-factory: python 3.12 以上が見つからない（python3・python・python3.20〜python3.12・py -3 を試した）。python 3.12 以上を入れる（例: macOS は brew install python、Linux は uv python install 3.12 か配布のパッケージ）。入っているのに見つからないときは、入れた場所を PATH に足す" >&2; exit 2; }
+echo "works-factory: python 3.12 以上が見つからない（python3・python・python3.20〜python3.12・py -3 を試した）。python 3.12 以上を入れる（例: uv python install 3.12、macOS は brew install python、Windows は python.org の入れ物）。入っているのに見つからないときは、入れた場所を PATH に足す" >&2
+exit 2
+'''
+"""works-factory の薄い入口。止めた commit（隣の PIN）の raiki61/works-factory を取り置きに用意し、その入口 bin/works-factory
+（apply なら bin/apply）に引数をそのまま渡す。認証・隔離・Archon の取り寄せは向こうの入口が持つので、ここでは何もしない。
 
-repo=${WORKS_FACTORY_PLUGIN_REPO:-https://github.com/raiki61/works-factory.git}
-cache=${XDG_CACHE_HOME:-$HOME/.cache}/works-factory-plugin
-dir=$cache/$pin
+使い方: works-factory <Archon の CLI の引数…> ／ works-factory apply <run> --cwd <対象>
+"""
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
 
-if [ ! -x "$dir/bin/works-factory" ]; then
-  command -v git >/dev/null 2>&1 || { echo "works-factory: git が要る" >&2; exit 2; }
-  mkdir -p "$cache"
-  tmp=$(mktemp -d "$cache/.fetch.XXXXXX")
-  trap 'rm -rf "${tmp:?}"' EXIT
-  git -C "$tmp" init -q
-  git -C "$tmp" fetch -q --depth 1 "$repo" "$pin"
-  git -C "$tmp" -c advice.detachedHead=false checkout -q FETCH_HEAD
-  [ "$(git -C "$tmp" rev-parse HEAD)" = "$pin" ] || { echo "works-factory: 取った commit が PIN と違う" >&2; exit 2; }
-  # 置き場へは rename で置く。rename は中身の在る置き場を上書きせずに失敗するので、同時に起動した別の殻が先に置いた時は、
-  # 先の物（走っているかもしれない）を消さずに使う。置き場が在って中身が欠けている時だけ、別の名に移してから消し、もう一度 rename で置く
-  # （その場で消すと、同時に起動した別の殻が間に置いた物まで消しうる）
-  place() {
-    # shellcheck disable=SC2086
-    $py -c 'import os, sys
-try: os.rename(sys.argv[1], sys.argv[2])
-except OSError as e: sys.exit(f"works-factory: 取り置きの置き場に置けない: {e}")' "$1" "$2" || [ -x "$dir/bin/works-factory" ]
-  }
-  if ! place "$tmp" "$dir" 2>/dev/null; then
-    stale=$(mktemp -d "$cache/.stale.XXXXXX")
-    place "$dir" "$stale/old" 2>/dev/null || true
-    rm -rf "${stale:?}"
-    place "$tmp" "$dir" || exit 2
-  fi
-  rm -rf "${tmp:?}"
-  trap - EXIT
-fi
+NAME = "works-factory"
+HERE = Path(__file__).resolve().parents[1]
 
-if [ "${1:-}" = apply ]; then
-  shift
-  # shellcheck disable=SC2086
-  exec $py "$dir/bin/apply" "$@"
-fi
-# shellcheck disable=SC2086
-exec $py "$dir/bin/works-factory" "$@"
+
+def stop(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def remove(path):
+    """フォルダを消す。git の objects は読み取り専用で、Windows はそのままでは消せないので、書けるようにしてから消し直す。
+    消しきれなくても止めない（残るのは取り置きの置き場の中の一時のフォルダだけで、元の終わり方を覆わない）"""
+    def retry(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            pass
+    shutil.rmtree(path, onexc=retry)
+
+
+def ready(folder):
+    return (folder / "bin" / NAME).is_file()
+
+
+def fetch(repo, pin, cache, dest):
+    """repo の pin を dest に置く。置き場へは rename で置く。rename は中身の在る置き場を上書きせずに失敗するので、同時に起動した
+    別の入口が先に置いた時は、先の物（走っているかもしれない）を消さずに使う。置き場が在って中身が欠けている時だけ、別の名に移してから消し、
+    もう一度 rename で置く（その場で消すと、同時に起動した別の入口が間に置いた物まで消しうる）"""
+    git = shutil.which("git")
+    if git is None:
+        stop("git が要る")
+    cache.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=".fetch.", dir=cache))
+    try:
+        for args in (["init", "-q"], ["fetch", "-q", "--depth", "1", repo, pin],
+                     ["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"]):
+            if (code := subprocess.run([git, "-C", str(tmp), *args]).returncode) != 0:
+                sys.exit(code)   # 前の bash の版（set -e）と同じく git の終わりのコードを返す
+        head = subprocess.run([git, "-C", str(tmp), "rev-parse", "HEAD"], capture_output=True, text=True, encoding="utf-8")
+        if head.stdout.strip() != pin:
+            stop("取った commit が PIN と違う")
+        try:
+            os.rename(tmp, dest)
+            return
+        except OSError:
+            if ready(dest):
+                return
+        stale = Path(tempfile.mkdtemp(prefix=".stale.", dir=cache))
+        try:
+            os.rename(dest, stale / "old")
+        except OSError:
+            pass
+        remove(stale)
+        try:
+            os.rename(tmp, dest)
+        except OSError as error:
+            if not ready(dest):
+                stop(f"取り置きの置き場に置けない: {error}")
+    finally:
+        if tmp.exists():
+            remove(tmp)
+
+
+def main(args):
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")   # Windows の既定のコードページでも日本語の訳を化けさせない
+    # 止める信号でも finally の後始末（取り寄せの一時のフォルダを消す）を通す。前の bash の版の trap … EXIT と同じ
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))
+    if sys.version_info < (3, 12):
+        stop("python 3.12 以上で起動する")
+    pin = re.sub(r"\s", "", (HERE / "PIN").read_text(encoding="utf-8"))
+    if not re.fullmatch(r"[0-9a-f]{40}", pin):
+        stop(f"PIN が 40 桁の commit でない: {pin}")
+    repo = os.environ.get("WORKS_FACTORY_PLUGIN_REPO") or "https://github.com/raiki61/works-factory.git"
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "works-factory-plugin"
+    dest = cache / pin
+    if not ready(dest):
+        fetch(repo, pin, cache, dest)
+    entry = "apply" if args[:1] == ["apply"] else NAME
+    command = [sys.executable, str(dest / "bin" / entry), *(args[1:] if entry == "apply" else args)]
+    if os.name == "nt":
+        # Windows の exec は今のプロセスを入れ替えず、新しいプロセスを起動して今のを終えるので、起動した側が終わりを待てない。子を待って終わりのコードを返す
+        sys.exit(subprocess.run(command).returncode)
+    os.execv(command[0], command)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
