@@ -519,6 +519,17 @@ class Bash(unittest.TestCase):
         for command in ("$(true) find . -name x", "$(cd /) rg foo .", "$SUDO rg foo src"):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
 
+    def test_assignments_only_command_reads_earlier_assignments(self):
+        # 代入だけのコマンド(`D=/ x=$(rg foo $D)`)は左から順に代入するので、後ろの語の $( ) は前の語の代入を見て起点を解く
+        # (前は前の語の値を知らず、起点の $D を解けずに通していた。頼み cae1e2)
+        for command in ("D=/ x=$(rg foo $D)", "d=~ out=$(grep -rl foo $d)", 'D=/ x="$(find $D -name y)"',
+                        "D=/ x=$(echo $(rg foo $D))", "D=/ x=$(rg foo $D) >/dev/null",
+                        "D=/ bash -c 'find $D -name x' > log"):
+            self.assertIsNotNone(run("Bash", {"command": command})[0], command)
+        for command in ("D=src x=$(rg foo $D)", "x=$(rg foo $D) D=/", "D=/; D=src x=$(rg foo $D)", "D=/ rg foo $D",
+                        "D=src bash -c 'find $D -name x' > log"):
+            self.assertIsNone(run("Bash", {"command": command})[0], command)
+
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
         # (前は parallel を前置と見ず、`parallel rg {} / ::: foo bar` を通していた)

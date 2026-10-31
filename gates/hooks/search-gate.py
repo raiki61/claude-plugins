@@ -650,7 +650,13 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
         # 引用の外の $( … )・<( … ) などは、tokenize が 1 語に留めて中身を語の subs に残す(リダイレクトの行き先の `< <(…)` も)。
         # 語の残りの字(二重引用の中の $( … ) と ` … `)は語から読む
         inners = {x for a in list(c.args) + [d for _, d in c.redirects] for x in getattr(a, "subs", ())}
-        inners |= {x for a in c.args for x in substitutions(a if getattr(a, "rest", None) is None else a.rest)}
+        inners |= {x for a in c.args for x in word_substitutions(a)}
+        # 代入だけのコマンド(`D=/ x=$(rg foo $D)`)は、bash が左から順に代入するので、語の中の置換は前の語の代入を見る
+        # (前は同じコマンドの代入を見ず、起点の $D を解けずに通していた)。中身ごとに、前の語までの代入を足した Scope で見る
+        assigns = []
+        if at == len(c.args) > 1:
+            assigns = [(x, before_scope(cr, cmds, k, files, bodies, x, upto=i)) for i, a in enumerate(c.args) if i
+                       for x in dict.fromkeys(tuple(getattr(a, "subs", ())) + tuple(word_substitutions(a)))]
         # 区切りを引用しないヒアドキュメントの本文の $( … ) と ` … ` は、どのコマンドの本文でも、そのコマンドの場所で走る
         # (前は本文をシェルに渡すときだけ読み、`cat <<EOF > out.txt` の次の行の `$(find / …)` を通していた)。
         # 区切りを引用した本文(Expands でない)は展開しないので読まない
@@ -662,6 +668,8 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
             # `cd / && echo "$(find . …)"` を通し、`cd /tmp && echo "$(find . …)"` をホームの cwd で止めていた)
             for inner in inners:
                 check_command(cr, inner, here, depth + 1, files.at(k, c.args[:at]), bodies)
+            for inner, before in assigns:
+                check_command(cr, inner, here, depth + 1, before, bodies)
             check_simple(cr, files.at(k, c.args[:at]), cmds, k, c.args[at:], bodies, here, depth)
     # 語に割れなかった中身(` … ` など)は、どのコマンドの中かを語の列から決められないので、` を語に持つコマンドの走りうる
     # 場所のどれでも見る(` の語が無ければ、フックの cwd と各コマンドの cwd)。前はフックの cwd だけで見て、
@@ -673,6 +681,11 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
         if inner not in seen:
             for place in ticks or places:
                 check_command(cr, inner, place, depth + 1, files if cmds else outer, bodies)
+
+
+def word_substitutions(word):
+    """語に残った置換(二重引用の中の $( … ) と ` … `)の中身。引用の外の $( … ) は語の subs に在るので、残りの字から探す。"""
+    return substitutions(word if getattr(word, "rest", None) is None else word.rest)
 
 
 def command_words(cr, words):
@@ -819,19 +832,22 @@ def check_simple(cr, files, cmds, k, words, bodies, here, depth):
         check_path(name, start, here)
 
 
-def before_scope(cr, cmds, k, files, bodies, inner):
+def before_scope(cr, cmds, k, files, bodies, inner, upto=None):
     """k 番目の eval・bash -c・殻の標準入力の中身 inner の変数を解く Scope。coldread の Scope は eval が在ると全部の変数を
     解かず、inner の中の引用(`bash -c 'find $D'`)や `\\$` の後の $ を字のままと見るが、eval と中の殻はそれも展開する。
     そこで k 番目をただの代入(前置の代入 `D=/ bash -c …` は中の殻の環境に入る)か : に替えた列で、inner の $ を生きた物として
     解く(前は `D=/; eval 'find $D'`・`export D=/; bash -c 'find $D'`・`D=/ bash -c 'find $D'` を通していた)。
-    export しない代入も中の殻に渡ると見る(止める側に倒す)。"""
+    export しない代入も中の殻に渡ると見る(止める側に倒す)。upto が在れば、k 番目は代入だけのコマンドで、inner はその upto 番目の
+    語の中の置換: 前の語(c.args[:upto])の代入だけを足す。"""
     c = cmds[k]
     stubs = []
     # 前置の語のうち代入だけ(`D=/ timeout 60 bash -c …`・`env D=/ sh -c …` の timeout・env は除く)
-    for args in ([a for a in c.args[:cr.command_start(c.args)] if cr.ENV_PREFIX_RE.match(a)], [":"]):
+    prefix = c.args[:cr.command_start(c.args)] if upto is None else c.args[:upto]
+    for args in ([a for a in prefix if cr.ENV_PREFIX_RE.match(a)], [":"]):
         if args:
             stubs.append(copy.copy(c))
             stubs[-1].args = args
+            stubs[-1].redirects = []   # リダイレクト(`D=/ bash -c 'find $D' > log`)は代入の届き方を変えない
     line = cmds[:k] + stubs
     # 語は二重引用で包んで並べる(`echo "it's"` の ' で引用が割れ、どの変数も解けなくなるのを防ぐ。$ は生きたまま)
     live = "; ".join(" ".join('"%s"' % re.sub(r'(["\\`])', r"\\\1", a) for a in cc.args) for cc in line) + "; " + inner
