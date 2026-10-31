@@ -395,24 +395,25 @@ def watching(inbox, place, now=None, posix=os.name != "nt"):
     return alive({"owner": got.get("pid"), "since": got.get("since")}, now, posix, chat.start_times())
 
 
-def stalled(inbox, place, attrs, now=None, posix=os.name != "nt"):
+def stalled(inbox, place, attrs, now=None, posix=os.name != "nt", gone=False):
     """順番待ちが渡されずに止まっているか: 順番待ちが在り、部署は今の頼みを納品済み（か頼みが無い）なのに、渡す待ち受けが動いて
     いない。待ち受けはターンの終わりに張られるので、会話がターンを終えて止まったまま待ち受けが居なければ、次のターンが来るまで誰も渡さない
-    （2026-10-17 に my_notes のノートの手入れで約 70 分止まった）。"""
+    （2026-10-17 に my_notes のノートの手入れで約 70 分止まった）。gone（属性の会話がもう居ない。tree.talk_gone）なら、今の頼みを
+    納品していなくても止まっているとみる（ターンの終わりに待ち受けを張る会話が居ない）。"""
     held = attrs.get("ask")
-    if held and attrs.get("delivered") != held:
+    if held and attrs.get("delivered") != held and not gone:
         return False   # 今の頼みのターンの終わりに待ち受けが張られる
     return bool(queued(inbox, place)) and not watching(inbox, place, now, posix)
 
 
-def held(inbox, cwd, place, attrs=None):
+def held(inbox, cwd, place, attrs=None, gone=False):
     """順番待ちが在り、部署は今の頼みを納品済み（か頼みが無い）で、その場所の待ち受けが動いているのに渡さずに待っている（台帳の
     その場所の、今の待ち受けの会話の行のうち最後の渡した handed か渡さずに待つ held の行が held）なら、その訳。ほかは None。
     待ち受けは渡せない訳が替わるまで台帳に書き直さないので、行が古くても待ち続けている。--take で取った頼みは handed を残さないので、
     納品済みかと今の待ち受けの会話の行かで、古い held を数えない。cwd は部署の場所（台帳の行の place は待ち受けの会話の場所で、
-    部署の場所の下のフォルダでもよい）。"""
+    部署の場所の下のフォルダでもよい）。gone は stalled と同じ（属性の会話がもう居なければ、納品していない頼みが在っても見る）。"""
     attrs = attrs or {}
-    if attrs.get("ask") and attrs.get("delivered") != attrs["ask"]:
+    if attrs.get("ask") and attrs.get("delivered") != attrs["ask"] and not gone:
         return None
     mark = read_mark(inbox, place)
     if not queued(inbox, place) or not mark or not watching(inbox, place):

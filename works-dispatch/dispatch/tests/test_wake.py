@@ -225,6 +225,8 @@ class Watch(unittest.TestCase):
         self.assertTrue(wake.stalled(self.inbox, self.place, {}, posix=True))   # 頼みを受けたことの無い部署
         self.assertIsNotNone(wake.listening(self.inbox, "co/調べ", posix=True))   # 送る側は居ると見る
         self.assertFalse(wake.stalled(self.inbox, self.place, {"ask": "a0"}, posix=True))   # ターンの終わりに張られる
+        # 受けたままの頼みを持つ会話がもう居なければ、張る者が居ない（2026-10-31 の guided-resolver の本社）
+        self.assertTrue(wake.stalled(self.inbox, self.place, {"ask": "a0"}, posix=True, gone=True))
         mark(os.getpid())
         self.assertFalse(wake.stalled(self.inbox, self.place, done, posix=True))   # 待ち受けが動いている
         now = time.time()   # Windows は印の更新で見る
@@ -239,6 +241,39 @@ class Watch(unittest.TestCase):
                                             "queue_dir": "/q", "stalled": True}]}]))
         self.assertIn("順番待ち 1 件（/q）  ! 渡す待ち受けが居ない（--nudge 調べ で動かす）", line)
 
+    def test_talk_gone_needs_the_accounts_list_and_no_living_entry(self):
+        a = {"session": "s1", "account": "p1"}
+        self.assertTrue(tree.talk_gone(a, {"p1": [{"sessionId": "s2"}]}))   # 一覧から消えた手前の会話
+        self.assertTrue(tree.talk_gone(a, {"p1": [{"sessionId": "s1", "state": "stopped"}]}))
+        self.assertFalse(tree.talk_gone(a, {"p1": [{"sessionId": "s1", "status": "idle"}]}))
+        self.assertFalse(tree.talk_gone(a, {"p1": [], "p2": [{"sessionId": "s1", "state": "done"}]}))   # --move の後のアカウント
+        self.assertFalse(tree.talk_gone(a, {"p2": []}))   # 属性のアカウントの一覧を読めていない
+        self.assertFalse(tree.talk_gone({"account": "p1"}, {"p1": []}))   # 会話の id が無い
+        self.assertFalse(tree.talk_gone(a, None))
+        self.assertFalse(tree.talk_gone({**a, wake.RESTARTING: "s1"}, {"p1": []}))   # 待ち受けが起動し直している途中
+        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                       "problems": [], "departments": [
+                                           {"head_office": True, "state": "idle", "sessions": 1, "name": "窓口", "role": None,
+                                            "account": None, "boss": None, "panes": [], "branch": "main", "queue": 1,
+                                            "queue_dir": "/q", "stalled": True, "holder_gone": True}]}]))
+        self.assertIn("! 渡す待ち受けが居ない（受けたままの頼みを持つ会話がもう居ない）（--nudge 窓口 --dry-run で動かし方を見る）", line)
+
+    def test_seat_lost_is_only_where_a_line_or_attach_cannot_raise_a_waiter(self):
+        attrs = {"session": "s1", "ask": "a1", "boss-inbox": tempfile.mkdtemp()}
+        office = {"head_office": True, "talk_gone": True, "attrs": attrs, "panes": [{"pane_id": "w1:p1", "agent_session": "s2"}]}
+        said = orders.seat_lost(office, "w1:p1")
+        self.assertIn("窓 w1:p1 の会話 s2 は窓口の席に付いていない", said)
+        self.assertIn("--desk を打って席に付き、受けたままの頼み a1を済ませて --deliver", said)
+        pathlib.Path(attrs["boss-inbox"], "a1-ask.md").write_text("x", encoding="utf-8")
+        self.assertIn("本文は " + os.path.join(attrs["boss-inbox"], "a1-ask.md"), orders.seat_lost(office, "w1:p1"))
+        self.assertIn("本社で会話を開き", orders.seat_lost(office, None))   # 窓口の会話は attach で戻らない
+        dept = {**office, "head_office": False}
+        self.assertIn("部署の会話（s1）でない", orders.seat_lost(dept, "w1:p1"))
+        self.assertIsNone(orders.seat_lost(dept, None))   # 部署は attach で戻す（revive）
+        self.assertIsNone(orders.seat_lost({**office, "panes": [{"pane_id": "w1:p1", "agent_session": "s1"}]}, "w1:p1"))
+        self.assertIsNone(orders.seat_lost({**office, "talk_gone": False}, "w1:p1"))
+        self.assertIsNone(orders.seat_lost({**office, "attrs": {**attrs, "delivered": "a1"}}, "w1:p1"))   # 納品済みはいつもの道
+
     def test_held_is_the_last_hold_of_the_place_while_its_watcher_runs(self):
         # 待ち受けは居るが渡さずに待っている（2026-10-17 の割り振り）。台帳のその場所の最後の行が held のときだけ
         cwd = tempfile.mkdtemp()
@@ -251,6 +286,7 @@ class Watch(unittest.TestCase):
                          "窓を確かめられない")
         self.assertIsNone(wake.held(self.inbox, tempfile.mkdtemp(), self.place))   # ほかの場所の行
         self.assertIsNone(wake.held(self.inbox, cwd, self.place, {"ask": "a9"}))   # 取った頼みをまだ納品していない（--take）
+        self.assertEqual(wake.held(self.inbox, cwd, self.place, {"ask": "a9"}, gone=True), "窓を確かめられない")   # 受けた会話がもう居ない
         wake.claim(self.inbox, self.place, self.names, "s2", os.getpid(), "t", 0)
         self.assertIsNone(wake.held(self.inbox, cwd, self.place))   # 前の会話の行（/clear で会話が替わった）
         wake.claim(self.inbox, self.place, self.names, "s1", os.getpid(), "t", 0)
@@ -2883,6 +2919,50 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual([w[2:] for w in term_.writes if w[0] == "send_keys"][0], ("ctrl+u",))
         self.assertEqual([w[2] for w in self.prompts()], [orders.chat.RELOAD, orders.STUCK_LINE])
+
+    def test_a_gone_talk_holding_an_ask_is_stalled_and_nudge_says_how_to_move_it(self):
+        # 受けたままの頼みを持つ会話（company.session）が会話の一覧から消え、窓には別の会話が居る: 待ち受けを張る者が居ないので
+        # 止まっていると見分ける。1 行を打っても別の会話には待ち受けが張られないので打たず、動かす手を出す（2026-10-31 の
+        # guided-resolver の本社。頼み 8908ab）
+        provision.mark(self.place, self.src, {"ask": "a0"}, self.g)   # 受けたまま、納品していない
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+        for p in self.ports.term._panes:
+            if p["pane_id"] == self.window:
+                p["agent_session"] = "s-other"
+        living = self.ports.list_sessions
+        self.ports.list_sessions = lambda cdir, include_done=False: [s for s in living(cdir, include_done) if s["sessionId"] != "s-dept"]
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        rc, out = self.main(self.src, "--tree")
+        self.assertIn("! 渡す待ち受けが居ない（受けたままの頼みを持つ会話がもう居ない）（--nudge 調べ --dry-run で動かし方を見る）", out)
+        rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
+        self.assertEqual((rc, self.prompts()), (0, []), out)
+        self.assertIn("止まっている（渡す待ち受けが居ない（受けたままの頼み a0 を持つ会話 s-dept がもう居ない））", out)
+        self.assertIn(f"--nudge では動かせない: 窓 {self.window} の会話 s-other は部署の会話（s-dept）でない", out)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts()), (1, []), out)
+        self.assertIn("部署の会話（s-dept）でない", out)
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
+        # 窓の会話の印が無い（herdr が落とした）形は、今までどおり 1 行を打つ。送られずに残った待ち受けの /clear は先に消す
+        for p in self.ports.term._panes:
+            if p["pane_id"] == self.window:
+                p["agent_session"] = None
+        provision.mark(self.place, self.src, {wake.CLEAR_TYPED: "s-dept"}, self.g)
+        term_ = self.ports.term
+        term_.screen = f"{'─' * 20}\n❯ /clear [name]\n{'─' * 20}\n"
+
+        def keys(pane, *k):
+            term_.writes.append(("send_keys", pane, *k))
+            if k == ("ctrl+u",):
+                term_.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        with mock.patch.object(term_, "send_keys", keys):
+            rc, out = self.main(self.src, "--nudge", "調べ")   # 動き出したかは偽の一覧が s-dept でしか見せないので見ない
+        self.assertEqual([w[2:] for w in term_.writes if w[0] == "send_keys"][0], ("ctrl+u",))
+        self.assertEqual([w[2] for w in self.prompts()][:2], [orders.chat.RELOAD, orders.STUCK_LINE])
+        # 会話が一覧に居れば、受けたままの頼みの間はターンの終わりに張られるので、止まっていない
+        self.ports.list_sessions = living
+        rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
+        self.assertIn("止まっていない（待ち受けが渡す）", out)
 
     def test_nudge_does_not_type_the_line_when_the_reload_does_not_leave_the_box(self):
         # 前の版のプラグインのままの会話は、ターンの終わりに前の版の待ち受けが同じ訳でまた止める（2026-10-19 の割り振り）ので、

@@ -226,6 +226,22 @@ def session_state(s):
     return STATUS.get(s.get("status"), "idle")
 
 
+# 会話の一覧の状態のうち、会話が落ちている物（STATES の鍵）
+FALLEN = ("stopped", "failed")
+
+
+def talk_gone(attrs, sessions):
+    """部署の属性の会話（company.session）がもう居ないと分かるか: 属性のアカウント（company.account）の会話の一覧を読めていて、どの
+    アカウントの一覧にも、その会話が落ちていない形（FALLEN でない状態）で無い。窓口の会話は手前の会話なので、終われば一覧から消える
+    （2026-10-31 に guided-resolver の本社で、10-19 の席の会話 a0bb7898 が一覧に無く、受けたままの頼みを持ったまま順番待ちを 4 日止めた）。
+    会話の id かアカウントが属性に無いか、そのアカウントの一覧を読めていなければ、分からないので False。待ち受けが起動し直している間
+    （属性 restarting。nodes/wake.py の RESTARTING）は、前の会話を止めて次を起動する途中なので False。"""
+    sid = attrs.get("session")
+    if not (sid and sessions and attrs.get("account") in sessions) or attrs.get("restarting"):
+        return False
+    return not any(s.get("sessionId") == sid and s.get("state") not in FALLEN for items in sessions.values() for s in items)
+
+
 def copied_from(office, attrs):
     """部署の場所の属性 attrs が、本社の属性 office を git の worktree add が写した物か。git は extensions.worktreeConfig が入って
     いると、作った worktree に元の worktree の config.worktree を写すので、代表の clone から作った worktree（ツールの一時の場所・
@@ -286,6 +302,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
                 "session": None if main is None else {k: main.get(k) for k in ("id", "sessionId", "name", "account", "kind",
                                                                                "state", "status", "cwd")},
                 "sessions": len(talks),
+                "talk_gone": talk_gone(a, sessions),
                 "panes": [{"pane_id": x["pane_id"], "label": x.get("label"), "agent": x.get("agent"),
                            "agent_status": x.get("agent_status"),
                            "agent_session": x.get("agent_session")} for x in mine],
@@ -383,9 +400,12 @@ def lines(companies):
             fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat_label(d['seat'])}）" if d.get("seat") else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
             if d.get("queue"):
-                stuck = "渡す待ち受けが居ない" if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None)
+                stuck = ("渡す待ち受けが居ない" + ("（受けたままの頼みを持つ会話がもう居ない）" if d.get("holder_gone") else "")
+                         if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None))
+                # 受けたままの頼みを持つ会話が居ない形は、--nudge で動かせないことがある（orders.seat_lost）ので、動かし方を先に見せる
+                how = "--dry-run で動かし方を見る" if d.get("holder_gone") else "で動かす"
                 fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"
-                              + (f"  ! {stuck}（--nudge {d['name'] or d['branch']} で動かす）" if stuck else ""))
+                              + (f"  ! {stuck}（--nudge {d['name'] or d['branch']} {how}）" if stuck else ""))
             if d.get("long_wait"):
                 w = d["long_wait"]
                 fields.append(f"! 裏の処理{'（' + str(w['tasks']) + ' 本）' if w.get('tasks') else ''}を待ってターンを終えたまま、"

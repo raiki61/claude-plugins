@@ -216,7 +216,8 @@ def call(a, ports, cwd, task):
 
 def annotate(companies, settings, g):
     """--tree に受付を足す: 会社ごとにツール（役・名前・title・外れの回数）を tools に、部署ごとに順番待ちの件数と置き場を queue・
-    queue_dir に、渡す待ち受けが居なくて止まっているか（wake.stalled）を stalled に、待ち受けは居るが渡さずに待っている訳（wake.held）を
+    queue_dir に、渡す待ち受けが居なくて止まっているか（wake.stalled）を stalled に、そのうち受けたままの頼みを持つ会話がもう居ない
+    物（tree.talk_gone）を holder_gone に、待ち受けは居るが渡さずに待っている訳（wake.held）を
     held に、部署の属性に会話の id（company.session）が無いかを no_talk_id に、裏の処理を残したターンの終わりから同じ頼みのまま
     長く動いていないか（wake.long_wait）を long_wait に。外れは受付箱の台帳の kind miss の行で数える。
     会社ごとの壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ・周期の遅れ・一時の置き場の控え。health.py）を health に。
@@ -246,9 +247,10 @@ def annotate(companies, settings, g):
             here = g.git_dir(d["path"]) if inbox else None
             d["queue"] = len(wake.queued(inbox, here)) if here else 0
             d["queue_dir"] = wake.queue_dir(inbox, here) if here else None
-            d["stalled"] = bool(here) and wake.stalled(inbox, here, d.get("attrs") or {})
-            d["held"] = wake.held(inbox, d["path"], here, d.get("attrs") or {}) if here and not d["stalled"] else None
             attrs = d.get("attrs") or {}
+            d["stalled"] = bool(here) and wake.stalled(inbox, here, attrs, gone=d.get("talk_gone"))
+            d["held"] = wake.held(inbox, d["path"], here, attrs, d.get("talk_gone")) if here and not d["stalled"] else None
+            d["holder_gone"] = bool(d["stalled"] and d.get("talk_gone") and wake.pending(attrs))
             d["no_talk_id"] = bool(attrs.get("role")) and not d.get("head_office") and not attrs.get("session")
             d["long_wait"] = wake.long_wait(inbox, here, attrs, now) if here else None
     asks_of(companies)

@@ -163,8 +163,7 @@ FRESH, NEW = role.FRESH, role.NEW
 REVIVE_LOOKS = 20
 
 
-# 会話の一覧の状態のうち、会話が落ちている物（tree の STATES の鍵）
-FALLEN = ("stopped", "failed")
+FALLEN = tree.FALLEN   # 会話の一覧の状態のうち、会話が落ちている物
 # attach の画面が終わったときに Claude Code がペインに出す行（「Session cb2d81c3 has exited.」。2.1.301 で見た）
 EXITED = re.compile(r"Session \S+ has exited\.")
 
@@ -926,11 +925,40 @@ STALLED = "渡す待ち受けが居ない"   # stuck_why の訳のうち、タ�
 
 def stuck_why(dest_inbox, place_dir, dept):
     """部署の順番待ちが渡らずに止まっていれば、その訳。止まっていなければ None。止まり方は 2 つ: ターンを終えたのに渡す待ち受けが居ない
-    （wake.stalled）と、待ち受けは居るが渡さずに待っている（wake.held。台帳の最後の行が held）。"""
-    if wake.stalled(dest_inbox, place_dir, dept["attrs"]):
-        return STALLED
-    why = wake.held(dest_inbox, dept["path"], place_dir, dept["attrs"])
+    （wake.stalled。受けたままの頼みを持つ会話がもう居ない〔tree.talk_gone〕物を含む）と、待ち受けは居るが渡さずに待っている
+    （wake.held。台帳の最後の行が held）。"""
+    gone = dept.get("talk_gone")
+    if wake.stalled(dest_inbox, place_dir, dept["attrs"], gone=gone):
+        held = wake.pending(dept["attrs"]) if gone else None
+        return f"{STALLED}（受けたままの頼み {held} を持つ会話 {dept['attrs']['session']} がもう居ない）" if held else STALLED
+    why = wake.held(dest_inbox, dept["path"], place_dir, dept["attrs"], gone)
     return f"待ち受けが渡さずに待っている（{why}）" if why else None
+
+
+def seat_lost(dept, pane):
+    """受けたままの頼みを持つ会話がもう居ない部署（tree.talk_gone）で、1 行を打っても attach で戻しても待ち受けが張られない形なら、
+    その訳と動かす手。ほかは None。形は 2 つ:
+    - 窓に、属性の会話（company.session）と別の会話が居る。待ち受けは属性の会話の id の会話にしか張られない（wake_hook.plan）ので、
+      打った 1 行のターンの終わりにも張られない。
+    - 本社の窓口で、窓に会話が居ない。窓口の会話は手前の会話で、attach で戻せない（revive が戻すのは裏の会話）。
+    どちらも、受けたままの頼みが納品されるまで待ち受けは次を渡さない（wake_hook の check）ので、席に付いた会話がその頼みを済ませる。
+    2026-10-31 に guided-resolver の本社で、10-19 の席の会話が止まり、窓には席に付いていない別の会話が居て、順番待ちが 4 日渡らなかった。"""
+    a = dept["attrs"]
+    held = wake.pending(a)
+    if not (dept.get("talk_gone") and held):
+        return None
+    other = next((p.get("agent_session") for p in dept.get("panes") or [] if pane and p.get("pane_id") == pane), None)
+    if not (other and other != a.get("session")) and not (pane is None and dept.get("head_office")):
+        return None
+    brief = os.path.join(a["boss-inbox"], f"{held}-ask.md") if a.get("boss-inbox") else None
+    task = f"受けたままの頼み {held}" + (f"（本文は {brief}）" if brief and os.path.isfile(brief) else "")
+    if dept.get("head_office"):
+        who = (f"窓 {pane} の会話 {other} は窓口の席に付いていないので、1 行を打っても待ち受けは張られない。その会話で" if other else
+               "窓口の会話は手前の会話で attach では戻らない。本社で会話を開き、その会話で")
+        return (f"{who} --desk を打って席に付き、{task}を済ませて --deliver で納品する（済ませる物が無ければ、その旨を納品する）。"
+                "納品したターンの終わりに待ち受けが張られ、順番待ちを渡す")
+    return (f"窓 {pane} の会話 {other} は部署の会話（{a.get('session')}）でないので、1 行を打っても待ち受けは張られない。"
+            f"窓の会話を確かめ、要らなければ終えてから --nudge で部署の会話を attach で戻す（戻った会話が{task}を続ける）")
 
 
 # 待ち受けが渡さずに待つ訳のうち、すぐ替わる物（待ち受けが 5 秒ごとに試し直して自分で抜ける）。この訳では窓に打たない（待ち受けの
@@ -962,6 +990,7 @@ def _put_back(dept, keep, ports, detail):
 
 def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=None, source=None, moved=None):
     """順番待ちが渡らずに止まった部署（stuck_why）を、人の手なしに動かす。出す注記の並びを返す（止まっていなければ空）。
+    - 受けたままの頼みを持つ会話がもう居なく、打っても戻しても待ち受けが張られない形（seat_lost）なら、打たずに動かす手を返す。
     - 窓に会話が居なければ（live_window）、attach で戻す（revive。戻った会話の始まりの待ち受けが渡す）。
     - 窓に会話が居て、手が空いていて（herdr の状態が idle か done）入力フィールドが空なら、プラグインを読み直させ（deliver.reload_talk）、
       STUCK_LINE を 1 行打ってターンを 1 つ回す。ターンの初めに前の待ち受けが止まり（--pause）、ターンの終わりに今の版の待ち受けが張り直して、
@@ -986,6 +1015,10 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
         deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane,
                                  "why": why, "status": status, "detail": detail})
     pane = live_window(dept, ports)
+    lost = seat_lost(dept, pane)
+    if lost:
+        logged("failed", lost)
+        return [f"{head}。{lost}"]
     if pane is None:
         pane, said = revive(dept, accounts_, ports, sessions_, source)
         logged("revived" if pane else "failed", said)
@@ -996,7 +1029,7 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
         return [f"{head}。訳がすぐ替わる物なので打たなかった（待ち受けが 5 秒ごとに試し直す）"]
     again = f"--nudge {dept['attrs'].get('name') or where} で打ち直す"
     try:
-        if why == STALLED and wake.own_clear(chat.typed(ports.term.read(pane, 40, ansi=True)), dept["attrs"]):
+        if why.startswith(STALLED) and wake.own_clear(chat.typed(ports.term.read(pane, 40, ansi=True)), dept["attrs"]):
             # 待ち受けが打って送られずに残った /clear（渡す待ち受けが居ないので、送り直す者が居ない）は消してから 1 行を打つ
             # （後ろに続けて打つと /clear/reload-plugins になる。送って空にすると、空にした印を書く待ち受けが居ない）
             deliver.wipe_box(pane, ports.term, ports.pause)   # 消えたかは、続く _free が入力フィールドを読んで見る
@@ -1058,7 +1091,13 @@ def nudge(a, ports, cwd):
         print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
         return 0
     if a.dry_run:
-        print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。窓に会話が居なければ attach で戻し、居ればプラグインを読み直させてから 1 行打ってターンを回す"]))
+        try:
+            lost = seat_lost(dept, live_window(dept, ports))
+        except term.Error:
+            lost = None
+        print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。" + (
+            f"--nudge では動かせない: {lost}" if lost else
+            "窓に会話が居なければ attach で戻し、居ればプラグインを読み直させてから 1 行打ってターンを回す")]))
         return 0
     moved = []
     print("\n".join(notes + wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], moved)))
