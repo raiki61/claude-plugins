@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=835
+EXPECTED_CHECKS=836
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5662,6 +5662,16 @@ for c in "gh gist edit abc --filename a.md x.md" "gh gist edit abc x.md" "gh gis
 done
 [ "$("$1" "$2" "$3" "gh gist edit abc -d desc")" = ALLOW_EMPTY ] || { ok=0; echo "説明だけの gh gist edit を止めた"; }
 [ $ok = 1 ] && echo DG_GIST_EDIT_OK' sh "$DG_CASE" "$DG_CFG" "$WORK" "$DG_GIST_CFG"
+# gh に組み込みの別名(`issue new`・`pr new`・`gist new`)は本当の名前と同じ投稿と見る(前は短い本文の旗 -b を本文と見ず、
+# `gh issue new -R 外/repo -t T -b hi` を一覧の外へ通し、`gh gist new a.md` も一覧に gist が無いのに通していた)
+expect_output 0 "DG_ALIAS_OK" "destgate: gh の組み込みの別名の投稿も、本当の名前と同じに宛先を確かめる" \
+    sh -c 'ok=1
+for c in "gh issue new -R evil/place -t T -b hi" "gh pr new -R evil/place -t T -b hi" "gh release new v1 -R evil/place -n hi"; do
+  "$1" "$2" "$3" "$c" | grep -q "許可一覧に無い" || { ok=0; echo "一覧の外への投稿を通した: $c"; }
+done
+"$1" "$2" "$3" "gh gist new a.md" | grep -q "宛先 gist は" || { ok=0; echo "一覧に無い gist を通した"; }
+[ "$("$1" "$2" "$3" "gh issue new -R allowed/repo -t T -b hi")" = ALLOW_EMPTY ] || { ok=0; echo "一覧に在る repo への投稿を止めた"; }
+[ $ok = 1 ] && echo DG_ALIAS_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
 # xargs・find -exec が語を足す・差し込む gh のうち、本文・コメント・メッセージの旗を持たないサブコマンド(gist view、run rerun・cancel、
 # cache delete、pr checkout など)は投稿でないので、宛先を確かめずに通す(前は coldread が止め、それを投稿と見て宛先不明で止めていた)。
 # 本文を運びうる pr edit・issue close は今までどおり宛先不明で止める

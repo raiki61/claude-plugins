@@ -271,6 +271,18 @@ SHORT_TEXT_FLAGS = {
                     ("discussion", "comment"), ("discussion", "create"), ("discussion", "edit"),
                     ("release", "create"), ("release", "edit")}),
 }
+# gh に組み込みのサブコマンドの別名 → 本当の名前(gh 2.102.0 の `gh <グループ> <サブコマンド> --help` の ALIASES)。ゲートが本当の
+# 名前で知っているサブコマンドの物だけを置く。subcommand が本当の名前に直して返すので、旗の表(SHORT_TEXT_FLAGS)・FED_READ_SUBS・
+# 宛先のゲート(destgate)の dest_of も本当の名前で引ける。前は別名をそのまま返し、`gh pr new -b …`・`gh release new v1 -n …`・
+# `gh gist new a.md` の本文を読まず、宛先のゲートも投稿と見ずに通していた。`gh alias set` で足した別名は見ない
+SUB_ALIASES = {
+    ("pr", "new"): ("pr", "create"), ("pr", "ls"): ("pr", "list"), ("pr", "co"): ("pr", "checkout"),
+    ("issue", "new"): ("issue", "create"), ("issue", "ls"): ("issue", "list"),
+    ("release", "new"): ("release", "create"), ("release", "ls"): ("release", "list"),
+    ("gist", "new"): ("gist", "create"), ("gist", "ls"): ("gist", "list"),
+    ("repo", "new"): ("repo", "create"), ("repo", "ls"): ("repo", "list"),
+    ("run", "ls"): ("run", "list"), ("workflow", "ls"): ("workflow", "list"), ("cache", "ls"): ("cache", "list"),
+}
 # 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)。-H/-X は api の前置で挟まりうる。
 GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
 # `gh api` は自分の旗を endpoint の前にも置ける(gh 2.102.0 の `gh api --help` の FLAGS)。知らない旗として None に倒すと、
@@ -1783,7 +1795,7 @@ def subcommand(args):
 
     先頭に知らない旗があってサブコマンドを特定できないときは None を返す。空タプルと
     区別するのは、「投稿でないと分かった」と「投稿かどうか判らなかった」を混ぜないため——
-    混ぜると後者が黙って allow に落ちる。
+    混ぜると後者が黙って allow に落ちる。gh に組み込みの別名(`pr new`・`gist ls` など)は本当の名前に直して返す(SUB_ALIASES)。
     """
     words, i = [], 0
     while i < len(args) and len(words) < 2:
@@ -1807,7 +1819,7 @@ def subcommand(args):
             return None
         words.append(tok)
         i += 1
-    return tuple(words)
+    return SUB_ALIASES.get(tuple(words), tuple(words))
 
 
 def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
@@ -3361,7 +3373,11 @@ def screen_for(dest, cwd, body="", replaces=False):
 def create_flags(args, sub):
     """gh pr/issue create の旗を {長い形: 値} に読む。値を取らない旗は True。サブコマンド語より後ろだけを見る。"""
     out, longs = {}, set(CREATE_VALUE_FLAGS.values())
-    i = args.index(sub[1]) + 1 if sub[1] in args else len(args)
+    # サブコマンド語の後ろを、語の綴りでなく位置で探す(別名の `gh pr new` は args に create を持たない)
+    i, seen = 0, 0
+    while i < len(args) and seen < len(sub):
+        width = global_flag_width(args[i])
+        i, seen = (i + width, seen) if width else (i + 1, seen + 1)
     while i < len(args):
         tok = args[i]
         name, _, val = tok.partition("=") if tok.startswith("--") else (tok, "", "")

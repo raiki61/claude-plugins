@@ -11,7 +11,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 49 以降はその後のレビュー(頼み cae1e2)の直しで、commit ef2d1702 の版を渡すと赤になる。53 以降は 15 回目のレビュー(頼み cae1e2)
 の直しで、commit 12d08013 の版を渡すと赤になる。58 は 55 の直し(commit b46a0bfe)が持ち込んだ止めすぎで、b46a0bfe の版を
 渡すと赤になる。59 以降は 17 回目のレビュー(頼み cae1e2)の直しで、commit 7e850025 の版を渡すと赤になる。61 は探しのゲートの
-11 回目のレビュー(頼み cae1e2)の直しで、commit fce0c115 の版を渡すと赤になる。
+11 回目のレビュー(頼み cae1e2)の直しで、commit fce0c115 の版を渡すと赤になる。62 以降は投稿の前のゲートの
+レビュー(頼み cae1e2)の直しで、commit a192c351 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1061,8 +1062,30 @@ def f61():
           and cmds[0].redirects == [("<", "<(")] and cmds[1].depth == 1 and cmds[3].depth == 0,
           "プロセス置換の中を外のコマンドに繋いだ: %r" % [(c.args, c.redirects, c.depth) for c in cmds])
 
+# 62. gh に組み込みのサブコマンドの別名(`pr new`・`issue new`・`release new`・`gist new`・`ls`・`pr co`)は本当の名前と同じに読む
+# (前は短い本文の旗 -b・-n・-F を本文と見ず、`gh gist new a.md` も投稿と見ずに通した)。新しい PR の題も別名の後ろから読む
+def f62():
+    with open(os.path.join(WORK, "a.md"), "w", encoding="utf-8") as f:
+        f.write(BODY)
+    pairs = (("gh pr new -t T -b '%s'", "gh pr create -t T -b '%s'"), ("gh issue new -t T -b '%s'", "gh issue create -t T -b '%s'"),
+             ("gh release new v1 -n '%s'", "gh release create v1 -n '%s'"), ("gh pr new -F a.md", "gh pr create -F a.md"),
+             ("gh issue new -F a.md", "gh issue create -F a.md"), ("gh release new v1 -F a.md", "gh release create v1 -F a.md"),
+             ("gh gist new a.md", "gh gist create a.md"), ("gh gist new - <<'E'\n%s\nE", "gh gist create - <<'E'\n%s\nE"),
+             ("gh -R o/r issue new -b '%s'", "gh -R o/r issue create -b '%s'"))
+    for alias, real in pairs:
+        got = [g.posting_bodies(c % BODY if "%s" in c else c, WORK) for c in (alias, real)]
+        check(62, got[0] == got[1] and (got[0][0] or got[0][1]), "別名を本当の名前と違えて読んだ: %r → %r / %r" % (alias, got[0], got[1]))
+    for words, real in ((["pr", "new"], ("pr", "create")), (["pr", "ls"], ("pr", "list")), (["pr", "co", "3"], ("pr", "checkout")),
+                        (["gist", "ls"], ("gist", "list")), (["repo", "new", "x"], ("repo", "create")), (["-R", "o/r", "run", "ls"], ("run", "list")),
+                        (["api", "new"], ("api", "new"))):
+        check(62, g.subcommand(words) == real, "別名を本当の名前に直さなかった: %r → %r" % (words, g.subcommand(words)))
+    check(62, g.create_flags(["pr", "new", "-t", "TITLE_MARK"], ("pr", "create")).get("--title") == "TITLE_MARK",
+          "別名の新しい PR の題を読まなかった")
+    cands, blk, parsed = g.posting_bodies("echo 1 | xargs -I{} gh pr co {}", WORK)
+    check(62, parsed and not cands and not blk, "別名の pr co を xargs で止めた: %r" % blk)
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
