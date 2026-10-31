@@ -26,7 +26,7 @@ import importlib.util
 import io
 import json
 import os
-import shutil
+import pathlib
 import subprocess
 import sys
 import tempfile
@@ -34,12 +34,20 @@ import time
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 GATE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "gates", "hooks", "coldread-gate.py")
-WORK = tempfile.mkdtemp(prefix="coldread-fix-")
+_WORK_DIR = tempfile.TemporaryDirectory(prefix="coldread-fix-", ignore_cleanup_errors=True)
+WORK = _WORK_DIR.name
 os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(WORK, "cfg")
 os.environ.pop("COLDREAD_IN_READER", None)
 spec = importlib.util.spec_from_file_location("coldread_gate_fix", GATE)
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
+
+
+
+def sh_path(*parts):
+    """コマンドの中に書く WORK の下のパス。Windows でも / で区切る(bash は \\ をエスケープと読み、パスが崩れる)。"""
+    return pathlib.PurePath(WORK, *parts).as_posix()
+
 
 BODY = "これは検査の対象の本文です。読み手に渡る字を確かめます。" * 10
 FAILED = []
@@ -176,7 +184,8 @@ def f5():
 
 # 6. 画面は gh が走る場所(前の cd)で引き、場所が読めなければ引かない
 def f6():
-    a, b = os.path.join(WORK, "a"), os.path.join(WORK, "b")
+    a, b = sh_path("a"), sh_path("b")
+    sep = (lambda x: x.replace("/", "\\")) if os.name == "nt" else (lambda x: x)   # Windows ではゲートが \ で区切って返しうる
     os.makedirs(a, exist_ok=True)
     os.makedirs(b, exist_ok=True)
     for cmd, want in (("cd %s && gh issue comment 1 --body '%s'" % (b, BODY), [b]),
@@ -185,7 +194,7 @@ def f6():
         log = []
         with patched(Screen=fake_screen(log, None)):
             run_main(cmd, a)
-        check(6, log == want, "画面を引いた場所 %r(欲しいのは %r): %s" % (log, want, cmd[:40]))
+        check(6, [sep(x) for x in log] == [sep(x) for x in want], "画面を引いた場所 %r(欲しいのは %r): %s" % (log, want, cmd[:40]))
 
 
 # 7. 本文を置き換える投稿では、古い本文を画面に置かない
@@ -445,7 +454,7 @@ def f19():
 def f20():
     os.makedirs(os.path.join(WORK, "sub"), exist_ok=True)
     for name, text in (("note.md", "BENIGN NOTE"), (os.path.join("sub", "note.md"), "SUB EVIL NOTE")):
-        with open(os.path.join(WORK, name), "w") as f:
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
             f.write(text)
     for cmd in ("u=\"$(cat <<\\EOF\n)\" ; gh issue comment 1 --body decoy; echo \"\nEOF\ngh issue comment 1 --body REALHIDDEN\n)\"",
                 "u=\"$(cat <<-\\EOF\n)\" ; gh issue comment 1 --body decoy; echo \"\nEOF\ngh issue comment 1 --body REALHIDDEN\n)\""):
@@ -583,7 +592,7 @@ def f28():
 # git の外に書いた文書が検査から漏れた)。読めるコマンドの拾い方は変えない
 def f33():
     doc = os.path.join(WORK, "f33.md")
-    with open(doc, "w") as f:
+    with open(doc, "w", encoding="utf-8") as f:
         f.write("a\n")
     for cmd in ("case $x in a)# c\necho a > f33.md;; esac", "echo $[1+1] > f33.md", "echo a > f33.md"):
         wrote = g._written_by_command(cmd, WORK)[0]
@@ -685,7 +694,7 @@ def f39():
 # (前は字句解析が引用の閉じを探して止まり、何も拾わなかった)
 def f40():
     doc = os.path.join(WORK, "f40.md")
-    with open(doc, "w") as f:
+    with open(doc, "w", encoding="utf-8") as f:
         f.write("a\n")
     for cmd in ("case $x in a)# don't\n;; esac\necho a > f40.md", "echo $[1+1] # it's\necho a > f40.md"):
         wrote = g._written_by_command(cmd, WORK)[0]
@@ -698,7 +707,7 @@ def f40():
 # 本文ファイルを書きうる物と見る(前は字のままの名前を照合して書き手に数えず、gh の前に書き換わる古いファイルを読んだ)。
 # 解ける書き込み先(F=other.md)と、書き込み先を取らないコマンドの解けない $(`git log "$BASE"..HEAD`)は今までどおり読む
 def f41():
-    with open(os.path.join(WORK, "note.md"), "w") as f:
+    with open(os.path.join(WORK, "note.md"), "w", encoding="utf-8") as f:
         f.write("BENIGN NOTE")
     for cmd in ('cp /etc/hosts "$F41_UNSET"; gh pr comment 1 --body-file note.md',
                 'x="$(mv other.md "$F41_UNSET")"; gh pr comment 1 --body-file note.md',
@@ -798,7 +807,7 @@ def f46():
 # 割れた後ろを見ず、本文を読まずに通した)。-execdir・-okdir・sudo -D・--chdir の後ろの gh は別の所で走るので、本文ファイルの
 # 相対のパスをフックの場所で読まない(前は gh が走らない所の n.md を本文と読んだ)。-exec を連ねた長い find も 1 度の走査で読む
 def f47():
-    with open(os.path.join(WORK, "n.md"), "w") as f:
+    with open(os.path.join(WORK, "n.md"), "w", encoding="utf-8") as f:
         f.write("BENIGN NOTE")
     for cmd in ("find . -maxdepth 0 -exec true \\; -exec gh pr comment 1 --body-file /etc/hosts \\;",
                 "find . \\( -name a \\) -exec gh pr comment 1 --body-file /etc/hosts \\;",
@@ -839,7 +848,7 @@ def f48():
                 "find . -exec gh pr comment {} --body '" + BODY + "' \\;", "ls | xargs -I{} gh pr comment -R o/r --body '" + BODY + "' -- {}"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(48, parsed and cands == [BODY] and not blk, "差し込む語の在る gh の見えている本文を読まなかった: %r → %r %r" % (cmd[:50], blk, parsed))
-    with open(os.path.join(WORK, "view.md"), "w") as f:
+    with open(os.path.join(WORK, "view.md"), "w", encoding="utf-8") as f:
         f.write("BENIGN VIEW")
     for cmd in ("printf comment | xargs -I view gh pr view 1 --body-file view.md", "ls | xargs -I{} gh pr comment 1 --body-file {}",
                 "ls | xargs -I{} gh pr comment 1 --body={}", "ls | xargs -I{} gh pr comment {} -R {} --body x",
@@ -894,7 +903,7 @@ def f50():
 # だけを見て、公開の gist に出す中身を読まずに通した)。`-F files[…][content]=@ファイル` は、ほかの @ファイルのフィールドと同じに
 # 読み、読めなければ止める。gist でない宛先の同じ名前のフィールドは、今までどおり本文と見ない
 def f51():
-    with open(os.path.join(WORK, "g51.md"), "w") as f:
+    with open(os.path.join(WORK, "g51.md"), "w", encoding="utf-8") as f:
         f.write(BODY)
     for cmd in ("gh api gists -f 'files[notes.md][content]=" + BODY + "' -F public=true",
                 "gh api /gists/abc -X PATCH -f 'files[n.md][content]=" + BODY + "'", "gh api gists -F 'files[n.md][content]=@g51.md'"):
@@ -1153,11 +1162,11 @@ def f66():
     post = "gh pr comment 1 --body-file x.md"
     for cmd, want in (("function f { %s; }; f", BODY), ("time { %s; }", BODY), ("time ! %s", BODY), ("time -p { %s; }", BODY),
                       ("time -- { %s; }", BODY), ("time -p -- ! %s", BODY), ("time function f { %s; }", BODY),
-                      ("time if true; then %s; fi", BODY), ("cd " + os.path.join(WORK, "sub") + " && time { %s; }", other)):
+                      ("time if true; then %s; fi", BODY), ("cd " + sh_path("sub") + " && time { %s; }", other)):
         cands, blk, parsed = g.posting_bodies(cmd % post, WORK)
         check(66, parsed and cands == [want] and not blk, "time・function の後ろの gh の本文を読まなかった: %r → %r %r" % (cmd, cands, blk))
     # `function f { … }` の中の cd は、`f() { … }` の中の cd と同じに読む
-    for body in ("cd " + os.path.join(WORK, "sub"), "cd sub", "true"):
+    for body in ("cd " + sh_path("sub"), "cd sub", "true"):
         got = [g.posting_bodies(form % (body, post), WORK) for form in ("function f { %s; }; f; %s", "f() { %s; }; f; %s")]
         check(66, got[0] == got[1], "function f { %s; } を f() と違えて読んだ: %r" % (body, got))
     calls = g.analyze("time { gh issue comment 1 -R o/r --body-file x.md; }", WORK).calls
@@ -1183,7 +1192,7 @@ def f67():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(67, parsed and cands == [BODY] and not blk, "引用の外の置換の後ろの本文を読まなかった: %r → %r %r" % (cmd[:70], cands, blk))
     # 中の gh は、外の前の cd・代入の後で走る所として読み、書き換えうる本文ファイルは止める
-    for cmd, want in (("x=$(gh pr comment 1 --body-file x.md)", BODY), ("cd %s && x=$(gh pr comment 1 --body-file x.md)" % os.path.join(WORK, "sub"), other),
+    for cmd, want in (("x=$(gh pr comment 1 --body-file x.md)", BODY), ("cd %s && x=$(gh pr comment 1 --body-file x.md)" % sh_path("sub"), other),
                       ("B=x.md; x=$(gh pr comment 1 --body-file $B)", BODY), ("GH_TOKEN=$(gh auth token) gh issue comment 1 --body-file x.md", BODY),
                       ("echo $(gh pr comment 1 --body-file x.md) done", BODY), ("cat < <(gh pr comment 1 --body-file x.md)", BODY),
                       ("x=$(find . -exec basename {} \\;) && gh pr comment 1 --body-file x.md", BODY)):
@@ -1237,7 +1246,7 @@ def f69():
 def f70():
     with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
         f.write(BODY)
-    path = os.path.join(WORK, "x.md")
+    path = sh_path("x.md")
     for head in ("env $(cat .env | xargs)", "env -i $(cat .env)", "command $(true)", "$(true)", "$SUDO", "${SUDO}", '"$(which env)"',
                  "`true`", "$(true) $(true)", "X=1 $(true)"):
         cmd = "%s gh pr comment 1 --body-file %s" % (head, path)
@@ -1277,7 +1286,7 @@ def f71():
 # 変えないので見ない(前は届き方を読めない cd と見て、本文ファイルの相対のパスを決まらない物として止めた)。まだ閉じていない
 # サブシェルの中の cd(`(cd /abs && gh …)`)は今までどおり効き、引用の中の ( ) や case の型の ) が在れば今までどおり止める側に倒す
 def f72():
-    sub = os.path.join(WORK, "sub")
+    sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     other = BODY + "(sub)"
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
@@ -1331,7 +1340,7 @@ def f73():
 # 今までどおり見ない(前はコマンドのどこかに引用か \ の後の ( ) が 1 つでも在れば閉じたと読まず、本文ファイルの相対のパスを
 # 決まらない物として止めた)。引用か \ の後の ( ) だけの語(`echo ")"`・`echo \)`)は字句解析が区切りに数えるので、今までどおり止める
 def f74():
-    sub = os.path.join(WORK, "sub")
+    sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     other = BODY + "(sub)"
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
@@ -1358,7 +1367,7 @@ def f74():
 # フックの場所の x.md を読み、`for d in /a /evil; do gh pr comment 1 -b hi; cd $d; done` の宛先を走る場所の repo と見た)。
 # cd の無い繰り返し・絶対パスの本文ファイル・繰り返しの無いコマンドの後ろの cd は今までどおり
 def f75():
-    sub = os.path.join(WORK, "sub")
+    sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
         with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
@@ -1369,7 +1378,7 @@ def f75():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(75, not parsed or bool(blk), "繰り返しの中の gh の後ろの cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
     for cmd in ("for i in 1 2; do gh pr comment $i --body-file x.md; done", "gh pr comment 1 --body-file x.md; cd %s" % sub,
-                "for i in 1 2; do gh pr comment $i --body-file %s; cd %s; done" % (os.path.join(WORK, "x.md"), sub)):
+                "for i in 1 2; do gh pr comment $i --body-file %s; cd %s; done" % (sh_path("x.md"), sub)):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(75, parsed and cands == [BODY] and not blk, "繰り返しの外か cd の無い形で本文ファイルを読まなかった: %r → %r %r" % (cmd, cands, blk))
     calls = g.analyze("for d in /a /evil; do gh pr comment 1 -b hi; cd $d; done", WORK).calls
@@ -1382,7 +1391,7 @@ def f75():
 # --body-file x.md ); cd /o && f` の gh が /o で読む本文ファイルでなく、フックの場所の x.md を読んでいた)。cd の無い関数と、
 # 空の配列の代入(`a=()`)の後ろの cd は今までどおり
 def f76():
-    sub = os.path.join(WORK, "sub")
+    sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
         with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
@@ -1402,7 +1411,7 @@ def f76():
 # gh より先に走らないので、gh の走る場所を変えない(75 の直し〔commit 183f6051〕は閉じの `}` を関数の印に数え、まとまりの中の
 # gh の本文ファイルと -R の無い宛先を決まらない物として止めていた)。本体を `{ }` で書く繰り返し(`for x in a b; { …; }`)は今までどおり止める
 def f77():
-    sub = os.path.join(WORK, "sub")
+    sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
         with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
@@ -1423,7 +1432,7 @@ def f77():
 # 決まらない cd と見る(前は引用の外の `eval cd /o` だけを見て、引用の中の cd を見ず、gh の本文ファイルと -R の無い宛先を cd の前の場所で
 # 読んでいた)。cd の語を持たない eval・source(`eval "$(ssh-agent -s)"`・`source .venv/bin/activate`)は今までどおり
 def f78():
-    sub = os.path.join(WORK, "sub")
+    sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
         with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
@@ -1484,7 +1493,7 @@ TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28:
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
-shutil.rmtree(WORK, ignore_errors=True)
+_WORK_DIR.cleanup()
 if FAILED:
     print("FIX_FAILED")
     for line in FAILED:
