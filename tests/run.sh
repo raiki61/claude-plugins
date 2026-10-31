@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=830
+EXPECTED_CHECKS=831
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5635,6 +5635,10 @@ for c in "gh api repos/good/things/../../evil/place/issues/1/comments -f body=x"
 done
 [ "$("$@" "gh api https://api.github.com/repos/good/things/issues/1/comments -f body=x")" = ALLOW_EMPTY ] || { ok=0; echo "一覧内の repo を止めた"; }
 [ $ok = 1 ] && echo DG_API_PATH_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
+# xargs -I が gist の宛先のパスに差し込む語は、読むだけの gh api(`gh gist list | … | xargs -I{} gh api gists/{}`)を投稿にしない。
+# 前は coldread が一律に止め、それを投稿と見て宛先不明で止めていた
+expect_output 0 "ALLOW_EMPTY" "destgate: 差し込む語の在る gist の読むだけの gh api は、投稿と見ずに通す" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh gist list | awk '{print \$1}' | xargs -I{} gh api gists/{} --jq '.files[].raw_url'"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib

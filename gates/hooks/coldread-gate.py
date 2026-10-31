@@ -2057,9 +2057,13 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # なり、宛先の種類(REST・graphql・gist)を変えうる。種類は埋める前のパスで決めているので、埋めた後に種類を変えると本文になる
     # 物(graphql の query・gist のファイルの中身)を運ぶときと、埋める前のパスで graphql か gist と決めたときは止める。前は
     # `echo graphql | xargs -I{} gh api /{} -f query='mutation{…}'` を REST と見て、mutation の本文を読まずに通していた。
-    # 語の途中の {} の読むだけの宛先(`repos/o/r/pulls/{}/comments`)と、REST の body のフィールドは今までどおり読む
+    # 語の途中の {} の読むだけの宛先(`repos/o/r/pulls/{}/comments`)と、REST の body のフィールドは今までどおり読む。
+    # 埋める前のパスが gist のときは止めずに読む: ファイルの中身は下のフィールドの読みで止め、body のフィールドは gist でも読むので、
+    # 埋めた後に REST の投稿になっても本文は読める。前はここで一律に止め、読むだけの `… | xargs -I{} gh api gists/{}` と、
+    # 本文を読めていた `xargs -I{} gh api gists/{}/comments -f body=…` まで止めていた。graphql は変数のフィールドを本文と読まない
+    # (`graphql/{}/.. -f body=…` は埋めた後に REST の投稿になりうる)ので、今までどおり止める
     fed_path = is_api and len(sub) > 1 and FED_WORD in re.split(r"[?#]", sub[1], maxsplit=1)[0]
-    if fed_path and (is_graphql or is_gist):
+    if fed_path and is_graphql:
         blocked.append("xargs・find -exec などが足す引数")
         return candidates, blocked
     gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る

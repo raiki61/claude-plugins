@@ -9,7 +9,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 34 は 21〜28 を直す間に見つけた素通しで、commit 69816318 の版を渡すと赤になる。35 以降は 3 度目のレビュー(頼み cae1e2)の
 直しで、commit 812accd7 の版を渡すと赤になる。
 49 以降はその後のレビュー(頼み cae1e2)の直しで、commit ef2d1702 の版を渡すと赤になる。53 以降は 15 回目のレビュー(頼み cae1e2)
-の直しで、commit 12d08013 の版を渡すと赤になる。
+の直しで、commit 12d08013 の版を渡すと赤になる。58 は 55 の直し(commit b46a0bfe)が持ち込んだ止めすぎで、b46a0bfe の版を
+渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -947,7 +948,7 @@ def f55():
                 "echo x | xargs -I{} gh api repos/o/r/issues/{}/comments " + mutation,
                 "echo gists | xargs -I{} gh api /{} -f 'files[a][content]=" + BODY + "'",
                 "echo x | xargs -I{} gh api https://ghe.example.com/api/v3/{} -F 'files[a][content]=@x.md'",
-                "echo x | xargs -I{} gh api graphql/{}/.. -f body=hi", "echo x | xargs -I{} gh api gists/{} -f body=hi",
+                "echo x | xargs -I{} gh api graphql/{}/.. -f body=hi",
                 "find . -name graphql -exec gh api {} " + mutation + " \\;"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(55, not parsed or bool(blk), "宛先のパスに差し込む語の gh api を通した: %r → %r %r" % (cmd[:70], cands, blk))
@@ -987,8 +988,27 @@ def f57():
     _, out = run_main("gh pr comment 1 --body 'hi", WORK)
     check(57, "deny" in out and g.FIND_OPEN_WHY not in out, "引用の閉じ忘れの止める文が変わった: %r" % out[:200])
 
+# 58. 埋める前のパスが gist の gh api は、宛先のパスに差し込む語が在っても一律に止めない(55 の直しの止めすぎ)。読むだけの形
+# (`… | xargs -I{} gh api gists/{}`・--jq・-X DELETE)は通し、body のフィールドは読む。gist のファイルの中身と query は今までどおり止め、
+# 埋める前のパスが graphql の物も止める
+def f58():
+    for cmd in ("gh gist list | awk '{print $1}' | xargs -I{} gh api gists/{}",
+                "gh gist list | awk '{print $1}' | xargs -I{} gh api gists/{} --jq '.files[].raw_url'",
+                "gh gist list | awk '{print $1}' | xargs -I{} gh api -X DELETE gists/{}"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(58, parsed and not cands and not blk, "読むだけの gist の gh api を止めた: %r → %r" % (cmd[:70], blk))
+    for cmd in ("gh gist list | awk '{print $1}' | xargs -I{} gh api gists/{}/comments -f body='" + BODY + "'",
+                "echo x | xargs -I{} gh api gists/{} -f body='" + BODY + "'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(58, parsed and cands == [BODY] and not blk, "gist の宛先の body のフィールドを読まなかった: %r → %r %r" % (cmd[:70], cands, blk))
+    for cmd in ("echo x | xargs -I{} gh api gists/{} -f 'files[a][content]=" + BODY + "'",
+                "echo x | xargs -I{} gh api gists/{} -f query='mutation{x}'",
+                "echo x | xargs -I{} gh api graphql/{}/.. --input q.json", "echo x | xargs -I{} gh api graphql/{}/.."):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(58, not parsed or bool(blk), "宛先のパスに差し込む語の gh api を通した: %r → %r %r" % (cmd[:70], cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
