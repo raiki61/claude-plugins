@@ -140,6 +140,9 @@ def text_value(args, i, sub):
     走る場所の repo へ出す投稿を、URL の repo(許可一覧の repo)と取り違えて通していた。"""
     if not i:
         return False
+    # gh agent-task create の 1 つ目の位置引数は仕事の説明の本文(coldread の agent_task_parts。本文の中の URL を宛先と読まない)
+    if sub == cr.AGENT_TASK_CREATE and args[i] in cr.agent_task_parts(args)[0][:1]:
+        return True
     prev = args[i - 1]
     if prev in TEXT_FLAGS:
         return True

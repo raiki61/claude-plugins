@@ -32,7 +32,9 @@ GitHub は、制限に当たった間は打ち直さずに待つよう求めて�
 の「Exceeding the rate limit」）。一時の制限を CI の赤と同じ頼みにしない（2026-10-28 に 2 次の制限で 1 で終わり、点検に頼みが回った。
 受付 6a9f37）。当たり始めてから REPEAT を過ぎても続けば、黙らずに 1 で知らせる（知らせた後は REPEAT ごとに 1 回）。
 
-終了の値: 0 = 知らせる物が無いか、利用制限で今回は読まなかった / 1 = 知らせる物が在る（その行を出す）か、gh・台帳を読めない / 2 = 入力が読めない
+終了の値: 0 = 知らせる物が無いか、利用制限で今回は読まなかったか、dry_run（知らせる物の行は出す） / 1 = 知らせる物が在る（その行を出す）か、gh・台帳を読めない / 2 = 入力が読めない
+dry_run は、知らせる物が在っても 0 で終わる（試運転は失敗でない。1 にすると gh・台帳を読めない本物の失敗と見分けられない。持ち主 2026-11-01、頼み 76475f）。
+gh・台帳を読めない回は dry_run でも 1。
 """
 
 import datetime
@@ -228,7 +230,7 @@ def save_state(path, told, limited=None):
 
 
 def limited(path, state, now, dry, e):
-    """利用制限で読めなかった回。当たり始めてから REPEAT のうちは 0 で黙り、過ぎたら 1 で知らせて時刻を今に替える（知らせるのは REPEAT ごとに 1 回）。"""
+    """利用制限で読めなかった回。当たり始めてから REPEAT のうちは 0 で黙り、過ぎたら 1 で知らせて時刻を今に替える（知らせるのは REPEAT ごとに 1 回）。dry は知らせても 0 で、時刻を覚えない。"""
     since = stamp(state.get("limited")) or now
     late = now - since > REPEAT
     if late:
@@ -239,7 +241,7 @@ def limited(path, state, now, dry, e):
               f"（{since + REPEAT:%Y-%m-%d %H:%M} UTC を過ぎても続けば知らせる）: {e}")
     if not dry:
         save_state(path, set(state["told"]) if "told" in state else set(), now if late else since)
-    return 1 if late else 0
+    return 1 if late and not dry else 0
 
 
 def main(stdin=None, runner=run, now=None):
@@ -290,8 +292,9 @@ def main(stdin=None, runner=run, now=None):
     # 数の行は最後に出す（works-dispatch が頼みに載せるのは出力の末尾の行なので、件が多いと頭の行が落ちる）
     print(f"main の CI に、知らせる物が上の {len(tell)} 件ある（新しい件か、前に知らせた頼みが閉じた後に新しく赤になった件か、"
           f"前に知らせた頼みが開いたまま {REPEAT.days} 日を過ぎた件か、前に知らせたが頼みに渡せなかった件）")
-    if not dry:
-        save_state(state_path, (told & keys) | {x["key"] for x in tell})
+    if dry:
+        return 0
+    save_state(state_path, (told & keys) | {x["key"] for x in tell})
     return 1
 
 

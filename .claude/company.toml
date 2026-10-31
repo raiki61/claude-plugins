@@ -360,7 +360,7 @@ fallback_role = "作業"
 # （CI の赤を直すのは点検。標準 docs/standards/breakage-detection.md の決まり 6）。
 # fallback_role に受け持ちの名前を書けるのは works-dispatch 0.80.1 から（受付 d0818d・34ce75）。それより前の works-dispatch はツールごと外して呼ばない。
 # ツールは頼みの題の「/ci-watch 」で自分が回した頼みを見分けるので、name を変えない。
-# 手で呼ぶなら dispatch.py --call "CI の見張り" ci-watch（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えない）
+# 手で呼ぶなら dispatch.py --call "CI の見張り" ci-watch（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えず、知らせる物が在っても 0 で終わる。1 は gh・台帳を読めない失敗）
 [[roles]]
 name = "CI の見張り"
 machine = true

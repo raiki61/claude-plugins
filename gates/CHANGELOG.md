@@ -6,6 +6,12 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Changed
+
+- 投稿の前の検査（coldread）は、検査に通った投稿に許可（`allow`）を返すのをやめ、モデルへの知らせ（`additionalContext`）だけを返す。`allow` は権限の確認の画面を飛ばすので、利用者の設定なら確認を求める投稿まで確認なしで通していた。今は利用者の権限の設定（確認の画面・`ask`・`deny` の規則）のとおりに進む（持ち主 2026-11-01、頼み 76475f。https://code.claude.com/docs/en/hooks ）。
+- `gh agent-task create`（GitHub Copilot のエージェントに仕事を渡す gh のコマンド。説明が GitHub へ出る）を、coldread と宛先のゲート（destgate）の対象に足した。1 つ目の位置引数の説明と、`-F`・`--from-file` のファイル（`-` は標準入力）を本文として読む。`-b` は `--base`（ブランチ）で本文と見ない。destgate は説明の中の URL を宛先と読まない（持ち主 2026-11-01、頼み 76475f）。
+- README の destgate に、許可一覧はホストを見ず `owner/repo` だけを照合すること、GitHub Enterprise を使い始めたら見直すことを書いた（持ち主 2026-11-01、頼み 76475f）。
+
 ## [0.47.0] - 2026-10-31
 
 ### Changed

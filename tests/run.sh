@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=877
+EXPECTED_CHECKS=881
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -2787,6 +2787,16 @@ $CR_PAD
 EOF"
 expect_output 0 "詰まり" "gist create - のヒアドキュメントもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_GIST"
+# gh agent-task create(Copilot のエージェントに仕事を渡す)の説明は GitHub へ出る本文。位置引数と -F のファイル・標準入力を読む(頼み 76475f)
+expect_output 0 "詰まり" "gh agent-task create の位置引数の説明もゲートに掛かる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent-task create --base main '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "gh agent-task create -F - のヒアドキュメントもゲートに掛かる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent-task create -F - <<'EOF'
+$CR_BODY
+$CR_PAD
+EOF"
+expect_output 0 "ALLOW_EMPTY" "gh agent-task create の -b はブランチ(--base)なので本文と見なさない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh agent-task create -b '$CR_BODY $CR_PAD'"
 # 帰属の負例: 旗が gh 以外のコマンドに付いていても巻き込まない
 expect_output 0 "ALLOW_EMPTY" "別コマンドの -b を gh の旗と誤認しない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr list --limit 100 && git checkout -b feature/x && echo '$CR_PAD'"
@@ -3052,6 +3062,8 @@ def stub(*findings):
             % (calls, calls, " ".join(shlex.quote(f) for f in findings)))
 FIND, CLEAN = stub("stuck=『例の件』が何か分からない"), stub()
 read = lambda: len(list(calls.iterdir()))
+# 検査に通った投稿は許可（allow）を返さず、知らせ（additionalContext）だけを返す（利用者の権限の設定に任せる。頼み 76475f）
+passed = lambda got: bool(got) and "permissionDecision" not in got and "検査を通過" in got.get("additionalContext", "")
 D = "python3 %s" % (root / "works-dispatch/dispatch/dispatch.py").as_posix()
 toml = sys.version_info >= (3, 11)   # tomllib の無い Python（3.10 以前）では頭書きを TOML として読まない
 summary = work / "deliver.md"
@@ -3093,7 +3105,7 @@ assert opened.read_text(encoding="utf-8").startswith(front), "要約のファイ
 confirm = work / "confirm.md"
 confirm.write_text('+++\n[[open]]\nquestion = "main に入れてよいか確かめる"\nholder = "owner:confirm"\n+++\n' + "直した。" * 80, encoding="utf-8")
 got = bash("%s --deliver %s" % (D, confirm.as_posix()), CLEAN)
-assert got and got["permissionDecision"] == "allow" and read() == 3, (got, read())
+assert passed(got) and read() == 3, (got, read())
 assert not toml or "main に入れてよいか確かめる 担当者: 持ち主（確認してからやる）" in (calls / "2.txt").read_text(encoding="utf-8")
 for odd in ('open = "なし"', 'open = [1, 2]', '[[open]]\nquestion = 3\nholder = 4'):
     confirm.write_text("+++\n%s\n+++\n" % odd + "直した。" * 80, encoding="utf-8")
@@ -3106,7 +3118,7 @@ calls_before = read()
 for n in (2, 3):
     opened.write_text(front.replace("決める", "決める（直し %d）" % n) + "残りの直しを分けて回した。" * 30, encoding="utf-8")
     got = bash("%s --deliver %s" % (D, opened.as_posix()), FIND)
-assert got and got["permissionDecision"] == "allow" and read() == calls_before + 2, (got, read())
+assert passed(got) and read() == calls_before + 2, (got, read())
 hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(opened)}}, None, "docs-record")
 assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, FIND, "docs-check") == "" and read() == calls_before + 2, \
     "持ち主への問いを読んで送った要約を、ターンの終わりにまた読んだ"
@@ -3127,7 +3139,7 @@ assert got and got["permissionDecision"] == "deny" and "分けて" in got["permi
 crlf = work / "crlf.md"
 crlf.write_bytes(("+++\r\nopen = []\r\n+++\r\n" + "例の件を片付けて返した。\r\n" * 30).encode("utf-8"))
 got = bash("gh release create v3 --notes '%s' && %s --deliver %s" % ("三つ目の件を出した。" * 30, D, crlf.as_posix()), CLEAN)
-assert got and got["permissionDecision"] == "allow" and read() == n + 2, (got, read())
+assert passed(got) and read() == n + 2, (got, read())
 hook(gate, {"session_id": "d1", "tool_input": {"file_path": str(crlf)}}, None, "docs-record")
 assert hook(gate, {"session_id": "d1", "hook_event_name": "Stop"}, FIND, "docs-check") == "" and read() == n + 2, \
     "gh と並べて送った要約(CRLF)をターンの終わりにまた読んだ"
@@ -5726,6 +5738,18 @@ done
 "$1" "$2" "$3" "gh gist new a.md" | grep -q "宛先 gist は" || { ok=0; echo "一覧に無い gist を通した"; }
 [ "$("$1" "$2" "$3" "gh issue new -R allowed/repo -t T -b hi")" = ALLOW_EMPTY ] || { ok=0; echo "一覧に在る repo への投稿を止めた"; }
 [ $ok = 1 ] && echo DG_ALIAS_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
+# gh agent-task create(Copilot のエージェントに仕事を渡す。説明が GitHub へ出る)も投稿と見て宛先を確かめる。説明の中の URL は宛先でない(頼み 76475f)
+expect_output 0 "DG_AGENT_TASK_OK" "destgate: gh agent-task create も投稿と見て宛先を確かめ、説明の中の URL は宛先と読まない" \
+    sh -c 'ok=1
+for c in "gh agent-task create -R evil/place \"仕事の説明\"" "gh agent-task create --repo=evil/place -F - <<E
+仕事の説明
+E"; do
+  "$1" "$2" "$3" "$c" | grep -q "許可一覧に無い" || { ok=0; echo "一覧の外への投稿を通した: $c"; }
+done
+[ "$("$1" "$2" "$3" "gh agent-task create -R allowed/repo \"https://github.com/evil/place/issues/1 を直す\"")" = ALLOW_EMPTY ] \
+  || { ok=0; echo "説明の中の URL を宛先と読んだ"; }
+[ "$("$1" "$2" "$3" "gh agent-task list -R evil/place")" = ALLOW_EMPTY ] || { ok=0; echo "投稿でない agent-task list を止めた"; }
+[ $ok = 1 ] && echo DG_AGENT_TASK_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
 # ファイルの名前の無い gh gist create は標準入力を gist に出す。前は coldread が本文と見ず、一覧に gist が無いのに通していた
 expect_output 0 "宛先 gist は" "destgate: ファイルの名前の無い gh gist create も、宛先 gist の投稿と見る" \
     "$DG_CASE" "$DG_CFG" "$WORK" "cat notes.md | gh gist create -d desc"

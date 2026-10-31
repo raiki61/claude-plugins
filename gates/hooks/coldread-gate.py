@@ -2412,6 +2412,17 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         elif "-a" in flags:
             add("file", "./-" if flags["-a"] == "-" else flags["-a"])
 
+    # gh agent-task create(GitHub Copilot のエージェントに仕事を渡す。本文は GitHub へ出る)は、位置引数の 1 つ目が仕事の説明の本文で、
+    # -F・--from-file のファイル(- は標準入力)からも読む(gh 2.102.0 の `gh agent-task create --help`)。-b は --base(ブランチ)で
+    # 本文でない。前はどちらも読まず、未検査の説明を外へ出していた(持ち主 2026-11-01、頼み 76475f)。説明もファイルも無い形は
+    # エディタで書くので、gh pr create --fill と同じく本文と見ない
+    if sub == AGENT_TASK_CREATE:
+        pos, flags = agent_task_parts(args)
+        for text in pos[:1]:
+            add("text", text)
+        if "-F" in flags:
+            add("file", flags["-F"])
+
     if is_graphql:
         query = None
         if "query" in gql_fields:
@@ -2439,6 +2450,19 @@ GIST_VALUE_FLAGS = {
     ("gist", "edit"): {"-a": "-a", "--add": "-a", "-d": "-d", "--desc": "-d", "-f": "-f", "--filename": "-f",
                        "-r": "-r", "--remove": "-r"},
 }
+
+
+# gh agent-task create の旗のうち値を取る物(gh 2.102.0 の `gh agent-task create --help`)。長い形 → 短い形。--follow は値を取らない。
+# -R はサブコマンドの後ろにも書けるので、ここで値ごと読み飛ばす(位置引数と数えない)
+AGENT_TASK_CREATE = ("agent-task", "create")
+AGENT_TASK_VALUE_FLAGS = {"-b": "-b", "--base": "-b", "-a": "-a", "--custom-agent": "-a", "-F": "-F", "--from-file": "-F",
+                          "-R": "-R", "--repo": "-R"}
+
+
+def agent_task_parts(args):
+    """gh agent-task create の (位置引数の列〔ヒアドキュメントの印を除く〕, 値を取る旗の値)。1 つ目の位置引数が仕事の説明の本文。"""
+    pos, flags = gist_positionals(args, AGENT_TASK_VALUE_FLAGS)
+    return [t for t in pos if not t.startswith("__HEREDOC")], flags
 
 
 def gist_positionals(args, value_flags):
@@ -4203,6 +4227,18 @@ def deny(reason: str) -> None:
     decide("deny", "\n".join(filter(None, (reason, notices()))))
 
 
+def passed(context):
+    """検査に通った投稿の答え。許可(permissionDecision の allow)は返さず、モデルへの知らせ(additionalContext)だけを出して終える。
+    allow は権限の確認の画面を飛ばすので、利用者の設定なら確認を求める投稿(許可の規則に無い gh の投稿)まで確認なしで通していた
+    (ask・deny の規則は allow でも効く)。このフックの役目は悪い投稿を止めることで、許すことではない。決めを返さなければ、Claude Code は利用者の権限の設定のとおりに進める
+    (https://code.claude.com/docs/en/hooks の PreToolUse。permissionDecision は省ける。持ち主 2026-11-01、頼み 76475f)。"""
+    print(json.dumps({
+        "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context},
+        **owner_note(),
+    }, ensure_ascii=False))
+    sys.exit(0)
+
+
 def decide(decision, reason, **extra):
     """PreToolUse の答え(decision・reason と extra の項目)を出して終える。"""
     print(json.dumps({
@@ -5271,7 +5307,7 @@ def main() -> None:
             section("投稿は通したが、coldreader(初見の読み手)に残った疑問"
                     "(必要なら本文に反映して編集してよい):", questions),
         )))
-        decide("allow", "coldreader の検査を通過(詰まりゼロ)", additionalContext=extra)
+        passed("coldreader の検査を通過(詰まりゼロ)\n" + extra if extra else "coldreader の検査を通過(詰まりゼロ)")
 
     role = {"screen": "この返信を受け取る相手として、スレッドの画面と本文を読んだ別プロセスの読み手",
             "new": "この %s を初めて開く人として、GitHub が本文の周りに出すものと本文を読んだ別プロセスの読み手" % noun,

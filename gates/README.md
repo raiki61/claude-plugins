@@ -76,6 +76,9 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
 - It does not rely on the writer's self-report that the check ran — there is structurally no hole of "just stamping a 'checked' mark and passing"
 - It checks only whether the text gets across — it does not look at whether the post should be made at all, under whose name, or where it goes. **Do not
   mistake passing for approval** (the pass and send-back messages say so every time). Destinations are restricted by destgate below
+- Passing does not grant permission either: on a pass the hook returns no `allow` decision, only its notes for the model (`additionalContext`),
+  so the post then goes through your own permission settings (a prompt, or your `ask` and `deny` rules) as it would without the hook.
+  An `allow` would skip the permission prompt (https://code.claude.com/docs/en/hooks), and this hook is there to stop bad posts, not to approve them
 - On every retry a new coldreader reads the fixed text — the hook drives convergence mechanically
 - **There is no escape hatch for an agent to turn the check off by itself** (owner's decision 2026-10-16). The former `COLDREAD_SKIP=1` was used 22 times as a way to
   avoid rewriting the body file and post unchecked. Now it has no effect even if written in the command; only the fact that it was written is
@@ -272,6 +275,9 @@ The following are accepted as out of scope in principle, or as forms that are st
   So `gh pr checkout -b <branch name>`, `gh issue view -c`, `gh run download -n`, etc. are
   not posts and are not caught by the net. Conversely, even if gh adds posting subcommands, they are caught by the net if written with long flags.
   New subcommands used only with short forms are missed
+- `gh agent-task create` (hands a task to the GitHub Copilot agent; the task description goes out to GitHub) has no body flag: its first
+  positional argument and the file of `-F`/`--from-file` (`-` is stdin) are read as the text. Its `-b` is `--base` (a branch), not text.
+  Without either, gh opens an editor, and that form is not read (the same as `gh pr create --fill`)
 - The hook's start line runs `hooks/run-python.sh` with bash. It tries `python3`, `python`, the versioned names from `python3.20`
   down to `python3.9`, and `py -3` in that order and uses the
   first one that actually starts and is Python 3.9 or newer (on Windows, `python3`/`python` can be the Microsoft Store placeholder,
@@ -505,6 +511,8 @@ The second gatekeeper, restricting a different axis from coldread: "may this be 
 
 - If `$CLAUDE_CONFIG_DIR/destgate/allowlist` does not exist, it does nothing. Creating it turns it on
 - The format is one pattern per line: `owner/repo`, `owner/*`, `gist` (lines starting with # and empty lines are ignored)
+- A pattern matches `owner/repo` only, not the host: a repository with the same name on a GitHub Enterprise host also passes. Only github.com
+  is used today; when GitHub Enterprise comes into use, revisit this (put the host in each pattern)
 - The destination is determined in the same order gh itself resolves it: `-R/--repo` → the `gh api`
   path `repos/<owner>/<repo>` or `orgs/<org>` (the `{owner}`/`{repo}` and `:owner`/`:repo` placeholders are filled with the
   repository gh picks for the current directory, as gh does), or `gists` (the destination is `gist`, as for `gh gist create`) → if neither, the repository gh picks for the current directory

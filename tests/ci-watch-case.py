@@ -2,7 +2,7 @@
 """tests/ci-watch.py（役「CI の見張り」のツール）を、gh と git を偽物の runner にし、受付箱の台帳を一時の階層に作って回す。
 
 使い方: python3 tests/ci-watch-case.py <場合>
-- red-range: main の最新の決着した run が赤なら 1 で終わり、run の URL と、最後の緑から最新の赤までの commit の範囲を出す。取り消しの
+- red-range: main の最新の決着した run が赤なら 1 で終わり（dry_run は 0）、run の URL と、最後の緑から最新の赤までの commit の範囲を出す。取り消しの
   run は決着に数えない。読む数の中に緑が無ければ、成功の run を別に引く。1 度も緑が無ければそう書く。dry_run は覚えない
   読む数の全部が取り消しなら、決着ごとに最新を引いて赤を見る。リポジトリにファイルの無い workflow は見ない
 - told-while-open: 知らせた件は、このツールから回した頼みが開いているうちは知らせない（0 で終わる）。新しい件だけは知らせる。
@@ -14,9 +14,9 @@
   指す頼み。孫まで）、回した頼みが開いている間は黙り、全部閉じた後に決着した赤だけ知らせ直す
 - age: 1 度も回っていない workflow・止められた workflow・間隔と 1 日より古い定期の run を知らせる。定期の run は、push の run が
   読む数を埋めても別に引く
-- unreadable: gh が落ちたら黙らず 1 で知らせる。入力が JSON のオブジェクトでなければ 2
+- unreadable: gh が落ちたら黙らず 1 で知らせる（dry_run でも 1）。入力が JSON のオブジェクトでなければ 2
 - limited: gh が GitHub の利用制限で断られた回は 0 で黙り、当たり始めた時刻を覚える（覚えた件は消さない。dry_run は覚えない）。
-  REPEAT を過ぎても続けば 1 で知らせて時刻を替え、読めた回は時刻を消す
+  REPEAT を過ぎても続けば 1 で知らせて時刻を替え（dry_run は 0 で替えない）、読めた回は時刻を消す
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
 """
 
@@ -105,7 +105,7 @@ def red_range():
     d = setup()
     runs = {1: [r(9, None, "c", status="queued"), r(8, "cancelled", "b"), r(7, "failure", "a"), r(6, "success", "0")]}
     code, out = go(Fake(d, [TEST], runs), '{"dry_run": true}')
-    check(code == 1 and "run 7" in out and "https://example.invalid/runs/7" in out, f"赤の run を出さない: {code} {out}")
+    check(code == 0 and "run 7" in out and "https://example.invalid/runs/7" in out, f"赤の run を出さない: {code} {out}")
     check(out.strip().splitlines()[-1].startswith("main の CI に、知らせる物が"), f"数の行が最後に無い: {out}")
     check("git log 00000000..aaaaaaaa" in out, f"最後の緑から赤までの範囲が無い: {out}")
     check(not os.path.exists(os.path.join(d, cw.STATE)), "dry_run なのに覚えた")
@@ -314,6 +314,8 @@ def age():
 def unreadable():
     code, out = go(Fake(setup(), [TEST], {}, broken=True))
     check(code == 1 and "読めなかった" in out and "HTTP 502" in out, f"gh の失敗を黙った: {code} {out}")
+    code, out = go(Fake(setup(), [TEST], {}, broken=True), '{"dry_run": true}')
+    check(code == 1 and "HTTP 502" in out, f"dry_run の gh の失敗を 1 で知らせない: {code} {out}")
     for bad in ("[1]", "{"):
         code, out = go(Fake(setup(), [TEST], {}), bad)
         check(code == 2, f"読めない入力 {bad} を 2 で止めない: {code} {out}")
@@ -338,6 +340,9 @@ def limited():
     code, out = go(Fake(d, [TEST], {}, broken=True, err=err), now=NOW + cw.REPEAT)
     check(code == 0 and state()["limited"] == NOW.timestamp(), f"REPEAT のうちに知らせたか、当たり始めた時刻を替えた: {code} {out} {state()}")
     later = NOW + cw.REPEAT + datetime.timedelta(hours=1)
+    code, out = go(Fake(d, [TEST], {}, broken=True, err=err), '{"dry_run": true}', now=later)
+    check(code == 0 and "secondary rate limit" in out and state()["limited"] == NOW.timestamp(),
+          f"dry_run の REPEAT を過ぎた利用制限を 0 で出さないか、時刻を替えた: {code} {out} {state()}")
     code, out = go(Fake(d, [TEST], {}, broken=True, err=err), now=later)
     check(code == 1 and "secondary rate limit" in out and state()["limited"] == later.timestamp(), f"REPEAT を過ぎた利用制限を黙った: {code} {out} {state()}")
     code, out = go(Fake(d, [TEST], {}, broken=True, err="HTTP 403: Resource not accessible by integration"), now=later)
