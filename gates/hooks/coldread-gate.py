@@ -394,8 +394,10 @@ _ANSI_C_SIMPLE = {"a": b"\a", "b": b"\b", "e": b"\x1b", "E": b"\x1b", "f": b"\f"
                   "t": b"\t", "v": b"\v", "\\": b"\\", "'": b"'", '"': b'"', "?": b"?"}
 # $'…' を読めないときに、書き直した単一引用の中に置く印。本文の値に在れば止める(_body_sink の add)
 ANSI_C_MARK = "__ANSI_C_UNREADABLE__"
-# 盾置換の走査が止まる字(引用・置換の開閉・注釈・ヒアドキュメントの開始)。間はまとめて飛ばす
-_SHIELD_EVENT_RE = re.compile(r"""[\\'"`$()#<}]""")
+# case と esac の語(コマンドの語の位置かは _command_word_at が見る)。case から esac までは、パターンの ) を括弧の閉じと数えない
+_CASE_EVENT = r"(?<![\w-])(?:case(?=[ \t\n])|esac(?=[ \t\r\n;&|)]|$))"
+# 盾置換の走査が止まる字(引用・置換の開閉・注釈・ヒアドキュメントの開始)と case・esac の語。間はまとめて飛ばす
+_SHIELD_EVENT_RE = re.compile(r"""[\\'"`$()#<}]|""" + _CASE_EVENT)
 _OCT_RE = re.compile(r"[0-7]{0,2}")
 _HEX_RES = {e: re.compile(r"[0-9A-Fa-f]{1,%d}" % k) for e, k in (("x", 2), ("u", 4), ("U", 8))}
 
@@ -486,14 +488,46 @@ def _open_paren(text, i, parens):
     parens.append(("word" if i and text[i - 1] in "$<>=" else "group", arith))
 
 
-def _close_paren(i, parens, closed, case_at):
+def _close_paren(i, parens, closed, case_at, case_marks):
     """引用の外の ) で積んだ ( を降ろし、閉じた種類を closed に書く。開きの無い ) は種類を言い切れない(None)。
-    case の後の ) は、パターンの ) か括弧を閉じる ) か見分けられないので、種類を None にし、積みも降ろさない(降ろさなければ、
-    算術の中の印が早く外れて、算術の中の # を注釈と読むことが無い)。"""
-    if i > case_at:
+    case の後の ) は、パターンの ) か括弧を閉じる ) か見分けられないので、種類を None にする。case から esac までの間
+    (case_marks。_case_word が積む)は、積みも降ろさない(降ろすと、算術の中の印が早く外れて、算術の中の # を注釈と読む)。
+    ただし、case の後に開いた算術の括弧は降ろす。パターンの ) は算術の中に来ないので、算術を閉じる ) と言い切れる。前は case の
+    後の ) を esac の後も引用の中の case の後も一切降ろさず、`case … in a) n=$((n+1));; esac` の後ろのコマンドの全部を算術の中と
+    読んでいた(後ろのヒアドキュメントで止め、`<<1x` を桁送りと読んで本文の中の ' で後ろの gh を引用の中に隠した)。"""
+    if i > case_at or case_marks:
         closed[i] = None
+        if case_marks and not (len(parens) > case_marks[-1] and parens[-1][1]):
+            return
+        if parens:
+            parens.pop()
         return
     closed[i] = parens.pop()[0] if parens else None
+
+
+def _command_word_at(text, i):
+    """i の語がコマンドの語の位置に在るか(_CASE_WORD_RE と同じ字と予約語の後)。"""
+    j = i
+    while j > 0 and text[j - 1] in " \t":
+        j -= 1
+    if j == 0 or text[j - 1] in ";&|(){}!`\n":
+        return True
+    for w in ("do", "then", "else", "elif", "if", "while", "until", "time"):
+        k = j - len(w)
+        if k >= 0 and text.startswith(w, k) and (k == 0 or not (text[k - 1].isalnum() or text[k - 1] in "_-")):
+            return True
+    return False
+
+
+def _case_word(text, i, word, parens, case_marks):
+    """引用の外の case・esac の語。コマンドの語の位置の case で括弧の積みの深さを積み、esac で降ろして、case の後に積んだ
+    括弧を捨てる(パターンの ) で降ろさなかった開き〔`(a)` の ( 〕が残らないように)。引用の中・語の途中の case は数えない。"""
+    if not _command_word_at(text, i):
+        return
+    if word == "case":
+        case_marks.append(len(parens))
+    elif case_marks:
+        del parens[case_marks.pop():]
 
 
 def _case_at(text, start=0):
@@ -551,6 +585,7 @@ def shield_heredocs(command):
     ticks = []      # stack の中の `…` の段の番号(内側が後ろ)
     pending = []    # 置換の中のヒアドキュメントの (段の深さ, 開始行の終わりの改行の位置)。段がそれより前で閉じれば読めない
     parens, closed, joins = [], {}, {}   # 引用の外の ( の積み(_open_paren)と、閉じた ) の種類と、行継続の後の位置 → 直前の字の位置
+    case_marks = []   # 開いている case ごとの、case の所の括弧の積みの深さ(_case_word)
     escaped_at = -2
     case_at = _case_at(text)
 
@@ -683,8 +718,11 @@ def shield_heredocs(command):
                     closed[i] = "word" if i < case_at else None
                     i += 1
                     continue
-            _close_paren(i, parens, closed, case_at)
+            _close_paren(i, parens, closed, case_at, case_marks)
             i += 1
+        elif c in ("case", "esac"):
+            _case_word(text, i, c, parens, case_marks)
+            i += 4
         elif c == "}":
             i += 1
         elif c == "#":
@@ -980,7 +1018,7 @@ def _live(text, hit, where=(None, '"')):
 # 読む所を言い切れないので、在れば読めない物とする形。`$[`(古い算術)の中の # は字。`$$(`・`$${` は、二重引用の中で
 # bash 3.2 が `(`・`{` を開く括弧と数えて引用の閉じる所が変わり、bash 5 は字と読む(版で割れる)
 UNREADABLE_OPENERS = ("$[", "$$(", "$${")
-_EVENT_RE = re.compile(r"""[#\\'"`$()}<]|__HEREDOC""")
+_EVENT_RE = re.compile(r"""[#\\'"`$()}<]|__HEREDOC|""" + _CASE_EVENT)
 # 算術の中の << の後に、引用か \ で始まる区切りが続く形(ヒアドキュメントで、盾が読めなかった物)
 _QUOTED_DELIM_RE = re.compile(r"""[ \t]*[\\'"]""")
 
@@ -1050,7 +1088,7 @@ def normalize_shell(text):
     # 直前に出力した字の位置。複製待ちの区間が空のとき(行継続・注釈を落とした直後)に、# の前の字として見る
     gap_at = -1
     # 引用の外の ( の積み(_open_paren)と、閉じた ) の位置ごとの種類(_comment_at が # の前の ) を見る)
-    parens, closed = [], {}
+    parens, closed, case_marks = [], {}, []
     case_at = _case_at(text)
     regex_starts, regex_ends = _regex_operands(text)
     stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
@@ -1112,6 +1150,9 @@ def normalize_shell(text):
             if c == "}":
                 stack.pop()
             i += 1
+        elif m.group(0) in ("case", "esac"):
+            _case_word(text, i, m.group(0), parens, case_marks)
+            i += 4
         elif c == "(":
             if top[0] == "(":
                 top[1] += 1
@@ -1125,7 +1166,7 @@ def normalize_shell(text):
                 closed[i] = "word" if i < case_at else None
             else:
                 # 開きの無い ) は case のパターンか、置換の中の case が置換の括弧を先に閉じた後の ) で、どちらか言い切れない
-                _close_paren(i, parens, closed, case_at)
+                _close_paren(i, parens, closed, case_at, case_marks)
             i += 1
         elif c == "<":
             if text.startswith("<<<", i):

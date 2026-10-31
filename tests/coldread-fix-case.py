@@ -6,7 +6,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 (commit 8eb61ffd)が持ち込んだ止めすぎで、8eb61ffd の版を渡すと赤になる。16・17 は 14・15 の直し(commit 0bd1e0a2)の
 後に見つけた素通しで、0bd1e0a2 の版を渡すと赤になる。21〜33 は 2 度目のレビュー(頼み cae1e2)の F1〜F13 で、
 番号から 20 を引くとレビューの番号になる(29 はレビューの F9 で、探しのゲートの側の直しなので tests/searchgate-suite.py に置く)。
-34 は 21〜28 を直す間に見つけた素通しで、commit 69816318 の版を渡すと赤になる。
+34 は 21〜28 を直す間に見つけた素通しで、commit 69816318 の版を渡すと赤になる。35 以降は 3 度目のレビュー(頼み cae1e2)の
+直しで、commit 812accd7 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -609,8 +610,22 @@ def f32():
         check(32, took < 8, "%d 字のコマンドを読むのに %.1f 秒かかった: %r" % (len(cmd), took, cmd[:30]))
 
 
+# 35. case から esac までの ) を降ろさない決めを、esac の後と引用の中の case に及ぼさない。case の後に開いた算術の括弧は
+# 降ろす(前は後ろのコマンドの全部を算術の中と読み、後ろのヒアドキュメントで止め、`<<1x` を桁送りと読んで後ろの gh を見落とした)
+def f35():
+    for cmd in ('for f in *; do\n  case "$f" in *.md) n=$((n+1));; esac\ndone\ngh pr comment 1 --body-file - <<\'EOF\'\n' + BODY + "\nEOF",
+                'gh pr comment 1 --body "Fix the edge\ncase where it fails' + BODY + '" && echo $((1+1)) # c'):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(35, parsed and len(cands) == 1 and BODY in cands[0] and not blk,
+              "case の後の算術の括弧を閉じずに止めた: %r → %r %r" % (cmd[:40], blk, parsed))
+    for cmd in ("case $1 in a) n=$((n+1));; esac\ncat <<1x\nit's\n1x\n" + GH + "\necho it\\'s",
+                "case $x in (a) n=$((n+1));; esac\n# c '\n" + GH, "case a in a) ((x=1+\n2 #x));; esac; " + GH,
+                "case a in a) echo $((1+\n2 #x));; esac; " + GH):
+        stops(35, cmd)
+
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
