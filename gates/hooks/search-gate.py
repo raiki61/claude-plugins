@@ -314,13 +314,19 @@ def substitutions(text, bare=True, heredoc=False):
                     # あるので終わりまで読む(次の " の手前までにすると、`…; esac; echo "hi"; rg foo /)"` の rg を落とす)。読んだ字は
                     # 予算に数える。終わりまで読むときは、後ろの " ごとにその手前で切った中身と、終わりの 1 字を落とした中身も読む
                     # (外の閉じの " まで中身にすると、`x="$(…; rg foo /)"; echo ok` の中の rg を引用の中と読む)。切るのは、後ろの
-                    # 初めの CUT_QUOTES 個の " と、その先は )" の " だけ(" ごとに全部切ると、`echo "$(grep -c "(" f) done"` の後ろに
-                    # echo "step" を 150 行続けた 11KB の台本で、読んだ量が " の数と長さの積で増えて予算に当たり、止めすぎていた。)" だけに
-                    # すると、`x="$(…; rg foo /) tail"; echo ok` の rg を落とす)
+                    # 初めの CUT_QUOTES 個の " と、その先は ) ごとにその後ろの次の " だけ(" ごとに全部切ると、`echo "$(grep -c "(" f) done"` の後ろに
+                    # echo "step" を 150 行続けた 11KB の台本で、読んだ量が " の数と長さの積で増えて予算に当たり、止めすぎていた。) の直後の
+                    # " だけにすると、`x="$(…; rg foo /) tail"; echo ok` の rg を落とす)
                     end = jc - 1 if jc else n if _plain_end(text, jq) > jq else jq
                     if end > jq:
-                        quotes = [k for k in range(jq, n) if text[k] == '"'] if end == n else []
-                        cuts = [end] if end < n else quotes[:CUT_QUOTES] + [k for k in quotes[CUT_QUOTES:] if text[k - 1] == ")"] + [n - 1, n]
+                        cuts, shut = [end], False
+                        if end == n:
+                            cuts = []
+                            for k in range(jq, n):
+                                if text[k] == '"' and (len(cuts) < CUT_QUOTES or shut):
+                                    cuts.append(k)
+                                shut = text[k] == ")" or (shut and text[k] != '"')
+                            cuts += [n - 1, n]
                         for cut in cuts:
                             out.append(text[i + 2:cut])
                             SPENT["reads"] += cut - i
@@ -1819,7 +1825,7 @@ DESTS_MAX = 200000
 # 時間切れは通す)。集めたコマンド(3 万 4 千本)で最も多いのは reads が 2 千 3 百・steps が 1 千 7 百ほど。上限で止めるまで
 # reads は 1 秒・steps は 5 秒ほど(steps は、cd の無い 7 千ほどのコマンドを並べた 1 本で上限に当たる)
 READS_MAX = 3000000
-# 閉じない置換の後ろで、中身の終わりの候補として切る " の数(この先は )" の " だけで切る)
+# 閉じない置換の後ろで、中身の終わりの候補として切る " の数(この先は ) の後ろの次の " だけで切る)
 CUT_QUOTES = 16
 READ_COST = 200
 STEPS_MAX = 25000000

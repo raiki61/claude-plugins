@@ -600,11 +600,12 @@ class Bash(unittest.TestCase):
                         'x=`echo a` find / -name x', 'x=`echo a; echo b` find / -name x', 'FOO=1 x=`echo a` rg foo ~',
                         'x=`git rev-parse HEAD` sudo rg foo /',
                         # 置換の閉じの後ろに字が続いてから外の " が閉じる形も、" の手前で切って読む
-                        'x="$(echo "((" ; case a in a) :;; esac; rg foo /) tail"; echo ok'):
+                        'x="$(echo "((" ; case a in a) :;; esac; rg foo /) tail"; echo ok',
+                        'x="$(echo "((" ; case a in a) :;; esac; ' + 'echo "1"; ' * 12 + 'rg foo /) tail"; echo ok'):
             self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
         for command in ('x=`git rev-parse HEAD` rg foo src', "v=`git log -1 --format='%s'`; echo \"$v\""):
             self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
-        # 閉じない置換の後ろの " を全部は切らず、初めの 16 個と )" の " でだけ切る(" ごとに切ると、後ろに echo "step" を 150 行続けた 11KB の
+        # 閉じない置換の後ろの " を全部は切らず、初めの 16 個と、) の後ろの次の " でだけ切る(" ごとに切ると、後ろに echo "step" を 150 行続けた 11KB の
         # 台本で読んだ量が予算に当たり、止めていた。頼み cae1e2)
         script = 'echo "count: $(grep -c "(" f.txt) done"\n' + 'echo "step"; grep -rn "foo" src/ | head -5\nfind . -name "*.py" | wc -l\n' * 150
         self.assertIsNone(run("Bash", {"command": script}, cwd=WORK)[0])
