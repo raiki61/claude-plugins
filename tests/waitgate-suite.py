@@ -8,25 +8,29 @@ my_notes の tools/tests/test_no_wait_loop.py(master 2d951aab)の表と同じ。
 import json
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
 import unittest
 
 sys.dont_write_bytecode = True
 HOOK = pathlib.Path(__file__).resolve().parents[1] / "gates" / "hooks" / "wait-gate.py"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import child_cpu  # noqa: E402
 
 
-def run(command, tool="Bash", background=False, raw=None, cfg=None, timeout=None):
-    """フックを起動する → (deny の理由か None, 標準出力)。timeout(秒)を過ぎたら subprocess.TimeoutExpired。"""
+def run(command, tool="Bash", background=False, raw=None, cfg=None, cpu_limit=None):
+    """フックを起動する → (deny の理由か None, 標準出力)。cpu_limit(秒)を渡すと、フックの使った CPU の秒がそれ未満かも確かめる
+    (壁時計の秒で比べない訳は tests/child_cpu.py)。止まらないフックは、その 10 倍の壁時計の秒で打ち切る(subprocess.TimeoutExpired)。"""
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, CLAUDE_CONFIG_DIR=cfg or tmp)
         tool_input = {"command": command}
         if background:
             tool_input["run_in_background"] = True
         data = raw if raw is not None else json.dumps({"tool_name": tool, "tool_input": tool_input, "cwd": tmp})
-        p = subprocess.run([sys.executable, str(HOOK)], input=data.encode("utf-8"), capture_output=True, env=env,
-                           timeout=timeout)
+        p, cpu = child_cpu.run([sys.executable, str(HOOK)], data.encode("utf-8"), env,
+                               timeout=cpu_limit * 10 if cpu_limit else None)
+        if cpu_limit and cpu >= cpu_limit:
+            raise AssertionError("フックが CPU を %.1f 秒使った(上限 %d 秒)" % (cpu, cpu_limit))
         out = p.stdout.decode("utf-8")
         if p.returncode != 0:
             raise AssertionError("フックが落ちた(rc=%d): %s" % (p.returncode, p.stderr.decode("utf-8", "replace")))
@@ -321,36 +325,37 @@ class Passes(unittest.TestCase):
 
 
 class LongCommands(unittest.TestCase):
-    """長いコマンドも、hooks.json の時間の上限(30 秒)の内に読み終える。時間切れのフックは止めずに通す。"""
+    """長いコマンドも、hooks.json の時間の上限(30 秒)の内に読み終える。時間切れのフックは止めずに通す。
+    検査はフックの CPU の秒を 20 秒と比べる(並べて走らせた回に壁時計の秒が伸びて赤になるのを避ける。tests/child_cpu.py)。"""
 
     def test_many_quotes_are_read_in_time(self):
         # 前は引用符ごとに前の出力の全体を探し、52KB で約 50 秒かかった(時間切れで通る)
         command = "for f in *; do :; done\n" + "\n".join("echo 'a' 'b'" for _ in range(4000))
         command += "\nwhile [ ! -f done ]; do sleep 5; done"
-        reason, _ = run(command, timeout=20)
+        reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
         self.assertIn("前景でも裏でも", reason)
 
     def test_too_many_words_before_dash_c_are_stopped(self):
         # `bash -c` の形を探して戻る語が多すぎるときは、読めないとして止める(通す側に倒さない)
         command = "for f in *; do :; done\nx " + " ".join("-c 'a'" for _ in range(1100))
-        reason, _ = run(command, timeout=20)
+        reason, _ = run(command, cpu_limit=20)
         self.assertIn("検査自体に失敗した", reason)
 
 
     def test_many_option_words_are_read_in_time(self):
         # 前は -o の値に - で始まる語を許し、`-o -o …` の割り方が語の数の指数で増えて 40 語で約 60 秒かかった(時間切れで通る)
-        reason, _ = run(": bash " + "-o " * 40 + "a-c 'x'; while true; do sleep 1; done", timeout=20)
+        reason, _ = run(": bash " + "-o " * 40 + "a-c 'x'; while true; do sleep 1; done", cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_blank_lines_are_read_in_time(self):
         # 前はループの語の前の空白に改行も数え、空の行の続きを改行ごとに読み直して 8 万行で約 50 秒かかった(時間切れで通る)
-        reason, _ = run("true" + "\n" * 80000 + ":\nuntil test -f x; do sleep 1; done", timeout=20)
+        reason, _ = run("true" + "\n" * 80000 + ":\nuntil test -f x; do sleep 1; done", cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_comments_in_backticks_are_read_in_time(self):
         # 前はバッククォートの中のコメントごとに閉じる ` を探し直し、60KB で約 40 秒かかった(時間切れで通る)
-        reason, _ = run("echo `" + "\n#" * 45000 + "\n`; until test -f x; do sleep 1; done", timeout=20)
+        reason, _ = run("echo `" + "\n#" * 45000 + "\n`; until test -f x; do sleep 1; done", cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_nested_unclosed_heredocs_are_read_in_time(self):
@@ -358,38 +363,38 @@ class LongCommands(unittest.TestCase):
         loop = "until test -f x; do sleep 1; done"
         for command in ("x=$(:)# ; " + loop + "\n" + "cat <<A\n" * 985 + "\n" * 92000,
                         loop + "\n# x\n" + "bash <<A\n" * 900 + "\n" * 92000):
-            reason, _ = run(command, timeout=20)
+            reason, _ = run(command, cpu_limit=20)
             self.assertIsNotNone(reason, "止まらなかった")
 
     def test_nested_closed_heredocs_read_by_shells_are_read_in_time(self):
         # 前はシェルが読む中身ごとに、終わりの語の行を 1 行ずつ探し直し、入れ子 900 段で 40 秒を超えた
         command = ("".join("bash <<A%d\n#\n" % i for i in range(900)) + "x\n" * 40000
                    + "".join("A%d\n" % i for i in reversed(range(900))) + "echo $(date)# ; while true; do sleep 1; done")
-        reason, _ = run(command, timeout=20)
+        reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_deeply_nested_substitutions_with_many_comments_are_read_in_time(self):
         # 前はヒアドキュメントの無い置換の中身も入れ子ごとに読み直し、270 段で 30 秒を超えた
         command = 'echo ' + '"$(echo ' * 270 + "#\n" * 46000 + ')"' * 270 + "\necho $(date)# ; while true; do sleep 1; done"
-        reason, _ = run(command, timeout=20)
+        reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_heredocs_on_continued_lines_are_read_in_time(self):
         # `\` で続けた 1 行に演算子が何千も在っても、演算子ごとに前の行を全部たどり直さない
         command = "cat <<A \\\n" * 10000 + "A\n" * 10001 + "echo $(date)# ; until test -f x; do sleep 1; done"
-        reason, _ = run(command, timeout=20)
+        reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_lines_that_almost_end_a_heredoc_are_read_in_time(self):
         # 前は終わりの語に似た行(<<- の引用したタブの語の行)ごとに後ろの全部を探し直し、96KB で 30 秒を超えた
         command = "echo $(date)#; until test -f x; do sleep 1; done\nx=$(cat <<-'\tE'\n" + "\tE\n" * 32000 + ")"
-        reason, _ = run(command, timeout=20)
+        reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_many_hashes_in_nested_substitutions_are_read_in_time(self):
         # 前は # ごとに行の終わりを探し直し、改行の無い長い行を入れ子の置換ごとに読んで約 40 秒かかった(時間切れで通る)
         command = 'echo "$(' * 40 + "echo ${x" + " #" * 45000 + "}; until test -f x; do sleep 1; done" + ')"' * 40
-        reason, _ = run(command, timeout=20)
+        reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
 

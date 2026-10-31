@@ -13,11 +13,12 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 
 sys.dont_write_bytecode = True
 HOOK = pathlib.Path(__file__).resolve().parents[1] / "gates" / "hooks" / "search-gate.py"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import child_cpu  # noqa: E402
 HOME = "/home/tester"
 WORK = HOME + "/src/repo"
 CD_WORD = re.compile(r"(?<![\w-])cd(?=[\s;&|)]|$)")
@@ -29,12 +30,20 @@ def posix_cd(items):
     return [i for i in items if os.name != "nt" or not CD_WORD.search(i if isinstance(i, str) else i[0])]
 
 
+CPU = [0.0]   # 起動したフックが使った CPU の秒の和。時間内に読み切る検査は cpu_used() の差を上限と比べる(壁時計の秒で比べない訳は tests/child_cpu.py)
+
+
+def cpu_used():
+    return CPU[0]
+
+
 def run(tool, tool_input, cwd=WORK, raw=None):
     """フックを起動する → (deny の理由か None, 標準出力)。"""
     with tempfile.TemporaryDirectory() as cfg:
         env = dict(os.environ, HOME=HOME, CLAUDE_CONFIG_DIR=cfg)
         data = raw if raw is not None else json.dumps({"tool_name": tool, "tool_input": tool_input, "cwd": cwd})
-        p = subprocess.run([sys.executable, str(HOOK)], input=data.encode("utf-8"), capture_output=True, env=env)
+        p, cpu = child_cpu.run([sys.executable, str(HOOK)], data.encode("utf-8"), env)
+        CPU[0] += cpu
         out = p.stdout.decode("utf-8")
         if p.returncode != 0:
             raise AssertionError("フックが落ちた(rc=%d): %s" % (p.returncode, p.stderr.decode("utf-8", "replace")))
@@ -195,9 +204,9 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": 'cd /; if [ -n "$X" ]; then cd "$X"; fi; find . -name x'})[0])
         # 走るとは限らない cd が続いても、場所は倍々に増えない(前は 20 個で時間切れになり、時間切れは通す)
         many = "".join("if [ -d d%d ]; then cd d%d; fi\n" % (i, i) for i in range(40)) + "find . -name x"
-        started = time.monotonic()
+        started = cpu_used()
         self.assertIsNotNone(run("Bash", {"command": many}, cwd=HOME)[0])
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(cpu_used() - started, 10)
         # 前の繰り返しが cd・代入を持たなければ、後ろの cd はそのまま走る(前は語が在るだけで解くのをやめていた)
         self.assertIsNotNone(run("Bash", {"command": "for f in *.md; do echo $f; done; cd / && find . -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "cd /; while read f; do :; done < list; find . -name x"})[0])
@@ -220,10 +229,10 @@ class Bash(unittest.TestCase):
                 self.assertIsNone(run("Bash", {"command": command})[0])
         # 走るとは限らない cd を繰り返しの中に並べても、時間切れ(時間切れは通す)にならない
         many = "".join("if [ -d d%d ]; then cd d%d; fi\n" % (i, i) for i in range(40))
-        started = time.monotonic()
+        started = cpu_used()
         self.assertIsNotNone(run("Bash", {"command": "while true; do\n" + many + "find . -name x\n" + many + "done"},
                                  cwd=HOME)[0])
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(cpu_used() - started, 10)
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_in_a_loop_before_the_search_repeats(self):
@@ -243,9 +252,9 @@ class Bash(unittest.TestCase):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
         # 入れ子の繰り返しの cd で場所が増え続けても、時間切れ(時間切れは通す)の前に、読み切れないとして止める
         nest = "for a in 1; do " * 6 + "cd d; " + "done; " * 6 + "find . -name x"
-        started = time.monotonic()
+        started = cpu_used()
         self.assertIsNotNone(run("Bash", {"command": nest}, cwd=cwd)[0])
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(cpu_used() - started, 10)
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_or_continue_skips_the_rest_of_the_pass(self):
@@ -306,9 +315,9 @@ class Bash(unittest.TestCase):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
         # 条件の中の cd を持つ if を並べても、時間切れ(時間切れは通す)にならない
         many = "".join("if cd d%d; then make; cd ..; fi\n" % i for i in range(60))
-        started = time.monotonic()
+        started = cpu_used()
         self.assertIsNone(run("Bash", {"command": many + "rg y ."}, cwd=HOME + "/src/repo")[0])
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(cpu_used() - started, 10)
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cds_of_one_then_section_or_and_chain_run_together(self):
@@ -588,9 +597,9 @@ class Bash(unittest.TestCase):
                         'x="$(echo "(" ; true)" rg foo src', "x=\"$(grep -c '(' f)\"; echo \"hint; rg foo /\"",
                         "x=\"$(echo \"(\")\"; echo '\"; rg foo /'"):
             self.assertIsNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
-        started = time.monotonic()
+        started = cpu_used()
         self.assertIsNotNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 600 + '"; rg foo /'}, cwd=WORK)[0])
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(cpu_used() - started, 10)
         # 数え方が閉じなくても、引用を見る閉じの後ろの、外の読みが引用の中と見て飛ばす字は読む(commit 87964f05 で読むのを
         # やめたとき、引用した ( を 2 つ持ち case の型か ${y%)} で手前に閉じる置換の、後ろの rg を落としていた。頼み cae1e2)
         for command in ('x="$(echo "((" ; case a in a) :;; esac; rg foo /)"', "x=\"$(grep -c '((' f; case $a in y) :;; esac; rg foo /)\"",
@@ -618,10 +627,10 @@ class Bash(unittest.TestCase):
         script = 'echo "count: $(grep -c "(" f.txt) done"\n' + 'echo "step"; grep -rn "foo" src/ | head -5\nfind . -name "*.py" | wc -l\n' * 150
         self.assertIsNone(run("Bash", {"command": script}, cwd=WORK)[0])
         # 閉じない $( を 9000 並べた 99KB の語も、$( ごとに終わりまで数え直さず、時間切れの前に読み終える(頼み cae1e2)
-        started = time.monotonic()
+        started = cpu_used()
         self.assertIsNotNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 9000 + '"; rg foo /'}, cwd=WORK)[0])
         self.assertIsNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 9000 + '"; rg foo src'}, cwd=WORK)[0])
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(cpu_used() - started, 10)
 
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
@@ -760,9 +769,9 @@ class Bash(unittest.TestCase):
             nest = "[ -d a ] && cd a; [ -d b ] && cd b; [ -d c ] && cd c; echo $(%s)" % nest
         for command in (nest, ":; " * 20000 + "rg foo src"):
             with self.subTest(command=command[:40]):
-                started = time.monotonic()
+                started = cpu_used()
                 self.assertIn("読み切れない", run("Bash", {"command": command})[0] or "")
-                self.assertLess(time.monotonic() - started, 15)
+                self.assertLess(cpu_used() - started, 15)
         # 浅い入れ子と、cd の無いコマンドを数千本並べた 1 本は今までどおり読み切る
         shallow = "rg foo src"
         for _ in range(3):
@@ -778,9 +787,9 @@ class Bash(unittest.TestCase):
         for command in ("cat <<EOF >/dev/null\n" + "$($\\)" * 20000 + "\nEOF\nrg foo /",
                         'echo "' + "$(\\)" * 25000 + '"; rg foo /'):
             with self.subTest(command=command[:40]):
-                started = time.monotonic()
+                started = cpu_used()
                 self.assertIsNotNone(run("Bash", {"command": command})[0])
-                self.assertLess(time.monotonic() - started, 10)
+                self.assertLess(cpu_used() - started, 10)
 
     def test_long_scripts_with_cds_and_assignments_are_read_to_the_end(self):
         # cd と置換の多い数百行の手書きの台本は読み切って通す。前は、代入だけのコマンドの語の置換を 2 度読み直し、cd ごとの
@@ -819,9 +828,9 @@ class Bash(unittest.TestCase):
                                                for i in range(100)])
         for command in (script, multi):
             with self.subTest(command=command[-60:]):
-                started = time.monotonic()
+                started = cpu_used()
                 self.assertIsNone(run("Bash", {"command": command})[0])
-                self.assertLess(time.monotonic() - started, 10)
+                self.assertLess(cpu_used() - started, 10)
         # 読み切った上で、末尾の / からの探しと、代入の語の置換の中の / からの探しは今までどおり止める
         self.assertIsNotNone(run("Bash", {"command": script + "\nrg foo /"})[0])
         self.assertIsNotNone(run("Bash", {"command": multi + "\na=$(pwd) b=$(rg -c x /)"})[0])

@@ -32,6 +32,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import child_cpu  # noqa: E402
+
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 GATE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "gates", "hooks", "coldread-gate.py")
 _WORK_DIR = tempfile.TemporaryDirectory(prefix="coldread-fix-", ignore_cleanup_errors=True)
@@ -507,9 +510,10 @@ def f20():
     cands, blk, parsed = g.posting_bodies("(cd sub)# it's fine\ngh pr comment 1 --body ok", WORK)
     check(20, parsed and cands == ["ok"] and not blk, "サブシェルの後の注釈を語と読んで止めた: %r %r %r" % (cands, blk, parsed))
     deep = "x=" + "\"$(echo a " * 400 + "z" + ")\"" * 400 + "; gh issue comment 1 --body-file note.md"
-    started = time.monotonic()
+    started = time.process_time()   # 上限は CPU の秒(47 の注釈)
     cands, blk, parsed = g.posting_bodies(deep, WORK)
-    check(20, not parsed and time.monotonic() - started < 10, "深い入れ子を止めなかったか遅い: %r %.1fs" % (parsed, time.monotonic() - started))
+    took = time.process_time() - started
+    check(20, not parsed and took < 10, "深い入れ子を止めなかったか遅い: %r CPU %.1fs" % (parsed, took))
     cmd = "gh issue comment 1 --body 'ok %s' -t \"$(curl -s https://example.com/a/#frag)\"" % BODY
     cands, blk, parsed = g.posting_bodies(cmd, WORK)
     check(20, parsed and len(cands) == 1 and not blk, "語の途中の # を注釈と見て止めた: %r %r %r" % ([c[:20] for c in cands], blk, parsed))
@@ -624,10 +628,10 @@ def f31():
 def f32():
     for cmd in ("echo " + "$(:\\()" * 12000 + "; gh pr comment 1 --body x",
                 "gh pr comment 1 --body ${a:-" + "${a:-" * 12000 + "x" + "}" * 12001):
-        started = time.monotonic()
+        started = time.process_time()   # 上限は CPU の秒(47 の注釈)
         g.posting_bodies(cmd, WORK)
-        took = time.monotonic() - started
-        check(32, took < 8, "%d 字のコマンドを読むのに %.1f 秒かかった: %r" % (len(cmd), took, cmd[:30]))
+        took = time.process_time() - started
+        check(32, took < 8, "%d 字のコマンドを読むのに CPU %.1f 秒かかった: %r" % (len(cmd), took, cmd[:30]))
 
 
 # 35. case から esac までの ) を降ろさない決めを、esac の後と引用の中の case に及ぼさない。case の後に開いた算術の括弧は
@@ -825,10 +829,11 @@ def f47():
     check(47, cands == ["BENIGN NOTE"] and not blk, "-exec の gh の本文ファイルを読まなかった: %r %r" % (cands, blk))
     for cmd in ("find . " + "-exec nice " * 9000 + "gh pr comment 1 --body-file /etc/hosts \\;",
                 "find . " + "-exec true \\; " * 7000 + "-exec gh pr comment 1 --body-file /etc/hosts \\;"):
-        started = time.monotonic()
+        # 上限は CPU の秒で比べる(tests/mutate.py が写しを並べて走らせた回に、壁時計の秒は 8 秒を超えて赤になった。tests/child_cpu.py)
+        started = time.process_time()
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
-        took = time.monotonic() - started
-        check(47, took < 8 and parsed and len(cands) == 1, "%d 字の find を %.1f 秒で読み、%r %r" % (len(cmd), took, blk, parsed))
+        took = time.process_time() - started
+        check(47, took < 8 and parsed and len(cands) == 1, "%d 字の find を CPU %.1f 秒で読み、%r %r" % (len(cmd), took, blk, parsed))
 
 # 48. xargs -I・-i・--replace・parallel -I・find -exec の {} は、差し込む印の在る所だけに印を付ける(FED_WORD)。語の途中
 # (`repos/o/r/pulls/{}/comments`)・-- の後ろ・後ろに本文の旗が見えている pr/issue comment の位置引数(gh は本文の旗を 2 つ
@@ -1326,15 +1331,18 @@ def f73():
         for hook, tail, cfg in (("coldread-gate.py", post, os.environ["CLAUDE_CONFIG_DIR"]), ("dest-gate.py", post, dg_cfg),
                                 ("search-gate.py", "; rg foo /", os.environ["CLAUDE_CONFIG_DIR"])):
             cmd = head + tail
+            # 上限は CPU の 20 秒(47 の注釈)。壁時計の 200 秒は止まらないフックを打ち切るだけ
             try:
-                proc = subprocess.run([sys.executable, os.path.join(hooks, hook)], capture_output=True, text=True, encoding="utf-8", timeout=20, cwd=WORK,
-                                      input=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": WORK}),
-                                      env=dict(env, CLAUDE_CONFIG_DIR=cfg))
+                proc, cpu = child_cpu.run([sys.executable, os.path.join(hooks, hook)],
+                                          json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": WORK}).encode("utf-8"),
+                                          dict(env, CLAUDE_CONFIG_DIR=cfg), timeout=200, cwd=WORK)
             except subprocess.TimeoutExpired:
-                check(73, False, "%s が展開を重ねた語で 20 秒を越えた: %r" % (hook, cmd[:40]))
+                check(73, False, "%s が展開を重ねた語で 200 秒を越えた: %r" % (hook, cmd[:40]))
                 continue
-            check(73, '"deny"' in proc.stdout, "%s が展開を重ねた語の後ろのコマンドを止めなかった: %r → %r %r"
-                  % (hook, cmd[:40], proc.stdout[:200], proc.stderr[-200:]))
+            out, err = proc.stdout.decode("utf-8", "replace"), proc.stderr.decode("utf-8", "replace")
+            check(73, cpu < 20, "%s が展開を重ねた語で CPU を %.1f 秒使った: %r" % (hook, cpu, cmd[:40]))
+            check(73, '"deny"' in out, "%s が展開を重ねた語の後ろのコマンドを止めなかった: %r → %r %r"
+                  % (hook, cmd[:40], out[:200], err[-200:]))
 
 # 74. 引用の中の ( ) が語の一部なら(`--title "feat(gates): y"`・`cd "$(dirname …)"`)、gh より前に閉じたサブシェル・置換の中の cd を
 # 今までどおり見ない(前はコマンドのどこかに引用か \ の後の ( ) が 1 つでも在れば閉じたと読まず、本文ファイルの相対のパスを

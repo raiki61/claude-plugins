@@ -898,7 +898,8 @@ def run_suite(repo, suite, failfast=False, env=None, detail=False):
         for i, l in enumerate(lines):
             if l.startswith("  FAIL ") and len(fails) < 8:
                 nxt = []
-                for m in lines[i + 1:i + 13]:
+                # 40 行まで（unittest の Traceback は 12 行では最後の例外の行まで届かなかった。run 41213036540 の印の写し）
+                for m in lines[i + 1:i + 41]:
                     if m.startswith(("  ok ", "  FAIL ")):
                         break
                     nxt.append(m)
@@ -907,9 +908,10 @@ def run_suite(repo, suite, failfast=False, env=None, detail=False):
     return out
 
 
-def run_selected(repo, tests, failfast=False):
-    """腕の tests（台本 → 関数名）だけを走らせる。failfast なら最初の FAIL で止める（残りの台本は走らせない）"""
-    rcs, failed = [], []
+def run_selected(repo, tests, failfast=False, detail=False):
+    """腕の tests（台本 → 関数名）だけを走らせる。failfast なら最初の FAIL で止める（残りの台本は走らせない）。
+    detail なら赤の台本ごとに出力の末尾を返す（detail＝台本 → 末尾の行。control が赤の訳を報告に残すため）"""
+    rcs, failed, ends = [], [], {}
     for script, fns in tests.items():
         if failfast and failed:
             break
@@ -921,12 +923,15 @@ def run_selected(repo, tests, failfast=False):
         # 絞った名前が台本に 1 本も無いと collect が exit 1 で抜ける——壊した行とは無関係の赤なので、撃てないと言う
         rcs.append("no-test" if NO_TEST in body else rc)
         failed += [l.strip()[5:].strip() for l in body.splitlines() if l.startswith("  FAIL ")]
+        if detail and rc != 0:
+            ends[script] = body.splitlines()[-40:]
     bad = [x for x in rcs if x != 0]
     # 赤の rc は、台本の並びによらず本物の赤（時間切れ・撃てない台本でない物）を先に取る。前は先頭の外れを取り、先の台本が時間切れなら
     # 後の台本の FAIL を捨てて Timeout にしていた
     rc = next((x for x in bad if x not in ("timeout", "no-test")), bad[0] if bad else 0)
     # 先の台本の赤で rc が赤になっても、時間切れの台本が在れば印を残す（次の回でその台本が当たりを出すと、当たりの証拠が変わる）
-    return {"rc": rc, "failed": failed, "tail": [], "selected": True, **({"timed_out": True} if "timeout" in rcs else {})}
+    return {"rc": rc, "failed": failed, "tail": [], "selected": True, **({"timed_out": True} if "timeout" in rcs else {}),
+            **({"detail": ends} if ends else {})}
 
 
 PYTEST_CACHE = ".pytest_cache"   # 写しの中で pytest が書く控え。前の腕の失敗の記録を次の腕に渡さないよう、腕ごとに消す
@@ -1371,16 +1376,18 @@ def pytest_green(repo, head, py, r):
 def control(suites, selected=None, pytest=None, only=None):
     """壊していない写しで、撃つときと同じ走らせ方が緑になるか（絞った台本も、絞った形のまま確かめる）。pytest は腕が撃つ pytest の
     テストのファイルの和（node id は並べない——argv の長さと件数のチェックを node id で外さないため）。only は腕が宣言した
-    tests/run.sh の検査の頭の和（only_head。その検査だけを回す形でも緑になるか——間の下ごしらえを前の検査に頼る検査はここで赤になる）"""
+    tests/run.sh の検査の頭の和（only_head。その検査だけを回す形でも緑になるか——間の下ごしらえを前の検査に頼る検査はここで赤になる）。
+    赤の回は検査の出力も残す（detail。台本一式と only は印の写しと同じ形、selected は台本ごとの出力の末尾）——control が赤の回は撃った腕のどれも
+    覆いの証拠にしないのに、前は FAIL の行の名前しか残らず、run 41202847506・41213036540 で waitgate の検査が赤になった訳を報告から読めなかった"""
     repo, d = copy("control")
     if BASE_UNTIMED:
         _UNTIMED.add(str(repo))
     try:
-        res = {s: run_suite(repo, s) for s in sorted(suites)}
+        res = {s: run_suite(repo, s, detail=True) for s in sorted(suites)}
         if selected:
-            res["selected"] = run_selected(repo, selected)
+            res["selected"] = run_selected(repo, selected, detail=True)
         if only:
-            res["only"] = run_suite(repo, "root", env=only_env(only))
+            res["only"] = run_suite(repo, "root", env=only_env(only), detail=True)
         if pytest:
             res["pytest"] = run_pytest(repo, pytest)
         return res
@@ -2037,6 +2044,10 @@ def main():
     why_n = " ".join(f"{k} {v}" for k, v in s["whole_suite_why"].items())
     print(f"control: {'緑' if ctrl_ok else '赤'} / 印: {len(m['seen'])} / {len(m['placed'])} 本が通った（写しは rc={m['rc']}）"
           + (f" / 差せない {s['unplaced']}" if s["unplaced"] else "") + (f" / 通ったが台本一式で撃つ {why_n}" if why_n else ""))
+    for k, v in sorted(res["control"].items()):
+        # 赤の検査の名前をログにも出す（出力の本文は --out の control の detail に残る）
+        if k != "pytest" and v.get("rc") != 0:
+            print(f"  control の {k} が赤（rc={v.get('rc')}）: " + (" / ".join(v.get("failed") or [])[:600] or "FAIL の行なし"))
     print(f"赤 {fired - len(green) - len(unrun)} / 緑 {len(green)}: {' '.join(green)}"
           + (f" / 撃てない {len(skipped)}: {' '.join(skipped)}" if skipped else "")
           + (f" / 走り切らない {len(unrun)}: {' '.join(unrun)}" if unrun else "")
