@@ -1418,8 +1418,33 @@ def f77():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(77, not parsed or bool(blk), "本体が { } の繰り返し・関数の後ろの cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
 
+# 78. eval・source・. の引数の字に cd・pushd・popd の語が在れば(`eval "cd /o"`・`for d in …; do gh …; eval "cd $d"; done`)、行き先の
+# 決まらない cd と見る(前は引用の外の `eval cd /o` だけを見て、引用の中の cd を見ず、gh の本文ファイルと -R の無い宛先を cd の前の場所で
+# 読んでいた)。cd の語を持たない eval・source(`eval "$(ssh-agent -s)"`・`source .venv/bin/activate`)は今までどおり
+def f78():
+    sub = os.path.join(WORK, "sub")
+    os.makedirs(sub, exist_ok=True)
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    for cmd in ('eval "cd %s"; gh pr comment 1 --body-file x.md', "eval 'x=1; pushd %s'; gh pr comment 1 --body-file x.md",
+                'command eval "cd %s" && gh pr comment 1 --body-file x.md',
+                'for d in /tmp %s; do gh pr comment 1 --body-file x.md; eval "cd $d"; done'):
+        cmd = cmd % sub
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(78, not parsed or bool(blk), "eval の引数の字の中の cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
+    for cmd in ('eval "$(ssh-agent -s)"; gh pr comment 1 --body-file x.md', 'eval "$(direnv export bash)"; gh pr comment 1 --body-file x.md',
+                "source .venv/bin/activate; gh pr comment 1 --body-file x.md", ". ./cd.sh; gh pr comment 1 --body-file x.md",
+                'gh pr comment 1 --body-file x.md; eval "cd %s"' % sub):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(78, parsed and cands == [BODY] and not blk, "cd の語の無い eval・source の後で本文ファイルを読まなかった: %r → %r %r" % (cmd, cands, blk))
+    calls = g.analyze('eval "cd %s"; gh pr comment 1 -b hi' % sub, WORK).calls
+    check(78, [c[4] for c in calls if c[0] == ("pr", "comment")] == [None], "eval の引数の字の中の cd で宛先の場所を読めると見た: %r" % calls)
+    calls = g.analyze('eval "$(ssh-agent -s)"; gh pr comment 1 -b hi', WORK).calls
+    check(78, [c[4] for c in calls if c[0] == ("pr", "comment")] == [WORK], "cd の語の無い eval で宛先の場所を見失った: %r" % calls)
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77, 78: f78})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

@@ -2715,6 +2715,24 @@ def _dest_unresolved(args, at, resolve):
     return bool(operands) and "$" in operands[-1] and resolve(operands[-1]) is None
 
 
+# eval・source・. の引数の字の中の cd などの語(`eval "cd /x"`・`eval "x=1; cd $d"`)。語の前後は空白・区切り・引用か字の端で、
+# `./cd.sh`・`$cd`・`--cd` は語に数えない
+_TEXT_CD_RE = re.compile(r"(?:^|(?<=[\s;&|(){}'\"`!]))(?:%s)(?=$|[\s;&|()<>{}'\"`])" % "|".join(sorted(CD_WORDS)))
+
+
+def changes_dir(args):
+    """単純コマンドの引数列が cwd を変えうるか。cd・pushd・popd を語のどこかに持つ(`if cd x`・`builtin cd x` も)か、eval・source・.
+    で、引数の字に cd などの語を持つ(`eval "cd /x"`。前は引用の中の cd を見ず、`eval "cd /o"; gh … --body-file x.md` の gh の本文
+    ファイルと -R の無い宛先を、cd の前の場所で読んでいた)。行き先は読まない(cd_dest は eval の形を解かないので、決まらない物になる)。
+    eval の引数の置換の出力(`eval "$(ssh-agent -s)"`)と、source が読むファイルの中は見ない。"""
+    if any(t in CD_WORDS for t in args):
+        return True
+    words = args[command_start(args):]
+    while words[:1] in (["command"], ["builtin"]):
+        words = words[1:]
+    return words[:1] in (["eval"], ["source"], ["."]) and any(_TEXT_CD_RE.search(t) for t in words[1:])
+
+
 def defines_function(cmds):
     """単純コマンドの列(split_commands)が関数の定義を持つか。`function 名前` で始まるコマンドか、1 語のコマンドの直後の空の `()`
     (`f() { …; }`・`f ( ) …`)が在れば持つ。本体が `{ }` でない定義(`f() ( gh …; )`・`f() if …; fi`)も同じに見る。
@@ -2917,7 +2935,7 @@ class BodyFiles:
     def cwd_here(self, k=None):
         """k 番目(既定は gh)のコマンドが走る cwd。決まらなければ None。
 
-        cwd を変えるコマンド(cd・pushd・popd を語のどこかに持つもの。`if cd x`・`builtin cd x` も)が前に在れば、
+        cwd を変えるコマンド(changes_dir。cd・pushd・popd を語のどこかに持つもの・引数の字に cd を持つ eval など)が前に在れば、
         `cd <絶対パス>` が必ず走り、そこから k まで CD_BETWEEN(既定は && だけ)で続く形でだけ、その先を cwd と見る。
         k より前に閉じたサブシェル・置換の中の cd は、k の走る場所を変えないので見ない(_closed_before)。
         繰り返し・関数の在るコマンド(looped)では、k より後ろに書いた cd も次の回・関数を呼ぶ前に走りうるので、在れば決まらない物と
@@ -2927,12 +2945,12 @@ class BodyFiles:
         k = self.k if k is None else k
         if self.moved:
             return None
-        if self.looped and any(t in CD_WORDS for c in self.cmds[k + 1:] for t in c.args):
+        if self.looped and any(changes_dir(c.args) for c in self.cmds[k + 1:]):
             return None
         cwd = self.cwd
         for j in range(k):
             c = self.cmds[j]
-            if not any(t in CD_WORDS for t in c.args) or self._closed_before(j, k):
+            if not changes_dir(c.args) or self._closed_before(j, k):
                 continue
             dest = self.cd_dest(c.args[command_start(c.args):])
             dest = native_path(dest) if dest else None
@@ -3274,7 +3292,7 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     # 置換の中の gh は、外の cd の後で走りうるが、中を読むときには cd が見えず、走る場所をフックの場所と取り違える
     # (`cd /other/repo && x="$(gh pr comment 5 --body hi)"` の画面を、フックの場所のリポジトリの同じ番号から引いていた)。
     # 外のどこかに cwd を変える語が在れば、中の呼び出しの走る場所は読めない物とする
-    moves = any(t in CD_WORDS for c in cmds for t in c.args)
+    moves = any(changes_dir(c.args) for c in cmds)
     for sub in inner:
         out.calls += sub.calls
         out.lost += [lost or moves for lost in sub.lost]
