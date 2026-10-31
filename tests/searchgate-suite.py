@@ -314,7 +314,9 @@ class Bash(unittest.TestCase):
                               "rg x .", WORK),
                              ("if [ -d b ]; then cd /; cd /tmp; fi; rg x .", HOME + "/src"),
                              ("for a in x y; do cd a1; for b in p q; do cd b1; for c in 1 2; do if cd c1; then make; cd ..; fi; "
-                              "done; cd ..; done; cd ..; done; rg x src", WORK)):
+                              "done; cd ..; done; cd ..; done; rg x src", WORK),
+                             ("for i in 1 2; do if true; then cd ..; if [ -f .zshrc ]; then exit; fi; cd src; fi; done; rg foo .",
+                              HOME + "/src")):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
         # 組に入ったときに上がる cd・組の中で cd が落ちても走る後ろの cd(; の後ろ・|| の後ろ)・&& の途中で止まった場所は、今までどおり
@@ -323,7 +325,14 @@ class Bash(unittest.TestCase):
                         "if [ -d build ]; then cd build || true; cd ..; fi; rg x .",
                         "if [ -d b ]; then make && cd build; cd ..; fi; rg x .",
                         "[ -d x ] && cd / && false && cd /tmp; rg x .", "if [ -d b ]; then cd /; make; fi; rg x .",
-                        "for d in a b; do if [ -d build ]; then cd build; make; cd ../..; fi; done; rg x ."):
+                        "for d in a b; do if [ -d build ]; then cd build; make; cd ../..; fi; done; rg x .",
+                        # 区画の中で cd の前の break・continue・return(入れ子の中も)で抜けた場所は、区画の後ろの cd を通らずに来る
+                        "for i in 1 2; do if true; then cd ..; if [ -f .zshrc ]; then break; fi; cd src; fi; done; rg foo .",
+                        "for i in 1 2; do if cd ..; then if [ -f .zshrc ]; then break; fi; cd src; fi; done; rg foo .",
+                        "for i in 1 2; do if true; then cd ..; case $i in 1) break;; esac; cd src; fi; done; rg foo .",
+                        "f() { if true; then cd ..; if [ -f .zshrc ]; then return; fi; cd src; fi; }; f; rg foo .",
+                        "for i in 1 2; do if true; then cd ..; break; cd src; fi; done; rg foo .",
+                        "for i in 1 2; do if true; then cd ..; [ -f .zshrc ] && continue; cd src; fi; done; rg foo ."):
             with self.subTest(command=command):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME + "/src")[0])
 

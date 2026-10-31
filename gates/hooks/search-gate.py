@@ -1463,8 +1463,13 @@ def load_coldread():
                             break
                 elif path and not path[-1][2] and self.kinds.get(path[-1][0]) == "if":
                     inside = [m for m in self._inside(path[-1][0]) if self.lay[m][0] == path]
-                    if all(op in (";", "\n", "(", ")") for m in inside if m <= j and self.lay[m][1] == d
-                           for op, _ in self.lay[m][2]):
+                    # 区画の中で cd より前に break・continue・return が在れば(入れ子の中も)、区画に入った場所が cd の前で抜けて
+                    # 後ろに来る(前は組と見て後ろの cd を必ず走ると読み、`for i in 1 2; do if true; then cd ..; if [ -f .zshrc ]; then
+                    # break; fi; cd src; fi; done; rg foo .` を ~/src で通していた)。exit はシェルを抜けるので後ろに来ない
+                    jumps = any(self.lay[m][3] in ("break", "continue", "return") for m in self._inside(path[-1][0])
+                                if m < j and self.lay[m][0][:len(path)] == path)
+                    if not jumps and all(op in (";", "\n", "(", ")") for m in inside if m <= j and self.lay[m][1] == d
+                                         for op, _ in self.lay[m][2]):
                         self._units[j] = (inside[-1] + 1, path)
             return self._units[j]
 
