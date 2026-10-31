@@ -103,6 +103,10 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 探しのゲート(searchgate)が、`fd . src -X rg TODO`・`fd -e py . ~/src/repo -x rg -l TODO` のように置き換えの印(`{}` など)の無い fd の `-x`・`-X` のコマンドを、fd が終わりに足す `{}` を見ずに cwd を探すと読み、ホームで打つと止めていた。印の無いコマンドには `{}` を足して読むようにした。
 - 探しのゲート(searchgate)が、`cd sub || { cd /; return 1; }; rg foo .`・`f() { cd sub || { cd /; return 1; }; }; f; rg foo .` のように return で終わる逃げ口の中の cd を後ろのコマンドに届かないと読み、/ を探すのを通していた。return は関数の中では呼んだ所に戻り、関数の外では失敗して次へ進むので、return で終わる逃げ口の中の cd は後ろに届くと見るようにした。
 - 探しのゲート(searchgate)が、`[ -d proj ] && { echo found; cd proj; }; rg foo .`・`[ -d proj ] || { git clone url proj; cd proj; }; rg foo .` のように、`&&`・`||` の後ろの `{ }` のまとまりの中の、頭でない cd を必ず走ると読み、ホームで打つと通していた。まとまりの頭の前の `&&`・`||` も、中の cd の区切りと見るようにした。あわせて `[ -d build ] && { cd build; make; cd ..; }; rg x .` のまとまりを、全部が走るか、どれも走らないかの組と見て、入らなかったときの場所に `cd ..` を当てないようにした(前は ~/src で打つとホームに届いたと読んで止めていた)。
+- 投稿の前のゲート(coldread)が、`gh pr new -t T -b …`・`gh release new v1 -n …`・`gh gist new a.md` のように、gh に組み込みのサブコマンドの別名(`pr new`・`issue new`・`release new`・`gist new`・`repo new`・`ls`・`pr co`)で打った投稿の本文を読まずに通していた。宛先のゲート(destgate)も、`gh issue new -R other/repo -t T -b hi` を許可一覧の外へ通し、`gh gist new a.md` を一覧に `gist` が無いのに通していた。別名を本当の名前に直してから読むようにした。`gh alias set` で足した別名は対象外。
+- 投稿の前のゲート(coldread)が、`cat a.md | gh gist create`・`gh gist create < a.md`・`gh gist create <<< "…"` のように、ファイルの名前の無い `gh gist create` が gist に出す標準入力を本文と見ずに通していた。宛先のゲート(destgate)も投稿と見ていなかった。また `gh gist create a.md <<'EOF' … EOF` では、gh が読まないヒアドキュメントだけを読み、gist に出る a.md を読んでいなかった。名前の無い形は `-` と同じに標準入力を読み(ヒアドキュメントは読み、パイプ・リダイレクトは止める)、名前が在るときはヒアドキュメントを名前の代わりに読まないようにした。
+- 投稿の前のゲート(coldread)が、`gh gist edit <id> -f a.md a.md`・`gh gist edit <id> --add new.md`・`gh gist create a.md -d "…"` のように gist に手元のファイルを出す形を、読まずに一律に止めていた。`--body-file` のファイルと同じ読み方で 1 つずつ読むようにした。読めないファイル・glob のままの名前・同じコマンドの中で書き換えうるファイルは、今までどおり止める。
+- 投稿の前のゲート(coldread)が、`gh gist create -d -h a.md` のように値を取る旗の値に置いた `-h`・`--help`・`--version` を案内の旗と見て、a.md を読まずに通していた。gh はこの `-h` を旗の値と読んで投稿する。値を取る旗の直後の語は案内と見ないようにした。`gh pr comment -h` のような案内だけの形は今までどおり通す。
 
 ## [0.46.0] - 2026-10-30
 
