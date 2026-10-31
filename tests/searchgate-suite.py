@@ -504,6 +504,14 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "nice -n 19 timeout 300 find / -name x"})[0])
         self.assertIsNotNone(run("Bash", {"command": "sudo env X=1 find / -name x"})[0])
 
+    def test_bare_substitution_after_a_wrapper_is_skipped(self):
+        # env・sudo の後ろの引用の外の置換だけの語(`env $(cat .env | xargs)`)は代入と同じに越え、後ろのコマンドを見る
+        # (前は置換を語に留めた後、その語をコマンド名と読み、後ろの find・rg を見ずに通していた。頼み cae1e2)
+        for command in ("env $(cat .env | xargs) find / -name x", "sudo env $(cat .env) rg foo /",
+                        'env $(cat .env) sh -c "cd / && find ."'):
+            self.assertIsNotNone(run("Bash", {"command": command})[0], command)
+        self.assertIsNone(run("Bash", {"command": "env $(cat .env | xargs) find . -name x"})[0])
+
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
         # (前は parallel を前置と見ず、`parallel rg {} / ::: foo bar` を通していた)

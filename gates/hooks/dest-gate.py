@@ -181,7 +181,7 @@ def selector_of(args, sub):
 
 def retargets(args):
     """単純コマンド 1 件(語の列)が、-R の無い gh が宛先に選ぶ repo を替えうるか(GIT_RETARGET_SUBS・GH_RETARGET_SUBS など)。"""
-    i = cr.command_start(args)
+    i = cr.command_start(args, skipped=[])   # `$(true) git remote add …` の git も見る(展開だけのコマンド名は越える)
     name = os.path.basename(args[i]) if i < len(args) else ""
     rest = args[i + 1:]
     if name == "gh":

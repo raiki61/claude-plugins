@@ -14,7 +14,8 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 11 回目のレビュー(頼み cae1e2)の直しで、commit fce0c115 の版を渡すと赤になる。62 以降は投稿の前のゲートの
 レビュー(頼み cae1e2)の直しで、commit a192c351 の版を渡すと赤になる。66 は探しのゲートの 12 回目のレビュー(頼み cae1e2)
 の直しで、commit 3f5cae34 の版を渡すと赤になる。67 以降は投稿の前のゲートの 19 回目のレビュー(頼み cae1e2)の直しで、
-commit 9d3d014e の版を渡すと赤になる。
+commit 9d3d014e の版を渡すと赤になる。70 以降は投稿の前のゲートの 20 回目のレビュー(頼み cae1e2)の直しで、
+commit d54ac54b の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1226,8 +1227,36 @@ def f69():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(69, parsed and not cands and not blk, "案内を出すだけの gh を止めた: %r → %r %r" % (cmd, cands, blk))
 
+# 70. コマンド名の位置の展開だけの語(`env $(cat .env | xargs) gh …`・`$(true) gh …`・`$SUDO gh …`)は、空にも代入にも開きうるので
+# 越えて後ろの gh を読む(前はその語をコマンド名と読み、gh を引数と見て、本文も宛先も見ずに通した)。展開は env -C・GH_REPO= にも
+# 開きうるので、gh が走る場所は読めない物とする(相対のパスの本文ファイルは止め、-R の無い宛先は宛先のゲートが不明と見る)。
+# 旗の値の展開(`sudo -u $USER gh …`)と、gh でないコマンドの頭の展開(`$EDITOR x.md`)は今までどおり
+def f70():
+    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
+        f.write(BODY)
+    path = os.path.join(WORK, "x.md")
+    for head in ("env $(cat .env | xargs)", "env -i $(cat .env)", "command $(true)", "$(true)", "$SUDO", "${SUDO}", '"$(which env)"',
+                 "`true`", "$(true) $(true)", "X=1 $(true)"):
+        cmd = "%s gh pr comment 1 --body-file %s" % (head, path)
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(70, parsed and cands == [BODY] and not blk, "展開だけのコマンド名の後ろの gh の本文を読まなかった: %r → %r %r" % (cmd, cands, blk))
+        cmd = "%s gh pr comment 1 --body-file x.md" % head
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(70, not parsed or bool(blk), "展開が走る場所を変えうるのに相対のパスの本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
+    calls = g.analyze("$(true) gh pr comment 1 -R evil/x -b hi", WORK).calls
+    check(70, [c[0] for c in calls] == [("pr", "comment")] and calls[0][4] is None,
+          "展開だけのコマンド名の後ろの gh を宛先のゲートに渡さなかったか、走る場所を読めると見た: %r" % calls)
+    calls = g.analyze("find . -name x.md -exec $X gh pr comment 1 -R evil/x -b hi \\;", WORK).calls
+    check(70, [c[0] for c in calls] == [("pr", "comment")], "find -exec の後ろの展開を越えなかった: %r" % calls)
+    for cmd in ("sudo -u $USER gh pr comment 1 --body-file x.md", "timeout $T gh pr comment 1 --body-file x.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(70, parsed and cands == [BODY] and not blk, "旗の値の展開で走る場所を読めないと見た: %r → %r %r" % (cmd, cands, blk))
+    for cmd in ("$EDITOR x.md", '"$(which python3)" x.py --body-file x.md', "$(echo ls) gh.md", '"$(which gh)" pr comment 1 --body-file x.md'):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(70, parsed and not cands and not blk, "gh を走らせないコマンドを読んだか止めた: %r → %r %r" % (cmd, cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

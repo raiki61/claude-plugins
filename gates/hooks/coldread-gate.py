@@ -1613,9 +1613,28 @@ def simple_commands(tokens):
     return [c.args for c in split_commands(tokens)]
 
 
-def command_start(tokens, feeders=False):
+# 展開だけで書いた語(`$X`・`${X}`・`$@`・`$(…)`・`` `…` ``。引用は字句解析で落ちている)。コマンド名の位置に在ると、何語に
+# 開くか(空にも、代入にも、env -C にも)字面で決まらない
+_EXPANSION_ONLY_RE = re.compile(r"(?:\$(?:[A-Za-z_]\w*|[0-9@*]|\{[^{}]*\}|\(.*\))|`[^`]*`)+", re.S)
+
+
+def expansion_only(tok):
+    """語 tok が展開だけでできているか(引用の外の置換だけの語〔Word.subs が有り、残りが空〕も)。"""
+    return bool(getattr(tok, "subs", ()) and getattr(tok, "rest", None) == "") or bool(_EXPANSION_ONLY_RE.fullmatch(tok))
+
+
+class OpaqueHead(Word):
+    """command_start がコマンド名の位置で越えた、展開だけの語(gh_calls が gh より前の語に置く)。moves_dir は走る場所を読めない
+    物と見る(`$X gh …` の X は env -C にも、`env $(cat .env) gh …` の .env は GH_REPO= にも開きうる)。"""
+
+
+def command_start(tokens, feeders=False, skipped=None):
     """単純コマンドのコマンド名の位置。前置(環境変数の代入・env/timeout 等とその旗と値)を読み飛ばす。無ければ len(tokens)。
-    feeders なら xargs・parallel(FEEDERS)も前置として越える。
+    feeders なら xargs・parallel(FEEDERS)も前置として越える。skipped が list なら、コマンド名の位置に在る展開だけの語
+    (expansion_only。`env $(cat .env | xargs) gh …`・`$(true) gh …`・`$SUDO gh …`)も越え、その位置を skipped に積む。展開は空にも
+    代入にもなりうるので、後ろの gh を探す呼び元(gh_calls など)は越える。前はその語をコマンド名と読み、後ろの gh を引数と見て通していた。
+    ほかの呼び元(読むだけのコマンドか・cd の行き先か)は、前置の後ろの引用の外の置換だけの語(代入と同じに越える)のほかは越えない:
+    展開をコマンド名と見たまま、知らないコマンドとして止める側に倒す。
 
     gh_calls と wants_skip の両方がここを通る——読み飛ばす範囲を 2 か所に書くと、片方だけ外れる。
     コマンド名の前に書いたヒアドキュメント(`<<'EOF' gh …`。盾の印が残る)も読み飛ばす。前は印をコマンド名と読み、後ろの
@@ -1643,6 +1662,13 @@ def command_start(tokens, feeders=False):
         if ENV_PREFIX_RE.match(tok):
             i += 1
             continue
+        # 前置(env・sudo など)の後ろの、引用の外の置換だけの語は、代入と同じに越える(どの呼び元でも。`env $(cat .env | xargs) find /`
+        # の find を探しのゲートが見る)。前は置換を語に留めた後、その語をコマンド名と読み、後ろのコマンドを見ずに通していた
+        if (skipped is not None and expansion_only(tok)) or (wrapper and getattr(tok, "subs", ()) and getattr(tok, "rest", None) == ""):
+            if skipped is not None:
+                skipped.append(i)
+            i += 1
+            continue
         base = re.split(r"[\\/]", tok)[-1]
         if base in WRAPPERS or (feeders and base in FEEDERS):
             wrapper, need = base, WRAPPER_POSITIONALS.get(base, 0)
@@ -1650,6 +1676,18 @@ def command_start(tokens, feeders=False):
             continue
         return i
     return i
+
+
+def _opaque_heads(tokens, skipped):
+    """tokens の skipped の位置の語を OpaqueHead に替えた写し(無ければ tokens のまま)。"""
+    if not skipped:
+        return tokens
+    out = list(tokens)
+    for n in skipped:
+        w = OpaqueHead(out[n])
+        w.marked, w.subs, w.rest = getattr(out[n], "marked", None), getattr(out[n], "subs", ()), getattr(out[n], "rest", None)
+        out[n] = w
+    return out
 
 
 def _is_gh(tok):
@@ -1670,9 +1708,10 @@ CHDIR_FLAGS = ("--chdir", "--workdir", "--wd", "-execdir", "-okdir")
 
 def moves_dir(tok):
     """gh より前の語 tok が、gh の走る場所を変えうるか。1 つの - で始まる束は、C か D の字を持てば変えうると見る(env -C・
-    sudo -D・`sudo -ED /x`。ほかの意味の -C・-D も数えるが、多めに見る分には本文ファイルを読まずに止める側に倒れるだけ)。"""
-    return tok.startswith(CHDIR_FLAGS) or (tok.startswith("-") and not tok.startswith("--")
-                                           and ("C" in tok[1:] or "D" in tok[1:]))
+    sudo -D・`sudo -ED /x`。ほかの意味の -C・-D も数えるが、多めに見る分には本文ファイルを読まずに止める側に倒れるだけ)。
+    command_start が越えた展開だけのコマンド名(OpaqueHead)も変えうると見る。"""
+    return isinstance(tok, OpaqueHead) or tok.startswith(CHDIR_FLAGS) or (tok.startswith("-") and not tok.startswith("--")
+                                                                          and ("C" in tok[1:] or "D" in tok[1:]))
 
 
 def _base(tok):
@@ -1762,8 +1801,11 @@ def gh_calls(tokens):
     足す語の所には印(FED_MARK)を置く: xargs・parallel は後ろに足す語の印を末尾に、find は {} の所に。find は -exec ごとに
     1 件で、全部の -exec を見る(前は最初の gh で返し、`-exec gh pr view 1 {} + -exec gh pr comment …` の後ろの gh を見落とした)。
     find の引数は、式の \\( \\) と -exec の閉じの \\; で割れた後ろのコマンドを繋ぎ直した物(glued_find)を渡す。
-    gh より前の語には、find より前の前置・-exec の語・-exec の後ろの前置を並べる(moves_dir が走る場所を見る)。"""
-    i = command_start(tokens, feeders=True)
+    gh より前の語には、find より前の前置・-exec の語・-exec の後ろの前置を並べる(moves_dir が走る場所を見る)。
+    コマンド名の位置の展開だけの語(`$(true) gh …`)は越え、gh より前の語に OpaqueHead として置く(command_start)。"""
+    skipped = []
+    i = command_start(tokens, feeders=True, skipped=skipped)
+    tokens = _opaque_heads(tokens, skipped)
     if i >= len(tokens):
         return []
     if _is_gh(tokens[i]):
@@ -1781,8 +1823,9 @@ def gh_calls(tokens):
         start = m = k + 1
         while m < n and tokens[m] != ";" and not (tokens[m] == "+" and m > start and tokens[m - 1] == "{}"):
             m += 1
-        seg = tokens[start:m]
-        j = command_start(seg, feeders=True)
+        skipped = []
+        j = command_start(tokens[start:m], feeders=True, skipped=skipped)
+        seg = _opaque_heads(tokens[start:m], skipped)
         if j < len(seg) and _is_gh(seg[j]):
             before, args = _gh_call(seg, j)
             # `{} ;` の {} は見つけた物 1 つ(1 語の中に差し込む)、`{} +` の {} は見つけた物の全部(何語にもなる)
@@ -1855,7 +1898,9 @@ def dispatch_args(tokens):
 
     走らせ方は `python3 <パス>/dispatch.py …` と、スキルが書く `bash <パス>/run-python.sh <パス>/dispatch.py …` の 2 つ。
     """
-    i = command_start(tokens)
+    skipped = []
+    i = command_start(tokens, skipped=skipped)
+    tokens = _opaque_heads(tokens, skipped)
     base = [re.split(r"[\\/]", t)[-1] for t in tokens[i:]]
     if not base or not (base[0] == DISPATCH_SCRIPT or INTERPRETER_RE.match(base[0])):
         return None
@@ -3041,7 +3086,7 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     out = Analysis(True)
     out.runs = [(c.args, c.redirects) for c in cmds] + hidden
     for k, c in enumerate(cmds):
-        at = command_start(c.args, feeders=True)
+        at = command_start(c.args, feeders=True, skipped=[])   # gh_calls と同じ所をコマンド名と見る
         if at < len(c.args) and _base(c.args[at]) in FIND_NAMES:
             glued, whole = glued_find(cmds, k)
             if not whole:
