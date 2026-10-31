@@ -716,7 +716,9 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
         # (前は同じコマンドの代入を見ず、起点の $D を解けずに通していた)。中身ごとに、前の語までの代入を足した Scope で見る。
         # その語の置換は inners に入れない(前の語までの代入を足した Scope は、files.at の解く変数も解く。前は両方で読み、
         # 置換ごとに読む数が 2 倍になって、長いスクリプトで読む字の上限に当たっていた)
-        chained = range(1, len(c.args)) if at == len(c.args) > 1 else range(0)
+        # 頭に並んだ代入の語(`D=/ x=$(rg foo $D) true` の x=…)も同じ(前は代入だけのコマンドでしか前の語を見ず、通していた)
+        lead = next((i for i, a in enumerate(c.args) if not cr.ENV_PREFIX_RE.match(a)), len(c.args))
+        chained = range(1, lead)
         assigns = [(x, before_scope(cr, cmds, k, files, bodies, x, upto=i)) for i in chained
                    for x in dict.fromkeys(tuple(getattr(c.args[i], "subs", ())) + tuple(word_substitutions(c.args[i])))]
         own = [a for i, a in enumerate(c.args) if i not in chained]

@@ -530,6 +530,12 @@ class Bash(unittest.TestCase):
         for command in ("D=src x=$(rg foo $D)", "x=$(rg foo $D) D=/", "D=/; D=src x=$(rg foo $D)", "D=/ rg foo $D",
                         "D=src bash -c 'find $D -name x' > log"):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
+        # コマンドの前に並べた代入の語も同じ(前は代入だけのコマンドでしか前の語を見ず、`D=/ x=$(rg foo $D) true` を通していた)。
+        # env の後ろの語は代入より先に展開するので、前の D=/ を見ない(前は `D=/ env x=$(rg foo $D)` を代入だけと読んで止めていた)
+        for command in ("D=/ x=$(rg foo $D) true", "D=/ x=$(rg foo $D) y=1 make", 'D=/ x="$(rg foo $D)" true'):
+            self.assertIsNotNone(run("Bash", {"command": command})[0], command)
+        for command in ("D=src x=$(rg foo $D) true", "D=/ env x=$(rg foo $D)", "x=$(rg foo $D) D=/ true"):
+            self.assertIsNone(run("Bash", {"command": command})[0], command)
 
     def test_backticks_inside_a_bare_substitution_are_read(self):
         # 引用の外の $( … ) の中の ` … ` も読む(中に ` が在るとトークン化が単純コマンドに割り、割った語は ` の中身を持たない。
