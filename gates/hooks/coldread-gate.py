@@ -2302,7 +2302,10 @@ GIST_VALUE_FLAGS = {
 def gist_positionals(args, value_flags):
     """gh gist のサブコマンド語より後ろの (位置引数の列, 値を取る旗の値〔短い形 → 最後の値〕)。
 
-    値を取る旗は、離れた形(`-f a.md`)・融合形(`-fa.md`・`--filename=a.md`)のどちらも読む。-- の後ろは全部位置引数。"""
+    値を取る旗は、離れた形(`-f a.md`)・融合形(`-fa.md`・`-f=a.md`・`--filename=a.md`)のどちらも読む。-- の後ろは全部位置引数。
+    短い旗は、gh の旗の読み方(pflag)と同じく束ねた形(`-pf a.md`・`-wd 説明`)を 1 字ずつ読む。値を取らない字(-p・-w など)は
+    飛ばし、値を取る字はそこで語の残りか次の語を値に取る。前は語の頭の 2 字だけを見て、`cat long.md | gh gist create -pf short.md`
+    の short.md を位置引数(読むファイル)と読み、gh が出す標準入力を読まずに通していた"""
     pos, flags, seen, i, ddash = [], {}, 0, 0, False
     while i < len(args):
         tok = args[i]
@@ -2314,14 +2317,26 @@ def gist_positionals(args, value_flags):
             seen += 1
         elif tok == "--" and not ddash:
             ddash = True
-        elif not ddash and tok.startswith("-") and tok != "-":
-            name = tok.split("=", 1)[0] if tok.startswith("--") else tok[:2]
+        elif not ddash and tok.startswith("--"):
+            name = tok.split("=", 1)[0]
             if name in value_flags:
                 if tok != name:
-                    flags[value_flags[name]] = tok[len(name) + 1:] if tok.startswith("--") else tok[2:]
+                    flags[value_flags[name]] = tok[len(name) + 1:]
                 elif i + 1 < len(args):
                     i += 1
                     flags[value_flags[name]] = args[i]
+        elif not ddash and tok.startswith("-") and tok != "-":
+            for k in range(1, len(tok)):
+                name, rest = "-" + tok[k], tok[k + 1:]
+                if name in value_flags:
+                    if rest:
+                        flags[value_flags[name]] = rest[1:] if rest.startswith("=") else rest
+                    elif i + 1 < len(args):
+                        i += 1
+                        flags[value_flags[name]] = args[i]
+                    break
+                if rest.startswith("="):
+                    break   # `-p=true` の = の後ろは -p の値
         else:
             pos.append(tok)
         i += 1

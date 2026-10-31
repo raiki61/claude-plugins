@@ -1194,8 +1194,24 @@ def f67():
     check(67, len(calls) == 1 and calls[0][1][-4:] == ["-R", "evil/x", "--body", "hi"] and calls[0][1][2] == "$(cat n.txt)",
           "置換の後ろの -R を同じ gh の語と読まなかった: %r" % calls)
 
+# 68. gh gist の束ねた短い旗(`-pf s.md`・`-wd 説明`)は、gh(pflag)と同じく 1 字ずつ読み、値を取る字(-f・-d など)は語の残りか次の語を
+# 値に取る(前は語の頭の 2 字だけを見て、`cat a.md | gh gist create -pf s.md` の s.md を投稿するファイルと読み、gh が出す標準入力を
+# 読まずに通した。`gh gist create -pd 説明 a.md` は 説明 をファイルと読んで止めた)
+def f68():
+    for name, text in (("a.md", BODY), ("s.md", "short")):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    for cmd in ("cat a.md | gh gist create -pf s.md", "cat a.md | gh gist create -wf s.md", "cat a.md | gh gist new -pwf s.md",
+                "cat a.md | gh gist create -pd s.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(68, not parsed or bool(blk), "束ねた旗の値を投稿するファイルと読み、標準入力を読まずに通した: %r → %r %r" % (cmd, cands, parsed))
+    for cmd in ("gh gist create -pd 'my desc' a.md", "gh gist create -wd desc a.md", "gh gist create -dp a.md", "gh gist create -pfs.md a.md",
+                "gh gist create -pd=desc a.md", "gh gist edit abc -fs.md a.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(68, parsed and cands == [BODY] and not blk, "束ねた旗の後ろの gh gist のファイルを読まなかった: %r → %r %r" % (cmd, cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
