@@ -8,6 +8,7 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 番号から 20 を引くとレビューの番号になる(29 はレビューの F9 で、探しのゲートの側の直しなので tests/searchgate-suite.py に置く)。
 34 は 21〜28 を直す間に見つけた素通しで、commit 69816318 の版を渡すと赤になる。35 以降は 3 度目のレビュー(頼み cae1e2)の
 直しで、commit 812accd7 の版を渡すと赤になる。
+49 以降はその後のレビュー(頼み cae1e2)の直しで、commit ef2d1702 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -841,8 +842,25 @@ def f48():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(48, (bool(blk) or not parsed) and "BENIGN VIEW" not in cands, "差し込む語で中身か宛先の変わる gh を通した: %r → %r" % (cmd, cands))
 
+# 49. gh api の宛先が `graphql` の 1 語でなくても、`/graphql`・`https://api.github.com/graphql`・`x/../graphql`・`%67raphql`
+# のように GraphQL へ届く綴りなら、query の mutation の本文を読む(前は REST の投稿と読み、query を本文と見ずに通した)。
+# 読めない query のファイル(`-F query=@q.graphql`)は止める。mutation でない query と REST の宛先は今までどおり
+def f49():
+    q = "mutation{addComment(input:{subjectId:\"X\",body:\"" + BODY + "\"}){clientMutationId}}"
+    for ep in ("/graphql", "https://api.github.com/graphql", "HTTPS://API.github.com/GraphQL/", "repos/o/../../graphql",
+               "/%67raphql?x=1", "https://ghe.example.com/api/graphql"):
+        cands, blk, parsed = g.posting_bodies("gh api %s -f query='%s'" % (ep, q), WORK)
+        check(49, parsed and cands == [BODY] and not blk, "GraphQL へ届く宛先の mutation の本文を読まなかった: %r → %r %r" % (ep, blk, parsed))
+    cands, blk, parsed = g.posting_bodies("gh api /graphql -F query=@missing.graphql", WORK)
+    check(49, bool(blk), "読めない query のファイルの GraphQL を通した: %r %r" % (cands, parsed))
+    for cmd in ("gh api /graphql -f query='{viewer{login}}'", "gh api repos/o/r/graphql-x -f title=t"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(49, parsed and not cands and not blk, "本文を持たない呼び出しを止めた: %r → %r %r" % (cmd, blk, parsed))
+    cands, blk, parsed = g.posting_bodies("gh api repos/o/r/issues/1/comments -f body='" + BODY + "'", WORK)
+    check(49, cands == [BODY] and not blk, "REST の本文を読まなかった: %r %r" % (cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

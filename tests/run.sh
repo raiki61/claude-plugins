@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=829
+EXPECTED_CHECKS=830
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5624,6 +5624,17 @@ for c in "ls | xargs -I{} gh api repos/good/things/issues/{}/comments -f body=x"
   [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
 done
 [ $ok = 1 ] && echo DG_FED_OK' sh env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
+# gh api のパスの . と ..(`repos/許可した/repo/../../外/repo/…`)は、送る先で畳まれると別の repo を指しうる。前は頭の owner/repo を
+# 宛先と読んで通していた。GraphQL へ届く綴り(`/graphql`・`https://api.github.com/graphql`)は、宛先の repo をパスに持たない
+expect_output 0 "DG_API_PATH_OK" "destgate: gh api のパスの . と .. と、GraphQL へ届く綴りは、宛先不明で止める" \
+    sh -c 'ok=1
+for c in "gh api repos/good/things/../../evil/place/issues/1/comments -f body=x" "gh api repos/good/things/%2e%2e/%2e%2e/evil/place/issues/1/comments -f body=x" \
+         "gh api repos/good/./things/issues/1/comments -f body=x" "gh api /graphql -F query=@q.graphql" \
+         "gh api https://api.github.com/graphql -F query=@q.graphql"; do
+  "$@" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
+done
+[ "$("$@" "gh api https://api.github.com/repos/good/things/issues/1/comments -f body=x")" = ALLOW_EMPTY ] || { ok=0; echo "一覧内の repo を止めた"; }
+[ $ok = 1 ] && echo DG_API_PATH_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib

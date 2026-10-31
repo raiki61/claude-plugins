@@ -2018,7 +2018,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
         blocked.append("xargs・find -exec などが足す引数")
         return candidates, blocked
     is_api = sub[:1] == ("api",)
-    is_graphql = sub == ("api", "graphql")
+    is_graphql = is_api and len(sub) > 1 and api_is_graphql(sub[1])
     gql_fields = {}   # graphql の -f/-F のフィールド(名前 → (型付きか, 値))。query と変数を後でまとめて見る
 
     i, n, seen_ddash = 0, len(args), False
@@ -2106,6 +2106,29 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
                 candidates.append("\n\n".join(texts))
 
     return candidates, blocked
+
+
+def api_endpoint_path(endpoint):
+    """gh api の宛先が送る先の URL のパスの語の列(ホストと ? 以降を落とし、%xx を解き、. と .. を畳んだ物)と、. か .. を畳んだか。"""
+    path = re.split(r"[?#]", re.sub(r"(?i)^[a-z][a-z0-9+.-]*://[^/]*", "", endpoint), 1)[0]
+    segs, dotted = [], False
+    for seg in urllib.parse.unquote(path).split("/"):
+        if seg in (".", ".."):
+            dotted = True
+            if seg == ".." and segs:
+                segs.pop()
+        elif seg:
+            segs.append(seg)
+    return segs, dotted
+
+
+def api_is_graphql(endpoint):
+    """gh api の宛先が GitHub の GraphQL か。gh は `graphql` の 1 語だけを GraphQL と見て変数をまとめるが、ほかの綴り(`/graphql`・
+    `https://api.github.com/graphql`・`x/../graphql`)も、REST の頭(https://api.github.com/。GitHub Enterprise Server は
+    https://<host>/api/v3/)に付けるか、そのまま送るので、同じ GraphQL へ届く(cli/cli の pkg/cmd/api/http.go の httpRequest)。
+    前は `graphql` の 1 語だけを見て、ほかの綴りの mutation の本文を REST の投稿と読み、読まずに通していた。大文字・小文字は分けない"""
+    segs = [seg.lower() for seg in api_endpoint_path(endpoint)[0]]
+    return segs in (["graphql"], ["api", "graphql"], ["api", "v3", "graphql"])
 
 
 # graphql の mutation で本文を運ぶフィールド。`$body:`(変数の宣言)はフィールドではないので、直前の $ と語の字を除く

@@ -254,6 +254,10 @@ def dest_of(args, sub, cwd, here_unknown=False):
     if sub and sub[0] == "api":
         if len(sub) < 2:
             return None
+        # GraphQL(`graphql`・`/graphql`・`https://api.github.com/graphql`)は宛先の repo をパスに持たない。パスの . と ..
+        # (`repos/許可した/repo/../../外/repo/…`)は、送る先で畳まれると別の repo を指しうるので、宛先と読まない
+        if cr.api_is_graphql(sub[1]) or cr.api_endpoint_path(sub[1])[1]:
+            return None
         path = re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/")
         if API_OWNER_RE.search(path) or API_REPO_RE.search(path):
             # `repos/{owner}/{repo}/…` の印は、gh が -R の無い投稿と同じ repo で埋める。同じ解き方で引いて埋める
@@ -268,7 +272,7 @@ def dest_of(args, sub, cwd, here_unknown=False):
             return {f"{seg[1]}/{seg[2]}"} | explicit
         if len(seg) >= 2 and seg[0] == "orgs":
             return {f"{seg[1]}/*"} | explicit
-        return None  # graphql・users/... 等は宛先を特定できない
+        return None  # users/... 等は宛先を特定できない
     if sub and sub[0] == "gist":
         return {"gist"} | explicit
     if repos:
