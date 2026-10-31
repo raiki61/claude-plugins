@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=874
+EXPECTED_CHECKS=876
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5626,6 +5626,13 @@ expect_output 0 "特定できない" "destgate: GIT_DIR を書いたコマンド
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "GIT_DIR=$DG_REPO_NG/.git gh issue comment 1 --body 'テストの本文です'"
 expect_output 0 "特定できない" "destgate: 環境に GIT_DIR が在れば、-R 無しの投稿は宛先不明で止める" \
     env GIT_DIR="$DG_REPO_NG/.git" COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
+# GIT_CONFIG_* も git の設定(remote.*.url など)を足して宛先の repo を替えうる。起動役は呼び手の環境の分を外す(試験を回す側の
+# 環境で答えを変えない。tests/mutate.py の写しは GIT_CONFIG_COUNT を立てる)ので、在る形は起動役の 4 つ目からの引数で渡す
+expect_output 0 "特定できない" "destgate: 環境に GIT_CONFIG_COUNT が在れば、-R 無しの投稿は宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'" \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.url GIT_CONFIG_VALUE_0=https://github.com/evil/place
+expect_output 0 "ALLOW_EMPTY" "destgate: 試験の起動役は、呼び手の環境の GIT_CONFIG_* を外してゲートを起動する" \
+    env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
 # サブコマンドを読めない gh は、走る場所の repo に倒さない。前は倒していて、api のパスの repo(一覧外)への投稿を通していた
 expect_output 0 "特定できない" "destgate: サブコマンドを読めない投稿は、-R が無ければ宛先不明で止める" \
     env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh api --bogus repos/evil/place/issues/1/comments -f body='宛先検査のテスト本文です'"
