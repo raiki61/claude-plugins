@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=862
+EXPECTED_CHECKS=863
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -9402,6 +9402,9 @@ assert lc.inner_fails(red, "乙") == ["works-dispatch.dispatch.tests.test_land.Q
 assert lc.inner_fails(red, "丙") == ["AssertionError: 形が違う"], lc.inner_fails(red, "丙")
 ng = "  FAIL 戊 — x\nNG CHUNK（a.py）が FORMS にも無い\nTraceback (most recent call last):\nAssertionError: 1 件\n"
 assert lc.inner_fails(ng, "戊") == ["NG CHUNK（a.py）が FORMS にも無い"], lc.inner_fails(ng, "戊")
+# どの形の赤の行も無い（台本の訳の行だけを出す検査。SKIPS_UNIQUE など）ときは、捕った出力の頭の 2 行を出す
+plain = "  FAIL 己 — x（出力は下の行）\n\n二重に数えた見送り:\n甲 # SKIP a\n乙 # SKIP b\n  ok   庚\n"
+assert lc.inner_fails(plain, "己") == ["二重に数えた見送り:", "甲 # SKIP a"], lc.inner_fails(plain, "己")
 many = "  FAIL 丁 — x\n" + "".join("FAIL: t%d (m.C.t%d)\n" % (i, i) for i in range(12))
 assert lc.show_fails(many, ["丁"]) == ["落ちた: 丁 ← " + ", ".join("m.C.t%d" % i for i in range(lc.NAMES_SHOWN)) + " ほか 4 件"], lc.show_fails(many, ["丁"])
 print("LAND_CHECK_OK")
@@ -9413,9 +9416,16 @@ PY
 # そのまま expect_output の note_skips に渡ると同じ見送りを二重に数える
 expect_output 0 "COUNT_ONLY_MATCH" "数えるだけの回（TESTS_COUNT_ONLY=1）の検査の件数が、全部を回した回の件数のチェックと合う" \
     bash -c 'set -o pipefail; env TESTS_COUNT_ONLY=1 bash "$1" | grep -v -F "$2"' _ "$ROOT/tests/run.sh" "$SKIP_MARK"
-# 同じ見送りを二重に数えていない（上の子の見送りの行をそのまま数えていたとき、見送りの件数と FAIL_ON_SKIP の数が倍になった）
+# 同じ見送りを二重に数えていない（上の子の見送りの行をそのまま数えていたとき、見送りの件数と FAIL_ON_SKIP の数が倍になった）。
+# 並べて比べるのは字の並び（LC_ALL=C）で——macOS の sort と uniq は en_US.UTF-8 の照合で、日本語の字だけが違う別の行を同じと見なし、
+# 入力の変わっていない検査を見送るメインブランチに入れるゲートの回で、attention の 5 件の別の見送りを二重に数えたと赤にした
+SKIPS_DUPS='d=$(printf "%s\n" "$@" | LC_ALL=C sort | LC_ALL=C uniq -d); [ -z "$d" ] && echo SKIPS_UNIQUE || printf "二重に数えた見送り:\n%s\n" "$d"'
+expect_output 0 "SKIPS_DUPS_OK" "見送りの重なりの探し方が、日本語の字だけが違う別の行を同じと見なさず、同じ行の重なりは拾う" \
+    bash -c 'a=$(bash -c "$1" _ "$2" "$3"); b=$(bash -c "$1" _ "$2" "$2")
+        [ "$a" = SKIPS_UNIQUE ] && [[ "$b" == "二重に数えた見送り:"* ]] && echo SKIPS_DUPS_OK || printf "%s\n%s\n" "$a" "$b"' \
+    _ "$SKIPS_DUPS" "catchup --switch: 同名のタグがあってもブランチを見失わない # SKIP x" "catchup --switch: 既に居れば移らず、居る扱い # SKIP x"
 expect_output 0 "SKIPS_UNIQUE" "同じ見送りの行を二重に数えていない" \
-    bash -c 'd=$(printf "%s\n" "$@" | sort | uniq -d); [ -z "$d" ] && echo SKIPS_UNIQUE || printf "二重に数えた見送り:\n%s\n" "$d"' _ ${SKIPS[@]+"${SKIPS[@]}"}
+    bash -c "$SKIPS_DUPS" _ ${SKIPS[@]+"${SKIPS[@]}"}
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"
