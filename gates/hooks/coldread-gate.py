@@ -2068,7 +2068,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     is_graphql = is_api and len(sub) > 1 and api_is_graphql(sub[1])
     # gist の作成・書き換え(POST gists・PATCH gists/<id>)は、ファイルの中身(files[<名前>][content])が本文。前は body の
     # フィールドだけを見て、`gh api gists -f 'files[notes.md][content]=…' -F public=true` を読まずに通していた(gh gist create の
-    # 実ファイルは止めている)。GitHub Enterprise Server の REST の頭(https://<host>/api/v3/)は落として見る(api_is_graphql と同じ。
+    # ファイルは読んでいる)。GitHub Enterprise Server の REST の頭(https://<host>/api/v3/)は落として見る(api_is_graphql と同じ。
     # 前は `gh api https://ghe.example.com/api/v3/gists -f 'files[a.md][content]=…'` を gist と見ず、中身を読まずに通していた)
     is_gist = is_api and len(sub) > 1 and api_is_gist(sub[1])
     # xargs -I・find -exec の {} などが宛先のパス(? より前)に差し込む語(FED_WORD)は、`graphql`・`gists` にも `../../graphql` にも
@@ -2140,26 +2140,30 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # -d/--desc・-f/--filename は値を取るので、その値を位置引数と数えない。
     # ファイルの名前が 1 つも無ければ、gh は - と同じに標準入力を読む(`cat a.md | gh gist create`。cli/cli の
     # pkg/cmd/gist/create/create.go)。名前が在れば、- の無い限り標準入力を読まないので、ヒアドキュメントは名前の代わりに読まない。
-    # 前は名前の無い形を本文と見ず、標準入力の中身を読まずに通し、`gh gist create a.md <<'E' 短い字 E` はヒアドキュメントだけを読んでいた
+    # 前は名前の無い形を本文と見ず、標準入力の中身を読まずに通し、`gh gist create a.md <<'E' 短い字 E` はヒアドキュメントだけを読んでいた。
+    # 名前のファイルは、--body-file のファイルと同じ読み方(read_file。読めない・glob のまま・同じコマンドの中で書き換えうるなら止める)で
+    # 1 つずつ読む。前は手元のファイルを読まずに一律に止め、gh の help の例の `gh gist create hello.py -d …` まで止めていた
     if sub == ("gist", "create"):
         files = [t for t in gist_positionals(args, GIST_VALUE_FLAGS[sub])[0] if not t.startswith("__HEREDOC")]
         if not files or "-" in files:
             add("file", "-")
-        if any(t != "-" for t in files):
-            blocked.append("実ファイル指定")
+        for name in dict.fromkeys(t for t in files if t != "-"):
+            add("file", name)
     # gh gist edit は、id の後ろの位置引数(- は stdin)の中身で -f のファイル(無ければ gist の唯一のファイル)を置き換え、-a は
     # そのファイルを足す(位置引数が無ければ -a の名前の手元のファイルを読む。cli/cli の pkg/cmd/gist/edit/edit.go)。中身は
-    # gist create の位置引数と同じに読む(- はヒアドキュメント、手元のファイルは止める)。前はどちらも読まず、
+    # gist create の位置引数と同じに読む(- はヒアドキュメント、手元のファイルは --body-file と同じに読む)。前はどちらも読まず、
     # `gh gist edit <id> -f a.md x.md` で gist の中身を読まずに通していた。位置引数も -a も無い形(エディタで直す)と、
     # -d(説明)・-r(ファイルを消す)だけの形は、gist create の -d と同じく本文と見ない
     if sub == ("gist", "edit"):
         pos, flags = gist_positionals(args, GIST_VALUE_FLAGS[sub])
         pos = [t for t in pos if not t.startswith("__HEREDOC")]
-        # -a の値は、位置引数が無ければ手元のファイルの名前(- でも標準入力でなく、- という名前のファイル)
-        if len(pos) > 1 and pos[1] == "-":
-            add("file", "-")
-        elif len(pos) > 1 or "-a" in flags:
-            blocked.append("実ファイル指定")
+        # -a の値は、位置引数が無ければ手元のファイルの名前(- でも標準入力でなく、- という名前のファイル)。位置引数は 2 つまでで、
+        # 3 つ目からは gh が止まるが、在れば読む(止める側に倒す)
+        if len(pos) > 1:
+            for name in dict.fromkeys(pos[1:]):
+                add("file", name)
+        elif "-a" in flags:
+            add("file", "./-" if flags["-a"] == "-" else flags["-a"])
 
     if is_graphql:
         query = None

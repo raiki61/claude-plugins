@@ -225,7 +225,8 @@ BLOCKED_CASES = [
     # 肩代わりして deny になるので、分岐を消しても気付けない(5 巡目に変異で実測)
     ("別プロセスからの stdin 渡し",
      "cat /tmp/p.json | gh api repos/o/r/issues/1/comments --input - # %s" % PAD),
-    ("実ファイル指定", "gh gist create /tmp/real.md # %s" % PAD),
+    # 本文ファイルを読む口(ctx)の無い呼び手だけが倒れる先。コマンドの解析(posting_bodies)は口を必ず渡すので、classify を直に呼ぶ
+    ("実ファイル指定", None),
     ("本文ファイルを読めない", "gh issue comment 1 --body-file /no/such/dir/real.md # %s" % PAD),
     ("本文ファイルが通常のファイルでない", "gh issue comment 1 --body-file / # %s" % PAD),
     ("本文ファイルが上限より大きい", "gh issue comment 1 --body-file %s # %s" % (BIG, PAD)),
@@ -344,7 +345,10 @@ if any(SECRET in c for c in mutation_candidates) or not any(BODY in c for c in m
 gate.LONG_TEXT_FLAGS[PATCH_FLAG] = "zz-unknown-kind"
 try:
     for reason, command in BLOCKED_CASES:
-        _bodies, blocked, parsed = bodies_of(command)
+        if command is None:
+            blocked, parsed = gate.classify(["gist", "create", "/tmp/real.md"], [])[1], True
+        else:
+            _bodies, blocked, parsed = bodies_of(command)
         if reason not in blocked:
             failures.append("倒れ先 %r で止まらない (blocked=%s parsed=%s)" % (reason, blocked, parsed))
 finally:
