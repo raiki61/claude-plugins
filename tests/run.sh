@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=839
+EXPECTED_CHECKS=840
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5717,6 +5717,20 @@ for c in "gh issue comment \$(cat n.txt) -R evil/x --body hi" "gh pr comment \$(
 done
 [ "$("$@" "gh issue comment \$(cat n.txt) -R allowed/repo --body hi")" = ALLOW_EMPTY ] || { ok=0; echo "一覧に在る repo への投稿を止めた"; }
 [ $ok = 1 ] && echo DG_BARE_SUB_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
+# 投稿先を選ぶ語が同じコマンドの中で URL を代入した変数なら、その URL の repo が宛先(前は $u を URL でない語と読み、走る場所の
+# repo を宛先にして通していた)。URL でない値(番号)は今までどおり
+expect_output 0 "DG_VAR_URL_OK" "destgate: 投稿先を選ぶ変数を代入で解き、URL の repo を宛先にする" \
+    sh -c 'ok=1
+for c in "u=https://github.com/evil/x/pull/1; gh pr comment \"\$u\" --body hi" \
+         "u=https://github.com/evil/x/issues/1; gh issue comment \${u} --body hi" \
+         "u=https://github.com/evil/x/pull/1; x=\$(gh pr comment \"\$u\" --body hi)"; do
+  "$@" "$c" | grep -q "宛先 evil/x は" || { ok=0; echo "通した: $c"; }
+done
+"$@" "u=https://github.com/evil/x/pull/1; gh pr comment \"\$u\" -R allowed/repo --body hi" | grep -q 特定できない || { ok=0; echo "URL と -R の食い違いを通した"; }
+for c in "u=https://github.com/allowed/repo/pull/1; gh pr comment \"\$u\" --body hi" "n=1; gh pr comment \"\$n\" -R allowed/repo --body hi"; do
+  [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+done
+[ $ok = 1 ] && echo DG_VAR_URL_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
 # 渡した deny 自体が落ちても、例外のまま終えず(Claude Code は止めずに通す)自前の deny で止める
 expect_output 0 "GATE_SHELL_DENY_OK" "gates の殻: 渡した deny が落ちても、検査の失敗を止める" \
     "$PY_BIN" -c 'import io, json, sys, contextlib

@@ -245,12 +245,13 @@ def api_input_post(args, sub):
             or cr.FED_WORD in re.split(r"[?#]", sub[1], maxsplit=1)[0] or any(cr.FED_MARK in t for t in args))
 
 
-def dest_of(args, sub, cwd, here_unknown=False):
+def dest_of(args, sub, cwd, here_unknown=False, resolve=None):
     """gh 引数列から投稿の宛先になりうる repo の集まりを返す。分からなければ None。
 
     呼び元は、集まりの全部が許可一覧に在るときだけ通す。cwd はその gh が走る場所(前の `cd <絶対パス> &&` を読んだもの。
     決まらなければ None)。here_unknown は、gh が -R の無い投稿の宛先を引く環境変数(GH_REPO・GIT_DIR など。DEST_ENV_RE)を
-    コマンドが書いているか殻の環境に在るか、同じコマンドの中に宛先の repo を替えうるコマンド(retargets)が在る。"""
+    コマンドが書いているか殻の環境に在るか、同じコマンドの中に宛先の repo を替えうるコマンド(retargets)が在る。
+    resolve は語の $名前 を同じコマンドの中の代入で解く関数(coldread の Analysis.resolvers。解けなければ None)。"""
     if fed_dest(args, sub):
         return None
     # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)。旗の読み方は coldread と同じ 1 本(cr.flag_value)。
@@ -265,6 +266,16 @@ def dest_of(args, sub, cwd, here_unknown=False):
     # (`gh pr comment https://github.com/o/r/pull/3`。前は走る場所の repo を宛先と取り違えて通していた)。本文・題の値の URL は宛先でない
     urls = {f"{m['o']}/{m['r']}" for i, tok in enumerate(args) if not text_value(args, i, sub)
             for m in [ITEM_URL_RE.match(tok)] if m}
+    # 投稿先を選ぶ語が変数(`u=https://github.com/o/r/pull/1; gh pr comment "$u"`)なら、同じコマンドの中の代入で解いた値を見る。
+    # 解いた値が URL ならその repo が宛先(前は $u を URL でない語と読み、走る場所の repo を宛先にして通していた)。解けない値・
+    # URL でない値は今までどおり(解けない変数を宛先不明にはしない)
+    selector = selector_of(args, sub) if sub and sub[0] in URL_SELECTOR_SUBS else None
+    if selector and "$" in selector and resolve:
+        value = resolve(selector)
+        m = ITEM_URL_RE.match(value) if value else None
+        if m:
+            selector = value
+            urls.add(f"{m['o']}/{m['r']}")
     explicit = repos | urls
     if None in explicit or len(explicit) > 1:
         return None
@@ -304,8 +315,7 @@ def dest_of(args, sub, cwd, here_unknown=False):
         return None
     # URL が投稿先を選ぶ位置(サブコマンドの後の最初の位置引数)に在れば、それが宛先。旗の後ろの URL(`--approve <URL>`)は
     # 旗の値か投稿先かを決めきれないので、URL の repo と、-R の無いときの宛先の両方を宛先になりうると見る
-    selector = selector_of(args, sub)
-    if urls and sub and sub[0] in URL_SELECTOR_SUBS and selector and ITEM_URL_RE.match(selector):
+    if urls and selector and ITEM_URL_RE.match(selector):
         return explicit
     # 明示が無ければ gh が GH_REPO か、走る場所のリポジトリから選んだ repo へ投稿する。GH_REPO・GIT_DIR などの値と走る場所が
     # 読み切れないとき・同じコマンドの中で宛先の repo を替えうるとき(`gh repo set-default 外/repo && gh pr create …`・
@@ -354,12 +364,14 @@ def main():
     # 宛先の repo を替えうるコマンドは、gh の前でも後でも見る(繰り返しの中・`&` で並べた物は後に書いても先に走りうる)。
     # 引用の外の $( ) の中のコマンドも見るので、置換を語に留めない割り方(words を偽)で割る
     retargeted = any(retargets(c.args) for c in cr.split_commands(cr.tokenize(prepared[0], words=False)))
-    for sub, args, candidates, blocked, cwd in analysis.calls:
+    for n, (sub, args, candidates, blocked, cwd) in enumerate(analysis.calls):
+        # zip で組むと、resolvers が短いときに残りの呼び出しを黙って飛ばす。足りなければ解かない(今までどおり)
+        resolve = analysis.resolvers[n] if n < len(analysis.resolvers) else None
         if not candidates and not blocked and not api_input_post(args, sub):
             continue  # 投稿の形をしていない
         if sub and sub[0] == cr.DISPATCH_SUB:
             continue  # works-dispatch の納品・頼みは手元の会社の中で届き、GitHub の宛先を持たない(本文は coldread が読む)
-        dests = dest_of(args, sub, cwd, dest_env or retargeted)
+        dests = dest_of(args, sub, cwd, dest_env or retargeted, resolve)
         if dests is None:
             gate_shell.refuse(cr, "destgate", "deny 宛先不明: " + snippet,
                               "外部投稿ゲート(destgate): 宛先の許可制が有効だが、この投稿の宛先を"

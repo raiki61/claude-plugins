@@ -2978,6 +2978,9 @@ class Analysis:
         self.calls, self.misses = list(calls), list(misses)
         self.lost = []   # calls と同じ順。前の cd・-C で走る場所が読めなくなった呼び出しは True
         self.runs = []   # 走る単純コマンド (引数列, リダイレクト) の全部(置換の中の物も)。外の BodyFiles が書き手を探す
+        # calls と同じ順。その呼び出しの語(Word)の $名前 を、同じコマンドの中の代入で解く関数(解けなければ None)。
+        # destgate が投稿先を選ぶ語(`gh pr comment "$u"`)の URL を読むのに使う
+        self.resolvers = []
 
     def run_place(self, body, cwd):
         """body を運んだ gh が走る場所。前の cd・-C で読めなくなったら None(フックの場所 cwd で代えない)。
@@ -3064,6 +3067,7 @@ def analyze(command, cwd=None, prepared=None, depth=0):
             run = here.cwd_here()
             out.calls.append((sub, args, got, stop, run))
             out.lost.append(run is None and files.place_lost())
+            out.resolvers.append(lambda word, here=here: here.var(word, getattr(word, "marked", None)))
             out.candidates.extend(got)
             out.blocked.extend(stop)
             cands, blk = cands + got, blk + stop
@@ -3088,6 +3092,7 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     for sub in inner:
         out.calls += sub.calls
         out.lost += [lost or moves for lost in sub.lost]
+        out.resolvers += sub.resolvers
         out.candidates += sub.candidates
         out.blocked += sub.blocked
         out.misses += sub.misses
