@@ -859,8 +859,29 @@ def f49():
     cands, blk, parsed = g.posting_bodies("gh api repos/o/r/issues/1/comments -f body='" + BODY + "'", WORK)
     check(49, cands == [BODY] and not blk, "REST の本文を読まなかった: %r %r" % (cands, blk))
 
+# 50. find の式の括弧と -exec の閉じの \; が並ぶ形(`\( … -exec true \; \) -exec gh …`・`-exec true \; \( -exec gh … \; \)`・
+# `\;\(`)と、`{}` の後でない + の後ろ(`-exec echo + \; -exec gh …`。find は `{} +` の + でだけ閉じる)の -exec の gh も読む
+# (前は繋ぎが切れ、本文を読まずに通した)。式の括弧か -exec が開いたまま、ほかの区切りで止まった find の後ろに gh の語が在れば
+# 止める。閉じた find の後ろの本物の区切り(`&&`・改行・`;`・サブシェルの閉じ)の gh は、今までどおり別のコマンドとして読む
+def f50():
+    post = "gh pr comment 1 --body '" + BODY + "'"
+    for cmd in ("find fd \\( -name a -exec true \; \\) -exec %s \;", "find fd \\( -name a -exec true \; \\) -a -exec %s \;",
+                "find fd -name a \\( -exec true \; \\) -exec %s \;", "find fd -exec true \; \\( -exec %s \; \\)",
+                "find fd -exec true \;\\( -exec %s \; \\)", "find fd -exec echo + \; -exec %s \;",
+                "find fd -exec true \; \\( -exec %s \;"):
+        cands, blk, parsed = g.posting_bodies(cmd % post, WORK)
+        check(50, parsed and cands == [BODY] and not blk, "find の括弧の後ろの -exec の gh の本文を読まなかった: %r → %r %r" % (cmd, blk, parsed))
+    for cmd in ("find fd \\( -name a && " + post, "find fd -exec true | " + post):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(50, not parsed or bool(blk), "読み切れない find の後ろの gh を通した: %r → %r" % (cmd, cands))
+    for cmd in ("find . -name x -exec rm {} \; && " + post, "find . -name x -exec rm {} \;\n" + post,
+                "(find . -exec true \;) && " + post, "find . \\( -name a \\) ; (" + post + ")",
+                "find . -exec true {} + ; " + post, "x=$(find . -exec basename {} \;) && " + post):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(50, parsed and cands == [BODY] and not blk, "閉じた find の後ろの gh を読まなかった: %r → %r %r" % (cmd, blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

@@ -1687,11 +1687,14 @@ def gh_calls(tokens):
 
 
 def glued_find(cmds, k):
-    r"""k 番目のコマンド(find)の引数。式の \( \) と -exec の後ろの \; はトークン化で区切りと読まれ、後ろが別のコマンドに割れる
-    ので、括弧だけ(または開いた -exec の後の ; だけ)で続くコマンドを繋ぎ直す。閉じる括弧が開いた数を超えたら(本物のサブシェルの
-    閉じ)そこで止める。前は割れた後ろを見ず、`find . -exec true \; -exec gh …`・`find . \( -name a \) -exec gh …` の gh を
-    見落とした。探す範囲のゲート(search-gate.py の glued_find_args)と同じ読み方。本物の区切りを繋いでも、繋いだ後ろのコマンドは
-    別にも読むので、見落としは増えない。"""
+    r"""k 番目のコマンド(find)の引数と、繋ぎ切れたか。式の \( \) と -exec の後ろの \; はトークン化で区切りと読まれ、後ろが別の
+    コマンドに割れるので、括弧と、開いた -exec の後の ; だけで続くコマンドを繋ぎ直す。区切りは 1 つずつ読む(`\; \)`・`\; \(`
+    のように閉じの ; と括弧が並んでも繋ぐ)。閉じる括弧が開いた数を超えたら(本物のサブシェルの閉じ)そこで止める。前は割れた後ろを
+    見ず、`find . -exec true \; -exec gh …`・`find . \( -name a \) -exec gh …` の gh を見落とし、その直しの後も、閉じの ; と括弧の
+    並ぶ `find . \( -exec true \; \) -exec gh …`・`find . -exec true \; \( -exec gh … \; \)` の gh を見落とした。式の括弧か
+    -exec が開いたまま、ほかの区切りで止まったら(読み切れない)、後ろに gh の語が在れば繋ぎ切れなかったと返す(呼び元は止める)。
+    探す範囲のゲート(search-gate.py の glued_find_args)と同じ読み方。本物の区切りを繋いでも、繋いだ後ろのコマンドは別にも読むので、
+    見落としは増えない。"""
     args, open_, closed = [], 0, True
 
     def add(words):
@@ -1699,25 +1702,27 @@ def glued_find(cmds, k):
         for w in words:   # 足した語だけを見る(繋ぐたびに全体を読み直さない)
             if w in FIND_EXEC:
                 closed = False
-            elif w in (";", "+"):
+            elif w == ";" or (w == "+" and args[-1:] == ["{}"]):   # find は `{} +` の + でだけ閉じる(`-exec echo + \;`)
                 closed = True
             args.append(w)
 
     add(cmds[k].args)
     for m in range(k + 1, len(cmds)):
-        ops = [op for op, _ in cmds[m].ops]
-        if ops == [";"] and not closed:
-            add([";"])
-        elif ops and all(op in "()" for op in ops):
-            for op in ops:
+        for op, _ in cmds[m].ops:
+            if op == ";" and not closed:
+                add([";"])
+            elif op in ("(", ")"):
                 open_ += 1 if op == "(" else -1
                 if open_ < 0:
-                    return args
-            args.extend(ops)
-        else:
+                    return args, True
+                args.append(op)
+            else:
+                stuck = open_ > 0 or not closed
+                return args, not (stuck and any(GH_WORD_RE.search(" ".join(c.args)) for c in cmds[m:]))
+        if not cmds[m].ops:
             break
         add(cmds[m].args)
-    return args
+    return args, True
 
 
 def dispatch_args(tokens):
@@ -2790,7 +2795,13 @@ def analyze(command, cwd=None, prepared=None, depth=0):
     out.runs = [(c.args, c.redirects) for c in cmds] + hidden
     for k, c in enumerate(cmds):
         at = command_start(c.args, feeders=True)
-        found = gh_calls(glued_find(cmds, k) if at < len(c.args) and _base(c.args[at]) in FIND_NAMES else c.args)
+        if at < len(c.args) and _base(c.args[at]) in FIND_NAMES:
+            glued, whole = glued_find(cmds, k)
+            if not whole:
+                return Analysis(False)   # find の式を読み切れず、後ろの gh が -exec の中かも決まらない
+            found = gh_calls(glued)
+        else:
+            found = gh_calls(c.args)
         sent = dispatch_args(c.args) if not found else None
         cands, blk, sub = [], [], None
         if sent is not None:
