@@ -318,6 +318,30 @@ FED_READ_SUBS = {("pr", "view"), ("pr", "list"), ("pr", "diff"), ("pr", "checks"
                  ("issue", "list"), ("issue", "status"), ("repo", "view"), ("repo", "list"), ("run", "view"),
                  ("run", "list"), ("release", "view"), ("release", "list")}
 WRAPPER_POSITIONALS = {"timeout": 1, "gtimeout": 1}
+# 値を省ける短い旗(値は融合形だけ)。束ねた短い旗(`-ti{}`)の中でこれが来たら、残りの字はその値で、次の語は取らない
+WRAPPER_OPTIONAL_OPTS = {"xargs": {"-e", "-i", "-l"}, "sudo": {"-h"}}
+# 1 つの - で始まる長い旗を持ち、短い旗を束ねない前置(`arch -arm64e`)。束ねた旗として 1 字ずつ読まない
+WRAPPER_NO_BUNDLE = {"arch"}
+
+
+def wrapper_flag_width(wrapper, tok):
+    """前置の旗 tok と、その値で飛ばす語の数(値が次の語なら 2、無いか融合形なら 1)。
+
+    1 つの - の後に短い旗を束ねた語(`sudo -Eu me`・`xargs -0n 1`)は、1 字ずつ読み、値を取る旗の字が最後なら次の語を値に取る
+    (途中なら残りの字が値で、`-un1` は次の語を取らない)。前は語ごとにしか見ず、`-Eu` の後ろの me をコマンド名と読んで、
+    後ろの gh を見落とした。"""
+    opts = WRAPPER_VALUE_OPTS.get(wrapper, ())
+    if tok in opts:
+        return 2
+    if tok.startswith("--") or len(tok) <= 2 or wrapper in WRAPPER_NO_BUNDLE:
+        return 1
+    for k in range(1, len(tok)):
+        flag = "-" + tok[k]
+        if flag in WRAPPER_OPTIONAL_OPTS.get(wrapper, ()):
+            return 1
+        if flag in opts:
+            return 2 if k == len(tok) - 1 else 1
+    return 1
 # シェルの予約語。単純コマンドの先頭語になりうるが、コマンド名ではないので読み飛ばす。
 # 飛ばさないと `{ gh …; }`・`if …; then gh …`・`while …; do gh …`・`! gh …` の gh が
 # 見えず、投稿が無検査・無記録で通る(両ゲートとも。実測)。同じ意味の `( gh … )` は
@@ -1499,8 +1523,8 @@ def command_start(tokens, feeders=False):
                 i += 1 if tok == "{" else 2
                 continue
         if wrapper and tok.startswith("-") and tok != "-":
-            # 値を取る旗は値ごと飛ばす(--signal=KILL・-sKILL の融合形は 1 語)
-            i += 2 if tok in WRAPPER_VALUE_OPTS.get(wrapper, ()) else 1
+            # 値を取る旗は値ごと飛ばす(--signal=KILL・-sKILL の融合形は 1 語。束ねた旗は wrapper_flag_width)
+            i += wrapper_flag_width(wrapper, tok)
             continue
         if need:
             need -= 1   # 前置が取る位置引数(timeout の時間)

@@ -767,8 +767,24 @@ def f45():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(45, parsed and cands == [BODY] and not blk, "閉じた [[ の後の =~ の後の注釈で止めた: %r → %r %r" % (cmd[:40], blk, parsed))
 
+# 46. 前置の束ねた短い旗(`sudo -Eu me`・`xargs -0n 1`)を 1 字ずつ読み、値を取る旗の字が最後なら次の語を値として飛ばす(前は語ごとに
+# しか見ず、値の語をコマンド名と読んで後ろの gh を見落とした)。値が融合した束(`-un1`)・値を省ける旗の束(`-tiI`)・束ねない
+# 前置(`arch -arm64e`)は、次の語を飛ばさない
+def f46():
+    post = "gh pr comment 1 --body '" + BODY + "'"
+    for pre in ("sudo -Eu me ", "sudo -un1 ", "arch -arm64e ", "stdbuf -oL -eL ", "nice -n5 "):
+        cands, blk, parsed = g.posting_bodies(pre + post, WORK)
+        check(46, parsed and cands == [BODY] and not blk, "前置の後ろの gh の本文を読まなかった: %r → %r %r" % (pre, blk, parsed))
+    for cmd in ("echo 1 | xargs -0n 1 gh pr comment 1 --body-file /etc/hosts", "sudo -EHu me gh pr comment 1 --body-file /etc/hosts"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(46, bool(blk) or bool(cands) or not parsed, "束ねた旗の後ろの gh の投稿を見落とした: %r" % cmd)
+    cands, blk, parsed = g.posting_bodies("xargs -tiI gh pr view 1", WORK)
+    check(46, parsed and not cands and not blk, "値を省ける旗の束の後ろの gh を値と読んだ: %r %r" % (blk, parsed))
+    check(46, g.command_start(["sudo", "-Eu", "me", "gh"]) == 3 and g.command_start(["sudo", "-Eun1", "gh"]) == 2,
+          "束ねた旗の値の数え方が違う")
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
