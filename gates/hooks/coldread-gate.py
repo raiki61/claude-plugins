@@ -3112,7 +3112,10 @@ def analyze(command, cwd=None, prepared=None, depth=0):
             run = here.cwd_here()
             out.calls.append((sub, args, got, stop, run))
             out.lost.append(run is None and files.place_lost())
-            out.resolvers.append(lambda word, here=here: here.var(word, getattr(word, "marked", None)))
+            # 解くのは destgate が後で呼ぶときで、files.at は呼び出しごとに k を替えるので、この呼び出しの k と前の語を留めて
+            # 呼ぶたびに置き直す(前は here を留めただけで、最後の gh の k で代入の届き方を見ていた。`u=…; gh pr comment "$u" …; gh pr
+            # checks 1` の $u を後ろの gh には届かないと見て解かず、走る場所の repo を宛先にして通した)
+            out.resolvers.append(lambda word, k=k, before=before: files.at(k, before).var(word, getattr(word, "marked", None)))
             out.candidates.extend(got)
             out.blocked.extend(stop)
             cands, blk = cands + got, blk + stop

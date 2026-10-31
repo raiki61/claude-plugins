@@ -1255,8 +1255,23 @@ def f70():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(70, parsed and not cands and not blk, "gh を走らせないコマンドを読んだか止めた: %r → %r %r" % (cmd, cands, blk))
 
+# 71. 宛先のゲート(destgate)に渡す、呼び出しごとの変数の解き方(Analysis.resolvers)は、その呼び出しの位置で代入の届き方を見る
+# (前は全部の呼び出しが 1 つの BodyFiles を最後の gh の位置のまま使い、`u=<URL> && gh pr comment "$u" …; gh pr checks 1` の $u を
+# 解かずに走る場所の repo を宛先にして通し、`gh pr comment "$u" …; u=<URL>; gh pr view "$u"` は後ろの代入で解いて止めていた)
+def f71():
+    url = "https://github.com/evil/x/pull/1"
+    for cmd in ('git fetch && u=%s && gh pr comment "$u" -b hi; gh pr checks 1', '(u=%s; gh pr comment "$u" -b hi); gh pr view 1',
+                'x=$(u=%s; gh pr comment "$u" -b hi); gh pr view 1', 'u=%s; gh pr comment "$u" -b hi; gh pr view 2; gh pr view 3'):
+        a = g.analyze(cmd % url, WORK)
+        n = [c[0] for c in a.calls].index(("pr", "comment"))
+        got = a.resolvers[n](a.calls[n][1][2])
+        check(71, got == url, "投稿先の変数を投稿の位置で解かなかった: %r → %r" % (cmd, got))
+    a = g.analyze('gh pr comment "$u" -b hi; u=%s; gh pr view "$u"' % url, WORK)
+    got = [r(c[1][2]) for r, c in zip(a.resolvers, a.calls)]
+    check(71, got == [None, url], "後ろの代入で前の gh の変数を解いた: %r" % got)
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

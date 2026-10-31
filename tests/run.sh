@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=841
+EXPECTED_CHECKS=842
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5731,6 +5731,18 @@ for c in "u=https://github.com/allowed/repo/pull/1; gh pr comment \"\$u\" --body
   [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
 done
 [ $ok = 1 ] && echo DG_VAR_URL_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
+# 変数は、その投稿の位置で代入の届き方を見て解く(前は後ろに別の gh が在ると、最後の gh の位置で見て、前の投稿の $u を解かずに
+# 走る場所の repo を宛先にして通し、後ろの代入で前の投稿の $u を解いて止めていた)
+expect_output 0 "DG_VAR_URL_AT_OK" "destgate: 投稿先を選ぶ変数を、後ろの gh の位置でなく投稿の位置で解く" \
+    sh -c 'ok=1
+for c in "git fetch && u=https://github.com/evil/x/pull/1 && gh pr comment \"\$u\" --body hi; gh pr checks 1" \
+         "(u=https://github.com/evil/x/pull/1; gh pr comment \"\$u\" --body hi); gh pr view 1" \
+         "x=\$(u=https://github.com/evil/x/pull/1; gh pr comment \"\$u\" --body hi); gh pr view 1"; do
+  "$@" "$c" | grep -q "宛先 evil/x は" || { ok=0; echo "通した: $c"; }
+done
+c="gh pr comment \"\$u\" -R allowed/repo --body hi; u=https://github.com/evil/x/pull/1; gh pr view \"\$u\""
+[ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+[ $ok = 1 ] && echo DG_VAR_URL_AT_OK' sh "$DG_CASE" "$DG_CFG" "$WORK"
 # コマンド名の位置の展開だけの語(`$(true) gh …`・`env $(cat .env | xargs) gh …`)は越えて後ろの gh の宛先を見る。展開は GH_REPO= にも
 # 開きうるので、-R の無い投稿は宛先不明にする(前はその語をコマンド名と読み、gh を見ずに通していた)
 expect_output 0 "DG_EXPANSION_HEAD_OK" "destgate: 展開だけのコマンド名の後ろの gh の宛先を見て、-R が無ければ宛先不明にする" \
