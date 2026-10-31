@@ -776,9 +776,9 @@ def main():
         deny(cr, hit.args[0], hit.args[1])
 
 
-def layout(cr, tokens):
+def layout(cr, tokens, kinds=None):
     """単純コマンドごと(split_commands と同じ順)の (囲むブロックの道, 括弧の深さ, 直前の区切り((演算子, 深さ) の列), 語の頭)。
-    split_commands と数が合わなければ None。
+    split_commands と数が合わなければ None。kinds を渡せば、ブロックの番号 → 頭の語(if・while・for など)を書き込む。
 
     道は外から順の (ブロックの番号, 区画の番号, 条件の区画か)。区画は if の条件・then・elif の条件・else、繰り返しの条件と do の後、
     case の ;; ごとに分ける。case の型の閉じ `a)` は括弧に数えない(coldread の深さはそこで負になり、cd が届くかを読み違える)。"""
@@ -818,6 +818,8 @@ def layout(cr, tokens):
             if tok in ("if", "while", "until"):
                 nid += 1
                 stack.append([nid, tok, 0, True, False])
+                if kinds is not None:
+                    kinds[nid] = tok
             elif top and tok in ("then", "do", "else"):
                 top[2], top[3] = top[2] + 1, False
             elif top and tok == "elif":
@@ -830,6 +832,8 @@ def layout(cr, tokens):
             if tok in ("for", "select", "case"):
                 nid += 1
                 stack.append([nid, tok, 1 if tok == "case" else 0, False, tok == "case"])
+                if kinds is not None:
+                    kinds[nid] = tok
             elif tok in ("fi", "done", "esac") and stack:
                 stack.pop()
         cur.append(tok)
@@ -866,7 +870,10 @@ def load_coldread():
             # コマンド全体で変数と cd を解かず、`for f in *; do n=$f; done; cd / && find .` を通していた。
             # cd が走るかは、cd ごとに cwds_here で見る
             self.conditional = False
-            lay = layout(cr, tokens)
+            self.kinds = {}   # ブロックの番号 → 頭の語
+            # cwds_here の控え: (cd, k) → (届くか, 必ず走ったか)・(cd, 前の場所) → 行き先・繰り返しの番号 → 中のコマンド・回の頭の場所
+            self._flow, self._dests, self._insides, self._tops = {}, {}, {}, {}
+            lay = layout(cr, tokens, self.kinds)
             self.lay = lay if lay is not None and len(lay) == len(cmds) else None
 
         def _reaches(self, j, k):
@@ -909,31 +916,79 @@ def load_coldread():
             走るとは限らない cd(if・繰り返し・|| の中)は行き先と前の場所の両方、効果が届かない cd(サブシェル・パイプ)は
             前の場所のまま。行き先の読めない cd(`cd -`・`cd $X`)の行き先は決まらない(走るとは限らない cd なら前の場所も見る。
             前は `cd /; if [ -n "$X" ]; then cd "$X"; fi; find .` を通していた)。相対の行き先は、そこまでに
-            決まった場所に繋ぐ(`cd .. && find .`)。"""
+            決まった場所に繋ぐ(`cd .. && find .`)。
+
+            k が繰り返し(for・while・until・select)の中なら、2 回目からは、前の回の終わりの場所から回の頭に戻って走る。そこで、
+            回の頭の走りうる場所(_top)から、回の頭から k の前までの cd をたどった場所も足す(前は k より前の cd だけを見て、
+            `for d in a b; do find .; cd ..; done` の 2 回目の find が 1 つ上で走るのを見落とした)。"""
             k = self.k if k is None else k
             if self.moved:
                 return [None]
-            places = [self.cwd]
-            for j in range(k):
+            return self._places(k)
+
+        def _places(self, k, skip=None):
+            """k 番目が走りうる cwd の列(cwds_here の中身)。繰り返しの番号 skip と、その中の繰り返しの 2 回目からは足さない
+            (_top が skip の回の頭の 1 回目の場所を引くとき)。"""
+            places = self._walk(range(k), [self.cwd], k)
+            if not self.lay:
+                return places
+            for bid, _, _ in self.lay[k][0]:   # 外の繰り返しから順に
+                if bid == skip:
+                    break
+                if self.kinds.get(bid) not in LOOPS:
+                    continue
+                top = self._top(bid)
+                inside = self._inside(bid)
+                places = _shallow(list(dict.fromkeys(places + self._walk([m for m in inside if m < k], top, k))))
+            return places
+
+        def _inside(self, bid):
+            """番号 bid のブロックの中の単純コマンドの番号の列(最後は閉じの done。ブロックの道は閉じる前に取る)。"""
+            if bid not in self._insides:
+                self._insides[bid] = [m for m in range(len(self.cmds)) if any(e[0] == bid for e in self.lay[m][0])]
+            return self._insides[bid]
+
+        def _top(self, bid):
+            """繰り返し bid の回の頭の、走りうる cwd の列(1 回目と、前の回の終わりから戻った 2 回目から)。回の中身の cd を、場所が
+            増えなくなるまで繰り返してたどる。1 回で浅くなるのは .. の数だけなので、/ に届くまでの回数は、いちばん深い場所の区切りの
+            数で足りる(絶対の行き先の cd は 1・2 回で増えなくなる)。前に落とした深い場所は、また出ても新しいと数えない(数えると
+            増え続けて時間切れになる)。"""
+            if bid not in self._tops:
+                inside = self._inside(bid)
+                first, end = inside[0], inside[-1]
+                seen = self._places(first, skip=bid)
+                ever, frontier = set(seen), seen
+                for _ in range(min(PLACES_MAX, 2 + max((p or "").count("/") for p in seen))):
+                    frontier = [p for p in self._walk(inside[:-1], frontier, end) if p not in ever]
+                    if not frontier:
+                        break
+                    ever.update(frontier)
+                    seen = _shallow(seen + frontier)
+                self._tops[bid] = seen
+            return self._tops[bid]
+
+        def _walk(self, js, places, k):
+            """js の順の単純コマンドのうちの cd を、places から k 番目までたどった場所の列(届くか・必ず走ったかは k から見る)。"""
+            for j in js:
                 c = self.cmds[j]
                 if not any(t in cr.CD_WORDS for t in c.args):
                     continue
-                reach, surely = (self._reaches(j, k), self._surely(j, k)) if self.lay else (True, False)
+                if (j, k) not in self._flow:
+                    self._flow[j, k] = (self._reaches(j, k), self._surely(j, k)) if self.lay else (True, False)
+                reach, surely = self._flow[j, k]
                 if not reach:
                     continue
                 new = []
                 for place in places:
-                    dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
-                    dest = cr.native_path(dest) if dest else None
+                    if (j, place) not in self._dests:
+                        dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
+                        self._dests[j, place] = cr.native_path(dest) if dest else None
+                    dest = self._dests[j, place]
                     if not (dest and os.path.isabs(dest)):
                         new += [None] if surely else [None, place]
                     else:
                         new += [dest] if surely else [dest, place]
-                places = list(dict.fromkeys(new))
-                if len(places) > PLACES_MAX:
-                    # 走るとは限らない cd が続くと場所は倍々に増える(20 個で時間切れになり、時間切れは通す)。広い場所は
-                    # 浅いので、浅い物から残す
-                    places = sorted(places, key=lambda p: len(p or ""))[:PLACES_MAX]
+                places = _shallow(list(dict.fromkeys(new)))
             return places
 
         def cd_dest(self, args, base=None):
@@ -966,6 +1021,15 @@ def load_coldread():
 
 Scope = None
 PLACES_MAX = 32   # 1 つのコマンドが走りうる cwd を覚える数の上限(cwds_here)
+LOOPS = {"for", "select", "while", "until"}
+
+
+def _shallow(places):
+    """場所の列を PLACES_MAX 個までにする。走るとは限らない cd が続くと場所は倍々に増える(20 個で時間切れになり、時間切れは
+    通す)。広い場所は浅いので、浅い物から残す。"""
+    if len(places) <= PLACES_MAX:
+        return places
+    return sorted(places, key=lambda p: len(p or ""))[:PLACES_MAX]
 
 
 if __name__ == "__main__":

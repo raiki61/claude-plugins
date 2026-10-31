@@ -194,6 +194,29 @@ class Bash(unittest.TestCase):
         self.assertIsNotNone(run("Bash", {"command": "cd /; while read f; do :; done < list; find . -name x"})[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_later_cd_in_a_loop_moves_the_next_pass(self):
+        # 繰り返しの中で探すコマンドの後ろに書いた cd は、2 回目からの探す場所を変える
+        for command, cwd in (("for d in a b; do find . -name x; cd ..; done", HOME + "/src"),
+                             ("for i in 1 2; do find . -name x; cd /; done", WORK),
+                             ("while true; do find . -name x; cd ~; done", WORK),
+                             ("for d in a b; do rg foo; cd ../..; done", WORK),
+                             ("while cd ..; do find . -name x; done", HOME + "/src"),
+                             ("for i in 1; do for j in 1 2; do find . -name x; cd ..; done; done", HOME + "/src")):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # サブシェルの中の cd と、戻ってくる cd は、次の回の場所を広げない
+        for command in ("for d in a b; do (cd $d && find . -name x); done", "for d in a b; do find . -name x; (cd /); done",
+                        "for d in a b; do cd a; find . -name x; cd ..; done", "for i in 1 2; do find . -name x; cd /tmp; done"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+        # 走るとは限らない cd を繰り返しの中に並べても、時間切れ(時間切れは通す)にならない
+        many = "".join("if [ -d d%d ]; then cd d%d; fi\n" % (i, i) for i in range(40))
+        started = time.monotonic()
+        self.assertIsNotNone(run("Bash", {"command": "while true; do\n" + many + "find . -name x\n" + many + "done"},
+                                 cwd=HOME)[0])
+        self.assertLess(time.monotonic() - started, 10)
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_substitution_runs_in_the_cwd_of_its_command(self):
         # $( ) の中は、それを持つコマンドの場所(前の cd)と変数で走る
         self.assertIsNotNone(run("Bash", {"command": 'cd / && echo "$(find . -name x)"'})[0])
