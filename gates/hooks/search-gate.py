@@ -186,6 +186,10 @@ def substitutions(text, bare=True, heredoc=False):
                 j += 1
             if bare or quote == '"':
                 out.append(text[i + 2:j - 1])
+            elif "`" in text[i + 2:j - 1]:
+                # 中に ` が在る引用の外の $( … ) は、トークン化が語に留めず単純コマンドに割る。割った語は ` の中身を持たないので、
+                # 中の ` … ` をここで拾う(前は $( … ) ごと飛ばし、`x=$(echo `rg foo /`)` を通していた)
+                out.extend(substitutions(text[i + 2:j - 1], bare=False))
             i = j
             continue
         elif c == "`":

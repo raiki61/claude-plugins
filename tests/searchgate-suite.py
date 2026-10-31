@@ -530,6 +530,15 @@ class Bash(unittest.TestCase):
                         "D=src bash -c 'find $D -name x' > log"):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
 
+    def test_backticks_inside_a_bare_substitution_are_read(self):
+        # 引用の外の $( … ) の中の ` … ` も読む(中に ` が在るとトークン化が単純コマンドに割り、割った語は ` の中身を持たない。
+        # 前は外の読み直しが $( … ) ごと飛ばし、`x=$(echo `rg foo /`)` を通していた。頼み cae1e2)
+        for command in ("x=$(echo `rg foo /`)", "x=$(cd / && n=`find . -name x`)", "x=$(echo $(echo `rg foo /`))",
+                        "cat <(echo `find / -name x`)"):
+            self.assertIsNotNone(run("Bash", {"command": command})[0], command)
+        for command in ("x=$(echo `rg foo src`)", "x=$(cd ~/p && n=`find . -name x`)"):
+            self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0], command)
+
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
         # (前は parallel を前置と見ず、`parallel rg {} / ::: foo bar` を通していた)
