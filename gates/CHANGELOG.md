@@ -80,6 +80,11 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 投稿の前のゲート(coldread)が、`find fd \( -name a -exec true \; \) -exec gh pr comment …` や `find fd -exec true \; \( -exec gh pr comment … \; \)` のように、`-exec` の閉じの `\;` と括弧が並ぶ find や、`-exec echo + \;` の後ろの `-exec` の gh の投稿を読まずに通していた。続けて読むようにし、式の括弧か `-exec` が開いたまま読み切れない find の後ろに gh が在るときは止めるようにした。
 - 投稿の前のゲート(coldread)が、`gh api gists -f 'files[notes.md][content]=…'` のように gh api で作る・書き換える gist のファイルの中身を読まずに通していた(`gh gist create` のファイル指定は止めていた)。中身を本文として読み、`-F 'files[…][content]=@ファイル'` もほかの @ファイルと同じに読むようにした。
 - 投稿の前のゲート(coldread)が、`echo rev | xargs -n1 -I v gh pr view 1 -c -b x` のように、`-I` に `-n`・`-L` を重ねた xargs が語の途中に差し込む語を見ず、読むだけの `gh pr view` と見て通していた(macOS の xargs では `gh pr review` が走る)。語の途中の差し込みも、何語になるか分からない語として止めるようにした。
+- 投稿の前のゲート(coldread)が、`gh api` の宛先のパスを割る所で `re.split` の `maxsplit` を位置で渡し、Python 3.13 からフックを起動するたびに標準エラーに DeprecationWarning を出していた。名前で渡すようにした。
+- 投稿の前のゲート(coldread)が、`gh api https://ghe.example.com/api/v3/gists -f 'files[a.md][content]=…'` のように GitHub Enterprise Server の REST の頭(`api/v3/`)を付けた gist の宛先を gist と見ず、ファイルの中身を読まずに通していた。頭の `api/v3` を落としてから gist かを見るようにした。
+- 投稿の前のゲート(coldread)が、`echo graphql | xargs -I{} gh api /{} -f query='mutation{…}'`・`echo gists | xargs -I{} gh api /{} -f 'files[a][content]=…'` のように、xargs・find -exec が `gh api` の宛先のパスに差し込む語で graphql・gist に変わる投稿を、埋める前のパスで REST と見て、本文を読まずに通していた。宛先のパス(`?` より前)に差し込む語が在れば、graphql の `query`・gist の `files[…][content]` を運ぶときと、埋める前のパスで graphql か gist と決めたときは止めるようにした。語の途中の `{}` の読むだけの宛先と REST の `body` は今までどおり読む。
+- 投稿の前のゲート(coldread)が、`find d -name ')' -exec gh pr comment 1 --body-file b.md \;`・`find d -exec grep -q ')' {} \; -exec gh …` のように、find の `-name` などの値と `-exec` の中に引用して書いた `)`・`;` をサブシェルの閉じや区切りと読んで find の式の繋ぎを止め、後ろの `-exec` の gh の本文を読まずに通していた。値の所の区切りの字と `-exec` の中の括弧は語として繋ぎ、サブシェルの中でない find の後ろの `)` も語として繋ぐようにした。`find . -name '(' -print; gh pr view 1` を式が開いたままと読んで止めていたのも通すようにした。
+- 投稿の前のゲート(coldread)と宛先のゲート(destgate)が、`find . -exec cat {} && gh pr comment …` のように find の `-exec` か括弧が開いたままの形を、引用は正しいのに「引用が閉じていない等」の訳で止めていた。止める文に「find の -exec か括弧が閉じていない」と、`\;` か `{} +` で閉じる直し方を書くようにした。
 
 ## [0.46.0] - 2026-10-30
 
