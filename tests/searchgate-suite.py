@@ -402,6 +402,19 @@ class Bash(unittest.TestCase):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_in_a_piped_or_backgrounded_group_does_not_reach_later_commands(self):
+        # パイプの中か & で後ろに回した `{ }` のまとまりは別のシェルで走るので、中の cd は閉じの } の後ろに届かない(前は届くと見て、
+        # ホームの `{ cd proj; } | cat; rg x .` を ~/proj で探すと読んで通し、~/src/repo の `{ cd ..; cd ..; } | tee log; rg x .` を止めていた)
+        for command in ("{ cd proj; } | cat; rg x .", "{ cd proj; } & rg x .", "echo | { cd proj; }; rg x .",
+                        "{ { cd proj; }; } | cat; rg x .", "{ cd /; rg x .; } | cat", "{ cd /; } && rg x ."):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+        for command, cwd in (("{ cd ..; cd ..; } | tee log; rg x .", WORK), ("{ cd proj; rg x .; } | cat", HOME),
+                             ("{ cd proj; }; rg x .", HOME)):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_substitution_runs_in_the_cwd_of_its_command(self):
         # $( ) の中は、それを持つコマンドの場所(前の cd)と変数で走る
         self.assertIsNotNone(run("Bash", {"command": 'cd / && echo "$(find . -name x)"'})[0])

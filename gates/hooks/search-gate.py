@@ -1001,12 +1001,19 @@ def load_coldread():
 
         def _reaches(self, j, k):
             """j 番目の cd の効果が k 番目に届くか(同じシェルの中か)。届かないのは、パイプの中・& で後ろに回した・
-            サブシェル(`( … )`・`$( … )`)が k より前に閉じたとき。"""
+            サブシェル(`( … )`・`$( … )`)が k より前に閉じたとき。cd を囲む `{ }` のまとまりがパイプの中か & で後ろに回したとき
+            も、まとまりは別のシェルで走るので、閉じの `}` より後ろには届かない(前は届くと見て、`{ cd proj; } | cat; rg x .` を
+            ホームで打つと ~/proj で探すと読んで通していた)。"""
             _, d, ops, _ = self.lay[j]
             if any(op == "|" and dep == d for op, dep in ops):
                 return False
             if any(op in ("|", "&") and dep == d for op, dep in self.lay[j + 1][2]):
                 return False
+            for start, end in self.braces.items():
+                if start <= j < end < k and (
+                        any(op == "|" and dep == self.lay[start][1] for op, dep in self.lay[start][2])
+                        or any(op in ("|", "&") and dep == self.lay[end][1] for op, dep in self.lay[end + 1][2])):
+                    return False
             for m in range(j + 1, k + 1):
                 if any(op == ")" and dep < d for op, dep in self.lay[m][2]):
                     return False
