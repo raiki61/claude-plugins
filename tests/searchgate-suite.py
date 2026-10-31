@@ -582,6 +582,16 @@ class Bash(unittest.TestCase):
         started = time.monotonic()
         self.assertIsNotNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 600 + '"; rg foo /'}, cwd=WORK)[0])
         self.assertLess(time.monotonic() - started, 10)
+        # 数え方が閉じなくても、引用を見る閉じの後ろの、外の読みが引用の中と見て飛ばす字は読む(commit 87964f05 で読むのを
+        # やめたとき、引用した ( を 2 つ持ち case の型か ${y%)} で手前に閉じる置換の、後ろの rg を落としていた。頼み cae1e2)
+        for command in ('x="$(echo "((" ; case a in a) :;; esac; rg foo /)"', "x=\"$(grep -c '((' f; case $a in y) :;; esac; rg foo /)\"",
+                        'x="$(echo "(("; echo ${y%)}; rg foo /)"', "x=\"$(sed 's/(//;s/(//' f; echo ${y%)}; find / -name x)\""):
+            self.assertIsNotNone(run("Bash", {"command": command}, cwd=WORK)[0], command)
+        # 閉じない $( を 9000 並べた 99KB の語も、$( ごとに終わりまで数え直さず、時間切れの前に読み終える(頼み cae1e2)
+        started = time.monotonic()
+        self.assertIsNotNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 9000 + '"; rg foo /'}, cwd=WORK)[0])
+        self.assertIsNone(run("Bash", {"command": 'echo "' + "$(echo '(')" * 9000 + '"; rg foo src'}, cwd=WORK)[0])
+        self.assertLess(time.monotonic() - started, 10)
 
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る

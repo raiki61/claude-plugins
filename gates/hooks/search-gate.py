@@ -236,6 +236,36 @@ def _close(text, i):
     return memo[i]
 
 
+# _count_close の答え(text → {( の位置: 引用を見ずに数えて閉じる ) の次の位置})
+_COUNTS = {}
+
+
+def _count_close(text, i):
+    """i の $( を、引用を見ずに括弧を数えて閉じる ) の次の位置。閉じなければ None。括弧の対応は text ごとに 1 度だけ決める
+    (前は $( ごとに終わりまで数え直し、閉じない $( を 9000 並べた 99KB の語で 40 秒を超え、フックの時間切れで探すコマンドを
+    通していた)。"""
+    memo = _COUNTS.get(text)
+    if memo is None:
+        if len(_COUNTS) > 64:
+            _COUNTS.clear()
+        memo, opened = {}, []
+        for k, c in enumerate(text):
+            if c == "(":
+                opened.append(k)
+            elif c == ")" and opened:
+                memo[opened.pop()] = k + 1
+        _COUNTS[text] = memo
+    return memo.get(i + 1)
+
+
+def _plain_end(text, j):
+    """j から、次の " ・` ・$( (\\ の後の字は飛ばす)の手前までの終わり。"""
+    n = len(text)
+    while j < n and text[j] not in '"`' and not text.startswith("$(", j):
+        j += 2 if text[j] == "\\" else 1
+    return min(j, n)
+
+
 def _tick_end(text, i):
     """i の ` を閉じる ` の位置(\\ の後の字は飛ばす)。閉じなければ None。"""
     j = i + 1
@@ -267,25 +297,26 @@ def substitutions(text, bare=True, heredoc=False):
         elif c == '"' and not heredoc:
             quote = None if quote == '"' else '"'
         elif text.startswith("$(", i) and not text.startswith("$((", i):
-            depth, j = 1, i + 2
-            while j < n and depth:
-                depth += {"(": 1, ")": -1}.get(text[j], 0)
-                j += 1
+            jc = _count_close(text, i)
+            j = jc or n
             # 引用の中の ) では閉じない(前は引用を見ずに数え、`x=$(echo ')' `rg foo /`)` の ' の中の ) で閉じたと読んで、後ろの
             # ` … ` を単一引用の中と見て通していた)。引用を見て閉じる所が決まればそこまでを中身にし、決まらないときだけ引用を
             # 見ない数え方の所にする(前は遠い方まで中身にし、`x=$(sed 's/(.*//' f); n=`rg foo /`` の引用の中の ( で数え方が
             # 閉じずに終わりまで中身と読み、後ろの ` … ` を外のコマンドとして見ずに通していた)
             jq = _close(text, i)
             if bare or quote == '"':
-                if jq and jq < j and not depth:
+                if jq and (jc is None or jq < jc):
                     # 引用を見る閉じが数え方の閉じより手前のときは、数え方の中身も読む(引用を見る閉じは case の型・# の注釈・${ } の
                     # 中の ) を知らないので、`x="$(echo "(" ; case a in a) :;; esac; rg foo /)"` を手前で閉じ、rg を落としていた)。
-                    # 数え方が閉じないときは読まない(終わりまでを中身として $( ごとに読み直し、引用した ( を持つ置換を 600 並べた
-                    # 語で 30 秒を超えていた)。読んだ字は予算に数える
-                    out.append(text[i + 2:j - 1])
-                    SPENT["reads"] += j - i
-                    if SPENT["reads"] > READS_MAX:
-                        raise ValueError("$( ) と引用が多く、探す場所を読み切れない")
+                    # 数え方が閉じないときは、終わりまででなく、引用を見る閉じの後ろの次の " ・` ・$( の手前までを足して読む
+                    # (その字は外の読みが引用の中と見て飛ばす。終わりまで読むと、後ろの引用の中の字をコマンドと読んで止めすぎ、
+                    # 引用した ( を持つ置換を 600 並べた語で 30 秒を超えていた)。読んだ字は予算に数える
+                    end = jc - 1 if jc else _plain_end(text, jq)
+                    if end > jq:
+                        out.append(text[i + 2:end])
+                        SPENT["reads"] += end - i
+                        if SPENT["reads"] > READS_MAX:
+                            raise ValueError("$( ) と引用が多く、探す場所を読み切れない")
                 j = jq or j
                 out.append(text[i + 2:j - 1])
             else:
