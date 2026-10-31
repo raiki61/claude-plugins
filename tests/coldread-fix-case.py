@@ -575,6 +575,17 @@ def f34():
     check(34, parsed and cands == [BODY] and not blk, "前に書いたヒアドキュメントの本文を読まなかった: %r %r" % (blk, parsed))
 
 
+# 31. 外の cd の後で走る置換の中の gh を、フックの場所で走る物と読まない(前は画面をフックの場所のリポジトリの
+# 同じ番号のスレッドから引いていた)。cd の無い置換の中の gh は、今までどおりフックの場所で走る物と読む
+def f31():
+    a = g.analyze('cd /other/repo && x="$(' + 'g' + 'h pr comment 5 --body hi)"; echo "$x"', WORK)
+    check(31, a.parsed and a.run_place("hi", WORK) is None,
+          "cd の後の置換の中の gh の走る場所をフックの場所と読んだ: %r" % a.run_place("hi", WORK))
+    a = g.analyze('x="$(' + 'g' + 'h pr comment 5 --body hi)"; echo "$x"', WORK)
+    check(31, a.parsed and a.run_place("hi", WORK) == WORK,
+          "cd の無い置換の中の gh の走る場所を読めない物にした: %r" % a.run_place("hi", WORK))
+
+
 # 32. 置換の中の引用符を探す読みが、閉じない $( ・入れ子の ${ の並ぶ長いコマンドで長さの 2 乗の時間をかけない
 # (前は 70KB で 15 秒を超え、100KB の上限の近くで 40 秒。フックの時間切れを過ぎると止めずに通る)
 def f32():
@@ -587,7 +598,7 @@ def f32():
 
 
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 32: f32, 34: f34})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 34: f34})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

@@ -2336,9 +2336,13 @@ def analyze(command, cwd=None, prepared=None, depth=0):
                 flag = next((dispatch_flag(t)[0] for t in c.args if dispatch_flag(t)[0]), None)
                 if flag:
                     out.misses.append((flag, _head_word(c.args)))
+    # 置換の中の gh は、外の cd の後で走りうるが、中を読むときには cd が見えず、走る場所をフックの場所と取り違える
+    # (`cd /other/repo && x="$(gh pr comment 5 --body hi)"` の画面を、フックの場所のリポジトリの同じ番号から引いていた)。
+    # 外のどこかに cwd を変える語が在れば、中の呼び出しの走る場所は読めない物とする
+    moves = any(t in CD_WORDS for c in cmds for t in c.args)
     for sub in inner:
         out.calls += sub.calls
-        out.lost += sub.lost
+        out.lost += [lost or moves for lost in sub.lost]
         out.candidates += sub.candidates
         out.blocked += sub.blocked
         out.misses += sub.misses
