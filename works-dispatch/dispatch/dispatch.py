@@ -139,6 +139,9 @@ def _end_conversation(ports, path):
     if not pane:
         return "close_failed", f"その場所に {term.NAME} の会話のペインが無い（{term.NAME} の外の会話は終えない）"
     got = turn.close_session(pane, ports.term)
+    if got == turn.ATTACHED:
+        return "close_failed", (f"ペイン {pane} は裏の会話（claude --bg）を開いた attach の窓なので /exit を打たない"
+                                "（/exit は attach だけを閉じ、窓に会話の一覧の画面が残る。部署の会話なら --retire で畳む）")
     return got, None if got == "closed" else f"ペイン {pane} の会話が /exit で終わらなかった"
 
 

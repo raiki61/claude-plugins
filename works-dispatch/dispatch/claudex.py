@@ -613,6 +613,12 @@ def attached(argv, jobs):
     return any(a == "attach" and i + 1 < len(argv) and argv[i + 1] in jobs for i, a in enumerate(argv))
 
 
+def attach_view(commands):
+    """窓の前で動くコマンドの並び（herdr の foreground）に、裏の会話（claude --bg）を開いた `claude attach` が居るか。その窓に打つ /exit は
+    attach だけを閉じ、裏の会話は残って、窓には会話の一覧の画面（claude agents）が残る（受付 6d442b・9dccfe）。"""
+    return any(" attach " in f" {c} " for c in commands or ())
+
+
 def attach_command(command, job):
     """そのアカウントの起動のコマンド（アカウントが無く None なら COMMAND）で、裏の会話 job を窓に開く 1 行。"""
     return f"{COMMAND if command is None else command} attach {job}"

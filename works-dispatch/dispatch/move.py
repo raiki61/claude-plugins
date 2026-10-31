@@ -673,8 +673,9 @@ def _move_desk(company, dept, acc, text_of, ports, settings, old_acc=None, hold=
     except (gitx.GitError, OSError, TypeError) as e:
         conf, warn = None, f"役 {attrs.get('role')} の設定を書けなかったので、役の設定なしで起動した（{e}）"
     model, effort = role.desk_flags(the_role)
-    if not deliver.exit_talk(pane, ports.term, ports.pause):
-        return 1, f"窓口の窓 {pane} に /exit を打ったが、シェルに戻らない"
+    stuck = deliver.exit_talk(pane, ports.term, ports.pause)
+    if stuck:
+        return 1, f"窓口の会話を終えられない（{stuck}）"
     # 前の会話は終わった。起動する値を書き（設定を書けなければ、起動した値を知らないと見る）、待ち受けと区切りの印を外す
     provision.mark(company["root"], company["root"], {wake.LAUNCHED: None if warn else role.launch_key(the_role), wake.LAUNCHING: "1",
                                                       wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None, wake.MOVE_TO: None,

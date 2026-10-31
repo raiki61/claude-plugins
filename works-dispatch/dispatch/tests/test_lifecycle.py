@@ -151,6 +151,14 @@ class TurnEnd(unittest.TestCase):
         self.assertEqual(turn.close_session("P0", h, pause=lambda: None), "closed")
         self.assertEqual(h.writes, [("prompt", "P0", "/exit", False)])
 
+    def test_close_session_does_not_type_exit_into_an_attach_window(self):
+        # 窓の前が裏の会話の attach なら /exit を打たない（打つと attach だけが閉じ、窓に会話の一覧の画面が残る。受付 9dccfe）
+        h = FakeHerdr()
+        h.talking.add("P0")
+        h.front = {"P0": ["claude attach 1a2b3c4d"]}
+        self.assertEqual(turn.close_session("P0", h, pause=lambda: None), turn.ATTACHED)
+        self.assertEqual(h.writes, [])
+
     def test_close_session_that_never_returns_is_close_failed(self):
         h = FakeHerdr()
         h.talking.add("P0")
@@ -329,6 +337,18 @@ class Flow(unittest.TestCase):
         self.assertTrue(line(out, 1).endswith("close_failed"), out)
         self.assertNotIn(("close_workspace", old["workspace_id"]), ports.term.writes)
         self.assertFalse([w for w in ports.term.writes if w[0] in ("run", "open_worktree", "create_worktree")])
+
+    def test_refresh_does_not_type_exit_into_an_attach_window(self):
+        # 窓の前が裏の会話の attach なら、送り直しの /exit を打たずに残す（打つと attach だけが閉じ、窓に会話の一覧の画面が残る。受付 9dccfe）
+        path = self.place(1)
+        ports = FakePorts([pr(1)], git=self.g)
+        old = self.talking_in(ports, path)
+        ports.term.front = {old["pane_id"]: ["claude attach 1a2b3c4d"]}
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 1).endswith("close_failed"), out)
+        self.assertIn("attach の窓なので /exit を打たない", out)
+        self.assertFalse([w for w in ports.term.writes if w[0] in ("prompt", "send_keys", "close_workspace")], ports.term.writes)
 
     def test_conversation_outside_herdr_is_not_closed_for_refresh(self):
         # 会話は herdr の外（VS Code の端末など）に居て、herdr のその場所にはシェルだけがある

@@ -757,6 +757,19 @@ class Move(unittest.TestCase):
         self.assertEqual(writes[1][0], "run")
         self.assertRegex(writes[1][2], rf"^claude-a2 --name {q('窓口')} {Q}.*--move.*--desk 窓口")
 
+    def test_the_desk_in_an_attach_window_is_not_exited(self):
+        # 窓口の窓の前が裏の会話の attach なら /exit を打たない（打つと attach だけが閉じ、裏の会話が残って窓に会話の一覧の画面が残る）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, self.g)
+        for p in self.ports.term._panes:
+            if p["pane_id"] == self.desk:
+                p["agent_session"] = "s-desk"
+        self.ports.term.talking.add(self.desk)
+        self.ports.term.front = {self.desk: ["claude attach 1a2b3c4d"]}
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("attach の窓なので /exit を打たない", out)
+        self.assertFalse([w for w in self.ports.term.writes if w[1] == self.desk and w[0] in ("prompt", "run", "send_keys")])
+
     def test_the_desk_that_does_not_start_again_resumes_its_former_talk(self):
         # 新しい会話が立たなければ、前の会話を同じペインに --resume で戻し、訳を台帳に残す（窓口を消したままにしない）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, self.g)

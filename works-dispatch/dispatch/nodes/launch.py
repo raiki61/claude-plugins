@@ -139,7 +139,7 @@ def end_stale_attach(pane, h=term):
         front = h.foreground(pane)
     except h.Error:
         return False
-    if not any(" attach " in f" {c} " for c in front):
+    if not chat.attach_view(front):
         return False
     h.send_keys(pane, "ctrl+z")
     return True

@@ -19,7 +19,7 @@ herdr は画面の下の行で作業中かを決めるので、会話が裏に�
 （許可の確認など）を返せば blocked。期限は足さない（D5）。
 
 close_session は、会話を終えてペインの前をシェルに戻す（送り直す前と、閉じた PR の片付けの前に使う）。会話に /exit を送り、
-シェルが前に戻るのを読み戻してから closed を返す。戻らなければ close_failed。
+シェルが前に戻るのを読み戻してから closed を返す。戻らなければ close_failed。窓の前が裏の会話の attach なら /exit を打たずに attached を返す。
 
 送るのはプラグイン名つきの `/<プラグイン名>:catchup <番号>`（名前の組み立ては claudex.catchup_commands）。人が画面で `/catchup` と
 打つと補完がプラグイン名を足すが、herdr は打った文字をそのまま送るので、`/catchup` のままだと Claude Code が「Unknown command」と
@@ -142,11 +142,18 @@ def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pa
     return "sent" if second_result["status"] == "sent" else "send_failed"
 
 
+ATTACHED = "attached"   # close_session の結末: 窓の前が裏の会話の attach なので /exit を打たなかった
+
+
 def close_session(pane, h=term, tries=CLOSE_TRIES, pause=lambda: time.sleep(CLOSE_PAUSE_S)):
-    """会話を終えて、ペインの前をシェルに戻す。closed・close_failed のどちらか。前がもうシェルなら何も送らない。"""
+    """会話を終えて、ペインの前をシェルに戻す。closed・close_failed・attached のどれか。前がもうシェルなら何も送らない。
+    前が裏の会話（claude --bg）を開いた attach なら、/exit を打たずに attached を返す（/exit は attach だけを閉じて裏の会話を残し、
+    窓に会話の一覧の画面が残る。部署の会話は --retire が畳む）。"""
     try:
         if h.shell_in_front(pane):
             return "closed"
+        if chat.attach_view(h.foreground(pane)):
+            return ATTACHED
         h.prompt(pane, chat.EXIT, False)
         return "closed" if _until(lambda: h.shell_in_front(pane), tries, pause) else "close_failed"
     except h.Error:

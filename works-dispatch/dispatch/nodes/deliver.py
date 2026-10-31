@@ -1006,19 +1006,22 @@ EXIT_LOOKS = 20
 
 
 def exit_talk(pane, h, pause, looks=EXIT_LOOKS):
-    """窓の前の会話（持ち主の前で動く窓口など）に /exit を打ち、シェルが前に戻ったら True。書く口。"""
+    """窓の前の会話（持ち主の前で動く窓口など）に /exit を打ち、シェルが前に戻ったら None、戻らなければ訳。書く口。
+    前が裏の会話（claude --bg）を開いた attach なら打たない（/exit は attach だけを閉じ、裏の会話を残して窓に会話の一覧の画面が残る）。"""
     try:
+        if chat.attach_view(h.foreground(pane)):
+            return f"窓 {pane} は裏の会話を開いた attach の窓なので {EXIT} を打たない（{EXIT} は attach だけを閉じ、会話の一覧の画面が残る）"
         h.prompt(pane, EXIT, False)
-    except h.Error:
-        return False
+    except h.Error as e:
+        return f"窓 {pane} に {EXIT} を打てない（{e}）"
     for _ in range(looks):
         pause()
         try:
             if h.shell_in_front(pane):
-                return True
-        except h.Error:
-            return False
-    return False
+                return None
+        except h.Error as e:
+            return f"窓 {pane} を読めない（{e}）"
+    return f"窓 {pane} に {EXIT} を打ったが、シェルに戻らない"
 
 
 # ---- Stop フック ----
