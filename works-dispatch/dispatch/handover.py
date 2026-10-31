@@ -310,7 +310,7 @@ def _apply(ports, source, inbox, log, hid, row, old, prev, attrs, here, place, m
         out.append(f"- {prev['path']} の company.* を消した")
     # 5. 順番待ちを移す。1 件ずつ、宛先を書き直してから rename で後継の順番待ちへ移す（件はいつもどちらか 1 か所にだけ在るので、
     #    途中で落ちても 2 度渡らず、取り下げなどが片方にだけ効くこともない）。台帳の知らせの行は移す前に書き、引き継ぎの id で 2 度書かない
-    fresh = orders.FRESH if (the_role or {}).get("fresh") else None
+    fresh = orders.FRESH if (the_role or {}).get("context") == orders.NEW else None
     logged = {r.get("id") for r in records if r.get("kind") == wake.QUEUED and r.get(ho.KIND) == hid}
     for q in wake.queued(inbox, prev["place"]) if prev.get("place") else []:
         item = {k: v for k, v in q.items() if k != "path"}

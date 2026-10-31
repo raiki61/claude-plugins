@@ -5,7 +5,7 @@
   来た方で見る時が来る）を台帳に kind remind の行で残す。条件を文でしか書けない待ち（「次に X が起きたら」）は、見直す日を --on に付ける。
 --remind-done <受付>（close）: 見たリマインダーを閉じる（kind remind-done）。
 --due の中（notify）: 見る時が来て、まだ知らせていないリマインダーを、担当者の待ち受けへ台帳の知らせ（kind note）で 1 度だけ渡し、
-  kind reminded の行で知らせたと残す。担当者の部署が立っていなければ（畳まれた tmp の部署など。知らせを拾う待ち受けが無い）、
+  kind reminded の行で知らせたと残す。担当者の部署が立っていなければ（畳まれた畳む部署など。知らせを拾う待ち受けが無い）、
   知らせの代わりに --ask と同じ道で頼む（route と asker）。--due は頼みと納品のたびに裏で走る（starts.due_later）。--todo は見る時の来た物を出す。
 """
 
@@ -119,7 +119,7 @@ def route(holder, companies, here_root, current):
     台帳の知らせで渡す。立っていなければ (宛先, 訳, 宛先の会社)。宛先は次の順で決める。
     - 担当者の名前が会社の形の on-demand の受け持ち（頼まれたときだけ部署を立てる受け持ち）なら、その受け持ち。--ask と同じく、
       受け持ちの名前の部署が立つ。
-    - 担当者の名前が役で、その役の keep の部署が別の名前で立っているなら、その部署。
+    - 担当者の名前が役で、その役の always の部署が別の名前で立っているなら、その部署。
     - それ以外（頼みごとに立てる部署・作業など、名前で立て直せない部署）は、担当者の会社の窓口。
     担当者の会社が端末に開いていないなどで宛先が決まらなければ None（知らせだけ書く）。"""
     company, _, name = holder.rpartition("/")
@@ -133,7 +133,7 @@ def route(holder, companies, here_root, current):
         if now == name or name in gitx.former_names(d["attrs"]):
             return None
         return f"{company}/{now}", f"担当者 {holder} の名前の部署が無く、同じ役の部署 {now} が立っているので、そこに頼む", got["company"]
-    if got.get("on_demand") and not got.get("per_ask"):
+    if got.get("on_demand") and not got.get("per_ask"):   # on-demand の受け持ち（per-ask は頼みごとの部署なので担当者の名前で立たない）
         return holder, f"担当者の部署が立っていないので、on-demand の受け持ち {name} に頼んで部署を立てる", got["company"]
     try:
         desk = deliver.find_target(companies, here_root, company, None, current)

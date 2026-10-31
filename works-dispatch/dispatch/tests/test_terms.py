@@ -35,24 +35,30 @@ class Fix(unittest.TestCase):
             self.assertEqual(terms.fix_line(before), after, before)
 
     def test_former_names_of_department_lifetimes_are_fixed_but_ordinary_words_are_not(self):
-        cases = {"常設の部署": "keep の部署", "都度の部署": "tmp の部署", "常設・毎回空": "keep・clear",
-                 "担当は常設で 1 人": "担当は keep で 1 人", "常設か都度か": "keep か tmp か", "その都度の部署": "その都度の部署",
+        # 2026-10-31 に寿命の語を会社の形の鍵の値にそろえた（keep → always・clear → new・continue → carry。tmp は per-ask と
+        # on-demand に分かれたので「畳む部署」）。前の語（常設・都度・永続・エフェメラル・毎回クリア・引き継ぎ・keep・tmp・clear）も直す
+        cases = {"常設の部署": "always の部署", "都度の部署": "畳む部署", "常設・毎回空": "always · new",
+                 "担当は常設で 1 人": "担当は always で 1 人", "その都度の部署": "その都度の部署",
                  "その都度確かめる": "その都度確かめる", "常設の展示": "常設の展示",
-                 "チェックが毎回空振りする": "チェックが毎回空振りする", "常設の会話": "keep の会話",
-                 "常設でない部署": "keep でない部署", "都度とみなす": "tmp とみなす", "常設の役員": "常設の役員",
+                 "チェックが毎回空振りする": "チェックが毎回空振りする", "常設の会話": "always の会話",
+                 "常設でない部署": "always でない部署", "常設の役員": "常設の役員",
                  "席が毎回空く": "席が毎回空く", "タンクが毎回空になる": "タンクが毎回空になる", "常設・仮設": "常設・仮設",
-                 "常設の席": "常設の席", "エフェメラルの部署": "tmp の部署", "永続かエフェメラルか": "keep か tmp か",
-                 "`--ephemeral` でエフェメラルにする": "`--ephemeral` で tmp にする",
-                 # 2026-10-29 に残りの寿命の語も英単語にそろえた（永続 → keep・毎回クリア → clear・引き継ぎ → continue・オンデマンド → on-demand）
-                 "永続の部署": "keep の部署", "永続・毎回クリア": "keep・clear", "永続・引き継ぎ": "keep・continue",
-                 "常設・持ち越し": "keep・continue", "毎回クリアする部署": "clear の部署", "毎回クリアする担当": "clear の担当",
-                 "毎回空にする部署": "clear の部署", "オンデマンドの受け持ち": "on-demand の受け持ち", "永続に上げる": "keep に上げる",
+                 "常設の席": "常設の席", "エフェメラルの部署": "畳む部署",
+                 "永続の部署": "always の部署", "永続・毎回クリア": "always · new", "永続・引き継ぎ": "always · carry",
+                 "常設・持ち越し": "always · carry", "毎回クリアする部署": "new の部署", "毎回クリアする担当": "new の担当",
+                 "毎回空にする部署": "new の部署", "オンデマンドの受け持ち": "on-demand の受け持ち", "永続に上げる": "always に上げる",
+                 "keep の部署": "always の部署", "tmp の部署": "畳む部署", "keep・clear": "always · new",
+                 "keep・continue": "always · carry", "clear の部署": "new の部署", "keep の担当": "always の担当",
+                 "/clear の後": "/clear の後", "reset --keep で": "reset --keep で", "$CLAUDE_JOB_DIR/tmp の中": "$CLAUDE_JOB_DIR/tmp の中",
                  "状態の永続化": "状態の永続化", "ディスク永続の checkpointer": "ディスク永続の checkpointer",
                  "永続の checkpointer": "永続の checkpointer", "会話の引き継ぎ": "会話の引き継ぎ", "引き継ぎの文": "引き継ぎの文",
                  "永続ボリューム": "永続ボリューム", "オンデマンドインスタンス": "オンデマンドインスタンス"}
         for before, after in cases.items():
             self.assertEqual(terms.fix_line(before), after, before)
-        self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "clear")])
+        self.assertEqual(terms.line_problems("毎回空にする部署"), [("毎回空", "new")])
+        # per-ask か on-demand かを文から決める tmp は、見つけるだけで直さない
+        self.assertEqual(terms.fix_line("tmp で立てる"), "tmp で立てる")
+        self.assertEqual(terms.line_problems("tmp で立てる"), [("tmp", "畳む部署（per-ask か on-demand）")])
 
     def test_a_plan_written_as_a_step_is_fixed_but_steps_and_layers_are_not(self):
         # サブスクのプランの意味の 段 だけを当てる（my_notes の tools/checks/terms.py の項を元にした形）

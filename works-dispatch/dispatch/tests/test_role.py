@@ -60,8 +60,8 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "account": None, "settings": None,
-                                                 "deliver": None, "deliver_check": None, "persistent": False, "fresh": False, "machine": False, "tools": [],
-                                                 "holders": None, "ask_holders": None, "ask_check": None, "keepalive": None, "odd": []})
+                                                 "deliver": None, "deliver_check": None, "lifetime": None, "context": None, "rent_or_buy": None, "machine": False,
+                                                 "tools": [], "holders": None, "ask_holders": None, "ask_check": None, "odd": []})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None,
@@ -114,16 +114,17 @@ deliver_check = ""
         self.assertEqual(role.pick(shape, "サブエージェント", False), (None, None))
         self.assertEqual(role.pick(role.load(None), "何か", True), (None, None))
 
-    def test_default_role_and_persistent_are_read_and_checked(self):
-        got = role.load(write(f"{self.d}/d.toml", 'default_role = "b"\n[[roles]]\nname = "a"\npersistent = true\n[[roles]]\nname = "b"\n'))
-        self.assertEqual((got["default_role"], got["roles"]["a"]["persistent"], got["roles"]["b"]["persistent"], got["problems"]),
-                         ("b", True, False, []))
+    def test_default_role_and_lifetime_are_read_and_checked(self):
+        got = role.load(write(f"{self.d}/d.toml", 'default_role = "b"\n[[roles]]\nname = "a"\nlifetime = "always"\n[[roles]]\nname = "b"\n'))
+        self.assertEqual((got["default_role"], got["roles"]["a"]["lifetime"], got["roles"]["b"]["lifetime"], got["problems"]),
+                         ("b", "always", None, []))
         self.assertEqual(role.default(got, "作業"), ("b", None))
-        got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\npersistent = "yes"\n'
+        # on-demand は受け持ちごとの寿命なので、役には書けない
+        got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\nlifetime = "on-demand"\n'
                                                   '[[roles]]\nname = "c"\n'))
         self.assertIsNone(got["default_role"])
         self.assertEqual(list(got["roles"]), ["c"])
-        self.assertIn("persistent の形が違う", got["problems"][0])
+        self.assertIn("lifetime の形が違う", got["problems"][0])
         self.assertIn("default_role の役 無い が [[roles]] に無い", got["problems"][1])
         name, why = role.default(got, "作業")   # 会社の形に無い既定の役は止める（英語の役の名前の会社で、役の無い部署を立てない）
         self.assertEqual(name, "作業")
@@ -176,20 +177,25 @@ deliver_check = ""
 
 
 class Seat(unittest.TestCase):
-    def test_fresh_is_read_and_shown_with_lifecycle(self):
+    def test_context_is_read_and_shown_with_the_lifetime(self):
         d = tempfile.mkdtemp()
-        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "担当"\npersistent = true\nfresh = true\n'
-                                             '[[roles]]\nname = "相談"\npersistent = true\n[[roles]]\nname = "変"\nfresh = "yes"\n'))
-        self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
+        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "担当"\nlifetime = "always"\ncontext = "new"\n'
+                                             '[[roles]]\nname = "相談"\nlifetime = "always"\n[[roles]]\nname = "作業"\nrent_or_buy = false\n'
+                                             '[[roles]]\nname = "変"\ncontext = "clear"\n'))
+        self.assertEqual((got["roles"]["担当"]["context"], got["roles"]["相談"]["context"]), ("new", None))
         self.assertNotIn("変", got["roles"])
-        self.assertIn("persistent・fresh・machine は true か false", got["problems"][0])
-        # herdr の作業場の印に、keep か tmp かと、会話を引き継ぐか clear するかを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
+        self.assertIn("context の形が違う", got["problems"][0])
+        # herdr の作業場の印に、寿命と会話の扱いを出す。比べるのはキーの seat、見せるのは語の kind。ペインの表示名は役だけ
         from nodes import sync
-        self.assertEqual(sync.seat_of({"role": "担当", "lifecycle": "persistent", "fresh": "true"}), "persistent-fresh")
-        self.assertEqual(sync.seat_of({"role": "相談", "lifecycle": "persistent"}), "persistent-carry")
-        self.assertEqual(sync.seat_of({"role": "作業", "lifecycle": "ephemeral"}), "ephemeral")
-        self.assertIsNone(sync.seat_of({}))
-        self.assertEqual(sync.seat_tokens("persistent-fresh"), {"kind": "keep・clear", "seat": "persistent-fresh"})
+        skills = [{"name": "見渡し", "lifetime": "on-demand"}, {"name": "直し", "lifetime": "per-ask"}]
+        self.assertEqual(role.seat({"role": "担当", "lifecycle": "persistent", "fresh": "true"}, skills, got), "always.new")
+        self.assertEqual(role.seat({"role": "相談", "lifecycle": "persistent"}, skills, got), "always.carry")
+        self.assertEqual(role.seat({"role": "担当", "lifecycle": "ephemeral", "fresh": "true", "name": "見渡し"}, skills, got), "on-demand.new")
+        self.assertEqual(role.seat({"role": "担当", "lifecycle": "ephemeral", "name": "直し：abcdef"}, skills, got), "per-ask")
+        self.assertEqual(role.seat({"role": "作業", "lifecycle": "ephemeral"}, skills, got), "per-ask.rent-or-buy-off")
+        self.assertIsNone(role.seat({}))
+        self.assertEqual(role.seat_label("per-ask.rent-or-buy-off"), "per-ask · rent-or-buy off")
+        self.assertEqual(sync.seat_tokens("always.new"), {"kind": "always · new", "seat": "always.new"})
         self.assertEqual(sync.op("p", {"role": "担当", "lifecycle": "persistent", "name": "割り振り"}, False)["display_agent"], "担当")
 
 
@@ -240,7 +246,7 @@ class ModelAndEffort(unittest.TestCase):
         self.assertEqual(json.loads(role.launch_key(r)), {"model": "sonnet", "effort": None})
 
     def test_launch_key_keeps_inherit_unresolved_and_takes_the_duty_first(self):
-        # clear の部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）
+        # new の部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）
         r = {"name": "担当", "model": "opus", "effort": "inherit"}
         self.assertEqual(json.loads(role.launch_key(r)), {"model": "opus", "effort": "inherit"})
         self.assertEqual(json.loads(role.launch_key(r, {"name": "割り振り", "model": "sonnet", "effort": None})),
@@ -248,7 +254,7 @@ class ModelAndEffort(unittest.TestCase):
         self.assertEqual(json.loads(role.launch_key(None)), {"model": None, "effort": None})
 
     def test_duty_is_found_by_the_same_name_or_by_the_head_of_a_one_off_name(self):
-        # keep の部署は名前が受け持ちと同じ。一度きりの部署は「<受け持ち>：<何をするか>」。同じ名前の受け持ちが先
+        # always の部署は名前が受け持ちと同じ。一度きりの部署は「<受け持ち>：<何をするか>」。同じ名前の受け持ちが先
         skills = [{"name": "調べもの"}, {"name": "調べもの：常設"}, {"name": "手入れ"}]
         self.assertIs(role.duty_of(skills, "調べもの"), skills[0])
         self.assertIs(role.duty_of(skills, "調べもの：原典の確かめ"), skills[0])
@@ -269,39 +275,22 @@ class ModelAndEffort(unittest.TestCase):
         self.assertEqual(json.loads(role.launch_key(r, duty))["settings"]["promptCacheTtl"], "5m")
         self.assertEqual(json.loads(role.launch_key({"name": "作業"}, {"name": "調べもの", "settings": None})), {"model": None, "effort": None})
 
-    def test_keepalive_is_read_in_its_forms_and_a_bad_value_is_dropped_with_a_note(self):
-        problems = []
-        self.assertIsNone(role.parse_keepalive(None, "w", problems))
-        self.assertIs(role.parse_keepalive(False, "w", problems), False)
-        self.assertEqual(role.parse_keepalive(True, "w", problems), {"every": None, "text": None})
-        self.assertEqual(role.parse_keepalive({"every": "4m", "text": " 見る "}, "w", problems), {"every": 240, "text": "見る"})
-        self.assertEqual(role.parse_keepalive({"every": 200}, "w", problems), {"every": 200, "text": None})
-        self.assertEqual(problems, [])
-        for bad in ({"every": "4 min"}, {"every": 0}, {"every": True}, {"text": ""}, "4m", 240):
-            got = []
-            self.assertIsNone(role.parse_keepalive(bad, "w", got), bad)
-            self.assertEqual(len(got), 1, bad)
-
-    def test_keepalive_takes_the_duty_over_the_role_and_its_interval_from_the_cache_lifetime(self):
-        on = {"every": None, "text": None}
-        r = {"name": "作業", "keepalive": on, "settings": {"promptCacheTtl": "1h"}}
-        five = {"name": "調べもの", "settings": {"promptCacheTtl": "5m"}, "keepalive": None}
+    def test_keepalive_is_on_unless_rent_or_buy_is_off_and_its_interval_comes_from_the_cache_lifetime(self):
+        r = {"name": "作業", "settings": {"promptCacheTtl": "1h"}}
+        five = {"name": "調べもの", "settings": {"promptCacheTtl": "5m"}}
         # 寿命から余裕を引いた間隔。続けて送るのは、読みの値段が書き直し 1 回に届くまで（5 分は 1.25 / 0.1、1 時間は 2 / 0.1）
-        self.assertEqual({k: v for k, v in role.keepalive_for(r, five).items() if k != "text"},
-                         {"every": 300 - role.KEEPALIVE_MARGIN, "ttl": 300, "limit": 13, "written": False})
+        self.assertEqual(role.keepalive_for(r, five), {"every": 300 - role.KEEPALIVE_MARGIN, "text": role.KEEPALIVE_TEXT, "ttl": 300, "limit": 13})
         self.assertEqual({k: v for k, v in role.keepalive_for(r).items() if k != "text"},
-                         {"every": 3600 - role.KEEPALIVE_MARGIN, "ttl": 3600, "limit": 20, "written": False})
-        self.assertEqual(role.keepalive_for({"name": "作業", "keepalive": on})["ttl"], 3600)   # 寿命を書かなければ 1 時間と見る
-        self.assertEqual(role.keepalive_for(r)["text"], role.KEEPALIVE_TEXT)
-        # 受け持ちの表は鍵ごとに役の表に重なり、false は役の物を止める
-        got = role.keepalive_for({"name": "作業", "keepalive": {"every": 100, "text": "役の文"}},
-                                 {"name": "調べもの", "keepalive": {"every": None, "text": "受け持ちの文"}})
-        self.assertEqual((got["every"], got["text"]), (100, "受け持ちの文"))
-        self.assertIsNone(role.keepalive_for(r, {"name": "手入れ", "keepalive": False}))
-        self.assertIsNone(role.keepalive_for({"name": "作業"}, five))
+                         {"every": 3600 - role.KEEPALIVE_MARGIN, "ttl": 3600, "limit": 20})
+        self.assertEqual(role.keepalive_for({"name": "作業"})["ttl"], 3600)   # 寿命を書かなければ 1 時間と見る
+        self.assertEqual(role.keepalive_for(None)["ttl"], 3600)               # 会社の形に役が無くても送る
+        # rent_or_buy = false だけが止める。受け持ちの値が役の値より先に効く
+        self.assertIsNone(role.keepalive_for(r, {"name": "手入れ", "rent_or_buy": False}))
+        self.assertIsNone(role.keepalive_for(dict(r, rent_or_buy=False), five))
+        self.assertIsNotNone(role.keepalive_for(dict(r, rent_or_buy=False), dict(five, rent_or_buy=True)))
 
     def test_keepalive_reads_the_cache_lifetime_in_the_order_claude_code_does_and_skips_what_it_cannot_tell(self):
-        on = {"name": "作業", "keepalive": {"every": None, "text": None}}
+        on = {"name": "作業"}
         five, hour = dict(on, settings={"promptCacheTtl": "5m"}), dict(on, settings={"promptCacheTtl": "1h"})
         ttl = lambda r, env: (role.keepalive_for(r, env=env) or {}).get("ttl")
         # 5 分に決める環境変数 → 寿命の環境変数 → 設定 → 1 時間を頼む環境変数 → 既定
@@ -314,8 +303,7 @@ class ModelAndEffort(unittest.TestCase):
         # 寿命が無い・分からない・間が寿命より短くないなら、送っても切れた後に届くので送らず、訳を注記に出す
         for r, env, why in ((five, {"DISABLE_PROMPT_CACHING": "1"}, "DISABLE_PROMPT_CACHING"),
                             (five, {"CLAUDE_CODE_PROMPT_CACHE_TTL": "10m"}, "'10m'"),
-                            (dict(on, settings={"promptCacheTtl": "10m"}), {}, "'10m'"),
-                            (dict(five, keepalive={"every": 300, "text": None}), {}, "300 秒")):
+                            (dict(on, settings={"promptCacheTtl": "10m"}), {}, "'10m'")):
             notes = []
             self.assertIsNone(role.keepalive_for(r, notes=notes, env=env), (r, env))
             self.assertIn(why, notes[0])
@@ -336,28 +324,25 @@ class ModelAndEffort(unittest.TestCase):
             self.assertIsNone(got, (written, env))
             self.assertIn(why, note)
 
-    def test_keepalive_is_read_from_the_shape_for_roles_and_duties(self):
+    def test_rent_or_buy_is_read_from_the_shape_for_roles_and_duties(self):
         d = tempfile.mkdtemp()
-        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "作業"\n[roles.keepalive]\nevery = "3m"\n'
-                                             '[[roles]]\nname = "担当"\nkeepalive = 5\n'))
-        self.assertEqual(got["roles"]["作業"]["keepalive"], {"every": 180, "text": None})
-        self.assertIsNone(got["roles"]["担当"]["keepalive"])
-        self.assertEqual(len(got["problems"]), 1)
+        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "作業"\nrent_or_buy = false\n'
+                                             '[[roles]]\nname = "担当"\nrent_or_buy = "off"\n'))
+        self.assertIs(got["roles"]["作業"]["rent_or_buy"], False)
+        self.assertNotIn("担当", got["roles"])
+        self.assertIn("rent_or_buy の形が違う", got["problems"][0])
         problems = []
-        skills = tree._skills([{"name": "調べもの", "keepalive": {"text": "待つ"}}, {"name": "手入れ", "keepalive": False}],
+        skills = tree._skills([{"name": "調べもの", "rent_or_buy": True}, {"name": "手入れ", "rent_or_buy": False}, {"name": "x"}],
                               "w", problems)
-        self.assertEqual([s["keepalive"] for s in skills], [{"every": None, "text": "待つ"}, False])
+        self.assertEqual(([s["rent_or_buy"] for s in skills], problems), ([True, False, None], []))
 
     def test_flow_rank_puts_carry_over_then_standing_by_the_duties_then_per_task_then_the_rest(self):
-        # herdr の作業場の並びと --tree の部署の並びが同じ鍵を使う（持ち主 2026-10-17 の案 A）
-        duties = ["ノートの手入れ", "調べもの"]
-        rows = {"社長室": {"role": "相談", "name": "社長室", "lifecycle": "persistent"},
-                "調べもの": {"role": "担当", "name": "調べもの", "lifecycle": "persistent", "fresh": "true"},
-                "ノートの手入れ": {"role": "担当", "name": "ノートの手入れ", "lifecycle": "persistent", "fresh": "true"},
-                "新しい担当": {"role": "担当", "name": "新しい担当", "lifecycle": "persistent", "fresh": "true"},
-                "作業：1": {"role": "作業", "name": "作業：1", "lifecycle": "ephemeral"}, "手で開いた": {}}
-        self.assertEqual(sorted(rows, key=lambda n: role.flow_rank(rows[n], duties)),
-                         ["社長室", "ノートの手入れ", "調べもの", "新しい担当", "作業：1", "手で開いた"])
+        # herdr の作業場の並びと --tree の部署の並びが同じ鍵を使う（持ち主 2026-10-17 の案 A）。rent-or-buy off は並びに効かない
+        duties = ["ノートの手入れ", "調べもの", "見渡し"]
+        rows = {"社長室": "always.carry", "調べもの": "always.new", "ノートの手入れ": "always.new.rent-or-buy-off",
+                "新しい担当": "always.new", "見渡し": "on-demand.new", "作業：1": "per-ask", "手で開いた": None}
+        self.assertEqual(sorted(rows, key=lambda n: role.flow_rank(rows[n], n, duties)),
+                         ["社長室", "ノートの手入れ", "調べもの", "新しい担当", "見渡し", "作業：1", "手で開いた"])
 
     def test_launch_flags_take_the_duty_before_the_role(self):
         # 決める順はフィールドごとに、部署（受け持ち）・役・アカウントの既定。受け持ちに無いフィールドは役の値
@@ -465,7 +450,7 @@ class Hook(unittest.TestCase):
         self.assertIn(f"{role_hook.RUN} --land {shlex.quote('見渡し：d1')}", text)
         self.assertIn(f"{role_hook.RUN} --ask <宛先> --text <頼み>", text)
         self.assertIn(f"{role_hook.RUN} --done", text)
-        # keep の部署は --done を断られるので書かない。本社の窓口には足さない
+        # always の部署は --done を断られるので書かない。本社の窓口には足さない
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.assertNotIn("--done", role_hook.text_for(self.place, self.env))
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
@@ -517,14 +502,14 @@ class Hook(unittest.TestCase):
         self.assertEqual((health.oversize(inbox), kept()), ([], []))
 
     def test_a_department_per_ask_gets_the_on_demand_line_of_its_duty(self):
-        # 頼みごとの部署（per_ask）は名前が「<受け持ち>：…」でも、受け持ちの説明と on-demand の文が足される。per_ask の無い受け持ちの
-        # 「<受け持ち>：…」の部署には足さない（今までどおり）
+        # 頼みごとの部署（lifetime = "per-ask"）は名前が「<受け持ち>：…」でも、受け持ちの説明と寿命の文が足される。on-demand の
+        # 受け持ちの「<受け持ち>：…」の部署には足さない
         write(pathlib.Path(self.src) / ".claude" / "company.toml",
-              SHAPE + '[[skills]]\nname = "見渡し"\ndescription = "調べる"\nrole = "調べ役"\non_demand = true\nper_ask = true\n'
-                      '[[skills]]\nname = "直し"\ndescription = "直す"\nrole = "調べ役"\non_demand = true\n')
+              SHAPE + '[[skills]]\nname = "見渡し"\ndescription = "調べる"\nrole = "調べ役"\nlifetime = "per-ask"\n'
+                      '[[skills]]\nname = "直し"\ndescription = "直す"\nrole = "調べ役"\nlifetime = "on-demand"\n')
         provision.mark(self.place, self.src, {"role": "調べ役", "name": "見渡し：d14822", "lifecycle": "ephemeral"}, self.g)
         text = role_hook.text_for(self.place, self.env)
-        self.assertIn("受け持ちは「見渡し」（調べる）。この受け持ちは on-demand", text)
+        self.assertIn("受け持ちは「見渡し」（調べる）。この受け持ちの寿命は per-ask", text)
         provision.mark(self.place, self.src, {"name": "直し：題"}, self.g)
         self.assertNotIn("受け持ちは", role_hook.text_for(self.place, self.env))
 

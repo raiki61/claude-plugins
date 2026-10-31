@@ -441,9 +441,9 @@ class Keepalive(unittest.TestCase):
         no_log = {k: v for k, v in self.payload.items() if k != "transcript_path"}
         self.assertIsNone(wake_hook.warm_for(self.got, no_log, conf_of=conf, attrs_of=lambda cwd: self.attrs))
         # 送らなかった訳を台帳に残す（ターンの終わりでない SessionStart は残さない）
-        self.assertEqual(self.skipped(), ["会社の形の役にも受け持ちにも keepalive が無い（書いていないか、寿命の値が読めない）",
+        self.assertEqual(self.skipped(), ["rent-or-buy を切っている（役か受け持ちの rent_or_buy = false）か、会社の形か寿命の値が読めない",
                                           "会話の記録の場所が分からず、会話が動いたかを見られない"])
-        # keepalive を書いていない部署の、裏の処理の無いターンの終わりと、頼みの無い部署の裏の処理は台帳に書かない
+        # rent-or-buy を切った部署の、裏の処理の無いターンの終わりと、頼みの無い部署の裏の処理は台帳に書かない
         wake_hook.warm_for(self.got, idle, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: self.attrs)
         wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: {})
         self.assertEqual(len(self.skipped()), 2)
@@ -563,7 +563,7 @@ class Keepalive(unittest.TestCase):
 
     def test_a_department_left_waiting_on_its_background_work_long_shows_on_the_tree(self):
         attrs = {"ask": "a1", "session": "s1"}
-        conf = lambda cwd, a, read: None   # keepalive を書いていなくても控えは書く
+        conf = lambda cwd, a, read: None   # keepalive を送らない部署（rent-or-buy を切った）でも控えは書く
         wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: 1000.0)
         long = wake.LONG_WAIT + 1000.0
         self.assertIsNone(wake.long_wait(self.inbox, self.place, attrs, now=long - 1))
@@ -696,7 +696,7 @@ class Keepalive(unittest.TestCase):
         self.assertIsNone(warm())
         self.assertEqual(len(deliver.records(self.inbox)), 2)
 
-    def test_keepalive_plan_reads_next_at_and_keeps_a_written_interval(self):
+    def test_keepalive_plan_reads_next_at(self):
         seen = []
 
         def part(scene, facts, transcript):
@@ -710,9 +710,6 @@ class Keepalive(unittest.TestCase):
             self.assertEqual(seen, [("keepalive", {"lifetime": 300, "spent": 0.05, "certain": True,
                                                    "turn_end_at": "1970-01-01T00:00:00Z"}, self.log)])
             self.assertEqual((plan["action"], plan["due"], plan["rent"]), ("rent", 1792800240.0, 0.02))
-            # 役か受け持ちに every を書いた場所は、書いた間で送る（止め時だけ部品に聞く）
-            plan, _ = wake_hook.keepalive_plan(self.payload, {**self.conf, "written": True}, 0, now=lambda: 0)
-            self.assertIsNone(plan["due"])
         # rent か next_at を読めない答えは、聞けなかったのと同じに扱う（費用が数えられないと止め時が来ない）
         for bad in ({"rent": None}, {"rent": -1}, {"next_at": "あした"}):
             with mock.patch.object(wake_hook, "RENT", lambda *a, bad=bad: ({"action": "rent", "next_at": "2026-10-24T00:04:00Z",
@@ -1090,7 +1087,7 @@ class Hook(unittest.TestCase):
 
     def test_a_ring_through_three_departments_with_an_undelivered_one_in_the_middle_is_found_from_each(self):
         # 割り振りは今の頼みを納品せずに点検への c1 の返事を待ち、点検は見直しへの c2 を、見直しは割り振りへの c3 を待つ（10-18 の
-        # claude-plugins。輪の途中に、納品していない keep の担当が入る）
+        # claude-plugins。輪の途中に、納品していない always の担当が入る）
         held = {"role": "担当", "fresh": role.FRESH}
         provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, self.g)   # 納品していない
         check_ = self.dept("dept/b", **held, name="点検", ask="b0")
@@ -1253,7 +1250,7 @@ class Hook(unittest.TestCase):
         return land
 
     def test_a_persistent_department_follows_the_main_branch_before_the_next_ask_and_restarts_for_its_agents(self):
-        # keep の部署の作業場は頼みのたびに作り直さないので、渡す前にメインブランチの先頭へ進める。役の定義が替われば、
+        # always の部署の作業場は頼みのたびに作り直さないので、渡す前にメインブランチの先頭へ進める。役の定義が替われば、
         # 同じアカウントのまま起動し直す名指しを印す（2026-10-20、my_notes の調べものが 20 commit 遅れた。受付 72f7e4）
         land = self.with_origin()
         land("notes.md")
@@ -1343,7 +1340,7 @@ class Hook(unittest.TestCase):
         self.assertNotIn(wake.MOVE_TO, self.g.worktree_attrs(self.place))
         # 読めなくても頼みは渡す（訳を添える）
         self.assertIn("進められなかった", wake_hook.follow_main(self.plan(), attrs, catch_up=lambda cwd: 1 / 0))
-        # tmp の部署（頼みごとにメインブランチから切る）と窓口は進めない
+        # 畳む部署（頼みごとにメインブランチから切る）と窓口は進めない
         self.assertIsNone(wake_hook.follow_main(self.plan(), {**attrs, "lifecycle": gitx.EPHEMERAL}))
         # 裏の処理が動いていて進めないときの文（lag_note）も、作業場を動かさず、同じ場所では添えない
         got = wake_hook.lag_note(self.plan(), attrs)
@@ -1484,13 +1481,14 @@ class Hook(unittest.TestCase):
 
     def test_keepalive_is_read_from_the_shape_for_a_department_and_the_desk(self):
         os.makedirs(os.path.join(self.src, ".claude"), exist_ok=True)
-        toml = ('[[roles]]\nname = "担当"\nkeepalive = true\n[roles.settings]\npromptCacheTtl = "5m"\n\n'
-                '[[skills]]\nname = "調べ"\nrole = "担当"\nkeepalive = {{ every = "3m" }}\n{more}')
+        toml = ('[[roles]]\nname = "担当"\n[roles.settings]\npromptCacheTtl = "5m"\n\n'
+                '[[skills]]\nname = "調べ"\nrole = "担当"\n{more}')
         shape = os.path.join(self.src, ".claude", "company.toml")
         pathlib.Path(shape).write_text(toml.format(more=""), encoding="utf-8")
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, self.g)
         got = role_hook.keepalive_of(self.place, self.g.worktree_attrs(self.place), env=self.env)
-        self.assertEqual((got["every"], got["ttl"], got["limit"]), (180, 300, 13))
+        # 会社の形に何も書かなくても送る。間はキャッシュの寿命から余裕を引いた秒
+        self.assertEqual((got["every"], got["ttl"], got["limit"]), (300 - role.KEEPALIVE_MARGIN, 300, 13))
         # 上限は会話のモデルのキャッシュの読みの値段で決める（Opus 5.5 は 0.05 倍で 25 本）
         self.assertEqual(role_hook.keepalive_of(self.place, self.g.worktree_attrs(self.place), env=self.env, read=0.05)["limit"], 25)
         # 窓口も読む（頼みは受けないが、出した頼みの返事を待つ間に送る）。窓口は部署でないので受け持ちを引かず、役の値で決める
@@ -1501,6 +1499,10 @@ class Hook(unittest.TestCase):
         with mock.patch.object(sys, "stderr", err):
             self.assertIsNone(role_hook.keepalive_of(self.place, self.g.worktree_attrs(self.place), env=self.env))
         self.assertIn("'10m'", err.getvalue())
+        # rent_or_buy = false の受け持ちの部署には送らない（窓口は受け持ちを引かないので、役の値で送る）
+        pathlib.Path(shape).write_text(toml.format(more="rent_or_buy = false\n"), encoding="utf-8")
+        self.assertIsNone(role_hook.keepalive_of(self.place, self.g.worktree_attrs(self.place), env=self.env))
+        self.assertIsNotNone(role_hook.keepalive_of(self.src, {"role": "担当", "name": "調べ"}, env=self.env))
 
     def fresh_dept(self, **more):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
@@ -2364,7 +2366,7 @@ class Hook(unittest.TestCase):
         return seen, spawn
 
     def test_a_finished_department_starts_retire_apart_from_the_talk_at_the_end_of_the_turn(self):
-        # tmp の部署が終わりと印した（--done）ターンの終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
+        # 畳む部署が終わりと印した（--done）ターンの終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH, wake.FINISHED: "s1"}, self.g)
         seen, spawn = self.spawner()

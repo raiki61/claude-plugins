@@ -282,7 +282,7 @@ class Ports:
         herdr_toml = herdr_config_path(self.env)
         if not spaces_show_kind(herdr_toml):
             task_only.append(f"herdr の設定 {herdr_toml} の作業場の行（[ui.sidebar.spaces] の rows）に $kind が無い（部署の作業場の行に、"
-                             "keep・clear／keep・continue／tmp の印が出ない）。rows のどこかに { token = \"$kind\" } を置く。"
+                             "always · new／always · carry／tmp の印が出ない）。rows のどこかに { token = \"$kind\" } を置く。"
                              f"[ui.sidebar.spaces] が無ければ、次を足して herdr server reload-config を打つ:\n{SPACES_ROWS}")
         notes += plugin_notes(herdr_toml, [config.effective_config_dir(a, self.account_env) for a in cfg.accounts], cfg.limits_dir)
         for repo in cfg.repos:

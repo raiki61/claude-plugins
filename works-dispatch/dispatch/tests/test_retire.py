@@ -1,4 +1,4 @@
-"""終わりの印（--done。orders.finish_here）と、tmp の部署を止めて畳む --retire（retire.py）と、納品し終えた部署がターンを終えて残る訳
+"""終わりの印（--done。orders.finish_here）と、畳む部署を止めて畳む --retire（retire.py）と、納品し終えた部署がターンを終えて残る訳
 （orders.leftover・stop_after）。git（tests/fakegit.py）・gh・herdr・claude は偽物で回す。"""
 
 import io
@@ -17,7 +17,7 @@ from nodes import deliver, provision, wake
 
 
 class Retire(unittest.TestCase):
-    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。部署「調べ」は origin/main から切った tmp の部署。"""
+    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。部署「調べ」は origin/main から切った畳む部署。"""
 
     Flow = test_deliver.Flow
     main, shape = Flow.main, Flow.shape
@@ -132,7 +132,7 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"lifecycle": "persistent", wake.FINISHED: None}, self.g)
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
-        self.assertIn("keep の部署は畳まない", out)
+        self.assertIn("always の部署は畳まない", out)
 
     def test_retire_stops_the_talk_then_removes_the_room_like_clean(self):
         rc, out = self.main(self.src, "--retire", "調べ")
@@ -500,7 +500,7 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {wake.FINISHED: "s-dept"}, self.g)
         self.assertIsNone(self.after())
         provision.mark(self.place, self.src, {wake.FINISHED: None, "lifecycle": "persistent"}, self.g)
-        self.assertIsNone(self.after())   # keep の部署は畳まない
+        self.assertIsNone(self.after())   # always の部署は畳まない
         self.assertIsNone(orders.stop_after({"session_id": "s-desk"}, self.src, {"role": "窓口", "name": "desk", "ask": "q1",
                                                                                 "delivered": "q1"}, 0, os.path.dirname(self.cfg), self.g))
 

@@ -23,7 +23,7 @@ def shape_text(command, fallback='fallback_role = "調べ役"', machine="machine
     return f"""
 [[roles]]
 name = "調べ役"
-persistent = true
+lifetime = "always"
 
 [[roles]]
 name = "配布"
@@ -133,7 +133,7 @@ class CompanyRoot(unittest.TestCase):
 
 
 class Call(unittest.TestCase):
-    """--call を入口から。会社の形は本社のファイル。回す先は Flow の keep の部署「調べ」（役 調べ役）。"""
+    """--call を入口から。会社の形は本社のファイル。回す先は Flow の always の部署「調べ」（役 調べ役）。"""
 
     Flow = test_deliver.Flow
     setUp, main, prompts, shape = Flow.setUp, Flow.main, Flow.prompts, Flow.shape
@@ -164,7 +164,7 @@ class Call(unittest.TestCase):
         miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
         self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
         self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
-        (w,) = self.prompts()   # keep の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
+        (w,) = self.prompts()   # always の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
         self.assertIn("-ask.md を読んで", w[2])
         brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
         self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
@@ -270,7 +270,7 @@ class Call(unittest.TestCase):
         # on-demand の受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
         self.use("true", fallback='fallback_role = "見渡し"')
         with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
-            f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\non_demand = true\n')
+            f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\nlifetime = "on-demand"\n')
         seen = {}
 
         def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
@@ -301,7 +301,7 @@ class Call(unittest.TestCase):
         self.assertEqual((seen.get("name"), seen.get("role")), ("調べ物", "調べ役"))
 
     def test_handing_over_finds_the_keep_department_that_still_has_the_roles_former_name(self):
-        # 役の名前を替えた（former_names）後も、前の名前を属性に持つ keep の部署に回す（今の名前に引き直さず、ツールの名前の部署を新しく立てていた）
+        # 役の名前を替えた（former_names）後も、前の名前を属性に持つ always の部署に回す（今の名前に引き直さず、ツールの名前の部署を新しく立てていた）
         self.use("true")
         provision.mark(self.place, self.src, {"role": "旧調べ役"}, self.g)
         self.shape(shape_text("true").replace('name = "調べ役"\n', 'name = "調べ役"\nformer_names = ["旧調べ役"]\n', 1))

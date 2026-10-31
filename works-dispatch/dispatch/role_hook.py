@@ -166,7 +166,7 @@ def launch_key(cwd, attrs, env=os.environ):
 
 
 def keepalive_of(cwd, attrs, env=os.environ, read=chat.CACHE_READ_RATE):
-    """その場所の部署か窓口の keepalive（role.keepalive_for の {every, text, ttl, limit}）。送らない・会社の形を読めない・役が無いときは
+    """その場所の部署か窓口の keepalive（role.keepalive_for の {every, text, ttl, limit}）。送らない・会社の形を読めない・属性に役が無いときは
     None。寿命の値が読めずに送らないときは、その訳を注記に出す。read は会話のモデルのキャッシュの読みの倍率。窓口も読む（頼みは
     受けないが、出した頼みの返事を待つ間に送る。wake_hook.warm_for）。窓口は部署でないので受け持ちを引かず、役の値だけで決める
     （--move・--desk が窓口を起動する設定〔role.write_desk_settings〕と寿命を揃える。launch_key と同じ）。"""
@@ -181,13 +181,16 @@ def keepalive_of(cwd, attrs, env=os.environ, read=chat.CACHE_READ_RATE):
 
 
 def _role_duty(cwd, attrs, env):
-    """その場所の (役, 受け持ち)。会社の形を読めない・役が無いときは None。窓口は部署でないので受け持ちを None にする。"""
+    """その場所の (役, 受け持ち)。属性に役が無い（部署でも窓口でもない）・git でないときは None。会社の形に無い役（会社の形の無い
+    リポジトリの既定の役「作業」など）は役を None にする（rent-or-buy は鍵を書かなくても全部の部署で効くので、役の項目が無くても既定で
+    効かせる）。ただし会社の形を読めず（problems）役も引けないときは、rent_or_buy = false を書いたかを確かめられないので None。窓口は
+    部署でないので受け持ちを None にする。"""
     got = attrs.get("role") and _shape_at(cwd, attrs, env)
     if not got:
         return None
     _, info, shape = got
     the_role = shape["roles"].get(role.current(shape, attrs["role"]))
-    if the_role is None:
+    if the_role is None and (shape["problems"] or info.get("problems")):
         return None
     here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
     desk = here and common and os.path.realpath(here) == os.path.realpath(common)
@@ -196,7 +199,7 @@ def _role_duty(cwd, attrs, env):
 
 def cache_ttl_of(cwd, attrs, env=os.environ):
     """その場所の会話のプロンプトキャッシュの寿命の秒（role.cache_ttl。会社の形の役と受け持ちの promptCacheTtl と会話の環境変数から読む）。
-    役が無ければ環境変数だけで決める。決められなければ None。keepalive を書いていない場所でも読む（wake_hook.compact_turn）。"""
+    役が無ければ環境変数だけで決める。決められなければ None。rent-or-buy を切った場所でも読む（wake_hook.compact_turn）。"""
     found = _role_duty(cwd, attrs, env)
     return (role.cache_ttl_for(*found, env) if found else role.cache_ttl(None, env))[0]
 
@@ -232,7 +235,7 @@ def text_for(cwd, env=os.environ, attrs=None):
     name = role.current(shape, attrs["role"])
     company = info.get("name") or os.path.basename(os.path.normpath(root))
     duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None) \
-        or role.on_demand_of(info.get("skills", []), attrs.get("name"))   # 頼みごとの部署（per_ask）は受け持ちの名前で始まる
+        or role.on_demand_of(info.get("skills", []), attrs.get("name"))   # 頼みごとの部署（per-ask）は受け持ちの名前で始まる
     head_office = gitx.is_main_worktree(cwd) is True
     text = role.context(name, shape["roles"].get(name), company, duty, head_office, attrs.get("lifecycle"), shape["shared"])
     if attrs.get("name") and not head_office:

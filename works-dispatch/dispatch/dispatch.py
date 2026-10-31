@@ -44,8 +44,8 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
         python3 dispatch.py --deliver <要約のファイル> [--for <受付> | --again] [--dry-run]
         python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
         python3 dispatch.py --compact [焦点]（部署か窓口の場所から。同じ仕事の前の部分が済んだので、ここで compact してよい区切りと印す）
-        python3 dispatch.py --done（tmp の部署の場所から。納品してメインブランチに入れ終えたので、ターンの終わりに会話を止めて部屋を片付けてよいと印す）
-        python3 dispatch.py --retire <部署>（tmp の部署の会話を止めてから、--clean と同じ決まりで片付ける）
+        python3 dispatch.py --done（畳む部署の場所から。納品してメインブランチに入れ終えたので、ターンの終わりに会話を止めて部屋を片付けてよいと印す）
+        python3 dispatch.py --retire <部署>（畳む部署の会話を止めてから、--clean と同じ決まりで片付ける）
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
         python3 dispatch.py [--repo 代表の clone] --queue-run -- <コマンド> [<引数> ...]（外のツールが --land と同じ列に並んで走る。queuerun.py）
         python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--persistent | --ephemeral] [--boss <頼み元> [--boss-account <名>]] [--dry-run]
@@ -59,7 +59,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
 --ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
 --reorg と --desk（部署と窓口の属性の付け替え）の流れは reorg.py が持つ。
 --handover（部署か窓口の受け持ちを同じ会社のほかの部署へ移す）の流れは handover.py が持つ。
---retire（tmp の部署の会話を止めて片付ける）の流れは retire.py が持つ。
+--retire（畳む部署の会話を止めて片付ける）の流れは retire.py が持つ。
 """
 
 import argparse
@@ -297,7 +297,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--from-account", help="--task か --ask と一緒に: 呼んだ会話のアカウントの名（同上）")
     ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば会社の形の default_role、無ければ {DEFAULT_ROLE}）")
     ap.add_argument("--persistent", action="store_true",
-                    help="--task と一緒に: keep の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば tmp の部署）")
+                    help="--task と一緒に: always の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば畳む部署）")
     ap.add_argument("--tree", action="store_true", help=f"{term.NAME} に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree か --todo か --rent-effect と一緒に: JSON で出す")
     ap.add_argument("--todo", metavar="受付", nargs="?", const="",
@@ -323,7 +323,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--if-limited", action="store_true",
                     help="--move と一緒に: 今のアカウントの使用率が上限に達しているときだけ移す（上限で止まったときのフックが付ける）")
     ap.add_argument("--if-changed", action="store_true",
-                    help="--move と一緒に: clear の部署を、会社の形の model・effort が起動したときと違うときだけ起動し直す"
+                    help="--move と一緒に: new の部署を、会社の形の model・effort が起動したときと違うときだけ起動し直す"
                     "（今のアカウントに空きがあれば同じアカウントで。頼みを渡す前の待ち受けが付ける）")
     ap.add_argument("--withdraw", metavar="受付", help="順番待ちの 1 件を、渡さずに取り下げる（台帳に残す）。順番待ちに無い受付なら、台帳で開いていると出る頼みを、"
                     "取り下げの行を足して閉じる（受けた部署がまだ受けていれば止まる）")
@@ -365,9 +365,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--compact", nargs="?", const="", metavar="焦点", help="部署か窓口の場所から、同じ仕事の前の部分が済んだので、ここで"
                     "compact してよい区切りと印す（このターンの終わりに、文脈が大きく入力フィールドが空なら、機械が窓に /compact <焦点> を打ち、"
                     "済んだら続きをさせる 1 行を会話に渡す。納品の前でも印せる。人がその会話に打つと外れる）")
-    ap.add_argument("--done", action="store_true", help="tmp の部署の場所から、納品してメインブランチに入れ終えたので片付けてよいと印す（このターンの"
+    ap.add_argument("--done", action="store_true", help="畳む部署の場所から、納品してメインブランチに入れ終えたので片付けてよいと印す（このターンの"
                     "終わりに、機械が会話を止めて部屋を --clean と同じ決まりで片付ける。人がその会話に打つと外れる）")
-    ap.add_argument("--retire", metavar="部署", help="tmp の部署の会話を止めてから、部屋を --clean と同じ決まりで片付ける（--done の"
+    ap.add_argument("--retire", metavar="部署", help="畳む部署の会話を止めてから、部屋を --clean と同じ決まりで片付ける（--done の"
                     "ターンの終わりに機械が打つ。段取りが残った部屋を止めると決めたときも打つ）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりでメインブランチに入れる（ゲートを待ち、緑なら fast-forward）")
     ap.add_argument("--land-order", nargs="*", metavar="部署",
@@ -385,10 +385,10 @@ def main(argv=None, ports=None):
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署がメインブランチを知った後にほかの部署が入れた行を、このブランチが消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
-                    help=f"今いる部署の名前・役・keep か tmp か・頼み元を付け替え、{term.NAME} の表示を付け直す（--name・--role・--persistent か --ephemeral・--boss）")
+                    help=f"今いる部署の名前・役・always かどうか・頼み元を付け替え、{term.NAME} の表示を付け直す（--name・--role・--persistent か --ephemeral・--boss）")
     ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
     ap.add_argument("--ephemeral", action="store_true",
-                    help="--reorg と一緒に: tmp の部署にする（keep をやめる）")
+                    help="--reorg と一緒に: 畳む部署にする（always をやめる）")
     ap.add_argument("--boss", help="--reorg と一緒に: 新しい頼み元（納品を返す会話）の名前")
     ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい頼み元のアカウントの名（省けば名前だけで引く）")
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
@@ -1089,15 +1089,13 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     # 部署の名前で引いた受け持ち（[[skills]]。名前が同じ物か、「<受け持ち>：<何をするか>」の受け持ちの物。role.duty_of）に model・effort・
     # settings が有れば、役の値より先に効く（settings は役の設定の上に重ねる）。effort の inherit は、呼んだ会話の今の effort
     duty = role.duty_of(info["skills"], a.task)
-    # on-demand の受け持ちは、名前が同じ部署と頼みごとの部署（per_ask）だけ（ほかの一度きりの名前の部署は役のとおりに立てる）
-    own = role.on_demand_of(info["skills"], a.task)
     # 受け持ちの席の役（担当）は、受け持ちの名前でしか立てない。--persistent を名指した回（--move の起動し直しなど）は問わない
     why = None if a.persistent else role.seat_problem(shape, role_name, the_role, info["skills"], a.task)
     if why:
         print(f"止めた: {why}")
         return 2
-    # 役の persistent = true は --persistent と同じ。ただし受け持ちが on_demand = true（on-demand）なら tmp の部署で立てる
-    persistent = a.persistent or (bool(the_role and the_role["persistent"]) and not (own and own.get("on_demand")))
+    # 寿命が always（役か受け持ちの lifetime。role.lifetime_at）なら --persistent と同じ。on-demand・per-ask の受け持ちの部署は畳む部署で立てる
+    persistent = a.persistent or bool(the_role) and role.lifetime_at(the_role, info["skills"], a.task) == role.ALWAYS
     model, effort, flags_note = role.launch_flags(the_role, ports.env, duty)
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
     repo = repo._replace(gh_user=gh_user)
@@ -1190,12 +1188,12 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     many = len(cfg.accounts) > 1
     pane_label = sync.label(a.task, account, many)
     # 部署の属性（正本）。頼み元は呼んだ会話。分からない物は書かない
-    attrs = {"role": role_name, "lifecycle": gitx.PERSISTENT if persistent else gitx.EPHEMERAL, "fresh": role.FRESH if the_role and the_role["fresh"] else None,
+    attrs = {"role": role_name, "lifecycle": gitx.PERSISTENT if persistent else gitx.EPHEMERAL, "fresh": role.FRESH if the_role and the_role["context"] == role.NEW else None,
              "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
              "config": None if cfg_path == config.path_of(None, {}) else cfg_path,
-             # 起動したときの会社の形の model・effort（clear の部署の待ち受けが、今の値と比べて起動し直すかを決める）
+             # 起動したときの会社の形の model・effort（new の部署の待ち受けが、今の値と比べて起動し直すかを決める）
              wake.LAUNCHED: role.launch_key(the_role, duty), **{k: v for k, v in (extra_attrs or {}).items() if v}}
     route = ("納品のコマンドで頼み元の窓へ" if tail else f"SendMessage で「{caller['name']}」へ"
              if caller["name"] and caller["account"] == account else "区切りで画面に書いて止まる")
@@ -1247,7 +1245,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 if known:
                     provision.mark(prov["path"], repo.source, {"base": known}, ports.git)
             if attrs["lifecycle"] == gitx.PERSISTENT and a.branch and not existed and not ports.unpushed(prov["path"]):
-                # keep の部署の最初のブランチも、入れたブランチと同じに記録する。頼みごとにブランチを移るので、入れずに移った最初のブランチ（--brief で
+                # always の部署の最初のブランチも、入れたブランチと同じに記録する。頼みごとにブランチを移るので、入れずに移った最初のブランチ（--brief で
                 # 立てただけのブランチなど）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す。
                 # 書くのは部署を立てたときだけ（開き直し〔--task の打ち直し・--move〕の先頭には、まだ入れていない commit が載りうる）。
                 # 立てたときも、手元にしか無い commit の載ったブランチ（前に入れずに移ったブランチを開き直した）は書かない（消すと commit ごと失う）
@@ -1287,9 +1285,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 shown = sync.apply([sync.op(pane, written, many, current_label=pane_label)], ports.term)
                 notes += [f"ペインに表示名と札を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
                 if prov.get("workspace"):
-                    shown = sync.apply_workspaces([sync.kind_op(prov["workspace"], written)], ports.term)
-                    notes += [f"作業場に keep か tmp かの印を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
-                    notes += _order_company(repo.source, info["skills"], ports)
+                    shown = sync.apply_workspaces([sync.kind_op(prov["workspace"], role.seat(written, info["skills"], shape))], ports.term)
+                    notes += [f"作業場に席の印（寿命と会話）を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
+                    notes += _order_company(repo.source, info["skills"], shape, ports)
                 route += f"（会話 {sid}）"
     if result == "started" and not existed:
         # 部署を新しく立てた後の合図（会社の形の [[task.after]]）。開き直し（--task の打ち直し・--move）では呼ばない
@@ -1412,8 +1410,8 @@ def survey_companies(config_path, ports, only=None, plugins=False):
     return accounts_, workspaces_, companies, settings, notes
 
 
-def _order_company(source, skills, ports):
-    """立てた部署の会社の作業場を、仕事の流れの順に並べ直す（sync.flow_order。herdr は新しい作業場を後ろに足すので、keep の部署を
+def _order_company(source, skills, shape, ports):
+    """立てた部署の会社の作業場を、仕事の流れの順に並べ直す（sync.flow_order。herdr は新しい作業場を後ろに足すので、always の部署を
     立てたときは前へ動かす）。ほかの会社の作業場は、会社の印を外して渡し、動かさない。並べ直せなかった訳の注記の並び。"""
     root = os.path.realpath(source)
     try:
@@ -1421,7 +1419,10 @@ def _order_company(source, skills, ports):
                   for w in ports.term.workspaces()]
     except term.Error as e:
         return [f"作業場を流れの順に並べられなかった（{term.NAME} を読めない: {e}）"]
-    done = sync.apply_order(sync.flow_order(listed, ports.attrs, lambda r: skills), ports.term)
+    def seat_of(path):
+        attrs = ports.attrs(path)
+        return role.seat(attrs, skills, shape), attrs.get("name")
+    done = sync.apply_order(sync.flow_order(listed, seat_of, lambda r: skills), ports.term)
     return [f"作業場を流れの順に並べられなかった（{x['detail']}）" for x in done if x["status"] == "failed"]
 
 
@@ -1447,18 +1448,18 @@ def sync_companies(config_path, ports, dry_run=False, only=None):
 
 
 def _flow_inputs(companies, workspaces_):
-    """sync.flow_order に渡す (作業場の並び, 場所 → 属性, ルート → 受け持ちの並び)。会社の並び（tree.build）の部署の属性を使い、並べるのは
+    """sync.flow_order に渡す (作業場の並び, 場所 → (席のキー, 部署の名前), ルート → 受け持ちの並び)。会社の並び（tree.build）の部署を使い、並べるのは
     その会社の作業場だけ（ほかの作業場は会社の印を外して渡す。--sync の only で絞った会社のほかは動かさない）。"""
     roots = {os.path.realpath(c["root"]): c for c in companies}
-    attrs = {os.path.realpath(d["path"]): d["attrs"] for c in companies for d in c["departments"] if d.get("path")}
+    seats = {os.path.realpath(d["path"]): (d.get("seat"), d["attrs"].get("name")) for c in companies for d in c["departments"] if d.get("path")}
     listed = [w if w.get("repo_root") and os.path.realpath(w["repo_root"]) in roots else {**w, "repo_root": None} for w in workspaces_]
-    return (listed, lambda path: attrs.get(os.path.realpath(path), {}),
+    return (listed, lambda path: seats.get(os.path.realpath(path), (None, None)),
             lambda root: roots[os.path.realpath(root)].get("skills") or [])
 
 
 def _sync_roles(companies, settings, ports, dry_run):
     """会社の形の役を、今いる部署と本社の属性に写し直す（会社の形を変えたら、--sync 1 回で全部の場所に行き渡らせる。--ask・
-    --reorg --role を待たない）。属性 company.role が役の前の名前（former_names）なら今の名前に、company.fresh は役の fresh に。
+    --reorg --role を待たない）。属性 company.role が役の前の名前（former_names）なら今の名前に、company.fresh は役の context に（new なら付け、carry なら消す）。
     companies の中の属性も書き換え、続く表示がそれを使う。出す行の並び。会社の形に無い役の場所は触らない。--dry-run なら書かずに、
     書く物だけを出す。"""
     out = []
@@ -1471,10 +1472,10 @@ def _sync_roles(companies, settings, ports, dry_run):
             if got and d["attrs"].get("role") != got["name"]:
                 changes["role"] = got["name"]
                 why.append(f"company.role {d['attrs'].get('role')} → {got['name']}（役の前の名前を今の名前に）")
-            want = role.FRESH if got and got["fresh"] else None
+            want = role.FRESH if got and got["context"] == role.NEW else None
             if got and (d["attrs"].get("fresh") or None) != want:
                 changes["fresh"] = want
-                why.append(f"company.fresh {d['attrs'].get('fresh') or '-'} → {want or '（消す）'}（役 {got['name']} の fresh を写す）")
+                why.append(f"company.fresh {d['attrs'].get('fresh') or '-'} → {want or '（消す）'}（役 {got['name']} の context を写す）")
             if not changes:
                 continue
             line = f"{c['name']} {d['attrs'].get('name') or d['branch'] or d['path']}: " + "、".join(why)
@@ -1487,6 +1488,7 @@ def _sync_roles(companies, settings, ports, dry_run):
             d["attrs"] = {k: v for k, v in {**d["attrs"], **changes}.items() if v}
             if "role" in changes:
                 d["role"] = got["name"]
+            d["seat"] = role.seat(d["attrs"], info["skills"], shape)
             out.append(line)
     return out
 
@@ -1636,7 +1638,7 @@ desk_role = "窓口"   # 本社で持ち主と話す会話の役（--desk で --
 # 全部の役を同時に直す要が出る）。本社の窓口の会話には足さない
 # shared_instructions = "<どの部署にも効かせる決まり>"   # 長くなれば、ほかの役の本文と同じく 3 つの引用符で囲んで複数行で書く
 
-# 受け持ち。1 つの受け持ちに担当が keep で 1 人つき、担当の部署の名前（{term} の作業場の名前）は受け持ちの name にする。
+# 受け持ち。1 つの受け持ちに担当が always で 1 人つき、担当の部署の名前（{term} の作業場の名前）は受け持ちの name にする。
 # 担当の会話の始まりに、部署の名前と同じ name の受け持ちの description が足される。--tree にも出る
 [[skills]]
 id = "duty"
@@ -1646,7 +1648,8 @@ role = "担当"
 # model = "sonnet"   # この受け持ちの部署を起動するときの --model（役の model より優先する。省けば役の値、それも無ければアカウントの既定）
 # effort = "low"     # この受け持ちの部署を起動するときの --effort（役の effort より優先する。書ける値は役の effort と同じ）
 # settings = {{ promptCacheTtl = "5m" }}   # この受け持ちの部署の --settings に、役の [roles.settings] の上から重ねる {chat} の設定
-# keepalive = true   # 頼みの仕事が終わらないままターンを終えた間、キャッシュの寿命の前に待ち受けが短い文を送る（間と文を変えるなら {{ every = "240s", text = "…" }}。false で切る）
+# lifetime = "on-demand"   # この受け持ちの部署の寿命（per-ask・on-demand・always。省けば役の lifetime）。on-demand は頼まれたときに立て、手が空いたら畳む
+# rent_or_buy = false   # この受け持ちの部署に借りるか買うかの判断（キャッシュの寿命の前に短い文を送る keepalive と、費用で決める compact）を効かせない（省けば効かせる）
 
 [[skills]]
 id = "one-off"
@@ -1675,18 +1678,18 @@ role = "作業"
 # 役。部署を立てるときに --role で選ぶ（省けば default_role）。instructions は、その役の会話の頭に毎回足す役の本文
 # deliver は納品する要約の必須の項目。担当と作業はコードの直しなので、差分と試験を返させる（省くと既定の 結論・決め手・残った疑問・ブランチ
 # になり、決め手に原典の URL を求める。調べものの役に向く）
-# 担当: 受け持ちごとに keep で 1 人（persistent = true なので、--persistent を付けなくても keep の部署で立つ。片付けで畳まれず、次の頼みを
-# 同じ部署で受ける）。fresh = true なので、頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に
-# /clear を打つ。keep の値打ちは記憶ではなく受け持ちごとの席〔順番を 1 本にする・宛先の名前・決まった窓〕で、前の頼みの記憶は
-# 太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す）。引き継ぐなら fresh を消す。
+# 担当: 受け持ちごとに always で 1 人（lifetime = "always" なので、--persistent を付けなくても always の部署で立つ。片付けで畳まれず、次の頼みを
+# 同じ部署で受ける）。context = "new" なので、頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に
+# /clear を打つ。always の値打ちは記憶ではなく受け持ちごとの席〔順番を 1 本にする・宛先の名前・決まった窓〕で、前の頼みの記憶は
+# 太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す）。引き継ぐなら context = "carry"（省いたときの値）。
 # 最初の頼みと一緒に立てるなら --ask {plain}/担当 --task <受け持ち> --branch <ブランチ> --text <頼み>。
 # 頼み無しで立てるなら --task <受け持ち> --branch <ブランチ> --role 担当 --brief <頼みのファイル>（--task には --brief が要る）
 [[roles]]
 name = "担当"
 instructions = {duty}
 deliver = ["結論", "差分", "試験", "残った疑問", "ブランチ"]
-persistent = true
-fresh = true
+lifetime = "always"
+context = "new"
 # model = "opus"   # 部署を起動するときの --model（省けばアカウントの既定）
 # effort = "high"  # 部署を起動するときの --effort（low・medium・high・xhigh・max・ultracode。inherit なら頼んだ会話と同じ。省けば既定）
 # deliver_check = "<納品の検査のコマンド>"   # --deliver が部署の作業場のルートで走らせ、0 以外で終われば送らない（省けば検査しない）
@@ -1710,11 +1713,11 @@ deliver = ["結論", "差分", "試験", "残った疑問", "ブランチ"]
 autoMode = {{ allow = ["$defaults", {land_allow}] }}
 permissions = {{ deny = ["AskUserQuestion", "EnterWorktree"] }}   # 部署の画面は誰も見ていないので画面で問わせない。作業場からも出さない
 
-# 相談: 持ち主が直接話して考えを詰める会話。要る会社だけ # を外して足す。keep で、話の流れを引き継ぐ（fresh は書かない）
+# 相談: 持ち主が直接話して考えを詰める会話。要る会社だけ # を外して足す。always で、話の流れを引き継ぐ（context は省いて carry）
 # [[roles]]
 # name = "相談"
 # instructions = "持ち主と話して考えを詰める。決まったことは頼みに書き直して窓口に渡す。"
-# persistent = true
+# lifetime = "always"
 
 # 窓口: 持ち主と話して頼みを配る、代表の clone の会話（部署ではない）。部署に頼む会話は、最初から本社（代表の clone）で起動して
 # --desk で窓口にする（ほかの clone の会話から頼むと、頼みの本文とその納品はその clone の受付箱に置かれる。後で窓口を本社に移しても、
@@ -1735,7 +1738,7 @@ mode = "none"
 # check = "<手元の検証のコマンド>"
 
 # 組織の決まり（この会社の作り方。部署の会話には届かないので、部署に守らせることは役の本文にも書く）
-# - 役は 4 つ: 窓口（持ち主と話して頼みを配る、本社の会話。--desk で名付ける）・担当（受け持ちごとに keep で 1 人）・作業（一度きりの
+# - 役は 4 つ: 窓口（持ち主と話して頼みを配る、本社の会話。--desk で名付ける）・担当（受け持ちごとに always で 1 人）・作業（一度きりの
 #   作業をする一時の部署）・相談（持ち主が直接話して考えを詰める会話。要る会社だけ [[roles]] に足す）。同じ受け持ちの直しは担当の
 #   下で順番に進むので、同じファイルの取り合いにならない。
 # - 名前は日本語で、{term} の画面で読んで分かる短い言葉にする。担当の部署の名前は受け持ちの名前（例: 「<受け持ち>」）、作業の部署の
@@ -1765,7 +1768,7 @@ DRAFT_DUTY = ("受け持ちを keep で預かる。自分の受け持ちは部�
               "書く（前の頼みで覚えた中身で書かない。覚えた中身で書くと、ほかの部署が入れた変更を消してしまう）。" + DRAFT_COMMIT + "並べて進めたい作業は作業に頼む"
               "（--ask {company}/作業 に --task <受け持ち>：<何をするか> --branch <ブランチ> を添える）。試験は触った所の物だけを回す。"
               + DRAFT_RETURN + DRAFT_DENIED + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
-# tmp の部署の畳み方。書かないと、納品した部署が会話を残したまま並び続ける（2026-10-19 の works-factory の会社で、持ち主が指摘して足した）
+# 畳む部署の畳み方。書かないと、納品した部署が会話を残したまま並び続ける（2026-10-19 の works-factory の会社で、持ち主が指摘して足した）
 DRAFT_DONE = ("納品し、ブランチがメインブランチに入ったら（commit の無い頼みなら納品の後に）、--done を打ってターンを終える。--done が"
               "「ブランチがメインブランチに入っていない」と断れば、git fetch origin してから打ち直し、それでも断れば --done を打たずに止まる"
               "（ブランチがメインブランチに入った後に窓口が --retire で畳む）。")
@@ -1898,7 +1901,7 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
                              source=repo.source, queued=queued)
 
 
-DEPT_REASONS = {"persistent": "keep の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
+DEPT_REASONS = {"persistent": "always の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
                 "not_merged": "ブランチがメインブランチに入っていない", "no_branch": "ブランチに乗っていない",
                 "queued": "順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む。会話が止まっていれば --nudge <部署> で戻す）"}
 

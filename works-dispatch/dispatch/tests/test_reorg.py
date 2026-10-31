@@ -53,7 +53,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("割り振り", ["振り分け"]))
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.pane), "割り振り"),
-            ("report_workspace_metadata", self.ws(self.pane), {"kind": "keep・continue", "seat": "persistent-carry"}, []),
+            ("report_workspace_metadata", self.ws(self.pane), {"kind": "always · carry", "seat": "always.carry"}, []),
             ("rename_pane", self.pane, "割り振り"),
             ("report_pane_metadata", self.pane, "担当", "割り振り", {"role": "担当", "account": "a1", "boss": "窓口"}, [])])
         self.assertIn("company.name: 振り分け → 割り振り", out)
@@ -68,7 +68,7 @@ class Reorg(unittest.TestCase):
     def test_role_lifecycle_and_boss_are_replaced(self):
         push = pathlib.Path(self.src, ".claude")
         push.mkdir()
-        (push / "company.toml").write_text('[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n',
+        (push / "company.toml").write_text('[[roles]]\nname = "担当"\nlifetime = "always"\n[[roles]]\nname = "作業"\n',
                                            encoding="utf-8")
         rc, out = self.main("--reorg", "--role", "作業", "--ephemeral", "--boss", "割り振り", "--boss-account", "a1")
         self.assertEqual(rc, 0, out)
@@ -152,7 +152,7 @@ class Reorg(unittest.TestCase):
                          {"role": "窓口", "lifecycle": "persistent", "name": "窓口", "account": "a1", "session": "s-desk"})
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", self.ws(self.office_pane), os.path.basename(self.src)),
-            ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "keep・continue", "seat": "persistent-carry"}, []),
+            ("report_workspace_metadata", self.ws(self.office_pane), {"kind": "always · carry", "seat": "always.carry"}, []),
             ("rename_pane", self.office_pane, "窓口"),
             ("report_pane_metadata", self.office_pane, "窓口", "窓口", {"role": "窓口", "account": "a1"}, ["boss"])])
         # 部署の場所で打つと、部署の名前を窓口にせず止める
@@ -299,7 +299,7 @@ class FormerNames(unittest.TestCase):
         self.assertEqual(deliver.find_target(companies, "/r", "振り分け")["department"]["path"], "/r/w")
 
     def test_role_with_a_task_name_goes_to_that_department_not_to_another_resident(self):
-        # --ask 会社/担当 --task 点検: 名前違いの keep の担当（割り振り）が 1 つだけ居ても、そこへは届けず、点検を新しく立てる
+        # --ask 会社/担当 --task 点検: 名前違いの always の担当（割り振り）が 1 つだけ居ても、そこへは届けず、点検を新しく立てる
         def row(name, path):
             return {"branch": "b", "path": path, "attrs": {"name": name, "role": "担当", "lifecycle": "persistent"}, "panes": []}
         companies = [{"name": "c", "root": "/r", "departments": [row("割り振り", "/r/w")]}]

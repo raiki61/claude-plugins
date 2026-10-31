@@ -9,8 +9,8 @@ default_role = "作業"
 [[roles]]
 name = "担当"
 model = "opus"
-persistent = true
-fresh = true
+lifetime = "always"
+context = "new"
 holders = ["社長室"]
 deliver_check = "true"
 instructions = "x"
@@ -63,7 +63,7 @@ effort = "high"
 [[skills]]
 id = "gates"
 name = "点検"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 effort = "high"
@@ -71,7 +71,7 @@ effort = "high"
 [[skills]]
 id = "convergence"
 name = "見直し"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 effort = "high"
@@ -79,7 +79,7 @@ effort = "high"
 [[skills]]
 id = "attention"
 name = "見渡し"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 effort = "high"
@@ -87,7 +87,7 @@ effort = "high"
 [[skills]]
 id = "docs"
 name = "説明書"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 effort = "medium"
@@ -95,7 +95,7 @@ effort = "medium"
 [[skills]]
 id = "standards"
 name = "標準"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 effort = "medium"
@@ -107,7 +107,7 @@ text = "x"
 [[skills]]
 id = "reform"
 name = "業務改革"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 effort = "medium"
@@ -119,7 +119,7 @@ text = "x"
 [[skills]]
 id = "trials"
 name = "試し"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 effort = "high"

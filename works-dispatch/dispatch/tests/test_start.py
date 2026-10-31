@@ -1,5 +1,5 @@
 """受け持ちの起動方法（[skills.start]）: フィールドの読み（start ノード・tree）と、--start・--due を入口から。
-git（tests/fakegit.py）・herdr・claude は偽物で回す。部署は test_deliver の Flow の keep の部署「調べ」（役 調べ役）。"""
+git（tests/fakegit.py）・herdr・claude は偽物で回す。部署は test_deliver の Flow の always の部署「調べ」（役 調べ役）。"""
 
 import argparse
 import os
@@ -11,7 +11,7 @@ import starts
 from nodes import deliver, provision, start, tree
 
 
-def shape_text(start_table, role_line="persistent = true", name="調べ"):
+def shape_text(start_table, role_line='lifetime = "always"', name="調べ"):
     return f"""
 [[roles]]
 name = "調べ役"
@@ -88,7 +88,7 @@ class Start(unittest.TestCase):
         # per_ask = true（頼みごとの部署）の受け持ちでも、[skills.start] の起動は今までどおり受け持ちの名前の部署（調べ）へ頼む
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"').replace(
-            'role = "調べ役"\n[skills.start]', 'role = "調べ役"\non_demand = true\nper_ask = true\n[skills.start]'))
+            'role = "調べ役"\n[skills.start]', 'role = "調べ役"\nlifetime = "per-ask"\n[skills.start]'))
         rc, out = self.main(self.src, "--start", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.prompts()), 1)

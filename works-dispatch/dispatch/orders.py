@@ -156,8 +156,8 @@ def gate_keys(the_role, what):
             f"会社の形に合わせてから打ち直す")
 
 
-# 頼みごとに空の会話で受ける部署の属性の値（ask の中では role が役の名前の字なので、ここで写す）
-FRESH = role.FRESH
+# 頼みごとに空の会話で受ける部署の属性の値と、それを写す役の context の値（ask の中では role が役の名前の字なので、ここで写す）
+FRESH, NEW = role.FRESH, role.NEW
 
 # 落ちた部署の会話を attach で戻した後、窓に会話が出るのを見る回数（1 回ごとに ports.pause）
 REVIVE_LOOKS = 20
@@ -313,7 +313,7 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
                 # 開き直したペインにも、部署の名前・表示名・札を --sync と同じに付ける。開き直した作業場は新しいので、印も付け直す
                 sync.apply([sync.op(fresh, dept["attrs"], len(accounts_) > 1)], ports.term)
                 if ws:
-                    sync.apply_workspaces([sync.kind_op(ws, dept["attrs"])], ports.term)
+                    sync.apply_workspaces([sync.kind_op(ws, dept.get("seat"))], ports.term)
                 for _ in range(REVIVE_LOOKS):
                     if ports.term.shell_in_front(fresh):
                         break
@@ -477,8 +477,8 @@ def forwarded(attrs, sent, ports, cwd):
 
 
 def on_demand_name(target, ask_id):
-    """on-demand の受け持ちへの頼み（deliver.find_target が on_demand を付けた宛先）で立てる部署の名前。受け持ちの名前か、per_ask = true
-    なら頼みごとの部署の名前（role.per_ask_name）。"""
+    """頼まれたときだけ立てる受け持ちへの頼み（deliver.find_target が on_demand を付けた宛先）で立てる部署の名前。受け持ちの名前か、
+    lifetime = "per-ask" なら頼みごとの部署の名前（role.per_ask_name）。"""
     return role.per_ask_name(target["on_demand"], ask_id) if target.get("per_ask") else target["on_demand"]
 
 
@@ -626,7 +626,7 @@ def _ask(a, ports, cwd, task, sent):
         dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
         place_dir = ports.git.git_dir(dept["path"])
         to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
-        fresh = bool((the_role or {}).get("fresh"))
+        fresh = (the_role or {}).get("context") == NEW
         # 待ち受けの跡の在る fresh の部署が、納品し終えてターンの途中（待ち受けが止まっている）なら積む。ターンの終わりの待ち受けが空にしてから渡す。
         # 確かめの画面で人の答えを待っている（waiting）部署も積む（窓に打つと確かめの画面が受ける）
         check = busy_check(dept, accounts_, ports)
@@ -724,15 +724,15 @@ def _ask(a, ports, cwd, task, sent):
         return 0 if status == "sent" else 1
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。ブランチの名前は頼む側が渡す）
     if target.get("on_demand"):
-        # on-demand の受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
-        # 部署は tmp の部署で立ち（dispatch._task が受け持ちの on_demand を見る）、納品してメインブランチに入れたら --done で畳まれる
-        # per_ask = true の受け持ちは、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる（並べて進む）
+        # 頼まれたときだけ立てる受け持ち（lifetime が on-demand か per-ask）: 部署の名前は受け持ちの名前、ブランチは受付番号から作る
+        # （--task・--branch を渡さなくてよい）。部署は畳む部署で立ち（dispatch._task が role.lifetime_at を見る）、納品してメインブランチに
+        # 入れたら --done で畳まれる。per-ask の受け持ちは、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる（並べて進む）
         a = argparse.Namespace(**{**vars(a), "task": on_demand_name(target, ask_id), "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
-        notes.append(f"{target['on_demand']} は on-demand の受け持ち（頼まれたときだけ立てる）"
-                     + ("で、頼みごとに別の部署で受ける" if target.get("per_ask") else "")
+        notes.append(f"{target['on_demand']} は " + ("per-ask の受け持ち（頼みごとに別の部署で受ける）" if target.get("per_ask")
+                                                     else "on-demand の受け持ち（頼まれたときだけ立てる）")
                      + f"なので、部署 {a.task}（ブランチ {a.branch}）を立てる")
     if not (a.task and a.task.strip() and a.branch):
-        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の keep の部署が無いので新しく立てる。"
+        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の always の部署が無いので新しく立てる。"
                                  "部署の名前を --task <名前>、ブランチを --branch <ブランチ> で渡す"]))
         return 2
     if cfg is None:
@@ -1535,22 +1535,22 @@ def compact_here(a, ports, cwd):
 
 
 def finish_here(a, ports, cwd):
-    """--done。tmp の部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
+    """--done。畳む部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
-    断るのは、部署でない・窓口・keep・会話の id が属性に無く、打った会話が部署の裏の会話とも確かめられない・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
+    断るのは、部署でない・窓口・always・会話の id が属性に無く、打った会話が部署の裏の会話とも確かめられない・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
     commit が在る・ブランチがメインブランチに入っていない（landed。マージ済みの PR に入った物も入ったとみなす）時（commit の無い部署は入っているとみなす）。前の --retire が
     残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。
     この部署が頼んで返事の来ていない頼みが在る時も断る（納品の残った疑問の担当者に書いた頼みは数えない。asked_open）。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
-        print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりは tmp の部署の場所で印す")
+        print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりは畳む部署の場所で印す")
         return 2
     common, place = ports.git.common_dir(cwd), ports.git.git_dir(cwd)
     if not common or not place or os.path.realpath(place) == os.path.realpath(common):
         print("止めた: 窓口は畳まない。会話を空にしてよい区切りなら --rest で印す")
         return 2
     if attrs.get("lifecycle") == gitx.PERSISTENT:
-        print("止めた: keep の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
+        print("止めた: always の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
         return 2
     # 属性に会話の id（company.session）が無ければ、打ったこの会話が部署の裏の会話（短い id が company.job と同じ）のときだけ、この会話の
     # id で埋める（部署を立てた直後に会話のフックと書き込みがぶつかり、書かれなかった部署が在った。2026-10-20）。ほかの会話が部署の
@@ -1695,7 +1695,7 @@ def leftover(cwd, attrs, g=gitx, gh=ghx):
     〔handed_open〕。中身は受付の並び）・unlanded（ブランチの先頭がメインブランチに入っていない〔landed〕。中身はメインブランチの名前）・
     finish（tmp の
     部署で、ブランチもメインブランチに入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
-    順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・keep の部署でブランチが入っている、ときは None。
+    順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・always の部署でブランチが入っている、ときは None。
     --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
     --land が止まって入れ損ねた部署が、残った疑問に「担当者: 段取り」と書いただけで段取りに頼まず、1 日残った。--clean はこれを、
     返事を待つだけの部署と同じ一行で出していた。"""
@@ -2198,7 +2198,7 @@ def read_sent_back(payload, key, tmp_dir):
 
 def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
     """部署の会話がターンを終えるときの差し戻しの文か None（差し戻さない）。差し戻すなら、この会話・この頼みで差し戻した数を控えに
-    1 つ進める。納品の前は deliver.stop_verdict、納品の後（ブランチをメインブランチに入れていない・tmp の部署が終わりの印を
+    1 つ進める。納品の前は deliver.stop_verdict、納品の後（ブランチをメインブランチに入れていない・畳む部署が終わりの印を
     打っていない）は stop_after が文を決める。納品の前の差し戻しを使い切ったときは、止まるのを通し、知られずに止まらないよう頼み元へ
     1 度だけ止まった知らせを置く（stalled）。呼ぶのは Stop フック（stop_hook）と、ターンの終わりに残った知らせで会話が再開しなかったときの
     待ち受け（wake_hook.Late）。"""
@@ -2215,7 +2215,7 @@ def stop_reason(payload, cwd, attrs, tmp_dir=None, company_of=None):
         pathlib.Path(path).write_text(str(count + 1), encoding="utf-8")
         return None
     if reason is None and attrs.get("delivered") == attrs["ask"]:
-        # 納品の後: ブランチをメインブランチに入れずに、か tmp の部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
+        # 納品の後: ブランチをメインブランチに入れずに、か畳む部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
         path, count = read_sent_back(payload, f"{attrs['ask']}-after", tmp_dir)
         reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), gitx,
                             rearm=lambda: pathlib.Path(path).unlink(missing_ok=True), gh=ghx)   # gh の口も呼ぶ時に引く（試験は偽物に替える）

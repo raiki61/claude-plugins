@@ -12,8 +12,8 @@ model = "opus"
 effort = "medium"
 holders = ["社長室"]
 instructions = "x"
-persistent = true
-fresh = true
+lifetime = "always"
+context = "new"
 deliver_check = "true"
 [roles.settings]
 
@@ -43,7 +43,7 @@ ask_check = "true"
 ask_holders = ["社長室"]
 instructions = "x"
 deliver = ["結論", "持ち主の言葉"]
-persistent = true
+lifetime = "always"
 model = "opus"
 effort = "high"
 [roles.settings]
@@ -62,8 +62,7 @@ id = "research"
 name = "調べもの"
 description = "x"
 role = "担当"
-on_demand = true
-per_ask = true
+lifetime = "per-ask"
 [skills.start]
 every = "30d"
 report_to = "段取り"
@@ -79,7 +78,7 @@ role = "担当"
 [[skills]]
 id = "reform"
 name = "業務改革"
-on_demand = true
+lifetime = "on-demand"
 description = "x"
 role = "担当"
 [skills.start]

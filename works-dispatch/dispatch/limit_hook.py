@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""StopFailure のフック: keep の部署の会話が使用上限で止まったら、ほかのアカウントで起動し直す（37f8b1）。
+"""StopFailure のフック: always の部署の会話が使用上限で止まったら、ほかのアカウントで起動し直す（37f8b1）。
 
 Claude Code は、API の誤りでターンが終わると Stop の代わりに StopFailure を走らせ、誤りの種類を error に渡す（使用上限は rate_limit）。
 使用上限のほかの誤りでも、会話のアカウントが使える時間帯（設定の hours）の外か終わる手前なら、同じに移す（時間帯の外の要求を
 提供元がどの誤りで断るかは決まっていないので、誤りの種類で絞らない。matcher は空で、誤りの種類はここで見る）。
-会話の場所が keep の部署（属性 company.lifecycle が persistent）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
+会話の場所が always の部署（属性 company.lifecycle が persistent）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
 dispatch.py --move <会社>/<名前> --if-limited を、この会話から切り離して（POSIX は nodes/wake.py の detached の殻で、親を init に替えて）裏で走らせる（--move はこの会話を止めてから起動し直すので、
-この会話の子として待たない）。tmp の部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
+この会話の子として待たない）。畳む部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
 同じ場所で 10 分の間に 2 度は走らせない（上限の後の自動の続き〔autoContinueAtUsageLimit〕で、同じ誤りが続けて来ることがある）。
 走らせた出力は受付箱の moves/ に limit-<会社と名前>-<秒>.log で残す（同じ置き場に会社の形の変わりで起動し直した --move の出力も
 入るので、10 分の歯止めは limit- の付いた自分の物だけを見る）。何も出さず、0 で終わる（StopFailure はフックの出力を読まない）。
@@ -68,7 +68,7 @@ def plan(payload, attrs_of=_attrs, closed_of=closed):
     if head and attrs.get("session") != payload.get("session_id"):
         return None   # 窓口の席（本社か、本社の属性が写った作業場）の、窓口でない会話
     if not head and attrs.get("lifecycle") != gitx.PERSISTENT and not (attrs.get("ask") and attrs.get("delivered") != attrs["ask"]):
-        return None   # tmp の部署は、頼みを受けている間だけ移す（on-demand の受け持ちの部署は、頼みの途中で枠が尽きうる）
+        return None   # 畳む部署は、頼みを受けている間だけ移す（on-demand の受け持ちの部署は、頼みの途中で枠が尽きうる）
     # 会社を添えて宛てる（ほかの会社に同じ名前の部署が在ると、名前だけの --move は止まる。wake_hook.py の起動し直しと同じ宛て方）
     root = gitx.root_of(common)
     info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), os.environ)), gitx)

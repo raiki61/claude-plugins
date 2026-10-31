@@ -21,7 +21,7 @@ import gitx
 import herdr as real_herdr
 import orders
 import shape_hook
-from nodes import clean, land, provision, sync, tree
+from nodes import clean, land, provision, role, sync, tree
 
 
 def fake_runner(out="", rc=0):
@@ -189,9 +189,9 @@ class HerdrPorts(unittest.TestCase):
 
     def test_workspace_metadata_sets_and_clears_in_one_call(self):
         run = fake_runner("")
-        real_herdr.report_workspace_metadata("wX", "company", {"kind": "keep・clear"}, ["old"], runner=run)
+        real_herdr.report_workspace_metadata("wX", "company", {"kind": "always · new"}, ["old"], runner=run)
         self.assertEqual(run.calls, [["herdr", "workspace", "report-metadata", "wX", "--source", "company",
-                                      "--token", "kind=keep・clear", "--clear-token", "old"]])
+                                      "--token", "kind=always · new", "--clear-token", "old"]])
 
     def test_read_returns_the_screen_text(self):
         self.assertEqual(real_herdr.read("p", 3, runner=fake_runner("a\nb\n")), "a\nb\n")
@@ -220,26 +220,20 @@ class Info(unittest.TestCase):
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"]), ("settings", "ノート"))
         self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "settings": None, "account": None, "start": None,
-                                          "on_demand": False, "per_ask": False, "keepalive": None}])
+                                          "lifetime": "per-ask", "rent_or_buy": None}])
 
-    def test_on_demand_is_read(self):
+    def test_lifetime_is_read_and_falls_back_to_the_role(self):
+        # lifetime（部署の寿命）: 受け持ちに書けばそれ、無ければ受け持ちの役の lifetime、役も無ければ per-ask。形が違えば外して役の値
         write(os.path.join(self.root, ".claude", "company.toml"),
-              '[[skills]]\nname = "a"\non_demand = true\n[[skills]]\nname = "d"\n'
-              '[[skills]]\nname = "e"\non_demand = "yes"\n[[skills]]\nname = "f"\non_demand = false\n')
+              '[[roles]]\nname = "担当"\nlifetime = "always"\n'
+              '[[skills]]\nname = "a"\nlifetime = "on-demand"\n[[skills]]\nname = "b"\nlifetime = "per-ask"\nrole = "担当"\n'
+              '[[skills]]\nname = "c"\nrole = "担当"\n[[skills]]\nname = "d"\n'
+              '[[skills]]\nname = "e"\nlifetime = "keep"\nrole = "担当"\n[[skills]]\nname = "f"\nrent_or_buy = "no"\n')
         got = tree.read_info(self.root, self.settings)
-        self.assertEqual([s["on_demand"] for s in got["skills"]], [True, False, False, False])
-        self.assertEqual(got["problems"], [f"{got['path']}: skills[2]（e）の on_demand は true か false。外して keep で扱う"])
-
-    def test_per_ask_is_read_only_with_on_demand(self):
-        # per_ask = true（頼みごとの部署）は on_demand = true と併せたときだけ効く。形が違えば外して、受け持ちの名前の部署 1 つで受ける
-        write(os.path.join(self.root, ".claude", "company.toml"),
-              '[[skills]]\nname = "a"\non_demand = true\nper_ask = true\n[[skills]]\nname = "b"\nper_ask = true\n'
-              '[[skills]]\nname = "c"\non_demand = true\nper_ask = "yes"\n[[skills]]\nname = "d"\non_demand = true\n')
-        got = tree.read_info(self.root, self.settings)
-        self.assertEqual([(s["on_demand"], s["per_ask"]) for s in got["skills"]], [(True, True), (False, False), (True, False), (True, False)])
+        self.assertEqual([s["lifetime"] for s in got["skills"]], ["on-demand", "per-ask", "always", "per-ask", "always", "per-ask"])
         self.assertEqual(got["problems"], [
-            f"{got['path']}: skills[1]（b）の per_ask は on_demand = true と併せて書く。外して、受け持ちの名前の部署 1 つで受ける",
-            f"{got['path']}: skills[2]（c）の per_ask は true か false。外して、受け持ちの名前の部署 1 つで受ける"])
+            f"{got['path']}: skills[4]（e）: lifetime は per-ask・on-demand・always のどれか。外す",
+            f"{got['path']}: skills[5]（f）の rent_or_buy は true か false。外して、役の値で扱う"])
 
     def test_repo_file_wins_and_unknown_fields_are_skipped(self):
         write(tree.settings_info_path(self.settings, self.root), 'name = "手元"\n')
@@ -472,31 +466,32 @@ class Build(unittest.TestCase):
         text = "\n".join(tree.lines(self.build((), sessions)))
         self.assertIn("r  /s/r  （会社の情報なし）", text)
         self.assertIn("  本社 main  会話なし", text)
-        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（keep・continue）  アカウント p2  頼み元 窓口  窓 なし", text)
+        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（always · carry）  アカウント p2  頼み元 窓口  窓 なし", text)
         self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  頼み元 -  窓 なし", text)
 
     def test_contacts_show_who_to_ask_and_the_desk(self):
-        # 受ける仕事ごとの宛て方（keep の受け持ちは部署の名前、まだ立っていなければ役と --task、tmp の役は役と --task）と窓口を出す。
+        # 受ける仕事ごとの宛て方（always の受け持ちは部署の名前、まだ立っていなければ役と --task、on-demand・per-ask の受け持ちは受け持ちの名前）と窓口を出す。
         # 頼み元（company.boss）は納品の返し先なので、宛て方にも窓口にも使わない
-        from nodes import role
-        shape = role.load("t", '[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
+        shape = role.load("t", '[[roles]]\nname = "担当"\nlifetime = "always"\n[[roles]]\nname = "作業"\n'
                                '[[roles]]\nname = "配布"\nmachine = true\n')
-        company = {"name": "c", "skills": [{"name": "調べ", "description": None, "role": "担当"}, {"name": "点検", "description": None, "role": "担当"},
-                                           {"name": "直し", "description": None, "role": "作業"}, {"name": "配る", "description": None, "role": "配布"},
+        company = {"name": "c", "skills": [{"name": "調べ", "description": None, "role": "担当", "lifetime": "always"},
+                                           {"name": "点検", "description": None, "role": "担当", "lifetime": "always"},
+                                           {"name": "直し", "description": None, "role": "作業", "lifetime": "per-ask"},
+                                           {"name": "配る", "description": None, "role": "配布"},
                                            {"name": "無役", "description": None, "role": None}],
                    "departments": [{"head_office": True, "attrs": {"name": "段取り", "role": "段取り", "boss": "社長室"}},
                                    {"head_office": False, "attrs": {"name": "調べ", "role": "担当", "boss": "段取り"}}]}
         tree.contacts(company, shape)
         self.assertEqual([s["ask"] for s in company["skills"]],
-                         ["--ask c/調べ", "--ask c/担当 --task 点検 --branch <ブランチ>", "--ask c/作業 --task <部署の名前> --branch <ブランチ>",
+                         ["--ask c/調べ", "--ask c/担当 --task 点検 --branch <ブランチ>", "--ask c/直し",
                           None, None])
         self.assertEqual(company["desk"], {"name": "段取り", "role": "段取り", "ask": "--ask c/段取り", "model": None, "effort": None})
         company.update({"root": "/s/c", "info_source": "origin", "description": None, "problems": []})
         text = "\n".join(tree.lines([company | {"departments": []}]))
-        self.assertIn("  受ける仕事: 調べ → 担当  宛て方 --ask c/調べ", text)
-        per_ask = company | {"departments": [], "skills": [{"name": "見渡し", "description": None, "role": "担当", "on_demand": True,
-                                                            "per_ask": True, "ask": "--ask c/見渡し"}]}
-        self.assertIn("  受ける仕事: 見渡し → 担当  on-demand（頼みごとの部署）  宛て方 --ask c/見渡し", "\n".join(tree.lines([per_ask])))
+        self.assertIn("  受ける仕事: 調べ → 担当  always  宛て方 --ask c/調べ", text)
+        per_ask = company | {"departments": [], "skills": [{"name": "見渡し", "description": None, "role": "担当", "lifetime": "per-ask",
+                                                            "rent_or_buy": False, "ask": "--ask c/見渡し"}]}
+        self.assertIn("  受ける仕事: 見渡し → 担当  per-ask  rent-or-buy off  宛て方 --ask c/見渡し", "\n".join(tree.lines([per_ask])))
         self.assertIn("  窓口: 段取り（受ける仕事に当たらない件・部署をまたぐ件）  model 既定  effort 既定  宛て方 --ask c/段取り", text)
         # ほかの会社が兼ねる窓口（会社の形の desk）は、その会社の形を読まないので model・effort を出さない
         other = company | {"departments": [], "desk": None, "desk_of": "n/段取り"}
@@ -553,7 +548,7 @@ class Sync(unittest.TestCase):
         return [{"name": "r", "departments": list(depts)}]
 
     def dept(self, attrs, panes, branch="dept/a"):
-        return {"branch": branch, "path": "/wt", "attrs": attrs, "panes": panes}
+        return {"branch": branch, "path": "/wt", "attrs": attrs, "panes": panes, "seat": role.seat(attrs)}
 
     def test_plan_names_and_tags_the_conversation_pane_only_where_attrs_exist(self):
         attrs = {"role": "調べ役", "account": "p2", "name": "調べ", "boss": "窓口"}
@@ -585,13 +580,13 @@ class Sync(unittest.TestCase):
         shared = [{**self.dept({"name": n, "role": "作業"}, [], branch=f"dept/{n}"), "workspace": "wS"} for n in ("c", "d")]
         bare = {**self.dept({}, [], branch="dept/e"), "workspace": "wE"}
         got = sync.workspace_ops(self.company(office, same, kinded, *shared, bare), [
-            {"workspace_id": "wX", "label": "mynotes"}, {"workspace_id": "wB", "label": "調べ", "tokens": {"kind": "前の言い方", "seat": "ephemeral"}},
-            {"workspace_id": "wK", "label": "割り振り", "tokens": {"kind": "keep・clear"}},
+            {"workspace_id": "wX", "label": "mynotes"}, {"workspace_id": "wB", "label": "調べ", "tokens": {"kind": "前の言い方", "seat": "per-ask"}},
+            {"workspace_id": "wK", "label": "割り振り", "tokens": {"kind": "always · new"}},
             {"workspace_id": "wS", "label": "x"}, {"workspace_id": "wE", "label": "y"}])
         # 本社の作業場は herdr の木の親なので会社の名前。名前と印が今と同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の
         # 無い場所の作業場は触らない。印は見せる語（kind）でなく席の種類のキー（seat）で比べ、seat の無い前の版の作業場には付け直す（受付 0715c5）
-        self.assertEqual(got, [{"workspace": "wX", "label": "r", "seat": "persistent-carry"},
-                               {"workspace": "wK", "label": None, "seat": "persistent-fresh"}])
+        self.assertEqual(got, [{"workspace": "wX", "label": "r", "seat": "always.carry"},
+                               {"workspace": "wK", "label": None, "seat": "always.new"}])
 
     def test_apply_keeps_going_after_a_failure(self):
         class H:
@@ -637,7 +632,8 @@ class FlowOrder(unittest.TestCase):
     def order(self, ws):
         listed = [{"workspace_id": w, "label": w, "repo_root": root, "path": path, "linked": linked} for w, root, path, linked in ws]
         skills = {"/r/notes": [{"name": "ノートの手入れ"}, {"name": "調べもの"}], "/r/plugins": []}
-        return sync.flow_order(listed, lambda path: self.ATTRS.get(path, {}), lambda root: skills[root])
+        seat_of = lambda path: (role.seat(self.ATTRS.get(path)), self.ATTRS.get(path, {}).get("name"))
+        return sync.flow_order(listed, seat_of, lambda root: skills[root])
 
     def test_departments_line_up_carry_over_then_standing_in_the_shape_order_then_per_task_then_the_rest(self):
         moves = self.order(self.WS)
@@ -649,7 +645,8 @@ class FlowOrder(unittest.TestCase):
     def test_sync_orders_only_the_companies_it_read(self):
         # --sync の会社の並び（tree.build）の部署の属性で並べ、読んでいない会社の作業場は動かさない
         companies = [{"root": "/r/notes", "skills": [{"name": "ノートの手入れ"}, {"name": "調べもの"}],
-                      "departments": [{"path": path, "attrs": attrs} for path, attrs in self.ATTRS.items() if path != "/w/c"]}]
+                      "departments": [{"path": path, "attrs": attrs, "seat": role.seat(attrs)}
+                                      for path, attrs in self.ATTRS.items() if path != "/w/c"]}]
         listed = [{"workspace_id": w, "label": w, "repo_root": root, "path": path, "linked": linked} for w, root, path, linked in self.WS]
         listed.insert(6, {"workspace_id": "c2", "label": "c2", "repo_root": "/r/plugins", "path": "/w/c2", "linked": True})
         moves = sync.flow_order(*dispatch._flow_inputs(companies, listed))
@@ -705,16 +702,16 @@ class Entry(unittest.TestCase):
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         shape = pathlib.Path(self.src, ".claude", "company.toml")
         shape.parent.mkdir(exist_ok=True)
-        shape.write_text('[[roles]]\nname = "調べ役"\npersistent = true\nfresh = true\n', encoding="utf-8")
+        shape.write_text('[[roles]]\nname = "調べ役"\nlifetime = "always"\ncontext = "new"\n', encoding="utf-8")
         rc, out = self.main("--sync", "--dry-run")
-        self.assertIn("company.fresh - → true（役 調べ役 の fresh を写す）", out)
-        self.assertIn("印 keep・clear", out)   # 席の見え方は作業場の印に出す
+        self.assertIn("company.fresh - → true（役 調べ役 の context を写す）", out)
+        self.assertIn("印 always · new", out)   # 席の見え方は作業場の印に出す
         self.assertIn("表示名 調べ役  ", out)   # ペインの表示名は役だけ
         self.assertNotIn("fresh", self.g.worktree_attrs(self.place), "--dry-run が書いた")
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.g.worktree_attrs(self.place)["fresh"], "true")
-        shape.write_text('[[roles]]\nname = "調べ役"\npersistent = true\n', encoding="utf-8")   # 引き継ぎに戻す
+        shape.write_text('[[roles]]\nname = "調べ役"\nlifetime = "always"\n', encoding="utf-8")   # 引き継ぎに戻す
         rc, out = self.main("--sync")
         self.assertIn("company.fresh true → （消す）", out)
         self.assertNotIn("fresh", self.g.worktree_attrs(self.place))
@@ -735,7 +732,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn(f"{os.path.basename(self.src)}  {self.src}  （会社の情報なし）", out)
         self.assertIn("  本社 main  会話なし", out)
-        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役（tmp）  アカウント a1  頼み元 -  窓 あり", out)
+        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役（per-ask）  アカウント a1  頼み元 -  窓 あり", out)
 
     def test_tree_json_matches_the_schema(self):
         rc, out = self.main("--tree", "--json")
@@ -756,12 +753,12 @@ class Entry(unittest.TestCase):
         self.assertEqual(self.ports.term.writes, [])
         self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役  題名 調べ  札 role=調べ役、account=a1", out)
         ws = next(p["workspace_id"] for p in self.ports.term.panes() if p["pane_id"] == self.pane)
-        self.assertIn(f"作業場 {ws}: 名前 調べ  印 tmp", out)
+        self.assertIn(f"作業場 {ws}: 名前 調べ  印 per-ask", out)
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.term.writes, [
             ("rename_workspace", ws, "調べ"),
-            ("report_workspace_metadata", ws, {"kind": "tmp", "seat": "ephemeral"}, []),
+            ("report_workspace_metadata", ws, {"kind": "per-ask", "seat": "per-ask"}, []),
             ("rename_pane", self.pane, "調べ"),
             ("report_pane_metadata", self.pane, "調べ役", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
 
@@ -795,7 +792,7 @@ class Entry(unittest.TestCase):
         self.ports.term.writes.clear()
         self.assertEqual(self.hook(), (False, []))   # 替わっていなければ何もしない
         self.assertEqual(self.ports.term.writes, [])
-        shape.write_text('[[roles]]\nname = "調べもの"\nformer_names = ["調べ役"]\npersistent = true\nfresh = true\n', encoding="utf-8")
+        shape.write_text('[[roles]]\nname = "調べもの"\nformer_names = ["調べ役"]\nlifetime = "always"\ncontext = "new"\n', encoding="utf-8")
         self.assertEqual(self.hook(), (True, []))
         self.assertEqual(self.g.worktree_attrs(self.place)["role"], "調べもの")
         self.assertEqual(self.g.worktree_attrs(self.place)["fresh"], "true")
@@ -896,7 +893,7 @@ class Departments(unittest.TestCase):
     def test_resident_department_is_never_removed(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         rc, out = self.clean("--apply")
-        self.assertIn("部署 dept/a dept/a  done  残す（keep の部署は畳まない）", out)
+        self.assertIn("部署 dept/a dept/a  done  残す（always の部署は畳まない）", out)
         self.assertEqual(self.removed, [])
         self.assertTrue(os.path.exists(self.place))
 
@@ -910,7 +907,7 @@ class Departments(unittest.TestCase):
         self.assertIn("消すには --clean --apply を付けて打ち直す", out)
 
     def test_resident_department_branches_it_landed_are_removed_after_it_moves_on(self):
-        # keep の部署は作業場を残し、頼みごとにブランチを移る。--land が書いた「入れたブランチ → commit」のうち、もう開いていないブランチを消す
+        # always の部署は作業場を残し、頼みごとにブランチを移る。--land が書いた「入れたブランチ → commit」のうち、もう開いていないブランチを消す
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         old_sha = self.g.head_sha(self.place)
         self.g.local["dept/next"] = old_sha

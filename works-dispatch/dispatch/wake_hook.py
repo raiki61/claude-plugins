@@ -23,22 +23,22 @@
   /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起動し直す（空にするのと失う物は同じ。持ち主の手で起動し直さない）。
   起動の設定が同じでも、今のアカウントの使用率が早めに移す目安に達したか、--move の名指し（company.move-to）が在れば同じく走らせ、
   上限に当たる前の区切りでほかのアカウントへ移す（early_due。名指しが今のアカウントなら、同じアカウントのまま起動し直す）。
-  tmp の部署が終わりと印した（--done。属性 company.finished）ターンの終わりには、印を外して dispatch.py --retire <部署> を会話から
+  畳む部署が終わりと印した（--done。属性 company.finished）ターンの終わりには、印を外して dispatch.py --retire <部署> を会話から
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
   順番待ちに頼みが在れば畳まずに渡し、印を外す（済ませてから印し直す）。
   渡さずに待つ部署（納品していない頼みが在る）が、子の頼みの宛先をたどって、宛先も同じく止まり、子の頼みが宛先の
   順番待ちに積まれたままこの部署へ戻る輪を見つけたら、輪の一番古い頼みを、それが積まれた部署の会社で dispatch.py --take で既定の役の
   部署へ回す（knot・untie。受付の設計の 4.3。出力は受付箱の takes/、台帳に knot の行）。
-  keep の部署は、次の頼みを渡す前に、作業場のブランチを origin のメインブランチの先頭まで fast-forward する（follow_main。書きかけの
+  always の部署は、次の頼みを渡す前に、作業場のブランチを origin のメインブランチの先頭まで fast-forward する（follow_main。書きかけの
   commit が在れば動かさない。会話の裏の処理が動いている間は進めず、遅れていればそれを添える。lag_note）。会話が起動するときにしか読まないファイルが替われば、今のアカウントの名指し（company.move-to）を印して起動し直させる。
-  clear の部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
+  new の部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
   dispatch.py --move <部署> --if-changed で起動し直す（/clear は起動したときの --model・--effort を残すため。restart_due）。
   頼みを渡す・空にするなどの確かめ（checker）の前に毎回、Claude Code の入れた物の控え（installed_plugins.json）がこのプラグインの今の置き場を
   別の版と言っていれば、今の版の wake_hook.py に同じ引数とフックの入力で替わる（POSIX だけで exec。newer_self・hop。台帳に hopped の行）。
   /reload-plugins は裏で待っている待ち受けを止めないので、替わらないと、版を上げる前に立った待ち受けが前の版のまま何時間も後に渡す。
   仕事が終わらないままターンを終えた会話（受けた頼みがまだ閉じていないか、出した頼みと保留の頼みの返事を待つ。裏の処理の有無は
-  問わない。work_of）で、役か受け持ちに keepalive を書いた部署と窓口は、知らせの無いまま keepalive の間が過ぎれば、keepalive の文で
+  問わない。work_of）で、役か受け持ちに rent_or_buy = false を書いていない部署と窓口は、知らせの無いまま keepalive の間が過ぎれば、keepalive の文で
   会話を起動してプロンプトキャッシュを切らさない（Warm・warm_for。受付の設計の 3.4）。送る時刻と止め時は借りるか買うかの部品に聞き
   （keepalive_plan）、裏の処理の有無によらず送る時刻に先に compact を聞く（Warm._compact。会話に焦点を問い、答えはそのターンの終わりの
   compact_turn が読む。設計書 docs/specs/2026-10-24-rent-or-buy-design.md の 6）。compact は、待ち受けが張った最初の周（ターンの終わり）にも
@@ -472,7 +472,7 @@ def _run_logged(argv, folder, label, cwd, spawn, now, detach):
 
 
 def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time, detach=None):
-    """終わりと印した tmp の部署（--done）の印を外し、dispatch.py --retire <会社/部署> を会話から切り離して裏で走らせる。走らせたら True。
+    """終わりと印した畳む部署（--done）の印を外し、dispatch.py --retire <会社/部署> を会話から切り離して裏で走らせる。走らせたら True。
     走らせられなければ、残った訳を属性に書いて False（印は外したまま。打ち直しはしない）。detach（既定は POSIX で本物の Popen のとき）
     なら detached の殻で走らせ、終わりの値を .done に書く（0 でなければ --tree と --todo が出す。health.py）。"""
     name = attrs["name"]
@@ -769,8 +769,8 @@ def early_due(got, attrs, env=os.environ, now=time.time):
 
 
 def follow_main(got, attrs, catch_up=None, adopt=None):
-    """keep の部署（属性 company.lifecycle が persistent）が順番待ちの次の頼みを受ける前に、作業場のブランチを origin のメインブランチの
-    先頭まで fast-forward する（provision.follow_main）。keep の部署の作業場は頼みのたびに作り直さないので、進めないとメインブランチに
+    """always の部署（属性 company.lifecycle が persistent）が順番待ちの次の頼みを受ける前に、作業場のブランチを origin のメインブランチの
+    先頭まで fast-forward する（provision.follow_main）。always の部署の作業場は頼みのたびに作り直さないので、進めないとメインブランチに
     入れた組織の直しが効かない（2026-10-20 に my_notes の調べものが 20 commit 遅れ、費用を下げる役の定義の直しが効かなかった。受付 72f7e4）。
     進めて、会話が起動するときにしか読まないファイル（.claude/ の役の定義・設定など。provision.read_at_start）が替わっていれば、
     今のアカウントの名指し（company.move-to）を印し、区切りの --move --if-changed に同じアカウントのまま起動し直させる（restart_due）。
@@ -824,7 +824,7 @@ def follow_main(got, attrs, catch_up=None, adopt=None):
 
 
 def adopt_batch(got, attrs, main):
-    """keep の部署の作業場のブランチが、前の束でメインブランチ main に写しが入った物のままなら（HEAD が束に重ねる前の先頭と同じ）、写しに
+    """always の部署の作業場のブランチが、前の束でメインブランチ main に写しが入った物のままなら（HEAD が束に重ねる前の先頭と同じ）、写しに
     替える（--land の受け取りと同じ手。batch.adoptable と land.adopt）。受け取ったら添える文、受け取る物が無ければ None。
     束の後に commit を足した作業場（受け取りの手が onto）は替えない（足した commit は書きかけで、部署の次の --land が受け取って入れる）。"""
     root, cwd = got["root"], got["cwd"]
@@ -847,8 +847,8 @@ def adopt_batch(got, attrs, main):
 
 def lag_note(got, attrs, count=None):
     """会話の裏の処理が動いていて follow_main で作業場を進めないとき、渡す字の頭と台帳（kind followed の行と、handed の行の
-    followed）に添える文。keep の部署の作業場がメインブランチより遅れていれば、進めていないことと足りない commit の数を書く（遅れて
-    いない・keep の部署でなければ None）。黙って進めずに渡すと、会話はメインブランチに入った直しの無い作業場で頼みを受け、それを
+    followed）に添える文。always の部署の作業場がメインブランチより遅れていれば、進めていないことと足りない commit の数を書く（遅れて
+    いない・always の部署でなければ None）。黙って進めずに渡すと、会話はメインブランチに入った直しの無い作業場で頼みを受け、それを
     知らない（2026-10-21 に my_notes の調べものが、裏の処理が残ったまま次の頼みを受け、followed の行も無かった。my_notes の受付 35aa1b）。
     count は遅れを数える口（provision.lag。取り直すのは参照だけで、作業場のファイルは替えない）。何が起きても頼みは渡す。"""
     if attrs.get("lifecycle") != gitx.PERSISTENT or provision.desk_seat(got["place"], gitx.common_dir(got["cwd"]), attrs):
@@ -870,7 +870,7 @@ def lag_note(got, attrs, count=None):
 
 
 def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False, early_of=early_due):
-    """clear の部署が次の頼みを受ける前に（at_rest なら、会話を引き継ぐ部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
+    """new の部署が次の頼みを受ける前に（at_rest なら、会話を引き継ぐ部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
     起動し直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起動したときの --model・--effort・--settings を
     残すので、会社の形の起動の設定を替えたら、空にするのでなく起動し直す（6bdc72）。値が同じでも、使用上限に当たる前の区切りで
     ほかのアカウントへ早めに移すとき（early_of。early_due）は起動し直す（上限に当たってから移ると、ターンの途中で切られて作業が消える）。
@@ -948,7 +948,7 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
             spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie, follow=follow_main, lag=lag_note):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
     restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
-    unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。follow は keep の部署の作業場をメインブランチの先頭へ
+    unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。follow は always の部署の作業場をメインブランチの先頭へ
     進める口（follow_main。(got, 属性) を受け、渡す字に添える文か None を返す）。lag は会話の裏の処理が動いていて進めないときに
     代わりに呼ぶ口（lag_note。同じ形）。"""
     # fresh の部署をすぐ替わる訳で空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。
@@ -1018,12 +1018,12 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
                 if not payload.get("background_tasks"):   # 裏の処理が残る間は、終わった後のターンの終わりでまた試す
                     provision.mark(got["cwd"], got["root"], {wake.REST: None}, gitx)
             if not payload.get("background_tasks"):
-                # 納品の前に子の返事を待ってターンを終えた部署（keep の担当なども）も、輪の途中に入りうる
+                # 納品の前に子の返事を待ってターンを終えた部署（always の担当なども）も、輪の途中に入りうる
                 loose(attrs)
             return None   # 未納品の頼みを持っている
         if (chat.event(payload) == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
-            return "end", None   # tmp の部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
+            return "end", None   # 畳む部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         # 空にする・区切りの判定より先に進める（起動するときに読むファイルが替われば、名指しの印で区切りの起動し直しに間に合わせる）。
         # 裏の処理が動いている間は、その足元のファイルを替えず、進めていないことと遅れを添える（lag。空にできずに待つなら、
         # 次のターンの終わりの待ち受けがまた試す。前の会話のまま渡すなら、会話は遅れを知って受ける）
@@ -1179,7 +1179,7 @@ def keep_job(got, attrs_of=_attrs):
 
 
 def woken(got, attrs_of=_attrs):
-    """待ち受けが会話を再開させる（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、clear の部署（役が fresh）なら、空にした印
+    """待ち受けが会話を再開させる（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、new の部署（役が fresh）なら、空にした印
     （company.cleared）を外す。起動されたターンの文脈が会話に残るので、そのターンの終わりに待ち受けがまた空にする（must_clear）。今までは、
     頼みを受けていないターン（社長室の納品で起動された業務改革など）の後も印が残り、次の頼みが前のターンの文脈のまま渡った
     （my_notes の受付 f4ca34 で見つかった。6a9337）。人が窓に打ったターンでは外さない（持ち主と話している途中の会話を空にしない）。"""
@@ -1460,7 +1460,7 @@ def late_for(got, payload, attrs_of=_attrs, shells=chat.background_shells, again
 
 def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shells=chat.background_shells, now=time.time, again=False,
              line_of=forced_line):
-    """この待ち受けが keepalive を送るなら Warm、送らないなら None。送るのは、その場所の役か受け持ちに keepalive を書き、会話の記録の
+    """この待ち受けが keepalive を送るなら Warm、送らないなら None。送るのは、その場所の役か受け持ちが rent-or-buy を切っておらず（rent_or_buy = false を書いていない）、会話の記録の
     場所が分かり、ターンの終わり（Stop）に、区切り・終わり・起動し直しの印が無く、仕事が終わっていない（受けた頼みがまだ閉じていないか、
     出した頼みか保留の頼みの返事を待つ。work_of）ときだけ。裏の処理が動いているかでは決めない（持ち主 2026-10-24「その裏作業が
     あればじゃなくて。ずっとのほうがいいんじゃないの」。my_notes の受付 144229 と足し af82b2。司令塔は部署へ頼みを出して納品を待ちながら
@@ -1468,9 +1468,9 @@ def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shel
     動いている裏の処理の id（数しか分からなければ "count:<数>"）と work_of の並びで、替われば送った本数を数え直す。
     送らないときは、訳を台帳に keepalive の skipped の行で 1 行残す。残すのは次のターンの終わりだけ
     （ほかは keepalive に関わらない。全部に書くと台帳が埋まる）:
-    - keepalive を書いた場所で、裏の処理か、閉じていない受けた頼み・出した頼み・保留の頼みが在る（印か会話の記録の場所で送らない）か、
+    - rent-or-buy の効く場所で、裏の処理か、閉じていない受けた頼み・出した頼み・保留の頼みが在る（印か会話の記録の場所で送らない）か、
       裏の処理が在って仕事が終わった
-    - keepalive を書いていない部署で、納品していない頼みを受けて裏の処理を待つ（「keepalive が無い」）
+    - rent-or-buy を切った部署か、寿命の値が読めない部署で、納品していない頼みを受けて裏の処理を待つ
     ターンの終わりに裏の処理を残したかは、--tree が長く動かない部署を出すために、毎回控えに書く（wake.waiting_note）。again は前の版の
     待ち受けから、待っている間に替わった（hop）印で（起動の直後に替わった時は真にならない。main）、そのフックの入力は前の版が控えと台帳に書いた物なので、どちらも書き直さない。"""
     if chat.event(payload) != "Stop":
@@ -1485,8 +1485,8 @@ def warm_for(got, payload, conf_of=role_hook.keepalive_of, attrs_of=_attrs, shel
     except OSError as e:
         filex.warn(f"注記: 裏の処理を残したターンの控えを書けない（{e}）")   # --tree に長い待ちが出ないだけ
     conf = conf_of(got["cwd"], attrs, read=chat.read_rate(chat.last_model(payload)))   # 上限は会話のモデルの読みの値段で決める
-    work = work_of(got, attrs) if conf else []   # 台帳を読む（awaited）のは keepalive を書いた場所だけ
-    why = work_unwanted(got, attrs) if conf else "会社の形の役にも受け持ちにも keepalive が無い（書いていないか、寿命の値が読めない）"
+    work = work_of(got, attrs) if conf else []   # 台帳を読む（awaited）のは keepalive を送りうる場所だけ
+    why = work_unwanted(got, attrs) if conf else "rent-or-buy を切っている（役か受け持ちの rent_or_buy = false）か、会社の形か寿命の値が読めない"
     if not why and not chat.transcript(payload):
         why = "会話の記録の場所が分からず、会話が動いたかを見られない"
     if why:
@@ -1512,8 +1512,7 @@ def keepalive_plan(payload, conf, spent, now=time.time):
     """この待ちで keepalive を送るか（action が rent なら送る、buy なら止める）と送る時刻（due。秒）を、借りるか買うかの部品に聞く
     （rent-or-buy keepalive。設計書 docs/specs/2026-10-24-rent-or-buy-design.md の 6）。spent はこの待ちで送った分の費用の累計（ドル。
     wake.warm_state）。({action, due, rent, reason, why}, None) か、聞けなければ (None, 訳)（Warm は conf の every と limit で動く）。
-    due は部品の next_at（会話の記録の最後の要求の始まり + 寿命 − 部品の余裕 margin_s）で、役か受け持ちに every を書いた場所は
-    None（ターンの終わりから every 秒）。rent か next_at が読めない答えは、聞けなかったのと同じに扱う。"""
+    due は部品の next_at（会話の記録の最後の要求の始まり + 寿命 − 部品の余裕 margin_s）。rent か next_at が読めない答えは、聞けなかったのと同じに扱う。"""
     got, why = RENT("keepalive", {"lifetime": conf["ttl"], "spent": spent, "certain": True, "turn_end_at": _iso(now()),
                                   **decision_key(payload)}, chat.transcript(payload))
     if why:
@@ -1521,8 +1520,8 @@ def keepalive_plan(payload, conf, spent, now=time.time):
     rent = got.get("rent")
     if isinstance(rent, bool) or not isinstance(rent, (int, float)) or not rent >= 0:
         return None, f"借りるか買うかの部品の答えの rent が 0 以上の数でない（{rent!r}）"   # 費用が数えられないと止め時が来ない
-    due = None if conf.get("written") else _epoch(got.get("next_at"))
-    if not conf.get("written") and due is None:
+    due = _epoch(got.get("next_at"))
+    if due is None:
         return None, f"借りるか買うかの部品の答えの next_at を読めない（{got.get('next_at')!r}）"
     return {"action": got["action"], "due": due, "rent": rent, "reason": got.get("reason"), "why": got.get("why")}, None
 

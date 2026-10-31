@@ -3,7 +3,7 @@
 （会社の形の [[land.after]]）と、部署を立てた後の合図（[[task.after]]）から呼ぶ。ツールの中身（入力の確かめ・回す頼みの字）は nodes/tools.py、ツールの定義を読むのは role ノード。
 
 --call <会社/役> <ツール>（call）: ツールを origin の既定のブランチの中身（一時の worktree。tools.place）のルートで走らせ、入力の JSON を標準入力に渡す。終了の値 0 なら片づいた（答えを出して
-0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の keep の部署が
+0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の always の部署が
 在ればその順番待ちに積み、無ければ一度きりの部署を自動で立てる）。回したら受付番号を出して 3 で終わる。ただし、打った部署が受けている
 頼みが、同じツールの同じ入力が片づかずに回った頼みなら（その頼みの中での打ち直し）、回さずに失敗を出して 1 で終わる（rerun_of）。
 入力の dry_run が true の呼び（空打ち）も、片づかなければ回さずに 1 で終わる（DRY_RUN）。
@@ -257,9 +257,9 @@ def annotate(companies, settings, g):
 
 def _fallback_account(shape, skills, to):
     """片づかなかった仕事を回す先 to（役か受け持ちの名前）の部署を立てるときに、先に使うアカウント（role.launch_account）。hand_over と
-    同じく、to が役か on_demand を持つ受け持ちの名前ならその受け持ちとその役、ほかは役で引く（役の無い受け持ちへは hand_over が役 to で
+    同じく、to が役を持つ受け持ちの名前ならその受け持ちとその役、ほかは役で引く（役の無い受け持ちへは hand_over が役 to で
     ツールの名前の部署を立てるので、受け持ちの値は効かない）。--tree のツールの行に出す。"""
-    duty = next((s for s in skills if s.get("name") == to and (s.get("role") or s.get("on_demand"))), None)
+    duty = next((s for s in skills if s.get("name") == to and s.get("role")), None)
     the_role = shape["roles"].get(role.current(shape, duty["role"] if duty and duty.get("role") else to))
     return role.launch_account(the_role, duty)[0]
 

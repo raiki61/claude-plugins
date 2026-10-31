@@ -29,19 +29,19 @@ default_role = "作業"   # --task で --role を省いたときの役
 # - ただし model は受け持ちに書かず、役（担当・作業）のフィールドに model = "opus" と書く（受け持ちに model が無ければ役の値で起動する）。書かないと、
 #   部署はアカウントの既定のモデル（/model で替わり、そのアカウントの新しい会話の既定として保存される）で起き、会社の形を読んでも決まらない。
 #   書いた日（2026-10-18）は main・p1・p2・p3 の 4 アカウントの ~/.claude*/settings.json がどれも "model": "opus" で、動くモデルは変わらない。
-#   ただし clear の部署は、起動したときの値と違うので、次の頼みの前に一度起動し直される。
+#   ただし new の部署は、起動したときの値と違うので、次の頼みの前に一度起動し直される。
 #   my_notes の .claude/company.toml（my_notes の 4 役とも model = "opus"）と同じ書き方（受付 a41972）。
-# clear の担当は、次の頼みの前に新しい値で起動し直す。入れた後の外れは手元の測り（docs/model-replay.md）で見つけ、戻すのは my_notes の司令塔が持つ
+# new の担当は、次の頼みの前に新しい値で起動し直す。入れた後の外れは手元の測り（docs/model-replay.md）で見つけ、戻すのは my_notes の司令塔が持つ
 
-# keep の部署と、on-demand（頼まれたときだけ立てる）の部署（持ち主 2026-10-17「そうね。そうして」「作業量が増えたり依頼がふえたらスケール出来るようにね」。社長室の受付 813bb8）
-# - keep に残す: 本社の窓口だけ（my_notes の司令塔・調べもの・ノートの手入れは my_notes の会社の形）。仕組みも 2026-10-29 に on-demand にした（仕組みの項のコメント）。
-# - on-demand（on_demand = true）: 仕組み・点検・見直し・見渡し・説明書・標準・業務改革・試し。--ask claude-plugins/<受け持ち> で、
-#   その受け持ちの名前の tmp の部署が立ち（ブランチは受付番号から作る）、納品して main に入れたら --done で畳まれる。受け持ちの範囲と、誰が触って
+# always の部署と、on-demand（頼まれたときだけ立てる）の部署（持ち主 2026-10-17「そうね。そうして」「作業量が増えたり依頼がふえたらスケール出来るようにね」。社長室の受付 813bb8）
+# - always に残す: 本社の窓口だけ（my_notes の司令塔・調べもの・ノートの手入れは my_notes の会社の形）。仕組みも 2026-10-29 に on-demand にした（仕組みの項のコメント）。
+# - on-demand（lifetime = "on-demand"）: 仕組み・点検・見直し・見渡し・説明書・標準・業務改革・試し。--ask claude-plugins/<受け持ち> で、
+#   その受け持ちの名前の畳む部署が立ち（ブランチは受付番号から作る）、納品して main に入れたら --done で畳まれる。受け持ちの範囲と、誰が触って
 #   よいかの区切りは変えない。同じ受け持ちの部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積まれる。
 # - 増えたときの広げ方: 1 つの部署に頼みが重なったら、互いに関わらない仕事を作業（--task）に分けて並べる。読む量が多いだけの仕事は、
 #   その会話の中でサブエージェントに分けて読ませる。アカウントは使用枠に空きのあるものを自動で選ぶ。
 #   on-demand の受け持ちで、1 日 20 件を超える日が続くか、頼みの待ちの上位 1 割が 30 分を超えたら、業務改革が台帳から
-#   数えて keep に上げる（on_demand を外す）。下回れば下げる。上げ下げは持ち主に問わず、my_notes の司令塔に報告だけする。20 件・30 分は 10-17 の
+#   数えて always に上げる（lifetime = "always" にする）。下回れば下げる。上げ下げは持ち主に問わず、my_notes の司令塔に報告だけする。20 件・30 分は 10-17 の
 #   数から置いた目安で原典は無く、業務改革が次の回に測り直す。
 [[skills]]
 id = "plugin-fix"
@@ -54,11 +54,11 @@ role = "作業"
 # 司令塔の受付 a18228）。振り分けは窓口の仕事で、この受け持ちは works-dispatch・tiers・rent-or-buy を自分で直す。id は替えない
 # on-demand にした（2026-10-29。持ち主「あとこの仕組みはやはり積もっちゃうので、エフェメラルにするように解体してもいいのでは」。前に my_notes で
 # 2026-10-26「全部サブ部署はエフェメラルにしますか。永続にしてるメリットないですよね？」「永続辞めるって話しかなかったっけ。積まれるから」）。
-# keep の部署は頼みをまたいで残り、10-29 には順番待ちに頼みが 4 件積まれて窓口が 3 件を役「作業」の部署へ移した。ほかの担当は 10-17 から on-demand（受付 813bb8）
+# always の部署は頼みをまたいで残り、10-29 には順番待ちに頼みが 4 件積まれて窓口が 3 件を役「作業」の部署へ移した。ほかの担当は 10-17 から on-demand（受付 813bb8）
 [[skills]]
 id = "dispatch"
 name = "仕組み"
-on_demand = true   # on-demand（持ち主 2026-10-29。上のコメント）
+lifetime = "on-demand"   # 持ち主 2026-10-29。上のコメント
 description = "works-dispatch・tiers・rent-or-buy の直し（部署の立て方・頼みと納品・main に入れるコマンドと、ツールの点検と、借りるか買うかの費用の判断の部品）"
 role = "担当"
 effort = "high"   # コード（works-dispatch の Python）
@@ -66,7 +66,7 @@ effort = "high"   # コード（works-dispatch の Python）
 [[skills]]
 id = "gates"
 name = "点検"
-on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
+lifetime = "on-demand"   # 持ち主 2026-10-17 承認。受付 813bb8
 description = "gates の直し（書き込み前のゲート・初見読みなど）と、CI・ルートの tests/ の直し"
 role = "担当"
 effort = "high"   # コード（gates のフック・CI・ルートの tests/）
@@ -74,7 +74,7 @@ effort = "high"   # コード（gates のフック・CI・ルートの tests/）
 [[skills]]
 id = "convergence"
 name = "見直し"
-on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
+lifetime = "on-demand"   # 持ち主 2026-10-17 承認。受付 813bb8
 description = "convergence-loops と graphloops の直し（レビュー・調べ・初見読みなどの収束の工程と、そのグラフ）"
 role = "担当"
 effort = "high"   # コード（graphloops の Python とグラフ）と、レビューの工程の判断
@@ -82,7 +82,7 @@ effort = "high"   # コード（graphloops の Python とグラフ）と、レ�
 [[skills]]
 id = "attention"
 name = "見渡し"
-on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
+lifetime = "on-demand"   # 持ち主 2026-10-17 承認。受付 813bb8
 description = "attention の直し（自分の番の PR の見渡しと /catchup）"
 role = "担当"
 effort = "high"   # コード（attention の Python）
@@ -90,7 +90,7 @@ effort = "high"   # コード（attention の Python）
 [[skills]]
 id = "docs"
 name = "説明書"
-on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
+lifetime = "on-demand"   # 持ち主 2026-10-17 承認。受付 813bb8
 description = """\
 プラグインをまたぐ文書（ルートの README・CLAUDE.md・CONTRIBUTING.md・docs/。docs/trials/・docs/standards/・docs/reform/ は除く）と、会社の形（.claude/company.toml と設計の docs/specs/2026-10-16-company-shape-design.md）の直し。\
 会社の形の中身を決めるのは持ち主と窓口で、説明書は書く（業務改革の案から承認された組織の直しは、業務改革が自分で入れる）"""
@@ -100,7 +100,7 @@ effort = "medium"   # 文書と会社の形を書く。原文の照合がある�
 [[skills]]
 id = "standards"
 name = "標準"
-on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
+lifetime = "on-demand"   # 持ち主 2026-10-17 承認。受付 813bb8
 description = """\
 プラグインをまたぐ標準（書き方・作りの揃え方）を docs/standards/ に作り、プラグインごとのずれを見つけて綺麗にし続ける。\
 ずれの直しは各プラグインの担当に、標準を機械で守らせる検査（CI・ルートの tests/）は点検に、ルートの README・CLAUDE.md・CONTRIBUTING.md から標準を指す直しは説明書に頼む"""
@@ -124,7 +124,7 @@ text = """\
 # 一度きりでは案を返すと畳まれ、持ち主が呼び直さなければ誰も見届けない（持ち主 2026-10-17「業務改革部署がたちあがったのに、
 # 割り振りにふってすぐclearされたら、最後まで面倒見ないかもしれない」「社長室を戦力換算しないで。組織でイメージして」）ので担当にする。
 # 2026-10-17 の承認（813bb8）で on-demand の形にした後も、司令塔の答えを待つ間は、自分の出した頼みに返事が来ていなければ --done が断るので、畳まれずに見届ける。
-# 会話は担当のまま fresh で、続きは改善の台帳と受付箱の台帳から読む。進め方は担当の本文でなく下の description に書く
+# 会話は担当のまま new（頼みごとに空の会話）で、続きは改善の台帳と受付箱の台帳から読む。進め方は担当の本文でなく下の description に書く
 # （受け持ちの中身は [[skills]] の 1 か所に置く決まりで、description は業務改革の部署にだけ足される）。
 # 改善の台帳は docs/reform/ に置き、説明書の受け持ちから外す（試しの docs/trials/・標準の docs/standards/ と同じ切り方。
 # 受付箱の .git/company/ は commit されず、案と承認と結果は持ち主の決めごとの記録なので残す）。
@@ -136,14 +136,14 @@ text = """\
 [[skills]]
 id = "reform"
 name = "業務改革"
-on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
+lifetime = "on-demand"   # 持ち主 2026-10-17 承認。受付 813bb8
 # 業務改革の部署にだけ足される進め方なので英語で書く（ルートの CLAUDE.md の「会話」。元の日本語の行との対応は docs/reform/ledger.md の頼み 79eacf）
 # terms: english-begin
 description = """\
 Inspect claude-plugins' organization (departments, roles, and the ask flow in the company shape .claude/company.toml) from outside and carry it end to end: proposals, landing approved fixes yourself, and reporting to `my_notes/司令塔` (the control tower) whether they worked. \
 Your files: the improvement ledger (docs/reform/ledger.md) and what approved fixes touch (the company shape, docs/specs/2026-10-16-company-shape-design.md, and the company rules in the root CLAUDE.md). my_notes' 「業務改革」 watches my_notes' organization. \
 Each ask and delivery arrives in an empty conversation, so first read the improvement ledger and the inbox ledger (how far each proposal has gone) and this company's open questions whose holder is an ask to 「業務改革」 (effects measurable only later; --todo lists them as follow-ups), and confirm them in the inspection. After writing the ledger, commit it and land it with --land. \
-You also raise and lower on-demand duties (on_demand = true): counted from the inbox ledger, a duty with over 20 asks a day on consecutive days, or whose top 10% of ask waits exceed 30 minutes, becomes persistent (remove on_demand in the company shape); set on_demand = true again when it falls below. Do not ask the owner about this; write it only in the report to the control tower (20 asks and 30 minutes are rules of thumb from the numbers of 2026-10-17; re-measure them in every inspection). \
+You also raise and lower on-demand duties (lifetime = "on-demand"): counted from the inbox ledger, a duty with over 20 asks a day on consecutive days, or whose top 10% of ask waits exceed 30 minutes, becomes always (set lifetime = "always" in the company shape); set lifetime = "on-demand" again when it falls below. Do not ask the owner about this; write it only in the report to the control tower (20 asks and 30 minutes are rules of thumb from the numbers of 2026-10-17; re-measure them in every inspection). \
 Use `--ask my_notes/司令塔` only for questions that need the owner's judgment; do not send notices that need no reply (landed, asked, done, measured), and do not attach them to questions. \
 Procedure: 1. When started, inspect, and ask the control tower your proposals as one approval question (`--ask my_notes/司令塔 --forward`; --forward can be used only once, so put all proposals in it; write 「問い」 in the body; this closes the starting ask). With no proposals, close the starting ask with a delivery (--deliver without --for). \
 2. When the control tower's answer (a delivery with the owner's words) arrives, write the approval in the ledger and land the adopted fixes in this conversation within that turn (fix, verify, --land). \
@@ -178,25 +178,25 @@ text = """\
 [[skills]]
 id = "trials"
 name = "試し"
-on_demand = true   # on-demand（持ち主 2026-10-17 承認。受付 813bb8）
+lifetime = "on-demand"   # 持ち主 2026-10-17 承認。受付 813bb8
 description = "まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する"
 role = "担当"
 effort = "high"   # 長い手順で入れて動かし、見たことを漏らさず記録する仕事なので下げない
 
-# 担当: 受け持ちごとに 1 つ（persistent = true なので、--persistent を付けなくても keep の部署で立つ。受け持ちが on_demand = true なら tmp の部署で立つ）。受け持ちは部署の名前で決まる
-# fresh = true で、頼みごとに空の会話で受ける（keep・clear。持ち主の決め 2026-10-17「担当＝常設・毎回空」。--ask が前の頼みを納品し終えた担当に /clear を打ってから頼む）
+# 担当: 受け持ちごとに 1 つ（lifetime = "always" なので、--persistent を付けなくても always の部署で立つ。受け持ちの lifetime が on-demand なら畳む部署で立つ）。受け持ちは部署の名前で決まる
+# context = "new" で、頼みごとに空の会話で受ける（always · new。持ち主の決め 2026-10-17「担当＝常設・毎回空」。--ask が前の頼みを納品し終えた担当に /clear を打ってから頼む）
 [[roles]]
 name = "担当"
 model = "opus"   # 理由は頭の「受け持ちごとの model・effort」のコメントの「ただし model は」の項
-persistent = true
-fresh = true
-# keepalive: 部署が頼みの途中でターンを終えて待つ間（裏の処理・出した頼みの納品）、待ち受けがキャッシュの寿命の前に短い文を送ってキャッシュを保つ。
-# 送る時刻と止め時は rent-or-buy の部品が決める（works-dispatch 0.122.0 から。works-dispatch/skills/dispatch/references/roles.md の「仕事が終わるまでの keepalive」）。
+lifetime = "always"
+context = "new"
+# rent-or-buy（keepalive と compact を費用で決める）: 部署が頼みの途中でターンを終えて待つ間（裏の処理・出した頼みの納品）、待ち受けがキャッシュの寿命の前に
+# 短い文を送ってキャッシュを保つ。送る時刻と止め時は rent-or-buy の部品が決める（works-dispatch/skills/dispatch/references/roles.md の「仕事が終わるまでの keepalive」）。
+# 会社の形に書かなくても全部の部署と窓口に効く（切るときだけ rent_or_buy = false を書く。持ち主 2026-10-31）。
 # 寿命は 1 時間（[roles.settings] の promptCacheTtl）。my_notes の部署の 5 分と違うのは、この会社の部署の働き方を測った結果（業務改革の頼み b5b5c1。docs/reform/ledger.md の「頼み b5b5c1」）。
 # 結論: 5 分と 1 時間の費用はほぼ同点（差は 2〜3%）なので、今の動きのまま 1 時間にした。
-# 数: 2026-10-24 11〜21 時の要求 1,154 回で、5 分を超えて 1 時間以内の間が 27 回、そのうち keepalive を書いても送られない間（ターンの中の前景の --land や、何も待たずにターンを終えた後）が 14 回。
+# 数: 2026-10-24 11〜21 時の要求 1,154 回で、5 分を超えて 1 時間以内の間が 27 回、そのうち keepalive を送れない間（ターンの中の前景の --land や、何も待たずにターンを終えた後）が 14 回。
 # 条件: my_notes の指南 llm-agent-workflow-cost-design-guide.md の 3.3 の「1 時間が得 ⇔ 5 分で切れて書き直す量 Q が、書き込み W0 の 0.625 倍を超える」。この窓では Q 165 万・0.625 × W0 185 万、10-21〜24 の窓では Q 438 万・407 万
-keepalive = true
 # 残った疑問（要約の頭書きの [[open]]）の 1 件ごとの担当者（holder）を --deliver が確かめる。書けるのは受付番号・owner:choose・owner:confirm・頼み元の名前（my_notes の司令塔は持ち主への中継を兼ねるので除く。受付 24e521・b6778d）
 holders = ["司令塔"]
 deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約に works-dispatch/dispatch/terms.py の語の一覧の言い方（IT の定着語でない物）が有れば止める。「」・`` ` `` の中、引用の行、コードブロックは見ない
@@ -205,14 +205,14 @@ deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約�
 instructions = """\
 You hold a duty. \
 Your duty is set by the workspace name (the department name), and its content is added at the start of the conversation. \
-If the duty is on demand (the start of the conversation says 「この受け持ちは on-demand（頼まれたときだけ立てる）で、この部署は tmp の部署」), after you deliver the ask and land it in main, run dispatch.py --done and end the turn (it refuses while asks wait in your queue, so first finish the next ask the watcher (「待ち受け」) hands you). \
+If the duty is raised only when asked (the start of the conversation says 「この受け持ちの寿命は on-demand」 or 「この受け持ちの寿命は per-ask」), after you deliver the ask and land it in main, run dispatch.py --done and end the turn (it refuses while asks wait in your queue, so first finish the next ask the watcher (「待ち受け」) hands you). \
 Do the work of one ask in this conversation; do not route it to departments. Split work that is just a lot of reading to subagents in this conversation. \
 Boundaries: the inside of a plugin's folder (README, tests, etc.) belongs to that plugin's 「担当」. \
 works and works-factory belong to no duty; do not touch them. \
 The 「担当」 of 「試し」 and 「標準」 do not fix plugins; they ask the 「担当」 of the duty for the fix. \
 If you disagree with the premise or approach of an ask, have an alternative, or the ask itself is outside your duty, do not build it even if the ask says to go ahead as written; deliver only that (in 「結論」 write 「異論があるので作っていない」 and the gist; in 「決め手」 the URLs behind it [the primary source, or the GitHub URL of the file that grounds it]; in the open questions, the alternative or the department to route it to, one item each with a holder. Route it with --ask and write that ask's id as the holder). \
 When you take an ask, either do it yourself or, to run mutually independent work in parallel, ask 「作業」 (`--ask claude-plugins/作業` with `--task <受け持ち>：<何をするか> --branch <ブランチ>`). \
-In a persistent department, keep the same workspace and, for each ask, run git fetch origin and cut a branch with the name the rules prescribe from origin/main and work on it. \
+In an always department (lifetime = "always"), keep the same workspace and, for each ask, run git fetch origin and cut a branch with the name the rules prescribe from origin/main and work on it. \
 When done, run works-dispatch's command that puts the branch into main yourself (--land <your department's name>). \
 If main has moved ahead and it stops, rebase onto origin/main yourself, push, and run it again. \
 Once it is in, send it back with the deliver command. \
@@ -240,7 +240,7 @@ skillOverrides = { dataviz = "off" }
 # （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
 # 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
 autoCompactWindow = 200000
-# キャッシュの寿命。理由は役「担当」の keepalive のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
+# キャッシュの寿命。理由は役「担当」の rent-or-buy のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
 promptCacheTtl = "1h"
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は main へ fast-forward するので
 # 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] のゲートを通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
@@ -248,13 +248,12 @@ autoMode = { allow = ["$defaults", """\
 この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分のブランチを main に入れること。\
 main への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] のゲートを通してから fast-forward する決まりで、持ち主がこの会社の部署に許している。"""] }
 
-# 窓口: 本社（代表の clone）で持ち主と話し、頼みを部署へ配る会話（持ち主 2026-10-26「はい。窓口たてていいよ。mainに」）。--desk で名付き、keep で引き継ぐ。
+# 窓口: 本社（代表の clone）で持ち主と話し、頼みを部署へ配る会話（持ち主 2026-10-26「はい。窓口たてていいよ。mainに」）。--desk で名付き、会話は引き継ぐ（carry）。
 # model・effort は my_notes の司令塔（同じく持ち主と話して配る会話。opus・medium）にそろえる。配る判断は誤りを後ろで止める仕組みが無いので opus に残す
 [[roles]]
 name = "窓口"
 model = "opus"
 effort = "medium"
-keepalive = true   # 理由は役「担当」の keepalive のコメント
 holders = ["司令塔"]   # 理由は役「担当」の holders のコメント（窓口も部署の頼みに納品で返す）
 deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 役「担当」と同じ
 # AI だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」。元の日本語の行との対応は docs/reform/ledger.md の頼み 79eacf）
@@ -273,7 +272,7 @@ Keep main checked out in the head office; do not switch branches there and do no
 Language: talk with the owner in Japanese, and keep everything the owner reads in Japanese, as 「会話」 of the root CLAUDE.md says; only text that AI alone reads, like this role text, is in English. Terms: duty = 「受け持ち」 (one entry of [[skills]]), department = 「部署」, ask = 「頼み」, delivery = 「納品」, holder = 「担当者」, front desk = 「窓口」, control tower = 「司令塔」."""
 # terms: english-end
 [roles.settings]
-promptCacheTtl = "1h"   # 理由は役「担当」の keepalive のコメント
+promptCacheTtl = "1h"   # 理由は役「担当」の rent-or-buy のコメント
 autoCompactWindow = 200000   # 理由は役「担当」の [roles.settings] の autoCompactWindow のコメント
 # 止められた部署の --land を打ち直すので、部署と同じ例外を書く（https://code.claude.com/docs/en/auto-mode-config）
 autoMode = { allow = ["$defaults", """\
@@ -287,7 +286,6 @@ main への取り込みは、人のレビューの代わりに、会社の形（
 name = "作業"
 model = "opus"   # 理由は頭の「受け持ちごとの model・effort」のコメントの「ただし model は」の項
 effort = "medium"
-keepalive = true   # 理由は役「担当」の keepalive のコメント
 # 残った疑問（要約の頭書きの [[open]]）の 1 件ごとの担当者（holder）を --deliver が確かめる。書けるのは受付番号・owner:choose・owner:confirm・頼み元の名前（my_notes の司令塔は持ち主への中継を兼ねるので除く。受付 24e521・b6778d）
 holders = ["司令塔"]
 deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約に works-dispatch/dispatch/terms.py の語の一覧の言い方（IT の定着語でない物）が有れば止める。「」・`` ` `` の中、引用の行、コードブロックは見ない
@@ -330,7 +328,7 @@ skillOverrides = { dataviz = "off" }
 # （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
 # 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
 autoCompactWindow = 200000
-# キャッシュの寿命。理由は役「担当」の keepalive のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
+# キャッシュの寿命。理由は役「担当」の rent-or-buy のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
 promptCacheTtl = "1h"
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は main へ fast-forward するので
 # 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] のゲートを通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
@@ -446,7 +444,7 @@ tool = "works-factory-pin"
 #   herdr のサイドバーには、作業場の木（親＝リポジトリ、子＝worktree）と、会話の行（作業場の名前・役・ブランチ）が出る。
 #   会社の名前は親の作業場にだけ出るので、部署の名前（--task・--ask に渡す名前。作業場・会話の名前になる）に会社を付けない。
 # - 役は 5 つ: 窓口（頼みを配り、片付けの判断〔--clean・--retire〕と止められた --land の打ち直しを受ける本社の会話。
-#   役の本文は [[roles]] の「窓口」。2026-10-26 までは my_notes の司令塔が兼ねていた〔業務改革の案 1-3〕）・担当（受け持ちに 1 つ。keep か、on-demand）・作業（一度きり）・機械だけの役（配布・CI の見張り・工場の版の見張り）・相談（この会社の形には置かない）。
+#   役の本文は [[roles]] の「窓口」。2026-10-26 までは my_notes の司令塔が兼ねていた〔業務改革の案 1-3〕）・担当（受け持ちに 1 つ。always か、on-demand）・作業（一度きり）・機械だけの役（配布・CI の見張り・工場の版の見張り）・相談（この会社の形には置かない）。
 # - 担当: 受け持ちごとに 1 つ。部署の名前を受け持ちの名前にし、自分の受け持ちはその名前で決まる。
 #   受け持ちの表（どの受け持ちが何のファイルを持つか）は [[skills]] の 1 か所に置く（name が部署の名前、description が中身。works-dispatch の
 #   役を足すフックが、部署の名前と同じ name の description を会話の始まりに足す）。役の本文と、このコメントに写さない。
@@ -456,9 +454,9 @@ tool = "works-factory-pin"
 #   works と works-factory は持ち主が別に回している所なので、受け持ちを作らず、どの担当も触らない。
 #   担当への頼みは部署の名前で宛てる（--ask 仕組み。works-dispatch は部署の名前を役より先に当てる。
 #   別の会社に同じ名前の部署が有れば --ask claude-plugins/仕組み）。担当は 1 つの会社に幾つも有るので、役（--ask claude-plugins/担当）では宛てない。
-#   keep の受け持ち（今は無い。業務改革が上げ下げで on_demand を外したときに出る）で担当がまだ居なければ --task <受け持ち> --branch work/<英小文字> --role 担当 --persistent で立てる（起動方法 [skills.start] の有る受け持ちは --start <受け持ち> でも立つ）。
+#   always の受け持ち（今は無い。業務改革が上げ下げで lifetime = "always" にしたときに出る）で担当がまだ居なければ --task <受け持ち> --branch work/<英小文字> --role 担当 --persistent で立てる（起動方法 [skills.start] の有る受け持ちは --start <受け持ち> でも立つ）。
 #   on-demand の受け持ちは、--ask claude-plugins/<受け持ち> だけで立つ。
-#   keep の担当の部署は片付けで畳まれず、次の頼みを同じ作業場と窓で、空にした会話で受ける（fresh = true）。同じ受け持ちの直しは担当の中で順番に進むので、同じファイルの取り合いにならない。
+#   always の担当の部署は片付けで畳まれず、次の頼みを同じ作業場と窓で、空にした会話で受ける（context = "new"）。同じ受け持ちの直しは担当の中で順番に進むので、同じファイルの取り合いにならない。
 # - 作業: 頼みごとに立って入れたら畳まれる一時の部署。畳むきっかけは、作業が最後に自分で打つ終わりの印（dispatch.py --done。打つ時は作業の本文）で、
 #   印のターンの終わりに works-dispatch が会話を止めて部屋を片付ける。印の無いまま残った部屋は、dispatch.py --clean の一覧に
 #   「頼みは納品済みで、終わりの印が無い」「終わりの印で畳もうとして残った: …」などの訳と並ぶので、窓口が止めるか残すかを決め、止めるなら --retire <部署> を打つ。

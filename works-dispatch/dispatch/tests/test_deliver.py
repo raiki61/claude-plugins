@@ -72,7 +72,7 @@ class Target(unittest.TestCase):
         self.assertEqual(got["department"]["path"], "/r/a-w2")
 
     def test_role_without_a_resident_department_means_a_new_one(self):
-        got = deliver.find_target([self.a, self.b], "/r/b", "出荷役")   # b の出荷役は tmp の部署
+        got = deliver.find_target([self.a, self.b], "/r/b", "出荷役")   # b の出荷役は畳む部署
         self.assertEqual((got["company"]["name"], got["department"], got["role"]), ("b", None, "出荷役"))
 
     def test_unknown_company_and_twin_names_stop(self):
@@ -635,7 +635,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(attach[2], "claude-a1 attach d")
         self.assertNotEqual(attach[1], self.window, "閉じたペインでなく、開き直した作業場の新しいペインに打つ")
         self.assertIn(("rename_pane", attach[1], "調べ"), h.writes)   # 開き直したペインにも --sync と同じ名前を付ける
-        # 開き直した作業場は新しいので、keep か tmp かの印も付け直す
+        # 開き直した作業場は新しいので、寿命の印（company.lifecycle）も付け直す
         self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
     def test_clear_before_ask_sees_the_clear_by_a_new_talk_file_when_the_list_keeps_the_id(self):
@@ -897,8 +897,8 @@ class Flow(unittest.TestCase):
         self.assertFalse(os.path.exists(self.inbox))
 
     def test_ask_to_a_duty_raised_only_when_asked_starts_its_department_with_a_branch_of_its_own(self):
-        # on-demand の受け持ち（on_demand = true）: --task・--branch を渡さなくても、受け持ちの名前の部署を立てる（813bb8）
-        self.shape('[[roles]]\nname = "担当"\npersistent = true\n[[skills]]\nname = "見渡し"\nrole = "担当"\non_demand = true\n')
+        # on-demand の受け持ち（lifetime = "on-demand"）: --task・--branch を渡さなくても、受け持ちの名前の部署を立てる（813bb8）
+        self.shape('[[roles]]\nname = "担当"\nlifetime = "always"\n[[skills]]\nname = "見渡し"\nrole = "担当"\nlifetime = "on-demand"\n')
         seen = {}
 
         def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
@@ -914,15 +914,15 @@ class Flow(unittest.TestCase):
         self.assertRegex(seen["branch"], r"^work/ask-[0-9a-f]{6}$")
         self.assertIn("on-demand の受け持ち", buf.getvalue())
         companies = [{"name": "co", "root": self.src, "departments": [],
-                      "skills": [{"name": "見渡し", "role": "担当", "on_demand": True}]}]
+                      "skills": [{"name": "見渡し", "role": "担当", "lifetime": "on-demand"}]}]
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["on_demand"], "見渡し")
         companies[0]["departments"] = [dept_row(name="見渡し", role="担当", path="/r/w")]   # 立っている間は、その部署に届ける
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
 
     def test_ask_to_a_duty_taken_per_ask_starts_a_department_of_its_own_for_each_ask(self):
-        # per_ask = true（頼みごとの部署）: 受け持ちの名前の部署が立っていても積まず、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」を立てる
-        self.shape('[[roles]]\nname = "担当"\npersistent = true\n'
-                   '[[skills]]\nname = "見渡し"\nrole = "担当"\non_demand = true\nper_ask = true\n')
+        # lifetime = "per-ask"（頼みごとの部署）: 受け持ちの名前の部署が立っていても積まず、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」を立てる
+        self.shape('[[roles]]\nname = "担当"\nlifetime = "always"\n'
+                   '[[skills]]\nname = "見渡し"\nrole = "担当"\nlifetime = "per-ask"\n')
         seen = []
 
         def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
@@ -941,13 +941,13 @@ class Flow(unittest.TestCase):
             self.assertEqual((branch, role_name), (f"work/ask-{name[-6:]}", "担当"))
         self.assertNotEqual(seen[0][0], seen[1][0])
         self.assertIn("頼みごとに別の部署で受ける", buf.getvalue())
-        duty = {"name": "見渡し", "role": "担当", "on_demand": True, "per_ask": True}
+        duty = {"name": "見渡し", "role": "担当", "lifetime": "per-ask"}
         companies = [{"name": "co", "root": self.src, "skills": [duty],
                       "departments": [dept_row(name="見渡し：abc123", role="担当", path="/r/a")]}]
         got = deliver.find_target(companies, self.src, "co/見渡し")   # 頼みごとの部署が立っていても、次の頼みは別の部署
         self.assertEqual((got["department"], got["on_demand"], got["per_ask"]), (None, "見渡し", True))
         self.assertEqual(orders.on_demand_name(got, "20261026-092520-d14822"), "見渡し：d14822")
-        companies[0]["departments"].append(dept_row(name="見渡し", role="担当", path="/r/w"))   # 受け持ちの名前の部署（移す前の keep）へは届く
+        companies[0]["departments"].append(dept_row(name="見渡し", role="担当", path="/r/w"))   # 受け持ちの名前の部署（移す前の always）へは届く
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
 
     def test_ask_to_a_role_without_a_resident_department_starts_one_through_the_task_path(self):
@@ -1311,7 +1311,7 @@ class Flow(unittest.TestCase):
 
     def fresh_world(self, busy_before=False):
         """頼みごとに空にする役（fresh）の部署。/clear を打つと会話の id が変わり、頼みを打つと動き出す。"""
-        self.shape('[[roles]]\nname = "調べ役"\npersistent = true\nfresh = true\n')
+        self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\ncontext = "new"\n')
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         sent = lambda: [w[2] for w in self.prompts() if w[1] != self.desk]   # noqa: E731
         self.ports.list_sessions = lambda cdir, include_done=False: [
@@ -1335,7 +1335,7 @@ class Flow(unittest.TestCase):
         self.assertEqual((attrs["session"], attrs["job"], attrs["fresh"]), ("s-new", "s", "true"))
         # herdr の作業場の印にも出る
         rc, out = self.main(self.src, "--sync", "--dry-run")
-        self.assertIn("印 keep・clear", out)
+        self.assertIn("印 always · new", out)
 
     def test_fresh_role_sees_the_clear_in_the_records_of_the_pane_account_not_of_the_asker(self):
         # 設定のフォルダを書かないアカウントの部署は、ペインのシェルの素の claude で起きて ~/.claude に記録を書く。頼む会話の
@@ -1401,7 +1401,7 @@ class Flow(unittest.TestCase):
     def test_a_department_waiting_on_a_permission_prompt_is_not_typed_into(self):
         # 確かめの画面（許可など）で人の答えを待つ部署（status=waiting）の窓には打たない（打った字と Enter を確かめの画面が受ける）。
         # 待ち受けの跡が在れば順番待ちに積み、無ければ訳を出して止める。fresh でない役でも同じ
-        self.shape('[[roles]]\nname = "調べ役"\npersistent = true\n')
+        self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\n')
         sent = lambda: [w[2] for w in self.prompts() if w[1] != self.desk]   # noqa: E731
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},

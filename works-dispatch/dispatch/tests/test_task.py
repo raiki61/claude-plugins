@@ -110,7 +110,7 @@ class Task(unittest.TestCase):
         # 部署の属性は作業場の git の設定に入り、元の clone には入らない
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
         # 部署がメインブランチを知った位置（ブランチを作ったときの origin のメインブランチ）も書く（--land の書き換えの取り合いのゲートが使う）
-        # 起動したときの会社の形の model・effort も書く（clear の部署の待ち受けが、今の値と比べる）
+        # 起動したときの会社の形の model・effort も書く（new の部署の待ち受けが、今の値と比べる）
         self.assertEqual(self.g.worktree_attrs(path), {"role": "作業", "lifecycle": "ephemeral", "account": "a1", "name": "直し",
                                                      "session": "bg0-full", "job": "bg0", "config": self.cfg,
                                                      "launched": '{"effort": null, "model": null}',
@@ -125,7 +125,7 @@ class Task(unittest.TestCase):
         # 表示名と札、作業場の印は、書いた属性から付ける（名前は起動するときに付けたので付け直さない）
         self.assertEqual(ports.term.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
-        self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "tmp", "seat": "ephemeral"}))
+        self.assertEqual(ports.term.writes[6][0::2], ("report_workspace_metadata", {"kind": "per-ask", "seat": "per-ask"}))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(self.g.branch(src), "main")
 
@@ -136,11 +136,11 @@ class Task(unittest.TestCase):
         path = self.place(ports)
         attrs = self.g.worktree_attrs(path)
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("調べ役", "persistent"))
-        # keep の部署の最初のブランチも、入れたブランチと同じ記録に書く（入れずに次のブランチへ移っても、先頭がそのままなら後で消える）
+        # always の部署の最初のブランチも、入れたブランチと同じ記録に書く（入れずに次のブランチへ移っても、先頭がそのままなら後で消える）
         self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": self.g.head_sha(path)})
 
     def test_running_a_keep_department_again_does_not_mark_its_unlanded_commits_as_landed(self):
-        # 立っている keep の部署を開き直す（--task の打ち直し・--move）と、まだ入れていない commit の載った先頭を入れた commit と
+        # 立っている always の部署を開き直す（--task の打ち直し・--move）と、まだ入れていない commit の載った先頭を入れた commit と
         # 記録していた。部署が次のブランチへ移った後の --land・--clean --apply が、そのブランチを消してしまう
         ports = self.ports()
         self.assertEqual(self.run_task(ports, "--role", "調べ役", "--persistent")[0], 0)
@@ -153,7 +153,7 @@ class Task(unittest.TestCase):
         self.assertEqual(json.loads(self.g.worktree_attrs(path)["landed-branches"]), {"task/fix": first})
 
     def test_a_keep_department_stood_up_on_a_branch_with_unlanded_commits_does_not_mark_it_as_landed(self):
-        # 前に入れずに移ったブランチ（手元にしか無い commit が載っている）で keep の部署を立てると、その先頭を入れた commit と記録していた。
+        # 前に入れずに移ったブランチ（手元にしか無い commit が載っている）で always の部署を立てると、その先頭を入れた commit と記録していた。
         # 部署が次のブランチへ移った後の --land・--clean --apply が、そのブランチを commit ごと消してしまう
         side = self.g.add_worktree(str(pathlib.Path(self.root).parent / "side"), "task/fix", "main")
         self.g.commit(side, {"work.txt": "まだ入れていない"}, "work")
@@ -164,8 +164,8 @@ class Task(unittest.TestCase):
         self.assertNotIn("landed-branches", self.g.worktree_attrs(self.place(ports)))
 
     def test_shape_picks_the_default_role_and_a_role_can_be_persistent(self):
-        # 会社の形の default_role は --role を省いたときの役、役の persistent = true は --persistent と同じ
-        push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
+        # 会社の形の default_role は --role を省いたときの役、役の lifetime = "always" は --persistent と同じ
+        push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\nlifetime = "always"\n'
                                           '[[roles]]\nname = "作業"\n')
         ports = self.ports()
         rc, out = self.run_task(ports)
@@ -197,9 +197,9 @@ class Task(unittest.TestCase):
         self.assertEqual(len(ports.spawned), 1)
 
     def test_a_duty_raised_only_when_asked_starts_per_task_even_under_a_resident_role(self):
-        # 受け持ちの on_demand = true（on-demand）は、役が persistent = true でも tmp の部署で立つ（--done で畳まれる）
-        push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\npersistent = true\n'
-                                          '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\n')
+        # 受け持ちの lifetime = "on-demand"（on-demand）は、役が lifetime = "always" でも畳む部署で立つ（--done で畳まれる）
+        push_shape(self.g, 'default_role = "担当"\n[[roles]]\nname = "担当"\nlifetime = "always"\n'
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\nlifetime = "on-demand"\n')
         ports = self.ports()
         rc, out = self.run_task(ports)   # 部署の名前（直し）が受け持ちの名前
         self.assertEqual(rc, 0, out)
@@ -207,30 +207,30 @@ class Task(unittest.TestCase):
         self.assertEqual((attrs["role"], attrs["lifecycle"]), ("担当", "ephemeral"))
 
     def test_a_department_per_ask_starts_ephemeral_under_a_resident_duty_role(self):
-        # per_ask = true の受け持ちの「<受け持ち>：<受付番号の終わり 6 字>」の部署は、担当の役でも席の検査で止めず、tmp で立つ
-        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
-                                          '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\nper_ask = true\n')
+        # lifetime = "per-ask" の受け持ちの「<受け持ち>：<受付番号の終わり 6 字>」の部署は、担当の役でも席の検査で止めず、畳む部署（ephemeral）で立つ
+        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\nlifetime = "always"\n[[roles]]\nname = "作業"\n'
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\nlifetime = "per-ask"\n')
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "担当", name="直し：d14822", branch="work/ask-d14822")
         self.assertEqual(rc, 0, out)
         attrs = self.g.worktree_attrs(self.place(ports, "work/ask-d14822"))
         self.assertEqual((attrs["role"], attrs["lifecycle"], attrs["name"]), ("担当", "ephemeral", "直し：d14822"))
-        # per_ask の無い on-demand の受け持ちの「<受け持ち>：…」は、今までどおり担当の役では止める
-        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n[[roles]]\nname = "作業"\n'
-                                          '[[skills]]\nname = "直し"\nrole = "担当"\non_demand = true\n')
+        # on-demand の受け持ちの「<受け持ち>：…」は、今までどおり担当の役では止める
+        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\nlifetime = "always"\n[[roles]]\nname = "作業"\n'
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\nlifetime = "on-demand"\n')
         rc, out = self.run_task(ports, "--role", "担当", name="直し：題", branch="task/topic")
         self.assertEqual(rc, 2, out)
-        self.assertIn("止めた: 役 担当 は受け持ちごとに 1 つの keep の部署", out)
+        self.assertIn("止めた: 役 担当 は受け持ちごとに 1 つの always の部署", out)
 
     def test_a_duty_role_starts_only_under_a_duty_name(self):
-        # 受け持ちに名指される keep の役（担当）は、受け持ちの名前でない「<受け持ち>：<主題>」では立てない（立てると誰の席でもない
-        # keep の部署が残る。my_notes の受付 90b7d8）。受け持ちの名前なら keep で立ち、--persistent を名指せば名前を問わない
-        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\npersistent = true\n'
+        # 受け持ちに名指される always の役（担当）は、受け持ちの名前でない「<受け持ち>：<主題>」では立てない（立てると誰の席でもない
+        # always の部署が残る。my_notes の受付 90b7d8）。受け持ちの名前なら always で立ち、--persistent を名指せば名前を問わない
+        push_shape(self.g, 'default_role = "作業"\n[[roles]]\nname = "担当"\nlifetime = "always"\n'
                                           '[[roles]]\nname = "作業"\n[[skills]]\nname = "直し"\nrole = "担当"\n')
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "担当", name="直し：題", branch="task/topic")
         self.assertEqual(rc, 2, out)
-        self.assertIn("止めた: 役 担当 は受け持ちごとに 1 つの keep の部署で、部署の名前は受け持ちの名前（直し）。「直し：題」はどれでもない", out)
+        self.assertIn("止めた: 役 担当 は受け持ちごとに 1 つの always の部署で、部署の名前は受け持ちの名前（直し）。「直し：題」はどれでもない", out)
         self.assertIn("--role 作業（--ask なら <会社>/作業）で頼む", out)
         self.assertFalse(self.sent(ports))
         self.assertFalse([w for w in ports.term.worktrees(gitx_source(self.cfg)) if w["branch"] == "task/topic"])
@@ -268,7 +268,7 @@ class Task(unittest.TestCase):
         # 起動するときの設定（model）も、立てた後のフックと同じ新しい会社の形で決まる
         [command] = self.sent(ports)
         self.assertRegex(command, r'--model "?haiku\b')   # POSIX でない殻（Windows）では語を "…" で囲む
-        # 起動したときの model・effort を属性に残す（clear の部署の待ち受けが、会社の形の今の値と比べる）
+        # 起動したときの model・effort を属性に残す（new の部署の待ち受けが、会社の形の今の値と比べる）
         launched = self.g.worktree_attrs(self.place(ports))["launched"]
         self.assertEqual(json.loads(launched), {"model": "haiku", "effort": None})
 

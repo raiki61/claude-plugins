@@ -7,7 +7,7 @@
 enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/worktrees/<部署>/config.worktree` に入り、ほかの部署と元の clone に
 混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
 
-書く関数は fetch・fast_forward・fast_forward_to・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude と、
+書く関数は fetch・fast_forward・fast_forward_to・reset_always・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude と、
 メインブランチに入れる（取り込みのコマンド）ための push・drop_remote・advance_branch・add_detached・remove_detached・commit_all と、メインブランチが先に
 進んだブランチをリベースするための rebase・rebase_continue・rebase_abort・add_path・push_rebased で、
 呼んでよいノードはチェック（tests/fences.py の D4 の表 WRITES）が構文木で見る。
@@ -199,7 +199,7 @@ def root_of(common):
 
 
 ATTR = "company."
-# 部署の寿命（属性 company.lifecycle の値）。keep の部署は片付けで畳まず、tmp の部署は頼みを済ませたら畳む（会社の形の設計 4.10 の 1）
+# 部署の寿命（属性 company.lifecycle の値）。always の部署は片付けで畳まず、畳む部署は頼みを済ませたら畳む（会社の形の設計 4.10 の 1）
 PERSISTENT, EPHEMERAL = "persistent", "ephemeral"
 
 

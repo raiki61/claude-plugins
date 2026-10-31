@@ -12,14 +12,16 @@
   出すため。本社（元の clone。--desk で窓口の属性を書く）の作業場は herdr の木の親なので、属性を持てば会社の名前を付ける（会社の
   名前は親の作業場にだけ出し、部署の名前には付けない。持ち主 2026-10-16）。今の名前と同じなら付け直さず、属性を持つ場所が
   2 つ以上居る作業場は触らない。
-- 作業場には、席の見え方（keep・clear、keep・continue、tmp）を印 kind として付ける（サイドバーの作業場の行に herdr の設定の
-  $kind で出す。会話の行でなく作業場の行で見せる。持ち主 2026-10-16・17）。見せる語と並べて、席の種類のキー（role.seat の
-  persistent-fresh など）を印 seat に付け、今の値と比べるのは seat で行う（見せる語は言い方を変えれば変わるので、機械の比べに使わない。
+- 作業場には、席の見え方（always · carry、always · new、on-demand · new、per-ask など。rent-or-buy を切った部署は rent-or-buy off を
+  足す）を印 kind として付ける（サイドバーの作業場の行に herdr の設定の $kind で出す。会話の行でなく作業場の行で見せる。持ち主
+  2026-10-16・17・31）。見せる語と並べて、席のキー（role.seat の always.carry など）を印 seat に付け、今の値と比べるのは seat で行う
+  （見せる語は言い方を変えれば変わるので、機械の比べに使わない。
   docs/standards/machine-readable-values.md の決まり 3。受付 0715c5）。名前と同じく、今の値と同じなら付け直さず、属性を持つ
-  場所が 2 つ以上居る作業場は触らない。seat の無い前の版の作業場には、次の --sync で一度だけ kind と seat を付け直す。
+  場所が 2 つ以上居る作業場は触らない。前の版の席のキーの作業場には、次の --sync で一度だけ kind と seat を付け直す。
 - 会社ごとの部署の作業場（元の clone の linked worktree の作業場）は、仕事の流れの順に並べる（flow_order。順の鍵は role.flow_rank で、
   --tree の部署の並びと同じ。持ち主 2026-10-17 の案 A）。
-  keep・continue（相談の社長室など）、keep・clear（担当。この中は会社の形の [[skills]] の書き順）、tmp（作業。この中は今の並び。
+  always · carry（相談の社長室など）、always · new（担当）、on-demand（この中と always · new の中は会社の形の [[skills]] の書き順）、
+  per-ask（作業。この中は今の並び。
   herdr は新しい作業場を後ろに足すので、起動した順）、属性の無い作業場（手で開いた場所）の順。順は属性と会社の形から毎回出し、
   順の表は持たない。本社（元の clone）の作業場は herdr が会社のまとまりの頭に置くので動かさない。会社の部署の作業場が herdr の
   並びで占める位置の中だけで入れ替え、ほかの会社とまとまりの無い作業場の位置は変えない。
@@ -55,19 +57,15 @@ def op(pane, attrs, many_accounts, current_label=None):
             "tokens": {k: attrs[k] for k in TOKENS if attrs.get(k)}, "clear_tokens": [k for k in TOKENS if not attrs.get(k)]}
 
 
-def seat_of(attrs):
-    """作業場の印 seat の値。役を持つ部署の席の種類のキー（role.seat。persistent-fresh・persistent-carry・ephemeral）。役が無ければ None。"""
-    return role.seat(attrs.get("lifecycle"), attrs.get("fresh")) if attrs.get("role") else None
-
-
 def seat_tokens(seat):
-    """作業場に付ける印: 比べる seat（キー）と、サイドバーに出す kind（見せる語）。"""
-    return {"kind": role.SEAT_LABELS[seat], "seat": seat}
+    """作業場に付ける印: 比べる seat（席のキー。role.seat）と、サイドバーに出す kind（見せる語。role.seat_label）。"""
+    return {"kind": role.seat_label(seat), "seat": seat}
 
 
-def kind_op(workspace, attrs):
-    """1 つの作業場に印 kind と seat だけを付ける物（名前は付け直さない。部署を立てたとき・開き直したときに、--sync と同じ値を付ける）。"""
-    return {"workspace": workspace, "label": None, "seat": seat_of(attrs)}
+def kind_op(workspace, seat):
+    """1 つの作業場に印 kind と seat だけを付ける物（名前は付け直さない。部署を立てたとき・開き直したときに、--sync と同じ値を付ける）。
+    seat は席のキー（role.seat。役が無ければ None で、付けない）。"""
+    return {"workspace": workspace, "label": None, "seat": seat}
 
 
 def _target(dept):
@@ -112,7 +110,7 @@ def workspace_ops(companies, workspaces):
             if d["attrs"] and d.get("workspace"):
                 # 本社（元の clone）の作業場は herdr の木の親なので、会社の名前にする（会社の名前は親の作業場にだけ出す）
                 name = c["name"] if d.get("head_office") else d["attrs"].get("name")
-                claims.setdefault(d["workspace"], []).append((name, seat_of(d["attrs"])))
+                claims.setdefault(d["workspace"], []).append((name, d.get("seat")))
     out = []
     for ws, got in claims.items():
         if len(got) != 1 or ws not in now:
@@ -126,7 +124,7 @@ def workspace_ops(companies, workspaces):
 
 def workspace_line(o):
     """作業場に付ける物の 1 行（--sync・--reorg の報告と --dry-run）。"""
-    return f"作業場 {o['workspace']}: 名前 {o['label'] or 'そのまま'}  印 {role.SEAT_LABELS[o['seat']] if o['seat'] else 'そのまま'}"
+    return f"作業場 {o['workspace']}: 名前 {o['label'] or 'そのまま'}  印 {role.seat_label(o['seat']) or 'そのまま'}"
 
 
 def apply_workspaces(ops, h):
@@ -158,9 +156,9 @@ def apply(ops, h):
     return out
 
 
-def flow_order(workspaces, attrs_of, skills_of):
+def flow_order(workspaces, seat_of, skills_of):
     """部署の作業場を仕事の流れの順にする動かし方の並び。1 件は {workspace, index, label}（herdr.move_workspace に渡す。順に当てる）。
-    workspaces は herdr の作業場の並び（herdr.workspaces の形。並びの順）、attrs_of は worktree の場所 → 部署の属性、skills_of は
+    workspaces は herdr の作業場の並び（herdr.workspaces の形。並びの順）、seat_of は worktree の場所 → (席のキー〔role.seat〕, 部署の名前)、skills_of は
     元の clone のルート → 会社の形の受け持ちの並び（[[skills]] の書き順）。もう流れの順なら空。"""
     ids = [w["workspace_id"] for w in workspaces]
     want = list(ids)
@@ -170,7 +168,7 @@ def flow_order(workspaces, attrs_of, skills_of):
             slots.setdefault(w["repo_root"], []).append(i)
     for root, places in slots.items():
         names = [x.get("name") for x in skills_of(root)]
-        for place, i in zip(places, sorted(places, key=lambda i: (*role.flow_rank(attrs_of(workspaces[i]["path"]), names), i))):
+        for place, i in zip(places, sorted(places, key=lambda i: (*role.flow_rank(*seat_of(workspaces[i]["path"]), names), i))):
             want[place] = ids[i]
     labels = {w["workspace_id"]: w.get("label") for w in workspaces}
     now, out = list(ids), []

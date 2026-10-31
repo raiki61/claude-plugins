@@ -199,8 +199,8 @@ class Flow(unittest.TestCase):
                 "skills": list(skills)}
 
     def test_a_reminder_goes_by_note_while_its_holder_stands_and_by_an_ask_once_it_is_folded(self):
-        # 担当者の部署が畳まれた（on-demand の受け持ちの tmp の部署）後は、知らせを拾う待ち受けが無い（頼み d3a7a1）
-        duty = {"name": "仕組み", "role": "担当", "on_demand": True}
+        # 担当者の部署が畳まれた（on-demand の受け持ちの畳む部署）後は、知らせを拾う待ち受けが無い（頼み d3a7a1）
+        duty = {"name": "仕組み", "role": "担当", "lifetime": "on-demand"}
         desk = {"attrs": {"name": "窓口", "role": "窓口"}, "path": str(self.root), "branch": "main", "head_office": True}
         standing = {"attrs": {"name": "仕組み", "role": "担当"}, "path": "/co/w", "branch": "work/ask-1"}
         same = lambda company, name: name
@@ -242,7 +242,7 @@ class Flow(unittest.TestCase):
 
     def test_a_refused_ask_is_asked_again_on_the_next_due(self):
         # 頼みが通らなければ reminded を書かず、次の --due で頼み直す（知らせに落とすと、立っていない担当者宛てで誰にも届かない）
-        duty = {"name": "仕組み", "role": "担当", "on_demand": True}
+        duty = {"name": "仕組み", "role": "担当", "lifetime": "on-demand"}
         desk = {"attrs": {"name": "窓口", "role": "窓口"}, "path": str(self.root), "branch": "main", "head_office": True}
         self.attrs = {"role": "担当", "name": "仕組み", "session": "s1"}
         self.call(reminds.put, remind="見る", on="2026-01-01")

@@ -16,20 +16,31 @@ COMPANY = {
     "": ("name", "description", "desk", "gh_user", "shared_instructions", "default_role", "desk_role", "roles", "skills", "land",
            "task"),
     "roles": ("name", "instructions", "model", "effort", "account", "settings", "deliver", "deliver_check", "holders", "ask_check",
-              "ask_holders", "persistent", "fresh", "machine", "tools", "former_names", "keepalive"),
+              "ask_holders", "lifetime", "context", "rent_or_buy", "machine", "tools", "former_names"),
     "roles.tools": ("name", "title", "description", "inputSchema", "command", "fallback_role"),
-    "roles.keepalive": ("every", "text"),
-    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "on_demand", "per_ask", "keepalive"),
+    "skills": ("id", "name", "description", "role", "model", "effort", "settings", "account", "start", "lifetime", "rent_or_buy"),
     "skills.start": ("report_to", "brief", "text", "every", "by"),
-    "skills.keepalive": ("every", "text"),
     "land": ("mode", "gate", "check", "bump", "main", "queue", "batch", "roles", "after"),
     "land.roles": ("mode", "gate", "check", "bump", "main"),
     "land.after": ("role", "tool", "input"),
     "task": ("after",),
     "task.after": ("role", "tool", "input"),
 }
-# 会社の形の外した鍵: 表 → {鍵: 行き先（読まなくなった訳と、代わりに書く所）}。今は無い
-COMPANY_RETIRED = {}
+# 会社の形の外した鍵: 表 → {鍵: 行き先（読まなくなった訳と、代わりに書く所）}。読まずに注記を出すだけ（古い鍵を読む期間は置かない。
+# 持ち主 2026-10-31「全部入れ替えたらいいでしょ？」）。外した鍵の役も --deliver・--ask を止める（role.load の odd）が、ゲートの鍵でない
+# 寿命・会話・keepalive の鍵（RETIRED_UNGATED）は止めない（会社の形を書き直すまで、その会社の部署が頼みも納品もできなくなるため）
+_LIFE = "部署の寿命は lifetime（per-ask・on-demand・always）に替えた"
+_ROB = "keepalive と要約（compact）の判断は、書かなくても全部の部署で効く。切るときだけ rent_or_buy = false を書く"
+COMPANY_RETIRED = {
+    "roles": {"persistent": f"{_LIFE}。persistent = true は lifetime = \"always\"",
+              "fresh": "次の頼みのときの会話は context（new・carry）に替えた。fresh = true は context = \"new\"",
+              "keepalive": _ROB},
+    "skills": {"on_demand": f"{_LIFE}。on_demand = true は lifetime = \"on-demand\"",
+               "per_ask": f"{_LIFE}。on_demand = true と per_ask = true は lifetime = \"per-ask\"",
+               "keepalive": _ROB},
+}
+
+RETIRED_UNGATED = ("persistent", "fresh", "keepalive")
 
 # dispatch の設定の表ごとの、読む鍵
 CONFIG = {
@@ -74,14 +85,11 @@ def company(raw, path):
         out += [say(f"{path}: roles[{i}]{name}", k, g) for k, g in odd("roles", r)]
         for j, t in enumerate(_rows(r, "tools") if isinstance(r, dict) else []):
             out += [say(f"{path}: roles[{i}]{name} の tools[{j}]", k, g) for k, g in odd("roles.tools", t)]
-        if isinstance(r, dict):
-            out += [say(f"{path}: roles[{i}]{name} の keepalive", k, g) for k, g in odd("roles.keepalive", r.get("keepalive"))]
     for i, s in enumerate(_rows(raw, "skills")):
         name = f"（{s['name']}）" if isinstance(s, dict) and isinstance(s.get("name"), str) else ""
         out += [say(f"{path}: skills[{i}]{name}", k, g) for k, g in odd("skills", s)]
         if isinstance(s, dict):
             out += [say(f"{path}: skills[{i}]{name} の start", k, g) for k, g in odd("skills.start", s.get("start"))]
-            out += [say(f"{path}: skills[{i}]{name} の keepalive", k, g) for k, g in odd("skills.keepalive", s.get("keepalive"))]
     out += land(raw.get("land"), path)
     task = raw.get("task")
     if isinstance(task, dict):

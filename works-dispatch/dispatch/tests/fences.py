@@ -49,7 +49,7 @@ WRITES = {
     # git: origin のブランチを取る・fast-forward する・作者の force-push に揃える・手元のブランチを消す
     "fetch": {"nodes/provision.py", "nodes/land.py"},
     "fast_forward": {"nodes/provision.py"},
-    "fast_forward_to": {"nodes/provision.py"},   # keep の部署の作業場を、次の頼みを受ける前にメインブランチの先頭へ進める
+    "fast_forward_to": {"nodes/provision.py"},   # always の部署の作業場を、次の頼みを受ける前にメインブランチの先頭へ進める
     "reset_keep": {"nodes/provision.py"},
     "delete_branch": {"nodes/clean.py"},
     # git: 部署の成果をメインブランチに入れる（ゲートのブランチとメインブランチへ push・ゲートのブランチを消す・手元のメインブランチを fast-forward・版を上げる一時の場所と commit）
