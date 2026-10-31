@@ -657,8 +657,21 @@ def f38():
     check(38, g.normalize_shell("echo ' __HEREDOC0__ '", 1) is None, "盾の置いた印が引用の中に在るのを読んだ")
 
 
+# 39. 区切りの語の一部だけを引用したヒアドキュメント(`<<\\EOF`・`<<E"OF"`・`<<"E"OF`)を、引用した区切りと読む(本文を展開しない)。
+# `$(` の中の `EOF)` も終わりの行と読む。bash 3.2 と 5 で読みの割れる形(置換の中の一部だけ引用した区切り・`EOF)` で終わる
+# 本文の括弧)は、今までどおり読まない
+def f39():
+    for delim in ("\\EOF", 'E"OF"', '"E"OF', "E\\OF"):
+        cands, blk, parsed = g.posting_bodies("gh pr comment 1 --body-file - <<%s\n$HOME %s\nEOF" % (delim, BODY), WORK)
+        check(39, parsed and cands == ["$HOME " + BODY] and not blk, "%s の本文を読まなかった: %r %r" % (delim, blk, parsed))
+    cands, blk, parsed = g.posting_bodies("x=$(cat <<EOF\nbody\nEOF)\ngh pr comment 1 --body '" + BODY + "'", WORK)
+    check(39, parsed and cands == [BODY] and not blk, "$( の中の EOF) で終わるヒアドキュメントで止めた: %r %r" % (blk, parsed))
+    for cmd in ("x=$(cat <<EOF\nb)\nEOF)\n" + GH, 'u="$(cat <<\\EOF\n)" ; ' + GH + '; echo "\nEOF\n)"'):
+        stops(39, cmd)
+
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

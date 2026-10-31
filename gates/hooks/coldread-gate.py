@@ -559,6 +559,54 @@ def _tick_end(text, i):
     return len(text)
 
 
+_HEREDOC_HEAD_RE = re.compile(r"<<(-)?\s*")
+# 区切りの語の部品: 引用しない字の並び・\ で引用した 1 字・単一引用・二重引用(中は区切りに使える字だけ)
+_DELIM_PART_RE = re.compile(r"""[A-Za-z0-9_.-]+|\\[A-Za-z0-9_.-]|'[A-Za-z0-9_.-]*'|"[A-Za-z0-9_.-]*\"""")
+_DELIM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+_WORD_END_RE = re.compile(r"(?=[ \t\r\n;&|<>()`]|$)")
+
+
+def _heredoc_at(text, i, in_sub, top_level):
+    r"""i の << が開くヒアドキュメント → (区切りを引用したか, 開始行の続き, 本文, 終わりの行の次の位置)。読めなければ None。
+
+    区切りの語の一部だけを引用した形(`<<\EOF`・`<<E"OF"`・`<<"E"OF`)も読む。bash は語から引用を除いた物(EOF)を区切りにし、
+    語のどこかを引用していれば本文を展開しない。前は読めない物として止め、`git commit -F - <<\EOF` の本文に「find」の字が
+    在るだけで探しのゲートにも止められた。引用を除いた後に区切りに使えない字の残る形(`<<E\$`)は、今までどおり読まない。
+    in_sub(`$(` の段の中)なら、区切りの直後の ) も終わりの行と見る(`x=$(cat <<EOF` … `EOF)`。bash は 3.2 も 5 も、
+    そこでヒアドキュメントを終えて置換を閉じ、後ろの行をコマンドとして走らせる。前は読めない物として止めた)。
+
+    置換の中(top_level でない)では、一部だけ引用した区切りの形と、`EOF)` で終わる本文に括弧・引用符・\ を含む形は読まない。
+    bash 3.2 は置換の閉じる ) を、ヒアドキュメントを知らずに括弧と引用符を数えて探すので、本文の中の ) で置換を閉じ、
+    bash 5 と走る物が割れる(`u="$(cat <<\EOF` の次の行の `)" ; gh …`)。"""
+    if not in_sub:
+        hm = HEREDOC_RE.match(text, i)
+        if hm:
+            return bool(hm.group(2)), hm.group(4), hm.group(5) or "", hm.end()
+    head = _HEREDOC_HEAD_RE.match(text, i)
+    j, parts = head.end(), []
+    while True:
+        p = _DELIM_PART_RE.match(text, j)
+        if p is None:
+            break
+        parts.append(p.group(0))
+        j = p.end()
+    quoted = any(w[0] in "\\'\"" for w in parts)
+    delim = "".join(w[1:] if w[0] == "\\" else w[1:-1] if w[0] in "'\"" else w for w in parts)
+    if not _DELIM_RE.fullmatch(delim) or not _WORD_END_RE.match(text, j):
+        return None
+    if not top_level and (len(parts) > 1 or parts[0][0] == "\\"):
+        return None   # 置換の中の、一部だけ引用した区切り
+    tail = re.compile(r"([^\r\n]*)\r?\n(?:(.*?)\r?\n)??%s%s(?:\r?\n|\r?$%s)"
+                      % ("\t*" if head.group(1) else "", re.escape(delim), r"|(?P<paren>)(?=\))" if in_sub else ""), re.S)
+    tm = tail.match(text, j)
+    if tm is None:
+        return None
+    body = tm.group(2) or ""
+    if in_sub and tm.group("paren") is not None and re.search(r"""[()'"`\\]""", body):
+        return None   # `EOF)` で終わる本文の括弧・引用符で、bash 3.2 が置換を閉じる所が割れる
+    return quoted, tm.group(1), body, tm.end()
+
+
 def _line_runs_on(rest):
     r"""ヒアドキュメントの開始行の続き(HEREDOC_RE の群 4)の後で、bash がその行を次の行へつなぐか。行継続(奇数個の \ で終わる)・
     閉じない引用(' " $'…')・閉じない置換(`$(`・`${`・`` ` ``)で終われば真。bash は本文を、つないだ行の終わりの後から読むので、
@@ -787,24 +835,24 @@ def shield_heredocs(command):
         elif text.startswith("<<<", i):
             i += 3   # ヒア文字列
         elif text.startswith("<<", i):
-            hm = HEREDOC_RE.match(text, i)
-            if hm is None:
-                i += 2   # 読めない形(`<<\EOF` など)。normalize_shell が、残った << を読めない物として止める
+            hd = _heredoc_at(text, i, top[0] == "(", len(stack) == 1)
+            if hd is None:
+                i += 2   # 読めない形(`<<1`・`<<E\$` など)。normalize_shell が、残った << を読めない物として止める
                 continue
-            if ticks and hm.end() > stack[ticks[-1]][1]:
+            quoted, rest, body, end = hd
+            if ticks and end > stack[ticks[-1]][1]:
                 return None, bodies   # 本文が閉じる ` の後の行に在る。bash はその行をコマンドとして走らせる
-            if _line_runs_on(hm.group(4)):
+            if _line_runs_on(rest):
                 return None, bodies   # 開始行が次の行へつながる。bash は本文を、つないだ行の後から読む
             if parens and parens[-1][1]:
                 # 算術の中の << は桁送りで、bash は後ろの行をコマンドとして走らせる(`$((1<<x))` の後の行)。`((cat <<x)` のように
                 # (( を 2 つのサブシェルと読み直す形ではヒアドキュメントになるので、どちらか言い切れない
                 return None, bodies
-            body = hm.group(5) or ""
-            bodies.append(Expands(body) if not hm.group(2) and re.search(r"[$`]", body) else body)
+            bodies.append(Expands(body) if not quoted and re.search(r"[$`]", body) else body)
             head = " " + (HEREDOC_MARK % (len(bodies) - 1)) + " "
-            new = head + hm.group(4) + "\n"
-            text = text[:i] + new + text[hm.end():]
-            shift(i, hm.end(), len(new) - (hm.end() - i))
+            new = head + rest + "\n"
+            text = text[:i] + new + text[end:]
+            shift(i, end, len(new) - (end - i))
             if len(stack) > 1:
                 pending.append((len(stack), i + len(new) - 1))
             i += len(head)
