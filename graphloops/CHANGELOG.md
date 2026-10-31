@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.46.6] - 2026-11-01
+
 ### Fixed
 - 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の mutmut の job で、`tests/py/test_mutmut_config.py` の `test_also_copy_lists_every_place_the_tests_read` が赤だったのを直した（0.46.4 と 0.46.5 で直した赤が先に止めていて、見えていなかった）。この試験は、mutmut が graphloops/ を写して試験を走らせる作業用の複製（graphloops/mutants/）の中で、試験が読むファイルのうち `setup.cfg` の `[mutmut]` の `also_copy`（写す物の一覧）に並べ漏れた物が無いかを見る。mutmut は、どの試験がどの関数を通るかを数え終えると、その結果を複製の直下の `mutmut-stats.json` に書く。試験はこれを並べ漏れと数えていた。mutmut が複製に自分で書くファイル（`mutmut-stats.json`・`mutmut-cicd-stats.json`・`mutmut-debug.log`）は、写した物ではないので比べないようにした。
 
