@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=844
+EXPECTED_CHECKS=845
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5765,6 +5765,17 @@ for c in "(cd $ng && echo \")\" && gh issue comment 1 --body hi)" "(cd $ng && ec
   "$@" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
 done
 [ $ok = 1 ] && echo DG_QUOTED_PAREN_CD_OK' sh "$DG_REPO_NG" env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
+# 繰り返し・関数の在るコマンドでは、gh より後ろに書いた cd も次の回・関数を呼ぶ前に走りうるので、-R の無い投稿は宛先不明にする
+# (前は gh より前のコマンドだけを見て、走る場所の repo を宛先と見て通した)。cd の無い繰り返しは今までどおり
+expect_output 0 "DG_LOOP_CD_AFTER_OK" "destgate: 繰り返し・関数の中の gh の後ろの cd が在れば、-R の無い宛先を不明にする" \
+    sh -c 'ok=1; ng=$1; shift
+for c in "for d in /a $ng; do gh issue comment 1 --body hi; cd \$d; done" "f() { gh issue comment 1 --body hi; }; cd $ng && f"; do
+  "$@" "$c" | grep -q 特定できない || { ok=0; echo "通した: $c"; }
+done
+for c in "for i in 1 2; do gh issue comment \$i --body hi; done" "gh issue comment 1 --body hi; cd $ng"; do
+  [ "$("$@" "$c")" = ALLOW_EMPTY ] || { ok=0; echo "止めた: $c"; }
+done
+[ $ok = 1 ] && echo DG_LOOP_CD_AFTER_OK' sh "$DG_REPO_NG" env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK"
 # コマンド名の位置の展開だけの語(`$(true) gh …`・`env $(cat .env | xargs) gh …`)は越えて後ろの gh の宛先を見る。展開は GH_REPO= にも
 # 開きうるので、-R の無い投稿は宛先不明にする(前はその語をコマンド名と読み、gh を見ずに通していた)
 expect_output 0 "DG_EXPANSION_HEAD_OK" "destgate: 展開だけのコマンド名の後ろの gh の宛先を見て、-R が無ければ宛先不明にする" \

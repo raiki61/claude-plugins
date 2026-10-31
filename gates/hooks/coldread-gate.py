@@ -2903,9 +2903,14 @@ class BodyFiles:
         cwd を変えるコマンド(cd・pushd・popd を語のどこかに持つもの。`if cd x`・`builtin cd x` も)が前に在れば、
         `cd <絶対パス>` が必ず走り、そこから k まで CD_BETWEEN(既定は && だけ)で続く形でだけ、その先を cwd と見る。
         k より前に閉じたサブシェル・置換の中の cd は、k の走る場所を変えないので見ない(_closed_before)。
+        繰り返し・関数の在るコマンド(looped)では、k より後ろに書いた cd も次の回・関数を呼ぶ前に走りうるので、在れば決まらない物と
+        見る(前は前のコマンドだけを見て、`for d in /a /evil; do gh pr comment 1 -b hi; cd $d; done` の 2 回目の gh の場所と、
+        `f() { gh …; }; cd /x && f` の gh の本文ファイルを、cd の前の場所で読んでいた)。
         """
         k = self.k if k is None else k
         if self.moved:
+            return None
+        if self.looped and any(t in CD_WORDS for c in self.cmds[k + 1:] for t in c.args):
             return None
         cwd = self.cwd
         for j in range(k):

@@ -1351,8 +1351,32 @@ def f74():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(74, not parsed or bool(blk), "引用か \\ の後の ) だけの語を閉じと読んで本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
 
+# 75. 繰り返し・関数の在るコマンドでは、gh より後ろに書いた cd も次の回・関数を呼ぶ前に走りうるので、gh の走る場所を決まらない物と
+# 見る(前は gh より前のコマンドだけを見て、`for i in 1 2; do gh … --body-file x.md; cd /o; done` の 2 回目が読む /o/x.md でなく
+# フックの場所の x.md を読み、`for d in /a /evil; do gh pr comment 1 -b hi; cd $d; done` の宛先を走る場所の repo と見た)。
+# cd の無い繰り返し・絶対パスの本文ファイル・繰り返しの無いコマンドの後ろの cd は今までどおり
+def f75():
+    sub = os.path.join(WORK, "sub")
+    os.makedirs(sub, exist_ok=True)
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    for cmd in ("for i in 1 2; do gh pr comment 1 --body-file x.md; cd %s; done", "post() { gh pr comment 1 --body-file x.md; }; cd %s && post",
+                "while true; do gh pr comment 1 --body-file x.md; pushd %s; done"):
+        cmd = cmd % sub
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(75, not parsed or bool(blk), "繰り返しの中の gh の後ろの cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
+    for cmd in ("for i in 1 2; do gh pr comment $i --body-file x.md; done", "gh pr comment 1 --body-file x.md; cd %s" % sub,
+                "for i in 1 2; do gh pr comment $i --body-file %s; cd %s; done" % (os.path.join(WORK, "x.md"), sub)):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(75, parsed and cands == [BODY] and not blk, "繰り返しの外か cd の無い形で本文ファイルを読まなかった: %r → %r %r" % (cmd, cands, blk))
+    calls = g.analyze("for d in /a /evil; do gh pr comment 1 -b hi; cd $d; done", WORK).calls
+    check(75, [c[4] for c in calls if c[0] == ("pr", "comment")] == [None], "繰り返しの中の後ろの cd で宛先の場所を読めると見た: %r" % calls)
+    calls = g.analyze("for i in 1 2; do gh pr comment $i -b hi; done", WORK).calls
+    check(75, [c[4] for c in calls if c[0] == ("pr", "comment")] == [WORK], "cd の無い繰り返しで宛先の場所を見失った: %r" % calls)
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
