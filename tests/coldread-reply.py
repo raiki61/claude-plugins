@@ -6,10 +6,12 @@
 (依頼文を見る代役は、自分で読んでからこれを呼ぶ)。
 
 使い方:
-  coldread-reply.py [KIND[/CAUSE][+carried]=TEXT[::QUOTE...] ...]   指摘の答え(引数なしは指摘ゼロ。:: の後ろは quotes の要素)
+  coldread-reply.py [KIND[/CAUSE][+carried][+unsure]=TEXT[::QUOTE...] ...]   指摘の答え(引数なしは指摘ゼロ。:: の後ろは quotes の要素)
   coldread-reply.py --verdicts [N=old|new|still|fixed ...]  比べる係(OLD/NEW)・問い直す係(STILL/FIXED)の答え
   coldread-reply.py --error MESSAGE                      is_error の答え(認証切れの形)
-KIND は stuck・echo・question・guess・redundant、CAUSE は word・referent・flow。
+KIND は stuck・echo・question・guess・redundant、CAUSE は word・referent・flow・ask。
+止める種類(stuck・echo)には sure(読み手が解けないと言い切った印)を true で付ける。+unsure なら false にする
+(ゲートは書き直しの 2 回目から sure の付いた物だけで止める。試験の多くは 2 回目からも止まる読み手を模すので、既定は true)。
 """
 import json
 import sys
@@ -23,7 +25,9 @@ def finding(arg):
     head, sep, text = arg.partition("=")
     if not sep:
         sys.exit("coldread-reply: KIND=TEXT の形でない: %r" % arg)
-    head, carried = (head[:-len("+carried")], True) if head.endswith("+carried") else (head, False)
+    head, *marks = head.split("+")
+    if set(marks) - {"carried", "unsure"}:
+        sys.exit("coldread-reply: 知らない印: %r" % arg)
     kind, _, cause = head.partition("/")
     text, *quotes = text.split("::")
     item = {"kind": kind, "text": text}
@@ -31,8 +35,10 @@ def finding(arg):
         item["quotes"] = quotes
     if cause:
         item["cause"] = cause
-    if carried:
+    if "carried" in marks:
         item["carried"] = True
+    if kind in ("stuck", "echo"):
+        item["sure"] = "unsure" not in marks
     return item
 
 

@@ -2460,7 +2460,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=864
+EXPECTED_CHECKS=872
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -5229,6 +5229,40 @@ env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$C
 env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "投稿を止めている詰まり" "3 回目からも、前の回から残った詰まりでは止める" \
     env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_CARRIED" "$CR_POST"
+# 2 回目からは、読み手が解けないと言い切った(sure)詰まりだけで止める。言い切っていない物は疑問として返す
+# (gates/docs/coldread-stop-cost-2026-10-29.md の型 A。持ち主 2026-10-31 に採った)
+CR_STUB_UNSURE='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/flow+unsure=ZZUNSURE の言い回しが引っかかる"'
+env COLDREAD_TEST_SESSION=sure1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "疑問: (止めない。読み手が解けないと言い切っていない) 詰まり: (筋) ZZUNSURE" \
+    "2 回目は、読み手が言い切っていない詰まりでは止めず、疑問として返す" \
+    env COLDREAD_TEST_SESSION=sure1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_UNSURE" "$CR_POST"
+expect_output 0 "投稿を止めている詰まり" "1 回目は、言い切っていない詰まりでも止める" \
+    env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_UNSURE" "$CR_POST"
+expect_output 0 "sure を true にする が届いた" "2 回目の読み手には、言い切れる物にだけ sure を付けよと頼む" \
+    env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees 'sure を true にする')" "$CR_POST"
+# 読み手が詰まりの根拠に引いた字(quotes)が本文に無い指摘は、1 回目から止めない(型 D)。引いた字が本文に在れば止める。
+# 空白・頭と終わりの括弧・途中を省いた「…」は外して比べる
+CR_STUB_MISQUOTE='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word=ZZMISQUOTE が分からない::本文に無い言い換えの文"'
+expect_output 0 "疑問: (止めない。読み手が引いた字が本文に無い) 詰まり: (語) ZZMISQUOTE" \
+    "読み手が引いた字が本文に無い詰まりでは止めず、疑問として返す" \
+    env COLDREAD_TEST_SESSION=quote1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_MISQUOTE" "$CR_POST"
+CR_STUB_QUOTED='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word=ZZQUOTED が分からない::「これは検査対象の…本文です。」"'
+expect_output 0 "投稿を止めている詰まり" "引いた字が本文に在る詰まりでは止める(括弧と途中の「…」は外して比べる)" \
+    env COLDREAD_TEST_SESSION=quote2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_QUOTED" "$CR_POST"
+# 求めること・急ぐかの詰まり(cause の ask)は、文書の検査では止めず、投稿の前の検査では止める(型 B)
+CR_STUB_ASK='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/ask=ZZASK 何を求めているか言えない" "stuck/word=ZZWORD が分からない"'
+expect_output 0 "詰まり: (求めること・急ぐか) ZZASK" "投稿の前の検査は、求めること・急ぐかの詰まりで止める" \
+    env COLDREAD_TEST_SESSION=ask1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_ASK" "$CR_POST"
+expect_output 0 "DOC_ASK_OK" "文書の検査は、求めること・急ぐかの詰まりを止めない側(疑問)に移し、ほかの詰まりは止める" \
+    env CLAUDE_CONFIG_DIR="$CR_CARRY_CFG" COLDREAD_READER_CMD="$CR_STUB_ASK" "$PY_BIN" -c "$CR_LOAD"$'\n''found = g.read_doc("本文")
+stuck = [i["text"] for i in found["stuck"]]
+moved = [i["text"] for i in found["question"]]
+ok = stuck == ["ZZWORD が分からない"] and moved == ["(止めない。文書の検査は求めること・急ぐかで止めない) 詰まり: (求めること・急ぐか) ZZASK 何を求めているか言えない"]
+print("DOC_ASK_OK" if ok else "BAD %s" % ascii((stuck, moved)))' "$ROOT/gates/hooks/coldread-gate.py"
+# GitHub の画面で読む読み手には、#番号の参照と「本文」の指す先を解けた物として読ませる(型 C)
+expect_output 0 "NUMBER_NOTE_OK" "スレッドと新しい PR・issue の読み手に #番号の読み方を、スレッドの読み手に「本文」の指す先を渡す" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''ok = g._NUMBER_NOTE in g.SCREEN_PROMPT and g._NUMBER_NOTE in g.NEW_PROMPT and g._NUMBER_NOTE not in g.COLD_PROMPT and "「本文」とだけ書いて指す" in g.SCREEN_PROMPT
+print("NUMBER_NOTE_OK" if ok else "BAD")' "$ROOT/gates/hooks/coldread-gate.py"
 # 持ち主の許しの口は外した。入力欄で撃たれるフックは無い
 expect_output 0 "NO_PASS_MODE" "持ち主の許しの口はゲートにもフックの設定にも無い" \
     "$PY_BIN" -c "$CR_LOAD"$'\n''import os

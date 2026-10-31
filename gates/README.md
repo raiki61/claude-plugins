@@ -95,7 +95,7 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
   under 200 characters. It does not apply to read-only gh commands, or to gh with `--help`, `-h`, or `--version` (which print help and end)
 - It also stops when coldreader cannot be started (because no check was done). If that does not get fixed, hand it to the owner (the person who runs this Claude Code session and owns the repository)
 - coldreader is started with `claude -p --output-format json --json-schema`, and the gate reads only the `structured_output` field: a list of findings, each with
-  a kind key (`stuck`, `echo`, `question`, `guess`, `redundant`), an optional cause key (`word`, `referent`, `flow`), `carried`, and the text. The Japanese labels in the
+  a kind key (`stuck`, `echo`, `question`, `guess`, `redundant`), an optional cause key (`word`, `referent`, `flow`, `ask`), `carried`, `sure`, the passages it quotes (`quotes`), and the text. The cause `ask` means the reader cannot tell what the text asks of it, or whether it is urgent. The Japanese labels in the
   stop reason are made from these keys afterwards; the reader's prose is never parsed. An answer that is not in this shape (not JSON, `is_error`, an unknown kind,
   an empty text) is not read as "no findings": the post is stopped. The gate also stops when it cannot read its own hook input (it used to let the command through)
 - When the screen cannot be fetched (no gh, no auth, offline), the reader reads with zero context and the writer is told so (it does not stop)
@@ -113,6 +113,13 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
   `$CLAUDE_CONFIG_DIR/coldread-gate/rounds/`, and deleted once the post passes (ones older than 30 minutes are deleted when writing).
   The previous round is carried over only when 8 or more of the text's 16 fingerprints match; a text rewritten by more than half, and a different
   post to the same destination, are read in full as a 1st round
+- **From the 2nd round, it stops only on findings the reader states it cannot resolve** (owner 2026-10-31, choosing the fixes in `docs/coldread-stop-cost-2026-10-29.md`).
+  The reader is asked to set `sure: true` on a blocker or echo only when it cannot fill in the meaning even by guessing. A finding without it (the reader could follow the gist, filled it in by guessing,
+  or only stumbles on the wording) is returned as a question without stopping. In the 2026-10-28/29 records, most stops from the 2nd round on were of this kind, and the reader itself often wrote that it could follow the gist
+- **A blocker whose quoted passage is not in the text does not stop the post** (owner 2026-10-31, same record, type D). Each blocker carries the passages the reader copied
+  from the text (`quotes`). If one of them is not in the text (compared ignoring whitespace, brackets at both ends, and an ellipsis `…` that skips the middle), the finding is returned as
+  a question without stopping, on every round. In the records, these stops were the reader's wobble: the same text passed on the next round. A blocker without `quotes` still stops.
+  Readers that see the GitHub page are also told that a `#number` reference is a link that can be opened, and (for a reply) that 「本文」 ("the body") alone means this PR's or issue's body
 - **From the 3rd round, it stops only on blockers and echoes left over from the previous round** (owner 2026-10-17: 「ある程度出たと判断したら進む形にしよう」, "once we judge enough has come out, let it move on").
   The previous round's findings are passed to the reader split into the ones that stopped the post and the ones that did not. The reader sets `carried: true` on a blocker
   (`stuck`) or echo (`echo`) finding left over from the previous round, and findings without it are returned as questions without stopping. The number of findings that stop is capped at
@@ -302,6 +309,8 @@ only records the path per role that wrote it and ends. The tools it picks up are
 with the same request text as for posts (`COLD_PROMPT` in `coldread-gate.py`; the single source of truth for the first-reader viewpoint is this one place).
 If there are blockers, the findings are returned and the writing role is made to continue (the writes are not undone). Guesses (places the reader filled in by guessing) and questions are returned along with blockers.
 If there are only guesses and questions, the writing role is not woken, and `guess=<count>` is recorded in `docs.log` (as with the post gatekeeper and the branch gate, only blockers stop).
+Blockers with the cause `ask` (the reader cannot tell what the document asks of it, or whether it is urgent) do not stop documents, in this read and in the branch gate; they are returned as questions.
+Record documents such as a CHANGELOG, a design doc, or a template do not ask anything of the reader (owner 2026-10-31, type B in `docs/coldread-stop-cost-2026-10-29.md`). The post gatekeeper still stops on them.
 Back when guesses also woke the role, the reader wrote down even guesses that did not hinder understanding, so almost every document came with findings, and every fix got the fixed section
 read again (in 5 hours on 2026-10-17: 12 blockers against 395 guesses; 17% of the usage spent on fix cycles).
 

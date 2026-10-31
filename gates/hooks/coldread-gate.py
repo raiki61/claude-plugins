@@ -18,7 +18,8 @@ works-dispatch の dispatch.py がほかの会話へ送る本文は、納品の�
 書き直しを避けて未検査のまま出す口に 22 回使われた。今は書かれていても効かせず、書いた事実だけを記録する)。
 読み役が起動できないときも止める。往復の上限は置かない(持ち主 2026-10-17)。同じ投稿の書き直しは、2 回目から
 前の回の指摘と直した差分を読み手に渡し、解けていない指摘と直しが持ち込んだ物だけで止め、CARRY_ONLY_ROUND 回目(3)からは
-前の回から残った物だけで止める(FOLLOWUP_NOTE)。持ち主に通させる口は置かない(持ち主 2026-10-17)。
+前の回から残った物だけで止める(FOLLOWUP_NOTE)。2 回目からは、読み手が「解けない」と言い切った(sure)物だけで止める(UNSURE_NOTE)。
+読み手が詰まりの根拠に引いた字(quotes)が本文に無い指摘は、回に関わらず止めない(MISQUOTED_NOTE)。持ち主に通させる口は置かない(持ち主 2026-10-17)。
 同じ投稿が STUCK_MARK 回(3)続けて止まったら stuck.log に残す(初見指摘は読み手ごとに揺れ、
 完全収束しないため。firstread-loop と同じ知見。2026-09-07 の試走: 画面を広げた後でも、
 3,693 字の実物の返信が 3 回とも別の詰まり 1〜2 件で止まり——4:27/7:40=58% を「計算が合わない」
@@ -3841,9 +3842,10 @@ def new_item_screen(sub, args, cwd, body):
 # 画面モードにだけ在る「冗長」フィールド——画面に有るものを本文で説明した箇所を、止めずに書き手へ返す。
 # 文脈ゼロの依頼文には冗長を置かない(画面が無いので、冗長かどうかを読み手が決められない)。
 _FORMAT_COMMON = """- (1)〜(4) に該当し、その箇所で意味が取れず次の文へ読み進められなかったもの → 詰まり(kind は stuck)。
-  詰まりは次の 3 つのどれかだけ。cause に word・referent・flow のどれかを入れる:
-  word は語・略語・識別子の意味が取れない / referent は何・誰・どこを指すかが取れない / flow は文と文のつながり・この文が何を言っているかが取れない
-  (1)(2) が言えない・掴めないのは flow として書く
+  詰まりは次の 4 つのどれかだけ。cause に word・referent・flow・ask のどれかを入れる:
+  word は語・略語・識別子の意味が取れない / referent は何・誰・どこを指すかが取れない / flow は文と文のつながり・この文が何を言っているかが取れない /
+  ask は (1) の求めていることが言えない、または (2) の「急ぐか」が掴めない
+  (2) のうち「急ぐか」のほかが掴めないのは flow として書く
   詰まりは quotes に、詰まった箇所の本文を 1 字も変えずに写した文を 1 つ以上入れる(本文の 1 行の中の続いた 4 字以上。言い換えた文・
   本文に無い文は入れない)
   この検査が見るのは通じやすさだけで、出してよいか・中身が正しいか・判断に足りるかは見ない。意味は取れたが、
@@ -3875,6 +3877,9 @@ COLD_PROMPT = """あなたはこの文章について何も知らない初見の
 以下の「本文」だけを読み、理解を実際に妨げた事実だけを報告してください。
 
 """ + _COLD_VIEWS % "本文の中だけでは"
+# GitHub の画面で読む本文の #番号。読み手が「#1234 が何か分からない」と止め、書き手が番号の中身を本文で説明し直していた
+# (gates/docs/coldread-stop-cost-2026-10-29.md の型 C。持ち主 2026-10-31 に採った)。画面に題が無くても、GitHub はリンクにして開ける
+_NUMBER_NOTE = "#番号の付いた参照(#123 など)は、GitHub がリンクにして開ける。指す先は分かっているものとして読み、指す先の詰まりにしない"
 # 新しい PR/issue を開いた読み手が、本文の周りに見ているもの(new_item_screen が組む物)
 NEW_SCREEN_ITEMS = {"PR": "題・リポジトリ・取り込む先と元のブランチ・変更ファイルの一覧・本文が参照している番号の題と状態",
                     "issue": "題・リポジトリ・本文が参照している番号の題と状態"}
@@ -3889,7 +3894,7 @@ NEW_PROMPT = """あなたはこの {noun} を初めて開いた読者です。�
 画面に見えているもの({items})は「何を指しているか分かっている」ものとして読み、本文で説明されていなくても詰まりにしない。
 画面が分からせるのは何を指しているかであって、語の意味ではない。画面の題に有る語でも、本文がそれを自分の言葉として使い、画面と本文を合わせても意味が取れなければ詰まりにする。
 本文が参照している番号の題は、その番号の側の物で、本文の書き手には直せない。その題の中の語が分からなくても詰まりにしない(本文がその語を自分の言葉として使っているときだけ、本文の側の詰まりにする)。
-
+""" + _NUMBER_NOTE + """
 """ + _COLD_VIEWS % "画面と本文を合わせても"
 # 読み手が画面で見ているものの列挙。依頼文(既知の範囲)と deny の直し方(説明しないもの)の両方がこれを使う
 SCREEN_ITEMS = ("PR/issue の題と番号と状態・リポジトリ・相手の名前・元の指摘の文言と印・file と行・"
@@ -3906,6 +3911,8 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 - 画面に見えているもの(""" + SCREEN_ITEMS + """)は「何を指しているか分かっている」ものとして読む。それらが本文で説明されていなくても詰まりにしない
 - 画面は語彙の辞書ではない。相手の言い回し・業界の外では通じない横文字・比喩(例: 北極星・ニアバイ・クロージング)を、本文が自分の地の文として使っている箇所は「なぞり」(kind は echo)として報告する——画面に同じ語が有っても、画面を持たずにこのスレッドを後から読む人には解けない。定着した技術用語・製品名・file 名・相手が付けた印は含めない。相手の語を引用して指す(「reviewer_x さんの言う『ニアバイ』は」「[block] の 2 件目は」)のはなぞりではない
 - 参照されている番号の題は、その番号の側の物で、本文の書き手には直せない。その題の中の語が分からなくても詰まりにしない(本文がその語を自分の言葉として使っているときだけ、本文の側の詰まりにする)
+- """ + _NUMBER_NOTE + """
+- 本文が「本文」とだけ書いて指すのは、この PR・issue の本文(画面に見えている)。指す先の詰まりにしない
 - 本文が、画面に見えているものを改めて説明している箇所(誰宛か・どの番号の PR か・PR が何をするものか・相手の印や語の意味・相手が何を書いたか)は「冗長」(kind は redundant)として報告する(読み手は既に見ている)
 
 見る観点:
@@ -3949,6 +3956,7 @@ FOLLOWUP_NOTE = """これは同じ投稿の書き直しの %d 回目の検査で
 
 %s足した文の意味が取れていて、その中身(根拠・判断の材料・正しさ)を確かめたいだけなら、それも詰まりにせず疑問にする(書き手が答えようとして根拠を足すと、足した文がまた問われ、本文が膨らみ続ける)。
 前の回の指摘に応えた直しを戻させる指摘(足した説明を冗長として削れ、など)は出さない。その直しで分かりにくくなったなら、そのことを詰まりとして書く。
+詰まり・なぞりの要素には sure を付ける。推測でも埋められず、その箇所の意味は解けないと言い切れるときだけ sure を true にする。大筋は読めた・推測で埋められた・言い回しが引っかかるだけ、というときは sure を false にする(その指摘は投稿を止めず、書き手へ参考として返る)。
 
 """
 # 2 回目は、前の回から残った物と、直しが新しく生んだ物で止める
@@ -4017,7 +4025,7 @@ def followup_prompt(prompt, prev, body):
 KINDS = {"stuck": "詰まり", "echo": "なぞり", "question": "疑問", "guess": "補完", "redundant": "冗長"}
 STOP_KINDS = ("stuck", "echo")
 COLD_KINDS = ("stuck", "question", "guess")   # 文脈ゼロ・新しい PR/issue の読み手(画面の語を知らないので冗長・なぞりを問わない)
-CAUSES = {"word": "語", "referent": "指す先", "flow": "筋"}   # 詰まりの訳(依頼文の _FORMAT_COMMON)
+CAUSES = {"word": "語", "referent": "指す先", "flow": "筋", "ask": "求めること・急ぐか"}   # 詰まりの訳(依頼文の _FORMAT_COMMON)
 # 読み手が詰まり(stuck・なぞり)の text を、書き出してから終わりで取り消した物(「…説明されているので意味は取れる。詰まりなし。」
 # 「…推測可能。詰まりとしては扱わない。」)は、止める指摘ではない。依頼文で疑問か補完にせよと言っても書く
 # (2026-10-19 に実測: ブランチのゲートの読み手〔haiku〕が詰まり 4 件のうち 3 件をこの形で出し、--land が止まった)。
@@ -4055,6 +4063,7 @@ def reader_schema(kinds):
                 "kind": {"type": "string", "enum": list(kinds)},
                 "cause": {"type": "string", "enum": list(CAUSES)},
                 "carried": {"type": "boolean"},
+                "sure": {"type": "boolean"},
                 "text": {"type": "string", "minLength": 1},
                 "quotes": {"type": "array", "items": {"type": "string", "minLength": 1}},
             },
@@ -4087,7 +4096,7 @@ def reader_reply(raw):
 
 
 def sort_findings(reply, kinds=tuple(KINDS)):
-    """読み手の答え(structured_output)を種類ごとの指摘の列にする。各指摘は {text, cause, carried, quotes}。
+    """読み手の答え(structured_output)を種類ごとの指摘の列にする。各指摘は {text, cause, carried, sure, quotes}。
 
     知らない種類・空の text・形の違う要素は読み飛ばさずに ReaderShape にする(決まり 4)。--json-schema が形を
     守らせるが、差し替えの読み手(COLDREAD_READER_CMD)と schema の外の版の claude はここで止める。"""
@@ -4098,16 +4107,61 @@ def sort_findings(reply, kinds=tuple(KINDS)):
     for item in items:
         if not (isinstance(item, dict) and item.get("kind") in kinds and isinstance(item.get("text"), str)
                 and item["text"].strip() and item.get("cause") in (None, *CAUSES)
-                and isinstance(item.get("carried", False), bool)
+                and isinstance(item.get("carried", False), bool) and isinstance(item.get("sure", False), bool)
                 and isinstance(item.get("quotes", []), list) and all(isinstance(q, str) and q for q in item.get("quotes", []))):
             raise ReaderShape("指摘の形が違う: %r" % str(item)[:150])
         if item["kind"] in STOP_KINDS and retracted(item["text"]):
             found["question"].append({"text": "(読み手が取り消した%s) %s" % (KINDS[item["kind"]], item["text"].strip()),
-                                      "cause": None, "carried": item.get("carried", False), "quotes": []})
+                                      "cause": None, "carried": item.get("carried", False), "sure": False, "quotes": []})
             continue
         found[item["kind"]].append({"text": item["text"].strip(), "cause": item.get("cause"),
-                                    "carried": item.get("carried", False), "quotes": item.get("quotes", [])})
+                                    "carried": item.get("carried", False), "sure": item.get("sure", False),
+                                    "quotes": item.get("quotes", [])})
     return found
+
+
+def demote(found, keeps, label):
+    """止める種類の指摘のうち keeps(指摘 → bool)が偽の物を、label を頭に付けて疑問に移す(止めずに書き手へ返す)。"""
+    for kind in STOP_KINDS:
+        moved = [item for item in found[kind] if not keeps(item)]
+        found[kind] = [item for item in found[kind] if keeps(item)]
+        found["question"] += [dict(item, text="(%s) %s" % (label, finding_line(kind, item)), cause=None, carried=False)
+                              for item in moved]
+    return found
+
+
+# 投稿の前の検査で、読み手が詰まりの根拠に引いた字(quotes)が本文に無い指摘は止めない。同じ本文が次の回には通る、読み手の揺れだった
+# (gates/docs/coldread-stop-cost-2026-10-29.md の型 D。持ち主 2026-10-31 に採った)。引いた字の在る・無いは、空白を除いて比べ、
+# 頭と終わりの括弧と、途中を省いた「…」は外して比べる(読み手の写し方の癖で、正しい指摘を落とさない向きに倒す)。quotes の無い指摘は今までどおり止める
+MISQUOTED_NOTE = "止めない。読み手が引いた字が本文に無い"
+_QUOTE_EDGE = "「」『』\"'“”‘’"
+
+
+def _squash(text):
+    return re.sub(r"\s+", "", text)
+
+
+def quoted_in(item, text):
+    """指摘(item)の quotes が全部 text に在るか(quotes が無ければ真)。"""
+    body = _squash(text)
+    for quote in item.get("quotes") or []:
+        parts = [_squash(p).strip(_QUOTE_EDGE) for p in re.split(r"…+|\.{3,}", quote)]
+        if any(p and p not in body for p in parts):
+            return False
+    return True
+
+
+# 投稿の書き直しの 2 回目からは、読み手が sure(推測でも埋められず、解けないと言い切った印)を付けた指摘だけで止める。言い切っていない物は
+# 止めずに書き手へ返す。2 回目以降の止めの多くは、読み手が自分で「大筋は読めた」と書いた言い回しの引っかかりで、中身は良くならなかった
+# (gates/docs/coldread-stop-cost-2026-10-29.md の型 A。持ち主 2026-10-31 に採った)。印は依頼文(FOLLOWUP_NOTE)で頼む。印の無い指摘も
+# 言い切っていない物として扱う(読み手の地の文を読まずに、キーで決める。docs/standards/machine-readable-values.md の決まり 3)
+UNSURE_NOTE = "止めない。読み手が解けないと言い切っていない"
+
+
+# 文書の検査(ターンの終わりの手元の文書と、メインブランチに入れる前の branch-check)では、求めること・急ぐかの詰まり(cause の ask)で
+# 止めない。CHANGELOG・設計書・テンプレートのような記録の文書は、読者に何かを求める文書ではない(gates/docs/coldread-stop-cost-2026-10-29.md
+# の型 B。持ち主 2026-10-31 に採った)。投稿の前の検査では今までどおり止める
+DOC_ASK_NOTE = "止めない。文書の検査は求めること・急ぐかで止めない"
 
 
 def finding_line(kind, item):
@@ -5185,6 +5239,9 @@ def main() -> None:
              + "検査できていないので止めた。手で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
              + OWNER_NOTE, len(body), fp)
 
+    found = demote(found, lambda item: quoted_in(item, text), MISQUOTED_NOTE)
+    if round_no >= 2:
+        found = demote(found, lambda item: item["sure"], UNSURE_NOTE)
     if round_no >= CARRY_ONLY_ROUND:
         found = carried_only(found, prev, text != prev.get("body"))
     blocking, questions, fills, redundant, traced = (
@@ -6261,9 +6318,11 @@ def doc_prompt(body, focus=False, premise=""):
 
 
 def read_doc(text, focus=False, premise="", timeout=DOC_READ_TIMEOUT):
-    """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、種類ごとの指摘を返す。答えの形が違えば例外。premise はスキルのフォルダの補足(skill_premise)。"""
-    return sort_findings(run_reader(doc_prompt(text, focus, premise), reader_schema(COLD_KINDS),
-                                    model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout), COLD_KINDS)
+    """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、種類ごとの指摘を返す。答えの形が違えば例外。premise はスキルのフォルダの補足(skill_premise)。
+    求めること・急ぐかの詰まりは止めない側に移す(DOC_ASK_NOTE)。"""
+    found = sort_findings(run_reader(doc_prompt(text, focus, premise), reader_schema(COLD_KINDS),
+                                     model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout), COLD_KINDS)
+    return demote(found, lambda item: item["cause"] != "ask", DOC_ASK_NOTE)
 
 
 # ---- 書き換えた所の抜き出し ----
