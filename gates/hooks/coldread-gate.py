@@ -2748,9 +2748,11 @@ class BodyFiles:
         self.k, self.moved = 0, False
         self._assigned = None
         self._sq = None
-        # 繰り返し・関数の中では、gh の後に書いたコマンドも次の gh の前に走る。関数は本体の形(`{ }`・`( )`・`if`)に依らず、
-        # 定義が在れば見る(前は閉じの `done`・`}` だけを見て、`f() ( gh …; ); cd /x && f` の gh の本文ファイルを cd の前の場所で読んでいた)
-        self.looped = any(c.args[:1] in (["done"], ["}"]) for c in cmds) or defines_function(cmds)
+        # 繰り返し・関数の中では、gh の後に書いたコマンドも次の gh の前に走る。繰り返しは閉じの `done` か頭の `for`・`select`
+        # (本体を `{ }` で書く `for x in a b; { …; }` も)で、関数は本体の形(`{ }`・`( )`・`if`)に依らず定義で見る(前は閉じの `done`・`}`
+        # だけを見て、`f() ( gh …; ); cd /x && f` の gh の本文ファイルを cd の前の場所で読み、関数でも繰り返しでもない `{ gh …; cd /x; } | tee
+        # log` の gh の本文ファイルと宛先を決まらない物として止めていた)
+        self.looped = any(c.args[:1] in (["done"], ["for"], ["select"]) for c in cmds) or defines_function(cmds)
 
     def at(self, k, prefix):
         """k 番目の gh 呼び出しを見る。prefix は gh より前の語(env -C・sudo -D・--chdir・find -execdir などは cwd を変える。moves_dir)。"""

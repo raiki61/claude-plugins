@@ -1397,8 +1397,29 @@ def f76():
     calls = g.analyze("f() ( gh pr comment 1 -b hi ); cd %s && f" % sub, WORK).calls
     check(76, [c[4] for c in calls if c[0] == ("pr", "comment")] == [None], "本体が ( ) の関数の後ろの cd で宛先の場所を読めると見た: %r" % calls)
 
+# 77. 関数でも繰り返しでもない `{ }` のまとまり(`{ gh … --body-file x.md; cd /o; } 2>&1 | tee log`)の中で gh より後ろに書いた cd は、
+# gh より先に走らないので、gh の走る場所を変えない(75 の直し〔commit 183f6051〕は閉じの `}` を関数の印に数え、まとまりの中の
+# gh の本文ファイルと -R の無い宛先を決まらない物として止めていた)。本体を `{ }` で書く繰り返し(`for x in a b; { …; }`)は今までどおり止める
+def f77():
+    sub = os.path.join(WORK, "sub")
+    os.makedirs(sub, exist_ok=True)
+    for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
+        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    for cmd in ("{ gh pr comment 1 --body-file x.md; cd %s; } 2>&1 | tee log", "{ gh pr comment 1 --body-file x.md; cd %s; }"):
+        cmd = cmd % sub
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(77, parsed and cands == [BODY] and not blk, "{ } のまとまりの中の後ろの cd で本文ファイルを読まなかった: %r → %r %r" % (cmd, cands, blk))
+    calls = g.analyze("{ gh pr comment 1 -b hi; cd %s; } 2>&1 | tee log" % sub, WORK).calls
+    check(77, [c[4] for c in calls if c[0] == ("pr", "comment")] == [WORK], "{ } のまとまりの中の後ろの cd で宛先の場所を見失った: %r" % calls)
+    for cmd in ("for x in a b; { gh pr comment 1 --body-file x.md; cd %s; }", "for ((i=0;i<2;i++)) { gh pr comment 1 --body-file x.md; cd %s; }",
+                "f() { gh pr comment 1 --body-file x.md; }; cd %s && f"):
+        cmd = cmd % sub
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(77, not parsed or bool(blk), "本体が { } の繰り返し・関数の後ろの cd を見ずに本文ファイルを読んだ: %r → %r %r" % (cmd, cands, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59, 60: f60, 61: f61, 62: f62, 63: f63, 64: f64, 65: f65, 66: f66, 67: f67, 68: f68, 69: f69, 70: f70, 71: f71, 72: f72, 73: f73, 74: f74, 75: f75, 76: f76, 77: f77})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
