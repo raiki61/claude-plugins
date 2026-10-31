@@ -1123,24 +1123,28 @@ def _live(text, hit, where=(None, '"')):
 # 読む所を言い切れないので、在れば読めない物とする形。`$[`(古い算術)の中の # は字。`$$(`・`$${` は、二重引用の中で
 # bash 3.2 が `(`・`{` を開く括弧と数えて引用の閉じる所が変わり、bash 5 は字と読む(版で割れる)
 UNREADABLE_OPENERS = ("$[", "$$(", "$${")
-_EVENT_RE = re.compile(r"""[#\\'"`$()}<]|__HEREDOC|=~|""" + _CASE_EVENT)
+_EVENT_RE = re.compile(r"""[#\\'"`$()}<]|__HEREDOC|=~|\[\[|\]\]|""" + _CASE_EVENT)
 # 算術の中の << の後に、引用か \ で始まる区切りが続く形(ヒアドキュメントで、盾が読めなかった物)
 _QUOTED_DELIM_RE = re.compile(r"""[ \t]*[\\'"]""")
 
 
-def _regex_end(text, i):
-    """i の引用の外の =~ が `[[ … =~ 正規表現 ]]` の物なら、正規表現の範囲の終わり(後の最初の ]]、無ければ行末)。違えば -1。
+def _cond_word(text, i, at, escaped_at):
+    r"""i の `[[`・`]]`・`=~` が 1 つの語か(前が語の切れ目で、後が空白か区切り)。at は直前に出力した字の位置(行継続を落とした後は
+    その手前の字。無ければ -1)、escaped_at は直前に \ で引用した字の位置。
 
-    bash は =~ の右を、括弧と | を含めて 1 つの語として読むので、`^(a|b)#[0-9]+` の # は注釈にならない。こちらは ( を
-    サブシェルの括弧と数えるので、閉じた ) の後の # を注釈と読み、後ろの gh を落としていた。範囲の中で注釈に見える # は、
-    読めない物とする。前に [[ の無い =~(`echo a=~b`)は数えない。前は引用・注釈の中の =~ も数え、後ろに ]] が無ければ範囲を
-    文字列の終わりまで延ばしたので、`--body 'Use =~ for regex' # c` のような投稿を読めない物として止めていた。"""
-    if text.rfind("[[", 0, i) < 0:
-        return -1
-    end = text.find("]]", i)
-    if end < 0:
-        end = text.find("\n", i)
-    return len(text) if end < 0 else end
+    bash は `[[ … =~ 正規表現 ]]` の =~ の右を、括弧と | を含めて 1 つの語として読むので、`^(a|b)#[0-9]+` の # は注釈にならない。
+    こちらは ( をサブシェルの括弧と数えるので、閉じた ) の後の # を注釈と読み、後ろの gh を落としていた。そこで、開いた [[ の中の
+    =~ から、[[ を閉じる ]] までを正規表現の範囲とし、範囲の中で注釈に見える # は読めない物とする。bash が [[ を閉じるのは、
+    1 つの語の ]] だけで、`[[:space:]]` の中の ]] では閉じない(前は後の最初の ]] を範囲の終わりと見て、`^[[:space:]]*(#|$)` の
+    # を注釈と読み、後ろの gh を落とした)。=~ も、1 つの語のときだけ正規表現の印で、`d=~/w`(代入とチルダ)の =~ は字(前は
+    前に [[ が在るだけで数え、後ろの注釈で止めた)。"""
+    before = at < 0 or (at != escaped_at and text[at] in " \t\n;|&(")
+    if text.startswith("=~", i):
+        return before
+    nxt = text[i + 2:i + 3]
+    if text.startswith("[[", i):
+        return nxt in (" ", "\t", "\n")
+    return before and at >= 0 and text[at] in " \t\n" and (nxt in ("", " ", "\t", "\r", "\n", ";", "&", "|", ")"))
 
 
 def normalize_shell(text, marks=None):
@@ -1203,7 +1207,8 @@ def normalize_shell(text, marks=None):
     # 引用の外の ( の積み(_open_paren)と、閉じた ) の位置ごとの種類(_comment_at が # の前の ) を見る)
     parens, closed, case_marks = [], {}, []
     case_at = _case_at(text)
-    regex_end = -1   # 引用の外の [[ … =~ の正規表現の範囲の終わり(_regex_end。後の =~ ほど、範囲の終わりも後ろか同じ)
+    # 開いた [[ の段の深さ(段の数, 括弧の積みの数)と、その中の =~ の正規表現の範囲に居るか(_cond_word)。同じ深さの ]] で閉じる
+    cond, in_regex = None, False
     stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
     while True:
         m = _EVENT_RE.search(text, i)
@@ -1266,8 +1271,14 @@ def normalize_shell(text, marks=None):
         elif m.group(0) in ("case", "esac"):
             _case_word(text, i, m.group(0), parens, case_marks)
             i += 4
-        elif c == "=":   # 引用の外の =~
-            regex_end = max(regex_end, _regex_end(text, i))
+        elif c in "=[]":   # 引用の外の =~・[[・]]
+            word = _cond_word(text, i, i - 1 if i > copied else gap_at, escaped_at)
+            if c == "[" and word:
+                cond = (len(stack), len(parens))
+            elif c == "=" and word and cond is not None:
+                in_regex = True
+            elif c == "]" and word and cond == (len(stack), len(parens)):
+                cond, in_regex = None, False
             i += 2
         elif c == "(":
             if top[0] == "(":
@@ -1302,9 +1313,9 @@ def normalize_shell(text, marks=None):
             if head is False:
                 i += 1
                 continue
-            if head is None or (parens and parens[-1][1]) or regex_end > i:
+            if head is None or (parens and parens[-1][1]) or in_regex:
                 # 注釈か言い切れない。算術の (( ))・$(( )) の中の # は字で bash は注釈にしないが、どこで閉じるかを
-                # 括弧の数え方だけでは言い切れない。=~ の右の # も字(_regex_end)
+                # 括弧の数え方だけでは言い切れない。=~ の右の # も字(_cond_word)
                 return None
             nl = text.find("\n", i)
             nl = n if nl < 0 else nl

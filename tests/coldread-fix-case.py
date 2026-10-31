@@ -699,8 +699,22 @@ def f41():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(41, parsed and cands == ["BENIGN NOTE"] and not blk, "解ける書き込み先・書き込み先を取らないコマンドで止めた: %s → %r %r" % (cmd, cands, blk))
 
+# 42. =~ の正規表現の範囲は、開いた [[ の中の 1 つの語の =~ から、[[ を閉じる 1 つの語の ]] まで。`[[:space:]]` の中の ]] と引用の
+# 中の ]] では閉じない(前は後の最初の ]] で範囲を閉じ、`(#|$)` の # を注釈と読んで後ろの gh を落とした)。`d=~/w`(代入とチルダ)の
+# =~ と、閉じた [[ の後の =~ は字(前は前に [[ が在るだけで範囲と見て、後ろの注釈で止めた)
+def f42():
+    for cmd in ("line='# x'; [[ $line =~ ^[[:space:]]*(#|$) ]] && " + GH,
+                "while read -r line; do [[ $line =~ ^[[:space:]]*(#|$) ]] && continue; done < /dev/null; " + GH,
+                '[[ $x =~ " ]] "(#) ]] || ' + GH, "[[ $x =~ a\\ ]] (#) ]] || " + GH):
+        stops(42, cmd)
+    for cmd in ("[[ $a == b ]] && d=~/w # w\ngh pr comment 1 --body '" + BODY + "'",
+                "[[ -d a ]] && X=~/f.md # note\ngh pr comment 1 --body '" + BODY + "'",
+                "[[ $x =~ ^a$ ]] && echo =~ # c\ngh pr comment 1 --body '" + BODY + "'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(42, parsed and cands == [BODY] and not blk, "[[ の外の =~ の後の注釈で止めた: %r → %r %r" % (cmd[:40], blk, parsed))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
