@@ -678,8 +678,11 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
 def command_words(cr, words):
     """前置を越えた語の列と、xargs・parallel の後ろか(parallel の後ろなら "parallel")。前置(nice -n 19 find …・xargs -0 rg …)の
     後の env・timeout なども越える(nice -n 19 timeout 300 find …)。パスで書いた前置(/usr/bin/time・/usr/bin/env)も名前で越える。
-    語の列は元の語の列の後ろの部分のまま返す(find の引数を元の語の列から取り直すので)。"""
+    語の列は元の語の列の後ろの部分のまま返す(find の引数を元の語の列から取り直すので)。コマンド名の位置の展開だけの語
+    (`$(true) find …`・`$SUDO rg …`・`` `true` rg …``)も越える: 展開は空にも前置にもなりうるので、後ろの語をコマンドと見て読む
+    (前はその語をコマンド名と読み、後ろの find・rg を見ずに通していた)。"""
     hops = False
+    words = words[cr.command_start(words, skipped=[]):]
     while words:
         base = os.path.basename(words[0])
         if base in HOPS:
@@ -689,7 +692,7 @@ def command_words(cr, words):
             words = [base] + words[1:]
         else:
             break
-        words = words[cr.command_start(words):]
+        words = words[cr.command_start(words, skipped=[]):]
     return words, hops
 
 

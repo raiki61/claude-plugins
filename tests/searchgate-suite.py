@@ -511,6 +511,13 @@ class Bash(unittest.TestCase):
                         'env $(cat .env) sh -c "cd / && find ."'):
             self.assertIsNotNone(run("Bash", {"command": command})[0], command)
         self.assertIsNone(run("Bash", {"command": "env $(cat .env | xargs) find . -name x"})[0])
+        # 前置の無い頭の展開だけの語(`$(true)`・`$SUDO`・`` `true` ``)も越える。展開は空にも前置にもなりうるので、後ろの語を
+        # コマンドと見て読む(前はその語をコマンド名と読んで通していた)
+        for command in ("$(true) find / -name x", "$(: ) rg foo /", "$SUDO find / -name x", "${X} rg foo ~",
+                        "`true` rg foo /", "$(true) env X=1 rg foo /"):
+            self.assertIsNotNone(run("Bash", {"command": command})[0], command)
+        for command in ("$(true) find . -name x", "$(cd /) rg foo .", "$SUDO rg foo src"):
+            self.assertIsNone(run("Bash", {"command": command})[0], command)
 
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
