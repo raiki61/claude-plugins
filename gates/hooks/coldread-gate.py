@@ -1018,23 +1018,24 @@ def _live(text, hit, where=(None, '"')):
 # 読む所を言い切れないので、在れば読めない物とする形。`$[`(古い算術)の中の # は字。`$$(`・`$${` は、二重引用の中で
 # bash 3.2 が `(`・`{` を開く括弧と数えて引用の閉じる所が変わり、bash 5 は字と読む(版で割れる)
 UNREADABLE_OPENERS = ("$[", "$$(", "$${")
-_EVENT_RE = re.compile(r"""[#\\'"`$()}<]|__HEREDOC|""" + _CASE_EVENT)
+_EVENT_RE = re.compile(r"""[#\\'"`$()}<]|__HEREDOC|=~|""" + _CASE_EVENT)
 # 算術の中の << の後に、引用か \ で始まる区切りが続く形(ヒアドキュメントで、盾が読めなかった物)
 _QUOTED_DELIM_RE = re.compile(r"""[ \t]*[\\'"]""")
 
 
-def _regex_operands(text):
-    """`[[ … =~ 正規表現 ]]` の正規表現の範囲 → (=~ の位置の並び, それぞれの後の最初の ]] の位置の並び)。
+def _regex_end(text, i):
+    """i の引用の外の =~ が `[[ … =~ 正規表現 ]]` の物なら、正規表現の範囲の終わり(後の最初の ]]、無ければ行末)。違えば -1。
 
     bash は =~ の右を、括弧と | を含めて 1 つの語として読むので、`^(a|b)#[0-9]+` の # は注釈にならない。こちらは ( を
     サブシェルの括弧と数えるので、閉じた ) の後の # を注釈と読み、後ろの gh を落としていた。範囲の中で注釈に見える # は、
-    読めない物とする(後の =~ ほど、範囲の終わりも後ろか同じ)。"""
-    if "=~" not in text:
-        return [], []
-    ends = [m.start() for m in re.finditer(r"\]\]", text)]
-    starts = [m.start() for m in re.finditer(r"=~", text)]
-    k = [bisect.bisect_left(ends, s) for s in starts]
-    return starts, [ends[j] if j < len(ends) else len(text) for j in k]
+    読めない物とする。前に [[ の無い =~(`echo a=~b`)は数えない。前は引用・注釈の中の =~ も数え、後ろに ]] が無ければ範囲を
+    文字列の終わりまで延ばしたので、`--body 'Use =~ for regex' # c` のような投稿を読めない物として止めていた。"""
+    if text.rfind("[[", 0, i) < 0:
+        return -1
+    end = text.find("]]", i)
+    if end < 0:
+        end = text.find("\n", i)
+    return len(text) if end < 0 else end
 
 
 def normalize_shell(text):
@@ -1090,7 +1091,7 @@ def normalize_shell(text):
     # 引用の外の ( の積み(_open_paren)と、閉じた ) の位置ごとの種類(_comment_at が # の前の ) を見る)
     parens, closed, case_marks = [], {}, []
     case_at = _case_at(text)
-    regex_starts, regex_ends = _regex_operands(text)
+    regex_end = -1   # 引用の外の [[ … =~ の正規表現の範囲の終わり(_regex_end。後の =~ ほど、範囲の終わりも後ろか同じ)
     stack = [[None, 0]]   # 段と、$( の段なら開いた括弧の数。None=引用の外、"'"・'"'=引用、"`"=`…`、"("=二重引用の中の $( )、"{"=${ }
     while True:
         m = _EVENT_RE.search(text, i)
@@ -1153,6 +1154,9 @@ def normalize_shell(text):
         elif m.group(0) in ("case", "esac"):
             _case_word(text, i, m.group(0), parens, case_marks)
             i += 4
+        elif c == "=":   # 引用の外の =~
+            regex_end = max(regex_end, _regex_end(text, i))
+            i += 2
         elif c == "(":
             if top[0] == "(":
                 top[1] += 1
@@ -1186,10 +1190,9 @@ def normalize_shell(text):
             if head is False:
                 i += 1
                 continue
-            k = bisect.bisect_left(regex_starts, i) - 1
-            if head is None or (parens and parens[-1][1]) or (k >= 0 and regex_ends[k] > i):
+            if head is None or (parens and parens[-1][1]) or regex_end > i:
                 # 注釈か言い切れない。算術の (( ))・$(( )) の中の # は字で bash は注釈にしないが、どこで閉じるかを
-                # 括弧の数え方だけでは言い切れない。=~ の右の # も字(_regex_operands)
+                # 括弧の数え方だけでは言い切れない。=~ の右の # も字(_regex_end)
                 return None
             nl = text.find("\n", i)
             nl = n if nl < 0 else nl

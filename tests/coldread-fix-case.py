@@ -624,8 +624,21 @@ def f35():
         stops(35, cmd)
 
 
+# 36. =~ の正規表現の範囲は、引用の外の [[ の後の =~ だけで、後ろに ]] が無ければ行末まで(前は引用・注釈の中の =~ も数え、
+# 範囲を文字列の終わりまで延ばして、後ろの注釈で止めた)
+def f36():
+    for cmd in ("gh pr comment 1 --body 'Use =~ for regex " + BODY + "' # c",
+                "echo 'a =~ b'\n# step\ngh pr comment 1 --body '" + BODY + "'",
+                "gh pr view 1 # title =~ foo?\n# next\ngh pr comment 1 --body '" + BODY + "'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(36, parsed and len(cands) == 1 and BODY in cands[0] and not blk,
+              "引用・注釈の中の =~ の後の注釈で止めた: %r → %r %r" % (cmd[:40], blk, parsed))
+    for cmd in ("[[ $x =~ (a)#b\nc ]]; " + GH, "[[ x =~ ^(a|b)#[0-9]+$ ]] && echo ok; " + GH):
+        stops(36, cmd)
+
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 
