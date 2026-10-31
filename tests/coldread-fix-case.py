@@ -10,7 +10,7 @@ gates/hooks/coldread-gate.py)で、前の版の写しを渡すと全部の穴が
 直しで、commit 812accd7 の版を渡すと赤になる。
 49 以降はその後のレビュー(頼み cae1e2)の直しで、commit ef2d1702 の版を渡すと赤になる。53 以降は 15 回目のレビュー(頼み cae1e2)
 の直しで、commit 12d08013 の版を渡すと赤になる。58 は 55 の直し(commit b46a0bfe)が持ち込んだ止めすぎで、b46a0bfe の版を
-渡すと赤になる。
+渡すと赤になる。59 以降は 17 回目のレビュー(頼み cae1e2)の直しで、commit 7e850025 の版を渡すと赤になる。
 全部が通れば FIX_OK を出し、1 件でも落ちれば落ちた番号を出して 1 で終わる。
 """
 import contextlib
@@ -1007,8 +1007,25 @@ def f58():
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(58, not parsed or bool(blk), "宛先のパスに差し込む語の gh api を通した: %r → %r %r" % (cmd[:70], cands, blk))
 
+# 59. gh gist edit の id の後ろの位置引数(- は標準入力)と -a は、gist のファイルの中身を置き換える・足すので、gist create の位置引数と
+# 同じに読む(- はヒアドキュメントを読み、手元のファイルは止める。前はどちらも読まず、中身を読まずに通した)。位置引数も -a も無い形
+# (エディタで直す)と、-d(説明)・-r(ファイルを消す)・-f(直すファイルを選ぶ)だけの形は、今までどおり本文と見ない
+def f59():
+    for cmd in ("gh gist edit abc --filename a.md x.md", "gh gist edit abc -f a.md x.md", "gh gist edit abc x.md",
+                "gh gist edit abc -a new.md", "gh gist edit --add=new.md", "gh gist edit abc --filename=a.md -- x.md"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(59, parsed and bool(blk), "gh gist edit の手元のファイルを通した: %r → %r %r" % (cmd, cands, parsed))
+    for cmd in ("gh gist edit abc -f a.md - <<'E'\n%s\nE", "gh gist edit abc -fa.md - <<'E'\n%s\nE",
+                "gh gist edit abc -a new.md - <<'E'\n%s\nE"):
+        cands, blk, parsed = g.posting_bodies(cmd % BODY, WORK)
+        check(59, parsed and cands == [BODY] and not blk, "gh gist edit の標準入力の中身を読まなかった: %r → %r %r" % (cmd, cands, blk))
+    for cmd in ("gh gist edit abc", "gh gist edit", "gh gist edit abc -d '" + BODY + "'", "gh gist edit abc -r a.md",
+                "gh gist edit abc -f a.md", "gh gist create -d '" + BODY + "'"):
+        cands, blk, parsed = g.posting_bodies(cmd, WORK)
+        check(59, parsed and not cands and not blk, "本文を運ばない gh gist edit を止めたか読んだ: %r → %r %r" % (cmd[:60], cands, blk))
+
 TESTS = {n: fn for n, fn in enumerate((f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20), 1)}
-TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58})
+TESTS.update({21: f21, 22: f22, 23: f23, 24: f24, 25: f25, 26: f26, 27: f27, 28: f28, 30: f30, 31: f31, 32: f32, 33: f33, 34: f34, 35: f35, 36: f36, 37: f37, 38: f38, 39: f39, 40: f40, 41: f41, 42: f42, 43: f43, 44: f44, 45: f45, 46: f46, 47: f47, 48: f48, 49: f49, 50: f50, 51: f51, 52: f52, 53: f53, 54: f54, 55: f55, 56: f56, 57: f57, 58: f58, 59: f59})
 for n, fn in sorted(TESTS.items()):
     guarded(n, fn)
 

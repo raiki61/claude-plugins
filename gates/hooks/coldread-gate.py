@@ -2121,20 +2121,23 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # gist は本文旗を持たず、位置引数(- は stdin)が本文そのもの。
     # -d/--desc・-f/--filename は値を取るので、その値を位置引数と数えない。
     if sub == ("gist", "create"):
-        pos, j = [], 2
-        while j < len(args):
-            t = args[j]
-            if t in ("-d", "--desc", "-f", "--filename"):
-                j += 2
-                continue
-            if t.startswith("-") and t != "-":
-                j += 1
-                continue
-            pos.append(t)
-            j += 1
+        pos = gist_positionals(args, GIST_VALUE_FLAGS[sub])[0]
         if "-" in pos or any(t.startswith("__HEREDOC") for t in pos):
             add("file", "-")
         elif pos:
+            blocked.append("実ファイル指定")
+    # gh gist edit は、id の後ろの位置引数(- は stdin)の中身で -f のファイル(無ければ gist の唯一のファイル)を置き換え、-a は
+    # そのファイルを足す(位置引数が無ければ -a の名前の手元のファイルを読む。cli/cli の pkg/cmd/gist/edit/edit.go)。中身は
+    # gist create の位置引数と同じに読む(- はヒアドキュメント、手元のファイルは止める)。前はどちらも読まず、
+    # `gh gist edit <id> -f a.md x.md` で gist の中身を読まずに通していた。位置引数も -a も無い形(エディタで直す)と、
+    # -d(説明)・-r(ファイルを消す)だけの形は、gist create の -d と同じく本文と見ない
+    if sub == ("gist", "edit"):
+        pos, flags = gist_positionals(args, GIST_VALUE_FLAGS[sub])
+        pos = [t for t in pos if not t.startswith("__HEREDOC")]
+        # -a の値は、位置引数が無ければ手元のファイルの名前(- でも標準入力でなく、- という名前のファイル)
+        if len(pos) > 1 and pos[1] == "-":
+            add("file", "-")
+        elif len(pos) > 1 or "-a" in flags:
             blocked.append("実ファイル指定")
 
     if is_graphql:
@@ -2155,6 +2158,44 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
                 candidates.append("\n\n".join(texts))
 
     return candidates, blocked
+
+
+# gh gist create・edit の旗のうち値を取る物(gh 2.102.0 の `gh gist create --help`・`gh gist edit --help`)。長い形 → 短い形。
+# 値を位置引数と数えない
+GIST_VALUE_FLAGS = {
+    ("gist", "create"): {"-d": "-d", "--desc": "-d", "-f": "-f", "--filename": "-f"},
+    ("gist", "edit"): {"-a": "-a", "--add": "-a", "-d": "-d", "--desc": "-d", "-f": "-f", "--filename": "-f",
+                       "-r": "-r", "--remove": "-r"},
+}
+
+
+def gist_positionals(args, value_flags):
+    """gh gist のサブコマンド語より後ろの (位置引数の列, 値を取る旗の値〔短い形 → 最後の値〕)。
+
+    値を取る旗は、離れた形(`-f a.md`)・融合形(`-fa.md`・`--filename=a.md`)のどちらも読む。-- の後ろは全部位置引数。"""
+    pos, flags, seen, i, ddash = [], {}, 0, 0, False
+    while i < len(args):
+        tok = args[i]
+        if seen < 2:
+            width = global_flag_width(tok)
+            if width:
+                i += width
+                continue
+            seen += 1
+        elif tok == "--" and not ddash:
+            ddash = True
+        elif not ddash and tok.startswith("-") and tok != "-":
+            name = tok.split("=", 1)[0] if tok.startswith("--") else tok[:2]
+            if name in value_flags:
+                if tok != name:
+                    flags[value_flags[name]] = tok[len(name) + 1:] if tok.startswith("--") else tok[2:]
+                elif i + 1 < len(args):
+                    i += 1
+                    flags[value_flags[name]] = args[i]
+        else:
+            pos.append(tok)
+        i += 1
+    return pos, flags
 
 
 # gh api の gist のファイルの中身のフィールド(files[<名前>][content]。https://docs.github.com/rest/gists/gists#create-a-gist)
