@@ -12,10 +12,10 @@ Linux の /home・/usr・/var・/mnt・/media・/root・/srv〕・Windows のド
 Git Bash の /c/…・Cygwin の /cygdrive/c/…・WSL の /mnt/c/… のどれで書いても同じ所と読み、大文字と小文字は区別しない
 (macOS と Windows の既定のファイルシステムは区別しないので、/users も /Users と同じ所を探す)。
 
-見るツール: Bash の find・bfs・gfind・fd・rg・grep -r(前置の nice・sudo・xargs・timeout なども越えて読む)と、
+見るツール: Bash の find・bfs・gfind・fd・rg・grep -r・rgrep(前置の nice・sudo・xargs・timeout なども越えて読む)と、
 Claude Code の Glob・Grep のツール。`bash -c "…"`・`eval`・`$( … )`・`` ` … ` `` の中も読む。起点の変数は、同じコマンドの中の
 代入(`D=/; find $D`)と $HOME・~ まで解き、相対の起点は前の `cd <絶対パス> &&` かフックの cwd で解く。
-解けない起点(読めない変数・条件の中の代入)は止めない——止める理由が字面に無いので。
+if・繰り返しの中の代入も、走ったときの値として解く。解けない起点(読めない変数)は止めない——止める理由が字面に無いので。
 
 止めるのは決定的(LLM なし)で、逃げ道は無い。検査そのものが落ちたら止める(coldread・destgate と同じ倒し方)。
 解析部(トークン化・単純コマンド分割・変数と cd の追い方)は coldread-gate.py から読み込んで共有する。
