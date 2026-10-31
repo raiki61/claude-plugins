@@ -80,7 +80,7 @@ HOPS = {"nice": {"-n"}, "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t",
 WORD_RE = re.compile(r"(?<![\w.-])(?:find|bfs|gfind|fd|fdfind|rg|rgrep)(?![\w.-])"
                      r"|(?<![\w.-])(?:e?grep|fgrep|ggrep)(?![\w.-]).*?(?:\s['\"]?-[A-Za-z0-9]*[rRd0-9]|--recursive"
                      r"|--dereference-recursive|--directories|--depth)", re.S)
-# 入れ子は 8 段まで読む(`bash -c "bash -c '…'"` の深さ。それより深い物はそのまま通す)
+# 入れ子は 8 段まで読む(`bash -c "bash -c '…'"` の深さ。それより深い中身は、探すツールの語が在れば読み切れないとして止める)
 MAX_DEPTH = 8
 
 
@@ -600,7 +600,13 @@ def check_command(cr, command, cwd, depth=0, outer=None, held=None):
     """Bash のコマンド 1 本を見る。止める起点が在れば Hit を投げる。outer は、このコマンドが外のコマンドの $( … )・bash -c・eval・
     ヒアドキュメントの中身のとき、外の Scope(その単純コマンドの位置に合わせた物)。中で解けない変数を外の代入で解く。held は、
     command が外のコマンドの $( … )・<( … )・` … ` の中身のとき、外の prepare が抜いたヒアドキュメントの本文の並び。"""
-    if depth > MAX_DEPTH or not command.strip():
+    if depth > MAX_DEPTH:
+        # 読む段の終わりより深い中身(二重引用の中の $( )・bash -c・eval など)に探すツールの語が在れば、読み切れないとして止める
+        # (前は黙って通し、9 段より深い `$(echo …"$(rg foo /)"…)`・`$(… bash -c 'rg foo /' …)` を通していた)
+        if WORD_RE.search(command.replace("\\n", "\n").replace("\\t", "\t")):
+            raise ValueError("$( )・bash -c などの入れ子が深く、探す場所を読み切れない")
+        return
+    if not command.strip():
         return
     if depth == 0:
         SPENT.update(reads=0, walks=0, steps=0)

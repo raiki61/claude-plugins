@@ -661,6 +661,18 @@ class Bash(unittest.TestCase):
                 self.assertIsNone(run("Bash", {"command": command})[0])
         self.assertIsNotNone(run("Bash", {"command": shallow.replace("src", "/")})[0])
 
+    def test_contents_past_the_deepest_level_are_not_passed_unread(self):
+        # 読む段の終わり(8 段)より深い二重引用の中の $( )・bash -c に探すツールの語が在れば、読み切れないとして止める(前は黙って
+        # 通していた)。探すツールの語の無い深い入れ子は今までどおり通す
+        def wrap(inner, levels):
+            for _ in range(levels):
+                inner = "echo $(%s)" % inner
+            return inner
+        for command in (wrap('echo "$(rg foo /)"', 8), wrap("bash -c 'rg foo /'", 8), wrap('echo "$(find / -name x)"', 11)):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        self.assertIsNone(run("Bash", {"command": wrap('echo "$(echo hi)"', 10) + "; rg foo src"})[0])
+
     def test_heredocs_inside_a_substitution_are_read(self):
         # $( )・<( ) の中のヒアドキュメントの本文も読む(中のシェルが走らせる本文と、区切りを引用しない本文の $( ))。前は中身を
         # 読み直すときに本文を持たず、`x=$(bash <<'EOF'` の本文の rg foo / を通していた。区切りを引用した本文の字は今までどおり通す
