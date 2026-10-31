@@ -107,6 +107,9 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 投稿の前のゲート(coldread)が、`cat a.md | gh gist create`・`gh gist create < a.md`・`gh gist create <<< "…"` のように、ファイルの名前の無い `gh gist create` が gist に出す標準入力を本文と見ずに通していた。宛先のゲート(destgate)も投稿と見ていなかった。また `gh gist create a.md <<'EOF' … EOF` では、gh が読まないヒアドキュメントだけを読み、gist に出る a.md を読んでいなかった。名前の無い形は `-` と同じに標準入力を読み(ヒアドキュメントは読み、パイプ・リダイレクトは止める)、名前が在るときはヒアドキュメントを名前の代わりに読まないようにした。
 - 投稿の前のゲート(coldread)が、`gh gist edit <id> -f a.md a.md`・`gh gist edit <id> --add new.md`・`gh gist create a.md -d "…"` のように gist に手元のファイルを出す形を、読まずに一律に止めていた。`--body-file` のファイルと同じ読み方で 1 つずつ読むようにした。読めないファイル・glob のままの名前・同じコマンドの中で書き換えうるファイルは、今までどおり止める。
 - 投稿の前のゲート(coldread)が、`gh gist create -d -h a.md` のように値を取る旗の値に置いた `-h`・`--help`・`--version` を案内の旗と見て、a.md を読まずに通していた。gh はこの `-h` を旗の値と読んで投稿する。値を取る旗の直後の語は案内と見ないようにした。`gh pr comment -h` のような案内だけの形は今までどおり通す。
+- 探しのゲート(searchgate)が、`true && { cd ..; if [ -d build ]; then cd build; fi; }; rg foo .` のように、`&&`・`||` の後ろの `{ }` のまとまりの中で if・case・サブシェルの中に在る cd も、まとまりが走れば必ず走ると読み、~/src で打つとホームで探すのを通していた。まとまりの組に入れるのは、まとまりのじかのコマンドの cd だけにした。
+- 探しのゲート(searchgate)が、`time { rg foo /; }`・`time ! rg foo /`・`function f { cd /; }; f; rg foo .` のように、`time` と `function 名前` の後ろに書いた `{`・`!`・if などの予約語をコマンドの頭と見ず、中の探すコマンドと cd を見落として通していた。`time`(`-p`・`--` を付けた形も)の後ろの予約語と、`function 名前` の後ろの本体の頭をコマンドの頭と読み、`function f { … }` を `f() { … }` と同じに読むようにした。
+- 投稿の前のゲート(coldread)が、`time { gh pr comment 1 --body-file x.md; }`・`function f { gh pr comment 1 --body-file x.md; }; f` のように、`time` と `function 名前` の後ろの予約語をコマンドの頭と見ず、本文を読まずに通していた。宛先のゲート(destgate)も投稿と見ていなかった。探しのゲートと同じに、予約語からを 1 つのコマンドとして読むようにした。
 
 ## [0.46.0] - 2026-10-30
 
