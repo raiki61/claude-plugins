@@ -217,6 +217,20 @@ class Bash(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 10)
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_in_a_condition_is_sure_only_where_the_condition_held(self):
+        # 条件の中の cd は、else・繰り返しの後ろ・until の do では落ちて移っていないことがある
+        for command in ("if cd sub; then echo ok; else find . -name x; fi", "while cd sub; do break; done; find . -name x",
+                        "until cd sub; do find . -name x; done", "if cd sub; then :; fi; find . -name x"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+        # 条件が通ったときに走る then・elif の then・while の do の中では、今までどおり移った後の場所で見る
+        for command in ("if cd sub; then find . -name x; fi", "while cd sub; do find . -name x; break; done",
+                        "if false; then :; elif cd sub; then find . -name x; fi",
+                        "cd sub && if cd x; then :; else find . -name y; fi"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_substitution_runs_in_the_cwd_of_its_command(self):
         # $( ) の中は、それを持つコマンドの場所(前の cd)と変数で走る
         self.assertIsNotNone(run("Bash", {"command": 'cd / && echo "$(find . -name x)"'})[0])

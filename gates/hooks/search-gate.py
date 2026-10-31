@@ -891,7 +891,10 @@ def load_coldread():
 
         def _surely(self, j, k):
             """届く cd(j 番目)が、k 番目が走るときには必ず走ったか。前の区切りが ; 改行 && だけ(&& なら k までも && だけ)で、k までに || が無い
-            (`cd x || exit 1` の || は除く)うえ、cd を囲むブロックがどれも k も囲むか、k が後ろに在る if・繰り返しの条件の中のとき。"""
+            (`cd x || exit 1` の || は除く)うえ、cd を囲むブロックがどれも k も囲むか、cd が if・elif・while の条件の中で、k がその
+            条件が通ったときに走る区画(then・do)の中のとき。条件が落ちたときに走る else・繰り返しの後ろ・until の do では、cd が
+            落ちて移っていないことがある(前は条件の中の cd をそこでも必ず移ったと見て、`if cd sub; then …; else find .; fi` を
+            通していた)。"""
             path, d, ops, _ = self.lay[j]
             if any(op not in (";", "\n", "&&") for op, _ in ops if op not in "()"):
                 return False
@@ -909,7 +912,12 @@ def load_coldread():
             same = 0
             while same < min(len(path), len(kpath)) and path[same] == kpath[same]:
                 same += 1
-            return all(cond for _, _, cond in path[same:])
+            rest = path[same:]
+            if not rest:
+                return True
+            bid, sec, cond = rest[0]
+            return (len(rest) == 1 and cond and self.kinds.get(bid) in ("if", "while") and same < len(kpath)
+                    and kpath[same][:2] == (bid, sec + 1))
 
         def cwds_here(self, k=None):
             """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、
