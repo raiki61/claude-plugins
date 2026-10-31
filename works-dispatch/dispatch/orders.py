@@ -1019,6 +1019,10 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
     if lost:
         logged("failed", lost)
         return [f"{head}。{lost}"]
+    if pane is None and dept.get("head_office"):
+        said = "窓口の窓に会話が居ない。窓口は手前の会話で attach では戻せないので、本社のペインで窓口の会話を起動し直し、--desk で席に付ける"
+        logged("failed", said)
+        return [f"{head}。{said}"]
     if pane is None:
         pane, said = revive(dept, accounts_, ports, sessions_, source)
         logged("revived" if pane else "failed", said)
@@ -1068,19 +1072,30 @@ def restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_=None,
         return (f"窓 {pane} の" + ("入力フィールドが見えない" if typed is None else "入力フィールドに人の打ちかけの字が在る")
                 + f"ので起動し直さなかった（attach の画面を閉じると消える。字を送るか消してから --nudge {name}）"), None
     kept = wake.waiting_of(dest_inbox, place_dir) if dest_inbox and place_dir else {}
-    if kept.get("tasks") and (not a.get("session") or kept.get("session") == a.get("session")):
+    # 控えは、その場所の会話が裏の処理を残さずにターンを終えると消える。在れば、/clear で会話の id が替わっていても今の会話の物と見る
+    if kept.get("tasks"):
         return ("部署の会話は前のターンで裏の処理を残している（止めると消える）ので起動し直さなかった。処理が終われば知らせでターンが回り、"
                 "ターンの終わりに待ち受けが張られる"), None
     acc = account_of(dept, accounts_)
+
+    def put_back(said):
+        # 窓を attach の画面から外した後で止めずに終える時は、窓を attach で戻す（会話もシェルも前に居ない窓を残さない）
+        back, why = revive(dept, accounts_, ports, sessions_, source)
+        return f"{said}。" + ("窓は attach で戻した" if back else why), None
     try:
-        if not launch.to_shell(pane, ports.term, ports.pause):
-            return f"部署の窓 {pane} をシェルに戻せないので起動し直さなかった（attach の画面を手で閉じてから --nudge {name}）", None
+        shell = launch.to_shell(pane, ports.term, ports.pause)
     except term.Error as e:
-        return f"部署の窓 {pane} をシェルに戻せない（{e}）", None
+        return put_back(f"部署の窓 {pane} をシェルに戻せないので起動し直さなかった（{e}）")
+    if not shell:
+        return put_back(f"部署の窓 {pane} をシェルに戻せないので起動し直さなかった")
+    # 窓の状態を見てから attach の画面を外すまでの間にターンが始まっていないかを、会話の一覧（busy・waiting）で見直す
+    busy = busy_check(dept, accounts_, ports)
+    if busy():
+        return put_back("窓を外す間に部署の会話のターンが始まったので起動し直さなかった（ターンの終わりに待ち受けが張られる）")
     ok, said = ports.stop_session(acc.config_dir if acc else None, job)
     if not ok:
-        back, why = revive(dept, accounts_, ports, sessions_, source)
-        return f"部署の会話 {job} を止められなかった（{said}）。" + ("窓は attach で戻した" if back else why), None
+        return put_back(f"部署の会話 {job} を止められなかった（{said}）")
+    stopped = False
     for _ in range(STOP_LOOKS):
         try:
             items = ports.list_sessions(acc.config_dir if acc else None)
@@ -1088,12 +1103,14 @@ def restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_=None,
             break
         talk = dept_talk(dept, items)
         if not talk or talk.get("state") in ("done", "failed", "stopped"):
+            stopped = True
             break
         ports.pause()
+    seen = "" if stopped else "（会話の一覧で止まったのを見られないまま attach で戻した）"
     back, why = revive(dept, accounts_, ports, sessions_, source)
     if not back:
-        return f"部署の会話 {job} を止めたが、戻せなかった（{why}）", None
-    return (f"窓に字を打たずに、部署の裏の会話 {job} を止めて attach で起動し直した（戻った会話の始まりに今の版の待ち受けが張られ、渡す）"), back
+        return f"部署の会話 {job} を止めたが、戻せなかった（{why}）{seen}", None
+    return (f"窓に字を打たずに、部署の裏の会話 {job} を止めて attach で起動し直した（戻った会話の始まりに今の版の待ち受けが張られ、渡す）{seen}"), back
 
 
 def nudge(a, ports, cwd):
@@ -1549,6 +1566,7 @@ def _say_handoff(dept, heard, pane, plain, dest_inbox, place_dir, accounts_, por
     - 待ち受けが居れば、待ち受けが渡す。
     - 役の無い会話（--pr・--issue で開いた物）は、ターンの終わりに張られる待ち受けか、その場所で次に始まる会話の始まりの待ち受けが
       渡す（手前の会話なので、裏で起動し直せない）。
+    - 窓口（本社の手前の会話）は、ターンの終わりに張られる待ち受けが渡す（裏で起動し直せない）。
     - 部署で窓に会話が居なければ、attach で戻し（revive）、戻った会話の始まりの待ち受けが渡す。
     - 部署の会話がターンの途中なら、ターンの終わりの待ち受けが渡す。手が空いていれば、裏の会話を止めて attach で起動し直し
       （restart_quiet）、戻った会話の始まりの待ち受けが渡す。起動し直せない訳が在れば、その訳と、次のターンの終わりに渡ることを返す。"""
@@ -1557,6 +1575,8 @@ def _say_handoff(dept, heard, pane, plain, dest_inbox, place_dir, accounts_, por
     if plain:
         return ("待ち受けが居ない。その会話の次のターンの終わりに張られる待ち受けか、その場所で次に始まる会話の始まりの待ち受けが渡す"
                 + ("（窓に会話が居ない）" if pane is None else ""))
+    if dept.get("head_office"):
+        return "待ち受けが居ない。窓口は手前の会話なので裏で起動し直さず、窓口の会話の次のターンの終わりに張られる待ち受けが渡す"
     if pane is None:
         back, said = revive(dept, accounts_, ports, sessions_, source)
         return f"窓に会話が居なかった。{said}" + ("。戻った会話の始まりに待ち受けが渡す" if back else "。会話が戻れば、その始まりに待ち受けが渡す")
@@ -1621,10 +1641,16 @@ def say(a, ports, cwd):
     line = say_line(say_id, name or "名の無い会話", body, path)
     pane = None if heard else live_window(dept, ports)
     if a.dry_run:
-        how = ("待ち受けが渡す" if heard else "窓に会話が居ないので、" + ("attach で戻した会話の始まりに待ち受けが渡す" if not plain
-                                                                    else "その場所で次に始まる会話の始まりに待ち受けが渡す")
-               if pane is None else "ターンの終わりの待ち受けが渡す（手が空いた部署の会話は裏で起動し直す）" if not plain
-               else "その会話の次のターンの終わりに張られる待ち受けが渡す")
+        if heard:
+            how = "待ち受けが渡す"
+        elif dept.get("head_office"):
+            how = "窓口の会話の次のターンの終わりに張られる待ち受けが渡す"
+        elif pane is None:
+            how = "窓に会話が居ないので、" + ("その場所で次に始まる会話の始まりに待ち受けが渡す" if plain
+                                          else "attach で戻した会話の始まりに待ち受けが渡す")
+        else:
+            how = ("その会話の次のターンの終わりに張られる待ち受けが渡す" if plain
+                   else "ターンの終わりの待ち受けが渡す（手が空いた部署の会話は裏で起動し直す）")
         print("\n".join(notes + [f"知らせる先: {where}  台帳に知らせを足す（窓には打たない。{how}）", f"会話に渡す 1 行: {line}"]))
         return 0
     path = deliver.put(inbox, f"{say_id}-say.md", body)

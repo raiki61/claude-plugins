@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -3096,6 +3097,42 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("部署の会話 s-dept を止められなかった（No job matching）。窓は attach で戻した", out)
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
+
+    def test_nudge_does_not_stop_a_talk_whose_turn_starts_while_the_window_is_detached(self):
+        # 窓を見てから attach の画面を外す間にターンが始まれば（会話の一覧の busy）、止めずに窓を attach で戻す
+        self.listen("調べ", self.dept_place())
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        self.restartable()
+        h, listed = self.ports.term, self.ports.list_sessions
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {**x, "status": "busy"} if x.get("sessionId") == "s-dept" and self.window not in h.talking else x
+            for x in listed(cdir, include_done)]
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts(), self.stopped, self.attaches()), (1, [], [], ["claude-a1 attach d"]), out)
+        self.assertIn("ターンが始まったので起動し直さなかった", out)
+
+    def test_nudge_puts_the_window_back_when_the_window_does_not_return_to_the_shell(self):
+        # attach の画面を外してもシェルが前に出なければ、止めずに終え、窓を attach で戻そうとする（会話もシェルも居ない窓を残さない）
+        self.listen("調べ", self.dept_place())
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "子の頼みの返事を待っている（受付 c1）"})
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        self.restartable()
+        h, keys = self.ports.term, self.ports.term.send_keys
+        h.send_keys = lambda pane, *k: (keys(pane, *k), h.talking.add(pane))   # 会話の一覧の画面が残り、シェルが前に出ない
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)
+        self.assertIn("シェルに戻せないので起動し直さなかった", out)
+        self.assertIn("部署のペインの前にシェルが居ない", out)   # 戻そうとした訳
+
+    def test_say_to_the_front_desk_without_a_listener_never_revives_or_restarts_it(self):
+        # 窓口は手前の会話なので、窓に会話が居なくても attach を打たず、裏で起動し直しもしない
+        ports = types.SimpleNamespace(term=None)   # 窓にも一覧にも触れば落ちる
+        said = orders._say_handoff({"head_office": True, "attrs": {"role": "窓口"}, "path": "/x"}, False, None, False,
+                                   "/i", "/g", [], ports, {}, None)
+        self.assertIn("窓口の会話の次のターンの終わりに張られる待ち受けが渡す", said)
 
     def test_nudge_does_not_restart_a_talk_that_left_background_tasks(self):
         # 前のターンが裏の処理を残した会話は、止めるとその処理が消えるので起動し直さない（処理が終われば知らせでターンが回る）
