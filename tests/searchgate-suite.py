@@ -560,6 +560,17 @@ class Bash(unittest.TestCase):
         for command in ("x=$(echo ')' `rg foo src`)", "echo \"$(printf '%s)\\n' x; rg foo src)\""):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
 
+    def test_quoted_open_parens_do_not_keep_a_substitution_open(self):
+        # 置換の中の引用の中や \ の後の ( では置換を開いたままにしない(前は引用を見ない数え方の閉じない遠い所まで中身と読み、
+        # 後ろの ` … ` を外のコマンドとして見ずに通していた。頼み cae1e2)
+        for command, cwd in (("x=$(sed 's/(.*//' f); n=`rg foo /`", WORK), ("x=$(grep -c '(' f); n=`find / -name x`", WORK),
+                             ("echo \"$(echo '(')\"; echo `rg foo /`", WORK), ("x=$(echo \\(); n=`rg foo /`", WORK),
+                             ("x=$(echo '(' ); cd /; y=`rg foo .`", WORK),
+                             ("cd ~ && x=$(git log --format='%s (%h' -1); n=`rg -l TODO .`", HOME)):
+            self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0], command)
+        for command in ("x=$(sed 's/(.*//' f); n=`rg foo src`", "x=$(echo \\(); n=`rg foo src`"):
+            self.assertIsNone(run("Bash", {"command": command})[0], command)
+
     def test_parallel_runs_the_command_after_it(self):
         # GNU parallel の後ろのコマンドも見る。値を取る旗(-j 4・-S host)の値は飛ばし、::: の後ろの値はコマンドに足して走る
         # (前は parallel を前置と見ず、`parallel rg {} / ::: foo bar` を通していた)
