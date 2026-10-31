@@ -519,6 +519,11 @@ class Bash(unittest.TestCase):
             self.assertIsNotNone(run("Bash", {"command": command})[0], command)
         for command in ("$(true) find . -name x", "$(cd /) rg foo .", "$SUDO rg foo src"):
             self.assertIsNone(run("Bash", {"command": command})[0], command)
+        # 頭の展開だけの語の後ろの cd も行き先を見る(前は cd を見ず、`$(true) cd /; rg foo .` を作業場の中の . と読んで通していた)
+        for command in ("$(true) cd /; rg foo .", "$X cd ~ && rg foo .", "`true` cd /; find . -name x"):
+            self.assertIsNotNone(run("Bash", {"command": command})[0], command)
+        for command in ("$(true) cd src; rg foo .", "echo cd /; rg foo ."):
+            self.assertIsNone(run("Bash", {"command": command})[0], command)
 
     def test_assignments_only_command_reads_earlier_assignments(self):
         # 代入だけのコマンド(`D=/ x=$(rg foo $D)`)は左から順に代入するので、後ろの語の $( ) は前の語の代入を見て起点を解く

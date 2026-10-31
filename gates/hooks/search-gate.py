@@ -1574,7 +1574,9 @@ def load_coldread():
                     if (j, place) not in self._dests:
                         if len(self._dests) >= DESTS_MAX:
                             raise ValueError("繰り返しの中の cd が多く、探す場所を読み切れない")
-                        dest = self.cd_dest(c.args[cr.command_start(c.args):], place)
+                        # コマンド名の位置の展開だけの語(`$(true) cd /`・`$X cd /`)も越える: 展開が空なら cd が走る(前はその語を
+                        # コマンド名と読み、cd の行き先を見ずに通していた)
+                        dest = self.cd_dest(c.args[cr.command_start(c.args, skipped=[]):], place)
                         self._dests[j, place] = cr.native_path(dest) if dest else None
                     dest = self._dests[j, place]
                     if not (dest and os.path.isabs(dest)):
