@@ -12,6 +12,7 @@ import io
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1661,3 +1662,15 @@ class QueueRun(LandCase):
         p.terminate()   # 親（--queue-run）に SIGTERM。コマンドに送り直し、コマンドが終わるまで抜けない
         self.assertEqual(p.wait(timeout=10), 7)
         self.assertTrue(os.path.exists(marker), "コマンドが終わる前に --queue-run が抜けた")
+
+    @unittest.skipIf(os.name == "nt", "SIGTERM を送り直す形は POSIX だけ")
+    def test_a_sigterm_while_the_command_starts_is_sent_to_it_once_it_runs(self):
+        # 起動の途中（Popen が返る前）に届いた SIGTERM を、起動してから送り直す。受け手を起動の後に据えていた頃は、ここで届くと
+        # --queue-run だけが既定の受け手で落ち（列を抜け）、コマンドは走り続けた（main の CI の run 41200963309 の赤の筋）
+        script = (f"import os, signal, subprocess, sys\nsys.path.insert(0, {os.path.dirname(os.path.abspath(queuerun.__file__))!r})\n"
+                  "import queuerun\nreal = subprocess.Popen\n"
+                  "def starting(*a, **k):\n    os.kill(os.getpid(), signal.SIGTERM)\n    return real(*a, **k)\n"
+                  "subprocess.Popen = starting\n"
+                  "print(queuerun._run([sys.executable, '-c', 'import time; time.sleep(10)']), flush=True)\n")
+        p = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, encoding="utf-8", timeout=5)
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, str(-signal.SIGTERM)), p.stderr)   # コマンドが SIGTERM で落ち、それを待って抜けた

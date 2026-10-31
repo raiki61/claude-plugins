@@ -35,16 +35,27 @@ def _say(line):
 
 
 def _run(command):
-    """command を走らせ、終わるまで待って終了の値を返す。待つ間の合図はコマンドに送り直し、コマンドより先に抜けない。"""
-    child = subprocess.Popen(command)
+    """command を走らせ、終わるまで待って終了の値を返す。待つ間の合図はコマンドに送り直し、コマンドより先に抜けない。
+
+    合図の受け手はコマンドを起動する前に据える。起動した後に据えると、起動の途中から据えるまでに届いた SIGTERM は元の受け手が受けて
+    （既定なら --queue-run だけが落ちて列を抜け、コマンドは走り続ける）コマンドへ送り直されない。起動の途中に届いた合図は控えて、
+    起動してから送る。"""
+    child, pending = None, []
     old = {}
     if threading.current_thread() is threading.main_thread():   # 合図の受け手は主のスレッドでしか替えられない
 
         def forward(signum, frame):
+            if child is None:   # まだ起動していない。起動してから送る
+                pending.append(signum)
+                return
             with contextlib.suppress(OSError):
                 child.send_signal(signum)
         old = {s: signal.signal(s, forward) for s in FORWARD}
     try:
+        child = subprocess.Popen(command)
+        for signum in pending:
+            with contextlib.suppress(OSError):
+                child.send_signal(signum)
         while True:
             try:
                 return child.wait()
