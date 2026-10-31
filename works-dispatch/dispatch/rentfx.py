@@ -17,7 +17,7 @@ from ports import chat
 from nodes import wake
 
 # 会話の記録の中で、待ち受けが渡した文を見分ける印（試験 test_rentfx が、今の文に含まれることを確かめる）
-ASK_MARK = "good time to compact"                      # compact の焦点の問い（wake_hook.CONSULT_TEXT・TURN_CONSULT_TEXT）
+ASK_MARK = "good time to compact"                      # compact の焦点の問い（wake_hook.CONSULT_TEXT。前の版のターンの終わりの問いも同じ字を持つ）
 PING_HEAD = "keepalive"                                # keepalive の文の頭（role.KEEPALIVE_TEXT。10-23 の版は「（keepalive: …」）
 JUDGED_MARK = "費用の判断で会話を compact した"         # 部品の判断で打った compact の後の続き（wake_hook.compact_turn）
 CUT_MARK = "区切り〔--compact〕で会話を compact した"   # 区切りで打った compact の後の続き（同じ）

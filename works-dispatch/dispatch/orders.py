@@ -1559,12 +1559,16 @@ def rest_here(a, ports, cwd):
     return 0
 
 
-def compact_here(a, ports, cwd):
+def compact_here(a, ports, cwd, judge=None, find=None):
     """--compact [焦点]。部署か窓口の会話が、同じ仕事の前の部分が済み、続きは要約で足りるので、ここで compact してよい区切りだと印す（属性
-    company.compact に場所の会話の id、company.compact-focus に焦点）。このターンの終わりに待ち受け（wake_hook.py）が、compact の費用の元が
-    取れる（借りるか買うかの部品の判断。部品が無ければ文脈が COMPACT_FLOOR トークン以上）と見て、窓の入力フィールドが空なら、窓に /compact <焦点> を打ち、compact の後の会話の始まりの待ち受けが印を外して、
-    会話に続きをさせる 1 行を渡す。--rest と違い、納品していない頼みが在っても印せる（頼みの途中の区切りのための口）。区切りかどうかと
-    どの役が打つかは、会社の形の役の本文の決まりで判断する（ここでは決めない）。人がその会話に打つと印が外れる。終了の値を返す。"""
+    company.compact に場所の会話の id、company.compact-focus に焦点）。印す前に、compact の費用の元が取れるかをその場で判断する（計画
+    docs/specs/2026-10-25-compact-restart-plan.md の 4.2。wake_hook.mark_judge。会話の記録は属性の会話の id から全アカウントの記録を引く
+    〔chat.talk_of〕。借りるか買うかの部品の判断で、部品が無ければ文脈が COMPACT_FLOOR トークン以上か）。取れないと見たら印を書かず、
+    このまま続けて次の区切りで改めて打ってよいと返す。取れると見たか、記録を読めずに決められないときは印を書き、このターンの終わりに
+    待ち受け（wake_hook.py）が、窓の入力フィールドが空なら、窓に /compact <焦点> を打ち、compact の後の会話の始まりの待ち受けが印を外して、
+    会話に続きをさせる 1 行を渡す。判断は受付箱の台帳に compact の行で残す（計画の 6 の足す 7）。--rest と違い、納品していない頼みが在っても
+    印せる（頼みの途中の区切りのための口）。区切りかどうかとどの役が打つかは、会社の形の役の本文の決まりで判断する（ここでは決めない）。
+    人がその会話に打つと印が外れる。終了の値を返す。judge・find は試験が差し替える口（mark_judge・chat.talk_of。find は会話の id とホームのフォルダを受ける）。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
         print(f"止めた: {cwd} は部署でも窓口でもない（git の設定 company.role と company.name が無い）。compact の区切りは部署か窓口の場所で印す")
@@ -1574,6 +1578,19 @@ def compact_here(a, ports, cwd):
         return 2
     focus = " ".join((a.compact or "").split())
     common = ports.git.common_dir(cwd)
+    inbox = deliver.inbox_of(common)
+    import wake_hook   # 判断の口は待ち受けと同じ物を使う。読むのは --compact のときだけ（ほかのコマンドの起動を重くしない）
+    try:
+        talk = (find or chat.talk_of)(attrs["session"], ports.env.get("HOME"))
+        judged = (judge or wake_hook.mark_judge)(cwd, attrs, talk)
+    except Exception as e:   # 会社の形や記録が読めないなどで判断が落ちても、決められないときと同じく印を書く（計画の 4.2）
+        judged = {"worth": None, "context": None, "spent": None, "compact_cost": None, "reason": None, "why": f"判断できない（{e}）"}
+    row = {k: judged.get(k) for k in ("worth", "context", "spent", "compact_cost", "reason", "why")}
+    got = {"cwd": cwd, "session": attrs["session"], "inbox": inbox}
+    if judged["worth"] is False:   # 待ち受けが keepalive の時刻の判断で付けた印と控えは残す（それはそれで次のターンの終わりに打つ）
+        wake_hook.compact_log(got, attrs, status="declined", **row)
+        print(f"まだ compact の費用の元が取れない（{judged['why']}）。印を付けなかったので、このまま続けて、次の区切りで改めて打ってよい")
+        return 0
     try:
         provision.mark(cwd, gitx.root_of(common), {wake.COMPACT: attrs["session"], wake.COMPACT_FOCUS: focus or None},
                        ports.git)
@@ -1581,10 +1598,13 @@ def compact_here(a, ports, cwd):
         print(f"止めた: compact の区切りの印を書けなかった（{e}）")
         return 1
     with contextlib.suppress(OSError):   # 待ち受けが費用の判断で付けた印の控えを消す（この印は会話が付けた物として扱わせる）
-        wake.compact_forget(deliver.inbox_of(common), ports.git.git_dir(cwd))
-    print(f"compact の区切りと印した。このターンの終わりに、compact の費用の元が取れる（費用の判断の部品が無ければ、文脈が {wake.COMPACT_FLOOR} "
-          f"トークン以上）と見て、窓の入力フィールドが空なら、機械がこの会話の窓に {chat.COMPACT}{' ' + focus if focus else ''} を打ち、済んだら続きを"
-          "させる 1 行をこの会話に渡す（元が取れないと見たときと、打てなかったときは、compact せずに訳を添えた 1 行を渡す）。止まる前のフックは、このターンの終わりに納品を促さない。続きに要ることで、"
+        wake.compact_forget(inbox, ports.git.git_dir(cwd))
+    wake_hook.compact_log(got, attrs, status="marked", **row)
+    seen = ("compact の費用の元が取れると見たので" if judged["worth"]
+            else f"compact の費用の元が取れるかを決められなかった（{judged['why']}）。決められないときは印を付けるので")
+    print(f"{seen}、compact の区切りと印した。このターンの終わりに、窓の入力フィールドが空なら、機械がこの会話の窓に "
+          f"{chat.COMPACT}{' ' + focus if focus else ''} を打ち、済んだら続きをさせる 1 行をこの会話に渡す（打てなかったときは、"
+          "compact せずに訳を添えた 1 行を渡す）。ここでターンを終える。止まる前のフックは、このターンの終わりに納品を促さない。続きに要ることで、"
           "焦点に書けない長いものは、このターンを終える前にファイルに書いておく。人がこの会話に打つと印が外れる")
     return 0
 

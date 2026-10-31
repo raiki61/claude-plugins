@@ -751,6 +751,12 @@ def transcript(payload):
     return payload.get("transcript_path")
 
 
+def payload_of(session, path):
+    """会話の id（session）と記録の場所（path）から、フックの入力の形（transcript・session_id で読める物）を作る。フックの入力を
+    持たないコマンド（orders.compact_here の --compact）が、フックと同じ判断の口を使うため。"""
+    return {"session_id": session, "transcript_path": path}
+
+
 def tail_lines(payload):
     """会話の記録（transcript_path）の終わりの方（TAIL_BYTES）の行の並び。記録が無い・読めなければ None。頭の行は切れていることがある。"""
     path = transcript(payload)
@@ -871,6 +877,35 @@ HOOK_SAID = re.compile(r'hook blocking error from command "([^"]*)":\s*')
 HOOK_FEEDBACK = "Stop hook feedback:\n"
 HOOK_SAID_WITHIN = 400   # 印は文の頭から 400 字の内に在る（包みの <task-notification> などの後。2026-10-28 の記録の 386 件はどれも 100〜199 字目）
 _COMMAND_NAME = re.compile(r"<command-name>([^<]*)</command-name>")
+
+
+def talk_of(session, home=None):
+    """会話の id（session）の記録（アカウントごとの設定のフォルダ〔config_dirs〕の projects/<フォルダ>/<会話の id>.jsonl）のパス。
+    同じ id の記録が複数のアカウントに在れば（部署が別のアカウントへ移ると写る）一番大きい物。無ければ None。フックの入力を持たない
+    コマンド（orders.compact_here）が、属性の会話の id から記録を引くのに使う。"""
+    if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,180}", session):
+        return None
+    home = home or os.path.expanduser("~")
+    best = None
+    try:
+        folders = config_dirs(home)
+    except OSError:
+        return None
+    for folder in folders:
+        root = os.path.join(home, folder[2:], "projects")
+        try:
+            places = [e.path for e in os.scandir(root) if e.is_dir()]
+        except OSError:   # このアカウントに会話の記録が無い
+            continue
+        for place in places:
+            path = os.path.join(place, session + ".jsonl")
+            try:
+                size = os.path.getsize(path)
+            except OSError:   # この会話の記録はこのフォルダに無い
+                continue
+            if best is None or size > best[0]:
+                best = (size, path)
+    return best and best[1]
 
 
 def talk_files(home=None, since=None):

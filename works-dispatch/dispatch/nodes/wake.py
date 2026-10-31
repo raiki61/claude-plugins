@@ -155,16 +155,17 @@ def warm_note(inbox, place, session, tasks, sent, stopped=False, spent=0):
 
 
 def compact_path(inbox, place):
-    """keepalive の時刻の compact の判断の控え（{session, asked, deferred, turned, judged}。wake_hook.Warm が会話に compact の焦点を
-    問うたか・会話が keepalive の時刻の問いに skip と答えて延ばした回数・ターンの終わりの問いに延ばした回数・判断で compact の印を
+    """keepalive の時刻の compact の判断の控え（{session, asked, deferred, ending, judged}。wake_hook.Warm が会話に compact の焦点を
+    問うたか・会話が keepalive の時刻の問いに skip と答えて延ばした回数・終わり際と答えた〔skip: end〕待ちか・判断で compact の印を
     付けたか）。"""
     return os.path.join(_dir(inbox), key(place) + ".compact.json")
 
 
 def compact_state(inbox, place, session):
-    """同じ会話（session）の compact の判断の控え {asked, deferred, turned, judged}。控えが無い・読めない・会話が替わっていれば
-    {asked: False, deferred: 0, turned: 0, judged: False}。"""
-    fresh = {"asked": False, "deferred": 0, "turned": 0, "judged": False}
+    """同じ会話（session）の compact の判断の控え {asked, deferred, ending, judged, forced}。控えが無い・読めない・会話が替わっていれば
+    {asked: False, deferred: 0, ending: False, judged: False, forced: False}。forced は、判断で付けた印（judged）が強制の線の物か
+    （台帳の compact の行の mouth を forced にする）。前の版の控えの turned（ターンの終わりの問いに延ばした回数）は読まない。"""
+    fresh = {"asked": False, "deferred": 0, "ending": False, "judged": False, "forced": False}
     try:
         with open(compact_path(inbox, place), encoding="utf-8") as f:
             got = json.load(f)
@@ -173,15 +174,15 @@ def compact_state(inbox, place, session):
     if not isinstance(got, dict) or got.get("session") != session:
         return fresh
     count = lambda v: v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
-    return {"asked": got.get("asked") is True, "judged": got.get("judged") is True,
-            "deferred": count(got.get("deferred")), "turned": count(got.get("turned"))}
+    return {"asked": got.get("asked") is True, "judged": got.get("judged") is True, "ending": got.get("ending") is True,
+            "forced": got.get("forced") is True, "deferred": count(got.get("deferred"))}
 
 
-def compact_note(inbox, place, session, asked=False, deferred=0, judged=False, turned=0):
+def compact_note(inbox, place, session, asked=False, deferred=0, judged=False, ending=False, forced=False):
     """compact の判断の控えを書く。"""
     os.makedirs(_dir(inbox), exist_ok=True)
-    _replace(compact_path(inbox, place), json.dumps({"session": session, "asked": asked, "deferred": deferred, "turned": turned,
-                                                     "judged": judged}, ensure_ascii=False))
+    _replace(compact_path(inbox, place), json.dumps({"session": session, "asked": asked, "deferred": deferred, "ending": ending,
+                                                     "judged": judged, "forced": forced}, ensure_ascii=False))
 
 
 def compact_forget(inbox, place):

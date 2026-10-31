@@ -217,7 +217,7 @@ C·(p_w' − p_r) > C'·p_w' + o_s·p_o + Q_止め / (1 − w_止め)        Q_�
 1. rent-or-buy の `compact` の式の直し（3.2）。`C'_w`・`C'_r` を記録の compact の次の要求から読む、規則を `S ≥ F' + Q` にする、`prices.toml` の `[compact]` の既定を測った値と出典に替える。設計書（`docs/design.md` と `docs/design.ja.md`）の 4.6 に、足す項を書いてある。
 2. 印のコマンド（`orders.compact_here`）が打たれた時に損得を判断する（4.2）。今の判断（`wake_hook.compact_judge`）はフックの入力（payload）から会話の記録の場所・キャッシュの寿命・強制の線を取っているが、印のコマンドはフックの入力を持たない。判断をフックの外から呼べる形に出し、記録は属性の会話の id（`company.session`）から全アカウントの `~/.claude-p*/projects` を探し、寿命と強制の線は役の起動の設定（`role_hook.cache_ttl_of`・`forced_line` が読む物）から取る。rent-or-buy の `compact` は `Q = 0` で呼ぶ。rent-or-buy が無い時は、今の `compact_worth` と同じく文脈が `COMPACT_FLOOR`（10 万トークン）以上かで決める。記録を読めない時は、今どおり印を書く（ターンの終わりの待ち受けが判断する道を、読めない時のためだけに残すかは、実装の時に決める）。
 3. 役の本文（5.1 の段落）。claude-plugins の担当と作業には段落を足す。足す先の `.claude/company.toml` は、ふだんは部署「説明書」（claude-plugins で、会社の形と、プラグインをまたぐ文書を受け持つ部署）が直すファイルである。それでも説明書には頼まず、7 の 2 を実装する会話が自分で `.claude/company.toml` を直して、消す 1 と同じ commit の並びで main に入れる。2 つは互いに引き合い（ターンの終わりの問いだけ先に消すと、claude-plugins の部署には keepalive の時刻と強制の線しか残らず、段落だけ先に足すと合図と印が重なる）、claude-plugins の担当の役の決まりは、引き合う直しを割って頼まずに 1 つの会話で通しで直すことにしているためである。その会話は、納品の「触った受け持ち」に説明書の名前を書いて、直したことを知らせる。my_notes の担当・作業・機械的な作業には、足りない 2 文（5.1）を足す。別のリポジトリなので、`--ask my_notes` で頼む。こちらは足さなくても食い違いは起きない（終わり際の目安が無いだけ）ので、同じ日でなくてよい。
-4. keepalive の時刻の問いの費用 `Q_k / (1 − w_k)` を rent-or-buy に `consult_cost` で渡す（4.2）。単価は rent-or-buy の `prices.toml` を正本にし、works-dispatch に数を写さない。
+4. keepalive の時刻の問いの費用 `Q_k / (1 − w_k)` を rent-or-buy に `consult_cost` で渡す（4.2）。単価は rent-or-buy の `prices.toml` を正本にし、works-dispatch に数を写さない。入れた形は、額の `consult_cost` でなく、トークンの `consult_output_tokens`（`Q_k` の出力のトークン。問いの答えの 300 から、差し替わる keepalive の答えの 5 を引いた 295。どちらも 2.1 で測った数）と `consult_miss`（`w_k`。問いに焦点が返らない割合。台帳に役ごとの数が溜まるまで 0 と置く）で渡し、額は rent-or-buy が出力の単価で出す（頼み ae8abe）。keepalive の時刻の問いは、keepalive の文（キャッシュを保つ短い要求）と差し替えて送る compact の焦点の問い。
 5. 切れる前の compact（5.5）。rent-or-buy の `compact` に「この後キャッシュが切れる」を表す入力（例 `expiring`）を足し、その時は 5.5 の式で答える。待ち受けは、keepalive の止め時に問いを送り、compact の後に起動しない。
 6. keepalive の時刻の問いの文（`CONSULT_TEXT`）に「仕事がもうすぐ終わるなら `skip: end` と書け」を足し、待ち受け（`consult_answer`）がこの答えを延期の数（`deferred`）に数えず、その待ちでは問い直さない（4.2）。
 7. 台帳の行（8 で測るため）: 印のコマンドの判断（打った会話・文脈・`S`・`F'`・印を付けたか）、compact を打った口（印・keepalive の時刻の問い・強制の線）、keepalive の時刻の問いの答え（焦点・`skip:`・書かれない・読めない）。
@@ -225,7 +225,7 @@ C·(p_w' − p_r) > C'·p_w' + o_s·p_o + Q_止め / (1 − w_止め)        Q_�
 ## 7. 実装の順
 
 1. rent-or-buy の式の直し（足す 1・消す 3）。ほかの全部がこの式の上に乗り、rent-or-buy の中だけで済む。2026-10-25 に rent-or-buy 0.4.0 で入れた（受付 20261025-011449-3c992e）。
-2. 1 を入れてから 1 週間空けて、口の整理（消す 1・2、足す 2・3・4・6・7）を同じ頼みで入れる。足す 3 のうち claude-plugins の役の本文はこの頼みの中で通しで直し、my_notes の分は `--ask my_notes` で頼む。空けた 1 週間を 8 の比べの前の期間にする（式の違いが前と後に混ざらない）。
+2. 1 を入れてから 1 週間空けて、口の整理（消す 1・2、足す 2・3・4・6・7）を同じ頼みで入れる。足す 3 のうち claude-plugins の役の本文はこの頼みの中で通しで直し、my_notes の分は `--ask my_notes` で頼む。空けた 1 週間を 8 の比べの前の期間にする（式の違いが前と後に混ざらない）。2026-11-01 に works-dispatch（0.147.3 の次の版）と rent-or-buy（0.6.0 の次の版）で入れた（この頼みを受け付けた番号が 20261031-165821-ae8abe。変更の記録では頼み ae8abe と略す）。
 3. 切れる前の compact（足す 5）。
 4. 2 週間測ってから見直す（8）。
 

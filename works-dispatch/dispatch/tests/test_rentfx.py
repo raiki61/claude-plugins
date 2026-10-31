@@ -58,8 +58,7 @@ def prices():
 class Marks(unittest.TestCase):
     def test_the_marks_are_in_the_texts_the_wake_hook_sends(self):
         # 印は、待ち受けが今送る文に含まれる（文を替えたら印も替える。昔の記録も読めるよう、印は文の一部だけにする）
-        for text in wake_hook.CONSULT_TEXTS:
-            self.assertIn(rentfx.ASK_MARK, text)
+        self.assertIn(rentfx.ASK_MARK, wake_hook.CONSULT_TEXT)
         self.assertTrue(role.KEEPALIVE_TEXT.lstrip("（(").startswith(rentfx.PING_HEAD))
         self.assertNotIn(rentfx.ASK_MARK, role.KEEPALIVE_TEXT)
         source = (DISPATCH / "wake_hook.py").read_text(encoding="utf-8")

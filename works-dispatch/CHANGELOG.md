@@ -6,6 +6,17 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `--compact`（会話が「ここで compact してよい」と印すコマンド）が、印を付ける前に compact の費用の元が取れるかを判断する。判断は rent-or-buy（「借りるか買うか」を計算で決める別のプラグイン）に聞き、rent-or-buy が無いか答えないときは、文脈が 10 万トークン（compact の下限として置いた値）以上なら元が取れるとみなす。会話の記録は、部署の属性（部署の worktree に付く git の設定 `company.*`）の会話の id（`company.session`）で全アカウントの記録から探す。元が取れないときは印を付けず、「このまま続けて、次の区切りで改めて打ってよい」と返す。前は印を付けてターンを終えさせ、ターンの終わりに待ち受け（会話ごとに裏で動くフック `dispatch/wake_hook.py`。ターンの終わりに動き、keepalive を送り、compact を打つ）が判断していた。元が取れないと「compact しなかった」の 1 行で会話をもう 1 ターン起動し、その分の要求が 1 本余分に掛かった。印を付けたターンの終わりには判断し直さない。記録を読めず決められないときは、今までどおり印を付ける（計画 `docs/specs/2026-10-25-compact-restart-plan.md` の 7 の 2。頼み ae8abe は、この変更を頼んだ受付の番号）。
+- keepalive の時刻（キャッシュが切れる前に keepalive を送る時刻）に会話へ送る、compact の焦点（要約で残す話題）の問いの文に、「仕事がもうすぐ終わるなら skip: end と答える」を足した。skip: end の答えは延期の回数に数えない（焦点の問いは 2 回延ばされると、焦点なしで compact を打つ。この 2 回が延期の上限）。skip: end と答えた待ち（次の keepalive の時刻まで）では問い直さず、延期の上限による compact もしない。文脈が強制の線（`autoCompactWindow`、Claude Code が自動で compact する窓の設定の 8 割）に着いたときは、今までどおり打つ。会話が次のターン（待ち受けの文で始まっていない、会話自身のターン）を終えると、問い直さない状態を元に戻す。
+- 焦点を問う前の判断で、rent-or-buy に問いの費用を渡す。渡すのは、問いで増える出力のトークン（295。問いの答え 300 から、差し替わる keepalive の答え 5 を引いた測った値）と、焦点が返らない割合（役ごとの数を台帳に溜めて測るまでは 0 と置く）。額にするのは rent-or-buy で、単価は写さない。古い rent-or-buy がこの 2 つの鍵（`consult_output_tokens`・`consult_miss`）を断ったら、2 つとも外して聞き直す。
+- 受付箱（頼みと納品の本文を置く、会社の共通の `.git` 内のフォルダ）の台帳（頼みと納品ごとの 1 行の記録）に `kind` が `compact` の行を書く。`--compact` の判断（`marked`・`declined`。文脈・前の compact からの余分な読み・compact の費用を添える）と、compact を打った口（きっかけの道。`mouth` が `mark`＝`--compact` の印、`keepalive`＝keepalive の時刻の焦点の問い、`forced`＝強制の線）を残す。keepalive の行の問いの答えには、答えの種類（`reply`）を添える。
+
+### Removed
+
+- ターンの終わりに compact の焦点を問う文と、その延期の回数（compact の控えの `turned`）。多くは空振りで、単独の要求が 1 本増えていた。ターンの終わりには、文脈が強制の線に着いたかだけを見て、着いていれば焦点なしで打つ。
+
 ## [0.147.3] - 2026-11-01
 
 ### Fixed

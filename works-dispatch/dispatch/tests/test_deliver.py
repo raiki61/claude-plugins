@@ -1224,8 +1224,12 @@ class Flow(unittest.TestCase):
         self.ask_then_summary(GOOD)
         inbox, place = deliver.inbox_of(self.g.common_dir(self.src)), self.g.git_dir(self.place)
         wake.compact_note(inbox, place, "s-dept", deferred=1, judged=True)   # 待ち受けが費用の判断で付けた印の控え
+        self.ports.env = {**self.ports.env, "HOME": tempfile.mkdtemp()}   # 会話の記録は見つからない（決められないので印を書く）
         rc, out = self.main(self.place, "--compact", "次は  直しを書く")
         self.assertEqual(rc, 0, out)
+        self.assertIn("決められなかった（会話の記録が見つからない）", out)
+        row = deliver.records(inbox)[-1]
+        self.assertEqual((row["kind"], row["status"], row["worth"], row["session"]), ("compact", "marked", None, "s-dept"))
         self.assertFalse(os.path.exists(wake.compact_path(inbox, place)))   # 会話が付けた印として扱わせる
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs[wake.COMPACT], attrs[wake.COMPACT_FOCUS]), ("s-dept", "次は 直しを書く"))
@@ -1240,6 +1244,42 @@ class Flow(unittest.TestCase):
             out = io.StringIO()
             orders.stop_hook(io.StringIO(payload), out, lambda cwd: {**attrs, wake.COMPACT: other}, tempfile.mkdtemp(), lambda: None)
             self.assertEqual(json.loads(out.getvalue())["decision"], "block")
+
+    def test_compact_does_not_mark_when_it_does_not_pay_yet(self):
+        # 印のコマンドが打った時に費用を判断し、元が取れないなら印を書かずに続けさせる（計画の 4.2。ターンを 1 本足さない）
+        self.ask_then_summary(GOOD)
+        inbox = deliver.inbox_of(self.g.common_dir(self.src))
+        seen = []
+
+        def judge(cwd, attrs, transcript):
+            seen.append(transcript)
+            return {"worth": False, "why": "まだ安い", "context": 5000, "reason": "within_buy_cost", "spent": 0.01, "compact_cost": 0.4}
+        with mock.patch.object(wake_hook, "mark_judge", judge), \
+                mock.patch.object(claudex, "talk_of", lambda session, home=None: f"{home}/{session}.jsonl"):
+            self.ports.env = {**self.ports.env, "HOME": "/h"}
+            rc, out = self.main(self.place, "--compact", "次")
+        self.assertEqual((rc, seen), (0, ["/h/s-dept.jsonl"]))
+        self.assertIn("まだ compact の費用の元が取れない（まだ安い）。印を付けなかった", out)
+        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        row = deliver.records(inbox)[-1]
+        self.assertEqual({k: row.get(k) for k in ("kind", "status", "worth", "context", "spent", "compact_cost", "reason")},
+                         {"kind": "compact", "status": "declined", "worth": False, "context": 5000, "spent": 0.01,
+                          "compact_cost": 0.4, "reason": "within_buy_cost"})
+        with mock.patch.object(wake_hook, "mark_judge", lambda *a: {"worth": True, "why": "w"}):
+            rc, out = self.main(self.place, "--compact", "次")
+        self.assertIn("compact の費用の元が取れると見たので、compact の区切りと印した", out)
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.COMPACT], "s-dept")
+        # 判断が落ちても（会社の形が壊れているなど）、決められないときと同じく印を書く
+        provision.mark(self.place, self.src, {wake.COMPACT: None}, self.g)
+
+        def broken(*a):
+            raise ValueError("company.toml が壊れている")
+        with mock.patch.object(wake_hook, "mark_judge", broken):
+            rc, out = self.main(self.place, "--compact")
+        self.assertEqual(rc, 0)
+        self.assertIn("決められなかった（判断できない（company.toml が壊れている））", out)
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.COMPACT], "s-dept")
+        self.assertEqual(deliver.records(inbox)[-1]["status"], "marked")
 
     def test_deliver_with_a_wrong_front_matter_sends_nothing_and_ends_with_the_redo_line(self):
         summary = self.ask_then_summary("+++\nopen = []\nnope = 1\n+++\n## 結論\n直した\n## 決め手\nhttps://example.com\n")
