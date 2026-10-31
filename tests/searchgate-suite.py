@@ -234,6 +234,26 @@ class Bash(unittest.TestCase):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_continue_where_a_condition_cd_failed_skips_the_rest_of_the_pass(self):
+        # `if ! cd "$d"; then continue; fi` の then も、cd が落ちたときにこの回の残りを飛ばす(前は exit・return だけを見て、
+        # 動かなかった場所からの cd .. でホームに届いたと読み、止めていた)
+        for cwd in ("/tmp", HOME + "/work", HOME + "/src/repo"):
+            for command in ('for d in */; do if ! cd "$d"; then continue; fi; rg x .; cd ..; done',
+                            'for d in */; do if ! cd "$d"; then echo "skip $d"; continue; fi; rg x .; cd ..; done',
+                            'for d in */; do if ! cd "$d"; then break; fi; rg x .; cd ..; done',
+                            'for d in */; do if cd "$d"; then :; else continue; fi; rg x .; cd ..; done'):
+                with self.subTest(command=command, cwd=cwd):
+                    self.assertIsNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # 外の繰り返しへ抜ける continue 2・繰り返しの後ろ・繰り返しの外・サブシェルや && の後ろの continue は飛ばさない
+        for command in ('for d in */; do if ! cd "$d"; then continue 2; fi; rg x .; cd ..; done',
+                        "for d in a; do if ! cd /tmp; then continue; fi; done; rg x .",
+                        "if ! cd /tmp; then continue; fi; rg x .",
+                        'for d in */; do if ! cd "$d"; then (continue); fi; rg x .; done',
+                        'for d in */; do if ! cd "$d"; then false && continue; fi; rg x .; done'):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_or_a_group_that_exits_and_and_chained_cd_in_a_condition(self):
         # `|| { …; exit 1; }` のまとまりも、最後が exit なら cd が落ちたときに後ろを走らせない。条件の中で && で繋いだ cd は、
         # 条件が通ったときに走る then で移れた(前はどちらも止めていた)

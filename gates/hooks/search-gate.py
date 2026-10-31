@@ -989,7 +989,7 @@ def load_coldread():
 
             条件が通れば移れた cd は、then・while の do で必ず移れた。条件が落ちれば移れた cd(`if ! cd x`・`until ! cd x`)は、
             then より後ろの elif・else・until の do で必ず移れた。ブロックの後ろでは、cd が落ちたときに走る区画がシェルを抜ける
-            (exit・return で終わる)とき(`if ! cd x; then exit 1; fi`・`if cd x; then :; else exit 1; fi`)と、cd が移れるまで
+            (exit・return で終わるか、continue・break で k を飛ばす〔_exits〕)とき(`if ! cd x; then exit 1; fi`・`if cd x; then :; else exit 1; fi`)と、cd が移れるまで
             回る繰り返し(`until cd x; do …; done`・`while ! cd x; do …; done`。中に break が無い)の後ろで必ず移れた(前は条件の中の
             cd を then・do の中でだけ移れたと見て、これらの後ろの探すコマンドを止め、`if ! cd x; then find .; fi` の then を移れた
             後と見て通していた)。"""
@@ -1021,24 +1021,37 @@ def load_coldread():
                 if sec != 0:
                     return False   # 前の then を通った後ろにも来る
                 if failed:
-                    return self._exits(bid, 1, at, d)
+                    return self._exits(bid, 1, at, d, k)
                 sections = {self.lay[m][0][at][1:] for m in inside}
-                return held and sections == {(0, True), (1, False), (2, False)} and self._exits(bid, 2, at, d)
+                return held and sections == {(0, True), (1, False), (2, False)} and self._exits(bid, 2, at, d, k)
             if any(self.lay[m][3] == "break" for m in inside):
                 return False
             return held if kind == "until" else failed
 
-        def _exits(self, bid, sec, at, d):
-            """ブロック bid の区画 sec が、必ずシェルを抜けるか: その区画のじかの(入れ子のブロック・サブシェル・パイプ・&& || の中で
-            ない)exit・return が在る。"""
+        def _exits(self, bid, sec, at, d, k):
+            """ブロック bid の区画 sec が、必ずシェルを抜けるか、k 番目を走らせずに飛ばすか: その区画のじかの(入れ子のブロック・
+            サブシェル・パイプ・&& || の中でない)exit・return か、k を飛ばす continue・break(_skips_pass)が在る(前は exit・return
+            だけを見て、`for d in */; do if ! cd "$d"; then continue; fi; rg x .; cd ..; done` の cd を移れたと限らないと見て止めていた)。"""
             inside = self._inside(bid)
             for m in inside[:-1]:
                 p, dep, ops, head = self.lay[m]
-                if (len(p) == at + 1 and p[at] == (bid, sec, False) and dep == d and head in ("exit", "return")
+                if (len(p) == at + 1 and p[at] == (bid, sec, False) and dep == d
+                        and (head in ("exit", "return") or self._skips_pass(m, k))
                         and all(op in (";", "\n") for op, _ in ops)
                         and not any(op in ("|", "&") for op, _ in self.lay[m + 1][2])):
                     return True
             return False
+
+        def _skips_pass(self, m, k):
+            """m 番目のコマンドが continue・break(引数が無いか 1)で、k を飛ばすか: continue はその繰り返しのこの回の残り、break は
+            繰り返しの全部を飛ばすので、k が m を囲むいちばん内の繰り返しの中の、閉じの done より前に在るとき。"""
+            if self.lay[m][3] not in ("continue", "break") or self.cmds[m].args[1:] not in ([], ["1"]):
+                return False
+            loop = next((bid for bid, _, _ in reversed(self.lay[m][0]) if self.kinds.get(bid) in LOOPS), None)
+            if loop is None:
+                return False
+            inside = self._inside(loop)
+            return k in inside and k < inside[-1]
 
         def _escapes(self, j, k):
             """j 番目の cd の後ろの `|| <コマンド>`・`|| { …; <コマンド>; }` が、cd が落ちたときに k 番目を走らせない逃げ口なら、
@@ -1066,15 +1079,7 @@ def load_coldread():
                 ops.remove("||")
             if mdepth != d or any(op not in (";", "\n") for op in ops) or k <= stop:
                 return None
-            if head in ("exit", "return"):
-                return stop
-            if head not in ("continue", "break") or self.cmds[last].args[1:] not in ([], ["1"]):
-                return None
-            loop = next((bid for bid, _, _ in reversed(mpath) if self.kinds.get(bid) in LOOPS), None)
-            if loop is None:
-                return None
-            inside = self._inside(loop)
-            return stop if k in inside and k < inside[-1] else None
+            return stop if head in ("exit", "return") or self._skips_pass(last, k) else None
 
         def cwds_here(self, k=None):
             """k 番目(既定は今のコマンド)が走りうる cwd の列(None は決まらない)。前の cd を順にたどる: 必ず走る cd は行き先、
