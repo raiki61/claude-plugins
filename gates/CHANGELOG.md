@@ -88,6 +88,13 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 投稿の前のゲート(coldread)が、`gh gist list | awk '{print $1}' | xargs -I{} gh api gists/{}` のように、xargs・find -exec が gist の宛先のパスに `{}` で語を差し込む読むだけの `gh api` と、`body` のフィールドで送る投稿まで止めていた。宛先のゲート(destgate)も、それを投稿と見て宛先不明で止めていた。gist の宛先では `body` のフィールドを本文として読み、止めるのはファイルの中身(`files[…][content]`)と `query` のフィールドだけにした。
 - 宛先のゲート(destgate)が、`gh api gists -f 'files[a.md][content]=…'` のような `gh api` での gist の作成・書き換えを、許可一覧に `gist` が在っても宛先不明と見て止め、`-R` を書くよう求めていた。`gh api` の gist の宛先(GitHub Enterprise Server の `api/v3/gists` も)を、`gh gist create` と同じ `gist` の宛先と見るようにした。
 - 宛先のゲート(destgate)が、`gh api graphql --input q.json` のように graphql か gist へ `--input` で JSON を送る投稿を、投稿でないと見て、許可一覧が在っても一覧の外へ通していた。JSON の中のコメントが 200 字未満だと、投稿の前のゲート(coldread)が本文と見ないため。宛先が graphql か gist になりうる `--input` は投稿と見て、graphql は `-f query` の形と同じく宛先不明で止めるようにした。許可一覧を置いているときは、読むだけの `gh api graphql --input` も止まる。
+- 探しのゲート(searchgate)が、`for d in a b; do if [ -d build ]; then cd build; make; cd ..; fi; done; rg x .`・`for d in */; do [ -d "$d/.git" ] && cd "$d" && git pull && cd ..; done; rg x .` のように、then の区画や `&&` の繋がりの中の cd を、区画に入らなかったときの場所にも後ろの `cd ..` を当てていた。繰り返しの回ごとに 1 つずつ上がって / やホームに届いたと読み、ふつうの繰り返しの後の検索を止めていた。then・else の区画と `&&` の繋がりの中の cd は、区画に入らなければどれも走らないと見るようにした。入れ子の繰り返しの中の if を読み切れないとして止めていたのも直した。
+- 探しのゲート(searchgate)が、`cd sub || { cd ..; exit 1; }; cd ../..; rg foo .` のように、cd が落ちたときに走って抜けるまとまり(逃げ口)の中の cd を、移れたときの場所にも当て、ホームに届いたと読んで止めていた。逃げ口の中の cd は後ろのコマンドの場所を変えないと見るようにした。
+- 探しのゲート(searchgate)が、`{ cd proj; } | cat; rg x .`・`{ cd proj; } & rg x .` のように、パイプの中か `&` で後ろに回した `{ }` のまとまりの中の cd を後ろのコマンドにも届くと見て、ホームで打つと通していた。そのまとまりは別のシェルで走るので、中の cd は閉じの `}` の後ろに届かないと見るようにした。
+- 探しのゲート(searchgate)が、`fd foo -x rg y / {}`・`fd -e py -X rg -l foo /` のように、fd の `-x`・`-X`・`--exec`・`--exec-batch` の後ろに書いたコマンドを読まずに通していた。後ろのコマンドも探すコマンドとして読むようにした。
+- 探しのゲート(searchgate)が、`xargs --arg-file list rg foo /`・`parallel --block-size 1M rg foo ::: /`・`parallel -kS host rg foo ::: /` のように、値を取る長い旗と束ねた 1 字の旗の値を走らせるコマンドと読み、後ろの rg を見落として通していた。xargs の長い形の旗と、parallel の値を取る旗(GNU parallel のソースの一覧から取った)を足し、束ねた旗の終わりの字が値を取るときは次の語を値と見るようにした。
+- 探しのゲート(searchgate)が、`find . -exec rg + -newer / \;` のように、`-exec` で走らせるコマンドの引数の `+` を `-exec` の閉じと読み、後ろの `/` を見落として通していた。`-exec` は `;` か、`{}` の直後の `+` でだけ閉じると見るようにした。
+- 探しのゲート(searchgate)が、`find fd -name ')' -exec rg x / \;`・`cd /; echo ')'; rg x .` のように引用符で囲んだ閉じ括弧をサブシェルの閉じと読み、find の後ろを繋がず、cd が後ろのコマンドに届かないと読んで通していた。囲むサブシェルの無い所の閉じ括弧は、ただの字と見るようにした。
 
 ## [0.46.0] - 2026-10-30
 
