@@ -420,6 +420,22 @@ class Bash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(run("Bash", {"command": command})[0])
 
+    def test_find_exec_after_a_closing_semicolon_and_a_parenthesis_is_read(self):
+        # -exec の閉じの \; と式の括弧が並んでも、後ろの -exec を繋いで読む。-exec は `{} +` の + か ; でだけ閉じる(前は
+        # 区切りの組で見て割れた後ろを読まず、+ の語でも閉じたと見て、どれも通していた)
+        for command in ("find . \\( -name a -exec true \\; \\) -exec rg x / \\;",
+                        "find . -exec true \\; \\( -exec rg x / \\; \\)", "find . -exec echo + \\; -exec rg x / \\;"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command})[0])
+        # 括弧か -exec が開いたまま区切りが来て繋ぎ切れず、後ろに探すツールの語が在れば止める(読み切れない)
+        self.assertIsNotNone(run("Bash", {"command": "find . -exec true && rg x src"})[0])
+        # 閉じた -exec・式の括弧の後ろの区切りと、作業場の中の探すコマンドは通す
+        for command in ("find . -exec rg x {} + ; rg y src", "find . -exec true \\; \\( -name a \\) -exec rg x {} \\;",
+                        "find . -exec echo + \\; -print", "find . -exec echo {} \\; && rg x src",
+                        "find . -exec true && echo done"):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command})[0])
+
     def test_grep_with_a_number_flag_is_recursive(self):
         # Claude Code の grep は ugrep で走り、-NUM と --depth は下をたどる深さ
         self.assertIsNotNone(run("Bash", {"command": "git log | grep -5 needle"}, cwd=HOME)[0])

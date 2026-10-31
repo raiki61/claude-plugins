@@ -598,23 +598,40 @@ def command_words(cr, words):
 
 def glued_find_args(cmds, k):
     r"""find の引数。式の \( \) と -exec の後ろの \; はトークン化で区切りと読まれ、後ろが別のコマンドに割れるので、
-    括弧だけ(または開いた -exec の後の ; だけ)で続くコマンドを繋ぎ直す。閉じる括弧が開いた数を超えたら(本物のサブシェルの
-    閉じ)そこで止める。"""
-    args, open_ = list(cmds[k].args), 0
+    括弧と、開いた -exec の後の ; だけで続くコマンドを繋ぎ直す。区切りは 1 つずつ読む(`\; \)`・`\; \(` のように閉じの ; と
+    括弧が並んでも繋ぐ。前は区切りの組で見て、`find . \( -name a -exec true \; \) -exec rg x / \;`・
+    `find . -exec true \; \( -exec rg x / \; \)` の rg を見落とした)。-exec は `{} +` の + か ; でだけ閉じる(前は + の語で閉じたと見て、
+    `find . -exec echo + \; -exec rg x / \;` の rg を見落とした)。閉じる括弧が開いた数を超えたら(本物のサブシェルの閉じ)そこで
+    止める。式の括弧か -exec が開いたまま、ほかの区切りで止まったら(読み切れない)、後ろに探すツールの語が在れば止める
+    (投稿の前のゲート〔coldread-gate.py の glued_find〕と同じ読み方)。"""
+    args, open_, closed = [], 0, True
+
+    def add(words):
+        nonlocal closed
+        for w in words:   # 足した語だけを見る(繋ぐたびに全体を読み直さない)
+            if w in FIND_EXEC:
+                closed = False
+            elif w == ";" or (w == "+" and args[-1:] == ["{}"]):
+                closed = True
+            args.append(w)
+
+    add(cmds[k].args)
     for m in range(k + 1, len(cmds)):
-        ops = [op for op, _ in cmds[m].ops]
-        exec_open = any(a in FIND_EXEC for a in args) and not any(
-            a in (";", "+") for a in args[max(i for i, a in enumerate(args) if a in FIND_EXEC):])
-        if ops == [";"] and exec_open:
-            args += [";"] + cmds[m].args
-            continue
-        if not ops or not all(op in "()" for op in ops):
-            break
-        for op in ops:
-            open_ += 1 if op == "(" else -1
-            if open_ < 0:
+        for op, _ in cmds[m].ops:
+            if op == ";" and not closed:
+                add([";"])
+            elif op in ("(", ")"):
+                open_ += 1 if op == "(" else -1
+                if open_ < 0:
+                    return args
+                args.append(op)
+            else:
+                if (open_ > 0 or not closed) and any(WORD_RE.search(" ".join(c.args)) for c in cmds[m:]):
+                    raise ValueError("find の式の括弧か -exec が開いたまま区切りが来て、find の引数を読み切れない")
                 return args
-        args += ops + cmds[m].args
+        if not cmds[m].ops:
+            break
+        add(cmds[m].args)
     return args
 
 

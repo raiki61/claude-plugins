@@ -74,6 +74,7 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 - 探しのゲート(searchgate)が、`for i in 1 2; do cd ..; done; find . -name x`・`while [ ! -d .git ]; do cd ..; done; rg foo .`(探すコマンドより前に閉じる繰り返しの中の cd)を、回の中身を 1 回だけたどって読み、2 回目からの `cd ..` で / やホームに届くのを見落として通していた。今は、繰り返しの中の cd を場所が増えなくなるまで重ねてたどる。入れ子の繰り返しの cd で場所が増え続け、読み切れないときは止める。
 - 探しのゲート(searchgate)が、`if cd sub; then make; cd ..; fi; rg bar .`(条件の最後の cd が移れたときにだけ走る then の中の `cd ..`)を ~/src で打つと、cd が落ちて動かなかった場所にも then の `cd ..` を当て、ホームに届いたと読んで止めていた。今は、then・do(elif の then・while の do も)の中の cd は cd が移れた場所にだけ当て、cd が落ちた場所は then・do を飛ばして後ろに来ると見る。`cd sub && make && cd ..; rg bar .` と同じ場所になる。
 - 探しのゲート(searchgate)が、GNU parallel に 1 語の文字列で渡したコマンド(`parallel "rg foo {}" ::: /`・`parallel 'find {} -name x' ::: /`)、シェルに渡すコマンド(`parallel bash -c 'find {} -name x' ::: /`)、コマンドの無い parallel(`parallel ::: "find / -name x"`。値そのものを走らせる)を、1 語を名前と読んで通していた。今は、`:::` の値を `{}` に入れるか後ろに足した文字列を、シェルが走らせるコマンドとして見る。`::::` の後ろ(値を読むファイル)と標準入力の値は決まらないので、`{}` のまま見る。`parallel -j4 "gzip {}" ::: *.log` は今までどおり通す。
+- 探しのゲート(searchgate)が、`find . \( -name a -exec true \; \) -exec rg x / \;`・`find . -exec true \; \( -exec rg x / \; \)`(-exec の閉じの `\;` と式の括弧が並ぶ形)と `find . -exec echo + \; -exec rg x / \;`(-exec の中の + の語)の後ろの -exec の探すコマンドを見落として通していた。区切りを 1 つずつ読んで繋ぎ、-exec は `{} +` の + か `;` でだけ閉じたと見る(投稿の前のゲート〔coldread〕と同じ読み方)。式の括弧か -exec が開いたまま区切りが来て繋ぎ切れず、後ろに探すツールの語が在るときは、読み切れないとして止める。
 
 ## [0.46.0] - 2026-10-30
 
