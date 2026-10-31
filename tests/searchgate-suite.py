@@ -350,6 +350,20 @@ class Bash(unittest.TestCase):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME)[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
+    def test_cd_inside_an_escape_does_not_move_the_later_commands(self):
+        # 逃げ口(`|| { …; exit 1; }`)の中の cd は、cd が落ちたときに走って抜けるので、後ろのコマンドの場所を変えない(前は中の
+        # cd .. を移れた側にも当て、ホームに届いたと読んで止めていた)
+        for command in ("cd sub || { cd ..; exit 1; }; cd ../..; rg foo .", "cd sub || { cd /; exit 1; }; rg foo ."):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src/a")[0])
+        # 抜けないまとまり・サブシェルの exit・|| の後ろのただの cd・逃げ口の中で探すコマンド・繰り返しの後ろは、今までどおり
+        for command in ("cd sub || { cd ..; }; cd ../..; rg foo .", "cd sub || { cd ..; ( exit 1 ); }; cd ../..; rg foo .",
+                        "cd sub || cd ..; cd ../..; rg foo .", "cd sub || { cd /; rg foo .; exit 1; }",
+                        'for d in */; do cd "$d" || { cd ..; continue; }; done; rg x .'):
+            with self.subTest(command=command):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=HOME + "/src/a")[0])
+
+    @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_in_a_condition_is_sure_only_where_the_condition_held(self):
         # 条件の中の cd は、else・繰り返しの後ろ・until の do では落ちて移っていないことがある
         for command in ("if cd sub; then echo ok; else find . -name x; fi", "while cd sub; do break; done; find . -name x",

@@ -1268,11 +1268,12 @@ def load_coldread():
             passed = []   # cd が落ちて、後ろの cd を飛ばして k に来る場所
             stays = []    # 条件の中の cd が落ちて、then・do を飛ばす場所と、then・do の後ろのコマンドの番号の組の列(_then_end)
             entered = set()   # 入らなかった側の場所を stays に回した区画の道(後ろの cd の場所は、どれも区画に入った側の物)
+            escape = -1   # 前の cd の逃げ口(_escapes)の最後のコマンドの番号。逃げ口の中の cd は k に届かない
             for j in js:
                 if stays and j >= stays[0][0]:
                     places = _shallow(list(dict.fromkeys(places + [p for r, p in stays if r <= j])))
                     stays = [(r, p) for r, p in stays if r > j]
-                if j <= closed:
+                if j <= closed or j <= escape:
                     continue
                 c = self.cmds[j]
                 if (within is not None and self.lay[j][3] == "continue" and c.args[1:] in ([], ["1"])
@@ -1287,10 +1288,15 @@ def load_coldread():
                 if (j, k) not in self._flow:
                     self._via = False
                     flow = (self._reaches(j, k), self._surely(j, k)) if self.lay else (True, False)
-                    self._flow[j, k] = flow + (flow[1] and self._via,)
-                reach, surely, via = self._flow[j, k]
+                    via = flow[1] and self._via
+                    # 逃げ口(`cd x || { cd ..; exit 1; }`)は、cd が落ちたときに走って抜けるので、中の cd は k に来る場所を変えない
+                    # (前は中の `cd ..` を移れた側の場所にも当て、`cd sub || { cd ..; exit 1; }; cd ../..; rg foo .` を止めていた)
+                    out = self._escapes(j, k) if self.lay and flow[0] else None
+                    self._flow[j, k] = flow + (via, -1 if out is None else out)
+                reach, surely, via, out = self._flow[j, k]
                 if not reach:
                     continue
+                escape = max(escape, out)
                 if via:
                     passed += places   # cd が落ちると、continue・break で後ろの cd を飛ばして k に来る(_skips_pass)
                 end = None if surely else self._then_end(j)
