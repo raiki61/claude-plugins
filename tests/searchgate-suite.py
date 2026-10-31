@@ -367,6 +367,21 @@ class Bash(unittest.TestCase):
                              ("[ -d x ] && { cd ..; cd src; } || true; rg foo .", HOME + "/src")):
             with self.subTest(command=command, cwd=cwd):
                 self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # まとまりの中の if・case・サブシェルの中の cd は、まとまりが走っても走るとは限らない(前はまとまりの組に入れて必ず走ると
+        # 読み、~/src で打つと通していた)
+        for command, cwd in (("[ -d .git ] && { cd ..; if [ -d repo ]; then cd repo; fi; }; rg foo .", HOME + "/src"),
+                             ("true && { cd ..; if [ -d build ]; then cd build; fi; }; rg foo .", HOME + "/src"),
+                             ("true && { if [ -d sub ]; then cd sub; fi; cd ..; }; rg foo .", HOME + "/src"),
+                             ("true && { cd ..; case $1 in a) cd sub;; esac; }; rg foo .", HOME + "/src"),
+                             ("true && { cd ..; ( cd sub ); }; rg foo .", HOME + "/src"),
+                             ("for i in 1 2; do true && { cd ..; if [ -d x ]; then cd x; fi; }; done; rg foo .", WORK)):
+            with self.subTest(command=command, cwd=cwd):
+                self.assertIsNotNone(run("Bash", {"command": command}, cwd=cwd)[0])
+        # まとまりの頭が if・case でも、まとまりのじかの cd は今までどおりまとまりの組に入れる
+        for command in ("[ -d b ] && { if x; then :; fi; cd build; make; cd ..; }; rg x .",
+                        "[ -d b ] && { case $x in a) :;; esac; cd build; make; cd ..; }; rg x ."):
+            with self.subTest(command=command):
+                self.assertIsNone(run("Bash", {"command": command}, cwd=HOME + "/src")[0])
 
     @unittest.skipIf(os.name == "nt", "cd の行き先は Windows では cygpath で Windows の形に直る(coldread と同じ読み方)")
     def test_cd_or_a_group_that_exits_and_and_chained_cd_in_a_condition(self):

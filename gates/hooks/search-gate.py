@@ -1480,6 +1480,11 @@ def load_coldread():
                 # の組を make の前で切り、入らなかった場所にも cd .. を当てていた)
                 head, scan, key = j, j + 1, None
                 for start, end in self._groups(j, True):
+                    # cd がまとまりのじかのコマンドでなければ(if・case・サブシェルの中)、まとまりが走っても走るとは限らない。じかか
+                    # は閉じの } と道・深さが同じかで見る(頭のコマンドは if の条件の中のこともある)。前は見ず、`true && { cd ..;
+                    # if [ -d build ]; then cd build; fi; }; rg foo .` の if の中の cd もまとまりの組に入れて必ず走ると読み、~/src で通していた
+                    if self.lay[end][0] != path or self.lay[end][1] != d:
+                        break
                     if start < head and (any(op not in (";", "\n", "(", ")") for m in range(start + 1, head + 1)
                                              if self.lay[m][0] == path and self.lay[m][1] == d for op, _ in self.lay[m][2])
                                          or any(self.lay[m][3] in ("break", "continue", "return") for m in range(start, head))):
