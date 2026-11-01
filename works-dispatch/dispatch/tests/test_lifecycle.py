@@ -1015,4 +1015,9 @@ class Flow(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    # 偽の --ask が日本語を print する。Windows の既定の cp1252 で落ちないよう、直に走らせたときは標準出力を utf-8 にする
+    import sys
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     unittest.main()
