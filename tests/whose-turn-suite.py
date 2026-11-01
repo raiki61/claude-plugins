@@ -349,15 +349,16 @@ class PrBalls(unittest.TestCase):
             flow.pr_facts(p(comment(user("bob"), T3, "まだですか")), "bob"),
         )
 
-    def test_a_question_left_before_the_rerequest_still_waits_for_the_answer(self):
-        """未解決スレッドで本人が出した問いに作者が答えないまま再依頼しても、本人は返答待ちで相手の番。作者が答えるターン
-        （依頼より前の発言を数えないのは最後の発言者の判定だけ）"""
+    def test_a_question_left_before_the_rerequest_does_not_hold_the_reviewer_back(self):
+        """未解決スレッドで本人が出した問いに作者が答えないまま再依頼したら、作者は答えるターン、本人も依頼を受けたターン。
+        依頼より前に返事を待ち始めたスレッドでは相手の番に下げない（持ち主 2026-11-02 の決め。前は相手の番に下げ、
+        依頼をし直された PR が誰の自分の番にも出なかった。実測 IL-SW-AI/guided-resolver #1962）"""
         p = pr(
             reviewThreads=conn(thread(comment(user("bob"), T0, "ここはなぜですか"))),
             reviewRequests=requests(user("bob")),
             timelineItems=conn(requested(user("bob"), T1)),
         )
-        self.assertEqual(tiers(p), {"alice": 0, "bob": 3})
+        self.assertEqual(tiers(p), {"alice": 0, "bob": 0})
 
     def test_the_authors_answer_in_a_resolved_thread_after_the_rerequest_counts(self):
         """解決済みスレッドで数えないのは依頼された本人の発言だけ。依頼の後に本人が問い、作者が解決済みスレッドで
@@ -930,6 +931,93 @@ class WaitingOnOthers(unittest.TestCase):
             reviews=conn(review(bot(), "COMMENTED", T3, "自動レビュー")),
         )
         self.assertTrue(flow.waiting_on_others(p, "alice", ["unrequested"]))
+
+
+class Recall(unittest.TestCase):
+    """呼び戻し（recall）と、依頼か呼び戻しより前の待ちのスレッド（before_turn）。実測は IL-SW-AI/guided-resolver の 2026-10-30"""
+
+    @staticmethod
+    def pushed(at):
+        return {"nodes": [{"commit": {"committedDate": at, "statusCheckRollup": None}}]}
+
+    def test_push_and_a_mention_after_the_reviewers_last_word_calls_the_reviewer_back(self):
+        # #2131 の形: bob がレビューを出した後、作者が push し、コメントで @bob と呼んだ（依頼のボタンは使っていない）
+        p = pr(reviews=conn(review(user("bob"), "COMMENTED", T0, "見た")),
+               commits=self.pushed(T1),
+               comments=conn(comment(user("alice"), T2, "@bob 直したので承認をお願いします")))
+        self.assertEqual(flow.recall_since(p, "bob"), T2)
+        self.assertIn(("bob", "recall", T2), flow.pr_balls(p))
+        self.assertEqual(tiers(p)["bob"], 0)
+        self.assertIn("bob の最後の発言の後に push と @ の呼びかけ", " ".join(flow.pr_facts(p, "bob")))
+        # 呼びかけが push より前でも、どちらも最後の発言の後なら立ち、始まりは遅い方
+        early = pr(reviews=conn(review(user("bob"), "COMMENTED", T0)), commits=self.pushed(T2),
+                   comments=conn(comment(user("alice"), T1, "@bob 直します。済んだら見てください")))
+        self.assertEqual(flow.recall_since(early, "bob"), T2)
+
+    def test_no_push_after_the_reviewers_last_word_is_not_a_recall(self):
+        # #2181 の形: push は bob の最後の発言より前で、その後の呼びかけは「先にお知らせ」
+        p = pr(reviews=conn(review(user("bob"), "COMMENTED", T1, "見た")),
+               commits=self.pushed(T0),
+               comments=conn(comment(user("alice"), T2, "@bob 先にお知らせです。これから直します")))
+        self.assertIsNone(flow.recall_since(p, "bob"))
+        self.assertNotIn("bob", tiers(p))
+
+    def test_a_push_without_a_mention_is_not_a_recall(self):
+        p = pr(reviews=conn(review(user("bob"), "COMMENTED", T0)), commits=self.pushed(T1),
+               comments=conn(comment(user("alice"), T2, "直しました")))
+        self.assertIsNone(flow.recall_since(p, "bob"))
+        # 呼んだのが持ち主でない人なら数えない
+        other = pr(reviews=conn(review(user("bob"), "COMMENTED", T0)), commits=self.pushed(T1),
+                   comments=conn(comment(user("carol"), T2, "@bob これ見ました？")))
+        self.assertIsNone(flow.recall_since(other, "bob"))
+
+    def test_the_reviewers_word_after_the_call_ends_the_recall(self):
+        p = pr(reviews=conn(review(user("bob"), "COMMENTED", T0)), commits=self.pushed(T1),
+               comments=conn(comment(user("alice"), T2, "@bob お願いします"), comment(user("bob"), T3, "見ます")))
+        self.assertIsNone(flow.recall_since(p, "bob"))
+
+    def test_a_reviewer_still_requested_or_an_owner_is_not_recalled(self):
+        # 依頼が残っていれば review の行が立つので、呼び戻しは重ねない。持ち主は呼び戻しの相手にならない
+        p = pr(reviews=conn(review(user("bob"), "COMMENTED", T0)), commits=self.pushed(T1),
+               reviewRequests=requests(user("bob")),
+               timelineItems=conn(requested(user("bob"), T2)),
+               comments=conn(comment(user("alice"), T3, "@bob お願いします")))
+        self.assertIsNone(flow.recall_since(p, "bob"))
+        self.assertIsNone(flow.recall_since(p, "alice"))
+
+    def test_a_reviewer_of_a_handed_pr_is_recalled_by_the_one_who_took_it(self):
+        # #1928 の形: 作者が carol に渡した PR で、作者 alice はレビュアーの側。受けた carol が push して @alice と呼んだ
+        p = pr(assignees=conn(user("carol")),
+               reviews=conn(review(user("alice"), "COMMENTED", T0, "見た")),
+               commits=self.pushed(T2),
+               comments=conn(comment(user("carol"), T1, "@alice 直しました。見てください")))
+        self.assertEqual(flow.recall_since(p, "alice"), T2)
+        self.assertEqual(tiers(p)["alice"], 0)
+
+    def test_threads_waiting_from_before_the_recall_do_not_make_it_the_others_turn(self):
+        # 呼び戻しより前に bob が待ち始めたスレッドでも、相手の番に下げない
+        old = thread(comment(user("bob"), T0, "ここはなぜですか"))
+        p = pr(reviews=conn(review(user("bob"), "COMMENTED", T0)), commits=self.pushed(T1), reviewThreads=conn(old),
+               comments=conn(comment(user("alice"), T2, "@bob 直したので見てください")))
+        self.assertTrue(flow.before_turn(p, "bob", old))
+        self.assertEqual(tiers(p)["bob"], 0)
+        self.assertEqual(flow.merge_rows(flow.pr_balls(p))["bob"], (["recall"], T2))
+
+    def test_threads_waiting_from_before_the_request_do_not_make_it_the_others_turn(self):
+        # #1962 の形: bob が待ちのスレッドを立てた後、作者が bob にレビューを依頼し直した。依頼より前の待ちでは相手の番にしない
+        old = thread(comment(user("bob"), T0, "ここはなぜですか"))
+        p = pr(reviewRequests=requests(user("bob")), timelineItems=conn(requested(user("bob"), T1)),
+               reviewThreads=conn(old))
+        self.assertTrue(flow.before_turn(p, "bob", old))
+        self.assertEqual(tiers(p)["bob"], 0)
+        # 日数は依頼の日から数える（古い待ちのスレッドの日へ引き戻さない）
+        self.assertEqual(flow.merge_rows(flow.pr_balls(p))["bob"], (["review"], T1))
+        # 依頼の後に書いた待ちのスレッドは、これまでどおり相手の番
+        new = thread(comment(user("bob"), T2, "ここはなぜですか"))
+        q = pr(reviewRequests=requests(user("bob")), timelineItems=conn(requested(user("bob"), T1)),
+               reviewThreads=conn(new))
+        self.assertFalse(flow.before_turn(q, "bob", new))
+        self.assertEqual(tiers(q)["bob"], 3)
 
 
 class PrFacts(unittest.TestCase):
@@ -2513,6 +2601,26 @@ class Json(unittest.TestCase):
         self.assertEqual(got["title"], "直す")
         self.assertEqual(got["url"], "https://example.invalid/pull/7")
         self.assertIsInstance(got["days"], int)
+
+    def test_json_counts_the_human_threads_i_owe(self):
+        """owed_threads は自分に返すターンがある人の未解決スレッドの数。Bot だけのスレッドと、再確認だけのスレッドは数えない"""
+        p = pr(number=7, author=user("bob"), reviewRequests=requests(user("carol")),
+               reviewThreads=conn(
+                   thread(comment(user("carol"), T1, "ここが変")),
+                   thread(comment(user("carol"), T1, "これは？"), comment(user("bob"), T2, "直した"), comment(user("carol"), T3, "まだ")),
+                   thread(comment(bot(), T1, "[block] fail-open です")),
+                   thread(comment(user("carol"), T1, "ここは？"), comment(user("bob"), T2, "直した")),
+               ))
+        out = json.loads(report(p, who="bob", args=("--json",)))
+        self.assertEqual([(x["number"], x["owed_threads"]) for x in out["prs"]], [(7, 2)])
+        # レビュアーの側で、自分の指摘に作者が返したスレッドは再確認だけなので数えない
+        recheck = pr(number=9, author=user("alice"),
+                     reviewThreads=conn(thread(comment(user("bob"), T1, "ここが変"), comment(user("alice"), T2, "直した"))))
+        out = json.loads(report(recheck, who="bob", args=("--json",)))
+        self.assertEqual([(x["number"], x["owed_threads"]) for x in out["prs"]], [(9, 0)])
+        quiet = pr(number=8, author=user("bob"), isDraft=True)
+        out = json.loads(report(quiet, who="bob", args=("--json",)))
+        self.assertEqual([x["owed_threads"] for x in out["prs"]], [0])
 
     def test_json_role_is_reviewer_for_others_pr(self):
         p = pr(number=9, author=user("alice"), reviewRequests=requests(user("bob")))

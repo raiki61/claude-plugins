@@ -405,6 +405,18 @@ class Flow(unittest.TestCase):
                 self.assertTrue(line(out, 1).endswith(want), out)
                 self.assertEqual(ports.term.writes, [])
 
+    def test_threads_i_owe_reopen_a_pr_even_without_news(self):
+        # 持ち主 2026-11-02 の決め: 返していない人のスレッドが 1 本でもあれば、前に送った後に相手が動いていなくても開く（#1931）
+        H = "a" * 40
+        self.sent({"o/r#1": {"at": 100.0, "head": H}})
+        ports = FakePorts([{**pr(1), "role": "reviewer", "owed_threads": 2}], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        ports.acts = {1: {"reviewers": True, "last_other": 90.0, "head_sha": H}}
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("create"), out)
+        self.assertIn("#1: 返していない人のスレッドが 2 本あるので、前に送った後に相手の動きが無くても開く", out)
+
     def test_no_news_pr_takes_no_account_and_makes_no_place(self):
         self.sent({"o/r#1": {"at": 100.0, "head": "a" * 40}})
         ports = FakePorts([pr(1), pr(2)], git=self.g)
@@ -792,6 +804,73 @@ class Flow(unittest.TestCase):
                 self.assertTrue(pathlib.Path(path).exists())
                 if case == "refresh":
                     self.assertIn("#3: 部署「部署の作業」の作業場のブランチなので開かない（レビューの返しは --ask '部署の作業' --text <頼み> で部署へ回す）", out)
+
+    def owed_department(self):
+        """返していない人のスレッドが 2 本残る部署の PR（#3）の形。(場所, ports)"""
+        path = self.place(3)
+        ports = FakePorts([{**pr(3), "owed_threads": 2}], git=self.g)
+        self.talking_in(ports, path)
+        ports.acts = {3: {"reviewers": True, "last_other": None}}
+        self.department(path)
+        return path, ports
+
+    def test_a_departments_pr_with_threads_i_owe_is_asked_of_the_department(self):
+        # 持ち主 2026-11-02 の決め: 返していない人のスレッドが残る部署の PR は、「開かない」の 1 行で済ませずに部署に頼む
+        path, ports = self.owed_department()
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("#3: 部署「部署の作業」の PR に、返していない人のスレッドが 2 本ある → 部署に頼む（試し打ちなので頼んでいない）", out)
+        self.assertNotIn("作業場のブランチなので開かない", out)
+        self.assertEqual(ports.term.writes, [])
+        # 部署が前の頼みをまだ納品していなければ、重ねて頼まない
+        self.g.set_worktree_attr(path, "ask", "q9")
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertIn("#3: 部署「部署の作業」の PR に、返していない人のスレッドが 2 本ある。受付 q9 をまだ納品していないので、重ねて頼まない", out)
+        # 窓に会話が居なければ、--nudge で戻す案内も同じ行に添える
+        for x in ports.term._panes:
+            x["agent"] = None
+        ports.term.talking.clear()
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertIn("重ねて頼まない。部署の窓に会話が居ない。受付 q9 を納品していないので、--nudge '部署の作業' で戻して納品を促す", out)
+
+    def test_asking_a_department_writes_the_record_and_waits_for_new_words(self):
+        path, ports = self.owed_department()
+        asked = []
+
+        def ask(ns, ports_, source, task):
+            asked.append(ns)
+            print(f"受付 {ns.ask_id} を部署「{ns.ask}」に積んだ")
+            return 0
+        limits = pathlib.Path(self.root).parent / "limits"
+        with mock.patch.object(dispatch.orders, "ask", side_effect=ask):
+            rc, out = run_main(self.cfg, ports)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual([(ns.ask, ns.dry_run, ns.text) for ns in asked],
+                             [("部署の作業", False, dispatch._review_text({**pr(3), "owed_threads": 2}))])
+            self.assertIn("PR #3（u3）に、返事を待たれている人のレビューのスレッドが 2 本ある", asked[0].text)
+            self.assertIn(f"→ 部署に頼んだ（受付 {asked[0].ask_id}）", out)
+            rec = json.loads((limits / wiring.SENT_FILE).read_text())["o/r#3/department"]
+            self.assertEqual((rec["ask"], rec["via"]), (asked[0].ask_id, "department"))
+            # 部署が納品した後も、頼んだ後に自分のほかの人の動きが無ければ頼み直さない。head が替わっても（部署の push）数えない
+            self.g.set_worktree_attr(path, "ask", asked[0].ask_id)
+            self.g.set_worktree_attr(path, "delivered", asked[0].ask_id)
+            ports.acts = {3: {"reviewers": True, "last_other": rec["at"], "head_sha": "b" * 40}}
+            rc, out = run_main(self.cfg, ports)
+            self.assertIn(f"前に頼んだ（受付 {asked[0].ask_id}）後に自分のほかの人の動きが無いので、頼み直さない", out)
+            self.assertEqual(len(asked), 1)
+            # 頼んだ後に人が動いたら、もう一度頼む
+            ports.acts = {3: {"reviewers": True, "last_other": rec["at"] + 1}}
+            rc, out = run_main(self.cfg, ports)
+            self.assertEqual(len(asked), 2, out)
+
+    def test_a_department_that_fails_to_take_the_ask_leaves_no_record(self):
+        path, ports = self.owed_department()
+        limits = pathlib.Path(self.root).parent / "limits"
+        with mock.patch.object(dispatch.orders, "ask", side_effect=lambda *a: (print("止めた: 名前が無い"), 1)[1]):
+            rc, out = run_main(self.cfg, ports)
+        self.assertIn("部署に頼めなかった（終了の値 1。次の回で頼み直す）。--ask の出力:\n  止めた: 名前が無い", out)
+        sent = limits / wiring.SENT_FILE
+        self.assertNotIn("o/r#3/department", json.loads(sent.read_text()) if sent.exists() else {})
 
     def test_listing_says_when_a_departments_window_has_no_talk(self):
         # PC の再起動で部署の窓がシェルだけになった（2026-11-01、guided-resolver の部署「1911の詳しさの列」。受付 29b389）。

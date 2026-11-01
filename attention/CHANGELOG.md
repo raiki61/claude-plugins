@@ -1,10 +1,19 @@
 # 変更の記録（attention）
 
-attention の版ごとの、利用者に効く違いを新しい順に並べる。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。節は Added（足した）・Changed（変えた）・Deprecated（やめる予定）・Removed（消した）・Fixed（直した）・Security（安全の直し）のうち、中身の有るものだけを使う。
+attention（GitHub の PR ごとに、今どちらが動く番かを判定する Claude Code のプラグイン。`/whose-turn` で使う）の版ごとの、利用者に効く違いを新しい順に並べる。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。節は Added（足した）・Changed（変えた）・Deprecated（やめる予定）・Removed（消した）・Fixed（直した）・Security（安全の直し）のうち、中身の有るものだけを使う。
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る（プラグインとして入れた実体には無いので、clone か GitHub で見る: https://github.com/raiki61/claude-plugins/blob/main/docs/releasing.md）。
 
 ## [Unreleased]
+
+### Changed
+
+- `/whose-turn`: 「自分の番」は今日自分が動かせる PR、「相手の番」は相手が動くまで動かせない PR。レビューを依頼された人は、依頼より前に返事を待ち始めた未解決のスレッドが残っていても、相手の番に下げず、自分の番に出す（頼み 610352。2026-11-02 に出した、PR の番の判定の直しの頼みの受付番号。下の Fixed と同じ頼みで直した）。今までは、作者が古い問いに答えないまま依頼し直した PR が、依頼された人の「自分の番」に出ず、誰も動かさなかった（IL-SW-AI/guided-resolver #1962）。作者は今どおり、そのスレッドに答える番を持つ。依頼された人の日数も、古いスレッドの日でなく依頼の日から数える。
+- `/whose-turn --json` の `prs` の 1 件に `owed_threads`（自分に返す番がある、人の未解決スレッドの数。Bot だけのスレッドと、自分が出した指摘への答えを確かめるだけのスレッドは数えない）を足した。works-dispatch（同じリポジトリの別のプラグイン。引数なしの `dispatch` が、自分の番の PR ごとに Claude Code の会話を開く）が、この数で次の 2 つを決める。1 つ目は、部署（works-dispatch が 1 つの作業のために立てる、別の Claude Code の会話と作業場）の PR を、その部署に回すか。2 つ目は、前に会話を送った後に相手が動いていない PR はふつう開かないが、それでも会話を開き直すか。
+
+### Fixed
+
+- `/whose-turn`: レビュー依頼のボタンを使わず、push の後にコメントの @ で見直しや承認を頼まれた PR が、頼まれた人の「自分の番」に出なかった（頼み 610352。上の Changed と同じ頼みで直した。IL-SW-AI/guided-resolver #2131）。レビューを出した人（持ち主でなく、依頼も残っていない人。持ち主は、その PR を持つ人で、ふつうは作者、担当に渡した PR では受けた担当）について、その人の最後の発言の後に、次の 2 つが両方起きたら（2 つの順は問わない）、その人の番にする。1 つ目、push があり、PR の head commit が新しくなる。2 つ目、持ち主がその人を @ で呼ぶ。最後のレビューが承認の人と、draft の PR にも立てる。この判定は信号 `recall`〔呼び戻し〕で、`/whose-turn` の出力のその人の行に「X の最後の発言の後に push と @ の呼びかけ」と出す（X はレビューを出した人の名前）。Gerrit の attention set の「作者が返事をしたらレビュアーに戻す」を写した物。push の無い呼びかけ（直す前に「これから直す」と知らせるコメント。同じ guided-resolver の #2181）では番にしない。push の時刻は GitHub の記録に無いので head commit の時刻で見る。前に作った commit を後で push した PR は、拾い漏らす向きにずれる。
 
 ## [0.54.0] - 2026-10-31
 

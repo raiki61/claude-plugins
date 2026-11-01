@@ -42,6 +42,11 @@ assignee の種別が取れない GitHub（assignedActors が無い）では作�
                      持ち主（側の人が立てたスレッドでは、側の残りの人）。未解決スレッドで答える側の
                      最後の発言の後に指摘が来ている
   recheck（再確認）  指摘した人。未解決スレッドで自分の指摘の後に答える側が返した（再依頼は押されていない）
+  recall（呼び戻し） レビューを出した人（持ち主でなく、レビュー依頼も残っていない）。その人の最後の発言の後に、
+                     PR の head commit が新しくなり（push。commit の時刻で見る）、持ち主がコメントでその人を @ で呼んだ。
+                     依頼のボタンを使わずに見直しや承認を頼む形（Gerrit の attention set の「作者が返事をしたら
+                     レビュアーに戻す」を、GitHub の @ の呼びかけと push で写した物）。push の無い呼びかけ
+                     （直す前の「先にお知らせ」）では立てない
   assigned（担当）   返答できる assignee のうち持ち主でない人（作者も assignee の PR の、作者と別の人）。
                      種別が取れない GitHub では作者以外の assignee 全員
 持ち主の側の人が立てたスレッドは、側の残りの人への問いとして扱う（渡した作者が受けた人の実装を
@@ -61,7 +66,8 @@ assignee の種別が取れない GitHub（assignedActors が無い）では作�
                                         動かせるのはその人だけ
   相手が動くまで進まない                その人が最後に発言してターンも無い（レビューを依頼されている人は
                                         依頼より後の発言だけ数え、本人が解決済みスレッドに書いた
-                                        発言は数えない）、依頼したレビューが返って
+                                        発言は数えない。依頼か呼び戻しより前に本人が返事を待ち始めた
+                                        スレッドも数えない）、依頼したレビューが返って
                                         きていない、または持ち主しか外せない障害（その人が持ち主で
                                         ない PR の main 未追従・衝突・CI 赤）が残っていて、その人の
                                         残りが再確認だけ、または assignee の種別が取れない GitHub で
@@ -520,6 +526,50 @@ def turn_posts(pr, who):
     return [p for p in posts if p["at"] >= since and not (p["id"] in settled and login(p["author"]) == who)]
 
 
+def recall_since(pr, who):
+    """その人の呼び戻し（recall）のターンが始まった日時。立たなければ None。
+
+    レビューを出した人（持ち主でなく、数えるレビュー依頼も無い人）の最後の発言（本文の無いレビューも含む）の後に、
+    head commit が新しくなり、持ち主がコメント・レビュー・スレッドでその人を @ で呼んだら、そのターン。始まりは push と、
+    その後の最初の呼びかけの遅い方。依頼のボタンを使わずに承認を頼まれた PR が、誰の自分の番にも出なかった
+    （実測 2026-10-30・IL-SW-AI/guided-resolver #2131）。push を条件に入れるのは、直す前の「先にお知らせ」
+    （#2181）を見直しの頼みに数えないため。push の時刻は GitHub の記録に無いので、head commit の時刻で見る——
+    前に作った commit を後で push すると時刻が古く、呼び戻しを取りこぼす向きにずれる。最後のレビューが承認の人にも立てる
+    （承認の後の push で承認し直しを頼む形。Gerrit の attention set も、作者の返事でレビュアー全員をターンに戻す）。draft の PR
+    でも立てる（draft の間に出した依頼を「今見てほしい」と数えるのと同じ）"""
+    holders = owners(pr)
+    if not who or who in holders or who in counted_requests(pr):
+        return None
+    reviewed = [r["submittedAt"] for r in pr["reviews"]["nodes"] if login(r["author"]) == who and r["submittedAt"]]
+    if not reviewed:
+        return None
+    posts = [p for p in posts_of_pr(pr) if not is_bot(p["author"])]
+    last = latest(reviewed + [p["at"] for p in posts if login(p["author"]) == who])
+    pushed = head_commit(pr)["committedDate"]
+    if not pushed or pushed <= last:
+        return None
+    called = [p["at"] for p in posts
+              if login(p["author"]) in holders and p["at"] > last and any(same_login(who, m) for m in mentions(p["body"]))]
+    return max(pushed, min(called)) if called else None
+
+
+def recalled(pr):
+    """呼び戻しのターンの人 → 始まった日時。候補はレビューを出した返答できる人"""
+    people = {login(r["author"]) for r in pr["reviews"]["nodes"] if answerable(r["author"])}
+    return {w: at for w in sorted(people, key=str) for at in [recall_since(pr, w)] if at}
+
+
+def before_turn(pr, who, t):
+    """返事を待っているスレッド t で、その人の発言が全部、その人のターンの始まり（数えるレビュー依頼か呼び戻し）より前か。
+    依頼の後も古い待ちのスレッドで相手のターンに下げると、作者が依頼を出し直した PR がレビュアーの自分の番に出ない
+    （実測 2026-10-30・IL-SW-AI/guided-resolver #1962: 10-30 の依頼より前の待ちのスレッド 6 本で相手の番になっていた）"""
+    start = latest((review_since(pr, who), recall_since(pr, who)))
+    if not start:
+        return False
+    said = [c["createdAt"] for c in t["comments"]["nodes"] if login(c["author"]) == who]
+    return bool(said) and max(said) < start
+
+
 def conversation_balls(pr):
     """未解決スレッド・未送信のレビュー・assignee から立つ行。形式上の状態と違い、draft でも消えない。
 
@@ -545,13 +595,18 @@ def conversation_balls(pr):
     # 持ち主が 2 人いて両方に返すターンが立っても、待っている側から見れば 1 スレッド。持ち主が自分で
     # 立てた問いには立てない——持ち主の形式上の行（draft・マージなど）は持ち主にしか動かせず、問いを
     # 1 本投げただけで相手の番へ沈めたり、日数を問いの日へ戻したりすると誰も動かさない
-    owed = list({id(t): (c, ps) for t, _, c, ps in turns if ps}.values())
-    for p in sorted({p for _, waiting in owed for p in waiting} - set(holders), key=str):
-        rows.append((p, "awaiting_reply", min(c["createdAt"] for c, waiting in owed if p in waiting)))
+    # 依頼か呼び戻しより前に返事を待ち始めたスレッド（before_turn）は、その人の待ちに数えない。数えると merge_rows が since を
+    # そのスレッドの日へ倒し、依頼し直された人の日数が古い問いの日まで引き戻される（#1962）
+    owed = list({id(t): (t, c, ps) for t, _, c, ps in turns if ps}.values())
+    for p in sorted({p for _, _, waiting in owed for p in waiting} - set(holders), key=str):
+        since = [c["createdAt"] for t, c, waiting in owed if p in waiting and not before_turn(pr, p, t)]
+        if since:
+            rows.append((p, "awaiting_reply", min(since)))
 
     for a in assigned_people(pr):
         if a not in holders:
             rows.append((a, "assigned", received_at(pr, a) or created))
+    rows += [(w, "recall", at) for w, at in recalled(pr).items()]
     return rows
 
 
@@ -580,7 +635,7 @@ def waiting_on_others(pr, who, kinds):
     # 未解決スレッドで自分が答える側の返事を待っているなら、最後に喋ったのが誰でも答える側のターン。
     # 最後の発言者だけで見ると、答える側が別件のコメントを 1 つ挟むだけでボールが自分に戻る。
     # 待っている人からはそのスレッドで答える側が除かれているので、返すターンの人の行では立たない
-    asked = [t for t, _, _, waiting in thread_turns(pr) if who in waiting]
+    asked = [t for t, _, _, waiting in thread_turns(pr) if who in waiting and not before_turn(pr, who, t)]
     if asked and who not in owners(pr):
         return True
     # 持ち主の問いは、awaiting_reply を立てない（conversation_balls）のと同じ理由で段を決めない。本人の発言だけを
@@ -709,6 +764,11 @@ def answered_threads(pr):
     for t, who, c, waiting in thread_turns(pr):
         (owed if waiting else rechecks).append((who, c["createdAt"], t["isOutdated"]))
     return rechecks, owed
+
+
+def owed_count(pr, who):
+    """その人に返すターンがある（返事を待っている人がいる）未解決スレッドの数。再確認だけのスレッドは数えない"""
+    return len({id(t) for t, w, _, waiting in thread_turns(pr) if w == who and waiting})
 
 
 def turn_threads(pr, who):
@@ -857,6 +917,9 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
         facts.append(
             f"未解決 {len(unresolved)} スレッド" + (f"（{detail}）" if detail else "")
         )
+    recall = recall_since(pr, who) if who else None
+    if recall:
+        facts.append(f"{who} の最後の発言の後に push と @ の呼びかけ（{local_time(recall)}）")
     facts += review_state_fact(pr, who)
     facts += last_speaker_facts(pr, who)
     facts += stale_reference_facts(pr, targets, repo)
@@ -1491,6 +1554,9 @@ def report(a):
                     "head": by_number[n]["headRefName"],
                     "role": role_key(by_number[n], me),
                     "days": days(since),
+                    # 返すターンが自分にある、人の未解決スレッドの数（Bot だけのスレッドは数えない）。dispatch が、部署の PR を
+                    # 部署に回すかと、前に送った後に相手が動いていない PR を開き直すかを、この数で決める
+                    "owed_threads": owed_count(by_number[n], me),
                 }
                 for t, since, n in pr_rows(me) if t in MINE
             ],

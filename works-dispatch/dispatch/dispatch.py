@@ -616,6 +616,7 @@ def main(argv=None, ports=None):
 
     listing = a.issue is None and not a.pr   # 一覧で回す（送り直しと片付けもする）
     limited = set()   # 走査の上限に当たった PR（whose-turn の limited。一覧で回すときだけ読む）
+    owed_depts = []   # 返していない人のスレッドが残る部署の PR と部署の名前（一覧で回すときだけ）
     try:
         if a.issue is not None:
             my_prs = [_issue_item(repo, a.issue, ports, notes)]
@@ -646,6 +647,11 @@ def main(argv=None, ports=None):
             gone = ("" if p["head"] not in away else
                     f"。部署の窓に会話が居ない。受付 {away[p['head']]} を納品していないので、--nudge '{name}' で戻して納品を促す" if away[p["head"]] else
                     "。部署の窓に会話は居ないが、受けた頼みは納品済みなので attach で戻さなくてよい（次の --ask が戻してから頼む）")
+            if p.get("owed_threads"):
+                # 返していない人のスレッドが残る部署の PR は、送った控えを読んだ後で部署に頼む（_ask_departments）。窓に会話が居なければ
+                # その案内も同じ行に添える（重ねて頼まない行だけでは、落ちた部署が見えない）
+                owed_depts.append((p, name, gone))
+                continue
             notes.append(f"#{p['number']}: 部署「{name}」の作業場のブランチなので開かない（レビューの返しは --ask '{name}' --text <頼み> で部署へ回す{gone}）")
         my_prs = [p for p in my_prs if p["head"] not in depts]
         found = [p for p in found if p.get("branch") not in depts]
@@ -680,6 +686,10 @@ def main(argv=None, ports=None):
             sent_rec = sent.get(_key(repo, p["number"]))
             if sent_rec is None or (repo.repo, p["head"]) in keys:
                 continue
+            if p.get("owed_threads"):
+                # 返していない人のスレッドが残る PR は、相手が動いていなくても開く（持ち主 2026-11-02。返さずに閉じると次の回でまた開く）
+                notes.append(f"#{p['number']}: 返していない人のスレッドが {p['owed_threads']} 本あるので、前に送った後に相手の動きが無くても開く")
+                continue
             try:
                 act = acts.get(p["number"]) or ports.activity(repo, p["number"])
             except ghx.GhError as e:
@@ -702,6 +712,7 @@ def main(argv=None, ports=None):
         else:
             verdicts[p["number"]] = v
     held += [_held_row(p, "no_news", places) for p in my_prs if p["number"] in quiet]
+    notes += _ask_departments(a, cfg, repo, ports, owed_depts, dept_places if listing else [], sent, sent_ok)
     my_prs = [p for p in my_prs if p["number"] not in quiet]
     staying = [x for x in sess if not any(x is r for r in refresh.values())]
     metered = [x.name for x in cfg.accounts if x.limits]
@@ -1051,6 +1062,92 @@ def _step_back_departments(cfg, repo, ports, dry_run, places, names, turn_number
         out.append(f"{where}: " + (f"自分の番でない PR だが、部署の窓を閉じられなかった（{rel['detail']}）" if rel["status"] == "close_failed" else
                                    f"自分の番でない PR だが、部署の窓は {term.NAME} にもう開いていなかった" if rel["status"] == "none" else
                                    f"自分の番でない PR なので、部署の窓を閉じた（会話と worktree は残した。返しは --ask '{names[p['branch']]}' で回す）"))
+    return out
+
+
+def _dept_key(repo, number):
+    """部署の PR に dispatch が頼んだ控えの鍵（dispatch-sent.json）。PR の会話を送った控え（_key）と分ける。"""
+    return f"{_key(repo, number)}/department"
+
+
+def _dept_review(p, name, attrs, rec, act):
+    """返していない人のスレッドが残る部署の PR を、部署に頼むか。(頼むか, 出す行)。持ち主 2026-11-02 の決め: 部署が前の頼みを
+    まだ納品していなければ重ねて頼まない（wake.pending）。前に頼んだ控え rec が有れば、頼んだ後に自分のほかの人の動き（ghx.activity の
+    last_other。発言と、自分が著者に入っていない commit）が有ったときだけ頼み直す。head が替わったかは見ない——部署の PR の push の
+    多くは部署が自分の名義で直した物で、それを動きに数えると、持ち主が下書きの返信を投稿する前の回ごとに同じ頼みを積み直す。act は ghx.activity の値（rec が無ければ None でよい。読めなければ GhError の文）。"""
+    n, owed = p["number"], p["owed_threads"]
+    head = f"#{n}: 部署「{name}」の PR に、返していない人のスレッドが {owed} 本ある"
+    held = wake.pending(attrs)
+    if held:
+        return False, f"{head}。受付 {held} をまだ納品していないので、重ねて頼まない"
+    if rec:
+        if isinstance(act, str):
+            return False, f"{head}。前に頼んだ後の動きが分からないので、頼み直さない（{act}）"
+        last = (act or {}).get("last_other")
+        if last is None or last <= rec.get("at", 0):
+            return False, f"{head}。前に頼んだ（受付 {rec.get('ask') or '-'}）後に自分のほかの人の動きが無いので、頼み直さない"
+    return True, head
+
+
+def _review_text(p):
+    """部署の PR の返していないスレッドを、部署に頼む文（1 行）。"""
+    return (f"PR #{p['number']}（{p.get('url') or p['head']}）に、返事を待たれている人のレビューのスレッドが {p['owed_threads']} 本ある。"
+            "各スレッドの指摘を確かめ、要る直しをして push し、スレッドごとの返信の下書きを納品で返す（返信は投稿しない）")
+
+
+def _ask_department(a, ports, repo, name, p):
+    """部署 name に、PR p の返していないスレッドを頼む（orders.ask。--ask を打ったのと同じ道）。頼み元は頼む側の会社の窓口
+    （orders.lent_boss。納品は窓口の待ち受けに届き、窓口が持ち主へ渡す）。(終了の値, 受付, --ask の出す行)。"""
+    ask_id = deliver.new_id(ports.now())
+    ns = argparse.Namespace(**{**vars(a), "ask": name, "text": _review_text(p), "brief": None, "task": None, "branch": None,
+                               "role": None, "persistent": False, "ask_id": ask_id, "forward": False, "dry_run": False,
+                               "title": f"PR #{p['number']} の返していないスレッド", "from_boss": {"boss": None}})
+    said = io.StringIO()
+    with contextlib.redirect_stdout(said):
+        rc = orders.ask(ns, ports, repo.source, _task)
+    return rc, ask_id, [x for x in said.getvalue().splitlines() if x.strip()]
+
+
+def _ask_departments(a, cfg, repo, ports, owed, places, sent, sent_ok):
+    """返していない人のスレッドが残る部署の PR（owed。(PR, 部署の名前) の並び）を、_dept_review が頼むとした物だけ部署に頼む。
+    頼んだら送った控えに頼んだ時刻と受付を書く。試し打ち（--dry-run）なら頼まずに、頼む物を言う。返すのは報告の頭に置く行。"""
+    if not owed:
+        return []
+    paths = {x["branch"]: x["path"] for x in places}
+    out, wrote = [], False
+    for p, name, gone in owed:
+        rec = sent.get(_dept_key(repo, p["number"]))
+        act = None
+        if rec:
+            try:
+                act = ports.activity(repo, p["number"])
+            except ghx.GhError as e:
+                act = str(e)
+        try:
+            attrs = ports.attrs(paths[p["head"]]) if p["head"] in paths else {}
+        except (gitx.GitError, OSError) as e:
+            out.append(f"#{p['number']}: 部署「{name}」の属性を読めないので頼まない（{e}）")
+            continue
+        go, line = _dept_review(p, name, attrs, rec, act)
+        if not go:
+            out.append(line + gone)
+            continue
+        if a.dry_run:
+            out.append(f"{line} → 部署に頼む（試し打ちなので頼んでいない）{gone}")
+            continue
+        # 頼んだ時刻は頼む前に取る（頼む間に着いた発言を、次の回で頼んだ後の発言に数える。送った控えの時刻と同じ取り方）
+        at = ports.now()
+        rc, ask_id, told = _ask_department(a, ports, repo, name, p)
+        if rc != 0:
+            out += [f"{line}が、部署に頼めなかった（終了の値 {rc}。次の回で頼み直す）。--ask の出力:"] + [f"  {x}" for x in told]
+            continue
+        out += [f"{line} → 部署に頼んだ（受付 {ask_id}）"] + [f"  {x}" for x in told]
+        sent[_dept_key(repo, p["number"])] = {"at": at, "ask": ask_id, "via": "department"}
+        wrote = True
+    if wrote and sent_ok:
+        ports.save_sent(cfg.limits_dir, sent)
+    elif wrote:
+        out.append("部署に頼んだ控えを書かなかった（送った控えが読めなかったため）。部署が納品した後の回で、同じ頼みをもう一度積む")
     return out
 
 
