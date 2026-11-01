@@ -7838,7 +7838,7 @@
    "title": "撃ち比べの job はまとめる job の赤でも走る（job の頭の if: always()）",
    "file": ".github/workflows/mutation.yml",
    "suite": "root",
-   "old": "  same-as:\n    needs: merge\n    if: always()\n",
+   "old": "  same-as:\n    needs: merge\n    if: always() && !inputs.only && !inputs.changed_since\n",
    "new": "  same-as:\n    needs: merge\n",
    "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
    "tests": {
@@ -7882,6 +7882,20 @@
    "suite": "root",
    "old": "permissions:\n  contents: read\n\nenv:\n  SKIP_ALLOW: \"version-bump\"\n",
    "new": "permissions:\n  contents: read\n",
+   "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems"
+    ]
+   }
+  },
+  {
+   "id": "MY6",
+   "title": "撃ち比べの job は腕を名指しした回・差分で絞った回では走らない（写しを借り直す腕が無く毎回赤になる）",
+   "file": ".github/workflows/mutation.yml",
+   "suite": "root",
+   "old": "    if: always() && !inputs.only && !inputs.changed_since\n",
+   "new": "    if: always()\n",
    "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
    "tests": {
     "graphloops/tests/py": [

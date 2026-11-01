@@ -150,9 +150,14 @@ jobs:
           name: mutation-report-${{ matrix.os }}
           path: mutation-report.json
 
+  # 撃ち比べは全腕の回（schedule と、only・changed_since を空にした dispatch。auto は腕を足すだけなので与えても全腕）だけ。腕を名指しした（only）・差分で絞った（changed_since）
+  # 回は組ごとの腕が worker の数より少ないことが多く、写しを借り直す腕が無いまま終わる（summary.copies.reused が 0）——比べる相手の
+  # 無い回を tests/mutate.py の same_as_diff は食い違いに数えるので、走らせると毎回赤になる（run 41259963764: 7 本を名指しした回で、
+  # まとめる段は 3 OS とも緑・撃ち比べだけが『前の回が写しを使い回していない』で赤）。inputs は schedule では空で、空の値は偽
+  # （https://docs.github.com/en/actions/reference/workflows-and-actions/expressions の Literals: null と '' は偽）
   same-as:
     needs: merge
-    if: always()
+    if: always() && !inputs.only && !inputs.changed_since
     runs-on: ubuntu-latest
     steps:
       - *checkout

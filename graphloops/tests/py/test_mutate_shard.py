@@ -325,12 +325,15 @@ WORKFLOWS = conftest.REPO / ".github" / "workflows"
 
 
 ALWAYS = re.compile(r"^ +if: always\(\)$", re.M)
+# 撃ち比べの job の頭: always() に、腕を名指しした回・差分で絞った回を外す条件を足した形（理由は mutation.yml の same-as の上のコメント）
+SAME_AS_HEAD = re.compile(r"^    if: always\(\) && !inputs\.only && !inputs\.changed_since$", re.M)
 
 
 def mutation_workflow_problems(text, test_yml):
     """mutation.yml の形の問題の一覧（空なら無い）——この workflow の形を縛る唯一の置き場。text は mutation.yml、test_yml は
     SKIP_ALLOW の値の正本 test.yml の本文。見るのは、SKIP_ALLOW が頭の 1 つと Windows の job の上書きだけで値が正本と同じこと、
-    まとめる・撃ち比べる job が組とまとめる段の赤でも走り、まとめる段の終了コードを捨てず、撃ち比べの報告を残すこと"""
+    まとめる・撃ち比べる job が組とまとめる段の赤でも走り、撃ち比べる job は全腕の回だけで走り（only・changed_since で絞った回は
+    写しを借り直す腕が無く、比べる相手が無いので毎回赤になる）、まとめる段の終了コードを捨てず、撃ち比べの報告を残すこと"""
     probs = []
     allow = dict(re.findall(r'- os: (\S+)\n\s+skip_allow: "([^"]*)"', test_yml))
     jobs = dict(re.findall(r"\n  ([\w-]+):\n((?:(?!\n  [\w-]+:\n).)*)", text[text.index("\njobs:\n"):], re.S))
@@ -355,10 +358,12 @@ def mutation_workflow_problems(text, test_yml):
             probs.append(f"{name}: Windows でない job が SKIP_ALLOW を上書きする（頭の値を黙って覆う）")
     if len(re.findall(r"^\s*SKIP_ALLOW:", text, re.M)) != declared:
         probs.append("SKIP_ALLOW が workflow の頭と job の env の外（段の env など）に在る")
-    for name in ("merge", "same-as"):
+    for name, head in (("merge", ALWAYS), ("same-as", SAME_AS_HEAD)):
         body = jobs.get(name, "")
-        if not ALWAYS.search(body.split("\n    steps:")[0]):
-            probs.append(f"{name} の job の頭に if: always() が無い（needs の先が赤だと、段の if より先に job ごと飛ばされる）")
+        if not head.search(body.split("\n    steps:")[0]):
+            probs.append(f"{name} の job の頭に if: always() が無い（needs の先が赤だと、段の if より先に job ごと飛ばされる）"
+                         if not re.search(r"^    if: always\(\)", body, re.M) else
+                         f"{name} の job の頭の if が全腕の回に絞っていない（always() && !inputs.only && !inputs.changed_since でない）")
         if "continue-on-error" in body:
             probs.append(f"{name} の job に continue-on-error が在る")
     if not re.search(r"^        run: python tests/mutate\.py --merge shards/\*/shard\.json --out mutation-report\.json$", jobs.get("merge", ""), re.M):
@@ -395,7 +400,12 @@ WIN_ALLOW = '    env:\n      SKIP_ALLOW: "posix-mode process-group fifo read-per
     ("          K: ${{ strategy.job-index }}\n", "          K: ${{ strategy.job-index }}\n          SKIP_ALLOW: \"x\"\n", "mutation", "段の env など"),
     ("    needs: [shard-ubuntu, shard-windows, shard-macos]\n    if: always()\n", "    needs: [shard-ubuntu, shard-windows, shard-macos]\n",
      "mutation", "merge の job の頭に if: always()"),
-    ("    needs: merge\n    if: always()\n", "    needs: merge\n", "mutation", "same-as の job の頭に if: always()"),
+    ("    needs: merge\n    if: always() && !inputs.only && !inputs.changed_since\n", "    needs: merge\n", "mutation",
+     "same-as の job の頭に if: always()"),
+    ("    if: always() && !inputs.only && !inputs.changed_since\n", "    if: always() && !inputs.only\n", "mutation",
+     "same-as の job の頭の if が全腕の回に絞っていない"),
+    ("    if: always() && !inputs.only && !inputs.changed_since\n", "    if: always()\n", "mutation",
+     "same-as の job の頭の if が全腕の回に絞っていない"),
     ("    needs: merge\n", "    needs: [shard-ubuntu]\n", "mutation", "needs: merge"),
     ("  merge:\n", "  merge:\n    continue-on-error: true\n", "mutation", "merge の job に continue-on-error"),
     ("--out mutation-report.json\n      - name: まとめた", "--out mutation-report.json || true\n      - name: まとめた", "mutation", "まとめる段の run"),
@@ -409,6 +419,7 @@ WIN_ALLOW = '    env:\n      SKIP_ALLOW: "posix-mode process-group fifo read-per
     ('- os: ubuntu-latest\n            skip_allow: "version-bump"\n', '- os: ubuntu-latest\n            skip_allow: "other"\n',
      "test", "test.yml の Windows でない OS の値と違う"),
 ], ids=["top-value", "top-gone", "windows-override-gone", "override-outside-windows", "step-env", "merge-always", "same-as-always",
+        "same-as-narrowed-by-changed-since", "same-as-narrowed",
         "same-as-needs", "merge-continue-on-error", "merge-exit-dropped", "same-as-step-always", "same-as-report-path",
         "same-as-report-always", "test-yml-posix-split", "test-yml-posix-differs"])
 def test_every_entrance_of_the_workflow_shape_is_red(old, new, where, want):
