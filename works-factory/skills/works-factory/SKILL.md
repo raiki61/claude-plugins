@@ -14,7 +14,7 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 ## 0. 要る物
 
 - macOS・Linux・Windows の WSL2、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、`uv`（工場のノードが台本を走らせるのに使う）、Claude Code の `claude`。
-- WSL2 でない素の Windows では、殻は Git Bash からも、3.12 以上の python で `bin/works-factory` を直に起動しても動くが、工場（raiki61/works-factory）の側がまだ素の Windows に対応しておらず、run の途中で落ちる。対応するまでは WSL2 の中で使う。
+- WSL2 でない素の Windows（Git Bash・Cygwin・MSYS2 の上も含む。WSL の中の Linux は含まない）では動かない。殻（1. の、このプラグインの `bin/works-factory`）は工場を取ってくるところまで進むが、取ってきた工場の入口（工場の `bin/works-factory`・`bin/apply`）が「works-factory: 素の Windows では動かない（…）」の 1 行を標準エラーに出し、run を起こす前に止まる。訳は 2 つ: 素の Windows では Claude Code の sandbox が効かず、工場が役ごとに決めた書き込みの制限が黙って外れる。Archon も git worktree とシェルの段に WSL2 を要る。WSL2 を入れ（`wsl --install`）、WSL の中の Linux でこのプラグインを使う。
 - 足りない物は、殻（1. の `bin/works-factory`）が入れ方のコマンドを出して止まる。打ってから起動し直す。`uv` だけは殻が確かめず（仕様の表から進める起動、2. の `spec_table`、を除く）、run の最初のノードで落ちるので、先に入れておく。
 - 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）・会話のキャッシュの寿命（既定 5 分）を変える時は、[references/auth.md](references/auth.md) を読む。
 
