@@ -2423,7 +2423,8 @@ for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pyt
 for probe in ("pre-commit の hook", "x-mutate.py-y", "a-reuse"):
     assert not tool.search(probe), f"チェックがツール名でない {probe!r} を拾う（{tool.search(probe).group(0)}）"
 texts = [root/"convergence-loops/REVIEW.md", *sorted((root/"convergence-loops/commands").glob("*.md")), *sorted((root/"convergence-loops/skills").rglob("*.md")), *sorted((root/"convergence-loops/agents").glob("*.md"))]
-for d in ("graphloops/prompts", "graphloops/graphs", "graphloops/commands", "graphloops/skills"):
+# 役へ渡るブロックの定義（graphloops/blocks の block.json・exit.schema.json）も同じ面。前は見ず、腕 TN2 が生き残っていた（run 41244654074）
+for d in ("graphloops/blocks", "graphloops/prompts", "graphloops/graphs", "graphloops/commands", "graphloops/skills"):
     texts += [f for f in sorted((root/d).rglob("*")) if f.is_file()]
 # engine が組んで役へ渡す値も同じ面——文字列の定数を見る（注記と docstring は役に渡らないので外す）
 codes = [f for d in ("graphloops/rules", "graphloops/engine", "graphloops/scripts") for f in sorted((root/d).glob("*.py"))]

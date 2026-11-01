@@ -367,15 +367,20 @@ class LongCommands(unittest.TestCase):
             self.assertIsNotNone(reason, "止まらなかった")
 
     def test_nested_closed_heredocs_read_by_shells_are_read_in_time(self):
-        # 前はシェルが読む中身ごとに、終わりの語の行を 1 行ずつ探し直し、入れ子 900 段で 40 秒を超えた
-        command = ("".join("bash <<A%d\n#\n" % i for i in range(900)) + "x\n" * 40000
+        # 前はシェルが読む中身ごとに、終わりの語の行を 1 行ずつ探し直し、入れ子 900 段で 40 秒を超えた。
+        # 中身の行の数は、CPU の秒が上限の半分ほどに収まる数にする(下の置換の入れ子の試験の注記)
+        command = ("".join("bash <<A%d\n#\n" % i for i in range(900)) + "x\n" * 15000
                    + "".join("A%d\n" % i for i in reversed(range(900))) + "echo $(date)# ; while true; do sleep 1; done")
         reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 
     def test_deeply_nested_substitutions_with_many_comments_are_read_in_time(self):
-        # 前はヒアドキュメントの無い置換の中身も入れ子ごとに読み直し、270 段で 30 秒を超えた
-        command = 'echo ' + '"$(echo ' * 270 + "#\n" * 46000 + ')"' * 270 + "\necho $(date)# ; while true; do sleep 1; done"
+        # 前はヒアドキュメントの無い置換の中身も入れ子ごとに読み直し、270 段で 30 秒を超えた。
+        # 今のフックの CPU の秒は、入れ子の段の数と中の行の数の積に比例して伸びる。コメントの行が 46000 行のとき、手元の macOS で 5.9 秒、
+        # CI の Linux・Windows の runner で写しを 4 本並べた回(tests/mutate.py の control)で 23〜27 秒になり、上限の 20 秒を超えた
+        # (run 41244654074)。runner は手元の 4〜4.5 倍かかるので、行を 15000 行にして 2 秒(runner で 9 秒ほど)に収める。
+        # 入れ子の段の数は変えない(前の戻りは段の数で膨らんだ)
+        command = 'echo ' + '"$(echo ' * 270 + "#\n" * 15000 + ')"' * 270 + "\necho $(date)# ; while true; do sleep 1; done"
         reason, _ = run(command, cpu_limit=20)
         self.assertIsNotNone(reason, "止まらなかった")
 

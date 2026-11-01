@@ -64,6 +64,13 @@ jobs:
         uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "0.11.29"
+      # tests/run.sh の YAML を読む検査（CI の設定・スキルの説明・手順書の頭）が使う YAML の読み手。版と入れる先は test.yml の install pyyaml と同じ。
+      # 無いと、その検査は見送りになり（この workflow は FAIL_ON_SKIP を立てない）、その検査を宣言した腕（CL・CW・CO・WP・ES）が黙って生き残る
+      # （run 41244654074 の control の見送りの一覧に「# SKIP pyyaml」が 3 行）
+      - &setup_pyyaml
+        name: install pyyaml
+        shell: bash
+        run: '"$(command -v python3 || command -v python)" -m pip install pyyaml==6.0.3'
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。python3 は Windows の runner に無いので python で呼ぶ。
       # 入力は env で受けて形を確かめてから配列で組む（${{ }} を run に直に展開しない——入力がそのままシェルの本文になる）
       - &shoot
@@ -107,14 +114,14 @@ jobs:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
-    steps: [*checkout, *setup_python, *setup_uv, *shoot, *upload_shard]
+    steps: [*checkout, *setup_python, *setup_uv, *setup_pyyaml, *shoot, *upload_shard]
   shard-macos:
     runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3]
-    steps: [*checkout, *setup_python, *setup_uv, *shoot, *upload_shard]
+    steps: [*checkout, *setup_python, *setup_uv, *setup_pyyaml, *shoot, *upload_shard]
 
   merge:
     needs: [shard-ubuntu, shard-windows, shard-macos]
@@ -152,6 +159,8 @@ jobs:
       - *setup_python
       # 撃ち比べる腕が pytest の node id を名指していれば pytest も撃つ——組の job と同じ uv を入れる
       - *setup_uv
+      # 撃ち比べる腕も組の job と同じ検査で撃つ（YAML を読む検査を見送らない）
+      - *setup_pyyaml
       - uses: actions/download-artifact@v4
         with:
           name: mutation-report-Linux
