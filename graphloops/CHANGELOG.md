@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の撃ち比べの job（same-as。写しを使い回して撃った結果と、腕ごとに作り直して撃った結果を比べる）を、腕を名指しした回（入力の only）と差分で絞った回（入力の changed_since）では走らせないようにした。そうした回は組ごとの腕が少なく、写しを借り直す腕が無いので比べる相手が無く、毎回赤になっていた（run 41259963764）。この workflow の形を縛る `tests/py/test_mutate_shard.py` の検査と、試験の件数の基準（`tests/py/conftest.py` の `EXPECTED_ITEMS`）を合わせた。
+
 ## [0.46.8] - 2026-11-01
 
 ### Fixed
