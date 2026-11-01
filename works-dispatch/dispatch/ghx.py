@@ -50,9 +50,9 @@ def pr_info(repo, number, runner=_default_runner, env=None):
 
 def pr_for_branch(repo, branch, runner=_default_runner, env=None):
     """そのブランチを head にする、このリポジトリの PR（fork の PR は数えない）。開いているものが有ればそれ、無ければいちばん新しいもの。
-    {number, state, head_sha} か、PR が無ければ None。読めなければ GhError（片付けは消さない側に倒す）。"""
+    {number, state, head_sha, base, url} か、PR が無ければ None。読めなければ GhError（片付けは消さない側に倒す）。"""
     p = runner(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "20",
-                "--json", "number,state,headRefOid,isCrossRepository"], env=env)
+                "--json", "number,state,headRefOid,isCrossRepository,baseRefName,url"], env=env)
     try:
         got = json.loads(p.stdout) if p.returncode == 0 else None
     except ValueError:
@@ -62,7 +62,8 @@ def pr_for_branch(repo, branch, runner=_default_runner, env=None):
     mine = [x for x in got if isinstance(x, dict) and not x.get("isCrossRepository")]
     pick = next((x for x in mine if x.get("state") == "OPEN"), mine[0] if mine else None)
     return None if pick is None else {"number": pick.get("number"), "state": pick.get("state"),
-                                      "head_sha": pick.get("headRefOid")}
+                                      "head_sha": pick.get("headRefOid"), "base": pick.get("baseRefName"),
+                                      "url": pick.get("url")}
 
 
 def merged_pr_of(repo, sha, base, runner=_default_runner, env=None):

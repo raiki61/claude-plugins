@@ -154,9 +154,9 @@ class FakeHerdr:
 class FakeGh:
     """ゲートの CI。conclusion を試験が決める。on_run は run を返す前に呼ぶ（その間にメインブランチが進む形を作る）。"""
 
-    def __init__(self, conclusion="success", appear=0, on_run=None):
+    def __init__(self, conclusion="success", appear=0, on_run=None, open_pr=None):
         self.conclusion, self.appear, self.on_run = conclusion, appear, on_run
-        self.asked, self.prs = 0, []
+        self.asked, self.prs, self.open_pr = 0, [], open_pr   # open_pr: pr_for_branch が返す既存の PR（無ければ None）
 
     def runs_for(self, repo, branch, sha, env=None):
         self.asked += 1
@@ -172,6 +172,9 @@ class FakeGh:
 
     def run_failure(self, repo, run_id, lines=20, env=None):
         return ["落ちた job: test（step: run）", "AssertionError: 版が据え置き"]
+
+    def pr_for_branch(self, repo, branch, env=None):
+        return self.open_pr
 
     def create_pr(self, repo, branch, base, env=None):
         self.prs.append((branch, base))
@@ -924,6 +927,29 @@ class OtherModes(LandCase):
         self.assertEqual(ports.gh.prs, [("feat/a", "main")])
         self.assertEqual(w.origin("feat/a"), head)
         self.assertIn("https://pr/1", out)
+
+    def test_pr_mode_second_land_pushes_and_reuses_the_open_pr(self):
+        # 2 回目の --land: 開いた PR が在れば gh pr create を呼ばず（already exists で断られる）、push だけして成功で返す
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
+        head = w.work()
+        gh = FakeGh(open_pr={"number": 5, "state": "OPEN", "head_sha": "0" * 40, "base": "main", "url": "https://pr/5"})
+        code, out = self.land(w, FakePorts(w, gh=gh))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(gh.prs, [])
+        self.assertEqual(w.origin("feat/a"), head)
+        self.assertIn("push しただけ: https://pr/5", out)
+
+    def test_pr_mode_opens_a_new_pr_when_the_old_one_is_closed_or_aims_elsewhere(self):
+        for old in ({"number": 5, "state": "MERGED", "head_sha": "0" * 40, "base": "main", "url": "https://pr/5"},
+                    {"number": 6, "state": "OPEN", "head_sha": "0" * 40, "base": "release/1", "url": "https://pr/6"}):
+            with self.subTest(old=old["number"]):
+                w = FakeWorld(tempfile.mkdtemp(dir=self.tmp), {".claude/company.toml": '[land]\nmode = "pr"\n'})
+                w.work()
+                gh = FakeGh(open_pr=old)
+                code, out = self.land(w, FakePorts(w, gh=gh))
+                self.assertEqual(code, 0, out)
+                self.assertEqual(gh.prs, [("feat/a", "main")])
+                self.assertIn("PR を出した: https://pr/1", out)
 
     def test_role_override(self):
         w = FakeWorld(self.tmp, {**CI_FILES, ".claude/company.toml": CI_RULES + '[land.roles.research]\nmode = "none"\n'})

@@ -330,10 +330,12 @@ class Gh(unittest.TestCase):
         # 2026-10-15 に gh 2.102.0 で読んだ gh pr list --json の形（fork の PR は isCrossRepository が true）
         listed = [{"number": 9, "state": "OPEN", "headRefOid": "f" * 40, "isCrossRepository": True},
                   {"number": 8, "state": "MERGED", "headRefOid": "b" * 40, "isCrossRepository": False},
-                  {"number": 7, "state": "OPEN", "headRefOid": "a" * 40, "isCrossRepository": False}]
+                  {"number": 7, "state": "OPEN", "headRefOid": "a" * 40, "isCrossRepository": False,
+                   "baseRefName": "main", "url": "https://github.com/o/r/pull/7"}]
         f = Fake(ok(listed))
         self.assertEqual(ghx.pr_for_branch("o/r", "feat/7", runner=f, env={"GH_TOKEN": "t"}),
-                         {"number": 7, "state": "OPEN", "head_sha": "a" * 40})
+                         {"number": 7, "state": "OPEN", "head_sha": "a" * 40, "base": "main",
+                          "url": "https://github.com/o/r/pull/7"})
         self.assertEqual(f.calls[0][0][:7], ["gh", "pr", "list", "--repo", "o/r", "--head", "feat/7"])
         self.assertEqual(f.calls[0][1], {"GH_TOKEN": "t"})
         self.assertEqual(ghx.pr_for_branch("o/r", "x", runner=Fake(ok(listed[:2])))["number"], 8)

@@ -4,7 +4,7 @@ dispatch のスキル（works-dispatch のプラグイン）の別ファイル�
 
 部署（名前かブランチの名前で指す。名前が無ければ、`--reorg` が覚えた前の名前でも引く）のブランチを、会社の形（`.claude/company.toml`、無ければ dispatch の設定のフォルダ〔既定は `~/.config/works-dispatch/`〕の `companies/`）の `[land]` の決まりでメインブランチに入れる。フィールドと例は、このプラグインの `docs/land.md`。
 
-- 決まりが無い（`[land]` が無いか `mode = "none"`）なら何もしない。`mode = "pr"` なら、部署のブランチを origin に出して PR を出し、止める。
+- 決まりが無い（`[land]` が無いか `mode = "none"`）なら何もしない。`mode = "pr"` なら、部署のブランチを origin に出して PR を出し、止める（開いた PR が既に在れば push だけして、その PR の URL を出す）。
 - `mode = "ff-after-ci"` なら、ゲート（`gate`。CI のブランチの形〔例 `release/*`〕か、手元の検証の `check`）を通し、緑でメインブランチがまだ部署のブランチの祖先なら、メインブランチを fast-forward して push する。`bump = "marketplace"` なら、部署は版を上げずに出し、取り込むときに版を上げる commit を足してからゲートに出す。
 - メインブランチが先に進んでいれば、自分では merge せず、部署の窓（部署の会話の画面を出した herdr のペイン。打ち込むと部署の会話への入力になる）に「メインブランチの上にリベースして push し直す」と打ち込んで止める。赤なら、失敗の要点を部署の窓に打ち込んで止める。部署が直したら、もう一度 `--land` を打つ。
 - 部署が always の部署か畳む部署かは、部署を立てたときに決まり、属性 `company.lifecycle` に残る（`--persistent` を付けたか、役か受け持ちの寿命 `lifetime` が `always` なら `persistent` の always の部署で、頼みごとにブランチを移って残り続ける。それ以外は `ephemeral` の畳む部署〔寿命が per-ask か until-idle〕で、頼みのために立てて終われば畳む）。

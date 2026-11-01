@@ -402,9 +402,14 @@ def drop_gate(source, ref, g):
 
 
 def offer_pr(source, repo, branch, main, g, gh, env=None):
-    """部署のブランチを origin に出し、メインブランチへの PR を出す。PR の URL を返す。"""
+    """部署のブランチを origin に出し、メインブランチへの PR を出す。(PR の URL, 新しく出したか) を返す。
+    そのブランチからメインブランチへの開いた PR が既に在れば、push だけしてその PR を返す（2 回目の --land。
+    GitHub は同じ head と base の開いた PR を 2 つ作らせず、gh pr create が already exists で断るため）。"""
     g.push(source, g.rev(source, f"refs/heads/{branch}"), branch)
-    return gh.create_pr(repo, branch, main, env=env)
+    had = gh.pr_for_branch(repo, branch, env=env)
+    if had and had.get("state") == "OPEN" and had.get("base") == main and had.get("url"):
+        return had["url"], False
+    return gh.create_pr(repo, branch, main, env=env), True
 
 
 def stage(source, path, sha, g):
