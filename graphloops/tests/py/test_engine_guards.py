@@ -385,6 +385,27 @@ def test_relaunch_stops_the_marks_of_earlier_attempts_too(tmp_path, monkeypatch)
     assert stopped == [str(tmp_path / "o.a2") + ".pgid", str(tmp_path / "o") + ".pgid"]
 
 
+def test_relaunch_stops_the_previous_attempt_only_after_saving_the_new_one(tmp_path, monkeypatch):
+    """前の試行の子を止めるのは、新しい試行を盤面に保存した後だけ——先に止めると、止められた古い launch の締めが先に盤面を
+    進め、relaunch の保存が版の衝突で落ちる（実測 2026-09-25）。端から端の台本（simulate.py の test_relaunch_live_launch）は
+    この競りが OS の速さで起きたり起きなかったりするので、順だけをここで見る"""
+    fb = FakeBoard(instances={"p1.x": {"id": "p1.x", "node": "p1.x", "status": "pending", "out_path": str(tmp_path / "o"),
+                                       "launch": {"kind": "cli"}}}, nodes={"p1.x": {}})
+    order = []
+
+    def update(d, fn):
+        got = fn(fb)
+        order.append("saved")
+        return got
+    monkeypatch.setattr(commands, "Board", lambda d: fb)
+    monkeypatch.setattr(commands, "_board_update", update)
+    monkeypatch.setattr(commands, "probe_group", lambda m: (None, None))
+    monkeypatch.setattr(commands, "stop_group", lambda m: order.append("stop"))
+    monkeypatch.setattr(commands, "reissue", lambda b, prev, reason: {"id": "p1.x", "out_path": str(tmp_path / "o.a2"), "attempts": 2})
+    commands.cmd_relaunch(argparse.Namespace(dir=str(tmp_path), node="p1.x", reason="検査"))
+    assert order == ["saved", "stop"]
+
+
 def test_launch_settle_logs_failed_only_without_rejections(tmp_path, monkeypatch):
     """拒否が上限まで続いた試行は resume・rejected の行だけ（失敗の行を重ねない）。拒否の無い失敗は failed の行"""
     inst = {"id": "p1.x", "node": "p1.x", "status": "pending", "out_path": "o", "launch": {"kind": "cli"}}

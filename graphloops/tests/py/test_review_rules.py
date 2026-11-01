@@ -602,6 +602,13 @@ def test_sha_file_of_what_cannot_be_read_is_none(tmp_path):
     assert RULES.sha_file(tmp_path / "f.txt") == "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
 
 
+def test_not_in_version_names_a_directory_as_a_directory(tmp_path):
+    """版に無い理由は、ディレクトリと、在るが通常のファイルでない物（FIFO・ソケットなど）とで別の文——ディレクトリを後者の文に
+    落とさない。後者は FIFO を作れない OS でも見られるよう、問いに答える代役のパスで作る"""
+    other = types.SimpleNamespace(is_dir=lambda: False, exists=lambda: True, is_file=lambda: False, is_symlink=lambda: False)
+    assert RULES._not_in_version(tmp_path) != RULES._not_in_version(other)
+
+
 def test_spec_flow_says_which_way_the_run_goes():
     """仕様の道を選んだ run はそう言い、選んでいない run は今の流れのままと言う——理由の文が真偽と食い違わない"""
     assert RULES.spec_flow(View({"inputs.flow": "spec"})) == (True, "仕様の道を選んだ run（flow=spec）")

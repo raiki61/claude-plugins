@@ -236,6 +236,14 @@ def test_merge_exit_and_gate_status_read_the_same_passed(tmp_path, monkeypatch, 
 
 
 @pytest.mark.small
+def test_passed_is_false_when_no_arm_could_be_shot():
+    """撃てた腕が 0 本の回は、control と印の写しが緑（healthy）でも合格と言わない。--merge の道では腕 0 本だと control が空で
+    healthy が偽になり、腕の数の条件を外しても結果が変わらないので、--merge でない 1 回の報告で見る"""
+    res = {"summary": {"control_ok": True}, "marker": {"rc": 0}, "arms": [{"id": "x", "title": "x", "status": "Ignored"}]}
+    assert mutate.healthy(res) and not mutate.passed(res)
+
+
+@pytest.mark.small
 @pytest.mark.parametrize("flag", ["--merge", "--gate-efficacy", "--same-as"])
 def test_unreadable_report_exits_2(tmp_path, monkeypatch, flag):
     (tmp_path / "bad.json").write_text("{", encoding="utf-8")

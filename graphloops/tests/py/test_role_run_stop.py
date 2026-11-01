@@ -62,6 +62,23 @@ def test_probe_group_when_leader_is_gone(tmp_path, monkeypatch, osname, want, ke
     assert m.exists() == kept
 
 
+@pytest.mark.parametrize("osname", ["nt", "posix"])
+@pytest.mark.parametrize("later,kept", [
+    pytest.param(60.0, False, id="reused"),
+    pytest.param(0.0, True, id="same-process"),
+])
+def test_probe_group_when_the_number_was_reused(tmp_path, monkeypatch, osname, later, kept):
+    """長の番号が印より後に始まったプロセスに再利用されていれば止める物は無い（印を消す）——relaunch・stop が無関係な木を
+    生きた試行と読まない。印より前から居るプロセスなら止める側に残す。stop_group の後ろの止め方（_stop_tree）も同じ born で
+    再利用を見るので、止める道だけを見ると _probe の見分けを外しても緑になる——ここは信号を送らない確かめ（probe_group）で見る"""
+    m = mark(tmp_path)
+    born = m.stat().st_mtime
+    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name=osname))
+    monkeypatch.setattr(role_run, "_started_at", lambda pid: born + role_run.REUSE_SLACK + later if later else born)
+    assert role_run.probe_group(str(m)) == ((4242, None) if kept else (None, None))
+    assert m.exists() == kept
+
+
 @pytest.mark.parametrize("rc,started,fails", [
     pytest.param(0, 123.0, False, id="taskkill-ok"),
     pytest.param(1, role_run.GONE, False, id="taskkill-failed-but-gone"),

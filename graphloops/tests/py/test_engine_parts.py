@@ -11,7 +11,7 @@ import pytest
 from engine.advance import ITEM_INLINE, slim_item
 from engine.commands import parse_output
 from engine.render import ABSENT, FILE_CAP, ReadsViolation, Renderer, cap_bytes
-from engine.util import Reject, del_path, dump, get_path, set_path
+from engine.util import AnswerReject, Reject, del_path, dump, get_path, set_path, sum_counts
 
 pytestmark = pytest.mark.small
 
@@ -194,8 +194,15 @@ def test_fence_with_prose_around_is_read():
 
 
 def test_reply_without_json_is_rejected():
-    with pytest.raises(Reject):
+    """読めない返答は AnswerReject（役に返せば直る側）——ただの Reject だと、launch の受け付けが同じ会話に出し直させずに上げる"""
+    with pytest.raises(AnswerReject):
         parse_output("これは JSON ではない")
+
+
+def test_sum_counts_is_none_when_a_line_is_not_a_count():
+    """`…:数` の行の合計は、数でない行が 1 行でも在れば None（黙って飛ばさない・例外で落ちない）"""
+    assert sum_counts("a:1\nb:2") == 3
+    assert sum_counts("a:1\n本文 b") is None
 
 
 def broken_fence_message():

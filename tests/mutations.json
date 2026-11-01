@@ -233,6 +233,16 @@
    "new": "    if False:\n        return",
    "marker": {
     "where": "after"
+   },
+   "expect": "主経路: 実在するディレクトリを指した回は『ファイルでない』",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_review_rules.py::test_not_in_version_names_a_directory_as_a_directory"
+    ],
+    "graphloops/tests/simulate_review.py": [
+     "test_wrote_refs_main_path",
+     "test_wrote_refs_reads_and_dir_target"
+    ]
    }
   },
   {
@@ -1336,6 +1346,15 @@
    "new": "    if False:\n        return None",
    "marker": {
     "where": "after"
+   },
+   "expect": "test_run_count が例外で抜けた: ValueError",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_engine_parts.py::test_sum_counts_is_none_when_a_line_is_not_a_count"
+    ],
+    "graphloops/tests/simulate.py": [
+     "test_run_count"
+    ]
    }
   },
   {
@@ -2850,7 +2869,7 @@
    "expect": "赤を見ていない腕の例外は人の起動待ちだけ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
-     "test_silent_status_derived"
+     "test_open_unit_and_hit_arm"
     ]
    }
   },
@@ -4296,10 +4315,13 @@
    "suite": "graphloops",
    "old": "    raise AnswerReject(\"\\n\".join(lines))",
    "new": "    raise Reject(\"\\n\".join(lines))",
-   "expect": "散文を返した judge に同じ会話で出し直させ",
+   "expect": "包みでない出力が拒まれたら、同じ会話に続きを頼めないので 1 起動で止まる",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_launch_tooled_session"
+    "graphloops/tests/py": [
+     "test_engine_parts.py::test_reply_without_json_is_rejected"
+    ],
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
     ]
    }
   },
@@ -5240,6 +5262,9 @@
    "new": "        elif True:",
    "expect": "番号が印より後に始まったプロセスに再利用されていれば",
    "tests": {
+    "graphloops/tests/py": [
+     "test_role_run_stop.py::test_probe_group_when_the_number_was_reused"
+    ],
     "graphloops/tests/simulate.py": [
      "test_role_run"
     ]
@@ -5296,6 +5321,9 @@
    "new": "    [stop_group(m) for m in marks]\n    new, n = _board_update(d, bump)",
    "expect": "古い launch の行は『起動し直された古い試行』に言い換わる",
    "tests": {
+    "graphloops/tests/py": [
+     "test_engine_guards.py::test_relaunch_stops_the_previous_attempt_only_after_saving_the_new_one"
+    ],
     "graphloops/tests/simulate.py": [
      "test_relaunch_live_launch"
     ]
@@ -7784,10 +7812,10 @@
    "suite": "root",
    "old": "    return bool(shot) and healthy(res) and all(proven(r) for r in shot)",
    "new": "    return healthy(res) and all(proven(r) for r in shot)",
-   "expect": "test_mutate_shard.py::test_merge_exit_and_gate_status_read_the_same_passed",
+   "expect": "test_mutate_shard.py::test_passed_is_false_when_no_arm_could_be_shot",
    "tests": {
     "graphloops/tests/py": [
-     "test_mutate_shard.py::test_merge_exit_and_gate_status_read_the_same_passed[all-ignored]"
+     "test_mutate_shard.py::test_passed_is_false_when_no_arm_could_be_shot"
     ]
    }
   },
