@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.152.4] - 2026-11-02
+
 ### Fixed
 
 - 取り込み方 `pr`（会社の形 `.claude/company.toml` の `[land]` の `mode = "pr"`。`--land` が部署のブランチを push して PR を出す）の会社で、PR が既に開いている部署が `--land` を打ち直すと、push は済むのに `gh pr create` が already exists で断り、「PR を出せない」で終わりの値 1 になっていた（頼み 8dd662。2026-11-01 に別のリポジトリ guided-resolver の部署「Reloaderの正典」の PR #2361 で起きた）。push の後に、そのブランチからメインブランチへの開いた PR を探し、在れば PR を出さずに「PR は既に開いているので、ブランチを push しただけ」とその URL を出して、終わりの値 0 で返す。閉じた・マージ済みの PR しか無いときと、開いた PR のマージ先がメインブランチでないときは、今までどおり新しく PR を出す。
