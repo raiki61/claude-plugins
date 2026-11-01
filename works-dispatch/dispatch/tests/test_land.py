@@ -173,7 +173,8 @@ class FakeGh:
     def run_failure(self, repo, run_id, lines=20, env=None):
         return ["落ちた job: test（step: run）", "AssertionError: 版が据え置き"]
 
-    def pr_for_branch(self, repo, branch, env=None):
+    def pr_for_branch(self, repo, branch, env=None, base=None):
+        self.asked_base = base
         return self.open_pr
 
     def create_pr(self, repo, branch, base, env=None):
@@ -936,6 +937,7 @@ class OtherModes(LandCase):
         code, out = self.land(w, FakePorts(w, gh=gh))
         self.assertEqual(code, 0, out)
         self.assertEqual(gh.prs, [])
+        self.assertEqual(gh.asked_base, "main")   # ほかのマージ先の開いた PR を拾わないよう、マージ先で絞って問う
         self.assertEqual(w.origin("feat/a"), head)
         self.assertIn("push しただけ: https://pr/5", out)
 

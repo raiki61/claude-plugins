@@ -48,11 +48,13 @@ def pr_info(repo, number, runner=_default_runner, env=None):
             "state": got.get("state"), "fork": bool(got.get("isCrossRepository"))}
 
 
-def pr_for_branch(repo, branch, runner=_default_runner, env=None):
-    """そのブランチを head にする、このリポジトリの PR（fork の PR は数えない）。開いているものが有ればそれ、無ければいちばん新しいもの。
+def pr_for_branch(repo, branch, runner=_default_runner, env=None, base=None):
+    """そのブランチを head にする、このリポジトリの PR（fork の PR は数えない。base を渡せば、そこへマージする PR だけ）。
+    開いているものが有ればそれ、無ければいちばん新しいもの。
     {number, state, head_sha, base, url} か、PR が無ければ None。読めなければ GhError（片付けは消さない側に倒す）。"""
-    p = runner(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "20",
-                "--json", "number,state,headRefOid,isCrossRepository,baseRefName,url"], env=env)
+    p = runner(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "20"]
+               + (["--base", base] if base else [])
+               + ["--json", "number,state,headRefOid,isCrossRepository,baseRefName,url"], env=env)
     try:
         got = json.loads(p.stdout) if p.returncode == 0 else None
     except ValueError:

@@ -406,7 +406,7 @@ def offer_pr(source, repo, branch, main, g, gh, env=None):
     そのブランチからメインブランチへの開いた PR が既に在れば、push だけしてその PR を返す（2 回目の --land。
     GitHub は同じ head と base の開いた PR を 2 つ作らせず、gh pr create が already exists で断るため）。"""
     g.push(source, g.rev(source, f"refs/heads/{branch}"), branch)
-    had = gh.pr_for_branch(repo, branch, env=env)
+    had = gh.pr_for_branch(repo, branch, env=env, base=main)   # マージ先で絞る（ほかのマージ先の開いた PR が先に選ばれないように）
     if had and had.get("state") == "OPEN" and had.get("base") == main and had.get("url"):
         return had["url"], False
     return gh.create_pr(repo, branch, main, env=env), True

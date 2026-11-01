@@ -340,6 +340,9 @@ class Gh(unittest.TestCase):
         self.assertEqual(f.calls[0][1], {"GH_TOKEN": "t"})
         self.assertEqual(ghx.pr_for_branch("o/r", "x", runner=Fake(ok(listed[:2])))["number"], 8)
         self.assertIsNone(ghx.pr_for_branch("o/r", "x", runner=Fake(ok([]))))
+        f = Fake(ok([]))
+        ghx.pr_for_branch("o/r", "x", runner=f, base="main")
+        self.assertEqual(f.calls[0][0][7:13], ["--state", "all", "--limit", "20", "--base", "main"])
         with self.assertRaises(ghx.GhError):
             ghx.pr_for_branch("o/r", "x", runner=Fake((1, "", "HTTP 502")))
 
