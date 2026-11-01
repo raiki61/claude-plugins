@@ -776,6 +776,81 @@ class Flow(unittest.TestCase):
         self.ports.term.screen = "> 作業中"
         self.assertEqual(orders.live_window(dept, self.ports), self.window)
 
+    def test_tree_says_a_fallen_department_has_no_talk_in_its_window(self):
+        # PC の再起動で窓がシェルだけになった納品済みの部署が「終わった … 窓 あり」と出続けた（2026-11-01、guided-resolver。受付 29b389）
+        rc, out = self.main(self.src, "--tree")
+        self.assertNotIn("会話が居ない", out)
+        self.fall()
+        rc, out = self.main(self.src, "--tree")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("窓 あり・会話が居ない（受けた頼みは納品済みなので attach で戻さなくてよい。次の --ask が戻してから頼む）", out)
+        rc, out = self.main(self.src, "--tree", "--json")
+        dept = next(d for d in json.loads(out)["companies"][0]["departments"] if not d["head_office"])
+        self.assertTrue(dept["talk_away"])
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
+        rc, out = self.main(self.src, "--tree")
+        self.assertIn("窓 あり・会話が居ない（受付 20261016-000000-aaaaaa を納品していない。--nudge 調べ で戻して納品を促す）", out)
+        self.assertEqual([w for w in self.ports.term.writes if w[0] in ("run", "prompt")], [], "--tree が窓に打った")
+        dept = {**dept, "panes": []}
+        self.assertFalse(orders.talk_away(dept, self.ports))                          # 窓の無い部署は「窓 なし」のまま
+        self.assertFalse(orders.talk_away({**dept, "head_office": True, "panes": [{"pane_id": self.window}]}, self.ports))  # 本社
+
+    @unittest.skipIf(os.name == "nt", "Windows では前に居るプロセスを見ない（test_exited_line_on_the_screen_counts_as_fallen）")
+    def test_tree_says_no_talk_even_if_herdr_keeps_the_mark(self):
+        # 再起動の後の実際の形: herdr がペインの会話の印を残し、前に居るのはシェル
+        self.fall(keep_mark=True)
+        rc, out = self.main(self.src, "--tree")
+        self.assertIn("窓 あり・会話が居ない", out)
+
+    def test_nudge_with_an_empty_queue_revives_a_fallen_department_holding_an_ask(self):
+        # 順番待ちが空でも、納品していない頼みを持つ部署の会話が落ちていれば戻して納品を促す（受付 29b389）
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
+        self.fall()
+        rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("attach で戻して納品を促す 1 行を打つ", out)
+        self.assertEqual([w for w in self.ports.term.writes if w[0] in ("run", "prompt")], [])
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("受付 20261016-000000-aaaaaa の納品を促した（sent", out)
+        self.assertEqual([w for w in self.ports.term.writes if w[0] == "run"], [("run", self.window, "claude-a1 attach d")])
+        [(_, pane, text, _)] = self.prompts()
+        self.assertEqual(pane, self.window)
+        self.assertIn("受付 20261016-000000-aaaaaa", text)
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("20261016-000000-aaaaaa", "revived")])
+
+    def test_nudge_that_cannot_revive_or_send_says_so_and_fails(self):
+        # 戻せない（属性にも一覧にも会話の id が無い）なら、台帳に failed を書いて終了の値 1
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
+        self.fall()
+        real_list = self.ports.list_sessions
+        self.g.unset_worktree_attr(self.place, "session")
+        self.ports.list_sessions = lambda cdir, include_done=False: []
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("窓に会話が居ないが、戻せなかった", out)
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("20261016-000000-aaaaaa", "failed")])
+        # 戻せても促しの 1 行が届かなければ、台帳は failed、終了の値 1
+        provision.mark(self.place, self.src, {"session": "s-dept"}, self.g)
+        self.ports.list_sessions = real_list
+        with mock.patch.object(orders.deliver, "send_confirmed", lambda *a, **k: ("failed", "入力フィールドに残った")):
+            rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("納品を促した（failed。入力フィールドに残った）", out)
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([r["status"] for r in nudged], ["failed", "failed"])
+
+    def test_nudge_does_not_revive_a_fallen_department_that_delivered(self):
+        # 納品し終えた部署は戻さない（する事が無く、次の --ask が戻してから頼む）
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, self.g)
+        self.fall()
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("受けた頼みは納品済みなので戻さない（次の --ask が attach で戻してから頼む）", out)
+        self.assertEqual([w for w in self.ports.term.writes if w[0] in ("run", "prompt")], [])
+
     def test_fallen_department_with_a_pending_ask_is_nudged_to_deliver(self):
         # 落ちる前の頼みを納品していない部署: 戻して納品を促し、新しい頼みは送らずに止まる（待っても来ない、で止めない）
         provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)

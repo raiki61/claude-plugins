@@ -234,6 +234,30 @@ def _department_places(places, ports, source):
     return out
 
 
+def _talk_away_places(ports, places, listed):
+    """部署の場所の並びのうち、herdr の窓は開いているのに会話が居ない（orders.talk_away）物の、ブランチ → 納品していない頼みの受付番号
+    （wake.pending。納品し終えていれば None）。listed は アカウントの名 → 会話の一覧。会話は --tree と同じに、作業フォルダが部署の場所の
+    物のうち属性の id（company.session）の物、無ければ起きた時刻の新しい物で見る（/clear で属性の id が古くなっても見落とさない）。
+    窓を読めなければ空（言葉を添えないだけで、ほかは今までどおり）。"""
+    if not places:
+        return {}
+    try:
+        panes = ports.term.panes()
+    except term.Error:
+        return {}
+    out = {}
+    for p in places:
+        mine = [x for x in panes if p.get("workspace") and x.get("workspace_id") == p["workspace"]]
+        attrs = ports.attrs(p["path"])
+        here = sorted((s for items in listed.values() for s in items
+                       if s.get("cwd") and os.path.realpath(s["cwd"]) == os.path.realpath(p["path"])),
+                      key=lambda s: -(s.get("startedAt") or 0))
+        talk = next((s for s in here if attrs.get("session") and s.get("sessionId") == attrs["session"]), None) or next(iter(here), None)
+        if orders.talk_away({"panes": mine, "state": tree.session_state(talk)}, ports):
+            out[p["branch"]] = wake.pending(attrs)
+    return out
+
+
 def _issue_item(repo, number, ports, notes):
     """--issue の 1 件を、prs の 1 件と同じ形（kind が issue）にする。ブランチは issue に結んだブランチ（2 本以上なら最初の 1 本）。
     結んだブランチが見えなければ、issue を閉じる開いた PR のブランチ（ブランチから PR を作ると、GitHub はブランチの結びつきを PR に置き換える）。
@@ -616,8 +640,13 @@ def main(argv=None, ports=None):
         depts = _department_places(found, ports, repo.source)
         dept_places = [p for p in found if p.get("branch") in depts]
         dept_turn = {p["number"] for p in my_prs if p["head"] in depts}   # 自分の番に居る部署の PR（その窓は閉じない）
+        away = _talk_away_places(ports, [x for x in dept_places if x["branch"] in {p["head"] for p in my_prs}], listed)
         for p in [p for p in my_prs if p["head"] in depts]:
-            notes.append(f"#{p['number']}: 部署「{depts[p['head']]}」の作業場のブランチなので開かない（レビューの返しは --ask '{depts[p['head']]}' --text <頼み> で部署へ回す）")
+            name = depts[p["head"]]
+            gone = ("" if p["head"] not in away else
+                    f"。部署の窓に会話が居ない。受付 {away[p['head']]} を納品していないので、--nudge '{name}' で戻して納品を促す" if away[p["head"]] else
+                    "。部署の窓に会話は居ないが、受けた頼みは納品済みなので attach で戻さなくてよい（次の --ask が戻してから頼む）")
+            notes.append(f"#{p['number']}: 部署「{name}」の作業場のブランチなので開かない（レビューの返しは --ask '{name}' --text <頼み> で部署へ回す{gone}）")
         my_prs = [p for p in my_prs if p["head"] not in depts]
         found = [p for p in found if p.get("branch") not in depts]
     places = _branch_places(found)
@@ -1516,6 +1545,8 @@ def _company(a, ports):
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     calls.annotate(companies, settings, ports.git)
+    for d in (d for c in companies for d in c["departments"]):
+        d["talk_away"] = orders.talk_away(d, ports)   # 窓は在るのに会話が居ない（「窓 あり」に添える）
     shown = _overview(accounts_, ports)
     if a.json:
         jsonio.dump({"companies": companies, "accounts": shown, "notes": notes}, None)

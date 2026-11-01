@@ -710,6 +710,20 @@ class FoldFromListing(unittest.TestCase):
         self.assertEqual(self.said(), [])
         self.assertEqual([w for w in self.ports.term.writes if w[0] == "prompt"], [])   # 会話に字を送らない
 
+    def test_a_department_whose_window_fell_to_the_shell_is_still_folded(self):
+        # PC の再起動で窓がシェルだけになり、裏の会話も一覧で done のまま（2026-11-01、guided-resolver。受付 29b389）: 入力フィールドを
+        # 見る窓が無いだけなので、会話を戻さずに畳む（戻してから畳まなくてよい）
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+        self.state = "done"
+        h = self.ports.term
+        h.front[self.window] = ["-bash"]
+        h.talking.discard(self.window)
+        h.screen = "$ "
+        rc, out = self.main(self.src)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署「調べ」（受付 q1）: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳んだ", out)
+        self.assertEqual([w for w in h.writes if w[0] in ("run", "prompt")], [])   # attach を打たない
+
     def test_dry_run_names_the_fold_and_touches_nothing(self):
         self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
         rc, out = self.main(self.src, "--dry-run")

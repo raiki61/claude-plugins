@@ -15,6 +15,7 @@ import os
 import pathlib
 import subprocess
 import unittest
+from unittest import mock
 
 from . import DISPATCH, fakegit  # noqa: F401
 from .test_dispatch import FakeHerdr, FakePorts, fake_cfg, gitx_source, pr, typed
@@ -791,6 +792,31 @@ class Flow(unittest.TestCase):
                 self.assertTrue(pathlib.Path(path).exists())
                 if case == "refresh":
                     self.assertIn("#3: 部署「部署の作業」の作業場のブランチなので開かない（レビューの返しは --ask '部署の作業' --text <頼み> で部署へ回す）", out)
+
+    def test_listing_says_when_a_departments_window_has_no_talk(self):
+        # PC の再起動で部署の窓がシェルだけになった（2026-11-01、guided-resolver の部署「1911の詳しさの列」。受付 29b389）。
+        # 開かない訳の行に、窓に会話が居ないことを添える。窓には何も打たない
+        path = self.place(3)
+        ports = FakePorts([pr(3)], git=self.g)
+        pane = self.talking_in(ports, path)
+        ports.acts = {3: {"reviewers": True, "last_other": 500.0}}
+        self.department(path)
+        rc, out = run_main(self.cfg, ports)
+        self.assertNotIn("会話は居ない", out)
+        ports.term.talking.discard(pane["pane_id"])
+        for p in ports.term._panes:
+            if p["pane_id"] == pane["pane_id"]:
+                p["agent"] = None
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("#3: 部署「部署の作業」の作業場のブランチなので開かない（レビューの返しは --ask '部署の作業' --text <頼み> で部署へ回す。"
+                      "部署の窓に会話は居ないが、受けた頼みは納品済みなので attach で戻さなくてよい（次の --ask が戻してから頼む））", out)
+        self.g.set_worktree_attr(path, "ask", "q9")   # 納品していない頼みを持つなら、--nudge で戻す手を出す（--ask は戻しても新しい頼みを送らない）
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("部署へ回す。部署の窓に会話が居ない。受付 q9 を納品していないので、--nudge '部署の作業' で戻して納品を促す）", out)
+        self.assertEqual(ports.term.writes, [], out)
+        with mock.patch.object(ports.term, "panes", side_effect=dispatch.term.Error(["herdr"], "答えない")):
+            self.assertEqual(dispatch._talk_away_places(ports, [{"path": path, "branch": "b", "workspace": "w"}], {}), {})
 
     def test_a_pr_place_beside_a_department_is_still_refreshed(self):
         # 部署の作業場を外しても、同じ回の部署でない PR の作業場は今までどおり送り直す（絞りすぎない）

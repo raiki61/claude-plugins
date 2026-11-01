@@ -357,6 +357,16 @@ def _at(t):
     return time.strftime("%m-%d %H:%M", time.localtime(t)) if t else "-"
 
 
+def away_note(d):
+    """窓は在るのに会話が居ない部署（talk_away）の「窓 あり」に添える字。納品していない頼みが在れば戻す手を、無ければ戻さなくてよいことを
+    言う（裏の会話の記録は残り、次の --ask が attach で戻してから頼む。用の無い会話を先に戻しても、する事が無いままプロセスが残るだけ）。"""
+    a = d.get("attrs") or {}
+    held = a.get("ask") if a.get("ask") and a.get("delivered") != a["ask"] else None
+    if held:
+        return f"・会話が居ない（受付 {held} を納品していない。--nudge {d.get('name') or d.get('branch')} で戻して納品を促す）"
+    return "・会話が居ない（受けた頼みは納品済みなので attach で戻さなくてよい。次の --ask が戻してから頼む）"
+
+
 def lines(companies):
     """人の読む形。会社ごとに、頭の行・受ける仕事（と宛て方）・窓口・本社・部署の行。"""
     if not companies:
@@ -398,7 +408,7 @@ def lines(companies):
             if d["name"]:
                 fields.append(f"会話 {d['name']}")
             fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat_label(d['seat'])}）" if d.get("seat") else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
-                       f"窓 {'あり' if d['panes'] else 'なし'}"]
+                       f"窓 {'あり' if d['panes'] else 'なし'}" + (away_note(d) if d.get("talk_away") else "")]
             if d.get("queue"):
                 stuck = ("渡す待ち受けが居ない" + ("（受けたままの頼みを持つ会話がもう居ない）" if d.get("holder_gone") else "")
                          if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None))

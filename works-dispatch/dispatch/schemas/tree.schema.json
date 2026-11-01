@@ -90,6 +90,7 @@
                 "session": {"type": ["object", "null"]},
                 "sessions": {"type": "integer"},
                 "panes": {"type": "array", "items": {"type": "object", "required": ["pane_id"]}},
+                "talk_away": {"type": "boolean", "description": "窓（panes）は在るのに、そこに会話が居ない（PC の再起動などで attach の画面が終わった）"},
                 "attrs": {"type": "object"},
                 "role": {"type": ["string", "null"]},
                 "seat": {"type": ["string", "null"]},

@@ -270,6 +270,18 @@ def live_window(dept, ports):
     return pane
 
 
+def talk_away(dept, ports):
+    """部署の窓（herdr のペイン）は在るのに、そこに会話が居ない（live_window と同じ見分け）か。窓の無い部署と本社（窓口は手前の会話で、
+    attach では戻らない）は偽。--tree の「窓 あり」と、引数なしの dispatch・--nudge の言葉に、会話が落ちたままなのを出すのに使う
+    （2026-11-01 に guided-resolver で、PC の再起動で窓がシェルだけになった納品済みの部署が「終わった … 窓 あり」と出続けた。受付 29b389）。"""
+    if dept.get("head_office") or not dept.get("panes"):
+        return False
+    try:
+        return live_window(dept, ports) is None
+    except term.Error:
+        return False   # 窓を読めないときは、居ると見て今までどおりに出す
+
+
 def place_talk(dept, sessions_, accounts_):
     """会話の一覧（アカウントの名 → 並び。終わった物も含む）のうち、作業フォルダが部署の場所の裏の会話の (アカウントの名, 1 件)。
     属性にアカウントが残っていれば、そのアカウントの一覧だけを見る。動いている（作業中か返事待ち）物を先に、次に名前が部署の名前の
@@ -1139,6 +1151,8 @@ def nudge(a, ports, cwd):
     why = stuck_why(dest_inbox, place_dir, dept)
     if not why:
         n = len(wake.queued(dest_inbox, place_dir))
+        if not n and talk_away(dept, ports):
+            return nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, company["root"], notes)
         print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
         return 0
     if a.dry_run:
@@ -1153,6 +1167,36 @@ def nudge(a, ports, cwd):
     moved = []
     print("\n".join(notes + wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], moved)))
     return 0 if moved else 1
+
+
+def nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, source, notes):
+    """--nudge の、順番待ちが空で窓に会話が居ない部署（talk_away）。納品していない頼みが在れば、--ask が落ちた部署に頼むときと同じに
+    attach で戻して納品を促す 1 行（nudge_line）を打つ（頼みが無くても、受けたままの頼みを済ませる会話を戻す口。PC の再起動で途中の
+    部署が落ちると、順番待ちが空なら誰も戻さなかった）。納品し終えた部署は戻さない: する事が無く、次の --ask が戻してから頼み、
+    PR のマージを待つ部署は引数なしの dispatch が会話を戻さずに畳む。終了の値を返す。受付 29b389。"""
+    held = wake.pending(dept["attrs"])
+    if not held:
+        print("\n".join(notes + [f"{where} の順番待ちは空で、部署の窓に会話は居ないが、受けた頼みは納品済みなので戻さない"
+                                 "（次の --ask が attach で戻してから頼む）"]))
+        return 0
+    if a.dry_run:
+        print("\n".join(notes + [f"{where} の窓に会話が居ない。受付 {held} をまだ納品していないので、attach で戻して納品を促す 1 行を打つ"]))
+        return 0
+    pane, said = revive(dept, accounts_, ports, sessions_, source)
+    notes.append(said)
+    if pane is None:
+        deliver.log(dest_inbox, {"id": held, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": None,
+                                 "why": "窓に会話が居ない", "status": "failed", "detail": said})
+        print("\n".join(notes + [f"止めた: {where} の窓に会話が居ないが、戻せなかった"]))
+        return 1
+    status, detail = deliver.send_confirmed(pane, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.term, ports.pause,
+                                            busy_check(dept, accounts_, ports))
+    deliver.log(dest_inbox, {"id": held, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane,
+                             "why": "窓に会話が居ない", "status": "failed" if status == "failed" else "revived",
+                             "detail": f"{said}。納品を促した（{status}）"})
+    print("\n".join(notes + [f"{where} の窓に会話が居なかったので戻し、受付 {held} の納品を促した（{status}"
+                             + (f"。{detail}" if detail else "") + "）"]))
+    return 0 if status != "failed" else 1
 
 
 def _queue_inbox(item):
