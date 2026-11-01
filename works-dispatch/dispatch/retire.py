@@ -74,8 +74,8 @@ def retire(a, ports, cwd, rows, reasons):
         return code
 
     def gone():
-        print("\n".join(notes + [f"部署 {where} はもう無い（作業場 {path} が消えている。同じ部署を畳むほかの回が先に畳んだ。"
-                                  "台帳の retired の行に残る）"]))
+        print("\n".join(notes + [f"部署 {where} はもう無い（作業場 {path} が消えている。同じ部署を畳むほかの回が先に畳んだか、"
+                                  "手で消した。ほかの回が畳んだなら、台帳の retired の行に残る）"]))
         return 0
 
     # 会話の id。長い id（company.session）が無い部署は短い id（company.job）で見分ける（clean.departments）
