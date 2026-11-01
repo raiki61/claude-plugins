@@ -324,6 +324,50 @@ class Retire(unittest.TestCase):
         self.assertEqual(self.stopped, ["d"])
         self.assertFalse(os.path.exists(self.place))
 
+    def squash_into_another_branch(self):
+        """積み重ねた PR が squash でほかのブランチ（feat/x）に入り、head のブランチも手元の控えも消えた形（2026-11-01、guided-resolver の
+        #2280。受付 bc8c0b）。部署の先頭はどのブランチの祖先にもならず、GitHub だけが PR #2280 のマージ先を知っている。先頭を返す。"""
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        head = self.g.commit(self.place, {}, "y")
+        self.g.push(self.place, head, "dept/a")
+        self.g.origin["feat/x"] = self.g._new(self.g.origin["main"], {}, "squashed")   # squash の commit は部署の先頭を持たない
+        del self.g.origin["dept/a"], self.g.tracking["dept/a"]
+        self.g.url = "https://github.com/o/r.git"
+        self.ports.gh.merged_into[head] = [(2280, "feat/x")]
+        return head
+
+    def test_retire_folds_a_department_squashed_into_another_branch(self):
+        head = self.squash_into_another_branch()
+        merged_into = self.ports.gh.merged_into.pop(head)
+        rc, out = self.main(self.src, "--retire", "調べ")   # GitHub がマージを知らなければ、前と同じく手元の作業として残す
+        self.assertEqual(rc, 2, out)
+        self.assertIn("手元にしか無い commit か stash が有る", out)
+        self.ports.gh.merged_into[head] = merged_into
+        provision.mark(self.place, self.src, {wake.RETIRE_KEPT: None}, self.g)   # 残した訳が --clean の行に先に出る
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("部署の先頭は origin の feat/x に入っている（main へはまだ）。入れずに畳むなら --retire 調べ（push は要らない）", out)
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署の先頭は origin の feat/x に入っている（メインブランチへはまだ）", out)
+        self.assertFalse(os.path.exists(self.place))
+
+    def test_retire_of_a_department_another_run_already_folded_ends_quietly(self):
+        # 同じ部署を畳む回が 2 つ重なり、先の回が作業場を消した後に、後の回が順番待ちを読む（2026-10-30、guided-resolver の
+        # 「不具合のissue起こし」の裏の --retire が git_dir の None で落ちた。受付 bc8c0b）
+        rows, calls = dispatch._department_rows, []
+
+        def then_gone(*args):   # 止める前と止めた後の見立て（2 回）を読んだ後に、先の回が作業場を消す
+            got = rows(*args)
+            calls.append(1)
+            if len(calls) == 2:
+                self.g.remove_worktree(self.place)
+            return got
+        with mock.patch.object(dispatch, "_department_rows", then_gone):
+            rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署 src/調べ はもう無い（作業場", out)
+        self.assertEqual(self.retired(), [])   # 先の回が台帳に書く。後の回は書かない
+
     def test_retire_names_main_last_when_the_local_copy_of_main_is_stale(self):
         # 手元の origin/main の控えが古いと、main に入った部署も入れ損ねに見える。ほかのブランチに在ればそれを出し、main にだけ在れば
         # 「控えが古い」と出す（main へはまだ、と事実と違う文を出さない）
@@ -735,6 +779,35 @@ class FoldFromListing(unittest.TestCase):
         self.ports.gh.merged_pr_of = lambda repo, sha, base, env=None: 7
         rc, out = self.main(self.src)
         self.assertIn("会話を再開させずに畳んだ", out)
+
+    def test_a_department_squashed_into_another_branch_is_folded(self):
+        # 積み重ねた PR がほかの部署のブランチへ squash で入った部署（main には入らない。受付 bc8c0b）
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+        head = Retire.squash_into_another_branch(self)
+        rc, out = self.main(self.src)
+        self.assertIn("部署「調べ」（受付 q1）: 納品済みで PR #2280 が feat/x にマージされ、納品の後に人の文が無いので、会話を再開させずに畳んだ",
+                      out)
+        self.assertFalse(os.path.exists(self.place))
+        del head
+
+    def test_a_squashed_department_the_owner_talked_to_is_named_not_signaled(self):
+        # 部署の --done は main に入っていないブランチを断るので、合図は送らずに --retire を示す
+        self.transcript(self.user("human", "1970-01-01T00:30:00Z"))
+        Retire.squash_into_another_branch(self)
+        rc, out = self.main(self.src)
+        self.assertIn("納品済みで PR #2280 が feat/x にマージされたが、納品の後に人がこの会話に打ったので畳まない（畳むなら --retire '調べ'）",
+                      out)
+        self.assertTrue(os.path.exists(self.place))
+        self.assertEqual(self.said(), [])
+
+    def test_an_unlanded_department_without_a_merged_pr_says_nothing(self):
+        # PR のレビューか --land を待つ部署（PR で入れる会社のふつうの形）。回ごとに行を出さない
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+        head = Retire.squash_into_another_branch(self)
+        del self.ports.gh.merged_into[head]
+        rc, out = self.main(self.src)
+        self.assertNotIn("部署「調べ」", out)
+        self.assertTrue(os.path.exists(self.place))
 
     def test_already_signaled_department_is_folded_once_the_transcript_says_nobody_typed(self):
         self.transcript(self.user("human", "1970-01-01T00:10:00Z"))

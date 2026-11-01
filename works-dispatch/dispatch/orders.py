@@ -1972,6 +1972,21 @@ def landed(cwd, main, attrs, g=gitx, gh=ghx):
         return False
 
 
+def merged_into(cwd, attrs, g=gitx, gh=ghx):
+    """部署のブランチの先頭の commit を含み、GitHub でマージ済みの PR の (番号, マージ先のブランチ) の並び。メインブランチ以外へのマージ
+    （ほかの部署のブランチへ積み重ねた PR）も含む。squash で入ると先頭はどのブランチの祖先にもならず、マージの後に head のブランチも
+    消えるので、成果の在りかはここでしか分からない（2026-11-01、guided-resolver の #2280。受付 bc8c0b）。gh に問う鍵は landed と同じ。
+    origin が GitHub でない・gh で読めないときは空（消さない側に倒す）。"""
+    repo, sha = g.origin_repo(cwd), g.head_sha(cwd)
+    if not repo or not sha or gh is None:
+        return []
+    try:
+        env = gh.env_for(attrs["gh-user"], dict(os.environ)) if attrs.get("gh-user") else None
+        return gh.merged_prs_of(repo, sha, env=env)
+    except (gh.GhError, OSError):
+        return []
+
+
 def leftover(cwd, attrs, g=gitx, gh=ghx):
     """受けた頼みを納品し終えた部署が、ターンを終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
     受付の並び）・handed（ブランチがメインブランチに入っていないが、この部署が今の頼みを受けてから出した頼みの答えがまだ出ていない

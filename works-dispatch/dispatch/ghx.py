@@ -69,6 +69,14 @@ def merged_pr_of(repo, sha, base, runner=_default_runner, env=None):
     """commit sha を含み、base のブランチにマージ済みの、このリポジトリの PR の番号。無ければ None。読めなければ GhError。
     GitHub の「commit に結び付く PR」（GET /repos/{owner}/{repo}/commits/{sha}/pulls）を読む。squash でマージした PR の元の commit も、
     束ねた別の PR（その commit を含むブランチを head にした PR）でマージした commit も、その PR を返す。"""
+    return next((n for n, b in merged_prs_of(repo, sha, runner, env) if b == base), None)
+
+
+def merged_prs_of(repo, sha, runner=_default_runner, env=None):
+    """commit sha を含み、どれかのブランチにマージ済みの、このリポジトリの PR の (番号, マージ先のブランチ) の並び。読めなければ GhError。
+    読む所は merged_pr_of と同じ。ほかの部署のブランチへ squash でマージした PR（積み重ねた PR）の commit は、どのブランチの祖先にも
+    ならないので、マージ先をここで知る（2026-11-01、guided-resolver の #2280 が feat/llm-provider-switch に squash で入り、--retire と
+    引数なしの dispatch が部署を畳めなかった。受付 bc8c0b）。"""
     p = runner(["gh", "api", f"repos/{repo}/commits/{sha}/pulls"], env=env)
     try:
         got = json.loads(p.stdout) if p.returncode == 0 else None
@@ -76,8 +84,8 @@ def merged_pr_of(repo, sha, base, runner=_default_runner, env=None):
         got = None
     if not isinstance(got, list):
         raise GhError(f"{repo} の commit {sha[:12]} の PR を読めない: {(p.stderr or p.stdout).strip()[:200]}")
-    return next((x.get("number") for x in got if isinstance(x, dict) and x.get("merged_at")
-                 and (x.get("base") or {}).get("ref") == base), None)
+    return [(x.get("number"), x["base"]["ref"]) for x in got if isinstance(x, dict) and x.get("merged_at")
+            and isinstance(x.get("base"), dict) and x["base"].get("ref")]
 
 
 def can_read(repo, runner=_default_runner, env=None):

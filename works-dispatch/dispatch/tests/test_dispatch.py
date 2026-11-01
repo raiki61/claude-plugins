@@ -332,12 +332,17 @@ class FakeGh:
         self.ports = ports
         self.developed = []
         self.merged = {}   # commit → マージ済みの PR
+        self.merged_into = {}   # commit → main 以外へマージ済みの PR の (番号, マージ先) の並び（merged_prs_of が答える）
 
     def env_for(self, user, base_env):
         return {**base_env, "GH_TOKEN": f"token-of-{user}"}
 
     def merged_pr_of(self, repo, sha, base, env=None):
         return self.merged.get(sha)
+
+    def merged_prs_of(self, repo, sha, env=None):
+        """ほかのブランチへのマージも含む (番号, マージ先) の並び。既定は merged の物（main へのマージ）と、merged_into の物。"""
+        return ([(self.merged[sha], "main")] if sha in self.merged else []) + list(self.merged_into.get(sha, []))
 
     def issue_develop(self, repo, number, base, env=None):
         self.developed.append((repo, number, base))

@@ -1066,17 +1066,33 @@ def _fold_one(a, repo, ports, p, names, listed, dirs):
         got = orders.leftover(path, attrs, ports.git, ports.gh)
     except (gitx.GitError, ghx.GhError, OSError) as e:
         return f"部署「{names.get(p.get('branch'), path)}」: 終わりの印が要るかを読めないので触らない（{e}）"
-    if got is None or got[0] != "finish":
+    if got is None or got[0] not in ("finish", "unlanded"):
         return None
+    landed_at, landed_and, into = "main に入った", "main に入り", None
+    if got[0] == "unlanded":
+        # ほかの部署のブランチへ積み重ねた PR が squash で入った部署は、先頭がどのブランチの祖先にもならず、メインブランチにも入らない
+        # （2026-11-01、guided-resolver の #2280。受付 bc8c0b）。PR のマージ先が origin に在れば成果はそこに残るので、main に入った
+        # 部署と同じに扱う。マージ済みの PR の無い部署は、PR のレビューか --land を待つので何も出さない
+        merged = orders.merged_into(path, attrs, ports.git, ports.gh)
+        if not merged:
+            return None
+        try:
+            heads = ports.git.remote_heads(path)
+        except gitx.GitError as e:
+            return f"部署「{names.get(p.get('branch'), path)}」: origin のブランチを読めないので触らない（{e}）"
+        into = next(((n, b) for n, b in merged if b in heads), None)
+        if into is None:
+            return None
+        landed_at, landed_and = f"PR #{into[0]} が {into[1]} にマージされた", f"PR #{into[0]} が {into[1]} にマージされ"
     name, ask = attrs.get("name") or p["branch"], attrs["ask"]
     where = f"部署「{name}」（受付 {ask}）"
     mine = _at(listed, path)
     other = [s.get("sessionId") or "?" for s in mine if not attrs.get("session") or s.get("sessionId") != attrs["session"]]
-    # leftover が finish なのでブランチは main に入っている。マージの後に head のブランチが消えた PR の commit を手元の作業と数えない
+    # ブランチは main か、マージ済みの PR のマージ先に入っている。マージの後に head のブランチが消えた PR の commit を手元の作業と数えない
     why = (_department_busy(ports, path, mine, landed=lambda: True) or _typing(ports, p.get("workspace"))
            or (other and f"同じ場所に部署の会話のほかの会話（{', '.join(other)}）が開いている"))
     if why:
-        return f"{where}: 納品済みで main に入ったが、{why}ので今回は畳まない"
+        return f"{where}: 納品済みで {landed_at}が、{why}ので今回は畳まない"
     talked = None
     if attrs.get("session") and dirs.get(attrs.get("account")):
         since = orders.delivered_at([deliver.inbox_of(ports.git.common_dir(path)), attrs.get("boss-inbox")], ask, path)
@@ -1086,13 +1102,13 @@ def _fold_one(a, repo, ports, p, names, listed, dirs):
     if talked is False:
         if attrs.get(orders.FOLD_TRIED) == ask:
             # 前の回に --retire の手が断った（訳は --clean の一覧と台帳の retired の行）。回ごとに台帳へ同じ行を足さない
-            return f"{where}: 納品済みで main に入ったが、前の回に畳もうとして残した（訳は --clean の一覧）。畳むなら --retire '{name}'"
+            return f"{where}: 納品済みで {landed_at}が、前の回に畳もうとして残した（訳は --clean の一覧）。畳むなら --retire '{name}'"
         if a.dry_run:
-            return f"{where}: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳む（--retire と同じ手）"
+            return f"{where}: 納品済みで {landed_and}、納品の後に人の文が無いので、会話を再開させずに畳む（--retire と同じ手）"
         rc, said = _quiet(retire.retire, argparse.Namespace(**{**vars(a), "retire": name}), ports, repo.source,
                           _department_rows, DEPT_REASONS)
         if rc == 0:
-            return f"{where}: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳んだ"
+            return f"{where}: 納品済みで {landed_and}、納品の後に人の文が無いので、会話を再開させずに畳んだ"
         try:
             if os.path.isdir(path):
                 provision.mark(path, repo.source, {orders.FOLD_TRIED: ask}, ports.git)
@@ -1100,19 +1116,22 @@ def _fold_one(a, repo, ports, p, names, listed, dirs):
             said += f"。試した印を書けなかったので、次の回にまた試す（{e}）"
         return f"{where}: 会話を再開させずに畳もうとしたが残した（{said}）"
     reason = "納品の後に人がこの会話に打った" if talked else "納品の後に人が打ったかを会話の記録から見分けられない"
+    if into:
+        # 部署の --done はメインブランチに入っていないブランチを断るので、合図を送っても部署は印を打てない
+        return f"{where}: 納品済みで {landed_at}が、{reason}ので畳まない（畳むなら --retire '{name}'）"
     if attrs.get(orders.FOLD_TOLD) == ask:
-        return f"{where}: 納品済みで main に入ったが、{reason}。畳んでよいかの合図は送り済みで、部署の --done を待つ（畳むなら --retire '{name}'）"
+        return f"{where}: 納品済みで {landed_at}が、{reason}。畳んでよいかの合図は送り済みで、部署の --done を待つ（畳むなら --retire '{name}'）"
     if a.dry_run:
-        return f"{where}: 納品済みで main に入ったが、{reason}ので、畳んでよいかの合図を 1 行送る（印を打つかは部署が決める）"
+        return f"{where}: 納品済みで {landed_at}が、{reason}ので、畳んでよいかの合図を 1 行送る（印を打つかは部署が決める）"
     rc, said = _quiet(orders.say, argparse.Namespace(**{**vars(a), "say": name, "text": orders.fold_line(ask), "brief": None,
                                                         "from_name": "dispatch"}), ports, repo.source)
     if rc != 0:
-        return f"{where}: 納品済みで main に入ったが、{reason}。畳んでよいかの合図を送れなかった（{said}）"
+        return f"{where}: 納品済みで {landed_at}が、{reason}。畳んでよいかの合図を送れなかった（{said}）"
     try:
         provision.mark(path, repo.source, {orders.FOLD_TOLD: ask}, ports.git)
     except (gitx.GitError, OSError) as e:
         said += f"。送った印を書けなかったので、次の回にまた送る（{e}）"
-    return f"{where}: 納品済みで main に入ったが、{reason}ので、畳んでよいかの合図を送った（{said}）"
+    return f"{where}: 納品済みで {landed_at}が、{reason}ので、畳んでよいかの合図を送った（{said}）"
 
 
 def _quiet(run, *args):
@@ -2029,15 +2048,24 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
         common, place = ports.git.common_dir(path), ports.git.git_dir(path)
         return bool(common and place and wake.queued(deliver.inbox_of(common), place))
 
-    merged = {}
+    merged, into = {}, {}
 
     def landed(path):   # gh に問うことがあるので、部署の場所ごとに 1 度だけ
         if path not in merged:
             merged[path] = orders.landed(path, main, ports.attrs(path), ports.git, ports.gh)
         return merged[path]
 
+    def kept_on_github(path):
+        # マージ済みの PR に入った commit は GitHub に残る。メインブランチでなく、ほかの部署のブランチへ squash で入った PR も
+        # 同じ（その先は not_merged として --retire が origin のマージ先を確かめる。受付 bc8c0b）
+        if landed(path):
+            return True
+        if path not in into:
+            into[path] = bool(orders.merged_into(path, ports.attrs(path), ports.git, ports.gh))
+        return into[path]
+
     return clean.departments(found, ports.attrs, session_of, ports.is_clean,
-                             lambda path: ports.unpushed(path, landed=lambda: landed(path)), landed, ports.head_sha,
+                             lambda path: ports.unpushed(path, landed=lambda: kept_on_github(path)), landed, ports.head_sha,
                              source=repo.source, queued=queued)
 
 
@@ -2066,7 +2094,8 @@ def _running_note(d, attrs, ports):
     if got[0] == "unlanded":
         try:
             # 入れ先のブランチの先頭は GitHub が作った commit（マージの commit など）で手元に無いことがあるので、取ってから比べる
-            parked = retire.parked_on(d["path"], d["pr_head"], d["branch"], ports.git, fetch=True)
+            parked = retire.parked_on(d["path"], d["pr_head"], d["branch"], ports.git, fetch=True,
+                                      merged=orders.merged_into(d["path"], attrs, ports.git, ports.gh))
         except gitx.GitError:
             parked = None   # origin を読めなければ、入れ損ねの訳のまま出す
         if parked == got[1]:

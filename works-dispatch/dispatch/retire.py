@@ -73,6 +73,11 @@ def retire(a, ports, cwd, rows, reasons):
         print("\n".join(notes + [f"部署 {where} は残した（{why}）"]))
         return code
 
+    def gone():
+        print("\n".join(notes + [f"部署 {where} はもう無い（作業場 {path} が消えている。同じ部署を畳むほかの回が先に畳んだ。"
+                                  "台帳の retired の行に残る）"]))
+        return 0
+
     # 会話の id。長い id（company.session）が無い部署は短い id（company.job）で見分ける（clean.departments）
     talk = [attrs.get("session") or attrs.get("job")] if attrs.get("session") or attrs.get("job") else []
     try:
@@ -80,18 +85,32 @@ def retire(a, ports, cwd, rows, reasons):
     except term.Error as e:
         return kept(f"worktree を読めない: {e}")
     ask = attrs.get("ask")
+    if (r is None or before is None) and not os.path.isdir(path):
+        return gone()
     if r is None or before is None:
         return kept("片付けの候補にならない（会話の属性 company.session も company.job も無いか、会話の一覧を読めない）", 2)
     if ask and attrs.get("delivered") != ask:
         return kept(f"納品していない頼み（受付 {ask}）が在る", 2)
     parked = None   # 入れずに origin に残したブランチ（メインブランチに入っていないが、origin に同じ先頭が在る）
+    merged = []   # 先頭を含むマージ済みの PR（orders.merged_into。ほかの部署のブランチへ squash で入った部署の成果の在りか）
     if before["reason"] == "not_merged":
-        parked, why = on_origin(before, ports.git)
+        merged = orders.merged_into(path, attrs, ports.git, ports.gh)
+        parked, why = on_origin(before, ports.git, merged)
         if not parked:
             return kept(why, 2)
     elif not before["removable"]:
         return kept(reasons[before["reason"]], 2)
-    if wake.queued(inbox, ports.git.git_dir(path)):
+
+    def queued():
+        """順番待ちに頼みが在るか。作業場がもう無ければ None（同じ部署を畳む回が 2 つ重なり、先の回が消した。2026-10-30 に
+        guided-resolver で、--done の後の裏の --retire が git_dir の None で落ちた。受付 bc8c0b）。"""
+        place = ports.git.git_dir(path)
+        return None if place is None and not os.path.isdir(path) else bool(wake.queued(inbox, place or path))
+
+    waiting = queued()
+    if waiting is None:
+        return gone()
+    if waiting:
         return kept("順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む）", 2)
     if r["reason"] == "running":
         for pane in dept["panes"]:
@@ -118,7 +137,10 @@ def retire(a, ports, cwd, rows, reasons):
             ports.pause()
         if r is None:
             return kept("会話を止めた後、片付けの候補に見えない")
-        if wake.queued(inbox, ports.git.git_dir(path)):
+        waiting = queued()
+        if waiting is None:
+            return gone()
+        if waiting:
             return kept("会話を止めたが、止める間に順番待ちに頼みが積まれた（部署の会話を起動し直すまで渡らない。--tree の部署の行に件数が出る）")
         same = r["pr_head"] == before["pr_head"] and r["branch"] == before["branch"]
         if not r["removable"] and not (parked and r["reason"] == "not_merged" and same):
@@ -127,7 +149,7 @@ def retire(a, ports, cwd, rows, reasons):
         parked = None   # 止める間にメインブランチに入った
     elif parked:
         # 止めるのを待つ間に origin のブランチが書き換わっていないかを、消す直前に問い直す（手元の控えとの比べでは分からない）
-        parked, why = on_origin(r, ports.git)
+        parked, why = on_origin(r, ports.git, merged)
         if not parked:
             return kept(f"会話を止めたが、{why}")
     main = _main_of(path, ports.git) if parked else None   # 片付けで作業場が消えると、そこでは問えない
@@ -145,12 +167,12 @@ def retire(a, ports, cwd, rows, reasons):
     return 0
 
 
-def on_origin(row, g):
-    """メインブランチに入っていない部署の行（reason が not_merged）の先頭が、origin のどれかのブランチに在るか（parked_on）。
-    (ブランチ, None) か (None, 残す訳)。手元の origin/* の控えは古いことがあるので、origin に問い合わせる。"""
+def on_origin(row, g, merged=()):
+    """メインブランチに入っていない部署の行（reason が not_merged）の先頭が、origin のどれかのブランチに在るか（parked_on。merged は
+    orders.merged_into の並び）。(ブランチ, None) か (None, 残す訳)。手元の origin/* の控えは古いことがあるので、origin に問い合わせる。"""
     branch = row["branch"]
     try:
-        there = parked_on(row["path"], row["pr_head"], branch, g, fetch=True)
+        there = parked_on(row["path"], row["pr_head"], branch, g, fetch=True, merged=merged)
     except gitx.GitError as e:
         return None, f"ブランチがメインブランチに入っておらず、origin のブランチを読めない（{e}）"
     if there:
@@ -166,12 +188,14 @@ def _main_of(path, g):
         return None
 
 
-def parked_on(path, sha, branch, g, fetch=False):
+def parked_on(path, sha, branch, g, fetch=False, merged=()):
     """部署の先頭 sha を持つ origin のブランチ（先頭か、その祖先に sha が在る）。部署のブランチ branch が同じ先頭で在れば、それを先に
     返す。ほかはブランチの名前の順で、メインブランチは最後。無ければ None。origin を読めなければ GitError。fetch なら、手元に無い先頭を取ってから比べる（書く口）。
     部署の PR が main でなくほかの部署のブランチに入り（積み重ねた PR）、GitHub が head のブランチを消しても、成果はそのブランチに
     残る（2026-10-29、guided-resolver の #2240 が feat/design-doc-writing-form に入り、--retire が push を求めた。受付 5f175e）。
-    squash で入った形（sha がどこからも辿れない）は見つからない。"""
+    squash で入った形（sha がどこからも辿れない）は、merged（orders.merged_into の (PR の番号, マージ先のブランチ) の並び）のマージ先が
+    origin に在れば、そのブランチを返す（2026-11-01、guided-resolver の #2280 が feat/llm-provider-switch に squash で入り、
+    --retire が push を求めた。受付 bc8c0b）。"""
     heads = g.remote_heads(path)
     if not sha:
         return None
@@ -182,5 +206,6 @@ def parked_on(path, sha, branch, g, fetch=False):
         if missing:
             g.fetch_heads(path, missing)
     main = g.default_branch(path)   # メインブランチは最後に見る（手元の origin/main の控えが古いと、入った部署もここへ来る）
-    return next((b for b in sorted(heads, key=lambda b: (b == main, b))
-                 if g.rev(path, heads[b]) and g.is_ancestor(path, sha, heads[b])), None)
+    return (next((b for b in sorted(heads, key=lambda b: (b == main, b))
+                  if g.rev(path, heads[b]) and g.is_ancestor(path, sha, heads[b])), None)
+            or next((base for _, base in merged if base in heads), None))
