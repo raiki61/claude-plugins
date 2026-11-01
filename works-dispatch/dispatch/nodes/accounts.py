@@ -141,7 +141,8 @@ def rank(accounts, limits, limit_percent, now, running=None, margin_minutes=conf
     eligible_at は、選べないアカウントがまた選べるようになる時刻（上限に達した枠の切り替わりと、使える時間帯の始まりの遅い方。
     分からなければ None。名指しのときだけ使うアカウントは自動では選べるようにならないので None）。
     named_only は設定の named_only。named_ok は、名指せば使える（named_only で、上限にも時間帯にも外れていない）か。
-    absent は、控えが新しい（known）のに null だった枠の名の並び（5 時間の枠の無いアカウントなら ["five_hour"]）。known でなければ空。"""
+    absent は、控えが新しい（known）のに null だった枠の名の並び（5 時間の枠の無いアカウントなら ["five_hour"]）。known でないときと、
+    どの枠も null のとき（枠の無いアカウントの形でなく、読めなかった控え）は空。"""
     running = running or {}
     rows = []
     for i, a in enumerate(accounts):
@@ -163,7 +164,7 @@ def rank(accounts, limits, limit_percent, now, running=None, margin_minutes=conf
             "seven_day": w["seven_day"],
             "five_hour": w["five_hour"],
             "known": known,
-            "absent": [k for k in WINDOWS if known and raw.get(k) is None],
+            "absent": [k for k in WINDOWS if known and raw.get(k) is None and any(isinstance(raw.get(j), dict) for j in WINDOWS)],
             "stale": old,
             "stale_over": any(u is not None and u >= limit_percent for u in last),
             "eligible": not why_not and not named_only,

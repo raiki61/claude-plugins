@@ -272,6 +272,11 @@ class NoFiveHourWindow(unittest.TestCase):
         self.assertEqual(row["absent"], [])
         self.assertIn("使用率が分からない（控えが", accounts.why(row, NOW))
 
+    def test_a_snapshot_with_no_window_at_all_is_not_called_week_only(self):
+        row = by(accounts.rank(ACCTS, {"p1": {"five_hour": None, "seven_day": None}}, 95, NOW), "p1")
+        self.assertEqual(row["absent"], [])
+        self.assertIn(accounts._pct(None), accounts.why(row, NOW))
+
     def test_moving_early_looks_at_the_week_alone(self):
         lim = self.lim()
         lim["p2"]["seven_day"] = {"used_percentage": 92, "resets_at": 1792119600}
