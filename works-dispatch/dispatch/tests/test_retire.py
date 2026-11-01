@@ -8,7 +8,10 @@ import shutil
 import tempfile
 import unittest
 
+from unittest import mock
+
 from . import test_deliver
+import dispatch
 import ghx
 import gitx
 import orders
@@ -615,6 +618,203 @@ class RetireStaleMain(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("部署の先頭は origin の main に入っている（手元の控えが古かった）", out)
         self.assertFalse(os.path.exists(self.place))
+
+
+class FoldFromListing(unittest.TestCase):
+    """引数なしの dispatch（一覧の回）が、納品し終えてブランチが main に入ったのに終わりの印の無い部署を、会話を再開させずに畳むか、
+    合図を 1 行送る（dispatch._fold_departments。受付 0d6927）。場は Retire の物（部署「調べ」。commit の無いブランチは main に入っている）。"""
+
+    main = Retire.main
+
+    def setUp(self):
+        Retire.setUp(self)
+        self.state = "idle"
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "status": "idle",
+             "state": self.state}]
+        self.ports.term.screen = "─" * 20 + "\n❯\n" + "─" * 20   # 部署の窓の attach の画面の、空の入力フィールド
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "q1", "status": "sent", "at": 1000,
+                                 "from": {"name": "調べ", "place": os.path.join(self.place, "sub")}})
+        self.talks = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.talks, True)
+        patcher = mock.patch.object(dispatch.chat, "talk_dir", lambda cdir, cwd, env=None: self.talks)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def transcript(self, *rows):
+        with open(os.path.join(self.talks, "s-dept.jsonl"), "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+
+    def said(self):
+        """部署に渡す知らせの行（宛先が字の kind say。--say は記録の行も同じ台帳に足す）。"""
+        return [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), str)]
+
+    @staticmethod
+    def user(kind, at):
+        return {"type": "user", "timestamp": at, "origin": {"kind": kind}, "message": {"role": "user", "content": "x"}}
+
+    def test_a_department_nobody_typed_to_after_delivering_is_folded_without_waking_it(self):
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"),            # 納品（at 1000）より前に人が打った
+                        self.user("task-notification", "1970-01-01T00:30:00Z"))  # 納品の後は待ち受けの知らせだけ
+        rc, out = self.main(self.src)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署「調べ」（受付 q1）: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳んだ", out)
+        self.assertFalse(os.path.exists(self.place))
+        self.assertEqual(self.said(), [])
+        self.assertEqual([w for w in self.ports.term.writes if w[0] == "prompt"], [])   # 会話に字を送らない
+
+    def test_dry_run_names_the_fold_and_touches_nothing(self):
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+        rc, out = self.main(self.src, "--dry-run")
+        self.assertIn("会話を再開させずに畳む（--retire と同じ手）", out)
+        self.assertTrue(os.path.exists(self.place))
+
+    def test_a_department_the_owner_typed_to_after_delivering_gets_one_short_signal_once(self):
+        self.transcript(self.user("human", "1970-01-01T00:30:00Z"))
+        rc, out = self.main(self.src)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("納品の後に人がこの会話に打ったので、畳んでよいかの合図を送った", out)
+        self.assertTrue(os.path.exists(self.place))
+        said = self.said()
+        self.assertEqual(len(said), 1)
+        self.assertIn(f": {orders.fold_line('q1')} ", said[0]["text"])   # 本文を指すファイルでなく、1 行に本文ごと載る
+        self.assertEqual(self.g.worktree_attrs(self.place)[orders.FOLD_TOLD], "q1")
+        rc, out = self.main(self.src)   # 次の回は 2 度送らない
+        self.assertIn("合図は送り済みで、部署の --done を待つ（畳むなら --retire '調べ'）", out)
+        self.assertEqual(len(self.said()), 1)
+
+    def test_a_transcript_without_origin_or_missing_is_signaled_not_folded(self):
+        for case in ("no_origin", "missing"):
+            with self.subTest(case):
+                self.setUp()
+                if case == "no_origin":
+                    self.transcript({"type": "user", "timestamp": "1970-01-01T00:30:00Z", "message": {"role": "user", "content": "x"}})
+                rc, out = self.main(self.src)
+                self.assertIn("納品の後に人が打ったかを会話の記録から見分けられないので、畳んでよいかの合図を送った", out)
+                self.assertTrue(os.path.exists(self.place))
+
+    def test_departments_with_work_left_are_neither_folded_nor_signaled(self):
+        for case, why in (("busy", "会話が作業中か返事待ち"), ("dirty", "未コミットの変更が有る"),
+                          ("typing", "の入力フィールドに打ちかけの字が在る"), ("no_box", "の入力フィールドが見えない"),
+                          ("other_talk", "同じ場所に部署の会話のほかの会話（s-mine）が開いている"), ("not_finished", None)):
+            with self.subTest(case):
+                self.setUp()
+                self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+                if case == "busy":
+                    self.ports.list_sessions = lambda cdir, include_done=False: [
+                        {"id": "d", "sessionId": "s-dept", "cwd": self.place, "kind": "background", "status": "busy"}]
+                if case == "dirty":
+                    self.g.dirty.add(self.place)
+                if case == "typing":
+                    self.ports.term.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
+                if case == "no_box":   # 確かめの画面などで入力フィールドが出ていない。打ちかけが無いと言い切れない
+                    self.ports.term.screen = "Do you want to proceed?\n❯ 1. Yes"
+                if case == "other_talk":
+                    self.ports.list_sessions = lambda cdir, include_done=False: [
+                        {"id": "d", "sessionId": "s-dept", "cwd": self.place, "kind": "background", "status": "idle"},
+                        {"sessionId": "s-mine", "cwd": self.place, "kind": "interactive", "status": "idle"}]
+                if case == "not_finished":
+                    provision.mark(self.place, self.src, {wake.FINISHED: "s-dept"}, self.g)
+                rc, out = self.main(self.src)
+                self.assertTrue(os.path.exists(self.place), out)
+                self.assertEqual(self.said(), [])
+                if why:
+                    self.assertIn(f"部署「調べ」（受付 q1）: 納品済みで main に入ったが、", out)
+                    self.assertIn(f"{why}ので今回は畳まない", out)
+                else:
+                    self.assertNotIn("部署「調べ」（受付 q1）", out)
+
+    def test_a_squash_merged_department_whose_branch_is_gone_from_origin_is_still_folded(self):
+        # マージの後に head のブランチが消え、手元の commit が remote のどのブランチにも無い形（--done と同じく手元の作業と数えない）
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+        self.g.commit(self.place, {"note.txt": "x"}, "note")
+        self.assertTrue(self.g.unpushed(self.place))
+        self.ports.gh.merged_pr_of = lambda repo, sha, base, env=None: 7
+        rc, out = self.main(self.src)
+        self.assertIn("会話を再開させずに畳んだ", out)
+
+    def test_already_signaled_department_is_folded_once_the_transcript_says_nobody_typed(self):
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+        provision.mark(self.place, self.src, {orders.FOLD_TOLD: "q1"}, self.g)
+        rc, out = self.main(self.src)
+        self.assertIn("会話を再開させずに畳んだ", out)
+
+    def test_a_refused_retire_is_tried_once_per_ask(self):
+        self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
+        calls = []
+
+        def refuse(*args):
+            calls.append(args)
+            print("部署 co/調べ は残した（訳）")
+            return 2
+        with mock.patch.object(retire, "retire", refuse):
+            rc, out = self.main(self.src)
+            self.assertIn("部署「調べ」（受付 q1）: 会話を再開させずに畳もうとしたが残した（部署 co/調べ は残した（訳））", out)
+            self.assertEqual(self.g.worktree_attrs(self.place)[orders.FOLD_TRIED], "q1")
+            rc, out = self.main(self.src)
+            self.assertIn("前の回に畳もうとして残した（訳は --clean の一覧）。畳むなら --retire '調べ'", out)
+        self.assertEqual(len(calls), 1)
+
+    def test_a_failed_signal_is_not_marked_and_errors_do_not_stop_the_listing(self):
+        self.transcript(self.user("human", "1970-01-01T00:30:00Z"))
+        with mock.patch.object(orders, "say", lambda *args: print("止めた: 訳") or 1):
+            rc, out = self.main(self.src)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("畳んでよいかの合図を送れなかった（止めた: 訳）", out)
+        self.assertNotIn(orders.FOLD_TOLD, self.g.worktree_attrs(self.place))
+
+        def broken(*args):
+            raise OSError("書けない")
+        with mock.patch.object(orders, "say", broken):
+            rc, out = self.main(self.src)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署「調べ」: 畳むかを決める途中で止めた。触っていない所は残した（書けない）", out)
+
+
+class DeliveredAndTalked(unittest.TestCase):
+    """orders.delivered_at と orders.talked_since（引数なしの dispatch が、部署の会話を再開させずに畳めるかを決める材料）。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.inbox = os.path.join(self.dir, "inbox")
+        os.makedirs(self.inbox)
+
+    def test_delivered_at_takes_the_first_delivery_of_the_ask_from_the_place(self):
+        place = os.path.join(self.dir, "dept")
+        for r in ({"kind": "deliver", "ask": "q1", "at": 30, "from": {"place": place}},             # --again の分
+                  {"kind": "deliver", "ask": "q1", "at": 20, "from": {"place": os.path.join(place, "sub")}},
+                  {"kind": "deliver", "ask": "q1", "at": 5, "from": {"place": os.path.join(self.dir, "other")}},  # ほかの部署
+                  {"kind": "deliver", "ask": "q2", "at": 1, "from": {"place": place}},             # ほかの頼み
+                  {"kind": "ask", "id": "q1", "at": 2, "from": {"place": place}}):
+            deliver.log(self.inbox, r)
+        self.assertEqual(orders.delivered_at([None, self.inbox, os.path.join(self.dir, "none")], "q1", place), 20)
+        self.assertIsNone(orders.delivered_at([self.inbox], "q9", place))
+
+    def test_talked_since_reads_only_human_rows_after_the_time(self):
+        path = os.path.join(self.dir, "t.jsonl")
+
+        def write(*rows):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(r if isinstance(r, str) else json.dumps(r) for r in rows) + "\n")
+        human = {"type": "user", "timestamp": "1970-01-01T00:00:50Z", "origin": {"kind": "human"}}
+        note = {"type": "user", "timestamp": "1970-01-01T00:01:40Z", "origin": {"kind": "task-notification"}}
+        side = {"type": "user", "timestamp": "1970-01-01T00:01:40Z", "origin": {"kind": "human"}, "isSidechain": True}
+        write(human, note, side, {"type": "assistant", "timestamp": "1970-01-01T00:01:40Z"})
+        self.assertIs(orders.talked_since(path, 10 + 40), False)   # 人の文は 50 秒。since と同じ時刻は数えない
+        self.assertIs(orders.talked_since(path, 49), True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write('{"type": "user", "timestamp": "1970-01-01T00:01:4')   # 改行の無い書きかけの最後の行は読まない
+        self.assertIs(orders.talked_since(path, 50), False)
+        write({"type": "user", "timestamp": "1970-01-01T00:01:40Z"})   # origin を書かない Claude Code
+        self.assertIsNone(orders.talked_since(path, 0))
+        write(human, "{broken")   # 読めない行は人の文かもしれない
+        self.assertIsNone(orders.talked_since(path, 100))
+        write({**human, "timestamp": "not a time"})
+        self.assertIsNone(orders.talked_since(path, 0))
+        self.assertIsNone(orders.talked_since(os.path.join(self.dir, "missing.jsonl"), 0))
 
 
 if __name__ == "__main__":

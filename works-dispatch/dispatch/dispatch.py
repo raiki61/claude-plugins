@@ -66,6 +66,8 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
 import argparse
 import collections
 import concurrent.futures
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -810,6 +812,7 @@ def main(argv=None, ports=None):
     if listing:
         notes += _tidy(cfg, repo, ports, a.dry_run, found, turn_numbers, sent, limited)
         notes += _step_back_departments(cfg, repo, ports, a.dry_run, dept_places, depts, dept_turn, limited)
+        notes += _fold_departments(a, cfg, repo, ports, dept_places, depts)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
 
@@ -1022,8 +1025,127 @@ def _step_back_departments(cfg, repo, ports, dry_run, places, names, turn_number
     return out
 
 
-def _department_busy(ports, path, mine):
-    """部署の窓を閉じない訳（無ければ None）。mine はその場所の会話の一覧の行。"""
+def _fold_departments(a, cfg, repo, ports, places, names):
+    """納品し終えてブランチが main に入ったのに、終わりの印（--done）の無い畳む部署（orders.leftover が finish）を片付ける（一覧の回だけ）。
+    PR で入れる会社では、部署は納品して PR のマージを待ちながらターンを終えるので、持ち主がマージしても部署にターンが来ず、--done を
+    打つきっかけが無い（2026-11-01 に guided-resolver で残った。持ち主の決め: 受付 0d6927）。会話を再開させると、手が空いて時間が経った会話は
+    キャッシュが切れていて文脈を全部読み直すので、機械で決められる部署は会話を再開させずに畳む:
+    - 会話が手すきか止まっていて、--done の断る条件（orders.leftover と _department_busy: 納品していない頼み・返事待ち・順番待ち・
+      未コミットの変更・手元にしか無い commit か stash・main に入っていない）に当たらず、窓の入力フィールドが見えて打ちかけの字が無く、
+      同じ場所にほかの会話が無く、最初の納品より後に人がその会話へ文を打っていない（orders.talked_since。--done の印が人の文で外れるのと同じ守り）なら、
+      --retire と同じ手で畳む。
+    - 納品の後に人が打った・会話の記録で見分けられないときだけ、--say と同じ道で短い合図（orders.fold_line）を 1 本送り、印を打つかは
+      部署が決める。同じ頼みには 2 度送らない（属性 company.fold-told）。
+    --retire の手が断った部署は、同じ頼みでは試し直さない（属性 company.fold-tried）。leftover が finish でない部署は何も出さない。
+    返すのは報告の行。"""
+    places = [p for p in places if p.get("path")]
+    if not places:
+        return []
+    try:
+        listed = [s for acc in cfg.accounts for s in ports.list_sessions(acc.config_dir)]
+    except chat.Error as e:
+        return [f"main に入った部署を畳むのを飛ばした（開いている会話を読めない: {e}）"]
+    dirs = {acc.name: acc.config_dir for acc in cfg.accounts}
+    out = []
+    for p in sorted(places, key=lambda p: p["path"]):
+        try:
+            line = _fold_one(a, repo, ports, p, names, listed, dirs)
+        except (OSError, gitx.GitError, ghx.GhError, chat.Error, term.Error, deliver.DeliverError) as e:
+            # 1 つの部署で読めない・書けない物が在っても、一覧の回のほかの報告と、ほかの部署の片付けは止めない
+            line = f"部署「{names.get(p.get('branch'), p['path'])}」: 畳むかを決める途中で止めた。触っていない所は残した（{e}）"
+        if line:
+            out.append(line)
+    return out
+
+
+def _fold_one(a, repo, ports, p, names, listed, dirs):
+    """_fold_departments の部署 1 つ分。報告の 1 行（触らない部署は None）。"""
+    path = p["path"]
+    try:
+        attrs = ports.attrs(path)
+        got = orders.leftover(path, attrs, ports.git, ports.gh)
+    except (gitx.GitError, ghx.GhError, OSError) as e:
+        return f"部署「{names.get(p.get('branch'), path)}」: 終わりの印が要るかを読めないので触らない（{e}）"
+    if got is None or got[0] != "finish":
+        return None
+    name, ask = attrs.get("name") or p["branch"], attrs["ask"]
+    where = f"部署「{name}」（受付 {ask}）"
+    mine = _at(listed, path)
+    other = [s.get("sessionId") or "?" for s in mine if not attrs.get("session") or s.get("sessionId") != attrs["session"]]
+    # leftover が finish なのでブランチは main に入っている。マージの後に head のブランチが消えた PR の commit を手元の作業と数えない
+    why = (_department_busy(ports, path, mine, landed=lambda: True) or _typing(ports, p.get("workspace"))
+           or (other and f"同じ場所に部署の会話のほかの会話（{', '.join(other)}）が開いている"))
+    if why:
+        return f"{where}: 納品済みで main に入ったが、{why}ので今回は畳まない"
+    talked = None
+    if attrs.get("session") and dirs.get(attrs.get("account")):
+        since = orders.delivered_at([deliver.inbox_of(ports.git.common_dir(path)), attrs.get("boss-inbox")], ask, path)
+        if since is not None:
+            talked = orders.talked_since(os.path.join(chat.talk_dir(dirs[attrs["account"]], path, ports.account_env),
+                                                      f"{attrs['session']}.jsonl"), since)
+    if talked is False:
+        if attrs.get(orders.FOLD_TRIED) == ask:
+            # 前の回に --retire の手が断った（訳は --clean の一覧と台帳の retired の行）。回ごとに台帳へ同じ行を足さない
+            return f"{where}: 納品済みで main に入ったが、前の回に畳もうとして残した（訳は --clean の一覧）。畳むなら --retire '{name}'"
+        if a.dry_run:
+            return f"{where}: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳む（--retire と同じ手）"
+        rc, said = _quiet(retire.retire, argparse.Namespace(**{**vars(a), "retire": name}), ports, repo.source,
+                          _department_rows, DEPT_REASONS)
+        if rc == 0:
+            return f"{where}: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳んだ"
+        try:
+            if os.path.isdir(path):
+                provision.mark(path, repo.source, {orders.FOLD_TRIED: ask}, ports.git)
+        except (gitx.GitError, OSError) as e:
+            said += f"。試した印を書けなかったので、次の回にまた試す（{e}）"
+        return f"{where}: 会話を再開させずに畳もうとしたが残した（{said}）"
+    reason = "納品の後に人がこの会話に打った" if talked else "納品の後に人が打ったかを会話の記録から見分けられない"
+    if attrs.get(orders.FOLD_TOLD) == ask:
+        return f"{where}: 納品済みで main に入ったが、{reason}。畳んでよいかの合図は送り済みで、部署の --done を待つ（畳むなら --retire '{name}'）"
+    if a.dry_run:
+        return f"{where}: 納品済みで main に入ったが、{reason}ので、畳んでよいかの合図を 1 行送る（印を打つかは部署が決める）"
+    rc, said = _quiet(orders.say, argparse.Namespace(**{**vars(a), "say": name, "text": orders.fold_line(ask), "brief": None,
+                                                        "from_name": "dispatch"}), ports, repo.source)
+    if rc != 0:
+        return f"{where}: 納品済みで main に入ったが、{reason}。畳んでよいかの合図を送れなかった（{said}）"
+    try:
+        provision.mark(path, repo.source, {orders.FOLD_TOLD: ask}, ports.git)
+    except (gitx.GitError, OSError) as e:
+        said += f"。送った印を書けなかったので、次の回にまた送る（{e}）"
+    return f"{where}: 納品済みで main に入ったが、{reason}ので、畳んでよいかの合図を送った（{said}）"
+
+
+def _quiet(run, *args):
+    """出力を画面に出さずに run(*args) を呼ぶ。(終了の値, 出力の最後の行)。"""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = run(*args)
+    lines = [x for x in buf.getvalue().splitlines() if x.strip()]
+    return rc, (lines[-1] if lines else "出力なし")
+
+
+def _typing(ports, workspace):
+    """部署の窓で attach の画面の入力フィールドに、人の打ちかけの字が在るか、入力フィールドが見えなければ、その訳（無ければ None）。
+    窓が無ければ None。"""
+    if not workspace:
+        return None
+    try:
+        for x in [x["pane_id"] for x in ports.term.panes() if x.get("workspace_id") == workspace]:
+            if not any(" attach " in f" {c} " for c in ports.term.foreground(x)):
+                continue
+            typed = chat.typed(ports.term.read(x, 40, ansi=True))
+            if typed is None:   # 字を受けられる形でない画面（確かめの画面など）。打ちかけが無いと言い切れないので畳まない（orders.restart_quiet と同じ）
+                return f"窓 {x} の入力フィールドが見えない"
+            if typed:
+                return f"窓 {x} の入力フィールドに打ちかけの字が在る"
+    except term.Error as e:
+        return f"窓を読めない（{e}）"
+    return None
+
+
+def _department_busy(ports, path, mine, landed=None):
+    """部署の窓を閉じない訳（無ければ None）。mine はその場所の会話の一覧の行。landed（引数なしで呼ぶ関数）が真を返せば、remote の
+    どのブランチにも無い commit を手元の作業と数えない（gitx.unpushed。マージの後に head のブランチが消えた PR の部署。--done と同じ）。"""
     if any(s.get("state") == "blocked" or (s.get("status") or s.get("state")) not in ("idle",) + clean.DONE for s in mine):
         return "会話が作業中か返事待ち"
     attrs = ports.attrs(path)
@@ -1034,7 +1156,7 @@ def _department_busy(ports, path, mine):
         return "順番待ちに頼みが在るか、順番待ちを読めない"
     if not ports.is_clean(path):
         return "未コミットの変更が有る"
-    if ports.unpushed(path):
+    if ports.unpushed(path, landed=landed):
         return "手元にしか無い commit か stash が有る"
     return None
 

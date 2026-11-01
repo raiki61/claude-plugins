@@ -24,6 +24,7 @@ boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の�
 
 import argparse
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -40,6 +41,7 @@ try:
     from ports import chat, term  # noqa: E402
     import windows  # noqa: E402
     import config  # noqa: E402
+    import filex  # noqa: E402
     import ghx  # noqa: E402
     import gitx  # noqa: E402
     import todo  # noqa: E402
@@ -2040,6 +2042,69 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx, rearm=None, gh=ghx)
             "--todo). Writing a holder in the open questions alone does not deliver an ask to that holder. If the ask was "
             "withdrawn and you will not land, push the branch to origin and end the turn (the asker cleans up with --retire). "
             f"If you are in the middle of a talk with the owner, you may end the turn without landing{limit}")
+    # terms: english-end
+
+
+def delivered_at(inboxes, ask, place):
+    """部署（作業場 place）が頼み ask を最初に納品した時刻（台帳の kind deliver の行の at。--again の分より前の物）。見つからなければ None。
+    納品の行は頼み元の受付箱に書くので、呼ぶ側が部署の会社の受付箱と頼み元の受付箱（company.boss-inbox）を渡す。"""
+    times = [r["at"] for inbox in inboxes if inbox and os.path.isdir(inbox) for r in deliver.records(inbox)
+             if r.get("kind") == "deliver" and r.get("ask") == ask and isinstance(r.get("at"), (int, float))
+             and (r.get("from") or {}).get("place") and filex.inside((r.get("from") or {})["place"], place)]
+    return min(times) if times else None
+
+
+def talked_since(transcript, since):
+    """会話の記録（transcript。Claude Code の <会話の id>.jsonl）に、時刻 since より後の人の文が在るか。True（在る）・False（無い）・
+    None（記録を読めない・人の文の印を書かない Claude Code で見分けられない）。人の文は、Claude Code が行に書く origin の kind が human の
+    文（入力フィールドに打った文。窓に打ち込まれた頼みもここに入る）。待ち受けが渡した知らせ（origin の kind が task-notification）と、
+    /clear・/compact・/exit などのコマンドの行（origin を書かない）は人の文と数えない。引数なしの dispatch が、納品した後に人がその会話へ
+    打ったか（人と話している途中か）を、会話を再開させずに見分けるのに使う（--done の印が人の文で外れるのと同じ守り）。"""
+    try:
+        with open(transcript, encoding="utf-8") as f:
+            lines = f.readlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    marked = False   # origin を書く Claude Code か（一度も見なければ、人の文を見分けられない）
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            if i == len(lines) - 1 and not line.endswith("\n"):
+                continue   # 改行の無い最後の行は書きかけ（Claude Code が書いている途中）。前の行までで決める
+            return None   # 読めない行が人の文かもしれない。見分けられないとして、畳まずに合図の側へ倒す
+        if not isinstance(row, dict) or row.get("type") != "user" or row.get("isSidechain"):
+            continue
+        origin = row.get("origin")
+        if not isinstance(origin, dict):
+            continue
+        marked = True
+        if origin.get("kind") != "human":
+            continue
+        try:
+            at = datetime.datetime.fromisoformat(str(row.get("timestamp")).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+        if at > since:
+            return True
+    return False if marked else None
+
+
+# 部署の属性 company.fold-told: 引数なしの dispatch が、畳んでよいかの合図（fold_line）を送った頼みの受付番号。同じ頼みには 2 度送らない
+# （合図 1 本ごとに、手の空いた会話を再開させて文脈を読み直す費用がかかる）
+FOLD_TOLD = "fold-told"
+# 部署の属性 company.fold-tried: 引数なしの dispatch が会話を再開させずに畳もうとして、--retire の手が断った頼みの受付番号。同じ頼みでは
+# 試し直さない（回ごとに台帳へ同じ retired の行を足さない。断った訳は --retire が company.retire-kept と台帳に残す）
+FOLD_TRIED = "fold-tried"
+
+
+def fold_line(ask):
+    """main に入ったのに終わりの印の無い部署へ、引数なしの dispatch が送る合図の本文（--say の知らせの本文。部署だけが読むので英語）。
+    読み直す物を増やさないよう、短い決まった 1 行にする。"""
+    # terms: english-begin
+    return f"Ask {ask} is delivered and its branch is in main. Run --done unless you are in a talk with the owner."
     # terms: english-end
 
 
