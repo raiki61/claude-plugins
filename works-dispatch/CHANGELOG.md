@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.152.1] - 2026-11-01
+
 ### Fixed
 
 - 積み重ねた PR（ほかの部署のブランチへ出した PR）が squash でマージされ、head のブランチが消えた部署を、`--retire` が「origin のどのブランチにも手元の先頭が無い」か「手元にしか無い commit か stash が有る」で残し、引数なしの dispatch も畳まずに何も出さなかった（頼み bc8c0b。2026-11-01 に guided-resolver の PR #2280 が `feat/llm-provider-switch` へ入った部署で起きた）。squash で入った commit はどのブランチの祖先にもならないので、GitHub の「commit に結び付く PR」で先頭を含むマージ済みの PR のマージ先を引き、マージ先が origin に在れば成果はそこに残るとみなす。`--retire` は push を求めずに畳み、`--clean` の一覧は「部署の先頭は origin の <マージ先> に入っている」と出し、引数なしの dispatch は main に入った部署と同じ決まりで畳む（納品の後に人が打った部署には合図を送らず、`--retire` を示す 1 行を出す。部署の `--done` はメインブランチに入っていないブランチを断るため）。マージ済みの PR の無い、メインブランチに入っていない部署は、前と同じく引数なしの dispatch の報告に出さない（PR のレビューや `--land` を待つふつうの形なので、回ごとに並べない）。
