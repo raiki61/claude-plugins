@@ -43,6 +43,13 @@ class Headers(unittest.TestCase):
         self.assertEqual(snap["five_hour"], win(100, 1800000900))
         self.assertIsNone(snap["seven_day"])
 
+    def test_headers_without_the_five_hour_window_keep_the_week(self):
+        # 2026-11-01 から、いちばん上のサブスクリプションは 5 時間の枠を持たず、応答ヘッダに 5h の値が無い
+        week_only = {k: v for k, v in HEADERS.items() if "-5h-" not in k}
+        snap = limits.from_headers(week_only, NOW)
+        self.assertIsNone(snap["five_hour"])
+        self.assertEqual(snap["seven_day"], win(32.0, 1800187200))
+
     def test_no_ratelimit_headers_is_none(self):
         self.assertIsNone(limits.from_headers({"content-type": "application/json"}, NOW))
 
@@ -64,6 +71,13 @@ class NeedProbe(unittest.TestCase):
         snap["seven_day"]["updated_at"] = NOW
         self.assertFalse(limits.need_probe(snap, NOW))
 
+    def test_week_only_snapshot_is_probed_by_the_age_of_its_week(self):
+        # 5 時間の枠の無いアカウントの控え（five_hour が null）は、欠けた控えとして毎回は取り直さない。週の枠の古さで取り直す
+        self.assertFalse(limits.need_probe({"five_hour": None, "seven_day": win(28, NOW + 9999, NOW - 60)}, NOW))
+        self.assertTrue(limits.need_probe({"five_hour": None, "seven_day": win(28, NOW + 9999, NOW - 20 * 60)}, NOW))
+        self.assertTrue(limits.need_probe({"five_hour": None, "seven_day": win(28, NOW - 1, NOW - 60)}, NOW))
+        self.assertFalse(limits.need_probe({"five_hour": None, "seven_day": win(100, NOW + 600, NOW - 9999)}, NOW))
+
     def test_full_window_is_not_probed_while_it_lasts(self):
         snap = {"five_hour": win(100, NOW + 600, NOW - 9999), "seven_day": win(50, NOW + 9999, NOW - 9999)}
         self.assertFalse(limits.need_probe(snap, NOW))
@@ -77,6 +91,14 @@ class Render(unittest.TestCase):
     def test_high_usage_is_marked_and_passed_reset_reads_zero(self):
         snap = {"five_hour": win(85, NOW - 5), "seven_day": win(91, NOW + 120)}
         self.assertEqual(limits.render("a", snap, NOW), "a 5h 0%  7d 91%! 2m")
+
+    def test_week_only_snapshot_shows_the_week_alone(self):
+        snap = {"five_hour": None, "seven_day": win(28, NOW + 187200), "source": "probe"}
+        self.assertEqual(limits.render("p2", snap, NOW), "p2 7d 28% 2d4h")
+        self.assertFalse(limits.stale(snap, NOW))
+        old = {"five_hour": None, "seven_day": win(28, NOW + 187200, NOW - (limits.TRUST_HOURS + 1) * 3600)}
+        self.assertTrue(limits.stale(old, NOW))
+        self.assertEqual(limits.render("p2", old, NOW), "p2 7d 28% 2d4h  古い")
 
     def test_no_snapshot_is_empty(self):
         self.assertEqual(limits.render("a", None, NOW), "")
@@ -97,6 +119,12 @@ class Record(unittest.TestCase):
         self.assertEqual(moved["seven_day"], win(2, NOW + 5000))
         first = limits.merge_statusline(None, {"seven_day": {"used_percentage": 5, "resets_at": NOW + 5000}}, NOW)
         self.assertEqual(first["seven_day"], win(5, NOW + 5000))
+
+    def test_statusline_without_the_five_hour_window_keeps_it_null(self):
+        old = {"five_hour": None, "seven_day": win(30, NOW + 999, NOW - 50), "source": "probe"}
+        moved = limits.merge_statusline(old, {"five_hour": None, "seven_day": {"used_percentage": 2, "resets_at": NOW + 5000}}, NOW)
+        self.assertIsNone(moved["five_hour"])
+        self.assertEqual(moved["seven_day"], win(2, NOW + 5000))
 
     def test_name_follows_the_account_whose_folder_runs_the_statusline(self):
         accts = (config.Account("main", "claude", None), config.Account("w7", "claude-w7", "/h/.claude-w7"))

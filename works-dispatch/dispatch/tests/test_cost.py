@@ -27,6 +27,11 @@ class Samples(unittest.TestCase):
         got = cost.samples({"p1": snap(40, 90, reset5=100)}, {"p1": snap(41, 3, reset5=200)}, {"p1": 2})
         self.assertEqual(got, {"seven_day": [1.0], "five_hour": []})
 
+    def test_accounts_without_a_five_hour_window_measure_the_week_alone(self):
+        week_only = {"seven_day": {"used_percentage": 40, "resets_at": 1000}, "five_hour": None}
+        after = {"seven_day": {"used_percentage": 42, "resets_at": 1000}, "five_hour": None}
+        self.assertEqual(cost.samples({"p1": week_only}, {"p1": after}, {"p1": 4}), {"seven_day": [0.75], "five_hour": []})
+
     def test_accounts_without_prs_or_records_are_skipped(self):
         got = cost.samples({"p1": snap(40, 8), "p2": None}, {"p1": snap(41, 9), "p2": snap(1, 1)}, {"p1": 0, "p2": 3})
         self.assertEqual(got, {"seven_day": [], "five_hour": []})

@@ -2,6 +2,8 @@
 """アカウントごとの使用率の控え（<limits_dir>/<アカウント名>.json）を作り、読んで 1 行にする。dispatch はこの控えでアカウントを選ぶ。
 
 控えの形: {"five_hour": {used_percentage, resets_at, updated_at}, "seven_day": {...}, "updated_at", "source"?}
+five_hour は null のことがある。5 時間の枠を持たないプラン（2026-11-01 から、いちばん上のサブスクリプション）は、応答ヘッダに
+5h の値が無い。週の枠が在って 5 時間の枠が null の控えは、5 時間の枠の無いアカウントのふつうの形として読む（欠けた控えとして扱わない）。
 アカウントの数と名前は dispatch の設定（accounts）から読む。1 つでも 7 つでも同じに動く。
 使用率の枠の無いアカウント（limits = false。Ollama・Foundry など）は、取り直しも表示もしない。
 
@@ -188,21 +190,22 @@ def _num(v):
 
 
 def need_probe(snap, now):
-    """取り直すか。控えが無い・枠が欠けている・どれかの枠の切り替わりが過ぎた・古い（100% の枠がある間は除く）のどれか。
+    """取り直すか。控えが無い・週の枠が欠けている・どれかの枠の切り替わりが過ぎた・古い（100% の枠がある間は除く）のどれか。
 
+    5 時間の枠の欠けた（null の）控えは、5 時間の枠の無いアカウントの形なので、欠けを取り直しの訳にしない（週の枠の古さで取り直すので、
+    5 時間の枠が戻れば次の取り直しで載る）。
     切り替わりの過ぎた枠は、次の切り替わりの時刻が取り直すまで分からないので、古さに関係なく取り直す。
     100% の枠がある間は、すべての要求が弾かれて値が動かないので投げない。古さは枠ごとの updated_at で測る。
     """
-    if not isinstance(snap, dict):
+    if not isinstance(snap, dict) or not isinstance(snap.get("seven_day"), dict):
         return True
     ws = _windows(snap)
-    if len(ws) < 2:
-        return True
     if any(_num(w.get("resets_at")) and w["resets_at"] <= now for w in ws):
         return True
     if any(_num(w.get("used_percentage")) and w["used_percentage"] >= 100 for w in ws):
         return False
-    age5 = now - (snap["five_hour"].get("updated_at") or 0)
+    five = snap.get("five_hour")
+    age5 = now - (five.get("updated_at") or 0) if isinstance(five, dict) else 0
     age7 = now - (snap["seven_day"].get("updated_at") or 0)
     return age5 > PROBE_STALE_MIN * 60 or age7 > PROBE_7D_STALE_MIN * 60
 

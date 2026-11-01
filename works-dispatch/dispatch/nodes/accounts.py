@@ -13,6 +13,9 @@
 - 使える時間帯（設定の hours）の外のアカウントと、時間帯の終わりまで設定の hours_margin_minutes（既定 30 分。ちょうども含む）を切ったアカウントは選ばない。
   終わりで要求が断られ、ターンの途中で切られるため。日をまたぐ時間帯は始まった日の物として見る。
 - 控えが無い・読めないアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（D7）。
+- 控えの新しいアカウントで 5 時間の枠が null なら、5 時間の枠の無いアカウント（2026-11-01 から、いちばん上のサブスクリプション）と見る。
+  週の枠だけで上限と点数を決め（点数の 5 時間の項は 1）、行の absent に枠の名を載せ、選んだ訳には「5 時間の枠なし」と出す（「不明」は、
+  控えが無い・古い・枠の中の値が読めないときだけ）。
 - 使用率の枠の無いアカウント（設定の limits = false。Ollama・Foundry など）は控えを読まず、控えの無いものと同じに扱う。
 - 名指しのときだけ使うアカウント（設定の named_only = true。弱いモデルへ読み替わる中継など）は、自動では選ばない（eligible を偽にする）。
   使用率と時間帯で外れていなければ named_ok を真にし（訳は NAMED_ONLY）、会社の形の役か受け持ちが account で名指したとき（prefer）と、
@@ -123,7 +126,7 @@ def gather_running(accounts, list_sessions):
 
 def pace(seven_day, five_hour, limit_percent, now):
     """選ぶ順の点数。週の枠の上限までの残り（%）÷ 週の切り替わりまでの時間（MIN_HOURS より短くしない）× 5 時間の枠の上限までの残りの割合。
-    枠は _window の形。使用率の分からない枠は 0% とみなす。上限に達した枠が在れば 0。"""
+    枠は _window の形。使用率の分からない枠と、控えに無い枠（5 時間の枠の無いアカウント）は 0% とみなす（その項は 1）。上限に達した枠が在れば 0。"""
     used7, used5 = seven_day["used"] or 0, five_hour["used"] or 0
     at = seven_day["resets_at"]
     left = WEEK_HOURS if at is None else max((at - now) / 3600, MIN_HOURS)
@@ -137,7 +140,8 @@ def rank(accounts, limits, limit_percent, now, running=None, margin_minutes=conf
     上限に達していたか（--move --if-limited が、取り直せない間も移るかを最後の値で決める。一時の混み合いで移さない）。
     eligible_at は、選べないアカウントがまた選べるようになる時刻（上限に達した枠の切り替わりと、使える時間帯の始まりの遅い方。
     分からなければ None。名指しのときだけ使うアカウントは自動では選べるようにならないので None）。
-    named_only は設定の named_only。named_ok は、名指せば使える（named_only で、上限にも時間帯にも外れていない）か。"""
+    named_only は設定の named_only。named_ok は、名指せば使える（named_only で、上限にも時間帯にも外れていない）か。
+    absent は、控えが新しい（known）のに null だった枠の名の並び（5 時間の枠の無いアカウントなら ["five_hour"]）。known でなければ空。"""
     running = running or {}
     rows = []
     for i, a in enumerate(accounts):
@@ -159,6 +163,7 @@ def rank(accounts, limits, limit_percent, now, running=None, margin_minutes=conf
             "seven_day": w["seven_day"],
             "five_hour": w["five_hour"],
             "known": known,
+            "absent": [k for k in WINDOWS if known and raw.get(k) is None],
             "stale": old,
             "stale_over": any(u is not None and u >= limit_percent for u in last),
             "eligible": not why_not and not named_only,
@@ -306,6 +311,10 @@ def why(row, now):
         return f"使用率が分からない（控えが無いか、使用率の枠の無いアカウント）。{tail}"
     at = row["seven_day"]["resets_at"]
     reset = "週の枠の切り替わりの時刻は不明" if at is None else f"週の枠は {_left(at - now)}後に切り替わる"
+    if "five_hour" in row.get("absent", ()):
+        return (f"5 時間の枠なし・週 {_pct(row['seven_day']['used'])}（{reset}）で、"
+                f"点数 {row['score']:.2f}（週の残り ÷ 切り替わりまでの時間。5 時間の枠が無いので、その残りの割合は掛けない）が"
+                f"選べるものの中で最も高い。{tail}")
     return (f"5 時間 {_pct(row['five_hour']['used'])}・週 {_pct(row['seven_day']['used'])}（{reset}）で、"
             f"点数 {row['score']:.2f}（週の残り ÷ 切り替わりまでの時間 × 5 時間の残りの割合）が"
             f"選べるものの中で最も高い。{tail}")

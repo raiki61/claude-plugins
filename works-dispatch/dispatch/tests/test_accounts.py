@@ -229,6 +229,64 @@ class Rank(unittest.TestCase):
         self.assertEqual(schemacheck.check(out, schemacheck.schema("accounts")), [])
 
 
+class NoFiveHourWindow(unittest.TestCase):
+    """5 時間の枠の無いアカウント（2026-11-01 から、いちばん上のサブスクリプション）。控えの five_hour が null で、週の枠だけが在る。"""
+
+    def lim(self, **five):
+        out = {}
+        for name, row in limits().items():
+            out[name] = {"seven_day": row["seven_day"], "five_hour": five.get(name)}
+        return out
+
+    def test_week_alone_decides_the_order_and_the_limit(self):
+        lim = self.lim()
+        lim["p1"]["seven_day"] = {"used_percentage": 95, "resets_at": 1792155600}
+        got = accounts.rank(ACCTS, lim, 95, NOW)
+        p2 = by(got, "p2")
+        self.assertTrue(p2["known"])
+        self.assertEqual(p2["absent"], ["five_hour"])
+        self.assertEqual(p2["five_hour"], {"used": None, "resets_at": None})
+        self.assertAlmostEqual(p2["score"], 9 / 43.5, places=3)   # 5 時間の項は掛けない（1）
+        self.assertFalse(by(got, "p1")["eligible"])
+        self.assertIn("seven_day が 95%", by(got, "p1")["reason"])
+        self.assertEqual(names(got), ["main", "p2", "p3", "p1"])   # main と p2 は同じ点数で、設定の順
+        self.assertEqual(schemacheck.check({"schema": 1, "accounts": got}, schemacheck.schema("accounts")), [])
+
+    def test_mixed_plans_keep_the_five_hour_window_where_it_exists(self):
+        lim = self.lim(p3={"used_percentage": 96, "resets_at": 1791968400})
+        got = accounts.rank(ACCTS, lim, 95, NOW)
+        self.assertFalse(by(got, "p3")["eligible"])
+        self.assertIn("five_hour が 96%", by(got, "p3")["reason"])
+        self.assertEqual(by(got, "p3")["absent"], [])
+
+    def test_the_reason_says_there_is_no_five_hour_window_instead_of_unknown(self):
+        row = by(accounts.rank(ACCTS, self.lim(), 95, NOW), "p1")
+        line = accounts.why(row, NOW)
+        self.assertIn("5 時間の枠なし・週 38%", line)
+        self.assertNotIn(accounts._pct(None), line)   # 「不明」は出さない
+
+    def test_unknown_stays_for_a_missing_or_stale_snapshot(self):
+        self.assertEqual(by(accounts.rank(ACCTS, {"p1": None}, 95, NOW), "p1")["absent"], [])
+        old = {"five_hour": None, "seven_day": {"used_percentage": 38, "resets_at": 1792155600, "updated_at": NOW - hours(4)}}
+        row = by(accounts.rank(ACCTS, {"p1": old}, 95, NOW), "p1")
+        self.assertEqual(row["absent"], [])
+        self.assertIn("使用率が分からない（控えが", accounts.why(row, NOW))
+
+    def test_moving_early_looks_at_the_week_alone(self):
+        lim = self.lim()
+        lim["p2"]["seven_day"] = {"used_percentage": 92, "resets_at": 1792119600}
+        got = accounts.early(accounts.rank(ACCTS, lim, 95, NOW), "p2", 90, 1, NOW)
+        self.assertEqual(got["to"], "p1")
+        self.assertIn("週の枠 92%", got["why"])
+        self.assertNotIn("5 時間", got["why"])
+
+    def test_read_limits_keeps_a_null_five_hour_window(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / "p2.json").write_text(json.dumps({"five_hour": None, "seven_day": {"used_percentage": 28, "resets_at": 1}}),
+                                   encoding="utf-8")
+        self.assertIsNone(accounts.read_limits(d, ["p2"])["p2"]["five_hour"])
+
+
 class Running(unittest.TestCase):
     def test_background_by_state_and_interactive_by_status(self):
         # 2026-10-16 に手元の 2.1.x で見た形: 背景の会話は state（status も付くことがある）、対話の会話は status だけ

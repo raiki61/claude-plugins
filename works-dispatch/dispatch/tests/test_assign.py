@@ -83,6 +83,12 @@ class Plan(unittest.TestCase):
         rows = assign.plan(REPO, [pr(n) for n in range(1, 5)], set(), set(), accts, 95, {"seven_day": 0.1, "five_hour": 2.0})
         self.assertEqual(names(rows), ["a", "a", "b", "b"])
 
+    def test_account_without_a_five_hour_window_is_capped_by_the_week_alone(self):
+        # 5 時間の枠の無いアカウント（rank の行の five_hour の used が None）は、覚えた 5 時間の 1 件あたりの値で縛らない
+        accts = [acct("a", seven=89, five=None), acct("b", seven=40, five=None)]
+        rows = assign.plan(REPO, [pr(n) for n in range(1, 8)], set(), set(), accts, 95, {"seven_day": 1.0, "five_hour": 50.0})
+        self.assertEqual(names(rows), ["a"] * 5 + ["b"] * 2)
+
     def test_account_with_unknown_usage_takes_the_rest(self):
         accts = [acct("a", seven=93, five=0), acct("local", known=False)]
         rows = assign.plan(REPO, [pr(n) for n in range(1, 4)], set(), set(), accts, 95, {"seven_day": 1.0})

@@ -17,6 +17,7 @@
           "five_hour": {"type": "object", "required": ["used", "resets_at"],
                         "properties": {"used": {"type": ["number", "null"]}, "resets_at": {"type": ["integer", "null"]}}},
           "known": {"type": "boolean"},
+          "absent": {"type": "array", "items": {"type": "string", "enum": ["seven_day", "five_hour"]}},
           "stale": {"type": "boolean"},
           "hours": {"type": ["string", "null"]},
           "shut": {"type": "boolean"},
