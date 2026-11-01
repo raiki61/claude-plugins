@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の mutation の CI で、壊した版を試験が見抜けずに残った腕（ルートの `tests/mutations.json` の 1 件。コードの 1 か所をわざと壊す変更）7 本を、殺せる試験に結んだ。RR5（`engine/role_run.py` の番号の再利用の見分け）・DL8（`engine/commands.py` の relaunch の「保存してから止める」の順）・A13（`engine/util.py` の `sum_counts`）・d17（`rules/review-loop.py` の、版に無い理由のディレクトリの文）・SH17（ルートの `tests/mutate.py` の `passed`）には、OS の速さに揺れない pytest を `tests/py/` に足した。GA1 は宣言していた台本の関数が違っていたので直した。LA3 は、宣言していた台本が壊した行を通っていなかったので、`parse_output` が `AnswerReject` を上げることを見る試験に結び直した。
+
 ## [0.46.7] - 2026-11-01
 
 ### Fixed
