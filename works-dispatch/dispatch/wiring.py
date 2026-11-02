@@ -502,6 +502,10 @@ class Ports:
         """部署（worktree）の git の属性 company.<名前>。"""
         return self.git.worktree_attrs(path)
 
+    def visited(self, path):
+        """その worktree の HEAD が居たことのあるブランチ → 最後に居た時刻（git の HEAD の reflog から。gitx.visited_branches）。"""
+        return self.git.visited_branches(path)
+
 
 def jsonio_load(path):
     with open(path, encoding="utf-8") as f:

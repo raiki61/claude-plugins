@@ -63,6 +63,7 @@ class FakeGit:
         self.excludes = set()
         self.dirty = set()   # 未コミットの変更が有る場所
         self.rebases = {}    # リベースの途中の場所 → (ブランチ, 元の先頭, 解けていないファイル)
+        self.visits = {}     # worktree の場所 → {居たことのあるブランチ: 最後に居た時刻}（HEAD の reflog のブランチを替えた行から読む物）
 
     # 試験が世界を作る口
 
@@ -91,6 +92,19 @@ class FakeGit:
                 self.attrs[path] = dict(got)
         return path
 
+    def checkout(self, path, branch, at, start=None):
+        """git -C path checkout [-b] branch の形（branch が手元に無ければ start から作る）。HEAD の reflog に、移る前と移った先を時刻 at で残す。"""
+        path = os.path.realpath(path)
+        if branch in self.heads.values():
+            raise gitx.GitError(f"fatal: '{branch}' is already used by worktree")
+        if branch not in self.local:
+            self.local[branch] = self._resolve(path, start)
+        seen = self.visits.setdefault(path, {})
+        for name in (self.heads.get(path), branch):
+            if name:
+                seen[name] = at
+        self.heads[path] = branch
+
     def _admin(self, path):
         """linked の worktree の id を決め、管理の場所のフォルダと、場所の .git のファイルを作る（同じ名前が在れば本物の git と同じく数字を足す）。"""
         base, n = os.path.basename(path), 0
@@ -117,7 +131,7 @@ class FakeGit:
 
     def _forget(self, path):
         wid = self.ids.pop(path, None)
-        for table in (self.heads, self.detached, self.locks, self.attrs):
+        for table in (self.heads, self.detached, self.locks, self.attrs, self.visits):
             table.pop(path, None)
         self.dirty.discard(path)
         if wid:
@@ -296,6 +310,9 @@ class FakeGit:
             return {}
         return gitx.shape_attrs(self.attrs.get(place, {}), self.ids.get(place) if self.attrs.get(place) else None,
                                 copies=copies)
+
+    def visited_branches(self, cwd):
+        return dict(self.visits.get(self._place(cwd), {}))
 
     def worktree_id(self, cwd):
         place = self._place(cwd)

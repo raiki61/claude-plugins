@@ -124,6 +124,16 @@ class LocalWork(unittest.TestCase):
         self.assertFalse(gitx.stashed(src, "main"))   # stash は共有だが、別のブランチの物は数えない
         self.assertFalse(gitx.unpushed(src))
 
+    def test_visited_branches_reads_only_this_worktrees_head_reflog(self):
+        # 部署が同じ作業場でブランチを替えても、前に居たブランチを HEAD の reflog（worktree ごと）から読む（頼み 759276）
+        src, path = self.world()
+        git("-C", path, "checkout", "-q", "-b", "feat/2")
+        git("-C", path, "switch", "-q", "-c", "feat/3")
+        self.assertEqual(set(gitx.visited_branches(path)), {"feat/1", "feat/2", "feat/3"})
+        self.assertTrue(all(isinstance(t, int) and t > 0 for t in gitx.visited_branches(path).values()))
+        self.assertNotIn("feat/2", gitx.visited_branches(src))   # 元の clone の HEAD の reflog には混ざらない
+        self.assertEqual(gitx.visited_branches(str(pathlib.Path(path).parent / "none")), {})
+
     def test_commit_on_a_detached_head_counts_as_unpushed(self):
         src, path = self.world()
         git("-C", path, "checkout", "-q", "--detach")

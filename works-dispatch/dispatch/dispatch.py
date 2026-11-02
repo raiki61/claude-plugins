@@ -222,16 +222,32 @@ def _branch_places(places):
     return {p["branch"]: p["path"] for p in places if p.get("linked") and p.get("branch") and not p.get("prunable")}
 
 
-def _department_places(places, ports, source):
-    """worktree の並びのうち、部署の作業場（属性 company.role を持つ linked worktree。元の clone は除く）の {ブランチ: 部署の名前}。"""
-    out = {}
+def _department_worktrees(places, ports, source):
+    """worktree の並びのうち、部署の作業場（属性 company.role を持つ linked worktree。元の clone は除く）の (場所, 部署の名前) の並び。"""
+    out = []
     for p in places:
-        if not (p.get("linked") and p.get("branch")) or os.path.realpath(p["path"]) == os.path.realpath(source):
+        if not p.get("linked") or os.path.realpath(p["path"]) == os.path.realpath(source):
             continue
         attrs = ports.attrs(p["path"])
         if attrs.get("role"):
-            out[p["branch"]] = attrs.get("name") or p["branch"]
+            out.append((p, attrs.get("name") or p.get("branch") or p["path"]))
     return out
+
+
+def _department_past(rows, places, ports):
+    """部署の作業場が前に開いていたブランチ（HEAD の reflog。gitx.visited_branches）→ (部署の名前, 部署の場所)。今どれかの worktree が
+    開いているブランチは除く（部署が今開いている物はその部署の今のブランチの側、ほかの worktree の物はその場所の物）。2 つ以上の部署が
+    開いたブランチは、最後に居た部署の物。部署は 1 本の頼みの中で PR を出すたびに同じ作業場でブランチを替えることがあり、今のブランチ
+    だけで見分けると、前に出した PR を部署の物でない PR として開き、部署がそのブランチに戻れなくなった（git は 1 つのブランチを 2 つの
+    worktree で開かせない。2026-11-02 に guided-resolver の部署「設計書の書き直し」の #2362・#2365。頼み 759276）。
+    rows は _department_worktrees の値、places は worktree の並び。"""
+    taken = {p.get("branch") for p in places}
+    best = {}
+    for p, name in rows:
+        for b, at in ports.visited(p["path"]).items():
+            if b not in taken and (b not in best or at > best[b][0]):
+                best[b] = (at, name, p)
+    return {b: (name, p) for b, (_, name, p) in best.items()}
 
 
 def _talk_away_places(ports, places, listed):
@@ -638,12 +654,18 @@ def main(argv=None, ports=None):
         # 閉じる・閉じた PR の片付けのどれにも使わない（2026-10-29 に guided-resolver で、部署の出した PR が自分の番の一覧に入り、送り直しの
         # /exit が部署の会話の窓を attach から外した）。部署は --clean・--retire が畳む。自分の番でなくなった部署の PR は、会話を残して
         # 窓だけを閉じる（_step_back_departments）
-        depts = _department_places(found, ports, repo.source)
+        rows = _department_worktrees(found, ports, repo.source)
+        depts = {x["branch"]: name for x, name in rows if x.get("branch")}   # 部署が今開いているブランチ → 部署の名前
         dept_places = [p for p in found if p.get("branch") in depts]
         dept_turn = {p["number"] for p in my_prs if p["head"] in depts}   # 自分の番に居る部署の PR（その窓は閉じない）
-        away = _talk_away_places(ports, [x for x in dept_places if x["branch"] in {p["head"] for p in my_prs}], listed)
-        for p in [p for p in my_prs if p["head"] in depts]:
-            name = depts[p["head"]]
+        heads = {p["head"] for p in my_prs}
+        # 部署が前に開いていたブランチの PR も部署の物（_department_past）。その部署の場所を、そのブランチの名前で並べる（窓に会話が居るかと
+        # 部署の属性を読む口が、ブランチから場所を引く）
+        past = {b: v for b, v in _department_past(rows, found, ports).items() if b in heads}
+        past_places = [{**x, "branch": b} for b, (_, x) in past.items()]
+        away = _talk_away_places(ports, [x for x in dept_places if x["branch"] in heads] + past_places, listed)
+        for p in [p for p in my_prs if p["head"] in depts or p["head"] in past]:
+            name = depts[p["head"]] if p["head"] in depts else past[p["head"]][0]
             gone = ("" if p["head"] not in away else
                     f"。部署の窓に会話が居ない。受付 {away[p['head']]} を納品していないので、--nudge '{name}' で戻して納品を促す" if away[p["head"]] else
                     "。部署の窓に会話は居ないが、受けた頼みは納品済みなので attach で戻さなくてよい（次の --ask が戻してから頼む）")
@@ -652,8 +674,9 @@ def main(argv=None, ports=None):
                 # その案内も同じ行に添える（重ねて頼まない行だけでは、落ちた部署が見えない）
                 owed_depts.append((p, name, gone))
                 continue
-            notes.append(f"#{p['number']}: 部署「{name}」の作業場のブランチなので開かない（レビューの返しは --ask '{name}' --text <頼み> で部署へ回す{gone}）")
-        my_prs = [p for p in my_prs if p["head"] not in depts]
+            whose = "の作業場のブランチ" if p["head"] in depts else "が前に作業場で開いていたブランチ"
+            notes.append(f"#{p['number']}: 部署「{name}」{whose}なので開かない（レビューの返しは --ask '{name}' --text <頼み> で部署へ回す{gone}）")
+        my_prs = [p for p in my_prs if p["head"] not in depts and p["head"] not in past]
         found = [p for p in found if p.get("branch") not in depts]
     places = _branch_places(found)
     turn_numbers = {p["number"] for p in my_prs}   # 自分の番の PR（片付けで、自分の番でない PR の会話を見分ける）
@@ -712,7 +735,7 @@ def main(argv=None, ports=None):
         else:
             verdicts[p["number"]] = v
     held += [_held_row(p, "no_news", places) for p in my_prs if p["number"] in quiet]
-    notes += _ask_departments(a, cfg, repo, ports, owed_depts, dept_places if listing else [], sent, sent_ok)
+    notes += _ask_departments(a, cfg, repo, ports, owed_depts, dept_places + past_places if listing else [], sent, sent_ok)
     my_prs = [p for p in my_prs if p["number"] not in quiet]
     staying = [x for x in sess if not any(x is r for r in refresh.values())]
     metered = [x.name for x in cfg.accounts if x.limits]
@@ -1009,8 +1032,8 @@ def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
 
 
 def _step_back_departments(cfg, repo, ports, dry_run, places, names, turn_numbers, limited):
-    """自分の番でなくなった開いている PR の部署の作業場（herdr の窓）を閉じる（一覧の回だけ）。places は部署の場所（_department_places の
-    ブランチの物）、names は {ブランチ: 部署の名前}、turn_numbers は自分の番に居る部署の PR の番号。部署の裏の会話・worktree・ブランチは
+    """自分の番でなくなった開いている PR の部署の作業場（herdr の窓）を閉じる（一覧の回だけ）。places は部署の場所（_department_worktrees のうちブランチを
+    開いている物）、names は {ブランチ: 部署の名前}、turn_numbers は自分の番に居る部署の PR の番号。部署の裏の会話・worktree・ブランチは
     残す（--retire しない。レビューの指摘を、事情を知った同じ会話へ --ask で回すため。次の --ask が作業場を開き直す: orders.revive）。
     閉じるのは、窓が開いていて、部署の場所の会話がどれも手すきか止まっていて、受けた頼みを納品し終え、順番待ちに頼みが無く、未コミットの
     変更も手元にしか無い commit・stash も無いときだけ（2026-10-29 に guided-resolver で、相手の番の PR の部署の窓が 8 つ開いたまま残った。

@@ -897,6 +897,52 @@ class Flow(unittest.TestCase):
         with mock.patch.object(ports.term, "panes", side_effect=dispatch.term.Error(["herdr"], "答えない")):
             self.assertEqual(dispatch._talk_away_places(ports, [{"path": path, "branch": "b", "workspace": "w"}], {}), {})
 
+    def switched_department(self, owed=0):
+        """部署が作業場 feat-3 で #3（feat/3）を出した後、同じ作業場で feat/9 に替えた形（頼み 759276）。(場所, ports)"""
+        path = self.place(3)
+        self.department(path)
+        self.g.checkout(path, "feat/9", 100, start="origin/main")
+        ports = FakePorts([{**pr(3), "owed_threads": owed}] if owed else [pr(3)], git=self.g)
+        ports.acts = {3: {"reviewers": True, "last_other": None}}
+        return path, ports
+
+    def test_a_branch_the_department_left_is_still_the_departments(self):
+        # 2026-11-02 に guided-resolver の部署「設計書の書き直し」が PR ごとに同じ作業場でブランチを替え、前の PR を自分の番の作業場として
+        # 開いた（#2365）か、作業場の置き場の名前がぶつかって止まった（#2362）
+        path, ports = self.switched_department()
+        before = set(self.g.heads)
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("#3: 部署「部署の作業」が前に作業場で開いていたブランチなので開かない（レビューの返しは --ask '部署の作業' --text <頼み> で部署へ回す）", out)
+        self.assertEqual(set(self.g.heads), before, out)   # 新しい worktree を作らない
+        self.assertEqual(ports.term.writes, [], out)
+
+    def test_a_left_branch_open_in_another_worktree_is_that_places(self):
+        # 部署が離れたブランチを、今ほかの worktree が開いていれば、その場所の物として今までどおりに扱う
+        path, ports = self.switched_department()
+        self.g.add_worktree(str(pathlib.Path(self.root, "mine-3")), "feat/3")
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("前に作業場で開いていたブランチ", out)
+
+    def test_threads_i_owe_on_a_left_branch_are_asked_of_the_department(self):
+        path, ports = self.switched_department(owed=2)
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("#3: 部署「部署の作業」の PR に、返していない人のスレッドが 2 本ある → 部署に頼む（試し打ちなので頼んでいない）", out)
+        self.g.set_worktree_attr(path, "ask", "q9")   # 部署の属性は、部署の今の場所から読む
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertIn("受付 q9 をまだ納品していないので、重ねて頼まない", out)
+
+    def test_the_department_that_left_last_owns_the_branch(self):
+        path, ports = self.switched_department()
+        other = self.g.add_worktree(str(pathlib.Path(self.root, "dept-b")), "feat/8", "origin/main")
+        self.department(other, name="部署B")
+        self.g.checkout(other, "feat/3", 200)
+        self.g.checkout(other, "feat/7", 300, start="origin/main")
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#3: 部署「部署B」が前に作業場で開いていたブランチなので開かない", out)
+
     def test_a_pr_place_beside_a_department_is_still_refreshed(self):
         # 部署の作業場を外しても、同じ回の部署でない PR の作業場は今までどおり送り直す（絞りすぎない）
         dept, path = self.place(3), self.place(1)

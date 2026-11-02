@@ -154,6 +154,26 @@ def stashed(cwd, branch, runner=_default_runner):
     return any(line.startswith((f"WIP on {branch}: ", f"On {branch}: ")) for line in out.splitlines())
 
 
+# HEAD の reflog の 1 行（reflog show --date=unix --format=%gd%x09%gs）のうち、ブランチを替えた行（git checkout・git switch が書く）
+_CHECKOUT = re.compile(r"^HEAD@\{(\d+)\}\tcheckout: moving from (\S+) to (\S+)$")
+
+
+def visited_branches(cwd, runner=_default_runner):
+    """その worktree の HEAD が居たことのあるブランチ → 最後にそこへ移った・そこから移った時刻（unix 秒）。HEAD の reflog は worktree ごとの
+    記録（.git/worktrees/<id>/logs/HEAD）で、ブランチを替えた行の、移る前と移った先の名前を取る（ブランチに居なかった間の commit の id も
+    混ざるが、PR のブランチの名前とは当たらない）。reflog が無い・読めないときは空（reflog の行は git gc が既定で 90 日〔指す commit がどこからも辿れない行は 30 日〕で消し、core.logAllRefUpdates が
+    false なら書かれない）。"""
+    out = _git(cwd, ["reflog", "show", "--date=unix", "--format=%gd%x09%gs", "HEAD", "--"], runner)
+    got = {}
+    for line in (out or "").splitlines():
+        m = _CHECKOUT.match(line)
+        if m:
+            at = int(m.group(1))
+            for name in m.group(2, 3):
+                got[name] = max(got.get(name, 0), at)
+    return got
+
+
 def unpushed(cwd, runner=_default_runner, landed=None):
     """その worktree に、手元にしか無い作業があるか。読めない時は、有るとみなす（消さない側に倒す）。
 
