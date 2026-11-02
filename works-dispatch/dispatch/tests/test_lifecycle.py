@@ -983,6 +983,17 @@ class Flow(unittest.TestCase):
         self.assertTrue(pathlib.Path(path).exists())
         self.assertIn("feat/3", self.g.local)
 
+    def test_a_department_with_a_left_branch_pr_in_my_turn_keeps_its_window(self):
+        # 今のブランチ feat/3 の PR は自分の番でないが、前に開いていた feat/5 の PR #5 が自分の番に居る（頼み 759276。inspector の指摘）
+        path, ports, pane = self.off_turn_department()
+        self.g.local["feat/5"] = self.g.local["feat/3"]
+        self.g.visits[path] = {"feat/5": 50, "feat/3": 50}
+        ports._prs = [pr(5)]
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("#5: 部署「部署の作業」が前に作業場で開いていたブランチなので開かない", out)
+        self.assertNotIn("部署の窓を閉じる", out)
+
     def test_dry_run_names_the_off_turn_departments_window_and_closes_nothing(self):
         path, ports, _ = self.off_turn_department()
         rc, out = run_main(self.cfg, ports, "--dry-run")

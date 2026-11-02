@@ -223,10 +223,12 @@ def _branch_places(places):
 
 
 def _department_worktrees(places, ports, source):
-    """worktree の並びのうち、部署の作業場（属性 company.role を持つ linked worktree。元の clone は除く）の (場所, 部署の名前) の並び。"""
+    """worktree の並びのうち、部署の作業場（属性 company.role を持つ linked worktree。元の clone は除く）の (場所, 部署の名前) の並び。
+    ブランチに居ない作業場は、消えかけ（prunable。フォルダが無い）でない物だけ（前に開いていたブランチを reflog から読むため）。"""
     out = []
     for p in places:
-        if not p.get("linked") or os.path.realpath(p["path"]) == os.path.realpath(source):
+        if (not p.get("linked") or os.path.realpath(p["path"]) == os.path.realpath(source)
+                or not p.get("branch") and p.get("prunable")):
             continue
         attrs = ports.attrs(p["path"])
         if attrs.get("role"):
@@ -244,6 +246,8 @@ def _department_past(rows, places, ports):
     taken = {p.get("branch") for p in places}
     best = {}
     for p, name in rows:
+        if p.get("prunable"):   # フォルダの無い作業場は reflog も読めない
+            continue
         for b, at in ports.visited(p["path"]).items():
             if b not in taken and (b not in best or at > best[b][0]):
                 best[b] = (at, name, p)
@@ -874,7 +878,10 @@ def main(argv=None, ports=None):
 
     if listing:
         notes += _tidy(cfg, repo, ports, a.dry_run, found, turn_numbers, sent, limited)
-        notes += _step_back_departments(cfg, repo, ports, a.dry_run, dept_places, depts, dept_turn, limited)
+        # 前に開いていたブランチの PR が自分の番に居る部署は、今のブランチの PR が自分の番から外れても窓を閉じない
+        waiting = {x["path"] for x in past_places}
+        notes += _step_back_departments(cfg, repo, ports, a.dry_run, [x for x in dept_places if x["path"] not in waiting],
+                                        depts, dept_turn, limited)
         notes += _fold_departments(a, cfg, repo, ports, dept_places, depts)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
