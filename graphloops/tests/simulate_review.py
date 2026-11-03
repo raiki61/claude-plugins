@@ -2743,9 +2743,13 @@ def test_wrote_refs_direct_arms():
         check(len(errs) == 1 and "通常のファイルでない" in errs[0], f"FIFO に置き換わった指し先は開かずに拒む（{errs}）")
     else:
         skip("FIFO に置き換わった指し先は開かずに拒む", "fifo", "この OS には FIFO（os.mkfifo）が無い")
-    # **symlink の輪を含む指し先を、例外にせず拒む**（3.12 以前の resolve は輪を RuntimeError で投げる）
+    # **symlink の輪を含む指し先を、例外にせず拒む**（3.12 以前の resolve は輪を RuntimeError で投げる）。輪はディレクトリの
+    # symlink で作る——ファイルの symlink（Windows の既定）で作った輪では、Windows の組で RuntimeError の道を通らなかった
+    # （mutation の run 41434318208 で f07 が生き残った）。resolve が RuntimeError に直すのは ELOOP か ERROR_CANT_RESOLVE_FILENAME
+    # （1921）だけで、Windows がその番号を返すのはディレクトリの symlink の輪を辿った時、という見立て（POSIX は target_is_directory を見ない）
     try:
-        (run.repo / "loopa").symlink_to("loopb"); (run.repo / "loopb").symlink_to("loopa")
+        (run.repo / "loopa").symlink_to("loopb", target_is_directory=True)
+        (run.repo / "loopb").symlink_to("loopa", target_is_directory=True)
         errs, _ = mod._cite_errors(b.dir, "p3.fix", [{"kind": "text", "cite": "x", "target": "loopa/x.md", "where": "src/a.py"}], None, "wrote_refs")
         check(len(errs) == 1, f"symlink の輪を含む指し先は拒否文で返る（例外にしない。{errs}）")
     except RuntimeError as e:
@@ -6463,30 +6467,52 @@ def test_spec_stop_and_changes():
     rm(run.tmp)
 
 
+# Windows の止める信号の形: 外から送る SIGTERM は TerminateProcess で、信号の口（install_stop_handlers）を通らない。そこで
+# loop.py を同じプロセスで起動し（runpy）、別のスレッドが実行器の孫の番号を見てから自分のプロセスに SIGTERM を上げる
+# （signal.raise_signal。口が無ければ C の既定の動きで exit 3 で落ち、木は残る）
+STOP_FROM_INSIDE = r"""
+import runpy, signal, sys, threading, time
+pidf = sys.argv[1]
+def fire():
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 60:
+        try:
+            if open(pidf, encoding="utf-8").read().strip():
+                break
+        except OSError:
+            pass
+        time.sleep(0.05)
+    signal.raise_signal(signal.SIGTERM)
+threading.Thread(target=fire, daemon=True).start()
+sys.argv = sys.argv[2:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
+
+
 def test_stop_signal_stops_test_runner_tree():
     """**loop.py が止める信号を受けたら、builtin が起動したテストの実行器の木も止める**（全コマンドの信号の口）。
-    仕様の固定（spec.freeze）が受け入れ条件を走らせている next に SIGTERM を送り、孫まで止まって exit 143 で抜けることを見る"""
-    if os.name != "posix":
-        skip("止める信号: next が止められたら、受け入れ条件の実行器の孫まで止めて 143 で抜ける", "process-group",
-             "posix の信号とプロセスグループで孫の生死を見る台本の作り（SIGTERM を送って 128+信号で抜ける）に頼る")
-        return
+    仕様の固定（spec.freeze）が受け入れ条件を走らせている next に SIGTERM を送り、孫まで止まって exit 143 で抜けることを見る。
+    POSIX は外から送り、Windows は同じプロセスの中から上げる（STOP_FROM_INSIDE）"""
     print("止める信号: next の中で走るテストの実行器の木を孫まで止め、128+信号で抜ける")
     run = Run("spec-signal", init_args=("--input", "flow=spec"))
     drive(run, "spec")
     pidf = run.tmp / "runner-grandchild.pid"
     hold, lock = parallel.hold_code(120), parallel.creator_lock(run.tmp)   # 実行器と孫の寿命をこの台本に縛る
     f = run.repo / SPEC_TESTS["AC1"][0]
+    # 実行器は孫を起動して番号を書き、孫が終わるまで待つ（孫はロックを待って眠る）
     f.write_text(f.read_text(encoding="utf-8").replace("import pathlib, sys\n",
                  f"import pathlib, subprocess, sys, time\nc = subprocess.Popen([sys.executable, '-c', {hold!r}, {lock!r}])\n"
-                 f"open({str(pidf)!r}, 'w').write(str(c.pid))\nimport fcntl, os, signal\nsignal.alarm(120)\n"
-                 f"fcntl.flock(os.open({lock!r}, os.O_RDONLY), fcntl.LOCK_SH)\n", 1), encoding="utf-8")
+                 f"open({str(pidf)!r}, 'w').write(str(c.pid))\nc.wait()\n", 1), encoding="utf-8")
     run.cmd("answer", "--text", "continue")
-    proc = subprocess.Popen([PY, str(LOOP), "next", "--dir", str(run.dir)], cwd=run.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    argv = ([PY, str(LOOP), "next", "--dir", str(run.dir)] if os.name == "posix"
+            else [PY, "-c", STOP_FROM_INSIDE, str(pidf), str(LOOP), "next", "--dir", str(run.dir)])
+    proc = subprocess.Popen(argv, cwd=run.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     t0 = time.monotonic()
     while not (pidf.is_file() and pidf.read_text(encoding="utf-8").strip()) and proc.poll() is None and time.monotonic() - t0 < 60:
         time.sleep(0.05)
     gp = int(pidf.read_text(encoding="utf-8")) if pidf.is_file() and pidf.read_text(encoding="utf-8").strip() else None
-    proc.send_signal(signal.SIGTERM)
+    if os.name == "posix":
+        proc.send_signal(signal.SIGTERM)
     try:
         proc.wait(60)
     except subprocess.TimeoutExpired:
@@ -6496,9 +6522,7 @@ def test_stop_signal_stops_test_runner_tree():
     def gone(pid):
         t1 = time.monotonic()
         while time.monotonic() - t1 < 15:
-            try:
-                os.kill(pid, 0)
-            except OSError:
+            if parallel.proc_gone(pid):   # Windows の os.kill(pid, 0) は問いでなく CTRL_C_EVENT の送り
                 return True
             time.sleep(0.05)
         return False

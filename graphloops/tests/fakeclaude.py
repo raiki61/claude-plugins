@@ -79,7 +79,11 @@ elif mode == "sleep":
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(os.environ["FAKE_PID"], "w", encoding="utf-8") as f:
         f.write(str(child.pid))
-    os.execv(sys.executable, [sys.executable, "-c", hold, os.environ["FAKE_HOLD"]])   # 同じ pid のまま待つ側に替わる
+    if os.name == "posix":
+        os.execv(sys.executable, [sys.executable, "-c", hold, os.environ["FAKE_HOLD"]])   # 同じ pid のまま待つ側に替わる
+    # Windows の os.execv は別のプロセスを起動して自分は終わる（pid が替わり、engine には子が終わったと見える）——同じプロセスで待つ
+    sys.argv = [sys.argv[0], os.environ["FAKE_HOLD"]]
+    exec(hold)
 elif mode == "bad_then_answer" and not resumed:
     out("判定は次のとおりです（散文）", **({"structured_output": {}} if structured else {}))
 else:

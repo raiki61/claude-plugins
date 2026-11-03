@@ -116,8 +116,8 @@ def rm(p):
     shutil.rmtree(p, ignore_errors=True)
 
 
-# 固定具の子の寿命を、起動した台本のプロセスの生存に縛る口（POSIX）。台本が排他ロックを握り、子はその共有ロックを待つだけの
-# 1 行（hold_code）で眠る。台本が終わる・SIGKILL で消える（変異の実行器が failfast・時間切れでグループごと殺す回）とカーネルが
+# 固定具の子の寿命を、起動した台本のプロセスの生存に縛る口。台本が排他ロックを握り、子はそのロックを待つだけの
+# 短い本文（hold_code）で眠る（POSIX は flock、Windows は msvcrt.locking——どちらもプロセスが終わると OS がロックを離す）。台本が終わる・SIGKILL で消える（変異の実行器が failfast・時間切れでグループごと殺す回）とカーネルが
 # ロックを離し、子は取れた所で終わる——台本の後始末（finally・ExitStack）は SIGKILL の下では走らず、グループ・セッションを
 # 抜けた子には実行器の killpg も届かないので、時間で待たせていた頃は抜けた子が寿命いっぱい残った。engine が標準入力を閉じて
 # 起動する子（run_tree・run_steps・run_role の先）は標準入力の EOF で縛れないので、この口を使う（台本が自分で起動する子は
@@ -128,10 +128,14 @@ _HELD = []
 def creator_lock(dir):
     """dir に排他ロックを作って、このプロセスが終わるまで握る。返すのはロックの置き場（hold_code の子に渡す）。
     置き場が既に握られていれば待たずに例外（同じ置き場を 2 度握ろうとした台本を、止まらずに赤にする）"""
-    import fcntl
     path = pathlib.Path(dir) / "creator.lock"
     f = open(path, "w", encoding="utf-8")
-    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if os.name == "posix":
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    else:
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)   # 頭の 1 バイト（hold_code の子が同じ 1 バイトを待つ）
     with LOCK:
         _HELD.append(f)
     return str(path)
@@ -140,9 +144,47 @@ def creator_lock(dir):
 def hold_code(secs, first=""):
     """固定具の子の本文（python -c <本文> <ロックの置き場>）: 起動した台本がロックを離すまで待つ。secs は今までの寿命の上限を
     そのまま残す——止める側の欠陥で子が止まらない回に、子を待つ検査が赤にならず待ち続けないため（上限を足すのではない）。
-    first は待つ前に呼ぶ文（グループを抜ける os.setpgid(0, 0) など）。引用符を含まないので sh の引用の中にも置ける"""
-    return (f"import fcntl, os, signal, sys; {first}signal.alarm({int(secs)}); "
-            "fcntl.flock(os.open(sys.argv[1], os.O_RDONLY), fcntl.LOCK_SH)")
+    first は待つ前に呼ぶ文（グループを抜ける os.setpgid(0, 0) など）。引用符を含まないので sh の引用の中にも置ける。
+    Windows は flock も signal.alarm も無いので、同じ 1 バイトの排他ロック（msvcrt.locking）が取れるまで、secs の間だけ
+    問い直す（台本が終われば取れる。待つ子が何本でも、取れた子はすぐ終わってロックを離す）"""
+    if os.name == "posix":
+        return (f"import fcntl, os, signal, sys; {first}signal.alarm({int(secs)}); "
+                "fcntl.flock(os.open(sys.argv[1], os.O_RDONLY), fcntl.LOCK_SH)")
+    return (f"import msvcrt, os, sys, time; {first}end = time.monotonic() + {int(secs)}; fd = os.open(sys.argv[1], os.O_RDONLY)\n"
+            "while time.monotonic() < end:\n"
+            "    try:\n"
+            "        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)\n"
+            "        break\n"
+            "    except OSError:\n"
+            "        time.sleep(0.1)\n")
+
+
+def proc_gone(pid):
+    """pid のプロセスが居ないか（1 回だけ問う。待つのは呼び元）。POSIX は信号 0 で、届かなければ（EPERM も）居ないと読む。
+    Windows は os.kill(pid, 0) が信号 0 の問いでなく CTRL_C_EVENT の送りになるので使えない——OpenProcess で開き、
+    開けなければ（ERROR_INVALID_PARAMETER）居ない、開けたら終わった（signaled）かで読む。engine の _started_at を使わないのは、
+    止める側（engine）の欠陥を、止まったかを見る側に持ち込まないため"""
+    if os.name == "posix":
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        return False
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    k.CloseHandle.argtypes = (wintypes.HANDLE,)
+    h = k.OpenProcess(0x1000 | 0x00100000, False, int(pid))   # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+    if not h:
+        return ctypes.get_last_error() == 87   # ERROR_INVALID_PARAMETER: その番号のプロセスは居ない
+    try:
+        return k.WaitForSingleObject(h, 0) == 0   # WAIT_OBJECT_0: 終わっている
+    finally:
+        k.CloseHandle(h)
 
 
 # 走っている台本の名前。変異の実行器（tests/mutate.py の marker_run）が、印を書いた行を『どの台本が通したか』に帰属させる口。

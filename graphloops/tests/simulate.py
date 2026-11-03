@@ -802,6 +802,15 @@ def test_hook_evidence():
     else:
         skip("FIFO を読んだ回はフックが記録しない", "fifo", "この OS には FIFO（os.mkfifo）が無い")
         skip("FIFO は開かずに none", "fifo", "この OS には FIFO（os.mkfifo）が無い")
+    # **通常のファイルでない物は、FIFO の作れない OS（Windows）でも開かない。** null デバイス（os.devnull）はどの OS にも在る
+    # 文字デバイスで、開けば空が読める——通常のファイルかのチェックを外すと、フックは空の読みを記録し、読む側は none の前に進む
+    n = len((board / "reads.jsonl").read_text(encoding="utf-8").splitlines())
+    check(fire(os.devnull) == 0 and len((board / "reads.jsonl").read_text(encoding="utf-8").splitlines()) == n,
+          "null デバイスを読んだ回もフックが記録しない（通常のファイルでない物は開かない。どの OS にも在る形）")
+    # 開いてしまえば空の中身の sha を記録と突き合わせ、記録に無いので absent になる——none だけで開かなかったと分かる
+    # （記録 reads.jsonl は上の fire で在る。無ければ別の理由の none になるので、在ることも見る）
+    got, why = RESEARCH_RULES.hook_evidence(board, os.devnull)
+    check((board / "reads.jsonl").is_file() and got == "none", f"null デバイスも開かずに none（どの OS にも在る形。{got}: {why[:50]}）")
     # **sha を持たない行（書いた側の上限超え）は大きさの部分読みとして扱い、一致の証拠にも不一致の証拠にもしない**——
     # 不一致と数えていた頃は、2 つの上限の写しがずれた日に、小さい文書が『読んだ後に変わった』と名乗られた
     nosha = tmp / "nosha.md"; nosha.write_text("n" + chr(10), encoding="utf-8")
@@ -1834,103 +1843,102 @@ def test_role_run():
     check(role_run.filetime_to_epoch(116444736000000000) == 0.0 and role_run.filetime_to_epoch(116444736010000000) == 1.0,
           "Windows: 作成時刻の FILETIME（1601-01-01 からの 100ns）をエポック秒に読む")
     check(role_run.stop_group(str(tmp / "no-mark.json.pgid")) is None, "印が無ければ止める物は無い（relaunch は素通り）")
-    if os.name == "posix":
-        lock = parallel.creator_lock(tmp)   # 固定具の子の寿命をこの台本のプロセスに縛る（parallel.hold_code）
+    lock = parallel.creator_lock(tmp)   # 固定具の子の寿命をこの台本のプロセスに縛る（parallel.hold_code）
 
-        def hold(secs, first="", dq=False):
-            """台本が握るロックを待つ子の sh の語。dq なら sh の ' の引用の中に置く形（" で囲む。置き場に空白が無い前提）"""
-            code = parallel.hold_code(secs, first)
-            return f'{sys.executable} -c "{code}" {lock}' if dq else shlex.join([sys.executable, "-c", code, lock])
+    def hold(secs, first="", dq=False):
+        """台本が握るロックを待つ子の sh の語。dq なら sh の ' の引用の中に置く形（" で囲む。置き場に空白が無い前提）"""
+        code = parallel.hold_code(secs, first)
+        return f'{sys.executable} -c "{code}" {lock}' if dq else shlex.join([sys.executable, "-c", code, lock])
 
-        def gone(pid, within=10):
-            """pid が居なくなるまで期限つきで問い直す——止めた孫は親が居なくなってから init が回収するので、1 回だけ見ると
-            回収前のゾンビを『生きている』と数えて時々赤くなる"""
-            t0 = time.monotonic()
-            while True:
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    return True
-                if time.monotonic() - t0 > within:
-                    return False
-                time.sleep(0.05)
+    def gone(pid, within=10):
+        """pid が居なくなるまで期限つきで問い直す——止めた孫は親が居なくなってから init が回収するので、1 回だけ見ると
+        回収前のゾンビを『生きている』と数えて時々赤くなる"""
+        t0 = time.monotonic()
+        while True:
+            if parallel.proc_gone(pid):   # Windows の os.kill(pid, 0) は問いでなく CTRL_C_EVENT の送り
+                return True
+            if time.monotonic() - t0 > within:
+                return False
+            time.sleep(0.05)
 
-        def sleeper(extra):
-            """眠る子（孫も立てる）を run_role で起動し、印（<out>.pgid）と孫の pid が出るまで待つ。返すのは (スレッド, 結果, 孫の pid)"""
-            pidf = tmp / f"grandchild-{'-'.join(sorted(extra))}.pid"
-            got = {}
-            th = threading.Thread(target=lambda: got.update(role_run.run_role(
-                argv, prompt, out, env={**env, "FAKE_MODE": "sleep", "FAKE_PID": str(pidf), "FAKE_HOLD": lock}, **extra)))
-            th.start()
-            t0 = time.monotonic()
-            while not (pidf.is_file() and pidf.read_text(encoding="utf-8")) and th.is_alive() and time.monotonic() - t0 < 30:
-                time.sleep(0.05)
-            return th, got, int(pidf.read_text(encoding="utf-8")) if pidf.is_file() and pidf.read_text(encoding="utf-8") else None
+    def sleeper(extra):
+        """眠る子（孫も立てる）を run_role で起動し、印（<out>.pgid）と孫の pid が出るまで待つ。返すのは (スレッド, 結果, 孫の pid)"""
+        pidf = tmp / f"grandchild-{'-'.join(sorted(extra))}.pid"
+        got = {}
+        th = threading.Thread(target=lambda: got.update(role_run.run_role(
+            argv, prompt, out, env={**env, "FAKE_MODE": "sleep", "FAKE_PID": str(pidf), "FAKE_HOLD": lock}, **extra)))
+        th.start()
+        t0 = time.monotonic()
+        while not (pidf.is_file() and pidf.read_text(encoding="utf-8")) and th.is_alive() and time.monotonic() - t0 < 30:
+            time.sleep(0.05)
+        return th, got, int(pidf.read_text(encoding="utf-8")) if pidf.is_file() and pidf.read_text(encoding="utf-8") else None
 
-        mark = pathlib.Path(str(out) + ".pgid")
-        # 止める口だけで孫まで止まるかを見る——試行の終わりの刈り取り（_end_attempt）が代わりに孫を止めると、止める口の欠陥が
-        # 隠れるので、この 2 回だけ刈らずに印だけ消す形に差し替える。途中の刈り取り（長が終わっても管が閉じない回の _reap_one）は
-        # 差し替えない: fakeclaude の sleep の孫は出力の管を継がないので走らない、が前提（固定具を変えるならこの前提を見直せ）
-        real_end = role_run._end_attempt
-        role_run._end_attempt = lambda trees, pgid_file: pathlib.Path(pgid_file).unlink(missing_ok=True)
-        try:
-            th, got, pid = sleeper({})
-            check(mark.is_file() and json.loads(mark.read_text(encoding="utf-8")).get("pgid"),
-                  "起動した子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
-            t0 = time.monotonic()
-            why = role_run.stop_group(str(mark))
-            th.join(30)
-            check(why is None and not th.is_alive() and not got.get("ok") and time.monotonic() - t0 < 30,
-                  f"stop_group は別の口から試行の子を止め、run_role は失敗として返る（{why} {got.get('why')}）")
-            check(pid is not None and gone(pid), f"stop_group では孫（前置の層の先の claude に当たる）まで止まる（pid {pid}）")
-            check(not mark.exists(), "子が終わったら印を消す（残った番号が別のグループに当たらない）")
-            # launch のプロセスが止められたとき（kill_all）も、生きている子を孫まで止める
-            th, got, pid = sleeper({"log_path": None})
-            role_run.kill_all()
-            th.join(30)
-            check(not th.is_alive() and pid is not None and gone(pid) and not mark.exists(),
-                  f"kill_all は生きている子を孫まで止める（launch が止められても子を残さない。pid {pid}）")
-        finally:
-            role_run._end_attempt = real_end
-        # 起動した直後に起動し直されていたと分かったら、その子を自分で止めて『起動し直された』で返る（still_mine）
-        seen_mark = {}
-
-        def superseded():
-            # 聞かれるのは印を書いた後（relaunch と交わっても一方が止める順序）。印の番号を控えて、その子が止まったかを見る
-            seen_mark.update(json.loads(mark.read_text(encoding="utf-8")) if mark.is_file() else {})
-            return False
-        th, got, _ = sleeper({"still_mine": superseded})
-        th.join(30)
-        check(not th.is_alive() and got.get("superseded") and not got.get("ok") and got.get("why") == role_run.SUPERSEDED,
-              f"起動し直された試行は子を止めて返る（{got.get('why')}）")
-        leader = seen_mark.get("pgid")
-        check(not mark.exists() and leader is not None and gone(leader),
-              f"そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある（pgid {leader}）")
-        # 番号が印より後に始まったプロセスに再利用されていたら止めない——同じ python・同じ層（with-auth.py）の兄弟の試行でも
-        other = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], start_new_session=True, stdin=subprocess.PIPE)
-        mark.write_text(json.dumps({"pgid": other.pid}), encoding="utf-8")
-        past = time.time() - 60
-        os.utime(mark, (past, past))   # 印は 60 秒前に書かれた（その後に始まった other は別物）
+    mark = pathlib.Path(str(out) + ".pgid")
+    # 止める口だけで孫まで止まるかを見る——試行の終わりの刈り取り（_end_attempt）が代わりに孫を止めると、止める口の欠陥が
+    # 隠れるので、この 2 回だけ刈らずに印だけ消す形に差し替える。途中の刈り取り（長が終わっても管が閉じない回の _reap_one）は
+    # 差し替えない: fakeclaude の sleep の孫は出力の管を継がないので走らない、が前提（固定具を変えるならこの前提を見直せ）
+    real_end = role_run._end_attempt
+    role_run._end_attempt = lambda trees, pgid_file: pathlib.Path(pgid_file).unlink(missing_ok=True)
+    try:
+        th, got, pid = sleeper({})
+        check(mark.is_file() and json.loads(mark.read_text(encoding="utf-8")).get("pgid"),
+              "起動した子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
+        t0 = time.monotonic()
         why = role_run.stop_group(str(mark))
-        alive = other.poll() is None
-        other.kill()
-        other.wait()
-        other.stdin.close()
-        check(why is None and alive and not mark.exists(), f"番号が印より後に始まったプロセスに再利用されていれば止めずに印だけ消す（{why} alive={alive}）")
-        # 開始時刻を確かめられない回は止めない（止める向きの誤りは無関係な木を止める）
-        orig = role_run._started_at
-        role_run._started_at = lambda pid: None
-        try:
-            mark.write_text(json.dumps({"pgid": os.getpid()}), encoding="utf-8")
-            try:
-                why = role_run.stop_group(str(mark))
-            except Exception as e:   # 確かめられないまま時刻の比べに進んで落ちる形も、止めずに理由を返していない——検査の赤で言う
-                why = f"例外 {type(e).__name__}: {e}"
-        finally:
-            role_run._started_at = orig
-        check(why and "確かめられない" in why and mark.exists(), f"開始時刻を確かめられなければ止めずに理由を返す（{why}）")
-        mark.unlink()
+        th.join(30)
+        check(why is None and not th.is_alive() and not got.get("ok") and time.monotonic() - t0 < 30,
+              f"stop_group は別の口から試行の子を止め、run_role は失敗として返る（{why} {got.get('why')}）")
+        check(pid is not None and gone(pid), f"stop_group では孫（前置の層の先の claude に当たる）まで止まる（pid {pid}）")
+        check(not mark.exists(), "子が終わったら印を消す（残った番号が別のグループに当たらない）")
+        # launch のプロセスが止められたとき（kill_all）も、生きている子を孫まで止める
+        th, got, pid = sleeper({"log_path": None})
+        role_run.kill_all()
+        th.join(30)
+        check(not th.is_alive() and pid is not None and gone(pid) and not mark.exists(),
+              f"kill_all は生きている子を孫まで止める（launch が止められても子を残さない。pid {pid}）")
+    finally:
+        role_run._end_attempt = real_end
+    # 起動した直後に起動し直されていたと分かったら、その子を自分で止めて『起動し直された』で返る（still_mine）
+    seen_mark = {}
 
+    def superseded():
+        # 聞かれるのは印を書いた後（relaunch と交わっても一方が止める順序）。印の番号を控えて、その子が止まったかを見る
+        seen_mark.update(json.loads(mark.read_text(encoding="utf-8")) if mark.is_file() else {})
+        return False
+    th, got, _ = sleeper({"still_mine": superseded})
+    th.join(30)
+    check(not th.is_alive() and got.get("superseded") and not got.get("ok") and got.get("why") == role_run.SUPERSEDED,
+          f"起動し直された試行は子を止めて返る（{got.get('why')}）")
+    leader = seen_mark.get("pgid")
+    check(not mark.exists() and leader is not None and gone(leader),
+          f"そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある（pgid {leader}）")
+    # 番号が印より後に始まったプロセスに再利用されていたら止めない——同じ python・同じ層（with-auth.py）の兄弟の試行でも
+    other = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE,
+                         **({"start_new_session": True} if os.name == "posix" else {}))
+    mark.write_text(json.dumps({"pgid": other.pid}), encoding="utf-8")
+    past = time.time() - 60
+    os.utime(mark, (past, past))   # 印は 60 秒前に書かれた（その後に始まった other は別物）
+    why = role_run.stop_group(str(mark))
+    alive = other.poll() is None
+    other.kill()
+    other.wait()
+    other.stdin.close()
+    check(why is None and alive and not mark.exists(), f"番号が印より後に始まったプロセスに再利用されていれば止めずに印だけ消す（{why} alive={alive}）")
+    # 開始時刻を確かめられない回は止めない（止める向きの誤りは無関係な木を止める）
+    orig = role_run._started_at
+    role_run._started_at = lambda pid: None
+    try:
+        mark.write_text(json.dumps({"pgid": os.getpid()}), encoding="utf-8")
+        try:
+            why = role_run.stop_group(str(mark))
+        except Exception as e:   # 確かめられないまま時刻の比べに進んで落ちる形も、止めずに理由を返していない——検査の赤で言う
+            why = f"例外 {type(e).__name__}: {e}"
+    finally:
+        role_run._started_at = orig
+    check(why and "確かめられない" in why and mark.exists(), f"開始時刻を確かめられなければ止めずに理由を返す（{why}）")
+    mark.unlink()
+
+    if os.name == "posix":
         def escaped(escape, leader_stays=True):
             """孫がグループの外へ出る木を起動する ——(長の Popen, 孫の pid)。escape は孫が最初に呼ぶ口（setpgid はジョブ制御つきの
             シェルが背景の仕事を移す形、setsid は新しいセッションへ抜ける形）。leader_stays が偽なら長は孫を起動してすぐ終わる。
@@ -2063,17 +2071,23 @@ def test_role_run():
               and "は居ないが、外へ出た子孫を確かめていない" in (got["why"] or ""),
               f"ps が失敗する回は、グループへ送って子を止め、外へ出た子孫を確かめていないと言う（{got}）")
     else:
-        # posix の囲いの check と同じ本数を見送りで数える（件数は OS に依らず同じ）——囲いに check を足したらここにも足す
+        # 時間切れで孫まで止める（Windows の形）: sh が無いので python の長が孫を起動して待つ。長の止め方は taskkill /T（親子の鎖）。
+        # 時間切れは長が孫の番号を書き終えるのに足りる長さにする（Windows の python の起動は sh より遅い）
+        gpid = tmp / "tree-grandchild.pid"
+        code = ("import subprocess, sys\n"
+                f"c = subprocess.Popen([sys.executable, '-c', {parallel.hold_code(37)!r}, {lock!r}], stdin=subprocess.DEVNULL,"
+                " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                f"open({str(gpid)!r}, 'w', encoding='utf-8').write(str(c.pid))\n"
+                "c.wait()\n")
+        try:
+            role_run.run_tree([sys.executable, "-c", code], cwd=tmp, timeout=5)
+            got = "時間切れにならなかった"
+        except subprocess.TimeoutExpired:
+            got = "TimeoutExpired"
+        gp = int(gpid.read_text(encoding="utf-8")) if gpid.is_file() and gpid.read_text(encoding="utf-8").strip() else None
+        check(got == "TimeoutExpired" and gp is not None and gone(gp), f"run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる（{got} pid {gp}）")
+        # posix の囲いの check と同じ本数を見送りで数える（時間切れの検査は上で Windows の形で数えた）（件数は OS に依らず同じ）——囲いに check を足したらここにも足す
         for desc in (
-                "起動した子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口",
-                "stop_group は別の口から試行の子を止め、run_role は失敗として返る",
-                "stop_group では孫（前置の層の先の claude に当たる）まで止まる",
-                "子が終わったら印を消す（残った番号が別のグループに当たらない）",
-                "kill_all は生きている子を孫まで止める（launch が止められても子を残さない）",
-                "起動し直された試行は子を止めて返る",
-                "そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある",
-                "番号が印より後に始まったプロセスに再利用されていれば止めずに印だけ消す",
-                "開始時刻を確かめられなければ止めずに理由を返す",
                 "固定具の孫が pid を書いた（setpgid で抜ける孫）",
                 "グループの外へ出た孫（os.setpgid(0, 0)）も木の仲間として止める",
                 "固定具の孫が pid を書いた（setsid で抜ける孫）",
@@ -2086,7 +2100,6 @@ def test_role_run():
                 "ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（孫が SIGTERM を無視する形）",
                 "固定具の孫が pid を書いた（長が先に死ぬ木）",
                 "長が先に死んだ後も、setsid で抜けて SIGTERM を無視する孫を前の回の数え上げから拾って止める",
-                "run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる",
                 "run_tree: SIGTERM を無視する孫も、長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL で止める",
                 "run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す",
                 "run_tree: 正常に終わった回も、グループの外へ出た背景のプロセスを終わりに止める",
@@ -2309,16 +2322,16 @@ got = {}
 with R._LIVE_LOCK:
     R.kill_all()
     got["reentrant"] = True
-# 止める信号の後に起動した子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）
-if os.name == "posix":
-    R._STOPPING.set()
-    try:
-        R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
-        got["stopping"] = "起動した"
-    except R.StopSignal:
-        got["stopping"] = "StopSignal"
-    got["live_after"] = len(R.LIVE)
-    R._STOPPING.clear()
+# 止める信号の後に起動した子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）。子は sh でなく python で
+# 起動する（Windows にも在る）
+R._STOPPING.set()
+try:
+    R.run_tree([sys.executable, "-c", "import time; time.sleep(30)"], cwd=".", timeout=60)
+    got["stopping"] = "起動した"
+except R.StopSignal:
+    got["stopping"] = "StopSignal"
+got["live_after"] = len(R.LIVE)
+R._STOPPING.clear()
 # 止め切れなかった木の理由は、時間切れの例外に添えて呼び元へ運ぶ
 orig = R._stop_tree
 R._stop_tree = lambda pgid, leader=None: "検査用の止め切れない理由"
@@ -2349,11 +2362,8 @@ def test_stop_signal_guards():
     except (ValueError, IndexError):
         got = {}
     check(got.get("reentrant") is True, f"信号の口（kill_all）は錠を持つ最中の同じスレッドでも止まらない（{err[-160:]}）")
-    if os.name == "posix":
-        check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
-              f"止める信号の後に起動した子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
-    else:
-        skip("止める信号の後に起動した子はすぐ止めて StopSignal を上げる", "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
+    check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
+          f"止める信号の後に起動した子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
     check(got.get("tree_left") == "検査用の止め切れない理由", f"止め切れなかった木の理由は時間切れの例外に添えて運ぶ（{got.get('tree_left')}）")
 
 
@@ -3021,6 +3031,17 @@ def test_prompt_growth():
     rm(r2.tmp)
 
 
+# 台本が立てる『前の試行の子』を、engine の子と同じく自分のグループに置く（POSIX）。Windows は engine も子を親子の鎖で止める
+# （taskkill /T）ので、グループを作らない
+NEW_GROUP = {"start_new_session": True} if os.name == "posix" else {}
+
+
+def killed_by_stop(code):
+    """子が止められて終わったか: POSIX は信号で終わる（負の終了コード）、Windows は taskkill /F が終了コード 1 で終わらせる
+    （子は標準入力の EOF までは 0 以外で終わらない）"""
+    return code is not None and (code < 0 if os.name == "posix" else code != 0)
+
+
 def test_relaunch():
     """**起動し直しは新しい試行を盤面に刻んでから前の試行の子を止め、前の置き場を締め出す。時間の上限は無い。**
 
@@ -3061,32 +3082,27 @@ def test_relaunch():
     (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     old = pathlib.Path(st["rounds"][-1]["instances"][iid]["out_path"])
     old.write_text("前の試行の途中の返答（検査用）", encoding="utf-8")
-    # 前の試行の子が生きている形: 自分のグループで眠る子を立て、role_run と同じ印を置き場の隣に置く
-    child = None
-    if os.name == "posix":
-        script = run.tmp / "prev-attempt.py"
-        script.write_text("import sys\nsys.stdin.read()\n", encoding="utf-8")   # 台本が握る管の EOF まで眠る
-        child = subprocess.Popen([sys.executable, str(script)], start_new_session=True, stdin=subprocess.PIPE)
-        # 本物では子を起動した launch のプロセスが終了を待って回収する。ここでは台本がその役——回収しないと子は
-        # ゾンビとしてグループに残り、relaunch には止まらない子に見える
-        reaper = threading.Thread(target=child.wait)
-        reaper.start()
-        pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": child.pid}), encoding="utf-8")   # 子を起動した後に書く（role_run と同じ順）
+    # 前の試行の子が生きている形: 自分のグループで眠る子を立て、role_run と同じ印を置き場の隣に置く（Windows はグループを
+    # 作らず、engine は taskkill /T で親子の鎖を辿って止める）
+    script = run.tmp / "prev-attempt.py"
+    script.write_text("import sys\nsys.stdin.read()\n", encoding="utf-8")   # 台本が握る管の EOF まで眠る
+    child = subprocess.Popen([sys.executable, str(script)], stdin=subprocess.PIPE, **NEW_GROUP)
+    # 本物では子を起動した launch のプロセスが終了を待って回収する。ここでは台本がその役——回収しないと子は
+    # ゾンビとしてグループに残り、relaunch には止まらない子に見える
+    reaper = threading.Thread(target=child.wait)
+    reaper.start()
+    pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": child.pid}), encoding="utf-8")   # 子を起動した後に書く（role_run と同じ順）
     r = run.cmd("relaunch", "--node", iid, "--reason", "子が落ちた（検査用）")
     check(r.returncode == 0, f"relaunch: 待っている instance は起動し直せる（{r.stderr.strip()[-80:]}）")
-    if child is not None:
-        reaper.join(15)
-        stopped = not reaper.is_alive()   # 台本が止める前に終わっていた＝relaunch が止めた
-        if not stopped:
-            child.kill()
-            reaper.join()
-        child.stdin.close()
-        check(stopped and child.returncode is not None and child.returncode < 0,
-              f"relaunch: 前の試行の子を木ごと止めてから起動し直す（relaunch が止めた: {stopped}・信号で終わった: {child.returncode}）")
-        check(not pathlib.Path(str(old) + ".pgid").exists(), "relaunch: 止めた試行の印を消す")
-    else:
-        for desc in ("relaunch: 前の試行の子を木ごと止めてから起動し直す", "relaunch: 止めた試行の印を消す"):
-            skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
+    reaper.join(15)
+    stopped = not reaper.is_alive()   # 台本が止める前に終わっていた＝relaunch が止めた
+    if not stopped:
+        child.kill()
+        reaper.join()
+    child.stdin.close()
+    check(stopped and killed_by_stop(child.returncode),
+          f"relaunch: 前の試行の子を木ごと止めてから起動し直す（relaunch が止めた: {stopped}・止められて終わった: {child.returncode}）")
+    check(not pathlib.Path(str(old) + ".pgid").exists(), "relaunch: 止めた試行の印を消す")
     new = run.state()["rounds"][-1]["instances"][iid]
     check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
           f"relaunch: 試行の回数と理由を盤面に刻む（{new.get('attempts')} {new.get('attempt_log')}）")
@@ -3109,25 +3125,19 @@ def test_relaunch():
           f"relaunch: 前の試行の子を確かめられなければ新しい試行を作らない（{r.returncode} {r.stderr.strip()[-80:]}）")
     bad.unlink()
     # 前の relaunch が止め切れずに残した子（1 回目の試行の置き場の印）も、次の relaunch が止め直す（attempt_log の前の置き場）
-    stale_child = None
-    if os.name == "posix":
-        stale_child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], start_new_session=True, stdin=subprocess.PIPE)
-        stale_reaper = threading.Thread(target=stale_child.wait)
-        stale_reaper.start()
-        pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": stale_child.pid}), encoding="utf-8")
+    stale_child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE, **NEW_GROUP)
+    stale_reaper = threading.Thread(target=stale_child.wait)
+    stale_reaper.start()
+    pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": stale_child.pid}), encoding="utf-8")
     # 置き場に何も無いまま 2 回目の起動し直し: 退ける物が無くても起動し直せ、試行の記録は積み増す
     r = run.cmd("relaunch", "--node", iid, "--reason", "2 回目（検査用）")
-    if stale_child is not None:
-        stale_reaper.join(15)
-        stopped = not stale_reaper.is_alive()
-        if not stopped:
-            stale_child.kill()
-            stale_reaper.join()
-        stale_child.stdin.close()
-        check(stopped, "relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す")
-    else:
-        skip("relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す", "process-group",
-             "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
+    stale_reaper.join(15)
+    stopped = not stale_reaper.is_alive()
+    if not stopped:
+        stale_child.kill()
+        stale_reaper.join()
+    stale_child.stdin.close()
+    check(stopped, "relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す")
     new3 = run.state()["rounds"][-1]["instances"][iid]
     check(r.returncode == 0 and new3.get("attempts") == 3 and len(new3.get("attempt_log") or []) == 2,
           f"relaunch: 前の置き場が空でも起動し直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")

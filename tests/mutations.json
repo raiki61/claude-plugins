@@ -185,7 +185,7 @@
    "marker": {
     "where": "after"
    },
-   "expect": "FIFO を読んだ回はフックが記録しない",
+   "expect": "null デバイスを読んだ回もフックが記録しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_hook_evidence"
@@ -618,7 +618,7 @@
    "marker": {
     "where": "after"
    },
-   "expect": "FIFO は開かずに none",
+   "expect": "null デバイスも開かずに none",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_hook_evidence"
