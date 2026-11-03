@@ -4763,7 +4763,7 @@ def test_lane_rules():
             (good(head, handled=[{"key": "arm:miss", "handled": "tests_added", "how": "テストを足した（検査用）"}]), "patch", "テストを足したのに patch が無い結果"),
             (good(head, arms=[_lane_arm("nohit", hit_evidence="")], handled=[]), "arm:nohit", "当たりの証拠の無い腕を見逃しと数えない結果")]:
         got = "; ".join(E(bad))
-        check(want in got, f"線の結果: {desc}は使わない（{got[:90]}）")
+        check(want in got, f"{desc}は使わない（線の結果。{got[:90]}）")
     got = "; ".join(E(good(head, handled=[{"key": "arm:miss", "handled": "tests_added", "how": "テストを足した（検査用）"}], patch="x.patch"), final=True))
     check("作業ツリーに書かない" in got, f"最後のゲート: テストを足した（tests_added）と言うゲートの返答は拒む（{got[:80]}）")
     check(E(good(head, arms=[], handled=[]), final=True) == [] and E(good(head, arms=[], handled=[])) == [],
