@@ -729,7 +729,7 @@
    "marker": {
     "where": "after"
    },
-   "expect": "test_wrote_refs_direct_arms が例外で抜けた: TypeError: argument of type 'NoneType' is not a container or iterable",
+   "expect": "test_wrote_refs_direct_arms が例外で抜けた: TypeError: argument of type 'NoneType' is not",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_wrote_refs_direct_arms"
@@ -1335,6 +1335,12 @@
    "new": "                elif False:",
    "marker": {
     "where": "after"
+   },
+   "tests": {
+    "graphloops/tests/py": [
+     "test_rejections_review.py::test_zero_engine_count_is_not_substituted",
+     "test_rejections_review.py::test_zero_count_unit_keys_are_left_for_the_fix"
+    ]
    }
   },
   {
@@ -1538,7 +1544,7 @@
    "file": "graphloops/rules/review-loop.py",
    "old": "            if isinstance((a := h.output(\"p4.assemble\", n) or {}).get(\"diff_lines\"), int)}",
    "new": "            if (a := h.output(\"p4.assemble\", n) or {}) is not None}",
-   "expect": "周ごとの行数は p4.assemble の出力から作り",
+   "expect": "test_open_unit_and_hit_arm が例外で抜けた: KeyError: 'diff_lines'",
    "suite": "graphloops",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4416,7 +4422,7 @@
    "suite": "graphloops",
    "old": "        if git(\"apply\", \"--check\", patch) is None:",
    "new": "        if False:",
-   "expect": "合流: 当たらない patch は重ねず",
+   "expect": "合流: 書き終えた線の patch を作業ツリーに重ねる",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -4500,7 +4506,7 @@
    "suite": "graphloops",
    "old": "    return _cut_ok(b.output_of_round(\"p3.gates_cut\", b.round))",
    "new": "    return _cut_ok(b.latest_output(\"p3.gates_cut\"))",
-   "expect": "最後のゲート: 今の周の p3.gates_cut の出力が無ければ",
+   "expect": "test_lane_rules が例外で抜けた: AttributeError: 'types.SimpleNamespace' object has no attribute 'latest_output'",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -6229,7 +6235,7 @@
    "suite": "graphloops",
    "old": "        out[\"unknown\"] = unknown",
    "new": "        pass",
-   "expect": "宣言の知らない段: 役に貼る名指し",
+   "expect": "test_lane_rules が例外で抜けた: KeyError: 'unknown'",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -6788,7 +6794,7 @@
    "suite": "graphloops",
    "old": "run_steps(launch[\"steps\"], root, log_dir",
    "new": "run_steps(launch[\"steps\"], None, log_dir",
-   "expect": "宣言の語はレビュー対象のリポジトリのルートで走る",
+   "expect": "test_engine_run_checks が例外で抜けた: RuntimeError: launch p0.local_checks が 2: NG 想定外の例外（TypeError）",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_engine_run_checks"
