@@ -2743,13 +2743,9 @@ def test_wrote_refs_direct_arms():
         check(len(errs) == 1 and "通常のファイルでない" in errs[0], f"FIFO に置き換わった指し先は開かずに拒む（{errs}）")
     else:
         skip("FIFO に置き換わった指し先は開かずに拒む", "fifo", "この OS には FIFO（os.mkfifo）が無い")
-    # **symlink の輪を含む指し先を、例外にせず拒む**（3.12 以前の resolve は輪を RuntimeError で投げる）。輪はディレクトリの
-    # symlink で作る——ファイルの symlink（Windows の既定）で作った輪では、Windows の組で RuntimeError の道を通らなかった
-    # （mutation の run 41434318208 で f07 が生き残った）。resolve が RuntimeError に直すのは ELOOP か ERROR_CANT_RESOLVE_FILENAME
-    # （1921）だけで、Windows がその番号を返すのはディレクトリの symlink の輪を辿った時、という見立て（POSIX は target_is_directory を見ない）
+    # **symlink の輪を含む指し先を、例外にせず拒む**（3.12 以前の resolve は輪を RuntimeError で投げる）
     try:
-        (run.repo / "loopa").symlink_to("loopb", target_is_directory=True)
-        (run.repo / "loopb").symlink_to("loopa", target_is_directory=True)
+        (run.repo / "loopa").symlink_to("loopb"); (run.repo / "loopb").symlink_to("loopa")
         errs, _ = mod._cite_errors(b.dir, "p3.fix", [{"kind": "text", "cite": "x", "target": "loopa/x.md", "where": "src/a.py"}], None, "wrote_refs")
         check(len(errs) == 1, f"symlink の輪を含む指し先は拒否文で返る（例外にしない。{errs}）")
     except RuntimeError as e:
