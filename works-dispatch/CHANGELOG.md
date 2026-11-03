@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.154.0] - 2026-11-03
+
 ### Added
 
 - dispatch の設定のアカウントに `token_file` を足した。`claude setup-token` で作った鍵だけを中身に持つファイルのパスを書くと、使用率の問い合わせ（`limits.py`）がそのファイルを最初に読む。無い・形が違う（`sk-ant-oat01-` で始まらない）ときだけ、これまでの探し方（Keychain の項目と、設定のフォルダの `.credentials.json`）で探す。読めなかった訳は使用率の取り直しの記録（`probe.log`）に、ファイルのパスと一緒に出し、鍵の値は出さない。Keychain の無い環境（Linux・WSL）で鍵をファイルに置き、シェルの関数が `CLAUDE_CODE_OAUTH_TOKEN` に入れて起動するアカウントは、これまで「鍵が無い」で使用率が分からず、部署を立てるアカウントの選び方でいつも後ろに回っていた。setup-token の鍵はモデルへの要求しかできないが（https://code.claude.com/docs/en/authentication の「Generate a long-lived token」）、使用率はモデルへの要求の応答ヘッダから読むので足りる（2026-11-03 に setup-token の鍵で HTTP 200 と使用率のヘッダを確かめた。受付 3c1edc）。
