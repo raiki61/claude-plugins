@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.156.0] - 2026-11-03
+
 ### Changed
 
 - 0.155.0 で窓に打つまま残した 3 か所も、部署や頼み元の窓（会話を映す herdr のペイン）に字を打たなくなった（頼み 7714db。持ち主 2026-11-01「herdrが逆に直でうたれるとまずい。裏で送ってほしい」）。これで works-dispatch が会話への知らせを窓に打つ所は無くなった。
