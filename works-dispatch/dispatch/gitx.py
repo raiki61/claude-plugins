@@ -464,6 +464,16 @@ def is_ancestor(cwd, a, b, runner=_default_runner):
     return _is_ancestor(cwd, a, b, runner)
 
 
+def holding_branches(cwd, sha, own=None, runner=_default_runner):
+    """手元のブランチ（refs/heads/*。worktree の間で共有）のうち、先頭か祖先に sha を持つ物の名前の並び（名前の順。own は除く）。
+    読めなければ空（無いとみなし、消さない側に倒す）。--retire が、部署のブランチのほかに部署の先頭を持つ控えのブランチ
+    （backup/<ブランチ> など）が在れば、手元にしか無い commit も消えないとみなすのに使う（受付 bc8c0b・d70b23）。"""
+    if not sha:
+        return []
+    out = _git(cwd, ["for-each-ref", "--contains", sha, "--format=%(refname:short)", "refs/heads/"], runner)
+    return sorted(x for x in (out or "").splitlines() if x and x != own)
+
+
 def remote_rev(cwd, branch, runner=_default_runner):
     """origin のそのブランチの先頭の commit を origin に問い合わせて読む（git ls-remote）。ブランチが無ければ None。手元の ref は書かない。"""
     out = _must(["git", "-C", cwd, "ls-remote", "--heads", "origin", f"refs/heads/{branch}"], runner)

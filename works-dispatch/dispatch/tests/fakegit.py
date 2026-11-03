@@ -190,6 +190,9 @@ class FakeGit:
         a, b = self._resolve(cwd, a), self._resolve(cwd, b)
         return bool(a and b) and a in self._line(b)
 
+    def holding_branches(self, cwd, sha, own=None):
+        return sorted(b for b, tip in self.local.items() if b != own and tip and sha and sha in self._line(tip))
+
     def remote_rev(self, cwd, branch):
         return self.origin.get(branch)
 

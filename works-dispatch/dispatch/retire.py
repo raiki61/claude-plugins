@@ -9,6 +9,10 @@
 1. 部署を名前で探す（--move と同じ deliver.find_target）。窓口・always の部署は畳まない。
 2. 止める前に確かめる: 受けた頼みを納品している・順番待ちに頼みが無い・--clean の部署の決まり（clean.departments）で、会話が止まったとみなしたときに
    残す訳が無い（未コミットの変更・手元にしか無い commit・メインブランチに入っていないブランチなど）。訳が有れば何も止めない。
+   ただし、残す訳がこの部署の頼んだ返事を待つこと（waiting）だけなら畳み、待っていた受付を出す（返事は部署が畳まれても受付箱に届き、
+   --todo が受付で追う。--clean の一覧と --done は残す側のまま。窓口が待たないと決めて打つ手。受付 d70b23）。
+   また、部署の先頭を部署のブランチのほかに手元のブランチ（控えの backup/<ブランチ> など）が持ち、未コミットの変更も stash も無ければ、
+   手元にしか無い commit やメインブランチに入っていないブランチでも畳み、部署のブランチだけを消す（kept_here。受付 bc8c0b・d70b23）。
    ただし、メインブランチに入っていないブランチでも、部署の先頭が origin のどれかのブランチに在る（同じ名前のブランチの先頭が同じか、
    ほかのブランチの先頭の祖先。origin に問い合わせて確かめる。parked_on）なら畳み、どのブランチに残っているかを出す。成果は origin のブランチに残る（取り下げた頼みの部署は、入れずにブランチを残せと頼まれる。--done は入れていない部署を断るので、
    頼み元が --retire で畳む。2026-10-20 に、origin に push 済みの取り下げた部署が「メインブランチに入っていない」で残った。受付 d28a74）。
@@ -93,7 +97,10 @@ def retire(a, ports, cwd, rows, reasons):
         return kept(f"納品していない頼み（受付 {ask}）が在る", 2)
     parked = None   # 入れずに origin に残したブランチ（メインブランチに入っていないが、origin に同じ先頭が在る）
     merged = []   # 先頭を含むマージ済みの PR（orders.merged_into。ほかの部署のブランチへ squash で入った部署の成果の在りか）
-    if before["reason"] == "not_merged":
+    held = kept_here(before, ports)   # 部署の先頭を持つ手元のほかのブランチ（控え）
+    if held or before["reason"] == "waiting":
+        pass   # 返事待ちだけが残す訳なら畳む（返事は受付箱に届き、--todo で追える。--clean の一覧と --done は残す）
+    elif before["reason"] == "not_merged":
         merged = orders.merged_into(path, attrs, ports.git, ports.gh)
         parked, why = on_origin(before, ports.git, merged)
         if not parked:
@@ -143,10 +150,16 @@ def retire(a, ports, cwd, rows, reasons):
         if waiting:
             return kept("会話を止めたが、止める間に順番待ちに頼みが積まれた（部署の会話を起動し直すまで渡らない。--tree の部署の行に件数が出る）")
         same = r["pr_head"] == before["pr_head"] and r["branch"] == before["branch"]
-        if not r["removable"] and not (parked and r["reason"] == "not_merged" and same):
+        if (not r["removable"] and r["reason"] != "waiting" and not (parked and r["reason"] == "not_merged" and same)
+                and not (held and same)):
             return kept(f"会話を止めたが、{reasons[r['reason']]}")
-    if r["removable"]:
-        parked = None   # 止める間にメインブランチに入った
+    if r["removable"] or r["reason"] == "waiting":
+        parked = held = None   # 止める間にメインブランチに入った（か、残す訳が返事待ちだけになった）
+    elif held:
+        # 止める間に控えのブランチを消されていないか・手元の作業が足されていないかを、消す直前に見直す
+        held = kept_here(r, ports)
+        if not held:
+            return kept(f"会話を止めたが、{reasons[r['reason']]}")
     elif parked:
         # 止めるのを待つ間に origin のブランチが書き換わっていないかを、消す直前に問い直す（手元の控えとの比べでは分からない）
         parked, why = on_origin(r, ports.git, merged)
@@ -156,7 +169,14 @@ def retire(a, ports, cwd, rows, reasons):
     got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.term, ports.git, chat, ports.account_env)
     if not got["removed"]:
         return kept(f"片付けられなかった: {got['detail']}")
-    if parked:
+    if r["reason"] == "waiting":
+        note = (f"この部署が頼んだ返事（受付 {'・'.join(r['waiting'])}）は待たずに畳んだ。返事は受付箱に届き、"
+                "--todo で追える")
+        got["detail"] = f"{note}。{got['detail']}" if got["detail"] else note
+    elif held:
+        note = f"部署の先頭 {(r['pr_head'] or '-')[:9]} は手元のブランチ {'・'.join(held)} に残した（部署のブランチ {r['branch'] or '-'} だけを消した）"
+        got["detail"] = f"{note}。{got['detail']}" if got["detail"] else note
+    elif parked:
         note = (f"ブランチ {parked} はメインブランチに入れずに origin に残した" if parked == r["branch"]
                 else f"部署の先頭は origin の {parked} に入っている（"
                 + ("手元の控えが古かった）" if parked == main else "メインブランチへはまだ）"))
@@ -165,6 +185,25 @@ def retire(a, ports, cwd, rows, reasons):
                         "detail": got["detail"]})
     print("\n".join(notes + [f"部署 {where} を畳んだ" + (f"（{got['detail']}）" if got["detail"] else "")]))
     return 0
+
+
+# 部署の行の残す訳のうち、部署の先頭を手元のほかのブランチが持てば失う物が無い物（kept_here）
+HELD = ("unpushed", "not_merged", "no_branch")
+
+
+def kept_here(row, ports):
+    """部署の行（reason が HELD のどれか）の先頭を、部署のブランチのほかに手元のブランチ（控えの backup/<ブランチ> など）が持っていれば、
+    そのブランチの名前の並び。持たない・ほかの訳で残す・未コミットの変更か git に足していないファイルか部署のブランチの stash が在るなら空。
+    --retire が消すのは作業場と部署のブランチだけなので、ほかのブランチが先頭を持てば、手元にしか無い commit も消えない（2026-11-01、
+    guided-resolver の試作の部署 policy-bot-ci。持ち主が控えのブランチを作ってから --retire を打ったが、手元にしか無い commit で残った。
+    受付 bc8c0b。持ち主の決め 2026-11-03、受付 d70b23）。--clean の一覧と --done は今までどおり残す（控えを作ったと決めたのは人なので、
+    人が打つ --retire だけで畳む）。"""
+    if row.get("reason") not in HELD or not row.get("pr_head"):
+        return []
+    path, branch = row["path"], row.get("branch")
+    if not ports.is_clean(path) or ports.git.stashed(path, branch or "(no branch)"):
+        return []
+    return ports.git.holding_branches(path, row["pr_head"], branch)
 
 
 def on_origin(row, g, merged=()):

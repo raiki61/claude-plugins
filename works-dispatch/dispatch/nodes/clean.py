@@ -20,7 +20,9 @@ graphloops/boards-archive/ に写す（keep_boards。写せなければ消さな
 
 部署（入口の --task が立て、属性 company.session を持つ linked worktree）は、別の決まりで選ぶ（departments・retire）。
 - 畳む部署である（属性 company.lifecycle が persistent の always の部署は畳まない。属性が無ければ畳む部署とみなす。会社の形の設計 4.10 の 1）
-- 部署の会話が終わっている（state が done・stopped・failed）か、会話の一覧にもう無い
+- 部署の会話が終わっている（state が stopped・failed か、done で処理の番号が無い）か、会話の一覧にもう無い（done で処理の番号の有る
+  会話は、手が空いただけで生きているので残す）
+- 受けた頼みを納品していて、この部署が頼んだ返事（頼んだ先の納品）を待っていない（納品の残った疑問の担当者に書いた受付は数えない）
 - 未コミットの変更も git に足していないファイルも、手元にしか無い commit や stash も無い
 - 部署のブランチの先頭がメインブランチ（origin の既定のブランチの手元の控え）に入っている（ブランチに乗っていない部署も、先頭が入っていれば消す）
 消す時は、会話を `claude rm` で消し（会話の worktree は下回りが作ったので、rm は worktree を残す。rm が一緒に消す会話の一時の
@@ -154,14 +156,26 @@ def release(source, path, h=term):
 DONE = ("done", "stopped", "failed")
 
 
-def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_sha, source=None, queued=lambda path: False):
+def ended(s):
+    """会話の一覧の 1 件 s が終わっているか。state が stopped・failed か、done で処理の番号（pid）が無い物。done で pid の有る会話は、
+    ターンを終えて手が空いただけで処理は生きている（受付 e7bbd1 で、手が空いた部署を --clean が「消せる」と出していた。受付 d70b23）。"""
+    state = s.get("state")
+    return state in DONE and not (state == "done" and s.get("pid"))
+
+
+def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_sha, source=None, queued=lambda path: False,
+                waiting=lambda path, attrs: []):
     """部署ごとに、消してよいか。attrs_of(場所) は部署の git の属性。session_of(属性, 場所) は会話の 1 件（{id, sessionId, state, …,
     config_dir}）か、一覧に無ければ None。会話は属性の長い id（company.session）で見分け、無ければ短い id（company.job）で見分ける
     （部署を立てた直後に会話のフックと書き込みがぶつかり、company.session だけが書かれなかった部署が在った）。どちらも無い部署と、短い id の会話が一覧に無い部署は並べない。merged(場所) はブランチの先頭がメインブランチに入っているか。queued(場所) は部署の
     順番待ちに頼みが在るか（在る部署を消すと、積まれた頼みを渡す者が居なくなり、頼み元が返事を待ち続ける。2026-10-18 に点検の
-    部署が順番待ちの 2 件を残して消え、見渡しが半日返事を待った）。
-    返す 1 行は {path, branch, name, account, session, config_dir, state, pid, pr_head, removable, reason}。pid は会話の一覧の処理の番号で、
-    動く処理の無い会話には無い。pr_head は消す時に手元のブランチの先頭と比べる commit で、今の先頭。reason は persistent・running・queued・dirty・unpushed・not_merged・no_branch。"""
+    部署が順番待ちの 2 件を残して消え、見渡しが半日返事を待った）。waiting(場所, 属性) は、この部署が頼んで返事（頼んだ先の納品）の
+    まだ来ていない頼みの受付の並び（orders.asked_open。納品の残った疑問の担当者に書いた受付は除く）。
+    会話は ended が真のときだけ終わったとみなす（手が空いただけの会話は running）。
+    返す 1 行は {path, branch, name, account, session, config_dir, state, pid, pr_head, removable, reason, waiting}。pid は会話の一覧の処理の番号で、
+    動く処理の無い会話には無い。pr_head は消す時に手元のブランチの先頭と比べる commit で、今の先頭。waiting は reason が waiting のときの
+    受付の並び（ほかは空）。reason は persistent・running・queued・open_ask（受けた頼みを納品していない）・dirty・unpushed・not_merged・
+    no_branch・waiting（ほかの訳が無く、頼んだ返事だけを待つ。--retire はこの訳の部署を畳み、返事は受付箱に届く）。"""
     rows = []
     for place in sorted((p for p in places if p.get("linked") and not p.get("prunable")), key=lambda p: p.get("path") or ""):
         path, branch = place["path"], place.get("branch")
@@ -176,14 +190,16 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
         row = {"path": path, "branch": branch, "name": attrs.get("name"), "account": attrs.get("account"),
                "session": (s or {}).get("id") or (s or {}).get("sessionId"), "config_dir": (s or {}).get("config_dir"),
                "state": (s or {}).get("state") or (s or {}).get("status") or "gone", "pid": (s or {}).get("pid"), "pr_head": head_sha(path),
-               "removable": False, "reason": None}
+               "removable": False, "reason": None, "waiting": []}
         rows.append(row)
         if attrs.get("lifecycle") == gitx.PERSISTENT:
             row["reason"] = "persistent"
-        elif s is not None and s.get("state") not in DONE:
+        elif s is not None and not ended(s):
             row["reason"] = "running"
         elif queued(path):
             row["reason"] = "queued"
+        elif attrs.get("ask") and attrs.get("delivered") != attrs["ask"]:
+            row["reason"] = "open_ask"   # 受けた頼みを納品していない（--done と --retire も断る）
         elif not branch and not merged(path):
             # ブランチに乗っていなくても、先頭がメインブランチに入っていれば失う物は無い（読むために main の commit を開いた
             # 部署が、そのまま残った。2026-10-19 の claude-plugins の見渡し）
@@ -194,6 +210,8 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
             row["reason"] = "unpushed"
         elif not merged(path):
             row["reason"] = "not_merged"
+        elif asked := list(waiting(path, attrs)):
+            row["reason"], row["waiting"] = "waiting", asked
         else:
             row["removable"] = True
     return rows

@@ -159,6 +159,43 @@ class Retire(unittest.TestCase):
         self.assertEqual([r["status"] for r in self.retired()], ["kept"])
         self.assertIn("手元にしか無い commit", self.g.worktree_attrs(self.place)[wake.RETIRE_KEPT])
 
+    def test_retire_folds_an_unpushed_department_whose_head_a_backup_branch_holds(self):
+        # PR の無い試作の部署の commit を push せず、持ち主が手元に控えのブランチを作ってから --retire を打った（2026-11-01、
+        # guided-resolver の policy-bot-ci。受付 bc8c0b・d70b23）。控えが先頭を持てば、部署のブランチだけを消して畳む
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        head = self.g.commit(self.place, {}, "x")
+        self.g.stashes.append("WIP on dept/a: 1234567 y")
+        rc, out = self.main(self.src, "--retire", "調べ")   # 部署のブランチの stash は控えのブランチに残らない
+        self.assertEqual(rc, 2, out)
+        self.assertIn("手元にしか無い commit", out)
+        self.g.stashes.clear()
+        self.g.local["backup/dept-a"] = head
+        rc, out = self.main(self.src, "--clean")   # 一覧は今までどおり残す（控えを作ったと決めた人が --retire で畳む）
+        self.assertIn("手元にしか無い commit", out)
+        rc, out = self.main(self.place, "--done")
+        self.assertEqual(rc, 2, out)
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"部署の先頭 {head[:9]} は手元のブランチ backup/dept-a に残した（部署のブランチ dept/a だけを消した）", out)
+        self.assertEqual(self.stopped, ["d"])
+        self.assertFalse(os.path.exists(self.place))
+        self.assertNotIn("dept/a", self.g.local)
+        self.assertEqual(self.g.local["backup/dept-a"], head)
+
+    def test_retire_keeps_a_department_when_the_backup_branch_goes_while_the_talk_stops(self):
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        self.g.local["backup/dept-a"] = self.g.commit(self.place, {}, "x")
+        real = self.ports.stop_session
+
+        def stop(cdir, job):
+            del self.g.local["backup/dept-a"]   # 止める間に控えを消された
+            return real(cdir, job)
+        self.ports.stop_session = stop
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("会話を止めたが、手元にしか無い commit", out)
+        self.assertTrue(os.path.exists(self.place))
+
     def test_retire_refuses_an_open_ask(self):
         provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
         rc, out = self.main(self.src, "--retire", "調べ")
@@ -433,6 +470,43 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         rc, out = self.main(self.src, "--clean")
         self.assertIn("残す（会話がまだ動いている。頼みは納品済みで、終わりの印（--done）が無い。止めて畳むなら --retire 調べ）", out)
+
+    def test_clean_keeps_an_idle_talk_and_lists_only_ended_ones(self):
+        # 手が空いただけの会話（state done で処理の番号が有る）は生きているので残す。前は「消せる」と出していた（受付 e7bbd1・d70b23）
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        self.state = "done"
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("残す（会話がまだ動いている。頼みは納品済みで、終わりの印（--done）が無い", out)
+        self.assertNotIn("消せる", out)
+        self.pid = None   # 処理が無くなった会話は終わり
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("消せる", out)
+
+    def test_clean_keeps_a_stopped_department_that_has_not_delivered_or_waits_for_a_reply(self):
+        self.state = "stopped"
+        provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn("残す（受けた頼みをまだ納品していない", out)
+        provision.mark(self.place, self.src, {"delivered": "q1"}, self.g)
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
+                                 "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "点検"}})
+        rc, out = self.main(self.src, "--clean", "--apply")
+        self.assertIn("残す（この部署が頼んだ返事がまだ来ていない", out)
+        self.assertIn("受付 c1", out)
+        self.assertTrue(os.path.exists(self.place))   # --apply も消さない
+        self.assertEqual(self.main(self.place, "--done")[0], 2)   # --done も同じく断る
+
+    def test_retire_folds_a_department_that_only_waits_for_a_reply_and_names_the_ask(self):
+        # 窓口が返事を待たないと決めて打つ --retire は畳む。返事は受付箱に届き、--todo が受付で追う（受付 d70b23）
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
+                                 "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "点検"}})
+        self.state = "done"
+        rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, ["d"])   # 手が空いただけの会話は止めてから畳む
+        self.assertIn("この部署が頼んだ返事（受付 c1）は待たずに畳んだ", out)
+        self.assertFalse(os.path.exists(self.place))
 
     LAND = '[land]\nmode = "ff-after-ci"\ncheck = "true"\n'
 

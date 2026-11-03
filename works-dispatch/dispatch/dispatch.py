@@ -2203,7 +2203,7 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
         # 部署の場所でほかの会話が動いていればそちらを返す（動いているとみなして畳まない）
         here = [entry(acc, s) for acc, items in listed.values() for s in items
                 if s.get("cwd") and os.path.realpath(s["cwd"]) == os.path.realpath(path)]
-        live = [s for s in here if s.get("state") not in clean.DONE]
+        live = [s for s in here if not clean.ended(s)]
         return next(iter(live), None) or next((s for s in here if s.get("id") == attrs.get("job")), None)
 
     def queued(path):
@@ -2226,18 +2226,27 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
             into[path] = bool(orders.merged_into(path, ports.attrs(path), ports.git, ports.gh))
         return into[path]
 
+    def waiting(path, attrs):   # この部署が頼んで返事の来ていない頼み（--done が断るのと同じ見方。受付 e7bbd1・d70b23）
+        common = ports.git.common_dir(path)
+        return orders.asked_open(deliver.inbox_of(common), attrs, ports.git.toplevel(path) or path) if common else []
+
     return clean.departments(found, ports.attrs, session_of, ports.is_clean,
                              lambda path: ports.unpushed(path, landed=lambda: kept_on_github(path)), landed, ports.head_sha,
-                             source=repo.source, queued=queued)
+                             source=repo.source, queued=queued, waiting=waiting)
 
 
 DEPT_REASONS = {"persistent": "always の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
                 "not_merged": "ブランチがメインブランチに入っていない", "no_branch": "ブランチに乗っていない",
-                "queued": "順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む。会話が止まっていれば --nudge <部署> で戻す）"}
+                "queued": "順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む。会話が止まっていれば --nudge <部署> で戻す）",
+                "open_ask": "受けた頼みをまだ納品していない（会話が止まっていれば --nudge <部署> で戻す）",
+                "waiting": "この部署が頼んだ返事がまだ来ていない（返事を待たずに畳むなら --retire <部署>。返事は受付箱に届き、--todo で追える）"}
 
 
 def _running_note(d, attrs, ports):
-    """会話がまだ動いているので残す部署の訳に足す、段取りが止めるかを決める手がかり（ほかの訳の部署には足さない）。"""
+    """会話がまだ動いているので残す部署の訳に足す、段取りが止めるかを決める手がかり。返事を待つ部署（waiting）には待つ受付を足す
+    （ほかの訳の部署には足さない）。"""
+    if d["reason"] == "waiting":
+        return f"。受付 {'・'.join(d['waiting'])}"
     if d["reason"] != "running":
         return ""
     if attrs.get(wake.RETIRE_KEPT):
