@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+- 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の mutation の CI で、Windows の組だけ証拠にならなかった腕（ルートの `tests/mutations.json` の 1 件。コードの 1 か所をわざと壊す変更）のうち 12 本を、Windows でも赤になる検査に結んだ（run 41434318208 で 24 本が証拠にならなかった）。役の子の木を止める口・`kill_all`・起動し直し（relaunch）・開始時刻の検査を、OS に依らず回す（RR1・RR4・RR6・RR7・RR11・DL7・DL10）。`run_tree` の時間切れ（RR8）は Windows の形を足した。止める信号の検査（RR10・RR13）は Windows でも回す。通常のファイルでない物を開かない検査（d10・f04）は、FIFO の代わりにどの OS にも在る null デバイスで通す。そのために `tests/parallel.py` に、固定具の子の寿命を縛るロックと、プロセスが居ないかの問いの Windows の形を足した。台本の検査の件数は 1923 → 1925。
+
 ## [0.46.9] - 2026-11-01
 
 ### Fixed
