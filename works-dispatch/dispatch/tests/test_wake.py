@@ -3231,9 +3231,10 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
         self.assertIn("順番待ちが止まっていた（渡す待ち受けが居ない）", out)
 
-    def test_an_ask_taken_while_the_line_was_being_typed_queues_the_new_one(self):
-        # 部署を読んだ時は頼みが無く待ち受けも見えなかったが、打つ前に待ち受けが順番待ちの頼み a1 を渡した。窓に打たずに順番待ちに
-        # 積み、a1 の頼み元を残す（2026-10-17 に my_notes の調べもので、後の頼みが前の頼みの頼み元を上書きした。受付 20261017-082903-87f45f）
+    def test_an_ask_handed_meanwhile_keeps_its_asker_and_the_new_one_queues(self):
+        # 部署を読んだ時は頼みが無く待ち受けも見えなかったが、積む前に待ち受けが順番待ちの頼み a1 を渡した。新しい頼みは順番待ちに
+        # 積み、部署の属性の a1 の頼み元を上書きしない（2026-10-17 に my_notes の調べもので、窓に打った後の頼みが前の頼みの頼み元を
+        # 上書きした。受付 20261017-082903-87f45f。今は窓に打たず、属性は渡すときに待ち受けが書く）
         provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "boss": "desk"}, self.g)
         self.listen("調べ", self.dept_place(), owner=dead_pid())
         real = orders.live_window

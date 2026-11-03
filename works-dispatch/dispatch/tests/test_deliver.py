@@ -803,7 +803,7 @@ class Flow(unittest.TestCase):
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("20261016-000000-aaaaaa", "revived")])
 
-    def test_nudge_that_cannot_revive_or_send_says_so_and_fails(self):
+    def test_nudge_that_cannot_revive_says_so_and_fails(self):
         # 戻せない（属性にも一覧にも会話の id が無い）なら、台帳に failed を書いて終了の値 1
         provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
         self.fall()
@@ -884,6 +884,27 @@ class Flow(unittest.TestCase):
         self.assertIn("受付 20261016-000000-aaaaaa", said["text"])
         self.assertIn("--deliver", said["text"])
         self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)
+
+    def test_ask_to_a_fallen_department_that_cannot_be_revived_queues_and_records_why(self):
+        # 戻せない（属性にも一覧にも会話の id が無い）部署へも頼みは積む（届いている）。戻せなかった訳は台帳の頼みの行と出力に残す
+        self.fall()
+        self.g.unset_worktree_attr(self.place, "session")
+        self.ports.list_sessions = lambda cdir, include_done=False: []
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)
+        [row] = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
+        self.assertEqual(row["status"], "queued")
+        self.assertIn("部署の会話を戻せなかった", row["detail"])
+        self.assertIn("部署の会話を戻せなかった", out)
+
+    def test_nudge_notice_without_a_department_name_is_not_logged(self):
+        # 部署の名前（company.name）が無ければ待ち受けの宛先が作れないので、促しの 1 行を「会社/None」宛てに置かない
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
+        dept = {"path": self.place, "attrs": self.g.worktree_attrs(self.place)}
+        said = orders.nudge_notice(dept, None, self.inbox, self.ports)
+        self.assertIn("部署の名前（company.name）が無い", said[0])
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY], [])
 
     def test_ask_queues_the_ask_without_typing_into_the_department_window(self):
         # 立っている部署の窓（herdr のペイン）には打たず、順番待ちに積む。部署の待ち受けが裏で渡し、渡すときに頼み元の属性を書く
@@ -1475,16 +1496,13 @@ class Flow(unittest.TestCase):
         self.assertEqual(item["marks"]["fresh"], "true")
         self.assertEqual(self.g.worktree_attrs(self.place)["fresh"], "true")
 
-    def test_fresh_role_mid_turn_with_a_watcher_history_queues_the_ask(self):
-        # 待ち受けの跡の在る部署がターンの途中（待ち受けが止まっている）なら、打ち込まずに順番待ちに積む（ターンの終わりの待ち受けが
-        # 空にしてから渡す）
+    def test_fresh_role_mid_turn_queues_the_ask(self):
+        # 頼みごとに空にする役の部署がターンの途中（待ち受けが止まっている）なら、窓に打たずに順番待ちに積む（ターンの終わりの待ち受けが
+        # 空にしてから渡す）。待ち受けの跡の有無は効かない（受付 d70b23）
         sent = self.fresh_world(busy_before=True)
         provision.mark(self.place, self.src, {"name": "調べ", "ask": "20261016-000000-aaaaaa",
                                               "delivered": "20261016-000000-aaaaaa"}, self.g)
         place_dir = self.g.git_dir(self.place)
-        pos = pathlib.Path(wake.pos_path(self.inbox, place_dir))
-        pos.parent.mkdir(parents=True, exist_ok=True)
-        pos.write_text("0", encoding="utf-8")
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
         self.assertEqual(rc, 0, out)
         self.assertEqual(sent(), [])
