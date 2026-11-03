@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.153.0] - 2026-11-03
+
 ### Changed
 
 - スキルの別ファイル（`skills/dispatch/references/rest.md`）の答え待ち（`--wait`）の項を、初見の読み手に通じる形に書き直した。走らせる場所（部署の作業場）・納品を促すフック（ターンの終わりの Stop のフック）・待ち受けが保留にしたことを示す台帳の項目 `auto` を書き足し、0.152.6 の自動の保留を、どちらの頼みを保留にしてどちらを渡すかが分かる文にした（頼み 481ed4）。
