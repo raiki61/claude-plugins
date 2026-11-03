@@ -22,7 +22,7 @@
 --dry-run（_preview）は 1 の後で分かれ、決まりと、することの見立て（リベースが要るか・入れる commit・上げる版・ゲート・片付け）を
 出すだけにする。何も書かない: メインブランチの先頭は fetch せず origin に問い合わせて読み（ls-remote。手元の ref は変えない）、版は
 一時の場所を作らず、部署の場所で本当の流れと同じ bump.plan を回して見積もり、ゲートに出さず、手元の検証を回さず、
-部署の窓（herdr のペイン）に打ち込まず、片付けない。本当の流れが止まる所と、見立てそのものの失敗では 1 を返す。
+部署に知らせを置かず、片付けない。本当の流れが止まる所と、見立てそのものの失敗では 1 を返す。
 """
 
 import datetime
@@ -60,16 +60,35 @@ def land_env(tip, key, branch):
     return {WORKS_LAND_TIP: tip, WORKS_LAND_KEY: key, WORKS_LAND_BRANCH: branch}
 
 
-def _ask(ports, place, text):
-    """部署の窓に打ち込む。窓が無い・打ち込めなければ、文を出して呼んだ側に渡させる。"""
+def tell(name, text, config_path, ports, cwd):
+    """部署 name に返事の要らない知らせを --say と同じ口（orders.say）で置く。(終わりの値, 出した行)。試験が差し替える。"""
+    import contextlib
+    import io
+    import orders   # orders は入口の層で landing より重いので、要るときだけ読む
+    out = io.StringIO()
+    a = types.SimpleNamespace(say=name, text=text, brief=None, from_name="--land", from_account=None, dry_run=False, config=config_path)
+    with contextlib.redirect_stdout(out):
+        code = orders.say(a, ports, cwd)
+    return code, out.getvalue().strip()
+
+
+def _ask(ports, place, text, config_path=None):
+    """部署に直しを頼む。部署の窓（herdr のペイン）には打たず、--say と同じに台帳へ知らせを置き、待ち受けが裏で渡す（持ち主 2026-11-01
+    「herdrが逆に直でうたれるとまずい。裏で送ってほしい」。受付 9dccfe・7714db）。--land を打ったのが部署の会話そのものなら、知らせは
+    置かず、文を出すだけにする（出力をその会話が読む）。置けなければ、文を出して呼んだ側に渡させる。"""
+    attrs = ports.attrs(place["path"]) or {}
+    name = attrs.get("name") or place.get("branch")
+    if attrs.get("session") and attrs["session"] == chat.session_of(getattr(ports, "env", os.environ)):
+        return f"この部署の会話が直す: {text}"
+    if not name:
+        return f"部署の名前もブランチも無いので知らせを置けなかった。次の文を部署に渡す: {text}"
     try:
-        pane = land.pane_of(ports.term.panes(), place)
-        if pane:
-            land.ask(pane, text, ports.term)
-            return f"部署の窓 {pane} に頼んだ: {text}"
-    except term.Error as e:
-        return f"部署の窓に打ち込めなかった（{e}）。次の文を部署に渡す: {text}"
-    return f"部署の窓が {term.NAME} に無いので打ち込めなかった。次の文を部署に渡す: {text}"
+        code, said = tell(name, text, config_path, ports, place["path"])
+    except (term.Error, deliver.DeliverError, OSError) as e:
+        code, said = 1, str(e)
+    if code:
+        return f"部署 {name} に知らせを置けなかった（{said or f'終わりの値 {code}'}）。次の文を部署に渡す: {text}"
+    return f"部署 {name} に知らせを置いた（窓には打たない）: {text}" + (f"\n{said}" if said else "")
 
 
 def _sweep(place, made):
@@ -184,7 +203,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
     run = types.SimpleNamespace(
         cfg=cfg, repo=repo, ports=ports, rows=rows, reasons=reasons, found=found, place=place, attrs=attrs, name=attrs.get("name") or name,
         branch=branch, path=path, source=source, info=info, rules=rules, main=main, env=env, pause=pause, today=today, checker=checker,
-        after=after, hold=hold, keep_removal=keep_removal,
+        after=after, hold=hold, keep_removal=keep_removal, config_path=config_path,
         again=lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after, hold))
     bundles = rules["batch"] > 1 and hold.queue is not None
     if bundles:
@@ -198,10 +217,10 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
         hold.drop()
         return _tidy(cfg, repo, ports, found, path, rows, reasons, head)
     if not g.is_ancestor(source, base, head):
-        head = _rebase_here(ports, place, path, branch, base, main, rules)
+        head = _rebase_here(ports, place, path, branch, base, main, rules, config_path)
         if head is None:
             return 1
-    stop = _overwrite_gate(ports, place, attrs, branch, base, head, keep_removal)
+    stop = _overwrite_gate(ports, place, attrs, branch, base, head, keep_removal, config_path=config_path)
     if stop is not None:
         print(stop)
         return 1
@@ -223,7 +242,7 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
             _unstage(run, stage)
     print(f"ゲート（{label}）: {'緑' if verdict['result'] == 'green' else '赤'}")
     if verdict["result"] == "red":
-        print(_ask(ports, place, land.red_text(branch, label, points)))
+        print(_ask(ports, place, land.red_text(branch, label, points), config_path))
         return 1
     code = _publish(run, candidate)
     return _finish(run, candidate, ref) if code is None else code
@@ -293,7 +312,7 @@ def _publish(run, candidate):
     """出す段: メインブランチを取り直し、まだ候補の祖先ならメインブランチを候補へ fast-forward して push する。push したら None。
     メインブランチが先に進んでいれば、部署の場所でリベースしてゲートから回し直した終わりの値（リベースできなければ 1）、止まれば 1。"""
     g, source, main = run.ports.git, run.source, run.main
-    rebase = lambda base: run.again() if _rebase_here(run.ports, run.place, run.path, run.branch, base, main, run.rules) else 1
+    rebase = lambda base: run.again() if _rebase_here(run.ports, run.place, run.path, run.branch, base, main, run.rules, run.config_path) else 1
     try:
         base = land.refresh(source, main, g)
     except gitx.GitError as e:
@@ -536,10 +555,10 @@ def _batch(run, head, base):
             # ゲートの間にメインブランチが進んだ: 束ね役を部署の場所でリベースし、同じ顔ぶれで重ね直してゲートから回し直す（束の設計 8.1）
             base = got
             if not g.is_ancestor(run.source, base, head):
-                head = _rebase_here(run.ports, run.place, run.path, run.branch, base, run.main, run.rules)
+                head = _rebase_here(run.ports, run.place, run.path, run.branch, base, run.main, run.rules, run.config_path)
                 if head is None:
                     return 1, None
-            stop = _overwrite_gate(run.ports, run.place, run.attrs, run.branch, base, head, run.keep_removal)
+            stop = _overwrite_gate(run.ports, run.place, run.attrs, run.branch, base, head, run.keep_removal, config_path=run.config_path)
             if stop is not None:
                 print(stop)
                 return 1, head
@@ -565,17 +584,17 @@ def _adopt(run, head, base):
     leader = record.get("leader") or "-"
     again = f"中身はメインブランチに入った（束ね役 {leader}）。手元の変更を commit してから --land を打ち直す"
     if step == "dirty":
-        print(_ask(ports, run.place, again))
+        print(_ask(ports, run.place, again, run.config_path))
         return 1, head
     try:
         new, said = land.adopt(run.path, run.branch, row, step, g)
     except gitx.GitError as e:
         print(f"受け取りの git が断った（{e}）")
-        print(_ask(ports, run.place, again))
+        print(_ask(ports, run.place, again, run.config_path))
         return 1, head
     if new is None:
         print(f"束（束ね役 {leader}）で入った中身の上に、その後の commit を移すとぶつかりが残った（{'・'.join(said)}）。元に戻した")
-        print(_ask(ports, run.place, land.rebase_text(run.branch, run.main, run.rules["bump"]) + f" ぶつかるファイル: {'・'.join(said)}"))
+        print(_ask(ports, run.place, land.rebase_text(run.branch, run.main, run.rules["bump"]) + f" ぶつかるファイル: {'・'.join(said)}", run.config_path))
         return 1, head
     for n in said:
         print(f"注記: {n}")
@@ -674,14 +693,14 @@ def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today,
     return main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, False, keep_removal, after, hold)
 
 
-def _rebase_here(ports, place, path, branch, base, main, rules):
+def _rebase_here(ports, place, path, branch, base, main, rules, config_path=None):
     """メインブランチが先に進んだ部署のブランチを、部署の場所で git のリベース（land.auto_rebase）でメインブランチの上に載せ、origin の部署のブランチにも出す。
     リベースした頭の commit を返す。git が機械で解けないぶつかりが残れば、リベースをやめて元のブランチに戻し、部署の会話にリベースを
-    頼んで None（今までどおり）。部署の会話の手直しは、git の解けないぶつかりだけに要る（持ち主 2026-10-17「gitとかの機能で
+    頼んで（台帳の知らせ。_ask）None（今までどおり）。部署の会話の手直しは、git の解けないぶつかりだけに要る（持ち主 2026-10-17「gitとかの機能で
     マージをできるだけ」）。"""
     if not ports.is_clean(path):
         # ゲートを待つ間に部署の会話が書いた（窓口から打った --land）。書きかけをリベースに巻き込まない
-        print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
+        print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"]), config_path))
         return None
     try:
         new, left = land.auto_rebase(path, branch, base, ports.git)
@@ -692,14 +711,14 @@ def _rebase_here(ports, place, path, branch, base, main, rules):
               + (f"。注記: {'・'.join(left)}" if left else f"。origin の {branch} にも出した"))
         return new
     print(f"メインブランチ {main} が先に進んでいて、git でリベースするとぶつかりが残った（{'・'.join(left)}）。リベースは元に戻した")
-    print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"]) + f" ぶつかるファイル: {'・'.join(left)}"))
+    print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"]) + f" ぶつかるファイル: {'・'.join(left)}", config_path))
     return None
 
 
-def _overwrite_gate(ports, place, attrs, branch, main_sha, head, keep_removal, dry_run=False):
+def _overwrite_gate(ports, place, attrs, branch, main_sha, head, keep_removal, dry_run=False, config_path=None):
     """書き換えの取り合いのゲート。部署がメインブランチを最後に知った位置（属性 company.base。--task がブランチを作ったときと、この部署の --land の
-    後に書く）より後に、ほかの部署がメインブランチへ入れた行を、部署のブランチが消していれば止める文を返す（部署の窓に打ち込む。dry_run なら
-    打ち込まない）。通すなら None。位置の記録が無い部署（前の版で立てた部署）は見ずに注記だけを出す（今のメインブランチとの merge-base は、
+    後に書く）より後に、ほかの部署がメインブランチへ入れた行を、部署のブランチが消していれば止める文を返す（部署に知らせを置く。dry_run なら
+    置かない）。通すなら None。位置の記録が無い部署（前の版で立てた部署）は見ずに注記だけを出す（今のメインブランチとの merge-base は、
     リベースした後のブランチではメインブランチの先頭になり、何も見つけないため）。"""
     since = attrs.get("base")
     if not since:
@@ -720,7 +739,7 @@ def _overwrite_gate(ports, place, attrs, branch, main_sha, head, keep_removal, d
     text = land.taken_text(branch, since, hits)
     if dry_run:
         return f"止まる見立て: {text}"
-    return _ask(ports, place, text)
+    return _ask(ports, place, text, config_path)
 
 
 def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reasons, attrs=None, keep_removal=False):

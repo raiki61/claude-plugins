@@ -468,7 +468,7 @@ def held(inbox, cwd, place, attrs=None, gone=False):
 
 
 def release(inbox, place, token):
-    """印がまだ自分の物なら消す（送る側がすぐに予備の打ち込みへ回れるように）。"""
+    """印がまだ自分の物なら消す（送る側がすぐに待ち受けの居ないときの道〔会話を戻すか起動し直す〕へ回れるように）。"""
     with _mark_lock(mark_path(inbox, place)):
         got = read_mark(inbox, place)
         if got and got.get("token") == token:

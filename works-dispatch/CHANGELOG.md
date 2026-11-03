@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.156.0 の、`--deliver`・`--move --if-limited`・`--land` の 3 か所も窓に打たず台帳の知らせで渡す直し（頼み 7714db）を、試験を直して入れ直した（頼み 03acf2）。main の CI の Windows の組で、試験 1 件（`test_move.Move.test_if_limited_waits_again_when_the_line_does_not_reach_the_talk`）が赤になり、0.157.0 でいったん戻していた（頼み 97a4cf）。赤の元は製品のコードでなく試験の偽の端末で、戻らない attach を「前にシェルが居る」でしか作っておらず、シェルの有無を見ない Windows では 1 回目の attach を戻ったと読んでいた。戻らない回は画面の終わりに「Session … has exited.」を出すようにし、OS によらず同じ道を通るようにした。
+
 ## [0.157.0] - 2026-11-04
 
 ### Changed

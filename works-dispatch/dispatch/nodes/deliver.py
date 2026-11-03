@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """deliver ノード: 依頼と納品（会社の形の設計 4.5・4.10 の 3・9.2）の中身。宛先と頼み元の窓を決め、要約の項目を確かめ、受付箱に
-記録を残し、窓に 1 行を打ち込む。流れ（どの順に呼ぶか）は orders.py が持つ。
+記録を残し、会話に渡す 1 行を作る（窓には打たず、台帳の知らせとして待ち受けが渡す）。流れ（どの順に呼ぶか）は orders.py が持つ。
 
 - 宛先: 「会社/役」か部署の名前か会社の名前。会社を省けば頼む側の会社。部署の名前（属性 company.name）が先に当たる。会社の名前
   だけなら、その会社の窓口（本社の、--desk で名付けた会話）に届ける。役で宛てたときは、その役の
@@ -799,7 +799,7 @@ def flat(text):
     return " / ".join(x.strip() for x in text.splitlines() if x.strip())
 
 
-# ---- 窓に打ち込む 1 行 ----
+# ---- 会話に渡す 1 行（台帳の知らせの文） ----
 
 def deliver_command(run):
     """run は dispatch.py を起動する字（引用符付きの Python と dispatch.py のパス。orders.RUN）。"""
@@ -828,7 +828,7 @@ def tail(required, run):
 
 
 def ask_line(ask_id, sender, text, file, required, run):
-    """宛先の部署の窓に打つ 1 行。短い文は本文ごと、長い物は受付箱のファイルを指す。
+    """宛先の部署の会話に渡す 1 行。短い文は本文ごと、長い物は受付箱のファイルを指す。
     「その通りに」とは書かない（頼みに異論を返してよいかは会社の形の役の本文が決める。頼みの文がそれを打ち消さないように）。"""
     head = f"頼みです（受付 {ask_id}、{sender} から）: "
     body = text if text and "\n" not in text and len(text) <= SHORT_TEXT else f"{file} を読んで進めてください。"
@@ -836,95 +836,14 @@ def ask_line(ask_id, sender, text, file, required, run):
 
 
 def deliver_line(ask_id, sender, branch, items, required, path):
-    """頼み元の窓に打つ 1 行（要約を本文ごと。全文は受付箱）。"""
+    """頼み元の会話に渡す 1 行（要約を本文ごと。全文は受付箱）。"""
     order = list(required) + [k for k in items if k not in required]
     body = " ".join(f"【{k}】{flat(items[k])}" for k in order if items.get(k))
     return f"納品です（受付 {ask_id or '-'}、{sender}・ブランチ {branch or '-'} から）: {body} （全文: {path}）"
 
 
-# 送った 1 行が入力フィールドに残っていないかを見る回数（1 回ごとに pause）
-SUBMIT_LOOKS = 3
-
-
-def send(pane, line, h, pause=None):
-    """窓の会話に 1 行を送る（herdr agent prompt。終わりは待たない）。書く口。(sent か failed, 訳)。
-    pause を渡すと、送った後に入力フィールド（行の頭が ❯ の行）にその文が残っていないかを見て、残っていれば Enter を 1 回足す。
-    Windows で、attach で戻した直後の会話に送った文が、入力フィールドに入ったまま送信されなかった（まっさらな環境での 7 回目の試しの 1）。
-    入力フィールドが空のときの Enter は何もしないので、見誤っても害は無い。"""
-    try:
-        h.prompt(pane, line, False)
-    except h.Error as e:
-        return "failed", str(e)
-    if pause is not None:
-        head = " ".join(line.split())[:20]
-        for _ in range(SUBMIT_LOOKS):
-            pause()
-            try:
-                tail = [x.strip() for x in h.read(pane, 12).splitlines() if x.strip()]
-            except h.Error:
-                break
-            if chat.left_in_field(tail[-8:], head):
-                press_enter(h, pane)
-                return "sent", "入力フィールドに残っていたので Enter を足した"
-    return "sent", None
-
-
-# 送った 1 行で会話が動き出したかを見る回数（1 回ごとに pause）と、届いていなければ打ち直す回数
+# 窓に打った /clear の確かめで画面を見る回数（1 回ごとに pause）
 CONFIRM_LOOKS = 8
-SEND_TRIES = 3
-
-
-def send_confirmed(pane, line, h, pause, busy):
-    """窓の会話に 1 行を送り、会話が動き出した（busy() が真）のを見てから返す。書く口。(sent か failed, 訳)。
-    Windows で、attach で戻した直後の会話に送った 1 行が、届かないか入力フィールドに残った（まっさらな環境での 9 回目の試しの 1）。
-    送る前に入力フィールドが出るのを待ち、送った後は、入力フィールドに残っていれば Enter を足し、入力フィールドにも画面にも見えず動き出してもいなければ
-    打ち直す（SEND_TRIES 回まで）。画面に送った字が見えていれば（入力フィールドでない所に）、届いたと見て打ち直さない（二重に送らない）。
-    送る前から動いている会話は、打った字をターンの後の待ちの列に回すので、動き出しでは確かめられない。入力フィールドに残れば Enter を足し、
-    入力フィールドの上（待ちの列か、ターンの途中で取り込まれた会話の中）に載るか、入力フィールドから出たのを見て届いたとする。見えなくても打ち直さない
-    （打った字は待ちの列に入るかターンの途中で取り込まれる。打ち直すと同じ頼みが何度も届いた）。
-    確かめの画面（許可など）で人の答えを待っている会話（busy の waiting が真。orders.busy_check）には打たない。打った字と Enter は
-    確かめの画面が受け、人が決める許可を選んでしまう。"""
-    head = " ".join(line.split())[:20]
-    was_busy = busy()
-    if getattr(busy, "waiting", False):
-        return "failed", "会話が確かめの画面（許可など）で人の答えを待っているので打たなかった（部署の窓で答えてから打ち直す）"
-    seen = 0   # 送る前に入力フィールドより上に見えていた数（前に送った同じ字が画面に残っていても、届いたと見誤らない）
-    for _ in range(CONFIRM_LOOKS):
-        try:
-            screen = h.read(pane, 40)
-        except h.Error:
-            break
-        if chat.ready(screen):
-            seen = chat.above_box(screen).count(head)
-            break
-        pause()
-    detail = None
-    for attempt in range(1 if was_busy else SEND_TRIES):
-        try:
-            h.prompt(pane, line, False)
-        except h.Error as e:
-            return "failed", str(e)
-        entered = False
-        for _ in range(CONFIRM_LOOKS):
-            pause()
-            if not was_busy and busy():
-                return "sent", detail
-            try:
-                screen = h.read(pane, 40)
-            except h.Error:
-                continue
-            if head in (chat.input_box(screen) or ""):
-                if not entered:
-                    press_enter(h, pane)
-                    entered, detail = True, "入力フィールドに残っていたので Enter を足した"
-            elif chat.above_box(screen).count(head) > seen:
-                return "sent", detail   # 入力フィールドから出て、入力フィールドより上に新しく載った（会話に届いた）
-            elif was_busy and entered and chat.ready(screen):
-                return "sent", detail   # 入力フィールドに入った字が、Enter で入力フィールドから出た（待ちの列に回った）
-        if was_busy:
-            return "sent", "動いている会話に 1 回打った（待ちの列に載ったのを画面で見られなかったが、二重に送らないよう打ち直さない）"
-        detail = f"届いたかを確かめられず打ち直した（{attempt + 1} 回目）"
-    return "failed", f"{SEND_TRIES} 回打ったが、会話が動き出さない（部署の窓を見て、入力フィールドに残っていれば Enter を押す）"
 
 
 CLEAR = chat.CLEAR   # 会話を空にする打ち込み（会話の口の物。前の名前を残す）

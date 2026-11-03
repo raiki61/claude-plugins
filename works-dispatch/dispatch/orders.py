@@ -6,8 +6,9 @@ dispatch.py の流れの続きで、ノード（nodes/deliver.py ほか）を呼
 
 --ask <宛先>（ask）: 頼む会話の場所から、宛先の部署を「会社/役」か部署の名前か会社の名前（その会社の窓口）で決め（deliver.find_target。会社は herdr に開いている
 リポジトリ。tree と同じ読み方）、頼みの本文を頼む側の受付箱に置き、宛先の部署に知らせる。宛先（「会社/部署の名前」）の待ち受けが
-居れば、宛先の会社の受付箱の台帳に知らせの 1 行を足し、待ち受けが会話を再開させる（nodes/wake.py）。居なければ（フックの無い古い会話・
-落ちた会話）、宛先の部署の窓（attach のペイン）に 1 行を打ち込む。宛先の部署が立っていなければ、--task と同じ道（dispatch._task）で
+居れば、宛先の会社の受付箱の台帳に知らせの 1 行を足し、待ち受けが会話を再開させる（nodes/wake.py）。立っている部署への頼みは
+いつも順番待ちに積み、待ち受けが居なければ、窓に打たずに部署の会話を attach で戻すか裏で起動し直して、始まりの待ち受けに渡させる
+（queue_ask）。宛先の部署が立っていなければ、--task と同じ道（dispatch._task）で
 立て、最初の文で頼みを渡す。宛先の部署の属性に、受けた頼み（company.ask）と頼み元（company.boss・boss-account・boss-session・
 boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の名前（company.name。place_name）か、会話の一覧の名前。--forward を添えれば、打った部署か窓口が受けている頼みを、この頼みで回したとして閉じる（forwarded。
 回した先は台帳にだけ書き、頼み元の会話は起動しない）。
@@ -15,7 +16,8 @@ boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の�
 --deliver <要約のファイル>（deliver）: 部署の場所から、要約の項目がそろっているかを確かめ（欠けていれば送らずに欠けた項目を返す）、
 役に納品の検査（会社の形の deliver_check）が在れば走らせ（0 以外で終われば送らずに検査の出力を返す。deliver.gate）、
 頼み元の受付箱に置き、頼み元（「頼み元の会社/company.boss」。引けなければ company.boss-session の会話）の待ち受けが居ればその
-台帳に知らせの 1 行を足し、居なければ頼み元の窓に 1 行を打ち込み、属性に納品済み（company.delivered）を書く。
+台帳に知らせの 1 行を足す。居なければ、窓に打たずに頼み元の会話の宛先へ台帳の知らせを置き、--say と同じに待ち受けに渡させる
+（asker_route・post_to_asker）。属性に納品済み（company.delivered）を書く。
 --for <受付> を添えれば、--forward で回して閉じた頼みの頼み元（台帳の forwarded の行）か、cause 付きの --ask で回した子の頼みの
 元の頼みの頼み元（元の頼みの kind ask の行）へ返し、今受けている頼みは閉じない。
 
@@ -192,7 +194,7 @@ def resting_listener(inbox, company_name, entry, ports):
     """会話の一覧の 1 件 entry の頼み元の会話が、ターンの途中（status が busy か waiting。chat.MID_TURN）で待ち受けが止まっているだけなら、ターンの終わりに
     張り直す待ち受けが受ける宛先の並び（wake_hook.plan と同じ作り方）。ほかは []。見るのは、会話の作業フォルダに待ち受けの居た跡
     （wake.has_history）が在り、その場所の属性の会話がこの会話であること（plan は属性の会話でない会話には待ち受けを張らない。本社の
-    窓口でないほかの会話の頼みを、窓口の待ち受けに宛てない）。跡の無い場所はフックの無い前の版の会話なので、窓に打ち込む。"""
+    窓口でないほかの会話の頼みを、窓口の待ち受けに宛てない）。跡の無い場所はフックの無い前の版の会話で、--deliver は asker_route の宛先に台帳の知らせを置く（窓には打たない）。"""
     cwd = (entry or {}).get("cwd")
     if not (inbox and company_name and cwd and entry.get("status") in chat.MID_TURN):
         return []
@@ -392,9 +394,9 @@ def dept_talk(dept, items):
 
 
 def busy_check(dept, accounts_, ports):
-    """部署の会話がターンの途中（会話の一覧の status が busy か waiting。chat.MID_TURN）かを見る関数。送った 1 行が届いたかの確かめに使う。
+    """部署の会話がターンの途中（会話の一覧の status が busy か waiting。chat.MID_TURN）かを見る関数。裏で起動し直す前に、ターンが始まっていないかの見直しに使う（restart_quiet）。
     見つけた会話の id を関数の found に、確かめの画面で人の答えを待っている（waiting）かを waiting に残す（属性の id が古ければ、
-    頼みの属性と一緒に書き直す。waiting の会話の窓には打たない。deliver.send_confirmed）。"""
+    頼みの属性と一緒に書き直す）。"""
     acc = account_of(dept, accounts_)
 
     def busy():
@@ -940,20 +942,6 @@ def seat_lost(dept, pane):
 # 訳が在れば前の版の待ち受けなので、会話を起動し直して今の版の待ち受けに張り替える。2026-10-18 に claude-plugins の割り振りが子の頼みの
 # 返事待ちで半日止まり、--nudge が「訳がすぐ替わる」で何もしなかった）
 PASSING = ("会話がまだ動いている", "窓の入力フィールド")
-# 人の文でターンが始まると外れる印（wake_hook.resume_from_wait）。使用上限の後に続きの 1 行を打つ move の字は人の文ではないので、打った後に書き戻す
-KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished", "compact", "compact-focus")
-
-
-def _put_back(dept, keep, ports, detail):
-    """窓に打った字で外れうる印（KEPT_MARKS のうち打つ前に在った物 keep）を書き戻す。書き戻せなければその訳を detail に足して返す。"""
-    if not keep:
-        return detail
-    try:
-        provision.mark(dept["path"], gitx.root_of(ports.git.common_dir(dept["path"])), keep, ports.git)
-    except (gitx.GitError, OSError) as e:
-        return f"{detail + '。' if detail else ''}外れた印（{'・'.join(keep)}）を書き戻せなかった（{e}）"
-    return detail
-
 
 def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=None, source=None, moved=None):
     """順番待ちが渡らずに止まった部署（stuck_why）を、人の手なしに、窓に字を打たずに動かす。出す注記の並びを返す（止まっていなければ空）。
@@ -1597,6 +1585,57 @@ def _say_handoff(dept, heard, pane, plain, dest_inbox, place_dir, accounts_, por
         return "部署の会話がターンの途中なので、ターンの終わりの待ち受けが渡す"
     said, back = restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_, source)
     return said if back else f"{said}。知らせは台帳に置いたので、部署の会話の次のターンの終わりに待ち受けが渡す"
+
+
+def asker_route(sid, entry, companies, ports):
+    """待ち受けの居ない、生きた頼み元の会話（--deliver の頼み元）へ知らせを置く先。{company, dept, to, inbox, place, plain} か None。
+    頼み元の会話は、部署の属性の会話（company.session）が sid の部署（本社の窓口を含む）か、会話の一覧の作業フォルダ（entry の cwd）の
+    部署（本社は除く。本社には窓口のほかの会話も居る）で引く。宛先は、役の在る場所なら「会社/名前」、dispatch が開いた役の無い作業場なら
+    場所の鍵（--say と同じ。wake.place_address）。役の無い本社の会話・名前の無い部署・1 つに決まらないときは None（待ち受けが張られない）。"""
+    hits = [(c, d) for c in companies or () for d in c["departments"] if sid and d["attrs"].get("session") == sid]
+    cwd = (entry or {}).get("cwd")
+    if not hits and cwd:
+        here = os.path.realpath(cwd)
+        hits = [(c, d) for c in companies or () for d in c["departments"]
+                if not d.get("head_office") and (here + os.sep).startswith(os.path.realpath(d["path"]) + os.sep)]   # 作業場の中のフォルダの会話も
+    if len(hits) != 1:
+        return None
+    company, dept = hits[0]
+    common, place = ports.git.common_dir(company["root"]), ports.git.git_dir(dept["path"])
+    attrs = dept["attrs"]
+    if not (common and place) or (attrs.get("role") and not attrs.get("name")) or (not attrs.get("role") and dept.get("head_office")):
+        return None
+    to = wake.address(company["name"], attrs["name"]) if attrs.get("role") else wake.place_address(place)
+    return {"company": company, "dept": dept, "to": to, "inbox": deliver.inbox_of(common), "place": place, "plain": not attrs.get("role")}
+
+
+def route_plan(route, pane):
+    """asker_route の先へ置いた知らせが、どう渡るかの見立て（--deliver --dry-run の言葉。_say_handoff と同じ分け方）。"""
+    if route["plain"]:
+        return "その会話の次のターンの終わりに張られる待ち受けか、その場所で次に始まる会話の始まりの待ち受けが渡す"
+    if route["dept"].get("head_office"):
+        return "窓口の会話の次のターンの終わりに張られる待ち受けが渡す"
+    if pane is None:
+        return "窓に会話が居なければ attach で戻し、戻った会話の始まりの待ち受けが渡す"
+    return "ターンの途中ならターンの終わりの待ち受けが渡し、手が空いていれば裏の会話を起動し直して、始まりの待ち受けが渡す"
+
+
+def post_to_asker(route, ask_id, path, line, pane, accounts_, ports, sessions_, notes):
+    """待ち受けの居ない頼み元の会話（asker_route）へ、納品の知らせを台帳に置き、--say と同じに待ち受けに渡させる（_say_handoff。
+    窓には打たない。受付 7714db）。台帳の detail に書く言葉を返す。"""
+    dept, inbox, place = route["dept"], route["inbox"], route["place"]
+    if route["plain"] and not dept["attrs"].get(wake.OPENED):
+        try:
+            # 前の版の dispatch や手で開いた作業場には、開いた印が無い。印が無いと待ち受けが張られない（wake_hook.plain_plan）
+            provision.mark(dept["path"], route["company"]["root"], {wake.OPENED: "deliver"}, ports.git)
+        except (gitx.GitError, OSError) as e:
+            notes.append(f"頼み元の作業場に待ち受けの印を書けなかった（{e}）。知らせは台帳に置くが、待ち受けが渡さないことがある")
+    start_reading(inbox, place, notes)
+    deliver.log(inbox, wake.notice(route["to"], ask_id, "deliver", path, line, ports.now()))
+    heard = wake.listening(inbox, route["to"])   # 頼み元の名前（company.boss）と違う宛先の待ち受けが居れば、起動し直さない
+    if not (heard or route["plain"] or dept.get("head_office")):
+        pane = live_window(dept, ports)   # 頼み元の窓（boss_window）は印だけで選ぶので、落ちた会話を見分け直す
+    return _say_handoff(dept, heard, pane, route["plain"], inbox, place, accounts_, ports, sessions_, route["company"]["root"])
 
 
 def say(a, ports, cwd):
@@ -2356,12 +2395,14 @@ def deliver_summary(a, ports, cwd):
         heard = wake.listening_session(inbox, attrs["boss-session"])
         to = heard["names"][0] if heard else to
     gone = False   # 頼み元の会話が終わった（窓も会話の一覧の生きた会話も無い）
+    route = None   # 待ち受けの居ない、生きた頼み元の会話へ知らせを置く先（asker_route）
+    accounts_ = sessions_ = None
     if heard:
         # 頼み元の待ち受けが居る: herdr の窓を探さない（知らせは台帳の 1 行で届く）
         sid, pane, how = attrs.get("boss-session"), None, f"{to} の待ち受けが会話を再開させる"
     else:
         try:
-            _, _, sessions_, panes, companies, _, more = survey(a.config, ports)
+            _, accounts_, sessions_, panes, companies, _, more = survey(a.config, ports)
         except term.Error as e:
             print(f"止めた: {term.NAME} を読めない（{e}）")
             return 1
@@ -2384,19 +2425,36 @@ def deliver_summary(a, ports, cwd):
             heard, pane, how = True, None, f"{to} の待ち受けがターンの終わりに渡す"
         elif pane is None and attrs.get("boss") and sid and not living:
             # 頼み元の会話が終わった（窓が無く、会話の一覧にも居ないか止まっている）: 頼み元の名前に宛てた知らせを台帳に置き、納品済みにする。
-            # 会話が生きていて窓を 1 つに決められないだけのときと、頼み元が誰か分からないときは、今までどおり納品済みにしない。待ち続けても
-            # 終わった会話の窓は開かず、部署は次の頼みを受けられないまま止まる（2026-10-17 の点検。頼み元 my-notes-ad が終わり、
+            # 会話が生きているときは下の else（窓に打たず、頼み元の宛先へ知らせを置く）。待ち続けても終わった会話の窓は開かず、部署は次の頼みを受けられないまま止まる（2026-10-17 の点検。頼み元 my-notes-ad が終わり、
             # 順番待ちが 5 時間渡らなかった）。頼み元の名前の待ち受けが後で張られれば、台帳の知らせで起きる
             to, gone = wake.address(inbox_company(inbox, settings, ports.git), attrs["boss"]), True
+        else:
+            # 頼み元の会話は生きているが、待ち受けが居ない: 窓に打たず（持ち主 2026-11-01「herdrが逆に直でうたれるとまずい。裏で送って
+            # ほしい」。受付 9dccfe・d70b23・7714db）、--say と同じに頼み元の宛先へ台帳の知らせを置き、待ち受けに渡させる（_say_handoff）
+            # 知らせを置けば納品済みにする（--say と同じく、置いた知らせは後で張られる待ち受けが渡すので、渡し方〔戻す・起動し直す〕が
+            # 今できなくても打ち直しは要らない。渡し方は台帳の detail に残る）。頼み元の名前も無いときだけ納品済みにしない
+            route = asker_route(sid, entry, companies, ports)
+            if route:
+                to, how = route["to"], None
+            elif to:
+                # 待ち受けの張られない会話（役の無い本社の会話・部署の一覧に見えない会話）: 頼み元の名前に宛てて置き、納品済みにする
+                gone, how = True, f"頼み元の会話には待ち受けが張られない（役の無い本社の会話か、{term.NAME} の部署の一覧に見えない会話）"
+            else:
+                how = f"{how}。頼み元の名前（company.boss）も無いので、知らせの宛先を作れない"
     ask_id = attrs.get("ask")
     sender = attrs.get("name") or os.path.basename(os.path.normpath(cwd))
     file_id = deliver.new_id(ports.now())   # 納品ごとに別のファイル（打ち直しで前の要約を消さない）
     target = os.path.join(inbox, f"{file_id}-deliver.md")
     line = deliver.deliver_line(ask_id, sender, branch, items, required, target)
     if a.dry_run:
-        where = how if heard else (f"ペイン {pane}（{how}）" if pane else f"窓なし（{how}）" + (f"。{to} への知らせを台帳に置く" if gone else ""))
+        if heard:
+            where = how
+        elif route:
+            where = f"{to} への知らせを台帳に置く（窓には打たない。待ち受けが居ないので、{route_plan(route, pane)}）"
+        else:
+            where = f"窓なし（{how}）" + (f"。{to} への知らせを台帳に置く" if gone else "")
         print("\n".join(notes + [f"送り先: {attrs.get('boss') or '-'}  {where}", f"受付箱: {target}",
-                                 f"{'会話に渡す' if heard else '打ち込む'} 1 行: {line}"]))
+                                 f"会話に渡す 1 行: {line}"]))
         return 0
     path = deliver.put(inbox, os.path.basename(target), deliver.summary_text(items, required))
     if heard:
@@ -2405,13 +2463,15 @@ def deliver_summary(a, ports, cwd):
     elif gone:
         deliver.log(inbox, wake.notice(to, ask_id, "deliver", path, line, ports.now()))
         status, detail = POSTED, f"{how}。{to} への知らせを台帳に置いた（頼み元の待ち受けが張られたら届く）"
+    elif route:
+        status, detail = "sent", post_to_asker(route, ask_id, path, line, pane, accounts_, ports, sessions_, notes)
     else:
-        status, detail = deliver.send(pane, line, ports.term, ports.pause) if pane else ("failed", how)
+        status, detail = "failed", how
     deliver.log(inbox, {"id": file_id, "kind": "deliver", "ask": ask_id, "at": ports.now(), "status": status, "detail": detail,
                         "from": {"name": attrs.get("name"), "account": attrs.get("account"), "session": attrs.get("session"),
                                  "branch": branch, "place": cwd},
                         "to": {"name": attrs.get("boss"), "account": attrs.get("boss-account"), "session": sid, "pane": pane,
-                               "wake": to if heard or status == POSTED else None},
+                               "wake": to if heard or route or status == POSTED else None},
                         "file": path, "holders": deliver.holders_of(questions),
                         **for_fields(for_ask, shelved)})
     if status in ("sent", POSTED):
@@ -2419,10 +2479,10 @@ def deliver_summary(a, ports, cwd):
     if common:
         notes += follow_main(gitx.root_of(common), settings, attrs.get("role"), ports.git)
     if status == POSTED:
-        notes.append("頼み元の会話が見つからないので、要約と知らせを頼み元の受付箱に置いて納品済みにした（次の頼みを受けられる）。"
+        notes.append("頼み元の会話が見つからないか、待ち受けが張られない会話なので、要約と知らせを頼み元の受付箱に置いて納品済みにした（次の頼みを受けられる）。"
                      "頼み元の代わりに読む人（窓口など）が要れば、受付箱の台帳のこの行から要約を渡す")
     elif status != "sent":
-        notes.append("要約は受付箱に置いたが、頼み元に知らせられなかったので納品済みにしない。頼み元の窓が開いたら打ち直す")
+        notes.append("要約は受付箱に置いたが、頼み元に知らせられなかったので納品済みにしない。頼み元が分かる形（頼み元の会話が一覧に見える・頼み元の名前が在る）になったら打ち直す")
     print("\n".join(notes + [f"納品 {file_id} → {attrs.get('boss') or '頼み元'}  {status}" + (f"（{detail}）" if detail else ""),
                              f"- 要約: {path}"]))
     return 0 if status in ("sent", POSTED) else 1
