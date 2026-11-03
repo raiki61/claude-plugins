@@ -46,7 +46,7 @@ RETIRED_UNGATED = ("persistent", "fresh", "keepalive")
 CONFIG = {
     "": ("limit_percent", "limits_dir", "move_early_percent", "move_early_reset_hours", "hours_margin_minutes",
          "accounts", "repos"),
-    "accounts": ("name", "command", "config_dir", "keychain_service", "limits", "plan", "hours", "named_only", "max_open"),
+    "accounts": ("name", "command", "config_dir", "keychain_service", "limits", "plan", "hours", "named_only", "max_open", "token_file"),
     "repos": ("repo", "second_prompt_file", "source", "copy_files", "copy_from", "gh_user"),
 }
 CONFIG_RETIRED = {

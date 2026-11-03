@@ -61,6 +61,9 @@ class Account(NamedTuple):
     # 会社の形の account で名指して部署を立てるとき、そのアカウントに開いていてよい終わっていない会話の数（accounts.prefer）。
     # 達していれば名指しを使わない。既定の 1 は同時に 1 件しか走らない口（cheapest など）に合わせた数
     max_open: int = 1
+    # `claude setup-token` で作った鍵を、中身がその鍵だけのファイルに置いたときのパス。使用率の問い合わせ（limits.probe_all）は
+    # ここを最初に読む。Keychain の無い環境（Linux・WSL）で、シェルの関数がこのファイルを CLAUDE_CODE_OAUTH_TOKEN に入れて起動する形のため
+    token_file: str | None = None
 
 
 class Repo(NamedTuple):
@@ -196,6 +199,10 @@ def load(path=None, env=os.environ, missing_ok=False):
         if service is not None and not isinstance(service, str):
             problems.append(f"{where}: keychain_service が文字列で無い")
             service = None
+        token_file = a.get("token_file")
+        if token_file is not None and (not isinstance(token_file, str) or not token_file):
+            problems.append(f"{where}: token_file が空でない文字列で無い")
+            token_file = None
         has_limits = a.get("limits", True)
         if not isinstance(has_limits, bool):
             problems.append(f"{where}: limits が true か false で無い")
@@ -224,7 +231,7 @@ def load(path=None, env=os.environ, missing_ok=False):
         if hours is not None and hours.length < 24 * 60 and margin >= hours.length:
             problems.append(f"{where}: hours_margin_minutes（{margin:g} 分）が hours の長さ以上なので、このアカウントは一度も選ばれない")
         accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits, plan, hours,
-                                named_only, max_open))
+                                named_only, max_open, _path(token_file) if token_file else None))
     if not raw.get("accounts"):
         accounts = [Account("default", chat.COMMAND, None)]
 

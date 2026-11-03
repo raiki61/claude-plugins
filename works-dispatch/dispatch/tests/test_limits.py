@@ -168,6 +168,28 @@ class ProbeAll(unittest.TestCase):
         # 鍵を探す口（scripts/claude_auth.py の account_token）には、設定のフォルダと項目の名前の上書きをそのまま渡す
         self.assertEqual(asked, ["tok-my-item", "tok-/h/.claude-b"])
 
+    def test_token_file_is_read_first_and_falls_back_to_the_shared_rule(self):
+        # WSL では setup-token の鍵をファイルに置き、シェルの関数が CLAUDE_CODE_OAUTH_TOKEN に入れて起動する（Keychain が無い）。
+        # 設定の token_file を最初に読み、無い・形の違うときだけ共通の決まり（account_token）で探す（受付 3c1edc）
+        good, bad = self.dir / "tok-a", self.dir / "tok-b"
+        good.write_text("sk-ant-oat01-file\n", encoding="utf-8")
+        bad.write_text("not-a-token", encoding="utf-8")
+        accts = (config.Account("a", "c", "/h/.claude-a", token_file=str(good)),
+                 config.Account("b", "c", "/h/.claude-b", token_file=str(bad)),
+                 config.Account("c", "c", "/h/.claude-c", token_file=str(self.dir / "none")))
+        self.assertEqual(self.run_probe(accts), ["sk-ant-oat01-file", "tok-/h/.claude-b", "tok-/h/.claude-c"])
+
+    def test_token_file_misses_are_named_in_the_failure_without_the_value(self):
+        bad = self.dir / "tok-b"
+        bad.write_text("sk-ant-wrong-secret", encoding="utf-8")
+        accts = (config.Account("b", "c", "/h/.claude-b", token_file=str(bad)),
+                 config.Account("c", "c", "/h/.claude-c", token_file=str(self.dir / "none")))
+        self.assertEqual(self.run_probe(accts, token=lambda user_config, explicit: (None, "見つからない: x")), [])
+        log = (self.dir / "probe.log").read_text(encoding="utf-8")
+        self.assertIn(f"{bad}:token-file-malformed、見つからない: x", log)
+        self.assertIn(f"{self.dir / 'none'}:token-file-miss、見つからない: x", log)
+        self.assertNotIn("wrong-secret", log)
+
     def test_account_without_usage_window_is_not_probed(self):
         accts = accounts(1) + (config.Account("local", "claude-ollama", None, None, False),)
         self.assertEqual(len(self.run_probe(accts)), 1)
@@ -355,14 +377,17 @@ class HerdrConfig(unittest.TestCase):
     def test_snapshot_round_trips_what_show_probe_and_record_need(self):
         accts = (config.Account("main", "claude"),
                  config.Account("p1", "claude-p1", "~/.claude-p1", "kc-p1"),
-                 config.Account("local", "claude-ollama", None, None, False))
+                 config.Account("local", "claude-ollama", None, None, False),
+                 config.Account("wsl", "claude-wsl", token_file="/h/.config/claude-tokens/wsl"))
         d = pathlib.Path(tempfile.mkdtemp())
         path = d / "accounts.json"
         limits.write_snapshot(path, accts, "/l")
         got, limits_dir = limits.read_snapshot(path)
         self.assertEqual(limits_dir, "/l")
         self.assertEqual([(a.name, a.config_dir, a.keychain_service, a.limits) for a in got],
-                         [("main", None, None, True), ("p1", "~/.claude-p1", "kc-p1", True), ("local", None, None, False)])
+                         [("main", None, None, True), ("p1", "~/.claude-p1", "kc-p1", True), ("local", None, None, False),
+                          ("wsl", None, None, True)])
+        self.assertEqual([a.token_file for a in got], [None, None, None, "/h/.config/claude-tokens/wsl"])
 
     def test_herdr_config_writes_the_snapshot_next_to_the_records(self):
         d = pathlib.Path(tempfile.mkdtemp())

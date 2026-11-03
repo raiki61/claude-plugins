@@ -52,7 +52,7 @@ import limits_entry  # noqa: E402
 from vendor import claude_auth  # noqa: E402
 
 # 写しから読んだアカウント。dispatch の設定の Account と同じ名前のフィールドを持つ（config は tomllib を引くので、ここでは import しない）
-Snap = collections.namedtuple("Snap", "name command config_dir keychain_service limits plan")
+Snap = collections.namedtuple("Snap", "name command config_dir keychain_service limits plan token_file", defaults=(None,))
 SNAPSHOT_NAME = "accounts.json"
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
@@ -432,11 +432,32 @@ def probe_env(env):
     return {k: v for k, v in env.items() if k != "CLAUDE_KEYCHAIN_SERVICE"}
 
 
+def file_token(path):
+    """中身が `claude setup-token` の鍵だけのファイル（設定の token_file）から鍵を読む。`(鍵, 出どころ)` か `(None, 探した所)`——例外は投げない。
+
+    setup-token の鍵はモデルへの要求しかできない（https://code.claude.com/docs/en/authentication の「Generate a long-lived token」:
+    「It can only make model requests」）が、使用率は fetch が投げるモデルへの要求の応答ヘッダから読むので足りる
+    （2026-11-03 に Keychain の setup-token の鍵で HTTP 200 と anthropic-ratelimit-unified-7d-* のヘッダを確かめた）。
+    形の違う値は渡さない（claude_auth.account_token の file-malformed と同じ訳）。出どころにも探した所にも鍵の値は出さない。
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            tok = f.read().strip()
+    except FileNotFoundError:
+        return None, f"{path}:token-file-miss"
+    except (OSError, UnicodeDecodeError) as e:
+        return None, f"{path}:token-file-error({type(e).__name__})"
+    if not tok.startswith(claude_auth.TOKEN_PREFIX):
+        return None, f"{path}:token-file-malformed"
+    return tok, f"token_file({path})"
+
+
 def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=False):
     """取り直しの要るアカウントだけ、順に問い合わせて控えを書く。失敗は probe.log に残し、黙って落とさない。
     force は古さと試み直しの待ちを見ずに全部に問い合わせる（dispatch が、始める前と /catchup の後の今の値を取るのに使う）。
 
     token(user_config, explicit) は (トークン, 出どころ) か (None, 探した所) を返す。既定は scripts/claude_auth.py の account_token。
+    設定に token_file の有るアカウントは、先にそのファイルを読み（file_token）、読めなかったときだけ token で探す。
     取れた時刻を .probe-<名前> に、失敗した時刻と訳を probe-failed-<名前>.json に残し、どちらからも PROBE_RETRY_MIN の間は投げ直さない。
     時刻は試みた後に書く。失敗は .probe-<名前> に書かない（取れたように見せない。--tree とタブバーが失敗を出す）。
     """
@@ -457,7 +478,10 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=Fal
         last = max([x for x in (last, tried) if _num(x)], default=None)
         if not force and last is not None and now - last < PROBE_RETRY_MIN * 60:
             continue
-        tok, note = token(a.config_dir, a.keychain_service)
+        tok, note = file_token(a.token_file) if a.token_file else (None, "")
+        if not tok:
+            tok, found = token(a.config_dir, a.keychain_service)
+            note = f"{note}、{found}" if note else found
         reason = None
         if not tok:
             reason = f"鍵が無い: {note}"
@@ -490,7 +514,8 @@ def write_snapshot(path, accounts, limits_dir):
     path.parent.mkdir(parents=True, exist_ok=True)
     _write(path, {"schema": 1, "limits_dir": str(limits_dir),
                   "accounts": [{"name": a.name, "command": a.command, "config_dir": a.config_dir,
-                                "keychain_service": a.keychain_service, "limits": a.limits, "plan": a.plan} for a in accounts]})
+                                "keychain_service": a.keychain_service, "limits": a.limits, "plan": a.plan,
+                                "token_file": a.token_file} for a in accounts]})
 
 
 def read_snapshot(path):
@@ -498,7 +523,7 @@ def read_snapshot(path):
     try:
         raw = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
         accts = tuple(Snap(a["name"], a.get("command"), a.get("config_dir"), a.get("keychain_service"), a.get("limits", True),
-                           a.get("plan"))
+                           a.get("plan"), a.get("token_file"))
                       for a in raw["accounts"])
         return accts, raw["limits_dir"]
     except (OSError, ValueError, KeyError, TypeError) as e:

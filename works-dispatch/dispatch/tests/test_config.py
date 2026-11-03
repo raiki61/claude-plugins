@@ -189,6 +189,17 @@ class Load(unittest.TestCase):
                 config.load(write(self.d, "c.toml", body.replace("max_open = 4", f"max_open = {bad}")), env={})
             self.assertIn("accounts[1]: max_open が 1 以上の整数で無い", str(e.exception))
 
+    def test_token_file_is_read_and_expanded(self):
+        body = ('accounts = [{ name = "p1", command = "claude-p1", token_file = "~/.config/claude-tokens/p1" }]\n'
+                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual(cfg.accounts[0].token_file, os.path.expanduser("~/.config/claude-tokens/p1"))
+        self.assertEqual(cfg.notes, ())   # 知らない項目の注記に出ない
+        for bad in ("1", '""'):
+            with self.assertRaises(config.ConfigError) as e:
+                config.load(write(self.d, "c.toml", body.replace('"~/.config/claude-tokens/p1"', bad)), env={})
+            self.assertIn("accounts[0]: token_file が空でない文字列で無い", str(e.exception))
+
     def test_account_field_types_are_checked(self):
         body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
                 f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
