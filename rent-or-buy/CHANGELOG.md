@@ -6,6 +6,10 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+### Added
+
+- README に「Measured results」のセクションを足した。works-dispatch の `--rent-effect` で 2026-10-28〜11-04 に測った、この部品の効き目（全体・keepalive・compact の差の幅）の 2026-11-04 時点の数と、測り直し方を載せる（頼み 74e71e）。
+
 ## [0.7.0] - 2026-11-01
 
 ### Added

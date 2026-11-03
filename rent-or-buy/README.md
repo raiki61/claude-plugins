@@ -57,3 +57,26 @@ The input key `prices` overrides unit prices for one call (`{"claude-opus-5-5": 
 ## Prices
 
 Unit prices come from a bundled copy of LiteLLM's price table (`prompt_cache/snapshot.json`, with the commit and date), refreshed from LiteLLM at most once a day (5 seconds in total for the fetch) into the cache directory (ignored when older than the snapshot or than 7 days), then your override file, then the per-call `prices`. Model names are normalized (cloud prefixes, `[1m]` (the 1M-context suffix), dates and versions removed) and looked up exactly; there is no fuzzy matching, so an unknown name fails with exit code 3 instead of using another model's price.
+
+## Measured results (snapshot of 2026-11-04)
+
+These figures are a snapshot taken on 2026-11-04 from one owner's sessions; they are not updated automatically. works-dispatch (the plugin in this repository that runs one Claude Code session per task) uses this plugin for both decisions. Its `--rent-effect` command counts the same session transcripts twice: as they happened, and as estimated without this plugin (no keepalive, no question before a compact, compacts only where works-dispatch compacted before this plugin). A saving is the second minus the first, so a positive number means the plugin made it cheaper. The "without" side is an estimate, so every figure below is a low-high range: some facts are not in the transcripts (for example the context size at which Claude Code compacts by itself, or how often an expired cache was still readable).
+
+Period: 2026-10-28 12:30 UTC to the run on 2026-11-04, counted with works-dispatch 0.156.0.
+
+- Total: +$68.78 to +$276.82.
+- keepalive: +$94.58 to +$98.75.
+- compact: -$14.81 to +$189.05.
+
+The total is not keepalive plus compact: it also subtracts what later requests paid to keep reading the tokens that keepalive and question turns added to the context.
+
+The compact low end below zero came only from a question that works-dispatch asked the session at the end of turns (what to keep in a compact summary). works-dispatch 0.148.0 removed that question; it reached the machines at 2026-10-31 19:00 UTC. Counted separately before and after that time (the two do not add up to the whole period, because the low and high ends are recomputed for each period):
+
+- Before: compact -$20.72 to +$133.36; the question cost $31.72 (605 requests in 3.3 days).
+- After: compact +$9.39 to +$56.77; the question cost $2.03 (52 requests in 3.2 days). This period is short (115 sessions), so it is not yet a stable figure.
+
+keepalive long waits: on waits over 12 hours, the keepalive requests cost $0.34 and avoided no cache rewrite, a small loss (it was $0.39 in the previous measurement, 2026-10-24 to 10-28). Waits of 1 to 12 hours stay a gain: keepalive requests cost $2.69 and avoided $17.75 to $18.44 of cache rewrites.
+
+All amounts are API list-price equivalents (the unit prices of `rent-or-buy prices`). The owner of these sessions is on a fixed-price plan, so read them as a gauge of how much usage was saved, not as money paid.
+
+To reproduce, run `python3 dispatch/dispatch.py --rent-effect --since <start> --until <end>` in the works-dispatch folder. It counts the transcripts on your own machine, so your numbers will differ. How it counts is in [works-dispatch/docs/rent-effect.md](https://github.com/raiki61/claude-plugins/blob/main/works-dispatch/docs/rent-effect.md) (Japanese). The full figures, including the earlier period, are in the improvement ledger, [docs/reform/ledger.md](https://github.com/raiki61/claude-plugins/blob/main/docs/reform/ledger.md) (Japanese).
