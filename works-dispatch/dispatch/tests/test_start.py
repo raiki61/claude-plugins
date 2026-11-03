@@ -63,6 +63,7 @@ class Fields(unittest.TestCase):
 class Start(unittest.TestCase):
     Flow = test_deliver.Flow
     setUp, main, prompts, shape = Flow.setUp, Flow.main, Flow.prompts, Flow.shape
+    take_queued = Flow.take_queued
     del Flow
 
     def starts(self):
@@ -74,7 +75,8 @@ class Start(unittest.TestCase):
         rc, out = self.main(self.src, "--start", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertIn("起動した: ", out)
-        self.assertEqual(len(self.prompts()), 1)
+        self.assertEqual(self.prompts(), [])   # 立っている部署の窓には打たず、順番待ちに積む（受付 d70b23）
+        self.take_queued()
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs["boss"], attrs.get("boss-session")), ("社長室", None))   # 起動した会話でなく report_to に返る
         self.assertEqual(attrs["boss-inbox"], self.inbox)
@@ -91,7 +93,8 @@ class Start(unittest.TestCase):
             'role = "調べ役"\n[skills.start]', 'role = "調べ役"\nlifetime = "per-ask"\n[skills.start]'))
         rc, out = self.main(self.src, "--start", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(len(self.prompts()), 1)
+        self.assertEqual(self.prompts(), [])
+        self.take_queued()
         self.assertNotIn("頼みごとに別の部署", out)
         self.assertEqual(self.g.worktree_attrs(self.place)["boss"], "社長室")
 
@@ -139,6 +142,7 @@ class Start(unittest.TestCase):
         self.assertEqual((rc, self.ports.spawned), (0, []), out)   # 試し打ちは打たない
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
+        self.take_queued()
         ((argv, cwd, log, env),) = self.ports.spawned
         self.assertEqual((argv[1:], cwd), ([starts.DISPATCH_PY, "--due", "--config", self.cfg], self.src))
         self.assertEqual(log, os.path.join(self.inbox, "due.log"))

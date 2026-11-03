@@ -2976,6 +2976,7 @@ class WakeFlow(unittest.TestCase):
 
     Flow = test_deliver.Flow
     setUp, main, prompts, ask_then_summary, shape = Flow.setUp, Flow.main, Flow.prompts, Flow.ask_then_summary, Flow.shape
+    take_queued, ask_taken, fall = Flow.take_queued, Flow.ask_taken, Flow.fall
     del Flow
 
     def listen(self, name, place, owner=None):
@@ -3218,15 +3219,17 @@ class WakeFlow(unittest.TestCase):
         self.listen("調べ", self.dept_place(), owner=dead_pid())
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次の頼み")
         self.assertEqual(rc, 0, out)
-        self.assertIn("順番待ちに積んだ（1 件目。今の頼みの納品の後に待ち受けが渡す）", out)
+        self.assertIn("順番待ちに積んだ（1 件目。部署の待ち受けが張られたら渡す）", out)
         self.assertEqual(self.prompts(), [])
 
-    def test_an_idle_department_without_a_living_waiter_gets_the_line_typed(self):
+    def test_an_idle_department_without_a_living_waiter_gets_the_ask_queued_not_typed(self):
+        # 待ち受けが居なくても窓には打たない（受付 9dccfe・d70b23）。順番待ちに積み、止まった順番待ちと同じに起動し直して渡させる
         self.listen("調べ", self.dept_place(), owner=dead_pid())   # 7 日の持ち時間が尽きた・待ち受けの誤りなど
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(len(self.prompts()), 1)
-        self.assertEqual(wake.queued(self.inbox, self.dept_place()), [])
+        self.assertEqual(self.prompts(), [])
+        self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
+        self.assertIn("順番待ちが止まっていた（渡す待ち受けが居ない）", out)
 
     def test_an_ask_taken_while_the_line_was_being_typed_queues_the_new_one(self):
         # 部署を読んだ時は頼みが無く待ち受けも見えなかったが、打つ前に待ち受けが順番待ちの頼み a1 を渡した。窓に打たずに順番待ちに
@@ -3246,13 +3249,13 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "段取り"))
         (item,) = wake.queued(self.inbox, self.dept_place())
         self.assertEqual((item["marks"]["boss"], deliver.records(self.inbox)[-1]["status"]), ("desk", "queued"))
-        self.assertIn("今の頼みの納品の後に待ち受けが渡す", out)
+        self.assertIn("部署の待ち受けが張られたら渡す", out)
 
     def test_ask_dry_run_names_the_queue(self):
         self.listen("調べ", self.dept_place())
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("順番待ちに積む（1 件目。待ち受けが渡す）", out)
+        self.assertIn("順番待ちに積む（1 件目。窓には打たない。待ち受けが渡す）", out)
         self.assertEqual((deliver.records(self.inbox), wake.queued(self.inbox, self.dept_place())), ([], []))
 
     def queue_two(self):
@@ -3376,8 +3379,7 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(self.main(self.place, "--withdraw", first["id"])[0], 2)
 
     def test_withdraw_does_not_close_an_ask_the_department_still_holds(self):
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
-        self.assertEqual(rc, 0, out)
+        self.ask_taken("調べ", "--text", "これを調べて")
         held = self.g.worktree_attrs(self.place)["ask"]
         rc, out = self.main(self.src, "--withdraw", held)
         self.assertEqual(rc, 2, out)
@@ -3453,12 +3455,17 @@ class WakeFlow(unittest.TestCase):
         (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "note" and not isinstance(r.get("to"), str)]
         self.assertEqual((rec["ask"], rec["status"], rec["to"]["wake"]), ("a0", "noticed", to))
 
-    def test_note_without_a_waiter_types_into_the_window_and_stops_once_delivered(self):
+    def test_note_without_a_waiter_goes_through_the_ledger_and_stops_once_delivered(self):
+        # 待ち受けの跡の無い部署にも窓には打たず、台帳の知らせで置く（受付 9dccfe・d70b23）。初めての待ち受けが取りこぼさないように、
+        # 読んだ所を台帳の終わりに書いてから置く
         provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
         rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
         self.assertEqual(rc, 0, out)
-        (typed,) = self.prompts()
-        self.assertIn("頼みの足しです（受付 a0 への", str(typed))
+        self.assertEqual(self.prompts(), [])
+        notice = next(r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str))
+        self.assertEqual(notice["kind"], wake.NOTE)
+        self.assertIn("頼みの足しです（受付 a0 への", notice["text"])
+        self.assertTrue(os.path.exists(wake.pos_path(self.inbox, self.dept_place())))
         provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
         rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
         self.assertEqual(rc, 2, out)
@@ -3468,6 +3475,17 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("どの部署も受けておらず", out)
         rc, out = self.main(self.src, "--note", "a0")
         self.assertEqual(rc, 2, out)
+
+    def test_note_to_a_fallen_department_revives_it_and_leaves_the_line_to_its_listener(self):
+        # 窓に会話が居ない部署への足し: 台帳に置いてから attach で戻す。戻した窓にも打たない（--say と同じ渡し方。受付 d70b23）
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
+        self.fall()
+        rc, out = self.main(self.src, "--note", "a0", "--text", "C も見る")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.term.writes)
+        self.assertEqual(self.prompts(), [])
+        notice = next(r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str))
+        self.assertEqual(notice["kind"], wake.NOTE)
 
     EMPTY_BOX = f"{'─' * 20}\n❯ \n{'─' * 20}\n"   # 手の空いた窓（入力フィールドが空）
 
@@ -3617,20 +3635,21 @@ class WakeFlow(unittest.TestCase):
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
         self.assertEqual(row["cause"], "q1")
 
-    def test_forward_to_a_window_without_a_waiter_closes_the_held_ask_once_the_line_is_sent(self):
+    def test_forward_to_a_department_without_a_waiter_closes_the_held_ask_once_queued(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(len(self.prompts()), 1)
+        self.assertEqual(self.prompts(), [])
         (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
-        self.assertEqual(link["child"], self.g.worktree_attrs(self.place)["ask"])
+        self.assertEqual(link["child"], wake.queued(self.inbox, self.dept_place())[0]["id"])
         self.assertEqual(self.g.worktree_attrs(self.src)["delivered"], "a0")
 
     def test_forward_does_not_close_the_held_ask_when_the_ask_did_not_reach(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, self.g)
-        provision.mark(self.place, self.src, {"ask": "a9", "boss": "ほか"}, self.g)   # 待ち受けの居ない部署が前の頼みを納品していない
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
-        self.assertEqual(rc, 2, out)
+        # 読んでから積むまでの間に宛先が畳まれた（--handover）: 順番待ちに積まずに止まる
+        with mock.patch.object(orders, "moved_away", lambda before, now: True):
+            rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+        self.assertEqual(rc, 1, out)
         self.assertNotIn("delivered", self.g.worktree_attrs(self.src))
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"], [])
         rc, out = self.main(self.src, "--take", "x", "--ask", "調べ", "--forward")

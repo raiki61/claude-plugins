@@ -164,8 +164,9 @@ class Call(unittest.TestCase):
         miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
         self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
         self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
-        (w,) = self.prompts()   # always の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
-        self.assertIn("-ask.md を読んで", w[2])
+        self.assertEqual(self.prompts(), [])   # always の部署「調べ」に頼む（待ち受けが居なくても窓には打たず、順番待ちに積む）
+        (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))
+        self.assertIn("-ask.md を読んで", item["line"])
         brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
         self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
         self.assertIn("p2 で失敗", brief)
@@ -188,9 +189,9 @@ class Call(unittest.TestCase):
         rows = deliver.records(self.inbox)
         self.assertEqual([r["id"] for r in rows if r["kind"] == "ask"], [first])
         self.assertEqual([(r.get("ask"), r.get("rerun_of")) for r in rows if r["kind"] == "miss"], [(first, None), (None, first)])
-        # 別の入力は打ち直しでないので、今までどおり回しに行く（ここでは宛先がこの部署自身で、まだ納品していないので --ask が止める）
+        # 別の入力は打ち直しでないので、今までどおり回しに行く（宛先の部署が今の頼みを納品していなくても、順番待ちに積む）
         rc, out = self.main(self.place, "--call", "配布", "spread-plugins", "--input", '{"dry": false}')
-        self.assertIn("調べ役 に回したが、頼みが通らなかった", out)
+        self.assertIn("調べ役 に回した: 受付 ", out)
         self.assertEqual([r.get("rerun_of") for r in deliver.records(self.inbox) if r["kind"] == "miss"], [None, first, None])
         # 合図（--land の後に呼ぶ）は打ち直しを見分けず、今までどおり回しに行く
         a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
@@ -326,9 +327,10 @@ class Call(unittest.TestCase):
         lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None,
                            {"boss": "窓口", "boss-account": "a1", "boss-inbox": self.inbox})
         self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")
-        attrs = self.g.worktree_attrs(self.place)   # 回した頼みの頼み元は、メインブランチに入れた部署の頼み元
-        self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
-        self.assertEqual(len(self.prompts()), 1)
+        # 回した頼みの頼み元は、メインブランチに入れた部署の頼み元（順番待ちの件の印。渡すときに部署の属性へ書く）
+        (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))
+        self.assertEqual((item["marks"]["boss"], item["marks"]["boss-account"]), ("窓口", "a1"))
+        self.assertEqual(self.prompts(), [])
 
     def test_fire_from_the_fallback_department_itself_queues_the_ask_for_after_its_turn(self):
         # 回す先の部署（調べ）が自分で --land を打った合図: 前は「宛先はこの会話自身」で止まり、訳も合図の行から離れた所に出た
@@ -372,8 +374,8 @@ class Call(unittest.TestCase):
         provision.mark(self.src, self.src, {"name": "受付", "lifecycle": "persistent"}, self.g)   # 本社の名付いた会話（窓口）
         lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None, {"name": None})
         self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")
-        attrs = self.g.worktree_attrs(self.place)   # 回した頼みの頼み元は会社の窓口
-        self.assertEqual((attrs.get("boss"), attrs.get("boss-inbox")), ("受付", self.inbox))
+        (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))   # 回した頼みの頼み元は会社の窓口
+        self.assertEqual((item["marks"].get("boss"), item["marks"].get("boss-inbox")), ("受付", self.inbox))
         (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
         self.assertEqual((row["from"]["name"], row.get("cause")), ("受付", None))   # 立った部署の頼みは親にしない
 
@@ -385,8 +387,9 @@ class Call(unittest.TestCase):
         provision.mark(self.src, self.src, {"ask": "20261029-005748-29e7fd", "boss": "窓口", "boss-session": "s0",
                                             "boss-inbox": self.inbox}, self.g)
         calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None, {"name": None})
-        attrs = self.g.worktree_attrs(self.place)
-        self.assertEqual((attrs.get("boss"), attrs.get("boss-session"), attrs.get("boss-inbox")), ("窓口", "s0", self.inbox))
+        (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))
+        marks = item["marks"]
+        self.assertEqual((marks.get("boss"), marks.get("boss-session"), marks.get("boss-inbox")), ("窓口", "s0", self.inbox))
         (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
         self.assertEqual((row["from"]["name"], row["cause"]), ("窓口", "20261029-005748-29e7fd"))
 

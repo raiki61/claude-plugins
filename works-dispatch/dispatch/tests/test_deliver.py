@@ -521,6 +521,22 @@ class Flow(unittest.TestCase):
     def prompts(self):
         return [w for w in self.ports.term.writes if w[0] == "prompt"]
 
+    def take_queued(self, place=None):
+        """部署の待ち受けが順番待ちの先頭を渡したところまで進める（--take。待ち受けと同じに頼み元の属性を書く）。立っている部署への
+        --ask は部署の窓に打たずに順番待ちに積むので（受付 d70b23）、納品などの試験はこれで部署が頼みを受けた形にする。渡した件。"""
+        place = place or self.place
+        [first, *_] = wake.queued(self.inbox, self.ports.git.git_dir(place))
+        rc, out = self.main(place, "--take", first["id"])
+        self.assertEqual(rc, 0, out)
+        return first
+
+    def ask_taken(self, *argv, cwd=None):
+        """--ask <argv> を打ち、部署の待ち受けが受け取ったところまで進める（take_queued）。(終了の値, 出力)。"""
+        rc, out = self.main(cwd or self.src, "--ask", *argv)
+        self.assertEqual(rc, 0, out)
+        self.take_queued()
+        return rc, out
+
     def fall(self, keep_mark=False):
         """部署の窓の会話が落ちた形（PC の再起動などで attach の画面が終わり、ペインにはシェルだけが居る）。keep_mark なら、
         herdr がペインの会話の印を残したままの形（まっさらな環境での 6 回目の試しの 1）。"""
@@ -547,7 +563,8 @@ class Flow(unittest.TestCase):
         runs = [w for w in self.ports.term.writes if w[0] == "run"]
         self.assertEqual(runs, [("run", self.window, "claude-a1 attach d")])   # 会話の一覧の短い id で打つ（長い id は断られる）
         self.assertIn("部署の窓に会話が居なかったので", out)
-        self.assertEqual(len(self.prompts()), 1)
+        self.assertEqual(self.prompts(), [])   # 頼みは窓に打たず順番待ちに積む。戻った会話の始まりの待ち受けが渡す（受付 d70b23）
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)
 
     @unittest.skipIf(os.name == "nt", "Windows では前に居るプロセスを見る口が当てにならないので見ず、画面の exited の行で見分ける"
                                       "（test_exited_line_on_the_screen_counts_as_fallen）")
@@ -638,31 +655,6 @@ class Flow(unittest.TestCase):
         # 開き直した作業場は新しいので、寿命の印（company.lifecycle）も付け直す
         self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
-    def test_clear_before_ask_sees_the_clear_by_a_new_talk_file_when_the_list_keeps_the_id(self):
-        # 裏の会話は /clear の後も会話の一覧の sessionId が替わらないことがある（2026-10-17 の試し）。記録のファイルが替われば空と見る
-        class H:
-            Error = real_herdr.Error
-
-            def prompt(self, pane, text, wait):
-                files.append(("new.jsonl", 2))
-
-            def read(self, pane, lines):
-                return ""
-
-        def busy():
-            busy.found = "s-old"
-            return False
-        busy.found = "s-old"
-        files = [("old.jsonl", 1)]
-        ports = argparse.Namespace(term=H(), pause=lambda: None)
-        ok, said = orders.clear_before_ask({"attrs": {}}, "a0", "p1", busy, ports, lambda: files[-1])
-        self.assertTrue(ok, said)
-        files[:] = [("old.jsonl", 1)]
-        H.prompt = lambda self, pane, text, wait: None   # 記録も替わらない
-        ok, said = orders.clear_before_ask({"attrs": {}}, "a0", "p1", busy, ports, lambda: files[-1])
-        self.assertFalse(ok)
-        self.assertIn("見られなかった", said[0])
-
     def test_newest_talk_is_the_last_written_record_of_the_folder(self):
         home = tempfile.mkdtemp()
         cwd = "/w/a.b"
@@ -742,19 +734,6 @@ class Flow(unittest.TestCase):
         import orders
         self.assertNotEqual(orders.nudge_line("X", "desk", 1_000_000)[:20], orders.nudge_line("X", "desk", 1_000_007)[:20])
 
-    def test_ask_finds_the_department_talk_after_clear_and_rewrites_its_id(self):
-        # 部署の会話で /clear を打つと会話の id が変わる。属性の古い id で一覧を引くと動き出しを見られず、届いた頼みを 3 回打ち直して
-        # failed を返し、頼み元の属性を書かなかった（2026-10-16 の試しの部署）。部署の場所に居る裏の会話で見つけ、id を書き直す
-        self.ports.list_sessions = lambda cdir, include_done=False: [
-            {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
-            {"id": "e", "sessionId": "s-cleared", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
-             "status": "busy" if any(w[0] == "prompt" and w[1] != self.desk for w in self.ports.term.writes) else "idle"}]
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(len(self.prompts()), 1)
-        attrs = self.g.worktree_attrs(self.place)
-        self.assertEqual((attrs.get("session"), attrs.get("boss")), ("s-cleared", "desk"))
-
     def test_a_line_left_in_the_input_box_gets_an_enter(self):
         # Windows: attach で戻した直後に送った文が、入力フィールドに入ったまま送信されなかった。残っていれば Enter を足す
         h = self.ports.term
@@ -808,15 +787,19 @@ class Flow(unittest.TestCase):
         self.fall()
         rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("attach で戻して納品を促す 1 行を打つ", out)
+        self.assertIn("納品を促す 1 行を台帳に置いてattach で戻す（戻った会話の始まりの待ち受けが渡す。窓には打たない）", out)
         self.assertEqual([w for w in self.ports.term.writes if w[0] in ("run", "prompt")], [])
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("受付 20261016-000000-aaaaaa の納品を促した（sent", out)
+        self.assertIn("受付 20261016-000000-aaaaaa の納品を促す 1 行を台帳に置いた（戻った会話の始まりの待ち受けが渡す）", out)
         self.assertEqual([w for w in self.ports.term.writes if w[0] == "run"], [("run", self.window, "claude-a1 attach d")])
-        [(_, pane, text, _)] = self.prompts()
-        self.assertEqual(pane, self.window)
-        self.assertIn("受付 20261016-000000-aaaaaa", text)
+        self.assertEqual(self.prompts(), [])   # 戻した窓には打たない（受付 9dccfe・d70b23）
+        [said] = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY]
+        self.assertEqual((said["id"], said["to"]), ("20261016-000000-aaaaaa", wake.address("src", "調べ")))
+        self.assertIn("受付 20261016-000000-aaaaaa", said["text"])
+        self.assertIn("--deliver", said["text"])
+        # 初めての待ち受けも取りこぼさないように、知らせを置く前に読んだ所を台帳の終わりに書く
+        self.assertTrue(os.path.exists(wake.pos_path(self.inbox, self.g.git_dir(self.place))))
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("20261016-000000-aaaaaa", "revived")])
 
@@ -824,7 +807,6 @@ class Flow(unittest.TestCase):
         # 戻せない（属性にも一覧にも会話の id が無い）なら、台帳に failed を書いて終了の値 1
         provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
         self.fall()
-        real_list = self.ports.list_sessions
         self.g.unset_worktree_attr(self.place, "session")
         self.ports.list_sessions = lambda cdir, include_done=False: []
         rc, out = self.main(self.src, "--nudge", "調べ")
@@ -832,15 +814,9 @@ class Flow(unittest.TestCase):
         self.assertIn("窓に会話が居ないが、戻せなかった", out)
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("20261016-000000-aaaaaa", "failed")])
-        # 戻せても促しの 1 行が届かなければ、台帳は failed、終了の値 1
-        provision.mark(self.place, self.src, {"session": "s-dept"}, self.g)
-        self.ports.list_sessions = real_list
-        with mock.patch.object(orders.deliver, "send_confirmed", lambda *a, **k: ("failed", "入力フィールドに残った")):
-            rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual(rc, 1, out)
-        self.assertIn("納品を促した（failed。入力フィールドに残った）", out)
-        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
-        self.assertEqual([r["status"] for r in nudged], ["failed", "failed"])
+        # 促す 1 行は台帳に残る（会話が戻れば、その始まりの待ち受けが渡す）
+        self.assertIn("促す 1 行は台帳に残り", out)
+        self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY], ["20261016-000000-aaaaaa"])
 
     def test_nudge_does_not_revive_a_fallen_department_that_delivered(self):
         # 納品し終えた部署は戻さない（する事が無く、次の --ask が戻してから頼む）
@@ -891,33 +867,40 @@ class Flow(unittest.TestCase):
         self.assertIn(f"--nudge 調べ で戻して納品を促す", out)
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"受付 {held} の納品を促した（sent", out)
+        self.assertIn(f"受付 {held} の納品を促す 1 行を台帳に置いた", out)
+        self.assertEqual(self.prompts(), [])
 
     def test_fallen_department_with_a_pending_ask_is_nudged_to_deliver(self):
-        # 落ちる前の頼みを納品していない部署: 戻して納品を促し、新しい頼みは送らずに止まる（待っても来ない、で止めない）
+        # 落ちる前の頼みを納品していない部署: 新しい頼みは順番待ちに積み、納品を促す 1 行を台帳に置いてから戻す（待っても来ない、で
+        # 止めない）。どちらも窓には打たず、戻った会話の始まりの待ち受けが渡す（受付 9dccfe・d70b23）
         provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, self.g)
         self.fall()
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("会話が落ちていたので戻して納品を促した", out)
-        [(_, pane, text, _)] = self.prompts()
-        self.assertEqual(pane, self.window)
-        self.assertIn("受付 20261016-000000-aaaaaa", text)
-        self.assertIn("--deliver", text)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("受付 20261016-000000-aaaaaa の納品を促す 1 行を台帳に置いた", out)
+        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.term.writes)
+        self.assertEqual(self.prompts(), [])
+        [said] = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY]
+        self.assertIn("受付 20261016-000000-aaaaaa", said["text"])
+        self.assertIn("--deliver", said["text"])
+        self.assertEqual(len(wake.queued(self.inbox, self.g.git_dir(self.place))), 1)
 
-    def test_ask_types_one_line_into_the_department_window_and_writes_the_ask(self):
+    def test_ask_queues_the_ask_without_typing_into_the_department_window(self):
+        # 立っている部署の窓（herdr のペイン）には打たず、順番待ちに積む。部署の待ち受けが裏で渡し、渡すときに頼み元の属性を書く
+        # （持ち主 2026-11-01「herdrが逆に直でうたれるとまずい。裏で送ってほしい」。受付 9dccfe・d70b23）
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
-        (w,) = self.prompts()
-        self.assertEqual((w[1], w[3]), (self.window, False))
-        self.assertIn("頼みです（受付 ", w[2])
-        self.assertIn("desk から）: これを調べて 終わったら、要約を 結論・決め手・残った疑問・ブランチ の項目で", w[2])
+        self.assertEqual(self.prompts(), [])
+        self.assertNotIn("ask", self.g.worktree_attrs(self.place))   # 受けるのは渡したとき
+        item = self.take_queued()
+        self.assertIn("頼みです（受付 ", item["line"])
+        self.assertIn("desk から）: これを調べて 終わったら、要約を 結論・決め手・残った疑問・ブランチ の項目で", item["line"])
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual({k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane")},
                          {"boss": "desk", "boss-account": "a1", "boss-session": "s-desk", "boss-pane": self.desk})
         self.assertEqual(os.path.realpath(attrs["boss-inbox"]), os.path.realpath(self.inbox))
-        (rec,) = deliver.records(self.inbox)
-        self.assertEqual((rec["kind"], rec["status"], rec["id"], rec["to"]["name"]), ("ask", "sent", attrs["ask"], "調べ"))
+        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
+        self.assertEqual((rec["status"], rec["id"], rec["to"]["name"]), ("queued", attrs["ask"], "調べ"))
         self.assertEqual(pathlib.Path(rec["file"]).read_text(encoding="utf-8"), "これを調べて\n")
         # 受付箱は commit されない（共通の .git の中。作業ツリーには何も書かない）
         self.assertTrue(os.path.realpath(self.inbox).startswith(os.path.realpath(self.g.common_dir(self.src)) + os.sep))
@@ -931,12 +914,12 @@ class Flow(unittest.TestCase):
             {"pid": 10**9 + 1, "startedAt": 200, **listed(cdir)[0], "name": "窓口"}, *listed(cdir)[1:]]
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
+        item = self.take_queued()
         self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "窓口")
-        self.assertIn("窓口 から）", self.prompts()[0][2])
+        self.assertIn("窓口 から）", item["line"])
 
     def test_ask_takes_the_askers_name_and_account_from_the_flags(self):
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x", "--from-name", "窓口", "--from-account", "a2")
-        self.assertEqual(rc, 0, out)
+        self.ask_taken("調べ", "--text", "x", "--from-name", "窓口", "--from-account", "a2")
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual((attrs.get("boss"), attrs.get("boss-account")), ("窓口", "a2"))
 
@@ -946,16 +929,16 @@ class Flow(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-desk"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
         self.assertEqual(rc, 0, out)
+        item = self.take_queued()
         self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "段取り")
-        self.assertIn("段取り から）", self.prompts()[0][2])
+        self.assertIn("段取り から）", item["line"])
 
     def test_ask_from_the_desk_right_after_clear_names_the_asker_by_the_place(self):
         # 窓口が /clear で会話を空にした直後は、会話の id が company.session と合わない。--desk が書いた処理（company.pid）の中から
         # 頼んだなら、場所の名前を書く（会話の一覧の名前 my-notes-d7 で頼み元を書き続けた。my_notes の受付 20261017-054115-5bc0b0）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-before-clear", "pid": "4242"}, self.g)
         self.ports.same_process = lambda pid: pid == "4242"
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
-        self.assertEqual(rc, 0, out)
+        self.ask_taken("調べ", "--text", "x")
         self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "段取り")
 
     def test_ask_typed_in_another_clone_returns_to_the_askers_own_inbox(self):
@@ -963,8 +946,7 @@ class Flow(unittest.TestCase):
         # 返り先が claude-plugins の受付箱になった。my_notes の受付 20261017-054115-5bc0b0）
         other = str(pathlib.Path(self.root) / "other")
         self.other_clone(other)
-        rc, out = self.main(other, "--ask", "調べ", "--text", "x")
-        self.assertEqual(rc, 0, out)
+        self.ask_taken("調べ", "--text", "x", cwd=other)
         self.assertEqual(os.path.realpath(self.g.worktree_attrs(self.place).get("boss-inbox")), os.path.realpath(self.inbox))
         # 頼みの行も頼み元の受付箱に書く（--done・Stop フック・待ち受けは自分の受付箱だけを読み、返事待ちの頼みを見落とした）
         ask_id = self.g.worktree_attrs(self.place).get("ask")
@@ -973,34 +955,33 @@ class Flow(unittest.TestCase):
     def test_ask_from_another_talk_in_the_head_office_keeps_the_talks_name(self):
         # 本社にはほかの会話も居る。--desk が書いた会話（company.session）でなければ、窓口の名前を名乗らない
         provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-other"}, self.g)
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
-        self.assertEqual(rc, 0, out)
+        self.ask_taken("調べ", "--text", "x")
         self.assertEqual(self.g.worktree_attrs(self.place).get("boss"), "desk")
 
     def test_the_command_handed_to_the_department_is_quoted_with_forward_slashes(self):
         self.assertNotIn("\\", orders.RUN)
         self.assertTrue(orders.RUN.endswith("/dispatch.py") or orders.RUN.endswith("/dispatch.py'"))
 
-    def test_a_second_ask_waits_until_the_first_is_delivered(self):
-        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "一つ目")[0], 0)
+    def test_a_second_ask_waits_in_the_queue_until_the_first_is_delivered(self):
+        self.ask_taken("調べ", "--text", "一つ目")
+        held = self.g.worktree_attrs(self.place)["ask"]
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "二つ目")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("まだ納品していない", out)
-        self.assertEqual(len(self.prompts()), 1)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("順番待ちに積んだ（1 件目", out)
+        self.assertEqual(self.g.worktree_attrs(self.place)["ask"], held)   # 前の頼み元の属性を上書きしない
+        self.assertEqual(self.prompts(), [])
 
     def test_the_askers_window_is_where_the_asking_talk_is_not_the_inherited_env(self):
         # 裏の会話（claude --bg）は控えの処理の HERDR_PANE_ID を継ぎ、別のペインを指すことがある（2026-10-17 に見た）
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk", "HERDR_PANE_ID": self.window}
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
-        self.assertEqual(rc, 0, out)
+        self.ask_taken("調べ", "--text", "x")
         self.assertEqual(self.g.worktree_attrs(self.place).get("boss-pane"), self.desk)
 
     def test_a_new_ask_does_not_keep_the_previous_askers_values(self):
         provision.mark(self.place, self.src, {"boss": "前の窓口", "boss-account": "zz", "boss-session": "s-old",
                                               "boss-pane": "P-old"}, self.g)
         self.ports.env = {}   # Claude Code の外から頼んだ（頼む会話が分からない）
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
-        self.assertEqual(rc, 0, out)
+        self.ask_taken("調べ", "--text", "x")
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual({k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane")},
                          {"boss": None, "boss-account": None, "boss-session": None, "boss-pane": None})
@@ -1008,7 +989,8 @@ class Flow(unittest.TestCase):
     def test_ask_dry_run_writes_nothing(self):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("打ち込む 1 行: 頼みです", out)
+        self.assertIn("窓には打たない", out)
+        self.assertIn("会話に渡す 1 行: 頼みです", out)
         self.assertEqual(self.prompts(), [])
         self.assertNotIn("ask", self.g.worktree_attrs(self.place))
         self.assertFalse(os.path.exists(self.inbox))
@@ -1164,7 +1146,10 @@ class Flow(unittest.TestCase):
         self.assertEqual(self.main(self.src, "--ask", "調べ")[0], 2)
 
     def ask_then_summary(self, text):
+        # 同じ頼みを打ち直すと、部署が受けたままの頼み（同じ中身）の受付番号が返り、順番待ちには積まない。受けていなければ受けさせる
         self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "調べて")[0], 0)
+        if not wake.pending(self.g.worktree_attrs(self.place)):
+            self.take_queued()
         self.ports.term.writes.clear()
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text(text, encoding="utf-8")
@@ -1181,7 +1166,7 @@ class Flow(unittest.TestCase):
         self.assertIn("【ブランチ】dept/a", w[2])   # ブランチは機械が足す
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual(attrs["delivered"], attrs["ask"])
-        recs = deliver.records(self.inbox)
+        recs = [r for r in deliver.records(self.inbox) if r["kind"] in ("ask", "deliver")]
         self.assertEqual([r["kind"] for r in recs], ["ask", "deliver"])
         self.assertIn("## 結論\n直した。", pathlib.Path(recs[1]["file"]).read_text(encoding="utf-8"))
         # 納品の後は Stop フックが差し戻さない
@@ -1478,66 +1463,17 @@ class Flow(unittest.TestCase):
              "status": "busy" if busy_before or any(x != "/clear" for x in sent()) else "idle"}]
         return sent
 
-    def test_fresh_role_clears_the_talk_before_the_next_ask_once_the_last_one_is_delivered(self):
-        # 担当は keep の席のまま、頼みごとに空の会話で受ける（前の頼みの記憶で書き直すと、ほかの部署が入れた行を消す）
+    def test_fresh_role_leaves_the_clear_to_the_listener_and_queues_the_ask(self):
+        # 頼みごとに空の会話で受ける役（fresh）でも、--ask は窓に /clear も頼みも打たずに順番待ちに積む。空にするのは、渡す前の
+        # 部署の待ち受け（wake_hook.must_clear。順番待ちの件の印 fresh を渡すときに属性へ書く）（受付 9dccfe・d70b23）
         sent = self.fresh_world()
         provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, self.g)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(sent()[0], "/clear")
-        self.assertIn("調べて", sent()[1])
-        self.assertIn("/clear で会話を空にしてから送る", out)
-        attrs = self.g.worktree_attrs(self.place)
-        # 変わった会話の id と、attach に渡す短い id（/clear の前の id の頭）、役の fresh を属性に書く
-        self.assertEqual((attrs["session"], attrs["job"], attrs["fresh"]), ("s-new", "s", "true"))
-        # herdr の作業場の印にも出る
-        rc, out = self.main(self.src, "--sync", "--dry-run")
-        self.assertIn("印 always · new", out)
-
-    def test_fresh_role_sees_the_clear_in_the_records_of_the_pane_account_not_of_the_asker(self):
-        # 設定のフォルダを書かないアカウントの部署は、ペインのシェルの素の claude で起きて ~/.claude に記録を書く。頼む会話の
-        # CLAUDE_CONFIG_DIR（別のアカウント）の下を探すと記録が見つからず、一覧の id も替わらないので、空になったのを見られない
-        # （2026-10-17 に、設定のフォルダを書いたアカウントの会話から、書かないアカウントの部署へ 2 回頼んで 2 回止まった。my_notes の受付 20261017-075753-01991f）
-        cfg = pathlib.Path(self.cfg)
-        cfg.write_text(cfg.read_text(encoding="utf-8").replace(f", config_dir = '{cfg.parent}/c1'", ""), encoding="utf-8")
-        home = pathlib.Path(self.root).parent / "home"
-        records = home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(self.place))
-        records.mkdir(parents=True)
-        (records / "old.jsonl").write_text("{}", encoding="utf-8")
-        os.utime(records / "old.jsonl", (1, 1))
-        self.ports.env = {**self.ports.env, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(pathlib.Path(self.root).parent / "c2")}
-        sent = self.fresh_world()
-        self.ports.list_sessions = lambda cdir, include_done=False: [   # 裏の会話は /clear の後も一覧の id が替わらない
-            {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
-            {"id": "s", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
-             "status": "busy" if any(x != "/clear" for x in sent()) else "idle"}]
-        typed = self.ports.term.prompt
-
-        def prompt(pane, text, wait):
-            if text == "/clear":
-                (records / "new.jsonl").write_text("{}", encoding="utf-8")
-            return typed(pane, text, wait)
-        self.ports.term.prompt = prompt
-        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, self.g)
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(sent()[0], "/clear")
-        self.assertIn("調べて", sent()[1])
-
-    def test_fresh_role_does_not_clear_a_talk_without_a_delivered_ask_or_a_running_one(self):
-        sent = self.fresh_world()
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")   # 頼みの無い部署（--task の頼みのファイルで働いているかも）
-        self.assertEqual(rc, 0, out)
-        self.assertNotIn("/clear", sent())
-        self.assertIn("まだ納品した頼みが無いので、空にせずに送る", out)
-        self.ports.term.writes.clear()
-        sent = self.fresh_world(busy_before=True)
-        provision.mark(self.place, self.src, {"delivered": self.g.worktree_attrs(self.place)["ask"]}, self.g)
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
-        # 納品し終えた部署が動いていて空にできないなら送らない（打つとターンの後に前の会話のまま届く。my_notes の受付 6f32b7）
-        self.assertEqual(rc, 1, out)
         self.assertEqual(sent(), [])
-        self.assertIn("空にできないので送らなかった", out)
+        item = self.take_queued()
+        self.assertEqual(item["marks"]["fresh"], "true")
+        self.assertEqual(self.g.worktree_attrs(self.place)["fresh"], "true")
 
     def test_fresh_role_mid_turn_with_a_watcher_history_queues_the_ask(self):
         # 待ち受けの跡の在る部署がターンの途中（待ち受けが止まっている）なら、打ち込まずに順番待ちに積む（ターンの終わりの待ち受けが
@@ -1557,7 +1493,7 @@ class Flow(unittest.TestCase):
 
     def test_a_department_waiting_on_a_permission_prompt_is_not_typed_into(self):
         # 確かめの画面（許可など）で人の答えを待つ部署（status=waiting）の窓には打たない（打った字と Enter を確かめの画面が受ける）。
-        # 待ち受けの跡が在れば順番待ちに積み、無ければ訳を出して止める。fresh でない役でも同じ
+        # 待ち受けの跡が無くても順番待ちに積む（立っている部署の窓にはいつも打たない。受付 d70b23）。fresh でない役でも同じ
         self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\n')
         sent = lambda: [w[2] for w in self.prompts() if w[1] != self.desk]   # noqa: E731
         self.ports.list_sessions = lambda cdir, include_done=False: [
@@ -1565,14 +1501,7 @@ class Flow(unittest.TestCase):
             {"id": "s", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "blocked",
              "status": "waiting", "waitingFor": "permission prompt"}]
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
-        self.assertEqual(rc, 1, out)
-        self.assertEqual(sent(), [])
-        self.assertIn("確かめの画面", out)
         place_dir = self.g.git_dir(self.place)
-        pos = pathlib.Path(wake.pos_path(self.inbox, place_dir))
-        pos.parent.mkdir(parents=True, exist_ok=True)
-        pos.write_text("0", encoding="utf-8")
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         self.assertEqual(sent(), [])
         self.assertIn("順番待ちに積んだ", out)
@@ -1583,7 +1512,7 @@ class Flow(unittest.TestCase):
         self.shape(test_role.SHAPE)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
-        self.assertIn("結論・差分・試験 の項目で", self.prompts()[0][2])
+        self.assertIn("結論・差分・試験 の項目で", self.take_queued()["line"])
         self.ports.term.writes.clear()
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text("結論: 直した\n差分: 1 行\n", encoding="utf-8")

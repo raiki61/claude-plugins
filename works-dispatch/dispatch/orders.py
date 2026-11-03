@@ -412,32 +412,6 @@ def busy_check(dept, accounts_, ports):
     return busy
 
 
-def clear_before_ask(dept, held, pane, busy, ports, newest=lambda: None):
-    """頼みごとに空の会話で受ける役（fresh）の部署に、新しい頼みを打つ前に /clear を打つ。(送ってよいか, 出す注記の並び)。
-    空にするのは、前の頼み（company.ask）を納品し終えていて、会話が止まっているときだけ（納品していない頼みはここまでに止めている。
-    頼みの無い部署は --task の頼みのファイルで働いているかもしれず、動いている会話を空にすると途中の仕事が消える）。納品し終えた
-    部署を空にできない（動いている・空になったのを見られない）ときは送らない（打った頼みは前の会話のまま届く）。
-    空になったのは、会話の一覧の id が替わったか、newest（部署の場所のいちばん新しい会話の記録の (名前, 時刻)。claudex.newest_talk）が
-    打つ前と別のファイルになったかで見る（裏の会話は /clear の後も一覧の id が替わらないことがある）。"""
-    if not held:
-        return True, ["頼みごとに空にする役だが、部署にまだ納品した頼みが無いので、空にせずに送る"]
-    if busy():
-        return False, ["頼みごとに空にする役だが、部署の会話が動いていて空にできないので送らなかった（打つとターンの後に前の会話のまま"
-                       "届く）。ターンが終わってから --ask を打ち直す"]
-    before, talk = busy.found, newest()
-
-    def cleared():
-        busy()
-        now = newest()
-        return bool(busy.found) and busy.found != before or bool(now) and bool(talk) and now[0] != talk[0]
-    status, detail = deliver.clear_talk(pane, ports.term, ports.pause, cleared)
-    if status == "cleared":
-        return True, [f"前の頼み（受付 {held}）を納品し終えているので、/clear で会話を空にしてから送る"]
-    if talk is None:   # 置き場の名前は Claude Code の作り方を写している（claudex.newest_talk）。作り方が変われば、ここに出る
-        detail += f"。部署の場所の会話の記録が見つからなかった（claudex.newest_talk の作る置き場の名前が、{chat.NAME} の物と違うかもしれない）"
-    return False, [f"会話を空にできなかったので送らなかった（{detail}）。部署の窓を見て、空になっていれば --ask を打ち直す"]
-
-
 def nudge_line(held, boss, now=None):
     """戻した部署に、落ちる前の頼みの納品を促す 1 行。頭に時刻を入れて、前に送った促しと字を分ける（届いたかの確かめが、画面に
     残った前の促しを今の促しと見誤らないように）。"""
@@ -645,11 +619,7 @@ def _ask(a, ports, cwd, task, sent):
         place_dir = ports.git.git_dir(dept["path"])
         to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
         fresh = (the_role or {}).get("context") == NEW
-        # 待ち受けの跡の在る fresh の部署が、納品し終えてターンの途中（待ち受けが止まっている）なら積む。ターンの終わりの待ち受けが空にしてから渡す。
-        # 確かめの画面で人の答えを待っている（waiting）部署も積む（窓に打つと確かめの画面が受ける）
-        check = busy_check(dept, accounts_, ports)
-        mid_turn = not pending and check() and (fresh and held or check.waiting)
-        def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
+        def queue(d):   # 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）。窓には打たない（受付 9dccfe・d70b23）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
                              {"id": ask_id, "sender": sender, "body": body, "title": title, "inbox": inbox, "required": required, "boss": boss,
                               "fresh": fresh, "links": links, "from": origin, "company": company["name"], "role": role,
@@ -663,92 +633,17 @@ def _ask(a, ports, cwd, task, sent):
                                      "この作業場に待ち受けの居た跡が無いので、順番待ちに積んでも渡す者が居ない。"
                                      "この会話で上のツールの出力を読んで進めるか、ほかの部署に頼む"]))
             return 2
-        if to and dest_inbox and place_dir and (heard or (pending or mid_turn) and wake.has_history(dest_inbox, place_dir)):
-            return queue(dept)
-        pane, revived = live_window(dept, ports), False
-        if pane is None and not a.dry_run:
-            # 窓に会話が居ない: 部署の会話が落ちた（PC やサーバーの再起動など）。attach で前の続きから戻す
-            pane, said = revive(dept, accounts_, ports, sessions_, company["root"])
-            notes.append(said)
-            revived = pane is not None
-        if pane is None:
-            print("\n".join(notes + [f"止めた: 宛先の部署 {where}（{dept['branch']}）の窓に会話が居ない"
-                                     + ("（--dry-run なので戻さない。--dry-run を外すと、部署のペインで attach を打って戻す）"
-                                        if a.dry_run else "")]))
-            return 1
-        if pending:
-            # 部署は頼みを 1 つずつ受ける（頼み元の属性は 1 組なので、上書きすると前の頼み元に納品が返らない）
-            if revived:
-                status, detail = deliver.send_confirmed(pane, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.term, ports.pause,
-                                                        busy_check(dept, accounts_, ports))
-                notes.append(f"戻した部署に、受付 {held} の納品を促した（{status}" + (f"。{detail}" if detail else "") + "）")
-                print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
-                                         "まだ納品していない。会話が落ちていたので戻して納品を促した。納品が届いてから頼み直す"]))
-                return 2
-            print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
-                                     f"まだ納品していない。納品を待つか、別の部署に頼む（部署の会話が止まって見えるなら、部署の窓"
-                                     f"{f' {pane}' if pane else ''} で続きを頼む）"]))
-            return 2
         if a.task or a.branch:
             notes.append(f"宛先の部署 {where} は立っているので、--task・--branch は使わない")
-        if a.dry_run:
-            line = deliver.ask_line(ask_id, sender, body, os.path.join(inbox, f"{ask_id}-ask.md"), required, RUN)
-            print("\n".join(notes + [f"頼む先: {where}  ペイン {pane}", f"打ち込む 1 行: {line}",
-                                     "書く属性: " + "、".join(f"company.{k}={v}" for k, v in boss.items() if v)]))
-            return 0
-        busy = busy_check(dept, accounts_, ports)
-        with wake.ask_lock(dest_inbox, place_dir):
-            # 錠の中で属性を読み直す。部署を読んでから今までの間に、待ち受けが順番待ちの頼みを渡していれば（属性の頼みが替わった）、
-            # 窓に打たない（打つと、この頼みの頼み元が、渡された頼みの頼み元を上書きする。my_notes の受付 20261017-082903-87f45f）
-            now = ports.attrs(dept["path"])
-            if moved_away(dept["attrs"], now):
-                print("\n".join(notes + [moved_text(where)]))
-                return 1
-            raced = now.get("ask") != held
-            if not raced and fresh:
-                acc = account_of(dept, accounts_)
-                # 記録はペインのシェルで起きた会話のアカウントの下に在る。頼む会話の CLAUDE_CONFIG_DIR（別のアカウント）で探さない
-                # （設定のフォルダを書かないアカウントの部署を、別のアカウントの段取りから頼むと、記録が見つからず止まった。
-                # my_notes の受付 20261017-075753-01991f）
-                ok, said = clear_before_ask(dept, held, pane, busy, ports,
-                                            lambda: chat.newest_talk(acc.config_dir if acc else None, dept["path"], ports.account_env))
-                notes += said
-                if not ok:
-                    print("\n".join(notes + [f"止めた: 宛先の部署 {where} は頼みごとに空の会話で受ける役なので、前の会話のままでは送らない"]))
-                    return 1
-            if not raced:
-                path = deliver.put(inbox, f"{ask_id}-ask.md", body)
-                line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
-                status, detail = deliver.send_confirmed(pane, line, ports.term, ports.pause, busy)
-            if not raced and status == "sent":
-                # 役の fresh を写す（会社の形を後から変えても、次の頼みから herdr の表示が合う）
-                marks = {**boss, "fresh": FRESH if fresh else None, "ask-digest": digest}
-                if busy.found and busy.found != dept["attrs"].get("session"):
-                    # /clear で変わった会話の id を書き直す（Stop フックの見分けと、落ちたときの attach が古い id を使わない）
-                    marks.update(provision.renew_session(dept["attrs"], busy.found))
-                try:
-                    provision.mark(dept["path"], company["root"], marks, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
-                except (gitx.GitError, OSError) as e:
-                    notes.append(f"宛先の部署に頼みの属性を書けなかった（{e}）。納品のコマンドが頼み元を見つけられず、Stop フックが効かない")
-        if raced:   # 順番待ちに積むのは錠の外で（積む道は窓を戻したり打ったりするので、その間待ち受けを止めない）
-            dept = {**dept, "attrs": now}
-            if wake.pending(now) and now.get("ask-digest") == digest:
-                sent.update(id=now["ask"], to={"company": company["name"], "name": now.get("name"), "role": role})
-                print("\n".join(notes + [f"頼み {now['ask']} → {where}  同じ中身の頼みが動いている（新しく積まない）"]))
-                return 0
-            if to and dest_inbox and place_dir and wake.has_history(dest_inbox, place_dir):
-                return queue(dept)
-            print("\n".join(notes + [f"止めた: 宛先の部署 {where} は、読んでから打つまでの間に受付 {now.get('ask')}（頼み元 "
-                                     f"{now.get('boss') or '-'}）を受けた。納品を待つか、別の部署に頼む"]))
-            return 2
-        _log_ask(inbox, boss["boss-inbox"], {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, **links, "from": origin,
-                            "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
-                                   "branch": dept["branch"], "path": dept["path"], "pane": pane}, "file": path, "title": title})
-        if status == "sent":
-            sent.update(id=ask_id, to={"company": company["name"], "name": dept["attrs"].get("name"), "role": role})
-        print("\n".join(notes + [f"頼み {ask_id} → {where}  {status}" + (f"（{detail}）" if detail else ""),
-                                 f"- 本文: {path}"]))
-        return 0 if status == "sent" else 1
+        if to and dest_inbox and place_dir:
+            # 立っている部署へは、いつも順番待ちに積み、部署の待ち受けが裏で渡す。部署の窓（herdr のペイン）には打たない（持ち主
+            # 2026-11-01「herdrが逆に直でうたれるとまずい。裏で送ってほしい」。受付 9dccfe。--say・--nudge と同じ形にした。受付 d70b23）。
+            # 前は待ち受けの居ない部署の窓に頼みの 1 行を打ち、頼みごとに空の会話で受ける役には先に /clear を打っていた。今は空にするのも
+            # 渡す待ち受けがする（wake_hook の fresh）
+            return queue(dept)
+        print("\n".join(notes + [f"止めた: 宛先の部署 {where} の受付箱か作業場の git の場所を引けないので、順番待ちに積めない"
+                                 "（部署の窓には打たない。--tree で部署の場所を確かめる）"]))
+        return 1
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。ブランチの名前は頼む側が渡す）
     if target.get("asked"):
         # 頼まれたときだけ立てる受け持ち（lifetime が until-idle か per-ask）: 部署の名前は受け持ちの名前、ブランチは受付番号から作る
@@ -895,8 +790,12 @@ def moved_text(where):
 
 
 def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, digest, ask, accounts_, sessions_, source, sent):
-    """待ち受けの居る部署への --ask: 順番待ちに積み（同じ中身が積まれていればその受付番号を返す）、宛先の会社の台帳に知らせを
-    足す。渡すのは部署の待ち受け（wake_hook.py）。会話が落ちていれば attach で戻す（戻った会話の始まりの待ち受けが渡す）。
+    """立っている部署への --ask: 順番待ちに積み（同じ中身が積まれていればその受付番号を返す）、宛先の会社の台帳に知らせを
+    足す。渡すのは部署の待ち受け（wake_hook.py）で、部署の窓には打たない（受付 9dccfe・d70b23）。待ち受けが居なければ:
+    - 窓に会話が居なければ attach で戻す（revive。戻った会話の始まりの待ち受けが渡す）。納品していない頼みを持つ部署（答え待ちを除く）には、
+      戻す前に納品を促す 1 行（nudge_line）を台帳の知らせ（kind say）で置き、戻った会話の始まりの待ち受けが渡す。
+    - 窓に会話が居れば、順番待ちが渡らずに止まった部署と同じに動かす（wake_stuck。ターンの途中ならターンの終わりの待ち受けが渡し、
+      手が空いていれば裏の会話を止めて attach で起動し直す）。
     積んだ（か同じ中身が積まれていた）なら、sent にその頼みの id と宛先を書く。"""
     waiting = wake.queued(dest_inbox, place_dir)
     same = next((q for q in waiting if q.get("digest") == digest), None)
@@ -910,8 +809,9 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     file = os.path.join(ask["inbox"], f"{ask['id']}-ask.md")
     if a.dry_run:
         line = deliver.ask_line(ask["id"], ask["sender"], ask["body"], file, ask["required"], RUN)
-        print("\n".join(notes + [f"頼む先: {where}  順番待ちに積む（{len(waiting) + 1} 件目。"
-                                 + ("待ち受けが渡す）" if heard else "今の頼みの納品の後に待ち受けが渡す）"),
+        print("\n".join(notes + [f"頼む先: {where}  順番待ちに積む（{len(waiting) + 1} 件目。窓には打たない。"
+                                 + ("待ち受けが渡す）" if heard else "待ち受けが居ないので、窓に会話が居なければ attach で戻し、"
+                                    "居れば手が空いてから裏で起動し直して、会話の始まりの待ち受けが渡す）"),
                                  f"順番待ち: {wake.queue_dir(dest_inbox, place_dir)}", f"会話に渡す 1 行: {line}",
                                  "渡すときに書く属性: " + "、".join(f"company.{k}={v}" for k, v in ask["boss"].items() if v)]))
         return 0
@@ -925,15 +825,18 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
             return 1
         wake.enqueue(dest_inbox, place_dir, {"id": ask["id"], "to": to, "file": path, "line": line, "digest": digest, "marks": marks,
                                              "at": ports.now(), "from": ask["sender"], "title": ask.get("title")})
+    start_reading(dest_inbox, place_dir, notes)
     deliver.log(dest_inbox, wake.notice(to, ask["id"], wake.QUEUED, path, None, ports.now()))
     if ask.get("own"):
         pass   # 宛先は頼んだこの会話（calls.hand_over）で、動いている。戻しも 1 行も要らない（ターンの終わりの待ち受けが渡す）
     elif not heard and live_window(dept, ports) is None:
+        if not dept.get("head_office"):
+            notes += nudge_notice(dept, to, dest_inbox, ports)
         notes.append(revive(dept, accounts_, ports, sessions_, source)[1])
-    elif heard:   # 会話の処理は生きている（ターンの途中で待ち受けが居ないのは、ターンの終わりに張られる）
+    else:   # 待ち受けが居ても渡らずに止まっていれば動かす。居なければ、ターンの途中ならターンの終わりに張られ、手が空いていれば起動し直す
         notes += wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, source)
     n = len(wake.queued(dest_inbox, place_dir))
-    detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
+    detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '部署の待ち受けが張られたら渡す'}）"
     _log_ask(ask["inbox"], ask["boss"]["boss-inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
                                **ask["links"], "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
                                                           "role": ask["role"], "branch": dept["branch"], "path": dept["path"],
@@ -941,6 +844,28 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     sent.update(id=ask["id"], to=dest)
     print("\n".join(notes + [f"頼み {ask['id']} → {where}  {detail}", f"- 本文: {path}"]))
     return 0
+
+
+def start_reading(dest_inbox, place_dir, notes):
+    """台帳に知らせを足す前に、その場所の待ち受けの読んだ所が無ければ今の終わりを書く（wake.start_at_end。初めての待ち受けが、
+    足した知らせを取りこぼさない）。書けなければ notes に訳を足す。"""
+    try:
+        wake.start_at_end(dest_inbox, place_dir)
+    except OSError as e:
+        notes.append(f"作業場に待ち受けの読んだ所を書けなかった（{e}）。知らせは台帳に置くが、初めての待ち受けは渡さないことがある")
+
+
+def nudge_notice(dept, to, dest_inbox, ports):
+    """窓に会話が居ない部署を attach で戻す前に、納品していない頼みが在れば、納品を促す 1 行（nudge_line）を台帳の知らせ（kind say）で
+    置く。戻った会話の始まりの待ち受けが渡し、会話を再開させる（前は戻した窓に直に打っていた。受付 9dccfe・d70b23）。答え待ち（--wait）の
+    頼みは促さない（待つと決めた頼みを急かす）。出す注記の並び。"""
+    held = wake.pending(dept["attrs"])
+    if not held or dept["attrs"].get(WAITING) == held:
+        return []
+    notes = []
+    start_reading(dest_inbox, ports.git.git_dir(dept["path"]), notes)
+    deliver.log(dest_inbox, wake.notice(to, held, wake.SAY, None, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.now()))
+    return notes + [f"受付 {held} の納品を促す 1 行を台帳に置いた（戻った会話の始まりの待ち受けが渡す）"]
 
 
 POSTED = "posted"   # 納品の台帳の status: 頼み元の窓が無いので、頼み元の名前に宛てた知らせを台帳に置いた（納品済みにする）
@@ -1162,7 +1087,8 @@ def nudge(a, ports, cwd):
         # 窓に会話が居なければ、順番待ちの有無によらず、--tree の「会話が居ない」（tree.away_note）と同じ見分けで戻す。以前は順番待ちが
         # 在ると「止まっていない」で何もせず、--tree は「--nudge で戻して納品を促す」と出していた（2026-11-03、my_notes の業務改革。受付 481ed4）
         if talk_away(dept, ports):
-            return nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, company["root"], notes)
+            return nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, company["root"], notes,
+                              wake.address(company["name"], dept["attrs"].get("name")))
         print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
         return 0
     if a.dry_run:
@@ -1179,10 +1105,10 @@ def nudge(a, ports, cwd):
     return 0 if moved else 1
 
 
-def nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, source, notes):
+def nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, source, notes, to):
     """--nudge の、止まっていない（stuck_why が None）のに窓に会話が居ない部署（talk_away）。納品していない頼みが答え待ち（--wait）で
-    なければ、--ask が落ちた部署に頼むときと同じに
-    attach で戻して納品を促す 1 行（nudge_line）を打つ（頼みが無くても、受けたままの頼みを済ませる会話を戻す口。PC の再起動で途中の
+    なければ、--ask が落ちた部署に頼むときと同じに、納品を促す 1 行（nudge_line）を宛先 to の台帳の知らせで置いてから attach で戻す
+    （nudge_notice。戻った会話の始まりの待ち受けが渡す。窓には打たない。受付 9dccfe・d70b23）（頼みが無くても、受けたままの頼みを済ませる会話を戻す口。PC の再起動で途中の
     部署が落ちると、順番待ちが空なら誰も戻さなかった）。納品し終えた部署は戻さない: する事が無く、次の --ask が戻してから頼み、
     PR のマージを待つ部署は引数なしの dispatch が会話を戻さずに畳む。答え待ちの頼みも戻さない（順番待ちが在って渡せずに止まって
     いれば、手前の stuck_why が wake.wait_blocks で見て戻すので、ここに来るのは順番待ちが空か、今の版の待ち受けが保留にして渡す
@@ -1202,23 +1128,24 @@ def nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, source, 
                                     "順番待ちは空。順番待ちに頼みが来たら --ask が戻し、戻った会話の待ち受けがその頼みを保留にして渡す）")]))
         return 0
     if a.dry_run:
-        print("\n".join(notes + [f"{where} の窓に会話が居ない。受付 {held} をまだ納品していないので、attach で戻して納品を促す 1 行を打つ"]))
+        print("\n".join(notes + [f"{where} の窓に会話が居ない。受付 {held} をまだ納品していないので、納品を促す 1 行を台帳に置いて"
+                                 "attach で戻す（戻った会話の始まりの待ち受けが渡す。窓には打たない）"]))
         return 0
+    notes += nudge_notice(dept, to, dest_inbox, ports)
     pane, said = revive(dept, accounts_, ports, sessions_, source)
     notes.append(said)
     if pane is None:
         deliver.log(dest_inbox, {"id": held, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": None,
                                  "why": "窓に会話が居ない", "status": "failed", "detail": said})
-        print("\n".join(notes + [f"止めた: {where} の窓に会話が居ないが、戻せなかった"]))
+        print("\n".join(notes + [f"止めた: {where} の窓に会話が居ないが、戻せなかった（促す 1 行は台帳に残り、会話が戻れば"
+                                 "その始まりの待ち受けが渡す）"]))
         return 1
-    status, detail = deliver.send_confirmed(pane, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.term, ports.pause,
-                                            busy_check(dept, accounts_, ports))
     deliver.log(dest_inbox, {"id": held, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane,
-                             "why": "窓に会話が居ない", "status": "failed" if status == "failed" else "revived",
-                             "detail": f"{said}。納品を促した（{status}）"})
-    print("\n".join(notes + [f"{where} の窓に会話が居なかったので戻し、受付 {held} の納品を促した（{status}"
-                             + (f"。{detail}" if detail else "") + "）"]))
-    return 0 if status != "failed" else 1
+                             "why": "窓に会話が居ない", "status": "revived",
+                             "detail": f"{said}。納品を促す 1 行を台帳に置いた"})
+    print("\n".join(notes + [f"{where} の窓に会話が居なかったので戻し、受付 {held} の納品を促す 1 行を台帳に置いた"
+                             "（戻った会話の始まりの待ち受けが渡す）"]))
+    return 0
 
 
 def _queue_inbox(item):
@@ -1472,9 +1399,10 @@ def note_line(ask_id, note_id, sender, text, file):
 def note(a, ports, cwd):
     """--note <受付>（--text か --brief）。受付の頼みに、変更・足し・取り下げを届ける。順番待ちに積まれていれば、その件に足しを
     添える（渡すときに頼みの 1 行と一緒に出る）。部署が今受けている（未納品の）頼みなら、宛先の会社の台帳に足しの知らせ
-    （kind note）を足し、部署の待ち受けがターンの終わりに会話を再開させて渡す（ターンの途中の会話の入力フィールドには打たない）。待ち受けの跡の無い
-    部署（フックの無い古い版の会話）には、今までどおり窓に打ち込む。打った場所・頼み元・宛先の受付箱の台帳に kind note で残す。
-    終了の値を返す。"""
+    （kind note）を足し、部署の待ち受けが渡す（--say と同じ _say_handoff。ターンの途中ならターンの終わりの待ち受けが渡し、待ち受けが
+    居なければ窓の無い会話は attach で戻し、手が空いた会話は裏で起動し直して、会話の始まりの待ち受けが渡す）。部署の窓には打たない
+    （持ち主 2026-11-01「herdrが逆に直でうたれるとまずい。裏で送ってほしい」。受付 9dccfe・d70b23）。打った場所・頼み元・宛先の
+    受付箱の台帳に kind note で残す。終了の値を返す。"""
     body = text_of(a, "--note", "足し")
     if body is None:
         return 2
@@ -1541,31 +1469,29 @@ def note(a, ports, cwd):
     to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
     path = os.path.join(inbox, f"{note_id}-note.md")
     line = note_line(a.note, note_id, sender, body, path)
-    by_ledger = bool(to and dest_inbox and place_dir and (heard or wake.has_history(dest_inbox, place_dir)))
-    pane = None
-    if not by_ledger:
-        pane = live_window(dept, ports)
-        if pane is None:
-            print("\n".join(notes + [f"止めた: {where} は待ち受けの跡が無く、窓にも会話が居ない（部署の会話を戻してから打ち直す）"]))
-            return 1
+    if not (to and dest_inbox and place_dir):
+        print("\n".join(notes + [f"止めた: {where} の受付箱か作業場の git の場所を引けないので、足しの知らせを置けない"
+                                 "（部署の窓には打たない。--tree で部署の場所を確かめる）"]))
+        return 1
+    pane = None if heard else live_window(dept, ports)
     if a.dry_run:
-        print("\n".join(notes + [f"足す先: {where}（受付 {a.note} を受けている）  "
-                                 + ("台帳に知らせを足す（待ち受けがターンの終わりに渡す）" if by_ledger else f"窓 {pane} に打ち込む"),
+        print("\n".join(notes + [f"足す先: {where}（受付 {a.note} を受けている）  台帳に知らせを足す（窓には打たない。"
+                                 + ("待ち受けが渡す）" if heard else "窓に会話が居なければ attach で戻し、ターンの途中ならターンの"
+                                    "終わりの待ち受けが、手が空いていれば裏で起動し直した会話の始まりの待ち受けが渡す）"),
                                  f"会話に渡す 1 行: {line}"]))
         return 0
     path = deliver.put(inbox, f"{note_id}-note.md", body)
-    if by_ledger:
-        deliver.log(dest_inbox, wake.notice(to, note_id, wake.NOTE, path, line, ports.now()))
-        status, detail = "noticed", ("待ち受けが渡す" if heard else "ターンの終わりに待ち受けが渡す")
-    else:
-        status, detail = deliver.send_confirmed(pane, line, ports.term, ports.pause, busy_check(dept, accounts_, ports))
+    start_reading(dest_inbox, place_dir, notes)
+    deliver.log(dest_inbox, wake.notice(to, note_id, wake.NOTE, path, line, ports.now()))
+    status, detail = "noticed", _say_handoff(dept, heard, pane, False, dest_inbox, place_dir, accounts_, ports, sessions_,
+                                             company["root"])
     _log_each([inbox, dest_inbox, dept["attrs"].get("boss-inbox")],
               {"id": note_id, "kind": "note", "ask": a.note, "at": ports.now(), "status": status, "detail": detail, "from": by,
                "to": {"company": company["name"], "name": dept["attrs"].get("name"), "path": dept["path"], "pane": pane,
-                      "wake": to if by_ledger else None}, "file": path})
+                      "wake": to}, "file": path})
     print("\n".join(notes + [f"足し {note_id} → {where}（受付 {a.note}）  {status}" + (f"（{detail}）" if detail else ""),
                              f"- 本文: {path}"]))
-    return 0 if status in ("noticed", "sent") else 1
+    return 0
 
 
 SAY_PR = re.compile(r"^(?:(?P<company>.+)/)?#(?P<number>\d+)$")   # --say の宛先の「#番号」か「会社/#番号」（PR の番号）
