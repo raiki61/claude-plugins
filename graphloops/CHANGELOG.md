@@ -7,7 +7,18 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ## [Unreleased]
 
 ### Fixed
-- 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の mutation の CI で、Windows の組だけ証拠にならなかった腕（ルートの `tests/mutations.json` の 1 件。コードの 1 か所をわざと壊す変更）のうち 12 本を、Windows でも赤になる検査に結んだ（run 41434318208 で 24 本が証拠にならなかった）。役の子の木を止める口・`kill_all`・起動し直し（relaunch）・開始時刻の検査を、OS に依らず回す（RR1・RR4・RR6・RR7・RR11・DL7・DL10）。`run_tree` の時間切れ（RR8）は Windows の形を足した。止める信号の検査（RR10・RR13）は Windows でも回す。通常のファイルでない物を開かない検査（d10・f04）は、FIFO の代わりにどの OS にも在る null デバイスで通す。そのために `tests/parallel.py` に、固定具の子の寿命を縛るロックと、プロセスが居ないかの問いの Windows の形を足した。台本の検査の件数は 1923 → 1925。
+- 利用者の動きは変わらない直し（試験だけ）。リポジトリの `.github/workflows/mutation.yml` の mutation の CI（コードの 1 か所をわざと壊した版を作り、試験がそれを赤にするかを見る。壊し方の 1 件を「腕」と呼び、一覧はルートの `tests/mutations.json`）で、Windows の job だけ、腕 24 本を試験が赤にできなかった（2026-11-02 の run 41434318208）。その OS で試験が見送られていたため。
+  - 12 本は、Windows でも赤になる検査に結んだ。
+    - engine が起動した子プロセスを孫まで止める関数（`stop_group`・`kill_all`）、relaunch で前の試行の子を止める所、開始時刻で番号の再利用を見分ける所の検査を、OS に依らず回す（腕 RR1・RR4・RR6・RR7・RR11・DL7・DL10）。
+    - `run_tree` の時間切れで孫まで止める検査に、Windows の形を足した（RR8）。
+    - 止める信号（SIGTERM）を受けたら子を止めて抜ける検査を、Windows でも回す（RR10・RR13）。
+    - 通常のファイルでない物を開かない検査は、Windows に無い FIFO の代わりに、どの OS にも在る null デバイスで通す（d10・f04）。
+    - そのために `tests/parallel.py` に 2 つの Windows の形を足した。1 つは、試験が起動した子プロセスを試験の終わりに一緒に終わらせるロック。もう 1 つは、プロセスが居ないかの問い。
+    - `tests/simulate.py` などの台本（`tests/run.sh` が回す試験の筋書き）の検査の件数は、null デバイスの 2 件を足して 1923 → 1925。
+  - 残りの 12 本は、Windows では壊しても振る舞いが変わらない腕なので、試験では赤にできない。
+    - 11 本は `engine/role_run.py` の POSIX にだけ在る行、または Windows では何もしない行に在る。
+    - f07 は、symlink の輪で `Path.resolve` が例外を投げる道で、Windows では通らない。
+    - この 12 本の扱いは、mutation の CI の受け持ちが預かる。
 
 ## [0.46.9] - 2026-11-01
 
