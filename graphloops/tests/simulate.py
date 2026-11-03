@@ -2072,7 +2072,7 @@ def test_role_run():
               f"ps が失敗する回は、グループへ送って子を止め、外へ出た子孫を確かめていないと言う（{got}）")
     else:
         # 時間切れで孫まで止める（Windows の形）: sh が無いので python の長が孫を起動して待つ。長の止め方は taskkill /T（親子の鎖）。
-        # 時間切れは長が孫の番号を書き終えるのに足りる長さにする（Windows の python の起動は sh より遅い）
+        # 時間切れは長が孫の番号を書き終えるのに足りる長さにする（Windows の python の起動は sh より遅く、混んだ CI では数秒かかる。孫の寿命 37 秒より短く）
         gpid = tmp / "tree-grandchild.pid"
         code = ("import subprocess, sys\n"
                 f"c = subprocess.Popen([sys.executable, '-c', {parallel.hold_code(37)!r}, {lock!r}], stdin=subprocess.DEVNULL,"
@@ -2080,7 +2080,7 @@ def test_role_run():
                 f"open({str(gpid)!r}, 'w', encoding='utf-8').write(str(c.pid))\n"
                 "c.wait()\n")
         try:
-            role_run.run_tree([sys.executable, "-c", code], cwd=tmp, timeout=5)
+            role_run.run_tree([sys.executable, "-c", code], cwd=tmp, timeout=15)
             got = "時間切れにならなかった"
         except subprocess.TimeoutExpired:
             got = "TimeoutExpired"
