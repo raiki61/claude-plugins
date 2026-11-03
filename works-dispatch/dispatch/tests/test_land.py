@@ -262,6 +262,17 @@ class LandCase(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
         self.config = os.path.join(self.tmp, "conf", "dispatch.toml")   # 無いファイル（設定の置き場を一時のフォルダに向ける）
+        # 部署への頼みは窓に打たず、--say と同じ口（landing.tell）で台帳に知らせを置く。ここでは置いた (部署の名前, 文) を控える
+        self.told, self.tell_code = [], 0
+        tell = mock.patch.object(landing, "tell", self.fake_tell)
+        tell.start()
+        self.addCleanup(tell.stop)
+
+    def fake_tell(self, name, text, config_path, ports, cwd):
+        if self.tell_code:
+            return self.tell_code, "置けない"
+        self.told.append((name, text))
+        return 0, ""
 
     def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16", name="a", dry_run=False, keep_removal=False):
         repo = Repo("o/r", "", world.source, (), None, None)
@@ -289,7 +300,7 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(ports.gh.seen, ("release/a", head))
         self.assertFalse(w.has("release/a"), "入れた後もゲートのブランチが origin に残っている")
         self.assertEqual(w.g.local["main"], head, "手元のメインブランチが fast-forward されていない")
-        self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(self.told, [])
         self.assertEqual(w.g.attrs[w.dept]["base"], head, "入れた後のメインブランチを、次の書き換えのゲートの位置にする")
 
     def test_waits_until_the_run_appears(self):
@@ -336,7 +347,7 @@ class FastForwardAfterCi(LandCase):
             code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertIn("push が断られた", out)
-        self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(self.told, [])
         self.assertEqual(w.origin("main"), before)
 
     def test_refused_push_because_main_moved_rebases_and_runs_the_gate_again(self):
@@ -356,7 +367,7 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(code, 0, out)
         self.assertIn("リベースしたブランチで、ゲートから回し直す", out)
         self.assertEqual(w.log(2), ["部署の作業", "ほかの部署"])
-        self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(self.told, [])
 
     def test_the_after_signal_is_called_once_after_the_push_with_the_department_attrs(self):
         rules = CI_RULES + '[[land.after]]\nrole = "r"\ntool = "t"\n'
@@ -400,7 +411,7 @@ class FastForwardAfterCi(LandCase):
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
         self.assertIn("git でメインブランチの上にリベースした", out)
-        self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(self.told, [])
         self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
         self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署のブランチもリベースした物
 
@@ -417,10 +428,10 @@ class FastForwardAfterCi(LandCase):
         self.assertFalse(w.has("release/a"), "リベースが要るのにゲートに出した")
         self.assertEqual(w.g.rev(w.dept, "HEAD"), head, "リベースを元に戻していない")
         self.assertFalse(w.g.rebasing(w.dept), "リベースを途中のまま残した")
-        self.assertEqual(len(ports.term.prompts), 1)
-        self.assertIn("リベースし", ports.term.prompts[0][1])
-        self.assertIn("版を上げ直して", ports.term.prompts[0][1])
-        self.assertIn("ぶつかるファイル: b.txt", ports.term.prompts[0][1])
+        self.assertEqual(len(self.told), 1)
+        self.assertIn("リベースし", self.told[0][1])
+        self.assertIn("版を上げ直して", self.told[0][1])
+        self.assertIn("ぶつかるファイル: b.txt", self.told[0][1])
 
     def test_a_changelog_conflict_at_the_top_of_unreleased_is_solved_with_the_department_lines_first(self):
         log = "# 記録\n\n## [Unreleased]\n\n## [0.1.0] - 2026-10-01\n\n- 初め\n"
@@ -455,7 +466,7 @@ class FastForwardAfterCi(LandCase):
         self.assertIn("リベースしたブランチで、ゲートから回し直す", out)
         self.assertEqual(w.log(2), ["部署の作業", "ほかの部署"])
         self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署のブランチもリベースした物
-        self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(self.told, [])
 
     def test_resolve_changelog_leaves_other_conflicts_alone(self):
         d = tempfile.mkdtemp()
@@ -573,18 +584,40 @@ class FastForwardAfterCi(LandCase):
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), before)
-        self.assertEqual(ports.term.prompts[0][0], "P1")
-        self.assertIn("AssertionError: 版が据え置き", ports.term.prompts[0][1])
-        self.assertNotIn("\n", ports.term.prompts[0][1])
+        self.assertEqual(self.told[0][0], "a")
+        self.assertIn("AssertionError: 版が据え置き", self.told[0][1])
+        self.assertNotIn("\n", self.told[0][1])
 
-    def test_no_pane_prints_the_request_for_the_caller(self):
+    def test_a_notice_that_cannot_be_put_prints_the_request_for_the_caller(self):
         w = FakeWorld(self.tmp, CI_FILES)
         w.work()
         ports = FakePorts(w, FakeGh(conclusion="failure"))
-        ports.term._panes = []
+        self.tell_code = 1
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
+        self.assertIn("部署 a に知らせを置けなかった（置けない）", out)
         self.assertIn("次の文を部署に渡す", out)
+        self.assertEqual(ports.term.prompts, [])   # 窓には打たない
+
+    def test_the_department_itself_reads_the_request_without_a_notice(self):
+        # --land を打ったのが部署の会話そのもの（属性 company.session と同じ会話）なら、知らせを置かず文を出すだけ
+        w = FakeWorld(self.tmp, CI_FILES)
+        w.work()
+        ports = FakePorts(w, FakeGh(conclusion="failure"))
+        ports.env = {landing.chat.SESSION_ENV: "s1"}
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertEqual((self.told, ports.term.prompts), ([], []))
+        self.assertIn("この部署の会話が直す: ゲート", out)
+
+    def test_the_request_goes_as_a_notice_not_typed_into_the_pane(self):
+        w = FakeWorld(self.tmp, CI_FILES)
+        w.work()
+        ports = FakePorts(w, FakeGh(conclusion="failure"))
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertEqual(ports.term.prompts, [])
+        self.assertIn("部署 a に知らせを置いた（窓には打たない）", out)
 
     def test_already_landed_goes_straight_to_tidy(self):
         w = FakeWorld(self.tmp, CI_FILES)
@@ -788,7 +821,7 @@ class OverwriteGate(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
-        [(_, text)] = ports.term.prompts
+        [(_, text)] = self.told
         self.assertIn("calc.py:3「def div():」", text)
         self.assertIn(self.div[:7], text)
         self.assertIn("div を足す", text)
@@ -828,7 +861,7 @@ class OverwriteGate(LandCase):
         code, out = self.land(w, ports, dry_run=True)
         self.assertEqual(code, 1, out)
         self.assertIn("止まる見立て", out)
-        self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(self.told, [])
 
 
 class OverwriteGateRenames(LandCase):
@@ -877,7 +910,7 @@ class OverwriteGateRenames(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
-        [(_, text)] = ports.term.prompts
+        [(_, text)] = self.told
         self.assertIn("calc.py:21「def div():」", text)   # main での古い名前と行番号で示す
         self.assertIn(self.div[:7], text)
         self.assertIn("div を足す", text)
@@ -898,7 +931,7 @@ class OverwriteGateRenames(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (0, ""))
         self.assertEqual(code, 1, out)
         self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
-        [(_, text)] = ports.term.prompts
+        [(_, text)] = self.told
         self.assertIn("math.py:21「def div():」", text)
         self.assertNotIn("math.py:1「", text, "名前の付け替えで運んだだけの行は、ほかの部署が入れた行と数えない")
 
@@ -981,7 +1014,7 @@ class OtherModes(LandCase):
         code, out = self.land(w, ports, checker=lambda cmd, cwd, env=None: (1, "line1\n壊れた\n"))
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), before)
-        self.assertIn("壊れた", ports.term.prompts[0][1])
+        self.assertIn("壊れた", self.told[0][1])
 
     def test_python_cache_the_department_made_does_not_stop_the_landing(self):
         # .gitignore の無いリポジトリで、部署が試しに import して作った __pycache__ は、手元だけの無視の決まりで数えない
@@ -1152,7 +1185,7 @@ class DryRun(LandCase):
         self.assertIn("release/a", out)
         self.assertEqual(self.snapshot(w), before, "空打ちなのに ref か worktree を書いた")
         self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "", "空打ちなのに部署の場所のファイルを書き換えた")
-        self.assertEqual((ports.gh.asked, ports.gh.prs, ports.term.prompts), (0, [], []))
+        self.assertEqual((ports.gh.asked, ports.gh.prs, self.told, self.told), (0, [], [], []))
 
     def test_main_moved_reports_the_rebase_without_fetching_or_asking(self):
         w = FakeWorld(self.tmp, CI_FILES)
@@ -1164,7 +1197,7 @@ class DryRun(LandCase):
         self.assertEqual(code, 1, out)
         self.assertIn("リベースし", out)
         self.assertEqual(w.g.snapshot(), before, "空打ちなのにメインブランチを取り直した")
-        self.assertEqual(ports.term.prompts, [])
+        self.assertEqual(self.told, [])
 
     def test_empty_unreleased_is_reported(self):
         files = marketplace_files()
@@ -1216,6 +1249,22 @@ class DryRun(LandCase):
                 mock.patch.object(dispatch.landing, "main", lambda *a, **k: got.update(k) or 0):
             self.assertEqual(dispatch.main(["--land", "a", "--dry-run"], ports=type("P", (), {"cwd": lambda self: "/"})()), 0)
         self.assertTrue(got.get("dry_run"))
+
+
+class Tell(unittest.TestCase):
+    """landing.tell は --say と同じ口（orders.say）に、部署の名前と文を渡し、出した行を返す。"""
+
+    def test_tell_hands_the_text_to_say(self):
+        import orders
+        seen = []
+
+        def say(a, ports, cwd):
+            seen.append((a.say, a.text, a.from_name, a.config, cwd))
+            print("台帳に置いた")
+            return 0
+        with mock.patch.object(orders, "say", say):
+            self.assertEqual(landing.tell("a", "直して", "/c.toml", object(), "/w"), (0, "台帳に置いた"))
+        self.assertEqual(seen, [("a", "直して", "--land", "/c.toml", "/w")])
 
 
 class Rules(unittest.TestCase):

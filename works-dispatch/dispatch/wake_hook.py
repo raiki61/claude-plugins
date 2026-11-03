@@ -1250,7 +1250,7 @@ def resume_from_wait(payload, attrs_of=_attrs, now=time.time):
 
 def ended_well(payload, attrs_of=_attrs):
     """ターンが誤りなく終わった（Stop。誤りで終わったターンでは Stop の代わりに StopFailure が走る）: 使用上限か時間帯で止まった会話を
-    --move --if-limited が待っている印（company.limit-hold）を外す。会話はもう続いて区切れたので、待っている処理は続きの 1 行を打たずに
+    --move --if-limited が待っている印（company.limit-hold）を外す。会話はもう続いて区切れたので、待っている処理は続きの知らせを置かずに
     やめる。人の文で外さないのは、その文のターンがまた断られることがあるため（断られたら印を残し、待っている処理が続けさせる。
     フックは同じ場所で 10 分の間に 2 度は走らないので、そのターンで新しく待ち始める処理は無い）。外すのは、場所の属性の会話がこの会話のときだけ。"""
     if chat.event(payload) != "Stop":

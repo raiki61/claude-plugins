@@ -7,13 +7,13 @@
    無ければ取り込み方は none（何もしない。前の版と同じ動き）。役ごとに [land.roles.<役>] でフィールドを替えられる。知らない鍵と外した鍵
    （一覧は known_keys）は problems に書き、取り込みを止める（ゲートの鍵を書き間違えて、黙って緩いゲートで入れないため）。
 2. メインブランチが部署のブランチの祖先でなければ（ほかの部署が先に入れた）、部署の場所で git でリベースする（auto_rebase）。機械で解けないぶつかりが
-   残れば、リベースを元に戻して、部署にリベースを頼む（ask）。
+   残れば、リベースを元に戻して、部署にリベースを頼む（rebase_text。渡すのは入口）。
 3. ゲートに出す。ゲートが CI のブランチの形（例 release/*。* に部署の名前）なら、そのブランチへ候補の commit を push し（publish）、その commit の
    run を待つ（wait_gate）。ゲートが check なら、入口が手元の検証のコマンドを回す。
-4. 赤なら、部署に失敗の要点を渡す（ask）。緑で、メインブランチがまだ候補の祖先なら、メインブランチを候補へ fast-forward して push する（advance）。
+4. 赤なら、部署に失敗の要点を渡す（red_text）。緑で、メインブランチがまだ候補の祖先なら、メインブランチを候補へ fast-forward して push する（advance）。
    その間にメインブランチが進んでいれば、2 と同じにリベースしてゲートから回し直す（リベースできなければ部署に頼む）。2 つの部署が同時に入れようとしても、メインブランチに入る順は
    fast-forward で 1 本ずつに決まる。
-部署に頼むのは herdr の打ち込み（ask）だけ。頼みと納品の仕組みは別に作るので、ここは打ち込むだけの小さな口にしておく。
+部署に頼む文（rebase_text・red_text・taken_text）はここで作り、渡すのは入口（landing._ask。--say と同じ台帳の知らせで、窓には打たない）。
 """
 
 import os
@@ -21,16 +21,14 @@ import pathlib
 import re
 import tomllib
 
-import filex
 import known_keys
-from ports import chat
 
 MODES = ("ff-after-ci", "pr", "none")
 GATE_CHECK = "check"   # ゲートを CI でなく手元の検証にする印
 BUMPS = ("marketplace",)
 FIELDS = ("mode", "gate", "check", "bump", "main")
 FAIL_LINES = 20  # 赤の要点に載せる記録の行数
-ASK_CHARS = 2000  # 部署に打ち込む文の上限の字数
+ASK_CHARS = 2000  # 部署に渡す文の上限の字数
 
 
 def _queue(raw, path, problems):
@@ -131,18 +129,10 @@ def gate_branch(gate, name, branch):
     return gate.replace("*", part)
 
 
-def pane_of(panes, place):
-    """部署の窓（herdr のペイン）。部署の作業場の中か、部署の場所の中に居るペインのうち、Claude Code の会話を先に。無ければ None。"""
-    mine = [p for p in panes if (place.get("workspace") and p.get("workspace_id") == place["workspace"])
-            or (p.get("cwd") and filex.inside(p["cwd"], place["path"]))]
-    mine.sort(key=lambda p: p.get("agent") != chat.AGENT)
-    return mine[0]["pane_id"] if mine else None
-
-
 def rebase_text(branch, main, bump):
     again = "版は上げずに" if bump else "版を上げ直して"
     return (f"メインブランチ {main} が先に進んだので、ブランチ {branch} を入れられなかった。{branch} を origin/{main} の上にリベースし（rebase）、"
-            f"{again} push し直して、終わったら知らせて。")
+            f"{again} push し直して、--land を打ち直す。")
 
 
 UNRELEASED = "## [Unreleased]"   # 変更の記録（Keep a Changelog の形）の、まだ版に入れていないセクションの見出し
@@ -267,11 +257,11 @@ def adopt(place, branch, row, step, g):
 
 def red_text(branch, where, points):
     body = " / ".join(x.strip() for x in points if x.strip())
-    text = f"ゲート（{where}）が赤だったので、ブランチ {branch} をメインブランチに入れなかった。直して push し直し、終わったら知らせて。失敗の要点: {body}"
+    text = f"ゲート（{where}）が赤だったので、ブランチ {branch} をメインブランチに入れなかった。直して push し直し、--land を打ち直す。失敗の要点: {body}"
     return text[:ASK_CHARS]
 
 
-TAKEN_SHOWN = 12   # 部署に打ち込む「消す行」の上限の数
+TAKEN_SHOWN = 12   # 部署への知らせに並べる「消す行」の上限の数
 
 
 def _hunks(text, side="new"):
@@ -330,7 +320,7 @@ def taken(source, since, main, head, g):
 
 
 def taken_text(branch, since, hits):
-    """部署の窓に打ち込む、消す行の知らせ。"""
+    """部署に置く（台帳の知らせ）、消す行の知らせ。"""
     shown = " / ".join(f"{h['path']}:{h['line']}「{' '.join(h['text'].split())[:60]}」（{(h['commit'] or '-')[:7]} "
                        f"{(h['subject'] or '')[:40]}）" for h in hits[:TAKEN_SHOWN])
     more = f" ほか {len(hits) - TAKEN_SHOWN} 行" if len(hits) > TAKEN_SHOWN else ""
@@ -338,11 +328,6 @@ def taken_text(branch, since, hits):
             f"このブランチが消している: {shown}{more}。前に読んだ中身で書き直していないかを確かめ、その行を残す形に取り込み直して push し、"
             "--land を打ち直す。わざと消すなら --land <部署の名前> --keep-removal で入れる。")
     return text[:ASK_CHARS]
-
-
-def ask(pane, text, h):
-    """部署の窓に頼みを打ち込む（herdr agent prompt。待たない）。"""
-    return h.prompt(pane, " ".join(text.split()), False)
 
 
 def publish(source, sha, ref, g):

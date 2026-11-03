@@ -163,6 +163,23 @@ class Move(unittest.TestCase):
     def typed_lines(self):
         return [w[2] for w in self.ports.term.writes if w[0] == "prompt" and w[1] == self.window]
 
+    def go_on_notices(self):
+        """台帳に置いた続きの知らせ（kind say）の文。続きは窓に打たず、知らせで渡す。"""
+        return [r["text"] for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY]
+
+    def attach_comes_back(self, fails=0):
+        """attach を打つと窓に会話が戻る形（裏で止めた会話を起動し直す orders.restart_quiet が通る）。初めの fails 回は戻らない。"""
+        h, real_run, tries = self.ports.term, self.ports.term.run, []
+
+        def run(pane, command):
+            real_run(pane, command)
+            if " attach " in command:
+                tries.append(1)
+                if len(tries) > fails:
+                    h.talking.add(pane)
+        h.run = run
+        return tries
+
     def ends_well_after(self, seen, starts=1):
         """--if-limited が起動し直した後の見直しの待ちに、新しい会話のターンが誤りなく終わる（wake_hook.ended_well が待ちの印を外す）
         のを差し込む。starts 回起動した後の待ちから効く。外す前の印を self.held に残す。"""
@@ -175,8 +192,10 @@ class Move(unittest.TestCase):
         return on_sleep
 
     def test_if_limited_waits_while_the_account_is_under_its_limit_then_goes_on_in_the_same_talk(self):
-        # 一時の混み合い（同時の要求の超過など）では移さないが、止まった会話を放っておかず、待ってから同じ会話に続きの 1 行を打つ
-        # （前は「移さない」で終わり、部署が止まったまま残った。受付 e33748 の穴）
+        # 一時の混み合い（同時の要求の超過など）では移さないが、止まった会話を放っておかず、待ってから同じ会話に続きの知らせを渡す
+        # （前は「移さない」で終わり、部署が止まったまま残った。受付 e33748 の穴）。窓には打たず、台帳に知らせを置いて、止まった会話を
+        # 裏で起動し直し（attach で戻す）、始まりの待ち受けに渡させる（受付 7714db）
+        self.attach_comes_back()
         under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
         self.ports.limits_seq = [under, under]
         self.ports.term.screen = self.READY
@@ -185,15 +204,17 @@ class Move(unittest.TestCase):
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
-        self.assertEqual((seen, self.stopped), ([], []))
+        self.assertEqual((seen, self.stopped), ([], [("c1", "d")]))   # 移さず、同じアカウントのまま裏で止めて attach で戻す
         self.assertEqual(self.ports.slept, [move.WAIT])
-        self.assertEqual(self.typed_lines(), [move.GO_ON.format(account="a1")])
+        self.assertEqual((self.typed_lines(), self.go_on_notices()), ([], [move.GO_ON.format(account="a1")]))
+        (say,) = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY]
+        self.assertEqual(say["to"], "src/調べ")
         rows = [r for r in deliver.records(self.inbox) if r.get("kind") in ("moved", "nudged")]
-        self.assertEqual([(r["kind"], r["status"]) for r in rows], [("moved", move.WAITING), ("nudged", "sent")])
+        self.assertEqual([(r["kind"], r["status"]) for r in rows], [("moved", move.WAITING), ("nudged", "restarted")])
         self.assertEqual((rows[0]["why"], rows[1]["id"]), (move.LIMITED, "q1"))
         attrs = self.g.worktree_attrs(self.place)
         self.assertNotIn(wake.LIMIT_HOLD, attrs)
-        self.assertEqual(attrs.get("rest"), "s-dept")   # 打った 1 行で外れうる印は書き戻す
+        self.assertIn("窓には打たない", out)
 
     def test_if_limited_dry_run_only_says_it_would_wait(self):
         self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}]
@@ -209,12 +230,13 @@ class Move(unittest.TestCase):
         self.ports.limits_seq = [old, old]
         self.ports.now = lambda: 1_800_000_000
         self.ports.term.screen = self.READY
+        self.attach_comes_back()
         seen, task = self.fake_task()
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
         self.assertIn("一時の混み合いと見る", out)
-        self.assertEqual((seen, self.typed_lines()), ([], [move.GO_ON.format(account="a1")]))
+        self.assertEqual((seen, self.typed_lines(), self.go_on_notices()), ([], [], [move.GO_ON.format(account="a1")]))
 
     def test_if_limited_with_no_other_account_waits_and_moves_once_one_has_room(self):
         # 移る先が無くても止めたままにせず、ほかのアカウントが空く時刻（ここでは a2 の 5 時間の枠の切り替わり）まで待って移す
@@ -332,7 +354,7 @@ class Move(unittest.TestCase):
         self.assertEqual(self.typed_lines(), [])
 
     def test_if_limited_waits_longer_while_the_lines_it_typed_keep_being_refused(self):
-        # 続きの 1 行がまた断られ続ける（使用率の控えに出ない上限など）なら、打つ間を 2 倍ずつ延ばす（10 分ごとに打ち続けない）
+        # 続きの知らせで続けたターンがまた断られ続ける（使用率の控えに出ない上限など）なら、渡す間を 2 倍ずつ延ばす（10 分ごとに渡し続けない）
         now = 1_800_000_000
         self.ports.now = lambda: now
         under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
@@ -340,10 +362,11 @@ class Move(unittest.TestCase):
         self.ports.term.screen = self.READY
         for at in (now - 1200, now - 600):
             deliver.log(self.inbox, {"id": None, "kind": "nudged", "at": at, "place": self.place, "why": move.GONE_ON, "status": "sent"})
+        self.attach_comes_back()
         rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.slept, [move.WAIT * 4])
-        self.assertEqual(self.typed_lines(), [move.GO_ON.format(account="a1")])
+        self.assertEqual((self.typed_lines(), self.go_on_notices()), ([], [move.GO_ON.format(account="a1")]))
 
     def test_if_limited_does_not_start_again_over_a_talk_that_runs_again_after_the_wait(self):
         # 待つ間に持ち主が続きを打って会話が動き出したら、ほかのアカウントが空いても止めて起動し直さない
@@ -387,21 +410,19 @@ class Move(unittest.TestCase):
         self.assertEqual(sum(r["status"] == move.WAITING for r in rows), 2)
 
     def test_if_limited_waits_again_when_the_line_does_not_reach_the_talk(self):
-        # 続きの 1 行が届かなかった（herdr の一時の誤りなど）ら、待ちの印を残して待ち直す（止まったまま残さない）
+        # 止まった会話を起動し直せず続きの知らせを渡せなかった（herdr の一時の誤りなど）ら、待ちの印を残して待ち直す（止まったまま残さない）。
+        # 知らせは 1 度だけ置き、待ち直した回は置き直さない
         under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
         self.ports.limits_seq = [under, under, under]
         self.ports.term.screen = self.READY
-        send, tries = move.deliver.send_confirmed, []
-
-        def flaky(*args, **kw):
-            tries.append(1)
-            return ("failed", "届かない") if len(tries) == 1 else send(*args, **kw)
-        with mock.patch.object(move.deliver, "send_confirmed", flaky):
-            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        tries = self.attach_comes_back(fails=1)
+        rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
+        self.assertIn("続きの知らせを渡せなかった", out)
         self.assertEqual(len(tries), 2)
         self.assertEqual(self.ports.slept[0], move.WAIT)
-        self.assertGreater(self.ports.slept[1], move.WAIT)   # 打った回に数えるので、待つ間が延びる
+        self.assertGreater(self.ports.slept[1], move.WAIT)   # 試した回に数えるので、待つ間が延びる
+        self.assertEqual((self.typed_lines(), self.go_on_notices()), ([], [move.GO_ON.format(account="a1")]))
         self.assertNotIn(wake.LIMIT_HOLD, self.g.worktree_attrs(self.place))
 
     def test_if_limited_dry_run_with_no_other_account_says_it_would_wait(self):
@@ -551,12 +572,14 @@ class Move(unittest.TestCase):
         self.ports.limits_seq = [under, under]
         self.ports.term.screen = self.READY
         provision.mark(self.place, self.src, {"lifecycle": "persistent", "job": "d", "ask": "q1", "rest": "s-dept"}, self.g)
+        self.attach_comes_back()
         seen, task = self.fake_task()
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
         self.assertEqual(rc, 0, out)
-        self.assertEqual((seen, self.stopped), ([], []))
-        self.assertEqual(self.typed_lines(), [move.GO_ON.format(account="a1")])
+        self.assertEqual(self.stopped, [("c1", "d")])   # 止まった会話を裏で止めて、同じアカウントで attach で戻す（移さない）
+        self.assertEqual(seen, [])
+        self.assertEqual((self.typed_lines(), self.go_on_notices()), ([], [move.GO_ON.format(account="a1")]))
 
     def test_if_changed_keeps_the_talk_when_the_values_are_the_same_or_it_carries_its_talk(self):
         self.changed_world(role.launch_key({"model": "opus"}))
@@ -650,7 +673,7 @@ class Move(unittest.TestCase):
             self.assertIn(move.UNBRANCHED, out)
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited", "--dry-run")
             self.assertEqual(rc, 0, out)
-            self.assertIn(f"待つ: {move.UNBRANCHED}", out)   # 使用上限で止まったら、移さずに待つ（使えるようになれば続きの 1 行を打つ）
+            self.assertIn(f"待つ: {move.UNBRANCHED}", out)   # 使用上限で止まったら、移さずに待つ（使えるようになれば続きの知らせを渡す）
             rc, out = self.main(self.src, "--move", "調べ", "--if-limited", "--account", "a2")
             self.assertEqual(rc, 2, out)   # 名指しは --if-limited でも断る（前の会話を止めない）
             self.assertIn(move.UNBRANCHED, out)
@@ -903,6 +926,24 @@ class Move(unittest.TestCase):
         self.assertEqual(claudex.typed(h.screen.replace("\x1b[2m", "")), "消していいよ")   # 人が打った字は薄字でない
         self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertIn(("prompt", self.desk, deliver.EXIT), [w[:3] for w in h.writes])
+
+    def test_if_limited_goes_on_at_the_desk_with_a_notice_only(self):
+        # 窓口は手前の会話で裏で起動し直せないので、続きの知らせを台帳に置くだけにし、窓には打たない・止めない（受付 7714db）
+        self.desk_world()
+        under = {"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}
+        self.ports.limits_seq = [under, under]
+        self.ports.term.screen = self.READY
+        rc, out = self.main(self.src, "--move", "窓口", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, [])
+        self.assertFalse([w for w in self.ports.term.writes if w[1] == self.desk and w[0] in ("prompt", "run", "send_keys")])
+        (say,) = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY]
+        self.assertEqual((say["to"], say["text"]), ("src/窓口", move.GO_ON.format(account="a1")))
+        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual(row["status"], "noticed")
+        self.assertIn("次のターンの終わり", row["detail"])
+        self.assertNotIn(wake.LIMIT_HOLD, self.g.worktree_attrs(self.src))
+
 
 class LimitHook(unittest.TestCase):
     Flow = test_deliver.Flow
