@@ -170,7 +170,8 @@ class Move(unittest.TestCase):
     def attach_comes_back(self, fails=0):
         """attach を打つと窓に会話が戻る形（裏で止めた会話を起動し直す orders.restart_quiet が通る）。初めの fails 回は戻らない。
         戻らない回は、前にシェルが居る（talking に足さない）のに加え、画面の終わりに「Session … has exited.」を出す。Windows では
-        orders.revive・live_window が前のシェルを見ず、画面の終わりで見分けるので、シェルだけでは戻ったと読まれる（頼み 03acf2）。"""
+        orders.live_window と、orders.revive の戻ったかの見直しが前のシェルを見ず、画面の終わりで見分けるので、シェルだけでは
+        戻ったと読まれる（頼み 03acf2）。"""
         h, real_run, real_read, tries, gone = self.ports.term, self.ports.term.run, self.ports.term.read, [], set()
 
         def run(pane, command):
