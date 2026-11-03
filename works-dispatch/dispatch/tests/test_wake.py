@@ -1297,6 +1297,61 @@ class Hook(unittest.TestCase):
         self.assertEqual(deliver.records(self.inbox)[-1]["kind"], "handed")
         self.assertIsNone(self.checker()())   # 渡した物は順番待ちから消える
 
+    def test_an_ask_waiting_for_an_answer_is_parked_when_the_next_ask_is_queued(self):
+        # 答え待ち（--wait）の頼みを持つ部署に順番待ちが来たら、--park と同じに保留にして次を渡す（2026-10-31 から 4 日、my_notes の
+        # 業務改革に 2 件が積まれたまま渡らなかった。受付 481ed4）。保留の間は会話を空にしない（答えを返す会話の中身を残す）
+        boss_inbox = os.path.join(self.src, "boss-inbox")
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0", "boss": "司令塔", "boss-inbox": boss_inbox,
+                                              "waiting": "a0", "waiting-why": "11-07 まで測らない", "fresh": role.FRESH}, self.g)
+        self.assertIsNone(self.checker()())   # 順番待ちが空なら待つ
+        place = self.g.git_dir(self.place)
+        self.assertIsNone(wake.wait_blocks(self.inbox, place, self.g.worktree_attrs(self.place)))
+        self.put("a1")
+        self.assertEqual(wake.wait_blocks(self.inbox, place, self.g.worktree_attrs(self.place)), ("a0", "11-07 まで測らない"))
+        w = Window(self.place)
+        verdict, text = self.checker(window=w)()
+        self.assertEqual(verdict, "wake")
+        # 1 行目が保留にした頼みの返し方（受付・訳・頼み元）、2 行目が渡した頼みの字
+        head, line = text.split("\n")
+        for part in ("a0", "11-07", "--deliver <要約> --for a0", "司令塔"):
+            self.assertIn(part, head)
+        self.assertIn("a1", line)
+        self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "handed"], ["a1"])
+        self.assertNotIn(deliver.CLEAR, w.writes)
+        attrs = self.g.worktree_attrs(self.place)
+        self.assertEqual((attrs["ask"], attrs["boss"], attrs.get("waiting")), ("a1", "窓口", None))
+        [p] = deliver.parked_of(attrs)
+        self.assertEqual((p["id"], p["why"], p["boss"]), ("a0", "11-07 まで測らない", "司令塔"))
+        for inbox in (self.inbox, boss_inbox):
+            [row] = [r for r in deliver.records(inbox) if r.get("kind") == "waiting"]
+            self.assertEqual((row["id"], row["parked"], row["auto"]), ("a0", True, wake_hook.AUTO_PARK))
+
+    def test_a_waiting_ask_that_cannot_be_parked_is_retried_and_not_handed_over(self):
+        # 保留にできなければ（属性を書けない）、次の頼みを渡さず HOLD を返して間を置いて試し直す（一度しくじって黙って待ち続けない）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0", "waiting": "a0", "fresh": role.FRESH}, self.g)
+        self.put("a1")
+        with mock.patch.object(deliver, "park_marks", side_effect=OSError("書けない")):
+            self.assertIs(self.checker(window=Window(self.place))(), wake.HOLD)
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "handed"], [])
+        self.assertEqual(self.g.worktree_attrs(self.place)["ask"], "a0")
+        verdict, _ = self.checker(window=Window(self.place))()   # 書けるようになれば保留にして渡す
+        self.assertEqual(verdict, "wake")
+        self.assertEqual(self.g.worktree_attrs(self.place)["ask"], "a1")
+
+    def test_a_waiting_ask_blocks_the_queue_only_without_a_watcher_that_parks(self):
+        # 今の版の待ち受け（印に PARKS）が動いていれば、知らせを見て保留にするので止まっていない。前の版の待ち受けか居なければ止まっている
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0", "waiting": "a0"}, self.g)
+        self.put("a1")
+        place = self.g.git_dir(self.place)
+        attrs = self.g.worktree_attrs(self.place)
+        self.assertEqual(wake.wait_blocks(self.inbox, place, attrs), ("a0", "答え待ち"))
+        wake.claim(self.inbox, place, ["co/調べ"], "s1", os.getpid(), "t1", time.time())
+        self.assertIsNone(wake.wait_blocks(self.inbox, place, attrs, posix=True))
+        mark = wake.read_mark(self.inbox, place)
+        del mark[wake.PARKS]
+        pathlib.Path(wake.mark_path(self.inbox, place)).write_text(json.dumps(mark), encoding="utf-8")
+        self.assertEqual(wake.wait_blocks(self.inbox, place, attrs, posix=True), ("a0", "答え待ち"))
+
     def with_origin(self):
         """self.src に origin を付け、メインブランチを push する。origin に（ほかの clone から）commit を足す関数を返す。"""
         self.g.url = str(pathlib.Path(self.src).parent / "origin.git")

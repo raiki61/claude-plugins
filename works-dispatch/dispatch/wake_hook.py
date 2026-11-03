@@ -1020,6 +1020,33 @@ class _DoneFile:
         return int(text) if text.isdigit() else 1
 
 
+# 待ち受けが答え待ちの頼みを保留にした訳（台帳の waiting の行の auto）
+AUTO_PARK = "答え待ちの間に順番待ちに次の頼みが来た"
+
+
+def park_waiting(got, attrs, now, trouble):
+    """答え待ち（--wait）の頼みを持つ部署の順番待ちに次の頼みが在るとき、その頼みを --park と同じに保留にして今の頼みを空ける
+    （deliver.park_marks）。保留の件を返す。保留にできなければ、訳を順番待ちの先頭の頼みの held の行で台帳に残し（trouble）、None
+    （check は HOLD を返し、待ち受けが間を置いて試し直す。一度しくじったまま渡さずに黙って待ち続けない）。
+    答え待ちのまま次を渡さないと、頼みの本文で日付まで待つと決めた頼みの後ろに、ほかの頼みが何日も積まれた（2026-10-31 から 4 日、
+    my_notes の業務改革。受付 481ed4）。保留の頼みが在る間、待ち受けは会話を空にも起動し直しもしないので（must_clear・restart_due）、
+    答えを返す会話の中身は残る。答え待ちの頼みは A2A の input-required に当たり、ほかの頼みを止めない。"""
+    why = attrs.get(deliver.WAITING_WHY) or "答え待ち"
+    try:
+        marks, entry = deliver.park_marks(attrs, why, now())
+        provision.mark(got["cwd"], got["root"], marks, gitx)
+    except (gitx.AttrError, gitx.GitError, OSError) as e:
+        trouble(f"答え待ちの頼み {attrs.get('ask')} を保留にできないので渡さずに待つ", e)
+        return None
+    record = deliver.park_record(attrs, got["cwd"], why, now(), auto=AUTO_PARK)
+    for inbox in dict.fromkeys(x for x in (got["inbox"], attrs.get("boss-inbox")) if x):
+        try:
+            deliver.log(inbox, record)
+        except OSError as e:
+            filex.warn(f"注記: 受付 {entry['id']} を保留にしたことを {inbox} の台帳に書けない（{e}）")
+    return entry
+
+
 def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: chat.host()[0],
             spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie, follow=follow_main, lag=lag_note):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
@@ -1077,6 +1104,18 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
         if verdict:
             return verdict
         ask = attrs.get("ask")
+        parked = None   # この回に答え待ちのまま保留にした頼み（渡す字の頭に添える）
+        if ask and attrs.get("delivered") != ask and attrs.get(deliver.WAITING) == ask and wake.queued(got["inbox"], got["place"]):
+            with wake.ask_lock(got["inbox"], got["place"]):
+                # 錠の中で読み直す（読んだ後に納品していれば、納品済みの頼みを保留に移さない）
+                attrs = attrs_of(got["cwd"])
+                ask = attrs.get("ask")
+                if ask and attrs.get("delivered") != ask and attrs.get(deliver.WAITING) == ask:
+                    parked = park_waiting(got, attrs, now, trouble)
+                    if parked is None:
+                        return wake.HOLD   # 保留にできなかった。訳は台帳の held の行に残し、間を置いて試し直す
+                    attrs = attrs_of(got["cwd"])
+                    ask = attrs.get("ask")
         if ask and attrs.get("delivered") != ask:
             if unseen(got, payload, attrs) and not any(r.get("kind") == "handed" and r.get("again") and r.get("id") == ask
                                                         and r.get("session") == got["session"] for r in deliver.records(got["inbox"])):
@@ -1171,6 +1210,9 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
                                    "session": got["session"], **({"unrested": unrested[0]} if unrested else {}),
                                    **({"kept": kept[0]} if kept else {}), **({"followed": followed} if followed else {})})
         text = item.get("line") or wake.wake_text([item])
+        if parked:
+            text = (f"（受付 {parked['id']} は答え待ち〔{parked['why']}〕のまま、この部署の順番待ちに次の頼みが来たので、待ち受けが --park と"
+                    f"同じに保留にした。答えが出たら --deliver <要約> --for {parked['id']} で頼み元 {parked.get('boss') or '-'} へ返す）\n" + text)
         if kept:
             text = (f"（前の頼みを納品した会話を空にしないまま渡す: {kept[0]}。前の頼みで出した子の頼みの返事や裏の処理の知らせが"
                     "届いたら、この会話で受ける。どれも閉じたターンの終わりに空にする）\n" + text)

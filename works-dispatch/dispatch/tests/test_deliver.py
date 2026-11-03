@@ -848,8 +848,50 @@ class Flow(unittest.TestCase):
         self.fall()
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("受けた頼みは納品済みなので戻さない（次の --ask が attach で戻してから頼む）", out)
+        self.assertIn("受けた頼みは納品済みなので戻さない（次の --ask が attach で戻してから頼む", out)
         self.assertEqual([w for w in self.ports.term.writes if w[0] in ("run", "prompt")], [])
+
+    def test_tree_and_nudge_agree_on_a_fallen_department_whose_ask_waits_for_an_answer(self):
+        # 答え待ち（--wait）の頼みを持つ部署の窓に会話が居ない。--tree は「--nudge で戻して納品を促す」と出し、--nudge は順番待ちが
+        # 在ると「止まっていない」で何もしなかった（2026-11-03、my_notes の業務改革。受付 481ed4）。どちらも同じ見分けで言い、する
+        held = "20261016-000000-aaaaaa"
+        provision.mark(self.place, self.src, {"ask": held, "boss": "desk", "waiting": held, "waiting-why": "11-07 まで測らない"}, self.g)
+        self.fall()
+        # 順番待ちが空: 答え待ちの頼みは急かさない。--tree も --nudge も戻さない
+        rc, out = self.main(self.src, "--tree")
+        self.assertIn(f"会話が居ない（受付 {held} は答え待ちなので戻さなくてよい", out)
+        self.assertNotIn("納品を促す", out)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("答え待ち（11-07 まで測らない）なので戻さない（順番待ちは空", out)
+        self.assertEqual([w for w in self.ports.term.writes if w[0] in ("run", "prompt")], [])
+        # 順番待ちが在る: --tree は止まっていると出し、--nudge は戻す（戻った会話の待ち受けが保留にして渡す）。納品は促さない
+        place_dir = self.g.git_dir(self.place)
+        wake.enqueue(self.inbox, place_dir, {"id": "q1", "line": "頼みです（受付 q1）", "marks": {"ask": "q1", "boss": "desk"}})
+        rc, out = self.main(self.src, "--tree")
+        self.assertIn(f"答え待ちの頼み {held}（11-07 まで測らない）を持ったまま順番待ちを渡していない（--nudge 調べ で動かす）", out)
+        self.assertIn(f"受付 {held} は答え待ち。--nudge 調べ で戻すと、その頼みを保留にして順番待ちを渡す", out)
+        rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
+        self.assertIn("順番待ちが止まっている（答え待ちの頼み", out)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("止まっていない", out)
+        self.assertEqual([w for w in self.ports.term.writes if w[0] == "run"], [("run", self.window, "claude-a1 attach d")])
+        self.assertEqual(self.prompts(), [])   # 納品を促す 1 行は打たない
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("q1", "revived")])
+
+    def test_a_fallen_department_with_a_queue_and_an_ask_not_waiting_is_nudged_to_deliver(self):
+        # 答え待ちでない頼みを持つ部署は、順番待ちが在っても、--tree の言うとおり戻して納品を促す
+        held = "20261016-000000-aaaaaa"
+        provision.mark(self.place, self.src, {"ask": held, "boss": "desk"}, self.g)
+        wake.enqueue(self.inbox, self.g.git_dir(self.place), {"id": "q1", "line": "頼みです（受付 q1）", "marks": {"ask": "q1"}})
+        self.fall()
+        rc, out = self.main(self.src, "--tree")
+        self.assertIn(f"--nudge 調べ で戻して納品を促す", out)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"受付 {held} の納品を促した（sent", out)
 
     def test_fallen_department_with_a_pending_ask_is_nudged_to_deliver(self):
         # 落ちる前の頼みを納品していない部署: 戻して納品を促し、新しい頼みは送らずに止まる（待っても来ない、で止めない）

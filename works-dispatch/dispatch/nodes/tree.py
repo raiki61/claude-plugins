@@ -357,13 +357,29 @@ def _at(t):
     return time.strftime("%m-%d %H:%M", time.localtime(t)) if t else "-"
 
 
+# 答え待ちの頼みが順番待ちを止めている訳（--tree の行と --nudge の stuck_why の字。{0} は受付、{1} は --wait の訳）
+WAIT_BLOCKS = "答え待ちの頼み {0}（{1}）を持ったまま順番待ちを渡していない"
+
+
 def away_note(d):
-    """窓は在るのに会話が居ない部署（talk_away）の「窓 あり」に添える字。納品していない頼みが在れば戻す手を、無ければ戻さなくてよいことを
-    言う（裏の会話の記録は残り、次の --ask が attach で戻してから頼む。用の無い会話を先に戻しても、する事が無いままプロセスが残るだけ）。"""
+    """窓は在るのに会話が居ない部署（talk_away）の「窓 あり」に添える字。--nudge のすること（orders.nudge）と同じ見分けで言う:
+    - 納品していない頼みが答え待ち（--wait）でなければ、戻して納品を促す手。
+    - 答え待ちで順番待ちが渡らずに止まっていれば（wake.wait_blocks）、戻す手（戻った会話の待ち受けが答え待ちの頼みを保留にして次を渡す。
+      順番待ちの行の「止まっている」と同じ）。止まっていなければ（裏の会話の今の版の待ち受けが渡す）、戻さなくてよいこと。
+    - 答え待ちで順番待ちが空なら、戻さなくてよいこと（答えが来るか次の --ask が戻す）。
+    - 納品し終えていれば、戻さなくてよいこと（裏の会話の記録は残り、次の --ask が attach で戻してから頼む。用の無い会話を先に戻しても、
+      する事が無いままプロセスが残るだけ）。"""
     a = d.get("attrs") or {}
     held = a.get("ask") if a.get("ask") and a.get("delivered") != a["ask"] else None
+    name = d.get("name") or d.get("branch")
+    if held and a.get("waiting") == held:
+        if d.get("wait_blocks"):
+            return f"・会話が居ない（受付 {held} は答え待ち。--nudge {name} で戻すと、その頼みを保留にして順番待ちを渡す）"
+        if d.get("queue"):
+            return f"・会話が居ない（受付 {held} は答え待ち。順番待ちは裏の会話の待ち受けがその頼みを保留にして渡すので、戻さなくてよい）"
+        return f"・会話が居ない（受付 {held} は答え待ちなので戻さなくてよい。順番待ちに頼みが来たら --ask が戻す）"
     if held:
-        return f"・会話が居ない（受付 {held} を納品していない。--nudge {d.get('name') or d.get('branch')} で戻して納品を促す）"
+        return f"・会話が居ない（受付 {held} を納品していない。--nudge {name} で戻して納品を促す）"
     return "・会話が居ない（受けた頼みは納品済みなので attach で戻さなくてよい。次の --ask が戻してから頼む）"
 
 
@@ -411,7 +427,8 @@ def lines(companies):
                        f"窓 {'あり' if d['panes'] else 'なし'}" + (away_note(d) if d.get("talk_away") else "")]
             if d.get("queue"):
                 stuck = ("渡す待ち受けが居ない" + ("（受けたままの頼みを持つ会話がもう居ない）" if d.get("holder_gone") else "")
-                         if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None))
+                         if d.get("stalled") else WAIT_BLOCKS.format(*d["wait_blocks"]) if d.get("wait_blocks") else
+                         (f"渡さずに待っている（{d['held']}）" if d.get("held") else None))
                 # 受けたままの頼みを持つ会話が居ない形は、--nudge で動かせないことがある（orders.seat_lost）ので、動かし方を先に見せる
                 how = "--dry-run で動かし方を見る" if d.get("holder_gone") else "で動かす"
                 fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"

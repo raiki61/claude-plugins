@@ -255,8 +255,8 @@ def _department_past(rows, places, ports):
 
 
 def _talk_away_places(ports, places, listed):
-    """部署の場所の並びのうち、herdr の窓は開いているのに会話が居ない（orders.talk_away）物の、ブランチ → 納品していない頼みの受付番号
-    （wake.pending。納品し終えていれば None）。listed は アカウントの名 → 会話の一覧。会話は --tree と同じに、作業フォルダが部署の場所の
+    """部署の場所の並びのうち、herdr の窓は開いているのに会話が居ない（orders.talk_away）物の、ブランチ → (納品していない頼みの受付番号
+    〔wake.pending〕, その頼みが答え待ち〔--wait〕か)（納品し終えていれば None）。listed は アカウントの名 → 会話の一覧。会話は --tree と同じに、作業フォルダが部署の場所の
     物のうち属性の id（company.session）の物、無ければ起きた時刻の新しい物で見る（/clear で属性の id が古くなっても見落とさない）。
     窓を読めなければ空（言葉を添えないだけで、ほかは今までどおり）。"""
     if not places:
@@ -274,7 +274,9 @@ def _talk_away_places(ports, places, listed):
                       key=lambda s: -(s.get("startedAt") or 0))
         talk = next((s for s in here if attrs.get("session") and s.get("sessionId") == attrs["session"]), None) or next(iter(here), None)
         if orders.talk_away({"panes": mine, "state": tree.session_state(talk)}, ports):
-            out[p["branch"]] = wake.pending(attrs)
+            held = wake.pending(attrs)
+            # 答え待ち（--wait）の頼みは納品を促さない（--nudge も促さない。orders.nudge_away）
+            out[p["branch"]] = (held, attrs.get("waiting") == held) if held else None
     return out
 
 
@@ -670,8 +672,10 @@ def main(argv=None, ports=None):
         away = _talk_away_places(ports, [x for x in dept_places if x["branch"] in heads] + past_places, listed)
         for p in [p for p in my_prs if p["head"] in depts or p["head"] in past]:
             name = depts[p["head"]] if p["head"] in depts else past[p["head"]][0]
+            held, waits = away.get(p["head"]) or (None, False)
             gone = ("" if p["head"] not in away else
-                    f"。部署の窓に会話が居ない。受付 {away[p['head']]} を納品していないので、--nudge '{name}' で戻して納品を促す" if away[p["head"]] else
+                    f"。部署の窓に会話が居ない。受付 {held} は答え待ちなので、順番待ちが在るときだけ --nudge '{name}' で戻す" if waits else
+                    f"。部署の窓に会話が居ない。受付 {held} を納品していないので、--nudge '{name}' で戻して納品を促す" if held else
                     "。部署の窓に会話は居ないが、受けた頼みは納品済みなので attach で戻さなくてよい（次の --ask が戻してから頼む）")
             if p.get("owed_threads"):
                 # 返していない人のスレッドが残る部署の PR は、送った控えを読んだ後で部署に頼む（_ask_departments）。窓に会話が居なければ

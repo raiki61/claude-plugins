@@ -313,6 +313,27 @@ def parked_of(attrs, strict=False):
     return []
 
 
+# 頼み元の属性（--ask が部署に書き、保留の件にも写す 5 つ）
+BOSS_KEYS = ("boss", "boss-session", "boss-account", "boss-pane", "boss-inbox")
+WAITING, WAITING_WHY = "waiting", "waiting-why"   # 人の答え待ちの印（--wait）。値は受付番号と訳
+
+
+def park_marks(attrs, why, at):
+    """部署の今の頼み（属性 company.ask）を答え待ちのまま保留にする属性の書き換え（--wait <訳> --park と、答え待ちの頼みを持つ部署に
+    順番待ちが来たときの待ち受け〔wake_hook〕が使う）。(書く属性, 保留の件)。受けた頼みと頼み元を company.parked に移し、今の頼みを空ける
+    （次の頼みを受けられる）。納品済みの印は書かない（頼みは台帳で答え待ちのまま閉じない）。保留の並びを読めなければ gitx.AttrError。"""
+    entry = {"id": attrs["ask"], "why": why, "at": at, **{k: attrs.get(k) for k in BOSS_KEYS}}
+    kept = [p for p in parked_of(attrs, strict=True) if p["id"] != entry["id"]]
+    return ({PARKED: json.dumps(kept + [entry], ensure_ascii=False), "ask": None, "ask-digest": None, WAITING: None,
+             WAITING_WHY: None, **{k: None for k in BOSS_KEYS}}, entry)
+
+
+def park_record(attrs, cwd, why, at, auto=None):
+    """保留にしたことを台帳に残す kind waiting の行（parked が true）。auto は、待ち受けが自分で保留にしたときの訳。"""
+    return {"id": attrs["ask"], "kind": "waiting", "at": at, "why": why, "parked": True,
+            "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd}, **({"auto": auto} if auto else {})}
+
+
 def closed_ids(records):
     """台帳の行から、閉じた頼みの受付の集まり（その受付への納品〔--for の返しと failed を除く〕・頼み元の待ち受けへの納品の知らせ・
     回して閉じた〔forwarded〕・取り下げた〔withdrawn〕のどれかが在る物）。"""

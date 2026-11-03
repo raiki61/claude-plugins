@@ -338,13 +338,18 @@ def new_token():
     return f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
+# 待ち受けの印の鍵: 答え待ちの頼みを持つ部署に順番待ちが来たら保留にして渡す版の待ち受け（wake_hook.park_waiting）が書いた印。
+# 前の版の待ち受けは答え待ちの間は渡さないので、この鍵の無い印の待ち受けが動いていても、wait_blocks は止まっていると見る
+PARKS = "parks"
+
+
 def claim(inbox, place, names, session, owner, token, now):
     """その場所の待ち受けの印を書く（前の待ち受けの印を上書きして、前の物を終わらせる）。読んだ所が無ければ台帳の終わりを書く
     （待ち受けが居た跡。順番待ちに積んでよい印になる）。"""
     with _mark_lock(mark_path(inbox, place)):
         _replace(mark_path(inbox, place), json.dumps(
             {"names": names, "session": session, "owner": owner, "pid": os.getpid(), "token": token, "place": place,
-             "since": now}, ensure_ascii=False))
+             "since": now, PARKS: True}, ensure_ascii=False))
     if read_pos(inbox, place) is None:
         _replace(pos_path(inbox, place), str(_size(os.path.join(inbox, LOG))))
 
@@ -419,6 +424,19 @@ def stalled(inbox, place, attrs, now=None, posix=os.name != "nt", gone=False):
     if held and attrs.get("delivered") != held and not gone:
         return False   # 今の頼みのターンの終わりに待ち受けが張られる
     return bool(queued(inbox, place)) and not watching(inbox, place, now, posix)
+
+
+def wait_blocks(inbox, place, attrs, now=None, posix=os.name != "nt"):
+    """部署が答え待ち（--wait。属性 company.waiting が今の頼み）の頼みを納品せずに持ち、順番待ちが在り、それを保留にして渡す待ち受け
+    （印に PARKS の在る今の版の待ち受け。wake_hook.park_waiting）が動いていなければ、その (受付, 訳)。ほかは None。
+    今の版の待ち受けが動いていれば、順番待ちの知らせを見て保留にして渡すので、止まっていない（--ask が積んだ直後に --nudge と同じ
+    手で会話を起動し直さない）。待ち受けが居ないか、前の版の待ち受けなら、答え待ちの間は誰も渡さない。"""
+    ask = pending(attrs)
+    if not ask or attrs.get("waiting") != ask or not queued(inbox, place):
+        return None
+    if watching(inbox, place, now, posix) and (read_mark(inbox, place) or {}).get(PARKS):
+        return None
+    return ask, attrs.get("waiting-why") or "答え待ち"
 
 
 def held(inbox, cwd, place, attrs=None, gone=False):

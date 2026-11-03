@@ -170,7 +170,7 @@ FALLEN = tree.FALLEN   # 会話の一覧の状態のうち、会話が落ちて�
 EXITED = re.compile(r"Session \S+ has exited\.")
 
 # 頼み元の属性の鍵と、台帳の行の頼み元（forwarded の行の boss・cause_boss）の鍵
-BOSS_KEYS = ("boss", "boss-session", "boss-account", "boss-pane", "boss-inbox")
+BOSS_KEYS = deliver.BOSS_KEYS
 BOSS_FIELDS = dict(zip(BOSS_KEYS, ("name", "session", "account", "pane", "inbox")))
 
 
@@ -948,14 +948,22 @@ POSTED = "posted"   # 納品の台帳の status: 頼み元の窓が無いので�
 STALLED = "渡す待ち受けが居ない"   # stuck_why の訳のうち、ターンを終えたのに渡す待ち受けが居ない物
 
 
+# stuck_why の訳のうち、答え待ちの頼みが順番待ちを止めている物（--tree の行と同じ字。tree.WAIT_BLOCKS）
+WAIT_BLOCKS = tree.WAIT_BLOCKS
+
+
 def stuck_why(dest_inbox, place_dir, dept):
-    """部署の順番待ちが渡らずに止まっていれば、その訳。止まっていなければ None。止まり方は 2 つ: ターンを終えたのに渡す待ち受けが居ない
-    （wake.stalled。受けたままの頼みを持つ会話がもう居ない〔tree.talk_gone〕物を含む）と、待ち受けは居るが渡さずに待っている
-    （wake.held。台帳の最後の行が held）。"""
+    """部署の順番待ちが渡らずに止まっていれば、その訳。止まっていなければ None。止まり方は 3 つ: ターンを終えたのに渡す待ち受けが居ない
+    （wake.stalled。受けたままの頼みを持つ会話がもう居ない〔tree.talk_gone〕物を含む）と、答え待ち（--wait）の頼みを持ったまま順番待ちが
+    在る（wake.wait_blocks。今の版の待ち受けは保留にして渡すので、続いていれば待ち受けが居ないか前の版）と、待ち受けは居るが渡さずに
+    待っている（wake.held。台帳の最後の行が held）。--tree の「止まっている」も同じ 3 つで出す（calls.annotate）。"""
     gone = dept.get("talk_gone")
     if wake.stalled(dest_inbox, place_dir, dept["attrs"], gone=gone):
         held = wake.pending(dept["attrs"]) if gone else None
         return f"{STALLED}（受けたままの頼み {held} を持つ会話 {dept['attrs']['session']} がもう居ない）" if held else STALLED
+    blocked = wake.wait_blocks(dest_inbox, place_dir, dept["attrs"])
+    if blocked:
+        return WAIT_BLOCKS.format(*blocked)
     why = wake.held(dest_inbox, dept["path"], place_dir, dept["attrs"], gone)
     return f"待ち受けが渡さずに待っている（{why}）" if why else None
 
@@ -1151,7 +1159,9 @@ def nudge(a, ports, cwd):
     why = stuck_why(dest_inbox, place_dir, dept)
     if not why:
         n = len(wake.queued(dest_inbox, place_dir))
-        if not n and talk_away(dept, ports):
+        # 窓に会話が居なければ、順番待ちの有無によらず、--tree の「会話が居ない」（tree.away_note）と同じ見分けで戻す。以前は順番待ちが
+        # 在ると「止まっていない」で何もせず、--tree は「--nudge で戻して納品を促す」と出していた（2026-11-03、my_notes の業務改革。受付 481ed4）
+        if talk_away(dept, ports):
             return nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, company["root"], notes)
         print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
         return 0
@@ -1170,14 +1180,26 @@ def nudge(a, ports, cwd):
 
 
 def nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, source, notes):
-    """--nudge の、順番待ちが空で窓に会話が居ない部署（talk_away）。納品していない頼みが在れば、--ask が落ちた部署に頼むときと同じに
+    """--nudge の、止まっていない（stuck_why が None）のに窓に会話が居ない部署（talk_away）。納品していない頼みが答え待ち（--wait）で
+    なければ、--ask が落ちた部署に頼むときと同じに
     attach で戻して納品を促す 1 行（nudge_line）を打つ（頼みが無くても、受けたままの頼みを済ませる会話を戻す口。PC の再起動で途中の
     部署が落ちると、順番待ちが空なら誰も戻さなかった）。納品し終えた部署は戻さない: する事が無く、次の --ask が戻してから頼み、
-    PR のマージを待つ部署は引数なしの dispatch が会話を戻さずに畳む。終了の値を返す。受付 29b389。"""
+    PR のマージを待つ部署は引数なしの dispatch が会話を戻さずに畳む。答え待ちの頼みも戻さない（順番待ちが在って渡せずに止まって
+    いれば、手前の stuck_why が wake.wait_blocks で見て戻すので、ここに来るのは順番待ちが空か、今の版の待ち受けが保留にして渡す
+    とき）。終了の値を返す。受付 29b389・481ed4。"""
     held = wake.pending(dept["attrs"])
+    n = len(wake.queued(dest_inbox, ports.git.git_dir(dept["path"])))
+    # 順番待ちが在るのに止まっていない（stuck_why が None）のは、裏の会話の待ち受けが動いていて渡す形（窓に attach の画面が無いだけ）
+    queue = f"順番待ち（{n} 件）は裏の会話の待ち受けが渡す" if n else "順番待ちは空"
     if not held:
-        print("\n".join(notes + [f"{where} の順番待ちは空で、部署の窓に会話は居ないが、受けた頼みは納品済みなので戻さない"
-                                 "（次の --ask が attach で戻してから頼む）"]))
+        print("\n".join(notes + [f"{where} の窓に会話は居ないが、受けた頼みは納品済みなので戻さない（次の --ask が attach で"
+                                 f"戻してから頼む。{queue}）"]))
+        return 0
+    if dept["attrs"].get(WAITING) == held:
+        # 答え待ちの頼みに納品を促すと、待つと決めた頼みを急かす。渡さずに止まっていれば stuck_why が見て戻す（wake.wait_blocks）
+        print("\n".join(notes + [f"{where} の窓に会話は居ないが、受付 {held} は答え待ち（{dept['attrs'].get(WAITING_WHY) or '-'}）なので戻さない（"
+                                 + ("順番待ちは裏の会話の待ち受けがその頼みを保留にして渡す）" if n else
+                                    "順番待ちは空。順番待ちに頼みが来たら --ask が戻し、戻った会話の待ち受けがその頼みを保留にして渡す）")]))
         return 0
     if a.dry_run:
         print("\n".join(notes + [f"{where} の窓に会話が居ない。受付 {held} をまだ納品していないので、attach で戻して納品を促す 1 行を打つ"]))
@@ -1720,7 +1742,7 @@ def say(a, ports, cwd):
 
 
 # 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる
-WAITING, WAITING_WHY = "waiting", "waiting-why"
+WAITING, WAITING_WHY = deliver.WAITING, deliver.WAITING_WHY
 PARKED, parked_of = deliver.PARKED, deliver.parked_of   # 保留にした頼み（--wait <訳> --park）
 
 
@@ -1746,13 +1768,10 @@ def wait_for_input(a, ports, cwd):
         # 保留: 受けた頼みと頼み元を company.parked に移し、今の頼みを空ける（次の頼みを受けられる）。納品済みの印は書かない
         # （頼みは台帳で答え待ちのまま閉じず、--todo にも残る）。答えは --deliver --for <受付> で返す
         try:
-            parked = parked_of(attrs, strict=True)
+            marks, entry = deliver.park_marks(attrs, why, ports.now())
         except gitx.AttrError as e:
             print(f"止めた: {e}")
             return 2
-        entry = {"id": ask, "why": why, "at": ports.now(), **{k: attrs.get(k) for k in BOSS_KEYS}}
-        marks = {PARKED: json.dumps([p for p in parked if p["id"] != ask] + [entry], ensure_ascii=False),
-                 "ask": None, "ask-digest": None, WAITING: None, WAITING_WHY: None, **{k: None for k in BOSS_KEYS}}
     else:
         marks = {WAITING: ask, WAITING_WHY: why}
     try:
@@ -1762,15 +1781,16 @@ def wait_for_input(a, ports, cwd):
         return 1
     # 答え待ちを台帳にも残す（頼みの状態を台帳から読めるように。印は git の属性で、台帳の射影からは見えない。docs/ledger.md）
     _log_each([deliver.inbox_of(common), attrs.get("boss-inbox")],
+              deliver.park_record(attrs, cwd, why, ports.now()) if park else
               {"id": ask, "kind": "waiting", "at": ports.now(), "why": why,
-               "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd},
-               **({"parked": True} if park else {})})
+               "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd}})
     if park:
         print(f"受付 {ask} を答え待ちのまま保留にした（{why}）。今の頼みは空いたので、順番待ちの次の頼みをターンの終わりに待ち受けが渡す。"
               f"受付 {ask} は台帳で答え待ちのまま閉じない。答えが出たら --deliver <要約> --for {ask} で頼み元 {entry['boss'] or '-'} へ返す")
         return 0
     print(f"受付 {ask} を答え待ちにした（{why}）。止まる前のフックは納品を促さない。人がこの会話に打つと印が外れる。"
-          "答えが出たら --deliver で返す（答えを待つ間にほかの頼みを受けるなら --park を付けて打ち直す）")
+          "答えが出たら --deliver で返す（答えを待つ間にこの部署の順番待ちに頼みが来たら、待ち受けがこの頼みを --park と同じに保留にして"
+          f"次を渡す。保留の答えは --deliver <要約> --for {ask} で返す）")
     return 0
 
 
