@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 0.156.0 の、`--deliver`・`--move --if-limited`・`--land` の 3 か所も窓に打たず台帳の知らせで渡す直し（頼み 7714db）を、いったん戻した（頼み 97a4cf）。main の CI の Windows の組で、その直しの試験 1 件（`test_move.Move.test_if_limited_waits_again_when_the_line_does_not_reach_the_talk`）が赤だったため。main の CI が赤のとき最初の手は原因の commit を戻すこと、という決まりに沿った。3 か所は 0.155.0 と同じに窓に打つ形へ戻る。直した試験と一緒に入れ直す頼みは「仕組み」に出した。
+
 ## [0.156.0] - 2026-11-03
 
 ### Changed

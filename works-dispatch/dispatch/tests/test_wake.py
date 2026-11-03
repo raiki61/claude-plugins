@@ -3815,16 +3815,15 @@ class WakeFlow(unittest.TestCase):
         attrs = self.g.worktree_attrs(self.place)
         self.assertEqual(attrs["delivered"], attrs["ask"])
 
-    def test_deliver_to_an_asker_without_a_listener_trace_posts_and_never_types(self):
-        # 待ち受けの居た跡の無い頼み元（フックの無い前の版の会話）にも窓に打たず、頼み元の宛先へ台帳の知らせを置く（頼み 7714db）
+    def test_deliver_to_an_asker_without_a_listener_trace_types_into_the_window(self):
+        # 待ち受けの居た跡の無い頼み元（フックの無い前の版の会話）には、今までどおり窓に打ち込む
         summary = self.ask_then_summary(test_deliver.GOOD)
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "session": "s-desk"}, self.g)
         self.ports.env = {**self.ports.env, "CLAUDE_CODE_SESSION_ID": "s-dept"}   # 納品は部署の会話が打つ（orders.own_place）
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
-        self.assertEqual(self.prompts(), [])
-        to = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg), self.g), "desk")
-        self.assertTrue([r for r in deliver.records(self.inbox) if r.get("kind") == "deliver" and r.get("to") == to and "text" in r], out)
+        (w,) = self.prompts()
+        self.assertEqual(w[1], self.desk)
 
 
 if __name__ == "__main__":
