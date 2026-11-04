@@ -233,6 +233,8 @@ a:hover { text-decoration: underline; }
 #wires path { fill: none; stroke: var(--fgColor-muted); stroke-width: 2; opacity: .8; }
 #wires path.crit { stroke: var(--fgColor-done); stroke-width: 4; opacity: 1; }
 #wires path.late { stroke: var(--fgColor-severe); stroke-dasharray: 6 4; opacity: 1; }
+/* 線の上の、押せる太い透明の帯。押すと線の遠い方の端のカードへ飛ぶ */
+#wires path.grab { stroke: transparent; stroke-width: 16; opacity: 1; pointer-events: stroke; cursor: pointer; }
 #wires text { font: 600 12.5px var(--fontStack-system); fill: var(--fgColor-muted); paint-order: stroke; stroke: var(--bgColor-default); stroke-width: 3px; }
 .anim .frame, .anim .pane, .anim .card, .anim .more { transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease, opacity .2s; }
 /* 載せたカードの前後の鎖・探した字に当たったカードだけを濃く出す */
@@ -578,10 +580,37 @@ a:hover { text-decoration: underline; }
     for (const g of groups.values()) {
       const { a, b } = g, dx = Math.max(40, Math.abs(b.x - a.x) / 2);
       const ns = g.n.flat().join(" ");
-      svg.append(el("svg:path", { class: g.kind === "plain" ? null : g.kind, "data-n": ns, "marker-end": `url(#ar-${g.kind})`,
-        d: `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - 2},${b.y}` }));
+      const d = `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - 2},${b.y}`;
+      svg.append(el("svg:path", { class: g.kind === "plain" ? null : g.kind, "data-n": ns, "marker-end": `url(#ar-${g.kind})`, d }));
+      svg.append(grab(g, d));
       if (g.n.length > 1) svg.append(el("svg:text", { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 6, "text-anchor": "middle", "data-n": ns }, g.n.length + " 本"));
     }
+  }
+
+  // 線に載せると線の両端の鎖を光らせ、押すと遠い方の端（押した所から離れた方）のカードへ飛ぶ。依存の相手を目で探さずに済むように。
+  // 何本かをまとめた線は、遠い方の端の 1 件目へ飛ぶ
+  function grab(g, d) {
+    const froms = [...new Set(g.n.map(e => e[0]))], tos = [...new Set(g.n.map(e => e[1]))];
+    const p = el("svg:path", { class: "grab", d }, el("svg:title", {},
+      g.n.map(e => `#${e[0]} → #${e[1]}`).join("\n") + "\n押すと遠い方の端のカードへ飛ぶ"));
+    const set = new Set(froms.concat(tos).flatMap(n => [...chain(n)]));
+    p.addEventListener("mouseenter", () => focusOn(set));
+    p.addEventListener("mouseleave", () => focusOn(resting()));
+    p.addEventListener("click", ev => {
+      const r = view.getBoundingClientRect(), x = (ev.clientX - r.left - tx) / z;
+      jump((Math.abs(x - g.a.x) > Math.abs(x - g.b.x) ? froms : tos)[0]);
+    });
+    return p;
+  }
+  // 1 件のカードへ飛ぶ。枠が閉じていれば開いてから、真ん中へ動かして今のカードの枠を付ける
+  function jump(n) {
+    const i = issueOf.get(n) || doneAll.find(x => x.n === n), f = frameOf.get(n);
+    if (!i || !f) return;
+    if (f.shut) { f.shut = false; layout(); }   // 線の端のカードは畳まないので、開くのは閉じた枠だけ
+    if (curEl) curEl.classList.remove("cur");
+    curEl = i.el;
+    curEl.classList.add("cur");
+    centerOn(i);
   }
 
   // ── 載せたカードの前後の鎖を濃く出す ──
@@ -608,10 +637,17 @@ a:hover { text-decoration: underline; }
       p.classList.toggle("hot", hot);
     }
   }
+  // 上のクリティカルパスの番号: 載せると鎖を光らせ、押すと地図のそのカードへ飛ぶ（Ctrl か Cmd を押しながらなら GitHub を開く）
   for (const a of document.querySelectorAll(".path a[data-n]")) {
     const set = new Set(D.path.flat());
+    a.title = "押すと地図のこのカードへ飛ぶ（Ctrl か Cmd を押しながらなら GitHub で開く）";
     a.addEventListener("mouseenter", () => focusOn(set));
     a.addEventListener("mouseleave", () => focusOn(resting()));
+    a.addEventListener("click", ev => {
+      if (ev.ctrlKey || ev.metaKey) return;
+      ev.preventDefault();
+      jump(Number(a.dataset.n));
+    });
   }
 
   // ── 探す: 番号か題名に当たったカードに印を付け、閉じた枠は開く。Enter で当たったカードへ順に送る（go）──
