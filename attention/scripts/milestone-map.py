@@ -25,6 +25,15 @@ issue）物を、カードからカードへの矢印にする（向きは「止
 地図に載っていない blocked by（別のリポジトリ・マイルストーンなし・閉じたマイルストーン）は線にせず、カードを赤くして、
 カードの説明（マウスを載せると出る）に相手の番号を書く。
 
+〈誰が〉issue の担当者（GitHub の assignee）をカードに頭文字の丸で出す。担当者の居ない緑のカードには、閉じる予定の
+open の PR を出した人を点線の丸で出す。上の人の一覧で人を押すと、その人のカードだけを光らせる。
+
+〈期間〉ページの上で期間（既定は今日までの 14 日）を選ぶと、その間に閉じた issue（closedAt）と作られた issue
+（createdAt）を数え、日ごとの棒と、残りの数の線で描く。残りの数は「今そのマイルストーンに在る issue のうち、その日に
+作られていて、まだ閉じていなかった物」の数（マイルストーンを移した・外した日は GitHub の timeline を読まないと分からない
+ので数えない）。期間の中で閉じた issue は、枠の中に薄いカードで残し、期間の中で作られた open の issue には「新」を付ける。
+日付は手元の時刻の日付で切る。
+
 〈クリティカルパス〉線をつないだ鎖のうち、issue の件数がいちばん多い鎖。issue ごとの所要日数は GitHub に無いので、
 日数でなく件数で測る。線が 1 本も無ければ無い（ページには何も出さない）。輪の中の線は鎖から外し、ページに輪を 1 行出す。
 """
@@ -55,6 +64,7 @@ DATA_SLOT = "/*__DATA__*/null"
 
 BLOCKED_FIRST = 50  # 1 件の issue の blocked by を取る数。GitHub の上限（種類ごとに 50 件）と同じ
 PR_FIRST = 10       # 1 件の issue を閉じる予定の PR を取る数。色は open の物が 1 件在るかだけで決まる
+WHO_FIRST = 10      # 1 件の issue の担当者を取る数（GitHub の assignee の上限と同じ）
 
 NOT_SEEN = """\
 見ていないもの:
@@ -65,6 +75,8 @@ NOT_SEEN = """\
   - Projects のフィールドの中身（Start Date・Target Date・見積もりなど）。トークンに read:project が無くても走るよう、取りに行かない
   - 閉じたマイルストーンと、マイルストーンの付いていない open の issue の中身（件数だけ数える）
   - 見込み（いつ終わりそうか）と、AI の推定した依存。まだ載せない
+  - issue がマイルストーンへ足された日・移された日（timeline を読まない）。期間の数は作られた日と閉じた日だけで数える
+  - 閉じたマイルストーンの issue と、マイルストーンの付いていない issue の動き
   - 本文で issue を閉じると書いていない PR（GitHub が issue に結び付けていない PR は、緑に数えない）"""
 
 MILESTONES_QUERY = """
@@ -84,12 +96,25 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
       issues(states: OPEN, first: 50, after: $cursor) {{
         pageInfo {{ hasNextPage endCursor }}
         nodes {{
-          number title url
+          number title url createdAt
+          assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }}
           blockedBy(first: {BLOCKED_FIRST}) {{ totalCount nodes {{
             number url state repository {{ nameWithOwner }} }} }}
           closedByPullRequestsReferences(first: {PR_FIRST}, includeClosedPrs: false) {{
-            totalCount nodes {{ number url state }} }}
+            totalCount nodes {{ number url state author {{ login }} }} }}
         }}
+      }}
+    }}
+  }}
+}}"""
+
+CLOSED_ISSUES_QUERY = f"""
+query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
+  repository(owner: $owner, name: $name) {{
+    milestone(number: $number) {{
+      issues(states: CLOSED, first: 100, after: $cursor) {{
+        pageInfo {{ hasNextPage endCursor }}
+        nodes {{ number title url createdAt closedAt assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }} }}
       }}
     }}
   }}
@@ -114,6 +139,8 @@ def fetch(owner, name):
     def one(m):
         m["openIssues"] = fetch_all(OPEN_ISSUES_QUERY, owner, name, "milestone.issues",
                                     variables=(f"number={m['number']}",))
+        m["closedIssueList"] = fetch_all(CLOSED_ISSUES_QUERY, owner, name, "milestone.issues",
+                                         variables=(f"number={m['number']}",))
         return m
 
     # 4 本まで並べる（マイルストーンが 30 本で 1 本ずつだと遅い。GitHub の二次の上限に当たらない数）
@@ -132,6 +159,22 @@ def due_date(m):
     return dt.date.fromisoformat(m["dueOn"][:10]) if m.get("dueOn") else None
 
 
+def local_day(ts):
+    """GitHub の時刻（UTC の ISO 8601）を、手元の時刻の日付 YYYY-MM-DD にする。期間を手元の日付で切るため。"""
+    return dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().date().isoformat() if ts else None
+
+
+def logins(i):
+    """担当者の login の並び。"""
+    return [a["login"] for a in i["assignees"]["nodes"]]
+
+
+def done_row(i):
+    """閉じた issue 1 件の、期間の数に使う事実。"""
+    return {"number": i["number"], "title": i["title"], "url": i["url"],
+            "made": local_day(i["createdAt"]), "shut": local_day(i["closedAt"]), "who": logins(i)}
+
+
 def issue_row(i, repo):
     """カード 1 枚分の事実。state は blocked（赤）・pr（緑）・idle（灰）。"""
     blockers = []
@@ -141,11 +184,13 @@ def issue_row(i, repo):
         other = (b.get("repository") or {}).get("nameWithOwner")
         blockers.append({"number": b["number"], "url": b["url"],
                          "repo": other if (other or "").casefold() != repo.casefold() else None})
-    prs = [p["number"] for p in (i.get("closedByPullRequestsReferences") or {}).get("nodes", [])
-           if p.get("state") == "OPEN"]
+    open_prs = [p for p in (i.get("closedByPullRequestsReferences") or {}).get("nodes", []) if p.get("state") == "OPEN"]
+    prs = [p["number"] for p in open_prs]
+    pr_of = [[p["number"], (p.get("author") or {}).get("login")] for p in open_prs]   # 消えたアカウントは author が null
+    pr_by = sorted({w for _, w in pr_of} - {None})
     state = "blocked" if blockers else "pr" if prs else "idle"
     return {"number": i["number"], "title": i["title"], "url": i["url"], "state": state,
-            "blocked_by": blockers, "prs": prs}
+            "blocked_by": blockers, "prs": prs, "pr_by": pr_by, "pr_of": pr_of, "who": logins(i), "made": local_day(i["createdAt"])}
 
 
 def edges_of(ms):
@@ -243,13 +288,16 @@ def build(raw, no_milestone, repo, today, now=None):
         issues = []
         for i in m["openIssues"]:
             limits.append(truncated(i["blockedBy"], "blocked by", f"#{i['number']}"))
+            limits.append(truncated(i["assignees"], "担当者", f"#{i['number']}"))
             issues.append(issue_row(i, repo))
         rank = {"blocked": 0, "pr": 1, "idle": 2}
         issues.sort(key=lambda i: (rank[i["state"]], i["number"]))
         ms.append({"number": m["number"], "title": m["title"], "url": m["url"],
                    "due": due.isoformat() if due else None,
                    "overdue_days": (today - due).days if due and due < today else 0,
-                   "open": len(issues), "closed": m["closedIssues"]["totalCount"], "issues": issues})
+                   "open": len(issues), "closed": m["closedIssues"]["totalCount"], "issues": issues,
+                   "done": sorted((done_row(i) for i in m["closedIssueList"]), key=lambda i: (i["shut"], i["number"]))})
+        limits.extend(truncated(i["assignees"], "担当者", f"#{i['number']}") for i in m["closedIssueList"])
     ms.sort(key=order_key)
     edges = edges_of(ms)
     crit = critical_path(edges)
@@ -320,7 +368,10 @@ def card_title(i):
         lines.append("止められている: " + "・".join((b["repo"] + "#" if b["repo"] else "#") + str(b["number"])
                                                for b in i["blocked_by"]))
     if i["prs"]:
-        lines.append("PR: " + "・".join(f"#{p}" for p in i["prs"]))
+        lines.append("PR: " + "・".join(f"#{p}" for p in i["prs"]) + (f"（{'・'.join(i['pr_by'])}）" if i["pr_by"] else ""))
+    if i["who"]:
+        lines.append("担当: " + "・".join(i["who"]))
+    lines.append("作られた日: " + i["made"])
     return "\n".join(lines)
 
 
@@ -352,9 +403,12 @@ def view(data):
            "count": {s: sum(1 for i in m["issues"] if i["state"] == s) for s in ("blocked", "pr", "idle")},
            "issues": [{"n": i["number"], "title": i["title"], "url": i["url"], "state": i["state"],
                        "col": col[i["number"]], "rank": rank[i["number"]], "crit": i["number"] in on_path, "blockers": len(i["blocked_by"]),
-                       "prs": i["prs"], "tip": card_title(i)} for i in m["issues"]]}
+                       "prs": i["prs"], "prBy": i["pr_by"], "prOf": i["pr_of"], "who": i["who"], "made": i["made"], "tip": card_title(i)}
+                      for i in m["issues"]],
+           "done": [{"n": i["number"], "title": i["title"], "url": i["url"], "made": i["made"], "shut": i["shut"],
+                     "who": i["who"]} for i in m["done"]]}
           for m in data["milestones"]]
-    return {"columns": cols, "today": {"at": max(past) + 1 if past else 0, "label": "今日 " + md(today, year)},
+    return {"columns": cols, "today": {"at": max(past) + 1 if past else 0, "label": "今日 " + md(today, year), "day": today},
             "milestones": ms, "edges": data["edges"], "path": [list(e) for e in zip(path, path[1:])],
             "late": late_edges(data)}
 
@@ -382,6 +436,7 @@ def body_html(data):
     if data["limits"]:
         out.append('<p class="path bad">取得の上限に当たった: ' + esc("・".join(data["limits"])) + "</p>")
     out.append("</header>")
+    out.append('<section id="pulse" aria-label="期間の動きと、誰が進めているか"></section>')
     out.append('<div class="bar">'
                '<input id="q" type="search" placeholder="番号か題名で探す" aria-label="番号か題名で探す">'
                '<span id="hits" class="muted"></span>'

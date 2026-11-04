@@ -34,21 +34,30 @@ TODAY = dt.date(2026, 11, 4)
 REPO = "o/r"
 
 
-def issue(n, blocked=(), prs=()):
-    """open の issue の生の材料。blocked は (番号, 相手のマイルストーン, 状態, リポジトリ) の並び、prs は (番号, 状態)。"""
+def issue(n, blocked=(), prs=(), who=(), made="2026-10-01T03:00:00Z", pr_by="dev"):
+    """open の issue の生の材料。blocked は (番号, 相手のマイルストーン, 状態, リポジトリ) の並び、prs は (番号, 状態)。
+    who は担当者の login、made は作られた時刻、pr_by は PR を出した人の login。"""
     nodes = [{"number": b, "url": f"https://github.com/{repo}/issues/{b}", "state": st,
               "repository": {"nameWithOwner": repo}, "milestone": {"number": ms} if ms else None}
              for b, ms, st, repo in blocked]
-    return {"number": n, "title": f"issue <{n}>", "url": f"https://github.com/o/r/issues/{n}",
+    return {"number": n, "title": f"issue <{n}>", "url": f"https://github.com/o/r/issues/{n}", "createdAt": made,
+            "assignees": {"totalCount": len(who), "nodes": [{"login": w} for w in who]},
             "blockedBy": {"totalCount": len(nodes), "nodes": nodes},
             "closedByPullRequestsReferences": {"totalCount": len(prs), "nodes": [
-                {"number": p, "url": f"https://github.com/o/r/pull/{p}", "state": st} for p, st in prs]}}
+                {"number": p, "url": f"https://github.com/o/r/pull/{p}", "state": st,
+                 "author": {"login": pr_by} if pr_by else None} for p, st in prs]}}
 
 
-def milestone(n, due=None, issues=(), closed=3):
+def closed(n, made, shut, who=()):
+    """閉じた issue の生の材料。made と shut は時刻（UTC）。"""
+    return {"number": n, "title": f"done <{n}>", "url": f"https://github.com/o/r/issues/{n}", "createdAt": made,
+            "closedAt": shut, "assignees": {"totalCount": len(who), "nodes": [{"login": w} for w in who]}}
+
+
+def milestone(n, due=None, issues=(), closed=3, done=()):
     return {"number": n, "title": f"M{n}", "url": f"https://github.com/o/r/milestone/{n}",
             "dueOn": f"{due}T07:00:00Z" if due else None, "closedIssues": {"totalCount": closed},
-            "openIssues": list(issues)}
+            "openIssues": list(issues), "closedIssueList": list(done)}
 
 
 def build(raw):
@@ -219,7 +228,7 @@ class Page(unittest.TestCase):
         v = view_of(page)
         self.assertEqual((v["edges"], v["path"], v["late"]), ([], [], []))
         self.assertEqual(v["columns"], [{"label": "期日 10-01", "late": True}, {"label": "期日なし", "late": False}])
-        self.assertEqual(v["today"], {"at": 1, "label": "今日 11-04"})
+        self.assertEqual(v["today"], {"at": 1, "label": "今日 11-04", "day": "2026-11-04"})
         self.assertEqual([(m["n"], m["col"], m["open"], m["overdue"]) for m in v["milestones"]], [(1, 0, 2, 34), (2, 1, 0, 0), (3, 1, 0, 0)])
         self.assertEqual([(i["n"], i["state"], i["col"]) for i in v["milestones"][0]["issues"]], [(2, "pr", 0), (1, "idle", 0)])
 
@@ -279,10 +288,12 @@ def fake_gh(raw, no_milestone=3, pages=2):
 
         start = int(cursor or 0)
         if q == mm.MILESTONES_QUERY:
-            ms = [{k: v for k, v in m.items() if k != "openIssues"} for m in raw]
+            ms = [{k: v for k, v in m.items() if k not in ("openIssues", "closedIssueList")} for m in raw]
             repo = {"milestones": page(ms, start, max(1, -(-len(ms) // pages)))}
         elif q == mm.OPEN_ISSUES_QUERY:
             repo = {"milestone": {"issues": page(by[int(vs["number"])]["openIssues"], start)}}
+        elif q == mm.CLOSED_ISSUES_QUERY:
+            repo = {"milestone": {"issues": page(by[int(vs["number"])]["closedIssueList"], start)}}
         elif q == mm.COUNT_QUERY:
             repo = {"all": {"totalCount": 10 + no_milestone}, "withMilestone": {"totalCount": 10}}
         else:
@@ -290,6 +301,54 @@ def fake_gh(raw, no_milestone=3, pages=2):
         return json.dumps({"data": {"repository": repo}})
 
     return run, calls
+
+
+class People(unittest.TestCase):
+    """誰が進めているか・期間の動きに使う事実（持ち主 2026-11-04「今どこを誰が攻めてるのか」「期間指定したときのその変化や進捗」）。"""
+
+    def test_who_and_pr_authors_reach_the_script(self):
+        raw = issue(1, prs=[(7, "OPEN"), (8, "OPEN"), (9, "MERGED")], who=("b", "a"), made="2026-10-20T03:00:00Z")
+        raw["closedByPullRequestsReferences"]["nodes"][1]["author"] = None   # 消えたアカウント
+        raw["closedByPullRequestsReferences"]["nodes"][2]["author"] = {"login": "merged-only"}
+        v = view_of(page_of(build([milestone(1, "2026-11-30", [raw])])))
+        i = v["milestones"][0]["issues"][0]
+        # 担当者は GitHub の並びのまま。PR を出した人は open の PR だけから取り、null を落として並べる
+        self.assertEqual((i["who"], i["prBy"], i["made"]), (["b", "a"], ["dev"], "2026-10-20"))
+        # PR の数は、その PR を出した人にだけ数える（人の一覧の「PR」）
+        self.assertEqual(i["prOf"], [[7, "dev"], [8, None]])
+
+    def test_closed_issues_are_sorted_by_close_day(self):
+        done = [closed(5, "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z", who=("a",)),
+                closed(3, "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z"),
+                closed(4, "2026-09-01T03:00:00Z", "2026-10-30T03:00:00Z")]
+        v = view_of(page_of(build([milestone(1, "2026-11-30", [issue(1)], done=done)])))
+        self.assertEqual([(d["n"], d["shut"], d["who"]) for d in v["milestones"][0]["done"]],
+                         [(4, "2026-10-30", []), (3, "2026-11-02", []), (5, "2026-11-02", ["a"])])
+
+    @unittest.skipUnless(hasattr(__import__("time"), "tzset"), "TZ を替えられない OS")
+    def test_days_are_local_dates(self):
+        import time
+        old = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "Asia/Tokyo"
+            time.tzset()
+            # UTC の 11-03 16:00 は東京の 11-04 01:00。期間は手元の日付で切る
+            self.assertEqual(mm.local_day("2026-11-03T16:00:00Z"), "2026-11-04")
+            self.assertIsNone(mm.local_day(None))
+        finally:
+            if old is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old
+            time.tzset()
+
+    def test_too_many_assignees_is_reported(self):
+        raw = issue(1, who=("a", "b"))
+        raw["assignees"]["totalCount"] = mm.WHO_FIRST + 1
+        self.assertIn("担当者", "・".join(build([milestone(1, None, [raw])])["limits"]))
+        many = closed(2, "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z", who=("a",))
+        many["assignees"]["totalCount"] = mm.WHO_FIRST + 1
+        self.assertIn("#2", "・".join(build([milestone(1, None, [issue(1)], done=[many])])["limits"]))
 
 
 class Fetch(unittest.TestCase):

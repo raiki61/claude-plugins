@@ -86,6 +86,47 @@ a:hover { text-decoration: underline; }
   border-radius: 2em; border: 1px solid var(--borderColor-default); color: var(--fgColor-muted); }
 .label.crit { background: var(--fgColor-done); border-color: transparent; color: var(--fgColor-onEmphasis); }
 
+/* ── 期間と人（地図の上の帯） ── */
+#pulse { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: flex-start; padding: 10px 24px 12px; border-top: 1px solid var(--borderColor-default); }
+.span-pick { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--fgColor-muted); }
+.span-pick .lab { font-weight: 600; color: var(--fgColor-default); }
+.seg { display: inline-flex; border: 1px solid var(--borderColor-default); border-radius: 6px; overflow: hidden; }
+.seg button { font: inherit; padding: 3px 10px; border: 0; border-right: 1px solid var(--borderColor-default); background: var(--bgColor-default);
+  color: var(--fgColor-default); cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--bgColor-accent-emphasis); color: var(--fgColor-onEmphasis); }
+.span-pick input { font: inherit; padding: 2px 6px; border: 1px solid var(--borderColor-default); border-radius: 6px;
+  background: var(--bgColor-default); color: var(--fgColor-default); }
+.tcol { display: flex; gap: 20px; align-items: center; }
+.big { display: flex; flex-direction: column; gap: 6px; }
+.big div { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--fgColor-muted); white-space: nowrap; }
+.big b { min-width: 2.2em; font-size: 22px; font-weight: 700; line-height: 1; text-align: right; font-variant-numeric: tabular-nums; color: var(--fgColor-default); }
+.big .shut b { color: var(--fgColor-success); }
+.big .made b { color: var(--fgColor-accent); }
+.big .left b { color: var(--fgColor-done); }
+#trend { display: block; overflow: visible; }
+#trend .bc { fill: var(--bgColor-success-emphasis); }
+#trend .bm { fill: var(--bgColor-accent-emphasis); opacity: .55; }
+#trend .ln { fill: none; stroke: var(--fgColor-done); stroke-width: 2.5; stroke-linejoin: round; }
+#trend .ar { fill: var(--fgColor-done); opacity: .1; }
+#trend .ax { stroke: var(--borderColor-default); }
+#trend .td { stroke: var(--bgColor-accent-emphasis); stroke-dasharray: 3 3; }
+#trend text { font: 11px var(--fontStack-system); fill: var(--fgColor-muted); }
+#trend text.v { font-weight: 700; fill: var(--fgColor-done); }
+#trend .hit { fill: transparent; }
+#trend .hit:hover { fill: var(--bgColor-neutral-muted); }
+.people { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; flex: 1 1 360px; max-height: 104px; overflow: auto; }
+.people .lab { width: 100%; font-size: 12.5px; font-weight: 600; }
+.who { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 3px; border: 1px solid var(--borderColor-default); border-radius: 999px;
+  background: var(--bgColor-default); font: inherit; font-size: 12.5px; color: var(--fgColor-default); cursor: pointer; }
+.who:hover { border-color: var(--fgColor-accent); }
+.who.on { border-color: var(--fgColor-accent); background: var(--bgColor-accent-muted); }
+.who small { color: var(--fgColor-muted); font-size: 11.5px; }
+.who small b { color: var(--fgColor-default); font-weight: 600; }
+.av { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; flex: none;
+  font-size: 10px; font-weight: 700; color: #fff; letter-spacing: -.3px; }
+.av.etc { background: var(--bgColor-neutral-emphasis); }
+
 /* ── ツールバー ── */
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 24px; border-top: 1px solid var(--borderColor-default);
   border-bottom: 1px solid var(--borderColor-default); background: var(--bgColor-muted); font-size: 12.5px; }
@@ -125,7 +166,7 @@ a:hover { text-decoration: underline; }
 .pane { border-top: none; border-radius: 0 0 12px 12px; }
 .frame.wide { border-radius: 12px; border-bottom-color: var(--borderColor-default); }
 .pane.wide { border-top: 1px solid var(--borderColor-default); border-radius: 0 0 12px 12px; }
-.fhead { position: absolute; left: 0; right: 0; top: 0; height: 80px; padding: 10px 16px 0 34px; cursor: pointer; user-select: none;
+.fhead { position: absolute; left: 0; right: 0; top: 0; height: 104px; padding: 10px 16px 0 34px; cursor: pointer; user-select: none;
   border-radius: 12px 12px 0 0; background: var(--bgColor-neutral-muted); }
 .frame.shut .fhead, .frame.bare .fhead, .frame.wide .fhead { border-radius: 12px; }
 .fhead::before { content: ""; position: absolute; left: 14px; top: 19px; border: 5px solid transparent; border-top-color: var(--fgColor-muted);
@@ -137,12 +178,20 @@ a:hover { text-decoration: underline; }
 .fname a { font-size: 12px; font-weight: 400; margin-left: 4px; }
 .fmeta { display: flex; gap: 10px; align-items: center; font-size: 12.5px; line-height: 22px; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; }
 .fmeta .over { color: var(--fgColor-danger); font-weight: 600; }
+.fpulse { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 22px; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; }
+.fpulse b { color: var(--fgColor-default); font-variant-numeric: tabular-nums; }
+.fpulse .c b { color: var(--fgColor-success); }
+.fpulse .m b { color: var(--fgColor-accent); }
+.fpulse svg { flex: none; }
+.fpulse .l { fill: none; stroke: var(--fgColor-done); stroke-width: 1.5; }
+.fpulse .a { fill: var(--fgColor-done); opacity: .12; }
 .stack { display: inline-flex; width: 80px; height: 7px; border-radius: 3px; overflow: hidden; background: var(--bgColor-neutral-muted); flex: none; }
 .stack i { display: block; height: 100%; }
 .stack .blocked { background: var(--bgColor-danger-emphasis); }
 .stack .pr { background: var(--bgColor-success-emphasis); }
 .stack .idle { background: var(--bgColor-neutral-emphasis); opacity: .45; }
-.empty { position: absolute; left: 34px; top: 84px; font-size: 12px; color: var(--fgColor-muted); }
+.frame:not(.bare) .empty { display: none; }
+.empty { position: absolute; left: 34px; top: 106px; font-size: 12px; color: var(--fgColor-muted); }
 .card { position: absolute; z-index: 3; display: block; padding: 8px 12px 8px 14px; border: 1px solid var(--borderColor-default);
   border-radius: 8px; background: var(--bgColor-default); color: var(--fgColor-default); box-shadow: var(--shadow); text-decoration: none;
   overflow: hidden; }
@@ -153,7 +202,15 @@ a:hover { text-decoration: underline; }
 .card.pr { background: var(--bgColor-success-muted); border-color: var(--fgColor-success); }
 .card:hover { text-decoration: none; border-color: var(--fgColor-accent); }
 .card.crit { border: 2px solid var(--fgColor-done); }
-.card .row { display: flex; gap: 6px; align-items: center; font-size: 12.5px; line-height: 18px; color: var(--fgColor-muted); }
+/* 期間の中で閉じた issue: 薄い点線のカードで残す */
+.card.done { opacity: .62; background: var(--bgColor-default); border-style: dashed; }
+.card.done .tt { text-decoration: line-through; text-decoration-color: var(--fgColor-muted); }
+.card .tag.shut { color: var(--fgColor-done); border: 1px solid var(--fgColor-done); }
+.card .tag.new { color: var(--fgColor-accent); border: 1px solid var(--fgColor-accent); }
+.card .avs { margin-left: auto; display: inline-flex; padding-left: 4px; }
+.card .avs .av { width: 22px; height: 22px; margin-left: -6px; border: 2px solid var(--bgColor-default); }
+.card .avs .av.by { border-style: dashed; border-color: var(--fgColor-success); }
+.card .row { display: flex; gap: 6px; align-items: center; white-space: nowrap; overflow: hidden; font-size: 12.5px; line-height: 18px; color: var(--fgColor-muted); }
 .card .num { font-family: var(--fontStack-mono); font-weight: 600; }
 .card .tag { padding: 0 7px; border-radius: 2em; font-size: 11.5px; font-weight: 600; line-height: 17px; }
 .card .tag.blocked { color: var(--fgColor-danger); border: 1px solid var(--fgColor-danger); }
@@ -171,9 +228,11 @@ a:hover { text-decoration: underline; }
 #wires path.crit { stroke: var(--fgColor-done); stroke-width: 4; opacity: 1; }
 #wires path.late { stroke: var(--fgColor-severe); stroke-dasharray: 6 4; opacity: 1; }
 #wires text { font: 600 12.5px var(--fontStack-system); fill: var(--fgColor-muted); paint-order: stroke; stroke: var(--bgColor-default); stroke-width: 3px; }
-.anim .frame, .anim .pane, .anim .card { transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease, opacity .2s; }
+.anim .frame, .anim .pane, .anim .card, .anim .more { transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease, opacity .2s; }
 /* 載せたカードの前後の鎖・探した字に当たったカードだけを濃く出す */
 #world.focus .card:not(.hot), #world.focus .frame:not(.hot), #world.focus .pane:not(.hot) { opacity: .28; }
+#world.focus .card.done.hot { opacity: .8; }
+#world.focus .card.gone, #world.focus .card.done.gone { opacity: 0; }   /* 隠したカードは、光らせている間も出さない */
 #world.focus #wires path:not(.hot), #world.focus #wires text:not(.hot) { opacity: .08; }
 #world.focus #wires path.hot { stroke-width: 3; opacity: 1; }
 .card.hit { outline: 3px solid var(--fgColor-accent); outline-offset: 2px; }
@@ -185,6 +244,7 @@ a:hover { text-decoration: underline; }
 .mini .mc { fill: var(--borderColor-default); }
 .mini .mc.blocked { fill: var(--bgColor-danger-emphasis); }
 .mini .mc.pr { fill: var(--bgColor-success-emphasis); }
+.mini .mc.done { fill: var(--fgColor-done); opacity: .45; }
 .mview { position: absolute; border: 2px solid var(--fgColor-accent); background: #0969da14; border-radius: 3px; pointer-events: none; }
 .none { position: absolute; left: 24px; top: 24px; color: var(--fgColor-muted); white-space: nowrap; }
 </style>
@@ -198,12 +258,32 @@ a:hover { text-decoration: underline; }
   const D = JSON.parse(document.getElementById("map-data").textContent)
     || { columns: [], today: { at: 0, label: "" }, milestones: [], edges: [], path: [], late: [] };
   // カード・枠・列の大きさ（px）。カードの大きさを決め打ちにして、字を測らずに置く
-  const CW = 280, CH = 74, G = 12, PAD = 14, HEAD = 80, SHUT_W = 320, COLGAP = 96, FGAP = 32, TOP = 22, LEFT = 32, BOTTOM = 60;
+  const CW = 280, CH = 74, G = 12, PAD = 14, HEAD = 104, SHUT_W = 320, COLGAP = 96, FGAP = 32, TOP = 22, LEFT = 32, BOTTOM = 60;
   const $ = id => document.getElementById(id);
+  // 期間: 日付は YYYY-MM-DD の文字（Python が手元の時刻の日付に直して渡す）。文字のまま比べる
+  const dayAdd = (d, n) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const TODAY = D.today.day || new Date().toISOString().slice(0, 10);
+  const md = d => d.slice(0, 4) === TODAY.slice(0, 4) ? d.slice(5) : d;
+  let P = { from: dayAdd(TODAY, -13), to: TODAY };
+  const inP = d => !!d && d >= P.from && d <= P.to;
+  const days = () => { const out = []; for (let d = P.from; d <= P.to && out.length < 400; d = dayAdd(d, 1)) out.push(d); return out; };
+  // その日の終わりに残っていた数: 作られていて、まだ閉じていなかった issue（今そのマイルストーンに在る物で数える）
+  const leftOn = (list, d) => list.reduce((k, i) => k + (i.made <= d && !(i.shut && i.shut <= d) ? 1 : 0), 0);
+  // 人の頭文字の丸。色は login から決める（同じ人はどのページでも同じ色）
+  const hue = w => { let h = 7; for (const ch of w) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h} 58% 42%)`; };
+  const ini = w => (w.replace(/[^A-Za-z0-9]/g, "").slice(0, 2) || w.slice(0, 1)).toUpperCase();
   const view = $("view"), world = $("world");
   const NS = "http://www.w3.org/2000/svg";
   const key = e => e[0] + ">" + e[1];
   const onPath = new Set(D.path.map(key)), late = new Set(D.late.map(key));
+  const avatar = (w, by) => el("span", { class: "av" + (by ? " by" : ""), style: `background:${hue(w)}`,
+    title: (by ? "PR を出した人: " : "担当: ") + w }, ini(w));
+  function avatars(i) {
+    const by = !i.who.length && i.state === "pr" && i.prBy.length > 0, list = by ? i.prBy : i.who;
+    if (!list.length) return null;
+    return el("span", { class: "avs" }, list.slice(0, 3).map(w => avatar(w, by)),
+      list.length > 3 ? el("span", { class: "av etc", title: list.slice(3).join("・") }, "+" + (list.length - 3)) : null);
+  }
   const el = (tag, attrs, ...kids) => {
     const n = tag.startsWith("svg:") ? document.createElementNS(NS, tag.slice(4)) : document.createElement(tag);
     for (const k in attrs || {}) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
@@ -226,7 +306,7 @@ a:hover { text-decoration: underline; }
   // 列ごとに、線の無い issue を横に何枚まで並べるか（K[c]）。最初に、地図全体が画面の形にいちばん大きく収まる K を選ぶ
   let K = D.columns.map(() => 1);
   const across = (n, c) => Math.max(1, Math.min(n, K[c]));
-  function part(c, list) {
+  function part(c, list, done) {
     const linked = list.filter(i => linkedSet.has(i.n)), loose = list.filter(i => !linkedSet.has(i.n));
     const ranks = linked.map(i => i.rank);
     // 段ごとに上から詰める。止めている側が同じ区画に在れば、その行より上には置かない（鎖が横 1 本に並ぶように）
@@ -237,14 +317,16 @@ a:hover { text-decoration: underline; }
         .sort((a, b) => a.p - b.p || (b.i.crit - a.i.crit) || a.i.n - b.i.n);
       for (const { i, p } of here) { const y = Math.max(free.get(r) || 0, p === FAR ? 0 : p); row.set(i.n, y); free.set(r, y + 1); }
     }
-    return { c, list, linked, loose, fold: FOLD ? loose.filter(i => i.state === "idle") : [],
+    return { c, list, linked, loose, done, fold: FOLD ? loose.filter(i => i.state === "idle") : [],
       r0: ranks.length ? Math.min(...ranks) : 0, r1: ranks.length ? Math.max(...ranks) : -1, row, nrows: Math.max(0, ...[...row.values()].map(y => y + 1)) };
   }
   const shown = (p, f) => f.folded ? p.loose.filter(i => i.state !== "idle") : p.loose;
+  const doneIn = p => p.done.filter(i => inP(i.shut));   // 期間の中で閉じた issue（線の無いカードの後ろに薄く並べる）
+  const live = p => p.list.length + doneIn(p).length > 0;
   const off = p => p.r0 * rstep;   // 区画の左の端の、列の左の端からのずれ（いちばん左の段の位置）
   // 区画の中身の大きさ。open が真なら畳んだ issue も開いたとして数える（列の幅を開け閉めで動かさないため）
   function partSize(p, f, open) {
-    const n = open ? p.loose.length : shown(p, f).length, k = across(n, p.c);
+    const n = (open ? p.loose.length : shown(p, f).length) + doneIn(p).length, k = across(n, p.c);
     const hs = [p.nrows * rowH - G, n ? Math.ceil(n / k) * rowH - G : 0, p.fold.length ? CHIP : 0].filter(h => h > 0);
     return { w: Math.max(p.nrows ? (p.r1 - p.r0) * rstep + CW : 0, n ? k * step - G : 0, p.fold.length ? CW : 0),
       h: hs.reduce((a, b) => a + b, 0) + (hs.length - 1) * G };
@@ -253,13 +335,17 @@ a:hover { text-decoration: underline; }
   const frames = D.milestones.map(m => {
     const parts = new Map();
     for (const i of m.issues) { if (!parts.has(i.col)) parts.set(i.col, []); parts.get(i.col).push(i); }
-    for (const [c, list] of parts) parts.set(c, part(c, list));
+    for (const i of m.done) Object.assign(i, { state: "done", prBy: [], prOf: [] });
+    if (m.done.length && !parts.has(m.col)) parts.set(m.col, []);
+    for (const [c, list] of parts) parts.set(c, part(c, list, c === m.col ? m.done : []));
     const cs = [...parts.keys(), m.col];
     return { m, parts, c0: Math.min(...cs), c1: Math.max(...cs), shut: false, box: null, folded: FOLD,
       linked: m.issues.some(i => linkedSet.has(i.n)), crit: m.issues.some(i => i.crit) };
   });
-  const frameOf = new Map(), issueOf = new Map();
+  const frameOf = new Map(), issueOf = new Map(), doneAll = [];
   for (const f of frames) for (const i of f.m.issues) { frameOf.set(i.n, f); issueOf.set(i.n, i); }
+  for (const f of frames) for (const i of f.m.done) { frameOf.set(i.n, f); doneAll.push(i); }
+  const openAll = [...issueOf.values()];
 
   // 列の幅は、開いたときの枠が入る幅（開け閉めで列が動かないよう、閉じた枠・畳んだ issue も開いたときの幅で数える）
   let W = [], X = [], worldW = 600;
@@ -285,12 +371,13 @@ a:hover { text-decoration: underline; }
       el("div", { class: "fname" }, el("span", { class: "no" }, "#" + m.n), el("span", { class: "tt", title: m.title }, m.title),
         el("a", { href: m.url, title: "GitHub のマイルストーンを開く" }, "↗")),
       el("div", { class: "fmeta" }, el("span", {}, m.due), m.overdue ? el("span", { class: "over" }, `期日切れ ${m.overdue} 日`) : null,
-        el("span", {}, `残り ${m.open}・閉じた ${m.closed}`), m.open ? stack : null));
+        el("span", {}, `残り ${m.open}・閉じた ${m.closed}`), m.open ? stack : null),
+      f.pulse = el("div", { class: "fpulse" }));
     head.querySelector("a").addEventListener("click", ev => ev.stopPropagation());
     const toggle = () => { f.shut = !f.shut; layout(); };
     head.addEventListener("click", toggle);
     head.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); } });
-    f.el = el("div", { class: "frame" + (m.open ? "" : " bare"), "data-m": m.n }, head, m.open ? null : el("div", { class: "empty" }, "open の issue は無い"));
+    f.el = el("div", { class: "frame", "data-m": m.n }, head, el("div", { class: "empty" }, "open の issue は無い"));
     f.panes = new Map([...f.parts.keys()].map(c => [c, el("div", { class: "pane" })]));
     world.append(f.el, ...f.panes.values());
     f.chips = new Map();
@@ -301,14 +388,22 @@ a:hover { text-decoration: underline; }
       world.append(chip);
     }
     for (const i of m.issues) {
-      const tags = [i.crit ? el("span", { class: "tag crit" }, "クリティカル") : null,
+      i.newTag = el("span", { class: "tag new", title: "期間の中で作られた" }, "新");
+      const tags = [i.crit ? el("span", { class: "tag crit" }, "クリティカル") : null, i.newTag,
         i.blockers ? el("span", { class: "tag blocked" }, `止め ${i.blockers}`) : null,
         i.prs.length ? el("span", { class: "tag pr" }, "PR " + i.prs.map(p => "#" + p).join(" ")) : null];
       i.el = el("a", { class: `card ${i.state}${i.crit ? " crit" : ""}`, id: "i" + i.n, href: i.url, title: i.tip,
         style: `width:${CW}px;height:${CH}px` },
-        el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), tags), el("div", { class: "tt" }, i.title));
+        el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), tags, avatars(i)), el("div", { class: "tt" }, i.title));
       i.el.addEventListener("mouseenter", () => focusOn(chain(i.n)));
-      i.el.addEventListener("mouseleave", () => focusOn(searched()));
+      i.el.addEventListener("mouseleave", () => focusOn(resting()));
+      world.append(i.el);
+    }
+    for (const i of m.done) {
+      i.el = el("a", { class: "card done", id: "i" + i.n, href: i.url, style: `width:${CW}px;height:${CH}px`,
+        title: [`#${i.n} ${i.title}`, "閉じた日: " + i.shut, "作られた日: " + i.made].concat(i.who.length ? ["担当: " + i.who.join("・")] : []).join("\n") },
+        el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), el("span", { class: "tag shut" }, "閉じた " + md(i.shut)), avatars(i)),
+        el("div", { class: "tt" }, i.title));
       world.append(i.el);
     }
   }
@@ -321,11 +416,12 @@ a:hover { text-decoration: underline; }
     // 戻り値は枠の帯と区画（y は枠の上の端からの距離）。
     // 閉じた枠も、issue の在る列の幅に帯を残す（線を issue の列の位置から引き、左から右の流れを保つため）
     const one = f.c0 === f.c1, x1 = one && f.linked ? X[f.c0] + off(f.parts.get(f.c0)) : x;
-    if (f.shut || !f.m.open) {
+    const any = [...f.parts.values()].some(live);
+    if (f.shut || !any) {
       const w = one ? (f.shut ? SHUT_W : W[f.c0]) : X[f.c1] + SHUT_W - X[f.c0];
-      return { head: { x: one ? x1 : X[f.c0], w, h: HEAD + (f.m.open ? 0 : 26) }, panes: [] };
+      return { head: { x: one ? x1 : X[f.c0], w, h: HEAD + (any ? 0 : 26) }, panes: [], bare: !any };
     }
-    const panes = [...f.parts].map(([c, p]) => {
+    const panes = [...f.parts].filter(([, p]) => live(p)).map(([c, p]) => {
       const sz = partSize(p, f);
       return { c, x: one ? x1 : X[c] + off(p), w: sz.w + 2 * PAD, h: sz.h + PAD };
     });
@@ -363,7 +459,7 @@ a:hover { text-decoration: underline; }
   function optimize() {
     const vw = Math.max(400, view.clientWidth), vh = Math.max(300, view.clientHeight);
     // 線の無いカードは畳まずに数える（開いたときに 1 列で縦に伸びないよう。列の幅も開いたときの形で決めている）
-    const sizes = D.columns.map((_, c) => frames.filter(f => f.parts.has(c)).map(f => ({ p: f.parts.get(c), n: f.parts.get(c).loose.length })));
+    const sizes = D.columns.map((_, c) => frames.filter(f => f.parts.has(c)).map(f => ({ p: f.parts.get(c), n: f.parts.get(c).loose.length + doneIn(f.parts.get(c)).length })));
     const kmax = sizes.map(l => Math.max(1, ...l.map(x => x.n)));
     const est = (c, k) => sizes[c].reduce((h, { p, n }) => h + HEAD + PAD + FGAP + (p.nrows + (n ? Math.ceil(n / Math.min(n, k)) : 0)) * rowH + (p.fold.length ? CHIP : 0), 0);
     const targets = new Set();
@@ -388,6 +484,7 @@ a:hover { text-decoration: underline; }
       f.box = { x: s.head.x, y, w: s.head.w, h: s.head.h };
       const wide = s.panes.length > 1 || (s.panes.length === 1 && s.panes[0].w < s.head.w - 1);
       f.el.classList.toggle("shut", f.shut);
+      f.el.classList.toggle("bare", !!s.bare);
       f.el.classList.toggle("wide", wide);
       Object.assign(f.el.style, { left: f.box.x + "px", top: y + "px", width: f.box.w + "px", height: s.head.h + "px" });
       for (const [c, pane] of f.panes) {
@@ -401,17 +498,17 @@ a:hover { text-decoration: underline; }
         const p = s.panes.find(q => q.c === c), chip = f.chips.get(c);
         const put = (i, pos, gone) => { i.pos = pos; i.el.classList.toggle("gone", gone); Object.assign(i.el.style, { left: pos.x + "px", top: pos.y + "px" }); };
         if (!p) {
-          for (const i of part.list) put(i, { x: f.box.x + PAD, y: y + 8 }, true);
+          for (const i of part.list.concat(part.done)) put(i, { x: f.box.x + PAD, y: y + 8 }, true);
           if (chip) chip.classList.add("gone");
           continue;
         }
         const bx = p.x + PAD, y0 = y + HEAD + (wide ? 4 : 0);
         for (const i of part.linked) put(i, { x: bx + (i.rank - part.r0) * rstep, y: y0 + part.row.get(i.n) * rowH }, false);
         let yy = y0 + part.nrows * rowH;
-        const ls = shown(part, f), k = across(ls.length, c);
+        const ls = shown(part, f).concat(doneIn(part)), k = across(ls.length, c);
         ls.forEach((i, j) => put(i, { x: bx + (j % k) * step, y: yy + Math.floor(j / k) * rowH }, false));
         if (ls.length) yy += Math.ceil(ls.length / k) * rowH;
-        for (const i of part.loose) if (!ls.includes(i)) put(i, { x: bx, y: yy }, true);
+        for (const i of part.loose.concat(part.done)) if (!ls.includes(i)) put(i, { x: bx, y: yy }, true);
         if (chip) {
           chip.classList.remove("gone");
           chip.textContent = `線の無い issue ${part.fold.length} 件 ${f.folded ? "▸ 開く" : "▾ 畳む"}`;
@@ -480,9 +577,9 @@ a:hover { text-decoration: underline; }
   }
   function focusOn(set) {
     world.classList.toggle("focus", !!set);
-    for (const i of issueOf.values()) i.el.classList.toggle("hot", !!set && set.has(i.n));
+    for (const i of openAll.concat(doneAll)) i.el.classList.toggle("hot", !!set && set.has(i.n));
     for (const f of frames) {
-      const hot = !!set && f.m.issues.some(i => set.has(i.n));
+      const hot = !!set && f.m.issues.concat(f.m.done).some(i => set.has(i.n));
       f.el.classList.toggle("hot", hot);
       for (const p of f.panes.values()) p.classList.toggle("hot", hot);
     }
@@ -496,18 +593,21 @@ a:hover { text-decoration: underline; }
   for (const a of document.querySelectorAll(".path a[data-n]")) {
     const set = new Set(D.path.flat());
     a.addEventListener("mouseenter", () => focusOn(set));
-    a.addEventListener("mouseleave", () => focusOn(searched()));
+    a.addEventListener("mouseleave", () => focusOn(resting()));
   }
 
   // ── 探す: 番号か題名に当たったカードに印を付け、閉じた枠は開き、1 件目を真ん中へ ──
   const q = $("q"), hits = $("hits");
   let hitList = [];
   function searched() { return q.value.trim() ? new Set(hitList.map(i => i.n)) : null; }
+  // カードから離れたときに戻す光り方: 選んだ人 → 探した字 → なし
+  function resting() { return whoSet() || searched(); }
   q.addEventListener("input", () => {
     const s = q.value.trim().toLowerCase().replace(/^#/, "");
     hitList = s ? [...issueOf.values()].filter(i => String(i.n) === s || i.title.toLowerCase().includes(s)) : [];
     for (const i of issueOf.values()) i.el.classList.toggle("hit", hitList.includes(i));
     hits.textContent = s ? `${hitList.length} 件` : "";
+    if (s) { who = null; drawPeople(); }
     focusOn(s ? new Set(hitList.map(i => i.n)) : null);
     let moved = false;
     for (const i of hitList) {
@@ -518,6 +618,135 @@ a:hover { text-decoration: underline; }
     if (moved) layout();
   });
   q.addEventListener("keydown", ev => { if (ev.key === "Enter" && hitList.length) center(hitList[0].pos.x + CW / 2, hitList[0].pos.y + CH / 2); });
+
+  // ── 期間と人: 期間を選ぶと、その間に閉じた・作られた数と残りの数の動きを描き、閉じた issue を枠に薄く残す ──
+  const pulse = $("pulse") || el("section");
+  const seg = el("div", { class: "seg" }, [7, 14, 30, 90].map(n => el("button", { type: "button", "data-n": n }, n + " 日")));
+  const fromI = el("input", { type: "date", "aria-label": "期間の始め" }), toI = el("input", { type: "date", "aria-label": "期間の終わり" });
+  const big = el("div", { class: "big" }), trend = el("svg:svg", { id: "trend", "aria-hidden": "true" }), people = el("div", { class: "people" });
+  pulse.append(el("div", { class: "span-pick" }, el("span", { class: "lab" }, "期間"), seg, el("div", {}, fromI, " 〜 ", toI)),
+    el("div", { class: "tcol" }, big, trend), people);
+  seg.addEventListener("click", ev => {
+    const b = ev.target.closest("button");
+    if (b) setPeriod(dayAdd(TODAY, 1 - Number(b.dataset.n)), TODAY);
+  });
+  const typed = () => { if (fromI.value && toI.value && fromI.value <= toI.value) setPeriod(fromI.value, toI.value); };
+  fromI.addEventListener("change", typed);
+  toI.addEventListener("change", typed);
+  const all = openAll.concat(doneAll);
+
+  // 線（残りの数）と棒（日ごとに閉じた数・作られた数）。日に載せると数が出る
+  function drawTrend() {
+    const ds = days(), n = ds.length, TW = 560, TH = 104, top = 14, bot = TH - 18, bh = 30;
+    const shut = ds.map(d => doneAll.filter(i => i.shut === d).length), made = ds.map(d => all.filter(i => i.made === d).length);
+    const left = ds.map(d => leftOn(all, d));
+    const lo = Math.min(...left), hi = Math.max(...left), bmax = Math.max(1, ...shut, ...made);
+    const xw = TW / n, x = k => (k + 0.5) * xw, ly = v => top + (hi === lo ? 0.5 : (hi - v) / (hi - lo)) * (bot - bh - top - 6);
+    trend.textContent = "";
+    trend.setAttribute("width", TW);
+    trend.setAttribute("height", TH);
+    trend.setAttribute("viewBox", `0 0 ${TW} ${TH}`);
+    const pts = left.map((v, k) => `${x(k).toFixed(1)},${ly(v).toFixed(1)}`);
+    trend.append(el("svg:line", { class: "ax", x1: 0, x2: TW, y1: bot, y2: bot }),
+      el("svg:path", { class: "ar", d: `M${x(0)},${bot} L${pts.join(" L")} L${x(n - 1)},${bot} Z` }),
+      el("svg:path", { class: "ln", d: "M" + pts.join(" L") }));
+    const bw = Math.max(1, Math.min(10, xw * 0.36));
+    ds.forEach((d, k) => {
+      if (shut[k]) trend.append(el("svg:rect", { class: "bc", x: x(k) - bw, width: bw, y: bot - shut[k] / bmax * bh, height: shut[k] / bmax * bh, rx: 1 }));
+      if (made[k]) trend.append(el("svg:rect", { class: "bm", x: x(k), width: bw, y: bot - made[k] / bmax * bh, height: made[k] / bmax * bh, rx: 1 }));
+      trend.append(el("svg:rect", { class: "hit", x: k * xw, width: xw, y: 0, height: bot },
+        el("svg:title", {}, `${md(d)}　閉じた ${shut[k]}・作られた ${made[k]}・残り ${left[k]}`)));
+    });
+    trend.append(el("svg:text", { x: 0, y: TH - 4 }, md(ds[0])), el("svg:text", { x: TW, y: TH - 4, "text-anchor": "end" }, md(ds[n - 1])),
+      el("svg:text", { class: "v", x: x(0) + 4, y: ly(left[0]) - 5 }, left[0]),
+      el("svg:text", { class: "v", x: x(n - 1) - 4, y: ly(left[n - 1]) - 5, "text-anchor": "end" }, left[n - 1]));
+    const c = shut.reduce((a, b) => a + b, 0), m = made.reduce((a, b) => a + b, 0), l0 = leftOn(all, dayAdd(P.from, -1));
+    big.textContent = "";
+    big.append(el("div", { class: "shut" }, el("b", {}, c), "閉じた"), el("div", { class: "made" }, el("b", {}, m), "作られた"),
+      el("div", { class: "left" }, el("b", {}, left[n - 1]), `残り（始めは ${l0}）`));
+  }
+
+  // 枠の見出しの 3 段目: そのマイルストーンの期間の数と、残りの数の小さな線
+  function drawFramePulse(f) {
+    const list = f.m.issues.concat(f.m.done), ds = days(), every = Math.max(1, Math.ceil(ds.length / 60));
+    const at = ds.filter((_, k) => k % every === 0 || k === ds.length - 1), left = at.map(d => leftOn(list, d));
+    const c = f.m.done.filter(i => inP(i.shut)).length, m = list.filter(i => inP(i.made)).length;
+    const hi = Math.max(1, ...left), SW = 84, SH = 18, xs = k => at.length > 1 ? k / (at.length - 1) * SW : SW / 2;
+    const pts = left.map((v, k) => `${xs(k).toFixed(1)},${(SH - 1 - v / hi * (SH - 3)).toFixed(1)}`);
+    f.pulse.textContent = "";
+    f.pulse.append(el("svg:svg", { width: SW, height: SH, viewBox: `0 0 ${SW} ${SH}` },
+        el("svg:path", { class: "a", d: `M0,${SH} L${pts.join(" L")} L${SW},${SH} Z` }), el("svg:path", { class: "l", d: "M" + pts.join(" L") })),
+      el("span", { class: "c" }, "閉じた ", el("b", {}, c)), el("span", { class: "m" }, "新 ", el("b", {}, m)),
+      el("span", {}, "残り ", el("b", {}, left[0]), " → ", el("b", {}, left[left.length - 1])));
+    f.pulse.title = `期間 ${P.from} 〜 ${P.to}`;
+  }
+
+  // 人の一覧: 担当している open の issue・出している open の PR・期間の中で閉じた issue の数。押すとその人のカードだけ光る
+  let who = null;
+  const NOBODY = "\u0000";
+  function whoSet() {
+    if (who == null) return null;
+    if (who === NOBODY) return new Set(openAll.filter(i => !i.who.length).map(i => i.n));
+    return new Set(all.filter(i => (i.who.includes(who) || i.prBy.includes(who)) && (i.state !== "done" || inP(i.shut))).map(i => i.n));
+  }
+  function drawPeople() {
+    const t = new Map(), get = w => t.get(w) || (t.set(w, { open: 0, prs: new Set(), done: 0 }), t.get(w));
+    for (const i of openAll) { for (const w of i.who) get(w).open++; for (const [p, w] of i.prOf) if (w) get(w).prs.add(p); }
+    for (const i of doneAll) if (inP(i.shut)) for (const w of i.who) get(w).done++;
+    const rows = [...t].sort((a, b) => (b[1].open + b[1].done) - (a[1].open + a[1].done) || a[0].localeCompare(b[0]));
+    const nobody = openAll.filter(i => !i.who.length).length;
+    const num = (label, v) => v ? [label, el("b", {}, v), " "] : [];
+    people.textContent = "";
+    people.append(el("span", { class: "lab" }, "誰が進めているか"));
+    for (const [w, v] of rows) {
+      const b = el("button", { type: "button", class: "who" + (who === w ? " on" : ""), title: w }, avatar(w), w,
+        el("small", {}, ...num("担当 ", v.open), ...num("PR ", v.prs.size), ...num("閉じた ", v.done)));
+      b.addEventListener("click", () => pick(w));
+      people.append(b);
+    }
+    if (nobody) {
+      const b = el("button", { type: "button", class: "who" + (who === NOBODY ? " on" : "") }, el("span", { class: "av etc" }, "?"), "担当なし",
+        el("small", {}, el("b", {}, nobody)));
+      b.addEventListener("click", () => pick(NOBODY));
+      people.append(b);
+    }
+  }
+  function pick(w) {
+    who = who === w ? null : w;
+    if (who != null && q.value) { q.value = ""; hitList = []; hits.textContent = ""; for (const i of openAll) i.el.classList.remove("hit"); }
+    drawPeople();
+    const set = whoSet();
+    if (reveal(set)) layout();
+    focusOn(set);
+  }
+  // 選んだ人のカードが閉じた枠・畳んだ所に在れば開く。開いた物が在れば真を返す
+  function reveal(set) {
+    let moved = false;
+    if (set) for (const n of set) {
+      const f = frameOf.get(n), i = issueOf.get(n);
+      if (f.shut) { f.shut = false; moved = true; }
+      if (i && f.folded && !linkedSet.has(n) && i.state === "idle") { f.folded = false; moved = true; }
+    }
+    return moved;
+  }
+
+  function drawPeriod() {
+    fromI.value = P.from;
+    toI.value = P.to;
+    for (const b of seg.children) b.classList.toggle("on", P.to === TODAY && P.from === dayAdd(TODAY, 1 - Number(b.dataset.n)));
+    for (const i of openAll) i.newTag.style.display = inP(i.made) ? "" : "none";
+    drawTrend();
+    for (const f of frames) drawFramePulse(f);
+    drawPeople();
+  }
+  function setPeriod(from, to) {
+    P = { from: from < dayAdd(to, -399) ? dayAdd(to, -399) : from, to };
+    drawPeriod();
+    reveal(whoSet());
+    optimize();
+    layout();
+    focusOn(resting());
+  }
 
   // ── 拡大・縮小と、動かす。ブラウザのスクロールに頼らず、地図を translate と scale で動かす
   // （HTML を見る窓の作りによってはスクロールが効かないため。ホイール・ドラッグ・矢印のキー・見取り図のどれでも動く） ──
@@ -582,7 +811,7 @@ a:hover { text-decoration: underline; }
     for (const f of frames) {
       if (!f.box) continue;
       msvg.append(el("svg:rect", { class: "mf", x: f.box.x, y: f.box.y, width: f.box.w, height: f.box.h, rx: 12 }));
-      for (const i of f.m.issues) if (!i.el.classList.contains("gone"))
+      for (const i of f.m.issues.concat(f.m.done)) if (!i.el.classList.contains("gone"))
         msvg.append(el("svg:rect", { class: "mc " + i.state, x: i.pos.x, y: i.pos.y, width: CW, height: CH, rx: 8 }));
     }
     drawMini();
@@ -657,6 +886,7 @@ a:hover { text-decoration: underline; }
   window.addEventListener("resize", () => { fillHeight(); apply(); });
 
   // 最初は等倍（字を読める大きさを先にする。ほかの所へはホイール・ドラッグ・見取り図で動き、全体は「全体」で見る）
+  drawPeriod();
   fillHeight();
   optimize();
   layout();

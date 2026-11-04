@@ -75,7 +75,7 @@ python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json [--all] [--mate
 
 The definitions of the judgments and what is not looked at are in `--help`. The script's judgment of whose turn each PR is (the sections and rows of the report) is a pure function, and `tests/whose-turn-suite.py` pins its rules one line at a time (224 cases). The AI then only reads the materials to classify the mentions and threads, as the skill describes. All times, in headings and rows, are shown in local time.
 
-Only this command runs on sonnet (the `model` in the command definition). The AI's job is to apply the rules to the material and sort it; it does not need a higher model's reasoning, and it is kept light because it is meant to run every day.
+`/whose-turn` runs on sonnet (the `model` in the command definition), as does `/milestone-map`, whose skill only runs its script. The AI's job in `/whose-turn` is to apply the rules to the material and sort it; it does not need a higher model's reasoning, and it is kept light because it is meant to run every day.
 
 ## `/milestone-map` — see all milestones on one page
 
@@ -86,7 +86,7 @@ Only this command runs on sonnet (the `model` in the command definition). The AI
 /milestone-map --repo OWNER/NAME   # another repository
 ```
 
-It reads all open milestones of one repository, their open issues with `blocked by` and the open PRs that will close them, and writes one self-contained HTML page (the scripts are inside the page; nothing is loaded from outside) to `~/.cache/attention/milestone-map/<owner>-<name>/map.html`. It opens the page in VS Code like `/catchup` (`ATTENTION_CATCHUP_OPEN=0` turns that off). It draws only facts taken from GitHub: no AI inference and no forecast. It never writes to GitHub: the point is to see the current state first, so that people add `blocked by` where they see it is missing.
+It reads all open milestones of one repository, their open and closed issues with `blocked by` and assignees, and the open PRs that will close them, and writes one self-contained HTML page (the scripts are inside the page; nothing is loaded from outside) to `~/.cache/attention/milestone-map/<owner>-<name>/map.html`. It opens the page in VS Code like `/catchup` (`ATTENTION_CATCHUP_OPEN=0` turns that off). It draws only facts taken from GitHub: no AI inference and no forecast. It never writes to GitHub: the point is to see the current state first, so that people add `blocked by` where they see it is missing.
 
 The page has:
 
@@ -95,6 +95,8 @@ The page has:
 3. **A light frame per milestone**, placed in its due-date column and packed into free space; frames on the critical path go first, at the top. Click the frame's header to close or open it. A closed frame keeps its arrows, drawn from its header.
 4. **Arrows for `blocked by`** between cards on the map (blocker → blocked). A blocker moves to the column of the earliest issue it blocks when that is left of its own, and inside a column it stands left of the issues it blocks, so arrows point right and a chain lines up in one row (only arrows inside a cycle cannot). Cards without arrows go below in a grid; when the map has at least one arrow, the gray ones among them fold into one button per frame. When the page opens, it picks how many of these cards go side by side in each column so that the whole map fits the window as large as possible. An arrow is dashed orange when the blocker's milestone is due later than the blocked issue's. A `blocked by` whose other side is not on the map (another repository, no milestone, a closed milestone) makes the card red without an arrow.
 5. **The critical path**: the longest chain of `blocked by` by number of issues (GitHub has no durations), in bold. Arrows inside a cycle are left out of it, and the page lists the cycles. With no `blocked by`, there is no path and the page still shows every card.
+6. **Who is working where.** Each card shows its assignees as initial circles; a green card with no assignee shows the authors of its open PRs in a dashed ring. The list at the top has one button per person with the number of open issues assigned, open PRs, and issues closed in the period. Click a person (or 「担当なし」, no assignee) to light up only their cards; closed frames and folded cards that hold them open.
+7. **Change over a period.** Pick 7, 14, 30 or 90 days, or type the first and last day (default: the 14 days up to today). The page shows how many issues were closed and created in the period, with a bar per day, and a line of how many were still open on each day. Each frame header shows the same numbers for its milestone. Issues closed in the period stay in their frame as faint dashed cards, and open issues created in the period get a 「新」 (new) tag. These numbers count only the issues that are in the milestone now, by the day each was created and closed; the day an issue was added to or moved between milestones is not read.
 
 Pointing at a card highlights the chain before and after it. Move around the map with the mouse wheel (Shift and the wheel for left and right), by dragging anywhere (cards included), with the arrow keys, or by clicking the small overview in the lower right corner. Zoom with the buttons or Ctrl and the wheel; 「全体」 shows the whole map. You can search by number or title. The page follows the dark theme of VS Code.
 
@@ -104,7 +106,7 @@ Pointing at a card highlights the chain before and after it. Move around the map
 python3 scripts/milestone-map.py [--repo OWNER/NAME] [--today YYYY-MM-DD]
 ```
 
-The definitions and what is not looked at are in `--help`. `tests/milestone-map-suite.py` pins the rules with `gh` replaced by fixed data, including no `blocked by`, no due date, overdue milestones and cycles.
+The skill only runs this script and returns its output; the model makes no decision, so running the script yourself gives the same page without Claude. The definitions and what is not looked at are in `--help`. `tests/milestone-map-suite.py` pins the rules with `gh` replaced by fixed data, including no `blocked by`, no due date, overdue milestones, cycles, assignees and closed issues.
 
 ## `/catchup` — get back to one PR / issue
 
