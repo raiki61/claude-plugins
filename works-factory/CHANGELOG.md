@@ -6,6 +6,11 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を f45bfab1 から 3a79bff4 に上げた。取り込んだ PR は raiki61/works-factory#964・#965・#971・#972・#962・#970・#969・#974・#975・#966・#973・#977・#968・#979。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/f45bfab10068...3a79bff4a2e4 。
+- 直す前の承認ノードが人の答えを待って止まった run を、判定と計画を回し直さずに続けられるようになった（raiki61/works-factory#962）。報告の「固定材料（修正前の承認ノードで止まった所の写し）」のフォルダを新しい run の入力 `fix_fixture` に渡すと、直す前の承認ノードを写しの値で開き直す。この版より前の工場が作った固定材料は取り込まない（写しの形の版を上げた）。スキル `SKILL.md` の「2. 起動する」の無人の run の項に続け方を足した。
+
 ## [0.50.0] - 2026-11-04
 
 ### Changed
