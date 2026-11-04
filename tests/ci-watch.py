@@ -9,7 +9,10 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 見る物（GitHub に登録された全部の workflow。gh workflow list と gh run list --branch main の JSON で読む）:
 - 赤: main の最新の決着した run（成功か失敗。取り消し・飛ばしは数えない。読む数の中に決着した run が無ければ、決着ごとに最新を
   引く）が失敗。最後の緑から最新の赤までの commit の範囲を添える
-  （main の run は後の push に替えられて取り消されることが多く、どの commit が赤にしたか 1 つに決まらないため）
+  （main の run は後の push に替えられて取り消されることが多く、どの commit が赤にしたか 1 つに決まらないため）。
+  赤の run の落ちた job がどれも、step を 1 つも走らせずに取り消された（cancelled）物なら、commit の範囲の代わりにそう書く（GitHub が
+  ランナーを割り当てられずに job を落とした回で、commit の中身は試されていない。step の無い failure などが 1 本でも在れば範囲のまま。2026-11-04 の run 41853036922 は macOS の job 4 本が
+  "The job was not acquired by Runner" で段 0 のまま取り消され、run が赤になった。頼み b163a1）
 - 止まった定期: schedule の run の間隔（過去の schedule の run の間の、一番長い間）と 1 日を足した長さより、最後の schedule の run が古い。
   GitHub は動きの無いリポジトリの定期の workflow を 60 日で止める。schedule の run は別に引く（push の run が多いと読む数から外れる）。
   schedule の run が 1 件しか無い間は、間隔が分からないので見ない
@@ -99,6 +102,15 @@ def newest(runs):
     return max(runs, key=lambda r: when(r["createdAt"])) if runs else None
 
 
+def unstarted_count(run_id, runner):
+    """赤の run の落ちた job（success・skipped・neutral 以外）がどれも、step を 1 つも走らせずに取り消された（cancelled）物なら、
+    その本数（そうでなければ 0。step の無い failure・timed_out などは、ランナーの都合と決められないので数えない）。
+    利用制限は Limited のまま上げ、ほかの読めない失敗は RuntimeError で上げる（呼ぶ側が文に書いて赤の知らせは続ける）。"""
+    got = gh_json(["run", "view", str(run_id), "--json", "jobs"], runner)
+    bad = [j for j in (got.get("jobs") or []) if j.get("conclusion") not in ("success", "skipped", "neutral")]
+    return len(bad) if bad and all(j.get("conclusion") == "cancelled" and not j.get("steps") for j in bad) else 0
+
+
 def findings(runner, now, root=ROOT):
     """知らせる物の並び。1 件は {key, text, since}。since は赤の件の最新の赤の run が決着した時刻（頼みが閉じた後に知らせ直すかの
     見分け。始まった時刻で見ると、戻しの commit を push してすぐ納品し、その後に赤で決着した run を見落とす）で、ほかの件は None。
@@ -127,6 +139,16 @@ def findings(runner, now, root=ROOT):
             span = (f"赤にした commit の候補は、最後の緑 {green['headSha'][:8]}（run {green['databaseId']}）から {last['headSha'][:8]} までの"
                     f" commit（git log {green['headSha'][:8]}..{last['headSha'][:8]}）" if green
                     else "main で 1 度も緑になっていないので、赤にした commit を絞れない")
+            try:
+                idle = unstarted_count(last["databaseId"], runner)
+            except Limited:
+                raise
+            except RuntimeError as e:   # job を読めないだけで赤の知らせは止めない（範囲は添えたまま、読めなかったと書く）
+                idle, span = 0, f"{span}（落ちた job を読めなかった: {e}）"
+            if idle:
+                span = (f"落ちた job {idle} 本はどれも step を 1 つも走らせずに取り消された（GitHub がランナーを割り当てられなかったなど。"
+                        f"commit の中身は試されていない）。gh run rerun {last['databaseId']} --failed で回し直すか、main の次の run が"
+                        f"緑で終わるかを見る")
             # 鍵は最後の緑で決める（赤の続いた run が読む数を超えても、同じ赤の続きを別の件と数えない）
             found.append({"key": f"{path}:red:{green['databaseId'] if green else 'never-green'}", "since": when(last.get("updatedAt") or last["createdAt"]),
                           "text": f"{name}（{path}）が main で赤: run {last['databaseId']}（{last['conclusion']}・{last['event']}・"

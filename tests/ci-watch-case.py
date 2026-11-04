@@ -4,7 +4,9 @@
 使い方: python3 tests/ci-watch-case.py <場合>
 - red-range: main の最新の決着した run が赤なら 1 で終わり（dry_run は 0）、run の URL と、最後の緑から最新の赤までの commit の範囲を出す。取り消しの
   run は決着に数えない。読む数の中に緑が無ければ、成功の run を別に引く。1 度も緑が無ければそう書く。dry_run は覚えない
-  読む数の全部が取り消しなら、決着ごとに最新を引いて赤を見る。リポジトリにファイルの無い workflow は見ない
+  読む数の全部が取り消しなら、決着ごとに最新を引いて赤を見る。リポジトリにファイルの無い workflow は見ない。
+  赤の run の落ちた job がどれも step を 1 つも走らせずに取り消された物なら、範囲の代わりにそう書いて回し直しの手を添える（step の
+  有る落ちた job や、step の無い failure が 1 つでも在れば範囲のまま）。job を読めない回は範囲を添えたまま読めなかったと書き、利用制限なら黙る
 - told-while-open: 知らせた件は、このツールから回した頼みが開いているうちは知らせない（0 で終わる）。新しい件だけは知らせる。
   開いた頼みのうち一番新しい物を回してから REPEAT を過ぎたら、開いた頼みの受付を添えて知らせ直す（回した時刻の無い頼みでは黙る）
 - cross: 頼み元がほかの会社の会話で、納品の行がその会社の受付箱にだけ在る頼みは、--todo と同じく台帳の行が指す受付箱まで足し合わせて
@@ -49,10 +51,12 @@ def r(i, conclusion, sha, at="2026-10-18T10:00:00Z", event="push", status="compl
 
 
 class Fake:
-    """gh と git の偽物。workflows は gh workflow list の答え、runs は workflow の id ごとの run（新しい順）。"""
+    """gh と git の偽物。workflows は gh workflow list の答え、runs は workflow の id ごとの run（新しい順）、jobs は run の id ごとの
+    gh run view --json jobs の job の並び（無い run は空）。view_err は gh run view だけを落とす文。"""
 
-    def __init__(self, gitdir, workflows, runs, broken=False, err="HTTP 502"):
+    def __init__(self, gitdir, workflows, runs, broken=False, err="HTTP 502", jobs=None, view_err=None):
         self.gitdir, self.workflows, self.runs, self.broken, self.err = gitdir, workflows, runs, broken, err
+        self.jobs, self.view_err = jobs or {}, view_err
         self.places = {}   # git -C <場所> の共通のディレクトリの答えを場所ごとに替える物（無い場所は gitdir）
 
     def __call__(self, argv):
@@ -62,6 +66,10 @@ class Fake:
             return 1, "", self.err
         if argv[1:3] == ["workflow", "list"]:
             return 0, json.dumps(self.workflows), ""
+        if argv[1:3] == ["run", "view"]:
+            if self.view_err:
+                return 1, "", self.view_err
+            return 0, json.dumps({"jobs": self.jobs.get(int(argv[3]), [])}), ""
         got = self.runs.get(int(argv[argv.index("--workflow") + 1]), [])
         if "--status" in argv:
             got = [x for x in got if x["conclusion"] == argv[argv.index("--status") + 1]]
@@ -121,6 +129,23 @@ def red_range():
     gone = {"id": 9, "name": "pages", "path": "dynamic/pages/pages-build-deployment", "state": "active"}
     code, out = go(Fake(setup(), [gone], {9: [r(7, "failure", "a")]}))
     check(code == 0, f"リポジトリに無い workflow を見た: {out}")
+    # 落ちた job がどれも step 0 の取り消し（ランナーを割り当てられなかった回。2026-11-04 の run 41853036922 の形）なら範囲の代わりにそう書く
+    job = lambda name, conclusion, steps: {"name": name, "conclusion": conclusion, "steps": [{"name": "s"}] * steps}
+    idle = [job("test", "success", 12), job("works 0", "cancelled", 0), job("works 1", "cancelled", 0)]
+    red = {1: [r(7, "failure", "a"), r(6, "success", "0")]}
+    code, out = go(Fake(setup(), [TEST], red, jobs={7: idle}))
+    check(code == 1 and "job 2 " in out and "gh run rerun 7 --failed" in out and "git log" not in out,
+          f"step 0 の取り消しだけの赤を commit の赤と書いた: {out}")
+    code, out = go(Fake(setup(), [TEST], red, jobs={7: idle + [job("test 2", "failure", 12)]}))
+    check(code == 1 and "git log 00000000..aaaaaaaa" in out and "rerun" not in out, f"step の有る落ちた job の赤を範囲で書かない: {out}")
+    for odd in ([job("works 2", "failure", 0)], [{"name": "works 3", "conclusion": "cancelled"}]):
+        code, out = go(Fake(setup(), [TEST], red, jobs={7: odd}))
+        want = "rerun" in out if "steps" not in odd[0] else "rerun" not in out
+        check(code == 1 and want, f"step の無い failure を取り消しと見たか、steps の無い取り消しを見分けない: {odd} {out}")
+    code, out = go(Fake(setup(), [TEST], red, view_err="HTTP 502"))
+    check(code == 1 and "git log 00000000..aaaaaaaa" in out and "HTTP 502" in out, f"job を読めない回に赤を黙った: {out}")
+    code, out = go(Fake(setup(), [TEST], red, view_err="gh: API rate limit exceeded (HTTP 403)"))
+    check(code == 0 and "API rate limit" in out, f"job を読む所の利用制限を赤の知らせにした: {code} {out}")
     print("RED_RANGE_OK")
 
 

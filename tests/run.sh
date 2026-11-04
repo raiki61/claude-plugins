@@ -6290,7 +6290,7 @@ expect_output 0 "SHAPE_CHANGED_OK" \
 # gh と git は偽物の runner で回し、受付箱の台帳は一時の階層に作る。本物の GitHub と受付箱には触らない
 CIW_CASE="$ROOT/tests/ci-watch-case.py"
 expect_output 0 "RED_RANGE_OK" \
-    "ci-watch: main の最新の決着した run（取り消しを除く）が赤なら知らせ、最後の緑から赤までの commit の範囲を添える。読む数の外の緑・取り消しに埋もれた赤も引き、ファイルの無い workflow は見ない" \
+    "ci-watch: main の最新の決着した run（取り消しを除く）が赤なら知らせ、最後の緑から赤までの commit の範囲を添える。読む数の外の緑・取り消しに埋もれた赤も引き、ファイルの無い workflow は見ない。落ちた job がどれも step 0 の取り消しなら範囲の代わりにそう書く" \
     "$PY_BIN" "$CIW_CASE" red-range
 expect_output 0 "TOLD_WHILE_OPEN_OK" \
     "ci-watch: 知らせた件は、このツールから回した頼みが開いているうちは知らせ直さず、新しい件だけを知らせる。開いた頼みを回してから 1 日を過ぎたら、その受付を添えて知らせ直す" \
