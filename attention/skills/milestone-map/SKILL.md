@@ -22,12 +22,12 @@ GitHub の issue・マイルストーン・blocked by を書き換えるな（�
 
 1. `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/milestone-map.py" $ARGUMENTS --out` を実行し、返ってきたパスを **Read で**読む（引数なし＝今のリポジトリ。`--repo OWNER/NAME` で別のリポジトリ）。`--out` は出力を一時ファイルへ書いてパスだけ返す。材料は Bash の 1 回あたりの上限（約 30,000 バイト）を越えるので、**`cat` で読むな**。`--out` は値を取らないので `$ARGUMENTS` の後ろに置く。出力は JSON で、**鍵で読む**:
    - `milestones`: 1 本ずつ `number`・`title`・`due`（期日。無ければ null）・`overdue_days`（期日切れの日数）・`description`（説明文）・`headings`・`open`（残りの issue）・`weekly`（週ごとの閉じた件数。古い週から）・`forecast`（`state` が `ok` なら `p50`・`p85`・`late`〔85% が期日を越える〕・`wide`〔幅が広い訳〕。`none` は閉じた実績が無く見込めない、`done` は残り 0）・`blocked_issues`
-   - `edges`（blocked by でマイルストーンをまたぐ線。`from` が止めている側）・`critical`（律速の鎖。線が無ければ null）・`outside`（外から止めている物）・`candidates`（依存の候補。blocked by ではない）・`scope`・`limits`・`not_seen`
+   - `edges`（blocked by でマイルストーンをまたぐ線。`from` が止めている側）・`critical`（律速。線が無ければ null。`chain` が鎖のマイルストーンの番号の並び、`end` が鎖の 85% 側の終わり、`tail_due` が鎖の最後のマイルストーンの期日）・`outside`（外から止めている物）・`candidates`（依存の候補。blocked by ではない）・`scope`・`limits`・`not_seen`
    - `data_path`（ページの材料の全部）と `fields_path`（あなたが書くファイルの置き場）
 
 2. `fields_path` に JSON を **Write で**書く。キーはこの 4 つだけ:
    - `headline`（80 字まで）: 全体の一言。期日切れ・見込みが期日を越える本数・線の有無など、材料の数から言えることだけ
-   - `points`（6 件まで・各 120 字まで）: 目立つ点。材料の事実どうしの食い違い（期日は近いのに閉じた実績が 0・期日の逆転した線・律速の鎖の終わりが期日の後ろなど）と、説明文に書かれた順番や前提で blocked by になっていない物。説明文から読んだ物は「説明文には〜とある」と出どころを書く
+   - `points`（6 件まで・各 120 字まで）: 目立つ点。材料の事実どうしの食い違い（期日は近いのに閉じた実績が 0・期日の逆転した線・`critical` の `end` が `tail_due` より後ろなど）と、説明文に書かれた順番や前提で blocked by になっていない物。説明文から読んだ物は「説明文には〜とある」と出どころを書く
    - `notes`（マイルストーンの番号の文字列 → 60 字まで）: 一言を添えたいマイルストーンだけ。全部に書かなくてよい
    - `trays`（番号の並び）: 受け皿（完了条件を置かず、溜めておくための物。名前や説明文が「Future」「いつか」「直近対応」のように終わりを持たない物）。迷ったら入れない。入れた物は図から外れ、図の下の段に並ぶ
 

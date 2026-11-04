@@ -24,7 +24,7 @@ issue の URL）物を、マイルストーンの組ごとに集めて薄い点�
 出る。
 
 〈律速〉線が 1 本以上あるときだけ出す。マイルストーンの終わりを「自分の 85% の日付と、止めている側の終わりの遅い方」
-として線をたどり、終わりがいちばん遅いマイルストーンから、いちばん遅い止めている側を根までたどった鎖を律速とする。
+として線をたどり、終わりがいちばん遅いマイルストーンから、いちばん遅い止めている側を先頭までたどった鎖を律速とする。
 見込めないマイルストーン（閉じた実績が無い）を含む鎖と、輪になった線は律速の計算から外して別に出す。
 """
 
@@ -77,7 +77,7 @@ NOT_SEEN = """\
   - 別のリポジトリとの依存。blocked by の相手が別のリポジトリなら件数だけ出す（{other_repo} 件）。
     別のリポジトリから止められている向き（blocking）は相手のリポジトリを読まないので見ていない
   - GitHub の外（口頭・チャット・文書）で決めた順番。マイルストーンの説明文に書かれた順番は AI が読むだけで、線にはしない
-  - Projects の欄の中身（Start Date・Target Date・見積もりなど）。トークンに read:project が無くても走るよう、取りに行かない
+  - Projects のフィールドの中身（Start Date・Target Date・見積もりなど）。トークンに read:project が無くても走るよう、取りに行かない
   - 閉じたマイルストーンと、マイルストーンの付いていない open の issue（{no_milestone} 件）の中身。それらが
     blocked by の相手なら「外から止めている」に出す
   - 見込みに入れていない物: 途中で足される issue（範囲の増え）・人の増減・休み。閉じた件数は今そのマイルストーンに
@@ -173,14 +173,15 @@ def local_date(ts):
 
 
 def due_date(m):
-    """期日。GitHub の dueOn は日付だけを持つ欄で、時刻の部分は見ない。"""
+    """期日。GitHub の dueOn は日付だけを持つフィールドで、時刻の部分は見ない。"""
     return dt.date.fromisoformat(m["dueOn"][:10]) if m.get("dueOn") else None
 
 
 def weekly_closed(closed_dates, created, today, weeks=WEEKS):
-    """週ごとの閉じた件数（古い週から新しい週の順）。週 0 は今日を含む 7 日。マイルストーンを作る前の週は入れない。"""
+    """週ごとの閉じた件数（古い週から新しい週の順）。週 0 は今日までの 7 日。マイルストーンを作る前の週と、作った日を
+    含む端数の週は入れない（途中から数えた週が 0 寄りになり、見込みが遅く偏るため）。作って 7 日に満たなければ週 0 だけ。"""
     age = (today - created).days if created else 7 * weeks
-    n = max(1, min(weeks, age // 7 + 1))
+    n = max(1, min(weeks, age // 7))
     counts = [0] * n
     for d in closed_dates:
         k = (today - d).days // 7
@@ -246,7 +247,7 @@ def issue_row(i, repo):
             continue
         other = (b.get("repository") or {}).get("nameWithOwner")
         blockers.append({"number": b["number"], "title": b["title"], "url": b["url"],
-                         "repo": other if other != repo else None,
+                         "repo": other if (other or "").casefold() != repo.casefold() else None,
                          "milestone": (b.get("milestone") or {}).get("number")})
     parent = i.get("parent") or {}
     sub = i.get("subIssuesSummary") or {}
@@ -284,7 +285,7 @@ def cross_edges(ms, open_numbers):
 def candidate_edges(ms, bodies, repo, max_refs=MAX_REFS):
     """本文が別のマイルストーンの open の issue に触れている物。向きは持たない（組は番号の小さい順）。"""
     where = {i["number"]: m["number"] for m in ms for i in m["issues"]}
-    linked = {(i["number"], b["number"]) for m in ms for i in m["issues"] for b in i["blocked_by"]}
+    linked = {(i["number"], b["number"]) for m in ms for i in m["issues"] for b in i["blocked_by"] if not b["repo"]}
     pairs, lists = {}, []
     for m in ms:
         for i in m["issues"]:
@@ -343,7 +344,7 @@ def critical_chain(ms, edges):
     known = [n for n in nodes if finish.get(n) and n not in in_cycle]
     unknown = [n for n in nodes if n not in known]
     if not known:
-        return {"chain": [], "end": None, "unknown": unknown, "cycles": cycles}
+        return {"chain": [], "end": None, "tail_due": None, "unknown": unknown, "cycles": cycles}
     tail = max(known, key=lambda n: (finish[n], -n))
     chain = [tail]
     while True:
@@ -351,7 +352,7 @@ def critical_chain(ms, edges):
         if not ps:
             break
         chain.insert(0, max(ps, key=lambda n: (finish[n], -n)))
-    return {"chain": chain, "end": finish[tail], "unknown": unknown, "cycles": cycles}
+    return {"chain": chain, "end": finish[tail], "tail_due": by[tail]["due"], "unknown": unknown, "cycles": cycles}
 
 
 def build(raw, no_milestone, repo, today, seed=SEED, trials=TRIALS, weeks=WEEKS, max_refs=MAX_REFS, now=None):
@@ -452,7 +453,7 @@ def validate_fields(obj, data):
         errs.append("notes はマイルストーンの番号（文字列）から一言へのオブジェクトにする")
     else:
         for k, v in notes.items():
-            if not (str(k).isdigit() and int(k) in numbers):
+            if not (re.fullmatch(r"[0-9]+", str(k)) and int(k) in numbers):
                 errs.append(f"notes の {k} は母集団のマイルストーンの番号でない")
             elif not isinstance(v, str) or not v.strip():
                 errs.append(f"notes の {k} が空")
@@ -469,7 +470,7 @@ def validate_fields(obj, data):
 # ---- 図（SVG） -----------------------------------------------------------------------
 
 BOX_W, BOX_H, GAP, PX_DAY, LEFT, TOP, NODUE_GAP = 250, 92, 14, 14, 16, 44, 70
-BOX_CHARS = 37  # 箱の 1 行に入る表示の幅（半角を 1。12px の字で BOX_W から左右の余白を引いた幅）
+BOX_CHARS = 35  # 箱の 1 行に入る表示の幅（半角を 1。12px の英数字はおよそ 6.6px なので、BOX_W から左右の余白を引いた 234px に収まる数）
 
 
 def width(s):
@@ -539,7 +540,7 @@ def box_lines(m, year):
     if f["state"] == "done":
         lines.append(("残りの issue は 0 件", "sub", None))
     elif f["state"] == "none":
-        lines.append((f"直近 {f['samples']} 週に閉じた実績が無く見込めない", "warn", None))
+        lines.append((f"閉じた実績 0 件（{f['samples']} 週）で見込めない", "warn", None))
     else:
         tail = "以降" if f["capped"] else ""
         lines.append((f"50% {md(f['p50'], year)}・85% {md(f['p85'], year)}{tail}", "warn" if f["late"] else "", None))
@@ -616,11 +617,11 @@ def svg(data, trays):
         if m["number"] in chain:
             stroke, sw = "#1f2328", 4
         fill = "#fff4e5" if f.get("late") or f["state"] == "none" else "#ffffff"
-        out.append(f'<a href="#m{m["number"]}"><rect x="{bx}" y="{by}" width="{BOX_W}" height="{BOX_H}" rx="6" '
+        out.append(f'<g><rect x="{bx}" y="{by}" width="{BOX_W}" height="{BOX_H}" rx="6" '
                    f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}"><title>{html.escape(m["title"])}</title></rect>')
         for k, (s, cls, weight) in enumerate(box_lines(m, today.year)):
             out.append(_t(bx + 8, by + 20 + k * 19, s, cls, 12, weight))
-        out.append("</a>")
+        out.append("</g>")
     out.append("</svg>")
     return "\n".join(out)
 
@@ -706,7 +707,7 @@ def body_html(data, fields):
     s = data["scope"]
     out = [f"<h1>マイルストーンの地図 — {esc(data['repo'])}</h1>",
            f'<p class="sub">{esc(data["taken_at"])} に GitHub から取った。open のマイルストーン {s["milestones"]} 本・'
-           f'open の issue {s["open_issues"]} 件・open の PR {s["open_prs"]} 件・直近 {data["weeks"]} 週に閉じた issue '
+           f'open の issue {s["open_issues"]} 件・open の PR {s["open_prs"]} 件・直近 {data["weeks"]} 週（作る前の週を除く）に閉じた issue '
            f'{s["closed_recent"]} 件。マイルストーンの付いていない open の issue は {s["no_milestone_issues"]} 件。'
            f'正本は {link(data["url"], "GitHub のマイルストーン")}で、このページは読むだけ。</p>',
            '<div class="ai"><span class="tag">AI の読み（下の機械の事実から書いた判定）</span>'
@@ -723,7 +724,7 @@ def body_html(data, fields):
     out.append('<p class="legend"><span>箱の右の端＝期日</span><span>50%・85%＝残りを閉じ終える見込みの日</span>'
                '<span>赤い枠＝期日切れ</span><span>橙の地＝85% の見込みが期日を越える・見込めない</span><span>実線の矢印＝blocked by（止めている側 → 待つ側。'
                '数は issue の組の数。赤は期日の逆転）</span><span>太線＝律速</span><span>点線＝依存の候補（blocked by ではない）</span>'
-               '<span>箱を押すと下の詳細へ飛ぶ</span></p>')
+               '<span>箱の中身の続きは下の「マイルストーンごとの詳細」</span></p>')
     out.append("<h2>依存</h2>")
     edges = data["edges"]
     if edges:
@@ -761,8 +762,8 @@ def body_html(data, fields):
         out.append("<h2>受け皿</h2><p class=\"note\">完了条件を置かないマイルストーン（AI が説明文から選んだ）。時間軸には置かない。</p>"
                    '<div class="trays">')
         for m in tray_ms:
-            out.append(f'<div class="tray"><a href="#m{m["number"]}"><b>{esc(name_of(data, m["number"]))}</b><br>'
-                       f'残り {m["open"]} 件・期日 {esc(m["due"] or "なし")}</a></div>')
+            out.append(f'<div class="tray"><b>{esc(name_of(data, m["number"]))}</b><br>'
+                       f'残り {m["open"]} 件・期日 {esc(m["due"] or "なし")}</div>')
         out.append("</div>")
     out.append("<h2>マイルストーンごとの詳細</h2>")
     order = sorted((m for m in data["milestones"] if m["number"] not in trays),
@@ -840,7 +841,8 @@ def parser():
 
 
 def collect(a):
-    repo = a.repo or gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
+    # 正式の名前（大文字小文字）に揃える。blocked by の相手のリポジトリと、本文の URL を自リポジトリと照合するため
+    repo = gh("repo", "view", *([a.repo] if a.repo else []), "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
     owner, name = repo.split("/", 1)
     today = a.today or dt.date.today()
     raw, no_ms = fetch(owner, name, today, a.weeks)

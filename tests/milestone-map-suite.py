@@ -113,8 +113,9 @@ class WeeklyClosed(unittest.TestCase):
         self.assertEqual(mm.weekly_closed(dates, dt.date(2026, 1, 1), TODAY, weeks=5), [1, 0, 0, 1, 2])
 
     def test_weeks_before_creation_are_not_samples(self):
-        # 10 日前に作ったマイルストーンは 2 週だけ（作る前の 0 を標本に混ぜると見込みが遅く出る）
-        self.assertEqual(len(mm.weekly_closed([], TODAY - dt.timedelta(days=10), TODAY, weeks=16)), 2)
+        # 20 日前に作ったマイルストーンは満ちた 2 週だけ（作る前と、作った日を含む端数の週を混ぜると見込みが遅く出る）
+        self.assertEqual(len(mm.weekly_closed([], TODAY - dt.timedelta(days=20), TODAY, weeks=16)), 2)
+        self.assertEqual(len(mm.weekly_closed([], TODAY - dt.timedelta(days=14), TODAY, weeks=16)), 2)
 
     def test_created_today_has_one_week(self):
         self.assertEqual(mm.weekly_closed([], TODAY, TODAY, weeks=16), [0])
@@ -202,6 +203,7 @@ class Edges(unittest.TestCase):
     def test_critical_chain_follows_latest_finish(self):
         d = build(self.raw())
         self.assertEqual(d["critical"]["chain"], [1, 2])
+        self.assertEqual(d["critical"]["tail_due"], "2026-11-20")
         self.assertEqual(d["critical"]["unknown"], [])
 
     def test_no_edges_no_critical(self):
@@ -224,6 +226,20 @@ class Edges(unittest.TestCase):
         self.assertEqual(crit["chain"], [])
 
 
+class RepoNames(unittest.TestCase):
+    def test_own_repo_in_other_case_is_not_other_repo(self):
+        raw = [milestone(1, issues=[issue(10)], closed=weeks_ago(1)),
+               milestone(2, issues=[issue(20, blocked=[(10, 1, "OPEN", "O/R")])], closed=weeks_ago(1))]
+        d = build(raw)
+        self.assertEqual([(e["from"], e["to"]) for e in d["edges"]], [(1, 2)])
+        self.assertEqual(d["outside"], [])
+
+    def test_other_repo_blocker_does_not_hide_candidate(self):
+        raw = [milestone(1, issues=[issue(10, body="#20 が先", blocked=[(20, None, "OPEN", "x/other")])]),
+               milestone(2, issues=[issue(20)])]
+        self.assertEqual([(c["a"], c["b"]) for c in build(raw)["candidates"]], [(1, 2)])
+
+
 class Candidates(unittest.TestCase):
     def test_mentions_in_other_milestone(self):
         many = " ".join(f"#{n}" for n in range(100, 120))
@@ -235,7 +251,7 @@ class Candidates(unittest.TestCase):
         d = build(raw)
         self.assertEqual(d["candidates"], [{"a": 1, "b": 2, "count": 1, "pairs": [[10, 20]]},
                                            {"a": 1, "b": 3, "count": 1, "pairs": [[10, 30]]}])
-        self.assertTrue(any("一覧とみなして" in x and "#12" in x for x in d["limits"]))
+        self.assertTrue(any("#12" in x for x in d["limits"]))
         self.assertIn("一覧とみなして外した issue が 1 件", d["not_seen"])
 
 
@@ -260,6 +276,7 @@ class Fields(unittest.TestCase):
         self.assertTrue(mm.validate_fields({"headline": "h", "trays": ["4"]}, self.data))
         self.assertTrue(mm.validate_fields({"headline": "h", "trays": [True]}, self.data))
         self.assertTrue(mm.validate_fields({"headline": " "}, self.data))
+        self.assertTrue(mm.validate_fields({"headline": "h", "notes": {"²": "n"}}, self.data))
 
 
 class Page(unittest.TestCase):
@@ -323,6 +340,9 @@ def fake_gh(raw, no_milestone=3, pages=2):
 
     def run(*args, graphql_errors=False):
         a = list(args)
+        if a[:2] == ["repo", "view"]:
+            calls.append(("repo", a, None))
+            return "o/r\n"
         q = a[a.index("-f") + 1][len("query="):]
         vs = dict(x.split("=", 1) for x in (a[k + 1] for k, v in enumerate(a) if v == "-F"))
         cursor = next((a[k + 1][len("cursor="):] for k, v in enumerate(a) if v == "-f" and a[k + 1].startswith("cursor=")),
@@ -372,7 +392,7 @@ class Fetch(unittest.TestCase):
                 mock.patch.object(ghpage, "gh", run), mock.patch.object(mm, "gh", run):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                code = mm.main(["--repo", "o/r", "--today", "2026-11-04", "--trials", "200"])
+                code = mm.main(["--repo", "O/R", "--today", "2026-11-04", "--trials", "200"])
             self.assertEqual(code, 0)
             mat = json.loads(out.getvalue())
             data_path = pathlib.Path(mat["data_path"])
