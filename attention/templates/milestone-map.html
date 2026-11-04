@@ -121,6 +121,10 @@ a:hover { text-decoration: underline; }
   background: var(--bgColor-default); font: inherit; font-size: 12.5px; color: var(--fgColor-default); cursor: pointer; }
 .who:hover { border-color: var(--fgColor-accent); }
 .who.on { border-color: var(--fgColor-accent); background: var(--bgColor-accent-muted); }
+.tour { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; font-weight: 400; color: var(--fgColor-muted); }
+.tour button { font: inherit; padding: 0 8px; border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--bgColor-default);
+  color: var(--fgColor-default); cursor: pointer; }
+.tour button:hover { border-color: var(--fgColor-accent); }
 .who small { color: var(--fgColor-muted); font-size: 11.5px; }
 .who small b { color: var(--fgColor-default); font-weight: 600; }
 .av { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; flex: none;
@@ -238,6 +242,8 @@ a:hover { text-decoration: underline; }
 #world.focus #wires path:not(.hot), #world.focus #wires text:not(.hot) { opacity: .08; }
 #world.focus #wires path.hot { stroke-width: 3; opacity: 1; }
 .card.hit { outline: 3px solid var(--fgColor-accent); outline-offset: 2px; }
+/* 送った先の今のカード。探して当たったカード（.hit）とも見分けられるよう、太い枠と外の帯を付ける */
+.card.cur, .card.hit.cur { outline: 4px solid var(--fgColor-accent); outline-offset: 4px; box-shadow: 0 0 0 12px color-mix(in srgb, var(--fgColor-accent) 40%, transparent); z-index: 5; }
 /* 見取り図（右下） */
 .mini { position: absolute; right: 16px; bottom: 16px; z-index: 10; border: 1px solid var(--borderColor-default); border-radius: 8px;
   background: var(--bgColor-default); box-shadow: var(--shadow); overflow: hidden; cursor: pointer; touch-action: none; }
@@ -518,7 +524,8 @@ a:hover { text-decoration: underline; }
         const ls = shown(part, f).concat(doneIn(part)), k = across(ls.length, c);
         ls.forEach((i, j) => put(i, { x: bx + (j % k) * step, y: yy + Math.floor(j / k) * rowH }, false));
         if (ls.length) yy += Math.ceil(ls.length / k) * rowH;
-        for (const i of part.loose.concat(part.done)) if (!ls.includes(i)) put(i, { x: bx, y: yy }, true);
+        const on = new Set(ls);
+        for (const i of part.loose.concat(part.done)) if (!on.has(i)) put(i, { x: bx, y: yy }, true);
         if (chip) {
           chip.classList.remove("gone");
           chip.textContent = `依存も PR も無い issue ${part.fold.length} 件 ${f.folded ? "▸ 開く" : "▾ 畳む"}`;
@@ -607,7 +614,7 @@ a:hover { text-decoration: underline; }
     a.addEventListener("mouseleave", () => focusOn(resting()));
   }
 
-  // ── 探す: 番号か題名に当たったカードに印を付け、閉じた枠は開き、1 件目を真ん中へ ──
+  // ── 探す: 番号か題名に当たったカードに印を付け、閉じた枠は開く。Enter で当たったカードへ順に送る（go）──
   const q = $("q"), hits = $("hits");
   let hitList = [];
   function searched() { return q.value.trim() ? new Set(hitList.map(i => i.n)) : null; }
@@ -616,15 +623,17 @@ a:hover { text-decoration: underline; }
   q.addEventListener("input", () => {
     const s = q.value.trim().toLowerCase().replace(/^#/, "");
     hitList = s ? [...issueOf.values()].filter(i => String(i.n) === s || i.title.toLowerCase().includes(s)) : [];
-    for (const i of issueOf.values()) i.el.classList.toggle("hit", hitList.includes(i));
-    hits.textContent = s ? `${hitList.length} 件` : "";
+    const hs = new Set(hitList);
+    for (const i of issueOf.values()) i.el.classList.toggle("hit", hs.has(i));
     if (s) { who = null; drawPeople(); }
-    // 当たったカードが閉じた枠に在れば枠を開き、畳んだ所に在ればそのカードだけを出す
-    const set = reveal(s ? new Set(hitList.map(i => i.n)) : whoSet());
-    layout();
-    focusOn(set);
+    refresh(false);
   });
-  q.addEventListener("keydown", ev => { if (ev.key === "Enter" && hitList.length) center(hitList[0].pos.x + CW / 2, hitList[0].pos.y + CH / 2); });
+  // 日本語の変換を確定する Enter では送らない。まだ送っていなければ、Enter は 1 件目へ、Shift と Enter は最後へ
+  q.addEventListener("keydown", ev => {
+    if (ev.key !== "Enter" || ev.isComposing) return;
+    const d = ev.shiftKey ? -1 : 1;
+    go(sent ? at + d : d > 0 ? 0 : -1);
+  });
 
   // ── 期間と人: 期間を選ぶと、その間に閉じた・作られた数と残りの数の動きを描き、閉じた issue を枠に薄く残す ──
   const pulse = $("pulse") || el("section");
@@ -694,6 +703,60 @@ a:hover { text-decoration: underline; }
   // 人の一覧: 担当している open の issue・出している open の PR・期間の中で閉じた issue の数。押すとその人のカードだけ光る
   let who = null;
   const NOBODY = "\u0000";
+
+  // 光らせる組（選んだ人のカードか、探して当たったカード）が替わったときの描き直し。組のカードが閉じた枠に在れば枠を開き、
+  // 畳んだ所に在ればそのカードだけを出す（shown）。地図を組み直すのは、出すカードが替わったときだけ（relayout を渡せばそれで組む）
+  const inFold = set => set ? [...set].filter(n => { const i = issueOf.get(n); return i && i.state === "idle" && frameOf.get(n).folded; }).join() : "";
+  function refresh(move, relayout) {
+    const set = resting(), before = inFold(picked);
+    let opened = false;
+    if (set) for (const n of set) { const f = frameOf.get(n); if (f.shut) { f.shut = false; opened = true; } }
+    picked = set;
+    if (relayout) relayout();
+    else if (opened || before !== inFold(set)) layout();
+    focusOn(set);
+    retour(move);
+  }
+
+  // 組のカードへ画面を送る（持ち主は、選んだ人が今どこを攻めているかを見たい）。送る順は、人を選んでいるときは、その人が open の
+  // PR を出しているカード → 期間の中で閉じたカード（新しい順）→ ほかの担当の open のカード。探したときと、同じ順の中は左の列から
+  let tour = [], at = 0, sent = false, curEl = null;
+  const tourNav = el("span", { class: "tour" });
+  function retour(move) {
+    const set = resting();
+    tour = set ? all.filter(i => set.has(i.n) && i.pos) : [];
+    for (const i of tour) i.kind = i.state === "done" ? 1 : who != null && i.prBy.includes(who) ? 0 : 2;
+    tour.sort((a, b) => a.kind - b.kind || (a.kind === 1 ? b.shut.localeCompare(a.shut) : a.pos.x - b.pos.x || a.pos.y - b.pos.y));
+    go(0, move);
+  }
+  function go(k, move = true) {
+    at = tour.length ? (k + tour.length) % tour.length : 0;
+    const i = tour[at];
+    sent = !!i && move;
+    if (curEl) curEl.classList.remove("cur");
+    curEl = sent ? i.el : null;
+    if (sent) {
+      // 人を選んだ後や探した後に枠を手で閉じていれば、送る先のカードは枠の見出しに隠れているので、枠を開いて組み直す
+      const f = frameOf.get(i.n);
+      if (f.shut) { f.shut = false; layout(); }
+      curEl.classList.add("cur");
+      centerOn(i);
+    }
+    drawTour();
+  }
+  function drawTour() {
+    const where = sent ? `（${at + 1}/${tour.length}）` : "";
+    hits.textContent = q.value.trim() ? `${hitList.length} 件${where}` : "";
+    tourNav.textContent = "";
+    if (who == null || !tour.length) return;
+    const i = tour[at], btn = (t, title, k) => {
+      const b = el("button", { type: "button", title }, t);
+      b.addEventListener("click", () => go(k));
+      return b;
+    };
+    tourNav.append(btn("‹", "前のカードへ", at - 1), btn(`#${i.n}`, "このカードへ画面を送る", at),
+      ` ${["PR を出している", "閉じた", "担当"][i.kind]}${where}`, btn("›", "次のカードへ", at + 1));
+  }
   function whoSet() {
     if (who == null) return null;
     if (who === NOBODY) return new Set(openAll.filter(i => !doers(i).length).map(i => i.n));
@@ -707,10 +770,10 @@ a:hover { text-decoration: underline; }
     const nobody = openAll.filter(i => !doers(i).length).length;
     const num = (label, v) => v ? [label, el("b", {}, v), " "] : [];
     people.textContent = "";
-    people.append(el("span", { class: "lab" }, "誰が進めているか"));
+    people.append(el("span", { class: "lab" }, "誰が進めているか", tourNav));
     for (const [w, v] of rows) {
       const b = el("button", { type: "button", class: "who" + (who === w ? " on" : ""),
-        title: w + "\n担当: 担当者のフィールドに居るか、閉じる PR を出している open の issue\nPR: 出している open の PR\n閉じた: 期間の中で閉じた issue のうち、担当者のフィールドに居たか、閉じた PR を出した物（PR でなく手で閉じ担当者も居ない物は、閉じた人）" }, avatar(w), w,
+        title: w + "（押すと、その人のカードへ画面を送る。‹ › で次のカードへ）\n担当: 担当者のフィールドに居るか、閉じる PR を出している open の issue\nPR: 出している open の PR\n閉じた: 期間の中で閉じた issue のうち、担当者のフィールドに居たか、閉じた PR を出した物（PR でなく手で閉じ担当者も居ない物は、閉じた人）" }, avatar(w), w,
         el("small", {}, ...num("担当 ", v.open), ...num("PR ", v.prs.size), ...num("閉じた ", v.done)));
       b.addEventListener("click", () => pick(w));
       people.append(b);
@@ -726,15 +789,7 @@ a:hover { text-decoration: underline; }
     who = who === w ? null : w;
     if (who != null && q.value) { q.value = ""; hitList = []; hits.textContent = ""; for (const i of openAll) i.el.classList.remove("hit"); }
     drawPeople();
-    const set = reveal(whoSet());
-    layout();
-    focusOn(set);
-  }
-  // 選んだ人・探して当たったカードが閉じた枠に在れば枠を開き、畳んだ所に在ればそのカードだけを出す（shown）
-  function reveal(set) {
-    picked = set;
-    if (set) for (const n of set) frameOf.get(n).shut = false;
-    return set;
+    refresh(who != null);
   }
 
   function drawPeriod() {
@@ -747,12 +802,10 @@ a:hover { text-decoration: underline; }
     drawPeople();
   }
   function setPeriod(from, to) {
-    P = { from: from < dayAdd(to, -399) ? dayAdd(to, -399) : from, to };
+    const first = dayAdd(to, 1 - D.since_days);  // 選べる期間の上限（スクリプトが閉じた issue を取った日数）
+    P = { from: from < first ? first : from, to };
     drawPeriod();
-    reveal(resting());
-    optimize();
-    layout();
-    focusOn(resting());
+    refresh(false, () => { optimize(); layout(); });
   }
 
   // ── 拡大・縮小と、動かす。ブラウザのスクロールに頼らず、地図を translate と scale で動かす
@@ -782,6 +835,8 @@ a:hover { text-decoration: underline; }
   }
   function panBy(dx, dy) { tx -= dx; ty -= dy; apply(); }
   function center(x, y) { tx = view.clientWidth / 2 - x * z; ty = view.clientHeight / 2 - y * z; apply(); }
+  // カードを真ん中へ。地図の全体を見ている小ささのままでは字が読めないので、0.8 倍より小さければそこまで寄せる
+  function centerOn(i) { if (z < 0.8) z = 0.8; center(i.pos.x + CW / 2, i.pos.y + CH / 2); }
   const heads = D.columns.map(c => el("div", { class: "h" + (c.late ? " late" : "") }, c.label));
   const now = el("div", { class: "now" }, D.today.label);
   axis.append(...heads, now);

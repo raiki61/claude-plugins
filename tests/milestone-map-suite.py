@@ -238,6 +238,8 @@ class Page(unittest.TestCase):
         self.assertEqual((v["edges"], v["path"], v["late"]), ([], [], []))
         self.assertEqual(v["columns"], [{"label": "期日 10-01", "late": True}, {"label": "期日なし", "late": False}])
         self.assertEqual(v["today"], {"at": 1, "label": "今日 11-04", "day": "2026-11-04"})
+        # ページで選べる期間の上限は、スクリプトがマイルストーンなしの閉じた issue を取った日数と同じ値を渡す
+        self.assertEqual(v["since_days"], mm.SINCE_DAYS)
         self.assertEqual([(m["n"], m["col"], m["open"], m["overdue"]) for m in v["milestones"]], [(1, 0, 2, 34), (2, 1, 0, 0), (3, 1, 0, 0)])
         self.assertEqual([(i["n"], i["state"], i["col"]) for i in v["milestones"][0]["issues"]], [(2, "pr", 0), (1, "idle", 0)])
 

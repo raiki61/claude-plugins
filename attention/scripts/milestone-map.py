@@ -141,24 +141,19 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
 # "none" を渡しても 0 件が返るため（2026-11-04 に guided-resolver で、検索では 19 件・filterBy では 0 件だった）。
 # 検索は 1 つの問いに 1000 件までしか返さないので、それを超えたら上限の行に出す。
 SEARCH_FIRST = 50
-LOOSE_OPEN_QUERY = f"""
+def search_query(fields):
+    """検索（search）で issue を 1 ページずつ取る問い合わせ。open と閉じた物で、取る中身（fields）だけが違う。"""
+    return f"""
 query($q: String!, $cursor: String) {{
   search(type: ISSUE, query: $q, first: {SEARCH_FIRST}, after: $cursor) {{
     issueCount
     pageInfo {{ hasNextPage endCursor }}
-    nodes {{ ... on Issue {{{OPEN_FIELDS}
-    }} }}
+    nodes {{ ... on Issue {{ {fields} }} }}
   }}
 }}"""
 
-LOOSE_CLOSED_QUERY = f"""
-query($q: String!, $cursor: String) {{
-  search(type: ISSUE, query: $q, first: {SEARCH_FIRST}, after: $cursor) {{
-    issueCount
-    pageInfo {{ hasNextPage endCursor }}
-    nodes {{ ... on Issue {{ {CLOSED_FIELDS} }} }}
-  }}
-}}"""
+
+LOOSE_OPEN_QUERY, LOOSE_CLOSED_QUERY = search_query(OPEN_FIELDS), search_query(CLOSED_FIELDS)
 
 COUNT_QUERY = """
 query($q: String!) {
@@ -359,11 +354,12 @@ def loose_frames(loose, dates, repo):
     dates = dates or {}
     url = f"https://github.com/{repo}/issues?q=is%3Aissue%20is%3Aopen%20no%3Amilestone"
     groups = {}
+    group = lambda d: groups.setdefault(d, {"openIssues": [], "closedIssueList": []})  # noqa: E731
     for i in loose["openIssues"]:
-        groups.setdefault(dates.get(i["number"]), {"openIssues": [], "closedIssueList": []})["openIssues"].append(i)
+        group(dates.get(i["number"]))["openIssues"].append(i)
     for i in loose["closedIssueList"]:
         d = dates.get(i["number"])
-        groups.setdefault(d if d in groups else None, {"openIssues": [], "closedIssueList": []})["closedIssueList"].append(i)
+        group(d if d in groups else None)["closedIssueList"].append(i)
     out, dated = [], 0
     for k, d in enumerate(sorted(x for x in groups if x), 1):
         g = groups[d]
@@ -519,7 +515,7 @@ def view(data):
           for m in data["milestones"]]
     return {"columns": cols, "today": {"at": max(past) + 1 if past else 0, "label": "今日 " + md(today, year), "day": today},
             "milestones": ms, "edges": data["edges"], "path": [list(e) for e in zip(path, path[1:])],
-            "late": late_edges(data)}
+            "late": late_edges(data), "since_days": SINCE_DAYS}
 
 
 def body_html(data):
