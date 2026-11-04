@@ -4882,11 +4882,13 @@ def _no_login(note, env):
 
 def no_auth_note(env):
     """ログインが無いので読み手が読めなかったときの、人に見せる 1 行(_no_login)。鍵を CLAUDE_CODE_OAUTH_TOKEN でだけ渡す人は、Claude Code がフックにその値を渡さず(2.1.310 で実測。
-    docs/trials/2026-10-26-cross-os.md)、読み手の子の claude が「Not logged in」で終わる。救う口はフックの側に無い(読み手は
-    --setting-sources "" で起動するので、settings.json の env に置いた鍵も読まない)ので、ログインの保存先へ導く。"""
+    docs/trials/2026-10-26-cross-os.md)、読み手の子の claude が「Not logged in」で終わる。読み手は --setting-sources "" で
+    起動するので、settings.json の env に置いた鍵も読まない。道は 2 つで、ログインの保存先を作るか、鍵を読むコマンド(窓口)を
+    settings.json の env の CLAUDE_TOKEN_HELPER に置く(settings.json の env はフックの環境に届く。2026-11-05 に実測)。"""
     return ("coldread の読み手は、ログインの認証が無いので読めなかった(フックの環境に鍵が無く、%s/.credentials.json も"
             "無い)。鍵を環境変数 CLAUDE_CODE_OAUTH_TOKEN でだけ渡していると、Claude Code はフックにその値を渡さない"
-            "(`claude setup-token` で作り直しても直らない)。`claude auth login` でログインして、このファイルを作る"
+            "(`claude setup-token` で作り直しても直らない)。`claude auth login` でログインしてこのファイルを作るか、"
+            "設定のフォルダを受け取ってトークンを出すコマンドを settings.json の env の CLAUDE_TOKEN_HELPER に置く"
             "(gates の README の「When the reader is not logged in」)。持ち主に 1 行で伝える。"
             % claude_auth.config_dir(env).replace("\\", "/"))
 

@@ -102,6 +102,79 @@ class AccountToken(unittest.TestCase):
         self.assertIn("Claude Code-credentials", note)
 
 
+def helper(values, code=0):
+    """利用者の窓口（CLAUDE_TOKEN_HELPER）の偽物。values: {設定のフォルダ: 出す値}。security の問いが来たら赤にする"""
+    asked = []
+
+    def run(args, **kw):
+        assert args[0] == "/bin/tok", "窓口でない物を起動した: %r" % (args,)
+        asked.append(args)
+        val = values.get(args[1], "")
+        return subprocess.CompletedProcess(args, code if val else 1, stdout=val, stderr="")
+    run.asked = asked
+    return run
+
+
+HELPER = {"CLAUDE_TOKEN_HELPER": "/bin/tok"}
+
+
+class TokenHelper(unittest.TestCase):
+    """鍵の置き場を利用者の側の 1 か所（窓口）だけが知る人の口。窓口には設定のフォルダだけを渡し、トークンを受け取る"""
+
+    def test_helper_gets_the_folder_and_its_token_is_used_on_any_os(self):
+        for platform in ("linux", "darwin", "win32"):
+            run = helper({"/h/.claude-p2": TOK + "\n"})
+            self.assertEqual(claude_auth.account_token("/h/.claude-p2", HELPER, None, platform, run), (TOK, "helper"))
+            self.assertEqual(run.asked, [["/bin/tok", "/h/.claude-p2"]])
+
+    def test_default_account_passes_the_default_folder(self):
+        run = helper({"/h/.claude": TOK})
+        self.assertEqual(claude_auth.account_token(None, dict(HELPER, HOME="/h"), None, "linux", run)[0], TOK)
+        self.assertEqual(run.asked[0][1], str(pathlib.Path("/h", ".claude")))
+
+    def test_empty_or_failing_helper_falls_back_and_says_so(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": TOK}}))
+        self.assertEqual(claude_auth.account_token(str(d), HELPER, None, "linux", helper({})),
+                         (TOK, "file(.credentials.json)"))
+        tok, note = claude_auth.account_token("/nowhere/.claude-z", HELPER, None, "linux", helper({}))
+        self.assertIsNone(tok)
+        self.assertIn("helper-miss", note)
+
+    def test_malformed_value_is_not_passed_and_not_shown(self):
+        tok, note = claude_auth.account_token("/h/.claude-p2", HELPER, None, "linux", helper({"/h/.claude-p2": "oops-secret"}))
+        self.assertIsNone(tok)
+        self.assertIn("helper-malformed", note)
+        self.assertNotIn("oops-secret", note)
+
+    def test_helper_that_cannot_start_falls_back(self):
+        def boom(args, **kw):
+            raise FileNotFoundError(args[0])
+        tok, note = claude_auth.account_token("/h/.claude-p2", HELPER, None, "linux", boom)
+        self.assertIsNone(tok)
+        self.assertIn("helper-error(FileNotFoundError)", note)
+
+    def test_named_keychain_item_wins_over_the_helper(self):
+        # 呼ぶ側が項目を名指したら、その項目を読む（窓口には頼まない）
+        run = keychain({"my-item": TOK})
+        self.assertEqual(claude_auth.account_token("/h/.claude-a", HELPER, "my-item", "darwin", run), (TOK, "keychain(my-item)"))
+
+    def test_auth_env_adds_the_helpers_token(self):
+        out, note = claude_auth.auth_env(dict(HELPER, CLAUDE_CONFIG_DIR="/h/.claude-p2"), "linux",
+                                         helper({"/h/.claude-p2": TOK}))
+        self.assertEqual((out["CLAUDE_CODE_OAUTH_TOKEN"], note), (TOK, "helper"))
+        self.assertTrue(claude_auth.added(note))
+
+    def test_auth_env_keeps_the_inherited_route(self):
+        env = dict(HELPER, CLAUDE_CONFIG_DIR="/h/.claude-p2", ANTHROPIC_API_KEY="k")
+        out, note = claude_auth.auth_env(env, "linux", helper({"/h/.claude-p2": TOK}))
+        self.assertEqual(note, "inherited(ANTHROPIC_API_KEY)")
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", out)
+
+    def test_auth_env_without_helper_is_unchanged(self):
+        self.assertEqual(claude_auth.auth_env({"CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, "linux", helper({}))[1], "none")
+
+
 # security find-generic-password -s <名>（-w なし）の実物の出力の形（2026-10-19 に macOS 26 で採った。値は替えてある）
 ATTRS = """keychain: "/h/Library/Keychains/login.keychain-db"
 version: 512

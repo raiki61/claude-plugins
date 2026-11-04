@@ -28,9 +28,12 @@ Bash から見える環境では `CLAUDE_CODE_OAUTH_TOKEN` も `CLAUDE_CONFIG_DI
 **段**（上から順に、決まった時点で止める）:
 
 1. 親の環境に認証が在る（`INHERITED`）→ 何も足さない。**利用者が選んだ経路を黙って別の口に差し替えない**
-2. macOS の Keychain（サービス名は呼ぶ側の指定 → `CLAUDE_KEYCHAIN_SERVICE` → `CLAUDE_CONFIG_DIR` から導出）
-3. 何も足さない——子自身の保存済み認証（`<CLAUDE_CONFIG_DIR>/.credentials.json`）に委ねる。
-   **Keychain の無い環境ではここが本線**で、2 は空振りする。全 OS で効くのは
+2. 利用者の窓口（環境変数 `CLAUDE_TOKEN_HELPER` が指すコマンド）。設定のフォルダを 1 つ引数に渡し、標準出力のトークンを使う。
+   全 OS で効く。鍵の置き場（Keychain・ファイルなど）と項目名の決め方を利用者の側の 1 か所だけが知り、ここに写さないための口。
+   呼ぶ側が Keychain の項目を名指したときは頼まない。空・失敗・形違いなら次の段へ進む
+3. macOS の Keychain（サービス名は呼ぶ側の指定 → `CLAUDE_KEYCHAIN_SERVICE` → `CLAUDE_CONFIG_DIR` から導出）
+4. 何も足さない——子自身の保存済み認証（`<CLAUDE_CONFIG_DIR>/.credentials.json`）に委ねる。
+   窓口の無い人の **Keychain の無い環境ではここが本線**で、3 は空振りする。全 OS で効くのは
    「`CLAUDE_CONFIG_DIR` を必ず子へ明示する」ことの方
 
 `auth_env` は採った段の名前も返す。呼ぶ側はそれを人の見える所（標準エラー・ログ）に出すこと
@@ -163,6 +166,29 @@ def auth_failed(out):
                 and ("authenticate" in said.lower() or "/login" in said))
 
 
+HELPER_ENV = "CLAUDE_TOKEN_HELPER"
+HELPER_TIMEOUT_S = 10
+
+
+def read_helper(cfg, env, runner=subprocess.run):
+    """利用者の窓口（`CLAUDE_TOKEN_HELPER`）に、設定のフォルダ cfg のアカウントの OAuth トークンを頼む。
+    `(トークン, 注)` を返し、窓口が無い・使えない回は `(None, 注)`。注にトークン（形違いの値も）は出さない。
+    窓口は argv の 1 つ目として起動し、シェルを通さない（空白を含むパスもそのまま使える）。"""
+    helper = env.get(HELPER_ENV)
+    if not helper:
+        return None, "helper-unset"
+    try:
+        p = runner([os.path.expanduser(helper), cfg], capture_output=True, text=True, timeout=HELPER_TIMEOUT_S)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, "helper-error(%s)" % type(e).__name__
+    tok = (getattr(p, "stdout", "") or "").strip()
+    if getattr(p, "returncode", 1) != 0 or not tok:
+        return None, "helper-miss"
+    if not tok.startswith(TOKEN_PREFIX):
+        return None, "helper-malformed"
+    return tok, "helper"
+
+
 def claude_code_items(user_config, home=None):
     """Claude Code 自身が Keychain に認証を置く項目の名の候補（先に試す物から）。CLAUDE_CONFIG_DIR を設定した Claude Code は
     `Claude Code-credentials-<その値（NFC）の sha256 の頭 8 桁>` に置き、無ければ `Claude Code-credentials`。
@@ -202,6 +228,7 @@ def account_token(user_config, env, explicit=None, platform=sys.platform, runner
     """1 つのアカウントの OAuth トークンを探し、`(トークン, 出どころ)` を返す。無ければ `(None, 探した所)`——例外は投げない。
 
     アカウントの持ち方は人で違うので、次の順に探す。
+    0. 利用者の窓口（read_helper。全 OS。explicit が在るときは頼まない）
     1. 利用者が作った Keychain の項目（explicit → CLAUDE_KEYCHAIN_SERVICE → 設定のフォルダから導いた名）。値はトークンそのもの
     2. Claude Code 自身が置いた Keychain の項目（claude_code_items）。値は JSON
     3. 設定のフォルダの .credentials.json（Keychain の無い環境で Claude Code が置く所）
@@ -209,6 +236,11 @@ def account_token(user_config, env, explicit=None, platform=sys.platform, runner
     """
     cfg = user_config or str(pathlib.Path(env.get("HOME") or pathlib.Path.home()) / ".claude")
     tried = []
+    if not explicit and env.get(HELPER_ENV):
+        tok, note = read_helper(cfg, env, runner)
+        if tok:
+            return tok, note
+        tried.append(note)
     if platform == "darwin":
         for service in [keychain_service(cfg, env, explicit)] + claude_code_items(user_config, env.get("HOME")):
             tok, note = read_keychain(service, login_json_runner(runner))
@@ -248,6 +280,11 @@ def auth_env(env, platform=sys.platform, runner=subprocess.run, service=None):
     got = inherited(out)
     if got:
         return out, "inherited(%s)" % got
+    if not service and out.get(HELPER_ENV):
+        tok, note = read_helper(cfg, out, runner)
+        if tok:
+            out["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+            return out, note
     if platform != "darwin":
         return out, "none"
     svc = keychain_service(cfg, out, service)
@@ -260,7 +297,7 @@ def auth_env(env, platform=sys.platform, runner=subprocess.run, service=None):
 
 def added(note):
     """認証を足せた段か。足せていない回だけ、呼ぶ側が静かな落ち方の注意を出せるようにする。"""
-    return note.startswith(("inherited(", "keychain("))
+    return note == "helper" or note.startswith(("inherited(", "keychain("))
 
 
 QUIET_FAILURE_NOTE = ("認証は足していない——子自身の保存済み認証で起きる。認証切れは"

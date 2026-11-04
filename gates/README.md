@@ -25,7 +25,12 @@ or a key that is present in the hook's own environment.
   and have no `.credentials.json`, the reader does not start: Claude Code 2.1.310 did not pass `CLAUDE_CODE_OAUTH_TOKEN` to hook processes (measured on Linux and Windows, 2026-10-26),
   and the reader ends with "Not logged in · Please run /login". Every gh post is then stopped as not checked, and each turn ends with a list of documents the reader could not read.
   A key in the `env` of `settings.json` does not help either: the reader starts with `--setting-sources ""`, which loads no settings files.
-- Fix: run `claude auth login` (or `/login` in a session) once in that environment, so that `.credentials.json` exists. You can keep `CLAUDE_CODE_OAUTH_TOKEN` for your own sessions.
+- Fix, either of:
+  - Run `claude auth login` (or `/login` in a session) once in that environment, so that `.credentials.json` exists. You can keep `CLAUDE_CODE_OAUTH_TOKEN` for your own sessions.
+  - Or set `CLAUDE_TOKEN_HELPER` in the `env` of `settings.json` to a command that prints the OAuth token. The `env` of `settings.json` does reach hook processes (measured 2026-11-05).
+    coldread runs it as `<command> <CLAUDE_CONFIG_DIR>` (no shell, `~` is expanded, 10 s limit) and uses its stdout if it starts with `sk-ant-oat01-`.
+    This keeps the knowledge of where your keys live (a keychain, a file, a password manager) in one command of your own, instead of copying it into gates.
+    An empty output, a non-zero exit, or a value of another shape falls back to the other sources. The other plugins in this marketplace that start `claude -p` use the same helper.
   When the reader fails with no key in the hook's environment and no `.credentials.json`, one line pointing here is added to the gate's stop reason,
   the end-of-turn notice, and the output of `branch-check` and the manual `read`.
 - On macOS the reader reads the token from the Keychain instead (see `COLDREAD_KEYCHAIN_SERVICE` under the settings below).
