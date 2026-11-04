@@ -225,17 +225,22 @@ def logins(i):
 
 
 def closer_of(i):
-    """閉じた人。最後の ClosedEvent の、閉じたのが PR ならその PR を出した人。PR でなく手で閉じた物は、担当者が居なければ
-    閉じる操作をした人、居れば None（担当者が手で閉じた・ほかの人が片付けた、のどちらかで、担当者を実質の担当とする）。"""
+    """閉じた人と閉じ方 (login, "pr" か "hand")。最後の ClosedEvent の、閉じたのが PR ならその PR を出した人（"pr"）。
+    PR でなく閉じた物（手で閉じた・commit で閉じた・PR の作者のアカウントが消えた）は、担当者が居なければ閉じる操作を
+    した人（"hand"）、居れば (None, None)（担当者を実質の担当とする）。"""
     ev = ((i.get("timelineItems") or {}).get("nodes") or [None])[-1] or {}
     by = ((ev.get("closer") or {}).get("author") or {}).get("login")
-    return by or (None if i["assignees"]["nodes"] else (ev.get("actor") or {}).get("login"))
+    if by:
+        return by, "pr"
+    actor = None if i["assignees"]["nodes"] else (ev.get("actor") or {}).get("login")
+    return (actor, "hand") if actor else (None, None)
 
 
 def done_row(i):
-    """閉じた issue 1 件の、期間の数に使う事実。by は閉じた人（closer_of）。"""
+    """閉じた issue 1 件の、期間の数に使う事実。by と how は閉じた人と閉じ方（closer_of）。"""
+    by, how = closer_of(i)
     return {"number": i["number"], "title": i["title"], "url": i["url"],
-            "made": local_day(i["createdAt"]), "shut": local_day(i["closedAt"]), "who": logins(i), "by": closer_of(i)}
+            "made": local_day(i["createdAt"]), "shut": local_day(i["closedAt"]), "who": logins(i), "by": by, "how": how}
 
 
 def issue_row(i, repo):
@@ -376,6 +381,8 @@ def read_dates(text):
     raw = json.loads(text)
     if not isinstance(raw, dict):
         raise ValueError("--dates の JSON は {\"issue の番号\": \"YYYY-MM-DD\"} の形にする")
+    if any(v is not None and not isinstance(v, str) for v in raw.values()):
+        raise ValueError("--dates の日付は \"YYYY-MM-DD\" の字で書く")
     return {int(k): dt.date.fromisoformat(v) for k, v in raw.items() if v}
 
 
@@ -508,7 +515,7 @@ def view(data):
                        "prs": i["prs"], "prBy": i["pr_by"], "prOf": i["pr_of"], "who": i["who"], "made": i["made"], "tip": card_title(i)}
                       for i in m["issues"]],
            "done": [{"n": i["number"], "title": i["title"], "url": i["url"], "made": i["made"], "shut": i["shut"],
-                     "who": i["who"], "by": i["by"]} for i in m["done"]]}
+                     "who": i["who"], "by": i["by"], "how": i["how"]} for i in m["done"]]}
           for m in data["milestones"]]
     return {"columns": cols, "today": {"at": max(past) + 1 if past else 0, "label": "今日 " + md(today, year), "day": today},
             "milestones": ms, "edges": data["edges"], "path": [list(e) for e in zip(path, path[1:])],

@@ -278,14 +278,16 @@ a:hover { text-decoration: underline; }
   const NS = "http://www.w3.org/2000/svg";
   const key = e => e[0] + ">" + e[1];
   const onPath = new Set(D.path.map(key)), late = new Set(D.late.map(key));
+  // by は担当者のフィールドに居ない人の言い方（点線の丸）。無ければ担当者
   const avatar = (w, by) => el("span", { class: "av" + (by ? " by" : ""), style: `background:${hue(w)}`,
-    title: (by ? "閉じる PR を出した人（担当者のフィールドには居ない）: " : "担当: ") + w }, ini(w));
+    title: (by || "担当") + ": " + w }, ini(w));
   // 実質の担当: 担当者のフィールドの人と、閉じる PR を出した人（担当者のフィールドに居ない人は点線の丸）
   const doers = i => i.who.concat(i.prBy.filter(w => !i.who.includes(w)));
   function avatars(i) {
     const list = doers(i);
     if (!list.length) return null;
-    return el("span", { class: "avs" }, list.slice(0, 3).map(w => avatar(w, !i.who.includes(w))),
+    const by = i.state !== "done" ? "閉じる PR を出した人（担当者ではない）" : i.how === "pr" ? "閉じた PR を出した人（担当者ではない）" : "閉じた人（担当者は居ない）";
+    return el("span", { class: "avs" }, list.slice(0, 3).map(w => avatar(w, i.who.includes(w) ? null : by)),
       list.length > 3 ? el("span", { class: "av etc", title: list.slice(3).join("・") }, "+" + (list.length - 3)) : null);
   }
   const el = (tag, attrs, ...kids) => {
@@ -409,7 +411,7 @@ a:hover { text-decoration: underline; }
     for (const i of m.done) {
       i.el = el("a", { class: "card done", id: "i" + i.n, href: i.url, style: `width:${CW}px;height:${CH}px`,
         title: [`#${i.n} ${i.title}`, "閉じた日: " + i.shut, "作られた日: " + i.made].concat(i.who.length ? ["担当: " + i.who.join("・")] : [],
-          i.by ? ["閉じた人: " + i.by] : []).join("\n") },
+          i.by ? [(i.how === "pr" ? "閉じた PR を出した人: " : "閉じた人: ") + i.by] : []).join("\n") },
         el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), el("span", { class: "tag shut" }, "閉じた " + md(i.shut)), avatars(i)),
         el("div", { class: "tt" }, i.title));
       world.append(i.el);

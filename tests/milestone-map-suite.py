@@ -464,8 +464,22 @@ class Stray(unittest.TestCase):
         v = view_of(page_of(data))
         self.assertEqual(v["milestones"][0]["due"], "渡した日付 " + mm.md("2026-11-20", 2026))
 
+    def test_two_dated_frames_are_ordered_by_date(self):
+        d = {50: dt.date(2026, 11, 20), 51: dt.date(2026, 11, 10)}
+        data = build([], loose([issue(50), issue(51), issue(52)]), dates=d)
+        got = [(m["number"], m["due"], [i["number"] for i in m["issues"]]) for m in data["milestones"]]
+        self.assertEqual(got, [(-1, "2026-11-10", [51]), (-2, "2026-11-20", [50]), (0, None, [52])])
+        v = view_of(page_of(data))
+        self.assertEqual(len({m["n"] for m in v["milestones"]}), 3)
+
+    def test_only_closed_stray_issues_keep_the_frame(self):
+        # 閉じた issue だけでも枠を残す（期間の数から、マイルストーンなしの閉じた issue が抜けないように）
+        done = [closed(60, "2026-10-01T03:00:00Z", "2026-11-03T03:00:00Z")]
+        data = build([milestone(1, None, [issue(10)])], loose([], done, closed_all=5))
+        self.assertEqual([(m["number"], m["open"], m["closed"], len(m["done"])) for m in data["milestones"]], [(1, 1, 3, 0), (0, 0, 5, 1)])
+
     def test_bad_dates(self):
-        for text in ('["2026-11-20"]', '{"x": "2026-11-20"}', '{"5": "11/20"}'):
+        for text in ('["2026-11-20"]', '{"x": "2026-11-20"}', '{"5": "11/20"}', '{"5": 20261120}', '{"5": ["2026-11-20"]}'):
             with self.assertRaises(ValueError):
                 mm.read_dates(text)
 
@@ -475,15 +489,16 @@ class Closer(unittest.TestCase):
 
     def test_closer(self):
         made, shut = "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z"
-        self.assertEqual(mm.closer_of(closed(1, made, shut, who=("a",), pr_by="dev")), "dev")      # PR で閉じた
-        self.assertEqual(mm.closer_of(closed(2, made, shut, actor="x")), "x")                      # 手で閉じ、担当者なし
-        self.assertIsNone(mm.closer_of(closed(3, made, shut, who=("a",), actor="x")))              # 手で閉じ、担当者あり
-        self.assertIsNone(mm.closer_of(closed(4, made, shut, actor=None)))                         # 消えたアカウント
+        self.assertEqual(mm.closer_of(closed(1, made, shut, who=("a",), pr_by="dev")), ("dev", "pr"))   # PR で閉じた
+        self.assertEqual(mm.closer_of(closed(2, made, shut, actor="x")), ("x", "hand"))                 # 手で閉じ、担当者なし
+        self.assertEqual(mm.closer_of(closed(3, made, shut, who=("a",), actor="x")), (None, None))      # 手で閉じ、担当者あり
+        self.assertEqual(mm.closer_of(closed(4, made, shut, actor=None)), (None, None))                 # 消えたアカウント
         bare = closed(5, made, shut)
         bare["timelineItems"] = {"nodes": []}
-        self.assertIsNone(mm.closer_of(bare))
+        self.assertEqual(mm.closer_of(bare), (None, None))
         v = view_of(page_of(build([milestone(1, None, [issue(9)], done=[closed(1, made, shut, who=("a",), pr_by="dev")])])))
-        self.assertEqual((v["milestones"][0]["done"][0]["who"], v["milestones"][0]["done"][0]["by"]), (["a"], "dev"))
+        d = v["milestones"][0]["done"][0]
+        self.assertEqual((d["who"], d["by"], d["how"]), (["a"], "dev", "pr"))
 
 
 _pd = importlib.util.spec_from_file_location("project_dates", ROOT / "attention" / "scripts" / "project-dates.py")
@@ -519,6 +534,13 @@ class ProjectDates(unittest.TestCase):
         self.assertEqual([i["number"] for i in got], [1, 2])
         self.assertIn("field=Target Date", seen[0])
         self.assertIn("cursor=1", seen[1])
+
+    def test_search_cap_goes_to_stderr(self):
+        page = {"issueCount": 1500, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [self.item(1, (9, "2026-11-20"))]}
+        err = io.StringIO()
+        with mock.patch.object(pd, "gh", lambda *a, **k: json.dumps({"data": {"search": page}})), contextlib.redirect_stderr(err):
+            self.assertEqual(len(pd.search_all("q", "Target Date")), 1)
+        self.assertIn("1500 件のうち 1 件", err.getvalue())
 
 
 if __name__ == "__main__":

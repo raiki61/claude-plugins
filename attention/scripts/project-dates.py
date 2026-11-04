@@ -32,6 +32,7 @@ ITEMS_FIRST = 20  # 1 件の issue が載っている Projects を取る数
 QUERY = f"""
 query($q: String!, $field: String!, $cursor: String) {{
   search(type: ISSUE, query: $q, first: 50, after: $cursor) {{
+    issueCount
     pageInfo {{ hasNextPage endCursor }}
     nodes {{ ... on Issue {{
       number
@@ -43,13 +44,17 @@ query($q: String!, $field: String!, $cursor: String) {{
 
 
 def search_all(q, field):
-    """検索の全ページの issue。"""
+    """検索の全ページの issue。検索は 1 つの問いに 1000 件までしか返さないので、取り切れなければ標準エラーに知らせる
+    （標準出力の JSON は変えない）。"""
     nodes, cursor = [], None
     while True:
         args = ["api", "graphql", "-f", "query=" + QUERY, "-f", "q=" + q, "-f", "field=" + field]
         conn = stop_on_errors(json.loads(gh(*args + (["-f", "cursor=" + cursor] if cursor else []))))["data"]["search"]
         nodes += [n for n in conn["nodes"] if n]
         if not conn["pageInfo"]["hasNextPage"]:
+            if conn.get("issueCount", 0) > len(nodes):
+                print(f"project-dates: 「{q}」は {conn['issueCount']} 件のうち {len(nodes)} 件しか見ていない（検索の上限）",
+                      file=sys.stderr)
             return nodes
         cursor = conn["pageInfo"]["endCursor"]
 
