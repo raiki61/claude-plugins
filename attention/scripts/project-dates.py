@@ -24,6 +24,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn・/catchup と共用
 from ghpage import stop_on_errors  # noqa: E402 — GraphQL のエラーで止める。/whose-turn と共用
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 SINCE_DAYS = 400  # milestone-map.py の SINCE_DAYS と同じ
 ITEMS_FIRST = 20  # 1 件の issue が載っている Projects を取る数
 
