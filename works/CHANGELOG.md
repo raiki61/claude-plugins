@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-04
+
 ### Changed
 
 - works で作業するときの決まり（works の作り・出荷の手順・darkfactory の回し方）を、リポジトリのルートの CLAUDE.md から `works/CLAUDE.md` に移した。Claude Code は works/ の下のファイルを読む・書く・直したときにだけ読み込むので、works に触らない会話の読み込みが軽くなる。中身は変えていない
