@@ -386,7 +386,7 @@ a:hover { text-decoration: underline; }
       ["blocked", "pr", "idle"].map(s => el("i", { class: s, style: `width:${100 * m.count[s] / tot}%` })));
     const head = el("div", { class: "fhead", role: "button", tabindex: "0", title: "押すと開け閉めする" },
       el("div", { class: "fname" }, m.none ? null : el("span", { class: "no" }, "#" + m.n), el("span", { class: "tt", title: m.title }, m.title),
-        el("a", { href: m.url, title: m.none ? "GitHub でマイルストーンの付いていない open の issue を開く" : "GitHub のマイルストーンを開く" }, "↗")),
+        el("a", { href: m.url, title: m.none ? "GitHub でマイルストーンの付いていない open の issue を全部開く（日付ごとの枠に分けた物も含む）" : "GitHub のマイルストーンを開く" }, "↗")),
       el("div", { class: "fmeta" }, el("span", {}, m.due), m.overdue ? el("span", { class: "over" }, `期日切れ ${m.overdue} 日`) : null,
         el("span", {}, `残り ${m.open}・閉じた ${m.closed}`), m.open ? stack : null),
       f.pulse = el("div", { class: "fpulse" }));
@@ -838,7 +838,9 @@ a:hover { text-decoration: underline; }
     drawPeople();
   }
   function setPeriod(from, to) {
-    const first = dayAdd(to, 1 - D.since_days);  // 選べる期間の上限（スクリプトが閉じた issue を取った日数）
+    // 選べる期間の上限。スクリプトは、ページを作った日から since_days 日の分の閉じた issue を取った（マイルストーンの
+    // 付いていない物）ので、終わりの日を前へずらしても、始まりはその日より前にしない
+    const first = dayAdd(TODAY, 1 - D.since_days);
     P = { from: from < first ? first : from, to };
     drawPeriod();
     refresh(false, () => { optimize(); layout(); });

@@ -48,12 +48,12 @@ def issue(n, blocked=(), prs=(), who=(), made="2026-10-01T03:00:00Z", pr_by="dev
                  "author": {"login": pr_by} if pr_by else None} for p, st in prs]}}
 
 
-def closed(n, made, shut, who=(), actor="closer", pr_by=None):
+def closed(n, made, shut, who=(), actor="closer", pr_by=None, reason="COMPLETED", bot=False):
     """閉じた issue の生の材料。made と shut は時刻（UTC）。actor は閉じる操作をした人、pr_by は閉じた PR を出した人
-    （None なら PR でなく手で閉じた）。"""
+    （None なら PR でなく手で閉じた）。reason は閉じ方（stateReason）、bot は閉じる操作をしたのが Bot か。"""
     return {"number": n, "title": f"done <{n}>", "url": f"https://github.com/o/r/issues/{n}", "createdAt": made,
-            "closedAt": shut, "assignees": {"totalCount": len(who), "nodes": [{"login": w} for w in who]},
-            "timelineItems": {"nodes": [{"actor": {"login": actor} if actor else None,
+            "closedAt": shut, "stateReason": reason, "assignees": {"totalCount": len(who), "nodes": [{"login": w} for w in who]},
+            "timelineItems": {"nodes": [{"actor": {"login": actor, "__typename": "Bot" if bot else "User"} if actor else None,
                                          "closer": {"author": {"login": pr_by}} if pr_by else None}]}}
 
 
@@ -387,8 +387,17 @@ class Fetch(unittest.TestCase):
         self.assertEqual(got["closedIssues"]["totalCount"], 7)
         self.assertEqual([x for x in got["limits"] if x], [])
         asked = {v["q"] for q, v, _ in calls if q in (mm.LOOSE_OPEN_QUERY, mm.LOOSE_CLOSED_QUERY)}
-        self.assertEqual(asked, {"repo:o/r is:issue no:milestone is:open",
-                                 f"repo:o/r is:issue no:milestone is:closed closed:>={TODAY - dt.timedelta(days=mm.SINCE_DAYS)}"})
+        base = "repo:o/r is:issue no:milestone sort:created-asc"
+        self.assertEqual(asked, {base + " is:open", f"{base} is:closed closed:>={TODAY - dt.timedelta(days=mm.SINCE_DAYS)}"})
+
+    def test_search_drops_repeats(self):
+        # 検索の途中で issue が直されると、同じ issue が 2 ページに出る。1 件にする
+        pages = [{"issueCount": 2, "pageInfo": {"hasNextPage": True, "endCursor": "1"}, "nodes": [issue(1)]},
+                 {"issueCount": 2, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [issue(1), issue(2), None]}]
+        it = iter(pages)
+        with mock.patch.object(mm, "gh", lambda *a, **k: json.dumps({"data": {"search": next(it)}})):
+            got = mm.search_all(mm.LOOSE_OPEN_QUERY, "q")
+        self.assertEqual([i["number"] for i in got["nodes"]], [1, 2])
 
     def test_search_cap_is_reported(self):
         run, _ = fake_gh([], loose([issue(91)]))
@@ -495,6 +504,9 @@ class Closer(unittest.TestCase):
         self.assertEqual(mm.closer_of(closed(2, made, shut, actor="x")), ("x", "hand"))                 # 手で閉じ、担当者なし
         self.assertEqual(mm.closer_of(closed(3, made, shut, who=("a",), actor="x")), (None, None))      # 手で閉じ、担当者あり
         self.assertEqual(mm.closer_of(closed(4, made, shut, actor=None)), (None, None))                 # 消えたアカウント
+        self.assertEqual(mm.closer_of(closed(6, made, shut, actor="x", reason="NOT_PLANNED")), (None, None))  # not planned
+        self.assertEqual(mm.closer_of(closed(7, made, shut, actor="x", reason="DUPLICATE")), (None, None))    # duplicate
+        self.assertEqual(mm.closer_of(closed(8, made, shut, actor="stale", bot=True)), (None, None))          # Bot が閉じた
         bare = closed(5, made, shut)
         bare["timelineItems"] = {"nodes": []}
         self.assertEqual(mm.closer_of(bare), (None, None))

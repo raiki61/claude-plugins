@@ -108,9 +108,9 @@ OPEN_FIELDS = f"""
             number url state repository {{ nameWithOwner }} }} }}
           closedByPullRequestsReferences(first: {PR_FIRST}, includeClosedPrs: false) {{
             totalCount nodes {{ number url state author {{ login }} }} }}"""
-CLOSED_FIELDS = (f"number title url createdAt closedAt assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }} "
+CLOSED_FIELDS = (f"number title url createdAt closedAt stateReason assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }} "
                  "timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
-                 "actor { login } closer { ... on PullRequest { author { login } } } } } }")
+                 "actor { __typename login } closer { ... on PullRequest { author { login } } } } } }")
 
 OPEN_ISSUES_QUERY = f"""
 query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
@@ -169,7 +169,8 @@ def search_all(query, q):
         conn = stop_on_errors(json.loads(gh(*args)))["data"]["search"]
         nodes += [n for n in conn["nodes"] if n]
         if not conn["pageInfo"]["hasNextPage"]:
-            return {"totalCount": conn["issueCount"], "nodes": nodes}
+            # 検索の途中で issue が直されると、同じ issue が 2 ページに出ることがある。番号で 1 件にする
+            return {"totalCount": conn["issueCount"], "nodes": list({n["number"]: n for n in nodes}.values())}
         cursor = conn["pageInfo"]["endCursor"]
 
 
@@ -190,7 +191,7 @@ def fetch(owner, name, today):
     # 4 本まで並べる（マイルストーンが 30 本で 1 本ずつだと遅い。GitHub の二次の上限に当たらない数）
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         milestones = list(pool.map(one, milestones))
-    base = f"repo:{owner}/{name} is:issue no:milestone"
+    base = f"repo:{owner}/{name} is:issue no:milestone sort:created-asc"  # 並びを決めて、ページの間で順が揺れないように
     closed_all = stop_on_errors(json.loads(gh("api", "graphql", "-f", "query=" + COUNT_QUERY,
                                               "-f", "q=" + base + " is:closed")))["data"]["search"]["issueCount"]
     opened = search_all(LOOSE_OPEN_QUERY, base + " is:open")
@@ -222,12 +223,16 @@ def logins(i):
 def closer_of(i):
     """閉じた人と閉じ方 (login, "pr" か "hand")。最後の ClosedEvent の、閉じたのが PR ならその PR を出した人（"pr"）。
     PR でなく閉じた物（手で閉じた・commit で閉じた・PR の作者のアカウントが消えた）は、担当者が居なければ閉じる操作を
-    した人（"hand"）、居れば (None, None)（担当者を実質の担当とする）。"""
+    した人（"hand"）、居れば (None, None)（担当者を実質の担当とする）。ただし手で閉じた物は、完了（stateReason が COMPLETED）
+    で閉じた物だけを数え、Bot が閉じた物と、not planned・duplicate で閉じた物は誰の仕事にもしない（stale の Bot や、重複を
+    閉じて回った人が、仕事を終えた人に見えないように）。"""
     ev = ((i.get("timelineItems") or {}).get("nodes") or [None])[-1] or {}
     by = ((ev.get("closer") or {}).get("author") or {}).get("login")
     if by:
         return by, "pr"
-    actor = None if i["assignees"]["nodes"] else (ev.get("actor") or {}).get("login")
+    who = ev.get("actor") or {}
+    done = i.get("stateReason") in (None, "COMPLETED") and who.get("__typename") != "Bot"
+    actor = None if i["assignees"]["nodes"] or not done else who.get("login")
     return (actor, "hand") if actor else (None, None)
 
 

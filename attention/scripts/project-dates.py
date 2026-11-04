@@ -40,7 +40,7 @@ query($q: String!, $field: String!, $cursor: String) {{
     pageInfo {{ hasNextPage endCursor }}
     nodes {{ ... on Issue {{
       number
-      projectItems(first: {ITEMS_FIRST}) {{ nodes {{
+      projectItems(first: {ITEMS_FIRST}, includeArchived: false) {{ nodes {{
         project {{ number }}
         fieldValueByName(name: $field) {{ ... on ProjectV2ItemFieldDateValue {{ date }} }} }} }} }} }}
   }}
