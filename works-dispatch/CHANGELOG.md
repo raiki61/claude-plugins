@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.160.0] - 2026-11-04
+
 ### Changed
 
 - attention プラグイン（このリポジトリの別のプラグイン）から写した `/whose-turn` のスクリプトと人の事実の部品（`dispatch/vendor/lib/people.py`）を、attention の側の元の版に揃えた。issue の担当者が人か Bot かも取るようになり、`--json` の `scope` に `bot_only_issues` が増えた。works-dispatch が読む「自分の番」の PR は変わらず、利用者がすることは無い。

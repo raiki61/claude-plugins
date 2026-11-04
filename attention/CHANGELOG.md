@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-11-04
+
 ### Changed
 
 - `/whose-turn`: issue の担当者も、PR と同じく人か Bot かを見分けて取る。Copilot などの Bot だけが担当の issue の数を、1 行目に「Bot だけが担当の N 件」（`--json` では `scope.bot_only_issues`）として、担当未設定の数と別に出す（どちらの issue も誰の一覧にも出ない）。N が 0 なら 1 行目は前と同じ。担当未設定の数は前と変わらず、Bot に振った issue は入れない（`/milestone-map` の「Assigned to nobody」と同じ。Copilot は Assignees に入れると進めて PR を出す）。人か Bot かを返さない GitHub（assignedActors の無い GHES）では数えず、`bot_only_issues` は null になり、「見ていないもの」にそう出す。
