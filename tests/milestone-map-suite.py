@@ -364,7 +364,7 @@ class People(unittest.TestCase):
     def test_too_many_assignees_is_reported(self):
         raw = issue(1, who=("a", "b"))
         raw["assignees"]["totalCount"] = mm.WHO_FIRST + 1
-        self.assertIn("担当者", "・".join(build([milestone(1, None, [raw])])["limits"]))
+        self.assertIn("Assignees", "・".join(build([milestone(1, None, [raw])])["limits"]))
         many = closed(2, "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z", who=("a",))
         many["assignees"]["totalCount"] = mm.WHO_FIRST + 1
         self.assertIn("#2", "・".join(build([milestone(1, None, [issue(1)], done=[many])])["limits"]))
@@ -525,8 +525,15 @@ class Doers(unittest.TestCase):
     def test_page_does_not_count_again(self):
         # 規則はここだけに置く。ページの JS が担当者と PR の作者を合わせ直していないこと
         page = (pathlib.Path(mm.__file__).parent.parent / "templates" / "milestone-map.html").read_text()
-        self.assertNotIn("i.who.concat", page)
-        self.assertIn("i.doers", page)
+        for again in (r"i\.who\.concat", r"\.\.\.\s*i\.(who|prBy)", r"i\.prBy\.(filter|concat|forEach)"):
+            self.assertIsNone(re.search(again, page), again)
+        # 人の一覧の数と、人を押して光らせる組は doers だけで数える
+        self.assertEqual(len(re.findall(r"for \(const w of i\.doers\)", page)), 2)
+        self.assertEqual(len(re.findall(r"!i\.doers\.length", page)), 2)
+        self.assertIn("i.doers.includes(who)", page)
+        # 矢印を押して飛ぶ口と、ドラッグの後の click を止める口が在る
+        self.assertIn('class: "grab"', page)
+        self.assertIn('view.addEventListener("click", ev => { if (dragged)', page)
 
 
 class Closer(unittest.TestCase):

@@ -408,7 +408,7 @@ def build(raw, loose, repo, today, now=None, dates=None):
         issues = []
         for i in m["openIssues"]:
             limits.append(truncated(i["blockedBy"], "blocked by", f"#{i['number']}"))
-            limits.append(truncated(i["assignees"], "担当者", f"#{i['number']}"))
+            limits.append(truncated(i["assignees"], "Assignees", f"#{i['number']}"))
             issues.append(issue_row(i, repo))
         rank = {"blocked": 0, "pr": 1, "idle": 2}
         issues.sort(key=lambda i: (rank[i["state"]], i["number"]))
@@ -417,7 +417,7 @@ def build(raw, loose, repo, today, now=None, dates=None):
                    "overdue_days": (today - due).days if due and due < today else 0,
                    "open": len(issues), "closed": m["closedIssues"]["totalCount"], "issues": issues,
                    "done": sorted((done_row(i) for i in m["closedIssueList"]), key=lambda i: (i["shut"], i["number"]))})
-        limits.extend(truncated(i["assignees"], "担当者", f"#{i['number']}") for i in m["closedIssueList"])
+        limits.extend(truncated(i["assignees"], "Assignees", f"#{i['number']}") for i in m["closedIssueList"])
     ms.sort(key=order_key)
     edges = edges_of(ms)
     crit = critical_path(edges)
