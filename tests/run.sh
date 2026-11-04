@@ -6855,6 +6855,9 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "DISPATCH_TEST_WORKERS",
                   # attention の /reflect が読む環境変数（読む設定のフォルダを足す・日記の置き場。同じく os.environ から読む）
                   "ATTENTION_REFLECT_CONFIG_DIRS", "ATTENTION_REFLECT_DIARY_DIR",
+                  # 共通の認証の部品（scripts/claude_auth.py）が読む、利用者の鍵の窓口の環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく
+                  # このリポジトリが定める名で、モジュールの定数は HELPER_ENV。os.environ の写しから読む）
+                  "CLAUDE_TOKEN_HELPER",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
                   "COPIED_FROM", "VERSION", "STOP",
                   # プラグインの直下のファイル名（works-dispatch の --land が版の上げ幅を決めるとき文書に数える。docs/releasing.md も書く）
