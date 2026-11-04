@@ -483,7 +483,7 @@ def overlap():
     holder = subprocess.Popen([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import filex\n"
                                "with filex.lock(sys.argv[2]):\n    print('held', flush=True); sys.stdin.read()",
                                str(ROOT / "works-dispatch" / "dispatch"), os.path.join(d, wp.LOCK)],
-                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
     try:
         check(holder.stdout.readline().strip() == "held", "鍵を持つ処理が立たない")
         code, out = go(fake, root)
