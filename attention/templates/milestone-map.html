@@ -2,44 +2,670 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
+<!-- 外のサイトから何も読まない（ページの中のスクリプトと style だけ。/catchup の雛形と同じ決まり） -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>milestone-map</title>
+<!--
+マイルストーンの地図の雛形。埋めるのは attention/scripts/milestone-map.py（手で埋めない）。
+  - body の頭の差し込み口: 見出し・数・クリティカルパスの 1 行・ツールバー・地図の入れ物
+  - id="map-data": 地図の材料（列・マイルストーン・issue・線）。形は milestone-map.py の view()
+どの列に置くかは Python が決め、画面の上の座標はこのスクリプトが決める（枠の開け閉めで置き直すため）。
+色は /catchup と同じ Primer の functional の token（@primer/primitives）。VS Code の暗い色の設定にも合わせる。
+-->
 <style>
-:root { --fg: #1f2328; --sub: #59636e; --line: #d1d9e0; --bad: #c62828; --warn: #b26a00; --warnbg: #fff4e5; --bg: #ffffff; --soft: #f6f8fa; }
-body { margin: 0; font: 14px/1.6 -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; color: var(--fg); background: var(--bg); }
-main { padding: 20px 28px 60px; }
-h1 { font-size: 20px; margin: 0 0 4px; }
-h2 { font-size: 16px; margin: 28px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
-.sub { color: var(--sub); margin: 0 0 12px; }
-.headline { font-size: 16px; font-weight: 600; margin: 12px 0 4px; }
-.ai { border-left: 4px solid #8250df; padding: 4px 12px; background: var(--soft); }
-.ai .tag { color: #8250df; font-size: 12px; }
-.fig { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-.fig svg { display: block; }
-.fig .cand { display: none; }
-.toggle { color: var(--sub); }
-#showcand { margin: 0 0 8px; }
-#showcand:checked ~ .fig .cand { display: inline; }
-.legend { color: var(--sub); font-size: 12px; margin: 6px 0 0; }
-.legend span { margin-right: 14px; white-space: nowrap; }
-.trays { display: flex; flex-wrap: wrap; gap: 8px; }
-.tray { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-width: 180px; background: var(--soft); }
-.bad { color: var(--bad); font-weight: 600; }
-.warn { color: var(--warn); font-weight: 600; }
-details { border: 1px solid var(--line); border-radius: 6px; margin: 6px 0; padding: 4px 10px; }
-details[open] { padding-bottom: 10px; }
-summary { cursor: pointer; font-weight: 600; }
-summary .meta { font-weight: 400; color: var(--sub); margin-left: 8px; }
-ul { margin: 4px 0; padding-left: 20px; }
-li { margin: 1px 0; }
-.note { color: var(--sub); font-size: 12px; }
-.weeks { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-a { color: #0969da; }
+:root {
+  --bgColor-default: #ffffff; --bgColor-muted: #f6f8fa; --bgColor-inset: #f6f8fa; --bgColor-neutral-muted: #818b981f;
+  --bgColor-accent-muted: #ddf4ff; --bgColor-accent-emphasis: #0969da;
+  --bgColor-success-muted: #dafbe1; --bgColor-success-emphasis: #1f883d;
+  --bgColor-danger-muted: #ffebe9; --bgColor-danger-emphasis: #cf222e;
+  --bgColor-severe-muted: #fff1e5; --bgColor-neutral-emphasis: #59636e;
+  --fgColor-default: #1f2328; --fgColor-muted: #59636e; --fgColor-accent: #0969da; --fgColor-onEmphasis: #ffffff;
+  --fgColor-success: #1a7f37; --fgColor-danger: #d1242f; --fgColor-severe: #bc4c00; --fgColor-done: #8250df;
+  --borderColor-default: #d1d9e0; --borderColor-muted: #d1d9e0b3; --borderColor-translucent: #1f232826;
+  --frame-bg: #f6f8fab3; --col-alt: #f6f8fa80; --col-late: #ffebe94d; --shadow: 0 1px 2px #1f23281a, 0 3px 8px #1f23280f;
+  --fontStack-system: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, "Hiragino Sans", "Noto Sans JP", "Meiryo", sans-serif;
+  --fontStack-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(:has(body.vscode-light)) {
+    --bgColor-default: #0d1117; --bgColor-muted: #151b23; --bgColor-inset: #010409; --bgColor-neutral-muted: #656c7633;
+    --bgColor-accent-muted: #388bfd1a; --bgColor-accent-emphasis: #1f6feb;
+    --bgColor-success-muted: #2ea04326; --bgColor-success-emphasis: #238636;
+    --bgColor-danger-muted: #f851491a; --bgColor-danger-emphasis: #da3633;
+    --bgColor-severe-muted: #db6d281a; --bgColor-neutral-emphasis: #656c76;
+    --fgColor-default: #f0f6fc; --fgColor-muted: #9198a1; --fgColor-accent: #4493f8; --fgColor-onEmphasis: #ffffff;
+    --fgColor-success: #3fb950; --fgColor-danger: #f85149; --fgColor-severe: #db6d28; --fgColor-done: #ab7df8;
+    --borderColor-default: #3d444d; --borderColor-muted: #3d444db3; --borderColor-translucent: #ffffff26;
+    --frame-bg: #151b23b3; --col-alt: #151b2380; --col-late: #f851490f; --shadow: 0 1px 2px #0006, 0 3px 8px #0004;
+    color-scheme: dark;
+  }
+}
+:root:has(body.vscode-dark) {
+  --bgColor-default: #0d1117; --bgColor-muted: #151b23; --bgColor-inset: #010409; --bgColor-neutral-muted: #656c7633;
+  --bgColor-accent-muted: #388bfd1a; --bgColor-accent-emphasis: #1f6feb;
+  --bgColor-success-muted: #2ea04326; --bgColor-success-emphasis: #238636;
+  --bgColor-danger-muted: #f851491a; --bgColor-danger-emphasis: #da3633;
+  --bgColor-severe-muted: #db6d281a; --bgColor-neutral-emphasis: #656c76;
+  --fgColor-default: #f0f6fc; --fgColor-muted: #9198a1; --fgColor-accent: #4493f8; --fgColor-onEmphasis: #ffffff;
+  --fgColor-success: #3fb950; --fgColor-danger: #f85149; --fgColor-severe: #db6d28; --fgColor-done: #ab7df8;
+  --borderColor-default: #3d444d; --borderColor-muted: #3d444db3; --borderColor-translucent: #ffffff26;
+  --frame-bg: #151b23b3; --col-alt: #151b2380; --col-late: #f851490f; --shadow: 0 1px 2px #0006, 0 3px 8px #0004;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+/* ページ自体はスクロールさせず、地図の領域だけを動かす（見出しとツールバーはいつも見えている）。
+   地図の領域の高さはスクリプトが窓の下の端までに合わせる。VS Code の HTML を見る拡張（simple-html-viewer）は body の中身を
+   自分の div で包むので、body の flex や height: 100% に頼ると地図の高さが 0 になり、何も出ない */
+body { margin: 0; overflow: hidden; background: var(--bgColor-default);
+  color: var(--fgColor-default); font: 14px/1.5 var(--fontStack-system); }
+a { color: var(--fgColor-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.muted { color: var(--fgColor-muted); }
+
+/* ── 見出し ── */
+.top { padding: 14px 24px 8px; }
+.hrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.top h1 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.top h1 .repo { font-weight: 400; color: var(--fgColor-muted); margin-left: 6px; }
+.meta { margin: 6px 0 6px; font-size: 12px; color: var(--fgColor-muted); }
+.chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; }
+.chips li { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px; border: 1px solid var(--borderColor-default);
+  border-radius: 999px; font-size: 13px; color: var(--fgColor-muted); }
+.chips b { color: var(--fgColor-default); font-weight: 600; font-variant-numeric: tabular-nums; }
+.chips i { width: 9px; height: 9px; border-radius: 50%; background: var(--bgColor-neutral-emphasis); }
+.chips .blocked i { background: var(--bgColor-danger-emphasis); }
+.chips .pr i { background: var(--bgColor-success-emphasis); }
+.path { margin: 0 0 4px; font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.path.bad { color: var(--fgColor-danger); }
+.path .arrow { color: var(--fgColor-muted); }
+.path a { font-family: var(--fontStack-mono); font-size: 12.5px; font-weight: 600; }
+.label { display: inline-flex; align-items: center; padding: 0 8px; font-size: 12px; font-weight: 600; line-height: 22px;
+  border-radius: 2em; border: 1px solid var(--borderColor-default); color: var(--fgColor-muted); }
+.label.crit { background: var(--fgColor-done); border-color: transparent; color: var(--fgColor-onEmphasis); }
+
+/* ── ツールバー ── */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 24px; border-top: 1px solid var(--borderColor-default);
+  border-bottom: 1px solid var(--borderColor-default); background: var(--bgColor-muted); font-size: 12.5px; }
+.bar input { width: 220px; font: inherit; padding: 4px 10px; border: 1px solid var(--borderColor-default); border-radius: 6px;
+  background: var(--bgColor-default); color: var(--fgColor-default); }
+.keys { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--fgColor-muted); }
+.keys span { display: inline-flex; align-items: center; gap: 6px; }
+.ln { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--fgColor-muted); }
+.ln.crit { border-top: 4px solid var(--fgColor-done); }
+.ln.late { border-top: 2px dashed var(--fgColor-severe); }
+.tools { margin-left: auto; display: flex; gap: 4px; }
+.tools button { font: inherit; padding: 3px 10px; border: 1px solid var(--borderColor-default); border-radius: 6px;
+  background: var(--bgColor-default); color: var(--fgColor-default); cursor: pointer; }
+.tools button:hover { background: var(--bgColor-neutral-muted); }
+
+/* ── 期日の列の見出し（地図の上に固定。字は拡大・縮小しても同じ大きさ） ── */
+#axis { position: relative; height: 34px; overflow: hidden; border-bottom: 1px solid var(--borderColor-default); background: var(--bgColor-default); }
+#axis .h { position: absolute; top: 0; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 14px;
+  font-weight: 600; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; }
+#axis .h.late { color: var(--fgColor-danger); }
+#axis .now { position: absolute; top: 7px; transform: translateX(-50%); padding: 0 8px; line-height: 20px; border-radius: 2em; font-size: 11.5px;
+  font-weight: 700; color: var(--fgColor-onEmphasis); background: var(--bgColor-accent-emphasis); white-space: nowrap; z-index: 1; }
+
+/* ── 地図 ── */
+#view { position: relative; height: 70vh; overflow: hidden; touch-action: none; background: var(--bgColor-default); cursor: grab; outline: none; }
+#view.drag { cursor: grabbing; user-select: none; }
+#world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.col { position: absolute; top: 0; }
+.col.alt { background: var(--col-alt); }
+.col.late { background: var(--col-late); }
+.today { position: absolute; top: 0; width: 0; border-left: 2px dashed var(--bgColor-accent-emphasis); opacity: .7; z-index: 1; }
+/* 枠は見出しの帯と、issue の在る列ごとの区画でできる（早い列へ寄せた issue が在ると、帯が列をまたいで区画をつなぐ。
+   間の列は空くので、ほかの枠が入れる） */
+.frame, .pane { position: absolute; border: 1px solid var(--borderColor-default); background: var(--frame-bg); z-index: 1; }
+.frame { border-radius: 12px 12px 0 0; border-bottom-color: transparent; }
+.frame.shut, .frame.bare { border-radius: 12px; border-bottom-color: var(--borderColor-default); }
+.pane { border-top: none; border-radius: 0 0 12px 12px; }
+.frame.wide { border-radius: 12px; border-bottom-color: var(--borderColor-default); }
+.pane.wide { border-top: 1px solid var(--borderColor-default); border-radius: 0 0 12px 12px; }
+.fhead { position: absolute; left: 0; right: 0; top: 0; height: 80px; padding: 10px 16px 0 34px; cursor: pointer; user-select: none;
+  border-radius: 12px 12px 0 0; background: var(--bgColor-neutral-muted); }
+.frame.shut .fhead, .frame.bare .fhead, .frame.wide .fhead { border-radius: 12px; }
+.fhead::before { content: ""; position: absolute; left: 14px; top: 19px; border: 5px solid transparent; border-top-color: var(--fgColor-muted);
+  border-bottom-width: 0; transition: transform .2s; }
+.frame.shut .fhead::before { transform: rotate(-90deg); }
+.fname { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 44px; font-size: 15.5px; font-weight: 700; line-height: 22px; }
+.fname .no { color: var(--fgColor-muted); font-weight: 400; font-family: var(--fontStack-mono); font-size: 13px; }
+.fname .no { margin-right: 6px; }
+.fname a { font-size: 12px; font-weight: 400; margin-left: 4px; }
+.fmeta { display: flex; gap: 10px; align-items: center; font-size: 12.5px; line-height: 22px; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; }
+.fmeta .over { color: var(--fgColor-danger); font-weight: 600; }
+.stack { display: inline-flex; width: 80px; height: 7px; border-radius: 3px; overflow: hidden; background: var(--bgColor-neutral-muted); flex: none; }
+.stack i { display: block; height: 100%; }
+.stack .blocked { background: var(--bgColor-danger-emphasis); }
+.stack .pr { background: var(--bgColor-success-emphasis); }
+.stack .idle { background: var(--bgColor-neutral-emphasis); opacity: .45; }
+.empty { position: absolute; left: 34px; top: 84px; font-size: 12px; color: var(--fgColor-muted); }
+.card { position: absolute; z-index: 3; display: block; padding: 8px 12px 8px 14px; border: 1px solid var(--borderColor-default);
+  border-radius: 8px; background: var(--bgColor-default); color: var(--fgColor-default); box-shadow: var(--shadow); text-decoration: none;
+  overflow: hidden; }
+.card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: transparent; }
+.card.blocked::before { background: var(--bgColor-danger-emphasis); opacity: 1; }
+.card.pr::before { background: var(--bgColor-success-emphasis); opacity: 1; }
+.card.blocked { background: var(--bgColor-danger-muted); border-color: var(--fgColor-danger); }
+.card.pr { background: var(--bgColor-success-muted); border-color: var(--fgColor-success); }
+.card:hover { text-decoration: none; border-color: var(--fgColor-accent); }
+.card.crit { border: 2px solid var(--fgColor-done); }
+.card .row { display: flex; gap: 6px; align-items: center; font-size: 12.5px; line-height: 18px; color: var(--fgColor-muted); }
+.card .num { font-family: var(--fontStack-mono); font-weight: 600; }
+.card .tag { padding: 0 7px; border-radius: 2em; font-size: 11.5px; font-weight: 600; line-height: 17px; }
+.card .tag.blocked { color: var(--fgColor-danger); border: 1px solid var(--fgColor-danger); }
+.card .tag.pr { color: var(--fgColor-success); border: 1px solid var(--fgColor-success); }
+.card .tag.crit { color: var(--fgColor-onEmphasis); background: var(--fgColor-done); }
+.card .tt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; font-size: 14px; line-height: 20px; }
+/* 閉じた枠のカードと区画は見えなくし、押せなくする（押せると枠の見出しの上でクリックを取り、枠が開けなくなる） */
+.more { position: absolute; z-index: 3; padding: 0 12px; border: 1px dashed var(--borderColor-default); border-radius: 8px; background: transparent;
+  color: var(--fgColor-muted); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.more:hover { color: var(--fgColor-accent); border-color: var(--fgColor-accent); }
+#world.focus .more { opacity: .28; }
+.card.gone, #world.focus .card.gone, .pane.off, #world.focus .pane.off, .more.gone { opacity: 0; pointer-events: none; }
+#wires { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; z-index: 2; transition: opacity .15s; }
+#wires path { fill: none; stroke: var(--fgColor-muted); stroke-width: 2; opacity: .8; }
+#wires path.crit { stroke: var(--fgColor-done); stroke-width: 4; opacity: 1; }
+#wires path.late { stroke: var(--fgColor-severe); stroke-dasharray: 6 4; opacity: 1; }
+#wires text { font: 600 12.5px var(--fontStack-system); fill: var(--fgColor-muted); paint-order: stroke; stroke: var(--bgColor-default); stroke-width: 3px; }
+.anim .frame, .anim .pane, .anim .card { transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease, opacity .2s; }
+/* 載せたカードの前後の鎖・探した字に当たったカードだけを濃く出す */
+#world.focus .card:not(.hot), #world.focus .frame:not(.hot), #world.focus .pane:not(.hot) { opacity: .28; }
+#world.focus #wires path:not(.hot), #world.focus #wires text:not(.hot) { opacity: .08; }
+#world.focus #wires path.hot { stroke-width: 3; opacity: 1; }
+.card.hit { outline: 3px solid var(--fgColor-accent); outline-offset: 2px; }
+/* 見取り図（右下） */
+.mini { position: absolute; right: 16px; bottom: 16px; z-index: 10; border: 1px solid var(--borderColor-default); border-radius: 8px;
+  background: var(--bgColor-default); box-shadow: var(--shadow); overflow: hidden; cursor: pointer; touch-action: none; }
+.mini svg { position: absolute; left: 0; top: 0; }
+.mini .mf { fill: var(--bgColor-neutral-muted); }
+.mini .mc { fill: var(--borderColor-default); }
+.mini .mc.blocked { fill: var(--bgColor-danger-emphasis); }
+.mini .mc.pr { fill: var(--bgColor-success-emphasis); }
+.mview { position: absolute; border: 2px solid var(--fgColor-accent); background: #0969da14; border-radius: 3px; pointer-events: none; }
+.none { position: absolute; left: 24px; top: 24px; color: var(--fgColor-muted); white-space: nowrap; }
 </style>
 </head>
 <body>
-<main>
 <!--__BODY__-->
-</main>
+<script type="application/json" id="map-data">/*__DATA__*/null</script>
+<script>
+(function () {
+  "use strict";
+  const D = JSON.parse(document.getElementById("map-data").textContent)
+    || { columns: [], today: { at: 0, label: "" }, milestones: [], edges: [], path: [], late: [] };
+  // カード・枠・列の大きさ（px）。カードの大きさを決め打ちにして、字を測らずに置く
+  const CW = 280, CH = 74, G = 12, PAD = 14, HEAD = 80, SHUT_W = 320, COLGAP = 96, FGAP = 32, TOP = 22, LEFT = 32, BOTTOM = 60;
+  const $ = id => document.getElementById(id);
+  const view = $("view"), world = $("world");
+  const NS = "http://www.w3.org/2000/svg";
+  const key = e => e[0] + ">" + e[1];
+  const onPath = new Set(D.path.map(key)), late = new Set(D.late.map(key));
+  const el = (tag, attrs, ...kids) => {
+    const n = tag.startsWith("svg:") ? document.createElementNS(NS, tag.slice(4)) : document.createElement(tag);
+    for (const k in attrs || {}) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+    for (const c of kids.flat()) if (c != null) n.append(c);
+    return n;
+  };
+  const axis = el("div", { id: "axis" });
+  view.before(axis);
+
+  // 線: 止めている側と待つ側のつながり（鎖を濃く出すのと、枠の中で鎖を横 1 本に並べるのに使う）
+  const adj = { up: new Map(), down: new Map() };
+  for (const [a, b] of D.edges) {
+    if (!adj.down.has(a)) adj.down.set(a, []); adj.down.get(a).push(b);
+    if (!adj.up.has(b)) adj.up.set(b, []); adj.up.get(b).push(a);
+  }
+  // 線の端に在る issue は、列の中の段（依存の順番。止めている側ほど左）に置く。線の無い issue は、その下に格子で並べる。
+  // 地図に線が 1 本でも在るときは、線の無い issue のうち赤でも緑でもない物を、枠ごとに畳む（押すと開く）
+  const linkedSet = new Set(D.edges.flat());
+  const FOLD = D.edges.length > 0, CHIP = 34, step = CW + G, rowH = CH + G, rstep = CW + 64;   // rstep: 段と段の間（矢印が見える幅を空ける）
+  // 列ごとに、線の無い issue を横に何枚まで並べるか（K[c]）。最初に、地図全体が画面の形にいちばん大きく収まる K を選ぶ
+  let K = D.columns.map(() => 1);
+  const across = (n, c) => Math.max(1, Math.min(n, K[c]));
+  function part(c, list) {
+    const linked = list.filter(i => linkedSet.has(i.n)), loose = list.filter(i => !linkedSet.has(i.n));
+    const ranks = linked.map(i => i.rank);
+    // 段ごとに上から詰める。止めている側が同じ区画に在れば、その行より上には置かない（鎖が横 1 本に並ぶように）
+    const row = new Map(), free = new Map(), FAR = 1e9;
+    const pre = i => Math.min(FAR, ...(adj.up.get(i.n) || []).filter(n => row.has(n)).map(n => row.get(n)));
+    for (const r of [...new Set(ranks)].sort((a, b) => a - b)) {
+      const here = linked.filter(i => i.rank === r).map(i => ({ i, p: pre(i) }))
+        .sort((a, b) => a.p - b.p || (b.i.crit - a.i.crit) || a.i.n - b.i.n);
+      for (const { i, p } of here) { const y = Math.max(free.get(r) || 0, p === FAR ? 0 : p); row.set(i.n, y); free.set(r, y + 1); }
+    }
+    return { c, list, linked, loose, fold: FOLD ? loose.filter(i => i.state === "idle") : [],
+      r0: ranks.length ? Math.min(...ranks) : 0, r1: ranks.length ? Math.max(...ranks) : -1, row, nrows: Math.max(0, ...[...row.values()].map(y => y + 1)) };
+  }
+  const shown = (p, f) => f.folded ? p.loose.filter(i => i.state !== "idle") : p.loose;
+  const off = p => p.r0 * rstep;   // 区画の左の端の、列の左の端からのずれ（いちばん左の段の位置）
+  // 区画の中身の大きさ。open が真なら畳んだ issue も開いたとして数える（列の幅を開け閉めで動かさないため）
+  function partSize(p, f, open) {
+    const n = open ? p.loose.length : shown(p, f).length, k = across(n, p.c);
+    const hs = [p.nrows * rowH - G, n ? Math.ceil(n / k) * rowH - G : 0, p.fold.length ? CHIP : 0].filter(h => h > 0);
+    return { w: Math.max(p.nrows ? (p.r1 - p.r0) * rstep + CW : 0, n ? k * step - G : 0, p.fold.length ? CW : 0),
+      h: hs.reduce((a, b) => a + b, 0) + (hs.length - 1) * G };
+  }
+
+  const frames = D.milestones.map(m => {
+    const parts = new Map();
+    for (const i of m.issues) { if (!parts.has(i.col)) parts.set(i.col, []); parts.get(i.col).push(i); }
+    for (const [c, list] of parts) parts.set(c, part(c, list));
+    const cs = [...parts.keys(), m.col];
+    return { m, parts, c0: Math.min(...cs), c1: Math.max(...cs), shut: false, box: null, folded: FOLD,
+      linked: m.issues.some(i => linkedSet.has(i.n)), crit: m.issues.some(i => i.crit) };
+  });
+  const frameOf = new Map(), issueOf = new Map();
+  for (const f of frames) for (const i of f.m.issues) { frameOf.set(i.n, f); issueOf.set(i.n, i); }
+
+  // 列の幅は、開いたときの枠が入る幅（開け閉めで列が動かないよう、閉じた枠・畳んだ issue も開いたときの幅で数える）
+  let W = [], X = [], worldW = 600;
+  function measure() {
+    W = D.columns.map((_, c) => Math.max(SHUT_W, ...frames.map(f => f.parts.has(c) ? off(f.parts.get(c)) + partSize(f.parts.get(c), f, true).w + 2 * PAD : 0)));
+    X = [];
+    W.forEach((w, c) => X.push(c ? X[c - 1] + W[c - 1] + COLGAP : LEFT));
+    worldW = W.length ? X[W.length - 1] + W[W.length - 1] + LEFT : 600;
+  }
+
+  // ── 部品を作る ──
+  const cols = D.columns.map((c, k) => el("div", { class: "col" + (c.late ? " late" : k % 2 ? " alt" : "") }));
+  const todayLine = el("div", { class: "today" });
+  const svg = el("svg:svg", { id: "wires", "aria-hidden": "true" });
+  world.append(...cols, todayLine, svg);
+  if (!frames.length) world.append(el("div", { class: "none" }, "open のマイルストーンが無い"));
+
+  for (const f of frames) {
+    const m = f.m, tot = Math.max(1, m.open);
+    const stack = el("span", { class: "stack", title: `止められている ${m.count.blocked}・PR が出ている ${m.count.pr}・それ以外 ${m.count.idle}` },
+      ["blocked", "pr", "idle"].map(s => el("i", { class: s, style: `width:${100 * m.count[s] / tot}%` })));
+    const head = el("div", { class: "fhead", role: "button", tabindex: "0", title: "押すと開け閉めする" },
+      el("div", { class: "fname" }, el("span", { class: "no" }, "#" + m.n), el("span", { class: "tt", title: m.title }, m.title),
+        el("a", { href: m.url, title: "GitHub のマイルストーンを開く" }, "↗")),
+      el("div", { class: "fmeta" }, el("span", {}, m.due), m.overdue ? el("span", { class: "over" }, `期日切れ ${m.overdue} 日`) : null,
+        el("span", {}, `残り ${m.open}・閉じた ${m.closed}`), m.open ? stack : null));
+    head.querySelector("a").addEventListener("click", ev => ev.stopPropagation());
+    const toggle = () => { f.shut = !f.shut; layout(); };
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); } });
+    f.el = el("div", { class: "frame" + (m.open ? "" : " bare"), "data-m": m.n }, head, m.open ? null : el("div", { class: "empty" }, "open の issue は無い"));
+    f.panes = new Map([...f.parts.keys()].map(c => [c, el("div", { class: "pane" })]));
+    world.append(f.el, ...f.panes.values());
+    f.chips = new Map();
+    for (const [c, p] of f.parts) if (p.fold.length) {
+      const chip = el("button", { class: "more", type: "button" });
+      chip.addEventListener("click", () => { f.folded = !f.folded; layout(); });
+      f.chips.set(c, chip);
+      world.append(chip);
+    }
+    for (const i of m.issues) {
+      const tags = [i.crit ? el("span", { class: "tag crit" }, "クリティカル") : null,
+        i.blockers ? el("span", { class: "tag blocked" }, `止め ${i.blockers}`) : null,
+        i.prs.length ? el("span", { class: "tag pr" }, "PR " + i.prs.map(p => "#" + p).join(" ")) : null];
+      i.el = el("a", { class: `card ${i.state}${i.crit ? " crit" : ""}`, id: "i" + i.n, href: i.url, title: i.tip,
+        style: `width:${CW}px;height:${CH}px` },
+        el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), tags), el("div", { class: "tt" }, i.title));
+      i.el.addEventListener("mouseenter", () => focusOn(chain(i.n)));
+      i.el.addEventListener("mouseleave", () => focusOn(searched()));
+      world.append(i.el);
+    }
+  }
+
+  // ── 置く: 枠を期日の列に置き、上から空いている所へ詰める（列の幅より狭い枠は、列の中で左右にずらして隙間を探す）。
+  // 枠の形は見出しの帯 1 本と列ごとの区画。重なりは帯と区画の 1 つずつで見るので、帯の下の空いた列にはほかの枠が入る ──
+  let worldH = 400;
+  function shape(f, x) {
+    // x は 1 列だけで線の無い枠の左の端（列の中で左右にずらせる）。線の在る枠は、段の位置に合わせて置き場が決まる。
+    // 戻り値は枠の帯と区画（y は枠の上の端からの距離）。
+    // 閉じた枠も、issue の在る列の幅に帯を残す（線を issue の列の位置から引き、左から右の流れを保つため）
+    const one = f.c0 === f.c1, x1 = one && f.linked ? X[f.c0] + off(f.parts.get(f.c0)) : x;
+    if (f.shut || !f.m.open) {
+      const w = one ? (f.shut ? SHUT_W : W[f.c0]) : X[f.c1] + SHUT_W - X[f.c0];
+      return { head: { x: one ? x1 : X[f.c0], w, h: HEAD + (f.m.open ? 0 : 26) }, panes: [] };
+    }
+    const panes = [...f.parts].map(([c, p]) => {
+      const sz = partSize(p, f);
+      return { c, x: one ? x1 : X[c] + off(p), w: sz.w + 2 * PAD, h: sz.h + PAD };
+    });
+    const x0 = Math.min(...panes.map(p => p.x)), xe = Math.max(...panes.map(p => p.x + p.w));
+    return { head: { x: x0, w: Math.max(SHUT_W, xe - x0), h: HEAD }, panes: panes.map(p => Object.assign(p, { y: HEAD })) };
+  }
+  // 枠を置く場所だけを決める（画面には触らない。K を選ぶ試しでも使う）。クリティカルパスの在る枠から先に上へ置き、
+  // 鎖が地図の上に横 1 本で通るようにする。列をまたぐ枠は帯が横に長く、下の枠を押し下げるので、同じ組の中では後に置く
+  function place() {
+    const placed = [], out = [];
+    const bottom = f => { const s = shape(f, X[f.c0]); return Math.max(s.head.h, ...s.panes.map(p => p.y + p.h)); };
+    const order = frames.slice().sort((a, b) => (b.crit - a.crit) || (b.linked - a.linked) || (a.c1 - a.c0) - (b.c1 - b.c0) || a.c0 - b.c0 || bottom(b) - bottom(a));
+    for (const f of order) {
+      let xs = [0];
+      if (f.c0 === f.c1 && !f.linked) {
+        const c = f.c0, w = shape(f, 0).head.w;
+        xs = [];
+        for (let x = X[c]; x <= X[c] + W[c] - w + 0.5; x += step) xs.push(x);
+        if (!xs.length || xs[xs.length - 1] < X[c] + W[c] - w) xs.push(X[c] + W[c] - w);
+      }
+      let best = null;
+      for (const x of xs) {
+        const s = shape(f, x), rects = [{ x: s.head.x, w: s.head.w, dy: 0 }, ...s.panes.map(p => ({ x: p.x, w: p.w, dy: p.y }))];
+        let y = TOP;
+        for (const r of rects) for (const p of placed) if (p.x < r.x + r.w && r.x < p.x + p.w) y = Math.max(y, p.y + p.h + FGAP - r.dy);
+        if (!best || y < best.y) best = { x, y, s };
+      }
+      const { y, s } = best;
+      placed.push({ x: s.head.x, w: s.head.w, y, h: s.head.h }, ...s.panes.map(p => ({ x: p.x, w: p.w, y: y + p.y, h: p.h })));
+      out.push({ f, y, s });
+    }
+    return { out, h: Math.max(400, ...placed.map(p => p.y + p.h + BOTTOM)) };
+  }
+  // K を選ぶ: 列ごとの高さの目安をそろえる候補を作り、実際に置いてみて、画面に全体を収めたときの倍率がいちばん大きい物を採る
+  function optimize() {
+    const vw = Math.max(400, view.clientWidth), vh = Math.max(300, view.clientHeight);
+    // 線の無いカードは畳まずに数える（開いたときに 1 列で縦に伸びないよう。列の幅も開いたときの形で決めている）
+    const sizes = D.columns.map((_, c) => frames.filter(f => f.parts.has(c)).map(f => ({ p: f.parts.get(c), n: f.parts.get(c).loose.length })));
+    const kmax = sizes.map(l => Math.max(1, ...l.map(x => x.n)));
+    const est = (c, k) => sizes[c].reduce((h, { p, n }) => h + HEAD + PAD + FGAP + (p.nrows + (n ? Math.ceil(n / Math.min(n, k)) : 0)) * rowH + (p.fold.length ? CHIP : 0), 0);
+    const targets = new Set();
+    sizes.forEach((_, c) => { for (let k = 1; k <= kmax[c]; k++) targets.add(est(c, k)); });
+    let best = null;
+    const seen = new Set();
+    for (const t of targets) {
+      K = kmax.map((m, c) => { let k = 1; while (k < m && est(c, k) > t) k++; return k; });
+      const id = K.join(",");
+      if (seen.has(id)) continue;
+      seen.add(id);
+      measure();
+      const h = place().h, fit = Math.min(vw / worldW, vh / h), area = worldW * h;
+      if (!best || fit > best.fit + 1e-9 || (Math.abs(fit - best.fit) <= 1e-9 && area < best.area)) best = { fit, area, K: K.slice() };
+    }
+    if (best) K = best.K;
+    measure();
+  }
+  function layout() {
+    const { out, h } = place();
+    for (const { f, y, s } of out) {
+      f.box = { x: s.head.x, y, w: s.head.w, h: s.head.h };
+      const wide = s.panes.length > 1 || (s.panes.length === 1 && s.panes[0].w < s.head.w - 1);
+      f.el.classList.toggle("shut", f.shut);
+      f.el.classList.toggle("wide", wide);
+      Object.assign(f.el.style, { left: f.box.x + "px", top: y + "px", width: f.box.w + "px", height: s.head.h + "px" });
+      for (const [c, pane] of f.panes) {
+        const p = s.panes.find(q => q.c === c);
+        pane.classList.toggle("wide", wide);
+        pane.classList.toggle("off", !p);
+        if (p) Object.assign(pane.style, { left: p.x + "px", top: y + p.y + (wide ? 4 : 0) + "px", width: p.w + "px", height: p.h - (wide ? 4 : 0) + "px" });
+        else Object.assign(pane.style, { left: f.box.x + "px", top: y + "px", width: f.box.w + "px", height: HEAD + "px" });
+      }
+      for (const [c, part] of f.parts) {
+        const p = s.panes.find(q => q.c === c), chip = f.chips.get(c);
+        const put = (i, pos, gone) => { i.pos = pos; i.el.classList.toggle("gone", gone); Object.assign(i.el.style, { left: pos.x + "px", top: pos.y + "px" }); };
+        if (!p) {
+          for (const i of part.list) put(i, { x: f.box.x + PAD, y: y + 8 }, true);
+          if (chip) chip.classList.add("gone");
+          continue;
+        }
+        const bx = p.x + PAD, y0 = y + HEAD + (wide ? 4 : 0);
+        for (const i of part.linked) put(i, { x: bx + (i.rank - part.r0) * rstep, y: y0 + part.row.get(i.n) * rowH }, false);
+        let yy = y0 + part.nrows * rowH;
+        const ls = shown(part, f), k = across(ls.length, c);
+        ls.forEach((i, j) => put(i, { x: bx + (j % k) * step, y: yy + Math.floor(j / k) * rowH }, false));
+        if (ls.length) yy += Math.ceil(ls.length / k) * rowH;
+        for (const i of part.loose) if (!ls.includes(i)) put(i, { x: bx, y: yy }, true);
+        if (chip) {
+          chip.classList.remove("gone");
+          chip.textContent = `線の無い issue ${part.fold.length} 件 ${f.folded ? "▸ 開く" : "▾ 畳む"}`;
+          Object.assign(chip.style, { left: bx + "px", top: yy + "px", width: CW + "px", height: CHIP + "px" });
+        }
+      }
+    }
+    worldH = h;
+    cols.forEach((e, c) => Object.assign(e.style, { left: X[c] - COLGAP / 2 + "px", width: W[c] + COLGAP + "px", height: worldH + "px" }));
+    const at = D.today.at;
+    const tx = !W.length ? -1 : at <= 0 ? X[0] - COLGAP / 2 : at >= W.length ? X[W.length - 1] + W[W.length - 1] + COLGAP / 2 : X[at] - COLGAP / 2;
+    Object.assign(todayLine.style, { left: tx + "px", height: worldH + "px", display: tx < 0 ? "none" : "" });
+    world.style.width = worldW + "px";
+    world.style.height = worldH + "px";
+    svg.style.opacity = 0;
+    wires();
+    setTimeout(() => { svg.style.opacity = 1; }, world.classList.contains("anim") ? 260 : 0);
+    fillMini();
+    apply();
+  }
+
+  // ── 線: 止めている側の右の端から、待つ側の左の端へ。閉じた枠の issue は枠の端から引き、同じ端どうしは 1 本にまとめて本数を添える ──
+  function end(n, out) {
+    const f = frameOf.get(n), i = issueOf.get(n);
+    if (!f) return null;
+    if (f.shut) {
+      if (f.c0 === f.c1) return { id: "m" + f.m.n, x: out ? f.box.x + f.box.w : f.box.x, y: f.box.y + HEAD / 2 };
+      return { id: "m" + f.m.n + ":" + i.col, x: out ? Math.min(f.box.x + f.box.w, X[i.col] + SHUT_W) : X[i.col], y: f.box.y + HEAD / 2 };
+    }
+    return { id: "i" + n, x: out ? i.pos.x + CW : i.pos.x, y: i.pos.y + CH / 2 };
+  }
+  function wires() {
+    svg.textContent = "";
+    svg.setAttribute("width", worldW);
+    svg.setAttribute("height", worldH);
+    const mk = (id, color) => el("svg:marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 10, markerHeight: 10,
+      markerUnits: "userSpaceOnUse", orient: "auto" }, el("svg:path", { d: "M0,0 L10,5 L0,10 z", style: `fill:${color};stroke:none` }));
+    svg.append(el("svg:defs", {}, mk("ar-plain", "var(--fgColor-muted)"), mk("ar-crit", "var(--fgColor-done)"), mk("ar-late", "var(--fgColor-severe)")));
+    const groups = new Map();
+    for (const e of D.edges) {
+      const a = end(e[0], true), b = end(e[1], false);
+      if (!a || !b || a.id === b.id) continue;
+      const kind = onPath.has(key(e)) ? "crit" : late.has(key(e)) ? "late" : "plain";
+      const g = groups.get(a.id + ">" + b.id) || { a, b, n: [], kind: "plain" };
+      g.n.push(e);
+      if (kind === "crit" || (kind === "late" && g.kind === "plain")) g.kind = kind;
+      groups.set(a.id + ">" + b.id, g);
+    }
+    for (const g of groups.values()) {
+      const { a, b } = g, dx = Math.max(40, Math.abs(b.x - a.x) / 2);
+      const ns = g.n.flat().join(" ");
+      svg.append(el("svg:path", { class: g.kind === "plain" ? null : g.kind, "data-n": ns, "marker-end": `url(#ar-${g.kind})`,
+        d: `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - 2},${b.y}` }));
+      if (g.n.length > 1) svg.append(el("svg:text", { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 6, "text-anchor": "middle", "data-n": ns }, g.n.length + " 本"));
+    }
+  }
+
+  // ── 載せたカードの前後の鎖を濃く出す ──
+  function chain(n) {
+    const seen = new Set([n]);
+    for (const dir of ["up", "down"]) {
+      const todo = [n];
+      while (todo.length) for (const x of adj[dir].get(todo.pop()) || []) if (!seen.has(x)) { seen.add(x); todo.push(x); }
+    }
+    return seen;
+  }
+  function focusOn(set) {
+    world.classList.toggle("focus", !!set);
+    for (const i of issueOf.values()) i.el.classList.toggle("hot", !!set && set.has(i.n));
+    for (const f of frames) {
+      const hot = !!set && f.m.issues.some(i => set.has(i.n));
+      f.el.classList.toggle("hot", hot);
+      for (const p of f.panes.values()) p.classList.toggle("hot", hot);
+    }
+    for (const p of svg.querySelectorAll("[data-n]")) {
+      const ns = p.getAttribute("data-n").split(" ").map(Number);
+      let hot = false;
+      for (let k = 0; k < ns.length; k += 2) if (set && set.has(ns[k]) && set.has(ns[k + 1])) hot = true;
+      p.classList.toggle("hot", hot);
+    }
+  }
+  for (const a of document.querySelectorAll(".path a[data-n]")) {
+    const set = new Set(D.path.flat());
+    a.addEventListener("mouseenter", () => focusOn(set));
+    a.addEventListener("mouseleave", () => focusOn(searched()));
+  }
+
+  // ── 探す: 番号か題名に当たったカードに印を付け、閉じた枠は開き、1 件目を真ん中へ ──
+  const q = $("q"), hits = $("hits");
+  let hitList = [];
+  function searched() { return q.value.trim() ? new Set(hitList.map(i => i.n)) : null; }
+  q.addEventListener("input", () => {
+    const s = q.value.trim().toLowerCase().replace(/^#/, "");
+    hitList = s ? [...issueOf.values()].filter(i => String(i.n) === s || i.title.toLowerCase().includes(s)) : [];
+    for (const i of issueOf.values()) i.el.classList.toggle("hit", hitList.includes(i));
+    hits.textContent = s ? `${hitList.length} 件` : "";
+    focusOn(s ? new Set(hitList.map(i => i.n)) : null);
+    let moved = false;
+    for (const i of hitList) {
+      const f = frameOf.get(i.n);
+      if (f.shut) { f.shut = false; moved = true; }
+      if (f.folded && !linkedSet.has(i.n) && i.state === "idle") { f.folded = false; moved = true; }
+    }
+    if (moved) layout();
+  });
+  q.addEventListener("keydown", ev => { if (ev.key === "Enter" && hitList.length) center(hitList[0].pos.x + CW / 2, hitList[0].pos.y + CH / 2); });
+
+  // ── 拡大・縮小と、動かす。ブラウザのスクロールに頼らず、地図を translate と scale で動かす
+  // （HTML を見る窓の作りによってはスクロールが効かないため。ホイール・ドラッグ・矢印のキー・見取り図のどれでも動く） ──
+  let z = 1, tx = 0, ty = 0;
+  const M = 48;  // 地図の端を越えて動かせる余白（px）
+  function clamp() {
+    const vw = view.clientWidth, vh = view.clientHeight, w = worldW * z, h = worldH * z;
+    tx = w + 2 * M <= vw ? (vw - w) / 2 : Math.min(M, Math.max(vw - w - M, tx));
+    ty = h + 2 * M <= vh ? M / 2 : Math.min(M, Math.max(vh - h - M, ty));
+  }
+  function apply() {
+    clamp();
+    world.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
+    drawAxis();
+    drawMini();
+  }
+  function zoomTo(nz, cx, cy) {
+    nz = Math.min(1.6, Math.max(0.1, nz));
+    cx = cx == null ? view.clientWidth / 2 : cx;
+    cy = cy == null ? view.clientHeight / 2 : cy;
+    const wx = (cx - tx) / z, wy = (cy - ty) / z;
+    z = nz;
+    tx = cx - wx * z;
+    ty = cy - wy * z;
+    apply();
+  }
+  function panBy(dx, dy) { tx -= dx; ty -= dy; apply(); }
+  function center(x, y) { tx = view.clientWidth / 2 - x * z; ty = view.clientHeight / 2 - y * z; apply(); }
+  const heads = D.columns.map(c => el("div", { class: "h" + (c.late ? " late" : "") }, c.label));
+  const now = el("div", { class: "now" }, D.today.label);
+  axis.append(...heads, now);
+  function drawAxis() {
+    heads.forEach((h, c) => {
+      Object.assign(h.style, { left: X[c] * z + tx + "px", width: W[c] * z + "px" });
+      h.textContent = W[c] * z < 110 ? D.columns[c].label.replace(/^期日 /, "") : D.columns[c].label;
+    });
+    // 今日の印は列の間の隙間に置く。縮めて隙間が狭くなったら「今日」だけにし、さらに狭ければ出さない（期日の字に重ねない）
+    const gap = COLGAP * z;
+    now.textContent = gap < 100 ? "今日" : D.today.label;
+    Object.assign(now.style, { left: parseFloat(todayLine.style.left) * z + tx + "px", display: todayLine.style.display || (gap < 50 ? "none" : "") });
+  }
+
+  // 見取り図: 右下に地図全体を縮めて描き、今見えている所を枠で示す。押す・ドラッグするとそこへ動く
+  const mini = el("div", { class: "mini", title: "地図全体。押すかドラッグすると、そこへ動く" });
+  const msvg = el("svg:svg", {}), mview = el("div", { class: "mview" });
+  mini.append(msvg, mview);
+  view.append(mini);
+  const MINI_W = 220, MINI_H = 150;
+  let ms = 1;
+  function drawMini() {
+    ms = Math.min(MINI_W / worldW, MINI_H / worldH);
+    const w = worldW * ms, h = worldH * ms;
+    Object.assign(mini.style, { width: w + "px", height: h + "px" });
+    Object.assign(mview.style, { left: -tx / z * ms + "px", top: -ty / z * ms + "px",
+      width: view.clientWidth / z * ms + "px", height: view.clientHeight / z * ms + "px" });
+  }
+  function fillMini() {
+    msvg.textContent = "";
+    ms = Math.min(MINI_W / worldW, MINI_H / worldH);
+    Object.assign(msvg.style, { width: worldW * ms + "px", height: worldH * ms + "px" });
+    msvg.setAttribute("viewBox", `0 0 ${worldW} ${worldH}`);
+    for (const f of frames) {
+      if (!f.box) continue;
+      msvg.append(el("svg:rect", { class: "mf", x: f.box.x, y: f.box.y, width: f.box.w, height: f.box.h, rx: 12 }));
+      for (const i of f.m.issues) if (!i.el.classList.contains("gone"))
+        msvg.append(el("svg:rect", { class: "mc " + i.state, x: i.pos.x, y: i.pos.y, width: CW, height: CH, rx: 8 }));
+    }
+    drawMini();
+  }
+  let mdrag = false;
+  const miniGo = ev => { const r = mini.getBoundingClientRect(); center((ev.clientX - r.left) / ms, (ev.clientY - r.top) / ms); };
+  // 指の捕まえ（pointer capture）は取れなくても動かす（取れないと例外になる環境がある）
+  const capture = (node, id) => { try { node.setPointerCapture(id); } catch (e) { /* 捕まえなしで続ける */ } };
+  mini.addEventListener("pointerdown", ev => { mdrag = true; capture(mini, ev.pointerId); miniGo(ev); });
+  mini.addEventListener("pointermove", ev => { if (mdrag) miniGo(ev); });
+  mini.addEventListener("pointerup", () => { mdrag = false; });
+
+  // ホイール: そのまま回すと上下、Shift と一緒なら左右、Ctrl か ⌘ と一緒なら拡大・縮小。トラックパッドの横の動きも効く
+  view.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const k = ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? view.clientHeight : 1;
+    if (ev.ctrlKey || ev.metaKey) {
+      const r = view.getBoundingClientRect();
+      zoomTo(z * Math.exp(-ev.deltaY * k * 0.003), ev.clientX - r.left, ev.clientY - r.top);
+    } else if (ev.shiftKey && !ev.deltaX) panBy(ev.deltaY * k, 0);
+    else panBy(ev.deltaX * k, ev.deltaY * k);
+  }, { passive: false });
+  // ドラッグ: カードや枠の見出しの上からでも動かせる。4px より動いたらドラッグとみなし、そのあとのクリック（カードを開く・枠の開け閉め）は捨てる
+  let drag = null, dragged = false;
+  view.addEventListener("pointerdown", ev => {
+    if (ev.button !== 0 || ev.target.closest("input, button, .mini")) return;
+    drag = { x: ev.clientX, y: ev.clientY, tx, ty, id: ev.pointerId };
+    dragged = false;
+  });
+  view.addEventListener("pointermove", ev => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+    if (!dragged && Math.hypot(dx, dy) < 4) return;
+    if (!dragged) { dragged = true; view.classList.add("drag"); capture(view, drag.id); }
+    tx = drag.tx + dx;
+    ty = drag.ty + dy;
+    apply();
+  });
+  const stop = () => { drag = null; view.classList.remove("drag"); };
+  view.addEventListener("pointerup", stop);
+  view.addEventListener("pointercancel", stop);
+  view.addEventListener("click", ev => { if (dragged) { ev.preventDefault(); ev.stopPropagation(); dragged = false; } }, true);
+  view.addEventListener("dragstart", ev => ev.preventDefault());
+  // キー: 矢印で動かし、+ と - で拡大・縮小、0 で全体
+  view.addEventListener("keydown", ev => {
+    const step = ev.shiftKey ? 400 : 80, keys = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step],
+      PageUp: [0, -view.clientHeight * 0.8], PageDown: [0, view.clientHeight * 0.8] };
+    if (keys[ev.key]) { ev.preventDefault(); panBy(...keys[ev.key]); }
+    else if (ev.key === "+" || ev.key === "=") zoomTo(z * 1.25);
+    else if (ev.key === "-") zoomTo(z / 1.25);
+    else if (ev.key === "0") fit();
+  });
+  function fit() {
+    z = Math.min(1, Math.max(0.1, Math.min((view.clientWidth - M) / worldW, (view.clientHeight - M) / worldH)));
+    tx = M / 2;
+    ty = M / 2;
+    apply();
+  }
+  document.querySelectorAll(".tools button").forEach(b => b.addEventListener("click", () => {
+    const act = b.dataset.act;
+    if (act === "open" || act === "close") { for (const f of frames) f.shut = act === "close"; layout(); }
+    else if (act === "in") zoomTo(z * 1.25);
+    else if (act === "out") zoomTo(z / 1.25);
+    else if (act === "fit") fit();
+    else if (act === "one") zoomTo(1);
+  }));
+  // 地図の領域を窓の下の端まで伸ばす（拡張が中身を拡大・縮小していても、CSS の px に直して合わせる）
+  function fillHeight() {
+    const r = view.getBoundingClientRect(), s = view.offsetWidth ? r.width / view.offsetWidth : 1;
+    view.style.height = Math.max(240, (window.innerHeight - r.top) / (s || 1) - 2) + "px";
+  }
+  window.addEventListener("resize", () => { fillHeight(); apply(); });
+
+  // 最初は等倍（字を読める大きさを先にする。ほかの所へはホイール・ドラッグ・見取り図で動き、全体は「全体」で見る）
+  fillHeight();
+  optimize();
+  layout();
+  z = 1;
+  tx = ty = 0;
+  apply();
+  view.focus({ preventScroll: true });
+  requestAnimationFrame(() => world.classList.add("anim"));
+})();
+</script>
 </body>
 </html>

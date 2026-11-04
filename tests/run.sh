@@ -6425,12 +6425,12 @@ expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義�
     "$PY_BIN" "$WT" --help
 
 # ---- attention/milestone-map: open のマイルストーン全部を 1 枚の地図にする ----
-# GitHub には触らない。gh を固定の材料に差し替え、依存 0 件・期日なし・期日切れ・標本の少ない所で HTML が壊れないことと、
-# 見込みが乱数の種で決まることを固定する
+# GitHub には触らない。gh を固定の材料に差し替え、blocked by 0 本・期日なし・期日切れ・輪で HTML が壊れないことと、
+# カードの色・列の置き方・線・クリティカルパスの規則を固定する
 MM="$ROOT/attention/scripts/milestone-map.py"
-expect_output 0 "OK" "milestone-map: 見込み・線・候補・ページの回帰（unittest）" \
+expect_output 0 "OK" "milestone-map: 色・列・線・クリティカルパス・ページの回帰（unittest）" \
     "$PY_BIN" "$ROOT/tests/milestone-map-suite.py"
-expect_output 0 "見ていないもの" "milestone-map: --help に見込みの出し方と見ていないものが出る" \
+expect_output 0 "見ていないもの" "milestone-map: --help に色と線の定義と見ていないものが出る" \
     "$PY_BIN" "$MM" --help
 
 # works-dispatch の試験は、このリポジトリの会社の形（.claude/company.toml）の鍵も読む（test_known_keys.py）

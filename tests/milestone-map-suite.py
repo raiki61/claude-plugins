@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """milestone-map.py の規則を pin する回帰テスト。GitHub には触らず、gh を固定の材料に差し替えて回す。
 
-規則は milestone-map.py 冒頭の定義が正本で、ここはそれを入力で叩く。頼み（2026-11-04、guided-resolver の窓口）が
-挙げた端の場合——依存 0 件・期日なし・期日切れ・閉じた件数の少ないマイルストーン——で HTML が壊れないことと、
-モンテカルロの日付が乱数の種で決まることを固定する。
+規則は milestone-map.py 冒頭の定義が正本で、ここはそれを入力で叩く。blocked by が 0 本でも地図が出ること
+（持ち主 2026-11-04「なかったとしてもちゃんと出るようにね」）・カードの色の決め方（赤が緑に勝つ）・線は地図に載った
+issue どうしだけ・止めている側は待つ側より左の列・クリティカルパスは件数のいちばん多い鎖で輪を外す、を固定する。
 """
 
 import contextlib
@@ -14,6 +14,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -33,44 +34,34 @@ TODAY = dt.date(2026, 11, 4)
 REPO = "o/r"
 
 
-def issue(n, title=None, body="", blocked=(), parent=None, sub=(0, 0)):
-    """open の issue の生の材料。blocked は (番号, 相手のマイルストーン, 状態, リポジトリ) の並び。"""
-    nodes = [{"number": b, "title": f"blocker {b}", "url": f"https://github.com/{repo}/issues/{b}", "state": st,
+def issue(n, blocked=(), prs=()):
+    """open の issue の生の材料。blocked は (番号, 相手のマイルストーン, 状態, リポジトリ) の並び、prs は (番号, 状態)。"""
+    nodes = [{"number": b, "url": f"https://github.com/{repo}/issues/{b}", "state": st,
               "repository": {"nameWithOwner": repo}, "milestone": {"number": ms} if ms else None}
              for b, ms, st, repo in blocked]
-    return {"number": n, "title": title or f"issue {n}", "url": f"https://github.com/o/r/issues/{n}",
-            "createdAt": "2026-08-01T00:00:00Z", "body": body,
-            "parent": {"number": parent[0], "milestone": {"number": parent[1]} if parent[1] else None} if parent else None,
-            "subIssuesSummary": {"total": sub[0], "completed": sub[1]},
-            "blocking": {"totalCount": 0}, "blockedBy": {"totalCount": len(nodes), "nodes": nodes}}
+    return {"number": n, "title": f"issue <{n}>", "url": f"https://github.com/o/r/issues/{n}",
+            "blockedBy": {"totalCount": len(nodes), "nodes": nodes},
+            "closedByPullRequestsReferences": {"totalCount": len(prs), "nodes": [
+                {"number": p, "url": f"https://github.com/o/r/pull/{p}", "state": st} for p, st in prs]}}
 
 
-def milestone(n, due=None, created="2026-06-01T00:00:00Z", issues=(), closed=(), desc="", prs=()):
-    """マイルストーンの生の材料。closed は閉じた日（date）の並び。"""
-    return {"number": n, "title": f"M{n}", "url": f"https://github.com/o/r/milestone/{n}", "description": desc,
-            "dueOn": f"{due}T07:00:00Z" if due else None, "createdAt": created,
-            "closedIssues": {"totalCount": len(closed) + 3},
-            "pullRequests": {"totalCount": len(prs), "nodes": [
-                {"number": p, "title": f"pr {p}", "url": f"https://github.com/o/r/pull/{p}", "isDraft": False} for p in prs]},
-            "openIssues": list(issues),
-            "closedRecent": [{"number": 900 + k, "closedAt": f"{d.isoformat()}T03:00:00Z"} for k, d in enumerate(closed)]}
+def milestone(n, due=None, issues=(), closed=3):
+    return {"number": n, "title": f"M{n}", "url": f"https://github.com/o/r/milestone/{n}",
+            "dueOn": f"{due}T07:00:00Z" if due else None, "closedIssues": {"totalCount": closed},
+            "openIssues": list(issues)}
 
 
-def weeks_ago(*ks):
-    return [TODAY - dt.timedelta(days=7 * k + 1) for k in ks]
+def build(raw):
+    return mm.build(raw, 0, REPO, TODAY, now=dt.datetime(2026, 11, 4, 9, tzinfo=dt.timezone.utc))
 
 
-def build(raw, **kw):
-    kw.setdefault("trials", 500)
-    return mm.build(raw, 0, REPO, TODAY, now=dt.datetime(2026, 11, 4, 9, tzinfo=dt.timezone.utc), **kw)
-
-
-FIELDS = {"headline": "全体の一言", "points": ["点 1"], "notes": {}, "trays": []}
+def page_of(data):
+    return mm.build_html(mm.TEMPLATE.read_text(encoding="utf-8"), data)
 
 
 class Balance(html.parser.HTMLParser):
     """開きと閉じの対応を数える。void の要素は数えない。"""
-    VOID = {"meta", "br", "input", "img", "hr", "link", "path", "line", "rect"}
+    VOID = {"meta", "br", "input", "img", "hr", "link"}
 
     def __init__(self):
         super().__init__()
@@ -93,244 +84,175 @@ class Balance(html.parser.HTMLParser):
 
 
 def assert_page(test, page):
-    test.assertNotIn("<script", page.lower())
-    test.assertNotIn("<!--__BODY__-->", page)
+    """1 枚で完結する（外のファイルを読み込まない）・差し込み口が残らない・タグの対応が合う。"""
+    test.assertNotRegex(page, r"<script[^>]+src=|<link[^>]+href=")
+    for slot in (mm.BODY_SLOT, mm.DATA_SLOT):
+        test.assertNotIn(slot, page)
     p = Balance()
     p.feed(page)
     test.assertEqual(p.errors, [])
     test.assertEqual(p.stack, [])
-    test.assertIn("見ていないもの", page)
-    test.assertIn("https://www.hanssamios.com/dokuwiki/why_a_plan_based_on_average_velocity_will_fail", page)
 
 
-def page_of(data, fields=FIELDS):
-    return mm.build_html(mm.TEMPLATE.read_text(encoding="utf-8"), data, fields)
+def view_of(page):
+    """ページのスクリプトへ渡した地図の材料。"""
+    return json.loads(re.search(r'<script type="application/json" id="map-data">(.*?)</script>', page, re.S).group(1))
 
 
-class WeeklyClosed(unittest.TestCase):
-    def test_counts_by_week_oldest_first(self):
-        dates = [TODAY, TODAY - dt.timedelta(days=6), TODAY - dt.timedelta(days=7), TODAY - dt.timedelta(days=30)]
-        self.assertEqual(mm.weekly_closed(dates, dt.date(2026, 1, 1), TODAY, weeks=5), [1, 0, 0, 1, 2])
+class Cards(unittest.TestCase):
+    def test_colors(self):
+        rows = {i["number"]: i for i in build([milestone(1, issues=[
+            issue(10),
+            issue(11, prs=[(5, "OPEN")]),
+            issue(12, blocked=[(10, 1, "OPEN", REPO)], prs=[(6, "OPEN")]),  # 両方に当たれば赤
+            issue(13, blocked=[(99, 1, "CLOSED", REPO)], prs=[(7, "MERGED")]),  # 閉じた相手・閉じた PR は数えない
+        ])])["milestones"][0]["issues"]}
+        self.assertEqual({n: r["state"] for n, r in rows.items()}, {10: "idle", 11: "pr", 12: "blocked", 13: "idle"})
+        self.assertEqual(rows[12]["prs"], [6])
 
-    def test_weeks_before_creation_are_not_samples(self):
-        # 20 日前に作ったマイルストーンは満ちた 2 週だけ（作る前と、作った日を含む端数の週を混ぜると見込みが遅く出る）
-        self.assertEqual(len(mm.weekly_closed([], TODAY - dt.timedelta(days=20), TODAY, weeks=16)), 2)
-        self.assertEqual(len(mm.weekly_closed([], TODAY - dt.timedelta(days=14), TODAY, weeks=16)), 2)
+    def test_order_red_green_gray(self):
+        data = build([milestone(1, issues=[issue(3), issue(2, prs=[(5, "OPEN")]), issue(4, blocked=[(9, None, "OPEN", REPO)])])])
+        self.assertEqual([i["number"] for i in data["milestones"][0]["issues"]], [4, 2, 3])
 
-    def test_created_today_has_one_week(self):
-        self.assertEqual(mm.weekly_closed([], TODAY, TODAY, weeks=16), [0])
+    def test_off_map_blocker_is_red_without_line(self):
+        data = build([milestone(1, issues=[
+            issue(10, blocked=[(5, None, "OPEN", REPO)]),      # マイルストーンなし
+            issue(11, blocked=[(6, 1, "OPEN", "x/y")]),         # 別のリポジトリ
+            issue(12, blocked=[(7, 9, "OPEN", REPO)]),          # 閉じたマイルストーン（地図に居ない）
+        ])])
+        self.assertEqual(data["edges"], [])
+        self.assertEqual(data["scope"]["blocked"], 3)
+        title = mm.card_title(next(i for i in data["milestones"][0]["issues"] if i["number"] == 11))
+        self.assertIn("x/y#6", title)
 
-    def test_older_than_window_is_dropped(self):
-        self.assertEqual(mm.weekly_closed([TODAY - dt.timedelta(days=200)], None, TODAY, weeks=4), [0, 0, 0, 0])
-
-
-class Forecast(unittest.TestCase):
-    WEEKLY = [0, 3, 1, 4, 2, 0, 5, 2, 1, 3, 2, 4]
-
-    def test_same_seed_same_dates(self):
-        a = mm.forecast(20, self.WEEKLY, TODAY, seed=7, key=3, trials=2000)
-        b = mm.forecast(20, self.WEEKLY, TODAY, seed=7, key=3, trials=2000)
-        self.assertEqual(a, b)
-
-    def test_seed_is_used(self):
-        runs = {mm.forecast(20, self.WEEKLY, TODAY, seed=s, key=3, trials=200)["p85"] for s in range(1, 12)}
-        self.assertGreater(len(runs), 1)
-
-    def test_pinned_dates(self):
-        # 規則（復元抽出・分位の取り方・週を今日に足す）を変えたら、ここが変わる
-        f = mm.forecast(20, self.WEEKLY, TODAY, seed=1, key=1, trials=10000)
-        self.assertEqual((f["weeks50"], f["weeks85"]), (9, 12))
-        self.assertEqual((f["p50"], f["p85"]), ("2027-01-06", "2027-01-27"))
-
-    def test_p50_not_after_p85(self):
-        f = mm.forecast(37, self.WEEKLY, TODAY, trials=1000)
-        self.assertLessEqual(f["p50"], f["p85"])
-
-    def test_done_and_none(self):
-        self.assertEqual(mm.forecast(0, [], TODAY)["state"], "done")
-        self.assertEqual(mm.forecast(5, [0, 0, 0], TODAY)["state"], "none")
-
-    def test_wide_when_few_samples(self):
-        f = mm.forecast(3, [1, 0, 2], TODAY, trials=200)
-        self.assertEqual(len(f["wide"]), 2)
-        self.assertEqual(mm.forecast(3, self.WEEKLY * 2, TODAY, trials=200)["wide"], [])
-
-    def test_late_against_due(self):
-        self.assertTrue(mm.forecast(20, self.WEEKLY, TODAY, trials=500, due=TODAY)["late"])
-        self.assertFalse(mm.forecast(20, self.WEEKLY, TODAY, trials=500, due=dt.date(2030, 1, 1))["late"])
-
-    def test_capped_when_throughput_is_tiny(self):
-        f = mm.forecast(500, [1] + [0] * 15, TODAY, trials=50)
-        self.assertTrue(f["capped"])
-        self.assertEqual(f["weeks85"], mm.CAP_WEEKS)
-
-    def test_no_average_division(self):
-        # 平均（2.25 件/週）で割ると 9 週。分布の 85% はそれより後ろに出る
-        f = mm.forecast(20, self.WEEKLY, TODAY, trials=10000)
-        self.assertGreater(f["weeks85"], 20 / (sum(self.WEEKLY) / len(self.WEEKLY)))
-
-
-class Headings(unittest.TestCase):
-    def test_headings_skip_code(self):
-        text = "## 概要\n本文\n```\n# コードの中\n```\n### 着手順 ##\n#タグ\n"
-        self.assertEqual(mm.headings(text), ["概要", "着手順"])
-
-    def test_none(self):
-        self.assertEqual(mm.headings(None), [])
+    def test_own_repo_in_other_case_is_not_other_repo(self):
+        data = build([milestone(1, issues=[issue(10), issue(11, blocked=[(10, 1, "OPEN", "O/R")])])])
+        self.assertEqual(data["edges"], [[10, 11]])
 
 
 class Edges(unittest.TestCase):
     def raw(self):
-        return [
-            milestone(1, due="2026-12-01", issues=[issue(10)], closed=weeks_ago(1, 2)),
-            milestone(2, due="2026-11-20", issues=[
-                issue(20, blocked=[(10, 1, "OPEN", REPO)]),
-                issue(21, blocked=[(10, 1, "OPEN", REPO), (99, None, "OPEN", REPO)]),
-                issue(22, blocked=[(5, 7, "OPEN", "x/other"), (6, 1, "CLOSED", REPO), (23, 2, "OPEN", REPO)]),
-                issue(23)], closed=weeks_ago(1)),
-            milestone(3, issues=[issue(30, blocked=[(31, 42, "OPEN", REPO)])]),
-        ]
+        # 2 → 3 → 4 は 3 件の鎖（マイルストーンをまたぐ）、5 → 6 は 2 件、同じマイルストーンの中の線も引く
+        return [milestone(1, "2026-11-20", [issue(2), issue(5)]),
+                milestone(2, "2026-11-10", [issue(3, blocked=[(2, 1, "OPEN", REPO)]),
+                                            issue(6, blocked=[(5, 1, "OPEN", REPO)])]),
+                milestone(3, None, [issue(4, blocked=[(3, 2, "OPEN", REPO)])])]
 
-    def test_cross_edges_and_outside(self):
-        d = build(self.raw())
-        self.assertEqual(d["edges"], [{"from": 1, "to": 2, "count": 2, "pairs": [[20, 10], [21, 10]], "reversed": True}])
-        where = sorted((o["number"], o["where"]) for o in d["outside"])
-        self.assertEqual(where, [(21, "no_milestone"), (22, "other_repo"), (30, "closed_milestone")])
-        # 閉じた相手（#6）と同じマイルストーンの中（#23）は線にも外にも出ない
-        self.assertEqual(d["scope"]["cross_edges"], 2)
-        self.assertIn("（1 件）", d["not_seen"])
+    def test_edges_and_path(self):
+        data = build(self.raw())
+        self.assertEqual(data["edges"], [[2, 3], [3, 4], [5, 6]])
+        self.assertEqual(data["critical"], {"path": [2, 3, 4], "cycles": []})
 
-    def test_critical_chain_follows_latest_finish(self):
-        d = build(self.raw())
-        self.assertEqual(d["critical"]["chain"], [1, 2])
-        self.assertEqual(d["critical"]["tail_due"], "2026-11-20")
-        self.assertEqual(d["critical"]["unknown"], [])
+    def test_frames_ordered_by_due_then_no_due(self):
+        self.assertEqual([m["number"] for m in build(self.raw())["milestones"]], [2, 1, 3])
 
-    def test_no_edges_no_critical(self):
-        d = build([milestone(1, due="2026-12-01", issues=[issue(10)])])
-        self.assertEqual(d["edges"], [])
-        self.assertIsNone(d["critical"])
+    def test_no_edges_no_path(self):
+        self.assertEqual(mm.critical_path([]), {"path": [], "cycles": []})
 
-    def test_unknown_forecast_is_not_on_chain(self):
-        raw = [milestone(1, issues=[issue(10)]),  # 閉じた実績が無い
-               milestone(2, issues=[issue(20, blocked=[(10, 1, "OPEN", REPO)])], closed=weeks_ago(1))]
-        crit = build(raw)["critical"]
-        self.assertEqual(crit["chain"], [])
-        self.assertEqual(crit["unknown"], [1, 2])
+    def test_tie_is_stable(self):
+        self.assertEqual(mm.critical_path([[5, 6], [1, 2]])["path"], [1, 2])
 
-    def test_cycle_is_reported(self):
-        ms = [{"number": n, "today": "2026-11-04", "forecast": {"state": "ok", "p85": "2026-12-01"}} for n in (1, 2)]
-        edges = [{"from": 1, "to": 2}, {"from": 2, "to": 1}]
-        crit = mm.critical_chain(ms, edges)
+    def test_branching_takes_longest(self):
+        self.assertEqual(mm.critical_path([[1, 2], [1, 3], [3, 4], [4, 5], [2, 9]])["path"], [1, 3, 4, 5])
+
+    def test_cycle_is_dropped_and_reported(self):
+        crit = mm.critical_path([[1, 2], [2, 1], [7, 8]])
+        self.assertEqual(crit["path"], [7, 8])
         self.assertTrue(crit["cycles"])
-        self.assertEqual(crit["chain"], [])
+
+    def test_only_cycle(self):
+        self.assertEqual(mm.critical_path([[1, 2], [2, 1]])["path"], [])
+
+    def test_cycle_downstream_keeps_the_chain_before_it(self):
+        # #1 → #2 ⇄ #3 と #1 → #4。輪の中の線だけを外すので、#1 → #2 と #1 → #4 の鎖は残る
+        crit = mm.critical_path([[1, 2], [2, 3], [3, 2], [1, 4]])
+        self.assertEqual(crit, {"path": [1, 2], "cycles": [[2, 3, 2]]})
+
+    def test_self_block_is_a_cycle(self):
+        self.assertEqual(mm.critical_path([[5, 5], [5, 6]]), {"path": [5, 6], "cycles": [[5, 5]]})
 
 
-class RepoNames(unittest.TestCase):
-    def test_own_repo_in_other_case_is_not_other_repo(self):
-        raw = [milestone(1, issues=[issue(10)], closed=weeks_ago(1)),
-               milestone(2, issues=[issue(20, blocked=[(10, 1, "OPEN", "O/R")])], closed=weeks_ago(1))]
-        d = build(raw)
-        self.assertEqual([(e["from"], e["to"]) for e in d["edges"]], [(1, 2)])
-        self.assertEqual(d["outside"], [])
+class Columns(unittest.TestCase):
+    """左から右へ時間が流れる置き方。止めている側は、待つ側より左の列へ寄せる。"""
 
-    def test_other_repo_blocker_does_not_hide_candidate(self):
-        raw = [milestone(1, issues=[issue(10, body="#20 が先", blocked=[(20, None, "OPEN", "x/other")])]),
-               milestone(2, issues=[issue(20)])]
-        self.assertEqual([(c["a"], c["b"]) for c in build(raw)["candidates"]], [(1, 2)])
+    def test_blockers_go_left_of_what_they_block(self):
+        data = build(Edges().raw())
+        col, rank, heads, width = mm.columns(data)
+        # 期日の列は 11-10・11-20・期日なし。#2 と #5（11-20）は 11-10 の #3・#6 を止めるので 11-10 の列へ寄り、
+        # 同じ列の中で #3・#6 より左の段に並ぶ
+        self.assertEqual(col, {2: 0, 5: 0, 3: 0, 6: 0, 4: 2})
+        self.assertEqual(rank, {2: 0, 5: 0, 3: 1, 6: 1, 4: 0})
+        self.assertEqual(heads, {0: "2026-11-10", 1: "2026-11-20", 2: None})
+        self.assertEqual(width, 3)
+        for a, b in data["edges"]:
+            self.assertLess((col[a], rank[a]), (col[b], rank[b]))
 
+    def test_chain_inside_one_milestone_keeps_its_due(self):
+        # 同じマイルストーンの中の鎖は期日の列を動かず、列の中で段が進む
+        data = build([milestone(1, "2026-12-01", [issue(1), issue(2, blocked=[(1, 1, "OPEN", REPO)]),
+                                                  issue(3, blocked=[(2, 1, "OPEN", REPO)]), issue(4)])])
+        col, rank, _, _ = mm.columns(data)
+        self.assertEqual((col, rank), ({1: 0, 2: 0, 3: 0, 4: 0}, {1: 0, 2: 1, 3: 2, 4: 0}))
 
-class Candidates(unittest.TestCase):
-    def test_mentions_in_other_milestone(self):
-        many = " ".join(f"#{n}" for n in range(100, 120))
-        raw = [milestone(1, issues=[issue(10, body="#20 が先。#11 は同じ所。https://github.com/o/r/issues/30 も"),
-                                    issue(11, body="#20 は blocked by 済み", blocked=[(20, 2, "OPEN", REPO)]),
-                                    issue(12, body="棚卸し " + many + " #20")]),
-               milestone(2, issues=[issue(20, body="`#10` はコードの中")]),
-               milestone(3, issues=[issue(30)])]
-        d = build(raw)
-        self.assertEqual(d["candidates"], [{"a": 1, "b": 2, "count": 1, "pairs": [[10, 20]]},
-                                           {"a": 1, "b": 3, "count": 1, "pairs": [[10, 30]]}])
-        self.assertTrue(any("#12" in x for x in d["limits"]))
-        self.assertIn("一覧とみなして外した issue が 1 件", d["not_seen"])
+    def test_without_lines_each_issue_sits_at_its_due(self):
+        data = build([milestone(1, "2026-12-01", [issue(1)]), milestone(2, "2026-11-01", [issue(2)]), milestone(3, None, [issue(3)])])
+        self.assertEqual(mm.columns(data), ({2: 0, 1: 1, 3: 2}, {2: 0, 1: 0, 3: 0}, {0: "2026-11-01", 1: "2026-12-01", 2: None}, 3))
 
+    def test_cycle_does_not_hang(self):
+        data = build([milestone(1, "2026-12-01", [issue(1, blocked=[(2, 1, "OPEN", REPO)]),
+                                                  issue(2, blocked=[(1, 1, "OPEN", REPO)])])])
+        col, rank, _, _ = mm.columns(data)
+        self.assertEqual((set(col), set(rank.values())), ({1, 2}, {0}))
 
-class Fields(unittest.TestCase):
-    data = {"milestones": [{"number": 4}, {"number": 9}]}
-
-    def test_good(self):
-        self.assertEqual(mm.validate_fields({"headline": "h", "points": ["a"], "notes": {"4": "n"}, "trays": [9]},
-                                            self.data), [])
-        self.assertEqual(mm.validate_fields({"headline": "h"}, self.data), [])
-
-    def test_errors(self):
-        errs = mm.validate_fields({"headline": "x" * 81, "points": ["a"] * 7, "notes": {"5": "n", "4": ""},
-                                   "trays": [9, 8], "extra": 1}, self.data)
-        joined = "\n".join(errs)
-        for word in ("知らないキー extra", "headline が 81 字", "points が 7 件", "notes の 5", "notes の 4 が空",
-                     "trays の 8"):
-            self.assertIn(word, joined)
-
-    def test_wrong_types(self):
-        self.assertTrue(mm.validate_fields([], self.data))
-        self.assertTrue(mm.validate_fields({"headline": "h", "trays": ["4"]}, self.data))
-        self.assertTrue(mm.validate_fields({"headline": "h", "trays": [True]}, self.data))
-        self.assertTrue(mm.validate_fields({"headline": " "}, self.data))
-        self.assertTrue(mm.validate_fields({"headline": "h", "notes": {"²": "n"}}, self.data))
+    def test_late_edges(self):
+        # 止めている側のマイルストーンの期日が後ろ（#2 は 11-20 で #3 は 11-10）。期日なしの側へ向かう線は逆転でない
+        self.assertEqual(mm.late_edges(build(Edges().raw())), [[2, 3], [5, 6]])
 
 
 class Page(unittest.TestCase):
-    def test_edge_cases_render(self):
-        raw = [milestone(1, due="2026-10-20", issues=[issue(10)], closed=weeks_ago(3)),         # 期日切れ・少ない標本
-               milestone(2, issues=[issue(20), issue(21)], created="2026-10-30T00:00:00Z"),   # 期日なし・実績なし
-               milestone(3, due="2026-12-24", issues=[]),                                     # 残り 0
-               milestone(4, due="2027-03-01", issues=[issue(40, title="<b>&\"'")], closed=weeks_ago(*range(16)) * 2,
-                         desc="## 概要\n<script>alert(1)</script>", prs=[7])]
-        d = build(raw)
-        self.assertEqual(d["milestones"][0]["overdue_days"], 15)
-        page = page_of(d, {"headline": "<一言>", "points": [], "notes": {"2": "期日なし"}, "trays": [3]})
+    def test_no_blocked_by_still_renders(self):
+        data = build([milestone(1, "2026-10-01", [issue(1), issue(2, prs=[(3, "OPEN")])]), milestone(2), milestone(3)])
+        page = page_of(data)
         assert_page(self, page)
-        self.assertIn("期日切れ 15 日", page)
-        self.assertIn("期日なし", page)
-        self.assertIn("0 件なので、依存の線は出ない", page)
-        self.assertIn("&lt;一言&gt;", page)
-        self.assertIn("<h2>受け皿</h2>", page)
-        self.assertNotIn("律速", page.split("<h2>依存</h2>")[1].split("<h2>")[0])
+        # 線が無いときは、見出しにクリティカルパスの行を出さない（無いと断る行も要らない。持ち主 2026-11-04）
+        self.assertNotIn('class="path"', page.split('<header class="top">')[1].split("</header>")[0])
+        v = view_of(page)
+        self.assertEqual((v["edges"], v["path"], v["late"]), ([], [], []))
+        self.assertEqual(v["columns"], [{"label": "期日 10-01", "late": True}, {"label": "期日なし", "late": False}])
+        self.assertEqual(v["today"], {"at": 1, "label": "今日 11-04"})
+        self.assertEqual([(m["n"], m["col"], m["open"], m["overdue"]) for m in v["milestones"]], [(1, 0, 2, 34), (2, 1, 0, 0), (3, 1, 0, 0)])
+        self.assertEqual([(i["n"], i["state"], i["col"]) for i in v["milestones"][0]["issues"]], [(2, "pr", 0), (1, "idle", 0)])
 
     def test_empty_repo(self):
         page = page_of(build([]))
         assert_page(self, page)
+        self.assertEqual((view_of(page)["milestones"], view_of(page)["columns"]), ([], []))
 
-    def test_lines_and_critical(self):
-        raw = Edges().raw()
-        page = page_of(build(raw))
+    def test_lines_and_path_reach_the_script(self):
+        page = page_of(build(Edges().raw()))
         assert_page(self, page)
-        self.assertIn("marker-end", page)
-        self.assertIn("律速", page)
-        self.assertIn("期日の逆転", page)
+        v = view_of(page)
+        self.assertEqual(v["edges"], [[2, 3], [3, 4], [5, 6]])
+        self.assertEqual(v["path"], [[2, 3], [3, 4]])
+        self.assertEqual(v["late"], [[2, 3], [5, 6]])
+        self.assertIn("クリティカルパス 3 件", page)
+        crit = sorted(i["n"] for m in v["milestones"] for i in m["issues"] if i["crit"])
+        self.assertEqual(crit, [2, 3, 4])
+        cols = {i["n"]: i["col"] for m in v["milestones"] for i in m["issues"]}
+        self.assertEqual(cols, {2: 0, 5: 0, 3: 0, 6: 0, 4: 2})
 
-    def test_candidates_hidden_by_default(self):
-        raw = [milestone(1, due="2026-12-01", issues=[issue(10, body="#20")]),
-               milestone(2, due="2026-12-10", issues=[issue(20)])]
-        page = page_of(build(raw))
-        assert_page(self, page)
-        self.assertIn('id="showcand"', page)
-        self.assertIn('<g class="cand">', page)
-        self.assertIn(".fig .cand { display: none; }", page)
+    def test_titles_are_escaped(self):
+        page = page_of(build([milestone(1, issues=[issue(1)])]))
+        self.assertNotIn("issue <1>", page)
+        self.assertEqual(view_of(page)["milestones"][0]["issues"][0]["title"], "issue <1>")
 
     def test_year_shown_when_not_this_year(self):
-        self.assertEqual(mm.md("2026-12-01", 2026), "12-01")
-        self.assertEqual(mm.md("2027-01-20", 2026), "2027-01-20")
-
-    def test_box_lines_fit(self):
-        m = build([milestone(1, due="2026-10-01", issues=[issue(10)], closed=weeks_ago(1))])["milestones"][0]
-        m["title"] = "とても長い名前" * 10
-        for s, _, _ in mm.box_lines(m, 2026):
-            self.assertLessEqual(mm.width(s), mm.BOX_CHARS)
+        labels = [c["label"] for c in view_of(page_of(build([milestone(1, "2027-01-05"), milestone(2, "2026-12-01")])))["columns"]]
+        self.assertEqual(labels, ["期日 12-01", "期日 2027-01-05"])
 
     def test_missing_slot(self):
         with self.assertRaises(ValueError):
-            mm.build_html("<html></html>", build([]), FIELDS)
+            mm.build_html("<html></html>", build([]))
 
 
 def fake_gh(raw, no_milestone=3, pages=2):
@@ -357,13 +279,10 @@ def fake_gh(raw, no_milestone=3, pages=2):
 
         start = int(cursor or 0)
         if q == mm.MILESTONES_QUERY:
-            ms = [{k: v for k, v in m.items() if k not in ("openIssues", "closedRecent")} for m in raw]
+            ms = [{k: v for k, v in m.items() if k != "openIssues"} for m in raw]
             repo = {"milestones": page(ms, start, max(1, -(-len(ms) // pages)))}
         elif q == mm.OPEN_ISSUES_QUERY:
             repo = {"milestone": {"issues": page(by[int(vs["number"])]["openIssues"], start)}}
-        elif q == mm.CLOSED_ISSUES_QUERY:
-            assert vs["since"].endswith("Z")
-            repo = {"milestone": {"issues": page(by[int(vs["number"])]["closedRecent"], start)}}
         elif q == mm.COUNT_QUERY:
             repo = {"all": {"totalCount": 10 + no_milestone}, "withMilestone": {"totalCount": 10}}
         else:
@@ -375,52 +294,30 @@ def fake_gh(raw, no_milestone=3, pages=2):
 
 class Fetch(unittest.TestCase):
     def raw(self):
-        return [milestone(n, due=f"2026-12-{n:02d}", issues=[issue(n * 10)], closed=weeks_ago(1)) for n in range(1, 6)]
+        return [milestone(n, due=f"2026-12-{n:02d}", issues=[issue(n * 10)]) for n in range(1, 6)]
 
     def test_pages_and_counts(self):
         run, calls = fake_gh(self.raw())
         with mock.patch.object(ghpage, "gh", run), mock.patch.object(mm, "gh", run):
-            ms, no_ms = mm.fetch("o", "r", TODAY, 16)
+            ms, no_ms = mm.fetch("o", "r")
         self.assertEqual(sorted(m["number"] for m in ms), [1, 2, 3, 4, 5])
         self.assertEqual(no_ms, 3)
         self.assertEqual(sum(1 for q, _, _ in calls if q == mm.MILESTONES_QUERY), 2)
         self.assertTrue(all(len(m["openIssues"]) == 1 for m in ms))
 
-    def test_collect_writes_data_and_materials(self):
+    def test_main_writes_page(self):
         run, _ = fake_gh(self.raw())
-        with tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"HOME": home}), \
-                mock.patch.object(ghpage, "gh", run), mock.patch.object(mm, "gh", run):
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(ghpage, "gh", run), mock.patch.object(mm, "gh", run):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                code = mm.main(["--repo", "O/R", "--today", "2026-11-04", "--trials", "200"])
-            self.assertEqual(code, 0)
-            mat = json.loads(out.getvalue())
-            data_path = pathlib.Path(mat["data_path"])
-            self.assertTrue(data_path.is_file())
-            self.assertEqual(data_path.parent.name, "o-r")
-            self.assertNotIn("issues", mat["milestones"][0])
-            fields = pathlib.Path(mat["fields_path"])
-            fields.write_text(json.dumps(FIELDS, ensure_ascii=False), encoding="utf-8")
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out), mock.patch.dict(os.environ, {"ATTENTION_CATCHUP_OPEN": "0"}):
-                code = mm.main(["--render", str(data_path), str(fields)])
+                code = mm.main(["--repo", "O/R", "--today", "2026-11-04"], env={"ATTENTION_CATCHUP_OPEN": "0"}, root=root)
             self.assertEqual(code, 0)
             lines = out.getvalue().splitlines()
-            self.assertTrue(lines[0].endswith("map.html"))
-            self.assertEqual(lines[1], "全体の一言")
-            assert_page(self, pathlib.Path(lines[0]).read_text(encoding="utf-8"))
-
-    def test_render_rejects_bad_fields(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            d = pathlib.Path(tmp) / "data.json"
-            d.write_text(json.dumps(build([])), encoding="utf-8")
-            f = pathlib.Path(tmp) / "data-fields.json"
-            f.write_text(json.dumps({"headline": ""}), encoding="utf-8")
-            code, lines = mm.render(d, f)
-            self.assertEqual(code, 2)
-            self.assertFalse((pathlib.Path(tmp) / "map.html").exists())
-            d.write_text(json.dumps({"schema": 0}), encoding="utf-8")
-            self.assertEqual(mm.render(d, f)[0], 2)
+            path = pathlib.Path(lines[0])
+            self.assertEqual((path.parent.name, path.name), ("o-r", "map.html"))
+            self.assertIn("マイルストーン 5 本・issue 5 件", lines[1])
+            self.assertIn("クリティカルパスなし", lines[1])
+            assert_page(self, path.read_text(encoding="utf-8"))
 
     def test_help_has_not_seen(self):
         out = io.StringIO()
