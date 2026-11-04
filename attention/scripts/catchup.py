@@ -126,8 +126,7 @@ query($owner:String!,$name:String!,$num:Int!){
         files(first:100){totalCount nodes{path changeType additions deletions}}
         author { __typename login }
         """ + assignees + """
-        reviewRequests(first:20){nodes{requestedReviewer{__typename
-          ... on User{login} ... on Team{name}}}}
+        reviewRequests(first:20){nodes{requestedReviewer """ + people.REVIEWER + """}}
         closingIssuesReferences(first:10){nodes{number title state url body}}
         comments(last:100){totalCount nodes{createdAt body author{__typename login}}}
         reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}
@@ -146,7 +145,7 @@ query($owner:String!,$name:String!,$num:Int!){
         requestEvents: timelineItems(last:100, itemTypes:[REVIEW_REQUESTED_EVENT]){
           pageInfo{hasPreviousPage} nodes{__typename
             ... on ReviewRequestedEvent{createdAt actor{login}
-              requestedReviewer{__typename ... on User{login} ... on Team{name}}}}}
+              requestedReviewer """ + people.REVIEWER + """}}}
         timelineItems(last:100, itemTypes:[ASSIGNED_EVENT,
             READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, CROSS_REFERENCED_EVENT]){
           nodes{__typename
@@ -388,8 +387,14 @@ def excerpt(body, limit, keep_quotes=False):
     return s or "（本文なし）"
 
 
-def login_of(actor):
-    return (actor or {}).get("login") or "（不明）"
+UNKNOWN = "（不明）"
+
+
+def name_of(actor):
+    """名前を出すときの字。比べるのは people.login（退会済みは None。turn.py のターンの判定と同じ値）で、名前を出す所で
+    だけ「（不明）」にする。比べる値を「（不明）」にすると、退会済みの作者が、持ち主の側（turn.owner_side。退会済みの
+    作者は None で入る）の外の人に数えられる（頼み 48676c）"""
+    return people.login(actor) or UNKNOWN
 
 
 def thread_where(th):
@@ -439,7 +444,7 @@ def collect_events(node, me, my_email=""):
                    "bot": bot, "cat": cat, "oid": oid, "key": key, "to": to, "resolved": resolved})
 
     for c in node["comments"]["nodes"]:
-        add(c["createdAt"], login_of(c["author"]), "コメント", c["body"], SPOKEN,
+        add(c["createdAt"], name_of(c["author"]), "コメント", c["body"], SPOKEN,
             is_bot(c["author"]), key="comment")
 
     for r in node.get("reviews", {}).get("nodes", []):
@@ -449,13 +454,13 @@ def collect_events(node, me, my_email=""):
             continue
         label = {"APPROVED": "レビュー（承認）",
                  "CHANGES_REQUESTED": "レビュー（要修正）"}.get(r["state"], "レビュー")
-        add(r["submittedAt"], login_of(r["author"]), label, r["body"], SPOKEN,
+        add(r["submittedAt"], name_of(r["author"]), label, r["body"], SPOKEN,
             is_bot(r["author"]), oid=(r.get("commit") or {}).get("oid"), key="review")
 
     for th in node.get("reviewThreads", {}).get("nodes", []):
         state = "解決済" if th["isResolved"] else "未解決"
         for k, c in enumerate(th["comments"]["nodes"]):
-            add(c["createdAt"], login_of(c["author"]), f"スレッド {thread_where(th)}（{state}）",
+            add(c["createdAt"], name_of(c["author"]), f"スレッド {thread_where(th)}（{state}）",
                 c["body"], SPOKEN, is_bot(c["author"]),
                 oid=(c.get("originalCommit") or {}).get("oid") if k == 0 else None,
                 key="thread", resolved=bool(th["isResolved"]))
@@ -489,19 +494,19 @@ def collect_events(node, me, my_email=""):
     for it in node.get("requestEvents", {}).get("nodes", []):
         r = it.get("requestedReviewer") or {}
         to = reviewer_name(r) if is_person(r) else f"{r.get('__typename') or '（不明）'}（依頼に数えない）"
-        add(it["createdAt"], login_of(it.get("actor")), "レビュー依頼", "→ " + to, EVENT,
-            key="review_request", to=r.get("login") if is_person(r) else None)
+        add(it["createdAt"], name_of(it.get("actor")), "レビュー依頼", "→ " + to, EVENT,
+            key="review_request", to=reviewer_name(r))
 
     for it in node.get("timelineItems", {}).get("nodes", []):
         k = it["__typename"]
         if k == "AssignedEvent":
-            add(it["createdAt"], login_of(it.get("actor")), "担当",
-                "→ " + login_of(it.get("assignee")), EVENT,
+            add(it["createdAt"], name_of(it.get("actor")), "担当",
+                "→ " + name_of(it.get("assignee")), EVENT,
                 key="assign", to=(it.get("assignee") or {}).get("login"))
         elif k == "ReadyForReviewEvent":
-            add(it["createdAt"], login_of(it.get("actor")), "下書き解除", "", EVENT, key="ready")
+            add(it["createdAt"], name_of(it.get("actor")), "下書き解除", "", EVENT, key="ready")
         elif k == "ConvertToDraftEvent":
-            add(it["createdAt"], login_of(it.get("actor")), "下書きへ戻す", "", EVENT, key="draft")
+            add(it["createdAt"], name_of(it.get("actor")), "下書きへ戻す", "", EVENT, key="draft")
         elif k == "CrossReferencedEvent":
             s = it.get("source") or {}
             if s.get("number"):
@@ -573,12 +578,12 @@ def role_of(node, me, ev):
     """この件での私の立場。判定は lib/stance.py（/what-am-i-doing と共用）で、ここは GraphQL の
     node から素の値を取り出すだけ。"""
     is_pr = node["__typename"] == "PullRequest"
-    requested = [r.get("login") for r in requested_reviewers(node)] if is_pr else []
+    requested = [reviewer_name(r) for r in requested_reviewers(node)] if is_pr else []
     reviewed = is_pr and (
-        any(login_of(r["author"]) == me for r in node["reviews"]["nodes"])
-        or any(login_of(c["author"]) == me
+        any(people.login(r["author"]) == me for r in node["reviews"]["nodes"])
+        or any(people.login(c["author"]) == me
                for th in node["reviewThreads"]["nodes"] for c in th["comments"]["nodes"]))
-    return stance(me, login_of(node["author"]), is_pr, requested, reviewed,
+    return stance(me, people.login(node["author"]), is_pr, requested, reviewed,
                   people.logins(node),
                   any(e["who"] == me and e["cat"] == SPOKEN for e in ev))
 
@@ -590,9 +595,9 @@ def my_turn(node, me, red):
     期待されているかの中身の方である。持ち主（作者か、作者から渡された担当）の分は reason_table が決める。"""
     reasons = []
     if node["__typename"] == "PullRequest":
-        if any(r.get("login") == me for r in requested_reviewers(node)):
+        if any(reviewer_name(r) == me for r in requested_reviewers(node)):
             reasons.append("レビュー依頼が私に来ている")
-        if any(r["state"] == "PENDING" and login_of(r["author"]) == me
+        if any(r["state"] == "PENDING" and people.login(r["author"]) == me
                for r in node["reviews"]["nodes"]):
             reasons.append("書きかけのレビューが未送信（相手には届いていない）")
 
@@ -613,7 +618,9 @@ def reason_table(node, red):
     author = turn.login(node["author"])
     table = {}
     if node["__typename"] != "PullRequest":
-        for a in people.logins(node):
+        # issue を持つのは返答できる担当（waiting_on・turn_reasons の own と同じ）。Bot だけに振った issue は起票者が持ち、
+        # Bot には理由を立てない
+        for a in turn.assigned_people(node):
             table.setdefault(a, []).append(ASSIGNED)
         return table
     holders = turn.owners(node)
@@ -654,8 +661,8 @@ def reason_table(node, red):
 is_person = people.requested_person
 
 
-def reviewer_name(reviewer):
-    return reviewer.get("login") or reviewer.get("name")
+# レビューの依頼先の名前。User は login、Team は org/slug（/whose-turn と同じ字。事実は people.py）
+reviewer_name = people.reviewer
 
 
 def requested_reviewers(node):
@@ -753,7 +760,7 @@ def waiting_on(node, me):
     is_pr = node["__typename"] == "PullRequest"
     author = turn.login(node["author"])
     # 退会済みの作者は None で比べ、名前を出す所でだけ「（不明）」にする
-    shown = login_of(node["author"])
+    shown = name_of(node["author"])
     if is_pr:
         names = [reviewer_name(r) for r in requested_reviewers(node)]
         if names:
@@ -826,7 +833,7 @@ def base_lines(node, me):
     total = assoc.get("totalCount") or len(fetched)
     for p in prs:
         out.append(f"  そのブランチの PR: #{p['number']} {p['state'].lower()}・{approval(p.get('reviewDecision'))}"
-                   f"・作者 {me_or(login_of(p.get('author')), me)}")
+                   f"・作者 {me_or(name_of(p.get('author')), me)}")
     see = f"gh pr list --head {base} --state all で見る"
     if not prs:
         out.append("  そのブランチの PR: 無い" if not total else
@@ -841,7 +848,7 @@ def suggested_line(node):
     names = []
     for sg in node.get("suggestedReviewers") or []:
         why = SUGGESTED_WHY[(bool(sg.get("isCommenter")), bool(sg.get("isAuthor")))]
-        names.append(login_of(sg.get("reviewer")) + (f"（{why}）" if why else ""))
+        names.append(name_of(sg.get("reviewer")) + (f"（{why}）" if why else ""))
     if not names:
         return "  依頼先の候補（GitHub の提案）: なし"
     return "  依頼先の候補（GitHub の提案。決めるのは私）: " + "、".join(names)
@@ -1066,7 +1073,7 @@ def find_ask(ev, node, me, cutoff, own):
         # 返事が「求められていること」から消え、理由も「問いかは本文で確かめる」に弱まる）
         th = max(waiting, key=lambda th: (bool(th["mine_last"]), ts(th["last"]["createdAt"])))
         c = th["last"]
-        ask = {"t": ts(c["createdAt"]), "who": login_of(c["author"]),
+        ask = {"t": ts(c["createdAt"]), "who": name_of(c["author"]),
                "kind": f"スレッド {thread_where(th)}（未解決）", "text": c["body"],
                "bot": is_bot(c["author"]), "cat": SPOKEN,
                "key": "thread", "to": None, "resolved": False}
@@ -1097,7 +1104,7 @@ def turn_reasons(node, me, ev, red):
     else:
         # Bot（Copilot など）だけが assignee の issue は、作者が持ったまま（turn.owners と同じ）
         assigned = turn.assigned_people(node)
-        own = me in assigned or (login_of(node.get("author")) == me and not assigned)
+        own = me in assigned or (people.login(node.get("author")) == me and not assigned)
     ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
     # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
     # 形式の信号が 1 つも立たないときの取りこぼしを、これで塞ぐ。他の理由があっても足す——
@@ -1165,7 +1172,7 @@ def cap_text(label, total, got):
 def head_lines(node, me, ev, reasons, branch_lines):
     """見出し: 件名・立場と私の番か・件の種別と大きさ・URL・ブランチの行。"""
     is_pr = node["__typename"] == "PullRequest"
-    author = login_of(node["author"])
+    author = name_of(node["author"])
     kind = "PR" if is_pr else "issue"
     out = []
     w = out.append
@@ -1725,7 +1732,7 @@ def head_reader(owner, name, oid):
 
 def owns(node, me):
     """自分の件か（作者か assignee）。"""
-    return login_of(node.get("author")) == me or me in people.logins(node)
+    return people.login(node.get("author")) == me or me in people.logins(node)
 
 
 def unresolved_threads(node, me):
@@ -1743,15 +1750,15 @@ def unresolved_threads(node, me):
         if th["isResolved"]:
             continue
         cs = [c for c in th["comments"]["nodes"] if not is_bot(c["author"])]
-        theirs = [c for c in cs if login_of(c["author"]) != me]
+        theirs = [c for c in cs if people.login(c["author"]) != me]
         if not theirs:
             continue
-        mine = [c for c in cs if login_of(c["author"]) == me]
-        last = login_of(cs[-1]["author"])
+        mine = [c for c in cs if people.login(c["author"]) == me]
+        last = people.login(cs[-1]["author"])
         # 仲間の返事を私の側に数えるのは、スレッドに持ち主の側の外の人（レビュアー）が居るときだけ。私と担当だけの
         # スレッドで担当が返せば、それは私への返事で私が返すターン
-        ours = side if any(login_of(c["author"]) not in side for c in cs) else {me}
-        opener = login_of(cs[0]["author"])
+        ours = side if any(people.login(c["author"]) not in side for c in cs) else {me}
+        opener = people.login(cs[0]["author"])
         # 持ち主の側の私以外の人（渡した担当など）が立てて、側の外の人（返答できる人）が返していないスレッドは、側の残り
         # （私を含む）への問い。答える側は立てた人を除いた残り（turn.thread_turns と同じ）。私が側に居ないとき（持ち主でない
         # 共同の担当）は当たらない
@@ -1771,7 +1778,7 @@ def unresolved_threads(node, me):
                     "last": theirs[-1],
                     "my_turn": mine_turn,
                     # 人の最後の発言が私の側（私以外の持ち主）か。端末の「相手のターン」の言い方を分ける
-                    "side_last": last if last != me and last in ours and not mine_turn else None,
+                    "side_last": (last or UNKNOWN) if last != me and last in ours and not mine_turn else None,
                     "owes": owes,
                     # 私の最後の発言の時刻。私が返すターンで相手がその後に返していれば、「私の発言以降にその file が
                     # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
@@ -1961,7 +1968,7 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
             turn = "← 私は入っていない（他の人同士の会話）"
         w(f"  === {i}/{len(threads)} {thread_where(th)}  {turn} {changemap.lang_tag(th['path'])}")
         c = th["last"]
-        w(f"  {login_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
+        w(f"  {name_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
         body = their_lines(c["body"])
         for ln in body[:THREAD_BODY_CAP]:
             w("    " + ln)
@@ -2717,7 +2724,7 @@ def page_threads(node, me, url, by_path, read_lines, since_paths, full):
         mine = th.get("mine_last")
         out.append({
             "path": th["path"], "line": th["line"], "left": bool(th["left"]), "my_turn": th["my_turn"], "side_last": th["side_last"], "owes": th["owes"], "outdated": bool(th["outdated"]),
-            "who": login_of(c["author"]), "when": hhmm(ts(c["createdAt"])),
+            "who": name_of(c["author"]), "when": hhmm(ts(c["createdAt"])),
             "quote": "\n".join(their_lines(c["body"])).strip(),
             "mine": {"when": hhmm(ts(mine["createdAt"])), "quote": excerpt(mine["body"], 300)} if mine else None,
             "href": c.get("url") or (f"{url}/files#{catchup_html.anchor(th['path'])}" if url else ""),
@@ -2806,7 +2813,7 @@ def page_item(node, owner, name, me, ev, refs, unlinked, anchor, anchor_kind, ca
     reasons, ask, _, _ = turn_reasons(node, me, ev, red)
     head = {"kind": "pr" if is_pr else "issue", "ref": f"#{node['number']}", "title": node["title"], "url": node["url"],
             "state": node["state"].lower(), "draft": bool(node.get("isDraft")),
-            "author": me_or(login_of(node["author"]), me), "role": role_of(node, me, ev),
+            "author": me_or(name_of(node["author"]), me), "role": role_of(node, me, ev),
             "turn": page_turn(node, me, reasons),
             "files": node.get("changedFiles"), "additions": node.get("additions"), "deletions": node.get("deletions"),
             "notes": []}

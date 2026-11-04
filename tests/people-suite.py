@@ -24,9 +24,18 @@ sys.path.insert(0, str(SCRIPTS / "lib"))
 import people  # noqa: E402
 import turn  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("milestone_map", SCRIPTS / "milestone-map.py")
-mm = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(mm)
+
+
+def load(name, file):
+    spec = importlib.util.spec_from_file_location(name, SCRIPTS / file)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+mm = load("milestone_map", "milestone-map.py")
+cu = load("catchup", "catchup.py")
+wt = load("whose_turn", "whose-turn.py")
 
 
 def user(login):
@@ -139,6 +148,77 @@ class Closer(unittest.TestCase):
         self.assertEqual(people.closer_of(closed(actor="x", events=False)), (None, None))    # ClosedEvent が取れない
 
 
+class Reviewer(unittest.TestCase):
+    """レビューの依頼先の名前。Team は org/slug（combinedSlug）。GitHub の画面の依頼先と @ の呼びかけの字で、/whose-turn と
+    /catchup で同じ Team が別の字（org/slug と name）で出ていた（頼み 48676c）。"""
+
+    def test_user_team_and_others(self):
+        team = {"__typename": "Team", "combinedSlug": "o/core"}
+        self.assertEqual(people.reviewer(user("a")), "a")
+        self.assertEqual(people.reviewer(team), "o/core")
+        self.assertEqual(people.team_slug(team), "o/core")
+        for nobody in (bot("Copilot"), {"__typename": "Bot"}, None):
+            self.assertIsNone(people.reviewer(nobody), nobody)
+        self.assertIn("... on Team { combinedSlug }", people.REVIEWER)
+
+    def test_whose_turn_and_catchup_show_the_same_name(self):
+        team = {"__typename": "Team", "combinedSlug": "o/core"}
+        self.assertEqual(cu.reviewer_name(team), wt.reviewer(team))
+        self.assertIs(cu.reviewer_name, people.reviewer)
+        self.assertIs(wt.reviewer, people.reviewer)
+        self.assertEqual(cu.QUERY.count("requestedReviewer " + people.REVIEWER), 2)
+        self.assertIn("requestedReviewer " + people.REVIEWER, wt.PR_QUERY)
+
+
+class DeletedAuthor(unittest.TestCase):
+    """退会済みの名義は、比べるときはどのコマンドも people.login の None で比べ、名前を出す所でだけ「（不明）」にする
+    （頼み 48676c）。/catchup が「（不明）」の字で比べていた間は、退会済みの作者が持ち主の側（turn.owner_side。退会済みの
+    作者は None で入る）の外の人に数えられ、/whose-turn のスレッドのターン（turn.thread_turns）と言い方が割れた。"""
+
+    def handed(self, *comments):
+        """作者が退会済みで、私（me）に渡された PR。スレッドは comments の順"""
+        thread = {"isResolved": False, "isOutdated": False, "path": "a.py", "line": 1, "diffSide": "RIGHT",
+                  "comments": {"nodes": [{"author": a, "createdAt": f"2026-11-0{i + 1}T00:00:00Z", "body": "b"}
+                                         for i, a in enumerate(comments)]}}
+        return {"__typename": "PullRequest", "author": None, **assigned(user("me")),
+                "reviewThreads": {"nodes": [thread]}}
+
+    def test_side_of_a_deleted_author_matches_thread_turns(self):
+        # bob が指摘し、退会済みの作者（持ち主の側）が返した。/whose-turn では bob が再確認するターンで、私のターンではない
+        pr = self.handed(user("bob"), None)
+        self.assertEqual([(w, ps) for _, w, _, ps in turn.thread_turns(pr)], [("bob", set())])
+        (th,) = cu.unresolved_threads(pr, "me")
+        self.assertFalse(th["my_turn"])
+        # 前は「（不明）」が側の外に数えられ、「私は入っていない（他の人同士の会話）」と出ていた
+        self.assertEqual(th["side_last"], "（不明）")
+
+    def test_names_are_filled_only_for_display(self):
+        self.assertEqual(cu.name_of(None), "（不明）")
+        self.assertEqual(cu.name_of(user("a")), "a")
+        self.assertFalse(hasattr(cu, "login_of"))
+
+
+class IssueAssignee(unittest.TestCase):
+    """issue を持つのは返答できる担当（turn の assigned_people）。Copilot などの Bot だけに振った issue は起票者が持ち、
+    /catchup の理由の表（reason_table）にも Bot の行を立てない（頼み 48676c。PR の側の turn.owners と同じ）。"""
+
+    def test_catchup_reason_table_skips_bots(self):
+        issue = {"__typename": "Issue", "author": user("a"), **assigned(bot("Copilot"))}
+        self.assertEqual(cu.reason_table(issue, False), {})
+        both = {"__typename": "Issue", "author": user("a"), **assigned(bot("Copilot"), user("me"))}
+        self.assertEqual(cu.reason_table(both, False), {"me": [cu.ASSIGNED]})
+
+    def test_issue_and_pr_take_assignees_with_the_same_fragment(self):
+        self.assertEqual(wt.ISSUE_QUERY.count(people.ASSIGNEES), 1)
+        self.assertEqual(wt.LEGACY_ISSUE_QUERY.count(people.LEGACY_ASSIGNEES), 1)
+        self.assertEqual(wt.PR_QUERY.count(people.ASSIGNEES), 1)
+        self.assertEqual(cu.QUERY.count(people.ASSIGNEES), 2)
+        # /milestone-map は種別を使わない（logins）ので、種別なしの断片
+        self.assertEqual(mm.OPEN_FIELDS.count(people.LEGACY_ASSIGNEES), 1)
+        self.assertEqual(mm.CLOSED_FIELDS.count(people.LEGACY_ASSIGNEES), 1)
+        self.assertEqual(mm.WHO_FIRST, people.ASSIGNEES_FIRST)
+
+
 class RequestedPerson(unittest.TestCase):
     def test_user_or_team(self):
         # attention の CHANGELOG「Copilot などの Bot だけへの依頼は依頼に数えない（`/whose-turn` と同じ）」
@@ -154,8 +234,14 @@ READBACK = {
     "人の種別を __typename の字で比べている":
         rf"__typename{Q}\)?\]?\s*(?:==|!=|in)\s*\(?[^)\n]*{Q}(?:User|Bot|Mannequin|Organization|Team){Q}",
     "担当者を自分で読んでいる": rf"assignees{Q}\]\s*\[\s*{Q}nodes|get\({Q}assignees{Q}\s*,\s*\{{\}}\)\s*\.get\({Q}nodes",
-    "Linked PR を自分で読んでいる": rf"closedByPullRequestsReferences{Q}\s*[\]),]",
+    # 連結の件数（totalCount）を上限の行に読むのは事実を読むのでないので当たらない。並び（nodes）を読むと当たる
+    "Linked PR を自分で読んでいる": rf"closedByPullRequestsReferences{Q}[^\n]*{Q}nodes{Q}",
     "閉じた PR を自分で読んでいる": rf"(?:\.get\(|\[){Q}closer{Q}",
+    # 取り方（GraphQL の断片）も people.py の定数を使う（頼み 48676c）
+    "担当者の断片を自分で書いている": r"\bassignees(?::\s*\{?\w+\}?)?\s*\(\s*first",
+    "レビューの依頼先の断片を自分で書いている": r"\bon\s+Team\s*\{",
+    # 比べる値は people.login の None のまま。表示の字を埋めると、比べた所で退会済みが誰かに数えられる
+    "login に表示の字を埋めている": rf"get\({Q}login{Q}\)\s*or\s*{Q}",
 }
 FACTS = {SCRIPTS / "lib" / "people.py", SCRIPTS / "lib" / "ghtext.py"}
 
@@ -187,10 +273,19 @@ class Readback(unittest.TestCase):
                     'return node["combinedSlug"] if (node or {}).get("__typename") == "Team" else None',
                     'nodes = issue.get("closedByPullRequestsReferences", {}).get("nodes")',
                     'prs = (i.get("closedByPullRequestsReferences") or {}).get("nodes") or []',
-                    'by = ((ev.get("closer") or {}).get("author") or {}).get("login")'):
+                    'by = ((ev.get("closer") or {}).get("author") or {}).get("login")',
+                    # 頼み 48676c の前に各スクリプトに在った断片と、表示の字で比べていた login
+                    "assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }}",
+                    "assignees(first: 20) {{ totalCount nodes {{ login }} }}",
+                    'ASSIGNEES = f"assignees: {KINDS_FIELD}(first: 10) {{ totalCount',
+                    "          ... on User{login} ... on Team{name}}}}",
+                    'return (actor or {}).get("login") or "（不明）"'):
             self.assertTrue(readbacks(old), old)
         # 種別でない __typename の比べ（PR か issue か）は当たらない
         self.assertEqual(readbacks('is_pr = node["__typename"] == "PullRequest"'), [])
+        # 上限の行に連結の件数を渡すのと、AssignedEvent の 1 人（assignee）は当たらない
+        self.assertEqual(readbacks('truncated(i["closedByPullRequestsReferences"], "Linked PR", where)'), [])
+        self.assertEqual(readbacks("... on AssignedEvent{createdAt actor{login} assignee{... on User{login}}}"), [])
 
     def test_commands_share_the_same_functions(self):
         # turn.py は people.py の事実を名前ごと引き継ぐだけで、同じ名前を自分で定義し直さない

@@ -115,7 +115,7 @@ from ghpage import MissingField, fetch_all, stop_on_errors, truncated  # noqa: E
 from ghtext import DONE_NOT_RED, is_bot, mentions, readable, repo_refs  # noqa: E402 — 発言の読み方。/catchup と共用
 import turn  # noqa: E402 — PR のターンの持ち主と指摘対応の判定。/catchup と共用
 from turn import owner_side, owners, thread_turns  # noqa: E402
-from people import answerable, assigned_people, assignee_nodes, login, logins, team_slug  # noqa: E402 — 人の事実。/catchup・/milestone-map と共用
+from people import REVIEWER, answerable, assigned_people, assignee_nodes, login, reviewer, team_slug  # noqa: E402 — 人の事実。/catchup・/milestone-map と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -162,9 +162,11 @@ KINDS_NOT_SEEN = """
     取れないので、作者のターンを assignee へ移さず起票者が持つ形で出した。Bot の assignee も人として
     数えて担当の行を立て、起票者が入っていない assignee がいる未依頼の PR は、渡した扱いにして起票者の
     「相手の番」に置いた）"""
+ISSUE_KINDS_NOT_SEEN = """
+  - issue の assignee が人か Bot か（この GitHub は assignedActors を返さない。Bot だけが担当の
+    issue も誰の一覧にも出ないが、見分けられないので数えていない）"""
 
 ACTOR = "{ login __typename }"
-REVIEWER = "{ __typename ... on User { login } ... on Team { combinedSlug } }"
 
 def pr_query(assignees):
     return f"""
@@ -212,7 +214,8 @@ query($ids: [ID!]!) {
     ... on PullRequestReviewComment { reactions(first: 50) { totalCount nodes { user { login } } } } } }
 """
 
-ISSUE_QUERY = f"""
+def issue_query(assignees):
+    return f"""
 query($owner: String!, $name: String!, $cursor: String) {{
   repository(owner: $owner, name: $name) {{
     issues(first: 40, states: OPEN, after: $cursor) {{
@@ -220,7 +223,7 @@ query($owner: String!, $name: String!, $cursor: String) {{
       nodes {{
         id number title url createdAt updatedAt body
         author {ACTOR}
-        assignees(first: 20) {{ totalCount nodes {{ login }} }}
+        {assignees}
         comments(last: 100) {{ totalCount nodes {{ id createdAt body author {ACTOR} }} }}
         timelineItems(last: 100, itemTypes: [ASSIGNED_EVENT, CROSS_REFERENCED_EVENT]) {{
           nodes {{ __typename
@@ -229,6 +232,10 @@ query($owner: String!, $name: String!, $cursor: String) {{
               ... on PullRequest {{ number state }} }} }} }} }}
       }} }} }} }}
 """
+
+
+ISSUE_QUERY = issue_query(turn.ASSIGNEES)
+LEGACY_ISSUE_QUERY = issue_query(turn.LEGACY_ASSIGNEES)
 
 
 # ---- 時刻 ------------------------------------------------------------------
@@ -250,16 +257,24 @@ def local_time(ts, fmt="%m-%d %H:%M"):
 # ---- 取得 ------------------------------------------------------------------
 
 
-def fetch_prs(owner, name):
-    """open な PR の全件。assignedActors の無い GitHub では種別なしで取り直す——止めると、その GitHub では
-    /whose-turn が丸ごと走らない。取り直した PR には assigneeKindsUnknown の印を付ける"""
+def fetch_kinds(query, legacy, owner, name, field):
+    """open な PR か issue の全件。assignedActors の無い GitHub では種別なしで取り直す——止めると、その GitHub では
+    /whose-turn が丸ごと走らない。取り直した物には assigneeKindsUnknown の印を付ける"""
     try:
-        return fetch_all(PR_QUERY, owner, name, "pullRequests", optional={turn.KINDS_FIELD})
+        return fetch_all(query, owner, name, field, optional={turn.KINDS_FIELD})
     except MissingField:
-        prs = fetch_all(LEGACY_PR_QUERY, owner, name, "pullRequests")
-        for p in prs:
-            p["assigneeKindsUnknown"] = True
-        return prs
+        nodes = fetch_all(legacy, owner, name, field)
+        for n in nodes:
+            n["assigneeKindsUnknown"] = True
+        return nodes
+
+
+def fetch_prs(owner, name):
+    return fetch_kinds(PR_QUERY, LEGACY_PR_QUERY, owner, name, "pullRequests")
+
+
+def fetch_issues(owner, name):
+    return fetch_kinds(ISSUE_QUERY, LEGACY_ISSUE_QUERY, owner, name, "issues")
 
 
 # ---- 判定（純粋関数。tests/whose-turn-suite.py が規則を pin する） ------------------
@@ -300,11 +315,6 @@ def drop_pending(pr):
         else None
     )
     return pr["pendingReview"]
-
-
-def reviewer(node):
-    # User → login / Team → org/slug / それ以外（copilot 等の Bot）→ None
-    return team_slug(node) or answerable(node)
 
 
 def latest(values):
@@ -1317,7 +1327,7 @@ def report(a):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         prs_f = pool.submit(fetch_prs, owner, name)
-        issues_f = pool.submit(fetch_all, ISSUE_QUERY, owner, name, "issues")
+        issues_f = pool.submit(fetch_issues, owner, name)
         prs, issues = prs_f.result(), issues_f.result()
 
     # 判定に入る前に一度だけ落とす。読む側が 1 箇所でも生データを見ると、そこだけ下書きが混ざる
@@ -1351,7 +1361,12 @@ def report(a):
         ]
     limits += fill_reactions(pr_waits + issue_waits)
     limits = [w for w in limits if w]
+    # 担当未設定は Bot も担当に数える（Copilot に振った issue は担当の居る issue。/milestone-map の「Assigned to nobody」と
+    # 同じ）。Bot だけが担当の issue は返答できる人が居らず、それも誰の一覧にも出ないので、別に数える。種別の取れない
+    # GitHub では見分けられないので None
     unassigned = sum(1 for i in issues if not assignee_nodes(i))
+    bot_only = None if any(i.get("assigneeKindsUnknown") for i in issues) else \
+        sum(1 for i in issues if assignee_nodes(i) and not assigned_people(i))
     by_number = {p["number"]: p for p in prs}
     # 逃がした先は issue とは限らない。open な PR も行き先として引ける形にする
     targets = {x["number"]: x for x in issues + prs}
@@ -1418,7 +1433,7 @@ def report(a):
     # 呼びかけは古い順。ここで一度並べ、絞った部分集合も同じ順のまま使う
     waits_all = sorted(pr_waits + issue_waits, key=lambda w: w[1]["since"])
     waits = waits_all if a.all else [w for w in waits_all if same_login(w[0], me)]
-    asg = [i for i in issues if me in logins(i)]
+    asg = [i for i in issues if me in assigned_people(i)]
 
     def owed_threads():
         """返すターンがあるスレッド。[(誰, 番号, スレッド, 読む発言)] を人の順・番号の順で"""
@@ -1442,7 +1457,8 @@ def report(a):
             if n:
                 unverified[p["number"]] = unverified.get(p["number"], 0) + n
     not_seen = NOT_SEEN.format(
-        kinds=KINDS_NOT_SEEN if any(p.get("assigneeKindsUnknown") for p in prs) else "",
+        kinds=(KINDS_NOT_SEEN if any(p.get("assigneeKindsUnknown") for p in prs) else "")
+        + (ISSUE_KINDS_NOT_SEEN if bot_only is None else ""),
         teams=f"（該当 {teams} 件）",
         unverified=(
             "\n    該当 {} 件（返したことにしている分の在り処）: {}".format(
@@ -1527,7 +1543,9 @@ def report(a):
             # 判定に効かないリアクションの上限は入れない
             "limited": sorted(limited),
             "all": bool(a.all),
-            "scope": {"open_prs": len(prs), "open_issues": len(issues), "unassigned_issues": unassigned},
+            "scope": {"open_prs": len(prs), "open_issues": len(issues), "unassigned_issues": unassigned,
+                      # Bot だけが担当の open な issue の数。種別の取れない GitHub では null
+                      "bot_only_issues": bot_only},
             # 人ごとの 2 つのセクション。並びは文の報告と同じ（段の順・古い順）。--all でなければ me だけ
             "sections": [
                 {
@@ -1585,7 +1603,8 @@ def report(a):
     )
     print(
         f"  open PR {len(prs)} 件・open issue {len(issues)} 件を全件判定"
-        f"（issue の担当未設定 {unassigned} 件は誰の一覧にも出ない）。"
+        f"（issue の担当未設定 {unassigned} 件" + (f"と Bot だけが担当の {bot_only} 件" if bot_only else "")
+        + "は誰の一覧にも出ない）。"
         "N 日 = 今の状態になってからの日数"
     )
     if a.all:

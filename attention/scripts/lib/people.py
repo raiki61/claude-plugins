@@ -16,10 +16,16 @@
   進めて PR を出す。https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-on-github
   の「Assigning an issue to Copilot」）。ターンの持ち主の規則（返答できる人にしか渡さない。turn.owners と /whose-turn の
   判定）とは問いが違うので、揃えない。
-  /catchup の担当者の表示と、自分が担当かの理由（reason_table）も、今は logins で Bot を含む。
+  /catchup と /whose-turn の担当者の表示と「担当未設定」の数も logins で Bot を含む（Copilot に振った issue は担当の
+  居る issue で、/milestone-map の「Assigned to nobody」にも入らない）。自分が担当かの理由（/catchup の reason_table）と
+  issue を持つ人（/catchup の waiting_on）は assigned_people で、Bot だけに振った issue は起票者が持つ。
   ただし手で閉じた人（closer_of）は Bot を数えない（stale の Bot が閉じた物は、誰かが進め終えた物ではない）。
 - requested_person: レビューの依頼先が人か（User か Team）。Bot（Copilot など）宛の依頼は依頼に数えない。
 - team_slug: レビューの依頼先が Team なら、その org/slug。
+- reviewer: レビューの依頼先の名前（User の login か Team の org/slug）。
+
+GraphQL で取る断片（担当者の ASSIGNEES・LEGACY_ASSIGNEES と、レビューの依頼先の REVIEWER）もここに置き、各スクリプトは
+自分で書かない（取り方が割れると、同じ名前の事実が片方だけ別の形で来る）。
 """
 
 # この本文は複数のプラグインに写しで在る。正本は attention/scripts/lib/people.py、写しは works-dispatch/dispatch/vendor/lib/people.py。
@@ -30,9 +36,18 @@ from ghtext import is_bot
 # assignees は UserConnection で種別を持たず、Copilot 等の Bot を人と見分けられない。assignedActors は
 # Assignee union（Bot・Mannequin・Organization・User）なので種別が取れる。別名で受けて下流の形を変えない
 KINDS_FIELD = "assignedActors"
-ASSIGNEES = f"assignees: {KINDS_FIELD}(first: 10) {{ totalCount nodes {{ __typename ... on Actor {{ login }} }} }}"
-# UserConnection の __typename はいつも User で、Bot も人と名乗る。種別は取らない
-LEGACY_ASSIGNEES = "assignees(first: 10) { totalCount nodes { login } }"
+# 1 件に付けられる assignee の上限（https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/assigning-issues-and-pull-requests-to-other-github-users
+# 「You can assign up to 10 people to each issue or pull request」）。totalCount も取るので、超えたら呼ぶ側が上限の行を出せる
+ASSIGNEES_FIRST = 10
+ASSIGNEES = (f"assignees: {KINDS_FIELD}(first: {ASSIGNEES_FIRST}) "
+             "{ totalCount nodes { __typename ... on Actor { login } } }")
+# UserConnection の __typename はいつも User で、Bot も人と名乗る。種別は取らない。assignedActors の無い GitHub で
+# 取り直すときと、種別を使わない問い（/milestone-map は logins と担当者の有無だけを読む）で使う
+LEGACY_ASSIGNEES = f"assignees(first: {ASSIGNEES_FIRST}) {{ totalCount nodes {{ login }} }}"
+# レビューの依頼先。Team は名前（name）でなく org/slug（combinedSlug）で取る。名前は表示用で、GitHub の画面の
+# 依頼先と @ の呼びかけは org/slug（/whose-turn と /catchup で同じ Team が別の字で出ていた。頼み 48676c）。
+# Bot には fragment を書かない（requested_person の注を見る）
+REVIEWER = "{ __typename ... on User { login } ... on Team { combinedSlug } }"
 
 
 def login(actor):
@@ -72,6 +87,11 @@ def requested_person(reviewer):
 def team_slug(reviewer):
     """レビューの依頼先が Team ならその org/slug（combinedSlug）。Team でなければ None"""
     return reviewer["combinedSlug"] if (reviewer or {}).get("__typename") == "Team" else None
+
+
+def reviewer(requested):
+    """レビューの依頼先の名前。User なら login、Team なら org/slug、それ以外（Bot・退会済み）は None"""
+    return team_slug(requested) or answerable(requested)
 
 
 def linked_prs(issue, state="OPEN"):

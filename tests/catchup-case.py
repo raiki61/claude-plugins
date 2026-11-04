@@ -101,7 +101,7 @@ def review_requested(t, actor, to):
             "requestedReviewer": {"__typename": "User", "login": to}}
 
 
-# QUERY の requestedReviewer は User{login} と Team{name} しか取らないので、Bot 宛は login を持たない
+# QUERY の requestedReviewer は User の login と Team の combinedSlug しか取らない（people.REVIEWER）ので、Bot 宛は login を持たない
 BOT_REVIEWER = {"__typename": "Bot"}
 
 
@@ -1168,7 +1168,7 @@ def _formal_state():
     person_ev = review_requested(T1, ME, "rev")
     asked = conn([person_ev])
     rev = conn([review(T1, "rev")])
-    team = {"__typename": "Team", "name": "core"}
+    team = {"__typename": "Team", "combinedSlug": "o/core"}
     bot_req = conn([{"requestedReviewer": BOT_REVIEWER}])
     bot_ev = dict(review_requested(T2, ME, "x"), requestedReviewer=BOT_REVIEWER)
     bot_event = conn([bot_ev])
@@ -1313,10 +1313,10 @@ def _formal_state():
         "bot_left_merge": merge in bot_left,
         # 材料は手組みなので、判定が読むフィールドを QUERY が取っているかは字面で確かめる
         "query_fields": all(f in query for f in (
-            "reviewRequests(first:20){nodes{requestedReviewer{__typename",
+            "reviewRequests(first:20){nodes{requestedReviewer " + catchup.people.REVIEWER,
             f"requestEvents: timelineItems(last:{window}, itemTypes:[REVIEW_REQUESTED_EVENT]){{\n"
             "          pageInfo{hasPreviousPage} nodes{__typename",
-            "requestedReviewer{__typename ... on User{login} ... on Team{name}}}}}",
+            "requestedReviewer " + catchup.people.REVIEWER + "}}}",
             "latestReviews(first:100){nodes{author{__typename login}}}", catchup.turn.OPINIONS))
         and query.count(catchup.turn.ASSIGNEES) == 2,
         "legacy_query": catchup.LEGACY_QUERY.count(catchup.turn.LEGACY_ASSIGNEES) == 2
@@ -1362,11 +1362,11 @@ def _formal_state():
         and all(kinds_line in h for h in (legacy_handed, legacy_red, legacy_third))
         and all(kinds_line not in h for h in [legacy_issue, handed_red] + legacy_unassigned),
         "query_one_type": query.count("REVIEW_REQUESTED_EVENT") == 1
-        and query.count("requestedReviewer{__typename") == 2,
+        and query.count("requestedReviewer " + catchup.people.REVIEWER) == 2,
         "kept": all(reason in h and "依頼先の候補" in h and rereq not in h for h in kept),
         "assigned": all("○ 待ち — 担当 rev 待ち" in h and "依頼先の候補" not in h for h in assigned),
-        "team_requested": "○ 待ち — レビュー待ち: core" in team_req and reason not in team_req,
-        "team_event_text": "→ core" in team_event and "（依頼に数えない）" not in team_event,
+        "team_requested": "○ 待ち — レビュー待ち: o/core" in team_req and reason not in team_req,
+        "team_event_text": "→ o/core" in team_event and "（依頼に数えない）" not in team_event,
         "bot_event_text": "→ Bot（依頼に数えない）" in bot_event_only and "（不明）" not in bot_event_only,
         "null_reviewer": "レビュー待ち" not in null_reviewer,
         "request_cap": cap_line in full_window and all(cap_line not in h for h in reviewed + kept),

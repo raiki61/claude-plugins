@@ -1760,7 +1760,8 @@ def issue(
         "updatedAt": updated,
         "body": body,
         "author": author,
-        "assignees": conn(*({"login": a} for a in assignees)),
+        # 字は User の login。Bot などは dict で渡す（ISSUE_QUERY は assignedActors で種別を取る）
+        "assignees": conn(*(user(a) if isinstance(a, str) else a for a in assignees)),
         "comments": conn(*(comment(a, at, b) for a, at, b in comments)),
         "timelineItems": conn(*timeline),
     }
@@ -2583,6 +2584,39 @@ class Links(unittest.TestCase):
             self.line_after(lines, "    #1 "), "      https://example.invalid/pull/1"
         )
 
+class BotOnlyIssue(unittest.TestCase):
+    """issue の担当者も PR と同じ断片（people.py の ASSIGNEES。assignedActors で種別を取る）で取る（頼み 48676c）。Copilot だけに
+    振った issue は「担当未設定」には数えず（/milestone-map の「Assigned to nobody」と同じ。Copilot が進める issue）、返答
+    できる人が居ないので「Bot だけが担当」に別に数える。どちらも誰の一覧にも出ない。"""
+
+    def test_issue_query_reads_the_kind_of_assignee(self):
+        self.assertIn(flow.turn.ASSIGNEES, flow.ISSUE_QUERY)
+        self.assertIn(flow.turn.LEGACY_ASSIGNEES, flow.LEGACY_ISSUE_QUERY)
+        self.assertNotIn(flow.turn.KINDS_FIELD, flow.LEGACY_ISSUE_QUERY)
+
+    def test_bot_only_issue_is_counted_apart_from_unassigned(self):
+        issues = [issue(number=1), issue(number=2, assignees=[bot("Copilot")]),
+                  issue(number=3, assignees=[bot("Copilot"), "bob"])]
+        out = json.loads(report(issues=issues, who="bob", args=("--json",)))
+        self.assertEqual(out["scope"]["unassigned_issues"], 1)
+        self.assertEqual(out["scope"]["bot_only_issues"], 1)
+        self.assertEqual([i["number"] for i in out["assigned_issues"]], [3])
+        text = report(issues=issues, who="bob")
+        self.assertIn("（issue の担当未設定 1 件と Bot だけが担当の 1 件は誰の一覧にも出ない）", text)
+        self.assertNotIn(flow.ISSUE_KINDS_NOT_SEEN, text)
+        # Bot だけの issue が無ければ、前と同じ言い方
+        self.assertIn("（issue の担当未設定 1 件は誰の一覧にも出ない）", report(issues=issues[:1], who="bob"))
+
+    def test_a_github_without_assigned_actors_cannot_count_bot_only_issues(self):
+        issues = [issue(number=2, assignees=[{"login": "Copilot"}]), issue(number=3, assignees=[{"login": "bob"}])]
+        out = json.loads(report(issues=issues, who="bob", args=("--json",), legacy=True))
+        self.assertIsNone(out["scope"]["bot_only_issues"])
+        self.assertEqual([i["number"] for i in out["assigned_issues"]], [3])
+        text = report(issues=issues, who="bob", legacy=True)
+        self.assertIn(flow.ISSUE_KINDS_NOT_SEEN, text)
+        self.assertIn("（issue の担当未設定 0 件は誰の一覧にも出ない）", text)
+
+
 class Json(unittest.TestCase):
     """--json は「自分の番」のセクションと同じ集合・同じ順を、機械が読む形で出す（works の dispatch が読む）"""
 
@@ -2698,7 +2732,7 @@ class Json(unittest.TestCase):
         self.assertEqual([x["number"] for x in out["prs"]], [x["number"] for x in me["mine"]])
         self.assertEqual(me["theirs"][0]["url"], "https://example.invalid/pull/6")
         self.assertEqual((me["theirs"][0]["author"], me["theirs"][0]["role"]), ("alice", "reviewer"))
-        self.assertEqual(out["scope"], {"open_prs": 4, "open_issues": 0, "unassigned_issues": 0})
+        self.assertEqual(out["scope"], {"open_prs": 4, "open_issues": 0, "unassigned_issues": 0, "bot_only_issues": 0})
 
     def test_json_carries_intro_and_size_only_for_others_pr_in_my_turn(self):
         p = pr(number=9, author=user("alice"), reviewRequests=requests(user("bob")),

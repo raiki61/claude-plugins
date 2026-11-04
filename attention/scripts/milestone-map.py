@@ -58,7 +58,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import catchup_html  # noqa: E402 — ページの書き方と VS Code で開く口を /catchup と共用
 # 担当者・Linked PR の作者・閉じた人の事実は /whose-turn・/catchup と共用。誰が進めているか（doers）の規則だけをここに置く
-from people import closer_of, linked_prs, logins  # noqa: E402
+from people import ASSIGNEES_FIRST, LEGACY_ASSIGNEES, closer_of, linked_prs, logins  # noqa: E402
 from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn・/catchup と共用
 from ghpage import fetch_all, stop_on_errors, truncated  # noqa: E402 — 全ページの取得と上限の行。/whose-turn と共用
 
@@ -73,8 +73,12 @@ TITLE_SLOT = "<title>milestone-map</title>"
 DATA_SLOT = "/*__DATA__*/null"
 
 BLOCKED_FIRST = 50  # 1 件の issue の blocked by を取る数。GitHub の上限（種類ごとに 50 件）と同じ
-PR_FIRST = 10       # 1 件の issue を閉じる予定の PR を取る数。色は open の物が 1 件在るかだけで決まる
-WHO_FIRST = 10      # 1 件の issue の担当者を取る数（GitHub の assignee の上限と同じ）
+# 1 件の issue を閉じる予定の PR を取る数。色は open の物が 1 件在るかだけで決まるが、作者は「誰が進めているか」に入るので、
+# 超えたら上限の行に出す（取れなかった PR の作者は入らない）
+PR_FIRST = 10
+# 1 件の issue の担当者を取る数（GitHub の assignee の上限と同じ）。断片は people.py の物を使う。「誰が進めているか」は
+# Bot も数えるので種別は取らず（logins）、assignedActors の無い GitHub でも落ちない種別なしの断片にする
+WHO_FIRST = ASSIGNEES_FIRST
 
 SINCE_DAYS = 400  # マイルストーンの付いていない閉じた issue を取る日数。ページで選べる期間の上限と同じ
 
@@ -105,12 +109,12 @@ query($owner: String!, $name: String!, $cursor: String) {
 
 OPEN_FIELDS = f"""
           number title url createdAt
-          assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }}
+          {LEGACY_ASSIGNEES}
           blockedBy(first: {BLOCKED_FIRST}) {{ totalCount nodes {{
             number url state repository {{ nameWithOwner }} }} }}
           closedByPullRequestsReferences(first: {PR_FIRST}, includeClosedPrs: false) {{
             totalCount nodes {{ number url state author {{ login }} }} }}"""
-CLOSED_FIELDS = (f"number title url createdAt closedAt stateReason assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }} "
+CLOSED_FIELDS = (f"number title url createdAt closedAt stateReason {LEGACY_ASSIGNEES} "
                  "timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
                  "actor { __typename login } closer { ... on PullRequest { author { login } } } } } }")
 
@@ -389,6 +393,7 @@ def build(raw, loose, repo, today, now=None, dates=None):
         for i in m["openIssues"]:
             limits.append(truncated(i["blockedBy"], "blocked by", f"#{i['number']}"))
             limits.append(truncated(i["assignees"], "Assignees", f"#{i['number']}"))
+            limits.append(truncated(i["closedByPullRequestsReferences"], "Linked PR", f"#{i['number']}"))
             issues.append(issue_row(i, repo))
         rank = {"blocked": 0, "pr": 1, "idle": 2}
         issues.sort(key=lambda i: (rank[i["state"]], i["number"]))

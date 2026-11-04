@@ -370,6 +370,16 @@ class People(unittest.TestCase):
         self.assertIn("#2", "・".join(build([milestone(1, None, [issue(1)], done=[many])])["limits"]))
 
 
+    def test_too_many_linked_prs_is_reported(self):
+        # 取れなかった Linked PR の作者は「誰が進めているか」に入らないので、取り切れなかったら上限の行に出す（頼み 48676c。
+        # 前は件数が PR_FIRST を超えても出していなかった）
+        raw = issue(1, prs=[(p, "OPEN") for p in range(1, mm.PR_FIRST + 1)])
+        self.assertEqual([x for x in build([milestone(1, None, [raw])])["limits"] if "Linked PR" in x], [])
+        raw["closedByPullRequestsReferences"]["totalCount"] = mm.PR_FIRST + 1
+        self.assertIn(f"#1: Linked PR {mm.PR_FIRST + 1} 件のうち {mm.PR_FIRST} 件しか見ていない",
+                      build([milestone(1, None, [raw])])["limits"])
+
+
 class Fetch(unittest.TestCase):
     def raw(self):
         return [milestone(n, due=f"2026-12-{n:02d}", issues=[issue(n * 10)]) for n in range(1, 6)]
