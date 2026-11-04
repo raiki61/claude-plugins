@@ -23,7 +23,7 @@
 - README（ルートと各プラグインの `README.md`）は英語の 1 版だけで書き、日本語の版を並べない。スキルとコマンドの名前・説明・本文は日本語のまま（持ち主 2026-10-18。docs/readme-language.md）。
 - プラグインを作る・直す前に、docs/standards/README.md の標準の一覧を見て、変える物に当たる標準を読む（一覧の各項目の括弧に何を決めた標準かが書いてある）。
 - 特に、各プラグインのスキル（`<プラグイン>/skills/*/SKILL.md`）とコマンド（`<プラグイン>/commands/*.md`）を書く・直す前は docs/standards/skill-authoring.md を読む（本文の長さ・別ファイルへの分け方・description）。
-- works（コードの直しの頼みを AI の段の流れで回す Archon の pack）の決まり（作り・出荷・darkfactory の回し方）は works/CLAUDE.md に在る。Claude Code は works/ の下のファイルを読んだときにだけ works/CLAUDE.md を読み込むので、works/ のファイルを読まずに darkfactory の run を打つ・works の版を出すときは、先に works/CLAUDE.md を読む。
+- works（コードの直しの頼みを AI の段の流れで回す Archon の pack）の決まり（作り・出荷・darkfactory の回し方）は works/CLAUDE.md に在る。Claude Code は works/ の下のファイルを読む・書く・直したときにだけ works/CLAUDE.md を読み込む（起動の時には読まない。https://code.claude.com/docs/en/memory#how-claude-md-files-load ）ので、works/ のファイルを読まずに darkfactory の run を打つ・works の版を出すときは、先に works/CLAUDE.md を読む。
 - graphloops・convergence-loops の本体は works のために直さず、要素は写して works の側で育てる（写した元の版は works/.shared/core/COPIED_FROM などの台帳に残す）。
 - darkfactory（works の直しを流す工場）の run（1 回の実行。`works/dev/use.sh start` で起動する）の起動・ゲートの答え・resume は Bash の run_in_background で打ち、終わりの知らせで次の手を打つ。nohup や & で切り離さない（知らせが来ず、ゲートで止まった run に気づけなかった）。フォアグラウンドで待ち続けない。works/dev の殻に渡す keychain のトークンの値は表示も保存もしない（渡し方は works/CLAUDE.md の「darkfactory を Claude Code から回す」）。
 

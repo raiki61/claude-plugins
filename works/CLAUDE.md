@@ -1,6 +1,6 @@
 # works で作業するエージェントへ
 
-works/ の下で作業するときの決まり。Claude Code は works/ の下のファイルを読んだときにこのファイルを読み込む。ルートの CLAUDE.md の決まりも全部効く。works に関わる決まりのうち、works/ のファイルを読まない会話にも効かせたい物（graphloops などから写すときの決まり・darkfactory の run の打ち方）は、ルートの CLAUDE.md の「プラグインを作る・直す」に置いた（2026-11-04、頼み b6bca1）。
+works/ の下で作業するときの決まり。Claude Code は works/ の下のファイルを読む・書く・直したときにこのファイルを読み込む。ルートの CLAUDE.md の決まりも全部効く。works に関わる決まりのうち、works/ のファイルを読まない会話にも効かせたい物（graphloops などから写すときの決まり・darkfactory の run の打ち方）は、ルートの CLAUDE.md の「プラグインを作る・直す」に置いた（2026-11-04、頼み b6bca1）。
 
 ## works（Archon の pack）
 
