@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- attention から写した `/whose-turn` のスクリプト（`dispatch/vendor/whose-turn.py`）を正本に揃えた。GraphQL の一覧を全部のページまで取る部品を `dispatch/vendor/lib/ghpage.py` に分けた（attention の `/milestone-map` と共用にするため。attention の頼み 1f27bb）。自分の番の PR の読み方は変わらない。
+
 ## [0.157.2] - 2026-11-04
 
 ### Changed
