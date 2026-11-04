@@ -456,10 +456,10 @@ a:hover { text-decoration: underline; }
         el("div", { class: "row" }, el("a", { class: "num", href: i.url, title: "GitHub で開く" }, "#" + i.n), tags, avatars(i)), el("div", { class: "tt" }, i.title));
       i.el.addEventListener("mouseenter", () => focusOn(chain(i.n), i.n));
       i.el.addEventListener("mouseleave", () => focusOn(resting()));
-      i.el.addEventListener("focus", () => { focusOn(chain(i.n), i.n); reveal(i); });
+      i.el.addEventListener("focus", () => { focusOn(chain(i.n), i.n); if (i.el.matches(":focus-visible")) reveal(i); });
       i.el.addEventListener("blur", () => focusOn(resting()));
       i.el.addEventListener("click", ev => { if (!ev.target.closest("a")) pin(i.n); });
-      i.el.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pin(i.n); } });
+      i.el.addEventListener("keydown", ev => { if ((ev.key === "Enter" || ev.key === " ") && !ev.target.closest("a")) { ev.preventDefault(); pin(i.n); } });
       world.append(i.el);
     }
     for (const i of m.done) {
@@ -814,7 +814,10 @@ a:hover { text-decoration: underline; }
     measure();
     layout();
     if (l === "milestone") fit();
-    else if (saved) { z = saved.z; tx = saved.tx; ty = saved.ty; apply(); saved = null; }
+    else {
+      if (saved) { z = saved.z; tx = saved.tx; ty = saved.ty; apply(); saved = null; }
+      focusOn(resting());
+    }
   }
   function drill(f) {
     if (!f) return;
@@ -857,7 +860,10 @@ a:hover { text-decoration: underline; }
   function searched() { return q.value.trim() ? new Set(hitList.map(i => i.n)) : null; }
   // カードから離れたときに戻す光り方: 押して固定した鎖 → 選んだ人 → 探した字 → なし
   function resting() { return (pinned != null ? chain(pinned) : null) || whoSet() || searched(); }
+  // 人を選ぶ・探すと、issue の粒度へ戻し、押して固定した鎖を外す（最後に触った物を光らせる）
+  function toIssues() { setLevel("issue"); if (pinned != null) pin(pinned); }
   q.addEventListener("input", () => {
+    toIssues();
     const s = q.value.trim().toLowerCase().replace(/^#/, "");
     hitList = s ? [...issueOf.values()].filter(i => String(i.n) === s || i.title.toLowerCase().includes(s)) : [];
     const hs = new Set(hitList);
@@ -945,6 +951,8 @@ a:hover { text-decoration: underline; }
   // 畳んだ所に在ればそのカードだけを出す（shown）。地図を組み直すのは、出すカードが替わったときだけ（relayout を渡せばそれで組む）
   const inFold = set => set ? [...set].filter(n => { const i = issueOf.get(n); return i && i.state === "idle" && frameOf.get(n).folded; }).join() : "";
   function refresh(move, relayout) {
+    // マイルストーンの粒度では枠を開けず画面も送らない（issue の粒度へ戻るときに組み直して光らせる）
+    if (level === "milestone") { picked = resting(); if (relayout) relayout(); return; }
     const set = resting(), before = inFold(picked);
     let opened = false;
     if (set) for (const n of set) { const f = frameOf.get(n); if (f.shut) { f.shut = false; opened = true; } }
@@ -1023,6 +1031,7 @@ a:hover { text-decoration: underline; }
     }
   }
   function pick(w) {
+    toIssues();
     who = who === w ? null : w;
     if (who != null && q.value) { q.value = ""; hitList = []; hits.textContent = ""; for (const i of openAll) i.el.classList.remove("hit"); }
     drawPeople();
