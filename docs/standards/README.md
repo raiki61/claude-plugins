@@ -203,7 +203,7 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
   - works の `darkfactory/lib/line_edge.py` の `edge`
 - tiers の `tiers_statusline.py` の `uses_it` は試験だけが呼ぶ。設定を読む同じ形の扱いが 4 か所在る。
 
-外した物（直さない）: works の `.shared/core` の graphloops の写しは、graphloops 0.21.0 の版に留まる（今の graphloops は 0.42.0）。works は写して自分の側で育てる決まりなので、ずれではない（ルートの CLAUDE.md の「works（Archon の pack）」）。
+外した物（直さない）: works の `.shared/core` の graphloops の写しは、graphloops 0.21.0 の版に留まる（今の graphloops は 0.42.0）。works は写して自分の側で育てる決まりなので、ずれではない（ルートの CLAUDE.md の「プラグインを作る・直す」）。
 
 ### 7 回目（2026-10-29、受付 20261028-214724-f7cb45）
 

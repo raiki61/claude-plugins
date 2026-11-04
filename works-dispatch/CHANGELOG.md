@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 計画の文書 `docs/plans/2026-10-14-catchup-dispatch.md` の、出荷の手順の参照先を、移した先の `works/CLAUDE.md` に直した（動きは変わらない）
+
 ## [0.157.1] - 2026-11-04
 
 ### Fixed

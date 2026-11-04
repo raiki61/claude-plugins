@@ -330,7 +330,7 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 
 ### Task 14: 版上げ（枝の最後の commit）
 
-- [ ] **Step 1:** `VERSION_BUMP_STRICT=1` で全段の試験を回す（リポジトリの直下の `CLAUDE.md` の「出荷」の 1。重い段を含むので、持ち主に回してよいか先に聞く）。
+- [ ] **Step 1:** `VERSION_BUMP_STRICT=1` で全段の試験を回す（`works/CLAUDE.md` の「出荷（works の版）」の 1。2026-11-04 までリポジトリの直下の `CLAUDE.md` に在った。重い段を含むので、持ち主に回してよいか先に聞く）。
 - [ ] **Step 2:** `[Unreleased]` を版に。attention は `0.26.0`（機能の追加）、works は `0.3.0`（ラインの追加）、marketplace の `metadata.version` を 1 つ上げる。
 - [ ] **Step 3: Commit** — `git commit -m "chore: attention 0.26.0・works 0.3.0 に上げる（dispatch のライン）"`
 - [ ] **Step 4:** push と main への取り込みは、持ち主に聞いてから（外への書き込み）。
