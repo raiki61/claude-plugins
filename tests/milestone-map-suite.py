@@ -48,10 +48,19 @@ def issue(n, blocked=(), prs=(), who=(), made="2026-10-01T03:00:00Z", pr_by="dev
                  "author": {"login": pr_by} if pr_by else None} for p, st in prs]}}
 
 
-def closed(n, made, shut, who=()):
-    """閉じた issue の生の材料。made と shut は時刻（UTC）。"""
+def closed(n, made, shut, who=(), actor="closer", pr_by=None):
+    """閉じた issue の生の材料。made と shut は時刻（UTC）。actor は閉じる操作をした人、pr_by は閉じた PR を出した人
+    （None なら PR でなく手で閉じた）。"""
     return {"number": n, "title": f"done <{n}>", "url": f"https://github.com/o/r/issues/{n}", "createdAt": made,
-            "closedAt": shut, "assignees": {"totalCount": len(who), "nodes": [{"login": w} for w in who]}}
+            "closedAt": shut, "assignees": {"totalCount": len(who), "nodes": [{"login": w} for w in who]},
+            "timelineItems": {"nodes": [{"actor": {"login": actor} if actor else None,
+                                         "closer": {"author": {"login": pr_by}} if pr_by else None}]}}
+
+
+def loose(opened=(), done=(), closed_all=None):
+    """マイルストーンの付いていない issue（fetch の 2 つ目と同じ形）。"""
+    return {"openIssues": list(opened), "closedIssueList": list(done),
+            "closedIssues": {"totalCount": len(done) if closed_all is None else closed_all}, "limits": []}
 
 
 def milestone(n, due=None, issues=(), closed=3, done=()):
@@ -60,8 +69,8 @@ def milestone(n, due=None, issues=(), closed=3, done=()):
             "openIssues": list(issues), "closedIssueList": list(done)}
 
 
-def build(raw):
-    return mm.build(raw, 0, REPO, TODAY, now=dt.datetime(2026, 11, 4, 9, tzinfo=dt.timezone.utc))
+def build(raw, stray=None, dates=None):
+    return mm.build(raw, stray, REPO, TODAY, now=dt.datetime(2026, 11, 4, 9, tzinfo=dt.timezone.utc), dates=dates)
 
 
 def page_of(data):
@@ -125,7 +134,7 @@ class Cards(unittest.TestCase):
 
     def test_off_map_blocker_is_red_without_line(self):
         data = build([milestone(1, issues=[
-            issue(10, blocked=[(5, None, "OPEN", REPO)]),      # マイルストーンなし
+            issue(10, blocked=[(5, None, "OPEN", REPO)]),      # マイルストーンなしで、地図に居ない
             issue(11, blocked=[(6, 1, "OPEN", "x/y")]),         # 別のリポジトリ
             issue(12, blocked=[(7, 9, "OPEN", REPO)]),          # 閉じたマイルストーン（地図に居ない）
         ])])
@@ -264,8 +273,10 @@ class Page(unittest.TestCase):
             mm.build_html("<html></html>", build([]))
 
 
-def fake_gh(raw, no_milestone=3, pages=2):
-    """gh の代わり。問い合わせの文で答えを選ぶ。マイルストーンの一覧は pages に分けて返す。"""
+def fake_gh(raw, stray=None, pages=2):
+    """gh の代わり。問い合わせの文で答えを選ぶ。マイルストーンの一覧は pages に分けて返す。stray はマイルストーンの
+    付いていない issue（loose の形）で、検索の問いに答える。"""
+    stray = stray or loose()
     by = {m["number"]: m for m in raw}
     calls = []
 
@@ -287,6 +298,14 @@ def fake_gh(raw, no_milestone=3, pages=2):
             return {"pageInfo": {"hasNextPage": more, "endCursor": str(start + size) if more else None}, "nodes": chunk}
 
         start = int(cursor or 0)
+        text = next((a[k + 1][len("q="):] for k, v in enumerate(a) if v == "-f" and a[k + 1].startswith("q=")), None)
+        if q in (mm.LOOSE_OPEN_QUERY, mm.LOOSE_CLOSED_QUERY, mm.COUNT_QUERY):
+            calls[-1] = (q, {"q": text}, cursor)
+            nodes = stray["openIssues"] if q == mm.LOOSE_OPEN_QUERY else stray["closedIssueList"]
+            search = {"issueCount": stray["closedIssues"]["totalCount"] if q == mm.COUNT_QUERY else len(nodes)}
+            if q != mm.COUNT_QUERY:
+                search.update(page(nodes, start, 1))
+            return json.dumps({"data": {"search": search}})
         if q == mm.MILESTONES_QUERY:
             ms = [{k: v for k, v in m.items() if k not in ("openIssues", "closedIssueList")} for m in raw]
             repo = {"milestones": page(ms, start, max(1, -(-len(ms) // pages)))}
@@ -294,8 +313,6 @@ def fake_gh(raw, no_milestone=3, pages=2):
             repo = {"milestone": {"issues": page(by[int(vs["number"])]["openIssues"], start)}}
         elif q == mm.CLOSED_ISSUES_QUERY:
             repo = {"milestone": {"issues": page(by[int(vs["number"])]["closedIssueList"], start)}}
-        elif q == mm.COUNT_QUERY:
-            repo = {"all": {"totalCount": 10 + no_milestone}, "withMilestone": {"totalCount": 10}}
         else:
             raise AssertionError("知らない問い合わせ")
         return json.dumps({"data": {"repository": repo}})
@@ -356,13 +373,41 @@ class Fetch(unittest.TestCase):
         return [milestone(n, due=f"2026-12-{n:02d}", issues=[issue(n * 10)]) for n in range(1, 6)]
 
     def test_pages_and_counts(self):
-        run, calls = fake_gh(self.raw())
+        stray = loose([issue(91), issue(92)], [closed(93, "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z")], closed_all=7)
+        run, calls = fake_gh(self.raw(), stray)
         with mock.patch.object(ghpage, "gh", run), mock.patch.object(mm, "gh", run):
-            ms, no_ms = mm.fetch("o", "r")
+            ms, got = mm.fetch("o", "r", TODAY)
         self.assertEqual(sorted(m["number"] for m in ms), [1, 2, 3, 4, 5])
-        self.assertEqual(no_ms, 3)
         self.assertEqual(sum(1 for q, _, _ in calls if q == mm.MILESTONES_QUERY), 2)
         self.assertTrue(all(len(m["openIssues"]) == 1 for m in ms))
+        # マイルストーンの付いていない issue は検索で、全ページを取る（1 件ずつのページにしてある）
+        self.assertEqual(([i["number"] for i in got["openIssues"]], [i["number"] for i in got["closedIssueList"]]), ([91, 92], [93]))
+        self.assertEqual(got["closedIssues"]["totalCount"], 7)
+        self.assertEqual([x for x in got["limits"] if x], [])
+        asked = {v["q"] for q, v, _ in calls if q in (mm.LOOSE_OPEN_QUERY, mm.LOOSE_CLOSED_QUERY)}
+        self.assertEqual(asked, {"repo:o/r is:issue no:milestone is:open",
+                                 f"repo:o/r is:issue no:milestone is:closed closed:>={TODAY - dt.timedelta(days=mm.SINCE_DAYS)}"})
+
+    def test_search_cap_is_reported(self):
+        run, _ = fake_gh([], loose([issue(91)]))
+
+        def capped(*args, **kw):
+            out = json.loads(run(*args, **kw))
+            if "search" in out["data"] and "nodes" in out["data"]["search"]:
+                out["data"]["search"]["issueCount"] = 1500   # 検索は 1000 件までしか返さない
+            return json.dumps(out)
+        with mock.patch.object(ghpage, "gh", capped), mock.patch.object(mm, "gh", capped):
+            _, got = mm.fetch("o", "r", TODAY)
+        self.assertIn("1500 件のうち 1 件", "・".join(build([], got)["limits"]))
+
+    def test_bad_dates_stop(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = pathlib.Path(d) / "dates.json"
+            f.write_text('["2026-11-20"]', encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(mm.main(["--repo", "O/R", "--dates", str(f)]), 2)
+            self.assertIn("--dates", err.getvalue())
 
     def test_main_writes_page(self):
         run, _ = fake_gh(self.raw())
@@ -384,6 +429,96 @@ class Fetch(unittest.TestCase):
             mm.main(["--help"])
         self.assertIn("見ていないもの", out.getvalue())
         self.assertIn("Projects", out.getvalue())
+
+
+class Stray(unittest.TestCase):
+    """マイルストーンの付いていない issue（持ち主 2026-11-04「マイルストーンに紐づかない野良issueも存在できるように」
+    「MSなしは野良部隊みたいな感じでおらせたら」「期日があればね。見たいかもしれない」）。"""
+
+    def test_stray_issues_form_the_last_frame_and_join_lines(self):
+        stray = loose([issue(50, blocked=[(10, 1, "OPEN", REPO)]), issue(51)], closed_all=4)
+        data = build([milestone(1, "2026-11-30", [issue(10)]), milestone(2, None, [issue(20)])], stray)
+        self.assertEqual([(m["number"], m["none"]) for m in data["milestones"]], [(1, False), (2, False), (0, True)])
+        self.assertEqual(data["edges"], [[10, 50]])   # マイルストーンの在る issue との線も引く
+        self.assertEqual((data["scope"]["milestones"], data["scope"]["no_milestone_issues"], data["scope"]["open_issues"]), (2, 2, 4))
+        self.assertEqual(data["milestones"][2]["closed"], 4)
+        v = view_of(page_of(data))
+        self.assertEqual([(m["n"], m["none"], m["due"]) for m in v["milestones"]][2], (0, True, "期日なし"))
+        self.assertIn("「マイルストーンなし」の枠に置いた", mm.body_html(data))
+
+    def test_no_stray_issues_no_frame(self):
+        data = build([milestone(1, None, [issue(10)])], loose())
+        self.assertEqual([m["number"] for m in data["milestones"]], [1])
+        self.assertNotIn("マイルストーンなし", mm.body_html(data))
+
+    def test_dates_place_stray_issues_in_their_column(self):
+        d = mm.read_dates('{"50": "2026-11-20", "52": "2026-11-20", "60": "2026-01-01", "10": "2026-12-31", "53": null}')
+        self.assertEqual(d, {50: dt.date(2026, 11, 20), 52: dt.date(2026, 11, 20), 60: dt.date(2026, 1, 1), 10: dt.date(2026, 12, 31)})
+        done = [closed(52, "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z"), closed(60, "2026-01-01T03:00:00Z", "2026-11-03T03:00:00Z")]
+        data = build([milestone(1, "2026-11-30", [issue(10)])], loose([issue(50), issue(51)], done, closed_all=9), dates=d)
+        got = [(m["number"], m["due"], [i["number"] for i in m["issues"]], [i["number"] for i in m["done"]], m["closed"])
+               for m in data["milestones"]]
+        # 日付の在る open の issue は、その日の「マイルストーンなし」の枠へ。閉じた issue は、同じ日付の枠が在ればそこへ、
+        # 無ければ期日なしの枠へ（閉じた issue だけの枠は作らない）。マイルストーンの在る issue の日付は使わない
+        self.assertEqual(got, [(-1, "2026-11-20", [50], [52], 1), (1, "2026-11-30", [10], [], 3), (0, None, [51], [60], 8)])
+        v = view_of(page_of(data))
+        self.assertEqual(v["milestones"][0]["due"], "渡した日付 " + mm.md("2026-11-20", 2026))
+
+    def test_bad_dates(self):
+        for text in ('["2026-11-20"]', '{"x": "2026-11-20"}', '{"5": "11/20"}'):
+            with self.assertRaises(ValueError):
+                mm.read_dates(text)
+
+
+class Closer(unittest.TestCase):
+    """閉じる PR を出した人も実質の担当（持ち主 2026-11-04「PRをやってclosesに入れた人も実質担当じゃないかな」）。"""
+
+    def test_closer(self):
+        made, shut = "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z"
+        self.assertEqual(mm.closer_of(closed(1, made, shut, who=("a",), pr_by="dev")), "dev")      # PR で閉じた
+        self.assertEqual(mm.closer_of(closed(2, made, shut, actor="x")), "x")                      # 手で閉じ、担当者なし
+        self.assertIsNone(mm.closer_of(closed(3, made, shut, who=("a",), actor="x")))              # 手で閉じ、担当者あり
+        self.assertIsNone(mm.closer_of(closed(4, made, shut, actor=None)))                         # 消えたアカウント
+        bare = closed(5, made, shut)
+        bare["timelineItems"] = {"nodes": []}
+        self.assertIsNone(mm.closer_of(bare))
+        v = view_of(page_of(build([milestone(1, None, [issue(9)], done=[closed(1, made, shut, who=("a",), pr_by="dev")])])))
+        self.assertEqual((v["milestones"][0]["done"][0]["who"], v["milestones"][0]["done"][0]["by"]), (["a"], "dev"))
+
+
+_pd = importlib.util.spec_from_file_location("project_dates", ROOT / "attention" / "scripts" / "project-dates.py")
+pd = importlib.util.module_from_spec(_pd)
+_pd.loader.exec_module(pd)
+
+
+class ProjectDates(unittest.TestCase):
+    """Projects の日付の欄を --dates の JSON にする固有の部品（持ち主 2026-11-04「データとして流せるようにしておいて、
+    その日付を取得するところは固有とかの方がいいかもね」）。"""
+
+    @staticmethod
+    def item(n, *vals):
+        return {"number": n, "projectItems": {"nodes": [
+            {"project": {"number": p}, "fieldValueByName": {"date": d} if d else None} for p, d in vals]}}
+
+    def test_dates_of(self):
+        issues = [self.item(1, (9, "2026-11-20"), (3, "2026-11-10")), self.item(2, (9, None)), self.item(3, (3, "2026-12-01"))]
+        self.assertEqual(pd.dates_of(issues), {"1": "2026-11-10", "3": "2026-12-01"})   # 2 つ以上なら早い方
+        self.assertEqual(pd.dates_of(issues, project=9), {"1": "2026-11-20"})
+        self.assertEqual(mm.read_dates(json.dumps(pd.dates_of(issues))), {1: dt.date(2026, 11, 10), 3: dt.date(2026, 12, 1)})
+
+    def test_search_pages(self):
+        pages = [{"pageInfo": {"hasNextPage": True, "endCursor": "1"}, "nodes": [self.item(1, (9, "2026-11-20"))]},
+                 {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [self.item(2, (9, "2026-11-21")), {}]}]
+        seen = []
+
+        def run(*args, **kw):
+            seen.append(list(args))
+            return json.dumps({"data": {"search": pages[len(seen) - 1]}})
+        with mock.patch.object(pd, "gh", run):
+            got = pd.search_all("repo:o/r is:issue no:milestone is:open", "Target Date")
+        self.assertEqual([i["number"] for i in got], [1, 2])
+        self.assertIn("field=Target Date", seen[0])
+        self.assertIn("cursor=1", seen[1])
 
 
 if __name__ == "__main__":

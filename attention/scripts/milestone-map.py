@@ -5,8 +5,13 @@
 マイルストーン・issue・blocked by で、ここはそれを読むだけで書き換えない。GitHub から取った事実だけを描き、推定・見込み
 （AI の推論やモンテカルロの日付）は載せない（持ち主 2026-11-04「推論とか予想はあとでできるよね」）。
 
-〈母集団〉open のマイルストーン全部と、その open の issue（blocked by と、閉じる予定の open の PR）、マイルストーンの
-付いていない open の issue の件数（件数だけ。図には載せない）。
+〈母集団〉open のマイルストーン全部と、その open の issue（blocked by と、閉じる予定の open の PR）と、マイルストーンの
+付いていない open の issue（右の端の「マイルストーンなし」の枠に、マイルストーン 1 本と同じ形で置く）。
+
+〈渡す日付〉GitHub の issue には期日の欄が無い。--dates に「issue の番号 → 日付」の JSON を渡すと、マイルストーンの付いて
+いない issue のうち日付の在る物を、日付ごとの「マイルストーンなし」の枠にしてその日の列に置く（マイルストーンの在る issue は
+マイルストーンの期日で置き、渡した日付は使わない）。日付をどこから取るか（Projects の日付の欄など）はこのスクリプトの外の
+固有の部品が決める。Projects の日付の欄から取る部品は scripts/project-dates.py。
 
 〈図〉左から右へ期日の列が並ぶ（期日なしは右の端）。issue 1 件を番号と題名のカード 1 枚にし、マイルストーン 1 本を、
 その issue を包む薄い枠 1 つにする。枠は期日の列に置き、空いた所へ詰める（クリティカルパスの在る枠を先に上へ置く）。
@@ -22,11 +27,14 @@
 issue）物を、カードからカードへの矢印にする（向きは「止めている側 → 待つ側」）。待つ側の issue より左の列へ止めている側を
 寄せ、同じ期日の列の中では止めている側を左の段に置くので、矢印は右へ向かう（輪の中の線だけは向きを揃えられない）。
 同じマイルストーンの中の線も引く。閉じた枠の issue の線は、枠の帯のうちその issue の列の端から引く（帯が列をまたいでも、線を右向きに保つため）。相手が
-地図に載っていない blocked by（別のリポジトリ・マイルストーンなし・閉じたマイルストーン）は線にせず、カードを赤くして、
+地図に載っていない blocked by（別のリポジトリ・閉じた issue・閉じたマイルストーン）は線にせず、カードを赤くして、
 カードの説明（マウスを載せると出る）に相手の番号を書く。
 
-〈誰が〉issue の担当者（GitHub の assignee）をカードに頭文字の丸で出す。担当者の居ない緑のカードには、閉じる予定の
-open の PR を出した人を点線の丸で出す。上の人の一覧で人を押すと、その人のカードだけを光らせる。
+〈誰が〉実質の担当を、issue の担当者（GitHub の assignee）と、その issue を閉じる PR を出した人とする（担当者の欄に
+入っていなくても、PR の本文に closes を書いて進めている人は担当と同じ。持ち主 2026-11-04）。open の issue は閉じる予定の
+open の PR、閉じた issue は閉じた PR（GitHub の最後の ClosedEvent の closer）の作者を見る。PR でなく手で閉じた issue は、
+担当者が居なければ閉じる操作をした人を担当とする。カードに頭文字の丸で出し、担当者の欄に居ない人は点線の丸にする。上の
+人の一覧で人を押すと、その人のカードだけを光らせる。
 
 〈期間〉ページの上で期間（既定は今日までの 14 日）を選ぶと、その間に閉じた issue（closedAt）と作られた issue
 （createdAt）を数え、日ごとの棒と、残りの数の線で描く。残りの数は「今そのマイルストーンに在る issue のうち、その日に
@@ -66,17 +74,21 @@ BLOCKED_FIRST = 50  # 1 件の issue の blocked by を取る数。GitHub の上
 PR_FIRST = 10       # 1 件の issue を閉じる予定の PR を取る数。色は open の物が 1 件在るかだけで決まる
 WHO_FIRST = 10      # 1 件の issue の担当者を取る数（GitHub の assignee の上限と同じ）
 
-NOT_SEEN = """\
+SINCE_DAYS = 400  # マイルストーンの付いていない閉じた issue を取る日数。ページで選べる期間の上限と同じ
+
+NOT_SEEN = f"""\
 見ていないもの:
   - issue の本文やコメントにだけ書かれた依存（blocked by になっていない物）。線は blocked by だけから引く
   - 別のリポジトリとの依存の線。blocked by の相手が別のリポジトリならカードを赤くするだけで線は引かない。
     別のリポジトリから止められている向き（blocking）は相手のリポジトリを読まないので見ていない
   - GitHub の外（口頭・チャット・文書）で決めた順番と、マイルストーンの説明文に書かれた順番
-  - Projects のフィールドの中身（Start Date・Target Date・見積もりなど）。トークンに read:project が無くても走るよう、取りに行かない
-  - 閉じたマイルストーンと、マイルストーンの付いていない open の issue の中身（件数だけ数える）
+  - Projects のフィールドの中身（Start Date・Target Date・見積もりなど）。トークンに read:project が無くても走るよう、
+    このスクリプトは取りに行かない（日付は --dates で外から渡せる）
+  - 閉じたマイルストーンと、その issue
   - 見込み（いつ終わりそうか）と、AI の推定した依存。まだ載せない
   - issue がマイルストーンへ足された日・移された日（timeline を読まない）。期間の数は作られた日と閉じた日だけで数える
-  - 閉じたマイルストーンの issue と、マイルストーンの付いていない issue の動き
+  - マイルストーンの付いていない閉じた issue のうち、閉じた日が {SINCE_DAYS} 日より前の物（期間の数には効かない。
+    選べる期間は {SINCE_DAYS} 日まで）
   - 本文で issue を閉じると書いていない PR（GitHub が issue に結び付けていない PR は、緑に数えない）"""
 
 MILESTONES_QUERY = """
@@ -89,19 +101,24 @@ query($owner: String!, $name: String!, $cursor: String) {
   }
 }"""
 
+OPEN_FIELDS = f"""
+          number title url createdAt
+          assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }}
+          blockedBy(first: {BLOCKED_FIRST}) {{ totalCount nodes {{
+            number url state repository {{ nameWithOwner }} }} }}
+          closedByPullRequestsReferences(first: {PR_FIRST}, includeClosedPrs: false) {{
+            totalCount nodes {{ number url state author {{ login }} }} }}"""
+CLOSED_FIELDS = (f"number title url createdAt closedAt assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }} "
+                 "timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
+                 "actor { login } closer { ... on PullRequest { author { login } } } } } }")
+
 OPEN_ISSUES_QUERY = f"""
 query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
   repository(owner: $owner, name: $name) {{
     milestone(number: $number) {{
       issues(states: OPEN, first: 50, after: $cursor) {{
         pageInfo {{ hasNextPage endCursor }}
-        nodes {{
-          number title url createdAt
-          assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }}
-          blockedBy(first: {BLOCKED_FIRST}) {{ totalCount nodes {{
-            number url state repository {{ nameWithOwner }} }} }}
-          closedByPullRequestsReferences(first: {PR_FIRST}, includeClosedPrs: false) {{
-            totalCount nodes {{ number url state author {{ login }} }} }}
+        nodes {{{OPEN_FIELDS}
         }}
       }}
     }}
@@ -114,26 +131,58 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
     milestone(number: $number) {{
       issues(states: CLOSED, first: 100, after: $cursor) {{
         pageInfo {{ hasNextPage endCursor }}
-        nodes {{ number title url createdAt closedAt assignees(first: {WHO_FIRST}) {{ totalCount nodes {{ login }} }} }}
+        nodes {{ {CLOSED_FIELDS} }}
       }}
     }}
   }}
 }}"""
 
+# マイルストーンの付いていない issue は検索（no:milestone）で取る。GraphQL の issues の filterBy の milestoneNumber に
+# "none" を渡しても 0 件が返るため（2026-11-04 に guided-resolver で、検索では 19 件・filterBy では 0 件だった）。
+# 検索は 1 つの問いに 1000 件までしか返さないので、それを超えたら上限の行に出す。
+SEARCH_FIRST = 50
+LOOSE_OPEN_QUERY = f"""
+query($q: String!, $cursor: String) {{
+  search(type: ISSUE, query: $q, first: {SEARCH_FIRST}, after: $cursor) {{
+    issueCount
+    pageInfo {{ hasNextPage endCursor }}
+    nodes {{ ... on Issue {{{OPEN_FIELDS}
+    }} }}
+  }}
+}}"""
+
+LOOSE_CLOSED_QUERY = f"""
+query($q: String!, $cursor: String) {{
+  search(type: ISSUE, query: $q, first: {SEARCH_FIRST}, after: $cursor) {{
+    issueCount
+    pageInfo {{ hasNextPage endCursor }}
+    nodes {{ ... on Issue {{ {CLOSED_FIELDS} }} }}
+  }}
+}}"""
+
 COUNT_QUERY = """
-query($owner: String!, $name: String!) {
-  repository(owner: $owner, name: $name) {
-    all: issues(states: OPEN) { totalCount }
-    withMilestone: issues(states: OPEN, filterBy: {milestoneNumber: "*"}) { totalCount }
-  }
+query($q: String!) {
+  search(type: ISSUE, query: $q, first: 0) { issueCount }
 }"""
+
+
+def search_all(query, q):
+    """検索の全ページ。戻り値は {"totalCount": 検索に当たった数, "nodes": 取れた issue}（truncated に渡せる形）。"""
+    nodes, cursor = [], None
+    while True:
+        args = ["api", "graphql", "-f", "query=" + query, "-f", "q=" + q] + (["-f", "cursor=" + cursor] if cursor else [])
+        conn = stop_on_errors(json.loads(gh(*args)))["data"]["search"]
+        nodes += [n for n in conn["nodes"] if n]
+        if not conn["pageInfo"]["hasNextPage"]:
+            return {"totalCount": conn["issueCount"], "nodes": nodes}
+        cursor = conn["pageInfo"]["endCursor"]
 
 
 # ---- 取得 ------------------------------------------------------------------
 
 
-def fetch(owner, name):
-    """母集団の生の材料。戻り値は (マイルストーンの並び, マイルストーンの付いていない open の issue の件数)。"""
+def fetch(owner, name, today):
+    """母集団の生の材料。戻り値は (マイルストーンの並び, マイルストーンの付いていない issue をマイルストーンと同じ形にした物)。"""
     milestones = fetch_all(MILESTONES_QUERY, owner, name, "milestones")
 
     def one(m):
@@ -146,9 +195,15 @@ def fetch(owner, name):
     # 4 本まで並べる（マイルストーンが 30 本で 1 本ずつだと遅い。GitHub の二次の上限に当たらない数）
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         milestones = list(pool.map(one, milestones))
-    counts = stop_on_errors(json.loads(gh("api", "graphql", "-f", "query=" + COUNT_QUERY,
-                                          "-f", "owner=" + owner, "-f", "name=" + name)))["data"]["repository"]
-    return milestones, counts["all"]["totalCount"] - counts["withMilestone"]["totalCount"]
+    base = f"repo:{owner}/{name} is:issue no:milestone"
+    closed_all = stop_on_errors(json.loads(gh("api", "graphql", "-f", "query=" + COUNT_QUERY,
+                                              "-f", "q=" + base + " is:closed")))["data"]["search"]["issueCount"]
+    opened = search_all(LOOSE_OPEN_QUERY, base + " is:open")
+    closed = search_all(LOOSE_CLOSED_QUERY, f"{base} is:closed closed:>={today - dt.timedelta(days=SINCE_DAYS)}")
+    loose = {"openIssues": opened["nodes"], "closedIssueList": closed["nodes"], "closedIssues": {"totalCount": closed_all},
+             "limits": [truncated(opened, "マイルストーンの付いていない open の issue（検索）", "マイルストーンなし"),
+                        truncated(closed, f"マイルストーンの付いていない、{SINCE_DAYS} 日の中で閉じた issue（検索）", "マイルストーンなし")]}
+    return milestones, loose
 
 
 # ---- 事実を組む（純粋関数。tests/milestone-map-suite.py が規則を pin する） ----------------
@@ -169,10 +224,18 @@ def logins(i):
     return [a["login"] for a in i["assignees"]["nodes"]]
 
 
+def closer_of(i):
+    """閉じた人。最後の ClosedEvent の、閉じたのが PR ならその PR を出した人。PR でなく手で閉じた物は、担当者が居なければ
+    閉じる操作をした人、居れば None（担当者が手で閉じた・ほかの人が片付けた、のどちらかで、担当者を実質の担当とする）。"""
+    ev = ((i.get("timelineItems") or {}).get("nodes") or [None])[-1] or {}
+    by = ((ev.get("closer") or {}).get("author") or {}).get("login")
+    return by or (None if i["assignees"]["nodes"] else (ev.get("actor") or {}).get("login"))
+
+
 def done_row(i):
-    """閉じた issue 1 件の、期間の数に使う事実。"""
+    """閉じた issue 1 件の、期間の数に使う事実。by は閉じた人（closer_of）。"""
     return {"number": i["number"], "title": i["title"], "url": i["url"],
-            "made": local_day(i["createdAt"]), "shut": local_day(i["closedAt"]), "who": logins(i)}
+            "made": local_day(i["createdAt"]), "shut": local_day(i["closedAt"]), "who": logins(i), "by": closer_of(i)}
 
 
 def issue_row(i, repo):
@@ -277,12 +340,50 @@ def critical_path(edges):
 
 
 def order_key(m):
-    return (m["due"] is None, m["due"] or "", m["number"])
+    return (m["due"] is None, m["due"] or "", bool(m.get("none")), m["number"])
 
 
-def build(raw, no_milestone, repo, today, now=None):
-    """取得した生の材料から、ページに描く事実を組む。"""
-    limits, ms = [], []
+def loose_frames(loose, dates, repo):
+    """マイルストーンの付いていない issue を、マイルストーンと同じ形の枠にする。dates（issue の番号 → 日付）に在る issue は
+    日付ごとの枠（その日を期日として置く）に、無い issue は期日なしの枠 1 つに入れる。日付の枠は open の issue の在る日だけ作り、
+    閉じた issue は、同じ日付の枠が在ればそこへ、無ければ期日なしの枠へ入れる（閉じた issue だけの枠を古い日付の列に並べないため）。
+    番号は 0（期日なし）と負の数（日付の枠）。
+    閉じた数は、日付の枠は取った閉じた issue の数、期日なしの枠は残り（全部の閉じた数から日付の枠の分を引いた数）。"""
+    if not loose or not (loose["openIssues"] or loose["closedIssueList"]):
+        return []
+    dates = dates or {}
+    url = f"https://github.com/{repo}/issues?q=is%3Aissue%20is%3Aopen%20no%3Amilestone"
+    groups = {}
+    for i in loose["openIssues"]:
+        groups.setdefault(dates.get(i["number"]), {"openIssues": [], "closedIssueList": []})["openIssues"].append(i)
+    for i in loose["closedIssueList"]:
+        d = dates.get(i["number"])
+        groups.setdefault(d if d in groups else None, {"openIssues": [], "closedIssueList": []})["closedIssueList"].append(i)
+    out, dated = [], 0
+    for k, d in enumerate(sorted(x for x in groups if x), 1):
+        g = groups[d]
+        dated += len(g["closedIssueList"])
+        out.append({"number": -k, "title": "マイルストーンなし", "dueOn": d.isoformat(), "none": True, "url": url, **g,
+                    "closedIssues": {"totalCount": len(g["closedIssueList"])}})
+    if None in groups:
+        out.append({"number": 0, "title": "マイルストーンなし", "dueOn": None, "none": True, "url": url, **groups[None],
+                    "closedIssues": {"totalCount": max(0, loose["closedIssues"]["totalCount"] - dated)}})
+    return out
+
+
+def read_dates(text):
+    """--dates の JSON（{"issue の番号": "YYYY-MM-DD"}）を {番号: date} にする。形が違えば ValueError。"""
+    raw = json.loads(text)
+    if not isinstance(raw, dict):
+        raise ValueError("--dates の JSON は {\"issue の番号\": \"YYYY-MM-DD\"} の形にする")
+    return {int(k): dt.date.fromisoformat(v) for k, v in raw.items() if v}
+
+
+def build(raw, loose, repo, today, now=None, dates=None):
+    """取得した生の材料から、ページに描く事実を組む。loose はマイルストーンの付いていない issue（fetch の 2 つ目。
+    無ければ None）で、loose_frames が「マイルストーンなし」の枠にする。dates は --dates の日付（read_dates）。"""
+    limits, ms = list((loose or {}).get("limits") or []), []
+    raw = list(raw) + loose_frames(loose, dates, repo)
     for m in raw:
         due = due_date(m)
         issues = []
@@ -292,7 +393,7 @@ def build(raw, no_milestone, repo, today, now=None):
             issues.append(issue_row(i, repo))
         rank = {"blocked": 0, "pr": 1, "idle": 2}
         issues.sort(key=lambda i: (rank[i["state"]], i["number"]))
-        ms.append({"number": m["number"], "title": m["title"], "url": m["url"],
+        ms.append({"number": m["number"], "title": m["title"], "url": m["url"], "none": bool(m.get("none")),
                    "due": due.isoformat() if due else None,
                    "overdue_days": (today - due).days if due and due < today else 0,
                    "open": len(issues), "closed": m["closedIssues"]["totalCount"], "issues": issues,
@@ -306,8 +407,8 @@ def build(raw, no_milestone, repo, today, now=None):
         "repo": repo, "url": f"https://github.com/{repo}/milestones",
         "taken_at": (now or dt.datetime.now().astimezone()).isoformat(timespec="seconds"),
         "today": today.isoformat(),
-        "scope": {"milestones": len(ms), "open_issues": sum(m["open"] for m in ms), **count,
-                  "edges": len(edges), "no_milestone_issues": no_milestone},
+        "scope": {"milestones": sum(1 for m in ms if not m["none"]), "open_issues": sum(m["open"] for m in ms), **count,
+                  "edges": len(edges), "no_milestone_issues": sum(m["open"] for m in ms if m["none"])},
         "milestones": ms, "edges": edges, "critical": crit, "limits": [x for x in limits if x],
     }
 
@@ -397,8 +498,9 @@ def view(data):
     cols = [{"label": ("期日 " + md(heads[c], year)) if heads.get(c) else "期日なし" if c in heads else "",
              "late": bool(heads.get(c) and heads[c] < today)} for c in range(width)]
     past = [c for c, d in heads.items() if d and d < today]
-    ms = [{"n": m["number"], "title": m["title"], "url": m["url"], "col": due_col[m["due"]],
-           "due": ("期日 " + md(m["due"], year)) if m["due"] else "期日なし", "overdue": m["overdue_days"],
+    ms = [{"n": m["number"], "title": m["title"], "url": m["url"], "col": due_col[m["due"]], "none": m["none"],
+           "due": (("渡した日付 " if m["none"] else "期日 ") + md(m["due"], year)) if m["due"] else "期日なし",
+           "overdue": m["overdue_days"],
            "open": m["open"], "closed": m["closed"],
            "count": {s: sum(1 for i in m["issues"] if i["state"] == s) for s in ("blocked", "pr", "idle")},
            "issues": [{"n": i["number"], "title": i["title"], "url": i["url"], "state": i["state"],
@@ -406,7 +508,7 @@ def view(data):
                        "prs": i["prs"], "prBy": i["pr_by"], "prOf": i["pr_of"], "who": i["who"], "made": i["made"], "tip": card_title(i)}
                       for i in m["issues"]],
            "done": [{"n": i["number"], "title": i["title"], "url": i["url"], "made": i["made"], "shut": i["shut"],
-                     "who": i["who"]} for i in m["done"]]}
+                     "who": i["who"], "by": i["by"]} for i in m["done"]]}
           for m in data["milestones"]]
     return {"columns": cols, "today": {"at": max(past) + 1 if past else 0, "label": "今日 " + md(today, year), "day": today},
             "milestones": ms, "edges": data["edges"], "path": [list(e) for e in zip(path, path[1:])],
@@ -426,7 +528,8 @@ def body_html(data):
            f'<li class="idle"><i></i>それ以外 <b>{s["idle"]}</b></li>'
            f'<li>blocked by の線 <b>{s["edges"]}</b></li></ul></div>',
            f'<p class="meta">{esc(data["taken_at"])} に GitHub から取った事実だけを描いている（推定・見込みは載せない）。'
-           f'マイルストーンの付いていない open の issue {s["no_milestone_issues"]} 件は載せていない。</p>']
+           + (f'マイルストーンの付いていない open の issue {s["no_milestone_issues"]} 件は、右の端の「マイルストーンなし」の枠に置いた。'
+              if s["no_milestone_issues"] else "") + "</p>"]
     if path:
         out.append(f'<p class="path"><span class="label crit">クリティカルパス {len(path)} 件</span> ' + '<span class="arrow">→</span>'.join(
             f'<a href="https://github.com/{repo}/issues/{n}" data-n="{n}">#{n}</a>' for n in path) + "</p>")
@@ -487,16 +590,26 @@ def parser():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repo", help="OWNER/NAME（省略時はカレントリポジトリ）")
     ap.add_argument("--today", type=dt.date.fromisoformat, help="今日の日付 YYYY-MM-DD（試験と見直しの再現のため。既定は今日）")
+    ap.add_argument("--dates", metavar="FILE", help="マイルストーンの付いていない issue の日付の JSON"
+                    "（{\"issue の番号\": \"YYYY-MM-DD\"}。- なら標準入力）。例: --dates <(scripts/project-dates.py --field 'Target Date')")
     return ap
 
 
 def main(argv=None, env=None, root=None):
     a = parser().parse_args(argv)
+    dates = None
+    if a.dates:   # GitHub に問う前に読む（形が違えば、取得を待たずに止める）
+        try:
+            dates = read_dates(sys.stdin.read() if a.dates == "-" else pathlib.Path(a.dates).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"milestone-map: --dates を読めなかった: {e}", file=sys.stderr)
+            return 2
     # 正式の名前（大文字小文字）に揃える。blocked by の相手のリポジトリを自リポジトリと照合するため
     repo = gh("repo", "view", *([a.repo] if a.repo else []), "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
     owner, name = repo.split("/", 1)
-    raw, no_ms = fetch(owner, name)
-    data = build(raw, no_ms, repo, a.today or dt.date.today())
+    today = a.today or dt.date.today()
+    raw, loose = fetch(owner, name, today)
+    data = build(raw, loose, repo, today, dates=dates)
     page = repo_dir(repo, root) / "map.html"
     catchup_html._write_atomic(page, build_html(TEMPLATE.read_text(encoding="utf-8"), data))
     print("\n".join([str(page), summary_line(data), catchup_html.open_in_vscode(page, env)]))
