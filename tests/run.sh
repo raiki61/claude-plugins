@@ -6351,7 +6351,7 @@ expect_output 0 "AUTO_OK" \
     "works-factory-pin: 照合に当たりの無い上げは AI を立てずに --land で main に入れ、入らなければ作業に回し、作ったブランチを origin にも手元にも残さず、合図の再入では黙る" \
     "$PY_BIN" "$WFP_CASE" auto
 
-scope attention tests/what-am-i-doing tests/whose-turn
+scope attention tests/what-am-i-doing tests/whose-turn tests/milestone-map
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
 WAI_CASE="$ROOT/tests/what-am-i-doing-case.py"
@@ -6423,6 +6423,15 @@ expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 193 件。時
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
+
+# ---- attention/milestone-map: open のマイルストーン全部を 1 枚の地図にする ----
+# GitHub には触らない。gh を固定の材料に差し替え、依存 0 件・期日なし・期日切れ・標本の少ない所で HTML が壊れないことと、
+# 見込みが乱数の種で決まることを固定する
+MM="$ROOT/attention/scripts/milestone-map.py"
+expect_output 0 "OK" "milestone-map: 見込み・線・候補・ページの回帰（unittest）" \
+    "$PY_BIN" "$ROOT/tests/milestone-map-suite.py"
+expect_output 0 "見ていないもの" "milestone-map: --help に見込みの出し方と見ていないものが出る" \
+    "$PY_BIN" "$MM" --help
 
 # works-dispatch の試験は、このリポジトリの会社の形（.claude/company.toml）の鍵も読む（test_known_keys.py）
 scope works-dispatch .claude/company.toml

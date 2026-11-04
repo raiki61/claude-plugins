@@ -6,6 +6,14 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Added
+
+- `/milestone-map`: 1 つのリポジトリの open のマイルストーン全部を、1 枚の HTML の地図にする（頼み 1f27bb。guided-resolver の窓口から 2026-11-04 に受けた頼みの受付番号）。期日の順の時間軸（期日なしは右端の列・期日切れは赤い枠）、残りの件数、週ごとの閉じた件数から出す見込み（throughput に基づくモンテカルロの 50% と 85% の日付。平均で割らない）、マイルストーンをまたぐ blocked by の線と律速、issue の本文が別のマイルストーンの issue に触れている「依存の候補」（blocked by ではない。既定で隠し、チェックボックスで出す）を出す。GitHub には書かない。/whose-turn と同じく、機械が母集団と事実を全部出し、AI は全体の一言・目立つ点・受け皿の選び分けだけを書く。
+
+### Changed
+
+- `/whose-turn`: GraphQL の一覧を全部のページまで取る部品（`fetch_all()`・`truncated()`）を `scripts/lib/ghpage.py` に移し、/milestone-map と共用にした。振る舞いは変えていない。
+
 ## [0.55.0] - 2026-11-02
 
 ### Changed

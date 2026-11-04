@@ -1,6 +1,6 @@
 # attention
 
-Tools for **getting an overview of parallel work and getting back into it**. One command gives the overview and two commands get you back in. **Each of the two covers a different thing you have lost.** The plugin also has `/my-turn`, which moves your turn forward after you are back, and `/reflect`, which looks back over a period and gives improvement proposals and observations.
+Tools for **getting an overview of parallel work and getting back into it**. Two commands give the overview (`/whose-turn` for open items, `/milestone-map` for milestones) and two commands get you back in. **Each of the two covers a different thing you have lost.** The plugin also has `/my-turn`, which moves your turn forward after you are back, and `/reflect`, which looks back over a period and gives improvement proposals and observations.
 
 The instructions and descriptions of the commands are written in Japanese, and so is most of their output.
 
@@ -9,6 +9,7 @@ Changes in each version are in [CHANGELOG.md](CHANGELOG.md). How versions are re
 | Command | When to use it | What you have lost |
 |---|---|---|
 | `/whose-turn` | Overview of everything | **What is open, and whose turn** |
+| `/milestone-map [--repo OWNER/NAME]` | Overview of all milestones (HTML page) | **Which milestone will make its due date, and what waits on what** |
 | `/catchup [number] [指摘・地図・CI]` | Back to one item (HTML page) | **Where you stopped; what the PR is for** |
 | `/what-am-i-doing` | Back to a session | **What this thread was for** |
 | `/my-turn` | Move your turn forward | (How to proceed after you are back) |
@@ -16,6 +17,7 @@ Changes in each version are in [CHANGELOG.md](CHANGELOG.md). How versions are re
 
 Details for the table:
 
+- `/milestone-map` draws every open milestone of one repository on one page: a timeline of boxes by due date, the remaining issues, a forecast from the issues closed in recent weeks, and lines for `blocked by` between milestones. It only reads GitHub; the milestones and `blocked by` on GitHub stay the source of truth.
 - `/catchup` gets you back to one PR / issue, a branch, a commit (or a commit range), or a topic in the conversation. Its explanation also lays out the structure around the change (the parts, what flows between them, which side owns the data and which only reads it, the direction of dependencies, and the boundaries) and sets the general structure of that kind of system beside the structure after the change, as facts without judging them. It moves to the matching branch, fetching it from origin if it is not local. The reply is one HTML page. What you have lost is **where in the conversation you stopped**, and **what you were told, and what the PR changes and why**. By default the page has every section; put 指摘 (unresolved review threads), 地図 (the map of the change) or CI after the target (for example `/catchup 1569 指摘`) to keep only those sections at the end of the page.
 - `/what-am-i-doing` is for when you switch sessions and come back. What you have lost is **what work this thread was doing**.
 - `/my-turn` moves your turn on one PR forward. Give it a PR number, or run it on the PR's branch. It works in three layers. The upper layer lays out the structure of the system the PR touches, has a separate agent, which does not see the diff, describe the general structure of that kind of system (not solutions or tools), and decides for each difference whether to move toward the general structure. It decides against outside standards (the written intent and common practice), not against the surrounding code, because code that has already drifted looks consistent with itself. The current state of the repository (its settings, CI, code layout, habits, or checks that already exist) is never a reason to stay apart from the general structure, however it is worded; that state is what to fix. The only accepted reasons are outside standards and facts outside the PR that cannot be changed and can be shown from the original source (a tool's specification, a law, a contract). The lower layer names the mechanism the PR builds and what that mechanism makes up for (for example, a manual step or an agreement kept somewhere else), and always asks first whether that need can be removed. Starting from that question, the structural differences to fix, and each review comment, it breaks each into smaller questions until it can check the answer in the code or in a tool's documentation. It decides by reading first, and actually runs things (rendering, running tests, trying a copy, installing a tool) only when reading cannot settle the answer and the answer would change a recommendation or a draft. It notes where one fix settles several of these questions, where a fix for one undoes another, and which open issues or PRs build the same thing. It then compares the fixes with known solutions elsewhere (tools, OSS, standard procedures), and prefers removing the need for a check over typing, existing tools, and home-made code, in that order. The last layer is the output: after a report for you, if you are the reviewer it lists each point for the author as a draft inline comment, given as a file and line (or line range) followed by the comment text, with points that do not belong to one line in a single top-level draft at the end. If you are the author, it lists a proposed fix for each comment you received, and whether to reply. Before it shows anything, it cleans up what it set up to check things: it deletes temporary copies and files, returns the PR's working tree to the state it found it in (same `git status`, no leftover stash, same branch), undoes changes to tool version settings such as `mise.toml`, and stops anything it started in the background. Tools it installed only on your machine stay, and the report lists them along with anything it could not clean up. It posts nothing; you paste what you want. The report also shows how it described the system, the exact question it asked the separate agent, and what happened to each comment you made earlier. If the report from an earlier run is passed to it, it also reads each finding in that report (comments, drafts, ways to remove a need, shared work with other issues or PRs, and things left unchecked), says what happened to each, and turns each open one into a question to dig or an item for you to decide, so none is dropped. Checks from the earlier run are reused when what they checked (the PR's head, the files, tool versions) has not changed, and the report says so. It does not rely on `/catchup` output.
@@ -74,6 +76,41 @@ python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json [--all] [--mate
 The definitions of the judgments and what is not looked at are in `--help`. The script's judgment of whose turn each PR is (the sections and rows of the report) is a pure function, and `tests/whose-turn-suite.py` pins its rules one line at a time (224 cases). The AI then only reads the materials to classify the mentions and threads, as the skill describes. All times, in headings and rows, are shown in local time.
 
 Only this command runs on sonnet (the `model` in the command definition). The AI's job is to apply the rules to the material and sort it; it does not need a higher model's reasoning, and it is kept light because it is meant to run every day.
+
+## `/milestone-map` — see all milestones on one page
+
+### Usage
+
+```
+/milestone-map                     # the repository you are in
+/milestone-map --repo OWNER/NAME   # another repository
+```
+
+It reads all open milestones of one repository, their open issues (body, `blocked by`, parent and sub-issues), their open PRs, and the issues closed in the last 16 weeks, and writes one self-contained HTML page (no scripts; the figure is inline SVG) to `~/.cache/attention/milestone-map/<owner>-<name>/map.html`. It opens the page in VS Code like `/catchup` (`ATTENTION_CATCHUP_OPEN=0` turns that off). It never writes to GitHub: the point is to see the current state first, so that people add `blocked by` where they see it is missing.
+
+The page has:
+
+1. **A timeline.** One box per milestone, with its right edge at the due date. Milestones without a due date are in a column on the right. Overdue boxes have a red border and the number of days overdue.
+2. **A forecast in each box.** A throughput-based Monte Carlo simulation: the weekly counts of closed issues of that milestone (weeks before the milestone was created are not counted) are resampled until the remaining issues reach 0, 10,000 times, and the 50% and 85% dates are shown. It never divides by an average ("a plan based on averages will fail, on average", https://www.hanssamios.com/dokuwiki/why_a_plan_based_on_average_velocity_will_fail). With fewer than 8 weeks of samples or fewer than 10 closed issues, the page says the range is wide. The random seed is fixed (`--seed`), so the same data gives the same dates.
+3. **Dependency lines.** `blocked by` between issues in different open milestones is gathered into one arrow per pair of milestones, labelled with the number of issue pairs. With no such `blocked by`, there are no lines. Separately, "dependency candidates" (依存の候補) are pairs of milestones where an issue body mentions an open issue in the other milestone. They are **not** `blocked by` (the body only mentions the issue), are hidden by default, and are shown as thin dotted lines with a checkbox. Issues whose body mentions more than 15 issues are treated as lists and left out.
+4. **The critical chain**, only when there are lines: the chain whose 85% end is the latest is drawn in bold.
+5. **Details per milestone** in `<details>`: headings of the description, remaining issues, blocked issues, open PRs, due date, forecast and the weekly samples.
+
+Milestones that the AI judges to be trays (受け皿; milestones without a finishing condition, such as "Future") are listed in a row below the figure instead of on the timeline. What was not looked at (dependencies only written in bodies or comments, dependencies with other repositories, order decided outside GitHub, the contents of Projects fields) is always on the page.
+
+### Division of work
+
+- **Script (machine)**: fixes the population, computes the forecasts, lines, candidates and critical chain, and draws the page
+- **AI**: reads the materials and writes only a one-line summary, up to 6 points, a short note per milestone and the list of trays (a small JSON file). The script checks the file and draws the page from it
+
+### Bundled script
+
+```
+python3 scripts/milestone-map.py [--repo OWNER/NAME] [--weeks 16] [--trials 10000] [--seed 1] [--max-refs 15] [--today YYYY-MM-DD] [--out]
+python3 scripts/milestone-map.py --render <data.json> <data-fields.json>
+```
+
+The definitions and what is not looked at are in `--help`. `tests/milestone-map-suite.py` pins the rules with `gh` replaced by fixed data, including no dependencies, no due date, overdue milestones and milestones with few samples.
 
 ## `/catchup` — get back to one PR / issue
 

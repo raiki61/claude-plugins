@@ -111,6 +111,7 @@ import unicodedata
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
 from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/catchup と共用
+from ghpage import MissingField, fetch_all, stop_on_errors, truncated  # noqa: E402 — 全ページの取得と上限の行。/milestone-map と共用
 from ghtext import DONE_NOT_RED, is_bot, mentions, readable, repo_refs  # noqa: E402 — 発言の読み方。/catchup と共用
 import turn  # noqa: E402 — PR のターンの持ち主と指摘対応の判定。/catchup と共用
 from turn import answerable, assigned_people, login, owner_side, owners, thread_turns  # noqa: E402
@@ -246,34 +247,6 @@ def local_time(ts, fmt="%m-%d %H:%M"):
 
 
 # ---- 取得 ------------------------------------------------------------------
-
-
-class MissingField(Exception):
-    """問い合わせたフィールドをその GitHub が持たない（graphql-ruby の静的検証の undefinedField）"""
-
-
-def stop_on_errors(data):
-    """GraphQL の答えにエラーがあれば止める。無ければそのまま返す"""
-    if data.get("errors"):
-        sys.exit("GraphQL エラー: " + json.dumps(data["errors"], ensure_ascii=False))
-    return data
-
-
-def fetch_all(query, owner, name, field, optional=()):
-    """field の全ページ。optional に挙げたフィールドが無いと返ったときだけ MissingField を投げ、ほかのエラーは止める"""
-    nodes, cursor = [], None
-    while True:
-        args = ["api", "graphql", "-f", "query=" + query, "-f", "owner=" + owner, "-f", "name=" + name]
-        if cursor:
-            args += ["-f", "cursor=" + cursor]
-        data = json.loads(gh(*args, graphql_errors=bool(optional)))
-        if turn.missing_only(data.get("errors"), optional):
-            raise MissingField()
-        conn = stop_on_errors(data)["data"]["repository"][field]
-        nodes += conn["nodes"]
-        if not conn["pageInfo"]["hasNextPage"]:
-            return nodes
-        cursor = conn["pageInfo"]["endCursor"]
 
 
 def fetch_prs(owner, name):
@@ -1207,13 +1180,6 @@ def assigned_at(item, who):
         if e["__typename"] == "AssignedEvent"
         and (e.get("assignee") or {}).get("login") == who
     )
-
-
-def truncated(conn, what, where):
-    """取得上限に当たったら、その旨の 1 行。全件取れていれば None。"""
-    if conn["totalCount"] > len(conn["nodes"]):
-        return f"{where}: {what} {conn['totalCount']} 件のうち {len(conn['nodes'])} 件しか見ていない"
-    return None
 
 
 TIMELINE_LAST = 100  # PR_QUERY の timelineItems(last: …) と同じ数
