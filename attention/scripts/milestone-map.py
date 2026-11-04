@@ -57,6 +57,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import catchup_html  # noqa: E402 — ページの書き方と VS Code で開く口を /catchup と共用
+# 担当者・Linked PR の作者・閉じた人の事実は /whose-turn・/catchup と共用。誰が進めているか（doers）の規則だけをここに置く
+from people import closer_of, linked_prs, logins  # noqa: E402
 from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn・/catchup と共用
 from ghpage import fetch_all, stop_on_errors, truncated  # noqa: E402 — 全ページの取得と上限の行。/whose-turn と共用
 
@@ -215,27 +217,6 @@ def local_day(ts):
     return dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().date().isoformat() if ts else None
 
 
-def logins(i):
-    """担当者の login の並び。"""
-    return [a["login"] for a in i["assignees"]["nodes"]]
-
-
-def closer_of(i):
-    """閉じた人と閉じ方 (login, "pr" か "hand")。最後の ClosedEvent の、閉じたのが PR ならその PR を出した人（"pr"）。
-    PR でなく閉じた物（手で閉じた・commit で閉じた・PR の作者のアカウントが消えた）は、担当者が居なければ閉じる操作を
-    した人（"hand"）、居れば (None, None)（担当者を実質の担当とする）。ただし手で閉じた物は、完了（stateReason が COMPLETED）
-    で閉じた物だけを数え、Bot が閉じた物と、not planned・duplicate で閉じた物は誰の仕事にもしない（stale の Bot や、重複を
-    閉じて回った人が、仕事を終えた人に見えないように）。"""
-    ev = ((i.get("timelineItems") or {}).get("nodes") or [None])[-1] or {}
-    by = ((ev.get("closer") or {}).get("author") or {}).get("login")
-    if by:
-        return by, "pr"
-    who = ev.get("actor") or {}
-    done = i.get("stateReason") in (None, "COMPLETED") and who.get("__typename") != "Bot"
-    actor = None if i["assignees"]["nodes"] or not done else who.get("login")
-    return (actor, "hand") if actor else (None, None)
-
-
 def doers(who, others):
     """その issue を進めている人（実質の担当）。担当者（Assignees）に、閉じる PR を出した人と手で閉じた人（others）を
     足した物で、担当者が先、足した人は担当者に居ない人だけを後ろに並べる。持ち主 2026-11-04「PRをやってclosesに
@@ -262,9 +243,8 @@ def issue_row(i, repo):
         other = (b.get("repository") or {}).get("nameWithOwner")
         blockers.append({"number": b["number"], "url": b["url"],
                          "repo": other if (other or "").casefold() != repo.casefold() else None})
-    open_prs = [p for p in (i.get("closedByPullRequestsReferences") or {}).get("nodes", []) if p.get("state") == "OPEN"]
-    prs = [p["number"] for p in open_prs]
-    pr_of = [[p["number"], (p.get("author") or {}).get("login")] for p in open_prs]   # 消えたアカウントは author が null
+    pr_of = linked_prs(i)   # 消えたアカウントは作者が None
+    prs = [n for n, _ in pr_of]
     pr_by = sorted({w for _, w in pr_of} - {None})
     state = "blocked" if blockers else "pr" if prs else "idle"
     who = logins(i)

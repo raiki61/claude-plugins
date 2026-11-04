@@ -4,23 +4,19 @@
 レビュアーへ再依頼しても、両方が同じ近道で作者に指摘対応を立て続けた。持ち主の判定も /whose-turn にしか無く、
 /catchup は作者を持ち主と決め打ちしていて、担当に渡した PR の CI 赤を渡した作者のターンと出していた）。
 素の dict だけで決める純関数にしてあるので、gh に触らず全分岐を試験できる。
+誰が担当者か・返答できる人か、などの人の事実は people.py に置き、ここはその上にターンの規則だけを組む。
 """
 
 # この本文は複数のプラグインに写しで在る。正本は attention/scripts/lib/turn.py、写しは works-dispatch/dispatch/vendor/lib/turn.py。
 # 直すのは正本だけで、配るのは python3 scripts/shared-copies.py --sync attention/scripts/lib/turn.py。
 
 from ghtext import is_bot
+# 人の事実は people.py が正本。turn.login などの名前で呼ぶ側（/whose-turn・/catchup）のために、ここからも引けるようにする
+from people import ASSIGNEES, KINDS_FIELD, LEGACY_ASSIGNEES, answerable, assigned_people, login  # noqa: F401
 
 # 人ごとの最新の意見（APPROVED・CHANGES_REQUESTED・DISMISSED）。reviews の窓から人ごとに出すと、作者が
 # スレッドに返すたびにできる COMMENTED で窓が埋まり、窓の外の変更要求を見落としてターンを誤って外す
 OPINIONS = "latestOpinionatedReviews(first: 30) { totalCount nodes { state author { __typename login } } }"
-
-# assignees は UserConnection で種別を持たず、Copilot 等の Bot を人と見分けられない。assignedActors は
-# Assignee union（Bot・Mannequin・Organization・User）なので種別が取れる。別名で受けて下流の形を変えない
-KINDS_FIELD = "assignedActors"
-ASSIGNEES = f"assignees: {KINDS_FIELD}(first: 10) {{ totalCount nodes {{ __typename ... on Actor {{ login }} }} }}"
-# UserConnection の __typename はいつも User で、Bot も人と名乗る。種別は取らない
-LEGACY_ASSIGNEES = "assignees(first: 10) { totalCount nodes { login } }"
 
 
 def missing_only(errors, fields):
@@ -30,23 +26,6 @@ def missing_only(errors, fields):
         (e.get("extensions") or {}).get("code") == "undefinedField" and e["extensions"].get("fieldName") in fields
         for e in errors
     )
-
-
-def login(actor):
-    # 退会済みユーザーの author は null で返る
-    return (actor or {}).get("login")
-
-
-def answerable(actor):
-    """返答できる人の login。User だけで、Bot・Mannequin・Organization・退会済み（null）は None。
-    login の有無で見分けると、クエリのフラグメントに Bot { login } を足した途端 Bot が人になる"""
-    return actor["login"] if (actor or {}).get("__typename") == "User" else None
-
-
-def assigned_people(pr):
-    # 種別が取れない GitHub では人か Bot か分からないので、login の取れた全員
-    read = login if pr.get("assigneeKindsUnknown") else answerable
-    return [p for p in map(read, pr["assignees"]["nodes"]) if p]
 
 
 def handed_to_others(pr):

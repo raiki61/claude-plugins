@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- attention から写した `/whose-turn` のスクリプトを正本に揃えた。担当者などの人の事実を読む部品を `dispatch/vendor/lib/people.py` に分けた（attention の `/catchup`・`/milestone-map` と共用にするため。attention の頼み 71dd18）。自分の番の PR の読み方は変わらない。
+
 ## [0.158.0] - 2026-11-04
 
 ### Changed

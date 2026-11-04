@@ -68,6 +68,7 @@ import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/w
 from ghcli import GH_TIMEOUT_SEC, gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn と共用
 from ghtext import DONE_NOT_RED, is_bot, mentioned, refs  # noqa: E402 — 発言の読み方。/whose-turn と共用
 import turn  # noqa: E402 — PR のターンの持ち主と指摘対応の判定。/whose-turn と共用
+import people  # noqa: E402 — 担当者などの人の事実。/whose-turn・/milestone-map と共用
 import catchup_html  # noqa: E402 — 報告を 1 枚の HTML に描く部品（--render と --setup）
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
@@ -578,7 +579,7 @@ def role_of(node, me, ev):
         or any(login_of(c["author"]) == me
                for th in node["reviewThreads"]["nodes"] for c in th["comments"]["nodes"]))
     return stance(me, login_of(node["author"]), is_pr, requested, reviewed,
-                  [a["login"] for a in node["assignees"]["nodes"]],
+                  people.logins(node),
                   any(e["who"] == me and e["cat"] == SPOKEN for e in ev))
 
 
@@ -612,7 +613,7 @@ def reason_table(node, red):
     author = turn.login(node["author"])
     table = {}
     if node["__typename"] != "PullRequest":
-        for a in (a["login"] for a in node["assignees"]["nodes"]):
+        for a in people.logins(node):
             table.setdefault(a, []).append(ASSIGNED)
         return table
     holders = turn.owners(node)
@@ -643,17 +644,14 @@ def reason_table(node, red):
                 "作者以外の人のレビューが付いた。人宛のレビュー依頼を出した記録は無い（依頼先を決めるか指摘対応は私）")
     # 作者が assignee にもなっているのは普通の運用で、それだけではターンの理由にならない。持ち主でない assignee は、
     # 担当がターンの根拠
-    for a in (a["login"] for a in node["assignees"]["nodes"]):
+    for a in people.logins(node):
         if a != author and a not in holders:
             table.setdefault(a, []).append(ASSIGNED)
     return table
 
 
-def is_person(reviewer):
-    # Copilot などの Bot 宛の依頼は依頼に数えない（whose-turn.py と同じ）。QUERY は Bot に login を取らない
-    # （GHES の古い版の RequestedReviewer には Bot が無く、fragment を書くとクエリごと落ちる）ので、login の有無で
-    # 見分けると Bot 宛が名前の無い依頼先として残る
-    return (reviewer or {}).get("__typename") in ("User", "Team")
+# Copilot などの Bot 宛の依頼は依頼に数えない（/whose-turn と同じ。事実は people.py）
+is_person = people.requested_person
 
 
 def reviewer_name(reviewer):
@@ -730,7 +728,7 @@ def owner_cap_lines(node):
         return []
     out = []
     author = turn.login(node["author"])
-    if node.get("assigneeKindsUnknown") and any(a["login"] != author for a in node["assignees"]["nodes"]):
+    if node.get("assigneeKindsUnknown") and any(a != author for a in people.logins(node)):
         out.append("assignee が人か Bot か（この GitHub は assignedActors を返さない。CI 赤・衝突・要修正・マージ・下書きの"
                    "ターンを担当へ移さず作者が持つ形で出した。Bot の assignee も人として数え、作者が assignee に入っていない"
                    "未依頼の PR は担当待ちと出した）")
@@ -1318,7 +1316,7 @@ def state_lines(node, me, red, running, green, human):
         labels = [lb["name"] for lb in node.get("labels", {}).get("nodes", [])]
         if labels:
             st("  ラベル: " + ", ".join(labels))
-    assignees = [a["login"] for a in node["assignees"]["nodes"]]
+    assignees = people.logins(node)
     # 自分だけが担当の行は、1 行目の立場と重なるので出さない
     if any(a != me for a in assignees):
         st("  担当: " + ", ".join(me_or(a, me) for a in assignees))
@@ -1727,7 +1725,7 @@ def head_reader(owner, name, oid):
 
 def owns(node, me):
     """自分の件か（作者か assignee）。"""
-    return login_of(node.get("author")) == me or any(a["login"] == me for a in node.get("assignees", {}).get("nodes", []))
+    return login_of(node.get("author")) == me or me in people.logins(node)
 
 
 def unresolved_threads(node, me):
@@ -2699,9 +2697,9 @@ def page_status(node, me, red, running, green):
             add("base", "取り込み先", " ／ ".join(re.sub(r"^取り込み先: ", "", ln) for ln in base), "warn")
         if shows_candidates(node, me):
             add("suggested", "依頼先の候補", suggested_line(node).split(": ", 1)[-1], "neutral")
-    others = [a["login"] for a in node["assignees"]["nodes"] if a["login"] != me]
+    others = [a for a in people.logins(node) if a != me]
     if others:
-        add("assignees", "担当", ", ".join(me_or(a["login"], me) for a in node["assignees"]["nodes"]), "neutral")
+        add("assignees", "担当", ", ".join(me_or(a, me) for a in people.logins(node)), "neutral")
     return out
 
 

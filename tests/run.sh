@@ -6351,7 +6351,7 @@ expect_output 0 "AUTO_OK" \
     "works-factory-pin: 照合に当たりの無い上げは AI を立てずに --land で main に入れ、入らなければ作業に回し、作ったブランチを origin にも手元にも残さず、合図の再入では黙る" \
     "$PY_BIN" "$WFP_CASE" auto
 
-scope attention tests/what-am-i-doing tests/whose-turn tests/milestone-map
+scope attention tests/what-am-i-doing tests/whose-turn tests/milestone-map tests/people
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
 WAI_CASE="$ROOT/tests/what-am-i-doing-case.py"
@@ -6423,6 +6423,11 @@ expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 193 件。時
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
+
+# ---- attention/lib/people: その件に関わっている人の事実（/whose-turn・/catchup・/milestone-map で共用） ----
+# 担当者・Linked PR の作者・閉じた人・レビューの依頼先の事実と、ほかのスクリプトがそれを読み直していないことを固定する
+expect_output 0 "OK" "people: 人の事実の回帰と、各スクリプトが people.py の外で読み直していないこと（unittest）" \
+    "$PY_BIN" "$ROOT/tests/people-suite.py"
 
 # ---- attention/milestone-map: open のマイルストーン全部を 1 枚の地図にする ----
 # GitHub には触らない。gh を固定の材料に差し替え、blocked by 0 本・期日なし・期日切れ・輪で HTML が壊れないことと、

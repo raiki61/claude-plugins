@@ -114,7 +114,8 @@ from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/catchup と共�
 from ghpage import MissingField, fetch_all, stop_on_errors, truncated  # noqa: E402 — 全ページの取得と上限の行。/milestone-map と共用
 from ghtext import DONE_NOT_RED, is_bot, mentions, readable, repo_refs  # noqa: E402 — 発言の読み方。/catchup と共用
 import turn  # noqa: E402 — PR のターンの持ち主と指摘対応の判定。/catchup と共用
-from turn import answerable, assigned_people, login, owner_side, owners, thread_turns  # noqa: E402
+from turn import owner_side, owners, thread_turns  # noqa: E402
+from people import answerable, assigned_people, assignee_nodes, login, logins, team_slug  # noqa: E402 — 人の事実。/catchup・/milestone-map と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -299,10 +300,6 @@ def drop_pending(pr):
         else None
     )
     return pr["pendingReview"]
-
-
-def team_slug(node):
-    return node["combinedSlug"] if (node or {}).get("__typename") == "Team" else None
 
 
 def reviewer(node):
@@ -834,7 +831,7 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
         named |= set(holders)
     elif who in holders:
         named.add(who)
-    others = [n for n in map(login, pr["assignees"]["nodes"]) if n and n not in named]
+    others = [n for n in map(login, assignee_nodes(pr)) if n and n not in named]
     if others:
         facts.append("assignee: " + ", ".join(others))
     unresolved = [t for t in pr["reviewThreads"]["nodes"] if not t["isResolved"]]
@@ -1153,7 +1150,7 @@ def pr_unanswered(pr, known=()):
 def participants(node):
     """PR・issue の作者・assignee・レビューを頼まれた人。呼びかけの login の正しい綴りを引くのに使う"""
     asked = (reviewer(rq["requestedReviewer"]) for rq in node.get("reviewRequests", {}).get("nodes", []))
-    return [login(node.get("author")), *map(login, node.get("assignees", {}).get("nodes", [])), *asked]
+    return [login(node.get("author")), *map(login, assignee_nodes(node)), *asked]
 
 
 def open_prs_referencing(issue, prs=()):
@@ -1354,7 +1351,7 @@ def report(a):
         ]
     limits += fill_reactions(pr_waits + issue_waits)
     limits = [w for w in limits if w]
-    unassigned = sum(1 for i in issues if not i["assignees"]["nodes"])
+    unassigned = sum(1 for i in issues if not assignee_nodes(i))
     by_number = {p["number"]: p for p in prs}
     # 逃がした先は issue とは限らない。open な PR も行き先として引ける形にする
     targets = {x["number"]: x for x in issues + prs}
@@ -1421,7 +1418,7 @@ def report(a):
     # 呼びかけは古い順。ここで一度並べ、絞った部分集合も同じ順のまま使う
     waits_all = sorted(pr_waits + issue_waits, key=lambda w: w[1]["since"])
     waits = waits_all if a.all else [w for w in waits_all if same_login(w[0], me)]
-    asg = [i for i in issues if me in {x["login"] for x in i["assignees"]["nodes"]}]
+    asg = [i for i in issues if me in logins(i)]
 
     def owed_threads():
         """返すターンがあるスレッド。[(誰, 番号, スレッド, 読む発言)] を人の順・番号の順で"""
