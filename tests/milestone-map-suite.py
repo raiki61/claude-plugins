@@ -495,6 +495,40 @@ class Stray(unittest.TestCase):
                 mm.read_dates(text)
 
 
+class Doers(unittest.TestCase):
+    """進めている人（実質の担当）の規則。持ち主 2026-11-04「PRをやってclosesに入れた人も実質担当じゃないかな」。
+    人の一覧の数・人を押して光るカード・「Assigned to nobody」は、ページの JS でなくこの doers で決まる。"""
+
+    def card(self, raw=None, done=None):
+        m = view_of(page_of(build([milestone(1, None, [raw or issue(9)], done=[done] if done else [])])))["milestones"][0]
+        return m["done"][0] if done else m["issues"][0]
+
+    def test_open(self):
+        # 担当者が先、open の Linked PR の作者で担当者に居ない人が後ろ。merged の PR と消えたアカウントは足さない
+        raw = issue(1, prs=[(7, "OPEN"), (8, "MERGED")], who=("a", "dev"))
+        self.assertEqual(self.card(raw)["doers"], ["a", "dev"])
+        self.assertEqual(self.card(issue(2, prs=[(7, "OPEN")], who=("a",)))["doers"], ["a", "dev"])
+        self.assertEqual(self.card(issue(3, prs=[(7, "MERGED")]))["doers"], [])   # Assigned to nobody
+        gone = issue(4, prs=[(7, "OPEN")])
+        gone["closedByPullRequestsReferences"]["nodes"][0]["author"] = None
+        self.assertEqual(self.card(gone)["doers"], [])
+
+    def test_closed(self):
+        made, shut = "2026-10-01T03:00:00Z", "2026-11-02T03:00:00Z"
+        self.assertEqual(self.card(done=closed(1, made, shut, who=("a",), pr_by="dev"))["doers"], ["a", "dev"])  # PR で閉じた
+        self.assertEqual(self.card(done=closed(2, made, shut, who=("a",), pr_by="a"))["doers"], ["a"])
+        self.assertEqual(self.card(done=closed(3, made, shut, actor="x"))["doers"], ["x"])                        # 手で閉じ、担当者なし
+        self.assertEqual(self.card(done=closed(4, made, shut, who=("a",), actor="x"))["doers"], ["a"])            # 手で閉じ、担当者あり
+        self.assertEqual(self.card(done=closed(5, made, shut, actor="x", reason="NOT_PLANNED"))["doers"], [])
+        self.assertEqual(self.card(done=closed(6, made, shut, actor="stale", bot=True))["doers"], [])
+
+    def test_page_does_not_count_again(self):
+        # 規則はここだけに置く。ページの JS が担当者と PR の作者を合わせ直していないこと
+        page = (pathlib.Path(mm.__file__).parent.parent / "templates" / "milestone-map.html").read_text()
+        self.assertNotIn("i.who.concat", page)
+        self.assertIn("i.doers", page)
+
+
 class Closer(unittest.TestCase):
     """閉じる PR を出した人も実質の担当（持ち主 2026-11-04「PRをやってclosesに入れた人も実質担当じゃないかな」）。"""
 

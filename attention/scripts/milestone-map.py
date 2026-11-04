@@ -236,11 +236,21 @@ def closer_of(i):
     return (actor, "hand") if actor else (None, None)
 
 
+def doers(who, others):
+    """その issue を進めている人（実質の担当）。担当者（Assignees）に、閉じる PR を出した人と手で閉じた人（others）を
+    足した物で、担当者が先、足した人は担当者に居ない人だけを後ろに並べる。持ち主 2026-11-04「PRをやってclosesに
+    入れた人も実質担当じゃないかな」。open の issue は open の Linked PR の作者、閉じた issue は closer_of の人を足す。
+    人の一覧の数・人を押したときに光らせるカード・「Assigned to nobody」（これが空の open の issue）は全部これで決まり、
+    ページの JS は数え直さない（規則を 1 か所に置き、この試験で止めるため）。"""
+    return list(who) + [w for w in others if w and w not in who]
+
+
 def done_row(i):
     """閉じた issue 1 件の、期間の数に使う事実。by と how は閉じた人と閉じ方（closer_of）。"""
     by, how = closer_of(i)
-    return {"number": i["number"], "title": i["title"], "url": i["url"],
-            "made": local_day(i["createdAt"]), "shut": local_day(i["closedAt"]), "who": logins(i), "by": by, "how": how}
+    who = logins(i)
+    return {"number": i["number"], "title": i["title"], "url": i["url"], "made": local_day(i["createdAt"]),
+            "shut": local_day(i["closedAt"]), "who": who, "by": by, "how": how, "doers": doers(who, [by])}
 
 
 def issue_row(i, repo):
@@ -257,8 +267,9 @@ def issue_row(i, repo):
     pr_of = [[p["number"], (p.get("author") or {}).get("login")] for p in open_prs]   # 消えたアカウントは author が null
     pr_by = sorted({w for _, w in pr_of} - {None})
     state = "blocked" if blockers else "pr" if prs else "idle"
-    return {"number": i["number"], "title": i["title"], "url": i["url"], "state": state,
-            "blocked_by": blockers, "prs": prs, "pr_by": pr_by, "pr_of": pr_of, "who": logins(i), "made": local_day(i["createdAt"])}
+    who = logins(i)
+    return {"number": i["number"], "title": i["title"], "url": i["url"], "state": state, "blocked_by": blockers, "prs": prs,
+            "pr_by": pr_by, "pr_of": pr_of, "who": who, "doers": doers(who, pr_by), "made": local_day(i["createdAt"])}
 
 
 def edges_of(ms):
@@ -513,10 +524,11 @@ def view(data):
            "count": {s: sum(1 for i in m["issues"] if i["state"] == s) for s in ("blocked", "pr", "idle")},
            "issues": [{"n": i["number"], "title": i["title"], "url": i["url"], "state": i["state"],
                        "col": col[i["number"]], "rank": rank[i["number"]], "crit": i["number"] in on_path, "blockers": len(i["blocked_by"]),
-                       "prs": i["prs"], "prBy": i["pr_by"], "prOf": i["pr_of"], "who": i["who"], "made": i["made"], "tip": card_title(i)}
+                       "prs": i["prs"], "prBy": i["pr_by"], "prOf": i["pr_of"], "who": i["who"], "doers": i["doers"], "made": i["made"],
+                       "tip": card_title(i)}
                       for i in m["issues"]],
            "done": [{"n": i["number"], "title": i["title"], "url": i["url"], "made": i["made"], "shut": i["shut"],
-                     "who": i["who"], "by": i["by"], "how": i["how"]} for i in m["done"]]}
+                     "who": i["who"], "by": i["by"], "how": i["how"], "doers": i["doers"]} for i in m["done"]]}
           for m in data["milestones"]]
     return {"columns": cols, "today": {"at": max(past) + 1 if past else 0, "label": "今日 " + md(today, year), "day": today},
             "milestones": ms, "edges": data["edges"], "path": [list(e) for e in zip(path, path[1:])],

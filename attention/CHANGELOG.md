@@ -13,6 +13,7 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ### Changed
 
+- `/milestone-map`: その issue を進めている人（担当者と、閉じる PR を出した人・手で閉じた人）を決める所を、ページの JS からスクリプトの `doers` へ移した。人の一覧の数・人を押して光るカード・「Assigned to nobody」は全部これで決まり、JS は数え直さない。持ち主の言葉は「綺麗に担保していかないと修正で崩れるのは怖いね。例えばさっきいれたPRが入ってれば実質担当だみたいなのとか」。規則ごとの試験（tests/milestone-map-suite.py の Doers）で止める。
 - `/milestone-map`: 画面の言葉を GitHub の画面の言葉に寄せた。持ち主の言葉は「書き方を止め2とかじゃなくてもっとgithubにそこはよせていいよ」「全体的に」。主な置き換えは、止められている → Blocked、カードの「止め N」 → 「Blocked by N」、PR が出ている → Linked PR、残り → Open、閉じた → Closed、作られた・「新」 → New、期日 MM-DD → Due MM-DD、期日なし → No due date、期日切れ N 日 → Past due N 日、マイルストーンなし → No milestone、人の一覧の「担当 N」 → 「Open N」・「担当なし」 → 「Assigned to nobody」、凡例の「blocked by（止めている側 → 待つ側）」 → 「Blocking → Blocked（矢印の向き）」。数や置き場所は変えていない。
 
 ### Fixed

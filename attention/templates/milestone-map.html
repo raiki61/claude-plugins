@@ -290,9 +290,8 @@ a:hover { text-decoration: underline; }
   const avatar = (w, by) => el("span", { class: "av" + (by ? " by" : ""), style: `background:${hue(w)}`,
     title: (by || "Assignee") + ": " + w }, ini(w));
   // 実質の担当: 担当者のフィールドの人と、閉じる PR を出した人（担当者のフィールドに居ない人は点線の丸）
-  const doers = i => i.who.concat(i.prBy.filter(w => !i.who.includes(w)));
   function avatars(i) {
-    const list = doers(i);
+    const list = i.doers;
     if (!list.length) return null;
     const by = i.state !== "done" ? "Linked PR の作者（Assignees に居ない）" : i.how === "pr" ? "閉じた Linked PR の作者（Assignees に居ない）" : "閉じた人（Assignees が居ない）";
     return el("span", { class: "avs" }, list.slice(0, 3).map(w => avatar(w, i.who.includes(w) ? null : by)),
@@ -795,15 +794,15 @@ a:hover { text-decoration: underline; }
   }
   function whoSet() {
     if (who == null) return null;
-    if (who === NOBODY) return new Set(openAll.filter(i => !doers(i).length).map(i => i.n));
-    return new Set(all.filter(i => doers(i).includes(who) && (i.state !== "done" || inP(i.shut))).map(i => i.n));
+    if (who === NOBODY) return new Set(openAll.filter(i => !i.doers.length).map(i => i.n));
+    return new Set(all.filter(i => i.doers.includes(who) && (i.state !== "done" || inP(i.shut))).map(i => i.n));
   }
   function drawPeople() {
     const t = new Map(), get = w => t.get(w) || (t.set(w, { open: 0, prs: new Set(), done: 0 }), t.get(w));
-    for (const i of openAll) { for (const w of doers(i)) get(w).open++; for (const [p, w] of i.prOf) if (w) get(w).prs.add(p); }
-    for (const i of doneAll) if (inP(i.shut)) for (const w of doers(i)) get(w).done++;
+    for (const i of openAll) { for (const w of i.doers) get(w).open++; for (const [p, w] of i.prOf) if (w) get(w).prs.add(p); }
+    for (const i of doneAll) if (inP(i.shut)) for (const w of i.doers) get(w).done++;
     const rows = [...t].sort((a, b) => (b[1].open + b[1].done) - (a[1].open + a[1].done) || a[0].localeCompare(b[0]));
-    const nobody = openAll.filter(i => !doers(i).length).length;
+    const nobody = openAll.filter(i => !i.doers.length).length;
     const num = (label, v) => v ? [label, el("b", {}, v), " "] : [];
     people.textContent = "";
     people.append(el("span", { class: "lab" }, "誰が進めているか", tourNav));
