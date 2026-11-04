@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-11-05
+
 ### Added
 
 - 別プロセスの `claude -p` の認証を探す部品（`claude_auth`）に、利用者の窓口の段を足した。settings.json の `env` の `CLAUDE_TOKEN_HELPER` にコマンドを置くと、設定のフォルダを 1 つ渡してそのコマンドを起動し、標準出力の OAuth トークン（`sk-ant-oat01-` で始まる物）を使う。全 OS で効く。鍵を環境変数 `CLAUDE_CODE_OAUTH_TOKEN` でだけ渡す人は、Claude Code がフックや Bash にその値を渡さないので、これまで macOS の外では子の `claude -p` が「Not logged in」で終わっていた。鍵の置き場と項目名の決め方を利用者の側の 1 か所に置き、プラグインに写さないための口。窓口が空・失敗・形違いなら、これまでの探し方（Keychain・`.credentials.json`）に進む。親の環境に鍵が在るときと、呼ぶ側が Keychain の項目を名指したときは頼まない。
