@@ -22,6 +22,8 @@
   0 で終わる。--land が入れなければ 1 で作業に回し、手順の行を最後に出す。どちらも作ったブランチと worktree と、--land が push した
   origin のブランチを消す（消せなければ注記を出す）。照合に当たりが在れば機械の上げを打たない。機械の上げの --land の合図で呼ばれたら
   工場を読まずに黙る
+- overlap: ほかの見張りが鍵を持っている間は、工場を読まずに 0 で黙る（2 つの合図で同時に走った 2 本目）。殺された fetch が取り置きに
+  残した shallow.lock は消してから取る（頼み 257f09）
 """
 
 import importlib.util
@@ -475,6 +477,29 @@ def auto():
     print("AUTO_OK")
 
 
+def overlap():
+    fake, root, shas, d = world(1, {2: ok()})
+    fake.broken = True   # 工場を読めば 1 になる
+    holder = subprocess.Popen([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import filex\n"
+                               "with filex.lock(sys.argv[2]):\n    print('held', flush=True); sys.stdin.read()",
+                               str(ROOT / "works-dispatch" / "dispatch"), os.path.join(d, wp.LOCK)],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        check(holder.stdout.readline().strip() == "held", "鍵を持つ処理が立たない")
+        code, out = go(fake, root)
+        check(code == 0, f"ほかの見張りが走っているのに黙らない（gh を壊してあるので、読めば 1）: {code} {out}")
+    finally:
+        holder.stdin.close()
+        holder.wait()
+    fake.broken = False
+    cache = os.path.join(d, wp.SOURCE)
+    subprocess.run(["git", "init", "-q", "--bare", cache], check=True)
+    open(os.path.join(cache, "shallow.lock"), "w").close()   # 殺された fetch の残り
+    code, out = go(fake, root, '{"dry_run": true}')
+    check(code == 1 and f"--write {shas[2]} " in out, f"残った shallow.lock で工場を取れない: {code} {out}")
+    print("OVERLAP_OK")
+
+
 if __name__ == "__main__":
     {"target": target, "told": told, "cross": cross, "surface": surface, "write": write, "unreadable": unreadable, "limited": limited, "page": page, "edges": edges,
-     "title": title, "auto": auto}[sys.argv[1]]()
+     "title": title, "auto": auto, "overlap": overlap}[sys.argv[1]]()

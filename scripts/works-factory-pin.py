@@ -61,6 +61,7 @@ from nodes import deliver  # noqa: E402
 
 TOOL = "works-factory-pin"   # 会社の形の [[roles.tools]] の name。works-dispatch が回す頼みの題「ツール <役>/<name> が…」で、このツールの頼みを見分ける
 STATE = "works-factory-pin.json"
+LOCK = "works-factory-pin.lock"   # 見張りを 1 本ずつにする鍵（git の共通のディレクトリの中）
 SOURCE = "works-factory-pin.git"   # 2 つの木を比べるための、工場の取り置き（git の共通のディレクトリの中の bare の clone）
 REPO = "raiki61/works-factory"
 CHECK = "tests"
@@ -154,15 +155,22 @@ def prs(commits):
 
 def fetch(cache, url, shas, runner):
     """工場の取り置き（bare）に、shas の木を取ってくる。"""
-    if not os.path.isdir(cache):
-        code, _, err = runner(["git", "init", "-q", "--bare", cache])
-        if code != 0:
-            raise RuntimeError(f"工場の取り置き {cache} を作れない: {err.strip()[-300:]}")
-    missing = [s for s in shas if runner(["git", "-C", cache, "cat-file", "-e", f"{s}^{{tree}}"])[0] != 0]
-    if missing:
-        code, _, err = runner(["git", "-C", cache, "fetch", "-q", "--depth", "1", url, *missing])
-        if code != 0:
-            raise RuntimeError(f"工場の commit を取れない（git fetch {url}）: {err.strip()[-300:]}")
+    # 取り置きは代表の clone に 1 つで、見張り（main へ入れた後の合図と部署を立てた後の合図で同時に走りうる）と --write が共に使う。
+    # 同時の git fetch は shallow.lock で片方が落ちる（頼み 257f09）ので、取り置きの鍵を持ってから見る・取る
+    with filex.lock(cache + ".lock"):
+        if not os.path.isdir(cache):
+            code, _, err = runner(["git", "init", "-q", "--bare", cache])
+            if code != 0:
+                raise RuntimeError(f"工場の取り置き {cache} を作れない: {err.strip()[-300:]}")
+        # 鍵を持つ間に残った shallow.lock は、殺された fetch の残り（取り置きはこのツールしか触らない）。git の言うとおり消してから取る
+        stale = os.path.join(cache, "shallow.lock")
+        if os.path.exists(stale):
+            os.unlink(stale)
+        missing = [s for s in shas if runner(["git", "-C", cache, "cat-file", "-e", f"{s}^{{tree}}"])[0] != 0]
+        if missing:
+            code, _, err = runner(["git", "-C", cache, "fetch", "-q", "--depth", "1", url, *missing])
+            if code != 0:
+                raise RuntimeError(f"工場の commit を取れない（git fetch {url}）: {err.strip()[-300:]}")
 
 
 def show(cache, sha, path, runner):
@@ -335,6 +343,19 @@ def watch(stdin, runner, root, now, env, lander):
         return 0
     try:
         cdir = common_dir(runner, root)
+        # 見張りは 2 つの合図（main へ入れた後と部署を立てた後）で同時に走りうる。2 本目は 1 本目と同じ仕事なので、待たずに黙る（頼み 257f09）
+        with filex.lock(os.path.join(cdir, LOCK), wait=False) as got:
+            if not got:
+                print("ほかの見張りが走っているので黙る（同じ上げ先を見て、要れば上げるか頼みを回す）")
+                return 0
+            return look(dry, runner, root, now, env, lander, cdir)
+    except (RuntimeError, OSError) as e:
+        print(f"工場の版の見張りが読めなかった: {e}")
+        return 1
+
+
+def look(dry, runner, root, now, env, lander, cdir):
+    try:
         # 開いた頼みを先に見る（工場を読めない失敗も頼みに変わるので、読む前に見ないと、失敗が続く間 main に入れるたびに頼みが積まれる）
         still_open, asked_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
         if still_open:
