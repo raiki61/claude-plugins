@@ -492,7 +492,7 @@ _pd.loader.exec_module(pd)
 
 
 class ProjectDates(unittest.TestCase):
-    """Projects の日付の欄を --dates の JSON にする固有の部品（持ち主 2026-11-04「データとして流せるようにしておいて、
+    """Projects の日付のフィールドを --dates の JSON にする固有の部品（持ち主 2026-11-04「データとして流せるようにしておいて、
     その日付を取得するところは固有とかの方がいいかもね」）。"""
 
     @staticmethod

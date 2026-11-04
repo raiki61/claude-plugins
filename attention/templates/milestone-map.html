@@ -279,8 +279,8 @@ a:hover { text-decoration: underline; }
   const key = e => e[0] + ">" + e[1];
   const onPath = new Set(D.path.map(key)), late = new Set(D.late.map(key));
   const avatar = (w, by) => el("span", { class: "av" + (by ? " by" : ""), style: `background:${hue(w)}`,
-    title: (by ? "閉じる PR を出した人（担当者の欄には居ない）: " : "担当: ") + w }, ini(w));
-  // 実質の担当: 担当者の欄の人と、閉じる PR を出した人（担当者の欄に居ない人は点線の丸）
+    title: (by ? "閉じる PR を出した人（担当者のフィールドには居ない）: " : "担当: ") + w }, ini(w));
+  // 実質の担当: 担当者のフィールドの人と、閉じる PR を出した人（担当者のフィールドに居ない人は点線の丸）
   const doers = i => i.who.concat(i.prBy.filter(w => !i.who.includes(w)));
   function avatars(i) {
     const list = doers(i);
@@ -708,7 +708,7 @@ a:hover { text-decoration: underline; }
     people.append(el("span", { class: "lab" }, "誰が進めているか"));
     for (const [w, v] of rows) {
       const b = el("button", { type: "button", class: "who" + (who === w ? " on" : ""),
-        title: w + "\n担当: 担当者の欄に居るか、閉じる PR を出している open の issue\nPR: 出している open の PR\n閉じた: 期間の中で閉じた issue のうち、担当者の欄に居たか、閉じた PR を出した物（PR でなく手で閉じ担当者も居ない物は、閉じた人）" }, avatar(w), w,
+        title: w + "\n担当: 担当者のフィールドに居るか、閉じる PR を出している open の issue\nPR: 出している open の PR\n閉じた: 期間の中で閉じた issue のうち、担当者のフィールドに居たか、閉じた PR を出した物（PR でなく手で閉じ担当者も居ない物は、閉じた人）" }, avatar(w), w,
         el("small", {}, ...num("担当 ", v.open), ...num("PR ", v.prs.size), ...num("閉じた ", v.done)));
       b.addEventListener("click", () => pick(w));
       people.append(b);

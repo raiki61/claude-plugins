@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""マイルストーンの付いていない issue の、Projects の日付の欄（Target Date など）を、/milestone-map の --dates の JSON にする。
+"""マイルストーンの付いていない issue の、Projects の日付のフィールド（Target Date など）を、/milestone-map の --dates の JSON にする。
 
-〈目的〉GitHub の issue には期日の欄が無い。日付を Projects の日付の欄に書いているリポジトリ向けの、固有の部品。
+〈目的〉GitHub の issue には期日のフィールドが無い。日付を Projects の日付のフィールドに書いているリポジトリ向けの、固有の部品。
 /milestone-map の本体（milestone-map.py）は日付をどこから取るかを知らず、--dates の JSON だけを読む。ほかの所（別の
-Projects の欄・表計算の書き出しなど）から日付を取るときは、同じ形の JSON を出す部品を別に書けばよい。
+Projects のフィールド・表計算の書き出しなど）から日付を取るときは、同じ形の JSON を出す部品を別に書けばよい。
 
 〈出力〉標準出力に {"issue の番号": "YYYY-MM-DD"}。マイルストーンの付いていない open の issue 全部と、閉じた issue の
-うち閉じた日が 400 日の中の物（milestone-map.py の SINCE_DAYS と同じ）を見て、欄に日付が在る物だけを書く。issue が
-Projects の 2 つ以上に載り、どれにも同じ名前の欄が在るときは、--project で 1 つに絞らない限り、いちばん早い日付を取る。
+うち閉じた日が 400 日の中の物（milestone-map.py の SINCE_DAYS と同じ）を見て、フィールドに日付が在る物だけを書く。issue が
+Projects の 2 つ以上に載り、どれにも同じ名前のフィールドが在るときは、--project で 1 つに絞らない限り、いちばん早い日付を取る。
 
 〈要るもの〉トークンに read:project（または project）。無ければ GitHub のエラーを出して止まる。
 
@@ -55,7 +55,7 @@ def search_all(q, field):
 
 
 def dates_of(issues, project=None):
-    """issue の並びから {番号の字: 日付の字} を組む。project を渡せばその番号の Projects の欄だけを見る。"""
+    """issue の並びから {番号の字: 日付の字} を組む。project を渡せばその番号の Projects のフィールドだけを見る。"""
     out = {}
     for i in issues:
         got = [n["fieldValueByName"]["date"] for n in i["projectItems"]["nodes"]
@@ -67,7 +67,7 @@ def dates_of(issues, project=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--field", required=True, help="Projects の日付の欄の名前（例: 'Target Date'）")
+    ap.add_argument("--field", required=True, help="Projects の日付のフィールドの名前（例: 'Target Date'）")
     ap.add_argument("--project", type=int, help="見る Projects の番号（省略時は、issue が載っている Projects 全部）")
     ap.add_argument("--repo", help="OWNER/NAME（省略時はカレントリポジトリ）")
     ap.add_argument("--today", type=dt.date.fromisoformat, help="今日の日付 YYYY-MM-DD（試験のため。既定は今日）")
