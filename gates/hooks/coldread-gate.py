@@ -6271,10 +6271,28 @@ def _scratch(path):
     return not (os.path.isdir(d) and _git(["rev-parse", "--show-toplevel"], d))
 
 
+def _in_git_dir(path):
+    """.git の下のファイルか(リポジトリの管理の場所。worktree の git の場所 .git/worktrees/<名前>/ も含む)。
+
+    git は .git の名前を持つパスを索引に入れない(https://github.com/git/git/blob/master/read-cache.c の verify_path。手元の git でも
+    update-index が「Invalid path」で断る)ので、
+    ここのファイルは commit も push もされず、書いた会話と AI だけが読む: 部署への頼みの下書き(--brief)・窓口の台帳
+    (works-factory の .git/wf-briefs/decisions.md)・段取りのメモ(my_notes の .git/company/desk-backlog.md)など。外へ出す文は
+    投稿の前の検査が、持ち主への問いは納品の前の検査が、送る時に読む。前は読んでいて、p2 の docs.log(2026-10-16〜11-04)では
+    読んだ回の 13%(211 回)・読みの秒数の 20% が .git の下で、decisions.md は 39 回読んで 39 回とも窓口を呼び起こした(頼み e27b1f)。
+    """
+    for p in {os.path.abspath(path), os.path.realpath(path)}:
+        if ".git" in (part.lower() for part in os.path.dirname(p).split(os.sep)):
+            return True
+    return False
+
+
 def doc_to_read(path, seen):
     """読むなら (本文, 中身のハッシュ)、読まないなら (None, 理由)。"""
     if _scratch(path):
         return None, "一時の置き場(git の外)"
+    if _in_git_dir(path):
+        return None, "git の管理の場所(.git の下)"
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()

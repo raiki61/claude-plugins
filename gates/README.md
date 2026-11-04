@@ -37,6 +37,12 @@ runs coldreader (a reader with zero context; a headless Claude in a separate pro
 If there are "blockers" (詰まり: places that prevent understanding), it puts those findings in the deny reason and stops the post.
 "Questions" (疑問: things the reader understood but whose answer is not in the text) do not stop it; they are passed along.
 
+The hook runs before every Bash call, and the hook itself decides which commands are posts. A command without the word `gh` or `dispatch.py` is passed in about 0.2 s without being parsed.
+A command that posts waits for the reader instead, a median of about 9 s (one account's transcripts, 2026-10-05 to 11-04: 621 reads, 4.8 s to 32 s).
+The hook is not narrowed with the hook's `if` field (a permission-rule pattern such as `Bash(gh *)`): that would remove only the 0.2 s, not the reader's wait, and
+a permission-rule pattern does not match a command started by its absolute path (`/usr/bin/gh …`; https://code.claude.com/docs/en/permissions), which the hook's own parsing does catch.
+Claude Code's documentation calls the `if` filter "best-effort" and says to use the permission system, not a hook, to enforce a hard allow or deny (https://code.claude.com/docs/en/hooks).
+
 The same hook also looks at one kind of text that works-dispatch (the plugin in this repository that hands requests to per-task sessions and returns their results) sends to another session: the summary file of `--deliver` (a result returned to the session that asked).
 Requests and notes (`--text` and `--brief`, sent with `--ask`, `--note`, or `--task`) are not read, and neither is most of a summary: they go from one AI session to another, and a session that does not understand something can ask back (decided by the owner, the person who runs these sessions, 2026-10-20).
 Before, the hook read requests and whole summaries with zero context, and stopped them over words the asking session had written itself: on 2026-10-20, 832 `--deliver` commands were stopped against 253 passed, and one summary was stopped 5 times until the session gave up and asked a person to send it.
@@ -479,6 +485,11 @@ How findings are returned depends on the writing role:
   (`$CLAUDE_CONFIG_DIR/jobs/<session id>/tmp/` and `$CLAUDE_JOB_DIR/tmp/`; where agent view sessions put request summaries and copies) are also
   treated as temporary locations. Inside git, files are read even under a temporary location.
   To change the roots, use `COLDREAD_TMP_DIRS` (separated by `os.pathsep`; used instead of the defaults)
+- Files under a repository's `.git` directory (including a worktree's git directory, `.git/worktrees/<name>/`) are not read either.
+  Git cannot track anything under `.git`, so these files are never committed or pushed; only the writing session and other agents read them
+  (request drafts passed with `--brief`, a front desk's append-only ledger, a desk's backlog notes). Text that leaves the machine is read by the post gate when it is posted,
+  and questions for the owner are read by the delivery check when they are sent. Before, these were read: in one account's `docs.log` (2026-10-16 to 11-04),
+  13% of the reads (211) and 20% of the reading time were files under `.git`, and one ledger was read 39 times and woke its writer all 39 times
 - A fixed document is read again at the end of that role, and if it is not fixed it has the same content and is not read again — if you decide not to take a finding,
   you may just finish. When reading while waiting, Claude Code cuts off consecutive returns after 8
 - To turn off only the local-document gatekeeper, use `COLDREAD_DOCS_OFF=1` (the post gatekeeper stays)

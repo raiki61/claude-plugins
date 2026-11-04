@@ -4482,8 +4482,14 @@ own_doc = doc(work / "own-job" / "tmp" / "deliver.md")
 assert read_marks([job_doc, job_side, own_doc], COLDREAD_TMP_DIRS=str(roots)) == ["deliver", "side"], "jobs/<id>/tmp の下を読んだか、tmp の外を読まない"
 own_doc2 = doc(work / "own-job" / "tmp" / "deliver2.md")   # 上で読んだ中身は覚えられて読まれないので、別の中身で見る
 assert read_marks([own_doc2], COLDREAD_TMP_DIRS=str(roots), CLAUDE_JOB_DIR=str(work / "own-job")) == [], "$CLAUDE_JOB_DIR/tmp の下を読んだ"
+# 5) リポジトリの管理の場所(.git の下。worktree の git の場所 .git/worktrees/<名前>/ も)は読まない。作業ツリーの文書は読む
+gitrepo = work / "gd"
+git_init(gitrepo)
+ledger, wt_note, beside = doc(gitrepo / ".git" / "wf-briefs" / "ledger.md"), doc(gitrepo / ".git" / "worktrees" / "w1" / "note.md"), doc(gitrepo / "beside.md")
+assert read_marks([ledger, wt_note, beside], COLDREAD_TMP_DIRS=str(roots)) == ["beside"], ".git の下を読んだか、作業ツリーの文書を読まない"
 log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
 assert "一時の置き場(git の外)" in log and str(plain) in log, "読まなかった理由が docs.log に無い"
+assert "git の管理の場所(.git の下)" in log and str(ledger) in log, ".git の下を読まなかった理由が docs.log に無い"
 print("DOCS_TMP_OK")
 PY
 # 旗表・帰属の各分岐を個別に殺すテスト(消すとどれか 1 件だけが赤くなる形にする)
