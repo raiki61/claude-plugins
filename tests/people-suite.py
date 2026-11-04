@@ -234,14 +234,16 @@ READBACK = {
     "人の種別を __typename の字で比べている":
         rf"__typename{Q}\)?\]?\s*(?:==|!=|in)\s*\(?[^)\n]*{Q}(?:User|Bot|Mannequin|Organization|Team){Q}",
     "担当者を自分で読んでいる": rf"assignees{Q}\]\s*\[\s*{Q}nodes|get\({Q}assignees{Q}\s*,\s*\{{\}}\)\s*\.get\({Q}nodes",
-    # 連結の件数（totalCount）を上限の行に読むのは事実を読むのでないので当たらない。並び（nodes）を読むと当たる
-    "Linked PR を自分で読んでいる": rf"closedByPullRequestsReferences{Q}[^\n]*{Q}nodes{Q}",
+    # 連結を上限の行（truncated。件数を比べるだけ）に渡すのは事実を読むのでないので当たらない
+    "Linked PR を自分で読んでいる": rf"^(?!.*\btruncated\().*closedByPullRequestsReferences{Q}\s*[\]),]",
     "閉じた PR を自分で読んでいる": rf"(?:\.get\(|\[){Q}closer{Q}",
     # 取り方（GraphQL の断片）も people.py の定数を使う（頼み 48676c）
     "担当者の断片を自分で書いている": r"\bassignees(?::\s*\{?\w+\}?)?\s*\(\s*first",
     "レビューの依頼先の断片を自分で書いている": r"\bon\s+Team\s*\{",
     # 比べる値は people.login の None のまま。表示の字を埋めると、比べた所で退会済みが誰かに数えられる
-    "login に表示の字を埋めている": rf"get\({Q}login{Q}\)\s*or\s*{Q}",
+    # 空の字（""）を既定にするのは比べる側の都合なので当たらない。空でない字を埋めると当たる
+    "login に表示の字を埋めている":
+        rf"(?:login{Q}[\])]|\blogin\([^()\n]*\))\s*or\s*{Q}(?!{Q})|get\({Q}login{Q}\s*,\s*{Q}(?!{Q})",
 }
 FACTS = {SCRIPTS / "lib" / "people.py", SCRIPTS / "lib" / "ghtext.py"}
 
@@ -279,13 +281,20 @@ class Readback(unittest.TestCase):
                     "assignees(first: 20) {{ totalCount nodes {{ login }} }}",
                     'ASSIGNEES = f"assignees: {KINDS_FIELD}(first: 10) {{ totalCount',
                     "          ... on User{login} ... on Team{name}}}}",
-                    'return (actor or {}).get("login") or "（不明）"'):
+                    'return (actor or {}).get("login") or "（不明）"',
+                    'who = people.login(c["author"]) or "（不明）"',
+                    'who = actor.get("login", "（不明）")',
+                    'who = actor["login"] or "?"',
+                    'conn = i["closedByPullRequestsReferences"]'):
             self.assertTrue(readbacks(old), old)
         # 種別でない __typename の比べ（PR か issue か）は当たらない
         self.assertEqual(readbacks('is_pr = node["__typename"] == "PullRequest"'), [])
         # 上限の行に連結の件数を渡すのと、AssignedEvent の 1 人（assignee）は当たらない
         self.assertEqual(readbacks('truncated(i["closedByPullRequestsReferences"], "Linked PR", where)'), [])
         self.assertEqual(readbacks("... on AssignedEvent{createdAt actor{login} assignee{... on User{login}}}"), [])
+        # 比べる側で空の字を既定にするのと、名前の定数（UNKNOWN）で表示の字を足すのは当たらない
+        self.assertEqual(readbacks('author = (pr.get("author") or {}).get("login", "")'), [])
+        self.assertEqual(readbacks("return people.login(actor) or UNKNOWN"), [])
 
     def test_commands_share_the_same_functions(self):
         # turn.py は people.py の事実を名前ごと引き継ぐだけで、同じ名前を自分で定義し直さない
