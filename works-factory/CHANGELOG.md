@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-11-05
+
 ### Changed
 
 - スキルの「2. 起動する」の、起動の前に remote に届くかを確かめる行で、確かめるのが殻（`bin/works-factory`、コマンドの `WF`）で、`--from` を渡す相手が Archon だと書いた。0.52.0 の項の語にも説明を足した。
