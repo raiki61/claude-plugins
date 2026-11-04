@@ -486,6 +486,7 @@ How findings are returned depends on the writing role:
   treated as temporary locations. Inside git, files are read even under a temporary location.
   To change the roots, use `COLDREAD_TMP_DIRS` (separated by `os.pathsep`; used instead of the defaults)
 - Files under a repository's `.git` directory (including a worktree's git directory, `.git/worktrees/<name>/`) are not read either.
+  The check is by path: a file with a folder named exactly `.git` anywhere above it is not read (a folder like `.git-x` does not count).
   Git cannot track anything under `.git`, so these files are never committed or pushed; only the writing session and other agents read them
   (request drafts passed with `--brief`, a front desk's append-only ledger, a desk's backlog notes). Text that leaves the machine is read by the post gate when it is posted,
   and questions for the owner are read by the delivery check when they are sent. Before, these were read: in one account's `docs.log` (2026-10-16 to 11-04),

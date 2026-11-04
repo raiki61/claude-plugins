@@ -4485,8 +4485,9 @@ assert read_marks([own_doc2], COLDREAD_TMP_DIRS=str(roots), CLAUDE_JOB_DIR=str(w
 # 5) リポジトリの管理の場所(.git の下。worktree の git の場所 .git/worktrees/<名前>/ も)は読まない。作業ツリーの文書は読む
 gitrepo = work / "gd"
 git_init(gitrepo)
-ledger, wt_note, beside = doc(gitrepo / ".git" / "wf-briefs" / "ledger.md"), doc(gitrepo / ".git" / "worktrees" / "w1" / "note.md"), doc(gitrepo / "beside.md")
-assert read_marks([ledger, wt_note, beside], COLDREAD_TMP_DIRS=str(roots)) == ["beside"], ".git の下を読んだか、作業ツリーの文書を読まない"
+ledger, wt_note, top = doc(gitrepo / ".git" / "wf-briefs" / "ledger.md"), doc(gitrepo / ".git" / "worktrees" / "w1" / "note.md"), doc(gitrepo / ".git" / "TOP.md")
+beside, lookalike = doc(gitrepo / "beside.md"), doc(gitrepo / ".git-x" / "lookalike.md")   # 名前が .git で始まるだけのフォルダは読む
+assert read_marks([ledger, wt_note, top, beside, lookalike], COLDREAD_TMP_DIRS=str(roots)) == ["beside", "lookalike"], ".git の下を読んだか、作業ツリーの文書を読まない"
 log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
 assert "一時の置き場(git の外)" in log and str(plain) in log, "読まなかった理由が docs.log に無い"
 assert "git の管理の場所(.git の下)" in log and str(ledger) in log, ".git の下を読まなかった理由が docs.log に無い"
