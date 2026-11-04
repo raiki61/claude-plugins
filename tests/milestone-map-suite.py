@@ -534,7 +534,7 @@ class Doers(unittest.TestCase):
 
     def test_page_does_not_count_again(self):
         # 規則はここだけに置く。ページの JS が担当者と PR の作者を合わせ直していないこと
-        page = (pathlib.Path(mm.__file__).parent.parent / "templates" / "milestone-map.html").read_text()
+        page = (pathlib.Path(mm.__file__).parent.parent / "templates" / "milestone-map.html").read_text(encoding="utf-8")
         for again in (r"i\.who\.concat", r"\.\.\.\s*i\.(who|prBy)", r"i\.prBy\.(filter|concat|forEach)"):
             self.assertIsNone(re.search(again, page), again)
         # 人の一覧の数と、人を押して光らせる組は doers だけで数える
