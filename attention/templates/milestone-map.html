@@ -79,6 +79,7 @@ a:hover { text-decoration: underline; }
 .chips .blocked i { background: var(--bgColor-danger-emphasis); }
 .chips .pr i { background: var(--bgColor-success-emphasis); }
 .path { margin: 0 0 4px; font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.path[hidden] { display: none; }
 .path.bad { color: var(--fgColor-danger); }
 .path .arrow { color: var(--fgColor-muted); }
 .path a { font-family: var(--fontStack-mono); font-size: 12.5px; font-weight: 600; }
@@ -230,19 +231,53 @@ a:hover { text-decoration: underline; }
 #world.focus .more { opacity: .28; }
 .card.gone, #world.focus .card.gone, .pane.off, #world.focus .pane.off, .more.gone { opacity: 0; pointer-events: none; }
 #wires { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; z-index: 2; transition: opacity .15s; }
-#wires path { fill: none; stroke: var(--fgColor-muted); stroke-width: 2; opacity: .8; }
-#wires path.crit { stroke: var(--fgColor-done); stroke-width: 4; opacity: 1; }
-#wires path.late { stroke: var(--fgColor-severe); stroke-dasharray: 6 4; opacity: 1; }
+#wires path { fill: none; stroke: var(--fgColor-muted); stroke-width: calc(1.6px * var(--lw, 1)); stroke-linecap: round; opacity: .5;
+  transition: opacity .2s ease, stroke .2s ease, stroke-width .2s ease; }
+/* 色の決まり: クリティカルパスは紫の太線、期日の逆転（待つ側の期日が先）は橙の破線、ほかは灰の細線。光らせた鎖は青 */
+#wires path.crit { stroke: var(--fgColor-done); stroke-width: calc(3.5px * var(--lw, 1)); opacity: 1; }
+#wires path.late { stroke: var(--fgColor-severe); stroke-width: calc(2px * var(--lw, 1)); stroke-dasharray: calc(7px * var(--lw, 1)) calc(5px * var(--lw, 1)); opacity: .95; }
+/* ほかの線で辿れるので描かない blocked by。カードを光らせたときだけ点線で出す */
+#wires path.implied { stroke: var(--fgColor-accent); stroke-width: calc(1.6px * var(--lw, 1)); stroke-dasharray: calc(1.5px * var(--lw, 1)) calc(5px * var(--lw, 1)); opacity: 0; }
 /* 線の上の、押せる太い透明の帯。押すと線の遠い方の端のカードへ飛ぶ */
-#wires path.grab { stroke: transparent; stroke-width: 16; opacity: 1; pointer-events: stroke; cursor: pointer; }
-#wires text { font: 600 12.5px var(--fontStack-system); fill: var(--fgColor-muted); paint-order: stroke; stroke: var(--bgColor-default); stroke-width: 3px; }
+#wires path.grab { stroke: transparent; stroke-width: 16; opacity: 1; pointer-events: stroke; cursor: pointer; transition: none; }
+#wires text { font: 600 12.5px var(--fontStack-system); fill: var(--fgColor-muted); paint-order: stroke; stroke: var(--bgColor-default); stroke-width: 3px;
+  transition: opacity .2s ease; }
+#wires text.crit { fill: var(--fgColor-done); }
+#wires text.late { fill: var(--fgColor-severe); }
 .anim .frame, .anim .pane, .anim .card, .anim .more { transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease, opacity .2s; }
+.card { transition: opacity .2s ease, box-shadow .2s ease; }
 /* 載せたカードの前後の鎖・探した字に当たったカードだけを濃く出す */
 #world.focus .card:not(.hot), #world.focus .frame:not(.hot), #world.focus .pane:not(.hot) { opacity: .28; }
 #world.focus .card.done.hot { opacity: .8; }
 #world.focus .card.gone, #world.focus .card.done.gone { opacity: 0; }   /* 隠したカードは、光らせている間も出さない */
-#world.focus #wires path:not(.hot), #world.focus #wires text:not(.hot) { opacity: .08; }
-#world.focus #wires path.hot { stroke-width: 3; opacity: 1; }
+#world.focus #wires path:not(.hot):not(.grab), #world.focus #wires text:not(.hot) { opacity: .06; }
+#world.focus #wires path.implied:not(.hot) { opacity: 0; }
+#world.focus #wires path.hot { opacity: 1; }
+#world.focus #wires path.plain.hot { stroke: var(--fgColor-accent); stroke-width: calc(2.5px * var(--lw, 1)); }
+#world.focus #wires path.implied.hot { opacity: .9; }
+#world.focus #wires text.hot { fill: var(--fgColor-accent); }
+#world.focus #wires text.crit.hot { fill: var(--fgColor-done); }
+/* 鎖の中心（載せた・押したカード）と、押して固定したカード */
+.card.focal { box-shadow: 0 0 0 2px var(--fgColor-accent), var(--shadow); }
+.card.pin { box-shadow: 0 0 0 3px var(--fgColor-accent), 0 0 0 8px color-mix(in srgb, var(--fgColor-accent) 22%, transparent), var(--shadow); }
+.card:focus-visible { outline: 2px solid var(--fgColor-accent); outline-offset: 2px; }
+.card a.num { color: inherit; text-decoration: none; }
+.card a.num:hover { color: var(--fgColor-accent); text-decoration: underline; }
+/* マイルストーンの粒度: 枠を 1 つの塊として見せ、issue のクリティカルパスが通る枠に紫の縁と件数を付ける */
+.mbadge { display: none; }
+#world.mlevel .mbadge { display: inline-block; position: absolute; right: 12px; top: -11px; z-index: 4; padding: 1px 9px; border-radius: 2em;
+  font-size: 11.5px; font-weight: 600; line-height: 18px; color: var(--fgColor-onEmphasis); background: var(--fgColor-done); }
+#world.mlevel .frame.mcrit .fhead { box-shadow: inset 0 0 0 2px var(--fgColor-done); }
+#world.mlevel .frame { transition: opacity .2s ease; }
+#world.mlevel.focus .frame:not(.hot) { opacity: .35; }
+#wires text { pointer-events: none; }
+.mpath .mstep { font: inherit; font-size: 12.5px; font-weight: 600; padding: 1px 8px; border: 1px solid var(--borderColor-default); border-radius: 2em;
+  background: var(--bgColor-default); color: var(--fgColor-default); cursor: pointer; }
+.mpath .mstep:hover, .mpath .mstep:focus-visible { border-color: var(--fgColor-done); color: var(--fgColor-done); }
+.mpath .mstep small { color: var(--fgColor-muted); font-weight: 400; }
+.level { margin-right: 8px; }
+.keys .hint { color: var(--fgColor-muted); }
+@media (prefers-reduced-motion: reduce) { #wires path, #wires text, .card, #world.mlevel .frame { transition: none; } }
 .card.hit { outline: 3px solid var(--fgColor-accent); outline-offset: 2px; }
 /* 送った先の今のカード。探して当たったカード（.hit）とも見分けられるよう、太い枠と外の帯を付ける */
 .card.cur, .card.hit.cur { outline: 4px solid var(--fgColor-accent); outline-offset: 4px; box-shadow: 0 0 0 12px color-mix(in srgb, var(--fgColor-accent) 40%, transparent); z-index: 5; }
@@ -266,7 +301,7 @@ a:hover { text-decoration: underline; }
 (function () {
   "use strict";
   const D = JSON.parse(document.getElementById("map-data").textContent)
-    || { columns: [], today: { at: 0, label: "" }, milestones: [], edges: [], path: [], late: [] };
+    || { columns: [], today: { at: 0, label: "" }, milestones: [], edges: [], implied: [], path: [], late: [], mlevel: { edges: [], path: [] } };
   // カード・枠・列の大きさ（px）。カードの大きさを決め打ちにして、字を測らずに置く
   const CW = 280, CH = 74, G = 12, PAD = 14, HEAD = 104, SHUT_W = 320, COLGAP = 96, FGAP = 32, TOP = 22, LEFT = 32, BOTTOM = 60;
   const $ = id => document.getElementById(id);
@@ -318,18 +353,15 @@ a:hover { text-decoration: underline; }
   const FOLD = D.edges.length > 0, CHIP = 34, step = CW + G, rowH = CH + G, rstep = CW + 64;   // rstep: 段と段の間（矢印が見える幅を空ける）
   // 列ごとに、線の無い issue を横に何枚まで並べるか（K[c]）。最初に、地図全体が画面の形にいちばん大きく収まる K を選ぶ
   let K = D.columns.map(() => 1);
+  // 粒度: issue（カード 1 枚が issue 1 件）か milestone（マイルストーン 1 本を 1 つにまとめ、マイルストーンをまたぐ線を束ねる）
+  let level = "issue", pinned = null;   // 粒度（issue かマイルストーン）と、押して固定したカードの番号
   const across = (n, c) => Math.max(1, Math.min(n, K[c]));
   function part(c, list, done) {
     const linked = list.filter(i => linkedSet.has(i.n)), loose = list.filter(i => !linkedSet.has(i.n));
     const ranks = linked.map(i => i.rank);
-    // 段ごとに上から詰める。止めている側が同じ区画に在れば、その行より上には置かない（鎖が横 1 本に並ぶように）
-    const row = new Map(), free = new Map(), FAR = 1e9;
-    const pre = i => Math.min(FAR, ...(adj.up.get(i.n) || []).filter(n => row.has(n)).map(n => row.get(n)));
-    for (const r of [...new Set(ranks)].sort((a, b) => a - b)) {
-      const here = linked.filter(i => i.rank === r).map(i => ({ i, p: pre(i) }))
-        .sort((a, b) => a.p - b.p || (b.i.crit - a.i.crit) || a.i.n - b.i.n);
-      for (const { i, p } of here) { const y = Math.max(free.get(r) || 0, p === FAR ? 0 : p); row.set(i.n, y); free.set(r, y + 1); }
-    }
+    // 行は Python が決める（milestone-map.py の part_rows。段ごとに上から詰め、止めている側と同じ行に並べて鎖を横 1 本にし、
+    // 線の交差が少なくなる順に並べる）
+    const row = new Map(linked.map(i => [i.n, i.row || 0]));
     return { c, list, linked, loose, done, fold: FOLD ? loose.filter(i => i.state === "idle") : [],
       r0: ranks.length ? Math.min(...ranks) : 0, r1: ranks.length ? Math.max(...ranks) : -1, row, nrows: Math.max(0, ...[...row.values()].map(y => y + 1)) };
   }
@@ -366,7 +398,8 @@ a:hover { text-decoration: underline; }
   // 列の幅は、開いたときの枠が入る幅（開け閉めで列が動かないよう、閉じた枠・畳んだ issue も開いたときの幅で数える）
   let W = [], X = [], worldW = 600;
   function measure() {
-    W = D.columns.map((_, c) => Math.max(SHUT_W, ...frames.map(f => f.parts.has(c) ? off(f.parts.get(c)) + partSize(f.parts.get(c), f, true).w + 2 * PAD : 0)));
+    // マイルストーンの粒度では、どの列も閉じた枠 1 つの幅にする（引いて見たときに全体が小さく収まるように）
+    W = D.columns.map((_, c) => level === "milestone" ? SHUT_W : Math.max(SHUT_W, ...frames.map(f => f.parts.has(c) ? off(f.parts.get(c)) + partSize(f.parts.get(c), f, true).w + 2 * PAD : 0)));
     X = [];
     W.forEach((w, c) => X.push(c ? X[c - 1] + W[c - 1] + COLGAP : LEFT));
     worldW = W.length ? X[W.length - 1] + W[W.length - 1] + LEFT : 600;
@@ -390,10 +423,18 @@ a:hover { text-decoration: underline; }
         el("span", {}, `Open ${m.open}・Closed ${m.closed}`), m.open ? stack : null),
       f.pulse = el("div", { class: "fpulse" }));
     head.querySelector("a").addEventListener("click", ev => ev.stopPropagation());
-    const toggle = () => { f.shut = !f.shut; layout(); };
+    // マイルストーンの粒度では、押すと issue の粒度に戻ってその枠を開く（引いた所から寄る）
+    const toggle = () => { if (level === "milestone") return drill(f); f.shut = !f.shut; layout(); };
     head.addEventListener("click", toggle);
     head.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); } });
-    f.el = el("div", { class: "frame" + (m.none ? " loose" : ""), "data-m": m.n }, head, el("div", { class: "empty" }, "open の issue は無い"));
+    head.addEventListener("mouseenter", () => { if (level === "milestone") mfocus(m.n); });
+    head.addEventListener("mouseleave", () => { if (level === "milestone") mfocus(null); });
+    head.addEventListener("focus", () => { if (level === "milestone") mfocus(m.n); });
+    head.addEventListener("blur", () => { if (level === "milestone") mfocus(null); });
+    const onPathN = D.mlevel.path.filter(s => s.m === m.n).reduce((k, s) => k + s.issues.length, 0);
+    f.mcrit = onPathN > 0;
+    f.el = el("div", { class: "frame" + (m.none ? " loose" : ""), "data-m": m.n }, head, el("div", { class: "empty" }, "open の issue は無い"),
+      onPathN ? el("span", { class: "mbadge", title: "issue のクリティカルパスのうち、このマイルストーンに在る件数" }, `クリティカルパス ${onPathN} 件`) : null);
     f.panes = new Map([...f.parts.keys()].map(c => [c, el("div", { class: "pane" + (m.none ? " loose" : "") })]));
     world.append(f.el, ...f.panes.values());
     f.chips = new Map();
@@ -408,11 +449,17 @@ a:hover { text-decoration: underline; }
       const tags = [i.crit ? el("span", { class: "tag crit" }, "クリティカル") : null, i.newTag,
         i.blockers ? el("span", { class: "tag blocked" }, `Blocked by ${i.blockers}`) : null,
         i.prs.length ? el("span", { class: "tag pr" }, "PR " + i.prs.map(p => "#" + p).join(" ")) : null];
-      i.el = el("a", { class: `card ${i.state}${i.crit ? " crit" : ""}`, id: "i" + i.n, href: i.url, title: i.tip,
+      // カードを押すと前後の鎖を固定して濃く出す（もう一度押すか Esc で戻す）。GitHub を開くのはカードの番号
+      i.el = el("div", { class: `card ${i.state}${i.crit ? " crit" : ""}`, id: "i" + i.n, role: "button", tabindex: "0", "aria-pressed": "false",
+        title: i.tip + (linkedSet.has(i.n) ? "\n押すと前後の鎖だけを濃く出す（もう一度押すか Esc で戻す）。番号を押すと GitHub で開く" : "\n番号を押すと GitHub で開く"),
         style: `width:${CW}px;height:${CH}px` },
-        el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), tags, avatars(i)), el("div", { class: "tt" }, i.title));
-      i.el.addEventListener("mouseenter", () => focusOn(chain(i.n)));
+        el("div", { class: "row" }, el("a", { class: "num", href: i.url, title: "GitHub で開く" }, "#" + i.n), tags, avatars(i)), el("div", { class: "tt" }, i.title));
+      i.el.addEventListener("mouseenter", () => focusOn(chain(i.n), i.n));
       i.el.addEventListener("mouseleave", () => focusOn(resting()));
+      i.el.addEventListener("focus", () => { focusOn(chain(i.n), i.n); reveal(i); });
+      i.el.addEventListener("blur", () => focusOn(resting()));
+      i.el.addEventListener("click", ev => { if (!ev.target.closest("a")) pin(i.n); });
+      i.el.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pin(i.n); } });
       world.append(i.el);
     }
     for (const i of m.done) {
@@ -432,6 +479,8 @@ a:hover { text-decoration: underline; }
     // x は 1 列だけで線の無い枠の左の端（列の中で左右にずらせる）。線の在る枠は、段の位置に合わせて置き場が決まる。
     // 戻り値は枠の帯と区画（y は枠の上の端からの距離）。
     // 閉じた枠も、issue の在る列の幅に帯を残す（線を issue の列の位置から引き、左から右の流れを保つため）
+    // マイルストーンの粒度では、枠をマイルストーンの期日の列に 1 つだけ置く（早い列へ寄せた issue の帯は描かない）
+    if (level === "milestone") return { head: { x: X[f.m.col], w: SHUT_W, h: HEAD }, panes: [], bare: false };
     const one = f.c0 === f.c1, x1 = one && f.linked ? X[f.c0] + off(f.parts.get(f.c0)) : x;
     const any = [...f.parts.values()].some(live);
     if (f.shut || !any) {
@@ -450,10 +499,12 @@ a:hover { text-decoration: underline; }
   function place() {
     const placed = [], out = [];
     const bottom = f => { const s = shape(f, X[f.c0]); return Math.max(s.head.h, ...s.panes.map(p => p.y + p.h)); };
-    const order = frames.slice().sort((a, b) => (b.crit - a.crit) || (b.linked - a.linked) || (a.c1 - a.c0) - (b.c1 - b.c0) || a.c0 - b.c0 || bottom(b) - bottom(a));
+    // 線の在る枠どうしは、Python の決めた順番（key: 交差を減らす重心の順）で上から置く
+    const key = f => f.m.key ?? 0;
+    const order = frames.slice().sort((a, b) => (b.crit - a.crit) || (b.linked - a.linked) || key(a) - key(b) || (a.c1 - a.c0) - (b.c1 - b.c0) || a.c0 - b.c0 || bottom(b) - bottom(a));
     for (const f of order) {
       let xs = [0];
-      if (f.c0 === f.c1 && !f.linked) {
+      if (f.c0 === f.c1 && !f.linked && level !== "milestone") {
         const c = f.c0, w = shape(f, 0).head.w;
         xs = [];
         for (let x = X[c]; x <= X[c] + W[c] - w + 0.5; x += step) xs.push(x);
@@ -462,7 +513,7 @@ a:hover { text-decoration: underline; }
       let best = null;
       for (const x of xs) {
         const s = shape(f, x), rects = [{ x: s.head.x, w: s.head.w, dy: 0 }, ...s.panes.map(p => ({ x: p.x, w: p.w, dy: p.y }))];
-        let y = TOP;
+        let y = TOP + (level === "milestone" ? laneRoom : 0);
         for (const r of rects) for (const p of placed) if (p.x < r.x + r.w && r.x < p.x + p.w) y = Math.max(y, p.y + p.h + FGAP - r.dy);
         if (!best || y < best.y) best = { x, y, s };
       }
@@ -549,46 +600,119 @@ a:hover { text-decoration: underline; }
     apply();
   }
 
-  // ── 線: 止めている側の右の端から、待つ側の左の端へ。閉じた枠の issue は枠の端から引き、同じ端どうしは 1 本にまとめて本数を添える ──
+  // ── 線: 止めている側の右の端から、待つ側の左の端へ。閉じた枠の issue は枠の端から引き、同じ端どうしは 1 本にまとめて本数を添える。
+  // 1 つの端に何本も来るときは、相手の高さの順に端の上下へ散らす（端で線が重ならず、近くで交わらないように）。
+  // マイルストーンの粒度では、マイルストーンをまたぐ blocked by をマイルストーンの組ごとに 1 本に束ね、件数を添える ──
   function end(n, out) {
     const f = frameOf.get(n), i = issueOf.get(n);
     if (!f) return null;
     if (f.shut) {
-      if (f.c0 === f.c1) return { id: "m" + f.m.n, x: out ? f.box.x + f.box.w : f.box.x, y: f.box.y + HEAD / 2 };
-      return { id: "m" + f.m.n + ":" + i.col, x: out ? Math.min(f.box.x + f.box.w, X[i.col] + SHUT_W) : X[i.col], y: f.box.y + HEAD / 2 };
+      if (f.c0 === f.c1) return { id: "m" + f.m.n, x: out ? f.box.x + f.box.w : f.box.x, y: f.box.y + HEAD / 2, h: HEAD * 0.6 };
+      return { id: "m" + f.m.n + ":" + i.col, x: out ? Math.min(f.box.x + f.box.w, X[i.col] + SHUT_W) : X[i.col], y: f.box.y + HEAD / 2, h: HEAD * 0.6 };
     }
-    return { id: "i" + n, x: out ? i.pos.x + CW : i.pos.x, y: i.pos.y + CH / 2 };
+    return { id: "i" + n, x: out ? i.pos.x + CW : i.pos.x, y: i.pos.y + CH / 2, h: CH * 0.6 };
+  }
+  const frameByN = new Map(frames.map(f => [f.m.n, f]));
+  // マイルストーンの粒度で、隣の列より遠い（か戻る）線は、枠の見出しを横切らないよう、列の間のすき間を上がり、枠の上の余白を通って下りる。
+  // 余白は線 1 本に 12px。短い線ほど枠に近い段を通す（入れ子にして、段どうしが交わらないように）
+  const far = e => { const a = frameByN.get(e.from), b = frameByN.get(e.to); return a && b && b.m.col !== a.m.col + 1; };
+  const LANE = 12, laneRoom = D.mlevel.edges.some(far) ? 18 + LANE * D.mlevel.edges.filter(far).length : 0;
+  const mPath = new Set(D.mlevel.path.slice(1).map((s, k) => D.mlevel.path[k].m + ">" + s.m));
+  function curve(x1, y1, x2, y2) {
+    const dx = Math.max(40, Math.abs(x2 - x1) / 2);
+    return `M${x1.toFixed(1)},${y1.toFixed(1)} C${(x1 + dx).toFixed(1)},${y1.toFixed(1)} ${(x2 - dx).toFixed(1)},${y2.toFixed(1)} ${(x2 - 1).toFixed(1)},${y2.toFixed(1)}`;
+  }
+  // 描かない線は、間に並ぶカードの字に重ならないよう、上へ弧を描く（離れているほど高く。120px まで）
+  function arc(x1, y1, x2, y2) {
+    const dx = Math.max(40, Math.abs(x2 - x1) / 3), lift = Math.min(120, 30 + Math.abs(x2 - x1) * 0.12), f = v => v.toFixed(1);
+    return `M${f(x1)},${f(y1)} C${f(x1 + dx)},${f(y1 - lift)} ${f(x2 - dx)},${f(y2 - lift)} ${f(x2 - 1)},${f(y2)}`;
+  }
+  // 角を丸めた折れ線: 右へ出て、すき間 x1 を段 lane まで上がり、すき間 x2 まで横に行き、下りて左から入る
+  function route(ax, ay, x1, lane, x2, bx, by) {
+    const r = 10, s = x2 >= x1 ? 1 : -1, f = v => v.toFixed(1);
+    return `M${f(ax)},${f(ay)} H${f(x1 - r)} Q${f(x1)},${f(ay)} ${f(x1)},${f(ay - r)} V${f(lane + r)} Q${f(x1)},${f(lane)} ${f(x1 + s * r)},${f(lane)}` +
+      ` H${f(x2 - s * r)} Q${f(x2)},${f(lane)} ${f(x2)},${f(lane + r)} V${f(by - r)} Q${f(x2)},${f(by)} ${f(x2 + r)},${f(by)} H${f(bx - 1)}`;
   }
   function wires() {
     svg.textContent = "";
     svg.setAttribute("width", worldW);
     svg.setAttribute("height", worldH);
-    const mk = (id, color) => el("svg:marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 10, markerHeight: 10,
-      markerUnits: "userSpaceOnUse", orient: "auto" }, el("svg:path", { d: "M0,0 L10,5 L0,10 z", style: `fill:${color};stroke:none` }));
-    svg.append(el("svg:defs", {}, mk("ar-plain", "var(--fgColor-muted)"), mk("ar-crit", "var(--fgColor-done)"), mk("ar-late", "var(--fgColor-severe)")));
-    const groups = new Map();
-    for (const e of D.edges) {
-      const a = end(e[0], true), b = end(e[1], false);
-      if (!a || !b || a.id === b.id) continue;
-      const kind = onPath.has(key(e)) ? "crit" : late.has(key(e)) ? "late" : "plain";
-      const g = groups.get(a.id + ">" + b.id) || { a, b, n: [], kind: "plain" };
-      g.n.push(e);
-      if (kind === "crit" || (kind === "late" && g.kind === "plain")) g.kind = kind;
-      groups.set(a.id + ">" + b.id, g);
+    // 矢じりは線の色ごとに 1 つ（SVG の marker は線の色を継げないため）。先の割れた形にし、大きさは線の太さの倍数（引いて線を太らせると矢じりも大きくなる）
+    const mk = (id, color, s) => el("svg:marker", { id, viewBox: "0 0 12 12", refX: 11, refY: 6, markerWidth: s, markerHeight: s,
+      markerUnits: "strokeWidth", orient: "auto" }, el("svg:path", { d: "M1,1.5 L11,6 L1,10.5 L3.6,6 z", style: `fill:${color};stroke:none` }));
+    svg.append(el("svg:defs", {}, mk("ar-plain", "var(--fgColor-muted)", 6), mk("ar-hot", "var(--fgColor-accent)", 5),
+      mk("ar-crit", "var(--fgColor-done)", 4), mk("ar-late", "var(--fgColor-severe)", 6), mk("ar-implied", "var(--fgColor-accent)", 6)));
+    const segs = [];
+    if (level === "milestone") {
+      for (const e of D.mlevel.edges) {
+        const fa = frameByN.get(e.from), fb = frameByN.get(e.to);
+        if (!fa || !fb || !fa.box || !fb.box) continue;
+        segs.push({ a: { id: "m" + e.from, x: fa.box.x + fa.box.w, y: fa.box.y + HEAD / 2, h: HEAD * 0.6 },
+          b: { id: "m" + e.to, x: fb.box.x, y: fb.box.y + HEAD / 2, h: HEAD * 0.6 }, m: [e.from, e.to], count: e.n,
+          far: far(e) ? { g1: X[fa.m.col] + W[fa.m.col] + COLGAP / 2, g2: X[fb.m.col] - COLGAP / 2 } : null,
+          kind: mPath.has(e.from + ">" + e.to) ? "crit" : e.late ? "late" : "plain",
+          title: `${fa.m.title} → ${fb.m.title}\nblocked by ${e.n} 件（押すと issue の粒度で ${fb.m.title} を開く）` });
+      }
+    } else {
+      const groups = new Map();
+      for (const e of D.edges) {
+        const a = end(e[0], true), b = end(e[1], false);
+        if (!a || !b || a.id === b.id) continue;
+        const kind = onPath.has(key(e)) ? "crit" : late.has(key(e)) ? "late" : "plain";
+        const g = groups.get(a.id + ">" + b.id) || { a, b, n: [], kind: "plain" };
+        g.n.push(e);
+        if (kind === "crit" || (kind === "late" && g.kind === "plain")) g.kind = kind;
+        groups.set(a.id + ">" + b.id, g);
+      }
+      segs.push(...groups.values());
     }
-    for (const g of groups.values()) {
-      const { a, b } = g, dx = Math.max(40, Math.abs(b.x - a.x) / 2);
-      const ns = g.n.flat().join(" ");
-      const d = `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - 2},${b.y}`;
-      svg.append(el("svg:path", { class: g.kind === "plain" ? null : g.kind, "data-n": ns, "marker-end": `url(#ar-${g.kind})`, d }));
+    // 端を散らす: 1 つの端に来る線を、相手の端の高さの順に、端の高さの 6 割の中へ等しく並べる
+    const ports = (side, other) => {
+      const at = new Map();
+      for (const s of segs) { if (!at.has(s[side].id)) at.set(s[side].id, []); at.get(s[side].id).push(s); }
+      for (const list of at.values()) {
+        list.sort((p, q) => p[other].y - q[other].y || p[other].x - q[other].x);
+        const N = list.length, gap = N > 1 ? Math.min(12, list[0][side].h / (N - 1)) : 0;
+        list.forEach((s, k) => { s[side + "y"] = s[side].y + (k - (N - 1) / 2) * gap; });
+      }
+    };
+    ports("a", "b");
+    ports("b", "a");
+    // 遠い線の段と、すき間を上下する所の横のずれ（同じすき間を通る線を 8px ずつ離す）を決める
+    const longs = segs.filter(g => g.far).sort((p, q) => Math.abs(p.far.g2 - p.far.g1) - Math.abs(q.far.g2 - q.far.g1) || p.a.x - q.a.x || p.b.x - q.b.x);
+    longs.forEach((g, k) => { g.lane = TOP + laneRoom - 14 - LANE * k; });
+    const gaps = new Map();
+    for (const g of longs) for (const x of [g.far.g1, g.far.g2]) { if (!gaps.has(x)) gaps.set(x, []); gaps.get(x).push(g); }
+    for (const [x, list] of gaps) list.forEach((g, k) => { const o = (k - (list.length - 1) / 2) * 8; if (x === g.far.g1) g.x1 = x + o; else g.x2 = x + o; });
+    for (const g of segs) {
+      const d = g.far ? route(g.a.x, g.ay, g.x1, g.lane, g.x2, g.b.x, g.by) : curve(g.a.x, g.ay, g.b.x, g.by), ns = g.n ? g.n.flat().join(" ") : null, ms = g.m ? g.m.join(" ") : null;
+      svg.append(el("svg:path", { class: "wire " + g.kind, "data-n": ns, "data-m": ms, "marker-end": `url(#ar-${g.kind})`, d }));
       svg.append(grab(g, d));
-      if (g.n.length > 1) svg.append(el("svg:text", { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 6, "text-anchor": "middle", "data-n": ns }, g.n.length + " 本"));
+      const label = g.count != null ? g.count + " 件" : g.n.length > 1 ? g.n.length + " 本" : null;
+      if (label) svg.append(el("svg:text", { class: "count " + g.kind, x: g.far ? (g.x1 + g.x2) / 2 : (g.a.x + g.b.x) / 2,
+        y: g.far ? g.lane - 4 : (g.ay + g.by) / 2 - 7, "text-anchor": "middle",
+        "data-n": ns, "data-m": ms }, label));
+    }
+    // ほかの線で辿れるので描かない blocked by（推移的な削減で外した線）。カードを光らせたときだけ、そのカードに付く物を点線で出す
+    if (level !== "milestone") for (const e of D.implied || []) {
+      const a = end(e[0], true), b = end(e[1], false);
+      if (!a || !b || a.id === b.id || a.id[0] !== "i" || b.id[0] !== "i") continue;
+      svg.append(el("svg:path", { class: "wire implied", "data-n": e.join(" "), "marker-end": "url(#ar-implied)", d: arc(a.x, a.y, b.x, b.y) },
+        el("svg:title", {}, `#${e[0]} → #${e[1]}（ほかの線で辿れるので、ふだんは描かない blocked by）`)));
     }
   }
 
   // 線に載せると線の両端の鎖を光らせ、押すと遠い方の端（押した所から離れた方）のカードへ飛ぶ。依存の相手を目で探さずに済むように。
-  // 何本かをまとめた線は、遠い方の端の 1 件目へ飛ぶ
+  // 何本かをまとめた線は、遠い方の端の 1 件目へ飛ぶ。マイルストーンの粒度の線は、載せると両端の枠を光らせ、押すと待つ側の枠を開く
   function grab(g, d) {
+    if (g.m) {
+      const p = el("svg:path", { class: "grab", d }, el("svg:title", {}, g.title));
+      const set = new Set(g.m);
+      p.addEventListener("mouseenter", () => mfocus(set));
+      p.addEventListener("mouseleave", () => mfocus(null));
+      p.addEventListener("click", () => drill(frameByN.get(g.m[1])));
+      return p;
+    }
     const froms = [...new Set(g.n.map(e => e[0]))], tos = [...new Set(g.n.map(e => e[1]))];
     const p = el("svg:path", { class: "grab", d }, el("svg:title", {},
       g.n.map(e => `#${e[0]} → #${e[1]}`).join("\n") + "\n押すと遠い方の端のカードへ飛ぶ"));
@@ -605,6 +729,7 @@ a:hover { text-decoration: underline; }
   function jump(n) {
     const i = issueOf.get(n) || doneAll.find(x => x.n === n), f = frameOf.get(n);
     if (!i || !f) return;
+    if (level === "milestone") setLevel("issue");
     if (f.shut) { f.shut = false; layout(); }   // 線の端のカードは畳まないので、開くのは閉じた枠だけ
     if (curEl) curEl.classList.remove("cur");
     curEl = i.el;
@@ -612,7 +737,7 @@ a:hover { text-decoration: underline; }
     centerOn(i);
   }
 
-  // ── 載せたカードの前後の鎖を濃く出す ──
+  // ── 載せたカードの前後の鎖を濃く出す。center は載せた（押した）カードで、そのカードに付く描かない線も点線で出す ──
   function chain(n) {
     const seen = new Set([n]);
     for (const dir of ["up", "down"]) {
@@ -621,9 +746,13 @@ a:hover { text-decoration: underline; }
     }
     return seen;
   }
-  function focusOn(set) {
+  function focusOn(set, center = pinned) {
+    if (level === "milestone") return;
     world.classList.toggle("focus", !!set);
-    for (const i of openAll.concat(doneAll)) i.el.classList.toggle("hot", !!set && set.has(i.n));
+    for (const i of openAll.concat(doneAll)) {
+      i.el.classList.toggle("hot", !!set && set.has(i.n));
+      i.el.classList.toggle("focal", !!set && i.n === center);
+    }
     for (const f of frames) {
       const hot = !!set && f.m.issues.concat(f.m.done).some(i => set.has(i.n));
       f.el.classList.toggle("hot", hot);
@@ -632,10 +761,83 @@ a:hover { text-decoration: underline; }
     for (const p of svg.querySelectorAll("[data-n]")) {
       const ns = p.getAttribute("data-n").split(" ").map(Number);
       let hot = false;
-      for (let k = 0; k < ns.length; k += 2) if (set && set.has(ns[k]) && set.has(ns[k + 1])) hot = true;
+      if (p.classList.contains("implied")) hot = !!set && center != null && (ns[0] === center || ns[1] === center);
+      else for (let k = 0; k < ns.length; k += 2) if (set && set.has(ns[k]) && set.has(ns[k + 1])) hot = true;
       p.classList.toggle("hot", hot);
+      if (p.classList.contains("plain") && p.tagName === "path") p.setAttribute("marker-end", `url(#ar-${hot ? "hot" : "plain"})`);
     }
   }
+  // マイルストーンの粒度で、枠（1 つか組）とそれに付く線を濃く出す。1 つのときは線の相手の枠も濃くする
+  function mfocus(m) {
+    const set = m == null ? null : m instanceof Set ? m : new Set([m]);
+    const one = m != null && !(m instanceof Set);
+    const near = new Set(set || []);
+    if (one) for (const e of D.mlevel.edges) { if (e.from === m) near.add(e.to); if (e.to === m) near.add(e.from); }
+    world.classList.toggle("focus", !!set);
+    for (const f of frames) f.el.classList.toggle("hot", !!set && near.has(f.m.n));
+    for (const p of svg.querySelectorAll("[data-m]")) {
+      const [a, b] = p.getAttribute("data-m").split(" ").map(Number);
+      const hot = !!set && (one ? a === m || b === m : set.has(a) && set.has(b));
+      p.classList.toggle("hot", hot);
+      if (p.classList.contains("plain") && p.tagName === "path") p.setAttribute("marker-end", `url(#ar-${hot ? "hot" : "plain"})`);
+    }
+  }
+  // 押して固定した鎖（もう一度押すか、Esc か、地図の空いた所を押すと戻す）
+  function pin(n) {
+    if (!linkedSet.has(n) && pinned == null) return;
+    pinned = pinned === n || !linkedSet.has(n) ? null : n;
+    for (const i of openAll) { i.el.classList.toggle("pin", i.n === pinned); i.el.setAttribute("aria-pressed", String(i.n === pinned)); }
+    focusOn(resting(), pinned);
+  }
+  // キーで送ったカードが見えない所に在れば、そこまで地図を動かす（拡大の倍率は変えない）
+  function reveal(i) {
+    if (!i.pos) return;
+    const x = i.pos.x * z + tx, y = i.pos.y * z + ty, vw = view.clientWidth, vh = view.clientHeight;
+    if (x < 0 || y < 0 || x + CW * z > vw || y + CH * z > vh) center(i.pos.x + CW / 2, i.pos.y + CH / 2);
+  }
+
+  // ── 粒度を切り替える。マイルストーンの粒度へは、枠の開け閉めと画面の位置を覚えて全部を閉じ、全体を画面に収める。
+  // issue の粒度へ戻るときは覚えた形に戻す（drill は、押した枠を開いてそこへ寄る）──
+  let saved = null;
+  const levelBtns = [...document.querySelectorAll(".level button")];
+  function setLevel(l) {
+    if (l === level) return;
+    if (pinned != null) pin(pinned);
+    if (l === "milestone") { saved = { shut: frames.map(f => f.shut), z, tx, ty }; for (const f of frames) f.shut = true; }
+    else if (saved) frames.forEach((f, k) => { f.shut = saved.shut[k]; });
+    level = l;
+    world.classList.toggle("mlevel", l === "milestone");
+    world.classList.remove("focus");
+    for (const b of levelBtns) { const on = b.dataset.level === l; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); }
+    for (const p of document.querySelectorAll(".path.ipath")) p.hidden = l === "milestone";
+    for (const p of document.querySelectorAll(".path.mpath")) p.hidden = l !== "milestone";
+    measure();
+    layout();
+    if (l === "milestone") fit();
+    else if (saved) { z = saved.z; tx = saved.tx; ty = saved.ty; apply(); saved = null; }
+  }
+  function drill(f) {
+    if (!f) return;
+    setLevel("issue");
+    if (f.shut) { f.shut = false; layout(); }
+    if (z < 0.6) z = 0.6;
+    center(f.box.x + f.box.w / 2, f.box.y + Math.min(f.box.h, view.clientHeight / z) / 2 + HEAD);
+  }
+  for (const b of levelBtns) b.addEventListener("click", () => setLevel(b.dataset.level));
+  for (const b of document.querySelectorAll(".mstep")) {
+    const m = Number(b.dataset.m);
+    b.addEventListener("mouseenter", () => mfocus(m));
+    b.addEventListener("mouseleave", () => mfocus(null));
+    b.addEventListener("click", () => { const f = frameByN.get(m); if (f && f.box) center(f.box.x + f.box.w / 2, f.box.y + f.box.h / 2); });
+  }
+  document.addEventListener("keydown", ev => {
+    if (ev.target.closest && ev.target.closest("input")) return;
+    if (ev.key === "Escape" && pinned != null) pin(pinned);
+    else if ((ev.key === "m" || ev.key === "M") && !ev.ctrlKey && !ev.metaKey && !ev.altKey) setLevel(level === "milestone" ? "issue" : "milestone");
+  });
+  view.addEventListener("click", ev => {
+    if (pinned != null && !ev.target.closest(".card, .fhead, .more, .mini, button, a, input, path.grab")) pin(pinned);
+  });
   // 上のクリティカルパスの番号: 載せると鎖を光らせ、押すと地図のそのカードへ飛ぶ（Ctrl か Cmd を押しながらなら GitHub を開く）
   for (const a of document.querySelectorAll(".path a[data-n]")) {
     const set = new Set(D.path.flat());
@@ -653,8 +855,8 @@ a:hover { text-decoration: underline; }
   const q = $("q"), hits = $("hits");
   let hitList = [];
   function searched() { return q.value.trim() ? new Set(hitList.map(i => i.n)) : null; }
-  // カードから離れたときに戻す光り方: 選んだ人 → 探した字 → なし
-  function resting() { return whoSet() || searched(); }
+  // カードから離れたときに戻す光り方: 押して固定した鎖 → 選んだ人 → 探した字 → なし
+  function resting() { return (pinned != null ? chain(pinned) : null) || whoSet() || searched(); }
   q.addEventListener("input", () => {
     const s = q.value.trim().toLowerCase().replace(/^#/, "");
     hitList = s ? [...issueOf.values()].filter(i => String(i.n) === s || i.title.toLowerCase().includes(s)) : [];
@@ -849,6 +1051,8 @@ a:hover { text-decoration: underline; }
   // （HTML を見る窓の作りによってはスクロールが効かないため。ホイール・ドラッグ・矢印のキー・見取り図のどれでも動く） ──
   let z = 1, tx = 0, ty = 0;
   const M = 48;  // 地図の端を越えて動かせる余白（px）
+  // キーで送った先（Tab で入ったカードや枠）を、ブラウザが地図の領域ごとずらして見せようとするのを打ち消す。地図は transform だけで動かす
+  view.addEventListener("scroll", () => { if (view.scrollLeft || view.scrollTop) { view.scrollLeft = 0; view.scrollTop = 0; } });
   function clamp() {
     const vw = view.clientWidth, vh = view.clientHeight, w = worldW * z, h = worldH * z;
     tx = w + 2 * M <= vw ? (vw - w) / 2 : Math.min(M, Math.max(vw - w - M, tx));
@@ -857,6 +1061,8 @@ a:hover { text-decoration: underline; }
   function apply() {
     clamp();
     world.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
+    // 引いたときに線が細く消えないよう、倍率が 0.6 を切ったら線を太らせる（画面の上で 0.6 倍の太さを保つ。3 倍まで）
+    world.style.setProperty("--lw", Math.max(1, Math.min(3, 0.6 / z)).toFixed(2));
     drawAxis();
     drawMini();
   }
@@ -971,7 +1177,7 @@ a:hover { text-decoration: underline; }
   }
   document.querySelectorAll(".tools button").forEach(b => b.addEventListener("click", () => {
     const act = b.dataset.act;
-    if (act === "open" || act === "close") { for (const f of frames) f.shut = act === "close"; layout(); }
+    if (act === "open" || act === "close") { setLevel("issue"); for (const f of frames) f.shut = act === "close"; layout(); }
     else if (act === "in") zoomTo(z * 1.25);
     else if (act === "out") zoomTo(z / 1.25);
     else if (act === "fit") fit();

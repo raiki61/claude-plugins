@@ -29,6 +29,19 @@ issue）物を、カードからカードへの矢印にする（向きは「止
 同じマイルストーンの中の線も引く。閉じた枠の issue の線は、枠の帯のうちその issue の列の端から引く（帯が列をまたいでも、線を右向きに保つため）。相手が
 地図に載っていない blocked by（別のリポジトリ・閉じた issue・閉じたマイルストーン）は線にせず、カードを赤くして、
 カードの説明（マウスを載せると出る）に相手の番号を書く。
+線が増えても読めるように、3 つの手を打つ（持ち主 2026-11-04「blockedby とかがひかれていくと、線がすごいことになる」）:
+  - 描く線を推移的に削る（Graphviz の tred と同じ考え。reduce_edges）。A → C は、ほかの線で A → … → C と辿れるなら描かない。
+    輪の中の線は削らない。見出しの数には blocked by の件数と描いた線の本数を並べ、削った線はカードを光らせたときだけ点線で出す。
+  - ふだんはクリティカルパス（紫の太線）と期日の逆転（橙の破線）だけを濃く、ほかの線を灰の細線で薄く描く。カードに載せる・
+    Tab で送ると、そのカードから辿れる前後の鎖（止めている側も待つ側も、遠い先まで）だけを濃く出し、ほかを沈める。押すと
+    その形で留め、もう一度押すか Esc か地図の空いた所を押すと戻す。
+  - 線の端のカードを、交わりが減る順に並べる（Sugiyama の方法の重心。card_order）。同じ材料なら毎回同じ並びで、ページと同じ置き方で
+    数えた交差の目安は前の版の並びより増えない。
+
+〈粒度〉ページの上の切り替え（M のキー）で、マイルストーン 1 本を 1 つの塊にした引きの地図にする。マイルストーンをまたぐ
+blocked by を、マイルストーンの組ごとに 1 本へ束ねて件数を添え（削る前の全部の線で数える。milestone_level）、issue の
+クリティカルパスが通るマイルストーンを紫で縁取る。引きの地図のクリティカルパスは issue の鎖をマイルストーンに写した物で、
+組の線で測り直さない（組の線は輪になりやすく、issue の鎖とずれるため）。塊を押すと issue の粒度に戻ってその枠を開く。
 
 〈誰が〉実質の担当を、issue の担当者（GitHub の assignee）と、その issue を閉じる PR を出した人とする（担当者のフィールドに
 入っていなくても、PR の本文に closes を書いて進めている人は担当と同じ。持ち主 2026-11-04）。open の issue は閉じる予定の
@@ -44,6 +57,7 @@ open の PR、閉じた issue は閉じた PR（GitHub の最後の ClosedEvent 
 
 〈クリティカルパス〉線をつないだ鎖のうち、issue の件数がいちばん多い鎖。issue ごとの所要日数は GitHub に無いので、
 日数でなく件数で測る。線が 1 本も無ければ無い（ページには何も出さない）。輪の中の線は鎖から外し、ページに輪を 1 行出す。
+削る前の全部の線で測る（いちばん長い鎖の隣どうしの線は削られないので、描いた線の上にそのまま乗る）。
 """
 
 import argparse
@@ -339,6 +353,185 @@ def critical_path(edges):
     return {"path": path if len(path) > 1 else [], "cycles": [c + [c[0]] for c in cycles]}
 
 
+def reduce_edges(edges):
+    """描く線（推移的な削減。Graphviz の tred と同じ考え）。A → C は、ほかの線で A → … → C と辿れるなら描かない。
+    削るのは輪の外の線だけで、輪の中の線（互いに行き来できる issue の間の線）はそのまま残す。辿れるかも輪の外の線だけで
+    見る（輪を通り抜けて辿れる線は残す。少し多めに描く側へ倒す）。issue の件数で測るいちばん長い鎖の隣どうしは、
+    ほかの道で辿れるならもっと長い鎖が在ることになるので、クリティカルパスの線は必ず残る。"""
+    comp = {n: k for k, c in enumerate(cycles_of(edges)) for n in c}
+    inner = [list(e) for e in edges if e[0] in comp and comp[e[0]] == comp.get(e[1])]
+    dag = [tuple(e) for e in edges if not (e[0] in comp and comp[e[0]] == comp.get(e[1]))]
+    succ = {}
+    for a, b in dag:
+        succ.setdefault(a, set()).add(b)
+    keep = []
+    for a, b in dag:
+        todo = [m for m in succ[a] if m != b]
+        seen = set(todo)
+        while todo and b not in seen:
+            for m in succ.get(todo.pop(), ()):
+                if m not in seen:
+                    seen.add(m)
+                    todo.append(m)
+        if b not in seen:
+            keep.append([a, b])
+    return sorted(keep + inner)
+
+
+SWEEPS = 8  # 交差を減らす並べ替えの回数（左から右と右から左を交互に。2 回で 1 往復）
+# ページの雛形（templates/milestone-map.html）のカード・枠の大きさ（px）。交差の目安を、ページと同じ置き方で測るため
+CW, CH, G, PAD, HEAD, FGAP, CHIP = 280, 74, 12, 14, 104, 32, 34
+ROW, RSTEP = CH + G, CW + 64
+FAR = float("inf")
+
+
+def part_rows(nodes, rank, pred, crit, order):
+    """1 つの区画（枠 1 つの、期日の列 1 つの分）の、線の端に在るカードの行（上から 0, 1, …）。段（列の中の依存の順番）の
+    小さい方から上へ詰め、止めている側が同じ区画に在れば、その行より上には置かない（鎖が横 1 本に並ぶ）。止めている側の
+    行が同じカードの間は、クリティカルパスのカード → order（交差を減らす順番）→ 番号の順に上から並べる。"""
+    row, free = {}, {}
+    for r in sorted({rank[n] for n in nodes}):
+        here = []
+        for n in nodes:
+            if rank[n] == r:
+                ps = [row[m] for m in pred.get(n, ()) if m in row]
+                here.append((min(ps) if ps else FAR, n))
+        here.sort(key=lambda t: (t[0], t[1] not in crit, order[t[1]], t[1]))
+        for p, n in here:
+            y = max(free.get(r, 0), 0 if p == FAR else p)
+            row[n] = y
+            free[r] = y + 1
+    return row
+
+
+def crossings_of(segs):
+    """線分 ((x1, y1), (x2, y2), 端の番号 a, 端の番号 b) の並びのうち、端を共有しない 2 本が交わる組の数。"""
+    def side(p, q, r):
+        v = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        return (v > 0) - (v < 0)
+
+    out = 0
+    for k, (p, q, a, b) in enumerate(segs):
+        for r, s, c, d in segs[k + 1:]:
+            if not {a, b} & {c, d} and side(p, q, r) * side(p, q, s) < 0 and side(r, s, p) * side(r, s, q) < 0:
+                out += 1
+    return out
+
+
+def card_order(data, col, rank, due_col):
+    """線の端に在るカードの、区画の中の行と、線の在る枠を上から置く順番。交差を減らすため、Sugiyama の方法の重心
+    （barycenter）で並べ替える: カードを、線の相手（左から右へ見る回は止めている側、右から左へ見る回は待つ側）の高さの
+    平均の順にし、枠は、枠のカードが行きたい高さの平均の順にする（クリティカルパスの在る枠はいつも先に上へ置き、
+    区画の中でもクリティカルパスのカードを先に上へ置く。ページは鎖を地図の上に横 1 本で通すため）。
+    交差の数は、ページと同じ置き方（区画の行は part_rows、枠は列ごとに上から順に積む）で座標を出し、線を真っ直ぐな
+    線分として数えた目安。枠の中の線の無いカードの段の数・列の幅は大まかに見積もるので、ページの上の数とは合わない
+    ことがある。最初の並び（前の版の順番: カードは番号の順、枠はクリティカルパス・帯の幅・左の列・高さの順）も候補に
+    入れ、目安の交差がいちばん少ない並びを採る（同じなら先に見た物）ので、目安の交差は前の版より増えない。
+    同じ材料なら毎回同じ答え。戻り値は ({番号: 区画の中の行}, {マイルストーンの番号: 枠を置く順番}, 目安の交差 (前, 後))。"""
+    edges = data["drawn"]
+    nodes = sorted({n for e in edges for n in e})
+    if not nodes:
+        return {}, {}, (0, 0)
+    frame = {i["number"]: m["number"] for m in data["milestones"] for i in m["issues"]}
+    crit = set(data["critical"]["path"])
+    hot = {frame[n] for n in crit}
+    pred, succ = {}, {}
+    for a, b in edges:
+        succ.setdefault(a, []).append(b)
+        pred.setdefault(b, []).append(a)
+    parts = {}
+    for n in nodes:
+        parts.setdefault((frame[n], col[n]), []).append(n)
+    # 枠の帯の幅（列）と、区画の中の線の無いカードの高さの見積もり（畳まずに出る赤と緑と、期間の中で閉じた物。2 枚ずつ並ぶとみる）
+    since = (dt.date.fromisoformat(data["today"]) - dt.timedelta(days=13)).isoformat()
+    span, rest, linked = {}, {}, {frame[n] for n in nodes}
+    for m in data["milestones"]:
+        f = m["number"]
+        if f not in linked:
+            continue
+        cs = {col[i["number"]] for i in m["issues"]} | {due_col[m["due"]]}
+        span[f] = (min(cs), max(cs))
+        for i in m["issues"]:
+            if i["number"] not in pred and i["number"] not in succ:
+                c = col[i["number"]]
+                rest.setdefault((f, c), [0, 0])
+                rest[(f, c)][0 if i["state"] != "idle" else 1] += 1
+        for d in m["done"]:
+            if d["shut"] and d["shut"] >= since:
+                rest.setdefault((f, due_col[m["due"]]), [0, 0])[0] += 1
+    width = (max(rank[n] for n in nodes) + 2) * RSTEP
+
+    def place(order, key):
+        rows, height = {}, {}
+        for p in set(parts) | set(rest):
+            got = part_rows(parts.get(p, []), rank, pred, crit, order)
+            rows.update(got)
+            shown, folded = rest.get(p, (0, 0))
+            hs = [h for h in ((max(got.values()) + 1) * ROW - G if got else 0, -(-shown // 2) * ROW - G if shown else 0,
+                              CHIP if folded else 0) if h > 0]
+            height[p] = PAD + sum(hs) + (len(hs) - 1) * G
+        bottom, top = {}, {}
+        for f in sorted(span, key=lambda f: (f not in hot, key[f], f)):
+            c0, c1 = span[f]
+            y = max([bottom.get(c, 0) for c in range(c0, c1 + 1)])
+            top[f] = y
+            for c in range(c0, c1 + 1):
+                bottom[c] = y + HEAD + height.get((f, c), 0) + FGAP
+        ys = {n: top[frame[n]] + HEAD + rows[n] * ROW + CH / 2 for n in nodes}
+        segs = [((col[a] * width + rank[a] * RSTEP + CW, ys[a]), (col[b] * width + rank[b] * RSTEP, ys[b]), a, b) for a, b in edges]
+        return rows, ys, top, crossings_of(segs)
+
+    # 前の版の並び: カードは番号の順、枠は前の版のページの順（クリティカルパス・帯の幅・左の列・高さ）
+    order = {n: k for k, n in enumerate(nodes)}
+    first = place(order, {f: 0 for f in span})
+    key = {f: k for k, f in enumerate(sorted(span, key=lambda f: (span[f][1] - span[f][0], span[f][0],
+                                                                  -max(first[0][n] for n in nodes if frame[n] == f), f)))}
+    rows, ys, top, before = place(order, key)
+    best = (before, rows, key)
+    for sweep in range(SWEEPS):
+        near = pred if sweep % 2 == 0 else succ
+        bary = {n: sum(ys[m] for m in near[n]) / len(near[n]) if n in near else ys[n] for n in nodes}
+        order = {n: k for k, n in enumerate(sorted(nodes, key=lambda n: (bary[n], order[n])))}
+        key = {}
+        for f in span:
+            ws = [bary[n] for n in nodes if frame[n] == f and n in near]
+            key[f] = sum(ws) / len(ws) if ws else top[f]
+        rows, ys, top, got = place(order, key)
+        if got < best[0]:
+            best = (got, rows, key)
+    got, rows, key = best
+    return rows, {f: k for k, f in enumerate(sorted(span, key=lambda f: (f not in hot, key[f], f)))}, (before, got)
+
+
+def is_late(da, db):
+    """止めている側の期日 da が、待つ側の期日 db より後ろか（期日なしは右の端に置くので、期日の在る側を待たせれば後ろ）。"""
+    return (da is None and db is not None) or bool(da and db and da > db)
+
+
+def milestone_level(data):
+    """引いて見たときの、マイルストーン 1 本を 1 つの点にした地図の材料。線はマイルストーンをまたぐ blocked by を
+    （削る前の全部から）マイルストーンの組ごとに束ね、本数を添える。同じマイルストーンの中の線は束ねない。
+    クリティカルパスは issue の鎖（critical_path）をマイルストーンに写した物で、鎖が通るマイルストーンを順に並べ、
+    続けて同じマイルストーンに居る issue はまとめる（同じマイルストーンへ戻れば、もう一度並ぶ）。マイルストーンの組の
+    線だけで鎖を測り直さない（組の線は輪になりやすく、issue の鎖とずれるため）。"""
+    where = {i["number"]: m for m in data["milestones"] for i in m["issues"]}
+    count = {}
+    for a, b in data["edges"]:
+        ma, mb = where[a]["number"], where[b]["number"]
+        if ma != mb:
+            count[(ma, mb)] = count.get((ma, mb), 0) + 1
+    steps = []
+    for n in data["critical"]["path"]:
+        m = where[n]["number"]
+        if steps and steps[-1]["m"] == m:
+            steps[-1]["issues"].append(n)
+        else:
+            steps.append({"m": m, "issues": [n]})
+    due = {m["number"]: m["due"] for m in data["milestones"]}
+    return {"edges": [{"from": a, "to": b, "n": k, "late": is_late(due[a], due[b])} for (a, b), k in sorted(count.items())],
+            "path": steps}
+
+
 def order_key(m):
     return (m["due"] is None, m["due"] or "", bool(m.get("none")), m["number"])
 
@@ -405,15 +598,16 @@ def build(raw, loose, repo, today, now=None, dates=None):
         limits.extend(truncated(i["assignees"], "Assignees", f"#{i['number']}") for i in m["closedIssueList"])
     ms.sort(key=order_key)
     edges = edges_of(ms)
-    crit = critical_path(edges)
+    crit = critical_path(edges)   # 鎖は削る前の全部の線で測る（削っても鎖の線は残るが、測り方を今のままにする）
+    drawn = reduce_edges(edges)
     count = {s: sum(1 for m in ms for i in m["issues"] if i["state"] == s) for s in ("blocked", "pr", "idle")}
     return {
         "repo": repo, "url": f"https://github.com/{repo}/milestones",
         "taken_at": (now or dt.datetime.now().astimezone()).isoformat(timespec="seconds"),
         "today": today.isoformat(),
         "scope": {"milestones": sum(1 for m in ms if not m["none"]), "open_issues": sum(m["open"] for m in ms), **count,
-                  "edges": len(edges), "no_milestone_issues": sum(m["open"] for m in ms if m["none"])},
-        "milestones": ms, "edges": edges, "critical": crit, "limits": [x for x in limits if x],
+                  "edges": len(edges), "drawn": len(drawn), "no_milestone_issues": sum(m["open"] for m in ms if m["none"])},
+        "milestones": ms, "edges": edges, "drawn": drawn, "critical": crit, "limits": [x for x in limits if x],
     }
 
 
@@ -485,8 +679,7 @@ def late_edges(data):
     where = {i["number"]: m for m in data["milestones"] for i in m["issues"]}
     out = []
     for a, b in data["edges"]:
-        da, db = where[a]["due"], where[b]["due"]
-        if (da is None and db is not None) or (da and db and da > db):
+        if is_late(where[a]["due"], where[b]["due"]):
             out.append([a, b])
     return out
 
@@ -495,20 +688,23 @@ def view(data):
     """ページのスクリプトへ渡す材料。どの列に置くかはここで決め、画面の上の座標はスクリプトが決める
     （枠の開け閉めで置き直すため）。字はスクリプトが textContent で入れるので、ここではエスケープしない。"""
     col, rank, heads, width = columns(data)
+    due_col = {d: c for c, d in heads.items()}
+    rows, keys, _ = card_order(data, col, rank, due_col)
     year, today = int(data["today"][:4]), data["today"]
     path = data["critical"]["path"]
     on_path = set(path)
-    due_col = {d: c for c, d in heads.items()}
     cols = [{"label": ("Due " + md(heads[c], year)) if heads.get(c) else "No due date" if c in heads else "",
              "late": bool(heads.get(c) and heads[c] < today)} for c in range(width)]
     past = [c for c, d in heads.items() if d and d < today]
     ms = [{"n": m["number"], "title": m["title"], "url": m["url"], "col": due_col[m["due"]], "none": m["none"],
+           "key": keys.get(m["number"]),
            "due": (("渡した日付 " if m["none"] else "Due ") + md(m["due"], year)) if m["due"] else "No due date",
            "overdue": m["overdue_days"],
            "open": m["open"], "closed": m["closed"],
            "count": {s: sum(1 for i in m["issues"] if i["state"] == s) for s in ("blocked", "pr", "idle")},
            "issues": [{"n": i["number"], "title": i["title"], "url": i["url"], "state": i["state"],
-                       "col": col[i["number"]], "rank": rank[i["number"]], "crit": i["number"] in on_path, "blockers": len(i["blocked_by"]),
+                       "col": col[i["number"]], "rank": rank[i["number"]], "row": rows.get(i["number"]),
+                       "crit": i["number"] in on_path, "blockers": len(i["blocked_by"]),
                        "prs": i["prs"], "prBy": i["pr_by"], "prOf": i["pr_of"], "who": i["who"], "doers": i["doers"], "made": i["made"],
                        "tip": card_title(i)}
                       for i in m["issues"]],
@@ -516,8 +712,9 @@ def view(data):
                      "who": i["who"], "by": i["by"], "how": i["how"], "doers": i["doers"]} for i in m["done"]]}
           for m in data["milestones"]]
     return {"columns": cols, "today": {"at": max(past) + 1 if past else 0, "label": "今日 " + md(today, year), "day": today},
-            "milestones": ms, "edges": data["edges"], "path": [list(e) for e in zip(path, path[1:])],
-            "late": late_edges(data), "since_days": SINCE_DAYS}
+            "milestones": ms, "edges": data["drawn"], "implied": [e for e in data["edges"] if e not in data["drawn"]],
+            "path": [list(e) for e in zip(path, path[1:])], "late": late_edges(data), "mlevel": milestone_level(data),
+            "since_days": SINCE_DAYS}
 
 
 def body_html(data):
@@ -531,13 +728,17 @@ def body_html(data):
            f'<li class="blocked"><i></i>Blocked <b>{s["blocked"]}</b></li>'
            f'<li class="pr"><i></i>Linked PR <b>{s["pr"]}</b></li>'
            f'<li class="idle"><i></i>それ以外 <b>{s["idle"]}</b></li>'
-           f'<li>blocked by の線 <b>{s["edges"]}</b></li></ul></div>',
+           f'<li title="{esc(edges_note(s))}">blocked by <b>{s["edges"]}</b> 件・線 <b>{s["drawn"]}</b> 本</li></ul></div>',
            f'<p class="meta">{esc(data["taken_at"])} に GitHub から取った事実だけを描いている（推定・見込みは載せない）。'
            + (f'マイルストーンの付いていない open の issue {s["no_milestone_issues"]} 件は、右の端の「No milestone」の枠に置いた。'
               if s["no_milestone_issues"] else "") + "</p>"]
     if path:
-        out.append(f'<p class="path"><span class="label crit">クリティカルパス {len(path)} 件</span> ' + '<span class="arrow">→</span>'.join(
+        out.append(f'<p class="path ipath"><span class="label crit">クリティカルパス {len(path)} 件</span> ' + '<span class="arrow">→</span>'.join(
             f'<a href="https://github.com/{repo}/issues/{n}" data-n="{n}">#{n}</a>' for n in path) + "</p>")
+        title = {m["number"]: m["title"] for m in data["milestones"]}
+        out.append('<p class="path mpath" hidden><span class="label crit">マイルストーンの粒度</span> ' + '<span class="arrow">→</span>'.join(
+            f'<button type="button" class="mstep" data-m="{st["m"]}" title="{esc(title[st["m"]])}">{esc(title[st["m"]])}'
+            f' <small>{len(st["issues"])} 件</small></button>' for st in milestone_level(data)["path"]) + "</p>")
     if data["critical"]["cycles"]:
         out.append('<p class="path bad">輪になった blocked by（クリティカルパスから外した）: ' + "、".join(
             " → ".join(f"#{n}" for n in c) for c in data["critical"]["cycles"]) + "</p>")
@@ -550,7 +751,11 @@ def body_html(data):
                '<span id="hits" class="muted"></span>'
                '<span class="keys"><span><i class="ln crit"></i>クリティカルパス</span>'
                '<span><i class="ln late"></i>Blocking の期日が Blocked より後ろ</span>'
-               '<span><i class="ln"></i>Blocking → Blocked（矢印の向き）</span></span>'
+               '<span><i class="ln"></i>Blocking → Blocked（矢印の向き）</span>'
+               '<span class="hint">カードに載せる・押すと前後の鎖だけを濃く出す（Esc で戻す）</span></span>'
+               '<span class="seg level" role="group" aria-label="粒度">'
+               '<button type="button" data-level="issue" class="on" aria-pressed="true" title="issue 1 件をカード 1 枚にする（M のキーで切り替え）">issue</button>'
+               '<button type="button" data-level="milestone" aria-pressed="false" title="マイルストーン 1 本を 1 つにまとめ、マイルストーンをまたぐ blocked by を束ねる（M のキーで切り替え）">マイルストーン</button></span>'
                '<span class="tools"><button type="button" data-act="open">全部開く</button>'
                '<button type="button" data-act="close">全部閉じる</button>'
                '<button type="button" data-act="out" title="縮める">−</button>'
@@ -578,13 +783,22 @@ def repo_dir(repo, root=None):
     return root / catchup_html._safe(repo.replace("/", "-"))
 
 
+def edges_note(s):
+    """blocked by の件数と描いた線の本数の違いの説明（見出しの数に載せると出る）。"""
+    left = s["edges"] - s["drawn"]
+    return ("地図に載った issue どうしの blocked by の件数と、描いた線の本数。"
+            + (f"ほかの線で辿れる {left} 件は線にしない（カードに載せると点線で出る）" if left else "全部を線にした"))
+
+
 def summary_line(data):
     s = data["scope"]
     path = data["critical"]["path"]
     crit = (f"クリティカルパス {len(path)} 件" if path else
             "クリティカルパスなし（blocked by の線が 0 本）" if not s["edges"] else "クリティカルパスなし（線は輪だけ）")
+    left = s["edges"] - s["drawn"]
+    lines = f"blocked by {s['edges']} 件（線 {s['drawn']} 本" + (f"。ほかの線で辿れる {left} 件は描かない）" if left else "）")
     return (f"マイルストーン {s['milestones']} 本・issue {s['open_issues']} 件（Blocked {s['blocked']}・"
-            f"Linked PR {s['pr']}・それ以外 {s['idle']}）・{crit}")
+            f"Linked PR {s['pr']}・それ以外 {s['idle']}）・{lines}・{crit}")
 
 
 # ---- 入口 ------------------------------------------------------------------------

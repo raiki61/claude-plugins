@@ -233,7 +233,7 @@ class Page(unittest.TestCase):
         page = page_of(data)
         assert_page(self, page)
         # 線が無いときは、見出しにクリティカルパスの行を出さない（無いと断る行も要らない。持ち主 2026-11-04）
-        self.assertNotIn('class="path"', page.split('<header class="top">')[1].split("</header>")[0])
+        self.assertNotIn('class="path', page.split('<header class="top">')[1].split("</header>")[0])
         v = view_of(page)
         self.assertEqual((v["edges"], v["path"], v["late"]), ([], [], []))
         self.assertEqual(v["columns"], [{"label": "Due 10-01", "late": True}, {"label": "No due date", "late": False}])
@@ -273,6 +273,161 @@ class Page(unittest.TestCase):
     def test_missing_slot(self):
         with self.assertRaises(ValueError):
             mm.build_html("<html></html>", build([]))
+
+
+def random_dag(seed, n=14, k=22):
+    """番号の小さい方から大きい方へだけ引く、輪の無い blocked by の線（決まった種から作る）。"""
+    import random
+    rnd = random.Random(seed)
+    return sorted({(a, b) for a, b in (sorted(rnd.sample(range(1, n + 1), 2)) for _ in range(k))})
+
+
+class Reduce(unittest.TestCase):
+    """描く線は推移的な削減（Graphviz の tred と同じ）。ほかの線で辿れる線だけを外し、輪の中の線は残す。"""
+
+    def test_shortcut_is_dropped(self):
+        self.assertEqual(mm.reduce_edges([[1, 2], [2, 3], [1, 3]]), [[1, 2], [2, 3]])
+
+    def test_diamond_keeps_both_sides(self):
+        self.assertEqual(mm.reduce_edges([[1, 2], [1, 3], [2, 4], [3, 4], [1, 4]]), [[1, 2], [1, 3], [2, 4], [3, 4]])
+
+    def test_cycles_are_kept(self):
+        edges = [[1, 2], [2, 1], [1, 3], [2, 3]]
+        self.assertEqual(mm.reduce_edges(edges), sorted(edges))
+        self.assertEqual(mm.reduce_edges([[5, 5], [5, 6]]), [[5, 5], [5, 6]])
+
+    def test_no_edges(self):
+        self.assertEqual(mm.reduce_edges([]), [])
+
+    def test_reachability_and_critical_path_survive(self):
+        def reach(edges):
+            succ = {}
+            for a, b in edges:
+                succ.setdefault(a, set()).add(b)
+            out = set()
+            for s in succ:
+                todo, seen = [s], set()
+                while todo:
+                    for m in succ.get(todo.pop(), ()):
+                        if m not in seen:
+                            seen.add(m)
+                            todo.append(m)
+                out |= {(s, m) for m in seen}
+            return out
+
+        for seed in range(30):
+            edges = [list(e) for e in random_dag(seed)]
+            drawn = mm.reduce_edges(edges)
+            self.assertEqual(reach(drawn), reach(edges), seed)
+            # 1 本でも外すと辿れなくなる（足りない線も、余る線も無い）
+            for e in drawn:
+                self.assertNotEqual(reach([d for d in drawn if d != e]), reach(edges), (seed, e))
+            path = mm.critical_path(edges)["path"]
+            self.assertTrue(all([a, b] in drawn for a, b in zip(path, path[1:])), seed)
+            self.assertEqual(len(mm.critical_path(drawn)["path"]), len(path), seed)
+
+    def test_build_keeps_all_edges_and_draws_fewer(self):
+        raw = [milestone(1, "2026-11-10", [issue(1), issue(2, blocked=[(1, 1, "OPEN", REPO)])]),
+               milestone(2, "2026-11-20", [issue(3, blocked=[(2, 1, "OPEN", REPO), (1, 1, "OPEN", REPO)])])]
+        data = build(raw)
+        self.assertEqual(data["edges"], [[1, 2], [1, 3], [2, 3]])
+        self.assertEqual(data["drawn"], [[1, 2], [2, 3]])
+        self.assertEqual(data["critical"]["path"], [1, 2, 3])   # クリティカルパスは削る前の全部の線で測る
+        self.assertEqual((data["scope"]["edges"], data["scope"]["drawn"]), (3, 2))
+        page = page_of(data)
+        v = view_of(page)
+        self.assertEqual((v["edges"], v["implied"]), ([[1, 2], [2, 3]], [[1, 3]]))
+        self.assertIn("blocked by <b>3</b> 件・線 <b>2</b> 本", page)
+        self.assertIn("blocked by 3 件（線 2 本。ほかの線で辿れる 1 件は描かない）", mm.summary_line(data))
+        self.assertIn("blocked by 3 件（線 3 本）・", mm.summary_line(build(Edges().raw())))
+
+
+class Order(unittest.TestCase):
+    """線の端のカードの並べ替え（Sugiyama の方法の重心）。同じ材料なら同じ答えで、目安の交差は前の版より増えない。"""
+
+    def raw(self):
+        # 1 → 6・2 → 5・3 → 4 は、番号の順に並べると 3 か所で交わる。クリティカルパスは別の枠の 7 → 8 → 9
+        return [milestone(1, "2026-11-10", [issue(1), issue(2), issue(3)]),
+                milestone(2, "2026-11-20", [issue(4, blocked=[(3, 1, "OPEN", REPO)]), issue(5, blocked=[(2, 1, "OPEN", REPO)]),
+                                            issue(6, blocked=[(1, 1, "OPEN", REPO)])]),
+                milestone(3, "2026-11-01", [issue(7)]), milestone(4, "2026-11-15", [issue(8, blocked=[(7, 3, "OPEN", REPO)])]),
+                milestone(5, None, [issue(9, blocked=[(8, 4, "OPEN", REPO)])])]
+
+    def counted(self, raw):
+        got = []
+        real = mm.card_order
+
+        def spy(*a):
+            out = real(*a)
+            got.append(out[2])
+            return out
+        with mock.patch.object(mm, "card_order", spy):
+            page = page_of(build(raw))
+        return view_of(page), got[0]
+
+    def test_untangles(self):
+        v, (before, after) = self.counted(self.raw())
+        self.assertEqual((before, after), (3, 0))
+        row = {i["n"]: i["row"] for m in v["milestones"] for i in m["issues"]}
+        self.assertLess(row[6], row[5])
+        self.assertLess(row[5], row[4])
+        # クリティカルパスの枠は、いつも先に上へ置く
+        key = {m["n"]: m["key"] for m in v["milestones"]}
+        self.assertLess(max(key[3], key[4], key[5]), min(key[1], key[2]))
+
+    def test_same_input_same_answer(self):
+        self.assertEqual(self.counted(self.raw()), self.counted(self.raw()))
+
+    def test_never_more_crossings(self):
+        for seed in range(12):
+            raw = [milestone(m, f"2026-11-{10 + m:02d}", [issue(n, blocked=[(a, (a - 1) // 4 + 1, "OPEN", REPO) for a, b in random_dag(seed, 16, 18) if b == n])
+                                                        for n in range(4 * m - 3, 4 * m + 1)]) for m in range(1, 5)]
+            _, (before, after) = self.counted(raw)
+            self.assertLessEqual(after, before, seed)
+
+    def test_no_lines(self):
+        v, counts = self.counted([milestone(1, "2026-11-10", [issue(1), issue(2)])])
+        self.assertEqual(counts, (0, 0))
+        self.assertEqual({i["row"] for m in v["milestones"] for i in m["issues"]}, {None})
+
+
+class MilestoneLevel(unittest.TestCase):
+    """引いて見たときの地図: マイルストーンをまたぐ blocked by を組ごとに束ね、issue のクリティカルパスをマイルストーンに写す。"""
+
+    def test_bundles_and_path(self):
+        data = build(Edges().raw())
+        self.assertEqual(mm.milestone_level(data), {
+            "edges": [{"from": 1, "to": 2, "n": 2, "late": True}, {"from": 2, "to": 3, "n": 1, "late": False}],
+            "path": [{"m": 1, "issues": [2]}, {"m": 2, "issues": [3]}, {"m": 3, "issues": [4]}]})
+
+    def test_inner_lines_are_not_bundled_and_revisits_repeat(self):
+        # 1 → 2 は同じマイルストーンの中。鎖 1 → 2 → 3 → 4 は A → B → A と戻る
+        raw = [milestone(1, "2026-11-30", [issue(1), issue(2, blocked=[(1, 1, "OPEN", REPO)]), issue(4, blocked=[(3, 2, "OPEN", REPO)])]),
+               milestone(2, "2026-11-10", [issue(3, blocked=[(2, 1, "OPEN", REPO)])])]
+        ml = mm.milestone_level(build(raw))
+        self.assertEqual(ml["edges"], [{"from": 1, "to": 2, "n": 1, "late": True}, {"from": 2, "to": 1, "n": 1, "late": False}])
+        self.assertEqual(ml["path"], [{"m": 1, "issues": [1, 2]}, {"m": 2, "issues": [3]}, {"m": 1, "issues": [4]}])
+
+    def test_counts_use_all_lines(self):
+        # 削った 1 → 3 も、マイルストーンの組の本数には数える
+        raw = [milestone(1, "2026-11-10", [issue(1), issue(2, blocked=[(1, 1, "OPEN", REPO)])]),
+               milestone(2, "2026-11-20", [issue(3, blocked=[(2, 1, "OPEN", REPO), (1, 1, "OPEN", REPO)])])]
+        self.assertEqual(mm.milestone_level(build(raw))["edges"], [{"from": 1, "to": 2, "n": 2, "late": False}])
+
+    def test_no_lines(self):
+        self.assertEqual(mm.milestone_level(build([milestone(1, "2026-11-10", [issue(1)])])), {"edges": [], "path": []})
+
+    def test_page(self):
+        page = page_of(build(Edges().raw()))
+        assert_page(self, page)
+        self.assertEqual(view_of(page)["mlevel"]["path"][0], {"m": 1, "issues": [2]})
+        head = page.split('<header class="top">')[1].split("</header>")[0]
+        self.assertRegex(head, r'<p class="path mpath" hidden>.*data-m="1".*data-m="2".*data-m="3"')
+        self.assertIn('data-level="milestone"', page)
+
+    def test_late_rule(self):
+        self.assertEqual([mm.is_late(a, b) for a, b in [("2026-11-20", "2026-11-10"), ("2026-11-10", "2026-11-20"), (None, "2026-11-10"),
+                                                        ("2026-11-10", None), (None, None)]], [True, False, True, False, False])
 
 
 def fake_gh(raw, stray=None, pages=2):

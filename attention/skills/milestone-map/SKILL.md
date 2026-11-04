@@ -17,7 +17,7 @@ GitHub の issue・マイルストーン・blocked by を書き換えるな（�
 ## やること
 
 1. `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/milestone-map.py" $ARGUMENTS` を実行する（引数なし＝今のリポジトリ。`--repo OWNER/NAME` で別のリポジトリ）。
-2. 出力は 3 行: ページのパス・数の 1 行（マイルストーン・issue・色ごとの件数・クリティカルパスの件数）・VS Code で開いたかの行。
+2. 出力は 3 行: ページのパス・数の 1 行（マイルストーン・issue・色ごとの件数・blocked by の件数と描いた線の本数・クリティカルパスの件数）・VS Code で開いたかの行。
 
 ## 返答
 
