@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-11-04
+
 ### Changed
 
 - `/milestone-map`: blocked by の線が増えても読めるようにした。持ち主の言葉は「ちゃんとblockedbyとかがひかれていくと、線がすごいことになるが、何かいい対策はあるかな」「かっこよく。いい感じに」。
