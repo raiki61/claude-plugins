@@ -43,7 +43,7 @@ WF workflow run works-factory-line --cwd <対象のリポジトリ> --input requ
   - 汚れていない対象なら `HEAD`（PR のブランチを checkout すればそこから）。
   - commit していない変更が在れば、それを包んだ commit から切る。対象の作業ツリーとブランチは動かさない。
   - 別の所から切るなら `--from <版>` を名指す。`--base` か `--branch` を名指した時は殻が足さず、切り元は Archon が決める。
-  - 殻が `--from` を足す run は、起動の前に remote（対象の `.archon/config.yaml` の `worktree.remote`、無ければ origin）に届くかを確かめ、「<remote> に届くかを確かめている」の 1 行を出す（待ちの上限は無いので、止めるなら Ctrl-C）。一時の拒みは 3 回まで打ち直し、届かなければ AI を起こさずに「origin に届かない」の訳で止まる。
+  - 殻（`bin/works-factory`、コマンドの `WF`）が Archon に `--from` を渡す run は、起動の前に remote（対象の `.archon/config.yaml` の `worktree.remote`、無ければ origin）に届くかを確かめ、「<remote> に届くかを確かめている」の 1 行を出す（待ちの上限は無いので、止めるなら Ctrl-C）。一時の拒みは 3 回まで打ち直し、届かなければ AI を起こさずに「origin に届かない」の訳で止まる。
 - `test_cmd` は、工場の中で走らせる試験のコマンド。
   - 変更に関わる試験だけを走らせるコマンドがあれば渡す。
   - 省くと `.review-checks.json` を使う。それも無ければ、AI が対象の CI の定義から試験の実行器を書き、工場は変更に関わる試験だけを走らせる（選べない時は全部）。全部の試験は CI と人に任せる。`test_cmd` も `.review-checks.json` も無く AI が実行器を書いた時の緑は機械が確かめた緑には数えない。未実行を緑とは扱わない。
