@@ -11,6 +11,10 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 - `/milestone-map`: 矢印（blocked by の線）を押すと、線の遠い方の端（押した所から離れた方）のカードへ画面が飛ぶ。持ち主の言葉は「エッジ触った時に、依存先にいい感じに飛べてもいいかも。自分で探すのめんどうかも」。矢印に載せると、両端の鎖が光る。何本かをまとめた線は、遠い方の端の 1 件目へ飛ぶ。
 - `/milestone-map`: 上のクリティカルパスの番号を押すと、GitHub を開かずに地図のそのカードへ飛ぶ（Ctrl か Cmd を押しながらなら GitHub を開く）。持ち主の言葉は「上のクリティカルパスを触った時に、図のほうへジャンプできるようにしたほうがいいかも。リンクじゃなくて」。
 
+### Changed
+
+- `/milestone-map`: 画面の言葉を GitHub の画面の言葉に寄せた。持ち主の言葉は「書き方を止め2とかじゃなくてもっとgithubにそこはよせていいよ」「全体的に」。主な置き換えは、止められている → Blocked、カードの「止め N」 → 「Blocked by N」、PR が出ている → Linked PR、残り → Open、閉じた → Closed、作られた・「新」 → New、期日 MM-DD → Due MM-DD、期日なし → No due date、期日切れ N 日 → Past due N 日、マイルストーンなし → No milestone、人の一覧の「担当 N」 → 「Open N」・「担当なし」 → 「Assigned to nobody」、凡例の「blocked by（止めている側 → 待つ側）」 → 「Blocking → Blocked（矢印の向き）」。数や置き場所は変えていない。
+
 ### Fixed
 
 - `/milestone-map`: 担当者の居ない issue を手で閉じた人を「閉じた」に数えるのは、完了（stateReason が COMPLETED）で閉じた物だけにした。Bot（stale の Bot など）が閉じた物と、not planned・duplicate で閉じた物は誰の仕事にもしない。見直し（code-review）の指摘。

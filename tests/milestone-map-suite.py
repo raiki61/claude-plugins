@@ -236,7 +236,7 @@ class Page(unittest.TestCase):
         self.assertNotIn('class="path"', page.split('<header class="top">')[1].split("</header>")[0])
         v = view_of(page)
         self.assertEqual((v["edges"], v["path"], v["late"]), ([], [], []))
-        self.assertEqual(v["columns"], [{"label": "期日 10-01", "late": True}, {"label": "期日なし", "late": False}])
+        self.assertEqual(v["columns"], [{"label": "Due 10-01", "late": True}, {"label": "No due date", "late": False}])
         self.assertEqual(v["today"], {"at": 1, "label": "今日 11-04", "day": "2026-11-04"})
         # ページで選べる期間の上限は、スクリプトがマイルストーンなしの閉じた issue を取った日数と同じ値を渡す
         self.assertEqual(v["since_days"], mm.SINCE_DAYS)
@@ -268,7 +268,7 @@ class Page(unittest.TestCase):
 
     def test_year_shown_when_not_this_year(self):
         labels = [c["label"] for c in view_of(page_of(build([milestone(1, "2027-01-05"), milestone(2, "2026-12-01")])))["columns"]]
-        self.assertEqual(labels, ["期日 12-01", "期日 2027-01-05"])
+        self.assertEqual(labels, ["Due 12-01", "Due 2027-01-05"])
 
     def test_missing_slot(self):
         with self.assertRaises(ValueError):
@@ -454,13 +454,13 @@ class Stray(unittest.TestCase):
         self.assertEqual((data["scope"]["milestones"], data["scope"]["no_milestone_issues"], data["scope"]["open_issues"]), (2, 2, 4))
         self.assertEqual(data["milestones"][2]["closed"], 4)
         v = view_of(page_of(data))
-        self.assertEqual([(m["n"], m["none"], m["due"]) for m in v["milestones"]][2], (0, True, "期日なし"))
-        self.assertIn("「マイルストーンなし」の枠に置いた", mm.body_html(data))
+        self.assertEqual([(m["n"], m["none"], m["due"]) for m in v["milestones"]][2], (0, True, "No due date"))
+        self.assertIn("「No milestone」の枠に置いた", mm.body_html(data))
 
     def test_no_stray_issues_no_frame(self):
         data = build([milestone(1, None, [issue(10)])], loose())
         self.assertEqual([m["number"] for m in data["milestones"]], [1])
-        self.assertNotIn("マイルストーンなし", mm.body_html(data))
+        self.assertNotIn("No milestone", mm.body_html(data))
 
     def test_dates_place_stray_issues_in_their_column(self):
         d = mm.read_dates('{"50": "2026-11-20", "52": "2026-11-20", "60": "2026-01-01", "10": "2026-12-31", "53": null}')

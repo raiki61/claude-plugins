@@ -6,10 +6,10 @@
 （AI の推論やモンテカルロの日付）は載せない（持ち主 2026-11-04「推論とか予想はあとでできるよね」）。
 
 〈母集団〉open のマイルストーン全部と、その open の issue（blocked by と、閉じる予定の open の PR）と、マイルストーンの
-付いていない open の issue（右の端の「マイルストーンなし」の枠に、マイルストーン 1 本と同じ形で置く）。
+付いていない open の issue（右の端の「No milestone」の枠に、マイルストーン 1 本と同じ形で置く）。
 
 〈渡す日付〉GitHub の issue には期日のフィールドが無い。--dates に「issue の番号 → 日付」の JSON を渡すと、マイルストーンの付いて
-いない issue のうち日付の在る物を、日付ごとの「マイルストーンなし」の枠にしてその日の列に置く（マイルストーンの在る issue は
+いない issue のうち日付の在る物を、日付ごとの「No milestone」の枠にしてその日の列に置く（マイルストーンの在る issue は
 マイルストーンの期日で置き、渡した日付は使わない）。日付をどこから取るか（Projects の日付のフィールドなど）はこのスクリプトの外の
 固有の部品が決める。Projects の日付のフィールドから取る部品は scripts/project-dates.py。
 
@@ -18,8 +18,8 @@
 枠は開け閉めできる。列の中は依存の順番で、線の在るカードは止めている側ほど左の段に置き、鎖を横 1 本に並べる。線の
 無いカードはその下に格子で並べ、地図に線が 1 本でも在れば、そのうち灰のカードを枠ごとに畳む（押すと開く）。カードの色を GitHub の
 事実で分ける:
-  - 赤: 止められている（open の blocked by を 1 件以上持つ。相手がどこに居ても）
-  - 緑: PR が出ている（この issue を閉じる予定の open の PR が在る。GitHub の closedByPullRequestsReferences）
+  - 赤: Blocked（open の blocked by を 1 件以上持つ。相手がどこに居ても）
+  - 緑: Linked PR（この issue を閉じる予定の open の PR が在る。GitHub の closedByPullRequestsReferences）
   - 灰: それ以外
   赤と緑の両方に当たる issue は赤にする（止まっている方を先に見せる）。
 
@@ -39,7 +39,7 @@ open の PR、閉じた issue は閉じた PR（GitHub の最後の ClosedEvent 
 〈期間〉ページの上で期間（既定は今日までの 14 日）を選ぶと、その間に閉じた issue（closedAt）と作られた issue
 （createdAt）を数え、日ごとの棒と、残りの数の線で描く。残りの数は「今そのマイルストーンに在る issue のうち、その日に
 作られていて、まだ閉じていなかった物」の数（マイルストーンを移した・外した日は GitHub の timeline を読まないと分からない
-ので数えない）。期間の中で閉じた issue は、枠の中に薄いカードで残し、期間の中で作られた open の issue には「新」を付ける。
+ので数えない）。期間の中で閉じた issue は、枠の中に薄いカードで残し、期間の中で作られた open の issue には「New」を付ける。
 日付は手元の時刻の日付で切る。
 
 〈クリティカルパス〉線をつないだ鎖のうち、issue の件数がいちばん多い鎖。issue ごとの所要日数は GitHub に無いので、
@@ -197,8 +197,8 @@ def fetch(owner, name, today):
     opened = search_all(LOOSE_OPEN_QUERY, base + " is:open")
     closed = search_all(LOOSE_CLOSED_QUERY, f"{base} is:closed closed:>={today - dt.timedelta(days=SINCE_DAYS)}")
     loose = {"openIssues": opened["nodes"], "closedIssueList": closed["nodes"], "closedIssues": {"totalCount": closed_all},
-             "limits": [truncated(opened, "マイルストーンの付いていない open の issue（検索）", "マイルストーンなし"),
-                        truncated(closed, f"マイルストーンの付いていない、{SINCE_DAYS} 日の中で閉じた issue（検索）", "マイルストーンなし")]}
+             "limits": [truncated(opened, "マイルストーンの付いていない open の issue（検索）", "No milestone"),
+                        truncated(closed, f"マイルストーンの付いていない、{SINCE_DAYS} 日の中で閉じた issue（検索）", "No milestone")]}
     return milestones, loose
 
 
@@ -369,10 +369,10 @@ def loose_frames(loose, dates, repo):
     for k, d in enumerate(sorted(x for x in groups if x), 1):
         g = groups[d]
         dated += len(g["closedIssueList"])
-        out.append({"number": -k, "title": "マイルストーンなし", "dueOn": d.isoformat(), "none": True, "url": url, **g,
+        out.append({"number": -k, "title": "No milestone", "dueOn": d.isoformat(), "none": True, "url": url, **g,
                     "closedIssues": {"totalCount": len(g["closedIssueList"])}})
     if None in groups:
-        out.append({"number": 0, "title": "マイルストーンなし", "dueOn": None, "none": True, "url": url, **groups[None],
+        out.append({"number": 0, "title": "No milestone", "dueOn": None, "none": True, "url": url, **groups[None],
                     "closedIssues": {"totalCount": max(0, loose["closedIssues"]["totalCount"] - dated)}})
     return out
 
@@ -389,7 +389,7 @@ def read_dates(text):
 
 def build(raw, loose, repo, today, now=None, dates=None):
     """取得した生の材料から、ページに描く事実を組む。loose はマイルストーンの付いていない issue（fetch の 2 つ目。
-    無ければ None）で、loose_frames が「マイルストーンなし」の枠にする。dates は --dates の日付（read_dates）。"""
+    無ければ None）で、loose_frames が「No milestone」の枠にする。dates は --dates の日付（read_dates）。"""
     limits, ms = list((loose or {}).get("limits") or []), []
     raw = list(raw) + loose_frames(loose, dates, repo)
     for m in raw:
@@ -474,12 +474,12 @@ def card_title(i):
     """カードにマウスを載せると出る説明。"""
     lines = [f"#{i['number']} {i['title']}"]
     if i["blocked_by"]:
-        lines.append("止められている: " + "・".join((b["repo"] + "#" if b["repo"] else "#") + str(b["number"])
+        lines.append("Blocked by: " + "・".join((b["repo"] + "#" if b["repo"] else "#") + str(b["number"])
                                                for b in i["blocked_by"]))
     if i["prs"]:
         lines.append("PR: " + "・".join(f"#{p}" for p in i["prs"]) + (f"（{'・'.join(i['pr_by'])}）" if i["pr_by"] else ""))
     if i["who"]:
-        lines.append("担当: " + "・".join(i["who"]))
+        lines.append("Assignee: " + "・".join(i["who"]))
     lines.append("作られた日: " + i["made"])
     return "\n".join(lines)
 
@@ -503,11 +503,11 @@ def view(data):
     path = data["critical"]["path"]
     on_path = set(path)
     due_col = {d: c for c, d in heads.items()}
-    cols = [{"label": ("期日 " + md(heads[c], year)) if heads.get(c) else "期日なし" if c in heads else "",
+    cols = [{"label": ("Due " + md(heads[c], year)) if heads.get(c) else "No due date" if c in heads else "",
              "late": bool(heads.get(c) and heads[c] < today)} for c in range(width)]
     past = [c for c, d in heads.items() if d and d < today]
     ms = [{"n": m["number"], "title": m["title"], "url": m["url"], "col": due_col[m["due"]], "none": m["none"],
-           "due": (("渡した日付 " if m["none"] else "期日 ") + md(m["due"], year)) if m["due"] else "期日なし",
+           "due": (("渡した日付 " if m["none"] else "Due ") + md(m["due"], year)) if m["due"] else "No due date",
            "overdue": m["overdue_days"],
            "open": m["open"], "closed": m["closed"],
            "count": {s: sum(1 for i in m["issues"] if i["state"] == s) for s in ("blocked", "pr", "idle")},
@@ -531,12 +531,12 @@ def body_html(data):
            f'<h1>マイルストーンの地図 <a class="repo" href="{esc(data["url"])}">{repo}</a></h1>',
            '<ul class="chips">'
            f'<li><b>{s["milestones"]}</b> マイルストーン</li><li><b>{s["open_issues"]}</b> issue</li>'
-           f'<li class="blocked"><i></i>止められている <b>{s["blocked"]}</b></li>'
-           f'<li class="pr"><i></i>PR が出ている <b>{s["pr"]}</b></li>'
+           f'<li class="blocked"><i></i>Blocked <b>{s["blocked"]}</b></li>'
+           f'<li class="pr"><i></i>Linked PR <b>{s["pr"]}</b></li>'
            f'<li class="idle"><i></i>それ以外 <b>{s["idle"]}</b></li>'
            f'<li>blocked by の線 <b>{s["edges"]}</b></li></ul></div>',
            f'<p class="meta">{esc(data["taken_at"])} に GitHub から取った事実だけを描いている（推定・見込みは載せない）。'
-           + (f'マイルストーンの付いていない open の issue {s["no_milestone_issues"]} 件は、右の端の「マイルストーンなし」の枠に置いた。'
+           + (f'マイルストーンの付いていない open の issue {s["no_milestone_issues"]} 件は、右の端の「No milestone」の枠に置いた。'
               if s["no_milestone_issues"] else "") + "</p>"]
     if path:
         out.append(f'<p class="path"><span class="label crit">クリティカルパス {len(path)} 件</span> ' + '<span class="arrow">→</span>'.join(
@@ -552,8 +552,8 @@ def body_html(data):
                '<input id="q" type="search" placeholder="番号か題名で探す" aria-label="番号か題名で探す">'
                '<span id="hits" class="muted"></span>'
                '<span class="keys"><span><i class="ln crit"></i>クリティカルパス</span>'
-               '<span><i class="ln late"></i>止めている側の期日が後ろ</span>'
-               '<span><i class="ln"></i>blocked by（止めている側 → 待つ側）</span></span>'
+               '<span><i class="ln late"></i>Blocking の期日が Blocked より後ろ</span>'
+               '<span><i class="ln"></i>Blocking → Blocked（矢印の向き）</span></span>'
                '<span class="tools"><button type="button" data-act="open">全部開く</button>'
                '<button type="button" data-act="close">全部閉じる</button>'
                '<button type="button" data-act="out" title="縮める">−</button>'
@@ -586,8 +586,8 @@ def summary_line(data):
     path = data["critical"]["path"]
     crit = (f"クリティカルパス {len(path)} 件" if path else
             "クリティカルパスなし（blocked by の線が 0 本）" if not s["edges"] else "クリティカルパスなし（線は輪だけ）")
-    return (f"マイルストーン {s['milestones']} 本・issue {s['open_issues']} 件（止められている {s['blocked']}・"
-            f"PR が出ている {s['pr']}・それ以外 {s['idle']}）・{crit}")
+    return (f"マイルストーン {s['milestones']} 本・issue {s['open_issues']} 件（Blocked {s['blocked']}・"
+            f"Linked PR {s['pr']}・それ以外 {s['idle']}）・{crit}")
 
 
 # ---- 入口 ------------------------------------------------------------------------

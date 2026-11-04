@@ -182,7 +182,7 @@ a:hover { text-decoration: underline; }
 .fname .no { color: var(--fgColor-muted); font-weight: 400; font-family: var(--fontStack-mono); font-size: 13px; }
 .fname .no { margin-right: 6px; }
 .fname a { font-size: 12px; font-weight: 400; margin-left: 4px; }
-.fmeta { display: flex; gap: 10px; align-items: center; font-size: 12.5px; line-height: 22px; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; }
+.fmeta { display: flex; gap: 8px; align-items: center; font-size: 12px; line-height: 22px; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; }
 .fmeta .over { color: var(--fgColor-danger); font-weight: 600; }
 .fpulse { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 22px; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; }
 .fpulse b { color: var(--fgColor-default); font-variant-numeric: tabular-nums; }
@@ -224,8 +224,8 @@ a:hover { text-decoration: underline; }
 .card .tag.crit { color: var(--fgColor-onEmphasis); background: var(--fgColor-done); }
 .card .tt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; font-size: 14px; line-height: 20px; }
 /* 閉じた枠のカードと区画は見えなくし、押せなくする（押せると枠の見出しの上でクリックを取り、枠が開けなくなる） */
-.more { position: absolute; z-index: 3; padding: 0 12px; border: 1px dashed var(--borderColor-default); border-radius: 8px; background: transparent;
-  color: var(--fgColor-muted); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.more { position: absolute; z-index: 3; padding: 0 8px; border: 1px dashed var(--borderColor-default); border-radius: 8px; background: transparent;
+  color: var(--fgColor-muted); font: inherit; font-size: 12px; line-height: 15px; text-align: left; overflow: hidden; cursor: pointer; }
 .more:hover { color: var(--fgColor-accent); border-color: var(--fgColor-accent); }
 #world.focus .more { opacity: .28; }
 .card.gone, #world.focus .card.gone, .pane.off, #world.focus .pane.off, .more.gone { opacity: 0; pointer-events: none; }
@@ -288,13 +288,13 @@ a:hover { text-decoration: underline; }
   const onPath = new Set(D.path.map(key)), late = new Set(D.late.map(key));
   // by は担当者のフィールドに居ない人の言い方（点線の丸）。無ければ担当者
   const avatar = (w, by) => el("span", { class: "av" + (by ? " by" : ""), style: `background:${hue(w)}`,
-    title: (by || "担当") + ": " + w }, ini(w));
+    title: (by || "Assignee") + ": " + w }, ini(w));
   // 実質の担当: 担当者のフィールドの人と、閉じる PR を出した人（担当者のフィールドに居ない人は点線の丸）
   const doers = i => i.who.concat(i.prBy.filter(w => !i.who.includes(w)));
   function avatars(i) {
     const list = doers(i);
     if (!list.length) return null;
-    const by = i.state !== "done" ? "閉じる PR を出した人（担当者ではない）" : i.how === "pr" ? "閉じた PR を出した人（担当者ではない）" : "閉じた人（担当者は居ない）";
+    const by = i.state !== "done" ? "Linked PR の作者（Assignees に居ない）" : i.how === "pr" ? "閉じた Linked PR の作者（Assignees に居ない）" : "閉じた人（Assignees が居ない）";
     return el("span", { class: "avs" }, list.slice(0, 3).map(w => avatar(w, i.who.includes(w) ? null : by)),
       list.length > 3 ? el("span", { class: "av etc", title: list.slice(3).join("・") }, "+" + (list.length - 3)) : null);
   }
@@ -382,13 +382,13 @@ a:hover { text-decoration: underline; }
 
   for (const f of frames) {
     const m = f.m, tot = Math.max(1, m.open);
-    const stack = el("span", { class: "stack", title: `止められている ${m.count.blocked}・PR が出ている ${m.count.pr}・それ以外 ${m.count.idle}` },
+    const stack = el("span", { class: "stack", title: `Blocked ${m.count.blocked}・Linked PR ${m.count.pr}・それ以外 ${m.count.idle}` },
       ["blocked", "pr", "idle"].map(s => el("i", { class: s, style: `width:${100 * m.count[s] / tot}%` })));
     const head = el("div", { class: "fhead", role: "button", tabindex: "0", title: "押すと開け閉めする" },
       el("div", { class: "fname" }, m.none ? null : el("span", { class: "no" }, "#" + m.n), el("span", { class: "tt", title: m.title }, m.title),
         el("a", { href: m.url, title: m.none ? "GitHub でマイルストーンの付いていない open の issue を全部開く（日付ごとの枠に分けた物も含む）" : "GitHub のマイルストーンを開く" }, "↗")),
-      el("div", { class: "fmeta" }, el("span", {}, m.due), m.overdue ? el("span", { class: "over" }, `期日切れ ${m.overdue} 日`) : null,
-        el("span", {}, `残り ${m.open}・閉じた ${m.closed}`), m.open ? stack : null),
+      el("div", { class: "fmeta" }, el("span", {}, m.due), m.overdue ? el("span", { class: "over" }, `Past due ${m.overdue} 日`) : null,
+        el("span", {}, `Open ${m.open}・Closed ${m.closed}`), m.open ? stack : null),
       f.pulse = el("div", { class: "fpulse" }));
     head.querySelector("a").addEventListener("click", ev => ev.stopPropagation());
     const toggle = () => { f.shut = !f.shut; layout(); };
@@ -405,9 +405,9 @@ a:hover { text-decoration: underline; }
       world.append(chip);
     }
     for (const i of m.issues) {
-      i.newTag = el("span", { class: "tag new", title: "期間の中で作られた" }, "新");
+      i.newTag = el("span", { class: "tag new", title: "期間の中で作られた" }, "New");
       const tags = [i.crit ? el("span", { class: "tag crit" }, "クリティカル") : null, i.newTag,
-        i.blockers ? el("span", { class: "tag blocked" }, `止め ${i.blockers}`) : null,
+        i.blockers ? el("span", { class: "tag blocked" }, `Blocked by ${i.blockers}`) : null,
         i.prs.length ? el("span", { class: "tag pr" }, "PR " + i.prs.map(p => "#" + p).join(" ")) : null];
       i.el = el("a", { class: `card ${i.state}${i.crit ? " crit" : ""}`, id: "i" + i.n, href: i.url, title: i.tip,
         style: `width:${CW}px;height:${CH}px` },
@@ -418,9 +418,9 @@ a:hover { text-decoration: underline; }
     }
     for (const i of m.done) {
       i.el = el("a", { class: "card done", id: "i" + i.n, href: i.url, style: `width:${CW}px;height:${CH}px`,
-        title: [`#${i.n} ${i.title}`, "閉じた日: " + i.shut, "作られた日: " + i.made].concat(i.who.length ? ["担当: " + i.who.join("・")] : [],
-          i.by ? [(i.how === "pr" ? "閉じた PR を出した人: " : "閉じた人: ") + i.by] : []).join("\n") },
-        el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), el("span", { class: "tag shut" }, "閉じた " + md(i.shut)), avatars(i)),
+        title: [`#${i.n} ${i.title}`, "閉じた日: " + i.shut, "作られた日: " + i.made].concat(i.who.length ? ["Assignee: " + i.who.join("・")] : [],
+          i.by ? [(i.how === "pr" ? "閉じた Linked PR の作者: " : "閉じた人: ") + i.by] : []).join("\n") },
+        el("div", { class: "row" }, el("span", { class: "num" }, "#" + i.n), el("span", { class: "tag shut" }, "Closed " + md(i.shut)), avatars(i)),
         el("div", { class: "tt" }, i.title));
       world.append(i.el);
     }
@@ -530,8 +530,8 @@ a:hover { text-decoration: underline; }
         for (const i of part.loose.concat(part.done)) if (!on.has(i)) put(i, { x: bx, y: yy }, true);
         if (chip) {
           chip.classList.remove("gone");
-          chip.textContent = `依存も PR も無い issue ${part.fold.length} 件 ${f.folded ? "▸ 開く" : "▾ 畳む"}`;
-          chip.title = "blocked by で、ほかの issue を止めてもいないし止められてもいない。open の PR も無い issue。" + (f.folded ? "押すと開く" : "押すと畳む");
+          chip.textContent = `Blocked by・Blocking・Linked PR の無い issue ${part.fold.length} 件 ${f.folded ? "▸ 開く" : "▾ 畳む"}`;
+          chip.title = "Blocked by も Blocking も無く、open の Linked PR も無い issue。" + (f.folded ? "押すと開く" : "押すと畳む");
           Object.assign(chip.style, { left: bx + "px", top: yy + "px", width: CW + "px", height: CHIP + "px" });
         }
       }
@@ -707,7 +707,7 @@ a:hover { text-decoration: underline; }
       if (shut[k]) trend.append(el("svg:rect", { class: "bc", x: x(k) - bw, width: bw, y: bot - shut[k] / bmax * bh, height: shut[k] / bmax * bh, rx: 1 }));
       if (made[k]) trend.append(el("svg:rect", { class: "bm", x: x(k), width: bw, y: bot - made[k] / bmax * bh, height: made[k] / bmax * bh, rx: 1 }));
       trend.append(el("svg:rect", { class: "hit", x: k * xw, width: xw, y: 0, height: bot },
-        el("svg:title", {}, `${md(d)}　閉じた ${shut[k]}・作られた ${made[k]}・残り ${left[k]}`)));
+        el("svg:title", {}, `${md(d)}　Closed ${shut[k]}・New ${made[k]}・Open ${left[k]}`)));
     });
     // 1 日だけのときは、始めと終わりの字が重なるので 1 つだけ真ん中に出す
     if (n === 1) trend.append(el("svg:text", { x: TW / 2, y: TH - 4, "text-anchor": "middle" }, md(ds[0])),
@@ -717,8 +717,8 @@ a:hover { text-decoration: underline; }
       el("svg:text", { class: "v", x: x(n - 1) - 4, y: ly(left[n - 1]) - 5, "text-anchor": "end" }, left[n - 1]));
     const c = shut.reduce((a, b) => a + b, 0), m = made.reduce((a, b) => a + b, 0), l0 = leftOn(all, dayAdd(P.from, -1));
     big.textContent = "";
-    big.append(el("div", { class: "shut" }, el("b", {}, c), "閉じた"), el("div", { class: "made" }, el("b", {}, m), "作られた"),
-      el("div", { class: "left" }, el("b", {}, left[n - 1]), `残り（始めは ${l0}）`));
+    big.append(el("div", { class: "shut" }, el("b", {}, c), "Closed"), el("div", { class: "made" }, el("b", {}, m), "New"),
+      el("div", { class: "left" }, el("b", {}, left[n - 1]), `Open（始めは ${l0}）`));
   }
 
   // 枠の見出しの 3 段目: そのマイルストーンの期間の数と、残りの数の小さな線
@@ -731,8 +731,8 @@ a:hover { text-decoration: underline; }
     f.pulse.textContent = "";
     f.pulse.append(el("svg:svg", { width: SW, height: SH, viewBox: `0 0 ${SW} ${SH}` },
         el("svg:path", { class: "a", d: `M0,${SH} L${pts.join(" L")} L${SW},${SH} Z` }), el("svg:path", { class: "l", d: "M" + pts.join(" L") })),
-      el("span", { class: "c" }, "閉じた ", el("b", {}, c)), el("span", { class: "m" }, "新 ", el("b", {}, m)),
-      el("span", {}, "残り ", el("b", {}, left[0]), " → ", el("b", {}, left[left.length - 1])));
+      el("span", { class: "c" }, "Closed ", el("b", {}, c)), el("span", { class: "m" }, "New ", el("b", {}, m)),
+      el("span", {}, "Open ", el("b", {}, left[0]), " → ", el("b", {}, left[left.length - 1])));
     f.pulse.title = `期間 ${P.from} 〜 ${P.to}`;
   }
 
@@ -791,7 +791,7 @@ a:hover { text-decoration: underline; }
       return b;
     };
     tourNav.append(btn("‹", "前のカードへ", at - 1), btn(`#${i.n}`, "このカードへ画面を送る", at),
-      ` ${["PR を出している", "閉じた", "担当"][i.kind]}${where}`, btn("›", "次のカードへ", at + 1));
+      ` ${["Linked PR", "Closed", "Open"][i.kind]}${where}`, btn("›", "次のカードへ", at + 1));
   }
   function whoSet() {
     if (who == null) return null;
@@ -809,13 +809,13 @@ a:hover { text-decoration: underline; }
     people.append(el("span", { class: "lab" }, "誰が進めているか", tourNav));
     for (const [w, v] of rows) {
       const b = el("button", { type: "button", class: "who" + (who === w ? " on" : ""),
-        title: w + "（押すと、その人のカードへ画面を送る。‹ › で次のカードへ）\n担当: 担当者のフィールドに居るか、閉じる PR を出している open の issue\nPR: 出している open の PR\n閉じた: 期間の中で閉じた issue のうち、担当者のフィールドに居たか、閉じた PR を出した物（PR でなく手で閉じ担当者も居ない物は、閉じた人）" }, avatar(w), w,
-        el("small", {}, ...num("担当 ", v.open), ...num("PR ", v.prs.size), ...num("閉じた ", v.done)));
+        title: w + "（押すと、その人のカードへ画面を送る。‹ › で次のカードへ）\nOpen: Assignees に居るか、Linked PR を出している open の issue\nPR: 出している open の Linked PR\nClosed: 期間の中で閉じた issue のうち、Assignees に居たか、閉じた Linked PR を出した物（PR でなく手で閉じ Assignees も居ない物は、閉じた人）" }, avatar(w), w,
+        el("small", {}, ...num("Open ", v.open), ...num("PR ", v.prs.size), ...num("Closed ", v.done)));
       b.addEventListener("click", () => pick(w));
       people.append(b);
     }
     if (nobody) {
-      const b = el("button", { type: "button", class: "who" + (who === NOBODY ? " on" : "") }, el("span", { class: "av etc" }, "?"), "担当なし",
+      const b = el("button", { type: "button", class: "who" + (who === NOBODY ? " on" : "") }, el("span", { class: "av etc" }, "?"), "Assigned to nobody",
         el("small", {}, el("b", {}, nobody)));
       b.addEventListener("click", () => pick(NOBODY));
       people.append(b);
@@ -881,7 +881,7 @@ a:hover { text-decoration: underline; }
   function drawAxis() {
     heads.forEach((h, c) => {
       Object.assign(h.style, { left: X[c] * z + tx + "px", width: W[c] * z + "px" });
-      h.textContent = W[c] * z < 110 ? D.columns[c].label.replace(/^期日 /, "") : D.columns[c].label;
+      h.textContent = W[c] * z < 110 ? D.columns[c].label.replace(/^Due /, "") : D.columns[c].label;
     });
     // 今日の印は列の間の隙間に置く。縮めて隙間が狭くなったら「今日」だけにし、さらに狭ければ出さない（期日の字に重ねない）
     const gap = COLGAP * z;
