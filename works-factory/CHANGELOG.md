@@ -6,6 +6,12 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 048033c0 から 5c2a2f50 に上げた。取り込んだ PR は raiki61/works-factory#989・#988・#990・#991・#993・#994・#992・#995。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/048033c0f3ae...5c2a2f501d23 。
+- 無人の run（`--input unattended=true`）が、最後の承認ノードを開く理由が R2 の問いだけで、全部の行に「進む」の推しが付いている時は、止まらずに推しを採って進むようになった（採った推しは `gates/gate-final.json` の欄 `pushed` に残る。raiki61/works-factory#992）。スキルの文をこれに合わせた。
+- remote に届かずに止まる時の 1 行が `origin` でなく実際の remote の名を出し、対象の git の remote に無い名なら `worktree.remote` と `git remote -v` を見るよう促すようになった（raiki61/works-factory#989）。スキルの文をこれに合わせた。
+
 ## [0.53.0] - 2026-11-05
 
 ### Changed
