@@ -128,9 +128,11 @@ class TokenHelper(unittest.TestCase):
             self.assertEqual(run.asked, [["/bin/tok", "/h/.claude-p2"]])
 
     def test_default_account_passes_the_default_folder(self):
-        run = helper({"/h/.claude": TOK})
+        # 既定のフォルダは pathlib で組むので、Windows では区切りが \ になる。偽物の鍵も同じ組み方にする
+        folder = str(pathlib.Path("/h", ".claude"))
+        run = helper({folder: TOK})
         self.assertEqual(claude_auth.account_token(None, dict(HELPER, HOME="/h"), None, "linux", run)[0], TOK)
-        self.assertEqual(run.asked[0][1], str(pathlib.Path("/h", ".claude")))
+        self.assertEqual(run.asked[0][1], folder)
 
     def test_empty_or_failing_helper_falls_back_and_says_so(self):
         d = pathlib.Path(tempfile.mkdtemp())
