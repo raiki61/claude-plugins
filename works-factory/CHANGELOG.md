@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-11-05
+
 ### Changed
 
 - 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 048033c0 から 5c2a2f50 に上げた。取り込んだ PR は raiki61/works-factory#989・#988・#990・#991・#993・#994・#992・#995。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/048033c0f3ae...5c2a2f501d23 。
