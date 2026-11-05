@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.161.1] - 2026-11-05
+
 ### Fixed
 
 - PR を開く回（引数なし・`--pr`・`--issue`）と `--desk` が、作業場に gh のアカウント（属性 `company.gh-user`）を書いていなかった。書くのは `--task` だけだったので、PR の作業場と本社の会話の gh がその人の今のアカウントで動き、そのアカウントで読めないリポジトリでは `/catchup` が「Could not resolve to a Repository」で止まった（2026-11-05、guided-resolver）。今回から、どちらも `--task` と同じ決め方（dispatch の設定の `[[repos]]` の `gh_user` を先に、無ければ会社の形の `gh_user`）で書く。どちらにも値が無ければ書かず、その場所に手で書いた値もそのまま残す。`--desk` で書いた値は、その本社で次に始めた会話から効く（打った会話には `/clear` か開き直しで効く）。
