@@ -11,6 +11,7 @@
 部署の頼み元。
 部署を立てた後の合図（task_later・after_task）: 部署を新しく立てたら（dispatch._task）、[[task.after]] の並びを --after-task で会話から
 切り離して裏で同じ走らせ方で呼ぶ。回した頼みの頼み元は、その会社の窓口（orders.lent_boss）。
+どの道でも頼み元が決まらない（窓口の会話が開いていない・会話の外から --call した）ときは、ツールの役の名前を頼み元にする（orders.ask の tool_boss）。
 """
 
 import argparse
@@ -174,7 +175,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
     ns = argparse.Namespace(**{**vars(a), "ask": ask, "text": None, "brief": brief, "dry_run": False,
                                "task": task_name if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,
-                               "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss, "causes": list(causes),
+                               "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss, "tool_boss": role_name, "causes": list(causes),
                                "self_queue": True, "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
     head = f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）。{to} に回した"
     # --ask の出す行（止めた訳・積んだ先）は、この行の下に並べて返す。そのまま書かせると、--land の合図では合図の行より前の、

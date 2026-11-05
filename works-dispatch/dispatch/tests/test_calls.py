@@ -167,6 +167,7 @@ class Call(unittest.TestCase):
         self.assertEqual(self.prompts(), [])   # always の部署「調べ」に頼む（待ち受けが居なくても窓には打たず、順番待ちに積む）
         (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))
         self.assertIn("-ask.md を読んで", item["line"])
+        self.assertEqual(item["marks"].get("boss"), "desk")   # 会話の中から打った --call の頼み元は、打った会話
         brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
         self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
         self.assertIn("p2 で失敗", brief)
@@ -200,6 +201,17 @@ class Call(unittest.TestCase):
                    {"ask": first, "boss": "窓口", "boss-inbox": self.inbox})
         last = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"][-1]
         self.assertEqual((last.get("rerun_of"), bool(last.get("ask"))), (None, True))
+
+    def test_a_call_from_outside_a_talk_with_no_desk_keeps_the_tool_role_as_the_boss(self):
+        # 会話の外から打った --call（頼んだ会話が無く、窓口も無い）: ツールの役の名前を頼み元に残し、納品で閉じられるようにする（頼み 70d941）
+        self.use(self.script("raise SystemExit(1)"))
+        self.ports.env = {}
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, calls.CALLED, out)
+        self.assertNotIn("頼み元が分からない", out)
+        (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))
+        self.assertEqual((item["marks"].get("boss"), item["marks"].get("boss-session"), item["marks"].get("boss-inbox")),
+                         ("配布", None, self.inbox))
 
     def test_a_dry_run_that_does_not_settle_is_not_handed_over(self):
         # 空打ち（入力の dry_run が true）は、ツールが知らせる物を出して 1 で終わっても AI に回さず、外れとも数えない（頼み 2827a8。
@@ -378,6 +390,20 @@ class Call(unittest.TestCase):
         self.assertEqual((item["marks"].get("boss"), item["marks"].get("boss-inbox")), ("受付", self.inbox))
         (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
         self.assertEqual((row["from"]["name"], row.get("cause")), ("受付", None))   # 立った部署の頼みは親にしない
+
+    def test_fire_with_no_desk_keeps_the_tool_role_as_the_boss(self):
+        # 窓口も決まらない（会社の形の desk に書いた窓口の会話が開いていない）合図: 頼み元が空のまま回すと、立った部署の --deliver が
+        # 知らせの宛先を作れずに failed になり、--done も断られた（受付 20261105-043534-61c373。頼み 70d941）。ツールの役の名前を残す
+        self.use(self.script("raise SystemExit(1)"))
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False)
+        lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None, {"name": None})
+        self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")
+        self.assertNotIn("頼み元が分からない", "\n".join(lines))
+        (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))
+        self.assertEqual((item["marks"].get("boss"), item["marks"].get("boss-inbox")), ("配布", self.inbox))
+        (row,) = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        self.assertEqual(row["from"]["name"], "配布")
 
     def test_fire_after_a_land_by_a_department_without_a_boss_hands_over_with_the_held_asks_boss(self):
         # 受付 cee7e1 の形: --land を打った場所が頼みを受けていれば、その頼みの頼み元（cause_boss）を頼み元にする

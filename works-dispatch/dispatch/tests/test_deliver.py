@@ -1760,6 +1760,21 @@ class Flow(unittest.TestCase):
         self.assertEqual(deliver.records(self.inbox)[-1]["status"], "failed")
         self.assertNotIn("delivered", self.g.worktree_attrs(self.place))
 
+    def test_deliver_to_a_tool_boss_with_no_talk_posts_and_closes_the_ask(self):
+        # 機械のツールが回した頼み（頼み元はツールの役の名前だけで、会話の id が無い）: 頼み元の名前に宛てた知らせを台帳に置き、
+        # 納品済みにする（受付 20261105-043534-61c373。頼み 70d941）
+        summary = self.ask_then_summary(GOOD)
+        provision.mark(self.place, self.src, {"boss": "工場の版の見張り", "boss-session": None, "boss-account": None, "boss-pane": None},
+                       self.g)
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.prompts(), [])
+        self.assertIn("頼み元は会話でなく名前だけ", out)
+        (n,) = self.deliver_notices()
+        self.assertEqual(n["to"], wake.address("src", "工場の版の見張り"))
+        self.assertEqual(deliver.records(self.inbox)[-1]["status"], orders.POSTED)
+        self.assertEqual(self.g.worktree_attrs(self.place)["delivered"], self.g.worktree_attrs(self.place)["ask"])
+
     def test_each_delivery_gets_its_own_file(self):
         summary = self.ask_then_summary(GOOD)
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)

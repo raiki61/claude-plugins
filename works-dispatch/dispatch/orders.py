@@ -588,11 +588,19 @@ def _ask(a, ports, cwd, task, sent):
             "boss-inbox": deliver.inbox_of(here_common) if here_common else inbox}
     cause = cause_of(a, here, ports)
     cause_boss = cause_boss_of(a, here, ports, cause)
-    if getattr(a, "from_boss", None):
-        # 合図で回した頼み（calls.fire）・リマインダーの頼み: 頼み元は渡された物
+    tool = getattr(a, "tool_boss", None)   # 機械のツールが片づかずに回した頼み（calls.hand_over）の、ツールの役の名前
+    if getattr(a, "from_boss", None) or (tool and not (name or sid)):
+        # 合図で回した頼み（calls.fire）・リマインダーの頼み: 頼み元は渡された物。会話の外から --call したツールの頼みは、頼んだ会話が
+        # 無いので、合図の頼みと同じく親の頼みの頼み元か窓口を借りる
         home = next((c for c in companies if os.path.realpath(c["root"]) == os.path.realpath(gitx.root_of(common))), company)   # 頼む側の会社
-        boss.update(lent_boss(a.from_boss, cause_boss,
+        own_inbox = boss["boss-inbox"]
+        boss.update(lent_boss(a.from_boss or {}, cause_boss,
                               lambda: desk_boss(home["name"], companies, home["root"], current_role(settings, ports.git), ports.git)))
+        if tool and not (boss.get("boss") or boss.get("boss-session")):
+            # 窓口も決まらない（会社の形の desk に書いた窓口の会話が開いていない）: ツールの役の名前を頼み元に残す。頼み元が空だと、
+            # 立った部署の --deliver が知らせの宛先を作れずに failed になり、納品済みにならないので --done も断られた（受付
+            # 20261105-043534-61c373。頼み 70d941）。納品はその名前に宛てた知らせとして台帳に置かれ、頼みは閉じる
+            boss.update({"boss": tool, "boss-inbox": boss.get("boss-inbox") or own_inbox})   # 合図の空の頼み元は受付箱も空で上書きする
         name = boss.get("boss")
         sender = name or sender
     if not boss.get("boss"):
@@ -2438,7 +2446,8 @@ def deliver_summary(a, ports, cwd):
                 to, how = route["to"], None
             elif to:
                 # 待ち受けの張られない会話（役の無い本社の会話・部署の一覧に見えない会話）: 頼み元の名前に宛てて置き、納品済みにする
-                gone, how = True, f"頼み元の会話には待ち受けが張られない（役の無い本社の会話か、{term.NAME} の部署の一覧に見えない会話）"
+                gone, how = True, (f"頼み元の会話には待ち受けが張られない（役の無い本社の会話か、{term.NAME} の部署の一覧に見えない会話）" if sid
+                                   else "頼み元は会話でなく名前だけ（機械のツールの役か、開いていない窓口）なので、待ち受けが張られない")
             else:
                 how = f"{how}。頼み元の名前（company.boss）も無いので、知らせの宛先を作れない"
     ask_id = attrs.get("ask")
