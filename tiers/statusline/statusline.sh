@@ -258,7 +258,14 @@ branch_pr_info() {
       # gh が失敗したら（ネットワークの断・打ち切りの 124・認証の誤り）、控えが在れば中身を変えず、時刻だけ進めて 15 分後に取り直す
       # （無ければ「-」を書いて 15 分待つ）。「PR 無し」の「-」で上書きすると、開いた PR が 15 分消える。PR が無いときの gh は
       # 0 で終わって何も出さない
-      raw=$(cd "$dir" && ${timeout_cmd:+$timeout_cmd 20} gh pr list --head "$branch" --state open \
+      #
+      # 作業場に works-dispatch の属性 company.gh-user（そのリポジトリを読む gh のアカウント）が在れば、そのアカウントの鍵で引く。
+      # 会社のリポジトリは、gh の今のアカウント（個人）では読めず、サイドバーの PR がいつも空になるため。鍵はこの背景の子にだけ渡し、
+      # gh auth switch はしない（ほかの会話の gh を替えない）。鍵が取れなければ今のアカウントのまま引く
+      gh_user=$(git -C "$dir" config --get company.gh-user 2>/dev/null) \
+        && [ -n "$gh_user" ] && token=$(gh auth token -u "$gh_user" 2>/dev/null) && [ -n "$token" ] \
+        && export GH_TOKEN="$token"
+      raw=$(cd "$dir" &&${timeout_cmd:+$timeout_cmd 20} gh pr list --head "$branch" --state open \
         --json number,title --jq '.[0] | select(.number) | "\(.number)\t\(.title | gsub("\\s+"; " "))"' 2>/dev/null) \
         || { [ -s "$cache" ] && touch "$cache" && exit 0; }
       if [ -n "$raw" ]; then

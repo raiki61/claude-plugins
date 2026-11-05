@@ -466,6 +466,36 @@ class BranchPrKey(unittest.TestCase):
     def test_no_open_pr_is_cached_as_none(self):
         self.assertEqual(self.refetch(0), "-")
 
+    def fetch_with_gh_user(self, gh_user):
+        # 作業場の git の属性 company.gh-user を偽の git で答え、偽の gh が受けた GH_TOKEN を PR のタイトルとして控えに書かせる
+        with tempfile.TemporaryDirectory() as d:
+            tmp, bin_, work = pathlib.Path(d, "tmp"), pathlib.Path(d, "bin"), pathlib.Path(d, "work")
+            for p in (tmp, bin_, work):
+                p.mkdir()
+            for cmd in ("find", "cat", "mv", "touch"):
+                (bin_ / cmd).symlink_to(shutil.which(cmd))
+            (bin_ / "python3").symlink_to(sys.executable)
+            (bin_ / "git").write_text(f'#!/bin/sh\n[ -n "{gh_user}" ] && echo "{gh_user}"\n', encoding="utf-8")
+            (bin_ / "gh").write_text(
+                '#!/bin/sh\ncase "$1 $2" in\n'
+                '  "auth token") [ "$4" = company ] && echo tok-company ;;\n'
+                '  "pr list") printf "7\\t%s\\n" "${GH_TOKEN:-none}" ;;\nesac\n', encoding="utf-8")
+            for cmd in ("git", "gh"):
+                (bin_ / cmd).chmod(0o755)
+            cache = tmp / f"herdr-pr-{hashlib.sha1(f'{work}|feat/x'.encode()).hexdigest()[:16]}"
+            script = (sl.ROOT / "statusline" / "statusline.sh").read_text(encoding="utf-8")
+            func = re.search(r"^branch_pr_info\(\) \{\n.*?^\}\n", script, re.M | re.S).group(0)
+            subprocess.run([shutil.which("bash"), "-c", func + f'branch_pr_info "{work}" feat/x >/dev/null; wait'],
+                           env={"PATH": str(bin_), "TMPDIR": str(tmp)}, capture_output=True, check=True)
+            return cache.read_text(encoding="utf-8")
+
+    def test_the_workspace_gh_user_reads_the_pr(self):
+        # 会社のリポジトリは個人のアカウントで読めないので、作業場の company.gh-user の鍵で引く
+        self.assertEqual(self.fetch_with_gh_user("company"), "7\ttok-company")
+
+    def test_no_gh_user_keeps_the_current_account(self):
+        self.assertEqual(self.fetch_with_gh_user(""), "7\tnone")
+
 
 @unittest.skipIf(os.name == "nt", "bg-count.sh は macOS と Linux だけで動く")
 class FindClaude(unittest.TestCase):

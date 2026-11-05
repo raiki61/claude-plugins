@@ -6,6 +6,10 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Fixed
+
+- statusline がサイドバーに出す PR（`$ref`・`$prt`）が、gh の今のアカウントで読めない会社のリポジトリでいつも空だったのを直した。作業場に works-dispatch の属性 `company.gh-user` が在れば、そのアカウントの鍵で PR を引く（gh auth switch はしない）。
+
 ## [0.13.2] - 2026-10-31
 
 ### Fixed
