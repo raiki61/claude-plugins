@@ -780,6 +780,7 @@ def main(argv=None, ports=None):
                 notes.append(f"issue #{r['number']}: 結んだブランチが無いので、既定のブランチからブランチを作って issue に結ぶ（gh issue develop）")
     else:
         ready = []
+        gh_user = place_gh_user(repo, a.config, ports.git) if assigned else None
         for r in assigned:
             if r["number"] in refresh:
                 # 古い会話を終え、その場所の作業場を畳む（checkout は残し、下の provision が同じ場所を開き直す）
@@ -830,6 +831,13 @@ def main(argv=None, ports=None):
                     provision.mark(prov["path"], repo.source, {wake.OPENED: r["kind"]}, ports.git)
             except (gitx.GitError, OSError) as e:
                 notes.append(f"{name}: 作業場に開いた印を書けなかった（{e}）。この会話には --say の知らせが届かない")
+            try:
+                # 会話の gh のアカウント（role_hook.put_env が GH_TOKEN に入れる）。書かないと、会話の gh がその人の今のアカウントで動き、
+                # 読めないリポジトリで /catchup が止まる（2026-11-05、guided-resolver の PR の作業場 9 つ。頼み 4a8deb）
+                if gh_user and ports.attrs(prov["path"]).get("gh-user") != gh_user:
+                    provision.mark(prov["path"], repo.source, {"gh-user": gh_user}, ports.git)
+            except (gitx.GitError, OSError) as e:
+                notes.append(f"{name}: 作業場に gh のアカウント {gh_user} を書けなかった（{e}）。この会話の gh はその人の今のアカウントで動く")
             untrusted = _trust_note(ports, r["account"], repo.source, prov["path"], cfg.accounts)
             if untrusted:
                 notes.append(f"{name}: {untrusted}")
@@ -903,6 +911,13 @@ def _queue_run(a, argv, command, ports):
         print(f"止めた: メインブランチへ入れる列に入れない: {e}。コマンドは走らせていない", file=sys.stderr)
         return queuerun.QUEUE_FAILED
     return queuerun.main(repo, command, ports, a.config)
+
+
+def place_gh_user(repo, config_path, g):
+    """その repo の作業場（部署・PR の作業場・本社）に書く gh のアカウント（属性 company.gh-user）。--task と同じ決め方
+    （role.gh_user: dispatch の設定の [[repos]] の gh_user を先に、無ければ会社の形の gh_user）。無ければ None。"""
+    info = tree.read_info(repo.source, os.path.dirname(config.path_of(config_path, os.environ)), g)
+    return role.gh_user(repo.gh_user, role.load(info["path"], info["text"]))[0]
 
 
 def _department_repo(cfg, name, ports, cwd):
@@ -1754,7 +1769,11 @@ def sync_companies(config_path, ports, dry_run=False, only=None):
         accounts_, workspaces_, companies, settings, notes = survey_companies(config_path, ports, only)
     except term.Error as e:
         return [f"止めた: {term.NAME} を読めない（{e}）"], 1
-    notes += _sync_roles(companies, settings, ports, dry_run)
+    try:
+        repos = config.load(config_path, os.environ, missing_ok=True).repos
+    except config.ConfigError:
+        repos = ()   # 読めない訳は survey_companies が注記に出した。gh のアカウントは会社の形の gh_user だけで決める
+    notes += _sync_roles(companies, settings, ports, dry_run, repos)
     ops, why = sync.plan(companies, len(accounts_) > 1)
     ws_ops = sync.workspace_ops(companies, workspaces_)
     moves = sync.flow_order(*_flow_inputs(companies, workspaces_))
@@ -1778,15 +1797,22 @@ def _flow_inputs(companies, workspaces_):
             lambda root: roots[os.path.realpath(root)].get("skills") or [])
 
 
-def _sync_roles(companies, settings, ports, dry_run):
+def _sync_roles(companies, settings, ports, dry_run, repos=()):
     """会社の形の役を、今いる部署と本社の属性に写し直す（会社の形を変えたら、--sync 1 回で全部の場所に行き渡らせる。--ask・
     --reorg --role を待たない）。属性 company.role が役の前の名前（former_names）なら今の名前に、company.fresh は役の context に（new なら付け、carry なら消す）。
+    gh のアカウント（company.gh-user）は、--task と同じ決め方（place_gh_user。repos は dispatch の設定の [[repos]]）の値が在れば、
+    役の無い PR の作業場と本社にも書く（PR を開く回と --desk が書く前の版で開いた場所に、抜けたまま残る。頼み 4a8deb）。値が無ければ
+    今の値のまま（手で書いた物を消さない）。ツールの一時の場所には書かない。本社の属性が写って残った作業場（tree.copied_from）は、
+    PR を開く回が作った作業場にするのと同じく、写しを消してから書く。
     companies の中の属性も書き換え、続く表示がそれを使う。出す行の並び。会社の形に無い役の場所は触らない。--dry-run なら書かずに、
     書く物だけを出す。"""
     out = []
     for c in companies:
         info = tree.read_info(c["root"], settings, ports.git)
         shape = role.load(info["path"], info["text"])
+        listed = next((r.gh_user for r in repos if r.source and os.path.realpath(r.source) == os.path.realpath(c["root"])), None)
+        gh_user = role.gh_user(listed, shape)[0]   # place_gh_user と同じ決め方（会社の形はここで読んだ物を使う）
+        office = next((d["attrs"] for d in c["departments"] if d["head_office"]), {})
         for d in c["departments"]:
             got = shape["roles"].get(role.current(shape, d["attrs"].get("role")))
             changes, why = {}, []
@@ -1797,6 +1823,16 @@ def _sync_roles(companies, settings, ports, dry_run):
             if got and (d["attrs"].get("fresh") or None) != want:
                 changes["fresh"] = want
                 why.append(f"company.fresh {d['attrs'].get('fresh') or '-'} → {want or '（消す）'}（役 {got['name']} の context を写す）")
+            if gh_user and d["attrs"].get("gh-user") != gh_user and not d.get("tool_place"):
+                here = {} if d["head_office"] else ports.attrs(d["path"])
+                if tree.copied_from(office, here):
+                    # 本社の属性の写し（id を書く前の版の本社から写った物）の上に gh-user だけを書くと、書いた worktree の id が写しの名前と
+                    # 役までこの場所の物に見せ、本社と同じ名前の場所が 2 つになる。PR を開く回が作った作業場にするのと同じく、写しを消して書く
+                    gone = provision.copied(office, here, keep=("gh-user",))
+                    changes.update(gone)
+                    why.append(f"本社から写った属性 {', '.join('company.' + k for k in gone)} を消す")
+                changes["gh-user"] = gh_user
+                why.append(f"company.gh-user {d['attrs'].get('gh-user') or '-'} → {gh_user}（会話の gh のアカウント）")
             if not changes:
                 continue
             line = f"{c['name']} {d['attrs'].get('name') or d['branch'] or d['path']}: " + "、".join(why)
@@ -1808,7 +1844,7 @@ def _sync_roles(companies, settings, ports, dry_run):
                     continue
             d["attrs"] = {k: v for k, v in {**d["attrs"], **changes}.items() if v}
             if "role" in changes:
-                d["role"] = got["name"]
+                d["role"] = changes["role"]   # 写しを消した場所は None
             d["seat"] = role.seat(d["attrs"], info["skills"], shape)
             out.append(line)
     return out

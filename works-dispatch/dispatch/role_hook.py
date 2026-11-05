@@ -10,7 +10,7 @@ clone、git でない場所）では何も出さない。本社（代表の clon
 部署の名前と同じ name の受ける仕事（[[skills]]。受け持ち）の説明と、部署の会話がよく打つコマンドの全文（commands_text）だけを足す。読めない・形が違うときも会話は止めない（何も足さないか、
 訳を 1 行足す）。会話をやり直した（resume・clear・compact）ときにも走り、役が付き直す。
 
-部署の属性 company.gh-user（--task が書く gh のアカウントの名前）があれば、Claude Code がフックに渡す CLAUDE_ENV_FILE に、その鍵を
+部署の属性 company.gh-user（--task・PR を開く回・--desk が書き、--sync が書き直す gh のアカウントの名前）があれば、Claude Code がフックに渡す CLAUDE_ENV_FILE に、その鍵を
 GH_TOKEN に入れる 1 行（role.env_line）を足す。会話の Bash がコマンドごとに鍵を取り出す（鍵の値はどこにも書かない）。
 設定の置き場は、部署の属性 company.config（--task が既定でない dispatch の設定を使ったときに書く）、無ければ既定の決まり。
 

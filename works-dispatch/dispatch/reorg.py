@@ -241,6 +241,11 @@ def desk(a, ports, cwd):
         notes.append("このコマンドを打った会話が会話の一覧に見えないので、アカウントと会話の id は今の値のまま"
                      "（窓口の会話の中から打てば書く）")
     changes = {"role": the_role, "lifecycle": gitx.PERSISTENT, "name": name}
+    # 本社の会話の gh のアカウント（role_hook.put_env が GH_TOKEN に入れる）。--task と同じ決め方（設定の [[repos]] の gh_user を先に、
+    # 無ければ会社の形の gh_user）。無ければ今の値のまま（手で書いた物を消さない）。頼み 4a8deb
+    gh_user = role.gh_user(config.repo_at(cfg, source, ports.origin).gh_user if cfg else None, shape)[0]
+    if gh_user:
+        changes["gh-user"] = gh_user
     if account:
         pid = ports.caller_pid(sessions_)
         held = attrs.get("pid")
@@ -268,4 +273,7 @@ def desk(a, ports, cwd):
     held_by = account or attrs.get("account")
     command = next((x.command for x in (cfg.accounts if cfg else []) if x.name == held_by), chat.COMMAND)
     after = _launch_line(a, ports, source, shape, the_role, name, command)
+    if gh_user and attrs.get("gh-user") != gh_user:
+        # フックが GH_TOKEN を入れるのは会話の始まり（SessionStart）だけなので、打った会話には次の始まりから効く
+        after.append(f"gh のアカウント {gh_user} は、この本社で次に始めた会話から効く（今の会話に効かせるなら /clear か、開き直す）")
     return _write(a, ports, cwd, source, attrs, changes, notes, f"窓口 {name}（{source}）を名付ける", talk_name, after)

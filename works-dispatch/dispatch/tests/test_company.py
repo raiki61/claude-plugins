@@ -21,7 +21,7 @@ import gitx
 import herdr as real_herdr
 import orders
 import shape_hook
-from nodes import clean, land, provision, role, sync, tree
+from nodes import clean, land, provision, role, sync, tree, wake
 
 
 def fake_runner(out="", rc=0):
@@ -719,6 +719,32 @@ class Entry(unittest.TestCase):
         rc, out = self.main("--sync")
         self.assertIn("company.fresh true → （消す）", out)
         self.assertNotIn("fresh", self.g.worktree_attrs(self.place))
+
+    def test_sync_writes_the_gh_user_to_pr_places_the_head_office_and_departments(self):
+        # PR を開く回と --desk が gh のアカウントを書く前の版で開いた場所は、抜けたまま残る。--sync 1 回で設定の [[repos]] の gh_user を
+        # 書く（2026-11-05、guided-resolver の 10 か所を手で書いた。頼み 4a8deb）。本社の属性の写し（id の無い前の版）は消してから書く
+        with open(self.cfg, "a", encoding="utf-8") as f:
+            f.write('gh_user = "me-at-work"\n')
+        pr_place = self.g.add_worktree(str(pathlib.Path(self.root) / "pr"), "feat/1", "origin/main")
+        copy = self.g.add_worktree(str(pathlib.Path(self.root) / "copy"), "feat/2", "origin/main")
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
+        for k, v in {"role": "窓口", "name": "窓口"}.items():   # id を書く前の版の本社から写った属性
+            self.g.set_worktree_attr(copy, k, v)
+        provision.mark(pr_place, self.src, {wake.OPENED: "pr"}, self.g)
+        self.ports.term.open_at(pr_place, agent="claude")
+        self.ports.term.open_at(copy, agent="claude")
+        rc, out = self.main("--sync", "--dry-run")
+        self.assertIn("company.gh-user - → me-at-work（会話の gh のアカウント）", out)
+        self.assertNotIn("gh-user", self.g.worktree_attrs(pr_place), "--dry-run が書いた")
+        rc, out = self.main("--sync")
+        self.assertEqual(rc, 0, out)
+        for place in (self.src, self.place, pr_place):
+            self.assertEqual(self.g.worktree_attrs(place)["gh-user"], "me-at-work", place)
+        self.assertEqual(self.g.worktree_attrs(copy, copies=True), {"gh-user": "me-at-work"})
+        self.assertIn("本社から写った属性 company.role, company.name を消す", out)
+        self.assertEqual(self.g.worktree_attrs(self.src)["role"], "窓口")
+        rc, out = self.main("--sync")   # 揃った後は書かない
+        self.assertNotIn("company.gh-user", out)
 
     def test_sync_renames_a_former_role_name_to_the_current_one(self):
         # 会社の形で役の名前を替え、前の名前を former_names に書けば、--sync が前の名前を持つ場所の属性を今の名前に書き直す

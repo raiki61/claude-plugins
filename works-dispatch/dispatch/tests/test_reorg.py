@@ -161,6 +161,34 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("--reorg で付け替える", out)
 
+    def test_desk_writes_the_gh_user_of_the_repo_and_falls_back_to_the_shape(self):
+        # 本社の会話の gh のアカウント（role_hook が GH_TOKEN に入れる）。設定の [[repos]] の gh_user を先に、無ければ会社の形の gh_user
+        # （--task と同じ決め方）。抜けていると、本社の会話の gh が今のアカウントで動いた（2026-11-05、guided-resolver。頼み 4a8deb）
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text('gh_user = "company-user"\n', encoding="utf-8")
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.g.worktree_attrs(self.src)["gh-user"], "company-user")
+        self.assertIn("gh のアカウント company-user は、この本社で次に始めた会話から効く", out)
+        with open(self.cfg, "a", encoding="utf-8") as f:
+            f.write('gh_user = "me-at-work"\n')
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.g.worktree_attrs(self.src)["gh-user"], "me-at-work")
+        self.assertIn("company.gh-user: company-user → me-at-work", out)
+
+    def test_desk_keeps_a_hand_written_gh_user_when_none_is_configured(self):
+        provision.mark(self.src, self.src, {"gh-user": "by-hand"}, self.g)
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.g.worktree_attrs(self.src)["gh-user"], "by-hand")
+        self.assertNotIn("gh のアカウント", out)
+
     def test_desk_does_not_ask_for_rename_when_the_conversation_already_has_the_name(self):
         # claude --name 窓口 で起動した窓口: 会話の名前がもう 窓口 なので /rename を勧めない
         self.sessions[1]["name"] = "窓口"

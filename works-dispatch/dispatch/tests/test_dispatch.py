@@ -507,6 +507,30 @@ class Main(unittest.TestCase):
         self.assertEqual(self.g.worktree_attrs(place, copies=True), {wake.OPENED: "pr"})
         self.assertEqual(self.g.worktree_attrs(src)["role"], "窓口")
 
+    def test_a_pr_place_gets_the_repos_gh_user(self):
+        # 会話の gh のアカウント。書かないと role_hook が GH_TOKEN を入れず、会話の gh が今のアカウントで動き、読めないリポジトリで
+        # /catchup が止まった（2026-11-05、guided-resolver。頼み 4a8deb）。開き直す回（作業場が在る）でも、抜けていれば書く
+        with open(self.cfg, "a", encoding="utf-8") as f:
+            f.write('gh_user = "me-at-work"\n')
+        src = gitx_source(self.cfg)
+        provision.mark(src, src, {"role": "窓口", "name": "窓口", "gh-user": "someone-else"}, self.g)
+        ports = FakePorts([pr(1)], git=self.g)
+        rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
+        self.assertEqual(rc, 0, out)
+        place = next(w["path"] for w in ports.term.worktrees(src) if w["linked"])
+        self.assertEqual(self.g.worktree_attrs(place, copies=True), {wake.OPENED: "pr", "gh-user": "me-at-work"})
+        self.g.unset_worktree_attr(place, "gh-user")
+        rc, out = run_main(["--config", self.cfg, "--pr", "1", "--no-second"], FakePorts([pr(1)], git=self.g))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.g.worktree_attrs(place).get("gh-user"), "me-at-work")
+
+    def test_without_a_gh_user_the_pr_place_has_none(self):
+        ports = FakePorts([pr(1)], git=self.g)
+        rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
+        self.assertEqual(rc, 0, out)
+        place = next(w["path"] for w in ports.term.worktrees(gitx_source(self.cfg)) if w["linked"])
+        self.assertNotIn("gh-user", self.g.worktree_attrs(place))
+
     def test_untrusted_source_still_launches_and_says_the_dialog_will_show(self):
         ports = FakePorts([pr(1)], git=self.g)
         ports.trust_outcome = "source_untrusted"

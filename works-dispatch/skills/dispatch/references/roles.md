@@ -185,7 +185,7 @@ rent_or_buy = false                   # この部署だけ、役の rent_or_buy 
 ## gh のアカウント
 
 - gh のアカウントは、dispatch の設定の `[[repos]]` の `gh_user` を先に、無ければ会社の形の `gh_user` を使う（commit した会社の形のアカウントは、ほかの人のものでありうる）。
-- dispatch は名前だけを属性 `company.gh-user` に書く。フックがそれを読み、会話の Bash がコマンドごとに `gh auth token --user <名前>` で鍵を取り出して `GH_TOKEN` に入れる（鍵の値はファイルにも画面にも履歴にも残らない）。そのアカウントで gh にログインしていなければ、`GH_TOKEN` に使えない字を入れる（gh はほかのアカウントに落ちずに認証の誤りで止まる）。
+- dispatch は名前だけを属性 `company.gh-user` に書く（部署を立てる `--task`、PR を開く回、本社の `--desk` のどれも書く。抜けた・食い違った場所は `--sync` が書き直す）。フックがそれを読み、会話の Bash がコマンドごとに `gh auth token --user <名前>` で鍵を取り出して `GH_TOKEN` に入れる（鍵の値はファイルにも画面にも履歴にも残らない）。そのアカウントで gh にログインしていなければ、`GH_TOKEN` に使えない字を入れる（gh はほかのアカウントに落ちずに認証の誤りで止まる）。
 - 設定の場所や gh のアカウントを替えて同じブランチの部署を立て直すと、前の回の属性は消してから書く。
 - PowerShell のツールには `GH_TOKEN` が入らず、そこで打つ gh はその人の今の gh の設定のアカウントで動く（フックが足す `export GH_TOKEN="$(gh auth token …)"` は `$(…)` で gh を走らせる形で、Claude Code が PowerShell に写すのは値をそのまま読める `export 名前=値` の行だけのため）。
 - 鍵を `GH_TOKEN` で gh に渡している人（コンテナや CI の形）は `gh_user` を書かない（`gh auth token --user` は `GH_TOKEN` の鍵を取り出せず、部署を立てるときの確かめで止まる。`--init-company` の下書きは、取り出せないアカウントを書かない）。
