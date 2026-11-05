@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.162.0] - 2026-11-05
+
 ### Changed
 
 - スキルの説明 `references/call.md` の「合図で動くツール」の項（main に入れた後や部署を立てた後に、会社の形に書いたツールを機械が呼ぶ仕組み）を、初見で詰まらないように書き直した。足したのは 3 点。
