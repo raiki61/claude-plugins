@@ -6,9 +6,11 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-11-05
+
 ### Fixed
 
-- statusline がサイドバーに出す PR（`$ref`・`$prt`）が、gh の今のアカウントで読めない会社のリポジトリでいつも空だったのを直した。作業場に works-dispatch の属性 `company.gh-user` が在れば、そのアカウントの鍵で PR を引く（gh auth switch はしない）。
+- herdr のサイドバーに statusline が出す PR の番号とタイトル（herdr のトークン `$ref`・`$prt`）が、gh の今のアカウントでは読めない会社のリポジトリでいつも空だったのを直した。作業場の git の設定に works-dispatch の属性 `company.gh-user`（`git config --worktree company.gh-user <アカウント>` で書く、そのリポジトリを読む gh のアカウント）が在れば、そのアカウントの鍵で PR を引く。無ければ今までどおり gh の今のアカウントで引く。gh auth switch はしない。
 
 ## [0.13.2] - 2026-10-31
 
