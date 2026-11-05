@@ -780,7 +780,11 @@ def main(argv=None, ports=None):
                 notes.append(f"issue #{r['number']}: 結んだブランチが無いので、既定のブランチからブランチを作って issue に結ぶ（gh issue develop）")
     else:
         ready = []
-        gh_user = place_gh_user(repo, a.config, ports.git) if assigned else None
+        try:
+            gh_user = place_gh_user(repo, a.config, ports.git) if assigned else None
+        except (gitx.GitError, OSError) as e:
+            gh_user = None   # 会話の gh のアカウントを書けないだけで、PR を開くのは止めない
+            notes.append(f"会社の形を読めないので、作業場に gh のアカウントを書かない（{e}）")
         for r in assigned:
             if r["number"] in refresh:
                 # 古い会話を終え、その場所の作業場を畳む（checkout は残し、下の provision が同じ場所を開き直す）
