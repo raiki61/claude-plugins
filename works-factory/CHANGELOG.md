@@ -6,6 +6,8 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-11-06
+
 ### Changed
 
 - 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 74344450 から fdb9faec に上げた。取り込んだ PR は raiki61/works-factory#997・#998・#1000。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/743444502daa...fdb9faec16bb 。この差分のうちスキルと殻の使い方に効く変更を `scripts/works-factory-pin.py` の照合で探すと、工場の README の 1 段（無人の run の最後の承認ノードの説明）が当たった。中身は 0.54.0 で書いた動き（R2 の問いだけで全部の行の推しが「進む」なら進む）を工場の README が書き足した物で、スキルはすでにこの動きを書いているので、利用者の手順は変わらない。
