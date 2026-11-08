@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.162.1] - 2026-11-09
+
 ### Fixed
 
 - works-dispatch の試験（`dispatch/tests/`）が作った一時のフォルダ（`dispatch-fake-*`・`dispatch-land-*`・`dispatch-prov-*` など）を消さずに残していた（2026-11-09、`/private/tmp` に 5 日で 3 万個を超えた）。今回から、試験の一時のフォルダは実行 1 回ごとの親（`dispatch-test-*`）の下にでき、実行が終わると親ごと消える。`dispatch/tests/parallel.py` は、全試験の後に親に物が残っていれば失敗にする。すでに残っているフォルダは消さないので、要るなら手で消す。
