@@ -2461,7 +2461,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=886
+EXPECTED_CHECKS=887
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6286,6 +6286,18 @@ expect_output 0 "SHAPE_CHANGED_OK" \
     "spread-plugins: 外のツールの形が変わったら（id が無い・この marketplace の物が 0 件・claude の窓が 0 件・知らない状態）、配ったと出さずに失敗に数える" \
     "$PY_BIN" "$SPREAD_CASE" shape-changed
 
+# ---- 一時の場所の残り: ci-watch と works-factory-pin の場合は、TMPDIR に空のディレクトリを渡して回し、回し終えて空のままかを見る ----
+# 2 つの試験が mkdtemp で作った場所を消さずにいたとき、/private/tmp に 5 日で ci-watch-* が 1,500 余り・works-factory-pin-* が 2,700 余り
+# 残った（頼み 24f62a）。試験の側の場所も、本体（scripts/works-factory-pin.py の land_pin）の場所も、残ればここで赤になる。
+# Windows の Python は Git Bash の形のパスを読めず、黙って既定の一時の場所に作るので、cygpath が在ればネイティブの形で渡す
+LEAK_TMP="$WORK/leak-tmp"
+mkdir -p "$LEAK_TMP"
+LEAK_TMP_NATIVE=$LEAK_TMP
+command -v cygpath >/dev/null 2>&1 && LEAK_TMP_NATIVE=$(cygpath -w "$LEAK_TMP")
+LEAK_OLD_TMPDIR=${TMPDIR-}
+LEAK_HAD_TMPDIR=${TMPDIR+x}
+export TMPDIR="$LEAK_TMP_NATIVE"
+
 # ---- tests/ci-watch.py: 会社の形の役「CI の見張り」のツール（main の CI の赤を点検の受付に届ける） ----
 # gh と git は偽物の runner で回し、受付箱の台帳は一時の階層に作る。本物の GitHub と受付箱には触らない
 CIW_CASE="$ROOT/tests/ci-watch-case.py"
@@ -6353,6 +6365,11 @@ expect_output 0 "AUTO_OK" \
 expect_output 0 "OVERLAP_OK" \
     "works-factory-pin: ほかの見張りが走っている間は工場を読まずに黙り、殺された fetch が残した shallow.lock は消してから取る" \
     "$PY_BIN" "$WFP_CASE" overlap
+
+if [ -n "$LEAK_HAD_TMPDIR" ]; then export TMPDIR="$LEAK_OLD_TMPDIR"; else unset TMPDIR; fi
+expect_output 0 "TMP_CLEAN_OK" \
+    "一時の場所の残り: ci-watch と works-factory-pin の場合を回し終えた TMPDIR に、試験も本体も一時の場所を残さない（check が失敗した回も消す）" \
+    "$PY_BIN" -c 'import os, sys; left = sorted(os.listdir(sys.argv[1])); print("TMP_CLEAN_OK" if not left else "残った: " + " ".join(left)); sys.exit(1 if left else 0)' "$LEAK_TMP_NATIVE"
 
 scope attention tests/what-am-i-doing tests/whose-turn tests/milestone-map tests/people
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----

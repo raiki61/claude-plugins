@@ -26,6 +26,7 @@
   残した shallow.lock は消してから取る（頼み 257f09）
 """
 
+import atexit
 import importlib.util
 import io
 import json
@@ -64,12 +65,28 @@ LOG = """# 変更の記録
 """
 
 
-def tmp():
+def _run_dir():
+    """この回の一時の場所の親（RUN）。場合ごとの一時の場所は RUN の下に作り、回の終わりに RUN ごと消す（check が sys.exit で止めた回・
+    例外で落ちた回も消える）。場合ごとに TMPDIR の直下へ mkdtemp で作って消さずにいたとき、/private/tmp に 5 日で 2,700 余り残った
+    （頼み 24f62a）。TemporaryDirectory の片づけは読み取り専用のファイル（Windows の git のオブジェクト）も書けるように直して消す。
+    本体の land_pin が作る一時の場所は TMPDIR の直下のままにし、本体が消し忘れたら tests/run.sh の TMP_CLEAN_OK で赤になる。
+    CLAUDE_JOB_DIR が在れば（Claude Code の会話から直に回す回）RUN はその tmp の下に作るので、TMP_CLEAN_OK が見るのは本体の分だけに
+    なる（tests/run.sh は CLAUDE_JOB_DIR を外して回すので、run.sh の回は RUN も見る）"""
     base = os.environ.get("CLAUDE_JOB_DIR")
     where = os.path.join(base, "tmp") if base else None
     if where:
         os.makedirs(where, exist_ok=True)
-    return tempfile.mkdtemp(prefix="works-factory-pin-", dir=where)
+    d = tempfile.TemporaryDirectory(prefix="works-factory-pin-", dir=where, ignore_cleanup_errors=True)
+    atexit.register(d.cleanup)
+    return d
+
+
+_RUN = _run_dir()
+RUN = _RUN.name
+
+
+def tmp():
+    return tempfile.mkdtemp(dir=RUN)
 
 
 def git(cwd, *argv):

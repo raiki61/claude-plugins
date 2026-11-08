@@ -22,6 +22,7 @@
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
 """
 
+import atexit
 import datetime
 import importlib.util
 import io
@@ -43,6 +44,12 @@ spec.loader.exec_module(cw)
 NOW = datetime.datetime(2026, 10, 19, 12, 0, tzinfo=datetime.timezone.utc)
 TEST = {"id": 1, "name": "test", "path": ".github/workflows/test.yml", "state": "active"}
 TITLE = f"ツール CI の見張り/{cw.TOOL} が片づけられなかった仕事"
+# この回の一時の場所の親（RUN）。場合ごとの一時の場所は RUN の下に作り、回の終わりに RUN ごと消す（check が sys.exit で止めた回・
+# 例外で落ちた回も消える）。場合ごとに TMPDIR の直下へ mkdtemp で作って消さずにいたとき、/private/tmp に 5 日で 1,500 余り残った
+# （頼み 24f62a）。TemporaryDirectory の片づけは読み取り専用のファイル（Windows の git のオブジェクト）も書けるように直して消す
+_RUN = tempfile.TemporaryDirectory(prefix="ci-watch-", ignore_cleanup_errors=True)
+atexit.register(_RUN.cleanup)
+RUN = _RUN.name
 
 
 def r(i, conclusion, sha, at="2026-10-18T10:00:00Z", event="push", status="completed", updated=None):
@@ -80,7 +87,7 @@ class Fake:
 
 def setup(asks=()):
     """一時の git の共通のディレクトリ。asks は台帳の行（kind ask などの dict）の並び。"""
-    d = tempfile.mkdtemp(prefix="ci-watch-")
+    d = tempfile.mkdtemp(dir=RUN)
     inbox = os.path.join(d, *cw.deliver.INBOX)
     os.makedirs(inbox)
     with open(os.path.join(inbox, cw.deliver.LOG), "w", encoding="utf-8") as f:
@@ -184,7 +191,7 @@ def told_while_open():
 def cross():
     # 頼み元の会社の受付箱を、行の boss.inbox（受付箱を直に指す）と from.place（作業場から git で引く）の 2 つの道で指す
     for via in ("boss", "place"):
-        place = tempfile.mkdtemp(prefix="ci-watch-place-")   # 頼み元の会社の作業場
+        place = tempfile.mkdtemp(prefix="place-", dir=RUN)   # 頼み元の会社の作業場
         other = cw.deliver.inbox_of(os.path.join(place, ".git"))
         os.makedirs(other)
         ask = {"kind": "ask", "status": "queued", "id": "20261019-000000-aaaaaa", "title": TITLE,
