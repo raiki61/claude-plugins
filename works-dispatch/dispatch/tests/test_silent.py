@@ -6,7 +6,6 @@ import json
 import os
 import pathlib
 import subprocess
-import tempfile
 import unittest
 
 import dispatch
@@ -15,11 +14,12 @@ import filex
 import gitx
 import terms
 from nodes import bump, clean, tools, wake
+from . import scratch
 
 
 class FileX(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp()
+        self.d = scratch()
         self.path = os.path.join(self.d, "log.jsonl")
 
     def test_replace_keeps_the_mode_and_leaves_no_temp_file(self):
@@ -64,9 +64,9 @@ class FileX(unittest.TestCase):
 
 class WakeReads(unittest.TestCase):
     def setUp(self):
-        self.inbox = tempfile.mkdtemp()
+        self.inbox = scratch()
         self.log = os.path.join(self.inbox, wake.LOG)
-        self.place = tempfile.mkdtemp()
+        self.place = scratch()
 
     def test_read_new_does_not_move_past_a_bad_line_and_tells_once(self):
         with open(self.log, "w", encoding="utf-8", newline="\n") as f:   # 書く側（filex）と同じ \n の行末で書く（Windows の文字の書きの既定は \r\n に替える）
@@ -140,7 +140,7 @@ class Bump(unittest.TestCase):
 
 class SentTimes(unittest.TestCase):
     def test_a_broken_record_is_not_read_as_empty(self):
-        d = tempfile.mkdtemp()
+        d = scratch()
         ports = dispatch.Ports()
         self.assertEqual(ports.load_sent(d), {})   # 無ければ空
         pathlib.Path(d, wiring.SENT_FILE).write_text("{", encoding="utf-8")
@@ -154,7 +154,7 @@ class Terms(unittest.TestCase):
     def test_a_path_that_cannot_be_read_ends_with_2(self):
         err = io.StringIO()
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(terms.main([os.path.join(tempfile.mkdtemp(), "none.md")]), 2)
+            self.assertEqual(terms.main([os.path.join(scratch(), "none.md")]), 2)
         self.assertIn("読めない", err.getvalue())
 
 

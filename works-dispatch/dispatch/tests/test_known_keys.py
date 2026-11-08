@@ -10,6 +10,7 @@ from unittest import mock
 from . import DISPATCH
 import known_keys
 from nodes import land, role, tree
+from . import scratch
 
 SAMPLES = pathlib.Path(__file__).parent / "samples"
 SHAPES = ("company-my_notes.toml", "company-claude-plugins.toml")
@@ -27,7 +28,7 @@ def read(text, tmp):
 class Samples(unittest.TestCase):
     def setUp(self):
         import tempfile
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = scratch()
 
     def test_the_current_shapes_have_no_unknown_keys(self):
         for name in SHAPES:

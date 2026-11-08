@@ -5,7 +5,6 @@ import json
 import os
 import pathlib
 import subprocess
-import tempfile
 import unittest
 
 from . import DISPATCH
@@ -14,6 +13,7 @@ from .test_wake import Window
 import claudex
 import refresh_hook
 from nodes import provision, refresh, role
+from . import scratch
 
 T0 = 1_792_200_000.0   # 会話の処理が起きた時刻
 
@@ -29,7 +29,7 @@ class Node(unittest.TestCase):
         self.assertIsNone(refresh.installed_file("/src/claude-plugins/works-dispatch"))   # リポジトリの checkout から読んだ物
 
     def test_newest_update_counts_user_plugins_and_projects_containing_the_place(self):
-        d = tempfile.mkdtemp()
+        d = scratch()
         path = os.path.join(d, "installed_plugins.json")
         here = os.path.join(d, "repo", "sub")
         os.makedirs(here)
@@ -122,7 +122,7 @@ class Elsewhere(Window):
 class Hook(unittest.TestCase):
     def setUp(self):
         # git は偽物（tests/fakegit.py）。会社 co は origin の無い clone で、部署「dept」はメインブランチから切った worktree
-        d = pathlib.Path(tempfile.mkdtemp())
+        d = pathlib.Path(scratch())
         self.g = fakegit.FakeGit(str(d / "co"), {}, url="")
         self.g.origin.clear()
         self.g.tracking.clear()
@@ -193,7 +193,7 @@ class Hook(unittest.TestCase):
 
     def test_main_never_stops_the_conversation(self):
         p = subprocess.run(["python3", str(pathlib.Path(DISPATCH) / "refresh_hook.py")], input="not json",
-                           capture_output=True, text=True, encoding="utf-8", cwd=tempfile.mkdtemp())
+                           capture_output=True, text=True, encoding="utf-8", cwd=scratch())
         self.assertEqual(p.returncode, 0, p.stderr)
 
 

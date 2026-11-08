@@ -17,11 +17,11 @@ import os
 import pathlib
 import shutil
 import subprocess
-import tempfile
 import traceback
 from unittest import mock
 
 import gitx
+from . import scratch
 
 
 class FakeGit:
@@ -540,7 +540,7 @@ def world():
     """test_provision.make_world と同じ形の世界を偽物の git の上に作る。(git の偽物, 元の clone のパス, worktree の置き場)。
     origin には main と feat/1〜feat/9 が在る（どれも最初の commit。.gitignore を持つ）。元の clone は main に居て、.gitignore に
     当たるファイル frontend/.env.local が本物のファイルとして在る（写すファイルの試験が読む）。"""
-    t = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-fake-")).resolve()
+    t = pathlib.Path(scratch(prefix="dispatch-fake-")).resolve()
     src = t / "src"
     g = FakeGit(str(src), {".gitignore": "frontend/.env.local\n"}, url=str(t / "o" / "r.git"), branches=BRANCHES)
     materialize(g.source, {".gitignore": "frontend/.env.local\n", "frontend/.env.local": "SECRET=1\n"})

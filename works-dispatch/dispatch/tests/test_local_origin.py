@@ -5,7 +5,6 @@
 import os
 import pathlib
 import subprocess
-import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -17,11 +16,12 @@ import gitx
 import landing
 import tierx
 from nodes import deliver
+from . import scratch
 
 
 def bare_world(branch="master"):
     """(手元の bare の origin, その clone)。origin の既定のブランチは branch。clone は origin/HEAD を持つ。"""
-    t = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-local-")).resolve()
+    t = pathlib.Path(scratch(prefix="dispatch-local-")).resolve()
     bare, seed, clone = t / "o.git", t / "seed", t / "c"
     env = {**os.environ, "GIT_CONFIG_GLOBAL": str(t / "gc"), "GIT_CONFIG_NOSYSTEM": "1"}
     (t / "gc").write_text("", encoding="utf-8")
@@ -47,7 +47,7 @@ class DefaultBranch(unittest.TestCase):
         self.assertEqual(gitx.default_branch(clone), "master", "origin に HEAD を問うて決める")
 
     def test_nothing_to_go_on_says_how_to_fix_it(self):
-        t = tempfile.mkdtemp(prefix="dispatch-local-")
+        t = scratch(prefix="dispatch-local-")
         git("init", "-q", t)
         with self.assertRaises(gitx.GitError) as e:
             gitx.default_branch(t)
@@ -87,7 +87,7 @@ class DepartmentPreflight(unittest.TestCase):
         self.assertFalse(tierx.without_gh(result)[0]["ok"], "gh 以外の足りない物は止める")
 
     def test_check_command_without_repos_passes_without_gh(self):
-        d = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-local-"))
+        d = pathlib.Path(scratch(prefix="dispatch-local-"))
         cfg = d / "none.toml"
         result = {"schema": 1, "tier": 2, "ok": False, "missing": 1, "checks": [
             {"tier": 1, "name": "gh のログイン", "ok": False, "problem": "gh auth status が通らない", "fix": ["gh auth login"]}]}
