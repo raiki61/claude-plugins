@@ -17,7 +17,7 @@ import filex
 import orders
 import gitx
 from nodes import deliver, land, provision, role, tools, tree, wake
-from . import scratch
+from . import rmtree, scratch
 
 
 def shape_text(command, fallback='fallback_role = "調べ役"', machine="machine = true"):
@@ -491,7 +491,7 @@ class ToolPlace(unittest.TestCase):
             gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, encoding="utf-8")
             owner = f"{tools.OWNER}{gone.stdout.strip()}"
         path = os.path.join(scratch(prefix=tools.PREFIX), "tree")
-        self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
+        self.addCleanup(rmtree, os.path.dirname(path))
         gitx.add_detached(self.src, path, gitx.rev(self.src, "HEAD"), lock=owner)
         return path
 
@@ -560,7 +560,7 @@ class ToolPlace(unittest.TestCase):
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
         self.assertEqual(rc, 0, out)
         (left,) = [e["path"] for e in gitx.listed_worktrees(self.src) if tools.is_place(e["path"])]
-        self.addCleanup(shutil.rmtree, os.path.dirname(left), True)
+        self.addCleanup(rmtree, os.path.dirname(left))
         self.assertTrue(os.path.exists(os.path.join(left, "half.txt")))
 
     def test_a_place_that_cannot_be_made_stops_the_call_without_a_traceback(self):

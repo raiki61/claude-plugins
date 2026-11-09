@@ -4,7 +4,6 @@
 import io
 import json
 import os
-import shutil
 import sys
 import tempfile
 import unittest
@@ -18,7 +17,7 @@ import gitx
 import orders
 import retire
 from nodes import deliver, provision, wake
-from . import scratch
+from . import rmtree, scratch
 
 
 class Retire(unittest.TestCase):
@@ -564,7 +563,7 @@ class Retire(unittest.TestCase):
         self.shape(self.LAND)
         # 今の頼みの納品の行は頼み元の受付箱（ここでは別の会社の物）に在る
         boss = scratch()
-        self.addCleanup(shutil.rmtree, boss, True)
+        self.addCleanup(rmtree, boss)
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "config": self.cfg, "boss-inbox": boss}, self.g)
         self.g.commit(self.place, {}, "x")
         dept = {"name": "調べ", "place": self.place}
@@ -757,7 +756,7 @@ class FoldFromListing(unittest.TestCase):
         deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "q1", "status": "sent", "at": 1000,
                                  "from": {"name": "調べ", "place": os.path.join(self.place, "sub")}})
         self.talks = scratch()
-        self.addCleanup(shutil.rmtree, self.talks, True)
+        self.addCleanup(rmtree, self.talks)
         patcher = mock.patch.object(dispatch.chat, "talk_dir", lambda cdir, cwd, env=None: self.talks)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -941,7 +940,7 @@ class DeliveredAndTalked(unittest.TestCase):
 
     def setUp(self):
         self.dir = scratch()
-        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(rmtree, self.dir)
         self.inbox = os.path.join(self.dir, "inbox")
         os.makedirs(self.inbox)
 

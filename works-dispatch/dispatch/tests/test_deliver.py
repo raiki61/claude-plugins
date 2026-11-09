@@ -8,7 +8,6 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 import unittest
@@ -29,7 +28,7 @@ import limit_hook
 import refresh_hook
 import shape_hook
 from nodes import deliver, ledger, provision, wake
-from . import scratch
+from . import rmtree, scratch
 
 
 def dept_row(name=None, role=None, lifecycle=None, session=None, panes=(), branch="b", path="/x"):
@@ -508,7 +507,7 @@ class AskerRoute(unittest.TestCase):
     def test_post_with_a_listener_on_the_route_does_not_restart(self):
         # 頼み元の名前（company.boss）と違う宛先に待ち受けが居れば、その待ち受けが渡し、会話を起動し直さない
         inbox = scratch()
-        self.addCleanup(shutil.rmtree, inbox, True)
+        self.addCleanup(rmtree, inbox)
         dept = {"path": "/w/dept", "attrs": {"role": "調べ役", "name": "調べ", "session": "s1"}}
         route = {"company": {"name": "co", "root": "/r"}, "dept": dept, "to": "co/調べ", "inbox": inbox,
                  "place": "/r/.git/worktrees/dept", "plain": False}

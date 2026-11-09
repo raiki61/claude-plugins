@@ -8,7 +8,6 @@ import os
 import pathlib
 import re
 import shlex
-import shutil
 import unittest
 import urllib.parse
 from unittest import mock
@@ -22,7 +21,7 @@ import orders
 import role_hook
 import wake_hook
 from nodes import deliver, launch, provision, role, tree
-from . import scratch
+from . import rmtree, scratch
 
 SHAPE = '''
 name = "試しの会社"
@@ -630,7 +629,7 @@ class Hook(unittest.TestCase):
         for k, v in (("role", "窓口"), ("name", "窓口"), ("session", "s-desk"), ("pid", str(os.getpid()))):
             self.g.set_worktree_attr(self.src, k, v)   # id を書く前の版の --desk（company.worktree-id を書かない）
         copy = os.path.join(os.path.realpath(scratch(prefix="works-dispatch-pr-")), "pr")
-        self.addCleanup(shutil.rmtree, os.path.dirname(copy), True)
+        self.addCleanup(rmtree, os.path.dirname(copy))
         self.g.add_detached(self.src, copy, "HEAD")
         self.assertEqual(self.g.worktree_attrs(copy, copies=True)["pid"], str(os.getpid()))   # git が写した
         self.assertEqual(self.g.worktree_attrs(copy), {})

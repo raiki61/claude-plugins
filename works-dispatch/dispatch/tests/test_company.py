@@ -21,7 +21,7 @@ import herdr as real_herdr
 import orders
 import shape_hook
 from nodes import clean, land, provision, role, sync, tree, wake
-from . import scratch
+from . import rmtree, scratch
 
 
 def fake_runner(out="", rc=0):
@@ -402,7 +402,7 @@ class Build(unittest.TestCase):
         for k, v in (("name", "段取り"), ("role", "段取り"), ("session", "s-h"), ("reloaded", "1 1")):
             gitx.set_worktree_attr(str(src), k, v)
         place = os.path.join(os.path.realpath(scratch(prefix="works-dispatch-tool-")), "tree")
-        self.addCleanup(shutil.rmtree, os.path.dirname(place), True)
+        self.addCleanup(rmtree, os.path.dirname(place))
         git("-C", str(src), "worktree", "add", "-q", "--detach", place, "HEAD")
         # 写した後に本社の属性が書き換わっても（窓口が会話を替えて会話の id が変わっても）写しと見る
         gitx.set_worktree_attr(str(src), "reloaded", "2 2")
@@ -430,10 +430,10 @@ class Build(unittest.TestCase):
         os.makedirs(os.path.join(src, "sub"), exist_ok=True)   # 本社の中のフォルダから読んでも、本社の属性（写しと見ない）
         self.assertEqual(gitx.worktree_attrs(os.path.join(src, "sub")), {"name": "段取り", "role": "段取り"})
         copy = os.path.join(os.path.realpath(scratch(prefix="vrwt-")), "vrwt")
-        self.addCleanup(shutil.rmtree, os.path.dirname(copy), True)
+        self.addCleanup(rmtree, os.path.dirname(copy))
         git("-C", place, "worktree", "add", "-q", "--detach", copy, "HEAD")
         nested = copy + "-2"   # 写しからもう一度切っても
-        self.addCleanup(shutil.rmtree, nested, True)
+        self.addCleanup(rmtree, nested)
         git("-C", copy, "worktree", "add", "-q", "--detach", nested, "HEAD")
         for there in (copy, nested):
             self.assertEqual(gitx.worktree_attrs(there, copies=True)["name"], "説明書")   # git が写した
@@ -453,7 +453,7 @@ class Build(unittest.TestCase):
         # id を書く前の版の属性（id が無い）は、今までどおりそのまま読む
         git("-C", place, "config", "--worktree", "--unset", "company." + gitx.OWN_ID)
         former = copy + "-3"
-        self.addCleanup(shutil.rmtree, former, True)
+        self.addCleanup(rmtree, former)
         git("-C", place, "worktree", "add", "-q", "--detach", former, "HEAD")
         self.assertEqual(gitx.worktree_attrs(former)["name"], "説明書")
 

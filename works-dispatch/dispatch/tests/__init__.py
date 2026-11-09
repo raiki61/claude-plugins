@@ -21,6 +21,7 @@ os.environ.setdefault("RENT_OR_BUY_OFFLINE", "1")
 # 通さずに unittest で直に回したときは、ここで親を作り、プロセスの終わりに消す。
 import atexit
 import shutil
+import stat
 import tempfile
 import unittest
 
@@ -41,11 +42,26 @@ def leftovers(root):
     return sorted(n for n in os.listdir(root) if not n.startswith("pymp-")) if os.path.isdir(root) else []
 
 
+def rmtree(path):
+    """path の木を消す。無い物と消せない物は黙って飛ばす（消し残りは parallel.py の残りの検査が赤にする）。shutil.rmtree の ignore_errors と
+    違い、Windows で読み取り専用のファイルは書ける印にしてから消し直す（git の objects は読み取り専用で作られ、ignore_errors では消えずに残る。
+    2026-11-09 の Windows の CI で、本物の git で作った試験の世界 dispatch-land-* が 147 件残った）。"""
+    def again(func, name, err):
+        err = err[1] if isinstance(err, tuple) else err   # 3.12 からの onexc は例外、前の onerror は sys.exc_info の組
+        if os.name == "nt" and isinstance(err, PermissionError):
+            try:
+                os.chmod(name, stat.S_IWRITE)
+                func(name)
+            except OSError:
+                pass
+    shutil.rmtree(path, **{"onexc" if sys.version_info >= (3, 12) else "onerror": again})
+
+
 # この回の親をこのプロセスが作ったか（子のプロセスと、入れ子の回は作らない。前の回の値が環境に残って親が無ければ作り直す）
 OWNED = not os.path.isdir(os.environ.get(ROOT_ENV) or "")
 if OWNED:
     ROOT = tmp_root()
-    atexit.register(shutil.rmtree, ROOT, ignore_errors=True)
+    atexit.register(rmtree, ROOT)
 else:
     ROOT = tempfile.tempdir = os.environ["TMPDIR"] = os.environ[ROOT_ENV]
 
@@ -54,5 +70,5 @@ def scratch(**kw):
     """一時のフォルダを作り、そのパスを返す（引数は tempfile.mkdtemp と同じ）。今の試験のモジュールが終わるとき（赤でも）消す。
     試験の中で一時のフォルダを作るときは tempfile.mkdtemp を直に呼ばず、これを使う（作った物を消し忘れない）。"""
     path = tempfile.mkdtemp(**kw)
-    unittest.addModuleCleanup(shutil.rmtree, path, ignore_errors=True)
+    unittest.addModuleCleanup(rmtree, path)
     return path

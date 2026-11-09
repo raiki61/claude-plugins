@@ -32,7 +32,7 @@ from config import Repo
 from nodes import bump, land, landqueue
 
 from . import fakegit
-from . import scratch
+from . import rmtree, scratch
 
 
 def git(*args):
@@ -1288,6 +1288,20 @@ class Unstage(unittest.TestCase):
         stage, out = self.run_unstage(rmtree=lambda *a, **kw: None)
         self.assertTrue(os.path.exists(stage))
         self.assertIn(f"一時のフォルダ {stage} が消えずに残った", out)
+
+
+class ScratchRemoval(unittest.TestCase):
+    """試験の一時のフォルダを消す tests.rmtree は、読み取り専用のファイル（Windows の git の objects。ignore_errors では消えずに残った）も消し、無い物では止まらない。"""
+
+    def test_removes_read_only_files_and_skips_missing(self):
+        d = scratch(prefix="dispatch-ro-")
+        obj = pathlib.Path(d, "objects", "08", "41c2")
+        obj.parent.mkdir(parents=True)
+        obj.write_text("x", encoding="utf-8")
+        obj.chmod(0o444)
+        rmtree(d)
+        self.assertFalse(os.path.exists(d))
+        rmtree(d)   # もう無い
 
 
 class Rules(unittest.TestCase):

@@ -6,6 +6,11 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.163.0 で取り下げた試験の一時のフォルダの直しを入れ直した。試験の一時のフォルダは実行 1 回ごとの親フォルダ（`dispatch-test-*`）の下にでき、実行が終わると親ごと消える。`dispatch/tests/parallel.py` は、全試験の後に親に物が残っていれば試験を失敗にする。すでに残っているフォルダは消さないので、要るなら手で消す。`--land` が版上げとゲートに使う一時の作業場（`dispatch-land-*`）を消せずに残したときは、黙らずに注記を出す。
+- 取り下げの原因も直した。Windows の CI で残った `dispatch-land-*` は `--land` の一時の作業場でなく、試験が本物の git で作るフォルダ（名前が同じ形）だった。git が作る objects のファイルは Windows では読み取り専用になり、試験の後始末の `shutil.rmtree(..., ignore_errors=True)` はそれを消せずに黙って残していた。試験の後始末は、読み取り専用のファイルを書ける印にしてから消し直す。
+
 ## [0.163.0] - 2026-11-09
 
 ### Removed
