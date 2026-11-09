@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -1299,7 +1300,14 @@ class ScratchRemoval(unittest.TestCase):
         obj.parent.mkdir(parents=True)
         obj.write_text("x", encoding="utf-8")
         obj.chmod(0o444)
-        rmtree(d)
+        unlink = os.unlink
+
+        def like_windows(path, *a, dir_fd=None, **kw):   # Windows と同じく、読み取り専用のファイルは消せない（POSIX の OS でも Windows の道を通す）
+            if not os.stat(path, dir_fd=dir_fd).st_mode & stat.S_IWRITE:
+                raise PermissionError(13, "Access is denied", path)
+            return unlink(path, *a, **({"dir_fd": dir_fd} if dir_fd is not None else {}), **kw)
+        with mock.patch.object(os, "unlink", like_windows), mock.patch.object(os, "name", "nt"):
+            rmtree(d)
         self.assertFalse(os.path.exists(d))
         rmtree(d)   # もう無い
 
