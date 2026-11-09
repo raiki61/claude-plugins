@@ -52,7 +52,7 @@ def rmtree(path):
             try:
                 os.chmod(name, stat.S_IWRITE)
                 func(name)
-            except OSError:
+            except OSError:   # 使用中などで消し直しも断られた物は飛ばす（残れば parallel.py の残りの検査が赤にする）
                 pass
     shutil.rmtree(path, **{"onexc" if sys.version_info >= (3, 12) else "onerror": again})
 
