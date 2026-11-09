@@ -10,10 +10,10 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 - 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を e0af6838 から 1a9bc409 に上げた。取り込んだ PR は raiki61/works-factory#1028・#1029・#1030。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/e0af6838f25f...1a9bc4090792 。
   - 利用者に効く違い:
-    - 工場の README に「Running one block on its own」のセクションが足された。本線の外で単独で回せる 6 部品（`plan-review`・`independent-design`・`premises`・`prior-decisions`・`world`・`diagnose`）ごとに、入力・打ち方の例・返る物の読み方・測った時間と費用が載る（raiki61/works-factory#1029）。スキルの 2. と references/spec.md から、このセクションを指すようにした。
-    - 工場が止める Archon（工場が載る実行基盤）の版が 2886e883 から 442c90f1 に上がった（raiki61/works-factory#1030）。上げた後の初めての起動は、殻が新しい版の源を取り寄せて依存を入れ直すので、いつもより長く掛かる。
-    - PR を開く道（`--input deliver=pr`）で、Archon の `archon-pr` が forge のプラグインを見つけられずに PR を作る前に断られる形を直した。殻が止めた Archon の源からプラグインを `bun` で 1 度だけ作って渡す（ネットワークに出ない）。`gh` を入れておく必要がある（#1030）。スキルの 5. にこの道と要る物を書き足した。
-    - 報告を組めなかった run の予備の報告と訳だけのファイルの 1 行目にも、run の id と人が書いた依頼の文が出る（#1028）。
+    - 工場の README に「Running one block on its own」のセクションが足された。通常の流れ（`works-factory-line`）の外で単独で回せる 6 部品（`plan-review`・`independent-design`・`premises`・`prior-decisions`・`world`・`diagnose`）ごとに、入力・打ち方の例・返る物の読み方・測った時間と費用が載る（raiki61/works-factory#1029）。`skills/works-factory/SKILL.md` の 2. と `references/spec.md` から、このセクションを指すようにした。
+    - 工場が PIN で固定する Archon（工場が載る実行基盤）の版が 2886e883 から 442c90f1 に上がった（raiki61/works-factory#1030）。上げた後の初めての起動は、手元の殻が新しい版の源を取り寄せて依存を入れ直すので、いつもより長く掛かる。
+    - PR を開く道（`--input deliver=pr`）で、Archon の PR を作る部品 `archon-pr` が、GitHub に触る forge プラグインを見つけられずに PR を作る前に断られる形を直した。殻が、固定した版の Archon の取り寄せ済みの源から、プラグインを `bun`（前提の物）で 1 度だけ作って渡す（ネットワークに出ない）。`gh`（GitHub の CLI）を入れておく必要がある（#1030）。`SKILL.md` の 5. にこの道と要る物を書き足した。
+    - 報告を組めなかった run の予備の報告と、日本語の訳だけを書いたファイルの 1 行目にも、run の id と人が書いた依頼の文が出る（#1028）。
 
 ## [0.58.0] - 2026-11-09
 

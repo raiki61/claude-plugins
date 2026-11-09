@@ -56,7 +56,7 @@ WF workflow run works-factory-line --cwd <対象のリポジトリ> --input requ
 - 起動は長いので Bash の run_in_background で打ち、終わりの知らせで次の手を打つ。`nohup` や `&` で切り離さない（知らせが来ず、承認ノードで止まった run に気づけない）。
 - run の記録（Archon の家）は対象のリポジトリごとに分かれる。対象の外から打つ時は、WF のどのコマンドにも `--cwd <対象>` を付ける。`WORKS_FACTORY_HOME`（絶対パス）で家を替えて起動した run は、後の `respond`・`get`・`status`・`apply` にも同じ値を付ける（Bash の呼び出しの間で環境は継がれない）。
 - 何周もつなぐ時（周の鎖）は [references/chain.md](references/chain.md) を読む。
-- 部品（block。世界の解 `works-factory-world` などの観点 1 つ）を `works-factory-line`（2. の起動）の外で 1 つだけ回す時は、取り置きの工場の `README.md` の「Running one block on its own」を読む。単独で使える 6 部品の入力・打ち方の例・返る物の読み方・測った時間と費用が在る。`plan-review` と `diagnose` は測った 1 回で 3〜4 ドル掛かった。`--cwd` は `works-factory-line` と同じパスにし（run の記録はパスごとに分かれる）、工場がまだ触っていない対象で同時に何本も起動しない（最初の run の `Running workflow:` の行を待ってから残りを起動する。[references/spec.md](references/spec.md) の 5 部品も同じ）。
+- 部品（block。世界の解 `works-factory-world` などの観点 1 つ）を `works-factory-line`（2. の起動）の外で 1 つだけ回す時は、取り置いた工場（1. で殻が取ってきた clone）の `README.md` の「Running one block on its own」を読む。単独で使える 6 部品の入力・打ち方の例・返る物の読み方・測った時間と費用が在る。`plan-review` と `diagnose` は、工場の README が測った 1 回で 3〜4 ドル掛かった。`--cwd` は `works-factory-line` と同じパスにし（run の記録はパスごとに分かれる）、工場がまだ触っていない対象で同時に何本も起動しない（最初の run の `Running workflow:` の行を待ってから残りを起動する。[references/spec.md](references/spec.md) の 5 部品も同じ）。
 
 ## 3. 承認ノードで答える
 
@@ -92,7 +92,7 @@ WF apply <run> --cwd <対象>
 - 人が最後の承認ノードで見た差分は、hash で封じてある。当てる前にその hash を照合し、違えば止まって何も変えない。
 - 無人の run が最後の承認ノードを推しで通した答え（`gates/gate-final.json` に `pushed` が在る）は人の通しと見なさず、当てる前に、答えの無い run と同じに緑・独立の目・差分の指紋・守りのパスを確かめる。
 - 最後の承認ノードで止めた run は `--allow-stopped`、封じた後のノードが落ちた run は `--allow-failed` を付ける。
-- 差分を当てる代わりに PR を開くのは、起動に `--input deliver=pr` を足した run だけ（既定は差分を残すだけで対象に書かない）。`gh` を入れ、その今のアカウント（`gh auth status` の active）を対象に PR を開けるアカウントにしておく。PR を作る Archon の部品 `archon-pr` は GitHub に forge のプラグインだけで触り、殻が止めた Archon の源（取り置き済みの物）から `bun` で 1 度だけ作って渡す（作る段はネットワークに出ない。入れる物は無い。PATH に `archon-forge-github` が既に在ればそれを使う）。作れない時は殻が 1 行告げ、その run は PR を作る前に断られる。push は git が run の環境で見つける認証だけを使う。全部は工場の README の「Opening a PR」で始まる項。
+- 差分を当てる代わりに PR を開くのは、起動に `--input deliver=pr` を足した run だけ（既定は差分を残すだけで対象に書かない）。`gh` を入れ、その今のアカウント（`gh auth status` の active）を対象に PR を開けるアカウントにしておく。PR を作る Archon の部品 `archon-pr` は、GitHub の forge プラグイン（GitHub に触る部品）だけで GitHub に触る。殻が、PIN で固定した Archon の取り置き済みの源から `bun` で 1 度だけそのプラグインを作って渡す（作る段はネットワークに出ない。入れる物は無い。PATH に `archon-forge-github` が既に在ればそれを使う）。作れない時は殻が 1 行告げ、その run は PR を作る前に断られる。push は git が run の環境で見つける認証だけを使う。全部は取り置いた工場の `README.md` の、「Opening a PR」で始まる項。
 
 ## 6. 詳しい事
 

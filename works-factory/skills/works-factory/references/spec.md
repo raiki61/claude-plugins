@@ -56,7 +56,7 @@ reviews:
    WF workflow run <args の部品名> --cwd <同じ対象> --input '<args の要素>' ...
    ```
 
-3. Bash の `run_in_background` で起動し（工場がまだ触っていない対象では、最初の run の `Running workflow:` の行を待ってから残りを起動する。同時に起動すると同じフォルダを用意しあって揃って落ちる）、終わりの知らせから `WF workflow get <run> --json --cwd <対象>` で結果を読む。部品ごとの返す物の読み方と測った時間・費用は、取り置きの工場の `README.md` の「Running one block on its own」に在る。各部品の結果を確認し、指摘を直したら入力を組み直して影響する部品を再審査する。
+3. Bash の `run_in_background` で起動し（工場がまだ触っていない対象では、最初の run の `Running workflow:` の行を待ってから残りを起動する。同時に起動すると同じフォルダを用意しあって揃って落ちる）、終わりの知らせから `WF workflow get <run> --json --cwd <対象>` で結果を読む。部品ごとの返す物の読み方と測った時間・費用は、取り置いた工場（SKILL.md の 1. で殻が取ってきた clone）の `README.md` の「Running one block on its own」に在る。各部品の結果を確認し、指摘を直したら入力を組み直して影響する部品を再審査する。
 4. 書き先は「1. 設計書と表を用意する」で用意した表（上の YAML の例）の `reviews` で、部品（`part`）ごとの項目の `run` に、最終版を審査した run の id を書く。残した指摘は同じ項目の `findings` に `{key, text, handling: accepted, owner_words}` の形で記録し、`owner_words` に人が受け入れた言葉を書く。指摘が無ければ空配列。AI が代わりに受け入れたことにしない。
 
 指摘の `key` は任意に付けない。各 run の `terminal_record.returns.value` のポインタが指すファイルを、`terminal_record.artifacts.root` から読んで取得する。
