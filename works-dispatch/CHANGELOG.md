@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Removed
 
-- 0.162.1 で入れた、試験の一時のフォルダの直し（回ごとの親 `dispatch-test-*` の下に作らせ、残れば失敗にする検査）と、`--land` が一時の作業場を消せなかったときの注記を、いったん取り下げた。Windows の CI で、試験の後に `dispatch-land-*` が 147 件残って試験が失敗し、main の CI が赤になったため（https://github.com/raiki61/claude-plugins/actions/runs/42537175514 ）。試験が一時のフォルダを残す問題は 0.162.0 の形に戻る。Windows で残る原因を直してから入れ直す。
+- 0.162.1 の Fixed の 2 件（試験の一時のフォルダを実行 1 回ごとの親フォルダ `dispatch-test-*` の下に作らせ、試験の後に残っていれば試験を失敗にする検査と、`--land` が一時の作業場を消せなかったときの注記）を取り下げ、0.162.0 の形に戻した。Windows の CI で、試験の後に `dispatch-land-*` が 147 件残ってこの検査が試験を失敗にし、main の CI が赤になったため（https://github.com/raiki61/claude-plugins/actions/runs/42537175514 ）。試験が一時のフォルダを消さずに残す問題は直っていない状態に戻る。Windows で残る原因はまだ分かっておらず、原因を直してから入れ直す。
 
 ## [0.162.1] - 2026-11-09
 
