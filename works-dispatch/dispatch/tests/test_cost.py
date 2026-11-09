@@ -1,11 +1,11 @@
 """cost ノード: 1 件の PR を開くと、アカウントの使用率がどれだけ増えるかを、実行の前後の控えから測って覚える。"""
 
 import pathlib
-import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
 from nodes import cost
+from . import scratch
 
 
 def snap(seven, five, reset7=1000, reset5=100):
@@ -51,7 +51,7 @@ class Estimate(unittest.TestCase):
 
 class Store(unittest.TestCase):
     def test_missing_file_is_empty_and_a_broken_one_is_not_overwritten(self):
-        d = pathlib.Path(tempfile.mkdtemp())
+        d = pathlib.Path(scratch())
         self.assertEqual(cost.load(d / "none.json"), {"seven_day": [], "five_hour": []})
         for raw in ("{", "[1]", '{"seven_day": 3}'):
             (d / "bad.json").write_text(raw, encoding="utf-8")
@@ -62,7 +62,7 @@ class Store(unittest.TestCase):
             self.assertEqual((d / "bad.json").read_text(encoding="utf-8"), raw)
 
     def test_save_appends_and_keeps_only_the_newest(self):
-        d = pathlib.Path(tempfile.mkdtemp())
+        d = pathlib.Path(scratch())
         path = d / "sub" / "dispatch-cost.json"
         for i in range(cost.KEEP + 3):
             cost.save(path, {"seven_day": [float(i)], "five_hour": []})

@@ -9,13 +9,13 @@ import pathlib
 import shlex
 import subprocess
 import sys
-import tempfile
 import tomllib
 import unittest
 
 from . import DISPATCH
 import config
 import limits
+from . import scratch
 
 NOW = 1_800_000_000
 
@@ -139,7 +139,7 @@ def accounts(n):
 
 class ProbeAll(unittest.TestCase):
     def setUp(self):
-        self.dir = pathlib.Path(tempfile.mkdtemp())
+        self.dir = pathlib.Path(scratch())
 
     def run_probe(self, accts, fetch=None, token=None):
         asked = []
@@ -246,7 +246,7 @@ class ProbeAll(unittest.TestCase):
 
 class Plan(unittest.TestCase):
     def setUp(self):
-        self.home = pathlib.Path(tempfile.mkdtemp())
+        self.home = pathlib.Path(scratch())
 
     def record(self, rel, data):
         path = self.home / rel
@@ -379,7 +379,7 @@ class HerdrConfig(unittest.TestCase):
                  config.Account("p1", "claude-p1", "~/.claude-p1", "kc-p1"),
                  config.Account("local", "claude-ollama", None, None, False),
                  config.Account("wsl", "claude-wsl", token_file="/h/.config/claude-tokens/wsl"))
-        d = pathlib.Path(tempfile.mkdtemp())
+        d = pathlib.Path(scratch())
         path = d / "accounts.json"
         limits.write_snapshot(path, accts, "/l")
         got, limits_dir = limits.read_snapshot(path)
@@ -390,7 +390,7 @@ class HerdrConfig(unittest.TestCase):
         self.assertEqual([a.token_file for a in got], [None, None, None, "/h/.config/claude-tokens/wsl"])
 
     def test_herdr_config_writes_the_snapshot_next_to_the_records(self):
-        d = pathlib.Path(tempfile.mkdtemp())
+        d = pathlib.Path(scratch())
         toml = d / "dispatch.toml"
         toml.write_text(f'limits_dir = \'{d / "lim"}\'\naccounts = [{{ name = "p1", command = "claude-p1", config_dir = "/h/.claude-p1" }}]\n'
                         f'[[repos]]\nrepo = "o/r"\nsource = \'{d}\'\nsecond_prompt_file = \'{toml}\'\n', encoding="utf-8")
@@ -403,7 +403,7 @@ class HerdrConfig(unittest.TestCase):
         self.assertIn(f"--accounts {shlex.quote(snap.as_posix())}", command)   # bash が読むので / 区切り
 
     def test_show_and_probe_run_where_tomllib_is_missing(self):
-        d = pathlib.Path(tempfile.mkdtemp())
+        d = pathlib.Path(scratch())
         limits.write_snapshot(d / "accounts.json", accounts(1), str(d))
         fresh = {"five_hour": win(5, NOW + 3600, NOW), "seven_day": win(40, NOW + 86400, NOW)}
         (d / "a0.json").write_text(json.dumps(fresh), encoding="utf-8")
@@ -436,7 +436,7 @@ class Breakage(unittest.TestCase):
     """壊れても知らせが来ない所（docs/standards/breakage-detection.md）: 古い控え・取り直しの失敗・応答の形の変わり・入口のずれ。"""
 
     def setUp(self):
-        self.dir = pathlib.Path(tempfile.mkdtemp())
+        self.dir = pathlib.Path(scratch())
 
     def test_statusline_merge_keeps_the_unknown_values_seen_by_probe(self):
         old = {"five_hour": {"used_percentage": 1, "resets_at": NOW + 100}, "unknown": {"5h-status=x": 1}}

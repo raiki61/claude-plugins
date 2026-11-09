@@ -9,7 +9,6 @@ import os
 import pathlib
 import stat
 import subprocess
-import tempfile
 import unittest
 import unittest.mock
 
@@ -18,6 +17,7 @@ import claudex
 import ghx
 import gitx
 import herdr
+from . import scratch
 
 
 class Fake:
@@ -441,7 +441,7 @@ class GitWorktree(unittest.TestCase):
     def test_is_main_worktree(self):
         self.assertTrue(gitx.is_main_worktree(self.src))
         self.assertFalse(gitx.is_main_worktree(self.path))
-        self.assertIsNone(gitx.is_main_worktree(tempfile.mkdtemp()))
+        self.assertIsNone(gitx.is_main_worktree(scratch()))
 
     def test_delete_branch_only_when_the_tip_is_the_expected_one(self):
         sha = gitx.head_sha(self.path)
@@ -490,7 +490,7 @@ class Claude(unittest.TestCase):
         self.assertEqual(claudex.trust_file(None, {"HOME": "/h"}), os.path.join("/h", ".claude.json"))
 
     def trust_world(self, projects):
-        d = tempfile.mkdtemp()
+        d = scratch()
         f = os.path.join(d, ".claude.json")
         with open(f, "w") as fh:
             json.dump({"numStartups": 3, "projects": projects}, fh)
@@ -527,7 +527,7 @@ class Claude(unittest.TestCase):
         f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": False}})
         other = self.trust_world({"/src/x": {"hasTrustDialogAccepted": True}})
         before = open(f).read()
-        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7", [other, os.path.join(tempfile.mkdtemp(), "none")]),
+        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7", [other, os.path.join(scratch(), "none")]),
                          "source_untrusted")
         self.assertEqual(open(f).read(), before)
 
@@ -548,8 +548,9 @@ class Claude(unittest.TestCase):
     def test_trust_is_found_through_a_different_spelling_of_the_same_folder(self):
         # Claude Code は信頼をフォルダの字で書く。macOS の /tmp と /private/tmp（記号のリンク）、Windows の C:/… と C:\\… のように、
         # dispatch の持つ字と違うことがある。同じフォルダを指していれば信頼済みと見る
-        real = os.path.realpath(tempfile.mkdtemp())
-        link = os.path.join(tempfile.mkdtemp(), "via-link")
+        real = os.path.join(os.path.realpath(scratch()), "r")   # 隣に作る real + "-w" も、消える一時のフォルダの中に置く
+        os.makedirs(real)
+        link = os.path.join(scratch(), "via-link")
         os.symlink(real, link)
         f = self.trust_world({link: {"hasTrustDialogAccepted": True}})
         self.assertTrue(claudex.is_trusted(f, real))
@@ -564,7 +565,7 @@ class Claude(unittest.TestCase):
         self.assertEqual(claudex._key_like("/src/r", "/src/r-w"), "/src/r-w")
 
     def test_missing_or_broken_file_writes_nothing(self):
-        d = tempfile.mkdtemp()
+        d = scratch()
         self.assertEqual(claudex.inherit_trust(os.path.join(d, ".claude.json"), "/s", "/p"), "no_file")
         broken = os.path.join(d, "b.json")
         open(broken, "w").write("{not json")
@@ -575,7 +576,7 @@ class Claude(unittest.TestCase):
     def plugins(entries):
         """entries: [(キー, scope, plugin.json の名前, catchup を持つか)]。アカウントの設定のフォルダを返す。
         持つかは True（コマンドの commands/catchup.md）か "skill"（スキルの skills/catchup/SKILL.md）。"""
-        d = pathlib.Path(tempfile.mkdtemp())
+        d = pathlib.Path(scratch())
         record = {}
         for key, scope, name, has in entries:
             path = d / "plugins" / "cache" / key / "1.0.0"
@@ -615,7 +616,7 @@ class Claude(unittest.TestCase):
         self.assertEqual(claudex.catchup_commands(self.plugins([("attention@m", "project", "attention", True)])), [])
 
     def test_no_plugins_record_means_no_command(self):
-        self.assertEqual(claudex.catchup_commands(tempfile.mkdtemp()), [])
+        self.assertEqual(claudex.catchup_commands(scratch()), [])
 
     def test_non_json_is_an_error(self):
         with self.assertRaises(claudex.Error):

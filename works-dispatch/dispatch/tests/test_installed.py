@@ -7,15 +7,15 @@ import os
 import pathlib
 import subprocess
 import sys
-import tempfile
 import unittest
 
 import installed
+from . import scratch
 
 
 class Installed(unittest.TestCase):
     def setUp(self):
-        self.root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
+        self.root = pathlib.Path(scratch()) / "plugins"
         self.old = self.put("0.23.0", "print('old')")
         # dispatch.py と同じく標準入出力を UTF-8 にする（Windows の既定の符号では日本語を print できない。下の hop の子の標準エラーも同じ）
         self.new = self.put("0.25.0", "import os, sys; sys.stdout.reconfigure(encoding='utf-8'); "

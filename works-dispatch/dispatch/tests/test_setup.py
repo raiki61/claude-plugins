@@ -4,7 +4,6 @@
 
 import os
 import pathlib
-import tempfile
 import tomllib
 import unittest
 
@@ -15,6 +14,7 @@ import config
 import dispatch
 import ghx
 from nodes import land, role, tree
+from . import scratch
 
 
 def drop_repos(cfg_path):
@@ -25,7 +25,7 @@ def drop_repos(cfg_path):
 
 class LoadWithoutRepos(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp()
+        self.d = scratch()
 
     def write(self, body):
         path = os.path.join(self.d, "c.toml")

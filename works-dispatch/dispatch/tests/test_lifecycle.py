@@ -28,6 +28,7 @@ import wiring
 import ghx
 import herdr as real_herdr
 from nodes import clean, fresh, turn
+from . import scratch
 
 
 def session(status="idle", started=100.0):
@@ -60,9 +61,9 @@ class Decide(unittest.TestCase):
     def test_inside_follows_symlinks_like_clean(self):
         import os
         import tempfile
-        real = pathlib.Path(tempfile.mkdtemp()).resolve()
+        real = pathlib.Path(scratch()).resolve()
         (real / "feat-1").mkdir()
-        link = pathlib.Path(tempfile.mkdtemp()) / "w"
+        link = pathlib.Path(scratch()) / "w"
         os.symlink(real, link)
         self.assertTrue(filex.inside(str(real / "feat-1" / "sub"), str(link / "feat-1")))
         self.assertFalse(filex.inside(str(real / "feat-10"), str(link / "feat-1")))
