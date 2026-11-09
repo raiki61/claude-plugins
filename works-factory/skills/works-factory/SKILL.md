@@ -16,6 +16,7 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 - macOS・Linux・Windows の WSL2、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、`uv`（工場のノードが台本を走らせるのに使う）、Claude Code の `claude`。
 - WSL2 でない素の Windows（Git Bash・Cygwin・MSYS2 の上も含む。WSL の中の Linux は含まない）では動かない。殻（1. の、このプラグインの `bin/works-factory`）は工場を取ってくるところまで進むが、取ってきた工場の入口（工場の `bin/works-factory`・`bin/apply`）が「works-factory: 素の Windows では動かない（…）」の 1 行を標準エラーに出し、run を起こす前に止まる。訳は 2 つ: 素の Windows では Claude Code の sandbox が効かず、工場が役ごとに決めた書き込みの制限が黙って外れる。Archon も git worktree とシェルの段に WSL2 を要る。WSL2 を入れ（`wsl --install`）、WSL の中の Linux でこのプラグインを使う。
 - 足りない物は、殻（1. の `bin/works-factory`）が入れ方のコマンドを出して止まる。打ってから起動し直す。`uv` だけは殻が確かめず（仕様の表から進める起動、2. の `spec_table`、を除く）、run の最初のノードで落ちるので、先に入れておく。
+- PR を開く run（5. の `deliver=pr`）は `gh` も要る。
 - 認証: 既定は `claude` と `gh` のログインのまま。keychain・API キー・ゲートウェイ・`apiKeyHelper` で動く・認証で止まる・429 が返る（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）・会話のキャッシュの寿命（既定 5 分）を変える時は、[references/auth.md](references/auth.md) を読む。
 
 ## 1. 殻
@@ -55,7 +56,7 @@ WF workflow run works-factory-line --cwd <対象のリポジトリ> --input requ
 - 起動は長いので Bash の run_in_background で打ち、終わりの知らせで次の手を打つ。`nohup` や `&` で切り離さない（知らせが来ず、承認ノードで止まった run に気づけない）。
 - run の記録（Archon の家）は対象のリポジトリごとに分かれる。対象の外から打つ時は、WF のどのコマンドにも `--cwd <対象>` を付ける。`WORKS_FACTORY_HOME`（絶対パス）で家を替えて起動した run は、後の `respond`・`get`・`status`・`apply` にも同じ値を付ける（Bash の呼び出しの間で環境は継がれない）。
 - 何周もつなぐ時（周の鎖）は [references/chain.md](references/chain.md) を読む。
-- 部品（block。世界の解 `works-factory-world` などの観点 1 つ）を本線の外で 1 つだけ回す時は、取り置きの工場の `README.md` の「Running one block on its own」を読む。単独で使える 6 部品の入力・打ち方の例・返る物の読み方・測った時間と費用が在る。`plan-review` と `diagnose` は測った 1 回で 3〜4 ドル掛かった。`--cwd` は本線と同じパスにし、工場がまだ触っていない対象で同時に何本も起動しない（最初の run の `Running workflow:` の行を待つ）。
+- 部品（block。世界の解 `works-factory-world` などの観点 1 つ）を `works-factory-line`（2. の起動）の外で 1 つだけ回す時は、取り置きの工場の `README.md` の「Running one block on its own」を読む。単独で使える 6 部品の入力・打ち方の例・返る物の読み方・測った時間と費用が在る。`plan-review` と `diagnose` は測った 1 回で 3〜4 ドル掛かった。`--cwd` は `works-factory-line` と同じパスにし（run の記録はパスごとに分かれる）、工場がまだ触っていない対象で同時に何本も起動しない（最初の run の `Running workflow:` の行を待ってから残りを起動する。[references/spec.md](references/spec.md) の 5 部品も同じ）。
 
 ## 3. 承認ノードで答える
 
@@ -91,7 +92,7 @@ WF apply <run> --cwd <対象>
 - 人が最後の承認ノードで見た差分は、hash で封じてある。当てる前にその hash を照合し、違えば止まって何も変えない。
 - 無人の run が最後の承認ノードを推しで通した答え（`gates/gate-final.json` に `pushed` が在る）は人の通しと見なさず、当てる前に、答えの無い run と同じに緑・独立の目・差分の指紋・守りのパスを確かめる。
 - 最後の承認ノードで止めた run は `--allow-stopped`、封じた後のノードが落ちた run は `--allow-failed` を付ける。
-- 差分を当てる代わりに PR を開くのは、起動に `--input deliver=pr` を足した run だけ（既定は差分を残すだけで対象に書かない）。`gh` を入れ、その今のアカウント（`gh auth status` の active）を対象に PR を開けるアカウントにしておく。PR を作る Archon の部品 `archon-pr` は GitHub に forge のプラグインだけで触り、殻が止めた Archon の源から `bun` で 1 度だけ作って渡す（ネットワークに出ない。入れる物は無い）。作れない時は殻が 1 行告げ、その run は PR を作る前に断られる。push は git が run の環境で見つける認証だけを使う。全部は工場の README の「Opening a PR」で始まる項。
+- 差分を当てる代わりに PR を開くのは、起動に `--input deliver=pr` を足した run だけ（既定は差分を残すだけで対象に書かない）。`gh` を入れ、その今のアカウント（`gh auth status` の active）を対象に PR を開けるアカウントにしておく。PR を作る Archon の部品 `archon-pr` は GitHub に forge のプラグインだけで触り、殻が止めた Archon の源（取り置き済みの物）から `bun` で 1 度だけ作って渡す（作る段はネットワークに出ない。入れる物は無い。PATH に `archon-forge-github` が既に在ればそれを使う）。作れない時は殻が 1 行告げ、その run は PR を作る前に断られる。push は git が run の環境で見つける認証だけを使う。全部は工場の README の「Opening a PR」で始まる項。
 
 ## 6. 詳しい事
 
