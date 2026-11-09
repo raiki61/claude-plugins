@@ -3,13 +3,13 @@
 import json
 import os
 import pathlib
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
 from . import schemacheck
 import herdr as real_herdr
 from nodes import launch, turn
-from . import scratch
 
 
 class FakeHerdr:
@@ -213,7 +213,7 @@ class Turn(unittest.TestCase):
         self.assertEqual(h.calls[1][2], turn.with_carry(SECOND, CATCHUP, "/r.md"))
 
     def test_keep_report_writes_the_last_answer_of_each_turn_after_catchup(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         folder = os.path.join(d, "reports")
         def talk(name, *rows):
             path = os.path.join(d, name)

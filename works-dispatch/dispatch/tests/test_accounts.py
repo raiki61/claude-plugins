@@ -13,7 +13,6 @@ import claudex
 import config
 from config import Account
 from nodes import accounts
-from . import scratch
 
 NOW = 1791963000
 ACCTS = (Account("main", "claude"), Account("p1", "c1"), Account("p2", "c2"), Account("p3", "c3"))
@@ -287,7 +286,7 @@ class NoFiveHourWindow(unittest.TestCase):
         self.assertNotIn("5 時間", got["why"])
 
     def test_read_limits_keeps_a_null_five_hour_window(self):
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         (d / "p2.json").write_text(json.dumps({"five_hour": None, "seven_day": {"used_percentage": 28, "resets_at": 1}}),
                                    encoding="utf-8")
         self.assertIsNone(accounts.read_limits(d, ["p2"])["p2"]["five_hour"])
@@ -345,7 +344,7 @@ class FakePorts:
 
 class Pick(unittest.TestCase):
     def setUp(self):
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         (d / "second.md").write_text("二手目", encoding="utf-8")
         (d / "c.toml").write_text(f"""
 limits_dir = '{(d / "limits").as_posix()}'
@@ -428,7 +427,7 @@ source = "s"
 
 class ReadLimits(unittest.TestCase):
     def test_reads_files_and_marks_missing_or_broken_as_none(self):
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         (d / "main.json").write_text(json.dumps(limits()["main"]), encoding="utf-8")
         (d / "p2.json").write_text("{broken", encoding="utf-8")
         (d / "p3.json").write_text(json.dumps({"seven_day": "x"}), encoding="utf-8")
@@ -441,7 +440,7 @@ class ReadLimits(unittest.TestCase):
     def test_a_null_window_keeps_the_other_and_the_account_is_over_the_limit(self):
         # 5 時間の枠が 429 で断られ、7 日の枠の見出しが無い控え（limits.from_headers が seven_day を null で書く）。全体を捨てると、
         # 断られているアカウントを使用率の分からない物として選んでいた
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         (d / "p1.json").write_text(json.dumps({"five_hour": {"used_percentage": 100, "resets_at": 2000}, "seven_day": None}), encoding="utf-8")
         got = accounts.read_limits(str(d), ["p1"])
         self.assertEqual(got["p1"]["five_hour"]["used_percentage"], 100)

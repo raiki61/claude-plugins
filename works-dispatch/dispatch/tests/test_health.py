@@ -7,6 +7,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 
 from . import DISPATCH
@@ -14,7 +15,6 @@ import claudex
 import health
 import limits_entry
 from nodes import clean, wake
-from . import scratch
 
 NOW = 1_800_000_000
 
@@ -30,7 +30,7 @@ def touch(path, text="", at=None):
 
 class Background(unittest.TestCase):
     def setUp(self):
-        self.inbox = pathlib.Path(scratch())
+        self.inbox = pathlib.Path(tempfile.mkdtemp())
 
     def job(self, kind, at, done, out="出力"):
         log = touch(self.inbox / kind / f"co-{int(at)}.log", out, at)
@@ -72,7 +72,7 @@ class Background(unittest.TestCase):
 
 class Queue(unittest.TestCase):
     def setUp(self):
-        self.inbox = pathlib.Path(scratch())
+        self.inbox = pathlib.Path(tempfile.mkdtemp())
 
     def test_old_waiting_asks_are_one_line_per_place_and_empty_folders_go(self):
         d = self.inbox / wake.QUEUE_DIR / "k1"
@@ -95,7 +95,7 @@ class Queue(unittest.TestCase):
 
 class Growth(unittest.TestCase):
     def test_large_ledgers_and_unreadable_lines_are_shown(self):
-        inbox = pathlib.Path(scratch())
+        inbox = pathlib.Path(tempfile.mkdtemp())
         touch(inbox / wake.LOG, '{"kind": "ask"}\n' + "切れた行\n")
         notes = health.growth(str(inbox))
         self.assertEqual(len(notes), 1, notes)
@@ -109,7 +109,7 @@ class BoardsArchive(unittest.TestCase):
     """盤面の写しの片付け（clean.keep_boards が写すたびに呼ぶ prune_kept）は、works-dispatch が写した物（印の有る物）だけを大きさで消す。"""
 
     def setUp(self):
-        self.archive = pathlib.Path(scratch())
+        self.archive = pathlib.Path(tempfile.mkdtemp())
         limit = clean.ARCHIVE_LIMIT
         clean.ARCHIVE_LIMIT = 25   # 3 つで 30。古い 1 つを消せば収まる
         self.addCleanup(setattr, clean, "ARCHIVE_LIMIT", limit)
@@ -134,7 +134,7 @@ class BoardsArchive(unittest.TestCase):
 
 class KeptTmp(unittest.TestCase):
     def setUp(self):
-        self.kept = pathlib.Path(scratch())
+        self.kept = pathlib.Path(tempfile.mkdtemp())
 
     def copy(self, name, age, size=10):
         d = self.kept / name
@@ -182,7 +182,7 @@ class Entry(unittest.TestCase):
     """タブバーが呼ぶ入口は、今入っている版の limits.py を探す。前の版（.orphaned_at）は飛ばす。"""
 
     def setUp(self):
-        self.home = pathlib.Path(scratch())
+        self.home = pathlib.Path(tempfile.mkdtemp())
         self.cfg = self.home / ".claude-a"
         cache = self.cfg / "plugins" / "cache" / "m" / "works-dispatch"
         self.old, self.new = cache / "0.1.3", cache / "0.2.0"
@@ -262,7 +262,7 @@ class Agents(unittest.TestCase):
         for cwd, name in (("/Users/p03623/.herdr/worktrees/claude-plugins/work-breakage-detection",
                            "-Users-p03623--herdr-worktrees-claude-plugins-work-breakage-detection"),
                           ("/Users/p03623/src/my_notes", "-Users-p03623-src-my-notes")):
-            home = pathlib.Path(scratch())
+            home = pathlib.Path(tempfile.mkdtemp())
             touch(home / "projects" / name / "a.jsonl", "{}\n", NOW)
             with self.subTest(cwd=cwd):
                 self.assertEqual(claudex.newest_talk(str(home), cwd), ("a.jsonl", NOW))

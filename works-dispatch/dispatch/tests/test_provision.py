@@ -10,6 +10,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -18,7 +19,6 @@ import gitx
 import herdr as real_herdr
 from config import Repo
 from nodes import provision
-from . import scratch
 
 
 def git(*args, cwd=None):
@@ -34,10 +34,9 @@ _TEMPLATE = []
 
 def _template():
     """make_world の元の形を 1 度だけ作る（git を何度も起動しないため。各試験はこれを写して使う）。"""
-    if _TEMPLATE and _TEMPLATE[0].exists():   # 作り置きは、作った試験のモジュールが終わると消える（scratch）。消えていれば作り直す
+    if _TEMPLATE:
         return _TEMPLATE[0]
-    _TEMPLATE.clear()
-    t = pathlib.Path(scratch(prefix="dispatch-tmpl-")).resolve()
+    t = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-tmpl-")).resolve()
     remote = t / "o" / "r.git"
     remote.parent.mkdir()
     git("init", "--bare", "-q", "-b", "main", str(remote))
@@ -59,7 +58,7 @@ def _template():
 def make_world():
     """(元の clone のパス, worktree の置き場) を返す。origin には main と feat/1〜feat/9 が在る（どれも最初の commit。.gitignore を持つ）。
     元の clone は main に居て、追跡しないファイル frontend/.env.local がある。"""
-    t = pathlib.Path(scratch(prefix="dispatch-prov-")).resolve()
+    t = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-prov-")).resolve()
     shutil.copytree(_template(), t, dirs_exist_ok=True, symlinks=True)
     src = t / "src"
     git("-C", str(src), "remote", "set-url", "origin", str(t / "o" / "r.git"))
@@ -87,7 +86,7 @@ class WorktreeHerdr:
     Error = real_herdr.Error
 
     def __init__(self, root=None, g=None):
-        self.root = root or str(pathlib.Path(scratch(prefix="dispatch-wt-")).resolve())
+        self.root = root or str(pathlib.Path(tempfile.mkdtemp(prefix="dispatch-wt-")).resolve())
         self.g = g
         self._panes = []
         self._n = 0

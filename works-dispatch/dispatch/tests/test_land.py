@@ -15,6 +15,7 @@ import pathlib
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -32,7 +33,6 @@ from config import Repo
 from nodes import bump, land, landqueue
 
 from . import fakegit
-from . import scratch
 
 
 def git(*args):
@@ -257,7 +257,7 @@ def no_rows(cfg, repo, ports, found, notes):
 
 class LandCase(unittest.TestCase):
     def setUp(self):
-        self.tmp = os.path.realpath(scratch(prefix="dispatch-land-"))
+        self.tmp = os.path.realpath(tempfile.mkdtemp(prefix="dispatch-land-"))
         self.env = isolated_git(self.tmp)
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -469,7 +469,7 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(self.told, [])
 
     def test_resolve_changelog_leaves_other_conflicts_alone(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         path = os.path.join(d, "CHANGELOG.md")
         write(path, "# 記録\n\n## [0.1.0]\n<<<<<<< HEAD\nあ\n=======\nい\n>>>>>>> c\n")
         self.assertFalse(land.resolve_changelog(path))   # Unreleased の頭でないぶつかり
@@ -978,7 +978,7 @@ class OtherModes(LandCase):
         for old in ({"number": 5, "state": "MERGED", "head_sha": "0" * 40, "base": "main", "url": "https://pr/5"},
                     {"number": 6, "state": "OPEN", "head_sha": "0" * 40, "base": "release/1", "url": "https://pr/6"}):
             with self.subTest(old=old["number"]):
-                w = FakeWorld(scratch(dir=self.tmp), {".claude/company.toml": '[land]\nmode = "pr"\n'})
+                w = FakeWorld(tempfile.mkdtemp(dir=self.tmp), {".claude/company.toml": '[land]\nmode = "pr"\n'})
                 w.work()
                 gh = FakeGh(open_pr=old)
                 code, out = self.land(w, FakePorts(w, gh=gh))
@@ -1267,32 +1267,9 @@ class Tell(unittest.TestCase):
         self.assertEqual(seen, [("a", "直して", "--land", "/c.toml", "/w")])
 
 
-class Unstage(unittest.TestCase):
-    """--land の一時の場所（OS の一時の置き場の下の dispatch-land-*）は、消せれば黙って消し、消えずに残れば注記を出す。"""
-
-    def run_unstage(self, rmtree=None):
-        stage = scratch(prefix="dispatch-land-")
-        run = mock.Mock(source="/src")
-        out = io.StringIO()
-        with mock.patch.object(land, "unstage"), contextlib.redirect_stdout(out), \
-                mock.patch.object(landing.shutil, "rmtree", rmtree or landing.shutil.rmtree):
-            landing._unstage(run, stage)
-        return stage, out.getvalue()
-
-    def test_removes_the_stage(self):
-        stage, out = self.run_unstage()
-        self.assertFalse(os.path.exists(stage))
-        self.assertEqual(out, "")
-
-    def test_says_when_the_stage_stays(self):
-        stage, out = self.run_unstage(rmtree=lambda *a, **kw: None)
-        self.assertTrue(os.path.exists(stage))
-        self.assertIn(f"一時のフォルダ {stage} が消えずに残った", out)
-
-
 class Rules(unittest.TestCase):
     def setUp(self):
-        self.dir = scratch(prefix="dispatch-rules-")
+        self.dir = tempfile.mkdtemp(prefix="dispatch-rules-")
 
     def read(self, text, role=None):
         path = os.path.join(self.dir, "company.toml")

@@ -6,7 +6,6 @@ from . import DISPATCH  # noqa: F401
 from . import schemacheck
 from config import Repo
 from nodes import assign
-from . import scratch
 
 REPO = Repo("o/r", "s", "/src/r", ())
 PLACES = {"feat/1": "/w/r/feat-1", "feat/10": "/w/r/feat-10"}
@@ -46,9 +45,9 @@ class Plan(unittest.TestCase):
         import os
         import pathlib
         import tempfile
-        real = pathlib.Path(scratch()).resolve()
+        real = pathlib.Path(tempfile.mkdtemp()).resolve()
         (real / "feat-1").mkdir()
-        link = pathlib.Path(scratch()) / "w"
+        link = pathlib.Path(tempfile.mkdtemp()) / "w"
         os.symlink(real, link)
         rows = assign.plan(REPO, [pr(1)], set(), {str(real / "feat-1" / "backend")}, [acct("a")],
                            places={"feat/1": str(link / "feat-1")})

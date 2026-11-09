@@ -2,12 +2,12 @@
 
 import json
 import pathlib
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
 import activity  # noqa: E402
 import windows  # noqa: E402
-from . import scratch  # noqa: E402
 
 
 class Label(unittest.TestCase):
@@ -33,7 +33,7 @@ class Label(unittest.TestCase):
 
 class Handle(unittest.TestCase):
     def setUp(self):
-        self.dir = pathlib.Path(scratch())
+        self.dir = pathlib.Path(tempfile.mkdtemp())
         self.sent, self.looked = [], []
         # 裏の会話は控えの処理の HERDR_PANE_ID を継ぎ、別のペインを指すことがある（2026-10-17 に見た）。印はそこへ送らない
         self.env = {"HERDR_ENV": "1", "HERDR_PANE_ID": "w9:p9", "TMPDIR": str(self.dir)}

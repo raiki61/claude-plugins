@@ -3,16 +3,16 @@
 import os
 import pathlib
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import vscode  # noqa: E402
-from . import scratch  # noqa: E402
 
 
 class OpenPages(unittest.TestCase):
     def setUp(self):
-        self.tmp = pathlib.Path(scratch())
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.socks = []
         for i, name in enumerate(("vscode-ipc-old.sock", "vscode-ipc-new.sock")):
             s = self.tmp / name

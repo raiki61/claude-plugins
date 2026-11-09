@@ -2,17 +2,17 @@
 
 import json
 import pathlib
+import tempfile
 import textwrap
 import unittest
 
 from . import DISPATCH
 from . import fences
-from . import scratch
 
 
 def tree(files):
     """{相対パス: 本文} から一時の木を作り、そのルートを返す。"""
-    root = pathlib.Path(scratch(prefix="dispatch-fence-"))
+    root = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-fence-"))
     for rel, body in files.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)

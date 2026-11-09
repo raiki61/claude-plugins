@@ -8,6 +8,7 @@ import pathlib
 import shutil
 import stat
 import subprocess
+import tempfile
 import unittest
 import urllib.parse
 
@@ -21,7 +22,6 @@ import herdr as real_herdr
 import orders
 import shape_hook
 from nodes import clean, land, provision, role, sync, tree, wake
-from . import scratch
 
 
 def fake_runner(out="", rc=0):
@@ -47,13 +47,13 @@ class OpenAsks(unittest.TestCase):
                    {"kind": "deliver", "id": "d5", "ask": "a5", "status": "failed"},   # 知らせられなかった納品は閉じない
                    {"kind": "deliver", "id": "d6", "ask": "a6", "status": "sent", "for": "x"}]   # --for の返しは今の頼みを閉じない
         self.assertEqual([r["id"] for r in deliver.open_asks(records)], ["a5", "a6"])
-        f = pathlib.Path(scratch(), "q-ask.md")
+        f = pathlib.Path(tempfile.mkdtemp(), "q-ask.md")
         f.write_text("段取りが回した: 割り振りが止まっている\n\n---\n\n前提が違う、と思ったら返して。\n\n## 困りごと\n本文\n", encoding="utf-8")
         self.assertEqual(deliver.ask_title(str(f)), "本文")
         self.assertIsNone(deliver.ask_title("/無い"))
 
     def test_the_desk_of_another_company_written_in_the_shape_is_the_desk(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         info = pathlib.Path(d, "company.toml")
         info.write_text('name = "co"\ndesk = "my_notes/段取り"\n', encoding="utf-8")
         got = tree.read_info(d, None, committed=lambda root: (str(info), info.read_text(encoding="utf-8")))
@@ -67,8 +67,8 @@ class OpenAsks(unittest.TestCase):
     def test_open_asks_go_to_the_company_that_holds_the_department(self):
         import calls
         from nodes import deliver
-        inbox = scratch()
-        place = scratch()
+        inbox = tempfile.mkdtemp()
+        place = tempfile.mkdtemp()
         deliver.log(inbox, {"kind": "ask", "id": "a1", "status": "sent", "at": 1, "from": {"name": "段取り"},
                             "to": {"company": "co", "name": "調べ", "path": place}, "file": "/無い"})
         first = {"name": "co", "inbox": None, "departments": []}
@@ -123,7 +123,7 @@ class Attrs(unittest.TestCase):
 
     def test_common_dir_and_root_of_a_linked_worktree_are_the_source(self):
         self.assertEqual(os.path.realpath(gitx.root_of(gitx.common_dir(self.place))), os.path.realpath(self.src))
-        self.assertIsNone(gitx.common_dir(scratch()))
+        self.assertIsNone(gitx.common_dir(tempfile.mkdtemp()))
         self.assertEqual(gitx.root_of(os.path.join("x", "bare.git")), os.path.join("x", "bare.git"))
 
     def test_is_merged_reads_the_target(self):
@@ -207,8 +207,8 @@ def write(path, text):
 
 class Info(unittest.TestCase):
     def setUp(self):
-        self.root = scratch(prefix="company-")
-        self.settings = scratch(prefix="company-settings-")
+        self.root = tempfile.mkdtemp(prefix="company-")
+        self.settings = tempfile.mkdtemp(prefix="company-settings-")
 
     def test_none_without_a_file(self):
         got = tree.read_info(self.root, self.settings)
@@ -285,7 +285,7 @@ class Info(unittest.TestCase):
 
 def publish(src, text):
     """origin の main に .claude/company.toml を commit して push し（元の clone の作業ツリーは動かさない）、origin/HEAD を main に向ける。"""
-    side = scratch(prefix="company-pub-") + "/w"
+    side = tempfile.mkdtemp(prefix="company-pub-") + "/w"
     git("-C", src, "fetch", "-q", "origin", "main")
     git("-C", src, "worktree", "add", "-q", "--detach", side, "origin/main")
     write(os.path.join(side, ".claude", "company.toml"), text)
@@ -302,7 +302,7 @@ class Source(unittest.TestCase):
 
     def setUp(self):
         self.src, self.root = make_world()
-        self.settings = scratch(prefix="company-settings-")
+        self.settings = tempfile.mkdtemp(prefix="company-settings-")
         # 元の clone はほかの会話が古いブランチで使っている（会社の形を持たないか、古い物を持つ）
         git("-C", self.src, "checkout", "-q", "-b", "old")
 
@@ -340,7 +340,7 @@ class Source(unittest.TestCase):
     def test_with_origin_head_or_without_origin_there_is_no_note(self):
         git("-C", self.src, "remote", "set-head", "origin", "main")
         self.assertEqual(tree.read_info(self.src, self.settings)["notes"], [])
-        self.assertIsNone(tree.head_note(scratch(prefix="company-plain-")))   # git でない・origin が無い
+        self.assertIsNone(tree.head_note(tempfile.mkdtemp(prefix="company-plain-")))   # git でない・origin が無い
 
     def test_default_branch_without_the_shape_falls_back_to_the_clone(self):
         git("-C", self.src, "remote", "set-head", "origin", "main")
@@ -401,7 +401,7 @@ class Build(unittest.TestCase):
         gitx.enable_worktree_config(str(src))
         for k, v in (("name", "段取り"), ("role", "段取り"), ("session", "s-h"), ("reloaded", "1 1")):
             gitx.set_worktree_attr(str(src), k, v)
-        place = os.path.join(os.path.realpath(scratch(prefix="works-dispatch-tool-")), "tree")
+        place = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="works-dispatch-tool-")), "tree")
         self.addCleanup(shutil.rmtree, os.path.dirname(place), True)
         git("-C", str(src), "worktree", "add", "-q", "--detach", place, "HEAD")
         # 写した後に本社の属性が書き換わっても（窓口が会話を替えて会話の id が変わっても）写しと見る
@@ -429,7 +429,7 @@ class Build(unittest.TestCase):
         self.assertEqual((own(str(src)), own(place)), (gitx.MAIN_ID, "dept"))
         os.makedirs(os.path.join(src, "sub"), exist_ok=True)   # 本社の中のフォルダから読んでも、本社の属性（写しと見ない）
         self.assertEqual(gitx.worktree_attrs(os.path.join(src, "sub")), {"name": "段取り", "role": "段取り"})
-        copy = os.path.join(os.path.realpath(scratch(prefix="vrwt-")), "vrwt")
+        copy = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="vrwt-")), "vrwt")
         self.addCleanup(shutil.rmtree, os.path.dirname(copy), True)
         git("-C", place, "worktree", "add", "-q", "--detach", copy, "HEAD")
         nested = copy + "-2"   # 写しからもう一度切っても
@@ -846,10 +846,10 @@ class Entry(unittest.TestCase):
         def never(config_path, root):
             raise AssertionError("揃え直した")
         self.assertEqual(self.hook(never), (False, []))   # 会社の形の無いリポジトリ
-        self.assertEqual(shape_hook.run({"cwd": scratch()}, {}, never), (False, []))
+        self.assertEqual(shape_hook.run({"cwd": tempfile.mkdtemp()}, {}, never), (False, []))
 
     def test_sync_of_one_company_leaves_the_others(self):
-        lines, rc = dispatch.sync_companies(self.cfg, self.ports, only=scratch())
+        lines, rc = dispatch.sync_companies(self.cfg, self.ports, only=tempfile.mkdtemp())
         self.assertEqual((rc, lines), (0, ["付け直す部署は無い（属性を持つ部署が無い）"]))
         self.assertEqual(self.ports.term.writes, [])
 
@@ -974,7 +974,7 @@ class Departments(unittest.TestCase):
 
     def test_job_tmp_is_copied_into_the_common_git_before_rm(self):
         # claude rm は会話の一時の置き場も消す。部署がそこに残した物（2026-10-17 の測りのツール）を、消す前に写して残す
-        tmp = pathlib.Path(scratch()) / "jobs" / "a" / "tmp"
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "jobs" / "a" / "tmp"
         (tmp / "tools").mkdir(parents=True)
         (tmp / "tools" / "measure.py").write_text("x\n", encoding="utf-8")
         real = dispatch.chat.job_tmp
@@ -1030,7 +1030,7 @@ class Departments(unittest.TestCase):
 
     def test_job_tmp_copy_overwrites_a_read_only_file_and_a_folder_turned_into_a_file(self):
         # 下の試験の、Windows でも起きる部分（読み取り専用の git の objects の上書き・フォルダからファイルへの入れ替え）
-        tmp = pathlib.Path(scratch())
+        tmp = pathlib.Path(tempfile.mkdtemp())
         (tmp / "repo" / "objects").mkdir(parents=True)
         obj = tmp / "repo" / "objects" / "ab"
         obj.write_text("blob\n", encoding="utf-8")
@@ -1060,7 +1060,7 @@ class Departments(unittest.TestCase):
     def test_job_tmp_copy_finishes_when_a_former_copy_stopped_halfway(self):
         # 前の回の写しが読み取り専用のファイル（git の objects）とリンクを残しても、打ち直せば写し終える（2026-10-17 の
         # --retire 点検は Errno 13 と 17 で止まり続けた）
-        tmp = pathlib.Path(scratch())
+        tmp = pathlib.Path(tempfile.mkdtemp())
         (tmp / "repo" / "objects").mkdir(parents=True)
         obj = tmp / "repo" / "objects" / "ab"
         obj.write_text("blob\n", encoding="utf-8")
@@ -1089,7 +1089,7 @@ class Departments(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "Windows の chmod は読み取りの権限を外せない（書き込みの可否だけを切り替える）")
     def test_job_tmp_copy_stops_on_a_folder_it_cannot_read(self):
         # 読めないフォルダを飛ばして「写した」とすると、claude rm が中身ごと消す
-        tmp = pathlib.Path(scratch())
+        tmp = pathlib.Path(tempfile.mkdtemp())
         (tmp / "locked").mkdir()
         (tmp / "locked" / "note").write_text("x", encoding="utf-8")
         (tmp / "locked").chmod(0o300)
@@ -1098,7 +1098,7 @@ class Departments(unittest.TestCase):
             clean.keep_tmp(str(tmp), self.src, "locked", self.g)
 
     def test_retire_keeps_everything_when_job_tmp_cannot_be_copied(self):
-        tmp = pathlib.Path(scratch())
+        tmp = pathlib.Path(tempfile.mkdtemp())
         (tmp / "note").write_text("x", encoding="utf-8")
         asked = []
 

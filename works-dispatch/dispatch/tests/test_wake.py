@@ -26,7 +26,6 @@ import role_hook
 import wake_hook
 from ports import chat
 from nodes import deliver, ledger, provision, role, tree, wake
-from . import scratch
 
 
 def write_line(log, record):
@@ -58,9 +57,9 @@ class Watch(unittest.TestCase):
     """待ち受けの本体を、時計と待ちを偽物にして回す。台帳への書き込みは待ちのターンごとに差し込む。"""
 
     def setUp(self):
-        self.inbox = scratch()
+        self.inbox = tempfile.mkdtemp()
         self.log = os.path.join(self.inbox, wake.LOG)
-        self.place = scratch()
+        self.place = tempfile.mkdtemp()
         self.names = ["co/調べ", "co/前の名前"]
         self.clock = [1000.0]
 
@@ -261,7 +260,7 @@ class Watch(unittest.TestCase):
         self.assertIn("! 渡す待ち受けが居ない（受けたままの頼みを持つ会話がもう居ない）（--nudge 窓口 --dry-run で動かし方を見る）", line)
 
     def test_seat_lost_is_only_where_a_line_or_attach_cannot_raise_a_waiter(self):
-        attrs = {"session": "s1", "ask": "a1", "boss-inbox": scratch()}
+        attrs = {"session": "s1", "ask": "a1", "boss-inbox": tempfile.mkdtemp()}
         office = {"head_office": True, "talk_gone": True, "attrs": attrs, "panes": [{"pane_id": "w1:p1", "agent_session": "s2"}]}
         said = orders.seat_lost(office, "w1:p1")
         self.assertIn("窓 w1:p1 の会話 s2 は窓口の席に付いていない", said)
@@ -278,7 +277,7 @@ class Watch(unittest.TestCase):
 
     def test_held_is_the_last_hold_of_the_place_while_its_watcher_runs(self):
         # 待ち受けは居るが渡さずに待っている（2026-10-17 の割り振り）。台帳のその場所の最後の行が held のときだけ
-        cwd = scratch()
+        cwd = tempfile.mkdtemp()
         wake.claim(self.inbox, self.place, self.names, "s1", os.getpid(), "t", 0)
         write_line(self.log, {"id": "a1", "kind": "held", "place": cwd, "session": "s1", "detail": "窓を確かめられない"})
         self.assertIsNone(wake.held(self.inbox, cwd, self.place))   # 順番待ちが無い
@@ -286,7 +285,7 @@ class Watch(unittest.TestCase):
         self.assertEqual(wake.held(self.inbox, cwd, self.place), "窓を確かめられない")
         self.assertEqual(wake.held(self.inbox, os.path.dirname(cwd) + os.sep + os.path.basename(cwd), self.place),
                          "窓を確かめられない")
-        self.assertIsNone(wake.held(self.inbox, scratch(), self.place))   # ほかの場所の行
+        self.assertIsNone(wake.held(self.inbox, tempfile.mkdtemp(), self.place))   # ほかの場所の行
         self.assertIsNone(wake.held(self.inbox, cwd, self.place, {"ask": "a9"}))   # 取った頼みをまだ納品していない（--take）
         self.assertEqual(wake.held(self.inbox, cwd, self.place, {"ask": "a9"}, gone=True), "窓を確かめられない")   # 受けた会話がもう居ない
         wake.claim(self.inbox, self.place, self.names, "s2", os.getpid(), "t", 0)
@@ -370,7 +369,7 @@ class Keepalive(unittest.TestCase):
     """keepalive: 仕事が終わらないままターンを終えた会話に、キャッシュの寿命が切れる前に文を渡す（wake_hook.Warm・warm_for）。"""
 
     def setUp(self):
-        self.inbox, self.place, self.cwd = scratch(), scratch(), scratch()
+        self.inbox, self.place, self.cwd = tempfile.mkdtemp(), tempfile.mkdtemp(), tempfile.mkdtemp()
         self.log = os.path.join(self.cwd, "talk.jsonl")
         pathlib.Path(self.log).write_text("{}\n", encoding="utf-8")
         self.got = {"cwd": self.cwd, "inbox": self.inbox, "place": self.place, "session": "s1", "job": None}
@@ -676,7 +675,7 @@ class Keepalive(unittest.TestCase):
         self.assertIsNone(wake.long_wait(self.inbox, self.place, {"ask": "a1", "session": "s1"}, now=wake.LONG_WAIT + 1))
 
     def test_the_watch_hands_a_notice_before_it_asks_the_clock(self):
-        inbox, place, clock = scratch(), scratch(), [0.0]
+        inbox, place, clock = tempfile.mkdtemp(), tempfile.mkdtemp(), [0.0]
 
         def pause(sec):
             clock[0] += sec
@@ -692,7 +691,7 @@ class Keepalive(unittest.TestCase):
         self.assertNotIn("（keepalive）", err.getvalue())
 
     def test_the_watch_wakes_with_what_idle_says_when_no_notice_came(self):
-        inbox, place, clock, said = scratch(), scratch(), [0.0], []
+        inbox, place, clock, said = tempfile.mkdtemp(), tempfile.mkdtemp(), [0.0], []
 
         def pause(sec):
             clock[0] += sec
@@ -788,10 +787,10 @@ class Late(unittest.TestCase):
     """待ち行列に残った知らせで会話が再開しないときに、待ち受けが遅れて送る止まる前の差し戻し（wake_hook.Late・late_for）。"""
 
     def setUp(self):
-        self.cwd = scratch()
+        self.cwd = tempfile.mkdtemp()
         self.log = os.path.join(self.cwd, "talk.jsonl")
         self.add({"type": "assistant"}, {"type": "queue-operation", "operation": "enqueue", "content": "<task-notification>"})
-        self.got = {"cwd": self.cwd, "inbox": scratch(), "place": scratch(), "session": "s1", "job": None}
+        self.got = {"cwd": self.cwd, "inbox": tempfile.mkdtemp(), "place": tempfile.mkdtemp(), "session": "s1", "job": None}
         self.payload = {"hook_event_name": "Stop", "session_id": "s1", "cwd": self.cwd, "transcript_path": self.log, "background_tasks": []}
         self.attrs = {"role": "担当", "ask": "a1"}
         self.clock, self.asked = [1000.0], []
@@ -842,7 +841,7 @@ class Late(unittest.TestCase):
         self.assertIsNone(late(), "差し戻しが要らない（使い切った・納品の後で残ってよい）なら送らない")
 
     def test_it_uses_the_stop_hooks_nudge_and_count(self):
-        tmp = scratch()
+        tmp = tempfile.mkdtemp()
         late = wake_hook.Late(self.got, self.payload, lambda cwd: self.attrs, lambda: self.clock[0])
         self.clock[0] += wake_hook.LATE_WAIT
         with mock.patch.object(tempfile, "gettempdir", lambda: tmp):
@@ -852,7 +851,7 @@ class Late(unittest.TestCase):
 
     def test_at_the_limit_it_leaves_the_stopped_notice_instead(self):
         # Stop フックが差し戻しを使い切った後なら、送らずに頼み元へ止まった知らせを置く（Stop フックと同じ 1 度だけ）
-        tmp, sent = scratch(), []
+        tmp, sent = tempfile.mkdtemp(), []
         count = pathlib.Path(deliver.stop_count_path(tmp, "s1", "a1"))
         count.parent.mkdir(parents=True, exist_ok=True)
         count.write_text(str(deliver.STOP_LIMIT), encoding="utf-8")
@@ -865,7 +864,7 @@ class Late(unittest.TestCase):
         self.assertEqual(count.read_text(encoding="utf-8"), str(deliver.STOP_LIMIT + 1), "2 度は知らせない")
 
     def test_after_delivery_it_uses_the_leftover_nudge_and_its_own_count(self):
-        tmp, seen = scratch(), []
+        tmp, seen = tempfile.mkdtemp(), []
         self.attrs = {**self.attrs, "delivered": "a1"}
         late = wake_hook.Late(self.got, self.payload, lambda cwd: self.attrs, lambda: self.clock[0])
         self.clock[0] += wake_hook.LATE_WAIT
@@ -899,7 +898,7 @@ class Hook(unittest.TestCase):
 
     def setUp(self):
         # git は偽物（tests/fakegit.py）。会社 co は origin の無い clone で、部署「dept」はメインブランチから切った worktree
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         self.g = fakegit.FakeGit(str(d / "co"), {}, url="")
         self.g.origin.clear()
         self.g.tracking.clear()
@@ -909,7 +908,7 @@ class Hook(unittest.TestCase):
         self.repos = fakegit.Repos(self.g)   # フックの git の口（ほかの会社の clone を足せる）
         fakegit.wire(self, self.repos, wake_hook, role_hook, orders)
         self.inbox = deliver.inbox_of(self.g.common_dir(self.src))
-        self.env = {"WORKS_DISPATCH_CONFIG": "/none/c.toml", "TMPDIR": scratch()}   # 会話に足した役の文の控え（role_hook.seen_path）の置き場
+        self.env = {"WORKS_DISPATCH_CONFIG": "/none/c.toml"}
         quiet = mock.patch.object(wake_hook, "RENT", lambda *a, **k: (None, "試験では部品に聞かない"))   # 決まった数で動く
         quiet.start()
         self.addCleanup(quiet.stop)
@@ -1423,7 +1422,7 @@ class Hook(unittest.TestCase):
         # 進めて役の定義が替わったら、待ち受けは渡す前に、同じアカウントのまま起動し直す（--move の名指しの道。受付 c149fa と 72f7e4）
         land = self.with_origin()
         land(".claude/agents/調べ.md")
-        d = scratch()
+        d = tempfile.mkdtemp()
         cfg = os.path.join(d, "c.toml")
         pathlib.Path(cfg).write_text(f"limits_dir = '{d}'\naccounts = [{{ name = \"a1\", command = \"c1\" }}]\n", encoding="utf-8")
         pathlib.Path(d, "a1.json").write_text(json.dumps({"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 10}}),
@@ -1695,7 +1694,7 @@ class Hook(unittest.TestCase):
         self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: same, early_of=lambda g, a: True))
         self.g.heads[os.path.realpath(self.place)] = branch
         # 早めに移す目安は、設定と使用率の控えから読む（控えは取り直さない）
-        d = scratch()
+        d = tempfile.mkdtemp()
         cfg = os.path.join(d, "c.toml")
         pathlib.Path(cfg).write_text(f"limits_dir = '{d}'\naccounts = [{{ name = \"a1\", command = \"c1\" }}, "
                                      f"{{ name = \"a2\", command = \"c2\" }}]\n", encoding="utf-8")
@@ -1732,7 +1731,7 @@ class Hook(unittest.TestCase):
 
     def test_an_ask_whose_text_never_reached_the_talk_is_handed_once_again(self):
         # my_notes の受付 4bae53: 渡した字は殺された会話の処理と消え、起動し直した会話は move-brief.md の「頼みは無い」だけを読んだ
-        boss_inbox = scratch()
+        boss_inbox = tempfile.mkdtemp()
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "q1", "delivered": "q0", "session": "s1",
                                               "boss": "段取り", "boss-inbox": boss_inbox}, self.g)
         brief = os.path.join(self.g.git_dir(self.place), "move-brief.md")
@@ -1810,7 +1809,7 @@ class Hook(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "切り離しは /bin/sh の殻で、Windows では使わない（wake_hook・limit_hook は Windows で切り離さずに起動する）")
     def test_the_move_runs_detached_from_the_talk_and_writes_its_output_and_end(self):
         # 会話を止めると Claude Code はフックの子孫も止める。--move は切り離して走らせ、前の会話を止めても最後まで走る
-        d = scratch()
+        d = tempfile.mkdtemp()
         log, done = os.path.join(d, "m.log"), os.path.join(d, "m.done")
         p = subprocess.Popen(wake.detached([sys.executable, "-c", "print('動いた')"], log, done), start_new_session=True)
         p.wait()
@@ -2003,7 +2002,7 @@ class Hook(unittest.TestCase):
         self.assertNotIn(wake.REST, self.g.worktree_attrs(self.place))
 
     def transcript(self, tokens):
-        path = os.path.join(scratch(), "t.jsonl")
+        path = os.path.join(tempfile.mkdtemp(), "t.jsonl")
         with open(path, "w", encoding="utf-8") as f:
             f.write(json.dumps({"type": "user", "message": {"content": "x"}}) + "\n")
             f.write(json.dumps({"type": "assistant", "message": {"usage": {
@@ -2511,7 +2510,7 @@ class Hook(unittest.TestCase):
                          {"asked": True, "deferred": 2, "ending": False, "judged": False, "forced": False})
 
     def test_talk_of_finds_the_largest_record_of_a_session_across_accounts(self):
-        home = pathlib.Path(scratch())
+        home = pathlib.Path(tempfile.mkdtemp())
         for account, size in ((".claude-p1", 10), (".claude-p2", 30), (".claude-p3", 0)):
             (home / account / "plugins").mkdir(parents=True)
             (home / account / "plugins" / chat.PLUGINS_FILE).write_text("{}", encoding="utf-8")
@@ -2686,7 +2685,7 @@ class Hook(unittest.TestCase):
     def test_a_pane_of_another_place_is_not_the_window_even_with_this_talk_mark(self):
         # herdr の印は別の部署の会話の id のまま残ることがある（2026-10-17 に my_notes で、ノートの手入れの待ち受けが印の合った
         # 調べものの窓に /clear を打った）。場所の違う窓は、印が合っても打ち先にしない
-        other = scratch()
+        other = tempfile.mkdtemp()
 
         class Stale(Window):
             def panes(self):
@@ -2843,7 +2842,7 @@ class Hook(unittest.TestCase):
         self.assertIn("頼みです（受付 a1）", err)
 
     def test_a_waiter_finds_the_installed_version_of_itself(self):
-        root = pathlib.Path(scratch()) / "plugins"
+        root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
         mine = root / "cache" / "raiki61" / "works-dispatch" / "0.1.0" / "dispatch" / "wake_hook.py"
         new = root / "cache" / "raiki61" / "works-dispatch" / "0.2.0" / "dispatch" / "wake_hook.py"
         for f in (mine, new):
@@ -2884,7 +2883,7 @@ class HookProcess(unittest.TestCase):
     一時のフォルダの本物。"""
 
     def setUp(self):
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         self.src = str(d / "co")
         git("init", "-q", "-b", "main", self.src)
         git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
@@ -2894,11 +2893,11 @@ class HookProcess(unittest.TestCase):
         self.env = {"WORKS_DISPATCH_CONFIG": "/none/c.toml"}
 
     def test_hook_process_wakes_on_its_notice_and_is_quiet_elsewhere(self):
-        p = subprocess.run([sys.executable, str(DISPATCH / "wake_hook.py")], input=json.dumps({"cwd": scratch()}),
+        p = subprocess.run([sys.executable, str(DISPATCH / "wake_hook.py")], input=json.dumps({"cwd": tempfile.mkdtemp()}),
                            capture_output=True, text=True, encoding="utf-8")
         self.assertEqual((p.returncode, p.stdout, p.stderr), (0, "", ""))
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ"}, gitx)
-        env = {**os.environ, **self.env, "TMPDIR": scratch()}
+        env = {**os.environ, **self.env, "TMPDIR": tempfile.mkdtemp()}
         role_hook.remember("s1", role_hook.text_for(self.place, env), env)   # 会話の始まりに足した役の文のまま（替わっていない）
         proc = subprocess.Popen([sys.executable, str(DISPATCH / "wake_hook.py")], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env)
@@ -2923,7 +2922,7 @@ class HookProcess(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "Windows は exec でなく子として起動する")
     def test_an_older_waiter_execs_the_installed_one_in_the_same_process_with_the_same_input(self):
-        root = pathlib.Path(scratch()) / "plugins"
+        root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
         old = root / "cache" / "raiki61" / "works-dispatch" / "0.1.0" / "dispatch"
         shutil.copytree(DISPATCH, old, ignore=shutil.ignore_patterns("tests", "__pycache__"))
         new = root / "cache" / "raiki61" / "works-dispatch" / "0.2.0" / "dispatch" / "wake_hook.py"
@@ -2946,7 +2945,7 @@ class HookProcess(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "Windows は替わらない")
     def test_the_installed_waiter_goes_on_from_the_same_queue_after_the_hop(self):
-        root = pathlib.Path(scratch()) / "plugins"
+        root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
         versions = root / "cache" / "raiki61" / "works-dispatch"
         for v in ("0.1.0", "0.2.0"):
             shutil.copytree(DISPATCH, versions / v / "dispatch", ignore=shutil.ignore_patterns("tests", "__pycache__"))
@@ -2959,7 +2958,7 @@ class HookProcess(unittest.TestCase):
         payload = json.dumps({"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"})
         proc = subprocess.Popen([sys.executable, str(versions / "0.1.0" / "dispatch" / "wake_hook.py")], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                                env={**os.environ, **self.env, "TMPDIR": scratch()})
+                                env={**os.environ, **self.env, "TMPDIR": tempfile.mkdtemp()})
         try:
             _, err = proc.communicate(payload, timeout=60)
         finally:

@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -29,7 +30,6 @@ import limit_hook
 import refresh_hook
 import shape_hook
 from nodes import deliver, ledger, provision, wake
-from . import scratch
 
 
 def dept_row(name=None, role=None, lifecycle=None, session=None, panes=(), branch="b", path="/x"):
@@ -217,7 +217,7 @@ class Holders(unittest.TestCase):
 
     def test_the_role_reads_holders_as_off_true_or_relay_names(self):
         from nodes import role
-        path = pathlib.Path(scratch(), "c.toml")
+        path = pathlib.Path(tempfile.mkdtemp(), "c.toml")
         path.write_text('[[roles]]\nname = "担当"\nholders = ["社長室"]\n[[roles]]\nname = "相談"\nask_holders = true\n'
                         '[[roles]]\nname = "作業"\n', encoding="utf-8")
         got = role.load(str(path), path.read_text(encoding="utf-8"))["roles"]
@@ -342,7 +342,7 @@ class StopVerdict(unittest.TestCase):
 
     def test_names_the_ask_file_so_a_talk_that_missed_the_ask_can_read_it(self):
         # 渡した字が会話に届かなくても、差し戻しから本文へたどれる（my_notes の受付 4bae53）
-        inbox = scratch()
+        inbox = tempfile.mkdtemp()
         attrs = {**self.ATTRS, "boss-inbox": inbox}
         self.assertNotIn("The ask's text is at", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))   # 本文の無い場所は書かない
         file = os.path.join(inbox, "id1-ask.md")
@@ -350,7 +350,7 @@ class StopVerdict(unittest.TestCase):
         self.assertIn(f"The ask's text is at {file}", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))
 
     def test_hook_blocks_with_json_then_gives_up_after_the_limit(self):
-        tmp = scratch()
+        tmp = tempfile.mkdtemp()
         payload = json.dumps({"session_id": "s1", "cwd": "/w"})
         outs = []
         for _ in range(deliver.STOP_LIMIT + 1):
@@ -363,7 +363,7 @@ class StopVerdict(unittest.TestCase):
     def test_hook_tells_the_boss_once_when_the_limit_is_used_up(self):
         # 差し戻しを使い切った部署は、会話を再開させる物が無く知られずに止まった（2026-10-26 の見渡し。受付 3ddd8e）。止まるのは通し、
         # 頼み元の待ち受けへ台帳の知らせを 1 度だけ置く
-        tmp, inbox = scratch(), scratch()
+        tmp, inbox = tempfile.mkdtemp(), tempfile.mkdtemp()
         attrs = {**self.ATTRS, "name": "見渡し", "boss-inbox": inbox}
         payload = json.dumps({"session_id": "s1", "cwd": "/w"})
         outs = []
@@ -379,7 +379,7 @@ class StopVerdict(unittest.TestCase):
         self.assertIn("--note id1 --text", row["text"])   # --note は足しの文（--text か --brief）が無いと止まる
         # 頼み元の受付箱が分からない・会社が分からないときは知らせず、止まるのは通す
         for bad, company in (({**attrs, "boss-inbox": None}, "co"), (attrs, None)):
-            tmp = scratch()
+            tmp = tempfile.mkdtemp()
             for _ in range(deliver.STOP_LIMIT + 1):
                 orders.stop_hook(io.StringIO(payload), io.StringIO(), lambda cwd: dict(bad), tmp, lambda: 0,
                                  company_of=lambda x: company)
@@ -389,7 +389,7 @@ class StopVerdict(unittest.TestCase):
         hooks = json.loads((DISPATCH.parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         (command,) = [h["command"] for g in hooks["Stop"] for h in g["hooks"] if not h.get("asyncRewake") and not h.get("async")]
         self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/orders.py" stop', command)
-        plain = scratch()
+        plain = tempfile.mkdtemp()
         p = subprocess.run([sys.executable, str(DISPATCH / "orders.py"), "stop"], input=json.dumps({"cwd": plain}),
                            capture_output=True, text=True, encoding="utf-8")
         self.assertEqual((p.returncode, p.stdout), (0, ""), p.stderr)
@@ -397,7 +397,7 @@ class StopVerdict(unittest.TestCase):
     def test_hook_does_nothing_outside_a_department(self):
         out = io.StringIO()
         self.assertEqual(orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w"})), out,
-                                          lambda cwd: {}, scratch(), lambda: None), 0)
+                                          lambda cwd: {}, tempfile.mkdtemp(), lambda: None), 0)
         self.assertEqual(out.getvalue(), "")
 
     def test_waiting_for_background_work_is_not_sent_back(self):
@@ -407,7 +407,7 @@ class StopVerdict(unittest.TestCase):
 
         def stop(n):
             out = io.StringIO()
-            orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w"})), out, lambda cwd: dict(attrs), scratch(),
+            orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w"})), out, lambda cwd: dict(attrs), tempfile.mkdtemp(),
                              lambda: n)
             return out.getvalue()
         self.assertEqual(stop(1), "")
@@ -419,7 +419,7 @@ class StopVerdict(unittest.TestCase):
         def stop(payload, shells=lambda: 0):
             out = io.StringIO()
             orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w", **payload})), out,
-                             lambda cwd: dict(self.ATTRS), scratch(), shells)
+                             lambda cwd: dict(self.ATTRS), tempfile.mkdtemp(), shells)
             return out.getvalue()
         agent = {"id": "a1", "type": "subagent", "status": "running", "agent_type": "convergence-loops:inspector"}
         self.assertEqual(stop({"background_tasks": [agent]}), "")
@@ -436,13 +436,13 @@ class StopVerdict(unittest.TestCase):
         # （再開しなければ待ち受けが遅れて差し戻す。test_wake の Late）
         rows = lambda *ops: "".join(json.dumps({"type": "queue-operation", "operation": op}) + "\n" for op in ops)
         def stop(*ops, head='{"type": "user"}\n', running=(), shells=lambda: 0, attrs=None):
-            path = os.path.join(scratch(), "t.jsonl")
+            path = os.path.join(tempfile.mkdtemp(), "t.jsonl")
             pathlib.Path(path).write_text(head + rows(*ops), encoding="utf-8")
             payload = {"session_id": "s1", "cwd": "/w", "transcript_path": path}
             if running is not None:
                 payload["background_tasks"] = list(running)
             out = io.StringIO()
-            orders.stop_hook(io.StringIO(json.dumps(payload)), out, lambda cwd: dict(attrs or self.ATTRS), scratch(), shells)
+            orders.stop_hook(io.StringIO(json.dumps(payload)), out, lambda cwd: dict(attrs or self.ATTRS), tempfile.mkdtemp(), shells)
             return out.getvalue()
         self.assertEqual(stop("enqueue"), "")
         self.assertEqual(stop("enqueue", "dequeue", "enqueue"), "")
@@ -507,7 +507,7 @@ class AskerRoute(unittest.TestCase):
 
     def test_post_with_a_listener_on_the_route_does_not_restart(self):
         # 頼み元の名前（company.boss）と違う宛先に待ち受けが居れば、その待ち受けが渡し、会話を起動し直さない
-        inbox = scratch()
+        inbox = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, inbox, True)
         dept = {"path": "/w/dept", "attrs": {"role": "調べ役", "name": "調べ", "session": "s1"}}
         route = {"company": {"name": "co", "root": "/r"}, "dept": dept, "to": "co/調べ", "inbox": inbox,
@@ -710,7 +710,7 @@ class Flow(unittest.TestCase):
         self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
     def test_newest_talk_is_the_last_written_record_of_the_folder(self):
-        home = scratch()
+        home = tempfile.mkdtemp()
         cwd = "/w/a.b"
         # Windows では abspath がドライブを付ける（D:\w\a.b → D--w-a-b）
         d = pathlib.Path(home, "projects", "-w-a-b" if os.name != "nt" else re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
@@ -1335,7 +1335,7 @@ class Flow(unittest.TestCase):
         self.ask_then_summary(GOOD)
         inbox, place = deliver.inbox_of(self.g.common_dir(self.src)), self.g.git_dir(self.place)
         wake.compact_note(inbox, place, "s-dept", deferred=1, judged=True)   # 待ち受けが費用の判断で付けた印の控え
-        self.ports.env = {**self.ports.env, "HOME": scratch()}   # 会話の記録は見つからない（決められないので印を書く）
+        self.ports.env = {**self.ports.env, "HOME": tempfile.mkdtemp()}   # 会話の記録は見つからない（決められないので印を書く）
         rc, out = self.main(self.place, "--compact", "次は  直しを書く")
         self.assertEqual(rc, 0, out)
         self.assertIn("決められなかった（会話の記録が見つからない）", out)
@@ -1349,11 +1349,11 @@ class Flow(unittest.TestCase):
         # 印したターンの終わりは、納品していなくても差し戻さない
         out = io.StringIO()
         payload = json.dumps({"session_id": "s-dept", "cwd": self.place})
-        self.assertEqual(orders.stop_hook(io.StringIO(payload), out, lambda cwd: dict(attrs), scratch(), lambda: None), 0)
+        self.assertEqual(orders.stop_hook(io.StringIO(payload), out, lambda cwd: dict(attrs), tempfile.mkdtemp(), lambda: None), 0)
         self.assertEqual(out.getvalue(), "")
         for other in (None, "s-other", "1"):   # 印が無いか、ほかの会話の物なら差し戻す
             out = io.StringIO()
-            orders.stop_hook(io.StringIO(payload), out, lambda cwd: {**attrs, wake.COMPACT: other}, scratch(), lambda: None)
+            orders.stop_hook(io.StringIO(payload), out, lambda cwd: {**attrs, wake.COMPACT: other}, tempfile.mkdtemp(), lambda: None)
             self.assertEqual(json.loads(out.getvalue())["decision"], "block")
 
     def test_compact_does_not_mark_when_it_does_not_pay_yet(self):

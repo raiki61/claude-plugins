@@ -4,6 +4,7 @@
 import json
 import os
 import pathlib
+import tempfile
 import time
 import unittest
 
@@ -13,7 +14,6 @@ import rentx
 import wake_hook
 from nodes import role, wake
 from ports import chat
-from . import scratch
 
 RATES = {"input": 4e-6, "write_5m": 5e-6, "write_1h": 8e-6, "read": 2e-7, "output": 2e-5}
 T0 = 1793000000.0
@@ -46,7 +46,7 @@ def compact(t, pre, post, trigger="manual"):
 
 
 def write(rows, path=None):
-    path = path or os.path.join(scratch(), "s1.jsonl")
+    path = path or os.path.join(tempfile.mkdtemp(), "s1.jsonl")
     pathlib.Path(path).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
     return path
 
@@ -94,7 +94,7 @@ class TalkEvents(unittest.TestCase):
         self.assertIsNone(chat.talk_events("/none/s.jsonl"))
 
     def test_talk_files_picks_the_biggest_copy_of_each_talk_and_skips_old_ones(self):
-        home = scratch()
+        home = tempfile.mkdtemp()
         for folder, size in ((".claude", 10), (".claude-p1", 30)):
             (pathlib.Path(home) / folder / "plugins").mkdir(parents=True)
             (pathlib.Path(home) / folder / "plugins" / chat.PLUGINS_FILE).write_text("{}")
@@ -249,7 +249,7 @@ class Outcomes(unittest.TestCase):
 class PartCommands(unittest.TestCase):
     def test_the_real_part_keeps_outcomes_once_and_reads_them_back(self):
         # リポジトリの隣の部品を本当に起動する。記録は一時のファイルに書かせる
-        env = dict(os.environ, RENT_OR_BUY_RECORD=os.path.join(scratch(), "d.jsonl"))
+        env = dict(os.environ, RENT_OR_BUY_RECORD=os.path.join(tempfile.mkdtemp(), "d.jsonl"))
         got, why = rentx.prices("claude-opus-5-5", env=env)
         self.assertIsNone(why)
         self.assertEqual(set(got["rates"]), set(RATES))

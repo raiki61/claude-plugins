@@ -17,7 +17,6 @@ import filex
 import orders
 import gitx
 from nodes import deliver, land, provision, role, tools, tree, wake
-from . import scratch
 
 
 def shape_text(command, fallback='fallback_role = "調べ役"', machine="machine = true"):
@@ -490,7 +489,7 @@ class ToolPlace(unittest.TestCase):
         if owner is False:
             gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, encoding="utf-8")
             owner = f"{tools.OWNER}{gone.stdout.strip()}"
-        path = os.path.join(scratch(prefix=tools.PREFIX), "tree")
+        path = os.path.join(tempfile.mkdtemp(prefix=tools.PREFIX), "tree")
         self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
         gitx.add_detached(self.src, path, gitx.rev(self.src, "HEAD"), lock=owner)
         return path

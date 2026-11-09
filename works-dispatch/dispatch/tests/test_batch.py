@@ -22,7 +22,6 @@ from config import Repo
 from nodes import batch, bump, land, landqueue
 
 from .test_land import QUEUE_RULES, LandCase, Ports, World, commit, git, no_rows, write
-from . import scratch
 
 RULES = QUEUE_RULES + "batch = 3\n"
 
@@ -95,7 +94,7 @@ class ReadRules(unittest.TestCase):
 class Marks(unittest.TestCase):
     def setUp(self):
         import tempfile
-        self.queue = scratch(prefix="dispatch-batch-")
+        self.queue = tempfile.mkdtemp(prefix="dispatch-batch-")
 
     def test_suspects_and_batches_round_trip(self):
         self.assertEqual(landqueue.suspects(self.queue), {})

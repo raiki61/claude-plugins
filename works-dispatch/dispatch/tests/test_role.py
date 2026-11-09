@@ -9,6 +9,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import tempfile
 import unittest
 import urllib.parse
 from unittest import mock
@@ -22,7 +23,6 @@ import orders
 import role_hook
 import wake_hook
 from nodes import deliver, launch, provision, role, tree
-from . import scratch
 
 SHAPE = '''
 name = "試しの会社"
@@ -49,7 +49,7 @@ def write(path, text):
 
 class Shape(unittest.TestCase):
     def setUp(self):
-        self.d = scratch()
+        self.d = tempfile.mkdtemp()
 
     def test_roles_and_gh_user_are_read(self):
         got = role.load(write(f"{self.d}/c.toml", SHAPE))
@@ -178,7 +178,7 @@ deliver_check = ""
 
 class Seat(unittest.TestCase):
     def test_context_is_read_and_shown_with_the_lifetime(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "担当"\nlifetime = "always"\ncontext = "new"\n'
                                              '[[roles]]\nname = "相談"\nlifetime = "always"\n[[roles]]\nname = "作業"\nrent_or_buy = false\n'
                                              '[[roles]]\nname = "変"\ncontext = "clear"\n'))
@@ -203,7 +203,7 @@ class ModelAndEffort(unittest.TestCase):
     """役の model と effort: 省けばアカウントの既定、値を書けばその値、effort の inherit は呼んだ会話の今の effort（CLAUDE_EFFORT）。"""
 
     def roles(self, body):
-        d = scratch()
+        d = tempfile.mkdtemp()
         return role.load(write(f"{d}/c.toml", body))
 
     def test_effort_values_are_checked_and_unknown_ones_drop_the_role(self):
@@ -325,7 +325,7 @@ class ModelAndEffort(unittest.TestCase):
             self.assertIn(why, note)
 
     def test_rent_or_buy_is_read_from_the_shape_for_roles_and_duties(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "作業"\nrent_or_buy = false\n'
                                              '[[roles]]\nname = "担当"\nrent_or_buy = "off"\n'))
         self.assertIs(got["roles"]["作業"]["rent_or_buy"], False)
@@ -390,7 +390,7 @@ class Hook(unittest.TestCase):
         fakegit.wire(self, self.g, role_hook, orders, wake_hook)
         self.place = self.g.add_worktree(str(pathlib.Path(root) / "dept"), "dept/a", "origin/main")
         self.env = {"WORKS_DISPATCH_CONFIG": str(pathlib.Path(root).parent / "conf" / "dispatch.toml"),
-                    "TMPDIR": scratch()}   # 会話に足した文の控えの置き場
+                    "TMPDIR": tempfile.mkdtemp()}   # 会話に足した文の控えの置き場
 
     def test_clear_compact_and_resume_rewrite_the_department_session_and_keep_the_job(self):
         # /clear で会話の id が変わる。古い id のままだと --ask が動き出しを見られず、Stop フックが部署の会話を見分けなかった。
@@ -440,7 +440,7 @@ class Hook(unittest.TestCase):
         self.assertIsNone(role_hook.text_for(self.src, self.env))      # 本社
         provision.mark(self.src, self.src, {"role": "窓口"}, self.g)     # --desk で名付けた本社の窓口は、部署と書かない
         self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
-        self.assertIsNone(role_hook.text_for(scratch(), self.env))   # git でない
+        self.assertIsNone(role_hook.text_for(tempfile.mkdtemp(), self.env))   # git でない
 
     def test_a_named_department_gets_the_commands_it_runs_so_it_need_not_read_the_skill(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)
@@ -548,14 +548,14 @@ class Hook(unittest.TestCase):
         self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「無い役」。")
 
     def test_shape_beside_the_departments_own_config_is_read(self):
-        other = pathlib.Path(scratch()) / "mine.toml"
+        other = pathlib.Path(tempfile.mkdtemp()) / "mine.toml"
         write(other.parent / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
         provision.mark(self.place, self.src, {"role": "調べ役", "config": str(other)}, self.g)
         self.assertIn("結論と原典の一句", role_hook.text_for(self.place, self.env))
 
     def test_gh_user_is_put_into_the_env_file_once_without_the_key(self):
         provision.mark(self.place, self.src, {"role": "調べ役", "gh-user": "gh-co"}, self.g)
-        envfile = pathlib.Path(scratch()) / "env.sh"
+        envfile = pathlib.Path(tempfile.mkdtemp()) / "env.sh"
         envfile.write_bytes(b"export A=1\n")   # write_text は Windows で \r\n にする
         env = {**self.env, "CLAUDE_ENV_FILE": str(envfile)}
         for _ in range(2):   # resume で 2 度走っても 1 行
@@ -629,7 +629,7 @@ class Hook(unittest.TestCase):
         self.g.enable_worktree_config(self.src)
         for k, v in (("role", "窓口"), ("name", "窓口"), ("session", "s-desk"), ("pid", str(os.getpid()))):
             self.g.set_worktree_attr(self.src, k, v)   # id を書く前の版の --desk（company.worktree-id を書かない）
-        copy = os.path.join(os.path.realpath(scratch(prefix="works-dispatch-pr-")), "pr")
+        copy = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="works-dispatch-pr-")), "pr")
         self.addCleanup(shutil.rmtree, os.path.dirname(copy), True)
         self.g.add_detached(self.src, copy, "HEAD")
         self.assertEqual(self.g.worktree_attrs(copy, copies=True)["pid"], str(os.getpid()))   # git が写した

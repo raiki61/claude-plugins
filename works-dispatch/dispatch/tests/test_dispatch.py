@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import subprocess
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -26,7 +27,6 @@ from nodes import launch
 from nodes import prs as prs_node
 from nodes import report
 from nodes import turn
-from . import scratch
 
 
 def typed(command):
@@ -288,7 +288,7 @@ class FakePorts(dispatch.Ports):
     def cwd(self):
         # 打った場所は git の外（部署の回は設定の最初の repo を使う）。試験を走らせた場所のリポジトリに部署を立てない
         if not hasattr(self, "_cwd"):
-            self._cwd = scratch(prefix="dispatch-cwd-")
+            self._cwd = tempfile.mkdtemp(prefix="dispatch-cwd-")
         return self._cwd
 
     def pause(self):
@@ -663,7 +663,7 @@ class Issue(unittest.TestCase):
 
 class RealPorts(unittest.TestCase):
     def test_real_trust_writes_in_the_accounts_config_file(self):
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         (d / ".claude.json").write_text(json.dumps({"projects": {"/s": {"hasTrustDialogAccepted": True}}}))
         ports = dispatch.Ports(env={"HOME": "/nowhere"})
         self.assertEqual(ports.trust({"name": "p2", "config_dir": str(d)}, "/s", "/s-pr-1"), "inherited")
@@ -672,7 +672,7 @@ class RealPorts(unittest.TestCase):
         self.assertTrue(json.loads((d / ".claude.json").read_text())["projects"][key]["hasTrustDialogAccepted"])
 
     def test_real_trust_carries_the_source_mark_over_from_another_account(self):
-        mine, other = pathlib.Path(scratch()), pathlib.Path(scratch())
+        mine, other = pathlib.Path(tempfile.mkdtemp()), pathlib.Path(tempfile.mkdtemp())
         (mine / ".claude.json").write_text(json.dumps({"projects": {}}))
         (other / ".claude.json").write_text(json.dumps({"projects": {"/s": {"hasTrustDialogAccepted": True}}}))
         ports = dispatch.Ports(env={"HOME": "/nowhere"})
@@ -734,7 +734,7 @@ class RealPorts(unittest.TestCase):
     def test_gone_plugin_paths_inside_escaped_json_and_toml_strings_are_read_unescaped(self):
         # settings.json と herdr の TOML は、文字列の中の \ を \\ と書く。書かれた形のままでは、パスが別物になる
         gone = r"C:\Users\me\.claude\plugins\cache\m\works-dispatch\0.1.0\dispatch\activity.py"
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         (d / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"command": f"py {gone}"}]}]}}), encoding="utf-8")
         (d / "config.toml").write_text('[ui]\ntab_bar_right = [{ command = "py %s" }]\n' % gone.replace("\\", "\\\\"), encoding="utf-8")
         for f in ("settings.json", "config.toml"):
@@ -746,7 +746,7 @@ class RealPorts(unittest.TestCase):
 
     def test_plugin_notes_name_install_records_pointing_at_gone_folders(self):
         # 2026-10-18、~/.claude-p2 の控えに、消えた置き場（gates 0.7.0・attention 0.10.1）を指す project の範囲の項目が残っていた
-        cfg = pathlib.Path(scratch())
+        cfg = pathlib.Path(tempfile.mkdtemp())
         here = cfg / "plugins" / "cache" / "m" / "gates" / "0.8.0"
         here.mkdir(parents=True)
         (cfg / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {
@@ -759,7 +759,7 @@ class RealPorts(unittest.TestCase):
 
     def test_plugin_notes_name_a_tab_bar_entry_that_was_removed(self):
         # ~/.cache が掃除されて写した入口が消えると、タブバーの表示と使用率の取り直しが黙って止まる
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         (d / "run-python.sh").write_text("")
         toml = d / "config.toml"
         toml.write_text(f'command = "sh {d / "run-python.sh"} {d / "limits-entry.py"} show a"\n', encoding="utf-8")
@@ -769,7 +769,7 @@ class RealPorts(unittest.TestCase):
 
     def test_gone_plugin_paths_finds_orphaned_and_not_installed_versions(self):
         # 2026-10-18、herdr のタブバーが .orphaned_at の付いた 0.1.3 を呼び続けていた。在るうちは「もう無い」で見つからない
-        cache = pathlib.Path(scratch()) / "plugins" / "cache" / "m" / "works-dispatch"
+        cache = pathlib.Path(tempfile.mkdtemp()) / "plugins" / "cache" / "m" / "works-dispatch"
         for v in ("0.1.3", "0.2.0", "0.3.0"):
             (cache / v / "dispatch").mkdir(parents=True)
             (cache / v / "dispatch" / "limits.py").write_text("")

@@ -5,6 +5,7 @@ import contextlib
 import io
 import os
 import pathlib
+import tempfile
 import unittest
 
 from . import DISPATCH, fakegit  # noqa: F401
@@ -13,7 +14,6 @@ from .test_provision import git, make_world
 import dispatch
 import gitx
 from nodes import clean
-from . import scratch
 
 
 def place(path, branch, linked=True):
@@ -71,9 +71,9 @@ class Candidates(unittest.TestCase):
         self.assertEqual((row["removable"], row["reason"]), (False, "pr_state_unknown"))
 
     def test_conversation_behind_a_symlink_still_keeps_the_place(self):
-        real = pathlib.Path(scratch()).resolve()
+        real = pathlib.Path(tempfile.mkdtemp()).resolve()
         (real / "a").mkdir()
-        link = pathlib.Path(scratch()) / "w"
+        link = pathlib.Path(tempfile.mkdtemp()) / "w"
         os.symlink(real, link)
         rows = self.rows([place(str(link / "a"), "a")], {"a": self.merged()}, open_cwds=[str(real / "a")])
         self.assertEqual(rows[0]["reason"], "session")
@@ -200,7 +200,7 @@ class Remove(unittest.TestCase):
 
 class Copies(unittest.TestCase):
     def test_copied_files_changed_here_or_missing_at_the_source_are_named(self):
-        here, there = pathlib.Path(scratch()), pathlib.Path(scratch())
+        here, there = pathlib.Path(tempfile.mkdtemp()), pathlib.Path(tempfile.mkdtemp())
         for d in (here, there):
             (d / "a").mkdir()
         (here / "a" / ".env.local").write_text("A=2\n")

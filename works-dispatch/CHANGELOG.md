@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Removed
+
+- 0.162.1 で入れた、試験の一時のフォルダの直し（回ごとの親 `dispatch-test-*` の下に作らせ、残れば失敗にする検査）と、`--land` が一時の作業場を消せなかったときの注記を、いったん取り下げた。Windows の CI で、試験の後に `dispatch-land-*` が 147 件残って試験が失敗し、main の CI が赤になったため（https://github.com/raiki61/claude-plugins/actions/runs/42537175514 ）。試験が一時のフォルダを残す問題は 0.162.0 の形に戻る。Windows で残る原因を直してから入れ直す。
+
 ## [0.162.1] - 2026-11-09
 
 ### Fixed

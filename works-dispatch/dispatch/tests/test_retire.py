@@ -18,7 +18,6 @@ import gitx
 import orders
 import retire
 from nodes import deliver, provision, wake
-from . import scratch
 
 
 class Retire(unittest.TestCase):
@@ -563,7 +562,7 @@ class Retire(unittest.TestCase):
         # 差し戻しの文が勧める形: 納品の後に --ask で入れるのを頼む（--ask は納品の後には cause を書かない）
         self.shape(self.LAND)
         # 今の頼みの納品の行は頼み元の受付箱（ここでは別の会社の物）に在る
-        boss = scratch()
+        boss = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, boss, True)
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "config": self.cfg, "boss-inbox": boss}, self.g)
         self.g.commit(self.place, {}, "x")
@@ -756,7 +755,7 @@ class FoldFromListing(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "q1", "status": "sent", "at": 1000,
                                  "from": {"name": "調べ", "place": os.path.join(self.place, "sub")}})
-        self.talks = scratch()
+        self.talks = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.talks, True)
         patcher = mock.patch.object(dispatch.chat, "talk_dir", lambda cdir, cwd, env=None: self.talks)
         patcher.start()
@@ -940,7 +939,7 @@ class DeliveredAndTalked(unittest.TestCase):
     """orders.delivered_at と orders.talked_since（引数なしの dispatch が、部署の会話を再開させずに畳めるかを決める材料）。"""
 
     def setUp(self):
-        self.dir = scratch()
+        self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.inbox = os.path.join(self.dir, "inbox")
         os.makedirs(self.inbox)

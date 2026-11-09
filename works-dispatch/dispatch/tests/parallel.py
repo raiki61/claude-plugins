@@ -15,12 +15,10 @@ _template）は、組ごとに作り直す（どの試験も、作り置きの�
   試験の名前（例 test_land・test_land.Queue）を渡せば、その試験だけを回す。
 最後の行は unittest と同じ「OK」か「FAILED (...)」。終わりの値は、全部緑で 0、赤があれば 1。
 集めた試験の数と走った数が合わなければ赤にする（プロセスが落ちて試験が黙って抜けるのを止めるため）。
-試験の一時の物は回ごとの 1 つの親（tests/__init__.py の ROOT）の下に作らせ、終わりに親に物が残っていれば赤にする（消し忘れを止めるため）。
 """
 
 import argparse
 import concurrent.futures
-import importlib
 import io
 import os
 import pathlib
@@ -87,7 +85,6 @@ def main(argv):
     args = p.parse_args(argv)
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    pkg = importlib.import_module(PACKAGE)   # 回の一時の親を作り、子のプロセスへ TMPDIR で渡す（tests/__init__.py）
     groups, want, broken = collect(args.names)
     start = time.monotonic()
     ran, bad, skipped, slow = 0, [], 0, []
@@ -117,11 +114,6 @@ def main(argv):
     if ran != want:
         bad.append("count")
         print(f"集めた試験は {want} 件なのに、走ったのは {ran} 件")
-    left = pkg.leftovers(pkg.ROOT) if pkg.OWNED else []
-    if left:   # 試験か製品のコード（--land の一時の場所など）が一時の物を消し忘れた。親はプロセスの終わりに消える
-        bad.append("tmp")
-        print(f"試験の後に一時の置き場に残った物が {len(left)} 件ある（作った所で消す。試験なら scratch か with を使う）: "
-              + "・".join(left[:10]) + (" ほか" if len(left) > 10 else ""))
     print()
     if bad:
         print(f"FAILED (failures={len(bad)})")

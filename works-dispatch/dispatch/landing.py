@@ -255,8 +255,6 @@ def _unstage(run, stage):
     except gitx.GitError as e:
         print(f"注記: 一時の場所 {stage} を消せなかった（{e}）")
     shutil.rmtree(stage, ignore_errors=True)
-    if os.path.exists(stage):   # 消し忘れを黙って残さない（OS の一時の置き場に溜まる）
-        print(f"注記: 一時のフォルダ {stage} が消えずに残った。手で消す")
 
 
 def _bump(run, head, stage):

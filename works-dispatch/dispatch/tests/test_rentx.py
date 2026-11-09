@@ -4,13 +4,13 @@ import json
 import os
 import pathlib
 import subprocess
+import tempfile
 import time
 import unittest
 
 from . import DISPATCH
 import rentx
 from ports import chat
-from . import scratch
 
 
 class Locate(unittest.TestCase):
@@ -19,7 +19,7 @@ class Locate(unittest.TestCase):
         self.assertEqual(pathlib.Path(found), DISPATCH.parent.parent / "rent-or-buy" / "bin" / "rent-or-buy")
 
     def test_an_installed_copy_is_found_from_the_record_of_the_same_marketplace(self):
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         here = d / "plugins" / "cache" / "m1" / "works-dispatch" / "1.0.0" / "dispatch" / "rentx.py"
         here.parent.mkdir(parents=True)
         here.write_text("")
@@ -36,14 +36,14 @@ class Locate(unittest.TestCase):
         self.assertIsNone(rentx.locate(here))   # 控えが読めなければ無いと見る（呼ぶ側は決まった数で動く）
 
     def test_outside_the_cache_and_without_a_checkout_it_is_missing(self):
-        here = pathlib.Path(scratch()) / "works-dispatch" / "dispatch" / "rentx.py"
+        here = pathlib.Path(tempfile.mkdtemp()) / "works-dispatch" / "dispatch" / "rentx.py"
         self.assertIsNone(rentx.locate(here))
         self.assertEqual(rentx.ask("keepalive", {}, here=here), (None, "借りるか買うかの部品（rent-or-buy）が入っていない"))
 
     def test_check_notes_a_missing_part_with_the_install_command(self):
         # 見つからないまま黙って決まった数で動かない（--check に注記を出す）。見つかれば出さない
         self.assertIsNone(rentx.missing_note())
-        d = pathlib.Path(scratch())
+        d = pathlib.Path(tempfile.mkdtemp())
         here = d / "plugins" / "cache" / "m1" / "works-dispatch" / "1.0.0" / "dispatch" / "rentx.py"
         note = rentx.missing_note(here)
         self.assertIn("決まった数で動く", note)
@@ -86,7 +86,7 @@ class Ask(unittest.TestCase):
 
 class LastReply(unittest.TestCase):
     def test_it_reads_the_last_answer_and_the_text_that_started_the_turn(self):
-        path = os.path.join(scratch(), "t.jsonl")
+        path = os.path.join(tempfile.mkdtemp(), "t.jsonl")
         rows = [{"type": "user", "message": {"content": "前の文"}},
                 {"type": "assistant", "message": {"content": [{"type": "text", "text": "前の答え"}]}},
                 {"type": "user", "message": {"content": "問い"}},

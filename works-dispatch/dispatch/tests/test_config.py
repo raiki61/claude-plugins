@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import tempfile
 import unittest
 import zoneinfo
 from contextlib import redirect_stdout
@@ -13,7 +14,6 @@ from . import DISPATCH  # noqa: F401 — import の道を整える
 import config
 import jsonio
 from . import schemacheck
-from . import scratch
 
 
 def write(dirpath, name, body):
@@ -42,7 +42,7 @@ gh_user = "me-at-work"
 
 class Load(unittest.TestCase):
     def setUp(self):
-        self.d = scratch()
+        self.d = tempfile.mkdtemp()
         write(self.d, "second.md", "1. 深掘りして\n2. 世の中の解と照合して\n")
 
     def test_full_config(self):
@@ -305,7 +305,7 @@ class EffectiveConfigDir(unittest.TestCase):
 
 class PickRepo(unittest.TestCase):
     def test_first_repo_by_default_and_named_repo(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         write(d, "second.md", "x")
         body = "".join(f'[[repos]]\nrepo = "{r}"\nsecond_prompt_file = \'{d}/second.md\'\nsource = "s"\n'
                        for r in ("o/a", "o/b"))
@@ -318,7 +318,7 @@ class PickRepo(unittest.TestCase):
 
 class JsonIO(unittest.TestCase):
     def test_dump_adds_schema_and_load_reads_it(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         out = f"{d}/x.json"
         jsonio.dump({"items": []}, out)
         self.assertEqual(jsonio.load(out), {"schema": 1, "items": []})
@@ -330,7 +330,7 @@ class JsonIO(unittest.TestCase):
         self.assertEqual(json.loads(buf.getvalue()), {"schema": 1, "a": "日本"})
 
     def test_unknown_schema_version_stops(self):
-        d = scratch()
+        d = tempfile.mkdtemp()
         write(d, "x.json", json.dumps({"schema": 2}))
         with self.assertRaises(jsonio.SchemaVersionError):
             jsonio.load(f"{d}/x.json")
