@@ -792,3 +792,359 @@ compact（会話の文脈を要約に縮める操作）の計画 works-dispatch/
 1. 入れて 1 週間（7 の 2 が入ってから 7 日目。11-08 ごろ）: 両方の会社の台帳に `compact` の行（`marked`・`declined`・`compacted`）と、`keepalive` の行の `reply` が出ているか、計画の 8 の 1〜4 と w_k（役 k の問いで焦点が返らない割合。計画の 4.2。works-dispatch は今 0 と置く）・Q_k（役 k の問いで増える出力のトークン。今は 295 と置く〔答え 300 − keepalive の答え 5〕）を数えられるかを見る。`compact` の行の `status` は、`marked` が `--compact` で印を付けた・`declined` が元が取れないので付けなかった・`compacted` が compact を打った（打った口が `mouth`）。`keepalive` の行の `reply` は問いへの答えの種類。どれかの行が 1 行も出ていないか、比べる値に要る欄が欠けていれば、仕組みの部署に `--ask` で直しを頼む。
 2. 同じ時に、前の期間の会話の記録（`~/.claude*/projects/*/*.jsonl` のうち、10-25 から 7 の 2 が入るまでに動いた物）（開始の時刻が前の期間に入る物）を、`~/claude-records/compact-plan-8/` へ写しておく。Claude Code は既定で 30 日より古い会話の記録を消す（設定 `cleanupPeriodDays`。どのアカウントの設定にも書かれていないので既定の 30 日）。10-25 の記録は 11-24 ごろに消え始めるので、3 で後の期間を延ばすと、比べる時に前の期間の記録が無くなる。
 3. 入れて 2 週間（11-15 ごろ）: 計画の 8 のとおりに、1〜3 の額の合計（要求 100 本あたり）を前と後で比べ、差が前の額の 10% 以内なら同じと見る。4 は内訳として並べる。compact のあった会話が会社ごとに 30 本に満たなければ、後の期間を延ばす。w_k が 0 から大きく外れる役、Q_k が 295 から大きく外れる時は、仕組みの部署に値の直しを頼む。結果と、計画の 8 の「決め方」（ターンの終わりの合図をその役にだけ戻すか、my_notes の `autoCompactWindow` を下げるか）の判断材料を、頼み 9e99d6 の頼み元（仕組みの部署）へ納品で返す。
+
+
+## 頼み e068e7（2026-11-09、会社の形を短くする）
+
+持ち主の言葉: 「はい。あとは最適化の余地も一旦全部やっておきましょうか」「なんかね。かかれてることが多くて長いのが」「きになる」。dotfiles の会話からの頼みで、会社の形（`.claude/company.toml`）を短くした（69,881 バイト → 29,117 バイト）。
+
+### 入れた事
+
+1. 担当と作業の本文で同じ字のまま写していた段落（異論の返し方・試験と版と CI・初見の読み手・`--land` が止まったとき・納品の後・終わりの印・持ち主に問う範囲・残った疑問・compact の区切り・言語と語の対応）を、会社の共通の本文 `shared_instructions`（works-dispatch 0.162.0 から。窓口には足されない）に 1 度だけ書いた。
+2. 今はプラグインが機械でしていることの説明を 1 文にした。
+   - 担当者（holder）の書き方: `--deliver` が役の `holders` で確かめ、許す値を出す。「司令塔を担当者にしない」「作業は自分を担当者にしない」「--todo は部署の名前を追えない」も機械が止める。
+   - compact の区切り: `--compact` の出力が、元が取れないときの続け方と、焦点に書けない物をファイルに書くことを言う。
+   - 終わりの印: `--done` の出力が、納品していない・順番待ち・入っていない・`git fetch` のし直しの手を言う。残したのは「未コミットの変更か入っていない commit で断られたら、消さず commit せず `--deliver --again` で訳を返す」の 1 文（機械の出力は「commit するか消して」と言うので、決まりとして残す）。
+   - 「打つ前に Skill を呼んで別ファイルを読め」の文は claude-plugins の会社の形には無かった（works-dispatch の SKILL.md の 8 行目と 38 行目が、足された 4 つのコマンドは読まずに打てと言う）。
+3. 担当・窓口・作業の `autoCompactWindow` を 200000 から 1000000 にした（works-dispatch の references/roles.md の「起動の設定」の 3。強制の線は 80 万トークン）。前の値の根拠は、この台帳の「頼み 009c72」の 2。
+4. 担当の本文から always の部署向けの段落（同じ作業場で頼みごとにブランチを切る）を外した。always の受け持ちは今は無い。業務改革が受け持ちを always に上げるときは、この段落を戻し、共通の本文の `--done` の文を「until-idle か per-ask の部署だけ」に戻す（元の字は下の「移した元の文」の担当の本文の行ではなく、commit 932fe151 の `.claude/company.toml` の 215 行目）。
+5. 窓口の本文の `~/src/claude-plugins` を「代表の clone」にした（手元のパスを本文に書かない）。
+6. コメントの経緯（約 18,000 字）をこの見出しの下に移し、会社の形には決まりの 1 行だけ残した。値（役・受け持ち・settings・[land]・ツール）は `autoCompactWindow` のほかは 1 つも変えていない（新旧を TOML として読んで比べた）。
+
+### 古くなっていた記述（移した元の文の中）
+
+- 「my_notes の 4 役とも model = "opus"」: 今の my_notes の会社の形では、担当・作業・機械的な作業が model = "sonnet" で、opus は業務改革と相談だけ。
+- 「役は 5 つ」: 窓口・担当・作業・機械だけの役 3 つ（配布・CI の見張り・工場の版の見張り）で、相談は置いていない。
+- 「TOML に共通の本文を引く書き方が無いため、担当と作業の本文に同じ文で持つ」: works-dispatch 0.162.0 の `shared_instructions` で 1 度だけ書けるようになった（入れた事の 1）。
+- `autoCompactWindow` の「my_notes の会社の形の担当と作業と同じ値」: ほかの 3 社は 1000000 で、今は誤り（入れた事の 3）。
+
+### 次の回に確かめる事
+
+- `autoCompactWindow` を上げた後の費用を、roles.md の「起動の設定」の 4 のとおり会話の記録で見る（自動の compact〔`trigger` が `auto`〕の数と、20 万トークンを超えた会話の数）。待ちの間に自動の compact が打たれていたら、仕組みの部署に `FORCED_SHARE` の見直しを頼む。
+- 担当と作業の本文を縮めた後に、差し戻し（`--deliver` の断り・`--done` の断り）が増えていないかを、頼み d32ad0 の数え方（`docs/reform/misread-count.py`）で前後に分けて見る。
+
+### 移した元の文（commit 932fe151 の `.claude/company.toml` のコメント）
+
+英語の役の本文の元の字（担当・作業の長い版）は、commit 932fe151 の同じファイルに在る。
+
+```text
+# 会社の形: このリポジトリで作業ごとの会話を立てるときの、役ごとの指示・起動の設定と gh のアカウント。
+# 読むのは works-dispatch。書き方は works-dispatch/skills/dispatch/references/roles.md の「役の中身と起動方法」。
+# 外すツールとプラグインは、持ち主のノートの測り（会話を起動しただけで読み込む量の内訳。2026-10-16）による。
+# pr-review-toolkit は外さない。convergence-loops が依存に持ち、切ると convergence-loops も消える。
+# AskUserQuestion と EnterWorktree も外す（割り振りの測り 2026-10-17。2 つで最初の要求が約 3k トークン減る）。部署の問いは納品で返す決まりで、画面で聞いても誰も答えない。
+# 部署は dispatch が先に作った作業場で働くので、別の worktree に移るツールは要らない。
+# pr-review-toolkit のサブエージェントも一覧から外さない（Agent(<名前>) の deny）。/review-loop が使う review-pr が 6 つとも呼ぶ。
+# 長い文字列は """ で囲み、文の切れ目の行末に \ を置いて折る。行末の \ は改行と次の行の頭の空白を消すので、会話に入る字は 1 行で書いた時と同じ。
+（↑ この上のコメントは次の行に付いていた: name = "claude-plugins"）
+
+# 窓口は本社（代表の clone ~/src/claude-plugins。main を出しておく）の会話で、役は下の [[roles]] の「窓口」（持ち主 2026-10-26「はい。窓口たてていいよ。mainに」）。
+# 前は my_notes の司令塔が兼ねていた（業務改革の案 1-3、社長室の答え bce452）。司令塔はこれまでどおり、この会社の部署へ部署の名前で直に頼んでよい
+desk_role = "窓口"   # --desk で --role を省いたときの役（本社の会話の役）
+# 本社の会話が --desk で名付くまでの窓口。works-dispatch は本社に名付いた窓口が在ればそちらを先に引き、無いときだけこれを使う。
+# 消すと、名付くまで会社の名前だけで宛てた頼み（--ask claude-plugins）が止まる（nodes/deliver.py の「窓口が名付けられていない」）
+（↑ この上のコメントは次の行に付いていた: desk = "my_notes/司令塔"）
+
+default_role = "作業"   # --task で --role を省いたときの役
+# 受け持ちごとの model・effort（2026-10-17。持ち主「雑用っぽい部署はsonnetでいい」「全部がopus highで都度も常設も動いてるのもあるのでは」）。
+# 手元の測りでは決めず、公開の指針で決める（my_notes の AGENTS.md の「モデル」。仕事ごとの格と effort の成績・費用の目安は works-dispatch/skills/dispatch/references/models.md）。
+# - 安いモデル（Sonnet）は、正確に言い表せる決まった仕事だけ（"Pick a smaller model when the work is routine."）。
+# - プラグインのコードを直す受け持ちは Opus・high（"Long-horizon coding is where effort genuinely buys accuracy."）。
+#   アカウントの既定は high（main・p1・p2）と medium（p3。Opus 5.5 の既定）で割れるので、high を書いてそろえる。
+# - 文書と判断の受け持ちは Opus・medium（調べものと知識の仕事の計測で "medium matched the default's accuracy"。Fable 5 での測り。5.5 では未測定）。
+#   原文の照合と規約の判断は能力の高い側のモデルに残し、下げるのは effort だけにする。
+# - ただし model は受け持ちに書かず、役（担当・作業）のフィールドに model = "opus" と書く（受け持ちに model が無ければ役の値で起動する）。書かないと、
+#   部署はアカウントの既定のモデル（/model で替わり、そのアカウントの新しい会話の既定として保存される）で起き、会社の形を読んでも決まらない。
+#   書いた日（2026-10-18）は main・p1・p2・p3 の 4 アカウントの ~/.claude*/settings.json がどれも "model": "opus" で、動くモデルは変わらない。
+#   ただし new の部署は、起動したときの値と違うので、次の頼みの前に一度起動し直される。
+#   my_notes の .claude/company.toml（my_notes の 4 役とも model = "opus"）と同じ書き方（受付 a41972）。
+# new の担当は、次の頼みの前に新しい値で起動し直す。入れた後の外れは手元の測り（docs/model-replay.md）で見つけ、戻すのは my_notes の司令塔が持つ
+# always の部署と、until-idle（頼まれたときに立て、手が空いたら畳む）の部署（持ち主 2026-10-17「そうね。そうして」「作業量が増えたり依頼がふえたらスケール出来るようにね」。社長室の受付 813bb8）
+# - always に残す: 本社の窓口だけ（my_notes の司令塔・調べもの・ノートの手入れは my_notes の会社の形）。仕組みも 2026-10-29 に until-idle にした（仕組みの項のコメント）。
+# - until-idle（lifetime = "until-idle"）: 仕組み・点検・見直し・見渡し・説明書・標準・業務改革・試し。--ask claude-plugins/<受け持ち> で、
+#   その受け持ちの名前の畳む部署が立ち（ブランチは受付番号から作る）、納品して main に入れたら --done で畳まれる。受け持ちの範囲と、誰が触って
+#   よいかの区切りは変えない。同じ受け持ちの部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積まれる。
+# - 増えたときの広げ方: 1 つの部署に頼みが重なったら、互いに関わらない仕事を作業（--task）に分けて並べる。読む量が多いだけの仕事は、
+#   その会話の中でサブエージェントに分けて読ませる。アカウントは使用枠に空きのあるものを自動で選ぶ。
+#   until-idle の受け持ちで、1 日 20 件を超える日が続くか、頼みの待ちの上位 1 割が 30 分を超えたら、業務改革が台帳から
+#   数えて always に上げる（lifetime = "always" にする）。下回れば下げる。上げ下げは持ち主に問わず、my_notes の司令塔に報告だけする。20 件・30 分は 10-17 の
+#   数から置いた目安で原典は無く、業務改革が次の回に測り直す。
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+# 仕組み: 前の名前は「割り振り」（works-dispatch の働き「部署に仕事を割り振る」から付けた）。部署の名前としては「仕事を振り分ける所」と読め、
+# 自分で直す中身と食い違うので、中身に合わせて替えた（持ち主 2026-10-24「割り振りって作業する場所じゃないよね」、業務改革の案 41106c-1 に「はい。」。
+# 司令塔の受付 a18228）。振り分けは窓口の仕事で、この受け持ちは works-dispatch・tiers・rent-or-buy を自分で直す。id は替えない
+# until-idle にした（2026-10-29。持ち主「あとこの仕組みはやはり積もっちゃうので、エフェメラルにするように解体してもいいのでは」。前に my_notes で
+# 2026-10-26「全部サブ部署はエフェメラルにしますか。永続にしてるメリットないですよね？」「永続辞めるって話しかなかったっけ。積まれるから」）。
+# always の部署は頼みをまたいで残り、10-29 には順番待ちに頼みが 4 件積まれて窓口が 3 件を役「作業」の部署へ移した。ほかの担当は 10-17 から until-idle（受付 813bb8）
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-29。上のコメント
+（↑ この上のコメントは次の行に付いていた: description = "works-dispatch・tiers・rent）
+
+effort = "high"   # コード（works-dispatch の Python）
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-17 承認。受付 813bb8
+（↑ この上のコメントは次の行に付いていた: description = "gates の直し（書き込み前のゲート・初見読みな）
+
+effort = "high"   # コード（gates のフック・CI・ルートの tests/）
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-17 承認。受付 813bb8
+（↑ この上のコメントは次の行に付いていた: description = "convergence-loops と graph）
+
+effort = "high"   # コード（graphloops の Python とグラフ）と、レビューの工程の判断
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-17 承認。受付 813bb8
+（↑ この上のコメントは次の行に付いていた: description = "attention の直し（自分の番の PR の見）
+
+effort = "high"   # コード（attention の Python）
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-17 承認。受付 813bb8
+（↑ この上のコメントは次の行に付いていた: description = """\）
+
+effort = "medium"   # 文書と会社の形を書く。原文の照合があるのでモデルは Opus のまま
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-17 承認。受付 813bb8
+（↑ この上のコメントは次の行に付いていた: description = """\）
+
+effort = "medium"   # 標準を書き、ずれを見つけて頼む。規約の判断なのでモデルは Opus のまま
+# 起動方法: 持ち主が my_notes の司令塔から呼びたいときに --start claude-plugins/標準 の 1 行で起動する（every を書かないので周期では起きない。
+# 持ち主 2026-10-17「一旦cronは不要で。役や部署として書いておき。呼び出したいときに呼び出せたらいいです」）。
+# 返す先と起動してよい会話は、同じ形の my_notes の業務改革にそろえて司令塔。部署がまだ無ければこの名前で立ち、在れば順番待ちに積む。
+（↑ この上のコメントは次の行に付いていた: [skills.start]）
+
+# 業務改革: claude-plugins の組織（部署・役・頼みの流れ）を外から点検し、案から、承認された直しを自分で入れて効いたかの報告までを通しでやる受け持ち（until-idle。上の段）。
+# my_notes の業務改革（受付 4582e6）と同じ形にそろえる（持ち主 2026-10-17「claudepluginsにもつくってあげて。」受付 7f0b16）。
+# 2 つが同じ物を重ねて点検しないよう、こちらは claude-plugins の組織だけを見る（my_notes の組織は my_notes の業務改革）。
+# 一度きりでは案を返すと畳まれ、持ち主が呼び直さなければ誰も見届けない（持ち主 2026-10-17「業務改革部署がたちあがったのに、
+# 割り振りにふってすぐclearされたら、最後まで面倒見ないかもしれない」「社長室を戦力換算しないで。組織でイメージして」）ので担当にする。
+# 2026-10-17 の承認（813bb8）で until-idle の形にした後も、司令塔の答えを待つ間は、自分の出した頼みに返事が来ていなければ --done が断るので、畳まれずに見届ける。
+# 会話は担当のまま new（頼みごとに空の会話）で、続きは改善の台帳と受付箱の台帳から読む。進め方は担当の本文でなく下の description に書く
+# （受け持ちの中身は [[skills]] の 1 か所に置く決まりで、description は業務改革の部署にだけ足される）。
+# 改善の台帳は docs/reform/ に置き、説明書の受け持ちから外す（試しの docs/trials/・標準の docs/standards/ と同じ切り方。
+# 受付箱の .git/company/ は commit されず、案と承認と結果は持ち主の決めごとの記録なので残す）。
+# 承認の問いは my_notes の司令塔へ頼み、直しの結果の報告は起動のきっかけになった頼みへの納品（--deliver --for）で司令塔に返す。承認された組織の直し（会社の形・設計の文書・ルートの CLAUDE.md の会社の決まり）は業務改革が自分で入れ、
+# プラグインの直しが要る案だけ my_notes の司令塔へ頼む（部署へ配るのは司令塔。下の組織の決まりの「通し」）。
+# 司令塔へ頼むコマンドは持ち主の判断が要る問いだけにする（持ち主 2026-10-17「へんじのいらないしらせは社長室にいらない」、my_notes の受付 20261017-072823-b538b0。
+# my_notes の会社の形の業務改革と同じ形。my_notes で知らせの形の頼むコマンドを止めるフック tools/no_notice.py は claude-plugins の会話のコマンドを見ないので、ここは決まりの文で塞ぐ）。
+# 起動方法は標準と同じく --start claude-plugins/業務改革 の 1 行で、every を書かない（持ち主 2026-10-17「一旦cronは不要で。…呼び出したいときに呼び出せたらいいです。」）。
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-17 承認。受付 813bb8
+# 業務改革の部署にだけ足される進め方なので英語で書く（ルートの CLAUDE.md の「会話」。元の日本語の行との対応は docs/reform/ledger.md の頼み 79eacf）
+（↑ この上のコメントは次の行に付いていた: description = """\）
+
+effort = "medium"   # 台帳を読んで組織を点検し、案と報告を書く。判断なのでモデルは Opus のまま
+（↑ この上のコメントは次の行に付いていた: [skills.start]）
+
+# 試しは Opus で起動する（ほかの担当と同じく受け持ちには model を書かず、役「担当」の model = "opus" で起動する）。
+# 一度 Sonnet にした（2026-10-17。持ち主「あと雑用っぽい部署はsonnetでいいとかね。」、根拠は "Pick a smaller model when the work is routine."）が、
+# 「記録の漏れや誤りが増えたら Opus に戻す」と決めてあり、同じ日に戻した。2 回目の試しを Sonnet でやり直すと、
+# Opus で回した前の記録の詰まりのうち、同じ条件で起こりうる 10 件で、見落とし 2 件・一部だけ書いた 1 件が出た（数え方は docs/trials/2026-10-17-sonnet-replay.md）。
+# 1 回だけなので、Sonnet のせいか回ごとのばらつきかは分けていない。それでも決まりどおり戻し、もう 1 回回して確かめることはしない
+# （my_notes の段取りの頼み 20261017-091106-9b6d67）。
+（↑ この上のコメントは次の行に付いていた: [[skills]]）
+
+lifetime = "until-idle"   # 持ち主 2026-10-17 承認。受付 813bb8
+（↑ この上のコメントは次の行に付いていた: description = "まっさらな環境・Windows・Linux（Col）
+
+effort = "high"   # 長い手順で入れて動かし、見たことを漏らさず記録する仕事なので下げない
+# 担当: 受け持ちごとに 1 つ（lifetime = "always" なので、--persistent を付けなくても always の部署で立つ。受け持ちの lifetime が until-idle なら畳む部署で立つ）。受け持ちは部署の名前で決まる
+# context = "new" で、頼みごとに空の会話で受ける（always · new。持ち主の決め 2026-10-17「担当＝常設・毎回空」。--ask が前の頼みを納品し終えた担当に /clear を打ってから頼む）
+（↑ この上のコメントは次の行に付いていた: [[roles]]）
+
+model = "opus"   # 理由は頭の「受け持ちごとの model・effort」のコメントの「ただし model は」の項
+（↑ この上のコメントは次の行に付いていた: lifetime = "always"）
+
+# rent-or-buy（keepalive と compact を費用で決める）: 部署が頼みの途中でターンを終えて待つ間（裏の処理・出した頼みの納品）、待ち受けがキャッシュの寿命の前に
+# 短い文を送ってキャッシュを保つ。送る時刻と止め時は rent-or-buy の部品が決める（works-dispatch/skills/dispatch/references/roles.md の「仕事が終わるまでの keepalive」）。
+# 会社の形に書かなくても全部の部署と窓口に効く（切るときだけ rent_or_buy = false を書く。持ち主 2026-10-31）。
+# 寿命は 1 時間（[roles.settings] の promptCacheTtl）。my_notes の部署の 5 分と違うのは、この会社の部署の働き方を測った結果（業務改革の頼み b5b5c1。docs/reform/ledger.md の「頼み b5b5c1」）。
+# 結論: 5 分と 1 時間の費用はほぼ同点（差は 2〜3%）なので、今の動きのまま 1 時間にした。
+# 数: 2026-10-24 11〜21 時の要求 1,154 回で、5 分を超えて 1 時間以内の間が 27 回、そのうち keepalive を送れない間（ターンの中の前景の --land や、何も待たずにターンを終えた後）が 14 回。
+# 条件: my_notes の指南 llm-agent-workflow-cost-design-guide.md の 3.3 の「1 時間が得 ⇔ 5 分で切れて書き直す量 Q が、書き込み W0 の 0.625 倍を超える」。この窓では Q 165 万・0.625 × W0 185 万、10-21〜24 の窓では Q 438 万・407 万
+# 残った疑問（要約の頭書きの [[open]]）の 1 件ごとの担当者（holder）を --deliver が確かめる。書けるのは受付番号・owner:choose・owner:confirm・頼み元の名前（my_notes の司令塔は持ち主への中継を兼ねるので除く。受付 24e521・b6778d）
+（↑ この上のコメントは次の行に付いていた: holders = ["司令塔"]）
+
+deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約に works-dispatch/dispatch/terms.py の語の一覧の言い方（IT の定着語でない物）が有れば止める。「」・`` ` `` の中、引用の行、コードブロックは見ない
+# AI だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」。元の日本語の行との対応は docs/reform/ledger.md の頼み 79eacf）
+（↑ この上のコメントは次の行に付いていた: instructions = """\）
+
+# 会話がこの長さ（トークン）に達したら自動で縮める（compact）。1M の窓のモデルは既定では約 967K まで縮めず、長い会話の読み直しが費用の大きな分を占めた
+# （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
+# 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
+（↑ この上のコメントは次の行に付いていた: autoCompactWindow = 200000）
+
+# キャッシュの寿命。理由は役「担当」の rent-or-buy のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
+（↑ この上のコメントは次の行に付いていた: promptCacheTtl = "1h"）
+
+# autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は main へ fast-forward するので
+# 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] のゲートを通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
+（↑ この上のコメントは次の行に付いていた: autoMode = { allow = ["$defaults", """\）
+
+# 窓口: 本社（代表の clone）で持ち主と話し、頼みを部署へ配る会話（持ち主 2026-10-26「はい。窓口たてていいよ。mainに」）。--desk で名付き、会話は引き継ぐ（carry）。
+# model・effort は my_notes の司令塔（同じく持ち主と話して配る会話。opus・medium）にそろえる。配る判断は誤りを後ろで止める仕組みが無いので opus に残す
+（↑ この上のコメントは次の行に付いていた: [[roles]]）
+
+holders = ["司令塔"]   # 理由は役「担当」の holders のコメント（窓口も部署の頼みに納品で返す）
+deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 役「担当」と同じ
+# AI だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」。元の日本語の行との対応は docs/reform/ledger.md の頼み 79eacf）
+（↑ この上のコメントは次の行に付いていた: instructions = """\）
+
+promptCacheTtl = "1h"   # 理由は役「担当」の rent-or-buy のコメント
+autoCompactWindow = 200000   # 理由は役「担当」の [roles.settings] の autoCompactWindow のコメント
+# 止められた部署の --land を打ち直すので、部署と同じ例外を書く（https://code.claude.com/docs/en/auto-mode-config）
+（↑ この上のコメントは次の行に付いていた: autoMode = { allow = ["$defaults", """\）
+
+# 作業: 一度きりの作業をする一時の部署。頼みごとに立ち、main に入れたら畳まれる
+# effort は medium（2026-10-17。使う量と 5 時間の上限を減らすため。モデルは替えず effort を下げる。済んだ頼み 2 件の再演で、
+# Opus・medium は費用が high の 56% で、漏れと誤りは high と同じ 2 件。docs/model-replay.md）。担当の effort は受け持ち（[[skills]]）ごとに書く
+（↑ この上のコメントは次の行に付いていた: [[roles]]）
+
+model = "opus"   # 理由は頭の「受け持ちごとの model・effort」のコメントの「ただし model は」の項
+（↑ この上のコメントは次の行に付いていた: effort = "medium"）
+
+# 残った疑問（要約の頭書きの [[open]]）の 1 件ごとの担当者（holder）を --deliver が確かめる。書けるのは受付番号・owner:choose・owner:confirm・頼み元の名前（my_notes の司令塔は持ち主への中継を兼ねるので除く。受付 24e521・b6778d）
+（↑ この上のコメントは次の行に付いていた: holders = ["司令塔"]）
+
+deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"   # 要約に works-dispatch/dispatch/terms.py の語の一覧の言い方（IT の定着語でない物）が有れば止める。「」・`` ` `` の中、引用の行、コードブロックは見ない
+# AI だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」。元の日本語の行との対応は docs/reform/ledger.md の頼み 79eacf）
+（↑ この上のコメントは次の行に付いていた: instructions = """\）
+
+# 会話がこの長さ（トークン）に達したら自動で縮める（compact）。1M の窓のモデルは既定では約 967K まで縮めず、長い会話の読み直しが費用の大きな分を占めた
+# （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
+# 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
+（↑ この上のコメントは次の行に付いていた: autoCompactWindow = 200000）
+
+# キャッシュの寿命。理由は役「担当」の rent-or-buy のコメント（書かないと works-dispatch は 1 時間と見るが、会社の形で決めておく）
+（↑ この上のコメントは次の行に付いていた: promptCacheTtl = "1h"）
+
+# autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は main へ fast-forward するので
+# 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] のゲートを通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
+（↑ この上のコメントは次の行に付いていた: autoMode = { allow = ["$defaults", """\）
+
+# 配布: 機械だけの役（machine = true。AI の部署を持たない）。ツール「全アカウントに配る」（scripts/spread-plugins.py）だけを持つ。
+# main に入れるたびに下の [[land.after]] の合図で呼ばれ、片づかなければ（1 つでも失敗したら）作業に回る（名前「配布：全アカウントに配る」の部署が立つ）。
+# 手で呼ぶなら dispatch.py --call 配布 spread-plugins（--input '{"dry_run": true}' で空打ち）。どの会話に /reload-plugins を打つか
+# （部署と窓口だけ）はこの組織の決まりなのでスクリプトに置き、その人だけの除外は ~/.config/claude-plugins/spread.toml の skip に置く。
+# 配る先は works-dispatch の設定のアカウントと、同じ手元の設定の accounts（Claude Code を使うが部署は起動しないアカウント）
+（↑ この上のコメントは次の行に付いていた: [[roles]]）
+
+# CI の見張り: 機械だけの役（machine = true）。ツール「main の CI を見る」（tests/ci-watch.py）だけを持つ。
+# main に入れるたびに下の [[land.after]] の合図で呼ばれ、知らせる物（main の CI の赤・止まった定期の workflow など。下の description）が在れば（ツールが 1 で終わったら）、出力を添えた頼みが点検に回る
+# （CI の赤を直すのは点検。標準 docs/standards/breakage-detection.md の決まり 6）。
+# fallback_role に受け持ちの名前を書けるのは works-dispatch 0.80.1 から（受付 d0818d・34ce75）。それより前の works-dispatch はツールごと外して呼ばない。
+# ツールは頼みの題の「/ci-watch 」で自分が回した頼みを見分けるので、name を変えない。
+# 手で呼ぶなら dispatch.py --call "CI の見張り" ci-watch（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えず、知らせる物が在っても 0 で終わる。1 は gh・台帳を読めない失敗）
+（↑ この上のコメントは次の行に付いていた: [[roles]]）
+
+# 工場の版の見張り（受付 20261026-055008-8aa008。頼み元は works-factory の窓口）: works-factory プラグインの PIN より先に、工場 raiki61/works-factory の
+# main で CI が緑の commit が在れば上げる。スキルに効く変更の照合に当たりが無ければ、AI を立てずにツールが PIN と CHANGELOG を書いて --land で入れる
+# （機械の上げ。持ち主 2026-10-28「いやLLMも要らないような自動のあげかた」。設計の 3.7）。照合に当たったときと機械の上げが失敗したときだけ、
+# 上げる頼みを作業に回す。作業は --write で PIN と CHANGELOG を書き、照合で当たればスキルも直して --land で入れる。
+# main に入れるたびに下の [[land.after]] の合図で、部署が新しく立つたびに下の [[task.after]] の合図で呼ばれる（部署の合図は頼み 2827a8）。工場の CI の緑だけで上げる（持ち主 2026-10-26「おし」で案 A。設計 docs/specs/2026-10-26-works-factory-pin-design.md の 1）。
+# 手で呼ぶなら dispatch.py --call claude-plugins/工場の版の見張り works-factory-pin（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えない）
+（↑ この上のコメントは次の行に付いていた: [[roles]]）
+
+# 部署の成果を main に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
+# 部署は触ったプラグインの試験を手元で回し、ここでは下の check の順に機械で確かめる。版は取り込むときに上げる
+# 件数のチェック（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
+# 文の IT の定着語でない言い方が、ファイルごとの基準の件数より増えていないかも確かめる（scripts/terms.py。辞書は works-dispatch/dispatch/terms.py）
+# 機械が読む値の受け渡しの決まり 3・4 に当たる所の件数が、ファイルごとの基準と違わないかも確かめる（tests/value-rules.py。標準 docs/standards/machine-readable-values.md。数えるだけで数秒）
+# ルートの試験（tests/run.sh）のうち、この変更が入力に当たる検査だけを、graphloops の模擬実行を見送って回し、赤の名前を一覧 tests/land-known-red.txt と照合する
+# （tests/land-check.py。works-dispatch だけを変えた回で、混んだ機械で 8 分ほど。tests/run.sh を変えた回は全部を回すので 25 分ほど）。
+# 一覧に無い赤と、一覧に在るのに緑の検査で止める。main に入った後の CI でしか回っていなかったため、入るたびに赤が積み上がった（2026-10-19、頼み b9ab0d）
+# 最後に、ブランチが書いた文書を初見の読み手に読ませ、詰まりが在れば止める（gates の branch-check。推測で埋めた箇所だけなら通す。読み 1 回に 2〜4 分。
+# 同じ中身の判定は覚えるので、リベースの打ち直しでは読み直さない）。安いゲートを先に、遅い初見読みを最後に並べる
+# 初見読みには --fixer で語の一覧の置き換え（works-dispatch/dispatch/terms.py の fix_text）を渡し、IT の定着語に語を置き換えただけの行は
+# 書き換えに数えない（置き換えは文書の全体に散り、文書を丸ごと読み直させて、元からある書き方の詰まりで止めた。2026-10-19、頼み 109fb3）
+# mode の名前 ff-after-ci は「ゲートの後に fast-forward」の意味で、ゲートが CI とは限らない。ここは gate = "check"（手元の検証）なので CI を待たない
+（↑ この上のコメントは次の行に付いていた: [land]）
+
+# 順は、軽い検査（scripts/light-check.sh。数十秒）→ この変更が入力に当たるテストだけ（tests/land-check.py）→ 初見の読み手（gates の branch-check。AI を起動するので最後）。
+# 全部のテストは main に入った後の CI が回す。どのテストをどこで回すかは docs/adr/0076-land-runs-affected-tests.md
+# 軽い検査は、main への push の前のフック（.githooks/pre-push）も回す。急ぎで --land を通さない push でも飛ばせない（受付 2ee37b）
+# （2026-10-20 の 19:45 から、この組み直しが入るまでは、検査 1 回が混んだ機械で 45 分かかったため tests/land-check.py を外していた。持ち主「一旦テストは全部飛ばしてclaudepluginsはいれましょう。」）
+（↑ この上のコメントは次の行に付いていた: check = "bash scripts/light-check.sh && ）
+
+# 同じ clone で同時に打った --land を、申し出た順に 1 本ずつ通す列（works-dispatch の docs/land.md の queue。2026-10-20 に --land 7 本が取り合った）
+（↑ この上のコメントは次の行に付いていた: queue = "land-queue"）
+
+# 束: 上の queue の列の先頭を取った --land（束ね役）が、後ろに待つ部署のブランチを最大 3 本重ねて（自分を入れて 4 本）、1 回の check でメインブランチに入れる（works-dispatch の docs/land.md の batch。持ち主の選び、受付 f5f08a）
+# check は一時の worktree で回るので、部署の場所にだけ在るファイルに頼らない（書く前に、追跡外のファイルの無い一時の worktree で緑を確かめた）
+（↑ この上のコメントは次の行に付いていた: batch = 4）
+
+# main に入れた後の合図: 全アカウントに配る（出荷のたびに窓口が手で配っていた物。片づかなければ作業に回り、頼み元は main に入れた部署の頼み元）
+（↑ この上のコメントは次の行に付いていた: [[land.after]]）
+
+# main に入れた後の合図: main の CI を見る（配布の後）。持ち主は cron などの定期の起動を置かないので、main へ入れる動きに乗せる。
+# main へ誰も入れない間は見張りも止まる（標準 docs/standards/breakage-detection.md の決まり 2 の最後の項）
+（↑ この上のコメントは次の行に付いていた: [[land.after]]）
+
+# main に入れた後の合図: 工場の版の上げ先を見る（CI の見張りの後）。工場の main に CI の緑の新しい commit が在れば、上げる頼みが作業に回る
+（↑ この上のコメントは次の行に付いていた: [[land.after]]）
+
+# 部署を立てた後の合図（works-dispatch の [[task.after]]。頼み 2827a8）: 部署が新しく立つたびに、工場の版の上げ先を裏で見る。
+# main へ入れる合図だけだと、main へ誰も入れない間は工場の新しい版を追えなかった。頼み元は会社の窓口で、部署を開き直したときは呼ばない
+（↑ この上のコメントは次の行に付いていた: [[task.after]]）
+
+# 組織の決まり（この会社の作り方。スキルの決まりではない）
+# - 名前は日本語の短い言葉にする（英語や会社らしい呼び名にしない。持ち主 2026-10-16「会社っぽくなくていい」「日本語で」）。
+#   herdr のサイドバーには、作業場の木（親＝リポジトリ、子＝worktree）と、会話の行（作業場の名前・役・ブランチ）が出る。
+#   会社の名前は親の作業場にだけ出るので、部署の名前（--task・--ask に渡す名前。作業場・会話の名前になる）に会社を付けない。
+# - 役は 5 つ: 窓口（頼みを配り、片付けの判断〔--clean・--retire〕と止められた --land の打ち直しを受ける本社の会話。
+#   役の本文は [[roles]] の「窓口」。2026-10-26 までは my_notes の司令塔が兼ねていた〔業務改革の案 1-3〕）・担当（受け持ちに 1 つ。always か、until-idle）・作業（一度きり）・機械だけの役（配布・CI の見張り・工場の版の見張り）・相談（この会社の形には置かない）。
+# - 担当: 受け持ちごとに 1 つ。部署の名前を受け持ちの名前にし、自分の受け持ちはその名前で決まる。
+#   受け持ちの表（どの受け持ちが何のファイルを持つか）は [[skills]] の 1 か所に置く（name が部署の名前、description が中身。works-dispatch の
+#   役を足すフックが、部署の名前と同じ name の description を会話の始まりに足す）。役の本文と、このコメントに写さない。
+#   役の本文とここに書くのは、表に載らない境目の決まりだけ（次の 3 行）:
+#   試しと標準の担当はプラグインを直さず、直しはその受け持ちの担当に頼む。
+#   プラグインのフォルダの中（README・tests など）は、そのプラグインの担当の物。
+#   works と works-factory は持ち主が別に回している所なので、受け持ちを作らず、どの担当も触らない。
+#   担当への頼みは部署の名前で宛てる（--ask 仕組み。works-dispatch は部署の名前を役より先に当てる。
+#   別の会社に同じ名前の部署が有れば --ask claude-plugins/仕組み）。担当は 1 つの会社に幾つも有るので、役（--ask claude-plugins/担当）では宛てない。
+#   always の受け持ち（今は無い。業務改革が上げ下げで lifetime = "always" にしたときに出る）で担当がまだ居なければ --task <受け持ち> --branch work/<英小文字> --role 担当 --persistent で立てる（起動方法 [skills.start] の有る受け持ちは --start <受け持ち> でも立つ）。
+#   until-idle の受け持ちは、--ask claude-plugins/<受け持ち> だけで立つ。
+#   always の担当の部署は片付けで畳まれず、次の頼みを同じ作業場と窓で、空にした会話で受ける（context = "new"）。同じ受け持ちの直しは担当の中で順番に進むので、同じファイルの取り合いにならない。
+# - 作業: 頼みごとに立って入れたら畳まれる一時の部署。畳むきっかけは、作業が最後に自分で打つ終わりの印（dispatch.py --done。打つ時は作業の本文）で、
+#   印のターンの終わりに works-dispatch が会話を止めて部屋を片付ける。印の無いまま残った部屋は、dispatch.py --clean の一覧に
+#   「頼みは納品済みで、終わりの印が無い」「終わりの印で畳もうとして残った: …」などの訳と並ぶので、窓口が止めるか残すかを決め、止めるなら --retire <部署> を打つ。
+#   使うのは、受け持ちの無い一度きりの作業（ルートの scripts/ など。どれに受け持ちが有るかは [[skills]]）と、
+#   担当が互いに独立した仕事を並べて進めたいときに使う（下の「並べるのは独立した仕事だけ」）。--ask claude-plugins/作業 に --task <名前> --branch <ブランチ> を添えるか、
+#   --task で直に立てる（--role を省けば default_role の作業になる）。
+#   名前は「<受け持ち>：<何をするか>」（例: 「点検：文書の環境変数」）。作業場の名前になるので 12 字くらいまで。受け持ちの無い作業は何をするかだけでよい。
+# - 担当どうしの連携: 担当は、ほかの担当と作業に頼むコマンド（--ask）で頼んでよい。頼んだ担当が頼み元になり、納品はその担当に返る。
+# - 異論は作る前に返させる（持ち主 2026-10-17「トップダウンすぎ。部署にも反論させてよい」）。担当と作業は、頼みの前提や作り方への異論・代案と、
+#   受け持ちの外の頼みを、作らずに納品で返す。返す口は今は納品しかないので、その書き方を担当と作業の本文に同じ文で持つ（TOML に共通の本文を引く書き方が無いため）。
+#   担当の「受け持ちの外のファイルを変える必要が出たら頼む」は作っている途中の決まりで、頼みそのものが外のときのこの決まりとは別。
+# - 並べるのは独立した仕事だけ: 部署を並べて頼むのは、互いに独立した仕事（調べもの・別々の PR・試しや測りなど）だけにする。
+#   組織やツールそのものの直し（会社の形・役の本文・ルートの CLAUDE.md の決まり・プラグインのように互いに引き合う物）は、割らずに 1 つの部署で通しで、
+#   直して入れて（版は --land が上げる）効いたかまで進める。担当は、自分の直しと引き合う受け持ちの外の変更も割らずに入れ、触った受け持ちを納品に書く。
+#   業務改革の案から来た組織の直しは業務改革が自分で入れ、プラグインの直しはその担当か作業 1 つが通しでやる。
+#   通しでやるのは部署で、司令塔にはしない（持ち主「社長室を戦力換算しないで。組織でイメージして」、my_notes の受付 4582e6）。
+#   書いた会話と別の、文脈を持たない見直しの目（inspector・初見の読み手）は残す。
+#   持ち主 2026-10-17、社長室の「賛成。条件を 2 つ付けて採る」に「さっきの問いはどうぞ。」（my_notes の受付 d4200c。my_notes の会社の形の commit 96b2d7b7・912307a5 と同じ形）。
+#   反対の理由として示したもの: 1 本の会話が長く走って文脈が太る。直しが 1 本ずつになり、急ぎが重なると待ちが出る。
+#   根拠（my_notes の reference/primary/ai/ に写し）:
+#     https://cognition.ai/blog/dont-build-multi-agents "Actions carry implicit decisions, and conflicting decisions carry bad results"
+#     https://cognition.ai/blog/multi-agents-working "multi-agent systems work best today when writes stay single-threaded"
+#     https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence "If the work is one chain, fits in one context without a long cost tail, or a single model at lower effort already meets your bar, don't build an orchestrator."
+# - 持ち主に問うのは価値で選ぶことと確認してからやることだけ: ほかの問い・持ち主に打たせる手順・残った疑問は会社の中（部署・ツール）で済ませ、
+#   残った疑問には 1 件ごとに持ち主でない担当者を書く（担当と作業の本文。my_notes の会社の形の commit 9926176c と同じ書き方）。
+#   持ち主 2026-10-17「なんでじぶんたちでできないの」「なんで全部中途半端で終わらないのか」「まさか。それが組織？」（my_notes の受付 f52386）。
+#   担当者の書き方は、担当と作業の役の holders で --deliver が機械で止める（works-dispatch 0.55.0 から。受付 24e521）。
+#   担当者は要約の頭書きの [[open]] の holder に書き、受付番号・owner:choose・owner:confirm・頼み元の名前だけを通す（works-dispatch の受付 b0df65・b6778d）。
+# - ブランチの名前は英小文字とハイフンにする（git と GitHub の URL で崩れないため）。直しは fix/…、足すものは feat/…、調べや下書きは work/…。
+# - 窓口とのやり取りは頼むコマンド（--ask）と納品のコマンド（--deliver）。頼んだ後で頼みを変える・足す・取り下げるときは、部署の窓に直に打たず、
+#   受付番号に --note <受付>（--text <文> か --brief <ファイル>）で足す（台帳の知らせになり、部署のターンの終わりに渡る。順番待ちの件なら、渡す 1 行に添える）。
+#   順番待ちの 1 件は受付番号で扱う: 先頭に回すのは --first、取り下げるのは --withdraw、順を飛ばして受けるかほかの部署へ回すのは --take（回すなら --ask を添える）。
+#   頼みに結び付かない、返事の要らない一言（再開の合図・PR の会話への連絡・別のアカウントの部署からの区切りの報告）も、ほかの会話の herdr のペインに
+#   直に打たず --say <宛先>（--text か --brief）で送る（works-dispatch の受付 23101c。持ち主 2026-11-01「部署間や組織間のメッセージがherdrの直うちでされることが多い」）。
+#   決まりは works-dispatch/docs/specs/2026-10-17-reception-design.md の 4.4・4.5。
+# - 設計は docs/specs/2026-10-16-company-shape-design.md の 4.12。
+```
