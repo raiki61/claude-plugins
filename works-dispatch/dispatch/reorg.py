@@ -27,7 +27,7 @@ import config
 import gitx
 from ports import chat, term
 import orders
-from nodes import launch, provision, role, sync, tree, wake
+from nodes import deliver, launch, provision, role, sync, tree, wake
 
 DESK_ROLE = "窓口"   # 会社の形に desk_role も本社の役も無いときの、本社の会話の役（持ち主 2026-10-16）
 
@@ -41,14 +41,53 @@ def _same(a, b):
     return os.path.realpath(a) == os.path.realpath(b)
 
 
-def _renamed(attrs, new_name):
-    """名前を替えるときに書く former-names の値（JSON の並び。前の名前を足し、新しい名前は外す）。替えないなら None。
+def _renamed(attrs, new_name, also=()):
+    """名前を替えるときに書く former-names の値（JSON の並び。前の名前と also の名前を足し、新しい名前は外す）。足す物が無ければ None。
     今の値が読めなければ gitx.AttrError（読めないまま空として上書きすると、前の名前で宛てた頼みが届かなくなる）。"""
     old = attrs.get("name")
-    if not new_name or new_name == old:
+    if (not new_name or new_name == old) and not any(also):
+        return None   # 足す物が無いときは前の名前を読まない（読めない値でも、名前を替えない --desk・--reorg を止めない）
+    held = gitx.former_names(attrs, strict=True)
+    extra = [n for n in also if n and n not in (new_name, old) and n not in held]
+    if (not new_name or new_name == old) and not extra:
         return None
-    names = [n for n in gitx.former_names(attrs, strict=True) + ([old] if old else []) if n != new_name]
+    names = [n for n in held + ([old] if old else []) + extra if n != new_name]
     return json.dumps(list(dict.fromkeys(names)), ensure_ascii=False)
+
+
+def _asked_as(ports, common, talk_name):
+    """本社の会話が名付く前に、会話の一覧の名前 talk_name で頼み元を書いた頼みが受付箱の台帳に在れば [talk_name]、無ければ []。
+    名付けるときにその名前を前の名前（company.former-names）に足し、その頼みの納品も窓口の待ち受けに届ける（my_notes の本社が
+    名付かないまま my-notes-7b で 2 つ頼み、司令塔が手で前の名前を足した。受付 20261111-024844-09198b・20261111-024957-027a84）。
+    見るのは本社（git の場所が共通の場所と同じ。_at_office）から頼んだ行だけで、本社の下に置いた部署の作業場の行は見ない。"""
+    if not talk_name:
+        return []
+    for r in deliver.records(deliver.inbox_of(common)):
+        got = r.get("from") if r.get("kind") == "ask" else None
+        place = isinstance(got, dict) and got.get("name") == talk_name and got.get("place")
+        if isinstance(place, str) and _at_office(ports, place, common):
+            return [talk_name]
+    return []
+
+
+def _seat_changes(attrs, shape, cfg, source, ports, the_role, name, account, session, pid, talk_name):
+    """本社の属性に窓口として書く物（--desk と、--ask の名付け auto_desk で同じ）と、書く gh のアカウントか None の対。account が
+    無ければ（会話の一覧に見えない）アカウントと会話の id は今の値のまま。前の名前が読めなければ gitx.AttrError。"""
+    changes = {"role": the_role, "lifecycle": gitx.PERSISTENT, "name": name}
+    # 本社の会話の gh のアカウント（role_hook.put_env が GH_TOKEN に入れる）。--task と同じ決め方（設定の [[repos]] の gh_user を先に、
+    # 無ければ会社の形の gh_user）。無ければ今の値のまま（手で書いた物を消さない）。頼み 4a8deb
+    gh_user = role.gh_user(config.repo_at(cfg, source, ports.origin).gh_user if cfg else None, shape)[0]
+    if gh_user:
+        changes["gh-user"] = gh_user
+    if account:
+        changes.update({"account": account, "session": session, "pid": str(pid) if pid else None})
+        if session != attrs.get("session"):
+            changes.update({wake.LAUNCHING: None, **({} if attrs.get(wake.LAUNCHING) else {wake.LAUNCHED: None})})
+    common = ports.git.common_dir(source)
+    former = _renamed(attrs, name, _asked_as(ports, common, talk_name) if common and talk_name != name else ())
+    if former:
+        changes["former-names"] = former
+    return changes, gh_user
 
 
 def _clash(companies, place, name, g):
@@ -240,14 +279,8 @@ def desk(a, ports, cwd):
     if not account:
         notes.append("このコマンドを打った会話が会話の一覧に見えないので、アカウントと会話の id は今の値のまま"
                      "（窓口の会話の中から打てば書く）")
-    changes = {"role": the_role, "lifecycle": gitx.PERSISTENT, "name": name}
-    # 本社の会話の gh のアカウント（role_hook.put_env が GH_TOKEN に入れる）。--task と同じ決め方（設定の [[repos]] の gh_user を先に、
-    # 無ければ会社の形の gh_user）。無ければ今の値のまま（手で書いた物を消さない）。頼み 4a8deb
-    gh_user = role.gh_user(config.repo_at(cfg, source, ports.origin).gh_user if cfg else None, shape)[0]
-    if gh_user:
-        changes["gh-user"] = gh_user
+    pid = ports.caller_pid(sessions_) if account else None
     if account:
-        pid = ports.caller_pid(sessions_)
         held = attrs.get("pid")
         if not linked and held and held != str(pid) and session != attrs.get("session") and ports.running_chat(held):
             # 窓口の席は 1 つ。窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が席を取ると、納品がそちらに届き、
@@ -260,16 +293,11 @@ def desk(a, ports, cwd):
                                       f"kill -CONT {held} で終える。止まった処理は SIGCONT で再開するまで終わらない）"] if tty else
                                      [f"止めた: {who}がまだ動いている。席を移すなら、先にその会話を終える（/exit）"])))
             return 2
-        changes.update({"account": account, "session": session, "pid": str(pid) if pid else None})
-        if session != attrs.get("session"):
-            changes.update({wake.LAUNCHING: None, **({} if attrs.get(wake.LAUNCHING) else {wake.LAUNCHED: None})})
     try:
-        former = _renamed(attrs, name)
+        changes, gh_user = _seat_changes(attrs, shape, cfg, source, ports, the_role, name, account, session, pid, talk_name)
     except gitx.AttrError as e:
         print(f"止めた: {e}")
         return 2
-    if former:
-        changes["former-names"] = former
     held_by = account or attrs.get("account")
     command = next((x.command for x in (cfg.accounts if cfg else []) if x.name == held_by), chat.COMMAND)
     after = _launch_line(a, ports, source, shape, the_role, name, command)
@@ -277,3 +305,83 @@ def desk(a, ports, cwd):
         # フックが GH_TOKEN を入れるのは会話の始まり（SessionStart）だけなので、打った会話には次の始まりから効く
         after.append(f"gh のアカウント {gh_user} は、この本社で次に始めた会話から効く（今の会話に効かせるなら /clear か、開き直す）")
     return _write(a, ports, cwd, source, attrs, changes, notes, f"窓口 {name}（{source}）を名付ける", talk_name, after)
+
+
+def _at_office(ports, cwd, common):
+    """その会話の作業フォルダ cwd が本社（代表の clone。git の場所が共通の場所と同じ）か。読めなければ偽。"""
+    try:
+        place = cwd and ports.git.git_dir(cwd)
+    except (gitx.GitError, OSError):
+        return False
+    return bool(place) and _same(place, common)
+
+
+def auto_desk(a, ports, here, sid, sessions_, cfg, companies):
+    """--ask の頼み元の名付け。会社の形に desk_role が在る会社の本社で、まだ窓口でない会話（orders.place_name が None）が頼んだとき、
+    --desk と同じ属性を本社に書いて窓口に名付ける（持ち主が新しい PC の本社で --desk を打ち忘れ、頼み元が会話の一覧の名前 my-notes-7b で
+    書かれ、PC ごとに窓口の名前がずれた。頼み ee7368）。(名付けた窓口の名前か None, 注記の並び)。
+
+    ほかの会話を窓口に取り違えないよう、次のどれかなら名付けない（注記を返し、頼み元は今までどおり会話の一覧の名前）:
+    この会話が会話の一覧に見えない・持ち主と話す会話（kind interactive）でない（試しの claude -p や裏の処理）・前の窓口の会話
+    （company.pid）がまだ動いている（--desk と同じ席の決まり）・本社にほかの持ち主の会話も居て、どれが窓口か見分けられない。
+    名付く前に会話の一覧の名前で頼んだ行が台帳に在れば、その名前を前の名前に足す（_asked_as）。空打ちでは書かない。
+    名付けた後に --ask がほかの訳（担当者の検査など）で止まっても、名付けは残す（見分けを通った会話なので、窓口として正しい）。
+    git や会社の形を読めなければ名付けず、注記にして --ask は続ける。"""
+    if not sid or not here:
+        return None, []
+    try:
+        return _auto_desk(a, ports, here, sid, sessions_, cfg, companies)
+    except (gitx.GitError, OSError) as e:
+        return None, [f"注記: 本社のこの会話を窓口に名付けなかった（読めなかった: {e}）"]
+
+
+def _auto_desk(a, ports, here, sid, sessions_, cfg, companies):
+    """auto_desk の本体。git か会社の形を読めなければ gitx.GitError か OSError。"""
+    common = ports.git.common_dir(here)
+    if not common or not _at_office(ports, here, common):
+        return None, []
+    source = gitx.root_of(common)
+    shape, _ = _shape(source, a, ports.git)
+    if not shape.get("desk_role"):
+        return None, []   # 会社の形に desk_role の無い会社は今までどおり（--desk を手で打つ）
+    attrs = ports.attrs(source)
+    account, talk_name = ports.caller(sessions_)
+    pid = ports.caller_pid(sessions_)
+    entry = next((s for items in sessions_.values() for s in items if s.get("sessionId") == sid), None)
+    the_role = desk_role(shape, attrs, None)
+    name = attrs.get("name") or the_role
+    held = attrs.get("pid")
+    others = sorted({s.get("name") or s.get("sessionId") or "-" for items in sessions_.values() for s in items
+                     if s.get("sessionId") != sid and s.get("kind") == "interactive" and s.get("state") not in orders.FALLEN
+                     and _at_office(ports, s.get("cwd"), common)})
+    pick = False   # 持ち主の会話が 2 つ以上居て、機械が窓口を選べない
+    if not account or not entry:
+        why = "この会話が会話の一覧に見えない"
+    elif entry.get("kind") != "interactive":
+        why = f"この会話は持ち主と話す会話でない（会話の一覧の kind が {entry.get('kind') or '-'}）"
+    elif held and held != str(pid) and ports.running_chat(held):
+        why = f"窓口 {name} の会話（処理 {held}）が動いている"
+    elif others:
+        pick = True
+        why = f"本社にほかの会話（{', '.join(others)}）も居て、どれが窓口か見分けられない"
+    else:
+        why = _clash(companies, source, name, ports.git)
+        why = why and f"「{name}」という名前の部署がもう在る（{why}）"
+    if why:
+        # --desk を勧めるのは、持ち主の会話が 2 つ居て機械が選べないときだけ（試しの会話が読んで席を取らない。role_hook の DESK_HINT と同じ）
+        return None, [f"注記: 本社のこの会話を窓口に名付けなかった（{why}）。頼み元は会話の一覧の名前 {talk_name or '-'} で書く"
+                      + ("（この会話が窓口なら --desk を打つ）" if pick else "")]
+    try:
+        changes, _ = _seat_changes(attrs, shape, cfg, source, ports, the_role, name, account, sid, pid, talk_name)
+    except gitx.AttrError as e:
+        return None, [f"注記: 本社のこの会話を窓口に名付けなかった（{e}）"]
+    added = [n for n in gitx.former_names({"former-names": changes.get("former-names")}) if n == talk_name]
+    said = (f"本社のこの会話を窓口 {name}（役 {the_role}。会社の形の desk_role）に名付け" + ("る（空打ちなので書かない）" if a.dry_run else "た")
+            + "。--desk を手で打たなくてよい" + (f"。前に会話の一覧の名前 {talk_name} で頼んだ物の納品もこの窓口に届く" if added else ""))
+    if a.dry_run:
+        return name, [said]
+    try:
+        provision.mark(source, source, changes, ports.git)
+    except (gitx.GitError, OSError) as e:
+        return None, [f"注記: 本社のこの会話を窓口に名付けなかった（属性を書けなかった: {e}）"]
+    return name, [said + f"（{term.NAME} のペインの名前は --sync で付け直す）"]

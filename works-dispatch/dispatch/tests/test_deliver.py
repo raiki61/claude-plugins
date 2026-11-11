@@ -1574,16 +1574,21 @@ class Flow(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "担当"}, self.g)
         summary = self.ask_then_summary(GOOD)
         self.shape(good.replace("deliver_check =", "deliver_chek =", 1))
+        # 見本の会社の形には desk_role が在るので、上の --ask で本社の会話が窓口に名付く（reorg.auto_desk）。納品は部署の会話から打つ
+        # （窓口の会話が打つと、own_place が窓口の場所で読む）
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 2, out)
         self.assertIn("roles[0]（担当）: 知らない鍵 deliver_chek（読まない", out)
         self.assertIn("送らなかった: 役「担当」の会社の形に、この版の読まない鍵 deliver_chek があるので送らなかった", out)
         self.assertEqual(out.rstrip().splitlines()[-1], deliver.REDO)
         self.assertEqual(self.prompts(), [])
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "もう 1 つ", "--dry-run")
         self.assertEqual(rc, 2, out)
         self.assertIn("止めた: 役「担当」の会社の形に、この版の読まない鍵 deliver_chek があるので頼まなかった", out)
         self.shape(good)
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         self.assertIn("納品の検査が通った: true", out)

@@ -314,6 +314,96 @@ class Reorg(unittest.TestCase):
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("窓口", ["my_notesの窓口"]))
 
 
+class AutoDesk(unittest.TestCase):
+    """会社の形に desk_role が在る会社の本社の会話は、初めて頼むとき（--ask）に窓口に名付く（頼み ee7368）。土台は Reorg と同じ。"""
+    main = Reorg.main
+
+    def setUp(self):
+        Reorg.setUp(self)
+        self.shape = pathlib.Path(self.src, ".claude", "company.toml")
+        self.shape.parent.mkdir(exist_ok=True)
+        self.shape.write_text('desk_role = "相談"\n[[roles]]\nname = "相談"\n[[roles]]\nname = "担当"\n', encoding="utf-8")
+        self.sessions[1]["pid"] = 4242
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+
+    def ask(self, *more):
+        with contextlib.chdir(self.src):   # --ask は打った場所（作業ディレクトリ）の会社の受付箱を使う
+            return self.main("--ask", "振り分け", "--text", "形を見て", *more)
+
+    def asked_from(self):
+        inbox = deliver.inbox_of(self.g.common_dir(self.src))
+        return [r["from"]["name"] for r in deliver.records(inbox) if r.get("kind") == "ask"]
+
+    def test_the_first_ask_names_the_head_office_talk_with_the_desk_role(self):
+        rc, out = self.ask()
+        self.assertEqual(rc, 0, out)
+        attrs = self.g.worktree_attrs(self.src)
+        self.assertEqual({k: attrs.get(k) for k in ("role", "name", "lifecycle", "account", "session", "pid")},
+                         {"role": "相談", "name": "相談", "lifecycle": "persistent", "account": "a1", "session": "s-desk",
+                          "pid": "4242"})
+        self.assertIn("本社のこの会話を窓口 相談（役 相談。会社の形の desk_role）に名付けた", out)
+        self.assertEqual(self.asked_from(), ["相談"])   # 頼み元は会話の一覧の名前 my-notes-31 でなく窓口の名前
+        rc, out = self.ask()   # 名付いた後は place_name が名前を返し、名付け直さない
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("名付け", out)
+
+    def test_asks_made_under_the_list_name_before_naming_still_reach_the_desk(self):
+        self.shape.write_text('[[roles]]\nname = "相談"\n[[roles]]\nname = "担当"\n', encoding="utf-8")   # desk_role の無い会社
+        rc, out = self.ask()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("role", self.g.worktree_attrs(self.src))   # 名付けない（今までどおり）
+        self.assertNotIn("名付け", out)
+        self.assertEqual(self.asked_from(), ["my-notes-31"])
+        self.shape.write_text('desk_role = "相談"\n[[roles]]\nname = "相談"\n[[roles]]\nname = "担当"\n', encoding="utf-8")
+        rc, out = self.ask()
+        self.assertEqual(rc, 0, out)
+        attrs = self.g.worktree_attrs(self.src)
+        self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("相談", ["my-notes-31"]))
+        self.assertIn("前に会話の一覧の名前 my-notes-31 で頼んだ物の納品もこの窓口に届く", out)
+
+    def test_desk_by_hand_also_keeps_the_list_name_of_earlier_asks(self):
+        self.shape.write_text('[[roles]]\nname = "相談"\n[[roles]]\nname = "担当"\n', encoding="utf-8")
+        self.assertEqual(self.ask()[0], 0)
+        rc, out = self.main("--desk", "相談", "--role", "相談")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.former_names(self.g.worktree_attrs(self.src)), ["my-notes-31"])
+
+    def test_other_talks_are_not_taken_for_the_desk(self):
+        cases = (("試しや裏の処理（kind が interactive でない）", lambda: self.sessions[1].update(kind="bg"), "持ち主と話す会話でない", False),
+                 ("ほかの持ち主の会話も本社に居る",
+                  lambda: self.sessions.append({"id": "o", "sessionId": "s-other", "name": "my-notes-9f", "cwd": self.src,
+                                                "kind": "interactive", "status": "idle"}), "my-notes-9f", True),
+                 ("前の窓口の会話が動いている",
+                  lambda: (provision.mark(self.src, self.src, {"role": "相談", "name": "相談", "session": "s-old", "pid": "777"}, self.g),
+                           setattr(self.ports, "running_chat", lambda pid: pid == "777")), "窓口 相談 の会話（処理 777）が動いている",
+                  False))
+        for what, arrange, said, hint in cases:
+            with self.subTest(what):
+                self.setUp()
+                arrange()
+                before = self.g.worktree_attrs(self.src)
+                rc, out = self.ask()
+                self.assertEqual(rc, 0, out)
+                self.assertIn("本社のこの会話を窓口に名付けなかった", out)
+                self.assertIn(said, out)
+                # 試しが読んで席を取らないよう、選べないときだけ勧める
+                (self.assertIn if hint else self.assertNotIn)("（この会話が窓口なら --desk を打つ）", out)
+                self.assertEqual(self.g.worktree_attrs(self.src), before)
+                self.assertEqual(self.asked_from(), ["my-notes-31"])
+
+    def test_dry_run_and_branch_places_write_nothing(self):
+        rc, out = self.ask("--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("名付ける（空打ちなので書かない）", out)
+        self.assertNotIn("role", self.g.worktree_attrs(self.src))
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-a"}   # 部署の会話（ブランチの作業場）は名付けの外
+        with contextlib.chdir(self.place):
+            rc, out = self.main("--ask", "相談", "--text", "見て", "--dry-run")
+        self.assertNotIn("名付け", out)
+        self.assertNotIn("role", self.g.worktree_attrs(self.src))
+
+
 class FormerNames(unittest.TestCase):
     def test_ask_target_finds_a_department_by_its_former_name_after_the_current_names(self):
         def row(name, former=(), path="/r/w"):

@@ -552,7 +552,13 @@ def _ask(a, ports, cwd, task, sent):
     # 会話の一覧に見えなければ、打った会話の部署の場所（own_place。--forward で閉じる頼みと、この頼みの cause・頼み元をそろえる）
     here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")),
                 None) or own_place(ports, cwd)[0]
-    account, name = a.from_account or found_account, a.from_name or place_name(here, sid, ports) or found_name
+    named = a.from_name or place_name(here, sid, ports)
+    if not named and sid and not getattr(a, "from_boss", None) and not getattr(a, "tool_boss", None):
+        # 会社の形に desk_role が在る会社の本社の会話は、初めて頼むときに窓口に名付ける（reorg.auto_desk。頼み ee7368）
+        import reorg   # reorg は orders を読むので、ここで読む
+        named, more = reorg.auto_desk(a, ports, here, sid, sessions_, cfg, companies)
+        notes += more
+    account, name = a.from_account or found_account, named or found_name
     sender = name or "名の無い会話"
     if relays is not None:
         # 問いを受ける役（相談）へ宛てた頼みにも、残った疑問（頭書きの open）が在れば同じ担当者の検査を掛ける。頼む側が自分で持つ物は
