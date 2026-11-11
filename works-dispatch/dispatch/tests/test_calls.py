@@ -591,7 +591,8 @@ class ToolPlace(unittest.TestCase):
 
     def test_the_tool_place_is_made_under_the_cache_dir_not_the_temp_dir(self):
         # 場所はメインブランチの中身を全部出すので大きい。/tmp はメモリの上の tmpfs のことがあり、数個で埋まる（頼み e90405）
-        self.use("pwd")
+        # 今の場所は Python に出させる。Windows の Git Bash の pwd は /c/Users/... を出し、realpath が今のドライブの下（D:\c\Users\...）と読む（頼み fd6cfb）
+        self.use(self.script("import os; print(os.getcwd())"))
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
         self.assertEqual(rc, 0, out)
         here = os.path.realpath(out.strip().splitlines()[-1])
