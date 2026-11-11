@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.164.0 で足した試験（ツールの置き場が一時のフォルダでなく `<XDG_CACHE_HOME>/works-dispatch/tools` の下に作られることを見る物）が、Windows の CI で落ちていたのを直した。試験のツールが今の場所を Git Bash の `pwd` で出していて、`/c/Users/...` の形のパスが今のドライブの下（`D:\c\Users\...`）と読まれていた。今の場所は Python の `os.getcwd()` に出させる。直したのは試験だけで、置き場は前から正しく作られていた（https://github.com/raiki61/claude-plugins/actions/runs/43046505126 ）。
+
 ## [0.164.0] - 2026-11-11
 
 ### Added
