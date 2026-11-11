@@ -2835,15 +2835,33 @@ class BodyFiles:
         (`( S=x ); gh` の S は gh に届かない)。ファイルへの書き込みは届くので、書き手の順を見るときは真にする。
         """
         d = self.cmds[j].depth
-        for m in range(j + 1, k + 1):
-            for op, dep in self.cmds[m].ops:
-                if op in "()":
-                    if not below_ok and op == ")" and dep < d:
-                        return False
-                    continue
-                if allowed is not None and dep <= d and op not in allowed:
-                    return False
+        if not all(self._op_ok(m, d, allowed, below_ok) for m in range(j + 1, k + 1)):
+            return False
         return below_ok or self.cmds[k].depth >= d
+
+    def _op_ok(self, m, d, allowed, below_ok):
+        """m 番目のコマンドの前の区切りが、深さ d のコマンドの効果を通すか(_between の 1 本ぶん)。"""
+        for op, dep in self.cmds[m].ops:
+            if op in "()":
+                if not below_ok and op == ")" and dep < d:
+                    return False
+                continue
+            if allowed is not None and dep <= d and op not in allowed:
+                return False
+        return True
+
+    def _reach(self, j, allowed):
+        """_between(j, m, allowed, below_ok=True) が真になる m の上の端(この番号より前の m だけが真)。
+
+        below_ok が真なら、_between は m までの区切りがどれも _op_ok かだけで決まり、m を伸ばすと一度偽になった後は
+        真に戻らない。なので j の後ろを 1 度だけ走って端を求められる(前は書き手の候補ごとに _between を打ち、
+        `find . -exec true \\; …` を 7000 回連ねた 98054 字の find で CPU 6〜10 秒かかった。tests/coldread-fix-case.py の 47)。
+        """
+        d = self.cmds[j].depth
+        m = j + 1
+        while m < len(self.cmds) and self._op_ok(m, d, allowed, True):
+            m += 1
+        return m
 
     def assigned(self):
         """変数名 → (値, 位置)。値が 1 つに決まらない名前は None(代入せずに入れ直すだけの名前も None で載せ、eval などで
@@ -3077,8 +3095,9 @@ class BodyFiles:
         """同じコマンドの中で target を書く単純コマンド。無ければ None、`cat > f <<EOF` 1 本ならその本文、ほかは "writer"。"""
         base = os.path.basename(target)
         found = []
+        after = self.k if self.looped else self._reach(self.k, _SEQUENTIAL + ("||",))
         for j, c in enumerate(self.cmds):
-            if not self.looped and j > self.k and self._between(self.k, j, _SEQUENTIAL + ("||",), below_ok=True):
+            if self.k < j < after:
                 continue   # gh が終わった後に走るコマンド(`gh … --body-file f && rm f` の後片付け)は gh の読む中身を変えない
             # gh 自身のリダイレクト(`gh … --body-file f > f`)も書き手に数える: シェルが gh より先に f を空にする
             for op, dest in c.redirects:
