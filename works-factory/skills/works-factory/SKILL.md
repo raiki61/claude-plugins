@@ -80,7 +80,8 @@ run は 4 か所（対話モードは 5 か所）で止まり、人の答えを�
 - run のファイル（`review.json` など）の置き場: `--detach` なしの `workflow run` が終わると（承認ノードで止まった時も）、標準エラーに `works-factory: 記録の置き場: <ディレクトリ>` が出る。
 - 人に向けた報告（`report-ai.md`）の冒頭は機械が組む: 起きたこと・差分を当ててよいか・壊れた所と対象へ当てたか・判断が要る件数。判断が無ければ次に大事な事実を出す。その下に判断の短い題が並び、本文は `report-detail.md` の「人が決めること」を含む見出しに置く。
 - 報告の書き手が落ちた run は failed で終わり、冒頭に訳が出る。使用枠切れなら冒頭の resume のコマンドを別のアカウントの keychain の項目で打つと、報告の書き手から先だけが走り直す。
-- run の記録（工場が土台にする workflow エンジン Archon の log と、AI のノードの会話）を 1 本の trace にして手元の Phoenix（Arize 社の OSS で、OpenTelemetry の trace を見る画面）などへ送って見るのは、工場の `viewer/runtrace.py`（手順は工場の README「Seeing a run in Phoenix」）。工場の自前の HTML のページの道具は消えた。会話の中身が載るので、`localhost` でない送り先は `--remote` なしでは断られる。
+- run の記録（工場が土台にする workflow エンジン Archon の log と、AI のノードの会話）を 1 本の trace にして手元の Phoenix（Arize 社の OSS で、OpenTelemetry の trace を見る画面）などへ送って見るのは、工場の `viewer/runtrace.py`（手順は工場の README「Seeing a run in Phoenix」）。会話の中身が載るので、`localhost` でない送り先は `--remote` なしでは断られる。
+- 送らずに手元で 1 枚の HTML のページで見るのは、工場の `viewer/runpage.py`（段・部品（block）・周・ノードで畳んだ run と、block ごとの受けた値と返した値・分かれ道の条件・差し戻された記録・承認の答えが載る。どこへも送らず、ファイルも書かない。ページは標準出力に出るので `> run.html` のようにリダイレクトする。手順は工場の README「Seeing a run as one page」）。
 - 報告の入口のセクションに、工場が依頼から決めた深さ（軽量・標準・重厚）と根拠、飛ばしたノードが 1 行で出る（段ごとの違いは工場の `docs/design/line.md` の 5.1）。
 
 ## 5. 差分を当てる
@@ -92,6 +93,7 @@ WF apply <run> --cwd <対象>
 - 人が最後の承認ノードで見た差分は、hash で封じてある。当てる前にその hash を照合し、違えば止まって何も変えない。
 - 無人の run が最後の承認ノードを推しで通した答え（`gates/gate-final.json` に `pushed` が在る）は人の通しと見なさず、当てる前に、答えの無い run と同じに緑・独立の目・差分の指紋・守りのパスを確かめる。
 - 最後の承認ノードで止めた run は `--allow-stopped`、封じた後のノードが落ちた run は `--allow-failed` を付ける。
+- 独立の目に差し戻された後の段が止まった・落ちた run は、差し戻し前の状態が封じてある。差し戻し後の段の書き換えは run の置き場の `eyes-back-kept.patch` に控えてあり（`git apply` で戻せる）、在りかは最後の承認ノードと報告が名指す。
 - 差分を当てる代わりに PR を開くのは、起動に `--input deliver=pr` を足した run だけ（既定は差分を残すだけで対象に書かない）。`gh` を入れ、その今のアカウント（`gh auth status` の active）を対象に PR を開けるアカウントにしておく。PR を作る Archon の部品 `archon-pr` は、GitHub 用の forge プラグイン（Archon の GitHub 連携の部品）`archon-forge-github` を使って PR を作る。殻が、PIN で固定した版の Archon の源（1. で取ってきた物）から `bun` で 1 度だけそのプラグインを作って渡す（作る段はネットワークに出ない）。PATH に `archon-forge-github` が既に在ればそれを使う。作れない時は殻が 1 行告げ、その run は PR を作る前に断られる。push は git が run の環境で見つける認証だけを使う。全部は取り置いた工場の `README.md` の、「Opening a PR」で始まる項。
 
 ## 6. 詳しい事

@@ -6,6 +6,14 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を e7a77733 から 7bbe3e43 に上げた。取り込んだ PR は raiki61/works-factory#1033・#1034・#1035・#1036・#1037・#1038・#1039・#1040・#1041・#1042・#1043・#999。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/e7a7773349ff...7bbe3e43a258 。
+  - 利用者に効く違い:
+    - run を 1 枚の HTML のページで見る道具 `viewer/runpage.py` が工場に戻った（raiki61/works-factory#999）。記録をどこへも送らず、ページを標準出力に出す。打ち方は工場の README「Seeing a run as one page」。`skills/works-factory/SKILL.md` の 4. の「HTML のページの道具は消えた」を外し、この道具を書き足した。
+    - 殻が、役の起動の記録（AI のノードを起動した時の控えで、読む物が無かった）を書かなくなり、その置き場を Archon に渡す環境変数 `WORKS_FACTORY_FENCE_RECORDS` も置かなくなった（raiki61/works-factory#1042）。Archon が読む `.env` のファイルがこの変数を名指していても止まらなくなった。消えた変数なので `.env` から外す必要は無い。`CLAUDE_BIN_PATH` を名指すと止まるのは変わらない。
+    - 独立の目（直した後に差分を見る別の AI）に修正の段へ差し戻された run で、差し戻し後の段が止まった・落ちた時、作業ツリーを差し戻し前の木へ戻し、その状態（最後の試験と独立の目を通った状態）を封じるようになった（raiki61/works-factory#1033）。差し戻し後の段の書き換えは run の置き場の `eyes-back-kept.patch` に控え、最後の承認ノードと報告がその在りかを名指す。前は差分を封じられず、人が run の記録から独立の目の見た差分を取って手で当てていた。
+
 ## [0.60.0] - 2026-11-09
 
 ### Changed
