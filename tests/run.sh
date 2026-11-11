@@ -2461,7 +2461,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=887
+EXPECTED_CHECKS=890
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -7076,6 +7076,16 @@ expect_output 1 "NG 腕 x8: expect の頭" "expect の頭は 16 字で見る（�
 printf '%s' '{"arms": [{"id": "x7", "title": "撃てない腕だけ", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "def anchor_problem_x(", "expect": "expect も marker も持たない腕は --check で赤", "python_max": "3.0"}]}' > "$WORK/arms-ignored.json"
 expect_output 1 "撃てる腕が 0 本" "撃てる腕が 0 本（全部 python_max より新しい Python）なら、写しを走らせずに赤（0 本を合格と言わない）" \
     "$PY_BIN" "$ROOT/tests/mutate.py" --arms-file "$WORK/arms-ignored.json"
+# os は POSIX だけの道を守る腕を、ほかの OS（CI の Windows の組）で撃たずに Ignored にする。ここでは今の OS でない方の名前を書く
+OTHER_OS=$("$PY_BIN" -c 'import os; print("nt" if os.name == "posix" else "posix")')
+printf '%s' '{"arms": [{"id": "x9", "title": "ほかの OS だけの腕", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "def anchor_problem_x(", "expect": "expect も marker も持たない腕は --check で赤", "os": ["'"$OTHER_OS"'"]}]}' > "$WORK/arms-os.json"
+expect_output 1 "撃てる腕が 0 本" "撃てる腕が 0 本（全部 os に今の OS が無い）なら、写しを走らせずに赤（0 本を合格と言わない）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --arms-file "$WORK/arms-os.json"
+expect_output 0 "Ignored os.name が" "os に今の OS が無い腕は Ignored で、撃てない訳に OS を書く（os に今の OS が在る腕は撃てる）" \
+    "$PY_BIN" -c "import os, sys; sys.path.insert(0, sys.argv[1]); import mutate; a = {'id': 'x9', 'title': 't', 'os': [sys.argv[2]]}; r = mutate.one(a); assert not mutate.ignored({**a, 'os': [os.name]}); print(r['status'], r['tail'][0])" "$ROOT/tests" "$OTHER_OS"
+printf '%s' '{"arms": [{"id": "x10", "title": "知らない OS の名前", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "", "expect": "expect も marker も持たない腕は --check で赤", "os": ["linux"]}]}' > "$WORK/arms-os-bad.json"
+expect_output 1 "NG 腕 x10: os が" "os に os.name の値（posix・nt）でない名前を書いた腕は --check で赤（どの OS でも撃たない腕を黙って作らない）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-os-bad.json"
 # 当たりの証拠: expect を宣言した腕は、実際に落ちた検査（killedBy）に expect が在ることだけが証拠（印では代えない）
 cat > "$WORK/mut-eval.py" <<'PYEVAL'
 import sys

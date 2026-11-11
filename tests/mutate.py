@@ -106,7 +106,7 @@ SIGKILL などで残ったルートは、次の起動がロックの解けた物
 --same-as なら撃ち比べが全部一致——生き残りが在っても 0）/ 1 = そうでない / 2 = 一覧・報告が読めない・--shard の k/n が読めない・
 --same-as を --shard・--check・--merge と併せた（選んだ腕の一部だけを比べて一致と言わない）。
 時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』。--shard で自分の割り当てが 0 本の組は、撃たずに身元だけを書いて 0
-（全体の選別が 0 本なら 1）、撃てない腕（python_max）だけの組は Ignored の行を書いて 0——組の合否は --merge が和に同じ規則を当てて決める
+（全体の選別が 0 本なら 1）、撃てない腕（python_max・os）だけの組は Ignored の行を書いて 0——組の合否は --merge が和に同じ規則を当てて決める
 """
 import argparse
 import atexit
@@ -335,6 +335,8 @@ def anchor_problem(root, a, src=None, nodes=None):
         return ""   # 自動の腕は今の本文から作る（字列の消失が起きない）。証拠は印が持つ
     if not a.get("expect") and not a.get("marker"):
         return "expect も marker も無い（赤が狙いの検査から出たかを見る口が無い）"
+    if "os" in a and (not isinstance(a["os"], list) or not a["os"] or any(o not in OS_NAMES for o in a["os"])):
+        return f"os が {' か '.join(OS_NAMES)} の空でない一覧でない（{a['os']!r}。知らない名前は、どの OS でも撃たない腕になる）"
     why = named_problem(root, a, nodes)
     if why:
         return why
@@ -1274,9 +1276,8 @@ def narrowed(a):
 
 def one(a):
     if ignored(a):
-        mx = a["python_max"]
         return {"id": a["id"], "title": a["title"], "status": "Ignored", "own": False, "rc": None, "failed": [], "killedBy": [],
-                "tail": [f"Python {mx} 以前でしか撃てない（今は {sys.version_info[0]}.{sys.version_info[1]}）"]}
+                "tail": [ignored_why(a)]}
     if STOPPING.is_set():
         raise Stopped(0)   # 止める信号の後に取り出された腕は写しも作らない
     with lease(a["id"], a) as (repo, _d):
@@ -1769,10 +1770,22 @@ def evaluate(res, sel):
     return res["summary"]
 
 
+OS_NAMES = ("posix", "nt")   # 腕の os に書ける値（os.name の値）
+
+
 def ignored(a):
-    """この Python では撃てない腕か（python_max より新しい版）"""
+    """この Python・OS では撃てない腕か（python_max より新しい版か、os に今の os.name が無い）"""
+    return bool(ignored_why(a))
+
+
+def ignored_why(a):
+    """撃てない訳（撃てるなら空）"""
     mx = a.get("python_max")
-    return bool(mx) and sys.version_info[:2] > tuple(int(x) for x in mx.split("."))
+    if mx and sys.version_info[:2] > tuple(int(x) for x in mx.split(".")):
+        return f"Python {mx} 以前でしか撃てない（今は {sys.version_info[0]}.{sys.version_info[1]}）"
+    if "os" in a and os.name not in a["os"]:
+        return f"os.name が {' か '.join(a['os'])} の OS でしか撃てない（今は {os.name}）"
+    return ""
 
 
 def fingerprint(root, a):
@@ -1820,7 +1833,7 @@ def coverage_lines(res):
 
 def gate_efficacy(res):
     """--out の結果を p1.gate_efficacy の返答（material と arms）に組む。判定は proven と healthy だけで、終了コードと同じ。
-    この Python では撃てない腕（Ignored）は腕の行に入れず、名前を material に書く（終了コードも Ignored では落とさない）"""
+    この Python・OS では撃てない腕（Ignored）は腕の行に入れず、名前を material に書く（終了コードも Ignored では落とさない）"""
     res = as_whole(res)
     ok = healthy(res)
     shot = shot_rows(res)
@@ -1836,7 +1849,7 @@ def gate_efficacy(res):
     arms = [{"gate": r.get("file", ""), "arm": f"{r['id']} {r['title']}", "red_confirmed": r.get("status") == "Killed",
              "control_green": ok, "hit_evidence": r.get("evidence") or "",
              **({"note": why(r)} if not proven(r) else {})} for r in shot]
-    note = f"（この Python では撃てない腕: {' '.join(ign)}）" if ign else ""
+    note = f"（この Python・OS では撃てない腕: {' '.join(ign)}）" if ign else ""
     if res.get("pruned"):
         note += f"（1 行 1 本・効かない行で撃たなかった自動の腕 {len(res['pruned'])} 本は --out の pruned に理由つき）"
     # pytest の段が外れた回は、ゲートが台本だけの撃ち方に落ちたことを判定役に見せる（人の決定: 変異のゲートは pytest を中心にする）
@@ -2000,7 +2013,8 @@ def main():
     fire = [x for x in sel if x not in carried]
     if fire and not carried and all(ignored(x) for x in fire):
         # 撃てる腕が 0 本——写しで control を回す前に止める（pytest が 1 本も集まらなかった回を専用の終了コード 5 で返すのと同じく、0 本を合格と言わない）
-        why = f"撃てる腕が 0 本（{len(fire)} 本とも python_max より新しい Python {sys.version_info[0]}.{sys.version_info[1]} では撃てない）"
+        why = (f"撃てる腕が 0 本（{len(fire)} 本とも Python {sys.version_info[0]}.{sys.version_info[1]}・os.name {os.name} では撃てない"
+               "——python_max より新しい版か、os に無い OS）")
         if shard:
             # 組の腕は割り当てと同じ行で書く（[] だと --merge が割り当ての食い違いに読む）。合否はまとめる側が決める
             write_out(a.out, report_of(head, [{**one(x), "file": x["file"], "fingerprint": fps[x["id"]]} for x in fire]))

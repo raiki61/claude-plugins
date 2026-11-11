@@ -1,5 +1,5 @@
 {
- "about": "変異の腕の一覧。1 本ずつ写しに当てて台本を走らせ、赤になることを見る（実行器は tests/mutate.py）。old は file の中に 1 か所だけ在る字列で、new に置き換える。json は graph のフィールドを消す・値を抜く。expect は赤のときに落ちるはずの検査の名前の頭（当たりの証拠は、pytest の段で落ちたテストが名指しの node id かその parametrize であること、そうでなければ実際に落ちた検査 killedBy に expect が在ること。頭の 16 字は台本の本文に字面で在ること。台本の土台が例外で抜けた行（test_… が例外で抜けた）は関数名で見る。expect は腕が最後に撃つ道の証拠の名前で、台本の名指しを持つ腕は台本の検査名、台本の名指しの無い pytest だけの腕は名指しのどれかに当たる node id（:: を含み、graphloops/tests/py に在る））。tests は撃つ検査の名指し: 台本（graphloops/tests/simulate.py・simulate_review.py）の鍵には台本に在る関数名、pytest の置き場 graphloops/tests/py の鍵にはそこから見た node id（pytest を先に撃ち、落ちたテストが名指しかその parametrize なら当たりの証拠——名指しのファイルの収集の ERROR は証拠の文を分ける。当たらない赤は、台本の名指しが在れば台本の道で決める。規則の正本は tests/mutate.py の docstring）。marker は守る行を通ったことを見る印の置き場（after＝old の 1 行目の次の行、before＝前の行。cond はその行で真になる式）。python_max はその版より新しい Python では撃てない腕（実行器は撃たずに status を Ignored にし、要約の『撃てない』はその status から引く）。dropped は外した腕と理由",
+ "about": "変異の腕の一覧。1 本ずつ写しに当てて台本を走らせ、赤になることを見る（実行器は tests/mutate.py）。old は file の中に 1 か所だけ在る字列で、new に置き換える。json は graph のフィールドを消す・値を抜く。expect は赤のときに落ちるはずの検査の名前の頭（当たりの証拠は、pytest の段で落ちたテストが名指しの node id かその parametrize であること、そうでなければ実際に落ちた検査 killedBy に expect が在ること。頭の 16 字は台本の本文に字面で在ること。台本の土台が例外で抜けた行（test_… が例外で抜けた）は関数名で見る。expect は腕が最後に撃つ道の証拠の名前で、台本の名指しを持つ腕は台本の検査名、台本の名指しの無い pytest だけの腕は名指しのどれかに当たる node id（:: を含み、graphloops/tests/py に在る））。tests は撃つ検査の名指し: 台本（graphloops/tests/simulate.py・simulate_review.py）の鍵には台本に在る関数名、pytest の置き場 graphloops/tests/py の鍵にはそこから見た node id（pytest を先に撃ち、落ちたテストが名指しかその parametrize なら当たりの証拠——名指しのファイルの収集の ERROR は証拠の文を分ける。当たらない赤は、台本の名指しが在れば台本の道で決める。規則の正本は tests/mutate.py の docstring）。marker は守る行を通ったことを見る印の置き場（after＝old の 1 行目の次の行、before＝前の行。cond はその行で真になる式）。python_max はその版より新しい Python では撃てない腕、os はそこに書いた OS（os.name の値 posix か nt の一覧）でしか撃てない腕（POSIX だけの道を守る腕。CI の Windows の組で証拠にならないので書く。実行器はどちらも撃たずに status を Ignored にし、要約の『撃てない』はその status から引く）。dropped は外した腕と理由",
  "dropped": [
   {
    "id": "d02",
@@ -651,6 +651,9 @@
    "new": "    except (ValueError, OSError):",
    "python_max": "3.12",
    "expect": "symlink の輪を含む指し先は拒否文で返る",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_wrote_refs_direct_arms"
@@ -5239,6 +5242,9 @@
    "old": "(os.killpg if kind == \"pg\" else os.kill)(target, sig)",
    "new": "os.kill(target, sig)",
    "expect": "stop_group では孫",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5625,6 +5631,9 @@
    "old": "    return {pid: m for pid, m in members.items() if not m.stat.startswith(\"Z\")}",
    "new": "    return dict(members)",
    "expect": "ゾンビだけのグループの EPERM",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5868,6 +5877,9 @@
    "old": "    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}",
    "new": "    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid}",
    "expect": "ゾンビだけのグループの EPERM",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5882,6 +5894,9 @@
    "old": "    todo = list(found)\n",
    "new": "    todo = []\n",
    "expect": "グループの外へ出た孫（",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5896,6 +5911,9 @@
    "old": "        known.update({pid: m.started for pid, m in members.items()})",
    "new": "        pass",
    "expect": "長が先に死んだ後も",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5910,6 +5928,9 @@
    "old": "    if r.returncode != 0 or not rows:",
    "new": "    if False:",
    "expect": "ps が失敗する回は",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5924,6 +5945,9 @@
    "old": "                return f\"止める相手を数え上げられない（{why}）——グループ {pgid} は居ないが、外へ出た子孫を確かめていない\"",
    "new": "                return None",
    "expect": "ps が失敗する回は",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5938,6 +5962,9 @@
    "old": "    _reap(trees)\n    return subprocess.CompletedProcess",
    "new": "    return subprocess.CompletedProcess",
    "expect": "run_tree: 正常に終わった回も",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5952,6 +5979,9 @@
    "old": "        if trees is not None and not reaped and p.poll() is not None:",
    "new": "        if False:",
    "expect": "run_tree: 管を継いだ",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5966,6 +5996,9 @@
    "old": "trees=None if s.get(\"keep_background\") else trees)",
    "new": "trees=trees)",
    "expect": "run_steps: 段の背景",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5980,6 +6013,9 @@
    "old": "        _end_attempt(trees, pgid_file)\n    if cp:",
    "new": "        pass\n    if cp:",
    "expect": "run_steps: 段の背景",
+   "os": [
+    "posix"
+   ],
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
