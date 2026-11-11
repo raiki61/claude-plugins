@@ -213,16 +213,71 @@ def read(pane, lines, runner=_default_runner, ansi=False):
     return p.stdout
 
 
-def foreground(pane, runner=_default_runner):
-    """ペインの前で動いているプロセスの起動したコマンドの並び（herdr pane process-info の foreground_processes の cmdline）。読む口。"""
-    info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
-    return [p.get("cmdline") or " ".join(p.get("argv") or []) for p in info.get("foreground_processes") or []]
+PROC_READ_TRIES = 20   # 前の処理のコマンド行を読む処理（cat）が終わったかを見に行く回数（_proc_argv。間は PROC_READ_PAUSE 秒）
+PROC_READ_PAUSE = 0.1
+_STUCK_STATES = (b"D", b"Z", b"X", b"x")   # コマンド行を読まない処理の状態（herdr の process_state_allows_remote_memory_read と同じ）
 
 
-def front_processes(pane, runner=_default_runner):
-    """ペインの前で動いているプロセスの並び（herdr pane process-info の foreground_processes を、口の形の {pid, argv} に）。読む口。"""
+def _proc_argv(pid, tries=PROC_READ_TRIES, pause=lambda: time.sleep(PROC_READ_PAUSE)):
+    """前の処理の起動の argv を、手元の /proc/<pid>/cmdline から読む（Linux だけ。/proc の無い所と、読めない・読み終わらないときは []）。
+
+    herdr 0.9.5 は WSL の上で、会話のツールと名前で分かる処理（name が claude など）の argv も cmdline も返さない（読むと、終わりかけの
+    処理で止まったままになることがあるため。herdr の src/platform/linux.rs の foreground_job_from_members と、変更履歴の 0.9.5 の
+    「Linux process discovery stays responsive around stuck WSL agents」）。それでは窓の前の `claude attach` を見分けられず、
+    --retire・待ち受け・--take が窓をシェルに戻せなかった（受付 36ea2a）。
+    ここは herdr と同じく、状態（/proc/<pid>/stat。読んでも止まらない）が止まりかけ（D・Z・X）なら読まない。それでも読むと止まる
+    隙は残るので、読むのは別の処理（cat）にさせ、終わったかを pause の間を置いて tries 回まで見に行き、終わっていなければ止めて
+    諦める（待たずに離れる。この処理は止まらない）。回数と間で決まる上限（2 秒）は実質の期限で、D5 の狭い例外として設計書に書いた
+    （docs/specs/2026-10-14-catchup-dispatch-design.md の 4 の D5。打ち切るのは自分で起動した読み手の cat だけで、部署の会話の仕事は
+    打ち切らない。上限が無いと、読みが止まったとき dispatch の処理ごと止まる）。
+    macOS と Windows の herdr は argv を返すので、ここへは来ない（src/platform/macos.rs・windows.rs）。"""
+    if not str(pid or "").isdigit():
+        return []
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            state = f.read().rpartition(b")")[2].split()[:1]   # 2 番目のフィールド（処理の名前）は括弧の中に空白を含みうる
+    except OSError:
+        return []
+    if not state or state[0] in _STUCK_STATES:
+        return []
+    try:
+        p = subprocess.Popen(["cat", f"/proc/{pid}/cmdline"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError:
+        return []
+    for _ in range(tries):
+        if p.poll() is not None:
+            break
+        pause()
+    else:
+        p.kill()   # 止まった読み手は待たない（待つとこちらも止まる）。口だけ閉じる
+        p.stdout.close()
+        return []
+    out = p.stdout.read()   # 終わった後に読む（コマンド行が管の大きさ〔Linux は 64KiB〕を超えると cat が終われず、上で諦めて [] になる）
+    p.stdout.close()
+    return [part.decode("utf-8", "replace") for part in out.split(b"\0") if part] if p.returncode == 0 else []
+
+
+def _argv(proc, read_argv):
+    """herdr の foreground_processes の 1 件の argv。argv も cmdline も無ければ（herdr 0.9.5 の WSL）、pid から read_argv で読む。"""
+    if proc.get("argv"):
+        return list(proc["argv"])
+    if proc.get("cmdline"):
+        return proc["cmdline"].split()
+    return read_argv(proc.get("pid"))
+
+
+def foreground(pane, runner=_default_runner, read_argv=None):
+    """ペインの前で動いているプロセスの起動したコマンドの並び（herdr pane process-info の foreground_processes の cmdline。herdr が
+    返さなければ _proc_argv で読む）。読む口。"""
     info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
-    return [{"pid": p.get("pid"), "argv": p.get("argv") or []} for p in info.get("foreground_processes") or []]
+    return [p.get("cmdline") or " ".join(_argv(p, read_argv or _proc_argv)) for p in info.get("foreground_processes") or []]
+
+
+def front_processes(pane, runner=_default_runner, read_argv=None):
+    """ペインの前で動いているプロセスの並び（herdr pane process-info の foreground_processes を、口の形の {pid, argv} に。argv を
+    herdr が返さなければ _proc_argv で読む）。読む口。"""
+    info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
+    return [{"pid": p.get("pid"), "argv": _argv(p, read_argv or _proc_argv)} for p in info.get("foreground_processes") or []]
 
 
 def send_keys(pane, *keys, runner=_default_runner):

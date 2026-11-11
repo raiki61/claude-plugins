@@ -7,6 +7,9 @@
 
 順:
 1. 部署を名前で探す（--move と同じ deliver.find_target）。窓口・always の部署は畳まない。
+1a. per-ask の受け持ちの素の名前で立った always でない部署（deliver.stray_duty。前の版の周期の起動が立てた物）なら、順番待ちの頼みを
+   1 件ずつ受け持ちへ頼み直し、頼みごとの部署に分ける（spread。受付 36ea2a）。2 の確かめより前に回すので、受けた頼みをまだ納品して
+   いない部署でも、順番待ちの頼みは先に頼みごとの部署へ移る（その後で 2 が断る）。回せなかった件は残り、2 の確かめで断る。
 2. 止める前に確かめる: 受けた頼みを納品している・順番待ちに頼みが無い・--clean の部署の決まり（clean.departments）で、会話が止まったとみなしたときに
    残す訳が無い（未コミットの変更・手元にしか無い commit・メインブランチに入っていないブランチなど）。訳が有れば何も止めない。
    ただし、残す訳がこの部署の頼んだ返事を待つこと（waiting）だけなら畳み、待っていた受付を出す（返事は部署が畳まれても受付箱に届き、
@@ -24,6 +27,7 @@
 打ち直しや見直しの回りは持たない。片付けたか残したかは、会社の受付箱の台帳に kind retired で残す。
 """
 
+import argparse
 import os
 import pathlib
 import sys
@@ -39,8 +43,9 @@ from nodes import clean, deliver, launch, provision, wake  # noqa: E402
 STOP_LOOKS = 20
 
 
-def retire(a, ports, cwd, rows, reasons):
-    """--retire。rows は dispatch._department_rows、reasons は dispatch.DEPT_REASONS。終了の値（2 は確かめで断った）。"""
+def retire(a, ports, cwd, rows, reasons, task=None):
+    """--retire。rows は dispatch._department_rows、reasons は dispatch.DEPT_REASONS。task は dispatch._task（部署を立てる道。
+    渡せば、per-ask の受け持ちの素の名前の部署の順番待ちを頼みごとの部署へ回す。spread）。終了の値（2 は確かめで断った）。"""
     common = ports.git.common_dir(cwd)
     try:
         cfg, _, _, _, companies, _, notes = orders.survey(a.config, ports)
@@ -82,6 +87,11 @@ def retire(a, ports, cwd, rows, reasons):
                                   "手で消した。ほかの回が畳んだなら、台帳の retired の行に残る）"]))
         return 0
 
+    duty = deliver.stray_duty(company, dept)
+    if duty and task is not None and os.path.isdir(path):
+        place = ports.git.git_dir(path)
+        if place:
+            spread(a, ports, company, duty, wake.queued(inbox, place), task)
     # 会話の id。長い id（company.session）が無い部署は短い id（company.job）で見分ける（clean.departments）
     talk = [attrs.get("session") or attrs.get("job")] if attrs.get("session") or attrs.get("job") else []
     try:
@@ -185,6 +195,27 @@ def retire(a, ports, cwd, rows, reasons):
                         "detail": got["detail"]})
     print("\n".join(notes + [f"部署 {where} を畳んだ" + (f"（{got['detail']}）" if got["detail"] else "")]))
     return 0
+
+
+def spread(a, ports, company, duty, items, task):
+    """per-ask の受け持ち duty の素の名前で立った部署（deliver.stray_duty）の順番待ち items を、1 件ずつ <会社>/<受け持ち> へ
+    頼み直す（--take <受付> --ask <会社>/<受け持ち> と同じ。受付番号と頼み元はそのまま）。頼みは素の名前の部署を飛ばすので
+    （deliver.find_target の ask）、1 件ごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署が立って並んで動く。前の版の周期の起動が
+    素の名前で立てた部署は、後から同じ受け持ちへ頼んだ物を順番待ちに積み、1 本ずつしか流さず、順番待ちが在るので --retire も断った
+    （2026-11-11 の my_notes の『調べもの』で 7 件。受付 36ea2a）。回せなかった件は元の順番待ちに戻り、--retire はそれを理由に残す。
+    回した件の数を返す（各件の頼みの行は --take と同じに出す）。"""
+    if not items:
+        return 0
+    print(f"部署は per-ask の受け持ち「{duty}」の素の名前で立った物なので、順番待ちの {len(items)} 件を頼みごとの部署へ回す")
+    moved = 0
+    for item in items:
+        ns = argparse.Namespace(**{**vars(a), "take": item.get("id"), "ask": f"{company['name']}/{duty}", "task": None,
+                                   "branch": None, "text": None, "brief": None, "role": None, "persistent": False,
+                                   "forward": False, "retire": None, "dry_run": False})
+        rc = orders.take(ns, ports, company["root"], task)
+        moved += rc == 0
+        print(f"- 受付 {item.get('id')}: " + ("回した" if rc == 0 else f"終了の値 {rc}（頼みが届いたか・元の順番待ちに戻ったかは上の出力を見る）"))
+    return moved
 
 
 # 部署の行の残す訳のうち、部署の先頭を手元のほかのブランチが持てば失う物が無い物（kept_here）

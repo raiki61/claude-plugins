@@ -505,7 +505,7 @@ def _ask(a, ports, cwd, task, sent):
         return 2
     try:
         cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
-        target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task, current_role(settings, ports.git))
+        target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task, current_role(settings, ports.git), ask=True)
     except term.Error as e:
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1

@@ -5,6 +5,7 @@ import argparse
 import os
 import pathlib
 import unittest
+import unittest.mock
 
 from . import test_deliver
 import starts
@@ -97,6 +98,31 @@ class Start(unittest.TestCase):
         self.take_queued()
         self.assertNotIn("頼みごとに別の部署", out)
         self.assertEqual(self.g.worktree_attrs(self.place)["boss"], "社長室")
+
+    def test_start_of_a_duty_taken_per_ask_raises_a_department_of_its_own_name(self):
+        # 受け持ちの名前の always の部署が無ければ、per-ask の起動は頼みと同じく「<受け持ち>：<受付番号の終わり 6 字>」で部署を立てる。
+        # 前は素の名前「調べ」で立て、後の頼みがみなその部署の順番待ちに積まれた（受付 36ea2a）
+        self.shape(shape_text('report_to = "社長室"\ntext = "見直す"').replace(
+            'role = "調べ役"\n[skills.start]', 'role = "調べ役"\nlifetime = "per-ask"\n[skills.start]'))
+        provision.mark(self.place, self.src, {"name": "調べ：abc123"}, self.g)   # 素の名前の部署は無く、ふつうの頼みの部署が立っている
+        seen = []
+
+        def ask(ns, ports, root, task):
+            seen.append((ns.task, ns.branch, ns.ask_id))
+            return 0
+        with unittest.mock.patch.object(starts.orders, "ask", ask):
+            rc, out = self.main(self.src, "--start", "調べ")
+            self.assertEqual(rc, 0, out)
+            ((name, branch, ask_id),) = seen
+            self.assertEqual((name, branch), (f"調べ：{ask_id[-6:]}", f"work/survey-{ask_id[-6:]}"))
+            self.assertIn(f"起動した: src/調べ：{ask_id[-6:]}（", out)
+            self.assertEqual([r["id"] for r in self.starts()], [ask_id])
+            # 前の起動の部署が立っている間は、次の回を起動しない（concurrencyPolicy: Forbid）
+            provision.mark(self.place, self.src, {"name": name}, self.g)
+            rc, out = self.main(self.src, "--start", "調べ")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("前の回の部署がまだ立っている", out)
+        self.assertEqual(len(seen), 1)
 
     def test_by_limits_who_may_start_by_command(self):
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nby = ["社長室"]'))

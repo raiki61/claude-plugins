@@ -213,6 +213,41 @@ class Retire(unittest.TestCase):
         self.assertIn("順番待ちに頼みが在る", out)
         self.assertEqual(self.stopped, [])
 
+    def test_retire_of_a_stray_per_ask_department_hands_its_queue_to_departments_of_their_own(self):
+        # per-ask の受け持ち「調べ」の素の名前で立った部署を畳むと、順番待ちの頼みを先に頼みごとの部署へ回す（受付 36ea2a の足し）
+        self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\n[[skills]]\nname = "調べ"\nrole = "調べ役"\nlifetime = "per-ask"\n')
+        brief = os.path.join(self.root, "q2-ask.md")
+        with open(brief, "w", encoding="utf-8") as f:
+            f.write("積まれていた頼み\n")
+        wake.enqueue(self.inbox, self.g.git_dir(self.place), {"id": "20261111-000000-abc123", "line": "頼みです", "file": brief,
+                                                             "title": "積まれていた頼み", "marks": {"ask": "20261111-000000-abc123"}})
+        made = []
+
+        def fail(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            made.append(ns.task)
+            return 1
+        with mock.patch.object(dispatch, "_task", fail):   # 立てられなければ元の順番待ちに戻り、畳まない
+            rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(rc, 2, out)
+        self.assertEqual(made, ["調べ：abc123"])
+        self.assertIn("順番待ちの 1 件を頼みごとの部署へ回す", out)
+        self.assertIn("順番待ちに頼みが在る", out)
+        self.assertEqual(self.stopped, [])
+        place_dir = self.g.git_dir(self.place)
+        self.assertEqual(len(wake.queued(self.inbox, place_dir)), 1)
+
+        def ok(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            path = os.path.join(self.root, "per-ask")
+            self.g.add_worktree(path, ns.branch, "origin/main")
+            provision.mark(path, self.src, {**extra_attrs, "role": ns.role, "session": "s-new"}, self.g)
+            return 0
+        with mock.patch.object(dispatch, "_task", ok):   # 回せたら順番待ちが空になり、そのまま畳む
+            rc, out = self.main(self.src, "--retire", "調べ")
+        self.assertEqual(wake.queued(self.inbox, place_dir), [], out)
+        self.assertNotIn("順番待ちに頼みが在る", out)
+        self.assertEqual(self.stopped, ["d"], out)
+        self.assertEqual(self.retired()[-1]["status"], "done", out)
+
     def test_done_clears_the_reason_a_former_retire_left(self):
         provision.mark(self.place, self.src, {wake.RETIRE_KEPT: "前の訳"}, self.g)
         self.assertEqual(self.main(self.place, "--done")[0], 0)

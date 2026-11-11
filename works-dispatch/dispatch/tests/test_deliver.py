@@ -22,6 +22,7 @@ import gitx
 import claudex
 import herdr as real_herdr
 import orders
+import retire
 import wake_hook
 import role_hook
 import limit_hook
@@ -1050,6 +1051,79 @@ class Flow(unittest.TestCase):
         self.assertEqual(orders.asked_name(got, "20261026-092520-d14822"), "見渡し：d14822")
         companies[0]["departments"].append(dept_row(name="見渡し", role="担当", path="/r/w"))   # 受け持ちの名前の部署（移す前の always）へは届く
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
+        # 頼み（ask）は、受け持ちと同じ素の名前で立った always でない部署（前の周期の起動の誤り。受付 36ea2a）に積まず、頼みごとの部署を立てる。
+        # always の部署へは今までどおり届き、名前で畳む（ask でない）ときはその部署に当たる
+        got = deliver.find_target(companies, self.src, "co/見渡し", ask=True)
+        self.assertEqual((got["department"], got["asked"], got["per_ask"], got["role"]), (None, "見渡し", True, "担当"))
+        got = deliver.find_target(companies, self.src, "見渡し", "見渡し：24ace8", ask=True)   # --take … --task 見渡し：24ace8 の形
+        self.assertEqual((got["department"], got["role"]), (None, "担当"))
+        companies[0]["departments"][-1]["attrs"].update(name="見渡しの残り", **{"former-names": '["見渡し"]'})   # --reorg で替えても前の名前で当たらない
+        self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
+        self.assertIsNone(deliver.find_target(companies, self.src, "co/見渡し", ask=True)["department"])
+        companies[0]["departments"][-1]["attrs"].update(name="見渡し", lifecycle=gitx.PERSISTENT)
+        self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し", ask=True)["department"]["path"], "/r/w")
+
+    def test_an_ask_to_a_per_ask_duty_skips_a_stray_department_of_the_bare_name(self):
+        # 前の版の周期の起動は、per-ask の受け持ち「調べ」の部署を素の名前「調べ」（always でない）で立て、後の頼みがみなその順番待ちに
+        # 積まれた（受付 36ea2a）。今は頼みごとの部署を立て、積まれていた頼みも --take … --ask で頼みごとの部署へ回せる
+        self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\n[[skills]]\nname = "調べ"\nrole = "調べ役"\nlifetime = "until-idle"\n')
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "前に積まれた頼み")   # until-idle の間は、立っている部署に積む
+        self.assertEqual(rc, 0, out)
+        [held] = wake.queued(self.inbox, self.g.git_dir(self.place))
+        self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\n[[skills]]\nname = "調べ"\nrole = "調べ役"\nlifetime = "per-ask"\n')
+        seen = []
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.append((ns.task, ns.branch, ns.role))
+            return 1
+        base = dict(config=self.cfg, brief=None, task=None, branch=None, dry_run=False, role=None, persistent=False, base=None,
+                    from_name=None, from_account=None)
+        with contextlib.chdir(self.src), contextlib.redirect_stdout(io.StringIO()) as buf:
+            orders.ask(argparse.Namespace(**base, ask="調べ", text="新しい頼み"), self.ports, self.src, task)
+            orders.take(argparse.Namespace(**{**base, "task": f"調べ：{held['id'][-6:]}", "branch": f"work/ask-{held['id'][-6:]}"},
+                                           ask="src/調べ", text=None, take=held["id"]),
+                        self.ports, self.src, task)
+        self.assertEqual(len(seen), 2, buf.getvalue())
+        self.assertRegex(seen[0][0], r"^調べ：[0-9a-f]{6}$")
+        self.assertEqual(seen[1], (f"調べ：{held['id'][-6:]}", f"work/ask-{held['id'][-6:]}", "調べ役"))
+        # 素の名前の部署には積まず、どちらも新しく立てる部署へ頼む（偽の立て方が 1 を返すので、回し直した頼みは元の順番待ちに戻る）
+        self.assertIn(f"頼み {held['id']} → src/調べ：{held['id'][-6:]}（新しく立てた部署）", buf.getvalue())
+        self.assertNotIn("順番待ちに積", buf.getvalue())
+
+    def test_retire_spreads_the_queue_of_a_stray_department_into_departments_of_their_own(self):
+        # 素の名前の部署「調べ」に積まれた頼みは、--retire が 1 件ずつ受け持ちへ頼み直し、頼みごとの部署に分かれる（受付 36ea2a の
+        # 足し。my_notes の『調べもの』に 7 件が積まれ、1 本ずつしか流れず、--retire も順番待ちを理由に断った）
+        self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\n[[skills]]\nname = "調べ"\nrole = "調べ役"\nlifetime = "until-idle"\n')
+        for text in ("一つ目", "二つ目"):
+            rc, out = self.main(self.src, "--ask", "調べ", "--text", text)
+            self.assertEqual(rc, 0, out)
+        held = wake.queued(self.inbox, self.g.git_dir(self.place))
+        self.assertEqual(len(held), 2)
+        self.shape('[[roles]]\nname = "調べ役"\nlifetime = "always"\n[[skills]]\nname = "調べ"\nrole = "調べ役"\nlifetime = "per-ask"\n')
+        seen = []
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.append((ns.task, ns.branch, ns.role))
+            path = str(pathlib.Path(self.root) / ns.branch.replace("/", "-"))
+            self.g.add_worktree(path, ns.branch, "origin/main")
+            provision.mark(path, self.src, {**extra_attrs, "role": ns.role, "session": f"s-{len(seen)}"}, self.g)
+            return 0
+        companies = orders.survey(self.cfg, self.ports)[4]
+        company = next(c for c in companies if c["name"] == "src")
+        dept = next(d for d in company["departments"] if os.path.realpath(d["path"]) == os.path.realpath(self.place))
+        self.assertEqual(deliver.stray_duty(company, dept), "調べ")
+        a = argparse.Namespace(config=self.cfg, brief=None, task=None, branch=None, dry_run=False, role=None, persistent=False,
+                               base=None, from_name=None, from_account=None, retire="調べ")
+        with contextlib.chdir(self.src), contextlib.redirect_stdout(io.StringIO()) as buf:
+            moved = retire.spread(a, self.ports, company, "調べ", held, task)
+        self.assertEqual(moved, 2, buf.getvalue())
+        self.assertEqual(seen, [(f"調べ：{h['id'][-6:]}", f"work/ask-{h['id'][-6:]}", "調べ役") for h in held])
+        self.assertEqual(wake.queued(self.inbox, self.g.git_dir(self.place)), [])   # 順番待ちは空になり、--retire が畳める
+        self.assertIn("順番待ちの 2 件を頼みごとの部署へ回す", buf.getvalue())
+        # always の部署・頼みごとの名前の部署は、素の名前の部署と見ない
+        self.assertIsNone(deliver.stray_duty(company, {"attrs": {"name": "調べ", "lifecycle": gitx.PERSISTENT}}))
+        self.assertIsNone(deliver.stray_duty(company, {"attrs": {"name": f"調べ：{held[0]['id'][-6:]}"}}))
+        self.assertEqual(deliver.stray_duty(company, {"attrs": {"name": "改名", "former-names": '["調べ"]'}}), "調べ")
 
     def test_ask_to_a_role_without_a_resident_department_starts_one_through_the_task_path(self):
         seen = {}

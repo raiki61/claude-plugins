@@ -82,7 +82,22 @@ def one_company(pool, name):
     return pool[0]
 
 
-def find_target(companies, here_root, target, task=None, current=lambda company, name: name):
+def _stray(company, dept, name):
+    """name（今の名前か前の名前で当たった名前）が per-ask の受け持ちの素の名前で、dept が always でない部署か（per-ask の部署は
+    「<受け持ち>：<受付番号の終わり 6 字>」で立つので、素の名前で当たる物は前の版の周期の起動の誤り〔受付 36ea2a〕か手で立てた物。
+    --reorg で名前を替えても前の名前に残る）。頼み（find_target の ask）はそこへ積まず、頼みごとの部署を立てる。"""
+    return dept["attrs"].get("lifecycle") != gitx.PERSISTENT and any(
+        s.get("name") == name and s.get("lifetime") == "per-ask" for s in company.get("skills", []))
+
+
+def stray_duty(company, dept):
+    """dept が per-ask の受け持ちの素の名前（今の名前か前の名前）で立った always でない部署（_stray）なら、その受け持ちの名前。
+    ほかは None。--retire は、この部署の順番待ちの頼みを、受け持ちへ頼み直して頼みごとの部署に分ける（受付 36ea2a）。"""
+    names = [dept["attrs"].get("name"), *gitx.former_names(dept["attrs"])]
+    return next((n for n in names if n and _stray(company, dept, n)), None)
+
+
+def find_target(companies, here_root, target, task=None, current=lambda company, name: name, ask=False):
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社のルート。current は (会社, 役の名前) → 今の役の名前
     （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
@@ -91,7 +106,9 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     会社の形の desk に書いた窓口（ほかの会社の窓口か、同じ会社の部署）に
     届け（返しに via を添える）、それも無ければ止める。頼む側の会社の役の名前より先に当たる。役で宛てて task（--task の部署の名前）を
     渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の always の部署が名前違いで居ても
-    使わない）。task が無く、役で宛てて always の部署が無ければ department は None（新しく立てる）。"""
+    使わない）。task が無く、役で宛てて always の部署が無ければ department は None（新しく立てる）。
+    ask（--ask・--take の頼み直し）なら、per-ask の受け持ちの素の名前を今の名前か前の名前に持つ always でない部署（_stray）は名前で当てず、
+    受け持ちへの頼みとして解く（その部署を畳む --retire・--move は名前で当てる）。"""
     company_name, name = parse_target(target)
     if company_name is None:
         pool = companies
@@ -106,10 +123,10 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                                "会社の部署と窓口から引く。その会社にまだ部署が無く、最初の部署を立てるなら --task <名前> --branch <ブランチ> "
                                f"--brief <頼みのファイル> --repo <代表の clone> を打つ（会社の作業場も開く）か、{term.NAME} にその代表の clone の"
                                "作業場を開いてから打ち直す")
-    named = [(c, d) for c in pool for d in c["departments"] if d["attrs"].get("name") == name]
+    named = [(c, d) for c in pool for d in c["departments"] if d["attrs"].get("name") == name and not (ask and _stray(c, d, name))]
     if not named:
         # 名前を替えた部署（--reorg・--desk）は、前の名前でも引く（今の名前が先）
-        named = [(c, d) for c in pool for d in c["departments"] if name in gitx.former_names(d["attrs"])]
+        named = [(c, d) for c in pool for d in c["departments"] if name in gitx.former_names(d["attrs"]) and not (ask and _stray(c, d, name))]
     if len(named) > 1:
         where = "、".join(f"{c['name']}/{d['branch'] or '（ブランチ無し）'} {d['path']}" for c, d in named)
         if len({c["root"] for c, _ in named}) > 1:
@@ -152,17 +169,19 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         company = home[0]
     else:
         company = one_company(pool, company_name)
+    duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("lifetime") in ASKED), None)
     if task:
         # 役で宛てて部署の名前（--task）も渡したときは、その名前の部署に届け、無ければ新しく立てる。同じ役の always の部署が名前違いで
-        # 1 つ居ても、そこへは届けない（受け持ちごとに担当が居る形で、ほかの受け持ちの担当に届いてしまうため）
+        # 1 つ居ても、そこへは届けない（受け持ちごとに担当が居る形で、ほかの受け持ちの担当に届いてしまうため）。受け持ちで宛てた
+        # （「会社/受け持ち」と --task「<受け持ち>：…」）なら、立てる部署の役は受け持ちの役
         mine = [d for d in company["departments"] if d["attrs"].get("name") == task] or \
             [d for d in company["departments"] if task in gitx.former_names(d["attrs"])]
         if len(mine) > 1:
             raise DeliverError(f"{company['name']} に部署の名前「{task}」が 2 つ以上ある"
                                f"（{'、'.join(d['branch'] or d['path'] for d in mine)}）")
+        fresh = (duty or {}).get("role") or name
         return {"company": company, "department": mine[0] if mine else None,
-                "role": current(company, mine[0]["attrs"].get("role") or name if mine else name)}
-    duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("lifetime") in ASKED), None)
+                "role": current(company, (mine[0]["attrs"].get("role") or name) if mine else fresh)}
     if duty and duty.get("role"):
         # 頼まれたときだけ立てる受け持ち（lifetime が until-idle か per-ask。tree.read_info が受け持ちの役の lifetime まで解いた物）で、
         # その名前の部署が今は無い: その名前の畳む部署を立てる（orders.ask が部署の名前とブランチを決める）。until-idle の受け持ちで立つ

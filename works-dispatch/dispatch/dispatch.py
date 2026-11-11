@@ -551,7 +551,7 @@ def main(argv=None, ports=None):
     if a.done:
         return orders.finish_here(a, ports, cwd)
     if a.retire is not None:
-        return retire.retire(a, ports, os.getcwd(), _department_rows, DEPT_REASONS)
+        return retire.retire(a, ports, os.getcwd(), _department_rows, DEPT_REASONS, _task)
     if a.text is not None:
         print("止めた: --text は --ask と一緒にだけ使う")
         return 2

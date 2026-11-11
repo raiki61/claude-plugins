@@ -4,6 +4,7 @@ herdr の出力の形は 2026-10-14 に手元の herdr 0.9.3 で読んだ実物�
 2026-10-15 に同じ版で一時の git リポジトリに打って読んだ `worktree list`・`create`・`open`・`remove` の実物に合わせた。
 """
 
+import io
 import json
 import os
 import pathlib
@@ -67,7 +68,56 @@ class Herdr(unittest.TestCase):
         self.assertEqual(herdr.agent("p", runner=f), {"agent": "claude", "agent_status": "idle"})
         f = Fake(ok({"id": "x", "result": {"type": "pane_process_info", "process_info": {"foreground_processes": [
             {"pid": 21, "argv0": "claude", "argv": ["claude", "attach", "ab"], "cmdline": "claude attach ab"}, {"pid": 22}]}}}))
-        self.assertEqual(herdr.front_processes("p", runner=f), [{"pid": 21, "argv": ["claude", "attach", "ab"]}, {"pid": 22, "argv": []}])
+        self.assertEqual(herdr.front_processes("p", runner=f, read_argv=lambda pid: []),
+                         [{"pid": 21, "argv": ["claude", "attach", "ab"]}, {"pid": 22, "argv": []}])
+
+    def test_front_processes_read_the_argv_herdr_left_out(self):
+        # 2026-11-11 に WSL の herdr 0.9.5 で読んだ形: 会話のツールの処理は argv も cmdline も無く、pid・name・cwd だけ（受付 36ea2a）
+        info = ok({"id": "x", "result": {"type": "pane_process_info", "process_info": {
+            "pane_id": "p", "shell_pid": 10, "foreground_process_group_id": 21,
+            "foreground_processes": [{"cwd": "/a", "name": "claude", "pid": 21}]}}})
+        asked = []
+        def read(pid):
+            asked.append(pid)
+            return ["claude", "attach", "3c558ee2"]
+        self.assertEqual(herdr.front_processes("p", runner=Fake(info), read_argv=read), [{"pid": 21, "argv": ["claude", "attach", "3c558ee2"]}])
+        self.assertEqual(herdr.foreground("p", runner=Fake(info), read_argv=read), ["claude attach 3c558ee2"])
+        self.assertEqual(asked, [21, 21])
+        # herdr が返した物はそのまま使い、読みに行かない（cmdline だけの物は空白で分ける）
+        given = ok({"id": "x", "result": {"type": "pane_process_info", "process_info": {"foreground_processes": [
+            {"pid": 31, "cmdline": "claude attach ab"}, {"pid": 32, "argv": ["bash"]}]}}})
+        self.assertEqual(herdr.front_processes("p", runner=Fake(given), read_argv=read),
+                         [{"pid": 31, "argv": ["claude", "attach", "ab"]}, {"pid": 32, "argv": ["bash"]}])
+        self.assertEqual(asked, [21, 21])
+
+    @unittest.skipUnless(os.path.isdir("/proc/self"), "/proc の在る所（Linux）だけ")
+    def test_proc_argv_reads_a_live_process_and_gives_up_safely(self):
+        with subprocess.Popen(["sleep", "30"]) as child:
+            try:
+                self.assertEqual(herdr._proc_argv(child.pid), ["sleep", "30"])
+            finally:
+                child.kill()
+        self.assertEqual(herdr._proc_argv(None), [])
+        self.assertEqual(herdr._proc_argv("x1"), [])
+        # 読み手の処理が回数のうちに終わらなければ、止めて [] を返す（待たずに離れる）
+        class Stuck:
+            killed = False
+            returncode = None
+            def __init__(self, *a, **k):
+                self.stdout = io.BytesIO()
+            def poll(self):
+                return None
+            def kill(self):
+                Stuck.killed = True
+        waits = []
+        with unittest.mock.patch.object(herdr.subprocess, "Popen", Stuck):
+            self.assertEqual(herdr._proc_argv(os.getpid(), tries=3, pause=lambda: waits.append(1)), [])
+        self.assertTrue(Stuck.killed)   # 止めて口を閉じ、待たない
+        self.assertEqual(len(waits), 3)
+        # 止まりかけの状態（D・Z・X）の処理は読みに行かない
+        with unittest.mock.patch("builtins.open", unittest.mock.mock_open(read_data=b"9 (claude x) Z 1 2")), \
+                unittest.mock.patch.object(herdr.subprocess, "Popen", side_effect=AssertionError("読んだ")):
+            self.assertEqual(herdr._proc_argv(9), [])
 
     def test_workspace_labels(self):
         self.assertEqual(herdr.workspace_labels(runner=Fake(ok(WORKSPACES))), {"wW": "work0", "wB": "work8"})

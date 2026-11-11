@@ -8,10 +8,13 @@
   頼みも納品も来ない間も刻みたい人は、手元の OS の予定（macOS の launchd・Linux の cron か systemd の timer・Windows のタスク
   スケジューラ）に、例えば 10 分ごとに --due を打たせる。
 
-起動するのは orders.ask と同じ宛て方（宛先「会社/受け持ちの役」、部署の名前は受け持ちの名前）: その名前の always の部署が在ればその
-順番待ちに積み、無ければその名前の部署を立てる。納品の返り先（頼み元の属性）は起動した者でなく report_to。
-一度きりの受け持ち（役が always でない）で、前の回の部署がまだ立っている（納品していない・畳まれていない）なら起動しない
-（Kubernetes の CronJob の concurrencyPolicy: Forbid と同じ。同じ名前の部署が 2 つ立つと、名前で宛てられなくなる）。
+起動するのは orders.ask と同じ宛て方（宛先「会社/受け持ちの役」、部署の名前は受け持ちの名前。per-ask の受け持ちは頼みと同じく
+「<受け持ち>：<受付番号の終わり 6 字>」。受け持ちの名前の always の部署が立っていれば受け持ちの名前）: その名前の always の部署が
+在ればその順番待ちに積み、無ければその名前の部署を立てる。
+納品の返り先（頼み元の属性）は起動した者でなく report_to。
+一度きりの受け持ち（役が always でない）で、前の回の部署（受け持ちの名前の部署か、per-ask なら前の起動の受付番号の名前の部署）が
+まだ立っている（納品していない・畳まれていない）なら起動しない（Kubernetes の CronJob の concurrencyPolicy: Forbid と同じ。
+回が重なって進まないように。同じ名前の部署が 2 つ立つと、名前で宛てられなくもなる）。
 起動したかどうかは、会社の受付箱の台帳に kind start の行で残す（周期の数えもこの行で）。--due が同じ間に 2 つ走っても（頼みと納品が
 続けて通る）、会社ごとの錠を持つ方だけが数えて起動し、もう一方はその会社を待たずに飛ばすので、同じ受け持ちを 2 度起動しない。
 """
@@ -79,10 +82,26 @@ def fire(company, companies, skill, by, ports, a, task, settings):
     the_role = shape["roles"].get(role.current(shape, skill["role"]))
     if the_role is None or the_role.get("machine"):
         return 2, [f"止めた: 受け持ち「{name}」の役「{skill['role']}」が会社の形に無いか、AI の部署を持たない役"]
-    running = [d for d in company["departments"] if d["attrs"].get("name") == name]
-    if running and role.lifetime_at(the_role, info["skills"], name) != role.ALWAYS and running[0]["attrs"].get("lifecycle") != gitx.PERSISTENT:
+    life = role.lifetime_at(the_role, info["skills"], name)
+    common = ports.git.common_dir(company["root"])
+    inbox = deliver.inbox_of(common)
+    # 前の回の部署: 受け持ちの名前の部署と、per-ask の受け持ちの前の起動が立てた「<受け持ち>：<受付番号の終わり 6 字>」の部署
+    # （同じ受け持ちへのふつうの頼みが立てた部署は数えない）
+    earlier = {role.per_ask_name(name, r["id"]) for r in (deliver.records(inbox) if inbox else ())
+               if r.get("kind") == "start" and r.get("skill") == name and r.get("id")}
+    running = [d for d in company["departments"] if d["attrs"].get("name") == name] + \
+        [d for d in company["departments"] if d["attrs"].get("name") in earlier]
+    resident = bool(running) and running[0]["attrs"].get("name") == name and running[0]["attrs"].get("lifecycle") == gitx.PERSISTENT
+    if running and life != role.ALWAYS and not resident:
+        stray = skill.get("lifetime") == role.PER_ASK and running[0]["attrs"].get("name") == name
         return 2, [f"起動しなかった: 受け持ち「{name}」の前の回の部署がまだ立っている（{running[0]['path']}）。"
-                   "納品して畳まれて（--done・--clean --apply）から起動する"]
+                   + (f"per-ask の受け持ちの素の名前で立った部署（前の版の起動が立てた物）なので、--retire {name} で畳む（順番待ちの頼みは"
+                      "畳む前に頼みごとの部署へ回る）" if stray else
+                      "納品して畳まれて（--done・--clean --apply）から起動する")]
+    # per-ask の受け持ちは、頼みと同じく起動ごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる。前は素の受け持ちの名前で
+    # 立て、後から同じ受け持ちへ頼んだ物がみなその部署の順番待ちに積まれた（受付 36ea2a）。受け持ちの名前の always の部署が立って
+    # いれば、今までどおりその順番待ちに積む。per-ask かは頼みと同じく、tree.read_info が解いた受け持ちの lifetime（deliver.find_target の per_ask）
+    per_ask = skill.get("lifetime") == role.PER_ASK and not resident
     text, why = _text(company["root"], info, st, ports.git)
     if why:
         return 1, [f"止めた: {why}"]
@@ -90,21 +109,20 @@ def fire(company, companies, skill, by, ports, a, task, settings):
     if why:
         return 1, [f"止めた: {why}"]
     ask_id = deliver.new_id(ports.now())
-    common = ports.git.common_dir(company["root"])
-    inbox = deliver.inbox_of(common)
     if a.dry_run:
-        return 0, [f"起動する: {company['name']}/{name}（役 {skill['role']}、{by}）→ 納品は {st['report_to']} に返す",
+        return 0, [f"起動する: {company['name']}/{role.per_ask_name(name, ask_id) if per_ask else name}（役 {skill['role']}、{by}）"
+                   f"→ 納品は {st['report_to']} に返す",
                    f"- 頼みの本文の頭: {start.body(name, by, text).splitlines()[0]}"]
     brief = deliver.put(inbox, f"{ask_id}-start.md", start.body(name, by, text))
     ns = argparse.Namespace(**{**vars(a), "ask": f"{company['name']}/{skill['role']}", "text": None, "brief": brief,
-                               "task": name, "branch": start.branch(skill, ask_id), "role": None, "persistent": False,
+                               "task": role.per_ask_name(name, ask_id) if per_ask else name, "branch": start.branch(skill, ask_id), "role": None, "persistent": False,
                                "ask_id": ask_id, "from_boss": boss, "forward": False, "title": f"受け持ち「{name}」の起動（{by}）"})
     rc = orders.ask(ns, ports, company["root"], task)
     deliver.log(inbox, {"kind": "start", "skill": name, "id": ask_id, "by": by, "report_to": st["report_to"],
                         "status": "sent" if rc == 0 else "failed", "at": ports.now()})
     if rc != 0:
         return 1, [f"受け持ち「{name}」を起動しようとしたが、頼みが通らなかった（終了の値 {rc}。上の出力を見る）"]
-    return 0, [f"起動した: {company['name']}/{name}（{by}）受付 {ask_id}。納品は {st['report_to']} に返る"]
+    return 0, [f"起動した: {company['name']}/{ns.task}（{by}）受付 {ask_id}。納品は {st['report_to']} に返る"]
 
 
 def _caller(a, ports, cwd, sessions_):
