@@ -750,6 +750,17 @@ def keep_commit(source, ref, sha, runner=_default_runner):
     _must(["git", "-C", source, "update-ref", ref, sha], runner)
 
 
+def save_changes(cwd, message, runner=_default_runner):
+    """cwd の未コミットの変更と git に足していないファイル（.gitignore に当たる物は除く）を、HEAD を親にした commit にして、その id を返す。
+    ブランチも HEAD も動かさない（git commit-tree。commit のフックも走らない）。cwd の index は書き換わるので、消す前の場所に使う。
+    git stash push -u と違い、ほかの worktree と共有の stash の並びに積まない。書く口。"""
+    _must(["git", "-C", cwd, "add", "--all"], runner)
+    tree = _must(["git", "-C", cwd, "write-tree"], runner)
+    # 作るのは機械なので、作り手の名前は固定する（名前の設定の無い環境でも作れる。人の名前を機械の commit に載せない）
+    return _must(["git", "-c", "user.name=works-dispatch", "-c", "user.email=works-dispatch@localhost", "-C", cwd, "commit-tree", tree,
+                  "-p", "HEAD", "-m", message], runner)
+
+
 def commit_all(cwd, message, runner=_default_runner):
     """cwd の変更を全部足して commit し、その commit の id を返す。書く口。"""
     _must(["git", "-C", cwd, "add", "--all"], runner)

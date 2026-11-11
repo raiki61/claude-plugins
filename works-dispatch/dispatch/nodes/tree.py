@@ -440,7 +440,7 @@ def lines(companies):
             if d.get("no_talk_id"):
                 fields.append("! 会話の id（company.session）が無い（窓の会話が落ちたとき、--ask か --nudge が会話の一覧の部署の場所の会話で戻して書き戻す）")
             if d.get("tool_place"):
-                out.append(f"  {head} （ツールの一時の場所）  {d['path']}  ツールが走り終えれば消える。残っていれば --clean が並べる")
+                out.append(f"  {head} （ツールの一時の場所）  {d['path']}  ツールが走り終えれば消える。作った処理が居なければ、次にツールを走らせるときと --clean --apply が消す")
                 continue
             out.append(f"  {head} {d['branch'] or '（ブランチ無し）'}  " + "  ".join(fields))
         if c.get("asks"):

@@ -526,9 +526,16 @@ class ToolPlace(unittest.TestCase):
         self.assertIn("消した", out)
         self.assertEqual(listed(), set())
 
+    def saved(self, sha, parent):
+        """KEPT_REF の下に残った、書きかけの場所の中身の commit（親が parent で、half.txt に「書きかけ」）か。"""
+        self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
+        self.assertEqual(git("-C", self.src, "rev-parse", f"{sha}^"), parent)
+        self.assertEqual(git("-C", self.src, "show", f"{sha}:half.txt"), "書きかけ")
+
     @unittest.skipIf(os.name == "nt", "Windows では作った処理が居るかを確かめない（os.kill は 0 を渡しても処理を止める）ので、--clean・--call は鍵の pid の処理が居ない場所を消さない（消し方は test_sweep_with_a_gone_owner で見る）")
-    def test_a_commit_only_in_a_left_place_is_kept_and_a_dirty_place_is_left(self):
-        # 2026-10-17 に my_notes に残ったツールの場所には、push できないまま殺された写しのツールの commit が載っていた
+    def test_a_commit_only_in_a_left_place_is_kept_and_a_dirty_place_is_saved_then_removed(self):
+        # 2026-10-17 に my_notes に残ったツールの場所には、push できないまま殺された写しのツールの commit が載っていた。2026-11-11 には、
+        # 書きかけの写しを残した場所が消されずにたまり、/tmp を埋めた（頼み e90405）
         made = self.leave()
         git("-C", made, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "来歴")
         sha = gitx.rev(made, "HEAD")
@@ -536,17 +543,20 @@ class ToolPlace(unittest.TestCase):
         pathlib.Path(dirty, "half.txt").write_text("書きかけ", encoding="utf-8")
         rc, out = self.main(self.src, "--clean")
         self.assertIn(f"どのブランチにも無い先頭の commit を {tools.KEPT_REF}{sha} に残してから消す", out)
-        self.assertIn("残す（作った処理はもう居ないが、未コミットの変更が在る。中を見て、要らなければ git -C", out)
+        self.assertIn(f"消せる（作った処理がもう居ない。未コミットの変更を commit にして {tools.KEPT_REF} の下に残してから消す）", out)
+        self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))   # 並べるだけでは消さない
         rc, out = self.main(self.src, "--clean", "--apply")
-        self.assertEqual(rc, 0, out)   # 書きかけの場所を残すのは失敗に数えない
+        self.assertEqual(rc, 0, out)
         self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
         self.assertFalse(os.path.exists(made))
-        self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
-        (path, reason, why), = tools.sweep(self.src, self.g)[1]
-        self.assertEqual((os.path.realpath(path), reason, why), (os.path.realpath(dirty), tools.DIRTY, "未コミットの変更が在る"))
+        self.assertFalse(os.path.exists(os.path.dirname(dirty)))
+        (kept,) = [r.rsplit("/", 1)[1] for r in git("-C", self.src, "for-each-ref", "--format=%(refname)", tools.KEPT_REF).splitlines()
+                   if not r.endswith(sha)]
+        self.saved(kept, gitx.rev(self.src, "HEAD"))
+        self.assertIn(f"未コミットの変更を {tools.KEPT_REF}{kept} に残した。中身は git -C {self.src} show --stat {kept} で見る", out)
 
-    def test_a_commit_made_by_the_tool_is_kept_and_a_dirty_place_is_left(self):
-        # 走り終えた場所を消すときも、sweep と同じく、どのブランチにも無い commit を残し、未コミットの変更が在れば消さない（頼み cce9a3）
+    def test_a_commit_made_by_the_tool_is_kept_and_a_dirty_place_is_saved_then_removed(self):
+        # 走り終えた場所を消すときも、sweep と同じく、どのブランチにも無い commit と未コミットの変更を残してから消す（頼み cce9a3・e90405）
         self.use(self.script("import subprocess, sys; subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', "
                              "'-q', '--allow-empty', '-m', '来歴'], check=True); print(subprocess.run(['git', 'rev-parse', 'HEAD'], "
                              "capture_output=True, text=True).stdout.strip()); sys.exit(1)"))
@@ -556,12 +566,42 @@ class ToolPlace(unittest.TestCase):
         sha = miss["tail"]   # ツールが走らせる場所で作った commit（どのブランチにも無い）
         self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
         self.assertEqual(len(git("-C", self.src, "worktree", "list").splitlines()), 2)
-        self.use(self.script("import pathlib; pathlib.Path('half.txt').write_text('書きかけ', encoding='utf-8')"))
+        self.use(self.script("import pathlib, subprocess; pathlib.Path('half.txt').write_text('書きかけ', encoding='utf-8'); "
+                             "print(subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip())"))
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
         self.assertEqual(rc, 0, out)
-        (left,) = [e["path"] for e in gitx.listed_worktrees(self.src) if tools.is_place(e["path"])]
-        self.addCleanup(rmtree, os.path.dirname(left))
-        self.assertTrue(os.path.exists(os.path.join(left, "half.txt")))
+        self.assertEqual([e["path"] for e in gitx.listed_worktrees(self.src) if tools.is_place(e["path"])], [])
+        head = out.strip().splitlines()[-1]
+        (kept,) = [r.rsplit("/", 1)[1] for r in git("-C", self.src, "for-each-ref", "--format=%(refname)", tools.KEPT_REF).splitlines()
+                   if not r.endswith(sha)]
+        self.saved(kept, head)
+
+    def test_a_run_whose_changes_cannot_be_saved_leaves_its_place_locked(self):
+        # 走り終えた場所の中身を残せなければ消さない。鍵は残るので、この処理が居なくなれば次の sweep と --clean が残して消す
+        from unittest import mock
+        self.use(self.script("import pathlib; pathlib.Path('half.txt').write_text('書きかけ', encoding='utf-8')"))
+        with mock.patch.object(gitx, "save_changes", side_effect=gitx.GitError("git write-tree: 落ちた")):
+            rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 0, out)
+        (left,) = [e for e in gitx.listed_worktrees(self.src) if tools.is_place(e["path"])]
+        self.addCleanup(rmtree, os.path.dirname(left["path"]))
+        self.addCleanup(gitx.remove_detached, self.src, left["path"])
+        self.assertEqual(left["locked"], f"{tools.OWNER}{os.getpid()}")
+        self.assertTrue(os.path.exists(os.path.join(left["path"], "half.txt")))
+
+    def test_the_tool_place_is_made_under_the_cache_dir_not_the_temp_dir(self):
+        # 場所はメインブランチの中身を全部出すので大きい。/tmp はメモリの上の tmpfs のことがあり、数個で埋まる（頼み e90405）
+        self.use("pwd")
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 0, out)
+        here = os.path.realpath(out.strip().splitlines()[-1])
+        self.assertEqual(os.path.dirname(os.path.dirname(here)), os.path.realpath(tools.base()))
+        self.assertTrue(tools.base().startswith(os.environ["XDG_CACHE_HOME"]))
+
+    def test_the_base_follows_xdg_cache_home_and_falls_back_to_the_home_cache(self):
+        self.assertEqual(tools.base({"XDG_CACHE_HOME": "/c"}, "/h"), os.path.join("/c", "works-dispatch", "tools"))
+        for env in ({}, {"XDG_CACHE_HOME": ""}, {"XDG_CACHE_HOME": "rel"}):   # 無い・空・絶対のパスでない物は使わない（XDG の決まり）
+            self.assertEqual(tools.base(env, "/h"), os.path.join("/h", ".cache", "works-dispatch", "tools"), env)
 
     def test_a_place_that_cannot_be_made_stops_the_call_without_a_traceback(self):
         # git worktree add が落ちても（残ったパス・index.lock）、--land の後の合図ごと traceback で止まらず、一時のフォルダも残さない（頼み cce9a3）
@@ -589,7 +629,7 @@ class ToolPlace(unittest.TestCase):
         self.assertEqual(rc, 1, out)   # 台帳にも書けないときは、行で知らせて止まる（traceback を出さない）
         self.assertIn("失敗の行を台帳に書けなかった（disk full）", out)
 
-    def test_sweep_with_a_gone_owner_keeps_a_lone_commit_and_leaves_a_dirty_place(self):
+    def test_sweep_with_a_gone_owner_keeps_a_lone_commit_and_saves_a_dirty_place(self):
         # 居るかの見方を渡して、消し方そのものを OS に依らずに見る（Windows の既定の見方は「居る」で消さない）
         made = self.leave()
         git("-C", made, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "来歴")
@@ -597,12 +637,32 @@ class ToolPlace(unittest.TestCase):
         dirty = self.leave()
         pathlib.Path(dirty, "half.txt").write_text("書きかけ", encoding="utf-8")
         done, failed = tools.sweep(self.src, gitx, alive=lambda pid: False)
-        self.assertEqual([(os.path.realpath(e["path"]), e["keep"]) for e in done], [(os.path.realpath(made), sha)])
+        self.assertEqual(failed, [])
+        got = {os.path.realpath(e["path"]): (e["keep"], e["dirty"]) for e in done}
+        self.assertEqual(got[os.path.realpath(made)], (sha, False))
+        kept, was_dirty = got[os.path.realpath(dirty)]
+        self.assertTrue(was_dirty)
+        self.saved(kept, gitx.rev(self.src, "HEAD"))
         self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
-        self.assertFalse(os.path.exists(made))
-        self.assertEqual([(os.path.realpath(p), reason, why) for p, reason, why in failed],
-                         [(os.path.realpath(dirty), tools.DIRTY, "未コミットの変更が在る")])
+        self.assertFalse(os.path.exists(made) or os.path.exists(dirty))
+
+    def test_a_place_whose_changes_cannot_be_saved_is_left_with_the_reason(self):
+        # 中身を残せなければ消さない（失った物を取り戻せないので、消さない側に倒す）
+        from unittest import mock
+        dirty = self.leave()
+        pathlib.Path(dirty, "half.txt").write_text("書きかけ", encoding="utf-8")
+        with mock.patch.object(gitx, "save_changes", side_effect=gitx.GitError("git write-tree: 落ちた")):
+            done, failed = tools.sweep(self.src, gitx, alive=lambda pid: False)
+        self.assertEqual((done, [(os.path.realpath(p), r) for p, r, _ in failed]), ([], [(os.path.realpath(dirty), tools.GIT_FAILED)]))
         self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
+
+    def test_an_unswept_dirty_place_gets_steps_that_keep_its_commit_too(self):
+        made = self.leave(None)
+        git("-C", made, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "来歴")
+        sha = gitx.rev(made, "HEAD")
+        pathlib.Path(made, "half.txt").write_text("書きかけ", encoding="utf-8")
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn(f"走っていなければ、未コミットの変更が在るので中を見てから、先に git -C {self.src} update-ref {tools.KEPT_REF}{sha} {sha} で", out)
 
     def test_an_unswept_place_gets_steps_that_keep_its_commit(self):
         # 鍵の無い物と、ほかの訳の鍵の物は走っているかを確かめられないので消さず、手で消す手順に commit を残す手を添える

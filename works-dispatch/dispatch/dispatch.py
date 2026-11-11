@@ -2323,38 +2323,37 @@ def _running_note(d, attrs, ports):
 
 def _tool_places(repo, ports, apply):
     """機械のツールを走らせる一時の worktree（tools.place）を並べ、apply なら作った処理がもう居ない物を消す（tools.sweep。ツールを走らせる
-    たびにも消す）。(消せなかった数, 消せる物が在ったか)。"""
+    たびにも消す。未コミットの変更と、どのブランチにも無い先頭の commit は、消す前に tools.KEPT_REF の下に残す）。(消せなかった数, 消せる物が在ったか)。"""
     listed = [e for e in ports.git.listed_worktrees(repo.source) if tools.is_place(e["path"])]
     stale = set(tools.leftovers(listed))
-    removable = False
     for e in listed:
         if e["path"] not in stale and (e["locked"] or "").startswith(tools.OWNER):
             print(f"ツールの一時の場所 {e['path']}  残す（ツールが走っている）")
             continue
+        got = tools.judge(e, ports.git, repo.source)
         if e["path"] not in stale:
             # 鍵が無い（前の版が作った）か、ほかの訳の鍵: 走っているかを確かめられないので消さない。手で消すときも commit を失わない手順を添える
-            got = tools.judge(e, ports.git, repo.source)
             print(f"ツールの一時の場所 {e['path']}  残す（" + ("鍵が無い" if e["locked"] is None else f"鍵の訳が「{e['locked']}」")
                   + "。ツールが走っているかもしれないので消さない。走っていなければ"
-                  + (f"、{got['why']}ので中を見てから" if got["why"] else "")
+                  + ("、未コミットの変更が在るので中を見てから" if got["dirty"] else "")
                   + (f"、先に git -C {repo.source} update-ref {tools.KEPT_REF}{got['keep']} {got['keep']} で先頭の commit を残してから"
                      if got["keep"] else "")
                   + f" git -C {repo.source} worktree remove -f -f {e['path']} で消す）")
             continue
-        got = tools.judge(e, ports.git, repo.source)
-        removable = removable or not got["reason"]
-        print(f"ツールの一時の場所 {e['path']}  " + (
-            f"残す（作った処理はもう居ないが、{got['why']}。中を見て、要らなければ git -C {repo.source} worktree remove -f -f {e['path']}）"
-            if got["why"] else "消せる（作った処理がもう居ない" + (f"。どのブランチにも無い先頭の commit を {tools.KEPT_REF}{got['keep']} に残してから消す"
-                                                             if got["keep"] else "") + "）"))
+        print(f"ツールの一時の場所 {e['path']}  消せる（作った処理がもう居ない" + (
+            f"。未コミットの変更を commit にして {tools.KEPT_REF} の下に残してから消す" if got["dirty"] else
+            f"。どのブランチにも無い先頭の commit を {tools.KEPT_REF}{got['keep']} に残してから消す" if got["keep"] else "") + "）")
+    removable = bool(stale)
     if not apply or not removable:
         return 0, removable
     done, bad = tools.sweep(repo.source, ports.git)
     for got in done:
-        print(f"ツールの一時の場所 {got['path']} 消した" + (f"（先頭の commit を {tools.KEPT_REF}{got['keep']} に残した）" if got["keep"] else ""))
+        print(f"ツールの一時の場所 {got['path']} 消した" + (
+            f"（未コミットの変更を {tools.KEPT_REF}{got['keep']} に残した。中身は git -C {repo.source} show --stat {got['keep']} で見る）"
+            if got["dirty"] else f"（先頭の commit を {tools.KEPT_REF}{got['keep']} に残した）" if got["keep"] else ""))
     for path, _, why in bad:
         print(f"ツールの一時の場所 {path} 消せなかった: {why}")
-    return sum(1 for _, reason, _ in bad if reason != tools.DIRTY), True
+    return len(bad), True
 
 
 def _boards_note(path, ports):

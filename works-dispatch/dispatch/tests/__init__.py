@@ -26,20 +26,26 @@ import tempfile
 import unittest
 
 ROOT_ENV = "DISPATCH_TEST_TMP"   # 回の一時の親のパス。子のプロセスはこれが在れば親を作らない
+CACHE = "xdg-cache"   # 回の親の下の、キャッシュの置き場（XDG_CACHE_HOME）のフォルダの名前。中にファイルが無ければ残りに数えない
 
 
 def tmp_root():
     """回の一時の親を作り、このプロセスと子のプロセスの一時の置き場（TMPDIR と tempfile.tempdir）をそこへ向ける。作った親のパス。"""
     root = os.path.realpath(tempfile.mkdtemp(prefix="dispatch-test-"))
     os.environ[ROOT_ENV] = os.environ["TMPDIR"] = root
+    os.environ["XDG_CACHE_HOME"] = os.path.join(root, CACHE)   # ツールを走らせる場所の置き場（tools.base）も回の親の下へ
     tempfile.tempdir = root
     return root
 
 
 def leftovers(root):
     """回の一時の親に残った物（親からの相対パスの並び）。試験の作った物はどれも scratch か with で消えるので、空が正しい。
-    multiprocessing が子のプロセスとの通信に作る pymp-*（Linux の既定の forkserver など。消すのはプロセスの終わり）は数えない。"""
-    return sorted(n for n in os.listdir(root) if not n.startswith("pymp-")) if os.path.isdir(root) else []
+    multiprocessing が子のプロセスとの通信に作る pymp-*（Linux の既定の forkserver など。消すのはプロセスの終わり）と、ファイルの無い
+    キャッシュの置き場（CACHE。ツールを走らせる場所の親のフォルダが空で残る）は数えない。"""
+    if not os.path.isdir(root):
+        return []
+    empty = lambda d: not any(files for _, _, files in os.walk(d))   # noqa: E731  置き場の空のフォルダ（works-dispatch/tools）だけなら残りでない
+    return sorted(n for n in os.listdir(root) if not n.startswith("pymp-") and not (n == CACHE and empty(os.path.join(root, n))))
 
 
 def rmtree(path):
@@ -64,6 +70,7 @@ if OWNED:
     atexit.register(rmtree, ROOT)
 else:
     ROOT = tempfile.tempdir = os.environ["TMPDIR"] = os.environ[ROOT_ENV]
+    os.environ["XDG_CACHE_HOME"] = os.path.join(ROOT, CACHE)
 
 
 def scratch(**kw):
