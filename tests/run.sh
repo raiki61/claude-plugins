@@ -7081,8 +7081,9 @@ OTHER_OS=$("$PY_BIN" -c 'import os; print("nt" if os.name == "posix" else "posix
 printf '%s' '{"arms": [{"id": "x9", "title": "ほかの OS だけの腕", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "def anchor_problem_x(", "expect": "expect も marker も持たない腕は --check で赤", "os": ["'"$OTHER_OS"'"]}]}' > "$WORK/arms-os.json"
 expect_output 1 "撃てる腕が 0 本" "撃てる腕が 0 本（全部 os に今の OS が無い）なら、写しを走らせずに赤（0 本を合格と言わない）" \
     "$PY_BIN" "$ROOT/tests/mutate.py" --arms-file "$WORK/arms-os.json"
+# 訳は日本語なので stdout を utf-8 にしてから出す（Windows の既定の cp1252 では print が UnicodeEncodeError で落ちる）
 expect_output 0 "Ignored os.name が" "os に今の OS が無い腕は Ignored で、撃てない訳に OS を書く（os に今の OS が在る腕は撃てる）" \
-    "$PY_BIN" -c "import os, sys; sys.path.insert(0, sys.argv[1]); import mutate; a = {'id': 'x9', 'title': 't', 'os': [sys.argv[2]]}; r = mutate.one(a); assert not mutate.ignored({**a, 'os': [os.name]}); print(r['status'], r['tail'][0])" "$ROOT/tests" "$OTHER_OS"
+    "$PY_BIN" -c "import os, sys; sys.stdout.reconfigure(encoding='utf-8'); sys.path.insert(0, sys.argv[1]); import mutate; a = {'id': 'x9', 'title': 't', 'os': [sys.argv[2]]}; r = mutate.one(a); assert not mutate.ignored({**a, 'os': [os.name]}); print(r['status'], r['tail'][0])" "$ROOT/tests" "$OTHER_OS"
 printf '%s' '{"arms": [{"id": "x10", "title": "知らない OS の名前", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "", "expect": "expect も marker も持たない腕は --check で赤", "os": ["linux"]}]}' > "$WORK/arms-os-bad.json"
 expect_output 1 "NG 腕 x10: os が" "os に os.name の値（posix・nt）でない名前を書いた腕は --check で赤（どの OS でも撃たない腕を黙って作らない）" \
     "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-os-bad.json"
