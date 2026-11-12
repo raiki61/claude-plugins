@@ -437,6 +437,10 @@ def lines(companies):
                 w = d["long_wait"]
                 fields.append(f"! 裏の処理{'（' + str(w['tasks']) + ' 本）' if w.get('tasks') else ''}を待ってターンを終えたまま、"
                               f"{_at(w['since'])} から同じ頼みで会話が動いていない（待つ処理が終わらない形かを窓で確かめる）")
+            if d.get("finish_stuck"):
+                w = d["finish_stuck"]
+                fields.append(f"! 終わりの印（--done）が有るのに、裏の処理{'（' + str(w['tasks']) + ' 本）' if w.get('tasks') else ''}を残した"
+                              f"{_at(w['since'])} のターンの終わりから畳まれていない（畳む待ち受けが居ない。--retire {d['name'] or d['branch']} で畳む）")
             if d.get("no_talk_id"):
                 fields.append("! 会話の id（company.session）が無い（窓の会話が落ちたとき、--ask か --nudge が会話の一覧の部署の場所の会話で戻して書き戻す）")
             if d.get("tool_place"):

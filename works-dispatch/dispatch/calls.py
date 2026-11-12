@@ -232,7 +232,8 @@ def annotate(companies, settings, g):
     物（tree.talk_gone）を holder_gone に、答え待ちの頼みを持ったまま順番待ちが在る (受付, 訳)（wake.wait_blocks）を wait_blocks に、
     待ち受けは居るが渡さずに待っている訳（wake.held）を
     held に、部署の属性に会話の id（company.session）が無いかを no_talk_id に、裏の処理を残したターンの終わりから同じ頼みのまま
-    長く動いていないか（wake.long_wait）を long_wait に。外れは受付箱の台帳の kind miss の行で数える。
+    長く動いていないか（wake.long_wait）を long_wait に、終わりの印（--done）を持ったまま畳まれずに残っているか（wake.finish_stuck）を
+    finish_stuck に。外れは受付箱の台帳の kind miss の行で数える。
     会社ごとの壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ・周期の遅れ・一時の置き場の控え。health.py）を health に。
     会社の形の役を読んで外した物（role.load の problems）を problems に足す。"""
     for c in companies:
@@ -268,6 +269,7 @@ def annotate(companies, settings, g):
             d["holder_gone"] = bool(d["stalled"] and d.get("talk_gone") and wake.pending(attrs))
             d["no_talk_id"] = bool(attrs.get("role")) and not d.get("head_office") and not attrs.get("session")
             d["long_wait"] = wake.long_wait(inbox, here, attrs, now) if here else None
+            d["finish_stuck"] = wake.finish_stuck(inbox, here, attrs, now) if here else None
     asks_of(companies)
     return companies
 

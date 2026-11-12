@@ -1057,6 +1057,8 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
     # fresh の部署をすぐ替わる訳で空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。
     # 順番待ちに次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--nudge で動かせる）
     told, untied, follows = set(), {}, {}   # follows: 順番待ちの先頭の頼み → 作業場を進めて添える文（follow）
+    finishing = []   # [終わりの印を見た時刻, その時の会話の記録の大きさ]（裏の処理が残って畳むのを待つ間の猶予と、会話が動いたかを測る）。
+                     # 待つのをやめたか --retire を走らせたら [None]
 
     def trouble(what, e):
         why = str(e) if isinstance(e, UntieError) else f"{type(e).__name__}: {e}"
@@ -1136,9 +1138,40 @@ def checker(got, payload, h=term, attrs_of=_attrs, now=time.time, me=lambda: cha
                 # 納品の前に子の返事を待ってターンを終えた部署（always の担当なども）も、輪の途中に入りうる
                 loose(attrs)
             return None   # 未納品の頼みを持っている
-        if (chat.event(payload) == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
-                and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
-            return "end", None   # 畳む部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
+        if finishing and (finishing[0] is None or not attrs.get(wake.FINISHED)):
+            return None   # 畳むのを待つ間に印が外れた（人の文が始めたターンなど）。畳まず、空にもせず、次のターンの終わりに任せる
+        if chat.event(payload) == "Stop" and attrs.get(wake.FINISHED) and not wake.queued(got["inbox"], got["place"]):
+            # 畳む部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）。
+            # 裏の処理が残っていれば、終わりの知らせで始まる次のターンの終わりに畳む。ただし終わらない裏の処理（入力を待ったまま
+            # 止まったコマンドなど）では次のターンが来ないので、wake.RETIRE_GRACE 秒を過ぎたら会話ごと止めて畳む（--done が納品・
+            # メインブランチへ入ったこと・返事待ちの無いことを確かめた後の処理で、頼みに要らない。2026-11-11 に my_notes の調べものが、
+            # 読む物の無い cat が入力を待つ裏の処理を残し、約 1 日畳まれなかった。受付 471732）
+            # 待つ間に会話が動いた（裏の処理の終わりの知らせで次のターンが始まった）なら、そのターンの終わりの待ち受けに任せる
+            # （このターンの終わりの裏の処理の一覧は古く、動いている会話を止めない）。会話の記録の場所が分からなければ待てないので、
+            # 前と同じく次のターンの終わりに任せる
+            left = payload.get("background_tasks")
+            path = chat.transcript(payload)
+            if left and not path:
+                return None
+            if left and finishing and wake.turned(path, finishing[1])[0]:
+                finishing[:] = [None]
+                return None
+            if not finishing:
+                finishing.extend([now(), os.path.getsize(path) if left and os.path.exists(path) else 0])
+                if left:
+                    deliver.log(got["inbox"], {"kind": "retiring", "status": "waiting", "at": finishing[0], "place": got["cwd"],
+                                               "session": got["session"], "tasks": chat.running_ids(payload) or len(left),
+                                               "detail": f"裏の処理が残るので、終わるか {wake.RETIRE_GRACE // 60} 分たつまで畳むのを待つ"})
+            late = bool(left) and now() - finishing[0] >= wake.RETIRE_GRACE
+            if left and not late:
+                return wake.HOLD   # 間を置いて見直す（裏の処理が終われば、知らせで始まるターンの終わりの待ち受けに替わる）
+            if late:
+                deliver.log(got["inbox"], {"kind": "retiring", "status": "late", "at": now(), "place": got["cwd"],
+                                           "session": got["session"], "tasks": chat.running_ids(payload) or len(left),
+                                           "detail": f"裏の処理が {wake.RETIRE_GRACE // 60} 分たっても終わらないので、会話ごと止めて畳む"})
+            finishing[:] = [None]   # 走らせるのは 1 度（走らせられなければ印を外して訳を残す。retire_later）
+            if retire_later(got, attrs, spawn, now):
+                return "end", None
         # 空にする・区切りの判定より先に進める（起動するときに読むファイルが替われば、名指しの印で区切りの起動し直しに間に合わせる）。
         # 裏の処理が動いている間は、その足元のファイルを替えず、進めていないことと遅れを添える（lag。空にできずに待つなら、
         # 次のターンの終わりの待ち受けがまた試す。前の会話のまま渡すなら、会話は遅れを知って受ける）

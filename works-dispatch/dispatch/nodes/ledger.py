@@ -77,6 +77,8 @@ KINDS = {
                           # wake_hook.compact_log・orders.compact_here。機械が書くので、頼みの更新の時刻を進めない
     "hopped": None,       # 前の版の待ち受けが、今入っている版の待ち受けに替わった（from・to に版の置き場。wake_hook.newer_self）
     "retired": None,      # 畳む部署を畳んだ（--retire）
+    "retiring": None,     # 終わりの印の部署が裏の処理を残してターンを終えたので、待ち受けが畳むのを待った（status waiting）・猶予
+                          # （wake.RETIRE_GRACE）を過ぎて会話ごと止めて畳んだ（status late）。tasks に残った裏の処理。wake_hook.checker
     "call": None,         # 機械窓口のツールを呼んで片づいた（--call）。status failed はツールを走らせる場所を作れず走らせなかった（why に訳）
     "miss": None,         # 機械窓口のツールが片づかなかった
     "remind": None,       # リマインダーを立てた（--remind。id はリマインダーの受付で、頼みではない。nodes/remind）

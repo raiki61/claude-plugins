@@ -632,6 +632,34 @@ class Keepalive(unittest.TestCase):
         stamp = time.strftime("%m-%d %H:%M", time.localtime(1792760000.0))
         self.assertIn(f"! 裏の処理（2 本）を待ってターンを終えたまま、{stamp} から同じ頼みで会話が動いていない", line)
 
+    def test_a_finished_department_left_unretired_behind_background_work_shows_on_the_tree(self):
+        # 終わりの印（--done）の部署が裏の処理を残してターンを終え、猶予の倍を過ぎても畳まれていなければ出す（受付 471732。
+        # 前は納品した部署を long_wait が見ないので、約 1 日 --tree に出なかった）
+        attrs = {"ask": "a1", "delivered": "a1", "session": "s1", wake.FINISHED: "s1"}
+        conf = lambda cwd, a, read: None
+        wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: 1000.0)
+        late = 1000.0 + 2 * wake.RETIRE_GRACE
+        self.assertIsNone(wake.long_wait(self.inbox, self.place, attrs, now=late + wake.LONG_WAIT))   # 納品した部署は見ない
+        self.assertIsNone(wake.finish_stuck(self.inbox, self.place, attrs, now=late - 1))
+        self.assertEqual(wake.finish_stuck(self.inbox, self.place, attrs, now=late), {"since": 1000.0, "tasks": 1})
+        # 印が無い・印がほかの会話の物なら出さない
+        for other in ({**attrs, wake.FINISHED: None}, {**attrs, wake.FINISHED: "s2"}):
+            self.assertIsNone(wake.finish_stuck(self.inbox, self.place, other, now=late), other)
+        # その後に会話が動いた（知らせのターンが続いている）なら出さない
+        self.add({"type": "user", "message": {"content": "<task-notification>"}})
+        self.assertIsNone(wake.finish_stuck(self.inbox, self.place, attrs, now=late))
+        # 裏の処理を残さずに終えたターン（その場で畳む）は控えが消えて出さない
+        wake_hook.warm_for(self.got, {**self.payload, "background_tasks": []}, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: 2000.0)
+        self.assertIsNone(wake.finish_stuck(self.inbox, self.place, attrs, now=late + 2000))
+        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                       "problems": [], "departments": [
+                                           {"head_office": False, "state": "working", "sessions": 1, "name": "調べ", "role": None,
+                                            "account": None, "boss": None, "panes": [], "branch": "b",
+                                            "finish_stuck": {"since": 1792760000.0, "tasks": 1}}]}]))
+        stamp = time.strftime("%m-%d %H:%M", time.localtime(1792760000.0))
+        self.assertIn(f"! 終わりの印（--done）が有るのに、裏の処理（1 本）を残した{stamp} のターンの終わりから畳まれていない", line)
+        self.assertIn("--retire 調べ で畳む", line)
+
     def test_a_keepalive_turn_does_not_set_the_long_wait_back(self):
         attrs = {"ask": "a1", "session": "s1"}
         self.attrs = attrs
@@ -2609,10 +2637,77 @@ class Hook(unittest.TestCase):
             return wake_hook.checker(self.plan(), payload, h=Window(self.place), now=lambda: 5, spawn=spawn)()
         self.assertIsNone(check({"hook_event_name": "Stop"}))   # a0 を納品していない
         provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
-        self.assertIsNone(check({"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}))   # 裏の処理が残る
+        log = os.path.join(scratch(), "t.jsonl")
+        write_line(log, {"type": "assistant", "message": {"content": "done"}})
+        self.assertEqual(check({"hook_event_name": "Stop", "transcript_path": log, "background_tasks": [{"id": "b"}]}),
+                         wake.HOLD)   # 裏の処理が残る（見直す）
         self.assertIsNone(check({"hook_event_name": "SessionStart"}))   # ターンの終わりでない
         self.assertEqual(seen, [])
         self.assertEqual(self.g.worktree_attrs(self.place)[wake.FINISHED], "s1")
+
+    def test_a_finished_department_retires_after_the_grace_when_background_work_does_not_end(self):
+        # 終わらない裏の処理（入力を待つ cat など）を残すと、終わりの知らせのターンが来ない。猶予を過ぎたら会話ごと止めて畳む
+        # （受付 471732。前は見送ったまま誰も畳まず、約 1 日残った）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
+                                              wake.FINISHED: "s1"}, self.g)
+        seen, spawn = self.spawner()
+        clock = [100.0]
+        log = os.path.join(scratch(), "t.jsonl")
+        write_line(log, {"type": "assistant", "message": {"content": "done"}})
+        payload = {"hook_event_name": "Stop", "transcript_path": log, "background_tasks": [{"id": "b1", "status": "running"}]}
+        check = wake_hook.checker(self.plan(), payload, h=Window(self.place), now=lambda: clock[0], spawn=spawn)
+        self.assertEqual(check(), wake.HOLD)
+        clock[0] += wake.RETIRE_GRACE - 1
+        self.assertEqual(check(), wake.HOLD)
+        self.assertEqual(seen, [])
+        clock[0] += 1
+        self.assertEqual(check(), ("end", None))
+        [(argv, _)] = seen
+        self.assertEqual(argv[3:], ["--retire", "co/調べ"])
+        self.assertNotIn(wake.FINISHED, self.g.worktree_attrs(self.place))
+        rows = [r for r in deliver.records(self.inbox) if r.get("kind") == "retiring"]
+        self.assertEqual([(r["status"], r["tasks"]) for r in rows], [("waiting", ["b1"]), ("late", ["b1"])])
+
+    def test_a_talk_that_moves_while_waiting_to_retire_is_left_to_its_own_turn_end(self):
+        # 待つ間に裏の処理の終わりの知らせで次のターンが始まったら、古い待ち受けは動いている会話を止めない（そのターンの終わりの
+        # 待ち受けが、今の裏の処理の一覧で決める）。会話の記録の場所が分からなければ待たない（前と同じく次のターンの終わりに任せる）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
+                                              wake.FINISHED: "s1"}, self.g)
+        seen, spawn = self.spawner()
+        clock = [100.0]
+        log = os.path.join(scratch(), "t.jsonl")
+        write_line(log, {"type": "assistant", "message": {"content": "done"}})
+        tasks = [{"id": "b1", "status": "running"}]
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop", "transcript_path": log, "background_tasks": tasks},
+                                  h=Window(self.place), now=lambda: clock[0], spawn=spawn)
+        self.assertEqual(check(), wake.HOLD)
+        write_line(log, {"type": "user", "message": {"content": "<task-notification>"}})
+        clock[0] += wake.RETIRE_GRACE
+        self.assertIsNone(check())
+        self.assertIsNone(check())
+        self.assertEqual(seen, [])
+        self.assertEqual(self.g.worktree_attrs(self.place)[wake.FINISHED], "s1")   # 次のターンの終わりの待ち受けが畳む
+        blind = wake_hook.checker(self.plan(), {"hook_event_name": "Stop", "background_tasks": tasks}, h=Window(self.place),
+                                  now=lambda: clock[0], spawn=spawn)
+        self.assertIsNone(blind())
+        self.assertEqual(seen, [])
+
+    def test_a_finished_mark_taken_off_while_waiting_on_background_work_stops_the_wait(self):
+        # 待つ間に人の文で印が外れたら、畳まず、空にもしない（次のターンの終わりに任せる）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH, wake.FINISHED: "s1"}, self.g)
+        seen, spawn = self.spawner()
+        clock = [100.0]
+        w = Window(self.place)
+        log = os.path.join(scratch(), "t.jsonl")
+        write_line(log, {"type": "assistant", "message": {"content": "done"}})
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop", "transcript_path": log, "background_tasks": [{"id": "b1"}]},
+                                  h=w, now=lambda: clock[0], spawn=spawn)
+        self.assertEqual(check(), wake.HOLD)
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
+        clock[0] += wake.RETIRE_GRACE
+        self.assertIsNone(check())
+        self.assertEqual((seen, w.writes), ([], []))
 
     def test_a_queued_ask_is_handed_instead_of_retiring_and_takes_the_mark_off(self):
         # 終わりと印した後に追いの頼みが積まれたら、畳まずに渡す（終わりは、その頼みを済ませてから印し直す）

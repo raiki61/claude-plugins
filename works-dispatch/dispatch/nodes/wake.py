@@ -201,6 +201,8 @@ def compact_forget(inbox, place):
 
 
 LONG_WAIT = 3600   # --tree が「裏の処理を待ったまま動きが無い」と出す、裏の処理を残したターンの終わりからの秒
+RETIRE_GRACE = 600   # 終わりの印（--done）の会話が裏の処理を残してターンを終えたとき、待ち受けが畳むのを待つ秒。過ぎたら会話ごと止めて畳む
+                     # （wake_hook.checker。--tree は、その倍を過ぎても印が残る部署を出す。finish_stuck）
 TURN_ROWS = ("user", "assistant")   # 会話の記録の行のうち、ターンが動いた印の type（人の文・知らせ・ツールの結果と、答え）
 
 
@@ -304,11 +306,33 @@ def long_wait(inbox, place, attrs, now=None):
         return None
     if (time.time() if now is None else now) - got["at"] < LONG_WAIT or turned(got["transcript"], got["pos"])[0]:   # 読むのは控えの後だけ
         return None
+    return {"since": got["at"], "tasks": _task_count(got)}
+
+
+def _task_count(got):
+    """控え（waiting_note）の待つ裏の処理の数。id の分からない裏の処理は数だけ（warm_for の count:N）。分からなければ None。"""
     tasks = got.get("tasks") if isinstance(got.get("tasks"), list) else []
-    count = len(tasks) or None
-    if len(tasks) == 1 and str(tasks[0]).startswith("count:"):   # id の分からない裏の処理は数だけ（warm_for の count:N）
-        count = int(tasks[0][6:]) if tasks[0][6:].isdigit() else None
-    return {"since": got["at"], "tasks": count}
+    if len(tasks) == 1 and str(tasks[0]).startswith("count:"):
+        return int(tasks[0][6:]) if tasks[0][6:].isdigit() else None
+    return len(tasks) or None
+
+
+def finish_stuck(inbox, place, attrs, now=None):
+    """部署が終わりの印（--done。属性 company.finished）を持ったまま、その会話が裏の処理を残して終えたターンの終わりから
+    RETIRE_GRACE の倍の秒を超えても畳まれていなければ {since: そのターンの終わりの時刻, tasks: 待つ裏の処理の数}。ほかは None。
+    待ち受けは RETIRE_GRACE 秒で畳むので、ここに当たるのは、待ち受けが居なくなったなどで畳む者が居ない部署（2026-11-11 に my_notes の
+    調べものが、終わらない裏の処理を残して約 1 日畳まれず、持ち主が --tree で見つけた。受付 471732）。裏の処理を残さなかった
+    ターンの終わりは、待ち受けがその場で --retire を走らせ、走らせた後の失敗は retires/ の終わりの値で出る（health.py）。"""
+    if not attrs.get(FINISHED):
+        return None
+    got = waiting_of(inbox, place)
+    if not isinstance(got.get("at"), (int, float)) or got.get("session") != attrs.get(FINISHED):
+        return None
+    if (time.time() if now is None else now) - got["at"] < 2 * RETIRE_GRACE:
+        return None
+    if isinstance(got.get("transcript"), str) and isinstance(got.get("pos"), int) and turned(got["transcript"], got["pos"])[0]:
+        return None   # その後に会話が動いた（裏の処理の終わりの知らせのターンなど）。そのターンの終わりの待ち受けが畳む
+    return {"since": got["at"], "tasks": _task_count(got)}
 
 
 def pos_path(inbox, place):

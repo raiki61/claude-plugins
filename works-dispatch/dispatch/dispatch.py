@@ -2292,7 +2292,7 @@ def _running_note(d, attrs, ports):
     if attrs.get(wake.RETIRE_KEPT):
         return f"。終わりの印で畳もうとして残った: {attrs[wake.RETIRE_KEPT]}"
     if attrs.get(wake.FINISHED):
-        return "。終わりの印が有る（このターンの終わりに畳む）"
+        return f"。終わりの印が有る（ターンの終わりに畳む。裏の処理が残れば、終わるか {wake.RETIRE_GRACE // 60} 分たってから畳む）"
     name = d["name"] or d["branch"]
     got = orders.leftover(d["path"], attrs, ports.git, ports.gh)
     if got is None:
