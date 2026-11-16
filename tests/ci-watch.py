@@ -26,7 +26,14 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 赤が誰にも届かないまま黙り続けないため。2026-10-19 の頼みが開いたまま 10 日黙った）。新しい件は、開いた頼みが在っても
 知らせる。回した頼みが生んだ頼み（台帳の行の cause がそれを指す頼み。直しをほかの部署へ回して納品した物）も同じ件の頼みに数え、
 それが開いている間も黙る。頼みが閉じた後は、閉じた後に新しく決着した赤の run が在るときだけ知らせ直す（戻しの commit の run が決着する前に同じ赤を
-頼み直さない。決着した時刻で見る）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
+頼み直さない。決着した時刻で見る）。赤の run の commit より後に main へ入った commit のメッセージが、その赤の run の番号を書いていれば、
+直し済みとみて知らせない（その run より新しい赤の run が決着すれば、番号が違うので知らせる）。台帳は clone ごとで、ほかの機械の clone から
+回して直した頼みはこの clone の台帳に無いので、閉じたかを台帳では見分けられない（2026-11-16 の頼み fefcc3。mutation の赤 run 42609686710 を
+ほかの機械の頼み 4f82f4 が直し〔e8721ecb〕、その後の定期の run がまだ回らないうちに、この clone で同じ赤を頼み直した）。commit は
+origin/main までを git log で読み、fetch はしない（main へ入れた後の合図では push したばかりなので揃っている。ほかの契機で手元が古ければ、
+直しを見落として知らせる側に倒れる。読めなければ、直し済みとみずに知らせる）。番号に触れただけの commit（戻しを見送った旨など）も直し済みと
+読むので、番号を書くのは直した commit だけにする。同じ run を gh run rerun で回し直すと番号が変わらないので、直し済みとみたまま黙る
+（同じ commit を回し直しても直しは試されない。直しを確かめるのは、直しを含む commit の新しい run）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
 また起きれば、新しい件として知らせる）。頼みに渡せなかった（台帳の最後の行が failed か、外れの行の受付に頼みの行が無い）後は、渡せた頼みが新しく積まれるまで、頼みが開いていても閉じていても知らせ直す。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
 
 使い方: python3 tests/ci-watch.py < 入力の JSON（省けば {}。{"dry_run": true} なら、知らせる物を出すだけで覚えない）
@@ -44,6 +51,7 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -111,8 +119,23 @@ def unstarted_count(run_id, runner):
     return len(bad) if bad and all(j.get("conclusion") == "cancelled" and not j.get("steps") for j in bad) else 0
 
 
+def fixed_by(run_id, sha, runner, root=ROOT):
+    """sha より後に main（origin/main）へ入った commit のうち、メッセージに run の番号 run_id を書いた物の短い印（無ければ None）。
+    git log が読めない（sha が手元に無いなど）なら None で、直し済みとみない。番号は前後に数字の続かない形で探す（桁の違う番号に当てない）。"""
+    code, out, _ = runner(["git", "-C", str(root), "log", "--format=%h%x00%B%x1e", f"{sha}..origin/main"])
+    if code != 0:
+        return None
+    hit = re.compile(rf"(?<!\d){run_id}(?!\d)")
+    for chunk in out.split("\x1e"):
+        head, _, body = chunk.strip().partition("\x00")
+        if head and hit.search(body):
+            return head
+    return None
+
+
 def findings(runner, now, root=ROOT):
-    """知らせる物の並び。1 件は {key, text, since}。since は赤の件の最新の赤の run が決着した時刻（頼みが閉じた後に知らせ直すかの
+    """知らせる物の並び。1 件は {key, text, since, fixed}。fixed は、赤の run の番号を書いた後の main の commit の短い印（直し済み。
+    知らせない。無ければ None）。since は赤の件の最新の赤の run が決着した時刻（頼みが閉じた後に知らせ直すかの
     見分け。始まった時刻で見ると、戻しの commit を push してすぐ納品し、その後に赤で決着した run を見落とす）で、ほかの件は None。
     gh を読めなければ RuntimeError。"""
     found = []
@@ -149,8 +172,12 @@ def findings(runner, now, root=ROOT):
                 span = (f"落ちた job {idle} 本はどれも step を 1 つも走らせずに取り消された（GitHub がランナーを割り当てられなかったなど。"
                         f"commit の中身は試されていない）。gh run rerun {last['databaseId']} --failed で回し直すか、main の次の run が"
                         f"緑で終わるかを見る")
+            else:   # 回し直しで済む赤（上の idle）には、直す commit の手を添えない
+                span += (f"。直す commit のメッセージに run の番号 {last['databaseId']} を書く（ほかの機械の clone の見張りも、直し済みとみて"
+                         f"知らせ直さない）")
             # 鍵は最後の緑で決める（赤の続いた run が読む数を超えても、同じ赤の続きを別の件と数えない）
             found.append({"key": f"{path}:red:{green['databaseId'] if green else 'never-green'}", "since": when(last.get("updatedAt") or last["createdAt"]),
+                          "fixed": fixed_by(last["databaseId"], last["headSha"], runner, root),
                           "text": f"{name}（{path}）が main で赤: run {last['databaseId']}（{last['conclusion']}・{last['event']}・"
                                   f"{last['createdAt']}）{last['url']}。{span}"})
         sched = sorted(when(r["createdAt"]) for r in runs_of(wf, runner, "--event", "schedule"))
@@ -292,6 +319,8 @@ def main(stdin=None, runner=run, now=None):
         print(f"CI の見張りが読めなかった: {e}")
         return 1
     keys = {x["key"] for x in found}
+    fixed = [x for x in found if x.get("fixed")]
+    found = [x for x in found if not x.get("fixed")]
     # 知らせ済みの件は、頼みが開いている間は黙り、閉じた後は閉じた後に新しく決着した赤だけ知らせ直す（閉じた記録の無い件は、頼みに
     # なったかが分からないので知らせ直す）。開いている間も、一番新しい頼みを回してから REPEAT を過ぎたら知らせ直す（回した時刻の
     # 分からない頼みは、古いと決められないので黙る）。頼みに渡せなかった後（relay）は、渡せた頼みが積まれるまで知らせ直す
@@ -302,7 +331,9 @@ def main(stdin=None, runner=run, now=None):
     if not tell:
         wait = f"。{max(sent) + REPEAT:%Y-%m-%d %H:%M} UTC を過ぎても続けば知らせ直す" if sent else ""
         print("知らせる物は無い" + (f"（{len(found)} 件は知らせ済みで、" + (f"その頼みが開いている{wait}）" if still else
-                                                                 "その頼みが閉じた後に新しく決着した赤は無い）") if found else ""))
+                                                                 "その頼みが閉じた後に新しく決着した赤は無い）") if found else "")
+              + "".join(f"（赤の run を直し済みとみた: commit {x['fixed']} がその run の番号を書いている。次の run が決着するまで知らせない）"
+                        for x in fixed))
         if not dry:
             save_state(state_path, told & keys)   # 直った件は忘れる（また壊れたら知らせ直す）
         return 0

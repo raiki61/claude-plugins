@@ -2461,7 +2461,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=890
+EXPECTED_CHECKS=891
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6322,6 +6322,9 @@ expect_output 0 "UNREADABLE_OK" \
 expect_output 0 "LIMITED_OK" \
     "ci-watch: GitHub の利用制限で断られた回は頼みにせず黙って時刻を覚え、1 日を過ぎても続けば知らせ、読めた回に時刻を消す" \
     "$PY_BIN" "$CIW_CASE" limited
+expect_output 0 "FIXED_BY_COMMIT_OK" \
+    "ci-watch: 赤の run より後の main の commit がその run の番号を書いていれば、ほかの機械の clone から直した赤も直し済みとみて黙る（桁の違う番号・読めない git log・より新しい赤の run では知らせる）" \
+    "$PY_BIN" "$CIW_CASE" fixed-by-commit
 expect_output 0 "TITLE_OK" \
     "ci-watch: works-dispatch が頼みに付ける題の形が、ツールが自分の頼みを見分ける形のまま" \
     "$PY_BIN" "$CIW_CASE" title

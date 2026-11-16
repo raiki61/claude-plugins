@@ -19,6 +19,10 @@
 - unreadable: gh が落ちたら黙らず 1 で知らせる（dry_run でも 1）。入力が JSON のオブジェクトでなければ 2
 - limited: gh が GitHub の利用制限で断られた回は 0 で黙り、当たり始めた時刻を覚える（覚えた件は消さない。dry_run は覚えない）。
   REPEAT を過ぎても続けば 1 で知らせて時刻を替え（dry_run は 0 で替えない）、読めた回は時刻を消す
+- fixed-by-commit: 赤の run の commit より後の main の commit のメッセージが、その run の番号を書いていれば、知らせた記録も頼みも
+  無い clone でも直し済みとみて 0 で黙る（ほかの機械の clone から直した赤）。桁の違う番号には当てない。git log が読めなければ知らせる。
+  直し済みの run より新しい赤の run が決着すれば、その run の commit から読み直して知らせる。直し済みとみた赤は知らせ済みに足さず、
+  前に知らせた記録も消さない。ほかの workflow の直していない赤と並べば、そちらだけを知らせる
 - title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
 """
 
@@ -59,14 +63,20 @@ def r(i, conclusion, sha, at="2026-10-18T10:00:00Z", event="push", status="compl
 
 class Fake:
     """gh と git の偽物。workflows は gh workflow list の答え、runs は workflow の id ごとの run（新しい順）、jobs は run の id ごとの
-    gh run view --json jobs の job の並び（無い run は空）。view_err は gh run view だけを落とす文。"""
+    gh run view --json jobs の job の並び（無い run は空）。view_err は gh run view だけを落とす文。log は git log の答え
+    （(終了の値, 出力)。既定は commit の無い 0。範囲〔<sha>..origin/main〕ごとに替えるなら、範囲から答えへの dict で、無い範囲は
+    commit の無い 0）で、logs は受けた git log の argv の並び。"""
 
-    def __init__(self, gitdir, workflows, runs, broken=False, err="HTTP 502", jobs=None, view_err=None):
+    def __init__(self, gitdir, workflows, runs, broken=False, err="HTTP 502", jobs=None, view_err=None, log=(0, "")):
         self.gitdir, self.workflows, self.runs, self.broken, self.err = gitdir, workflows, runs, broken, err
-        self.jobs, self.view_err = jobs or {}, view_err
+        self.jobs, self.view_err, self.log, self.logs = jobs or {}, view_err, log, []
         self.places = {}   # git -C <場所> の共通のディレクトリの答えを場所ごとに替える物（無い場所は gitdir）
 
     def __call__(self, argv):
+        if argv[0] == "git" and "log" in argv:
+            self.logs.append(argv)
+            code, out = self.log.get(argv[-1], (0, "")) if isinstance(self.log, dict) else self.log
+            return code, out, "" if code == 0 else "fatal: bad revision"
         if argv[0] == "git":
             return 0, self.places.get(argv[2], self.gitdir) + "\n", ""
         if self.broken:
@@ -384,6 +394,45 @@ def limited():
     print("LIMITED_OK")
 
 
+def commits(*pairs):
+    """git log --format=%h%x00%B%x1e の出力の形。pairs は (短い印, メッセージ) の並び。"""
+    return "".join(f"{h}\x00{body}\n\x1e\n" for h, body in pairs)
+
+
+def fixed_by_commit():
+    runs = {1: [r(42609686710, "failure", "a"), r(6, "success", "0")]}
+    fix = commits(("e8721ecb", "fix(tests): 腕に os を足す\n\n週 1 回の mutation の CI（run 42609686710）で赤だった"), ("97192de6", "chore: 版を上げる"))
+    d = setup()
+    fake = Fake(d, [TEST], runs, log=(0, fix))
+    code, out = go(fake)
+    check(code == 0 and "e8721ecb" in out and "/runs/42609686710" not in out, f"run の番号を書いた commit が在るのに知らせた: {code} {out}")
+    check(fake.logs and fake.logs[0][-1] == "aaaaaaaa..origin/main", f"赤の run の commit から origin/main までを読んでいない: {fake.logs}")
+    check(told(d) == [], f"直し済みとみた赤を知らせ済みに覚えた: {told(d)}")
+    # この clone で前に知らせた赤が直し済みになっても、知らせた記録は消さない（直った件を忘れるのは、赤が見えなくなったときだけ）
+    key = f"{TEST['path']}:red:6"
+    cw.save_state(os.path.join(d, cw.STATE), {key})
+    code, out = go(Fake(d, [TEST], runs, log=(0, fix)))
+    check(code == 0 and told(d) == [key], f"知らせた赤が直し済みになったら、知らせた記録を消した: {code} {out} {told(d)}")
+    # 直し済みの赤と、ほかの workflow の直していない赤が並べば、直していない方だけを知らせて覚える
+    mutation = {"id": 2, "name": "mutation", "path": ".github/workflows/mutation.yml", "state": "active"}
+    both = {**runs, 2: [r(42609686720, "failure", "c"), r(5, "success", "0")]}
+    d2 = setup()
+    code, out = go(Fake(d2, [TEST, mutation], both, log={"aaaaaaaa..origin/main": (0, fix)}))
+    check(code == 1 and "/runs/42609686720" in out and "/runs/42609686710" not in out and told(d2) == [f"{mutation['path']}:red:5"],
+          f"直し済みの赤とほかの赤が並ぶ回に、直していない赤だけを知らせて覚えない: {code} {out} {told(d2)}")
+    near = commits(("1111111a", "run 426096867101 と 142609686710 の話"))
+    code, out = go(Fake(setup(), [TEST], runs, log=(0, near)))
+    check(code == 1 and "/runs/42609686710" in out, f"桁の違う番号を直し済みと読んだ: {code} {out}")
+    code, out = go(Fake(setup(), [TEST], runs, log=(128, "")))
+    check(code == 1 and "/runs/42609686710" in out, f"git log が読めない回に直し済みとみて黙った: {code} {out}")
+    newer = {1: [r(42609686799, "failure", "b", "2026-10-19T03:00:00Z"), *runs[1]]}
+    fake = Fake(d, [TEST], newer, log=(0, fix))
+    code, out = go(fake)
+    check(code == 1 and "/runs/42609686799" in out and fake.logs[0][-1] == "bbbbbbbb..origin/main",
+          f"直し済みの run より新しい赤の run を、その run の commit から読み直して知らせない: {code} {out} {fake.logs}")
+    print("FIXED_BY_COMMIT_OK")
+
+
 def title():
     src = (ROOT / "works-dispatch" / "dispatch" / "calls.py").read_text(encoding="utf-8")
     check("\"title\": f\"ツール {role_name}/{tool['name']} が片づけられなかった仕事\"" in src,
@@ -393,4 +442,4 @@ def title():
 
 if __name__ == "__main__":
     {"red-range": red_range, "told-while-open": told_while_open, "cross": cross, "reopen-after-close": reopen_after_close, "age": age,
-     "unreadable": unreadable, "limited": limited, "title": title}[sys.argv[1]]()
+     "unreadable": unreadable, "limited": limited, "fixed-by-commit": fixed_by_commit, "title": title}[sys.argv[1]]()
