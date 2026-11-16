@@ -1,6 +1,6 @@
 # /my-turn の掘る段を Workflow で回す設計（案）
 
-/my-turn（attention のコマンド `commands/my-turn.md`。持ち主のターンの PR を進める）の、構造をとらえて木を掘る段を、Claude Code の Workflow（JavaScript の script が裏のエージェントを決まった順に回す仕組み。https://code.claude.com/docs/en/workflows ）に移す設計。
+/my-turn（このリポジトリの attention プラグインのコマンド `commands/my-turn.md`。次に動くのが持ち主側にある〔持ち主のターン〕PR を進める。持ち主は PR のレビュアーか作者で、作者は PR を書いた人）の、構造をとらえて木を掘る段を、Claude Code の Workflow（JavaScript の script が裏のエージェントを決まった順に回す仕組み。https://code.claude.com/docs/en/workflows ）に移す設計。
 状態: 案（2026-11-16）。承認されるまで `commands/my-turn.md` は変えない。
 
 呼び方: この文書のまとまりは「セクション N」、今の `commands/my-turn.md` の手順は「手順 N」、Workflow の段は「W1」〜「W10」。木の 1 つの問いを「ノード」、掘る出発点の問いを「ルート」と呼ぶ。head は PR のブランチの最新 commit。今の手順 1〜20 と守ることの本文は `commands/my-turn.md`（今の版）に在り、この文書はそれを直す所だけを書く。
@@ -27,21 +27,21 @@
 %%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
 sequenceDiagram
   actor O as 持ち主
-  participant C as 会話（/my-turn）
+  participant C as 会話 /my-turn
   participant P as my-turn-prep.py
-  participant W as Workflow（attention:my-turn-dig）
+  participant W as Workflow
   O->>C: /my-turn と PR 番号
   C->>C: 手順 1〜5 前提を取り直す
   C->>P: PR 番号と前の回の記録
-  P-->>C: 範囲・差分のファイル・決まりの文書・指紋（JSON）
-  C->>W: args（差分などは path、前の回の記録と指摘は中身）
+  P-->>C: 範囲・差分・決まりの文書・指紋
+  C->>W: args（path と前の回の記録）
   Note over C: ターンを終えて待たない
   W->>W: W1〜W10（セクション 5）
-  W-->>C: 報告の材料と記録の path（終わりの知らせ）
+  W-->>C: 報告の材料と記録の path
   C->>O: 手順 16 持ち主への報告
   O->>C: やり取り
   C->>O: 手順 17・18 作者への下書き
-  C->>C: 手順 19 片付け・手順 20 見せる前の確かめ
+  C->>C: 手順 19・20 片付けと確かめ
 ```
 
 - 会話に残すのは手順 1〜5 と 16〜20。報告と作者への下書きは、持ち主と何度もやり取りして詰めるので、報告を書いた文脈が会話に要る。
@@ -49,7 +49,7 @@ sequenceDiagram
 - Workflow は裏で走る。会話は待ち続けずにターンを終え、終わりの知らせで手順 16 から続ける（Workflow の文書の「Watch the run」）。
 - Workflow は途中で人の入力を受けない（Workflow の文書の「No mid-run user input」）。手順 13 の「それでも決まらなければ持ち主に聞く」は「決まらなかった問い」として返し、会話が手順 16 で持ち主に上げる。
 - Workflow が使えない環境（`disableWorkflows` が真など）では、/my-turn は訳と直し方（`/config` の Dynamic workflows）を言って止まる。会話だけで回す道は残さない。2 つの道を持つと文が別々に直されてずれる。今の能力（Workflow 無しで回せる）を落とすので、セクション 13 に挙げる。
-- /catchup との違いを `commands/my-turn.md` の頭に 1 文で書く: /catchup は持ち主がその場で答えを待つので裏のエージェントを立てない（一般の構造を遮断の目に描かせる 1 回だけは立てる。`attention/skills/catchup/SKILL.md` の守ること 5）。/my-turn は待てる手順なので、掘る段を裏の Workflow で回す。
+- /catchup との違いを `commands/my-turn.md` の頭に 1 文で書く: /catchup は持ち主がその場で答えを待つので裏のエージェントを立てない（一般の構造を遮断の目（W2 と同じ役）に描かせる 1 回だけは立てる。`attention/skills/catchup/SKILL.md` の守ること 5）。/my-turn は待てる手順なので、掘る段を裏の Workflow で回す。
 
 ## 3. 置くファイル
 
@@ -91,7 +91,7 @@ flowchart LR
   prep -->|外れたら| stop(["止まる: merge-base が無い・範囲が空・head が PR と違う"])
 ```
 
-- 範囲を決めて確かめる: PR の base のブランチを `git fetch` で取り直し、`origin/<base のブランチ>` と head の merge-base を base にする。merge-base が無い・範囲の commit が 0 個・手元の head が PR の head（`gh pr view --json headRefOid`）と違う、のどれかか、`git fetch` が失敗したら止まる。`HEAD~1` のような数え方は使わない。superpowers（Claude Code の公開のスキル集。https://github.com/obra/superpowers ）も、それをすると黙って commit を落とすと書く（https://github.com/obra/superpowers/blob/main/skills/subagent-driven-development/SKILL.md 「never `HEAD~1`, which silently truncates multi-commit tasks」）。
+- 範囲を決めて確かめる: PR の base のブランチを `git fetch` で取り直し、`origin/<base のブランチ>` と head の merge-base を base にする。merge-base が無い・範囲の commit が 0 個・手元の head が PR の head（`gh pr view --json headRefOid`）と違う、のどれかか、`git fetch` が失敗したら止まる（止まったら、会話が理由を持ち主に言って終わる。Workflow は立てない）。`HEAD~1` のような数え方は使わない。superpowers（Claude Code の公開のスキル集。https://github.com/obra/superpowers ）も、それをすると黙って commit を落とすと書く（https://github.com/obra/superpowers/blob/main/skills/subagent-driven-development/SKILL.md 「never `HEAD~1`, which silently truncates multi-commit tasks」）。
 - 差分を 1 つのファイルにまとめる: commit の一覧と `git diff --stat` と `git diff -U10` を、範囲の名前のファイル（`<base7>..<head7>.diff`）に書く。読まないファイル（下）の差分は本文から外し、`--stat` にだけ残す。ノードには path だけを渡す。superpowers と同じ形で、会話の文脈に差分の本文を入れずに済む（同じ文書「Hand the reviewer its diff as a file」「The output never enters your own context」）。
 - 前の回からの差分: `--prior` のとき、前の回の head から今の head までも同じ形で 2 本目を作る。Claude Code の Code Review も、push の後は前のレビューから変わった所を見る（https://code.claude.com/docs/en/code-review-pull-requests 「focuses on what changed since the last review」）。2 本目の使い方はセクション 5 の「2 回目の回し方」。PR 全体（base から head まで）の足した行と消した行が、前の回の記録の時点と同じ（空の commit や、base の取り込みだけの push）なら、`git patch-id` で見分けて 2 本目を作らない。Code Review も同じ場合はレビューを回さない（同じ文書「The pull request still adds and removes the same lines」。`git patch-id` で見分けるのはこちらの選び）。そのときは prep が「変わっていない」と返し、会話は Workflow を立てずに、前の回の記録の path と、変わっていないことを持ち主に言う。前の回の head が手元に無い（force-push の後で消えたなど）ときは、2 本目を作らず、前の回が無いものとして全部を回し、そのことを報告に書く。
 - 決まりの文書を base から集める: リポジトリのルートの CLAUDE.md と、変えたファイルの親のフォルダの CLAUDE.md と、REVIEW.md（Claude Code の Code Review が読む、そのリポジトリのレビューの決まりを書くファイル）の path を、base の commit の版で出す（`git show <base>:<path>` で読む）。Code Review も同じ範囲を読み、REVIEW.md は PR の変更から読まない（https://code.claude.com/docs/en/code-review 「the `CLAUDE.md` files in the parent directories of each changed file」、https://code.claude.com/docs/en/code-review-customize 「never from the pull request's own changes」）。PR が決まりの文書を変えたなら、変えた後の版はレビューの対象にし、根拠にしない（守ること 3 と同じ線）。
@@ -130,11 +130,11 @@ flowchart TB
 待つ所は 5 つ: W5 は W3 と W4 の全部を、W7 は深さごとの全部のノードを、W8 は木の全部を、W9 は W8 を、W10 は W9 の全部を待つ。W9 が W8 を待つのは、案と組の反証に W8 の答えが要り、末端と W4 の答えの反証だけ先に流しても、W10 で W8 の反証を待つので終わりが早くならないため。1 つの深さの中のノードと、W9 の 1 件ずつは待たずに流す。
 
 - **W1 構造**（手順 6・10）: PR が触るシステムの構造（部品・流れ・正本・依存の向き・境目）を描き、PR の種類を 1 文で言う（種類は固定の分類表を持たず、W1 が自由な文で言う。例: 「設定の正本を移す PR」「新しい検査を足す PR」「外のツールに置き換える PR」。以下「W1 の種類の 1 文」）。PR が作る仕組みと、それが補う前提も出す。この PR が足す検査・試験の仕組みにも、それぞれの前提を言う（手順 10）。自作の部品の一覧も出す（差分の `--stat` で足した行の集まり方を入口に、主目的でない所〔検査・試験・つなぎ〕に多ければ自作の候補として先に挙げる）。部品の言えない PR なら、その旨を返し、W2・W3 を飛ばす。
-- **W2 一般の構造**（手順 7・8）: 遮断の目に W1 の種類の 1 文だけを渡して描かせる。一般論しか返らなければ、伏せた問い（この PR が選んだ所を、答えを伏せて問う文。「正本をどちらに置くか」「境目をどこに引くか」など）を足して 1 回だけ問い直す。それでも出なければ、出なかったことを返す。遮断の目の役が入っていなければ、ツールを使うなと頼んだ既定の役（general-purpose）を opus・effort medium で立てる。
+- **W2 一般の構造**（手順 7・8）: 遮断の目（W1 の種類の 1 文だけを見て、同じ種類のシステムの一般の構造を描く役。この PR の差分は見ない）に W1 の種類の 1 文だけを渡して描かせる。一般論しか返らなければ、伏せた問い（この PR が選んだ所を、答えを伏せて問う文。「正本をどちらに置くか」「境目をどこに引くか」など）を足して 1 回だけ問い直す。それでも出なければ、出なかったことを返す。W2 の答え（一般の構造）は W3 に渡り、W3 が PR の構造と比べる。遮断の目の役が入っていなければ、ツールを使うなと頼んだ既定の役（general-purpose）を opus・effort medium で立てる。
 - **W3 比べる**（手順 8・9）: W1 と W2 を並べ、違いごとに寄せるか外れてよいかを、リポジトリの外の基準（W2 の一般の構造と、世の中の定番・公式の文書）で決める。理由にリポジトリの今の状態を使わせない。外れてよいとした違いごとに、同じ問題があと 3 回来たとき何が積み上がるかを言わせる。
 - **W4 コードの臭い**: セクション 8 の 5 つの問いを 1 問ずつ別の 1 体が、下ごしらえの差分を読んで答え、根拠を「ファイル:行」で返す。W2・W3 と並べて走らせる。
 - **W5 ルートを組む**（コード）: 前提を消す形（W1 が挙げた「それが補う前提」を取り除き、補う仕組みごと要らなくする形）はあるか（必ず 1 本・先頭。消す道は近い所から探す: まず変更の内側で消せないかを問い、システムをまたぐ設計の変更はその後に回す。手順 11）・W3 で寄せると決めた違い・W4 で臭いと答えた所・受けた指摘か前に出した指摘・前の回の発見で残っている物と未確認の物・PR が作る部品の全体への「世の中の解」（手順 13）・この PR より前から在る、本物のツール（パーサ・コンパイラなど）に処理させる検証の洗い出しと、この PR が足した物がその経路に乗っているか（手順 13。乗っていなければ穴）・W1 の自作の部品ごとの「世の中の解」と「自作を疑う」（手順 15）。PR の本文の枠と作者が頼んだ観点だけで組まない。
-- **W6 木を掘る**（手順 11・13・15）: ノード 1 つに 1 体。{答え・確かめた物・決まったか（末端／子に分ける／未確認）・子の問い} を返す。全部のノードが末端か「未確認」になるまで掘る。深さの上限は置かない（今の手順 11 も「末端まで」で深さを決めていない）。浅い PR では木は自然に浅く終わる。根拠にできる出典は公式の一次の文書までで、二次の記事しか無ければ「未確認」に下げる。世の中の解を当てるノードは、ツールが一般の構造（W2）のどの部品を受け持つかを言い、PR が作る部品と同じ部品を受け持つ物だけを数え、「代わり」（まるごと置き換えられる）か「土台」（その上に作れば自前の処理が要らない）に分ける。上限で掘らなかった問いは「未確認」で残し、その上に乗る「消える」「要らなくなる」も「未確認」にする（守ること 5）。
+- **W6 木を掘る**（手順 11・13・15）: ノード 1 つに 1 体。{答え・確かめた物・決まったか（末端／子に分ける／未確認）・子の問い} を返す。全部のノードが末端か「未確認」になるまで掘る。深さの上限は置かない（今の手順 11 も「末端まで」で深さを決めていない）。浅い PR では木は自然に浅く終わる。根拠にできる出典は公式の一次の文書までで、二次の記事しか無ければ「未確認」に下げる。世の中の解を当てるノードは、ツールが一般の構造（W2）のどの部品を受け持つかを言い、PR が作る部品と同じ部品を受け持つ物だけを数え、「代わり」（まるごと置き換えられる）か「土台」（その上に作れば自前の処理が要らない）に分ける。上限（`limits` のノード数。既定 80。セクション 10）で掘らなかった問いは「未確認」で残し、その上に乗る「消える」「要らなくなる」も「未確認」にする（守ること 5）。
 - **W7 束ねる**（新しい段。今の手順には無い）: 深さごとに全部のノードを待つ。そこで出た子の問いの全部を 1 体に渡し、違う親が出した同じ問いを 1 つの束にさせる。束は次の深さで 1 つのノードになり、親を複数持つ（下の図）。すべての子の問いがどれか 1 つの束にちょうど 1 回入っているかを script のコードが確かめる。畳んだ問いと捨てた問いも、問いの鍵と結果の表（以下 `seen`）に覚え、次の深さで同じ問いを立て直さない。深さの区切りで待つのは W7 だけで、1 つの深さの中のノードは待たずに流す。
 
 ```mermaid
@@ -148,7 +148,7 @@ flowchart TB
   m --> L2(["決まった末端"])
   c --> U(["未確認: 上限で掘らなかった"])
 ```
-- **W8 直し方の案と相乗り**（手順 12・14）: 決まった末端の全部から、`limits` の数まで、直し方の案を手順 14 の順（要らなくする → 型で縛る → 出来合いのツール → 自作）で作り、案ごとに世の中の解を当て（手順 13 の「指摘の 1 件ずつとこちらの直し方の案に当てる」）、1 つの直しで片づく組と、壊し合う組を挙げる（以下、案と組。W7 の束とは別）。PR の外の open な issue・PR を `gh` で探し、探した語と、乗れるかを書く。
+- **W8 直し方の案と相乗り**（手順 12・14。相乗りは上の語の定義のとおり、1 つの直しで別の指摘も片づく組と、PR の外の issue・PR に乗れること）: 決まった末端の全部から、`limits` の数まで、直し方の案を手順 14 の順（要らなくする → 型で縛る → 出来合いのツール → 自作）で作り、案ごとに世の中の解を当て（手順 13 の「指摘の 1 件ずつとこちらの直し方の案に当てる」）、1 つの直しで片づく組と、壊し合う組を挙げる（以下、案と組。W7 の束とは別）。PR の外の open な issue・PR を `gh` で探し、探した語と、乗れるかを書く。
 - **W9 反証**: 決まった末端の全部と、W4 の答えの全部と、W8 の案と組ごとに、別の 1 体が反証を試みる。渡すのは問い・答え・確かめた物だけで、親の見立てと兄弟の答えは渡さない。判定は「残る／崩れた／確かめられない」で、確かめられない物は崩れた扱いにせず「未確認」で残す。崩れた末端に乗る案と組は外す。「残る」は正しいと確かめた印として報告に書かない。
 - **W10 記録と報告の材料**: 記録の中身は script のコードが組み、1 体がそれを記録のファイルに書き出す（中身をエージェントに組ませると形が揺れる）。会話には手順 16 と 20 に要る物だけを返す: W1 の構造と W2・W3 で使った問いの文・仕組みと前提・ルートごとの末端で分かったこと・案と組と判定・相乗り・W2 で一般の構造が出なかったか・決まらなかった問い・未確認・件数・記録の path。
 
@@ -170,7 +170,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
-flowchart LR
+flowchart TB
   subgraph SAME["全部のノードで同じ字: キャッシュを分け合う"]
     R1["1 決まりの文"] --> R2["2 PR の土台<br/>W1・W2 の要約と path"]
   end
@@ -197,7 +197,7 @@ Workflow の resume は使わない。resume は同じ会話の中でしか効�
 
 - 記録（`<git dir>/attention/my-turn/<PR番号>.json`）に、その回の head と base と、ノードごとの問い・答え・確かめた物（読んだファイルと指紋・打ったコマンド・URL）・判定を残す。
 - 次の回、会話は `my-turn-prep.py --prior <記録>` で今の指紋を出し、記録の中身と一緒に `args` の `priorRecord` に載せる。script は、同じ問い（問いの文の一致でなく、W5 がルートに・W7 が束に付ける問いの鍵〔`seen` の key〕が同じこと）のノードで、読んだファイルの指紋が全部同じで、`gh` を打っていないときだけ前の答えを使い、エージェントを立てない。git の読むだけのコマンド（`blame`・`log`・`show`）の答えは、読んだファイルが同じなら同じなので条件に入れない。`gh` の答え（open な issue・PR など）は GitHub の今の状態で変わるので、打ったノードは使い回さない。今の手順 4 は「ツールの版」が同じことも条件にするが、ノードはツールを動かさないので外す（セクション 13）。
-- URL を根拠にしたノード（世の中の解）は、その部品のファイルの指紋が全部同じときだけ使う。
+- URL を根拠にしたノード（世の中の解）は、そのノードが当てた PR の部品（W6 が受け持つ部品として挙げたもの）のファイルの指紋が全部同じときだけ使う。
 - W1・W3・W4 は head が変われば必ず立て直す。W2 は W1 の種類の 1 文が前の回と同じときだけ使う（手順 7）。
 - 使ったノードは、報告の「確かめた前提」に「前の回の確かめを使った（何が同じか）」と書く（手順 4）。
 
