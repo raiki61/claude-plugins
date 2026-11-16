@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-16
+
 ### Changed
 
 - Archon の挙動への回り道の一覧（`works/docs/archon-feedback.md`）に、2026-11-16 に Archon の開発元へ出した issue と一言（#5734〜#5740 など）と、残りの項目を今の Archon と照らし直した結果（直った物・方針で断られた物・出さない物）を書き足した。版を上げる時に「外せる時」を確かめる手がかりになる。
