@@ -461,6 +461,10 @@ class Hook(unittest.TestCase):
         self.assertNotIn("--land", desk)
         self.assertIn(f"{role_hook.RUN} --say <部署の名前かブランチか #PR の番号> --text <知らせ>", desk)
         self.assertIn(f"{role_hook.RUN} --ask <宛先> --text <頼み>", desk)
+        # 窓口にも部署にも、ほかの会社のリポジトリに直に書かず --ask で頼む 1 文を足す（works-factory の窓口が my_notes の日記に直に書いた。頼み 9ba857）
+        for got in (text, desk):
+            self.assertIn(role_hook.OTHER_REPO.format(run=role_hook.RUN), got)
+            self.assertIn("直に書き換えず", got)
 
     def test_a_role_text_over_the_hook_limit_is_flagged_in_the_notes_and_at_its_head(self):
         # 上限（1 万字）を超えた文は、会話に頭の 2,000 字しか入らない。頭に置き場を読めという 1 行を足し、--tree・--todo の注記に出す
@@ -746,6 +750,7 @@ class Hook(unittest.TestCase):
         self.assertIn("会社「co」", got)
         self.assertIn(f"{role_hook.RUN} --ask <会社の名前> --text <頼み>", got)
         self.assertEqual(len(got.splitlines()), 1)   # 毎回の起動の量に入るので 1 行
+        self.assertIn(role_hook.OTHER_REPO.format(run=role_hook.RUN), got)   # 部署でない会話にも、ほかの会社に直に書かない 1 文を足す（頼み 9ba857）
         provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, self.g)
         desk = started(self.src, "s-c", "調べ")   # 本社で窓口の名前を名乗った、窓口でない会話には、席を取り直す道も足す（受付 d46e09、頼み 2827a8）
         self.assertEqual(desk.splitlines()[0], got)

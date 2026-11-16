@@ -36,6 +36,10 @@ chat.CONTEXT_PREVIEW 字と置き場のパスだけを入れ、そのファイ�
 （note_size → health.note_size）、--tree と --todo の注記に出す。additionalContext に出す文が超えていれば、頭に置き場のファイルを
 読めという 1 行を足す（fit。頭の字は会話に入る。待ち受けが再開させる字〔Stop のフックの差し戻し〕には上限の記述が無いので足さない）。
 
+窓口・部署・部署でない会話のどれにも、ほかの会社のリポジトリのファイルを直に書き換えず --ask でその会社に頼む 1 文（OTHER_REPO）を
+足す（窓口と部署は commands_text の後ろ、部署でない会話は HINT の後ろ）。持ち主に頼まれて他社の本社の作業場に直に書くと、その会社に
+commit していない変更が残り、その会社の会話の納品や main に入れるのが止まった（2026-11-16 の my_notes。頼み 9ba857）。
+
 会社（会社の形の在るリポジトリ。読み方は上と同じ tree.read_info）の場所で、役の本文を足さない会話（部署の属性の無い作業場の会話、
 本社の窓口でない会話）には、ほかの会社への頼み方の 1 行（HINT。--ask <会社の名前> でその会社の窓口に届く）を足す。本社で窓口の名前を
 名乗った（claude --name）窓口でない会話には、前の窓口の会話を継ぐなら --desk で席を取り直す 1 行（DESK_HINT）も足す。SendMessage で
@@ -78,7 +82,15 @@ RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable,
 HINT = ("works-dispatch: ここは会社「{company}」のリポジトリだが、この会話は部署ではない。ほかの会社に頼むときは SendMessage でなく "
         "`{run} --ask <会社の名前> --text <頼み>` を打つ（その会社の窓口に届き、受付の台帳に頼み元が残って、納品はこの会話の "
         f"{term.NAME} の窓に返る。会社と仕事ごとの宛て方は同じコマンドの `--tree`）。部署や PR の会話への返事の要らない一言も、"
-        f"{term.NAME} のペインに直に打たず `{{run}} --say <宛先> --text <知らせ>` で送る。")
+        f"{term.NAME} のペインに直に打たず `{{run}} --say <宛先> --text <知らせ>` で送る。{{other}}")
+# ほかの会社のリポジトリに直に書かせない 1 文（窓口・部署・部署でない会話のどれにも足す）。2026-11-16 に works-factory の窓口が、持ち主に
+# 「日記か my_notes に書いておいて」と頼まれ、my_notes の本社の作業場の日記に直に書いて commit せずに残し、my_notes の司令塔の納品の
+# 検査（本社の作業場に commit していない変更が有ると止める）が約 2 時間止まった（頼み 9ba857）。同じ日の朝の日記は --ask で my_notes に
+# 頼み、my_notes の部署がブランチで書いて main に入れていた（my_notes の 12f33fcd2）
+OTHER_REPO = ("ほかの会社のリポジトリ（この会話の作業場の外に在る、会社の形を持つ clone とその worktree）のファイルは、"
+              "持ち主に書いてと頼まれたときも直に書き換えず、`{run} --ask <会社の名前> --text <頼み>` でその会社に頼む"
+              "（その会社の部署がブランチで書いて main に入れる。直に書くと、その会社の本社の作業場に commit していない変更が残り、"
+              "その会社の会話の納品や main に入れるのが止まる）。")
 # 本社（代表の clone）の、窓口の席を持たない会話に HINT の後ろに足す 1 行。窓口の会話を開き直した会話が席を取り直さないと、待ち受けが
 # 張られず、納品が渡らない（前の版では予備の道の打ち込みで人の入力フィールドに入った。2026-10-30 の my_notes の司令塔。受付 d46e09、頼み 2827a8）
 DESK_HINT = ("works-dispatch: この本社の窓口の席は窓口「{name}」の会話（会話 {session}）が持つ。前の窓口の会話を継ぐなら "
@@ -267,7 +279,8 @@ def commands_text(dept, ephemeral, desk=False):
         if ephemeral:
             lines.append(f"- 終わりの印（納品して main に入れ終えたら）: {RUN} --done")
     return ("\n\nworks-dispatch のコマンド（この字のまま打つ。打つ前にスキル /works-dispatch:dispatch や別ファイルを読まない。"
-            "断られたら出力の訳どおりに直して打ち直し、それで直せないときと、ほかのコマンドを打つときだけスキルを読む）:\n" + "\n".join(lines))
+            "断られたら出力の訳どおりに直して打ち直し、それで直せないときと、ほかのコマンドを打つときだけスキルを読む）:\n" + "\n".join(lines)
+            + "\n" + OTHER_REPO.format(run=RUN))
 
 
 # 保留にした頼みの行の頭（役の本文の控え〔_digest〕は、ここから後ろを見ない）
@@ -320,7 +333,7 @@ def hint_for(cwd, env=os.environ, attrs=None, title=None):
     info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)), gitx)
     if not info.get("source"):
         return None
-    text = HINT.format(company=tree.company_name(root, info), run=RUN)
+    text = HINT.format(company=tree.company_name(root, info), run=RUN, other=OTHER_REPO.format(run=RUN))
     here = gitx.git_dir(cwd)
     named = bool(title) and title in [attrs.get("name"), *gitx.former_names(attrs)]
     if attrs.get("role") and named and here and os.path.realpath(here) == os.path.realpath(common):   # 本社で、席は別の会話が持つ
