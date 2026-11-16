@@ -4,11 +4,23 @@
 
 ## ログインか keychain の項目で動く人
 
-- 普段の `claude` と `gh` のログインのまま動く。Claude のアカウントを macOS の keychain の項目で選ぶ時は、`WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` を付ける（値は表示も保存もしない）。
+- 普段の `claude` と `gh` のログインのまま動く。Claude のアカウントを macOS の keychain の項目で選ぶ時は、`WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` を付ける（値は表示も保存もしない）。keychain は macOS だけで、ほかの OS でこの変数を置くと殻は何も読まずに止まる。その OS では環境からも、Claude Code の設定の `env` からも外す。ほかの OS では下の「Linux と、Claude Code の会話の中から起動する時」の道を使う。
   - 毎回付けずに済ませるなら、使う Claude Code の設定の置き場（既定は `~/.claude`）の `settings.json` の `env` に `WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` に当たる組を書く。Claude Code が Bash の子に渡すので、殻がそのまま拾う。
   - `CLAUDE_KEYCHAIN_SERVICE`（Claude Code 側の、keychain の項目の名を入れる変数）に項目の名を置いても拾う。
   - ログインの資格は数時間で切れる。長い run（工場の 1 回の実行）は、`claude setup-token` で作ったトークンを `CLAUDE_CODE_OAUTH_TOKEN` に置いて起こす。
   - 殻が「認証が無い」で止まったら、macOS では `security find-generic-password -s <項目の名>` で項目が在るかを確かめる（`-w` を付けず、値を出さない）。項目の名を推して試さず、人に聞く。`security` は macOS のコマンドで、ほかの OS には無い。
+
+## Linux と、Claude Code の会話の中から起動する時
+
+裏の会話（`claude --bg`）を含む Claude Code の会話の中の Bash には、その会話のログインのトークンが渡らない（そこでは `claude auth status` の `loggedIn` が false になる）。Linux など保存済みのログインの無い所や、会話の中から殻を起動する時は、`claude setup-token` で作った長期のトークンを渡す。渡し方は次の 2 つ。
+
+- `WORKS_FACTORY_OAUTH_TOKEN_COMMAND=<トークンを標準出力に出すシェルのコマンド>`（例: パスワードの保管庫からそのトークンを読むコマンド）を、使う Claude Code の設定の置き場（`CLAUDE_CONFIG_DIR`、無ければ `~/.claude`）の `settings.json` の `env` に 1 度書く。毎回の手の配線が要らなくなる。トークンそのものは書かず、トークンを出すコマンドを書く。
+  - 殻は起動ごとに 1 回、Archon を起こす直前にそのコマンドを利用者の HOME・XDG・`CLAUDE_CONFIG_DIR` で起こし、標準出力の前後の空白を除いた字を `CLAUDE_CODE_OAUTH_TOKEN` として中の AI の役に渡す。トークンとコマンドの字は表示も保存もしない。コマンドの待ちに期限は無く（止めるのは Ctrl-C）、コマンドの標準エラーは端末に流れる。
+  - コマンドが起こせない・0 でない値で終わる・何も出さない時は、保存済みのログインへ落ちずに、変数の名を言って止まる。
+  - 環境に `CLAUDE_CODE_OAUTH_TOKEN` が在れば、そちらを使ってコマンドは起こさない。
+- 殻を起動する命令の前でトークンを置く（`CLAUDE_CODE_OAUTH_TOKEN="$(<トークンを出すコマンド>)" WF workflow run ...` の形）。
+
+ほかの認証の道との優先の順、空の値の扱いなどの細部の正は、[工場の README](https://github.com/raiki61/works-factory/blob/0a6e0efe0d6b83be9c677ec20b437d4c544f2e54/README.md) の `WORKS_FACTORY_KEYCHAIN_ITEM` と `WORKS_FACTORY_OAUTH_TOKEN_COMMAND` の項目（入れた PR は [raiki61/works-factory#1044](https://github.com/raiki61/works-factory/pull/1044)）。
 
 ## API キーかゲートウェイで動く人
 
@@ -25,7 +37,7 @@
 - 殻が読む設定は、会社が配る設定のファイル（managed settings。macOS は `/Library/Application Support/ClaudeCode/`、Linux と WSL は `/etc/claude-code/` の `managed-settings.json` の後に `managed-settings.d/*.json` を名前順に読み、後に読んだファイルが勝つ。読む権限の無いファイルは Claude Code と同じく飛ばす）が先で、そのどれにも `apiKeyHelper` の欄が無ければ利用者の `settings.json`（`CLAUDE_CONFIG_DIR`、無ければ `~/.claude`）。対象のリポジトリの `.claude/settings.json` は読まない。
 - 殻は起動ごとに 1 回、Archon を起こす直前にそのコマンドを利用者の HOME・XDG・`CLAUDE_CONFIG_DIR` で起こし、出たキーを `ANTHROPIC_API_KEY` として中の AI の役に渡す。キーは表示も保存もしない。コマンドの待ちに期限は無い（止めるのは Ctrl-C）。コマンドの標準エラーは端末に流れる。
 - `apiKeyHelper` が在る時は、保存済みの Claude Code のログインへ落ちない。コマンドが失敗した時・設定のファイルが JSON として壊れている時・`apiKeyHelper` の値が文字列でない時は、それを名指して止まる。
-- 環境に置いた `ANTHROPIC_API_KEY`・`ANTHROPIC_AUTH_TOKEN`・Bedrock か Vertex の設定、`WORKS_FACTORY_KEYCHAIN_ITEM`、`CLAUDE_KEYCHAIN_SERVICE` は `apiKeyHelper` より先に使われる（環境の `CLAUDE_CODE_OAUTH_TOKEN` だけは `apiKeyHelper` より後）。
+- 環境に置いた `ANTHROPIC_API_KEY`・`ANTHROPIC_AUTH_TOKEN`・Bedrock か Vertex の設定、`WORKS_FACTORY_KEYCHAIN_ITEM`、`CLAUDE_KEYCHAIN_SERVICE` は `apiKeyHelper` より先に使われる（環境の `CLAUDE_CODE_OAUTH_TOKEN` と `WORKS_FACTORY_OAUTH_TOKEN_COMMAND` は `apiKeyHelper` より後で、保存済みのログインより前）。
 - 会社の設定を remote（claude.ai の server-managed settings）か MDM（構成プロファイル・レジストリ）で配っている機械では、殻はそれを読まない。そういう機械の Claude Code は会社の設定のファイルの `apiKeyHelper` を使わないのに、殻はファイルの物を使うので、普段と違うキーで工場が動きうる。その時は `ANTHROPIC_API_KEY` を環境に置いて起こす。
 - キーは起動の時に 1 回だけ取り、run の間ずっと同じ値を使う（Claude Code 自身は 5 分ごとと 401/403 の時に起こし直すが、殻はしない）。期限の短いキーを出すコマンドだと、長い run の途中で認証が切れうる。その時は長く使えるキーを `ANTHROPIC_API_KEY` に置いて起こす。
 
@@ -39,7 +51,7 @@
 
 ## 残ったログイン
 
-- 既定の設定の置き場（`~/.claude`）に Claude のログインが残っていると（macOS は keychain、Linux は `.credentials.json`）、キーも `apiKeyHelper` も `WORKS_FACTORY_KEYCHAIN_ITEM` も `CLAUDE_CODE_OAUTH_TOKEN` も無い時は止まらずにそのログインのアカウントで起こす。殻の出す「認証は … から拾う」の行で確かめる。
+- 既定の設定の置き場（`~/.claude`）に Claude のログインが残っていると（macOS は keychain、Linux は `.credentials.json`）、キーも `apiKeyHelper` も `WORKS_FACTORY_KEYCHAIN_ITEM` も `CLAUDE_CODE_OAUTH_TOKEN` も `WORKS_FACTORY_OAUTH_TOKEN_COMMAND` も無い時は止まらずにそのログインのアカウントで起こす。殻の出す「認証は … から拾う」の行で確かめる。
 
 ## 会話のキャッシュの寿命を変える時
 

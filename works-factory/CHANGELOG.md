@@ -6,6 +6,14 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+### Changed
+
+- 工場（ワークフローの本体の別リポジトリ raiki61/works-factory。殻 `bin/works-factory` が手元に clone して回す）の固定 commit（殻が clone する commit を書いた `works-factory/PIN`）を 7bbe3e43 から 0a6e0efe に上げた。取り込んだ PR は raiki61/works-factory#1044。差分（前の固定 commit から今の固定 commit まで）は https://github.com/raiki61/works-factory/compare/7bbe3e43a258...0a6e0efe0d6b 。
+  - 利用者に効く違い:
+    - Linux や Claude Code の会話の中（裏の会話 `claude --bg` も）から起動する人向けに、トークンを出すコマンドを書く環境変数 `WORKS_FACTORY_OAUTH_TOKEN_COMMAND` が足された。設定の `settings.json` の `env` に 1 度書けば、殻が起動の直前に 1 回だけ利用者の HOME で起こし、出た字を `CLAUDE_CODE_OAUTH_TOKEN` として役に渡す。失敗したら保存済みのログインへ落ちずに止まる。`skills/works-factory/references/auth.md` に「Linux と、Claude Code の会話の中から起動する時」の項目を足した。
+    - `WORKS_FACTORY_KEYCHAIN_ITEM` を macOS 以外で置くと、`security` を起こさずに「keychain は macOS だけ」と言って止まるようになった（前も止まっていたが、訳の読めない字だった）。
+    - 認証が無くて止まる時の 1 行が、訳・この場面の直し方・案内文の順になった。
+
 ## [0.61.0] - 2026-11-11
 
 ### Changed
