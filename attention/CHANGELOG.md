@@ -6,6 +6,10 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Added
+
+- `/my-turn` の木を掘る段を Workflow（裏のエージェントを script が決まった順に回す仕組み）で回す設計案を `docs/my-turn-workflow-design.md` に足した。案だけで、`/my-turn` の動きはまだ変わらない。
+
 ## [0.64.0] - 2026-11-13
 
 ### Changed
