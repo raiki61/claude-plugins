@@ -37,7 +37,7 @@ chat.CONTEXT_PREVIEW 字と置き場のパスだけを入れ、そのファイ�
 読めという 1 行を足す（fit。頭の字は会話に入る。待ち受けが再開させる字〔Stop のフックの差し戻し〕には上限の記述が無いので足さない）。
 
 窓口・部署・部署でない会話のどれにも、ほかの会社のリポジトリのファイルを直に書き換えず --ask でその会社に頼む 1 文（OTHER_REPO）を
-足す（窓口と部署は commands_text の後ろ、部署でない会話は HINT の後ろ）。持ち主に頼まれて他社の本社の作業場に直に書くと、その会社に
+足す（窓口と部署は役の文〔text_for〕の末尾、部署でない会話は HINT の後ろ）。持ち主に頼まれて他社の本社の作業場に直に書くと、その会社に
 commit していない変更が残り、その会社の会話の納品や main に入れるのが止まった（2026-11-16 の my_notes。頼み 9ba857）。
 
 会社（会社の形の在るリポジトリ。読み方は上と同じ tree.read_info）の場所で、役の本文を足さない会話（部署の属性の無い作業場の会話、
@@ -87,7 +87,7 @@ HINT = ("works-dispatch: ここは会社「{company}」のリポジトリだが�
 # 「日記か my_notes に書いておいて」と頼まれ、my_notes の本社の作業場の日記に直に書いて commit せずに残し、my_notes の司令塔の納品の
 # 検査（本社の作業場に commit していない変更が有ると止める）が約 2 時間止まった（頼み 9ba857）。同じ日の朝の日記は --ask で my_notes に
 # 頼み、my_notes の部署がブランチで書いて main に入れていた（my_notes の 12f33fcd2）
-OTHER_REPO = ("ほかの会社のリポジトリ（この会話の作業場の外に在る、会社の形を持つ clone とその worktree）のファイルは、"
+OTHER_REPO = ("ほかの会社のリポジトリ（会社の形を持つ別のリポジトリの clone とその worktree。この会話の会社の本社と部署の作業場は入らない）のファイルは、"
               "持ち主に書いてと頼まれたときも直に書き換えず、`{run} --ask <会社の名前> --text <頼み>` でその会社に頼む"
               "（その会社の部署がブランチで書いて main に入れる。直に書くと、その会社の本社の作業場に commit していない変更が残り、"
               "その会社の会話の納品や main に入れるのが止まる）。")
@@ -253,6 +253,7 @@ def text_for(cwd, env=os.environ, attrs=None):
     text = role.context(name, shape["roles"].get(name), company, duty, head_office, attrs.get("lifecycle"), shape["shared"])
     if attrs.get("name"):
         text += commands_text(attrs["name"], attrs.get("lifecycle") != gitx.PERSISTENT, desk=head_office)
+    text += "\n\n" + OTHER_REPO.format(run=RUN)   # 名前の無い部署・窓口にも足す
     problems = info.get("problems", []) + shape["problems"]
     if problems:
         text += f"\n（会社の形を読めない所がある: {problems[0]}）"
@@ -279,8 +280,7 @@ def commands_text(dept, ephemeral, desk=False):
         if ephemeral:
             lines.append(f"- 終わりの印（納品して main に入れ終えたら）: {RUN} --done")
     return ("\n\nworks-dispatch のコマンド（この字のまま打つ。打つ前にスキル /works-dispatch:dispatch や別ファイルを読まない。"
-            "断られたら出力の訳どおりに直して打ち直し、それで直せないときと、ほかのコマンドを打つときだけスキルを読む）:\n" + "\n".join(lines)
-            + "\n" + OTHER_REPO.format(run=RUN))
+            "断られたら出力の訳どおりに直して打ち直し、それで直せないときと、ほかのコマンドを打つときだけスキルを読む）:\n" + "\n".join(lines))
 
 
 # 保留にした頼みの行の頭（役の本文の控え〔_digest〕は、ここから後ろを見ない）

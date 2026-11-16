@@ -46,6 +46,9 @@ def write(path, text):
     return str(path)
 
 
+# 役の文の末尾に必ず付く、ほかの会社のリポジトリに直に書かない 1 文（頼み 9ba857）
+OTHER = "\n\n" + role_hook.OTHER_REPO.format(run=role_hook.RUN)
+
 class Shape(unittest.TestCase):
     def setUp(self):
         self.d = scratch()
@@ -435,10 +438,12 @@ class Hook(unittest.TestCase):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)
         self.assertIsNone(role_hook.text_for(self.place, self.env))   # 役の属性が無い
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。")
+        # 名前の無い部署・窓口にも、ほかの会社のリポジトリに直に書かない 1 文を足す（頼み 9ba857）
+        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。" + OTHER)
         self.assertIsNone(role_hook.text_for(self.src, self.env))      # 本社
         provision.mark(self.src, self.src, {"role": "窓口"}, self.g)     # --desk で名付けた本社の窓口は、部署と書かない
-        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
+        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。" + OTHER)
+        self.assertNotIn("{", OTHER)   # 書式の字が漏れない
         self.assertIsNone(role_hook.text_for(scratch(), self.env))   # git でない
 
     def test_a_named_department_gets_the_commands_it_runs_so_it_need_not_read_the_skill(self):
@@ -527,9 +532,9 @@ class Hook(unittest.TestCase):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", 'shared_instructions = "試験は触った所だけ。"\n' + SHAPE)
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         self.assertEqual(role_hook.text_for(self.place, self.env),
-                         "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n試験は触った所だけ。\n結論と原典の一句を返す。")
+                         "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n試験は触った所だけ。\n結論と原典の一句を返す。" + OTHER)
         provision.mark(self.src, self.src, {"role": "窓口"}, self.g)
-        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
+        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。" + OTHER)
 
     def test_role_text_comes_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
         self.g.push_origin("main", {".claude/company.toml": SHAPE}, "company")   # 会社の形はメインブランチに在る
@@ -537,7 +542,7 @@ class Hook(unittest.TestCase):
         self.g.local["old"] = self.g.local["main"]
         self.g.heads[self.src] = "old"   # 元の clone はほかの会話が古いブランチで使っている（会社の形を持たない）
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。")
+        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。" + OTHER)
         # --ask・--deliver の読み方（orders.shape_role）も同じ物を読む
         got, problems = orders.shape_role(self.src, None, "調べ役", self.g)
         self.assertEqual((got["instructions"], problems), ("結論と原典の一句を返す。", []))
@@ -546,9 +551,9 @@ class Hook(unittest.TestCase):
         conf = pathlib.Path(self.env["WORKS_DISPATCH_CONFIG"]).parent
         write(conf / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
         provision.mark(self.place, self.src, {"role": "出荷役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「出荷役」。")
+        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「出荷役」。" + OTHER)
         provision.mark(self.place, self.src, {"role": "無い役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「無い役」。")
+        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「無い役」。" + OTHER)
 
     def test_shape_beside_the_departments_own_config_is_read(self):
         other = pathlib.Path(scratch()) / "mine.toml"
