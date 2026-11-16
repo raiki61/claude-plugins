@@ -15,7 +15,8 @@ works-factory は修正依頼か GitHub issue を受け、検証した変更と�
 
 - macOS・Linux・Windows の WSL2、Python 3.12 以上、git、`bun`（工場の基盤 Archon の起動に使う）、`uv`（工場のノードが台本を走らせるのに使う）、Claude Code の `claude`。
 - WSL2 でない素の Windows（Git Bash・Cygwin・MSYS2 の上も含む。WSL の中の Linux は含まない）では動かない。殻（1. の、このプラグインの `bin/works-factory`）は工場を取ってくるところまで進むが、取ってきた工場の入口（工場の `bin/works-factory`・`bin/apply`）が「works-factory: 素の Windows では動かない（…）」の 1 行を標準エラーに出し、run を起こす前に止まる。訳は 2 つ: 素の Windows では Claude Code の sandbox が効かず、工場が役ごとに決めた書き込みの制限が黙って外れる。Archon も git worktree とシェルの段に WSL2 を要る。WSL2 を入れ（`wsl --install`）、WSL の中の Linux でこのプラグインを使う。
-- 足りない物は、殻（1. の `bin/works-factory`）が入れ方のコマンドを出して止まる。打ってから起動し直す。`uv` だけは殻が確かめず（仕様の表から進める起動、2. の `spec_table`、を除く）、run の最初のノードで落ちるので、先に入れておく。
+- 足りない物は、殻（1. の `bin/works-factory`）が起動の初めに確かめ、入れ方を 1 行ずつ出して止まる。確かめるのは `bun`・`node`（Archon のソースがまだキャッシュに無い時だけ）・`uv`（run を起こすコマンドの時だけ）・`claude`・認証で、どれもソースを取ってくる前・Archon を起こす前に確かめ、落ちた物を全部まとめて出してから止まる。入れてから起動し直す。
+  - 入れてあるのに動かないと出た道具は、多くは版管理の道具（mise・asdf など）の shim（`PATH` に置かれる中継の実行ファイル）が落ちている。その行に本物の実行ファイルのパス・終了コード・標準エラーの最初の数行が出るので、そこに出た直し方に従う。工場は Archon と段を、`HOME` と XDG のフォルダを run 専用のフォルダに向けた環境（以下、隔離した環境）で回し、そこでは shim が設定を見失う。`bun` は殻が `bun` 自身に本物のパスを問い合わせて直に起こし、隔離した環境でも確かめ直すので、ふつうは手当て不要。`uv` は本物のパスを問い合わせられないので、普段は動くのに隔離した環境でだけ動かない時は、殻がそう言って止まる。その時は本物の `uv` の在るフォルダを `PATH` の先頭に置いて起動し直す（全部は取り置いた工場の `README.md` の「Requirements」）。
 - PR を開く run（5. の `deliver=pr`）は `gh` も要る。
 - 認証: 既定は `claude` と `gh` のログインのまま。次の時は [references/auth.md](references/auth.md) を読む: Linux か Claude Code の会話の中（裏の会話も。会話の中の Bash にはログインのトークンが渡らない）から起動する時、keychain・API キー・ゲートウェイ・`apiKeyHelper` で動かす時、認証で止まった時、429 が返る時（`WORKS_FACTORY_CLAUDE_CONCURRENCY` で絞る）、会話のキャッシュの寿命（既定 5 分）を変える時。
 
