@@ -43,7 +43,7 @@ works（Archon の上の pack「darkfactory」）が、Archon v0.11.1 の挙動�
 
 ## 上流に出した物（2026-11-16）
 
-後継の工場（raiki61/works-factory）の名簿 `docs/polyfills.md` と Archon のメモ `docs/design/archon.md` の穴を、上流の `dev`（`40e531e7b`、2026-11-16）の源と照らし、残っていて上流の方針（`.archon/direction.md`）に合う物を、持ち主のアカウントで英語で出した。この一覧の項目と重なる物は次のとおり。ほかの項目は、v0.11.1 の後に直ったかを確かめておらず、出していない。
+後継の工場（raiki61/works-factory）の名簿 `docs/polyfills.md` と Archon のメモ `docs/design/archon.md` の穴を、上流の `dev`（`40e531e7b`、2026-11-16）の源と照らし、残っていて上流の方針（`.archon/direction.md`）に合う物を、持ち主のアカウントで英語で出した。この一覧の項目と重なる物は次のとおり。ほかの項目も同じ日に今の `dev` と照らし直した（下の「洗い直し」）。
 
 - 6 すぐ死ぬ節で run が running のまま固まる: 近い件。上流の #5717 で、持ち主の死んだ `running` の run を `resume` できるようになった。最初の節で死んだ run は再開できず、上流の #5720 が残す。#5720 に、最初の節の書きかけが作業ツリーごと消える実測を足した（https://github.com/coleam00/Archon/issues/5720#issuecomment-6907608812）。
 - 9 輪の中で会話を継げない: 同じ周の中は上流の #4738 で入った。周や run をまたぐ分を、上流の #5711 に足した（https://github.com/coleam00/Archon/issues/5711#issuecomment-6907617447）。
@@ -57,6 +57,19 @@ works（Archon の上の pack「darkfactory」）が、Archon v0.11.1 の挙動�
 - fan_out の子の作業ツリーと枝が残る: https://github.com/coleam00/Archon/issues/5736
 - fan_out の子ごとの結果が run の JSONL の記録に無い: https://github.com/coleam00/Archon/issues/5737
 - 入っていないかもしれないプラグインを節で名指せない: 上流の #5656 に足した（https://github.com/coleam00/Archon/issues/5656#issuecomment-6907619871）。
+
+### 洗い直し（2026-11-16）
+
+残りの項目を上流の `dev`（`40e531e7b`）の源と issue と照らし直した。7・25・30 は、出す前に手元で確かめてから出した。
+
+- 新しく出した物:
+  - 7: `network` だけでなく `filesystem` も、Archon の形に無い鍵を落とす（`deniedDomains`・`allowRead` なども）。`442c90f10` の形の定義で読ませて確かめた。https://github.com/coleam00/Archon/issues/5738
+  - 25: `uv run` が対象の `pyproject.toml` のプロジェクトに加わり、作業ツリーに `.venv` と `uv.lock` を書く。節が組むのと同じ命令を最小の対象で打って確かめた。https://github.com/coleam00/Archon/issues/5739
+  - 30: 入口が script の block の中の最初の AI の節が、呼び出した側の会話を継ぐ。`442c90f10` で include を展開し、入口の印が script の節にだけ付くのを確かめた（合言葉の再現は回していない）。https://github.com/coleam00/Archon/issues/5740
+- 直っている物: 2（#3675）・4（#4062）・5 の script の節の孫（#4307・#4151・#4375）・11 の前半（`$NODE_OUTCOMES_FILE`、#5361）・14 の `wait:`・16（#4653）・22 のプラグイン（#3574）・24・26（#3534）・28（#3606）。
+- 上流の issue が同じ中身を持つので足さない物: 13（#5341）・29 の輪の位置（#5709）。
+- 上流が方針で断った物: 11 の後半（#3538・#2320）・12（文書で決めた形）・20（#1192）。
+- 出さない物: 10（今の上流は、起動を断った訳を返す失敗を回し直さない。既定の回し直しは 2 回）・31（Claude と Codex はどちらも出し直さない作りで、10 月の実測は古い SDK の物。今の Claude Code で測り直してから決める）・1・3・8・15・17・18・21・22 の題を作る処理・23・27。
 
 ## 各項目の中身
 
