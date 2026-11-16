@@ -24,6 +24,7 @@
 ## 2. 全体の形
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
 sequenceDiagram
   actor O as 持ち主
   participant C as 会話（/my-turn）
@@ -77,6 +78,7 @@ tests/
 エージェントを立てる前に、読む物を機械が揃える。やり方は世の中のレビューのツールの下ごしらえに倣う。`my-turn-prep.py <PR番号> [--prior <記録>]` が、手元の git から次を作り、path と値を JSON で出す。
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
 flowchart LR
   git[("手元の git")] --> prep["my-turn-prep.py"]
   prior[("前の回の記録")] -.->|2 回目から| prep
@@ -106,6 +108,7 @@ flowchart LR
 どの段も結果を JSON Schema で返す。どの段の指示にも、GitHub へ書き込まない（`gh` は読むだけ）と、作者の返事に書いた理由とこの PR が足した正当化を根拠にしない、を入れる。記録・例外の一覧・コメントの「なぜ」を理由に使う前に、その行を入れた commit を `git blame` か `git log -L` で確かめ、prep の PR の commit に在ればレビューの対象に数える（守ること 3）。手順 4 で控えた正当化（`files.justifications`）は、全部の段に path で渡す。
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
 flowchart TB
   A[/"args: PR・差分の path・前の回の記録"/] --> W1["W1 構造<br/>opus medium"]
   W1 --> W2["W2 一般の構造<br/>遮断の目"] --> W3["W3 比べる<br/>opus medium"]
@@ -135,6 +138,7 @@ flowchart TB
 - **W7 束ねる**（新しい段。今の手順には無い）: 深さごとに全部のノードを待つ。そこで出た子の問いの全部を 1 体に渡し、違う親が出した同じ問いを 1 つの束にさせる。束は次の深さで 1 つのノードになり、親を複数持つ（下の図）。すべての子の問いがどれか 1 つの束にちょうど 1 回入っているかを script のコードが確かめる。畳んだ問いと捨てた問いも、問いの鍵と結果の表（以下 `seen`）に覚え、次の深さで同じ問いを立て直さない。深さの区切りで待つのは W7 だけで、1 つの深さの中のノードは待たずに流す。
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
 flowchart TB
   r1["ルート 1<br/>前提を消す形はあるか"] --> a["子 a<br/>同じ出どころから作れるか"]
   r1 --> m["子 m<br/>正本はどこか<br/>ルート 1 と 2 が同じ問いを出し、W7 が 1 つにした"]
@@ -165,6 +169,7 @@ flowchart TB
 5. このノードの問いと、受け持つ範囲の境（ここで決める事と、子に回す事）
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
 flowchart LR
   subgraph SAME["全部のノードで同じ字: キャッシュを分け合う"]
     R1["1 決まりの文"] --> R2["2 PR の土台<br/>W1・W2 の要約と path"]
@@ -197,6 +202,7 @@ Workflow の resume は使わない。resume は同じ会話の中でしか効�
 - 使ったノードは、報告の「確かめた前提」に「前の回の確かめを使った（何が同じか）」と書く（手順 4）。
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
 flowchart TB
   s{"前の回の記録に同じ問いのノードがあるか"} -->|無い| run["エージェントを立てる"]
   s -->|ある| c1{"読んだファイルの指紋が全部同じか"}

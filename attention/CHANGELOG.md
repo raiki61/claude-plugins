@@ -6,6 +6,10 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Changed
+
+- `/my-turn` の Workflow の設計案（`docs/my-turn-workflow-design.md`）の図を、VS Code のダークテーマの背景で文字と線がはっきり見える配色にした。
+
 ## [0.64.1] - 2026-11-16
 
 ### Added
