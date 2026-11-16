@@ -1,6 +1,6 @@
 # Archon の挙動への回り道
 
-works（Archon の上の pack「darkfactory」）が、Archon v0.11.1 の挙動に合わせて自前で持っている回り道の一覧。項目ごとに、Archon が何をするか・works がどう避けているか・回り道の在りか（ファイル）・いつ外せるかを書く。Archon の開発元へは連絡しない（持ち主の決め 2026-09-28）。挙動が変わるのを知るのは Archon の版を上げる時なので、版を上げる時にこの一覧の「外せる時」を上から確かめる。
+works（Archon の上の pack「darkfactory」）が、Archon v0.11.1 の挙動に合わせて自前で持っている回り道の一覧。項目ごとに、Archon が何をするか・works がどう避けているか・回り道の在りか（ファイル）・いつ外せるかを書く。Archon の開発元へは連絡しない（持ち主の決め 2026-09-28）としていたが、2026-11-16 に持ち主が上流へ出すと決めた（「raiki61 のアカウントで、投稿してあげようかな」「いいよ。英語で投稿して」）。出した物と、出していない物の扱いは下の「上流に出した物」に在る。挙動が変わるのを知るのは Archon の版を上げる時なので、版を上げる時にこの一覧の「外せる時」を上から確かめる。
 
 - 調べた版: Archon v0.11.1（dev の先頭 879c99fe、2026-09-25）。挙動の最終の確認: 2026-10-01（28〜31 は 2026-10-07〜08）。回り道の在りかは 2026-10-09 に今のコードで確かめた。
 - 影響の列: 「今」は今の works で壊れている（「包みなし」は包みを通さない run で）、「余地」は条件がそろうと壊れる、「無し」は works には効かない。
@@ -40,6 +40,23 @@ works（Archon の上の pack「darkfactory」）が、Archon v0.11.1 の挙動�
 | 29 | resume が all_done で受け止めた上流の失敗を回し直し、輪の周の位置を持たない | 余地（回り道あり） | コード |
 | 30 | AI の節が前の AI の節の会話を黙って継ぐ | 余地（試験で縛る） | コード・実測 |
 | 31 | Claude の節の返答を返答の道具に強い、出し直さない | 余地（回り道あり） | コード・実測 |
+
+## 上流に出した物（2026-11-16）
+
+後継の工場（raiki61/works-factory）の名簿 `docs/polyfills.md` と Archon のメモ `docs/design/archon.md` の穴を、上流の `dev`（`40e531e7b`、2026-11-16）の源と照らし、残っていて上流の方針（`.archon/direction.md`）に合う物を、持ち主のアカウントで英語で出した。この一覧の項目と重なる物は次のとおり。ほかの項目は、v0.11.1 の後に直ったかを確かめておらず、出していない。
+
+- 6 すぐ死ぬ節で run が running のまま固まる: 近い件。上流の #5717 で、持ち主の死んだ `running` の run を `resume` できるようになった。最初の節で死んだ run は再開できず、上流の #5720 が残す。#5720 に、最初の節の書きかけが作業ツリーごと消える実測を足した（https://github.com/coleam00/Archon/issues/5720#issuecomment-6907608812）。
+- 9 輪の中で会話を継げない: 同じ周の中は上流の #4738 で入った。周や run をまたぐ分を、上流の #5711 に足した（https://github.com/coleam00/Archon/issues/5711#issuecomment-6907617447）。
+- 19 origin の無い対象で worktree を切れない: 上流の #5667 が同じ件。今の `dev` でも起点の commit を渡して remote が要ることを足した（https://github.com/coleam00/Archon/issues/5667#issuecomment-6907614563）。
+- 5 節の孫のプロセスを止めない: まだ出していない。後継の工場で同じ穴（cancel の後も AI の節の provider のプロセスが残る）を今の版で測り直してから出す。
+
+この一覧に無い穴で出した物（後継の工場の名簿から）:
+
+- include の `with:` の `{from, if_skipped}` が黙って効かない: https://github.com/coleam00/Archon/issues/5734
+- 節の sandbox に run ごとのパスを書けない: https://github.com/coleam00/Archon/issues/5735
+- fan_out の子の作業ツリーと枝が残る: https://github.com/coleam00/Archon/issues/5736
+- fan_out の子ごとの結果が run の JSONL の記録に無い: https://github.com/coleam00/Archon/issues/5737
+- 入っていないかもしれないプラグインを節で名指せない: 上流の #5656 に足した（https://github.com/coleam00/Archon/issues/5656#issuecomment-6907619871）。
 
 ## 各項目の中身
 
