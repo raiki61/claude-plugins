@@ -368,7 +368,7 @@ function buildRoots(structure, compare, smells, smellQs) {
 // ---- tree state ----
 const nodes = []                 // every node, in creation order
 const byId = new Map()
-const seen = new Map()           // question key (a node's key and its wording) -> node id
+const seen = new Map()           // question key (a node's key, its wording, a W7 group's other keys) -> ids of the nodes it names
 let nextChild = 0
 // aliases: more keys that name this node (a W7 group's other keys)
 function newNode({ aliases = [], ...fields }) {
@@ -376,11 +376,18 @@ function newNode({ aliases = [], ...fields }) {
     status: 'pending', result: null, reused: false, note: '', dependsOnUnverified: false, ...fields }
   n.key = n.key ?? keyOf(n.question)
   nodes.push(n); byId.set(n.id, n)
-  alias([n.key, keyOf(n.question), ...aliases], n.id)   // W7 may give a short canonical key: the wording finds the node too
+  alias([n.key, keyOf(n.question), ...aliases], [n.id])   // W7 may give a short canonical key: the wording finds the node too
   return n
 }
-// the first node a key or wording names keeps it (of two roots asking the same, the earlier root)
-function alias(keys, id) { for (const k of keys) if (!seen.has(k)) seen.set(k, id) }
+// a key names every node it was given to (two roots asking the same, or a group that hit two nodes): a later
+// question that uses it joins each of them outside its own line
+function alias(keys, ids) {
+  for (const k of keys) {
+    if (!seen.has(k)) seen.set(k, new Set())
+    ids.forEach(id => seen.get(k).add(id))
+  }
+}
+const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k) ?? [])]))]
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
 // the parents that rest on n: its parents and the parents whose child question W7 folded into it (alsoFrom)
@@ -472,8 +479,8 @@ ${n.question}`
 
 // ---- W7 merge the same questions (section 3) ----
 const W7_PROMPT = (items) => {
-  // a short canonical key is listed with its wording as a second key, so W7 can match a new question to either
-  const known = nodes.slice(0, 400).flatMap(n => (n.key === keyOf(n.question) ? [n.key] : [n.key, line1(n.question)]))
+  // every key that matching uses (a short canonical key, the wording, a group's other keys), the newest 400
+  const known = [...seen.keys()].slice(-400)
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
@@ -528,7 +535,7 @@ function groupClusters(clusters, dropped) {
     const g = hit[0] ?? { order: groups.length, keys: new Set(), question, members: [] }
     if (!hit.length) groups.push(g)
     for (const o of hit.slice(1)) { keys = [...keys, ...o.keys]; g.members.push(...o.members); o.merged = true }
-    for (const k of keys) { g.keys.add(k); groupOf.set(k, g) }
+    for (const k of keys.filter(Boolean)) { g.keys.add(k); groupOf.set(k, g) }   // a key of punctuation only ('?') joins nothing
     g.members.push(...members)
   }
   for (const c of clusters) join([c.key, keyOf(c.question)], c.question, c.members)
@@ -544,13 +551,12 @@ function groupClusters(clusters, dropped) {
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   const level = []
   const place = ({ keys, question, members }) => {
-    const ids = [...new Set(keys.map(k => seen.get(k)).filter(Boolean))]
+    const ids = idsOf(keys)
     const parents = [...new Set(members.map(m => m.parent).filter(Boolean))]
     if (ids.length) {
       // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through
       // alsoFrom. Its parent's answer then rests on a question still open above it. Of two nodes, each parent
       // joins every one outside its own line, so a later change in either reaches it
-      let joined = null
       for (const p of parents) {
         const up = lineage(p), free = ids.filter(id => !up.has(id))
         const mine = members.filter(m => m.parent === p)
@@ -560,23 +566,24 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
           markUnverified(p)
           continue
         }
+        let unsure = false
         for (const id of free) {
           const old = byId.get(id)
           if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
-          // the new parent rests on what the old node already rests on (later changes reach it through alsoFrom)
-          if (UNSURE.includes(old.status) || old.dependsOnUnverified) markUnverified(p)
+          unsure ||= UNSURE.includes(old.status) || old.dependsOnUnverified
         }
+        // the new parent rests on what the old nodes already rest on (later changes reach it through alsoFrom)
+        if (unsure) markUnverified(p)
         mine.forEach(m => { m.outcome = 'joined' })
-        joined ??= free[0]
       }
-      alias(keys, joined ?? ids[0])
+      alias(keys, ids)   // all the group's keys name all the nodes it hit; each later parent skips its own line
       members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
       return
     }
     members.forEach(m => { m.outcome = 'dug' })
     const weight = members.map(m => m.weight).sort((a, b) => (WEIGHT[b] ?? 0) - (WEIGHT[a] ?? 0))[0] ?? 'small'
     const ps = parents.map(id => byId.get(id)).filter(Boolean)
-    level.push(newNode({ key: keys[0], aliases: keys, question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
+    level.push(newNode({ key: keys[0], aliases: keys.slice(1), question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
       rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') }))
   }
   for (const g of groupClusters(clusters, dropped)) place(g)
