@@ -374,11 +374,12 @@ function newNode(fields) {
   const n = { id: `N${nodes.length + 1}`, order: nodes.length, parents: [], alsoFrom: [], depth: 0, weight: 'big', where: '',
     status: 'pending', result: null, reused: false, note: '', dependsOnUnverified: false, ...fields }
   n.key = n.key ?? keyOf(n.question)
-  nodes.push(n); byId.set(n.id, n); seen.set(n.key, n.id)
-  // W7 may give a short canonical key: the wording finds the node too
-  if (!seen.has(keyOf(n.question))) seen.set(keyOf(n.question), n.id)
+  nodes.push(n); byId.set(n.id, n)
+  alias([n.key, keyOf(n.question)], n.id)   // W7 may give a short canonical key: the wording finds the node too
   return n
 }
+// the first node a key or wording names keeps it
+function alias(keys, id) { for (const k of keys) if (!seen.has(k)) seen.set(k, id) }
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
 // the parents that rest on n: its parents and the parents whose child question W7 folded into it (alsoFrom)
@@ -491,7 +492,9 @@ function checkClusters(merged, items) {
       if (placed.has(id)) { repairs.clusterDuplicate.push(id); continue }
       placed.add(id); members.push(byChild.get(id))
     }
-    if (members.length) clusters.push({ key: keyOf(c.key || c.question || members[0].question), question: c.question || members[0].question, members })
+    // the prompt shows a short key's wording after " | asks:"; W7 may copy the whole line as the key
+    const key = String(c.key || '').split(' | asks:')[0].trim()
+    if (members.length) clusters.push({ key: keyOf(key || c.question || members[0].question), question: c.question || members[0].question, members })
   }
   const dropped = []
   for (const d of merged.dropped ?? []) {
@@ -536,9 +539,12 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
         const old = byId.get(target)
         if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
         mine.forEach(m => { m.outcome = 'joined' })
-        // the new parent rests on what the old node already rests on (later changes reach it through alsoFrom)
-        if (UNSURE.includes(old.status) || old.dependsOnUnverified) ancestorsUnverified({ parents: [p] })
+        // the new parent rests on what the old node already rests on (later changes reach it through alsoFrom); of
+        // two nodes the group names, an open one counts even when the parent joins the other
+        const open = ids.filter(id => !lineage(p).has(id)).map(id => byId.get(id))
+        if (open.some(o => UNSURE.includes(o.status) || o.dependsOnUnverified)) ancestorsUnverified({ parents: [p] })
       }
+      alias(keys, ids[0])
       members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
       return
     }
@@ -547,7 +553,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     const ps = parents.map(id => byId.get(id)).filter(Boolean)
     const n = newNode({ key: keys[0], question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
       rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') })
-    for (const k of keys) if (!seen.has(k)) seen.set(k, n.id)
+    alias(keys, n.id)
     level.push(n)
   }
   // one group per question in this W7 answer: clusters that share a key or wording, and the questions W7 dropped as
@@ -555,13 +561,16 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   // that matches only a node already in the tree is its own group and folds into it. Other drops are not dug
   const groups = [], groupOf = new Map()
   const join = (keys, question, members) => {
-    const hit = [...new Set(keys.map(k => groupOf.get(k)).filter(Boolean))]
-    const g = hit[0] ?? { keys: [], question, members: [] }
+    // the group W7 listed first survives a merge, so its key and wording are the ones dug
+    const hit = [...new Set(keys.map(k => groupOf.get(k)).filter(Boolean))].sort((a, b) => a.order - b.order)
+    const g = hit[0] ?? { order: groups.length, keys: new Set(), question, members: [] }
     if (!hit.length) groups.push(g)
-    for (const o of hit.slice(1)) { g.keys.push(...o.keys); g.members.push(...o.members); groups.splice(groups.indexOf(o), 1) }
-    g.keys.push(...keys); g.members.push(...members)
-    g.keys = [...new Set(g.keys)]
-    for (const k of g.keys) groupOf.set(k, g)
+    for (const o of hit.slice(1)) {
+      for (const k of o.keys) { g.keys.add(k); groupOf.set(k, g) }
+      g.members.push(...o.members); o.merged = true
+    }
+    for (const k of keys) { g.keys.add(k); groupOf.set(k, g) }
+    g.members.push(...members)
   }
   for (const c of clusters) join([c.key, keyOf(c.question)], c.question, c.members)
   for (const d of dropped) {
@@ -570,7 +579,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     repairs.droppedKnown.push(`${d.member.id}: ${line1(d.member.question)} (${line1(d.why)})`)
     join([k], d.member.question, [d.member])
   }
-  groups.forEach(place)
+  for (const g of groups) if (!g.merged) place({ ...g, keys: [...g.keys] })
   return level
 }
 

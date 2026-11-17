@@ -548,7 +548,8 @@ async function caseRests() {
   const ks = os.nodes.filter(x => x.question === 'K q'), sp = ['P1 q', 'P2 q'].map(q => os.nodes.find(x => x.question === q)?.id)
   check(ks.length === 1 && sp.every(id => ks[0].parents.includes(id)) && ks[0].weight === 'big' && !ks[0].alsoFrom.length,
     `rests(sameKey): 同じ key の 2 つの束の親と重さを 1 つのノードに数えない ${JSON.stringify(ks.map(x => [x.parents, x.alsoFrom, x.weight]))}`)
-  // 2 つの束を橋渡しする束（key が片方、問いの文がもう片方）: 3 つを 1 つのノードにし、どの束の key でも後で当たる
+  // 2 つの束を橋渡しする束（key が片方、問いの文がもう片方）: 3 つを 1 つのノードにし（W7 が先に挙げた束の問いを掘る）、
+  // どの束の key でも後で当たる
   const W6b = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['P1 q', 'P2 q', 'P3 q'])
@@ -560,12 +561,47 @@ async function caseRests() {
     const items = w7Items(call.prompt), q = x => items.find(([, t]) => t === x)?.[0]
     if (!q('x1')) return byText(items)
     return { clusters: [{ key: 'a q', question: 'a q', members: q('x1') }, { key: 'b q', question: 'b q', members: q('x2') },
-      { key: 'a q', question: 'b q', members: q('x3') }], dropped: [] }
+      { key: 'b q', question: 'a q', members: q('x3') }], dropped: [] }
   }
   const { out: ob } = await run(baseArgs(), responder({ W6: W6b, W7: W7b }))
   const ab = ob.nodes.filter(x => ['a q', 'b q'].includes(x.question))
   check(ab.length === 1 && ab[0].parents.length === 3 && ob.counts.repairs.foldIntoOwnLine.length === 1,
     `rests(bridge): 橋渡しの束で 1 つのノードにならない ${JSON.stringify(ab.map(x => [x.question, x.parents]))} ${JSON.stringify(ob.counts.repairs.foldIntoOwnLine)}`)
+  // 組の 1 つの束が木に在るノードに当たり、もう 1 つは新しい key: 両方そのノードに畳み、新しい key も後の深さで当たる
+  const W6e = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['Q known', 'P1 x', 'P2 x', 'P3 x'])
+    if (q === 'P1 x' || q === 'P2 x') return split(id, [`c${q[1]}`])
+    if (q === 'P3 x') return split(id, ['P3 y'])
+    if (q === 'P3 y') return split(id, ['c3'])
+    return leaf(id)
+  }
+  const W7e = call => {
+    const items = w7Items(call.prompt), q = x => items.find(([, t]) => t === x)?.[0]
+    if (q('c1')) return { clusters: [{ key: 'Q known', question: 'Q known', members: q('c1') }, { key: 'new k', question: 'Q known', members: q('c2') }, { key: 'P3 y', question: 'P3 y', members: q('P3 y') }], dropped: [] }
+    // W7 が一覧の行を丸ごと key に写しても当たる
+    if (q('c3')) return { clusters: [{ key: 'new k | asks: Q known', question: 'Third wording', members: q('c3') }], dropped: [] }
+    return byText(items)
+  }
+  const { out: oe } = await run(baseArgs(), responder({ W6: W6e, W7: W7e }))
+  const qk = oe.nodes.filter(x => x.question === 'Q known'), pe = q => oe.nodes.find(x => x.question === q)?.id
+  check(qk.length === 1 && ['P1 x', 'P2 x', 'P3 y'].every(q => qk[0].alsoFrom.includes(pe(q))) && !pe('Third wording'),
+    `rests(existingPlusNew): 木に在るノードに畳んだ組の key が後の深さで当たらない ${JSON.stringify(oe.nodes.map(x => [x.question, x.alsoFrom]))}`)
+  // 組が木の 2 つのノードに当たり、親が畳めない方が確かめていない物: 親はそちらにも乗る
+  const W6u = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['L known', 'U known', 'P x'])
+    if (q === 'U known') return leaf(id, { status: 'unverified' })
+    if (q === 'P x') return split(id, ['c'])
+    return leaf(id)
+  }
+  const W7u = call => {
+    const items = w7Items(call.prompt), c = items.find(([, t]) => t === 'c')?.[0]
+    return c ? { clusters: [{ key: 'L known', question: 'U known', members: c }], dropped: [] } : byText(items)
+  }
+  const { out: ou } = await run(baseArgs(), responder({ W6: W6u, W7: W7u }))
+  const px = ou.nodes.find(x => x.question === 'P x')
+  check(px?.dependsOnUnverified && ou.restsOnUnverified.includes(px.id), `rests(twoNodes): 組が当たった確かめていないノードに、親が乗らない ${px?.status} ${px?.dependsOnUnverified}`)
   // 落とした問いが束に入り、その束が自分の祖先の問い: どちらの件数にも出し、親を確かめていない物にする
   const W6o = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
