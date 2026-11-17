@@ -515,7 +515,7 @@ async function caseRests() {
   const pn = q => of4.nodes.find(x => x.question === q)
   const own4 = of4.counts.repairs.foldIntoOwnLine
   check(pn('P1 x') && pn('P1 x').dependsOnUnverified && pn('P2 x')?.status === 'split' && ['A q', 'B q'].every(q => !pn(q)?.alsoFrom.includes(pn('P1 x').id))
-    && ['A q', 'B q'].every(q => pn(q)?.alsoFrom.includes(pn('P2 x')?.id)) && own4.length === 1 && own4[0].startsWith(`${pn('P1 x').id}:`),
+    && ['A q', 'B q'].every(q => pn(q)?.alsoFrom.includes(pn('P2 x')?.id)) && own4.length === 1 && own4[0].startsWith(`${pn('P1 x').id}:`) && own4[0].endsWith(`(${pn('A q')?.id})`),
     `rests(perParent): 親ごとに畳める方を選ばない ${JSON.stringify(of4.counts.repairs.foldIntoOwnLine)}`)
   // 同じ親の 2 つの束が同じ問いに当たっても、親を alsoFrom に二重に足さない
   const W7d = call => {
@@ -623,15 +623,19 @@ async function caseRests() {
     if (q('d')) return { clusters: [{ key: 'c k', question: 'D other', members: q('d') }], dropped: [] }
     return byText(items)
   }
-  const { out: oj } = await run(baseArgs(), responder({ W6: W6j, W7: W7j }))
+  const { out: oj, calls: callsJ } = await run(baseArgs(), responder({ W6: W6j, W7: W7j }))
   const jn = q => oj.nodes.find(x => x.question === q)
   const ownJ = oj.counts.repairs.foldIntoOwnLine.map(x => x.split(':')[0])
+  // W7 に見せる key の一覧は、新しい問いの筋の key（Q y）を、ほかの枝の古い key（P x）より先に置く
+  const knownD = knownOf(callsJ.find(c => c.label.startsWith('W7') && idOf(w7Items(c.prompt), 'd'))?.prompt ?? '')
+  check(knownD.includes('- q y') && knownD.includes('- p x') && knownD.indexOf('- q y') < knownD.indexOf('- p x'),
+    `rests(knownOrder): W7 の key の一覧で、自分の筋の key が後ろにある ${JSON.stringify(knownD.slice(0, 12))}`)
   check(jn('R x') && ['A q', 'B q'].every(q => jn(q)?.alsoFrom.includes(jn('R x').id)) && !jn('D other')
     && ownJ.length === 2 && ['P x', 'Q y'].every(q => ownJ.includes(jn(q)?.id) && jn(q).dependsOnUnverified),
     `rests(joinedAlias): 組の類の key で自分の筋を見逃した ${JSON.stringify(jn('B q')?.alsoFrom)} ${JSON.stringify(oj.counts.repairs.foldIntoOwnLine)}`)
-  // 組で A q と B q が同じ類になった後、B q の子孫が B q を問い直しても A q を問っても、A q に乗せず、
+  // 組で A q と B q が同じ類になった後、B q の子孫が B q を問い直しても A q を問うても、A q に乗せず、
   // 自分の筋の繰り返しに数える（W7 がどちらの key を書いても同じ答え）。B q の短い key（'b k'）も類に入るので、
-  // A q の子孫（U y）がそれを問っても自分の筋の繰り返し
+  // A q の子孫（U y）がそれを問うても自分の筋の繰り返し
   const W6v = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['A q', 'B q', 'M x'])

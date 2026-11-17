@@ -368,7 +368,7 @@ function buildRoots(structure, compare, smells, smellQs) {
 // ---- tree state ----
 const nodes = []                 // every node, in creation order
 const byId = new Map()
-const seen = new Map()           // question key (a node's key, its wording, a W7 group's other keys) -> ids of the nodes it names
+const seen = new Map()           // question key (a node's key, its wording, a W7 group's other keys) -> its class { order, keys, ids } (see merge)
 let nextChild = 0
 // aliases: more keys that name this node (a W7 group's other keys)
 function newNode({ aliases = [], ...fields }) {
@@ -493,8 +493,9 @@ const W7_PROMPT = (items) => {
   // every key that matching uses (a short canonical key, the wording, a group's other keys), up to 400: first the
   // keys of the new questions' own lines (the ones a child repeats), then the rest
   const up = lineage(...items.map(c => c.parent).filter(Boolean)), keys = [...seen.keys()]
-  const near = k => [...seen.get(k).ids].some(id => up.has(id))
-  const known = [...keys.filter(near), ...keys.filter(k => !near(k))].slice(0, 400)
+  const nearC = new Set([...new Set(seen.values())].filter(c => [...c.ids].some(id => up.has(id))))
+  const near = keys.filter(k => nearC.has(seen.get(k)))
+  const known = [...near, ...keys.filter(k => !nearC.has(seen.get(k)))].slice(0, 400)
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
@@ -569,7 +570,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
       for (const p of parents) {
         const up = lineage(p), mine = members.filter(m => m.parent === p)
         if (ids.some(id => up.has(id))) {
-          repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${ids.join(', ')})`)
+          repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${ids.filter(id => up.has(id)).join(', ')})`)   // the nodes of its line it repeats
           mine.forEach(m => { m.outcome = 'seen' })
           markUnverified(p)
           continue
