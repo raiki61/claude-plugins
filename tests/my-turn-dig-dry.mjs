@@ -358,6 +358,7 @@ async function caseRests() {
     const k = out.nodes.find(n => n.question === 'K mid'), u = out.nodes.find(n => n.question === 'U mid')
     check(k && u && u.alsoFrom.includes(k.id), `rests(${uDirect}): K の問いが U に畳まれない`)
     check(k?.dependsOnUnverified && out.restsOnUnverified.includes(k.id), `rests(${uDirect}): 畳んだ問いの親が確かめていない物に乗らない`)
+    check(k?.status === 'split', `rests(${uDirect}): 既に在るノードに畳まれた子しか持たない split を、掘られていない物にした ${k?.status}`)
   }
   // 分けたのに使える子の問いが 1 つも無い（howParentChanges が空）: 末端でないので反証も通らない。確かめていない物にする
   const W6 = call => {
@@ -395,6 +396,60 @@ async function caseRests() {
     check(n && n.parents.every(id => o.restsOnUnverified.includes(id)), `rests(${name}): その親が確かめていない物に乗らない`)
     check(n && !n.alsoFrom.includes(n.id), `rests(${name}): 自分の問いに自分を畳んだ`)
   }
+  // 子が祖先（親の親）の問いを繰り返す。ほかに掘った子が在れば split のままで、確かめていない物に乗る
+  for (const other of [false, true]) {
+    const W6a = call => {
+      const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+      if (isRoot(q)) return split(id, ['D1 shared'])
+      if (q === 'D1 shared') return split(id, ['E mid'])
+      if (q === 'E mid') return split(id, other ? ['D1 shared', 'F new'] : ['D1 shared'])
+      return leaf(id)
+    }
+    const { out: o } = await run(baseArgs(), responder({ W6: W6a }))
+    const d1 = o.nodes.find(x => x.question === 'D1 shared'), e = o.nodes.find(x => x.question === 'E mid')
+    check(d1 && e && !d1.alsoFrom.includes(e.id), `rests(ancestor ${other}): 祖先の問いに畳んで親子の輪を作った`)
+    check(e?.status === (other ? 'split' : 'unverified') && e?.dependsOnUnverified && o.counts.repairs.foldIntoOwnLine.length === 1,
+      `rests(ancestor ${other}): 祖先の問いを繰り返した子が件数と印に出ない ${e?.status} ${JSON.stringify(o.counts.repairs.foldIntoOwnLine)}`)
+  }
+  // W7 が既にノードの在る問いを落とした・束の key が落とした問いで、問いの文がノードの在る問い: どちらもそのノードに畳む
+  for (const shape of ['dropKnown', 'keyDropped']) {
+    let w7 = 0
+    const W7k = call => {
+      const items = w7Items(call.prompt)
+      if (w7++ === 0) {
+        const r = byText(items.filter(([, q]) => q !== 'X drop'))
+        r.dropped = items.filter(([, q]) => q === 'X drop').map(([id]) => ({ id, why: 'needs no digging' }))
+        return r
+      }
+      if (shape === 'dropKnown') return { clusters: [], dropped: items.map(([id]) => ({ id, why: 'already asked' })) }
+      return { clusters: [{ key: 'X drop', question: 'A known', members: items.map(([id]) => id).join(', ') }], dropped: [] }
+    }
+    const W6k = call => {
+      const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+      if (isRoot(q)) return split(id, ['D1 shared', 'A known', 'X drop'])
+      if (q === 'D1 shared') return split(id, ['A known'])
+      return leaf(id)
+    }
+    const { out: o } = await run(baseArgs(), responder({ W6: W6k, W7: W7k }))
+    const d1 = o.nodes.find(x => x.question === 'D1 shared'), a = o.nodes.find(x => x.question === 'A known')
+    check(d1?.status === 'split' && a?.alsoFrom.includes(d1.id), `rests(${shape}): ノードの在る問いに畳まず、split を掘られていない物にした ${d1?.status}`)
+  }
+  // 同じ親の 2 つの束が同じ問いに当たっても、親を alsoFrom に二重に足さない
+  const W7d = call => {
+    const items = w7Items(call.prompt), twice = items.filter(([, q]) => q.startsWith('TWICE'))
+    const r = byText(items.filter(([, q]) => !q.startsWith('TWICE')))
+    r.clusters.push(...twice.map(([id]) => ({ key: 'TWICE', question: 'TWICE', members: id })))
+    return r
+  }
+  const W6d = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['D1 shared'])
+    if (q === 'D1 shared') return split(id, ['TWICE a', 'TWICE b'])
+    return leaf(id)
+  }
+  const { out: od } = await run(baseArgs(), responder({ W6: W6d, W7: W7d }))
+  const tw = od.nodes.find(x => x.question === 'TWICE')
+  check(tw && !tw.alsoFrom.some(id => tw.parents.includes(id)) && new Set(tw.alsoFrom).size === tw.alsoFrom.length, `rests: 親を alsoFrom に二重に足した ${JSON.stringify(tw && [tw.parents, tw.alsoFrom])}`)
 }
 
 // ---- 2. 子を 2 つずつ返し続け、W8 も抜けを返し続ける ----

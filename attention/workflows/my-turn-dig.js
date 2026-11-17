@@ -225,7 +225,7 @@ let LEAF_COUNT = 0
 let used = 0, depth = 0, round = 0
 const targets = []
 const notSeen = { nullNodes: [], cut: [], extraSmellsCut: [], fixesCut: [], gapsAfterCap: [], afterNullMerge: [] }
-const repairs = { childrenWithoutHow: [], clusterMissing: [], clusterDuplicate: [], clusterUnknown: [] }
+const repairs = { childrenWithoutHow: [], clusterMissing: [], clusterDuplicate: [], clusterUnknown: [], foldIntoOwnLine: [] }
 
 // ---- shared rules for every stage but W2 (section 3) ----
 const prCommits = (P.commits ?? []).map(c => String(c).slice(0, 7))
@@ -522,7 +522,10 @@ function settleSplits(splits, children) {
 }
 // a cluster already in seen is folded into the existing node; others become next-level nodes
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
+  clusters = [...clusters]
   for (const d of dropped) {
+    // a dropped question that a node already answers joins that node (W7 dropped it as "already asked")
+    if (seen.get(keyOf(d.member.question))?.id) { clusters.push({ key: keyOf(d.member.question), question: d.member.question, members: [d.member] }); continue }
     d.member.outcome = 'dropped'
     const q = d.member.question
     if (!seen.has(keyOf(q))) seen.set(keyOf(q), { status: 'dropped', question: q, why: d.why, from: d.member.parent })
@@ -530,12 +533,18 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   const level = []
   for (const c of clusters) {
     const parents = [...new Set(c.members.map(m => m.parent).filter(Boolean))]
-    const hit = seen.get(c.key) ?? seen.get(keyOf(c.question))
+    // a key or wording that has a node wins over one that was only dropped or cut
+    const hits = [seen.get(c.key), seen.get(keyOf(c.question))].filter(Boolean)
+    const hit = hits.find(h => h.id) ?? hits[0]
     if (hit?.id) {
       const old = byId.get(hit.id)
-      // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through alsoFrom
+      // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through
+      // alsoFrom. Its parent's answer then rests on a question still open above it
       const joins = parents.filter(p => !lineage(p).has(hit.id))
-      old.alsoFrom.push(...joins)
+      const loops = parents.filter(p => !joins.includes(p))
+      for (const p of loops) repairs.foldIntoOwnLine.push(`${p}: ${line1(c.question)} (${hit.id})`)
+      if (loops.length) ancestorsUnverified({ parents: loops })
+      old.alsoFrom.push(...joins.filter(p => !old.parents.includes(p) && !old.alsoFrom.includes(p)))
       c.members.forEach(m => { m.outcome = joins.includes(m.parent) ? 'joined' : 'seen' })
       // the new parents rest on what the old node already rests on (later changes reach them through alsoFrom)
       if (UNSURE.includes(old.status) || old.dependsOnUnverified) ancestorsUnverified({ parents: joins })
@@ -868,7 +877,7 @@ function countsOf() {
     allNull: Object.entries(stages).filter(([, e]) => e.started > 0 && e.returned === 0).map(([s]) => s),
     notSeen,                                                 // never went through an agent: null, cut, not dug
     seenUndecided: {                                         // an agent looked and it did not settle
-      // n.status, not n.result.status: a split whose child questions were all unusable is unverified too
+      // n.status, not n.result.status: a split none of whose child questions was dug (settleSplits) is unverified too
       unverifiedNodes: nodes.filter(n => n.result && n.status === 'unverified').map(n => n.question),
       undecidedNodes: nodes.filter(n => n.result && n.result.status === 'undecided').map(n => n.question),
       refuteUnverifiable: targets.filter(t => t.verdict?.verdict === 'unverifiable').map(t => t.id),
