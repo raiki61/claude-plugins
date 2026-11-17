@@ -370,15 +370,16 @@ const nodes = []                 // every node, in creation order
 const byId = new Map()
 const seen = new Map()           // question key (a node's key and its wording) -> node id
 let nextChild = 0
-function newNode(fields) {
+// aliases: more keys that name this node (a W7 group's other keys)
+function newNode({ aliases = [], ...fields }) {
   const n = { id: `N${nodes.length + 1}`, order: nodes.length, parents: [], alsoFrom: [], depth: 0, weight: 'big', where: '',
     status: 'pending', result: null, reused: false, note: '', dependsOnUnverified: false, ...fields }
   n.key = n.key ?? keyOf(n.question)
   nodes.push(n); byId.set(n.id, n)
-  alias([n.key, keyOf(n.question)], n.id)   // W7 may give a short canonical key: the wording finds the node too
+  alias([n.key, keyOf(n.question), ...aliases], n.id)   // W7 may give a short canonical key: the wording finds the node too
   return n
 }
-// the first node a key or wording names keeps it
+// the first node a key or wording names keeps it (of two roots asking the same, the earlier root)
 function alias(keys, id) { for (const k of keys) if (!seen.has(k)) seen.set(k, id) }
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
@@ -394,11 +395,10 @@ function lineage(...ids) {
   }
   return out
 }
-// these nodes and all their ancestors rest on something unverified
+// these nodes and all their ancestors rest on something unverified (for a node's ancestors only: ...upOf(n))
 function markUnverified(...ids) {
   for (const id of lineage(...ids)) byId.get(id).dependsOnUnverified = true
 }
-const ancestorsUnverified = n => markUnverified(...upOf(n))
 // every path from a root to this node's parents (W7 nodes with several parents get one path per parent)
 function pathsTo(n, cap = 12) {
   const out = []
@@ -473,12 +473,12 @@ ${n.question}`
 // ---- W7 merge the same questions (section 3) ----
 const W7_PROMPT = (items) => {
   // a short canonical key is listed with its wording as a second key, so W7 can match a new question to either
-  const known = nodes.flatMap(n => (n.key === keyOf(n.question) ? [n.key] : [n.key, line1(n.question)]))
+  const known = nodes.slice(0, 400).flatMap(n => (n.key === keyOf(n.question) ? [n.key] : [n.key, line1(n.question)]))
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
 Questions already in the tree (keys):
-${bullets(known.slice(0, 400))}
+${bullets(known)}
 
 Group the new questions that ask the same thing (even when worded differently) into clusters. For each cluster give key (a short canonical wording; if it asks the same as a question already in the tree, use that existing key exactly), question (the wording to dig) and members (the ids, comma-separated). Put a question in dropped only when it does not need digging at all, with why. Every new id must appear exactly once, in one cluster or in dropped.`
 }
@@ -514,7 +514,7 @@ function settleSplits(splits, children) {
   const live = new Set(children.filter(c => ['dug', 'joined'].includes(c.outcome)).map(c => c.parent))
   for (const n of splits) {
     if (live.has(n.id)) continue
-    n.status = 'unverified'; n.note = 'split, but no child question was dug'; ancestorsUnverified(n)
+    n.status = 'unverified'; n.note = 'split, but no child question was dug'; markUnverified(...upOf(n))
   }
 }
 // one group per question in this W7 answer: clusters that share a key or wording, and the questions W7 dropped as
@@ -540,7 +540,7 @@ function groupClusters(clusters, dropped) {
   }
   return groups.filter(g => !g.merged).map(g => ({ ...g, keys: [...g.keys] }))
 }
-// a cluster whose key or wording has a node is folded into that node; others become next-level nodes
+// a group whose key or wording has a node is folded into that node; others become next-level nodes
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   const level = []
   const place = ({ keys, question, members }) => {
@@ -549,34 +549,35 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     if (ids.length) {
       // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through
       // alsoFrom. Its parent's answer then rests on a question still open above it. Of two nodes, each parent
-      // takes one it can join
+      // joins every one outside its own line, so a later change in either reaches it
+      let joined = null
       for (const p of parents) {
-        const up = lineage(p), free = ids.filter(id => !up.has(id)), target = free[0]
+        const up = lineage(p), free = ids.filter(id => !up.has(id))
         const mine = members.filter(m => m.parent === p)
-        if (!target) {
+        if (!free.length) {
           repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${ids.join(', ')})`)
           mine.forEach(m => { m.outcome = 'seen' })
           markUnverified(p)
           continue
         }
-        const old = byId.get(target)
-        if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
+        for (const id of free) {
+          const old = byId.get(id)
+          if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
+          // the new parent rests on what the old node already rests on (later changes reach it through alsoFrom)
+          if (UNSURE.includes(old.status) || old.dependsOnUnverified) markUnverified(p)
+        }
         mine.forEach(m => { m.outcome = 'joined' })
-        // the new parent rests on what the old node already rests on (later changes reach it through alsoFrom); of
-        // two nodes the group names, an open one counts even when the parent joins the other
-        if (free.some(id => UNSURE.includes(byId.get(id).status) || byId.get(id).dependsOnUnverified)) markUnverified(p)
+        joined ??= free[0]
       }
-      alias(keys, ids[0])
+      alias(keys, joined ?? ids[0])
       members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
       return
     }
     members.forEach(m => { m.outcome = 'dug' })
     const weight = members.map(m => m.weight).sort((a, b) => (WEIGHT[b] ?? 0) - (WEIGHT[a] ?? 0))[0] ?? 'small'
     const ps = parents.map(id => byId.get(id)).filter(Boolean)
-    const n = newNode({ key: keys[0], question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
-      rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') })
-    alias(keys, n.id)
-    level.push(n)
+    level.push(newNode({ key: keys[0], aliases: keys, question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
+      rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') }))
   }
   for (const g of groupClusters(clusters, dropped)) place(g)
   return level
@@ -728,7 +729,7 @@ let dry = 0
 const gapRounds = []
 const digLevel = async (lv) => {
   const share = allot(lv, LIMITS.nodes - used)
-  for (const n of share.cut) { n.status = 'unverified'; n.note = 'not dug: node cap'; notSeen.cut.push(n.question); ancestorsUnverified(n) }
+  for (const n of share.cut) { n.status = 'unverified'; n.note = 'not dug: node cap'; notSeen.cut.push(n.question); markUnverified(...upOf(n)) }
   const answers = await parallel(share.kept.map(n => async () => {
     const old = reuse(n)
     if (old) { ledger.reused('W6', `W6 ${n.id}`); n.reused = true; n.priorVerdict = old.verdict; return old.result }
@@ -738,10 +739,10 @@ const digLevel = async (lv) => {
   const children = []
   share.kept.forEach((n, i) => {
     const r = answers[i]
-    if (!r) { n.status = 'unverified'; n.note = 'not seen: the agent returned nothing'; notSeen.nullNodes.push(n.question); ancestorsUnverified(n); return }
+    if (!r) { n.status = 'unverified'; n.note = 'not seen: the agent returned nothing'; notSeen.nullNodes.push(n.question); markUnverified(...upOf(n)); return }
     n.result = r
     n.status = r.status
-    if (UNSURE.includes(r.status)) ancestorsUnverified(n)
+    if (UNSURE.includes(r.status)) markUnverified(...upOf(n))
     if (r.status !== 'split') return
     for (const c of r.children ?? []) {
       if (blank(c.question)) continue
