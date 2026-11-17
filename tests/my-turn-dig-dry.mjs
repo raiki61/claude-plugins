@@ -269,6 +269,12 @@ async function caseFixed() {
     const { out: o10h, calls: c10h } = await run(evDiff, responder({ W6: tree, W8, W1 }))
     check(of(c10h, 'W6').length === 0 && o10h.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..hhhhhhh.diff:12'))
       && !o10h.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..ppppppp.diff:12')), 'fixed/reuse: 根拠の差分の位置を指し直さない')
+    // 行の無い在り処（差分のファイルだけ）も、checked.files と同じく今の回の 1 本目を指し直す
+    const evBare = baseArgs({ priorRecord: withEv('/rd/bbbbbbb..ppppppp.diff') })
+    evBare.prep = diffArgs.prep
+    const { out: o10l } = await run(evBare, responder({ W6: tree, W8, W1 }))
+    check(o10l.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..hhhhhhh.diff'))
+      && !o10l.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..ppppppp.diff')), 'fixed/reuse: 行の無い根拠の差分を指し直さない')
     // 記録のフォルダの path に $ が在っても（$1・$& は置き換えの印）、そのままの綴りで指し直す
     const dollar = baseArgs({ priorRecord: withEv('/r$1$&d/bbbbbbb..ppppppp.diff:12') })
     dollar.prep = { ...diffArgs.prep, recordDir: '/r$1$&d', diff: '/r$1$&d/bbbbbbb..hhhhhhh.diff' }
@@ -364,6 +370,31 @@ async function caseRests() {
   const d1 = out.nodes.find(n => n.question === 'D1 shared')
   check(d1?.status === 'unverified' && out.counts.seenUndecided.unverifiedNodes.includes('D1 shared'), `rests: 子の無い split が確かめていない物にならない ${d1?.status}`)
   check(d1 && d1.parents.length > 0 && d1.parents.every(id => out.restsOnUnverified.includes(id)), 'rests: 子の無い split の親が確かめていない物に乗らない')
+  // 子が W7 で全部落ちた・前の段で落とした問いと同じ・自分の問いを繰り返した: どれも子の問いが掘られず、問いが開いたまま
+  // droppedBefore: W7 drops 'X drop' at depth 1 only, so at depth 2 it is clustered and hits the dropped entry in seen
+  const dropW7 = once => {
+    let n = 0
+    return call => {
+      const items = w7Items(call.prompt), drop = !once || n++ === 0
+      const r = byText(items.filter(([, q]) => !(drop && q === 'X drop')))
+      r.dropped = items.filter(([, q]) => drop && q === 'X drop').map(([id]) => ({ id, why: 'needs no digging' }))
+      return r
+    }
+  }
+  const shapes = { dropped: ['D1 shared'], droppedBefore: ['D1 shared', 'X drop'], self: ['D1 shared'] }
+  for (const [name, roots] of Object.entries(shapes)) {
+    const W6s = call => {
+      const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+      if (isRoot(q)) return split(id, roots)
+      if (q === 'D1 shared') return split(id, [name === 'self' ? 'D1 shared' : 'X drop'])
+      return leaf(id)
+    }
+    const { out: o } = await run(baseArgs(), responder({ W6: W6s, W7: dropW7(name === 'droppedBefore') }))
+    const n = o.nodes.find(x => x.question === 'D1 shared')
+    check(n?.status === 'unverified' && o.counts.seenUndecided.unverifiedNodes.includes('D1 shared'), `rests(${name}): 子の問いが掘られない split が確かめていない物にならない ${n?.status}`)
+    check(n && n.parents.every(id => o.restsOnUnverified.includes(id)), `rests(${name}): その親が確かめていない物に乗らない`)
+    check(n && !n.alsoFrom.includes(n.id), `rests(${name}): 自分の問いに自分を畳んだ`)
+  }
 }
 
 // ---- 2. 子を 2 つずつ返し続け、W8 も抜けを返し続ける ----

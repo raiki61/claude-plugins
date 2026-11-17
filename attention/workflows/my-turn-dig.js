@@ -501,6 +501,25 @@ function checkClusters(merged, items) {
   }
   return { clusters, dropped }
 }
+// a node and all its ancestors (through parents and alsoFrom)
+function lineage(id) {
+  const out = new Set(), stack = [id]
+  while (stack.length) {
+    const x = stack.pop()
+    if (out.has(x) || !byId.has(x)) continue
+    out.add(x); stack.push(...upOf(byId.get(x)))
+  }
+  return out
+}
+// a split whose question no child carries on (none usable, all dropped, or folded into a question that has no node or
+// into its own line) left its question open: it is not a leaf (W9/W10 skip it), so mark it unverified
+function settleSplits(splits, children) {
+  const live = new Set(children.filter(c => ['dug', 'joined'].includes(c.outcome)).map(c => c.parent))
+  for (const n of splits) {
+    if (live.has(n.id)) continue
+    n.status = 'unverified'; n.note = 'split, but no child question was dug'; ancestorsUnverified(n)
+  }
+}
 // a cluster already in seen is folded into the existing node; others become next-level nodes
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   for (const d of dropped) {
@@ -514,10 +533,12 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     const hit = seen.get(c.key) ?? seen.get(keyOf(c.question))
     if (hit?.id) {
       const old = byId.get(hit.id)
-      old.alsoFrom.push(...parents)
-      c.members.forEach(m => { m.outcome = 'seen' })
+      // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through alsoFrom
+      const joins = parents.filter(p => !lineage(p).has(hit.id))
+      old.alsoFrom.push(...joins)
+      c.members.forEach(m => { m.outcome = joins.includes(m.parent) ? 'joined' : 'seen' })
       // the new parents rest on what the old node already rests on (later changes reach them through alsoFrom)
-      if (UNSURE.includes(old.status) || old.dependsOnUnverified) ancestorsUnverified({ parents })
+      if (UNSURE.includes(old.status) || old.dependsOnUnverified) ancestorsUnverified({ parents: joins })
       continue
     }
     if (hit) { c.members.forEach(m => { m.outcome = 'seen' }); continue }   // dropped or cut before: do not ask again
@@ -593,7 +614,7 @@ function reuse(n) {
   const toNow = f => (isDiff(f) ? P.diff : f)
   const atNow = e => {
     const p = pathOfAt(e?.at)
-    return p && isDiff(p) ? { ...e, at: String(e.at).trim().replace(/^.*?(:\d+(-\d+)?)$/, (_, l) => P.diff + l) } : e
+    return p && isDiff(p) ? { ...e, at: P.diff + (String(e.at).trim().match(/:\d+(-\d+)?$/)?.[0] ?? '') } : e
   }
   // the refuter's verdict carries over only when the files its evidence quotes are the same too
   const vread = (old.verdict?.evidence ?? []).map(e => pathOfAt(e?.at)).filter(Boolean)
@@ -692,15 +713,10 @@ const digLevel = async (lv) => {
     n.status = r.status
     if (UNSURE.includes(r.status)) ancestorsUnverified(n)
     if (r.status !== 'split') return
-    const before = children.length
     for (const c of r.children ?? []) {
       if (blank(c.question)) continue
       if (blank(c.howParentChanges)) { repairs.childrenWithoutHow.push(`${n.id}: ${line1(c.question)}`); continue }
       children.push({ id: `q${++nextChild}`, parent: n.id, question: c.question, weight: c.weight, where: c.where })
-    }
-    // a split with no usable child left its question open: it is not a leaf (W9/W10 skip it), so mark it unverified
-    if (children.length === before) {
-      n.status = 'unverified'; n.note = 'split, but no child question was usable'; ancestorsUnverified(n)
     }
   })
   return children
@@ -708,14 +724,16 @@ const digLevel = async (lv) => {
 dig: while (dry < 2) {                                   // W8 loop-until-dry (section 3)
   while (level.length) {                                 // no depth limit; the node cap stops runaways
     const children = await digLevel(level)
+    const splits = level.filter(n => n.status === 'split')
     depth = Math.max(depth, ...level.map(n => n.depth))
-    if (!children.length) { level = []; break }
+    if (!children.length) { settleSplits(splits, children); level = []; break }
     const merged = await ask('W7', `W7 depth ${level[0].depth + 1}`, W7_PROMPT(children), { schema: CLUSTERS, phase: 'Dig', ...M('W7') })
     if (!merged) {                                       // section 4, layer 1: stop digging, go to W9
       for (const c of children) { notSeen.afterNullMerge.push(c.question); seen.set(keyOf(c.question), { status: 'unverified', question: c.question }); ancestorsUnverified({ parents: [c.parent] }) }
       break dig
     }
     level = clustersToLevel(checkClusters(merged, children), level[0].depth + 1)
+    settleSplits(splits, children)
   }
   round++
   const allQs = nodes.map(n => `- ${n.id} [${n.status}] ${line1(n.question)} => ${line1(n.result?.answer)}`)
