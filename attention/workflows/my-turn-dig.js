@@ -379,11 +379,16 @@ function newNode({ aliases = [], ...fields }) {
   alias([n.key, keyOf(n.question), ...aliases], [n.id])   // W7 may give a short canonical key: the wording finds the node too
   return n
 }
-// a key, once given, keeps the nodes it first named (of two roots asking the same, the earlier root; an existing
-// key never gains nodes). A W7 group's new key names every node the group hit, so a later question that uses it
-// joins each one outside its own line
-function alias(keys, ids) { for (const k of keys) if (!seen.has(k)) seen.set(k, new Set(ids)) }
-const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k) ?? [])]))]
+// a class is the keys W7 said ask the same question (a node's key and wording, a group's keys) and the nodes that
+// ask it. A group that hits two classes merges them, so whichever of the keys W7 writes later, it finds the same nodes
+function alias(keys, ids) {
+  const hit = [...new Set(keys.map(k => seen.get(k)).filter(Boolean))]
+  const c = hit[0] ?? { keys: new Set(), ids: new Set() }
+  for (const o of hit.slice(1)) { o.keys.forEach(k => c.keys.add(k)); o.ids.forEach(id => c.ids.add(id)) }
+  keys.forEach(k => c.keys.add(k)); ids.forEach(id => c.ids.add(id))
+  for (const k of c.keys) seen.set(k, c)
+}
+const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k)?.ids ?? [])]))]
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
 // the parents that rest on n: its parents and the parents whose child question W7 folded into it (alsoFrom)
@@ -475,9 +480,11 @@ ${n.question}`
 
 // ---- W7 merge the same questions (section 3) ----
 const W7_PROMPT = (items) => {
-  // every key that matching uses (a short canonical key, the wording, a group's other keys), the oldest 400:
-  // a question a child could repeat from its own line is always older than the child
-  const known = [...seen.keys()].slice(0, 400)
+  // every key that matching uses (a short canonical key, the wording, a group's other keys), up to 400: first the
+  // keys of the new questions' own lines (the ones a child repeats), then the rest
+  const up = lineage(...items.map(c => c.parent).filter(Boolean)), keys = [...seen.keys()]
+  const near = k => [...seen.get(k).ids].some(id => up.has(id))
+  const known = [...keys.filter(near), ...keys.filter(k => !near(k))].slice(0, 400)
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
@@ -551,20 +558,20 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     const ids = idsOf(keys)
     const parents = [...new Set(members.map(m => m.parent).filter(Boolean))]
     if (ids.length) {
-      // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through
-      // alsoFrom. Its parent's answer then rests on a question still open above it. Of two nodes, each parent
-      // joins every one outside its own line, so a later change in either reaches it
+      // a child that asks the question of a node in its own line (the parent, an ancestor, or a node W7 called the
+      // same as one of them) does not answer it: no loop through alsoFrom. Its parent's answer then rests on a
+      // question still open above it. Otherwise the parent joins every node that asks it, so a later change in any
+      // reaches it
       for (const p of parents) {
-        const up = lineage(p), free = ids.filter(id => !up.has(id))
-        const mine = members.filter(m => m.parent === p)
-        if (!free.length) {
+        const up = lineage(p), mine = members.filter(m => m.parent === p)
+        if (ids.some(id => up.has(id))) {
           repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${ids.join(', ')})`)
           mine.forEach(m => { m.outcome = 'seen' })
           markUnverified(p)
           continue
         }
         let unsure = false
-        for (const id of free) {
+        for (const id of ids) {
           const old = byId.get(id)
           if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
           unsure ||= UNSURE.includes(old.status) || old.dependsOnUnverified
@@ -573,7 +580,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
         if (unsure) markUnverified(p)
         mine.forEach(m => { m.outcome = 'joined' })
       }
-      alias(keys, ids)   // the group's new keys name all the nodes it hit; each later parent skips its own line
+      alias(keys, ids)   // the group's keys and the classes it hit become one class
       members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
       return
     }

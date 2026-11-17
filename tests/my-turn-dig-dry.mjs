@@ -475,10 +475,11 @@ async function caseRests() {
   const { out: of2, calls: calls2 } = await run(baseArgs(), responder({ W6: W6c, W7: foldW7('canon') }))
   const xs = of2.nodes.filter(x => x.question === 'Is X safe'), p1c = of2.nodes.find(x => x.question === 'P1 q')
   // W7 には短い key の問いの文も、別の key として見せる（新しい問いを文で既に在るノードに当てられるように）
-  const shown = calls2.some(c => c.label.startsWith('W7') && c.prompt.includes('- canon k\n- is x safe\n'))
+  const knownOf = prompt => (prompt.split('Questions already in the tree (keys):\n')[1] ?? '').split('\n\n')[0].split('\n')
+  const shown = calls2.some(c => c.label.startsWith('W7') && ['- canon k', '- is x safe'].every(k => knownOf(c.prompt).includes(k)))
   check(shown && xs.length === 1 && xs[0].key === 'canon k' && xs[0].alsoFrom.includes(p1c?.id) && p1c?.status === 'split',
     `rests(canon): 短い key のノードに問いの文で当たらない ${JSON.stringify(xs.map(x => [x.key, x.alsoFrom]))} ${p1c?.status}`)
-  // key が祖先の問い、問いの文が別のノード: 輪にせず、別のノードに畳む
+  // key が祖先の問い、問いの文が別のノード: W7 は 2 つを同じ問いと言ったので、自分の筋の繰り返しに数え、輪にしない
   const W6y = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['D1 shared', 'Y other'])
@@ -492,9 +493,9 @@ async function caseRests() {
   }
   const { out: of3 } = await run(baseArgs(), responder({ W6: W6y, W7: W7y }))
   const y = of3.nodes.find(x => x.question === 'Y other'), d1y = of3.nodes.find(x => x.question === 'D1 shared')
-  check(y && d1y && y.alsoFrom.includes(d1y.id) && d1y.status === 'split' && !of3.counts.repairs.foldIntoOwnLine.length,
-    `rests(keyAncestor): 祖先の key に当てて、畳める別のノードを見逃した ${d1y?.status} ${JSON.stringify(of3.counts.repairs.foldIntoOwnLine)}`)
-  // key と問いの文が別々のノードに当たる束: 親ごとに、輪にならない方に畳む（P1 x は A q の下なので B q だけへ、
+  check(y && d1y && !y.alsoFrom.includes(d1y.id) && d1y.dependsOnUnverified && of3.counts.repairs.foldIntoOwnLine.length === 1,
+    `rests(keyAncestor): 祖先と同じと言われた問いを、別のノードに乗せた ${d1y?.status} ${JSON.stringify(of3.counts.repairs.foldIntoOwnLine)}`)
+  // key と問いの文が別々のノードに当たる束: 親ごとに決める（P1 x は A q の下なので自分の筋の繰り返し、
   // P2 x は Z q の下なので両方へ）
   const W6p = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
@@ -512,8 +513,9 @@ async function caseRests() {
   }
   const { out: of4 } = await run(baseArgs(), responder({ W6: W6p, W7: W7p }))
   const pn = q => of4.nodes.find(x => x.question === q)
-  check(pn('P1 x')?.status === 'split' && pn('P2 x')?.status === 'split' && pn('B q')?.alsoFrom.includes(pn('P1 x')?.id)
-    && !pn('A q')?.alsoFrom.includes(pn('P1 x')?.id) && ['A q', 'B q'].every(q => pn(q)?.alsoFrom.includes(pn('P2 x')?.id)) && !of4.counts.repairs.foldIntoOwnLine.length,
+  const own4 = of4.counts.repairs.foldIntoOwnLine
+  check(pn('P1 x') && pn('P1 x').dependsOnUnverified && pn('P2 x')?.status === 'split' && ['A q', 'B q'].every(q => !pn(q)?.alsoFrom.includes(pn('P1 x').id))
+    && ['A q', 'B q'].every(q => pn(q)?.alsoFrom.includes(pn('P2 x')?.id)) && own4.length === 1 && own4[0].startsWith(`${pn('P1 x').id}:`),
     `rests(perParent): 親ごとに畳める方を選ばない ${JSON.stringify(of4.counts.repairs.foldIntoOwnLine)}`)
   // 同じ親の 2 つの束が同じ問いに当たっても、親を alsoFrom に二重に足さない
   const W7d = call => {
@@ -601,8 +603,8 @@ async function caseRests() {
   const { out: ou } = await run(baseArgs(), responder({ W6: W6u, W7: W7u }))
   const px = ou.nodes.find(x => x.question === 'P x')
   check(px?.dependsOnUnverified && ou.restsOnUnverified.includes(px.id), `rests(twoNodes): 組が当たった確かめていないノードに、親が乗らない ${px?.status} ${px?.dependsOnUnverified}`)
-  // 組の新しい key は組が当たったノードの全部を指す: 2 つの親がそれぞれ別の筋から乗っても、後で同じ key を問う子孫は
-  // 自分の筋に無い方に乗れる（祖先の方だけを指すと、自分の筋を繰り返したと数えられる）
+  // 組が当たった 2 つのノードと組の key は 1 つの類になる: 外の筋の親（R x）は両方に乗り、A q の下の親（P x）と、
+  // 後で組の新しい key（'c k'）を問う A q の子孫（Q y）は、どちらも自分の筋の繰り返しに数える
   const W6j = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['A q', 'B q', 'M x'])
@@ -623,10 +625,13 @@ async function caseRests() {
   }
   const { out: oj } = await run(baseArgs(), responder({ W6: W6j, W7: W7j }))
   const jn = q => oj.nodes.find(x => x.question === q)
-  check(['P x', 'R x', 'Q y'].every(p => jn('B q')?.alsoFrom.includes(jn(p)?.id)) && !jn('D other') && !oj.counts.repairs.foldIntoOwnLine.length,
-    `rests(joinedAlias): 組の key が祖先のノードだけを指した ${JSON.stringify(jn('B q')?.alsoFrom)} ${JSON.stringify(oj.counts.repairs.foldIntoOwnLine)}`)
-  // 前から在る key は指す先を増やさない: 組が 'b q' で A q にも当たった後で、B q の子孫が B q を問い直せば、
-  // A q に乗せず、自分の筋の繰り返しに数える
+  const ownJ = oj.counts.repairs.foldIntoOwnLine.map(x => x.split(':')[0])
+  check(jn('R x') && ['A q', 'B q'].every(q => jn(q)?.alsoFrom.includes(jn('R x').id)) && !jn('D other')
+    && ownJ.length === 2 && ['P x', 'Q y'].every(q => ownJ.includes(jn(q)?.id) && jn(q).dependsOnUnverified),
+    `rests(joinedAlias): 組の類の key で自分の筋を見逃した ${JSON.stringify(jn('B q')?.alsoFrom)} ${JSON.stringify(oj.counts.repairs.foldIntoOwnLine)}`)
+  // 組で A q と B q が同じ類になった後、B q の子孫が B q を問い直しても A q を問っても、A q に乗せず、
+  // 自分の筋の繰り返しに数える（W7 がどちらの key を書いても同じ答え）。B q の短い key（'b k'）も類に入るので、
+  // A q の子孫（U y）がそれを問っても自分の筋の繰り返し
   const W6v = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['A q', 'B q', 'M x'])
@@ -634,18 +639,24 @@ async function caseRests() {
     if (q === 'R x') return split(id, ['r1'])
     if (q === 'B q') return split(id, ['S x'])
     if (q === 'S x') return split(id, ['T x'])
-    if (q === 'T x') return split(id, ['B q'])
+    if (q === 'T x') return split(id, ['B q', 'A q'])
+    if (q === 'A q') return split(id, ['U x'])
+    if (q === 'U x') return split(id, ['U y'])
+    if (q === 'U y') return split(id, ['U z'])
     return leaf(id)
   }
   const W7v = call => {
-    const items = w7Items(call.prompt), r1 = idOf(items, 'r1')
-    if (!r1) return byText(items)
-    return { clusters: [{ key: 'A q', question: 'B q', members: r1 }, { key: 'T x', question: 'T x', members: idOf(items, 'T x') }], dropped: [] }
+    const items = w7Items(call.prompt), r1 = idOf(items, 'r1'), uz = idOf(items, 'U z'), r = byText(items)
+    if (r1) return { clusters: [{ key: 'A q', question: 'B q', members: r1 }, ...r.clusters.filter(c => c.key !== 'r1')], dropped: [] }
+    r.clusters.forEach(c => { if (c.key === 'B q' && !uz) c.key = 'b k'; if (c.key === 'U z') c.key = 'b k' })
+    return r
   }
   const { out: ov } = await run(baseArgs(), responder({ W6: W6v, W7: W7v }))
   const vn = q => ov.nodes.find(x => x.question === q), ownV = ov.counts.repairs.foldIntoOwnLine
-  check(ownV.length === 1 && ownV[0].startsWith(`${vn('T x')?.id}:`) && !vn('A q')?.alsoFrom.includes(vn('T x')?.id) && vn('T x')?.dependsOnUnverified,
-    `rests(keepKey): 前から在る key が組の後で別のノードも指した ${JSON.stringify(ownV)} ${JSON.stringify(vn('A q')?.alsoFrom)}`)
+  check(vn('R x') && vn('T x') && vn('U y') && vn('B q')?.key === 'b k' && ['A q', 'B q'].every(q => vn(q)?.alsoFrom.includes(vn('R x').id))
+    && ownV.length === 3 && ownV.filter(x => x.startsWith(`${vn('T x').id}:`)).length === 2 && ownV.some(x => x.startsWith(`${vn('U y').id}:`))
+    && !vn('A q').alsoFrom.includes(vn('T x').id) && !vn('B q').alsoFrom.includes(vn('U y').id) && vn('T x').dependsOnUnverified && vn('U y').dependsOnUnverified,
+    `rests(sameClass): 同じ類の問いを問い直した子孫を、別のノードに乗せた ${JSON.stringify(ownV)} ${JSON.stringify(vn('A q')?.alsoFrom)}`)
   // 句読点だけの key（'?'）は key に使わず、問いの文で見分ける: 違う問いが 1 つのノードにまとまらない
   const W6q = call => isRoot(nodeQ(call.prompt)) ? split(nodeId(call.prompt), ['first different', 'second different']) : leaf(nodeId(call.prompt))
   const W7q = call => {
