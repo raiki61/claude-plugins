@@ -394,9 +394,11 @@ function lineage(...ids) {
   }
   return out
 }
-function ancestorsUnverified(n) {
-  for (const id of lineage(...upOf(n))) byId.get(id).dependsOnUnverified = true
+// these nodes and all their ancestors rest on something unverified
+function markUnverified(...ids) {
+  for (const id of lineage(...ids)) byId.get(id).dependsOnUnverified = true
 }
+const ancestorsUnverified = n => markUnverified(...upOf(n))
 // every path from a root to this node's parents (W7 nodes with several parents get one path per parent)
 function pathsTo(n, cap = 12) {
   const out = []
@@ -470,12 +472,12 @@ ${n.question}`
 
 // ---- W7 merge the same questions (section 3) ----
 const W7_PROMPT = (items) => {
-  // a short canonical key shows its wording too, so W7 can match a new question to it
-  const known = nodes.map(n => (n.key === keyOf(n.question) ? n.key : `${n.key} | asks: ${line1(n.question)}`))
+  // a short canonical key is listed with its wording as a second key, so W7 can match a new question to either
+  const known = nodes.flatMap(n => (n.key === keyOf(n.question) ? [n.key] : [n.key, line1(n.question)]))
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
-Questions already in the tree (keys; after " | asks:" is the wording of a short key, not part of the key):
+Questions already in the tree (keys):
 ${bullets(known.slice(0, 400))}
 
 Group the new questions that ask the same thing (even when worded differently) into clusters. For each cluster give key (a short canonical wording; if it asks the same as a question already in the tree, use that existing key exactly), question (the wording to dig) and members (the ids, comma-separated). Put a question in dropped only when it does not need digging at all, with why. Every new id must appear exactly once, in one cluster or in dropped.`
@@ -492,9 +494,7 @@ function checkClusters(merged, items) {
       if (placed.has(id)) { repairs.clusterDuplicate.push(id); continue }
       placed.add(id); members.push(byChild.get(id))
     }
-    // the prompt shows a short key's wording after " | asks:"; W7 may copy the whole line as the key
-    const key = String(c.key || '').split(' | asks:')[0].trim()
-    if (members.length) clusters.push({ key: keyOf(key || c.question || members[0].question), question: c.question || members[0].question, members })
+    if (members.length) clusters.push({ key: keyOf(c.key || c.question || members[0].question), question: c.question || members[0].question, members })
   }
   const dropped = []
   for (const d of merged.dropped ?? []) {
@@ -517,6 +517,29 @@ function settleSplits(splits, children) {
     n.status = 'unverified'; n.note = 'split, but no child question was dug'; ancestorsUnverified(n)
   }
 }
+// one group per question in this W7 answer: clusters that share a key or wording, and the questions W7 dropped as
+// "already asked" that match one, become one group (all their parents and weights count). A dropped question
+// that matches only a node already in the tree is its own group and folds into it. Other drops are not dug
+function groupClusters(clusters, dropped) {
+  const groups = [], groupOf = new Map()
+  const join = (keys, question, members) => {
+    // the group W7 listed first survives a merge, so its key and wording are the ones dug
+    const hit = [...new Set(keys.map(k => groupOf.get(k)).filter(Boolean))].sort((a, b) => a.order - b.order)
+    const g = hit[0] ?? { order: groups.length, keys: new Set(), question, members: [] }
+    if (!hit.length) groups.push(g)
+    for (const o of hit.slice(1)) { keys = [...keys, ...o.keys]; g.members.push(...o.members); o.merged = true }
+    for (const k of keys) { g.keys.add(k); groupOf.set(k, g) }
+    g.members.push(...members)
+  }
+  for (const c of clusters) join([c.key, keyOf(c.question)], c.question, c.members)
+  for (const d of dropped) {
+    const k = keyOf(d.member.question)
+    if (!groupOf.has(k) && !seen.has(k)) { d.member.outcome = 'dropped'; continue }
+    repairs.droppedKnown.push(`${d.member.id}: ${line1(d.member.question)} (${line1(d.why)})`)
+    join([k], d.member.question, [d.member])
+  }
+  return groups.filter(g => !g.merged).map(g => ({ ...g, keys: [...g.keys] }))
+}
 // a cluster whose key or wording has a node is folded into that node; others become next-level nodes
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   const level = []
@@ -528,12 +551,12 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
       // alsoFrom. Its parent's answer then rests on a question still open above it. Of two nodes, each parent
       // takes one it can join
       for (const p of parents) {
-        const target = ids.find(id => !lineage(p).has(id))
+        const up = lineage(p), free = ids.filter(id => !up.has(id)), target = free[0]
         const mine = members.filter(m => m.parent === p)
         if (!target) {
           repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${ids.join(', ')})`)
           mine.forEach(m => { m.outcome = 'seen' })
-          ancestorsUnverified({ parents: [p] })
+          markUnverified(p)
           continue
         }
         const old = byId.get(target)
@@ -541,8 +564,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
         mine.forEach(m => { m.outcome = 'joined' })
         // the new parent rests on what the old node already rests on (later changes reach it through alsoFrom); of
         // two nodes the group names, an open one counts even when the parent joins the other
-        const open = ids.filter(id => !lineage(p).has(id)).map(id => byId.get(id))
-        if (open.some(o => UNSURE.includes(o.status) || o.dependsOnUnverified)) ancestorsUnverified({ parents: [p] })
+        if (free.some(id => UNSURE.includes(byId.get(id).status) || byId.get(id).dependsOnUnverified)) markUnverified(p)
       }
       alias(keys, ids[0])
       members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
@@ -556,30 +578,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     alias(keys, n.id)
     level.push(n)
   }
-  // one group per question in this W7 answer: clusters that share a key or wording, and the questions W7 dropped as
-  // "already asked" that match one, become one group (all their parents and weights count). A dropped question
-  // that matches only a node already in the tree is its own group and folds into it. Other drops are not dug
-  const groups = [], groupOf = new Map()
-  const join = (keys, question, members) => {
-    // the group W7 listed first survives a merge, so its key and wording are the ones dug
-    const hit = [...new Set(keys.map(k => groupOf.get(k)).filter(Boolean))].sort((a, b) => a.order - b.order)
-    const g = hit[0] ?? { order: groups.length, keys: new Set(), question, members: [] }
-    if (!hit.length) groups.push(g)
-    for (const o of hit.slice(1)) {
-      for (const k of o.keys) { g.keys.add(k); groupOf.set(k, g) }
-      g.members.push(...o.members); o.merged = true
-    }
-    for (const k of keys) { g.keys.add(k); groupOf.set(k, g) }
-    g.members.push(...members)
-  }
-  for (const c of clusters) join([c.key, keyOf(c.question)], c.question, c.members)
-  for (const d of dropped) {
-    const k = keyOf(d.member.question)
-    if (!groupOf.has(k) && !seen.has(k)) { d.member.outcome = 'dropped'; continue }
-    repairs.droppedKnown.push(`${d.member.id}: ${line1(d.member.question)} (${line1(d.why)})`)
-    join([k], d.member.question, [d.member])
-  }
-  for (const g of groups) if (!g.merged) place({ ...g, keys: [...g.keys] })
+  for (const g of groupClusters(clusters, dropped)) place(g)
   return level
 }
 
@@ -760,7 +759,7 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
     if (!children.length) { settleSplits(splits, children); level = []; break }
     const merged = await ask('W7', `W7 depth ${level[0].depth + 1}`, W7_PROMPT(children), { schema: CLUSTERS, phase: 'Dig', ...M('W7') })
     if (!merged) {                                       // section 4, layer 1: stop digging, go to W9
-      for (const c of children) { notSeen.afterNullMerge.push(c.question); ancestorsUnverified({ parents: [c.parent] }) }
+      for (const c of children) { notSeen.afterNullMerge.push(c.question); markUnverified(c.parent) }
       break dig
     }
     level = clustersToLevel(checkClusters(merged, children), level[0].depth + 1)

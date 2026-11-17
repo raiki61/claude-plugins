@@ -64,11 +64,12 @@ const nodeId = p => (p.match(/## Your node (N\d+)/) ?? [])[1]
 const nodeQ = p => p.split('hand to children only questions whose answer would change yours):\n')[1] ?? ''
 const leaf = (id, extra = {}) => ({ answer: `ANSWER-${id}`, checked: { files: ['a.py'], commands: [], urls: [] },
   evidence: [{ at: 'a.py:1', quote: 'x' }], parts: [], premises: [`PREMISE-${id}`], status: 'leaf', children: [], ...extra })
-const split = (id, qs) => leaf(id, { status: 'split', evidence: [],
-  children: qs.map(q => ({ question: q, howParentChanges: 'flips it', weight: 'big', where: 'a.py' })) })
+const child = (q, weight = 'big') => ({ question: q, howParentChanges: 'flips it', weight, where: 'a.py' })
+const split = (id, qs, weight) => leaf(id, { status: 'split', evidence: [], children: qs.map(q => child(q, weight)) })
 const byText = items => ({ clusters: Object.values(items.reduce((m, [id, q]) => { (m[q] ??= { key: q, question: q, ids: [] }).ids.push(id); return m }, {}))
   .map(c => ({ key: c.key, question: c.question, members: c.ids.join(', ') })), dropped: [] })
 const w7Items = p => [...p.matchAll(/^- (q\d+): (.*?) \| /gm)].map(m => [m[1], m[2]])
+const idOf = (items, text) => items.find(([, t]) => t === text)?.[0]
 const recordOf = p => JSON.parse(p.slice(p.indexOf('\n\n{') + 2))
 
 // 既定の答え。over[stage] で替える
@@ -444,7 +445,7 @@ async function caseRests() {
   const W6f = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['P1 q', 'P2 q', 'Is X safe', 'Y other'])
-    if (q === 'P1 q') return leaf(id, { status: 'split', evidence: [], children: [{ question: 'SAME q', howParentChanges: 'flips it', weight: 'small', where: 'a.py' }] })
+    if (q === 'P1 q') return split(id, ['SAME q'], 'small')
     if (q === 'P2 q') return split(id, ['SAME q'])
     return leaf(id)
   }
@@ -473,8 +474,8 @@ async function caseRests() {
   }
   const { out: of2, calls: calls2 } = await run(baseArgs(), responder({ W6: W6c, W7: foldW7('canon') }))
   const xs = of2.nodes.filter(x => x.question === 'Is X safe'), p1c = of2.nodes.find(x => x.question === 'P1 q')
-  // W7 には短い key の問いの文も見せる（新しい問いを文で既に在るノードに当てられるように）
-  const shown = calls2.some(c => c.label.startsWith('W7') && c.prompt.includes('- canon k | asks: Is X safe'))
+  // W7 には短い key の問いの文も、別の key として見せる（新しい問いを文で既に在るノードに当てられるように）
+  const shown = calls2.some(c => c.label.startsWith('W7') && c.prompt.includes('- canon k\n- Is X safe\n'))
   check(shown && xs.length === 1 && xs[0].key === 'canon k' && xs[0].alsoFrom.includes(p1c?.id) && p1c?.status === 'split',
     `rests(canon): 短い key のノードに問いの文で当たらない ${JSON.stringify(xs.map(x => [x.key, x.alsoFrom]))} ${p1c?.status}`)
   // key が祖先の問い、問いの文が別のノード: 輪にせず、別のノードに畳む
@@ -531,12 +532,11 @@ async function caseRests() {
   const tw = od.nodes.find(x => x.question === 'TWICE')
   check(tw && !tw.alsoFrom.some(id => tw.parents.includes(id)) && new Set(tw.alsoFrom).size === tw.alsoFrom.length, `rests: 親を alsoFrom に二重に足した ${JSON.stringify(tw && [tw.parents, tw.alsoFrom])}`)
   // 1 回の答えの中で同じ key の束が 2 つ: 1 つのノードにし、どちらの親と重さも数える
-  const child = (q, weight) => ({ question: q, howParentChanges: 'flips it', weight, where: 'a.py' })
   const W6s = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['P1 q', 'P2 q'])
-    if (q === 'P1 q') return leaf(id, { status: 'split', evidence: [], children: [child('K one', 'small')] })
-    if (q === 'P2 q') return leaf(id, { status: 'split', evidence: [], children: [child('K two', 'big')] })
+    if (q === 'P1 q') return split(id, ['K one'], 'small')
+    if (q === 'P2 q') return split(id, ['K two'])
     return leaf(id)
   }
   const W7s = call => {
@@ -554,17 +554,17 @@ async function caseRests() {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['P1 q', 'P2 q', 'P3 q'])
     if (/^P\d q$/.test(q)) return split(id, [`x${q[1]}`])
-    if (q === 'a q') return split(id, ['b q'])
+    if (q === 'a q') return split(id, ['b2 q'])   // the wording of the group the bridge merged in
     return leaf(id)
   }
   const W7b = call => {
-    const items = w7Items(call.prompt), q = x => items.find(([, t]) => t === x)?.[0]
+    const items = w7Items(call.prompt), q = x => idOf(items, x)
     if (!q('x1')) return byText(items)
-    return { clusters: [{ key: 'a q', question: 'a q', members: q('x1') }, { key: 'b q', question: 'b q', members: q('x2') },
+    return { clusters: [{ key: 'a q', question: 'a q', members: q('x1') }, { key: 'b q', question: 'b2 q', members: q('x2') },
       { key: 'b q', question: 'a q', members: q('x3') }], dropped: [] }
   }
   const { out: ob } = await run(baseArgs(), responder({ W6: W6b, W7: W7b }))
-  const ab = ob.nodes.filter(x => ['a q', 'b q'].includes(x.question))
+  const ab = ob.nodes.filter(x => ['a q', 'b q', 'b2 q'].includes(x.question))
   check(ab.length === 1 && ab[0].parents.length === 3 && ob.counts.repairs.foldIntoOwnLine.length === 1,
     `rests(bridge): 橋渡しの束で 1 つのノードにならない ${JSON.stringify(ab.map(x => [x.question, x.parents]))} ${JSON.stringify(ob.counts.repairs.foldIntoOwnLine)}`)
   // 組の 1 つの束が木に在るノードに当たり、もう 1 つは新しい key: 両方そのノードに畳み、新しい key も後の深さで当たる
@@ -577,10 +577,9 @@ async function caseRests() {
     return leaf(id)
   }
   const W7e = call => {
-    const items = w7Items(call.prompt), q = x => items.find(([, t]) => t === x)?.[0]
+    const items = w7Items(call.prompt), q = x => idOf(items, x)
     if (q('c1')) return { clusters: [{ key: 'Q known', question: 'Q known', members: q('c1') }, { key: 'new k', question: 'Q known', members: q('c2') }, { key: 'P3 y', question: 'P3 y', members: q('P3 y') }], dropped: [] }
-    // W7 が一覧の行を丸ごと key に写しても当たる
-    if (q('c3')) return { clusters: [{ key: 'new k | asks: Q known', question: 'Third wording', members: q('c3') }], dropped: [] }
+    if (q('c3')) return { clusters: [{ key: 'new k', question: 'Third wording', members: q('c3') }], dropped: [] }
     return byText(items)
   }
   const { out: oe } = await run(baseArgs(), responder({ W6: W6e, W7: W7e }))
@@ -596,7 +595,7 @@ async function caseRests() {
     return leaf(id)
   }
   const W7u = call => {
-    const items = w7Items(call.prompt), c = items.find(([, t]) => t === 'c')?.[0]
+    const items = w7Items(call.prompt), c = idOf(items, 'c')
     return c ? { clusters: [{ key: 'L known', question: 'U known', members: c }], dropped: [] } : byText(items)
   }
   const { out: ou } = await run(baseArgs(), responder({ W6: W6u, W7: W7u }))
