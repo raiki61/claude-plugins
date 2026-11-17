@@ -368,24 +368,24 @@ function buildRoots(structure, compare, smells, smellQs) {
 // ---- tree state ----
 const nodes = []                 // every node, in creation order
 const byId = new Map()
-const seen = new Map()           // question key -> { id } (a node's key and its wording) or { status: 'dropped' | 'unverified' ... }
+const seen = new Map()           // question key (a node's key and its wording) -> node id
 let nextChild = 0
 function newNode(fields) {
   const n = { id: `N${nodes.length + 1}`, order: nodes.length, parents: [], alsoFrom: [], depth: 0, weight: 'big', where: '',
     status: 'pending', result: null, reused: false, note: '', dependsOnUnverified: false, ...fields }
   n.key = n.key ?? keyOf(n.question)
-  nodes.push(n); byId.set(n.id, n); seen.set(n.key, { id: n.id })
+  nodes.push(n); byId.set(n.id, n); seen.set(n.key, n.id)
   // W7 may give a short canonical key: the wording finds the node too
-  if (!seen.get(keyOf(n.question))?.id) seen.set(keyOf(n.question), { id: n.id })
+  if (!seen.has(keyOf(n.question))) seen.set(keyOf(n.question), n.id)
   return n
 }
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
 // the parents that rest on n: its parents and the parents whose child question W7 folded into it (alsoFrom)
 const upOf = n => [...(n.parents ?? []), ...(n.alsoFrom ?? [])]
-// a node and all its ancestors (through parents and alsoFrom)
-function lineage(id) {
-  const out = new Set(), stack = [id]
+// these nodes and all their ancestors (through parents and alsoFrom)
+function lineage(...ids) {
+  const out = new Set(), stack = [...ids]
   while (stack.length) {
     const x = stack.pop()
     if (out.has(x) || !byId.has(x)) continue
@@ -394,7 +394,7 @@ function lineage(id) {
   return out
 }
 function ancestorsUnverified(n) {
-  for (const p of upOf(n)) for (const id of lineage(p)) byId.get(id).dependsOnUnverified = true
+  for (const id of lineage(...upOf(n))) byId.get(id).dependsOnUnverified = true
 }
 // every path from a root to this node's parents (W7 nodes with several parents get one path per parent)
 function pathsTo(n, cap = 12) {
@@ -469,7 +469,8 @@ ${n.question}`
 
 // ---- W7 merge the same questions (section 3) ----
 const W7_PROMPT = (items) => {
-  const known = nodes.map(n => n.key)
+  // a short canonical key shows its wording too, so W7 can match a new question to it
+  const known = nodes.map(n => (n.key === keyOf(n.question) ? n.key : `${n.key} (${line1(n.question)})`))
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
@@ -517,38 +518,50 @@ function settleSplits(splits, children) {
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   const level = []
   const place = (key, question, members) => {
+    const ids = [...new Set([seen.get(key), seen.get(keyOf(question))].filter(Boolean))]
     const parents = [...new Set(members.map(m => m.parent).filter(Boolean))]
-    const hits = [seen.get(key), seen.get(keyOf(question))].filter(Boolean)
-    const ids = [...new Set(hits.map(h => h.id).filter(Boolean))]
     if (ids.length) {
       // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through
-      // alsoFrom (that ancestor is answered by its own children). Of two nodes, take one it can join
-      const target = ids.find(id => parents.some(p => !lineage(p).has(id))) ?? ids[0]
-      const old = byId.get(target)
-      const joins = parents.filter(p => !lineage(p).has(target))
-      for (const p of parents.filter(p => !joins.includes(p))) repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${target})`)
-      old.alsoFrom.push(...joins.filter(p => !old.parents.includes(p) && !old.alsoFrom.includes(p)))
-      members.forEach(m => { m.outcome = joins.includes(m.parent) ? 'joined' : 'seen' })
-      // the new parents rest on what the old node already rests on (later changes reach them through alsoFrom)
-      if (UNSURE.includes(old.status) || old.dependsOnUnverified) ancestorsUnverified({ parents: joins })
+      // alsoFrom. Its parent's answer then rests on a question still open above it. Of two nodes, each parent
+      // takes one it can join
+      for (const p of parents) {
+        const target = ids.find(id => !lineage(p).has(id))
+        const mine = members.filter(m => m.parent === p)
+        if (!target) {
+          repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${ids.join(', ')})`)
+          mine.forEach(m => { m.outcome = 'seen' })
+          ancestorsUnverified({ parents: [p] })
+          continue
+        }
+        const old = byId.get(target)
+        if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
+        mine.forEach(m => { m.outcome = 'joined' })
+        // the new parent rests on what the old node already rests on (later changes reach it through alsoFrom)
+        if (UNSURE.includes(old.status) || old.dependsOnUnverified) ancestorsUnverified({ parents: [p] })
+      }
+      members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
       return
     }
-    // left unverified when W7 returned nothing: do not ask again. A question only dropped before is dug when W7 asks
-    if (hits.some(h => h.status === 'unverified')) { members.forEach(m => { m.outcome = 'seen' }); return }
     members.forEach(m => { m.outcome = 'dug' })
     const weight = members.map(m => m.weight).sort((a, b) => (WEIGHT[b] ?? 0) - (WEIGHT[a] ?? 0))[0] ?? 'small'
     const ps = parents.map(id => byId.get(id)).filter(Boolean)
     level.push(newNode({ key, question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
       rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') }))
   }
-  // clusters first: a question W7 dropped as "already asked" can then join a node made in this same batch
-  for (const c of clusters) place(c.key, c.question, c.members)
+  // a question W7 dropped as "already asked" joins what asks it: a cluster in this same answer (as a member, so its
+  // parent and weight count) or a node already in the tree. Other drops are not dug
+  const clusterOf = new Map()
+  for (const c of clusters) for (const k of [c.key, keyOf(c.question)]) if (!clusterOf.has(k)) clusterOf.set(k, c)
+  const later = []
   for (const d of dropped) {
-    const q = d.member.question
-    if (seen.get(keyOf(q))?.id) { repairs.droppedKnown.push(`${d.member.id}: ${line1(q)} (${line1(d.why)})`); place(keyOf(q), q, [d.member]); continue }
-    d.member.outcome = 'dropped'
-    if (!seen.has(keyOf(q))) seen.set(keyOf(q), { status: 'dropped', question: q, why: d.why, from: d.member.parent })
+    const k = keyOf(d.member.question), c = clusterOf.get(k)
+    if (!c && !seen.has(k)) { d.member.outcome = 'dropped'; continue }
+    repairs.droppedKnown.push(`${d.member.id}: ${line1(d.member.question)} (${line1(d.why)})`)
+    if (c) c.members = [...c.members, d.member]
+    else later.push(d.member)
   }
+  for (const c of clusters) place(c.key, c.question, c.members)
+  for (const m of later) place(keyOf(m.question), m.question, [m])
   return level
 }
 
@@ -729,7 +742,7 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
     if (!children.length) { settleSplits(splits, children); level = []; break }
     const merged = await ask('W7', `W7 depth ${level[0].depth + 1}`, W7_PROMPT(children), { schema: CLUSTERS, phase: 'Dig', ...M('W7') })
     if (!merged) {                                       // section 4, layer 1: stop digging, go to W9
-      for (const c of children) { notSeen.afterNullMerge.push(c.question); seen.set(keyOf(c.question), { status: 'unverified', question: c.question }); ancestorsUnverified({ parents: [c.parent] }) }
+      for (const c of children) { notSeen.afterNullMerge.push(c.question); ancestorsUnverified({ parents: [c.parent] }) }
       break dig
     }
     level = clustersToLevel(checkClusters(merged, children), level[0].depth + 1)
