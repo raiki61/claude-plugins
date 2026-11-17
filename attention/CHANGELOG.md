@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.64.3] - 2026-11-17
+
 ### Fixed
 
 - 別プロセスの `claude -p` に認証を足す部品（`claude_auth`）が、親が Microsoft Foundry の経路（環境変数 `CLAUDE_CODE_USE_FOUNDRY`）で動いていても「認証が無い」とみなし、Keychain や利用者の窓口の OAuth トークンを子に足していた。子の経路が黙って OAuth に替わっていた。今は Bedrock・Vertex と同じく、旗が立っていれば何も足さずに親の経路を継ぐ（`0`・`false` などの値なら旗が立っていないとみなす）。
