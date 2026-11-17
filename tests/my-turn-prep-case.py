@@ -741,11 +741,13 @@ def case_headless():
         rc, s = run_raw("Failed to authenticate: OAuth session expired")
         check(rc == 1 and s["ok"] is False and s["authFailed"] is True
               and "OAuth session expired" in s["message"], "認証の失敗 %r" % s)
-        # Foundry の経路: 親の環境をそのまま継ぎ、Keychain や OAuth の鍵の段を選ばない
+        # Foundry の経路: 親の環境をそのまま継ぎ、Keychain や OAuth の鍵の段を選ばない（claude_auth が継ぐ経路に数える）
         canned["result"] = "```json\n{\"stopped\": \"W1\"}\n```"
+        saved = {k: env.pop(k) for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN") if k in env}
         env["CLAUDE_CODE_USE_FOUNDRY"] = "1"
         rc, s = run_raw(json.dumps(canned))
         del env["CLAUDE_CODE_USE_FOUNDRY"]
+        env.update(saved)
         check(rc == 0 and s["auth"] == "inherited(CLAUDE_CODE_USE_FOUNDRY)", "Foundry の認証の段 %r" % s)
         # 記録のフォルダの path に規則の字（空白・かっこ）が在る: 書き込みの許可を組めないので起動の前に止まる
         for bad in ("rd x", "rd(1)"):

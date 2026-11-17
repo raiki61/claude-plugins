@@ -619,7 +619,7 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
 - 分けた（`split`）のに使える子の問いが 1 つも無い（`howParentChanges` が空・問いが空）ノードは、確かめていない物（`unverified`）にして親へ伝え、`counts.seenUndecided.unverifiedNodes` にも載せる。末端でないので反証も通らず、問いが開いたまま「答えた」に見えていた。
 - 使い回す末端の判定を持ち越すときも、判定の根拠が差分のファイルを指していれば今の回の 1 本目に指し直す。指し直さないと、次の回にその判定を捨てて反証をやり直していた。
 - 使い回した一般の構造は、それを出した問い（`general.questions`。2 問目の答えなら 2 問とも）と問い直しの印（`askedAgain`）も持ち越す。前は 1 問目だけを書き、報告の「確かめた前提」が、どの問いで出た構造かを取り違えていた。
-- ヘッドレスの形の台本は、親の環境が Foundry の経路（`CLAUDE_CODE_USE_FOUNDRY`）のとき、`claude_auth` の認証の段を通さず親の環境をそのまま継ぐ。`claude_auth` の継ぐ経路の一覧に Foundry が無く、通すと Keychain の鍵を重ねて、子の経路を黙って差し替えるため。`claude_auth`（ルートの `scripts/claude_auth.py` と写し）に Foundry を足す直しは別の頼みに回す。
+- ヘッドレスの形の台本は、親の環境が Foundry の経路（`CLAUDE_CODE_USE_FOUNDRY`）でも、ほかの経路と同じく `claude_auth.auth_env` を通す。`claude_auth` の継ぐ経路の一覧に Foundry が入った（main の 6f407021）ので、旗が立っていれば Keychain の鍵を重ねず親の経路を継ぐ。台本の側に Foundry だけの分岐は持たない。
 - 引用の在り処の `<commit の印>:path:行` の印が commit に解けない（短い印が曖昧・force-push の後に消えた）とき、名前が 16 進の字だけのファイルかもしれないので head の版の path として読み、それでも読めなければ、印が commit に解けないことを訳に書き添える。印の後ろが `path:行` の形でない（`cafebabe:1`）ときは、印が commit に解けても、名前が 16 進の字だけのファイルの行として head の版で読む。
 - 差分のファイルの commit の一覧は `log.showSignature` を切って取る（gpg の検証の行が混ざらない）。
 - 残した限り: 子の会話は設定のファイルを読まない（`--setting-sources ""`）ので、設定のファイルにだけ書いた認証（`apiKeyHelper` など）は子に渡らない。渡るのは環境変数と `CLAUDE_CONFIG_DIR` の下の資格情報だけで、そのときは認証の失敗の形で止まる。

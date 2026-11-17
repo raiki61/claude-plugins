@@ -26,7 +26,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 ROLE_KEYS = ["W1", "W2", "W3", "W4", "W6", "W7", "W8", "W9", "W10answers", "W10fixes", "W11"]
 # アカウントを決める設定のフォルダと、認証の経路（claude_auth が足した物か、親が持っていた物）だけを残す
-KEEP_ENV = {"CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_FOUNDRY",
+KEEP_ENV = {"CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
             # mTLS の代理を通る利用者のクライアント証明書（無いと子が接続で落ちる）
             "CLAUDE_CODE_CLIENT_CERT", "CLAUDE_CODE_CLIENT_KEY", "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
             # Windows で Git Bash が既定の所に無いときの在り処（無いと子が Bash のツールを持てない）
@@ -229,11 +229,7 @@ def main(argv):
         return 0
 
     # 認証は親の環境（窓口・Keychain を読む口を含む）から足し、足した後で上の絞りをかけ直す
-    if os.environ.get("CLAUDE_CODE_USE_FOUNDRY", "") not in claude_auth.OFF:
-        # Foundry の経路は claude_auth の INHERITED に無い。Keychain の鍵を重ねて経路を黙って差し替えない
-        env, auth = dict(os.environ), "inherited(CLAUDE_CODE_USE_FOUNDRY)"
-    else:
-        env, auth = claude_auth.auth_env(os.environ)
+    env, auth = claude_auth.auth_env(os.environ)
     env, _ = child_env(env)
     sys.stderr.write("my-turn-headless: 認証の段 %s\n" % auth)
     if not claude_auth.added(auth):
