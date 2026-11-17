@@ -395,11 +395,11 @@ function merge(map, keys, make, absorb) {
 // a class of seen is the keys W7 said ask the same question (a node's key and wording, a group's keys) and the nodes
 // that ask it. A group that hits two classes merges them, so whichever of the keys W7 writes later, it finds the same nodes
 function alias(keys, ids) {
-  keys = keys.filter(Boolean)
-  const parts = [...new Set(keys.map(k => seen.get(k)).filter(Boolean))].map(c => [...c.ids])   // the classes about to merge
+  const hit = new Set(keys.map(k => seen.get(k)).filter(Boolean))
+  const parts = hit.size > 1 ? [...hit].map(c => [...c.ids]) : []   // the node sets of the classes about to merge
   const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => o.ids.forEach(id => c.ids.add(id)))
   ids.forEach(id => c.ids.add(id))
-  if (parts.length < 2) return
+  if (!parts.length) return
   // each parent met only the nodes of the classes it rested on: it now rests on the other classes' nodes too
   const met = new Map()   // parent -> the nodes it met
   for (const part of parts) for (const p of new Set(part.flatMap(id => upOf(byId.get(id))))) {
