@@ -706,9 +706,9 @@ async function caseRests() {
   }
   const W7late = call => {
     const items = w7Items(call.prompt), q = x => idOf(items, x), r = byText(items)
-    const rest = (...ks) => r.clusters.filter(c => !ks.includes(c.key))
-    if (q('px')) return { clusters: [{ key: 'b k', question: 'X', members: `${q('px')}, ${q('nx')}` }, { key: 'a q', question: 'A q', members: q('kx') }, ...rest('px', 'nx', 'kx')], dropped: [] }
-    if (q('mz')) return { clusters: [{ key: 'a q', question: 'B q', members: q('mz') }, ...rest('mz')], dropped: [] }
+    const others = (...ks) => r.clusters.filter(c => !ks.includes(c.key))
+    if (q('px')) return { clusters: [{ key: 'b k', question: 'X', members: `${q('px')}, ${q('nx')}` }, { key: 'a q', question: 'A q', members: q('kx') }, ...others('px', 'nx', 'kx')], dropped: [] }
+    if (q('mz')) return { clusters: [{ key: 'a q', question: 'B q', members: q('mz') }, ...others('mz')], dropped: [] }
     if (q('lz')) return { clusters: [{ key: 'c q', question: 'B q', members: q('lz') }], dropped: [] }
     r.clusters.forEach(c => { if (c.key === 'B q') c.key = 'b k' })
     return r

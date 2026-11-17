@@ -401,14 +401,15 @@ function alias(keys, ids) {
     parts.push([...o.ids]); o.ids.forEach(id => c.ids.add(id))
   })
   ids.forEach(id => c.ids.add(id))
-  // the parents of each part met only their own part's nodes: they now rest on the other parts' nodes too
-  const all = [...c.ids]
-  for (const part of parts.filter(x => x.length)) {
-    const others = all.filter(id => !part.includes(id)), question = byId.get(part[0]).question
-    for (const p of new Set(part.flatMap(id => upOf(byId.get(id))))) rest(p, all, question, others)
+  // each parent met only the nodes of the parts it rested on: it now rests on the other parts' nodes too
+  const met = new Map()   // parent -> { question, ids: the nodes of the parts it rested on }
+  for (const part of parts) for (const id of part) for (const p of upOf(byId.get(id))) {
+    if (!met.has(p)) met.set(p, { question: byId.get(id).question, ids: new Set() })
+    part.forEach(x => met.get(p).ids.add(x))
   }
+  const all = [...c.ids]
+  for (const [p, m] of met) rest(p, all, m.question, all.filter(id => !m.ids.has(id)))
 }
-const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k)?.ids ?? [])]))]
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
 // the parents that rest on n: its parents and the parents whose child question W7 folded into it (alsoFrom)
@@ -423,7 +424,6 @@ function lineage(...ids) {
   }
   return out
 }
-// these nodes and all their ancestors rest on something unverified (for a node's ancestors only: ...upOf(n))
 // parent p rests on the nodes ids of one class. If one of them is in p's own line (p, or its parents and alsoFrom up to
 // a root), p repeats a question still open above it: no loop through alsoFrom, and p's answer rests on that open
 // question. Otherwise p joins every node, so a later change in any reaches it. Only the repeats of nodes in fresh are
@@ -446,6 +446,7 @@ function rest(p, ids, question, fresh = ids) {
   if (unsure) markUnverified(p)
   return 'joined'
 }
+// these nodes and all their ancestors rest on something unverified (for a node's ancestors only: ...upOf(n))
 function markUnverified(...ids) {
   for (const id of lineage(...ids)) byId.get(id).dependsOnUnverified = true
 }
@@ -526,9 +527,9 @@ const W7_PROMPT = (items) => {
   // keys of the new questions' own lines (the ones a child repeats), then the rest
   const up = lineage(...items.map(c => c.parent).filter(Boolean)), keys = [...seen.keys()]
   const nearC = new Set([...new Set(seen.values())].filter(c => [...c.ids].some(id => up.has(id))))
-  const near = [], rest = []
-  for (const k of keys) (nearC.has(seen.get(k)) ? near : rest).push(k)
-  const known = [...near, ...rest].slice(0, 400)
+  const near = [], far = []
+  for (const k of keys) (nearC.has(seen.get(k)) ? near : far).push(k)
+  const known = [...near, ...far].slice(0, 400)
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
@@ -593,7 +594,7 @@ function groupClusters(clusters, dropped) {
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   const level = []
   const place = ({ keys, question, members }) => {
-    const ids = idsOf(keys)
+    const ids = [...(seen.get(keys[0])?.ids ?? [])]   // the answer's classes are merged: every key of the group finds this one
     const parents = [...new Set(members.map(m => m.parent).filter(Boolean))]
     if (ids.length) {
       for (const p of parents) {
