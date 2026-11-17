@@ -474,7 +474,7 @@ async function caseRests() {
   const { out: of2, calls: calls2 } = await run(baseArgs(), responder({ W6: W6c, W7: foldW7('canon') }))
   const xs = of2.nodes.filter(x => x.question === 'Is X safe'), p1c = of2.nodes.find(x => x.question === 'P1 q')
   // W7 には短い key の問いの文も見せる（新しい問いを文で既に在るノードに当てられるように）
-  const shown = calls2.some(c => c.label.startsWith('W7') && c.prompt.includes('- canon k (Is X safe)'))
+  const shown = calls2.some(c => c.label.startsWith('W7') && c.prompt.includes('- canon k | asks: Is X safe'))
   check(shown && xs.length === 1 && xs[0].key === 'canon k' && xs[0].alsoFrom.includes(p1c?.id) && p1c?.status === 'split',
     `rests(canon): 短い key のノードに問いの文で当たらない ${JSON.stringify(xs.map(x => [x.key, x.alsoFrom]))} ${p1c?.status}`)
   // key が祖先の問い、問いの文が別のノード: 輪にせず、別のノードに畳む
@@ -530,6 +530,60 @@ async function caseRests() {
   const { out: od } = await run(baseArgs(), responder({ W6: W6d, W7: W7d }))
   const tw = od.nodes.find(x => x.question === 'TWICE')
   check(tw && !tw.alsoFrom.some(id => tw.parents.includes(id)) && new Set(tw.alsoFrom).size === tw.alsoFrom.length, `rests: 親を alsoFrom に二重に足した ${JSON.stringify(tw && [tw.parents, tw.alsoFrom])}`)
+  // 1 回の答えの中で同じ key の束が 2 つ: 1 つのノードにし、どちらの親と重さも数える
+  const child = (q, weight) => ({ question: q, howParentChanges: 'flips it', weight, where: 'a.py' })
+  const W6s = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['P1 q', 'P2 q'])
+    if (q === 'P1 q') return leaf(id, { status: 'split', evidence: [], children: [child('K one', 'small')] })
+    if (q === 'P2 q') return leaf(id, { status: 'split', evidence: [], children: [child('K two', 'big')] })
+    return leaf(id)
+  }
+  const W7s = call => {
+    const items = w7Items(call.prompt)
+    if (!items.some(([, q]) => q.startsWith('K '))) return byText(items)
+    return { clusters: items.map(([id]) => ({ key: 'K q', question: 'K q', members: id })), dropped: [] }
+  }
+  const { out: os } = await run(baseArgs(), responder({ W6: W6s, W7: W7s }))
+  const ks = os.nodes.filter(x => x.question === 'K q'), sp = ['P1 q', 'P2 q'].map(q => os.nodes.find(x => x.question === q)?.id)
+  check(ks.length === 1 && sp.every(id => ks[0].parents.includes(id)) && ks[0].weight === 'big' && !ks[0].alsoFrom.length,
+    `rests(sameKey): 同じ key の 2 つの束の親と重さを 1 つのノードに数えない ${JSON.stringify(ks.map(x => [x.parents, x.alsoFrom, x.weight]))}`)
+  // 2 つの束を橋渡しする束（key が片方、問いの文がもう片方）: 3 つを 1 つのノードにし、どの束の key でも後で当たる
+  const W6b = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['P1 q', 'P2 q', 'P3 q'])
+    if (/^P\d q$/.test(q)) return split(id, [`x${q[1]}`])
+    if (q === 'a q') return split(id, ['b q'])
+    return leaf(id)
+  }
+  const W7b = call => {
+    const items = w7Items(call.prompt), q = x => items.find(([, t]) => t === x)?.[0]
+    if (!q('x1')) return byText(items)
+    return { clusters: [{ key: 'a q', question: 'a q', members: q('x1') }, { key: 'b q', question: 'b q', members: q('x2') },
+      { key: 'a q', question: 'b q', members: q('x3') }], dropped: [] }
+  }
+  const { out: ob } = await run(baseArgs(), responder({ W6: W6b, W7: W7b }))
+  const ab = ob.nodes.filter(x => ['a q', 'b q'].includes(x.question))
+  check(ab.length === 1 && ab[0].parents.length === 3 && ob.counts.repairs.foldIntoOwnLine.length === 1,
+    `rests(bridge): 橋渡しの束で 1 つのノードにならない ${JSON.stringify(ab.map(x => [x.question, x.parents]))} ${JSON.stringify(ob.counts.repairs.foldIntoOwnLine)}`)
+  // 落とした問いが束に入り、その束が自分の祖先の問い: どちらの件数にも出し、親を確かめていない物にする
+  const W6o = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['D1 shared'])
+    if (q === 'D1 shared') return split(id, ['E mid'])
+    if (q === 'E mid') return split(id, ['D1 shared', 'D1 shared'])
+    return leaf(id)
+  }
+  let w7o = 0
+  const W7o = call => {
+    const items = w7Items(call.prompt), ds = items.filter(([, q]) => q === 'D1 shared')
+    if (++w7o !== 3) return byText(items)   // the third W7 sees E mid's two children
+    return { clusters: [{ key: 'D1 shared', question: 'D1 shared', members: ds[0][0] }], dropped: [{ id: ds[1][0], why: 'already asked' }] }
+  }
+  const { out: oo } = await run(baseArgs(), responder({ W6: W6o, W7: W7o }))
+  const eo = oo.nodes.find(x => x.question === 'E mid')
+  check(eo?.status === 'unverified' && oo.counts.repairs.foldIntoOwnLine.length === 1 && oo.counts.repairs.droppedKnown.length === 1,
+    `rests(dropOwnLine): 落として祖先の束に入った問いが件数と印に出ない ${eo?.status} ${JSON.stringify(oo.counts.repairs)}`)
 }
 
 // ---- 2. 子を 2 つずつ返し続け、W8 も抜けを返し続ける ----

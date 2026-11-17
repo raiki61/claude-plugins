@@ -470,11 +470,11 @@ ${n.question}`
 // ---- W7 merge the same questions (section 3) ----
 const W7_PROMPT = (items) => {
   // a short canonical key shows its wording too, so W7 can match a new question to it
-  const known = nodes.map(n => (n.key === keyOf(n.question) ? n.key : `${n.key} (${line1(n.question)})`))
+  const known = nodes.map(n => (n.key === keyOf(n.question) ? n.key : `${n.key} | asks: ${line1(n.question)}`))
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
-Questions already in the tree (keys):
+Questions already in the tree (keys; after " | asks:" is the wording of a short key, not part of the key):
 ${bullets(known.slice(0, 400))}
 
 Group the new questions that ask the same thing (even when worded differently) into clusters. For each cluster give key (a short canonical wording; if it asks the same as a question already in the tree, use that existing key exactly), question (the wording to dig) and members (the ids, comma-separated). Put a question in dropped only when it does not need digging at all, with why. Every new id must appear exactly once, in one cluster or in dropped.`
@@ -517,8 +517,8 @@ function settleSplits(splits, children) {
 // a cluster whose key or wording has a node is folded into that node; others become next-level nodes
 function clustersToLevel({ clusters, dropped }, depth, rootClass) {
   const level = []
-  const place = (key, question, members) => {
-    const ids = [...new Set([seen.get(key), seen.get(keyOf(question))].filter(Boolean))]
+  const place = ({ keys, question, members }) => {
+    const ids = [...new Set(keys.map(k => seen.get(k)).filter(Boolean))]
     const parents = [...new Set(members.map(m => m.parent).filter(Boolean))]
     if (ids.length) {
       // a child that asks its own parent's (or an ancestor's) question again does not answer it: no loop through
@@ -545,23 +545,32 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     members.forEach(m => { m.outcome = 'dug' })
     const weight = members.map(m => m.weight).sort((a, b) => (WEIGHT[b] ?? 0) - (WEIGHT[a] ?? 0))[0] ?? 'small'
     const ps = parents.map(id => byId.get(id)).filter(Boolean)
-    level.push(newNode({ key, question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
-      rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') }))
+    const n = newNode({ key: keys[0], question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
+      rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') })
+    for (const k of keys) if (!seen.has(k)) seen.set(k, n.id)
+    level.push(n)
   }
-  // a question W7 dropped as "already asked" joins what asks it: a cluster in this same answer (as a member, so its
-  // parent and weight count) or a node already in the tree. Other drops are not dug
-  const clusterOf = new Map()
-  for (const c of clusters) for (const k of [c.key, keyOf(c.question)]) if (!clusterOf.has(k)) clusterOf.set(k, c)
-  const later = []
+  // one group per question in this W7 answer: clusters that share a key or wording, and the questions W7 dropped as
+  // "already asked" that match one, become one group (all their parents and weights count). A dropped question
+  // that matches only a node already in the tree is its own group and folds into it. Other drops are not dug
+  const groups = [], groupOf = new Map()
+  const join = (keys, question, members) => {
+    const hit = [...new Set(keys.map(k => groupOf.get(k)).filter(Boolean))]
+    const g = hit[0] ?? { keys: [], question, members: [] }
+    if (!hit.length) groups.push(g)
+    for (const o of hit.slice(1)) { g.keys.push(...o.keys); g.members.push(...o.members); groups.splice(groups.indexOf(o), 1) }
+    g.keys.push(...keys); g.members.push(...members)
+    g.keys = [...new Set(g.keys)]
+    for (const k of g.keys) groupOf.set(k, g)
+  }
+  for (const c of clusters) join([c.key, keyOf(c.question)], c.question, c.members)
   for (const d of dropped) {
-    const k = keyOf(d.member.question), c = clusterOf.get(k)
-    if (!c && !seen.has(k)) { d.member.outcome = 'dropped'; continue }
+    const k = keyOf(d.member.question)
+    if (!groupOf.has(k) && !seen.has(k)) { d.member.outcome = 'dropped'; continue }
     repairs.droppedKnown.push(`${d.member.id}: ${line1(d.member.question)} (${line1(d.why)})`)
-    if (c) c.members = [...c.members, d.member]
-    else later.push(d.member)
+    join([k], d.member.question, [d.member])
   }
-  for (const c of clusters) place(c.key, c.question, c.members)
-  for (const m of later) place(keyOf(m.question), m.question, [m])
+  groups.forEach(place)
   return level
 }
 
