@@ -395,20 +395,20 @@ function merge(map, keys, make, absorb) {
 // a class of seen is the keys W7 said ask the same question (a node's key and wording, a group's keys) and the nodes
 // that ask it. A group that hits two classes merges them, so whichever of the keys W7 writes later, it finds the same nodes
 function alias(keys, ids) {
-  const parts = []   // the classes' node sets that become one class here
-  const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => {
-    if (!parts.length) parts.push([...c.ids])
-    parts.push([...o.ids]); o.ids.forEach(id => c.ids.add(id))
-  })
+  keys = keys.filter(Boolean)
+  const parts = [...new Set(keys.map(k => seen.get(k)).filter(Boolean))].map(c => [...c.ids])   // the classes about to merge
+  const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => o.ids.forEach(id => c.ids.add(id)))
   ids.forEach(id => c.ids.add(id))
-  // each parent met only the nodes of the parts it rested on: it now rests on the other parts' nodes too
-  const met = new Map()   // parent -> { question, ids: the nodes of the parts it rested on }
-  for (const part of parts) for (const id of part) for (const p of upOf(byId.get(id))) {
-    if (!met.has(p)) met.set(p, { question: byId.get(id).question, ids: new Set() })
-    part.forEach(x => met.get(p).ids.add(x))
+  if (parts.length < 2) return
+  // each parent met only the nodes of the classes it rested on: it now rests on the other classes' nodes too
+  const met = new Map()   // parent -> the nodes it met
+  for (const part of parts) for (const p of new Set(part.flatMap(id => upOf(byId.get(id))))) {
+    if (!met.has(p)) met.set(p, new Set())
+    part.forEach(x => met.get(p).add(x))
   }
-  const all = [...c.ids]
-  for (const [p, m] of met) rest(p, all, m.question, all.filter(id => !m.ids.has(id)))
+  if (!met.size) return
+  const all = [...c.ids], question = byId.get(all[0]).question
+  for (const [p, mine] of met) rest(p, all, question, all.filter(id => !mine.has(id)))
 }
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
