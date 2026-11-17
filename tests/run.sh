@@ -2461,7 +2461,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=891
+EXPECTED_CHECKS=908
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6373,6 +6373,58 @@ if [ -n "$LEAK_HAD_TMPDIR" ]; then export TMPDIR="$LEAK_OLD_TMPDIR"; else unset 
 expect_output 0 "TMP_CLEAN_OK" \
     "一時の場所の残り: ci-watch と works-factory-pin の場合を回し終えた TMPDIR に、試験も本体も一時の場所を残さない（check が失敗した回も消す）" \
     "$PY_BIN" -c 'import os, sys; left = sorted(os.listdir(sys.argv[1])); print("TMP_CLEAN_OK" if not left else "残った: " + " ".join(left)); sys.exit(1 if left else 0)' "$LEAK_TMP_NATIVE"
+
+scope attention tests/my-turn
+# ---- attention/my-turn: 掘る段の下ごしらえ（my-turn-prep.py）とヘッドレスの起動（my-turn-headless.py） ----
+expect_output 0 "ENV_STOP_OK" \
+    "my-turn-prep: 環境変数 CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL が在れば止まり、--headless なら止まらない" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" env-stop
+expect_output 0 "STOPS_OK" \
+    "my-turn-prep: head の不一致・gh の失敗・fetch の失敗・共通の祖先なし・空の範囲で、それぞれの理由で止まる" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" stops
+expect_output 0 "DIFF_OK" \
+    "my-turn-prep: 差分ファイルの 3 部・lock file の除外・commit 一覧・変えたファイル・記録の置き場を出す" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" diff
+expect_output 0 "RULES_OK" \
+    "my-turn-prep: base に在る CLAUDE.md・REVIEW.md だけを規約に拾い、PR が足した CLAUDE.md は claudeMdChanged に立てる" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" rules
+expect_output 0 "PRIOR_OK" \
+    "my-turn-prep: --prior で 2 つ目の差分・unchanged・前回の head の欠け・指紋の then と now を出す" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" prior
+expect_output 0 "QUOTES_OK" \
+    "my-turn-prep: --quotes が引用の一致・文字違い・行の範囲外・base 側の版・URL の見送りを照合する" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" quotes
+expect_output 0 "HEADLESS_OK" \
+    "my-turn-prep: ヘッドレスの起動: 環境変数の落とし方・引数・役の定義と、偽の claude での実走の要約" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" headless
+expect_output 1 "使い方" \
+    "my-turn-prep-case: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py"
+# ---- attention/my-turn: 掘る段の Workflow（my-turn-dig.js）を、agent() などを偽物に替えて node で空回しする ----
+# 段とノードの立て方・件数・上限での切り方・前の回の使い回し・返す形の検査・今の手順の文の行き先の表を見る（設計の 11）
+DIG_DRY="$ROOT/tests/my-turn-dig-dry.mjs"
+while IFS='|' read -r dig_case dig_desc; do
+    if command -v node >/dev/null 2>&1; then
+        expect_output 0 "$(printf '%s' "$dig_case" | tr '[:lower:]' '[:upper:]')_OK" "my-turn-dig: $dig_desc" node "$DIG_DRY" "$dig_case"
+    else
+        line="  ok   my-turn-dig: $dig_desc$SKIP_MARK node: node が無い（Workflow の script を空回しできない）"
+        echo "$line"; note_skips "$line"; ran=$((ran + 1))
+    fi
+done <<'DIG'
+fixed|段ごとのモデル・遮断の目と役（roles）の引き当て・CLAUDE.md の書き足し・W1 と W11 が返らないときの止め方と材料・伏せた問いでの問い直し・前の回の使い回しの条件が設計のとおりになる
+grow|子の問いが増え続けても、ノードの上限で止め、掘らなかった問いを未確認で返す
+same|違う親が出した同じ問いを 1 つのノードに束ねて親を複数持たせ、束の取りこぼし・二重・知らない問いを件数に出す
+allot|上限で切るとき、親ごとに均等に割り、重さの順に後ろから切る
+skips|null の段とノード・空のフィールド・全部 null の段・見て決まらない物を件数の別々の項目に出し、制御の字を消す
+schema|段ごとの返す形が Workflow の決まり（ルートは object・required は properties の内）を満たす
+map|今の手順 6〜15 の文の全部に移した先が在り、表の元の版が変わっていない
+rests|既に在るノードに畳まれた問いの親と、使える子の無い split とその親を、確かめていない物に乗せる
+DIG
+if command -v node >/dev/null 2>&1; then
+    expect_output 1 "使い方" \
+        "my-turn-dig-dry: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" \
+        node "$DIG_DRY" no-such-case
+fi
 
 scope attention tests/what-am-i-doing tests/whose-turn tests/milestone-map tests/people
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
