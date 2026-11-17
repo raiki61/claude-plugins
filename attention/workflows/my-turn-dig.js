@@ -379,14 +379,10 @@ function newNode({ aliases = [], ...fields }) {
   alias([n.key, keyOf(n.question), ...aliases], [n.id])   // W7 may give a short canonical key: the wording finds the node too
   return n
 }
-// a key names every node it was given to (two roots asking the same, or a group that hit two nodes): a later
-// question that uses it joins each of them outside its own line
-function alias(keys, ids) {
-  for (const k of keys) {
-    if (!seen.has(k)) seen.set(k, new Set())
-    ids.forEach(id => seen.get(k).add(id))
-  }
-}
+// a key, once given, keeps the nodes it first named (of two roots asking the same, the earlier root; an existing
+// key never gains nodes). A W7 group's new key names every node the group hit, so a later question that uses it
+// joins each one outside its own line
+function alias(keys, ids) { for (const k of keys) if (!seen.has(k)) seen.set(k, new Set(ids)) }
 const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k) ?? [])]))]
 const rootIdx = n => n.rootIdx ?? 0
 const UNSURE = ['unverified', 'undecided']
@@ -479,8 +475,9 @@ ${n.question}`
 
 // ---- W7 merge the same questions (section 3) ----
 const W7_PROMPT = (items) => {
-  // every key that matching uses (a short canonical key, the wording, a group's other keys), the newest 400
-  const known = [...seen.keys()].slice(-400)
+  // every key that matching uses (a short canonical key, the wording, a group's other keys), the oldest 400:
+  // a question a child could repeat from its own line is always older than the child
+  const known = [...seen.keys()].slice(0, 400)
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
@@ -576,7 +573,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
         if (unsure) markUnverified(p)
         mine.forEach(m => { m.outcome = 'joined' })
       }
-      alias(keys, ids)   // all the group's keys name all the nodes it hit; each later parent skips its own line
+      alias(keys, ids)   // the group's new keys name all the nodes it hit; each later parent skips its own line
       members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
       return
     }
