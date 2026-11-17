@@ -395,8 +395,15 @@ function merge(map, keys, make, absorb) {
 // a class of seen is the keys W7 said ask the same question (a node's key and wording, a group's keys) and the nodes
 // that ask it. A group that hits two classes merges them, so whichever of the keys W7 writes later, it finds the same nodes
 function alias(keys, ids) {
-  const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => o.ids.forEach(id => c.ids.add(id)))
+  let merged = false
+  const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => { o.ids.forEach(id => c.ids.add(id)); merged = true })
   ids.forEach(id => c.ids.add(id))
+  // a parent that rests on one node of the class while another is in its own line now repeats its own line (it
+  // joined before the classes merged): mark it as the own-line rule would
+  if (merged) for (const id of c.ids) for (const p of upOf(byId.get(id))) {
+    const up = lineage(p)
+    if ([...c.ids].some(x => up.has(x))) markUnverified(p)
+  }
 }
 const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k)?.ids ?? [])]))]
 const rootIdx = n => n.rootIdx ?? 0
@@ -494,8 +501,9 @@ const W7_PROMPT = (items) => {
   // keys of the new questions' own lines (the ones a child repeats), then the rest
   const up = lineage(...items.map(c => c.parent).filter(Boolean)), keys = [...seen.keys()]
   const nearC = new Set([...new Set(seen.values())].filter(c => [...c.ids].some(id => up.has(id))))
-  const near = keys.filter(k => nearC.has(seen.get(k)))
-  const known = [...near, ...keys.filter(k => !nearC.has(seen.get(k)))].slice(0, 400)
+  const near = [], rest = []
+  for (const k of keys) (nearC.has(seen.get(k)) ? near : rest).push(k)
+  const known = [...near, ...rest].slice(0, 400)
   return `New questions (id: question | where):
 ${items.map(c => `- ${c.id}: ${line1(c.question)} | ${c.where || '-'}`).join('\n')}
 
@@ -595,7 +603,10 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     level.push(newNode({ key: keys[0], aliases: keys.slice(1), question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
       rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') }))
   }
-  for (const g of groupClusters(clusters, dropped)) place(g)
+  // merge the classes the whole answer hits before placing any group, so the order W7 listed them does not matter
+  const groups = groupClusters(clusters, dropped)
+  groups.forEach(g => alias(g.keys, []))
+  groups.forEach(place)
   return level
 }
 

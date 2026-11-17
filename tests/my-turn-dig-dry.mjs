@@ -661,6 +661,51 @@ async function caseRests() {
     && ownV.length === 3 && ownV.filter(x => x.startsWith(`${vn('T x').id}:`)).length === 2 && ownV.some(x => x.startsWith(`${vn('U y').id}:`))
     && !vn('A q').alsoFrom.includes(vn('T x').id) && !vn('B q').alsoFrom.includes(vn('U y').id) && vn('T x').dependsOnUnverified && vn('U y').dependsOnUnverified,
     `rests(sameClass): 同じ類の問いを問い直した子孫を、別のノードに乗せた ${JSON.stringify(ownV)} ${JSON.stringify(vn('A q')?.alsoFrom)}`)
+  // 1 回の W7 の答えが A q と B q を同じ類にするとき、答えの束の並びに関わらず、A q の下の親（P）が B q の短い key
+  // （'b k'）を問うのは自分の筋の繰り返し（並びが先の束を、類を合わせる前に B q に乗せない）
+  const W6ord = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['A q', 'B q', 'M x'])
+    if (q === 'A q') return split(id, ['P'])
+    if (q === 'M x') return split(id, ['Mm'])
+    if (q === 'P') return split(id, ['px'])
+    if (q === 'Mm') return split(id, ['mx'])
+    return leaf(id)
+  }
+  const W7ord = call => {
+    const items = w7Items(call.prompt), q = x => idOf(items, x), r = byText(items)
+    if (q('px')) return { clusters: [{ key: 'b k', question: 'X', members: q('px') }, { key: 'a q', question: 'B q', members: q('mx') }], dropped: [] }
+    r.clusters.forEach(c => { if (c.key === 'B q') c.key = 'b k' })
+    return r
+  }
+  const { out: oOrd } = await run(baseArgs(), responder({ W6: W6ord, W7: W7ord }))
+  const ordN = q => oOrd.nodes.find(x => x.question === q), ownOrd = oOrd.counts.repairs.foldIntoOwnLine
+  check(ordN('P') && ordN('Mm') && ordN('B q')?.key === 'b k' && !ordN('B q').alsoFrom.includes(ordN('P').id) && ownOrd.some(x => x.startsWith(`${ordN('P').id}:`))
+    && ordN('P').dependsOnUnverified && ['A q', 'B q'].every(q => ordN(q)?.alsoFrom.includes(ordN('Mm').id)),
+    `rests(answerOrder): 束の並びで、自分の筋の繰り返しをほかのノードに乗せた ${JSON.stringify(ordN('B q')?.alsoFrom)} ${JSON.stringify(ownOrd)}`)
+  // 前の深さで B q に乗った親（P）は、後の深さで A q と B q が同じ類になると自分の筋の繰り返しになるので、確かめていない印を付ける。
+  // 同じく B q に乗ったが筋に A q も B q も無い親（Nn）には付けない
+  const W6late = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (isRoot(q)) return split(id, ['A q', 'B q', 'M x', 'N x'])
+    if (q === 'N x') return split(id, ['Nn'])
+    if (q === 'Nn') return split(id, ['nx'])
+    if (q === 'Mm') return split(id, ['Mn'])
+    if (q === 'Mn') return split(id, ['mz'])
+    return W6ord(call)
+  }
+  const W7late = call => {
+    const items = w7Items(call.prompt), q = x => idOf(items, x), r = byText(items)
+    if (q('px')) return { clusters: [{ key: 'b k', question: 'X', members: `${q('px')}, ${q('nx')}` }, ...r.clusters.filter(c => !['px', 'nx'].includes(c.key))], dropped: [] }
+    if (q('mz')) return { clusters: [{ key: 'a q', question: 'B q', members: q('mz') }], dropped: [] }
+    r.clusters.forEach(c => { if (c.key === 'B q') c.key = 'b k' })
+    return r
+  }
+  const { out: oLate } = await run(baseArgs(), responder({ W6: W6late, W7: W7late }))
+  const lateN = q => oLate.nodes.find(x => x.question === q)
+  check(lateN('P') && lateN('Mn') && lateN('Nn') && ['P', 'Nn'].every(q => lateN('B q')?.alsoFrom.includes(lateN(q).id)) && lateN('P').dependsOnUnverified
+    && !lateN('Nn').dependsOnUnverified && ['A q', 'B q'].every(q => lateN(q)?.alsoFrom.includes(lateN('Mn').id)),
+    `rests(laterMerge): 後で類が合わさったときの、前に乗った親の確かめていない印が違う ${lateN('P')?.dependsOnUnverified} ${lateN('Nn')?.dependsOnUnverified} ${JSON.stringify(lateN('B q')?.alsoFrom)}`)
   // 句読点だけの key（'?'）は key に使わず、問いの文で見分ける: 違う問いが 1 つのノードにまとまらない
   const W6q = call => isRoot(nodeQ(call.prompt)) ? split(nodeId(call.prompt), ['first different', 'second different']) : leaf(nodeId(call.prompt))
   const W7q = call => {
@@ -672,19 +717,19 @@ async function caseRests() {
   check(['first different', 'second different'].every(q => oq.nodes.some(x => x.question === q)) && oq.nodes.every(x => x.key !== ''),
     `rests(emptyKey): 句読点だけの key で違う問いがまとまった ${JSON.stringify(oq.nodes.map(x => [x.key, x.question]))}`)
   // 組が当たったノードの片方が、同じ段の後で確かめていない物になる（子を全部落とされた split）: 親にも届く
-  const W6l = call => {
+  const W6m = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['L known', 'S later', 'P x'])
     if (q === 'S later') return split(id, ['S child'])
     if (q === 'P x') return split(id, ['c'])
     return leaf(id)
   }
-  const W7l = call => {
+  const W7m = call => {
     const items = w7Items(call.prompt), c = idOf(items, 'c')
     if (!c) return byText(items)
     return { clusters: [{ key: 'L known', question: 'S later', members: c }], dropped: [{ id: idOf(items, 'S child'), why: 'needs no digging' }] }
   }
-  const { out: ol } = await run(baseArgs(), responder({ W6: W6l, W7: W7l }))
+  const { out: ol } = await run(baseArgs(), responder({ W6: W6m, W7: W7m }))
   const pl = ol.nodes.find(x => x.question === 'P x'), sl = ol.nodes.find(x => x.question === 'S later')
   check(sl?.status === 'unverified' && pl?.dependsOnUnverified, `rests(laterUnsure): 後で確かめていない物になったノードが、組で乗った親に届かない ${sl?.status} ${pl?.dependsOnUnverified}`)
   // W8 の抜けも組にまとめる: 同じ key の 2 つと、落とした同じ問いを、区分 8 の 1 つのルートにする
