@@ -395,14 +395,17 @@ function merge(map, keys, make, absorb) {
 // a class of seen is the keys W7 said ask the same question (a node's key and wording, a group's keys) and the nodes
 // that ask it. A group that hits two classes merges them, so whichever of the keys W7 writes later, it finds the same nodes
 function alias(keys, ids) {
-  let merged = false
-  const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => { o.ids.forEach(id => c.ids.add(id)); merged = true })
+  const parts = []   // the classes' node sets that become one class here
+  const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => {
+    if (!parts.length) parts.push([...c.ids])
+    parts.push([...o.ids]); o.ids.forEach(id => c.ids.add(id))
+  })
   ids.forEach(id => c.ids.add(id))
-  // a parent that rests on one node of the class while another is in its own line now repeats its own line (it
-  // joined before the classes merged): mark it as the own-line rule would
-  if (merged) for (const id of c.ids) for (const p of upOf(byId.get(id))) {
-    const up = lineage(p)
-    if ([...c.ids].some(x => up.has(x))) markUnverified(p)
+  // the parents of each part met only their own part's nodes: they now rest on the other parts' nodes too
+  const all = [...c.ids]
+  for (const part of parts.filter(x => x.length)) {
+    const others = all.filter(id => !part.includes(id)), question = byId.get(part[0]).question
+    for (const p of new Set(part.flatMap(id => upOf(byId.get(id))))) rest(p, all, question, others)
   }
 }
 const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k)?.ids ?? [])]))]
@@ -421,6 +424,28 @@ function lineage(...ids) {
   return out
 }
 // these nodes and all their ancestors rest on something unverified (for a node's ancestors only: ...upOf(n))
+// parent p rests on the nodes ids of one class. If one of them is in p's own line (p, or its parents and alsoFrom up to
+// a root), p repeats a question still open above it: no loop through alsoFrom, and p's answer rests on that open
+// question. Otherwise p joins every node, so a later change in any reaches it. Only the repeats of nodes in fresh are
+// counted (a class merge rechecks parents whose repeats of the rest were counted before). Returns the child's outcome
+function rest(p, ids, question, fresh = ids) {
+  const up = lineage(p)
+  if (ids.some(id => up.has(id))) {
+    const mine = fresh.filter(id => up.has(id))   // the nodes of its line it repeats
+    if (mine.length) repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${mine.join(', ')})`)
+    markUnverified(p)
+    return 'seen'
+  }
+  let unsure = false
+  for (const id of ids) {
+    const old = byId.get(id)
+    if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
+    unsure ||= UNSURE.includes(old.status) || old.dependsOnUnverified
+  }
+  // p rests on what the old nodes already rest on (later changes reach it through alsoFrom)
+  if (unsure) markUnverified(p)
+  return 'joined'
+}
 function markUnverified(...ids) {
   for (const id of lineage(...ids)) byId.get(id).dependsOnUnverified = true
 }
@@ -571,29 +596,10 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     const ids = idsOf(keys)
     const parents = [...new Set(members.map(m => m.parent).filter(Boolean))]
     if (ids.length) {
-      // a child that asks the question of a node in its own line (the parent, an ancestor, or a node W7 called the
-      // same as one of them) does not answer it: no loop through alsoFrom. Its parent's answer then rests on a
-      // question still open above it. Otherwise the parent joins every node that asks it, so a later change in any
-      // reaches it
       for (const p of parents) {
-        const up = lineage(p), mine = members.filter(m => m.parent === p)
-        if (ids.some(id => up.has(id))) {
-          repairs.foldIntoOwnLine.push(`${p}: ${line1(question)} (${ids.filter(id => up.has(id)).join(', ')})`)   // the nodes of its line it repeats
-          mine.forEach(m => { m.outcome = 'seen' })
-          markUnverified(p)
-          continue
-        }
-        let unsure = false
-        for (const id of ids) {
-          const old = byId.get(id)
-          if (!old.parents.includes(p) && !old.alsoFrom.includes(p)) old.alsoFrom.push(p)
-          unsure ||= UNSURE.includes(old.status) || old.dependsOnUnverified
-        }
-        // the new parent rests on what the old nodes already rest on (later changes reach it through alsoFrom)
-        if (unsure) markUnverified(p)
-        mine.forEach(m => { m.outcome = 'joined' })
+        const outcome = rest(p, ids, question)
+        members.filter(m => m.parent === p).forEach(m => { m.outcome = outcome })
       }
-      alias(keys, ids)   // the group's keys and the classes it hit become one class
       members.filter(m => !m.parent).forEach(m => { m.outcome = 'seen' })   // a W8 gap that is already in the tree
       return
     }
@@ -603,7 +609,8 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     level.push(newNode({ key: keys[0], aliases: keys.slice(1), question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
       rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') }))
   }
-  // merge the classes the whole answer hits before placing any group, so the order W7 listed them does not matter
+  // merge the classes the whole answer hits before placing any group, so which nodes a group hits does not depend on
+  // where W7 listed it (when two groups would make a loop through each other's parents, the later one is the repeat)
   const groups = groupClusters(clusters, dropped)
   groups.forEach(g => alias(g.keys, []))
   groups.forEach(place)

@@ -672,40 +672,54 @@ async function caseRests() {
     if (q === 'Mm') return split(id, ['mx'])
     return leaf(id)
   }
-  const W7ord = call => {
-    const items = w7Items(call.prompt), q = x => idOf(items, x), r = byText(items)
-    if (q('px')) return { clusters: [{ key: 'b k', question: 'X', members: q('px') }, { key: 'a q', question: 'B q', members: q('mx') }], dropped: [] }
-    r.clusters.forEach(c => { if (c.key === 'B q') c.key = 'b k' })
-    return r
+  for (const flip of [false, true]) {
+    const W7ord = call => {
+      const items = w7Items(call.prompt), q = x => idOf(items, x), r = byText(items)
+      const two = [{ key: 'b k', question: 'X', members: q('px') }, { key: 'a q', question: 'B q', members: q('mx') }]
+      if (q('px')) return { clusters: flip ? two.reverse() : two, dropped: [] }
+      r.clusters.forEach(c => { if (c.key === 'B q') c.key = 'b k' })
+      return r
+    }
+    const { out: oOrd } = await run(baseArgs(), responder({ W6: W6ord, W7: W7ord }))
+    const ordN = q => oOrd.nodes.find(x => x.question === q), ownOrd = oOrd.counts.repairs.foldIntoOwnLine
+    check(ordN('P') && ordN('Mm') && ordN('B q')?.key === 'b k' && !ordN('B q').alsoFrom.includes(ordN('P').id) && ownOrd.length === 1 && ownOrd[0].startsWith(`${ordN('P').id}:`)
+      && ordN('P').dependsOnUnverified && ['A q', 'B q'].every(q => ordN(q)?.alsoFrom.includes(ordN('Mm').id)) && ordN('Mm').dependsOnUnverified,
+      `rests(answerOrder ${flip}): 束の並びで、自分の筋の繰り返しをほかのノードに乗せた ${JSON.stringify(ordN('B q')?.alsoFrom)} ${JSON.stringify(ownOrd)}`)
   }
-  const { out: oOrd } = await run(baseArgs(), responder({ W6: W6ord, W7: W7ord }))
-  const ordN = q => oOrd.nodes.find(x => x.question === q), ownOrd = oOrd.counts.repairs.foldIntoOwnLine
-  check(ordN('P') && ordN('Mm') && ordN('B q')?.key === 'b k' && !ordN('B q').alsoFrom.includes(ordN('P').id) && ownOrd.some(x => x.startsWith(`${ordN('P').id}:`))
-    && ordN('P').dependsOnUnverified && ['A q', 'B q'].every(q => ordN(q)?.alsoFrom.includes(ordN('Mm').id)),
-    `rests(answerOrder): 束の並びで、自分の筋の繰り返しをほかのノードに乗せた ${JSON.stringify(ordN('B q')?.alsoFrom)} ${JSON.stringify(ownOrd)}`)
-  // 前の深さで B q に乗った親（P）は、後の深さで A q と B q が同じ類になると自分の筋の繰り返しになるので、確かめていない印を付ける。
-  // 同じく B q に乗ったが筋に A q も B q も無い親（Nn）には付けない
+  // 前の深さで B q に乗った親は、後の深さで A q と B q が同じ類になると、類のほかのノード（A q）にも乗る。A q が筋に在る親（P）は
+  // 自分の筋の繰り返しに数えて確かめていない印を付け、筋に無い親（Nn）は A q にも乗り、A q が確かめていない物に乗れば印を継ぐ。
+  // A q に乗った親（Kk）は B q にも乗る。さらに後で C q も同じ類になっても、P の繰り返しを数え直さず、P を C q に乗せない
   const W6late = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
-    if (isRoot(q)) return split(id, ['A q', 'B q', 'M x', 'N x'])
+    if (isRoot(q)) return split(id, ['A q', 'B q', 'M x', 'N x', 'K x', 'C q', 'L x'])
     if (q === 'N x') return split(id, ['Nn'])
     if (q === 'Nn') return split(id, ['nx'])
+    if (q === 'K x') return split(id, ['Kk'])
+    if (q === 'Kk') return split(id, ['kx'])
+    if (q === 'L x') return split(id, ['Ll'])
+    if (q === 'Ll') return split(id, ['Lm'])
+    if (q === 'Lm') return split(id, ['Ln'])
+    if (q === 'Ln') return split(id, ['lz'])
     if (q === 'Mm') return split(id, ['Mn'])
     if (q === 'Mn') return split(id, ['mz'])
     return W6ord(call)
   }
   const W7late = call => {
     const items = w7Items(call.prompt), q = x => idOf(items, x), r = byText(items)
-    if (q('px')) return { clusters: [{ key: 'b k', question: 'X', members: `${q('px')}, ${q('nx')}` }, ...r.clusters.filter(c => !['px', 'nx'].includes(c.key))], dropped: [] }
-    if (q('mz')) return { clusters: [{ key: 'a q', question: 'B q', members: q('mz') }], dropped: [] }
+    const rest = (...ks) => r.clusters.filter(c => !ks.includes(c.key))
+    if (q('px')) return { clusters: [{ key: 'b k', question: 'X', members: `${q('px')}, ${q('nx')}` }, { key: 'a q', question: 'A q', members: q('kx') }, ...rest('px', 'nx', 'kx')], dropped: [] }
+    if (q('mz')) return { clusters: [{ key: 'a q', question: 'B q', members: q('mz') }, ...rest('mz')], dropped: [] }
+    if (q('lz')) return { clusters: [{ key: 'c q', question: 'B q', members: q('lz') }], dropped: [] }
     r.clusters.forEach(c => { if (c.key === 'B q') c.key = 'b k' })
     return r
   }
   const { out: oLate } = await run(baseArgs(), responder({ W6: W6late, W7: W7late }))
-  const lateN = q => oLate.nodes.find(x => x.question === q)
-  check(lateN('P') && lateN('Mn') && lateN('Nn') && ['P', 'Nn'].every(q => lateN('B q')?.alsoFrom.includes(lateN(q).id)) && lateN('P').dependsOnUnverified
-    && !lateN('Nn').dependsOnUnverified && ['A q', 'B q'].every(q => lateN(q)?.alsoFrom.includes(lateN('Mn').id)),
-    `rests(laterMerge): 後で類が合わさったときの、前に乗った親の確かめていない印が違う ${lateN('P')?.dependsOnUnverified} ${lateN('Nn')?.dependsOnUnverified} ${JSON.stringify(lateN('B q')?.alsoFrom)}`)
+  const lateN = q => oLate.nodes.find(x => x.question === q), ownLate = oLate.counts.repairs.foldIntoOwnLine
+  check(lateN('P') && lateN('Mn') && lateN('Nn') && ['P', 'Nn'].every(q => lateN('B q')?.alsoFrom.includes(lateN(q).id)) && !lateN('A q').alsoFrom.includes(lateN('P').id)
+    && ownLate.length === 1 && ownLate[0].startsWith(`${lateN('P').id}:`) && ownLate[0].endsWith(`(${lateN('A q').id})`) && lateN('P').dependsOnUnverified
+    && lateN('A q').alsoFrom.includes(lateN('Nn').id) && lateN('Nn').dependsOnUnverified && ['A q', 'B q'].every(q => lateN(q)?.alsoFrom.includes(lateN('Mn').id))
+    && lateN('Kk') && lateN('B q').alsoFrom.includes(lateN('Kk').id) && lateN('Ln') && lateN('C q')?.alsoFrom.includes(lateN('Ln').id) && !lateN('C q').alsoFrom.includes(lateN('P').id),
+    `rests(laterMerge): 後で類が合わさったとき、前に乗った親を類のほかのノードに当て直さない ${JSON.stringify(ownLate)} ${JSON.stringify(lateN('A q')?.alsoFrom)} ${lateN('Nn')?.dependsOnUnverified}`)
   // 句読点だけの key（'?'）は key に使わず、問いの文で見分ける: 違う問いが 1 つのノードにまとまらない
   const W6q = call => isRoot(nodeQ(call.prompt)) ? split(nodeId(call.prompt), ['first different', 'second different']) : leaf(nodeId(call.prompt))
   const W7q = call => {
