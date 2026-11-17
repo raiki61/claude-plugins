@@ -379,14 +379,24 @@ function newNode({ aliases = [], ...fields }) {
   alias([n.key, keyOf(n.question), ...aliases], [n.id])   // W7 may give a short canonical key: the wording finds the node too
   return n
 }
-// a class is the keys W7 said ask the same question (a node's key and wording, a group's keys) and the nodes that
-// ask it. A group that hits two classes merges them, so whichever of the keys W7 writes later, it finds the same nodes
+// keys W7 called the same share one class in map (key -> class). merge finds the classes the keys hit, folds the
+// later ones into the earliest (absorb moves their payload), points every key of the result at it and returns it.
+// A key of punctuation only ('?') is empty after keyOf and joins nothing
+let classOrder = 0
+function merge(map, keys, make, absorb) {
+  keys = keys.filter(Boolean)
+  const hit = [...new Set(keys.map(k => map.get(k)).filter(Boolean))].sort((a, b) => a.order - b.order)
+  const c = hit[0] ?? Object.assign(make(), { order: classOrder++, keys: new Set() })
+  for (const o of hit.slice(1)) { absorb(c, o); o.keys.forEach(k => c.keys.add(k)); o.merged = true }
+  keys.forEach(k => c.keys.add(k))
+  for (const k of c.keys) map.set(k, c)
+  return c
+}
+// a class of seen is the keys W7 said ask the same question (a node's key and wording, a group's keys) and the nodes
+// that ask it. A group that hits two classes merges them, so whichever of the keys W7 writes later, it finds the same nodes
 function alias(keys, ids) {
-  const hit = [...new Set(keys.map(k => seen.get(k)).filter(Boolean))]
-  const c = hit[0] ?? { keys: new Set(), ids: new Set() }
-  for (const o of hit.slice(1)) { o.keys.forEach(k => c.keys.add(k)); o.ids.forEach(id => c.ids.add(id)) }
-  keys.forEach(k => c.keys.add(k)); ids.forEach(id => c.ids.add(id))
-  for (const k of c.keys) seen.set(k, c)
+  const c = merge(seen, keys, () => ({ ids: new Set() }), (c, o) => o.ids.forEach(id => c.ids.add(id)))
+  ids.forEach(id => c.ids.add(id))
 }
 const idsOf = keys => [...new Set(keys.flatMap(k => [...(seen.get(k)?.ids ?? [])]))]
 const rootIdx = n => n.rootIdx ?? 0
@@ -533,15 +543,9 @@ function settleSplits(splits, children) {
 // that matches only a node already in the tree is its own group and folds into it. Other drops are not dug
 function groupClusters(clusters, dropped) {
   const groups = [], groupOf = new Map()
-  const join = (keys, question, members) => {
-    // the group W7 listed first survives a merge, so its key and wording are the ones dug
-    const hit = [...new Set(keys.map(k => groupOf.get(k)).filter(Boolean))].sort((a, b) => a.order - b.order)
-    const g = hit[0] ?? { order: groups.length, keys: new Set(), question, members: [] }
-    if (!hit.length) groups.push(g)
-    for (const o of hit.slice(1)) { keys = [...keys, ...o.keys]; g.members.push(...o.members); o.merged = true }
-    for (const k of keys.filter(Boolean)) { g.keys.add(k); groupOf.set(k, g) }   // a key of punctuation only ('?') joins nothing
-    g.members.push(...members)
-  }
+  // the group W7 listed first survives a merge, so its key and wording are the ones dug
+  const join = (keys, question, members) => merge(groupOf, keys, () => { const g = { question, members: [] }; groups.push(g); return g },
+    (g, o) => g.members.push(...o.members)).members.push(...members)
   for (const c of clusters) join([c.key, keyOf(c.question)], c.question, c.members)
   for (const d of dropped) {
     const k = keyOf(d.member.question)
