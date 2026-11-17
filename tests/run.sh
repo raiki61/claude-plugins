@@ -6389,7 +6389,7 @@ expect_output 0 "RULES_OK" \
     "my-turn-prep: base に在る CLAUDE.md・REVIEW.md だけを規約に拾い、PR が足した CLAUDE.md は claudeMdChanged に立てる" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" rules
 expect_output 0 "PRIOR_OK" \
-    "my-turn-prep: --prior で 2 つ目の差分・unchanged・前回の head の欠け・指紋の then と now を出す" \
+    "my-turn-prep: --prior で 2 つ目の差分・unchanged・前回の head の欠け・指紋の短い印（same・moved など）を出す" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" prior
 expect_output 0 "QUOTES_OK" \
     "my-turn-prep: --quotes が引用の一致・文字違い・行の範囲外・base 側の版・URL の見送りを照合する" \
