@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-11-17
+
 ### Changed
 
 - `/my-turn`（持ち主の番の PR を進めるコマンド）: 構造をとらえて木を掘る段（前の版の手順 6〜15）を、会話の中で順に回すのをやめ、Workflow `my-turn-dig`（`workflows/my-turn-dig.js`。裏のエージェントを script が決まった順に回す Claude Code の仕組み）で回すようにした。1 つの会話で回すと、後ろの手順ほど浅くなり、段やノードを飛ばしても報告に出なかったため（頼み dfdc52。設計は `docs/my-turn-workflow-design.md`）。下の手順の番号は新しい `commands/my-turn.md` の物。
