@@ -173,6 +173,20 @@ class TokenHelper(unittest.TestCase):
         self.assertEqual(note, "inherited(ANTHROPIC_API_KEY)")
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", out)
 
+    def test_auth_env_keeps_the_foundry_route(self):
+        # Microsoft Foundry の旗（https://code.claude.com/docs/en/microsoft-foundry）が立っていれば、窓口のトークンを足さない
+        env = dict(HELPER, CLAUDE_CONFIG_DIR="/h/.claude-p2", CLAUDE_CODE_USE_FOUNDRY="1")
+        out, note = claude_auth.auth_env(env, "linux", helper({"/h/.claude-p2": TOK}))
+        self.assertEqual(note, "inherited(CLAUDE_CODE_USE_FOUNDRY)")
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", out)
+
+    def test_auth_env_ignores_a_foundry_flag_that_is_off(self):
+        # 旗が「使わない」の値なら、Bedrock・Vertex と同じく経路が無いとみなして窓口のトークンを足す
+        for off in claude_auth.OFF:
+            env = dict(HELPER, CLAUDE_CONFIG_DIR="/h/.claude-p2", CLAUDE_CODE_USE_FOUNDRY=off)
+            out, note = claude_auth.auth_env(env, "linux", helper({"/h/.claude-p2": TOK}))
+            self.assertEqual((out.get("CLAUDE_CODE_OAUTH_TOKEN"), note), (TOK, "helper"), off)
+
     def test_auth_env_without_helper_is_unchanged(self):
         self.assertEqual(claude_auth.auth_env({"CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, "linux", helper({}))[1], "none")
 

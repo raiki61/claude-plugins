@@ -51,11 +51,11 @@ import sys
 import unicodedata
 
 # 親の環境に在れば認証は足さない。子（claude）が読む経路——サブスクの OAuth・API キー・
-# 企業のゲートウェイ・Bedrock / Vertex。**旗の 2 つは値も見る**（`=0` は「使わない」の意味で、
-# 在るだけで認証が在ることにはならない）。
+# 企業のゲートウェイ・Bedrock / Vertex / Microsoft Foundry（旗の名は https://code.claude.com/docs/en/microsoft-foundry ）。
+# **旗の 3 つは値も見る**（`=0` は「使わない」の意味で、在るだけで認証が在ることにはならない）。
 INHERITED = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
-             "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
-FLAGS = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
+             "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
+FLAGS = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
 OFF = ("", "0", "false", "False", "no")
 TOKEN_PREFIX = "sk-ant-oat01-"
 # `claude setup-token` のトークンの寿命（https://code.claude.com/docs/en/authentication の「Generate a long-lived token」:
