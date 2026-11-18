@@ -261,7 +261,7 @@ tests/
 - **script は外を読めない**: Workflow の script はファイルもモジュールも読めない（Workflow の文書の「Behavior and limits」）。
   - 段の指示の文・出力スキーマ・上限の既定は、全部 `my-turn-dig.js` の中に書く。
   - 段の指示の文のうち観点（段が何を見て、どう判定するか）は、ファイルの頭の指示文の区画（`// ==== prompts (section 3) ====` から `// ==== end of prompts ====` まで）に、共通の決まり（RULES）・段ごとの指示（`W*_PROMPT`）などの定数として置き、木を組む処理と分ける（`/deep-research` の script の形）。
-  - データの並べ方と運び役の文は、md にせず、値を組むコードの隣に script の関数か式で書く。段の文の枠（共通の決まり・「## Stage <段>」の見出し・段の文を繋ぐ `stageText`）・PR の差分と会話の置き場の一覧（`PR_FILES_TEXT`）・W10 が崩しにかかる主張の並べ方（`leafClaim`・`smellClaim`・`fixClaim`・`groupClaim`）・根拠の照合の段にコマンドを打たせて出力を返させる文（`quotesText`）がそれに当たる（持ち主 2026-11-18 に承認。頼み 0e03c3）。持ち主が資産として直すのは観点の md だけで、並べ方の文に訳は要らない。
+  - データの並べ方と運び役の文は、md にせず、値を組むコードの隣に script の関数か式で書く。段の文の枠（共通の決まり・「## Stage <段>」の見出し・段の文を繋ぐ `stageText`）・PR の差分と会話の置き場の一覧（PR_FILES_TEXT）・W10 が崩しにかかる主張の並べ方（`leafClaim`・`smellClaim`・`fixClaim`・`groupClaim`）・根拠の照合の段にコマンドを打たせて出力を返させる文（`quotesText`）がそれに当たる（持ち主 2026-11-18 に承認。頼み 0e03c3）。持ち主が資産として直すのは観点の md だけで、並べ方の文に訳は要らない。
   - 観点の区画は手で書かず、`attention/prompts/<定数の名前>.md`（1 つの定数に 1 本）から生成器（`attention/scripts/gen-prompts.mjs`）が作って書き戻す。script はファイルを読めないので、文は作る時に script へ入れる。md の頭（front matter）の `vars:` に、受け取る値と型（`text`・`list`・`flag`。`?` を付けると null を許す）を書き、本文は `{{x}}`・`{{x|join:", "|or:"none"}}`・`{{x|bullets}}`・`{{#if x}}…{{else}}…{{/if}}` だけで組む。値を整える JS（一覧の行の組み立て・三項の分かれ）は呼ぶ側のコードに置き、md には置かない。
   - 日本語の訳は `<定数の名前>.ja.md` に置き、頭の `source_sha256` に訳した時の英語の md の sha256 を書く。英語だけを直して訳とハッシュを直さないと、空回しの試験の `prompts` が赤になる（セクション 11）。直し方は `attention/prompts/README.md`。
 - **指示の文は英語**: script の中の指示の文は AI だけが読むので英語で書く。
@@ -1553,7 +1553,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
    - 英語だけを直して訳を直さないと、main へ入れるゲートで止まる。
    - エージェントに届くのは英語の文だけで、訳は持ち主が読むため。
    - 2026-11-18 に、文と訳を script のコメントから `attention/prompts/<定数の名前>.md` と `.ja.md` のファイルに移した（持ち主 2026-11-18 に承認。頼み f0ee3c）。script の区画は生成器（`attention/scripts/gen-prompts.mjs`）が md から作り、訳のハッシュは `.ja.md` の頭の `source_sha256` に置く。空回しの試験の `prompts` は、区画が md から作り直した物と同じかも見る。一覧の行の組み立てなどの JS は呼ぶ側に移し、エージェントに届く文は 1 字も変えていない（値が欠けたか型が違うときだけ、前は「undefined」の字を入れて渡し、今は文を作らずに止まる）。
-   - 同じ日に、md を観点（段が何を見て、どう判定するか）だけにし、データの並べ方と運び役の 7 本（`STAGE_TEXT`・`PR_FILES`・`W10_LEAF`・`W10_SMELL`・`W10_FIX`・`W10_GROUP`・`QUOTES_PROMPT`）を script の中に戻した（持ち主 2026-11-18 に承認。頼み 0e03c3）。md と訳は消し、生成器は残る 19 本だけを作る。エージェントに届く文は、正しい値のときは 1 字も変えていない。戻した 7 本は値の型を確かめない。値は、args の確かめ（PR の差分と会話の置き場）と、出力スキーマで確かめた段の答え（W10 の主張）から来る。
+   - 同じ日に、md を観点（段が何を見て、どう判定するか）だけにし、データの並べ方と運び役の 7 本（STAGE_TEXT・PR_FILES・W10_LEAF・W10_SMELL・W10_FIX・W10_GROUP・QUOTES_PROMPT）を script の中に戻した（持ち主 2026-11-18 に承認。頼み 0e03c3）。md と訳は消し、生成器は残る 19 本だけを作る。エージェントに届く文は、正しい値のときは 1 字も変えていない。戻した 7 本は値の型を確かめない。値は、args の確かめ（PR の差分と会話の置き場）と、出力スキーマで確かめた段の答え（W10 の主張）から来る。
 
 ### 14.5 落ちる能力（承認の前に照合が要る）
 
