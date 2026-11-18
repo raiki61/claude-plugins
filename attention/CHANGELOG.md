@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.69.1] - 2026-11-18
+
 ### Added
 
 - /my-turn の掘る段（Workflow `my-turn-dig`）の流れを作り直す設計の案を、`docs/my-turn-dig-redesign.md` に書いた。案は 2 つのことを決める。1 つ目は、/my-turn を 4 件の PR で走らせて見落とした約 35 件の指摘について、新しい段の並びのどの段がその原因を止めるか。2 つ目は、レビューで何を見るかを書いた文（観点）を、持ち主の別のリポジトリ works-factory の `perspectives/` から attention へどう取り込むか。案は未承認で、/my-turn の動きは変わらない。
