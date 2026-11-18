@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPT = path.join(ROOT, 'attention/workflows/my-turn-dig.js')
@@ -1000,7 +1000,8 @@ async function caseQuotes() {
 // sha256 と合う（英語だけを直すと赤）。3) 段の文の定数は区画の中にだけ在る。4) 生成器が、宣言の無い変数・使わない変数・知らないフィルタ・
 // 閉じない {{#if}} を止め、生成した関数が足りない値で投げる
 async function casePrompts() {
-  const gen = await import(path.join(ROOT, 'attention/scripts/gen-prompts.mjs'))
+  // Windows では import() に絶対パスを渡すと ERR_UNSUPPORTED_ESM_URL_SCHEME で落ちる（ドライブ名をスキームと読む）。file:// の URL にして渡す（run 44231855113）
+  const gen = await import(pathToFileURL(path.join(ROOT, 'attention/scripts/gen-prompts.mjs')).href)
   for (const p of gen.check()) fails.push(`prompts: ${p}`)
   const names = gen.promptNames()
   for (const n of ['RULES', 'SMELL_QUESTIONS', 'W1_PROMPT', 'W2_PROMPT', 'W3_PROMPT', 'W4_PROMPT', 'W5_REMOVE_PREMISE',
