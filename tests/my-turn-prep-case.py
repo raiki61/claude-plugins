@@ -729,6 +729,9 @@ def case_headless():
         check(not any(r.startswith(("Edit", "Write")) for r in rules), "書き込みの許可が残った %r" % rules)
         check("never edit files" in after("--system-prompt").lower() and "outputFile" in after("--system-prompt"),
               "system prompt が出力のファイルの path を返させない")
+        # 子は待つ手を持たないので、待たずにターンを終えさせる（前の「終わるまでターンを終えるな」は守れなかった）
+        check("end your turn with no output" in sysprompt and "end your turn while" not in sysprompt,
+              "system prompt が待たずにターンを終えさせない")
         deny = argv[argv.index("--disallowedTools") + 1:argv.index("--permission-mode")]
         check(deny == ["Bash(git *--output*)", "Bash(git grep *)"], "禁止のルール %r" % deny)
         ag = json.loads(after("--agents"))
@@ -833,6 +836,11 @@ def case_headless():
         # JSON だが Workflow の返り値でない（Workflow が断られた回の子の答えの形）
         rc, s = run_with(json.dumps({"recordWritten": False, "error": "rejected"}))
         check(rc == 1 and s["materials"] is None and s["ok"] is False, "返り値でない JSON %r" % s)
+        # 上限の額で止まった回: Workflow も止められたと言い、「動かなかった」と取り違えさせない
+        rc, s = run_raw(json.dumps({"type": "result", "subtype": "error_max_budget_usd", "is_error": True,
+                                    "errors": [], "total_cost_usd": 100.2, "modelUsage": {}}))
+        check(rc == 1 and s["ok"] is False and s["materials"] is None and "--budget-usd" in s["message"]
+              and "100" in s["message"], "上限の額で止まった回 %r" % s)
         # 出力が JSON でない（途中で切れた形。1 行の短い答えは認証の失敗の形なので、複数の行にする）
         rc, s = run_raw('{"type": "result",\n "result": "cut')
         check(rc == 1 and s["ok"] is False and s["message"] and s["authFailed"] is False, "壊れた出力 %r" % s)

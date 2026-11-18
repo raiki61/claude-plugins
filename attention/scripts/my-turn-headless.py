@@ -53,12 +53,14 @@ BASH_RULES = ["git show *", "git blame *", "git log *", "git diff *", "git cat-f
 DENY_BASH = ["git *--output*", "git grep *"]
 
 SYSTEM = ("You run one task and nothing else. Read the JSON file at {args}. Call the Workflow tool exactly once "
-          "with scriptPath = {script} and args = that JSON value unchanged. The run goes on in the background. "
-          "Do not try to wait for it or poll it: end your turn with no output. When the run finishes, its finish "
-          "notice starts a new turn. In that turn, if the finish notice names an output file, "
-          "output only {{\"outputFile\": <that path, exactly as given>}} as JSON; otherwise output the whole return "
-          "value as JSON. If the Workflow tool call itself fails, output only "
-          "{{\"workflowError\": <the error text>}}. Output nothing else. Never edit files.")
+          "with scriptPath = {script} and args = that JSON value unchanged. "
+          "If the Workflow tool call returns an error, output only {{\"workflowError\": <the error text>}} in that "
+          "same turn and stop. If the call succeeds, the run goes on in the background: do not try to wait for it "
+          "or poll it, and end your turn with no output. When the run ends, its finish notice starts a new turn. "
+          "In that turn, if the notice says the run failed, output only {{\"workflowError\": <the notice's error "
+          "text>}}; else if the notice names an output file, output only "
+          "{{\"outputFile\": <that path, exactly as given>}} as JSON; otherwise output the whole return value as "
+          "JSON. Output nothing else. Never edit files.")
 PROMPT = ("Read {args}, run the /my-turn dig workflow once on it with the Workflow tool, and print the JSON "
           "the system prompt asks for.")
 
@@ -264,6 +266,10 @@ def main(argv):
                           "message": "%s。%s を見てください" % (why, out_path)}, ensure_ascii=False))
         return 1
     val, note, record = build_materials(out.get("result"), (args.get("files") or {}).get("record"))
+    if out.get("subtype") == "error_max_budget_usd":
+        # 上限の額に当たると claude -p は裏の Workflow も止める。「Workflow が動かなかった」と取り違えさせない
+        note = ("上限の額（--max-budget-usd %s ドル）で止まり、Workflow も止められました。--budget-usd を上げて回し直してください"
+                % a.budget_usd)
     materials = None
     if val is not None:
         materials = os.path.join(record_dir, "%s-materials.json" % pr)

@@ -56,7 +56,7 @@
   - `--disable-slash-commands` でスキルとコマンドを、`--strict-mcp-config` で MCP を切る。
   - `--settings '{"disableAllHooks":true}'` も重ねる。
   - `--system-prompt`: ヘッドレスの会話の system prompt を、短い文に替える。
-    - 中身は「`args` のファイルを読み、Workflow を 1 回呼び、終わりを待って結果を出す」だけ。
+    - 中身は「`args` のファイルを読み、Workflow を 1 回呼び、待たずにターンを終え、終わりの知らせで回る次のターンで結果を出す」だけ。
 - **役**: `--agents` で、段ごとの役をその会話の中だけに定義する。
   - `omitClaudeMd` を真にする（役の定義の項目。真にすると、その役に CLAUDE.md を入れない）。
   - 役の `tools` は Read・Grep・Glob・Bash・WebFetch・WebSearch。
@@ -145,7 +145,7 @@
 4. **終わりまで待つか**: ヘッドレスの会話が、Workflow の終わりまで待つか。
    - `claude -p` はターンを終えるとプロセスが終わり、裏の run も切れうる。
    - 見る所: 出力の JSON に、Workflow の結果（件数）が在るか。
-   - 駄目なら、ヘッドレスの形を取り下げ、1 と同じく `--headless` は訳を言って止まる。
+   - 駄目なら、ヘッドレスの形を取り下げ、1 と同じく `--headless` は訳を言って止まる（2026-11-18 は取り下げず、待つ上限を外して直した。下の記録）。
    - 2026-11-18 の回（PR #2574）: 駄目だった。
      - 子の会話は Workflow を起動して約 2.5 分でターンを終えた。待つ手が無かったため（Bash は拒まれる）。
      - `claude -p` はその後 10 分待って、「Background tasks still running 10m after the last turn」と出して Workflow を止めた。材料は返らず、約 20 ドルが無駄になった。

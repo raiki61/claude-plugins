@@ -206,7 +206,7 @@ sequenceDiagram
   1. 会話は手順 1〜5 の後、`args` を `<記録のフォルダ>/<番号>-args.json` に書き、台本 `my-turn-headless.py` を Bash の run_in_background で打つ。
   2. 台本が、`roles` を足した `args` を `<番号>-args-headless.json` に書き、`claude -p` を起動する。
      - 歯止めの `--max-budget-usd` の既定は 100（決めた訳は[実装で設計から変えた所](my-turn-workflow-impl-changes.md)の「予算の既定」）。
-  3. その会話（以下、ヘッドレスの会話）は `args` のファイルを読んで Workflow を呼ぶ。Workflow が終わるまで待ってから、終わりの知らせに在る出力のファイルの path（`{"outputFile": …}`）を出して終わる。知らせに出力のファイルが無ければ、戻り値の全体を出す。
+  3. その会話（以下、ヘッドレスの会話）は `args` のファイルを読んで Workflow を呼ぶ。Workflow を呼んだら待たずにターンを終え、Workflow の終わりの知らせで回る次のターンで、知らせに在る出力のファイルの path（`{"outputFile": …}`）を出して終わる（`claude -p` が Workflow の終わりまで待つ。[ヘッドレスの形の細部](my-turn-workflow-headless.md)の確かめの 4）。知らせに出力のファイルが無ければ、戻り値の全体を出す。
      - Workflow は名前でなく、プラグインの中の script の絶対の path（`scriptPath`）で呼ぶ。
      - 名前で呼ばないのは、`--setting-sources ""` でプラグインを読まないため（[ヘッドレスの形の細部](my-turn-workflow-headless.md)）。
      - path は prep が JSON に載せる（`${CLAUDE_PLUGIN_ROOT}/workflows/my-turn-dig.js`）。

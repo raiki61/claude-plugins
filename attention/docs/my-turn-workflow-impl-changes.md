@@ -93,6 +93,7 @@
     - 見積もりの額は、止まった回の見積もり（26.03）を `costUsd` に合わせた比（約 0.78）で直した物。
   - この PR は掘るノードの上限（`LIMITS.nodes` の 80）近くまで掘った（掘る段 100 エージェント）ので、ふつうの PR の上の方の額とみる。100 は、その約 1.5 倍。
   - 14.4 の 1（エージェント数の上限を下げる）を入れたら、そのときの回の額で決め直す。
+  - 上限で止まった回は、出力の `subtype` が `error_max_budget_usd` になる（https://code.claude.com/docs/en/agent-sdk/typescript の `SDKResultMessage`）。台本はそのとき、「Workflow が動かなかった」でなく、上限の額で止まったと `message` に書く。
 
 ## 前処理（prep）の範囲と差分のファイル
 
