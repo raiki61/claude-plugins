@@ -1,5 +1,5 @@
 // attention/workflows/my-turn-dig.js を、agent() などを偽物に替えて node で空回しする（設計 attention/docs/my-turn-workflow-design.md の 11）。
-// 使い方: node tests/my-turn-dig-dry.mjs <case>   case は fixed・grow・same・skips・allot・map・schema・rests。通れば <CASE>_OK を出す。
+// 使い方: node tests/my-turn-dig-dry.mjs <case>   case は fixed・grow・same・skips・allot・map・schema・rests・quotes・prompts。通れば <CASE>_OK を出す。
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -52,25 +52,28 @@ const baseArgs = (extra = {}) => ({
   pr: 7, repo: 'o/r', workdir: '/w', stance: 'reviewer', now: '2026-11-17T00:00:00Z',
   prep: { base: 'b'.repeat(40), head: HEAD, base7: 'bbbbbbb', diff: '/rd/bbbbbbb..hhhhhhh.diff', recordDir: '/rd',
     commits: ['c'.repeat(40)], changed: ['a.py', 'CLAUDE.md'], excluded: [], claudeMdChanged: true,
-    rules: [{ path: 'CLAUDE.md', show: 'git show bbbbbbb:CLAUDE.md' }], fingerprints: {} },
+    rules: [{ path: 'CLAUDE.md', show: 'git show bbbbbbb:CLAUDE.md' }], fingerprints: {},
+    quoteCheck: { runPython: '/p/run-python.sh', prep: '/p/my-turn-prep.py' } },
   files: { record: '/rd/7.json', thread: '/rd/7-thread.md', justifications: '/rd/7-just.md' },
   blindJudge: 'convergence-loops:blind-judge',
   ...extra,
 })
-const ROLE_KEYS = ['W1', 'W2', 'W3', 'W4', 'W6', 'W7', 'W8', 'W9', 'W10answers', 'W10fixes', 'W11']
+const ROLE_KEYS = ['W1', 'W2', 'W3', 'W4', 'W6', 'W7', 'W8', 'W9', 'W10answers', 'W10fixes', 'Quotes']
 const ROLES = Object.fromEntries(ROLE_KEYS.map(k => [k, `my-turn-${k}`]))
 
 const nodeId = p => (p.match(/## Your node (N\d+)/) ?? [])[1]
 const nodeQ = p => p.split('hand to children only questions whose answer would change yours):\n')[1] ?? ''
-const leaf = (id, extra = {}) => ({ answer: `ANSWER-${id}`, checked: { files: ['a.py'], commands: [], urls: [] },
-  evidence: [{ at: 'a.py:1', quote: 'x' }], parts: [], premises: [`PREMISE-${id}`], status: 'leaf', children: [], ...extra })
+const leaf = (id, extra = {}) => ({ answer: `ANSWER-${id}`, files: ['a.py'], urls: [],
+  evidence: [{ path: 'a.py', line: 1, quote: 'x' }], parts: [], premises: [`PREMISE-${id}`], status: 'leaf', children: [], ...extra })
 const child = (q, weight = 'big') => ({ question: q, howParentChanges: 'flips it', weight, where: 'a.py' })
 const split = (id, qs, weight) => leaf(id, { status: 'split', evidence: [], children: qs.map(q => child(q, weight)) })
 const byText = items => ({ clusters: Object.values(items.reduce((m, [id, q]) => { (m[q] ??= { key: q, question: q, ids: [] }).ids.push(id); return m }, {}))
   .map(c => ({ key: c.key, question: c.question, members: c.ids.join(', ') })), dropped: [] })
 const w7Items = p => [...p.matchAll(/^- (q\d+): (.*?) \| /gm)].map(m => [m[1], m[2]])
 const idOf = (items, text) => items.find(([, t]) => t === text)?.[0]
-const recordOf = p => JSON.parse(p.slice(p.indexOf('\n\n{') + 2))
+// the items of a quote-check command: [id, path, line, quote, sum] per line between the header and the end marker
+const quoteItems = p => p.split('\n').filter(l => l.startsWith('["Q')).map(l => JSON.parse(l))
+const quotesOk = call => ({ ran: true, checked: quoteItems(call.prompt).length, missing: [], garbled: [], error: '' })
 
 // 既定の答え。over[stage] で替える
 function responder(over = {}) {
@@ -86,7 +89,7 @@ function responder(over = {}) {
         noParts: false, noPartsReason: '' }
       case 'W2': return { general: 'GENERAL', notFound: false }
       case 'W3': return { comparable: true, whyNotComparable: '', diffs: [{ diff: 'D', decision: 'align', basis: 'industry', ifThreeMore: '' }] }
-      case 'W4': return { verdict: label === 'W4 smell 1' ? 'smell' : 'none', answer: 'A', evidence: [{ at: 'a.py:2', quote: label === 'W4 smell 1' ? 'y' : '' }] }
+      case 'W4': return { verdict: label === 'W4 smell 1' ? 'smell' : 'none', answer: 'A', evidence: [{ path: 'a.py', line: 2, quote: label === 'W4 smell 1' ? 'y' : '' }] }
       case 'W6': return leaf(nodeId(prompt))
       case 'W7': return byText(w7Items(prompt))
       case 'W8': return { gaps: [], reason: 'compared against the structure' }
@@ -94,8 +97,8 @@ function responder(over = {}) {
         const ids = [...prompt.matchAll(/^- (N\d+): /gm)].map(m => m[1])
         return { fixes: [{ fix: 'F', rung: 'remove', worldSolution: 'https://example.org', leaves: ids.join(',') }], groups: [], searched: 'words', outside: [] }
       }
-      case 'W10': return { verdict: 'stands', reason: 'r', evidence: [{ at: 'a.py:1', quote: 'x' }] }
-      case 'W11': { const r = recordOf(prompt); return { wrote: true, nodeCount: r.nodes.length, head: r.head } }
+      case 'W10': return { verdict: 'stands', reason: 'r', evidence: [{ path: 'a.py', line: 1, quote: 'x' }] }
+      case 'Quotes': return quotesOk(call)
     }
     throw new Error(`unknown label ${label}`)
   }
@@ -118,10 +121,11 @@ async function caseFixed() {
   const W1 = call => ({ ...responder()(call), extraSmells })
   const { out, calls } = await run(baseArgs(), responder({ W6: tree, W8, W1 }))
   check(!out.stopped, `fixed: 止まった ${JSON.stringify(out.stopped)}`)
-  check(out.recordWritten === true && out.recordPath === '/rd/7.json', 'fixed: 記録の照合が通らない')
+  // 台本は記録をそのまま返し、ファイルは書かない（書くのは会話か my-turn-headless.py）
+  check(out.version === 2 && !('recordPath' in out) && !('recordWritten' in out) && !('recordModel' in out), 'fixed: 返りが記録の形でない')
   // 段ごとに渡したモデルを数えに残す（ヘッドレスの形の台本が、使われなかったモデルを回った段だけで数える）
   check(JSON.stringify(out.counts.stages.W6.models) === '["sonnet"]' && JSON.stringify(out.counts.stages.W1.models) === '["opus"]'
-    && out.recordModel === 'haiku', `fixed: 段のモデルが数えに無い ${JSON.stringify(out.counts.stages.W6)}`)
+    && JSON.stringify(out.counts.stages.Quotes.models) === '["haiku"]', `fixed: 段のモデルが数えに無い ${JSON.stringify(out.counts.stages.W6)}`)
   // W4: 固定の 5 問と、足した 4 問のうち上限 3 問
   check(of(calls, 'W4').length === 8, `fixed: W4 の体数 ${of(calls, 'W4').length}（5+3 のはず）`)
   check(out.counts.notSeen.extraSmellsCut.length === 1, 'fixed: 上限を越えた臭いの問いが未確認で返らない')
@@ -134,19 +138,25 @@ async function caseFixed() {
   check(anc.size === 4, `fixed: 深さ 3 の祖先の数 ${anc.size}（2 本のルート + D1 + D2）`)
   for (const id of anc) check(d3call?.prompt.includes(`ANSWER-${id}`) && d3call.prompt.includes(`PREMISE-${id}`), `fixed: 深さ 3 の指示に ${id} の答えか前提が無い`)
   check(d3call?.prompt.includes('Path 2:'), 'fixed: 親を 2 つ持つ道の 2 本目が載らない')
-  // W9 と W10 と W11 にノードの返りが欠けずに渡る
+  // W9 と W10 にノードの返りが欠けずに渡る
   const leaves = out.nodes.filter(n => n.status === 'leaf')
   const w9 = of(calls, 'W9')[0]
   for (const n of leaves) check(w9.prompt.includes(`- ${n.id}: `) && w9.prompt.includes(`ANSWER-${n.id}`), `fixed: W9 に ${n.id} が渡らない`)
   for (const n of leaves) check(calls.some(c => c.label === `W10 ${n.id}`), `fixed: ${n.id} の反証が立たない`)
   check(of(calls, 'W10').filter(c => /^W10 S\d+$/.test(c.label)).length === 8, 'fixed: 臭いの答えの反証が 8 体でない')
   check(calls.some(c => c.label === 'W10 F1'), 'fixed: 直しの案の反証が立たない')
-  const rec = recordOf(of(calls, 'W11')[0].prompt)
-  // W11 だけは記録を書く段: 共通の決まりの「読むだけ」を、記録のファイルだけ書く決まりに替える
-  const w11p = of(calls, 'W11')[0].prompt, w6p = of(calls, 'W6')[0].prompt
-  check(!w11p.includes('- Read only.') && w11p.includes('- Write only the record file') && w6p.includes('- Read only.'),
-    'fixed: W11 に読むだけの決まりが残るか、ほかの段から消えた')
-  check(rec.nodes.length === out.nodes.length && rec.nodes.every(n => n.status !== 'pending'), 'fixed: W11 の記録にノードが欠ける')
+  check(out.nodes.every(n => n.status !== 'pending'), 'fixed: 記録に掘り終えていないノードが残る')
+  // 写しの照合: 1 体が prep の --quotes を打ち、根拠を 1 件ずつ印付きの ASCII の行で渡す。全部の段が読むだけの決まりを持つ
+  const qp = of(calls, 'Quotes')
+  const items = qp.flatMap(c => quoteItems(c.prompt))
+  check(qp.length === 1 && qp[0].prompt.includes("bash /p/run-python.sh /p/my-turn-prep.py --quotes - <<'MY_TURN_QUOTES_END'")
+    && /\nMY_TURN_QUOTES_END\n/.test(qp[0].prompt) && qp[0].prompt.includes('{"workdir":"/w","base":"' + 'b'.repeat(40)),
+    'fixed: 写しの照合のコマンドの形が違う')
+  check(items.length > 0 && items.every(x => x.length === 5 && /^[0-9a-f]{8}$/.test(x[4])) && /^[\x00-\x7f]*$/.test(qp[0].prompt.split('```bash')[1]),
+    `fixed: 写しの照合の行の形が違う ${JSON.stringify(items.slice(0, 2))}`)
+  check(out.counts.quotes.checked === items.length && out.counts.quotes.items === items.length && !out.counts.quotes.dropped.length,
+    `fixed: 写しの照合の件数が違う ${JSON.stringify(out.counts.quotes)}`)
+  check(calls.filter(c => !c.label.startsWith('W2')).every(c => c.prompt.includes('- Read only.')), 'fixed: 読むだけの決まりの無い段が在る')
   // W8: 新しい抜けは区分 8 のルートになり、既に在る問いは seen で落ちる。2 回続けて空で止まる
   const gap = out.nodes.find(n => n.question === 'GAP new')
   check(gap && gap.rootClass === 8 && gap.parents.length === 0, 'fixed: W8 の抜けが区分 8 のルートにならない')
@@ -156,7 +166,7 @@ async function caseFixed() {
   check(out.nodes.filter(n => n.question === 'D2 deep').length === 1, 'fixed: seen に在る問いがもう一度掘られた')
   // 段のモデル・既定の形（roles 無し）・CLAUDE.md の書き足し・W2 に PR を渡さない
   const model = s => of(calls, s)[0]?.opts.model
-  check(model('W1') === 'opus' && model('W6') === 'sonnet' && model('W11') === 'haiku' && model('W4') === 'sonnet', 'fixed: 段のモデルが表と違う')
+  check(model('W1') === 'opus' && model('W6') === 'sonnet' && model('Quotes') === 'haiku' && model('W4') === 'sonnet', 'fixed: 段のモデルが表と違う')
   check(calls.filter(c => !c.label.startsWith('W2')).every(c => !c.opts.agentType), 'fixed: roles が無いのに agentType が付いた')
   check(of(calls, 'W2')[0].opts.agentType === 'convergence-loops:blind-judge', 'fixed: W2 が blindJudge で立たない')
   check(of(calls, 'W1')[0].prompt.includes('The CLAUDE.md files loaded into you'), 'fixed: PR が CLAUDE.md を変えたのに書き足しが無い')
@@ -181,11 +191,6 @@ async function caseFixed() {
     const { out: o3, calls: c3 } = await run(baseArgs({ models: { W10answers: { model: 'sonnet' } } }), responder())
     check(o3.stopped && c3.length === 0, 'fixed/same-model: 反証が書いた段と同じモデルでも止まらない')
   }
-  // W11 が null でも材料が返る
-  {
-    const { out: o4 } = await run(baseArgs(), responder({ W11: () => null }))
-    check(o4.recordWritten === false && o4.recordPath === null && o4.recordError && o4.nodes?.length > 0, 'fixed/W11-null: 材料が返らない')
-  }
   // W1 が null: その段だけで止まり、件数を返す
   {
     const { out: o5 } = await run(baseArgs(), responder({ W1: () => null }))
@@ -208,7 +213,7 @@ async function caseFixed() {
   }
   // 前の回の base の印（<旧 base7>:path:行）の根拠も、その path を読んだに数える
   {
-    const W6 = () => leaf('x', { checked: { files: ['a.py'], commands: [], urls: [] }, evidence: [{ at: 'ddddddd:CLAUDE.md:2', quote: 'q' }] })
+    const W6 = () => leaf('x', { files: ['a.py'], urls: [], evidence: [{ path: 'ddddddd:CLAUDE.md', line: 2, quote: 'q' }] })
     const { calls: cU } = await run(baseArgs(), responder({ W6 }))
     const unreadLine = (of(cU, 'W8')[0]?.prompt ?? '').split('\n').find(l => l.startsWith('Changed files no node')) ?? ''
     check(/\(none\)$/.test(unreadLine), `fixed/unread: 古い base の印の根拠を読んだに数えない ${unreadLine}`)
@@ -252,7 +257,7 @@ async function caseFixed() {
     const { calls: c9 } = await run(missing, responder({ W6: tree, W8, W1 }))
     check(of(c9, 'W6').length > 0 && of(c9, 'W2').length === 1, 'fixed/reuse: 前の回の head が無いのに使い回した')
     // 記録のフォルダの差分は数えず、thread（毎回書き直す）を読んだノードは使い回さない
-    const withFile = f => ({ ...out, nodes: out.nodes.map(n => ({ ...n, checked: { ...n.checked, files: [...(n.checked?.files ?? []), f] } })) })
+    const withFile = f => ({ ...out, nodes: out.nodes.map(n => ({ ...n, files: [...(n.files ?? []), f] })) })
     // 差分を読んだノードは、差分の本文が前の回と同じとき（prep.diffSame）だけ使い回す
     const allSame = { 'a.py': 'same', 'CLAUDE.md': 'same' }
     const diffArgs = baseArgs({ priorRecord: withFile('/rd/bbbbbbb..ppppppp.diff') })
@@ -261,33 +266,32 @@ async function caseFixed() {
     check(of(c10, 'W6').length === 0, 'fixed/reuse: 記録のフォルダの差分を読んだだけで使い回さなくなった')
     // 使い回したノードの差分のファイルは、今の回の 1 本目（本文が同じ）を指し直す。次の回でも使い回せるように
     const { out: o10 } = await run(diffArgs, responder({ W6: tree, W8, W1 }))
-    check(o10.nodes.every(n => !(n.checked?.files ?? []).includes('/rd/bbbbbbb..ppppppp.diff'))
-      && o10.nodes.some(n => (n.checked?.files ?? []).includes('/rd/bbbbbbb..hhhhhhh.diff')), 'fixed/reuse: 使い回したノードが前の回の差分のファイルを指したまま')
-    // 根拠（evidence の at）に挙げた差分のファイルも、今の回の 1 本目を指し直す
-    const withEv = at => ({ ...out, nodes: out.nodes.map(n => ({ ...n, evidence: [...(n.evidence ?? []), { at, quote: 'q' }] })) })
-    const evDiff = baseArgs({ priorRecord: withEv('/rd/bbbbbbb..ppppppp.diff:12') })
+    check(o10.nodes.every(n => !(n.files ?? []).includes('/rd/bbbbbbb..ppppppp.diff'))
+      && o10.nodes.some(n => (n.files ?? []).includes('/rd/bbbbbbb..hhhhhhh.diff')), 'fixed/reuse: 使い回したノードが前の回の差分のファイルを指したまま')
+    // 根拠（evidence の path）に挙げた差分のファイルも、今の回の 1 本目を指し直す
+    const withEv = (p, line = 0) => ({ ...out, nodes: out.nodes.map(n => ({ ...n, evidence: [...(n.evidence ?? []), { path: p, line, quote: 'q' }] })) })
+    const hasEv = (o, p, line) => o.nodes.some(n => (n.evidence ?? []).some(e => e.path === p && e.line === line))
+    const evDiff = baseArgs({ priorRecord: withEv('/rd/bbbbbbb..ppppppp.diff', 12) })
     evDiff.prep = diffArgs.prep
     const { out: o10h, calls: c10h } = await run(evDiff, responder({ W6: tree, W8, W1 }))
-    check(of(c10h, 'W6').length === 0 && o10h.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..hhhhhhh.diff:12'))
-      && !o10h.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..ppppppp.diff:12')), 'fixed/reuse: 根拠の差分の位置を指し直さない')
-    // 行の無い在り処（差分のファイルだけ）も、checked.files と同じく今の回の 1 本目を指し直す
+    check(of(c10h, 'W6').length === 0 && hasEv(o10h, '/rd/bbbbbbb..hhhhhhh.diff', 12) && !hasEv(o10h, '/rd/bbbbbbb..ppppppp.diff', 12), 'fixed/reuse: 根拠の差分の位置を指し直さない')
+    // 行の無い在り処（差分のファイルだけ）も、files と同じく今の回の 1 本目を指し直す
     const evBare = baseArgs({ priorRecord: withEv('/rd/bbbbbbb..ppppppp.diff') })
     evBare.prep = diffArgs.prep
     const { out: o10l } = await run(evBare, responder({ W6: tree, W8, W1 }))
-    check(o10l.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..hhhhhhh.diff'))
-      && !o10l.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/rd/bbbbbbb..ppppppp.diff')), 'fixed/reuse: 行の無い根拠の差分を指し直さない')
+    check(hasEv(o10l, '/rd/bbbbbbb..hhhhhhh.diff', 0) && !hasEv(o10l, '/rd/bbbbbbb..ppppppp.diff', 0), 'fixed/reuse: 行の無い根拠の差分を指し直さない')
     // 記録のフォルダの path に $ が在っても（$1・$& は置き換えの印）、そのままの綴りで指し直す
-    const dollar = baseArgs({ priorRecord: withEv('/r$1$&d/bbbbbbb..ppppppp.diff:12') })
+    const dollar = baseArgs({ priorRecord: withEv('/r$1$&d/bbbbbbb..ppppppp.diff', 12) })
     dollar.prep = { ...diffArgs.prep, recordDir: '/r$1$&d', diff: '/r$1$&d/bbbbbbb..hhhhhhh.diff' }
     const { out: o10j } = await run(dollar, responder({ W6: tree, W8, W1 }))
-    check(o10j.nodes.some(n => (n.evidence ?? []).some(e => e.at === '/r$1$&d/bbbbbbb..hhhhhhh.diff:12')), 'fixed/reuse: $ を含む path を指し直しで崩した')
+    check(hasEv(o10j, '/r$1$&d/bbbbbbb..hhhhhhh.diff', 12), 'fixed/reuse: $ を含む path を指し直しで崩した')
     // 反証の根拠のファイルが変わった末端は、使い回しても判定を持ち越さず、もう一度反証する
-    const vMoved = baseArgs({ priorRecord: { ...out, nodes: out.nodes.map(n => (n.verdict ? { ...n, verdict: { ...n.verdict, evidence: [{ at: 'b.py:3', quote: 'q' }] } } : n)) } })
+    const vMoved = baseArgs({ priorRecord: { ...out, nodes: out.nodes.map(n => (n.verdict ? { ...n, verdict: { ...n.verdict, evidence: [{ path: 'b.py', line: 3, quote: 'q' }] } } : n)) } })
     vMoved.prep = { ...same.prep, fingerprints: { ...allSame, 'b.py': 'moved' } }
     const { calls: c10k } = await run(vMoved, responder({ W6: tree, W8, W1 }))
     check(of(c10k, 'W6').length === 0 && of(c10k, 'W10').filter(c => /^W10 N/.test(c.label)).length > 0, 'fixed/reuse: 反証の根拠が変わったのに判定を持ち越した')
-    // 根拠に挙げただけのファイル（checked.files に無い）も読んだ物に数え、指紋が変われば使い回さない
-    const evMoved = baseArgs({ priorRecord: withEv('b.py:10') })
+    // 根拠に挙げただけのファイル（files に無い）も読んだ物に数え、指紋が変われば使い回さない
+    const evMoved = baseArgs({ priorRecord: withEv('b.py', 10) })
     evMoved.prep = { ...same.prep, fingerprints: { ...allSame, 'b.py': 'moved' } }
     const { calls: c10i } = await run(evMoved, responder({ W6: tree, W8, W1 }))
     check(of(c10i, 'W6').length > 0, 'fixed/reuse: 根拠に挙げたファイルが変わったのに使い回した')
@@ -306,11 +310,18 @@ async function caseFixed() {
     const { calls: c10c } = await run(relArgs, responder({ W6: tree, W8, W1 }))
     check(of(c10c, 'W6').length === 0, 'fixed/reuse: 相対の path の差分のファイルを読んだノードを使い回さない')
     // URL を根拠にし、parts に差分のファイルを挙げたノードも、差分が変わったら使い回さない
-    const withUrlDiff = { ...out, nodes: out.nodes.map(n => ({ ...n, checked: { ...n.checked, urls: ['https://x'] }, parts: ['/rd/bbbbbbb..ppppppp.diff'] })) }
+    const withUrlDiff = { ...out, nodes: out.nodes.map(n => ({ ...n, urls: ['https://x'], parts: ['/rd/bbbbbbb..ppppppp.diff'] })) }
     const urlDiff = baseArgs({ priorRecord: withUrlDiff })
     urlDiff.prep = { ...same.prep, fingerprints: allSame, diffSame: false }
     const { calls: c10e } = await run(urlDiff, responder({ W6: tree, W8, W1 }))
     check(of(c10e, 'W6').length > 0, 'fixed/reuse: parts の差分が変わったのに URL のノードを使い回した')
+    // GitHub の issue・PR・検索に頼った答え（gh で読んだ今の状態）は、ファイルが同じでも使い回さない
+    for (const u of ['https://github.com/o/r/pull/9', 'https://github.com/search?q=x']) {
+      const gh = baseArgs({ priorRecord: { ...out, nodes: out.nodes.map(n => ({ ...n, urls: [u] })) } })
+      gh.prep = { ...same.prep, fingerprints: allSame }
+      const { calls: c10h } = await run(gh, responder({ W6: tree, W8, W1 }))
+      check(of(c10h, 'W6').length > 0, `fixed/reuse: ${u} に頼ったノードを使い回した`)
+    }
     // ./ や .. を含む path も、prep と同じく畳んで指紋を引く
     const dotArgs = baseArgs({ priorRecord: withFile('lib/../a.py') })
     dotArgs.prep = { ...same.prep, fingerprints: allSame }
@@ -322,10 +333,10 @@ async function caseFixed() {
     const { calls: c10g } = await run(unc, responder({ W6: tree, W8, W1 }))
     check(of(c10g, 'W6').length === 0, 'fixed/reuse: // で始まる作業場の path の指紋を引けずに掘り直した')
     // 持ち越した判定の根拠が差分のファイルを指すときも、今の回の 1 本目を指し直す（次の回も持ち越せるように）
-    const vDiff = baseArgs({ priorRecord: { ...out, nodes: out.nodes.map(n => (n.verdict ? { ...n, verdict: { ...n.verdict, evidence: [{ at: '/rd/bbbbbbb..ppppppp.diff:5', quote: 'q' }] } } : n)) } })
+    const vDiff = baseArgs({ priorRecord: { ...out, nodes: out.nodes.map(n => (n.verdict ? { ...n, verdict: { ...n.verdict, evidence: [{ path: '/rd/bbbbbbb..ppppppp.diff', line: 5, quote: 'q' }] } } : n)) } })
     vDiff.prep = diffArgs.prep
     const { out: o10v, calls: c10v } = await run(vDiff, responder({ W6: tree, W8, W1 }))
-    const vAts = o10v.nodes.flatMap(n => (n.verdict?.evidence ?? []).map(e => e.at))
+    const vAts = o10v.nodes.flatMap(n => (n.verdict?.evidence ?? []).map(e => `${e.path}:${e.line}`))
     check(of(c10v, 'W10').filter(c => /^W10 N/.test(c.label)).length === 0 && vAts.includes('/rd/bbbbbbb..hhhhhhh.diff:5')
       && !vAts.includes('/rd/bbbbbbb..ppppppp.diff:5'), `fixed/reuse: 持ち越した判定の根拠の差分を指し直さない ${vAts}`)
     // 使い回した一般の構造は、それを出した問い（2 問目の答えなら 2 問とも）と問い直しの印を持ち越す
@@ -338,6 +349,11 @@ async function caseFixed() {
     threadArgs.prep = { ...same.prep }
     const { calls: c11 } = await run(threadArgs, responder({ W6: tree, W8, W1 }))
     check(of(c11, 'W6').length > 0, 'fixed/reuse: thread を読んだノードを使い回した')
+    // 形の違う記録（版 1: checked の中の files・evidence の at）は使い回さず、掘り直す
+    const v1 = baseArgs({ priorRecord: { ...out, version: 1 } })
+    v1.prep = same.prep
+    const { calls: c12 } = await run(v1, responder({ W6: tree, W8, W1 }))
+    check(of(c12, 'W6').length > 0 && of(c12, 'W2').length === 1, 'fixed/reuse: 版 1 の記録を使い回した')
   }
 }
 
@@ -791,7 +807,7 @@ async function caseGrow() {
   check(out.nodes.filter(n => n.parents.length === 0 && n.rootClass < 8).every(n => n.dependsOnUnverified), 'grow: 未確認の上に乗るルートに印が付かない')
   const last = out.gapRounds.at(-1)
   check(last?.gaps.length && last.gaps.every(g => g.outcome === 'cut') && out.counts.notSeen.gapsAfterCap.length === 2, 'grow: 上限の後の W8 の抜けが未確認で返らない')
-  check(out.recordWritten, 'grow: 記録が書けない')
+  check(out.version === 2 && out.nodes.length > 0, 'grow: 記録が返らない')
 }
 
 // ---- 3. 違う親が同じ問いを返す ----
@@ -850,7 +866,7 @@ async function caseSkips() {
   const over = {
     W1: () => ({ structure: 'S', kind: 'K', mechanisms: [{ mechanism: 'M', premise: 'P' }], selfMade: [], extraSmells: [], hiddenChoices: [], noParts: false, noPartsReason: '' }),
     'W4 smell 2': () => null,
-    'W4 smell 3': () => ({ verdict: 'none', answer: '', evidence: [{ at: 'a.py:1', quote: '' }] }),
+    'W4 smell 3': () => ({ verdict: 'none', answer: '', evidence: [{ path: 'a.py', line: 1, quote: '' }] }),
     W6: call => {
       const id = nodeId(call.prompt), q = nodeQ(call.prompt)
       if (q.startsWith('World')) return null
@@ -913,7 +929,103 @@ async function caseMap() {
   for (const t of SRC.matchAll(/\[(s\d+\.\d+)\]/g)) check(map.sentences.some(e => e.id === t[1] && e.to === 'js'), `map: script の印 ${t[1]} が表に無い`)
 }
 
-const CASES = { fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests }
+// ---- 写しの照合（設計 3）: 合わない写しの根拠を落とし、根拠が尽きた末端と臭いの答えは確かめていない物にして反証しない ----
+async function caseQuotes() {
+  const fnvT = s => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0 } return h.toString(16).padStart(8, '0') }
+  const missingWhere = pred => call => {
+    const items = quoteItems(call.prompt)
+    return { ran: true, checked: items.length, missing: items.filter(pred).map(x => ({ id: x[0], why: 'not on that line' })), garbled: [], error: '' }
+  }
+  const isRoot = q => q.startsWith('[s11.2]') || q.startsWith("The PR's structure differs")
+  // 1. 末端の写しが全部合わない: 末端は確かめていない物になり、反証も直しの案にも乗らない。ほかの根拠は残る
+  {
+    const W6 = call => {
+      const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+      if (isRoot(q)) return leaf(id, { evidence: [{ path: 'bad.py', line: 3, quote: 'nope' }] })
+      return leaf(id, { evidence: [{ path: 'bad.py', line: 3, quote: 'nope' }, { path: 'a.py', line: 1, quote: 'x' }] })
+    }
+    const { out, calls } = await run(baseArgs(), responder({ W6, Quotes: missingWhere(x => x[1] === 'bad.py') }))
+    const roots = out.nodes.filter(n => out.roots.includes(n.id))
+    const r1 = roots.find(n => isRoot(n.question)), other = roots.find(n => !isRoot(n.question))
+    check(r1?.status === 'unverified' && r1.resultStatus === 'unverified' && r1.evidence.length === 0 && r1.note.includes('quote check') && !calls.some(c => c.label === `W10 ${r1.id}`)
+      && !of(calls, 'W9')[0].prompt.includes(`- ${r1.id}: `), `quotes: 写しが全部合わない末端が、確かめていない物にならないか反証された ${r1?.status}`)
+    check(other?.status === 'leaf' && other.evidence.length === 1 && other.evidence[0].path === 'a.py' && calls.some(c => c.label === `W10 ${other.id}`),
+      `quotes: 合う写しの残る末端を落とした ${other?.status} ${JSON.stringify(other?.evidence)}`)
+    const q = out.counts.quotes
+    check(q.dropped.length === roots.length && q.dropped.every(d => d.path === 'bad.py' && d.line === 3 && d.why) && q.toUnverified.filter(id => id.startsWith('N')).length === 2,
+      `quotes: 落とした根拠が件数に出ない ${JSON.stringify(q)}`)
+    // 記録の resultStatus も確かめていない物にする（次の回が末端として使い回さない）
+    // 同じ根拠は 1 件にまとめて送り、印は id・path・行・写しから作る
+    const items = of(calls, 'Quotes').flatMap(c => quoteItems(c.prompt))
+    check(items.length === 3 && items.every(([id, pth, line, quote, sum]) => sum === fnvT(`${id}\n${pth}\n${line}\n${quote}`)), `quotes: 送る行がまとまらないか印が違う ${JSON.stringify(items)}`)
+  }
+  // 2. 臭いの答えの写しが合わない: 臭いの答えは確かめていない物になり、反証しない
+  {
+    const { out, calls } = await run(baseArgs(), responder({ Quotes: missingWhere(x => x[3] === 'y') }))
+    check(out.smells[0].answer.verdict === 'unverified' && !calls.some(c => c.label === 'W10 S1') && calls.some(c => c.label === 'W10 S2')
+      && out.counts.quotes.toUnverified.includes('S1') && out.smells[0].answer.evidence.length === 0, 'quotes: 写しの合わない臭いの答えが反証された')
+  }
+  // 3. 照合の段が返らない・数が合わない・印の合わない行: 根拠は落とさず、確かめていない件数に出す
+  for (const [name, Quotes, field] of [['null', () => null, 'unchecked'], ['count', call => ({ ...quotesOk(call), checked: 0 }), 'unchecked'],
+    ['garbled', call => ({ ...quotesOk(call), missing: quoteItems(call.prompt).map(x => ({ id: x[0], why: 'w' })), garbled: quoteItems(call.prompt).map(x => x[0]) }), 'garbled']]) {
+    const { out } = await run(baseArgs(), responder({ Quotes }))
+    const q = out.counts.quotes
+    check(q[field].length === q.items && q.items > 0 && !q.dropped.length && out.nodes.some(n => n.status === 'leaf'), `quotes(${name}): 確かめていない写しの数え方が違う ${JSON.stringify(q)}`)
+  }
+  // 4. prep.quoteCheck が無い: 段を飛ばし、全部を確かめていない件数に出す
+  {
+    const a = baseArgs(); delete a.prep.quoteCheck
+    const { out, calls } = await run(a, responder())
+    check(!of(calls, 'Quotes').length && out.counts.quotes.unchecked.length === out.counts.quotes.items && out.counts.stages.Quotes.skipped.length === 1,
+      'quotes(noPrep): 照合の道具が無いのに照合したか、件数に出ない')
+  }
+  // 5. 件数が多いときは束に分けて並べる。web のページ（line 0）の写しは送らず、それが残る末端は落とさない。日本語の写しは \uXXXX で送る
+  {
+    const W6 = call => leaf(nodeId(call.prompt), { evidence: [{ path: 'https://example.org/doc', line: 0, quote: 'Exact sentence.' },
+      { path: 'b.py', line: 9, quote: `日本語 ${nodeId(call.prompt)}` }] })
+    const { out, calls } = await run(baseArgs({ limits: { quoteBatch: 2 } }), responder({ W6, Quotes: missingWhere(x => x[1] === 'b.py') }))
+    const qs = of(calls, 'Quotes'), items = qs.flatMap(c => quoteItems(c.prompt))
+    check(qs.length === Math.ceil(items.length / 2) && qs.length > 1 && items.every(x => x[1] !== 'https://example.org/doc') && items.some(x => x[3].startsWith('日本語'))
+      && qs.every(c => /^[\x00-\x7f]*$/.test(c.prompt.split('```bash')[1])), `quotes(batch): 束の分け方か送る行が違う ${qs.length} ${items.length}`)
+    check(out.nodes.filter(n => n.result !== null).every(n => n.status === 'leaf' || n.depth > 0) && out.nodes.filter(n => out.roots.includes(n.id)).every(n => n.status === 'leaf' && n.evidence.length === 1),
+      'quotes(batch): web の写しが残る末端を確かめていない物にした')
+  }
+}
+
+// ---- 段の文の定数（設計 3）: 英文の sha256 が、上の和訳の注と一緒に書いた値と合う。合わなければ、和訳を見直して値を書き直す ----
+async function casePrompts() {
+  const lines = SRC.split('\n')
+  const a = lines.findIndex(l => l.startsWith('// ==== prompts')), b = lines.findIndex(l => l === '// ==== end of prompts ====')
+  check(a >= 0 && b > a, 'prompts: 段の文の区画の印が無い')
+  if (!(a >= 0 && b > a)) return
+  const region = lines.slice(a + 1, b)
+  const blocks = []
+  for (let i = 0; i < region.length; i++) {
+    if (!region[i].startsWith('// ja:') || (i > 0 && region[i - 1].startsWith('// ja:'))) continue
+    let j = i; while (j < region.length && region[j].startsWith('// ja:')) j++
+    let k = j + 1; while (k < region.length && !region[k].startsWith('// ja:')) k++
+    blocks.push({ ja: region.slice(i, j), sha: (region[j] ?? '').match(/^\/\/ sha256: (\S+)$/)?.[1], body: region.slice(j + 1, k).join('\n').trimEnd() })
+  }
+  const names = []
+  for (const bl of blocks) {
+    const consts = [...bl.body.matchAll(/^const (\w+) =/gm)].map(m => m[1])
+    check(consts.length === 1, `prompts: 1 つの和訳の注に定数が ${consts.length} 個（${consts.join(', ')}）`)
+    const name = consts[0] ?? '?'
+    names.push(name)
+    check(bl.ja.join('').replace(/\/\/ ja:/g, '').trim().length > 0, `prompts: ${name} の和訳が空`)
+    const want = crypto.createHash('sha256').update(bl.body).digest('hex')
+    check(bl.sha === want, `prompts: ${name} の英文が和訳を書いた時と違う。和訳を見直して「// sha256: ${want}」に書き直す`)
+  }
+  // 区画の中の定数は全部和訳を持ち、段の文の定数（W*_PROMPT・RULES・PR_FILES）は区画の中にだけ在る
+  const inRegion = [...region.join('\n').matchAll(/^const (\w+) =/gm)].map(m => m[1])
+  check(JSON.stringify(inRegion) === JSON.stringify(names), `prompts: 和訳の無い定数が在る ${inRegion.filter(n => !names.includes(n))}`)
+  for (const n of ['RULES', 'PR_FILES', 'W1_PROMPT', 'W2_PROMPT', 'W3_PROMPT', 'W4_PROMPT', 'W6_PROMPT', 'W7_PROMPT', 'W8_PROMPT', 'W9_PROMPT', 'W10_PROMPT', 'QUOTES_PROMPT'])
+    check(names.includes(n), `prompts: ${n} が区画に無い`)
+  const outside = [...lines.slice(0, a), ...lines.slice(b + 1)].join('\n')
+  check(![...outside.matchAll(/^const (\w+_PROMPT|RULES|PR_FILES|W5_ROOTS|W10_TARGET) =/gm)].length, 'prompts: 段の文の定数が区画の外に在る')
+}
+
+const CASES = { fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests, quotes: caseQuotes, prompts: casePrompts }
 const name = process.argv[2]
 if (!CASES[name]) { console.log(`使い方: node tests/my-turn-dig-dry.mjs <${Object.keys(CASES).join('|')}>`); process.exit(1) }
 try { await CASES[name]() } catch (e) { fails.push(`${name}: 例外 ${e?.stack ?? e}`) }

@@ -1,8 +1,8 @@
 # /my-turn の掘る段を Workflow で回す設計
 
 - **状態**: 承認済み（2026-11-17）で、実装した。
-- **見直しの案**: そのあと 6 回走らせた結果を受けた見直しの案（2026-11-18）を、セクション 14 に置いた。案 4・5・7・9 は先に直すと決め、残りは未承認。
-- **セクション 1〜12 の扱い**: 見直しの案が承認されるまで、承認の時の計画の文のまま。
+- **見直しの案**: そのあと 6 回走らせた結果を受けた見直しの案（2026-11-18）を、セクション 14 に置いた。案 4・5・7・9 は先に直すと決め、直した（2026-11-18。頼み b6a529）。残りの案 1・2・3・6 は未承認。
+- **セクション 1〜13 の扱い**: 案 4・5・7・9 を直した後の形を書く。残りの案は、承認されるまでセクション 14 にだけ書き、セクション 1〜13 は今の形のまま。
   - 実装で変えた所は、セクション 13 の一覧（[実装で設計から変えた所](my-turn-workflow-impl-changes.md)）に在る。
 
 ## この文書の要点
@@ -11,7 +11,7 @@
   - /my-turn: attention プラグインのコマンド `commands/my-turn.md`。次に動くのが持ち主の側にある PR を進める。
   - Workflow: JavaScript の script が裏のエージェントを決まった順に回す仕組み（https://code.claude.com/docs/en/workflows ）。
 - **今の形**:
-  - 段は W1〜W11 の固定の並び（セクション 3）。
+  - 段は W1〜W10 の固定の並びと、反証の前の根拠の照合（セクション 3）。記録は script が戻り値で返し、会話か台本がファイルに書く。
   - 問いの木はノード 1 つに 1 エージェントで掘る。深さの上限は置かず、ノードの上限 80 で止める。
   - 掘り終えた木の漏れを、新しい問いが 2 回続けて出なくなるまで探す。
   - 確定したリーフは 1 件に 1 エージェントで反証する。
@@ -20,10 +20,9 @@
   - 根拠の引用の 4 割近くが、指した行に無かった。
   - 答えの JSON が断られた回が 417 回。
   - 記録の書き出しが 6 回中 4 回失敗した。
-- **見直しの向き**（案。セクション 14）: Claude Code に同梱のコードレビューと /deep-research の script の形に寄せる。
-  - 走る前にエージェント数の上限を決める。
-  - 漏れの点検は 1 回にし、反証は場所ごとにまとめる。
-  - 答えの形を平らにする。根拠は行の番号と短い引用にし、反証の前に機械で照合する。
+- **見直しの向き**（セクション 14）: Claude Code に同梱のコードレビューと /deep-research の script の形に寄せる。
+  - 直した: 答えの形を平らにした。根拠は行の番号と短い引用にし、反証の前に機械で照合する。記録はエージェントに書かせない。指示文は script の頭の定数にそろえた。
+  - 未承認: 走る前にエージェント数の上限を決める。漏れの点検は 1 回にし、反証は場所ごとにまとめる。同じ問いを束ねるのをコードにする。
 
 ## 読み方
 
@@ -35,7 +34,7 @@
   - この文書のまとまりは「セクション N」。script のコメントの `section N` も、この番号を指す。
   - `commands/my-turn.md` の手順は「手順 N」で、前の版（手順 1〜20）の番号を指す。
     - 今の版は番号を詰めた。前の版の手順 16〜20 が今の手順 11〜15、掘る段を回す所が今の手順 6〜10 に当たる。
-  - Workflow の段は「W1」〜「W11」。
+  - Workflow の段は「W1」〜「W10」と、根拠の照合の段「Quotes」。前の版に在った記録を書く段は「W11」と呼ぶ（今は無い）。
 - **前の版の手順の中身**:
   - 手順 1〜5: 前提の取り直し。
     - 手順 2 は head の確かめ、手順 4 は前の指摘の確かめと正当化の控え、手順 5 は読めなかった物の確認。
@@ -44,7 +43,7 @@
 - **段の一覧**（詳しくはセクション 3）:
   - W1 構造・W2 一般の構造・W3 比べる・W4 コードスメル（5 つの問いはセクション 8）
   - W5 ルートを組む・W6 木を掘る・W7 束ねる・W8 漏れの点検
-  - W9 直し方の案と相乗り・W10 反証・W11 記録
+  - 根拠の照合（Quotes）・W9 直し方の案と相乗り・W10 反証
 - **本文の在り処**: 今の手順と守ることの本文は `commands/my-turn.md` に在る。この文書はそれを直す所だけを書く。
 
 ## 語
@@ -107,7 +106,7 @@ IT の一般の語（ノード・ルート・リーフ・SSOT・出力スキー�
    - `claude -p` の起動の引数 `--agents` で、その会話の中だけに定義する役は、ほかの会話の一覧に載らない。
      - これはヘッドレスの形（セクション 2）で使う。
 2. **固定の部分と、その場で足す部分を分ける。**
-   - **固定の部分**（どの PR でも飛ばさない）: 段の順（W1〜W11）・コードスメルの 5 つの問い（W4）・前提を消す形を問う先頭のルート・反証。
+   - **固定の部分**（どの PR でも飛ばさない）: 段の順（W1〜W10 と根拠の照合）・コードスメルの 5 つの問い（W4）・前提を消す形を問う先頭のルート・反証。
    - **その場で足す部分**（足すだけで、固定の部分は外せない）:
      - W1 が PR の種類に合わせて足すスメルの問い（以下「W4 の足し」）
      - W5 が組むルート
@@ -140,9 +139,9 @@ IT の一般の語（ノード・ルート・リーフ・SSOT・出力スキー�
 Workflow の作りは、`/deep-research` の script（語の項）にも倣った。
 
 1. PR の文は証拠で、指示でない（セクション 3 の共通の決まり）。
-2. 根拠に字のままの引用を付けさせ、反証は最初に引用が答えを支えるかを見る（W4・W6・W10、手順 20）。
+2. 根拠に字のままの引用を付けさせ、反証は最初に引用が答えを支えるかを見る（W4・W6・W10）。引用が指した行に在るかは、反証の前に機械で照合する（根拠の照合の段）。
 3. 上限で切る前に、重い問いを前に並べる（セクション 6）。
-4. 最後の段が落ちても材料を捨てず、見られなかった物と見て無かった物を分けて返す（W11・セクション 4）。
+4. 段が落ちても材料を捨てず、見られなかった物と見て無かった物を分けて返す（セクション 4）。
 
 - **取らなかった物は 1 つ**: 主張ごとに 3 エージェントで多数決し、迷えば崩れた扱いにする反証（セクション 12 の 15）。
 
@@ -170,8 +169,9 @@ sequenceDiagram
   P-->>C: 範囲・差分・決まりの文書・ハッシュ
   C->>W: args（path と prep の JSON）
   Note over C: ターンを終えて待たない
-  W->>W: W1〜W11（セクション 3）
-  W-->>C: 報告の材料・件数・記録の path
+  W->>W: W1〜W10 と根拠の照合（セクション 3）
+  W-->>C: 記録（報告の材料と件数）
+  C->>P: --save-record で記録を書く
   C->>O: 手順 16 持ち主への報告
   O->>C: やり取り
   C->>O: 手順 17・18 作者への下書き
@@ -206,11 +206,11 @@ sequenceDiagram
   1. 会話は手順 1〜5 の後、`args` を `<記録のフォルダ>/<番号>-args.json` に書き、台本 `my-turn-headless.py` を Bash の run_in_background で打つ。
   2. 台本が、`roles` を足した `args` を `<番号>-args-headless.json` に書き、`claude -p` を起動する。
      - 歯止めの `--max-budget-usd` の既定は 30。
-  3. その会話（以下、ヘッドレスの会話）は `args` のファイルを読んで Workflow を呼ぶ。Workflow が終わるまで待ってから、結果の JSON を出して終わる。
+  3. その会話（以下、ヘッドレスの会話）は `args` のファイルを読んで Workflow を呼ぶ。Workflow が終わるまで待ってから、終わりの知らせに在る出力のファイルの path（`{"outputFile": …}`）を出して終わる。知らせに出力のファイルが無ければ、戻り値の全体を出す。
      - Workflow は名前でなく、プラグインの中の script の絶対の path（`scriptPath`）で呼ぶ。
      - 名前で呼ばないのは、`--setting-sources ""` でプラグインを読まないため（[ヘッドレスの形の細部](my-turn-workflow-headless.md)）。
      - path は prep が JSON に載せる（`${CLAUDE_PLUGIN_ROOT}/workflows/my-turn-dig.js`）。
-  4. 出力は `--output-format json` で記録のフォルダの `<番号>-headless.json` に書かせる。台本が報告の材料を `<番号>-materials.json` に書く。
+  4. 出力は `--output-format json` で記録のフォルダの `<番号>-headless.json` に書かせる。台本が、出力のファイルから戻り値を取り出し、記録（`files.record`）と報告の材料（`<番号>-materials.json`）に書く。
   5. /my-turn の会話は、終わりの知らせで台本が出した 1 行の JSON を読み、`materials` のファイルを材料に手順 16 から続ける。
 - **ヘッドレスの形の細部**: 起動の仕方（環境・引数・役・許可・モデルの照合）と確かめの 5 つの点は、[ヘッドレスの形の細部](my-turn-workflow-headless.md)に在る。
   - 確かめの 5 つの点のうち、1 は 2026-11-17 の試しで直し、残りは未確認。
@@ -239,15 +239,16 @@ sequenceDiagram
 ```
 attention/
   commands/my-turn.md          直す。手順 1〜5・16〜20 と守ること。手順 5 の後で前処理をし、Workflow を呼ぶ
-  workflows/my-turn-dig.js     新規。Workflow の本体（1 本）。段の指示・出力スキーマ・上限の既定を全部持つ
-  scripts/my-turn-prep.py      新規。セクション 5 の前処理（標準ライブラリだけ。attention の台本の起動の入口 `scripts/run-python.sh` から起動）
-  scripts/my-turn-headless.py  新規。ヘッドレスの形の起動（`claude -p` の引数と環境の組み立て・材料の書き出し。ヘッドレスの形の細部）
+  workflows/my-turn-dig.js     新規。Workflow の本体（1 本）。段の指示（頭の定数）・出力スキーマ・上限の既定を全部持つ
+  scripts/my-turn-prep.py      新規。セクション 5 の前処理と根拠の照合（--quotes）と記録の書き込み（--save-record）。標準ライブラリだけ。attention の台本の起動の入口 `scripts/run-python.sh` から起動
+  scripts/my-turn-headless.py  新規。ヘッドレスの形の起動（`claude -p` の引数と環境の組み立て・記録と材料の書き出し。ヘッドレスの形の細部）
+  scripts/lib/my_turn_record.py  記録の版と書き方（prep と headless が共用）
 tests/
   my-turn-prep-case.py         新規。一時の git リポジトリで前処理とヘッドレスの起動を見る
   my-turn-dig-dry.mjs          新規。script を偽物の agent() で空回しする
   my-turn-dig-map.json         新規。前の版の手順 6〜15 の文 → 行き先（js・md・dropped）（セクション 8）
 <`git rev-parse --git-common-dir` の下>/attention/my-turn/   PR のリポジトリには commit しない
-  <PR番号>.json                 記録。W11 が書き、次の回の --prior に渡す
+  <PR番号>.json                 記録。Workflow の戻り値を、会話（prep の --save-record）か台本（ヘッドレスの形）が書き、次の回の --prior に渡す
   <base7>..<head7>.diff         prep が書く。commit の一覧・--stat・-U10 の差分（前の回の head から今の head までの差分〔2 本目。1 本目は base から head まで〕も同じ形）
   <PR番号>-justifications.md   会話が書く。手順 4 で控えた、この PR が足した正当化
   <PR番号>-thread.md            会話が書く。PR の本文・コメント・レビュー
@@ -259,6 +260,8 @@ tests/
 
 - **script は外を読めない**: Workflow の script はファイルもモジュールも読めない（Workflow の文書の「Behavior and limits」）。
   - 段の指示の文・出力スキーマ・上限の既定は、全部 `my-turn-dig.js` の中に書く。
+  - 段の指示の文は、ファイルの頭の指示文の区画（`// ==== prompts (section 3) ====` から `// ==== end of prompts ====` まで）に、`RULES`・`PR_FILES`・`W*_PROMPT` などの定数として置き、木を組む処理と分ける（`/deep-research` の script の形）。
+  - 定数の 1 つずつの上に、日本語の訳のコメント（`// ja:` の行）と、英語の文の sha256（`// sha256:` の行）を置く。英語だけを直して訳とハッシュを直さないと、空回しの試験の `prompts` が赤になる（セクション 11）。
 - **指示の文は英語**: script の中の指示の文は AI だけが読むので英語で書く。
   - 前の版の手順 6〜15 の文を訳して移す。
   - 元の文の番号は、指示の文の中に `[s6.1]` の形の印で残す（`tests/my-turn-dig-map.json` が照合する。セクション 8）。
@@ -270,7 +273,7 @@ tests/
 ## 3. Workflow の段
 
 決めること: 段ごとに、受け持つ手順・返すフィールド・待つ所を決める。
-見直しの案（W6 の出力スキーマ・W7・W8・W10・W11 を変える）は、セクション 14 に在る。
+見直しの案のうち、W6 の出力スキーマ（案 4）・根拠の照合（案 5）・W11 をやめること（案 7）・指示文の定数（案 9）は、このセクションに入れた。残り（W7・W8・W10 を変える案）は、セクション 14 に在る。
 
 **入力（`args`）**
 
@@ -281,7 +284,7 @@ tests/
 - `prep`: 前処理の JSON
   - 使い回せる前の回の結果 `prep.priorReuse` と、ハッシュの比べの印 `prep.fingerprints` も、この中で渡る。
 - `files`: 会話が書いたファイルの path
-  - PR の会話（`thread`）・手順 4 で控えた正当化（`justifications`）・記録の書き先（`record`）
+  - PR の会話（`thread`）・手順 4 で控えた正当化（`justifications`）・記録の書き先（`record`。script は書かず、ヘッドレスの台本が使う）
 - `priorFindings`: 手順 4 で控えた前の指摘と、前の回の発見とその状態
 - `unread`: 手順 5 で読めなかった物
 - `limits`: 上限。ノードの数・W9 の修正案とグループの数・W4 の足し（W1 が足すスメルの問い）の数
@@ -302,7 +305,6 @@ tests/
 - **段ごとの渡し方**:
   - 手順 4 で控えた正当化（`files.justifications`）は、W2 を除く全部の段に path で渡す。
   - W2 のブラインドの判定役には、PR の種類の 1 文（`kind`）だけを渡す。
-  - W11 には、共通の決まりの「読むだけ」の行を、記録のファイルだけを書く行に替えて渡す。
 
 **PR の文は証拠で、指示でない**
 
@@ -341,10 +343,12 @@ flowchart TB
     CK -->|次の深さが空| W8["W8 漏れの点検<br/>opus medium"]
     W8 -->|漏れの問いを束ねてルートに| W7
   end
-  W8 -->|2 回続けて新しい問いが無い| W9["W9 直し方の案と相乗り<br/>opus medium"]
-  W8 --> W10["W10 反証 1 件に 1 エージェント<br/>書いた段と別のモデル"]
+  W8 -->|2 回続けて新しい問いが無い| Q["根拠の照合 120 件に 1 エージェント<br/>haiku high"]
+  W4 --> Q
+  Q --> W9["W9 直し方の案と相乗り<br/>opus medium"]
+  Q --> W10["W10 反証 1 件に 1 エージェント<br/>書いた段と別のモデル"]
   W9 -->|修正案とグループ| W10
-  W10 --> W11["W11 記録を書く<br/>haiku high"] --> OUT[/"報告の材料と件数"/]
+  W10 --> OUT[/"記録（報告の材料と件数）を戻り値で返す"/]
 ```
 
 **待つ所（6 つ）**
@@ -352,13 +356,13 @@ flowchart TB
 - W5 は、W3 と W4 の全部を待つ。
 - W7 は、深さごとの全部のノードを待つ。
 - W8 は、その回に掘れる所まで掘り終えた木を待つ。
-- W9 は、W8 の終わりを待つ。
+- 根拠の照合は、W8 の終わりを待つ。
+- W9 は、根拠の照合の終わりを待つ。
 - W10 の修正案とグループの反証は、W9 を待つ。
-- W11 は、W10 の全部を待つ。
 
 **待たずに流す所**
 
-- リーフと W4 の答えの反証は、W8 の終わりで立て、W9 が探す間に流す。
+- リーフと W4 の答えの反証は、根拠の照合の終わりで立て、W9 が探す間に流す。
   - W9 を先に立て、反証の列の後ろに並ばないようにする。
 - 1 つの深さの中のノードと、W10 の 1 件ずつは待たずに流す。
 
@@ -411,10 +415,13 @@ flowchart TB
   - 返すフィールド:
     - `verdict`: スメル／該当なし／未確認
     - `answer`
-    - `evidence`: 根拠の一覧。1 件ごとに次を持つ。
-      - `at`: 「ファイル:行」。base の版を読んだときは頭に `<base7>:` を付ける。
-      - `quote`: その行の引用
-  - 当たらなければ、`verdict` を該当なしにして `answer` に訳を書き、`evidence` に見た所を書く（`quote` は空でよい）。
+    - `evidence`: 根拠の一覧。1 件ごとに次の 3 つを持つ（W6・W10 も同じ形）。
+      - `path`: リポジトリのルートからの相対の path で、PR の head の版。base の版を読んだときは頭に `<base7>:` を付ける。web のページなら URL。
+      - `line`: 1 から数える行の番号（整数）。web のページは 0。
+      - `quote`: その 1 行からの、字のままの写し（行の一部でよい。200 字まで）。
+      - 行を推測で数えさせず、写させる。写しが行に在るかは、掘り終えた後に script が確かめる（下の「根拠の照合」）。
+      - 形の揃え: 改行の入った写しは最初の行だけに、201 字からは切る。行が整数でなければ 0 にする（script のコード）。
+  - 当たらなければ、`verdict` を該当なしにして `answer` に訳を書き、`evidence` に見た所を書く（`quote` は空、`line` は 0 でよい）。
   - 読むだけで決まらなければ、未確認にする。
   - W5 は `verdict` でスメルの所を選ぶ。
 - **W5 ルートを組む**（コード。エージェントを立てない。手順 11・13・15）: 次を、この順の区分で並べる。
@@ -433,11 +440,14 @@ flowchart TB
 - **W6 木を掘る**（手順 11・13・15）: ノード 1 つに 1 エージェント。
   - 返すフィールド:
     - `answer`
-    - `checked`（確かめた物）: `files`（読んだファイルの path）・`commands`（打ったコマンド）・`urls`（根拠にした URL）。
+    - `files`: 読んだファイルの全部（リポジトリのルートからの相対の path）。
+    - `urls`: 頼った URL の全部。
+      - gh で読んだ issue・PR・検索の結果は、その URL を書かせる（使い回さない印。セクション 7）。
+      - 前の版は `checked` の下に `files`・`commands`・`urls` を入れ子で持っていた。入れ子を外し、打ったコマンド（`commands`）は外した（セクション 14.4 の 4）。
       - ハッシュはノードに書かせず、script も計算しない。script は prep の印（`prep.fingerprints`）を引くだけ。
-      - ハッシュは次の回に prep が、記録の `checked.files` と根拠の path から計算する（セクション 7 の使い回しの条件に使う）。
-    - `evidence`: 根拠の一覧で、W4 と同じ形。`status` がリーフ以外なら空でよい。
-      - URL を根拠にしたときは、`at` に URL を、`quote` にそのページの文の引用を書く。
+      - ハッシュは次の回に prep が、記録の `files` と根拠の path から計算する（セクション 7 の使い回しの条件に使う）。
+    - `evidence`: 根拠の一覧で、W4 と同じ形（`path`・`line`・`quote`）。`status` がリーフ以外なら空でよい。
+      - URL を根拠にしたときは、`path` に URL を、`line` に 0 を、`quote` にそのページの文の写しを書く。
     - `parts`: 既存の解決策を当てたノードが受け持った、PR の部品のファイル。当てていなければ空。
     - `premises`: 確かめずに前提にした事
     - `status`: リーフ／子に分ける／未確認／決まらない
@@ -483,7 +493,7 @@ flowchart TB
     - W4 の `verdict`
     - `unread`
     - どのノードも W4 も読まなかった、変えたファイルの一覧
-      - prep の変えたファイルから、`checked.files` と `evidence` の `at` に出たファイルを script が引いた残り。
+      - prep の変えたファイルから、ノードの `files` と、ノードと W4 の `evidence` の `path` に出たファイルを script が引いた残り。
   - 回ごとに見る向きを替える:
     - 奇数の回: W1 の部品・仕組み・前提・`selfMade` のうち、どのノードも問わなかった物から見る。
     - 偶数の回: 誰も読まなかったファイルと、「未確認」の物（ほかの物を読めば決まる物）から見る。
@@ -495,6 +505,24 @@ flowchart TB
     - Workflow の文書も、見つけ物の数が前もって分からない仕事は「stop once two rounds in a row find nothing new」で回す（「Find issues until the list stops growing」）。
     - ノードの上限に当たった後の回で出た漏れは、掘らずに「未確認」で返し、そこで終える。
   - 掘り終えた後で別の 1 エージェントが全体の漏れを探し、見つけた物を次の回の仕事にする形は、Workflow の書き方のスキルの「Completeness critic」（「what's missing」を問う）に当たる。
+- **根拠の照合**（段の名は Quotes。セクション 14.4 の 5）: W8 が終わったら、ノードと W4 の答えの根拠の写しが、指した行に本当に在るかを、コードで確かめる。
+  - script はファイルを読めない（Workflow の「Behavior and limits」）ので、1 エージェント（haiku）が `my-turn-prep.py --quotes -` を 1 回打ち、出た件数を写して返すだけにする。
+    - 照合するのは prep のコードで、エージェントは判断しない。
+    - 渡す物は 1 本のコマンド（ヒアドキュメント）。頭の行が `{workdir, base, head, recordDir}`、続く 1 行ずつが `[id, path, line, quote, 検査の値]`。
+    - 字は全部 `\uXXXX` の ASCII にして渡す（写し違いを減らす）。
+    - 検査の値は `id\npath\nline\nquote` の FNV-1a（32 bit。id も入れるので、別の id の下に写した行も写し違いになる）。prep が同じ値を計算し、合わない行は写し違い（`garbled`）として数え、照合しない。
+  - 照合する物: `line` が 1 以上で、`quote` が空でなく、`path` が URL でない根拠。同じ（path・行・写し）は 1 回にまとめる。
+    - web のページの写しと、行の無い根拠（`line` が 0）は照合しない（外さずに残す）。
+    - `<base7>:` などの commit の頭が付いた根拠は、その commit の版を `git show` で読む。記録のフォルダの差分のファイルは、ディスクから読む。
+  - 120 件ごとに 1 エージェントに分ける（`limits.quoteBatch`）。
+  - 返すフィールド: `ran`（打てたか）・`checked`（照合した件数）・`missing`（1 件ごとに `id`・`why`）・`garbled`・`error`。
+  - 結果の使い方（script のコード）:
+    - `missing` の根拠は外す。外した物は件数の `quotes.dropped` に、どこの何かと訳を残す。
+    - 打てなかった回と、`checked` の件数が渡した数と違う回は、まるごと照合しなかった扱い（`quotes.unchecked`）にし、根拠は外さない。
+    - 根拠が全部外れたリーフは「未確認」に下げ、反証に回さない（`quotes.toUnverified`）。上に乗るノードも「未確認」に乗る印を付ける。
+    - 根拠が全部外れた W4 の答えのうち、判定が「スメル」の物も「未確認」に下げ、反証に回さない（判定が「無い」「未確認」の答えは、判定を変えずに反証に回す）。
+    - web のページの写しが 1 つでも残れば下げない。
+  - 反証（W10）の最初の問い（引用が答えを支えるか）は、写しが行に在ることを前提にする。前の版は、その前提を報告の後の照合（手順 20）でしか確かめず、在らない写しに乗った答えが反証を通っていた。
 - **W9 直し方の案と相乗り**（手順 12・13・14）: 1 エージェント。相乗りの意味は語の項。
   - 確定したリーフの全部から、`limits` の数まで修正案とグループを作る。
   - 返すフィールド:
@@ -506,6 +534,7 @@ flowchart TB
     - `outside`（手順 12）: PR の外の open な issue・PR を `gh` で探した語と、乗れるか。
 - **W10 反証**: 次のそれぞれに、別の 1 エージェントが反証を試みる。
   - 対象: 確定したリーフの全部・W4 の答えの全部・W9 の修正案とグループごと。
+    - 根拠の照合で「未確認」に下げたリーフと、W4 の「スメル」の答えは、対象から外す。
   - 渡すのは、問い・答え・確かめた物・確かめずに前提にした事だけ。親の見立てと兄弟の答えは渡さない。
   - **W4・W6 の答えの反証**: 最初に、`evidence` の引用が答えを本当に支えるか（言い過ぎ・読み違いでないか）を確かめる。
     - `/deep-research` の script の反証の指示の最初の問いに倣う。
@@ -516,14 +545,18 @@ flowchart TB
     - `/deep-research` の script は 1 件に 3 エージェントを立てて多数決し、迷えば崩れた扱いにするが、この設計は採らない（訳はセクション 12 の 15）。
   - 崩れたリーフに乗る修正案とグループは外す。
   - 「残る」は、正しいと確かめた印として報告に書かない。
-- **W11 記録と報告の材料**: 記録の中身は script のコードが組み、1 エージェントがそれを記録のファイルに書き出す。
-  - 中身をエージェントに組ませると、形が揺れる。
-  - 返すフィールド: `wrote`（書けたか。真偽）・`nodeCount`（読み直した記録のノードの数）・`head`（読み直した記録の head）。
-  - script は、自分の組んだ記録のノードの数と head で照合する。
-  - W11 が `null` か中身が違えば、記録の path を返さず、記録が書けなかったことを添える。
-  - **材料は捨てない**: 報告の材料は、記録が書けた場合も書けなかった場合も、script が組んだ物をそのまま返す。run の全部を捨てない。
+- **記録と報告の材料**（前の版の W11。セクション 14.4 の 7）: script は記録を書かず、記録の中身を戻り値として返す。
+  - 記録の中身は script のコードが組む。中身をエージェントに組ませると、形が揺れる。
+  - 前の版は 1 エージェント（W11）に記録を書き出させ、読み直したノードの数と head で照合していた。書くだけのために 1 エージェントを立て、書けたかを数で確かめる手間が要った。
+  - 書くのは Workflow の外:
+    - 既定の形: 会話が `my-turn-prep.py --save-record <files.record> <出力のファイル>` を打つ（今の手順 9）。出力のファイルは、Workflow の終わりの知らせの `<output-file>`。
+      - script は出力のファイルの `result` を取り出し、版（`version`）が今の版か、止まった回（`stopped`）でないかを確かめ、同じフォルダの一時のファイルに書いてから置き換える。
+    - ヘッドレスの形: my-turn-headless.py が同じ処理（`lib/my_turn_record.py`）で書く。
+  - 記録の版は `version`（今は 2）。版の違う前の回の記録は使い回さない（セクション 7）。
+  - **材料は捨てない**: 記録が書けても書けなくても、報告の材料は script が組んだ物をそのまま使う。run の全部を捨てない。
     - `/deep-research` の script も、まとめの段が落ちたら、確かめた主張をまとめずに返す（script のコメント「salvage the verified claims raw rather than throwing」）。
-  - **会話に返す物**: 記録の全部に、件数（`counts`）と記録の path（`recordPath`・`recordWritten`・`recordError`）を足した物。
+    - 書けなかったときは、会話が報告の確かめた前提に 1 行書く。
+  - **会話に返す物**: 記録の全部（件数の `counts` を含む）。
   - **手順 16 と 20 が使う物**:
     - W1 の構造・仕組みと前提・自前実装の部品（`selfMade`）
     - W2 で使った問い（伏せた問いを足したときはその文も）と、一般の構造が出なかったか
@@ -531,12 +564,13 @@ flowchart TB
     - W4 の答えの全部（`verdict` と `answer`）
     - ルートごとのリーフで分かったこと
     - W8 の回ごとの `gaps`（掘った・`seen` に在って外した・上限で未確認の別）と `reason`
+    - 根拠の照合の件数（`counts.quotes`。外した根拠・照合しなかった物・「未確認」に下げた物）
     - 修正案とグループと、W10 の判定と `reason`
     - 相乗り（語の項）
     - 決まらない問い・未確認
     - 手順 5 で読めなかった物（`unread` をそのまま）
     - 件数（セクション 4）
-    - 記録の path
+    - 記録の path（既定の形は会話が、ヘッドレスの形は台本が書いた所）
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
@@ -571,7 +605,7 @@ run は 1 回で、2 本の差分を両方使う。
 - どの層も script のコードがするので、毎回同じ答えが出て、空回しの試験（セクション 11）で確かめられる。
 
 1. **段とノードの層**: 立てた数と返った数を数える。
-   - 対象: 固定の段（W1〜W4・W8〜W11）と、W5 が組んだルート・W6 が立てたノード・深さごとの W7・W10 の反証の全部。
+   - 対象: 固定の段（W1〜W4・W8・W9・根拠の照合）と、W5 が組んだルート・W6 が立てたノード・深さごとの W7・W10 の反証の全部。
    - `agent()` が `null` を返した物は、「該当なし」でなく「未確認」とし、段とノードの名前つきで返す。
      - `null` は、作り直しの打ち切り・API の失敗で返る（Workflow の文書の「Behavior and limits」）。
    - 段ごとの `null` の扱い:
@@ -580,6 +614,7 @@ run は 1 回で、2 本の差分を両方使う。
        - W8 の漏れを束ねる W7 なら、その回の漏れを全部「未確認」で返す。
        - どちらのときも、掘るのをそこで終えて W9 へ進む。
      - **W8**: 漏れの点検は回らなかった（見て漏れが無かったのではない）と件数に出して、W9 へ進む。
+     - **根拠の照合**: その回で渡した根拠を「照合しなかった」（`counts.quotes.unchecked`）にし、根拠は外さずに W9 へ進む。
      - **W1**（ただ 1 つの例外）: 構造が無いと後ろのどの段も問いを立てられないので、run を止め、件数を付けて会話に返す。
    - W1 のほかは、1 エージェントの失敗で run 全体を止めない。
 2. **フィールドの層**:
@@ -592,10 +627,11 @@ run は 1 回で、2 本の差分を両方使う。
      - W1 の `extraSmells`（いつでも）、`structure`・`kind`・`mechanisms`・`selfMade`（`noParts` が真のとき）
      - W2 の `general`（`notFound` が真のとき）
      - W3 の `diffs`（`comparable` が偽のとき）、`ifThreeMore`（`decision` が「寄せる」のとき）
-     - W6 の `premises` と `parts`（いつでも）、`children`（`status` が子に分ける以外のとき）、`checked.commands` と `checked.urls`（いつでも。`files` は空にできない）
+     - W6 の `premises` と `parts`（いつでも）、`children`（`status` が子に分ける以外のとき）、`urls`（いつでも。`files` は空にできない）
      - W9 の `fixes`（確定したリーフが無いとき）、`groups`・`outside`（いつでも。探した語は `searched` に必ず書かせる）
      - W7 の `dropped`（いつでも）、`clusters`（`dropped` が在るとき）
      - W4 の `evidence` の `quote`（`verdict` が該当なしか未確認のとき）、W6 の `evidence`（`status` がリーフ以外のとき）
+     - 根拠の照合の `missing`・`garbled`・`error`（いつでも）
      - W8 の `gaps`（`reason` が在るとき）、`reason`（`gaps` が在るとき）
 3. **上限の層**: 次は捨てずに、問いの文を「未確認」で返す。
    - ノードの上限で掘らなかった問い
@@ -620,6 +656,7 @@ run は 1 回で、2 本の差分を両方使う。
 
 決めること: エージェントを立てる前に、読む物を機械が揃える。
 `my-turn-prep.py <PR番号> [--prior <記録>] [--headless]` が、手元の git から次を作り、path と値を JSON で出す。
+同じ script は、ほかに 2 つの使い方を持つ（下の「引用の照合」と「記録を書く」）。`<PR番号>`・`--quotes`・`--save-record` は、どれか 1 つだけを付ける。
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"darkMode":true,"background":"#1e1e1e","fontSize":"15px","primaryColor":"#264f78","primaryTextColor":"#ffffff","primaryBorderColor":"#75beff","secondaryColor":"#3a3d41","tertiaryColor":"#2d2d30","lineColor":"#75beff","textColor":"#f0f0f0","titleColor":"#ffffff","clusterBkg":"#252526","clusterBorder":"#c8c8c8","edgeLabelBackground":"#3c3c3c","nodeTextColor":"#ffffff","actorBkg":"#264f78","actorBorder":"#75beff","actorTextColor":"#ffffff","actorLineColor":"#c8c8c8","signalColor":"#75beff","signalTextColor":"#f0f0f0","noteBkgColor":"#5c4b00","noteTextColor":"#ffffff","noteBorderColor":"#d7ba7d","labelBoxBkgColor":"#264f78","labelTextColor":"#ffffff","loopTextColor":"#f0f0f0","sequenceNumberColor":"#ffffff"}}}%%
@@ -688,15 +725,27 @@ flowchart LR
 - **ハッシュ**: 次の path について、前の回の head の版と今の head の版を比べ、印（`same`・`moved`・`gone`・`absent`）で返す（セクション 7）。
   - 変えたファイル・決まりの文書・前の記録が読んだ物と根拠にした物
   - 変えたファイルの一覧は W8 にも使う。
-- **引用の照合**（`my-turn-prep.py --quotes <記録>`。手順 20 で会話が打つ）:
-  - 記録の `evidence` のうちファイルを指す物の全部で、`quote` がその版のその行に字のまま在るかを見る。無い物を一覧で返す。
-  - 在り処の作り話を、報告の前に落とす。
-  - 版は `at` の頭の commit の印で決まる。
+- **引用の照合**（`my-turn-prep.py --quotes`）: 根拠の `quote` が、その版のその行に字のまま在るかを見る。無い物を一覧で返す。
+  - 2 つの形で打つ。照合のコードは同じ。
+    - `--quotes -`: Workflow の根拠の照合の段（セクション 3）が打つ。標準入力から、頭の行（`{workdir, base, head, recordDir}`）と、1 行ずつの `[id, path, line, quote, 検査の値]` を読む。
+      - 検査の値（FNV-1a）が合わない行は、写し違い（`garbled`）として照合しない。
+      - 返す物: `{ok, checked, missing:[{id, why}], garbled}`。
+    - `--quotes <記録>`: 手順 20（今の手順 15）で会話が、報告の後に打つ。記録の全部の `evidence`（W10 の判定の根拠を含む）を見る。
+      - 返す物: `{ok, checked, missing:[{path, line, quote, why}]}`。
+  - 在り処の作り話を、反証と報告の前に落とす。
+  - `line` が 0 の物と URL は照合しない（W10 が見る）。
+  - 版は `path` の頭の commit の印で決まる。
     - `<base7>:` なら base。
     - 使い回した物が持つ前の回の commit の印なら、その commit。
     - 印が無ければ head。
     - 記録のフォルダのファイルは commit に無いので、ファイルから読む。
-  - URL を指す引用は機械で見ず、W10 が見る。
+  - 写しは 1 行の一部でよい。写しの頭と終わりの空白と、制御文字（Workflow が段の返した字から外す字）は比べない。
+- **記録を書く**（`my-turn-prep.py --save-record <files.record> <出力のファイル>`。今の手順 9 で会話が打つ）:
+  - Workflow の出力のファイル（終わりの知らせの `<output-file>`）の `result` を取り出し、記録のファイルに書く。
+  - 版（`version`）が今の版と違う物・止まった回（`stopped`）は書かず、訳を返す。
+  - 同じフォルダの一時のファイルに書いてから置き換えるので、途中で切れた記録は残らない。
+  - 返す物: `{ok, record, nodes, head}`。
+  - 処理は `scripts/lib/my_turn_record.py` に在り、ヘッドレスの形の my-turn-headless.py も同じ物を使う。
 
 **差分の中身の数は数えない**
 
@@ -768,7 +817,7 @@ flowchart TB
     - その答えは、確定したリーフとして W10 の反証と報告に乗る。
     - 根拠が揃わなければ「未確認」と返し、未確認として報告に乗る。
   - **要約させずに渡す**: 子に渡す物は短くするが、後ろの段には次を渡す。どれも会話や親に要約させてから渡し直さない。
-    - W11: script が持っているノードの返りを、そのまま。
+    - 記録と報告の材料: script が持っているノードの返りを、そのまま。
     - W9: リーフの id・問い（1 行目）・答え・根拠の在り処。
     - W10: W10 の項に書いた物を、返りから切り出して。
     - Anthropic の調べの仕組みも、伝言で中身が落ちるのを避けるため、担当の結果を指揮役を通さずに後ろへ渡す（同じ記事「Subagent output to a filesystem to minimize the 'game of telephone'」）。
@@ -821,19 +870,23 @@ flowchart TB
 
 - **記録に残す物**: 記録（`<記録のフォルダ>/<PR番号>.json`。記録のフォルダはセクション 2 のファイルの一覧のとおり）に、次を残す。
   - その回の head と base
-  - ノードごとの問い・答え・確かめた物（読んだファイルの path・打ったコマンド・URL。ハッシュは残さない）・判定
+  - 記録の版（`version`。今は 2）
+  - ノードごとの問い・答え・確かめた物（読んだファイルの path の `files` と、頼った URL の `urls`。ハッシュは残さない）・根拠・判定
   - 差分の `--stat` の行・件数（セクション 4）・木の深さ
 - **次の回の流れ**:
   1. 会話は `my-turn-prep.py --prior <記録>` を打つ。
-  2. prep が、記録の `checked.files` と根拠の path について、前の回の head と今の head のハッシュを比べて印にする。使い回せる物だけを `priorReuse` に抜く。
+  2. prep が、記録の `files` と根拠の path について、前の回の head と今の head のハッシュを比べて印にする。使い回せる物だけを `priorReuse` に抜く。
   3. 会話は、prep の JSON をそのまま `args` の `prep` に載せる。
   4. script は、次を全部満たすノードだけ前の答えを使い、エージェントを立てない。
      - 同じ問い（問いの文の一致でなく、W5 がルートに・W7 がクラスタに付ける問いの鍵〔`seen` の key〕が同じこと）
      - 読んだファイルのハッシュが全部同じ
-     - `gh` を打っていない
+     - GitHub の issue・PR・検索の URL（`urls` か根拠の `path`）に頼っていない
+     - 記録の版が今の版と同じ（版の違う記録は使い回さず、その PR は 1 回掘り直す）
 - **条件の訳**:
   - git の読むだけのコマンド（`blame`・`log`・`show`）の答えは、読んだファイルが同じなら同じなので、条件に入れない。
-  - `gh` の答え（open な issue・PR など）は GitHub の今の状態で変わるので、打ったノードは使い回さない。
+  - `gh` の答え（open な issue・PR など）は GitHub の今の状態で変わるので、それに頼ったノードは使い回さない。
+    - 前の版は、ノードが打ったコマンド（`checked.commands`）に `gh` が在るかで見ていた。答えの形を平らにしてコマンドを外した（セクション 14.4 の 4）ので、gh で読んだ物の URL を `urls` に書かせ、GitHub の issue・PR・検索の URL で見る。
+    - URL を書き漏らしたノードは使い回されうる。コマンドで見ていた前の版も、打ったコマンドの書き漏らしは同じく見逃していた。
   - 前の版の手順 4 は「ツールの版」が同じことも条件にするが、ノードはツールを動かさないので外す（セクション 12）。
 - **差分のファイルを読んだノード**: 次の両方のときに使う（セクション 13）。
   - 差分の本文が前の回と同じ（prep の `diffSame`）。
@@ -848,9 +901,9 @@ flowchart TB
   s{"前の回の記録に同じ問いのノードがあるか"} -->|無い| run["エージェントを立てる"]
   s -->|ある| c1{"読んだファイルのハッシュが全部同じか"}
   c1 -->|違う| run
-  c1 -->|同じ| c2{"gh を打たずに決めたか"}
-  c2 -->|打った| run
-  c2 -->|打たない| c3{"URL を根拠にしたか"}
+  c1 -->|同じ| c2{"GitHub の issue・PR・検索の URL に頼ったか"}
+  c2 -->|頼った| run
+  c2 -->|頼らない| c3{"URL を根拠にしたか"}
   c3 -->|しない| use["前の答えを使う<br/>報告に「前の回の確かめを使った」"]
   c3 -->|した| c4{"その部品のファイルのハッシュも全部同じか"}
   c4 -->|同じ| use
@@ -957,7 +1010,7 @@ flowchart TB
 | W9 案と相乗り | opus | medium | W10 |
 | W10 反証（W4・W6 の答え） | opus | medium | 無し |
 | W10 反証（W9 の修正案とグループ） | sonnet | high | 無し（下の例外） |
-| W11 記録の書き出し | haiku | high | script の照合 |
+| 根拠の照合（Quotes） | haiku | high | script の照合 |
 
 - ※1 W2: 既定の形は blind-judge の定義の値。ヘッドレスの形は opus・medium。
 
@@ -970,13 +1023,15 @@ flowchart TB
   - その反証は、決まりでは opus の medium になるが、書いた段（opus）と別のモデルにする決まりと両立しない。
   - 別のモデルにする方を採り、sonnet の high にする（例外）。
 - **W2 の既定の役**: ブラインドの判定役の定義が無いときの既定の役（general-purpose）は、後ろで止める段が無いので opus の medium で立てる。
-- **W11**: script が組んだ中身を書き出すだけなので、いちばん安い側にし、形を崩さないよう high にする。
+- **根拠の照合**: コマンドを 1 回打って出た JSON を写すだけで、照合は prep のコードがするので、いちばん安い側にする。
+  - 長いコマンドを字のまま写させるので、Haiku 5.5 の推奨の「strict instruction following」に当たり、high にする（前の版の W11 と同じ）。
+  - 写し違いは検査の値と件数で script が見つけ、照合しなかった扱いにする（セクション 3）。
 - **W8**: 見落とした漏れを後ろで拾う段が無いので、能力の高い側にする。
   - 木を書いた W6（sonnet）と別のモデルにもなる。
   - W8 の問いは W6 が掘って W10 が反証するので、W8 そのものは反証しない。
-- **反証しない段**: W1・W2・W3 と W11。
+- **反証しない段**: W1・W2・W3 と根拠の照合。
   - W1〜W3 は、後ろで止める段の無い判断なので能力の高い側にする。
-  - W11 は script が照合する。
+  - 根拠の照合は判断をしない。結果は script が件数で照合する。
 
 **モデルが 1 つに揃う道を止める**
 
@@ -1017,7 +1072,7 @@ flowchart TB
 **費用の見込み**
 
 - **深さに依らない段だけで 17〜19 エージェント**（W4 の足しが無くても）。積み上げは次のとおり。
-  - W1・W2・W3・W9・W11 が各 1 で 5
+  - W1・W2・W3・W9・根拠の照合が各 1 で 5（根拠が 120 件を超えると、根拠の照合が 120 件ごとに 1 エージェント増える）
   - W4 が 5 で 10
   - W4 の答えの反証が 5 で 15
   - 漏れが無くても 2 回回る W8 で 17
@@ -1027,7 +1082,7 @@ flowchart TB
   - W1〜W4 で 8〜12
   - ノードで 30〜80
   - 反証で 30〜100（決まった答えは多くてもノードの 80 と W4 の 5〜8 で、そこに W9 の修正案とグループの上限 15 が足される）
-  - 束ねと W8・W9・W11 で 5〜10
+  - 束ねと W8・W9・根拠の照合で 5〜10
 - **Workflow の上限と目安との関係**:
   - Workflow の上限（1 回 1,000 エージェント・同時に 16 エージェント）の中に入る。
   - 25 エージェントを超えると、進み具合の行に `Large workflow` の警告が出るが、止めはしない（Workflow の文書の「Cost」）。
@@ -1041,12 +1096,13 @@ flowchart TB
 ## 10. script の骨組み
 
 形を見るための骨組みで、指示の文と出力スキーマの中身は省いてある。
-これは承認の時の形で、関数の名前と並びは `my-turn-dig.js` と違う。
+これは承認の時の形に、セクション 14.4 の 4・5・7・9 の直し（根拠の照合の段・記録を返す・指示文の定数）を足した物で、関数の名前と並びは `my-turn-dig.js` と違う。
 
 - ノードは `pipeline` でなく `parallel` で回す。
 - 反証は、W9 の完了を待たずに先に立てる。
-- `withExtra`・`markUnverifiedParents`・`childrenOf`・`gapRoots`・`decidedLeaves`・`refutable`・`buildRecord` は、同じ名前の関数として無い。
+- `withExtra`・`markUnverifiedParents`・`childrenOf`・`gapRoots`・`quoteItems`・`batches`・`quoteCommand`・`dropMissing`・`decidedLeaves`・`refutable`・`buildRecord` は、同じ名前の関数として無い。
 - `args` の確かめ（`stopped: 'args'`）と、W2・W3 の問い直しは、ここに書いていない。
+- 指示の文（`RULES`・`W*_PROMPT`）は script の頭の定数に置き、1 つずつに日本語の訳のコメントと英語の文の sha256 を添える（セクション 2）。
 
 ```js
 export const meta = {
@@ -1055,7 +1111,7 @@ export const meta = {
   whenToUse: 'Called by /attention:my-turn after steps 1-5; not for direct use',
   phases: [
     { title: 'Structure' }, { title: 'Compare' }, { title: 'Dig' },
-    { title: 'Fix options' }, { title: 'Refute' }, { title: 'Record' },
+    { title: 'Quotes' }, { title: 'Fix options' }, { title: 'Refute' },
   ],
 }
 
@@ -1067,7 +1123,7 @@ const MODELS = {          // section 9; args.models overrides per stage
   W4: { model: 'sonnet', effort: 'high' },  W6: { model: 'sonnet', effort: 'high' },
   W7: { model: 'sonnet', effort: 'high' },  W9: { model: 'opus', effort: 'medium' },
   W10answers: { model: 'opus', effort: 'medium' }, W10fixes: { model: 'sonnet', effort: 'high' },
-  W11: { model: 'haiku', effort: 'high' },
+  Quotes: { model: 'haiku', effort: 'high' },
   W2fallback: { model: 'opus', effort: 'medium' },   // no blind-judge role, or headless roles.W2 (section 2)
 }
 const M = stage => ({ ...MODELS[stage], ...(A.models?.[stage] ?? {}),
@@ -1128,6 +1184,13 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
   dry = level.length ? 0 : dry + 1
 }
 
+phase('Quotes')                       // the script cannot read files: one agent per 120 quotes runs prep --quotes
+const items = quoteItems(seen, smells)               // [id, path, line, quote, fnv] for line > 0, not a URL
+const checks = await parallel(batches(items, A.limits.quoteBatch).map(b => () =>
+  ask('Quotes', QUOTES_PROMPT(quoteCommand(A.prep.quoteCheck, b)), { schema: QUOTES, ...M('Quotes') })))
+dropMissing(seen, smells, items, checks, ledger)     // drop what is not on its line; all dropped: unverified,
+                                                     // not refuted. A batch not run or miscounted: unchecked
+
 phase('Fix options')
 const fixes = await ask('W9', W9_PROMPT(decidedLeaves(seen)), { schema: FIXES, ...M('W9') })
 
@@ -1135,15 +1198,14 @@ phase('Refute')                       // only question + answer + evidence + pre
 const verdicts = await parallel(refutable(seen, smells, fixes).map(x => () =>
   ask('W10', W10_PROMPT(x), { schema: VERDICT, ...M(x.fromFix ? 'W10fixes' : 'W10answers') })))
 
-phase('Record')
-const record = buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.counts())
-const wrote = await ask('W11', W11_PROMPT(record, A.files.record), { schema: WROTE, ...M('W11') })
-return materials(record, wrote, ledger.counts())   // returned even when W11 is null or differs
+return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.counts())
+                                      // the record itself (version 2); the conversation or
+                                      // my-turn-headless.py writes it (section 3)
 ```
 
 - **普通の関数**: 次は、エージェントを立てない普通の関数で、同じ入力に同じ答えを返す。
   - `newLedger`・`withExtra`・`buildRoots`・`allot`・`reuse`・`reuseGeneral`・`notSeen`・`markUnverified`・`markUnverifiedParents`
-  - `childrenOf`（`null` の答えは飛ばす）・`checkClusters`・`unreadChanged`・`gapRoots`・`decidedLeaves`・`refutable`・`buildRecord`・`materials`
+  - `childrenOf`（`null` の答えは飛ばす）・`checkClusters`・`unreadChanged`・`gapRoots`・`quoteItems`・`batches`・`quoteCommand`・`dropMissing`・`decidedLeaves`・`refutable`・`buildRecord`
 - **出力スキーマ**（骨組みで `schema` に渡す定数）: セクション 3 のフィールドだけを持ち、入れ子は 1 段までにする。
   - `required` は `properties` の中だけにする（満たせない出力スキーマは `agent()` が投げる）。
 - **使えない関数**: `Date.now()` と `Math.random()` は script の中で使えない（Workflow の文書の「Behavior and limits」）。
@@ -1169,15 +1231,19 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
   - PR の commit の一覧
   - lock のファイルが本文から外れて `--stat` に残るか
   - ハッシュの照合
-  - `--quotes` が、字の違う引用と在らない行を拾うか
+  - `quotes` のケース: `--quotes <記録>` と `--quotes -` が、字の違う引用と在らない行を拾うか
+    - 標準入力の形で、検査の値（FNV-1a）が script の値と合い、合わない行と壊れた行を写し違いに数えるか
+    - `--save-record` が、出力のファイルの包みを外して書き、版の違う物と止まった回を書かないか
+  - `prior` のケース: 版の違う記録を使い回さないか、GitHub の issue・PR・検索の URL に頼ったノードを使い回さないか
   - `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` を置くと止まり、`--headless` を付けると止まらないか
   - `headless` のケース: `my-turn-headless.py` の環境変数の落とし方・引数・役の定義と、偽の `claude` での実走の要約
 - **`tests/my-turn-dig-dry.mjs`**: script を、`agent()` などを偽物に替えて node で空回しする。
   - 偽物の `agent()` は、渡された出力スキーマに合う答えを返す。
-  - 次の 8 通りを持つ（`node tests/my-turn-dig-dry.mjs <名前>`）。
+  - 次の 10 通りを持つ（`node tests/my-turn-dig-dry.mjs <名前>`）。
   1. **`fixed`** 決まった答えを返す。見る物:
      - 深さ 3 のノードへの指示に、祖先の全部の問い・答え・前提が載るか（W7 で親を複数持つノードは、親ごとの道を 12 本まで）
-     - W9 と W11 に、それぞれの項に書いた物が欠けずに渡るか
+     - W9 と W10 に、それぞれの項に書いた物が欠けずに渡るか
+     - 戻り値が記録そのもの（`version` が 2）か
      - 深さごとの割り当て（セクション 6 の例の数）
      - 使い回し（W6 のノードと W2）
      - 件数
@@ -1188,7 +1254,7 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
      - W4 の足しが 1 問 1 エージェントで立ち、上限を越えた分が「未確認」で返るか
      - W8 が漏れを返さない回が 2 回続くと止まるか
      - W8 の問いが W7 で `seen` と照合されて、区分 8 のルートになるか
-     - W11 が `null` でも材料が返るか
+     - GitHub の issue・PR・検索の URL に頼ったノードを使い回さないか
   2. **`grow`** どのノードにも子の問いを 2 つずつ返し続ける。W8 にも漏れを返し続けさせる。見る物:
      - ノードの上限と `seen` で必ず止まるか
      - 上限の後の W8 の漏れが「未確認」で返るか
@@ -1207,6 +1273,16 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
      - 子の問いが 1 つも掘られない split
   7. **`schema`** 段ごとの返す形が、Workflow の決まり（ルートは object・`required` は `properties` の内）を満たすか。出力スキーマの自己矛盾もここで見る。
   8. **`map`** セクション 8 の表（`tests/my-turn-dig-map.json`）の照合。
+  9. **`quotes`** 根拠の照合の段（セクション 3）。見る物:
+     - 写しが全部合わないリーフと、判定が「スメル」の W4 の答えが「未確認」になり、反証にも W9 にも乗らないか（記録の `resultStatus` も「未確認」になり、次の回にリーフとして使い回さないか）
+     - 合う写しが残るリーフは残るか。web のページの写しは送らず、それが残るリーフは下げないか
+     - 同じ根拠を 1 件にまとめ、検査の値を path・行・写しから作るか。日本語の写しを `\uXXXX` で送るか
+     - 段が返らない・件数が合わない・写し違いのとき、根拠を外さずに件数に出すか
+     - `prep.quoteCheck` が無いとき、段を飛ばして件数に出すか
+     - 120 件（`limits.quoteBatch`）ごとに分けるか
+  10. **`prompts`** 指示文の定数（セクション 2）。見る物:
+      - 段の文の定数が全部、指示文の区画の中に在り、1 つずつに日本語の訳のコメントが在るか
+      - コメントの sha256 が、今の英語の文の sha256 と合うか（英語だけを直して訳を直さないと赤になる）
 - **`tests/run.sh`**: 上の 2 本と `tests/my-turn-dig-map.json` の照合を足す。
 
 **1 対の試し（実装の後に 1 回だけ）**
@@ -1243,7 +1319,7 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
   1. 直した版のヘッドレスの会話が、`scriptPath` が attention の `workflows/my-turn-dig.js` を指す Workflow の呼び出しを 1 回したか
      - ヘッドレスの会話の記録で見る。
      - 確かめの 1 の手で `--plugin-dir` の名前の呼び出しに替えたときは、名前 `attention:my-turn-dig` の呼び出しを数える。
-  2. 記録のファイルが在り、W11 の照合（セクション 3）を通るか
+  2. 記録のファイルが在り、版（`version`）が今の版か（承認の時の計画は「W11 の照合を通るか」で、W11 をやめたので替えた）
   3. 報告が挙げた「ファイル:行」が全部、固定した head に在るか（在り処の作り話を落とす）
   4. 報告の件数（立てた数・返った数・未確認・空で返ったフィールド）が記録と合うか
   5. 費用と時間: `claude -p --output-format json` の結果の `total_cost_usd` と `duration_ms` を版ごとに並べる
@@ -1309,9 +1385,10 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
     - 漏れが無くても、1 回に 2 エージェント増える。
 15. **/deep-research から 4 つを取る**（セクション 1・3）:
     - PR の文を指示として読まない。
-    - 根拠に字のままの引用を付けて、反証と手順 20 で照合する。
+    - 根拠に字のままの引用を付けて、根拠の照合の段（Quotes。反証の前）・反証・手順 20 で照合する。
     - 上限で切る前に、重い問いを前に並べる。
     - W11 が落ちても材料を返し、見られなかった物を分けて返す。
+      - 今は W11 をやめ、記録は戻り値で返す（セクション 3）。書けなかったときも材料は捨てない。
     - **取らない物**: 3 エージェントの多数決の反証。1 件 1 エージェントのままにし、確かめられない物は崩れた扱いにせず「未確認」で残す。
       - /deep-research は 1 件に 3 エージェントを立てて多数決し、迷えば崩れた扱いにする。
       - この形にすると、反証のエージェント数が 3 倍（30〜100 エージェントが 90〜300 エージェント）になる。
@@ -1328,6 +1405,7 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
 
 - 実装の中で、設計の文のままでは動かない・形が決まっていなかった所を、どう決めたかの一覧（約 60 項目）は、[実装で設計から変えた所](my-turn-workflow-impl-changes.md)に在る。
 - どれもセクション 12 の点を変えない。
+- セクション 14.4 の 4・5・7・9 を直したときに、案の文のままでは合わなかった所も、同じファイルの各セクションの項目に在る（項目の中に「14.4 の 4」などと書いた物）。
 
 ## 14. 6 回走らせた後の見直し（案。2026-11-18、未承認）
 
@@ -1337,6 +1415,7 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
 - 重さ・根拠の確かさ・記録の書き出しに問題が出た。
 - Claude Code に同梱のコードレビューと /deep-research の script、公開の bug-hunt の script と比べて、直す向きをこのセクションにまとめる。
 - 承認されるまで、セクション 1〜13 と実装は変えない。
+  - ただし 14.4 の 4・5・7・9 は、持ち主の 2026-11-18 の決め（14.6 の 6）で先に直し、セクション 1〜13 と実装に入れた。
 
 ### 14.1 走らせた結果
 
@@ -1388,10 +1467,10 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
    - 並びは Claude Code が決めるので、script では直せない。
    - 効く手は、エージェント数を減らすことと、届く物を減らすこと（ヘッドレスの形は CLAUDE.md を入れない）。
    - 分け合えれば、1 回 15〜20 USD 下がる見込み（推定）。
-6. **記録の書き出しが失敗する**（今壊れている）:
+6. **記録の書き出しが失敗する**（6 回の時点で壊れていた。14.4 の 7 で W11 をやめて直した）:
    - W11 は 6 回のうち 4 回、記録を書けなかった（`wrote` が偽・ノードの数 0）。
    - 数百 k トークンの JSON を haiku の 1 エージェントに写させる作りで、セクション 13 の一覧の「残した限り」が当たった。
-     - その項は、ノードの多い PR では W11 の出力の上限で記録の写しが切れうる、という限り（[実装で設計から変えた所](my-turn-workflow-impl-changes.md)の「残した限り」）。
+     - その項は、ノードの多い PR では W11 の出力の上限で記録の写しが切れうる、という限り。W11 をやめたので、[実装で設計から変えた所](my-turn-workflow-impl-changes.md)の「残した限り」から外した。
    - 記録は次の回の使い回しの元なので、書けなかった回の次は使い回しも効かない。
 7. **打ち直し**: 依存のソースを探す `find /` が、作業ツリーのフックに 113 回止められた。
    - 費用への効きは小さい（ツールを断られた直後のターンの費用は、PR #2557 の回で 3.8 USD・全体の 5%）。
@@ -1446,13 +1525,14 @@ return materials(record, wrote, ledger.counts())   // returned even when W11 is 
 4. **答えの形を平らにする**（問題 3）:
    - W6 の `checked` をやめ、`files`・`urls` を 1 段目の項目にする。
    - `checked.commands` は W10 への文にしか使っていないので外す。
+     - 実装で、前の回の使い回し（セクション 7）で `gh` を打ったノードを外すのにも使っていたと分かった。gh で読んだ物の URL を `urls` に書かせ、GitHub の issue・PR・検索の URL で外す形に替えた。
    - 根拠（`evidence`）は `path`・`line`（整数）・`quote`（1 行・200 字まで）にする。
    - Claude Code も、使っていない必須の項目を外して長い頼みでの安定を上げている（セクション 1 の線 3）。
 5. **根拠の引用を反証の前に機械で照合する**（問題 4）:
    - 掘り終えたら、1 エージェント（haiku）に `my-turn-prep.py --quotes` を打たせて、引用が指した行に在るかの結果を返させる。
      - script はファイルを読めないため。照合そのものは台本のコードがする。
    - 合わない根拠は外す。根拠が全部外れたリーフは「未確認」にして、反証に回さない。
-   - 今は手順 20 で、報告の後に照合している。
+   - 直す前は手順 20 で、報告の後に照合していた。
 6. **同じ問いを束ねるのをコードにする**（問題 1・2）:
    - W7（エージェントが束ねる）をやめ、問いの文を揃えた鍵で `seen` と比べてコードで落とす（Workflow のツールの説明文の決まり）。
    - 意味の重なりは残り、W9 と報告で合わせる（同梱のコードレビューも、意味の重なりは最後のまとめの段で合わせる）。

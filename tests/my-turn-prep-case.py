@@ -106,9 +106,9 @@ class Env:
         e.update(extra)
         return e
 
-    def prep(self, *args, env=None, script=None, cwd=None):
+    def prep(self, *args, env=None, script=None, cwd=None, stdin=None):
         r = subprocess.run([sys.executable, script or PREP, *args], cwd=cwd or self.repo, env=env or self.env(),
-                           capture_output=True, encoding="utf-8", errors="replace")
+                           capture_output=True, encoding="utf-8", errors="replace", input=stdin)
         try:
             return r.returncode, json.loads(r.stdout)
         except ValueError:
@@ -318,21 +318,24 @@ def case_prior():
             # 前の回の 1 本目の差分のファイル（<前の base>..<前の head>.diff）と、2 本目の差分のファイル
             dn = "%s..%s.diff" % (o1["base"][:7], kw.get("head", c1)[:7])
             # odd: repo の外・改行を含む path を読んだノード（指紋を取れないので、近道を取らない）
-            odd = [{"checked": {"files": [os.path.join(e.repo, "sub", "r.txt"), "./b.txt", "/outside/zzz", "../outside.py", "a.txt\nb.txt"]},
+            odd = [{"files": [os.path.join(e.repo, "sub", "r.txt"), "./b.txt", "/outside/zzz", "../outside.py", "a.txt\nb.txt"],
                     "parts": ["a.txt"]}] if kw.pop("odd", False) else [{"parts": ["a.txt"]}]
-            d = {"head": c1, "base": o1["base"], "patchId": o1["patchId"],
+            d = {"version": 2, "head": c1, "base": o1["base"], "patchId": o1["patchId"],
                  "nodes": odd + [
-                           {"key": "same file", "resultStatus": "leaf", "answer": "A", "checked": {"files": ["sub/r.txt"], "commands": [], "urls": []}},
-                           {"key": "ran gh", "resultStatus": "leaf", "checked": {"files": ["sub/r.txt"], "commands": ["gh pr view 7"], "urls": []}},
-                           {"key": "url moved", "resultStatus": "leaf", "checked": {"files": ["sub/r.txt"], "commands": [], "urls": ["https://x"]}, "parts": ["b.txt"]},
+                           {"key": "same file", "resultStatus": "leaf", "answer": "A", "files": ["sub/r.txt"], "urls": []},
+                           {"key": "url moved", "resultStatus": "leaf", "files": ["sub/r.txt"], "urls": ["https://x"], "parts": ["b.txt"]},
+                           # GitHub の issue・PR・検索に頼った答えは、ファイルが同じでも使い回さない（gh で読んだ今の状態）
+                           {"key": "gh issue", "resultStatus": "leaf", "files": ["sub/r.txt"], "urls": ["https://github.com/o/r/issues/3"]},
+                           {"key": "gh search", "resultStatus": "leaf", "files": ["sub/r.txt"], "urls": [],
+                            "evidence": [{"path": "https://api.github.com/search/issues?q=x", "line": 0, "quote": "q"}]},
                            # 記録のフォルダの差分は数えず、thread は毎回書き直すので同じとみなさない
-                           {"key": "diff and same", "resultStatus": "leaf", "checked": {"files": [os.path.join(o1["recordDir"], dn), "sub/r.txt"], "commands": [], "urls": []}},
-                           {"key": "second diff", "resultStatus": "leaf", "checked": {"files": [os.path.join(o1["recordDir"], "zzzzzzz.." + dn.split("..")[1]), "sub/r.txt"], "commands": [], "urls": []}},
-                           {"key": "thread", "resultStatus": "leaf", "checked": {"files": [os.path.join(o1["recordDir"], "7-thread.md"), "sub/r.txt"], "commands": [], "urls": []}},
-                           {"key": "rel diff", "resultStatus": "leaf", "checked": {"files": [".git/attention/my-turn/" + dn, "sub/r.txt"], "commands": [], "urls": []}},
-                           {"key": "diff only", "resultStatus": "leaf", "checked": {"files": [os.path.join(o1["recordDir"], dn)], "commands": [], "urls": []}},
+                           {"key": "diff and same", "resultStatus": "leaf", "files": [os.path.join(o1["recordDir"], dn), "sub/r.txt"], "urls": []},
+                           {"key": "second diff", "resultStatus": "leaf", "files": [os.path.join(o1["recordDir"], "zzzzzzz.." + dn.split("..")[1]), "sub/r.txt"], "urls": []},
+                           {"key": "thread", "resultStatus": "leaf", "files": [os.path.join(o1["recordDir"], "7-thread.md"), "sub/r.txt"], "urls": []},
+                           {"key": "rel diff", "resultStatus": "leaf", "files": [".git/attention/my-turn/" + dn, "sub/r.txt"], "urls": []},
+                           {"key": "diff only", "resultStatus": "leaf", "files": [os.path.join(o1["recordDir"], dn)], "urls": []},
                            # parts に差分のファイルを挙げた URL のノードも、差分が同じときだけ
-                           {"key": "url diff part", "resultStatus": "leaf", "checked": {"files": [" sub/r.txt"], "commands": [], "urls": ["https://x"]},
+                           {"key": "url diff part", "resultStatus": "leaf", "files": [" sub/r.txt"], "urls": ["https://x"],
                             "parts": [" " + os.path.join(o1["recordDir"], dn)]}],
                  "kind": "K", "general": {"text": "G"},
                  "counts": {"stages": {"W6": {"started": 2, "returned": 2, "null": []}}, "allNull": []}}
@@ -360,23 +363,23 @@ def case_prior():
         # 差分を読んだノードは、差分の本文が変わったので使い回さない
         check(o["diffSame"] is False, "diffSame %r" % o["diffSame"])
         check(ru and ru["kind"] == "K" and [n["key"] for n in ru["nodes"]] == ["same file"], "使い回せるノードだけを抜く %r" % ru)
-        # 根拠（evidence の at）に挙げただけのファイルも読んだ物に数える（<commit>: の頭と行の番号は外す）
+        # 根拠（evidence の path）に挙げただけのファイルも読んだ物に数える（<commit>: の頭は外す）
         # （sub/r.txt は PR の外で、根拠にしか挙げていないので、指紋に在るのは根拠を数えた印）
-        write_rec(nodes=[{"key": "ev", "resultStatus": "leaf", "checked": {"files": []}, "evidence": [{"at": "b.txt:1"}]},
-                         {"key": "ev hex", "resultStatus": "leaf", "checked": {"files": []},
-                          "evidence": [{"at": c1[:7] + ":b.txt:1-2"}]},
-                         {"key": "ev same", "resultStatus": "leaf", "checked": {"files": []}, "evidence": [{"at": "sub/r.txt:1"}]},
-                         {"key": "ev same hex", "resultStatus": "leaf", "checked": {"files": []},
-                          "evidence": [{"at": c1[:7] + ":sub/r.txt:1"}]}])
+        write_rec(nodes=[{"key": "ev", "resultStatus": "leaf", "files": [], "evidence": [{"path": "b.txt", "line": 1, "quote": "b"}]},
+                         {"key": "ev hex", "resultStatus": "leaf", "files": [],
+                          "evidence": [{"path": c1[:7] + ":b.txt", "line": 1, "quote": "b"}]},
+                         {"key": "ev same", "resultStatus": "leaf", "files": [], "evidence": [{"path": "sub/r.txt", "line": 1, "quote": "r"}]},
+                         {"key": "ev same hex", "resultStatus": "leaf", "files": [],
+                          "evidence": [{"path": c1[:7] + ":sub/r.txt", "line": 1, "quote": "r"}]}])
         rc, o = e.prep("7", "--prior", rec)
         check("sub/r.txt" in o["fingerprints"] and [n["key"] for n in o["priorReuse"]["nodes"]] == ["ev same", "ev same hex"],
               "根拠の path の指紋と使い回し %r %r" % (sorted(o["fingerprints"]), o["priorReuse"]))
         # 反証（verdict）の根拠のファイルが変わった末端は、使い回すが判定は持ち越さない
         v = {"verdict": "stands", "reason": "r"}
-        write_rec(nodes=[{"key": "v moved", "resultStatus": "leaf", "checked": {"files": ["sub/r.txt"]},
-                          "verdict": {**v, "evidence": [{"at": "b.txt:1"}]}},
-                         {"key": "v same", "resultStatus": "leaf", "checked": {"files": ["sub/r.txt"]},
-                          "verdict": {**v, "evidence": [{"at": "sub/r.txt:1"}]}}])
+        write_rec(nodes=[{"key": "v moved", "resultStatus": "leaf", "files": ["sub/r.txt"],
+                          "verdict": {**v, "evidence": [{"path": "b.txt", "line": 1, "quote": "b"}]}},
+                         {"key": "v same", "resultStatus": "leaf", "files": ["sub/r.txt"],
+                          "verdict": {**v, "evidence": [{"path": "sub/r.txt", "line": 1, "quote": "r"}]}}])
         rc, o = e.prep("7", "--prior", rec)
         got = {n["key"]: n["verdict"] for n in o["priorReuse"]["nodes"]}
         check(got.get("v moved", 0) is None and (got.get("v same") or {}).get("verdict") == "stands", "反証の根拠と判定 %r" % got)
@@ -451,26 +454,31 @@ def case_prior():
         rc, o = e.prep("7", "--prior", rec)
         check(o["unchanged"] is False, "repo の外を読んだ記録で unchanged %r" % o["unchanged"])
         write(e.repo, "untracked.txt", "u\n")
-        write_rec(head=c3, patchId=o["patchId"], nodes=[{"key": "u", "resultStatus": "leaf", "checked": {"files": ["untracked.txt"]}}])
+        write_rec(head=c3, patchId=o["patchId"], nodes=[{"key": "u", "resultStatus": "leaf", "files": ["untracked.txt"]}])
         rc, o = e.prep("7", "--prior", rec)
         check(o["unchanged"] is False and o["fingerprints"]["untracked.txt"] == "absent", "untracked を読んだ記録で unchanged %r" % o)
         os.remove(os.path.join(e.repo, "untracked.txt"))
-        # 臭いの問いの根拠（ノードでない所の at）に挙げたファイルも指紋に入れる（m.txt は main から来た）
-        write_rec(head=c3, patchId=o["patchId"], smells=[{"id": "S1", "answer": {"evidence": [{"at": "m.txt:1", "quote": "m"}]}}])
+        # 臭いの問いの根拠（ノードでない所の evidence）に挙げたファイルも指紋に入れる（m.txt は main から来た）
+        write_rec(head=c3, patchId=o["patchId"], smells=[{"id": "S1", "answer": {"evidence": [{"path": "m.txt", "line": 1, "quote": "m"}]}}])
         rc, o = e.prep("7", "--prior", rec)
         check(o["unchanged"] is False and o["fingerprints"].get("m.txt") == "moved", "臭いの根拠のファイルが動いても unchanged %r" % o)
         # patch-id が同じでも、ノードが読んだ PR の外のファイルが前の回の head と違えば近道を取らない（m.txt は main から来た）
-        write_rec(head=c3, patchId=o["patchId"], nodes=[{"key": "k", "resultStatus": "leaf", "checked": {"files": ["m.txt"]}}])
+        write_rec(head=c3, patchId=o["patchId"], nodes=[{"key": "k", "resultStatus": "leaf", "files": ["m.txt"]}])
         rc, o = e.prep("7", "--prior", rec)
         check(o["unchanged"] is False and o["fingerprints"]["m.txt"] == "moved", "外のファイルが動いても unchanged %r" % o)
         # 前の回に結果を返さなかった段が在る記録は、patch-id が同じでも使い回さない
         write_rec(head=c3, patchId=o["patchId"], counts={"stages": {"W6": {"null": ["W6 a"]}}, "allNull": ["W6"]})
         rc, o = e.prep("7", "--prior", rec)
         check(o["unchanged"] is False, "欠けた記録で unchanged %r" % o)
-        # W11（記録を写すだけ）だけが落ちた記録は欠けていない
-        write_rec(head=c3, patchId=o["patchId"], counts={"stages": {"W6": {"null": []}, "W11": {"null": ["W11 record"]}}, "allNull": ["W11"]})
+        # 欠けの無い記録は unchanged（下の版の違う記録と比べる）
+        write_rec(head=c3, patchId=o["patchId"])
         rc, o = e.prep("7", "--prior", rec)
-        check(o["unchanged"] is True, "W11 だけ落ちた記録で unchanged でない %r" % o)
+        check(o["unchanged"] is True and o["priorReuse"] is not None, "欠けの無い記録で unchanged でない %r" % o)
+        # 版の違う記録（版 1: checked の中の files・evidence の at）は使い回さず、近道も取らない
+        write_rec(head=c3, patchId=o["patchId"], version=1)
+        rc, o = e.prep("7", "--prior", rec)
+        check(rc == 0 and o["unchanged"] is False and o["priorReuse"] is None and o["priorHead"] == c3,
+              "版 1 の記録を使い回した %r" % o)
         # 同じ head で記録が欠けていた: 掘り直すが、空の 2 本目の差分は作らない
         write_rec(head=c5, patchId=o["patchId"], counts={"stages": {"W6": {"null": ["W6 a"]}}, "allNull": []})
         rc, o = e.prep("7", "--prior", rec)
@@ -538,59 +546,125 @@ def case_prior():
     with_env(body)
 
 
+def ev(path, line, quote):
+    return {"path": path, "line": line, "quote": quote}
+
+
+# my-turn-dig.js の fnv（UTF-16 の単位の FNV-1a）を node で出した値。Python の側（fnv32）が同じ値を出すかを見る
+JS_FNV = {"a.py\n1\nx": "4964b612", "docs/読む.md\n12\n「引用」の行 😀": "98bd3c2f", "": "811c9dc5"}
+
+
+def ascii_json(v):
+    """my-turn-dig.js の asciiJson と同じ形（ASCII の外の字を UTF-16 の \\uXXXX で書く）。"""
+    return json.dumps(v, ensure_ascii=True, separators=(",", ":"))
+
+
 def case_quotes():
     def body(e):
         base = e.base_commit(f_DOT_txt="one\ntwo\nthree\n")
-        # base の印の頭 8 字の名前のファイル（印としても解けるが、残りが path:行 でない）
+        # base の印の頭 8 字の名前のファイル（印としても読めるが、後に : が無いので path）
         head = feature(e, f_DOT_txt="one\nTWO changed\nthree\nfour\n", g_DOT_txt="page\fbreak\nafter\n", cafebabe="hex name\n",
-                       **{base[:8]: "hex base\n"})
+                       **{base[:8]: "hex base\n", "読む_DOT_md": "「引用」の行 😀\n"})
         rec = os.path.join(e.tmp, "rec.json")
         write(e.tmp, "7-thread.md", "body\nthe author said so\n")  # 記録のフォルダ（rec の在るフォルダ）のファイル
         with open(rec, "w", encoding="utf-8") as f:
             json.dump({"base": base, "head": head, "nodes": [
-                {"at": os.path.join(e.tmp, "7-thread.md") + ":2", "quote": "the author said so"},
-                {"at": "g.txt:2", "quote": "after"},  # \f で行を切らない
-                {"at": "g.txt:1", "quote": "pagebreak"},  # Workflow は引用から \f を外して記録に書く
-                {"at": "%s:f.txt:2" % head[:7], "quote": "TWO changed"},  # base でない commit の印
-                {"at": "f.txt:2", "quote": "TWO changed"},
-                {"at": os.path.join(e.repo, "f.txt") + ":2", "quote": "TWO changed"},
-                {"at": "/elsewhere/f.txt:2", "quote": "TWO changed"},
-                {"at": "f.txt:1-3", "quote": " three "},
-                {"at": "f.txt:2", "quote": "TWO chenged"},
-                {"at": "f.txt:9", "quote": "four"},
-                {"at": "%s:f.txt:2" % base[:7], "quote": "two"},
-                {"at": "%s:f.txt:2" % base[:7], "quote": "TWO changed"},
-                {"at": "https://example.com/x", "quote": "anything"},
-                {"at": "nofile.txt:1", "quote": "x"},
-                {"at": "garbage", "quote": "x"},
-                {"at": "1234567:f.txt:2", "quote": "TWO changed"},  # 解けない commit の印
-                {"at": "cafebabe:1", "quote": "hex name"},  # 名前が 16 進の字だけのファイル（commit の印に解けない）
-                {"at": "%s:1" % base[:8], "quote": "hex base"},
-                {"at": "f.txt:1", "quote": "   "},
-                {"deep": [{"at": "f.txt:4", "quote": "four"}]},
-                {"deep": [{"at": "f.txt:4", "quote": "four"}]},
+                ev(os.path.join(e.tmp, "7-thread.md"), 2, "the author said so"),
+                ev("g.txt", 2, "after"),  # \f で行を切らない
+                ev("g.txt", 1, "pagebreak"),  # Workflow は引用から \f を外して記録に書く
+                ev("%s:f.txt" % head[:7], 2, "TWO changed"),  # base でない commit の印
+                ev("f.txt", 2, "TWO changed"),
+                ev(os.path.join(e.repo, "f.txt"), 2, "TWO changed"),
+                ev("/elsewhere/f.txt", 2, "TWO changed"),
+                ev("f.txt", 3, " three "),
+                ev("f.txt", 2, "TWO chenged"),
+                ev("f.txt", 9, "four"),
+                ev("%s:f.txt" % base[:7], 2, "two"),
+                ev("%s:f.txt" % base[:7], 2, "TWO changed"),
+                ev("https://example.com/x", 0, "anything"),
+                ev("nofile.txt", 1, "x"),
+                ev("f.txt", "2", "x"),  # 行が整数でない
+                ev("1234567:f.txt", 2, "TWO changed"),  # 解けない commit の印
+                ev("cafebabe", 1, "hex name"),  # 名前が 16 進の字だけのファイル
+                ev(base[:8], 1, "hex base"),
+                ev("f.txt", 1, "   "),
+                ev("f.txt", 0, "one"),  # 行の無い在り処は照合の外
+                {"deep": [ev("f.txt", 4, "four")]},
+                {"deep": [ev("f.txt", 4, "four")]},
             ]}, f)
         rc, o = e.prep("--quotes", rec, script=PREP)
         check(rc == 0 and o["ok"], "quotes ok %r" % o)
-        got = sorted((m["at"], m["quote"]) for m in o["missing"])
-        want = sorted([("f.txt:2", "TWO chenged"), ("f.txt:9", "four"), ("%s:f.txt:2" % base[:7], "TWO changed"),
-                       ("nofile.txt:1", "x"), ("garbage", "x"), ("/elsewhere/f.txt:2", "TWO changed"), ("1234567:f.txt:2", "TWO changed")])
+        got = sorted((m["path"], str(m["line"]), m["quote"]) for m in o["missing"])
+        want = sorted([("f.txt", "2", "TWO chenged"), ("f.txt", "9", "four"), ("%s:f.txt" % base[:7], "2", "TWO changed"),
+                       ("nofile.txt", "1", "x"), ("f.txt", "2", "x"), ("/elsewhere/f.txt", "2", "TWO changed"),
+                       ("1234567:f.txt", "2", "TWO changed")])
         check(got == want, "missing %r" % got)
         check(all(m["why"] for m in o["missing"]), "why が空")
-        check(any("1234567" in m["why"] and m["at"].startswith("1234567") for m in o["missing"]), "解けない印の訳 %r" % o["missing"])
-        check(o["checked"] == 19, "checked %r" % o["checked"])  # URL と空の quote は数えない
+        check(any("1234567" in m["why"] and m["path"].startswith("1234567") for m in o["missing"]), "解けない印の訳 %r" % o["missing"])
+        check(o["checked"] == 19, "checked %r" % o["checked"])  # URL・行 0・空の quote は数えない
         with open(rec, "w") as f:
             f.write("nope")
         rc, o = e.prep("--quotes", rec)
         check(rc == 1 and o["stop"] == "prior-unreadable", "unreadable")
+
+        # 標準入力の形（Workflow の写しの照合の段が打つ物）: 1 行目が頭、続く行が [id, path, 行, 写し, 印]
+        sys.path.insert(0, os.path.dirname(PREP))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("my_turn_prep", PREP)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for k, v in JS_FNV.items():
+            check(mod.fnv32(k) == v, "fnv32 が my-turn-dig.js の fnv と違う %r" % k)
+
+        def item(i, path, line, quote, bad=False):
+            return ascii_json([i, path, line, quote, "0" * 8 if bad else mod.fnv32("%s\n%s\n%s\n%s" % (i, path, line, quote))])
+
+        lines = [ascii_json({"workdir": e.repo, "base": base, "head": head, "recordDir": e.tmp}),
+                 item("Q1", "f.txt", 2, "TWO changed"),
+                 item("Q2", "読む.md", 1, "「引用」の行 😀"),  # ASCII の外と UTF-16 の対の字
+                 item("Q3", "f.txt", 2, "TWO chenged"),
+                 item("Q4", "%s:f.txt" % base[:7], 2, "two"),
+                 item("Q5", os.path.join(e.tmp, "7-thread.md"), 2, "the author said so"),
+                 item("Q6", "f.txt", 2, "TWO changed", bad=True),  # 印が合わない（写し違い）
+                 '["Q7", "f.txt", 2',  # 途中で切れた行
+                 item("Q8", "f.txt", 0, "one"),  # 形が違う（行が 1 より小さい）
+                 "", "junk"]
+        # 作業場の外から打っても、頭の workdir で読む
+        rc, o = e.prep("--quotes", "-", cwd=e.tmp, stdin="\n".join(lines) + "\n")
+        check(rc == 0 and o["ok"] and o["checked"] == 8, "標準入力の照合 %r" % o)
+        check(sorted(m["id"] for m in o["missing"]) == ["Q3", "Q8"] and o["garbled"] == ["Q6", "Q7"], "合わない物 %r" % o)
+        # 頭が読めない
+        rc, o = e.prep("--quotes", "-", stdin="nope\n")
+        check(rc == 1 and o["ok"] is False and o["stop"] == "quotes-input", "頭の無い入力 %r" % o)
+
+        # --save-record: Workflow の出力のファイル（result が戻り値の JSON の文字列）から記録を書く（既定の形の手順 9）
+        out = os.path.join(e.tmp, "wf.output")
+        recd = os.path.join(e.tmp, "rd", "7.json")
+        val = {"version": 2, "pr": 7, "head": head, "nodes": [{"id": "n1"}], "recordWritten": False}
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump({"summary": "s", "result": json.dumps(val)}, f)
+        rc, o = e.prep("--save-record", recd, out)
+        saved = json.load(open(recd, encoding="utf-8"))
+        check(rc == 0 and o["ok"] and o["nodes"] == 1 and o["head"] == head
+              and saved == {k: v for k, v in val.items() if k != "recordWritten"}, "記録の書き込み %r %r" % (o, saved))
+        # 止まった回・版の違う戻り値は書かず、前の記録を残す
+        for bad in ({"stopped": "W1", "version": 2}, {**val, "version": 1}, ["x"]):
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump({"result": bad}, f)
+            rc, o = e.prep("--save-record", recd, out)
+            check(rc == 1 and o["stop"] == "record" and json.load(open(recd, encoding="utf-8")) == saved, "書かない戻り値 %r %r" % (bad, o))
+        rc, o = e.prep("--save-record", recd, os.path.join(e.tmp, "none"))
+        check(rc == 1 and o["stop"] == "record", "無い出力のファイル %r" % o)
     if not POSIX:
         return skip("quotes")
     with_env(body)
 
 
 def case_headless():
+    QC = {"runPython": "/p/scripts/run-python.sh", "prep": "/p/scripts/my-turn-prep.py"}
+
     def body(e):
-        # 記録のフォルダはリンクの先（macOS の /tmp → /private/tmp の形）。書き込みの許可はリンクを解いた実パスで組む
+        # 記録のフォルダはリンクの先（macOS の /tmp → /private/tmp の形）。記録は台本がリンクの綴りのまま書く
         os.makedirs(os.path.join(e.tmp, "rd-real"))
         rd = os.path.join(e.tmp, "rd")
         os.symlink(os.path.join(e.tmp, "rd-real"), rd)
@@ -599,7 +673,8 @@ def case_headless():
         os.makedirs(fdir)
         args_json = os.path.join(e.tmp, "args.json")
         with open(args_json, "w", encoding="utf-8") as f:
-            json.dump({"pr": 7, "workdir": e.work, "prep": {"recordDir": rd, "scriptPath": "/x/workflows/my-turn-dig.js"},
+            json.dump({"pr": 7, "workdir": e.work, "prep": {"recordDir": rd, "scriptPath": "/x/workflows/my-turn-dig.js",
+                                                             "quoteCheck": QC},
                        "files": {"record": os.path.join(rd, "7.json")}, "models": {"W3": {"model": "fable"}}}, f)
         # 認証は親が持っている形にして、窓口のコマンドや Keychain を読ませない
         env = e.env(CLAUDE_FOO="1", ANTHROPIC_BAR="2", CLAUDE_CONFIG_DIR="/cfg", CLAUDE_CODE_DISABLE_CLAUDE_MDS="0",
@@ -629,7 +704,7 @@ def case_headless():
             return argv[argv.index(flag) + 1]
         check(after("--model") == "sonnet" and after("--output-format") == "json", "model/format")
         check(after("--max-budget-usd") == "30", "budget の既定")
-        check(after("--tools") == "Read,Grep,Glob,Bash,Write,Workflow,WebFetch,WebSearch", "tools")
+        check(after("--tools") == "Read,Grep,Glob,Bash,Workflow,WebFetch,WebSearch", "tools")
         check(after("--setting-sources") == "", "setting-sources")
         check("--disable-slash-commands" in argv and "--strict-mcp-config" in argv, "フラグ")
         check(json.loads(after("--settings")) == {"disableAllHooks": True}, "settings")
@@ -641,28 +716,30 @@ def case_headless():
         argsf = d["argsFile"]
         check(argsf == os.path.join(rd, "7-args-headless.json") and argsf in argv[2], "argsFile / prompt")
         rules = argv[argv.index("--allowedTools") + 1:]
-        for want in ["Workflow", "Read", "Grep", "Glob", "WebFetch", "WebSearch", "Edit(/%s/**)" % os.path.realpath(rd),
+        for want in ["Workflow", "Read", "Grep", "Glob", "WebFetch", "WebSearch",
+                     "Bash(bash /p/scripts/run-python.sh /p/scripts/my-turn-prep.py --quotes *)",
                      "Bash(git show *)", "Bash(git blame *)", "Bash(git log *)", "Bash(git diff *)",
                      "Bash(git cat-file *)", "Bash(git ls-files *)", "Bash(git rev-parse *)",
                      "Bash(gh pr view *)", "Bash(gh pr diff *)", "Bash(gh pr list *)", "Bash(gh issue view *)",
                      "Bash(gh issue list *)", "Bash(gh search *)"]:
             check(want in rules, "許可ルールに無い: " + want)
         check(not any("gh api" in r or "git grep" in r for r in rules), "gh api か git grep が許可に入った")
-        check(not any(r.startswith("Edit(/%s/" % rd) for r in rules), "書き込みの許可がリンクの綴りのまま")
+        check(not any(r.startswith(("Edit", "Write")) for r in rules), "書き込みの許可が残った %r" % rules)
+        check("never edit files" in after("--system-prompt").lower() and "outputFile" in after("--system-prompt"),
+              "system prompt が出力のファイルの path を返させない")
         deny = argv[argv.index("--disallowedTools") + 1:argv.index("--permission-mode")]
         check(deny == ["Bash(git *--output*)", "Bash(git grep *)"], "禁止のルール %r" % deny)
         ag = json.loads(after("--agents"))
-        keys = "W1 W2 W3 W4 W6 W7 W8 W9 W10answers W10fixes W11".split()
+        keys = "W1 W2 W3 W4 W6 W7 W8 W9 W10answers W10fixes Quotes".split()
         check(sorted(ag) == sorted("my-turn-" + k for k in keys), "役の一覧 %r" % sorted(ag))
         for name, a in ag.items():
             check("model" not in a and "effort" not in a, name + " に model/effort")
             check(a["omitClaudeMd"] is True and a["description"] and a["prompt"], name + " の定義")
-            has_write = "Write" in a["tools"]
-            check(has_write == (name == "my-turn-W11"), name + " の Write")
+            check("Write" not in a["tools"] and "Edit" not in a["tools"], name + " の Write")
             check((a["tools"] == []) == (name == "my-turn-W2"), name + " の tools の空")
             web = "WebFetch" in a["tools"] and "WebSearch" in a["tools"]
-            check(web == (name not in ("my-turn-W2", "my-turn-W11")), name + " の web のツール")
-        check(ag["my-turn-W11"]["disallowedTools"] == ["Edit", "Bash", "NotebookEdit"], "W11 の禁止")
+            check(web == (name not in ("my-turn-W2", "my-turn-Quotes")), name + " の web のツール")
+        check(ag["my-turn-Quotes"]["tools"] == ["Bash"] and "Read" in ag["my-turn-Quotes"]["disallowedTools"], "Quotes のツール")
         saved = json.load(open(argsf, encoding="utf-8"))
         check(saved["roles"] == {k: "my-turn-" + k for k in keys} and saved["pr"] == 7, "args-headless の roles")
         check(not os.path.exists(os.path.join(fdir, "seen.json")), "dry-run が起動した")
@@ -702,32 +779,50 @@ def case_headless():
               and "ANTHROPIC_VERTEX_PROJECT_ID" in seen["env"] and "ANTHROPIC_DEFAULT_OPUS_MODEL" not in seen["env"]
               and "CLAUDE_CODE_CLIENT_CERT" in seen["env"], "子の環境")
         check(seen["argv"][seen["argv"].index("--max-budget-usd") + 1] == "5", "budget の指定")
-        # 記録が書けた回: 出力は短い印だけで、材料は記録のファイルから組む
+        # 止まらずに終わった回: 子は Workflow の出力のファイルの path だけを返し、台本がそこから記録を書く
         rec = os.path.join(rd, "7.json")
-        with open(rec, "w", encoding="utf-8") as f:
-            json.dump({"pr": 7, "nodes": [], "counts": {"allNull": []}}, f)
-        rc, s = run_with(json.dumps({"recordPath": rec, "recordWritten": True}))
-        check(rc == 0 and s["ok"] is True and json.load(open(s["materials"])) ==
-              {"pr": 7, "nodes": [], "counts": {"allNull": []}, "recordPath": rec, "recordWritten": True, "recordError": None},
-              "記録から組んだ材料 %r" % s)
-        # 記録の counts（W11 の前に数えた物）に、W11 の分を機械で足す。子の会話が写した counts は使わない
-        with open(rec, "w", encoding="utf-8") as f:
-            json.dump({"pr": 7, "nodes": [], "recordModel": "haiku",
-                       "counts": {"stages": {"W6": {"started": 1, "returned": 1, "null": [], "models": ["sonnet"]},
-                                             "W3": {"started": 0, "returned": 0, "null": [], "models": ["fable"]}},
-                                  "allNull": []}}, f)
-        rc, s = run_with(json.dumps({"recordPath": rec, "recordWritten": True, "counts": {"allNull": ["bogus"]}}))
-        c = json.load(open(s["materials"]))["counts"]
-        check(rc == 0 and c["allNull"] == [] and c["stages"]["W6"]["returned"] == 1
-              and c["stages"]["W11"]["returned"] == 1 and c["stages"]["W11"]["null"] == [], "W11 の分の counts %r" % c)
-        # 来なかったモデルは、回った段（W6 の sonnet と W11 の haiku）の物だけ。回らなかった W3 の fable は数えない（使った名に haiku は無い）
-        check(c["stages"]["W11"]["models"] == ["haiku"] and s["models"]["expectedMissing"] == ["haiku"], "回った段のモデル %r" % s["models"])
+        wf_out = os.path.join(e.tmp, "wf.output")
+        body_rec = {"version": 2, "pr": 7, "nodes": [{"id": "n1"}], "recordPath": "stale",
+                    "counts": {"stages": {"W6": {"started": 1, "returned": 1, "null": [], "models": ["sonnet"]},
+                                          "W3": {"started": 0, "returned": 0, "null": [], "models": ["fable"]},
+                                          "Quotes": {"started": 1, "returned": 1, "null": [], "models": ["haiku"]}},
+                               "allNull": []}}
+        with open(wf_out, "w", encoding="utf-8") as f:
+            json.dump({"summary": "done", "agentCount": 3, "result": json.dumps(body_rec)}, f)
+        rc, s = run_with(json.dumps({"outputFile": wf_out}))
+        want = {k: v for k, v in body_rec.items() if k != "recordPath"}
+        check(rc == 0 and s["ok"] is True and s["record"] == rec and json.load(open(rec)) == want
+              and json.load(open(s["materials"])) == want, "出力のファイルから書いた記録 %r" % s)
+        # 来なかったモデルは、回った段（W6 の sonnet と Quotes の haiku）の物だけ。回らなかった W3 の fable は数えない
+        check(s["models"]["expectedMissing"] == ["haiku"], "回った段のモデル %r" % s["models"])
+        # 子が戻り値の全体を返した回も、同じく記録を書く
+        os.unlink(rec)
+        rc, s = run_with(json.dumps(want))
+        check(rc == 0 and s["ok"] is True and json.load(open(rec)) == want, "戻り値の全体から書いた記録 %r" % s)
+        # 版の違う戻り値は記録にしないが、材料は捨てない
+        os.unlink(rec)
+        rc, s = run_with(json.dumps({**want, "version": 1}))
+        check(rc == 1 and s["ok"] is False and s["record"] is None and not os.path.exists(rec) and isinstance(s["message"], str)
+              and json.load(open(s["materials"]))["version"] == 1, "版の違う戻り値 %r" % s)
+        # 記録を書けない（files.record の親がファイル）: 材料は書き、record は返さない
+        blocker = os.path.join(e.tmp, "blocker")
+        open(blocker, "w").close()
+        orig_args = open(args_json, encoding="utf-8").read()
+        bad = json.loads(orig_args)
+        bad["files"]["record"] = os.path.join(blocker, "7.json")
+        with open(args_json, "w", encoding="utf-8") as f:
+            json.dump(bad, f)
+        rc, s = run_with(json.dumps(want))
+        with open(args_json, "w", encoding="utf-8") as f:
+            f.write(orig_args)
+        check(rc == 1 and s["ok"] is False and s["record"] is None and isinstance(s["message"], str)
+              and json.load(open(s["materials"])) == want, "書けない記録 %r" % s)
+        # 出力のファイルが読めない
+        rc, s = run_with(json.dumps({"outputFile": os.path.join(e.tmp, "none.output")}))
+        check(rc == 1 and s["ok"] is False and s["materials"] is None and "none.output" in s["message"], "読めない出力のファイル %r" % s)
         # Workflow の呼び出しが失敗した回: 子の答えの訳が message に出る
         rc, s = run_with(json.dumps({"workflowError": "scriptPath rejected"}))
         check(rc == 1 and s["ok"] is False and "scriptPath rejected" in s["message"], "workflowError %r" % s)
-        # 記録が書けたと返ったのに、指した path が args の記録と違う
-        rc, s = run_with(json.dumps({"recordPath": "/etc/passwd", "recordWritten": True}))
-        check(rc == 1 and s["ok"] is False and s["materials"] is None and s["message"], "違う記録の path %r" % s)
         # result が JSON でない
         rc, s = run_with("just text")
         check(rc == 1 and s["materials"] is None and s["ok"] is False and s["message"], "materials なし %r" % s)
@@ -749,14 +844,15 @@ def case_headless():
         del env["CLAUDE_CODE_USE_FOUNDRY"]
         env.update(saved)
         check(rc == 0 and s["auth"] == "inherited(CLAUDE_CODE_USE_FOUNDRY)", "Foundry の認証の段 %r" % s)
-        # 記録のフォルダの path に規則の字（空白・かっこ）が在る: 書き込みの許可を組めないので起動の前に止まる
-        for bad in ("rd x", "rd(1)"):
+        # 照合の台本の path に規則の字（空白・かっこ）が在る: 照合の許可を組まずに起動する（照合の段は断られ、
+        # Workflow が確かめていない根拠として数えて残す）
+        for bad in ("/p q/run-python.sh", "/p(1)/run-python.sh"):
             with open(args_json, "w", encoding="utf-8") as f:
-                json.dump({"pr": 7, "workdir": e.work, "prep": {"recordDir": os.path.join(e.tmp, bad),
-                                                                 "scriptPath": "/x/workflows/my-turn-dig.js"}}, f)
-            rc, s = launch("--dry-run")
-            check(rc == 1 and s["ok"] is False and os.path.join(e.tmp, bad) in s["message"]
-                  and not os.path.exists(os.path.join(e.tmp, bad)), "規則の字の path %r %r" % (bad, s))
+                json.dump({"pr": 7, "workdir": e.work, "prep": {"recordDir": rd, "scriptPath": "/x/workflows/my-turn-dig.js",
+                                                                 "quoteCheck": {**QC, "runPython": bad}}}, f)
+            rc, d = launch("--dry-run")
+            rules = d["argv"][d["argv"].index("--allowedTools") + 1:]
+            check(rc == 0 and not any("--quotes" in r for r in rules), "規則の字の path %r %r" % (bad, rules))
     if not POSIX:
         return skip("headless")
     with_env(body)

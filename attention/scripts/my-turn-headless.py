@@ -5,6 +5,7 @@
 
 <args.json> は会話が書いた Workflow の args（pr・workdir・prep・files.record を持つ）。ここで
 `roles`（段ごとの役の名前）を足して <recordDir>/<pr>-args-headless.json に書き、
+Workflow の戻り値（記録）は、裏の会話でなくこの台本が files.record に書く（設計の 7）。
 裏の会話には設定・フック・CLAUDE.md・環境変数のうち CLAUDE/ANTHROPIC で始まる物（設定のフォルダと認証は除く）を渡さない。
 走らせる会話は Bash の run_in_background で打つ。設計は attention/docs/my-turn-workflow-design.md の 2。
 """
@@ -12,19 +13,19 @@
 import argparse
 import json
 import os
-import pathlib
 import re
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import claude_auth  # noqa: E402 — 子の claude に認証を足す（リポジトリの scripts/ の写し）
+import my_turn_record  # noqa: E402 — 記録の版と書き方（my-turn-prep.py の --save-record と共用）
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-ROLE_KEYS = ["W1", "W2", "W3", "W4", "W6", "W7", "W8", "W9", "W10answers", "W10fixes", "W11"]
+ROLE_KEYS = ["W1", "W2", "W3", "W4", "W6", "W7", "W8", "W9", "W10answers", "W10fixes", "Quotes"]
 # アカウントを決める設定のフォルダと、認証の経路（claude_auth が足した物か、親が持っていた物）だけを残す
 KEEP_ENV = {"CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
             # mTLS の代理を通る利用者のクライアント証明書（無いと子が接続で落ちる）
@@ -47,18 +48,17 @@ DENY_BASH = ["git *--output*", "git grep *"]
 
 SYSTEM = ("You run one task and nothing else. Read the JSON file at {args}. Call the Workflow tool exactly once "
           "with scriptPath = {script} and args = that JSON value unchanged. Wait until the workflow run "
-          "finishes; do not end your turn while it is running. Then, if the return value has recordWritten = true, "
-          "output only {{\"recordPath\": <its recordPath>, \"recordWritten\": true}} as JSON; "
-          "otherwise output the whole return value as JSON. If the Workflow tool call itself fails, output only "
+          "finishes; do not end your turn while it is running. Then, if the finish notice names an output file, "
+          "output only {{\"outputFile\": <that path, exactly as given>}} as JSON; otherwise output the whole return "
+          "value as JSON. If the Workflow tool call itself fails, output only "
           "{{\"workflowError\": <the error text>}}. Output nothing else. Never edit files.")
 PROMPT = ("Read {args}, run the /my-turn dig workflow once on it with the Workflow tool, and print the JSON "
           "the system prompt asks for.")
 
 STAGE_PROMPT = ("You are one read-only stage of the /my-turn dig workflow. Follow the stage text you are given. "
                 "Never modify files. Never write to GitHub.")
-W11_PROMPT = ("You are the record-writing stage of the /my-turn dig workflow. Follow the stage text you are given. "
-              "You may write only the record file under {record_dir}. Never modify any other file. "
-              "Never write to GitHub.")
+QUOTES_STAGE_PROMPT = ("You are the quote-check stage of the /my-turn dig workflow. Follow the stage text you are given: "
+                       "run the one command it gives and report its output. Never modify files. Never write to GitHub.")
 # 正本: convergence-loops/agents/blind-judge.md の本文（英訳した。1 本だけ Read してよい例外は除く）
 BLIND_JUDGE_PROMPT = (
     "You derive independently from what you are given, or compare two things you are given. "
@@ -78,7 +78,7 @@ def child_env(env):
     return out, dropped
 
 
-def agents(record_dir):
+def agents():
     # WebFetch・WebSearch は、W6・W9・W10 が公式の一次の文書の URL を根拠にし確かめるため（既定の形の段と同じ）
     ro = {"tools": ["Read", "Grep", "Glob", "Bash", "WebFetch", "WebSearch"],
           "disallowedTools": ["Write", "Edit", "NotebookEdit"]}
@@ -91,35 +91,36 @@ def agents(record_dir):
                      prompt=BLIND_JUDGE_PROMPT, tools=[],
                      disallowedTools=["Read", "Grep", "Glob", "Bash", "Write", "Edit", "NotebookEdit",
                                       "WebFetch", "WebSearch", "Workflow", "Agent"])
-        elif k == "W11":
-            d.update(description="Record-writing stage of the /my-turn dig workflow.",
-                     prompt=W11_PROMPT.format(record_dir=record_dir),
-                     tools=["Read", "Write"], disallowedTools=["Edit", "Bash", "NotebookEdit"])
+        elif k == "Quotes":
+            # 打つのはコマンド 1 本だけ（許すのは allowed_tools の照合の規則）。読む・web は要らない
+            d.update(description="Quote-check stage of the /my-turn dig workflow: runs one command.",
+                     prompt=QUOTES_STAGE_PROMPT, tools=["Bash"],
+                     disallowedTools=["Read", "Grep", "Glob", "Write", "Edit", "NotebookEdit",
+                                      "WebFetch", "WebSearch", "Workflow", "Agent"])
         defs["my-turn-" + k] = d
     return defs
 
 
-def rpath(p):
-    """権限ルールの絶対パス: リンクを解いた実パスの先頭に / を 1 つ足す（/home/... は //home/...）。
-
-    allow の規則はリンクの綴りと解いた先の両方に当たるときだけ効き、dontAsk では当たらない書き込みが黙って拒まれる
-    （macOS の /tmp → /private/tmp）。Windows の綴りは POSIX の形（C:\\Users → /c/Users）に直す
-    （https://code.claude.com/docs/en/permissions 。graphloops/engine/role_run.py の read_rule と同じ）。"""
-    real = os.path.realpath(p)
-    if os.name == "nt":
-        w = pathlib.PureWindowsPath(real)
-        real = "/" + w.drive.rstrip(":").lower() + "/" + "/".join(w.parts[1:])
-    return "/" + real.replace("\\", "/")
+# 権限の規則の中で意味を持つ字（graphloops/engine/role_run.py の RULE_UNSAFE に、引用符の 2 つを足した）
+RULE_UNSAFE = frozenset("*?[]{}(),\\ \t\n\r'\"")
 
 
-# 権限の規則の中で意味を持つ字（graphloops/engine/role_run.py の RULE_UNSAFE と同じ）
-RULE_UNSAFE = frozenset("*?[]{}(),\\ \t\n\r")
+def quote_rule(quote_check):
+    """写しの照合の段（Quotes）が打つコマンドの許可。my-turn-dig.js の quoteCommand と同じ頭
+    （bash <run-python.sh> <my-turn-prep.py> --quotes - と、その後の照合の行）。path に規則の中で意味を持つ字が
+    在れば組めないので None（照合の段のコマンドは拒まれ、Workflow は根拠を確かめていない物として数えて残す）。"""
+    qc = quote_check if isinstance(quote_check, dict) else {}
+    rp, pp = qc.get("runPython"), qc.get("prep")
+    if not (isinstance(rp, str) and isinstance(pp, str) and rp and pp) or RULE_UNSAFE & set(rp + pp):
+        return None
+    return "Bash(bash %s %s --quotes *)" % (rp, pp)
 
 
-def allowed_tools(record_dir):
-    # Read は全部のファイルに通す（読むだけの段が作業場・記録のフォルダ・args のファイルを読む）。書けるのは記録のフォルダだけ
-    return (["Workflow", "Read", "Grep", "Glob", "WebFetch", "WebSearch",
-             "Edit(%s/**)" % rpath(record_dir).rstrip("/")] + ["Bash(%s)" % r for r in BASH_RULES])
+def allowed_tools(quote_check):
+    # Read は全部のファイルに通す（読むだけの段が作業場・記録のフォルダ・args のファイルを読む）。書ける所は無い
+    rule = quote_rule(quote_check)
+    return (["Workflow", "Read", "Grep", "Glob", "WebFetch", "WebSearch"] + ["Bash(%s)" % r for r in BASH_RULES]
+            + ([rule] if rule else []))
 
 
 def override_aliases(models):
@@ -153,33 +154,34 @@ def parse_result(text):
 
 
 def build_materials(result, rec_path):
-    """(材料, 止める訳)。記録が書けた回は、返り値の全体を出力に写させず（大きい PR で出力の上限に当たる）、
-    記録のファイルから組む。書けなかった回は、出力が返り値の全体。"""
+    """(材料, 止める訳, 書いた記録の path)。子の会話は、Workflow の出力のファイルの path（outputFile）か戻り値の全体を返す。
+    ファイルから読むのは、大きい PR で戻り値の全体を出力に写させると出力の上限に当たり、写し違いも入るため。
+    止まらずに終わった回は、戻り値（記録）を rec_path に書く（W11 をやめた。設計の 3）。
+    記録を書けなくても、読めた戻り値は材料として返す（材料は捨てない。設計の 3）。"""
     val = parse_result(result) if isinstance(result, str) else None
     if isinstance(val, dict) and isinstance(val.get("workflowError"), str):
-        return None, "Workflow の呼び出しが失敗しました: %s" % val["workflowError"]
-    if not isinstance(val, dict) or not ("stopped" in val or "version" in val or val.get("recordWritten") is True):
-        return None, "Workflow の返り値を読めません（Workflow が動かなかった可能性）。出力の result を見てください"
-    if val.get("recordWritten") is not True:
-        return val, None
+        return None, "Workflow の呼び出しが失敗しました: %s" % val["workflowError"], None
+    if isinstance(val, dict) and isinstance(val.get("outputFile"), str) and len(val) == 1:
+        try:
+            with open(val["outputFile"], encoding="utf-8") as f:
+                val = my_turn_record.unwrap(json.load(f))
+        except (OSError, ValueError, my_turn_record.RecordError):
+            return None, "Workflow の出力のファイル（%s）を読めません" % val["outputFile"], None
+    if not isinstance(val, dict) or not ("stopped" in val or "version" in val):
+        return None, "Workflow の戻り値を読めません（Workflow が動かなかった可能性）。出力の result を見てください", None
+    if "stopped" in val:
+        return val, None, None
     try:
-        if val.get("recordPath") != rec_path:
-            raise ValueError
-        with open(rec_path, encoding="utf-8") as f:
-            rec = json.load(f)
-        if not isinstance(rec, dict):
-            raise ValueError
-    except (OSError, ValueError, TypeError):
-        return None, "記録が書けたと返ったが、記録のファイル（%s）を読めません" % rec_path
-    # 記録の counts は W11 の前に数えた物。W11 の分は、記録が書けた（W11 が返った）ことから機械で足す。
-    # 子の会話に counts を写させると、入れ子の大きい物の写し違いが手順 15 の照合に入る
-    counts = rec.get("counts")
-    if isinstance(counts, dict) and isinstance(counts.get("stages"), dict):
-        w11 = {"started": 1, "returned": 1, "null": [], "empty": [], "reused": [], "skipped": []}
-        if isinstance(rec.get("recordModel"), str):
-            w11["models"] = [rec["recordModel"]]
-        counts = {**counts, "stages": {**counts["stages"], "W11": w11}}
-    return {**rec, "counts": counts, "recordPath": rec_path, "recordWritten": True, "recordError": None}, None
+        rec = my_turn_record.check(val)
+    except my_turn_record.RecordError as e:
+        return val, str(e), None
+    try:
+        if not isinstance(rec_path, str) or not rec_path:
+            raise my_turn_record.RecordError("args の files.record が無いので、記録を書けません")
+        my_turn_record.write(rec_path, rec)
+    except my_turn_record.RecordError as e:
+        return rec, str(e), None
+    return rec, None, rec_path
 
 
 def main(argv):
@@ -198,13 +200,6 @@ def main(argv):
         print(json.dumps({"ok": False, "message": "args.json を読めないか、pr・workdir・prep.recordDir・prep.scriptPath が足りません"},
                          ensure_ascii=False))
         return 1
-    if RULE_UNSAFE & set(rpath(record_dir)):
-        # 書き込みの許可 Edit(//<記録のフォルダ>/**) が組めない（かっこ・空白・カンマで規則が切れ、W11 が黙って拒まれる）
-        print(json.dumps({"ok": False, "message": "記録のフォルダの path（%s）に、権限の規則で意味を持つ字（%s）が在るので、"
-                          "ヘッドレスの形では記録を書けません。既定の形（会話が Workflow を呼ぶ）で回してください"
-                          % (record_dir, "".join(sorted(RULE_UNSAFE & set(rpath(record_dir)))).strip() or "空白")},
-                         ensure_ascii=False))
-        return 1
     args["roles"] = {k: "my-turn-" + k for k in ROLE_KEYS}
     os.makedirs(record_dir, exist_ok=True)
     args_file = os.path.abspath(os.path.join(record_dir, "%s-args-headless.json" % pr))
@@ -213,16 +208,16 @@ def main(argv):
     _, dropped = child_env(os.environ)  # dry-run で見せる分。認証は起動の直前に足す
     argv_c = ["claude", "-p", PROMPT.format(args=args_file), "--model", "sonnet", "--output-format", "json",
               "--max-budget-usd", str(a.budget_usd),
-              "--tools", "Read,Grep,Glob,Bash,Write,Workflow,WebFetch,WebSearch", "--setting-sources", "",
+              "--tools", "Read,Grep,Glob,Bash,Workflow,WebFetch,WebSearch", "--setting-sources", "",
               "--disable-slash-commands", "--strict-mcp-config",
               "--settings", '{"disableAllHooks":true}',
               "--system-prompt", SYSTEM.format(args=args_file, script=script),
-              "--agents", json.dumps(agents(record_dir), ensure_ascii=False),
+              "--agents", json.dumps(agents(), ensure_ascii=False),
               # Workflow の scriptPath は作業場か足したフォルダの下のファイルしか受けない。記録のフォルダも、
-              # worktree では作業場の外（clone の .git の下）に在るので足す（W11 が書き、段が差分を読む）
+              # worktree では作業場の外（clone の .git の下）に在るので足す（段が差分を読む）
               "--add-dir", os.path.dirname(os.path.abspath(script)), "--add-dir", record_dir,
               "--disallowedTools", *["Bash(%s)" % r for r in DENY_BASH],
-              "--permission-mode", "dontAsk", "--allowedTools", *allowed_tools(record_dir)]
+              "--permission-mode", "dontAsk", "--allowedTools", *allowed_tools(prep.get("quoteCheck"))]
     if a.dry_run:
         print(json.dumps({"argv": argv_c, "envDropped": dropped, "envAdded": ADD_ENV, "argsFile": args_file},
                          ensure_ascii=False))
@@ -261,7 +256,7 @@ def main(argv):
         print(json.dumps({"ok": False, "exit": rc, "output": out_path, "auth": auth, "authFailed": auth_out,
                           "message": "%s。%s を見てください" % (why, out_path)}, ensure_ascii=False))
         return 1
-    val, note = build_materials(out.get("result"), (args.get("files") or {}).get("record"))
+    val, note, record = build_materials(out.get("result"), (args.get("files") or {}).get("record"))
     materials = None
     if val is not None:
         materials = os.path.join(record_dir, "%s-materials.json" % pr)
@@ -270,7 +265,7 @@ def main(argv):
     usage = out.get("modelUsage")
     used = list(usage.keys()) if isinstance(usage, dict) else []
     ok = rc == 0 and not out.get("is_error") and not note
-    summary = {"ok": ok, "exit": rc, "output": out_path, "materials": materials, "auth": auth,
+    summary = {"ok": ok, "exit": rc, "output": out_path, "materials": materials, "record": record, "auth": auth,
                "costUsd": out.get("total_cost_usd"), "durationMs": out.get("duration_ms"),
                "models": check_models(used, args.get("models"), val.get("counts") if isinstance(val, dict) else None)}
     if note:

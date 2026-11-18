@@ -2461,7 +2461,7 @@ PY
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
 # 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=908
+EXPECTED_CHECKS=910
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6389,13 +6389,13 @@ expect_output 0 "RULES_OK" \
     "my-turn-prep: base に在る CLAUDE.md・REVIEW.md だけを規約に拾い、PR が足した CLAUDE.md は claudeMdChanged に立てる" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" rules
 expect_output 0 "PRIOR_OK" \
-    "my-turn-prep: --prior で 2 つ目の差分・unchanged・前回の head の欠け・指紋の短い印（same・moved など）を出す" \
+    "my-turn-prep: --prior で 2 つ目の差分・unchanged・前回の head の欠け・指紋の短い印（same・moved など）を出し、版の違う記録は使い回さない" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" prior
 expect_output 0 "QUOTES_OK" \
-    "my-turn-prep: --quotes が引用の一致・文字違い・行の範囲外・base 側の版・URL の見送りを照合する" \
+    "my-turn-prep: --quotes が引用の一致・文字違い・行の範囲外・base 側の版・URL の見送りを照合し、標準入力の形は印の合わない行を garbled に出す" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" quotes
 expect_output 0 "HEADLESS_OK" \
-    "my-turn-prep: ヘッドレスの起動: 環境変数の落とし方・引数・役の定義と、偽の claude での実走の要約" \
+    "my-turn-prep: ヘッドレスの起動: 環境変数の落とし方・引数・役の定義と、偽の claude での実走の要約と、出力のファイルからの記録の書き込み" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" headless
 expect_output 1 "使い方" \
     "my-turn-prep-case: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" \
@@ -6411,7 +6411,7 @@ while IFS='|' read -r dig_case dig_desc; do
         echo "$line"; note_skips "$line"; ran=$((ran + 1))
     fi
 done <<'DIG'
-fixed|段ごとのモデル・遮断の目と役（roles）の引き当て・CLAUDE.md の書き足し・W1 と W11 が返らないときの止め方と材料・伏せた問いでの問い直し・前の回の使い回しの条件が設計のとおりになる
+fixed|段ごとのモデル・遮断の目と役（roles）の引き当て・CLAUDE.md の書き足し・W1 が返らないときの止め方と、記録を戻り値で返す形・伏せた問いでの問い直し・前の回の使い回しの条件が設計のとおりになる
 grow|子の問いが増え続けても、ノードの上限で止め、掘らなかった問いを未確認で返す
 same|違う親が出した同じ問いを 1 つのノードに束ねて親を複数持たせ、束の取りこぼし・二重・知らない問いを件数に出す
 allot|上限で切るとき、親ごとに均等に割り、重さの順に後ろから切る
@@ -6419,6 +6419,8 @@ skips|null の段とノード・空のフィールド・全部 null の段・見
 schema|段ごとの返す形が Workflow の決まり（ルートは object・required は properties の内）を満たす
 map|今の手順 6〜15 の文の全部に移した先が在り、表の元の版が変わっていない
 rests|既に在るノードに畳まれた問いの親と、子の問いが 1 つも掘られない split（使える子が無い・W7 が落とした・自分か祖先の問いを繰り返した）とその親を、確かめていない物に乗せ、W7 の束と落とした問いを key と問いの文で組にまとめてノードに当てる
+quotes|掘った後に根拠の写しを照合の段に渡し、指した行に無い根拠を外し、根拠が全部外れたリーフと臭いを未確認にして反証に回さない。数の合わない束と写し違いの行は外さずに数える
+prompts|頭の指示文の定数の全部に日本語の訳と英語の文の sha256 が在り、英語だけを直すと赤になる
 DIG
 if command -v node >/dev/null 2>&1; then
     expect_output 1 "使い方" \

@@ -3,7 +3,10 @@
 
 使い方:
   my-turn-prep.py <PR 番号> [--prior <記録.json>] [--headless]
-  my-turn-prep.py --quotes <記録.json>
+  my-turn-prep.py --quotes <記録.json>     記録の中の根拠の写しを照合する
+  my-turn-prep.py --quotes -               標準入力の根拠を照合する（Workflow の写しの照合の段が打つ）
+  my-turn-prep.py --save-record <記録.json> <Workflow の出力のファイル>
+                                          Workflow が返した記録を、記録のファイルに書く
 
 PR の作業場（cwd）で打つ。判定はしない——材料を集めて Workflow（my-turn-dig.js）へ渡す形に
 するだけ。終了の値は、続けてよいとき 0、止めるとき 1（`ok: false`）、使い方の誤りは 2。
@@ -20,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 差分の取り方の部品（DIFF_SANE）を /what-am-i-doing と共用
+import my_turn_record  # noqa: E402 — 記録の版と書き方（my-turn-headless.py と共用）
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -134,13 +138,12 @@ def has_commit(sha):
 
 
 def record_complete(rec):
-    """前の回の記録に、何も返さなかったエージェントが 1 体も無いか（段の一部だけ落ちた回も欠けに数える）。
-    W11 は記録を写すだけなので見ない（落ちた回は会話が同じ中身を書く。commands/my-turn.md の手順 15）。"""
+    """前の回の記録に、何も返さなかったエージェントが 1 体も無いか（段の一部だけ落ちた回も欠けに数える）。"""
     counts = rec.get("counts")
     stages = counts.get("stages") if isinstance(counts, dict) else None
     if not isinstance(stages, dict):
         return False
-    return all(isinstance(e, dict) and not e.get("null") for s, e in stages.items() if s != "W11")
+    return all(isinstance(e, dict) and not e.get("null") for e in stages.values())
 
 
 def load_record(path):
@@ -258,7 +261,7 @@ def prep(pr, prior, headless):
     if not commits:
         raise Stop("empty-range", "base..HEAD に commit がありません。見る差分が無いので止めます")
 
-    # 読めない記録（W11 の写しが切れたなど）で毎回止まらないよう、前の回が無いものとして全部を掘る
+    # 読めない記録（書きかけで切れたなど）で毎回止まらないよう、前の回が無いものとして全部を掘る
     rec, prior_unreadable = None, None
     if prior:
         try:
@@ -294,7 +297,11 @@ def prep(pr, prior, headless):
     rule_list = rule_paths(changed, base)
     paths = set(changed) | set(rule_list)
     unknown = False  # 前の回が読んだのに指紋を取れないファイル（repo の外・git dir の中・改行を含む path）が在るか
-    if rec is not None:
+    # 形の違う記録（版 1: checked の中の files・evidence の at）は使い回さず、近道も取らない（その PR は 1 回掘り直す）
+    old_shape = rec is not None and rec.get("version") != my_turn_record.VERSION
+    if old_shape:
+        unknown = True
+    if rec is not None and not old_shape:
         for p in record_paths(rec):
             if in_record_dir(p, top, record_dir):
                 continue  # 記録のフォルダは commit に無い（差分は patch-id で、thread などは手順 6 で見る）
@@ -343,9 +350,10 @@ def prep(pr, prior, headless):
     # 差分は「その前の回の後に足された物」で、今の回には当てはまらない）
     prior_run_diff = "%s..%s.diff" % (pb[:7], prior_head[:7]) if (then_ok and isinstance(pb, str) and pb) else None
     reuse = (prior_reuse(rec, fingerprints, top, record_dir, diff_same and prior_run_diff)
-             if (rec is not None and then_ok) else None)
+             if (rec is not None and then_ok and not old_shape) else None)
     rules = [{"path": p, "show": "git show %s:%s" % (base7, p)} for p in rule_list]
-    script_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "workflows", "my-turn-dig.js"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.abspath(os.path.join(here, "..", "workflows", "my-turn-dig.js"))
     return {
         "ok": True, "pr": pr, "repo": repo_name, "baseRef": base_ref, "remote": remote, "remoteMatched": remote_matched,
         "base": base, "head": head, "base7": base7, "head7": head7,
@@ -357,6 +365,8 @@ def prep(pr, prior, headless):
         "commits": commits, "changed": changed, "excluded": excluded, "rules": rules,
         "claudeMdChanged": any(p.rsplit("/", 1)[-1] == "CLAUDE.md" for p in changed),
         "fingerprints": {p: file_state(f) for p, f in fingerprints.items()}, "priorReuse": reuse, "scriptPath": script_path,
+        # Workflow の写しの照合の段が打つ物（my-turn-dig.js の Quotes。run-python.sh で打つ --quotes -）
+        "quoteCheck": {"runPython": os.path.join(here, "run-python.sh"), "prep": os.path.abspath(__file__)},
     }
 
 
@@ -372,13 +382,13 @@ def file_state(f):
 
 
 def record_paths(rec):
-    """前の回の記録が読んだ・分けた・根拠にした path の全部: ノードの checked.files と parts と、記録のどこかの
-    根拠の在り処（ノード・反証・臭いの問い・直しの案の at）。"""
+    """前の回の記録が読んだ・分けた・根拠にした path の全部: ノードの files と parts と、記録のどこかの根拠
+    （ノード・反証・臭いの問いの evidence の path）と、指摘の在り処（priorFindings の at）。"""
     out = []
 
     def walk(v):
         if isinstance(v, dict):
-            p = at_path(v.get("at"))
+            p = ev_path(v) if is_evidence(v) else loc_path(v.get("at"))
             if p:
                 out.append(p)
             for x in v.values():
@@ -404,29 +414,47 @@ def is_record_diff(p, top, record_dir):
     return in_record_dir(p, top, record_dir) and p.strip().endswith(".diff")
 
 
-def at_path(at):
-    """根拠の在り処（[<commit の印>:]path:行）の path。URL は None（my-turn-dig.js の pathOfAt と同じ）。"""
+def is_url(s):
+    return isinstance(s, str) and s.strip().startswith(("http://", "https://"))
+
+
+def is_evidence(v):
+    """根拠の 1 件（{path, line, quote}。my-turn-dig.js の EVIDENCE）か。"""
+    return isinstance(v, dict) and isinstance(v.get("path"), str) and "line" in v and "quote" in v
+
+
+def ev_path(e):
+    """根拠の 1 件が指すファイル。頭の commit の印（<base7>: や、使い回したノードの <前の base7>:）は版の印で
+    path ではないので外す。URL は None（my-turn-dig.js の pathOf と同じ）。"""
+    s = e.get("path").strip() if isinstance(e, dict) and isinstance(e.get("path"), str) else ""
+    if not s or is_url(s):
+        return None
+    return re.sub(r"^[0-9a-f]{7,64}:(?=.)", "", s)
+
+
+def loc_path(at):
+    """文の中の在り処（[<commit の印>:]path:行）の path。前の指摘（priorFindings）の at に使う。URL は None。"""
     s = at.strip() if isinstance(at, str) else ""
-    if not s or s.startswith(("http://", "https://")):
+    if not s or is_url(s):
         return None
     s = re.sub(r"^[0-9a-f]{7,64}:(?=.*:\d+(-\d+)?$)", "", s)
     return re.sub(r":\d+(-\d+)?$", "", s)
 
 
 def node_paths(node):
-    """ノードの checked と、読んだファイル（checked.files と、根拠〔evidence〕の在り処の path）と部品（parts）。
+    """ノードの urls と、読んだファイル（files と、根拠〔evidence〕の path）と部品（parts）。
 
-    根拠の行が載るファイルを checked.files に挙げていないノードもあるので、根拠の path も読んだに数える。"""
-    checked = node.get("checked") if isinstance(node.get("checked"), dict) else {}
-    ev = [at_path(e.get("at")) for e in node.get("evidence") or [] if isinstance(e, dict)]
-    return checked, list(checked.get("files") or []) + [p for p in ev if p], list(node.get("parts") or [])
+    根拠の行が載るファイルを files に挙げていないノードもあるので、根拠の path も読んだに数える。"""
+    ev = [ev_path(e) for e in node.get("evidence") or [] if isinstance(e, dict)]
+    return (list(node.get("urls") or []), list(node.get("files") or []) + [p for p in ev if p],
+            list(node.get("parts") or []))
 
 
 def verdict_paths(node):
     """前の回の反証（verdict）の根拠の path。使い回す末端の判定を持ち越すかは、これらのファイルが同じかで決める。"""
     v = node.get("verdict")
     ev = v.get("evidence") if isinstance(v, dict) else None
-    return [p for p in (at_path(e.get("at")) for e in ev or [] if isinstance(e, dict)) if p]
+    return [p for p in (ev_path(e) for e in ev or [] if isinstance(e, dict)) if p]
 
 
 def reads_diff(rec, top, record_dir):
@@ -439,7 +467,15 @@ def reads_diff(rec, top, record_dir):
     return False
 
 
-REUSE_FIELDS = ("key", "question", "resultStatus", "answer", "checked", "evidence", "parts", "premises",
+# GitHub の issue・PR・検索の URL。答えが gh で読んだ今の状態に頼っている印（ノードは gh で読んだ物の URL を urls に書く）
+LIVE_GITHUB_RE = re.compile(r"^https?://(api\.)?github\.com/(search|repos/[^/]+/[^/]+/(issues|pulls)|[^/]+/[^/]+/(issues|pulls?))([/?#]|$)", re.I)
+
+
+def is_live_github(u):
+    return isinstance(u, str) and bool(LIVE_GITHUB_RE.match(u.strip()))
+
+
+REUSE_FIELDS = ("key", "question", "resultStatus", "answer", "files", "urls", "evidence", "parts", "premises",
                 "children", "verdict")
 
 
@@ -472,16 +508,18 @@ def prior_reuse(rec, fingerprints, top, record_dir, same_diff):
     for node in rec.get("nodes") or []:
         if not isinstance(node, dict) or node.get("resultStatus") not in ("leaf", "split", "unverified", "undecided"):
             continue
-        checked, read, parts = node_paths(node)
+        urls, read, parts = node_paths(node)
         files = considered(read)
-        # 差分のファイルを読んだノードは、checked.files に挙げていないファイルの差分も読んでいる。
+        # 差分のファイルを読んだノードは、files に挙げていないファイルの差分も読んでいる。
         # 差分の本文が前の回と同じときだけ使い回す
         diffs = [f for f in read + parts if is_diff(f)]
         if not (files or diffs) or not all(same(f) for f in files) or not all(same_d(f) for f in diffs):
             continue
-        if any(re.search(r"(^|[\s;&|(])gh\s", " " + str(c)) for c in checked.get("commands") or []):
+        # GitHub の今の状態（open な issue・PR・検索の結果）に頼った答えは使い回さない（my-turn-dig.js の liveGitHub）
+        if any(is_live_github(u) for u in urls + [e.get("path") for e in node.get("evidence") or [] if isinstance(e, dict)]):
             continue
-        if (checked.get("urls") or []) and not all(same(f) for f in considered(parts)):
+        # web のページに頼った答えは、比べた PR の部品のファイルも同じときだけ
+        if urls and not all(same(f) for f in considered(parts)):
             continue
         item = {k: node.get(k) for k in REUSE_FIELDS}
         # 反証が根拠にしたファイルが変わったら、判定は持ち越さない（もう一度反証する）
@@ -489,15 +527,13 @@ def prior_reuse(rec, fingerprints, top, record_dir, same_diff):
         if not all(same(f) for f in considered(vread)) or not all(same_d(f) for f in vread if is_diff(f)):
             item["verdict"] = None
         nodes.append(item)
-    return {"kind": rec.get("kind"), "general": rec.get("general"), "nodes": nodes}
-
-
-AT_RE = re.compile(r"^(.+):(\d+)(?:-(\d+))?$")
+    return {"version": my_turn_record.VERSION, "kind": rec.get("kind"), "general": rec.get("general"), "nodes": nodes}
 
 
 def walk_quotes(node, found):
+    """記録の中の根拠（{path, line, quote}）の全部。照合できるのは、行の番号が在り写しが空でない物だけ。"""
     if isinstance(node, dict):
-        if isinstance(node.get("at"), str) and isinstance(node.get("quote"), str) and node["quote"].strip():
+        if is_evidence(node) and isinstance(node.get("quote"), str) and node["quote"].strip():
             found.append(node)
         for v in node.values():
             walk_quotes(v, found)
@@ -516,84 +552,165 @@ def lines_of(text):
     return (text[:-1] if text.endswith("\n") else text).split("\n")
 
 
+class QuoteReader:
+    """根拠の 1 件（path・行・写し）を、その版のファイルのその 1 行と比べる。
+
+    path の頭の commit の印は版を選ぶ: base の印なら base、ほかの印は解いた commit（使い回したノードの前の回の
+    base）。解けなければ、名前が 16 進の字だけのファイルかもしれないので head の path として読む。記録のフォルダ
+    （差分・会話・正当化のファイル）は commit に無いので、ディスクのファイルを読む。"""
+
+    def __init__(self, base, head, top, record_dir):
+        self.base, self.head, self.top, self.record_dir = base, head, top, record_dir
+        self.cache, self.revs = {}, {}
+
+    def lines(self, rev, path):
+        key = (rev, path)
+        if key not in self.cache:
+            if rev == "disk":
+                try:
+                    with open(path, encoding="utf-8", errors="replace", newline="") as f:
+                        self.cache[key] = lines_of(f.read())
+                except OSError:
+                    self.cache[key] = None
+            else:
+                rc, out = git_bytes("show", "%s:%s" % (rev, path))  # テキストの読みは単独の \r も行の区切りに変える
+                self.cache[key] = lines_of(out.decode("utf-8", "replace")) if rc == 0 else None
+        return self.cache[key]
+
+    def why_missing(self, path, line, quote):
+        """合えば None、合わなければ訳。"""
+        rev, spec, unresolved = self.head, path.strip(), None
+        m = re.match(r"^([0-9a-f]{7,64}):(.+)$", spec)
+        if m:
+            sha, rest = m.groups()
+            if self.base and self.base.startswith(sha):
+                rev, spec = self.base, rest
+            else:
+                if sha not in self.revs:
+                    rc_r, out_r = git("rev-parse", "--verify", "--quiet", sha + "^{commit}")
+                    self.revs[sha] = out_r.strip() if rc_r == 0 and out_r.strip() else None
+                if self.revs[sha]:
+                    rev, spec = self.revs[sha], rest
+                else:
+                    unresolved = sha
+        disk = os.path.realpath(abs_path(spec, self.top))
+        if rev == self.head and disk.startswith(self.record_dir + os.sep):
+            where, lines = "記録のフォルダ", self.lines("disk", disk)
+            shown = disk
+        else:
+            shown = norm_path(spec, self.top)
+            if not shown:
+                return "場所がリポジトリの外です"
+            if rev is None:
+                return "base か head が無く、どの版を読むか決まりません"
+            where, lines = rev[:7], self.lines(rev, shown)
+        if lines is None:
+            return ("%s に %s が無い" % (where, shown)
+                    + ("（%s は commit の印としても解けない。短い印が曖昧か、force-push の後に消えた）" % unresolved
+                       if unresolved else ""))
+        if line > len(lines):
+            return "行 %d が範囲外（%s は %d 行）" % (line, shown, len(lines))
+        if CTRL_RE.sub("", quote.strip()) not in CTRL_RE.sub("", lines[line - 1]):
+            return "その行に引用が見つからない（文字が違う）"
+        return None
+
+
+def bad_shape(path, line, quote):
+    if not isinstance(path, str) or not path.strip():
+        return "path が空です"
+    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+        return "line が 1 以上の整数でない"
+    if not isinstance(quote, str) or not quote.strip():
+        return "quote が空です"
+    return None
+
+
 def check_quotes(record_path):
+    """記録の中の根拠の写しの全部を照合する（報告の後に、反証〔W10〕の根拠も含めて確かめる形）。"""
     rec = load_record(record_path)
     base, head = rec.get("base"), rec.get("head")
-    base = base if isinstance(base, str) and base else None
-    head = head if isinstance(head, str) and head else None
     found = []
     walk_quotes(rec, found)
-    cache, revs = {}, {}  # revs: commit の印 → 解いた sha（解けなければ None）
-    checked, missing = 0, []
     top = must_git("rev-parse", "--show-toplevel").strip()  # 在り処が作業場の絶対の path でも読む（Workflow の norm と同じ）
     record_dir = os.path.dirname(os.path.realpath(record_path))  # 記録は <記録のフォルダ>/<番号>.json に在る
+    reader = QuoteReader(base if isinstance(base, str) and base else None,
+                         head if isinstance(head, str) and head else None, top, record_dir)
+    checked, missing = 0, []
     for q in found:
-        at, quote = q["at"], q["quote"].strip()
-        if at.startswith(("http://", "https://")):
+        path, line, quote = q["path"], q.get("line"), q["quote"]
+        if is_url(path) or line == 0:
+            continue  # web のページと行の無い在り処は、照合の外
+        checked += 1
+        why = bad_shape(path, line, quote) or reader.why_missing(path, line, quote)
+        if why:
+            missing.append({"path": path, "line": line, "quote": quote, "why": why})
+    return {"ok": True, "checked": checked, "missing": missing}
+
+
+def fnv32(s):
+    """FNV-1a の 32 bit を UTF-16 の単位で（my-turn-dig.js の fnv と同じ）。写しの段が写し違えた行を見つける印。"""
+    h = 0x811c9dc5
+    b = s.encode("utf-16-le", "surrogatepass")
+    for i in range(0, len(b), 2):
+        h ^= b[i] | (b[i + 1] << 8)
+        h = (h * 0x01000193) & 0xffffffff
+    return "%08x" % h
+
+
+def check_stdin(stream):
+    """標準入力の根拠を照合する（Workflow の写しの照合の段が打つ形）。
+
+    1 行目は {workdir, base, head, recordDir}、続く行は 1 件ずつ [id, path, line, quote, sum]。sum が合わない行と
+    読めない行は照合せず garbled に数える。id も読めない行は checked に数えない（Workflow は数の違う束を
+    丸ごと確かめていない物にする）。"""
+    rows = [l for l in (x.rstrip("\r\n") for x in stream) if l.strip()]
+    try:
+        head_row = json.loads(rows[0]) if rows else None
+    except ValueError:
+        head_row = None
+    if not isinstance(head_row, dict) or not isinstance(head_row.get("workdir"), str):
+        raise Stop("quotes-input", "1 行目が {workdir, base, head, recordDir} の JSON でありません")
+    try:
+        os.chdir(head_row["workdir"])
+    except OSError:
+        raise Stop("quotes-input", "作業場 %s に移れません" % head_row["workdir"])
+    rc, top = git("rev-parse", "--show-toplevel")
+    if rc != 0 or not top.strip():
+        raise Stop("quotes-input", "%s は git の作業場でありません" % head_row["workdir"])
+    rd = head_row.get("recordDir")
+    reader = QuoteReader(head_row.get("base") or None, head_row.get("head") or None, top.strip(),
+                         os.path.realpath(rd) if isinstance(rd, str) and rd else os.path.join(top.strip(), ".no-record-dir"))
+    checked, missing, garbled = 0, [], []
+    for row in rows[1:]:
+        try:
+            item = json.loads(row)
+        except ValueError:
+            item = None
+        if not (isinstance(item, list) and item and isinstance(item[0], str)):
+            m = re.match(r'^\s*\["(Q\d+)"', row)
+            if m:
+                checked += 1
+                garbled.append(m.group(1))
             continue
         checked += 1
-
-        def miss(why):
-            missing.append({"at": at, "quote": q["quote"], "why": why})
-
-        rev, spec, unresolved = head, at, None
-        m = re.match(r"^([0-9a-f]{7,64}):(.*)$", at)
-        # 残りが path:行 でなければ、名前が 16 進の字だけのファイル（cafebabe:1）なので head の path として読む
-        if m and AT_RE.match(m.group(2)):
-            sha, rest = m.groups()
-            # <base7>:path は base の版。使い回したノードは前の回の base の印を持つので、ほかの commit の印も解く
-            if base and base.startswith(sha):
-                rev, spec = base, rest
-            else:
-                if sha not in revs:
-                    rc_r, out_r = git("rev-parse", "--verify", "--quiet", sha + "^{commit}")
-                    revs[sha] = out_r.strip() if rc_r == 0 and out_r.strip() else None
-                if revs[sha]:
-                    rev, spec = revs[sha], rest
-                else:
-                    unresolved = sha  # 名前が 16 進の字だけのファイルかもしれないので、head の path としても読む
-        mm = AT_RE.match(spec)
-        if not mm:
-            miss("場所の書き方が読めません（path:行 か path:開始-終了）")
+        if len(item) != 5 or not isinstance(item[1], str) or not isinstance(item[3], str) or not isinstance(item[4], str) \
+                or not isinstance(item[2], int) or fnv32("%s\n%s\n%s\n%s" % (item[0], item[1], item[2], item[3])) != item[4]:
+            garbled.append(item[0])
             continue
-        start = int(mm.group(2))
-        end = int(mm.group(3)) if mm.group(3) else start
-        if end < start or start < 1:
-            miss("行の範囲が不正です")
-            continue
-        raw = mm.group(1)
-        disk = os.path.realpath(abs_path(raw, top))
-        on_disk = rev == head and disk.startswith(record_dir + os.sep)
-        if on_disk:
-            # 記録のフォルダ（差分・会話・正当化のファイル）は commit に無いので、ファイルを読む
-            path, key = disk, ("disk", disk)
-            if key not in cache:
-                try:
-                    with open(disk, encoding="utf-8", errors="replace", newline="") as f:
-                        cache[key] = lines_of(f.read())
-                except OSError:
-                    cache[key] = None
-        else:
-            path = norm_path(raw, top)
-            if not path:
-                miss("場所がリポジトリの外です")
-                continue
-            if rev is None:
-                miss("記録に base か head が無く、どの版を読むか決まりません")
-                continue
-            key = (rev, path)
-            if key not in cache:
-                rc, out = git_bytes("show", "%s:%s" % (rev, path))  # テキストの読みは単独の \r も行の区切りに変える
-                cache[key] = lines_of(out.decode("utf-8", "replace")) if rc == 0 else None
-        lines = cache[key]
-        if lines is None:
-            miss("%s に %s が無い" % ("記録のフォルダ" if on_disk else rev[:7], path)
-                 + ("（%s は commit の印としても解けない。短い印が曖昧か、force-push の後に消えた）" % unresolved if unresolved else ""))
-        elif end > len(lines):
-            miss("行 %d が範囲外（%s は %d 行）" % (end, path, len(lines)))
-        elif CTRL_RE.sub("", quote) not in CTRL_RE.sub("", "\n".join(lines[start - 1:end])):
-            miss("その行に引用が見つからない（文字が違う）")
-    return {"ok": True, "checked": checked, "missing": missing}
+        why = bad_shape(item[1], item[2], item[3]) or reader.why_missing(item[1], item[2], item[3])
+        if why:
+            missing.append({"id": item[0], "why": why})
+    return {"ok": True, "checked": checked, "missing": missing, "garbled": garbled}
+
+
+def save_record(out_path, src_path):
+    """Workflow の出力のファイル（か記録そのものの JSON）から記録を取り出して、記録のファイルに書く。"""
+    try:
+        rec = my_turn_record.load_result(src_path)
+        my_turn_record.write(out_path, rec)
+    except my_turn_record.RecordError as e:
+        raise Stop("record", str(e))
+    return {"ok": True, "record": out_path, "nodes": len(rec.get("nodes") or []), "head": rec.get("head")}
 
 
 def main(argv):
@@ -602,9 +719,20 @@ def main(argv):
     ap.add_argument("--prior")
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--quotes")
+    ap.add_argument("--save-record", nargs=2, metavar=("RECORD", "OUTPUT"))
     a = ap.parse_args(argv)
-    if (a.quotes is None) == (a.pr is None):
-        ap.error("PR の番号か --quotes のどちらか 1 つを渡してください")
+    if sum(x is not None for x in (a.pr, a.quotes, a.save_record)) != 1:
+        ap.error("PR の番号か --quotes か --save-record のどれか 1 つを渡してください")
+    if a.save_record:
+        try:
+            return emit(save_record(os.path.abspath(a.save_record[0]), os.path.abspath(a.save_record[1])), 0)
+        except Stop as e:
+            return emit(stop_obj(e.code, e.message), 1)
+    if a.quotes == "-":
+        try:
+            return emit(check_stdin(sys.stdin), 0)
+        except Stop as e:
+            return emit(stop_obj(e.code, e.message), 1)
     prior = os.path.abspath(a.prior) if a.prior else None
     quotes = os.path.abspath(a.quotes) if a.quotes else None
     rc, top = git("rev-parse", "--show-toplevel")
