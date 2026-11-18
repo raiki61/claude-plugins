@@ -17,3 +17,8 @@ works/.shared/core/COPIED_FROM.* linguist-documentation
 graphloops/tests/py/MIGRATION.md -coldread
 # ルートの台本の移し先の台帳も同じ（表は tests/py/ledger.py が刷り、中身が今の台帳と同じかは tests/py/test_review_record.py が見る）
 tests/py/MIGRATION.md -coldread
+# my-turn-dig の指示文の部品（英語の md は AI だけが読む文で、生成器 attention/scripts/gen-prompts.mjs が script に書き戻す。和訳の .ja.md は
+# 値を埋める前の部品の読み物）。正しさは空回しの試験 tests/my-turn-dig-dry.mjs の prompts が受け持ち、部品は単体で読むと {{x}} が埋まって
+# いないので、初見読みは書き換えのたびに同じ詰まりを出す。部品の読み方を書いた README.md は読ませる
+attention/prompts/*.md -coldread
+attention/prompts/README.md coldread
