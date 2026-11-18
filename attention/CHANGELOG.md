@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-11-18
+
 ### Changed
 
 - `/my-turn` の掘る段の Workflow（`workflows/my-turn-dig.js`）の英語の指示文を、1 つの定数に 1 本の md（`prompts/<定数の名前>.md`）に出した。script の頭の指示文の区画は、生成器 `scripts/gen-prompts.mjs` が md から作って書き戻す。日本語の訳は script のコメントから `prompts/<定数の名前>.ja.md` に移し、訳した時の英語の md の sha256 を頭の `source_sha256` に置く。エージェントに届く文は 1 字も変えていない。ただし、文に入れる値が欠けたか型が違うときは、前は「undefined」の字を入れた文を渡していたのを、文を作らずに止まるようにした。直し方は `prompts/README.md`（頼み f0ee3c）。
