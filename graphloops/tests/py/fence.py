@@ -1,5 +1,9 @@
-"""pytest のチェック 2 つ。bash の台本の EXPECTED_CHECKS と同じ意図——黙って走らなかったテストに気づく。
-置き場の conftest.py が pytest_configure で install(config, 置き場, 件数の定数) を呼んで載せる。
+"""pytest のチェック。黙って走らなかったテストに、手で保つ件数の定数を使わずに気づく。
+置き場の conftest.py が pytest_configure で install(config, 置き場) を呼んで載せる。
+
+件数の定数（集めたテストの数を手で書いて突き合わせる形）は 2026-11-18 にやめた（持ち主の決め。docs/reform/ledger.md）——テストを
+消した本人が同じ commit で数を下げれば通るので、わざと消したテストは止められず、テストを足すたびに数の直しと、並行の部署どうしの
+衝突だけが残った。テストが消えたことは、止めずに見えるようにする（ルートの tests/removed-tests.py が、ブランチが消したテストを一覧にする）。
 
 bash の台本は、環境にツールや OS の機能が無くて走らない検査を「# SKIP <能力>: <理由>」の印つきの行で出して件数に入れ、root の
 tests/run.sh が合格と別に一覧にする（TAP 14 の SKIP 指示子。FAIL_ON_SKIP=1 で、SKIP_ALLOW に能力の名前が無い見送りを失敗に数える）。
@@ -11,25 +15,25 @@ matrix の skip_allow で、tests/run.sh の見送りと同じ値を読む。既
 1. **飛ばしは失敗（宣言して許した見送りを除く）。** テスト単位の skip・skipif・xfail（pytest_runtest_logreport）と、モジュール丸ごとの
    skip(allow_module_level=True)・importorskip（pytest_collectreport）の両方を拾う。後者を見ないと、import できない
    モジュールがテストごと消えても緑になる。xfail も「走らせたが結果を見ない」ので飛ばしに数え、許しの対象にしない。
-2. **件数のチェック。** 置き場の中で集めたテストの数を、件数の定数と != で突き合わせる。下限（<）にしないのは bash 側と
-   同じ理由——テストを消した変更が緑で通る。数えるのは pytest_itemcollected（-k・-m・--deselect・--sw・testmon の
-   選び直しより前）なので、集めた後で絞る回はチェックを付けたまま突き合わせてよい。
-   **置き場のテストのファイルを全部集めた回だけ当てる。** 引数のパス・node id・--ignore・--lf・testmon が
-   ファイルを集めない回は、集めたモジュールの集合が置き場のファイルの集合（python_files の形で glob）と食い違うので、
-   チェックを外して理由を 1 行出す。絞り方を選択肢の表で推し量らない——手で並べた表は、pytest や plugin が集める段の
-   選択肢を足した周に黙って外れる。テストが 0 件になったファイルもモジュールとしては集まるので、全件の回のままで赤になる。
-
-3. **検査の件数のチェックと到達のチェック**（盤面を回す台本を載せる土台の分。expect_sim で期待値を渡した置き場だけ）。台本の
-   check が走った件数（conftest.py が各テストの前後の差で数えて add_sim_checks に渡す）を期待値と != で突き合わせ、
-   到達した値（reach）の集合の大きさを期待値と != で突き合わせる——bash の台本の EXPECTED_CHECKS と VOCAB_REACHED・
-   DELIVERY_SEEN と同じ意図。当てるのは件数のチェックと同じ全件の回で、しかも -k・-m・--deselect で 1 件も選び外さず、集めるだけ
-   （--collect-only）でもない回だけ（選び外すと走る検査が減るのは正しい。集めるだけの回は 1 件も走らない）。外した回は理由を 1 行出す。
+2. **空のファイルは失敗。** 置き場のテストのファイル（python_files の形で glob）を全部集めた回は、どのファイルも 1 件以上のテストを
+   持つことを見る。テストが 0 件になったファイルもモジュールとしては集まるので、pytest は緑と報告する（全部が 0 件なら pytest 自身が
+   終わりの値 5 で止める）。数えるのは pytest_itemcollected（-k・-m・--deselect・--sw・testmon の選び直しより前）なので、集めた後で
+   絞る回もチェックを付けたまま見てよい。引数のパス・node id・--ignore・--lf・testmon がファイルを集めない回は、集めたモジュールの
+   集合が置き場のファイルの集合と食い違うので、チェックを外して理由を 1 行出す。絞り方を選択肢の表で推し量らない——手で並べた表は、
+   pytest や plugin が集める段の選択肢を足した周に黙って外れる。
+   集める段の誤り（import の失敗・構文の誤り）は pytest 自身が止める（--continue-on-collection-errors を渡さない限り「errors during
+   collection」で終わりの値 2）。置き場の pytest.ini の --strict-markers が、登録の無い印を集める段の誤りにする。
+3. **到達のチェック**（盤面を回す台本を載せる土台の分。expect_sim で期待値を渡した置き場だけ）。到達した値（reach）の集合の
+   大きさを期待値と != で突き合わせる——bash の台本の VOCAB_REACHED・DELIVERY_SEEN と同じ意図（テストの数でなく、筋書きが
+   どの値まで届いたかを見る）。当てるのは 2 と同じ全件の回で、しかも -k・-m・--deselect で 1 件も選び外さず、集めるだけ
+   （--collect-only）でもない回だけ（選び外すと届く値が減るのは正しい。集めるだけの回は 1 件も走らない）。外した回は理由を 1 行出す。
+   台本の check が 1 件も走らないテストは、ここでなく glharness.py の pytest_runtest_call がテストごとに赤にする。
 
 **pytest-xdist（-n）の下でも同じ数え方にする。** controller は自分で集めず、worker が集めて走らせる（xdist の How it works）。
-worker では今の数え方（collectstart・itemcollected・add_sim_checks・reach）をそのまま動かし、結果を config.workeroutput に
-入れる。controller は pytest_testnodedown で node.workeroutput を受け取り、件数とモジュールの集合は 1 つの worker の値を
-（全 worker が同じ物を集める——違えばそれ自体を失敗にする）、検査の件数は和を、到達は和集合を使う。worker から届く node id の
-一覧で数えないのは、テストが 0 件のモジュールが id に現れず、上の 2 の「テストを全部消したファイル」を見落とすから。
+worker では今の数え方（collectstart・itemcollected・reach）をそのまま動かし、結果を config.workeroutput に入れる。controller は
+pytest_testnodedown で node.workeroutput を受け取り、集めたモジュールの集合とテストを持つモジュールの集合は 1 つの worker の値を
+（全 worker が同じ物を集める——違えばそれ自体を失敗にする）、到達は和集合を使う。worker から届く node id の一覧で数えないのは、
+テストが 0 件のモジュールが id に現れず、上の 2 の「テストを全部消したファイル」を見落とすから。
 飛ばしの見張りは controller に届く報告（xdist が運ぶ）で見る。worker は判定しない。
 
 状態は config ごとの登録物に持つ（モジュールの大域に置くと、pytester で内側に回した pytest と数が混ざる）。
@@ -46,21 +50,17 @@ NAME = "graphloops-fence"
 SKIP_DECL = re.compile(r"^(?:Skipped: )?SKIP ([a-z0-9][a-z0-9-]*): ")
 
 
-def install(config, root, expected):
-    config.pluginmanager.register(Fence(pathlib.Path(root).resolve(), expected), NAME)
+def install(config, root):
+    config.pluginmanager.register(Fence(pathlib.Path(root).resolve()), NAME)
 
 
-def expect_sim(config, checks, reached):
-    """盤面を回す台本の検査の件数と、到達した値の数の期待値を渡す（渡さない置き場ではこの 2 つのチェックは付かない）"""
-    config.pluginmanager.get_plugin(NAME).expected_sim = (checks, reached)
-
-
-def add_sim_checks(config, n):
-    config.pluginmanager.get_plugin(NAME).sim_checks += n
+def expect_sim(config, reached):
+    """盤面を回す台本の到達した値の数の期待値を渡す（渡さない置き場では到達のチェックは付かない）"""
+    config.pluginmanager.get_plugin(NAME).expected_reached = reached
 
 
 def collected_all(config):
-    """この session（-n の回は worker ごと）が置き場のテストのファイルを全部集めたか——件数のチェックを当てる回と同じ判定"""
+    """この session（-n の回は worker ごと）が置き場のテストのファイルを全部集めたか——空のファイルのチェックを当てる回と同じ判定"""
     f = config.pluginmanager.get_plugin(NAME)
     return f.modules == f.files(config)
 
@@ -70,13 +70,11 @@ def reach(config, value):
 
 
 class Fence:
-    def __init__(self, root, expected):
+    def __init__(self, root):
         self.root = root
-        self.expected = expected
-        self.expected_sim = None
-        self.collected = 0
-        self.modules = set()
-        self.sim_checks = 0
+        self.expected_reached = None
+        self.modules = set()   # 集めたモジュール
+        self.filled = set()    # テストを 1 件以上持つモジュール
         self.reached = set()
         self.deselected = 0
         self.workers = []   # controller が受け取った worker ごとの結果（-n の回だけ）
@@ -99,7 +97,7 @@ class Fence:
 
     def pytest_itemcollected(self, item):
         if self._inside(item.path):
-            self.collected += 1
+            self.filled.add(pathlib.Path(item.path).resolve())
 
     def pytest_deselected(self, items):
         self.deselected += len(items)
@@ -126,10 +124,10 @@ class Fence:
     def pytest_sessionfinish(self, session):
         if hasattr(session.config, "workerinput"):   # worker は数えて controller へ渡すだけ（判定は controller）
             session.config.workeroutput[NAME] = {
-                "collected": self.collected, "modules": sorted(map(str, self.modules)),
-                "sim_checks": self.sim_checks, "reached": sorted(self.reached), "deselected": self.deselected}
+                "modules": sorted(map(str, self.modules)), "filled": sorted(map(str, self.filled)),
+                "reached": sorted(self.reached), "deselected": self.deselected}
             return
-        collected, modules, sim_checks, reached, deselected = self._totals()
+        modules, filled, reached, deselected = self._totals()
         if self.skipped:
             self.problems.append(f"飛ばされたテストが {len(self.skipped)} 件（飛ばしは失敗扱い。見送るなら理由を SKIP <能力>: の形にし、"
                                  "その OS の SKIP_ALLOW に能力を足す）: " + " / ".join(self.skipped[:5]))
@@ -138,38 +136,36 @@ class Fence:
         files = self.files(session.config)
         full = modules == files
         if not full:
-            self.notes.append(f"件数のチェックを外した（置き場のテストのファイル {len(files)} 本のうち {len(modules & files)} 本だけを集めた）")
-        elif collected != self.expected:
-            self.problems.append(f"集めたテストが {collected} 件（{self.expected} 件を期待）——テストの消滅か、件数の更新漏れ")
-        if self.expected_sim is not None and full:
-            want_checks, want_reached = self.expected_sim
+            self.notes.append(f"空のファイルのチェックを外した（置き場のテストのファイル {len(files)} 本のうち {len(modules & files)} 本だけを集めた）")
+        else:
+            empty = sorted(f.relative_to(self.root).as_posix() for f in files - filled)
+            if empty:
+                self.problems.append(f"テストが 1 件も無いファイルが {len(empty)} 本（テストを消したなら、ファイルも消す）: " + " / ".join(empty[:5]))
+        if self.expected_reached is not None and full:
             if session.config.option.collectonly:
-                self.notes.append("検査の件数のチェックと到達のチェックを外した（集めるだけの回——テストを走らせていない）")
+                self.notes.append("到達のチェックを外した（集めるだけの回——テストを走らせていない）")
             elif deselected:
-                self.notes.append(f"検査の件数のチェックと到達のチェックを外した（{deselected} 件のテストを選び外した）")
-            else:
-                if sim_checks != want_checks:
-                    self.problems.append(f"台本の検査が {sim_checks} 件走った（{want_checks} 件を期待）——検査の空振りか、件数の更新漏れ")
-                if len(reached) != want_reached:
-                    self.problems.append(f"到達した値が {len(reached)} 個（{want_reached} 個を期待）: {sorted(reached)}")
+                self.notes.append(f"到達のチェックを外した（{deselected} 件のテストを選び外した）")
+            elif len(reached) != self.expected_reached:
+                self.problems.append(f"到達した値が {len(reached)} 個（{self.expected_reached} 個を期待）: {sorted(reached)}")
         if self.problems and session.exitstatus == pytest.ExitCode.OK:
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
     def _totals(self):
-        """(集めた件数, 集めたモジュール, 検査の件数, 到達, 選び外した件数)。-n の回は worker から届いた値で組む"""
+        """(集めたモジュール, テストを持つモジュール, 到達, 選び外した件数)。-n の回は worker から届いた値で組む"""
         if not self.workers:
-            return self.collected, self.modules, self.sim_checks, self.reached, self.deselected
+            return self.modules, self.filled, self.reached, self.deselected
         lost = [w["lost"] for w in self.workers if "lost" in w]
         got = [w for w in self.workers if "lost" not in w]
         if lost:
-            self.problems.append(f"worker {len(lost)} 本の数えた結果が届かない（{lost[0]}）——件数のチェックを当てられない")
+            self.problems.append(f"worker {len(lost)} 本の数えた結果が届かない（{lost[0]}）——空のファイルのチェックを当てられない")
         if not got:
-            return 0, set(), 0, set(), 0
-        shapes = {(w["collected"], tuple(w["modules"]), w["deselected"]) for w in got}
+            return set(), set(), set(), 0
+        shapes = {(tuple(w["modules"]), tuple(w["filled"]), w["deselected"]) for w in got}
         if len(shapes) > 1:
-            self.problems.append(f"worker ごとに集めた物が違う（{len(shapes)} 通り）——件数のチェックを当てられない")
+            self.problems.append(f"worker ごとに集めた物が違う（{len(shapes)} 通り）——空のファイルのチェックを当てられない")
         first = got[0]
-        return (first["collected"], {pathlib.Path(m) for m in first["modules"]}, sum(w["sim_checks"] for w in got),
+        return ({pathlib.Path(m) for m in first["modules"]}, {pathlib.Path(m) for m in first["filled"]},
                 set().union(*(w["reached"] for w in got)), first["deselected"])
 
     def pytest_terminal_summary(self, terminalreporter):

@@ -15,6 +15,7 @@ def sharded(monkeypatch, tmp_path):
         monkeypatch.setenv(k, v)
     monkeypatch.delenv("GL_TEST_ONLY", raising=False)
     monkeypatch.setattr(parallel, "_deferred", [])
+    monkeypatch.setattr(parallel, "_all", [])
     return tmp_path
 
 
@@ -58,6 +59,7 @@ def _ns(n):
 
 def test_collect_takes_only_its_shard(sharded):
     assert [f.__name__ for f in parallel.collect(_ns(5))] == ["test_1", "test_3"]
+    assert parallel._all == [f"test_{i}" for i in range(5)]   # 組に分ける前の全台本（まとめの口が覆いを見る母集団）
 
 
 def test_collect_refuses_shard_with_test_only(sharded, monkeypatch, capsys):
@@ -78,25 +80,30 @@ def test_aggregate_judges_in_place_without_shard(monkeypatch):
 
 def test_aggregate_defers_and_finish_writes_manifest(sharded):
     assert parallel.aggregate("到達", "count", ["b", "a", "a"], 2) is None
-    parallel.finish("/x/simulate.py", ["t1", "t2"])
+    tests = parallel.collect(_ns(4))
+    parallel.finish("/x/simulate.py", tests)
     doc = json.loads((sharded / "simulate.json").read_text(encoding="utf-8"))
-    assert doc == {"group": "g1", "total": 2, "index": 1, "tests": 2,
+    assert doc == {"group": "g1", "total": 2, "index": 1, "tests": 2, "ran": ["test_1", "test_3"],
+                   "all": ["test_0", "test_1", "test_2", "test_3"],
                    "deferred": [{"desc": "到達", "kind": "count", "seen": ["a", "b"], "want": 2}]}
 
 
 def _docs(total=2, group="g1"):
-    """全組がそろった名簿（checks の和 10＋和の検査 2 件＝12、tests の和 6）"""
+    """全組がそろった名簿（台本 6 本を round-robin で分け、どの台本もちょうど 1 組で走った）"""
     out = []
+    names = [f"t{j}" for j in range(6)]
     for i in range(total):
-        out.append({"name": "counts", "group": group, "total": total, "index": i, "checks": 10 // total, "tests": 6 // total})
-        out.append({"name": "sim", "group": group, "total": total, "index": i, "tests": 6 // total, "deferred": [
+        ran = parallel.assign(names, i, total)
+        out.append({"name": "counts", "group": group, "total": total, "index": i, "checks": 5, "tests": len(ran)})
+        out.append({"name": "sim", "group": group, "total": total, "index": i, "tests": len(ran), "ran": ran, "all": names, "deferred": [
             {"desc": "到達", "kind": "count", "seen": [f"v{i}"], "want": total},
             {"desc": "渡し方", "kind": "superset", "seen": [f"n{i}"], "want": [f"n{j}" for j in range(total)]}]})
     return out
 
 
 def test_merge_green_when_union_matches():
-    assert parallel.merge(_docs() + _docs(group="g2"), ["g1", "g2"], 12, 6) == []
+    assert parallel.merge(_docs() + _docs(group="g2"), ["g1", "g2"]) == []
+    assert parallel.merge(_docs(total=3), ["g1"]) == []
 
 
 def _without(docs, pred):
@@ -110,8 +117,16 @@ def _without(docs, pred):
     ("総数の食い違い", lambda: [{**d, "total": 3} if d["index"] == 1 else d for d in _docs()], "総数が揃わない"),
     ("counts の欠け", lambda: _without(_docs(), lambda d: d["name"] == "counts" and d["index"] == 0), "揃いが崩れている"),
     ("台本の名簿の欠け", lambda: _without(_docs(), lambda d: d["name"] == "sim" and d["index"] == 0), "揃いが崩れている"),
-    ("件数の和の不一致", lambda: [{**d, "checks": 4} if d["name"] == "counts" and d["index"] == 0 else d for d in _docs()], "EXPECTED_CHECKS"),
-    ("本数の和の不一致", lambda: [{**d, "tests": 1} if d["index"] == 0 else d for d in _docs()], "EXPECTED_TESTS"),
+    ("どの組でも走らない台本", lambda: [{**d, "ran": d["ran"][1:]} if d["name"] == "sim" and d["index"] == 0 else d for d in _docs()],
+     "どの組でも走っていない: t0"),
+    ("2 組で走った台本", lambda: [{**d, "ran": d["ran"] + ["t0"]} if d["name"] == "sim" and d["index"] == 1 else d for d in _docs()],
+     "2 つ以上の組で走った: t0"),
+    ("全台本に無い台本", lambda: [{**d, "ran": d["ran"] + ["tx"]} if d["name"] == "sim" and d["index"] == 1 else d for d in _docs()],
+     "全台本の名前に無い台本が走った: tx"),
+    ("全台本の名前の食い違い", lambda: [{**d, "all": d["all"][:-1]} if d["name"] == "sim" and d["index"] == 1 else d for d in _docs()],
+     "組ごとに違うか空"),
+    ("全台本の名前の欠け", lambda: [{k: v for k, v in d.items() if k != "all"} if d["name"] == "sim" else d for d in _docs()],
+     "組ごとに違うか空"),
     ("counts と台本の本数の食い違い", lambda: [{**d, "tests": 1} if d["name"] == "sim" and d["index"] == 0 else d for d in _docs()], "台本の名簿の和"),
     ("和集合で届かない到達", lambda: [{**d, "deferred": [{**x, "seen": ["v0"]} for x in d["deferred"]]} if d["name"] == "sim" else d
                                       for d in _docs()], "和集合で通らない"),
@@ -120,30 +135,20 @@ def _without(docs, pred):
     ("知らない group", lambda: _docs() + _docs(group="gx"), "知らない group"),
 ])
 def test_merge_red_arms(name, docs, want):
-    bad = parallel.merge(docs(), ["g1"], 12, 6)
+    bad = parallel.merge(docs(), ["g1"])
     assert any(want in b for b in bad), (name, bad)
 
 
 def test_merge_red_when_group_missing():
-    assert any("1 つも無い" in b for b in parallel.merge(_docs(), ["g1", "g2"], 12, 6))
-
-
-def test_expected_reads_the_run_sh_constants(tmp_path):
-    checks, tests = parallel.expected(parallel.pathlib.Path(parallel.__file__).resolve().parent / "run.sh")
-    assert checks > 0 and tests > 0
-    (tmp_path / "run.sh").write_text("EXPECTED_CHECKS=3\n", encoding="utf-8")
-    with pytest.raises(ValueError):
-        parallel.expected(tmp_path / "run.sh")
+    assert any("1 つも無い" in b for b in parallel.merge(_docs(), ["g1", "g2"]))
 
 
 def test_cli_merge_reads_dirs(tmp_path, capsys, monkeypatch):
-    want_checks, want_tests = parallel.expected(parallel.pathlib.Path(parallel.__file__).resolve().parent / "run.sh")
     for i in range(2):
         d = tmp_path / f"gl-shard-g1-{i}"
         d.mkdir()
-        (d / "counts.json").write_text(json.dumps({"group": "g1", "total": 2, "index": i, "checks": [want_checks - 1, 0][i],
-                                                   "tests": [want_tests, 0][i]}), encoding="utf-8")
-        (d / "sim.json").write_text(json.dumps({"group": "g1", "total": 2, "index": i, "tests": [want_tests, 0][i],
+        (d / "counts.json").write_text(json.dumps({"group": "g1", "total": 2, "index": i, "checks": 3, "tests": 1}), encoding="utf-8")
+        (d / "sim.json").write_text(json.dumps({"group": "g1", "total": 2, "index": i, "tests": 1, "ran": [f"t{i}"], "all": ["t0", "t1"],
                                                 "deferred": [{"desc": "到達", "kind": "count", "seen": ["a"], "want": 1}]}),
                                     encoding="utf-8")
     assert parallel.main(["merge", "--groups", "g1", *map(str, sorted(tmp_path.iterdir()))]) == 0

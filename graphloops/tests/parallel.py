@@ -17,14 +17,13 @@ import concurrent.futures
 import json
 import os
 import pathlib
-import re
 import shutil
 import tempfile
 import threading
 import traceback
 
 # 件数（ran）と失敗一覧の共有更新を守る。**`ran += 1` は不可分ではない**——素で並列にすると
-# 数え落とし、件数のチェック（run.sh の EXPECTED_CHECKS）が走るたび違う値で赤くなる（＝チェックが信用できなくなる）。
+# 数え落とし、出す件数が走るたび違う値になる（＝数が信用できなくなる）。
 LOCK = threading.Lock()
 
 _buf = threading.local()
@@ -56,16 +55,17 @@ def collect(ns):
     """モジュールに在る `test_*` を**定義順に全部**集める。`parallel.collect(globals())` で呼ぶ。
 
     **手で並べない。** 並べていたとき、台本を足して呼び出しを書き忘れると誰も気づかなかった
-    ——呼ばれない台本は件数を増やさないので、件数のチェック（EXPECTED_CHECKS）は期待値と一致したまま緑になる。
+    ——呼ばれない台本は件数を増やさないので、走った件数を見ても誰も気づかない。
     graph を名前で並べていて 5 本目が誰にも検査されなかったのと同じ穴（2026-09-13 に同種を 2 か所で潰した）。
 
-    件数のチェックは捨てない——こちらは「足した台本が走らない」を、チェックは「台本や検査が消えた」を見る。
-    見ている向きが逆なので両方要る。
+    逆向きの「台本が消えた」は、件数の定数で止めずに見えるようにする（2026-11-18 に件数の定数をやめた。
+    ルートの tests/removed-tests.py がブランチの消した def test_ を一覧にする）。
+    組の回は、組に分ける前の全台本の名前を控え（finish が名簿に書く）、まとめの口が全台本が 1 回ずつ走ったかを見る。
     """
     tests = [v for k, v in ns.items()
              if k.startswith("test_") and callable(v) and getattr(v, "__module__", None) == ns.get("__name__")]
     # **GL_TEST_ONLY=名前,名前 で台本を絞る**（変異の腕を撃つ実行器 tests/mutate.py が、腕に関係する台本だけを
-    # 走らせるため）。絞った回は件数のチェックが合わないので run.sh を通さずに呼ぶ
+    # 走らせるため）。絞った回は全台本の和で見る検査が合わないので run.sh を通さずに呼ぶ
     only = os.environ.get("GL_TEST_ONLY")
     if only:
         want = set(only.split(","))
@@ -78,6 +78,7 @@ def collect(ns):
         if only:   # 2 つの絞りを重ねると、どちらのチェックも合わない回が生まれる
             print("  FAIL GL_TEST_ONLY と組の指定（GL_SHARD_TOTAL）は同時に使えない")
             raise SystemExit(1)
+        _all[:] = [v.__name__ for v in tests]
         tests = assign(tests, spec["index"], spec["total"])
     return tests
 
@@ -231,7 +232,7 @@ def run_all(tests):
 
     例外は握り潰さない。溜めた行を全部出してから最初の 1 本を投げ直す。直列版と違うのは、
     例外が出ても残りの台本が走りきる点——落ちた 1 本で他が全部見えなくなるのを避ける
-    （途中で止まった台本のぶん件数は足りなくなるので、件数のチェックがどちらにせよ赤くする）。
+    （途中で止まった台本は例外を投げ直すので、台本のプロセスは終わりの値 0 で終わらない）。
 
     engine が起動した子（環境の ENGINE_CHILD）からは、GL_TEST_ONLY で絞らない回を走らせない——台本（simulate.py・simulate_review.py）は
     run.sh を通さずに直に起動できるので、run.sh の頭の拒みだけでは一式の大半が走る。どの台本もここを通る
@@ -272,10 +273,11 @@ def run_all(tests):
 
 # ---- 組（shard）に分けて CI の別々の job で回す ----
 # 約束は Bazel の test sharding に倣う（組の総数と 0 始まりの番号を環境で渡し、組の中の割り当ては決定的）。
-# 件数のチェックと全台本の和で見る検査は 1 回の実行の中では当たらないので、組は数えた値と到達した集合を名簿に書くだけで、
-# 当てるのは全組を待つまとめの口（merge）の 1 か所——組ごとに外すと、どの job でも走らない検査が生まれる。
+# 全台本が 1 回ずつ走ったかと全台本の和で見る検査は 1 回の実行の中では当たらないので、組は走らせた台本の名前・数えた値・
+# 到達した集合を名簿に書くだけで、当てるのは全組を待つまとめの口（merge）の 1 か所——組ごとに外すと、どの job でも走らない検査が生まれる。
 SHARD_ENV = ("GL_SHARD_TOTAL", "GL_SHARD_INDEX", "GL_SHARD_GROUP", "GL_SHARD_MANIFEST")
 _deferred = []
+_all = []   # 組に分ける前の全台本の名前（collect が組の回にだけ書く）
 
 
 def shard_spec(env=None):
@@ -332,21 +334,14 @@ def write_manifest(name, doc):
 
 
 def finish(script, tests):
-    """台本の main の終わりに呼ぶ。組の回は、走らせた台本の本数と積んだ和の検査を名簿に書く"""
-    write_manifest(pathlib.Path(script).stem, {"tests": len(tests), "deferred": _deferred})
+    """台本の main の終わりに呼ぶ。組の回は、走らせた台本の本数と名前・組に分ける前の全台本の名前・積んだ和の検査を名簿に書く"""
+    write_manifest(pathlib.Path(script).stem, {"tests": len(tests), "ran": [getattr(t, "__name__", t) for t in tests],
+                                               "all": list(_all), "deferred": _deferred})
 
 
-def expected(run_sh):
-    """期待値の正本（graphloops/tests/run.sh の EXPECTED_CHECKS・EXPECTED_TESTS）を読む——写しを持たない"""
-    txt = pathlib.Path(run_sh).read_text(encoding="utf-8")
-    got = {k: int(v) for k, v in re.findall(r"^(EXPECTED_CHECKS|EXPECTED_TESTS)=([0-9]+)$", txt, re.M)}
-    if set(got) != {"EXPECTED_CHECKS", "EXPECTED_TESTS"}:
-        raise ValueError(f"{run_sh} に EXPECTED_CHECKS・EXPECTED_TESTS の行が無い")
-    return got["EXPECTED_CHECKS"], got["EXPECTED_TESTS"]
-
-
-def merge(docs, groups, want_checks, want_tests):
-    """全組の名簿（読んだ dict の一覧）を検算し、問題の文の一覧を返す（空なら緑）"""
+def merge(docs, groups):
+    """全組の名簿（読んだ dict の一覧）を検算し、問題の文の一覧を返す（空なら緑）。件数の期待値は持たない——
+    見るのは、組の揃い・台本ごとに全台本が 1 回ずつ走ったか（どの組でも走らない台本・2 組で走った台本が無いか）・和の検査"""
     bad = []
     by = {}
     for d in docs:
@@ -379,10 +374,26 @@ def merge(docs, groups, want_checks, want_tests):
             continue
         counts = [d for d in rows if d["name"] == "counts"]
         sims = [d for d in rows if d["name"] != "counts"]
-        checks = sum(d["checks"] for d in counts)
         tests = sum(d["tests"] for d in counts)
         if tests != sum(d["tests"] for d in sims):
             bad.append(f"{g}: counts の台本の本数の和 {tests} が台本の名簿の和 {sum(d['tests'] for d in sims)} と違う")
+        by_sim = {}
+        for d in sims:
+            by_sim.setdefault(d["name"], []).append(d)
+        for name, ds in sorted(by_sim.items()):
+            alls = {tuple(d.get("all") or ()) for d in ds}
+            if len(alls) != 1 or not next(iter(alls)):
+                bad.append(f"{g}: {name} の全台本の名前が組ごとに違うか空（{len(alls)} 通り）")
+                continue
+            want = set(next(iter(alls)))
+            ran = [n for d in ds for n in d.get("ran", ())]
+            missed, twice = sorted(want - set(ran)), sorted({n for n in ran if ran.count(n) > 1})
+            if missed:
+                bad.append(f"{g}: {name} の台本 {len(missed)} 本がどの組でも走っていない: {', '.join(missed[:5])}")
+            if twice:
+                bad.append(f"{g}: {name} の台本 {len(twice)} 本が 2 つ以上の組で走った: {', '.join(twice[:5])}")
+            if set(ran) - want:
+                bad.append(f"{g}: {name} の全台本の名前に無い台本が走った: {', '.join(sorted(set(ran) - want)[:5])}")
         agg = {}
         for d in sims:
             for x in d["deferred"]:
@@ -394,11 +405,6 @@ def merge(docs, groups, want_checks, want_tests):
             seen = set().union(*(x["seen"] for x in xs))
             if not judge(xs[0]["kind"], seen, xs[0]["want"]):
                 bad.append(f"{g}: {name} の和の検査『{desc}』が和集合で通らない（{len(seen)} 件・期待 {xs[0]['want']}）")
-        # 組の回の和の検査は aggregate が None を返して check() に届かず checks に数えられない——組でない回の件数と揃えるため足す
-        if checks + len(agg) != want_checks:
-            bad.append(f"{g}: 検査の件数の和 {checks}＋和の検査 {len(agg)} が EXPECTED_CHECKS={want_checks} と違う")
-        if tests != want_tests:
-            bad.append(f"{g}: 台本の本数の和 {tests} が EXPECTED_TESTS={want_tests} と違う")
     return bad
 
 
@@ -436,14 +442,13 @@ def main(argv):
             return 2
         write_manifest("counts", {"checks": a.checks, "tests": a.tests})
         return 0
-    want_checks, want_tests = expected(pathlib.Path(__file__).resolve().parent / "run.sh")
     groups = [g for g in a.groups.split(",") if g]
-    bad = merge(_read_dirs(a.dirs), groups, want_checks, want_tests)
+    bad = merge(_read_dirs(a.dirs), groups)
     for b in bad:
         print("  FAIL " + b)
     if bad:
         return 1
-    print(f"SHARDS_OK（{len(groups)} group の組の和が EXPECTED_CHECKS={want_checks}・EXPECTED_TESTS={want_tests} と一致し、和の検査が通った）")
+    print(f"SHARDS_OK（{len(groups)} group で全台本が 1 回ずつ走り、和の検査が通った）")
     return 0
 
 

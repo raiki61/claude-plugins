@@ -2,8 +2,10 @@
 
 graphloops/tests/simulate.py・simulate_review.py（bash の tests/run.sh が束ねる台本）の検査を、このディレクトリの pytest へ段ごとに移した記録。段の名前（S2b ほか）はリポジトリの外の計画 testplan/PLAN.md の段。移すときの決まりは [README の「pytest の置き場」](../../README.md#pytest-の置き場graphloopstestspy)。
 
-- 台本の check 1 件をテスト 1 件（parametrize の 1 行か 1 関数）に写す。件数のチェック（conftest.py の EXPECTED_ITEMS）が check の粒度で数え続け、落ちた検査が 1 件ずつ並ぶ
-- 盤面を端から端まで回す筋書きは、本文を台本の check のまま移し、土台の gl_script で台本のモジュールを借りる。件数は EXPECTED_SIM_CHECKS が数える
+下の記録に出る件数の定数（graphloops/tests/run.sh の EXPECTED_CHECKS・EXPECTED_TESTS、conftest.py の EXPECTED_ITEMS・EXPECTED_SIM_CHECKS）は、2026-11-18 に消した（持ち主の決め。[docs/reform/ledger.md](../../../docs/reform/ledger.md)）。各段の「件数の定数」の行は、その時の記録として残す。今は数を直さず、消えた試験はルートの tests/removed-tests.py が一覧にする。
+
+- 台本の check 1 件をテスト 1 件（parametrize の 1 行か 1 関数）に写す。落ちた検査が 1 件ずつ並ぶ
+- 盤面を端から端まで回す筋書きは、本文を台本の check のまま移し、土台の gl_script で台本のモジュールを借りる。check を 1 件も撃たずに終わったテストは土台（glharness.py）が失敗にする
 - 途中の盤面に 1 手を当てて確かめる検査（否定検査など）は、控えた波・1 手・手で書いた期待（assert）の形に移す（T1）。波は waves.py が台本の前半を同じプロセスで 1 度だけ回して控え、検査ごとに控えから始める。台本の check は数えない（EXPECTED_SIM_CHECKS は動かない）。行き先は各テストの印 `moved_from` が名乗り、台帳（ledger.py）が台本の check ごとに機械で組む——空欄と、名乗りが check にちょうど 1 件で当たらない物と、末尾の「check ごとの対応（台帳が刷る）」の塊の古びは test_ledger.py が赤にする
 - 上限で止まる・止める・人待ちのように盤面を何周も回して狙いの点を見る筋書きは、出来事の列のデータ（scenes.py の history。台本の関数の中の Run 1 つが打った出来事を元の順に並べる）に書き、行はその列の印を指す（T2・層 2）。行の前置きは印の手前の出来事の全部、when は印の出来事、期待は手で書く述語。1 行が台本の check 1 件で、行の印が名乗る。形の規範は [ADR 0067](../../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md)
 - 台本→移し先の対応の正本は印 `moved_from` 1 つ。台帳が見張る台本は、印が名乗る台本と、基の git の版の塊に載っていた台本の和で、見張りから外すのは末尾の「外した台本」の一覧への 1 行だけ
@@ -23,7 +25,7 @@ simulate.py の small 8 本と、research の標準の収束（e2e）1 本を移
 | test_set_path | 17 | test_engine_parts.py |
 | test_threshold_boundaries | 6 | test_research_rules.py（①②の 4）と test_engine_parts.py（③の 2） |
 | test_cond_truth_tables | 21 | test_research_rules.py |
-| test_converges | 23 | test_sim_research.py（台本の check のまま。件数は EXPECTED_SIM_CHECKS） |
+| test_converges | 23 | test_sim_research.py（台本の check のまま） |
 
 件数の定数: graphloops/tests/run.sh の EXPECTED_CHECKS 2018 → 1895（simulate.py が 832 → 709 件）・EXPECTED_TESTS 164 → 155、conftest.py の EXPECTED_ITEMS 882 → 956・EXPECTED_SIM_CHECKS 5 → 28。
 

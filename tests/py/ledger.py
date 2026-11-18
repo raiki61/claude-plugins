@@ -87,7 +87,7 @@ def collected(here=HERE):
     got, res = pytest_nodes.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", str(here)], cwd=here)
     out = got.stdout.decode("utf-8", "replace")
     if got.returncode != 0 or res is None:
-        raise SystemExit(f"テストを集められない（終了 {got.returncode}。件数のチェック EXPECTED_ITEMS の更新漏れもここに出る）: "
+        raise SystemExit(f"テストを集められない（終了 {got.returncode}。テストが 1 件も無いファイルもここに出る）: "
                          f"{out[-2000:]}{got.stderr.decode('utf-8', 'replace')[-2000:]}")
     return set(res["collected"])
 

@@ -125,7 +125,7 @@ jobs:
           python-version: "3.12"
       # **pytest の置き場（graphloops/tests/py/）を丸ごと回す。** 依存は開発の間だけで、ここで入れる（README の必須には
       # 足さない）。版を固定するのは、手元と CI でチェック（fence.py）が使う pytest のフックの振る舞いを揃えるため。
-      # 置き場を丸ごと渡すので件数のチェック（conftest.py の EXPECTED_ITEMS ほか）が当たる——パスを絞るとチェックが外れる。
+      # 置き場を丸ごと渡すので、テストが 1 件も無いファイルのチェックと到達のチェック（fence.py）が当たる——パスを絞るとチェックが外れる。
       # -n（pytest-xdist）でプロセス単位に並べる。チェックは worker の数えた値を controller が集めて当てる（fence.py）。
       # 台帳の基の版は push の直前の版（buf-action の breaking_against の既定と同じ向き。新しいブランチの最初の push は 0 の sha、手での起動は空で、
       # どちらも台帳は HEAD と main との merge-base に戻る）
@@ -144,7 +144,7 @@ jobs:
           times
           exit "$rc"
       # **ルートの pytest の置き場（tests/py/。検証器 convergence-loops/scripts/review-record.py の表の検査）は別の起動で回す。** チェック（fence.py）は
-      # 1 回の起動に 1 つの置き場しか載せない。件数のチェック（tests/py/conftest.py の EXPECTED_ITEMS）が当たるよう置き場を丸ごと渡す
+      # 1 回の起動に 1 つの置き場しか載せない。テストが 1 件も無いファイルのチェックが当たるよう置き場を丸ごと渡す
       - name: root pytest
         shell: bash
         env:
@@ -207,7 +207,7 @@ jobs:
           FAIL_ON_SKIP: "1"
           WORKS_SHARD: ${{ matrix.shard }}/4
         run: sh works/tests/run.sh
-  # **全組を待って和を検算する。** 組は自分の分しか数えないので、件数のチェック（EXPECTED_CHECKS・EXPECTED_TESTS）と全台本の和で見る
+  # **全組を待って和を検算する。** 組は自分の分しか走らせないので、全台本が 1 回ずつ走ったか（名簿の台本の名前で見る）と全台本の和で見る
   # 検査（判定語彙の到達・渡し方の当たり）はここでしか当たらない。--groups は test の matrix の os と同じ並び（CI_LINT_OK が縛る）
   shards:
     needs: test

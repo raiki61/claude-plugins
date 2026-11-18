@@ -238,4 +238,4 @@ pytest の job の段 root pytest（test の job と同じ OS）と、[.review-c
   台本の review-record.py のセクションを消しても、research-record.py・doctor-record.py のセクションが同じ記録を使うので、生成は残る。その run
   （か、fork が「tests/py の外を触ってよい」と答えた周）で、heredoc の本文を broken_records.py へ移し、台本の `write_broken_records` が
   `python3 tests/py/broken_records.py <ROOT> <WORK>` を起動する形にする。broken_records.py の関数の形の検め（HEAD・TAIL）も、そこで消える
-- この置き場の件数の定数（conftest.py の `EXPECTED_ITEMS`）と台本の件数の定数（`EXPECTED_CHECKS`）を、消した分だけ直す
+- 件数の定数は直さない（2026-11-18 に消した。消した検査の一覧はルートの tests/removed-tests.py が出すので、納品の要約に書く）

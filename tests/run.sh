@@ -20,7 +20,14 @@ CL="$ROOT/convergence-loops"   # convergence-loops の置き場（marketplace.js
 # 作る（実測 2026-09-25・macOS 26.6.2）。engine が sandbox の中で起動する役（investigator）が書けるのは TMPDIR だけなので、
 # 型なしのままだとこの台本が mkdtemp の Operation not permitted で崩れる
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/run.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+# **最後まで走らずに 0 で抜けた回は赤（2）。** 走った件数の定数（EXPECTED_CHECKS）で途中の抜けを見ていた形は 2026-11-18 にやめた
+# （持ち主の決め。docs/reform/ledger.md）。代わりに、最後の行の直前で RUN_DONE=1 を立て、立たないまま 0 で終わる回
+# （途中の exit 0・読み込んだ台本の exit）を終わりの値 2 にする。0 でない終わりの値はそのまま返す。
+# 印の間は下の DONE_GUARD_OK が取り出して赤と緑を確かめる。( ) と $( ) の子のシェルは EXIT の trap を継がない（bash の仕様）
+# >>> done-guard
+RUN_DONE=
+trap 'rc=$?; rm -rf "$WORK"; if [ -z "$RUN_DONE" ] && [ "$rc" -eq 0 ]; then echo "tests/run.sh が最後の行まで走らずに終わりの値 0 で抜けた——残りの検査が走っていない（途中の exit 0 か、読み込んだ台本の exit）"; exit 2; fi' EXIT
+# <<< done-guard
 
 PY_BIN=$(command -v python3 || command -v python || true)
 [ -n "$PY_BIN" ] || { echo "python3 / python が PATH に無い"; exit 2; }
@@ -95,7 +102,7 @@ SCOPE=()
 # **変異の腕が宣言した検査だけを回す回（tests/mutate.py が腕ごとに渡す TESTS_ONLY。1 行に 1 つの、検査の説明の頭）。** 説明がどの頭でも
 # 始まらない検査は、走らせずに見送りの行を出して 1 件に数える。腕の証拠は落ちた検査に宣言（expect）が在ることだけなので、ほかの検査を
 # 回しても証拠は増えない。検査の間の下ごしらえは今までどおり走る。渡されない回は全部を回す。子に継がせない（TESTS_AFFECTED と同じ）。
-# 効かせるのは、expect_output 自身を検査する番人の腕の後から（数えるだけの回の差し替えと同じ所。下の ONLY_SET=$ONLY_WANT）
+# 効かせるのは、expect_output 自身を検査する番人の腕の後から（下の ONLY_SET=$ONLY_WANT）
 ONLY_HEADS=${TESTS_ONLY-} ONLY_WANT=${TESTS_ONLY+1} ONLY_SET=
 unset TESTS_ONLY
 only_hit() {
@@ -332,14 +339,7 @@ else
     fail=1
 fi
 
-# **数えるだけの回（TESTS_COUNT_ONLY=1）。** 検査を走らせずに件数だけを数え、下の件数の基準（EXPECTED_CHECKS）だけを当てる。
-# メインブランチに入れるコマンドのゲート（tests/count-fences.sh）が回す。検査を足して件数の基準を上げ忘れた変更が、メインブランチに入った後の CI で初めて
-# 赤になる形が、別々の部署で続いた（2026-10-16 に 3 件。e43b0a39・46fbcc99 と graphloops の 9f9da74e）。検査の間の下ごしらえは
-# 今までどおり走るので、件数は全部を回した回と同じになる（揃いは下の COUNT_ONLY_OK が縛る）。ここより上の番人の腕は
-# expect_output 自身を検査するので、差し替えはその後に置く
-if [ "${TESTS_COUNT_ONLY:-}" = 1 ]; then
-    expect_output() { ran=$((ran + 1)); }
-fi
+# ここより上の番人の腕は expect_output 自身を検査するので、腕の検査だけを回す回の切り替えはその後に置く
 ONLY_SET=$ONLY_WANT
 
 # 記録の一部を壊した JSON を**まとめて 1 プロセスで**書き出す。「壊すと落ちる」ことまで
@@ -2347,10 +2347,10 @@ orphans = set(agents) - referenced
 assert not orphans, "どの手順書からも使われない役割がある: " + ", ".join(sorted(orphans))
 PY
 else
-    fm_skip="  ok   手順書と役の定義の頭の YAML のチェック（2 件） # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
+    fm_skip="  ok   手順書と役の定義の頭の YAML のチェック # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
     echo "$fm_skip"
     note_skips "$fm_skip"
-    ran=$((ran + 2))
+    ran=$((ran + 1))
 fi
 
 expect_exit 0 "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
@@ -2370,7 +2370,7 @@ for f in [*(root/"convergence-loops").glob("*.md"), *(root/"convergence-loops/co
 # ほかのリポジトリでは無いツールを呼べと指示し、このリポジトリでもツールを足した周に指示の側だけが古くなる
 # （pytest の土台を足した周に、指示書のテスト一式から漏れた）。語は手で並べず導く——手で持った一覧はツールの追加に遅れる:
 # ツールの語はルートの宣言（.review-checks.json の suite と mutation。ruff の banned-api と同じく禁止の正本を設定に置く）から、
-# 引数は宣言が名指す実行器自身の --help から、件数のチェックは定数の接頭辞で、ツールのパスは tests/ の成分と、その下に在るファイルの名前で当てる。
+# 引数は宣言が名指す実行器自身の --help から、到達のチェックの定数は接頭辞で、ツールのパスは tests/ の成分と、その下に在るファイルの名前で当てる。
 # 宣言に無いツール（graphloops/README の手で回す変異のツール）だけ手で持つ。
 # 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。
 def derive(decl):
@@ -2449,19 +2449,6 @@ for f in codes:
 assert not hits, "固有の技術名・このリポジトリの検証のツールの名前が残っている: " + " / ".join(hits)
 PY
 
-# 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
-# **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
-# 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-# **検査を足したらこの数も上げろ。**下限が実数から離れると、このチェック自体が空振りする——
-# 実測（commit 935b205。下限が 225 のまま実件数が 448 件まで増えていた時点）: review-record と
-# 実行件数の一致検査（下の `-ne`）が見るのはこの数。**走らせた実測値だけを書け**——数える前に
-# 書いた数はどのコミットでも再現しなかった（前は「457 件」と書いてあった）。残る注記の仕事は 1 つ
-# だけで、**検査面を捨てて数を下げるときは、下げた理由をここに残す**こと。数を下げる操作自体は
-# 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
-# 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
-# 仕掛けを落として検査面が対象ごと消えた周）と、754 から 753 へ下げた周（graphloops の review-graph のスキルを退役し、
-# 入口のセクションを名指しする検査〔ENTRY_SURFACE_OK〕が対象ごと消えた。docs/adr/0075-retire-review-graph.md）。
-EXPECTED_CHECKS=912
 # 変えた所だけを回す回の入力（scope の説明は上の in_scope）: ここから waitgate までは gates のフックと、その試験の台本
 scope gates tests/coldread tests/destgate tests/searchgate tests/waitgate
 # ---- gates/hooks/run-python.sh: フックと手で打つコマンドの、Python を選ぶ入口（docs/standards/cross-os.md の決まり 1） ----
@@ -6498,7 +6485,7 @@ expect_output 1 "使い方" \
 # ---- attention/whose-turn: open 全件から誰のターンか ----
 # GitHub には触らない。判定は純粋関数で、固定の材料が規則を 1 行ずつ固定する
 WT="$ROOT/attention/scripts/whose-turn.py"
-expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 193 件。時刻はローカル、検査は UTC 固定）" \
+expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest。時刻はローカル、検査は UTC 固定）" \
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
@@ -6638,10 +6625,10 @@ if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
     expect_output 0 "SKILL_DESCRIPTIONS_OK" "スキルの説明のチェック: 全部のプラグインのスキル・コマンド・役の説明が YAML で黙って切れず、公式の字数の上限（SKILL.md 1,024 字・一覧 1,536 字）に収まる" \
         "$PY_BIN" "$SD_CASE" tree
 else
-    sd_skip="  ok   スキルの説明のチェック（2 件） # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
+    sd_skip="  ok   スキルの説明のチェック # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
     echo "$sd_skip"
     note_skips "$sd_skip"
-    ran=$((ran + 2))
+    ran=$((ran + 1))
 fi
 
 # ---- 全部のプラグインのスキル・コマンドの本文（スキルの書き方の標準 docs/standards/skill-authoring.md の決まり 1・4・5） ----
@@ -6669,9 +6656,7 @@ expect_output 0 "PYTHON_LAUNCH_OK" "Python の起動の形のチェック: 全�
 # **配布の必須依存は増えない**: shellcheck は利用者が入れる物ではなく、CI と開発者の手元で動くツールである
 # （README の「必須」は git / python3 / bash のまま）。
 # 手元に在れば回す。無ければ回さないが、**黙って消えない**——下の CI_LINT_OK が「CI が回す設定か」を見る。
-if [ "${TESTS_COUNT_ONLY:-}" = 1 ]; then
-    :   # 数えるだけの回は走らせない（件数は下で数える）
-elif command -v shellcheck >/dev/null 2>&1; then
+if command -v shellcheck >/dev/null 2>&1; then
     sc_bad=0
     while IFS= read -r f; do
         shellcheck -S warning "$f" || sc_bad=1
@@ -6978,7 +6963,7 @@ TOKEN = r"`([A-Z][A-Z0-9_]{2,})`"
 # `firstread-record.py` の同名定数で満たされて全件緑だった（実測。同名の定義は 10 個ある）。
 # `targets()` が今周採った「域を持ち回って組で照合する」と同じ形にする。
 # **行単位でなく隣接で取る**——同じ行に別のファイル名が在るだけで組にすると誤検出になる
-# （実測: `comment-ratio.sh` に触れた行の `EXPECTED_CHECKS` が「そのファイルに無い」と出た）。
+# （実測: `comment-ratio.sh` に触れた行の、別の台本の定数が「そのファイルに無い」と出た）。
 PAIR = r"`([A-Za-z0-9_.-]+\.(?:py|sh))`\s*(?:の)?\s*`([A-Z][A-Z0-9_]{2,})`"
 
 def defined(text):
@@ -7061,13 +7046,9 @@ PYSYM
 expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実在する（改名で片方だけ動かない）" \
     "$PY_BIN" "$WORK/doc-symbols.py" "$ROOT"
 
-# **`-ne` であること。** 以前は `-lt` で、下限を上げ忘れても下げ忘れても黙って通った（実測:
-# 実数 501 に対して下限が 491 のまま走り、検査を 10 件消しても「491 件すべて緑」で exit 0）。
-# 注記で「上げるときは実測値を書け」と書いてあっても、注記は赤くならない——③仕組みに置き換える。
 # ---- graphloops: graph の形と、台本で役を差し替えた模擬実行 ----
 # 期待文字列は「件すべて緑」——「0 件失敗」だと母数 0（台本が 1 本も走らない）でも同じ部分文字列に
-# 当たる。件数の突合（-ne）は graphloops/tests/run.sh が自分の EXPECTED_CHECKS で持ち、ここは
-# 終了コードとその 1 行だけを見る（件数の正本を 2 か所にしない）。
+# 当たる。各台本が最後まで走ったか（終わりの行）は graphloops/tests/run.sh が見て、ここは終了コードとその 1 行だけを見る。
 # メインブランチに入れるゲートの回（TESTS_LAND=1。tests/land-check.py が渡す）は、この 1 件だけを見送る。組に分けない手元では
 # この 1 件で 8 分ほどかかり（CI の 1 組で約 2 分 × 4 組）、残りの検査の全部より長い。CI は今までどおり回す
 if [ "${TESTS_LAND:-}" = 1 ]; then
@@ -7076,7 +7057,7 @@ if [ "${TESTS_LAND:-}" = 1 ]; then
     echo "$land_skip"
     note_skips "$land_skip"
 else
-expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・チェックの腕）が通り、件数が期待どおり" \
+expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・チェックの腕）が最後まで走って通る" \
     env ${GL_SHARD_ENV[@]+"${GL_SHARD_ENV[@]}"} bash "$ROOT/graphloops/tests/run.sh"
 fi
 # ---- graphloops: 台帳（graphloops/tests/py/ledger.py。台本の check ごとの行き先と、MIGRATION.md の刷った塊） ----
@@ -8779,17 +8760,15 @@ root = pathlib.Path(sys.argv[1])
 # **走査対象は宣言から導く。** 4 行を手で並べていたので、新しいラチェット定数を足した周にその 1 本だけ
 # 表の外へ静かに落ちた（今日時点の漏れは 0 だが、形は『走査対象のファイルを手で列挙している』そのもの）。
 # 表が持つのは**定数ごとに要求する突合の式**だけで、どのファイルを見るかは宣言（`^名前 =` / `^名前=`）を探す。
+# **試験の件数の定数は表に載せない**（EXPECTED_CHECKS・EXPECTED_TESTS・EXPECTED_ITEMS・EXPECTED_SIM_CHECKS は 2026-11-18 にやめた。
+# 持ち主の決め。docs/reform/ledger.md）。残るのは、テストの数でなく筋書きや口がどの値まで届いたかを見る到達の数だけ。
+# 試験の件数の定数を新しく足すと、下の NOT_RATCHET の検査が名前を拾って赤にする（FORMS に戻さず、終わりの行の照合で置き換える）
 FORMS = {
-    "EXPECTED_CHECKS": 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then',
     # 到達の等値は parallel.judge の count（組の回はまとめの口が和集合で同じ関数を当てる。緩めた退行は test_shards.py が赤にする）
     "VOCAB_REACHED": '        ok = parallel.aggregate("判定語彙の到達", "count", keys, VOCAB_REACHED)',
-    "EXPECTED_TESTS": 'if [ "$tests" -ne "$EXPECTED_TESTS" ]; then',
-    # pytest の置き場の件数の定数。突合の != は fence.py の中で、ここは定数をチェックに渡す 1 行を固定する
-    # （fence.py の != を緩めた退行は、graphloops/tests/py/test_fence.py が両向きの不一致で赤にする）
-    "EXPECTED_ITEMS": "    fence.install(config, HERE, EXPECTED_ITEMS)",
-    # 盤面を回す台本の検査の件数と到達の数。突合の != は fence.py の中で、ここは期待値をチェックに渡す 1 行を固定する
-    "EXPECTED_SIM_CHECKS": "    fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)",
-    "EXPECTED_SIM_REACHED": "    fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)",
+    # 盤面を回す台本の口の種類の数。突合の != は fence.py の中で、ここは期待値をチェックに渡す 1 行を固定する
+    # （fence.py の != を緩めた退行は、graphloops/tests/py/test_fence.py が赤にする）
+    "EXPECTED_SIM_REACHED": "    fence.expect_sim(config, EXPECTED_SIM_REACHED)",
 }
 # **母数は宣言から取り、表に無い名前には理由を要求する。** FORMS に名前を 2 つ手で並べていたので、
 # 新しいラチェットを足した周にその 1 本が黙って表の外へ落ちる形だった。検査の置き場に在る整数の定数を
@@ -8814,6 +8793,7 @@ NOT_RATCHET = {
     "TOC_OVER": "tests/skill-body-case.py が別ファイルに目次を求める行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
     "TOC_HEAD": "tests/skill-body-case.py が目次を探す頭の行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
     "RUNS": "tests/ci-watch.py が workflow ごとに読む run の数（この中に緑が無ければ最後の緑を別に引く）。件数の突合ではない",
+    "RUN_DONE": "tests/run.sh の頭の done-guard の印（最後の行まで来た回だけ 1 を立てる）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []
@@ -8824,7 +8804,7 @@ for f in sorted(root.rglob("*.py")) + sorted(root.rglob("*.sh")):
     # 数えない口）も一致しない——**チェックが自分の表を別の突合と数えて windows-latest だけ赤くなった**
     # （実測 2026-09-14: commit b64936d の windows-latest が「2 か所」で NG。macOS と Linux は緑で手元では見えない）
     rel = f.relative_to(root).as_posix()
-    # works は自分の試験の一式（works/tests/run.sh）を持ち、ここの件数のチェックを使わないので走査の外（2026-10-09 の掃除: works の
+    # works は自分の試験の一式（works/tests/run.sh）を持ち、ここの到達のチェックを使わないので走査の外（2026-10-09 の掃除: works の
     # 整数の定数を 1 つずつ NOT_RATCHET に理由つきで足すだけで、突合の要る物は 1 つも無かった）
     if ".git" in f.relative_to(root).parts or "node_modules" in f.relative_to(root).parts or f.relative_to(root).parts[0] == "works":
         continue
@@ -8881,24 +8861,24 @@ for rel, const, exact in RATCHETS:
             bad = 1
 if bad:
     sys.exit(1)
-# **CONTRIBUTING.md の宣言（review-loop が読む検証のツール）の「件数のチェック」の行は、この表が導いた名前と両方向で一致する。**
+# **CONTRIBUTING.md の宣言（review-loop が読む検証のツール）の「到達のチェック」の行は、この表が導いた名前と両方向で一致する。**
 # 宣言は役が読む写しなので、ラチェットを足した・消した周に宣言だけが古くなる形を赤にする。置き場は宣言に書かない（ここが導く）
 readme = (root / "CONTRIBUTING.md").read_text(encoding="utf-8")
 sec = re.search(r"^### review-loop が読む検証のツール（このリポジトリの宣言）\n(.*?)(?=^#{1,3} |\Z)", readme, re.M | re.S)
-fence = re.search(r"^- \*\*件数のチェック\*\*:(.*)$", sec.group(1), re.M) if sec else None
+fence = re.search(r"^- \*\*到達のチェック\*\*:(.*)$", sec.group(1), re.M) if sec else None
 if not fence:
-    print("NG CONTRIBUTING.md に「review-loop が読む検証のツール」のセクションか、その「件数のチェック」の行が無い（宣言の見出しを変えたら、このチェックも直せ）")
+    print("NG CONTRIBUTING.md に「review-loop が読む検証のツール」のセクションか、その「到達のチェック」の行が無い（宣言の見出しを変えたら、このチェックも直せ）")
     sys.exit(1)
 declared = set(re.findall(r"`([A-Z][A-Z0-9_]+)`", fence.group(1)))
 derived = {c for _, c, _ in RATCHETS}
 if declared != derived:
-    print(f"NG CONTRIBUTING.md の宣言の件数のチェックがラチェットの表とずれている（宣言にだけ在る {sorted(declared - derived)}"
+    print(f"NG CONTRIBUTING.md の宣言の到達のチェックがラチェットの表とずれている（宣言にだけ在る {sorted(declared - derived)}"
           f"・表にだけ在る {sorted(derived - declared)}）")
     sys.exit(1)
 print(f"RATCHET_OK（検査の置き場の整数の定数 {len(universe)} 名・突合を要求 {len(FORMS)} 名"
       f"・理由つきで対象外 {len(NOT_RATCHET)} 名・突合した宣言 {len(RATCHETS)} 件）")
 RATCHET
-expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない" \
+expect_output 0 "RATCHET_OK" "ラチェット（到達の数）の突合が等値で、緩められていない" \
     "$PY_BIN" "$WORK/ratchet.py" "$ROOT"
 
 # **手順書が案内する呼び出しが、実物の CLI に在ること。** 同じ事実（サブコマンドとフラグ）が engine と
@@ -9570,7 +9550,7 @@ cases = {
     "known not run": (red("甲の検査") + done_red, 1, None),
     "known skipped is not healed": (red("甲の検査") + "  ok   乙の検査 # SKIP fifo: 理由\n" + done_red, 1, None),
     "red line without dash": (red("甲の検査") + "  FAIL 壊した記録を作れない\n" + done_red, 1, "「 — 」の無い赤の行が 1 行"),
-    "count mismatch": (red("甲の検査") + "検査が 3 件走った（4 件を期待）——検証の空振りか、件数の更新漏れ\n", 2, "件数のチェックが合わない"),
+    "early exit": (red("甲の検査") + "tests/run.sh が最後の行まで走らずに終わりの値 0 で抜けた\n", 2, "最後の行を出さずに"),
     "died after known red": (red("甲の検査") + "tests/run.sh: line 9: X: unbound variable\n", 1, "最後の行を出さずに"),
     "crashed": ("bash: 何か: command not found\n", 2, "最後の行を出さずに"),
     "failed without red line": (done_red, 1, "赤の行を出さずに"),
@@ -9623,13 +9603,52 @@ assert lc.show_fails(many, ["丁"]) == ["落ちた: 丁 ← " + ", ".join("m.C.t
 print("LAND_CHECK_OK")
 PY
 
-# 数えるだけの回の件数が、全部を回したこの回の件数（下のチェック）と合う。合わなくなるのは、前の検査の結果で検査を足し引きする書き方を
-# 入れたとき（数えるだけの回は結果を作らない）。数えるだけの回では、この検査自身も走らずに 1 件に数える。
-# 子の見送りの行は落として渡す——子は expect_output の外で出す見送り（FIFO・shellcheck など）をこの回と同じに出すので、
-# そのまま expect_output の note_skips に渡ると同じ見送りを二重に数える
-expect_output 0 "COUNT_ONLY_MATCH" "数えるだけの回（TESTS_COUNT_ONLY=1）の検査の件数が、全部を回した回の件数のチェックと合う" \
-    bash -c 'set -o pipefail; env TESTS_COUNT_ONLY=1 bash "$1" | grep -v -F "$2"' _ "$ROOT/tests/run.sh" "$SKIP_MARK"
-# 同じ見送りを二重に数えていない（上の子の見送りの行をそのまま数えていたとき、見送りの件数と FAIL_ON_SKIP の数が倍になった）。
+# 頭の done-guard（最後まで走らずに 0 で抜けた回を赤にする trap）を印の間から取り出して、赤と緑の両方を見る。
+# 赤を一度も見ていないチェックは効いていると扱わない
+expect_output 0 "DONE_GUARD_OK" "途中で終わりの値 0 で抜けた回を 2 にし、最後まで走った回・赤で抜けた回・子のシェルの exit 0 は変えない（印は最後の exit の直前で立てる）" \
+    bash -c 'g=$(sed -n "/^# >>> done-guard\$/,/^# <<< done-guard\$/p" "$1")
+        [ -n "$g" ] || { echo "tests/run.sh に done-guard の印が無い"; exit 1; }
+        one() { WORK=$(mktemp -d) bash -c "set -u
+$g
+$1"; }
+        early=$(one "exit 0" 2>&1); e=$?
+        one "RUN_DONE=1; exit 0" >/dev/null 2>&1; d=$?
+        one "exit 1" >/dev/null 2>&1; r=$?
+        sub=$(one "( exit 0 ); x=\$(exit 0); RUN_DONE=1; exit 0" 2>&1); s=$?
+        last=$(grep -v "^[[:space:]]*\$" "$1" | tail -2)   # 印を立てる行は最後の exit の直前（前へ動かすと残りが走らずに緑になる）
+        [[ "$last" == "RUN_DONE=1"*$'"'"'\n'"'"'"exit \"\$fail\"" ]] || { echo "tests/run.sh の最後の 2 行が RUN_DONE=1 と exit \"\$fail\" でない: $last"; exit 1; }
+        if [ "$e" = 2 ] && [[ "$early" == *"最後の行まで走らずに"* ]] && [ "$d" = 0 ] && [ "$r" = 1 ] && [ "$s" = 0 ] && [ -z "$sub" ]; then
+            echo DONE_GUARD_OK
+        else
+            echo "途中で抜けた回 $e（2 を期待）・最後まで走った回 $d・赤で抜けた回 $r・子のシェルの回 $s（$sub）: $early"
+        fi' _ "$ROOT/tests/run.sh"
+# ---- tests/removed-tests.py: ブランチが消した試験の一覧（件数の定数の代わりに、消えた試験を止めずに見せる） ----
+# 一時のリポジトリに分かれ目の版を作り、試験を 1 本消す・別のファイルへ移す・検査の説明を消す（説明を次の行へ折り返した検査と、
+# 期待の字を単一引用符で書いた検査も）・commit せずに消す、を当てる。
+# 消した物だけが出て、移した物は出ず、何も消さない回は「無い」と出る。止めない台本なので、どの回も終わりの値は 0
+RT="$WORK/removed-tests"
+mkdir -p "$RT/tests" && cp "$ROOT/tests/removed-tests.py" "$RT/tests/" && (
+    cd "$RT" && git init -q && git config user.email t@example.invalid && git config user.name t \
+    && printf 'def test_keep():\n    pass\n\n\ndef test_gone():\n    pass\n\n\ndef test_moved():\n    pass\n' > tests/test_a.py \
+    && printf 'expect_output 0 "OK" "残る検査" \\\n    true\nexpect_output 0 "OK" "消す検査" true\nexpect_exit 0 "消す exit の検査" true\n' > tests/run.sh \
+    && printf "expect_output 1 '使い方' \\\\\n    \"折り返した説明の検査\" true\n" >> tests/run.sh \
+    && printf 'def test_uncommitted():\n    pass\n' > tests/test_b.py \
+    && git add -A && git commit -qm base && git update-ref refs/remotes/origin/main HEAD
+) >/dev/null 2>&1
+expect_output 0 "消えた試験は無い" "removed-tests: 何も消していない回は「消えた試験は無い」と出し、止めない" \
+    "$PY_BIN" "$RT/tests/removed-tests.py"
+(
+    cd "$RT" && printf 'def test_keep():\n    pass\n' > tests/test_a.py \
+    && printf 'def test_moved():\n    pass\n' > tests/test_c.py \
+    && printf 'expect_output 0 "OK" "残る検査" \\\n    true\n' > tests/run.sh && git add -A && git commit -qm change \
+    && printf 'X = "def test_uncommitted は文字の中"\n' > tests/test_b.py
+) >/dev/null 2>&1
+expect_output 0 "REMOVED_TESTS_OK" "removed-tests: 消した def test_・expect_output と expect_exit の説明（折り返した行も）・commit していない消しを名前で出し、別のファイルへ移した試験と残った試験は出さない" \
+    bash -c 'out=$("$1" "$2/tests/removed-tests.py"); rc=$?
+        want=$(printf "%s\n" "removed-tests: 消えた試験 5 件" "  tests/run.sh: 折り返した説明の検査" "  tests/run.sh: 消す exit の検査" "  tests/run.sh: 消す検査" "  tests/test_a.py: test_gone" "  tests/test_b.py: test_uncommitted")
+        got=$(printf "%s\n" "$out" | sed "1s/（.*//")
+        [ "$rc" = 0 ] && [ "$got" = "$want" ] && echo REMOVED_TESTS_OK || printf "終わりの値 %s:\n%s\n" "$rc" "$out"' _ "$PY_BIN" "$RT"
+# 同じ見送りを二重に数えていない（子の見送りの行をそのまま数えていたとき、見送りの件数と FAIL_ON_SKIP の数が倍になった）。
 # 並べて比べるのは字の並び（LC_ALL=C）で——macOS の sort と uniq は en_US.UTF-8 の照合で、日本語の字だけが違う別の行を同じと見なし、
 # 入力の変わっていない検査を見送るメインブランチに入れるゲートの回で、attention の 5 件の別の見送りを二重に数えたと赤にした
 SKIPS_DUPS='d=$(printf "%s\n" "$@" | LC_ALL=C sort | LC_ALL=C uniq -d); [ -z "$d" ] && echo SKIPS_UNIQUE || printf "二重に数えた見送り:\n%s\n" "$d"'
@@ -9640,15 +9659,6 @@ expect_output 0 "SKIPS_DUPS_OK" "見送りの重なりの探し方が、日本�
 expect_output 0 "SKIPS_UNIQUE" "同じ見送りの行を二重に数えていない" \
     bash -c "$SKIPS_DUPS" _ ${SKIPS[@]+"${SKIPS[@]}"}
 
-if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
-    echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"
-    exit 2
-fi
-if [ "${TESTS_COUNT_ONLY:-}" = 1 ]; then
-    echo "COUNT_ONLY_MATCH 検査は $ran 件で、件数のチェック（EXPECTED_CHECKS）と合う（数えるだけの回。検査は走らせていない）"
-    exit 0
-fi
-
 echo
 report_skips
 if [ "$fail" = 0 ]; then
@@ -9656,4 +9666,5 @@ if [ "$fail" = 0 ]; then
 else
     echo "$ran 件のうち失敗あり"
 fi
+RUN_DONE=1   # 頭の done-guard の印（ここまで来た回だけ立つ）
 exit "$fail"

@@ -343,22 +343,25 @@ SMALL_CALLS = pytest.StashKey[list]()
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item):
-    """台本の check の前後の差を数える。件数はチェックへ、失敗は GL_CHECK_LOG へ 1 行ずつ書き、1 件でもあればテストを失敗にする
-    （check は失敗を溜めて進む形なので、数えないと pytest は緑と報告する）。small のテストが禁じた物を呼んでいれば、
-    例外を握り潰していても失敗にする"""
+    """台本の check の前後の差を数える。失敗は GL_CHECK_LOG へ 1 行ずつ書き、1 件でもあればテストを失敗にする
+    （check は失敗を溜めて進む形なので、数えないと pytest は緑と報告する）。台本を回す口（gl_script）を受けたテストが check を
+    1 件も撃たずに終われば失敗にする（筋書きが途中で抜けても緑に見える形を、件数の定数を使わずにテストごとに止める）。
+    small のテストが禁じた物を呼んでいれば、例外を握り潰していても失敗にする"""
     before = tallies()
     failed = []
+    ran = 0
     try:
         res = yield
-    finally:   # テストが例外で抜けても、そこまでに走った件数と失敗は数える
+    finally:   # テストが例外で抜けても、そこまでに走った失敗は数える
         ran, failed = new_results(before, tallies())
-        fence.add_sim_checks(item.config, ran)
         log = os.environ.get("GL_CHECK_LOG")
         if failed and log:
             with open(log, "a", encoding="utf-8") as f:
                 f.writelines(f"  FAIL {d}\n" for d in failed)
     if failed:
         pytest.fail(f"台本の検査が {len(failed)} 件落ちた: " + " / ".join(failed[:5]), pytrace=False)
+    if ran == 0 and "gl_script" in getattr(item, "fixturenames", ()):
+        pytest.fail("台本を回す口（gl_script）を受けたのに、台本の検査（check）が 1 件も走っていない", pytrace=False)
     calls = item.stash.get(SMALL_CALLS, None)
     if calls:
         pytest.fail(f"small のテストが {', '.join(sorted(set(calls)))} を呼んだ（大きさのチェック）", pytrace=False)

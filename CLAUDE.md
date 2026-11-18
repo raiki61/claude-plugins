@@ -34,6 +34,7 @@
 - 並べすぎない: pytest の worker は PYTEST_XDIST_AUTO_NUM_WORKERS=4 で抑え、手元の試験は nice -n 19 で回す。
 - 変異テスト（tests/mutate.py の本撃ち・mutmut）は撃たない（selfcheck.py は可）。
 - サブエージェントに重い試験を回させない。
+- 試験の件数の定数は持たない（持ち主 2026-11-18。試験を足しても消しても数は直さない）。試験を消した・説明を書き換えたブランチは、納品の前に `python3 tests/removed-tests.py` を打ち、出た一覧を要約の決め手に書いて照合役にも見せる（止めない。消したのが意図どおりかを人と照合役が見る）。docs/reform/ledger.md の頼み 475769。
 
 ## 手元の操作
 

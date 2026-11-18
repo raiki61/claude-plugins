@@ -39,7 +39,7 @@ class _Nodes:
         if report.failed and report.nodeid not in self.failed:
             self.failed.append(report.nodeid)
 
-    @pytest.hookimpl(tryfirst=True)   # ほかのプラグインの終わりの処理（件数のチェックなど）が抜けても、先に書いておく
+    @pytest.hookimpl(tryfirst=True)   # ほかのプラグインの終わりの処理（空のファイルのチェックなど）が抜けても、先に書いておく
     def pytest_sessionfinish(self, session):
         with open(os.environ[OUT], "w", encoding="utf-8") as f:
             json.dump({"collected": self.collected, "deselected": self.deselected,

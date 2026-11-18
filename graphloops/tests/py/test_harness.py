@@ -2,7 +2,7 @@
 
 - 2 つの口の突合: 同じ筋書きを子プロセスの口と同じプロセスの口で回し、盤面を正規化して突き合わせる（上位互換の確かめ）
 - 同じプロセスの口の戻し・終了コードと標準エラーの一致
-- 台本の本文をそのまま pytest から回せること（件数と失敗が pytest の結果とチェックに届く）
+- 台本の本文をそのまま pytest から回せること（失敗と check の空振りが pytest の結果とチェックに届く）
 - チェックが pytest-xdist（-n）の下でも赤になること（内側に回した pytest で見る。赤を見ていないチェックは効いていると扱わない）
 """
 import json
@@ -210,11 +210,11 @@ def test_normalize_board_replaces_only_named_parts(tmp_path):
 CONFTEST = ("import fence, pathlib\n"
             "pytest_plugins = ('glharness',)\n\n\n"
             "def pytest_configure(config):\n"
-            "    fence.install(config, pathlib.Path(__file__).parent, {items})\n"
-            "    fence.expect_sim(config, {checks}, {reached})\n")
+            "    fence.install(config, pathlib.Path(__file__).parent)\n"
+            "    fence.expect_sim(config, {reached})\n")
 PASSING = "def test_a():\n    pass\n"
 def checks_file(n, reach="r"):
-    body = "import glharness\nsim = glharness.script('review')\n\n\ndef test_c(gl_check):\n"
+    body = "import glharness\nsim = glharness.script('review')\n\n\ndef test_c(gl_check, gl_script):\n"
     body += f"    gl_check.reach({reach!r})\n"
     body += "".join(f"    sim.check(True, 'c{i}')\n" for i in range(n))
     return body
@@ -228,8 +228,8 @@ def inner(pytester, monkeypatch, tmp_path):
     # 内側の pytest の出力を UTF-8 に（Windows の既定の cp1252 では日本語の行が \\u の綴りに化けて照合が当たらない。実測 2026-09-26）
     monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
 
-    def run(files, items, *args, checks=0, reached=0):
-        pytester.makeconftest(CONFTEST.format(items=items, checks=checks, reached=reached))
+    def run(files, *args, reached=0):
+        pytester.makeconftest(CONFTEST.format(reached=reached))
         pytester.makepyfile(**files)
         return pytester.runpytest_subprocess("-p", "no:cacheprovider", *args)
     return run
@@ -239,22 +239,14 @@ def inner(pytester, monkeypatch, tmp_path):
 @pytest.mark.parametrize("n", ["0", "2"], ids=["serial", "xdist"])
 def test_emptied_file_is_red_under_xdist(inner, n):
     """テストを全部消したファイルは -n の下でも全件の回として赤（worker の node id の一覧には現れないファイル）"""
-    r = inner({"test_ok": PASSING, "test_two": PASSING, "test_empty": "X = 1\n"}, 3, "-n", n)
+    r = inner({"test_ok": PASSING, "test_two": PASSING, "test_empty": "X = 1\n"}, "-n", n)
     assert r.ret == pytest.ExitCode.TESTS_FAILED
-    r.stdout.fnmatch_lines(["*集めたテストが 2 件（3 件を期待）*"])
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("expected", [1, 3])
-def test_count_mismatch_is_red_under_xdist(inner, expected):
-    r = inner({"test_ok": PASSING, "test_two": PASSING}, expected, "-n", "2")
-    assert r.ret == pytest.ExitCode.TESTS_FAILED
-    r.stdout.fnmatch_lines([f"*集めたテストが 2 件（{expected} 件を期待）*"])
+    r.stdout.fnmatch_lines(["*テストが 1 件も無いファイルが 1 本*test_empty.py*"])
 
 
 @pytest.mark.medium
 def test_skip_is_red_under_xdist(inner):
-    r = inner({"test_ok": PASSING, "test_skip": "import pytest\n@pytest.mark.skip\ndef test_b():\n    pass\n"}, 2, "-n", "2")
+    r = inner({"test_ok": PASSING, "test_skip": "import pytest\n@pytest.mark.skip\ndef test_b():\n    pass\n"}, "-n", "2")
     assert r.ret == pytest.ExitCode.TESTS_FAILED
     r.stdout.fnmatch_lines(["*飛ばされたテストが 1 件*"])
 
@@ -262,22 +254,24 @@ def test_skip_is_red_under_xdist(inner):
 @pytest.mark.medium
 @pytest.mark.parametrize("n", ["0", "2"], ids=["serial", "xdist"])
 def test_sim_fences_match_and_break(inner, n):
-    """台本の検査の件数と到達: 合っていれば緑、検査を 1 件消せば赤、到達を 1 つ減らせば赤（-n の下では worker をまたいで足す）"""
+    """台本の到達と check の空振り: 合っていれば緑、到達を 1 つ減らせば赤（-n の下では worker をまたいで和集合）、
+    台本の口を受けたテストが check を 1 件も撃たなければ、そのテストが赤"""
     files = {"test_x": checks_file(2, "a"), "test_y": checks_file(3, "b")}
-    assert inner(files, 2, "-n", n, checks=5, reached=2).ret == pytest.ExitCode.OK
-    r = inner({"test_x": checks_file(2, "a"), "test_y": checks_file(2, "b")}, 2, "-n", n, checks=5, reached=2)
-    assert r.ret == pytest.ExitCode.TESTS_FAILED
-    r.stdout.fnmatch_lines(["*台本の検査が 4 件走った（5 件を期待）*"])
-    r = inner({"test_x": checks_file(2, "a"), "test_y": checks_file(3, "a")}, 2, "-n", n, checks=5, reached=2)
+    assert inner(files, "-n", n, reached=2).ret == pytest.ExitCode.OK
+    # 前の回と同じ大きさの本文にしない（同じ秒に書いた同じ大きさのファイルは、Python が古い .pyc を読む）
+    r = inner({"test_x": checks_file(2, "a"), "test_y": checks_file(4, "a")}, "-n", n, reached=2)
     assert r.ret == pytest.ExitCode.TESTS_FAILED
     r.stdout.fnmatch_lines(["*到達した値が 1 個（2 個を期待）*"])
+    r = inner({"test_x": checks_file(2, "a"), "test_y": checks_file(0, "b")}, "-n", n, reached=2)
+    assert r.ret == pytest.ExitCode.TESTS_FAILED
+    r.stdout.fnmatch_lines(["*台本の検査（check）が 1 件も走っていない*"])
 
 
 @pytest.mark.medium
 def test_sim_fences_drop_on_deselect(inner):
-    r = inner({"test_x": checks_file(2, "a"), "test_y": checks_file(3, "b")}, 2, "-n", "2", "-k", "test_x", checks=5, reached=2)
+    r = inner({"test_x": checks_file(2, "a"), "test_y": checks_file(3, "b")}, "-n", "2", "-k", "test_x", reached=2)
     assert r.ret == pytest.ExitCode.OK
-    r.stdout.fnmatch_lines(["*検査の件数のチェックと到達のチェックを外した（1 件のテストを選び外した）*"])
+    r.stdout.fnmatch_lines(["*到達のチェックを外した（1 件のテストを選び外した）*"])
 
 
 @pytest.mark.medium
@@ -285,7 +279,7 @@ def test_failed_check_fails_the_test_and_logs(inner, tmp_path, monkeypatch):
     log = tmp_path / "checks.log"
     monkeypatch.setenv("GL_CHECK_LOG", str(log))
     body = checks_file(1, "a") + "    sim.check(False, 'わざと落とす')\n"
-    r = inner({"test_x": body}, 1, checks=2, reached=1)
+    r = inner({"test_x": body}, reached=1)
     assert r.ret == pytest.ExitCode.TESTS_FAILED
     r.stdout.fnmatch_lines(["*台本の検査が 1 件落ちた: わざと落とす*", "*  FAIL わざと落とす*"])
     assert log.read_text(encoding="utf-8") == "  FAIL わざと落とす\n"
@@ -298,7 +292,7 @@ def test_small_marker_refuses_children_and_sleep(inner):
                         "@pytest.mark.small\ndef test_sleep():\n    time.sleep(0)\n\n\n"
                         "@pytest.mark.small\ndef test_swallowed():\n    try:\n        time.sleep(0)\n    except BaseException:\n        pass\n\n\n"
                         "def test_unmarked():\n    subprocess.run([sys.executable, '-c', 'pass'])\n    time.sleep(0)\n")}
-    r = inner(files, 4)
+    r = inner(files)
     r.assert_outcomes(passed=1, failed=3)
     r.stdout.fnmatch_lines(["*small のテストが time.sleep を呼んだ（大きさのチェック）*"])
 

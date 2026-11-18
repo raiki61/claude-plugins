@@ -21,7 +21,6 @@ tests/run.sh の検査のうち scope で入力を宣言した物は、宣言し
 - 一覧に無い赤（この変更か、一覧に足し忘れた赤）
 - 一覧に在るのに緑になった検査（直したなら一覧から消す。一覧が古いままだと、同じ検査がまた赤になっても止まらない）
 - 名前と食い違いの間に「 — 」の無い赤の行（検査の名前を読めないので、一覧と照合できない）
-- 件数のチェックが合わない
 - tests/run.sh が最後の行（「N 件すべて緑」か「N 件のうち失敗あり」）を出さずに終わった（途中で落ちて、残りの検査が走っていない）
 - 赤の行が無いのに、終わりの値が 0 でない
 
@@ -54,7 +53,6 @@ FAIL_LINE = re.compile(r"^  FAIL (.+?) — ", re.M)   # tests/run.sh の expect_
 ANY_FAIL = re.compile(r"^  FAIL ", re.M)   # 赤の行の全部（expect_output の外の検査は「 — 」を書かないことがある）
 OK_LINE = re.compile(r"^  ok   (.+)$", re.M)
 SKIP_MARK = " # SKIP"   # 見送りの行（tests/run.sh の SKIP_MARK）。走らなかった検査で、緑に数えない
-COUNT_BAD = "件を期待"   # tests/run.sh の件数のチェックが合わないときの行（「検査が N 件走った（M 件を期待）」）
 DONE = re.compile(r"^\d+ 件(すべて緑|のうち失敗あり)", re.M)   # tests/run.sh が最後まで走ったときだけ出す行
 RUN_ALL = ("tests/run.sh",)   # 変われば全部を回すファイル（全部の検査の定義と scope の宣言を持つ）
 SCOPE_SKIP = " # SKIP unchanged:"   # tests/run.sh が入力の変わっていない検査の「  ok   」の行に出す見送りの印
@@ -183,9 +181,7 @@ def judge(out, rc, known):
     if odd:
         stop.append("名前と食い違いの間に「 — 」の無い赤の行が %d 行（一覧と照合できない。tests/run.sh の出力で「  FAIL 」の行を見る）" % odd)
     tail = " / ".join(out.strip().splitlines()[-3:])
-    if COUNT_BAD in out:
-        stop.append("件数のチェックが合わない: %s" % next(line for line in out.splitlines() if COUNT_BAD in line).strip())
-    elif not DONE.search(out):
+    if not DONE.search(out):
         stop.append("tests/run.sh が最後の行を出さずに終わりの値 %d で終わった（途中で落ちて、残りの検査が走っていない）: %s" % (rc, tail))
     elif rc != 0 and not ANY_FAIL.search(out):
         stop.append("tests/run.sh が赤の行を出さずに終わりの値 %d で終わった: %s" % (rc, tail))

@@ -3,7 +3,7 @@
 - engine を import できるように graphloops/ を sys.path の先頭に足す。mutmut は graphloops/ を graphloops/mutants/ に
   写して走らせるので、この置き場から 2 つ上（写しの側の graphloops/）を足せば、壊した写しの engine を読む
 - 検証器（リポジトリのルートの convergence-loops/scripts/review-record.py）は、ルートを上へ辿って探す（mutants/ の写しからも同じルートに届く）
-- チェック（飛ばしは失敗・件数の突合・台本の検査の件数と到達）は fence.py。件数の定数はここに置く（tests/run.sh の ratchet.py が
+- チェック（飛ばしは失敗・空のファイル・台本の到達）は fence.py。到達の数の定数はここに置く（tests/run.sh の ratchet.py が
   検査の置き場の大文字の整数の定数を拾い、突合の行が 1 か所で緩んでいないかを見る）
 - 盤面を端から端まで回す台本（graphloops/tests/simulate.py・simulate_review.py）を pytest から回す土台（fixture・選択肢
   --gl-driver・大きさの印・check の数え方）は glharness.py、途中の盤面を控えて 1 手から始める fixture wave は waves.py、
@@ -63,10 +63,8 @@ def run_graphcheck(sandbox, g):
     ok = graphcheck.check(path, str(REVIEW_VALIDATOR), emit=lines.append)
     return ok, "\n".join(map(str, lines))
 
-# 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 2060
-# 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
-EXPECTED_SIM_CHECKS = 28
+# 全件を回したときに到達すべき値の数（fence.py の 3。テストの数でなく、台本を回した口〔--gl-driver〕の種類）。
+# 集めたテストの数・走った check の数の定数は 2026-11-18 にやめた（fence.py の頭）
 EXPECTED_SIM_REACHED = 2
 
 
@@ -112,5 +110,5 @@ def pytest_configure(config):
     # mutmut は 1 つのプロセスで pytest.main を何度も呼ぶ（集める・印を数える・試験を走らせる）。モジュールの頭で外すと、
     # import の済んだ後の回で効かないことがある。pytest_configure は pytest.main ごとに呼ばれるので、ここで外す
     keep_mutmut_stats_out_of_children()
-    fence.install(config, HERE, EXPECTED_ITEMS)
-    fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)
+    fence.install(config, HERE)
+    fence.expect_sim(config, EXPECTED_SIM_REACHED)

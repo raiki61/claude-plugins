@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 軽い検査: main へ入る commit に、--land でも直接の push でも通させる 4 つ（共有の写し・試験の件数・語・機械が読む値の決まり）。全部で数十秒。
+# 軽い検査: main へ入る commit に、--land でも直接の push でも通させる 3 つ（共有の写し・語・機械が読む値の決まり）と、ブランチが消した
+# 試験の一覧（tests/removed-tests.py。止めずに出すだけ。試験の件数の定数を突き合わせる形は 2026-11-18 にやめた。docs/reform/ledger.md）。全部で数十秒。
 # 回すのは 2 か所: main へ入れるコマンド（works-dispatch の --land）のゲート（.claude/company.toml の [land] の check の頭）と、
 # main への push の前のフック（.githooks/pre-push）。--land を通さない急ぎの直接の push でも、フックがこれを回し、落ちれば push を止める
 # （2026-10-20、受付 2ee37b。ゲートを通らずに直接 push された commit d3be9e43 が語の検査に落ち、main が赤になってほかの --land が全部落ちた）。
@@ -8,7 +9,7 @@
 # 回し直さない（--land はゲートで回した後に同じ commit を push するので、二度回さない）。
 # 止めない道: --no-verify の push と GitHub の画面での変更。サーバの側（GitHub の ruleset の必須の status check）で止めると、
 # --land も main へ入れる前に CI を待つことになり、「main の CI は待たない」決め（持ち主 2026-10-16。ルートの CLAUDE.md の「判断の線」）とぶつかる。
-# 入った後の赤は main の CI（.github/workflows/test.yml。tests/run.sh がこの 4 つも回す）が見つける。
+# 入った後の赤は main の CI（.github/workflows/test.yml。tests/run.sh がこの 3 つも回す）が見つける。
 # core.hooksPath がどの設定（clone・global など）にも無ければ、この clone に .githooks を書く（clone ごとの入れ忘れを、--land のゲートで塞ぐ。worktree は設定を共有する）。
 # 別の値なら止める（持ち主の他のフックを黙って外さない）。終わりの値: 0 は緑、それ以外は赤。
 set -euo pipefail
@@ -25,7 +26,7 @@ fi
 PY_BIN=$(command -v python3 || command -v python || true)
 [ -n "$PY_BIN" ] || { echo "light-check: python3 / python が PATH に無い"; exit 2; }
 "$PY_BIN" scripts/shared-copies.py
-bash tests/count-fences.sh
+"$PY_BIN" tests/removed-tests.py
 "$PY_BIN" scripts/terms.py
 "$PY_BIN" tests/value-rules.py
 if [ -z "$(git status --porcelain)" ]; then

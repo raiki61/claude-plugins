@@ -792,3 +792,37 @@ compact（会話の文脈を要約に縮める操作）の計画 works-dispatch/
 1. 入れて 1 週間（7 の 2 が入ってから 7 日目。11-08 ごろ）: 両方の会社の台帳に `compact` の行（`marked`・`declined`・`compacted`）と、`keepalive` の行の `reply` が出ているか、計画の 8 の 1〜4 と w_k（役 k の問いで焦点が返らない割合。計画の 4.2。works-dispatch は今 0 と置く）・Q_k（役 k の問いで増える出力のトークン。今は 295 と置く〔答え 300 − keepalive の答え 5〕）を数えられるかを見る。`compact` の行の `status` は、`marked` が `--compact` で印を付けた・`declined` が元が取れないので付けなかった・`compacted` が compact を打った（打った口が `mouth`）。`keepalive` の行の `reply` は問いへの答えの種類。どれかの行が 1 行も出ていないか、比べる値に要る欄が欠けていれば、仕組みの部署に `--ask` で直しを頼む。
 2. 同じ時に、前の期間の会話の記録（`~/.claude*/projects/*/*.jsonl` のうち、10-25 から 7 の 2 が入るまでに動いた物）（開始の時刻が前の期間に入る物）を、`~/claude-records/compact-plan-8/` へ写しておく。Claude Code は既定で 30 日より古い会話の記録を消す（設定 `cleanupPeriodDays`。どのアカウントの設定にも書かれていないので既定の 30 日）。10-25 の記録は 11-24 ごろに消え始めるので、3 で後の期間を延ばすと、比べる時に前の期間の記録が無くなる。
 3. 入れて 2 週間（11-15 ごろ）: 計画の 8 のとおりに、1〜3 の額の合計（要求 100 本あたり）を前と後で比べ、差が前の額の 10% 以内なら同じと見る。4 は内訳として並べる。compact のあった会話が会社ごとに 30 本に満たなければ、後の期間を延ばす。w_k が 0 から大きく外れる役、Q_k が 295 から大きく外れる時は、仕組みの部署に値の直しを頼む。結果と、計画の 8 の「決め方」（ターンの終わりの合図をその役にだけ戻すか、my_notes の `autoCompactWindow` を下げるか）の判断材料を、頼み 9e99d6 の頼み元（仕組みの部署）へ納品で返す。
+
+## 頼み 475769（2026-11-18、試験の件数の柵をやめる）
+
+持ち主の決め（2026-11-18）: 試験の件数を手で書いて突き合わせる柵は意味が無いのでやめる。
+
+### やめた理由
+
+- 試験を消す人が同じ commit で数を下げれば通るので、わざと消した試験は止められない（tests/run.sh の注記もそう書いていた）。止まるのは、うっかり消えた分だけだった。
+- その代わりに、試験を足す・消すたびに数を直す手間（2026-10-01 から約 114 本の commit が数を触った）と、並行の部署どうしが同じ行を直して起きる衝突が残った。
+
+### 消した物
+
+- 件数の定数: tests/run.sh の EXPECTED_CHECKS、graphloops/tests/run.sh の EXPECTED_CHECKS・EXPECTED_TESTS、tests/py/conftest.py と graphloops/tests/py/conftest.py の EXPECTED_ITEMS、graphloops/tests/py/conftest.py の EXPECTED_SIM_CHECKS。
+- 照合する仕組み: tests/count-fences.sh（ゲートで回していた）、tests/run.sh の TESTS_COUNT_ONLY・COUNT_ONLY_MATCH と最後の数の比べ、graphloops/tests/parallel.py の expected() と、まとめの job（SHARDS_OK）での数の比べ、tests/land-check.py の「件数が合わない」の判定。
+- 「数を上げる・下げる」決まり: CONTRIBUTING.md の宣言、graphloops/README.md、両方の MIGRATION.md、変異の腕（tests/mutations.json の TN6・TN7）。
+
+### 代わりに残した守り
+
+- 走らせる仕組みが途中で落ちる・抜ける:
+  - tests/run.sh は、EXIT の trap が最後の行に届かずに終わりの値 0 で抜けた回を 2 にする。その trap が消えていないかは `DONE_GUARD_OK` で確かめる。
+  - graphloops の模擬実行は、終わりの行（「台本 N 本」と「N 件中 M 件失敗」）を出さずに終われば、終わりの値が 0 でも赤。
+  - 組に分けた CI は、全台本の名前が 1 回ずつ走ったかで見る（数でなく名前）。
+- pytest:
+  - 1 件も集まらない回は pytest の終わりの値 5 で赤、集める段の誤りは 2 で赤。
+  - 両方の置き場の pytest.ini の `--strict-markers`（と `--strict-config`）は付けたまま。登録の無い印は集める段の誤り（2）になる。
+  - 飛ばし・xfail は失敗（fence.py）。許すのは、SKIP_ALLOW に在る能力を宣言した見送りだけ。
+  - テストを全部消したファイルは「テストが 1 件も無いファイル」として赤。
+  - 台本を借りるテスト（gl_script）が check を 1 件も撃たずに終われば失敗（glharness.py）。
+- 消えた試験: tests/removed-tests.py が、origin/main との分かれ目から消えた `def test_*` と、tests/run.sh の形の検査の説明を名前で並べる。止めずに出すだけ。scripts/light-check.sh が回すので、push の前と `--land` の出力に出る。部署は納品の前に打って、一覧を要約の決め手に書き、照合役にも見せる（ルートの CLAUDE.md の「試験」）。
+
+### 残した物（試験の件数でない）
+
+- 到達の数の定数（graphloops の `VOCAB_REACHED` と `EXPECTED_SIM_REACHED`）。テストの数でなく、筋書きがどの値まで届いたかの数で、2026-10-01 から直した commit は無い。消すかは持ち主に問う（頼み 475769 の納品の残った疑問）。
+- 下限の検査（「72 件以上」など）、works-dispatch の tests/parallel.py の照合、語と機械が読む値の決まりの基準（scripts/terms-baseline.json など）。手で上げ下げする等値の数ではない。

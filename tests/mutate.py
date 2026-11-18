@@ -1173,7 +1173,7 @@ def cover_why(a, key):
 
 def pytest_pick(a):
     """自動の腕を前段で撃つ pytest の引数と撃ち方 ——(引数 か None, 撃ち方)。撃ち方: nodes＝行を通したテストの node id だけ /
-    files＝そのテストのファイル（node id の並びが ARGV_MAX を超える・置き場の全ファイルに及ぶ——全ファイルなら件数のチェックも当たる）/
+    files＝そのテストのファイル（node id の並びが ARGV_MAX を超える・置き場の全ファイルに及ぶ——全ファイルなら空のファイルのチェックも当たる）/
     unknown_owner・import_time＝pytest 一式（選び方が分からない行は一式に倒す）/ not_auto・no_cover＝pytest を撃たない"""
     cov, why = cover_why(a, "pytest_cover")
     if why in ("not_auto", "no_cover"):
@@ -1376,7 +1376,7 @@ def pytest_green(repo, head, py, r):
 
 def control(suites, selected=None, pytest=None, only=None):
     """壊していない写しで、撃つときと同じ走らせ方が緑になるか（絞った台本も、絞った形のまま確かめる）。pytest は腕が撃つ pytest の
-    テストのファイルの和（node id は並べない——argv の長さと件数のチェックを node id で外さないため）。only は腕が宣言した
+    テストのファイルの和（node id は並べない——argv の長さを超えないためと、空のファイルのチェックを node id で外さないため）。only は腕が宣言した
     tests/run.sh の検査の頭の和（only_head。その検査だけを回す形でも緑になるか——間の下ごしらえを前の検査に頼る検査はここで赤になる）。
     赤の回は検査の出力も残す（detail。台本一式と only は印の写しと同じ形、selected は台本ごとの出力の末尾）——control が赤の回は撃った腕のどれも
     覆いの証拠にしないのに、前は FAIL の行の名前しか残らず、run 41202847506・41213036540 で waitgate の検査が赤になった訳を報告から読めなかった"""

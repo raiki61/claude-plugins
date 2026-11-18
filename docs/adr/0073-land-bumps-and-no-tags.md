@@ -14,7 +14,7 @@
 ## 決定
 
 - 版は `--land` が上げる（`[land]` の `bump = "marketplace"`）。部署は版を上げずに枝を出す。上げ幅と手順は [docs/releasing.md](../releasing.md)。
-- main に入れる前の関門は、`[land]` の `check` のコマンド（手元で回す。今は写しの一致と件数の柵）。関門が緑なら main を早送りして push する。
+- main に入れる前の関門は、`[land]` の `check` のコマンド（手元で回す。今は写しの一致・語・機械が読む値の決まりと、消えた試験の一覧〔止めない〕。件数の柵は 2026-11-18 に消した）。関門が緑なら main を早送りして push する。
 - CI は main に入った後に回り、入った後の赤を見つける。`--land` は CI を待たない。
 - git の tag は作らない。依存の版の範囲は main の今の版で解決する（[docs/releasing.md](../releasing.md) の「tag を作らない理由と、依存の版の範囲」）。
 - 0066 のうち、変更の記録（各 plugin の根の `CHANGELOG.md`。Keep a Changelog 1.1.0 の形）と、`tests/run.sh` が今の版の見出しの在ることを確かめる決まりは、この ADR でもそのまま残す。

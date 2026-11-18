@@ -4945,21 +4945,21 @@
   },
   {
    "id": "TN6",
-   "title": "宣言の件数のチェック: CONTRIBUTING.md の宣言からラチェットの名前が落ちれば赤",
+   "title": "宣言の到達のチェック: CONTRIBUTING.md の宣言からラチェットの名前が落ちれば赤",
    "file": "CONTRIBUTING.md",
    "suite": "root",
-   "old": "`EXPECTED_TESTS`・`VOCAB_REACHED`",
-   "new": "`EXPECTED_TESTS`",
-   "expect": "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない"
+   "old": "`VOCAB_REACHED`・`EXPECTED_SIM_REACHED`",
+   "new": "`VOCAB_REACHED`",
+   "expect": "ラチェット（到達の数）の突合が等値で、緩められていない"
   },
   {
    "id": "TN7",
-   "title": "宣言の件数のチェック: CONTRIBUTING.md の宣言の見出しが変われば赤（黙って突合を外さない）",
+   "title": "宣言の到達のチェック: CONTRIBUTING.md の宣言の見出しが変われば赤（黙って突合を外さない）",
    "file": "CONTRIBUTING.md",
    "suite": "root",
    "old": "### review-loop が読む検証のツール（このリポジトリの宣言）",
    "new": "### 検証のツール",
-   "expect": "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない"
+   "expect": "ラチェット（到達の数）の突合が等値で、緩められていない"
   },
   {
    "id": "CF2",
