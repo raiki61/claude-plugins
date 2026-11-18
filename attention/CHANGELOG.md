@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-11-18
+
 ### Changed
 
 - `/my-turn` の掘る段（Workflow `my-turn-dig`）を、設計書 `docs/my-turn-workflow-design.md` の 14.4 の案 4・5・7・9（6 回走らせた後の見直しの案のうちの 4 つ）のとおりに直した（頼み b6a529。持ち主がこのリポジトリの作業の 1 件として出した頼みの番号）。
