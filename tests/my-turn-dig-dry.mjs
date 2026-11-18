@@ -1,5 +1,5 @@
 // attention/workflows/my-turn-dig.js を、agent() などを偽物に替えて node で空回しする（設計 attention/docs/my-turn-workflow-design.md の 11）。
-// 使い方: node tests/my-turn-dig-dry.mjs <case>   case は fixed・grow・same・skips・allot・map・schema・rests・quotes・prompts。通れば <CASE>_OK を出す。
+// 使い方: node tests/my-turn-dig-dry.mjs <case>   case は fixed・grow・same・skips・allot・map・schema・rests・dedup・quotes・prompts。通れば <CASE>_OK を出す。
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -30,7 +30,7 @@ function schemaProblems(schema, where = 'schema') {
   return out
 }
 async function run(args, respond) {
-  const calls = []
+  const calls = [], logs = []
   const agent = async (prompt, opts = {}) => {
     const call = { prompt, opts, label: opts.label ?? '' }
     calls.push(call)
@@ -45,9 +45,9 @@ async function run(args, respond) {
     return v
   }))
   const fn = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', 'workflow', BODY)
-  const out = await fn(agent, parallel, pipeline, () => {}, () => {}, args, { total: null, spent: () => 0, remaining: () => Infinity },
+  const out = await fn(agent, parallel, pipeline, () => {}, m => logs.push(String(m)), args, { total: null, spent: () => 0, remaining: () => Infinity },
     async () => { throw new Error('workflow() is not used') })
-  return { out, calls }
+  return { out, calls, logs }
 }
 
 const HEAD = 'h'.repeat(40)
@@ -437,7 +437,8 @@ async function caseRests() {
     check(e?.status === (other ? 'split' : 'unverified') && e?.dependsOnUnverified && d1?.dependsOnUnverified && o.counts.repairs.foldIntoOwnLine.length === 1,
       `rests(ancestor ${other}): 祖先の問いを繰り返した子が件数と印に出ない ${e?.status} ${JSON.stringify(o.counts.repairs.foldIntoOwnLine)}`)
   }
-  // W7 が既にノードの在る問いを落とした・束の key が落とした問いで、問いの文がノードの在る問い: どちらもそのノードに畳む
+  // 木に在る問いの完全な繰り返しは W7 の前にコードが畳む（dropKnown: W7 は 1 回だけ）。言い替えを W7 が束ね、束の key が
+  // 落とした問いで問いの文がノードの在る問い（keyDropped: W7 は 2 回）も、そのノードに畳む
   for (const shape of ['dropKnown', 'keyDropped']) {
     let w7 = 0
     const W7k = call => {
@@ -453,18 +454,20 @@ async function caseRests() {
     const W6k = call => {
       const id = nodeId(call.prompt), q = nodeQ(call.prompt)
       if (isRoot(q)) return split(id, ['D1 shared', 'A known', 'X drop'])
-      if (q === 'D1 shared') return split(id, ['A known'])
+      if (q === 'D1 shared') return split(id, [shape === 'dropKnown' ? 'A known' : 'A known again'])
       return leaf(id)
     }
-    const { out: o } = await run(baseArgs(), responder({ W6: W6k, W7: W7k }))
+    const { out: o, logs } = await run(baseArgs(), responder({ W6: W6k, W7: W7k }))
     const d1 = o.nodes.find(x => x.question === 'D1 shared'), a = o.nodes.find(x => x.question === 'A known')
-    check(d1?.status === 'split' && a?.alsoFrom.includes(d1.id), `rests(${shape}): ノードの在る問いに畳まず、split を掘られていない物にした ${d1?.status}`)
+    check(logs.some(l => l.startsWith(`W7 depth 2: ${shape === 'dropKnown' ? 1 : 0} of 1 `)), `rests(${shape}): 畳んだ数（0 の回も）を log() に出さない ${JSON.stringify(logs)}`)
+    check(d1?.status === 'split' && a?.alsoFrom.includes(d1.id) && w7 === (shape === 'dropKnown' ? 1 : 2),
+      `rests(${shape}): ノードの在る問いに畳まず、split を掘られていない物にした（W7 ${w7} 回） ${d1?.status}`)
   }
   // W7 の 1 回の答えの中で、同じ問いを束ねた物と落とした物が並ぶ・束の key が短い正規の語・key が祖先で問いの文が別のノード
   const W6f = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['P1 q', 'P2 q', 'Is X safe', 'Y other'])
-    if (q === 'P1 q') return split(id, ['SAME q'], 'small')
+    if (q === 'P1 q') return split(id, ['SAME q (P1)'], 'small')
     if (q === 'P2 q') return split(id, ['SAME q'])
     return leaf(id)
   }
@@ -475,8 +478,8 @@ async function caseRests() {
       r.clusters.push({ key: 'canon k', question: 'Is X safe', members: items.filter(([, q]) => q === 'Is X safe').map(([id]) => id).join(', ') })
       return r
     }
-    const same = items.filter(([, q]) => q === 'SAME q')
-    if (shape === 'sameBatch') return { clusters: [{ key: 'SAME q', question: 'SAME q', members: same[0][0] }], dropped: same.slice(1).map(([id]) => ({ id, why: 'already asked' })) }
+    // 完全に同じ文はコードが先に束ねて W7 に届かないので、W7 が束の key（'SAME q'）と同じ文の問いを落とす形で見る
+    if (shape === 'sameBatch') return { clusters: [{ key: 'SAME q', question: 'SAME q', members: idOf(items, 'SAME q (P1)') }], dropped: [{ id: idOf(items, 'SAME q'), why: 'already asked' }] }
     return byText(items)
   }
   const { out: of1 } = await run(baseArgs(), responder({ W6: W6f, W7: foldW7('sameBatch') }))
@@ -488,7 +491,7 @@ async function caseRests() {
   const W6c = call => {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['P1 q', 'Is X safe'])
-    if (q === 'P1 q') return split(id, ['Is X safe'])
+    if (q === 'P1 q') return split(id, ['Is X safe', 'Z other'])   // 'Is X safe' はコードが畳み、W7 は 'Z other' で呼ばれる
     return leaf(id)
   }
   const { out: of2, calls: calls2 } = await run(baseArgs(), responder({ W6: W6c, W7: foldW7('canon') }))
@@ -767,14 +770,15 @@ async function caseRests() {
   check(sl?.status === 'unverified' && pl?.dependsOnUnverified, `rests(laterUnsure): 後で確かめていない物になったノードが、組で乗った親に届かない ${sl?.status} ${pl?.dependsOnUnverified}`)
   // W8 の抜けも組にまとめる: 同じ key の 2 つと、落とした同じ問いを、区分 8 の 1 つのルートにする
   let w8g = 0
-  const W8g = () => (w8g++ ? { gaps: [], reason: 'checked' } : { gaps: ['G a', 'G b', 'G a'].map(q => ({ question: q, why: 'w', where: '' })), reason: '' })
+  // 落とす 3 つ目は束の key と同じ文（'G a' の繰り返しはコードが束ねて W7 に届かない）
+  const W8g = () => (w8g++ ? { gaps: [], reason: 'checked' } : { gaps: ['G a', 'G b', 'g'].map(q => ({ question: q, why: 'w', where: '' })), reason: '' })
   const W7g = call => {
     if (!call.label.startsWith('W7 gaps')) return byText(w7Items(call.prompt))
     const [a, b, c] = w7Items(call.prompt).map(([id]) => id)
     return { clusters: [{ key: 'g', question: 'G a', members: a }, { key: 'g', question: 'G b', members: b }], dropped: [{ id: c, why: 'already asked' }] }
   }
   const { out: og } = await run(baseArgs(), responder({ W8: W8g, W7: W7g }))
-  const gs = og.nodes.filter(x => ['G a', 'G b'].includes(x.question))
+  const gs = og.nodes.filter(x => ['G a', 'G b', 'g'].includes(x.question))
   check(gs.length === 1 && gs[0].rootClass === 8 && og.gapRounds[0].gaps.every(g => g.outcome === 'dug') && og.counts.repairs.droppedKnown.length === 1,
     `rests(gapGroup): W8 の抜けの組が 1 つのルートにならない ${JSON.stringify(gs.map(x => x.question))} ${JSON.stringify(og.gapRounds[0].gaps)}`)
   // 落とした問いが束に入り、その束が自分の祖先の問い: どちらの件数にも出し、親を確かめていない物にする
@@ -782,18 +786,79 @@ async function caseRests() {
     const id = nodeId(call.prompt), q = nodeQ(call.prompt)
     if (isRoot(q)) return split(id, ['D1 shared'])
     if (q === 'D1 shared') return split(id, ['E mid'])
-    if (q === 'E mid') return split(id, ['D1 shared', 'D1 shared!'])
+    if (q === 'E mid') return split(id, ['D1 shared again', 'D1 restated'])
     return leaf(id)
   }
+  // 完全に同じ文（'D1 shared'）はコードが畳む（dedup のケース）。ここは W7 が言い替えを祖先の key に束ね、束の問いの文と同じ問いを落とす
   const W7o = call => {
-    const items = w7Items(call.prompt), bang = idOf(items, 'D1 shared!')
-    if (!bang) return byText(items)   // E mid's children ('D1 shared' and 'D1 shared!'); the roots' children are dug as usual
-    return { clusters: [{ key: 'D1 shared', question: 'D1 shared', members: idOf(items, 'D1 shared') }], dropped: [{ id: bang, why: 'already asked' }] }
+    const items = w7Items(call.prompt), drop = idOf(items, 'D1 restated')
+    if (!drop) return byText(items)   // the roots' children are dug as usual
+    return { clusters: [{ key: 'D1 shared', question: 'D1 restated', members: idOf(items, 'D1 shared again') }], dropped: [{ id: drop, why: 'already asked' }] }
   }
   const { out: oo } = await run(baseArgs(), responder({ W6: W6o, W7: W7o }))
   const eo = oo.nodes.find(x => x.question === 'E mid')
   check(eo?.status === 'unverified' && oo.counts.repairs.foldIntoOwnLine.length === 1 && oo.counts.repairs.droppedKnown.length === 1,
     `rests(dropOwnLine): 落として祖先の束に入った問いが件数と印に出ない ${eo?.status} ${JSON.stringify(oo.counts.repairs)}`)
+}
+
+// ---- W7 の前のコードの重複落とし（設計のセクション 3 の W7） ----
+// 鍵（keyOf: 小文字・空白の並びを 1 つの空白・末尾の空白と . ? ! 。 ？ を落とす）が木の key か、同じ回の前の問いの鍵と
+// 同じ問いは W7 に届かず、W7 が完全な繰り返しを置く所（ノードの alsoFrom か、前の問いの束の parents）にコードが置く
+async function caseDedup() {
+  const isRoot = q => q.startsWith('[s11.2]') || q.startsWith("The PR's structure differs")
+  const W6 = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (q.startsWith('[s11.2]')) return split(id, ['DUP q', 'Fresh a'])
+    if (q.startsWith("The PR's structure differs")) return split(id, ['dup   Q?', 'Fresh b'])
+    if (q === 'DUP q') return split(id, ['Fresh a.'])   // 木に在るノード（兄弟の枝）の繰り返し
+    if (q === 'Fresh b') return split(id, ['E mid'])
+    if (q === 'E mid') return split(id, ['Fresh B', 'fresh b!'])   // 自分の祖先の問いの繰り返しだけ: 深さ 3 は W7 を呼ばない
+    return leaf(id)
+  }
+  let w8 = 0
+  const W8 = () => (w8++ ? { gaps: [], reason: 'checked' } : { gaps: ['fresh A', 'Gap new', 'gap   NEW.'].map(q => ({ question: q, why: 'w', where: '' })), reason: '' })
+  const { out, calls, logs } = await run(baseArgs(), responder({ W6, W8 }))
+  const w7 = of(calls, 'W7')
+  const shown = w7.flatMap(c => w7Items(c.prompt).map(([, q]) => q))
+  // 1) 完全な繰り返しは W7 に 1 つも届かず、W7 の 1 回に同じ鍵が 2 つ並ばない
+  const held = ['dup   Q?', 'Fresh a.', 'Fresh B', 'fresh b!', 'fresh A', 'gap   NEW.']
+  check(held.every(q => !shown.includes(q)), `dedup: 完全な繰り返しが W7 に届いた ${JSON.stringify(shown.filter(q => held.includes(q)))}`)
+  check(w7.every(c => { const ks = w7Items(c.prompt).map(([, q]) => q.toLowerCase()); return new Set(ks).size === ks.length }), 'dedup: W7 の 1 回に同じ問いが 2 つ並んだ')
+  // 2) 残りが無い回は W7 を呼ばない（深さ 3 は祖先の問いの繰り返しだけ）
+  check(!w7.some(c => c.label === 'W7 depth 3'), `dedup: 残りが無いのに W7 を呼んだ ${w7.map(c => c.label)}`)
+  // 3) 畳んだ元が記録に残る: 同じ回の繰り返しは束のノードの parents に、木のノードの繰り返しは alsoFrom に入る
+  const n = q => out.nodes.find(x => x.question === q)
+  const ra = out.nodes.find(x => x.question.startsWith('[s11.2]')), rb = out.nodes.find(x => x.question.startsWith("The PR's structure differs"))
+  check(out.nodes.filter(x => x.key === 'dup q').length === 1 && [ra?.id, rb?.id].every(id => n('DUP q')?.parents.includes(id)),
+    `dedup: 同じ回の繰り返しの親が束のノードの parents に無い ${JSON.stringify(n('DUP q')?.parents)}`)
+  check(n('Fresh a')?.alsoFrom.includes(n('DUP q')?.id) && !out.nodes.some(x => x.question === 'Fresh a.'),
+    `dedup: 木のノードの繰り返しの親が alsoFrom に無い ${JSON.stringify(n('Fresh a')?.alsoFrom)}`)
+  // 4) 自分の祖先の繰り返しは、W7 を通ったときと同じく件数に出し、親を確かめていない物にする
+  check(n('E mid')?.status === 'unverified' && out.counts.repairs.foldIntoOwnLine.some(x => x.startsWith(`${n('E mid')?.id}:`)),
+    `dedup: 祖先の繰り返しが件数と印に出ない ${n('E mid')?.status} ${JSON.stringify(out.counts.repairs.foldIntoOwnLine)}`)
+  // 5) W8 の抜け: 木に在る問いは seen、同じ回の繰り返しは前の問いと 1 つのルートになる
+  const g = out.gapRounds[0]?.gaps ?? []
+  check(JSON.stringify(g.map(x => x.outcome)) === '["seen","dug","dug"]' && out.nodes.filter(x => x.key === 'gap new').length === 1 && n('Gap new')?.rootClass === 8,
+    `dedup: W8 の抜けの繰り返しが畳まれない ${JSON.stringify(g)}`)
+  // 6) コードで落とした数を回ごとに log() に出す
+  const want = ['W7 depth 1: 1 of 4 ', 'W7 depth 2: 1 of 2 ', 'W7 depth 3: 2 of 2 ', 'W7 gaps round 1: 2 of 3 ']
+  check(want.every(w => logs.some(l => l.startsWith(w))), `dedup: log() に落とした数が出ない ${JSON.stringify(logs)}`)
+  check(w7.every(c => logs.some(l => l.startsWith(`${c.label}: `))),
+    `dedup: W7 を呼んだ回に log() が無い ${JSON.stringify(logs)}`)
+  // 7) W7 が返らない回: コードで畳んだ物は置き、W7 に渡した物（とその繰り返し）だけを見られなかった物にする
+  const W6n = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (q.startsWith('[s11.2]')) return split(id, ['Fresh a'])
+    if (q === 'Fresh a') return split(id, ['New z', 'new z?', 'Fresh a'])   // 2 つ目は 1 つ目の繰り返し、3 つ目は自分の繰り返し
+    return leaf(id)
+  }
+  const W7n = call => (call.label === 'W7 depth 2' ? null : byText(w7Items(call.prompt)))
+  const { out: o2, calls: c2 } = await run(baseArgs(), responder({ W6: W6n, W7: W7n }))
+  const fa = o2.nodes.find(x => x.question === 'Fresh a'), sent = of(c2, 'W7').find(c => c.label === 'W7 depth 2')
+  check(sent && JSON.stringify(w7Items(sent.prompt).map(([, q]) => q)) === '["New z"]', `dedup(null): W7 に渡した物が違う ${sent && JSON.stringify(w7Items(sent.prompt))}`)
+  check(JSON.stringify(o2.counts.notSeen.afterNullMerge) === '["New z","new z?"]', `dedup(null): 見られなかった物が違う ${JSON.stringify(o2.counts.notSeen.afterNullMerge)}`)
+  check(fa?.dependsOnUnverified && o2.counts.repairs.foldIntoOwnLine.some(x => x.startsWith(`${fa?.id}:`)),
+    `dedup(null): コードで畳んだ自分の繰り返しが W7 の失敗で消えた ${JSON.stringify(o2.counts.repairs.foldIntoOwnLine)}`)
 }
 
 // ---- 2. 子を 2 つずつ返し続け、W8 も抜けを返し続ける ----
@@ -831,7 +896,14 @@ async function caseSame() {
     const ids = w7Items(call.prompt).map(x => x[0])
     return { clusters: [{ key: 'SAME', question: 'SAME', members: `${ids[0]}, ${ids[0]}, q999` }], dropped: [] }
   }
-  const { out: o2 } = await run(baseArgs(), responder({ W6, W7 }))
+  // 完全に同じ文の 2 つ目はコードが束ねて W7 に届かないので、2 つ目の親は言い替えた問いを返す
+  const W6b = call => {
+    const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+    if (q.startsWith('[s11.2]')) return split(id, ['SAME'])
+    if (q.startsWith("The PR's structure differs")) return split(id, ['SAME, reworded'])
+    return leaf(id)
+  }
+  const { out: o2 } = await run(baseArgs(), responder({ W6: W6b, W7 }))
   const r2 = o2.counts.repairs
   check(r2.clusterMissing.length === 1 && r2.clusterDuplicate.length === 1 && r2.clusterUnknown.length === 1, `same: 束の崩れが件数に出ない ${JSON.stringify(r2)}`)
 }
@@ -1046,7 +1118,7 @@ async function casePrompts() {
     'prompts: 生成した関数が足りない値か型の違う値で投げない')
 }
 
-const CASES = { fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests, quotes: caseQuotes, prompts: casePrompts }
+const CASES = { dedup: caseDedup, fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests, quotes: caseQuotes, prompts: casePrompts }
 const name = process.argv[2]
 if (!CASES[name]) { console.log(`使い方: node tests/my-turn-dig-dry.mjs <${Object.keys(CASES).join('|')}>`); process.exit(1) }
 try { await CASES[name]() } catch (e) { fails.push(`${name}: 例外 ${e?.stack ?? e}`) }

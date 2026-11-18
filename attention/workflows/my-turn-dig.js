@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: 'Structure', detail: 'W1: structure, mechanisms and premises, self-made parts' },
     { title: 'Compare', detail: 'W2 blind general structure, W3 compare, W4 code smells' },
-    { title: 'Dig', detail: 'W6 one agent per node, W7 merge same questions, W8 gap check until two dry rounds' },
+    { title: 'Dig', detail: 'W6 one agent per node, code merges exact repeats and W7 the rest of the same questions, W8 gap check until two dry rounds' },
     { title: 'Quotes', detail: 'one agent runs my-turn-prep.py --quotes; evidence whose quote is not on its line is dropped' },
     { title: 'Fix options', detail: 'W9 fix options and riding along' },
     { title: 'Refute', detail: 'W10 one refuter per leaf, smell answer and fix option' },
@@ -652,10 +652,12 @@ const w6Input = (shared, n) => ({
 })
 
 // ---- W7 merge the same questions (section 3) ----
-const w7Input = items => {
+// items: the questions W7 is shown; all: the whole batch, held-back repeats too (dedupe), so the known keys keep the
+// order they had before code held any back
+const w7Input = (items, all = items) => {
   // every key that matching uses (a short canonical key, the wording, a group's other keys), up to 400: first the
   // keys of the new questions' own lines (the ones a child repeats), then the rest
-  const up = lineage(...items.map(c => c.parent).filter(Boolean)), keys = [...seen.keys()]
+  const up = lineage(...all.map(c => c.parent).filter(Boolean)), keys = [...seen.keys()]
   const nearC = new Set([...new Set(seen.values())].filter(c => [...c.ids].some(id => up.has(id))))
   const near = [], far = []
   for (const k of keys) (nearC.has(seen.get(k)) ? near : far).push(k)
@@ -686,6 +688,46 @@ function checkClusters(merged, items) {
     if (!placed.has(ch.id)) { repairs.clusterMissing.push(ch.id); clusters.push({ key: keyOf(ch.question), question: ch.question, members: [ch] }) }
   }
   return { clusters, dropped }
+}
+// code dedup before W7 (section 3; the Workflow tool description: dedup in code against everything seen, before the
+// agent; the seen/fresh split of bug-hunt.js, structure only). A new question whose key (keyOf) is already a key of seen,
+// or the key of an earlier new question in this batch, is held back from W7: known asks a node's question, twins repeat
+// an earlier new question. A question with an empty key (punctuation only) is never held back. The key ignores where:
+the same wording asked about another place folds too (the ask's rule; W7 still sees where for everything it gets)
+function dedupe(items) {
+  const first = new Map(), fresh = [], known = [], twins = []
+  for (const x of items) {
+    const k = keyOf(x.question)
+    if (k && seen.has(k)) known.push({ key: k, member: x })
+    else if (k && first.has(k)) twins.push({ first: first.get(k), member: x })
+    else { fresh.push(x); if (k) first.set(k, x) }
+  }
+  return { fresh, known, twins }
+}
+// put the held-back questions into W7's checked answer where W7 puts an exact repeat: a known question is a cluster
+// under the node's key (clustersToLevel folds it into that node through rest: its parent lands in alsoFrom), a twin
+// joins the cluster of its first (one more parent of the new node) or, when W7 dropped the first, is dropped with it
+function withHeld({ clusters, dropped }, { known, twins }) {
+  for (const { first, member } of twins) {
+    const c = clusters.find(c => c.members.includes(first))
+    if (c) { c.members.push(member); continue }
+    dropped.push({ member, why: dropped.find(d => d.member === first)?.why ?? '' })
+  }
+  for (const { key, member } of known) clusters.push({ key, question: member.question, members: [member] })
+  return { clusters, dropped }
+}
+// one batch of new questions: code holds back the exact repeats, W7 clusters the rest by meaning (no W7 when none is
+// left). Returns { checked } for clustersToLevel and, when W7 returned nothing, lost: the questions nobody placed
+// (checked then holds only the known ones, which code placed without W7)
+async function clusterBatch(items, label) {
+  const d = dedupe(items)
+  const held = d.known.length + d.twins.length
+  log(`${label}: ${held} of ${items.length} new questions merged in code before W7 (${d.known.length} into a node already in the tree, ${d.twins.length} into an earlier question of this batch); ${d.fresh.length} go to W7`)
+  const none = { clusters: [], dropped: [] }
+  if (!d.fresh.length) return { checked: withHeld(none, d) }
+  const merged = await ask('W7', label, W7_PROMPT(w7Input(d.fresh, items)), { schema: CLUSTERS, phase: 'Dig', ...M('W7') })
+  if (!merged) return { lost: [...d.fresh, ...d.twins.map(t => t.member)], checked: withHeld(none, { known: d.known, twins: [] }) }
+  return { checked: withHeld(checkClusters(merged, d.fresh), d) }
 }
 // a split whose question no child carries on (none usable, all dropped, or folded into a question that has no node or
 // into its own line) left its question open: it is not a leaf (W9/W10 skip it), so mark it unverified
@@ -920,12 +962,12 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
     const splits = level.filter(n => n.status === 'split')
     depth = Math.max(depth, ...level.map(n => n.depth))
     if (!children.length) { settleSplits(splits, children); level = []; break }
-    const merged = await ask('W7', `W7 depth ${level[0].depth + 1}`, W7_PROMPT(w7Input(children)), { schema: CLUSTERS, phase: 'Dig', ...M('W7') })
-    if (!merged) {                                       // section 4, layer 1: stop digging, go to W9
-      for (const c of children) { notSeen.afterNullMerge.push(c.question); markUnverified(c.parent) }
+    const w7 = await clusterBatch(children, `W7 depth ${level[0].depth + 1}`)
+    level = clustersToLevel(w7.checked, level[0].depth + 1)
+    if (w7.lost) {                                       // section 4, layer 1: stop digging, go to W9
+      for (const c of w7.lost) { notSeen.afterNullMerge.push(c.question); markUnverified(c.parent) }
       break dig
     }
-    level = clustersToLevel(checkClusters(merged, children), level[0].depth + 1)
     settleSplits(splits, children)
   }
   round++
@@ -956,12 +998,13 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
     })
     break
   }
-  let merged = null
-  if (gapItems.length) {
-    merged = await ask('W7', `W7 gaps round ${round}`, W7_PROMPT(w7Input(gapItems)), { schema: CLUSTERS, phase: 'Dig', ...M('W7') })
-    if (!merged) { gapItems.forEach((g, i) => { log1.gaps[i].outcome = 'unverified'; notSeen.afterNullMerge.push(g.question) }); break }
+  const w7 = gapItems.length ? await clusterBatch(gapItems, `W7 gaps round ${round}`) : null
+  level = w7 ? clustersToLevel(w7.checked, 0, 8) : []
+  if (w7?.lost) {
+    w7.lost.forEach(g => { g.outcome = 'unverified'; notSeen.afterNullMerge.push(g.question) })
+    gapItems.forEach((g, i) => { log1.gaps[i].outcome = g.outcome ?? 'unknown' })
+    break
   }
-  level = merged ? clustersToLevel(checkClusters(merged, gapItems), 0, 8) : []
   level.forEach((n, i) => { n.rootIdx = roots.length + nodes.length + i; n.origin = `gap round ${round}` })
   gapItems.forEach((g, i) => { log1.gaps[i].outcome = g.outcome ?? 'unknown' })
   dry = level.length ? 0 : dry + 1

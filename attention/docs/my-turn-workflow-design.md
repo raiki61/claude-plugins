@@ -340,7 +340,7 @@ flowchart TB
   W4 --> W5
   W5 --> W6
   subgraph DIG["木を掘る: 全部がリーフになるまで、深さごとに繰り返す"]
-    W6["W6 ノード 1 つに 1 エージェント<br/>sonnet high"] --> W7["W7 同じ問いを束ねる<br/>sonnet high"] --> CK{{"クラスタの照合<br/>script のコード"}}
+    W6["W6 ノード 1 つに 1 エージェント<br/>sonnet high"] --> W7["完全な繰り返しをコードで畳み<br/>残りを W7 が束ねる<br/>sonnet high"] --> CK{{"クラスタの照合<br/>script のコード"}}
     CK -->|次の深さの問い| W6
     CK -->|次の深さが空| W8["W8 漏れの点検<br/>opus medium"]
     W8 -->|漏れの問いを束ねてルートに| W7
@@ -479,6 +479,16 @@ flowchart TB
     - その上に乗る「消える」「要らなくなる」も「未確認」にする（守ること 5）。
 - **W7 束ねる**（新しい段）: 深さごとに全部のノードを待ち、そこで出た子の問いの全部を 1 エージェントに渡す。
   - 違う親が出した同じ問いを、1 つのクラスタにさせる。
+  - **先にコードで畳む**（2026-11-18。頼み 2b0355）: W7 に渡す前に、問いの文を鍵にして、完全な繰り返しを script のコードが畳む。
+    - 鍵の作り方は `keyOf`（木の `seen` と前の回の使い回しが使う鍵と同じ）: 小文字にし、空白の並びを 1 つの空白にし、末尾の空白と `.` `?` `!` `。` `？` を落とし、両端の空白を除く。鍵が空になる問い（記号だけ）は畳まない。
+    - 鍵が `seen`（木に既に在るノードの鍵の集まり）に在る問いは、そのノードに畳む。W7 が木のノードの繰り返しを返したときと同じ扱いで、`rest`（W7 の答えの、木のノードに畳む問いのフィールド）に入れ、そのノードの `alsoFrom`（同じ問いを出したほかの親の記録）に親を足す。問いの親がそのノード自身の系統（そのノードの祖先）に当たるときは、`foldIntoOwnLine`（自分の祖先への繰り返しの件数）に数え、その親を未確認にする。
+    - 鍵が同じ回の前の問いと同じ問いは、W7 がその前の問いを置いた束に入れる（新しいノードの `parents` に親が増え、重さも束に数える）。W7 が前の問いを落としたら、同じ訳で落とす。
+    - W7 に渡すのは残りだけ。W7 の文は、外した問いの行が無くなるだけで、ほかは 1 字も変わらない。W7 の文には「既に木に在る鍵」の一覧が載り、その並びは、その回の問いの系統（親と `alsoFrom` をたどった祖先のノード）に近い順で決まる。この系統は、外した問いも含めた回の全部の問いから求める。残りだけで求めると並びが変わり、前の script と 1 字違いになるため。残りが無い回は W7 を立てない。
+    - 回ごとに、コードで畳んだ数を `log()` に出す。0 件の回も出す（Workflow のツールの説明文「No silent caps」）。
+    - 鍵は `where`（見る場所）を見ない。同じ文で別の場所を問う問いも畳む（頼み 2b0355 の決まり）。W7 なら `where` の違いで別の問いに分けられたが、その分は落ちる。短く汎用の問い（「Is it tested」など）で起きうる。W7 は、渡された問いの `where` を今までどおり見る。
+    - W7 が返らないときは、W7 に渡した問いと、その繰り返しだけを「未確認」にする。木のノードの繰り返しはコードが置く。
+    - 意味の重なり（言い替え）は、今までどおり W7 が束ねる。W7 をやめる案（セクション 14.4 の 6）とは別の、能力を落とさない先の一歩。
+    - 決まりの元: Workflow のツールの説明文（同梱の Claude Code 2.1.326）は、重複を、高い後ろの仕事の前に、見た物の全部（`seen`）に対してコードで落とすと書く。公開の bug-hunt（下の 14.3）も、鍵の `seen` で `fresh` を絞ってから検証役を立てる。
   - 返すフィールド:
     - `clusters`: 1 件ごとに `key`（問いの鍵）・`question`・`members`。
       - `members` は、子の問いの id をカンマで並べた文字列。
@@ -612,8 +622,9 @@ run は 1 回で、2 本の差分を両方使う。
      - `null` は、作り直しの打ち切り・API の失敗で返る（Workflow の文書の「Behavior and limits」）。
    - 段ごとの `null` の扱い:
      - **W6 のノード**: 上限で掘らなかったときと同じく、その上に乗る「消える」「要らなくなる」も「未確認」にする。
-     - **W7**: その深さで出た子の問いを全部「未確認」で返し、次の深さへ進まない。
-       - W8 の漏れを束ねる W7 なら、その回の漏れを全部「未確認」で返す。
+     - **W7**: その深さで W7 に渡した子の問いと、その繰り返しを全部「未確認」で返し、次の深さへ進まない。
+       - W8 の漏れを束ねる W7 なら、その回の漏れのうち W7 に渡した物とその繰り返しを全部「未確認」で返す。
+       - 木に在るノードの繰り返しは、W7 の前にコードが畳んでいるので、W7 が返らなくても置く（セクション 3 の W7）。
        - どちらのときも、掘るのをそこで終えて W9 へ進む。
      - **W8**: 漏れの点検は回らなかった（見て漏れが無かったのではない）と件数に出して、W9 へ進む。
      - **根拠の照合**: その回で渡した根拠を「照合しなかった」（`counts.quotes.unchecked`）にし、根拠は外さずに W9 へ進む。
@@ -1172,17 +1183,18 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
     used += share.kept.length
     markUnverified(seen, share.cut, ledger)              // never silently dropped
     markUnverifiedParents(share.kept.filter((n, i) => !answers[i]), seen, ledger)   // a null node also unverifies what rests on it
-    const merged = await ask('W7', W7_PROMPT(childrenOf(answers), seen), { schema: CLUSTERS, ...M('W7') })
-    if (!merged) { markUnverified(seen, childrenOf(answers), ledger); break dig }   // section 4, layer 1: stop digging, go to W9
-    level = checkClusters(merged, childrenOf(answers), seen)   // every child exactly once; seen stops re-asks
+    // code merges exact repeats (key in seen, or of an earlier child) and logs how many; W7 gets the rest, none -> no W7
+    const w7 = await clusterBatch(childrenOf(answers), `W7 depth ${depth + 1}`)   // w7.checked: clusters checked (every child exactly once) plus the code merges
+    level = clustersToLevel(w7.checked, depth + 1)       // folds into seen nodes, or makes next-level nodes
+    if (w7.lost) { markUnverified(seen, w7.lost, ledger); break dig }   // section 4, layer 1: stop digging, go to W9
   }
   const gaps = await ask('W8', W8_PROMPT(structure, seen, smells, unreadChanged(A.prep, seen, smells), ++round),
                          { schema: GAPS, ...M('W8') })   // round 1, 3, ...: from W1's parts; 2, 4, ...: from files
   if (!gaps) break                                       // counted as null by the ledger
   if (A.limits.nodes - used <= 0) { markUnverified(seen, notSeen(gaps.gaps, seen), ledger); break }
-  const merged = gaps.gaps.length ? await ask('W7', W7_PROMPT(gaps.gaps, seen), { schema: CLUSTERS, ...M('W7') }) : null
-  if (gaps.gaps.length && !merged) { markUnverified(seen, gaps.gaps, ledger); break }
-  level = merged ? gapRoots(checkClusters(merged, gaps.gaps, seen)) : []   // section 3, W5 class 8
+  const w7 = gaps.gaps.length ? await clusterBatch(gaps.gaps, `W7 gaps round ${round}`) : null   // the same code merge first
+  level = w7 ? clustersToLevel(w7.checked, 0, 8) : []   // section 3, W5 class 8
+  if (w7?.lost) { markUnverified(seen, w7.lost, ledger); break }
   dry = level.length ? 0 : dry + 1
 }
 
@@ -1241,7 +1253,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
   - `headless` のケース: `my-turn-headless.py` の環境変数の落とし方・引数・役の定義と、偽の `claude` での実走の要約
 - **`tests/my-turn-dig-dry.mjs`**: script を、`agent()` などを偽物に替えて node で空回しする。
   - 偽物の `agent()` は、渡された出力スキーマに合う答えを返す。
-  - 次の 10 通りを持つ（`node tests/my-turn-dig-dry.mjs <名前>`）。
+  - 次の 11 通りを持つ（`node tests/my-turn-dig-dry.mjs <名前>`）。
   1. **`fixed`** 決まった答えを返す。見る物:
      - 深さ 3 のノードへの指示に、祖先の全部の問い・答え・前提が載るか（W7 で親を複数持つノードは、親ごとの道を 12 本まで）
      - W9 と W10 に、それぞれの項に書いた物が欠けずに渡るか
@@ -1255,14 +1267,14 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
      - PR が CLAUDE.md を変えた入力で、`roles` が無ければ共通の決まりに書き足しが入り、在れば入らないか
      - W4 の足しが 1 問 1 エージェントで立ち、上限を越えた分が「未確認」で返るか
      - W8 が漏れを返さない回が 2 回続くと止まるか
-     - W8 の問いが W7 で `seen` と照合されて、区分 8 のルートになるか
+     - W8 の問いが `seen` と照合されて（完全な繰り返しはコード、言い替えは W7）、区分 8 のルートになるか
      - GitHub の issue・PR・検索の URL に頼ったノードを使い回さないか
   2. **`grow`** どのノードにも子の問いを 2 つずつ返し続ける。W8 にも漏れを返し続けさせる。見る物:
      - ノードの上限と `seen` で必ず止まるか
      - 上限の後の W8 の漏れが「未確認」で返るか
      - W6 のノードのエージェント数が、ノードの上限を越えないか
      - 掘らなかった問いが全部「未確認」で返り、その上に乗る「消える」も「未確認」になるか
-  3. **`same`** 違う親に同じ問いを返す。見る物:
+  3. **`same`** 違う親に同じ問いの言い替えを返す（完全な繰り返しは W7 の前にコードが畳むので、`dedup` が見る）。見る物:
      - W7 で 1 つのクラスタになり、クラスタの照合が通るか
      - クラスタが、セクション 6 の割り当ての決まりのとおり先のルートの親の分に数えられ、後ろのルートの親の分には数えられないか
      - 切るときに、`weight` の軽い物から切られるか
@@ -1275,14 +1287,22 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
      - 子の問いが 1 つも掘られない split
   7. **`schema`** 段ごとの返す形が、Workflow の決まり（ルートは object・`required` は `properties` の内）を満たすか。出力スキーマの自己矛盾もここで見る。
   8. **`map`** セクション 8 の表（`tests/my-turn-dig-map.json`）の照合。
-  9. **`quotes`** 根拠の照合の段（セクション 3）。見る物:
+  9. **`dedup`** W7 の前のコードの重複落とし（セクション 3 の W7）。見る物:
+     - 鍵が木の key か同じ回の前の問いと同じ問いが、W7 の文に 1 つも載らず、W7 の 1 回に同じ問いが 2 つ並ばないか
+     - 残りが無い回で W7 を立てないか
+     - 同じ回の繰り返しの親がノードの `parents` に、木のノードの繰り返しの親が `alsoFrom` に入り、記録に残るか
+     - そのノード自身の系統への繰り返しが、W7 を通ったときと同じく `foldIntoOwnLine` に数えられ、親が未確認になるか
+     - W8 の漏れの繰り返しが `seen`（木に在る）か、前の漏れと 1 つのルートになるか
+     - 回ごとに、コードで畳んだ数が `log()` に出るか（0 件の回は `rests` で見る）
+     - W7 が返らないとき、W7 に渡した問いとその繰り返しだけが見られなかった物になり、コードで畳んだ物は置かれるか
+  10. **`quotes`** 根拠の照合の段（セクション 3）。見る物:
      - 写しが全部合わないリーフと、判定が「スメル」の W4 の答えが「未確認」になり、反証にも W9 にも乗らないか（記録の `resultStatus` も「未確認」になり、次の回にリーフとして使い回さないか）
      - 合う写しが残るリーフは残るか。web のページの写しは送らず、それが残るリーフは下げないか
      - 同じ根拠を 1 件にまとめ、検査の値を path・行・写しから作るか。日本語の写しを `\uXXXX` で送るか
      - 段が返らない・件数が合わない・写し違いのとき、根拠を外さずに件数に出すか
      - `prep.quoteCheck` が無いとき、段を飛ばして件数に出すか
      - 120 件（`limits.quoteBatch`）ごとに分けるか
-  10. **`prompts`** 指示文の定数（セクション 2）。見る物:
+  11. **`prompts`** 指示文の定数（セクション 2）。見る物:
       - 指示文の区画が、`attention/prompts/*.md` から生成器で作り直した物と 1 字も違わないか（md だけを直して生成器を打たないと赤になる）
       - 段の文の定数が区画の外に無いか。md ごとに `.ja.md` が在り、その `source_sha256` が今の英語の md の sha256 と合うか（英語だけを直して訳を直さないと赤になる）
       - 生成器が、壊れた md（宣言の無い値・使わない値・知らないフィルタ・閉じの無い `{{#if}}`）を止めるか。作った関数が、渡されない値と型の違う値で止まるか
@@ -1540,6 +1560,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
    - W7（エージェントが束ねる）をやめ、問いの文を揃えた鍵で `seen` と比べてコードで落とす（Workflow のツールの説明文の決まり）。
    - 意味の重なりは残り、W9 と報告で合わせる（同梱のコードレビューも、意味の重なりは最後のまとめの段で合わせる）。
    - セクション 13 の、クラスタを木のノードに当てる規則（類・`alsoFrom` の当て直し）も要らなくなる。
+   - 2026-11-18 に、能力を落とさない先の一歩として、W7 の前に完全な繰り返しをコードで畳む段を重ねた（W7 は残る。頼み 2b0355。セクション 3 の W7）。W7 をやめるかは 14.6 の 4 のまま未決。
 7. **記録をエージェントに書かせない**（問題 6）:
    - W11 をやめ、script は記録を戻り値で返す。
    - 既定の形では会話が、ヘッドレスの形では台本（`my-turn-headless.py`）が、記録のファイルに書く。
@@ -1576,3 +1597,37 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
 6. 案 4・5・7（答えの形・引用の照合・記録の書き出し）は、今壊れている物の直しで、落ちる能力が無いので、承認を待たずに直してよいか。
    - → 持ち主 2026-11-18「実装できるところは先にしておこう」で、案 4・5・7・9 を先に直すと決めた。
    - 1〜5 は未決。
+   - 4 の手前の、W7 の前にコードで完全な繰り返しを畳む段は、能力を落とさないので先に入れた（2026-11-18。頼み 2b0355）。
+
+### 14.7 作りを変える前の照合（手順）
+
+決めること: Workflow の作り（段・ループ・重複の落とし方・止め方・検証）を変える案は、書く前に、下の 2 つの決まりと公開の script に当ててから出す。
+
+- **残す理由**: 最初の設計は、Workflow のツールの説明文の「重複はコードで落とす」と照合せずに、エージェントで束ねる W7 を選んだ。説明文と公開の script との照合は、2026-11-17 に 6 回走らせた後になった（14.2・14.3）。
+
+手順:
+
+1. 変える所を、Workflow のツールの説明文（Claude Code に同梱。2.1.326 の写しは my_notes の `reference/primary/ai/claude-code-bundled-workflow-tool-description-2-1-326*.md` の 4 本）の決まりに当てる。少なくとも次を見る。
+   - 重複は、高い後ろの仕事の前に、見た物の全部（`seen`）に対して、エージェントでなくコードで落とす。
+   - 切った物・落とした物は `log()` に出す（「No silent caps」）。
+   - 予算で回すループは `budget.remaining()` を見る。
+   - 全件が要るときだけ待ち合わせ（barrier）にし、ほかは `pipeline` で流す。同時実行と総数の上限を越えない。
+2. 同じ所を、my_notes の `reference/secondary/ai/claude-code-dynamic-workflow-authoring-rules-and-where-runs-fail.md` の冒頭の 10 の点検の問い（問い 0〜9: 形・規模・1 体に渡す物・答えの形・重複の除去・抜けの点検・止め方・検証・キャッシュ・費用）に当てる。
+3. 比べた公開の script を、commit を固定した URL とライセンスで挙げる。
+   - 本文を写すのは、寛容なライセンス（Apache-2.0・MIT など）の物だけにし、写したら出典の URL とライセンスをコメントに残す。
+   - ライセンスの無い物と同梱の物（anthropics/claude-code の LICENSE.md は「All rights reserved」）は、作りだけを参考にする。
+4. 当たらない決まり・「いいえ」の問いは、なぜ当たらないかを案に書く。照合した決まり・問い・比べた script の一覧を、承認の頼みに添える。
+
+これまでに比べた script（14.3 と、頼み 2b0355 の重複の落とし方）:
+
+| script | ライセンス | 使い方 |
+|---|---|---|
+| 同梱のコードレビュー（2.1.196） | All rights reserved | 作りだけ |
+| 同梱の /deep-research（2.1.326） | All rights reserved | 作りだけ |
+| bug-hunt | Apache-2.0 | 作りだけ（本文は写していない） |
+| gpt-workflow の patterns 文書 | 無し | 作りだけ |
+| repertoire の review-change.js | MIT | 作りだけ（本文は写していない） |
+
+- bug-hunt: https://raw.githubusercontent.com/vnovick/itervox/d4f5e2e2daa6abb230fd5646e642151847b19f45/.claude/workflows/bug-hunt.js （鍵の `seen` で `fresh` を絞ってから検証役を立てる）
+- gpt-workflow: https://raw.githubusercontent.com/CyrusNuevoDia/gpt-workflow/ef3e83493ef668c825de2eaf086c919088858ea9/.claude/workflows/docs/05-patterns.md （高い検証の前に重複を落とす待ち合わせ・`seen` に対して落とす）
+- repertoire: https://raw.githubusercontent.com/stevekinney/repertoire/a634cb6c6f1c59dd47a35b9c246d43b48b212a43/workflows/review-change.js （観点ごとの指摘を、検証の前に場所と題の鍵で 1 つにする）
