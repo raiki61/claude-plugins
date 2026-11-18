@@ -6,6 +6,10 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Added
+
+- /my-turn の掘る段（Workflow `my-turn-dig`）の流れを作り直す設計の案を、`docs/my-turn-dig-redesign.md` に書いた。実走 4 回で見落とした約 35 件の原因を、段の並びのどこで止めるかと、works-factory の観点の文の取り込み方を決める。未承認で、動きは変わらない。
+
 ## [0.69.0] - 2026-11-18
 
 ### Changed
