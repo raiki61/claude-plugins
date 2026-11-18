@@ -100,7 +100,8 @@ function responder(over = {}) {
         const ids = [...prompt.matchAll(/^- (N\d+): /gm)].map(m => m[1])
         return { fixes: [{ fix: 'F', rung: 'remove', worldSolution: 'https://example.org', leaves: ids.join(',') }], groups: [], searched: 'words', outside: [] }
       }
-      case 'W10': return { verdict: 'stands', reason: 'r', evidence: [{ path: 'a.py', line: 1, quote: 'x' }] }
+      case 'W10': return { verdict: 'stands', reason: 'r', evidence: [{ path: 'a.py', line: 1, quote: 'x' }],
+        ...(label.endsWith(' trace') ? { problem: true, scenario: 'input a, then wrong b' } : {}) }
       case 'Quotes': return quotesOk(call)
     }
     throw new Error(`unknown label ${label}`)
@@ -1118,7 +1119,103 @@ async function casePrompts() {
     'prompts: 生成した関数が足りない値か型の違う値で投げない')
 }
 
-const CASES = { dedup: caseDedup, fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests, quotes: caseQuotes, prompts: casePrompts }
+// ---- 反証の 2 つの目（設計 3 の W10）: 末端と臭いの答えに、誤検出を示す目と、具体の筋書きを組む目を 1 体ずつ立て、
+// 票の組み方で決める（2 体とも崩せない→stands・2 体とも崩す→falls・割れる→suspected・票が欠ける→unverifiable）。
+// 指摘にならない物の一覧（NOT_A_FINDING）が見つける段と反証の両方に載り、行と写しの無い指摘は指摘にしない ----
+async function caseRefute() {
+  const isRoot = q => q.startsWith('[s11.2]') || q.startsWith("The PR's structure differs")
+  const ok = (extra = {}) => ({ verdict: 'stands', reason: 'r', evidence: [{ path: 'a.py', line: 1, quote: 'x' }], ...extra })
+  // 1. 体の数・目ごとの文・スキーマ
+  {
+    const { out, calls } = await run(baseArgs(), responder())
+    const w10 = of(calls, 'W10'), leafT = out.nodes.filter(n => n.verdict).length, smellT = out.smells.filter(x => x.verdict).length
+    const fixT = out.fixes.verdicts.length
+    check(w10.length === 2 * (leafT + smellT) + fixT && leafT > 0 && smellT > 0 && fixT > 0,
+      `refute: W10 の体の数が 2×(末端 ${leafT}+臭い ${smellT})+案 ${fixT} でない ${w10.length}`)
+    const tr = w10.filter(c => c.label.endsWith(' trace'))
+    check(tr.length === leafT + smellT && tr.every(c => c.opts.schema.required.includes('scenario') && c.prompt.includes('Construct the concrete scenario'))
+      && w10.filter(c => !c.label.endsWith(' trace')).every(c => !c.opts.schema.required.includes('scenario') && c.prompt.includes('false positive'))
+      && !w10.some(c => /^W10 [FG]\d+ trace$/.test(c.label)), 'refute: 目ごとの文かスキーマが違うか、案に 2 つ目の目が立った')
+    const doctrine = 'It is already prevented elsewhere'
+    check([...w10, ...of(calls, 'W4'), ...of(calls, 'W6')].every(c => c.prompt.includes(doctrine)) && of(calls, 'W6').every(c => c.prompt.includes('if you cannot point at the line, it is not a finding')),
+      'refute: 指摘にならない物の一覧が、見つける段か反証のどれかに載らない')
+    check(out.nodes.filter(n => n.verdict).every(n => n.verdict.verdict === 'stands' && n.verdict.lenses.length === 2 && n.verdict.scenario),
+      `refute: 2 体とも崩せない末端が stands にならない ${JSON.stringify(out.nodes.find(n => n.verdict)?.verdict)}`)
+  }
+  // 2. 票の組み方。末端 1 つ（ルートの 1 本目）にだけ答えを替え、ほかは stands のまま
+  const combos = [
+    ['split', ok({ verdict: 'falls' }), ok({ problem: true, scenario: 'in a, out b' }), 'suspected'],
+    ['bothFall', ok({ verdict: 'falls' }), ok({ verdict: 'falls', problem: true, scenario: '' }), 'falls'],
+    ['traceNull', ok(), null, 'unverifiable'],
+    ['traceCannot', ok(), ok({ verdict: 'unverifiable', problem: true, scenario: '', evidence: [] }), 'unverifiable'],
+    ['noScenario', ok(), ok({ problem: true, scenario: '' }), 'unverifiable'],
+    ['bothNull', null, null, null],
+  ]
+  for (const [name, refuteV, traceV, want] of combos) {
+    let target = null
+    const W6 = call => {
+      const id = nodeId(call.prompt)
+      if (!target && isRoot(nodeQ(call.prompt))) target = id
+      return leaf(id)
+    }
+    const W10 = call => {
+      const [, id, lens] = call.label.split(' ')
+      if (id === target) return lens === 'trace' ? traceV : refuteV
+      return ok(lens === 'trace' ? { problem: true, scenario: 'in a, out b' } : {})
+    }
+    const { out } = await run(baseArgs(), responder({ W6, W10 }))
+    const n = out.nodes.find(x => x.id === target), v = n?.verdict
+    check((v?.verdict ?? null) === want && (want === null || (v.lenses.length === 2 && v.reason.includes('refute: ') && v.reason.includes('trace: '))),
+      `refute(${name}): 票の組み方が ${want} でない ${JSON.stringify(v)}`)
+    const removed = out.fixes.removed.some(f => f.why.includes(target))
+    check(removed === (want === 'falls'), `refute(${name}): 崩れた末端だけが案を外すのでない ${JSON.stringify(out.fixes.removed)}`)
+    const s = out.counts.seenUndecided
+    check(s.refuteSuspected.includes(target) === (want === 'suspected') && s.refuteUnverifiable.includes(target) === (want === 'unverifiable'),
+      `refute(${name}): 件数に出ない ${JSON.stringify(s)}`)
+  }
+  // 3. 行と写しの無い指摘: 写しの無い臭いの答えは確かめていない物にして反証しない。問題だと言う末端に行と写しが無ければ unverifiable
+  {
+    let target = null
+    const W4 = call => ({ verdict: 'smell', answer: 'A', evidence: call.label === 'W4 smell 1' ? [{ path: 'a.py', line: 0, quote: '' }] : [{ path: 'a.py', line: 2, quote: 'y' }] })
+    const W6 = call => {
+      const id = nodeId(call.prompt)
+      if (!target && isRoot(nodeQ(call.prompt))) { target = id; return leaf(id, { evidence: [{ path: 'a.py', line: 0, quote: '' }] }) }
+      return leaf(id)
+    }
+    const { out, calls } = await run(baseArgs(), responder({ W4, W6 }))
+    check(out.smells[0].answer.verdict === 'unverified' && !calls.some(c => c.label.startsWith('W10 S1')) && calls.some(c => c.label === 'W10 S2')
+      && out.counts.quotes.noQuote.includes('S1') && out.counts.quotes.toUnverified.includes('S1'), `refute(noQuote): 写しの無い臭いの答えを反証した ${JSON.stringify(out.counts.quotes)}`)
+    const n = out.nodes.find(x => x.id === target)
+    check(n?.status === 'leaf' && n.verdict?.verdict === 'unverifiable' && out.counts.seenUndecided.refuteUnverifiable.includes(target),
+      `refute(noQuote): 行と写しの無い、問題だと言う末端が unverifiable にならない ${JSON.stringify(n?.verdict)}`)
+    // 問題だと言わない末端（見つからなかった、など）は、行と写しが無くても 2 体の票で決める
+    const W10 = call => ok(call.label.endsWith(' trace') ? { problem: false, scenario: 'searched a, found nothing' } : {})
+    const { out: o2 } = await run(baseArgs(), responder({ W4, W6: call => { const id = nodeId(call.prompt); return leaf(id, { evidence: [] }) }, W10 }))
+    const judged = o2.nodes.filter(x => x.verdict)
+    check(judged.length > 0 && judged.every(x => x.verdict.verdict === 'stands'), `refute(noQuote): 問題だと言わない、写しの無い末端まで unverifiable にした（判定の付いた末端 ${judged.length} 件）`)
+    // 問題だと言うのに写しの無い末端でも、2 体とも崩したら「崩れた」（確かめられないに上書きしない）
+    const W10f = call => ok(call.label.endsWith(' trace') ? { verdict: 'falls', problem: true, scenario: '' } : { verdict: 'falls' })
+    const W6b = call => { const id = nodeId(call.prompt); return id === target ? leaf(id, { evidence: [{ path: 'a.py', line: 0, quote: '' }] }) : leaf(id) }
+    const { out: o3 } = await run(baseArgs(), responder({ W4, W6: W6b, W10: W10f }))
+    const n3 = o3.nodes.find(x => x.id === target)
+    check(n3?.verdict?.verdict === 'falls', `refute(noQuote): 2 体とも崩した、写しの無い末端を崩れたにしない ${JSON.stringify(n3?.verdict)}`)
+  }
+  // 4. 使い回し: 2 つの目の票（lenses）の無い前の回の判定は持ち越さず、もう一度 2 体で反証する
+  {
+    const { out } = await run(baseArgs(), responder())
+    const prior = { ...out, nodes: out.nodes.map(n => (n.verdict ? { ...n, verdict: { verdict: n.verdict.verdict, reason: 'r', evidence: n.verdict.evidence } } : n)) }
+    const a = baseArgs({ priorRecord: prior })
+    a.prep = { ...a.prep, priorHead: 'p'.repeat(40), fingerprints: { 'a.py': 'same' } }
+    const { calls } = await run(a, responder())
+    check(of(calls, 'W6').length === 0 && of(calls, 'W10').filter(c => /^W10 N\d+ trace$/.test(c.label)).length > 0, 'refute(reuse): 2 つの目の無い前の判定を持ち越した')
+    const { out: o2, calls: c2 } = await run({ ...a, priorRecord: out }, responder())
+    const carried = o2.nodes.filter(x => x.verdict?.lenses?.length === 2)
+    check(of(c2, 'W6').length === 0 && carried.length > 0 && of(c2, 'W10').filter(c => /^W10 N/.test(c.label)).length === 0,
+      `refute(reuse): 2 つの目の決まった判定を持ち越さない（持ち越した末端 ${carried.length} 件）`)
+  }
+}
+
+const CASES = { dedup: caseDedup, refute: caseRefute, fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests, quotes: caseQuotes, prompts: casePrompts }
 const name = process.argv[2]
 if (!CASES[name]) { console.log(`使い方: node tests/my-turn-dig-dry.mjs <${Object.keys(CASES).join('|')}>`); process.exit(1) }
 try { await CASES[name]() } catch (e) { fails.push(`${name}: 例外 ${e?.stack ?? e}`) }

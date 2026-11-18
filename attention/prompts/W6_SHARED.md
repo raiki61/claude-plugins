@@ -3,6 +3,10 @@ vars:
   prFiles: text
   structure: text   # W1's structure, or the no-parts sentence
   general: text     # W2's general structure, or the not-available sentence
+  notAFinding: list # the NOT_A_FINDING items
+# "If you cannot point at the line, it is not a finding." is copied from bug-hunt.js (Apache-2.0):
+# https://github.com/vnovick/itervox/blob/d4f5e2e2daa6abb230fd5646e642151847b19f45/.claude/workflows/bug-hunt.js#L170
+# Changed: lower case "if". The scenario sentence follows its reproduction lens (L229), rewritten.
 ---
 {{prFiles}}
 
@@ -22,6 +26,8 @@ How to answer one node of the question tree:
 - evidence (for a leaf): each ground as path, line and quote (the form in the shared rules). files: every file you read, relative to the repository root. urls: every URL you relied on; for an issue, PR or search you read with gh, give its URL.
 - [s13.8][s13.9] Use only official primary documents or source code (not mirrors or copies), never memory. If only secondary articles exist, return "unverified".
 - Keep the answer to a few lines; point to locations instead of pasting bodies.
+- When your answer says something in the PR is wrong, write the concrete failure scenario in the answer: exact input or state, then the wrong result a person would see. Every ground is a path, a line and a quote; if you cannot point at the line, it is not a finding. Rule these out first; if one of them applies, do not call it wrong:
+{{notAFinding|bullets}}
 
 When the question asks for the world's solution or about a self-made part:
 - [s13.1][s13.2] Ask how OSS, standard tools and standard procedures solve the same problem, per part of the structure: first the whole part the PR builds (the problem its mechanisms try to solve), then each finding and each proposed fix. Apply it also to the checks, tests and CI parts the PR adds, and look for the standard tool that owns the same part (validators, linters, test tools).

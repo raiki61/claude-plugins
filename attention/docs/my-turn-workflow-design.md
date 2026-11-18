@@ -544,17 +544,36 @@ flowchart TB
       - `worldSolution`: 手順 13 の「指摘の 1 件ずつとこちらの直し方の案に当てる」。当てた物の URL か、無ければ「無し」と探した語。
     - `groups`（手順 12）: 1 つの直しで片づく組と、壊し合う組（以下、修正案とグループ。W7 のクラスタとは別）。
     - `outside`（手順 12）: PR の外の open な issue・PR を `gh` で探した語と、乗れるか。
-- **W10 反証**: 次のそれぞれに、別の 1 エージェントが反証を試みる。
+- **W10 反証**: 次のそれぞれに、別のエージェントが反証を試みる。リーフと W4 の答えには 2 エージェント、修正案とグループには 1 エージェント（2026-11-18。頼み 2b0355。下の「2 つの目」）。
   - 対象: 確定したリーフの全部・W4 の答えの全部・W9 の修正案とグループごと。
-    - 根拠の照合で「未確認」に下げたリーフと、W4 の「スメル」の答えは、対象から外す。
+    - 根拠の照合で「未確認」に下げたリーフと W4 の答え（写しが全部外れた物と、写しの無い「スメル」の答え）は、対象から外す。
   - 渡すのは、問い・答え・確かめた物・確かめずに前提にした事だけ。親の見立てと兄弟の答えは渡さない。
   - **W4・W6 の答えの反証**: 最初に、`evidence` の引用が答えを本当に支えるか（言い過ぎ・読み違いでないか）を確かめる。
     - `/deep-research` の script の反証の指示の最初の問いに倣う。
       - 「Is the claim actually supported by the quote, or is it an overreach/misread?」
   - **W9 の修正案とグループの反証**: 引用を持たないので、`worldSolution` の URL の中身と、乗っているリーフの引用が案を支えるかを見る。
-  - 返すフィールド: `verdict`（残る／崩れた／確かめられない）・`reason`・`evidence`。
+  - 返すフィールド: `verdict`（残る／崩れた／確かめられない）・`reason`・`evidence`。2 つ目の目は、ほかに `problem`（答えが PR の誤りを言うか）と `scenario`（たどった筋書き）を返す。
   - 確かめられない物は、崩れた扱いにせず「未確認」で残す。
     - `/deep-research` の script は 1 件に 3 エージェントを立てて多数決し、迷えば崩れた扱いにするが、この設計は採らない（訳はセクション 12 の 15）。
+  - **2 つの目**（リーフと W4 の答え。2026-11-18。頼み 2b0355）: 見方の違う 2 エージェントを立てる。
+    - 1 つ目は、誤検出だと示そうとする。呼ぶ側・上流の守り・場合を起こりえなくする型や不変条件を読む。
+    - 2 つ目（`trace`）は、具体の筋書きを組む。決まった入力か状態と、コードがどう扱うか。答えが誤りを言うなら失敗（入力か状態と、誤った結果）を、成り立つと言うなら成り立たない場合を組もうとする。組んだ筋書きを `scenario` に書く。
+    - 票の組み方（bug-hunt.js の L243-275 を写して変えた。出典と変えた所は script のコメント）:
+      - 票に数えるのは「崩れた」と「残る」だけ。`null`・「確かめられない」・筋書きの空の 2 つ目の「残る」は票でない。
+      - 票が 2 つ揃わない → 「確かめられない」（未確認で残す。閉じる側に倒す）
+      - 2 票とも崩れた → 「崩れた」（乗る修正案とグループを外す）。次の写しの止めより先に見る（写しの無い主張を 2 体とも崩したなら、主張は消え、乗る案も外れる）
+      - 2 つ目の目が「答えは誤りを言う」（`problem` が真。たどった結果でなく答えの中身を表す）とし、答えの根拠に行の写しも web のページの写しも無い → 「確かめられない」
+      - 割れた → 「疑い」（`suspected`。`counts.seenUndecided.refuteSuspected` に数える。案は外さない）
+      - 2 票とも残る → 「残る」
+      - 2 体とも返らない → 判定なし（1 エージェントの頃と同じく、件数の層が返らなかった数に出す）
+    - 前の回の判定を持ち越すのは、2 つの目の票（`lenses`）の揃った「残る」「崩れた」だけ。2 つの目の前の判定と「疑い」はもう一度反証する。
+    - 記録の版（`version`）は 2 のまま上げない。判定に足したのは `lenses`・`scenario` と値の `suspected` で、前からのフィールドは形を変えていない。版を上げると、前の回の記録が丸ごと使えなくなり（セクション 7）、木を全部掘り直す。`lenses` の無い判定だけを反証し直す方が、掘り直す量が小さい。
+    - エージェント数: 反証は、リーフと W4 の答えの数だけ増える（W10 の数＝2 ×（リーフ＋W4 の答え）＋修正案＋グループ）。
+  - **指摘にならない物の一覧**（`attention/prompts/NOT_A_FINDING.md`）: 見つける段（W4・W6）と、反証の 2 つの目の全部に同じ一覧を渡す（bug-hunt.js の FALSE_POSITIVE_DOCTRINE の型。中身はこのリポジトリ向けに書いた）。
+    - 反証では、問題だと言う主張が一覧のどれかに当たれば崩れる。小さい・書き方の好み・自分なら挙げない、だけでは崩さない（反証のしすぎを止める。cc-debate の型）。
+  - **具体の筋書きと、行と写し**: 見つける段は、誤りだと言うなら具体の筋書きと、根拠の path・行・写しを書く。行を指せないなら指摘ではない（bug-hunt.js の L170 の文を写した）。コードでも止める。
+    - W4 の「スメル」の答えに、行の写しも web のページの写しも無ければ「未確認」に下げ、反証しない（`counts.quotes.noQuote`。写しが全部外れたときと同じ扱い）。
+    - リーフは、誤りを言う答えかどうかをフィールドに持たないので、2 つ目の目の `problem` で見る。誤りを言うのに行の写しも web のページの写しも無ければ「確かめられない」。見つからなかった、などの誤りを言わない答えは、写しが無くても 2 票で決める。
   - 崩れたリーフに乗る修正案とグループは外す。
   - 「残る」は、正しいと確かめた印として報告に書かない。
 - **記録と報告の材料**（前の版の W11。セクション 14.4 の 7）: script は記録を書かず、記録の中身を戻り値として返す。
@@ -1253,7 +1272,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
   - `headless` のケース: `my-turn-headless.py` の環境変数の落とし方・引数・役の定義と、偽の `claude` での実走の要約
 - **`tests/my-turn-dig-dry.mjs`**: script を、`agent()` などを偽物に替えて node で空回しする。
   - 偽物の `agent()` は、渡された出力スキーマに合う答えを返す。
-  - 次の 11 通りを持つ（`node tests/my-turn-dig-dry.mjs <名前>`）。
+  - 次の 12 通りを持つ（`node tests/my-turn-dig-dry.mjs <名前>`）。
   1. **`fixed`** 決まった答えを返す。見る物:
      - 深さ 3 のノードへの指示に、祖先の全部の問い・答え・前提が載るか（W7 で親を複数持つノードは、親ごとの道を 12 本まで）
      - W9 と W10 に、それぞれの項に書いた物が欠けずに渡るか
@@ -1302,7 +1321,13 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
      - 段が返らない・件数が合わない・写し違いのとき、根拠を外さずに件数に出すか
      - `prep.quoteCheck` が無いとき、段を飛ばして件数に出すか
      - 120 件（`limits.quoteBatch`）ごとに分けるか
-  11. **`prompts`** 指示文の定数（セクション 2）。見る物:
+  11. **`refute`** 反証の 2 つの目（セクション 3 の W10）。見る物:
+      - W10 の数が 2 ×（リーフ＋W4 の答え）＋修正案になり、2 つ目の目だけが `scenario` を返す形で立つか。修正案に 2 つ目が立たないか
+      - 指摘にならない物の一覧が、W4・W6・W10 の全部の文に載るか
+      - 票の組み方: 割れた → 疑い、2 体とも崩す → 崩れた、2 つ目が返らない・確かめられない・筋書きが空 → 確かめられない、2 体とも返らない → 判定なし。写しの無い問題の主張は、2 体とも崩せば崩れた、それ以外は確かめられない。崩れたときだけ修正案が外れ、疑いと確かめられないが件数に出るか
+      - 写しの無い「スメル」の答えが反証されずに「未確認」になり、誤りを言うのに写しの無いリーフが「確かめられない」になるか。誤りを言わないリーフは写しが無くても 2 票で決まるか
+      - 2 つの目の票の無い前の回の判定を持ち越さず、揃った判定は持ち越すか
+  12. **`prompts`** 指示文の定数（セクション 2）。見る物:
       - 指示文の区画が、`attention/prompts/*.md` から生成器で作り直した物と 1 字も違わないか（md だけを直して生成器を打たないと赤になる）
       - 段の文の定数が区画の外に無いか。md ごとに `.ja.md` が在り、その `source_sha256` が今の英語の md の sha256 と合うか（英語だけを直して訳を直さないと赤になる）
       - 生成器が、壊れた md（宣言の無い値・使わない値・知らないフィルタ・閉じの無い `{{#if}}`）を止めるか。作った関数が、渡されない値と型の違う値で止まるか
@@ -1413,6 +1438,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
     - W11 が落ちても材料を返し、見られなかった物を分けて返す。
       - 今は W11 をやめ、記録は戻り値で返す（セクション 3）。書けなかったときも材料は捨てない。
     - **取らない物**: 3 エージェントの多数決の反証。1 件 1 エージェントのままにし、確かめられない物は崩れた扱いにせず「未確認」で残す。
+      - 2026-11-18（頼み 2b0355）に、リーフと W4 の答えには見方の違う 2 エージェントを立てた（セクション 3 の W10 の「2 つの目」）。多数決ではなく、崩れた扱いにするのは 2 体とも崩したときだけで、割れたら「疑い」、欠けたら「未確認」で残す。確かめ切れない指摘が消えない点は変わらない。
       - /deep-research は 1 件に 3 エージェントを立てて多数決し、迷えば崩れた扱いにする。
       - この形にすると、反証のエージェント数が 3 倍（30〜100 エージェントが 90〜300 エージェント）になる。
       - 確かめ切れない指摘が、持ち主に見えずに消える。
@@ -1624,10 +1650,42 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
 |---|---|---|
 | 同梱のコードレビュー（2.1.196） | All rights reserved | 作りだけ |
 | 同梱の /deep-research（2.1.326） | All rights reserved | 作りだけ |
-| bug-hunt | Apache-2.0 | 作りだけ（本文は写していない） |
+| bug-hunt | Apache-2.0 | 重複の落とし方は作りだけ。指摘の質の直しで写した（下の表） |
 | gpt-workflow の patterns 文書 | 無し | 作りだけ |
 | repertoire の review-change.js | MIT | 作りだけ（本文は写していない） |
 
 - bug-hunt: https://raw.githubusercontent.com/vnovick/itervox/d4f5e2e2daa6abb230fd5646e642151847b19f45/.claude/workflows/bug-hunt.js （鍵の `seen` で `fresh` を絞ってから検証役を立てる）
 - gpt-workflow: https://raw.githubusercontent.com/CyrusNuevoDia/gpt-workflow/ef3e83493ef668c825de2eaf086c919088858ea9/.claude/workflows/docs/05-patterns.md （高い検証の前に重複を落とす待ち合わせ・`seen` に対して落とす）
 - repertoire: https://raw.githubusercontent.com/stevekinney/repertoire/a634cb6c6f1c59dd47a35b9c246d43b48b212a43/workflows/review-change.js （観点ごとの指摘を、検証の前に場所と題の鍵で 1 つにする）
+
+指摘の質を上げる型（2026-11-18。頼み 2b0355 への持ち主の足し）で比べ、取り入れた物:
+
+| 型 | 元 | ライセンス | 取り方 |
+|---|---|---|---|
+| 反証の 2 つの目 | bug-hunt L208-241 | Apache-2.0 | 文の一部を写して変えた |
+| 票の組み方 | bug-hunt L243-275 | Apache-2.0 | コードを写して変えた |
+| 行を指せないなら指摘でない | bug-hunt L170 | Apache-2.0 | 1 文を写した。コードの止めは自作 |
+| 指摘にならない物の一覧 | bug-hunt L36-58 | Apache-2.0 | 型だけ。中身は自作 |
+| 却下の種類 | hexDAG・plimeor | Apache-2.0・MIT | 型だけ |
+| 反証のしすぎの歯止め | cc-debate | MIT | 型だけ |
+| 失敗の筋書きを必須にする | repertoire・obsidian-reminder | MIT | 型だけ |
+
+- bug-hunt の LICENSE は、同じ commit の https://github.com/vnovick/itervox/blob/d4f5e2e2daa6abb230fd5646e642151847b19f45/LICENSE （Apache-2.0。NOTICE は無い）。ライセンスの本文の写しを `attention/licenses/itervox-LICENSE` に置いた（Apache-2.0 の 4(a)）。写した所のコメントに、行の範囲と変えた所を書いた。
+- 型を取った・候補に挙げた script（commit を決めた URL）:
+  - https://github.com/omniviser/hexDAG/blob/da74f6ff868502fe84b6d1250984a2543d4cf2b7/.claude/workflows/code-review.js（Apache-2.0）
+  - https://github.com/plimeor/agent-workflows/blob/108061d68892a01dcbab7e2c0d48d9e5874132ba/workflows/review-changes.mjs（MIT）
+  - https://github.com/STRML/cc-debate/blob/28ed2c2643ee02dbf7a348b20820b9a6f648f442/workflows/review-panel.js（MIT）
+  - https://github.com/uphy/obsidian-reminder/blob/82d03379be8dfc3b7de20678aacdc147a4839dda/.claude/workflows/pr-review.js（MIT）
+  - https://github.com/stevekinney/repertoire/blob/a634cb6c6f1c59dd47a35b9c246d43b48b212a43/workflows/review-change.js（MIT）
+  - https://github.com/recomposesh/recompose/blob/3c3b45b31b64fd27a2fa7a7bfad6354f5782a714/.claude/workflows/review-pr.js（MIT）
+  - https://github.com/Atmosphere/atmosphere/blob/83ee32daa5d33587342d37659296b677745946b4/.claude/workflows/doc-drift-audit.js（Apache-2.0）
+  - https://github.com/ave-veritas-et-enodatio/AVE-Core/tree/53fd4c5e664f28cde1216b3924aac9b25df0aaf2 （Apache-2.0）
+  - https://github.com/siddak1234/snoopy-automations/tree/455ff473cce785cc97651987d5acd571fe56bd20 （ライセンスが無い。型だけ）
+
+後で決める候補（14.6 の 1〜5 に掛かるので、今は入れない）:
+
+- 検証の前に場所ごとに重複を落とし、検証役が言い替えを `sameAs` で束ねる（cc-debate）。反証を場所でまとめる 14.6 の 5 に掛かる。
+- 検証役に `{file,line,claim}` だけを渡し、見つけた側の証拠を見せない（Atmosphere）。反証の渡し方を変えるので、14.6 の 5 と一緒に決める。
+- 引用が主張を支えるかを 4 つ（無い・支えない・分からない・確かめた）で返させる（snoopy-automations。ライセンスが無いので型だけ）。
+- 重さを検証役が下げる（hexDAG の `corrected_severity`・cc-debate の `severityAfter`）。今は重さを W6 の子の問いにだけ持つので、答えの形を変える 14.4 の 4 と一緒に決める。
+- 確信度の閾値（recompose の 80 以上かつ再現済み）。エージェント数と止め方（14.6 の 1）と一緒に決める。
