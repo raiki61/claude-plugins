@@ -8,9 +8,9 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ### Changed
 
-- `/my-turn` を、掘る段を Workflow に作り替える前の形（2026-11-13 の版。この会話が手順 1〜20 を自分で回す）に戻した。重い版（掘る段を裏の Workflow `my-turn-dig` で多くのエージェントに回す形。`--headless` も含む）は消さず `/my-turn-deep`（`skills/my-turn-deep/SKILL.md`）に移し、人が名前で打ったときだけ動くようにした。`/my-turn` からは呼ばない。持ち主の言葉は「一旦myturnを前のやつに戻してもらっていい？この重たいmyturnは手動実行のみにするわ一旦ね」（頼み af3970）。
-  - 戻した `/my-turn` には、重い版の承認済みの設計（`docs/my-turn-workflow-design.md` のセクション 8「直す手順の文」）のうち、Workflow に依らない 4 つの直しだけを残した。作者の返事に書いた理由も根拠にしない。head が手元と違えば `/catchup <番号>` で移ってから呼び直すよう言う。作者への下書きに直し方もヒントも書かない。手で並べた一覧も自作に数える。
-  - Workflow `attention:my-turn-dig` の説明（`whenToUse`）を「人が `/attention:my-turn-deep` と打ったときだけ。自分からは始めない」に替えた。Workflow の `meta` には、スキルの `disable-model-invocation` に当たる項目が無いので、機械では止めていない。
+- `/my-turn` を、掘る段を Workflow に作り替える前の形（2026-11-13 の版。この会話が、`commands/my-turn.md` の手順 1〜20 を自分で回す）に戻した。重い版（掘る段を裏の Workflow `my-turn-dig` で多くのエージェントに回す形。`--headless`〔掘る段を、設定・フック・CLAUDE.md を読まない別の `claude -p` の会話で回す指定〕も含む）は消さず `/my-turn-deep`（`skills/my-turn-deep/SKILL.md`）に移し、人が名前で打ったときだけ動くようにした。`/my-turn` からは呼ばない。持ち主の言葉は「一旦myturnを前のやつに戻してもらっていい？この重たいmyturnは手動実行のみにするわ一旦ね」（頼み af3970。持ち主が司令塔に出した作業の依頼の番号）。
+  - 戻した `/my-turn` には、重い版の承認済みの設計（`docs/my-turn-workflow-design.md` のセクション 8「直す手順の文」）のうち、Workflow に依らない 4 つの直しだけを残した。4 つは、(1) PR の作者の返事に書いた理由も、判断の根拠にしない。(2) PR の head（PR のブランチの先頭 commit）が手元と違えば、`/catchup <番号>`（PR のブランチの作業場へ移って追いつく attention のコマンド）で移ってから呼び直すよう言う。(3) 作者への下書きに直し方もヒントも書かない。(4) 世の中の定番で足りるのに手で並べた一覧（番号・型・特例の表）も、「自作」（定番を使わずに自分で作った部品）に数え、手順 15 で要るかをゼロから疑う対象に入れる。
+  - Workflow `attention:my-turn-dig` の、いつ使うかを書く説明（`whenToUse`）を「人が `/attention:my-turn-deep` と打ったときだけ。自分からは始めない」に替えた。Workflow の `meta` には、スキルの `disable-model-invocation` に当たる項目が無いので、機械では止めていない（スキルの `disable-model-invocation` は AI が自分から起動するのを禁じる項目で、Workflow の `meta` は script の名前と説明などを書く欄）。
 
 ## [0.69.1] - 2026-11-18
 
