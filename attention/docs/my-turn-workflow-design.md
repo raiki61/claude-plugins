@@ -260,7 +260,7 @@ tests/
 
 - **script は外を読めない**: Workflow の script はファイルもモジュールも読めない（Workflow の文書の「Behavior and limits」）。
   - 段の指示の文・出力スキーマ・上限の既定は、全部 `my-turn-dig.js` の中に書く。
-  - 段の指示の文は、ファイルの頭の指示文の区画（`// ==== prompts (section 3) ====` から `// ==== end of prompts ====` まで）に、`RULES`・`PR_FILES`・`W*_PROMPT` などの定数として置き、木を組む処理と分ける（`/deep-research` の script の形）。
+  - 段の指示の文は、ファイルの頭の指示文の区画（`// ==== prompts (section 3) ====` から `// ==== end of prompts ====` まで）に、共通の決まり（RULES）・PR のファイルの一覧（PR_FILES）・段ごとの指示（`W*_PROMPT`）などの定数として置き、木を組む処理と分ける（`/deep-research` の script の形）。
   - 定数の 1 つずつの上に、日本語の訳のコメント（`// ja:` の行）と、英語の文の sha256（`// sha256:` の行）を置く。英語だけを直して訳とハッシュを直さないと、空回しの試験の `prompts` が赤になる（セクション 11）。
 - **指示の文は英語**: script の中の指示の文は AI だけが読むので英語で書く。
   - 前の版の手順 6〜15 の文を訳して移す。
@@ -1544,7 +1544,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
    - 既定の形のまま、エージェント数を減らすのが先。
    - ヘッドレスの形でスキルの一覧も消えるか（今は CLAUDE.md だけを確かめている）を、次の 1 対の試しで見る。
 9. **指示文を定数にそろえ、日本語の訳をコメントで添える**（持ち主 2026-11-18 に決定）:
-   - W8〜W11 も含めて、全部の段の指示文を script の頭の `W*_PROMPT`（と `RULES`・`PR_FILES`）の定数にそろえ、木を組む処理と分ける（同梱の /deep-research の形）。
+   - W8〜W11 も含めて、全部の段の指示文を script の頭の `W*_PROMPT`（と RULES・PR_FILES）の定数にそろえ、木を組む処理と分ける（同梱の /deep-research の形）。
    - 定数の 1 つずつに、日本語の訳のコメントと、その時の英語の文のハッシュを 1 行添える。
    - 空回しの試験（`my-turn-dig-dry.mjs`）にケースを足し、コメントのハッシュと今の英語の文のハッシュが違えば赤にする（`my-turn-dig-map.json` の sha256 と同じやり方）。
    - 英語だけを直して訳を直さないと、main へ入れるゲートで止まる。
