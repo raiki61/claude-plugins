@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.47.2] - 2026-11-18
+
 ### Changed
 
 - 利用者の動きは変わらない直し（試験だけ）。同梱の試験から、試験の件数を手で書いて突き合わせる定数（tests/run.sh の EXPECTED_CHECKS・EXPECTED_TESTS、tests/py/conftest.py の EXPECTED_ITEMS・EXPECTED_SIM_CHECKS）を消した。試験を足す・消すたびに数を直す手間をなくすため。代わりに、次の物を赤にする:
