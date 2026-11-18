@@ -1003,14 +1003,14 @@ async function casePrompts() {
   const gen = await import(path.join(ROOT, 'attention/scripts/gen-prompts.mjs'))
   for (const p of gen.check()) fails.push(`prompts: ${p}`)
   const names = gen.promptNames()
-  for (const n of ['RULES', 'STAGE_TEXT', 'PR_FILES', 'SMELL_QUESTIONS', 'W1_PROMPT', 'W2_PROMPT', 'W3_PROMPT', 'W4_PROMPT', 'W5_REMOVE_PREMISE',
-    'W6_SHARED', 'W6_PROMPT', 'W7_PROMPT', 'W8_PROMPT', 'W9_PROMPT', 'W10_PROMPT', 'W10_LEAF', 'QUOTES_PROMPT'])
+  for (const n of ['RULES', 'SMELL_QUESTIONS', 'W1_PROMPT', 'W2_PROMPT', 'W3_PROMPT', 'W4_PROMPT', 'W5_REMOVE_PREMISE',
+    'W6_SHARED', 'W6_PROMPT', 'W7_PROMPT', 'W8_PROMPT', 'W9_PROMPT', 'W10_PROMPT'])
     check(names.includes(n), `prompts: attention/prompts/${n}.md が無い`)
   const lines = SRC.split('\n')
   const a = lines.indexOf(gen.START), b = lines.indexOf(gen.END)
   check(a >= 0 && b > a, 'prompts: 段の文の区画の印が無い')
   const outside = [...lines.slice(0, Math.max(a, 0)), ...lines.slice(b + 1)].join('\n')
-  const stray = [...outside.matchAll(/^const (\w+) =/gm)].map(m => m[1]).filter(n => names.includes(n) || /_PROMPT$|^RULES$|^PR_FILES$/.test(n))
+  const stray = [...outside.matchAll(/^const (\w+) =/gm)].map(m => m[1]).filter(n => names.includes(n) || /_PROMPT$|^RULES$/.test(n))
   check(!stray.length, `prompts: 段の文の定数が区画の外に在る ${stray}`)
   // 生成器の止め方: 一時の置き場に壊した md を置いて作らせる
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prompts-'))
@@ -1039,9 +1039,9 @@ async function casePrompts() {
   } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
   // 生成した関数は、足りない値・型の違う値で投げる（「undefined」を文に混ぜない）
   const block = lines.slice(a, b + 1).join('\n')
-  const fns = new Function(`${block}\nreturn { W4_PROMPT, PR_FILES }`)()
+  const fns = new Function(`${block}\nreturn { W4_PROMPT, W10_PROMPT }`)()
   const throws = f => { try { f(); return false } catch { return true } }
-  check(throws(() => fns.W4_PROMPT({ prFiles: 'F' })) && throws(() => fns.PR_FILES({ diff: 'd', excluded: 'x', priorDiff: null, priorHead7: 'p', thread: 't' })),
+  check(throws(() => fns.W4_PROMPT({ prFiles: 'F' })) && throws(() => fns.W10_PROMPT({ prFiles: 'F', quoted: 'yes', text: 't' })),
     'prompts: 生成した関数が足りない値か型の違う値で投げない')
 }
 
