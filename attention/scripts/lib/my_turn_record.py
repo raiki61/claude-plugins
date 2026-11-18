@@ -10,7 +10,7 @@ import os
 import tempfile
 
 # my-turn-dig.js の RECORD_VERSION と同じ値。違う版の記録は使い回さない（my-turn-prep.py の --prior）
-VERSION = 2
+RECORD_VERSION = 2
 # 前の版で、記録を書いた段（W11）が足していた項目。今の戻り値には無いが、古い材料から写したときに残さない
 DROP_KEYS = ("recordPath", "recordWritten", "recordError", "recordModel")
 
@@ -37,8 +37,8 @@ def check(val):
         raise RecordError("Workflow の戻り値が JSON のオブジェクトでありません")
     if "stopped" in val:
         raise RecordError("Workflow が止まった回（stopped: %s）なので、記録は書きません" % val.get("stopped"))
-    if val.get("version") != VERSION:
-        raise RecordError("記録の版が %r で、今の版（%d）と違います" % (val.get("version"), VERSION))
+    if val.get("version") != RECORD_VERSION:
+        raise RecordError("記録の版が %r で、今の版（%d）と違います" % (val.get("version"), RECORD_VERSION))
     return {k: v for k, v in val.items() if k not in DROP_KEYS}
 
 

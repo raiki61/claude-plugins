@@ -298,7 +298,7 @@ def prep(pr, prior, headless):
     paths = set(changed) | set(rule_list)
     unknown = False  # 前の回が読んだのに指紋を取れないファイル（repo の外・git dir の中・改行を含む path）が在るか
     # 形の違う記録（版 1: checked の中の files・evidence の at）は使い回さず、近道も取らない（その PR は 1 回掘り直す）
-    old_shape = rec is not None and rec.get("version") != my_turn_record.VERSION
+    old_shape = rec is not None and rec.get("version") != my_turn_record.RECORD_VERSION
     if old_shape:
         unknown = True
     if rec is not None and not old_shape:
@@ -527,7 +527,7 @@ def prior_reuse(rec, fingerprints, top, record_dir, same_diff):
         if not all(same(f) for f in considered(vread)) or not all(same_d(f) for f in vread if is_diff(f)):
             item["verdict"] = None
         nodes.append(item)
-    return {"version": my_turn_record.VERSION, "kind": rec.get("kind"), "general": rec.get("general"), "nodes": nodes}
+    return {"version": my_turn_record.RECORD_VERSION, "kind": rec.get("kind"), "general": rec.get("general"), "nodes": nodes}
 
 
 def walk_quotes(node, found):
