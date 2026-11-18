@@ -80,7 +80,9 @@
     - `git diff`・`git log`・`git show` は `--output=<ファイル>` で書き込めるので、`--disallowedTools` で `Bash(git *--output*)` を禁じる。
       - 禁止は許可より強い（https://code.claude.com/docs/en/permissions 「An allow rule can't carve an exception out of a deny rule」）。
     - `git grep` は `-O`（`--open-files-in-pager`）で名指しのコマンドを動かすので、許可に入れずに禁じる。探すのは Grep のツールでする。
-- **モデルの照合**: 出力の JSON の `modelUsage`（使ったモデルごとの使用量）に、設計書のセクション 9 の表と `models` の上書きに無いモデルが在れば、報告に書く。
+- **モデルの照合**: 出力の JSON の `modelUsage`（使ったモデルごとの使用量）に、許すモデルに無いモデルが在れば、報告に書く（台本の出力の `models.unexpected`）。
+  - 許すモデルは、段の表（[設計書](my-turn-workflow-design.md)のセクション 9。my-turn-dig.js の段ごとのモデルの表と同じ物で、opus・sonnet・haiku）のモデルと、args の `models`（段ごとにモデルを替える上書き。既定では渡さない）に書いたモデル。
+  - 回った段（数えの `started` が 1 以上）のモデルのうち、`modelUsage` に無かった物は `models.expectedMissing` に出す。
   - my_notes の納品のゲートの `deliver_check.check_model` は、1 つのモデルだけを許す照合。これは複数のモデルを許すように広げた物。
   - `modelUsage` のキーは、モデルの完全な名（`claude-opus-5-5` など）。
   - 表の別名（opus・sonnet・haiku）を完全な名に当てる対応表（`ALIAS`）は、台本 `my-turn-headless.py` に持つ。
