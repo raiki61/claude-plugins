@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.66.1] - 2026-11-18
+
 ### Fixed
 
 - `/my-turn --headless`（台本 `scripts/my-turn-headless.py` が別の `claude -p` の会話で掘る段の Workflow を回す形）が、10 分で Workflow を打ち切られて材料を返さなかったのを直した（頼み b7031b）。
