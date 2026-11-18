@@ -1,6 +1,6 @@
 ---
 source_sha256: ade3be46cfa8f8ab1c677edecbbae7d29412ed69a6394ffe8d738ed6d24bbab1
-about: W3 比べる（旧の手順 8・9）。
+about: W3 比べる（旧の手順 8・9）。structure は W1、general は W2 の答え。comparable などは出力スキーマのフィールド。
 ---
 {{prFiles}}
 

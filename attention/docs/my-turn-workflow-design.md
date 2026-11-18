@@ -1551,7 +1551,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
    - 空回しの試験（`my-turn-dig-dry.mjs`）にケースを足し、コメントのハッシュと今の英語の文のハッシュが違えば赤にする（`my-turn-dig-map.json` の sha256 と同じやり方）。
    - 英語だけを直して訳を直さないと、main へ入れるゲートで止まる。
    - エージェントに届くのは英語の文だけで、訳は持ち主が読むため。
-   - 2026-11-18 に、文と訳を script のコメントから `attention/prompts/<定数の名前>.md` と `.ja.md` のファイルに移した（持ち主 2026-11-18 に承認。頼み f0ee3c）。script の区画は生成器（`attention/scripts/gen-prompts.mjs`）が md から作り、訳のハッシュは `.ja.md` の頭の `source_sha256` に置く。空回しの試験の `prompts` は、区画が md から作り直した物と同じかも見る。一覧の行の組み立てなどの JS は呼ぶ側に移し、エージェントに届く文は 1 字も変えていない。
+   - 2026-11-18 に、文と訳を script のコメントから `attention/prompts/<定数の名前>.md` と `.ja.md` のファイルに移した（持ち主 2026-11-18 に承認。頼み f0ee3c）。script の区画は生成器（`attention/scripts/gen-prompts.mjs`）が md から作り、訳のハッシュは `.ja.md` の頭の `source_sha256` に置く。空回しの試験の `prompts` は、区画が md から作り直した物と同じかも見る。一覧の行の組み立てなどの JS は呼ぶ側に移し、エージェントに届く文は 1 字も変えていない（値が欠けたか型が違うときだけ、前は「undefined」の字を入れて渡し、今は文を作らずに止まる）。
 
 ### 14.5 落ちる能力（承認の前に照合が要る）
 
