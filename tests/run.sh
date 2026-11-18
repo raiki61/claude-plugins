@@ -26,7 +26,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/run.XXXXXX")"
 # 印の間は下の DONE_GUARD_OK が取り出して赤と緑を確かめる。( ) と $( ) の子のシェルは EXIT の trap を継がない（bash の仕様）
 # >>> done-guard
 RUN_DONE=
-# trap の本文は関数に置く。字列の中で rc を代入すると shellcheck が代入を読めず SC2154 で CI を赤にした（run 44272400817）
+# trap の本文は関数に置く。文字列の中で rc を代入すると shellcheck が代入を読めず SC2154 で CI を赤にした（run 44272400817）
 on_exit() {
     local rc=$?
     rm -rf "$WORK"
