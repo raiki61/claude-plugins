@@ -826,3 +826,14 @@ compact（会話の文脈を要約に縮める操作）の計画 works-dispatch/
 
 - 到達の数の定数（graphloops の `VOCAB_REACHED` と `EXPECTED_SIM_REACHED`）。テストの数でなく、筋書きがどの値まで届いたかの数で、2026-10-01 から直した commit は無い。消すかは持ち主に問う（頼み 475769 の納品の残った疑問）。
 - 下限の検査（「72 件以上」など）、works-dispatch の tests/parallel.py の照合、語と機械が読む値の決まりの基準（scripts/terms-baseline.json など）。手で上げ下げする等値の数ではない。
+
+## 頼み c2aa8f（2026-11-18、main に入れるゲートで shellcheck を回す）
+
+きっかけ: main に入れるゲート（`.claude/company.toml` の `[land]` の `check`）が shellcheck を回さず、shellcheck の指摘は main に入った後の CI で初めて赤になった（2026-11-18 の CI の run 44272400817。tests/run.sh の trap の SC2154 で test の全 job が赤。直しは c0c04c79）。
+
+### 決めた事と根拠
+
+- 軽い検査（scripts/light-check.sh）に shellcheck を足した。回すのは新しい scripts/shellcheck.sh で、tests/run.sh も同じ物を回す。軽い検査は main に入れるゲートの頭と main への push の前のフックの両方で回るので、急ぎの直接の push でも同じに止まる。
+- 版は CI と同じ shellcheck-py 0.11.0.1。PATH に同じ版の shellcheck が在ればそれを使い、無ければ uvx で取る。uv は CONTRIBUTING.md が手元の pytest に使う道具で、新しく入れる物ではない。版のずれは tests/run.sh の `SHELLCHECK_PIN_OK` が赤にする。
+- 見るのは変わった .sh だけでなく全部の .sh。CI の段と同じ範囲にして、手元で緑・CI で赤の差を作らないため。2026-11-18 の実測で 34 本に約 15 秒、軽い検査の全体は約 9 秒から約 25 秒になった（「数十秒」の内）。
+- 同じ版を用意できない機械（uv が無い・PyPI に届かない）では、見送りの行を出して止めない。前からの決まり（tests/run.sh は手元に shellcheck が無ければ見送り、CI がどの OS でも回す。CONTRIBUTING.md の「shellcheck は CI だけが段として回す」）と同じにした。

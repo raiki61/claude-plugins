@@ -6664,26 +6664,29 @@ expect_output 0 "PYTHON_LAUNCH_OK" "Python の起動の形のチェック: 全�
 # 3 周続けた結果、同じ断り書きが 3 か所に増えただけで母数は 1 件も減らなかった。
 # **配布の必須依存は増えない**: shellcheck は利用者が入れる物ではなく、CI と開発者の手元で動くツールである
 # （README の「必須」は git / python3 / bash のまま）。
-# 手元に在れば回す。無ければ回さないが、**黙って消えない**——下の CI_LINT_OK が「CI が回す設定か」を見る。
-if command -v shellcheck >/dev/null 2>&1; then
-    sc_bad=0
-    while IFS= read -r f; do
-        shellcheck -S warning "$f" || sc_bad=1
-    # 写した第三者の文（superpowers の写し）は直さない写しなのでチェックの外。写しの一致は works/tests/test_sp_skills.py の VendoredCopyCase が縛る
-    done < <(find "$ROOT" -name "*.sh" -not -path "*/.git/*" -not -path "*/.shared/borrow/superpowers/*" | sort)
-    if [ "$sc_bad" -eq 0 ]; then
-        echo "  ok   SHELLCHECK_OK リポジトリの .sh が shellcheck -S warning を通る"
-    else
-        echo "  FAIL shellcheck が指摘を出した"
-        fail=1
-    fi
-else
-    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck: shellcheck が手元に無い（CI はどの OS にも入れる。下の CI_LINT_OK がその設定を見る）"
+# 回すのは scripts/shellcheck.sh（CI と同じ版を PATH か uvx で選ぶ。軽い検査〔scripts/light-check.sh〕も同じ物を回す）。
+# 同じ版を用意できなければ（終わりの値 3）回さないが、**黙って消えない**——下の CI_LINT_OK が「CI が回す設定か」を見る。
+sc_rc=0
+sc_out=$(bash "$ROOT/scripts/shellcheck.sh" 2>&1) || sc_rc=$?
+if [ "$sc_rc" = 0 ]; then
+    echo "  ok   SHELLCHECK_OK リポジトリの .sh が shellcheck -S warning を通る"
+elif [ "$sc_rc" = 3 ]; then
+    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck: CI と同じ版の shellcheck が手元に無い（CI はどの OS にも入れる。下の CI_LINT_OK がその設定を見る）"
     echo "$sc_skip"
     note_skips "$sc_skip"
+else
+    printf '%s\n' "$sc_out"
+    echo "  FAIL shellcheck が指摘を出した"
+    fail=1
 fi
 # 見送りも計画の件数に入れる——回した分岐でだけ数えていたとき、ツールの無い環境で件数の照合が合わなくなった。合格とは別の印で出し、末尾の一覧に載る
 ran=$((ran + 1))
+# 手元とゲートの shellcheck の版（scripts/shellcheck.sh の SHELLCHECK_PY）が CI の入れる版（test.yml の pip の行）と同じか。
+# ずれると、手元とゲートで緑・CI で赤（またはその逆）になり、ゲートで回す意味が無くなる
+expect_output 0 "SHELLCHECK_PIN_OK" "手元とゲートの shellcheck の版（scripts/shellcheck.sh）が、CI が入れる版（.github/workflows/test.yml）と同じ" \
+    bash -c 'a=$(sed -n "s/^SHELLCHECK_PY=\([0-9.]*\)\$/\1/p" "$1/scripts/shellcheck.sh")
+        b=$(sed -n "s/.*pip install shellcheck-py==\([0-9.]*\).*/\1/p" "$1/.github/workflows/test.yml")
+        if [ -n "$a" ] && [ "$a" = "$b" ]; then echo SHELLCHECK_PIN_OK; else echo "版が違う: scripts/shellcheck.sh は「$a」、test.yml は「$b」"; fi' _ "$ROOT"
 
 # **チェックが CI から消えないことを見る。** 手元にツールが無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
