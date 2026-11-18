@@ -1,5 +1,5 @@
 {
- "about": "旧 attention/commands/my-turn.md の手順 6〜15 の文の 1 つずつと、その行き先。to が js の文は attention/workflows/my-turn-dig.js に同じ id の印（[s6.1] など）が在る。md は file に find の字が在る。dropped は外した訳を why に書く。tests/my-turn-dig-dry.mjs が照合する",
+ "about": "旧 attention/commands/my-turn.md（Workflow に作り替える前の /my-turn）の手順 6〜15 の文の 1 つずつと、その行き先。to が js の文は attention/workflows/my-turn-dig.js に同じ id の印（[s6.1] など）が在る。md は file（今は重い版の attention/skills/my-turn-deep/SKILL.md）に find の字が在る。dropped は外した訳を why に書く。tests/my-turn-dig-dry.mjs が照合する",
  "source": "8559cfb5:attention/commands/my-turn.md",
  "sha256": "8dc23806c5b0937c38293ea0e01145456c2578c7a6bb637b25fb428e225e0bdf",
  "sentences": [
@@ -92,7 +92,7 @@
    "id": "s8.3",
    "ja": "それでも出なければ、出なかったことを報告に書く。",
    "to": "md",
-   "file": "attention/commands/my-turn.md",
+   "file": "attention/skills/my-turn-deep/SKILL.md",
    "find": "一般の構造が出なかった",
    "why": "比べる相手が出なかったことは、Workflow の返す材料（general.notFound）を会話が報告に書く"
   },

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'my-turn-dig',
-  description: 'Dig the /my-turn question tree for one PR (its steps 6-15) and return the report materials',
-  whenToUse: 'Called by /attention:my-turn after its steps 1-5, with the args it builds; not for direct use',
+  description: 'Dig the /my-turn-deep question tree for one PR (its steps 6-15) and return the report materials',
+  whenToUse: 'Only when the user typed /attention:my-turn-deep, which calls it after its steps 1-5 with the args it builds. Never start it on your own, and /attention:my-turn does not call it',
   phases: [
     { title: 'Structure', detail: 'W1: structure, mechanisms and premises, self-made parts' },
     { title: 'Compare', detail: 'W2 blind general structure, W3 compare, W4 code smells' },

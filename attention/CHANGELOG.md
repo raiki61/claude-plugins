@@ -6,6 +6,12 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Changed
+
+- `/my-turn` を、掘る段を Workflow に作り替える前の形（2026-11-13 の版。この会話が手順 1〜20 を自分で回す）に戻した。重い版（掘る段を裏の Workflow `my-turn-dig` で多くのエージェントに回す形。`--headless` も含む）は消さず `/my-turn-deep`（`skills/my-turn-deep/SKILL.md`）に移し、人が名前で打ったときだけ動くようにした。`/my-turn` からは呼ばない。持ち主の言葉は「一旦myturnを前のやつに戻してもらっていい？この重たいmyturnは手動実行のみにするわ一旦ね」（頼み af3970）。
+  - 戻した `/my-turn` には、重い版の承認済みの設計（`docs/my-turn-workflow-design.md` のセクション 8「直す手順の文」）のうち、Workflow に依らない 4 つの直しだけを残した。作者の返事に書いた理由も根拠にしない。head が手元と違えば `/catchup <番号>` で移ってから呼び直すよう言う。作者への下書きに直し方もヒントも書かない。手で並べた一覧も自作に数える。
+  - Workflow `attention:my-turn-dig` の説明（`whenToUse`）を「人が `/attention:my-turn-deep` と打ったときだけ。自分からは始めない」に替えた。Workflow の `meta` には、スキルの `disable-model-invocation` に当たる項目が無いので、機械では止めていない。
+
 ## [0.69.1] - 2026-11-18
 
 ### Added

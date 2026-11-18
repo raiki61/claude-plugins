@@ -235,7 +235,7 @@ def prep(pr, prior, headless):
     if os.environ.get(ENV_SUBAGENT_MODEL) and not headless:
         raise Stop("subagent-model-env",
                    "環境変数 %s が設定されています。Workflow の段のモデル指定が効かなくなるので、"
-                   "unset してから /my-turn を呼び直してください（ヘッドレスの形なら --headless）" % ENV_SUBAGENT_MODEL)
+                   "unset してから /my-turn-deep を呼び直してください（ヘッドレスの形なら --headless）" % ENV_SUBAGENT_MODEL)
     rc, out = run(["gh", "pr", "view", str(pr), "--json", "headRefOid,baseRefName,url"], timeout=60)
     try:
         info = json.loads(out)
@@ -252,7 +252,7 @@ def prep(pr, prior, headless):
         raise Stop("fetch-failed", "git fetch %s %s が失敗しました。ネットワークと %s の設定を確かめてください" % (remote, base_ref, remote))
     head = must_git("rev-parse", "HEAD").strip()
     if head != head_oid:
-        raise Stop("head-mismatch", "手元の HEAD が PR の先頭と違います。/catchup %s で PR のブランチへ移ってから /my-turn を呼び直してください" % pr)
+        raise Stop("head-mismatch", "手元の HEAD が PR の先頭と違います。/catchup %s で PR のブランチへ移ってから /my-turn-deep を呼び直してください" % pr)
     rc, out = git("merge-base", remote + "/" + base_ref, "HEAD")
     if rc != 0 or not out.strip():
         raise Stop("no-merge-base", "%s/%s と HEAD の共通の祖先が見つかりません（履歴が別、または浅い clone）。git fetch --unshallow などで履歴を取ってください" % (remote, base_ref))
