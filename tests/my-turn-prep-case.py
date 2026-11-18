@@ -747,6 +747,7 @@ def case_headless():
         check(ag["my-turn-Quotes"]["tools"] == ["Bash"] and "Read" in ag["my-turn-Quotes"]["disallowedTools"], "Quotes のツール")
         saved = json.load(open(argsf, encoding="utf-8"))
         check(saved["roles"] == {k: "my-turn-" + k for k in keys} and saved["pr"] == 7, "args-headless の roles")
+        check(saved.get("caller") == "attention:my-turn-deep", "args-headless に起動の合図（caller）が無い")
         check(not os.path.exists(os.path.join(fdir, "seen.json")), "dry-run が起動した")
 
         # 本番: 偽の claude

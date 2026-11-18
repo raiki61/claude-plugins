@@ -4,7 +4,8 @@
 使い方: my-turn-headless.py <args.json> [--budget-usd 100] [--dry-run]
 
 <args.json> は会話が書いた Workflow の args（pr・workdir・prep・files.record を持つ）。ここで
-`roles`（段ごとの役の名前）を足して <recordDir>/<pr>-args-headless.json に書き、
+`roles`（段ごとの役の名前）と `caller`（/attention:my-turn-deep からの起動の合図）を足して
+<recordDir>/<pr>-args-headless.json に書き、
 Workflow の戻り値（記録）は、裏の会話でなくこの台本が files.record に書く（設計の 7）。
 裏の会話には設定・フック・CLAUDE.md・環境変数のうち CLAUDE/ANTHROPIC で始まる物（設定のフォルダと認証は除く）を渡さない。
 走らせる会話は Bash の run_in_background で打つ。設計は attention/docs/my-turn-workflow-design.md の 2。
@@ -25,6 +26,8 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
+# Workflow（my-turn-dig.js）の CALLER と同じ値。args の caller がこれでないと、Workflow はエージェントを立てずに止まる
+CALLER = "attention:my-turn-deep"
 ROLE_KEYS = ["W1", "W2", "W3", "W4", "W6", "W7", "W8", "W9", "W10answers", "W10fixes", "Quotes"]
 # アカウントを決める設定のフォルダと、認証の経路（claude_auth が足した物か、親が持っていた物）だけを残す
 KEEP_ENV = {"CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
@@ -210,6 +213,8 @@ def main(argv):
                          ensure_ascii=False))
         return 1
     args["roles"] = {k: "my-turn-" + k for k in ROLE_KEYS}
+    # この台本を打つのは /attention:my-turn-deep の手順 9 だけなので、Workflow が受ける合図をここで渡す（頼み 839571）
+    args["caller"] = CALLER
     os.makedirs(record_dir, exist_ok=True)
     args_file = os.path.abspath(os.path.join(record_dir, "%s-args-headless.json" % pr))
     with open(args_file, "w", encoding="utf-8", newline="\n") as f:

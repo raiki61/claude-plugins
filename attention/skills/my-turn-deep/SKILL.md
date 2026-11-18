@@ -45,6 +45,7 @@ disable-model-invocation: true
    - `<番号>-thread.md`: 4 で読んだ PR の本文・コメント・レビュー・インラインの指摘を、そのまま写した物。
    - `<番号>-justifications.md`: 4 で控えた、この PR が足した正当化と作者の返事に書いた理由。1 件ずつ、在り処と、入れた commit。
 8. Workflow の入力（args）を組む。JSON の値で、文字列にして渡さない。
+   - `caller`: 文字列 `"attention:my-turn-deep"`。この手順から起動した合図で、Workflow はこの値が無い・違う起動を、エージェントを立てずに止める（AI が Workflow を直に起動するのを防ぐ）。
    - `pr`・`repo`（`<owner>/<repo>`）・`workdir`（`git rev-parse --show-toplevel`）・`stance`（`reviewer` か `author`）・`now`（今の日時。`date -u +%Y-%m-%dT%H:%M:%SZ`）。
    - `prep`: 6 の JSON をそのまま（前の回の記録から使い回せる物 `priorReuse` も、この中で渡る）。
    - `files`: `{"thread": <7 で書いた thread の path>, "justifications": <7 で書いた justifications の path>, "record": prep の record}`。
@@ -55,7 +56,7 @@ disable-model-invocation: true
 9. Workflow を起動して、ターンを終える。待ち続けない。
    - 既定の形: Workflow のツールを名前 `my-turn-dig`（このプラグインの物。一覧に `attention:my-turn-dig` と出ていればその名）で呼び、8 の args を渡す。終わりの知らせが来たら、返った値（記録そのもの）を記録のファイルに書く。知らせの出力のファイル（`<output-file>`）を渡して `my-turn-prep.py --save-record <prep の record> <出力のファイル>` を打つ（知らせに出力のファイルが無ければ、返った値を `<recordDir>/<番号>-result.json` に書いて、それを渡す）。書けなかったら（`ok` が偽）、`message` を報告の「確かめた前提」に 1 行書く（次の回は前の回の記録が無いものとして掘り直す）。返った値を材料に 11 から続ける。
    - ヘッドレスの形: 8 の args を `<recordDir>/<番号>-args.json` に書き、Bash の run_in_background で `my-turn-headless.py <その path>` を打つ（`--budget-usd` の既定は 100。`nohup` や `&` で切り離さない）。この台本が、設定・フック・CLAUDE.md・プラグインを読まず、環境変数のうち、名前が CLAUDE か ANTHROPIC で始まる物（設定のフォルダ `CLAUDE_CONFIG_DIR` と認証の経路を除く）を持ち込まない `claude -p` の会話を作業場で起動し、その会話が Workflow を回す。返った値（記録）は、この台本が prep の `record` に書く。終わりの知らせが来たら、台本が出した 1 行の JSON を読む。`materials` が null なら、その JSON（`message` が在ればそれ）と `output`（`claude -p` の出力のファイル）の中身を言って止まる。`materials` が在れば、そのファイルを材料に 11 から続ける。`ok` が偽で `message` が在れば（記録を書けなかった回など。`record` が null）、`message` を報告の「確かめた前提」に 1 行書く。`models` の `unexpected`（段の表〔`my-turn-dig.js` が段ごとに決めたモデルの一覧。設計の 9〕に無いモデル）と `expectedMissing`（使われなかった、表のモデル）は、空でなければ 15 で報告に書く。
-10. Workflow のツールが無い・呼べない（設定の `disableWorkflows` が真など）なら、その訳と直し方（`/config` の Dynamic workflows を入れる。ヘッドレスの形でも呼べなければ既定の形で呼び直す）を言って止まる。この会話で掘る段を代わりに回さない。返った値に `stopped` が在れば、Workflow が途中で止めた（`W1`: 構造の段が返らなかった。`args`: 入力が足りない〔`missing` の一覧〕。反証の段が書いた段と同じモデルになった）ので、その訳と `counts` を言って止まる。
+10. Workflow のツールが無い・呼べない（設定の `disableWorkflows` が真など）なら、その訳と直し方（`/config` の Dynamic workflows を入れる。ヘッドレスの形でも呼べなければ既定の形で呼び直す）を言って止まる。この会話で掘る段を代わりに回さない。返った値に `stopped` が在れば、Workflow が途中で止めた（`caller`: 8 の `caller` が無いか違う。訳は `message`。`args`: 入力が足りない〔`missing` の一覧〕。反証の段が書いた段と同じモデルになった）ので、その訳と `counts` を言って止まる。
 
 ### 報告と、指摘の下書きか直し方の案を並べる
 

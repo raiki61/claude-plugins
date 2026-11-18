@@ -266,6 +266,13 @@ At most ${c.limit} fixes and groups together; put the most important first.`)
 
 let A = args ?? {}
 if (typeof A === 'string') { try { A = JSON.parse(A) } catch { A = {} } }
+// Only /attention:my-turn-deep (its step 8, and my-turn-headless.py for --headless) puts this value in args.caller.
+// meta has no field that keeps the model from starting a workflow on its own, so a start without it stops here,
+// before any agent and before any other check, and says why in one line (ask 839571).
+const CALLER = 'attention:my-turn-deep'
+if (A.caller !== CALLER) {
+  return { stopped: 'caller', message: `Not started by /attention:my-turn-deep (args.caller is not "${CALLER}"), so no agent was started. Type /attention:my-turn-deep to run it.` }
+}
 const P = A.prep ?? {}
 const F = A.files ?? {}
 const LIMITS = { nodes: 80, fixes: 15, extraSmells: 3, quoteBatch: 120, ...(A.limits ?? {}) }

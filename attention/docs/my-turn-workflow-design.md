@@ -1,6 +1,7 @@
 # /my-turn の掘る段を Workflow で回す設計
 
 - **2026-11-19 の扱い**: /my-turn は Workflow に作り替える前の形に戻し、この文書が書く重い版（Workflow で回す形）は `/attention:my-turn-deep` に移して、人が名前で打ったときだけ動くようにした（頼み af3970。頼みは部署への作業の依頼で、af3970 はその受付番号。b6a529・d9f866 も同じ）。この文書の本文で「/my-turn」と書くのは、戻す前の重い版（掘る段を Workflow で回す形）のことで、今の `/attention:my-turn` ではない。
+- **起動の合図（2026-11-19）**: Workflow は、入力（`args`）の `caller` が `attention:my-turn-deep` のときだけ動く。無い・違う値なら、エージェントを 1 体も立てずに `stopped: 'caller'` と 1 行の訳（`message`）を返して止まる。この値を渡すのは `/attention:my-turn-deep` の手順 8 と、ヘッドレスの形の台本 `my-turn-headless.py` だけ。Workflow の `meta` には、モデルが自分から起動するのを禁じる項目が無いので、入力で止める（頼み 839571。持ち主が頼み af3970 の残った疑問で (b) を選んだ）。この文書の本文の `args` の一覧には書き足していない。
 - **状態**: 承認済み（2026-11-17）で、実装した。
 - **見直しの案**: 実装のあと 6 回走らせた結果を受けた見直しの案（2026-11-18）を、セクション 14 に置いた。案 4・5・7・9（セクション 14 に番号つきで書いた案）は、持ち主が先に直すと決め、直した（2026-11-18。頼み b6a529）。残りの案 1・2・3・6 は未承認。
 - **作り直しの案**: 別の実走 4 回（/my-turn を 4 件の PR で走らせた物）の見落としの分析を受けて、掘る段の流れを作り直す案（2026-11-18。頼み d9f866）を、[別の文書](my-turn-dig-redesign.md)に置いた。未承認。承認されたら、この文書のセクション 1〜13 に入れる。
@@ -206,7 +207,7 @@ sequenceDiagram
     - 会話のツール（Agent・Workflow・SendUserMessage を除く）
 - **ヘッドレスの形**（/my-turn の引数 `--headless`）: 次の流れで `claude -p` をもう 1 つ起動する。
   1. 会話は手順 1〜5 の後、`args` を `<記録のフォルダ>/<番号>-args.json` に書き、台本 `my-turn-headless.py` を Bash の run_in_background で打つ。
-  2. 台本が、`roles` を足した `args` を `<番号>-args-headless.json` に書き、`claude -p` を起動する。
+  2. 台本が、`roles` と起動の合図 `caller` を足した `args` を `<番号>-args-headless.json` に書き、`claude -p` を起動する。
      - 歯止めの `--max-budget-usd` の既定は 100（決めた訳は[実装で設計から変えた所](my-turn-workflow-impl-changes.md)の「予算の既定」）。
   3. その会話（以下、ヘッドレスの会話）は `args` のファイルを読んで Workflow を呼ぶ。Workflow を呼んだら待たずにターンを終え、Workflow の終わりの知らせで回る次のターンで、知らせに在る出力のファイルの path（`{"outputFile": …}`）を出して終わる（`claude -p` が Workflow の終わりまで待つ。[ヘッドレスの形の細部](my-turn-workflow-headless.md)の確かめの 4）。知らせに出力のファイルが無ければ、戻り値の全体を出す。
      - Workflow は名前でなく、プラグインの中の script の絶対の path（`scriptPath`）で呼ぶ。
@@ -255,7 +256,7 @@ tests/
   <PR番号>-justifications.md   会話が書く。手順 4 で控えた、この PR が足した正当化
   <PR番号>-thread.md            会話が書く。PR の本文・コメント・レビュー
   <PR番号>-args.json            会話が書く（ヘッドレスの形）。Workflow に渡す args
-  <PR番号>-args-headless.json   台本が書く（ヘッドレスの形）。`roles` を足した args
+  <PR番号>-args-headless.json   台本が書く（ヘッドレスの形）。`roles` と `caller` を足した args
   <PR番号>-headless.json        台本が書く（ヘッドレスの形）。`claude -p` の出力
   <PR番号>-materials.json       台本が書く（ヘッドレスの形）。報告の材料
 ```
@@ -1135,7 +1136,7 @@ flowchart TB
 - ノードは `pipeline` でなく `parallel` で回す。
 - 反証は、W9 の完了を待たずに先に立てる。
 - `withExtra`・`markUnverifiedParents`・`childrenOf`・`gapRoots`・`quoteItems`・`batches`・`quoteCommand`・`dropMissing`・`decidedLeaves`・`refutable`・`buildRecord` は、同じ名前の関数として無い。
-- `args` の確かめ（`stopped: 'args'`）と、W2・W3 の問い直しは、ここに書いていない。
+- 起動の合図の確かめ（`stopped: 'caller'`）・`args` の確かめ（`stopped: 'args'`）と、W2・W3 の問い直しは、ここに書いていない。
 - 指示の文（`RULES`・`W*_PROMPT`）は script の頭の定数に置く。定数は `attention/prompts/*.md` から生成器が作り、日本語の訳は同じ名前の `.ja.md` に在る。段の文の枠・PR のファイルの一覧・W10 の主張・照合の段の文は、呼ぶ側のコードの隣に書く（セクション 2）。
 
 ```js

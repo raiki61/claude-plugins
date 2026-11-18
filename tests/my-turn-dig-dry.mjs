@@ -52,6 +52,7 @@ async function run(args, respond) {
 
 const HEAD = 'h'.repeat(40)
 const baseArgs = (extra = {}) => ({
+  caller: 'attention:my-turn-deep',
   pr: 7, repo: 'o/r', workdir: '/w', stance: 'reviewer', now: '2026-11-17T00:00:00Z',
   prep: { base: 'b'.repeat(40), head: HEAD, base7: 'bbbbbbb', diff: '/rd/bbbbbbb..hhhhhhh.diff', recordDir: '/rd',
     commits: ['c'.repeat(40)], changed: ['a.py', 'CLAUDE.md'], excluded: [], claudeMdChanged: true,
@@ -189,6 +190,21 @@ async function caseFixed() {
     check(of(c2, 'W2')[0].opts.agentType === 'my-turn-W2', 'fixed/roles: W2 で roles.W2 が blindJudge に勝たない')
     check(of(c2, 'W10').some(c => c.opts.agentType === 'my-turn-W10fixes') && of(c2, 'W10').some(c => c.opts.agentType === 'my-turn-W10answers'), 'fixed/roles: 反証の役が分かれない')
     check(!of(c2, 'W1')[0].prompt.includes('The CLAUDE.md files loaded into you'), 'fixed/roles: roles が在るのに書き足しが入った')
+  }
+  // 起動の合図（caller）が無い・違う: /attention:my-turn-deep 以外からの起動なので、1 体も立てずに止まり、訳を 1 行で返す（頼み 839571）
+  {
+    const noCaller = baseArgs(); delete noCaller.caller
+    for (const [what, a] of [['合図の無い起動', noCaller], ['合図の値が違う起動', baseArgs({ caller: 'attention:my-turn' })],
+      ['args の無い起動', undefined], ['文字列の args で合図の無い起動', JSON.stringify(noCaller)]]) {
+      const { out: oc, calls: cc } = await run(a, responder())
+      check(oc?.stopped === 'caller' && cc.length === 0, `fixed/caller: ${what}で止まらないか、エージェントを立てた ${JSON.stringify(oc?.stopped)} ${cc.length}`)
+      check(typeof oc?.message === 'string' && oc.message.length > 0 && !oc.message.includes('\n'), `fixed/caller: ${what}で返す訳が 1 行でない`)
+    }
+    // ヘッドレスの台本が渡す値と、Workflow が受ける値が同じ
+    const py = fs.readFileSync(path.join(ROOT, 'attention/scripts/my-turn-headless.py'), 'utf8')
+    const pyCaller = (py.match(/^CALLER = "([^"]*)"/m) ?? [])[1]
+    const jsCaller = (SRC.match(/^const CALLER = '([^']*)'/m) ?? [])[1]
+    check(jsCaller === 'attention:my-turn-deep' && pyCaller === jsCaller, `fixed/caller: 合図の値が台本と Workflow で違う ${pyCaller} ${jsCaller}`)
   }
   // 反証と書いた段が同じモデル: 1 体も立てずに止まる
   {
