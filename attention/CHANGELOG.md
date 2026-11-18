@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-11-19
+
 ### Changed
 
 - `/my-turn` を、掘る段を Workflow に作り替える前の形（2026-11-13 の版。この会話が、`commands/my-turn.md` の手順 1〜20 を自分で回す）に戻した。重い版（掘る段を裏の Workflow `my-turn-dig` で多くのエージェントに回す形。`--headless`〔掘る段を、設定・フック・CLAUDE.md を読まない別の `claude -p` の会話で回す指定〕も含む）は消さず `/my-turn-deep`（`skills/my-turn-deep/SKILL.md`）に移し、人が名前で打ったときだけ動くようにした。`/my-turn` からは呼ばない。持ち主の言葉は「一旦myturnを前のやつに戻してもらっていい？この重たいmyturnは手動実行のみにするわ一旦ね」（頼み af3970。持ち主が司令塔に出した作業の依頼の番号）。
