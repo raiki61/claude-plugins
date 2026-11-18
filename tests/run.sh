@@ -26,7 +26,16 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/run.XXXXXX")"
 # 印の間は下の DONE_GUARD_OK が取り出して赤と緑を確かめる。( ) と $( ) の子のシェルは EXIT の trap を継がない（bash の仕様）
 # >>> done-guard
 RUN_DONE=
-trap 'rc=$?; rm -rf "$WORK"; if [ -z "$RUN_DONE" ] && [ "$rc" -eq 0 ]; then echo "tests/run.sh が最後の行まで走らずに終わりの値 0 で抜けた——残りの検査が走っていない（途中の exit 0 か、読み込んだ台本の exit）"; exit 2; fi' EXIT
+# trap の本文は関数に置く。字列の中で rc を代入すると shellcheck が代入を読めず SC2154 で CI を赤にした（run 44272400817）
+on_exit() {
+    local rc=$?
+    rm -rf "$WORK"
+    if [ -z "$RUN_DONE" ] && [ "$rc" -eq 0 ]; then
+        echo "tests/run.sh が最後の行まで走らずに終わりの値 0 で抜けた——残りの検査が走っていない（途中の exit 0 か、読み込んだ台本の exit）"
+        exit 2
+    fi
+}
+trap on_exit EXIT
 # <<< done-guard
 
 PY_BIN=$(command -v python3 || command -v python || true)
