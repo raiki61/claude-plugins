@@ -1189,7 +1189,7 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
 phase('Quotes')                       // the script cannot read files: one agent per 120 quotes runs prep --quotes
 const items = quoteItems(seen, smells)               // [id, path, line, quote, fnv] for line > 0, not a URL
 const checks = await parallel(batches(items, A.limits.quoteBatch).map(b => () =>
-  ask('Quotes', QUOTES_PROMPT(quoteCommand(A.prep.quoteCheck, b)), { schema: QUOTES, ...M('Quotes') })))
+  ask('Quotes', quotesText(quoteCommand(A.prep.quoteCheck, b)), { schema: QUOTES, ...M('Quotes') })))
 dropMissing(seen, smells, items, checks, ledger)     // drop what is not on its line; all dropped: unverified,
                                                      // not refuted. A batch not run or miscounted: unchecked
 
@@ -1547,7 +1547,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
    - 既定の形のまま、エージェント数を減らすのが先。
    - ヘッドレスの形でスキルの一覧も消えるか（今は CLAUDE.md だけを確かめている）を、次の 1 対の試しで見る。
 9. **指示文を定数にそろえ、日本語の訳をコメントで添える**（持ち主 2026-11-18 に決定）:
-   - W8〜W11 も含めて、全部の段の指示文を script の頭の `W*_PROMPT`（と RULES・PR_FILES）の定数にそろえ、木を組む処理と分ける（同梱の /deep-research の形）。
+   - W8〜W11 も含めて、全部の段の指示文を script の頭の `W*_PROMPT`（と RULES・PR_FILES）の定数にそろえ、木を組む処理と分ける（同梱の /deep-research の形）。PR_FILES などの並べ方の文は、後で script の中の関数か式に戻した（この項の最後）。
    - 定数の 1 つずつに、日本語の訳のコメントと、その時の英語の文のハッシュを 1 行添える。
    - 空回しの試験（`my-turn-dig-dry.mjs`）にケースを足し、コメントのハッシュと今の英語の文のハッシュが違えば赤にする（`my-turn-dig-map.json` の sha256 と同じやり方）。
    - 英語だけを直して訳を直さないと、main へ入れるゲートで止まる。

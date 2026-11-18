@@ -1,6 +1,6 @@
 # my-turn-dig の指示文
 
-`attention/workflows/my-turn-dig.js`（/my-turn の掘る流れの Workflow の script）が段ごとのエージェントに渡す英語の指示文のうち、観点（段が何を見て、どう判定するか）を、1 つの定数に 1 本の md で置く。script はファイルを読めない（https://code.claude.com/docs/en/workflows の「No direct filesystem or shell access from the workflow itself」）ので、生成器 `attention/scripts/gen-prompts.mjs` が md から JS の関数を作り、script の頭の区画（`// ==== prompts (section 3) ====` から `// ==== end of prompts ====` まで）に書き戻す。区画は手で直さない。
+`attention/workflows/my-turn-dig.js`（/my-turn の掘る流れの Workflow の script）が段ごとのエージェントに渡す英語の指示文のうち、観点（段が何を見て、どう判定するか）を、1 つの定数に 1 本の md で置く。データの並べ方と運び役の文は md にせず、script の中に書く（下の「md にする物・しない物」）。script はファイルを読めない（https://code.claude.com/docs/en/workflows の「No direct filesystem or shell access from the workflow itself」）ので、生成器 `attention/scripts/gen-prompts.mjs` が md から JS の関数を作り、script の頭の区画（`// ==== prompts (section 3) ====` から `// ==== end of prompts ====` まで）に書き戻す。区画は手で直さない。
 
 - `<定数の名前>.md`: エージェントに届く英語の文。正本はこれ。
 - `<定数の名前>.ja.md`: 持ち主が読む日本語の訳。頭の `source_sha256` は、訳した時の英語の md の sha256。`about` は、その文がどの段の何かの説明。エージェントには届かない。
