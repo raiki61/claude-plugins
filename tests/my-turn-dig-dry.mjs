@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPT = path.join(ROOT, 'attention/workflows/my-turn-dig.js')
-const SRC = fs.readFileSync(SCRIPT, 'utf8')
+// Windows の clone（core.autocrlf=true）では script が CRLF で出る。行で読む検査（allot の取り出し・prompts の区画と sha256）が
+// LF を前提にするので、読んだ時に LF へそろえる（run 44027416895 の windows の赤: 「allot: script に allot が無い」）
+const SRC = fs.readFileSync(SCRIPT, 'utf8').replace(/\r\n/g, '\n')
 const BODY = SRC.replace(/^export const meta\s*=/m, 'const meta =')
 const AsyncFunction = (async () => {}).constructor
 const fails = []
