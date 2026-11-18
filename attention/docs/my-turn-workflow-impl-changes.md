@@ -45,7 +45,7 @@
     - Workflow の返した値（記録）を、args の `files.record` に書く（`lib/my_turn_record.py`。14.4 の 7）。
     - `modelUsage`（子の出力に載る、使ったモデルごとの使用量）を、設計書の表のモデルと照合した結果も出す。
   - 引数の組み方を試験（`tests/my-turn-prep-case.py headless`）で毎回同じに見るため。
-  - `--max-budget-usd` の既定は 30（1 対の試し〔前の版と直した版を 1 回ずつ回す試し〕の費用で決め直す）。
+  - `--max-budget-usd` の既定は 100（下の「予算の既定」）。
   - `--dry-run` で起動の引数だけを出す。
 - **`--add-dir <script のフォルダ>`**: ヘッドレスの形の起動に足した。
   - 1 回目の試し（2026-11-17）で、子の会話の Workflow のツールが、作業ツリーの外に在る `scriptPath` を断り、Workflow が 1 段も回らなかった（セクション 2 の確かめていない点の 1 つ目）。
@@ -81,6 +81,18 @@
 - **Foundry の経路**: 親の環境が Foundry の経路（`CLAUDE_CODE_USE_FOUNDRY`）でも、ほかの経路と同じく `claude_auth.auth_env` を通す。
   - `claude_auth` の継ぐ経路の一覧に Foundry が入った（main の 6f407021）ので、旗が立っていれば Keychain の鍵を重ねず親の経路を継ぐ。
   - 台本の側に Foundry だけの分岐は持たない。
+- **子が裏の Workflow を待つ上限を外す**（2026-11-18、頼み b7031b）: 子の環境に `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` を足した。
+  - guided-resolver の PR #2574 の回で、子の会話は Workflow を起動して約 2.5 分でターンを終え、`claude -p` が 10 分の既定の上限で Workflow を止めた。材料は返らなかった（[ヘッドレスの形の細部](my-turn-workflow-headless.md)の確かめの 4）。
+  - 子の環境は CLAUDE で始まる変数を落とすので、親が設定していても届かない。台本が足す。
+  - 子の system prompt も、「待たずにターンを終え、終わりの知らせのターンで答えを出せ」に替えた（前は「終わるまでターンを終えるな」で、待つツールが無く守れなかった）。
+- **予算の既定**（2026-11-18、頼み b7031b）: `--max-budget-usd` の既定を 30 から 100 にした。
+  - 上限に当たると、`claude -p` は裏の Workflow を止める（https://code.claude.com/docs/en/headless 「If the run reaches its `--max-budget-usd` cap, Claude Code stops the remaining background work instead of waiting」）。Workflow が予算を見て掘るのをやめる作りはまだ無い（設計書 14.4 の 1 は案のまま）ので、材料は返らず、使った額が全部無駄になる。上限は、1 回を回し切る額より上に置く。
+  - PR #2574 の数（同じ日の 2 回の会話の記録から、段ごとのトークンで見積もった）:
+    - 既定の形で回し切った回: 199 エージェント・54 分・約 1,035 万トークン。見積もりで約 65 ドル。
+    - ヘッドレスの形で止まった回: 59 エージェント（構造・比べ・掘るの途中）で、台本の出した `costUsd` が 20.37 ドル。
+    - 見積もりの額は、止まった回の見積もり（26.03）を `costUsd` に合わせた比（約 0.78）で直した物。
+  - この PR は掘るノードの上限（`LIMITS.nodes` の 80）近くまで掘った（掘る段 100 エージェント）ので、ふつうの PR の上の方の額とみる。100 は、その約 1.5 倍。
+  - 14.4 の 1（エージェント数の上限を下げる）を入れたら、そのときの回の額で決め直す。
 
 ## 前処理（prep）の範囲と差分のファイル
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """/my-turn のヘッドレスの形: `claude -p` の別の会話に Workflow（my-turn-dig.js）を回させる。
 
-使い方: my-turn-headless.py <args.json> [--budget-usd 30] [--dry-run]
+使い方: my-turn-headless.py <args.json> [--budget-usd 100] [--dry-run]
 
 <args.json> は会話が書いた Workflow の args（pr・workdir・prep・files.record を持つ）。ここで
 `roles`（段ごとの役の名前）を足して <recordDir>/<pr>-args-headless.json に書き、
@@ -35,7 +35,13 @@ KEEP_ENV = {"CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS
             *claude_auth.INHERITED}
 # Bedrock・Vertex・Foundry の経路の付き物（地域・プロジェクト・認証を飛ばす旗）。モデルの読み替えの変数はここに入らない
 KEEP_PREFIXES = ("ANTHROPIC_BEDROCK_", "ANTHROPIC_VERTEX_", "ANTHROPIC_FOUNDRY_", "CLAUDE_CODE_SKIP_")
-ADD_ENV = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1"}
+# CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0: 子がターンを終えた後も、裏の Workflow が終わるまで待たせる（既定は 10 分で
+# 止めて途中の結果を捨てる。2026-11-18 の PR #2574 で材料が返らなかった）。時間の歯止めは無く、額の歯止めは --max-budget-usd
+ADD_ENV = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1",
+           "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"}
+# 1 回の掘る段を回し切る額より上に置く。上限に当たると claude -p は裏の Workflow を止め、材料は返らず、使った額は無駄になる
+# （PR #2574 の 1 回は 199 エージェントで約 65 ドル。docs/my-turn-workflow-impl-changes.md）
+DEFAULT_BUDGET_USD = "100"
 ALIAS = {"fable": "claude-fable", "opus": "claude-opus", "sonnet": "claude-sonnet", "haiku": "claude-haiku"}
 BASE_ALIASES = ["opus", "sonnet", "haiku"]
 
@@ -47,8 +53,9 @@ BASH_RULES = ["git show *", "git blame *", "git log *", "git diff *", "git cat-f
 DENY_BASH = ["git *--output*", "git grep *"]
 
 SYSTEM = ("You run one task and nothing else. Read the JSON file at {args}. Call the Workflow tool exactly once "
-          "with scriptPath = {script} and args = that JSON value unchanged. Wait until the workflow run "
-          "finishes; do not end your turn while it is running. Then, if the finish notice names an output file, "
+          "with scriptPath = {script} and args = that JSON value unchanged. The run goes on in the background. "
+          "Do not try to wait for it or poll it: end your turn with no output. When the run finishes, its finish "
+          "notice starts a new turn. In that turn, if the finish notice names an output file, "
           "output only {{\"outputFile\": <that path, exactly as given>}} as JSON; otherwise output the whole return "
           "value as JSON. If the Workflow tool call itself fails, output only "
           "{{\"workflowError\": <the error text>}}. Output nothing else. Never edit files.")
@@ -187,7 +194,7 @@ def build_materials(result, rec_path):
 def main(argv):
     ap = argparse.ArgumentParser(prog="my-turn-headless.py")
     ap.add_argument("args_json")
-    ap.add_argument("--budget-usd", default="30")
+    ap.add_argument("--budget-usd", default=DEFAULT_BUDGET_USD)
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
     try:

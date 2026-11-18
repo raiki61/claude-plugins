@@ -205,7 +205,7 @@ sequenceDiagram
 - **ヘッドレスの形**（/my-turn の引数 `--headless`）: 次の流れで `claude -p` をもう 1 つ起動する。
   1. 会話は手順 1〜5 の後、`args` を `<記録のフォルダ>/<番号>-args.json` に書き、台本 `my-turn-headless.py` を Bash の run_in_background で打つ。
   2. 台本が、`roles` を足した `args` を `<番号>-args-headless.json` に書き、`claude -p` を起動する。
-     - 歯止めの `--max-budget-usd` の既定は 30。
+     - 歯止めの `--max-budget-usd` の既定は 100（決めた訳は[実装で設計から変えた所](my-turn-workflow-impl-changes.md)の「予算の既定」）。
   3. その会話（以下、ヘッドレスの会話）は `args` のファイルを読んで Workflow を呼ぶ。Workflow が終わるまで待ってから、終わりの知らせに在る出力のファイルの path（`{"outputFile": …}`）を出して終わる。知らせに出力のファイルが無ければ、戻り値の全体を出す。
      - Workflow は名前でなく、プラグインの中の script の絶対の path（`scriptPath`）で呼ぶ。
      - 名前で呼ばないのは、`--setting-sources ""` でプラグインを読まないため（[ヘッドレスの形の細部](my-turn-workflow-headless.md)）。
@@ -213,7 +213,7 @@ sequenceDiagram
   4. 出力は `--output-format json` で記録のフォルダの `<番号>-headless.json` に書かせる。台本が、出力のファイルから戻り値を取り出し、記録（`files.record`）と報告の材料（`<番号>-materials.json`）に書く。
   5. /my-turn の会話は、終わりの知らせで台本が出した 1 行の JSON を読み、`materials` のファイルを材料に手順 16 から続ける。
 - **ヘッドレスの形の細部**: 起動の仕方（環境・引数・役・許可・モデルの照合）と確かめの 5 つの点は、[ヘッドレスの形の細部](my-turn-workflow-headless.md)に在る。
-  - 確かめの 5 つの点のうち、1 は 2026-11-17 の試しで直し、残りは未確認。
+  - 確かめの 5 つの点のうち、1 は 2026-11-17 の試しで直し、4 は 2026-11-18 の回で駄目と分かって直し、5 は同じ回で確かめた。2・3 は未確認。
 
 **会話だけで回す道は持たない**
 

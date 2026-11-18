@@ -63,7 +63,8 @@ sys.exit(int(os.environ.get("FAKE_GH_RC", "0")))
 """
 FAKE_CLAUDE = """import json, os, sys
 d = os.environ["FAKE_CLAUDE_DIR"]
-json.dump({"argv": sys.argv[1:], "env": sorted(os.environ), "cwd": os.getcwd()}, open(os.path.join(d, "seen.json"), "w"))
+json.dump({"argv": sys.argv[1:], "env": sorted(os.environ), "cwd": os.getcwd(),
+           "bgWait": os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS")}, open(os.path.join(d, "seen.json"), "w"))
 sys.stdout.write(open(os.path.join(d, "canned.json"), encoding="utf-8").read())
 sys.exit(int(os.environ.get("FAKE_CLAUDE_RC", "0")))
 """
@@ -680,7 +681,7 @@ def case_headless():
         env = e.env(CLAUDE_FOO="1", ANTHROPIC_BAR="2", CLAUDE_CONFIG_DIR="/cfg", CLAUDE_CODE_DISABLE_CLAUDE_MDS="0",
                     ANTHROPIC_VERTEX_PROJECT_ID="p", ANTHROPIC_DEFAULT_OPUS_MODEL="x",
                     CLAUDE_CODE_OAUTH_TOKEN="dummy", CLAUDE_TOKEN_HELPER="", CLAUDE_CODE_CLIENT_CERT="/c.pem",
-                    FAKE_CLAUDE_DIR=fdir)
+                    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="600000", FAKE_CLAUDE_DIR=fdir)
 
         def launch(*extra):
             r = subprocess.run([sys.executable, HEADLESS, args_json, *extra], env=env, capture_output=True,
@@ -696,14 +697,15 @@ def case_headless():
         check("CLAUDE_FOO" in d["envDropped"] and "ANTHROPIC_BAR" in d["envDropped"]
               and "CLAUDE_CONFIG_DIR" not in d["envDropped"], "envDropped %r" % d["envDropped"])
         check(d["envDropped"] == sorted(d["envDropped"]), "envDropped が整列していない")
-        check(d["envAdded"] == {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1"}, "envAdded")
+        check(d["envAdded"] == {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1",
+                                "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"}, "envAdded")
         argv = d["argv"]
         check(argv[:2] == ["claude", "-p"], "argv 先頭")
 
         def after(flag):
             return argv[argv.index(flag) + 1]
         check(after("--model") == "sonnet" and after("--output-format") == "json", "model/format")
-        check(after("--max-budget-usd") == "30", "budget の既定")
+        check(after("--max-budget-usd") == "100", "budget の既定")
         check(after("--tools") == "Read,Grep,Glob,Bash,Workflow,WebFetch,WebSearch", "tools")
         check(after("--setting-sources") == "", "setting-sources")
         check("--disable-slash-commands" in argv and "--strict-mcp-config" in argv, "フラグ")
@@ -778,6 +780,8 @@ def case_headless():
               and "CLAUDE_CODE_OAUTH_TOKEN" in seen["env"] and "CLAUDE_TOKEN_HELPER" not in seen["env"]
               and "ANTHROPIC_VERTEX_PROJECT_ID" in seen["env"] and "ANTHROPIC_DEFAULT_OPUS_MODEL" not in seen["env"]
               and "CLAUDE_CODE_CLIENT_CERT" in seen["env"], "子の環境")
+        # 親が 10 分の既定を持っていても、子は Workflow の終わりまで待つ（PR #2574 の打ち切り）
+        check(seen["bgWait"] == "0", "子の待つ上限 %r" % seen["bgWait"])
         check(seen["argv"][seen["argv"].index("--max-budget-usd") + 1] == "5", "budget の指定")
         # 止まらずに終わった回: 子は Workflow の出力のファイルの path だけを返し、台本がそこから記録を書く
         rec = os.path.join(rd, "7.json")

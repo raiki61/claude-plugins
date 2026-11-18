@@ -6,6 +6,12 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Fixed
+
+- `/my-turn --headless`（台本 `scripts/my-turn-headless.py` が別の `claude -p` の会話で掘る段の Workflow を回す形）が、10 分で Workflow を打ち切られて材料を返さなかったのを直した（頼み b7031b）。
+  - 子の会話の環境に `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` を足し、子がターンを終えた後も Workflow が終わるまで待たせる。子への指示も「待たずにターンを終え、終わりの知らせで答えを出す」に替えた。
+  - `--budget-usd` の既定を 30 から 100 にした。上限に当たると `claude -p` は Workflow を止め、材料は返らない。大きい PR の 1 回は約 65 ドルかかった（`docs/my-turn-workflow-impl-changes.md` の「予算の既定」）。
+
 ## [0.66.0] - 2026-11-18
 
 ### Changed

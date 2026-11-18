@@ -5,7 +5,7 @@
 
 - **何の細部か**: ヘッドレスの形（/my-turn の引数 `--headless`。`claude -p` をもう 1 つ起動して Workflow を回す）の起動の仕方。
   - 環境・引数・役・許可・モデルの照合と、確かめの 5 つの点を書く。
-  - 確かめの 5 つの点のうち、1 は 2026-11-17 の試しで直し、残り 4 つは未確認。
+  - 確かめの 5 つの点のうち、1 は 2026-11-17 の試しで直し、4 は 2026-11-18 の回で駄目と分かって直し、5 は同じ回で確かめた。2・3 は未確認。
 - **経緯**: 2026-11-18 に設計書から移し、同じ日に実装との照合で直した。
 - **番号**: 「セクション N」「手順 N」「W1」〜「W10」「Quotes」は、[設計書](my-turn-workflow-design.md)の番号と段の名を指す。
   - 「手順 N」は設計書の古い番号（1〜20）。14.4 の直し（設計書のセクション 14.4 の 4・5・7・9）で W11（記録を写して書く段）を外し、16〜20 が今の 11〜15 になった。
@@ -36,6 +36,10 @@
     - `CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1`: 安全分類器に当たった要求を、別のモデルで打ち直させない。
       - 打ち直されると、反証が頼んだのと別のモデルで動く（my_notes の 「NO_MODEL_SWITCH」）。
       - 打ち直さない要求は失敗して返るので、そのノードは `null` になり、セクション 4 の件数に「返らなかった」として出る。
+    - `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`: 子の会話がターンを終えた後も、裏の Workflow が終わるまで待たせる（下の確かめの 4）。
+      - 既定では、`claude -p` は最後のターンの後に裏の仕事を 10 分まで待ち、過ぎたら止めて途中の結果を捨てる。0 で上限を外す。
+      - https://code.claude.com/docs/en/headless 「Background tasks at exit」
+      - 時間の歯止めは無くなる。額の歯止めは `--max-budget-usd` で、上限に当たると裏の仕事も止まる（同じ「Background tasks at exit」）。
   - **足さない物**: my_notes が呼び出しごとに選ぶキャッシュの寿命（`FORCE_PROMPT_CACHING_5M`）。
     - Workflow の裏のエージェントのキャッシュは、既定で 5 分になっている。
     - https://code.claude.com/docs/en/workflows 「its cache holds for five minutes by default, including on a Claude subscription」
@@ -101,7 +105,11 @@
 
 決めること: ヘッドレスの形が本当に効くかを、何で確かめ、駄目ならどの手に戻すか。
 
-- **今の状態**: 1 は 2026-11-17 の試しで `scriptPath` が断られ、`--add-dir <script のフォルダ>` を足して直した（[実装で設計から変えた所](my-turn-workflow-impl-changes.md)）。残りの 4 つは確かめていない。
+- **今の状態**:
+  - 1 は 2026-11-17 の試しで `scriptPath` が断られ、`--add-dir <script のフォルダ>` を足して直した（[実装で設計から変えた所](my-turn-workflow-impl-changes.md)）。
+  - 4 は 2026-11-18 の回（guided-resolver の PR #2574）で駄目と分かり、待つ上限を外して直した（下の 4）。直した版で最後まで返るかは、まだ確かめていない。
+  - 5 は同じ回で確かめた。`modelUsage` に opus・sonnet・haiku が揃って載った。
+  - 2・3 は確かめていない。
 - **確かめ方**: 直した版の 1 対の試し（セクション 11）の、ヘッドレスの会話の記録で確かめる。
   - 記録は、出力の JSON と、Workflow の run の `journal.jsonl` と、裏のエージェントごとの会話の記録。
   - 駄目だった物ごとに、次の手に戻す。
@@ -138,6 +146,12 @@
    - `claude -p` はターンを終えるとプロセスが終わり、裏の run も切れうる。
    - 見る所: 出力の JSON に、Workflow の結果（件数）が在るか。
    - 駄目なら、ヘッドレスの形を取り下げ、1 と同じく `--headless` は訳を言って止まる。
+   - 2026-11-18 の回（PR #2574）: 駄目だった。
+     - 子の会話は Workflow を起動して約 2.5 分でターンを終えた。待つ手が無かったため（Bash は拒まれる）。
+     - `claude -p` はその後 10 分待って、「Background tasks still running 10m after the last turn」と出して Workflow を止めた。材料は返らず、約 20 ドルが無駄になった。
+     - 待つのは `claude -p` の側の仕事で、子のターンを延ばす手は要らない。裏の Workflow が終わると、その知らせで子の会話がもう 1 ターン回り、`--output-format json` は最後のターンの答えを出す（https://code.claude.com/docs/en/headless 「Background tasks at exit」）。
+     - 直し: 環境に `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` を足して上限を外した（上の「環境」）。
+     - 子の system prompt の「終わるまでターンを終えるな」は、待つツールが無いので守れない。「待たずにターンを終え、終わりの知らせのターンで答えを出せ」に替えた。
 5. **`modelUsage` に裏のモデルが載るか**: 出力の JSON の `modelUsage` に、裏のエージェントのモデルも載るか。
    - 見る所: `modelUsage` に、セクション 9 の表の opus・sonnet・haiku が揃って在るか。
    - 載らなければ、モデルの照合を外し、報告に「モデルを照合していない」と書く。
