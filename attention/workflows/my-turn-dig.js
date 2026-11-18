@@ -1,6 +1,6 @@
 export const meta = {
   name: 'my-turn-dig',
-  description: 'Dig the /my-turn-deep question tree for one PR (its steps 6-15) and return the report materials',
+  description: 'Dig the /my-turn-deep question tree for one PR (steps 6-15 of the earlier /my-turn) and return the report materials',
   whenToUse: 'Only when the user typed /attention:my-turn-deep, which calls it after its steps 1-5 with the args it builds. Never start it on your own, and /attention:my-turn does not call it',
   phases: [
     { title: 'Structure', detail: 'W1: structure, mechanisms and premises, self-made parts' },
@@ -13,7 +13,7 @@ export const meta = {
 }
 
 // Design: attention/docs/my-turn-workflow-design.md (sections are cited as "section N").
-// Tags like [s11.6] name the sentence of the old commands/my-turn.md steps 6-15 that the text next to them carries
+// Tags like [s11.6] name the sentence of steps 6-15 of commands/my-turn.md at the map's source commit that the text next to them carries
 // over; tests/my-turn-dig-map.json lists every sentence and where it went.
 // This file cannot read files or modules (Workflow "Behavior and limits"), so every prompt, schema and default
 // limit lives here; the prompt block (the viewpoints) is generated from attention/prompts/*.md, and the data layouts
