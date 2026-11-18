@@ -261,7 +261,8 @@ tests/
 - **script は外を読めない**: Workflow の script はファイルもモジュールも読めない（Workflow の文書の「Behavior and limits」）。
   - 段の指示の文・出力スキーマ・上限の既定は、全部 `my-turn-dig.js` の中に書く。
   - 段の指示の文は、ファイルの頭の指示文の区画（`// ==== prompts (section 3) ====` から `// ==== end of prompts ====` まで）に、共通の決まり（RULES）・PR のファイルの一覧（PR_FILES）・段ごとの指示（`W*_PROMPT`）などの定数として置き、木を組む処理と分ける（`/deep-research` の script の形）。
-  - 定数の 1 つずつの上に、日本語の訳のコメント（`// ja:` の行）と、英語の文の sha256（`// sha256:` の行）を置く。英語だけを直して訳とハッシュを直さないと、空回しの試験の `prompts` が赤になる（セクション 11）。
+  - 区画は手で書かず、`attention/prompts/<定数の名前>.md`（1 つの定数に 1 本）から生成器（`attention/scripts/gen-prompts.mjs`）が作って書き戻す。script はファイルを読めないので、文は作る時に script へ入れる。md の頭（front matter）の `vars:` に、受け取る値と型（`text`・`list`・`flag`。`?` を付けると null を許す）を書き、本文は `{{x}}`・`{{x|join:", "|or:"none"}}`・`{{x|bullets}}`・`{{#if x}}…{{else}}…{{/if}}` だけで組む。値を整える JS（一覧の行の組み立て・三項の分かれ）は呼ぶ側のコードに置き、md には置かない。
+  - 日本語の訳は `<定数の名前>.ja.md` に置き、頭の `source_sha256` に訳した時の英語の md の sha256 を書く。英語だけを直して訳とハッシュを直さないと、空回しの試験の `prompts` が赤になる（セクション 11）。直し方は `attention/prompts/README.md`。
 - **指示の文は英語**: script の中の指示の文は AI だけが読むので英語で書く。
   - 前の版の手順 6〜15 の文を訳して移す。
   - 元の文の番号は、指示の文の中に `[s6.1]` の形の印で残す（`tests/my-turn-dig-map.json` が照合する。セクション 8）。
@@ -1102,7 +1103,7 @@ flowchart TB
 - 反証は、W9 の完了を待たずに先に立てる。
 - `withExtra`・`markUnverifiedParents`・`childrenOf`・`gapRoots`・`quoteItems`・`batches`・`quoteCommand`・`dropMissing`・`decidedLeaves`・`refutable`・`buildRecord` は、同じ名前の関数として無い。
 - `args` の確かめ（`stopped: 'args'`）と、W2・W3 の問い直しは、ここに書いていない。
-- 指示の文（`RULES`・`W*_PROMPT`）は script の頭の定数に置き、1 つずつに日本語の訳のコメントと英語の文の sha256 を添える（セクション 2）。
+- 指示の文（`RULES`・`W*_PROMPT`）は script の頭の定数に置く。定数は `attention/prompts/*.md` から生成器が作り、日本語の訳は同じ名前の `.ja.md` に在る（セクション 2）。
 
 ```js
 export const meta = {
@@ -1281,8 +1282,9 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
      - `prep.quoteCheck` が無いとき、段を飛ばして件数に出すか
      - 120 件（`limits.quoteBatch`）ごとに分けるか
   10. **`prompts`** 指示文の定数（セクション 2）。見る物:
-      - 段の文の定数が全部、指示文の区画の中に在り、1 つずつに日本語の訳のコメントが在るか
-      - コメントの sha256 が、今の英語の文の sha256 と合うか（英語だけを直して訳を直さないと赤になる）
+      - 指示文の区画が、`attention/prompts/*.md` から生成器で作り直した物と 1 字も違わないか（md だけを直して生成器を打たないと赤になる）
+      - 段の文の定数が区画の外に無いか。md ごとに `.ja.md` が在り、その `source_sha256` が今の英語の md の sha256 と合うか（英語だけを直して訳を直さないと赤になる）
+      - 生成器が、壊れた md（宣言の無い値・使わない値・知らないフィルタ・閉じの無い `{{#if}}`）を止めるか。作った関数が、渡されない値と型の違う値で止まるか
 - **`tests/run.sh`**: 上の 2 本と `tests/my-turn-dig-map.json` の照合を足す。
 
 **1 対の試し（実装の後に 1 回だけ）**
@@ -1549,6 +1551,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
    - 空回しの試験（`my-turn-dig-dry.mjs`）にケースを足し、コメントのハッシュと今の英語の文のハッシュが違えば赤にする（`my-turn-dig-map.json` の sha256 と同じやり方）。
    - 英語だけを直して訳を直さないと、main へ入れるゲートで止まる。
    - エージェントに届くのは英語の文だけで、訳は持ち主が読むため。
+   - 2026-11-18 に、文と訳を script のコメントから `attention/prompts/<定数の名前>.md` と `.ja.md` のファイルに移した（持ち主 2026-11-18 に承認。頼み f0ee3c）。script の区画は生成器（`attention/scripts/gen-prompts.mjs`）が md から作り、訳のハッシュは `.ja.md` の頭の `source_sha256` に置く。空回しの試験の `prompts` は、区画が md から作り直した物と同じかも見る。一覧の行の組み立てなどの JS は呼ぶ側に移し、エージェントに届く文は 1 字も変えていない。
 
 ### 14.5 落ちる能力（承認の前に照合が要る）
 

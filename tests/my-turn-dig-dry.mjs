@@ -2,13 +2,14 @@
 // 使い方: node tests/my-turn-dig-dry.mjs <case>   case は fixed・grow・same・skips・allot・map・schema・rests・quotes・prompts。通れば <CASE>_OK を出す。
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPT = path.join(ROOT, 'attention/workflows/my-turn-dig.js')
-// Windows の clone（core.autocrlf=true）では script が CRLF で出る。行で読む検査（allot の取り出し・prompts の区画と sha256）が
+// Windows の clone（core.autocrlf=true）では script が CRLF で出る。行で読む検査（allot の取り出し・prompts の区画）が
 // LF を前提にするので、読んだ時に LF へそろえる（run 44027416895 の windows の赤: 「allot: script に allot が無い」）
 const SRC = fs.readFileSync(SCRIPT, 'utf8').replace(/\r\n/g, '\n')
 const BODY = SRC.replace(/^export const meta\s*=/m, 'const meta =')
@@ -994,37 +995,54 @@ async function caseQuotes() {
   }
 }
 
-// ---- 段の文の定数（設計 3）: 英文の sha256 が、上の和訳の注と一緒に書いた値と合う。合わなければ、和訳を見直して値を書き直す ----
+// ---- 段の文（設計 2・3）: attention/prompts/<名>.md から生成器（attention/scripts/gen-prompts.mjs）が script の区画を作る ----
+// 1) 区画が md から作り直した物と同じ（作り直し忘れを止める）。2) md ごとに和訳（<名>.ja.md）が在り、その source_sha256 が英語の md の
+// sha256 と合う（英語だけを直すと赤）。3) 段の文の定数は区画の中にだけ在る。4) 生成器が、宣言の無い変数・使わない変数・知らないフィルタ・
+// 閉じない {{#if}} を止め、生成した関数が足りない値で投げる
 async function casePrompts() {
+  const gen = await import(path.join(ROOT, 'attention/scripts/gen-prompts.mjs'))
+  for (const p of gen.check()) fails.push(`prompts: ${p}`)
+  const names = gen.promptNames()
+  for (const n of ['RULES', 'STAGE_TEXT', 'PR_FILES', 'SMELL_QUESTIONS', 'W1_PROMPT', 'W2_PROMPT', 'W3_PROMPT', 'W4_PROMPT', 'W5_REMOVE_PREMISE',
+    'W6_SHARED', 'W6_PROMPT', 'W7_PROMPT', 'W8_PROMPT', 'W9_PROMPT', 'W10_PROMPT', 'W10_LEAF', 'QUOTES_PROMPT'])
+    check(names.includes(n), `prompts: attention/prompts/${n}.md が無い`)
   const lines = SRC.split('\n')
-  const a = lines.findIndex(l => l.startsWith('// ==== prompts')), b = lines.findIndex(l => l === '// ==== end of prompts ====')
+  const a = lines.indexOf(gen.START), b = lines.indexOf(gen.END)
   check(a >= 0 && b > a, 'prompts: 段の文の区画の印が無い')
-  if (!(a >= 0 && b > a)) return
-  const region = lines.slice(a + 1, b)
-  const blocks = []
-  for (let i = 0; i < region.length; i++) {
-    if (!region[i].startsWith('// ja:') || (i > 0 && region[i - 1].startsWith('// ja:'))) continue
-    let j = i; while (j < region.length && region[j].startsWith('// ja:')) j++
-    let k = j + 1; while (k < region.length && !region[k].startsWith('// ja:')) k++
-    blocks.push({ ja: region.slice(i, j), sha: (region[j] ?? '').match(/^\/\/ sha256: (\S+)$/)?.[1], body: region.slice(j + 1, k).join('\n').trimEnd() })
-  }
-  const names = []
-  for (const bl of blocks) {
-    const consts = [...bl.body.matchAll(/^const (\w+) =/gm)].map(m => m[1])
-    check(consts.length === 1, `prompts: 1 つの和訳の注に定数が ${consts.length} 個（${consts.join(', ')}）`)
-    const name = consts[0] ?? '?'
-    names.push(name)
-    check(bl.ja.join('').replace(/\/\/ ja:/g, '').trim().length > 0, `prompts: ${name} の和訳が空`)
-    const want = crypto.createHash('sha256').update(bl.body).digest('hex')
-    check(bl.sha === want, `prompts: ${name} の英文が和訳を書いた時と違う。和訳を見直して「// sha256: ${want}」に書き直す`)
-  }
-  // 区画の中の定数は全部和訳を持ち、段の文の定数（W*_PROMPT・RULES・PR_FILES）は区画の中にだけ在る
-  const inRegion = [...region.join('\n').matchAll(/^const (\w+) =/gm)].map(m => m[1])
-  check(JSON.stringify(inRegion) === JSON.stringify(names), `prompts: 和訳の無い定数が在る ${inRegion.filter(n => !names.includes(n))}`)
-  for (const n of ['RULES', 'PR_FILES', 'W1_PROMPT', 'W2_PROMPT', 'W3_PROMPT', 'W4_PROMPT', 'W6_PROMPT', 'W7_PROMPT', 'W8_PROMPT', 'W9_PROMPT', 'W10_PROMPT', 'QUOTES_PROMPT'])
-    check(names.includes(n), `prompts: ${n} が区画に無い`)
-  const outside = [...lines.slice(0, a), ...lines.slice(b + 1)].join('\n')
-  check(![...outside.matchAll(/^const (\w+_PROMPT|RULES|PR_FILES|W5_ROOTS|W10_TARGET) =/gm)].length, 'prompts: 段の文の定数が区画の外に在る')
+  const outside = [...lines.slice(0, Math.max(a, 0)), ...lines.slice(b + 1)].join('\n')
+  const stray = [...outside.matchAll(/^const (\w+) =/gm)].map(m => m[1]).filter(n => names.includes(n) || /_PROMPT$|^RULES$|^PR_FILES$/.test(n))
+  check(!stray.length, `prompts: 段の文の定数が区画の外に在る ${stray}`)
+  // 生成器の止め方: 一時の置き場に壊した md を置いて作らせる
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prompts-'))
+  try {
+    const bad = {
+      undeclared: ['---\nvars:\n  a: text\n---\n{{a}} {{b}}\n', 'is not declared'],
+      unused: ['---\nvars:\n  a: text\n  b: list\n---\n{{a}}\n', 'declared but never used'],
+      filter: ['---\nvars:\n  a: list\n---\n{{a|upper}}\n', 'unknown or malformed filter'],
+      unclosed: ['---\nvars:\n  a: text\n---\n{{#if a}}x {{a}}\n', 'without {{/if}}'],
+    }
+    for (const [what, [body, want]] of Object.entries(bad)) {
+      const dir = path.join(tmp, what)
+      fs.mkdirSync(dir)
+      fs.writeFileSync(path.join(dir, 'X.md'), body)
+      const { problems } = gen.generate(dir)
+      check(problems.some(p => p.includes(want)), `prompts: 生成器が ${what} を止めない ${JSON.stringify(problems)}`)
+    }
+    // 英語だけを直すと和訳の照合が赤になる
+    const dir = path.join(tmp, 'stale')
+    fs.mkdirSync(dir)
+    fs.writeFileSync(path.join(dir, 'X.md'), '---\nvars:\n---\nHello.\n')
+    fs.writeFileSync(path.join(dir, 'X.ja.md'), `---\nsource_sha256: ${gen.sha256('---\nvars:\n---\nHello.\n')}\n---\nこんにちは。\n`)
+    check(!gen.translationProblems(dir).length, `prompts: 合っている和訳を赤にした ${gen.translationProblems(dir)}`)
+    fs.writeFileSync(path.join(dir, 'X.md'), '---\nvars:\n---\nHello again.\n')
+    check(gen.translationProblems(dir).some(p => p.includes('changed after the translation')), 'prompts: 英語だけを直したのに和訳の照合が赤にならない')
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+  // 生成した関数は、足りない値・型の違う値で投げる（「undefined」を文に混ぜない）
+  const block = lines.slice(a, b + 1).join('\n')
+  const fns = new Function(`${block}\nreturn { W4_PROMPT, PR_FILES }`)()
+  const throws = f => { try { f(); return false } catch { return true } }
+  check(throws(() => fns.W4_PROMPT({ prFiles: 'F' })) && throws(() => fns.PR_FILES({ diff: 'd', excluded: 'x', priorDiff: null, priorHead7: 'p', thread: 't' })),
+    'prompts: 生成した関数が足りない値か型の違う値で投げない')
 }
 
 const CASES = { fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests, quotes: caseQuotes, prompts: casePrompts }
