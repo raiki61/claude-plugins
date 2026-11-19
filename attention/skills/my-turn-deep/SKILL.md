@@ -49,14 +49,14 @@ disable-model-invocation: true
    - `pr`・`repo`（`<owner>/<repo>`）・`workdir`（`git rev-parse --show-toplevel`）・`stance`（`reviewer` か `author`）・`now`（今の日時。`date -u +%Y-%m-%dT%H:%M:%SZ`）。
    - `prep`: 6 の JSON をそのまま（前の回の記録から使い回せる物 `priorReuse` も、この中で渡る）。
    - `files`: `{"thread": <7 で書いた thread の path>, "justifications": <7 で書いた justifications の path>, "record": prep の record}`。
-   - `priorFindings`: 4 で控えた前の指摘・受けた指摘・前の回の発見の一覧。1 件ずつ `{"id", "kind", "finding", "at", "state"}`。`kind` は `earlier`（自分が前に出した指摘）・`received`（作者として受けた指摘）・`prior-run`（前の回の発見）、`state` は `settled`・`withdrawn`・`remaining`・`unverified`、`at` は在り処（`ファイル:行` か URL。無ければ空）。
+   - `priorFindings`: 4 で控えた前の指摘・受けた指摘・前の回の発見の一覧。1 件ずつ `{"id", "kind", "finding", "at", "state"}`。`kind` は `earlier`（自分が前に出した指摘）・`received`（作者として受けた指摘）・`prior-run`（前の回の発見）、`state` は `settled`（片づいた）・`withdrawn`（取り下げた）・`remaining`（残っている）・`unverified`（未確認のまま）、`at` は在り処（`ファイル:行` か URL。無ければ空）。
    - `unread`: 5 で読めなかった物の一覧（文字列）。
-   - `blindJudge`: 一般の構造を描かせる遮断の目に使う役。convergence-loops の `blind-judge`（ツールを持たず、渡された問いだけから考える役）が使えれば `"convergence-loops:blind-judge"`。使えるか分からない・無ければ渡さない（Workflow がツールを使うなと頼んだ既定の役を立てる）。
+   - `blindJudge`: 差分もリポジトリも見せずに一般の構造を描かせる遮断の目（冒頭の「/catchup との違い」の段落）に使う役。convergence-loops の `blind-judge`（ツールを持たず、渡された問いだけから考える役）が使えれば `"convergence-loops:blind-judge"`。使えるか分からない・無ければ渡さない（Workflow がツールを使うなと頼んだ既定の役を立てる）。
    - 上限（`limits`）と段ごとのモデル（`models`）は既定のまま渡さない。
 9. Workflow を起動して、ターンを終える。待ち続けない。
    - 既定の形: Workflow のツールを名前 `my-turn-dig`（このプラグインの物。一覧に `attention:my-turn-dig` と出ていればその名）で呼び、8 の args を渡す。終わりの知らせが来たら、返った値（記録そのもの）を記録のファイルに書く。知らせの出力のファイル（`<output-file>`）を渡して `my-turn-prep.py --save-record <prep の record> <出力のファイル>` を打つ（知らせに出力のファイルが無ければ、返った値を `<recordDir>/<番号>-result.json` に書いて、それを渡す）。書けなかったら（`ok` が偽）、`message` を報告の「確かめた前提」に 1 行書く（次の回は前の回の記録が無いものとして掘り直す）。返った値を材料に 11 から続ける。
    - ヘッドレスの形: 8 の args を `<recordDir>/<番号>-args.json` に書き、Bash の run_in_background で `my-turn-headless.py <その path>` を打つ（`--budget-usd` の既定は 100。`nohup` や `&` で切り離さない）。この台本が、設定・フック・CLAUDE.md・プラグインを読まず、環境変数のうち、名前が CLAUDE か ANTHROPIC で始まる物（設定のフォルダ `CLAUDE_CONFIG_DIR` と認証の経路を除く）を持ち込まない `claude -p` の会話を作業場で起動し、その会話が Workflow を回す。返った値（記録）は、この台本が prep の `record` に書く。終わりの知らせが来たら、台本が出した 1 行の JSON を読む。`materials` が null なら、その JSON（`message` が在ればそれ）と `output`（`claude -p` の出力のファイル）の中身を言って止まる。`materials` が在れば、そのファイルを材料に 11 から続ける。`ok` が偽で `message` が在れば（記録を書けなかった回など。`record` が null）、`message` を報告の「確かめた前提」に 1 行書く。`models` の `unexpected`（段の表〔`my-turn-dig.js` が段ごとに決めたモデルの一覧。設計の 9〕に無いモデル）と `expectedMissing`（使われなかった、表のモデル）は、空でなければ 15 で報告に書く。
-10. Workflow のツールが無い・呼べない（設定の `disableWorkflows` が真など）なら、その訳と直し方（`/config` の Dynamic workflows を入れる。ヘッドレスの形でも呼べなければ既定の形で呼び直す）を言って止まる。この会話で掘る段を代わりに回さない。返った値に `stopped` が在れば、Workflow が途中で止めた（`caller`: 8 の `caller` が無いか違う。訳は `message`。`args`: 入力が足りない〔`missing` の一覧〕。反証の段が書いた段と同じモデルになった）ので、その訳と `counts` を言って止まる。
+10. Workflow のツールが無い・呼べない（設定の `disableWorkflows` が真など）なら、その訳と直し方（`/config` の Dynamic workflows を入れる。`--headless` 付き〔9 のヘッドレスの形〕でも呼べなければ、`--headless` を付けない 9 の既定の形で呼び直す）を言って止まる。この会話で掘る段を代わりに回さない。返った値に `stopped` が在れば、Workflow が途中で止めた（`caller`: 8 の `caller` が無いか違う。訳は `message`。`args`: 入力が足りない〔`missing` の一覧〕。末端と案を別のモデルに反証させる段が、書いた段と同じモデルになった。同じだと反証にならないので止める）ので、その訳と `counts` を言って止まる。
 
 ### 報告と、指摘の下書きか直し方の案を並べる
 
