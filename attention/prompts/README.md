@@ -81,4 +81,4 @@ md にするのは観点だけ。持ち主が資産として直す文で、訳�
   1. `node attention/scripts/gen-prompts.mjs --upstream <works-factory の clone> [--ref <ref>]` を打つ（読むだけ。ref の既定は main）。写した 1 本ごとに、写した commit から ref までの差分が出て、終わりに変わった本の数が出る。
   2. 取り込む物を、clone から `attention/perspectives/` へ 1 字も変えずに写す（commit を固定して `git show <commit>:perspectives/<名>/SKILL.md` で取り出すのが確実）。
   3. `COPIED_FROM` の 1 行目の commit と、写したファイルの sha256 を書き替える。
-  4. `node attention/scripts/gen-prompts.mjs` で区画を書き戻し、`node tests/my-turn-dig-dry.mjs prompts` が `PROMPTS_OK` になることを確かめる。
+  4. `node attention/scripts/gen-prompts.mjs` で区画を書き戻し、`node tests/my-turn-dig-dry.mjs prompts` の終わりの行が「PROMPTS_OK」になることを確かめる。
