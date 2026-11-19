@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-11-19
+
 ### Changed
 
 - `/my-turn-deep` が裏で回す Workflow `attention:my-turn-dig` を、設計書 `docs/my-turn-dig-redesign.md` の 17 段の流れに作り替えた（持ち主の言葉「工場からのエッセンスでdeepの区見直しもやりますか？いまのdeepからテクニックやいいところは流用して」。頼み cc6b36）。
