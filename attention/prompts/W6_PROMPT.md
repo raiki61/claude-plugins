@@ -6,6 +6,8 @@ vars:
   parentLocs: list   # the locations the parents read
   where: text        # where to look first; empty when not given
   question: text
+  lenses: text       # the lens texts for this node's root class (LENS_TABLE.W6), or ""
+  again: text        # for the redig stage: the earlier "unverified" answer and what it said would decide it; "" otherwise
 ---
 {{shared}}
 
@@ -19,6 +21,14 @@ Where the parents looked (locations only):
 {{#if where}}
 
 Where to look first: {{where}}
+{{/if}}
+
+{{lenses}}
+{{#if again}}
+
+This node was answered "unverified" before. That answer, and what it said would decide it:
+{{again}}
+Answer it once more, using that as the lead. Do not split it: return no children and a status other than "split".
 {{/if}}
 
 Your question (decide this here; hand to children only questions whose answer would change yours):

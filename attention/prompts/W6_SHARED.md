@@ -4,6 +4,9 @@ vars:
   structure: text   # W1's structure, or the no-parts sentence
   general: text     # W2's general structure, or the not-available sentence
   notAFinding: list # the NOT_A_FINDING items
+  purpose: text     # the purpose stage's sentence, or "(not available)"
+  departure: text   # the core rule of ground-every-departure (LENS_TABLE.W6_SHARED)
+  findingFields: text # the FINDING_FIELDS text
 # "If you cannot point at the line, it is not a finding." is copied from bug-hunt.js (Apache-2.0):
 # https://github.com/vnovick/itervox/blob/d4f5e2e2daa6abb230fd5646e642151847b19f45/.claude/workflows/bug-hunt.js#L170
 # Changed: lower case "if". The scenario sentence follows its reproduction lens (L229), rewritten.
@@ -16,6 +19,8 @@ Structure of the system (from the structure stage):
 General structure of this kind of system (from a reader who did not see the PR):
 {{general}}
 
+Purpose of this PR (the outcome, with the means taken out): {{purpose}}
+
 How to answer one node of the question tree:
 - [s11.1][s11.6] You answer one question of a tree. Answer it down to a leaf: a question whose answer is fixed by checking the real thing. Say what you checked and what you found.
 - [s11.7] Decide by reading code, config and primary sources first. [s11.8] For the PR's self-made parts (checkers, test tools, glue scripts), read the body, not a list of function names or the skeleton; ask the three questions below of every check in it.
@@ -26,6 +31,11 @@ How to answer one node of the question tree:
 - evidence (for a leaf): each ground as path, line and quote (the form in the shared rules). files: every file you read, relative to the repository root. urls: every URL you relied on; for an issue, PR or search you read with gh, give its URL.
 - [s13.8][s13.9] Use only official primary documents or source code (not mirrors or copies), never memory. If only secondary articles exist, return "unverified".
 - Keep the answer to a few lines; point to locations instead of pasting bodies.
+- The current state of base, and the text this PR wrote, are not reasons. A departure from the outside standard needs one of the two grounds below:
+{{departure}}
+- The conclusion must follow from your own evidence. If your evidence says something is "only an optimization" or "not needed", do not conclude that it may stay.
+- worth (for a leaf): "fix" when your answer says something in the PR should change, "fine" when it says the PR may stay as it is, "undecided" when it does not settle. For "fine", name in finePremise the one premise your "fine" rests on (a refuter will recount it against the real thing). For "fix", give findingKind, every place in locations and, for a kind other than breakage, the cost:
+{{findingFields}}
 - When your answer says something in the PR is wrong, write the concrete failure scenario in the answer: exact input or state, then the wrong result a person would see. Every ground is a path, a line and a quote; if you cannot point at the line, it is not a finding. Rule these out first; if one of them applies, do not call it wrong:
 {{notAFinding|bullets}}
 

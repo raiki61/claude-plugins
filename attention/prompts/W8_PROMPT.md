@@ -9,6 +9,7 @@ vars:
   unreadChanged: list
   unread: list
   round: text
+  quietEyes: list       # the lens eyes of stage 5 that found nothing
   oddRound: flag        # true in rounds 1, 3, 5 ...
 ---
 {{prFiles}}
@@ -19,6 +20,7 @@ Mechanisms: {{mechanisms|join:"; "|or:"(none)"}}
 Self-made: {{selfMade|join:"; "|or:"(none)"}}
 
 Code-smell answers: {{smells|join:" "}}
+Lens eyes that found nothing: {{quietEyes|join:", "|or:"(none)"}}
 
 The question tree so far (id [status] question => answer):
 {{tree|join:"\n"}}

@@ -10,6 +10,7 @@ about: W8 抜けの点検（セクション 3）。一覧の行は script が組
 自作: {{selfMade|join:"; "|or:"（無し）"}}
 
 コードの臭いの答え: {{smells|join:" "}}
+何も見つけなかった観点の目: {{quietEyes|join:", "|or:"（無し）"}}
 
 ここまでの問いの木（id [状態] 問い => 答え）:
 {{tree|join:"\n"}}

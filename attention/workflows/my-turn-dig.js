@@ -3,16 +3,19 @@ export const meta = {
   description: 'Dig the /my-turn-deep question tree for one PR (steps 6-15 of the earlier /my-turn) and return the report materials',
   whenToUse: 'Only when the user typed /attention:my-turn-deep, which calls it after its steps 1-5 with the args it builds. Never start it on your own, and /attention:my-turn does not call it',
   phases: [
-    { title: 'Structure', detail: 'W1: structure, mechanisms and premises, self-made parts' },
-    { title: 'Compare', detail: 'W2 blind general structure, W3 compare, W4 code smells' },
-    { title: 'Dig', detail: 'W6 one agent per node, code merges exact repeats and W7 the rest of the same questions, W8 gap check until two dry rounds' },
-    { title: 'Quotes', detail: 'one agent runs my-turn-prep.py --quotes; evidence whose quote is not on its line is dropped' },
-    { title: 'Fix options', detail: 'W9 fix options and riding along' },
-    { title: 'Refute', detail: 'W10 two refuters per leaf and smell answer (false positive, concrete scenario), one per fix option' },
+    { title: 'Purpose', detail: 'stage 1: purpose with the means taken out, the means, the kind sentence and the PR claims' },
+    { title: 'Structure', detail: 'stage 2 (W1): structure, mechanisms and premises, self-made parts, standards' },
+    { title: 'Compare', detail: 'stage 3 (W2) blind general structure and design from zero, stage 4 (W3) compare, stage 5 (W4) code smells and lens eyes' },
+    { title: 'Dig', detail: 'stages 6-9: roots, W6 one agent per node, code merges exact repeats and W7 the rest, W8 gap check until two dry rounds, one redig of unverified leaves' },
+    { title: 'Quotes', detail: 'stage 10: one agent runs my-turn-prep.py --quotes; evidence whose quote is not on its line is dropped' },
+    { title: 'Refute', detail: 'stages 11-12: the ledger of findings (code), two refuters per finding, "fine" leaf and smell answer' },
+    { title: 'Lines', detail: 'stage 13: one agent labels every finding and routes it (draft, report, fold, drop); code checks the routes' },
+    { title: 'Fix options', detail: 'stages 14-15: W9 fix options on the finding ids, one refuter per fix and group' },
   ],
 }
 
-// Design: attention/docs/my-turn-workflow-design.md (sections are cited as "section N").
+// Design: attention/docs/my-turn-workflow-design.md (sections are cited as "section N") and the 17 stages of
+// attention/docs/my-turn-dig-redesign.md (cited as "stage N").
 // Tags like [s11.6] name the sentence of steps 6-15 of commands/my-turn.md at the map's source commit that the text next to them carries
 // over; tests/my-turn-dig-map.json lists every sentence and where it went.
 // This file cannot read files or modules (Workflow "Behavior and limits"), so every prompt, schema and default
@@ -277,7 +280,7 @@ if (A.caller !== CALLER) {
 const P = A.prep ?? {}
 const F = A.files ?? {}
 const LIMITS = { nodes: 80, fixes: 15, extraSmells: 3, quoteBatch: 120, ...(A.limits ?? {}) }
-const RECORD_VERSION = 2   // 2: node answers carry files and urls at the top, evidence is {path, line, quote}
+const RECORD_VERSION = 3   // 3: the purpose block, the ledger with routes, worth and findingKind on nodes (stage 16)
 
 const missingArgs = ['pr', 'workdir', 'stance'].filter(k => A[k] === undefined || A[k] === null || A[k] === '')
   .concat(['diff', 'base', 'head'].filter(k => !P[k]).map(k => `prep.${k}`))
@@ -286,6 +289,8 @@ if (missingArgs.length) return { stopped: 'args', missing: missingArgs }
 
 // ---- section 9: models and effort per stage; args.models overrides per stage ----
 const MODELS = {
+  Purpose: { model: 'opus', effort: 'medium' }, Lines: { model: 'opus', effort: 'medium' },
+  Redig: { model: 'sonnet', effort: 'high' },
   W1: { model: 'opus', effort: 'medium' }, W3: { model: 'opus', effort: 'medium' },
   W8: { model: 'opus', effort: 'medium' },
   W4: { model: 'sonnet', effort: 'high' }, W6: { model: 'sonnet', effort: 'high' },
@@ -296,9 +301,8 @@ const MODELS = {
 }
 const M = stage => ({ ...MODELS[stage], ...(A.models?.[stage] ?? {}),
   ...(A.roles?.[stage] ? { agentType: A.roles[stage] } : {}) })   // headless: session-only --agents roles (section 2)
-if (M('W10answers').model === M('W6').model || M('W10answers').model === M('W4').model ||
-    M('W10fixes').model === M('W9').model) {
-  return { stopped: 'refuter model equals writer model', models: { W4: M('W4').model, W6: M('W6').model,
+if (['W6', 'W4', 'Redig'].some(s => M('W10answers').model === M(s).model) || M('W10fixes').model === M('W9').model) {
+  return { stopped: 'refuter model equals writer model', models: { W4: M('W4').model, W6: M('W6').model, Redig: M('Redig').model,
     W9: M('W9').model, W10answers: M('W10answers').model, W10fixes: M('W10fixes').model } }
 }
 
@@ -372,20 +376,25 @@ const arr = items => ({ type: 'array', items })
 const obj = props => ({ type: 'object', properties: props, required: Object.keys(props) })
 const oneOf = values => ({ type: 'string', enum: values })
 const EVIDENCE = arr(obj({ path: S, line: I, quote: S }))
+const FINDING_KINDS = ['breakage', 'upkeep', 'self-made', 'removable', 'rule', 'prior-decision', 'privilege', 'test', 'none']
+// what every finder adds so the ledger can carry a finding to the report (FINDING_FIELDS, stages 5 and 7)
+const FINDING = { findingKind: oneOf(FINDING_KINDS), locations: EVIDENCE, cost: S }
+const PURPOSE = obj({ purpose: S, means: arr(S), kind: S, claims: arr(obj({ claim: S, at: S })) })
 const STRUCTURE = obj({
-  structure: S, kind: S,
+  structure: S, standards: arr(S),
   mechanisms: arr(obj({ mechanism: S, premise: S })),
   selfMade: arr(obj({ part: S, files: S, why: S })),
   extraSmells: arr(obj({ question: S, whyNotCovered: S })),
   hiddenChoices: arr(S),
   noParts: B, noPartsReason: S,
 })
-const GENERAL = obj({ general: S, notFound: B })
+const GENERAL = obj({ general: S, notFound: B, questionStands: B, whyQuestion: S,
+  design: arr(obj({ id: S, element: S, adds: S, removes: S })) })
 const COMPARE = obj({
   comparable: B, whyNotComparable: S,
-  diffs: arr(obj({ diff: S, decision: oneOf(['align', 'may-differ']), basis: S, ifThreeMore: S })),
+  diffs: arr(obj({ diff: S, decision: oneOf(['align', 'may-differ']), basis: S, ifThreeMore: S, from: oneOf(['structure', 'design', 'means']) })),
 })
-const SMELL = obj({ verdict: oneOf(['smell', 'none', 'unverified']), answer: S, evidence: EVIDENCE })
+const SMELL = obj({ verdict: oneOf(['smell', 'none', 'unverified']), answer: S, evidence: EVIDENCE, ...FINDING })
 const NODE = obj({
   answer: S,
   files: arr(S),
@@ -395,6 +404,7 @@ const NODE = obj({
   premises: arr(S),
   status: oneOf(['leaf', 'split', 'unverified', 'undecided']),
   children: arr(obj({ question: S, howParentChanges: S, weight: oneOf(['big', 'medium', 'small']), where: S })),
+  worth: oneOf(['fix', 'fine', 'undecided']), ...FINDING, finePremise: S,   // stage 7
 })
 const CLUSTERS = obj({
   clusters: arr(obj({ key: S, question: S, members: S })),
@@ -403,24 +413,40 @@ const CLUSTERS = obj({
 const GAPS = obj({ gaps: arr(obj({ question: S, why: S, where: S })), reason: S })
 const QUOTES = obj({ ran: B, checked: I, missing: arr(obj({ id: S, why: S })), garbled: arr(S), error: S })
 const FIXES = obj({
-  fixes: arr(obj({ fix: S, rung: oneOf(['remove', 'type', 'tool', 'self-made']), worldSolution: S, leaves: S })),
+  fixes: arr(obj({ fix: S, rung: oneOf(['remove', 'type', 'tool', 'self-made']), worldSolution: S, items: S })),
   groups: arr(obj({ kind: oneOf(['one-fix', 'conflict']), members: S, why: S })),
   searched: S,
   outside: arr(obj({ item: S, canRide: S })),
 })
 const VERDICT = obj({ verdict: oneOf(['stands', 'falls', 'unverifiable']), reason: S, evidence: EVIDENCE })
-// the second refuter of a leaf or a smell answer also returns the concrete scenario it traced
-const TRACE = obj({ verdict: oneOf(['stands', 'falls', 'unverifiable']), problem: B, scenario: S, reason: S, evidence: EVIDENCE })
-const SCHEMAS = { STRUCTURE, GENERAL, COMPARE, SMELL, NODE, CLUSTERS, GAPS, QUOTES, FIXES, VERDICT, TRACE }
+// the second refuter of a finding or a smell answer also returns the concrete scenario it traced, or for a finding of a
+// kind other than breakage the cost it counted (stage 12)
+const TRACE = obj({ verdict: oneOf(['stands', 'falls', 'unverifiable']), problem: B, scenario: S, cost: S, reason: S, evidence: EVIDENCE })
+// stage 15: a group's refuter judges every member
+const GROUP_VERDICT = obj({ verdict: oneOf(['stands', 'falls', 'unverifiable']), reason: S, evidence: EVIDENCE,
+  members: arr(obj({ id: S, verdict: oneOf(['accept', 'falls', 'partly']), reason: S })) })
+// stage 13: one entry per ledger id
+const LINES = obj({ items: arr(obj({ id: S, label: S, level: oneOf(['design', 'detail', 'taste']),
+  route: oneOf(['draft', 'report', 'fold', 'drop']), into: S, why: S, rule: S })) })
+const SCHEMAS = { PURPOSE, STRUCTURE, GENERAL, COMPARE, SMELL, NODE, CLUSTERS, GAPS, QUOTES, FIXES, VERDICT, TRACE, GROUP_VERDICT, LINES }
 
 // ---- section 4, layer 2: empty fields. The table of fields that may be empty lives here (and in the dry test) ----
-function emptyFields(stage, r) {
+function emptyFields(stage, r, label = '') {
   const out = []
   const need = (path, value, when = true) => { if (when && blank(value)) out.push(path) }
   const each = (name, list, fn) => (Array.isArray(list) ? list : []).forEach((x, i) => fn(x ?? {}, `${name}[${i}]`))
+  // a finder's answer that says something should change names its kind; one of a kind other than breakage, its cost
+  const finding = says => {
+    need('findingKind', r.findingKind, says)
+    need('cost', r.cost, says && !['breakage', 'none', undefined].includes(r.findingKind))
+  }
   switch (stage) {
+    case 'Purpose':
+      need('purpose', r.purpose); need('kind', r.kind); need('means', r.means)
+      each('claims', r.claims, (x, p) => { need(`${p}.claim`, x.claim); need(`${p}.at`, x.at) })
+      break
     case 'W1':
-      need('structure', r.structure, !r.noParts); need('kind', r.kind, !r.noParts)
+      need('structure', r.structure, !r.noParts)
       need('mechanisms', r.mechanisms, !r.noParts); need('selfMade', r.selfMade, !r.noParts)
       need('noPartsReason', r.noPartsReason, !!r.noParts)
       each('mechanisms', r.mechanisms, (x, p) => { need(`${p}.mechanism`, x.mechanism); need(`${p}.premise`, x.premise) })
@@ -429,6 +455,9 @@ function emptyFields(stage, r) {
       break
     case 'W2':
       need('general', r.general, !r.notFound)
+      need('whyQuestion', r.whyQuestion)
+      need('design', r.design, r.questionStands === true)
+      each('design', r.design, (x, p) => { need(`${p}.id`, x.id); need(`${p}.element`, x.element) })
       break
     case 'W3':
       need('diffs', r.diffs, r.comparable !== false)
@@ -441,9 +470,14 @@ function emptyFields(stage, r) {
     case 'W4':
       need('answer', r.answer); need('evidence', r.evidence)
       each('evidence', r.evidence, (x, p) => { need(`${p}.path`, x.path); need(`${p}.quote`, x.quote, r.verdict === 'smell') })
+      finding(r.verdict === 'smell')
       break
     case 'W6':
+    case 'Redig':
       need('answer', r.answer); need('files', r.files)
+      need('worth', r.worth, r.status === 'leaf')
+      need('finePremise', r.finePremise, r.status === 'leaf' && r.worth === 'fine')
+      finding(r.status === 'leaf' && r.worth === 'fix')
       need('evidence', r.evidence, r.status === 'leaf')
       need('children', r.children, r.status === 'split')
       each('evidence', r.evidence, (x, p) => { need(`${p}.path`, x.path); need(`${p}.quote`, x.quote) })
@@ -464,12 +498,19 @@ function emptyFields(stage, r) {
     case 'W9':
       need('searched', r.searched)
       need('fixes', r.fixes, LEAF_COUNT > 0)
-      each('fixes', r.fixes, (x, p) => { need(`${p}.fix`, x.fix); need(`${p}.worldSolution`, x.worldSolution); need(`${p}.leaves`, x.leaves) })
+      each('fixes', r.fixes, (x, p) => { need(`${p}.fix`, x.fix); need(`${p}.worldSolution`, x.worldSolution); need(`${p}.items`, x.items) })
       each('groups', r.groups, (x, p) => { need(`${p}.members`, x.members); need(`${p}.why`, x.why) })
       break
     case 'W10':
       need('reason', r.reason); need('evidence', r.evidence, r.verdict !== 'unverifiable')
-      need('scenario', r.scenario, 'scenario' in r && r.verdict === 'stands')   // the trace refuter: no scenario, no vote
+      // the trace refuter: no scenario, no vote; the cost refuter (label "... cost"): no cost, no vote
+      need('scenario', r.scenario, 'scenario' in r && r.verdict === 'stands' && !label.endsWith(' cost'))
+      need('cost', r.cost, 'cost' in r && r.verdict === 'stands' && label.endsWith(' cost'))
+      each('members', r.members, (x, p) => { need(`${p}.id`, x.id); need(`${p}.reason`, x.reason) })
+      break
+    case 'Lines':
+      each('items', r.items, (x, p) => { need(`${p}.id`, x.id); need(`${p}.why`, x.why)
+        need(`${p}.into`, x.into, x.route === 'fold'); need(`${p}.rule`, x.rule, x.route === 'drop') })
       break
   }
   return out
@@ -491,7 +532,8 @@ function newLedger() {
       r = clean(r)
       if ('evidence' in r) r.evidence = fixEvidence(r.evidence)
       e.returned++
-      for (const field of emptyFields(stage, r)) e.empty.push({ label, field })
+      if ('locations' in r) r.locations = fixEvidence(r.locations)
+      for (const field of emptyFields(stage, r, label)) e.empty.push({ label, field })
       return r
     },
     reused(stage, label) { at(stage).reused.push(label) },
@@ -504,7 +546,8 @@ let LEAF_COUNT = 0
 let used = 0, depth = 0, round = 0
 const targets = []
 const notSeen = { nullNodes: [], cut: [], extraSmellsCut: [], fixesCut: [], gapsAfterCap: [], afterNullMerge: [] }
-const repairs = { childrenWithoutHow: [], clusterMissing: [], clusterDuplicate: [], clusterUnknown: [], foldIntoOwnLine: [], droppedKnown: [] }
+const repairs = { childrenWithoutHow: [], clusterMissing: [], clusterDuplicate: [], clusterUnknown: [], foldIntoOwnLine: [], droppedKnown: [],
+  redigSplit: [], lines: { unknown: [], duplicate: [], missing: [], badFold: [], dropNoRule: [], detailToDesign: [], draftToReport: [], allReport: false } }
 // the quote check (section 3): items sent, items checked, dropped evidence, items not checked (the stage did not run,
 // or its count differs from what was sent), lines copied wrong, and the leaves and smell answers left without evidence
 const quotes = { items: 0, agents: 0, checked: 0, dropped: [], unchecked: [], garbled: [], toUnverified: [], noQuote: [] }
@@ -533,13 +576,67 @@ const PR_FILES_TEXT = [
   `- PR conversation (body, comments, reviews): ${F.thread}`,
 ].join('\n')
 
+// ---- the lenses each stage reads (decision 2 of the redesign: perspectives copied from works-factory, embedded as
+// LENSES by the generator). "name#core" is the title and the core rule only: the text before its first #### heading.
+// A name missing from LENSES throws here, before any agent ----
+const LENS_TABLE = {
+  Purpose: ['purpose-apart-from-means'],
+  W2: ['zero-based-design', 'general-structure-compare#core'],
+  W3: ['ground-every-departure', 'check-against-practice'],
+  eyes: { rules: ['learn-target-conventions', 'what-counts-as-policy'], prior: ['prior-decisions-check'],
+    minimal: ['change-minimality'], hygiene: ['code-hygiene-review'], ratio: [], tests: ['test-double-fidelity'],
+    privilege: [], standards: [] },
+  W6: { 9: ['citation-provenance', 'remeasure-premises'], 7: ['reinvention-check', 'zero-based-design'] },   // by root class
+  W6_SHARED: ['ground-every-departure#core'],
+  W10refute: ['review-finding-bar'], W10recount: ['recount-blind-premise'],
+  Lines: ['review-finding-bar', 'fix-now-smallest-first', 'when-to-ask-a-person'],
+  W9: ['fix-now-smallest-first', 'check-against-practice'],
+  W10fixes: ['check-against-practice', 'objection-rejudge'],
+}
+const lensText = names => names.map(n => {
+  const [name, part] = n.split('#')
+  if (!(name in LENSES)) throw new Error(`lens ${name} is not in LENSES`)
+  return part === 'core' ? LENSES[name].split('\n#### ')[0].trim() : LENSES[name]
+}).join('\n\n')
+const lensBlock = names => (names?.length ? `Lenses for this stage (perspectives to apply; read them before you start):\n\n${lensText(names)}` : '')
+const LENS = Object.fromEntries(Object.entries(LENS_TABLE).map(([k, v]) => [k, Array.isArray(v) ? lensBlock(v)
+  : Object.fromEntries(Object.entries(v).map(([k2, v2]) => [k2, lensBlock(v2)]))]))
+const FINDING_FIELDS_TEXT = FINDING_FIELDS({})
+
+// ---- stage 0 values the eyes read (my-turn-prep.py: lines, deletedTests, identitySignals) ----
+const LINES_TEXT = (() => {
+  const by = P.lines?.byClass
+  if (!by || typeof by !== 'object') return '(not counted)'
+  const parts = Object.entries(by).filter(([, v]) => v && (v.added || v.deleted || v.files))
+    .map(([k, v]) => `${k} +${v.added ?? 0} -${v.deleted ?? 0} (${v.files ?? 0} files)`)
+  const ratio = P.lines?.testToImpl
+  return `${parts.join('; ') || 'no lines'}; tests and checks to implementation: ${ratio === null || ratio === undefined ? 'no implementation lines' : ratio}`
+})()
+const DELETED_TESTS = [
+  ...(P.deletedTests?.names ?? []).map(t => `${t.path}: ${t.name}`),
+  ...(P.deletedTests?.files ?? []).map(f => `${f} (whole file)`),
+  ...(P.deletedTests?.uncounted ?? []).map(f => `${f} (not counted)`),
+]
+const IDENTITY = (P.identitySignals ?? []).map(x => `${x.path}:${x.line} ${x.text}`)
+// the earlier decisions the prior eye checks against: settled and withdrawn findings, and every finding the person
+// raised before (kind earlier); the open ones become roots of class 4 instead
+const PRIOR_FOR_EYE = (A.priorFindings ?? []).filter(f => ['settled', 'withdrawn'].includes(f?.state) || f?.kind === 'earlier')
+  .map(f => `${f.id ?? '-'} [${f.state ?? '-'}, ${f.kind ?? '-'}] ${line1(f.finding)}${f.at ? ` (at ${f.at})` : ''}`)
+
+// ---- stage 6: root classes. 9 (the PR's reasons and claims) comes right after 1 (remove the premise) ----
+const CLASS_RANK = { 1: 0, 9: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8 }
+const rankOf = c => CLASS_RANK[c] ?? CLASS_RANK[8]
+const firstClass = cs => cs.reduce((a, b) => (rankOf(b) < rankOf(a) ? b : a), 8)
+
 // ---- W5 roots (plain code; steps 11, 13, 15) ----
-function buildRoots(structure, compare, smells, smellQs) {
+function buildRoots(structure, compare, smells, smellQs, purpose) {
   // [s11.5] the classes are fixed: the author's requested viewpoints and the PR body's own frame are never the only roots
   const roots = []
   const add = (rootClass, question, where, origin) => roots.push({ rootClass, question, where: where ?? '', origin })
   // class 1: always one, always first
   add(1, W5_REMOVE_PREMISE({ mechanisms: (structure.mechanisms ?? []).map(m => `${m.mechanism} (needed because: ${m.premise})`) }), '', 'remove-premise')
+  // class 9 (stage 6): every reason and claim the PR gives, from the PR text and the justifications file
+  for (const c of purpose?.claims ?? []) if (!blank(c?.claim)) add(9, W5_CLAIM({ claim: line1(c.claim), at: c.at || '-' }), c.at ?? '', 'claim')
   // class 2: differences W3 decided to align [s9.7]
   for (const d of compare?.w3?.diffs ?? []) if (d.decision === 'align') add(2, W5_ALIGN({ diff: d.diff, basis: d.basis }), '', 'align')
   // class 3: smell answers
@@ -575,7 +672,7 @@ function buildRoots(structure, compare, smells, smellQs) {
     })
   const touches = r => moved.size > 0 && [...words(r.where), ...words(r.question)].some(w => moved.has(w))
   return roots.map((r, i) => ({ ...r, order: i, touched: touches(r) }))
-    .sort((a, b) => a.rootClass - b.rootClass || (b.touched - a.touched) || a.order - b.order)
+    .sort((a, b) => rankOf(a.rootClass) - rankOf(b.rootClass) || (b.touched - a.touched) || a.order - b.order)
     .map(({ touched, ...r }) => r)
 }
 
@@ -680,8 +777,9 @@ function pathsTo(n, cap = 12) {
 }
 
 // ---- W6 one node: what is handed down (section 6) ----
-const w6Input = (shared, n) => ({
-  shared, id: n.id, where: n.where || '', question: n.question,
+const w6Input = (shared, n, again = '') => ({
+  shared, id: n.id, where: n.where || '', question: n.question, again,
+  lenses: LENS.W6[n.rootClass] ?? '',   // stage 7: the lenses of its root's class (children inherit the class)
   // one item per path from a root: its ancestors' question, answer and premises, one line each
   paths: pathsTo(n).map((p, i) => `Path ${i + 1}:\n` + p.map(a => `- Q: ${line1(a.question)} | A: ${line1(a.result?.answer) || '(not answered)'} | assumed: ${(a.result?.premises ?? []).join('; ') || 'nothing'}`).join('\n')),
   parentLocs: [...new Set(n.parents.map(id => byId.get(id)).filter(Boolean).flatMap(p => [
@@ -812,7 +910,7 @@ function clustersToLevel({ clusters, dropped }, depth, rootClass) {
     members.forEach(m => { m.outcome = 'dug' })
     const weight = members.map(m => m.weight).sort((a, b) => (WEIGHT[b] ?? 0) - (WEIGHT[a] ?? 0))[0] ?? 'small'
     const ps = parents.map(id => byId.get(id)).filter(Boolean)
-    level.push(newNode({ key: keys[0], aliases: keys.slice(1), question, parents, depth, weight, rootClass: rootClass ?? Math.min(...ps.map(p => p.rootClass ?? 8)),
+    level.push(newNode({ key: keys[0], aliases: keys.slice(1), question, parents, depth, weight, rootClass: rootClass ?? firstClass(ps.map(p => p.rootClass ?? 8)),
       rootIdx: ps.length ? Math.min(...ps.map(rootIdx)) : 0, where: [...new Set(members.map(m => m.where).filter(Boolean))].join('; ') }))
   }
   // merge the classes the whole answer hits before placing any group, so which nodes a group hits does not depend on
@@ -829,7 +927,7 @@ function allot(level, remaining) {
   const byWeight = (a, b) => (WEIGHT[b.weight] ?? 0) - (WEIGHT[a.weight] ?? 0) ||
     ((b.parents.length > 1) - (a.parents.length > 1)) || a.order - b.order
   if (level.every(n => !n.parents.length)) {
-    const sorted = level.slice().sort((a, b) => (a.rootClass ?? 0) - (b.rootClass ?? 0) || a.order - b.order)
+    const sorted = level.slice().sort((a, b) => rankOf(a.rootClass ?? 1) - rankOf(b.rootClass ?? 1) || a.order - b.order)
     return { kept: sorted.slice(0, remaining), cut: sorted.slice(remaining) }
   }
   const parentOrder = (a, b) => rootIdx(byId.get(a)) - rootIdx(byId.get(b)) || byId.get(a).order - byId.get(b).order
@@ -869,10 +967,12 @@ const sameFile = f => {   // thread and justifications in the record dir are rew
 function reuse(n) {
   const old = priorByKey.get(n.key)
   const r = old && { status: old.resultStatus, answer: old.answer, files: old.files ?? [], urls: old.urls ?? [],
-    evidence: old.evidence ?? [], parts: old.parts ?? [], premises: old.premises ?? [], children: old.children ?? [] }
+    evidence: old.evidence ?? [], parts: old.parts ?? [], premises: old.premises ?? [], children: old.children ?? [],
+    worth: old.worth ?? null, findingKind: old.findingKind ?? null, locations: old.locations ?? [], cost: old.cost ?? '',
+    finePremise: old.finePremise ?? '' }
   if (!r || !['leaf', 'unverified', 'undecided', 'split'].includes(r.status)) return null
   // the files its evidence quotes count as read too (a node may quote a file it did not list in files)
-  const read = [...r.files, ...r.evidence.map(pathOf).filter(Boolean)]
+  const read = [...r.files, ...[...r.evidence, ...r.locations].map(pathOf).filter(Boolean)]
   const files = considered(read)
   // the diff file shows hunks of files the node may not list: reuse only when the diff body is the same
   // and only the previous run's first diff: its second diff told what came after the run before it
@@ -890,15 +990,41 @@ function reuse(n) {
   // the refuter's verdict carries over only when the files its evidence quotes are the same too
   const vread = (old.verdict?.evidence ?? []).map(pathOf).filter(Boolean)
   const keepVerdict = considered(vread).every(sameFile) && vread.filter(isDiff).every(sameDiff)
-  return { result: { ...r, files: r.files.map(toNow), parts: r.parts.map(toNow), evidence: r.evidence.map(atNow) },
+  return { result: { ...r, files: r.files.map(toNow), parts: r.parts.map(toNow), evidence: r.evidence.map(atNow), locations: r.locations.map(atNow) },
     verdict: keepVerdict && old.verdict ? { ...old.verdict, evidence: (old.verdict.evidence ?? []).map(atNow) } : null }
 }
-function reuseGeneral(kind) {   // [s7.7] only when the same kind sentence was asked
-  if (!PRIOR?.general || PRIOR.kind !== kind || PRIOR.general.notFound || blank(PRIOR.general.text)) return null
+function reuseGeneral(kind, purposeText) {   // [s7.7] only when the same kind sentence and the same purpose were asked
+  if (!PRIOR?.general || PRIOR.kind !== kind || PRIOR.purpose?.purpose !== purposeText || PRIOR.general.notFound || blank(PRIOR.general.text)) return null
   return PRIOR.general
 }
 
 // ---- run ----
+// stage 1: the purpose with the means taken out. The kind sentence and the purpose go to the blind reader of stage 3,
+// so code looks for the words of the means in them and asks once more if any leaked (decision 3 of the redesign).
+// A word of the means: one with a hyphen, an underscore, a digit, a slash, a dot or an inner capital (a name of this
+// PR's choice), or a run of four or more kanji or katakana
+phase('Purpose')
+const meansWords = means => [...new Set(means.flatMap(m => [
+  ...(String(m ?? '').match(/[A-Za-z0-9][\w./-]*/g) ?? []).map(w => w.replace(/[./-]+$/, ''))
+    .filter(w => w.length >= 3 && (/[-_\d/.]/.test(w) || /[a-z][A-Z]/.test(w))),
+  ...(String(m ?? '').match(/[\p{Script=Han}\p{Script=Katakana}ー]{4,}/gu) ?? []),
+]))]
+const leaksOf = r => {
+  if (!r) return []
+  const text = `${r.purpose ?? ''}\n${r.kind ?? ''}`.toLowerCase()
+  return meansWords(r.means ?? []).filter(w => text.includes(w.toLowerCase()))
+}
+const askPurpose = (leaked, label) => ask('Purpose', label, PURPOSE_PROMPT({ prFiles: PR_FILES_TEXT, lenses: LENS.Purpose, leaked }),
+  { schema: PURPOSE, phase: 'Purpose', ...M('Purpose') })
+let purpose = await askPurpose([], 'Purpose')
+let leaked = leaksOf(purpose)
+if (leaked.length) {
+  const again = await askPurpose(leaked, 'Purpose again')
+  if (again) { purpose = again; leaked = leaksOf(again) }
+}
+const KIND = purpose?.kind ?? ''
+const PURPOSE_TEXT = purpose?.purpose || '(not available: the purpose stage returned nothing)'
+
 phase('Structure')
 const structure = await ask('W1', 'W1 structure', W1_PROMPT({ prFiles: PR_FILES_TEXT, extraSmells: LIMITS.extraSmells,
   smellQuestions: SMELL_QUESTIONS.map((q, i) => `(${i + 1}) ${q}`) }),
@@ -910,30 +1036,53 @@ phase('Compare')
 const extra = (structure.extraSmells ?? []).filter(x => !blank(x?.question))
 const extraKept = extra.slice(0, Math.max(0, LIMITS.extraSmells))
 for (const x of extra.slice(extraKept.length)) notSeen.extraSmellsCut.push(x.question)
-const smellQs = [...SMELL_QUESTIONS, ...extraKept.map(x => x.question)]
+// stage 5: the lens eyes. Fixed eyes always; privilege only when prep found identity or permission lines, standards
+// only when the structure names two standards or more
+const standards = (structure.standards ?? []).filter(x => !blank(x))
+const EYES = [
+  ['rules', () => EYE_RULES({})],
+  ['prior', () => EYE_PRIOR({ prior: PRIOR_FOR_EYE })],
+  ['minimal', () => EYE_MINIMAL({ purpose: PURPOSE_TEXT, lines: LINES_TEXT })],
+  ['hygiene', () => EYE_HYGIENE({})],
+  ['ratio', () => EYE_RATIO({ lines: LINES_TEXT })],
+  ['tests', () => EYE_TESTS({ deleted: DELETED_TESTS })],
+  ...(IDENTITY.length ? [['privilege', () => EYE_PRIVILEGE({ signals: IDENTITY })]] : []),
+  ...(standards.length >= 2 ? [['standards', () => EYE_STANDARDS({ standards })]] : []),
+].map(([name, text]) => ({ name, text: text() }))
+// one list for the fixed smells, W1's extra smells and the eyes: S1, S2 ... in this order. An eye's question is its
+// first line (the root question and the refuter see it)
+const smellQs = [...SMELL_QUESTIONS, ...extraKept.map(x => x.question), ...EYES.map(e => `Lens eye ${e.name}: ${line1(e.text)}`)]
+const smellEye = [...SMELL_QUESTIONS.map(() => null), ...extraKept.map(() => null), ...EYES.map(e => e.name)]
 
-const askW2 = (kind, hidden, label) => {
+// stage 3: the blind reader gets the kind sentence and the purpose sentence only, never the means, the PR or the rules
+const askW2 = (hidden, label) => {
   const judge = A.roles?.W2 ?? A.blindJudge
   // a plugin's blind-judge agent keeps its own model; the headless role and the default agent take the W2fallback model
   const opts = { schema: GENERAL, phase: 'Compare', agentType: judge ?? 'general-purpose',
     ...(A.blindJudge && !A.roles?.W2 ? {} : M('W2fallback')) }
-  const body = W2_PROMPT({ kind, hidden, noTools: !judge })
-  // [s7.5] the blind judge gets no shared rules, diff, PR text or repository name: only the kind sentence
+  const body = W2_PROMPT({ kind: KIND, purpose: PURPOSE_TEXT, hidden, noTools: !judge, lenses: LENS.W2 })
+  // [s7.5] the blind judge gets no shared rules, diff, PR text or repository name: only the kind and purpose sentences
   return ledger.track('W2', label, () => agent(body, { label, ...opts }), opts.model)
 }
 let GENERAL_TEXT = ''
-const askW3 = (label, general) => ask('W3', label, W3_PROMPT({ prFiles: PR_FILES_TEXT, structure: structure.structure, general: general.general }),
-  { schema: COMPARE, phase: 'Compare', ...M('W3') })
+const designList = general => (general?.questionStands === false ? [] : (general?.design ?? []))
+  .map(d => `${d.id}: ${d.element} (adds: ${d.adds || '-'}; removes: ${d.removes || '-'})`)
+const askW3 = (label, general) => ask('W3', label, W3_PROMPT({ prFiles: PR_FILES_TEXT, structure: structure.structure, general: general.general,
+  design: designList(general), means: purpose?.means ?? [], lenses: LENS.W3 }), { schema: COMPARE, phase: 'Compare', ...M('W3') })
 
 const [compare, smells] = await parallel([
   async () => {
     if (structure.noParts) { ledger.skipped('W2', 'W2 general', 'noParts'); ledger.skipped('W3', 'W3 compare', 'noParts'); return null }
-    const old = reuseGeneral(structure.kind)
+    if (!purpose) { ledger.skipped('W2', 'W2 general', 'Purpose returned nothing'); ledger.skipped('W3', 'W3 compare', 'Purpose returned nothing'); return null }
+    const old = reuseGeneral(KIND, PURPOSE_TEXT)
     // a reused text keeps the questions that produced it (it may be the answer to the second question)
-    const questions = old && Array.isArray(old.questions) && old.questions.length ? [...old.questions] : [W2_PROMPT({ kind: structure.kind, hidden: [], noTools: false })]
+    const questions = old && Array.isArray(old.questions) && old.questions.length ? [...old.questions]
+      : [W2_PROMPT({ kind: KIND, purpose: PURPOSE_TEXT, hidden: [], noTools: false, lenses: '' })]
     let general = null
-    if (old) { ledger.reused('W2', 'W2 general'); general = { general: old.text, notFound: false, reused: true } }
-    else general = await askW2(structure.kind, [], 'W2 general')
+    if (old) {
+      ledger.reused('W2', 'W2 general')
+      general = { general: old.text, notFound: false, reused: true, design: old.design ?? [], questionStands: old.questionStands ?? true, whyQuestion: old.whyQuestion ?? '' }
+    } else general = await askW2([], 'W2 general')
     const hidden = (structure.hiddenChoices ?? []).filter(x => !blank(x))
     let w3 = null
     let asked2 = !!old?.askedAgain
@@ -944,9 +1093,9 @@ const [compare, smells] = await parallel([
     // step 8: too generic to compare (or nothing came) -> ask the same judge once more with the hidden-choice questions
     if (general && (general.notFound || w3?.comparable === false) && hidden.length) {
       asked2 = true
-      const q2 = W2_PROMPT({ kind: structure.kind, hidden, noTools: false })
+      const q2 = W2_PROMPT({ kind: KIND, purpose: PURPOSE_TEXT, hidden, noTools: false, lenses: '' })
       if (!questions.includes(q2)) questions.push(q2)
-      const again = await askW2(structure.kind, hidden, 'W2 general again')
+      const again = await askW2(hidden, 'W2 general again')
       if (again && !again.notFound) {
         general = again
         GENERAL_TEXT = again.general
@@ -958,16 +1107,21 @@ const [compare, smells] = await parallel([
     if (notFound && !w3) ledger.skipped('W3', 'W3 compare', general ? 'general structure not found' : 'W2 returned nothing')
     return { general, w3: notFound ? null : w3, w3Raw: w3, notFound, why, asked2, questions }
   },
-  () => parallel(smellQs.map((q, i) => () =>
-    ask('W4', `W4 smell ${i + 1}`, W4_PROMPT({ prFiles: PR_FILES_TEXT, question: q, notAFinding: NOT_A_FINDING }), { schema: SMELL, phase: 'Compare', ...M('W4') }))),
+  () => parallel(smellQs.map((q, i) => () => smellEye[i]
+    ? ask('W4', `W4 eye ${smellEye[i]}`, EYE_PROMPT({ prFiles: PR_FILES_TEXT, eye: EYES.find(e => e.name === smellEye[i]).text,
+      lenses: LENS.eyes[smellEye[i]] ?? '', notAFinding: NOT_A_FINDING, findingFields: FINDING_FIELDS_TEXT }), { schema: SMELL, phase: 'Compare', ...M('W4') })
+    : ask('W4', `W4 smell ${i + 1}`, W4_PROMPT({ prFiles: PR_FILES_TEXT, question: q, notAFinding: NOT_A_FINDING, findingFields: FINDING_FIELDS_TEXT }),
+      { schema: SMELL, phase: 'Compare', ...M('W4') }))),
 ])
 if (!GENERAL_TEXT) GENERAL_TEXT = '(not available: the general structure was not found or not asked)'
-
-const rootSpecs = buildRoots(structure, compare, smells ?? [], smellQs)
-const roots = rootSpecs.map((r, i) => newNode({ question: r.question, rootClass: r.rootClass, rootIdx: i, where: r.where, origin: r.origin, weight: 'big' }))
+const quietEyes = EYES.filter(e => smells?.[smellEye.indexOf(e.name)]?.verdict === 'none').map(e => e.name)
 
 phase('Dig')
-const shared = W6_SHARED({ prFiles: PR_FILES_TEXT, structure: STRUCTURE_TEXT, general: GENERAL_TEXT, notAFinding: NOT_A_FINDING })
+const rootSpecs = buildRoots(structure, compare, smells ?? [], smellQs, purpose)
+const roots = rootSpecs.map((r, i) => newNode({ question: r.question, rootClass: r.rootClass, rootIdx: i, where: r.where, origin: r.origin, weight: 'big' }))
+
+const shared = W6_SHARED({ prFiles: PR_FILES_TEXT, structure: STRUCTURE_TEXT, general: GENERAL_TEXT, notAFinding: NOT_A_FINDING,
+  purpose: PURPOSE_TEXT, departure: lensText(LENS_TABLE.W6_SHARED), findingFields: FINDING_FIELDS_TEXT })
 let level = roots
 let dry = 0
 const gapRounds = []
@@ -1025,7 +1179,7 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
     selfMade: (structure.selfMade ?? []).map(s => `${s.part} [${s.files}]`),
     smells: (smells ?? []).map((s, i) => `(${i + 1}) ${s ? `${s.verdict}: ${line1(s.answer)}` : 'not returned'}`),
     tree: nodes.map(n => `- ${n.id} [${n.status}] ${line1(n.question)} => ${line1(n.result?.answer)}`),
-    unreadChanged, unread: A.unread ?? [], round, oddRound: round % 2 === 1,
+    unreadChanged, unread: A.unread ?? [], round, oddRound: round % 2 === 1, quietEyes,
   }), { schema: GAPS, phase: 'Dig', ...M('W8') })
   if (!gaps) { gapRounds.push({ round, returned: false }); break }   // counted as null by the ledger: the check did not run
   const gapItems = (gaps.gaps ?? []).filter(g => !blank(g.question)).map(g => ({ id: `q${++nextChild}`, parent: null, question: g.question, weight: 'big', where: g.where, why: g.why }))
@@ -1050,19 +1204,37 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
   dry = level.length ? 0 : dry + 1
 }
 
+// ---- stage 9: every node W6 answered "unverified" (not the ones the cap or a null left unanswered) is dug once more,
+// outside the node cap, with its earlier answer as the lead. It may not split: a split answer is not taken (the
+// earlier answer stays). Its ancestors keep dependsOnUnverified: what they rested on was unsure when they answered ----
+const redigTargets = nodes.filter(n => n.result?.status === 'unverified' && n.status === 'unverified')
+const redig = { asked: redigTargets.length, settled: 0 }
+const redone = await parallel(redigTargets.map(n => () => ask('Redig', `Redig ${n.id}`,
+  W6_PROMPT(w6Input(shared, n, `${n.result.answer ?? ''}\nAssumed without checking: ${(n.result.premises ?? []).join('; ') || 'nothing'}`)),
+  { schema: NODE, phase: 'Dig', ...M('Redig') })))
+redigTargets.forEach((n, i) => {
+  const r = redone[i]
+  if (!r) return
+  if (r.status === 'split') { repairs.redigSplit.push(n.id); return }
+  n.result = r; n.status = r.status; n.redug = true; n.reused = false; n.priorVerdict = null
+  if (!UNSURE.includes(r.status)) redig.settled++
+})
+
 // ---- quote check (section 3). The script cannot read files, so one agent per batch runs my-turn-prep.py --quotes,
 // whose code compares each quote with the line it names. Evidence whose quote is not there is dropped; a leaf or a
 // smell answer left with none is unverified and is not refuted. Evidence not checked is kept and counted ----
 phase('Quotes')
 const QC = P.quoteCheck   // prep: { runPython, prep } (the plugin's scripts, absolute paths)
 const checkable = e => e.line > 0 && !blank(e.quote) && !blank(e.path) && !isUrl(e.path)
+// the evidence, and (stage 10) the locations of a finding: a location whose quote fails is dropped and counted, and
+// does not make its node unverified (the evidence decides that)
 const holders = [
-  ...nodes.filter(n => n.result?.evidence?.length).map(n => ({ id: n.id, node: n, owner: n.result })),
-  ...(smells ?? []).map((s, i) => ({ id: `S${i + 1}`, smell: s, owner: s })).filter(h => h.owner?.evidence?.length),
-]
+  ...nodes.filter(n => n.result).map(n => ({ id: n.id, node: n, owner: n.result })),
+  ...(smells ?? []).map((s, i) => ({ id: `S${i + 1}`, smell: s, owner: s })).filter(h => h.owner),
+].flatMap(h => ['evidence', 'locations'].map(field => ({ ...h, field }))).filter(h => h.owner[h.field]?.length)
 const quoteKey = e => `${e.path}\n${e.line}\n${e.quote}`
 const qid = new Map()   // quoteKey -> { id, path, line, quote, sum }
-for (const h of holders) for (const e of h.owner.evidence) {
+for (const h of holders) for (const e of h.owner[h.field]) {
   if (!checkable(e) || qid.has(quoteKey(e))) continue
   const id = `Q${qid.size + 1}`   // the id is in the sum too: a row copied under another id is garbled, not checked
   qid.set(quoteKey(e), { id, path: e.path, line: e.line, quote: e.quote, sum: fnv(`${id}\n${quoteKey(e)}`) })
@@ -1106,13 +1278,14 @@ else {
 }
 for (const h of holders) {
   const kept = []
-  for (const e of h.owner.evidence) {
+  for (const e of h.owner[h.field]) {
     const q = checkable(e) ? qid.get(quoteKey(e)) : null
-    if (q && missing.has(q.id)) quotes.dropped.push({ where: h.id, path: e.path, line: e.line, quote: e.quote, why: missing.get(q.id) })
+    if (q && missing.has(q.id)) quotes.dropped.push({ where: h.id, field: h.field, path: e.path, line: e.line, quote: e.quote, why: missing.get(q.id) })
     else kept.push(e)
   }
-  if (kept.length === h.owner.evidence.length) continue
-  h.owner.evidence = kept
+  if (kept.length === h.owner[h.field].length) continue
+  h.owner[h.field] = kept
+  if (h.field === 'locations') continue
   // what still supports it: a checked line quote, or a web page quote (not checked, so not dropped)
   if (kept.some(e => checkable(e) || (isUrl(e.path) && !blank(e.quote)))) continue
   if (h.node && h.node.status === 'leaf') {
@@ -1134,110 +1307,227 @@ const supported = ev => (ev ?? []).some(e => checkable(e) || (isUrl(e.path) && !
   s.verdict = 'unverified'; quotes.toUnverified.push(`S${i + 1}`); quotes.noQuote.push(`S${i + 1}`)
 })
 
-// ---- W9 fix options and riding along (steps 12, 13, 14) ----
-phase('Fix options')
-const leaves = nodes.filter(n => n.status === 'leaf' && n.result)
-LEAF_COUNT = leaves.length
+// ---- stage 11: the ledger of findings (code). Every leaf that says "fix", every node that stayed unverified or
+// undecided, and every root left without an answer (the cap, a null) is one item. Findings of the same kind that share
+// a place (the same path and line) fold into one, with their places joined; findings at different places are left to
+// stage 13. A leaf that says "fine" is not an item: stage 12 recounts it, and one that falls is reopened as an item ----
+phase('Refute')
+const locKey = e => `${norm(e.path)}:${e.line}`
+const placesOf = r => (r?.locations?.length ? r.locations : (r?.evidence ?? [])).filter(e => !blank(e?.path))
+const uniqPlaces = list => [...new Map(list.map(e => [isUrl(e.path) ? e.path : locKey(e), e])).values()]
+const rawItems = []
+for (const n of nodes) {
+  const r = n.result
+  if (!r) { if (!n.parents.length && !String(n.origin ?? '').startsWith('gap')) rawItems.push({ state: 'unverified', n }); continue }
+  if (n.status === 'split') continue
+  if (n.status === 'leaf') { if (r.worth === 'fix') rawItems.push({ state: 'finding', n }); else if (r.worth !== 'fine') rawItems.push({ state: 'unverified', n }); continue }
+  if (n.status === 'undecided') { rawItems.push({ state: 'undecided', n }); continue }
+  if (r.worth !== 'fine') rawItems.push({ state: 'unverified', n })
+}
+// union-find over the findings: same kind and one shared line place
+const up = rawItems.map((_, i) => i)
+const findUp = i => (up[i] === i ? i : (up[i] = findUp(up[i])))
+const firstAt = new Map()
+rawItems.forEach((x, i) => {
+  if (x.state !== 'finding') return
+  for (const e of placesOf(x.n.result)) {
+    if (!(e.line > 0) || isUrl(e.path)) continue
+    const k = `${x.n.result.findingKind ?? ''}\n${locKey(e)}`
+    if (firstAt.has(k)) up[findUp(i)] = findUp(firstAt.get(k)); else firstAt.set(k, i)
+  }
+})
+const ledgerItems = []
+const itemById = new Map()
+const newItem = fields => { const it = { id: `L${ledgerItems.length + 1}`, ...fields }; ledgerItems.push(it); itemById.set(it.id, it); return it }
+const byRoot = new Map()
+rawItems.forEach((x, i) => { const k = findUp(i); if (!byRoot.has(k)) byRoot.set(k, []); byRoot.get(k).push(x) })
+for (const group of byRoot.values()) {
+  const [head] = group, r = head.n.result
+  newItem({ state: head.state, findingKind: r?.findingKind ?? null, question: head.n.question,
+    claim: r ? String(r.answer ?? '') : `not answered: ${head.n.note || 'no answer'}`,
+    locations: uniqPlaces(group.flatMap(x => placesOf(x.n.result))),
+    evidence: group.flatMap(x => x.n.result?.evidence ?? []),
+    from: group.map(x => x.n.id), cost: [...new Set(group.map(x => x.n.result?.cost).filter(c => !blank(c)))].join('; '),
+    worth: r?.worth ?? null })
+}
+
+// ---- stage 12: refute. Every finding and every smell answer gets two refuters: one tries to prove a false positive,
+// the other builds the concrete failure scenario, or for a kind other than breakage the cost scenario. A "fine" leaf
+// gets the false-positive refuter and one that recounts the premise its "fine" rests on ----
 const quoted = list => (list ?? []).map(e => `${locOf(e)} :: ${e.quote}`)
-// ---- W10 refute: question, answer, what was checked and assumed only; no parent, no siblings ----
-// the claim each refuter tries to break ({{text}} of W10_PROMPT): a leaf's answer, a smell answer, a fix option or a group
+// the claim each refuter tries to break ({{text}} of W10_PROMPT)
 const bulletLines = xs => (xs.length ? xs.map(x => `- ${x}`).join('\n') : '- (none)')
 const leafClaim = (question, answer, files, urls, premises, evidence) => [`Question: ${question}`, `Answer: ${answer}`,
   `Checked: files ${files.join(', ') || '-'}; urls ${urls.join(', ') || '-'}`, `Assumed without checking: ${premises.join('; ') || 'nothing'}`,
   'Evidence:', bulletLines(evidence)].join('\n')
-const smellClaim = (question, verdict, answer, evidence) => [`Question: ${question}`, `Answer (${verdict}): ${answer}`, 'Evidence:', bulletLines(evidence)].join('\n')
-const fixClaim = (rung, fix, worldSolution, ground) => [`Fix option (${rung}): ${fix}`, `World's solution: ${worldSolution}`,
-  "It rests on these leaves' quotes:", bulletLines(ground)].join('\n')
-const groupClaim = (kind, members, why, fixes) => [`Group (${kind}): ${members}`, `Why: ${why}`, `Fixes: ${fixes.join('; ') || '(none)'}`].join('\n')
-// leaf and smell refuters need nothing from W9: they run while W9 searches
-for (const n of leaves) {
-  // carry over only a settled verdict of both refuters: an "unverifiable" or "suspected" one, and one from before there
-  // were two refuters (no lenses), is asked again
-  if (n.reused && ['stands', 'falls'].includes(n.priorVerdict?.verdict) && n.priorVerdict.lenses?.length === 2) { ledger.reused('W10', `W10 ${n.id}`); n.verdict = n.priorVerdict; continue }
-  targets.push({ kind: 'leaf', id: n.id, model: 'W10answers', evidence: n.result.evidence, text: leafClaim(n.question, n.result.answer ?? '',
-    n.result.files ?? [], n.result.urls ?? [], n.result.premises ?? [], quoted(n.result.evidence)) })
+const nodeClaim = n => leafClaim(n.question, n.result.answer ?? '', n.result.files ?? [], n.result.urls ?? [], n.result.premises ?? [], quoted(n.result.evidence))
+const itemClaim = it => [nodeClaim(byId.get(it.from[0])), `Kind: ${it.findingKind ?? '-'}`, `Places: ${it.locations.map(locOf).join(', ') || '-'}`,
+  `Cost claimed: ${it.cost || '-'}`, ...(it.from.length > 1 ? [`The same finding also came from ${it.from.slice(1).join(', ')}`] : [])].join('\n')
+const smellClaim = (question, verdict, answer, evidence, kind) => [`Question: ${question}`, `Answer (${verdict}${kind ? `, ${kind}` : ''}): ${answer}`, 'Evidence:', bulletLines(evidence)].join('\n')
+const breakage = kind => !kind || kind === 'breakage' || kind === 'none'
+// carry over only a settled verdict of both refuters of a one-node finding: an "unverifiable" or "suspected" one, and
+// one from before there were two refuters (no lenses), is asked again
+const priorOf = n => (n?.reused && ['stands', 'falls'].includes(n.priorVerdict?.verdict) && n.priorVerdict.lenses?.length === 2 ? n.priorVerdict : null)
+for (const it of ledgerItems) {
+  if (it.state !== 'finding') continue
+  const n = byId.get(it.from[0]), old = it.from.length === 1 ? priorOf(n) : null
+  if (old) { ledger.reused('W10', `W10 ${it.id}`); it.verdict = old; continue }
+  targets.push({ kind: 'item', id: it.id, second: breakage(it.findingKind) ? 'trace' : 'cost', evidence: it.evidence, text: itemClaim(it) })
+}
+const fineLeaves = nodes.filter(n => n.status === 'leaf' && n.result?.worth === 'fine')
+for (const n of fineLeaves) {
+  const old = priorOf(n)
+  if (old) { ledger.reused('W10', `W10 ${n.id}`); n.verdict = old; continue }
+  targets.push({ kind: 'fine', id: n.id, second: 'recount', evidence: n.result.evidence,
+    text: `${nodeClaim(n)}\nPremise behind "fine": ${n.result.finePremise || '(not named)'}` })
 }
 ;(smells ?? []).forEach((s, i) => {
   if (!s || quotes.toUnverified.includes(`S${i + 1}`)) return   // every quote failed: unverified, not refuted
-  targets.push({ kind: 'smell', id: `S${i + 1}`, model: 'W10answers', evidence: s.evidence, text: smellClaim(smellQs[i], s.verdict, s.answer, quoted(s.evidence)) })
+  targets.push({ kind: 'smell', id: `S${i + 1}`, second: s.verdict === 'smell' && !breakage(s.findingKind) ? 'cost' : 'trace', evidence: s.evidence,
+    text: smellClaim(smellQs[i], s.verdict, s.answer, quoted(s.evidence), s.verdict === 'smell' ? s.findingKind : '') })
 })
-// a leaf or a smell answer gets two refuters with different lenses: one tries to prove a false positive, the other
-// constructs the concrete scenario. A fix option or a group gets the first only
-const lensOf = (t, trace) => () => ask('W10', `W10 ${t.id}${trace ? ' trace' : ''}`, W10_PROMPT({ prFiles: PR_FILES_TEXT,
-  quoted: t.kind === 'leaf' || t.kind === 'smell', trace, notAFinding: NOT_A_FINDING, text: t.text }),
-  { schema: trace ? TRACE : VERDICT, phase: 'Refute', ...M(t.model) })
-const refute = t => (t.kind === 'leaf' || t.kind === 'smell')
-  ? () => parallel([lensOf(t, false), lensOf(t, true)]).then(votes => combineVotes(votes, t.evidence))
-  : lensOf(t, false)
+const lensOf = (t, lens) => () => ask('W10', `W10 ${t.id}${lens === 'refute' ? '' : ` ${lens}`}`, W10_PROMPT({ prFiles: PR_FILES_TEXT,
+  trace: lens === 'trace' || lens === 'cost', cost: lens === 'cost', recount: lens === 'recount',
+  lenses: lens === 'refute' ? LENS.W10refute : lens === 'recount' ? LENS.W10recount : '', notAFinding: NOT_A_FINDING, text: t.text }),
+  { schema: lens === 'trace' || lens === 'cost' ? TRACE : VERDICT, phase: 'Refute', ...M('W10answers') })
+const refute = t => () => parallel([lensOf(t, 'refute'), lensOf(t, t.second)]).then(votes => combineVotes(votes, t.evidence, t.second))
 // how the two votes combine, copied from bug-hunt.js
 // https://github.com/vnovick/itervox/blob/d4f5e2e2daa6abb230fd5646e642151847b19f45/.claude/workflows/bug-hunt.js#L243-L275
 // (Apache-2.0, https://github.com/vnovick/itervox/blob/d4f5e2e2daa6abb230fd5646e642151847b19f45/LICENSE ; no NOTICE file
 // at that commit). Changed: a vote is "falls" or "stands" instead of refuted true or false; an "unverifiable" vote, a
-// null one and a trace "stands" with no scenario are not votes; too few votes give "unverifiable" (our word for
-// unverified) instead of suspected; the leak-lens cap is dropped; a trace vote that the answer claims a problem with no
-// quote that is a line or a web page gives "unverifiable" (no line and quote, no finding) unless both refuters let it
-// fall (an unsupported claim both refute is gone, so its fixes go); one verdict object is
-// returned instead of pushes to three lists. Both votes stay in lenses, and their evidence is joined
-function combineVotes([refuteVote, traceVote], evidence) {
-  if (!refuteVote && !traceVote) return null   // both null: the ledger counts them, as with one refuter before
-  const lenses = [['refute', refuteVote], ['trace', traceVote]].map(([lens, v]) => ({ lens, verdict: v?.verdict ?? null,
-    reason: v?.reason ?? 'returned nothing', ...(lens === 'trace' ? { problem: !!v?.problem, scenario: v?.scenario ?? '' } : {}) }))
+// null one, a trace "stands" with no scenario and a cost "stands" with no cost are not votes; too few votes give
+// "unverifiable" (our word for unverified) instead of suspected; the leak-lens cap is dropped; a trace or cost vote that
+// the answer claims a problem with no quote that is a line or a web page gives "unverifiable" (no line and quote, no
+// finding) unless both refuters let it fall (an unsupported claim both refute is gone); the second lens may be the
+// trace, the cost or the recount lens (stage 12); one verdict object is returned instead of pushes to three lists. Both
+// votes stay in lenses, and their evidence is joined
+function combineVotes([refuteVote, secondVote], evidence, second = 'trace') {
+  if (!refuteVote && !secondVote) return null   // both null: the ledger counts them, as with one refuter before
+  const lenses = [['refute', refuteVote], [second, secondVote]].map(([lens, v]) => ({ lens, verdict: v?.verdict ?? null,
+    reason: v?.reason ?? 'returned nothing',
+    ...(lens === 'trace' || lens === 'cost' ? { problem: !!v?.problem, scenario: v?.scenario ?? '', cost: v?.cost ?? '' } : {}) }))
   const out = verdict => ({ verdict, reason: lenses.map(l => `${l.lens}: ${l.verdict ?? 'null'} - ${line1(l.reason)}`).join(' | '),
-    evidence: [...(refuteVote?.evidence ?? []), ...(traceVote?.evidence ?? [])], scenario: traceVote?.scenario ?? '', lenses })
-  const votes = [refuteVote, traceVote].filter(v => v && (v.verdict === 'falls' || (v.verdict === 'stands' && (v !== traceVote || !blank(v.scenario)))))
+    evidence: [...(refuteVote?.evidence ?? []), ...(secondVote?.evidence ?? [])], scenario: secondVote?.scenario ?? '',
+    cost: secondVote?.cost ?? '', lenses })
+  const counts = v => v.verdict === 'falls' || (v.verdict === 'stands' && (v !== secondVote || second === 'recount' ||
+    (second === 'trace' ? !blank(v.scenario) : !blank(v.cost))))
+  const votes = [refuteVote, secondVote].filter(v => v && counts(v))
   const refutations = votes.filter(v => v.verdict === 'falls')
   // Fail closed: "confirmed" requires BOTH verdicts. A lone
   // non-refutation is not survival of the panel.
   if (votes.length < 2) return out('unverifiable')
   if (refutations.length === votes.length) return out('falls')
-  if (traceVote?.problem && !supported(evidence)) return out('unverifiable')   // no line and quote, no finding
+  if (second !== 'recount' && secondVote?.problem && !supported(evidence)) return out('unverifiable')   // no line and quote, no finding
   if (refutations.length > 0) return out('suspected')   // Split vote -> suspected
   return out('stands')
 }
-const fixesStarted = ask('W9', 'W9 fixes', W9_PROMPT({
-  prFiles: PR_FILES_TEXT, structure: STRUCTURE_TEXT, limit: LIMITS.fixes,
-  leaves: leaves.map(n => `${n.id}: ${line1(n.question)} => ${String(n.result.answer ?? '').replace(/\n+/g, ' ')} | ${(n.result.evidence ?? []).map(locOf).join(', ')}`),
+const answerVerdicts = await parallel(targets.map(refute))
+targets.forEach((t, i) => { t.verdict = answerVerdicts[i] })
+for (const t of targets) {
+  if (t.kind === 'item') itemById.get(t.id).verdict = t.verdict
+  if (t.kind === 'fine') byId.get(t.id).verdict = t.verdict
+}
+// a "fine" leaf whose recount fell, or split the refuters, is reopened: it becomes an item, shown but never a draft
+for (const n of fineLeaves) {
+  if (!['falls', 'suspected'].includes(n.verdict?.verdict)) continue
+  newItem({ state: 'reopened', findingKind: n.result.findingKind ?? null, question: n.question, claim: String(n.result.answer ?? ''),
+    locations: uniqPlaces(placesOf(n.result)), evidence: n.result.evidence ?? [], from: [n.id], cost: n.result.cost ?? '',
+    worth: 'fine', reopenedBecause: n.verdict.reason, verdict: n.verdict })
+}
+for (const it of ledgerItems) if (it.verdict === undefined) it.verdict = null   // unverified and undecided items are not refuted
+// a leaf's verdict, for the record: the verdict of the one item it came from
+for (const it of ledgerItems) for (const id of it.state === 'finding' ? it.from : []) byId.get(id).verdict = it.verdict
+
+// ---- stage 13: one agent sees every item and the refuters' verdicts, and draws the lines. Code checks every route:
+// each id exactly one entry, folds into an existing item, a drop names its rule or fell, details are only what a
+// part's specification settles, and a draft is a design-level finding that stands with a scenario or a cost ----
+const itemLine = it => `${it.id} [${it.findingKind ?? '-'}; ${it.state}; refute: ${it.verdict?.verdict ?? 'not refuted'}] ${line1(it.claim)}` +
+  ` | at ${it.locations.map(locOf).join(', ') || '-'} | cost: ${it.verdict?.cost || it.cost || '-'} | scenario: ${line1(it.verdict?.scenario) || '-'}`
+const lines = ledgerItems.length
+  ? await ask('Lines', 'Lines', LINES_PROMPT({ prFiles: PR_FILES_TEXT, lenses: LENS.Lines, items: ledgerItems.map(itemLine), notAFinding: NOT_A_FINDING }),
+    { schema: LINES, phase: 'Lines', ...M('Lines') })
+  : (ledger.skipped('Lines', 'Lines', 'no items in the ledger'), null)
+const RL = repairs.lines
+const routeOf = new Map()
+if (ledgerItems.length && !lines) RL.allReport = true
+for (const x of lines?.items ?? []) {
+  const id = String(x?.id ?? '').trim()
+  if (!itemById.has(id)) { RL.unknown.push(id); continue }
+  if (routeOf.has(id)) { RL.duplicate.push(id); continue }
+  routeOf.set(id, { label: x.label ?? '', level: x.level ?? 'design', route: x.route ?? 'report', into: String(x.into ?? '').trim(), why: x.why ?? '', rule: x.rule ?? '' })
+}
+for (const it of ledgerItems) {
+  if (routeOf.has(it.id)) continue
+  if (lines) RL.missing.push(it.id)
+  routeOf.set(it.id, { label: '', level: 'design', route: 'report', into: '', why: lines ? 'no line drawn: Lines did not return this id' : 'no line drawn: Lines returned nothing', rule: '' })
+}
+const toReport = (it, list, why) => { const r = routeOf.get(it.id); list.push(it.id); r.route = 'report'; r.why = `${why}${r.why ? ` (was: ${line1(r.why)})` : ''}` }
+for (const it of ledgerItems) {
+  const r = routeOf.get(it.id)
+  if (r.route === 'fold') {   // follow the chain to an item that is not folded; an unknown target, itself or a loop is shown on its own
+    const seenIds = new Set([it.id])
+    let to = r.into
+    while (itemById.has(to) && !seenIds.has(to) && routeOf.get(to).route === 'fold') { seenIds.add(to); to = routeOf.get(to).into }
+    if (!itemById.has(to) || seenIds.has(to)) toReport(it, RL.badFold, `fold target ${r.into || '(none)'} is not an item`)
+    else r.into = to
+  }
+  if (r.route === 'drop' && blank(r.rule) && it.verdict?.verdict !== 'falls') toReport(it, RL.dropNoRule, 'dropped without naming a rule while the refuters did not let it fall')
+  if (r.level === 'detail' && ['upkeep', 'self-made', 'removable'].includes(it.findingKind)) { RL.detailToDesign.push(it.id); r.level = 'design' }
+  if (r.route === 'draft' && !(it.state === 'finding' && r.level === 'design' && it.verdict?.verdict === 'stands' &&
+      (!blank(it.verdict?.scenario) || !blank(it.verdict?.cost)))) toReport(it, RL.draftToReport, 'not a draft: a draft is a design finding that stands with a scenario or a cost')
+}
+for (const it of ledgerItems) Object.assign(it, routeOf.get(it.id))
+
+// ---- stage 14: W9 fix options on the finding ids (steps 12, 13, 14). A fix points at its items by id and does not
+// rewrite them, so an item stays when its fix falls ----
+phase('Fix options')
+const fixItems = ledgerItems.filter(it => ['finding', 'reopened'].includes(it.state) && ['draft', 'report'].includes(it.route) && it.verdict?.verdict !== 'falls')
+const fixItemIds = new Set(fixItems.map(it => it.id))
+LEAF_COUNT = fixItems.length
+const fixesRaw = await ask('W9', 'W9 fixes', W9_PROMPT({
+  prFiles: PR_FILES_TEXT, structure: STRUCTURE_TEXT, limit: LIMITS.fixes, lenses: LENS.W9,
+  items: fixItems.map(it => `${it.id} [${it.findingKind ?? '-'}]: ${String(it.claim).replace(/\n+/g, ' ')} | ${it.locations.map(locOf).join(', ') || '-'}`),
   diffs: (compare?.w3?.diffs ?? []).map(d => `${d.diff} => ${d.decision}`),
 }), { schema: FIXES, phase: 'Fix options', ...M('W9') })
-// W9 is asked first so it does not queue behind the refuters on the concurrency cap
-const answerVerdicts = parallel(targets.map(refute))
-const fixesRaw = await fixesStarted
-const fixList = (fixesRaw?.fixes ?? []).map((f, i) => ({ id: `F${i + 1}`, ...f, leafIds: splitIds(f.leaves).filter(id => byId.has(id)) }))
+const fixList = (fixesRaw?.fixes ?? []).map((f, i) => ({ id: `F${i + 1}`, ...f, itemIds: splitIds(f.items).filter(id => fixItemIds.has(id)) }))
 const groupList = (fixesRaw?.groups ?? []).map((g, i) => ({ id: `G${i + 1}`, ...g }))
 let room = LIMITS.fixes
 const fixesKept = [], groupsKept = []
 for (const f of fixList) { if (room > 0) { fixesKept.push(f); room-- } else notSeen.fixesCut.push(f.fix) }
 for (const g of groupList) { if (room > 0) { groupsKept.push(g); room-- } else notSeen.fixesCut.push(`${g.kind}: ${g.members} (${g.why})`) }
 
-phase('Refute')
-const fixTargets = []
-for (const f of fixesKept) {
-  const ground = f.leafIds.map(id => byId.get(id)).flatMap(n => quoted(n.result?.evidence).map(x => `${n.id} ${x}`))
-  fixTargets.push({ kind: 'fix', id: f.id, model: 'W10fixes', text: fixClaim(f.rung, f.fix, f.worldSolution, ground) })
-}
-for (const g of groupsKept) {
-  fixTargets.push({ kind: 'group', id: g.id, model: 'W10fixes', text: groupClaim(g.kind, g.members, g.why,
-    fixesKept.map(f => `${f.id} ${line1(f.fix)}`)) })
-}
-const fixVerdicts = parallel(fixTargets.map(refute))   // runs alongside the answer verdicts still in flight
+// ---- stage 15: one refuter per fix (is it the world's practice) and per group (a verdict for every member) ----
+phase('Fix options')
+const fixClaim = (rung, fix, worldSolution, ground) => [`Fix option (${rung}): ${fix}`, `World's solution: ${worldSolution}`,
+  "It rests on these findings' quotes:", bulletLines(ground)].join('\n')
+const groupClaim = (kind, members, why, fixes) => [`Group (${kind}): ${members}`, `Why: ${why}`, `Fixes: ${fixes.join('; ') || '(none)'}`].join('\n')
+const fixTargets = [
+  ...fixesKept.map(f => ({ kind: 'fix', id: f.id, text: fixClaim(f.rung, f.fix, f.worldSolution,
+    f.itemIds.map(id => itemById.get(id)).flatMap(it => quoted(it.evidence).map(x => `${it.id} ${x}`))) })),
+  ...groupsKept.map(g => ({ kind: 'group', id: g.id, text: groupClaim(g.kind, g.members, g.why, fixesKept.map(f => `${f.id} ${line1(f.fix)}`)) })),
+]
+const fixVerdicts = await parallel(fixTargets.map(t => () => ask('W10', `W10 ${t.id}`, W10_FIX_PROMPT({ prFiles: PR_FILES_TEXT,
+  group: t.kind === 'group', lenses: LENS.W10fixes, text: t.text }), { schema: t.kind === 'group' ? GROUP_VERDICT : VERDICT, phase: 'Fix options', ...M('W10fixes') })))
+fixTargets.forEach((t, i) => { t.verdict = fixVerdicts[i] })
 targets.push(...fixTargets)
-const verdicts = [...await answerVerdicts, ...await fixVerdicts]
-targets.forEach((t, i) => { t.verdict = verdicts[i] })
-for (const t of targets) if (t.kind === 'leaf') byId.get(t.id).verdict = t.verdict
-const fallen = new Set(targets.filter(t => t.verdict?.verdict === 'falls').map(t => t.id))
-for (const n of leaves) if (n.verdict?.verdict === 'falls') fallen.add(n.id)
+const fixVerdictOf = id => fixTargets.find(t => t.id === id)?.verdict ?? null
 const removedFixes = []
-for (const f of fixesKept) {
-  const on = f.leafIds.filter(id => fallen.has(id))
-  if (fallen.has(f.id) || on.length) removedFixes.push({ id: f.id, fix: f.fix, why: fallen.has(f.id) ? 'refuted' : `rests on refuted leaves ${on.join(', ')}` })
-}
+for (const f of fixesKept) if (fixVerdictOf(f.id)?.verdict === 'falls') removedFixes.push({ id: f.id, fix: f.fix, why: 'refuted' })
 const removedIds = new Set(removedFixes.map(f => f.id))
 for (const g of groupsKept) {
-  const on = splitIds(g.members).filter(id => removedIds.has(id) || fallen.has(id))
-  if (fallen.has(g.id) || on.length) removedFixes.push({ id: g.id, fix: `${g.kind}: ${g.members}`, why: fallen.has(g.id) ? 'refuted' : `contains ${on.join(', ')}` })
+  const v = fixVerdictOf(g.id)
+  const fell = new Set((v?.members ?? []).filter(m => m?.verdict === 'falls').map(m => String(m.id).trim()))
+  const kept = splitIds(g.members).filter(id => !fell.has(id) && !removedIds.has(id) && (fixItemIds.has(id) || fixesKept.some(f => f.id === id)))
+  g.memberVerdicts = v?.members ?? []
+  g.dropped = splitIds(g.members).filter(id => !kept.includes(id))
+  g.members = kept.join(', ')
+  if (v?.verdict === 'falls' || kept.length < 2) removedFixes.push({ id: g.id, fix: `${g.kind}: ${g.members}`, why: v?.verdict === 'falls' ? 'refuted' : `fewer than two members left (dropped ${g.dropped.join(', ') || 'none'})` })
 }
+const goneIds = new Set(removedFixes.map(f => f.id))
+for (const it of ledgerItems) it.fixes = fixesKept.filter(f => !goneIds.has(f.id) && f.itemIds.includes(it.id)).map(f => f.id)
 
 // ---- counts (section 4) ----
+const countBy = (list, key) => list.reduce((acc, x) => { const k = key(x) ?? 'none'; acc[k] = (acc[k] ?? 0) + 1; return acc }, {})
 function countsOf() {
   const stages = ledger.stages
   return {
@@ -1251,6 +1541,10 @@ function countsOf() {
       refuteUnverifiable: targets.filter(t => t.verdict?.verdict === 'unverifiable').map(t => t.id),
       refuteSuspected: targets.filter(t => t.verdict?.verdict === 'suspected').map(t => t.id),   // the two refuters split
     },
+    meansLeak: leaked,                                       // words of the means still in purpose or kind after the second ask
+    redig,                                                   // stage 9: unverified nodes asked once more, and how many settled
+    ledgerStates: countBy(ledgerItems, it => it.state),
+    routes: countBy(ledgerItems, it => it.route),
     repairs,
     quotes,
     nodesUsed: used, nodeLimit: LIMITS.nodes, depth, w8Rounds: round,
@@ -1261,25 +1555,35 @@ function countsOf() {
 // my-turn-headless.py writes it to files.record; it is also the report materials ----
 const nodeOut = n => ({ id: n.id, key: n.key, question: n.question, rootClass: n.rootClass, origin: n.origin ?? null, depth: n.depth,
   parents: n.parents, alsoFrom: n.alsoFrom, weight: n.weight, where: n.where, status: n.status, note: n.note,
-  reused: n.reused, dependsOnUnverified: n.dependsOnUnverified, resultStatus: n.result?.status ?? null,
+  reused: n.reused, redug: !!n.redug, dependsOnUnverified: n.dependsOnUnverified, resultStatus: n.result?.status ?? null,
   answer: n.result?.answer ?? null, files: n.result?.files ?? [], urls: n.result?.urls ?? [], evidence: n.result?.evidence ?? [],
   parts: n.result?.parts ?? [], premises: n.result?.premises ?? [], children: n.result?.children ?? [],
+  worth: n.result?.worth ?? null, findingKind: n.result?.findingKind ?? null, locations: n.result?.locations ?? [],
+  cost: n.result?.cost ?? '', finePremise: n.result?.finePremise ?? '',
   verdict: n.verdict ?? null })
+const itemOut = it => ({ id: it.id, state: it.state, findingKind: it.findingKind, question: it.question, claim: it.claim,
+  locations: it.locations, evidence: it.evidence, from: it.from, cost: it.cost, worth: it.worth,
+  ...(it.reopenedBecause ? { reopenedBecause: it.reopenedBecause } : {}),
+  verdict: it.verdict ?? null, label: it.label, level: it.level, route: it.route, into: it.into, why: it.why, rule: it.rule, fixes: it.fixes ?? [] })
 return {
   version: RECORD_VERSION, pr: A.pr, repo: A.repo ?? null, now: A.now ?? null, stance: A.stance,
   base: P.base, head: P.head, patchId: P.patchId ?? null, stat: P.stat ?? null, excluded: P.excluded ?? [],
-  kind: structure.kind, structure,
+  purpose: purpose ? { purpose: purpose.purpose ?? '', means: purpose.means ?? [], kind: purpose.kind ?? '', claims: purpose.claims ?? [], leaked } : null,
+  kind: KIND, structure,
   general: compare ? { text: compare.general?.general ?? null, notFound: compare.notFound, why: compare.why, reused: !!compare.general?.reused,
-    askedAgain: compare.asked2, questions: compare.questions }
-    : { text: null, notFound: true, why: structure.noParts ? 'noParts' : 'failed', reused: false, askedAgain: false, questions: [] },
+    askedAgain: compare.asked2, questions: compare.questions, design: compare.general?.design ?? [],
+    questionStands: compare.general?.questionStands ?? null, whyQuestion: compare.general?.whyQuestion ?? '' }
+    : { text: null, notFound: true, why: structure.noParts ? 'noParts' : purpose ? 'failed' : 'no purpose', reused: false, askedAgain: false, questions: [],
+      design: [], questionStands: null, whyQuestion: '' },
   compare: compare?.w3 ?? null, compareRaw: compare?.w3Raw ?? null,
-  smells: smellQs.map((q, i) => ({ id: `S${i + 1}`, question: q, fixed: i < SMELL_QUESTIONS.length, answer: smells?.[i] ?? null,
+  smells: smellQs.map((q, i) => ({ id: `S${i + 1}`, question: q, fixed: i < SMELL_QUESTIONS.length, eye: smellEye[i], answer: smells?.[i] ?? null,
     verdict: targets.find(t => t.id === `S${i + 1}`)?.verdict ?? null })),
   roots: roots.map(n => n.id),
   nodes: nodes.map(nodeOut),
   gapRounds,
+  ledger: { items: ledgerItems.map(itemOut), returned: !!lines },
   fixes: { fixes: fixesKept, groups: groupsKept, searched: fixesRaw?.searched ?? null, outside: fixesRaw?.outside ?? [],
-    verdicts: targets.filter(t => t.kind === 'fix' || t.kind === 'group').map(t => ({ id: t.id, verdict: t.verdict ?? null })),
+    verdicts: fixTargets.map(t => ({ id: t.id, verdict: t.verdict ?? null })),
     removed: removedFixes, returned: !!fixesRaw },
   undecided: nodes.filter(n => n.status === 'undecided').map(n => ({ id: n.id, question: n.question, answer: n.result?.answer ?? null })),
   restsOnUnverified: nodes.filter(n => n.dependsOnUnverified).map(n => n.id),
