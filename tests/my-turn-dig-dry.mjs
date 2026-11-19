@@ -195,7 +195,7 @@ async function caseFixed() {
   {
     const noCaller = baseArgs(); delete noCaller.caller
     for (const [what, a] of [['合図の無い起動', noCaller], ['合図の値が違う起動', baseArgs({ caller: 'attention:my-turn' })],
-      ['args の無い起動', undefined], ['文字列の args で合図の無い起動', JSON.stringify(noCaller)]]) {
+      ['args の無い起動', undefined], ['文字列の args で合図の無い起動', JSON.stringify(noCaller)], ['文字列の null の args の起動', 'null']]) {
       const { out: oc, calls: cc } = await run(a, responder())
       check(oc?.stopped === 'caller' && cc.length === 0, `fixed/caller: ${what}で止まらないか、エージェントを立てた ${JSON.stringify(oc?.stopped)} ${cc.length}`)
       check(typeof oc?.message === 'string' && oc.message.length > 0 && !oc.message.includes('\n'), `fixed/caller: ${what}で返す訳が 1 行でない`)

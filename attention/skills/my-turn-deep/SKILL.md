@@ -45,7 +45,7 @@ disable-model-invocation: true
    - `<番号>-thread.md`: 4 で読んだ PR の本文・コメント・レビュー・インラインの指摘を、そのまま写した物。
    - `<番号>-justifications.md`: 4 で控えた、この PR が足した正当化と作者の返事に書いた理由。1 件ずつ、在り処と、入れた commit。
 8. Workflow の入力（args）を組む。JSON の値で、文字列にして渡さない。
-   - `caller`: 文字列 `"attention:my-turn-deep"`。この手順から起動した合図で、Workflow はこの値が無い・違う起動を、エージェントを立てずに止める（AI が Workflow を直に起動するのを防ぐ）。
+   - `caller`: 文字列 `"attention:my-turn-deep"`。この手順から起動した合図で、Workflow はこの値が無い・違う起動を、エージェントを立てずに止める（AI が誤って Workflow を自分から起動したときに止める歯止めで、鍵ではない。値を写して渡せば通る）。
    - `pr`・`repo`（`<owner>/<repo>`）・`workdir`（`git rev-parse --show-toplevel`）・`stance`（`reviewer` か `author`）・`now`（今の日時。`date -u +%Y-%m-%dT%H:%M:%SZ`）。
    - `prep`: 6 の JSON をそのまま（前の回の記録から使い回せる物 `priorReuse` も、この中で渡る）。
    - `files`: `{"thread": <7 で書いた thread の path>, "justifications": <7 で書いた justifications の path>, "record": prep の record}`。

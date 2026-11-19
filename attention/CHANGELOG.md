@@ -8,7 +8,7 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ### Changed
 
-- Workflow `attention:my-turn-dig`（`/my-turn-deep` が掘る段を回す裏の Workflow）は、入力（args）の `caller` が `attention:my-turn-deep` のときだけ動くようにした。値が無い・違うときは、エージェントを 1 体も立てずに止まり、止めた訳を 1 行で返す（`stopped: "caller"` と `message`）。この値を渡すのは `/my-turn-deep` の手順 8 と、`--headless` の台本 `my-turn-headless.py` だけ。0.70.0 では Workflow の説明文（`whenToUse`）で頼んでいただけで、AI が Workflow を直に起動するのを機械では止めていなかった。持ち主の選択は「それでいいんじゃない」（頼み 839571）。
+- Workflow `attention:my-turn-dig`（`/my-turn-deep` が掘る段を回す裏の Workflow）は、入力（args）の `caller` が `attention:my-turn-deep` のときだけ動くようにした。値が無い・違うときは、エージェントを 1 体も立てずに止まり、止めた訳を 1 行で返す（`stopped: "caller"` と `message`）。この値を渡すように書いてあるのは `/my-turn-deep` の手順 8 と、`--headless` の台本 `my-turn-headless.py` だけ。AI が誤って自分から Workflow を起動したときの歯止めで、鍵ではない（値を写して渡す起動は通る）。0.70.0 では Workflow の説明文（`whenToUse`）で頼んでいただけで、AI が Workflow を直に起動するのを機械では止めていなかった。持ち主の選択は「それでいいんじゃない」（頼み 839571）。
 
 ## [0.70.0] - 2026-11-19
 
