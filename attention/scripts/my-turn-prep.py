@@ -953,7 +953,7 @@ def check_report(record_path, report_path):
     for item in ledger:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]:
             return None, "台帳に id の無い件があります"
-        if not re.search(r"(?<![A-Za-z0-9])%s(?!\d)" % re.escape(item["id"]), report):
+        if not re.search(r"(?<![A-Za-z0-9/._-])%s(?!\d)" % re.escape(item["id"]), report):
             missing_ids.append(item["id"])
         if item.get("route") != "draft":
             continue

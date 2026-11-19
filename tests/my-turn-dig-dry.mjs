@@ -1064,6 +1064,14 @@ async function caseQuotes() {
     const q = out.counts.quotes
     check(q.dropped.length === roots.length && q.dropped.every(d => d.path === 'bad.py' && d.line === 3 && d.why) && q.toUnverified.filter(id => id.startsWith('N')).length === 2,
       `quotes: 落とした根拠が件数に出ない ${JSON.stringify(q)}`)
+    // 「このままでよい」の末端の写しが全部合わない: 数え直しに回らないので、台帳に確かめていない物で載る
+    {
+      const W6f = call => { const id = nodeId(call.prompt), q = nodeQ(call.prompt)
+        return leaf(id, { worth: isRoot(q) ? 'fine' : 'fix', evidence: [{ path: isRoot(q) ? 'bad.py' : 'a.py', line: 3, quote: 'nope' }], locations: [] }) }
+      const { out: of2 } = await run(baseArgs(), responder({ W6: W6f, Quotes: missingWhere(x => x[1] === 'bad.py') }))
+      const rf = of2.nodes.find(n => of2.roots.includes(n.id) && isRoot(n.question))
+      check(rf?.status === 'unverified' && itemOf(of2, rf.id)?.state === 'unverified', `quotes: 写しの合わない「このままでよい」の末端が台帳から落ちた ${rf?.status}`)
+    }
     // 記録の resultStatus も確かめていない物にする（次の回が末端として使い回さない）
     // 同じ根拠は 1 件にまとめて送り、印は id・path・行・写しから作る
     const items = of(calls, 'Quotes').flatMap(c => quoteItems(c.prompt))
@@ -1440,6 +1448,10 @@ async function caseLines() {
   const R3 = o3.counts.repairs.lines
   check(R3.badFold.includes(a) && R3.badFold.includes(b) && o3.ledger.find(x => x.id === a).route === 'report'
     && R3.detailToDesign.includes(c) && o3.ledger.find(x => x.id === c).level === 'design', `lines: 畳みの直しか段の直しが違う ${JSON.stringify(R3)}`)
+  // 落とす件へ畳む: 指摘が落とした件に消えないよう、出すだけにする
+  const Lines5 = () => ({ items: [entry(a, 'fold', { into: b }), entry(b, 'drop', { rule: 'r' })] })
+  const { out: o5 } = await run(baseArgs(), responder({ Lines: Lines5 }))
+  check(o5.counts.repairs.lines.badFold.includes(a) && o5.ledger.find(x => x.id === a).route === 'report', 'lines: 落とす件へ畳んだ指摘を出さない')
   // 線引きの段が返らない: 全部を出すだけにする
   const { out: o4 } = await run(baseArgs(), responder({ Lines: () => null }))
   check(o4.counts.repairs.lines.allReport && o4.ledger.every(x => x.route === 'report') && !o4.linesReturned, 'lines(null): 返らないのに全部を出すにしない')
@@ -1448,7 +1460,8 @@ async function caseLines() {
 async function caseFixes() {
   const base = await run(baseArgs(), responder())
   const [a, b, c] = base.out.ledger.map(it => it.id)
-  const W9 = () => ({ fixes: [{ fix: 'FA', rung: 'remove', worldSolution: 'https://example.org/a', items: `${a}, L99` }, { fix: 'FB', rung: 'tool', worldSolution: 'https://example.org/b', items: b }],
+  const W9 = () => ({ fixes: [{ fix: 'FA', rung: 'remove', worldSolution: 'https://example.org/a', items: `${a}, L99` }, { fix: 'FB', rung: 'tool', worldSolution: 'https://example.org/b', items: b },
+      { fix: 'FC', rung: 'tool', worldSolution: 'https://example.org/c', items: 'L98' }],
     groups: [{ kind: 'one-fix', members: `F1, ${b}`, why: 'w' }, { kind: 'one-fix', members: `${a}, ${b}, ${c}`, why: 'w' }], searched: 's', outside: [] })
   const W10 = call => {
     if (call.label === 'W10 F1') return { verdict: 'falls', reason: 'not the practice', evidence: [{ path: 'https://example.org/a', line: 0, quote: 'q' }] }
@@ -1467,6 +1480,13 @@ async function caseFixes() {
   const g2 = out.fixes.groups.find(g => g.id === 'G2')
   check(g2.members === `${a}, ${b}` && JSON.stringify(g2.dropped) === JSON.stringify([c]) && !out.fixes.removed.some(f => f.id === 'G2'), `fixes: まとまりから崩れた 1 件だけを抜かない ${JSON.stringify(g2)}`)
   check(out.fixes.verdicts.length === 4 && out.fixes.verdicts.every(v => v.verdict), 'fixes: 案とまとまりの判定が記録に載らない')
+  check(out.fixes.removed.some(f => f.id === 'F3' && f.why.startsWith('rests on no ledger item')) && !of(calls, 'W10').some(c => c.label === 'W10 F3'),
+    `fixes: 台帳の件に乗らない案を外さないか、反証に回した ${JSON.stringify(out.fixes.removed)}`)
+  check(out.fixes.removed.find(f => f.id === 'G1')?.fix === `one-fix: F1, ${b}`, `fixes: 外したまとまりの元の組が記録に残らない ${JSON.stringify(out.fixes.removed)}`)
+  // 直す件が無い: 直し方の段を立てずに飛ばす
+  const W6 = call => leaf(nodeId(call.prompt), { worth: 'fine', finePremise: 'p' })
+  const { out: o2, calls: c2 } = await run(baseArgs(), responder({ W6 }))
+  check(of(c2, 'W9').length === 0 && o2.counts.stages.W9?.skipped?.length === 1 && o2.fixes.fixes.length === 0, `fixes: 直す件が無いのに直し方の段を立てた ${of(c2, 'W9').length}`)
 }
 
 const CASES = { dedup: caseDedup, refute: caseRefute, fixed: caseFixed, grow: caseGrow, same: caseSame, allot: caseAllot, skips: caseSkips, schema: caseSchema, map: caseMap, rests: caseRests, quotes: caseQuotes, prompts: casePrompts,

@@ -1483,11 +1483,13 @@ const uniqPlaces = list => [...new Map(list.map(e => [isUrl(e.path) ? e.path : l
 const rawItems = []
 for (const n of nodes) {
   const r = n.result
-  if (!r) { if (!n.parents.length && !String(n.origin ?? '').startsWith('gap')) rawItems.push({ state: 'unverified', n }); continue }
+  // no answer (the cap, a null, a gap found after the cap): an item, so nothing left undug drops out of the report
+  if (!r) { rawItems.push({ state: 'unverified', n }); continue }
   if (n.status === 'split') continue
   if (n.status === 'leaf') { if (r.worth === 'fix') rawItems.push({ state: 'finding', n }); else if (r.worth !== 'fine') rawItems.push({ state: 'unverified', n }); continue }
   if (n.status === 'undecided') { rawItems.push({ state: 'undecided', n }); continue }
-  if (r.worth !== 'fine') rawItems.push({ state: 'unverified', n })
+  // a "fine" leaf whose quotes all failed is not recounted (stage 12 takes leaves only), so it is an item too
+  if (r.worth !== 'fine' || quotes.toUnverified.includes(n.id)) rawItems.push({ state: 'unverified', n })
 }
 // union-find over the findings: same kind and one shared line place
 const up = rawItems.map((_, i) => i)
@@ -1633,6 +1635,7 @@ for (const it of ledgerItems) {
     let to = r.into
     while (itemById.has(to) && !seenIds.has(to) && routeOf.get(to).route === 'fold') { seenIds.add(to); to = routeOf.get(to).into }
     if (!itemById.has(to) || seenIds.has(to)) toReport(it, RL.badFold, `fold target ${r.into || '(none)'} is not an item`)
+    else if (routeOf.get(to).route === 'drop') toReport(it, RL.badFold, `fold target ${to} is dropped`)
     else r.into = to
   }
   if (r.route === 'drop' && blank(r.rule) && it.verdict?.verdict !== 'falls') toReport(it, RL.dropNoRule, 'dropped without naming a rule while the refuters did not let it fall')
@@ -1648,12 +1651,14 @@ phase('Fix options')
 const fixItems = ledgerItems.filter(it => ['finding', 'reopened'].includes(it.state) && ['draft', 'report'].includes(it.route) && it.verdict?.verdict !== 'falls')
 const fixItemIds = new Set(fixItems.map(it => it.id))
 LEAF_COUNT = fixItems.length
-const fixesRaw = await ask('W9', 'W9 fixes', W9_PROMPT({
+const fixesRaw = !fixItems.length ? (ledger.skipped('W9', 'W9 fixes', 'no ledger item to fix'), null) : await ask('W9', 'W9 fixes', W9_PROMPT({
   prFiles: PR_FILES_TEXT, structure: STRUCTURE_TEXT, limit: LIMITS.fixes, lenses: LENS.W9,
   items: fixItems.map(it => `${it.id} [${it.findingKind ?? '-'}]: ${String(it.claim).replace(/\n+/g, ' ')} | ${it.locations.map(locOf).join(', ') || '-'}`),
   diffs: (compare?.w3?.diffs ?? []).map(d => `${d.diff} => ${d.decision}`),
 }), { schema: FIXES, phase: 'Fix options', ...M('W9') })
+const removedFixes = []
 const fixList = (fixesRaw?.fixes ?? []).map((f, i) => ({ id: `F${i + 1}`, ...f, itemIds: splitIds(f.items).filter(id => fixItemIds.has(id)) }))
+  .filter(f => f.itemIds.length || (removedFixes.push({ id: f.id, fix: f.fix, why: `rests on no ledger item given (${f.items || 'none'})` }), false))
 const groupList = (fixesRaw?.groups ?? []).map((g, i) => ({ id: `G${i + 1}`, ...g }))
 let room = LIMITS.fixes
 const fixesKept = [], groupsKept = []
@@ -1675,7 +1680,6 @@ const fixVerdicts = await parallel(fixTargets.map(t => () => ask('W10', `W10 ${t
 fixTargets.forEach((t, i) => { t.verdict = fixVerdicts[i] })
 targets.push(...fixTargets)
 const fixVerdictOf = id => fixTargets.find(t => t.id === id)?.verdict ?? null
-const removedFixes = []
 for (const f of fixesKept) if (fixVerdictOf(f.id)?.verdict === 'falls') removedFixes.push({ id: f.id, fix: f.fix, why: 'refuted' })
 const removedIds = new Set(removedFixes.map(f => f.id))
 for (const g of groupsKept) {
@@ -1684,8 +1688,8 @@ for (const g of groupsKept) {
   const kept = splitIds(g.members).filter(id => !fell.has(id) && !removedIds.has(id) && (fixItemIds.has(id) || fixesKept.some(f => f.id === id)))
   g.memberVerdicts = v?.members ?? []
   g.dropped = splitIds(g.members).filter(id => !kept.includes(id))
+  if (v?.verdict === 'falls' || kept.length < 2) { removedFixes.push({ id: g.id, fix: `${g.kind}: ${g.members}`, why: v?.verdict === 'falls' ? 'refuted' : `fewer than two members left (dropped ${g.dropped.join(', ') || 'none'})` }); continue }
   g.members = kept.join(', ')
-  if (v?.verdict === 'falls' || kept.length < 2) removedFixes.push({ id: g.id, fix: `${g.kind}: ${g.members}`, why: v?.verdict === 'falls' ? 'refuted' : `fewer than two members left (dropped ${g.dropped.join(', ') || 'none'})` })
 }
 const goneIds = new Set(removedFixes.map(f => f.id))
 for (const it of ledgerItems) it.fixes = fixesKept.filter(f => !goneIds.has(f.id) && f.itemIds.includes(it.id)).map(f => f.id)
