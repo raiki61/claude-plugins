@@ -6393,6 +6393,21 @@ expect_output 0 "QUOTES_OK" \
 expect_output 0 "HEADLESS_OK" \
     "my-turn-prep: ヘッドレスの起動: 環境変数の落とし方・引数・役の定義と、偽の claude での実走の要約と、出力のファイルからの記録の書き込み" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" headless
+expect_output 0 "LINES_OK" \
+    "my-turn-prep: 足した行・消した行を区分（実装・試験・検査・CI・文書・設定・生成物）ごとに数え、試験と検査が実装の何倍かを出す" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" lines
+expect_output 0 "DELETED_TESTS_OK" \
+    "my-turn-prep: base に在って head に無い試験（Python・JS・Go・ファイルごと・数えられない言語）を deletedTests に出す" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" deleted-tests
+expect_output 0 "RULES_WIDE_OK" \
+    "my-turn-prep: 決まりの文書に、構成・貢献の文書・ADR・台帳の名の文書を base の版で足し、40 件で切って rulesCut に数える" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" rules-wide
+expect_output 0 "IDENTITY_OK" \
+    "my-turn-prep: 差分が足した permissions・secrets.・トークンの設定の名前・IAM の定義を identitySignals に出し、50 件で切る" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" identity
+expect_output 0 "CHECK_REPORT_OK" \
+    "my-turn-prep: --check-report が台帳の id と下書きの path:行の欠けを出し、版違いは終了の値 2 で止める" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" check-report
 expect_output 1 "使い方" \
     "my-turn-prep-case: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py"

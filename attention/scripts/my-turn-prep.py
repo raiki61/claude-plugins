@@ -7,6 +7,8 @@
   my-turn-prep.py --quotes -               標準入力の根拠を照合する（Workflow の写しの照合の段が打つ）
   my-turn-prep.py --save-record <記録.json> <Workflow の出力のファイル>
                                           Workflow が返した記録を、記録のファイルに書く
+  my-turn-prep.py --check-report <記録.json> <報告.md>
+                                          記録の台帳の id と下書きの場所が、会話の報告に全部在るかを照らす
 
 PR の作業場（cwd）で打つ。判定はしない——材料を集めて Workflow（my-turn-dig.js）へ渡す形に
 するだけ。終了の値は、続けてよいとき 0、止めるとき 1（`ok: false`）、使い方の誤りは 2。
@@ -231,6 +233,208 @@ def rule_paths(changed, base):
     return sorted(keep, key=lambda p: (p.split("/")[:-1], p.rsplit("/", 1)[-1]))
 
 
+# ---- 段 0 の足し（lines・deletedTests・決まりの文書の広げ・identitySignals）----
+# どれも、git が失敗しても下ごしらえを止めない（空の値と stage0Errors に訳を足す）
+
+CLASSES = ("impl", "test", "check", "ci", "docs", "config", "generated")
+# ファイルの区分の表。上から順に当てる（最初に当たった物）。残りは impl
+TEST_DIRS = ("tests", "test", "__tests__")
+TEST_NAME_RE = re.compile(r"(^test_.*\.py$|_test\.[^/]+$|\.test\.[^/]+$|\.spec\.[^/]+$)")
+CHECK_RE = re.compile(r"(^|/)scripts/check[^/]*$|(^|/)[^/]*lint[^/]*$|(^|/)\.pre-commit-config\.yaml$|(^|/)[^/]*check[^/]*\.(py|sh|mjs)$")
+DOC_EXTS = (".md", ".rst", ".txt")
+CONFIG_EXTS = (".json", ".toml", ".yaml", ".yml", ".ini", ".cfg")
+
+
+def classify(path, binary=False):
+    """ファイルの path から区分（CLASSES のどれか）を返す。lock file と数えられない（バイナリ）物は generated。"""
+    base = path.rsplit("/", 1)[-1]
+    parts = path.split("/")
+    if is_lock(path) or binary:
+        return "generated"
+    if path.startswith(".github/"):
+        return "ci"
+    if any(d in TEST_DIRS for d in parts[:-1]) or TEST_NAME_RE.search(base):
+        return "test"
+    if CHECK_RE.search(path):
+        return "check"
+    if base.endswith(DOC_EXTS) or "docs" in parts[:-1]:
+        return "docs"
+    if base.endswith(CONFIG_EXTS):
+        return "config"
+    return "impl"
+
+
+def numstat_rows(a, b):
+    """git diff --numstat（差分の本文と同じ範囲）の行: [(足した行, 消した行, path, バイナリか)]。"""
+    out = must_git(*QUOTE_OFF, "diff", *DIFF_PLAIN, "--no-renames", "--numstat", "-z", a, b)
+    rows = []
+    for rec in out.split("\0"):
+        m = re.match(r"^(\d+|-)\t(\d+|-)\t(.+)$", rec, re.S)
+        if m:
+            binary = m.group(1) == "-"
+            rows.append((0 if binary else int(m.group(1)), 0 if binary else int(m.group(2)), m.group(3), binary))
+    return rows
+
+
+def count_lines(a, b):
+    by = {c: {"added": 0, "deleted": 0, "files": 0} for c in CLASSES}
+    for add, dele, path, binary in numstat_rows(a, b):
+        e = by[classify(path, binary)]
+        e["added"] += add
+        e["deleted"] += dele
+        e["files"] += 1
+    impl_added = by["impl"]["added"]
+    ratio = round((by["test"]["added"] + by["check"]["added"]) / impl_added, 2) if impl_added else None
+    return {"byClass": by, "testToImpl": ratio}
+
+
+# 言語ごとの、試験の名前の取り出し
+def _names_py(text):
+    return re.findall(r"def\s+(test_\w+)", text)
+
+
+def _names_js(text):
+    return [m.group(2) for m in re.finditer(r"\b(?:it|test|describe)\(\s*(['\"`])(.+?)\1", text)]
+
+
+def _names_go(text):
+    return re.findall(r"func\s+(Test\w+)", text)
+
+
+def _names_rust(text):
+    lines, out = text.split("\n"), []
+    for i, ln in enumerate(lines[:-1]):
+        if ln.strip().startswith("#[test]"):
+            m = re.search(r"\bfn\s+(\w+)", lines[i + 1])
+            if m:
+                out.append(m.group(1))
+    return out
+
+
+def _names_sh(text):
+    return re.findall(r"^(\w+)\s*\(\)", text, re.M)
+
+
+TEST_NAME_PATTERNS = (
+    ((".py",), _names_py),
+    ((".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"), _names_js),
+    ((".go",), _names_go),
+    ((".rs",), _names_rust),
+    ((".sh",), _names_sh),
+)
+
+
+def test_name_finder(path):
+    for exts, fn in TEST_NAME_PATTERNS:
+        if path.endswith(exts):
+            return fn
+    return None
+
+
+def show_text(rev, path):
+    """その版のファイルの字。無ければ None。"""
+    rc, out = git_bytes("show", "%s:%s" % (rev, path))
+    return out.decode("utf-8", "replace") if rc == 0 else None
+
+
+def deleted_tests(changed, base, head):
+    """base に在って head に無い試験の関数・ケース。ファイルごと消えた物は files にも、中の名前は names にも載せる。
+    名前を取れない言語の試験のファイル（base に在る物）は uncounted。"""
+    from collections import Counter
+    files, names, uncounted = [], [], []
+    for path in changed:
+        if classify(path) != "test":
+            continue
+        old, new = show_text(base, path), show_text(head, path)
+        if old is None:
+            continue  # base に無い（足した）試験は、消えようが無い
+        if new is None:
+            files.append(path)
+        find = test_name_finder(path)
+        if find is None:
+            uncounted.append(path)
+            continue
+        gone = Counter(find(old)) - Counter(find(new or ""))
+        for name in find(old):  # base に出る順で、足りない数だけ数える
+            if gone[name] > 0:
+                gone[name] -= 1
+                names.append({"path": path, "name": name})
+    return {"files": files, "names": names, "uncounted": uncounted}
+
+
+RULE_EXTRA_NAMES = ("architecture.md", "ARCHITECTURE.md", "CONTRIBUTING.md")
+ADR_DIRS = ("docs/adr/", "adr/", "doc/adr/", "docs/decisions/", "decisions/")
+LEDGER_WORDS = ("ledger", "台帳", "decisions")
+RULES_EXTRA_CAP = 40
+
+
+def extra_rule_paths(changed, base, old):
+    """決まりの文書に足す物（base の版）: 構成・貢献の文書、ADR のフォルダの下、名前に ledger・台帳・decisions を含む物。
+    (足す path の一覧〔上限で切った後〕, 上限で外した数)。old は今までの決まりの path（重ねて足さない）。"""
+    dirs = {""}
+    for p in changed:
+        parts = p.split("/")[:-1]
+        for i in range(1, len(parts) + 1):
+            dirs.add("/".join(parts[:i]))
+    tree = must_git(*QUOTE_OFF, "ls-tree", "-r", "--name-only", "-z", base)
+    found = set()
+    for p in tree.split("\0"):
+        if not p:
+            continue
+        d, _, name = p.rpartition("/")
+        if d in dirs and (name in RULE_EXTRA_NAMES or any(w in name.lower() for w in LEDGER_WORDS)):
+            found.add(p)
+        elif p.startswith(ADR_DIRS):
+            found.add(p)
+    keep = sorted(found - set(old), key=lambda p: (p.split("/")[:-1], p.rsplit("/", 1)[-1]))
+    return keep[:RULES_EXTRA_CAP], max(0, len(keep) - RULES_EXTRA_CAP)
+
+
+SIGNAL_CAP = 50
+SIGNAL_TEXT_MAX = 200
+WORKFLOW_RE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
+PERM_KEY_RE = re.compile(r"^\s*(permissions\s*:|id-token\s*:|[\w-]+\s*:\s*write\b)")
+SECRETS_RE = re.compile(r"secrets\.")
+SETTING_NAME_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Z0-9_]*(?:TOKEN|API_KEY|SECRET|PRIVATE_KEY|CREDENTIALS?)[A-Z0-9_]*(?![A-Za-z0-9_])")
+IAM_PATH_RE = re.compile(r"(^|[/_.-])iam([/_.-]|$)", re.I)
+TF_IAM_RE = re.compile(r"aws_iam_|google_.*_iam|azurerm_role")
+K8S_ROLE_RE = re.compile(r"^\s*kind\s*:\s*(Cluster)?Role(Binding)?\b")
+
+
+def signal_of(path, text):
+    if WORKFLOW_RE.match(path) and PERM_KEY_RE.search(text):
+        return True
+    if SECRETS_RE.search(text) or SETTING_NAME_RE.search(text) or K8S_ROLE_RE.search(text):
+        return True
+    if path.endswith(".tf") and TF_IAM_RE.search(text):
+        return True
+    return bool(IAM_PATH_RE.search(path)) and bool(text.strip())
+
+
+def identity_signals(base, head):
+    """差分（-U0）が足した行のうち、新しい身元・権限の印に見える物。(一覧〔上限で切った後〕, 上限で外した数)。"""
+    rc, raw = git_bytes(*QUOTE_OFF, "diff", *DIFF_PLAIN, "--no-renames", "-U0", base, head)
+    if rc != 0:
+        raise Stop("git-failed", "git diff -U0 が失敗しました")
+    found, path, ln, skip = [], None, 0, False
+    for row in raw.decode("utf-8", "replace").split("\n"):
+        if row.startswith("diff --git "):
+            path, skip = None, False
+        elif row.startswith("+++ "):
+            path = row[4:].rstrip("\r")
+            path = path[2:] if path.startswith("b/") else None  # /dev/null（消したファイル）は足した行が無い
+            skip = bool(path) and is_lock(path)
+        elif row.startswith("@@"):
+            m = re.match(r"^@@ -\S+ \+(\d+)", row)
+            ln = int(m.group(1)) if m else 0
+        elif row.startswith("+") and path and not skip:
+            text = row[1:].strip()
+            if signal_of(path, text):
+                found.append({"path": path, "line": ln, "text": text[:SIGNAL_TEXT_MAX]})
+            ln += 1
+    return found[:SIGNAL_CAP], max(0, len(found) - SIGNAL_CAP)
+
+
 def prep(pr, prior, headless):
     if os.environ.get(ENV_SUBAGENT_MODEL) and not headless:
         raise Stop("subagent-model-env",
@@ -351,7 +555,21 @@ def prep(pr, prior, headless):
     prior_run_diff = "%s..%s.diff" % (pb[:7], prior_head[:7]) if (then_ok and isinstance(pb, str) and pb) else None
     reuse = (prior_reuse(rec, fingerprints, top, record_dir, diff_same and prior_run_diff)
              if (rec is not None and then_ok and not old_shape) else None)
-    rules = [{"path": p, "show": "git show %s:%s" % (base7, p)} for p in rule_list]
+    stage0_errors = []
+
+    def stage0(name, fn, empty):
+        try:
+            return fn()
+        except Stop as e:
+            stage0_errors.append("%s: %s" % (name, e.message))
+            return empty
+
+    extra, rules_cut = stage0("rules", lambda: extra_rule_paths(changed, base, rule_list), ([], 0))
+    rules = [{"path": p, "show": "git show %s:%s" % (base7, p)} for p in rule_list + extra]
+    lines = stage0("lines", lambda: count_lines(base, head),
+                   {"byClass": {c: {"added": 0, "deleted": 0, "files": 0} for c in CLASSES}, "testToImpl": None})
+    deleted = stage0("deletedTests", lambda: deleted_tests(changed, base, head), {"files": [], "names": [], "uncounted": []})
+    signals, signals_cut = stage0("identitySignals", lambda: identity_signals(base, head), ([], 0))
     here = os.path.dirname(os.path.abspath(__file__))
     script_path = os.path.abspath(os.path.join(here, "..", "workflows", "my-turn-dig.js"))
     return {
@@ -362,7 +580,9 @@ def prep(pr, prior, headless):
         "priorHeadMissing": prior_missing, "priorUnreadable": prior_unreadable, "unchanged": unchanged,
         "diffSame": diff_same, "priorRunDiff": prior_run_diff,
         "patchId": patch_id, "stat": stat_lines[-1] if stat_lines else "",
-        "commits": commits, "changed": changed, "excluded": excluded, "rules": rules,
+        "commits": commits, "changed": changed, "excluded": excluded, "rules": rules, "rulesCut": rules_cut,
+        "lines": lines, "deletedTests": deleted, "identitySignals": signals, "identitySignalsCut": signals_cut,
+        "stage0Errors": stage0_errors,
         "claudeMdChanged": any(p.rsplit("/", 1)[-1] == "CLAUDE.md" for p in changed),
         "fingerprints": {p: file_state(f) for p, f in fingerprints.items()}, "priorReuse": reuse, "scriptPath": script_path,
         # Workflow の写しの照合の段が打つ物（my-turn-dig.js の Quotes。run-python.sh で打つ --quotes -）
@@ -476,7 +696,7 @@ def is_live_github(u):
 
 
 REUSE_FIELDS = ("key", "question", "resultStatus", "answer", "files", "urls", "evidence", "parts", "premises",
-                "children", "verdict")
+                "children", "verdict", "worth", "findingKind", "locations", "cost", "finePremise")
 
 
 def prior_reuse(rec, fingerprints, top, record_dir, same_diff):
@@ -527,7 +747,8 @@ def prior_reuse(rec, fingerprints, top, record_dir, same_diff):
         if not all(same(f) for f in considered(vread)) or not all(same_d(f) for f in vread if is_diff(f)):
             item["verdict"] = None
         nodes.append(item)
-    return {"version": my_turn_record.RECORD_VERSION, "kind": rec.get("kind"), "general": rec.get("general"), "nodes": nodes}
+    return {"version": my_turn_record.RECORD_VERSION, "kind": rec.get("kind"), "purpose": rec.get("purpose"),
+            "general": rec.get("general"), "nodes": nodes}
 
 
 def walk_quotes(node, found):
@@ -713,6 +934,41 @@ def save_record(out_path, src_path):
     return {"ok": True, "record": out_path, "nodes": len(rec.get("nodes") or []), "head": rec.get("head")}
 
 
+def check_report(record_path, report_path):
+    """記録の台帳の全部の id が報告に在るか、行き先が下書きの件の「path:行」が報告に在るかを照らす。
+    読めない・版や形が違うときは (None, 訳)。"""
+    try:
+        rec = my_turn_record.load_result(record_path)
+    except my_turn_record.RecordError as e:
+        return None, str(e)
+    ledger = rec.get("ledger")
+    if not isinstance(ledger, list):
+        return None, "記録に台帳（ledger の一覧）がありません"
+    try:
+        with open(report_path, encoding="utf-8") as f:
+            report = f.read()
+    except OSError:
+        return None, "報告 %s を読めません" % report_path
+    missing_ids, missing_locs = [], []
+    for item in ledger:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]:
+            return None, "台帳に id の無い件があります"
+        if not re.search(r"(?<![A-Za-z0-9])%s(?!\d)" % re.escape(item["id"]), report):
+            missing_ids.append(item["id"])
+        if item.get("route") != "draft":
+            continue
+        for loc in item.get("locations") or []:
+            if not isinstance(loc, dict):
+                continue
+            path, line = loc.get("path"), loc.get("line")
+            if not isinstance(path, str) or not path or not isinstance(line, int) or isinstance(line, bool) or line <= 0:
+                continue
+            if not re.search(r"%s:%d(?!\d)" % (re.escape(path), line), report):
+                missing_locs.append({"id": item["id"], "at": "%s:%d" % (path, line)})
+    return {"ok": not missing_ids and not missing_locs, "items": len(ledger),
+            "missingIds": missing_ids, "missingLocations": missing_locs}, None
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog="my-turn-prep.py", add_help=True)
     ap.add_argument("pr", nargs="?", type=int)
@@ -720,9 +976,16 @@ def main(argv):
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--quotes")
     ap.add_argument("--save-record", nargs=2, metavar=("RECORD", "OUTPUT"))
+    ap.add_argument("--check-report", nargs=2, metavar=("RECORD", "REPORT"))
     a = ap.parse_args(argv)
-    if sum(x is not None for x in (a.pr, a.quotes, a.save_record)) != 1:
-        ap.error("PR の番号か --quotes か --save-record のどれか 1 つを渡してください")
+    if sum(x is not None for x in (a.pr, a.quotes, a.save_record, a.check_report)) != 1:
+        ap.error("PR の番号か --quotes か --save-record か --check-report のどれか 1 つを渡してください")
+    if a.check_report:
+        res, why = check_report(os.path.abspath(a.check_report[0]), os.path.abspath(a.check_report[1]))
+        if res is None:
+            print(why, file=sys.stderr)
+            return 2
+        return emit(res, 0 if res["ok"] else 1)
     if a.save_record:
         try:
             return emit(save_record(os.path.abspath(a.save_record[0]), os.path.abspath(a.save_record[1])), 0)

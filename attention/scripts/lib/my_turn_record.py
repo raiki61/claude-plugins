@@ -9,8 +9,9 @@ import json
 import os
 import tempfile
 
-# my-turn-dig.js の RECORD_VERSION と同じ値。違う版の記録は使い回さない（my-turn-prep.py の --prior）
-RECORD_VERSION = 2
+# my-turn-dig.js の RECORD_VERSION と同じ値にそろえる。違う版の記録は使い回さない（my-turn-prep.py の --prior）
+# 3: ノードに worth・findingKind・locations・cost・finePremise を足し、記録に purpose と指摘の台帳（ledger）を足した
+RECORD_VERSION = 3
 # 前の版で、記録を書いた段（W11）が足していた項目。今の戻り値には無いが、古い材料から写したときに残さない
 DROP_KEYS = ("recordPath", "recordWritten", "recordError", "recordModel")
 

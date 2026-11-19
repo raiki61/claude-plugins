@@ -321,7 +321,7 @@ def case_prior():
             # odd: repo の外・改行を含む path を読んだノード（指紋を取れないので、近道を取らない）
             odd = [{"files": [os.path.join(e.repo, "sub", "r.txt"), "./b.txt", "/outside/zzz", "../outside.py", "a.txt\nb.txt"],
                     "parts": ["a.txt"]}] if kw.pop("odd", False) else [{"parts": ["a.txt"]}]
-            d = {"version": 2, "head": c1, "base": o1["base"], "patchId": o1["patchId"],
+            d = {"version": 3, "head": c1, "base": o1["base"], "patchId": o1["patchId"],
                  "nodes": odd + [
                            {"key": "same file", "resultStatus": "leaf", "answer": "A", "files": ["sub/r.txt"], "urls": []},
                            {"key": "url moved", "resultStatus": "leaf", "files": ["sub/r.txt"], "urls": ["https://x"], "parts": ["b.txt"]},
@@ -480,6 +480,10 @@ def case_prior():
         rc, o = e.prep("7", "--prior", rec)
         check(rc == 0 and o["unchanged"] is False and o["priorReuse"] is None and o["priorHead"] == c3,
               "版 1 の記録を使い回した %r" % o)
+        # 1 つ前の版 2 の記録も使い回さない
+        write_rec(head=c3, patchId=o["patchId"], version=2)
+        rc, o = e.prep("7", "--prior", rec)
+        check(rc == 0 and o["unchanged"] is False and o["priorReuse"] is None, "版 2 の記録を使い回した %r" % o)
         # 同じ head で記録が欠けていた: 掘り直すが、空の 2 本目の差分は作らない
         write_rec(head=c5, patchId=o["patchId"], counts={"stages": {"W6": {"null": ["W6 a"]}}, "allNull": []})
         rc, o = e.prep("7", "--prior", rec)
@@ -641,7 +645,7 @@ def case_quotes():
         # --save-record: Workflow の出力のファイル（result が戻り値の JSON の文字列）から記録を書く（既定の形の手順 9）
         out = os.path.join(e.tmp, "wf.output")
         recd = os.path.join(e.tmp, "rd", "7.json")
-        val = {"version": 2, "pr": 7, "head": head, "nodes": [{"id": "n1"}], "recordWritten": False}
+        val = {"version": 3, "pr": 7, "head": head, "nodes": [{"id": "n1"}], "recordWritten": False}
         with open(out, "w", encoding="utf-8") as f:
             json.dump({"summary": "s", "result": json.dumps(val)}, f)
         rc, o = e.prep("--save-record", recd, out)
@@ -649,7 +653,7 @@ def case_quotes():
         check(rc == 0 and o["ok"] and o["nodes"] == 1 and o["head"] == head
               and saved == {k: v for k, v in val.items() if k != "recordWritten"}, "記録の書き込み %r %r" % (o, saved))
         # 止まった回・版の違う戻り値は書かず、前の記録を残す
-        for bad in ({"stopped": "W1", "version": 2}, {**val, "version": 1}, ["x"]):
+        for bad in ({"stopped": "W1", "version": 3}, {**val, "version": 1}, {**val, "version": 2}, ["x"]):
             with open(out, "w", encoding="utf-8") as f:
                 json.dump({"result": bad}, f)
             rc, o = e.prep("--save-record", recd, out)
@@ -790,7 +794,7 @@ def case_headless():
         # 止まらずに終わった回: 子は Workflow の出力のファイルの path だけを返し、台本がそこから記録を書く
         rec = os.path.join(rd, "7.json")
         wf_out = os.path.join(e.tmp, "wf.output")
-        body_rec = {"version": 2, "pr": 7, "nodes": [{"id": "n1"}], "recordPath": "stale",
+        body_rec = {"version": 3, "pr": 7, "nodes": [{"id": "n1"}], "recordPath": "stale",
                     "counts": {"stages": {"W6": {"started": 1, "returned": 1, "null": [], "models": ["sonnet"]},
                                           "W3": {"started": 0, "returned": 0, "null": [], "models": ["fable"]},
                                           "Quotes": {"started": 1, "returned": 1, "null": [], "models": ["haiku"]}},
@@ -871,8 +875,190 @@ def case_headless():
     with_env(body)
 
 
+def case_lines():
+    def body(e):
+        e.base_commit(**{"README.md": "r\n", "src/a.py": "a\n"})
+        feature(e, **{"src/a.py": "a\n1\n2\n3\n4\n", "src/new.py": "x\ny\n",
+                      "tests/test_a.py": "def test_a():\n    pass\n", "docs/guide.md": "g\n",
+                      ".github/workflows/ci.yml": "name: ci\n", "scripts/check-x.sh": "echo\nexit 0\n",
+                      "pkg/config.toml": "a = 1\n", "package-lock.json": "{}\n", "web/app.spec.ts": "t\n"})
+        rc, o = e.prep("7")
+        check(rc == 0 and o["stage0Errors"] == [], "ok でない %r" % o)
+        by = o["lines"]["byClass"]
+        check(sorted(by) == sorted(["impl", "test", "check", "ci", "docs", "config", "generated"]), "区分の鍵 %r" % sorted(by))
+        # 実装は src/a.py の 4 行と src/new.py の 2 行。試験は test_a.py の 2 行と app.spec.ts の 1 行
+        want = {"impl": (6, 2), "test": (3, 2), "check": (2, 1), "ci": (1, 1), "docs": (1, 1), "config": (1, 1), "generated": (1, 1)}
+        for c, (added, files) in want.items():
+            check(by[c] == {"added": added, "deleted": 0, "files": files}, "区分 %s %r" % (c, by[c]))
+        # 試験と検査の足した行 5 ÷ 実装の足した行 6
+        check(o["lines"]["testToImpl"] == 0.83, "testToImpl %r" % o["lines"]["testToImpl"])
+    if not POSIX:
+        return skip("lines")
+    with_env(body)
+
+    # 実装の足した行が 0 なら null、バイナリは generated
+    def body2(e):
+        e.base_commit(a_DOT_txt="a\n")
+        git(e.repo, "switch", "-q", "-c", "feat")
+        with open(os.path.join(e.repo, "img.bin"), "wb") as f:
+            f.write(b"\x00\x01\x02")
+        head = commit(e.repo, "bin", **{"tests/test_a.py": "def test_a():\n    pass\n"})
+        e.set_gh(head)
+        rc, o = e.prep("7")
+        check(o["lines"]["testToImpl"] is None, "impl が 0 のとき null %r" % o["lines"])
+        check(o["lines"]["byClass"]["generated"]["files"] == 1 and o["lines"]["byClass"]["generated"]["added"] == 0,
+              "バイナリ %r" % o["lines"]["byClass"]["generated"])
+    with_env(body2)
+
+
+def case_deleted_tests():
+    def body(e):
+        e.base_commit(**{
+            "tests/test_a.py": "def test_one():\n    pass\n\ndef test_two():\n    pass\n\ndef test_dup():\n    pass\n\ndef test_dup():\n    pass\n",
+            "web/a.test.js": "it('keeps', () => {})\nit(\"goes away\", () => {})\ntest(`tpl`, () => {})\n",
+            "tests/old_test.go": "package x\nfunc TestGone(t *testing.T) {}\n",
+            "tests/whole_test.py": "def test_whole():\n    pass\n",
+            "tests/spec_test.rb": "it 'x' do\nend\n",
+            "src/impl.py": "def test_not_a_test_file():\n    pass\n"})
+        git(e.repo, "switch", "-q", "-c", "feat")
+        git(e.repo, "rm", "-q", "tests/whole_test.py")
+        write(e.repo, "tests/test_a.py", "def test_one():\n    pass\n\ndef test_dup():\n    pass\n")
+        write(e.repo, "web/a.test.js", "it('keeps', () => {})\n")
+        write(e.repo, "tests/old_test.go", "package x\n")
+        write(e.repo, "tests/spec_test.rb", "it 'x' do\nend\n# touched\n")
+        write(e.repo, "src/impl.py", "x = 1\n")
+        head = commit(e.repo, "drop tests")
+        e.set_gh(head)
+        rc, o = e.prep("7")
+        check(rc == 0 and o["stage0Errors"] == [], "ok でない %r" % o)
+        d = o["deletedTests"]
+        check(d["files"] == ["tests/whole_test.py"], "ファイルごと %r" % d["files"])
+        got = sorted((n["path"], n["name"]) for n in d["names"])
+        want = sorted([("tests/test_a.py", "test_two"), ("tests/test_a.py", "test_dup"), ("web/a.test.js", "goes away"),
+                       ("web/a.test.js", "tpl"), ("tests/old_test.go", "TestGone"), ("tests/whole_test.py", "test_whole")])
+        check(got == want, "消えた名前 %r" % got)
+        check(d["uncounted"] == ["tests/spec_test.rb"], "数えられない %r" % d["uncounted"])
+    if not POSIX:
+        return skip("deleted-tests")
+    with_env(body)
+
+
+def case_rules_wide():
+    def body(e):
+        base = e.base_commit(**{
+            "CONTRIBUTING.md": "c\n", "docs/adr/0001-x.md": "adr\n", "pkg/sub/ARCHITECTURE.md": "arch\n",
+            "pkg/DECISIONS.md": "d\n", "pkg/sub/x.py": "x\n", "other/CONTRIBUTING.md": "other\n",
+            "docs/ledger.md": "not a root or ancestor folder\n", "台帳.md": "l\n", "pkg/sub/notes.md": "n\n",
+            "decisions/d1.md": "d1\n", "src/adr/z.md": "not an adr folder\n"})
+        feature(e, **{"pkg/sub/x.py": "x2\n"})
+        rc, o = e.prep("7")
+        check(rc == 0 and o["stage0Errors"] == [] and o["rulesCut"] == 0, "ok でない %r" % o)
+        paths = [r["path"] for r in o["rules"]]
+        for p in ("CONTRIBUTING.md", "docs/adr/0001-x.md", "pkg/sub/ARCHITECTURE.md", "pkg/DECISIONS.md", "台帳.md", "decisions/d1.md"):
+            check(p in paths, "%s が決まりに無い %r" % (p, paths))
+        for p in ("other/CONTRIBUTING.md", "docs/ledger.md", "src/adr/z.md", "pkg/sub/notes.md"):
+            check(p not in paths, "%s を拾った %r" % (p, paths))
+        item = [r for r in o["rules"] if r["path"] == "docs/adr/0001-x.md"][0]
+        check(item["show"] == "git show %s:docs/adr/0001-x.md" % base[:7], "show %r" % item)
+    if not POSIX:
+        return skip("rules-wide")
+    with_env(body)
+
+    # 足す物は 40 件で切り、外した数を rulesCut に出す
+    def body2(e):
+        e.base_commit(**{"docs/adr/%03d.md" % i: "a\n" for i in range(45)}, **{"a.txt": "a\n"})
+        feature(e, **{"a.txt": "b\n"})
+        rc, o = e.prep("7")
+        check(len(o["rules"]) == 40 and o["rulesCut"] == 5, "上限 %d %r" % (len(o["rules"]), o["rulesCut"]))
+    with_env(body2)
+
+
+def case_identity():
+    def body(e):
+        e.base_commit(a_DOT_txt="a\n")
+        feature(e, **{".github/workflows/ci.yml": "name: ci\non: push\npermissions:\n  id-token: write\njobs:\n  b:\n    steps:\n      - run: echo ${{ secrets.DEPLOY_KEY }}\n",
+                      "src/app.py": "x = 1\nAPI_TOKEN = os.environ['MY_API_TOKEN']\n",
+                      "infra/main.tf": 'resource "aws_iam_role" "r" {}\n', "k8s/r.yaml": "kind: ClusterRoleBinding\n",
+                      "README.md": "plain text\n"})
+        rc, o = e.prep("7")
+        check(rc == 0 and o["stage0Errors"] == [] and o["identitySignalsCut"] == 0, "ok でない %r" % o)
+        got = {(s["path"], s["line"]): s["text"] for s in o["identitySignals"]}
+        wf = ".github/workflows/ci.yml"
+        check(got.get((wf, 3)) == "permissions:", "permissions: %r" % got)
+        check((wf, 4) in got and (wf, 8) in got, "id-token・secrets %r" % got)
+        check(got.get(("src/app.py", 2), "").startswith("API_TOKEN"), "設定の名前 %r" % got)
+        check(("infra/main.tf", 1) in got and ("k8s/r.yaml", 1) in got, "IAM・role %r" % got)
+        check(not any(p == "README.md" or (p == "src/app.py" and n == 1) for p, n in got), "余計な行 %r" % got)
+    if not POSIX:
+        return skip("identity")
+    with_env(body)
+
+    # 上限 50 で切り、外した数を出す
+    def body2(e):
+        e.base_commit(a_DOT_txt="a\n")
+        feature(e, **{"s.py": "".join("T%d_TOKEN = 1\n" % i for i in range(55))})
+        rc, o = e.prep("7")
+        check(len(o["identitySignals"]) == 50 and o["identitySignalsCut"] == 5, "上限 %r" % o["identitySignalsCut"])
+    with_env(body2)
+
+
+def case_check_report():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        def prep(*args):
+            r = subprocess.run([sys.executable, PREP, *args], capture_output=True, encoding="utf-8", errors="replace")
+            return r.returncode, r.stdout, r.stderr
+
+        def files(rec, report):
+            rp, mp = os.path.join(tmp, "rec.json"), os.path.join(tmp, "report.md")
+            with open(rp, "w", encoding="utf-8") as f:
+                json.dump(rec, f)
+            with open(mp, "w", encoding="utf-8") as f:
+                f.write(report)
+            return rp, mp
+        ledger = [
+            {"id": "L1", "route": "draft", "into": "", "locations": [{"path": "src/a.py", "line": 10, "quote": "q"},
+                                                                    {"path": "src/b.py", "line": 7, "quote": "q"}]},
+            {"id": "L2", "route": "report", "into": "", "locations": [{"path": "src/c.py", "line": 3, "quote": "q"}]},
+            {"id": "L12", "route": "drop", "into": "", "locations": []},
+        ]
+        rec = {"version": 3, "ledger": ledger}
+        # 全部在る（L2 の場所は下書きでないので要らない）
+        rp, mp = files(rec, "L1: src/a.py:10 と src/b.py:7\nL2 は報告\nL12 は捨てた\n")
+        rc, out, _ = prep("--check-report", rp, mp)
+        o = json.loads(out)
+        check(rc == 0 and o == {"ok": True, "items": 3, "missingIds": [], "missingLocations": []}, "全部在る %r" % o)
+        # id が欠ける（L1 は L12 の頭の一致では数えない）。行が 100 なら 10 は当たらない
+        rp, mp = files(rec, "L12 だけ。src/a.py:100 と src/b.py:7\nL2\n")
+        rc, out, _ = prep("--check-report", rp, mp)
+        o = json.loads(out)
+        check(rc == 1 and o["ok"] is False and o["missingIds"] == ["L1"]
+              and o["missingLocations"] == [{"id": "L1", "at": "src/a.py:10"}], "欠け %r" % o)
+        # 下書きの場所が欠ける
+        rp, mp = files(rec, "L1 L2 L12 src/a.py:10\n")
+        rc, out, _ = prep("--check-report", rp, mp)
+        o = json.loads(out)
+        check(rc == 1 and o["missingIds"] == [] and o["missingLocations"] == [{"id": "L1", "at": "src/b.py:7"}], "場所の欠け %r" % o)
+        # 版違い・台帳なし・台帳が一覧でない・報告が無い
+        for bad in ({"version": 2, "ledger": ledger}, {"version": 3}, {"version": 3, "ledger": "x"}):
+            rp, mp = files(bad, "L1\n")
+            rc, out, err = prep("--check-report", rp, mp)
+            check(rc == 2 and out == "" and err.strip(), "不正な記録 %r rc=%s err=%r" % (bad, rc, err))
+        rp, mp = files(rec, "x")
+        rc, out, err = prep("--check-report", rp, os.path.join(tmp, "none.md"))
+        check(rc == 2 and err.strip(), "報告が無い rc=%s" % rc)
+        # Workflow の出力の包みも読める
+        rp, mp = files({"summary": "s", "result": rec}, "L1 L2 L12 src/a.py:10 src/b.py:7")
+        rc, out, _ = prep("--check-report", rp, mp)
+        check(rc == 0, "出力の包みを読めない rc=%s %r" % (rc, out))
+        # 排他: PR の番号と同時には使えない
+        rc, out, err = prep("7", "--check-report", rp, mp)
+        check(rc == 2, "排他 rc=%s" % rc)
+
+
 CASES = {"env-stop": case_env_stop, "stops": case_stops, "diff": case_diff, "rules": case_rules,
-         "prior": case_prior, "quotes": case_quotes, "headless": case_headless}
+         "prior": case_prior, "quotes": case_quotes, "headless": case_headless,
+         "lines": case_lines, "deleted-tests": case_deleted_tests, "rules-wide": case_rules_wide,
+         "identity": case_identity, "check-report": case_check_report}
 
 if __name__ == "__main__":
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
