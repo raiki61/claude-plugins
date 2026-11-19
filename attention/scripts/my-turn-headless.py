@@ -28,7 +28,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 # Workflow（my-turn-dig.js）の CALLER と同じ値。args の caller がこれでないと、Workflow はエージェントを立てずに止まる
 CALLER = "attention:my-turn-deep"
-ROLE_KEYS = ["W1", "W2", "W3", "W4", "W6", "W7", "W8", "W9", "W10answers", "W10fixes", "Quotes"]
+ROLE_KEYS = ["Purpose", "W1", "W2", "W3", "W4", "W6", "Redig", "W7", "W8", "Lines", "W9", "W10answers", "W10fixes", "Quotes"]
 # アカウントを決める設定のフォルダと、認証の経路（claude_auth が足した物か、親が持っていた物）だけを残す
 KEEP_ENV = {"CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
             # mTLS の代理を通る利用者のクライアント証明書（無いと子が接続で落ちる）

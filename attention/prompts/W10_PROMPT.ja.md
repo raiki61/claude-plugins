@@ -1,5 +1,5 @@
 ---
-source_sha256: 1b7c8747a92ba511521a5c6f28ab2a5cbe566393b85be8d52915d3e6e1194dfa
+source_sha256: e70f58564fd27d7a8d6dfda457b756fb04416d7f2dc04435b5c5c8a207b686a3
 about: W10 指摘の反証（設計書 my-turn-dig-redesign.md の段 12。問い・答え・確かめた物・仮定した物だけを渡す。親も兄弟も渡さない）。台帳の件と臭いの答えには 2 体が立つ。trace が偽の体は誤検出だと示そうとし、真の体は具体の筋書きを組む（壊れる余地以外の種類の件では cost が真で、手間の筋書きを組む）。「このままでよい」の葉の 2 体目は recount が真で、名指した前提を数え直す。直しの案と組は W10_FIX_PROMPT。notAFinding は NOT_A_FINDING の項目。2 つの目と、その言い回しの一部は bug-hunt.js（Apache-2.0）から写した（出典と変えた所は英語の md の頭のコメント）。
 ---
 {{prFiles}}

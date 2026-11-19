@@ -1,5 +1,5 @@
 ---
-source_sha256: 0
+source_sha256: 1dd438866f7e4ba0ca9c495f938e57883bc75ed7d58a70659d340f71adea86a4
 about: 段 5 の固定の目「要らない変更」。観点は change-minimality。行数は段 0 の lines から script が添える（大きさをつかむためで、重さは行数で測らない）。
 ---
 目的に要らない変更。この PR の目的: {{purpose}}

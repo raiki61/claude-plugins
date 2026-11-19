@@ -1,5 +1,5 @@
 ---
-source_sha256: ade3be46cfa8f8ab1c677edecbbae7d29412ed69a6394ffe8d738ed6d24bbab1
+source_sha256: e35162c6822046d4e8f027b179d07e3c7d61b64c4b76d0917197e6519e90c2a0
 about: 段 4 比べる（今の W3。旧の手順 8・9）。structure は W1、general と design は W2、means は段 1 の答え。comparable などは出力スキーマのフィールド。
 ---
 {{prFiles}}

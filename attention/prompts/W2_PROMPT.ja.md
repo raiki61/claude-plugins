@@ -1,5 +1,5 @@
 ---
-source_sha256: 0
+source_sha256: 59028305ecc186c06b4971bbc6a123e2b0f757bc2280458af6f3638e6f39a9fc
 about: 段 3 一般の構造と、目的からのゼロの設計（今の W2。旧の手順 7・8）。notFound・general・questionStands・whyQuestion・design は出力スキーマのフィールド。遮断の目には種類の 1 文と目的の 1 文だけを渡し、共通の決まりも PR も付けない。noTools は、遮断の目の役でなく既定のエージェントに頼むときだけ真。
 ---
 {{lenses}}

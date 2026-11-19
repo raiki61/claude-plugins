@@ -1,5 +1,5 @@
 ---
-source_sha256: bb324b467c124e673a6df4a5713a3706d4f2c64a892962a8cdcae76a3160fb70
+source_sha256: 00c211c7d23c0e8b95a6fe7bdaf90cfc10f921780bd0d1fe641ba23432628ed6
 about: W9 直しの案と相乗り（旧の手順 12・13・14。設計書 my-turn-dig-redesign.md の段 14）。items は段 13 で行き先が下書きか報告だけの台帳の件、lenses は script の観点の表の文。items・diffs の行は script が組む。
 ---
 {{prFiles}}

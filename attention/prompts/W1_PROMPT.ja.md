@@ -1,5 +1,5 @@
 ---
-source_sha256: 6270b73b51e8ec32c66498c7a985e80d58337ddf73808d1d3b9dc5d3d5c92b19
+source_sha256: 8d374eebb8ac5f64c19aa5c039a2c3848debae69c7012357f4e5a21bd1eb98ec
 about: 段 2 構造（今の W1。旧の手順 6・10 と 15 の入口）。種類の 1 文は段 1（PURPOSE_PROMPT）へ移した。
 ---
 {{prFiles}}

@@ -8,7 +8,7 @@
   my-turn-prep.py --save-record <記録.json> <Workflow の出力のファイル>
                                           Workflow が返した記録を、記録のファイルに書く
   my-turn-prep.py --check-report <記録.json> <報告.md>
-                                          記録の台帳の id と下書きの場所が、会話の報告に全部在るかを照らす
+                                          記録の台帳の id と下書きの場所が、会話の報告に全部在るかを照合する
 
 PR の作業場（cwd）で打つ。判定はしない——材料を集めて Workflow（my-turn-dig.js）へ渡す形に
 するだけ。終了の値は、続けてよいとき 0、止めるとき 1（`ok: false`）、使い方の誤りは 2。
@@ -935,7 +935,7 @@ def save_record(out_path, src_path):
 
 
 def check_report(record_path, report_path):
-    """記録の台帳の全部の id が報告に在るか、行き先が下書きの件の「path:行」が報告に在るかを照らす。
+    """記録の台帳の全部の id が報告に在るか、行き先が下書きの件の「path:行」が報告に在るかを照合する。
     読めない・版や形が違うときは (None, 訳)。"""
     try:
         rec = my_turn_record.load_result(record_path)

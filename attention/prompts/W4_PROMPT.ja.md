@@ -1,5 +1,5 @@
 ---
-source_sha256: 25ef7d08b3689a94bb05ada12caec1fbfdd84b5dca3295ef48cf2f02fd26a91c
+source_sha256: 39fef2f06b26d6531eb505708b6614b8bf5ae184396455d5d719240a7284f913
 about: W4 コードの臭いの 1 問（設計のセクション 8。段 5 の固定の目の一部）。findingFields は FINDING_FIELDS の文。
 ---
 {{prFiles}}

@@ -1,5 +1,5 @@
 ---
-source_sha256: 0
+source_sha256: ba5f0a72144bed65a65e39abf189f3c87966fc0915452a2dead007e110744378
 about: 段 5 の条件の目「標準の前提」。W1 の standards が 2 つ以上のときだけ立てる。観点は無く、ここに書いた。
 ---
 この PR が乗る標準の前提: {{standards|join:", "}}

@@ -1,5 +1,5 @@
 ---
-source_sha256: ed083a615c16fbed8f4c7874f9607bce4a1aa532ce822904f2f9122307c87edc
+source_sha256: 2dbf811b7d83d6f9c76a3c756cbc12103ffdd4e620b2fc56445551c49cf82e03
 about: W6 の全部のノードに共通の文（セクション 6 が下に渡す物）。英語の版の [sN.k] の印は、元にした手順の番号。 purpose・departure・findingFields と、worth・結論と根拠の決まりは、設計書 my-turn-dig-redesign.md の段 7 で足した。
 ---
 {{prFiles}}

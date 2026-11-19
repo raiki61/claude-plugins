@@ -50,6 +50,76 @@ const _need = (name, c, vars) => {
   }
 }
 
+// EYE_HYGIENE: attention/prompts/EYE_HYGIENE.md
+const EYE_HYGIENE = c => (_need('EYE_HYGIENE', c, {  }), `Hygiene of what this PR adds: for every resource it opens, starts, locks, creates or subscribes to, is the paired cleanup there on every path (errors included)? Does it use the platform's official mechanism where one exists, instead of a hand-made one? Does every wait, retry, loop and queue have a bound (a timeout, a count, a size)? Name the place and the missing pair or bound.`)
+
+// EYE_MINIMAL: attention/prompts/EYE_MINIMAL.md
+const EYE_MINIMAL = c => (_need('EYE_MINIMAL', c, { purpose: 'text', lines: 'text' }), `Changes the purpose does not need. Purpose of this PR: ${c.purpose}
+Added and deleted lines by file class (counted by the prep stage, for the size only): ${c.lines}
+List every change in this PR that the purpose does not need: a part, a file, an option, a check or a document that could go and leave the purpose met. Weigh each by how many places come to know the concept it adds, not by its line count. Start from the zero prescription: could the purpose be met by adding nothing there? Give the line count of each such change beside it.`)
+
+// EYE_PRIOR: attention/prompts/EYE_PRIOR.md
+const EYE_PRIOR = c => (_need('EYE_PRIOR', c, { prior: 'list' }), `Decisions already made: these findings were raised before on this PR, settled, withdrawn, or raised by the person you work for:
+${_bullets(c.prior)}
+Also read the decision records, ADRs and ledgers of the folders this PR touches (among the rule documents in the shared rules). Name every change in this PR that undoes one of these decisions, and every place where a finding we might raise would undo one (for example asking the author to go back to a form the person already recommended and the author took). For each, cite the decision and where it was made.`)
+
+// EYE_PRIVILEGE: attention/prompts/EYE_PRIVILEGE.md
+const EYE_PRIVILEGE = c => (_need('EYE_PRIVILEGE', c, { signals: 'list' }), `Least privilege. Lines this PR adds that set an identity or a permission (found by the prep stage):
+${_bullets(c.signals)}
+For each new identity operation, list the least permission it needs (from the platform's primary documentation) and the permission the PR grants. A grant wider than the need, a secret exposed to a step that does not use it, or a token with a scope the operation does not use is a finding.`)
+
+// EYE_PROMPT: attention/prompts/EYE_PROMPT.md
+const EYE_PROMPT = c => (_need('EYE_PROMPT', c, { prFiles: 'text', eye: 'text', lenses: 'text', notAFinding: 'list', findingFields: 'text' }), `${c.prFiles}
+
+You are one lens eye: read the diff file and the code around it with the one viewpoint below, and only that.
+
+${c.lenses}
+
+${c.eye}
+
+verdict: "smell" when this viewpoint finds something in the PR that should change, "none" when it does not (say in answer what you compared and list in evidence the places you looked; quote may be empty and line 0), "unverified" when reading cannot decide it. For a smell, give each ground in evidence as path, line and the exact quote, and write in answer what is wrong and what it costs or breaks. Without a quoted line it is not a smell. Rule these out first; if one applies, it is "none":
+${_bullets(c.notAFinding)}
+
+${c.findingFields}`)
+
+// EYE_RATIO: attention/prompts/EYE_RATIO.md
+const EYE_RATIO = c => (_need('EYE_RATIO', c, { lines: 'text' }), `Tests and checks against the purpose. Lines by file class (counted by the prep stage): ${c.lines}
+Are the tests and checks this PR adds in proportion to what they protect? Name the tests and checks that guard something the purpose does not need, that test the same behaviour twice, that are bound to an outside tool's internals, or that a real tool already checks. Give the lines of each.`)
+
+// EYE_RULES: attention/prompts/EYE_RULES.md
+const EYE_RULES = c => (_need('EYE_RULES', c, {  }), `Rules of this repository: read the rule documents listed in the shared rules (at the base) and take every item that applies to what this PR touches. For each item, check the PR against it: does the PR follow it, break it, or add a second rule beside it? A rule written in a document counts; how the surrounding code happens to look does not. Name the document and the item for every answer.`)
+
+// EYE_STANDARDS: attention/prompts/EYE_STANDARDS.md
+const EYE_STANDARDS = c => (_need('EYE_STANDARDS', c, { standards: 'list' }), `Premises of the standards this PR builds on: ${c.standards.join(", ")}
+For each pair of them, find where their premises meet in this PR: resending and retries, re-running a step, idempotency, ordering, timeouts, who owns a state. Name each place where one standard's premise breaks the other's, with the primary source of each premise.`)
+
+// EYE_TESTS: attention/prompts/EYE_TESTS.md
+const EYE_TESTS = c => (_need('EYE_TESTS', c, { deleted: 'list' }), `Tests this PR removes (base has them, head does not; counted by the prep stage):
+${_bullets(c.deleted)}
+Pair each removed test with the test at the head that now checks the same behaviour. A removed test with no pair is a finding: name what it checked and that nothing checks it now. Also check every test double (mock, stub, fake) this PR adds or changes: does its shape (arguments, return values, errors, ordering) match the real thing it stands for? Cite the real thing's definition.`)
+
+// FINDING_FIELDS: attention/prompts/FINDING_FIELDS.md
+const FINDING_FIELDS = c => (_need('FINDING_FIELDS', c, {  }), `For an answer that says something in the PR should change:
+- findingKind: "breakage" (something can go wrong for a person), "upkeep" (the next change costs more: the same fact in several places, explanation doing the code's work), "self-made" (built by hand where the world has a part), "removable" (lines or parts the purpose does not need), "rule" (against a rule document of the repository), "prior-decision" (undoes a decision already made), "privilege" (more permission than the operation needs), "test" (a test removed without a replacement, or a test double unlike the real thing). For an answer that finds nothing, "none".
+- locations: every place the same answer applies to, each as path, line and the exact quote of that line, not only the first one you met. If the same pattern is in three files, list all three.
+- cost: for every kind but "breakage", the work it causes, in numbers you counted: how many places hold the same fact, how many lines are kept up, how many lines could go. For "breakage" and "none", "".`)
+
+// LINES_PROMPT: attention/prompts/LINES_PROMPT.md
+const LINES_PROMPT = c => (_need('LINES_PROMPT', c, { prFiles: 'text', lenses: 'text', items: 'list', notAFinding: 'list' }), `${c.prFiles}
+
+${c.lenses}
+
+Every finding of the ledger, with the refuters' verdict:
+${_bullets(c.items)}
+
+Look at them all side by side and draw the lines: give every id exactly one entry.
+- label: the review label. If the rule documents of this repository (in the shared rules) define review labels, use those; otherwise one of block, suggest, nit, question, info.
+- level: "design" when it is something this PR's design decides, "detail" when following a part's specification settles it, "taste" when it is a preference. Only what following a part's specification settles is detail: findings of upkeep, self-made parts and removable lines are choices of this PR's build and are never detail.
+- route: "draft" (a review comment to post), "report" (shown to the person only), "fold" (it is the same finding as another id; give that id in into) or "drop". Draft only a design-level finding the refuters let stand ("stands"); a "suspected" or "unverifiable" one is report only. Put the details together: fold the detail findings into one of them, and say in its why where the part's specification is. Drop only a finding the refuters let fall, or one of the items below (name it in rule); "small" alone is no reason to drop:
+${_bullets(c.notAFinding)}
+- A problem this PR brought in or brought to the surface belongs to this PR; do not send it to another issue.
+- why: one line, the reason for the route. Ask the person (route "report", and say so in why) only when the sources disagree or the finding would undo an earlier decision.`)
+
 // NOT_A_FINDING: attention/prompts/NOT_A_FINDING.md
 const NOT_A_FINDING = [
   `The code does not do what the claim says: read the body of the function or the check, not its name, its signature or a comment about it.`,
@@ -63,6 +133,21 @@ const NOT_A_FINDING = [
   `It is a record of the past (a changelog entry, a decision record) faulted only for describing what happened then.`,
   `Its weight is inflated: how serious it is follows from what a person would see in the concrete scenario, not from the wording.`,
 ]
+
+// PURPOSE_PROMPT: attention/prompts/PURPOSE_PROMPT.md
+const PURPOSE_PROMPT = c => (_need('PURPOSE_PROMPT', c, { prFiles: 'text', lenses: 'text', leaked: 'list' }), `${c.prFiles}
+
+Read the PR conversation first, then the justifications file named in the shared rules, then the diff file.
+
+${c.lenses}
+
+1. purpose: In one sentence, what this PR is for, with every means taken out: the outcome a person wants, not how this PR gets it. Take it from the PR body and the issue it closes before reading the diff.
+2. means: Each means this PR chose, one item each, copied as the PR words it (a tool, a mechanism, a file layout, a check, a name scheme). Copy the words; do not reword them.
+3. kind [s6.7]: In one sentence, what kind of system this is and what the touched parts want to keep consistent there. Free text, no fixed category. [s7.6] Use no word from this repository and no word that names this PR's choice; the sentence goes to a reader who must not see the PR. No word of the means above may appear in purpose or in kind.
+4. claims: Every reason the PR gives and every "cannot", "not needed" or "already handled" it asserts (in the body, the comments, the commit messages, code comments and records it adds), one item each: the claim as written and where it is (a path and line, or the comment's URL).
+${c.leaked.length ? `
+On the first ask these words of the means appeared in purpose or kind: ${c.leaked.join(", ")}. Rewrite purpose and kind without them; keep means and claims as they were unless they were wrong.
+` : ''}`)
 
 // RULES: attention/prompts/RULES.md
 const RULES = c => (_need('RULES', c, { pr: 'text', repo: 'text', workdir: 'text', head7: 'text', base7: 'text', stance: 'text', prCommits: 'list', justifications: 'text', rulesDocs: 'list', claudeMdChanged: 'text?' }), `You are one stage of the /my-turn dig workflow. You work on pull request #${c.pr} of ${c.repo}; the working tree ${c.workdir} is checked out at the PR head ${c.head7}, and the base (merge-base) is ${c.base7}. The person you work for is the PR's ${c.stance}. Your final answer is data for a script, not a message to a person.
@@ -86,15 +171,33 @@ const SMELL_QUESTIONS = [
   `Does this PR build a list that grows by one line every time a version or a case is added? Is there a source that would end the adding?`,
 ]
 
-// W10_PROMPT: attention/prompts/W10_PROMPT.md
-const W10_PROMPT = c => (_need('W10_PROMPT', c, { prFiles: 'text', quoted: 'flag', trace: 'flag', notAFinding: 'list', text: 'text' }), `${c.prFiles}
+// W10_FIX_PROMPT: attention/prompts/W10_FIX_PROMPT.md
+const W10_FIX_PROMPT = c => (_need('W10_FIX_PROMPT', c, { prFiles: 'text', group: 'flag', lenses: 'text', text: 'text' }), `${c.prFiles}
 
-${c.trace ? `Construct the concrete scenario for the claim below: exact input or state, then what the code does with it. Read the lines it cites and trace them. If the answer says something is wrong, build the failure: exact input or state, then the wrong output, error or lost data. If it says something holds, try to build the case where it does not hold. A problem with no concrete failure scenario is not a finding.
+${c.lenses}
+
+${c.group ? `Judge each member of the group below one by one: "accept" when it belongs to the group (one fix settles it with the others, or the conflict is real for it), "falls" when it does not, "partly" when only part of it does (say which part in reason). Check every reason the group gives for taking a member in or leaving one out against facts you checked (the code, an official primary source), not against the group's own words. Then give the verdict for the group as a whole: "stands" when it holds, "falls" when it does not hold for any two members, "unverifiable" when you cannot check it (say why in reason). Give each member's verdict in members, by id.
+` : `Try to prove the fix option below is wrong. It has no quotes of its own: check the content at the world-solution URL, and whether the quotes of the findings it rests on support it. Then check whether it is how the world builds the same thing (the standard practice in official primary sources): a fix the practice does not use (pinning an isolation level, comparing with a pre-release build) falls unless the option gives a ground for departing.
+verdict: "stands" when you could not refute it, "falls" when it is wrong or departs from the practice with no ground (give evidence), "unverifiable" when you cannot check it (say why in reason).
+`}
+${c.text}`)
+
+// W10_PROMPT: attention/prompts/W10_PROMPT.md
+const W10_PROMPT = c => (_need('W10_PROMPT', c, { prFiles: 'text', trace: 'flag', cost: 'flag', recount: 'flag', lenses: 'text', notAFinding: 'list', text: 'text' }), `${c.prFiles}
+
+${c.lenses}
+
+${c.trace ? `${c.cost ? `The claim below is a finding of a kind other than breakage (upkeep, self-made, removable, a rule, a prior decision, privilege, a test). Do not look for a failure; construct its cost scenario instead: the next time someone changes the thing it names, how many places and how many lines must change, or how many lines could go. Count them in the real code, and compare with the cost the claim gives.
+problem: true when the answer below says something in the PR should change, false when it says nothing should.
+verdict: "stands" when your count shows the cost is real (write it in cost: the change, then the places and lines you counted), "falls" when your count contradicts the claim or there is no cost (say why in reason and give evidence), "unverifiable" when reading cannot decide it (say why in reason; it stays "unverified", not refuted).
+` : `Construct the concrete scenario for the claim below: exact input or state, then what the code does with it. Read the lines it cites and trace them. If the answer says something is wrong, build the failure: exact input or state, then the wrong output, error or lost data. If it says something holds, try to build the case where it does not hold. A problem with no concrete failure scenario is not a finding.
 problem: true when the answer below says something in the PR is wrong (a defect, a risk or a smell), false when it says nothing is wrong or that it found nothing. It describes the answer, not what your trace found.
 verdict: "stands" when the scenario you traced matches the answer (write it in scenario: the input or state, then the result), "falls" when the trace contradicts the answer, or the answer claims a problem and no concrete failure scenario exists (say why in reason and give evidence), "unverifiable" when reading cannot decide it (say in reason what would have to be run; it stays "unverified", not refuted).
-` : `Try to prove the claim below is a false positive, by reading the actual code and its context: callers, guards upstream, types or invariants that make the case impossible. ${c.quoted ? `First check whether the quotes really support the answer: is the claim actually supported by the quote, or is it an overreach or a misread? Then check the claim itself in the code and the sources.` : `It has no quotes of its own: check the content at the world-solution URL and whether the quotes of the leaves it rests on support it.`}
+`}` : `${c.recount ? `The answer below says the PR may stay as it is, and names the one premise that "fine" rests on. Recount that premise against the real thing (the code, the config, an upstream primary source): measure it again yourself instead of trusting the answer. If the "fine" also rests on other premises that hold, do not make it fall.
+verdict: "stands" when the premise holds, "falls" when it does not (give evidence; the answer is reopened), "unverifiable" when you cannot check it (say why in reason).
+` : `Try to prove the claim below is a false positive, by reading the actual code and its context: callers, guards upstream, types or invariants that make the case impossible. First check whether the quotes really support the answer: is the claim actually supported by the quote, or is it an overreach or a misread? Does the answer's conclusion follow from the evidence the answer itself gives (evidence saying "only an optimization" does not support "it may stay")? Then check the claim itself in the code and the sources. If the answer rests on a claim about the world ("no OSS does this", "upstream cannot", "the tool has no such option"), open the URL of the official primary source and check it; if you cannot open it or it does not say so, the verdict is "unverifiable", not "stands".
 verdict: "stands" when you could not refute it, "falls" when it is wrong (give evidence), "unverifiable" when you cannot check it (say why in reason; it stays "unverified", not refuted).
-`}
+`}`}
 A claim of a problem that is one of these falls; name which one in reason:
 ${_bullets(c.notAFinding)}
 Do not let a claim fall only because it is small, a matter of style, or one you would not raise: only one of the items above or evidence that it is wrong makes it fall.
@@ -107,28 +210,33 @@ const W1_PROMPT = c => (_need('W1_PROMPT', c, { prFiles: 'text', extraSmells: 't
 Read the whole diff file and the code around it.
 
 1. structure [s6.1][s6.2]: Describe the system that contains what the PR touches, without this repository's own words: its parts, what flows between parts (values, facts, calls), which part is the source of truth and which only reads, the direction of dependencies, and the boundaries. Show where in it the parts the PR touches sit. [s6.3] For a documents-only PR, first decide whether to draw the mechanism the documents explain or where the documents live (who reads them, which is the source of truth). [s6.4] Do not write this PR's solution (the mechanism it builds, its checks, how it composes names). [s6.5] But do draw the checks, tests and CI mechanisms this PR adds as parts, together with what they watch.
-2. kind [s6.7]: In one sentence, what kind of system this is and what the touched parts want to keep consistent there. Free text, no fixed category. [s7.6] Use no word from this repository and no word that names this PR's choice; the sentence goes to a reader who must not see the PR.
-3. mechanisms [s10.1][s10.2][s10.3]: Each mechanism this PR builds in one sentence, and the premise it compensates for (what breaks without it: human hands, an agreement kept elsewhere, an outside tool's behaviour), in the form "builds X; it is needed because Y does not have Z". Include every check and test mechanism the PR adds.
-4. selfMade (entry of step 15) [s6.6]: The self-made parts (built by hand where a standard from the world would do). Use the --stat of the diff file to see where the added lines gather; if many are in places that are not the main purpose (checks, tests, glue), list those first. Hand-made lists (numbers, types, special-case tables) count as self-made. Give the files as a comma-separated list.
-5. extraSmells: Up to ${c.extraSmells} code-smell or risk questions that the five fixed smell questions below cannot catch for this PR, each with one line on why none of the five catches it. Empty is fine.
+2. mechanisms [s10.1][s10.2][s10.3]: Each mechanism this PR builds in one sentence, and the premise it compensates for (what breaks without it: human hands, an agreement kept elsewhere, an outside tool's behaviour), in the form "builds X; it is needed because Y does not have Z". Include every check and test mechanism the PR adds.
+3. selfMade (entry of step 15) [s6.6]: The self-made parts (built by hand where a standard from the world would do). Use the --stat of the diff file to see where the added lines gather; if many are in places that are not the main purpose (checks, tests, glue), list those first. Hand-made lists (numbers, types, special-case tables) count as self-made. Give the files as a comma-separated list.
+4. extraSmells: Up to ${c.extraSmells} code-smell or risk questions that the five fixed smell questions below cannot catch for this PR, each with one line on why none of the five catches it. Empty is fine.
    Fixed questions: ${c.smellQuestions.join(" ")}
-6. hiddenChoices [s8.2]: Questions about where this PR's structure makes a choice, with the chosen answer hidden (for example "Which side holds the source of truth?", "Where is the boundary drawn?"). They are asked only if the general structure turns out too generic to compare. No word from this repository.
-7. noParts [s6.8]: true when no parts can be named (a version number bump only and the like); then give noPartsReason, and structure, kind and mechanisms may be empty.`)
+5. hiddenChoices [s8.2]: Questions about where this PR's structure makes a choice, with the chosen answer hidden (for example "Which side holds the source of truth?", "Where is the boundary drawn?"). They are asked only if the general structure turns out too generic to compare. No word from this repository.
+6. standards: The outside standards, protocols and frameworks this PR builds on (a wire protocol, an agent framework, a CI system), one name each. Empty is fine.
+7. noParts [s6.8]: true when no parts can be named (a version number bump only and the like); then give noPartsReason, and structure and mechanisms may be empty.`)
 
 // W2_PROMPT: attention/prompts/W2_PROMPT.md
-const W2_PROMPT = c => (_need('W2_PROMPT', c, { kind: 'text', hidden: 'list', noTools: 'flag' }), `[s7.1][s7.2][s7.3][s7.4] In general, how is this kind of system divided into parts, what flows between the parts, where is the source of truth kept, which way do the dependencies point, and where are the boundaries drawn? Give each together with the reason it is placed that way. Describe structure, not solutions or tools.
+const W2_PROMPT = c => (_need('W2_PROMPT', c, { kind: 'text', purpose: 'text', hidden: 'list', noTools: 'flag', lenses: 'text' }), `${c.lenses}
+
+[s7.1][s7.2][s7.3][s7.4] In general, how is this kind of system divided into parts, what flows between the parts, where is the source of truth kept, which way do the dependencies point, and where are the boundaries drawn? Give each together with the reason it is placed that way. Describe structure, not solutions or tools.
 
 Kind of system: ${c.kind}
 ${c.hidden.length ? `
 [s8.2] Also answer these questions about such a system, each with the reason:
 ${_bullets(c.hidden)}
 ` : ''}
-If you cannot say anything beyond statements that would fit any system, set notFound to true and say so in general.${c.noTools ? `
+If you cannot say anything beyond statements that would fit any system, set notFound to true and say so in general.
+
+Then design from zero. Purpose: ${c.purpose}
+First doubt whether the question holds: is something to be built at all for this purpose? Set questionStands and say why in whyQuestion. If it holds, list in design the elements you would build from this purpose alone (D1, D2, ... in id), each with what it adds and what it removes or makes unnecessary. If it does not hold, leave design empty.${c.noTools ? `
 
 Do not use any tool. Think only from what is given here.` : ''}`)
 
 // W3_PROMPT: attention/prompts/W3_PROMPT.md
-const W3_PROMPT = c => (_need('W3_PROMPT', c, { prFiles: 'text', structure: 'text', general: 'text' }), `${c.prFiles}
+const W3_PROMPT = c => (_need('W3_PROMPT', c, { prFiles: 'text', structure: 'text', general: 'text', design: 'list', means: 'list', lenses: 'text' }), `${c.prFiles}
 
 Structure of the system after this PR (from the structure stage):
 ${c.structure}
@@ -136,20 +244,34 @@ ${c.structure}
 General structure of this kind of system (from a reader who did not see the PR):
 ${c.general}
 
+Design from zero for the same purpose (from the same reader, who saw only the purpose sentence):
+${_bullets(c.design)}
+
+Means this PR chose (as the PR words them):
+${_bullets(c.means)}
+
+${c.lenses}
+
 [s8.1] Put the two side by side and list the differences in how parts are cut, which way things flow, where the source of truth sits and where boundaries are drawn. If the general structure names tools or OSS, do not compare against them (a later stage does that).
 [s8.2] If the general structure is only generic statements that fit any design, so it cannot be compared (different from agreeing with no differences), set comparable to false and say why in whyNotComparable.
-[s9.1] For each difference decide: "align" with the general structure, or "may-differ" for a reason specific to here. [s9.2][s9.3] Decide against outside standards (written intent, the general structure, industry practice), not against the surrounding code: when the surroundings are already broken, the broken form looks consistent. [s9.4] A reason to differ may only be an outside standard or an immovable fact outside this PR (an outside tool's specification, law or contract, shown by its primary source). The repository's current state (settings, CI, code, layout, habits, existing checks) is never a reason, however it is phrased; if that is all, decide "align". [s9.5] If a reason uses a record (decision record, known limit, exception list), first check the line was not added by this PR; if it was, it is not a reason. basis: the outside standard used. [s9.6] ifThreeMore (for may-differ): if the same problem came three more times, what would pile up as an extension of this PR's form.`)
+[s9.1] For each difference decide: "align" with the general structure, or "may-differ" for a reason specific to here. [s9.2][s9.3] Decide against outside standards (written intent, the general structure, industry practice), not against the surrounding code: when the surroundings are already broken, the broken form looks consistent. [s9.4] A reason to differ may only be an outside standard or an immovable fact outside this PR (an outside tool's specification, law or contract, shown by its primary source). The repository's current state (settings, CI, code, layout, habits, existing checks) is never a reason, however it is phrased; if that is all, decide "align". [s9.5] If a reason uses a record (decision record, known limit, exception list), first check the line was not added by this PR; if it was, it is not a reason. basis: the outside standard used. [s9.6] ifThreeMore (for may-differ): if the same problem came three more times, what would pile up as an extension of this PR's form.
+Then put the means beside the design from zero. For each means, say which design element it stands for; a means that stands for none is a difference (from "means"). Each design element the PR has no means for is a difference too (from "design"). Decide these as above: "align", or "may-differ" with an outside standard or an immovable fact as basis. from: "structure" for a difference between the two structures, "design" or "means" for these.`)
 
 // W4_PROMPT: attention/prompts/W4_PROMPT.md
-const W4_PROMPT = c => (_need('W4_PROMPT', c, { prFiles: 'text', question: 'text', notAFinding: 'list' }), `${c.prFiles}
+const W4_PROMPT = c => (_need('W4_PROMPT', c, { prFiles: 'text', question: 'text', notAFinding: 'list', findingFields: 'text' }), `${c.prFiles}
 
 Code-smell question: ${c.question}
 
 Answer it for this PR by reading the diff file and the code around it. verdict: "smell" when it is a problem here, "none" when it is not (say why in answer, and list in evidence the places you looked; quote may be empty and line 0), "unverified" when reading cannot decide it. For a smell, give each ground in evidence as path, line and the exact quote. Do not count lines by guessing: quote them. For a smell, also write in answer the concrete scenario: the change or input, then what goes wrong or what extra work it causes. Without a quoted line and a scenario it is not a smell. Rule these out first; if one applies, it is "none":
-${_bullets(c.notAFinding)}`)
+${_bullets(c.notAFinding)}
+
+${c.findingFields}`)
 
 // W5_ALIGN: attention/prompts/W5_ALIGN.md
 const W5_ALIGN = c => (_need('W5_ALIGN', c, { diff: 'text', basis: 'text' }), `The PR's structure differs from the general structure: ${c.diff}. It was decided to align (basis: ${c.basis}). What in this PR has to change to align, and what breaks if it does not?`)
+
+// W5_CLAIM: attention/prompts/W5_CLAIM.md
+const W5_CLAIM = c => (_need('W5_CLAIM', c, { claim: 'text', at: 'text' }), `The PR says: "${c.claim}" (at ${c.at}). Is this claim true? Check it in upstream primary sources or in code. The current state of base and the text this PR wrote are not reasons: a claim that rests only on them is circular. A claim of a count, or that something is there or not there, rests only on a value you measured again.`)
 
 // W5_PRIOR: attention/prompts/W5_PRIOR.md
 const W5_PRIOR = c => (_need('W5_PRIOR', c, { received: 'flag', state: 'text', finding: 'text', at: 'text' }), `${c.received ? `Review comment the author received` : `Earlier finding`} (${c.state}): ${c.finding}${c.at ? ` (at ${c.at})` : ''}. Where does it stand now in this PR, and what is left?`)
@@ -163,7 +285,7 @@ Mechanisms and premises:
 ${_bullets(c.mechanisms)}`)
 
 // W5_SELF_MADE: attention/prompts/W5_SELF_MADE.md
-const W5_SELF_MADE = c => (_need('W5_SELF_MADE', c, { part: 'text', files: 'text', why: 'text' }), `Self-made part: ${c.part} (files: ${c.files}; why it looks self-made: ${c.why}). What is the world's solution for it, and should it be self-made at all? Read its body and ask the three questions of every check in it.`)
+const W5_SELF_MADE = c => (_need('W5_SELF_MADE', c, { part: 'text', files: 'text', why: 'text' }), `Self-made part: ${c.part} (files: ${c.files}; why it looks self-made: ${c.why}). Measured against the purpose, is it needed from zero? What would remain if it were removed? To keep it you need an outside ground; "there is no replacement part" alone is no reason to keep it. Count the lines it adds to maintain. Read its body and ask the three questions of every check in it.`)
 
 // W5_SMELL: attention/prompts/W5_SMELL.md
 const W5_SMELL = c => (_need('W5_SMELL', c, { question: 'text', answer: 'text', where: 'list' }), `Code smell: ${c.question}
@@ -175,7 +297,7 @@ Is this a real problem in this PR, what does it cost, and can it be removed?`)
 const W5_WORLD = c => (_need('W5_WORLD', c, { mechanism: 'text' }), `World's solution: how do OSS, standard tools and standard procedures solve the problem this mechanism solves: ${c.mechanism}?`)
 
 // W6_PROMPT: attention/prompts/W6_PROMPT.md
-const W6_PROMPT = c => (_need('W6_PROMPT', c, { shared: 'text', id: 'text', paths: 'list', parentLocs: 'list', where: 'text', question: 'text' }), `${c.shared}
+const W6_PROMPT = c => (_need('W6_PROMPT', c, { shared: 'text', id: 'text', paths: 'list', parentLocs: 'list', where: 'text', question: 'text', lenses: 'text', again: 'text' }), `${c.shared}
 
 ## Your node ${c.id}
 
@@ -187,17 +309,25 @@ ${_bullets(c.parentLocs)}
 ${c.where ? `
 Where to look first: ${c.where}
 ` : ''}
+${c.lenses}
+${c.again ? `
+This node was answered "unverified" before. That answer, and what it said would decide it:
+${c.again}
+Answer it once more, using that as the lead. Do not split it: return no children and a status other than "split".
+` : ''}
 Your question (decide this here; hand to children only questions whose answer would change yours):
 ${c.question}`)
 
 // W6_SHARED: attention/prompts/W6_SHARED.md
-const W6_SHARED = c => (_need('W6_SHARED', c, { prFiles: 'text', structure: 'text', general: 'text', notAFinding: 'list' }), `${c.prFiles}
+const W6_SHARED = c => (_need('W6_SHARED', c, { prFiles: 'text', structure: 'text', general: 'text', notAFinding: 'list', purpose: 'text', departure: 'text', findingFields: 'text' }), `${c.prFiles}
 
 Structure of the system (from the structure stage):
 ${c.structure}
 
 General structure of this kind of system (from a reader who did not see the PR):
 ${c.general}
+
+Purpose of this PR (the outcome, with the means taken out): ${c.purpose}
 
 How to answer one node of the question tree:
 - [s11.1][s11.6] You answer one question of a tree. Answer it down to a leaf: a question whose answer is fixed by checking the real thing. Say what you checked and what you found.
@@ -209,6 +339,11 @@ How to answer one node of the question tree:
 - evidence (for a leaf): each ground as path, line and quote (the form in the shared rules). files: every file you read, relative to the repository root. urls: every URL you relied on; for an issue, PR or search you read with gh, give its URL.
 - [s13.8][s13.9] Use only official primary documents or source code (not mirrors or copies), never memory. If only secondary articles exist, return "unverified".
 - Keep the answer to a few lines; point to locations instead of pasting bodies.
+- The current state of base, and the text this PR wrote, are not reasons. A departure from the outside standard needs one of the two grounds below:
+${c.departure}
+- The conclusion must follow from your own evidence. If your evidence says something is "only an optimization" or "not needed", do not conclude that it may stay.
+- worth (for a leaf): "fix" when your answer says something in the PR should change, "fine" when it says the PR may stay as it is, "undecided" when it does not settle. For "fine", name in finePremise the one premise your "fine" rests on (a refuter will recount it against the real thing). For "fix", give findingKind, every place in locations and, for a kind other than breakage, the cost:
+${c.findingFields}
 - When your answer says something in the PR is wrong, write the concrete failure scenario in the answer: exact input or state, then the wrong result a person would see. Every ground is a path, a line and a quote; if you cannot point at the line, it is not a finding. Rule these out first; if one of them applies, do not call it wrong:
 ${_bullets(c.notAFinding)}
 
@@ -232,7 +367,7 @@ ${_bullets(c.known)}
 Group the new questions that ask the same thing (even when worded differently) into clusters. For each cluster give key (a short canonical wording; if it asks the same as a question already in the tree, use that existing key exactly), question (the wording to dig) and members (the ids, comma-separated). Put a question in dropped only when it does not need digging at all, with why. Every new id must appear exactly once, in one cluster or in dropped.`)
 
 // W8_PROMPT: attention/prompts/W8_PROMPT.md
-const W8_PROMPT = c => (_need('W8_PROMPT', c, { prFiles: 'text', structure: 'text', mechanisms: 'list', selfMade: 'list', smells: 'list', tree: 'list', unreadChanged: 'list', unread: 'list', round: 'text', oddRound: 'flag' }), `${c.prFiles}
+const W8_PROMPT = c => (_need('W8_PROMPT', c, { prFiles: 'text', structure: 'text', mechanisms: 'list', selfMade: 'list', smells: 'list', tree: 'list', unreadChanged: 'list', unread: 'list', round: 'text', quietEyes: 'list', oddRound: 'flag' }), `${c.prFiles}
 
 Structure, mechanisms and self-made parts (from the structure stage):
 ${c.structure}
@@ -240,6 +375,7 @@ Mechanisms: ${_or(c.mechanisms.join("; "), "(none)")}
 Self-made: ${_or(c.selfMade.join("; "), "(none)")}
 
 Code-smell answers: ${c.smells.join(" ")}
+Lens eyes that found nothing: ${_or(c.quietEyes.join(", "), "(none)")}
 
 The question tree so far (id [status] question => answer):
 ${c.tree.join("\n")}
@@ -251,18 +387,20 @@ Round ${c.round}. What is missing from this tree? ${c.oddRound ? `This round, lo
 Return each gap as a question with why (which part or file is missing) and where. If nothing is missing, return no gaps and say in reason what you compared the tree against.`)
 
 // W9_PROMPT: attention/prompts/W9_PROMPT.md
-const W9_PROMPT = c => (_need('W9_PROMPT', c, { prFiles: 'text', structure: 'text', leaves: 'list', diffs: 'list', limit: 'text' }), `${c.prFiles}
+const W9_PROMPT = c => (_need('W9_PROMPT', c, { prFiles: 'text', structure: 'text', items: 'list', lenses: 'text', diffs: 'list', limit: 'text' }), `${c.prFiles}
 
 Structure of the system:
 ${c.structure}
 
-Decided leaves of the question tree (id: question => answer | evidence):
-${_bullets(c.leaves)}
+${c.lenses}
+
+Findings of the ledger (id [kind]: finding | locations):
+${_bullets(c.items)}
 
 Differences from the general structure and their decisions: ${_or(c.diffs.join("; "), "(none)")}
 
-1. fixes [s14.1][s14.2]: Fix options built from these leaves, choosing in this order: "remove" (make what is in two places from one place, remove the premise), then "type" (a schema or type makes a drifting value impossible to write), then "tool" (a ready-made tool), then "self-made". If a higher rung prevents it, do not offer the lower rung. [s14.3] Rules you write yourself on a ready-made tool count as self-made. For each fix, worldSolution [s13.1]: how the world solves the same (the URL of an official primary source you checked), or "none" and the words you searched; leaves: the leaf ids it rests on, comma-separated.
-2. groups [s12.1][s12.2]: Groups among the roots: fixes or leaves that one fix settles together ("one-fix"), and a fix that breaks another root's answer ("conflict"). Members are fix numbers (F1, F2 ... in the order of your fixes) and leaf ids, comma-separated. Check each group really holds. If you looked and found none, return no groups.
+1. fixes [s14.1][s14.2]: Fix options built from these findings, choosing in this order: "remove" (make what is in two places from one place, remove the premise), then "type" (a schema or type makes a drifting value impossible to write), then "tool" (a ready-made tool), then "self-made". If a higher rung prevents it, do not offer the lower rung. [s14.3] Rules you write yourself on a ready-made tool count as self-made. For each fix, worldSolution [s13.1]: how the world solves the same (the URL of an official primary source you checked), or "none" and the words you searched; items: the finding ids (L1, L2 ...) it rests on, comma-separated. Do not rewrite a finding inside the fix; point at its id, so the finding stays when the fix falls.
+2. groups [s12.1][s12.2]: Groups among the findings: fixes or findings that one fix settles together ("one-fix"), and a fix that breaks another finding ("conflict"). Members are fix numbers (F1, F2 ... in the order of your fixes) and finding ids, comma-separated. Check each group really holds. If you looked and found none, return no groups.
 3. outside [s12.3][s12.4]: Search open issues and PRs that plan to build the same environment, mechanism or tool, with \`gh issue list --state open --search <words>\` and \`gh pr list --state open --search <words>\` (words: the mechanisms and the names of the environments they need). For each hit, say whether we can ride their environment or they can use our parts. searched: the words you searched (always).
 At most ${c.limit} fixes and groups together; put the most important first.`)
 
@@ -569,6 +707,9 @@ const ledger = newLedger()
 let LEAF_COUNT = 0
 let used = 0, depth = 0, round = 0
 const targets = []
+// stage 9 and stage 11 fill these; declared here so the counts of a run that stops early can read them
+const redig = { asked: 0, settled: 0 }
+const ledgerItems = []
 const notSeen = { nullNodes: [], cut: [], extraSmellsCut: [], fixesCut: [], gapsAfterCap: [], afterNullMerge: [] }
 const repairs = { childrenWithoutHow: [], clusterMissing: [], clusterDuplicate: [], clusterUnknown: [], foldIntoOwnLine: [], droppedKnown: [],
   redigSplit: [], lines: { unknown: [], duplicate: [], missing: [], badFold: [], dropNoRule: [], detailToDesign: [], draftToReport: [], allReport: false } }
@@ -1232,7 +1373,7 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
 // outside the node cap, with its earlier answer as the lead. It may not split: a split answer is not taken (the
 // earlier answer stays). Its ancestors keep dependsOnUnverified: what they rested on was unsure when they answered ----
 const redigTargets = nodes.filter(n => n.result?.status === 'unverified' && n.status === 'unverified')
-const redig = { asked: redigTargets.length, settled: 0 }
+redig.asked = redigTargets.length
 const redone = await parallel(redigTargets.map(n => () => ask('Redig', `Redig ${n.id}`,
   W6_PROMPT(w6Input(shared, n, `${n.result.answer ?? ''}\nAssumed without checking: ${(n.result.premises ?? []).join('; ') || 'nothing'}`)),
   { schema: NODE, phase: 'Dig', ...M('Redig') })))
@@ -1360,7 +1501,6 @@ rawItems.forEach((x, i) => {
     if (firstAt.has(k)) up[findUp(i)] = findUp(firstAt.get(k)); else firstAt.set(k, i)
   }
 })
-const ledgerItems = []
 const itemById = new Map()
 const newItem = fields => { const it = { id: `L${ledgerItems.length + 1}`, ...fields }; ledgerItems.push(it); itemById.set(it.id, it); return it }
 const byRoot = new Map()
@@ -1551,8 +1691,8 @@ const goneIds = new Set(removedFixes.map(f => f.id))
 for (const it of ledgerItems) it.fixes = fixesKept.filter(f => !goneIds.has(f.id) && f.itemIds.includes(it.id)).map(f => f.id)
 
 // ---- counts (section 4) ----
-const countBy = (list, key) => list.reduce((acc, x) => { const k = key(x) ?? 'none'; acc[k] = (acc[k] ?? 0) + 1; return acc }, {})
 function countsOf() {
+  const countBy = (list, key) => list.reduce((acc, x) => { const k = key(x) ?? 'none'; acc[k] = (acc[k] ?? 0) + 1; return acc }, {})
   const stages = ledger.stages
   return {
     stages,
@@ -1605,7 +1745,8 @@ return {
   roots: roots.map(n => n.id),
   nodes: nodes.map(nodeOut),
   gapRounds,
-  ledger: { items: ledgerItems.map(itemOut), returned: !!lines },
+  // the ledger of findings (stage 11) with the lines drawn (stage 13); my-turn-prep.py --check-report reads it
+  ledger: ledgerItems.map(itemOut), linesReturned: !!lines,
   fixes: { fixes: fixesKept, groups: groupsKept, searched: fixesRaw?.searched ?? null, outside: fixesRaw?.outside ?? [],
     verdicts: fixTargets.map(t => ({ id: t.id, verdict: t.verdict ?? null })),
     removed: removedFixes, returned: !!fixesRaw },

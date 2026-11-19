@@ -1,5 +1,5 @@
 ---
-source_sha256: 9fe2ae29fcbc715975ad6ff9bfdf61c62f98bab2ffd45fc410515737b28a23df
+source_sha256: 41e6b6fdecd3882f6457cd65aa86d2c467308a718fb8bf9ff16dde5a58cae0cd
 about: W6 の 1 つのノードの文（セクション 6 が下に渡す物）。shared は W6_SHARED の文。paths・parentLocs の行は script の w6Input が組む。 lenses はルートの区分ごとの観点の文、again は段 9 の掘り直しのときだけ入る（設計書 my-turn-dig-redesign.md の段 7・段 9）。
 ---
 {{shared}}

@@ -739,7 +739,7 @@ def case_headless():
         deny = argv[argv.index("--disallowedTools") + 1:argv.index("--permission-mode")]
         check(deny == ["Bash(git *--output*)", "Bash(git grep *)"], "禁止のルール %r" % deny)
         ag = json.loads(after("--agents"))
-        keys = "W1 W2 W3 W4 W6 W7 W8 W9 W10answers W10fixes Quotes".split()
+        keys = "Purpose W1 W2 W3 W4 W6 Redig W7 W8 Lines W9 W10answers W10fixes Quotes".split()
         check(sorted(ag) == sorted("my-turn-" + k for k in keys), "役の一覧 %r" % sorted(ag))
         for name, a in ag.items():
             check("model" not in a and "effort" not in a, name + " に model/effort")

@@ -1,5 +1,5 @@
 ---
-source_sha256: 0
+source_sha256: aab2c1a4403189c499e9340693b44f92b76d6ad41b32596ae0917e4cefcff592
 about: 段 5 の固定の目「前の決め」。観点は prior-decisions-check。prior は前の指摘のうち settled・withdrawn の物と、出どころが earlier の物の全部。
 ---
 既に決めた事: 次の指摘は、この PR で前に出され、解決したか、取り下げたか、あなたが働く相手が出した物:

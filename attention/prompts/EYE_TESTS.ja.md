@@ -1,5 +1,5 @@
 ---
-source_sha256: 0
+source_sha256: 7c211c9e3b1848a34e2d685440b60be44393412debf5317e726135cf9883a303
 about: 段 5 の固定の目「試験の置き換え」。観点は test-double-fidelity。組にする所は観点が無いので、ここに書いた。deleted は段 0 の deletedTests。
 ---
 この PR が消す試験（base に在り head に無い。下ごしらえの段が数えた）:
