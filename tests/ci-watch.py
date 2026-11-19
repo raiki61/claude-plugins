@@ -41,8 +41,12 @@ GitHub の利用制限（rate limit）で gh が断られた回は、読まず�
 GitHub は、制限に当たった間は打ち直さずに待つよう求めている（https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
 の「Exceeding the rate limit」）。一時の制限を CI の赤と同じ頼みにしない（2026-10-28 に 2 次の制限で 1 で終わり、点検に頼みが回った。
 受付 6a9f37）。当たり始めてから REPEAT を過ぎても続けば、黙らずに 1 で知らせる（知らせた後は REPEAT ごとに 1 回）。
+gh が GitHub に届かなかった回（proxy への接続・接続の時間切れ・名前を引けないなどの通信の失敗。NET の字で見分ける）も、利用制限と同じく
+読まずに 0 で終わり、同じ時刻を覚えて REPEAT を過ぎても続けば知らせる（2026-11-19 に proxy への接続の時間切れ
+「proxyconnect tcp: dial tcp …: i/o timeout」で 1 で終わり、点検に頼みが回った。その直後に gh は読めた。頼み 68e152）。
+GitHub の答えが 4xx・5xx の回（HTTP 502 など）は届いた上での失敗なので、これまでどおり 1 で知らせる。
 
-終了の値: 0 = 知らせる物が無いか、利用制限で今回は読まなかったか、dry_run（知らせる物の行は出す） / 1 = 知らせる物が在る（その行を出す）か、gh・台帳を読めない / 2 = 入力が読めない
+終了の値: 0 = 知らせる物が無いか、利用制限か通信の失敗で今回は読まなかったか、dry_run（知らせる物の行は出す） / 1 = 知らせる物が在る（その行を出す）か、gh・台帳を読めない / 2 = 入力が読めない
 dry_run は、知らせる物が在っても 0 で終わる（試運転は失敗でない。1 にすると gh・台帳を読めない本物の失敗と見分けられない。持ち主 2026-11-01、頼み 76475f）。
 gh・台帳を読めない回は dry_run でも 1。
 """
@@ -73,6 +77,13 @@ RUNS = 100   # workflow ごとに読む run の数。この中に緑が無けれ
 SLACK = datetime.timedelta(days=1)
 REPEAT = datetime.timedelta(days=1)   # 開いた頼みを回してから、同じ件を知らせ直すまでの長さ
 FIELDS = "databaseId,status,conclusion,event,headSha,createdAt,updatedAt,url"
+# gh が GitHub に届かなかったときの文の字（小文字で照合）。Go の net/http の proxy への接続の失敗（"proxyconnect"）・接続の失敗
+# （"dial tcp"、時間切れの "i/o timeout"、"connection refused"・"connection reset by peer"・"network is unreachable"・"no route to host"、
+# 名前を引けない "no such host"・"temporary failure in name resolution"）・TLS の時間切れ・http.Client の時間切れと、
+# gh が名前を引けなかったときに出す "error connecting to <host>"
+NET = ("proxyconnect", "dial tcp", "i/o timeout", "connection refused", "connection reset by peer", "network is unreachable",
+       "no route to host", "no such host", "temporary failure in name resolution", "tls handshake timeout", "client.timeout exceeded",
+       "error connecting to")
 
 
 def run(argv):
@@ -82,6 +93,14 @@ def run(argv):
 
 class Limited(RuntimeError):
     """gh が GitHub の利用制限（1 次の "API rate limit exceeded" と 2 次の "secondary rate limit"）で断られた。"""
+    what = "GitHub の利用制限（rate limit）に当たった"
+    look = "gh api rate_limit で残りを見る"
+
+
+class Unreachable(Limited):
+    """gh が通信の失敗で GitHub に届かなかった（NET の字）。利用制限と同じく、今回は読まずに黙り、1 日続けば知らせる。"""
+    what = "gh が GitHub に届かなかった（通信の失敗）"
+    look = "この機械から gh api rate_limit が通るか（proxy・名前の引き）を見る"
 
 
 def gh_json(argv, runner):
@@ -90,7 +109,9 @@ def gh_json(argv, runner):
         # 長い文は頭と末尾を残す（2 次の制限の文は、訳の "secondary rate limit" が頭に在り、末尾の 300 字には残らない）
         err = err.strip()
         short = err if len(err) <= 300 else f"{err[:150]} … {err[-150:]}"
-        raise (Limited if "rate limit" in err.lower() else RuntimeError)(f"gh {' '.join(argv)} が {code} で終わった: {short}")
+        low = err.lower()
+        kind = Limited if "rate limit" in low else Unreachable if any(n in low for n in NET) else RuntimeError
+        raise kind(f"gh {' '.join(argv)} が {code} で終わった: {short}")
     try:
         return json.loads(out)
     except ValueError as e:
@@ -113,7 +134,7 @@ def newest(runs):
 def unstarted_count(run_id, runner):
     """赤の run の落ちた job（success・skipped・neutral 以外）がどれも、step を 1 つも走らせずに取り消された（cancelled）物なら、
     その本数（そうでなければ 0。step の無い failure・timed_out などは、ランナーの都合と決められないので数えない）。
-    利用制限は Limited のまま上げ、ほかの読めない失敗は RuntimeError で上げる（呼ぶ側が文に書いて赤の知らせは続ける）。"""
+    利用制限と通信の失敗は Limited（通信の失敗はその子の Unreachable）のまま上げ、ほかの読めない失敗は RuntimeError で上げる（呼ぶ側が文に書いて赤の知らせは続ける）。"""
     got = gh_json(["run", "view", str(run_id), "--json", "jobs"], runner)
     bad = [j for j in (got.get("jobs") or []) if j.get("conclusion") not in ("success", "skipped", "neutral")]
     return len(bad) if bad and all(j.get("conclusion") == "cancelled" and not j.get("steps") for j in bad) else 0
@@ -271,7 +292,7 @@ def load_state(path):
 
 
 def save_state(path, told, limited=None):
-    """limited は利用制限に当たり始めた時刻（読めた回は None で、覚えた時刻を消す）。"""
+    """limited は利用制限か通信の失敗に当たり始めた時刻（読めた回は None で、覚えた時刻を消す）。"""
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"told": sorted(told), **({"limited": limited.timestamp()} if limited else {})}, f, ensure_ascii=False, indent=1)
@@ -279,14 +300,16 @@ def save_state(path, told, limited=None):
 
 
 def limited(path, state, now, dry, e):
-    """利用制限で読めなかった回。当たり始めてから REPEAT のうちは 0 で黙り、過ぎたら 1 で知らせて時刻を今に替える（知らせるのは REPEAT ごとに 1 回）。dry は知らせても 0 で、時刻を覚えない。"""
+    """利用制限か通信の失敗で読めなかった回（e は Limited か Unreachable）。当たり始めてから REPEAT のうちは 0 で黙り、過ぎたら 1 で知らせて
+    時刻を今に替える（知らせるのは REPEAT ごとに 1 回）。dry は知らせても 0 で、時刻を覚えない。時刻は 2 つの失敗で 1 つを分け合い、
+    読めた回に消す（交互に続いても、読めないまま REPEAT を過ぎれば知らせる）。"""
     since = stamp(state.get("limited")) or now
     late = now - since > REPEAT
     if late:
-        print(f"CI の見張りが読めなかった: GitHub の利用制限（rate limit）が {since:%Y-%m-%d %H:%M} UTC から {REPEAT.days} 日を過ぎても"
-              f"続いている。gh api rate_limit で残りを見る: {e}")
+        print(f"CI の見張りが読めなかった: {since:%Y-%m-%d %H:%M} UTC から {REPEAT.days} 日を過ぎても読めない。今回は{e.what}。"
+              f"{e.look}: {e}")
     else:
-        print(f"今回は読まなかった: GitHub の利用制限（rate limit）に当たった。次に main へ入れた後の合図で読み直す"
+        print(f"今回は読まなかった: {e.what}。次に main へ入れた後の合図で読み直す"
               f"（{since + REPEAT:%Y-%m-%d %H:%M} UTC を過ぎても続けば知らせる）: {e}")
     if not dry:
         save_state(path, set(state["told"]) if "told" in state else set(), now if late else since)

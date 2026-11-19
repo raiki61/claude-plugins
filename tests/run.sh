@@ -6318,6 +6318,9 @@ expect_output 0 "UNREADABLE_OK" \
 expect_output 0 "LIMITED_OK" \
     "ci-watch: GitHub の利用制限で断られた回は頼みにせず黙って時刻を覚え、1 日を過ぎても続けば知らせ、読めた回に時刻を消す" \
     "$PY_BIN" "$CIW_CASE" limited
+expect_output 0 "UNREACHABLE_OK" \
+    "ci-watch: gh が通信の失敗（proxy への接続の時間切れなど）で GitHub に届かなかった回も頼みにせず黙って時刻を覚え、1 日を過ぎても続けば知らせる。HTTP 502 のような届いた上での失敗は知らせる" \
+    "$PY_BIN" "$CIW_CASE" unreachable
 expect_output 0 "FIXED_BY_COMMIT_OK" \
     "ci-watch: 赤の run より後の main の commit がその run の番号を書いていれば、ほかの機械の clone から直した赤も直し済みとみて黙る（桁の違う番号・読めない git log・より新しい赤の run では知らせる）" \
     "$PY_BIN" "$CIW_CASE" fixed-by-commit

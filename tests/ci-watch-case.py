@@ -6,7 +6,7 @@
   run は決着に数えない。読む数の中に緑が無ければ、成功の run を別に引く。1 度も緑が無ければそう書く。dry_run は覚えない
   読む数の全部が取り消しなら、決着ごとに最新を引いて赤を見る。リポジトリにファイルの無い workflow は見ない。
   赤の run の落ちた job がどれも step を 1 つも走らせずに取り消された物なら、範囲の代わりにそう書いて回し直しの手を添える（step の
-  有る落ちた job や、step の無い failure が 1 つでも在れば範囲のまま）。job を読めない回は範囲を添えたまま読めなかったと書き、利用制限なら黙る
+  有る落ちた job や、step の無い failure が 1 つでも在れば範囲のまま）。job を読めない回は範囲を添えたまま読めなかったと書き、利用制限と通信の失敗なら黙る
 - told-while-open: 知らせた件は、このツールから回した頼みが開いているうちは知らせない（0 で終わる）。新しい件だけは知らせる。
   開いた頼みのうち一番新しい物を回してから REPEAT を過ぎたら、開いた頼みの受付を添えて知らせ直す（回した時刻の無い頼みでは黙る）
 - cross: 頼み元がほかの会社の会話で、納品の行がその会社の受付箱にだけ在る頼みは、--todo と同じく台帳の行が指す受付箱まで足し合わせて
@@ -19,6 +19,9 @@
 - unreadable: gh が落ちたら黙らず 1 で知らせる（dry_run でも 1）。入力が JSON のオブジェクトでなければ 2
 - limited: gh が GitHub の利用制限で断られた回は 0 で黙り、当たり始めた時刻を覚える（覚えた件は消さない。dry_run は覚えない）。
   REPEAT を過ぎても続けば 1 で知らせて時刻を替え（dry_run は 0 で替えない）、読めた回は時刻を消す
+- unreachable: gh が通信の失敗（proxy への接続の時間切れなど）で GitHub に届かなかった回も、利用制限と同じく 0 で黙って時刻を覚え、
+  REPEAT を過ぎても続けば 1 で知らせる。利用制限と交互に続いても時刻は替えない。HTTP 502 のような届いた上での失敗は 1 のまま。
+  NET の字のどれでも黙り、赤の run の job を読む所で届かなかった回も黙る
 - fixed-by-commit: 赤の run の commit より後の main の commit のメッセージが、その run の番号を書いていれば、知らせた記録も頼みも
   無い clone でも直し済みとみて 0 で黙る（ほかの機械の clone から直した赤）。桁の違う番号には当てない。git log が読めなければ知らせる。
   直し済みの run より新しい赤の run が決着すれば、その run の commit から読み直して知らせる。直し済みとみた赤は知らせ済みに足さず、
@@ -394,6 +397,34 @@ def limited():
     print("LIMITED_OK")
 
 
+def unreachable():
+    # 2026-11-19 に頼み 68e152 を生んだ文の形（gh の run list が proxy への接続の時間切れで落ちた）
+    err = ('Get "https://api.github.com/repos/o/r/actions/workflows/1": proxyconnect tcp: dial tcp 172.28.17.23:8080: i/o timeout')
+    d = setup()
+    with open(os.path.join(d, cw.STATE), "w", encoding="utf-8") as f:
+        json.dump({"told": ["a:red:1"]}, f)
+    state = lambda: json.load(open(os.path.join(d, cw.STATE), encoding="utf-8"))
+    code, out = go(Fake(d, [TEST], {}, broken=True, err=err))
+    check(code == 0 and "i/o timeout" in out and state() == {"told": ["a:red:1"], "limited": NOW.timestamp()},
+          f"通信の失敗を黙って覚えない: {code} {out} {state()}")
+    code, out = go(Fake(d, [TEST], {}, broken=True, err="gh: API rate limit exceeded (HTTP 403)"), now=NOW + cw.REPEAT)
+    check(code == 0 and state()["limited"] == NOW.timestamp(), f"利用制限に替わったら時刻を替えた: {code} {out} {state()}")
+    later = NOW + cw.REPEAT + datetime.timedelta(hours=1)
+    code, out = go(Fake(d, [TEST], {}, broken=True, err="error connecting to api.github.com"), now=later)
+    check(code == 1 and "error connecting to" in out and state()["limited"] == later.timestamp(), f"REPEAT を過ぎた通信の失敗を黙った: {code} {out} {state()}")
+    code, out = go(Fake(setup(), [TEST], {}, broken=True, err="HTTP 502: Bad Gateway"))
+    check(code == 1 and "HTTP 502" in out, f"届いた上での 502 を黙った: {code} {out}")
+    code, out = go(Fake(d, [], {}), now=later)
+    check(code == 0 and "limited" not in state(), f"読めた回に時刻を消さない: {code} {out} {state()}")
+    for word in cw.NET:
+        code, out = go(Fake(setup(), [TEST], {}, broken=True, err=f"gh: something: {word.upper()}"))
+        check(code == 0, f"通信の失敗の字 {word} を黙らない: {code} {out}")
+    red = {1: [r(2, "failure", "b"), r(1, "success", "a")]}
+    code, out = go(Fake(setup(), [TEST], red, view_err="dial tcp 140.82.112.6:443: i/o timeout"))
+    check(code == 0 and "i/o timeout" in out, f"job を読む所の通信の失敗を赤の知らせにした: {code} {out}")
+    print("UNREACHABLE_OK")
+
+
 def commits(*pairs):
     """git log --format=%h%x00%B%x1e の出力の形。pairs は (短い印, メッセージ) の並び。"""
     return "".join(f"{h}\x00{body}\n\x1e\n" for h, body in pairs)
@@ -442,4 +473,4 @@ def title():
 
 if __name__ == "__main__":
     {"red-range": red_range, "told-while-open": told_while_open, "cross": cross, "reopen-after-close": reopen_after_close, "age": age,
-     "unreadable": unreadable, "limited": limited, "fixed-by-commit": fixed_by_commit, "title": title}[sys.argv[1]]()
+     "unreadable": unreadable, "limited": limited, "unreachable": unreachable, "fixed-by-commit": fixed_by_commit, "title": title}[sys.argv[1]]()
