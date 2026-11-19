@@ -1127,6 +1127,26 @@ async function casePrompts() {
     fs.writeFileSync(path.join(dir, 'X.md'), '---\nvars:\n---\nHello again.\n')
     check(gen.translationProblems(dir).some(p => p.includes('changed after the translation')), 'prompts: 英語だけを直したのに和訳の照合が赤にならない')
   } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+  // 写した観点（works-factory）: 台帳は 19 本 × 2 ファイルを過不足なく並べ、各ファイルが在って sha256 が合い、script の LENSES は 19 本で、
+  // 載せない見出し（How to report・Example・Works well with）を含まない
+  const LENS_NAMES = ['purpose-apart-from-means', 'zero-based-design', 'general-structure-compare', 'ground-every-departure', 'check-against-practice',
+    'learn-target-conventions', 'what-counts-as-policy', 'prior-decisions-check', 'change-minimality', 'code-hygiene-review', 'test-double-fidelity',
+    'citation-provenance', 'remeasure-premises', 'reinvention-check', 'recount-blind-premise', 'review-finding-bar', 'fix-now-smallest-first',
+    'when-to-ask-a-person', 'objection-rejudge']
+  const ledger = gen.readLedger()
+  check(/^[0-9a-f]{40}$/.test(ledger.commit), `prompts: COPIED_FROM の 1 行目が commit でない ${ledger.commit}`)
+  const want = LENS_NAMES.flatMap(n => [`perspectives/${n}/SKILL.md`, `perspectives/${n}/SKILL.ja.md`]).sort()
+  check(JSON.stringify(ledger.files.map(e => e.rel).sort()) === JSON.stringify(want), `prompts: COPIED_FROM の一覧が 19 本 × 2 ファイルと違う（${ledger.files.length} 行）`)
+  for (const e of ledger.files) {
+    const p = path.join(ROOT, 'attention', e.rel)
+    if (!fs.existsSync(p)) { fails.push(`prompts: ${e.rel} が無い`); continue }
+    check(crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex') === e.sha, `prompts: ${e.rel} の sha256 が COPIED_FROM と違う`)
+  }
+  const lensBlock = lines.slice(a, b + 1).join('\n')
+  const lensObj = new Function(`${lensBlock}\nreturn LENSES`)()
+  check(JSON.stringify(Object.keys(lensObj)) === JSON.stringify([...LENS_NAMES].sort()), `prompts: LENSES の名前が 19 本と違う ${Object.keys(lensObj)}`)
+  for (const [n, t] of Object.entries(lensObj))
+    check(typeof t === 'string' && t.startsWith('### ') && !/^#{1,6}\s+(How to report|Example|Works well with)/m.test(t) && !/^#{1,2} /m.test(t), `prompts: LENSES の ${n} の見出しが決まりと違う`)
   // 生成した関数は、足りない値・型の違う値で投げる（「undefined」を文に混ぜない）
   const block = lines.slice(a, b + 1).join('\n')
   const fns = new Function(`${block}\nreturn { W4_PROMPT, W10_PROMPT }`)()

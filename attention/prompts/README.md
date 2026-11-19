@@ -69,3 +69,16 @@ md にするのは観点だけ。持ち主が資産として直す文で、訳�
 - 知らないフィルタ・閉じの無い `{{#if}}`
 
 作った関数は、`vars:` の値が渡されないか型が違うと、文を作らずに例外を投げる（`undefined` の字をエージェントに渡さない）。
+
+## 写した観点（LENSES）
+
+段の指示文に載せる観点の一部は、別の会社のリポジトリ works-factory の観点（`perspectives/<名>/SKILL.md`）を 1 字も変えずに写した物で、19 本ある。
+
+- 写しの置き場: `attention/perspectives/<名>/SKILL.md`（英語）と `SKILL.ja.md`（訳）。写した元の commit と、写したファイルごとの sha256 は `attention/perspectives/COPIED_FROM` に書く。写しは手で直さない。
+- script に入れる範囲: `SKILL.md` のうち、題の行・題と最初の `## ` の間の段落（核の決まりと訳）・`## Pitfalls`・`## Steps`・`## Done when`（小見出しごと）だけ。frontmatter・`## How to report`・`## Example`・`## Works well with` は入れない。段の文が `## Stage <段>` を使うので、見出しは 2 段下げる（`#`→`###`、`##`→`####`）。
+- 使い方: 生成器が、`COPIED_FROM` の sha256 と写しが合うことを確かめてから、script の区画に定数 `LENSES`（名前 → 文）を 1 つ書く。段の文（md）は頭に text の変数 `{{lenses}}` を持ち、script のコードが段ごとの表（段 → 観点の名前の並び。設計書 `attention/docs/my-turn-dig-redesign.md` のセクション 4 の「写す観点の一覧」）から `LENSES` の文を繋いで渡す。写しと `COPIED_FROM` が合わない・`COPIED_FROM` に無い名前を表が指すと、生成か試験が止まる。
+- 取り込み直す手順:
+  1. `node attention/scripts/gen-prompts.mjs --upstream <works-factory の clone> [--ref <ref>]` を打つ（読むだけ。ref の既定は main）。写した 1 本ごとに、写した commit から ref までの差分が出て、終わりに変わった本の数が出る。
+  2. 取り込む物を、clone から `attention/perspectives/` へ 1 字も変えずに写す（commit を固定して `git show <commit>:perspectives/<名>/SKILL.md` で取り出すのが確実）。
+  3. `COPIED_FROM` の 1 行目の commit と、写したファイルの sha256 を書き替える。
+  4. `node attention/scripts/gen-prompts.mjs` で区画を書き戻し、`node tests/my-turn-dig-dry.mjs prompts` が `PROMPTS_OK` になることを確かめる。

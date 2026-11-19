@@ -4,6 +4,8 @@
 //
 //   node attention/scripts/gen-prompts.mjs           rewrite the block between "// ==== prompts" and the end marker
 //   node attention/scripts/gen-prompts.mjs --check   exit 1 when the committed block differs from what the files make
+//   node attention/scripts/gen-prompts.mjs --upstream <works-factory clone> [--ref <ref>]
+//                                                    read-only: show what changed upstream, since the pinned commit, in the copied perspectives
 //
 // File format: see attention/prompts/README.md. In short:
 //   front matter   vars:  <name>: text | list | flag, with "?" after text or list when null is allowed
@@ -16,12 +18,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const PROMPTS_DIR = path.resolve(HERE, '../prompts')
 export const SCRIPT = path.resolve(HERE, '../workflows/my-turn-dig.js')
 export const START = '// ==== prompts (section 3) ===='
 export const END = '// ==== end of prompts ===='
+export const PERSPECTIVES_DIR = path.resolve(HERE, '../perspectives')
 
 const FILTERS = { join: 1, or: 1, bullets: 0 }   // filter name -> number of arguments
 const TYPES = ['text', 'list', 'flag']
@@ -150,12 +154,81 @@ const HEADER = [
   '}',
 ]
 
+// ---- lenses: perspectives copied verbatim from works-factory (attention/perspectives/COPIED_FROM is the ledger) ----
+// the ledger: the pinned commit (first line) and one "perspectives/<name>/<file>  sha256=<hex>" line per copied file
+export function readLedger(dir = PERSPECTIVES_DIR) {
+  const lines = lf(fs.readFileSync(path.join(dir, 'COPIED_FROM'), 'utf8')).split('\n').filter(l => l.trim())
+  const commit = (lines[0] || '').split(/\s+/)[0]
+  const files = []
+  for (const l of lines.slice(1)) {
+    const m = l.match(/^(perspectives\/([^/\s]+)\/(SKILL(?:\.ja)?\.md))\s+sha256=([0-9a-f]{64})\s*$/)
+    if (m) files.push({ rel: m[1], name: m[2], file: m[3], sha: m[4] })
+  }
+  return { commit, files }
+}
+
+const demote = line => line.replace(/^(#{1,4}) /, (_, h) => `${h}## `)
+
+// the lens text: the title, the paragraphs before the first "## ", and the sections Pitfalls / Steps / Done when
+export function lensText(src) {
+  const body = lf(src).replace(/^---\n[\s\S]*?\n---\n/, '')
+  const out = []
+  let keep = true   // true until the first "## " heading: the title and the core rule
+  for (const line of body.split('\n')) {
+    const h2 = line.match(/^## (.*)$/)
+    if (h2) keep = /^(Pitfalls|Steps|Done when)\b/.test(h2[1])
+    if (keep) out.push(demote(line).replace(/\s+$/, ''))
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+// the lens texts by name; a problem when a copied file is missing or its sha256 differs from the ledger
+export function lenses(perspectivesDir = PERSPECTIVES_DIR, problems = []) {
+  const texts = {}
+  for (const e of readLedger(perspectivesDir).files) {
+    const p = path.join(perspectivesDir, e.name, e.file)
+    if (!fs.existsSync(p)) { problems.push(`${e.rel}: listed in COPIED_FROM but the file does not exist`); continue }
+    const buf = fs.readFileSync(p)
+    if (crypto.createHash('sha256').update(buf).digest('hex') !== e.sha) {
+      problems.push(`${e.rel}: the sha256 differs from COPIED_FROM (the copy must stay byte for byte; to take a new version see attention/prompts/README.md)`)
+      continue
+    }
+    if (e.file === 'SKILL.md') texts[e.name] = lensText(buf.toString('utf8'))
+  }
+  return Object.fromEntries(Object.entries(texts).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+}
+
+function lensesBlock(perspectivesDir, problems) {
+  const texts = lenses(perspectivesDir, problems)
+  return [
+    '',
+    '// LENSES: the perspectives copied from works-factory, by name (attention/perspectives/<name>/SKILL.md; the commit and the sha256 are in attention/perspectives/COPIED_FROM).',
+    '// Each text keeps the title, the core rule, Pitfalls, Steps and Done when; headings are demoted by two levels.',
+    'const LENSES = {',
+    ...Object.entries(texts).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)},`),
+    '}',
+  ]
+}
+
+// read-only: what changed upstream in the copied files since the pinned commit
+export function upstream(clone, ref = 'main', perspectivesDir = PERSPECTIVES_DIR) {
+  const { commit, files } = readLedger(perspectivesDir)
+  let changed = 0
+  for (const e of files) {
+    const r = spawnSync('git', ['-C', clone, 'diff', `${commit}..${ref}`, '--', e.rel], { encoding: 'utf8' })
+    if (r.status !== 0) { console.error(r.stderr); process.exit(1) }
+    console.log(`=== ${e.rel}`)
+    if (r.stdout.trim()) { changed++; console.log(r.stdout.trimEnd()) }
+  }
+  console.log(`${changed} of ${files.length} paths changed between ${commit.slice(0, 8)} and ${ref}`)
+}
+
 export function promptNames(dir = PROMPTS_DIR) {
   return fs.readdirSync(dir).filter(f => f !== 'README.md' && /^[A-Z][A-Z0-9_]*\.md$/.test(f)).map(f => f.slice(0, -3)).sort()
 }
 
 // the whole block, from the START line to the END line, or the problems that stop it
-export function generate(dir = PROMPTS_DIR) {
+export function generate(dir = PROMPTS_DIR, perspectivesDir = PERSPECTIVES_DIR) {
   const problems = []
   const out = [...HEADER]
   for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.md') && !f.endsWith('.ja.md') && f !== 'README.md').sort()) {
@@ -169,6 +242,7 @@ export function generate(dir = PROMPTS_DIR) {
     out.push('', `// ${name}: attention/prompts/${f}`)
     out.push(parsed.meta.form === 'list' ? compileList(name, parsed.meta, parsed.body, f, problems) : compileTemplate(name, parsed.meta, parsed.body, f, problems))
   }
+  if (fs.existsSync(path.join(perspectivesDir, 'COPIED_FROM'))) out.push(...lensesBlock(perspectivesDir, problems))
   out.push(END)
   return { block: out.join('\n'), problems }
 }
@@ -210,7 +284,12 @@ export function check() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.argv.includes('--check')) {
+  const argv = process.argv
+  if (argv.includes('--upstream')) {
+    const clone = argv[argv.indexOf('--upstream') + 1], ri = argv.indexOf('--ref')
+    if (!clone || clone.startsWith('--')) { console.error('usage: --upstream <works-factory clone> [--ref <ref>]'); process.exit(1) }
+    upstream(clone, ri >= 0 ? argv[ri + 1] : 'main')
+  } else if (argv.includes('--check')) {
     const problems = check()
     if (problems.length) { console.error(problems.join('\n')); process.exit(1) }
     console.log('prompts: up to date')
