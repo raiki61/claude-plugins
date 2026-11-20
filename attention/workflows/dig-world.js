@@ -209,7 +209,7 @@ One core rule: **do not ask about the parts of the mechanism the request names, 
 - Do not accept a means embedded in the request. Copy it to \`proposed\`, and keep it out of the problem class and the queries. Whether the means is good is decided later against the practice that is found. Write \`proposed\` in words of the means.
 - Do not phrase the problem class so that it presupposes the means. Name the need, not the mechanism that answers it. Example: not "a mechanism that pauses processing and resumes it", but "a problem where the processing needs a person's answer partway through". A second reader checks your problem classes for this and sends them back.
 - Which component does a part of the work (who raises a question, who starts a step, who holds the state, who waits) is part of the means too, even when the request states it as a given. Copy that split of roles to \`proposed\` and leave it open in the problem class and the queries, so that the practice found can be compared with it at the architecture layer. Example: not "when the build server has to tell the reviewer that a build broke", but "a problem where a reviewer has to learn that a build broke". A part given from outside the problem, which the request could not choose (a condition of the platform such as "a browser cannot keep a secret", or an existing interface the caller has no say over), is a condition of the problem, not a means: keep it in the problem class.
-- A line may solve a problem that exists only because of a means the request chose in another line (shape of an example: a line that cleans up orphaned files exists only because another line chose to store an upload before its record is saved). Do not drop such a line, and do not treat the other line's means as a condition given from outside. Set \`arisesFrom\` to the number of the line whose means gives rise to this problem, and restate the problem class with that means stated as the premise it rests on ("when uploads are stored before their record is saved, how to ..."), still without this line's own means. The line you name must have a means of its own in \`proposed\`. For every other line, set \`arisesFrom\` to 0.
+- A line may solve a problem that exists only because of a means the request chose in another line (shape of an example: a line that cleans up orphaned files exists only because another line chose to store an upload before its record is saved). Do not drop such a line, and do not treat the other line's means as a condition given from outside. Set \`arisesFrom\` to the number of the line whose means gives rise to this problem, and restate the problem class with that means stated as the premise it rests on ("when uploads are stored before their record is saved, how to ..."), still without this line's own means. State the premise in general words too: the identifiers and the means words the machine checks are not allowed there either. The line you name must have a means of its own in \`proposed\`. For every other line, set \`arisesFrom\` to 0.
 - Do not write the target's names (paths, files, functions, fields, environment variables, component names, run ids) in \`problem\`, \`activity\`, or \`queries\`. The machine checks them against the identifiers in the request lines that the target defines and rejects the answer, naming the identifier it found. Names of third-party products and standards (a database, a protocol, a framework) are not the target's names. The same check rejects the words of the means listed below (names with a hyphen, an underscore, a digit, a dot or an inner capital, and runs of four or more kanji or katakana).
 - Write queries in the general wording of the work, asking about practice, convention, and standards. Do not ask about the request's component names or a tool's output format.
 - If one line spans two kinds of work, restate it as the one kind above both.
@@ -338,13 +338,14 @@ Do not use any tool. Think only from what is given here.` : ''}`
 // ---- 3.3 step 8: the comparer (rewrites the judging half of parts/world-judge.md) ----
 // The form of a challenge, written in LANG. In run 2 on #2637 (attention/docs/measures/2637-world-result.md) 87 of 103
 // Japanese challenges kept the English wording of the form, some with the letters X and Y left in.
-const challengeForm = form => LANG === 'English'
+const ENGLISH = /^en(glish)?$/i.test(LANG.trim())
+const challengeForm = form => ENGLISH
   ? `in the form "${form}"`
   : `in ${LANG}, saying in ${LANG} what this English form says: "${form}". The form is a shape, not words to quote: do not copy its English words, and write out what X, Y and N stand for instead of leaving the letters`
 const FORM_WORDS = /\bThe request (does|has to do)\b|\bChoose Y unless\b|\bwhere the problem does not arise\b|\bbecause of the means of line\b/i
 const FORM_LETTER = /(^|[^A-Za-z0-9_.\-/])[XY]($|[^A-Za-z0-9_.\-/])/
 function challengeProblem(text) {
-  if (LANG === 'English') return ''
+  if (ENGLISH) return ''
   const t = str(text)
   if (FORM_WORDS.test(t)) return `the challenge copies the English words of the form; write it in ${LANG}`
   if (FORM_LETTER.test(t)) return `the challenge leaves a letter of the form (X or Y); write out what it stands for`
@@ -437,6 +438,7 @@ function restateProblems(r) {
     const o = Number.isInteger(c.arisesFrom) && c.arisesFrom > 0 && c.arisesFrom !== n ? rows.get(c.arisesFrom) : null
     if (o === undefined) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, which has no entry`)
     else if (o && blank(o.proposed)) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, which proposes no means (name the line whose means gives rise to this problem, or set 0)`)
+    else if (o && o.arisesFrom === n) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, whose arisesFrom names line ${n} back (one of the two must be 0)`)
   }
   return { general, byN, rows }
 }
@@ -655,7 +657,7 @@ function compareProblems(c, rows, r) {
     if (!VERDICTS.includes(it.verdict)) out.push(`${head}: verdict is one of ${VERDICTS.join(', ')}`)
     else if (noneDue && it.verdict !== 'none') out.push(`${head}: verdict must be none (${!m.proposed ? 'the line proposes no means' : 'the row found nothing'})`)
     else if (!noneDue && it.verdict === 'none') out.push(`${head}: verdict none is only for a line that proposes no means or a row that found nothing`)
-    else if (it.verdict === 'differs' && str(it.challenge).length < LIMITS.minChallenge) out.push(`${head}: differs needs a challenge ("The request does X; ... does Y. Choose Y unless …") of at least ${LIMITS.minChallenge} characters`)
+    else if (it.verdict === 'differs' && str(it.challenge).length < LIMITS.minChallenge) out.push(`${head}: differs needs a challenge ${ENGLISH ? '("The request does X; ... does Y. Choose Y unless …") ' : `(in ${LANG}: what the request does, what the counterpart does, and the condition under which the request's way is right) `}of at least ${LIMITS.minChallenge} characters`)
     else if (it.verdict === 'differs' && challengeProblem(it.challenge)) out.push(`${head}: ${challengeProblem(it.challenge)}`)
   })
   for (const w of rows) for (const m of c.members) if (!pairs.has(`${w.id}/${m.n}`)) out.push(`no entry for row ${w.id} and line ${m.n}`)

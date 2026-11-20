@@ -320,6 +320,7 @@ const cases = {
     for (const [what, ans, want] of [
       ['自分自身', cls({ arisesFrom: 2 }), 'arisesFrom must be 0 or the number of another request line'],
       ['手段の無い行', { classes: [goodClass(1, { proposed: '' }), goodClass(2, { problem: P2, arisesFrom: 1 })] }, 'which proposes no means'],
+      ['互いを元にする行', { classes: [goodClass(1, { arisesFrom: 2 }), goodClass(2, { problem: P2, arisesFrom: 1 })] }, 'names line 2 back'],
     ]) {
       let k = 0
       const r = await run(baseArgs(), call => (call.stage === 'Restate' ? (++k === 1 ? ans : cls()) : happy()(call)))
@@ -434,8 +435,10 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
     check(letter.cs[1]?.prompt.includes('leaves a letter of the form (X or Y)'), 'X・Y の字を残した challenge を差し戻さない')
     const ok = await formOf('Japanese', '依頼は X-Request-Id の見出しと react.js の部品で下書きを持つ。相手はランタイムが持つ。理由が無い限り後者。')
     check(ok.cs.length === 1, `字の一部の X や Y で差し戻した: ${ok.cs.length}`)
-    const en = await formOf('English', 'The request does X; the counterpart does Y. Choose Y unless Z holds.')
-    check(en.cs.length === 1 && en.cs[0].prompt.includes('in the form "The request does X'), `lang が英語のときの型が変わった: ${en.cs.length}`)
+    for (const lang of ['English', 'english', 'en']) {
+      const en = await formOf(lang, 'The request does X; the counterpart does Y. Choose Y unless Z holds.')
+      check(en.cs.length === 1 && en.cs[0].prompt.includes('in the form "The request does X'), `lang が ${lang} のときの型が変わった: ${en.cs.length}`)
+    }
     // 手段の無い行は none だけを受ける
     const nn = await run(baseArgs(), call => {
       if (call.stage === 'Restate') return { classes: LINES.map(l => goodClass(l.n, { proposed: l.n === 2 ? '' : '手段' })) }
@@ -567,7 +570,8 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     put('frontend/package.json', JSON.stringify({ dependencies: { '@assistant-ui/react': '^0.15.32', local: 'file:../x' }, devDependencies: { vitest: '1' } }))
     put('frontend/package-lock.json', JSON.stringify({ packages: { '': {}, 'node_modules/@assistant-ui/react': { version: '0.15.40' }, 'node_modules/vitest': { version: '1.0.0' } } }))
     put('docs/a.adoc', 'a\ndocOnly_name: is only said in a document\n')
-    put('backend/app.py', 'x = 1\n\ndef make_pause():\n    return "PostgreSQL waits"\n')
+    put('backend/app.py', 'x = 1\n\ndef make_pause():\n    return "PostgreSQL waits"\n# the type PostgreSQL is not ours\n')
+    put('docs/b.mdx', 'docOnly_name: is only said in an mdx page\n')
     put('config/old.yaml', 'removed_key: 1\n')
     g('add', '-A'); g('commit', '-qm', 'base')
     const base = g('rev-parse', 'HEAD')

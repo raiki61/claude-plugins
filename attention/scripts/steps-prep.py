@@ -290,8 +290,10 @@ def collect_deps(head, touched):
 # 依頼の行に書かれた世の中の製品・標準の名前（PostgreSQL・pg_stat_activity など）は、依存の一覧に無くても数えない
 # （#2637 の 1 回目で、探す役の行 2・行 12 が PostgreSQL で 3 周差し戻されて落ちた。attention/docs/measures/2637-world-result.md）。
 # 定義の形は、ファイルのパス（とその後ろの部分）・コードの定義の文（def・class・const など）・行の頭のキーか代入・SQL の CREATE。
-# 文書（.md・.adoc・.rst・.txt）の中の言及は定義に数えない。
-DOC_EXCLUDE = [":(exclude)*.md", ":(exclude)*.adoc", ":(exclude)*.rst", ":(exclude)*.txt"]
+# 文書（.md・.mdx・.markdown・.adoc・.rst・.txt）の中の言及と、コードのコメントの行の言及は定義に数えない。
+DOC_EXCLUDE = [":(exclude)*.md", ":(exclude)*.mdx", ":(exclude)*.markdown", ":(exclude)*.adoc", ":(exclude)*.rst",
+               ":(exclude)*.txt"]
+COMMENT_LINE = re.compile(r"^\s*(#|//|/\*|\*|--|<!--)")
 
 
 def defined_patterns(token):
@@ -325,7 +327,7 @@ def own_names(lines, base, head):
         pats = defined_patterns(t)
         for rev in (head, base):
             rc, found = git("grep", "-I", "-h", "-F", "-w", "-e", t, rev, "--", ".", *DOC_EXCLUDE)
-            if rc == 0 and any(p.search(ln) for ln in found.splitlines() for p in pats):
+            if rc == 0 and any(p.search(ln) for ln in found.splitlines() if not COMMENT_LINE.match(ln) for p in pats):
                 out.append(t)
                 break
     return out
