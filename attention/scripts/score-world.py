@@ -138,8 +138,12 @@ def leak_names(args, extra):
 
 
 def tool_calls(folder):
-    """会話の記録（jsonl）の中の WebSearch の検索語と WebFetch の URL。読めない行は数えて返す"""
+    """会話の記録（jsonl）の中の WebSearch の検索語と WebFetch の URL。読めない行は数えて返す。
+
+    記録は同じツールの呼び出しを、assistant の行と api-request-blob の行の 2 度持つので、
+    tool_use の id で 1 度だけ数える（id の無い行は 1 行ずつ数える）"""
     queries, fetches, files, bad = [], [], 0, 0
+    seen = set()
     for root, _dirs, names in os.walk(folder):
         for nm in sorted(names):
             if not nm.endswith(".jsonl"):
@@ -156,6 +160,11 @@ def tool_calls(folder):
                     for it in content if isinstance(content, list) else []:
                         if not isinstance(it, dict) or it.get("type") != "tool_use":
                             continue
+                        tid = it.get("id")
+                        if tid:
+                            if tid in seen:
+                                continue
+                            seen.add(tid)
                         inp = it.get("input") or {}
                         if it.get("name") == "WebSearch":
                             queries.append({"file": nm, "query": str(inp.get("query") or "")})

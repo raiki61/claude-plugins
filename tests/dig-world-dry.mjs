@@ -566,7 +566,9 @@ print(json.dumps(m.recheck_rule(json.loads(sys.argv[2]))))`, path.join(ROOT, 'at
     const args = put('args.json', { lines: [{ n: 1, where: 'mechanism 1', text: 'The mcp_tool_wrapper.py adapter and the langgraph runtime.' }, { n: 2, where: 'mechanism 2', text: 'b' }, { n: 3, where: 'mechanism 3', text: 'c' }], deps: [{ name: 'langgraph', version: '1.2.20' }] })
     put('tr/s/subagents/agent-1.jsonl', [
       { message: { content: [{ type: 'tool_use', name: 'WebSearch', input: { query: 'mcp_tool_wrapper.py pause' } }] } },
-      { message: { content: [{ type: 'tool_use', name: 'WebSearch', input: { query: 'langgraph interrupt tool' } }, { type: 'tool_use', name: 'WebFetch', input: { url: 'https://x' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_a', name: 'WebSearch', input: { query: 'langgraph interrupt tool' } }, { type: 'tool_use', id: 'toolu_b', name: 'WebFetch', input: { url: 'https://x' } }] } },
+      // the transcript repeats the same calls in an api-request-blob line; counted once by id
+      { type: 'api-request-blob', message: { content: [{ type: 'tool_use', id: 'toolu_a', name: 'WebSearch', input: { query: 'langgraph interrupt tool' } }, { type: 'tool_use', id: 'toolu_b', name: 'WebFetch', input: { url: 'https://x' } }] } },
     ].map(x => JSON.stringify(x)).join('\n') + '\n{"cut')
     const good = score('--world', put('w1.json', world([hitRow, nearRow])), '--args', args, '--transcripts', path.join(tmp, 'tr'))
     check(good.ok === true && good.gate === true && good.keys[0].hit && good.keys[0].hits.length === 1, `札 1 に当たる比べを拾わない: ${JSON.stringify(good).slice(0, 300)}`)
@@ -574,7 +576,7 @@ print(json.dumps(m.recheck_rule(json.loads(sys.argv[2]))))`, path.join(ROOT, 'at
     check(JSON.stringify(missed) === JSON.stringify(['@assistant-ui/react:verdict', 'langgraph:layer']), `外れた比べの訳が違う: ${JSON.stringify(missed)}`)
     check(good.lines.answered === 2 && good.lines.missing === 1 && good.lines.total === 3, `答えた数が違う: ${JSON.stringify(good.lines)}`)
     check(good.excerpts.keptOfChecked === 0.75 && good.excerpts.webShare === 1, `抜き書きの割合が違う: ${JSON.stringify(good.excerpts)}`)
-    check(good.queries.searches === 2 && good.queries.leaks === 1 && good.queries.leakQueries[0].names.includes('mcp_tool_wrapper.py') && good.queries.unreadableLines === 1,
+    check(good.queries.searches === 2 && good.queries.fetches === 1 && good.queries.leaks === 1 && good.queries.leakQueries[0].names.includes('mcp_tool_wrapper.py') && good.queries.unreadableLines === 1,
       `検索語の漏れの数が違う（依存の名 langgraph は漏れに数えない）: ${JSON.stringify(good.queries)}`)
     const bad = score('--world', put('w2.json', world([nearRow])), '--args', args)
     check(bad.ok === true && bad.gate === false && bad.queries === null, '札 1 に当たる比べが無いのに合になる')
