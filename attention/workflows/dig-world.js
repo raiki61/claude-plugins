@@ -548,7 +548,7 @@ async function recheck(c, r, round) {
     tally[s]++
   }
   tally.unchecked -= tally.over   // the over-cap ones are counted in over, not in unchecked
-  tally.garbled = garbled.size
+  tally.garbled = garbled.size   // a part of unchecked, not added to the total (kept + dropped + unchecked + over)
   return { status, tally, ran: true, offline: got.offline === true }
 }
 

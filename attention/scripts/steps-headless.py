@@ -19,6 +19,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -85,11 +86,17 @@ def agents():
     return defs
 
 
+SHQ_PLAIN = re.compile(r"^[A-Za-z0-9_@%+=:,./-]+$")   # dig-world.js の shq が囲まずに残す字だけの path
+
+
 def recheck_rule(xc):
     """取り直しの段が打つコマンドの許し（dig-world.js の EXCERPT_COMMAND と同じ頭）。path に規則の中で意味を持つ字が
     在れば組めないので None（取り直しは拒まれ、DW は抜き書きを照合できなかった物として数える）"""
     rp, sc = (xc or {}).get("runPython"), (xc or {}).get("script")
     if not (isinstance(rp, str) and isinstance(sc, str) and rp and sc) or heavy.RULE_UNSAFE & set(rp + sc):
+        return None
+    # dig-world.js の shq が引用符で囲む path（日本語の字・$ など）は、コマンドの字と規則の字が揃わず当たらない
+    if not all(SHQ_PLAIN.match(x) for x in (rp, sc)):
         return None
     return "Bash(bash %s %s --b64 *)" % (rp, sc)
 
@@ -178,7 +185,9 @@ def main(argv):
             saved = os.path.join(sdir, "world.json")
             prep.write_json(saved, val)
     if out.get("subtype") == "error_max_budget_usd":
-        note = "上限の額（--max-budget-usd %s ドル）で止まり、Workflow も止められました" % a.budget_usd
+        note = "上限の額（--max-budget-usd %s ドル）で止まり、Workflow も止められました%s" % (a.budget_usd, "（%s）" % note if note else "")
+    if saved is None and not note:
+        note = "Workflow の返りを result から読めませんでした。%s の result を見てください" % out_path
     ok = rc == 0 and not out.get("is_error") and not note and saved is not None
     usage = out.get("modelUsage")
     summary = {"ok": ok, "exit": rc, "output": out_path, "saved": saved, "auth": auth,

@@ -433,6 +433,20 @@ print(json.dumps({"banned": sorted(b), "hits": [excerpts.text_problems(t, b) for
     check(JSON.stringify(out.kept) === '["x1"]', `字のままの抜き書きだけが残らない: ${JSON.stringify(out.kept)}`)
     check(JSON.stringify(out.dropped.map(d => d.id)) === '["x2","x3","x4"]', `言い換え・404・http の行が落ちない: ${JSON.stringify(out.dropped)}`)
     check(JSON.stringify(out.garbled) === '["x5"]' && out.offline === false, `写し違いの行が garbled にならない: ${JSON.stringify(out.garbled)}`)
+    // DW の b64 で組んだ生の UTF-8 の JSON（日本語・絵文字）も、台本が同じ字に戻して照合する
+    const { b64: jsB64, fnv: jsFnv } = evalDefs(`${defText(SRC, 'B64')}\n${defText(SRC, 'b64')}\n${defText(SRC, 'fnv')}`, ['b64', 'fnv'])
+    const ja = ['j1', 'https://ja.example.org/doc', '世の中の普通の作りは、聞く専用のツールの中で止める 😀']
+    fs.writeFileSync(path.join(tmp, 'ja.json'), JSON.stringify({ [ja[1]]: [200, `前置き。${ja[2]}。後書き。`] }))
+    const viaJs = JSON.parse(execFileSync(PY, [scr, '--pages', path.join(tmp, 'ja.json'), '--b64',
+      jsB64(JSON.stringify({ class: 'w-ja', count: 1 })), jsB64(JSON.stringify([...ja, jsFnv(`${ja[0]}\n${ja[1]}\n${ja[2]}`)]))], { input: '', encoding: 'utf8' }))
+    check(JSON.stringify(viaJs.kept) === '["j1"]' && viaJs.garbled.length === 0, `DW の b64 の日本語の行が照合されない: ${JSON.stringify(viaJs)}`)
+    // ヘッドレスの許しの規則は、shq が囲まない path だけで組み、囲む path（日本語の字など）では組まない
+    const rule = xc => execFileSync(PY, ['-c', `import importlib.util,json,sys
+spec = importlib.util.spec_from_file_location('h', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(json.dumps(m.recheck_rule(json.loads(sys.argv[2]))))`, path.join(ROOT, 'attention/scripts/steps-headless.py'), JSON.stringify(xc)], { encoding: 'utf8' }).trim()
+    check(rule({ runPython: '/p/run-python.sh', script: '/p/world-excerpts.py' }) === '"Bash(bash /p/run-python.sh /p/world-excerpts.py --b64 *)"', 'ヘッドレスの許しの規則が --b64 の形でない')
+    check(rule({ runPython: '/ユーザー/run-python.sh', script: '/p/world-excerpts.py' }) === 'null' && rule({ runPython: '/p/$x/run-python.sh', script: '/p/w.py' }) === 'null',
+      'shq が囲む path でも許しの規則を組んだ（命令と字が揃わない）')
     // ネットワークで 1 つも届かなければ offline
     fs.writeFileSync(path.join(tmp, 'none.json'), '{}')
     const off = JSON.parse(execFileSync(PY, [scr, '--pages', path.join(tmp, 'none.json')],
