@@ -1,0 +1,42 @@
+{
+  "about": "PR #2555（guided-resolver。head c0c1848）で世界の解の DW（attention/workflows/dig-world.js）が拾うべき答え。走らせる前に commit し、走らせた後に変えない（attention/docs/small-workflows-design.md の 8.2）。照合は attention/scripts/score-world.py が、返りの rows[].comparisons[] の 1 件ずつに当てる。",
+  "pr": 2555,
+  "head": "c0c1848ca2f5b139834c14343f09a022ac8835ac",
+  "source": "窓口が 2026-11-20 に重い版の記録と照合した /tmp/dig-analysis/recheck-2555.md の 4・5 と、新しい件の L2。設計書の 8.2 に書き写してある。",
+  "match": "1 件の比べ（comparison）が、kinds・name・layers・verdicts のすべてに当たり、text の正規表現が practice・challenge・why・applies をつないだ文に当たれば、その札を拾えたとする。name と text は大文字小文字を区別しない。",
+  "keys": [
+    {
+      "id": "who-asks",
+      "gate": true,
+      "answer": "誰が聞くか（作りの層）: 世の中の普通の作りは、親の LLM が聞く専用のツールを 1 つ持ち、そのツールの中で止める（LangGraph の interrupt、assistant-ui の onResumeToolCall、Open WebUI の聞くツールなど）。PR は処理を止めて答えを受けて再開する仕組みを自作しており、普通の作りと違う。",
+      "from": "recheck-2555.md の 5（重い版の N79 は PR の形と同じとして外した）",
+      "kinds": ["dependency"],
+      "name": "langgraph|assistant-ui",
+      "layers": ["architecture"],
+      "verdicts": ["differs"],
+      "text": "interrupt|human.?in.?the.?loop|onResumeToolCall|ask_?user|AskUserQuestion|tool.?call|ツール"
+    },
+    {
+      "id": "resume-shape",
+      "gate": false,
+      "answer": "再開の形（外との約束の層）: MRTR は続きからの再開を前提にし、LangGraph はノードを走らせ直す。PR の守りは、世の中の部品の上に乗る自作の 1 つ。",
+      "from": "recheck-2555.md の 4（重い版の N80 が述べたが、台帳と報告に載らなかった）",
+      "kinds": ["dependency", "standard"],
+      "name": "langgraph|langchain|mcp|mrtr",
+      "layers": ["contract"],
+      "verdicts": ["differs"],
+      "text": "MRTR|re-?run|re-?execut|resum|replay|再実行|走らせ直|やり直|続きから|再開"
+    },
+    {
+      "id": "ask-before-work",
+      "gate": false,
+      "answer": "仕事の前に聞く（外との約束の層）: MRTR では、サーバーが仕事をする前に tools/call へ問いを返せる（InputRequiredResult）。",
+      "from": "recheck-2555.md の新しい件 L2",
+      "kinds": ["dependency", "standard"],
+      "name": "mcp|mrtr|model context protocol|langchain",
+      "layers": ["contract"],
+      "verdicts": ["differs"],
+      "text": "before (doing |any |the )?work|InputRequired|input.?required|elicitation|tools/call|仕事の前|作業の前|実行の前|実行前|処理の前|前に聞|先に聞"
+    }
+  ]
+}

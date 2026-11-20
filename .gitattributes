@@ -26,3 +26,6 @@ attention/prompts/README.md coldread
 # tests/my-turn-dig-dry.mjs の prompts が一致を見る）。写しは直さないので、初見読みの詰まりはここで直せない。直すなら元の works-factory で直して写し直す。
 # 写しはバイトのまま持つ（-text）。Windows の core.autocrlf=true の clone で改行が CRLF になると、控えの sha256 と合わずに prompts が赤になる（CI run 44469842272）
 attention/perspectives/** -text -coldread
+# works-factory から 1 字も変えずに写した世界の解の部品（sha256 を attention/steps/world/COPIED_FROM が控え、空回しの試験
+# tests/dig-world-dry.mjs の copies が一致を見る）。写しは直さないので初見読みに回さず、改行も変えない（上の perspectives と同じ訳）
+attention/steps/*/copied/** -text -coldread

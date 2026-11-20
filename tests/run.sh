@@ -6453,6 +6453,37 @@ if command -v node >/dev/null 2>&1; then
         node "$DIG_DRY" no-such-case
 fi
 
+scope attention tests/dig-world
+# ---- attention/check-world: 世界の解の小さな Workflow（dig-world.js）を、agent() などを偽物に替えて node で空回しする ----
+# 起動の止め・段の流れ・言い直しの受け付け・探す役と抜き書きの取り直し・比べの受け付け・下ごしらえ・写しの台帳・正解の札の照合を見る
+# （設計 attention/docs/small-workflows-design.md の 3・8）。Python を使うケースは $PY_BIN で打つ
+WORLD_DRY="$ROOT/tests/dig-world-dry.mjs"
+while IFS='|' read -r world_case world_desc; do
+    if command -v node >/dev/null 2>&1; then
+        expect_output 0 "$(printf '%s' "$world_case" | tr '[:lower:]' '[:upper:]')_OK" "dig-world: $world_desc" env PY_BIN="$PY_BIN" node "$WORLD_DRY" "$world_case"
+    else
+        line="  ok   dig-world: $world_desc$SKIP_MARK node: node が無い（Workflow の script を空回しできない）"
+        echo "$line"; note_skips "$line"; ran=$((ran + 1))
+    fi
+done <<'WORLD'
+stops|起動の合図の無い・違う起動、sum の合わない args、足りない args、言い直しと漏れの照合が同じモデルの起動を、エージェントを立てずに止める
+flow|類ごとに探す・取り直す・比べるを流し、返す形と件数が設計の 3.8 のとおりになり、sum が Python の側の計算と同じになる
+restate|言い直しの答えに対象の名前か手段の語が残れば訳を付けて問い直し、機械を通った行だけを漏れの照合に渡し、3 回で揃わない行を missing に出す
+search|探す役の答えの形を受け付け、抜き書きを上限で切り、依存の行の抜き書きが全部落ちたら 1 回だけ探し直させる
+compare|比べの答えの none と differs の条件を受け付け、3 回で揃わなければ missing に出す
+texts|写した関数と検索の決まりの文が元と同じで、指示文に日本語の字が無く、CALLERS と SUM_KEYS が台本と DW で同じで、meta が純粋な字の並び
+banned|依頼の行から取る名前と、手段の語の照合が工場の取り方と同じに当たり、依存の名と版は外す
+excerpts|取り直しの台本が抜き書きの残り・落ち・写し違い・上限を数え、ネットワークに出られない回を照合できなかった物にする
+prep|下ごしらえが記録から依頼の行・目的・手段を写し、近いマニフェストとロックから依存を取り、head の違う作業場と形の違う返りで止める
+copies|工場から字のまま写したファイルの sha256 が台帳と同じ
+score|正解の札の照合が、相手・層・判定・文の揃った比べだけを拾い、外れた比べに訳を付け、検索語に出た対象の名前を数える
+WORLD
+if command -v node >/dev/null 2>&1; then
+    expect_output 1 "使い方" \
+        "dig-world-dry: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" \
+        node "$WORLD_DRY" no-such-case
+fi
+
 scope attention tests/what-am-i-doing tests/whose-turn tests/milestone-map tests/people
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える

@@ -1,0 +1,22 @@
+{
+  "description": "世界の解の行（world.jsonl の 1 行。住処は lib/worldmark.py で、欄 FIELDS・語 VERDICTS・BASES・VERSUS_FIELDS はこの形から引く）。finding は依頼の行の番号（1 始まり）、sources は照らして残った抜き書き、versus は依頼の解き方との比べ、basis は web（抜き書きが 1 つ以上）か knowledge（模型の知識だけ）",
+  "type": "object",
+  "required": ["finding", "where", "class_id", "problem", "activity", "practice", "sources", "applies", "not_applies", "versus", "basis"],
+  "properties": {
+    "finding": {"type": "integer"},
+    "where": {"type": "string"},
+    "class_id": {"type": "string"},
+    "problem": {"type": "string"},
+    "activity": {"type": "string"},
+    "practice": {"type": "string"},
+    "sources": {"type": "array", "items": {"type": "object", "properties": {
+      "id": {"type": "string"}, "url": {"type": "string"}, "excerpt": {"type": "string"}}}},
+    "applies": {"type": "string"},
+    "not_applies": {"type": "string"},
+    "versus": {"type": "object", "required": ["proposed", "verdict", "challenge"], "properties": {
+      "proposed": {"type": "string"},
+      "verdict": {"type": "string", "enum": ["same", "differs", "none"]},
+      "challenge": {"type": "string"}}},
+    "basis": {"type": "string", "enum": ["web", "knowledge"]}
+  }
+}
