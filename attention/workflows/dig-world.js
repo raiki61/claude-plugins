@@ -336,6 +336,20 @@ Write it in \`general\`, in ${LANG}. In \`layer\`, give the layer your descripti
 Do not use any tool. Think only from what is given here.` : ''}`
 
 // ---- 3.3 step 8: the comparer (rewrites the judging half of parts/world-judge.md) ----
+// The form of a challenge, written in LANG. In run 2 on #2637 (attention/docs/measures/2637-world-result.md) 87 of 103
+// Japanese challenges kept the English wording of the form, some with the letters X and Y left in.
+const challengeForm = form => LANG === 'English'
+  ? `in the form "${form}"`
+  : `in ${LANG}, saying in ${LANG} what this English form says: "${form}". The form is a shape, not words to quote: do not copy its English words, and write out what X, Y and N stand for instead of leaving the letters`
+const FORM_WORDS = /\bThe request (does|has to do)\b|\bChoose Y unless\b|\bwhere the problem does not arise\b|\bbecause of the means of line\b/i
+const FORM_LETTER = /(^|[^A-Za-z0-9_.\-/])[XY]($|[^A-Za-z0-9_.\-/])/
+function challengeProblem(text) {
+  if (LANG === 'English') return ''
+  const t = str(text)
+  if (FORM_WORDS.test(t)) return `the challenge copies the English words of the form; write it in ${LANG}`
+  if (FORM_LETTER.test(t)) return `the challenge leaves a letter of the form (X or Y); write out what it stands for`
+  return ''
+}
 const rowLine = r => `${r.id} [${r.against.kind}${r.against.name ? ` ${r.against.name}` : ''}${r.against.version ? ` ${r.against.version}` : ''} · ${r.layer} · ${r.found ? r.basis : 'nothing found'}]
    practice: ${r.practice || '(none)'}${r.applies ? `\n   applies: ${r.applies}` : ''}${r.not_applies ? `\n   not_applies: ${r.not_applies}${r.not_applies_unchecked ? ' (its excerpts could not be confirmed)' : ''}` : ''}`
 const memberLine = m => m.level === 'origin'
@@ -346,11 +360,11 @@ You have no tools. Do not call any tool. This prompt is everything you are given
 
 For every pair of a row and a request line, decide whether the request's means is the same as that row's practice, at that row's layer:
 - \`same\`: the means does what the practice does at that layer.
-- \`differs\`: the means does it another way at that layer. Write \`challenge\` in the form "The request does X; <the counterpart> does Y. Choose Y unless …", at least ${LIMITS.minChallenge} characters, naming the condition under which X would be the right choice.
+- \`differs\`: the means does it another way at that layer. Write \`challenge\` ${challengeForm('The request does X; <the counterpart> does Y. Choose Y unless …')}, at least ${LIMITS.minChallenge} characters, naming the condition under which X would be the right choice.
 - \`none\`: the request line proposes no means, or the row found nothing (marked "nothing found").
 Do not decide whether differing is acceptable; a later step asks that. There is no fourth value.
 
-A request line marked "judged at the level of line N" has a problem that exists only because of the means the request chose in line N, and this class is line N's problem. For such a line, decide whether the counterpart, with its practice for this class, has that problem at all. If its practice does not give rise to the problem, the verdict is \`differs\`, with \`challenge\` in the form "The request has to do X because of the means of line N; <the counterpart> does Y, where the problem does not arise. Choose Y unless …". If the counterpart has the same problem, compare the line's means with how the counterpart handles it, as for any other line.
+A request line marked "judged at the level of line N" has a problem that exists only because of the means the request chose in line N, and this class is line N's problem. For such a line, decide whether the counterpart, with its practice for this class, has that problem at all. If its practice does not give rise to the problem, the verdict is \`differs\`, with \`challenge\` ${challengeForm('The request has to do X because of the means of line N; <the counterpart> does Y, where the problem does not arise. Choose Y unless …')}. If the counterpart has the same problem, compare the line's means with how the counterpart handles it, as for any other line. "The problem does not arise" is an answer only when the counterpart's practice handles this class (line N's problem) in another way and that way avoids the problem; a counterpart that takes no part in this class (one that only makes values, or that sits on no side of this boundary) does not avoid the problem, it is merely absent: compare the line's means with what that counterpart does, as for any other line.
 
 ${LAYER_RULES}
 
@@ -642,6 +656,7 @@ function compareProblems(c, rows, r) {
     else if (noneDue && it.verdict !== 'none') out.push(`${head}: verdict must be none (${!m.proposed ? 'the line proposes no means' : 'the row found nothing'})`)
     else if (!noneDue && it.verdict === 'none') out.push(`${head}: verdict none is only for a line that proposes no means or a row that found nothing`)
     else if (it.verdict === 'differs' && str(it.challenge).length < LIMITS.minChallenge) out.push(`${head}: differs needs a challenge ("The request does X; ... does Y. Choose Y unless …") of at least ${LIMITS.minChallenge} characters`)
+    else if (it.verdict === 'differs' && challengeProblem(it.challenge)) out.push(`${head}: ${challengeProblem(it.challenge)}`)
   })
   for (const w of rows) for (const m of c.members) if (!pairs.has(`${w.id}/${m.n}`)) out.push(`no entry for row ${w.id} and line ${m.n}`)
   return { out, pairs }

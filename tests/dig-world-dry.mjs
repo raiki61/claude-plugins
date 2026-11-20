@@ -127,12 +127,13 @@ const recheckFrom = (prompt, { dropIds = [], lie = false } = {}) => {
   return { ran: true, checked: lie ? rows.length + 1 : head.count, kept: ok.filter(r => !dropIds.includes(r[0])).map(r => r[0]),
     dropped: ok.filter(r => dropIds.includes(r[0])).map(r => ({ id: r[0], why: '本文に無い' })), garbled, over: 0, offline: false, error: '' }
 }
+const CHALLENGE = '依頼は画面の部品で下書きを持つ。相手はランタイムが下書きを持つ。画面で持つ理由が無い限り、ランタイムに持たせる。'
 const compareAll = (prompt, verdictOf = () => 'differs') => {
   const rows = [...prompt.matchAll(/^(R\d+|G) \[([^\]]*)\]/gm)].map(m => ({ id: m[1], found: !m[2].includes('nothing found') }))
   const ns = [...prompt.matchAll(/^- line (\d+) \(/gm)].map(m => Number(m[1]))
   return { items: rows.flatMap(r => ns.map(n => {
     const v = r.found ? verdictOf(r.id, n) : 'none'
-    return { row: r.id, n, verdict: v, challenge: v === 'differs' ? 'The request does X; the counterpart does Y. Choose Y unless Z.' : '', why: 'w' }
+    return { row: r.id, n, verdict: v, challenge: v === 'differs' ? CHALLENGE : '', why: 'w' }
   })) }
 }
 const happy = (opts = {}) => call => {
@@ -411,6 +412,30 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
       check(cs[1]?.prompt.includes(want), `2 回目の訳に「${want}」が無い`)
     }
     check(out.status === 'ok', `2 回目が通らない: ${out.reason}`)
+    check(cs[0].prompt.includes('do not copy its English words') && cs[0].prompt.includes('in Japanese, saying in Japanese'), '比べる役に challenge を lang で書く決まりが渡らない')
+    check(cs[0].prompt.includes('it is merely absent'), '比べる役に「問題が起きない」の線が渡らない')
+    // lang が英語でないとき、型の英語を写した challenge と、X・Y の字を残した challenge は差し戻す
+    const formOf = async (lang, text) => {
+      let k = 0
+      const got = await run(baseArgs({ lang }), call => {
+        if (call.stage === 'Compare') {
+          k++
+          const r = compareAll(call.prompt)
+          if (k === 1) for (const i of r.items) if (i.verdict === 'differs') i.challenge = text
+          return r
+        }
+        return happy()(call)
+      })
+      return { got, cs: got.calls.filter(x => x.stage === 'Compare') }
+    }
+    const eng = await formOf('Japanese', 'The request has to do 二度の作成を防ぐこと because of the means of line 1; 相手 does 冪等な作成. Choose Y unless 冪等にできない場合.')
+    check(eng.cs[1]?.prompt.includes('the challenge copies the English words of the form; write it in Japanese'), '型の英語を写した challenge を差し戻さない')
+    const letter = await formOf('Japanese', '依頼は画面の部品で下書きを持つ。相手はランタイムが持つ。Y を選ぶのは、画面で持つ理由が無い場合。')
+    check(letter.cs[1]?.prompt.includes('leaves a letter of the form (X or Y)'), 'X・Y の字を残した challenge を差し戻さない')
+    const ok = await formOf('Japanese', '依頼は X-Request-Id の見出しと react.js の部品で下書きを持つ。相手はランタイムが持つ。理由が無い限り後者。')
+    check(ok.cs.length === 1, `字の一部の X や Y で差し戻した: ${ok.cs.length}`)
+    const en = await formOf('English', 'The request does X; the counterpart does Y. Choose Y unless Z holds.')
+    check(en.cs.length === 1 && en.cs[0].prompt.includes('in the form "The request does X'), `lang が英語のときの型が変わった: ${en.cs.length}`)
     // 手段の無い行は none だけを受ける
     const nn = await run(baseArgs(), call => {
       if (call.stage === 'Restate') return { classes: LINES.map(l => goodClass(l.n, { proposed: l.n === 2 ? '' : '手段' })) }
