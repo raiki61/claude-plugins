@@ -76,10 +76,11 @@ const canonText = between(SRC, 'const canon =', '\n\n')
 const { sumOf } = evalDefs(`${defText(SRC, 'fnv')}\n${canonText}`, ['sumOf'])
 
 const py = (code, input) => execFileSync(PY, ['-c', code], { input, encoding: 'utf8' })
+// 標準入力は UTF-8 のバイトで読む（Windows の Python は管の標準入力を ANSI のコードページで読み、日本語の args の sum が変わる。main の CI の run 44695969416）
 const pySum = a => py(`import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location("sp", ${JSON.stringify(PREP)})
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-print(m.args_sum(json.load(sys.stdin)))`, JSON.stringify(a)).trim()
+print(m.args_sum(json.loads(sys.stdin.buffer.read().decode("utf-8"))))`, JSON.stringify(a)).trim()
 
 // ---- 材料 ----
 const LINES = [
@@ -492,7 +493,8 @@ print(json.dumps(m.recheck_rule(json.loads(sys.argv[2]))))`, path.join(ROOT, 'at
     const r = prepRun('--next', 'world', '7', '--record', rec)
     check(r.ok === true && r.lines === 2 && r.means === 1, `--next world が通らない: ${JSON.stringify(r)}`)
     const a = JSON.parse(fs.readFileSync(r.argsFile, 'utf8'))
-    check(fs.realpathSync(r.argsFile) === fs.realpathSync(path.join(tmp, '.git/attention/my-turn/7-steps/world-args.json')), `args の置き場が違う: ${r.argsFile}`)
+    // .native で比べる（Windows の一時のフォルダは短い名前〔RUNNER~1〕で渡り、JS の realpathSync は長い名前に直さないが、Python の realpath は直す。run 44695969416）
+    check(fs.realpathSync.native(r.argsFile) === fs.realpathSync.native(path.join(tmp, '.git/attention/my-turn/7-steps/world-args.json')), `args の置き場が違う: ${r.argsFile}`)
     const names = a.deps.map(d => `${d.ecosystem}:${d.name}@${d.version}`)
     check(JSON.stringify(names) === JSON.stringify(['npm:@assistant-ui/react@0.15.40', 'pypi:fastmcp@3.4.8', 'pypi:langgraph@1.2.20', 'pypi:mcp@1.30.0', 'pypi:pydantic@2.14.1']),
       `文書だけの差分の依存が、全部のマニフェストの直の依存（自前・dev を除き、版はロックから）でない: ${JSON.stringify(names)}`)
