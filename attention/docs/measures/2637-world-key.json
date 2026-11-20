@@ -1,0 +1,44 @@
+{
+  "about": "PR #2637（guided-resolver。head 38d2bf5）で世界の解の DW（attention/workflows/dig-world.js）が拾うべき答え。走らせる前に commit し、走らせた後に変えない（attention/docs/small-workflows-design.md の 8.2）。照合は attention/scripts/score-world.py が、返りの rows[].comparisons[] の 1 件ずつに当てる。#2555 の札と違い、text の正規表現には 1 語だけで当たる普通の語（「ツール」「再開」「interrupt」など）を入れず、部品の名前か、2 語以上の言い方だけを置く（attention/docs/measures/2555-world-result.md の「次に要ること」の 3）。",
+  "pr": 2637,
+  "head": "38d2bf5e13f5c6654db0af8e899a17d65f6e53cc",
+  "source": "持ち主（190578_daifuku）が #2637 の frontend/docs/architecture.md の 495 行に付けた、同じスレッドの 2 つの行コメント。1 つ目は 2026-11-18 の https://github.com/IL-SW-AI/guided-resolver/pull/2637#discussion_r4611471974 （commit 3e148fb に付けた）、2 つ目は作者の返事を受けた 2026-11-20 の https://github.com/IL-SW-AI/guided-resolver/pull/2637#discussion_r4638570733 （乗り換えない理由が今の作りの言い直しだという指摘）。札の中身は 1 つ目の文から取った。記録の head（38d2bf5）は、作者が 1 つ目の事実の誤りを認めて文書を直し、乗り換えないと台帳に書いた commit で、自前の作り（送る前の会話・最初の送信での作成・ID の付け替え）は残っている。",
+  "match": "1 件の比べ（comparison）が、kinds・name・layers・verdicts のすべてに当たり、text の正規表現が practice・challenge・why・applies をつないだ文に当たれば、その札を拾えたとする。name と text は大文字小文字を区別しない。",
+  "keys": [
+    {
+      "id": "upstream-thread-list",
+      "gate": true,
+      "answer": "会話の一覧と送る前の会話を誰が持つか（作りの層）: 上流の assistant-ui は、送る前の新しい会話・最初の送信での作成・手元の ID とサーバーの ID の対応を、リモートの会話一覧のランタイム（useRemoteThreadListRuntime。react-langgraph の既定の作りは、useExternalStoreRuntime をその runtimeHook に載せる）と、その adapter に持たせる。PR は外部ストアのランタイムのまま、同じ仕事を hook（useThreadManager）に自前で書いており、上流の普通の作りと違う。",
+      "from": "持ち主の 1 つ目の行コメント「上流の react-langgraph（@assistant-ui/react@0.15.32 のタグでも同じ）は useExternalStoreRuntime を useRemoteThreadListRuntime の runtimeHook に載せているように見受けられます。送る前の会話・最初の送信での作成・ID の付け替えを hook が自前で持つと、上流が同じ部品で直した不具合を、こちらで追いかけ直すことになるかもしれません。」",
+      "kinds": [
+        "dependency"
+      ],
+      "name": "assistant-ui",
+      "layers": [
+        "architecture"
+      ],
+      "verdicts": [
+        "differs"
+      ],
+      "text": "RemoteThreadList|remote[ -]?thread[ -]?list|runtimeHook|ThreadListAdapter|thread[ -]?list[ -]?adapter|リモート.{0,6}(スレッド|会話).{0,4}一覧"
+    },
+    {
+      "id": "id-mapping",
+      "gate": false,
+      "answer": "ID の付け替え（作りか外との約束の層）: 上流の会話一覧のランタイムは、手元の会話の ID を変えずに置き、サーバーが返した ID を別の欄（remoteId）に付ける。PR は、手元の状態をサーバーの返した ID へ付け替える処理を自前で持つ。",
+      "from": "持ち主の 1 つ目の行コメントの「ID の付け替えを hook が自前で持つ」。上流で付け替えに当たる欄の名前（remoteId）は、重い版の記録（2637.json）の N74 が上流のソースから引いた物を使った。",
+      "kinds": [
+        "dependency"
+      ],
+      "name": "assistant-ui",
+      "layers": [
+        "architecture",
+        "contract"
+      ],
+      "verdicts": [
+        "differs"
+      ],
+      "text": "remote[ _-]?id|reconcileInitializedThread|initialize\\(\\s*threadId"
+    }
+  ]
+}
