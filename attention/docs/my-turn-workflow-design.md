@@ -521,9 +521,9 @@ flowchart TB
     - ノードの上限に当たった後の回で出た漏れは、掘らずに「未確認」で返し、そこで終える。
   - 掘り終えた後で別の 1 エージェントが全体の漏れを探し、見つけた物を次の回の仕事にする形は、Workflow の書き方のスキルの「Completeness critic」（「what's missing」を問う）に当たる。
 - **根拠の照合**（段の名は Quotes。セクション 14.4 の 5）: W8 が終わったら、ノードと W4 の答えの根拠の写しが、指した行に本当に在るかを、コードで確かめる。
-  - script はファイルを読めない（Workflow の「Behavior and limits」）ので、1 エージェント（haiku）が `my-turn-prep.py --quotes -` を 1 回打ち、出た件数を写して返すだけにする。
+  - script はファイルを読めない（Workflow の「Behavior and limits」）ので、1 エージェント（haiku）が `my-turn-prep.py --quotes --b64` を 1 回打ち、出た件数を写して返すだけにする。
     - 照合するのは prep のコードで、エージェントは判断しない。
-    - 渡す物は 1 本のコマンド（ヒアドキュメント）。頭の行が `{workdir, base, head, recordDir}`、続く 1 行ずつが `[id, path, line, quote, 検査の値]`。
+    - 渡す物は 1 行のコマンド。頭の語が `{workdir, base, head, recordDir}` の base64、続く 1 語ずつが `<id>:` と `[id, path, line, quote, 検査の値]` の base64。1 行にするのは、ヘッドレスの許しの規則に当てるため。here-document の複数行のコマンドは規則に当たらず、`dontAsk` で拒まれた（guided-resolver の PR 2574・2594 のヘッドレスの回で、引用の全部が照合されずに残った）。
     - 字は全部 `\uXXXX` の ASCII にして渡す（写し違いを減らす）。
     - 検査の値は `id\npath\nline\nquote` の FNV-1a（32 bit。id も入れるので、別の id の下に写した行も写し違いになる）。prep が同じ値を計算し、合わない行は写し違い（`garbled`）として数え、照合しない。
   - 照合する物: `line` が 1 以上で、`quote` が空でなく、`path` が URL でない根拠。同じ（path・行・写し）は 1 回にまとめる。
@@ -762,7 +762,7 @@ flowchart LR
   - 変えたファイルの一覧は W8 にも使う。
 - **引用の照合**（`my-turn-prep.py --quotes`）: 根拠の `quote` が、その版のその行に字のまま在るかを見る。無い物を一覧で返す。
   - 2 つの形で打つ。照合のコードは同じ。
-    - `--quotes -`: Workflow の根拠の照合の段（セクション 3）が打つ。標準入力から、頭の行（`{workdir, base, head, recordDir}`）と、1 行ずつの `[id, path, line, quote, 検査の値]` を読む。
+    - `--quotes --b64 <頭> <id>:<行> ...`: Workflow の根拠の照合の段（セクション 3）が打つ。引数の 1 語ずつを base64 から戻し、頭の行（`{workdir, base, head, recordDir}`）と、1 行ずつの `[id, path, line, quote, 検査の値]` を読む。戻せない語と、`<id>:` が中の行の id と違う語は、その id で `garbled` に数える。
       - 検査の値（FNV-1a）が合わない行は、写し違い（`garbled`）として照合しない。
       - 返す物: `{ok, checked, missing:[{id, why}], garbled}`。
     - `--quotes <記録>`: 手順 20（今の手順 15）で会話が、報告の後に打つ。記録の全部の `evidence`（W10 の判定の根拠を含む）を見る。
@@ -1267,7 +1267,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
   - PR の commit の一覧
   - lock のファイルが本文から外れて `--stat` に残るか
   - ハッシュの照合
-  - `quotes` のケース: `--quotes <記録>` と `--quotes -` が、字の違う引用と在らない行を拾うか
+  - `quotes` のケース: `--quotes <記録>` と `--quotes --b64` が、字の違う引用と在らない行を拾うか
     - 標準入力の形で、検査の値（FNV-1a）が script の値と合い、合わない行と壊れた行を写し違いに数えるか
     - `--save-record` が、出力のファイルの包みを外して書き、版の違う物と止まった回を書かないか
   - `prior` のケース: 版の違う記録を使い回さないか、GitHub の issue・PR・検索の URL に頼ったノードを使い回さないか

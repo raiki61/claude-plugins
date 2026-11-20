@@ -4,7 +4,8 @@
 使い方:
   my-turn-prep.py <PR 番号> [--prior <記録.json>] [--headless]
   my-turn-prep.py --quotes <記録.json>     記録の中の根拠の写しを照合する
-  my-turn-prep.py --quotes -               標準入力の根拠を照合する（Workflow の写しの照合の段が打つ）
+  my-turn-prep.py --quotes --b64 <頭> <id>:<行> ...
+                                          引数の根拠を照合する（Workflow の写しの照合の段が打つ。1 行ずつ base64）
   my-turn-prep.py --save-record <記録.json> <Workflow の出力のファイル>
                                           Workflow が返した記録を、記録のファイルに書く
   my-turn-prep.py --check-report <記録.json> <報告.md>
@@ -16,6 +17,8 @@ PR の作業場（cwd）で打つ。判定はしない——材料を集めて W
 """
 
 import argparse
+import base64
+import binascii
 import json
 import os
 import posixpath
@@ -585,7 +588,7 @@ def prep(pr, prior, headless):
         "stage0Errors": stage0_errors,
         "claudeMdChanged": any(p.rsplit("/", 1)[-1] == "CLAUDE.md" for p in changed),
         "fingerprints": {p: file_state(f) for p, f in fingerprints.items()}, "priorReuse": reuse, "scriptPath": script_path,
-        # Workflow の写しの照合の段が打つ物（my-turn-dig.js の Quotes。run-python.sh で打つ --quotes -）
+        # Workflow の写しの照合の段が打つ物（my-turn-dig.js の Quotes。run-python.sh で打つ --quotes --b64）
         "quoteCheck": {"runPython": os.path.join(here, "run-python.sh"), "prep": os.path.abspath(__file__)},
     }
 
@@ -878,13 +881,36 @@ def fnv32(s):
     return "%08x" % h
 
 
-def check_stdin(stream):
-    """標準入力の根拠を照合する（Workflow の写しの照合の段が打つ形）。
+def b64_rows(words):
+    """--b64 の引数を行に戻す。1 語目は頭の行の base64、続く語は <id>:<1 件の行の base64>。
+    1 行のコマンドにするのは、ヘッドレスの許しの規則 Bash(bash <run-python.sh> <この台本> --quotes --b64 *) に
+    当てるため（here-document の複数行は規則に当たらず、dontAsk で拒まれた。PR 2574・2594 のヘッドレスの回）。
+    戻せない語と、id が中の行と違う語は、id だけの切れた行にして garbled に数えさせる。id も読めない語は捨てる
+    （checked に数えないので、Workflow は数の違う束を丸ごと確かめていない物にする）。"""
+    def unb64(word):
+        try:
+            return base64.b64decode(word, validate=True).decode("utf-8")
+        except (binascii.Error, ValueError):
+            return None
+    rows = [(unb64(words[0]) or "") if words else ""]
+    for w in words[1:]:
+        m = re.match(r"^(Q\d+):(.*)$", w)
+        if not m:
+            continue
+        row = unb64(m.group(2))
+        if row is None or not re.match(r'^\s*\["%s"' % m.group(1), row):
+            row = '["%s"' % m.group(1)
+        rows.append(row)
+    return rows
+
+
+def check_rows(rows):
+    """根拠の行を照合する（Workflow の写しの照合の段が打つ形）。
 
     1 行目は {workdir, base, head, recordDir}、続く行は 1 件ずつ [id, path, line, quote, sum]。sum が合わない行と
     読めない行は照合せず garbled に数える。id も読めない行は checked に数えない（Workflow は数の違う束を
     丸ごと確かめていない物にする）。"""
-    rows = [l for l in (x.rstrip("\r\n") for x in stream) if l.strip()]
+    rows = [l for l in (x.rstrip("\r\n") for x in rows) if l.strip()]
     try:
         head_row = json.loads(rows[0]) if rows else None
     except ValueError:
@@ -970,6 +996,12 @@ def check_report(record_path, report_path):
 
 
 def main(argv):
+    if argv[:2] == ["--quotes", "--b64"]:
+        # 写しの照合の形（--quotes --b64 <頭> <id>:<行> ...）。argparse は --quotes の値に --b64 を取れないので、先に受ける
+        try:
+            return emit(check_rows(b64_rows(argv[2:])), 0)
+        except Stop as e:
+            return emit(stop_obj(e.code, e.message), 1)
     ap = argparse.ArgumentParser(prog="my-turn-prep.py", add_help=True)
     ap.add_argument("pr", nargs="?", type=int)
     ap.add_argument("--prior")
@@ -989,11 +1021,6 @@ def main(argv):
     if a.save_record:
         try:
             return emit(save_record(os.path.abspath(a.save_record[0]), os.path.abspath(a.save_record[1])), 0)
-        except Stop as e:
-            return emit(stop_obj(e.code, e.message), 1)
-    if a.quotes == "-":
-        try:
-            return emit(check_stdin(sys.stdin), 0)
         except Stop as e:
             return emit(stop_obj(e.code, e.message), 1)
     prior = os.path.abspath(a.prior) if a.prior else None

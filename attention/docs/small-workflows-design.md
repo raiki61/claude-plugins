@@ -581,7 +581,7 @@ DW の script は web を開けない（公開の文書の「No direct filesyste
   - `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` が置かれていたら止める（反証を別のモデルにできないため）。
   - 差分を使う DW（lines・premises・prior・lens・findings・verify）の前に 1 回打つ。
   - 世界の解の DW の依存の取り出しは、この台本に足す。
-- **根拠の写しの照合**（`--quotes -` と haiku の Quotes の段）: premises・prior・lens・findings・verify の根拠に使う。世界の解の抜き書きの取り直しも同じ形で作る（3.6）。
+- **根拠の写しの照合**（`--quotes --b64` と haiku の Quotes の段）: premises・prior・lens・findings・verify の根拠に使う。世界の解の抜き書きの取り直しも同じ形で作る（3.6）。
 - **指摘の台帳と下書きの決まり**（段 11 の台帳・段 13 の行き先・`draftToReport`）: findings の DW に移す。
 - **反証の 2 体**（W10。誤検出だと示そうとする目と、失敗の筋書きを組む目）と、反証と書いた段が同じモデルなら止める照合: findings の DW で使う。
 - **報告の照合**（`--check-report`）: 並べる手順書の最後に打つ。台帳の番号と下書きの `ファイル:行` の漏れを見る。

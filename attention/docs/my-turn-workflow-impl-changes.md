@@ -67,7 +67,7 @@
   - W6・W9・W10 が公式の一次の文書の URL を根拠にし確かめるのに要り、既定の形の段も持っている。
 - **W2 の役**: convergence-loops の `agents/blind-judge.md` の本文を英訳した物で、ツールを全部外す。
   - `tools` を空にし、`disallowedTools` に全部のツールを挙げる。
-- **Quotes の役**（14.4 の 5）: ツールは Bash だけにし、許すのは照合のコマンド `Bash(bash <run-python.sh> <my-turn-prep.py> --quotes *)` だけ（`allowedTools` に足す）。
+- **Quotes の役**（14.4 の 5）: ツールは Bash だけにし、許すのは照合のコマンド `Bash(bash <run-python.sh> <my-turn-prep.py> --quotes --b64 *)` だけ（`allowedTools` に足す）。
   - 子の会話にファイルを書く許可は無い（記録は台本が書くので、前の `Edit(//<記録のフォルダ>/**)` を外した）。
 - **path に危ない字**: `run-python.sh` か `my-turn-prep.py` の path に、権限の規則で意味を持つ字（空白・かっこ・カンマ・`*` など。graphloops の `engine/role_run.py` の `RULE_UNSAFE` と同じ並びに、台本は引用符 `'` `"` も足す）が在れば、照合の規則を組まずに起動する。
   - そのときは照合のコマンドが拒まれ、Workflow は根拠を照合していない物（`counts.quotes.unchecked`）に数えて残す。報告は、照合していないことを「確かめた前提」に書く。
@@ -355,7 +355,7 @@
 - **引用の照合は 120 件ずつ**（14.4 の 5）: Quotes の 1 回のコマンドに載せる根拠は 120 件まで（`limits.quoteBatch`）。多い PR では Quotes の回数が増える。
   - 照合の行は、`id`・`path`・`line`・`quote` から作る FNV-1a の 32 bit の印を持ち、Quotes のモデルが行を写し違えたら `garbled` に数え、その根拠は照合していない物として残す（落とさない）。
 - **反証の判定の根拠は報告の後に照合する**（14.4 の 5）: Quotes が照合するのは、W6 のノードとスメルの答えの根拠だけ。W10 の判定の根拠は、今までどおり報告の後の照合（`commands/my-turn.md` の今の手順 15）で見る。
-- **ヘッドレスの形の照合の許可は試していない**（14.4 の 5）: `Bash(bash <rp> <pp> --quotes *)` の規則が、heredoc（`<<'MY_TURN_QUOTES_END'`）を付けたコマンドに当たるかは、まだ `claude -p` で確かめていない。当たらなければ、Quotes のコマンドが拒まれ、根拠は照合していない物として残る。
+- **ヘッドレスの形の照合のコマンドは 1 行**（14.4 の 5）: 前の形の `Bash(bash <rp> <pp> --quotes *)` の規則は、heredoc（`<<'MY_TURN_QUOTES_END'`）を付けた複数行のコマンドに当たらなかった。guided-resolver の PR 2574・2594 のヘッドレスの回で、Quotes の全部のコマンドが `dontAsk` で拒まれ、引用の全部（380 件・410 件）が照合していない物として残った。コマンドを 1 行（頭と 1 件ずつを base64 の語にした `--quotes --b64`）に替え、規則も `--quotes --b64 *` にした。`claude -p` の haiku の 1 体で、`dontAsk` のまま規則に当たって照合が走るのを確かめた（頼み 23f909）。
 
 ## 試験の表
 

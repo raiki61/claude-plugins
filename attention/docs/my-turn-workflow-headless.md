@@ -72,7 +72,8 @@
   - 読むツール（Read・Grep・Glob）
     - 読むだけの段が、作業ツリー・記録のフォルダ・`args` のファイルを読むので、path で絞らない。
   - WebFetch・WebSearch
-  - 照合のコマンド（`Bash(bash <run-python.sh> <my-turn-prep.py> --quotes *)`。Quotes が打つ）
+  - 照合のコマンド（`Bash(bash <run-python.sh> <my-turn-prep.py> --quotes --b64 *)`。Quotes が打つ）
+    - コマンドは 1 行（頭と根拠の 1 件ずつを base64 の語にする）。here-document の複数行のコマンドは規則に当たらず、`dontAsk` で拒まれた（guided-resolver の PR 2574・2594 のヘッドレスの回で、引用の全部が照合されずに残った）。
     - path は prep の `quoteCheck` の物。規則の中で意味を持つ字（空白・かっこ・`*` など。graphloops の `engine/role_run.py` の `RULE_UNSAFE`）が在れば、この規則を足さない。
     - 足さなかったとき・規則が当たらなかったときは、照合のコマンドが拒まれ、根拠は照合していない物（`counts.quotes.unchecked`）として残る。
     - heredoc を付けたコマンドにこの規則が当たるかは、まだ試していない（下の確かめの 2）。

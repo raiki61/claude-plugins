@@ -529,6 +529,25 @@ const fnv = s => {
 const shq = s => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(String(s)) ? String(s) : `'${String(s).replace(/'/g, `'\\''`)}'`)
 // JSON with every non-ASCII character as \uXXXX, so the copying agent sees ASCII only
 const asciiJson = v => JSON.stringify(v).replace(/[\u007f-\uffff]/g, ch => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`)
+// copied from dig-world.js
+// base64 of the UTF-8 bytes of a string, by hand (no btoa or TextEncoder is promised in the Workflow runtime)
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+const b64 = s => {
+  const bytes = []
+  for (const ch of String(s)) {
+    const c = ch.codePointAt(0)
+    if (c < 0x80) bytes.push(c)
+    else if (c < 0x800) bytes.push(0xc0 | c >> 6, 0x80 | c & 63)
+    else if (c < 0x10000) bytes.push(0xe0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63)
+    else bytes.push(0xf0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63)
+  }
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const [a, b = 0, c = 0] = bytes.slice(i, i + 3), n = a << 16 | b << 8 | c
+    out += B64[n >> 18 & 63] + B64[n >> 12 & 63] + (i + 1 < bytes.length ? B64[n >> 6 & 63] : '=') + (i + 2 < bytes.length ? B64[n & 63] : '=')
+  }
+  return out
+}
 
 // ---- schemas (section 3; every field required, nesting one level, required inside properties) ----
 const S = { type: 'string' }
@@ -1407,15 +1426,16 @@ for (const h of holders) for (const e of h.owner[h.field]) {
 const qItems = [...qid.values()]
 quotes.items = qItems.length
 const missing = new Map()   // item id -> why
-const QEND = 'MY_TURN_QUOTES_END'
+// one line, each JSON line as one base64 word (the item's id in front, so a word copied wrong is garbled under that id):
+// the headless run's rule Bash(bash <run-python.sh> <my-turn-prep.py> --quotes --b64 *) matches it. A here-document did
+// not match and was denied (dontAsk), so the headless runs of PR 2574 and 2594 checked no quote
 const quoteCommand = batch => [
-  `bash ${shq(QC.runPython)} ${shq(QC.prep)} --quotes - <<'${QEND}'`,
-  asciiJson({ workdir: A.workdir, base: P.base, head: P.head, recordDir: P.recordDir ?? '' }),
-  ...batch.map(q => asciiJson([q.id, q.path, q.line, q.quote, q.sum])),
-  QEND,
-].join('\n')
+  `bash ${shq(QC.runPython)} ${shq(QC.prep)} --quotes --b64`,
+  b64(asciiJson({ workdir: A.workdir, base: P.base, head: P.head, recordDir: P.recordDir ?? '' })),
+  ...batch.map(q => `${q.id}:${b64(asciiJson([q.id, q.path, q.line, q.quote, q.sum]))}`),
+].join(' ')
 // the Quotes agent only runs the command and relays its output
-const quotesText = command => `Run the command below once, exactly as written, and do nothing else. Do not change a character of any line: each JSON line carries a checksum, and a line copied wrong is counted, not checked.
+const quotesText = command => `Run the command below once, exactly as written, and do nothing else. Do not change a character: each word carries a checksum, and a word copied wrong is counted, not checked.
 
 \`\`\`bash
 ${command}

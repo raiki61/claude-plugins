@@ -78,8 +78,14 @@ const byText = items => ({ clusters: Object.values(items.reduce((m, [id, q]) => 
   .map(c => ({ key: c.key, question: c.question, members: c.ids.join(', ') })), dropped: [] })
 const w7Items = p => [...p.matchAll(/^- (q\d+): (.*?) \| /gm)].map(m => [m[1], m[2]])
 const idOf = (items, text) => items.find(([, t]) => t === text)?.[0]
-// the items of a quote-check command: [id, path, line, quote, sum] per line between the header and the end marker
-const quoteItems = p => p.split('\n').filter(l => l.startsWith('["Q')).map(l => JSON.parse(l))
+// the command line of a quote-check prompt, and its words: the header, then <id>:<base64 of [id, path, line, quote, sum]>
+const quoteLine = p => p.split('\n').find(l => l.startsWith('bash ') && l.includes(' --quotes --b64 ')) ?? ''
+const unb64 = w => Buffer.from(w, 'base64').toString('utf8')
+const quoteItems = p => quoteLine(p).split(' ').filter(w => /^Q\d+:/.test(w)).map(w => {
+  const [id, b] = w.split(':'), item = JSON.parse(unb64(b))
+  if (item[0] !== id) throw new Error(`the word's id ${id} is not its line's ${item[0]}`)
+  return item
+})
 const quotesOk = call => ({ ran: true, checked: quoteItems(call.prompt).length, missing: [], garbled: [], error: '' })
 
 // 既定の答え。over[stage] で替える
@@ -169,11 +175,14 @@ async function caseFixed() {
   check(of(calls, 'Lines').length === 1 && out.ledger.every(it => it.route === 'report') && out.linesReturned, 'fixed: 線引きの段の返りが台帳に載らない')
   check(calls.some(c => c.label === 'W10 F1'), 'fixed: 直しの案の反証が立たない')
   check(out.nodes.every(n => n.status !== 'pending'), 'fixed: 記録に掘り終えていないノードが残る')
-  // 写しの照合: 1 体が prep の --quotes を打ち、根拠を 1 件ずつ印付きの ASCII の行で渡す。全部の段が読むだけの決まりを持つ
+  // 写しの照合: 1 体が prep の --quotes を打ち、根拠を 1 件ずつ印付きの行の base64 の語で渡す。全部の段が読むだけの決まりを持つ
   const qp = of(calls, 'Quotes')
   const items = qp.flatMap(c => quoteItems(c.prompt))
-  check(qp.length === 1 && qp[0].prompt.includes("bash /p/run-python.sh /p/my-turn-prep.py --quotes - <<'MY_TURN_QUOTES_END'")
-    && /\nMY_TURN_QUOTES_END\n/.test(qp[0].prompt) && qp[0].prompt.includes('{"workdir":"/w","base":"' + 'b'.repeat(40)),
+  // 1 行（here-document はヘッドレスの許しの規則に当たらず拒まれた）。頭の語は base64 の {workdir, base, head, recordDir}
+  const qWords = quoteLine(qp[0]?.prompt ?? '').split(' ')
+  check(qp.length === 1 && quoteLine(qp[0].prompt).startsWith('bash /p/run-python.sh /p/my-turn-prep.py --quotes --b64 ')
+    && !qp[0].prompt.includes('<<') && unb64(qWords[5] ?? '').startsWith('{"workdir":"/w","base":"' + 'b'.repeat(40))
+    && qWords.length === 6 + items.length,
     'fixed: 写しの照合のコマンドの形が違う')
   check(items.length > 0 && items.every(x => x.length === 5 && /^[0-9a-f]{8}$/.test(x[4])) && /^[\x00-\x7f]*$/.test(qp[0].prompt.split('```bash')[1]),
     `fixed: 写しの照合の行の形が違う ${JSON.stringify(items.slice(0, 2))}`)

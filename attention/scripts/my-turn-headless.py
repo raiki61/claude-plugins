@@ -119,13 +119,14 @@ RULE_UNSAFE = frozenset("*?[]{}(),\\ \t\n\r'\"")
 
 def quote_rule(quote_check):
     """写しの照合の段（Quotes）が打つコマンドの許可。my-turn-dig.js の quoteCommand と同じ頭
-    （bash <run-python.sh> <my-turn-prep.py> --quotes - と、その後の照合の行）。path に規則の中で意味を持つ字が
+    （bash <run-python.sh> <my-turn-prep.py> --quotes --b64 と、その後の 1 行ずつの base64 の語。1 行のコマンドにするのは、
+    here-document の複数行がこの規則に当たらず dontAsk で拒まれたため。PR 2574・2594 のヘッドレスの回）。path に規則の中で意味を持つ字が
     在れば組めないので None（照合の段のコマンドは拒まれ、Workflow は根拠を確かめていない物として数えて残す）。"""
     qc = quote_check if isinstance(quote_check, dict) else {}
     rp, pp = qc.get("runPython"), qc.get("prep")
     if not (isinstance(rp, str) and isinstance(pp, str) and rp and pp) or RULE_UNSAFE & set(rp + pp):
         return None
-    return "Bash(bash %s %s --quotes *)" % (rp, pp)
+    return "Bash(bash %s %s --quotes --b64 *)" % (rp, pp)
 
 
 def allowed_tools(quote_check):

@@ -5,9 +5,11 @@ GitHub にも本物の claude にも触れない。gh と claude は一時の場
 origin は一時の bare リポジトリ。cwd はこのリポジトリではなく一時の作業場を渡す（本体に git を打たない）。
 ケース名を引数で選び、通れば `<名前>_OK` を出す。知らない名前は「使い方」で落ちる。"""
 
+import base64
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -634,13 +636,24 @@ def case_quotes():
                  '["Q7", "f.txt", 2',  # 途中で切れた行
                  item("Q8", "f.txt", 0, "one"),  # 形が違う（行が 1 より小さい）
                  "", "junk"]
+        def word(row):
+            # my-turn-dig.js の quoteCommand と同じ形: 頭は base64 だけ、件は <id>:<base64>
+            m = re.match(r'^\["(Q\d+)"', row)
+            b = base64.b64encode(row.encode("utf-8")).decode("ascii")
+            return "%s:%s" % (m.group(1), b) if m else b
+
+        words = [word(lines[0])] + [word(l) for l in lines[1:] if l.startswith('["Q')]
+        words += ["Q9:@@not-base64@@",  # 戻せない語（写し違い）は、その id で garbled
+                  "Q10:" + base64.b64encode(item("Q11", "f.txt", 2, "TWO changed").encode()).decode(),  # 前の id と中の id が違う
+                  "junk"]  # id も読めない語は数えない
         # 作業場の外から打っても、頭の workdir で読む
-        rc, o = e.prep("--quotes", "-", cwd=e.tmp, stdin="\n".join(lines) + "\n")
-        check(rc == 0 and o["ok"] and o["checked"] == 8, "標準入力の照合 %r" % o)
-        check(sorted(m["id"] for m in o["missing"]) == ["Q3", "Q8"] and o["garbled"] == ["Q6", "Q7"], "合わない物 %r" % o)
+        rc, o = e.prep("--quotes", "--b64", *words, cwd=e.tmp)
+        check(rc == 0 and o["ok"] and o["checked"] == 10, "引数の照合 %r" % o)
+        check(sorted(m["id"] for m in o["missing"]) == ["Q3", "Q8"] and o["garbled"] == ["Q6", "Q7", "Q9", "Q10"], "合わない物 %r" % o)
         # 頭が読めない
-        rc, o = e.prep("--quotes", "-", stdin="nope\n")
-        check(rc == 1 and o["ok"] is False and o["stop"] == "quotes-input", "頭の無い入力 %r" % o)
+        for head_word in ("nope", base64.b64encode(b"nope").decode()):
+            rc, o = e.prep("--quotes", "--b64", head_word)
+            check(rc == 1 and o["ok"] is False and o["stop"] == "quotes-input", "頭の無い入力 %r" % o)
 
         # --save-record: Workflow の出力のファイル（result が戻り値の JSON の文字列）から記録を書く（既定の形の手順 9）
         out = os.path.join(e.tmp, "wf.output")
@@ -723,7 +736,7 @@ def case_headless():
         check(argsf == os.path.join(rd, "7-args-headless.json") and argsf in argv[2], "argsFile / prompt")
         rules = argv[argv.index("--allowedTools") + 1:]
         for want in ["Workflow", "Read", "Grep", "Glob", "WebFetch", "WebSearch",
-                     "Bash(bash /p/scripts/run-python.sh /p/scripts/my-turn-prep.py --quotes *)",
+                     "Bash(bash /p/scripts/run-python.sh /p/scripts/my-turn-prep.py --quotes --b64 *)",
                      "Bash(git show *)", "Bash(git blame *)", "Bash(git log *)", "Bash(git diff *)",
                      "Bash(git cat-file *)", "Bash(git ls-files *)", "Bash(git rev-parse *)",
                      "Bash(gh pr view *)", "Bash(gh pr diff *)", "Bash(gh pr list *)", "Bash(gh issue view *)",
