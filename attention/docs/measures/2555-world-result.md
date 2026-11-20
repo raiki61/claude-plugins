@@ -2,6 +2,8 @@
 
 guided-resolver の PR #2555（head〔PR の先頭の commit〕は `c0c1848`）で、世界の解の小さな Workflow（`attention/workflows/dig-world.js`。以下 DW）を 2 回走らせ、重い版（`/attention:my-turn-deep`）の前の記録と比べた。設計は `attention/docs/small-workflows-design.md` のセクション 3 と 8、正解の札は走らせる前に commit した `2555-world-key.json`。頼み 33329f。札・類などの語は、すぐ下の「この文書の語」に在る。
 
+- **読み手と使い道**: 読み手は持ち主と、attention（PR ごとに、今どちらが動くターンかと見渡しを出す Claude Code のプラグイン）を直す者。重い版から小さな Workflow に分けていく案（設計書）の、最初の 1 本が効くかの記録で、次の直しと、3 回目を走らせるかの判断に使う。guided-resolver（持ち主の別のリポジトリ）は、試しの入力に使っただけ。
+
 ## この文書の語
 
 - 世界の解: 世の中の実務家が、その種類の問題をどう解いているか。DW は、PR の選んだ解き方を世界の解と比べ、違う所を問い直しとして返す。重い版は、PR の見渡し（目的・手段・世界の解など）を 1 回で全部回す Workflow で、世界の解はその一部。
