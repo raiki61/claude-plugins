@@ -13,7 +13,7 @@
   - queries: 探す役が打った検索語（会話の記録の WebSearch）に、対象の名前が出た数
   - cost: 費用・時間・エージェントの数（--headless の出力と返りの counts から）
   - heavy: 重い版の記録の、世界の解の問い（origin が world のノード）の答えた数と、引用の照合の数
-  - gate: 札のうち gate が true の物が全部拾えたか（8.4 の合否）
+  - gate: 返りの head が札の head と同じで（別の head の返りを合にしない）、札のうち gate が true の物が全部拾えたか（8.4 の合否）
 出力は JSON 1 つ。読めない入力は止める（docs/standards/machine-readable-values.md の決まり 4）。
 """
 import argparse
@@ -226,9 +226,10 @@ def main(argv):
         if not isinstance(world.get("rows"), list):
             raise Stop("返りに rows がありません（status %s・reason %s）" % (world.get("status"), world.get("reason")))
         keys = [score_key(k, world) for k in key["keys"]]
+        same_head = bool(key.get("head")) and world.get("head") == key.get("head")
         out = {"pr": key.get("pr"), "head": world.get("head"), "keyHead": key.get("head"),
-               "status": world.get("status"),
-               "gate": all(k["hit"] for k in keys if k["gate"]),
+               "headMatches": same_head, "status": world.get("status"),
+               "gate": same_head and all(k["hit"] for k in keys if k["gate"]),
                "keys": keys, "lines": lines_part(world, args), "restate": world.get("restate"),
                "excerpts": excerpts_part(world),
                "queries": queries_part(a.transcripts, leak_names(args, a.name)),

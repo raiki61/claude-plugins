@@ -560,7 +560,7 @@ print(json.dumps(m.recheck_rule(json.loads(sys.argv[2]))))`, path.join(ROOT, 'at
       try { return JSON.parse(execFileSync(PY, [SCORE, '--key', KEY, ...a], { encoding: 'utf8' })) } catch (e) { return JSON.parse(e.stdout) }
     }
     const cmp = (kind, name, layer, verdict, practice) => ({ against: { kind, name, version: '' }, layer, verdict, practice, challenge: '', why: '', applies: '', basis: 'web' })
-    const world = rows => ({ status: 'ok', head: 'h', rows, missing: [{ n: 3, why: 'x' }], excerpts: { kept: 3, dropped: 1, unchecked: 2, garbled: 0, over: 0 }, counts: { agents: 9, classes: 2, stages: {} } })
+    const world = (rows, head = 'c0c1848ca2f5b139834c14343f09a022ac8835ac') => ({ status: 'ok', head, rows, missing: [{ n: 3, why: 'x' }], excerpts: { kept: 3, dropped: 1, unchecked: 2, garbled: 0, over: 0 }, counts: { agents: 9, classes: 2, stages: {} } })
     const hitRow = { n: 1, class_id: 'w-1', comparisons: [cmp('dependency', 'langgraph', 'architecture', 'differs', 'The model calls an ask tool and interrupt() pauses inside it.')] }
     const nearRow = { n: 2, class_id: 'w-2', comparisons: [cmp('dependency', '@assistant-ui/react', 'architecture', 'same', 'onResumeToolCall resumes the tool.'), cmp('dependency', 'langgraph', 'contract', 'differs', 'interrupt')] }
     const args = put('args.json', { lines: [{ n: 1, where: 'mechanism 1', text: 'The mcp_tool_wrapper.py adapter and the langgraph runtime.' }, { n: 2, where: 'mechanism 2', text: 'b' }, { n: 3, where: 'mechanism 3', text: 'c' }], deps: [{ name: 'langgraph', version: '1.2.20' }] })
@@ -578,6 +578,8 @@ print(json.dumps(m.recheck_rule(json.loads(sys.argv[2]))))`, path.join(ROOT, 'at
       `検索語の漏れの数が違う（依存の名 langgraph は漏れに数えない）: ${JSON.stringify(good.queries)}`)
     const bad = score('--world', put('w2.json', world([nearRow])), '--args', args)
     check(bad.ok === true && bad.gate === false && bad.queries === null, '札 1 に当たる比べが無いのに合になる')
+    const other = score('--world', put('w4.json', world([hitRow], 'h'.repeat(40))))
+    check(other.ok === true && other.keys[0].hit && other.headMatches === false && other.gate === false, '札と別の head の返りが合になる')
     check(score('--world', put('w3.json', { stopped: 'caller' })).ok === false, 'rows の無い返りで止まらない')
     check(score('--world', path.join(tmp, 'none.json')).ok === false, '無いファイルで止まらない')
     fs.rmSync(tmp, { recursive: true, force: true })
