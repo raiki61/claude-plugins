@@ -89,6 +89,16 @@ def agents():
 SHQ_PLAIN = re.compile(r"^[A-Za-z0-9_@%+=:,./-]+$")   # dig-world.js の shq が囲まずに残す字だけの path
 
 
+def excerpt_check():
+    """取り直しの台本は、Workflow（SCRIPT）と同じ checkout の物を渡す。world-args.json の excerptCheck は、書いた
+    steps-prep.py の checkout の path を持ち、その作業場が消えると取り直しが全部「照合できなかった」になる
+    （#2555 の 4 回目。excerptCheck は sum に入らない）"""
+    xc = {"runPython": os.path.join(HERE, "run-python.sh"),
+          "script": os.path.join(ROOT, "steps", "world", "world-excerpts.py")}
+    missing = [v for v in xc.values() if not os.path.isfile(v)]
+    return xc, missing
+
+
 def recheck_rule(xc):
     """取り直しの段が打つコマンドの許し（dig-world.js の EXCERPT_COMMAND と同じ頭）。path に規則の中で意味を持つ字が
     在れば組めないので None（取り直しは拒まれ、DW は抜き書きを照合できなかった物として数える）"""
@@ -123,6 +133,10 @@ def main(argv):
                          ensure_ascii=False))
         return 1
     args["roles"] = {k: "world-" + k for k in STAGES}   # roles は sum に入らない（dig-world.js の SUM_KEYS）
+    args["excerptCheck"], missing = excerpt_check()
+    if missing:
+        print(json.dumps({"ok": False, "message": "取り直しの台本が在りません: %s" % ", ".join(missing)}, ensure_ascii=False))
+        return 1
     args_file = os.path.join(sdir, "world-args-headless.json")
     prep.write_json(args_file, args)
     rule = recheck_rule(args.get("excerptCheck"))

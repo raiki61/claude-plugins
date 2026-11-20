@@ -448,6 +448,12 @@ print(json.dumps(m.recheck_rule(json.loads(sys.argv[2]))))`, path.join(ROOT, 'at
     check(rule({ runPython: '/p/run-python.sh', script: '/p/world-excerpts.py' }) === '"Bash(bash /p/run-python.sh /p/world-excerpts.py --b64 *)"', 'ヘッドレスの許しの規則が --b64 の形でない')
     check(rule({ runPython: '/ユーザー/run-python.sh', script: '/p/world-excerpts.py' }) === 'null' && rule({ runPython: '/p/$x/run-python.sh', script: '/p/w.py' }) === 'null',
       'shq が囲む path でも許しの規則を組んだ（命令と字が揃わない）')
+    // ヘッドレスの形は、取り直しの台本を Workflow と同じ checkout から渡す（world-args.json の古い path を使わない）
+    const xcNow = JSON.parse(execFileSync(PY, ['-c', `import importlib.util,json,sys
+spec = importlib.util.spec_from_file_location('h', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-headless.py')], { encoding: 'utf8' }))
+    check(xcNow[0].runPython === path.join(ROOT, 'attention/scripts/run-python.sh') && xcNow[0].script === scr && xcNow[1].length === 0,
+      `ヘッドレスの取り直しの台本が Workflow と同じ checkout の物でない: ${JSON.stringify(xcNow)}`)
     // ネットワークで 1 つも届かなければ offline
     fs.writeFileSync(path.join(tmp, 'none.json'), '{}')
     const off = JSON.parse(execFileSync(PY, [scr, '--pages', path.join(tmp, 'none.json')],
