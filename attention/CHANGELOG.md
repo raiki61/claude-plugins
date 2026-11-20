@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-11-20
+
 ### Added
 
 - 世界の解だけを問う小さな Workflow `attention:dig-world`（`workflows/dig-world.js`）と、それを手で起動する `/attention:check-world` を足した。「世界の解」とは、その PR が解いている問題に対して、世の中の一般の作りがどうなっているかの答えのこと。PR の仕組みごとに、解き方の語と対象の名前を抜いた問題に言い直し、依存の部品・同じ種類の製品・標準・差分を見ない目に、その問題の一般の作りを答えさせる。その答えと PR の作りを、層（誰が何をするか・境界を何が渡るか・部品の中のやり方）ごとに 1 層ずつ並べて比べる。目が出典から字のまま写した抜き書きは、機械が出典の同じ URL から取り直して照合する。依頼の行・目的・手段は、`/attention:my-turn-deep` が前の回に残した記録（掘った結果の JSON）から写し、依存の一覧はマニフェストとロックファイルから機械が取る（`scripts/steps-prep.py`）。`--headless` で `claude -p` の別の会話で回せる（`scripts/steps-headless.py`）。設計は `docs/small-workflows-design.md` のセクション 3「世界の解の DW（最初の 1 本）」。`/attention:my-turn-deep` の動きは変わらない（頼み 33329f。works-dispatch で部署に出した仕事の番号）。
