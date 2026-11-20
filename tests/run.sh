@@ -6394,7 +6394,7 @@ expect_output 0 "PRIOR_OK" \
     "my-turn-prep: --prior で 2 つ目の差分・unchanged・前回の head の欠け・指紋の短い印（same・moved など）を出し、版の違う記録は使い回さない" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" prior
 expect_output 0 "QUOTES_OK" \
-    "my-turn-prep: --quotes が引用の一致・文字違い・行の範囲外・base 側の版・URL の見送りを照合し、標準入力の形は印の合わない行を garbled に出す" \
+    "my-turn-prep: --quotes が引用の一致・文字違い・行の範囲外・base 側の版・URL の見送りを照合し、1 行の --b64 の形は印の合わない行と戻せない語を garbled に出し、同じ id の 2 度目を数えない" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" quotes
 expect_output 0 "HEADLESS_OK" \
     "my-turn-prep: ヘッドレスの起動: 環境変数の落とし方・引数・役の定義と、偽の claude での実走の要約と、出力のファイルからの記録の書き込み" \

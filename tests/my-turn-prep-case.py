@@ -614,7 +614,7 @@ def case_quotes():
         rc, o = e.prep("--quotes", rec)
         check(rc == 1 and o["stop"] == "prior-unreadable", "unreadable")
 
-        # 標準入力の形（Workflow の写しの照合の段が打つ物）: 1 行目が頭、続く行が [id, path, 行, 写し, 印]
+        # --b64 の形（Workflow の写しの照合の段が打つ物）: 1 語目が頭、続く語が <id>:<[id, path, 行, 写し, 印] の base64>
         sys.path.insert(0, os.path.dirname(PREP))
         import importlib.util
         spec = importlib.util.spec_from_file_location("my_turn_prep", PREP)
@@ -645,6 +645,7 @@ def case_quotes():
         words = [word(lines[0])] + [word(l) for l in lines[1:] if l.startswith('["Q')]
         words += ["Q9:@@not-base64@@",  # 戻せない語（写し違い）は、その id で garbled
                   "Q10:" + base64.b64encode(item("Q11", "f.txt", 2, "TWO changed").encode()).decode(),  # 前の id と中の id が違う
+                  word(item("Q1", "f.txt", 2, "TWO changed")),  # 同じ id の 2 度目は数えない（重ねて別の件を落とした写しの数を合わせない）
                   "junk"]  # id も読めない語は数えない
         # 作業場の外から打っても、頭の workdir で読む
         rc, o = e.prep("--quotes", "--b64", *words, cwd=e.tmp)

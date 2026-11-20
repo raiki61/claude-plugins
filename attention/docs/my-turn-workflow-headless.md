@@ -76,7 +76,7 @@
     - コマンドは 1 行（頭と根拠の 1 件ずつを base64 の語にする）。here-document の複数行のコマンドは規則に当たらず、`dontAsk` で拒まれた（guided-resolver の PR 2574・2594 のヘッドレスの回で、引用の全部が照合されずに残った）。
     - path は prep の `quoteCheck` の物。規則の中で意味を持つ字（空白・かっこ・`*` など。graphloops の `engine/role_run.py` の `RULE_UNSAFE`）が在れば、この規則を足さない。
     - 足さなかったとき・規則が当たらなかったときは、照合のコマンドが拒まれ、根拠は照合していない物（`counts.quotes.unchecked`）として残る。
-    - heredoc を付けたコマンドにこの規則が当たるかは、まだ試していない（下の確かめの 2）。
+    - 1 行のコマンドにこの規則が当たるのは、`claude -p` の haiku の 1 体で `dontAsk` のまま確かめた（頼み 23f909）。Workflow の中の Quotes で通るかは、下の確かめの 2 で見る。
   - ファイルへの書き込みは、どの段にも許さない（前は W11 のために `Edit(//<記録のフォルダ>/**)` を許していた。記録は台本が書く）。
   - Bash の `git show`・`git blame`・`git log`・`git diff`・`git cat-file`・`git ls-files`・`git rev-parse`
   - `gh pr view`・`gh pr diff`・`gh pr list`・`gh issue view`・`gh issue list`・`gh search`
@@ -131,7 +131,7 @@
 2. **役の引き当て**: script の `agentType` で、`--agents` の役を引けるか。
    - 見る所:
      - 裏のエージェントの会話記録の持つツールに、Write が無いか。
-     - Quotes の照合のコマンドが許可で通り、`counts.quotes.unchecked` が空か（`--allowedTools` の規則が heredoc 付きのコマンドに当たるか）。
+     - Quotes の照合のコマンドが許可で通り、`counts.quotes.unchecked` が空か（`--allowedTools` の規則が 1 行の `--quotes --b64` のコマンドに当たるか）。
    - 駄目なら `roles` を渡さない。
      - Write・Edit などは `--tools` で止まる。Bash での書き込みは許可で止まる。残る物は、今の手順 15 の `git status` で見る。
      - script は、実際に CLAUDE.md が入ったかでなく、`roles` の有る無しだけで、段の共通の決まり（セクション 3）に次の 1 行を足すかを決める。

@@ -908,8 +908,9 @@ def check_rows(rows):
     """根拠の行を照合する（Workflow の写しの照合の段が打つ形）。
 
     1 行目は {workdir, base, head, recordDir}、続く行は 1 件ずつ [id, path, line, quote, sum]。sum が合わない行と
-    読めない行は照合せず garbled に数える。id も読めない行は checked に数えない（Workflow は数の違う束を
-    丸ごと確かめていない物にする）。"""
+    読めない行は照合せず garbled に数える。id も読めない行と、前の行と同じ id の行は checked に数えない（Workflow は
+    数の違う束を丸ごと確かめていない物にする。同じ id を数えると、1 件を重ねて別の 1 件を落とした写しの数が合い、
+    落ちた件が照合済みに数わる）。"""
     rows = [l for l in (x.rstrip("\r\n") for x in rows) if l.strip()]
     try:
         head_row = json.loads(rows[0]) if rows else None
@@ -927,7 +928,7 @@ def check_rows(rows):
     rd = head_row.get("recordDir")
     reader = QuoteReader(head_row.get("base") or None, head_row.get("head") or None, top.strip(),
                          os.path.realpath(rd) if isinstance(rd, str) and rd else os.path.join(top.strip(), ".no-record-dir"))
-    checked, missing, garbled = 0, [], []
+    checked, missing, garbled, seen = 0, [], [], set()
     for row in rows[1:]:
         try:
             item = json.loads(row)
@@ -935,10 +936,14 @@ def check_rows(rows):
             item = None
         if not (isinstance(item, list) and item and isinstance(item[0], str)):
             m = re.match(r'^\s*\["(Q\d+)"', row)
-            if m:
+            if m and m.group(1) not in seen:
+                seen.add(m.group(1))
                 checked += 1
                 garbled.append(m.group(1))
             continue
+        if item[0] in seen:
+            continue
+        seen.add(item[0])
         checked += 1
         if len(item) != 5 or not isinstance(item[1], str) or not isinstance(item[3], str) or not isinstance(item[4], str) \
                 or not isinstance(item[2], int) or fnv32("%s\n%s\n%s\n%s" % (item[0], item[1], item[2], item[3])) != item[4]:

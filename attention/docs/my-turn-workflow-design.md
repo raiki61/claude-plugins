@@ -1268,7 +1268,7 @@ return buildRecord(A, structure, compare, smells, seen, fixes, verdicts, ledger.
   - lock のファイルが本文から外れて `--stat` に残るか
   - ハッシュの照合
   - `quotes` のケース: `--quotes <記録>` と `--quotes --b64` が、字の違う引用と在らない行を拾うか
-    - 標準入力の形で、検査の値（FNV-1a）が script の値と合い、合わない行と壊れた行を写し違いに数えるか
+    - `--b64` の形で、検査の値（FNV-1a）が script の値と合い、合わない行と壊れた語を写し違いに数え、同じ id の 2 度目を数えないか
     - `--save-record` が、出力のファイルの包みを外して書き、版の違う物と止まった回を書かないか
   - `prior` のケース: 版の違う記録を使い回さないか、GitHub の issue・PR・検索の URL に頼ったノードを使い回さないか
   - `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` を置くと止まり、`--headless` を付けると止まらないか
