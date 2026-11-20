@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-11-20
+
 ### Fixed
 
 - 世界の解の Workflow（`attention:dig-world`）が、依頼の行に書かれた世の中の製品・標準の名前（例: PostgreSQL）を PR の中の名前と見て、探す役の答えを差し戻し続けることがなくなった。PR の中の名前は、PR の差分かリポジトリの中で定義された識別子だけにした。下ごしらえの台本（`steps-prep.py`）が git で定義を探して、その一覧（`own_names`）を渡す（頼み 96cfb3。部署への仕事の頼みの識別子）。
