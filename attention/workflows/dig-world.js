@@ -36,6 +36,24 @@ const fnv = s => {
 }
 const shq = s => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(String(s)) ? String(s) : `'${String(s).replace(/'/g, `'\\''`)}'`)
 const asciiJson = v => JSON.stringify(v).replace(/[\u007f-\uffff]/g, ch => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`)
+// base64 of the UTF-8 bytes of a string, by hand (no btoa or TextEncoder is promised in the Workflow runtime)
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+const b64 = s => {
+  const bytes = []
+  for (const ch of String(s)) {
+    const c = ch.codePointAt(0)
+    if (c < 0x80) bytes.push(c)
+    else if (c < 0x800) bytes.push(0xc0 | c >> 6, 0x80 | c & 63)
+    else if (c < 0x10000) bytes.push(0xe0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63)
+    else bytes.push(0xf0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63)
+  }
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const [a, b = 0, c = 0] = bytes.slice(i, i + 3), n = a << 16 | b << 8 | c
+    out += B64[n >> 18 & 63] + B64[n >> 12 & 63] + (i + 1 < bytes.length ? B64[n >> 6 & 63] : '=') + (i + 2 < bytes.length ? B64[n & 63] : '=')
+  }
+  return out
+}
 const meansWords = means => [...new Set(means.flatMap(m => [
   ...(String(m ?? '').match(/[A-Za-z0-9][\w./-]*/g) ?? []).map(w => w.replace(/[./-]+$/, ''))
     .filter(w => w.length >= 3 && (/[-_\d/.]/.test(w) || /[a-z][A-Z]/.test(w))),
@@ -292,8 +310,7 @@ ${LAYER_RULES}
 Return only JSON that matches the output schema.`
 
 // ---- 3.3 step 6: the re-fetch of the excerpts (one command, relayed) ----
-const XEND = 'DIG_WORLD_EXCERPTS_END'
-const RECHECK_PROMPT = command => `Run the command below once, exactly as written, and do nothing else. Do not change a character of any line: each JSON line carries a checksum, and a line copied wrong is counted, not checked.
+const RECHECK_PROMPT = command => `Run the command below once, exactly as written, and do nothing else. It is one line: keep it on one line and do not change a character of it. Each base64 word is one line of data with a checksum inside, and a word copied wrong is counted, not checked.
 
 \`\`\`bash
 ${command}
@@ -494,40 +511,40 @@ function searchProblems(c, r) {
   return out
 }
 
+// one line, each JSON line as one base64 word: the headless run's rule Bash(bash <run-python.sh> <script> --b64 *) matches it
+// (a here-document did not match and was denied, run 1 of PR 2555), and a word copied wrong spoils only its own line
 const EXCERPT_COMMAND = (c, items) => [
-  `bash ${shq(A.excerptCheck.runPython)} ${shq(A.excerptCheck.script)} - <<'${XEND}'`,
-  asciiJson({ class: c.id, count: items.length }),
-  ...items.map(x => asciiJson([x.id, x.url, x.excerpt, fnv(`${x.id}\n${x.url}\n${x.excerpt}`)])),
-  XEND,
-].join('\n')
+  `bash ${shq(A.excerptCheck.runPython)} ${shq(A.excerptCheck.script)} --b64`,
+  b64(JSON.stringify({ class: c.id, count: items.length })),
+  ...items.map(x => b64(JSON.stringify([x.id, x.url, x.excerpt, fnv(`${x.id}\n${x.url}\n${x.excerpt}`)]))),
+].join(' ')
 
-// status of each excerpt id: kept | dropped | unchecked, with why
+// status of each excerpt id: kept | dropped | unchecked, with why. A plain object, not a Map: a value returned
+// through parallel() or a pipeline stage comes back as JSON, and a Map turns into {} (run 1 of PR 2555)
 async function recheck(c, r, round) {
   const all = (r.excerpts ?? []).filter(x => !blank(x?.id))
-  const capped = all.slice(0, LIMITS.maxExcerpts)
-  const sent = capped.filter(x => !x.excerpt.includes(XEND) && !x.url.includes(XEND))
-  const status = new Map(all.map((x, i) => [x.id, { state: 'unchecked',
-    why: i >= LIMITS.maxExcerpts ? 'over the excerpt cap' : 'it holds the end marker of the re-fetch command' }]))
+  const sent = all.slice(0, LIMITS.maxExcerpts)
+  const status = Object.fromEntries(all.map(x => [x.id, { state: 'unchecked', why: 'over the excerpt cap' }]))
   const tally = { kept: 0, dropped: 0, unchecked: 0, garbled: 0, over: all.length - Math.min(all.length, LIMITS.maxExcerpts) }
   if (!sent.length) { tally.unchecked = all.length - tally.over; return { status, tally, ran: true } }
   const got = await run('Recheck', `Recheck ${c.id} ${round}`, RECHECK_PROMPT(EXCERPT_COMMAND(c, sent)), { schema: RECHECK, phase: 'Search', ...M('Recheck') })
   const ids = new Set(sent.map(x => x.id))
-  for (const x of sent) status.set(x.id, { state: 'unchecked', why: 'the re-fetch did not report it' })
+  for (const x of sent) status[x.id] = { state: 'unchecked', why: 'the re-fetch did not report it' }
   // a run the agent did not make, or whose count differs from what was sent (a line lost in the copy), is not trusted
   if (!got || got.ran !== true || got.checked !== sent.length) {
     tally.unchecked = all.length - tally.over
     return { status, tally, ran: false, error: str(got?.error) || 'the re-fetch did not run' }
   }
   const garbled = new Set((got.garbled ?? []).filter(id => ids.has(id)))
-  for (const id of garbled) status.set(id, { state: 'unchecked', why: 'the line was copied wrong' })
-  for (const id of got.kept ?? []) if (ids.has(id) && !garbled.has(id)) status.set(id, { state: 'kept', why: '' })
+  for (const id of garbled) status[id] = { state: 'unchecked', why: 'the line was copied wrong' }
+  for (const id of got.kept ?? []) if (ids.has(id) && !garbled.has(id)) status[id] = { state: 'kept', why: '' }
   for (const d of got.dropped ?? []) {
     if (!ids.has(d?.id) || garbled.has(d.id)) continue
     // no page reached at all: the network is off for the script, so nothing was checked (3.6)
-    status.set(d.id, got.offline ? { state: 'unchecked', why: `no page could be fetched: ${str(d.why)}` } : { state: 'dropped', why: str(d.why) })
+    status[d.id] = got.offline ? { state: 'unchecked', why: `no page could be fetched: ${str(d.why)}` } : { state: 'dropped', why: str(d.why) }
   }
   for (const x of all) {
-    const s = status.get(x.id).state
+    const s = status[x.id].state
     tally[s]++
   }
   tally.unchecked -= tally.over   // the over-cap ones are counted in over, not in unchecked
@@ -538,7 +555,7 @@ async function recheck(c, r, round) {
 // rows whose dependency rows' excerpts were all dropped (not unchecked): sent back to the searcher once (3.3 step 6)
 const depsAllDropped = (r, status) => {
   const cited = (r.rows ?? []).filter(w => w.kind === 'dependency').flatMap(w => w.sources ?? [])
-  return cited.length > 0 && cited.every(id => status.get(id)?.state === 'dropped')
+  return cited.length > 0 && cited.every(id => status[id]?.state === 'dropped')
 }
 
 async function searchClass(c) {
@@ -553,7 +570,7 @@ async function searchClass(c) {
     best = { r, checked, round }
     if (!resent && round < LIMITS.tries && depsAllDropped(r, checked.status)) {
       resent = true
-      const why = [...checked.status.entries()].filter(([, s]) => s.state === 'dropped').map(([id, s]) => `${id}: ${s.why}`)
+      const why = Object.entries(checked.status).filter(([, s]) => s.state === 'dropped').map(([id, s]) => `${id}: ${s.why}`)
       reasons.push(`round ${round}: every excerpt cited by the dependency rows was dropped when the machine fetched the same URL again (${why.join('; ')}). Fetch the dependency's own pages again and copy the excerpts word for word.`)
       continue
     }
@@ -606,7 +623,7 @@ async function classRows(c) {
   const byId = new Map((r.excerpts ?? []).map(x => [x.id, x]))
   const rows = r.rows.map((w, i) => {
     const cited = [...new Set(w.sources ?? [])]
-    const kept = cited.filter(id => checked.status.get(id)?.state === 'kept').map(id => ({ id, url: byId.get(id).url, excerpt: byId.get(id).excerpt }))
+    const kept = cited.filter(id => checked.status[id]?.state === 'kept').map(id => ({ id, url: byId.get(id).url, excerpt: byId.get(id).excerpt }))
     return {
       id: `R${i + 1}`,
       against: { kind: w.kind, name: str(w.name), version: str(w.version) },
@@ -632,7 +649,7 @@ async function compareClass(prev) {
   for (let round = 1; round <= LIMITS.tries; round++) {
     const r = await run('Compare', `Compare ${c.id} ${round}`, COMPARE_PROMPT(c, rows, reasons), { schema: COMPARE, phase: 'Compare', ...M('Compare') })
     const { out, pairs } = r ? compareProblems(c, rows, r) : { out: ['the comparer returned nothing'], pairs: new Map() }
-    if (!out.length) return { ...prev, pairs }
+    if (!out.length) return { ...prev, pairs: Object.fromEntries(pairs) }   // out of the pipeline as JSON: no Map
     reasons.push(...out.map(o => `round ${round}: ${o}`))
   }
   return { c, missing: `compare gave up after ${LIMITS.tries} rounds: ${reasons.join(' / ')}` }
@@ -653,7 +670,7 @@ done.forEach((d, i) => {
       n: m.n, where: m.where, class_id: c.id, problem: c.problem, activity: c.activity, queries: c.queries,
       deps: c.deps.map(x => x.name), depsWhy: m.depsWhy, proposed: m.proposed,
       comparisons: d.rows.map(w => {
-        const p = d.pairs.get(`${w.id}/${m.n}`)
+        const p = d.pairs[`${w.id}/${m.n}`]
         return { against: w.against, layer: w.layer, practice: w.practice, sources: w.sources, basis: w.basis,
           applies: w.applies, not_applies: w.not_applies, not_applies_unchecked: w.not_applies_unchecked,
           found: w.found, searched: w.searched,

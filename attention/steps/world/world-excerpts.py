@@ -6,10 +6,12 @@ DW の取り直しの段（haiku のエージェント 1 体が、このコマ�
 取る口は copied/webget.py の http_get。定数 MAX_EXCERPTS・MAX_BODY・HEADERS は工場の workflows/world/src/steps.py の 51〜54 行と
 同じ値（台帳 COPIED_FROM の「書き替えた」）。
 
-標準入力:
+入力の行（--b64 の後の引数 1 つが 1 行の UTF-8 の base64。--b64 が無ければ標準入力の 1 行ずつ）:
   1 行目: {"class": <類の id>, "count": <この後の行の数>}
   2 行目から: [id, url, excerpt, sum] の JSON の配列。sum は f"{id}\\n{url}\\n{excerpt}" の FNV-1a 32 bit（UTF-16 の単位。
-  dig-world.js の fnv と同じ）。sum の合わない行（写し違えた行）は照合せずに garbled に数える。
+  dig-world.js の fnv と同じ）。sum の合わない行と、base64 として読めない引数（写し違えた行）は照合せずに garbled に数える。
+  DW のコマンドは 1 行の bash <run-python.sh> <この台本> --b64 <行> <行> ...。ヘッドレスの許しの規則
+  Bash(bash <run-python.sh> <この台本> --b64 *) に当てるため（here-document の形は規則に当たらず拒まれた。PR 2555 の 1 回目）。
 
 標準出力（JSON 1 つ）:
   {"ran": true, "class", "checked", "kept": [id], "dropped": [{id, why}], "garbled": [id], "over": n, "offline": bool, "error": ""}
@@ -17,6 +19,8 @@ DW の取り直しの段（haiku のエージェント 1 体が、このコマ�
 
   --pages <file>: ネットワークに出ず、ファイルの {url: [状態の番号, 本文]} を取り直しの答えにする（試験の口）。
 """
+import base64
+import binascii
 import json
 import os
 import sys
@@ -85,19 +89,27 @@ def run(lines, get):
             "garbled": garbled, "over": len(rows) - len(taken), "offline": bool(res["offline"]), "error": ""}
 
 
+def unb64(word):
+    """base64 の 1 語を 1 行に戻す。読めない語は JSON にならない行にして、run で garbled に数えさせる"""
+    try:
+        return base64.b64decode(word, validate=True).decode("utf-8")
+    except (binascii.Error, ValueError):
+        return "\x00 not base64"
+
+
 def main(argv):
     get = fetch
-    # 「-」は標準入力から読む印（DW のコマンドの形 bash <run-python.sh> <この台本> - <<'END' を、許しの規則
-    # Bash(bash <run-python.sh> <この台本> - *) に当てるため。無くても同じに動く）
-    if argv[:1] == ["-"]:
-        argv = argv[1:]
-    if len(argv) == 2 and argv[0] == "--pages":
+    if argv[:1] == ["--pages"] and len(argv) >= 2:
         with open(argv[1], encoding="utf-8") as f:
             get = fake_get(json.load(f))
+        argv = argv[2:]
+    if argv[:1] == ["--b64"]:
+        lines = [unb64(w) for w in argv[1:]]
     elif argv:
-        print(json.dumps({"ran": False, "error": "引数は無しか「-」か --pages <file> だけ"}, ensure_ascii=False))
+        print(json.dumps({"ran": False, "error": "引数は [--pages <file>] [--b64 <行> ...] だけ"}, ensure_ascii=False))
         return 2
-    lines = [ln for ln in sys.stdin.read().splitlines() if ln.strip()]
+    else:
+        lines = [ln for ln in sys.stdin.read().splitlines() if ln.strip()]
     try:
         out = run(lines, get)
     except ValueError as e:

@@ -43,10 +43,12 @@ async function run(args, respond) {
     if (bad.length) throw new Error(bad.join('; '))
     return respond(call, calls)
   }
-  const parallel = thunks => Promise.all(thunks.map(t => Promise.resolve().then(t).catch(() => null)))
+  // 本物の Workflow は parallel と pipeline の段の返りを JSON で渡すので、Map などは {} になる（PR 2555 の 1 回目）。同じにする
+  const asJson = v => (v === undefined ? null : JSON.parse(JSON.stringify(v)))
+  const parallel = thunks => Promise.all(thunks.map(t => Promise.resolve().then(t).then(asJson).catch(() => null)))
   const pipeline = async (items, ...stages) => Promise.all(items.map(async (it, i) => {
     let v = it
-    try { for (const s of stages) v = await s(v, it, i) } catch (e) { fails.push(`pipeline の段が投げた: ${e.message}`); return null }
+    try { for (const s of stages) v = asJson(await s(v, it, i)) } catch (e) { fails.push(`pipeline の段が投げた: ${e.message}`); return null }
     return v
   }))
   const fn = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', 'workflow', BODY)
@@ -114,9 +116,9 @@ const goodSearch = () => ({
 })
 // 取り直しの段: コマンドの行を読み、sum を確かめ、kept と dropped を言う（dropIds の id は落とす）
 const recheckFrom = (prompt, { dropIds = [], lie = false } = {}) => {
-  const body = prompt.split("<<'DIG_WORLD_EXCERPTS_END'\n")[1]?.split('\nDIG_WORLD_EXCERPTS_END')[0]
-  if (!body) return { ran: false, checked: 0, kept: [], dropped: [], garbled: [], over: 0, offline: false, error: 'no command' }
-  const [head, ...rows] = body.split('\n').map(l => JSON.parse(l))
+  const words = prompt.match(/^bash \S+ \S+ --b64 (.*)$/m)?.[1]?.split(' ')
+  if (!words) return { ran: false, checked: 0, kept: [], dropped: [], garbled: [], over: 0, offline: false, error: 'no command' }
+  const [head, ...rows] = words.map(w => JSON.parse(Buffer.from(w, 'base64').toString('utf8')))
   const garbled = rows.filter(r => H.fnv(`${r[0]}\n${r[1]}\n${r[2]}`) !== r[3]).map(r => r[0])
   const ok = rows.filter(r => !garbled.includes(r[0]))
   return { ran: true, checked: lie ? rows.length + 1 : head.count, kept: ok.filter(r => !dropIds.includes(r[0])).map(r => r[0]),
@@ -204,8 +206,14 @@ const cases = {
     const compare = st('Compare')[0].prompt
     check(compare.includes('line 1 (mechanism 1): 手段 1') && compare.includes('R1 [dependency langgraph 1.2.20 · architecture · web]'), '比べる役に手段と相手の行が渡らない')
     const rc = st('Recheck')[0].prompt
-    check(rc.includes("bash /p/run-python.sh /p/world-excerpts.py - <<'DIG_WORLD_EXCERPTS_END'"), '取り直しのコマンドの頭が許しの規則の形でない')
-    check(rc.split('\n').filter(l => l.startsWith('["x')).every(l => /^[\x20-\x7e]+$/.test(l)), '取り直しの行に ASCII でない字が在る')
+    // ヘッドレスの許しの規則 Bash(bash <run-python.sh> <台本> --b64 *) に当たる 1 行（here-document は当たらず拒まれた。PR 2555 の 1 回目）
+    const cmd = rc.split('\n').filter(l => l.startsWith('bash '))
+    check(cmd.length === 1 && cmd[0].startsWith('bash /p/run-python.sh /p/world-excerpts.py --b64 ') && /^[A-Za-z0-9+/= ]+$/.test(cmd[0].slice(cmd[0].indexOf('--b64 ') + 6)),
+      `取り直しのコマンドが、許しの規則に当たる 1 行の base64 の形でない: ${cmd[0]?.slice(0, 120)}`)
+    // 日本語の字も UTF-8 の base64 で字のまま戻る（台本の b64 は手書き）
+    const { b64 } = evalDefs(`${defText(SRC, 'B64')}\n${defText(SRC, 'b64')}`, ['b64'])
+    for (const t of ['', 'a', 'ab', 'abc', '聞く専用のツール', '😀 emoji', JSON.stringify(['x1', 'https://e.org/ä', '本文', 'deadbeef'])])
+      check(Buffer.from(b64(t), 'base64').toString('utf8') === t && b64(t) === Buffer.from(t, 'utf8').toString('base64'), `b64 が Node の base64 と違う: ${t}`)
     check(out.counts.stages.Restate.models.includes('opus') && out.counts.agents === calls.length, 'counts の段ごとのモデルかエージェントの数が違う')
     // 役の無い一般の構造は、道具を使うなを足す
     const plain = await run(args, happy())
@@ -314,7 +322,7 @@ const cases = {
       }
       return happy()(call)
     })
-    const sent = many.calls.find(c => c.stage === 'Recheck').prompt.split('\n').filter(l => l.startsWith('["x'))
+    const sent = many.calls.find(c => c.stage === 'Recheck').prompt.match(/--b64 (.*)$/m)[1].split(' ').slice(1)
     check(sent.length === 6 && many.out.excerpts.over === 2, `抜き書きの上限が 6 でない: 送った ${sent.length}・over ${many.out.excerpts.over}`)
     // 3 回とも受け付けに外れたら、その類の行を missing にする
     const bad = await run(baseArgs(), call => call.stage === 'Search' ? { excerpts: [], rows: [] } : happy()(call))
@@ -415,7 +423,12 @@ print(json.dumps({"banned": sorted(b), "hits": [excerpts.text_problems(t, b) for
     xs.push(['x5', 'https://a.example.org/doc', 'Use interrupt inside a tool to pause.', 'deadbeef'])
     const input = [JSON.stringify({ class: 'w-1', count: xs.length }), ...xs.map(x => H.asciiJson(x))].join('\n')
     const scr = path.join(WORLD, 'world-excerpts.py')
-    const out = JSON.parse(execFileSync(PY, [scr, '-', '--pages', pages], { input, encoding: 'utf8' }))
+    const out = JSON.parse(execFileSync(PY, [scr, '--pages', pages], { input, encoding: 'utf8' }))
+    // DW の 1 行の形（--b64 の後に 1 行ずつの base64）でも同じ答え。base64 として読めない語は garbled
+    const words = input.split('\n').map(l => Buffer.from(l, 'utf8').toString('base64'))
+    const viaB64 = JSON.parse(execFileSync(PY, [scr, '--pages', pages, '--b64', ...words, '!!not-base64'], { input: '', encoding: 'utf8' }))
+    check(viaB64.checked === 6 && JSON.stringify(viaB64.kept) === '["x1"]' && JSON.stringify(viaB64.garbled) === '["x5","?"]',
+      `--b64 の形の答えが標準入力の形と違う: ${JSON.stringify(viaB64)}`)
     check(out.ran === true && out.checked === 5 && out.class === 'w-1', `ran・checked・class が違う: ${JSON.stringify(out)}`)
     check(JSON.stringify(out.kept) === '["x1"]', `字のままの抜き書きだけが残らない: ${JSON.stringify(out.kept)}`)
     check(JSON.stringify(out.dropped.map(d => d.id)) === '["x2","x3","x4"]', `言い換え・404・http の行が落ちない: ${JSON.stringify(out.dropped)}`)

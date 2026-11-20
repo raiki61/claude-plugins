@@ -91,7 +91,7 @@ def recheck_rule(xc):
     rp, sc = (xc or {}).get("runPython"), (xc or {}).get("script")
     if not (isinstance(rp, str) and isinstance(sc, str) and rp and sc) or heavy.RULE_UNSAFE & set(rp + sc):
         return None
-    return "Bash(bash %s %s - *)" % (rp, sc)
+    return "Bash(bash %s %s --b64 *)" % (rp, sc)
 
 
 def main(argv):
