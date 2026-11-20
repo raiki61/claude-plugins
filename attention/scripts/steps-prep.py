@@ -294,6 +294,14 @@ def collect_deps(head, touched):
 DOC_EXCLUDE = [":(exclude)*.md", ":(exclude)*.mdx", ":(exclude)*.markdown", ":(exclude)*.adoc", ":(exclude)*.rst",
                ":(exclude)*.txt"]
 COMMENT_LINE = re.compile(r"^\s*(#|//|/\*|\*|--|<!--)")
+# 英字だけで中に大文字の無い普通の語（id・title・backend など）は、リポジトリで定義されていても、パスの部分でも、PR の中の名前に
+# 数えない。どの文にも出る語で、対象を名指さないため（#2637 の 3 回目で、キーの id を PR の中の名前と見て、探す役の行 2 を
+# 3 周差し戻して落とした。attention/docs/measures/2637-world-result.md）。リポジトリの名前は普通の語でも数える。
+PLAIN_WORD = re.compile(r"[A-Za-z]+")
+
+
+def plain_word(token):
+    return bool(PLAIN_WORD.fullmatch(token)) and not re.search(r"[a-z][A-Z]", token)
 
 
 def defined_patterns(token):
@@ -321,7 +329,12 @@ def own_names(lines, base, head):
                             if rc == 0 else set())
     out = []
     for t in tokens:
-        if t in paths or t.lower() in repo:
+        if t.lower() in repo:
+            out.append(t)
+            continue
+        if plain_word(t):
+            continue
+        if t in paths:
             out.append(t)
             continue
         pats = defined_patterns(t)

@@ -244,8 +244,10 @@ const cases = {
     check(rs.length === 3, `言い直しが 3 回でない: ${rs.length}`)
     check(rs[1].prompt.includes('## Why your previous answer was rejected') && rs[1].prompt.includes('["mcp_tool_wrapper.py"]')
       && rs[1].prompt.includes('words of the means ["HumanInTheLoopMiddleware"]'), '2 回目に識別子と手段の語の差し戻しの訳が無い')
-    check(rs[2].prompt.includes('presupposes the means (a second reader): 「止めて再開」が手段') && rs[2].prompt.includes('["mcp_tool_wrapper.py"]'),
-      '3 回目に漏れの差し戻しと前の回の訳が残らない')
+    // 行 1 は 2 回目に通って残るので、3 回目には行 1 の 1 回目の訳を渡さず、行 2 の前の回の訳は残す
+    check(rs[2].prompt.includes('presupposes the means (a second reader): 「止めて再開」が手段') && rs[2].prompt.includes('words of the means ["HumanInTheLoopMiddleware"]')
+      && !rs[2].prompt.includes('["mcp_tool_wrapper.py"]') && rs[2].prompt.includes('Lines 1 were accepted in an earlier round'),
+      '3 回目に行 2 の漏れの差し戻しと前の回の訳が残らないか、残した行 1 の訳が渡った')
     check(out.status === 'partial' && out.rows.length === 1 && out.rows[0].n === 1, `行 1 だけ返して partial にならない: ${out.status} ${out.rows.map(r => r.n)}`)
     check(out.missing.length === 1 && out.missing[0].n === 2 && /restate gave up/.test(out.missing[0].why), `行 2 が missing にならない: ${JSON.stringify(out.missing)}`)
     check(out.restate.identifierHits >= 1 && out.restate.meansHits >= 1 && out.restate.leakSentBack === 2 && out.restate.rounds === 3,
@@ -288,6 +290,25 @@ const cases = {
       return happy()(call)
     })
     check(st.calls.filter(c => c.stage === 'Restate')[1]?.prompt.includes('deps ["react-query"] are not in the dependency list'), '一覧に無い依存の名を差し戻さない')
+    // 前の回で機械と漏れの照合を通った行は、後の回で言い直されても通った形のまま残す（#2637 の 1 回目の行 3・6、3 回目の行 4・7）
+    let kr = 0, kl = 0
+    const keep = await run(baseArgs(), call => {
+      if (call.stage === 'Restate') { kr++; return { classes: LINES.map(l => goodClass(l.n, { activity: `対話の仕事の設計 ${kr}` })) } }
+      if (call.stage === 'Leak') {
+        kl++
+        // 1 回目は行 1・2、2 回目は行 2 を差し戻す。3 回目に行 1 が渡れば差し戻す（残っていれば渡らない）
+        const back = n => kl === 1 || (kl === 2 && n === 2) || (kl === 3 && n === 1)
+        return { items: [...call.prompt.matchAll(/^## Item (\d+)/gm)].map(m => ({ n: Number(m[1]), presupposes: back(Number(m[1])), why: back(Number(m[1])) ? `手段を名指す ${kl}-${m[1]}` : '' })) }
+      }
+      return happy()(call)
+    })
+    const kc = keep.calls.filter(c => c.stage === 'Restate'), kleak = keep.calls.filter(c => c.stage === 'Leak')
+    check(keep.out.status === 'ok' && kc.length === 3 && kc[2].prompt.includes('Lines 1 were accepted in an earlier round'), `通った行を残す旨が 3 回目の言い直しに無い: ${keep.out.status} ${kc.length}`)
+    check(kleak[2] && !/^## Item 1$/m.test(kleak[2].prompt) && /^## Item 2$/m.test(kleak[2].prompt), '残した行を漏れの照合に渡し直した')
+    check(keep.out.rows.find(r => r.n === 1)?.activity === '対話の仕事の設計 2', `残した行が後の回の言い直しで置き換わった: ${keep.out.rows.find(r => r.n === 1)?.activity}`)
+    check(kc[1].prompt.includes('手段を名指す 1-1') && !kc[2].prompt.includes('手段を名指す 1-1') && kc[2].prompt.includes('手段を名指す 1-2') && kc[2].prompt.includes('手段を名指す 2-2'),
+      '残した行の前の回の訳が言い直しに渡ったか、残っていない行の訳が渡らない')
+    check(!kc[1].prompt.includes('were accepted in an earlier round'), '1 回目に通らなかった行まで残す旨が出た')
   },
 
   async arises() {
@@ -570,7 +591,7 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     put('frontend/package.json', JSON.stringify({ dependencies: { '@assistant-ui/react': '^0.15.32', local: 'file:../x' }, devDependencies: { vitest: '1' } }))
     put('frontend/package-lock.json', JSON.stringify({ packages: { '': {}, 'node_modules/@assistant-ui/react': { version: '0.15.40' }, 'node_modules/vitest': { version: '1.0.0' } } }))
     put('docs/a.adoc', 'a\ndocOnly_name: is only said in a document\n')
-    put('backend/app.py', 'x = 1\n\ndef make_pause():\n    return "PostgreSQL waits"\n# the type PostgreSQL is not ours\n')
+    put('backend/app.py', 'x = 1\nid = 0\n\ndef make_pause():\n    return "PostgreSQL waits"\n# the type PostgreSQL is not ours\n')
     put('docs/b.mdx', 'docOnly_name: is only said in an mdx page\n')
     put('config/old.yaml', 'removed_key: 1\n')
     g('add', '-A'); g('commit', '-qm', 'base')
@@ -582,7 +603,7 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     const rec = path.join(tmp, 'rec.json')
     const record = { version: 3, pr: 7, base, head, purpose: { purpose: '人の答えを待つ', means: ['自前の止め', 3] },
       kind: 'これは渡さない', structure: { mechanisms: [{ mechanism: 'A pause adapter.', premise: 'The runtime does not stop.' }, { mechanism: 'No check.', premise: '' },
-        { mechanism: 'Calls make_pause and drops removed_key, see a.adoc.', premise: 'PostgreSQL and docOnly_name are not defined here.' }] } }
+        { mechanism: 'Calls make_pause and drops removed_key, see a.adoc; keeps the `id` in `backend`.', premise: 'PostgreSQL and docOnly_name are not defined here.' }] } }
     fs.writeFileSync(rec, JSON.stringify(record))
     const prepRun = (...a) => {
       try { return JSON.parse(execFileSync(PY, [PREP, ...a], { cwd: tmp, encoding: 'utf8' })) } catch (e) { return JSON.parse(e.stdout) }
@@ -599,7 +620,8 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     check(/declare no direct dependencies/.test(a.deps_note), `全部のマニフェストに広げた訳が deps_note に無い: ${a.deps_note}`)
     check(a.lines[0].text === 'A pause adapter. Premise: The runtime does not stop.' && a.lines[1].text === 'No check.' && a.lines[0].where === 'mechanism 1', '依頼の行の組み方が違う')
     check(!JSON.stringify(a).includes('これは渡さない'), '記録の種類の 1 文が args に入った')
-    // PR の中の名前は、差分かリポジトリの中で定義された識別子だけ（コードの定義・パス・差分で消した定義）。文書だけに出る名前と世の中の名前は入れない
+    // PR の中の名前は、差分かリポジトリの中で定義された識別子だけ（コードの定義・パス・差分で消した定義）。文書だけに出る名前と世の中の名前は入れない。
+    // 英字だけで中に大文字の無い普通の語（コードで定義した id・パスの部分の backend）も入れない（#2637 の 3 回目）
     check(JSON.stringify(a.own_names) === JSON.stringify(['a.adoc', 'make_pause', 'removed_key']), `own_names が違う: ${JSON.stringify(a.own_names)}`)
     check(a.caller === 'attention:check-world' && a.excerptCheck.script.endsWith(path.join('steps', 'world', 'world-excerpts.py')), 'caller か excerptCheck が違う')
     check(a.sum === sumOf(a), 'steps-prep の sum が DW の sumOf と違う')

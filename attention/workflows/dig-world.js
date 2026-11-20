@@ -200,7 +200,7 @@ const rejectedBlock = reasons => (reasons.length ? `${REJECTED(reasons.join('\n'
 const depLine = d => `- ${d.name}${d.version ? ` ${d.version}` : ''}${d.ecosystem ? ` (${d.ecosystem})` : ''}${d.imported_by_touched ? ' [imported by the changed files]' : ''}`
 
 // ---- 3.3 step 2: restate (rewrites world-classes.md; the added rules are 3.5) ----
-const RESTATE_PROMPT = reasons => `${rejectedBlock(reasons)}You are the restater. Your job is to restate each line of a change request as a problem class, with the means the request proposes and the target's names removed, to write search queries that ask how practitioners solve that class, and to pick the target's third-party dependencies that bear on the class.
+const RESTATE_PROMPT = (reasons, keptNs = []) => `${rejectedBlock(reasons)}You are the restater. Your job is to restate each line of a change request as a problem class, with the means the request proposes and the target's names removed, to write search queries that ask how practitioners solve that class, and to pick the target's third-party dependencies that bear on the class.
 You have no tools. Do not call any tool. You cannot open files or the repository; this prompt is everything you are given. You are kept away from the target so that you step up from the mechanism the request names to the kind of work it is.
 
 One core rule: **do not ask about the parts of the mechanism the request names, or about the output format of a tool. Ask how practitioners do this kind of work.**
@@ -235,7 +235,7 @@ ${deps.length ? deps.map(depLine).join('\n') : '(none found)'}
 ${str(A.deps_note) ? `\nNote from the machine that listed them: ${str(A.deps_note)}\n` : ''}
 ## How to answer
 
-- In \`classes\`, give one entry for every request line above. \`n\` is the line number, 1 to ${lines.length}.
+- In \`classes\`, give one entry for every request line above. \`n\` is the line number, 1 to ${lines.length}.${keptNs.length ? ` Lines ${keptNs.join(', ')} were accepted in an earlier round: the machine keeps those entries as they were and ignores a new entry for them, so give entries only for the other lines (a line may still set \`arisesFrom\` to a kept line).` : ''}
 - \`problem\`: one sentence that restates the line as a problem class in the words of the work practitioners do.
 - \`activity\`: a short name for the kind of work.
 - \`proposed\`: the means the request proposed for this line, copied from the means above and from the line. Empty if it proposed none.
@@ -289,7 +289,7 @@ ${c.deps.length ? c.deps.map(depLine).join('\n') : '(none)'}
 
 ## Whom to look at, in this order
 
-1. **Dependencies and upstream**: for each dependency above, look in its official documentation or official repository, for the version given, for the interface it offers to solve this class of problem. Give rows with \`kind\` "dependency" and \`name\` exactly as written above. Look at two layers for each dependency, not only the interface: also find which part its documentation has do the work in this class (which of its parts, or of the parts that use it, starts it, raises a question, holds the state or waits), and give that in a separate row at the \`architecture\` layer, even when you already gave a row for the interface. If it offers none, still give the row, with \`found\` false and, in \`searched\`, the queries you ran and the pages you opened. An upstream specification the class rests on (a protocol or an API that a dependency implements) goes in a row with \`kind\` "standard".
+1. **Dependencies and upstream**: for each dependency above, look in its official documentation or official repository, for the version given, for the interface it offers to solve this class of problem. A dependency may offer more than one interface for the same class (for example a lower-level one where the application holds the state and drives each step, and a higher-level one where the dependency holds the state and does the work itself): give each such interface its own rows, and name the interface in \`practice\` as its documentation spells it (a function, component, hook or option name), so that the comparer can tell one interface of the dependency from another. Give rows with \`kind\` "dependency" and \`name\` exactly as written above. Look at two layers for each dependency, not only the interface: also find which part its documentation has do the work in this class (which of its parts, or of the parts that use it, starts it, raises a question, holds the state or waits), and give that in a separate row at the \`architecture\` layer, even when you already gave a row for the interface. If it offers none, still give the row, with \`found\` false and, in \`searched\`, the queries you ran and the pages you opened. An upstream specification the class rests on (a protocol or an API that a dependency implements) goes in a row with \`kind\` "standard".
 2. **Products of the same kind**: name two or more public products (open source) that have the same kind of problem, and give how each solves it (\`kind\` "product"). If you find none, give one row with \`kind\` "product", \`name\` empty, \`found\` false and the queries you ran in \`searched\`.
 3. **Standards**: if a standard (an RFC, a specification, an official guide) covers this class, give the part that says how (\`kind\` "standard"). If there is none, give one row with \`kind\` "standard", \`name\` empty, \`found\` false and the queries you ran.
 
@@ -401,16 +401,18 @@ const meansHits = text => MEANS_WORDS.filter(w => String(text ?? '').toLowerCase
 const touchedDeps = deps.filter(d => d.imported_by_touched === true)
 
 const restate = { rounds: 0, identifierHits: 0, meansHits: 0, leakSentBack: 0, leakAgents: 0 }
-// problems of one restated line (machine), by line number
-function restateProblems(r) {
+// problems of one restated line (machine), by line number. kept: n -> the entry accepted in an earlier round, which
+// stands for that line (a new entry for it is ignored) and is checked again only against the other lines
+function restateProblems(r, kept = new Map()) {
   const general = [], byN = new Map()
   const add = (n, msg) => { if (!byN.has(n)) byN.set(n, []); byN.get(n).push(msg) }
   const got = Array.isArray(r?.classes) ? r.classes : null
-  if (!got) return { general: ['the answer has no classes'], byN, rows: new Map() }
+  if (!got) return { general: ['the answer has no classes'], byN, rows: new Map(kept) }
   const rows = new Map()
   got.forEach((c, i) => {
     const n = c?.n
     if (!Number.isInteger(n) || n < 1 || n > lines.length) { general.push(`classes[${i}]: n must be a request line number, 1 to ${lines.length}`); return }
+    if (kept.has(n)) return
     if (rows.has(n)) { add(n, `line ${n}: a second entry for the same line`); return }
     rows.set(n, c)
     const head = `line ${n}`
@@ -433,26 +435,38 @@ function restateProblems(r) {
       add(n, `${head}: no dependency imported by the changed files is picked, and depsWhy does not say why`)
     }
   })
+  for (const [n, c] of kept) rows.set(n, c)
   for (const l of lines) if (!rows.has(l.n)) add(l.n, `line ${l.n}: no entry (give one entry for every request line)`)
   for (const [n, c] of rows) {
     const o = Number.isInteger(c.arisesFrom) && c.arisesFrom > 0 && c.arisesFrom !== n ? rows.get(c.arisesFrom) : null
     if (o === undefined) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, which has no entry`)
-    else if (o && blank(o.proposed)) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, which proposes no means (name the line whose means gives rise to this problem, or set 0)`)
+    else if (o && blank(o.proposed)) {
+      add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, which proposes no means (name the line whose means gives rise to this problem, or set 0)`)
+      // either line may be wrong, and a kept line must be open to change too
+      add(c.arisesFrom, `line ${c.arisesFrom}: line ${n} names it as the line whose means gives rise to its problem, but it proposes no means (copy its means to proposed if the request proposed one)`)
+    }
     else if (o && o.arisesFrom === n) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, whose arisesFrom names line ${n} back (one of the two must be 0)`)
   }
   return { general, byN, rows }
 }
 
 phase('Restate')
-const restateReasons = []
+const restateReasons = []   // { n (null for the whole answer), text }
 let restated = new Map()   // n -> accepted restated line
 const restateMissing = new Map()   // n -> why
+// a line that the machine and the second reader passed is kept as it was in the later rounds (3.3 step 3). The
+// restater rewrites every line in each round, and a rewrite of a passed line was sent back in the last round: #2637 run 1
+// lines 3 and 6 and run 3 lines 4 and 7, #2555 run 3 line 9 (attention/docs/measures/2637-world-result.md)
+const kept = new Map()
 for (let round = 1; round <= LIMITS.tries; round++) {
   restate.rounds = round
-  const r = await run('Restate', `Restate ${round}`, RESTATE_PROMPT(restateReasons), { schema: RESTATE, phase: 'Restate', ...M('Restate') })
-  const { general, byN, rows } = r ? restateProblems(r) : { general: ['the restater returned nothing'], byN: new Map(), rows: new Map() }
-  // the second reader looks only at lines the machine passed
-  const passed = lines.map(l => l.n).filter(n => rows.has(n) && !byN.has(n))
+  const reasonsNow = restateReasons.filter(x => !kept.has(x.n)).map(x => x.text)
+  const r = await run('Restate', `Restate ${round}`, RESTATE_PROMPT(reasonsNow, [...kept.keys()].sort((a, b) => a - b)), { schema: RESTATE, phase: 'Restate', ...M('Restate') })
+  const { general, byN, rows } = r ? restateProblems(r, kept) : { general: ['the restater returned nothing'], byN: new Map(), rows: new Map(kept) }
+  // a kept line that another line's new entry breaks (arisesFrom) is no longer kept and is sent back
+  for (const n of [...kept.keys()]) if (byN.has(n)) kept.delete(n)
+  // the second reader looks only at lines the machine passed and that are not kept
+  const passed = lines.map(l => l.n).filter(n => rows.has(n) && !byN.has(n) && !kept.has(n))
   if (passed.length) {
     restate.leakAgents++
     const items = passed.map(n => {
@@ -476,6 +490,7 @@ for (let round = 1; round <= LIMITS.tries; round++) {
       byN.get(n).push(`line ${n}: the second reader did not answer for this line`)
     }
   }
+  for (const n of passed) if (!byN.has(n)) kept.set(n, rows.get(n))
   const bad = lines.map(l => l.n).filter(n => byN.has(n) || !rows.has(n))
   if (!general.length && !bad.length) { restated = new Map(lines.map(l => [l.n, rows.get(l.n)])); break }
   if (round === LIMITS.tries) {
@@ -485,7 +500,8 @@ for (let round = 1; round <= LIMITS.tries; round++) {
     }
     break
   }
-  restateReasons.push(...general.map(g => `round ${round}: ${g}`), ...bad.flatMap(n => (byN.get(n) ?? [`line ${n}: no entry`]).map(m => `round ${round}: ${m}`)))
+  restateReasons.push(...general.map(g => ({ n: null, text: `round ${round}: ${g}` })),
+    ...bad.flatMap(n => (byN.get(n) ?? [`line ${n}: no entry`]).map(m => ({ n, text: `round ${round}: ${m}` }))))
 }
 
 // ---- 3.3 step 4: classes, in the order they appear, no cap ----
