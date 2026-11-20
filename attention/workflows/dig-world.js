@@ -66,7 +66,7 @@ const str = v => (typeof v === 'string' ? v.trim() : '')
 const canon = v => Array.isArray(v) ? `[${v.map(canon).join(',')}]`
   : (v && typeof v === 'object') ? `{${Object.keys(v).sort().map(k => `${canon(k)}:${canon(v[k])}`).join(',')}}`
   : JSON.stringify(v ?? null).replace(/[\u0080-\uffff]/g, ch => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`)
-const SUM_KEYS = ['lines', 'purpose', 'means', 'deps', 'deps_note', 'lang']
+const SUM_KEYS = ['lines', 'purpose', 'means', 'deps', 'deps_note', 'lang', 'own_names']
 const sumOf = a => fnv(canon(Object.fromEntries(SUM_KEYS.map(k => [k, a[k] ?? null]))))
 
 // identifiers of the request lines (a port of works-factory's excerpts.banned_tokens and text_problems; the dry test
@@ -109,10 +109,14 @@ const lines = Array.isArray(A.lines) ? A.lines : []
 const deps = Array.isArray(A.deps) ? A.deps : []
 const means = (Array.isArray(A.means) ? A.means : []).filter(m => typeof m === 'string' && m.trim())
 const LANG = str(A.lang) || 'English'
+// identifiers of the request lines that the PR's diff or the repository defines (steps-prep.py's own_names). Only these
+// count as the target's names: a product or standard named in a request line (PostgreSQL) is not one (3.2, 3.7)
+const ownNames = Array.isArray(A.own_names) ? A.own_names : null
 const missingArgs = [
   ...(lines.length ? [] : ['lines']),
   ...(lines.every((l, i) => l && l.n === i + 1 && typeof l.text === 'string' && typeof l.where === 'string') ? [] : ['lines[].n is 1..N in order, with text and where']),
   ...(deps.every(d => d && typeof d.name === 'string' && d.name) ? [] : ['deps[].name']),
+  ...(ownNames && ownNames.every(t => typeof t === 'string') ? [] : ['own_names (strings)']),
   ...(A.excerptCheck?.runPython && A.excerptCheck?.script ? [] : ['excerptCheck.runPython and excerptCheck.script']),
 ]
 if (missingArgs.length) return { stopped: 'args', missing: missingArgs }
@@ -146,7 +150,7 @@ const I = { type: 'integer' }
 const arr = items => ({ type: 'array', items })
 const obj = props => ({ type: 'object', properties: props, required: Object.keys(props) })
 const oneOf = values => ({ type: 'string', enum: values })
-const RESTATE = obj({ classes: arr(obj({ n: I, problem: S, activity: S, proposed: S, queries: arr(S), deps: arr(S), depsWhy: S })) })
+const RESTATE = obj({ classes: arr(obj({ n: I, problem: S, activity: S, proposed: S, arisesFrom: I, queries: arr(S), deps: arr(S), depsWhy: S })) })
 const LEAK = obj({ items: arr(obj({ n: I, presupposes: B, why: S })) })
 const SEARCH = obj({
   excerpts: arr(obj({ id: S, url: S, excerpt: S })),
@@ -205,7 +209,8 @@ One core rule: **do not ask about the parts of the mechanism the request names, 
 - Do not accept a means embedded in the request. Copy it to \`proposed\`, and keep it out of the problem class and the queries. Whether the means is good is decided later against the practice that is found. Write \`proposed\` in words of the means.
 - Do not phrase the problem class so that it presupposes the means. Name the need, not the mechanism that answers it. Example: not "a mechanism that pauses processing and resumes it", but "a problem where the processing needs a person's answer partway through". A second reader checks your problem classes for this and sends them back.
 - Which component does a part of the work (who raises a question, who starts a step, who holds the state, who waits) is part of the means too, even when the request states it as a given. Copy that split of roles to \`proposed\` and leave it open in the problem class and the queries, so that the practice found can be compared with it at the architecture layer. Example: not "when the build server has to tell the reviewer that a build broke", but "a problem where a reviewer has to learn that a build broke". A part given from outside the problem, which the request could not choose (a condition of the platform such as "a browser cannot keep a secret", or an existing interface the caller has no say over), is a condition of the problem, not a means: keep it in the problem class.
-- Do not write the target's names (paths, files, functions, fields, environment variables, component names, run ids) in \`problem\`, \`activity\`, or \`queries\`. The machine checks them against identifiers taken from the request lines and rejects the answer, naming the identifier it found. The same check rejects the words of the means listed below (names with a hyphen, an underscore, a digit, a dot or an inner capital, and runs of four or more kanji or katakana).
+- A line may solve a problem that exists only because of a means the request chose in another line (shape of an example: a line that cleans up orphaned files exists only because another line chose to store an upload before its record is saved). Do not drop such a line, and do not treat the other line's means as a condition given from outside. Set \`arisesFrom\` to the number of the line whose means gives rise to this problem, and restate the problem class with that means stated as the premise it rests on ("when uploads are stored before their record is saved, how to ..."), still without this line's own means. The line you name must have a means of its own in \`proposed\`. For every other line, set \`arisesFrom\` to 0.
+- Do not write the target's names (paths, files, functions, fields, environment variables, component names, run ids) in \`problem\`, \`activity\`, or \`queries\`. The machine checks them against the identifiers in the request lines that the target defines and rejects the answer, naming the identifier it found. Names of third-party products and standards (a database, a protocol, a framework) are not the target's names. The same check rejects the words of the means listed below (names with a hyphen, an underscore, a digit, a dot or an inner capital, and runs of four or more kanji or katakana).
 - Write queries in the general wording of the work, asking about practice, convention, and standards. Do not ask about the request's component names or a tool's output format.
 - If one line spans two kinds of work, restate it as the one kind above both.
 - In \`deps\`, name the dependencies, from the list below only and exactly as written there, whose own documentation would say how this class of problem is solved with them. A name not on the list is rejected. If the list marks some dependencies "imported by the changed files" and you pick none of them for a line, say why in one sentence in \`depsWhy\`; otherwise leave \`depsWhy\` empty.
@@ -234,6 +239,7 @@ ${str(A.deps_note) ? `\nNote from the machine that listed them: ${str(A.deps_not
 - \`problem\`: one sentence that restates the line as a problem class in the words of the work practitioners do.
 - \`activity\`: a short name for the kind of work.
 - \`proposed\`: the means the request proposed for this line, copied from the means above and from the line. Empty if it proposed none.
+- \`arisesFrom\`: as above; 0 unless the problem exists only because of another line's means.
 - \`queries\`: 1 to ${LIMITS.maxQueries} search queries per line that ask how practitioners solve this class (practice, convention, standards). Write them in English.
 - \`deps\` and \`depsWhy\`: as above.
 - Write \`problem\`, \`activity\`, \`proposed\`, and \`depsWhy\` in ${LANG}. Keep keys, enum values, identifiers, paths, commands, and error messages as they are.
@@ -243,7 +249,7 @@ Return only JSON that matches the output schema.`
 // ---- 3.3 step 3: the second reader of the restated classes ----
 const LEAK_PROMPT = items => `You check restated problem classes. Each item below has a problem class (problem, activity, queries) and, apart from it, the means a change request chose (proposed). A problem class must name the need without presupposing that means: a reader who sees only the problem class must not be led to the request's mechanism.
 
-For each item, set \`presupposes\` true when the problem, the activity or a query assumes the means: it names the mechanism, its steps or its shape, even in plain words that are not identifiers. Example: "how to pause processing and resume it from where it stopped" presupposes pause-and-resume; "processing that needs a person's answer partway through" does not. A problem class that names which component does a part of the work (who raises a question, who starts a step, who holds the state) also presupposes the means when the request chose that component, even if the request states it as a given: "when the build server has to tell the reviewer that a build broke" fixes who tells; "a reviewer has to learn that a build broke" does not. Two things do not presuppose the means. First, a part given from outside the problem, which the request could not choose (a condition of the platform such as "a browser cannot keep a secret", or an existing interface the caller has no say over), may stay in the problem class. Second, the name of an established practice that names the kind of problem or change ("zero-downtime deployment", "backward-compatible API change", "cache invalidation") is not a means; the name of a mechanism that answers it ("blue-green deployment", "two-phase commit", "pause and resume") is. When you set \`presupposes\` true, say why in one sentence in \`why\`, quoting the words that carry the means. Otherwise set it false and leave \`why\` empty. Write \`why\` in ${LANG}.
+For each item, set \`presupposes\` true when the problem, the activity or a query assumes the means: it names the mechanism, its steps or its shape, even in plain words that are not identifiers. Example: "how to pause processing and resume it from where it stopped" presupposes pause-and-resume; "processing that needs a person's answer partway through" does not. A problem class that names which component does a part of the work (who raises a question, who starts a step, who holds the state) also presupposes the means when the request chose that component, even if the request states it as a given: "when the build server has to tell the reviewer that a build broke" fixes who tells; "a reviewer has to learn that a build broke" does not. Two things do not presuppose the means. First, a part given from outside the problem, which the request could not choose (a condition of the platform such as "a browser cannot keep a secret", or an existing interface the caller has no say over), may stay in the problem class. Second, the name of an established practice that names the kind of problem or change ("zero-downtime deployment", "backward-compatible API change", "cache invalidation") is not a means; the name of a mechanism that answers it ("blue-green deployment", "two-phase commit", "pause and resume") is. Third, an item marked "arises from the means of line N" is a problem that exists only because of the means the request chose in line N: that means is the premise the problem rests on and may stay in the problem class. Only the item's own means (proposed) must not be presupposed. When you set \`presupposes\` true, say why in one sentence in \`why\`, quoting the words that carry the means. Otherwise set it false and leave \`why\` empty. Write \`why\` in ${LANG}.
 You have no tools. Do not call any tool.
 
 ${items.map(c => `## Item ${c.n}
@@ -251,7 +257,8 @@ ${items.map(c => `## Item ${c.n}
 - Problem: ${c.problem}
 - Activity: ${c.activity}
 ${c.queries.map(q => `- Query: ${q}`).join('\n')}
-- Means the request chose (proposed): ${c.proposed || '(none)'}`).join('\n\n')}
+- Means the request chose (proposed): ${c.proposed || '(none)'}${c.origin ? `
+- Arises from the means of line ${c.origin.n} (the premise; it may stay): ${c.origin.proposed}` : ''}`).join('\n\n')}
 
 Return one entry in \`items\` for every item above (\`n\` is the item number). Return only JSON that matches the output schema.`
 
@@ -331,6 +338,9 @@ Do not use any tool. Think only from what is given here.` : ''}`
 // ---- 3.3 step 8: the comparer (rewrites the judging half of parts/world-judge.md) ----
 const rowLine = r => `${r.id} [${r.against.kind}${r.against.name ? ` ${r.against.name}` : ''}${r.against.version ? ` ${r.against.version}` : ''} · ${r.layer} · ${r.found ? r.basis : 'nothing found'}]
    practice: ${r.practice || '(none)'}${r.applies ? `\n   applies: ${r.applies}` : ''}${r.not_applies ? `\n   not_applies: ${r.not_applies}${r.not_applies_unchecked ? ' (its excerpts could not be confirmed)' : ''}` : ''}`
+const memberLine = m => m.level === 'origin'
+  ? `- line ${m.n} (${m.where}), judged at the level of line ${m.arisesFrom}: its problem, which arises from the means of line ${m.arisesFrom}: ${m.problem}\n   its means: ${m.proposed || '(none proposed)'}`
+  : `- line ${m.n} (${m.where}): ${m.proposed || '(none proposed)'}${m.arisesFrom ? ` (this problem arises from the means of line ${m.arisesFrom})` : ''}`
 const COMPARE_PROMPT = (c, rows, reasons) => `${rejectedBlock(reasons)}You compare. Below are a problem class, the means a change request chose for it (one or more request lines), and rows that each say how one counterpart solves this class at one layer: a dependency of the target, a product of the same kind, a standard, or a general structure drawn by someone who did not see the request.
 You have no tools. Do not call any tool. This prompt is everything you are given.
 
@@ -340,6 +350,8 @@ For every pair of a row and a request line, decide whether the request's means i
 - \`none\`: the request line proposes no means, or the row found nothing (marked "nothing found").
 Do not decide whether differing is acceptable; a later step asks that. There is no fourth value.
 
+A request line marked "judged at the level of line N" has a problem that exists only because of the means the request chose in line N, and this class is line N's problem. For such a line, decide whether the counterpart, with its practice for this class, has that problem at all. If its practice does not give rise to the problem, the verdict is \`differs\`, with \`challenge\` in the form "The request has to do X because of the means of line N; <the counterpart> does Y, where the problem does not arise. Choose Y unless …". If the counterpart has the same problem, compare the line's means with how the counterpart handles it, as for any other line.
+
 ${LAYER_RULES}
 
 ## Problem class
@@ -348,7 +360,7 @@ ${c.problem}
 
 ## Request lines and the means each chose
 
-${c.members.map(m => `- line ${m.n} (${m.where}): ${m.proposed || '(none proposed)'}`).join('\n')}
+${c.members.map(memberLine).join('\n')}
 
 ## Rows
 
@@ -367,7 +379,8 @@ const depNames = new Map(deps.map(d => [d.name.toLowerCase(), d]))
 // third-party names and versions are not the target's names (query-rule.md), so they are not counted as identifiers
 // (an npm name such as @scope/pkg is split by the identifier rule into scope/pkg, scope and pkg, so its tokens count too)
 const thirdParty = new Set(deps.flatMap(d => [d.name, d.version, ...tokensOf(d.name)].filter(Boolean).map(x => String(x).toLowerCase())))
-const BANNED = new Set([...bannedTokens(lines)].filter(t => !thirdParty.has(t.toLowerCase())))
+const OWN = new Set(ownNames ?? [])
+const BANNED = new Set([...bannedTokens(lines)].filter(t => OWN.has(t) && !thirdParty.has(t.toLowerCase())))
 const MEANS_WORDS = meansWords(means)
 const meansHits = text => MEANS_WORDS.filter(w => String(text ?? '').toLowerCase().includes(w.toLowerCase()))
 const touchedDeps = deps.filter(d => d.imported_by_touched === true)
@@ -395,6 +408,9 @@ function restateProblems(r) {
       const mw = meansHits(text)
       if (mw.length) { restate.meansHits += mw.length; add(n, `${head}: ${key} has words of the means ${JSON.stringify(mw)}`) }
     }
+    if (!Number.isInteger(c.arisesFrom) || c.arisesFrom < 0 || c.arisesFrom > lines.length || c.arisesFrom === n) {
+      add(n, `${head}: arisesFrom must be 0 or the number of another request line, 1 to ${lines.length}`)
+    }
     const picked = Array.isArray(c.deps) ? c.deps : []
     const stray = picked.filter(d => !depNames.has(String(d).toLowerCase()))
     if (stray.length) add(n, `${head}: deps ${JSON.stringify(stray)} are not in the dependency list`)
@@ -403,6 +419,11 @@ function restateProblems(r) {
     }
   })
   for (const l of lines) if (!rows.has(l.n)) add(l.n, `line ${l.n}: no entry (give one entry for every request line)`)
+  for (const [n, c] of rows) {
+    const o = Number.isInteger(c.arisesFrom) && c.arisesFrom > 0 && c.arisesFrom !== n ? rows.get(c.arisesFrom) : null
+    if (o === undefined) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, which has no entry`)
+    else if (o && blank(o.proposed)) add(n, `line ${n}: arisesFrom names line ${c.arisesFrom}, which proposes no means (name the line whose means gives rise to this problem, or set 0)`)
+  }
   return { general, byN, rows }
 }
 
@@ -418,7 +439,10 @@ for (let round = 1; round <= LIMITS.tries; round++) {
   const passed = lines.map(l => l.n).filter(n => rows.has(n) && !byN.has(n))
   if (passed.length) {
     restate.leakAgents++
-    const items = passed.map(n => ({ n, ...rows.get(n), queries: rows.get(n).queries.map(str) }))
+    const items = passed.map(n => {
+      const c = rows.get(n), o = c.arisesFrom > 0 ? rows.get(c.arisesFrom) : null
+      return { n, ...c, queries: c.queries.map(str), origin: o ? { n: c.arisesFrom, proposed: str(o.proposed) } : null }
+    })
     const leak = await run('Leak', `Leak ${round}`, LEAK_PROMPT(items), { schema: LEAK, phase: 'Restate', ...M('Leak') })
     const seen = new Set()
     for (const it of Array.isArray(leak?.items) ? leak.items : []) {
@@ -451,6 +475,7 @@ for (let round = 1; round <= LIMITS.tries; round++) {
 // ---- 3.3 step 4: classes, in the order they appear, no cap ----
 const normProblem = s => String(s).toLowerCase().replace(/\s+/g, ' ').trim()
 const classMap = new Map()
+const classOf = new Map()   // n -> class id of the line's own class
 for (const l of lines) {
   const c = restated.get(l.n)
   if (!c) continue
@@ -464,7 +489,17 @@ for (const l of lines) {
     const dep = depNames.get(String(d).toLowerCase())
     if (dep && !k.deps.includes(dep)) k.deps.push(dep)
   }
-  k.members.push({ n: l.n, where: l.where, proposed: str(c.proposed), depsWhy: str(c.depsWhy) })
+  k.members.push({ n: l.n, where: l.where, proposed: str(c.proposed), depsWhy: str(c.depsWhy), level: 'line', arisesFrom: c.arisesFrom > 0 ? c.arisesFrom : 0 })
+  classOf.set(l.n, id)
+}
+// a line whose problem arises from another line's means is also compared in that line's class, at its level (3.3 step 4)
+const originNotes = []
+for (const l of lines) {
+  const c = restated.get(l.n), m = c?.arisesFrom > 0 ? c.arisesFrom : 0
+  if (!m) continue
+  if (!classOf.has(m)) { originNotes.push(`line ${l.n}: arises from line ${m}, which has no class, so it is not compared at that level`); continue }
+  if (classOf.get(m) === classOf.get(l.n)) continue   // the same class: already compared there
+  classMap.get(classOf.get(m)).members.push({ n: l.n, where: l.where, proposed: str(c.proposed), depsWhy: '', level: 'origin', arisesFrom: m, problem: str(c.problem) })
 }
 const classes = [...classMap.values()]
 counts.classes = classes.length
@@ -662,24 +697,42 @@ const done = await pipeline(classes, c => classRows(c), prev => compareClass(pre
 // ---- 3.3 step 9: finish (3.8) ----
 const outRows = [], missing = []
 for (const [n, why] of restateMissing) missing.push({ n, why })
+const atOrigin = new Map()   // n -> comparisons made in the class of the line it arises from
+const ownFailed = new Map()   // n -> why its own class gave up
+const cmpOf = (d, w, m, c) => {
+  const p = d.pairs[`${w.id}/${m.n}`]
+  return { level: m.level, class_id: c.id, against: w.against, layer: w.layer, practice: w.practice, sources: w.sources, basis: w.basis,
+    applies: w.applies, not_applies: w.not_applies, not_applies_unchecked: w.not_applies_unchecked,
+    found: w.found, searched: w.searched,
+    verdict: p.verdict, challenge: p.verdict === 'differs' ? str(p.challenge) : '', why: str(p.why) }
+}
 done.forEach((d, i) => {
   const c = classes[i]
-  if (!d) { for (const m of c.members) missing.push({ n: m.n, why: 'the class stage failed' }); return }
-  if (d.missing) { for (const m of c.members) missing.push({ n: m.n, why: d.missing }); return }
+  const why = !d ? 'the class stage failed' : d.missing
   for (const m of c.members) {
+    if (m.level === 'origin') {
+      if (why) originNotes.push(`line ${m.n}: not compared at the level of line ${m.arisesFrom} (${why})`)
+      else atOrigin.set(m.n, d.rows.map(w => cmpOf(d, w, m, c)))
+      continue
+    }
+    if (why) { ownFailed.set(m.n, why); continue }
     outRows.push({
       n: m.n, where: m.where, class_id: c.id, problem: c.problem, activity: c.activity, queries: c.queries,
-      deps: c.deps.map(x => x.name), depsWhy: m.depsWhy, proposed: m.proposed,
-      comparisons: d.rows.map(w => {
-        const p = d.pairs[`${w.id}/${m.n}`]
-        return { against: w.against, layer: w.layer, practice: w.practice, sources: w.sources, basis: w.basis,
-          applies: w.applies, not_applies: w.not_applies, not_applies_unchecked: w.not_applies_unchecked,
-          found: w.found, searched: w.searched,
-          verdict: p.verdict, challenge: p.verdict === 'differs' ? str(p.challenge) : '', why: str(p.why) }
-      }),
+      deps: c.deps.map(x => x.name), depsWhy: m.depsWhy, proposed: m.proposed, arises_from: m.arisesFrom || null,
+      comparisons: d.rows.map(w => cmpOf(d, w, m, c)),
     })
   }
 })
+// a line whose own class gave up still returns, with only the comparisons at the level of the line it arises from
+for (const [n, why] of ownFailed) {
+  const at = atOrigin.get(n)
+  if (!at) { missing.push({ n, why }); continue }
+  const c = classes.find(k => k.id === classOf.get(n)), m = c.members.find(x => x.n === n && x.level === 'line')
+  originNotes.push(`line ${n}: its own class gave up (${why}); only the comparisons at the level of line ${m.arisesFrom} are returned`)
+  outRows.push({ n, where: m.where, class_id: c.id, problem: c.problem, activity: c.activity, queries: c.queries,
+    deps: c.deps.map(x => x.name), depsWhy: m.depsWhy, proposed: m.proposed, arises_from: m.arisesFrom, comparisons: [] })
+}
+for (const r of outRows) if (atOrigin.has(r.n)) r.comparisons.push(...atOrigin.get(r.n))
 outRows.sort((a, b) => a.n - b.n)
 missing.sort((a, b) => a.n - b.n)
 if (missing.length) log(`${missing.length} of ${lines.length} request lines have no rows: ${missing.map(m => m.n).join(', ')}`)
@@ -688,6 +741,7 @@ const reason = [
   ...(status === 'failed' ? ['no request line got rows'] : []),
   ...(missing.length ? [`${missing.length} request lines given up (see missing)`] : []),
   ...searchNotes,
+  ...originNotes,
 ].join(' / ')
 return {
   ok: status === 'ok', status, reason, pr: A.pr ?? null, head: A.head ?? null,

@@ -23,6 +23,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "steps", "world", "copied"))
+import excerpts  # noqa: E402 — 依頼の行の識別子の取り出し（工場の excerpts.banned_tokens の字のままの写し）
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
@@ -32,7 +35,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 # dig-world.js の CALLERS と、sum を掛けるキー（SUM_KEYS）と同じ値
 CALLERS = ["attention:check-world"]
-SUM_KEYS = ["lines", "purpose", "means", "deps", "deps_note", "lang"]
+SUM_KEYS = ["lines", "purpose", "means", "deps", "deps_note", "lang", "own_names"]
 CODE_EXT = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
 
 
@@ -282,6 +285,52 @@ def collect_deps(head, touched):
     return out, note
 
 
+# ---- PR の中の名前（設計の 3.2・3.7）----
+# 依頼の行の識別子（excerpts.banned_tokens）のうち、PR の差分かリポジトリの中で定義された物だけを、PR の中の名前に数える。
+# 依頼の行に書かれた世の中の製品・標準の名前（PostgreSQL・pg_stat_activity など）は、依存の一覧に無くても数えない
+# （#2637 の 1 回目で、探す役の行 2・行 12 が PostgreSQL で 3 周差し戻されて落ちた。attention/docs/measures/2637-world-result.md）。
+# 定義の形は、ファイルのパス（とその後ろの部分）・コードの定義の文（def・class・const など）・行の頭のキーか代入・SQL の CREATE。
+# 文書（.md・.adoc・.rst・.txt）の中の言及は定義に数えない。
+DOC_EXCLUDE = [":(exclude)*.md", ":(exclude)*.adoc", ":(exclude)*.rst", ":(exclude)*.txt"]
+
+
+def defined_patterns(token):
+    e = re.escape(token)
+    end = r"(?![\w$])"
+    return [
+        re.compile(r"\b(def|class|function|func|fn|const|let|var|type|interface|enum|struct)\s+" + e + end),
+        re.compile(r"^\s*(export\s+)?[\"']?" + e + r"[\"']?\s*(:|=(?!=))"),
+        re.compile(r"(?i:\bcreate\s+(or\s+replace\s+)?(table|view|function|index|type|schema)\s+(if\s+not\s+exists\s+)?)"
+                   + e + end),
+    ]
+
+
+def own_names(lines, base, head):
+    """依頼の行の識別子のうち、PR の差分（base と head）かリポジトリの中で定義された物（並べた一覧）"""
+    tokens = sorted(excerpts.banned_tokens(lines))
+    paths = set()
+    for rev in (base, head):
+        for f in must_git("-c", "core.quotepath=off", "ls-tree", "-r", "--name-only", rev).splitlines():
+            parts = [x for x in f.split("/") if x]
+            paths |= {"/".join(parts[i:]) for i in range(len(parts))} | set(parts)
+    top = posixpath.basename(must_git("rev-parse", "--show-toplevel").strip().replace("\\", "/"))
+    rc, url = git("remote", "get-url", "origin")
+    repo = {top.lower()} | ({x.lower() for x in re.split(r"[/:]", re.sub(r"\.git$", "", url.strip()))[-2:] if x}
+                            if rc == 0 else set())
+    out = []
+    for t in tokens:
+        if t in paths or t.lower() in repo:
+            out.append(t)
+            continue
+        pats = defined_patterns(t)
+        for rev in (head, base):
+            rc, found = git("grep", "-I", "-h", "-F", "-w", "-e", t, rev, "--", ".", *DOC_EXCLUDE)
+            if rc == 0 and any(p.search(ln) for ln in found.splitlines() for p in pats):
+                out.append(t)
+                break
+    return out
+
+
 # ---- 世界の解の DW の args（設計の 3.2・8.1）----
 
 def lines_from_record(rec):
@@ -316,12 +365,14 @@ def next_world(pr, record, lang, caller):
     purpose = rec.get("purpose") or {}
     touched = [p for p in must_git("-c", "core.quotepath=off", "diff", "--name-only", base, head).splitlines() if p]
     deps, note = collect_deps(head, touched)
+    lines = lines_from_record(rec)
     args = {
         "caller": caller, "pr": int(pr), "head": head,
-        "lines": lines_from_record(rec),
+        "lines": lines,
         "purpose": str(purpose.get("purpose") or ""),
         "means": [m for m in (purpose.get("means") or []) if isinstance(m, str)],
         "deps": deps, "deps_note": note, "lang": lang,
+        "own_names": own_names(lines, base, head),
         "excerptCheck": {"runPython": os.path.join(HERE, "run-python.sh"),
                          "script": os.path.join(ROOT, "steps", "world", "world-excerpts.py")},
     }
@@ -330,13 +381,14 @@ def next_world(pr, record, lang, caller):
     write_json(path, args)
     return {"ok": True, "argsFile": path, "lines": len(args["lines"]), "means": len(args["means"]),
             "deps": len(deps), "depsImported": sum(1 for d in deps if d["imported_by_touched"]),
+            "ownNames": len(args["own_names"]),
             "depsNote": note, "touched": len(touched)}
 
 
 # ---- 返りの形の照合（設計の 2.2・3.8）----
 ROW_KEYS = {"n": int, "where": str, "class_id": str, "problem": str, "proposed": str, "comparisons": list}
 CMP_KEYS = {"against": dict, "layer": str, "practice": str, "sources": list, "basis": str, "applies": str,
-            "not_applies": str, "verdict": str, "challenge": str}
+            "not_applies": str, "verdict": str, "challenge": str, "level": str}
 
 
 def shape_problems(val):
@@ -354,12 +406,17 @@ def shape_problems(val):
         for k, t in ROW_KEYS.items():
             if not isinstance((r or {}).get(k), t):
                 out.append("rows[%d].%s が無いか形が違います" % (i, k))
+        af = (r or {}).get("arises_from")
+        if af is not None and not (isinstance(af, int) and not isinstance(af, bool) and af > 0):
+            out.append("rows[%d].arises_from は null か依頼の行の番号" % i)
         for j, c in enumerate((r or {}).get("comparisons") or []):
             for k, t in CMP_KEYS.items():
                 if not isinstance((c or {}).get(k), t):
                     out.append("rows[%d].comparisons[%d].%s が無いか形が違います" % (i, j, k))
             if (c or {}).get("verdict") not in ("same", "differs", "none"):
                 out.append("rows[%d].comparisons[%d].verdict は same・differs・none のどれか" % (i, j))
+            if (c or {}).get("level") not in ("line", "origin"):
+                out.append("rows[%d].comparisons[%d].level は line・origin のどれか" % (i, j))
             if (c or {}).get("basis") not in ("web", "knowledge"):
                 out.append("rows[%d].comparisons[%d].basis は web・knowledge のどれか" % (i, j))
     for i, m in enumerate(val.get("missing") or []):

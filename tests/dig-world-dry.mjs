@@ -1,5 +1,5 @@
 // attention/workflows/dig-world.js（世界の解の DW）を、agent() などを偽物に替えて node で空回しする（設計 attention/docs/small-workflows-design.md の 3）。
-// 使い方: node tests/dig-world-dry.mjs <case>   case は stops・flow・restate・search・compare・texts・banned・excerpts・prep・copies・score。通れば <CASE>_OK を出す。
+// 使い方: node tests/dig-world-dry.mjs <case>   case は stops・flow・restate・arises・search・compare・texts・banned・excerpts・prep・copies・score。通れば <CASE>_OK を出す。
 // Python を使うケース（banned・excerpts・prep・copies・score と flow の sum）は、環境変数 PY_BIN の Python（無ければ python3）で打つ。
 import fs from 'node:fs'
 import path from 'node:path'
@@ -93,14 +93,16 @@ const DEPS = [
   { name: '@assistant-ui/react', version: '0.15.32', ecosystem: 'npm', imported_by_touched: false },
 ]
 const XC = { runPython: '/p/run-python.sh', script: '/p/world-excerpts.py' }
+// 依頼の行の識別子のうち、対象が定義した物（steps-prep.py の own_names）。@assistant-ui/react の段は依存の名なので入れない
+const OWN = ['InputRequiredResult', 'mcp_tool_wrapper.py', 'resume_token']
 const baseArgs = (extra = {}) => {
   const a = { caller: 'attention:check-world', pr: 7, head: 'h'.repeat(40), lines: LINES, purpose: '人の答えを待つ処理を作る',
-    means: MEANS, deps: DEPS, deps_note: '', lang: 'Japanese', excerptCheck: XC, ...extra }
+    means: MEANS, deps: DEPS, deps_note: '', lang: 'Japanese', own_names: OWN, excerptCheck: XC, ...extra }
   if (!('sum' in extra)) a.sum = sumOf(a)
   return a
 }
 const PROBLEM = '処理の途中で人の答えが要る対話の仕事で、誰が問いを出すかを決める問題'
-const goodClass = (n, extra = {}) => ({ n, problem: PROBLEM, activity: '対話の仕事の設計', proposed: `手段 ${n}`,
+const goodClass = (n, extra = {}) => ({ n, problem: PROBLEM, activity: '対話の仕事の設計', proposed: `手段 ${n}`, arisesFrom: 0,
   queries: ['how do agent frameworks ask a human for input during a run'], deps: ['langgraph', '@assistant-ui/react'], depsWhy: '', ...extra })
 const goodSearch = () => ({
   excerpts: [
@@ -153,6 +155,7 @@ const cases = {
       ['sum が違う', baseArgs({ sum: '00000000' }), 'sum'],
       ['値を変えた（sum は前の値）', { ...baseArgs(), purpose: '別の目的' }, 'sum'],
       ['excerptCheck が無い', baseArgs({ excerptCheck: undefined }), 'args'],
+      ['own_names が無い', baseArgs({ own_names: undefined }), 'args'],
       ['行の番号が順でない', baseArgs({ lines: [{ ...LINES[0], n: 2 }] }), 'args'],
       ['漏れの照合が言い直しと同じモデル', baseArgs({ models: { Leak: { model: 'opus' } } }), 'leak model equals restate model'],
     ]) {
@@ -253,6 +256,20 @@ const cases = {
       ? { classes: LINES.map(l => goodClass(l.n, { queries: ['how does langgraph 1.2.20 or assistant-ui/react pause for human input'] })) }
       : happy()(call))
     check(tp.out.status === 'ok', `第三者の名を識別子として差し戻した: ${tp.out.reason} ${JSON.stringify(tp.out.missing)}`)
+    // 依頼の行に書かれた世の中の製品・標準の名前（対象が定義していない物。own_names に無い）は、依存の一覧に無くても数えない（#2637 の 1 回目の行 2・行 12）
+    const wl = [LINES[0], { ...LINES[1], text: `${LINES[1].text} PostgreSQL waits on a lock, seen in pg_stat_activity.` }]
+    const wn = await run(baseArgs({ lines: wl }), call => {
+      if (call.stage === 'Restate') return { classes: wl.map(l => goodClass(l.n, { queries: ['how does PostgreSQL show that a statement waits on a lock'] })) }
+      if (call.stage === 'Search') { const r = goodSearch(); r.rows[0] = { ...r.rows[0], practice: 'PostgreSQL の pg_stat_activity で待ちを見る' }; return r }
+      return happy()(call)
+    })
+    check(wn.out.status === 'ok' && wn.calls.filter(c => c.stage === 'Restate').length === 1 && wn.calls.filter(c => c.stage === 'Search').length === 1,
+      `対象が定義していない世の中の名前を、対象の名前として差し戻した: ${wn.out.reason} ${JSON.stringify(wn.out.missing)}`)
+    // own_names に在る名前は、前のとおり差し戻す
+    const on = await run(baseArgs({ lines: wl, own_names: [...OWN, 'PostgreSQL'] }), call => call.stage === 'Restate'
+      ? { classes: wl.map(l => goodClass(l.n, { queries: ['how does PostgreSQL show a lock wait'] })) }
+      : happy()(call))
+    check(on.calls.filter(c => c.stage === 'Restate')[1]?.prompt.includes('identifiers of the request lines ["PostgreSQL"]'), 'own_names に在る名前を差し戻さない')
     // 変えたファイルが import する依存を選ばず、訳も無ければ差し戻す
     const deps = [{ ...DEPS[0], imported_by_touched: true }, DEPS[1]]
     let n = 0
@@ -270,6 +287,49 @@ const cases = {
       return happy()(call)
     })
     check(st.calls.filter(c => c.stage === 'Restate')[1]?.prompt.includes('deps ["react-query"] are not in the dependency list'), '一覧に無い依存の名を差し戻さない')
+  },
+
+  async arises() {
+    // 行 2 は、行 1 で PR が選んだ手段の上でしか起きない問題。落とさずに印を付け、行 1 の類の水準でも比べる
+    const P2 = '画面が決めた番号が他人の記録と重なるときに、重なりをどう扱うかの問題'
+    const cls = (extra2 = {}) => ({ classes: [goodClass(1), goodClass(2, { problem: P2, arisesFrom: 1, ...extra2 })] })
+    const { out, calls } = await run(baseArgs(), call => (call.stage === 'Restate' ? cls() : happy()(call)))
+    check(out.status === 'ok' && out.rows.length === 2 && out.counts.classes === 2, `印の付いた行が返らない: ${out.status} ${out.reason}`)
+    const leak = calls.find(c => c.stage === 'Leak').prompt
+    check(leak.includes('- Arises from the means of line 1 (the premise; it may stay): 手段 1') && leak.includes('arises from the means of line N'),
+      '漏れの照合に、元の行の手段を前提として渡していない')
+    const cp = calls.filter(c => c.stage === 'Compare').map(c => c.prompt)
+    const atOrigin = cp.find(p => p.includes(PROBLEM) && p.includes('- line 2 (mechanism 2), judged at the level of line 1'))
+    check(atOrigin && atOrigin.includes(P2) && atOrigin.includes('where the problem does not arise'), '行 1 の類の比べに、行 2 を元の行の水準で渡していない')
+    check(cp.some(p => p.includes('- line 2 (mechanism 2): 手段 2 (this problem arises from the means of line 1)')), '行 2 の類の比べに印が無い')
+    const r1 = out.rows.find(r => r.n === 1), r2 = out.rows.find(r => r.n === 2)
+    check(r1.arises_from === null && r1.comparisons.every(c => c.level === 'line'), `行 1 の印か比べの水準が違う: ${r1.arises_from}`)
+    check(r2.arises_from === 1 && r2.comparisons.filter(c => c.level === 'line').length === 5 && r2.comparisons.filter(c => c.level === 'origin').length === 5
+      && r2.comparisons.filter(c => c.level === 'origin').every(c => c.class_id === r1.class_id), `行 2 に、自分の類と行 1 の類の両方の比べが乗らない: ${JSON.stringify(r2.comparisons.map(c => [c.level, c.class_id]))}`)
+    // 自分の類が諦めても、元の行の水準の比べだけで返し、訳を reason に書く
+    const own = await run(baseArgs(), call => {
+      if (call.stage === 'Restate') return cls()
+      if (call.stage === 'Search' && call.prompt.includes(P2)) return { excerpts: [], rows: [] }
+      return happy()(call)
+    })
+    const o2 = own.out.rows.find(r => r.n === 2)
+    check(own.out.missing.length === 0 && o2?.comparisons.length === 5 && o2.comparisons.every(c => c.level === 'origin') && /its own class gave up/.test(own.out.reason),
+      `自分の類が諦めた行が、元の行の水準の比べで返らない: ${JSON.stringify(own.out.missing)} ${own.out.reason}`)
+    // 自分自身・手段の無い行を元に挙げたら差し戻す
+    for (const [what, ans, want] of [
+      ['自分自身', cls({ arisesFrom: 2 }), 'arisesFrom must be 0 or the number of another request line'],
+      ['手段の無い行', { classes: [goodClass(1, { proposed: '' }), goodClass(2, { problem: P2, arisesFrom: 1 })] }, 'which proposes no means'],
+    ]) {
+      let k = 0
+      const r = await run(baseArgs(), call => (call.stage === 'Restate' ? (++k === 1 ? ans : cls()) : happy()(call)))
+      check(r.calls.filter(c => c.stage === 'Restate')[1]?.prompt.includes(want) && r.out.status === 'ok', `${what}を元に挙げた答えを差し戻さない`)
+    }
+    // 返りは --save の形の照合を通る
+    const shape = JSON.parse(py(`import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("sp", ${JSON.stringify(PREP)})
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf-8")))))`, JSON.stringify(out)))
+    check(shape.length === 0, `印の付いた返りが --save の形の照合に外れる: ${JSON.stringify(shape)}`)
   },
 
   async search() {
@@ -385,8 +445,8 @@ const cases = {
     // 起動の合図は台本と DW で同じ
     const prep = read(PREP)
     check(/CALLERS = \["attention:check-world"\]/.test(prep) && /const CALLERS = \['attention:check-world'\]/.test(SRC), 'CALLERS が台本と DW で違う')
-    check(/SUM_KEYS = \["lines", "purpose", "means", "deps", "deps_note", "lang"\]/.test(prep)
-      && SRC.includes("const SUM_KEYS = ['lines', 'purpose', 'means', 'deps', 'deps_note', 'lang']"), 'SUM_KEYS が台本と DW で違う')
+    check(/SUM_KEYS = \["lines", "purpose", "means", "deps", "deps_note", "lang", "own_names"\]/.test(prep)
+      && SRC.includes("const SUM_KEYS = ['lines', 'purpose', 'means', 'deps', 'deps_note', 'lang', 'own_names']"), 'SUM_KEYS が台本と DW で違う')
     // meta は純粋な字の並び
     const meta = between(SRC, 'export const meta = {', '\n}\n')
     check(meta && !/\$\{|\.\.\.|\(\)/.test(meta), 'meta が純粋な字の並びでない')
@@ -481,23 +541,26 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     put('uv.lock', 'version = 1\n\n[[package]]\nname = "langgraph"\nversion = "1.2.20"\nsource = { registry = "https://pypi.org/simple" }\n\n[[package]]\nname = "fastmcp"\nversion = "3.4.8"\nsource = { registry = "https://pypi.org/simple" }\n\n[[package]]\nname = "mcp"\nversion = "1.30.0"\nsource = { registry = "https://pypi.org/simple" }\n\n[[package]]\nname = "pkg"\nversion = "0.1.0"\nsource = { editable = "pkg" }\n\n[[package]]\nname = "ws"\nversion = "0.1.0"\nsource = { virtual = "." }\n\n[[package]]\nname = "pydantic"\nversion = "2.14.1"\nsource = { registry = "https://pypi.org/simple" }\n')
     put('frontend/package.json', JSON.stringify({ dependencies: { '@assistant-ui/react': '^0.15.32', local: 'file:../x' }, devDependencies: { vitest: '1' } }))
     put('frontend/package-lock.json', JSON.stringify({ packages: { '': {}, 'node_modules/@assistant-ui/react': { version: '0.15.40' }, 'node_modules/vitest': { version: '1.0.0' } } }))
-    put('docs/a.adoc', 'a\n')
-    put('backend/app.py', 'x = 1\n')
+    put('docs/a.adoc', 'a\ndocOnly_name: is only said in a document\n')
+    put('backend/app.py', 'x = 1\n\ndef make_pause():\n    return "PostgreSQL waits"\n')
+    put('config/old.yaml', 'removed_key: 1\n')
     g('add', '-A'); g('commit', '-qm', 'base')
     const base = g('rev-parse', 'HEAD')
     put('docs/a.adoc', 'b\n')
+    fs.rmSync(path.join(tmp, 'config/old.yaml'))
     g('commit', '-qam', 'docs')
     const head = g('rev-parse', 'HEAD')
     const rec = path.join(tmp, 'rec.json')
     const record = { version: 3, pr: 7, base, head, purpose: { purpose: '人の答えを待つ', means: ['自前の止め', 3] },
-      kind: 'これは渡さない', structure: { mechanisms: [{ mechanism: 'A pause adapter.', premise: 'The runtime does not stop.' }, { mechanism: 'No check.', premise: '' }] } }
+      kind: 'これは渡さない', structure: { mechanisms: [{ mechanism: 'A pause adapter.', premise: 'The runtime does not stop.' }, { mechanism: 'No check.', premise: '' },
+        { mechanism: 'Calls make_pause and drops removed_key, see a.adoc.', premise: 'PostgreSQL and docOnly_name are not defined here.' }] } }
     fs.writeFileSync(rec, JSON.stringify(record))
     const prepRun = (...a) => {
       try { return JSON.parse(execFileSync(PY, [PREP, ...a], { cwd: tmp, encoding: 'utf8' })) } catch (e) { return JSON.parse(e.stdout) }
     }
     check(prepRun('--next', 'world', '7').code === 'no-record', '--record の無い --next world が止まらない')
     const r = prepRun('--next', 'world', '7', '--record', rec)
-    check(r.ok === true && r.lines === 2 && r.means === 1, `--next world が通らない: ${JSON.stringify(r)}`)
+    check(r.ok === true && r.lines === 3 && r.means === 1 && r.ownNames === 3, `--next world が通らない: ${JSON.stringify(r)}`)
     const a = JSON.parse(fs.readFileSync(r.argsFile, 'utf8'))
     // .native で比べる（Windows の一時のフォルダは短い名前〔RUNNER~1〕で渡り、JS の realpathSync は長い名前に直さないが、Python の realpath は直す。run 44695969416）
     check(fs.realpathSync.native(r.argsFile) === fs.realpathSync.native(path.join(tmp, '.git/attention/my-turn/7-steps/world-args.json')), `args の置き場が違う: ${r.argsFile}`)
@@ -507,6 +570,8 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     check(/declare no direct dependencies/.test(a.deps_note), `全部のマニフェストに広げた訳が deps_note に無い: ${a.deps_note}`)
     check(a.lines[0].text === 'A pause adapter. Premise: The runtime does not stop.' && a.lines[1].text === 'No check.' && a.lines[0].where === 'mechanism 1', '依頼の行の組み方が違う')
     check(!JSON.stringify(a).includes('これは渡さない'), '記録の種類の 1 文が args に入った')
+    // PR の中の名前は、差分かリポジトリの中で定義された識別子だけ（コードの定義・パス・差分で消した定義）。文書だけに出る名前と世の中の名前は入れない
+    check(JSON.stringify(a.own_names) === JSON.stringify(['a.adoc', 'make_pause', 'removed_key']), `own_names が違う: ${JSON.stringify(a.own_names)}`)
     check(a.caller === 'attention:check-world' && a.excerptCheck.script.endsWith(path.join('steps', 'world', 'world-excerpts.py')), 'caller か excerptCheck が違う')
     check(a.sum === sumOf(a), 'steps-prep の sum が DW の sumOf と違う')
     const dry = await run(a, () => null)
