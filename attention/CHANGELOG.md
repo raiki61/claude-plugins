@@ -6,6 +6,10 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Added
+
+- works-factory の block を、1 本ずつ単独で回せる小さな Workflow に分けて attention に持ってくる設計の案を、`docs/small-workflows-design.md` に書いた。小さな Workflow は 8 本で、手順書（スキル）が順に起動する。最初に作る世界の解の Workflow を詳しく設計した。案は未承認で、`/attention:my-turn-deep` の動きは変わらない（頼み c36cfd）。
+
 ## [0.72.0] - 2026-11-19
 
 ### Changed
