@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.73.1] - 2026-11-20
+
 ### Fixed
 
 - `/attention:my-turn-deep` をヘッドレスの形（`--headless`。`claude -p` の別の会話）で回すと、根拠の引用の照合（Quotes の段）が 1 件も走らず、引用の全部が「照合していない物」に残っていたのを直した。照合のコマンドが here-document の複数行で、ヘッドレスの許しの規則に当たらず拒まれていた（guided-resolver の PR 2574・2594 の記録）。コマンドを 1 行（根拠の 1 件ずつを base64 の語にする `my-turn-prep.py --quotes --b64`）に替え、規則も合わせた。`--quotes -`（標準入力から読む形）は消した（頼み 23f909）。
