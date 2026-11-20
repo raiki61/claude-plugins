@@ -2474,6 +2474,9 @@ expect_output 1 "入れた場所を PATH に足す" "gates run-python.sh: 起き
 # 実際の LLM 読み役を通した実測は配布前に手元で行う。
 CR_CASE="$ROOT/tests/coldread-case.sh"
 CR_CFG="$WORK/coldread-cfg"; mkdir -p "$CR_CFG"
+# 「本文ファイルが無い」検査の置き場。run ごとの $WORK の下で作らないので、無いと決まる
+# (/tmp/body.md のような決め打ちは、ほかの会話の下書きが在ると赤になった。頼み 8ae599)
+CR_NOFILE="$WORK/no-such-dir"
 CR_PAD=$("$PY_BIN" -c "print('x'*420)")
 # 生成側の stdout を UTF-8 に固定する。Windows の既定 code page(cp1252/cp932)では
 # 日本語が UnicodeEncodeError で落ち、CR_BODY が空のまま以降のテストが走っていた
@@ -2595,7 +2598,7 @@ expect_output 0 "詰まり" "&& の先に逃げ道を前置しても外れない
 expect_output 0 "解析できない" "解析できないコマンドは、逃げ道を前置しても止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 gh issue comment 1 --body '引用が閉じない $CR_BODY $CR_PAD"
 expect_output 0 "取り出せない" "本文ファイルが無ければ deny" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file /tmp/real.md # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_NOFILE/real.md # $CR_PAD"
 expect_output 0 "通じやすさのみ" "読み役が CLEAN なら通り、保証範囲の注が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_POST"
 expect_output 0 "詰まり" "読み役の詰まりで deny になり指摘が載る" \
@@ -4616,13 +4619,13 @@ expect_output 0 "ALLOW_EMPTY" "gh を含む語(highlight 等)だけでは解析�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "echo it's a highlight of the day # $CR_PAD"
 # 検査できない本文は、読める本文が同居していても握り潰さない
 expect_output 0 "取り出せない" "読める本文と同居しても、読めない本文ファイルは止める" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file /tmp/x.md"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file $CR_NOFILE/x.md"
 expect_output 0 "取り出せない" "--input の JSON ファイルが無ければ止める" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input /tmp/payload.json # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input $CR_NOFILE/payload.json # $CR_PAD"
 # --input - でヒアドキュメントを取り損ねると候補ゼロ・止めた理由ゼロになり、「投稿でない」と
 # 読まれて無検査で通る。兄弟の --body-file - と同じ向きに倒すことの検査
 expect_output 0 "取り出せない" "--input - にヒアドキュメントが無ければ検査できないので deny" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat /tmp/payload.json | gh api repos/o/r/issues/1/comments --input - # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat $CR_NOFILE/payload.json | gh api repos/o/r/issues/1/comments --input - # $CR_PAD"
 # 行末が CRLF のヒアドキュメント。\n 固定で照合すると開始行・終端行ともマッチせず、正しく書いた
 # 投稿が「stdin 渡し」という嘘の理由で止まる(--body-file)か、無検査で通る(--input)
 CR_CRLF_FILE=$(printf 'gh issue comment 1 --body-file - <<'\''EOF'\''\r\n%s\r\n%s\r\nEOF\r\n' "$CR_BODY" "$CR_PAD")
@@ -4632,9 +4635,9 @@ CR_CRLF_INPUT=$(printf 'gh api repos/o/r/issues/1/comments --input - <<'\''EOF'\
 expect_output 0 "詰まり" "CRLF のヒアドキュメントを --input - で渡しても本文を検査する" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CRLF_INPUT"
 expect_output 0 "取り出せない" "-F(--body-file 短縮形)の本文ファイルが無ければ止める" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F /tmp/body.md # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F $CR_NOFILE/body.md # $CR_PAD"
 expect_output 0 "取り出せない" "パイプの stdin は検査できないので deny" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat /tmp/b.md | gh issue comment 1 --body-file - # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat $CR_NOFILE/b.md | gh issue comment 1 --body-file - # $CR_PAD"
 expect_output 0 "取り出せない" "変数渡しの本文は検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \"\$BODY\" # $CR_PAD"
 expect_output 0 "解析できない" "引用が閉じない gh コマンドは deny(fail-closed)" \
