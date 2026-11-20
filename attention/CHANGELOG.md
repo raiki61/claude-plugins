@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.75.1] - 2026-11-20
+
 ### Changed
 
 - `docs/measures/2555-world-result.md`（世界の解の Workflow を guided-resolver の PR #2555 で測った結果）と、0.75.0 の変更の記録で、初めて出る語（対象の名前・頼みの番号・行 9・札 1 など）に中身を書き足した。測った数と結論は変えていない（頼み bafa9b）。
