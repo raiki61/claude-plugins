@@ -322,8 +322,8 @@ def _queue_run_others(argv):
     return out
 
 
-def main(argv=None, ports=None):
-    argv, command = _split_queue_run(sys.argv[1:] if argv is None else list(argv))
+def _parser():
+    """dispatch.py の引数の定義（main が読む）。"""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
     ap.add_argument("--repo")
@@ -451,6 +451,12 @@ def main(argv=None, ports=None):
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
                     help="本社で持ち主と話す今の会話を窓口として名付ける（役は --role、会社の形の desk_role、今の役、窓口 の順。"
                          f"名前を省けば今の名前か役の名前）。{term.NAME} の表示も付け直す")
+    return ap
+
+
+def main(argv=None, ports=None):
+    argv, command = _split_queue_run(sys.argv[1:] if argv is None else list(argv))
+    ap = _parser()
     a = ap.parse_args(argv)
     ports = ports or Ports()
     if a.handover is not None:
