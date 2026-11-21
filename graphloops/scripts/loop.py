@@ -56,7 +56,8 @@ BOARD_WRITERS = ("next", "done", "skip", "answer", "thicken", "add", "patch", "f
 BOARD_SHARERS = ("launch", "relaunch", "stop")
 
 
-def main():
+def build_parser():
+    """loop.py のコマンドと引数の組み立て（読むだけで何も打たない）"""
     # prog を sys.argv[0] から明示する: 既定は __main__ の名前から引くので、同じプロセスで呼ぶ口（テストの土台）では
     # 「python -m pytest」になり、2 つの口の使い方の文がずれた（Python 3.14 の argparse）
     p = argparse.ArgumentParser(prog=pathlib.Path(sys.argv[0]).name, description=__doc__,
@@ -188,8 +189,11 @@ def main():
     s.add_argument("--all", action="store_true", help="--export で、手渡した行も含めて全部を書き出す")
     s.add_argument("--with-stderr", action="store_true", help="--export で標準エラーの頭（残していれば）も書き出す")
     s.set_defaults(fn=c.cmd_intake)
+    return p
 
-    a = p.parse_args()
+
+def main():
+    a = build_parser().parse_args()
     refuse_broken_args(a)
     install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起動する
     if a.cmd in BOARD_WRITERS + BOARD_SHARERS or a.cmd == "run":
