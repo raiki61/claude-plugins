@@ -335,11 +335,7 @@ def check_statusline(probe, config_dirs):
     over, remote = statusline.herdr_paths(probe.env)
     for d in config_dirs:
         label = f"statusline（{d}）"
-        try:
-            line = json.loads(probe.read(os.path.join(os.path.expanduser(d), "settings.json")) or "{}").get("statusLine")
-        except (OSError, ValueError, AttributeError):
-            line = None   # settings.json が読めないのは、使っていないのと同じに扱う（Claude Code の起動が先に止まる）
-        if not (isinstance(line, dict) and line.get("command") == statusline.command_for(d)):
+        if not statusline.uses_it(d, probe.read):
             out.append(_item(2, label, found=f"tiers の statusline は使っていない（使うなら tiers-statusline setup --config-dir {shlex.quote(d)}）"))
             continue
         setup = f"tiers-statusline setup --config-dir {shlex.quote(d)}"

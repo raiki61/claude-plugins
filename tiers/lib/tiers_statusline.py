@@ -173,12 +173,13 @@ def installed_root(config_dir):
     return None
 
 
-def uses_it(config_dir):
-    """そのアカウントの statusLine が、ここの statusline を指しているか。"""
-    text = read_file(pathlib.Path(os.path.expanduser(config_dir), "settings.json"))
+def uses_it(config_dir, read=read_file):
+    """そのアカウントの statusLine が、ここの statusline を指しているか。settings.json が読めない・JSON の表でないのは、使っていないのと
+    同じに扱う（Claude Code の起動が先に止まる）。read はファイルの中身を返す関数（無ければ None。読めなければ OSError）。"""
     try:
+        text = read(str(pathlib.Path(os.path.expanduser(config_dir), "settings.json")))
         line = json.loads(text).get("statusLine") if text else None
-    except (ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError):
         return False
     return isinstance(line, dict) and line.get("command") == command_for(config_dir)
 
