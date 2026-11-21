@@ -21,7 +21,7 @@ import herdr as real_herdr
 import orders
 import shape_hook
 from nodes import clean, land, provision, role, sync, tree, wake
-from . import rmtree, scratch
+from . import rmtree, scratch, write
 
 
 def fake_runner(out="", rc=0):
@@ -197,12 +197,6 @@ class HerdrPorts(unittest.TestCase):
         self.assertEqual(real_herdr.read("p", 3, runner=fake_runner("a\nb\n")), "a\nb\n")
         with self.assertRaises(real_herdr.Error):
             real_herdr.read("p", 3, runner=fake_runner("", rc=1))
-
-
-def write(path, text):
-    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-    pathlib.Path(path).write_text(text, encoding="utf-8")
-    return str(path)
 
 
 class Info(unittest.TestCase):

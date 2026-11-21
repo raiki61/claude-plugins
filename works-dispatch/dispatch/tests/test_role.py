@@ -21,7 +21,7 @@ import orders
 import role_hook
 import wake_hook
 from nodes import deliver, launch, provision, role, tree
-from . import rmtree, scratch
+from . import rmtree, scratch, write
 
 SHAPE = '''
 name = "試しの会社"
@@ -38,12 +38,6 @@ settings = { enabledPlugins = { "pr-review-toolkit@m" = false }, permissions = {
 [[roles]]
 name = "出荷役"
 '''
-
-
-def write(path, text):
-    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-    pathlib.Path(path).write_text(text, encoding="utf-8")
-    return str(path)
 
 
 # 役の文の末尾に必ず付く、ほかの会社のリポジトリに直に書かない 1 文（頼み 9ba857）

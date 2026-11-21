@@ -19,14 +19,13 @@ import herdr as real_herdr
 from config import Repo
 from nodes import provision
 from . import scratch
+from .fakegit import BRANCHES   # 偽の git の作り置き（fakegit.world）と同じブランチを本物の git の作り置きにも積む
 
 
 def git(*args, cwd=None):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8",
                           errors="replace").stdout.strip()
 
-
-BRANCHES = [f"feat/{n}" for n in range(1, 10)]
 
 
 _TEMPLATE = []

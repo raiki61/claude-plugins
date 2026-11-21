@@ -33,17 +33,12 @@ from config import Repo
 from nodes import bump, land, landqueue
 
 from . import fakegit
-from . import rmtree, scratch
+from . import rmtree, scratch, write
 
 
 def git(*args):
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True, encoding="utf-8",
                           errors="replace").stdout.strip()
-
-
-def write(path, text):
-    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-    pathlib.Path(path).write_text(text, encoding="utf-8")
 
 
 def commit(cwd, msg="x"):

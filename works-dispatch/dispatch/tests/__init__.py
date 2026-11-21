@@ -79,3 +79,10 @@ def scratch(**kw):
     path = tempfile.mkdtemp(**kw)
     unittest.addModuleCleanup(rmtree, path)
     return path
+
+
+def write(path, text):
+    """親のフォルダを作ってから text を UTF-8 で書き、パスを字で返す（試験の作り置きのファイル）。"""
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(path).write_text(text, encoding="utf-8")
+    return str(path)
