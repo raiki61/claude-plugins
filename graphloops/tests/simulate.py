@@ -9,7 +9,6 @@
 """
 import collections
 import contextlib
-import datetime
 import hashlib
 import importlib.util
 import json
@@ -349,11 +348,9 @@ def scenario_thickness(s):
 
 def drive(run, scenario, max_steps=60, hook=None, stop_at=None):
     """next → 台本で done を、止まるか終わるまで（stop_at が真を返す波の手前でも止まる）。返り値は最後の next の出力。"""
-    last = None
     seen_delivery = set()  # 渡し方の検査はノードごとに初回だけ（P3 の遮断系は 1 周目に出ない——round == 1 の条件では一度も当たらなかった）
     for _ in range(max_steps):
         nx = run.next()
-        last = nx
         if stop_at and nx["ready"] and stop_at(nx):
             return nx
         if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in TERMINAL_STATUS):
@@ -2981,7 +2978,7 @@ def test_prompt_growth():
     """
     print("否定検査: 周をまたいで育つ穴（上限が無い経路でも測る）")
     sys.path.insert(0, str(PLUGIN))
-    from engine.advance import PROMPT_NOTICE, prompt_growth
+    from engine.advance import prompt_growth
 
     def fake(rounds, rnd=2):
         return types.SimpleNamespace(round=rnd, state={"rounds": rounds})
@@ -3350,7 +3347,7 @@ def test_unresolved_role():
         run = Run(name)
         d2 = run.tmp / "s2"
         call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", env=run.env, timeout=600)
-        init = call("init", "--loop", "research-loop", "--graph", str(gp), "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
+        call("init", "--loop", "research-loop", "--graph", str(gp), "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
         # **壊すのは init の後。** init は静的検査を通すので、壊した graph はそもそも入口で落ちる
         # （それは別の腕で測る）。ここで見たいのは**実行時**の振る舞いなので、盤面ができてから差し替える
         g = json.loads(gp.read_text(encoding="utf-8"))
@@ -4009,10 +4006,9 @@ def test_unchecked_blocks_convergence():
     # 収束の周（3 周目）まで持ち越される——他の収束条件は全部そろうので、条件の位置がそのまま結果に出る
     run = Run("unchk-conv")
     noenv = {k: v for k, v in run.env.items() if k != "CLAUDE_CODE_SESSION_ID"}
-    statuses, last = [], None
+    statuses = []
     for _ in range(80):
         nx = run.next()
-        last = nx
         statuses.append(nx.get("status"))
         if nx.get("status") == "awaiting_human":
             kinds = (nx.get("ask") or {}).get("kinds", [])
@@ -4152,7 +4148,7 @@ def test_input_existence():
     shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
-    for nid, n in g["nodes"].items():           # 貼る穴（file:）を 1 つ残らずパス渡しへ寄せた graph
+    for n in g["nodes"].values():           # 貼る穴（file:）を 1 つ残らずパス渡しへ寄せた graph
         n["reads"] = [("inputs.document" if r == "file:inputs.document" else r) for r in (n.get("reads") or [])]
     for f in tmp.glob("prompts/research-loop/*.md"):
         f.write_text(f.read_text(encoding="utf-8").replace("{{file:inputs.document}}", "{{inputs.document}}"), encoding="utf-8")

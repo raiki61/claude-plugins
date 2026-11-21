@@ -3,7 +3,6 @@
 simulate_review.py の test_engine_run_checks・test_engine_run_parallel_pr"""
 import importlib.util
 import json
-import pathlib
 import subprocess
 import sys
 import types

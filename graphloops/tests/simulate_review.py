@@ -572,10 +572,8 @@ def settle(run, inst, make):
 
 
 def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
-    last = None
     for _ in range(max_steps):
         nx = run.next()
-        last = nx
         if stop_at and nx["ready"] and stop_at(nx):  # 途中の波を掴みたい腕のため（既定は最後まで回す）
             return nx
         if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in TERMINAL_STATUS):
@@ -1394,7 +1392,6 @@ def test_awaiting():
     r = run.cmd("answer", "--text", "continue", "--note", "テスト用設定 config/dev.local.example で起動できる")
     check(r.returncode == 0, "答えを渡して続行")
     last = drive(run, "awaiting")
-    st = run.state()
     check(last["status"] == "converged", f"答えの後に収束（{last['status']}）")
     r3 = run.round_file(3)
     check(r3["materials"]["main_path_observation"]["status"] == "clean" and any(q["status"] == "resolved" for q in r3["questions"]), "3 周目に観測して問いは resolved")
@@ -1555,7 +1552,6 @@ def test_carried_r1_counted():
     t = answers(run, "carryr1", 2)
     good = t["p2.diagnose"](None)
     check(len(good["carried_r1"]) == 1, "台本の前提: 2 周目の judge は前の周の削除候補 1 件を持つ")
-    dis = good["carried_r1"][0]["disposition"]
     # 腕 1: 行ごと落とす——「読んだ上で黙って落とす」形
     r = run.done(jd["id"], {**good, "carried_r1": []}, agent_id="judge-1")
     check(r.returncode == 1 and "carried_r1 に無い" in r.stderr, f"前の周の R1 の行を落とすと exit 1（rc={r.returncode}）")
@@ -3969,7 +3965,7 @@ def test_request_entry():
     # P0 のノードが出た後の add: 起動する前のノードは描き直して依頼の where を範囲に入れ、起きたノードは入らないと言う（黙って範囲外のまま clean を返させない）
     run = Run("entry-p0late")
     add_req(run)
-    nx = drive(run, "std", stop_at=lambda nx: any(i["node"] == "p0.prior_decisions" for i in nx["ready"]))
+    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p0.prior_decisions" for i in nx["ready"]))
     f = run.tmp / "req-late.json"
     f.write_text(json.dumps([{"where": "src/b.py:g", "text": "遅い依頼（検査用）"}], ensure_ascii=False), encoding="utf-8")
     r = run.cmd("add", "--file", str(f), "--reason", "P0 の後の依頼")
@@ -4441,7 +4437,7 @@ def test_silent_status_derived():
     print("自己申告の突合: 塞ぐ値の集合は検証器の表から引く")
     sys.path.insert(0, str(PLUGIN))
     import importlib.util
-    from engine.rules import Reject, load_rules
+    from engine.rules import Reject
     spec = importlib.util.spec_from_file_location("vrec2", str(VALIDATOR))
     V = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(V)

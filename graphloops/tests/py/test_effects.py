@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from conftest import PLUGIN, REVIEW_GRAPH_PATH, REVIEW_VALIDATOR, graphcheck, run_graphcheck
+from conftest import PLUGIN, REVIEW_GRAPH_PATH, graphcheck, run_graphcheck
 from engine import commands, effects
 from engine.rules import load_rules, takes_view
 from engine.util import AnswerReject
