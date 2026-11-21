@@ -8,10 +8,9 @@ import sys
 
 import pytest
 
-from conftest import git
+from conftest import PLUGIN, git
 from engine import commands, util
 
-PLUGIN = pathlib.Path(__file__).resolve().parents[2]
 HOOK = PLUGIN / "hooks" / "record-read.py"
 
 

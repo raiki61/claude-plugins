@@ -143,7 +143,7 @@ def test_merge_red_when_group_missing():
     assert any("1 つも無い" in b for b in parallel.merge(_docs(), ["g1", "g2"]))
 
 
-def test_cli_merge_reads_dirs(tmp_path, capsys, monkeypatch):
+def test_cli_merge_reads_dirs(tmp_path, capsys):
     for i in range(2):
         d = tmp_path / f"gl-shard-g1-{i}"
         d.mkdir()

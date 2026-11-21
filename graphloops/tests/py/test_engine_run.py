@@ -32,14 +32,14 @@ def repo(tmp_path, steps=OK):
     ('{"suite": [{"name": "a", "argv": []}]}', "1 語以上"),
     ('{"suite": [{"name": "a", "argv": "bash run.sh"}]}', "1 語以上"),
     ('{"suite": [{"name": "a", "argv": ["x"]}, {"name": "a", "argv": ["y"]}]}', "重ならない"),
-    ('{"sweet": []}', "在る鍵: ['sweet']"),
-    ("5", "在る鍵: int"),
+    ('{"sweet": []}', "在る鍵: ['sweet']"),   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
+    ("5", "在る鍵: int"),   # object でない最上位は型の名前で言う（set(5) で落ちない）
     ('{"suite": {"a": 1}}', "suite は 1 段以上の配列"),   # 配列でない suite を段の並びと読まない
     ('{"suite": [["name", "argv"]]}', "suite[0] は"),   # 鍵の名前を並べた配列を段と読まない
     ('{"suite": [{"name": "a", "argv": [1]}]}', "1 語以上"),   # 文字列でない語
-    ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),
+    ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),   # 空の頭の語（起動する物が無い）
     ('{"suite": [{"name": "a", "argv": ["x"], "keep_background": "yes"}]}', "true か false"),   # 真偽でない逃げ道の宣言
-    ('{"suite": [{"name": "a", "argv": ["x"], "keep_backgrounds": true}]}', "（任意）だけ"),   # 綴り違いの鍵を黙って無視しない   # 空の頭の語（起動する物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
+    ('{"suite": [{"name": "a", "argv": ["x"], "keep_backgrounds": true}]}', "（任意）だけ"),   # 綴り違いの鍵を黙って無視しない
 ])
 def test_parse_rejects_shapes_it_cannot_run(text, want):
     steps, err = declared.parse(text)

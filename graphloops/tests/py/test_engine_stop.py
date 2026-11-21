@@ -11,7 +11,7 @@ import types
 
 import pytest
 
-from conftest import PLUGIN, REPO
+from conftest import PLUGIN, REPO, graphcheck
 from engine import commands
 from engine.rules import load_rules
 from engine.schema import load_graph
@@ -61,8 +61,6 @@ def test_graphcheck_refuses_bad_stop_decl(tmp_path, decl, why):
     if why == "報告のノード":
         g["nodes"]["report"].pop("pre")
     gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
-    sys.path.insert(0, str(PLUGIN / "scripts"))
-    import graphcheck
     lines = []
     assert graphcheck.check(gp, emit=lines.append) is False
     assert any(why in str(x) and "stop.node" in str(x) for x in lines), lines

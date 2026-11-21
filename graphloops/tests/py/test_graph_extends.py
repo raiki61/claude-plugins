@@ -1,18 +1,13 @@
 """graph の差し替えの版（"extends"）の読み方——engine/schema.py の load_graph が元の graph に RFC 7396（JSON Merge Patch）で重ねる。
 TDD の流れ（graphs/review-loop-tdd.json）はこの口で今の流れ（graphs/review-loop.json）を写さずに差し替える。"""
-import importlib.util
 import json
 import shutil
 import types
 
 import pytest
 
-from conftest import PLUGIN, REPO
+from conftest import PLUGIN, REVIEW_VALIDATOR, graphcheck
 from engine.schema import graph_text, load_graph, merge_patch
-
-_spec = importlib.util.spec_from_file_location("graphcheck", PLUGIN / "scripts" / "graphcheck.py")
-graphcheck = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(graphcheck)
 
 
 def write(p, obj):
@@ -147,7 +142,7 @@ def test_graphcheck_rejects_an_overlay_that_drops_base_items(tmp_path, patch, wo
         over["nodes"][nid] = v if v is None or nid not in over["nodes"] else {**over["nodes"][nid], **v}
     write(tmp_path / "graphs" / "review-loop-tdd.json", over)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any(words in l for l in lines)
 
 
@@ -171,7 +166,7 @@ def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     leaf = write(tmp_path / "graphs" / "review-loop-chain.json", {"extends": "review-loop-tdd.json", "nodes": patch})
     lines = []
-    ok = graphcheck.check(leaf, REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(leaf, REVIEW_VALIDATOR, emit=lines.append)
     if words is None:
         assert ok, [l for l in lines if l.startswith("NG")][:5]
     else:
@@ -192,7 +187,7 @@ def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patc
         over[k] = {**over[k], **v} if isinstance(v, dict) and isinstance(over.get(k), dict) else v
     write(tmp_path / "graphs" / "review-loop-tdd.json", over)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any(words in l for l in lines), lines[-5:]
 
 
@@ -212,7 +207,7 @@ def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
     g["nodes"][node].update({k: v for k, v in patch.items() if v is not None})
     write(tmp_path / "graphs" / "review-loop.json", g)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any(words in l for l in lines), lines[-5:]
 
 
@@ -227,7 +222,7 @@ def test_graphcheck_rejects_a_cond_reading_an_unknown_node(tmp_path):
     g["nodes"]["p4.ci"]["cond"] = "bad_cond"
     write(tmp_path / "graphs" / "review-loop.json", g)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any("読むフィールド 'out.p9.nowhere' のノードが無い" in l for l in lines), lines[-5:]
 
 
