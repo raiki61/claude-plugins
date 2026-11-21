@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `dispatch/` の中を整理した。どこからも呼ばれない関数と定数・試験だけが呼ぶ関数（`claudex` の `above_box`・`left_in_field`・`newest_talk`・`TOOL`、`wake_hook.own_window`、`wiring.jsonio_load`）と、読まない引数を消し、同じ形の数行（会社ごとの部署の組み立て・`--note` と `--say` の送り主の引き方・待ち受けが TERM で印を消す所）を 1 か所にまとめ、`dispatch.py` の引数の定義を `main` から分けた。コマンドの引数・出力・記録のファイルの形は変えていない（頼み c516d9）。
+
 ## [0.164.4] - 2026-11-17
 
 ### Fixed

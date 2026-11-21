@@ -6,6 +6,10 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Changed
+
+- `/tiers:check` の statusline の点検が、アカウントが tiers の statusline を使っているかを `tiers_statusline.uses_it` で見るようにした（前は同じ判定を点検の側に書き直していた）。点検の結果は変えていない（頼み c516d9）。
+
 ## [0.13.3] - 2026-11-05
 
 ### Fixed
