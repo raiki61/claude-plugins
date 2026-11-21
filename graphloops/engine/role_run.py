@@ -637,6 +637,19 @@ def _answers(send, target):
         return True
 
 
+def _taskkill_tree(pgid, leader):
+    """Windows の _stop_tree——taskkill /T /F で親子の鎖を辿って止める。非 0 でも相手が居なくなっていれば止まったと数える"""
+    r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pgid)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if leader is not None:
+        try:
+            leader.wait(KILL_GRACE)
+        except subprocess.TimeoutExpired:
+            pass
+    if r.returncode != 0 and (leader.poll() is None if leader is not None else _started_at(pgid) != GONE):
+        return f"taskkill が {pgid} を止められない（exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}）"
+    return None
+
+
 def _stop_tree(pgid, leader=None, born=None):
     """起動した試行の木（プロセスグループ pgid の子とその子孫）を止める。返すのは止め切れなかった理由（None なら止まった・
     居なかった）。
@@ -656,15 +669,7 @@ def _stop_tree(pgid, leader=None, born=None):
     Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る。ルートの長が居ないと辿れないので、長が
     終わった後の呼び——_reap——は何も止めない）。"""
     if os.name != "posix":
-        r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pgid)], capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if leader is not None:
-            try:
-                leader.wait(KILL_GRACE)
-            except subprocess.TimeoutExpired:
-                pass
-        if r.returncode != 0 and (leader.poll() is None if leader is not None else _started_at(pgid) != GONE):
-            return f"taskkill が {pgid} を止められない（exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}）"
-        return None
+        return _taskkill_tree(pgid, leader)
     if born is None and leader is not None:
         born = getattr(leader, "gl_born", None)
 
