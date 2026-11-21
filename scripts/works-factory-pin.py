@@ -302,9 +302,9 @@ def load_state(path):
     return got
 
 
-def save_state(path, sha, at, limited=None):
-    """limited は利用制限に当たり始めた時刻（Unix 時刻。読めた回は None で、覚えた時刻を消す）。"""
-    filex.replace(path, json.dumps({"told": sha, "at": at, **({"limited": limited} if limited is not None else {})}))
+def save_state(path, sha, at, limited_since=None):
+    """limited_since は利用制限に当たり始めた時刻（Unix 時刻。読めた回は None で、覚えた時刻を消す）。"""
+    filex.replace(path, json.dumps({"told": sha, "at": at, **({"limited": limited_since} if limited_since is not None else {})}))
 
 
 def limited(path, state, now, dry, e):
