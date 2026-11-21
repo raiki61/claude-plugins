@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.78.0] - 2026-11-21
+
 ### Fixed
 
 - 世界の解の Workflow の採点の台本（`scripts/score-world.py`）が、札の名前を別の部品の名前の一部にも当てていたのを直した（`mcp` を `fastmcp` に、`langgraph` を `langgraph-checkpoint-postgres` に当てない）。札の文の正規表現は一覧でも書けるようにし、一覧なら全部が当たって当たりにする。当たった比べには、当たった字（`matched`）を添える（頼み c348d0）。
