@@ -65,11 +65,6 @@ CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "unverifiable")
 # コメントにしか無かったとき、貼る側（p1.checker.md ほか 5 本）が手で写していた——実測 2026-09-13:
 # 6 本の prompt が検証器の名前表を 13 か所で並べ直していた。review 側で同じ形を閉じた直後に、
 # research 側は手つかずで残っていた（**知見が片側にしか適用されない**）。
-# **`fail` は `_rows` より前に置く。** `_rows` は import 時に `VERDICT_FIELDS = _rows(...)` で呼ばれるので、
-# 属性の書き忘れで except に入った瞬間に `fail` が未束縛だと NameError → **未処理例外の exit 1** になる
-# ——`_rows` の docstring が名乗る当の壊れ方そのもの（実測 2026-09-14: review 側は fail が先なので同じ注入で
-# exit 2、research 側だけ exit 1 だった）。**写しは中身でなく順序で割れていた**ので、
-# docstring の「この重複は構造上のもの（写しが狭くなる種類ではない）」という申し立ても外れていた。
 
 
 Verdict = collections.namedtuple("Verdict", "fields note")

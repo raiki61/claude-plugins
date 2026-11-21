@@ -131,38 +131,8 @@ TAX_LABELS = {
 require_labels("TAX_LABELS", TAX_LABELS, TAX_VERDICTS)
 
 
-def validate(rec, path):
-    # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
-    require_record(rec, path, ("target", "round", "scope", "reader_profile", "pre_answers", "errands", "materials"))
-    require_round(rec, path)
-    # **範囲は読ませる前に書くもの。** 詰まりを見てから狭められると、都合の悪いものを
-    # 外に出すツールになる。書かれていること自体はここで、書いた時期は人が見る。
-    if not rec.get("scope"):
-        fail(f"{path}: 'scope' が空（今回直す範囲を先に書かないと、後から動かせる）")
-    if not rec.get("reader_profile"):
-        fail(f"{path}: 'reader_profile' が空（前提の線を引かないと、詰まりが読み役のせいにされる）")
-
-    # **答えを見る前に書いたことは機械では確かめられないが、書いたこと自体は確かめられる。**
-    # 頭の中に置くだけを許すと、答えを見てから正解を決める後付けになる。
-    pre = rec["pre_answers"]
-    if not isinstance(pre, str) or not pre:
-        fail(f"{path}: 'pre_answers' に先に書いた答えのパスが無い")
-    if not os.path.exists(pre):
-        fail(f"{path}: 'pre_answers' の指す先が無い: {pre}")
-
-    if not isinstance(rec["errands"], list) or not rec["errands"]:
-        fail(f"{path}: 'errands' が空（用事を渡さないと、探せるかを測れない）")
-    for i, e in enumerate(rec["errands"]):
-        require_dict(e, f"{path}: errands[{i}]")
-        for field in ("errand", "expected", "reached"):
-            if field not in e:
-                fail(f"{path}: errands[{i}] に '{field}' が無い")
-        if not isinstance(e.get("found"), bool):
-            fail(f"{path}: errands[{i}] の 'found' が真偽値でない")
-        # 見つからなかったこと自体は阻害要因として後で数える。ここでは記録の形だけ見る。
-        if e["found"] and not e["reached"]:
-            fail(f"{path}: errands[{i}] は found なのに 'reached' が空")
-
+def _check_materials(rec, path):
+    """素材ごとの明示返答と、見つけた詰まりの items の形を見る（validate の一部）。"""
     require_dict(rec["materials"], f"{path}: 'materials'")
     for name in MATERIALS:
         m = rec["materials"].get(name)
@@ -199,20 +169,9 @@ def validate(rec, path):
                             "読み役の性質で再出する理由を書いた文字列でなければならない"
                         )
 
-    for i, u in enumerate(rec.get("unresolved") or []):
-        require_dict(u, f"{path}: unresolved[{i}]")
-        if not u.get("question"):
-            fail(f"{path}: unresolved[{i}] に 'question' が無い")
-        if u.get("verdict") not in VERDICTS:
-            fail(f"{path}: unresolved[{i}] の verdict が不正: {u.get('verdict')!r}（{'/'.join(VERDICTS)}）")
-        if u["verdict"] == "missing_writeup":
-            if not isinstance(u.get("written"), bool):
-                fail(f"{path}: unresolved[{i}] は書き落としなので、書き足したかの 'written' が要る")
-            # **収束を判定するのは範囲内だけ**——手順書と同じ規則をここにも通す。既定は
-            # 範囲内（黙って外へ倒せないように）で、外へ倒すなら行き先を書かせる。
-            if u.get("in_scope") is False and not u.get("disposition"):
-                fail(f"{path}: unresolved[{i}] は範囲外の書き落としなので 'disposition'（行き先）が要る")
 
+def _check_fixes(rec, path):
+    """直しの側の記録（fixes）の形と、検証役の判定に反して当てた直しの理由を見る（validate の一部）。"""
     # **直しの側にも、集める側と同じ規律を通す**（冒頭 docstring 参照）。
     # 直していない周は空配列——フィールド自体が無いのは「直したのに書いていない」と
     # 区別が付かないので許さない。
@@ -242,6 +201,57 @@ def validate(rec, path):
                 f"{path}: fixes[{i}] は検証役が『{TAX_LABELS[fx['tax_verdict']]}』なのに当てている——"
                 "'override_reason'（押し切ったのか、代案に作り直したのか）が要る"
             )
+
+
+def validate(rec, path):
+    # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
+    require_record(rec, path, ("target", "round", "scope", "reader_profile", "pre_answers", "errands", "materials"))
+    require_round(rec, path)
+    # **範囲は読ませる前に書くもの。** 詰まりを見てから狭められると、都合の悪いものを
+    # 外に出すツールになる。書かれていること自体はここで、書いた時期は人が見る。
+    if not rec.get("scope"):
+        fail(f"{path}: 'scope' が空（今回直す範囲を先に書かないと、後から動かせる）")
+    if not rec.get("reader_profile"):
+        fail(f"{path}: 'reader_profile' が空（前提の線を引かないと、詰まりが読み役のせいにされる）")
+
+    # **答えを見る前に書いたことは機械では確かめられないが、書いたこと自体は確かめられる。**
+    # 頭の中に置くだけを許すと、答えを見てから正解を決める後付けになる。
+    pre = rec["pre_answers"]
+    if not isinstance(pre, str) or not pre:
+        fail(f"{path}: 'pre_answers' に先に書いた答えのパスが無い")
+    if not os.path.exists(pre):
+        fail(f"{path}: 'pre_answers' の指す先が無い: {pre}")
+
+    if not isinstance(rec["errands"], list) or not rec["errands"]:
+        fail(f"{path}: 'errands' が空（用事を渡さないと、探せるかを測れない）")
+    for i, e in enumerate(rec["errands"]):
+        require_dict(e, f"{path}: errands[{i}]")
+        for field in ("errand", "expected", "reached"):
+            if field not in e:
+                fail(f"{path}: errands[{i}] に '{field}' が無い")
+        if not isinstance(e.get("found"), bool):
+            fail(f"{path}: errands[{i}] の 'found' が真偽値でない")
+        # 見つからなかったこと自体は阻害要因として後で数える。ここでは記録の形だけ見る。
+        if e["found"] and not e["reached"]:
+            fail(f"{path}: errands[{i}] は found なのに 'reached' が空")
+
+    _check_materials(rec, path)
+
+    for i, u in enumerate(rec.get("unresolved") or []):
+        require_dict(u, f"{path}: unresolved[{i}]")
+        if not u.get("question"):
+            fail(f"{path}: unresolved[{i}] に 'question' が無い")
+        if u.get("verdict") not in VERDICTS:
+            fail(f"{path}: unresolved[{i}] の verdict が不正: {u.get('verdict')!r}（{'/'.join(VERDICTS)}）")
+        if u["verdict"] == "missing_writeup":
+            if not isinstance(u.get("written"), bool):
+                fail(f"{path}: unresolved[{i}] は書き落としなので、書き足したかの 'written' が要る")
+            # **収束を判定するのは範囲内だけ**——手順書と同じ規則をここにも通す。既定は
+            # 範囲内（黙って外へ倒せないように）で、外へ倒すなら行き先を書かせる。
+            if u.get("in_scope") is False and not u.get("disposition"):
+                fail(f"{path}: unresolved[{i}] は範囲外の書き落としなので 'disposition'（行き先）が要る")
+
+    _check_fixes(rec, path)
 
     # 導線の引き金。見たかどうかを毎周書く——見ていない引き金は「立っていない」と
     # 記録の上で区別が付かない（聞いていない素材の 'asked' と同じ理屈）。
