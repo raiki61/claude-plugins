@@ -400,7 +400,7 @@ def validate(rec, path, hint=None):
     if "scalars" in rec:
         require_dict(rec["scalars"], f"{path}: 'scalars'", "（規模指標の名前 → 数値。無いならフィールドごと省け）")
         # **値が数であることも見る。** 器の型だけ守っていたとき、`"doc_lines": "135"` と書くと
-        # scalar_changes の isinstance が黙って弾いて「増えた scalar」が一生出ず、R1 に膨張が
+        # scalar_changes が数でない値を黙って弾いて「増えた scalar」が一生出ず、R1 に膨張が
         # 見えなかった（exit 2 にも 1 にもならない）。`bool` は int の派生なので別に落とす
         # ——`True` を通すと `False → True` が「増えた」として混ざる。
         for k, v in rec["scalars"].items():
@@ -945,11 +945,7 @@ def scalar_changes(rec, prev):
     # として通る（冒頭 docstring の「検査を足すときは境界に頼れ」と同じ理由）。
     for name, now in rec.get("scalars", {}).items():
         before = prev.get("scalars", {}).get(name)
-        if (
-            isinstance(before, (int, float))
-            and isinstance(now, (int, float))
-            and now > before
-        ):
+        if isinstance(before, (int, float)) and now > before:
             out.append(f"scalar '{name}': {before} → {now}")
     return out
 
