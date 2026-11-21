@@ -1419,6 +1419,15 @@ def note_line(ask_id, note_id, sender, text, file):
             "どこまで済んだかを納品で返す）。")
 
 
+def _sender(a, ports, cwd, sessions_):
+    """--note と --say を打った会話の (会話の id, 名前, 台帳の by)。名前は --from-name、打った場所の部署の名前、会話の一覧の名前の順。
+    アカウントは --from-account、無ければ会話の一覧で引いた物。"""
+    sid = chat.session_of(ports.env)
+    found_account, found_name = ports.caller(sessions_)
+    name = a.from_name or place_name(cwd, sid, ports) or found_name
+    return sid, name, {"name": name, "account": a.from_account or found_account, "session": sid, "place": cwd}
+
+
 def note(a, ports, cwd):
     """--note <受付>（--text か --brief）。受付の頼みに、変更・足し・取り下げを届ける。順番待ちに積まれていれば、その件に足しを
     添える（渡すときに頼みの 1 行と一緒に出る）。部署が今受けている（未納品の）頼みなら、宛先の会社の台帳に足しの知らせ
@@ -1439,12 +1448,9 @@ def note(a, ports, cwd):
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     inbox = deliver.inbox_of(common)
-    sid = chat.session_of(ports.env)
-    found_account, found_name = ports.caller(sessions_)
-    name = a.from_name or place_name(cwd, sid, ports) or found_name
+    sid, name, by = _sender(a, ports, cwd, sessions_)
     sender = name or "名の無い会話"
     note_id = deliver.new_id(ports.now())
-    by = {"name": name, "account": a.from_account or found_account, "session": sid, "place": cwd}
     item, more = _find_queued(a.note, a.config, ports, cwd, companies)
     notes += more
     if item is not None:
@@ -1686,10 +1692,7 @@ def say(a, ports, cwd):
         print(f"止めた: {e}")
         return 2
     inbox = deliver.inbox_of(common)
-    sid = chat.session_of(ports.env)
-    found_account, found_name = ports.caller(sessions_)
-    name = a.from_name or place_name(cwd, sid, ports) or found_name
-    by = {"name": name, "account": a.from_account or found_account, "session": sid, "place": cwd}
+    sid, name, by = _sender(a, ports, cwd, sessions_)
     say_id = deliver.new_id(ports.now())
     where = f"{company['name']}/{dept['attrs'].get('name') or dept.get('branch') or dept['path']}"
     dest_common = ports.git.common_dir(company["root"])
