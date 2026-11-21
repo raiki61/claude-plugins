@@ -438,13 +438,9 @@ class Board:
     def read_out(self, path, *, board_relative=False):
         """出力ファイルを 1 度だけ読む（同じ Board の間）。
 
-        **どちらの綴りで持っているかは、渡す側が知っている**——`state["outputs"]["file"]` は盤面からの相対
-        （commands.py が `f.relative_to(b.dir)` で書く）、instance の `output_file` は `--dir` をそのまま
-        前に付けた綴り（同じ行の `str(f)`）。ここで `is_absolute` を見て「絶対でなければ盤面からの相対」と
-        推し量ると、`--dir` を相対で渡した run では output_file が盤面の下にもう一度繋がる
-        （実測 2026-09-13: 最終報告の `ref:raw` が `<dir>/<dir>/out/r1/p1.hygiene.json` を読みに行って exit 2。
-        5 周のうち ref:raw を使うノードがこの 1 本だけだったので、最後のノードまで出なかった）。
-        **綴りの正本は書いた側にしか無いので、引数で受け取る。**
+        engine は `state["outputs"]["file"]` も instance の `output_file` も盤面からの相対で書く（commands.py の
+        `f.relative_to(b.dir)`）ので、engine の呼ぶ側は全部 board_relative=True で渡し、旧い盤面の綴りは `_out_path` が
+        読み替える。board_relative=False（渡された綴りをそのまま開く）で呼ぶ側は今は無い。
 
         鍵は abspath——綴りが違っても同じファイルなら memo を共有する（実測 2026-09-12: 揃えないと重複 314 回）。
         resolve() は毎回 realpath を引くので使わない（実測: 1 回の next で 7,640 回）。

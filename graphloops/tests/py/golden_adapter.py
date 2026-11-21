@@ -289,7 +289,7 @@ _FROZEN_DATETIME_MODULE.datetime = _FrozenDateTime
 def world(place, git_answers=None, record_repo=None, session=SESSION):
     """engine と規則を呼ぶ間だけ効く締め口。
 
-    - 子プロセス: git は録った答え（`git_answers`）から返す（録る回は `record_repo` の本物に走らせて録る）。検証器（ROOT/scripts/*-record.py）
+    - 子プロセス: git は録った答え（`git_answers`）から返す（録る回は `record_repo` の本物に走らせて録る）。検証器（ROOT/convergence-loops/scripts/*-record.py）
       だけは本物を走らせる——外の約束の正本なので、録画に差し替えない。ほかの子は全部 Blocked で止める
     - 家・PATH・claude の設定の置き場を一時の置き場へ向ける（手元と CI で答えが割れないように。PATH を空にすると gh・claude を探す口は『無い』に倒れる）
     - 時刻を固める。engine の大域 util.GIT_CWD（Board が開くたびに書き換える）を元に戻す

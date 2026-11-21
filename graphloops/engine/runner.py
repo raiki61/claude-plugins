@@ -237,7 +237,7 @@ class _Runner:
     def start_lane(self, inst):
         """背景の線を立てる: engine が組んだ受領（launch.receipt）を置き場に書いて done し、`loop.py launch --node` を切り離して立てる
         （待たない——周の締めも次の周も線を待たない）。会話が手順書どおりにしていた 2 手を、同じ CLI で打つだけ。返すのは立てられなかった
-        理由（立てたら None）。止め方の正本は手順書の『線を止めるとき』（線の子の印から親を辿って止める）"""
+        理由（立てたら None）。止めるのは `loop.py children --stop`（children.stop が盤面の下の線の印から木ごと止める）"""
         iid = inst["id"]
         write_json(inst["out_path"], inst["launch"]["receipt"])
         rc, _o, err = _cli(self.d, "done", "--node", iid)

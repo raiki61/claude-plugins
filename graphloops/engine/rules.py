@@ -51,7 +51,7 @@ def validator_module(b):
     return _VALIDATORS[path]
 
 
-# rules に差し込むツールの正本。**消費者が 0 の鍵は置かない**——get_path / set_path / has_path は同梱の rules 2 本から
+# rules に差し込むツールの正本。**消費者が 0 の鍵は置かない**——get_path / set_path / has_path は同梱の rules から
 # 一度も呼ばれておらず、『rules が記録の任意の場所を path で読み書きしてよい』と読める面だけを開いていた
 # （記録を書く経路を writes に寄せる方針と逆向き）。使う日に戻せる
 INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,

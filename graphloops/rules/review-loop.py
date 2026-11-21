@@ -1773,7 +1773,7 @@ def _files_changed_since(b, prev_round):
 
 
 def numstat_totals(text):
-    """`git diff --numstat` の出力から（ファイル名の並び・追加行・削除行）を取る。
+    """`git diff --numstat` の出力から（改行で結んだファイル名・追加行・削除行・行の数）を取る。
 
     **バイナリの行は `-\t-\tfile` で来る**ので、数として足す前に数字かを見る（`int('-')` で落ちる）。
     フィールドが 3 つ揃わない行（壊れた出力・空行）も数えない。
@@ -2109,7 +2109,7 @@ def fix_delta(b, nid):
 
 def worktree_snapshot(b, nid, head=True):
     """P1 の前: この周に採点する版を固め、対象差分（BASE → 版）と、前後の突合の基準（porcelain・版の木の id）を機械が取る。回す側に貼らせない。
-    突合の基準は返り（p1.worktree_before の出力）の tree_before が正本で、読むのは worktree_compare（_baseline）だけ。
+    突合の基準は返り（p1.worktree_before の出力）の tree_before が正本で、突合に使うのは worktree_compare（_baseline）だけ（rev は hist.head_revs と、旧い出力を組み直す _upcast_snapshot も読む）。
     head（周の頭の 1 回目。作業ツリーの変化を受理した撮り直しでは偽）の回だけ、前の周の P3 が触ったファイル（changed_since_prev_round）を
     測り、書き終えた並行の線の結果を判定へ渡す（lane_rows）——どちらも周の境目の出来事で、このノードの出力が履歴になる
     （loop.py patch が届くのはこのノードの最新の出力だけで、前の周の出力には届かない）"""
@@ -3235,8 +3235,8 @@ def judge_output(b, nid, out, item):
     # 挙げた周は p2.history が必ず落ち、しかも schema が additionalProperties: false なので役には直す術が
     # 無かった（P2 が二度と通らない＝周が進まない。実測 2026-09-16、push した後に気づいた）。
     # **義務は入力に従う（fail-closed）。** 前の周の R1 を読むノードは carried_r1 を持たなければならない。
-    # 「schema に在れば数える」だけだと、フィールドを落とすだけでチェックが黙って消える——engine は graphcheck を
-    # 一度も呼ばないので（init --graph <任意のパス> は静的検査を通さない graph も受ける）、
+    # 「schema に在れば数える」だけだと、フィールドを落とすだけでチェックが黙って消える——init は静的検査
+    # （commands.check_graph）を通すが、graph は init の後で書き換えられ、受け付けのたびには検査が走らないので、
     # 同じ差分の local_review_covers_lenses が fail-closed を選んだ理由がこちらにもそのまま当たる。
     errs += _fork_moves_forward(b, out)
     nd = b.graph["nodes"][nid]

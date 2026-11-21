@@ -222,7 +222,7 @@ def lines_by_context(data_file):
 
 
 # pytest-cov の --cov-context=test が文脈の末尾に付ける段の名前（pytest の hook の when の setup・call・teardown とは綴りが違い、
-# 本体は run）。綴りが替わると run の和が空になり、包含が全部『含まれない』に落ちる——main が見えた段の名前を突き合わせて赤にする
+# 本体は run）。綴りが替わると run の和が空になり、包含が全部『含まれない』に落ちる——cover が見えた段の名前を突き合わせて赤にする
 RUN, SETUP = "run", "setup"
 
 

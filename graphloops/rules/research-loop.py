@@ -12,7 +12,7 @@ engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
   on_answer / on_unattended / on_stop / on_thickness / add   人に聞いた後・無人・止めた時・昇格・外から足す
 
 engine が差し込むツールは engine/rules.py の INJECT が正本（rules は engine を import しない）。
-ノード名（p1.checker 等）はここには出ない——ノードの役割は graph が名前で指す。
+ノード名は条件と出力の読み口（rd.item_counts.p1.checker・out.p3.rederiver.verdict・p0.clusters の出力など）にだけ出る——ノードの役割と並びは graph が名前で指す。
 """
 import importlib.util
 import json

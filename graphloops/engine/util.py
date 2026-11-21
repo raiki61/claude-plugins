@@ -89,7 +89,7 @@ class BoardConflict(SystemExit):
     """盤面を読んだ後に別のプロセスが盤面を進めていた（Board.save）。die と同じく exit 2 で終わる。別の型にしたのは、
     読み直して当て直してよい失敗（版の衝突）を、ほかの die（記録の書き込みの失敗など）と見分けるため（commands._board_update・
     launch の受け付け）。**文はここで出さない**——当て直して成功した回に失敗の文を残さないよう、最後に負けた回だけ
-    入口（loop.py の main）が msg を出す"""
+    入口（loop.py の cli）が msg を出す"""
 
     def __init__(self, msg):
         super().__init__(2)
@@ -333,7 +333,7 @@ def worktree_tree(why=None, git_fn=None):
 
 def note_unevaluable(state, trigger, why):
     """測れなかった痕跡を盤面の state.unevaluable に残す口（同じ周に同じ trigger は 1 行だけ——1 回の next で条件は何度も
-    評価される）。条件の入れ物（board.CondView）と rules の受け付けの側が同じここを通る"""
+    評価される）。条件の入れ物（board.CondView）と、起動・受け付けの側（advance・commands）が同じここを通る"""
     if state is None:
         return
     rnd, seen = state.get("round"), state.setdefault("unevaluable", [])

@@ -79,7 +79,7 @@ def narrowed_def(d, narrow):
 
 
 def launch_cwd(b):
-    """役の子が起きる場所——盤面の inputs.cwd（無ければ呼んだ場所）。起動する側（commands.launch_one）と、守る場所を引く側
+    """役の子が起きる場所——盤面の inputs.cwd（無ければ呼んだ場所）。起動する側（commands._launch_marked）と、守る場所を引く側
     （launch_spec・チェック）が同じここを引く。"""
     return (b.state.get("inputs") or {}).get("cwd") or os.getcwd()
 
@@ -228,7 +228,7 @@ def delegate_launch_spec(b, inst, n, ctx):
     delegate = n["delegate"]
     role_file = write_role(b, "delegate.txt", spec.get("preamble") or "")
     protected = protected_paths([b.dir])
-    denied, _bad = repo_deny(launch_cwd(b))   # 読めない宣言はチェック（commands._delegate_refusal）が起動する瞬間に拒む
+    denied, _bad = repo_deny(launch_cwd(b))   # 読めない宣言はチェック（commands.launch_refusal）が起動する瞬間に拒む
     if b.state.get("unfenced_delegates"):
         mode, allowed, settings = unfenced_delegate_permission(denied or ())
     else:
@@ -873,7 +873,7 @@ def frozen_outputs_stale(b, notes):
 
 
 def open_next_round(b, nid):
-    """次の周を開く唯一の口（周の締めの next_round と、人の答えの continue / escalate が呼ぶ）。
+    """次の周を開く唯一の口（周の締めの next_round と、人の答えの continue / escalate と、止めた周から続ける resume が呼ぶ）。
     init --stop-after-round N の run は、N 周目の締めの後で開かずに止める——偽を返し、盤面は stopped と halted
     （by=stop_after_round）になる。止めた後の next は halted の分岐が後のノードを出さない。並べた run を 1 周で止めて
     合流させる運用と、プログラムが回す形のために、周の数を run の外が決める口（実測 2026-09-25: 止める口が無く、
