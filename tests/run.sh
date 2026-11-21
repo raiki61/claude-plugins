@@ -476,7 +476,6 @@ def r3(mutate):
     mutate(rec)
     return rec
 
-deferred_key = defer_unit(templates["round-2"])["key"]
 for name, mutate in {
     # 前ラウンドが round 1 から持ち越しているのに、今ラウンドが round 2 からと書く。
     "carry-chain-broken": lambda r: r["materials"]["prior_decisions"].update(from_round=2),
@@ -3781,9 +3780,8 @@ def git(*a):
 # 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残す。返すのは CLEAN(渡った本文だけを見る)。
 # 1 回の終わりに複数の文書を並べて読むので、名前は mktemp で分ける(数えて名付けると、並んだ読み手が同じ名前に書く)
 READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; "$CR_PY" "$CR_REPLY_PY"' % calls.as_posix()
-def prompts(suffix=""):
-    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)
-            if f.name.endswith(".base") == (suffix == ".base")]
+def prompts():
+    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)]
 def last_prompt():
     got = prompts()
     return got[-1], len(got)
@@ -3992,7 +3990,7 @@ PY
 # 前は手元の文書の読みがターンの終わりに裏で走るだけで、部署が同じターンで --land まで済ませると、指摘はメインブランチに入った後に届いた
 expect_output 0 "DOCS_BRANCH_OK" "coldread のブランチのゲート: メインブランチとの分かれ目からブランチが書いた文書だけを読み、同じブランチの打ち直しは前の回から変えた所だけを読んで前の詰まりは問い直し、詰まりで止め、推測だけなら通し、同じ依頼文は読み直さず、読めなければ止め、語の置き換えだけの行は数えない" \
     "$PY_BIN" - "$ROOT" "$WORK/docs-branch" <<'PY'
-import json, os, pathlib, subprocess, sys
+import os, pathlib, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -6153,6 +6151,7 @@ expect_output 0 "RANGE_OK" \
 expect_output 0 "NO_TARGET_OK" \
     "catchup: PR も番号も無いブランチ（main 等）でも止まらず、GitHub に聞かずに手元のブランチと未コミットの中身（枠と飛び先）を出す" \
     "$PY_BIN" "$CU_CASE" no-target
+# stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError になり、日本語の報告そのものが出せない＝ツールが丸ごと使えなくなる。
 # GitHub Actions の windows-latest で実測して赤くなった)
 expect_output 0 "○ 待ち" \
@@ -7806,7 +7805,7 @@ fresh_made=2 fresh_reused=0 line=写し: 作った 2 / 使い回した 0 / 捨�
     "$PY_BIN" "$WORK/mut-lease.py" "$ROOT/tests"
 # 撃ち比べ（--same-as）: 使い回しで撃った報告と、腕ごとに作り直して撃った結果を突き合わせる。撃たずに、選び方・比べ方・main の配線を見る
 cat > "$WORK/mut-sameas.py" <<'PYSAME'
-import json, os, pathlib, subprocess, sys, tempfile
+import json, pathlib, subprocess, sys, tempfile
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -8310,7 +8309,6 @@ assert "second line" in out, "NO_TEST を含む FAIL 行で誤って早期に止
 # timer.cancel(): 通常終了のあとに、時間切れ用の Timer を取り消す（生き残ると後から kill を撃つ）。
 # **時間の源を差し替えて見る**（unittest.mock.patch）——本物の Timer と短い窓で見ていたとき、負荷の高い機械では子の
 # 起動が窓より遅れて Timer が先に撃ち、通常終了が timeout に倒れて赤になった（実測 2026-09-25: 負荷 88〜102 で 8 回中 6 回）
-import threading
 from unittest import mock
 with mock.patch.object(threading, "Timer") as timer_cls:
     rc, out = mutate.run_group([sys.executable, "-c", "print('quick')"], cwd=root)
