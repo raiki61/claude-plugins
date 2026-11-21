@@ -21,9 +21,10 @@ import posixpath
 import re
 import subprocess
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "steps", "world", "copied"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import atomic  # noqa: E402 — 書きかけを残さない書き方。/catchup と共用
 import excerpts  # noqa: E402 — 依頼の行の識別子の取り出し（工場の excerpts.banned_tokens の字のままの写し）
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -88,18 +89,8 @@ def steps_dir(pr):
 
 
 def write_json(path, val):
-    """同じフォルダの一時のファイルに書いてから置き換える（途中で切れたファイルを残さない）"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".steps-", suffix=".json", dir=os.path.dirname(path))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(val, f, ensure_ascii=False, indent=1)
-            f.write("\n")
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+    """書きかけのファイルを残さずに書く（lib/atomic.py）"""
+    atomic.write_text(path, json.dumps(val, ensure_ascii=False, indent=1) + "\n")
 
 
 # ---- 依存の一覧（設計の 3.2）----

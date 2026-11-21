@@ -70,6 +70,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import atomic  # noqa: E402 — 書きかけを残さない書き方。/catchup と共用
 import catchup_html  # noqa: E402 — ページの書き方と VS Code で開く口を /catchup と共用
 # 担当者・Linked PR の作者・閉じた人の事実は /whose-turn・/catchup と共用。誰が進めているか（doers）の規則だけをここに置く
 from people import ASSIGNEES_FIRST, LEGACY_ASSIGNEES, closer_of, linked_prs, logins  # noqa: E402
@@ -830,7 +831,7 @@ def main(argv=None, env=None, root=None):
     raw, loose = fetch(owner, name, today)
     data = build(raw, loose, repo, today, dates=dates)
     page = repo_dir(repo, root) / "map.html"
-    catchup_html._write_atomic(page, build_html(TEMPLATE.read_text(encoding="utf-8"), data))
+    atomic.write_text(page, build_html(TEMPLATE.read_text(encoding="utf-8"), data))
     print("\n".join([str(page), summary_line(data), catchup_html.open_in_vscode(page, env)]))
     return 0
 

@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import tempfile
 
+import atomic  # 同じ lib/ にある。書きかけを残さない書き方
 import changemap  # 同じ lib/ にある。呼び手（catchup.py）が lib/ を sys.path に足してから読む
 
 SCHEMA = 1
@@ -886,23 +887,6 @@ def build_html(template, data, fields, entry, read=None):
     return pattern.sub(lambda m: filled.pop(m.group(0), m.group(0)), template)
 
 
-def _write_atomic(path, text):
-    """同じ階層の一時ファイルに書いてから置き換える。拡張の autoRefresh（onFileChange）が書きかけを読まない。"""
-    path = pathlib.Path(os.path.realpath(path))  # symlink の設定（dotfiles 管理）は、置き換えて普通の file にせず、指す先に書く
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix="." + path.name + ".", dir=str(path.parent))
-    try:
-        with open(fd, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
-        if path.exists():
-            shutil.copymode(path, tmp)  # mkstemp は 0600 で作るので、元の権限を引き継ぐ
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-
 def summary_line(entry, fields):
     head = " ".join(x for x in (entry["ref"], entry["title"]) if x)
     if len(head) > 48:
@@ -920,7 +904,7 @@ def write_page(data, fields, root=None, template=None, now=None, read=None):
     rel = page_rel(data, fields)
     entry = index_entry(data, fields, rel, now)
     path = root / rel
-    _write_atomic(path, build_html(template, data, fields, entry, read))
+    atomic.write_text(path, build_html(template, data, fields, entry, read))
     rebuild_index(root)
     return path, summary_line(entry, fields)
 
@@ -962,7 +946,7 @@ def collect_entries(root):
 def rebuild_index(root):
     root = pathlib.Path(root)
     path = root / "index.html"
-    _write_atomic(path, index_html(collect_entries(root)))
+    atomic.write_text(path, index_html(collect_entries(root)))
     return path
 
 
@@ -1215,7 +1199,7 @@ def merge_settings(path, now=None):
     assoc[ASSOC_GLOB] = VIEW_TYPE
     obj[ASSOC_KEY] = assoc
     obj[AUTO_REFRESH[0]] = AUTO_REFRESH[1]
-    _write_atomic(path, json.dumps(obj, ensure_ascii=False, indent=4) + "\n")
+    atomic.write_text(path, json.dumps(obj, ensure_ascii=False, indent=4) + "\n")
     lines.append(f"設定 {path} に足した: " + "、".join(gaps))
     return lines, True
 
@@ -1277,7 +1261,7 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
         sample = root / "setup-sample.html"
         template = TEMPLATE.read_text(encoding="utf-8")
         entry = index_entry(SAMPLE_DATA, SAMPLE_FIELDS, sample.name, now or dt.datetime.now().astimezone())
-        _write_atomic(sample, build_html(template, SAMPLE_DATA, SAMPLE_FIELDS, dict(entry, page="")))
+        atomic.write_text(sample, build_html(template, SAMPLE_DATA, SAMPLE_FIELDS, dict(entry, page="")))
         rebuild_index(root)
         did.append(f"見本のページを {sample} に描いた")
         if live:

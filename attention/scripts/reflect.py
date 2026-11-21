@@ -26,6 +26,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import atomic  # noqa: E402 — 書きかけを残さない書き方。/catchup と共用
 import catchup_html  # noqa: E402 — ページの書き方と VS Code で開く口を /catchup と共用
 import changemap  # noqa: E402 — remote URL の読み方。/catchup と共用
 import claude_auth  # noqa: E402 — 設定のフォルダの決め方（リポジトリの scripts/ の写し）
@@ -762,7 +763,7 @@ def read_ledger(path):
 
 
 def write_ledger(path, ledger):
-    catchup_html._write_atomic(pathlib.Path(path), json.dumps(ledger, ensure_ascii=False, indent=2) + "\n")
+    atomic.write_text(pathlib.Path(path), json.dumps(ledger, ensure_ascii=False, indent=2) + "\n")
 
 
 def decide(path, pid, status, note="", today=None):
@@ -1087,7 +1088,7 @@ def write_diary(diary_dir, data, text):
         body = pat.sub(lambda _m: block, body, count=1)
     else:
         body = body.rstrip("\n") + "\n\n" + block
-    catchup_html._write_atomic(path, body)
+    atomic.write_text(path, body)
     return f"日記のセクションを書いた: {path}"
 
 
@@ -1114,7 +1115,7 @@ def render(data_path, fields_path, env=None, root=None, template=None, today=Non
     fields = {**fields, "proposals": rank(kept), "dropped": dropped}
     template = template if template is not None else TEMPLATE.read_text(encoding="utf-8")
     path = page_path(data, root)
-    catchup_html._write_atomic(path, build_html(template, data, fields))
+    atomic.write_text(path, build_html(template, data, fields))
     write_ledger(lpath, ledger)
     lines = [str(path), fields["headline"]]
     if dropped:
@@ -1161,7 +1162,7 @@ def main(argv=None):
         print(text)
         return 0
     out = reflect_root() / "materials" / f"{data['period']['start']}_{data['period']['end']}.json"
-    catchup_html._write_atomic(out, text + "\n")
+    atomic.write_text(out, text + "\n")
     c = data["counts"]
     print(f"{out}\n人の会話 {c['human_sessions']} 本・発言 {c['asks']} 件・裏の会話 {c['background_sessions']} 本・"
           f"commit {sum(r['count'] for r in data['commits'])} 件・GitHub の動き {sum(g['count'] for g in data['github'])} 件")

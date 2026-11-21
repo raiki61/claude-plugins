@@ -6,8 +6,8 @@
 """
 
 import json
-import os
-import tempfile
+
+import atomic  # 同じ lib/ にある。書きかけを残さない書き方
 
 # my-turn-dig.js の RECORD_VERSION と同じ値にそろえる。違う版の記録は使い回さない（my-turn-prep.py の --prior）
 # 3: ノードに worth・findingKind・locations・cost・finePremise を足し、記録に purpose と指摘の台帳（ledger）を足した
@@ -54,19 +54,8 @@ def load_result(path):
 
 
 def write(path, rec):
-    """記録を書く。同じフォルダの一時のファイルに書いてから置き換え、途中で切れた記録を残さない。"""
-    folder = os.path.dirname(os.path.abspath(path))
+    """記録を書く。同じフォルダの一時のファイルに書いてから置き換え、途中で切れた記録を残さない（lib/atomic.py）。"""
     try:
-        os.makedirs(folder, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=".record-", suffix=".json", dir=folder)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-                json.dump(rec, f, ensure_ascii=False, indent=1)
-                f.write("\n")
-            os.replace(tmp, path)
-        except BaseException:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
+        atomic.write_text(path, json.dumps(rec, ensure_ascii=False, indent=1) + "\n")
     except OSError as e:
         raise RecordError("記録 %s を書けません: %s" % (path, e.strerror or e))
