@@ -430,8 +430,7 @@ def main():
     print_list("検証税を省いた直し（阻害要因ではない。依頼者の指定が本当にあったかを人が見ろ）:", untaxed)
 
     if rec["structure_gate"]["fired"]:
-        print("導線の引き金が立った（阻害要因ではない。構造の判断がこの周の文章の直しより先）:")
-        print(f"  - {rec['structure_gate']['decision']}")
+        print_list("導線の引き金が立った（阻害要因ではない。構造の判断がこの周の文章の直しより先）:", [rec["structure_gate"]["decision"]])
 
     found = blockers(rec, prev)
     if found:

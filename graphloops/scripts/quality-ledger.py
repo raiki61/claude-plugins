@@ -187,11 +187,11 @@ def _version_of(engine):
     return engine.get("version") or UNREAD_VERSION
 
 
-def read_run(d, where, verdicts, now=None):
+def read_run(d, where, verdicts):
     """盤面 1 本を 1 行にする。state.json が読めなければ読めない行。一部が読めなければその部分だけ数えない。
     フィールドの形が想定と違う盤面（旧い形・手で壊した盤面）で落ちた例外はここ 1 か所で受け、読めない行にする"""
     try:
-        return _read_run(d, where, verdicts, now)
+        return _read_run(d, where, verdicts)
     except Exception as e:
         return {"where": where, "unreadable": f"盤面の形が違う（{type(e).__name__}）"}
 
@@ -273,7 +273,7 @@ def _trace_events(d, first, parts):
     return ev, role_rows, times
 
 
-def _read_run(d, where, verdicts, now):
+def _read_run(d, where, verdicts):
     row = {"where": where}
     try:
         state = _read_json(d / "state.json")
@@ -315,7 +315,7 @@ def _read_run(d, where, verdicts, now):
     if times:
         row["elapsed_min"] = round((max(times) - min(times)).total_seconds() / 60, 1)
         if row["status"] == "running":
-            now = now or datetime.datetime.now(max(times).tzinfo)
+            now = datetime.datetime.now(max(times).tzinfo)
             row["since_last_trace_min"] = round((now - max(times)).total_seconds() / 60, 1)
     row["checks_cache"] = _cache_outcomes(d, parts)
     unchecked = collections.defaultdict(collections.Counter)
