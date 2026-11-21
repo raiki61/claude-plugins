@@ -85,6 +85,11 @@ def run(argv, cwd=None):
     return p.returncode, p.stdout or "", p.stderr or ""
 
 
+def as_proc(runner):
+    """このファイルの runner（(終了の値, 標準出力, 標準エラー) を返す）を、works-dispatch の gitx が受ける runner（CompletedProcess を返す）の形にする。"""
+    return lambda argv: subprocess.CompletedProcess(argv, *runner(argv))
+
+
 class Limited(RuntimeError):
     """gh が GitHub の利用制限（1 次の "API rate limit exceeded" と 2 次の "secondary rate limit"）で断られた。"""
 
@@ -269,12 +274,6 @@ def common_dir(runner, root=ROOT):
     return out.strip()
 
 
-def place_dir(runner, place):
-    """place の属するリポジトリの git の共通のディレクトリ（git でなければ None）。todo.inboxes_from がほかの会社の受付箱を引くのに渡す。"""
-    code, out, _ = runner(["git", "-C", place, "rev-parse", "--path-format=absolute", "--git-common-dir"])
-    return os.path.normpath(out.strip()) if code == 0 and out.strip() else None
-
-
 def mine(inbox, place_common):
     """このツールから回した頼みの (閉じていない物が在るか, 一番新しい頼みの時刻〔Unix 時刻。無ければ None〕)。頼みの題は works-dispatch が
     「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/works-factory-pin-case.py の title が赤になる）。
@@ -357,7 +356,7 @@ def watch(stdin, runner, root, now, env, lander):
 def look(dry, runner, root, now, env, lander, cdir):
     # 読めない失敗（RuntimeError・OSError）は呼ぶ側の watch が「読めなかった」の行にして 1 で終える
     # 開いた頼みを先に見る（工場を読めない失敗も頼みに変わるので、読む前に見ないと、失敗が続く間 main に入れるたびに頼みが積まれる）
-    still_open, asked_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
+    still_open, asked_at = mine(deliver.inbox_of(cdir), lambda place: gitx.common_dir(place, as_proc(runner)))
     if still_open:
         print("このツールから回した頼みが開いているので黙る")
         return 0
@@ -502,7 +501,7 @@ def land_pin(pin, to, commits, cdir, runner, env):
     if now_pin != pin:
         return False, (f"origin の {MAIN} の PIN が {(now_pin or '読めない')[:8]} で、見張りが読んだ {pin[:8]} と違う（ほかの上げが先に入った）ので打たない。"
                        "次に main に入れたときの合図で見直す")
-    for e in gitx.listed_worktrees(source, lambda argv: subprocess.CompletedProcess(argv, *runner(argv))):
+    for e in gitx.listed_worktrees(source, as_proc(runner)):
         if e.get("branch") == branch:
             why = e.get("locked") or ""
             pid = why[len(OWNER):].strip() if why.startswith(OWNER) else ""
