@@ -8,7 +8,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ### Changed
 
-- 記録の検証器の整理（利用者の動きは変わらない）。`scripts/firstread-record.py` で、構造の判断の引き金を出す所の、見出しと 1 項目を手で書いていた出力を、同じファイルに在る一覧の出力の関数に任せた（出る文は同じ）。共有の土台（`scripts/record_common.py`）と `scripts/comment-ratio.sh` のコメントで、関数を呼ぶ検証器の数と、関数の置き場の取り違えを直した。
+- 記録の検証器の整理（利用者の動きは変わらない）。`scripts/firstread-record.py`（`/firstread-loop` の記録を検証するスクリプト）で、構造の判断が文章の直しより先に要るときに出す「導線の引き金が立った」という通知を、見出しと 1 項目を手で書いて出していた作りから、同じファイルのほかの通知が使っている一覧の出力の関数 `print_list`（共通部品 `scripts/record_common.py` に在る）を呼ぶ作りに変えた。出る文は同じ。
+- 検証器の共通部品 `scripts/record_common.py` と、コメントの比率を検査する `scripts/comment-ratio.sh` のコメントを実態に合わせた。共通の関数 `_rows` を呼ぶ検証器は 3 本、`fail()`（検査の失敗を出して止める関数）と終了コードを決める境界 `run` の置き場は `review-record.py` ではなく `record_common.py`、と直した。コードの動きは変わらない。
 
 ## [0.56.0] - 2026-11-21
 

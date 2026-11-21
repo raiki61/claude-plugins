@@ -481,8 +481,8 @@ def test_rejections():
     check(st["git_mismatches"][0]["accepted"] == "自分で作った", "git_mismatches に理由が残る")
     # 穴の宣言: プロンプトに reads に無い穴があると engine が止まる（graph を壊して確かめる）
     prompts = pathlib.Path(by["p0.claims"]["prompt_file"]).read_text(encoding="utf-8")
-    # **回す側のノードには本文でなくパスが渡る。** 静的にも同じことを見る（graphcheck.py の main の
-    # 「回す側（{rb}）の節に書けない」のチェック——回す側のノードに file: / section: の穴を書けない）
+    # **回す側のノードには本文でなくパスが渡る。** 静的にも同じことを見る（graphcheck.py の check() の
+    # 「回す側（{rb}）のノードに書けない」のチェック——回す側のノードに file: / section: の穴を書けない）
     # パスは engine の契約（init が resolve した綴り）で探す——生の綴りだと Windows の 8.3 短縮名（RUNNER~1）で外れる
     doc = str(run.doc.resolve())
     check(doc in prompts and "主張 A・B・C・D" not in prompts, "回す側のノードには文書のパスが渡り、本文は貼られない")
