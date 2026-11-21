@@ -518,12 +518,9 @@ def find_anchor(ev, node, me):
     if mine:
         return mine[-1], "mine"
 
-    handover = []
-    for e in ev:
-        if e["key"] in ("review_request", "assign") and e["to"] == me:
-            handover.append(e)
-        elif e["cat"] == SPOKEN and mentioned(e["text"], me):
-            handover.append(e)
+    handover = [e for e in ev
+                if (e["key"] in ("review_request", "assign") and e["to"] == me)
+                or (e["cat"] == SPOKEN and mentioned(e["text"], me))]
     if handover:
         return handover[-1], "handover"
     return None, "created"
@@ -1883,35 +1880,32 @@ def render_since_thread(th, node, lines, lo, hi, diff_since, full, frame=True):
     out = []
     w = out.append
     when = f"私の発言（{hhmm(th['mine_t'])}）"
+
+    def no(msg):
+        return [f"  {when}{msg}"], False
+
     found = since_base({"t": th["mine_t"]}, node)
     if not found:
-        w(f"  {when}以降の変更: 基準の commit を置けない（発言が取った commit の全部より前）")
-        return out, False
+        return no("以降の変更: 基準の commit を置けない（発言が取った commit の全部より前）")
     base, _ = found
     authored, merges, missing = since_commits(node, base)
     if missing:
-        w(f"  {when}以降の変更: 基準の commit {base[:7]} が今の head の履歴に無い（履歴の書き換えか、窓の外）")
-        return out, False
+        return no(f"以降の変更: 基準の commit {base[:7]} が今の head の履歴に無い（履歴の書き換えか、窓の外）")
     if not authored and not merges:
-        w(f"  {when}以降、commit は無い")
-        return out, False
+        return no("以降、commit は無い")
     tally = f"作者側の commit {len(authored)} 本" + (f"。取り込み {merges} 本の分も含む" if merges else "")
     head = node.get("headRefOid")
     text = diff_since(th["path"], base, head) if diff_since and head else None
     if text is None:
-        w(f"  {when}以降の変更: 出せない（手元にこの PR の commit が無い。gh pr diff で見る）")
-        return out, False
+        return no("以降の変更: 出せない（手元にこの PR の commit が無い。gh pr diff で見る）")
     hunks = split_hunks(changemap.split_diff(text)[0].get(th["path"], []))
     if not hunks:
-        w(f"  {when}以降、この file は変わっていない（{tally}）")
-        return out, False
+        return no(f"以降、この file は変わっていない（{tally}）")
     if not frame:
-        w(f"  {when}以降、この file は {len(hunks)} か所変わっている（{tally}。削除された側の行への指摘なので枠にしない。"
-          "gh pr diff で見る）")
-        return out, False
+        return no(f"以降、この file は {len(hunks)} か所変わっている（{tally}。削除された側の行への指摘なので枠にしない。"
+                  "gh pr diff で見る）")
     if lines is None:
-        w(f"  {when}以降の変更: 変わっている（{tally}）が、head の file が読めないので枠にできない。gh pr diff で見る")
-        return out, False
+        return no(f"以降の変更: 変わっている（{tally}）が、head の file が読めないので枠にできない。gh pr diff で見る")
     if lo is None:
         spans = merge_spans(func_span(lines, min(max(s, 1), len(lines)))[:2] for s, _, _ in hunks)
     else:
@@ -1919,8 +1913,7 @@ def render_since_thread(th, node, lines, lo, hi, diff_since, full, frame=True):
     picked = [(a, b, [h for h in hunks if hunk_overlaps(h, a, b)]) for a, b in spans]
     picked = [p for p in picked if p[2]]
     if not picked:
-        w(f"  {when}以降、この関数は変わっていない（file の他の所に {len(hunks)} 枠。{tally}）")
-        return out, False
+        return no(f"以降、この関数は変わっていない（file の他の所に {len(hunks)} 枠。{tally}）")
     w(f"  {when}以降のこの file の変更（{tally}）。今の姿に帯（前の行は #│、色の行は今。`| ` の後ろをそのまま写す）:")
     total = 0
     for i, (a, b, hs) in enumerate(picked):
