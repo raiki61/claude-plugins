@@ -13,6 +13,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -375,12 +376,8 @@ def _frames(tmp):
         "renamed_is_not_new": "=== src/new_name.py （言語名 python）\n    飛び先 src/new_name.py:1\n    | def moved():" in out
                               and "    | #│  return 1" in out and "    |     return 99" in out,
     }
-    saved = wai.changemap.frame_diff
-    wai.changemap.frame_diff = lambda **kw: None
-    try:
+    with mock.patch.object(wai.changemap, "frame_diff", lambda **kw: None):
         failed = "\n".join(wai.changemap.frames_section(cwd, ["src/x.py"]))
-    finally:
-        wai.changemap.frame_diff = saved
     want["diff_failure_is_not_a_verdict"] = (
         failed == "  変更の中身: 出せない（git diff が失敗した。木と件数だけが上の材料）")
     return verdict("FRAMES", want, out + "\n" + failed + "\n---\n" + one)

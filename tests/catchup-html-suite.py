@@ -9,14 +9,18 @@ VS Code の socket の選び方（新しい順・生きているものだけ・�
 雛形の作り（発言の Markdown を固定した版で描き生の HTML を描かない・ターンの動きは会話の流れの形・持ち主の値が無い）。
 """
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -88,7 +92,6 @@ class FieldsTest(unittest.TestCase):
 
     def test_figure_kind_message_names_a_doc_that_exists(self):
         # 言い分が指す決まりの文書が在る（スキルの別ファイルを分け直したとき、古い名前が残ると AI が開けない）
-        import re
         errs = ch.validate_fields(fields(figure={"kind": "flow"}))
         docs = [d for e in errs for d in re.findall(r"skills/catchup/references/[\w-]+\.md", e)]
         self.assertTrue(docs, errs)
@@ -545,7 +548,6 @@ class TemplateTest(unittest.TestCase):
     def test_pages_load_nothing_from_outside(self):
         # CSP で外のサイトからの読み込みを塞ぐ（受付 e07d56）。meta の CSP はそれより後の読み込みにだけ効くので、
         # head の中で最初のスクリプトと style より前に置く。ページの中のスクリプトと style だけを許す
-        import re
         index = ch.index_html([])
         for name, page, allowed in (("雛形", self.TPL, {"script-src", "style-src"}), ("一覧", index, {"script-src", "style-src"})):
             with self.subTest(name):
@@ -821,22 +823,14 @@ class OutWiringTest(unittest.TestCase):
     """--out は文字の材料と一緒に描く材料を書く。描く材料を組めなくても、文字の材料は落とさない。"""
 
     def run_main(self, page_commit):
-        import contextlib
-        import io
-        saved = (cu.resolve_target, cu.render_commit, cu.page_commit)
-        cu.resolve_target = lambda token, repo: (None, None, "oid", "commit")
-        cu.render_commit = lambda oid, cwd=None, frame=None, full=False: "COMMIT"
-        cu.page_commit = page_commit
         buf = io.StringIO()
-        try:
-            with contextlib.redirect_stdout(buf):
-                rc = cu.main(["HEAD", "--out"])
-        finally:
-            cu.resolve_target, cu.render_commit, cu.page_commit = saved
+        with mock.patch.multiple(cu, resolve_target=lambda token, repo: (None, None, "oid", "commit"),
+                                 render_commit=lambda oid, cwd=None, frame=None, full=False: "COMMIT",
+                                 page_commit=page_commit), contextlib.redirect_stdout(buf):
+            rc = cu.main(["HEAD", "--out"])
         return rc, buf.getvalue()
 
     def paths(self, out):
-        import re
         return [m for m in re.findall(r"(\S+\.(?:txt|json)) に書いた", out)]
 
     def test_material_json_is_written_next_to_the_report(self):
