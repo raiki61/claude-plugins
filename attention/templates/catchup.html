@@ -844,8 +844,6 @@ function groupEvents() {
     const parts = [push.length ? `push ${push[push.length - 1].sha}${push.length > 1 ? ` ほか ${push.length - 1}` : ""}` : null,
       th ? (g.who === H.author ? `${th} 件に返信` : `${th} 件に指摘`) : null, com ? (com > 1 ? `コメント ${com}` : "コメント") : null, ...rest];
     g.label = parts.filter(Boolean).join(" · ");
-    const sameDay = g.first.slice(0, 5) === g.last.slice(0, 5);
-    g.time = g.first === g.last ? g.first.slice(6) : sameDay ? `${g.first.slice(6)}–${g.last.slice(-2)}` : `${g.first}–${g.last}`;
   }
   return groups;
 }
