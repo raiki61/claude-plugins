@@ -140,7 +140,7 @@ def sandbox_available():
 
 def _git(cwd, *args):
     """cwd で git を走らせる。返すのは (成功か, 行, 標準エラー)。git が無い・時間切れは (False, [], 理由)。
-    role_run は盤面も graph も import しないので、engine の util.git を使わない。git の文は英語に固める（LC_ALL=C・LANGUAGE を外す）
+    engine の util.git は run の対象リポジトリ（GIT_CWD）で走って cwd を取らず、stdout しか返さないので使わない。git の文は英語に固める（LC_ALL=C・LANGUAGE を外す）
     ——呼び元が『not a git repository』の文で作業ツリーの外を見分ける。終了コードは作業ツリーの外と所有者の食い違い（safe.directory）・
     .git の中などの致命の誤りが同じ 128 で、分けられない（分けずに外へ倒すと宣言の deny と守る場所を黙って落とす）"""
     env = {k: v for k, v in os.environ.items() if k != "LANGUAGE"}
