@@ -326,7 +326,7 @@ RMTREE_ALLOWED = {
     ("tests/mutate.py", "copy"): (1, "作る途中の例外・止める信号で、同じ関数が scratch_dir で作った作業場"),
     ("tests/mutate.py", "_drop"): (1, "この起動が run_root で作ったルート（ロックのファイルは最後に消す）"),
     ("tests/mutate.py", "sweep_roots"): (1, "前の起動が残したルートのうち、ロックを取れた物とロックの無い物だけ"),
-    ("scripts/works-factory-pin.py", "land_pin"): (1, "同じ関数が mkdtemp で作った機械の上げの一時の置き場"),
+    ("scripts/works-factory-pin.py", "drop_land"): (1, "land_pin が mkdtemp で作った機械の上げの一時の置き場（片付けだけを drop_land に分けてある）"),
 }
 
 
