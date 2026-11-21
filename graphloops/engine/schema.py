@@ -91,7 +91,7 @@ def validate_schema(value, schema, path="$"):
         if "items" in schema:
             for i, v in enumerate(value):
                 errs += validate_schema(v, schema["items"], f"{path}[{i}]")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
+    if _is_type(value, "number"):
         if "minimum" in schema and value < schema["minimum"]:
             errs.append(f"{path}: {schema['minimum']} 未満")
         if "maximum" in schema and value > schema["maximum"]:
