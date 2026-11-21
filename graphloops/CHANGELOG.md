@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- engine・rules・scripts と同梱の試験の整理を続けた（利用者の動きは変わらない）。graphcheck の段の検査で 6 回くり返していた NG の目印をやめ、NG の文をためてから順にまとめて出すようにした（出る行と順は同じ）。同じ集合や条件を 2 回計算していた所（graphcheck・advance の作業ツリーを守る役の判定・review-loop の unverified の条件）を 1 回にした。だれも渡さない引数（品質の台帳 `scripts/quality-ledger.py` の `now`）と、使わない別名・届かない分岐（commands の `_board_name` の型の確かめ・`thicken` の重なった条件）を消した。取り込んだ関数 `now` と同じ名前の変数を、別の名前に替えた。関数の中で何度も書いていた import を、ファイルの先頭に 1 つにした。docstring の抜け（research-loop の `on_stop`）と古い説明（review-loop の `escalate_on_thrash`）を今の動きに合わせた。同梱の試験では、試験の土台（`tests/py/conftest.py`）に在る置き場・git・graphcheck の道具を使って写しの定義を消し、模擬実行の台本 2 本で review-loop の rules を読む所を 1 つの関数にまとめ、だれも使わない fixture の `gl_run` を消した。
+
 ## [0.50.0] - 2026-11-21
 
 ### Changed

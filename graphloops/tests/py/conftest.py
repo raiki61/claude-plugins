@@ -51,6 +51,14 @@ def git(repo, *args):
                           check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
+@pytest.fixture
+def plugin(tmp_path):
+    """graph・prompts・rules・blocks の写し（graph はブロックのファイルを graph の置き場から相対で引く）"""
+    for d in ("graphs", "prompts", "rules", "blocks"):
+        shutil.copytree(PLUGIN / d, tmp_path / d)
+    return tmp_path
+
+
 @pytest.fixture(scope="module")
 def sandbox(tmp_path_factory):
     """graphcheck はプロンプトと rules を graph の隣から読むので、graph を差し替える置き場に写しておく"""

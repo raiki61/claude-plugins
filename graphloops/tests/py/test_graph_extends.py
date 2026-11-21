@@ -1,7 +1,6 @@
 """graph の差し替えの版（"extends"）の読み方——engine/schema.py の load_graph が元の graph に RFC 7396（JSON Merge Patch）で重ねる。
 TDD の流れ（graphs/review-loop-tdd.json）はこの口で今の流れ（graphs/review-loop.json）を写さずに差し替える。"""
 import json
-import shutil
 import types
 
 import pytest
@@ -133,16 +132,14 @@ def test_graph_text_covers_the_base(tmp_path):
     pytest.param({"p4.ci": None}, "nodes.p4.ci を消した", id="null-removes-a-node"),
     pytest.param({"p3.fix": {"schema": {"required": ["changes"]}}}, "schema.required を落とした", id="nested-array-drops-items"),
 ])
-def test_graphcheck_rejects_an_overlay_that_drops_base_items(tmp_path, patch, words):
+def test_graphcheck_rejects_an_overlay_that_drops_base_items(plugin, patch, words):
     """差し替えの版は元のノードから何も落とさない——配列の置き換えと null の削除は重ね方（RFC 7396）の正規の形なので、graphcheck が止める"""
-    for d in ("graphs", "prompts", "rules", "blocks"):
-        shutil.copytree(PLUGIN / d, tmp_path / d)
-    over = json.loads((tmp_path / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
+    over = json.loads((plugin / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
     for nid, v in patch.items():   # null も字面のまま書く（重ねるのは load_graph の仕事）
         over["nodes"][nid] = v if v is None or nid not in over["nodes"] else {**over["nodes"][nid], **v}
-    write(tmp_path / "graphs" / "review-loop-tdd.json", over)
+    write(plugin / "graphs" / "review-loop-tdd.json", over)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REVIEW_VALIDATOR, emit=lines.append)
+    ok = graphcheck.check(plugin / "graphs" / "review-loop-tdd.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any(words in l for l in lines)
 
 
@@ -160,11 +157,9 @@ def test_shipped_tdd_graph_keeps_every_base_dep_and_read():
     pytest.param({}, None, id="plain-chain-passes"),
     pytest.param({"p4.ci": {"deps": []}}, "元の review-loop-tdd.json の nodes.p4.ci.deps を落とした", id="drops-an-item-the-middle-inherited"),
 ])
-def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
+def test_graphcheck_takes_a_chain_on_the_tdd_graph(plugin, patch, words):
     """TDD の版の上にもう 1 段重ねた版を graphcheck が受け、根元から中間が継いだ要素を葉が落とせば止める（突合は直接の親の重ねた姿と）"""
-    for d in ("graphs", "prompts", "rules", "blocks"):
-        shutil.copytree(PLUGIN / d, tmp_path / d)
-    leaf = write(tmp_path / "graphs" / "review-loop-chain.json", {"extends": "review-loop-tdd.json", "nodes": patch})
+    leaf = write(plugin / "graphs" / "review-loop-chain.json", {"extends": "review-loop-tdd.json", "nodes": patch})
     lines = []
     ok = graphcheck.check(leaf, REVIEW_VALIDATOR, emit=lines.append)
     if words is None:
@@ -178,16 +173,14 @@ def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
     pytest.param({"$defs": {"lane_reply": {"required": ["rev"]}}}, "p3.delta_gates.result_schema.required を落とした", id="def-required-drops-items"),
     pytest.param({"inputs": {"review_md": None}}, "inputs.review_md を消した", id="null-removes-an-input"),
 ])
-def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patch, words):
+def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(plugin, patch, words):
     """ノードの外（最上位の配列・$defs・inputs）も同じ重ね方で黙って消えうる——graph の全体を元と突き合わせる"""
-    for d in ("graphs", "prompts", "rules", "blocks"):
-        shutil.copytree(PLUGIN / d, tmp_path / d)
-    over = json.loads((tmp_path / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
+    over = json.loads((plugin / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
     for k, v in patch.items():   # 版が既に持つ object の鍵には 1 段だけ重ねる（版の $defs を丸ごと差し替えない）
         over[k] = {**over[k], **v} if isinstance(v, dict) and isinstance(over.get(k), dict) else v
-    write(tmp_path / "graphs" / "review-loop-tdd.json", over)
+    write(plugin / "graphs" / "review-loop-tdd.json", over)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REVIEW_VALIDATOR, emit=lines.append)
+    ok = graphcheck.check(plugin / "graphs" / "review-loop-tdd.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any(words in l for l in lines), lines[-5:]
 
 
@@ -199,30 +192,26 @@ def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patc
                  id="engine-run-on-a-role-node"),
     pytest.param("p4.ci", {"engine_run": {"builtin": "declared_checks"}}, "engine_run は {builtin", id="engine-run-without-why"),
 ])
-def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
+def test_graphcheck_rejects_broken_nodes(plugin, node, patch, words):
     """足した静的検査は、赤くなる例を 1 つずつ持つ（driver のノードの条件名・prompt_append・読むフィールドのノード）"""
-    for d in ("graphs", "prompts", "rules", "blocks"):
-        shutil.copytree(PLUGIN / d, tmp_path / d)
-    g = json.loads((tmp_path / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    g = json.loads((plugin / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     g["nodes"][node].update({k: v for k, v in patch.items() if v is not None})
-    write(tmp_path / "graphs" / "review-loop.json", g)
+    write(plugin / "graphs" / "review-loop.json", g)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REVIEW_VALIDATOR, emit=lines.append)
+    ok = graphcheck.check(plugin / "graphs" / "review-loop.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any(words in l for l in lines), lines[-5:]
 
 
-def test_graphcheck_rejects_a_cond_reading_an_unknown_node(tmp_path):
+def test_graphcheck_rejects_a_cond_reading_an_unknown_node(plugin):
     """条件の関数が宣言した読むフィールドのノードが graph に無い——綴り違いのノード名は実行の前に落ちる"""
-    for d in ("graphs", "prompts", "rules", "blocks"):
-        shutil.copytree(PLUGIN / d, tmp_path / d)
-    rules = tmp_path / "rules" / "review-loop.py"
+    rules = plugin / "rules" / "review-loop.py"
     rules.write_text(rules.read_text(encoding="utf-8") + (
         "\n\n@cond_reads(\"out.p9.nowhere\")\ndef _bad_cond(v):\n    return True, \"検査用\"\n\n\nCONDS[\"bad_cond\"] = _bad_cond\n"), encoding="utf-8")
-    g = json.loads((tmp_path / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    g = json.loads((plugin / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     g["nodes"]["p4.ci"]["cond"] = "bad_cond"
-    write(tmp_path / "graphs" / "review-loop.json", g)
+    write(plugin / "graphs" / "review-loop.json", g)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REVIEW_VALIDATOR, emit=lines.append)
+    ok = graphcheck.check(plugin / "graphs" / "review-loop.json", REVIEW_VALIDATOR, emit=lines.append)
     assert not ok and any("読むフィールド 'out.p9.nowhere' のノードが無い" in l for l in lines), lines[-5:]
 
 

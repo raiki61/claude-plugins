@@ -548,7 +548,7 @@ def _ps_all():
     """全プロセスの表 ——({pid: _Proc}, None)。読めなければ (None, 理由)。_started_at と同じ ps（依存を足さない）。
     開始時刻は ps を起動する**前**の時刻から etime を引く——後の時刻から引くと ps の遅れが開始時刻に乗り、番号の再利用の
     見分け（REUSE_SLACK）を誤って真にする"""
-    now = time.time()
+    t0 = time.time()
     try:
         r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,uid=,etime=,stat="], capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=30)
@@ -560,7 +560,7 @@ def _ps_all():
         secs = parse_etime(f[4]) if len(f) >= 6 else None
         if secs is None or not all(x.lstrip("-").isdigit() for x in f[:4]):
             continue
-        rows[int(f[0])] = _Proc(int(f[0]), int(f[1]), int(f[2]), int(f[3]), now - secs, f[5])
+        rows[int(f[0])] = _Proc(int(f[0]), int(f[1]), int(f[2]), int(f[3]), t0 - secs, f[5])
     if r.returncode != 0 or not rows:
         return None, f"ps が全プロセスの表を返さない（exit {r.returncode}: {r.stderr.strip()[-200:]}）"
     return rows, None
@@ -883,7 +883,7 @@ def _started_at(pid):
     ——コマンド行の語で見ると、同じ engine が起動した兄弟の試行（同じ python・同じ with-auth.py）を見分けられない"""
     if os.name != "posix":
         return _win_started_at(pid)
-    now = time.time()   # ps を起動する前の時刻から引く（_ps_all と同じ——ps の遅れを開始時刻に乗せない）
+    t0 = time.time()   # ps を起動する前の時刻から引く（_ps_all と同じ——ps の遅れを開始時刻に乗せない）
     try:
         r = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=30)
@@ -893,7 +893,7 @@ def _started_at(pid):
     if not out:
         return GONE if not r.stderr.strip() else None   # 居ない番号は出力も誤りの文も無い（exit 1）
     secs = parse_etime(out)
-    return None if secs is None else now - secs
+    return None if secs is None else t0 - secs
 
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000

@@ -1,7 +1,6 @@
 """ブロックの約束の置き場（graphloops/blocks/）——graph は出口のノードの schema を $ref で指し、engine（engine/schema.py の
 inline_block_refs）が graph の置き場から引いて展開する。graphcheck の検査 18 が所属・出口・並列の上書き・共有の核を照合する。"""
 import json
-import shutil
 
 import pytest
 
@@ -19,14 +18,6 @@ def write(p, obj):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
     return p
-
-
-@pytest.fixture
-def plugin(tmp_path):
-    """graph・prompts・rules・blocks の写し（graph はブロックのファイルを graph の置き場から相対で引く）"""
-    for d in ("graphs", "prompts", "rules", "blocks"):
-        shutil.copytree(PLUGIN / d, tmp_path / d)
-    return tmp_path
 
 
 def run_check(path, validator=REVIEW_VALIDATOR):

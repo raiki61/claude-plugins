@@ -18,6 +18,9 @@ import pytest
 from conftest import REVIEW_GRAPH_PATH, git, run_graphcheck
 from engine import advance, commands, role_run, util
 
+GROUP = ({"start_new_session": True} if os.name == "posix"   # 子を別のプロセスグループに置く（木ごと止める試験の子）
+         else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
+
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
@@ -287,10 +290,8 @@ def test_launch_one_removes_the_work_place_when_the_copy_fails(repo, tmp_path, m
 def test_kill_sends_sigkill_to_a_group_that_ignores_sigterm(monkeypatch):
     """SIGTERM を無視する子も、猶予の後に木ごと止める（Windows は taskkill /T /F の分岐で同じく止まる）"""
     monkeypatch.setattr(role_run, "KILL_GRACE", 0.5)
-    kw = ({"start_new_session": True} if os.name == "posix"
-          else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
     code = "import signal,sys\nif hasattr(signal,'SIGTERM'): signal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready', flush=True)\nsys.stdin.read()"
-    p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kw)
+    p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, **GROUP)
     try:
         assert p.stdout.readline().strip() == b"ready"
         role_run._kill(p)
@@ -310,9 +311,7 @@ def test_kill_stops_the_grandchild_while_the_leader_lives():
             "g = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'])\n"
             "print(g.pid, flush=True)\n"
             "sys.stdin.read()")
-    kw = ({"start_new_session": True} if os.name == "posix"
-          else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
-    p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kw)
+    p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, **GROUP)
     try:
         grand = int(p.stdout.readline().strip())
         born = role_run._started_at(grand)
@@ -442,10 +441,8 @@ def test_launch_one_background_delegate_has_no_deadline_and_places_the_answer(re
 def test_kill_returns_once_the_group_is_gone(monkeypatch):
     """SIGTERM で終わる子なら、猶予を使い切らずにすぐ戻る（グループが空になった時点で止めたと数える）"""
     monkeypatch.setattr(role_run, "KILL_GRACE", 20)
-    kw = ({"start_new_session": True} if os.name == "posix"
-          else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
     p = subprocess.Popen([sys.executable, "-c", "print('ready', flush=True); import sys; sys.stdin.read()"],
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kw)
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, **GROUP)
     try:
         assert p.stdout.readline().strip() == b"ready"
         t = time.monotonic()

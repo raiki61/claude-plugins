@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import shutil
 import sys
 
 from . import effects, intake, launch_words, pointers
@@ -86,7 +87,6 @@ def launch_cwd(b):
 def grant_read(ctx, ref, pfile):
     """ツールゼロの役に Read で読ませるファイルを、プロンプトの隣（role_run.read_grant_path）へ写す。(写しのパス, None) か (None, 理由)。
     写す元はノードの read_file が名指す盤面の値（ファイルのパス）。名前は engine が instance の id から決める——チェックはその 1 本だけを許す"""
-    import shutil
     try:
         src = get_path(ctx, ref)
     except KeyError:
@@ -108,7 +108,6 @@ def claude_words(kind, sub, resume=False, schema=None):
     PATH を引いて絶対パスに替える（起動する時の曖昧さを 1 つ減らす）。**見つからなくても落とさない**——next は計画を出す所で、起動するのは
     回す側の環境である。ここで die にしたら、子を一度も起動しない場（台本の検査・別の機械での再開・記録を読むだけの用）まで動かなくなった
     （実測 2026-09-12: CI の 3 OS が全部赤。手元には claude が在るので緑だった）。実際に起動できないことは、launch が起動する瞬間に分かる"""
-    import shutil  # 起動するノードでだけ要る（全サブコマンドの起動に掛けない）
     if schema is not None:
         sub = {**sub, "json_schema": json.dumps(cli_schema(schema), ensure_ascii=False, separators=(",", ":"))}
     via = [a.format(**sub) for a in launch_words.VIA]
@@ -694,14 +693,15 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
 
 def _tree_before(b, inst, n, iid, nid, attempt):
     """作業ツリーを守る役と申告を突き合わせるノードの、起動の前の作業ツリー（状態コードとパスの並び・木の id）を instance に写す"""
-    if n["run_by"] in b.graph.get("tree_guard_roles", []):
+    guarded = n["run_by"] in b.graph.get("tree_guard_roles", [])
+    if guarded:
         # 1 回の next の中では取り直さない（扇のノードでは項目数ぶん同じ写しを取っていた）——memo は盤面が持つ。
         # porcelain は状態コードとパスだけなので、既に M のファイルの中身の書き換えは中身の木の id（tree_before_id）で見る
         snap = b.porcelain()
         if snap is None:
             die(f"{iid}: git status が取れない——{n['run_by']} の作業ツリー保護（前後の突合）ができない場所からは回せない（リポジトリの中で next を呼べ）")
         inst["tree_before"] = snap
-    if n["run_by"] in b.graph.get("tree_guard_roles", []) or n.get("declared_files"):
+    if guarded or n.get("declared_files"):
         said = []
         tree = b.worktree_tree(said)
         if tree is None:

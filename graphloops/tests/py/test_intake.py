@@ -14,7 +14,7 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine import commands, intake
+from engine import commands, intake, validator
 from engine.commands import launch_cause
 
 LOOP = PLUGIN / "scripts" / "loop.py"
@@ -182,7 +182,6 @@ def test_installed_roots_prefers_the_project_row_for_this_place_and_refuses_orph
 
 
 def test_find_plugin_path_takes_the_installed_version_and_stops_when_it_cannot_tell(tmp_path, monkeypatch):
-    from engine import validator
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     assert validator.find_plugin_path("agents/x.md", "fakeplug") is None   # 入っていない
     cur, newer_name = _cached(tmp_path, "0.36.0", "fakeplug"), _cached(tmp_path, "ea10b213686c", "fakeplug")
@@ -373,6 +372,14 @@ def test_launch_rows_are_keyed_by_how_they_failed(row, kind, want):
     assert exc == want and func
 
 
+def load_with_auth():
+    """scripts/with-auth.py を読み込む（呼ぶたびに新しいモジュールを作る）"""
+    spec = importlib.util.spec_from_file_location("with_auth_under_test", PLUGIN / "scripts" / "with-auth.py")
+    wa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wa)
+    return wa
+
+
 @pytest.mark.parametrize("note", ["none", "keychain-miss(svc)", "keychain-malformed(svc)", "keychain-error(TimeoutExpired)(svc)",
                                   "keychain(svc)", "inherited(CLAUDE_CODE_OAUTH_TOKEN)"])
 @pytest.mark.parametrize("rc", [0, 1])
@@ -380,9 +387,7 @@ def test_launch_rows_are_keyed_by_how_they_failed(row, kind, want):
 def test_launch_auth_follows_what_with_auth_wrote(note, rc, noisy, tmp_path, monkeypatch):
     """前置の層が書く段のファイルを、engine と同じ _auth_note で読ませる。子が標準エラーに何を書いても段は変わらず、
     子の claude には段の置き場の環境変数を渡さない"""
-    spec = importlib.util.spec_from_file_location("with_auth_under_test", PLUGIN / "scripts" / "with-auth.py")
-    wa = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(wa)
+    wa = load_with_auth()
     assert wa.AUTH_NOTE_ENV == commands.launch_words.AUTH_NOTE_ENV
     path = tmp_path / "auth.json"
     monkeypatch.setenv(wa.AUTH_NOTE_ENV, str(path))
@@ -408,9 +413,7 @@ def test_launch_auth_follows_what_with_auth_wrote(note, rc, noisy, tmp_path, mon
 def test_with_auth_passes_keychain_expiry_to_the_engine(note, want, tmp_path, monkeypatch, capsys):
     """Keychain から足した段だけ、その項目の切れる日の知らせを標準エラーと段のファイルに出し、engine が盤面に控えて next・status に出す。
     作り直した後（知らせが無い Keychain の段）の起動は控えを消す"""
-    spec = importlib.util.spec_from_file_location("with_auth_under_test", PLUGIN / "scripts" / "with-auth.py")
-    wa = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(wa)
+    wa = load_with_auth()
     path = tmp_path / "auth.json"
     monkeypatch.setenv(wa.AUTH_NOTE_ENV, str(path))
     monkeypatch.setattr(wa.claude_auth, "auth_env", lambda env, **_: (dict(env, CLAUDE_CONFIG_DIR="/c"), note))
@@ -616,7 +619,6 @@ def test_project_row_of_the_main_clone_counts_in_its_linked_worktree(tmp_path, m
 
 def test_find_plugin_path_names_each_ledger_warning_once(tmp_path, monkeypatch, capsys):
     """find_plugin_path は役ごとに引かれる——同じ台帳の警告をプロセスで 1 度だけ出す"""
-    from engine import validator
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(validator, "_WARNED", set())
     cur = _cached(tmp_path, "0.36.0", "fakeplug")
