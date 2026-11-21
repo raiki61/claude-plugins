@@ -15,7 +15,7 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 ### Changed
 
 - `docs/measures/2555-world-result.md` に、#2555 の 2〜4 回目を直した台本で採点し直した結果を足した。4 回目は、直す前の台本が合と出していたのが否になり、人が読んだ否と合う。走らせた後に文の正規表現を締めた札（`docs/measures/2555-world-key-strict.json`）では、3 回とも 3 つの札が人の読みと合う。2 回目に「拾えた」と書いた札 3 は、1 語の当たりだったので読み直して直した。次の PR からの札の書き方を、設計書（`docs/small-workflows-design.md`）の 8.2 に足した（頼み c348d0）。
-- 中の作りを整理した（頼み fb0dd6）。出力の文言・コマンドの引数・記録の形は変わらない。`/catchup` の台本（`scripts/catchup.py`）の同じ引き方の写しを 1 つにまとめ、長い関数を枝ごとに分けた。`/catchup` のページの図の検査（`scripts/lib/catchup_html.py`）の 3 つの写しを 1 つにまとめた。
+- 中の作りを整理した（頼み fb0dd6）。出力の文言・コマンドの引数・記録の形は変わらない。`/catchup` の台本（`scripts/catchup.py`）の同じ引き方の写しを 1 つにまとめ、長い関数を枝ごとに分けた。`/catchup` のページの図の検査（`scripts/lib/catchup_html.py`）の 3 つの写しを 1 つにまとめた。`scripts/my-turn-prep.py`・`scripts/reflect.py` が `lib/changemap.py` と同じ git の引き方を自前で持っていた所を、`changemap` の関数を呼ぶ形にした。`/catchup` のページの台本（`templates/catchup.html`）から、どこからも呼ばれない関数を消した。
 
 ## [0.77.0] - 2026-11-21
 
