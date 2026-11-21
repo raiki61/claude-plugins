@@ -3115,6 +3115,46 @@ def _declared_route_errors(b, out):
     return errs
 
 
+def _question_errors(V, out, keys, defer):
+    """judge の返答の questions を 1 件ずつ検証器の語彙で見た誤りの一覧（フィールド・kind/status・出どころ）"""
+    errs = []
+    for i, q in enumerate(out["questions"]):
+        unknown = sorted(set(q) - set(V.QUESTION_FIELDS))
+        if unknown:
+            errs.append(f"questions[{i}] に知らないフィールド: {unknown}（書けるのは {'/'.join(V.QUESTION_FIELDS)}）")
+        kind, status = q.get("kind"), q.get("status")
+        if kind not in V.QUESTION_KINDS:
+            errs.append(f"questions[{i}] の kind が不正: {kind}")
+            continue
+        if status not in V.QUESTION_STATUS:
+            errs.append(f"questions[{i}] の status が不正: {status}")
+            continue
+        domain, extra = V.QUESTION_KINDS[kind].domain, V.QUESTION_KINDS[kind].fields
+        for f in ("reason",) + extra + V.QUESTION_STATUS[status]:
+            if not q.get(f):
+                errs.append(f"questions[{i}]（{kind}/{status}）に '{f}' が要る")
+        if kind == "fork" and not (isinstance(q.get("options"), list) and len(q["options"]) >= 2):
+            errs.append(f"questions[{i}] の options は選択肢 2 つ以上（各項に帰結まで）")
+        # 出どころ（origin と depends）の走査は検証器の targets 1 本——3 走査を別々に書くと depends を足した修正が 2 か所にしか
+        # 当たらない（検証器自身の docstring に同じ事故が書いてある）
+        for fld, dom, val in V.targets(q):
+            if dom == "unit" and val not in keys | defer:
+                errs.append(f"questions[{i}] の {fld} '{val}' が units にも defer 台帳にも無い")
+            elif dom == "material" and val not in V.MATERIALS:
+                errs.append(f"questions[{i}] の {fld} は素材名: {val}")
+            elif dom == "review" and val not in V.REVIEWS:
+                errs.append(f"questions[{i}] の {fld} は R1〜R4: {val}")
+        if domain == "none" and V.targets(q):
+            errs.append(f"questions[{i}]（{kind}）は origin / depends を持てない")
+        if status in V.ASKING and kind in V.NO_OPEN_ORIGIN:
+            for k in [q.get("origin")] + list(q.get("depends", []) or []):
+                u = next((x for x in out["units"] if x["key"] == k), None)
+                if u and V.is_open(u):
+                    errs.append(f"questions[{i}]（{kind}）の出どころ '{k}' が [block] / do-now（人に聞く前に直す義務が消える。defer にして構造的理由を書け）")
+        errs += [f"questions[{i}]: {m}" for m in V.settled_state_errors(q, out["units"])]
+    return errs
+
+
 def judge_output(b, nid, out, item):
     """judge の返答を、検証器の語彙（写さず import）で先に見る。落ちるなら judge に返させ直す。
     あわせて 1 行のフィールドを 1 行に正規化する（out を補うだけ。記録を書くのは writes）。"""
@@ -3183,40 +3223,7 @@ def judge_output(b, nid, out, item):
         errs.append(f"one_shot_closes に今の周の units に無い key: {unknown}")
     defer = set(_hist(b, "defer_ledger", {}))
     errs += _keys_once(out["questions"], "questions")
-    for i, q in enumerate(out["questions"]):
-        unknown = sorted(set(q) - set(V.QUESTION_FIELDS))
-        if unknown:
-            errs.append(f"questions[{i}] に知らないフィールド: {unknown}（書けるのは {'/'.join(V.QUESTION_FIELDS)}）")
-        kind, status = q.get("kind"), q.get("status")
-        if kind not in V.QUESTION_KINDS:
-            errs.append(f"questions[{i}] の kind が不正: {kind}")
-            continue
-        if status not in V.QUESTION_STATUS:
-            errs.append(f"questions[{i}] の status が不正: {status}")
-            continue
-        domain, extra = V.QUESTION_KINDS[kind].domain, V.QUESTION_KINDS[kind].fields
-        for f in ("reason",) + extra + V.QUESTION_STATUS[status]:
-            if not q.get(f):
-                errs.append(f"questions[{i}]（{kind}/{status}）に '{f}' が要る")
-        if kind == "fork" and not (isinstance(q.get("options"), list) and len(q["options"]) >= 2):
-            errs.append(f"questions[{i}] の options は選択肢 2 つ以上（各項に帰結まで）")
-        # 出どころ（origin と depends）の走査は検証器の targets 1 本——3 走査を別々に書くと depends を足した修正が 2 か所にしか
-        # 当たらない（検証器自身の docstring に同じ事故が書いてある）
-        for fld, dom, val in V.targets(q):
-            if dom == "unit" and val not in keys | defer:
-                errs.append(f"questions[{i}] の {fld} '{val}' が units にも defer 台帳にも無い")
-            elif dom == "material" and val not in V.MATERIALS:
-                errs.append(f"questions[{i}] の {fld} は素材名: {val}")
-            elif dom == "review" and val not in V.REVIEWS:
-                errs.append(f"questions[{i}] の {fld} は R1〜R4: {val}")
-        if domain == "none" and V.targets(q):
-            errs.append(f"questions[{i}]（{kind}）は origin / depends を持てない")
-        if status in V.ASKING and kind in V.NO_OPEN_ORIGIN:
-            for k in [q.get("origin")] + list(q.get("depends", []) or []):
-                u = next((x for x in out["units"] if x["key"] == k), None)
-                if u and V.is_open(u):
-                    errs.append(f"questions[{i}]（{kind}）の出どころ '{k}' が [block] / do-now（人に聞く前に直す義務が消える。defer にして構造的理由を書け）")
-        errs += [f"questions[{i}]: {m}" for m in V.settled_state_errors(q, out["units"])]
+    errs += _question_errors(V, out, keys, defer)
     awaiting = {name for name, m in b.record["materials"].items() if m.get("status") == "awaiting_human"}
     listed = {q.get("origin") for q in out["questions"] if q.get("kind") == "awaiting" and q.get("status") in V.ASKING}
     for name in sorted(awaiting - listed):
