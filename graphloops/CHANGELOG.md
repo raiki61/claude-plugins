@@ -9,6 +9,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ### Fixed
 
 - README の 2 か所を今の置き場に合わせた。graphcheck を手で打つ例のコマンドで、検証器のパスを、リポジトリのルートから打つと見つからない `scripts/research-record.py` から `convergence-loops/scripts/research-record.py` に直した（直した形で打つと ok が出る）。試験の置き場の決まりの文で、台本から消した関数の数を 9 から 6 に直した（9 つを消した後で 3 つを戻した。数の正本は `tests/py/MIGRATION.md` の「消す段」）。
+- プラグインの説明（`.claude-plugin/plugin.json` の description）で、JSON に写したループの数を「convergence-loops の 4 ループ」から「review・research の 2 ループ」に直した（doctor と firstread のグラフは無い）。mutmut の設定（`setup.cfg`）のコメントと、`/research-graph` の人の手順（`skills/research-graph/references/human.md`）と `/graphloops:intake` のコマンドが README へ張るリンクの字で、README の見出しの名前を英語にした後の名前（「Checks」「Running under an external harness」「Recording problems you hit (/graphloops:intake)」）に直した（リンクの先は前から同じ所に届いている）。
+- 試験の台帳（`tests/py/ledger.py`・`tests/py/MIGRATION.md`・`tests/py/test_ledger.py` の説明）で、CI が渡す基の版を「PR の基か push の直前の版」から「push の直前の版」に直した（test のワークフローは pull_request では走らない）。engine のコメント 2 か所（`engine/commands.py`・`engine/board.py`）で、README と手順書から引いていた、元に無い文を、今の文に合わせて言い直した。
 
 ## [0.51.3] - 2026-11-22
 

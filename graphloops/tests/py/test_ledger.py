@@ -191,7 +191,7 @@ def test_a_base_without_the_block_promise_watches_nothing_yet(tmp_path, no_base_
 
 @pytest.mark.medium
 def test_the_named_base_wins_over_head(tmp_path, no_base_env, monkeypatch):
-    """CI が渡す基（PR の基・push の直前の版）を読む——HEAD が同じ変更で塊を書き換えていても"""
+    """CI が渡す基（push の直前の版）を読む——HEAD が同じ変更で塊を書き換えていても"""
     root = _repo(tmp_path, _doc(S), _doc())
     first = _git(root, "rev-parse", "HEAD").stdout.strip()
     _git(root, "commit", "-qam", "塊を消した")

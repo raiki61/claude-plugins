@@ -35,7 +35,7 @@ reason で書く。not_applicable は「この段では走らせない」に取�
 
 検証を JSON Schema で宣言せず手書きにしてある理由も review-record.py と同じ:
 検証の一部はフィールドをまたぐ突合（クラスタ別の件数照合・荷重と反証の整合・厚みとゲートの
-対応）で単一スキーマに閉じず、`jsonschema` の導入は「必須は git / python3 / bash だけ」と
+対応）で単一スキーマに閉じず、`jsonschema` の導入は README の必須の依存（git・Python・bash）と
 衝突する。
 """
 

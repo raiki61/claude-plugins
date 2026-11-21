@@ -10,7 +10,7 @@
 
 ## 依存
 
-局所レビューに使う `pr-review-toolkit` は `plugin.json` の `dependencies` で宣言してあり、このプラグインの導入時に実体ごと入る（機構と入手経路の制約は `README.md`「依存と入手経路」が正本）。**導入コマンドを手順として実行するな**——宣言が解決できない環境ではこのプラグイン自体がロードされないので、`/review-loop` が動いている時点で `review-pr` は在る。
+局所レビューに使う `pr-review-toolkit` は `plugin.json` の `dependencies` で宣言してあり、このプラグインの導入時に実体ごと入る（機構と入手経路の制約は `README.md` の「Dependencies and how you obtain them」が正本）。**導入コマンドを手順として実行するな**——宣言が解決できない環境ではこのプラグイン自体がロードされないので、`/review-loop` が動いている時点で `review-pr` は在る。
 
 `/simplify` と `/security-review` は Claude Code 本体の組み込みなので、導入は要らない。
 

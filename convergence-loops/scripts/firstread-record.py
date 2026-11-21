@@ -29,7 +29,7 @@ exit 1 なので、**例外を素通しした時点でこの契約は破れる�
 
 検証を JSON Schema で宣言せず手書きにしてあるのは、検証の半分が周をまたぐ突合
 （`target` 一致・`round` 連番・同じ key の残存・行数の増減）で**単一ドキュメントに
-閉じないため**と、`jsonschema` の導入が README の「必須は git / python3 / bash だけ」と
+閉じないため**と、`jsonschema` の導入が README の必須の依存（git・Python・bash）と
 衝突するため。姉妹の記録器と同じ判断。
 
 ## このツールが固有に見るもの
