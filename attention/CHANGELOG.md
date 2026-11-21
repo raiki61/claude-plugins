@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-11-21
+
 ### Changed
 
 - 0.78.0 に続けて中の作りを整理した（頼み fb0dd6）。出力の文言・コマンドの引数・記録の形は変わらない。`scripts/my-turn-prep.py`・`scripts/reflect.py` が `lib/changemap.py` と同じ git の引き方を自前で持っていた所（commit が在るかの確かめと origin の URL の読み出し）を、`changemap` の関数を呼ぶ形にした。この 2 つの git の待ちの上限は、`changemap` のほかの読み出しと同じ 15 秒になった（前は 120 秒と 20 秒）。`/catchup` の台本の 1 行ずつ足すだけのループをまとめて足す形にし、`/catchup` のページの台本（`templates/catchup.html`）から、どこからも呼ばれない関数を消した。
