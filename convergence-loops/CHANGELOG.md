@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-11-21
+
 ### Changed
 
 - 記録の検証器 4 本（`scripts/*-record.py`）が同じ形で書いていた「値が配列でないなら止める」検査を、`scripts/record_common.py` の `require_list` にまとめた。拒みの文と終了コードは変えていない（記録の見本を壊した 80 通りを元の版と直した版に通して照合した）（頼み 527340）。
