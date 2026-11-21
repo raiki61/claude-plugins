@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-11-21
+
 ### Changed
 
 - 記録の検証器の整理（利用者の動きは変わらない）。`scripts/firstread-record.py`（`/firstread-loop` の記録を検証するスクリプト）で、構造の判断が文章の直しより先に要るときに出す「導線の引き金が立った」という通知を、見出しと 1 項目を手で書いて出していた作りから、同じファイルのほかの通知が使っている一覧の出力の関数 `print_list`（共通部品 `scripts/record_common.py` に在る）を呼ぶ作りに変えた。出る文は同じ。
