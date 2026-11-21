@@ -3233,10 +3233,108 @@ class WakeFlow(unittest.TestCase):
                 p["agent_session"] = None
         rc, out = self.main(self.src, "--nudge", "調べ")   # 動き出したかは偽の一覧が s-dept でしか見せないので見ない
         self.assertEqual((self.prompts(), self.stopped), ([], ["s-dept"]), out)
-        # 会話が一覧に居れば、受けたままの頼みの間はターンの終わりに張られるので、止まっていない
+        # 会話が一覧に居れば、受けたままの頼みの間はターンの終わりに張られるので、順番待ちは止まっていない。手の空いた会話には、
+        # 受けたままの頼みの納品を促す（nudge_idle。受付 ba1e73）
         self.ports.list_sessions = living
         rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
-        self.assertIn("止まっていない（待ち受けが渡す）", out)
+        self.assertNotIn("止まっている", out)
+        self.assertIn("受付 a0 をまだ納品していない。納品を促す 1 行を台帳に置き", out)
+
+    def idle_holder(self, state="blocked", status="idle", said="この 1 コマンドを打ってください: git checkout tools/hook.py"):
+        """部署が受付 a0 を納品しないまま手を空けた形（会話の一覧の state・status を替える）。会話の記録の終わりに said の答えを置く。"""
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
+        listed = self.ports.list_sessions
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {**x, "state": state, "status": status} if x.get("sessionId") == "s-dept" else x for x in listed(cdir, include_done)]
+        talks = scratch()
+        with open(os.path.join(talks, "s-dept.jsonl"), "w", encoding="utf-8") as f:
+            for row in ({"type": "assistant", "message": {"content": [{"type": "text", "text": said}]}},
+                        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}}):
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        patcher = mock.patch.object(orders.chat, "talk_dir", lambda cdir, cwd, env=None: talks)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_nudge_prompts_an_idle_department_that_holds_an_ask_through_its_waiter(self):
+        # 窓に会話が居て、受けた頼みを納品しないまま手を空けた部署: 順番待ちが空でも「止まっていない」で終えず、納品を促す 1 行を台帳に
+        # 置いて待ち受けに渡させ、会話の問いも出す（2026-11-21、my_notes の部署が窓で 1 コマンドを頼んだまま 5 日止まった。受付 ba1e73）
+        self.listen("調べ", self.dept_place())
+        self.idle_holder()
+        self.restartable()
+        rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("受付 a0 をまだ納品していない。納品を促す 1 行を台帳に置き、その場所の待ち受けが渡す", out)
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") in (wake.SAY, "nudged")], [])
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("止まっていない", out)
+        self.assertIn("最後の答えの頭: 「この 1 コマンドを打ってください: git checkout tools/hook.py」", out)
+        self.assertIn("その場所の待ち受けが促しの 1 行を渡す", out)
+        self.assertEqual((self.prompts(), self.stopped, self.attaches()), ([], [], []))   # 窓に打たず、起動し直さない
+        [said] = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY]
+        self.assertEqual((said["id"], said["to"]), ("a0", wake.address("src", "調べ")))
+        self.assertIn("--deliver", said["text"])
+        self.assertIn("この会話は手が空いたまま。", said["text"])   # 落ちていない会話に「落ちて戻った」と書かない
+        self.assertNotIn("落ちて戻った", said["text"])
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a0", "noticed")])
+
+    @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
+    def test_nudge_restarts_an_idle_department_that_holds_an_ask_without_a_waiter(self):
+        # 待ち受けが居なければ、促しの 1 行を台帳に置いてから、窓に字を打たずに裏の会話を起動し直す（戻った会話の始まりの待ち受けが渡す）
+        self.listen("調べ", self.dept_place())
+        mark = wake.read_mark(self.inbox, self.dept_place())
+        with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
+            json.dump({**mark, "pid": dead_pid()}, f)
+        self.idle_holder(state="done")
+        self.restartable()
+        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("最後の答えの頭", out)   # 人の返事を待っていない（state が done）なら問いは出さない
+        self.assertEqual((self.prompts(), self.stopped, self.attaches()), ([], ["s-dept"], ["claude-a1 attach d"]))
+        self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY], ["a0"])
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a0", "restarted")])
+        # 起動し直せない（入力フィールドに人の打ちかけの字が在る）なら 1 で終わり、促しの 1 行は台帳に残る
+        self.stopped.clear()
+        self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.stopped), (1, []), out)
+        self.assertIn("裏の会話を起動し直さなかった（窓 ", out)
+        self.assertIn("入力フィールドに人の打ちかけの字が在る", out)
+
+    def test_nudge_leaves_a_holder_mid_turn_or_waiting_for_an_answer_alone(self):
+        # ターンの途中の会話・確かめの画面で人の答えを待つ会話と、答え待ち（--wait）の頼みは促さない
+        self.listen("調べ", self.dept_place())
+        self.idle_holder(state="working", status="busy")
+        self.restartable()
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("ターンの途中なので、受付 a0 の納品を促さない", out)
+        self.idle_holder(state="blocked", status="waiting")   # 確かめの画面: blocked でも問いの頭は出さない（答えるのは部署の窓）
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("確かめの画面で人の答えを待っている（部署の窓で答える）なので、受付 a0 の納品を促さない", out)
+        self.assertNotIn("最後の答えの頭", out)
+        self.idle_holder(state="blocked", status="idle")   # 答え待ちは、手が空いていても促さない
+        provision.mark(self.place, self.src, {"waiting": "a0", "waiting-why": "持ち主の答え"}, self.g)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("受付 a0 は答え待ち（持ち主の答え）なので、納品を促さない", out)
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") in (wake.SAY, "nudged")], [])
+        self.assertEqual((self.prompts(), self.stopped), ([], []))
+
+    def test_nudge_idle_stops_for_a_department_without_a_name_even_in_a_dry_run(self):
+        # 部署の名前（company.name）が無いと待ち受けの宛先が作れない: --dry-run でも「台帳に置く」と言わずに 1 で止める
+        a = types.SimpleNamespace(dry_run=True)
+        dept = {"path": self.dept_place(), "attrs": {"ask": "a0"}}
+        with mock.patch.object(orders, "busy_check", lambda *x: (lambda: False)):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                rc = orders.nudge_idle(a, dept, "調べ", self.inbox, self.dept_place(), [], self.ports, {}, self.src, [], None)
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("部署の名前（company.name）が無いので、受付 a0 の納品を促す 1 行を台帳に置けない", out.getvalue())
+        self.assertNotIn("台帳に置き、", out.getvalue())
 
     def test_nudge_puts_the_window_back_when_the_talk_cannot_be_stopped(self):
         # 裏の会話を止められなければ、シェルに戻した窓を attach で戻し、動かせなかったと台帳に残す

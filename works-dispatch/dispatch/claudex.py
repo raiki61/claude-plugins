@@ -760,6 +760,23 @@ def tail_lines(payload):
         return None
 
 
+def last_text(payload, limit=400):
+    """会話の記録（transcript_path）の終わりの方で、最後の答え（assistant の行）の字の部分の頭 limit 字。字の無い答え（ツールを呼ぶだけの
+    行）は飛ばす。記録が無い・読めない・字の答えが無ければ None。--nudge が、問いを出して止まった部署の会話の問いを出すのに使う。"""
+    for line in reversed(tail_lines(payload) or []):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue   # 読み始めの切れた行や書きかけの行は飛ばす
+        content = (row.get("message") or {}).get("content") if isinstance(row, dict) and row.get("type") == "assistant" else None
+        texts = [x.get("text") for x in content if isinstance(x, dict) and x.get("type") == "text" and x.get("text")] \
+            if isinstance(content, list) else []
+        text = " ".join(" ".join(texts).split())
+        if text:
+            return text if len(text) <= limit else text[:limit] + "…"
+    return None
+
+
 def last_model(payload):
     """会話の記録（transcript_path）の終わりの方で、最後に答えたモデルの名前。記録が無い・読めない・答えの行が無ければ None。"""
     for line in reversed(tail_lines(payload) or []):   # 記録を読めなければモデルは分からない（呼んだ側は表に無いモデルの倍率で見る）

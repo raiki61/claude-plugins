@@ -426,11 +426,13 @@ def busy_check(dept, accounts_, ports):
     return busy
 
 
-def nudge_line(held, boss, now=None):
+def nudge_line(held, boss, now=None, fell=True):
     """戻した部署に、落ちる前の頼みの納品を促す 1 行。頭に時刻を入れて、前に送った促しと字を分ける（届いたかの確かめが、画面に
-    残った前の促しを今の促しと見誤らないように）。"""
+    残った前の促しを今の促しと見誤らないように）。fell が偽なら、落ちていない手の空いた会話への促し（nudge_idle）で、「落ちて戻った」と
+    書かない。"""
     stamp = time.strftime("%H:%M:%S", time.localtime(now)) if now else ""
-    return (f"再開の知らせです{f'（{stamp}）' if stamp else ''}: この会話は落ちて戻った。受付 {held}（{boss or '頼み元'} から）の頼みをまだ納品していない。"
+    how = "落ちて戻った" if fell else "手が空いたまま"
+    return (f"再開の知らせです{f'（{stamp}）' if stamp else ''}: この会話は{how}。受付 {held}（{boss or '頼み元'} から）の頼みをまだ納品していない。"
             "済んでいれば要約を納品のコマンド（--deliver）で返し、途中なら続けてから返す。")
 
 
@@ -896,10 +898,10 @@ def start_reading(dest_inbox, place_dir, notes):
         notes.append(f"作業場に待ち受けの読んだ所を書けなかった（{e}）。知らせは台帳に置くが、初めての待ち受けは渡さないことがある")
 
 
-def nudge_notice(dept, to, dest_inbox, ports):
+def nudge_notice(dept, to, dest_inbox, ports, fell=True):
     """窓に会話が居ない部署を attach で戻す前に、納品していない頼みが在れば、納品を促す 1 行（nudge_line）を台帳の知らせ（kind say）で
     置く。戻った会話の始まりの待ち受けが渡し、会話を再開させる（前は戻した窓に直に打っていた。受付 9dccfe・d70b23）。答え待ち（--wait）の
-    頼みは促さない（待つと決めた頼みを急かす）。出す注記の並び。"""
+    頼みは促さない（待つと決めた頼みを急かす）。fell は nudge_line へ渡す（落ちていない会話への促しなら偽）。出す注記の並び。"""
     held = wake.pending(dept["attrs"])
     if not held or dept["attrs"].get(WAITING) == held:
         return []
@@ -907,7 +909,7 @@ def nudge_notice(dept, to, dest_inbox, ports):
         return [f"部署の名前（company.name）が無いので、受付 {held} の納品を促す 1 行を台帳に置けない（戻った会話で続きを頼む）"]
     notes = []
     start_reading(dest_inbox, ports.git.git_dir(dept["path"]), notes)
-    deliver.log(dest_inbox, wake.notice(to, held, wake.SAY, None, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.now()))
+    deliver.log(dest_inbox, wake.notice(to, held, wake.SAY, None, nudge_line(held, dept["attrs"].get("boss"), ports.now(), fell), ports.now()))
     return notes + [f"受付 {held} の納品を促す 1 行を台帳に置いた（戻った会話の始まりの待ち受けが渡す）"]
 
 
@@ -1091,7 +1093,8 @@ def restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_=None,
 
 def nudge(a, ports, cwd):
     """--nudge <部署>。順番待ちが渡らずに止まった部署を動かす（wake_stuck）。--ask が止まった部署に積むときは同じことを自分でする
-    ので、これは頼みを足さずに動かす口（段取りが --tree の「止まっている」を見て打つ）。終了の値を返す。"""
+    ので、これは頼みを足さずに動かす口（段取りが --tree の「止まっている」を見て打つ）。順番待ちが止まっていなくても、窓に会話が居ない
+    部署は戻し（nudge_away）、受けた頼みを納品しないまま手の空いた部署には納品を促す（nudge_idle）。終了の値を返す。"""
     common = ports.git.common_dir(cwd)
     try:
         cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
@@ -1115,9 +1118,13 @@ def nudge(a, ports, cwd):
         n = len(wake.queued(dest_inbox, place_dir))
         # 窓に会話が居なければ、順番待ちの有無によらず、--tree の「会話が居ない」（tree.away_note）と同じ見分けで戻す。以前は順番待ちが
         # 在ると「止まっていない」で何もせず、--tree は「--nudge で戻して納品を促す」と出していた（2026-11-03、my_notes の業務改革。受付 481ed4）
+        to = listener(dest_inbox, company["name"], dept["attrs"].get("name"))[0]
         if talk_away(dept, ports):
-            return nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, company["root"], notes,
-                              listener(dest_inbox, company["name"], dept["attrs"].get("name"))[0])
+            return nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, company["root"], notes, to)
+        if wake.pending(dept["attrs"]) and not dept.get("head_office"):
+            # 窓に会話が居て、受けた頼みを納品していない部署。以前は順番待ちが空だと「止まっていない」で何もせず、--tree が「止まっている」
+            # （会話の一覧の state が blocked）と出す部署を動かす口が --say しか無かった（2026-11-21、my_notes。受付 ba1e73）
+            return nudge_idle(a, dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], notes, to)
         print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
         return 0
     if a.dry_run:
@@ -1132,6 +1139,66 @@ def nudge(a, ports, cwd):
     moved = []
     print("\n".join(notes + wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], moved)))
     return 0 if moved else 1
+
+
+def asked_note(dept, accounts_, ports):
+    """部署の会話が人の返事を待って止まっている（会話の一覧の state が blocked で、status が確かめの画面〔waiting〕でない。Claude Code の
+    文書の「blocked always means the session needs something from you」。会話が問いを出してターンを終えた形）なら、その問い（最後の答えの頭）を
+    出す 1 行。ほかは None。--tree の「止まっている」はこの state で、頼みを納品していない部署は、問いが窓にしか出ず頼み元へ届かない
+    （2026-11-21、my_notes の部署が、自分で壊したフックで全部のツールを止め、窓で「この 1 コマンドを打って」と頼んだまま 5 日止まった）。"""
+    acc = account_of(dept, accounts_)
+    try:
+        talk = dept_talk(dept, ports.list_sessions(acc.config_dir if acc else None))
+    except chat.Error:
+        return None
+    if not talk or talk.get("state") != "blocked" or talk.get("status") == chat.WAITING or not talk.get("sessionId"):
+        return None
+    path = os.path.join(chat.talk_dir(acc.config_dir if acc else None, dept["path"], ports.account_env), f"{talk['sessionId']}.jsonl")
+    said = chat.last_text(chat.payload_of(talk["sessionId"], path))
+    return ("部署の会話は人の返事を待って止まっている（会話の一覧の state が blocked）。最後の答えの頭: "
+            + (f"「{said}」" if said else f"（会話の記録 {path} の終わりに字の答えが見つからない）")
+            + "。問いに答えられるのが頼み元か持ち主なら、そちらで答えを用意してから --say で渡す")
+
+
+def nudge_idle(a, dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, source, notes, to):
+    """--nudge の、止まっていない（stuck_why が None）のに、窓に会話が居て受けた頼みを納品していない部署（本社の窓口を除く）。答え待ち
+    （--wait）の頼みと、ターンの途中の会話は促さない。ほかは、nudge_away と同じ納品を促す 1 行（nudge_line）を台帳の知らせで置く。
+    その場所の待ち受けが動いていれば（wake.watching）それが渡し、居なければ裏の会話を窓に字を打たずに起動し直す（restart_quiet。
+    戻った会話の始まりの待ち受けが渡す）。会話が人の返事を待って止まっていれば、その問いも出す（asked_note）。台帳に kind nudged で
+    残す。終了の値を返す（部署の名前が無いか、裏の会話を起動し直さなければ 1）。受付 ba1e73。"""
+    held = wake.pending(dept["attrs"])
+    if dept["attrs"].get(WAITING) == held:
+        print("\n".join(notes + [f"{where} の受付 {held} は答え待ち（{dept['attrs'].get(WAITING_WHY) or '-'}）なので、納品を促さない"]))
+        return 0
+    busy = busy_check(dept, accounts_, ports)
+    if busy():
+        print("\n".join(notes + [f"{where} の会話は" + ("確かめの画面で人の答えを待っている（部署の窓で答える）" if busy.waiting else "ターンの途中")
+                                 + f"なので、受付 {held} の納品を促さない（ターンの終わりに待ち受けが張られる）"]))
+        return 0
+    if not to:   # 部署の名前（company.name）が無い: 待ち受けの宛先が作れず、置いても誰も読まない（--dry-run でも同じに止める）
+        print("\n".join(notes + [f"止めた: {where} は部署の名前（company.name）が無いので、受付 {held} の納品を促す 1 行を台帳に置けない"]))
+        return 1
+    asked = asked_note(dept, accounts_, ports)
+    notes = notes + ([asked] if asked else [])
+    listening = wake.watching(dest_inbox, place_dir)
+    if a.dry_run:
+        print("\n".join(notes + [f"{where} の会話は手が空いていて、受付 {held} をまだ納品していない。納品を促す 1 行を台帳に置き、"
+                                 + ("その場所の待ち受けが渡す" if listening else
+                                    "待ち受けが居ないので、窓に字を打たずに裏の会話を止めて attach で起動し直す（戻った会話の始まりの待ち受けが渡す）")]))
+        return 0
+    notes += nudge_notice(dept, to, dest_inbox, ports, fell=False)
+    if listening:
+        deliver.log(dest_inbox, {"id": held, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": None,
+                                 "why": "受けた頼みを納品していない", "status": "noticed", "detail": "納品を促す 1 行を台帳に置いた（待ち受けが渡す）"})
+        print("\n".join(notes + [f"{where} の会話は手が空いていて、受付 {held} をまだ納品していないので、その場所の待ち受けが促しの 1 行を渡す"]))
+        return 0
+    said, pane = restart_quiet(dept, dest_inbox, place_dir, accounts_, ports, sessions_, source)
+    deliver.log(dest_inbox, {"id": held, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane,
+                             "why": "受けた頼みを納品していない", "status": "restarted" if pane else "failed", "detail": said})
+    print("\n".join(notes + [f"{where} の待ち受けが居ないので、{said}" if pane else
+                             f"止めた: {where} の待ち受けが居ないが、裏の会話を起動し直さなかった（{said}）。促しの 1 行は台帳に残り、"
+                             "会話の次のターンの終わりか次の始まりの待ち受けが渡す（訳が窓の打ちかけの字か読めない窓なら、窓を見てから打ち直す）"]))
+    return 0 if pane else 1
 
 
 def nudge_away(a, dept, where, dest_inbox, accounts_, ports, sessions_, source, notes, to):
