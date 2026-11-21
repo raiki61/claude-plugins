@@ -99,7 +99,7 @@ skip_capability() {
     local cap=${rest%%:*}
     [[ "$cap" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' "$cap"
 }
-# 環境で走れなかった検査の見送りの行を出し、拾い、1 件に数える。引数: 検査の名前・「<能力>: <理由>」
+# 走らせなかった検査の見送りの行を出し、拾い、1 件に数える（環境で走れない・変えた所に当たらない・変異の腕の回でない）。引数: 検査の名前・「<能力>: <理由>」
 skip_check() {
     local line="  ok   $1$SKIP_MARK $2"
     echo "$line"; note_skips "$line"; ran=$((ran + 1))
@@ -188,12 +188,10 @@ expect_output() {
         fail=1; ran=$((ran + 1)); return
     fi
     if ! in_scope; then
-        local line="  ok   $desc$SKIP_MARK unchanged: 入力（${SCOPE[*]}）がこの変更で変わっていない（main に入った後の CI が回す）"
-        echo "$line"; note_skips "$line"; ran=$((ran + 1)); return
+        skip_check "$desc" "unchanged: 入力（${SCOPE[*]}）がこの変更で変わっていない（main に入った後の CI が回す）"; return
     fi
     if ! only_hit "$desc"; then
-        local line="  ok   $desc$SKIP_MARK only: 変異の腕が宣言した検査でない（tests/mutate.py が渡した TESTS_ONLY の回）"
-        echo "$line"; note_skips "$line"; ran=$((ran + 1)); return
+        skip_check "$desc" "only: 変異の腕が宣言した検査でない（tests/mutate.py が渡した TESTS_ONLY の回）"; return
     fi
     local got
     got=$("$@" 2>&1)
