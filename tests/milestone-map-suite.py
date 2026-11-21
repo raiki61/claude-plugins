@@ -425,6 +425,15 @@ class MilestoneLevel(unittest.TestCase):
         self.assertRegex(head, r'<p class="path mpath" hidden>.*data-m="1".*data-m="2".*data-m="3"')
         self.assertIn('data-level="milestone"', page)
 
+    def test_frame_on_the_path_gets_the_mcrit_class(self):
+        # 一番長い道に載るマイルストーンの枠を縁で目立たせる CSS（.frame.mcrit）は在ったのに、枠にクラスを付ける行が
+        # 無く効いていなかった（頼み c348d0）。ほかの枠のクラス（shut・bare・wide）と同じく layout() で付ける
+        tpl = mm.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("#world.mlevel .frame.mcrit .fhead {", tpl)
+        self.assertIn("f.mcrit = onPathN > 0;", tpl)
+        lay = tpl.split("function layout() {", 1)[1].split("\n  function ", 1)[0]
+        self.assertIn('f.el.classList.toggle("mcrit", f.mcrit);', lay)
+
     def test_late_rule(self):
         self.assertEqual([mm.is_late(a, b) for a, b in [("2026-11-20", "2026-11-10"), ("2026-11-10", "2026-11-20"), (None, "2026-11-10"),
                                                         ("2026-11-10", None), (None, None)]], [True, False, True, False, False])

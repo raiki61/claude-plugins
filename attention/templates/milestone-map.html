@@ -553,6 +553,7 @@ a:hover { text-decoration: underline; }
       f.el.classList.toggle("shut", f.shut);
       f.el.classList.toggle("bare", !!s.bare);
       f.el.classList.toggle("wide", wide);
+      f.el.classList.toggle("mcrit", f.mcrit);
       Object.assign(f.el.style, { left: f.box.x + "px", top: y + "px", width: f.box.w + "px", height: s.head.h + "px" });
       for (const [c, pane] of f.panes) {
         const p = s.panes.find(q => q.c === c);

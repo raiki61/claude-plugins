@@ -541,6 +541,16 @@ class TemplateTest(unittest.TestCase):
         self.assertNotIn('class: "timeline"', self.TPL)
         self.assertNotIn("laneFigure", self.TPL)
 
+    def test_blocker_chips_keep_their_spacing_and_only_figure_chips_are_tight(self):
+        # 図の点の印を詰める規則を .chips だけで書いたら、上部の「マージを止めているもの」の印の間隔も 8px から 4px に
+        # 詰まった（頼み c348d0）。セレクタが .chips だけの規則は 1 つにし、詰めるのは図の中の印だけにする
+        bare = re.findall(r"^\.chips \{([^}]*)\}", self.TPL, re.M)
+        self.assertEqual(len(bare), 1)
+        self.assertRegex(bare[0], r"\bgap: 8px;")
+        node = re.findall(r"^\.g-node \.chips \{([^}]*)\}", self.TPL, re.M)
+        self.assertEqual(len(node), 1)
+        self.assertRegex(node[0], r"\bgap: 4px;")
+
     def test_no_owner_specific_values(self):
         for s in ("my_notes", "/Users/", "raiki61", "190578"):
             self.assertNotIn(s, self.TPL)
