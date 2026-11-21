@@ -201,7 +201,7 @@ BSD と GNU で振る舞いの違うコマンドを、無い時の代わりの�
   - works-dispatch の `dispatch.py` の `main`（頭の約 120 行が引数の定義だけ）
   - graphloops の `engine/advance.py` の `emit_instance`
   - works の `darkfactory/lib/line_edge.py` の `edge`
-- tiers の `tiers_statusline.py` の `uses_it` は試験だけが呼ぶ。設定を読む同じ形の扱いが 4 か所在る。
+- tiers の `tiers_statusline.py` の `uses_it` は試験だけが呼ぶ。設定を読む同じ形の扱いが 4 か所在る。状態: 一部入った（tiers 0.14.0。頼み c516d9、commit 91433ed0。`tiers_check.py` の `check_statusline` が `uses_it` を呼ぶようにし、点検の中に在った同じ形の読み取りを消したので、`uses_it` は試験だけが呼ぶ物でなくなり、同じ形の扱いは 1 か所減った。残りは寄せていない）
 
 外した物（直さない）: works の `.shared/core` の graphloops の写しは、graphloops 0.21.0 の版に留まる（今の graphloops は 0.42.0）。works は写して自分の側で育てる決まりなので、ずれではない（ルートの CLAUDE.md の「プラグインを作る・直す」）。
 
