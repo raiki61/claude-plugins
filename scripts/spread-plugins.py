@@ -16,7 +16,7 @@ works-dispatch の機械窓口のツールとして、`dispatch.py --call 配布
    部署を起動する先のアカウントだけなので、Claude Code を使うが部署は起動しないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
    全アカウントに配った後に、入ったプラグインの版が main（origin/main。先に git fetch する）の plugin.json の版と同じかを
-   照合し、違えば版のずれたアカウントだけ 1 回配り直して照合し直し、まだ違えば失敗に数える。plugin update が落ちたアカウントも
+   照合し、違えば版のずれたアカウントだけ 1 回配り直して照合し直し、まだ違えば失敗に数える。plugin update か install が落ちたアカウントも
    1 回だけ配り直す（別の会話が marketplace の clone を取り直している間は「Plugin source not found」で落ちる）。main は配った後に読む。配る前に
    読むと、配る間に別の部署が main へ入れた版を marketplace が先に拾い、入った版が main より新しいのに「そろわない」と数える
    （2026-10-17 に works-dispatch 0.36.0 で実測）。配り直すのは、配る間に main が進むと先に配ったアカウントが前の版のまま
@@ -418,7 +418,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
     want, err, fetched = expected_versions(market, runner=runner) if whole else ({}, None, True)
     # 配る間に main が進むと、先に配ったアカウントは前の版のまま残る（2026-10-17 に works-dispatch 0.37.0 で実測）。同じ設定の
     # フォルダの別の会話が marketplace の clone を取り直している間は、plugin update が「Plugin source not found」で落ちる
-    # （2026-10-20 に p3 で実測。後で見ると取り直した clone が在った）。版のずれたアカウントと plugin update の落ちたアカウント
+    # （2026-10-20 に p3 で実測。後で見ると取り直した clone が在った）。版のずれたアカウントと plugin update か install の落ちたアカウント
     # だけ 1 回配り直し、main を読み直して照合する（配り直すアカウントは、1 回目の失敗を数えず配り直しの結果で数える）
     stale = drifted(whole, want) if not err else set()
     again = stale | {s["account"] for s in steps if s["kind"] in ("update", "install") and s["failed"]}
