@@ -548,21 +548,26 @@ def land_pin(pin, to, commits, cdir, runner, env):
             return True, said + f"\n注記: 入れた後に origin の {MAIN} を取り直せなかったので、--land の終了の値 0 で入ったとみた"
         raise RuntimeError(f"--land が main に入れなかった（終了の値 {p.returncode}）。--land の出力の終わり:\n{said}")
     finally:
-        left = [what for argv, what in ((["git", "-C", source, "worktree", "remove", "--force", "--force", place], "worktree"),
-                                        (["git", "-C", source, "branch", "-D", branch], "ブランチ"))
-                if runner(argv)[0] != 0 and (what != "worktree" or os.path.exists(place))]
-        if left:
-            print(f"注記: 機械の上げの{'と'.join(left)}（{place}・{branch}）を消せなかった。次の機械の上げが残りとして消す")
-        # --land はリベースしたブランチを origin に push するので、入らなくても origin に残る。在れば消す（ls-remote の 2 は「無い」）
-        code, _, err = runner(["git", "-C", source, "ls-remote", "--exit-code", "origin", f"refs/heads/{branch}"])
-        what = "在るかを確かめられなかった" if code not in (0, 2) else None
-        if code == 0:
-            code, _, err = runner(["git", "-C", source, "push", "-q", "origin", "--delete", branch])
-            what = "消せなかった" if code != 0 else None
-        if what:
-            why = ((err or "").strip().splitlines() or ["訳は出なかった"])[-1]
-            print(f"注記: origin の機械の上げのブランチ {branch} が{what}（{why}）。在れば手で git push origin --delete {branch} を打つ")
-        shutil.rmtree(temp, ignore_errors=True)
+        drop_land(source, place, branch, temp, runner)
+
+
+def drop_land(source, place, branch, temp, runner):
+    """機械の上げが作った一時の worktree・ブランチ・origin のブランチ・一時のディレクトリを消す（land_pin が入っても入らなくても呼ぶ）。"""
+    left = [what for argv, what in ((["git", "-C", source, "worktree", "remove", "--force", "--force", place], "worktree"),
+                                    (["git", "-C", source, "branch", "-D", branch], "ブランチ"))
+            if runner(argv)[0] != 0 and (what != "worktree" or os.path.exists(place))]
+    if left:
+        print(f"注記: 機械の上げの{'と'.join(left)}（{place}・{branch}）を消せなかった。次の機械の上げが残りとして消す")
+    # --land はリベースしたブランチを origin に push するので、入らなくても origin に残る。在れば消す（ls-remote の 2 は「無い」）
+    code, _, err = runner(["git", "-C", source, "ls-remote", "--exit-code", "origin", f"refs/heads/{branch}"])
+    what = "在るかを確かめられなかった" if code not in (0, 2) else None
+    if code == 0:
+        code, _, err = runner(["git", "-C", source, "push", "-q", "origin", "--delete", branch])
+        what = "消せなかった" if code != 0 else None
+    if what:
+        why = ((err or "").strip().splitlines() or ["訳は出なかった"])[-1]
+        print(f"注記: origin の機械の上げのブランチ {branch} が{what}（{why}）。在れば手で git push origin --delete {branch} を打つ")
+    shutil.rmtree(temp, ignore_errors=True)
 
 
 def write(argv, runner, root):
