@@ -56,6 +56,11 @@ BODY = "これは検査の対象の本文です。読み手に渡る字を確か
 FAILED = []
 
 
+def put(name, text):
+    with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
 def check(n, ok, why):
     if not ok:
         FAILED.append("%s: %s" % (n, why))
@@ -457,8 +462,7 @@ def f19():
 def f20():
     os.makedirs(os.path.join(WORK, "sub"), exist_ok=True)
     for name, text in (("note.md", "BENIGN NOTE"), (os.path.join("sub", "note.md"), "SUB EVIL NOTE")):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ("u=\"$(cat <<\\EOF\n)\" ; gh issue comment 1 --body decoy; echo \"\nEOF\ngh issue comment 1 --body REALHIDDEN\n)\"",
                 "u=\"$(cat <<-\\EOF\n)\" ; gh issue comment 1 --body decoy; echo \"\nEOF\ngh issue comment 1 --body REALHIDDEN\n)\""):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
@@ -711,8 +715,7 @@ def f40():
 # 本文ファイルを書きうる物と見る(前は字のままの名前を照合して書き手に数えず、gh の前に書き換わる古いファイルを読んだ)。
 # 解ける書き込み先(F=other.md)と、書き込み先を取らないコマンドの解けない $(`git log "$BASE"..HEAD`)は今までどおり読む
 def f41():
-    with open(os.path.join(WORK, "note.md"), "w", encoding="utf-8") as f:
-        f.write("BENIGN NOTE")
+    put("note.md", "BENIGN NOTE")
     for cmd in ('cp /etc/hosts "$F41_UNSET"; gh pr comment 1 --body-file note.md',
                 'x="$(mv other.md "$F41_UNSET")"; gh pr comment 1 --body-file note.md',
                 'ln -sf /etc/hosts "$F41_UNSET" && gh pr comment 1 --body-file note.md'):
@@ -811,8 +814,7 @@ def f46():
 # 割れた後ろを見ず、本文を読まずに通した)。-execdir・-okdir・sudo -D・--chdir の後ろの gh は別の所で走るので、本文ファイルの
 # 相対のパスをフックの場所で読まない(前は gh が走らない所の n.md を本文と読んだ)。-exec を連ねた長い find も 1 度の走査で読む
 def f47():
-    with open(os.path.join(WORK, "n.md"), "w", encoding="utf-8") as f:
-        f.write("BENIGN NOTE")
+    put("n.md", "BENIGN NOTE")
     for cmd in ("find . -maxdepth 0 -exec true \\; -exec gh pr comment 1 --body-file /etc/hosts \\;",
                 "find . \\( -name a \\) -exec gh pr comment 1 --body-file /etc/hosts \\;",
                 "find . -maxdepth 0 -exec gh pr view 1 {} + -exec gh pr comment 1 --body-file /etc/hosts \\;",
@@ -853,8 +855,7 @@ def f48():
                 "find . -exec gh pr comment {} --body '" + BODY + "' \\;", "ls | xargs -I{} gh pr comment -R o/r --body '" + BODY + "' -- {}"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(48, parsed and cands == [BODY] and not blk, "差し込む語の在る gh の見えている本文を読まなかった: %r → %r %r" % (cmd[:50], blk, parsed))
-    with open(os.path.join(WORK, "view.md"), "w", encoding="utf-8") as f:
-        f.write("BENIGN VIEW")
+    put("view.md", "BENIGN VIEW")
     for cmd in ("printf comment | xargs -I view gh pr view 1 --body-file view.md", "ls | xargs -I{} gh pr comment 1 --body-file {}",
                 "ls | xargs -I{} gh pr comment 1 --body={}", "ls | xargs -I{} gh pr comment {} -R {} --body x",
                 "ls | xargs -I{} gh pr comment 1 {}", "ls | xargs -I{} gh pr comment 1 --body x {}",
@@ -908,8 +909,7 @@ def f50():
 # だけを見て、公開の gist に出す中身を読まずに通した)。`-F files[…][content]=@ファイル` は、ほかの @ファイルのフィールドと同じに
 # 読み、読めなければ止める。gist でない宛先の同じ名前のフィールドは、今までどおり本文と見ない
 def f51():
-    with open(os.path.join(WORK, "g51.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("g51.md", BODY)
     for cmd in ("gh api gists -f 'files[notes.md][content]=" + BODY + "' -F public=true",
                 "gh api /gists/abc -X PATCH -f 'files[n.md][content]=" + BODY + "'", "gh api gists -F 'files[n.md][content]=@g51.md'"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
@@ -1068,8 +1068,7 @@ def f60():
 # 外のコマンドの引数にし、`cat < <(gh pr comment 1 --body-file x.md)` の gh を見落として通した)。--body-file <(…) と、
 # 標準入力をプロセス置換から渡す形は今までどおり止める
 def f61():
-    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("x.md", BODY)
     for cmd in ("cat < <(gh pr comment 1 --body-file x.md)", "cat < <(gh pr comment 1 --body '%s')" % BODY):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
         check(61, parsed and cands == [BODY] and not blk, "プロセス置換の中の gh を読まなかった: %r → %r %r" % (cmd[:60], cands, blk))
@@ -1091,8 +1090,7 @@ def f61():
 # 62. gh に組み込みのサブコマンドの別名(`pr new`・`issue new`・`release new`・`gist new`・`ls`・`pr co`)は本当の名前と同じに読む
 # (前は短い本文の旗 -b・-n・-F を本文と見ず、`gh gist new a.md` も投稿と見ずに通した)。新しい PR の題も別名の後ろから読む
 def f62():
-    with open(os.path.join(WORK, "a.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("a.md", BODY)
     pairs = (("gh pr new -t T -b '%s'", "gh pr create -t T -b '%s'"), ("gh issue new -t T -b '%s'", "gh issue create -t T -b '%s'"),
              ("gh release new v1 -n '%s'", "gh release create v1 -n '%s'"), ("gh pr new -F a.md", "gh pr create -F a.md"),
              ("gh issue new -F a.md", "gh issue create -F a.md"), ("gh release new v1 -F a.md", "gh release create v1 -F a.md"),
@@ -1127,8 +1125,7 @@ def f63():
 # glob のままの名前・同じコマンドの中で書き換えうるファイルは、--body-file と同じく止める
 def f64():
     for name in ("a.md", "b.md", "-"):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(BODY)
+        put(name, BODY)
     for cmd in ("gh gist create a.md -d desc", "gh gist create -p a.md", "gh gist new --public a.md", "gh gist edit abc -f a.md a.md",
                 "gh gist edit abc --add a.md", "gh gist edit abc --add=a.md", "gh gist edit abc -a - ", "gh gist edit abc -f x.md -- a.md"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
@@ -1143,8 +1140,7 @@ def f64():
 # 65. 値を取る旗の直後の -h・--help・--version は旗の値で、gh は案内を出さずに投稿する(前は `gh gist create -d -h a.md` を案内と見て、
 # a.md を読まずに通した)。値を取る旗の直後でなければ、今までどおり案内と見て通す
 def f65():
-    with open(os.path.join(WORK, "a.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("a.md", BODY)
     for cmd in ("gh gist create -d -h a.md", "gh gist new --desc --help a.md", "gh pr create --title -h -F a.md",
                 "gh issue comment 1 -b --version -F a.md", "gh -R --help pr comment 1 -F a.md",
                 "gh api repos/o/r/issues/1/comments --jq -h -F body=@a.md"):
@@ -1162,8 +1158,7 @@ def f66():
     os.makedirs(os.path.join(WORK, "sub"), exist_ok=True)
     other = BODY + "(sub)"
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     post = "gh pr comment 1 --body-file x.md"
     for cmd, want in (("function f { %s; }; f", BODY), ("time { %s; }", BODY), ("time ! %s", BODY), ("time -p { %s; }", BODY),
                       ("time -- { %s; }", BODY), ("time -p -- ! %s", BODY), ("time function f { %s; }", BODY),
@@ -1187,8 +1182,7 @@ def f67():
     os.makedirs(os.path.join(WORK, "sub"), exist_ok=True)
     other = BODY + "(sub)"
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other), ("n.txt", "1")):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ("gh pr comment $(cat n.txt) --body-file x.md", "gh pr comment $(gh pr view --json number -q .number) --body-file x.md",
                 "gh issue comment $(cat n.txt) --body '%s'" % BODY, "gh pr review $(cat n.txt) --request-changes -b '%s'" % BODY,
                 "gh pr comment 1 < <(echo y) --body-file x.md", "gh issue create -t T < <(true) -F x.md",
@@ -1217,8 +1211,7 @@ def f67():
 # 読まずに通した。`gh gist create -pd 説明 a.md` は 説明 をファイルと読んで止めた)
 def f68():
     for name, text in (("a.md", BODY), ("s.md", "short")):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ("cat a.md | gh gist create -pf s.md", "cat a.md | gh gist create -wf s.md", "cat a.md | gh gist new -pwf s.md",
                 "cat a.md | gh gist create -pd s.md"):
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
@@ -1232,8 +1225,7 @@ def f68():
 # ない限り、その旗の値と見て案内と見ない(前は値を取る旗の表で引き、表に無い --target・--add-label の直後の -h を案内と見て、
 # 本文を読まずに通した)
 def f69():
-    with open(os.path.join(WORK, "a.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("a.md", BODY)
     for cmd in ("gh release create v1 --target -h --notes '%s'" % BODY, "gh pr edit 1 --add-label -h --body-file a.md",
                 "gh issue edit 1 --milestone --help --body-file a.md", "gh pr create --base -h --head x -F a.md",
                 "gh issue create -l -h -t T -F a.md"):
@@ -1249,8 +1241,7 @@ def f69():
 # 開きうるので、gh が走る場所は読めない物とする(相対のパスの本文ファイルは止め、-R の無い宛先は宛先のゲートが不明と見る)。
 # 旗の値の展開(`sudo -u $USER gh …`)と、gh でないコマンドの頭の展開(`$EDITOR x.md`)は今までどおり
 def f70():
-    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("x.md", BODY)
     path = sh_path("x.md")
     for head in ("env $(cat .env | xargs)", "env -i $(cat .env)", "command $(true)", "$(true)", "$SUDO", "${SUDO}", '"$(which env)"',
                  "`true`", "$(true) $(true)", "X=1 $(true)"):
@@ -1295,8 +1286,7 @@ def f72():
     os.makedirs(sub, exist_ok=True)
     other = BODY + "(sub)"
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     post = "gh pr comment 1 --body-file x.md"
     for cmd, want in (("x=$(cd %s && pwd); %s", BODY), ("(cd %s && pwd); %s", BODY), ("x=$(cd %s) && %s", BODY),
                       ("(pushd %s); %s", BODY), ("f() ( cd %s ); f; %s", BODY), ("(cd %s && gh pr comment 1 --body-file x.md)", other),
@@ -1352,8 +1342,7 @@ def f74():
     os.makedirs(sub, exist_ok=True)
     other = BODY + "(sub)"
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), other)):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ('(cd %s && make) && gh pr create --title "feat(gates): y" --body-file x.md',
                 'out=$(cd %s && git log -1); gh pr create --title "fix(x): y" --body-file x.md',
                 'root=$(cd "$(dirname %s/x.md)" && pwd); gh pr comment 1 --body-file x.md',
@@ -1378,8 +1367,7 @@ def f75():
     sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ("for i in 1 2; do gh pr comment 1 --body-file x.md; cd %s; done", "post() { gh pr comment 1 --body-file x.md; }; cd %s && post",
                 "while true; do gh pr comment 1 --body-file x.md; pushd %s; done"):
         cmd = cmd % sub
@@ -1402,8 +1390,7 @@ def f76():
     sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ("f() ( gh pr comment 1 --body-file x.md ); cd %s && f", "function f ( gh pr comment 1 --body-file x.md ); cd %s && f",
                 "f() if :; then gh pr comment 1 --body-file x.md; fi; cd %s && f", "f ( ) ( gh pr comment 1 --body-file x.md ); cd %s && f"):
         cmd = cmd % sub
@@ -1422,8 +1409,7 @@ def f77():
     sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ("{ gh pr comment 1 --body-file x.md; cd %s; } 2>&1 | tee log", "{ gh pr comment 1 --body-file x.md; cd %s; }"):
         cmd = cmd % sub
         cands, blk, parsed = g.posting_bodies(cmd, WORK)
@@ -1443,8 +1429,7 @@ def f78():
     sub = sh_path("sub")
     os.makedirs(sub, exist_ok=True)
     for name, text in (("x.md", BODY), (os.path.join("sub", "x.md"), BODY + "(sub)")):
-        with open(os.path.join(WORK, name), "w", encoding="utf-8") as f:
-            f.write(text)
+        put(name, text)
     for cmd in ('eval "cd %s"; gh pr comment 1 --body-file x.md', "eval 'x=1; pushd %s'; gh pr comment 1 --body-file x.md",
                 'command eval "cd %s" && gh pr comment 1 --body-file x.md', 'eval "\\cd %s"; gh pr comment 1 --body-file x.md',
                 'for d in /tmp %s; do gh pr comment 1 --body-file x.md; eval "cd $d"; done'):
@@ -1464,8 +1449,7 @@ def f78():
 # 79. ${ } の中の $( )・`…` は走る物として読む(前は読めない物として止め、`B=${B:-$(git branch --show-current)}; gh pr list` のような
 # 読むだけのコマンドまで止めていた)。中の gh の投稿は本文ファイルまで読む
 def f79():
-    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("x.md", BODY)
     for cmd in ("B=${B:-$(git branch --show-current)}; gh pr list", 'echo "${X:-$(date)}"; gh pr list',
                 'echo "${arr[0]:-$(date)}" ${#X} ${!p} ${X//a/$(echo b)}; gh pr list'):
         a = g.analyze(cmd, WORK)
@@ -1486,8 +1470,7 @@ def f80():
 # 81. 二重引用の中の ${ } の ' は引用でなく字で、中の $( ) は走る。配列の添字の中の $( ) も走る(c50bc73d4 で ${ } の中を読むように
 # したとき、' と添字が中の gh を隠し、`X="${X:-'$(gh …)'}"`・`"${a[$(gh …)]}"` の投稿を無検査で通していた)
 def f81():
-    with open(os.path.join(WORK, "x.md"), "w", encoding="utf-8") as f:
-        f.write(BODY)
+    put("x.md", BODY)
     for cmd in ("X=\"${X:-'$(gh pr comment 1 --body-file x.md)'}\"", "X=\"${X:+'`gh pr comment 1 --body-file x.md`'}\"",
                 "X=\"${Y:-${X:-'$(gh pr comment 1 --body-file x.md)'}}\"", 'echo "${arr[$(gh pr comment 1 --body-file x.md)]}"',
                 'echo ${arr["$(gh pr comment 1 --body-file x.md)"]}'):
