@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.57.3] - 2026-11-22
+
 ### Fixed
 
 - `/review-loop` の道具の手順（`skills/review-loop/references/tools.md`）が指す README の見出しを、英語にした後の「Dependencies and how you obtain them」に直した（前の「依存と入手経路」はもう無い）。記録の検証器 4 本（`scripts/review-record.py`・`research-record.py`・`doctor-record.py`・`firstread-record.py`）のコメントで、README から引いていた元に無い文「必須は git / python3 / bash だけ」などを、README の必須の依存（git・Python・bash）を指す文に直した。
