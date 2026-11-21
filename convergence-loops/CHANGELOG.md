@@ -6,6 +6,10 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Fixed
+
+- `/review-loop` の止め方の手順（`skills/review-loop/references/stop.md`）と `SKILL.md` で、周の上限（暴走ガード）を「総ラウンドが 5 を超えたら止める」から「5 に達したら（5 ラウンド目を終えた時点で）止める」に直した。graphloops の機械の版は 5 周目を終えた時点で止めていて、前の文のとおりに数えると 1 周多く回る。`/research-loop` の手順（`skills/research-loop/references/p3-p4-converge.md`）の上限 4 も同じ形に直した。
+
 ## [0.57.3] - 2026-11-22
 
 ### Fixed
