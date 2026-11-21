@@ -2528,7 +2528,7 @@ def record_round(b, nid, stopped_reason=None):
         if prev and not V.REVIEW_STATUS[prev["status"]].carryable:
             # **持ち越せない値を先に見る。** 以前は R3 / R4 だけがこの腕より前で prev を一切見ずに
             # not_applicable を書いていた（R1 / R2 には下の腕が在った）。not_applicable は blocks=False なので、
-            # 前の周の redesign-needed / unverifiable が**痕跡なく消える**——検証器 :167-171 が明文で禁じている
+            # 前の周の redesign-needed / unverifiable が**痕跡なく消える**——検証器の REVIEW_STATUS の上の注記が明文で禁じている
             # 「1 度持ち越した時点で人に諮る義務が阻害要因から消える」形そのもの（実測 2026-09-13: round 1 の
             # R3=redesign-needed を round 2 で上書きすると、収束を妨げるものが 3 件 → 2 件に減り、警告も trace も出ない）。
             # 再発火の条件に当たらない周でも、**据え置きは上書きより優先する**。
