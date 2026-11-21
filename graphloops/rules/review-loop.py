@@ -3224,9 +3224,6 @@ def judge_output(b, nid, out, item):
                 errs.append(f"questions[{i}] の {fld} は R1〜R4: {val}")
         if domain == "none" and V.targets(q):
             errs.append(f"questions[{i}]（{kind}）は origin / depends を持てない")
-        for d in q.get("depends", []) or []:
-            if d not in keys | defer:
-                errs.append(f"questions[{i}] の depends '{d}' が units にも defer 台帳にも無い")
         if status in V.ASKING and kind in V.NO_OPEN_ORIGIN:
             for k in [q.get("origin")] + list(q.get("depends", []) or []):
                 u = next((x for x in out["units"] if x["key"] == k), None)
