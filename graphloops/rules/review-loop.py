@@ -4003,11 +4003,10 @@ def _run_query(b, where, how, root, rev=None, probe=True):
     """
     if not root:
         return None, f"{where}: how を走らせる場所（リポジトリのルート）を引けない——確かめられない件数は受け取らない"
-    import json as _json
     import time
     # **固定した版で数えた結果は盤面に取っておく**——版は動かないので同じ問いの答えも動かない。差し戻しのたびの数え直しと、
     # 同じ周の p2.diagnose と p2.history が同じ問いを数える分が、上限を食わなくなる
-    cf, ck = b.dir / "count-cache.json", _json.dumps([how, rev], ensure_ascii=False, sort_keys=True)
+    cf, ck = b.dir / "count-cache.json", json.dumps([how, rev], ensure_ascii=False, sort_keys=True)
     cache = (read_json(cf) if cf.is_file() else {}) if rev else {}
     if ck in cache:
         got, why = cache[ck]
