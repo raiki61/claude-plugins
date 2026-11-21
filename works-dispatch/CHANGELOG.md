@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `dispatch/` の中を整理した（3 回目の整理。頼み 93d26b）。dispatch の設定を読んで既定のアカウントに倒す所を `orders.load_accounts` の 1 つにし（`orders.survey` と `dispatch.survey_companies` が使う）、メインブランチへ入れる列の置き換え書き（`nodes/landqueue.py` の 3 か所と `landorder.write`）を `filex.replace` に寄せ、旗なしで起動した部署の印 `NO_FLAGS` を `nodes/role.py` の 1 か所にし、`wake_hook` の場所の内か外かを `filex.inside` で見る。列の `order` のファイルの権限は、前は `landorder.write` が 0600 で作っていたのを、ほかの置き換え書きと同じく前のファイルの権限を継ぐ（無ければ umask）形にした。
+
 ## [0.167.0] - 2026-11-21
 
 ### Changed

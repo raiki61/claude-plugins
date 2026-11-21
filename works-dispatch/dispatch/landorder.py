@@ -11,10 +11,10 @@
 """
 
 import os
-import tempfile
 import time
 
 import config
+import filex
 import gitx
 from nodes import batch, land, landqueue, tree
 
@@ -48,11 +48,7 @@ def write(queue, names):
         if os.path.exists(path):
             os.remove(path)
         return
-    os.makedirs(queue, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=queue, prefix=".order-")
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write("# 判断役が --land-order で書いた入れる順（上から先に入る）\n" + "".join(n + "\n" for n in names))
-    os.replace(tmp, path)
+    filex.replace(path, "# 判断役が --land-order で書いた入れる順（上から先に入る）\n" + "".join(n + "\n" for n in names))
 
 
 def rows(queue, source, main, g, now=None, limit=1):

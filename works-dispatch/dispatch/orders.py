@@ -86,18 +86,24 @@ for _s in (sys.stdin, sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 
-def survey(config_path, ports):
-    """herdr に開いている会社と部署を読む（dispatch._company と同じ読み方）。(設定か None, アカウントの並び, 会話の一覧, ペイン,
-    会社の並び, 設定の置き場, 注記)。herdr を読めなければ term.Error。"""
-    notes = []
+def load_accounts(config_path, notes):
+    """dispatch の設定を読む。(設定か None, アカウントの並び, 設定のパス)。読めなければ既定のアカウント 1 つとして見て、設定のファイルが
+    在れば読めない訳を notes に足す（survey と dispatch.survey_companies の読み方）。"""
     path = config.path_of(config_path, os.environ)
     try:
         cfg = config.load(config_path, os.environ, missing_ok=True)
-        accounts_ = cfg.accounts
     except config.ConfigError as e:
-        cfg, accounts_ = None, (config.Account("default", chat.COMMAND),)
         if os.path.exists(path):
             notes.append(f"dispatch の設定を読めないので、既定のアカウント 1 つとして見る（{e}）")
+        return None, (config.Account("default", chat.COMMAND),), path
+    return cfg, cfg.accounts, path
+
+
+def survey(config_path, ports):
+    """herdr に開いている会社と部署を読む（dispatch.survey_companies と同じ読み方）。(設定か None, アカウントの並び, 会話の一覧, ペイン,
+    会社の並び, 設定の置き場, 注記)。herdr を読めなければ term.Error。"""
+    notes = []
+    cfg, accounts_, path = load_accounts(config_path, notes)
     sessions_ = {}
     for acc in accounts_:
         try:

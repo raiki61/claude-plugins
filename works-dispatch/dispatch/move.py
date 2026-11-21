@@ -84,7 +84,6 @@ CLOSED = "使える時間帯の外か終わる手前で止まった"   # 台帳�
 CHANGED = "会社の形の起動の設定（model・effort・settings）が替わった"   # 台帳の why（--if-changed で起動し直したとき）
 SAME = "持ち主か窓口が同じアカウントのまま起動し直した"   # 台帳の why（--account に今のアカウントを名指したとき）
 EARLY = wake.EARLY   # 台帳の why（--if-changed で、使用率の目安か --move の名指しで移したとき・移さなかったとき）
-NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起動した）は、旗なしで起動したと見る
 # 起動し直しても残す頼み元の属性（--task が呼んだ会話で書き直す物）
 KEEP = ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")
 # 前の裏の会話が止まったのを会話の一覧で見る回数（1 回ごとに ports.pause）
@@ -503,7 +502,7 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
     if now_key is None:
         print("\n".join(notes + [f"起動し直さない: {where} の会社の形を読めない（役が無いか、読めない所がある）"]))
         return 0
-    changed = now_key != (attrs.get(wake.LAUNCHED) or NO_FLAGS)
+    changed = now_key != (attrs.get(wake.LAUNCHED) or role.NO_FLAGS)
     old = attrs.get("account")
     metered = [x.name for x in cfg.accounts if x.limits]
     if not a.dry_run:
@@ -543,7 +542,7 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
     if a.dry_run:
         print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {chosen} で起動し直す（"
                                  + (f"{EARLY}: {early['why']}" if why == EARLY else SAME if why == SAME else
-                                    f"{CHANGED}: {attrs.get(wake.LAUNCHED) or NO_FLAGS} → {now_key}") + "）"]))
+                                    f"{CHANGED}: {attrs.get(wake.LAUNCHED) or role.NO_FLAGS} → {now_key}") + "）"]))
         return 0
     return _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, early_why=early and early["why"])
 

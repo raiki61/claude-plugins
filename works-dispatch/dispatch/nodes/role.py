@@ -687,3 +687,6 @@ def env_line(user):
     黙って有効なアカウントで動いてしまう（別の人として push やコメントをする）ため。
     起動するコマンドの前に環境変数として置く形は、裏の会話（--bg）に届かなかった（2026-10-16 に 2.1.301 で見た）。"""
     return f'export GH_TOKEN="$(gh auth token --user {shlex.quote(user)} || echo {NO_TOKEN})"'
+
+
+NO_FLAGS = launch_key(None)   # company.launched の無い部署（この版より前に起動した）は、旗なしで起動したと見る

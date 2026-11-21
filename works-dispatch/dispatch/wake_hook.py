@@ -521,7 +521,6 @@ DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
 RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable, DISPATCH_PY))   # orders.RUN と同じ字
 RETIRES = "retires"   # 受付箱の下の、--retire を走らせた出力の置き場
 MOVES = "moves"   # 受付箱の下の、--move を走らせた出力の置き場（limit_hook.py と同じ）
-NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起動した）は、旗なしで起動したと見る
 
 
 def _run_logged(argv, folder, label, cwd, spawn, now, detach):
@@ -632,7 +631,7 @@ def open_children(got, attrs, records=None, read=None):
     seen = rows if read is None else read
     # 渡し直し（again）は受けた時を動かさない（unseen）
     handed = [r for r in rows if r.get("kind") == "handed" and not r.get("again")
-              and _inside(os.path.realpath(r.get("place") or ""), root)]
+              and filex.inside(r.get("place") or "", root)]
     first = max((i for i, r in enumerate(handed) if r.get("id") == attrs.get("ask")), default=None)
     while first and handed[first].get("kept"):
         first -= 1
@@ -643,12 +642,8 @@ def open_children(got, attrs, records=None, read=None):
         return bool(said and said == talk) or at >= since
     mine = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id")
             and (r.get("from") or {}).get("name") in names and ours(r.get("from") or {}, r.get("at") or 0)
-            and _inside(os.path.realpath((r.get("from") or {}).get("place") or ""), root)}
+            and filex.inside((r.get("from") or {}).get("place") or "", root)}
     return sorted(mine - deliver.closed_ids(seen))
-
-
-def _inside(at, root):
-    return at == root or at.startswith(root + os.sep)
 
 
 def _read_part(got):
@@ -959,7 +954,7 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False,
         return None
     if key is None:
         return None
-    if key not in (attrs.get(wake.LAUNCHED) or NO_FLAGS, attrs.get(wake.RESTART_KEPT)):
+    if key not in (attrs.get(wake.LAUNCHED) or role.NO_FLAGS, attrs.get(wake.RESTART_KEPT)):
         return key
     return key if early_of(got, attrs) else None
 

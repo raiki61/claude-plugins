@@ -32,6 +32,8 @@ import os
 import time
 from pathlib import Path
 
+import filex
+
 try:
     import fcntl
 except ImportError:  # Windows
@@ -173,9 +175,7 @@ def _forget(queue, name):
     kept = [line for line in lines if line.strip() not in {x for x in name if x}]
     if kept == lines:
         return
-    tmp = queue / f".order-{os.getpid()}"
-    tmp.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
-    os.replace(tmp, path)
+    filex.replace(str(path), "".join(line + "\n" for line in kept))
 
 
 def _wait(queue, name, gate, say, sleep):
@@ -189,13 +189,6 @@ def _wait(queue, name, gate, say, sleep):
             say(f"メインブランチへ入れる列（{queue}）で待つ: 前に {ahead} 本" + (f"（先頭の札 {names[0]}）" if ahead else "（先頭。前の処理が lock を外すのを待つ）"))
             told = ahead
         sleep(POLL)
-
-
-def _write(path, text):
-    """置き換えで書く（途中で読まれても半端な中身を見せない）。"""
-    tmp = path.with_name(f".{path.name}-{os.getpid()}")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def mark_riders(queue, tickets, leader):
@@ -227,14 +220,14 @@ def set_suspects(queue, marks):
         with contextlib.suppress(OSError):
             path.unlink()
         return
-    _write(path, "".join(f"{b} {s}\n" for b, s in sorted(marks.items())))
+    filex.replace(str(path), "".join(f"{b} {s}\n" for b, s in sorted(marks.items())))
 
 
 def write_batch(queue, ticket, record):
     """束の控えを batches/<札の名>.json に置き換えで書く。"""
     folder = Path(queue) / BATCHES
     folder.mkdir(parents=True, exist_ok=True)
-    _write(folder / f"{ticket}.json", json.dumps(record, ensure_ascii=False, indent=1) + "\n")
+    filex.replace(str(folder / f"{ticket}.json"), json.dumps(record, ensure_ascii=False, indent=1) + "\n")
 
 
 def batches(queue):

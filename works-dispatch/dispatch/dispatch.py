@@ -1722,15 +1722,8 @@ def survey_companies(config_path, ports, only=None, plugins=False):
     設定の置き場, 注記)。plugins が真なら、注記に wiring.setting_notes（使えない版を指す設定など）と limits.expiry_notes
     （Keychain のトークンの期限）も足す（どちらも --tree だけが出す）。herdr を読めなければ term.Error。"""
     notes = []
-    path = config.path_of(config_path, os.environ)
-    limits_dir = None
-    try:
-        cfg = config.load(config_path, os.environ, missing_ok=True)
-        accounts_, limits_dir = cfg.accounts, cfg.limits_dir
-    except config.ConfigError as e:
-        accounts_ = (config.Account("default", chat.COMMAND),)
-        if os.path.exists(path):
-            notes.append(f"dispatch の設定を読めないので、既定のアカウント 1 つとして見る（{e}）")
+    cfg, accounts_, path = orders.load_accounts(config_path, notes)
+    limits_dir = cfg.limits_dir if cfg else None
     if plugins:
         notes += wiring.setting_notes(os.environ, [config.effective_config_dir(a, os.environ) for a in accounts_], limits_dir)
         notes += limits.expiry_notes(accounts_, os.environ)
