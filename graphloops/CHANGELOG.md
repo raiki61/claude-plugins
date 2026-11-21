@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.51.3] - 2026-11-22
+
 ### Fixed
 
 - research-loop のグラフ（`graphs/research-loop.json`）の説明の文を、今の rules に合わせた。新規相違の数で分かれる条件の名前を、無い `gate_round` から `no_new_discrepancies`・`rederiver_compare_due` に直した。総ラウンドが上限に達したときは、止まらずに人に諮り、continue なら上限を 1 周延ばし、stop なら「収束せず」で止まる（無人なら止まる）と書いた。手順書の置き場は `skills/research-loop/SKILL.md` に直した。

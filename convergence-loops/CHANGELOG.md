@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.57.2] - 2026-11-22
+
 ### Fixed
 
 - `/review-loop` の止め方の手順（`skills/review-loop/references/stop.md`）で、R2 が前提の誤り（`premise-invalid`）を返した周の書き方を、記録の検証器に合わせた。前は、その周の premise の行を `resolved` と書けるように読めたが、検証器は `held` か `escalate` の premise の行が無いと exit 2 で落とす。その周は `held` と書いて測った事実を `reason` に入れ、次の周に R2 を回し直し、`resolved` にするのは回し直した R2 を見た次の周の判定、と書いた。同じスキルの道具の手順（`references/tools.md`）からは、実行例の在りかとして無い「P-R の R1」を消した。
