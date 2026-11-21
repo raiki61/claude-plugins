@@ -709,10 +709,7 @@ def _points_errors(pts, files):
 def _code_errors(code, at, files):
     if not isinstance(code, list) or len(code) > CODE_REF_CAP:
         return [f"{at}.code は 0〜{CODE_REF_CAP} 個の {{\"path\", \"find\"}} の並びにする"]
-    errs = []
-    for j, ref in enumerate(code):
-        errs += _ref_errors(ref, f"{at}.code[{j}]", files)
-    return errs
+    return [e for j, ref in enumerate(code) for e in _ref_errors(ref, f"{at}.code[{j}]", files)]
 
 
 def _ref_errors(ref, at, files):

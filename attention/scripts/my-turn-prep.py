@@ -219,15 +219,15 @@ def write_diff(path, a, b, a7, b7):
 RULE_NAMES = ("AGENTS.md", "CLAUDE.md", "REVIEW.md")
 
 
+def ancestor_dirs(paths):
+    """paths の各ファイルの親の階層を、ルート（""）まで全部。paths が空なら空。"""
+    return {"/".join(p.split("/")[:i]) for p in paths for i in range(p.count("/") + 1)}
+
+
 def rule_paths(changed, base):
     # ルートの .claude/ の下の決まりも Claude Code は読む（AGENTS.md は CLAUDE.md の代わりに使うリポジトリが在る）
     cands = {".claude/AGENTS.md", ".claude/CLAUDE.md"}
-    for p in changed:
-        parts = p.split("/")[:-1]
-        for i in range(len(parts) + 1):
-            d = "/".join(parts[:i])
-            for name in RULE_NAMES:
-                cands.add(d + "/" + name if d else name)
+    cands |= {d + "/" + name if d else name for d in ancestor_dirs(changed) for name in RULE_NAMES}
     keep = [p for p, sha in blobs(base, sorted(cands)).items() if sha]
     # ルートが先、あとは階層の辞書順、同じ階層では名前の辞書順
     return sorted(keep, key=lambda p: (p.split("/")[:-1], p.rsplit("/", 1)[-1]))
@@ -371,11 +371,7 @@ RULES_EXTRA_CAP = 40
 def extra_rule_paths(changed, base, old):
     """決まりの文書に足す物（base の版）: 構成・貢献の文書、ADR のフォルダの下、名前に ledger・台帳・decisions を含む物。
     (足す path の一覧〔上限で切った後〕, 上限で外した数)。old は今までの決まりの path（重ねて足さない）。"""
-    dirs = {""}
-    for p in changed:
-        parts = p.split("/")[:-1]
-        for i in range(1, len(parts) + 1):
-            dirs.add("/".join(parts[:i]))
+    dirs = {""} | ancestor_dirs(changed)
     tree = must_git(*QUOTE_OFF, "ls-tree", "-r", "--name-only", "-z", base)
     found = set()
     for p in tree.split("\0"):

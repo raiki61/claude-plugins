@@ -882,9 +882,7 @@ def since_commits(node, base_oid):
 def latest_status(rows):
     """[(status の 1 文字, path)] を古い→新しいの順で重ね、path ごとに最後の status。並びは path 順。
     手元の git 経路と gh 経路が同じ合成を通る。"""
-    files = {}
-    for st, path in rows:
-        files[path] = st
+    files = {path: st for st, path in rows}
     return sorted(((st, path) for path, st in files.items()), key=lambda r: r[1])
 
 
