@@ -2480,7 +2480,7 @@
    "materials": [
     "external_standards"
    ],
-   "carry_reason": "体裁だけの周（テスト追加・リネーム・コメント）は前の判定を持ち越す。機構を足した／変えた周は引き直す",
+   "carry_reason": "前の周の P3 が機構を変えず、ファイルを 1 つも触っていない周は前の判定を持ち越す（初回・機構を足した／変えた周・前の周の P3 が何かを直した周は引き直す）",
    "na_self_ok": false,
    "na_reason_note": "正当な not_applicable は無い: 外部依存が無いのは『見たが無かった』＝clean",
    "post_check": "external_rankings"

@@ -30,7 +30,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 5. P3 修正: [references/p3-fix.md](references/p3-fix.md)（根本ユニット〔P2 が指摘を根本ごとに束ねた単位〕で直す、閉鎖の実証〔直した修正が欠陥を閉じたことの確かめ〕、問いに挙がったユニットを実装しない）
 6. P4 再採点: [references/p4-rescore.md](references/p4-rescore.md)（P1〜P2 のやり直し、`review-record.py` の突合と終了コード、台帳と scalar〔差分の規模の数値〕の記録、次への分岐、R1・R2 を P-R を待たずに回し直す条件）
 7. P-R 俯瞰: [references/p-r-overview.md](references/p-r-overview.md)（R1〜R4〔冗長と最小性・ゼロベース再導出・全体整合・差分の外の横断リスク〕の起動方法と verdict の写し方）
-8. P4 の判定のたびに: [references/stop.md](references/stop.md)（収束の条件、収束以外で止まる 3 つ——答え無しに進める仕事が尽きた・前提不成立・総ラウンドが 5 を超えた〔暴走ガード〕——、問いの種類ごとの再審）
+8. P4 の判定のたびに: [references/stop.md](references/stop.md)（収束の条件、収束以外で止まる 3 つ——答え無しに進める仕事が尽きた・前提不成立・総ラウンドが 5 に達した〔暴走ガード〕——、問いの種類ごとの再審）
 9. 最終報告: [references/report.md](references/report.md)（冒頭 3 行に置く「人が決めること」〔台帳で人に回した問い〕、初見で決められる問いの形、出す前の確かめ、必ず含める項目）
 
 1 ラウンド＝P1→P4 の 1 周で、記録 `round-<N>.json` を 1 つ書く。P4 の判定で `[block]` か直していない do-now が残れば P3 で直し、もう一度 P4（P1・P2 を新しい context でやり直す。ここから次のラウンド）。残りが 0 で CI 緑なら P-R へ進み、R1〜R4 に 1 つでも `redesign-needed` が出たら P1 から次のラウンドに入る。`premise-invalid` など他の verdict の扱いと、止めるかどうかは、P4 の判定のたびに stop.md で決める。
