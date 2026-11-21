@@ -357,6 +357,14 @@ def _has(ids, v):
     return isinstance(v, str) and v in ids
 
 
+def _named(items, k, what):
+    """id と text だけを持つ物（囲み・役者・担い手）の並びの誤りと、id の集合。items は _list が通した並び"""
+    errs, ids = _ids(items, f"figure.{k}", what)
+    for i, x in enumerate(items):
+        errs += _keys(x, f"figure.{k}[{i}]", ("id", "text")) + _label(x.get("text"), f"figure.{k}[{i}].text")
+    return errs, ids
+
+
 def _list(fig, k, at, lo, hi, what):
     v = fig.get(k, [] if lo == 0 else None)
     if not isinstance(v, list) or not lo <= len(v) <= hi or not all(isinstance(x, dict) for x in v):
@@ -398,11 +406,8 @@ def _graph_errors(fig, files, n_points):
     errs += e
     gids = set()
     if groups is not None:
-        e, gids = _ids(groups, "figure.groups", "囲み")
+        e, gids = _named(groups, "groups", "囲み")
         errs += e
-        for i, g in enumerate(groups):
-            at = f"figure.groups[{i}]"
-            errs += _keys(g, at, ("id", "text")) + _label(g.get("text"), f"{at}.text")
     nids = set()
     if nodes is not None:
         e, nids = _ids(nodes, "figure.nodes", "箱")
@@ -492,10 +497,8 @@ def _sequence_errors(fig):
     errs += e
     ids = set()
     if actors is not None:
-        e, ids = _ids(actors, "figure.actors", "役者")
+        e, ids = _named(actors, "actors", "役者")
         errs += e
-        for i, a in enumerate(actors):
-            errs += _keys(a, f"figure.actors[{i}]", ("id", "text")) + _label(a.get("text"), f"figure.actors[{i}].text")
     if steps is not None:
         for i, s in enumerate(steps):
             at = f"figure.steps[{i}]"
@@ -566,10 +569,8 @@ def _steps_errors(fig):
     errs += e
     lids = set()
     if lanes:
-        e, lids = _ids(lanes, "figure.lanes", "担い手")
+        e, lids = _named(lanes, "lanes", "担い手")
         errs += e
-        for i, l in enumerate(lanes):
-            errs += _keys(l, f"figure.lanes[{i}]", ("id", "text")) + _label(l.get("text"), f"figure.lanes[{i}].text")
     steps, e = _list(fig, "steps", "figure", 1, STEPS_CAPS["steps"], "段")
     errs += e
     for i, st in enumerate(steps or []):
