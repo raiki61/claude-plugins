@@ -94,12 +94,9 @@ def split_diff(text):
                 files.setdefault(cur, [])
             continue
         if in_hunk:
-            if line == "" or line[0] in "+- ":
-                if cur is not None:
-                    files[cur].append(line)
-            elif line.startswith("@@") and cur is not None:
-                files[cur].append(line)
             # "\ No newline at end of file" は落とす
+            if cur is not None and (line == "" or line[0] in "+- " or line.startswith("@@")):
+                files[cur].append(line)
             continue
         if line.startswith("@@"):
             in_hunk = True
