@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.166.0] - 2026-11-21
+
 ### Changed
 
 - `dispatch/` の中を整理した（2 回目の整理。頼み 93d26b）。`dispatch.py` の `main` の後ろの、PR と issue を開く約 270 行を `_listing` に分け、差し込む値の無い f 文字列の f を外した。待ち受けの印と keepalive・compact の控えを、ほかの控えと同じ読み方（`nodes/wake._read_json`）で読むようにした。コマンドの引数・出力・記録のファイルの形は変えていない。
