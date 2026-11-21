@@ -4745,7 +4745,6 @@ def _meter_number(value):
 
 def _reader_measure(proc, call, started, status):
     """公開するのは識別子と使用量の許可リストだけ。欠測は null、例外や結果の本文は保存しない。"""
-    result = None
     try:
         result = json.loads(_child_text(proc.stdout))
     except (ValueError, UnicodeError):
@@ -5254,7 +5253,7 @@ def main() -> None:
         if prev:
             prompt = followup_prompt(prompt, prev, text)
     except Exception:
-        prev, prompt = None, reader_prompt(screen, noun)
+        prev = None
     round_no = prev["round"] + 1 if prev else 1
     kinds = tuple(KINDS) if mode == "screen" else COLD_KINDS
     READER_SOURCE.update(reader_source(payload))
