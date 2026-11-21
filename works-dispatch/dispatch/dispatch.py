@@ -1551,14 +1551,14 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             f"部署 {a.task}  {a.branch}  {account}  {provision.would(row, found)}",
             f"- 起動するフォルダ: {row['path'] or '<作る作業場の場所>'}",
             f"- ペインの名前: {pane_label}／会話の名前: {a.task}",
-            f"- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
+            "- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
             f"- 連絡の道: {route}",
             f"- 会社の形: {info['path'] or '無い'}（--dry-run なので origin を取り直さず、手元の控えで読んだ）",
-            f"- 先に使うアカウント: " + (f"{wish}（{wisher}。{'使わない' if wish_note else '使う'}）" if wish else "名指し無し（使用率の順）"),
+            "- 先に使うアカウント: " + (f"{wish}（{wisher}。{'使わない' if wish_note else '使う'}）" if wish else "名指し無し（使用率の順）"),
             f"- 役の起動の設定: モデル {model or '既定'}、effort {effort or '既定'}、--settings の鍵 "
             + ", ".join(role.settings_for(the_role, duty))
             + (f"（受け持ち {duty['name']} の settings を重ねた）" if duty and duty.get("settings") else ""),
-            f"- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
+            "- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
             f"- 最初の文: {_brief_text(brief, caller, account, tail)}"]))
         return 0
     existed = bool(provision.find(found, a.branch))

@@ -295,7 +295,7 @@ def parked_text(attrs):
     lines = [f"- 受付 {p['id']}（頼み元 {p.get('boss') or '-'}。{p.get('why') or '-'}）" for p in parked]
     return (PARKED_HEAD + "\n".join(lines)
             + f"\n答えが出たら、要約を書いて {RUN} --deliver <要約のファイル> --for <受付> でその頼み元へ返す"
-            + f"（本文は頼み元の受付箱の <受付>-ask.md）")
+            + "（本文は頼み元の受付箱の <受付>-ask.md）")
 
 
 # 上限を超えた文の頭に足す 1 行（会話には頭の chat.CONTEXT_PREVIEW 字しか入らないので、ここで置き場のファイルを読ませる）

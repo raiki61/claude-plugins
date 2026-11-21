@@ -844,7 +844,7 @@ class Flow(unittest.TestCase):
         wake.enqueue(self.inbox, self.g.git_dir(self.place), {"id": "q1", "line": "頼みです（受付 q1）", "marks": {"ask": "q1"}})
         self.fall()
         rc, out = self.main(self.src, "--tree")
-        self.assertIn(f"--nudge 調べ で戻して納品を促す", out)
+        self.assertIn("--nudge 調べ で戻して納品を促す", out)
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
         self.assertIn(f"受付 {held} の納品を促す 1 行を台帳に置いた", out)

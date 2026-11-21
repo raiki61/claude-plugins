@@ -889,7 +889,7 @@ class FoldFromListing(unittest.TestCase):
                 self.assertTrue(os.path.exists(self.place), out)
                 self.assertEqual(self.said(), [])
                 if why:
-                    self.assertIn(f"部署「調べ」（受付 q1）: 納品済みで main に入ったが、", out)
+                    self.assertIn("部署「調べ」（受付 q1）: 納品済みで main に入ったが、", out)
                     self.assertIn(f"{why}ので今回は畳まない", out)
                 else:
                     self.assertNotIn("部署「調べ」（受付 q1）", out)
