@@ -1978,12 +1978,8 @@ class Mentions(unittest.TestCase):
                 ]
             }
         }
-        original = flow.gh
-        flow.gh = lambda *_args, **_kw: json.dumps(payload)
-        try:
+        with mock.patch.object(flow, "gh", lambda *_args, **_kw: json.dumps(payload)):
             limits = flow.fill_reactions(waits)
-        finally:
-            flow.gh = original
         self.assertTrue(waits[0][1]["reacted"])
         self.assertFalse(waits[1][1]["reacted"])
         self.assertEqual(limits, ["C2: リアクション 60 件のうち 50 件しか見ていない"])
@@ -1991,12 +1987,8 @@ class Mentions(unittest.TestCase):
     def test_fill_reactions_matches_login_case_insensitively(self):
         waits = [("Bob", {"post_id": "C1", "reacted": False}, None)]
         payload = {"data": {"nodes": [{"id": "C1", "reactions": {"totalCount": 1, "nodes": [{"user": {"login": "bob"}}]}}]}}
-        original = flow.gh
-        flow.gh = lambda *_args, **_kw: json.dumps(payload)
-        try:
+        with mock.patch.object(flow, "gh", lambda *_args, **_kw: json.dumps(payload)):
             flow.fill_reactions(waits)
-        finally:
-            flow.gh = original
         self.assertTrue(waits[0][1]["reacted"])
 
     def test_fill_reactions_skips_not_found_but_stops_on_other_errors(self):
@@ -2009,17 +2001,13 @@ class Mentions(unittest.TestCase):
             seen.append(kw)
             return json.dumps(gone)
 
-        original = flow.gh
-        flow.gh = fake
-        try:
+        with mock.patch.object(flow, "gh", fake):
             self.assertEqual(flow.fill_reactions(waits), [])
             self.assertFalse(waits[0][1]["reacted"])
             self.assertEqual(seen, [{"graphql_errors": True}])
             gone["errors"].append({"type": "FORBIDDEN"})
             with self.assertRaises(SystemExit):
                 flow.fill_reactions(waits)
-        finally:
-            flow.gh = original
 
 
 def gh_runs(calls, *responses):
@@ -2868,14 +2856,7 @@ class Json(unittest.TestCase):
         self.assertEqual(sorted(x["who"] for x in out["sections"]), ["alice", "bob"])
 
     def test_json_goes_to_a_file_with_out(self):
-        buf = io.StringIO()
-        with (
-            mock.patch.object(flow, "fetch_all", lambda _q, _o, _n, field, optional=(): [pr(number=1)] if field == "pullRequests" else []),
-            mock.patch.object(flow, "gh", lambda *_a, **_kw: json.dumps({"data": {"nodes": []}})),
-            contextlib.redirect_stdout(buf),
-        ):
-            flow.main(["bob", "--repo", "o/n", "--json", "--out"])
-        path = re.search(r"報告は (\S+) に書いた", buf.getvalue()).group(1)
+        path = re.search(r"報告は (\S+) に書いた", report(pr(number=1), args=("--json", "--out"))).group(1)
         try:
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["schema"], 1)
