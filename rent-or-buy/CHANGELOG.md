@@ -6,6 +6,8 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-21
+
 ### Changed
 
 - `prompt_cache/transcript.read` の、読む前に必ず書き直す変数の初期化を消した。出力は変えていない（頼み 93d26b）。
