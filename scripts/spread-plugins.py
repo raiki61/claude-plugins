@@ -173,7 +173,7 @@ def expected_versions(market, root=ROOT, runner=run):
             if isinstance(src, str) and src.startswith("./"):
                 out[f"{p['name']}@{market}"] = show(f"{src[2:]}/.claude-plugin/plugin.json").get("version")
         return out, None, fetched
-    except (ValueError, KeyError, AttributeError) as e:
+    except (ValueError, TypeError, KeyError, AttributeError) as e:   # 受ける形は offered と同じ（plugins が null・項目が文字列などの TypeError も読めないに数える）
         return {}, f"main の版を読めない（{e}）", fetched
 
 
