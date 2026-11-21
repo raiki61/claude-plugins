@@ -709,17 +709,16 @@ class Flow(unittest.TestCase):
         # 開き直した作業場は新しいので、寿命の印（company.lifecycle）も付け直す
         self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
-    def test_newest_talk_is_the_last_written_record_of_the_folder(self):
+    def test_talks_are_the_records_of_the_folder(self):
         home = scratch()
         cwd = "/w/a.b"
         # Windows では abspath がドライブを付ける（D:\w\a.b → D--w-a-b）
         d = pathlib.Path(home, "projects", "-w-a-b" if os.name != "nt" else re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
         d.mkdir(parents=True)
-        self.assertIsNone(claudex.newest_talk(home, cwd))
+        self.assertEqual(claudex.talks(home, cwd), [])
         for name, t in (("x.jsonl", 10), ("y.jsonl", 20), ("z.txt", 30)):
             (d / name).write_text("{}", encoding="utf-8")
             os.utime(d / name, (t, t))
-        self.assertEqual(claudex.newest_talk(home, cwd), ("y.jsonl", 20))
         self.assertEqual(sorted(claudex.talks(home, cwd)), [(10, "x.jsonl"), (20, "y.jsonl")])
         self.assertIsNone(claudex.talks(home, "/w/none"), "置き場が無ければ None")
 

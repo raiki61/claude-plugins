@@ -265,7 +265,7 @@ class Agents(unittest.TestCase):
             home = pathlib.Path(scratch())
             touch(home / "projects" / name / "a.jsonl", "{}\n", NOW)
             with self.subTest(cwd=cwd):
-                self.assertEqual(claudex.newest_talk(str(home), cwd), ("a.jsonl", NOW))
+                self.assertEqual(claudex.talks(str(home), cwd), [(NOW, "a.jsonl")])
 
 
 if __name__ == "__main__":

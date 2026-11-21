@@ -434,14 +434,6 @@ def talks(config_dir, cwd, env=None):
         return None
 
 
-def newest_talk(config_dir, cwd, env=None):
-    """その作業フォルダの会話の記録（talks）のうち、いちばん新しく書かれた物の (名前, 書いた時刻)。無ければ None。
-    裏の会話（claude --bg）は /clear で会話を空にしても、会話の一覧の sessionId が替わらないことがある（2026-10-17 の試し。一覧は
-    98d8f057 のまま、記録は f20ea13c から新しいファイルに移った）ので、空になったかを記録のファイルが替わったかで見る。"""
-    found = talks(config_dir, cwd, env)
-    return (max(found)[1], max(found)[0]) if found else None
-
-
 def ancestors(runner=_default_runner, pid=None):
     """この処理（pid を渡せばその処理）から親をたどった pid の並び（自分を含む）。ps が通らなければ空。"""
     try:
