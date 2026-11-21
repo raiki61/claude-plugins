@@ -401,10 +401,11 @@ const meansHits = text => MEANS_WORDS.filter(w => String(text ?? '').toLowerCase
 const touchedDeps = deps.filter(d => d.imported_by_touched === true)
 
 const restate = { rounds: 0, identifierHits: 0, meansHits: 0, leakSentBack: 0, leakAgents: 0 }
+const addTo = (m, n, msg) => { if (!m.has(n)) m.set(n, []); m.get(n).push(msg) }
 // problems of one restated line (machine), by line number
 function restateProblems(r) {
   const general = [], byN = new Map()
-  const add = (n, msg) => { if (!byN.has(n)) byN.set(n, []); byN.get(n).push(msg) }
+  const add = (n, msg) => addTo(byN, n, msg)
   const got = Array.isArray(r?.classes) ? r.classes : null
   if (!got) return { general: ['the answer has no classes'], byN, rows: new Map() }
   const rows = new Map()
@@ -466,15 +467,11 @@ for (let round = 1; round <= LIMITS.tries; round++) {
       seen.add(it.n)
       if (it.presupposes === true) {
         restate.leakSentBack++
-        if (!byN.has(it.n)) byN.set(it.n, [])
-        byN.get(it.n).push(`line ${it.n}: the problem class presupposes the means (a second reader): ${str(it.why) || 'no reason given'}`)
+        addTo(byN, it.n, `line ${it.n}: the problem class presupposes the means (a second reader): ${str(it.why) || 'no reason given'}`)
       }
     }
     // a line the second reader did not answer is not counted as checked: it is sent back like a failed one
-    for (const n of passed) if (!seen.has(n)) {
-      if (!byN.has(n)) byN.set(n, [])
-      byN.get(n).push(`line ${n}: the second reader did not answer for this line`)
-    }
+    for (const n of passed) if (!seen.has(n)) addTo(byN, n, `line ${n}: the second reader did not answer for this line`)
   }
   const bad = lines.map(l => l.n).filter(n => byN.has(n) || !rows.has(n))
   if (!general.length && !bad.length) { restated = new Map(lines.map(l => [l.n, rows.get(l.n)])); break }
@@ -616,7 +613,7 @@ async function searchClass(c) {
     const bad = searchProblems(c, r)
     if (bad.length) { reasons.push(...bad.map(b => `round ${round}: ${b}`)); continue }
     const checked = await recheck(c, r, round)
-    best = { r, checked, round }
+    best = { r, checked }
     if (!resent && round < LIMITS.tries && depsAllDropped(r, checked.status)) {
       resent = true
       const why = Object.entries(checked.status).filter(([, s]) => s.state === 'dropped').map(([id, s]) => `${id}: ${s.why}`)
@@ -625,7 +622,7 @@ async function searchClass(c) {
     }
     break
   }
-  return best ? { ...best, reasons } : { missing: `search gave up after ${LIMITS.tries} rounds: ${reasons.join(' / ')}` }
+  return best ?? { missing: `search gave up after ${LIMITS.tries} rounds: ${reasons.join(' / ')}` }
 }
 
 async function askGeneral(c) {
@@ -689,7 +686,7 @@ async function classRows(c) {
       practice: str(general.general), sources: [], basis: 'knowledge', applies: '', not_applies: '', not_applies_unchecked: false,
       found: general.notFound !== true, searched: [] })
   }
-  return { c, rows, searchRounds: found.round, searchReasons: found.reasons }
+  return { c, rows }
 }
 
 async function compareClass(prev) {
