@@ -1188,6 +1188,8 @@ expect_output 0 "履歴（round 1〜3" "ディレクトリを渡すと全ラウ�
 expect_output 0 "問いの台帳（人に聞く候補。載せた周には聞かない" "台帳の問いは阻害要因にせず、人に聞く候補として出す" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "r1:held(awaiting) → r2:resolved(awaiting) → r3:—" "問いの推移を履歴に出す（決めた問いは次の周から消えてよい）" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "問いの台帳の件数（保留・人へ・ループが決めた）: 1・0・0 → 1・0・1 → 1・1・0" "台帳の件数の推移を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 1 "問いの台帳の件数（保留・人へ・ループが決めた）: 0・0・0 → 0・0・0 → 0・0・1" \
+    "出どころが開いたままの decided も「ループが決めた」に数える（件数から黙って消さない）" "$PY_BIN" "$RECORD" "$WORK/q-stuck-decided"
 expect_output 0 "台帳に未決の問いが 2 件（うち人へ 1 件）" \
     "阻害要因が 0 でも、台帳に未決が残っていれば判定行がそう言う" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "要対応（[block]＋do-now）の件数: 3 → 0 → 0" "要対応の件数の推移を出す" "$PY_BIN" "$RECORD" "$WORK/hist"

@@ -156,6 +156,7 @@
 | 0 | 台帳の問いは阻害要因にせず、人に聞く候補として出す | 問いの台帳（人に聞く候補。載せた周には聞かない | hist | test_review_record.py::test_validator[hist-question-ledger] |
 | 0 | 問いの推移を履歴に出す（決めた問いは次の周から消えてよい） | r1:held(awaiting) → r2:resolved(awaiting) → r3:— | hist | test_review_record.py::test_validator[hist-question-timeline] |
 | 0 | 台帳の件数の推移を出す | 問いの台帳の件数（保留・人へ・ループが決めた）: 1・0・0 → 1・0・1 → 1・1・0 | hist | test_review_record.py::test_validator[hist-question-counts] |
+| 1 | 出どころが開いたままの decided も「ループが決めた」に数える（件数から黙って消さない） | 問いの台帳の件数（保留・人へ・ループが決めた）: 0・0・0 → 0・0・0 → 0・0・1 | q-stuck-decided | test_review_record.py::test_validator[q-stuck-decided-counts] |
 | 0 | 阻害要因が 0 でも、台帳に未決が残っていれば判定行がそう言う | 台帳に未決の問いが 2 件（うち人へ 1 件） | hist | test_review_record.py::test_validator[hist-open-questions] |
 | 0 | 要対応の件数の推移を出す | 要対応（[block]＋do-now）の件数: 3 → 0 → 0 | hist | test_review_record.py::test_validator[hist-owed-counts] |
 | 2 | 連番に穴があれば履歴を出さずに落ちる | round-2.json が無い | hist-gap | test_review_record.py::test_validator[hist-gap] |

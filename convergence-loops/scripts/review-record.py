@@ -1043,10 +1043,15 @@ def history(rounds):
     open_counts = [sum(1 for u in r["units"] if is_open(u)) for r in rounds]
     out.append("要対応（[block]＋do-now）の件数: " + " → ".join(map(str, open_counts)))
     if qkeys:
+        # 「ループが決めた」は DECIDED_STATUS の全部（decided も resolved も）。resolved だけを数えていた
+        # 間は、出どころの欠陥が開いたままの decided が 3 つのどこにも入らず、件数から黙って消えた。
+        # 3 つの群で QUESTION_STATUS を漏れなく覆う（状態を足したら、どの群に数えるかをここで決める）
+        assert set(ASKING) | set(DECIDED_STATUS) == set(QUESTION_STATUS)
+        groups = (("held",), ("escalate",), DECIDED_STATUS)
         out.append("問いの台帳の件数（保留・人へ・ループが決めた）: " + " → ".join(
             "・".join(
-                str(sum(1 for q in r["questions"] if q["status"] == s))
-                for s in ("held", "escalate", "resolved")
+                str(sum(1 for q in r["questions"] if q["status"] in g))
+                for g in groups
             )
             for r in rounds
         ))
