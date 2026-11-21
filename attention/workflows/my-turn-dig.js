@@ -609,7 +609,6 @@ const GROUP_VERDICT = obj({ verdict: oneOf(['stands', 'falls', 'unverifiable']),
 // stage 13: one entry per ledger id
 const LINES = obj({ items: arr(obj({ id: S, label: S, level: oneOf(['design', 'detail', 'taste']),
   route: oneOf(['draft', 'report', 'fold', 'drop']), into: S, why: S, rule: S })) })
-const SCHEMAS = { PURPOSE, STRUCTURE, GENERAL, COMPARE, SMELL, NODE, CLUSTERS, GAPS, QUOTES, FIXES, VERDICT, TRACE, GROUP_VERDICT, LINES }
 
 // ---- section 4, layer 2: empty fields. The table of fields that may be empty lives here (and in the dry test) ----
 function emptyFields(stage, r, label = '') {
