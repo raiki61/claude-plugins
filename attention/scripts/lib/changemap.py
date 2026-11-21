@@ -833,11 +833,8 @@ def siblings_for(top, paths):
 def _tokens(name):
     name = name.rstrip("/")
     stem = name.rsplit(".", 1)[0] if "." in name else name
-    toks = set()
-    for t in re.split(r"[-_.]+", stem.lower()):
-        if len(t) >= 3:
-            toks.add(t[:-1] if len(t) > 3 and t.endswith("s") else t)  # check / checks を同じ語に
-    return toks
+    # check / checks を同じ語に
+    return {t[:-1] if len(t) > 3 and t.endswith("s") else t for t in re.split(r"[-_.]+", stem.lower()) if len(t) >= 3}
 
 
 def rank_siblings(names, changed, shown=SIBLINGS_SHOWN):
@@ -845,9 +842,7 @@ def rank_siblings(names, changed, shown=SIBLINGS_SHOWN):
     先に。判断ではなく近さの目安で、読む人が「同じ階層の何の隣か」を掴むためのもの。"""
     if not names:
         return []
-    ctoks = set()
-    for c in changed:
-        ctoks |= _tokens(c)
+    ctoks = set().union(*map(_tokens, changed))
     cexts = {e for e in map(_ext, changed) if e}
     def score(n):
         ext = _ext(n)

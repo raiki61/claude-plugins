@@ -1586,9 +1586,8 @@ def render_map(node, owner, name):
     entries = []
     for f in nodes:
         mark = {"ADDED": "+", "DELETED": "-"}.get(f["changeType"], "~")
-        a, d = f["additions"], f["deletions"]
-        note = f"-{d}" if mark == "-" else (f"+{a}" if not d else f"+{a}/-{d}")
-        entries.append({"path": f["path"], "mark": mark, "note": note})
+        entries.append({"path": f["path"], "mark": mark,
+                        "note": changemap.change_note(mark, f["additions"], f["deletions"])})
     w(TREE_NOTE)
     out.extend(changemap.render_tree(entries, dict(sib) if sib else None, root_label=name))
 
