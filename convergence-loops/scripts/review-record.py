@@ -1060,6 +1060,55 @@ def history(rounds):
     return out
 
 
+def _accounting(prev):
+    """前ラウンドの記録の有無と阻害要因から、連続 2 ラウンドの会計の行を返す（今ラウンドの阻害には混ぜない）"""
+    # 連続 2 ラウンドの会計。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
+    # **これを writer に数えさせない**——採点を自己申告にしないのと同じ理由。
+    # これは今ラウンドの阻害ではなく帰属の概念を持たないので、blockers の戻り値に混ぜず
+    # ここで別に持つ（混ぜると呼び出し側が 3 値目を書かされ、表示は真偽・判定は 3 値という
+    # 2 通りの読み方が同じフィールドに同居する）。回せば消えるので「仕事」にも数えない。
+    accounting = []
+    if prev is None:
+        accounting.append("前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）")
+    else:
+        prev_found = blockers(prev)
+        if prev_found:
+            accounting.append(
+                f"前ラウンドに阻害要因が {len(prev_found)} 件あった"
+                "（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）"
+            )
+    return accounting
+
+
+def _print_blockers(found, accounting, rec):
+    """収束を妨げるものを並べ、人に聞く時かを言う（止める訳は _stop に置く）"""
+    if found or accounting:
+        print(f"収束を妨げるもの {len(found) + len(accounting)} 件:")
+        for msg, asked in found:
+            print(bullet(msg + ("（保留の問いに帰属——答えを待っている）" if asked else "")))
+        for msg in accounting:
+            print(bullet(msg))
+        # 人に聞く時。**writer が数えるな**——聞くのが早すぎると、次の周の目が解けた問いで
+        # 人を止める。遅すぎることは無い（帰属しない阻害が 0 になった瞬間に出る）。
+        waiting = sum(1 for _, a in found if a)
+        work = len(found) - waiting
+        global _stop
+        if any(q["kind"] == "premise" and q["status"] == "escalate" for q in rec["questions"]):
+            # 「再審で」と書くな——この短絡は持ち越しを条件にしないので、問いが立った
+            # その周にも発火する（手順書がそう設計している。premise だけの例外）。同じ出力に
+            # 「今ラウンドに立った問い——再審は次の周」と並ぶと、読み手には矛盾にしか見えない。
+            _stop = "premise_escalate"
+            print(f"{STOP_PREMISE}——残る仕事は全てその答えに従属する。"
+                  "ここで止めて聞け（最終報告の冒頭）。")
+        elif waiting and not work:
+            _stop = "work_exhausted"
+            print(f"残る阻害要因は保留の問いに帰属するものだけ（{waiting} 件）——"
+                  f"{STOP_WORK_EXHAUSTED}。ここで止めて聞け（最終報告の冒頭）。")
+        elif waiting:
+            print(f"保留の問いに帰属する阻害要因 {waiting} 件は聞くのを待て——"
+                  f"帰属しない {work} 件を先に直せ（聞くのはまだ）。")
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__, file=sys.stderr)
@@ -1120,47 +1169,8 @@ def main():
                    "（直ったのか、記録から落ちたのかは機械には見えない。P2「履歴との突合」でルーターに掛けろ）:",
                    [k for k in sorted(prev_blocks) if k not in here], bullet)
 
-    # 連続 2 ラウンドの会計。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
-    # **これを writer に数えさせない**——採点を自己申告にしないのと同じ理由。
-    # これは今ラウンドの阻害ではなく帰属の概念を持たないので、blockers の戻り値に混ぜず
-    # ここで別に持つ（混ぜると呼び出し側が 3 値目を書かされ、表示は真偽・判定は 3 値という
-    # 2 通りの読み方が同じフィールドに同居する）。回せば消えるので「仕事」にも数えない。
-    accounting = []
-    if prev is None:
-        accounting.append("前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）")
-    else:
-        prev_found = blockers(prev)
-        if prev_found:
-            accounting.append(
-                f"前ラウンドに阻害要因が {len(prev_found)} 件あった"
-                "（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）"
-            )
-
-    if found or accounting:
-        print(f"収束を妨げるもの {len(found) + len(accounting)} 件:")
-        for msg, asked in found:
-            print(bullet(msg + ("（保留の問いに帰属——答えを待っている）" if asked else "")))
-        for msg in accounting:
-            print(bullet(msg))
-        # 人に聞く時。**writer が数えるな**——聞くのが早すぎると、次の周の目が解けた問いで
-        # 人を止める。遅すぎることは無い（帰属しない阻害が 0 になった瞬間に出る）。
-        waiting = sum(1 for _, a in found if a)
-        work = len(found) - waiting
-        global _stop
-        if any(q["kind"] == "premise" and q["status"] == "escalate" for q in rec["questions"]):
-            # 「再審で」と書くな——この短絡は持ち越しを条件にしないので、問いが立った
-            # その周にも発火する（手順書がそう設計している。premise だけの例外）。同じ出力に
-            # 「今ラウンドに立った問い——再審は次の周」と並ぶと、読み手には矛盾にしか見えない。
-            _stop = "premise_escalate"
-            print(f"{STOP_PREMISE}——残る仕事は全てその答えに従属する。"
-                  "ここで止めて聞け（最終報告の冒頭）。")
-        elif waiting and not work:
-            _stop = "work_exhausted"
-            print(f"残る阻害要因は保留の問いに帰属するものだけ（{waiting} 件）——"
-                  f"{STOP_WORK_EXHAUSTED}。ここで止めて聞け（最終報告の冒頭）。")
-        elif waiting:
-            print(f"保留の問いに帰属する阻害要因 {waiting} 件は聞くのを待て——"
-                  f"帰属しない {work} 件を先に直せ（聞くのはまだ）。")
+    accounting = _accounting(prev)
+    _print_blockers(found, accounting, rec)
     # 台帳に未決が残っていれば、人が決めることは残っている。**exit 0 と exit 1 の両方で言う**
     # ——「聞く時」の 3 分岐は帰属する阻害が在るときにしか通らないので、`thrash` / `split` /
     # `rule` のように出どころで手を止めない問いだけが残る周も、阻害要因が 0 の周も、台帳が
