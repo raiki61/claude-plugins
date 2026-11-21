@@ -1736,15 +1736,8 @@ def survey_companies(config_path, ports, only=None, plugins=False):
                        list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
     if only:
         roots = [r for r in roots if os.path.realpath(r) == os.path.realpath(only)]
-    places_of = {}
-    for root in roots:
-        try:
-            places_of[root] = ports.term.worktrees(root)
-        except term.Error as e:
-            places_of[root] = []
-            notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
-    companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings, ports.git), sessions_)
+    companies = orders.companies_of(roots, panes, sessions_, settings, ports, notes)
     for d in (d for c in companies for d in c["departments"]):
         d["tool_place"] = not d["branch"] and tools.is_place(d["path"])   # 機械のツールを走らせる一時の worktree（--tree が「（ブランチ無し）」と分けて出す）
     return accounts_, workspaces_, companies, settings, notes

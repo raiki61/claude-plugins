@@ -112,6 +112,14 @@ def survey(config_path, ports):
     panes = ports.term.panes()
     roots = tree.roots(ports.term.workspaces(), panes, ports.common_of,
                        list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
+    settings = os.path.dirname(path)
+    companies = companies_of(roots, panes, sessions_, settings, ports, notes)
+    return cfg, accounts_, sessions_, panes, companies, settings, notes
+
+
+def companies_of(roots, panes, sessions_, settings, ports, notes):
+    """会社のルートの並び（tree.roots）から、会社ごとの部署を組み立てる（tree.build）。worktree を並べられない会社は部署を空にし、
+    訳を notes に足す（survey と dispatch.survey_companies が同じ読み方をする）。"""
     places_of = {}
     for root in roots:
         try:
@@ -119,9 +127,7 @@ def survey(config_path, ports):
         except term.Error as e:
             places_of[root] = []
             notes.append(f"{root}: worktree を並べられない（{e}）")
-    settings = os.path.dirname(path)
-    companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings, ports.git), sessions_)
-    return cfg, accounts_, sessions_, panes, companies, settings, notes
+    return tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings, ports.git), sessions_)
 
 
 def account_of(dept, accounts_):
