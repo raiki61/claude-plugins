@@ -1737,17 +1737,22 @@ class WithRole:
         self.err.flush()
 
 
-def watch_plain(got, err, watch=wake.watch):
-    """役の無い会話の待ち受け（plain_plan）。知らせが来れば、その字で会話を再開させる。今の版への替わり（hop）はしない（知らせを
-    渡すだけで、版で替わる振る舞いを持たない）。"""
-    token = wake.new_token()
-
+def _release_on_signal(got, token):
+    """TERM・HUP・INT を受けたら、待ち受けの印（token）を消して終わる。会話が終わる（claude stop）・フックの持ち時間が尽きると
+    Claude Code が TERM を送る。印を消して、送る側をすぐ予備へ回す。"""
     def stop(*_):
         wake.release(got["inbox"], got["place"], token)
         sys.exit(0)
     for name in ("SIGTERM", "SIGHUP", "SIGINT"):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), stop)
+
+
+def watch_plain(got, err, watch=wake.watch):
+    """役の無い会話の待ち受け（plain_plan）。知らせが来れば、その字で会話を再開させる。今の版への替わり（hop）はしない（知らせを
+    渡すだけで、版で替わる振る舞いを持たない）。"""
+    token = wake.new_token()
+    _release_on_signal(got, token)
     return watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, err)
 
 
@@ -1845,14 +1850,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
         return inner()
     while True:
         token = wake.new_token()
-
-        def stop(*_, token=token):
-            # 会話が終わる（claude stop）・フックの持ち時間が尽きると Claude Code が TERM を送る。印を消して、送る側をすぐ予備へ回す
-            wake.release(got["inbox"], got["place"], token)
-            sys.exit(0)
-        for name in ("SIGTERM", "SIGHUP", "SIGINT"):
-            if hasattr(signal, name):
-                signal.signal(getattr(signal, name), stop)
+        _release_on_signal(got, token)
         code = wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token,
                           WithRole(err, payload, woke=lambda: woken(got)), check=check, ready=lambda: not unready(payload, got["job"]),
                           since=got.get("since"), idle=idle)
