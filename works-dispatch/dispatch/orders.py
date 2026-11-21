@@ -290,7 +290,7 @@ def talk_away(dept, ports):
         return False   # 窓を読めないときは、居ると見て今までどおりに出す
 
 
-def place_talk(dept, sessions_, accounts_):
+def place_talk(dept, sessions_):
     """会話の一覧（アカウントの名 → 並び。終わった物も含む）のうち、作業フォルダが部署の場所の裏の会話の (アカウントの名, 1 件)。
     属性にアカウントが残っていれば、そのアカウントの一覧だけを見る。動いている（作業中か返事待ち）物を先に、次に名前が部署の名前の
     物を先に、その中で起きた時刻の新しい物。本社（窓口）は選ばない（代表の clone には持ち主のほかの会話も居る）。無ければ None。"""
@@ -310,7 +310,7 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
     `<アカウントのコマンド> attach <id>` を打ち、窓に会話が戻るのを見る。裏の会話は落ちても記録が残り、attach で前の続きから
     戻る（まっさらな環境での 5 回目の試しの 1。Windows で確かめた）。(戻ったペインか None, 言葉)。"""
     full = dept["attrs"].get("session")
-    found = None if full else place_talk(dept, sessions_, accounts_)
+    found = None if full else place_talk(dept, sessions_)
     if not full and not found:
         return None, "部署の属性に会話の id（company.session）が無く、会話の一覧にも部署の場所の裏の会話が無いので戻せない（部署を立て直す）"
     if found:
