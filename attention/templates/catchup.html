@@ -203,17 +203,6 @@ svg.icon { width: 16px; height: 16px; flex: none; vertical-align: text-bottom; f
 .next li:first-child { color: var(--fgColor-default); font-size: 16px; font-weight: 600; padding-bottom: 6px; }
 .next li:first-child::before { background: var(--bgColor-accent-emphasis); color: var(--fgColor-onEmphasis); border-color: transparent; }
 .next .go { font-size: 13px; font-weight: 500; margin-left: 6px; white-space: nowrap; }
-.checks { list-style: none; margin: 0; padding: 0; background: var(--bgColor-muted); }
-.checks li { display: grid; grid-template-columns: 24px 7.5em minmax(0, 1fr); gap: 8px; align-items: center;
-  padding: 8px 16px; border-top: 1px solid var(--borderColor-default); font-size: 13px; }
-.checks .ic { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: var(--fgColor-onEmphasis); }
-.checks .ok .ic { background: var(--bgColor-success-emphasis); }
-.checks .warn .ic { background: var(--bgColor-attention-emphasis); }
-.checks .mine .ic { background: var(--bgColor-severe-emphasis); }
-.checks .neutral .ic { background: var(--bgColor-neutral-emphasis); }
-.checks .bad .ic { background: var(--bgColor-danger-emphasis); }
-.checks .k { font-weight: 600; }
-.checks .v { color: var(--fgColor-muted); min-width: 0; }
 
 /* ── セクション ── */
 section.sec { margin-top: 40px; }
@@ -652,8 +641,6 @@ details.foot ul { margin: 6px 0 0; padding-left: 1.4em; }
   .terms dl { grid-template-columns: 1fr; gap: 0; }
   .terms dd { margin-bottom: 6px; }
   .pr-head h1 { font-size: 20px; }
-  .checks li { grid-template-columns: 24px minmax(0, 1fr); }
-  .checks .v { grid-column: 2; }
   .evlog li { grid-template-columns: 8em minmax(0, 1fr); } .evlog li > span:last-child { grid-column: 2; }
   .cmp { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 16px minmax(0, 1fr); }
   .sc-panes.two { grid-template-columns: minmax(0, 1fr); }
@@ -708,11 +695,7 @@ const el = (tag, attrs = {}, ...kids) => {
 };
 // 自作の小さな印（16 の格子）
 const ICON = {
-  check: "M6.5 11.2 3.3 8l-1 1 4.2 4.2 7.2-7.2-1-1z",
   dot: "M8 4.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z",
-  talk: "M2 3h12v8H7l-3 3v-3H2z",
-  x: "M4.2 3.2 8 7l3.8-3.8 1 1L9 8l3.8 3.8-1 1L8 9l-3.8 3.8-1-1L7 8 3.2 4.2z",
-  commit: "M8 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM0 7.25h4.6v1.5H0zM11.4 7.25H16v1.5h-4.6z",
   pr: "M4 2.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM4 10.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM12 10.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM3.4 5.5h1.2v5H3.4zM11.4 5h1.2v5.5h-1.2zM8 3.5h3.5a1 1 0 0 1 1 1V5h-1.2v-.3H8V6L6 4.1 8 2.2z",
 };
 const icon = name => el("svg:svg", { class: "icon", viewBox: "0 0 16 16", "aria-hidden": "true" }, el("svg:path", { d: ICON[name] }));
@@ -806,9 +789,6 @@ app.append(el("header", { class: "pr-head" },
 // ── 5 秒: いまのターン ──
 const T = H.turn || {};
 const mineTurn = T.kind === "mine";
-const checks = (M.status || []).map(s => el("li", { class: s.tone || "neutral" },
-  el("span", { class: "ic" }, icon(s.tone === "ok" ? "check" : s.tone === "mine" ? "talk" : s.tone === "bad" ? "x" : "dot")),
-  el("span", { class: "k" }, s.label), el("span", { class: "v" }, s.value)));
 const next = A.next || [];
 // 変更のセクションの file へ飛ぶ。「前回から」を選び、畳んでいれば開く
 function jump(f, text, cls, viewId) {
