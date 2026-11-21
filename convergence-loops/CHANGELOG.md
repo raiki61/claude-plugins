@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-11-21
+
 ### Fixed
 
 - `/review-loop` の記録の検証器（`scripts/review-record.py`）が 2 ラウンド目から出す履歴の行「問いの台帳の件数（保留・人へ・ループが決めた）」が、「ループが決めた」に状態 `resolved` の問いだけを数え、状態 `decided`（ループが決めたが、出どころの欠陥がまだ開いている問い）をどこにも数えていなかった。`decided` の問いが件数から黙って消え、3 つの数の和が台帳の問いの数と合わなかった。「ループが決めた」に `decided` と `resolved` の両方を数えるようにした（見出しは同じ。問いの台帳の一覧でも両方を「ループが決めた」と出している）。
