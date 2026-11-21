@@ -579,14 +579,14 @@ def write(argv, runner, root):
         to, commits = target(pin, runner)
         if argv:
             to = argv[0]
-            if upto(commits, to) is None:
-                raise RuntimeError(f"{to[:8]} が PIN {pin[:8]} の後の工場の main の commit に無い")
-            if not green(to, runner):
-                raise RuntimeError(f"{to[:8]} の CI〔{CHECK}〕が緑でない")
         if to is None:
             print("上げる物は無い（PIN の後に CI が緑の commit が無い）")
             return 0
         commits = upto(commits, to)
+        if commits is None:
+            raise RuntimeError(f"{to[:8]} が PIN {pin[:8]} の後の工場の main の commit に無い")
+        if argv and not green(to, runner):
+            raise RuntimeError(f"{to[:8]} の CI〔{CHECK}〕が緑でない")
         cache = os.path.join(common_dir(runner, root), SOURCE)
         fetch(cache, url_of(), [pin, to], runner)
         face = surface(pin, to, cache, runner, root)
