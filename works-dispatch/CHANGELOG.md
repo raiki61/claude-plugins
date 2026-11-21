@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `dispatch/` の中を整理した（2 回目の整理の続き。頼み 93d26b）。同じ形の数行（`claudex` の設定のフォルダの決め方、`herdr` の札の引数と process-info の呼び出し、`nodes/launch` の `start` と `start_named` のペインで打って会話を待つ所、待ち受けが印の時刻を進める所）を 1 か所にまとめ、どこからも呼ばれない `Ports.trusted` を消した。コマンドの引数・出力・記録のファイルの形は変えていない。
+
 ## [0.166.0] - 2026-11-21
 
 ### Changed
