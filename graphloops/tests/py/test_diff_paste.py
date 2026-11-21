@@ -6,19 +6,15 @@ import types
 
 import pytest
 
-from conftest import PLUGIN
+from conftest import REVIEW_GRAPH_PATH, git
 from engine import util
 from engine.rules import load_rules
 from engine.schema import load_graph
 
-GRAPH = PLUGIN / "graphs" / "review-loop.json"
-RULES = load_rules(GRAPH, load_graph(GRAPH)[0])
-STATE_SCHEMA = load_graph(GRAPH)[0]["state_schema"]   # 写しの記録（diff_paste_log）は合わせ方の口（write_loop）で書く
+G = load_graph(REVIEW_GRAPH_PATH)[0]
+RULES = load_rules(REVIEW_GRAPH_PATH, G)
+STATE_SCHEMA = G["state_schema"]   # 写しの記録（diff_paste_log）は合わせ方の口（write_loop）で書く
 read_room = 1000   # 台本の read_room_bytes
-
-
-def sh(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True).stdout
 
 
 def rows(n, fmt):
@@ -29,14 +25,12 @@ def rows(n, fmt):
 def repo(tmp_path, monkeypatch):
     r = tmp_path / "repo"
     r.mkdir()
-    sh(r, "init", "-q")
-    sh(r, "config", "user.email", "t@example.com")
-    sh(r, "config", "user.name", "t")
+    git(r, "init", "-q")
     (r / "code.py").write_text("x = 1\n", encoding="utf-8")
     (r / ".gitattributes").write_text("gen/** linguist-generated\n", encoding="utf-8")
-    sh(r, "add", "-A")
-    sh(r, "commit", "-qm", "base")
-    base = sh(r, "rev-parse", "HEAD").strip()
+    git(r, "add", "-A")
+    git(r, "commit", "-qm", "base")
+    base = git(r, "rev-parse", "HEAD").strip()
     (r / "code.py").write_text("x = 2\ny = 3\n", encoding="utf-8")
     (r / "gen").mkdir()
     (r / "gen" / "big.json").write_text(rows(3000, '{{"row": {}}}\n'), encoding="utf-8")
@@ -46,12 +40,12 @@ def repo(tmp_path, monkeypatch):
     (r / "lib.py").write_text(rows(400, "v{} = 0\n"), encoding="utf-8")
     # この差分が自分で宣言した生成データ（new/**）と、自分のコードを生成データと言い張る宣言（lib.py）
     (r / ".gitattributes").write_text("gen/** linguist-generated\nnew/** linguist-generated\nlib.py linguist-generated\n", encoding="utf-8")
-    sh(r, "add", "-A")
-    sh(r, "commit", "-qm", "next")
-    snap = sh(r, "rev-parse", "HEAD").strip()
+    git(r, "add", "-A")
+    git(r, "commit", "-qm", "next")
+    snap = git(r, "rev-parse", "HEAD").strip()
     monkeypatch.setattr(util, "GIT_CWD", str(r))
     raw = subprocess.run(["git", "-C", str(r), "diff", *RULES.DIFF_FIXED_ARGS, base, snap], capture_output=True, check=True).stdout
-    names = [n for n in sh(r, "diff", "--name-only", "-z", base, snap).split("\0") if n]
+    names = [n for n in git(r, "diff", "--name-only", "-z", base, snap).split("\0") if n]
     return types.SimpleNamespace(root=r, base=base, snap=snap, raw=raw, names=names)
 
 
@@ -156,12 +150,12 @@ def test_quoted_header_path_is_found(tmp_path, repo):
     assert RULES._header_tails('a"\\b\t')[1] == b' "b/a\\"\\\\b\\t"'
     odd = "gen/日本 語.json"
     (repo.root / odd).write_text(rows(2000, "{}\n"), encoding="utf-8")
-    sh(repo.root, "add", "-A")
-    sh(repo.root, "commit", "-qm", "odd")
-    snap = sh(repo.root, "rev-parse", "HEAD").strip()
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-qm", "odd")
+    snap = git(repo.root, "rev-parse", "HEAD").strip()
     raw = subprocess.run(["git", "-C", str(repo.root), "diff", *RULES.DIFF_FIXED_ARGS, repo.base, snap], capture_output=True, check=True).stdout
     assert b'"b/gen/' in raw                                     # 前提: 見出しがクオートされている
-    names = [n for n in sh(repo.root, "diff", "--name-only", "-z", repo.base, snap).split("\0") if n]
+    names = [n for n in git(repo.root, "diff", "--name-only", "-z", repo.base, snap).split("\0") if n]
     b = board(tmp_path, len(raw) - len(section(raw, "gen/big.json")) + RULES.PASTE_ROOM + read_room, repo.base)
     RULES._paste_copy(b, raw, full_copy(tmp_path, raw), snap, names)
     assert odd in [x["path"] for x in b.loop_state["diff_paste_log"][0]["summarized"]]
@@ -171,7 +165,7 @@ def test_quoted_header_path_is_found(tmp_path, repo):
                                        ("diff.relative", "true")])
 def test_user_git_config_does_not_change_the_copy(tmp_path, repo, monkeypatch, key, value):
     # 利用者の設定のまま撮ると、見出しの前置き・色・範囲が変わってセクションを名前で引けず、生成データが先に替わらない
-    sh(repo.root, "config", key, value)
+    git(repo.root, "config", key, value)
     if key == "diff.relative":   # 相対の範囲に効くのは git の cwd がサブディレクトリのとき（inputs.cwd はそうでありうる）
         monkeypatch.setattr(util, "GIT_CWD", str(repo.root / "new"))
     monkeypatch.setattr(RULES, "_freeze_revision", lambda b: repo.snap)
@@ -189,27 +183,27 @@ def test_diff_attributes_are_read_from_base(tmp_path, repo, monkeypatch):
     # 差分が自分の .gitattributes で自分のコードを -diff にしても、全部の役の差分から本文が消えない（GIT_ATTR_SOURCE は git 2.42 から。
     # 古い git は作業ツリーの属性で描く——その形も見て、どちらの版でも黙って変わらないことを確かめる）
     (repo.root / ".gitattributes").write_text("code.py -diff\n", encoding="utf-8")
-    sh(repo.root, "add", "-A")
-    sh(repo.root, "commit", "-qm", "hide")
-    snap = sh(repo.root, "rev-parse", "HEAD").strip()
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-qm", "hide")
+    snap = git(repo.root, "rev-parse", "HEAD").strip()
     monkeypatch.setattr(RULES, "_freeze_revision", lambda b: snap)
     b = board(tmp_path, None, repo.base)
     b.cond = lambda name, overlay=None: (False, "")
     raw = RULES._take_diff(b)["raw"]
-    ver = tuple(int(x) for x in re.findall(r"\d+", sh(repo.root, "version"))[:2])
+    ver = tuple(int(x) for x in re.findall(r"\d+", git(repo.root, "version"))[:2])
     assert (b"+y = 3" in raw) == (ver >= (2, 42)) and (b"Binary files" in raw) == (ver < (2, 42))
 
 
 def test_added_md_links_read_attributes_from_base(tmp_path, repo):
     # リンクの検査も本文を読む git diff——差分が *.md -diff を足しても、足したリンクが検査から消えない（git 2.42 未満は今の形）
     (repo.root / "doc.md").write_text("# t\n", encoding="utf-8")
-    sh(repo.root, "add", "-A")
-    sh(repo.root, "commit", "-qm", "doc")
-    base = sh(repo.root, "rev-parse", "HEAD").strip()
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-qm", "doc")
+    base = git(repo.root, "rev-parse", "HEAD").strip()
     (repo.root / "doc.md").write_text("# t\n[x](nowhere.md)\n", encoding="utf-8")
     (repo.root / ".gitattributes").write_text("*.md -diff\n", encoding="utf-8")
     got = RULES._added_md_links(base, str(repo.root))
-    ver = tuple(int(x) for x in re.findall(r"\d+", sh(repo.root, "version"))[:2])
+    ver = tuple(int(x) for x in re.findall(r"\d+", git(repo.root, "version"))[:2])
     assert (("doc.md", 2, "nowhere.md", None) in got) == (ver >= (2, 42)), got
 
 
@@ -226,10 +220,9 @@ def test_notices_name_the_summarized_rows(tmp_path):
 
 
 def test_graph_declares_budget_room_and_read_file():
-    g = load_graph(GRAPH)[0]
-    launch = g["launch"]
+    launch = G["launch"]
     assert launch["input_budget_bytes"] - RULES.PASTE_ROOM - launch["read_room_bytes"] > 0
     for nid, snap in (("p1.hygiene", "snapshot"), ("r2.compare", "after_fix")):
-        n = g["nodes"][nid]
+        n = G["nodes"][nid]
         assert (f"file:hist.{snap}.paste_file" in n["reads"] and f"file:hist.{snap}.diff_file" not in n["reads"]
                 and n["read_file"] == f"hist.{snap}.diff_file")

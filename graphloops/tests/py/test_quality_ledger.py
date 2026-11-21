@@ -11,6 +11,7 @@ import golden_adapter as ga
 import pytest
 
 from conftest import PLUGIN, REVIEW_GRAPH_PATH
+from engine import checks_cache
 from engine import rules as rules_mod
 from engine import schema as schema_mod
 from engine import util as util_mod
@@ -238,7 +239,6 @@ def test_unreadable_plugin_graph_is_a_note_not_a_crash(tmp_path, monkeypatch, ca
 def test_checks_cache_hit_rate_from_notes(tmp_path, capsys):
     """宣言の一式の使い回しの当たりの率: 引いた回ごとの控え（runs/ の下の NOTE_NAME）を数える。読めない控えは一部が読めないに
     出し、控えの無い盤面（控えを書く前の engine の run）は数えない"""
-    from engine import checks_cache
     new = board(tmp_path, "graphloops/review-loop/20261019-000000", state={"engine": engine("0.37.0")})
     notes = {"r1/p0.local_checks.a1": {"hit": False, "causes": ["tree"]},
              "r1/p4.ci.a1": {"hit": False, "causes": ["env:PATH", "env:GL_X"]},

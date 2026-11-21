@@ -5,10 +5,9 @@ import shutil
 
 import pytest
 
-from conftest import PLUGIN, REPO, graphcheck
+from conftest import PLUGIN, REPO, REVIEW_VALIDATOR, graphcheck
 from engine.schema import graph_text, inline_block_refs, load_graph
 
-REVIEW_VALIDATOR = REPO / "convergence-loops" / "scripts" / "review-record.py"
 RESEARCH_VALIDATOR = REPO / "convergence-loops" / "scripts" / "research-record.py"
 
 

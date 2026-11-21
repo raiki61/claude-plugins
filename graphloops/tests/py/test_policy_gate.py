@@ -5,13 +5,13 @@ import types
 
 import pytest
 
-from conftest import PLUGIN
+from conftest import PLUGIN, REVIEW_GRAPH_PATH
+from engine.render import ABSENT, Renderer
 from engine.rules import load_rules
 from engine.schema import load_graph
 
-GRAPH = PLUGIN / "graphs" / "review-loop.json"
-G = load_graph(GRAPH)[0]
-RULES = load_rules(GRAPH, G)
+G = load_graph(REVIEW_GRAPH_PATH)[0]
+RULES = load_rules(REVIEW_GRAPH_PATH, G)
 PI = RULES.policy_input
 
 
@@ -333,7 +333,6 @@ def test_gate_answer_keeps_inputs_and_watches_the_amended_path(tmp_path):
 def test_gone_policy_reaches_roles_as_absent(tmp_path):
     """消えた方針の文書をゲートで通した後、役へ渡す方針の段（policy-paste の穴）は『読めない』でなく『（この周には無い）』で埋まる
     ——見張る先と渡す先が同じ pol の path を読む"""
-    from engine.render import ABSENT, Renderer
     f = tmp_path / "p.md"
     f.write_text("前の版\n", encoding="utf-8")
     b = board(tmp_path, named=str(f))

@@ -11,6 +11,7 @@ import pathlib
 import posixpath
 import re
 import shutil
+import subprocess
 from typing import NamedTuple
 
 _pspec = importlib.util.spec_from_file_location("graphloops_rules_policy_input", pathlib.Path(__file__).with_name("policy_input.py"))
@@ -651,7 +652,7 @@ def escalate_on_thrash(b):
 
     research 側の「厚みの三段」と同じ規律（昇格は自律で自由・降格は依頼者の明示指定のみ）を review にも置く。
     review には段が無いので、上げるのは『処方の選び方』と『深さで切っている観点を全部走らせる』の 2 つ。
-    引き金は判定者が機械可読で返す 2 フィールド（kind=thrash の問い・reburn_causes）。下げるのは人の手当てだけ
+    引き金は機械が数える 2 つ（キーの再燃・[block] の件数が落ちない。下の注記）。下げるのは人の手当てだけ
     （loop.py patch state.loop.escalated）——回す側が自分で浅くできると、作業を減らして得する側が深さを決める。
     """
     if b.loop_state.get("escalated"):
@@ -2681,7 +2682,7 @@ def _converge(b, nid):
         st = ci.get("status")
         if st == "found":
             return {"decision": "next_round", "reason": "検証器は阻害なしだが CI が赤（local_checks が found）——P3 で直してから"}
-        unverified = (st == "clean" and not _ci_by_engine(b.record["process"].get("checks"), b.round)) or st != "clean"
+        unverified = st != "clean" or not _ci_by_engine(b.record["process"].get("checks"), b.round)
         answered = next((h.get("round") for h in b.record["process"].get("human_answers") or [] if "ci_unverified" in (h.get("kinds") or [])),
                         None)
         if unverified and answered is not None:
@@ -2739,7 +2740,6 @@ def _comment_ratio(b, base, rev):
     """comment-ratio.sh --json <BASE> <版> の scalars ——（名前 → 数, 測れなかった理由）。出力を読むだけで数え直さない。
     知らない名前・数でない値・欠けた名前は、黙って捨てずに測れなかった理由にする（一部だけ書くと、周の間で欠けた値が 0 と区別できない）。
     unmeasured（数えられなかったファイル）が在れば、数は返したうえで理由にも残す"""
-    import subprocess
     script = pathlib.Path(b.state["inputs"].get("scripts_dir") or "") / "comment-ratio.sh"
     # bash は PATH の順で引く。裸の名前を渡すと、Windows では CreateProcess が PATH より先にシステムのディレクトリを探し、
     # Git の bash でなく C:\Windows\System32\bash.exe（WSL の起動口）に当たる（tests/mutate.py の BASH と同じ。実測 2026-09-26:
@@ -4672,7 +4672,6 @@ def spec_revise_output(v, nid, out, item):
 def _spec_run(root, cmd):
     """受け入れ条件 1 件の run を今の作業ツリーで走らせた終了コード（走らなければ None と理由）。走らせるのは人が承認の問いで
     このコマンドの字面を見て continue した後だけ（spec_freeze）。時間切れは木ごと止める（engine の run_tree）"""
-    import subprocess
     try:
         r = run_tree(cmd, cwd=root, timeout=SPEC_RUN_TIMEOUT, shell=True)
     except (OSError, subprocess.TimeoutExpired) as e:

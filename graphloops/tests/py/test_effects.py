@@ -4,16 +4,16 @@ graph の state_schema の合わせ方（x-reducer）で当てる。拒否は例
 import copy
 import json
 import shutil
-import subprocess
-import sys
 
 import pytest
 
 from conftest import PLUGIN, REVIEW_GRAPH_PATH, graphcheck, run_graphcheck
 from engine import commands, effects
+from engine.advance import run_driver_node
+from engine.record import apply_writes
 from engine.rules import load_rules, takes_view
 from engine.util import AnswerReject
-from test_hist import make, rd
+from test_hist import _patch, make, rd
 
 GRAPH = json.loads(REVIEW_GRAPH_PATH.read_text(encoding="utf-8"))
 SCHEMA = GRAPH["state_schema"]
@@ -94,7 +94,6 @@ def test_post_check_turns_ok_false_into_answer_reject_and_checks_the_reply(tmp_p
 
 
 def test_effects_from_a_new_form_builtin_are_applied_and_kept_out_of_the_output(tmp_path, monkeypatch):
-    from engine.advance import run_driver_node
     b = make(tmp_path, 1, [rd(1)])
     fn = b.rules.cond_reads()(lambda v, nid: {"ok": True, "owed": 0, "rows": [],
                                               "effects": [{"to": "loop.outcome", "reducer": "overwrite", "value": "stopped"}]})
@@ -116,7 +115,6 @@ def test_moved_post_checks_and_builtins_take_the_view():
 def test_new_form_write_ops_return_the_value_and_the_engine_puts_it_where_the_op_names(tmp_path):
     """記録を書く rules の op（新しい形）は値を返すだけで、engine の apply_writes が op の writes_to（graph の writes の to を埋めた
     path）に置く——記録へ書く口を増やさない"""
-    from engine.record import apply_writes
     b = make(tmp_path, 1, [rd(1)], record={"materials": {}, "units": [], "questions": [{"key": "他", "kind": "fork"}], "process": {}})
     apply_writes(b, "p1.hygiene", {"findings": [{"where": "a", "text": "t"}], "seen": "見た"}, None)
     assert b.record["materials"]["hygiene"] == {"status": "found", "checked": "見た", "count": 1, "detail": "a: t"}
@@ -175,10 +173,7 @@ def test_graphcheck_checks_the_reducer_words_and_places(sandbox, breaks, words):
 ])
 def test_patch_records_the_bypassed_reducer(tmp_path, path, value, want):
     b = make(tmp_path, 1, [rd(1)])
-    val = tmp_path / "v.json"
-    val.write_text(json.dumps(value), encoding="utf-8")
-    r = subprocess.run([sys.executable, str(PLUGIN / "scripts" / "loop.py"), "patch", "--path", path, "--file", str(val),
-                        "--reason", "検査", "--dir", str(b.dir)], capture_output=True, text=True, encoding="utf-8")
+    r = _patch(b, path, value, tmp_path)
     assert r.returncode == 0, r.stderr
     row = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["patches"][-1]
     assert row.get("bypass") == want

@@ -7,12 +7,11 @@ import sys
 
 import pytest
 
-from conftest import PLUGIN, REVIEW_VALIDATOR
+from conftest import PLUGIN, REVIEW_GRAPH_PATH, REVIEW_VALIDATOR
 from engine import board as board_mod
 from engine import filelock
 from engine import hist as hist_mod
 
-GRAPH = PLUGIN / "graphs" / "review-loop.json"
 TDD_GRAPH = PLUGIN / "graphs" / "review-loop-tdd.json"
 
 
@@ -21,7 +20,7 @@ def rd(n, done=(), instances=None, stopped=None):
             "instances": instances or {}, "item_counts": {}}
 
 
-def make(tmp_path, rnd, rounds, *, loop=None, records=None, outs=None, record=None, graph=GRAPH):
+def make(tmp_path, rnd, rounds, *, loop=None, records=None, outs=None, record=None, graph=REVIEW_GRAPH_PATH):
     """rounds は rd の一覧、records は {周: 周の記録}、outs は {(ノード, 周): 出力}（今の周は state.outputs、前の周は rd の instance）"""
     d = tmp_path / "run"
     (d / "rounds").mkdir(parents=True)
@@ -286,10 +285,7 @@ def test_history_refuses_undeclared_reads(tmp_path):
 def test_patch_refuses_hist_values(tmp_path, path):
     """hist の値への手当ては、書いても次に引く時に作り直されて効かない——ok と言わずに拒み、元の履歴を直す口を案内する"""
     b = make(tmp_path, 2, [rd(1), rd(2)])
-    val = tmp_path / "v.json"
-    val.write_text("[]", encoding="utf-8")
-    r = subprocess.run([sys.executable, str(PLUGIN / "scripts" / "loop.py"), "patch", "--path", path, "--file", str(val),
-                        "--reason", "検査", "--dir", str(b.dir)], capture_output=True, text=True, encoding="utf-8")
+    r = _patch(b, path, [], tmp_path)
     msg = r.stdout + r.stderr
     assert r.returncode != 0 and "書いても次に引くとき作り直されて効かない" in msg
     # 案内は値の元から引く——閉じた周の記録から作る値には直す口が無いと言い、ノードの出力を読む値にはそのノードの手当てを名指す
