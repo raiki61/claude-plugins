@@ -635,6 +635,11 @@ def main(argv=None, ports=None):
                           lead=f"{clone.source} は設定の [[repos]] に無いので、部署の回（--task・--ask・--land）の前提だけを確かめた"
                                "（部署の回は [[repos]] が無くても立つ。PR を開く回も使うなら [[repos]] に足す）")
         return _check(cfg, ports)
+    return _listing(a, cfg, repo, ports)
+
+
+def _listing(a, cfg, repo, ports):
+    """PR と issue を開く回（--tree・--check・--land・--task などの早く返す回の後）。一覧で回すときは、送り直しと片付けもする。"""
     problems, notes = ports.preflight(cfg)
     notes = list(cfg.notes) + notes
     if problems:
