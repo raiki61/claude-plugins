@@ -538,10 +538,15 @@ def last_spoken(ev, me):
 # ---- 状態 --------------------------------------------------------------------
 
 
+def head_rollup(node):
+    """head commit のチェックの束（statusCheckRollup）。head が無ければ None"""
+    heads = node.get("head", {}).get("nodes")
+    return heads[0]["commit"].get("statusCheckRollup") if heads else None
+
+
 def check_state(node):
     """head commit のチェックを ([(赤の名前, URL)], 実行中の数, 緑の数) に畳む。"""
-    heads = node.get("head", {}).get("nodes", [])
-    rollup = (heads[0]["commit"].get("statusCheckRollup") if heads else None)
+    rollup = head_rollup(node)
     if not rollup:
         return [], 0, 0
     red, running, green = [], 0, 0
@@ -1257,9 +1262,7 @@ def after_lines(me, ev, anchor_t, full, limit):
 
 def ci_unseen(node):
     """head のチェックのうち、取得の上限で取れなかった数。"""
-    heads = node.get("head", {}).get("nodes", [])
-    rollup = heads[0]["commit"].get("statusCheckRollup") if heads else None
-    conn = (rollup or {}).get("contexts") or {}
+    conn = (head_rollup(node) or {}).get("contexts") or {}
     return max(0, (conn.get("totalCount") or 0) - len(conn.get("nodes") or []))
 
 
@@ -1935,6 +1938,19 @@ def render_since_thread(th, node, lines, lo, hi, diff_since, full, frame=True):
     return out, True
 
 
+def thread_turn_label(th):
+    """スレッドの見出しに添える、いま誰が返すターンか"""
+    if th["my_turn"]:
+        return "← 私が返すターン"
+    if th["side_last"]:
+        return f"← 持ち主の側の {th['side_last']} が最後に返している（相手のターン）"
+    if th["owes"]:
+        return f"← {', '.join(th['owes'])} が返すターン（相手のターン）"
+    if th["mine_last"]:
+        return "← 私が最後に発言している（相手のターン）"
+    return "← 私は入っていない（他の人同士の会話）"
+
+
 def render_threads(node, me, read_lines, full=False, diff_since=None):
     threads = unresolved_threads(node, me)
     out = []
@@ -1945,17 +1961,7 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
         w("  人が入っている未解決スレッドは無い")
         return "\n".join(out)
     for i, th in enumerate(threads if full else threads[:THREAD_CAP], 1):
-        if th["my_turn"]:
-            turn = "← 私が返すターン"
-        elif th["side_last"]:
-            turn = f"← 持ち主の側の {th['side_last']} が最後に返している（相手のターン）"
-        elif th["owes"]:
-            turn = f"← {', '.join(th['owes'])} が返すターン（相手のターン）"
-        elif th["mine_last"]:
-            turn = "← 私が最後に発言している（相手のターン）"
-        else:
-            turn = "← 私は入っていない（他の人同士の会話）"
-        w(f"  === {i}/{len(threads)} {thread_where(th)}  {turn} {changemap.lang_tag(th['path'])}")
+        w(f"  === {i}/{len(threads)} {thread_where(th)}  {thread_turn_label(th)} {changemap.lang_tag(th['path'])}")
         c = th["last"]
         w(f"  {name_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
         body = their_lines(c["body"])
@@ -2759,15 +2765,13 @@ def pr_views(owner, name, node, since):
                               note=note)
         v.update(sha=one, label=label)
         views.append(v)
-    n = node["changedFiles"]
-    if text is None:
-        views.append(catchup_html.view("all", f"PR 全体（{n} files）", "", url=f"{url}/files",
-                                       note="差分を取れなかった（gh pr diff が失敗した）。"))
-    elif len(text) > MAP_DIFF_CAP:
-        views.append(catchup_html.view("all", f"PR 全体（{n} files）", "", url=f"{url}/files",
-                                       note=f"差分が {len(text)} 文字で大きいので載せない（上限 {MAP_DIFF_CAP}）。"))
+    label = f"PR 全体（{node['changedFiles']} files）"
+    if text is None or len(text) > MAP_DIFF_CAP:
+        views.append(catchup_html.view("all", label, "", url=f"{url}/files",
+                                       note="差分を取れなかった（gh pr diff が失敗した）。" if text is None
+                                       else f"差分が {len(text)} 文字で大きいので載せない（上限 {MAP_DIFF_CAP}）。"))
     else:
-        views.append(catchup_html.view("all", f"PR 全体（{n} files）", text, since_paths=since_paths))
+        views.append(catchup_html.view("all", label, text, since_paths=since_paths))
     # 指摘の「前回から変わったか」は差分の文字でなく file の一覧で決める（差分を取れなくても一覧は在る）。
     # 基準を置けない（私の痕跡が無い・窓の外・書き換え）なら分からないので None
     valid = since is not None and not since.get("outside") and not since.get("rewritten")
@@ -2866,6 +2870,11 @@ def local_head(kind, ref, title, author="", notes=()):
             "files": None, "additions": None, "deletions": None, "notes": [*notes, "GitHub 側は見ていない"]}
 
 
+def files_view(vid, label, text, **kw):
+    """差分 1 つの面。見出しは「<label>（<file の数> files）」"""
+    return catchup_html.view(vid, f"{label}（{len(catchup_html.parse_diff(text))} files）", text, **kw)
+
+
 def page_commit(oid, cwd=None):
     rev = changemap.commit_range(oid, cwd)
     short, author, date, subject = ((changemap.git("show", "-s", "--format=%h%n%an%n%ad%n%s", "--date=short", oid,
@@ -2874,7 +2883,7 @@ def page_commit(oid, cwd=None):
     text = plain_diff(rev, cwd)
     head = local_head("commit", short, subject, author, [date])
     page = page_base("commit", f"{slug}/commit-{short}", repo, head)
-    page["views"] = [catchup_html.view("all", f"この commit（{len(catchup_html.parse_diff(text))} files）", text)] if text else []
+    page["views"] = [files_view("all", "この commit", text)] if text else []
     page["unseen"] = list(COMMIT_UNSEEN)
     return page
 
@@ -2887,7 +2896,7 @@ def page_range(rev, cwd=None):
     text = plain_diff(rev, cwd)
     head = local_head("range", f"{sa}..{sb}", f"commit {n} 件")
     page = page_base("range", f"{slug}/range-{catchup_html._safe(sa)}-{catchup_html._safe(sb)}", repo, head)
-    page["views"] = [catchup_html.view("all", f"この範囲（{len(catchup_html.parse_diff(text))} files）", text)] if text else []
+    page["views"] = [files_view("all", "この範囲", text)] if text else []
     page["unseen"] = range_unseen(sa, sb)
     return page
 
@@ -2903,13 +2912,13 @@ def page_local(cwd=None, pre_lines=()):
     views = []
     text = plain_diff(changemap.diff_base("HEAD", cwd), cwd)  # commit がまだ無ければ空の木と比べる（端末と同じ）
     if text:
-        views.append(catchup_html.view("local", f"未コミット（{len(catchup_html.parse_diff(text))} files）", text,
-                                       note="追跡している file だけ。未追跡の新規 file は手元のセクションの木に出る。"))
+        views.append(files_view("local", "未コミット", text,
+                                note="追跡している file だけ。未追跡の新規 file は手元のセクションの木に出る。"))
     base = changemap.default_branch_ref(cwd)
     mb = (changemap.git("merge-base", base, "HEAD", cwd=cwd) or "").strip() if base else ""
     ahead = plain_diff(f"{mb}..HEAD", cwd) if mb else ""
     if ahead:
-        views.append(catchup_html.view("ahead", f"{base} より先（{len(catchup_html.parse_diff(ahead))} files）", ahead))
+        views.append(files_view("ahead", f"{base} より先", ahead))
     page["views"] = views
     page["local"] = "\n".join([ln.strip() for ln in pre_lines] + [render_local(why="this で呼んだので出す", cwd=cwd)])
     page["unseen"] = ["GitHub の PR / issue（今のブランチに PR が無く、名前にも番号が無い。番号か URL を渡せば出る）",
@@ -2963,10 +2972,9 @@ def collect_caps(node):
         if conn and conn.get("totalCount", 0) > len(conn["nodes"]):
             caps.append((label, conn["totalCount"], len(conn["nodes"])))
     # CI のチェックは先頭の 100 件だけ取る。切れていれば「全 pass」は取った分だけの話（/whose-turn の limits_of_pr と同じ）
-    for h in node.get("head", {}).get("nodes", [])[:1]:
-        conn = (h["commit"].get("statusCheckRollup") or {}).get("contexts")
-        if conn and conn.get("totalCount", 0) > len(conn["nodes"]):
-            caps.append((CHECKS, conn["totalCount"], len(conn["nodes"])))
+    conn = (head_rollup(node) or {}).get("contexts")
+    if conn and conn.get("totalCount", 0) > len(conn["nodes"]):
+        caps.append((CHECKS, conn["totalCount"], len(conn["nodes"])))
     return caps
 
 
@@ -3034,6 +3042,63 @@ def main(argv=None):
     return code
 
 
+def report_rev(a, local, num, focus, keep):
+    """commit か commit の範囲の報告。"""
+    is_range = local == "range"
+    if a.switch:
+        print(f"ブランチ: {'commit の範囲' if is_range else 'commit '}には移る先が無い（--switch は何もしない）")
+        print()
+    print((render_range if is_range else render_commit)(num, frame=a.frame, full=a.full))
+    keep(lambda: (page_range if is_range else page_commit)(num))
+    # 地図は commit にも出る（上で出した）。指摘・CI だけが PR / issue の材料。語は人の語で
+    # （内部 key の threads / ci を出すと、スキルの文書のどの語にも結び付かない。実測）
+    rest = focus_words(focus - {"map"})
+    if rest:
+        print()
+        print(f"（{rest} の材料は PR / issue のもの。commit には無い）")
+    return 0
+
+
+def report_no_target(a, focus, pre_lines, keep):
+    """PR も番号も無い今のブランチの報告。GitHub には聞かず、手元のブランチだけ出す（gh も走らせない）。"""
+    if a.frame:
+        sys.exit("--frame は PR か commit でだけ使える（今のブランチに PR が無い。手元の未コミットの 1 file は"
+                 " what-am-i-doing.py --frame path で）")
+    if pre_lines:
+        # ブランチ名で移った先に PR も番号も無い。移ったことは見出しに残す（「移らない」と言わない）
+        print("\n".join("  " + ln for ln in pre_lines))
+        print()
+    elif a.switch:
+        print("ブランチ: this では移らない（今のブランチのまま）")
+        print()
+    print(render_no_target())
+    keep(lambda: page_local(pre_lines=pre_lines))
+    if focus:
+        print()
+        print(f"（{focus_words(focus)} の材料は PR / issue のもの。今のブランチには PR が無い）")
+    return 0
+
+
+def report_frame(a, owner, name, num):
+    """PR の 1 file の変更だけを、関数まるごとの枠で出す（--frame）。地図の 1 file の上限で切れた続きを見るための口。"""
+    # 本体の報告は組まないので、gh は base と head の 2 値を取る 1 回（と手元に commit が無いときの
+    # pr diff）だけ——本体の GraphQL（発言・レビュー・スレッド・commit・timeline）は要らない
+    got = gh_try("pr", "view", str(num), "-R", f"{owner}/{name}", "--json", "baseRefOid,headRefOid")
+    if got is None:
+        sys.exit("--frame は PR でだけ使える（issue には diff が無い）。PR なら gh pr view が失敗した")
+    node = json.loads(got)
+    wide, note = pr_function_diff(owner, name, node, lambda: gh_pr_diff(owner, name, num))
+    if wide is None:
+        sys.exit("diff が取れない（gh pr diff が失敗した）")
+    info = changemap.framed_diff(wide).get(a.frame)
+    if not info:
+        sys.exit(f"{a.frame} はこの PR の変更に無い（改名だけの file も含む。path はリポジトリのルートからの相対）")
+    print(f"    === {a.frame} " + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")
+          + (f"（{note}）" if note else "") + changemap.lang_tag(a.frame))
+    print("\n".join(changemap.frame_lines(a.frame, info, cap=None)))
+    return 0
+
+
 def report(a, sink=None):
     """端末の報告を出す。sink（dict）を渡すと、HTML の材料を sink["page"] に入れる（--frame では入れない）。"""
     def keep(build):
@@ -3071,55 +3136,11 @@ def report(a, sink=None):
                 print(f"（移っていないので、ブランチ {num} の tip の commit として出した。ブランチ全体の差は移ってから this で）")
                 return 0
     if local in ("range", "commit"):
-        is_range = local == "range"
-        if a.switch:
-            print(f"ブランチ: {'commit の範囲' if is_range else 'commit '}には移る先が無い（--switch は何もしない）")
-            print()
-        print((render_range if is_range else render_commit)(num, frame=a.frame, full=a.full))
-        keep(lambda: (page_range if is_range else page_commit)(num))
-        # 地図は commit にも出る（上で出した）。指摘・CI だけが PR / issue の材料。語は人の語で
-        # （内部 key の threads / ci を出すと、スキルの文書のどの語にも結び付かない。実測）
-        rest = focus_words(focus - {"map"})
-        if rest:
-            print()
-            print(f"（{rest} の材料は PR / issue のもの。commit には無い）")
-        return 0
+        return report_rev(a, local, num, focus, keep)
     if local == "none":
-        # PR も番号も無い。GitHub には聞かず、手元のブランチだけ出す（gh も走らせない）
-        if a.frame:
-            sys.exit("--frame は PR か commit でだけ使える（今のブランチに PR が無い。手元の未コミットの 1 file は"
-                     " what-am-i-doing.py --frame path で）")
-        if pre_lines:
-            # ブランチ名で移った先に PR も番号も無い。移ったことは見出しに残す（「移らない」と言わない）
-            print("\n".join("  " + ln for ln in pre_lines))
-            print()
-        elif a.switch:
-            print("ブランチ: this では移らない（今のブランチのまま）")
-            print()
-        print(render_no_target())
-        keep(lambda: page_local(pre_lines=pre_lines))
-        if focus:
-            print()
-            print(f"（{focus_words(focus)} の材料は PR / issue のもの。今のブランチには PR が無い）")
-        return 0
+        return report_no_target(a, focus, pre_lines, keep)
     if a.frame:
-        # 1 file の変更だけを関数まるごとの枠で。地図の 1 file の上限で切れた続きを見るための口。
-        # 本体の報告は組まないので、gh は base と head の 2 値を取る 1 回（と手元に commit が無いときの
-        # pr diff）だけ——本体の GraphQL（発言・レビュー・スレッド・commit・timeline）は要らない
-        got = gh_try("pr", "view", str(num), "-R", f"{owner}/{name}", "--json", "baseRefOid,headRefOid")
-        if got is None:
-            sys.exit("--frame は PR でだけ使える（issue には diff が無い）。PR なら gh pr view が失敗した")
-        node = json.loads(got)
-        wide, note = pr_function_diff(owner, name, node, lambda: gh_pr_diff(owner, name, num))
-        if wide is None:
-            sys.exit("diff が取れない（gh pr diff が失敗した）")
-        info = changemap.framed_diff(wide).get(a.frame)
-        if not info:
-            sys.exit(f"{a.frame} はこの PR の変更に無い（改名だけの file も含む。path はリポジトリのルートからの相対）")
-        print(f"    === {a.frame} " + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")
-              + (f"（{note}）" if note else "") + changemap.lang_tag(a.frame))
-        print("\n".join(changemap.frame_lines(a.frame, info, cap=None)))
-        return 0
+        return report_frame(a, owner, name, num)
     me = a.me or gh("api", "user", "--jq", ".login").strip()
     # 他人を基準にするときは、手元の git config はその人のものではないので照合しない
     my_email = "" if a.me else local_email()
