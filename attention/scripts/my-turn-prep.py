@@ -29,6 +29,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 差分の取り方の部品（DIFF_SANE）を /what-am-i-doing と共用
 import my_turn_record  # noqa: E402 — 記録の版と書き方（my-turn-headless.py と共用）
+from fnv import fnv32  # noqa: E402 — my-turn-dig.js の fnv と同じ値（steps-prep.py・world-excerpts.py と共用）
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -869,16 +870,6 @@ def check_quotes(record_path):
         if why:
             missing.append({"path": path, "line": line, "quote": quote, "why": why})
     return {"ok": True, "checked": checked, "missing": missing}
-
-
-def fnv32(s):
-    """FNV-1a の 32 bit を UTF-16 の単位で（my-turn-dig.js の fnv と同じ）。写しの段が写し違えた行を見つける印。"""
-    h = 0x811c9dc5
-    b = s.encode("utf-16-le", "surrogatepass")
-    for i in range(0, len(b), 2):
-        h ^= b[i] | (b[i + 1] << 8)
-        h = (h * 0x01000193) & 0xffffffff
-    return "%08x" % h
 
 
 def b64_rows(words):

@@ -25,6 +25,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "steps", "world", "copied"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import atomic  # noqa: E402 — 書きかけを残さない書き方。/catchup と共用
+from fnv import fnv32  # noqa: E402 — Workflow の fnv と同じ値
 import excerpts  # noqa: E402 — 依頼の行の識別子の取り出し（工場の excerpts.banned_tokens の字のままの写し）
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -65,16 +66,6 @@ def must_git(*args):
 def show(head, path):
     rc, out = git("show", "%s:%s" % (head, path))
     return out if rc == 0 else None
-
-
-def fnv32(s):
-    """FNV-1a の 32 bit を UTF-16 の単位で（dig-world.js の fnv と同じ）"""
-    h = 0x811c9dc5
-    b = s.encode("utf-16-le", "surrogatepass")
-    for i in range(0, len(b), 2):
-        h ^= b[i] | (b[i + 1] << 8)
-        h = (h * 0x01000193) & 0xffffffff
-    return "%08x" % h
 
 
 def args_sum(args):

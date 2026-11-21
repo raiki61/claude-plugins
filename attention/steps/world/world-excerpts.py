@@ -27,6 +27,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "copied"))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "scripts", "lib"))
+from fnv import fnv32  # noqa: E402 — dig-world.js の fnv と同じ値（attention/scripts/lib/fnv.py）
 import excerpts  # noqa: E402 — 工場の workflows/world/src/excerpts.py の写し
 import webget  # noqa: E402 — 工場の lib/webget.py の写し
 
@@ -37,16 +39,6 @@ for _stream in (sys.stdout, sys.stderr):
 MAX_EXCERPTS = 6   # 類ごとの抜き書きの上限（工場の steps.py の MAX_EXCERPTS）
 MAX_BODY = 2 * 1024 * 1024   # 取り直す本文の上限（工場の steps.py の MAX_BODY）
 HEADERS = {"User-Agent": "works-world/1", "Accept": "text/html, text/plain;q=0.9, */*;q=0.5"}   # 工場の steps.py の HEADERS
-
-
-def fnv32(s):
-    """FNV-1a の 32 bit を UTF-16 の単位で（dig-world.js の fnv・my-turn-prep.py の fnv32 と同じ）"""
-    h = 0x811c9dc5
-    b = s.encode("utf-16-le", "surrogatepass")
-    for i in range(0, len(b), 2):
-        h ^= b[i] | (b[i + 1] << 8)
-        h = (h * 0x01000193) & 0xffffffff
-    return "%08x" % h
 
 
 def fake_get(pages):
