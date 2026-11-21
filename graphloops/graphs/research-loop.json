@@ -87,7 +87,7 @@
   "append_why": "起動する子の形ごとに指示書の末尾へ足す段。理由の正本は review-loop.json の launch.append_why（写さない）。このループはテストの範囲の宣言を記録に持たないので、コマンドを走らせる子には人の方針の置き場だけを届ける"
  },
  "exec": true,
- "basis": "convergence-loops の commands/research-loop.md と scripts/research-record.py（同じリポジトリ。版は .claude-plugin/plugin.json が正本で、ここに写さない）を、ノード（工程）＋依存＋周回条件のグラフに写し、各ノードに実行用のフィールド（prompt_file・schema・writes・fan_out・cond・reads）を足したもの。役のツールは agents/<役>.md が正本。記録のフィールドと語彙の正本は research-record.py",
+ "basis": "convergence-loops の skills/research-loop/SKILL.md（と references/）と scripts/research-record.py（同じリポジトリ。版は .claude-plugin/plugin.json が正本で、ここに写さない）を、ノード（工程）＋依存＋周回条件のグラフに写し、各ノードに実行用のフィールド（prompt_file・schema・writes・fan_out・cond・reads）を足したもの。役のツールは agents/<役>.md が正本。記録のフィールドと語彙の正本は research-record.py",
  "overview": "見立て文書の『外部に照合できる主張』を棚卸しし（P0）、一次情報で判定させ（P1: checker→相違と荷重確証だけ refuter）、訂正を統合し（P2）、新規の相違がゼロの周にだけ独立の目のゲート（P3: rederiver・cold-reader・重厚なら cartographer）を回し、連続 2 周ゼロ＋ゲート全 pass で収束（P4）、最後に自ドメインへ適応して 3 分類の決定を出す（P5）。回す側（surveyor）は棚卸し・統合・適応の判断作業だけをし、判定は一切しない。判定・件数・連続カウント・上限・止める条件は駆動器が持つ",
  "record": {
   "file": "<置き場>/record.json（駆動器が組み立てる。回す側は直接編集しない——手当ては loop.py patch で痕跡付き）",
@@ -127,7 +127,7 @@
  "round": {
   "unit": "P1→P2 を 1 周（ゲート P3 は新規相違ゼロの周にだけ、P2 の後に同じ周で回す）",
   "max_rounds": 4,
-  "max_rounds_note": "駆動器が数える。軽量は 1。上限に達したら outcome=stopped（収束せず）",
+  "max_rounds_note": "駆動器が数える。軽量は 1。上限に達したら諮り、stop なら outcome=stopped（収束せず）、continue なら上限を 1 周延ばす",
   "converge": {
    "all_of": [
     "連続 2 ラウンドで新規の相違がゼロ（駆動器が claims の first_discrepant_round で数える）",
@@ -135,11 +135,11 @@
     "抜き取り検査を回した周なら判定が 1 件も覆っていない（覆りは駆動器が元の判定と比べて数える）"
    ],
    "counted_by": "駆動器（builtin converge）。回す側は数えない",
-   "note": "P3 は毎ラウンド回さない——cond gate_round（この周の新規相違ゼロ）"
+   "note": "P3 は毎ラウンド回さない——cond no_new_discrepancies・rederiver_compare_due（この周の新規相違ゼロ）"
   },
   "exit_states": {
    "converged": "理論的飽和。P5 の適応と最終報告へ",
-   "max_rounds": "総ラウンドが上限に達した——『収束せず』として停止し報告",
+   "max_rounds": "総ラウンドが上限に達した → 諮る（continue: 上限を 1 周だけ延ばす／stop: 『収束せず』として停止し報告。無人なら停止）",
    "stuck": "再照合した相違がまた相違（前提側の誤りの疑い）→ 諮る",
    "thrash": "3 周続けて新規相違が出る → 諮る",
    "zero_base_divergence": "rederiver の redesign-needed が 2 周解消しない → 諮る",
