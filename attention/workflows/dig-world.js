@@ -595,10 +595,7 @@ async function recheck(c, r, round) {
     // no page reached at all: the network is off for the script, so nothing was checked (3.6)
     status[d.id] = got.offline ? { state: 'unchecked', why: `no page could be fetched: ${str(d.why)}` } : { state: 'dropped', why: str(d.why) }
   }
-  for (const x of all) {
-    const s = status[x.id].state
-    tally[s]++
-  }
+  for (const x of all) tally[status[x.id].state]++
   tally.unchecked -= tally.over   // the over-cap ones are counted in over, not in unchecked
   tally.garbled = garbled.size   // a part of unchecked, not added to the total (kept + dropped + unchecked + over)
   return { status, tally, ran: true, offline: got.offline === true }

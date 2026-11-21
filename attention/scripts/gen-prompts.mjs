@@ -88,7 +88,7 @@ function compileTemplate(name, meta, body, file, problems) {
     if ((m = tk.v.match(/^#if\s+(\w+)(\s*!=\s*null)?$/))) {
       const v = ref(m[1]), spec = meta.vars[m[1]]
       if (m[2] && spec && !spec.nullable) problems.push(`${file}: {{#if ${m[1]} != null}} on a var that cannot be null`)
-      const cond = m[2] ? `${v} !== null` : spec?.type === 'list' ? `${v}.length` : spec?.type === 'flag' ? v : `${v}`
+      const cond = m[2] ? `${v} !== null` : spec?.type === 'list' ? `${v}.length` : v
       stack.push({ parts: [], cond, open: tk.v }); continue
     }
     if (tk.v === 'else') {
