@@ -144,12 +144,9 @@ def warm_state(inbox, place, session, tasks):
     """同じ会話（session）が同じ物（tasks。裏の処理の id か数と、ask:・child:・parked: の頼み。wake_hook.warm_for）を待つ間の keepalive の
     控え {sent, stopped, spent}。控えが無い・読めない・会話か待つ物が替わっていれば {sent: 0, stopped: False, spent: 0}（新しい待ちの始まり）。"""
     fresh = {"sent": 0, "stopped": False, "spent": 0}
-    try:
-        with open(warm_path(inbox, place), encoding="utf-8") as f:
-            got = json.load(f)
-    except (OSError, ValueError):
-        return fresh   # 控えが無いか壊れていれば、新しい待ちとして数え直す（多く数えても、送る本数の上限に早く着くだけ）
-    if not isinstance(got, dict) or got.get("session") != session or got.get("tasks") != tasks:
+    # 控えが無いか壊れていれば {} を読み、下の判定が fresh と同じ値を返す（新しい待ちとして数え直す。多く数えても、送る本数の上限に早く着くだけ）
+    got = _read_json(warm_path(inbox, place))
+    if got.get("session") != session or got.get("tasks") != tasks:
         return fresh
     spent = got.get("spent")   # 控えはこの待ち受けだけが書く。壊れた spent は、壊れた控えと同じく新しい待ちとして 0 から数える
     return {"sent": got.get("sent") if isinstance(got.get("sent"), int) else 0, "stopped": got.get("stopped") is True,
@@ -175,12 +172,9 @@ def compact_state(inbox, place, session):
     {asked: False, deferred: 0, ending: False, judged: False, forced: False}。forced は、判断で付けた印（judged）が強制の線の物か
     （台帳の compact の行の mouth を forced にする）。前の版の控えの turned（ターンの終わりの問いに延ばした回数）は読まない。"""
     fresh = {"asked": False, "deferred": 0, "ending": False, "judged": False, "forced": False}
-    try:
-        with open(compact_path(inbox, place), encoding="utf-8") as f:
-            got = json.load(f)
-    except (OSError, ValueError):
-        return fresh   # 控えが無いか壊れていれば、問うていない・延ばしていないと見る（延ばす回数が上限から数え直しになるだけ）
-    if not isinstance(got, dict) or got.get("session") != session:
+    # 控えが無いか壊れていれば {} を読み、下の判定が fresh と同じ値を返す（問うていない・延ばしていないと見る。延ばす回数が上限から数え直しになるだけ）
+    got = _read_json(compact_path(inbox, place))
+    if got.get("session") != session:
         return fresh
     count = lambda v: v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
     return {"asked": got.get("asked") is True, "judged": got.get("judged") is True, "ending": got.get("ending") is True,
@@ -350,12 +344,15 @@ def _replace(path, text):
 
 
 def read_mark(inbox, place):
+    return _read_json(mark_path(inbox, place)) or None
+
+
+def _touch_mark(inbox, place):
+    """待ち受けが生きている合図に、印の更新の時刻を進める。"""
     try:
-        with open(mark_path(inbox, place), encoding="utf-8") as f:
-            got = json.load(f)
-    except (OSError, ValueError):
-        return None
-    return got if isinstance(got, dict) else None
+        os.utime(mark_path(inbox, place))
+    except OSError:
+        pass   # 印が消えたか触れない（消えていれば次の周の read_mark が見て抜ける）
 
 
 def new_token():
@@ -777,10 +774,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             return 0
         if ready is not None and not ready():
             if now() - beat >= BEAT:
-                try:
-                    os.utime(mark_path(inbox, place))
-                except OSError:
-                    pass   # 印が消えたか触れない（消えていれば次の周の read_mark が見て抜ける）
+                _touch_mark(inbox, place)
                 beat = now()
             pause(POLL)
             continue
@@ -815,10 +809,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
                 holding = verdict == HOLD
                 if verdict and not holding:
                     return _finish(verdict, err)
-            try:
-                os.utime(mark_path(inbox, place))
-            except OSError:
-                pass   # 印が消えたか触れない（消えていれば次の周の read_mark が見て抜ける）
+            _touch_mark(inbox, place)
             beat = now()
         said = idle() if idle else None
         if said:
