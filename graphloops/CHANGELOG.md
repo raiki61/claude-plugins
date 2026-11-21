@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+
+- README の 2 か所を今の置き場に合わせた。graphcheck を手で打つ例のコマンドで、検証器のパスを、リポジトリのルートから打つと見つからない `scripts/research-record.py` から `convergence-loops/scripts/research-record.py` に直した（直した形で打つと ok が出る）。試験の置き場の決まりの文で、台本から消した関数の数を 9 から 6 に直した（9 つを消した後で 3 つを戻した。数の正本は `tests/py/MIGRATION.md` の「消す段」）。
+
 ## [0.51.3] - 2026-11-22
 
 ### Fixed
