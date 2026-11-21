@@ -317,11 +317,6 @@ class FakePorts(dispatch.Ports):
         self.term.writes.append(("trust", account["name"], source, clone))
         return self.trust_outcome
 
-    trusted_dirs = ()   # 信頼済みのフォルダ（サブエージェントを起動するフォルダの確かめ）
-
-    def trusted(self, account, folder):
-        return folder in self.trusted_dirs
-
 
 class FakeGh:
     """issue にブランチを結ぶ書く口の偽物。結ぶと、ports.issues のその issue にブランチが 1 本増え、origin にもブランチができる。

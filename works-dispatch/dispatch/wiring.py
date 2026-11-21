@@ -408,10 +408,6 @@ class Ports:
         """送り終えた PR の /catchup のページのうち書かれているものを、VS Code の窓にタブで開く（vscode.open_pages）。"""
         return vscode.open_pages([p for p in (vscode.page_path(repo.repo, n) for n in numbers) if p.is_file()], self.env)
 
-    def trusted(self, account, folder):
-        """そのアカウントがフォルダを信頼済みか（claudex.is_trusted）。"""
-        return chat.is_trusted(chat.trust_file(account.get("config_dir"), self.account_env), folder)
-
     def caller(self, listed):
         """このコマンドを走らせている会話の (アカウントの名, 会話の名前)。Claude Code の中から走っていなければ (None, None)。"""
         return chat.caller(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), chat.ancestors())

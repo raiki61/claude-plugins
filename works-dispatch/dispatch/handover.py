@@ -207,7 +207,7 @@ def handover(a, ports, cwd):
             except gitx.AttrError as e:
                 why.append(f"止めた: {e}")
         if not row and not why:
-            # 錠を取る前に読んだ読んだ所と順番待ちが、錠の中でも同じか（その間に前の待ち受けが読み進めるか、頼みが積まれたら、
+            # 錠を取る前に読んだ所と順番待ちが、錠の中でも同じか（その間に前の待ち受けが読み進めるか、頼みが積まれたら、
             # 写す知らせと ask_check を通した順番待ちが替わる）
             if (wake.read_pos(inbox, prev["place"]) if prev.get("place") else None) != pos \
                     or [q["id"] for q in wake.queued(inbox, prev["place"]) if prev.get("place")] != [q["id"] for q in queue]:
