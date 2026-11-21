@@ -391,261 +391,261 @@ pytest の置き場の件数: conftest.py の EXPECTED_ITEMS 1840 → 1878（変
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 411 | 人に聞くターンになる |  | test_scenarios_research.py::test_attended_stuck_answer[asks-human] |  |
-| 413 | answer escalate が通る |  | test_scenarios_research.py::test_attended_stuck_answer[escalate-accepted] |  |
-| 415 | 重厚で 3 周目に入る: {st['thickness']} r{st['round']} |  | test_scenarios_research.py::test_attended_stuck_answer[heavy-round-3] |  |
-| 417 | stuck 後の重厚では断面の生成が開く |  | test_scenarios_research.py::test_attended_stuck_answer[generation-opens] |  |
-| 418 | 重厚に上がると cartographer が序盤に出る |  | test_scenarios_research.py::test_attended_stuck_answer[cartographer-early] |  |
+| 418 | 人に聞くターンになる |  | test_scenarios_research.py::test_attended_stuck_answer[asks-human] |  |
+| 420 | answer escalate が通る |  | test_scenarios_research.py::test_attended_stuck_answer[escalate-accepted] |  |
+| 422 | 重厚で 3 周目に入る: {st['thickness']} r{st['round']} |  | test_scenarios_research.py::test_attended_stuck_answer[heavy-round-3] |  |
+| 424 | stuck 後の重厚では断面の生成が開く |  | test_scenarios_research.py::test_attended_stuck_answer[generation-opens] |  |
+| 425 | 重厚に上がると cartographer が序盤に出る |  | test_scenarios_research.py::test_attended_stuck_answer[cartographer-early] |  |
 
 #### simulate.test_gate_arms
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 1280 | cold_reader が pass しないまま上限で stopped（{sr[:40]}） |  | test_scenarios_research.py::test_gate_arms[coldfail-stops-at-max] |  |
-| 1282 | 何を聞かれて止まったかが記録に残る（{hi[-1].get('kinds') if hi else None}） |  | test_scenarios_research.py::test_gate_arms[asked-kinds-kept] |  |
-| 1283 | 収束を名乗らず、ゲートの周ごとの verdict が残る |  | test_scenarios_research.py::test_gate_arms[gate-verdicts-kept] |  |
-| 1284 | 止まった周は max_rounds（{run.state()['round']}） |  | test_scenarios_research.py::test_gate_arms[stopped-at-max-rounds] |  |
-| 1288 | rederiver の redesign-needed が 2 周解消しないと人に聞く（{last.get('ask',… |  | test_scenarios_research.py::test_gate_arms[rederiver-asks] |  |
+| 1278 | cold_reader が pass しないまま上限で stopped（{sr[:40]}） |  | test_scenarios_research.py::test_gate_arms[coldfail-stops-at-max] |  |
+| 1280 | 何を聞かれて止まったかが記録に残る（{hi[-1].get('kinds') if hi else None}） |  | test_scenarios_research.py::test_gate_arms[asked-kinds-kept] |  |
+| 1281 | 収束を名乗らず、ゲートの周ごとの verdict が残る |  | test_scenarios_research.py::test_gate_arms[gate-verdicts-kept] |  |
+| 1282 | 止まった周は max_rounds（{run.state()['round']}） |  | test_scenarios_research.py::test_gate_arms[stopped-at-max-rounds] |  |
+| 1286 | rederiver の redesign-needed が 2 周解消しないと人に聞く（{last.get('ask',… |  | test_scenarios_research.py::test_gate_arms[rederiver-asks] |  |
 
 #### simulate.test_rejections
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 447 | research を --document 無しで init すると入口で落ち、要るノードと穴を名指しする（rc={r.… |  | test_rejections_research.py::test_init_without_document_names_the_node_and_hole | 子プロセスとして起動した loop.py init の argv と、入口の拒否が 0 以外の終了コードになること（__main__ の写像） |
-| 449 | 実在しない --document も入口で落ちる |  | test_rejections_research.py::test_init_with_missing_document_fails_at_the_entrance | 子プロセスとして起動した loop.py init の argv と終了コード |
-| 452 | 最初のノードは p0.question（回す側） |  | test_rejections_research.py::test_first_node_is_the_runner_question |  |
-| 454 | 型に合わない返答は exit 1 |  | test_rejections_research.py::test_reply_outside_the_schema_is_rejected |  |
-| 456 | 回す側の降格は exit 1 |  | test_rejections_research.py::test_runner_cannot_lower_the_thickness |  |
-| 458 | 正しい返答は通る |  | test_rejections_research.py::test_correct_reply_is_accepted |  |
-| 460 | 同じノードに 2 回 done は exit 1（回し直しの禁止） |  | test_rejections_research.py::test_second_done_on_the_same_node_is_rejected |  |
-| 462 | optional でないノードは省けない |  | test_rejections_research.py::test_non_optional_node_cannot_be_skipped |  |
-| 465 | 2 波目に P0 の残りと先行起動が並ぶ: {sorted(by)} |  | test_rejections_research.py::test_second_wave_has_the_rest_of_p0_and_early_starts |  |
-| 466 | 調べ役の agent_type は convergence-loops: 接頭 |  | test_rejections_research.py::test_investigator_agent_type_has_the_plugin_prefix |  |
-| 470 | investigator の前後で作業ツリーが変わると exit 1 |  | test_rejections_research.py::test_worktree_change_around_the_investigator_is_rejected |  |
-| 472 | 理由付きなら通る（痕跡が残る） |  | test_rejections_research.py::test_accept_tree_change_with_a_reason_passes |  |
-| 475 | git_mismatches に理由が残る |  | test_rejections_research.py::test_accepted_reason_is_kept_in_git_mismatches |  |
-| 482 | 回す側のノードには文書のパスが渡り、本文は貼られない |  | test_rejections_research.py::test_runner_node_gets_the_document_path_not_its_body |  |
-| 484 | 同じ波の 2 つ目のノード（p0.terms）も本文を貼らない |  | test_rejections_research.py::test_second_runner_node_of_the_wave_does_not_paste_the_body |  |
-| 485 | 前のノードの出力の穴が埋まっている（空でなく値か『無い』の語） |  | test_rejections_research.py::test_holes_from_earlier_outputs_are_filled |  |
-| 498 | クラスタに入れ漏れた主張があると exit 1 |  | test_rejections_research.py::test_claim_left_out_of_every_cluster_is_rejected |  |
-| 501 | claims_submitted は機械が数える |  | test_rejections_research.py::test_claims_submitted_is_counted_by_the_engine |  |
-| 504 | checker はクラスタごとに並ぶ |  | test_rejections_research.py::test_checkers_fan_out_per_cluster |  |
-| 511 | 材料の正本（items/ のファイル）に材料のフィールドが在る（フィールド: {sorted(c1full)}） |  | test_rejections_research.py::test_item_file_keeps_the_material |  |
-| 513 | c1 の材料は字数では上限内・バイトでは超過（{chars} 字）——落ちること自体がバイトで測っている証拠になる |  | test_rejections_research.py::test_fat_material_is_under_the_limit_in_chars_and_over_in_bytes |  |
-| 515 | 太い材料の長いフィールドは instance から落ち、短いフィールド（key）は残る（残った: {sorted(ch[… |  | test_rejections_research.py::test_long_field_of_a_fat_item_is_dropped_from_the_instance |  |
-| 517 | 短い材料は落ちず、落ちたフィールドが無いこともフィールドで言う（空でも書く: {ch['c2'].get('item_o… |  | test_rejections_research.py::test_short_item_keeps_everything_and_says_so |  |
-| 525 | 上限を超える長さの key でも slim_item は key を落とさない（落とした: {fat_omitted}） |  | test_rejections_research.py::test_slim_item_never_drops_the_key |  |
-| 528 | フィールドごとに上限未満でも合計が超えれば大きい順に逃がす（残った: {sorted(many_slim)} / 落とし… |  | test_rejections_research.py::test_slim_item_bounds_the_total |  |
-| 547 | チェックは 6 綴りとも拾う（拾えた: {len(caught)}/6） |  | test_rejections_research.py::test_fence_catches_all_six_spellings |  |
-| 556 | 射程の外（空白入り・変数の鍵・属性・定数の鍵）は拾わない——拾い始めたら名乗りを広げろ: {slipped} |  | test_rejections_research.py::test_fence_does_not_catch_outside_its_reach |  |
-| 557 | 書き手と load_item の中は許す（許しが効いている） |  | test_rejections_research.py::test_fence_allows_the_writer_and_load_item |  |
-| 561 | engine と rules が instance の item を直読みしていない（6 綴りとも。load_item … |  | test_rejections_research.py::test_engine_and_rules_do_not_read_the_instance_item_directly |  |
-| 564 | 大きいフィールド 1 つを落とせば収まる材料は、その 1 つだけが落ちる（落とした: {order_omitted}） |  | test_rejections_research.py::test_slim_item_drops_the_biggest_field_first |  |
-| 567 | checker には他の束の主張も判定も見立ても貼られない |  | test_rejections_research.py::test_checker_prompt_has_no_other_cluster_or_verdicts |  |
-| 575 | 役には束の全員（{want_ids}）が、本文の末尾まで渡る（材料: {got_ids} / 欠けた主張: {missi… |  | test_rejections_research.py::test_checker_prompt_carries_every_claim_of_the_cluster_to_the_end |  |
-| 580 | 役へ渡す schema の断りに、引用符をエスケープしろの 1 行が付く |  | test_rejections_research.py::test_schema_note_tells_the_role_to_escape_quotes |  |
-| 582 | 扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕） |  | test_rejections_research.py::test_checker_returning_an_id_it_was_not_given_is_rejected |  |
-| 584 | 語彙に無い判定語はノードの schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1 |  | test_rejections_research.py::test_verdict_outside_the_vocabulary_is_rejected |  |
-| 586 | 判定が欠けた主張は欠けた分だけ出し直す |  | test_rejections_research.py::test_missing_verdicts_are_reissued |  |
-| 588 | 済んだ instance にはもう done できない |  | test_rejections_research.py::test_done_instance_cannot_be_done_again |  |
-| 591 | 欠けた分の checker と、返った分の refuter が同じ波に出る（pipeline）: {ids} |  | test_rejections_research.py::test_reissued_checker_and_refuter_share_a_wave |  |
-| 593 | refuter の upheld と verdict の食い違いは exit 1 |  | test_rejections_research.py::test_refuter_upheld_and_verdict_must_agree |  |
-| 595 | 相違に correction が無いと exit 1（検証器の規則を先取り） |  | test_rejections_research.py::test_discrepancy_without_correction_is_rejected |  |
-| 597 | フィールドが揃えば通る |  | test_rejections_research.py::test_complete_discrepancy_is_accepted |  |
-| 601 | patch は痕跡付き |  | test_rejections_research.py::test_patch_leaves_a_trace |  |
-| 613 | check_record は語彙に無い verdict を拒む（{errs[:1]}） |  | test_rejections_research.py::test_check_record_rejects_a_verdict_written_by_patch |  |
+| 454 | research を --document 無しで init すると入口で落ち、要るノードと穴を名指しする（rc={r.… |  | test_rejections_research.py::test_init_without_document_names_the_node_and_hole | 子プロセスとして起動した loop.py init の argv と、入口の拒否が 0 以外の終了コードになること（__main__ の写像） |
+| 456 | 実在しない --document も入口で落ちる |  | test_rejections_research.py::test_init_with_missing_document_fails_at_the_entrance | 子プロセスとして起動した loop.py init の argv と終了コード |
+| 459 | 最初のノードは p0.question（回す側） |  | test_rejections_research.py::test_first_node_is_the_runner_question |  |
+| 461 | 型に合わない返答は exit 1 |  | test_rejections_research.py::test_reply_outside_the_schema_is_rejected |  |
+| 463 | 回す側の降格は exit 1 |  | test_rejections_research.py::test_runner_cannot_lower_the_thickness |  |
+| 465 | 正しい返答は通る |  | test_rejections_research.py::test_correct_reply_is_accepted |  |
+| 467 | 同じノードに 2 回 done は exit 1（回し直しの禁止） |  | test_rejections_research.py::test_second_done_on_the_same_node_is_rejected |  |
+| 469 | optional でないノードは省けない |  | test_rejections_research.py::test_non_optional_node_cannot_be_skipped |  |
+| 472 | 2 波目に P0 の残りと先行起動が並ぶ: {sorted(by)} |  | test_rejections_research.py::test_second_wave_has_the_rest_of_p0_and_early_starts |  |
+| 473 | 調べ役の agent_type は convergence-loops: 接頭 |  | test_rejections_research.py::test_investigator_agent_type_has_the_plugin_prefix |  |
+| 477 | investigator の前後で作業ツリーが変わると exit 1 |  | test_rejections_research.py::test_worktree_change_around_the_investigator_is_rejected |  |
+| 479 | 理由付きなら通る（痕跡が残る） |  | test_rejections_research.py::test_accept_tree_change_with_a_reason_passes |  |
+| 482 | git_mismatches に理由が残る |  | test_rejections_research.py::test_accepted_reason_is_kept_in_git_mismatches |  |
+| 489 | 回す側のノードには文書のパスが渡り、本文は貼られない |  | test_rejections_research.py::test_runner_node_gets_the_document_path_not_its_body |  |
+| 491 | 同じ波の 2 つ目のノード（p0.terms）も本文を貼らない |  | test_rejections_research.py::test_second_runner_node_of_the_wave_does_not_paste_the_body |  |
+| 492 | 前のノードの出力の穴が埋まっている（空でなく値か『無い』の語） |  | test_rejections_research.py::test_holes_from_earlier_outputs_are_filled |  |
+| 505 | クラスタに入れ漏れた主張があると exit 1 |  | test_rejections_research.py::test_claim_left_out_of_every_cluster_is_rejected |  |
+| 508 | claims_submitted は機械が数える |  | test_rejections_research.py::test_claims_submitted_is_counted_by_the_engine |  |
+| 511 | checker はクラスタごとに並ぶ |  | test_rejections_research.py::test_checkers_fan_out_per_cluster |  |
+| 518 | 材料の正本（items/ のファイル）に材料のフィールドが在る（フィールド: {sorted(c1full)}） |  | test_rejections_research.py::test_item_file_keeps_the_material |  |
+| 520 | c1 の材料は字数では上限内・バイトでは超過（{chars} 字）——落ちること自体がバイトで測っている証拠になる |  | test_rejections_research.py::test_fat_material_is_under_the_limit_in_chars_and_over_in_bytes |  |
+| 522 | 太い材料の長いフィールドは instance から落ち、短いフィールド（key）は残る（残った: {sorted(ch[… |  | test_rejections_research.py::test_long_field_of_a_fat_item_is_dropped_from_the_instance |  |
+| 524 | 短い材料は落ちず、落ちたフィールドが無いこともフィールドで言う（空でも書く: {ch['c2'].get('item_o… |  | test_rejections_research.py::test_short_item_keeps_everything_and_says_so |  |
+| 532 | 上限を超える長さの key でも slim_item は key を落とさない（落とした: {fat_omitted}） |  | test_rejections_research.py::test_slim_item_never_drops_the_key |  |
+| 535 | フィールドごとに上限未満でも合計が超えれば大きい順に逃がす（残った: {sorted(many_slim)} / 落とし… |  | test_rejections_research.py::test_slim_item_bounds_the_total |  |
+| 554 | チェックは 6 綴りとも拾う（拾えた: {len(caught)}/6） |  | test_rejections_research.py::test_fence_catches_all_six_spellings |  |
+| 563 | 射程の外（空白入り・変数の鍵・属性・定数の鍵）は拾わない——拾い始めたら名乗りを広げろ: {slipped} |  | test_rejections_research.py::test_fence_does_not_catch_outside_its_reach |  |
+| 564 | 書き手と load_item の中は許す（許しが効いている） |  | test_rejections_research.py::test_fence_allows_the_writer_and_load_item |  |
+| 568 | engine と rules が instance の item を直読みしていない（6 綴りとも。load_item … |  | test_rejections_research.py::test_engine_and_rules_do_not_read_the_instance_item_directly |  |
+| 571 | 大きいフィールド 1 つを落とせば収まる材料は、その 1 つだけが落ちる（落とした: {order_omitted}） |  | test_rejections_research.py::test_slim_item_drops_the_biggest_field_first |  |
+| 574 | checker には他の束の主張も判定も見立ても貼られない |  | test_rejections_research.py::test_checker_prompt_has_no_other_cluster_or_verdicts |  |
+| 582 | 役には束の全員（{want_ids}）が、本文の末尾まで渡る（材料: {got_ids} / 欠けた主張: {missi… |  | test_rejections_research.py::test_checker_prompt_carries_every_claim_of_the_cluster_to_the_end |  |
+| 587 | 役へ渡す schema の断りに、引用符をエスケープしろの 1 行が付く |  | test_rejections_research.py::test_schema_note_tells_the_role_to_escape_quotes |  |
+| 589 | 扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕） |  | test_rejections_research.py::test_checker_returning_an_id_it_was_not_given_is_rejected |  |
+| 591 | 語彙に無い判定語はノードの schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1 |  | test_rejections_research.py::test_verdict_outside_the_vocabulary_is_rejected |  |
+| 593 | 判定が欠けた主張は欠けた分だけ出し直す |  | test_rejections_research.py::test_missing_verdicts_are_reissued |  |
+| 595 | 済んだ instance にはもう done できない |  | test_rejections_research.py::test_done_instance_cannot_be_done_again |  |
+| 598 | 欠けた分の checker と、返った分の refuter が同じ波に出る（pipeline）: {ids} |  | test_rejections_research.py::test_reissued_checker_and_refuter_share_a_wave |  |
+| 600 | refuter の upheld と verdict の食い違いは exit 1 |  | test_rejections_research.py::test_refuter_upheld_and_verdict_must_agree |  |
+| 602 | 相違に correction が無いと exit 1（検証器の規則を先取り） |  | test_rejections_research.py::test_discrepancy_without_correction_is_rejected |  |
+| 604 | フィールドが揃えば通る |  | test_rejections_research.py::test_complete_discrepancy_is_accepted |  |
+| 608 | patch は痕跡付き |  | test_rejections_research.py::test_patch_leaves_a_trace |  |
+| 619 | check_record は語彙に無い verdict を拒む（{errs[:1]}） |  | test_rejections_research.py::test_check_record_rejects_a_verdict_written_by_patch |  |
 
 #### simulate.test_stopped_before_gates_reports
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 2811 | {th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-max-rounds-1]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-max-rounds-1] |  |
-| 2822 | {th}: 上限で人に聞く（{last.get('ask', {}).get('kinds')}） | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-asks-at-max] |  |
-| 2824 | {th}: stop と答えられる | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-answer-stop] |  |
-| 2827 | {th}: 止まった run として終わる（{last['status']}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-ends-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-ends-stopped] |  |
-| 2828 | {th}: ゲートが走る前に止まっても report.md が出る | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-report]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-report] |  |
-| 2830 | {th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.st… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-validator-accepts-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-validator-accepts-stopped] |  |
-| 2834 | {th}: {k} は『飛ばした』と理由つきで残る——{g[k]} | 型紙・1 本以上（条件式の両腕で回数が違う） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cartographer-not-run] |  |
-| 2836 | 標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']… | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cartographer-not-applicable] |  |
-| 2838 | {th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-rederiver-provisional]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-rederiver-provisional] |  |
+| 2796 | {th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-max-rounds-1]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-max-rounds-1] |  |
+| 2807 | {th}: 上限で人に聞く（{last.get('ask', {}).get('kinds')}） | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-asks-at-max] |  |
+| 2809 | {th}: stop と答えられる | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-answer-stop] |  |
+| 2812 | {th}: 止まった run として終わる（{last['status']}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-ends-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-ends-stopped] |  |
+| 2813 | {th}: ゲートが走る前に止まっても report.md が出る | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-report]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-report] |  |
+| 2815 | {th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.st… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-validator-accepts-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-validator-accepts-stopped] |  |
+| 2819 | {th}: {k} は『飛ばした』と理由つきで残る——{g[k]} | 型紙・1 本以上（条件式の両腕で回数が違う） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cartographer-not-run] |  |
+| 2821 | 標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']… | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cartographer-not-applicable] |  |
+| 2823 | {th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-rederiver-provisional]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-rederiver-provisional] |  |
 
 #### simulate.test_unattended_stuck
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 400 | status が stopped |  | test_scenarios_research.py::test_unattended_stuck[status-stopped] |  |
-| 401 | stopped_reason: {rec['convergence'].get('stopped_reason', ''… |  | test_scenarios_research.py::test_unattended_stuck[stopped-reason-unattended] |  |
-| 402 | 要人間判断に stuck が載る |  | test_scenarios_research.py::test_unattended_stuck[human-items-stuck] |  |
-| 403 | 停止でも報告は出る（検証器は stopped を通す） |  | test_scenarios_research.py::test_unattended_stuck[report-on-stop] |  |
+| 407 | status が stopped |  | test_scenarios_research.py::test_unattended_stuck[status-stopped] |  |
+| 408 | stopped_reason: {rec['convergence'].get('stopped_reason', ''… |  | test_scenarios_research.py::test_unattended_stuck[stopped-reason-unattended] |  |
+| 409 | 要人間判断に stuck が載る |  | test_scenarios_research.py::test_unattended_stuck[human-items-stuck] |  |
+| 410 | 停止でも報告は出る（検証器は stopped を通す） |  | test_scenarios_research.py::test_unattended_stuck[report-on-stop] |  |
 
 #### simulate_review.test_awaiting
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 1338 | 主経路の観測: 見たと言う状態なのに観測した値が無ければ exit 1（本文の言い回しでなくフィールドで見る。{lied… |  | test_scenarios_review.py::test_awaiting[observed-empty] |  |
-| 1340 | 主経路の観測: 空白だけの観測の行も観測した値に数えない（{lied.get('blank_err', '').stri… |  | test_scenarios_review.py::test_awaiting[observed-blank] |  |
-| 1345 | 残る阻害が保留の問いだけになった周に聞く（{last.get('ask', {}).get('kinds')}） |  | test_scenarios_review.py::test_awaiting[asks-work-exhausted] |  |
-| 1346 | 立った周（1）には聞かず、2 周目に聞く |  | test_scenarios_review.py::test_awaiting[asks-in-round-2] |  |
-| 1348 | 答えを渡して続行 |  | test_scenarios_review.py::test_awaiting[answer-continue] |  |
-| 1350 | 答えの後に収束（{last['status']}） |  | test_scenarios_review.py::test_awaiting[converges-after-answer] |  |
-| 1352 | 3 周目に観測して問いは resolved |  | test_scenarios_review.py::test_awaiting[round-3-resolves] |  |
-| 1353 | 人の答えが記録に残り次の周の judge に渡る |  | test_scenarios_review.py::test_awaiting[answer-kept-in-record] |  |
+| 1344 | 主経路の観測: 見たと言う状態なのに観測した値が無ければ exit 1（本文の言い回しでなくフィールドで見る。{lied… |  | test_scenarios_review.py::test_awaiting[observed-empty] |  |
+| 1346 | 主経路の観測: 空白だけの観測の行も観測した値に数えない（{lied.get('blank_err', '').stri… |  | test_scenarios_review.py::test_awaiting[observed-blank] |  |
+| 1351 | 残る阻害が保留の問いだけになった周に聞く（{last.get('ask', {}).get('kinds')}） |  | test_scenarios_review.py::test_awaiting[asks-work-exhausted] |  |
+| 1352 | 立った周（1）には聞かず、2 周目に聞く |  | test_scenarios_review.py::test_awaiting[asks-in-round-2] |  |
+| 1354 | 答えを渡して続行 |  | test_scenarios_review.py::test_awaiting[answer-continue] |  |
+| 1356 | 答えの後に収束（{last['status']}） |  | test_scenarios_review.py::test_awaiting[converges-after-answer] |  |
+| 1358 | 3 周目に観測して問いは resolved |  | test_scenarios_review.py::test_awaiting[round-3-resolves] |  |
+| 1359 | 人の答えが記録に残り次の周の judge に渡る |  | test_scenarios_review.py::test_awaiting[answer-kept-in-record] |  |
 
 #### simulate_review.test_awaiting_origin_guards
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 1425 | 判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む（rc={rc} {err.strip()[-1… |  | test_scenarios_review.py::test_awaiting_origin_guards[judge-unlisted] |  |
-| 1428 | 判定の時点: 人待ちでない素材を出どころにした awaiting は拒み、field を案内する（rc={rc} {er… |  | test_scenarios_review.py::test_awaiting_origin_guards[judge-wrong-origin] |  |
-| 1431 | 書いた時点: 人に諮っているフィールドを後の工程が clean で上書きすると拒む（rc={rc} {err.strip… |  | test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite] |  |
-| 1433 | CI を再実行するノードのプロンプトに、この周の問いの台帳が渡る（人に諮っているフィールドを知って書ける） |  | test_scenarios_review.py::test_awaiting_origin_guards[ci-prompt-has-ledger] |  |
-| 1435 | 実地の問いは field で台帳に載り、人待ちの CI のフィールドは awaiting_human のまま周の記録に入… |  | test_scenarios_review.py::test_awaiting_origin_guards[field-question-kept] |  |
+| 1431 | 判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む（rc={rc} {err.strip()[-1… |  | test_scenarios_review.py::test_awaiting_origin_guards[judge-unlisted] |  |
+| 1434 | 判定の時点: 人待ちでない素材を出どころにした awaiting は拒み、field を案内する（rc={rc} {er… |  | test_scenarios_review.py::test_awaiting_origin_guards[judge-wrong-origin] |  |
+| 1437 | 書いた時点: 人に諮っているフィールドを後の工程が clean で上書きすると拒む（rc={rc} {err.strip… |  | test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite] |  |
+| 1439 | CI を再実行するノードのプロンプトに、この周の問いの台帳が渡る（人に諮っているフィールドを知って書ける） |  | test_scenarios_review.py::test_awaiting_origin_guards[ci-prompt-has-ledger] |  |
+| 1441 | 実地の問いは field で台帳に載り、人待ちの CI のフィールドは awaiting_human のまま周の記録に入… |  | test_scenarios_review.py::test_awaiting_origin_guards[field-question-kept] |  |
 
 #### simulate_review.test_ci_red_runaway
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 5551 | CI が赤のままの run は 5 周で止まる（{last['status']} r{run.state()['roun… |  | test_scenarios_review.py::test_ci_red_runaway[stops-at-round-5] |  |
-| 5552 | 停止の理由が上限 |  | test_scenarios_review.py::test_ci_red_runaway[stop-reason-max-rounds] |  |
+| 5506 | CI が赤のままの run は 5 周で止まる（{last['status']} r{run.state()['roun… |  | test_scenarios_review.py::test_ci_red_runaway[stops-at-round-5] |  |
+| 5507 | 停止の理由が上限 |  | test_scenarios_review.py::test_ci_red_runaway[stop-reason-max-rounds] |  |
 
 #### simulate_review.test_human_gate
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 6638 | ゲート: 修正案の narrows が 1 件でもあれば、修正の前に人に聞く（{last.get('ask', {}).… |  | test_scenarios_review.py::test_human_gate[narrows-ask-before-fix] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6642 | ゲート: 人が答えるまで修正のノードは出ない |  | test_scenarios_review.py::test_human_gate[no-fix-until-answered] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6643 | ゲート: 方針の文書が無い run では、固定する版は無く、判定のプロンプトには方針の段落だけが出る |  | test_scenarios_review.py::test_human_gate[no-policy-document] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6646 | ゲート: continue を返す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_human_gate[answer-continue] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6648 | ゲート: 答えは人の答えの台帳（process.human_items）に残る（{hi}） |  | test_scenarios_review.py::test_human_gate[answer-in-human-items] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6651 | ゲート: 人の答えの note が同じ周の修正役のプロンプトに届く |  | test_scenarios_review.py::test_human_gate[note-reaches-fix] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6656 | 修正の入口: 単位の行は記録の単位と同じ順で全部載り、義務の印を持つ（{[(r['key'][:20], r['owed… |  | test_scenarios_review.py::test_human_gate[fix-unit-rows] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6659 | 修正の入口: 判定の長い本文（母数の問いなど）は貼らず印だけを載せ、盤面に在る記録の置き場を指す（{refs}） |  | test_scenarios_review.py::test_human_gate[fix-long-bodies-not-pasted] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6662 | ゲート: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta',… |  | test_scenarios_review.py::test_human_gate[delta-review-no-regression] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6664 | ゲート: 方針の文書が init の後に変わった（役が書いた）なら、修正の後のゲートで人に聞く（{last.get('a… |  | test_scenarios_review.py::test_human_gate[policy-changed-asks] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6668 | ゲート: 方針の文書の変化の行は差分のファイルの置き場を載せ（本文は載せない）、差分に変わった中身が在る（{row[-2… |  | test_scenarios_review.py::test_human_gate[policy-row-points-to-diff] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6672 | ゲート: 通した方針の文書の変更は新しい版（写しも）を記録に固定し直し（以後のノードは record.process.p… |  | test_scenarios_review.py::test_human_gate[policy-refixed] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6687 | ゲート: R4 の lost と方針とのぶつかり（policy_conflicts）は人に聞き、同じ文の行は通した後に聞… |  | test_scenarios_review.py::test_human_gate[lost-and-conflict-asked-once] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6689 | ゲート: 人が通した後は収束まで進む（{last['status']}） |  | test_scenarios_review.py::test_human_gate[converges] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6701 | ゲート: 事前審査が後退の穴を挙げたら、修正の前に人に聞く（{last.get('ask', {}).get('kind… |  | test_scenarios_review.py::test_human_gate[plan-review-regression-asks] |  |
-| 6705 | ゲート: stop で run がその場で止まり、修正を出さない（{last.get('halted')}） |  | test_scenarios_review.py::test_human_gate[stop-halts-at-gate] |  |
-| 6729 | ゲート: --detail で直す義務の単位を外せる（義務に無い単位は拒んで盤面を変えず、受けた分は台帳に key で残… |  | test_scenarios_review.py::test_human_gate[detail-excludes-unit] |  |
-| 6733 | ゲート: 外した単位は修正の側に見せる義務の印（fix_units の owed）からも外れる——修正の受け付けはこの印… |  | test_scenarios_review.py::test_human_gate[excluded-unit-not-owed] |  |
-| 6736 | ゲート: 外した単位と理由が同じ周の修正役のプロンプトに届く |  | test_scenarios_review.py::test_human_gate[exclusion-reaches-fix] |  |
-| 6743 | ゲート: 無人では狭めの問いで止まり、修正を出さない（{st.get('halted')}） |  | test_scenarios_review.py::test_human_gate[unattended-stops] |  |
+| 6587 | ゲート: 修正案の narrows が 1 件でもあれば、修正の前に人に聞く（{last.get('ask', {}).… |  | test_scenarios_review.py::test_human_gate[narrows-ask-before-fix] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6591 | ゲート: 人が答えるまで修正のノードは出ない |  | test_scenarios_review.py::test_human_gate[no-fix-until-answered] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6592 | ゲート: 方針の文書が無い run では、固定する版は無く、判定のプロンプトには方針の段落だけが出る |  | test_scenarios_review.py::test_human_gate[no-policy-document] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6595 | ゲート: continue を返す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_human_gate[answer-continue] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6597 | ゲート: 答えは人の答えの台帳（process.human_items）に残る（{hi}） |  | test_scenarios_review.py::test_human_gate[answer-in-human-items] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6600 | ゲート: 人の答えの note が同じ周の修正役のプロンプトに届く |  | test_scenarios_review.py::test_human_gate[note-reaches-fix] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6605 | 修正の入口: 単位の行は記録の単位と同じ順で全部載り、義務の印を持つ（{[(r['key'][:20], r['owed… |  | test_scenarios_review.py::test_human_gate[fix-unit-rows] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6608 | 修正の入口: 判定の長い本文（母数の問いなど）は貼らず印だけを載せ、盤面に在る記録の置き場を指す（{refs}） |  | test_scenarios_review.py::test_human_gate[fix-long-bodies-not-pasted] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6611 | ゲート: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta',… |  | test_scenarios_review.py::test_human_gate[delta-review-no-regression] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6613 | ゲート: 方針の文書が init の後に変わった（役が書いた）なら、修正の後のゲートで人に聞く（{last.get('a… |  | test_scenarios_review.py::test_human_gate[policy-changed-asks] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6617 | ゲート: 方針の文書の変化の行は差分のファイルの置き場を載せ（本文は載せない）、差分に変わった中身が在る（{row[-2… |  | test_scenarios_review.py::test_human_gate[policy-row-points-to-diff] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6621 | ゲート: 通した方針の文書の変更は新しい版（写しも）を記録に固定し直し（以後のノードは record.process.p… |  | test_scenarios_review.py::test_human_gate[policy-refixed] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6636 | ゲート: R4 の lost と方針とのぶつかり（policy_conflicts）は人に聞き、同じ文の行は通した後に聞… |  | test_scenarios_review.py::test_human_gate[lost-and-conflict-asked-once] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6638 | ゲート: 人が通した後は収束まで進む（{last['status']}） |  | test_scenarios_review.py::test_human_gate[converges] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6650 | ゲート: 事前審査が後退の穴を挙げたら、修正の前に人に聞く（{last.get('ask', {}).get('kind… |  | test_scenarios_review.py::test_human_gate[plan-review-regression-asks] |  |
+| 6654 | ゲート: stop で run がその場で止まり、修正を出さない（{last.get('halted')}） |  | test_scenarios_review.py::test_human_gate[stop-halts-at-gate] |  |
+| 6678 | ゲート: --detail で直す義務の単位を外せる（義務に無い単位は拒んで盤面を変えず、受けた分は台帳に key で残… |  | test_scenarios_review.py::test_human_gate[detail-excludes-unit] |  |
+| 6682 | ゲート: 外した単位は修正の側に見せる義務の印（fix_units の owed）からも外れる——修正の受け付けはこの印… |  | test_scenarios_review.py::test_human_gate[excluded-unit-not-owed] |  |
+| 6685 | ゲート: 外した単位と理由が同じ周の修正役のプロンプトに届く |  | test_scenarios_review.py::test_human_gate[exclusion-reaches-fix] |  |
+| 6692 | ゲート: 無人では狭めの問いで止まり、修正を出さない（{st.get('halted')}） |  | test_scenarios_review.py::test_human_gate[unattended-stops] |  |
 
 #### simulate_review.test_rejections
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 1592 | 返答の置き場のディレクトリは engine が作る（最初の波のノードも、運び手が mkdir せずに書ける） |  | test_rejections_review.py::test_out_path_directories_are_made_by_the_engine |  |
-| 1594 | 宣言の在るリポジトリでは、走らせるだけのノードは engine が走らせるノード（mode=engine_run）で出て… |  | test_rejections_review.py::test_declared_checks_run_as_an_engine_run_node |  |
-| 1598 | 任せ先: graph が delegate を宣言した回す側のノードは ready に任せ先が載り、宣言の無いノードには… |  | test_rejections_review.py::test_undeclared_repo_falls_back_to_a_delegate |  |
-| 1605 | 実在しない BASE は exit 1 |  | test_rejections_review.py::test_nonexistent_base_is_rejected |  |
-| 1610 | 機械のノード（作業ツリーの写し）は ready に出ない |  | test_rejections_review.py::test_machine_nodes_are_not_ready |  |
-| 1611 | loop.py record は record.json の丸写し（直読みと同じ値。CLI の煙テストはここ 1 か所） |  | test_rejections_review.py::test_record_command_copies_record_json | 子プロセスで起動した loop.py record の標準出力の文字コードと終了コード（台本が CLI の煙を置く唯一の所） |
-| 1616 | P1 の役が同じ波に並ぶ: {sorted(by)} |  | test_rejections_review.py::test_p1_roles_share_one_wave |  |
-| 1617 | inspector は Read を持っても本文を貼る渡し方（ファイルの指示に従えの 1 文を拒むため）、investi… |  | test_rejections_review.py::test_inspector_gets_pasted_body_and_investigator_gets_a_path |  |
-| 1622 | 今の周に走ったノードの素材が carried_over を名乗ると exit 1（rc={r.returncode}） |  | test_rejections_review.py::test_material_of_a_node_that_ran_cannot_claim_carried_over |  |
-| 1625 | cold-reader には観点のセクションと差分本文だけが貼られ、目的は貼られない |  | test_rejections_review.py::test_cold_reader_prompt_has_lens_and_diff_but_no_purpose |  |
-| 1627 | found なのに count が無い素材は exit 1（検証器の表で先に見る） |  | test_rejections_review.py::test_found_material_without_count_is_rejected |  |
-| 1631 | investigator の instance の前後で作業ツリーが変わると exit 1 |  | test_rejections_review.py::test_worktree_change_around_an_investigator_is_rejected |  |
-| 1634 | 順位（主経路）: 外部標準照合の done は、空の順位を付けられない理由なしで拒む（{r.stderr.strip()… |  | test_rejections_review.py::test_external_standards_without_rankings_none_is_rejected |  |
-| 1642 | cli で起動した遮断系の done に --agent-id を渡すと exit 1（engine が起動するノードに… |  | test_rejections_review.py::test_agent_id_on_a_cli_node_is_rejected |  |
-| 1650 | 既に変更済みのファイルの中身を差し替えても止まる: {str(nx.get('notes'))[:120]} |  | test_rejections_review.py::test_replacing_content_of_an_already_modified_file_stops |  |
-| 1655 | P1 の前後で作業ツリーが変わると先へ進まない |  | test_rejections_review.py::test_worktree_change_across_p1_stops |  |
-| 1658 | 同じ止まり方で next を叩き直しても git_mismatches は増えない |  | test_rejections_review.py::test_repeated_next_on_the_same_stop_does_not_grow_git_mismatches |  |
-| 1664 | git が無い場では P1 の前後の突合が『測れない』で止まる（一致に倒さない） |  | test_rejections_review.py::test_without_git_the_p1_comparison_stops_as_unmeasurable |  |
-| 1670 | 自分の変更なら next --accept-tree-change で通る: {str(nx.get('notes'))… |  | test_rejections_review.py::test_accept_tree_change_passes_the_comparison |  |
-| 1672 | 受け付けた理由が git_mismatches に残る |  | test_rejections_review.py::test_accepted_reason_is_kept_in_git_mismatches |  |
-| 1681 | 受け付ければ judge に進み、素材は 15 フィールドで渡る |  | test_rejections_review.py::test_after_acceptance_the_judge_runs_with_materials |  |
-| 1684 | 台帳の出どころが無い judge の返答は exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[origin-not-in-units] |  |
-| 1687 | split の出どころが [block] の返答は exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[split-origin-is-block] |  |
-| 1691 | 先行例: 直す単位の行が欠けた judge の返答は exit 1（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[precedent-row-missing] |  |
-| 1694 | 先行例: 出典の無い行は exit 1（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[precedent-without-source] |  |
-| 1696 | 先行例: 見つからないなら何を探したかが要る（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[not-found-without-searched] |  |
-| 1698 | 先行例: 同じ key の行が 2 つある judge の返答は exit 1（{r.stderr.strip()[-7… |  | test_rejections_review.py::test_judge_reply_is_rejected[precedent-key-duplicated] |  |
-| 1701 | 先行例: 人へ回す問い（escalate）にも先行例の行が要る（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[escalate-needs-precedent] |  |
-| 1706 | 先行例: 人へ回す問いに決まらない理由が無ければ exit 1（自明なので聞かない。{r.stderr.strip()[… |  | test_rejections_review.py::test_judge_reply_is_rejected[human-question-needs-undecided-because] |  |
-| 1709 | judge の label が語彙外（blocker）なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[label-outside-vocabulary] |  |
-| 1711 | 台帳の kind が語彙外なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[kind-outside-vocabulary] |  |
-| 1713 | disposition が語彙外なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[disposition-outside-vocabulary] |  |
-| 1715 | 台帳の status が語彙外なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[status-outside-vocabulary] |  |
-| 1717 | judge の返答に知らないフィールドがあれば exit 1（additionalProperties） |  | test_rejections_review.py::test_judge_reply_is_rejected[unknown-field] |  |
-| 1719 | defer に reason の無い judge の返答は exit 1（以前の台本は defer を一度も返さず、この… |  | test_rejections_review.py::test_judge_reply_is_rejected[defer-without-reason] |  |
-| 1723 | 一撃が閉じると見込む unit を名指ししない judge の返答は exit 1（効かなかったことを次の周が言えない） |  | test_rejections_review.py::test_judge_reply_is_rejected[one-shot-closes-empty] |  |
-| 1725 | one_shot_closes が今の周の units に無い key を指すと exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[one-shot-closes-unknown-key] |  |
-| 1728 | [block] に class_query（母数の問い）が無い judge の返答は exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[block-without-class-query] |  |
-| 1730 | class_query.total が数でなければ exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[class-query-total-not-a-number] |  |
-| 1732 | 判定者の class_query も、走らせられない問いは exit 1（{r.stderr.strip()[-90:]… |  | test_rejections_review.py::test_judge_reply_is_rejected[class-query-unrunnable] |  |
-| 1738 | defer の単位には母数を求めない（赤の理由は key の重複だけ。{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[defer-needs-no-class-query] |  |
-| 1752 | 正しい judge の返答は通り、どこから読んだかが返事に残る（stdin を cp1252 の環境で。rc={r.re… |  | test_rejections_review.py::test_judge_reply_from_stdin_is_accepted_and_says_where_it_was_read | PYTHONIOENCODING=cp1252 は Python の起動時にだけ効く——同じプロセスでは、標準入力をバイトで読んで UTF-8 に決める経路をcp1252 の既定で試せない（3 OS の通しで windows-latest だけ赤だった実測の腕） |
-| 1754 | 標準入力の返答が置き場の古い返答より優先され、記録に入るのは新しい方 |  | test_rejections_review.py::test_stdin_reply_wins_over_a_stale_out_path |  |
-| 1756 | 判定者の書いた件数は engine が数えた件数に置き換わり、置き換えたことが note と返事に残る（{cq0} / … |  | test_rejections_review.py::test_judge_count_is_replaced_by_the_engine_count |  |
-| 1759 | engine が 0 件を数えた単位は置き換えず、0 だったことが note と返事に残る（{cq1} / {r.std… |  | test_rejections_review.py::test_zero_engine_count_is_not_substituted |  |
-| 1762 | engine が 0 件を数えた単位の key は、判定の出口のフィールド（p2.diagnose の出力の engin… |  | test_rejections_review.py::test_zero_count_unit_keys_are_left_for_the_fix |  |
-| 1773 | [block] を直さない writer の返答は exit 1 で、残した理由を拒否文に併記する（{r.stderr.… |  | test_rejections_review.py::test_fix_leaving_a_block_unfixed_is_rejected_with_its_reason |  |
-| 1779 | 閉鎖の実証で赤を見ていないのに fix_closure=clean の返答は exit 1（rc={r.returnco… |  | test_rejections_review.py::test_clean_closure_without_red_seen_is_rejected |  |
-| 1781 | 修正が在るのに fix_closure=not_applicable の返答は exit 1（changes が非空とい… |  | test_rejections_review.py::test_fix_reply_is_rejected[not-applicable-closure-with-changes] |  |
-| 1784 | 2 つ以上の修正が触った面を書き落とすと exit 1（機械が files から面を出す） |  | test_rejections_review.py::test_fix_reply_is_rejected[interactions-left-out] |  |
-| 1786 | 面ごとの修正の一覧（changes）は役に書かせない——書けば型で拒む（写しの入口を残さない） |  | test_rejections_review.py::test_fix_reply_is_rejected[interactions-listing-changes] |  |
-| 1788 | 干渉を突き合わせた結果が空同然なら exit 1（bypass_tried と同じ空語検査） |  | test_rejections_review.py::test_fix_reply_is_rejected[interactions-checked-empty-word] |  |
-| 1791 | 修正を残したまま破りに行った形跡が無い返答は exit 1 |  | test_rejections_review.py::test_fix_reply_is_rejected[bypass-not-tried] |  |
-| 1793 | 壊しうる面を確かめた結果が空同然なら exit 1 |  | test_rejections_review.py::test_fix_reply_is_rejected[breaks-result-empty-word] |  |
-| 1795 | 症状を塞ぐ修正に「なぜ今それで止めるか」が無ければ exit 1 |  | test_rejections_review.py::test_fix_reply_is_rejected[symptom-without-why-now] |  |
-| 1804 | 判定者が class_query を持つ単位は coverage を省いても coverage では拒まない（赤の理由は… |  | test_rejections_review.py::test_fix_reply_is_rejected[coverage-omitted-under-judge-query] |  |
-| 1809 | coverage に remaining だけを書いた返答も coverage では拒まない（赤の理由は wrote_r… |  | test_rejections_review.py::test_fix_reply_is_rejected[coverage-remaining-only] |  |
-| 1814 | 母数 2 のうち閉鎖を実証した site が 1 件で残りが在るのに remaining が無ければ exit 1（母数… |  | test_rejections_review.py::test_fix_reply_is_rejected[partial-closure-without-remaining] |  |
-| 1816 | 1 行のコマンドの how は型で拒む（フィールドで書く。{r.stderr.strip()[-90:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[how-as-one-command] |  |
-| 1818 | 走らせられない how は拒む（当たらないパス。{r.stderr.strip()[-90:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[how-unrunnable] |  |
-| 1823 | 覆い: 判定者の母数より狭い how は理由なしで拒む（{r.stderr.strip()[-70:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[how-narrower-than-judge] |  |
-| 1825 | 覆い: 空語（『なし』）の remaining は理由に数えない（{r.stderr.strip()[-70:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[remaining-empty-word] |  |
-| 1828 | 先行例: 修正の先行例に出典が無ければ exit 1（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[fix-precedent-without-source] |  |
-| 1833 | 先行例: 判定者の行が在る単位は from_judge_row で採れる（赤の理由は wrote_refs だけ。{r.… |  | test_rejections_review.py::test_fix_reply_is_rejected[fix-precedent-from-judge-row] |  |
-| 1837 | closure.sites が母数を超える返答は exit 1（問いが対象を取りこぼしている） |  | test_rejections_review.py::test_fix_reply_is_rejected[closure-sites-over-population] |  |
-| 1848 | リンク: 申告が空でも、差分が足したリンクの指し先と見出しを引いて拒む（コードスパンの中は拾わない。{r.stderr.… |  | test_rejections_review.py::test_fix_reply_is_rejected[markdown-links-added-by-the-diff] |  |
-| 1855 | 残した理由を書けば部分的な覆いは通る（赤の理由は wrote_refs だけ。{r.stderr.strip()[-70… |  | test_rejections_review.py::test_fix_reply_is_rejected[partial-coverage-with-remaining] |  |
-| 1859 | 指し先に無い字列は exit 1（どこかに在るかでなく、指し先に在るかを見る。rc={r.returncode}） |  | test_rejections_review.py::test_fix_reply_is_rejected[cite-not-in-target] |  |
-| 1864 | 指し先のファイルが無ければ exit 1（『中に無い』とは別の拒否文。{r.stderr.strip()[-90:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[cite-target-missing] |  |
-| 1868 | wrote_refs を落とした返答は型で拒まれる（必須のフィールド） |  | test_rejections_review.py::test_fix_reply_is_rejected[wrote-refs-dropped] |  |
-| 1873 | 別のファイルに同じ字列が在っても、target に無ければ exit 1（rc={r.returncode}） |  | test_rejections_review.py::test_fix_reply_is_rejected[same-text-in-another-file] |  |
-| 1876 | 改行を含む cite は exit 1（修正側には 1 行 1 件の規律だけを言い、指摘側の git grep の理由を… |  | test_rejections_review.py::test_fix_reply_is_rejected[cite-with-newline] |  |
-| 1894 | 修正前の母数 1・修正後に engine が数えた 0 が記録に残る（拒否には使わない。rc={r.returncode… |  | test_rejections_review.py::test_coverage_before_and_after_are_recorded |  |
-| 1897 | 赤を見た修正と見ていない修正（文書）が混じる周の clean は通る——周の全体で見る。返答は out_path から読… |  | test_rejections_review.py::test_mixed_closure_passes_and_reads_the_out_path |  |
+| 1598 | 返答の置き場のディレクトリは engine が作る（最初の波のノードも、運び手が mkdir せずに書ける） |  | test_rejections_review.py::test_out_path_directories_are_made_by_the_engine |  |
+| 1600 | 宣言の在るリポジトリでは、走らせるだけのノードは engine が走らせるノード（mode=engine_run）で出て… |  | test_rejections_review.py::test_declared_checks_run_as_an_engine_run_node |  |
+| 1604 | 任せ先: graph が delegate を宣言した回す側のノードは ready に任せ先が載り、宣言の無いノードには… |  | test_rejections_review.py::test_undeclared_repo_falls_back_to_a_delegate |  |
+| 1611 | 実在しない BASE は exit 1 |  | test_rejections_review.py::test_nonexistent_base_is_rejected |  |
+| 1616 | 機械のノード（作業ツリーの写し）は ready に出ない |  | test_rejections_review.py::test_machine_nodes_are_not_ready |  |
+| 1617 | loop.py record は record.json の丸写し（直読みと同じ値。CLI の煙テストはここ 1 か所） |  | test_rejections_review.py::test_record_command_copies_record_json | 子プロセスで起動した loop.py record の標準出力の文字コードと終了コード（台本が CLI の煙を置く唯一の所） |
+| 1622 | P1 の役が同じ波に並ぶ: {sorted(by)} |  | test_rejections_review.py::test_p1_roles_share_one_wave |  |
+| 1623 | inspector は Read を持っても本文を貼る渡し方（ファイルの指示に従えの 1 文を拒むため）、investi… |  | test_rejections_review.py::test_inspector_gets_pasted_body_and_investigator_gets_a_path |  |
+| 1628 | 今の周に走ったノードの素材が carried_over を名乗ると exit 1（rc={r.returncode}） |  | test_rejections_review.py::test_material_of_a_node_that_ran_cannot_claim_carried_over |  |
+| 1631 | cold-reader には観点のセクションと差分本文だけが貼られ、目的は貼られない |  | test_rejections_review.py::test_cold_reader_prompt_has_lens_and_diff_but_no_purpose |  |
+| 1633 | found なのに count が無い素材は exit 1（検証器の表で先に見る） |  | test_rejections_review.py::test_found_material_without_count_is_rejected |  |
+| 1637 | investigator の instance の前後で作業ツリーが変わると exit 1 |  | test_rejections_review.py::test_worktree_change_around_an_investigator_is_rejected |  |
+| 1640 | 順位（主経路）: 外部標準照合の done は、空の順位を付けられない理由なしで拒む（{r.stderr.strip()… |  | test_rejections_review.py::test_external_standards_without_rankings_none_is_rejected |  |
+| 1646 | cli で起動した遮断系の done に --agent-id を渡すと exit 1（engine が起動するノードに… |  | test_rejections_review.py::test_agent_id_on_a_cli_node_is_rejected |  |
+| 1654 | 既に変更済みのファイルの中身を差し替えても止まる: {str(nx.get('notes'))[:120]} |  | test_rejections_review.py::test_replacing_content_of_an_already_modified_file_stops |  |
+| 1659 | P1 の前後で作業ツリーが変わると先へ進まない |  | test_rejections_review.py::test_worktree_change_across_p1_stops |  |
+| 1662 | 同じ止まり方で next を叩き直しても git_mismatches は増えない |  | test_rejections_review.py::test_repeated_next_on_the_same_stop_does_not_grow_git_mismatches |  |
+| 1668 | git が無い場では P1 の前後の突合が『測れない』で止まる（一致に倒さない） |  | test_rejections_review.py::test_without_git_the_p1_comparison_stops_as_unmeasurable |  |
+| 1674 | 自分の変更なら next --accept-tree-change で通る: {str(nx.get('notes'))… |  | test_rejections_review.py::test_accept_tree_change_passes_the_comparison |  |
+| 1676 | 受け付けた理由が git_mismatches に残る |  | test_rejections_review.py::test_accepted_reason_is_kept_in_git_mismatches |  |
+| 1685 | 受け付ければ judge に進み、素材は 15 フィールドで渡る |  | test_rejections_review.py::test_after_acceptance_the_judge_runs_with_materials |  |
+| 1688 | 台帳の出どころが無い judge の返答は exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[origin-not-in-units] |  |
+| 1691 | split の出どころが [block] の返答は exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[split-origin-is-block] |  |
+| 1695 | 先行例: 直す単位の行が欠けた judge の返答は exit 1（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[precedent-row-missing] |  |
+| 1698 | 先行例: 出典の無い行は exit 1（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[precedent-without-source] |  |
+| 1700 | 先行例: 見つからないなら何を探したかが要る（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[not-found-without-searched] |  |
+| 1702 | 先行例: 同じ key の行が 2 つある judge の返答は exit 1（{r.stderr.strip()[-7… |  | test_rejections_review.py::test_judge_reply_is_rejected[precedent-key-duplicated] |  |
+| 1705 | 先行例: 人へ回す問い（escalate）にも先行例の行が要る（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[escalate-needs-precedent] |  |
+| 1710 | 先行例: 人へ回す問いに決まらない理由が無ければ exit 1（自明なので聞かない。{r.stderr.strip()[… |  | test_rejections_review.py::test_judge_reply_is_rejected[human-question-needs-undecided-because] |  |
+| 1713 | judge の label が語彙外（blocker）なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[label-outside-vocabulary] |  |
+| 1715 | 台帳の kind が語彙外なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[kind-outside-vocabulary] |  |
+| 1717 | disposition が語彙外なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[disposition-outside-vocabulary] |  |
+| 1719 | 台帳の status が語彙外なら exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[status-outside-vocabulary] |  |
+| 1721 | judge の返答に知らないフィールドがあれば exit 1（additionalProperties） |  | test_rejections_review.py::test_judge_reply_is_rejected[unknown-field] |  |
+| 1723 | defer に reason の無い judge の返答は exit 1（以前の台本は defer を一度も返さず、この… |  | test_rejections_review.py::test_judge_reply_is_rejected[defer-without-reason] |  |
+| 1727 | 一撃が閉じると見込む unit を名指ししない judge の返答は exit 1（効かなかったことを次の周が言えない） |  | test_rejections_review.py::test_judge_reply_is_rejected[one-shot-closes-empty] |  |
+| 1729 | one_shot_closes が今の周の units に無い key を指すと exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[one-shot-closes-unknown-key] |  |
+| 1732 | [block] に class_query（母数の問い）が無い judge の返答は exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[block-without-class-query] |  |
+| 1734 | class_query.total が数でなければ exit 1 |  | test_rejections_review.py::test_judge_reply_is_rejected[class-query-total-not-a-number] |  |
+| 1736 | 判定者の class_query も、走らせられない問いは exit 1（{r.stderr.strip()[-90:]… |  | test_rejections_review.py::test_judge_reply_is_rejected[class-query-unrunnable] |  |
+| 1742 | defer の単位には母数を求めない（赤の理由は key の重複だけ。{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_judge_reply_is_rejected[defer-needs-no-class-query] |  |
+| 1756 | 正しい judge の返答は通り、どこから読んだかが返事に残る（stdin を cp1252 の環境で。rc={r.re… |  | test_rejections_review.py::test_judge_reply_from_stdin_is_accepted_and_says_where_it_was_read | PYTHONIOENCODING=cp1252 は Python の起動時にだけ効く——同じプロセスでは、標準入力をバイトで読んで UTF-8 に決める経路をcp1252 の既定で試せない（3 OS の通しで windows-latest だけ赤だった実測の腕） |
+| 1758 | 標準入力の返答が置き場の古い返答より優先され、記録に入るのは新しい方 |  | test_rejections_review.py::test_stdin_reply_wins_over_a_stale_out_path |  |
+| 1760 | 判定者の書いた件数は engine が数えた件数に置き換わり、置き換えたことが note と返事に残る（{cq0} / … |  | test_rejections_review.py::test_judge_count_is_replaced_by_the_engine_count |  |
+| 1763 | engine が 0 件を数えた単位は置き換えず、0 だったことが note と返事に残る（{cq1} / {r.std… |  | test_rejections_review.py::test_zero_engine_count_is_not_substituted |  |
+| 1766 | engine が 0 件を数えた単位の key は、判定の出口のフィールド（p2.diagnose の出力の engin… |  | test_rejections_review.py::test_zero_count_unit_keys_are_left_for_the_fix |  |
+| 1777 | [block] を直さない writer の返答は exit 1 で、残した理由を拒否文に併記する（{r.stderr.… |  | test_rejections_review.py::test_fix_leaving_a_block_unfixed_is_rejected_with_its_reason |  |
+| 1783 | 閉鎖の実証で赤を見ていないのに fix_closure=clean の返答は exit 1（rc={r.returnco… |  | test_rejections_review.py::test_clean_closure_without_red_seen_is_rejected |  |
+| 1785 | 修正が在るのに fix_closure=not_applicable の返答は exit 1（changes が非空とい… |  | test_rejections_review.py::test_fix_reply_is_rejected[not-applicable-closure-with-changes] |  |
+| 1788 | 2 つ以上の修正が触った面を書き落とすと exit 1（機械が files から面を出す） |  | test_rejections_review.py::test_fix_reply_is_rejected[interactions-left-out] |  |
+| 1790 | 面ごとの修正の一覧（changes）は役に書かせない——書けば型で拒む（写しの入口を残さない） |  | test_rejections_review.py::test_fix_reply_is_rejected[interactions-listing-changes] |  |
+| 1792 | 干渉を突き合わせた結果が空同然なら exit 1（bypass_tried と同じ空語検査） |  | test_rejections_review.py::test_fix_reply_is_rejected[interactions-checked-empty-word] |  |
+| 1795 | 修正を残したまま破りに行った形跡が無い返答は exit 1 |  | test_rejections_review.py::test_fix_reply_is_rejected[bypass-not-tried] |  |
+| 1797 | 壊しうる面を確かめた結果が空同然なら exit 1 |  | test_rejections_review.py::test_fix_reply_is_rejected[breaks-result-empty-word] |  |
+| 1799 | 症状を塞ぐ修正に「なぜ今それで止めるか」が無ければ exit 1 |  | test_rejections_review.py::test_fix_reply_is_rejected[symptom-without-why-now] |  |
+| 1808 | 判定者が class_query を持つ単位は coverage を省いても coverage では拒まない（赤の理由は… |  | test_rejections_review.py::test_fix_reply_is_rejected[coverage-omitted-under-judge-query] |  |
+| 1813 | coverage に remaining だけを書いた返答も coverage では拒まない（赤の理由は wrote_r… |  | test_rejections_review.py::test_fix_reply_is_rejected[coverage-remaining-only] |  |
+| 1818 | 母数 2 のうち閉鎖を実証した site が 1 件で残りが在るのに remaining が無ければ exit 1（母数… |  | test_rejections_review.py::test_fix_reply_is_rejected[partial-closure-without-remaining] |  |
+| 1820 | 1 行のコマンドの how は型で拒む（フィールドで書く。{r.stderr.strip()[-90:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[how-as-one-command] |  |
+| 1822 | 走らせられない how は拒む（当たらないパス。{r.stderr.strip()[-90:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[how-unrunnable] |  |
+| 1827 | 覆い: 判定者の母数より狭い how は理由なしで拒む（{r.stderr.strip()[-70:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[how-narrower-than-judge] |  |
+| 1829 | 覆い: 空語（『なし』）の remaining は理由に数えない（{r.stderr.strip()[-70:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[remaining-empty-word] |  |
+| 1832 | 先行例: 修正の先行例に出典が無ければ exit 1（{r.stderr.strip()[-80:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[fix-precedent-without-source] |  |
+| 1837 | 先行例: 判定者の行が在る単位は from_judge_row で採れる（赤の理由は wrote_refs だけ。{r.… |  | test_rejections_review.py::test_fix_reply_is_rejected[fix-precedent-from-judge-row] |  |
+| 1841 | closure.sites が母数を超える返答は exit 1（問いが対象を取りこぼしている） |  | test_rejections_review.py::test_fix_reply_is_rejected[closure-sites-over-population] |  |
+| 1852 | リンク: 申告が空でも、差分が足したリンクの指し先と見出しを引いて拒む（コードスパンの中は拾わない。{r.stderr.… |  | test_rejections_review.py::test_fix_reply_is_rejected[markdown-links-added-by-the-diff] |  |
+| 1859 | 残した理由を書けば部分的な覆いは通る（赤の理由は wrote_refs だけ。{r.stderr.strip()[-70… |  | test_rejections_review.py::test_fix_reply_is_rejected[partial-coverage-with-remaining] |  |
+| 1863 | 指し先に無い字列は exit 1（どこかに在るかでなく、指し先に在るかを見る。rc={r.returncode}） |  | test_rejections_review.py::test_fix_reply_is_rejected[cite-not-in-target] |  |
+| 1868 | 指し先のファイルが無ければ exit 1（『中に無い』とは別の拒否文。{r.stderr.strip()[-90:]}） |  | test_rejections_review.py::test_fix_reply_is_rejected[cite-target-missing] |  |
+| 1872 | wrote_refs を落とした返答は型で拒まれる（必須のフィールド） |  | test_rejections_review.py::test_fix_reply_is_rejected[wrote-refs-dropped] |  |
+| 1877 | 別のファイルに同じ字列が在っても、target に無ければ exit 1（rc={r.returncode}） |  | test_rejections_review.py::test_fix_reply_is_rejected[same-text-in-another-file] |  |
+| 1880 | 改行を含む cite は exit 1（修正側には 1 行 1 件の規律だけを言い、指摘側の git grep の理由を… |  | test_rejections_review.py::test_fix_reply_is_rejected[cite-with-newline] |  |
+| 1898 | 修正前の母数 1・修正後に engine が数えた 0 が記録に残る（拒否には使わない。rc={r.returncode… |  | test_rejections_review.py::test_coverage_before_and_after_are_recorded |  |
+| 1901 | 赤を見た修正と見ていない修正（文書）が混じる周の clean は通る——周の全体で見る。返答は out_path から読… |  | test_rejections_review.py::test_mixed_closure_passes_and_reads_the_out_path |  |
 
 #### simulate_review.test_stop_after_round
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 4079 | init が --stop-after-round を受ける（{run.init.stderr[-200:]}） |  | test_scenarios_review.py::test_stop_after_round[init-accepts] |  |
-| 4082 | 1 周目の締めの後の next が stopped と halted（by=stop_after_round）を返す（{… |  | test_scenarios_review.py::test_stop_after_round[stops-after-round-1] |  |
-| 4084 | 周の締め（周の記録・converge）は済み、2 周目は開いていない（round {st['round']}・周 {le… |  | test_scenarios_review.py::test_stop_after_round[round-closed-not-opened] |  |
-| 4087 | 止めた後の next はノードを出さず、止めた口を言う（{nx.get('note')}） |  | test_scenarios_review.py::test_stop_after_round[next-after-stop] |  |
-| 4090 | status に halted と stop_after_round が出る（{s.get('halted')}・{s.… |  | test_scenarios_review.py::test_stop_after_round[status-shows-halted] |  |
-| 4094 | 仕上げた記録に止めた理由が残る（{proc.get('outcome')}・{proc.get('stop_reason… |  | test_scenarios_review.py::test_stop_after_round[finalized-reason] |  |
-| 4097 | 止めたことは trace にも 1 行残る（{halts}） |  | test_scenarios_review.py::test_stop_after_round[trace-has-one-halt] |  |
-| 4103 | resume が 2 周目を開き、1 周目の試行はそのまま（{r.stderr[-300:]}・周 {st['round… |  | test_scenarios_review.py::test_stop_after_round[resume-opens-round-2] |  |
-| 4107 | 続けた run は新しい止め周（2 周目）の締めで止まり、続けた痕跡が盤面に残る（{st.get('halted')}・… |  | test_scenarios_review.py::test_stop_after_round[resumed-stops-at-round-2] |  |
-| 4111 | 続けた痕跡は記録の process.resumes にも写る（halted は最後の止めだけになるので） |  | test_scenarios_review.py::test_stop_after_round[resumes-in-record] |  |
-| 4118 | --stop-after-round 2 は 1 周目の後は次の周を開き、2 周目の締めの後で止まる（周 {len(st… |  | test_scenarios_review.py::test_stop_after_round[stop-after-2] |  |
-| 4126 | answer continue でも次の周を開かずに止まる（{r.stdout[-160:]}{r.stderr[-16… |  | test_scenarios_review.py::test_stop_after_round[answer-continue-also-stops] |  |
-| 4132 | --stop-after-round 0 は init が拒み、盤面を残さない（{run.init.stderr[-16… |  | test_scenarios_review.py::test_stop_after_round[zero-rejected-at-init] |  |
+| 4052 | init が --stop-after-round を受ける（{run.init.stderr[-200:]}） |  | test_scenarios_review.py::test_stop_after_round[init-accepts] |  |
+| 4055 | 1 周目の締めの後の next が stopped と halted（by=stop_after_round）を返す（{… |  | test_scenarios_review.py::test_stop_after_round[stops-after-round-1] |  |
+| 4057 | 周の締め（周の記録・converge）は済み、2 周目は開いていない（round {st['round']}・周 {le… |  | test_scenarios_review.py::test_stop_after_round[round-closed-not-opened] |  |
+| 4060 | 止めた後の next はノードを出さず、止めた口を言う（{nx.get('note')}） |  | test_scenarios_review.py::test_stop_after_round[next-after-stop] |  |
+| 4063 | status に halted と stop_after_round が出る（{s.get('halted')}・{s.… |  | test_scenarios_review.py::test_stop_after_round[status-shows-halted] |  |
+| 4067 | 仕上げた記録に止めた理由が残る（{proc.get('outcome')}・{proc.get('stop_reason… |  | test_scenarios_review.py::test_stop_after_round[finalized-reason] |  |
+| 4070 | 止めたことは trace にも 1 行残る（{halts}） |  | test_scenarios_review.py::test_stop_after_round[trace-has-one-halt] |  |
+| 4076 | resume が 2 周目を開き、1 周目の試行はそのまま（{r.stderr[-300:]}・周 {st['round… |  | test_scenarios_review.py::test_stop_after_round[resume-opens-round-2] |  |
+| 4080 | 続けた run は新しい止め周（2 周目）の締めで止まり、続けた痕跡が盤面に残る（{st.get('halted')}・… |  | test_scenarios_review.py::test_stop_after_round[resumed-stops-at-round-2] |  |
+| 4084 | 続けた痕跡は記録の process.resumes にも写る（halted は最後の止めだけになるので） |  | test_scenarios_review.py::test_stop_after_round[resumes-in-record] |  |
+| 4091 | --stop-after-round 2 は 1 周目の後は次の周を開き、2 周目の締めの後で止まる（周 {len(st… |  | test_scenarios_review.py::test_stop_after_round[stop-after-2] |  |
+| 4099 | answer continue でも次の周を開かずに止まる（{r.stdout[-160:]}{r.stderr[-16… |  | test_scenarios_review.py::test_stop_after_round[answer-continue-also-stops] |  |
+| 4105 | --stop-after-round 0 は init が拒み、盤面を残さない（{run.init.stderr[-16… |  | test_scenarios_review.py::test_stop_after_round[zero-rejected-at-init] |  |
 
 #### simulate_review.test_stop_midround
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 3990 | 止める: 理由の空は拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[empty-reason] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 3994 | 止める: 宣言の在る graph では halted にせず報告へ進む（{r.stdout[-200:]}{r.stde… |  | test_scenarios_review.py::test_stop_midround[declared-graph-goes-to-report] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 3997 | 止める: 待ちのノードは止めた印（省いた印と別）になる（{sorted(rd['stopped'])[:5]}） |  | test_scenarios_review.py::test_stop_midround[pending-node-marked-stopped] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4000 | 止める: 止めた周の記録は、走らなかった R と素材を止めた事実で書く（{{k: v['status'] for k, … |  | test_scenarios_review.py::test_stop_midround[round-record-says-stopped] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4003 | 止める: 止めた時点で記録に理由が入る（報告のノードが読む） |  | test_scenarios_review.py::test_stop_midround[reason-in-record] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4008 | 止める: 止めたノードの返答は受け付けない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[late-reply-rejected] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4010 | 止める: 止まった run は二度止めない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[no-second-stop] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4012 | 止める: 次の next は報告のノードだけを出す（{[i['node'] for i in nx['ready']]}… |  | test_scenarios_review.py::test_stop_midround[next-is-report-only] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4015 | 止める: 報告まで届き、仕上げた記録に止めた口と止めたノードが残る（{proc.get('stop_reason')}・… |  | test_scenarios_review.py::test_stop_midround[reaches-report] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4026 | 止める: 残ったファイルを済んだと読まず、盤面から周の記録を組み直す（{r.stderr[-160:]}{sorted(… |  | test_scenarios_review.py::test_stop_midround[stale-round-file] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4037 | 止める: 2 周目の判定より前なら前の周の単位と台帳を報告に残す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_stop_midround[stop-before-round-2-judge] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4049 | 止める: 人に聞いている最中なら、答えないまま外した問いを記録（halted と要人間判断のフィールド）に残す（{r.s… |  | test_scenarios_review.py::test_stop_midround[stop-while-asking] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4067 | 止める: 宣言の無い graph は halted（by=stop）で後のノードを出さない（{r.stdout[-160… |  | test_scenarios_review.py::test_stop_midround[undeclared-graph-halts] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4070 | 止める: halted の run は『もう止まっている』で拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[halted-run-refuses-stop] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3963 | 止める: 理由の空は拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[empty-reason] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3967 | 止める: 宣言の在る graph では halted にせず報告へ進む（{r.stdout[-200:]}{r.stde… |  | test_scenarios_review.py::test_stop_midround[declared-graph-goes-to-report] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3970 | 止める: 待ちのノードは止めた印（省いた印と別）になる（{sorted(rd['stopped'])[:5]}） |  | test_scenarios_review.py::test_stop_midround[pending-node-marked-stopped] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3973 | 止める: 止めた周の記録は、走らなかった R と素材を止めた事実で書く（{{k: v['status'] for k, … |  | test_scenarios_review.py::test_stop_midround[round-record-says-stopped] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3976 | 止める: 止めた時点で記録に理由が入る（報告のノードが読む） |  | test_scenarios_review.py::test_stop_midround[reason-in-record] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3981 | 止める: 止めたノードの返答は受け付けない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[late-reply-rejected] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3983 | 止める: 止まった run は二度止めない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[no-second-stop] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3985 | 止める: 次の next は報告のノードだけを出す（{[i['node'] for i in nx['ready']]}… |  | test_scenarios_review.py::test_stop_midround[next-is-report-only] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3988 | 止める: 報告まで届き、仕上げた記録に止めた口と止めたノードが残る（{proc.get('stop_reason')}・… |  | test_scenarios_review.py::test_stop_midround[reaches-report] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 3999 | 止める: 残ったファイルを済んだと読まず、盤面から周の記録を組み直す（{r.stderr[-160:]}{sorted(… |  | test_scenarios_review.py::test_stop_midround[stale-round-file] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4010 | 止める: 2 周目の判定より前なら前の周の単位と台帳を報告に残す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_stop_midround[stop-before-round-2-judge] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4022 | 止める: 人に聞いている最中なら、答えないまま外した問いを記録（halted と要人間判断のフィールド）に残す（{r.s… |  | test_scenarios_review.py::test_stop_midround[stop-while-asking] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4040 | 止める: 宣言の無い graph は halted（by=stop）で後のノードを出さない（{r.stdout[-160… |  | test_scenarios_review.py::test_stop_midround[undeclared-graph-halts] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4043 | 止める: halted の run は『もう止まっている』で拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[halted-run-refuses-stop] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
 <!-- ledger:end -->
