@@ -421,10 +421,6 @@ def gh_env(login):
     return {**os.environ, "GH_TOKEN": token} if token else None
 
 
-def origin_url(top):
-    return (run(["git", "-C", top, "remote", "get-url", "origin"]) or "").strip()
-
-
 def url_host(url):
     """remote URL の host（小文字）。host の無い URL（手元の path・file://）は空。"""
     m = (re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)", url)
@@ -435,7 +431,7 @@ def url_host(url):
 def repo_label(top):
     """リポジトリの呼び名。origin の "owner/name"（読み方は lib/changemap.py の repo_of）か、無ければフォルダの名前。
     origin が手元の path（host の無い URL）なら origin の無い物と同じに扱う——path の末尾 2 つは owner/name でない"""
-    url = origin_url(top)
+    url = changemap.origin_url(top)
     return (changemap.repo_of(url) if url_host(url) else None) or os.path.basename(top)
 
 
@@ -447,7 +443,7 @@ def on_github(top):
     別の公開リポジトリを見て公開と答えてしまう。host は URL の host の部分で見る（path の中の github.com で当てない）。
     ssh の別名（github.com-仕事用 などの複数アカウントの書き方）は、名前の形と ssh -G の hostname で github.com に
     戻す——別名を github.com でないと読むと、自分の公開リポジトリの名前と番号を非公開として書かせない（実測）"""
-    url = origin_url(top)
+    url = changemap.origin_url(top)
     host = url_host(url)
     if not host or host in GITHUB_HOSTS or host.startswith("github.com-"):
         return bool(host)
