@@ -1091,7 +1091,7 @@ def substitution_spans(norm):
     """bash が 1 つの語の中で走らせる置換の、(頭, 閉じる字の位置, 種類, 二重引用の中か) の並び。閉じる所を言い切れなければ None。
 
     見るのは、二重引用の中の $( )・${ } と、`…` と、引用の外の ${ }・$( )・$(( ))・<( )・>( )。種類は ` か ( か { で、
-    引用の外の ( の物(bare_span)は、tokenize が 1 語に留める(前は shlex が ( を区切りと見て語に割り、閉じの ) の後ろの語を
+    引用の外の ( の物(bare_spans)は、tokenize が 1 語に留める(前は shlex が ( を区切りと見て語に割り、閉じの ) の後ろの語を
     別のコマンドと読んで、`gh pr comment $(cat n.txt) --body-file x.md` の本文の旗を落とした)。二重引用の中の $( ) と `…` も
     shlex には 1 語で、中の gh の投稿(`u="$(gh pr create --body '…')"`)が語からは見えないので、analyze が中身を別のコマンドとして読む。
     引用の外の ( の物で閉じる所を言い切れない物(case・`…` を含むなど)は並べず、前と同じく 1 字ずつ読み進めて shlex に割らせる。
@@ -3086,6 +3086,7 @@ class BodyFiles:
     def writer(self, target):
         """同じコマンドの中で target を書く単純コマンド。無ければ None、`cat > f <<EOF` 1 本ならその本文、ほかは "writer"。"""
         base = os.path.basename(target)
+        named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))   # 名前を字として持つ所(ヒアドキュメントの本文・置換の中)
         found = []
         after = self.k if self.looped else self._reach(self.k, _SEQUENTIAL + ("||",))
         for j, c in enumerate(self.cmds):
@@ -3116,7 +3117,6 @@ class BodyFiles:
                 # 名前をヒアドキュメントの中に持つ書き手(`python3 - <<'EOF'` の中で open(p, 'w'))も数える。数えないと、フックは
                 # 書き換える前のファイルを読み、直した後の本文に消した文の指摘を出し続けた(2026-10-29 の PR の本文の更新で 4 回。頼み 6d61ca)。
                 # 名前を字として持つだけで数える(読むだけの台本も止める)のは承知の上で、止めても書き換えと投稿を分ければ通る
-                named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))
                 if any(named.search(body) for body in own_heredocs(c.args, self.heredocs)):
                     found.append("writer")
         # 二重引用の中の置換で走るコマンド(`x="$(cp a f)"; gh … --body-file f`)。走る順は読まずに書き手に数える。
@@ -3127,7 +3127,6 @@ class BodyFiles:
                         for t in args if re.match(r"[A-Za-z_]\w*(?:\+?=|$)", t))
         assigned.update(m.group(1) for args, redirects in self.hidden for t in list(args) + [d for _, d in redirects]
                         for m in re.finditer(r"\$\{([A-Za-z_]\w*):?=", t))
-        named = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base))
 
         def hidden_target(t):
             if any((m.group(1) or m.group(2)) in assigned for m in _VAR_REF_RE.finditer(t)):
