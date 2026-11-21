@@ -24,6 +24,7 @@ import herdr as real_herdr
 import orders
 import role_hook
 import wake_hook
+import windows
 from ports import chat
 from nodes import deliver, ledger, provision, role, tree, wake
 from . import scratch
@@ -2742,9 +2743,9 @@ class Hook(unittest.TestCase):
             def panes(self):
                 return [{"pane_id": "p1", "cwd": self.cwd, "agent": "claude", "agent_session": "s0"},
                         {"pane_id": "p2", "cwd": self.cwd, "agent": "claude", "agent_session": "s1"}]
-        self.assertEqual(wake_hook.own_window(self.place, Many(self.place), "s1"), "p2")
-        self.assertIsNone(wake_hook.own_window(self.place, Many(self.place), "s7"))   # 結べなければ打たない
-        self.assertEqual(wake_hook.own_window(self.place, Window(self.place), "s7"), "p1")   # 場所に 1 つなら、それ
+        self.assertEqual(windows.own_pane(self.place, "s1", Many(self.place).panes()), "p2")
+        self.assertIsNone(windows.own_pane(self.place, "s7", Many(self.place).panes()))   # 結べなければ打たない
+        self.assertEqual(windows.own_pane(self.place, "s7", Window(self.place).panes()), "p1")   # 場所に 1 つなら、それ
 
     def test_clear_goes_only_to_a_window_where_this_talk_is_seen_running(self):
         # 会話を消す打ち込みは、窓の前のプロセスにこの会話が居ると確かめたときだけ打つ（印も、場所だけの代わりも使わない）
@@ -2791,10 +2792,10 @@ class Hook(unittest.TestCase):
         class Alone(Window):
             def panes(self):
                 return [{"pane_id": "p9", "cwd": other, "agent": "claude", "agent_session": "s1"}]
-        self.assertEqual(wake_hook.own_window(self.place, Stale(self.place), "s1"), "p1")
-        self.assertIsNone(wake_hook.own_window(self.place, Alone(self.place), "s1"))
+        self.assertEqual(windows.own_pane(self.place, "s1", Stale(self.place).panes()), "p1")
+        self.assertIsNone(windows.own_pane(self.place, "s1", Alone(self.place).panes()))
         os.makedirs(os.path.join(self.place, "sub"), exist_ok=True)   # 会話が作業場の下のフォルダに居ても、同じ場所と見る
-        self.assertEqual(wake_hook.own_window(os.path.join(self.place, "sub"), Stale(self.place), "s1"), "p1")
+        self.assertEqual(windows.own_pane(os.path.join(self.place, "sub"), "s1", Stale(self.place).panes()), "p1")
 
     def test_a_typed_prompt_pauses_the_watcher(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a1", "waiting": "a1"}, self.g)

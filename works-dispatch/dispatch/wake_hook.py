@@ -163,13 +163,6 @@ def plain_plan(cwd, sid, attrs, parent=os.getppid, env=os.environ):
 IDLE = ("idle", "done")
 
 
-def own_window(cwd, h=term, sid=None):
-    """この会話の窓（herdr のペインのうち会話の居る物）。場所がこの会話の場所の物のうち、ペインの会話の印（agent_session）が
-    この会話の id の物が 1 つならそれ、無ければ場所の同じ物が 1 つならそれ。1 つに決まらなければ None（本社には持ち主のほかの会話も
-    居るので、印で結ぶ。場所の違う窓は印が合っても選ばない）。決め方は windows.own_pane（サイドバーの作業内容と頼み元の窓も同じ決め方）。"""
-    return windows.own_pane(cwd, sid, h.panes())
-
-
 def talk_window(cwd, h=term, pids=(), jobs=()):
     """会話を消す打ち込み（/clear）の打ち先（windows.talk_window。tomllib の無い Python でも読めるよう windows に置く）。"""
     return windows.talk_window(cwd, h, pids, jobs)
