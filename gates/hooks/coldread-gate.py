@@ -73,7 +73,9 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
 識別子を全部詰まりに出す側へ寄る(2026-09-06 に実測: 素の起動では利用者の CLAUDE.md の
 見出しをそのまま引用した。空にすると NONE)。
 
-記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 4 本と、置き場 2 つ:
+記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に置く。投稿の検査の記録は次の 4 本と置き場 1 つ(ほかに、読み手の使った量の
+reader-usage.jsonl〔READER_LOG。中身は gates/README.md〕・期限の注記を出した日の expiry-told.json〔EXPIRY_TOLD〕・
+手元の文書の初見読みの docs.log と docs/〔DOC_LOG・DOC_DIR〕を置く):
   denies.log  allow / deny の別(deny はタブ区切りで種別も。maxlen・parse-fail・
               blocked・reader-down・reader-auth・reader-shape・finding)。finding と allow には本文の長さと読み方
               (screen=スレッドの画面を渡した / new=新しい PR・issue の画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
@@ -915,8 +917,6 @@ def shield_heredocs(command):
         elif c in ("case", "esac"):
             _case_word(text, i, c, parens, case_marks)
             i += 4
-        elif c == "}":
-            i += 1
         elif c == "#":
             if _comment_at(text, joins.get(i, i - 1), escaped_at, closed) is False:
                 i += 1
@@ -1141,15 +1141,8 @@ def substitution_end(text, start):
     置換の中に残り、中身の ) で閉じたと見てしまう。`<<\\EOF`)・${ } の段の中の ( { \\・$( ) の段の中の対にならない ) は、
     数え方が bash とずれうるので None。"""
     if text[start] == "`":
-        j = start + 1
-        while j < len(text):
-            if text[j] == "\\":
-                j += 2
-            elif text[j] == "`":
-                return j
-            else:
-                j += 1
-        return None
+        j = _tick_end(text, start)
+        return j if j < len(text) else None
     stack, i = [")" if text[start + 1] == "(" else "}"], start + 2
     while i < len(text):
         c, top = text[i], stack[-1]
@@ -2042,7 +2035,7 @@ def subcommand(args):
 
 
 def _body_sink(heredoc_bodies, live_substitution, ctx, live_variable):
-    """本文旗の値を判定して積む口 → (本文候補, 検査できない本文の説明, add, read_file)。
+    """本文旗の値を判定して積む口 → (本文候補, 検査できない本文の説明, add, field)。
 
     gh の引数列(classify)と works-dispatch の送るコマンド(classify_dispatch)が同じ口で積む——ファイル・変数・
     標準入力の倒れ方を 2 か所に書くと、片方だけ外れる。引数の意味は classify と同じ。
@@ -2386,7 +2379,7 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # 名前のファイルは、--body-file のファイルと同じ読み方(read_file。読めない・glob のまま・同じコマンドの中で書き換えうるなら止める)で
     # 1 つずつ読む。前は手元のファイルを読まずに一律に止め、gh の help の例の `gh gist create hello.py -d …` まで止めていた
     if sub == ("gist", "create"):
-        files = [t for t in gist_positionals(args, GIST_VALUE_FLAGS[sub])[0] if not t.startswith("__HEREDOC")]
+        files = gist_positionals(args, GIST_VALUE_FLAGS[sub])[0]
         if not files or "-" in files:
             add("file", "-")
         for name in dict.fromkeys(t for t in files if t != "-"):
@@ -2398,7 +2391,6 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_varia
     # -d(説明)・-r(ファイルを消す)だけの形は、gist create の -d と同じく本文と見ない
     if sub == ("gist", "edit"):
         pos, flags = gist_positionals(args, GIST_VALUE_FLAGS[sub])
-        pos = [t for t in pos if not t.startswith("__HEREDOC")]
         # -a の値は、位置引数が無ければ手元のファイルの名前(- でも標準入力でなく、- という名前のファイル)。位置引数は 2 つまでで、
         # 3 つ目からは gh が止まるが、在れば読む(止める側に倒す)
         if len(pos) > 1:
@@ -2455,13 +2447,12 @@ AGENT_TASK_VALUE_FLAGS = {"-b": "-b", "--base": "-b", "-a": "-a", "--custom-agen
 
 
 def agent_task_parts(args):
-    """gh agent-task create の (位置引数の列〔ヒアドキュメントの印を除く〕, 値を取る旗の値)。1 つ目の位置引数が仕事の説明の本文。"""
-    pos, flags = gist_positionals(args, AGENT_TASK_VALUE_FLAGS)
-    return [t for t in pos if not t.startswith("__HEREDOC")], flags
+    """gh agent-task create の (位置引数の列, 値を取る旗の値)。1 つ目の位置引数が仕事の説明の本文。"""
+    return gist_positionals(args, AGENT_TASK_VALUE_FLAGS)
 
 
 def gist_positionals(args, value_flags):
-    """gh gist のサブコマンド語より後ろの (位置引数の列, 値を取る旗の値〔短い形 → 最後の値〕)。
+    """gh gist のサブコマンド語より後ろの (位置引数の列〔ヒアドキュメントの印を除く〕, 値を取る旗の値〔短い形 → 最後の値〕)。
 
     値を取る旗は、離れた形(`-f a.md`)・融合形(`-fa.md`・`-f=a.md`・`--filename=a.md`)のどちらも読む。-- の後ろは全部位置引数。
     短い旗は、gh の旗の読み方(pflag)と同じく束ねた形(`-pf a.md`・`-wd 説明`)を 1 字ずつ読む。値を取らない字(-p・-w など)は
@@ -2498,7 +2489,7 @@ def gist_positionals(args, value_flags):
                     break
                 if rest.startswith("="):
                     break   # `-p=true` の = の後ろは -p の値
-        else:
+        elif not tok.startswith("__HEREDOC"):
             pos.append(tok)
         i += 1
     return pos, flags
@@ -2747,9 +2738,7 @@ def changes_dir(args):
     eval の引数の置換の出力(`eval "$(ssh-agent -s)"`)と、source が読むファイルの中は見ない。"""
     if any(t in CD_WORDS for t in args):
         return True
-    words = args[command_start(args):]
-    while words[:1] in (["command"], ["builtin"]):
-        words = words[1:]
+    words = args[command_start(args):]   # command・builtin も前置(WRAPPERS)として越えた後
     return words[:1] in (["eval"], ["source"], ["."]) and any(_TEXT_CD_RE.search(t) for t in words[1:])
 
 
@@ -2898,8 +2887,6 @@ class BodyFiles:
             return None
         for c in self.cmds:
             words = c.args[command_start(c.args):]
-            while words[:1] in (["command"], ["builtin"]):
-                words = words[1:]
             if words[:1] in (["eval"], ["source"], ["."]):
                 return None
             if words[:1] == ["export"] or (words and words[0] in REASSIGN_CMDS
@@ -4022,18 +4009,13 @@ def carried_only(found, prev, changed):
     room = sum(len(prev_found.get(kind, [])) for kind in STOP_KINDS)
     if changed:
         room -= 1
-    for kind in STOP_KINDS:
-        keep, moved = [], []
-        for item in found[kind]:
-            if item["carried"] and room > 0:
-                keep.append(item)
-                room -= 1
-            else:
-                moved.append(item)
-        found["question"] += [dict(item, text="(止めない) " + finding_line(kind, item), cause=None, carried=False)
-                              for item in moved]
-        found[kind] = keep
-    return found
+
+    def keeps(item):
+        nonlocal room
+        kept = bool(item["carried"]) and room > 0
+        room -= kept
+        return kept
+    return demote(found, keeps, "止めない")
 
 
 def followup_prompt(prompt, prev, body):
@@ -4158,10 +4140,13 @@ def sort_findings(reply, kinds=tuple(KINDS)):
 
 
 def demote(found, keeps, label):
-    """止める種類の指摘のうち keeps(指摘 → bool)が偽の物を、label を頭に付けて疑問に移す(止めずに書き手へ返す)。"""
+    """止める種類の指摘のうち keeps(指摘 → bool)が偽の物を、label を頭に付けて疑問に移す(止めずに書き手へ返す)。
+    keeps は指摘ごとに並びの順で 1 度だけ呼ぶ(carried_only は残りの数を数えながら決める)。"""
     for kind in STOP_KINDS:
-        moved = [item for item in found[kind] if not keeps(item)]
-        found[kind] = [item for item in found[kind] if keeps(item)]
+        kept, moved = [], []
+        for item in found[kind]:
+            (kept if keeps(item) else moved).append(item)
+        found[kind] = kept
         found["question"] += [dict(item, text="(%s) %s" % (label, finding_line(kind, item)), cause=None, carried=False)
                               for item in moved]
     return found
@@ -4366,7 +4351,8 @@ def deny_streak(session, target, fp=None, inspected=True):
             break
         if cols.get("to", "-") != target:
             continue
-        if ((parts[2] if len(parts) > 2 else "-") == "finding") != inspected:
+        kind = parts[2] if len(parts) > 2 else "-"
+        if (kind == "finding") != inspected:
             continue
         # 本文の近さは、読んで止めた回どうしでだけ比べる。読めなかった回は指紋の有る物(読み手が動かない)と無い物
         # (本文を取り出せない)が混ざるので、投稿先だけで数える(比べると並び方しだいで数が変わる)
@@ -4375,7 +4361,7 @@ def deny_streak(session, target, fp=None, inspected=True):
         if inspected and not same_post(fp, cols.get("fp")):
             break
         n += 1
-        kinds.append(parts[2] if len(parts) > 2 else "-")
+        kinds.append(kind)
         if len(parts) >= 4 and parts[3].isdigit():
             lens.append(int(parts[3]))  # 逆順に辿っているので後で戻す
     lens.reverse()
