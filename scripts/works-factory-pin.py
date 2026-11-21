@@ -481,20 +481,6 @@ def alive(pid):
     return True
 
 
-def listed(source, runner):
-    """代表の clone の worktree の並び（git worktree list --porcelain）。1 件は {path, branch, locked}。読めなければ空。"""
-    code, out, _ = runner(["git", "-C", source, "worktree", "list", "--porcelain"])
-    rows = []
-    for line in (out if code == 0 else "").splitlines():
-        if line.startswith("worktree "):
-            rows.append({"path": line[len("worktree "):], "branch": None, "locked": None})
-        elif rows and line.startswith("branch "):
-            rows[-1]["branch"] = line[len("branch "):]
-        elif rows and (line == "locked" or line.startswith("locked ")):
-            rows[-1]["locked"] = line[len("locked "):]
-    return rows
-
-
 def land_pin(pin, to, commits, cdir, runner, env):
     """機械の上げ: 代表の clone に origin/MAIN の頭から一時の worktree とブランチを作り、PIN と CHANGELOG を書いて commit し、works-dispatch の
     --land で main に入れる。(入れたか, 出す行)。入れたら出す行は --land の出力の終わり。入れる物がもう無い（origin/MAIN の PIN が上げ先か、
@@ -516,8 +502,8 @@ def land_pin(pin, to, commits, cdir, runner, env):
     if now_pin != pin:
         return False, (f"origin の {MAIN} の PIN が {(now_pin or '読めない')[:8]} で、見張りが読んだ {pin[:8]} と違う（ほかの上げが先に入った）ので打たない。"
                        "次に main に入れたときの合図で見直す")
-    for e in listed(source, runner):
-        if e.get("branch") == f"refs/heads/{branch}":
+    for e in gitx.listed_worktrees(source, lambda argv: subprocess.CompletedProcess(argv, *runner(argv))):
+        if e.get("branch") == branch:
             why = e.get("locked") or ""
             pid = why[len(OWNER):].strip() if why.startswith(OWNER) else ""
             if pid.isdigit() and alive(int(pid)):
