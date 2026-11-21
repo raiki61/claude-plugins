@@ -1318,20 +1318,17 @@ def one(a):
             return pytest_green(repo, head, py, {"rc": 0, "failed": [], "tail": [], "selected": False, **only})
         if tests:
             r = run_selected(repo, tests, failfast=auto)
-            # 絞った台本が気づかない腕を台本一式で確かめ直すのは --confirm-survivors の回だけ（版を出す前のゲート。人の決定 2026-09-26）。
-            # 確かめ直して赤なら、行を通した台本の外の検査が落とした——件数・語彙の到達・本文を読むチェックのように台本の関数の外で
-            # 決定的に落ちる検査もあれば、揺れた検査もある。見分けられないので attribution に印を残し、証拠は外さない
-            if r["rc"] == 0 and CONFIRM:
-                # 一式の確かめ直しが時間切れなら、下の only_head と同じく絞った回の緑を残して confirm_rc だけ足す
-                full = run_suite(repo, a["suite"], failfast=auto)
-                r = {**r, "confirm_rc": "timeout"} if full["rc"] == "timeout" else {**full, "selected": False, "confirmed": True}
         elif only_head(a):
             # 台本一式で撃つ一覧の腕は、宣言した検査だけを回す（only_head）。緑なら、絞った台本と同じく --confirm-survivors の回だけ一式で確かめ直す
             r = {**run_suite(repo, "root", env=only_env([only_head(a)])), "selected": True}
-            if r["rc"] == 0 and CONFIRM:
-                # 一式の確かめ直しが時間切れなら、絞った回の緑（生き残りの証拠）を捨てずに、確かめ直せなかった印（confirm_rc）だけ足す
-                full = run_suite(repo, "root")
-                r = {**r, "confirm_rc": "timeout"} if full["rc"] == "timeout" else {**full, "selected": False, "confirmed": True}
+        # 絞った台本が気づかない腕を台本一式で確かめ直すのは --confirm-survivors の回だけ（版を出す前のゲート。人の決定 2026-09-26）。
+        # 確かめ直して赤なら、行を通した台本の外の検査が落とした——件数・語彙の到達・本文を読むチェックのように台本の関数の外で
+        # 決定的に落ちる検査もあれば、揺れた検査もある。見分けられないので attribution に印を残し、証拠は外さない
+        if r is not None and r["rc"] == 0 and CONFIRM:
+            # 一式の確かめ直しが時間切れなら、絞った回の緑（生き残りの証拠）を捨てずに、確かめ直せなかった印（confirm_rc）だけ足す。
+            # only_head の腕は suite が root で auto でないので、台本一式（root）を failfast なしで撃つ
+            full = run_suite(repo, a["suite"], failfast=auto)
+            r = {**r, "confirm_rc": "timeout"} if full["rc"] == "timeout" else {**full, "selected": False, "confirmed": True}
         if r is None:
             r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False}
         if red_py is not None and r["rc"] in (0, "timeout", "no-test"):
@@ -2052,8 +2049,8 @@ def main():
               "（同じ --out を --reuse に渡して続きを撃て）", flush=True)
     res["arms"].sort(key=lambda r: ids.index(r["id"]))
     s = evaluate(res, sel)
-    m, green, skipped, unrun, unhit, noev, ctrl_ok = (res["marker"], s["green"], s["skipped"], s["unrunnable"], s["unhit"],
-                                                       s["no_evidence"], s["control_ok"])
+    m, green, skipped, unrun, noev, ctrl_ok = (res["marker"], s["green"], s["skipped"], s["unrunnable"], s["no_evidence"],
+                                               s["control_ok"])
     fired = len([r for r in res["arms"] if not r.get("carried")]) - len(skipped)
     why_n = " ".join(f"{k} {v}" for k, v in s["whole_suite_why"].items())
     print(f"control: {'緑' if ctrl_ok else '赤'} / 印: {len(m['seen'])} / {len(m['placed'])} 本が通った（写しは rc={m['rc']}）"
