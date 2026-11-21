@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.51.2] - 2026-11-22
+
 ### Fixed
 
 - review-loop の役に渡すプロンプトで、出力のスキーマと食い違う指示を直した。判定者の `p2.history` に「出力は `p2.diagnose` と同じ形」と書いていたのを、`carried_r1` が無く `declared_routed` が要る形と書いた（`carried_r1` を出すと知らないフィールドとして拒まれていた）。再審の規則（`prompts/review-loop/rejudge-rules.md`）の「変える必要があるユニットだけを書く」を、今の周の全部を返す、にした（書き込みは `units` を丸ごと置き換えるので、変えないユニットが消えていた）。R4 の「見た範囲と見ていない範囲を返せ（seen / unseen）」は、R4 のスキーマに無いフィールドなので `reason` に書く、にした。research-loop の統合のプロンプトでは、留保の主張の根拠の在りかに checker の返答を書き足した（refuter に回らない主張がある）。
