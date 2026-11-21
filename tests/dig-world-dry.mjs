@@ -687,6 +687,14 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     // 名前は前後に英数字・_・- が続く所に当てない（langgraph を langgraph-checkpoint-postgres に、mcp を fastmcp に当てない）
     const partName = score('--world', put('w5.json', world([{ n: 4, class_id: 'w-4', comparisons: [cmp('dependency', 'langgraph-checkpoint-postgres', 'architecture', 'differs', 'interrupt で止めた待ちはチェックポインタが持つ。')] }])))
     check(partName.ok === true && partName.keys[0].hit === false && partName.keys[0].near.length === 0, `札 1 の名前が別の部品の名前の一部に当たる: ${JSON.stringify(partName.keys?.[0]).slice(0, 300)}`)
+    const mcpKey = put('k-mcp.json', { head: 'c0c1848ca2f5b139834c14343f09a022ac8835ac', keys: [{ id: 'mcp', gate: true, kinds: ['dependency'], name: 'mcp', layers: ['contract'], verdicts: ['differs'], text: 'elicitation' }] })
+    const keyed = (k, w) => { try { return JSON.parse(execFileSync(PY, [SCORE, '--key', k, '--world', w], { encoding: 'utf8' })) } catch (e) { return JSON.parse(e.stdout) } }
+    const fastmcp = keyed(mcpKey, put('w8.json', world([{ n: 1, class_id: 'w-1', comparisons: [cmp('dependency', 'fastmcp', 'contract', 'differs', 'elicitation で問う。'), cmp('dependency', '@modelcontextprotocol/mcp', 'contract', 'differs', 'elicitation で問う。')] }])))
+    check(fastmcp.ok === true && fastmcp.keys[0].hits.length === 1 && fastmcp.keys[0].hits[0].name === '@modelcontextprotocol/mcp' && fastmcp.keys[0].near.length === 0, `札の名前 mcp が fastmcp に当たるか、/ の後の mcp に当たらない: ${JSON.stringify(fastmcp.keys?.[0]).slice(0, 300)}`)
+    // text が一覧の札は、一覧の 1 本だけが当たる文を当たりにしない（外れた訳は text、当たらなかった本は matched が null）
+    const listKey = put('k-list.json', { head: 'c0c1848ca2f5b139834c14343f09a022ac8835ac', keys: [{ id: 'list', gate: true, kinds: ['dependency'], name: 'langgraph', layers: ['architecture'], verdicts: ['differs'], text: ['interrupt', 'ノード'] }] })
+    const oneOfList = keyed(listKey, put('w9.json', world([hitRow])))
+    check(oneOfList.ok === true && oneOfList.keys[0].hit === false && JSON.stringify(oneOfList.keys[0].near[0]?.missed) === '["text"]' && JSON.stringify(oneOfList.keys[0].near[0]?.matched) === '["interrupt",null]', `一覧の 1 本だけが当たる文が当たりになる: ${JSON.stringify(oneOfList.keys?.[0]).slice(0, 300)}`)
     check(good.keys[0].hits[0].matched[0] === 'interrupt', `当たった字（matched）を出さない: ${JSON.stringify(good.keys[0].hits[0])}`)
     // text が一覧の札は、一覧の全部が当たって当たりにする（走らせた後に締めた札 2555-world-key-strict.json）
     const STRICT = path.join(ROOT, 'attention/docs/measures/2555-world-key-strict.json')
