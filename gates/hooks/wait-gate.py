@@ -203,12 +203,10 @@ def hash_kinds(text, depth=0):
             else:
                 frames.append(["`", 0, 0, 0, -1])
             index += 1
-        elif text.startswith("$((", index):
-            frames.append(["sub", 0, 0, 1, -1])   # $(( )) は ( を 1 つ開いた置換と数える
-            index += 3
         elif text.startswith("$(", index):
-            frames.append(["sub", 0, 0, 0, -1])
-            index += 2
+            arithmetic = text.startswith("$((", index)   # $(( )) は ( を 1 つ開いた置換と数える
+            frames.append(["sub", 0, 0, int(arithmetic), -1])
+            index += 2 + arithmetic
         elif char in "{[(":
             slot = 1 + "{[(".index(char)
             prev = text[index - 1] if index else "\n"
@@ -446,9 +444,9 @@ def drop_heredoc_bodies(command):
     copied = 0
     starts = {}
     for start, body_start, keep, word in sorted(found, key=lambda item: item[1]):
-        line_start = logical_line_start(command, start, starts)
         if body_start < copied:
             continue
+        line_start = logical_line_start(command, start, starts)
         # 見るのは演算子の前の 1000 字まで(続く行の多い 1 行に演算子が何千も在っても、前を毎回全部は読まない)
         if SHELL_STDIN.search(command[max(line_start, start - 1000):start].replace("\\\n", " ")):
             # シェルが読む中身はコードなので残す。中身の中のヒアドキュメントは外の読みが飛ばしたので、ここで除く
@@ -661,7 +659,6 @@ def reason_for(command):
     その読みで実際に閉じた所が在れば、閉じない読みでも見る。コメントと読んだ # がシェルではコメントでないことがある
     (comment_at)ので、コメントを読む読みで止まらず、コメントを読んだ所が在れば、読まない読みでも同じように見る。"""
     global EARLY_CLOSE, COMMENTS
-    reason = None
     try:
         for COMMENTS in (True, False):
             del EARLY_CLOSED[:]

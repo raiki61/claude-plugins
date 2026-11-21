@@ -304,6 +304,7 @@ def substitutions(text, bare=True, heredoc=False):
             # 見ない数え方の所にする(前は遠い方まで中身にし、`x=$(sed 's/(.*//' f); n=`rg foo /`` の引用の中の ( で数え方が
             # 閉じずに終わりまで中身と読み、後ろの ` … ` を外のコマンドとして見ずに通していた)
             jq = _close(text, i)
+            j = jq or j
             if bare or quote == '"':
                 if jq and (jc is None or jq < jc):
                     # 引用を見る閉じが数え方の閉じより手前のときは、数え方の中身も読む(引用を見る閉じは case の型・# の注釈・${ } の
@@ -332,10 +333,8 @@ def substitutions(text, bare=True, heredoc=False):
                             SPENT["reads"] += cut - i
                         if SPENT["reads"] > READS_MAX:
                             raise ValueError("$( ) と引用が多く、探す場所を読み切れない")
-                j = jq or j
                 out.append(text[i + 2:j - 1])
             else:
-                j = jq or j
                 if "`" in text[i + 2:j - 1]:
                     # 中に ` が在る引用の外の $( … ) は、トークン化が語に留めず単純コマンドに割る。割った語は ` の中身を持たないので、
                     # 中の ` … ` をここで拾う(前は $( … ) ごと飛ばし、`x=$(echo `rg foo /`)` を通していた)
@@ -560,12 +559,7 @@ def resolve(value, cwd):
         return None
     if any(ch in v for ch in "*?["):
         # シェルが開く型(~/*・/Users/*)は、型を含む区切りの前のフォルダの中を全部探すのと同じ
-        head = []
-        for part in v.split("/"):
-            if any(ch in part for ch in "*?["):
-                break
-            head.append(part)
-        v = "/".join(head) or ("/" if v.startswith("/") else ".")
+        v = glob_root(v, "*?[")
     if not is_abs(v):   # C:\x も C:/x と同じく絶対(cwd に繋がない)
         if not cwd:
             return None
@@ -1119,12 +1113,12 @@ def shell_script(args):
     return None
 
 
-def glob_root(pattern):
-    """Glob の型から、字のまま決まる頭の部分(最初の *?[{ を含む区切りの前まで)。"""
+def glob_root(pattern, chars="*?[{"):
+    """Glob の型から、字のまま決まる頭の部分(最初の chars〔型の字〕を含む区切りの前まで)。"""
     parts = pattern.replace("\\", "/").split("/")
     head = []
     for part in parts:
-        if any(ch in part for ch in "*?[{"):
+        if any(ch in part for ch in chars):
             break
         head.append(part)
     if len(head) == len(parts):
