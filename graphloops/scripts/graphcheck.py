@@ -11,7 +11,7 @@
   4. fresh_context のノードのうち forbidden_inputs を持たないものを数えて見せる（誤りではない）
   5. 段名（active_in・max_rounds_by_thickness・thickness.default）が thickness.tiers（正本）の中にある
 
-実行の形（exec: true のグラフだけ）:
+実行の形（exec: true のグラフだけ。ただし 13 は検査 3 の中で検証器を読むときに回るので、exec の無いグラフにも効く）:
   6. run_by が回す側（graph の runners）・役割 agent（graph の plugin の agents/*.md）・driver のどれか。rules（graph の rules）が読める
   7. 回す側と役割 agent のノードは prompt_file が実在し、schema か text: true を持つ
   8. プロンプトの穴（{{...}}）が全部 reads に宣言されている（遮断の機械版——宣言に無いものは貼れない）。
@@ -59,7 +59,7 @@
      印字だけ（rules の中の b.loop_state への書き込みは照合しない）。共有のブロック（shared_blocks）の核のフィールドを、このループの使い手が
      同じ型・必須・enum で持つ。ブロックのファイルを引く graph は blocks を省けない
 
-この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は check() の側が正本で、番号を足したらここも直す。
+この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜12・14〜18」等）は check() の側が正本で、番号を足したらここも直す。
 
 使い方:
     python3 graphloops/scripts/graphcheck.py graphloops/graphs/research-loop.json [convergence-loops/scripts/research-record.py]
@@ -968,8 +968,10 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         return True
 
     if not g.get("exec"):
-        # 実行の形の検査は省くが、**ここまでに溜めた NG（inputs 宣言・schema の語など）は吐く**
-        ok = flush("ok  宣言の形（inputs・schema の語）。exec が無いので実行の形の検査 6〜13 は省略") and ok
+        # 実行の形の検査は省くが、**ここまでに溜めた NG（runners・inputs・verdict_paths の宣言と、検査 3 の中で回る
+        # 検査 13 の enum）は吐く**。schema の語（検査 11）は下に在るので、ここでは見ていない
+        ok = flush("ok  宣言の形（runners・inputs・verdict_paths・検査 13 の enum）。"
+                   "exec が無いので実行の形の検査 6〜12・14〜18 は省略") and ok
         return ok
 
     # 止めた後に走らせるノードの宣言（loop.py stop が読む）。stop.node は周を締める機械のノードで、その下流に報告のノード
@@ -1011,7 +1013,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 end_anchored(pat)   # 検査と同じ読み替えを通した物をコンパイルする（読み替えた後が壊れる形も拾う）
             except re.error as e:
                 errs.append(f"{who}: schema の正規表現 {pat!r} が壊れている（{e}）——型検査の時点で例外になる")
-    # 6〜13. 実行の形
+    # 6〜10・12・14〜18. 実行の形（11 は上、13 は検査 3 の中に在る）
     agents = agent_names(g)
     if agents is None:
         errs.append(f"役割 agent の定義（agents/）が見つからない: plugin {g.get('plugin')!r}——graph に plugin を書き、その plugin が同じリポジトリかキャッシュか <PLUGIN>_ROOT に在ること")

@@ -135,3 +135,17 @@ def test_node_keys_are_read():
     body = "\n".join(l for l in (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8").splitlines()
                      if not l.startswith("NODE_KEYS = ")) + check_src
     assert not [k for k in rules.NODE_KEYS if f'"{k}"' not in body and f"'{k}'" not in body]
+
+
+# ---------------------------------------------------------------- exec の無いグラフで飛ばす検査
+def test_graph_without_exec_names_the_checks_it_skips(sandbox):
+    """exec の無いグラフは実行の形の検査 6〜12・14〜18 を飛ばし、見出しもその番号を言う。検査 13（enum と検証器の語彙）は
+    検査 3 の中で回るので飛ばさない——見出しが「6〜13 は省略」と言っていた間、13 の NG が出るのに省略と書いていた"""
+    g = copy.deepcopy(GRAPH)
+    del g["exec"]
+    g["nodes"]["p4.ci"]["run_by"] = "no_such_role"   # 検査 6 の NG——飛ばすので出ない
+    ok, out = run_graphcheck(sandbox, g)
+    assert ok and "exec が無いので実行の形の検査 6〜12・14〜18 は省略" in out and "no_such_role" not in out, out[-300:]
+    g["nodes"]["p4.ci"]["schema"]["properties"]["x"] = {"enum": ["block", "bogus"]}   # 検査 13 の NG——飛ばさないので出る
+    ok, out = run_graphcheck(sandbox, g)
+    assert not ok and "enum ['block', 'bogus']" in out, out[-300:]

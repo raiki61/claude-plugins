@@ -170,7 +170,7 @@
   "rule3": 2
  },
  "graphloops/tests/py/test_schema_graphcheck.py": {
-  "rule3": 2
+  "rule3": 3
  },
  "graphloops/tests/py/test_shards.py": {
   "rule3": 2
