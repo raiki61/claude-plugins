@@ -30,7 +30,6 @@ def read(path) -> dict:
     （最後の compact の後の最初の応答がキャッシュに書いた量と読んだ量。compact が無いか、その後に応答がまだ無ければ出さない）、
     contexts_after_compact（最後の compact の後の応答ごとの文脈。compact が無ければ全部）、skipped_lines。
     """
-    model: Optional[str] = None
     last_request_at: Optional[str] = None
     compacted = False
     responses: dict = {}  # message.id → (model, 文脈, (書いた量, 読んだ量))。同じ id の行は内容のブロックごとで、最後の行を採る
