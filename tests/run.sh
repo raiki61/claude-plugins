@@ -99,6 +99,11 @@ skip_capability() {
     local cap=${rest%%:*}
     [[ "$cap" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' "$cap"
 }
+# 環境で走れなかった検査の見送りの行を出し、拾い、1 件に数える。引数: 検査の名前・「<能力>: <理由>」
+skip_check() {
+    local line="  ok   $1$SKIP_MARK $2"
+    echo "$line"; note_skips "$line"; ran=$((ran + 1))
+}
 # **変えた所だけを回す回（メインブランチに入れるゲート。tests/land-check.py が TESTS_AFFECTED と TESTS_CHANGED を渡す）。**
 # scope で入力を宣言した検査は、宣言したプラグイン（TESTS_AFFECTED。変わったプラグインと、それに依存するプラグイン）がどれも無く、
 # 宣言したパス（/ か . を含む語。頭で当てる）に当たる変わったファイル（TESTS_CHANGED。1 行に 1 本）も無ければ、走らせずに見送る。
@@ -2356,10 +2361,7 @@ orphans = set(agents) - referenced
 assert not orphans, "どの手順書からも使われない役割がある: " + ", ".join(sorted(orphans))
 PY
 else
-    fm_skip="  ok   手順書と役の定義の頭の YAML のチェック # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
-    echo "$fm_skip"
-    note_skips "$fm_skip"
-    ran=$((ran + 1))
+    skip_check "手順書と役の定義の頭の YAML のチェック" "pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
 fi
 
 expect_exit 0 "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
@@ -5438,8 +5440,7 @@ if mkfifo "$CR_FDIR/fifo.md" 2>/dev/null \
     expect_output 0 "通常のファイルでない" "FIFO の本文ファイルは待たずに止める" \
         "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/fifo.md"
 else
-    cr_fifo_skip="  ok   FIFO の本文ファイルは待たずに止める # SKIP fifo: mkfifo が無いか、フックの Python から FIFO に見えない"
-    echo "$cr_fifo_skip"; note_skips "$cr_fifo_skip"; ran=$((ran + 1))
+    skip_check "FIFO の本文ファイルは待たずに止める" "fifo: mkfifo が無いか、フックの Python から FIFO に見えない"
 fi
 # Windows の Bash のツールは Git Bash なので、コマンドの中のパスは /c/…・/tmp/… の形で来る。ネイティブの Python のフックは
 # cygpath で直して読む(上の本文ファイルの検査が Windows でこの道を通る)。cygpath が無いときの倒れ方は、ここで os.name を
@@ -6424,8 +6425,7 @@ while IFS='|' read -r dig_case dig_desc; do
     if command -v node >/dev/null 2>&1; then
         expect_output 0 "$(printf '%s' "$dig_case" | tr '[:lower:]' '[:upper:]')_OK" "my-turn-dig: $dig_desc" node "$DIG_DRY" "$dig_case"
     else
-        line="  ok   my-turn-dig: $dig_desc$SKIP_MARK node: node が無い（Workflow の script を空回しできない）"
-        echo "$line"; note_skips "$line"; ran=$((ran + 1))
+        skip_check "my-turn-dig: $dig_desc" "node: node が無い（Workflow の script を空回しできない）"
     fi
 done <<'DIG'
 fixed|段ごとのモデル・遮断の目と役（roles）の引き当て・CLAUDE.md の書き足し・W1 が返らないときの止め方と、記録を戻り値で返す形・伏せた問いでの問い直し・前の回の使い回しの条件が設計のとおりになる
@@ -6462,8 +6462,7 @@ while IFS='|' read -r world_case world_desc; do
     if command -v node >/dev/null 2>&1; then
         expect_output 0 "$(printf '%s' "$world_case" | tr '[:lower:]' '[:upper:]')_OK" "dig-world: $world_desc" env PY_BIN="$PY_BIN" node "$WORLD_DRY" "$world_case"
     else
-        line="  ok   dig-world: $world_desc$SKIP_MARK node: node が無い（Workflow の script を空回しできない）"
-        echo "$line"; note_skips "$line"; ran=$((ran + 1))
+        skip_check "dig-world: $world_desc" "node: node が無い（Workflow の script を空回しできない）"
     fi
 done <<'WORLD'
 stops|起動の合図の無い・違う起動、sum の合わない args、足りない args、言い直しと漏れの照合が同じモデルの起動を、エージェントを立てずに止める
@@ -6693,10 +6692,7 @@ if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
     expect_output 0 "SKILL_DESCRIPTIONS_OK" "スキルの説明のチェック: 全部のプラグインのスキル・コマンド・役の説明が YAML で黙って切れず、公式の字数の上限（SKILL.md 1,024 字・一覧 1,536 字）に収まる" \
         "$PY_BIN" "$SD_CASE" tree
 else
-    sd_skip="  ok   スキルの説明のチェック # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
-    echo "$sd_skip"
-    note_skips "$sd_skip"
-    ran=$((ran + 1))
+    skip_check "スキルの説明のチェック" "pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
 fi
 
 # ---- 全部のプラグインのスキル・コマンドの本文（スキルの書き方の標準 docs/standards/skill-authoring.md の決まり 1・4・5） ----
@@ -6863,10 +6859,7 @@ assert not missing, f".review-checks.json の段 {missing} が {wf} の run を�
 print("CI_LINT_OK")
 PYCI
 else
-    ci_skip="  ok   CI の設定のチェック # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
-    echo "$ci_skip"
-    note_skips "$ci_skip"
-    ran=$((ran + 1))
+    skip_check "CI の設定のチェック" "pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
 fi
 
 # ---- attention のコマンドの本文と README: 機械の出力語を同じ綴りで持つ（絵の例が規則を通るかは figure-check の pass が /what-am-i-doing のコマンドの本文から読む） ----
@@ -7123,10 +7116,7 @@ expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実�
 # メインブランチに入れるゲートの回（TESTS_LAND=1。tests/land-check.py が渡す）は、この 1 件だけを見送る。組に分けない手元では
 # この 1 件で 8 分ほどかかり（CI の 1 組で約 2 分 × 4 組）、残りの検査の全部より長い。CI は今までどおり回す
 if [ "${TESTS_LAND:-}" = 1 ]; then
-    ran=$((ran + 1))
-    land_skip="  ok   graphloops: graphcheck と模擬実行 # SKIP land: メインブランチに入れるゲートの回は回さない（CI が組に分けて回す）"
-    echo "$land_skip"
-    note_skips "$land_skip"
+    skip_check "graphloops: graphcheck と模擬実行" "land: メインブランチに入れるゲートの回は回さない（CI が組に分けて回す）"
 else
 expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・チェックの腕）が最後まで走って通る" \
     env ${GL_SHARD_ENV[@]+"${GL_SHARD_ENV[@]}"} bash "$ROOT/graphloops/tests/run.sh"
@@ -7141,10 +7131,7 @@ if "$PY_BIN" -c 'import pytest' 2>/dev/null; then
 expect_output 0 " passed" "graphloops: 台帳の検査（台本の check ごとの行き先と MIGRATION.md の刷った塊が今の台本と印に合う。pytest graphloops/tests/py -k test_ledger）" \
     "$PY_BIN" -m pytest -q -p no:cacheprovider "$ROOT/graphloops/tests/py" -k test_ledger
 else
-    ledger_skip="  ok   graphloops: 台帳の検査 # SKIP pytest: pytest が手元に無い（CI の test の job は入れる。版は .github/workflows/test.yml の pytest の job と同じ）"
-    echo "$ledger_skip"
-    note_skips "$ledger_skip"
-    ran=$((ran + 1))
+    skip_check "graphloops: 台帳の検査" "pytest: pytest が手元に無い（CI の test の job は入れる。版は .github/workflows/test.yml の pytest の job と同じ）"
 fi
 scope
 
