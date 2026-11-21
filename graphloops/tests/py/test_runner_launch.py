@@ -184,17 +184,17 @@ def test_skill_form_reads_only_and_needs_the_sandbox(repo, tmp_path, monkeypatch
     assert role_run.skill_permission(str(repo), str(tmp_path / "b")) is None   # 立たない場は会話に返す
 
 
-def _skill_board(tmp_path, repo, lens_def):
+def _skill_board(tmp_path, repo):
     graph = load_graph(GRAPH)[0]
     b = types.SimpleNamespace(graph=graph, dir=tmp_path / "b", state={"engine_runners": {"at": "t"}, "inputs": {"cwd": str(repo)}})
     b.dir.mkdir()
     inst = {"id": "p1.local_review", "node": "p1.local_review", "prompt_file": str(tmp_path / "p.md"), "out_path": str(tmp_path / "o.json"),
             "skills": graph["nodes"]["p1.local_review"]["skills"]}
-    return b, inst, graph["nodes"]["p1.local_review"], lens_def
+    return b, inst, graph["nodes"]["p1.local_review"]
 
 
 def test_skill_node_launches_with_lens_definitions_or_names_why_it_cannot(repo, tmp_path, monkeypatch):
-    b, inst, n, _ = _skill_board(tmp_path, repo, None)
+    b, inst, n = _skill_board(tmp_path, repo)
     monkeypatch.setattr(advance, "agent_def", lambda t: {"body": f"{t} の本文", "tools": ["Read"]})
     spec = advance.runner_launch_spec(b, inst, n)
     assert spec["skill"] is True and "on_fail" not in spec and spec["edits"] is False and "Agent" in spec["tools"]
@@ -217,7 +217,7 @@ def test_skill_node_launches_with_lens_definitions_or_names_why_it_cannot(repo, 
 def test_nested_sandbox_is_measured_when_launching_on_a_defects_only_board(repo, tmp_path, monkeypatch):
     """回し役なしの盤面では、確かめが入れ子の sandbox と固めていても emit は語を組む（起動する瞬間に launch_one が測って止める）。前の版の
     盤面は今までどおり emit で書き換えるノードと skill のノードを会話に返す（unlaunched に理由と外し方）"""
-    b, inst, n, _ = _skill_board(tmp_path, repo, None)
+    b, inst, n = _skill_board(tmp_path, repo)
     monkeypatch.setattr(advance, "agent_def", lambda t: {"body": "本文", "tools": ["Read"]})
     b.state["child_tmp_probe"] = {"sandbox": False, "writable": None, "why": "確かめの子の Bash が sandbox の初期化で落ちた（Sandbox ...）"}
     b.state["engine_runners"] = {"at": "t", "handoff": util.HANDOFF_DEFECTS}
@@ -256,7 +256,7 @@ def test_relaunch_reissues_an_unlaunched_node_and_reprobe_clears_the_fixed_probe
 def test_skill_refusal_rebuilds_the_skill_form(repo, tmp_path, monkeypatch):
     stdin = tmp_path / "p.md"
     stdin.write_text("x")
-    b, inst, n, _ = _skill_board(tmp_path, repo, None)
+    b, inst, n = _skill_board(tmp_path, repo)
     monkeypatch.setattr(advance, "agent_def", lambda t: {"body": "本文", "tools": ["Read"]})
     spec = {**advance.runner_launch_spec(b, inst, n), "stdin": str(stdin)}
     assert commands.launch_refusal({"launch": spec}, cwd=str(repo), board_dir=b.dir) is None
@@ -357,7 +357,7 @@ def _entrances(repo, tmp_path, monkeypatch):
     stdin.write_text("x")
     board = tmp_path / "b"
     monkeypatch.setattr(advance, "agent_def", lambda t: {"body": "本文", "tools": ["Read"]})
-    b, inst, n, _ = _skill_board(tmp_path, repo, None)
+    b, inst, n = _skill_board(tmp_path, repo)
     skill = {**advance.runner_launch_spec(b, inst, n), "stdin": str(stdin)}
     monkeypatch.setattr(commands, "agent_def", lambda t: {"tools": ["Read", "Bash"] if "bash" in t else ["Read"], "model": "m", "effort": "e",
                                                           "body": "b"})
@@ -398,7 +398,7 @@ EMIT_FORMS = ["runner-read", "runner-edit", "skill", "delegate", "delegate-unfen
 
 def _emitted(form, repo, tmp_path, monkeypatch):
     """emit が組む起動する語（advance の起動する側の関数そのもの）と、チェックに渡す盤面の state ——(instance, state)"""
-    b, inst, n, _ = _skill_board(tmp_path, repo, None)
+    b, inst, n = _skill_board(tmp_path, repo)
     (tmp_path / "p.md").write_text("x", encoding="utf-8")
     role = {"tools": ["Read", "Bash"], "model": "m", "effort": "e", "body": "b", "file": "f"}
     monkeypatch.setattr(advance, "agent_def", lambda t: {"body": "本文", "tools": ["Read"]})

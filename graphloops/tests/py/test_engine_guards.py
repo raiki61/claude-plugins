@@ -12,9 +12,9 @@ import types
 import pytest
 
 from conftest import REPO
-from engine import commands, role_run, util
-from engine.advance import run_driver_node
-from engine.board import Board
+from engine import commands, pointers, role_run, util
+from engine.advance import emit_instance, helper_argv, run_driver_node
+from engine.board import Board, CondView, refuse_expression_conds, run_cond
 from engine.util import BoardConflict, Reject
 
 
@@ -150,10 +150,8 @@ def _relaunch(tmp_path, monkeypatch, out_paths, stop_why=None):
 
 def test_relaunch_refuses_when_another_relaunch_won(tmp_path, monkeypatch):
     """読んでから書くまでに別の relaunch が起動し直していたら、新しい試行を作らない"""
-    reissued = []
     with pytest.raises(Reject, match="別の relaunch"):
-        reissued = _relaunch(tmp_path, monkeypatch, [str(tmp_path / "o"), str(tmp_path / "o.a2")])
-    assert reissued == []
+        _relaunch(tmp_path, monkeypatch, [str(tmp_path / "o"), str(tmp_path / "o.a2")])
 
 
 def test_relaunch_dies_when_previous_child_survives(tmp_path, monkeypatch, capsys):
@@ -172,16 +170,9 @@ def test_init_removes_run_dir_when_on_init_refuses(tmp_path, monkeypatch, capsys
         util.die("入口が拒んだ")
 
     monkeypatch.setattr(commands, "hook", lambda rules, name: on_init if name == "on_init" else real(rules, name))
-    monkeypatch.setattr(util, "GIT_CWD", util.GIT_CWD)   # Board が書き換える大域を戻す
-    monkeypatch.chdir(tmp_path)
-    doc = tmp_path / "doc.md"
-    doc.write_text("# 見立て\n", encoding="utf-8")
-    d = tmp_path / "run"
-    a = argparse.Namespace(loop="research-loop", graph=None, request="この見立ては正しいか", document=str(doc), input=None,
-                           thickness=None, decider=None, unattended=False, stop_after_round=None, dir=str(d),
-                           validator=str(REPO / "convergence-loops" / "scripts" / "research-record.py"), lang=None)
     with pytest.raises(SystemExit):
-        commands.cmd_init(a)
+        research_run(tmp_path, monkeypatch)
+    d = tmp_path / "run"
     assert "入口が拒んだ" in capsys.readouterr().err   # 置き場を作った後の入口で止まった（手前の検査で止まったのではない）
     assert not d.exists()
 
@@ -234,7 +225,6 @@ def research_run(tmp_path, monkeypatch):
 def test_engine_run_on_a_role_node_is_not_planned(tmp_path, monkeypatch):
     """engine_run は回す側のノードの宣言——init の後に graph が書き換わり（盤面の graph は途中で直せる。advance.graph_changed）役のノードに
     engine_run が付いても、役のノードは走らせるだけのノードにしない（graphcheck が init で弾く形を、実行時の口も持つ）"""
-    from engine.advance import emit_instance
     b = Board(research_run(tmp_path, monkeypatch))
     nid = "p0.independence_review"
     assert not b.is_runner(b.nodes[nid])   # 台本の前提: 役のノード
@@ -255,7 +245,6 @@ def test_save_refuses_when_the_board_moved_on(tmp_path, monkeypatch, capsys):
 @pytest.mark.parametrize("ret", [pytest.param((1, "理由"), id="not-bool"), pytest.param((True, 5), id="reason-not-str")])
 def test_run_cond_refuses_a_malformed_return(capsys, ret):
     """条件の関数の返りは（真偽, 理由の文）だけ——1 を真に・数を理由に読み替えない"""
-    from engine.board import run_cond
 
     def fn(v):
         return ret
@@ -267,13 +256,11 @@ def test_run_cond_refuses_a_malformed_return(capsys, ret):
 
 def test_cond_view_overlay_answers_the_path_itself_and_below():
     """重ね書きした path そのものは重ね書きの値を、その下は値の中を引く（盤面の本物の値へ落とさない）"""
-    from engine.board import CondView
     v = CondView("c", ("record.x",), {"record": {"x": {"y": "盤面"}}}, overlay={"record.x": {"y": "重ね書き"}})
     assert v("record.x") == {"y": "重ね書き"} and v("record.x.y") == "重ね書き"
 
 
 def test_cond_view_keeps_one_unevaluable_row_per_trigger_and_round():
-    from engine.board import CondView
     state = {"round": 2}
     v = CondView("c", (), {}, state=state)
     v.unevaluable("a", "測れない")
@@ -284,7 +271,6 @@ def test_cond_view_keeps_one_unevaluable_row_per_trigger_and_round():
 
 def test_refuse_expression_conds_names_the_first_three_and_more(tmp_path, capsys):
     """式で書いた条件のノードを 3 つまで名指し、4 つ以上なら『ほか』を添える"""
-    from engine.board import refuse_expression_conds
     nodes = {f"n{i}": {"cond": {"path": "x", "op": "eq", "value": 1}} for i in range(4)}
     with pytest.raises(SystemExit):
         refuse_expression_conds(tmp_path / "graphs" / "g.json", nodes)
@@ -326,7 +312,6 @@ def test_argv_refusal_refuses_roles_that_can_write_before_reading_flags():
 
 def test_engine_run_result_is_dropped_when_relaunched_meanwhile(tmp_path, monkeypatch):
     """走らせている間に起動し直された（今の instance の置き場が変わった）なら、組んだ返答を書かずに『起動し直された古い試行』で返る"""
-    from engine.advance import helper_argv
     inst = {"id": "p0.x", "node": "p0.x", "out_path": str(tmp_path / "o"),
             "launch": {"kind": "engine_run", "steps": [{"name": "parallel-pr.py", "argv": helper_argv("parallel-pr.py")}]}}
     monkeypatch.setattr(commands, "run_steps", lambda *a, **k: [{"name": "parallel-pr.py", "exit": 0, "wall_s": 0.0}])
@@ -476,7 +461,6 @@ def test_argv_refusal_compares_tools_as_sets(tmp_path):
 
 def test_pointer_resolve_skips_a_missing_field():
     """番号で指すフィールドを返答が持たない（任意のフィールドを省いた）なら、置き換える物が無いだけ——落ちない"""
-    from engine import pointers
     out = {"other": 1}
     assert pointers.resolve(out, [{"at": "units[].key", "from": ["record.units"]}], [{"at": "units[].key", "names": ["u1"]}]) == []
     assert out == {"other": 1}
@@ -486,7 +470,6 @@ def test_pointer_resolve_skips_a_missing_field():
 
 
 def test_pointer_widen_needs_a_list():
-    from engine import pointers
     with pytest.raises(ValueError, match="pointers は schema を持つノードの配列"):
         pointers.widen({"n": {"pointers": {"at": "x"}, "schema": {"type": "object"}}})
 
@@ -496,14 +479,12 @@ def test_pointer_widen_needs_a_list():
                                  pytest.param({"from": ["a"]}, id="no-at"),
                                  pytest.param({"at": "x", "from": "a"}, id="from-not-a-list")])
 def test_pointer_widen_refuses_odd_rows(row):
-    from engine import pointers
     with pytest.raises(ValueError, match=r"pointers\[0\] は"):
         pointers.widen({"n": {"pointers": [row], "schema": {"type": "object"}}})
 
 
 def test_pointer_widen_needs_a_string_field():
     """番号で指せるのは文字列のフィールドだけ（数のフィールドを番号か名前に広げない）"""
-    from engine import pointers
     with pytest.raises(ValueError, match="文字列のフィールドに無い"):
         pointers.widen({"n": {"pointers": [{"at": "x", "from": ["a"]}],
                               "schema": {"type": "object", "properties": {"x": {"type": "integer"}}}}})
@@ -511,7 +492,6 @@ def test_pointer_widen_needs_a_string_field():
 
 def test_pointer_resolve_without_a_snapshot_for_a_later_pointer():
     """出した後に graph が pointers を足した（固めた一覧が足りない）なら、番号を名前に戻さずに名前で書けと返す"""
-    from engine import pointers
     out = {"a": 1, "b": 1}
     errs = pointers.resolve(out, [{"at": "a", "from": ["x"]}, {"at": "b", "from": ["y"]}], [{"at": "a", "names": ["n1"]}])
     assert out == {"a": "n1", "b": 1} and len(errs) == 1 and "固めていない" in errs[0]
@@ -528,13 +508,11 @@ SNAP = [{"at": "plan[].unit_keys[]", "names": ["graphloops/engine/runner.py _han
 
 def test_pointer_hint_names_prefix_candidates_and_the_table():
     """番号のフィールドに名前の列に無い文字列（切り詰めて写した key）が残れば、前方一致する no と、no と名前の頭の対応を返す"""
-    from engine import pointers
     got = pointers.hint({"plan": [{"unit_keys": ["graphloops/engine/runner.py _handoff_why", 2]}]}, PTR, SNAP)
     assert "前方一致する no: [1]" in got and "  1 = graphloops/engine/runner.py" in got and "  2 = graphloops/engine/role_run.py" in got
 
 
 def test_pointer_hint_without_a_prefix_match_gives_only_the_table():
-    from engine import pointers
     got = pointers.hint({"plan": [{"unit_keys": ["前の周の key"]}]}, PTR, SNAP)
     assert "前方一致" not in got and "'前の周の key' は貼った一覧（record.units）の名前に無い" in got and "  2 = " in got
 
@@ -545,7 +523,6 @@ def test_pointer_hint_without_a_prefix_match_gives_only_the_table():
     pytest.param({"plan": [{"unit_keys": ["x"]}]}, None, id="no-snapshot"),
 ])
 def test_pointer_hint_is_none_when_nothing_is_miscopied(out, snap):
-    from engine import pointers
     assert pointers.hint(out, PTR, snap) is None
 
 
@@ -565,7 +542,6 @@ def test_check_reply_adds_the_hint_to_any_rule_rejection(monkeypatch):
 
 def test_cond_view_without_state_ignores_unevaluable():
     """盤面の state を持たない入れ物（台本の真偽表・graphcheck）では、測れなかった痕跡を残す先が無いので何もしない"""
-    from engine.board import CondView
     CondView("c", (), {}).unevaluable("a", "測れない")   # 落ちない
 
 

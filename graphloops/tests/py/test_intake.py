@@ -293,7 +293,6 @@ def test_init_reads_the_declaration_from_the_board_cwd_not_a_leftover_git_cwd(tm
 def test_convergence_loops_dependency_floor_is_met_by_the_repo():
     """graphloops の依存の下限（version の >=x.y.z）が、同じリポジトリの convergence-loops の版以下——下限の書き損じで graphloops 自身を
     読み込みの時点で無効にしない（範囲の外なら Claude Code は依存する側を無効にする）"""
-    from conftest import REPO
     dep = [d for d in json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["dependencies"]
            if d["name"] == "convergence-loops"]
     assert len(dep) == 1 and dep[0]["version"].startswith(">=")

@@ -391,7 +391,6 @@ def test_board_name_escapes_non_utf8_names():
 def test_child_tmp_row_with_a_non_utf8_name_can_be_saved(tmp_path, monkeypatch):
     """UTF-8 でない名前（Linux の os.walk が孤立サロゲートで返す）も逃がしてから行の sample に入れる——行は UTF-8 の JSON に書ける。
     APFS・NTFS はその名前のファイルを作れないので、名前を返す所（os.walk）とファイルの確かめだけを置き換える"""
-    import json
     b = Board({})
     on_board(monkeypatch, b)
     tmp = tmp_path / "gl-w-n"
@@ -509,7 +508,7 @@ def test_an_undecided_probe_is_not_fixed_and_is_retried_up_to_the_limit(tmp_path
     assert all("確かめられない" in n and said in n and "書けない版" not in n for n in notes)
 
 
-def _sandboxed_launch(tmp_path, **kw):
+def _sandboxed_launch(**kw):
     return {"argv": ["claude", "-p", "--model", "opus", "--tools", "Read,Bash", "--settings", SANDBOXED, "--output-format", "json"], **kw}
 
 
@@ -521,7 +520,7 @@ def _sandboxed_launch(tmp_path, **kw):
 def test_a_probe_that_sees_the_sandbox_init_failure_stops_writers_skills_and_delegates(tmp_path, monkeypatch, launch_kw):
     """確かめの子の返答に sandbox の初期化の失敗の文が在れば、入れ子の sandbox（子の Bash が走らない場）と固め、書き換える子・skill の子・
     任せ先を起動せずに止める（env の印——環境の予定どおりの止まり）。理由は外し方を名指す。固めた後の launch は確かめ直さない"""
-    launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(tmp_path, **launch_kw))
+    launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(**launch_kw))
     for _ in range(2):
         got = launch()
         assert got["ok"] is False and got["env"] is True and "excludedCommands" in got["why"] and "--reprobe" in got["why"]
@@ -533,7 +532,7 @@ def test_a_probe_that_sees_the_sandbox_init_failure_stops_writers_skills_and_del
 def test_a_read_only_sandboxed_child_is_launched_but_marked_unmeasured(tmp_path, monkeypatch):
     """読むだけの sandbox の形の子（ツールつきの役・読むだけの回す側のノード）は、入れ子の sandbox の場でも起動する——その前に確かめを通し、
     Bash で測れていないことを盤面の unevaluable と instance の note に残す（正常終了として黙って受け付けない）"""
-    launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(tmp_path, kind="tooled", form="sandbox"))
+    launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(kind="tooled", form="sandbox"))
     assert launch()["ok"] is True
     assert [c["probe"] for c in calls] == ["child_tmp", None]
     assert "sandbox_down_read" in [u["trigger"] for u in ProbeBoard.state["unevaluable"]]
