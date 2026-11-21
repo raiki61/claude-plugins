@@ -397,12 +397,10 @@ def shape_problems(val):
             for k, t in CMP_KEYS.items():
                 if not isinstance((c or {}).get(k), t):
                     out.append("rows[%d].comparisons[%d].%s が無いか形が違います" % (i, j, k))
-            if (c or {}).get("verdict") not in ("same", "differs", "none"):
-                out.append("rows[%d].comparisons[%d].verdict は same・differs・none のどれか" % (i, j))
-            if (c or {}).get("level") not in ("line", "origin"):
-                out.append("rows[%d].comparisons[%d].level は line・origin のどれか" % (i, j))
-            if (c or {}).get("basis") not in ("web", "knowledge"):
-                out.append("rows[%d].comparisons[%d].basis は web・knowledge のどれか" % (i, j))
+            for k, ok in (("verdict", ("same", "differs", "none")), ("level", ("line", "origin")),
+                          ("basis", ("web", "knowledge"))):
+                if (c or {}).get(k) not in ok:
+                    out.append("rows[%d].comparisons[%d].%s は %s のどれか" % (i, j, k, "・".join(ok)))
     for i, m in enumerate(val.get("missing") or []):
         if not (isinstance(m, dict) and isinstance(m.get("n"), int) and isinstance(m.get("why"), str)):
             out.append("missing[%d] は {n, why}" % i)

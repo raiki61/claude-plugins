@@ -500,11 +500,9 @@ def prep(pr, prior, headless):
     # 指紋: 変えたファイルと、段が従う決まりの文書と、前回の記録が読んだ・分けた・根拠にしたファイル
     rule_list = rule_paths(changed, base)
     paths = set(changed) | set(rule_list)
-    unknown = False  # 前の回が読んだのに指紋を取れないファイル（repo の外・git dir の中・改行を含む path）が在るか
     # 形の違う記録（版 1: checked の中の files・evidence の at）は使い回さず、近道も取らない（その PR は 1 回掘り直す）
     old_shape = rec is not None and rec.get("version") != my_turn_record.RECORD_VERSION
-    if old_shape:
-        unknown = True
+    unknown = old_shape  # 前の回が読んだのに指紋を取れないファイル（repo の外・git dir の中・改行を含む path）が在るか
     if rec is not None and not old_shape:
         for p in record_paths(rec):
             if in_record_dir(p, top, record_dir):
