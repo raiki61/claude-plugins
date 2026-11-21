@@ -58,8 +58,8 @@ TAIL_BYTES = 262144   # 会話の記録の終わりから読む大きさ（tail_
 LOCAL_SETTINGS = ".claude/settings.local.json"   # リポジトリの中の、会話が書く手元だけの設定（許可の記録など。commit しない）
 # 会話が起動するときにしか読まないファイル（/clear では読み直さない）。.claude/ の下（役の定義・設定・フックなど）と、ルートのこれら
 STARTUP_DIR, STARTUP_FILES = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json")
-# フックの入力の、会話の始まり・人の文・ツールの呼び出しの出来事の名前（hook_event_name）
-START, PROMPT, TOOL = "SessionStart", "UserPromptSubmit", "PreToolUse"
+# フックの入力の、会話の始まり・人の文の出来事の名前（hook_event_name）
+START, PROMPT = "SessionStart", "UserPromptSubmit"
 # フックが会話に足す文（additionalContext）の上限の字数と、超えたときに会話に入る頭の字数（https://code.claude.com/docs/en/hooks
 # 「capped at 10,000 characters」「a preview of up to the first 2,000 characters」。上限を上げる設定は無い）
 CONTEXT_LIMIT, CONTEXT_PREVIEW = 10000, 2000
@@ -727,23 +727,10 @@ def ready(screen):
     return input_box(screen) is not None
 
 
-def above_box(screen):
-    """入力フィールドより上の画面の字（会話に届いた字が載る所）。"""
-    lines = (screen or "").splitlines()
-    rules = [i for i, x in enumerate(lines) if _rule(x)]
-    return " ".join(" ".join(lines[:rules[-2]] if len(rules) >= 2 else lines).split())
-
-
-
-def left_in_field(lines, head):
-    """画面の終わりの行（lines）の入力フィールド（行の頭が ❯ の行）に、送った文の頭（head）が残っているか。"""
-    return any(x.startswith("❯") and head in " ".join(x.split()) for x in lines)
-
-
 # ---- フックの入出力（Claude Code のフックが標準入力に渡す JSON と、会話に字を足す答えの形） ----
 
 def event(payload):
-    """フックの出来事の名前（START・PROMPT・TOOL・Stop など）。"""
+    """フックの出来事の名前（START・PROMPT・Stop など）。"""
     return payload.get("hook_event_name")
 
 
