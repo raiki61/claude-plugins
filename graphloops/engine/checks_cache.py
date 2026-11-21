@@ -97,6 +97,7 @@ STRIPPED_PREFIXES = ("__MISE_",)
 CACHE_PARTS = ("graphloops", "checks-cache")
 FORMAT = 3   # 3: PATH を意味で持ち、STRIPPED_ENV を外した（2 の記録とは指紋が合わない）
 MAX_AGE_DAYS = 7   # 記録を使い・残す日数（上の注記の「年齢の上限」）
+ENTRY_NAME = "entry.json"   # 1 件の記録の中身（置き場ごとに 1 つ。これが在る置き場だけが完成した記録）
 NOTE_NAME = "cache.json"   # 引いた回の当たり外れの控え（盤面の log_dir に書く）
 SHOW_NAMES = 12   # 外れの訳に並べる名前の数の上限（超えた分は数だけ）
 # 外れの訳のキー（控えの causes に書く。機械が比べるのはキーで、表示の語はこの表から引く）。環境変数は "env:<名前>" で持つ
@@ -188,7 +189,7 @@ def _tool(argv0, cwd, path):
 def _born(d):
     """記録を書いた時刻（エポック秒）——entry.json の at、読めなければ置き場の更新時刻（一時の置き場・壊れた記録）"""
     try:
-        return datetime.datetime.fromisoformat(json.loads((d / "entry.json").read_text(encoding="utf-8"))["at"]).timestamp()
+        return datetime.datetime.fromisoformat(json.loads((d / ENTRY_NAME).read_text(encoding="utf-8"))["at"]).timestamp()
     except (OSError, ValueError, TypeError, KeyError, OverflowError):
         return d.stat().st_mtime
 
@@ -281,7 +282,7 @@ def _miss_detail(p):
         dirs = []
     for d in dirs:
         try:
-            e = json.loads((d / "entry.json").read_text(encoding="utf-8"))
+            e = json.loads((d / ENTRY_NAME).read_text(encoding="utf-8"))
             om = e.get("material") if isinstance(e, dict) else None
         except (OSError, ValueError):   # 読めない記録は比べる相手にしない（引く側は別に外れとして回す）
             continue
@@ -323,7 +324,7 @@ def _lookup(p, steps, log_dir):
         return None, f"旗 {RERUN_ENV} が立っている（引かずに回す。書くのは続ける）", ["flag"]
     entry_dir = pathlib.Path(p["entry"])
     try:
-        e = json.loads((entry_dir / "entry.json").read_text(encoding="utf-8"))
+        e = json.loads((entry_dir / ENTRY_NAME).read_text(encoding="utf-8"))
     except FileNotFoundError:
         detail, causes = _miss_detail(p)
         return None, f"同じ指紋の記録が無い（鍵 {p['key'][:12]}）——{detail}", causes
@@ -363,7 +364,7 @@ def _lookup(p, steps, log_dir):
 
 def _intact(entry, material, n):
     try:
-        e = json.loads((entry / "entry.json").read_text(encoding="utf-8"))
+        e = json.loads((entry / ENTRY_NAME).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     return (isinstance(e, dict) and e.get("format") == FORMAT and e.get("material") == material and isinstance(e.get("runs"), list)
@@ -409,7 +410,7 @@ def _store(p, steps, runs, log_dir):
         for i, r in enumerate(runs, 1):
             shutil.copyfile(r["out"], tmp / f"{i}.out")
             shutil.copyfile(r["err"], tmp / f"{i}.err")
-        (tmp / "entry.json").write_text(json.dumps(
+        (tmp / ENTRY_NAME).write_text(json.dumps(
             {"format": FORMAT, "key": p["key"], "material": p["material"], "at": now(), "from": str(log_dir),
              "runs": [{k: r.get(k) for k in ("name", "argv", "exit", "wall_s", "tail")} for r in runs]},
             ensure_ascii=False, indent=1), encoding="utf-8")
