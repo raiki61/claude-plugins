@@ -1151,15 +1151,11 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     hist_props = (g.get("hist_schema") or {}).get("properties") or {}
 
     def _hist_field(ref):
-        """hist.<名>.<フィールド>: 名が hist_schema に在り、その形（$defs の参照を 1 段たどる）がフィールドを宣言している"""
+        """hist.<名>.<フィールド>: 名が hist_schema に在り、その形がフィールドを宣言している（$ref は load_graph が展開済み）"""
         parts = ref.split(".")
         if len(parts) != 3 or parts[0] != "hist" or parts[1] not in hist_props:
             return False
-        sch = hist_props[parts[1]]
-        ref_ = sch.get("$ref") or ""
-        if ref_.startswith("#/$defs/"):
-            sch = (g.get("$defs") or {}).get(ref_[len("#/$defs/"):]) or {}
-        return parts[2] in (sch.get("properties") or {})
+        return parts[2] in (hist_props[parts[1]].get("properties") or {})
     for nid, v in nodes.items():
         rf = v.get("read_file")
         if rf is None:
