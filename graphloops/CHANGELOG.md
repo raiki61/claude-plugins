@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+
+- 利用者の動きは変わらない直し（試験だけ）。`tests/py/MIGRATION.md` の、台帳（模擬実行の試験 `tests/simulate.py`・`tests/simulate_review.py` の各確かめが pytest のどのテストへ移ったかの表）を刷った塊（`<!-- ledger:begin -->` と `<!-- ledger:end -->` の間）を刷り直した。0.48.0 の試験の土台の整理で 2 本の台本の行が減り、後ろの確かめの行番号がずれたのに、塊が古い行番号のままで、`tests/py/test_ledger.py` の `test_migration_block_is_exactly_the_ledger` が main の CI（ubuntu と windows の test と pytest。run 44898684607）で赤になっていた。変わったのは行番号だけ（頼み 3e6845）。
+
 ## [0.49.0] - 2026-11-21
 
 ### Changed
