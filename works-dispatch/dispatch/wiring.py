@@ -454,7 +454,7 @@ class Ports:
         save_sent が上書きすると、前に送った時刻が全部消える）。"""
         path = pathlib.Path(limits_dir) / SENT_FILE
         try:
-            got = jsonio_load(path)
+            got = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
         except (OSError, ValueError) as e:
@@ -505,11 +505,6 @@ class Ports:
     def visited(self, path):
         """その worktree の HEAD が居たことのあるブランチ → 最後に居た時刻（git の HEAD の reflog から。gitx.visited_branches）。"""
         return self.git.visited_branches(path)
-
-
-def jsonio_load(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
 
 
 def setting_notes(env, config_dirs, limits_dir=None):
