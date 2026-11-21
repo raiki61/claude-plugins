@@ -984,8 +984,7 @@ def render_since(since):
     w(f"## 私の痕跡以降に変わった file — {len(files)} 件（作者側の commit {since['commits']} 本。"
       f"取り込み {since['merges']} 本の分は含めない）"
       + ("（基準は commit の日付で置いた近似）" if since["approx"] else ""))
-    for st, path in files[:SINCE_FILE_CAP]:
-        w(f"  {st}  {path}")
+    out.extend(f"  {st}  {path}" for st, path in files[:SINCE_FILE_CAP])
     if len(files) > SINCE_FILE_CAP:
         w(f"  …ほか {len(files) - SINCE_FILE_CAP} file")
     if not files:
@@ -1181,8 +1180,7 @@ def head_lines(node, me, ev, reasons, branch_lines):
         w(f"  {role} · ● 私の番 — " + reasons[0])
     else:
         w(f"  {role} · ● 私の番")
-        for r in reasons:
-            w(f"    - {r}")
+        out.extend(f"    - {r}" for r in reasons)
     head = [f"{kind} {node['state'].lower()}"]
     if author != me:
         head.append(f"作者 {author}")
@@ -1329,19 +1327,16 @@ def linked_lines(node, refs, stacked):
     out = []
     w = out.append
     w("## つながっている先")
-    for i in linked:
-        w(f"  閉じる  #{i['number']} {i['state'].lower()}  {i['title']}")
+    out.extend(f"  閉じる  #{i['number']} {i['state'].lower()}  {i['title']}" for i in linked)
     if stacked is None:
         w(f"  上に積む  （gh pr list --base {node.get('headRefName')} が失敗して読めなかった）")
-    for s in (stacked or ())[:STACKED_SHOWN]:
-        w(f"  上に積む  #{s['number']} {s['title']}")
+    out.extend(f"  上に積む  #{s['number']} {s['title']}" for s in (stacked or ())[:STACKED_SHOWN])
     if stacked and len(stacked) > STACKED_SHOWN:
         # gh pr list は STACKED_SHOWN + 1 件までしか取っていないので、残りの数は言えない
         w(f"  （上に積む PR は他にもある。gh pr list --base {node.get('headRefName')} で見る）")
     # 参照は新しい 3 件だけ。5 件出したら初見の読み手 3 人中 2 人が「読まなくてよかった」と言った。
     # 残すのは、この PR から分かれた後続の PR がここに出るため
-    for r in refs[-3:]:
-        w(f"  参照    {hhmm(r['t'])}  {r['text']}")
+    out.extend(f"  参照    {hhmm(r['t'])}  {r['text']}" for r in refs[-3:])
     if len(refs) > 3:
         w(f"  （参照は他に {len(refs) - 3} 件）")
     return out
@@ -1454,8 +1449,7 @@ def render_body(node, full, get_ref=None):
     else:
         shown = rows if full else rows[:BODY_CAP]
         w(f"  === {kind} の本文（{len(rows)} 行）")
-        for ln in shown:
-            w("  | " + ln)
+        out.extend("  | " + ln for ln in shown)
         if len(shown) < len(rows):
             w(f"  （本文はあと {len(rows) - len(shown)} 行。--full か gh {kind.lower()} view で見る）")
     linked = closing_issues(node)
@@ -1598,8 +1592,7 @@ def render_map(node, owner, name):
         note = f"-{d}" if mark == "-" else (f"+{a}" if not d else f"+{a}/-{d}")
         entries.append({"path": f["path"], "mark": mark, "note": note})
     w(TREE_NOTE)
-    for ln in changemap.render_tree(entries, dict(sib) if sib else None, root_label=name):
-        w(ln)
+    out.extend(changemap.render_tree(entries, dict(sib) if sib else None, root_label=name))
 
     # diff は手元に base と head があれば git（コードは関数まるごと、散文は前後 PROSE_CONTEXT 行）、無ければ gh pr diff（文脈 3 行）。
     # 先頭・骨組み・名前の言及は + の行しか見ないので、文脈の広さで変わらない
@@ -1619,8 +1612,7 @@ def render_map(node, owner, name):
         for a in sorted(rel):
             for b, hits in sorted(rel[a]):
                 w(f"    {a} → {b}")
-                for ln in hits:
-                    w("    | " + ln)
+                out.extend("    | " + ln for ln in hits)
 
     new = [p for p in paths if kinds[p] == "ADDED"]
     if new:
@@ -1631,9 +1623,8 @@ def render_map(node, owner, name):
             if not lines:
                 w("    | （中身が diff に無い。バイナリか空）")
                 continue
-            for prefix, ln in changemap.head_and_outline(
-                    p, lines, more="。続きは gh pr diff で見る。切れた文を作者の言葉として写さない"):
-                w("    " + prefix + ln)
+            out.extend("    " + prefix + ln for prefix, ln in changemap.head_and_outline(
+                p, lines, more="。続きは gh pr diff で見る。切れた文を作者の言葉として写さない"))
 
     mod = [f for f in nodes if f["changeType"] != "ADDED"]
     if mod:

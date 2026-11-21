@@ -1143,10 +1143,8 @@ const isDiff = f => inRecordDir(f) && String(f).trim().endsWith('.diff')
 // diff files in the record dir are not counted file by file: a node that read one is reused only when prep.diffSame
 // (the diff body, lock files left out, is the same as in the previous run) and the file is prep.priorRunDiff
 const considered = fs => (fs ?? []).filter(f => !isDiff(f))
-const sameFile = f => {   // thread and justifications in the record dir are rewritten every run: never the same
-  if (inRecordDir(f)) return false
-  return P.fingerprints?.[norm(f)] === 'same'
-}
+// thread and justifications in the record dir are rewritten every run: never the same
+const sameFile = f => !inRecordDir(f) && P.fingerprints?.[norm(f)] === 'same'
 function reuse(n) {
   const old = priorByKey.get(n.key)
   const r = old && { status: old.resultStatus, answer: old.answer, files: old.files ?? [], urls: old.urls ?? [],
@@ -1218,7 +1216,7 @@ const STRUCTURE_TEXT = structure.noParts ? `(no parts: ${structure.noPartsReason
 phase('Compare')
 const extra = (structure.extraSmells ?? []).filter(x => !blank(x?.question))
 const extraKept = extra.slice(0, Math.max(0, LIMITS.extraSmells))
-for (const x of extra.slice(extraKept.length)) notSeen.extraSmellsCut.push(x.question)
+notSeen.extraSmellsCut.push(...extra.slice(extraKept.length).map(x => x.question))
 // stage 5: the lens eyes. Fixed eyes always; privilege only when prep found identity or permission lines, standards
 // only when the structure names two standards or more
 const standards = (structure.standards ?? []).filter(x => !blank(x))
@@ -1377,13 +1375,10 @@ dig: while (dry < 2) {                                   // W8 loop-until-dry (s
   }
   const w7 = gapItems.length ? await clusterBatch(gapItems, `W7 gaps round ${round}`) : null
   level = w7 ? clustersToLevel(w7.checked, 0, 8) : []
-  if (w7?.lost) {
-    w7.lost.forEach(g => { g.outcome = 'unverified'; notSeen.afterNullMerge.push(g.question) })
-    gapItems.forEach((g, i) => { log1.gaps[i].outcome = g.outcome ?? 'unknown' })
-    break
-  }
-  level.forEach((n, i) => { n.rootIdx = roots.length + nodes.length + i; n.origin = `gap round ${round}` })
+  w7?.lost?.forEach(g => { g.outcome = 'unverified'; notSeen.afterNullMerge.push(g.question) })
   gapItems.forEach((g, i) => { log1.gaps[i].outcome = g.outcome ?? 'unknown' })
+  if (w7?.lost) break
+  level.forEach((n, i) => { n.rootIdx = roots.length + nodes.length + i; n.origin = `gap round ${round}` })
   dry = level.length ? 0 : dry + 1
 }
 
