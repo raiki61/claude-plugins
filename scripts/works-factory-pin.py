@@ -355,36 +355,33 @@ def watch(stdin, runner, root, now, env, lander):
 
 
 def look(dry, runner, root, now, env, lander, cdir):
+    # 読めない失敗（RuntimeError・OSError）は呼ぶ側の watch が「読めなかった」の行にして 1 で終える
+    # 開いた頼みを先に見る（工場を読めない失敗も頼みに変わるので、読む前に見ないと、失敗が続く間 main に入れるたびに頼みが積まれる）
+    still_open, asked_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
+    if still_open:
+        print("このツールから回した頼みが開いているので黙る")
+        return 0
+    state_path = os.path.join(cdir, STATE)
+    state = load_state(state_path)
+    pin = read_pin(root)
     try:
-        # 開いた頼みを先に見る（工場を読めない失敗も頼みに変わるので、読む前に見ないと、失敗が続く間 main に入れるたびに頼みが積まれる）
-        still_open, asked_at = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
-        if still_open:
-            print("このツールから回した頼みが開いているので黙る")
-            return 0
-        state_path = os.path.join(cdir, STATE)
-        state = load_state(state_path)
-        pin = read_pin(root)
-        try:
-            to, commits = target(pin, runner)
-        except Limited as e:
-            return limited(state_path, state, now, dry, e)
-        if "limited" in state and not dry:   # 読めたので、覚えた利用制限の時刻を消す（次に当たったら、そこから数え直す）
-            save_state(state_path, state.get("told"), state.get("at"))
-        if to is None:
-            print(f"上げる物は無い（PIN {pin[:8]} の後の工場の main の commit {len(commits)} 本に、CI〔{CHECK}〕が緑の物が無い）"
-                  if commits else f"上げる物は無い（PIN {pin[:8]} が工場の main の頭）")
-            return 0
-        # 同じ上げ先で黙るのは、知らせた後に頼みが立って閉じた時だけ（頼みが立たなかった知らせは知らせ直す）
-        told_at = state.get("at")
-        if state.get("told") == to and asked_at is not None and isinstance(told_at, (int, float)) and asked_at >= told_at:
-            print(f"上げる物は在る（{to[:8]}）が、前に知らせて頼みが閉じた上げ先と同じなので黙る（作業の部署が上げずに閉じた。工場の main が進めば知らせ直す）")
-            return 0
-        cache = os.path.join(cdir, SOURCE)
-        fetch(cache, url_of(), [pin, to], runner)
-        face = surface(pin, to, cache, runner, root)
-    except (RuntimeError, OSError) as e:
-        print(f"工場の版の見張りが読めなかった: {e}")
-        return 1
+        to, commits = target(pin, runner)
+    except Limited as e:
+        return limited(state_path, state, now, dry, e)
+    if "limited" in state and not dry:   # 読めたので、覚えた利用制限の時刻を消す（次に当たったら、そこから数え直す）
+        save_state(state_path, state.get("told"), state.get("at"))
+    if to is None:
+        print(f"上げる物は無い（PIN {pin[:8]} の後の工場の main の commit {len(commits)} 本に、CI〔{CHECK}〕が緑の物が無い）"
+              if commits else f"上げる物は無い（PIN {pin[:8]} が工場の main の頭）")
+        return 0
+    # 同じ上げ先で黙るのは、知らせた後に頼みが立って閉じた時だけ（頼みが立たなかった知らせは知らせ直す）
+    told_at = state.get("at")
+    if state.get("told") == to and asked_at is not None and isinstance(told_at, (int, float)) and asked_at >= told_at:
+        print(f"上げる物は在る（{to[:8]}）が、前に知らせて頼みが閉じた上げ先と同じなので黙る（作業の部署が上げずに閉じた。工場の main が進めば知らせ直す）")
+        return 0
+    cache = os.path.join(cdir, SOURCE)
+    fetch(cache, url_of(), [pin, to], runner)
+    face = surface(pin, to, cache, runner, root)
     head, commits = commits[-1][0], upto(commits, to)
     numbers = prs(commits)
     if not dry:
