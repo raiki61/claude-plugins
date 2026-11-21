@@ -291,7 +291,7 @@ class Shell(Base):
         env = {**os.environ, "HERDR_ENV": "1", "HERDR_PANE_ID": "", "HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / ".config"),
                "XDG_STATE_HOME": str(self.home / ".local" / "state"), "XDG_CACHE_HOME": str(self.home / "cache"), "TMPDIR": str(self.home)}
 
-        self.sh_env, self.sh_top = env, top
+        self.sh_env = env
 
         def started():
             if called.exists():
