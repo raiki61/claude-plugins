@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- engine と rules の整理を続けた（利用者の動きは変わらない）。`init` の盤面の置き場を取る所と段・decider を確かめる所を関数に分け、review-loop の判定の受け付けから問いを 1 件ずつ見る所を分けた。呼ぶだけの包みの関数（review-loop の `_retake_for_reviews`・review-loop-tdd の `_named`）と、ほかの所にある組を手で写した定数（runner の `TERMINAL`・research-loop の finalize のゲートの組）を消し、同じ式を 2 か所に書いていた所（前の周の修正が申告したファイルの一覧）を 1 つにした。ずれた行番号を指していた注記と古い注釈も直した。コマンドの引数・出力・記録のファイルの形は変えていない（頼み f98e7a）。
+
 ## [0.48.0] - 2026-11-21
 
 ### Changed
