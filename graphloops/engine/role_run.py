@@ -334,7 +334,7 @@ RULE_UNSAFE = frozenset("*?[]{}(),\\ \t\n\r")
 
 
 def read_grant_path(prompt_file):
-    """ツールゼロの役に読ませる写しの置き場——プロンプトの隣の <プロンプトの名前>.read。起動する側（advance.emit）とチェック
+    """ツールゼロの役に読ませる写しの置き場——プロンプトの隣の <プロンプトの名前>.read。起動する側（advance.emit_instance）とチェック
     （commands._argv_refusal）が同じここを引く——graph も instance も、読ませる場所を名指せない"""
     p = pathlib.Path(prompt_file)
     return p.with_name(p.stem + READ_GRANT_SUFFIX)

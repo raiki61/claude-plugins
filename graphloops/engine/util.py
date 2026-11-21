@@ -208,7 +208,7 @@ ANSWER_ACTIONS = ("continue", "stop", "escalate")
 # 周の途中の問いは、周の中の工程（仕様の承認・承認後のテストの変更）で人の答えを待つ口で、周の終わりの判定ではない
 IN_ROUND_ACTIONS = ("continue", "stop")
 
-GIT_TIMEOUT = 120  # 秒。近傍の scripts/comment-ratio.sh と同じ上限
+GIT_TIMEOUT = 120  # 秒。convergence-loops/scripts/comment-ratio.sh の GIT_TIMEOUT_SEC と同じ上限
 
 
 GIT_CWD = None  # 対象リポジトリ。init が記録した inputs.cwd を engine が 1 度だけ入れる（下の _repo_args を見よ）
