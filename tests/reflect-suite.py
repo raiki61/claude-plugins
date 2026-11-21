@@ -254,13 +254,9 @@ class GitHub(unittest.TestCase):
                 return "tok"
             return json.dumps(events)
 
-        orig = rf.run
-        rf.run = fake
-        try:
+        with mock.patch.object(rf, "run", fake):
             start, end = rf.bounds(DAY, DAY)
             out = rf.github(start, end)
-        finally:
-            rf.run = orig
         self.assertEqual([g["login"] for g in out], ["a"])
         self.assertEqual(out[0]["count"], 1)
         self.assertEqual(out[0]["events"][0]["number"], 7)
@@ -278,9 +274,7 @@ class GitHub(unittest.TestCase):
                 return "tok"
             return None  # gh api が失敗
 
-        orig = rf.run
-        rf.run = fake
-        try:
+        with mock.patch.object(rf, "run", fake):
             start, end = rf.bounds(DAY, DAY)
             fake.status = status
             page_unseen = []
@@ -288,8 +282,6 @@ class GitHub(unittest.TestCase):
             fake.status = None
             auth_unseen = []
             none = rf.github(start, end, auth_unseen)
-        finally:
-            rf.run = orig
         self.assertEqual(out[0]["count"], 0)
         self.assertTrue(any("a の 1 ページ目を読めなかった" in u for u in page_unseen), page_unseen)
         self.assertEqual(none, [])
@@ -747,14 +739,10 @@ class GitHubSearch(unittest.TestCase):
 
     def collect(self, search_raw):
         fake, calls = self.fake(search_raw)
-        orig = rf.run
-        rf.run = fake
-        try:
+        with mock.patch.object(rf, "run", fake):
             start, end = rf.bounds(DAY, DAY)
             unseen = []
             out = rf.github(start, end, unseen)
-        finally:
-            rf.run = orig
         return out, unseen, calls
 
     def test_cut_events_are_told_and_searched(self):
