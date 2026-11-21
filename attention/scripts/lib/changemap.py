@@ -1026,10 +1026,8 @@ def branch_exists(token, cwd=None):
     symbolic ref で show-ref に通る）。"""
     if token == "HEAD":
         return False
-    for ref in (f"refs/heads/{token}", f"refs/remotes/origin/{token}"):
-        if git("show-ref", "--verify", "--quiet", ref, cwd=cwd) is not None:
-            return True
-    return False
+    return any(git("show-ref", "--verify", "--quiet", ref, cwd=cwd) is not None
+               for ref in (f"refs/heads/{token}", f"refs/remotes/origin/{token}"))
 
 
 def default_branch_ref(cwd=None):

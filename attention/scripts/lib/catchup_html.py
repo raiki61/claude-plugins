@@ -831,11 +831,8 @@ def point_code(data, fields, read=None):
     dicts = [f1 for f1 in (figs if isinstance(figs, list) else [figs]) if isinstance(f1, dict)]  # ページ側の FIGS と同じ並び
     found = {f"{fi}.{n['id']}": _resolve(files, n.get("code")) for fi, g in enumerate(dicts) if g.get("kind") == "graph"
              for n in g.get("nodes") or [] if n.get("code")}
-    edges = {}
-    for fi, g in enumerate(dicts):
-        for ei, e in enumerate(g.get("edges") or [] if g.get("kind") == "graph" else []):
-            if e.get("code"):
-                edges.setdefault(f"{fi}.{ei}", []).extend(_resolve(files, e.get("code")))
+    edges = {f"{fi}.{ei}": _resolve(files, e["code"]) for fi, g in enumerate(dicts) if g.get("kind") == "graph"
+             for ei, e in enumerate(g.get("edges") or []) if e.get("code")}
     return {"points": [_resolve(files, it.get("code")) for it in items],
             "nodes": {k: v for k, v in found.items() if v},
             "edges": {k: v for k, v in edges.items() if v}}
