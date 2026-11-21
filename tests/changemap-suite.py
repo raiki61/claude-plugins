@@ -460,8 +460,6 @@ class FrameDiff(unittest.TestCase):
     def test_reader_git_config_cannot_change_the_diff(self):
         """color.ui=always は ANSI を、diff.external は unified でない何かを、textconv は書き換えた行を
         返す。どれも split_diff を外して「中身が diff に無い」の嘘になる（実測）。"""
-        for args in self.calls or [cm.frame_diff(cwd="/x", paths=("src/a.py",)) or self.calls[0]]:
-            pass
         cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md"))
         for args in [a for a in self.calls if "diff" in a]:
             for flag in ("--no-color", "--no-ext-diff", "--no-textconv",
