@@ -6,6 +6,10 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Changed
+
+- 小さな Workflow の設計書（`docs/small-workflows-design.md`）に、持ち主に決めてほしい点 2（下書きの前の照合をどこまで機械に任せるか）が案 A に決まったと書いた。照合の Workflow だけにし、その後に持ち主に止めて聞く所を足さない。案 B だけが根拠だった、Workflow を段ごとに分ける理由の 1 つを外した。照合の Workflow はまだ作っていない（頼み 8ea3db）。
+
 ## [0.80.1] - 2026-11-21
 
 ### Fixed
