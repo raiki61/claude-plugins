@@ -1350,10 +1350,8 @@ def unseen_lines(node, me, caps, unlinked, ask, since, full, red, human,
     out = []
     w = out.append
     w("見ていないもの:")
-    for cap in caps:
-        w("  - " + cap_text(*cap))
-    for line in judge_cap_lines(node, me):
-        w("  - " + line)
+    out.extend("  - " + cap_text(*cap) for cap in caps)
+    out.extend("  - " + line for line in judge_cap_lines(node, me))
     w("  - GitHub の外（チャット・口頭・メール）でのやり取り")
     if is_pr:
         # 有るのに末尾に無い材料（焦点で他に絞ったとき）は、出す口を添える
@@ -1569,8 +1567,8 @@ def render_map(node, owner, name):
     if files.get("totalCount", 0) > len(nodes):
         w(f"  変更ファイルは {files['totalCount']} 件中、先頭の {len(nodes)} 件だけ取った")
     w("  変更ファイル（ADDED = 新規）:")
-    for f in nodes:
-        w(f"    {f['changeType']:9} {'+%d/-%d' % (f['additions'], f['deletions']):<12} {f['path']}")
+    out.extend(f"    {f['changeType']:9} {'+%d/-%d' % (f['additions'], f['deletions']):<12} {f['path']}"
+               for f in nodes)
 
     sib = sibling_dirs(owner, name, paths)
     if sib is None:
@@ -1916,8 +1914,7 @@ def render_since_thread(th, node, lines, lo, hi, diff_since, full, frame=True):
             w(f"  （残り {len(picked) - i} 枠は --full か gh pr diff で）")
             break
         w(f"  飛び先 {th['path']}:{a}（head の {a}〜{b} 行" + (f"。共通の字下げ {len(prefix)} 桁を落とした" if prefix else "") + "）")
-        for ln in frame:
-            w("  | " + ln)
+        out.extend("  | " + ln for ln in frame)
         total += len(frame)
     return out, True
 
@@ -1949,8 +1946,7 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
         c = th["last"]
         w(f"  {name_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
         body = their_lines(c["body"])
-        for ln in body[:THREAD_BODY_CAP]:
-            w("    " + ln)
+        out.extend("    " + ln for ln in body[:THREAD_BODY_CAP])
         if len(body) > THREAD_BODY_CAP:
             w(f"    （発言はあと {len(body) - THREAD_BODY_CAP} 行。gh api で見る）")
         # 削除された側の行への指摘は head に行が無く、どの関数かを決められない。私の発言以降に変わったかは出し、
@@ -1982,8 +1978,8 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
         w(f"  head の {lo}〜{hi} 行" + ("（指摘の行を含む関数まるごと）" if whole else f"（指摘の行の前後 {THREAD_CONTEXT} 行）")
           + (f"（共通の字下げ {len(prefix)} 桁を落とした）" if prefix else "")
           + ("（指摘した時点から行がずれている。isOutdated）" if th["outdated"] else "") + ":")
-        for k, ln in changemap.fold_literals(changemap.dedent(span, prefix), th["path"]):
-            w(f"  | {lo + k:4} {ln}" if k is not None else f"  |      {ln}")
+        out.extend((f"  | {lo + k:4} {ln}" if k is not None else f"  |      {ln}")
+                   for k, ln in changemap.fold_literals(changemap.dedent(span, prefix), th["path"]))
     if not full and len(threads) > THREAD_CAP:
         w(f"  （スレッドは他に {len(threads) - THREAD_CAP} 件。--full で全部）")
     return "\n".join(out)
@@ -2043,8 +2039,7 @@ def render_ci(node, owner, name, run_log=None, full=False, failures=None):
         if f["log"] is None:
             w(f"  | （{f['note']}）")
             continue
-        for ln in f["log"]:
-            w("  | " + ln)
+        out.extend("  | " + ln for ln in f["log"])
     if more:
         w(f"  （赤は他に {more} 件。--full で全部）")
     return "\n".join(out)
@@ -2600,8 +2595,7 @@ def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None, derived_
     elif ahead.strip():
         lines = ahead.strip().splitlines()
         w(f"  {label} {len(lines)} 件:")
-        for ln in lines[:10]:
-            w("    " + ln)
+        out.extend("    " + ln for ln in lines[:10])
     else:
         w(f"  {label}: なし")
     if pr_head:

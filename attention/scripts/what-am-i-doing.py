@@ -274,8 +274,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
         if log:
             lines = log.splitlines()
             w(f"## このセッションの間に入ったコミット — {len(lines)} 件")
-            for line in lines:
-                w("  " + line)
+            out.extend("  " + line for line in lines)
             w("")
 
     dirty, tree = changemap.working_tree(cwd)
