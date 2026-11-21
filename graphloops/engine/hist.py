@@ -7,7 +7,6 @@ hist_reads で宣言し、engine は宣言した物だけが見える入れ物�
 保存のたびに全部の値を控え（盤面の hist.json。正本でない印つき）に書き出す——控えを読んで盤面へ戻す口は無い。
 """
 import copy
-import os
 
 from .util import die, get_path, read_json, safe_name, write_json
 from .schema import validate_schema
@@ -178,7 +177,7 @@ def write_control(board, table):
     TRACES が写す）に残して止めない。履歴（周の記録・ノードの出力・trace）には何も足さない"""
     schema = (board.graph.get("hist_schema") or {}).get("properties") or {}
     values, errors = {}, []
-    for name, fn in table.items():
+    for name in table:
         try:
             v = board.hist(name)
         except (Exception, SystemExit) as e:  # noqa: BLE001  die は SystemExit——控えのために保存を止めない
@@ -197,6 +196,4 @@ def write_control(board, table):
             "note": "正本でない控え。値は rules の HIST の関数が周の記録（rounds/）とノードの出力（out/）から作り、engine が盤面を保存する"
                     "たびに書き直す。直すなら元の履歴（loop.py patch --path out.<ノード>.<フィールド> か記録）を直せ——ここを書き換えても何にも効かない",
             "round": board.round, "rev": board.state.get("rev"), "values": values, "errors": errors}
-    tmp = board.dir / (HIST_FILE + ".tmp")
-    write_json(tmp, body)
-    os.replace(tmp, board.dir / HIST_FILE)
+    write_json(board.dir / HIST_FILE, body)   # write_json が .tmp に書いて置き換える
