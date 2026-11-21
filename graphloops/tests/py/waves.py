@@ -33,7 +33,6 @@ from unittest import mock
 import glharness
 import pytest
 
-TESTS = glharness.TESTS
 review = glharness.script("review")
 research = glharness.script("research")
 # テストの user_properties に積む名前（junitxml に載り、被覆のツール cover_moved.py が読む）: 使った波・積んだテストの node id
