@@ -6,6 +6,10 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+
+- 記録の検証器の整理（利用者の動きは変わらない）。`scripts/review-record.py` の main から、連続 2 ラウンドの会計と、収束を妨げるものの印字を関数に分けた。`scripts/firstread-record.py` の検査を、素材の返答と直しの記録で関数に分けた。`scripts/research-record.py` から、`scripts/record_common.py` へ移った検査の並びの注記を消した（同じ決まりは record_common の冒頭の説明に在る）。
+
 ## [0.55.0] - 2026-11-21
 
 ### Changed

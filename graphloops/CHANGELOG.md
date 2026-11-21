@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- engine と scripts の整理を続けた（利用者の動きは変わらない）。ノードを起動する前の作業ツリーを instance に写す所・Windows で役のプロセスの木を止める所・品質の台帳（`scripts/quality-ledger.py`）の周の判定の行を組む所と trace を読む所・`scripts/loop.py` のコマンドと引数を組み立てる所を、それぞれ関数に分けた。どちらの腕も同じ値になる分岐と、読まれない代入を 1 つにした。
+
 ## [0.49.1] - 2026-11-21
 
 ### Fixed
