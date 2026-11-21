@@ -407,13 +407,3 @@ def gl_script(request, gl_tmp, gl_check):
             gl_check.reach(f"driver:{driver}")
             return stack.enter_context(driven(script(kind), driver))
         yield use
-
-
-@pytest.fixture
-def fake_claude(tmp_path):
-    """代役の claude を置き、PATH の先頭に足した環境を返す（振る舞いは tests/fakeclaude.py の環境変数で選ぶ）"""
-    import fakeclaude
-    bindir = tmp_path / "fake-bin"
-    bindir.mkdir()
-    fakeclaude.install(bindir)
-    return {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}

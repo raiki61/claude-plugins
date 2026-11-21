@@ -59,7 +59,7 @@ _spec = importlib.util.spec_from_file_location("research_rules", PLUGIN / "rules
 RESEARCH_RULES = importlib.util.module_from_spec(_spec)
 RESEARCH_RULES.__dict__.update(_INJECT)
 _spec.loader.exec_module(RESEARCH_RULES)
-PROBE_MIN, PROBE_POINTS = RESEARCH_RULES.PROBE_MIN, RESEARCH_RULES.PROBE_POINTS
+PROBE_MIN = RESEARCH_RULES.PROBE_MIN
 
 fails = []
 ran = 0
@@ -212,12 +212,8 @@ class Run:
         # **記録は盤面のファイルを直読みする。** loop.py record は record.json の丸写しなのに、CLI 経由だと
         # 1 回ごとに python の起動と engine の import を払う（実測 2026-09-13: 2 本の台本で計 567 回・30.4 秒、
         # 直読みに替えると検査一式が 161 秒 → 132 秒で件数と失敗数は不変）。record サブコマンド自体の煙テストは
-        # record_cli() に 1 か所だけ残す——全部を直読みにすると、そのコマンドが壊れても誰も気づかない
+        # simulate_review.py の Run.record_cli() に 1 か所だけ残す——全部を直読みにすると、そのコマンドが壊れても誰も気づかない
         return json.loads((self.dir / "record.json").read_text(encoding="utf-8"))
-
-    def record_cli(self):
-        """loop.py record が record.json の丸写しを返すことの煙テスト（呼ぶのは 1 か所だけ）。"""
-        return json.loads(self.cmd("record").stdout)
 
     def status(self):
         return json.loads(self.cmd("status").stdout)
@@ -984,9 +980,9 @@ def test_graphcheck():
                 "CONDS['bad_record_sub'] = cond_reads('record.reviews.R2.stauts')(lambda v: (True, 'x'))\n")
     n = [0]
 
-    def broken(mutate, want, desc, validator=str(VALIDATOR)):
+    def broken(mutate, want, desc, validator=str(VALIDATOR), base=g):
         """graph を 1 か所壊して graphcheck に通す。腕ごとに 1 行で足せる（壊し方・期待する診断文・説明）。"""
-        bad = json.loads(json.dumps(g))
+        bad = json.loads(json.dumps(base))
         mutate(bad)
         n[0] += 1
         p = tmp / "graphs" / f"bad{n[0]}.json"
@@ -1077,7 +1073,7 @@ def test_graphcheck():
     # 同じ context を継ぐノード: 役が一致し、遮断系でないこと（review graph で見る）
     rg = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     rv = str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py")
-    for i, (mut, want, desc) in enumerate((
+    for mut, want, desc in (
             (lambda b: b["nodes"]["p2.history"].__setitem__("run_by", "inspector"), "役が違う", "same_context_as の役と自分の役が違う graph は落ちる"),
             (lambda b: (b["nodes"]["p2.history"].__setitem__("run_by", "blind-judge"), b["nodes"]["p2.diagnose"].__setitem__("run_by", "blind-judge")), "遮断系", "遮断系の役に same_context_as を書いた graph は落ちる（実行時の die を静的にも見る）"),
             # 条件の読むフィールドは out. だけでなく prev.<ノード>.<フィールド> もノードの schema と、loop.<鍵> も rules の LOOP_KEYS と突き合わせる
@@ -1089,13 +1085,8 @@ def test_graphcheck():
             # graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている
             (lambda b: b["nodes"]["p0.local_checks"]["schema"]["properties"]["material"]["properties"]["status"]["enum"].append("maybe"), "丸ごと含まれない", "素材の status の enum が検証器の語彙からはみ出す graph は落ちる（写しのずれ）"),
             # 遮断系の起動する語は engine が持つ——graph の argv は効かないので、書いた graph は落ちる
-            (lambda b: b["launch"]["isolated"].__setitem__("argv", ["claude", "{nope}"]), "は書けない", "launch.isolated に argv を書いた graph は落ちる（起動する語は engine/launch_words.py）"))):
-        badr = json.loads(json.dumps(rg))
-        mut(badr)
-        pr = tmp / "graphs" / f"badreview{i}.json"
-        pr.write_text(json.dumps(badr, ensure_ascii=False), encoding="utf-8")
-        r = subprocess.run([PY, str(GRAPHCHECK), str(pr), rv], capture_output=True, text=True, encoding="utf-8", timeout=600)
-        check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
+            (lambda b: b["launch"]["isolated"].__setitem__("argv", ["claude", "{nope}"]), "は書けない", "launch.isolated に argv を書いた graph は落ちる（起動する語は engine/launch_words.py）")):
+        broken(mut, want, desc, validator=rv, base=rg)
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（フィールドの名前だけ）")
     # 段名の正本は thickness.tiers——キーの集合から導かない
@@ -2853,7 +2844,6 @@ def test_graphcheck_sets_derived():
     g2["record"].pop("smoke_accepts_exit", None)
     g2["record"]["report_accepts_exit"] = "0"
     gp.write_text(json.dumps(g2, ensure_ascii=False), encoding="utf-8")
-    code, _ = gcheck()
     r = subprocess.run([PY, str(GRAPHCHECK), str(gp), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode != 0 and any("report_accepts_exit" in ln for ln in r.stdout.splitlines() if ln.startswith("NG")),
           "engine の鍵は rules の宣言に依らず常に形を検査される")

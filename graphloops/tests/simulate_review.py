@@ -4268,7 +4268,6 @@ def test_open_unit_and_hit_arm():
     見ていない腕は手前の腕が扱う。`and` にすると手前の腕の担当まで二重に拒み、理由が事実と食い違う。
     """
     print("生存した分岐: 直す単位の判定と、覆いの腕の切り分け")
-    from engine.rules import Reject
     rules = review_rules()
     V = _load_validator("vrec3")
 
@@ -4346,7 +4345,6 @@ def test_silent_status_derived():
     blocks=True なので黙らない（人に出る）から、ここでは塞がない。
     """
     print("自己申告の突合: 塞ぐ値の集合は検証器の表から引く")
-    from engine.rules import Reject
     V = _load_validator("vrec2")
     check(set(V.SILENT_STATUS) == {k for k, r in V.STATUS.items() if not r.observed and not r.blocks},
           f"集合は表から導かれる（{sorted(V.SILENT_STATUS)}）")
@@ -5169,9 +5167,9 @@ def test_pointers_by_number():
     from engine.schema import expand_refs
     # 読み込みの入口（widen）: 宣言の誤りは graph を読んだ時点で落ちる
     base = {"reads": ["record.units"], "schema": {"type": "object", "properties": {"ks": {"type": "array", "items": {"type": "string"}}}}}
-    def widen_says(ptr):
+    def widen_says(*ptrs, node=base):
         try:
-            expand_refs({"nodes": {"n": {**json.loads(json.dumps(base)), "pointers": [ptr]}}})
+            expand_refs({"nodes": {"n": {**json.loads(json.dumps(node)), "pointers": list(ptrs)}}})
             return "（拒まなかった）"
         except Exception as e:   # ValueError 以外で落ちた（宣言の検査が抜けて先で壊れた）も赤にする
             return f"{type(e).__name__}: {e}"
@@ -5181,20 +5179,11 @@ def test_pointers_by_number():
     check(said.startswith("ValueError") and "reads に無い" in said, f"widen: reads に無い一覧の宣言は graph を読む時点で拒む（{said[:70]}）")
     said = widen_says({"at": "ks[]", "form": ["record.units"]})
     check(said.startswith("ValueError") and "{at, from" in said, f"widen: フィールドの綴り違いの宣言は graph を読む時点で拒む（{said[:70]}）")
-    try:
-        expand_refs({"nodes": {"n": {"reads": ["record.units"], "pointers": [{"at": "ks[]", "from": ["record.units"]}]}}})
-        said = "（拒まなかった）"
-    except Exception as e:
-        said = f"{type(e).__name__}: {e}"
+    said = widen_says({"at": "ks[]", "from": ["record.units"]}, node={"reads": ["record.units"]})
     check(said.startswith("ValueError") and "schema を持つノード" in said, f"widen: schema を持たないノードの pointers は拒む（{said[:70]}）")
     two = {**json.loads(json.dumps(base)), "reads": ["record.units", "record.questions"]}
     two["schema"]["properties"]["js"] = {"type": "array", "items": {"type": "string"}}
-    try:
-        expand_refs({"nodes": {"n": {**two, "pointers": [{"at": "ks[]", "from": ["record.units"]},
-                                                          {"at": "js[]", "from": ["record.questions", "record.units"]}]}}})
-        said = "（拒まなかった）"
-    except Exception as e:
-        said = f"{type(e).__name__}: {e}"
+    said = widen_says({"at": "ks[]", "from": ["record.units"]}, {"at": "js[]", "from": ["record.questions", "record.units"]}, node=two)
     check(said.startswith("ValueError") and "別の連結" in said, f"widen: 同じ一覧を別の連結で指す宣言は拒む（{said[:70]}）")
     from engine.pointers import number
     rows = number([{"no": 12, "key": "a"}, {"key": "b"}], 0)
