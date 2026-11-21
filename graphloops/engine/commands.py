@@ -1538,10 +1538,9 @@ def pending_instance(b, node):
     return inst
 
 
-def _now_tree(accept_tree_change=None, why=None):
+def _now_tree(accept_tree_change, why):
     """今の作業ツリーの木の id。固められなければ拒む（git の言い分を添える）——--accept-tree-change を渡した回だけは None を返し
     （言い分は why に足す）、呼び元が痕跡を残して通す（人の答え 2026-09-27 の 3 周目の条件 3: どの突合でも、その出口は拒まない）"""
-    why = [] if why is None else why
     tree = worktree_tree(why)
     if tree is None and not accept_tree_change:
         raise Reject("作業ツリーの木の id が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）: "
