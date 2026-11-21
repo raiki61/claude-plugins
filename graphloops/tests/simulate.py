@@ -1432,28 +1432,6 @@ def test_research_tooled_launch():
             check(not {"argv", "resume", "via"} & set(launch.get(kind, {})), f"{name} の launch.{kind} は起動する語を持たない")
 
 
-def _fake_claude(bindir, body):
-    """代役の claude を、**実物と同じ実行形式**で置く。返り値は argv[0] に渡すパス。
-
-    実物（/usr/local/bin/claude 等）は OS が直接起動できる実行体で、shebang 付きのテキストは POSIX でしか
-    起動できない。代役だけを shebang のスクリプトにしていたとき、Windows の CreateProcess は shebang を
-    解釈しないので **代役だけが起動できず**、この腕が OSError（WinError 193）で模擬実行ごと止めた
-    （実測 2026-09-13: HEAD c73fd6e の CI で windows-latest が 320 件中 139 件で停止）。腕の目的は
-    「engine が組んだ argv をそのまま実行する」ことなので、argv を書き換えず実行形式の側を実物に寄せる。
-    """
-    impl = bindir / "fake_claude_impl.py"
-    impl.write_text(body, encoding="utf-8")
-    if os.name == "nt":
-        # CreateProcess は .bat / .cmd を cmd.exe 経由で起動できる（shebang は解さない）
-        fake = bindir / "claude.bat"
-        fake.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
-        return fake
-    fake = bindir / "claude"
-    fake.write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
-    fake.chmod(0o755)
-    return fake
-
-
 def test_isolated_real_launch():
     """遮断系を **argv どおりに実際に起動する**。代役が argv の形しか見ていないと、実物の失敗形（非 0 終了・空返答・
     短い非 JSON）を一度も観測できない——REVIEW.md『動かして赤・失敗を一度も見ていない保護機構を機能していると扱わない』。
@@ -1495,7 +1473,7 @@ def test_isolated_real_launch():
           "起動された側の argv にも遮断のフラグが入っている（形だけでなく実際に渡っている）")
 
     # 実物の失敗形: 非 0 終了と短い非 JSON（1 周目の認証落ちがこの形だった）
-    fake = _fake_claude(bindir, "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('Invalid API key\\n')\nsys.exit(1)\n")
+    fake = fakeclaude.place(bindir, "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('Invalid API key\\n')\nsys.exit(1)\n")
     with open(inst["launch"]["stdin"], "rb") as fh:
         r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
     check(r.returncode != 0 and "Invalid API key" in r.stdout, f"失敗形（非 0・短い非 JSON）を観測できる（rc={r.returncode}）")
@@ -1587,7 +1565,7 @@ def test_with_auth():
     # 別名のスクリプトで検査すると、実物と違う分岐（名前で撥ねる側）を通ってしまう
     bindir = tmp / "bin"
     bindir.mkdir()
-    fake = _fake_claude(bindir,
+    fake = fakeclaude.place(bindir,
                         "import os, sys\n"
                         "raw = sys.stdin.buffer.read()\n"
                         "sys.stdout.write('%d %s\\n' % (len(raw), os.environ.get('CLAUDE_CONFIG_DIR', '')))\n"

@@ -92,13 +92,19 @@ sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
 '''
 
 
-def install(bindir):
-    """bindir に代役の claude を置き、そのパスを返す。**実物と同じ実行形式で置く**（Windows は .bat——shebang を解さない。
-    理由の正本は simulate.py の _fake_claude の注記）。"""
-    impl = bindir / "fake_claude_env.py"
-    body = BODY.replace("__HOLD__", repr(parallel.hold_code(120)))
+def place(bindir, body, impl_name="fake_claude_impl.py"):
+    """代役の claude（中身は Python の body）を、**実物と同じ実行形式**で bindir に置く。返り値は argv[0] に渡すパス。
+
+    実物（/usr/local/bin/claude 等）は OS が直接起動できる実行体で、shebang 付きのテキストは POSIX でしか
+    起動できない。代役だけを shebang のスクリプトにしていたとき、Windows の CreateProcess は shebang を
+    解釈しないので **代役だけが起動できず**、この腕が OSError（WinError 193）で模擬実行ごと止めた
+    （実測 2026-09-13: HEAD c73fd6e の CI で windows-latest が 320 件中 139 件で停止）。腕の目的は
+    「engine が組んだ argv をそのまま実行する」ことなので、argv を書き換えず実行形式の側を実物に寄せる。
+    """
+    impl = bindir / impl_name
     impl.write_text(body, encoding="utf-8")
     if os.name == "nt":
+        # CreateProcess は .bat / .cmd を cmd.exe 経由で起動できる（shebang は解さない）
         fake = bindir / "claude.bat"
         fake.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
         return fake
@@ -106,3 +112,8 @@ def install(bindir):
     fake.write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
     fake.chmod(0o755)
     return fake
+
+
+def install(bindir):
+    """bindir に、環境変数で振る舞いを選ぶ代役の claude（BODY）を置き、そのパスを返す。置き方は place。"""
+    return place(bindir, BODY.replace("__HOLD__", repr(parallel.hold_code(120))), "fake_claude_env.py")
