@@ -3367,7 +3367,7 @@ def fix_covers_open_units(b, nid, out, item):
                          "——面の一覧は機械が changes[].files から出す。一方が他方を不要にしないか・順序で結果が変わらないか・"
                          "組み合わせて初めて生まれる状態が無いかを突き合わせて書け")
         # 面ごとにどの修正が触ったかは shared[f] として機械が持つ——役に写させない（以前の interactions[].changes）
-        for f, ks in shared.items():
+        for f in shared:
             if blank(seen[f].get("checked"), 10):
                 raise Reject(f"interactions[{f}] の checked が空同然——一方が他方を不要にしないか・順序で結果が変わらないか・"
                              "組み合わせて初めて生まれる状態が無いかを突き合わせた結果を書け")
@@ -3763,7 +3763,7 @@ def plan_review_output(v, nid, out, item):
     planned = {k for p in (v("cur.p2.fix_plan", None) or {}).get("plan") or [] for k in p["unit_keys"]}
     rows = (out.get("faces") or []) + (out.get("shrink") or [])
     errs = _keys_once(rows, "faces・shrink")
-    for i, r in enumerate(rows):
+    for r in rows:
         stray = [k for k in r["unit_keys"] if k not in planned]
         if stray:
             errs.append(f"{r['key'][:40]}: unit_keys {[k[:40] for k in stray]} は修正案に無い")
