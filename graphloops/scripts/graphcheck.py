@@ -59,7 +59,7 @@
      印字だけ（rules の中の b.loop_state への書き込みは照合しない）。共有のブロック（shared_blocks）の核のフィールドを、このループの使い手が
      同じ型・必須・enum で持つ。ブロックのファイルを引く graph は blocks を省けない
 
-この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
+この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は check() の側が正本で、番号を足したらここも直す。
 
 使い方:
     python3 graphloops/scripts/graphcheck.py graphloops/graphs/research-loop.json [convergence-loops/scripts/research-record.py]
@@ -972,7 +972,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         ok = flush("ok  宣言の形（inputs・schema の語）。exec が無いので実行の形の検査 6〜13 は省略") and ok
         return ok
 
-    # 14. 止めた後に走らせるノードの宣言（loop.py stop が読む）。stop.node は周を締める機械のノードで、その下流に報告のノード
+    # 止めた後に走らせるノードの宣言（loop.py stop が読む）。stop.node は周を締める機械のノードで、その下流に報告のノード
     # （pre=finalize）が在ること——下流に報告が無い宣言だと、止めた run は『全部のノードが終わっている』と言いながら報告が出ない
     decl = g.get("stop")
     if decl is not None:

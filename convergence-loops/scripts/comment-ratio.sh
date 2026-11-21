@@ -66,7 +66,7 @@ GIT_TIMEOUT_SEC = 120
 
 
 def fail(msg):
-    """計測不成立で止まる。名前を `review-record.py` の `fail()` と揃えてあるのは、同じ契約の
+    """計測不成立で止まる。名前を `record_common.py` の `fail()`（review-record.py も使う）と揃えてあるのは、同じ契約の
     実装名が 2 つあると片方を読んだ者がもう片方を grep で見つけられないため。
     **`raise SystemExit("...")` は exit 1 になるので使うな**（契約の詳細は同ファイル docstring）。"""
     print(f"comment-ratio: {msg}", file=sys.stderr)
@@ -243,7 +243,7 @@ def main():
         print("未計測（未追跡・差分に載っていない）: " + " ".join(missed))
 
 
-# **終了コードの契約を担保するのはここ 1 箇所**（`review-record.py` と同じ構造。理由は
+# **終了コードの契約を担保するのはここ 1 箇所**（`record_common.run` と同じ構造。理由は
 # ヘッダの終了コードのセクション）。
 try:
     main()

@@ -8,7 +8,7 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ### Changed
 
-- 記録の検証器の整理（利用者の動きは変わらない）。`scripts/firstread-record.py` で、構造の判断の引き金を出す所の、見出しと 1 項目を手で書いていた出力を、同じファイルに在る一覧の出力の関数に任せた（出る文は同じ）。
+- 記録の検証器の整理（利用者の動きは変わらない）。`scripts/firstread-record.py` で、構造の判断の引き金を出す所の、見出しと 1 項目を手で書いていた出力を、同じファイルに在る一覧の出力の関数に任せた（出る文は同じ）。共有の土台（`scripts/record_common.py`）と `scripts/comment-ratio.sh` のコメントで、関数を呼ぶ検証器の数と、関数の置き場の取り違えを直した。
 
 ## [0.56.0] - 2026-11-21
 
