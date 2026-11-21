@@ -28,7 +28,7 @@ import time
 
 from . import filelock, intake
 from .role_run import group_alive, lane_failure, liveness, pgid_path, trace_costs
-from .util import Reject, append_trace, defects_only, now, write_json, write_lane_failed
+from .util import TERMINAL_STATUS, Reject, append_trace, defects_only, now, write_json, write_lane_failed
 
 LOOP = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "loop.py"
 WATCH_LIMIT_S = 540   # 見守りが会話へ戻る上限（人の決定 2026-09-25 ①）。回し手と子は止めない
@@ -37,7 +37,6 @@ RUN_LOCK = "run.lock"
 RUNNER_JSON = "runner.json"
 RUN_LOG = "run.log"
 MARKS = "runner-launch"   # 回し手が立てた launch の子の印（role_run の .pgid と同じ形に ids を足す）
-TERMINAL = ("converged", "stopped")
 # run だけが返す終了コード（人の決定 2026-09-25 ④）。今の 0/1/2 の意味は run 以外で変えない
 CODES = {"done": 0, "awaiting_human": 10, "round_limit": 11, "stuck": 12, "handoff": 13, "needs_human": 14, "still_running": 20}
 # 日常の流れで返る値——入口（loop.py）が踏んだ問題として利用者の環境に残さない。13（会話に返す）は回し役なしの盤面でだけ engine の
@@ -168,7 +167,7 @@ def classify(st):
         kind = "needs_human"
     elif launchable or running or lanes:
         kind = "busy"
-    elif st.get("status") in TERMINAL:
+    elif st.get("status") in TERMINAL_STATUS:
         kind = "done"
     else:
         kind = "stuck"
