@@ -214,7 +214,7 @@ def _round_rows(d, vd, version_at, parts):
                 status = rv.get("status", NO_STATUS) if isinstance(rv, dict) else NOT_DICT
                 st = vd["status"].get(status) if vd.get("reviews") and isinstance(status, str) else None
                 if name not in (vd.get("reviews") or ()) or st is None:
-                    uncountable[str(name)][status if isinstance(status, str) else str(status)] += 1
+                    uncountable[str(name)][str(status)] += 1
                 elif st.machine_written or (vd["held"] and vd["held"](rv)):
                     held += 1
                 else:
@@ -285,7 +285,7 @@ def _read_run(d, where, verdicts, now):
         return {**row, "unreadable": f"state.json が読めない（{type(e).__name__}）"}
     parts = []
     changes = [c for c in (state.get("engine_changes") or []) if isinstance(c, dict)]
-    last = _version_of(state.get("engine")) if "engine" in state else NO_ENGINE
+    last = _version_of(state.get("engine"))
     first = _version_of(changes[0].get("to")) if changes else last
 
     def version_at(n):
@@ -423,7 +423,7 @@ def aggregate(rows):
 
 
 def _c(counter, top=None):
-    items = list(counter.items())[:top] if top else list(counter.items())
+    items = list(counter.items())[:top]
     return " / ".join(f"{k} {n}" for k, n in items) or "なし"
 
 
