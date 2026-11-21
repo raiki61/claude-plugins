@@ -3090,7 +3090,7 @@ def _awaiting_origins(V, questions, materials, where):
     """人待ちの問い（kind=awaiting で未決）の出どころが、今 awaiting_human の素材か。検証器は周の最後の 1 回だけ見るので、
     **フィールドを書いた時点で同じ規則を当てる**（OWASP Input Validation Cheat Sheet: 入力の検証は "as early as possible in the data flow"）。
     入口は 2 つ（判定者が人待ちでないフィールドを出どころにする・後の工程が人待ちのフィールドを上書きする）で、どちらもノードの done なので、
-    全部の done が通る check_record 1 か所から呼ぶ"""
+    全部の done が通る check_record から呼ぶ（p4.ci の checks_reply も、書く前の素材で同じ規則を当てる）"""
     errs = []
     for i, q in enumerate(questions):
         if V.origin_not_awaiting(q, materials):

@@ -19,7 +19,7 @@ from . import hist as histmod
 from . import declared
 from . import intake
 from . import launch_words
-from .advance import (ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, narrowed_def, node_appends,
+from .advance import (ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, mark_done, narrowed_def, node_appends,
                       open_next_round, runner_form, skip_node)
 from .board import Board, empty_round
 from .record import apply_writes
@@ -27,7 +27,7 @@ from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import cli_schema, graph_text, load_graph, validate_schema
 from .util import (ANSWER_ACTIONS, HANDOFF_DEFECTS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS,
-                   copy_worktree, defects_only, die, dump, find_attempt, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain,
+                   copy_worktree, defects_only, die, dump, find_attempt, get_path, git, has_path, load_script, loads_outside, note_unevaluable, now, porcelain,
                    append_trace, protected_paths, read_input_json,
                    read_json, repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json, write_lane_failed)
 from .role_run import (COMMAND_TOOLS, DELEGATE_TOOLS, SKILL_ENV, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings,
@@ -153,7 +153,7 @@ def check_graph(graph, validator):
     **黙って通さず die する**——「検査できないから通す」は、この差分が繰り返し塞いできた形である。
     """
     try:
-        mod = _load_script("graphloops_graphcheck", PLUGIN_ROOT / "scripts" / "graphcheck.py")
+        mod = load_script("graphloops_graphcheck", PLUGIN_ROOT / "scripts" / "graphcheck.py")
     except Exception as e:                      # noqa: BLE001 — 何で落ちても「検査できない」は同じ扱い
         die(f"graph の静的検査を動かせない（{type(e).__name__}: {e}）——検査を飛ばして init はしない")
     lines = []
@@ -163,14 +163,6 @@ def check_graph(graph, validator):
     # ノードの知らない鍵は止めずに知らせる（返りは init の notes に載せる）——外から持ち込んだ graph のノードに利用者が書いた鍵で init を
     # 止めない（上位互換）。単体の graphcheck と台本では NG
     return [f"graph の静的検査の警告: {str(l)[5:]}" for l in lines if str(l).startswith("WARN ")]
-
-
-def _load_script(name, path):
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def resolve_dir(a):
@@ -1920,13 +1912,13 @@ def cmd_answer(a):
             observed={"claudecode_env": bool(os.environ.get("CLAUDECODE")), "stdin_tty": bool(sys.stdin and sys.stdin.isatty())})
     if in_round:
         # 問うたノードをここで済ませる（ask では done の印を付けない）。continue は同じ周のまま先へ、stop は run をその場で止める
-        _mark_done(b, ph["node"], f"answer:{ans}")
+        mark_done(b, ph["node"], f"answer:{ans}")
         if ans == "stop":
             b.state["status"] = "stopped"
             b.state["halted"] = {"node": ph["node"], "round": b.round, "by": "answer", "reason": ph["note"]}
     elif ans == "stop":
         # 聞いたノードはここで決着——ask では done の印を付けないので、stop の答えが印を付ける（continue は周が変わる）
-        _mark_done(b, ph["node"], "answer:stop")
+        mark_done(b, ph["node"], "answer:stop")
         b.state["status"] = "stopped"
     else:
         if ans == "escalate":
@@ -1935,17 +1927,12 @@ def cmd_answer(a):
                 raise Reject("この loop に段（thickness.tiers）が無いので escalate できない")
             thicken(b, b.tiers[-1], "依頼者の判断（諮った結果）", by="answer")
         if not open_next_round(b, ph["node"]):
-            _mark_done(b, ph["node"], f"answer:{ans}")
+            mark_done(b, ph["node"], f"answer:{ans}")
             b.save()
             print(f"ok 答え '{ans}' を記録した。init --stop-after-round {b.state['stop_after_round']} の指定で、次の周は開かずに止めた（halted）")
             return
     b.save()
     print(f"ok 答え '{ans}' を記録した。続きは loop.py next")
-
-
-def _mark_done(b, nid, builtin):
-    b.rd["done"][nid] = {"at": now(), "builtin": builtin}
-    b.state["done_ever"][nid] = b.round
 
 
 STOPPED_BY = "人が止めた（loop.py stop）"
@@ -2017,7 +2004,7 @@ def cmd_stop(a):
         fn = hook(b.rules, "on_stop")
         no_report = fn(b, info) if fn else None
         if root and not no_report:
-            _mark_done(b, root, "stop")
+            mark_done(b, root, "stop")
         else:
             info["report"] = False
             info["no_report"] = no_report or "graph に stop の宣言（止めた後に走らせるノード）が無い——init の版の graph が古い"
@@ -2566,7 +2553,7 @@ def _hook_selfcheck(board, cwd):
     if not landed:
         return f"読了のフックを登録の語（{entry['command']}）のとおりに試しで走らせたが、行を書かない（{why}）{lost}"
     try:
-        mod = _load_script("graphloops_record_read", PLUGIN_ROOT / "hooks" / "record-read.py")
+        mod = load_script("graphloops_record_read", PLUGIN_ROOT / "hooks" / "record-read.py")
         found = [pathlib.Path(x).resolve() for x in mod.boards(str(cwd))]
     except Exception as e:                      # noqa: BLE001 — 何で落ちても「確かめられない」は同じ扱い
         return f"読了のフックがこの盤面を見つけるかを確かめられない（{type(e).__name__}: {e}）{lost}"

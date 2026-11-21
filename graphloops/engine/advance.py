@@ -724,6 +724,12 @@ def fan_items(b, nid):
     return fn(b, nid)
 
 
+def mark_done(b, nid, builtin):
+    """nid を今の周の done に載せ、done_ever に周を残す（builtin は済ませた手の名。answer の口も同じ形で書く）"""
+    b.rd["done"][nid] = {"at": now(), "builtin": builtin}
+    b.state["done_ever"][nid] = b.round
+
+
 def run_driver_node(b, nid, n, notes):
     """機械のノード（rules の BUILTINS）。decision を返すノードは周の遷移を起動する。
     返り値: True = 進んだ / False = 止まった（notes に理由。人に聞くターンの中断もこちら——
@@ -747,10 +753,6 @@ def run_driver_node(b, nid, n, notes):
     b.trace("builtin", node=nid, result=out)
     # 返りは 2 つの形のどちらか——{"ok": bool, "problems": [...]} か {"decision": ...}。
     # どちらでもない返りを合格に倒さない（`ok is False` だけを失敗にしていたとき、ok の無い返りが全部 done に載った）。
-    def mark_done():
-        b.rd["done"][nid] = {"at": now(), "builtin": n["builtin"]}
-        b.state["done_ever"][nid] = b.round
-
     if "decision" not in out:
         if not isinstance(out.get("ok"), bool):
             die(f"builtin '{n['builtin']}' の返りが {{'ok': 真偽値}} でも {{'decision': …}} でもない: {sorted(out)}")
@@ -767,7 +769,7 @@ def run_driver_node(b, nid, n, notes):
                 b.trace("rewound", node=nid, nodes=back)
                 return True
             return False
-        mark_done()
+        mark_done(b, nid, n["builtin"])
         return True
     d = out["decision"]
     notes.append(f"{nid}: {d}——{out.get('reason', '')}")
@@ -784,7 +786,7 @@ def run_driver_node(b, nid, n, notes):
         # 進み、入口のガードで同じ報告を複製する必要が生じた。答えが stop なら cmd_answer が印を付け、continue なら周が変わる
         b.state["pending_human"] = {"node": nid, **out["ask"]}
         return False
-    mark_done()
+    mark_done(b, nid, n["builtin"])
     if d == "next_round":
         if not open_next_round(b, nid):
             notes.append(f"{nid}: init --stop-after-round {b.state['stop_after_round']} の指定で、{b.round} 周目の締めの後に止めた（次の周は開かない）")

@@ -14,13 +14,18 @@ import sys
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-@functools.lru_cache(maxsize=None)
-def claude_auth():
-    """同梱の認証の部品（scripts/claude_auth.py。リポジトリの scripts/ の写しで、設定のフォルダの決め方の正本もここ）。"""
-    spec = importlib.util.spec_from_file_location("graphloops_claude_auth", PLUGIN_ROOT / "scripts" / "claude_auth.py")
+def load_script(name, path):
+    """path の .py を name のモジュールとして読み込む（パッケージの外の同梱のスクリプトを engine から呼ぶ口）"""
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+@functools.lru_cache(maxsize=None)
+def claude_auth():
+    """同梱の認証の部品（scripts/claude_auth.py。リポジトリの scripts/ の写しで、設定のフォルダの決め方の正本もここ）。"""
+    return load_script("graphloops_claude_auth", PLUGIN_ROOT / "scripts" / "claude_auth.py")
 
 
 def claude_config_dir():
