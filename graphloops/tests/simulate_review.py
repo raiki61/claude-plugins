@@ -27,7 +27,8 @@ import vocab  # 同じディレクトリ。台本が返した判定語彙の到�
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from engine.advance import load_item  # noqa: E402 — 項目の正本（items/ のファイル）の読み方は engine が持つ
-from engine.util import TERMINAL_STATUS  # noqa: E402 — 終端の status は engine が正本（台本で並べ直さない）
+from engine.board import Board  # noqa: E402
+from engine.util import TERMINAL_STATUS, Reject  # noqa: E402 — 終端の status は engine が正本（台本で並べ直さない）
 
 # Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
@@ -937,7 +938,6 @@ def test_new_guards():
     run = Run("guards")
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
-    t = answers(run, "std", 1)
     # kind=実測 は再現の形（コマンドと出力）を持て——『実測』の札だけが検算なしで信頼値に昇格しない
     bad = {"constraints": [{"text": "呼び出し元は 1 箇所", "measured_how": "grep した", "kind": "measured"}]}
     r = run.done(by["p0.premises"]["id"], bad)
@@ -1143,7 +1143,6 @@ class _Lazy(dict):
 
 def view_of(rules, b, name, reads):
     """盤面の偽物に頭の値（ctx）を持たせ、engine の Board.view そのもので読み口を組む（組み立ての写しを持たない）"""
-    from engine.board import Board
     b = types.SimpleNamespace() if b is None else b   # 盤面を読まない関数には盤面なしで渡す台本が在る
     b.ctx = lambda: _fake_ctx(rules, b)
     if not hasattr(b, "state"):
@@ -1904,6 +1903,13 @@ def test_rejections():
     rm(run.tmp)
 
 
+def review_rules():
+    """review-loop の rules を engine の load_rules で読む（INJECT の差し込みも含む）。git は固定しない——固定するのは load_review_rules"""
+    from engine.rules import load_rules  # noqa: E402
+    gp = PLUGIN / "graphs" / "review-loop.json"
+    return load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+
+
 def load_review_rules(repo):
     """rules を読み、engine と同じツール（INJECT）を差し込んだうえで、**git だけを repo に固定**して返す。
 
@@ -1913,9 +1919,7 @@ def load_review_rules(repo):
     同ファイルの test_freeze_revision_on_real_intent_to_add と同じ作法で、呼び先だけを差し替える。
     ツールを手で選んで写すと、rules が新しいツールを使った周に台本の中でだけ NameError になる。
     """
-    from engine.rules import load_rules  # noqa: E402
-    gpath = PLUGIN / "graphs" / "review-loop.json"
-    mod = load_rules(gpath, json.loads(gpath.read_text(encoding="utf-8")))
+    mod = review_rules()
 
     def pinned_git(*a, **k):
         q = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True,
@@ -1931,7 +1935,6 @@ def test_external_rankings():
     print("外部標準照合の順位: 乗る順位を名指しし、下位なら理由")
     _td, tmp = parallel.workspace("gl-rank-")
     rules = load_review_rules(tmp)
-    from engine.util import Reject  # noqa: E402
     chk = raising(rules, rules.POST_CHECKS["external_rankings"])
     row = {"problem": "役の書いた文字列からコマンドを組んで走らせる", "source": "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html",
            "ranked": ["コマンドを呼ばない", "データとコマンドを構造で分ける", "文字列を検証する"]}
@@ -2085,7 +2088,6 @@ def test_fix_counts_by_engine():
                           cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
     (tmp / "t.py").write_text("GOOD = 1\n", encoding="utf-8")   # 修正役は追跡中の側だけ直した
     rules = load_review_rules(tmp)
-    from engine.util import Reject  # noqa: E402
     how = {"patterns": ["BAD"], "paths": ["."], "count": "lines"}
     unit = {"key": "k", "label": "block"}
     board = tmp / ".git" / "gl-board"   # 本物の run と同じく git dir の下（作業ツリーの外）——作業場と一緒に消える
@@ -2307,7 +2309,6 @@ def test_engine_rewind_and_guards():
     """engine の撃ち直し（Board.rewind）と、周を進める機械のチェックのうち主経路から届きにくい入口を 1 本ずつ撃つ。
     撃ち直しは今の周にノードが出した物だけを外し、set でない書き込み・前の周の出力には触らない"""
     print("撃ち直しの口: 機械のノードは戻さない・set のフィールドだけ外す・append は残す・条件外のノードは印だけ／偽の rewound は止める")
-    from engine.board import Board  # noqa: E402
     from engine.advance import run_driver_node  # noqa: E402
     run = Run("rewind")
     drive(run, "std", stop_at=lambda nx: nx["round"] == 2 and any(i["node"] == "p2.diagnose" for i in nx["ready"]))
@@ -2389,7 +2390,6 @@ def test_judge_output_needs_precedents_schema():
     for c in (["init", "-q"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"]):
         subprocess.run(["git", *c], cwd=tmp, capture_output=True)
     rules = load_review_rules(tmp)
-    from engine.util import Reject  # noqa: E402
     b = types.SimpleNamespace(round=1, loop_state={}, dir=tmp, record={"materials": {}, "units": [], "questions": []},
                               state={"validator": str(VALIDATOR), "inputs": {}},
                               graph={"nodes": {"p2.diagnose": {"schema": {"properties": {}}, "reads": []}}})
@@ -2455,11 +2455,6 @@ def test_wrote_refs_main_path():
     nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p3.fix" for i in n["ready"]))
     fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
     fix = answers(run, "std", nx["round"])["p3.fix"](None)
-    board = pathlib.Path(run.dir)
-
-    def loop_state():
-        return json.loads((board / "state.json").read_text(encoding="utf-8")).get("loop", {})
-
     (run.repo / "docs").mkdir(exist_ok=True)
     (run.repo / "docs" / "d.md").write_text("# d" + chr(10), encoding="utf-8")
     r = run.done(fx["id"], {**fix, "wrote_refs": [{"kind": "text", "cite": "# d", "target": "docs", "where": "README.md"}]})
@@ -2479,11 +2474,10 @@ def test_wrote_refs_main_path():
           f"主経路: 301 字の target は型で落ちる（rc={r.returncode}: {r.stderr.strip()[-90:]}）")
     # **where は必須**——書いた場所を申告しないと、指し先と同じファイルかどうかを誰も見られない
     r = run.done(fx["id"], {**fix, "wrote_refs": [{"kind": "text", "cite": "# demo", "target": "README.md"}]})
-    where_missing = r
     # 区別語は型の拒否文（『必須のフィールド』）——関数の側の空の where の拒否も同じ形を止めるので、『where』の一語では
     # 型の宣言を外しても緑だった（kind と同じく、型は役の入口・関数は直に呼ぶ入口を守る）
-    check(where_missing.returncode == 1 and "必須のフィールド 'where'" in where_missing.stderr,
-          f"主経路: where を落とした申告は型で落ちる（rc={where_missing.returncode}: {where_missing.stderr.strip()[-90:]}）")
+    check(r.returncode == 1 and "必須のフィールド 'where'" in r.stderr,
+          f"主経路: where を落とした申告は型で落ちる（rc={r.returncode}: {r.stderr.strip()[-90:]}）")
     # **where も target と同じ規律で解く。** 理由を捨てて None に倒していたとき、綴りを変えた where は
     # target と同じファイルでも印（self）が付かずに黙って通った
     r = run.done(fx["id"], {**fix, "wrote_refs": [{"kind": "text", "cite": "# demo", "target": "README.md", "where": "./README.md"}]})
@@ -2518,7 +2512,7 @@ def test_wrote_refs_main_path():
     # **申告が空の周も読了の記録が今の周で書かれる**——呼び元のガードを通らない直呼びでは測れない性質
     r = run.done(fx["id"], {**fix, "wrote_refs": []})
     wr = (run.output("p3.fix") or {}).get("wrote_refs_reads") or {}
-    check(r.returncode == 0 and wr.get("round") == nx["round"] and wr["items"] == [] and "wrote_refs_reads" not in loop_state(),
+    check(r.returncode == 0 and wr.get("round") == nx["round"] and wr["items"] == [] and "wrote_refs_reads" not in run.state().get("loop", {}),
           f"主経路: **申告が空の周も、今の周の刻印で修正の出口（p3.fix の出力）に書かれる**（rc={r.returncode} / {wr}）")
     # **申告は記録に届き、読み手が居る。** graph の p3.fix の writes が process.fixes へ積み、
     # r1.minimality がそのフィールドを reads に宣言している——pick から落ちると独立の目が申告を見られなくなる
@@ -3865,9 +3859,7 @@ def test_request_entry():
                          lambda run: {})
     check("p1.local_review" in got, f"入口: 依頼の一覧だけを置いても P1 は外れない（出た {sorted(got & roles)}）")
     # 入口の項を持たないノードは、cond が真でも入口の理由を書かない（素材の穴埋めが入口の文で上書きしない）
-    from engine.rules import load_rules
-    gp = PLUGIN / "graphs" / "review-loop.json"
-    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    rules = review_rules()
     # 入口で外れたか＝入口の周で、今は偽で、入口の印を外した文脈（重ね書き）なら真。同じ関数を 2 回評価する
     def fake(entry, now, off):
         return types.SimpleNamespace(cond=lambda c, overlay=None: ((entry if c == "request_entry" else (off if overlay else now)), "検査"))
@@ -4215,9 +4207,7 @@ def test_surviving_branches():
     ③素材の必須フィールドの型検査——`or` を `and` にしても緑。空文字が「在る」として通る。
     """
     print("生存した分岐: 行数の数え方・前提の問いの差し替え・必須フィールドの型検査")
-    from engine.rules import load_rules
-    gp = PLUGIN / "graphs" / "review-loop.json"
-    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    rules = review_rules()
 
     # ① numstat の数え方——**実装を呼ぶ。** 最初は同じ式を検査側に写していて、実装を壊しても
     # 全件緑だった（実測: `and`→`or` と `isdigit` 外しの 2 つとも生き残った）。**落ちようのない検査**で、
@@ -4278,9 +4268,8 @@ def test_open_unit_and_hit_arm():
     見ていない腕は手前の腕が扱う。`and` にすると手前の腕の担当まで二重に拒み、理由が事実と食い違う。
     """
     print("生存した分岐: 直す単位の判定と、覆いの腕の切り分け")
-    from engine.rules import Reject, load_rules
-    gp = PLUGIN / "graphs" / "review-loop.json"
-    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    from engine.rules import Reject
+    rules = review_rules()
     V = _load_validator("vrec3")
 
     # ① 直す単位の判定——4 通りを全部踏む
@@ -4427,7 +4416,6 @@ def test_delta_conditions():
         subprocess.run(["git", *c], cwd=tmp, capture_output=True)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
     rules = load_review_rules(tmp)
-    from engine.util import Reject  # noqa: E402
     board = tmp / ".git" / "gl-board"   # 本物の run と同じく git dir の下（作業ツリーの外）——作業場と一緒に消える
     board.mkdir()
     outs = {}
@@ -4836,7 +4824,6 @@ def test_lane_rules():
     check(b.record["process"]["request_findings"] == "型崩れ",
           "依頼のフィールドが崩れていて積めない回は触らずに戻る（同じ行は on_new_round が宣言の穴に載せてある）")
     # 受領: 名乗る置き場がこの周の線の置き場と違えば拒む（別の置き場に書いた線は誰も読まない）
-    from engine.util import Reject  # noqa: E402
     outs["p3.gates_cut"] = {"ok": True, "result": str(board / "lanes" / "r2.json")}
     for lane_path, want in ((str(board / "lanes" / "r2.json"), "通った"), (str(board / "lanes" / "other.json"), "置き場")):
         try:
@@ -5225,7 +5212,6 @@ def test_pointers_by_number():
     r = run.done(item["id"], {"plan": [{**good["plan"][0], "unit_keys": [99]}]})
     check(r.returncode == 1 and "no に無い" in r.stderr, f"範囲外の番号は拒む（{r.stderr.strip()[-80:]}）")
     # 拒む種類は『役に返せば直る』（AnswerReject）——engine が起動した役なら launch が同じ会話に続きを頼む
-    from engine.board import Board
     from engine.commands import accept_output
     from engine.util import AnswerReject
     try:
@@ -5346,9 +5332,7 @@ def test_purpose_trigger_unevaluable():
     ここを分けないと、正しい偽まで毎周 process.unevaluable に並んで、読む側が本物を見失う。
     """
     print("引き金の可評価性: フィールドが無い（測れない）と、フィールドが空（測れた偽）を分ける")
-    from engine.rules import load_rules
-    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
-    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
+    rules = review_rules()
     part = rules.purpose_sources_changed   # 目的監査の条件（purpose_review_due）の部品
 
     def board(purpose, touched):
@@ -5436,9 +5420,7 @@ def test_rejudge_edge():
     """同じ周の擦り合わせの辺: 異議が立つと開き、決着しなければ回す側の再異議の口が開き、3 回とも決着しなければ第三の目へ移る。
     確かめずに採る返答は拒む。"""
     print("否定検査: 同じ周の擦り合わせ（往復の口・再異議・3 回で第三の目・新しい事実の要求）")
-    from engine.rules import load_rules
-    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
-    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
+    rules = review_rules()
     conds, checks = rules.CONDS, rules.POST_CHECKS
     held = lambda name, cur: cond_call(conds[name], {"round": 3, "cur": cur})[0]
     check(not any(held(c, {}) for c in ("rejudge_open", "rejudge2_open", "rejudge3_open", "rejudge_reply_due", "rejudge_reply2_due", "rejudge_exhausted")),
@@ -5476,8 +5458,7 @@ def test_rejudge_edge():
 
 def test_stop_branch():
     print("周の分岐: 検証器の --json の stop（キー）だけを見る（人向けの文に停止文言が載っても分岐が化けない）")
-    from engine.rules import load_rules
-    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8")))
+    rules = review_rules()
     V = types.SimpleNamespace(STOP_KEYS={"premise_escalate": "前提不成立が確定（escalate）", "work_exhausted": "答え無しに進める仕事は無い"})
     text = "前提不成立が確定（escalate）——残る仕事は全てその答えに従属する。\n答え無しに進める仕事は無い\n"
     check(rules.stop_branch(V, {"exit": 1, "out": text, "stop": None}) == "work_remains",
@@ -5663,9 +5644,7 @@ def test_cond_truth_tables():
     print("条件の真偽表: CONDS の関数を 1 つずつ、真・偽・落ちるの行で当てる")
     import io  # noqa: E402
     from contextlib import redirect_stderr  # noqa: E402
-    from engine.rules import load_rules
-    gp = PLUGIN / "graphs" / "review-loop.json"
-    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    rules = review_rules()
     V = _load_validator("gl_truth_v")
 
     def ev(name, ctx):
@@ -5884,7 +5863,6 @@ def test_cond_truth_tables():
         check(got == "AttributeError", f"入れ物: 内部のフィールド v.{attr} を直に読むと落ちる（{got}）")
     # 検証器は読むときに引く: 検証器の無い run で検証器を読む条件は Reject で落ち（loop.py が制御された拒否として出す）、
     # 読まない条件は評価できる。以前 V=None に倒していたとき、units_open が素の AttributeError で落ちた（2026-09-25 修正差分のレビュー）
-    from engine.util import Reject
 
     def no_validator():
         raise Reject("検証器（scripts/<loop>-record.py）が見つからない（検査用）")
@@ -6055,8 +6033,7 @@ def test_loop_keys_declared():
     形（graph の state_schema）も、回した盤面が外れていないことを engine の保存の時の痕跡で確かめる"""
     print("loop の鍵の宣言: 通しで回した盤面の loop の鍵が、全部 rules の LOOP_KEYS に在り、graph の state_schema の形に収まる")
     from engine.rules import load_rules
-    gp = PLUGIN / "graphs" / "review-loop.json"
-    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    rules = review_rules()
     run = Run("loopkeys")
     drive(run, "std")
     rounds = [str(rd["round"]) for rd in run.state()["rounds"]]

@@ -410,12 +410,6 @@ def gl_script(request, gl_tmp, gl_check):
 
 
 @pytest.fixture
-def gl_run(gl_script):
-    """台本の Run を作る工場: gl_run("review", "名前", **Run の引数)"""
-    return lambda kind, name, **kw: gl_script(kind).Run(name, **kw)
-
-
-@pytest.fixture
 def fake_claude(tmp_path):
     """代役の claude を置き、PATH の先頭に足した環境を返す（振る舞いは tests/fakeclaude.py の環境変数で選ぶ）"""
     import fakeclaude

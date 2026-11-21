@@ -51,7 +51,10 @@ PY = sys.executable
 # ——**写さず import する**: 名前を手で並べると、engine が鍵を足した周に台本だけが古くなる。
 # 読み込む前に差し込む（条件の宣言 cond_reads は rules の読み込みの時点で要る）
 sys.path.insert(0, str(PLUGIN))
-from engine.rules import INJECT as _INJECT  # noqa: E402
+import engine.util as _u  # noqa: E402
+from engine.board import Board  # noqa: E402
+from engine.rules import INJECT as _INJECT, load_rules  # noqa: E402
+from engine.validator import agent_def  # noqa: E402
 _spec = importlib.util.spec_from_file_location("research_rules", PLUGIN / "rules" / "research-loop.py")
 RESEARCH_RULES = importlib.util.module_from_spec(_spec)
 RESEARCH_RULES.__dict__.update(_INJECT)
@@ -611,7 +614,6 @@ def test_rejections():
     rec["claims"][0]["verdict"] = "たぶん"
     (run.tmp / "c.json").write_text(json.dumps(rec["claims"], ensure_ascii=False), encoding="utf-8")
     run.cmd("patch", "--path", "claims", "--file", str(run.tmp / "c.json"), "--reason", "試験（語彙外の判定語）")
-    from engine.rules import load_rules
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     rules = load_rules(PLUGIN / "graphs" / "research-loop.json", g)
     board = types.SimpleNamespace(state={"validator": str(VALIDATOR)}, record=run.record())
@@ -684,7 +686,6 @@ def test_hook_evidence():
     check("agent" in why, "誰が読んだか（agent_id）を説明に載せる——subagent の中でも発火する")
     doc.write_text("aaa" + chr(10) + "bbb" + chr(10) + "CHANGED" + chr(10), encoding="utf-8")
     check(ask()[0] == "stale", "**読んだ後に文書が変われば stale**（中身は記録に残さず sha で突き合わせる）")
-    import engine.util as _u  # noqa: E402
     _cap = _u.READ_CAP
     try:
         _u.READ_CAP = 1
@@ -812,7 +813,6 @@ def test_run_count():
     """数える問い（how）はフィールドで受け、argv は engine が決まった形で組む。腕はチェックごとに置き、拒否理由を**そのチェックに固有の語**で見る
     ——共通の一語で見ていた頃は、チェックを 1 つ消しても別の拒否文に当たって緑のままだった（2026-09-23 の gate_efficacy）。"""
     print("数える問い: フィールドから argv を組み、読めなかった問いを 0 件にしない")
-    import engine.util as _u  # noqa: E402
     _td, tmp = parallel.workspace("gl-count-")
     (tmp / "a.txt").write_text("x1\nx2\ny\n", encoding="utf-8"); (tmp / "b.txt").write_text("x3\n", encoding="utf-8")
     (tmp / "d").mkdir(); (tmp / "d" / "c.txt").write_text("x4\n", encoding="utf-8")
@@ -1346,7 +1346,6 @@ def test_research_tooled_launch():
     無い場（CI）で必ず『claude が無い』を返すので、ここで当てると CI でだけ赤になる（チェックの腕は test_tooled_launch_fence）。
     """
     from engine.role_run import tooled_permission
-    from engine.validator import agent_def
     print("ツールつきの役も engine が起動する: 標準の筋書きで出る役のノードは全部 launch を持ち、ツールつきの役は tooled の形")
     seen = []
 
@@ -1642,7 +1641,6 @@ def test_engine_launch():
 
     # **チェックは graph の宣言を読まない。** graph を書き換えられる立場の人がチェックごと書き換えられるので、
     # engine は「自分の前置」と「遮断の旗」だけを見る
-    from engine.validator import agent_def
     cold = agent_def("convergence-loops:cold-reader")
     role_file = run.tmp / "cold-reader.txt"
     role_file.write_text(cold["body"], encoding="utf-8")
@@ -2335,7 +2333,6 @@ def test_tooled_launch_fence():
     from engine import role_run
     from engine.commands import launch_prefix, launch_refusal
     from engine.role_run import protected_paths, tooled_permission
-    from engine.validator import agent_def
     print("ツールつきのチェック: 許可表の旗だけ・設定を読まない・聞く先が無い・権限の形とツールと sandbox の設定は engine が決めた値だけ")
     _td, tmp = parallel.workspace("gl-tooledfence-")
     stdin = tmp / "p.md"
@@ -2525,7 +2522,6 @@ def test_relative_dir():
     r = subprocess.run([PY, str(LOOP), "status", "--dir", rel], cwd=run.repo,
                        capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 0, f"相対の --dir で盤面を開ける（{r.returncode}: {r.stderr[-160:]}）")
-    from engine.board import Board
     b = Board(run.dir)
     got = b.ref("raw")
     check(bool(got), "ref:raw が全周の生出力を返す（1 件以上）")
@@ -2603,26 +2599,24 @@ def test_porcelain_memo():
     simulate_review の `test_worktree_guard_fires` が持つ。
     """
     print("否定検査: 作業ツリーの写しは 1 プロセス 1 回（前後は別プロセスなので混ざらない）")
-    import engine.util as U
-    from engine.board import Board
     run = Run("porcmemo")
     b = Board(run.dir)
     calls = []
-    real = U.porcelain
-    U.porcelain = lambda: (calls.append(1), real())[1]
+    real = _u.porcelain
+    _u.porcelain = lambda: (calls.append(1), real())[1]
     try:
         a1, a2, a3 = b.porcelain(), b.porcelain(), b.porcelain()
     finally:
-        U.porcelain = real
+        _u.porcelain = real
     check(len(calls) == 1, f"同じ盤面では 1 回しか引かない（{len(calls)} 回）")
     check(a1 == a2 == a3, "同じ値を返す")
     b2 = Board(run.dir)
     calls.clear()
-    U.porcelain = lambda: (calls.append(1), real())[1]
+    _u.porcelain = lambda: (calls.append(1), real())[1]
     try:
         b2.porcelain()
     finally:
-        U.porcelain = real
+        _u.porcelain = real
     check(len(calls) == 1, "盤面を開き直せば取り直す（別プロセス＝別の時点）")
     rm(run.tmp)
 
@@ -2744,7 +2738,6 @@ def test_stopped_gates_all_thicknesses():
     この腕は段を 3 つとも踏む——1 段だけ見ていると同じ漏れがまた通る。
     """
     print("否定検査: 停止した run のゲートは、どの段でも『飛ばした』と名乗る")
-    from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "research-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
     gates = ("rederiver", "cold_reader", "cartographer")
@@ -3113,7 +3106,6 @@ def test_frozen_schema_drift():
         if node in run.state()["done_ever"]:
             break
     from engine.advance import frozen_outputs_stale
-    from engine.board import Board
 
     b = Board(run.dir)
     check(b.nodes[node].get("once") and node in b.state["done_ever"], f"{node} は once で、もう出さない集合に載っている")
@@ -3190,7 +3182,6 @@ def test_concurrent_save():
     engine コマンドにする——手で rev を書き足すと「engine が rev を上げていない」を見逃す。
     """
     print("否定検査: 1 つの盤面に 2 人が付くと、後から書く側が落ちる")
-    from engine.board import Board
 
     run = Run("concurrent")
     a = Board(run.dir)  # A が読む（まだ書かない）
@@ -4145,7 +4136,6 @@ def test_carried_r1_only_previous_round():
     judge には直す術が無い（実測 2026-09-16: judge がこの形を名指しした）。
     """
     print("carried_r1: 直前の周に走った R1 の削除候補だけを要求する")
-    from engine.rules import load_rules
     gp = str(PLUGIN / "graphs" / "review-loop.json")
     graph = json.loads(pathlib.Path(gp).read_text(encoding="utf-8"))
     m = load_rules(gp, graph)
