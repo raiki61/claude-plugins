@@ -1,8 +1,8 @@
 """踏んだ事実を、利用者の環境に 1 件 1 行で残す記録器（設計は docs/feedback/intake.md の段階 1・2）。ループの中身を知らない。
 
-来歴（プラグインの名前と版・取れればコミット・run の番号と周）はここだけが組む。呼ぶ所は 4 つ:
+来歴（プラグインの名前と版・取れればコミット・run の番号と周）はここだけが組む。呼ぶ所は 5 つ:
 loop.py の最上段（非 0 で終わった呼び出し）・launch の ok でない行・手の口（loop.py intake）・報告の頭の 1 行
-（accept_output が save_text_as の本文を保存するとき）。
+（accept_output が save_text_as の本文を保存するとき）・回し役なしの盤面の矛盾（runner._note_defect）。
 
 **どう失敗しても呼び元を止めない。** 残す処理は失敗の口の中で走るので、ここで上がった例外は元の終了コードを
 書き換える。だから engine のツール（read_json・die・Board・util.git）を呼ばない——die と read_json は SystemExit を
