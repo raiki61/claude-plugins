@@ -103,6 +103,8 @@ from engine.commands import CLI_FLAGS, INPUT_KINDS  # noqa: E402 — 入力の�
 from engine.render import TOKEN, Renderer, node_prompt, strip_prefix  # noqa: E402
 from engine.rules import HOOKS, load_rules as engine_load_rules, registry, takes_view  # noqa: E402
 from engine.validator import ENGINE_ACCEPT_KEYS, agent_def, agent_tools, find_plugin_path  # noqa: E402
+# JSON の読み込みは engine の read_json（読めなければ die＝exit 2）。写しを持っていたとき UnicodeDecodeError を
+# 落としていて、docstring が定める終了コード契約（2）を外れ exit 1＋Traceback になった（実測 2026-09-12）
 from engine.util import read_json  # noqa: E402
 from engine import pointers  # noqa: E402 — 返答の中の位置の綴り（declared_files）は受け付けの読み手と同じ口で引く
 
@@ -114,8 +116,6 @@ def schema_patterns(schema):
 
 
 
-# JSON の読み込みは engine の read_json（読めなければ die＝exit 2）。写しを持っていたとき UnicodeDecodeError を
-# 落としていて、docstring が定める終了コード契約（2）を外れ exit 1＋Traceback になった（実測 2026-09-12）
 def load_rules(gpath, g):
     """engine と同じ読み込み（同じ INJECT）。読めなければ NG の文を返す（engine は die するので、ここで受けて診断に変える）。"""
     if not g.get("rules"):
@@ -1193,8 +1193,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     # 役（別 plugin の役——入っている機械でだけ当たる）のノードは、段のどのファイルとも重ねられない
     every = {f for seg in shaped for f in seg["files"]}
     for nid, v in nodes.items():
-        segs, known = appended(g, v) if isinstance(v, dict) and v.get("prompt_append") else ([], True)
-        dup = sorted(set(v.get("prompt_append") or []) & ({f for s in segs for f in s["files"]} if known else every)) if isinstance(v, dict) else []
+        segs, known = appended(g, v) if v.get("prompt_append") else ([], True)
+        dup = sorted(set(v.get("prompt_append") or []) & ({f for s in segs for f in s["files"]} if known else every))
         if dup:
             errs.append(f"ノード {nid}: prompt_append の {dup} は launch.append の段が{'このノードに当てる' if known else '当てうる（別 plugin の役）'}"
                         "——ノードから消せ（段が子の形で当てる）")
@@ -1284,7 +1284,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         declared = set(v.get("materials") or [])
         if wrote != declared:
             errs.append(f"ノード {k}: materials の宣言 {sorted(declared)} と writes の素材の書き先 {sorted(wrote)} が揃わない")
-    fan_builtins, node_builtins, post_checks = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS")
+    fan_builtins = reg("FAN_OUT")
     conds = dict(registry(rules, "CONDS"))
     post_checks_fns, builtin_fns = dict(registry(rules, "POST_CHECKS")), dict(registry(rules, "BUILTINS"))
     errs += block_errors(gpath, g, rules, conds, emit)
@@ -1355,7 +1355,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             elif not (isinstance(entry, dict) and callable(entry.get("plan")) and callable(entry.get("reply"))):
                 errs.append(f"ノード {k}: engine_run.builtin '{er.get('builtin')}' が rules の ENGINE_RUNS に無いか、plan と reply を持たない")
         if rb == "driver":
-            if v.get("builtin") not in node_builtins:
+            if v.get("builtin") not in builtin_fns:
                 errs.append(f"ノード {k}: builtin '{v.get('builtin')}' が rules の BUILTINS に無い")
             # **driver ノードにもデータの契約を要求する。** ここで抜けさせていたとき、driver ノードは reads を 1 つも持てず
             # deps が「順序」と「要る値」の 2 つの意味を 1 本で担い、どちらの意味で載っているかを機械にも読み手にも
@@ -1486,7 +1486,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 errs.append(f"ノード {k}: fan_out.cover は items_at（item. で始まる）と answers_at が要る")
         if "instance_deps" in v and ("cond" in v or any(isinstance(e, dict) and "applies_cond" in e for e in v.get("skills") or [])):
             errs.append(f"ノード {k}: instance_deps と cond（skills[].applies_cond も）は同時に持てない（項目を先に出すとき cond を評価できない）")
-        if v.get("post_check") and v["post_check"] not in post_checks:
+        if v.get("post_check") and v["post_check"] not in post_checks_fns:
             errs.append(f"ノード {k}: post_check '{v['post_check']}' が rules の POST_CHECKS に無い")
         check_conds(k, v)
         # 12. engine が実行に使うフィールド（writes.from・条件の読むフィールド・same_context_as の役）は、宣言どおりの物を指すこと。
