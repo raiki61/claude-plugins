@@ -249,6 +249,25 @@ def test_save_writes_a_control_that_is_not_canonical_and_adds_nothing_to_history
     assert "hist" not in json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["loop"]
 
 
+def test_prev_one_shot_has_no_check_and_an_old_control_does_not_break_the_save(tmp_path):
+    """前の周の一撃は text・closes・totals を運び、測り方（check）は持たない——判定の schema に測り方のフィールドが無く、前は
+    いつも空の check を置いていた。check を持つ旧い控え（hist.json）が盤面に残っていても、保存はそれを読まずに書き直す"""
+    one = {"one_shot": "入口を 1 つにする", "one_shot_closes": ["a"],
+           "units": [{"key": "a", "class_query": {"how": "grep -c x", "total": 3}}]}
+    b = make(tmp_path, 2, [rd(1, ["p4.record"]), rd(2)], records={1: rec(1, [U("a", "block")])}, outs={("p2.history", 1): one})
+    old = {"canonical": False, "round": 2, "values": {"prev_one_shot": {"round": 1, "text": "x", "closes": [], "check": "", "totals": {}}},
+           "errors": []}
+    (b.dir / "hist.json").write_text(json.dumps(old, ensure_ascii=False), encoding="utf-8")
+    want = {"round": 1, "text": "入口を 1 つにする", "closes": ["a"], "totals": {"a": 3}}
+    assert b.hist("prev_one_shot") == want
+    b.save()
+    ctl = json.loads((b.dir / "hist.json").read_text(encoding="utf-8"))
+    assert ctl["values"]["prev_one_shot"] == want and ctl["errors"] == []
+    # 一撃の無い周の値も check を持たない
+    b2 = make(tmp_path / "b2", 2, [rd(1), rd(2)], outs={("p2.history", 1): {"units": []}})
+    assert set(b2.hist("prev_one_shot")) == {"round", "text", "closes", "totals", "absent"}
+
+
 def test_control_records_values_outside_the_hist_schema(tmp_path):
     b = make(tmp_path, 2, [rd(1, ["p4.record"]), rd(2)], records={1: rec(1, [U(7, "block")])})
     b.save()

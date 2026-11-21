@@ -376,16 +376,18 @@ def hist_last_material(h):
 def hist_prev_one_shot(h):
     """前の周の「一撃」——**効いたかを次の周が検算する**ため。一撃を選ぶフィールドは前から在ったが、効いたかを測る工程が無く、
     同じクラスが 3 周続けて別の顔で出た（実測 2026-09-13）。**「前の周に一撃が無い」と「渡し損ねた」を同じ空にしない**——
-    値は必ず入れ、無い周は無い理由を文字列で運ぶ（読む側 p2.history は必須の穴で受ける）。**前の周に出した判定だけを読む**"""
+    値は必ず入れ、無い周は無い理由を文字列で運ぶ（読む側 p2.history は必須の穴で受ける）。**前の周に出した判定だけを読む**。
+    効きの測り方は持たない——次の周は closes の各 key の class_query を数え直して totals と比べる（判定の schema にも測り方の
+    フィールドは無く、前は値に check を置いていたが、いつも空だった）"""
     if h.round == 1:
         return HIST_ABSENT
     n = h.round - 1
     j = h.output("p2.history", n) or h.output("p2.diagnose", n) or {}
     if j.get("one_shot"):
-        return {"round": n, "text": j["one_shot"], "closes": j.get("one_shot_closes") or [], "check": j.get("one_shot_check") or "",
+        return {"round": n, "text": j["one_shot"], "closes": j.get("one_shot_closes") or [],
                 # 一撃が閉じると見込んだ単位の、前の周の母数（class_query.total）。今の周に数え直して減ったかを見る
                 "totals": {u["key"]: (u.get("class_query") or {}).get("total") for u in j.get("units", []) if u.get("class_query")}}
-    return {"round": n, "text": None, "closes": [], "check": "", "totals": {},
+    return {"round": n, "text": None, "closes": [], "totals": {},
             "absent": f"round {n} の判定に one_shot が無い（この周は検算する対象が無い——『届かなかった』ではない。届かない形なら engine が止める）"}
 
 
