@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from conftest import PLUGIN, REPO
+from conftest import PLUGIN, REVIEW_GRAPH_PATH, REVIEW_VALIDATOR
 from engine import checks_cache, declared
 from engine.role_run import Superseded, run_steps
 from engine.rules import load_rules
@@ -278,13 +278,13 @@ def test_second_worktree_in_another_process_reuses(tmp_path):
     assert ran(mark) == 1 and outs[1][0]["reused"]["from"] == str(tmp_path / "l0")
 
 
-RULES = load_rules(PLUGIN / "graphs" / "review-loop.json", load_graph(PLUGIN / "graphs" / "review-loop.json")[0])
+RULES = load_rules(REVIEW_GRAPH_PATH, load_graph(REVIEW_GRAPH_PATH)[0])
 
 
 def test_checks_reply_names_reuse_with_time_and_run(tmp_path):
     import types
     b = types.SimpleNamespace(round=1, record={"process": {}, "materials": {}, "questions": []},
-                              state={"validator": str(REPO / "convergence-loops" / "scripts" / "review-record.py")})
+                              state={"validator": str(REVIEW_VALIDATOR)})
     reused = {"at": "2026-09-27T09:00:00+09:00", "wall_s": 1200.5, "key": "k", "entry": "/c/k", "from": "/board/runs/r1/p0.local_checks.a1"}
     runs = [{"name": "suite", "argv": ["x"], "exit": 0, "wall_s": 0.1, "out": "o", "err": "e", "tail": "", "reused": reused, "cache": "使い回し"}]
     m = RULES.checks_reply(b, "p4.ci", {"sha": "0" * 64}, runs)["reply"]["material"]

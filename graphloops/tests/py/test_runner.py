@@ -5,6 +5,7 @@
 踏んだ問題に残さない値）と続ける口は、本物の loop.py で review-loop の盤面を作って確かめる。1 周を止めて続ける端から端までの
 台本は simulate_review.py の test_stop_after_round"""
 import argparse
+import importlib.util
 import json
 import os
 import signal
@@ -15,8 +16,8 @@ import time
 
 import pytest
 
-from conftest import PLUGIN, REPO
-from engine import commands, filelock, runner
+from conftest import PLUGIN, REVIEW_VALIDATOR, git
+from engine import commands, filelock, resume, runner
 from engine.util import Reject
 
 LOOP = PLUGIN / "scripts" / "loop.py"
@@ -100,8 +101,6 @@ def test_board_lock_makes_other_threads_wait(tmp_path):
 def test_entry_runs_board_writers_under_the_board_lock(tmp_path, monkeypatch, cmd, args, whole):
     """入口（loop.py）は、短い書き手を丸ごと盤面の錠の下で走らせ、launch・relaunch・stop の当て直しの錠（BOARD_LOCK）を
     プロセスをまたぐ盤面の錠に差し替える"""
-    import importlib.util
-    from engine import commands
     spec = importlib.util.spec_from_file_location("loop_entry", LOOP)
     entry = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(entry)
@@ -115,10 +114,6 @@ def test_entry_runs_board_writers_under_the_board_lock(tmp_path, monkeypatch, cm
 
 
 # ---------------------------------------------------------------- 本物の loop.py の盤面
-def git(cwd, *a):
-    return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *a], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8").stdout
-
-
 def loop(cwd, *a, env=None):
     return subprocess.run([sys.executable, str(LOOP), *a], cwd=cwd, capture_output=True, text=True, encoding="utf-8", env=env)
 
@@ -135,7 +130,7 @@ def review(tmp_path):
     git(repo, "add", ".")
     git(repo, "commit", "-qm", "base")
     d = tmp_path / "st"
-    r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d), "--validator", str(REPO / "convergence-loops" / "scripts" / "review-record.py"),
+    r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d), "--validator", str(REVIEW_VALIDATOR),
              "--no-engine-runners")
     assert r.returncode == 0, r.stderr
     return repo, d
@@ -189,15 +184,20 @@ def done_file(tmp_path, name, obj):
     return f
 
 
+def _base_and_prem(tmp_path, repo):
+    """p0.base（今の HEAD を基にした綺麗な材料）と p0.premises（仮説 1 件）の出力を置き場に書く"""
+    base = done_file(tmp_path, "base", {"base_sha": git(repo, "rev-parse", "HEAD").strip(), "method": "named", "commits": 0,
+                                        "merge_commit": False, "intent_to_add": [], "touches_gates": False, "touches_external_seams": False,
+                                        "touches_user_path": False, "touches_security_surface": False,
+                                        "material": {"status": "clean", "checked": "検査"}})
+    return base, done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "hypothesis"}]})
+
+
 def test_concurrent_writers_lose_nothing(review, tmp_path):
     """会話の done 2 本と人の add を同時に打っても、どれも受け付けられ、盤面の版は 3 つ進む（錠が無いと 1 本ぶんが黙って消えた）"""
     repo, d = review
     assert loop(repo, "run", "--foreground", "--dir", str(d)).returncode == 13
-    head = git(repo, "rev-parse", "HEAD").strip()
-    base = done_file(tmp_path, "base", {"base_sha": head, "method": "named", "commits": 0, "merge_commit": False, "intent_to_add": [],
-                                        "touches_gates": False, "touches_external_seams": False, "touches_user_path": False,
-                                        "touches_security_surface": False, "material": {"status": "clean", "checked": "検査"}})
-    prem = done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "hypothesis"}]})
+    base, prem = _base_and_prem(tmp_path, repo)
     add = done_file(tmp_path, "add", [{"where": "a.py", "text": "検査の依頼"}])
     rev0 = json.loads((d / "state.json").read_text(encoding="utf-8"))["rev"]
     cmds = [["done", "--node", "p0.base", "--output", str(base)], ["done", "--node", "p0.premises", "--output", str(prem)],
@@ -217,11 +217,7 @@ def test_done_and_emit_stamp_the_board_revision_they_read(review, tmp_path):
     （commands._in_interval）"""
     repo, d = review
     assert loop(repo, "run", "--foreground", "--dir", str(d)).returncode == 13
-    base = done_file(tmp_path, "base", {"base_sha": git(repo, "rev-parse", "HEAD").strip(), "method": "named", "commits": 0,
-                                        "merge_commit": False, "intent_to_add": [], "touches_gates": False, "touches_external_seams": False,
-                                        "touches_user_path": False, "touches_security_surface": False,
-                                        "material": {"status": "clean", "checked": "検査"}})
-    prem = done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "hypothesis"}]})
+    base, prem = _base_and_prem(tmp_path, repo)
     rev0 = json.loads((d / "state.json").read_text(encoding="utf-8"))["rev"]
     for node, f in (("p0.base", base), ("p0.premises", prem)):
         r = loop(repo, "done", "--node", node, "--output", str(f), "--dir", str(d))
@@ -262,7 +258,6 @@ def test_resume_opens_the_next_round_only_for_a_round_limit_halt(review):
 
 def test_resume_refuses_an_empty_reason(tmp_path):
     with pytest.raises(Reject, match="理由が空"):
-        from engine import resume
         resume.cmd_resume(argparse.Namespace(reason=" ", stop_after_round=2, no_stop_after_round=False), tmp_path)
 
 

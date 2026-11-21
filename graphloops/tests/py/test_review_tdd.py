@@ -5,8 +5,8 @@ import types
 
 import pytest
 
-from conftest import PLUGIN, REPO
-from engine.board import Board
+from conftest import PLUGIN, REVIEW_VALIDATOR
+from engine.board import COND_HEADS, Board, run_cond
 from engine.rules import load_rules
 from engine.schema import load_graph
 
@@ -143,7 +143,7 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
 
 # --- テストだけを書く段の返答の検査（tdd_tests_output）: 直す義務の単位を全部 1 度だけ tdd か direct に振る
 UNITS = [{"key": "u-block", "label": "block"}, {"key": "u-donow", "label": "suggest", "disposition": "do-now"}]
-BOARD = types.SimpleNamespace(state={"validator": str(REPO / "convergence-loops" / "scripts" / "review-record.py")},
+BOARD = types.SimpleNamespace(state={"validator": str(REVIEW_VALIDATOR)},
                               record={"units": UNITS, "questions": []}, loop_state={}, round=1)
 BOARD.ctx = lambda: {"record": BOARD.record, "round": BOARD.round, "loop": BOARD.loop_state}
 BOARD.view = types.MethodType(Board.view, BOARD)   # engine の読み口の組み立てそのもの（ctx に無い頭は見せない）
@@ -196,7 +196,6 @@ def test_tests_reply_answers_against_the_shown_rows(monkeypatch):
 
 def test_tdd_conds_truth_table():
     """TDD のノードの条件（rules の関数）: 赤の確認は名指しのテストが在る周だけ、緑の確認はそのうえ赤の確認がこの周に通った周だけ"""
-    from engine.board import COND_HEADS, run_cond
 
     def ev(name, cur=None, red=None, rnd=2):
         ctx = {**{h: {} for h in COND_HEADS}, "round": rnd, "cur": {**(cur or {}), **({"p3.tdd_red": red} if red else {})}}
@@ -342,10 +341,9 @@ def test_green_names_a_failing_named_test_once():
 
 def test_tdd_effect_reads_an_unfired_lane_as_unmeasured(tmp_path):
     """腕を 1 本も撃っていない線は、その周の lane_missed を 0（見逃し 0 本）でなく None（測れていない）にする"""
-    import json
     res = tmp_path / "lane.json"
     res.write_text(json.dumps({"rev": "a" * 40, "arms": [], "handled": [], "patch": "", "suite": {"command": "x", "exit": 0}}), encoding="utf-8")
-    b = types.SimpleNamespace(round=2, dir=tmp_path, state={"validator": str(REPO / "convergence-loops" / "scripts" / "review-record.py")},
+    b = types.SimpleNamespace(round=2, dir=tmp_path, state={"validator": str(REVIEW_VALIDATOR)},
                               nodes=load_graph(GRAPH)[0]["nodes"],
                               record={"process": {"tdd": {"rounds": {"1": {}}}}},
                               loop_state={"lanes": {"a" * 40: {"round": 1, "rev": "a" * 40, "result": str(res), "state": "merged"}}})

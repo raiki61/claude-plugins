@@ -21,7 +21,6 @@ import pytest
 import waves
 
 HERE = pathlib.Path(__file__).resolve().parent
-REVIEW_VALIDATOR = conftest.REPO / "convergence-loops" / "scripts" / "review-record.py"
 FIXED_GIT_DATE = "2026-01-01T00:00:00+0000"   # 2 つの口で commit の sha を揃える（盤面は base の sha を持つ）
 
 # (台本, 筋書き, Run の引数, drive の hook, 終わりの status)。review は 3 周で収束する標準、research は 1 周で打ち切る軽量
@@ -71,7 +70,7 @@ def _git_repo(tmp):
 
 
 def _init_args(d):
-    return ["init", "--loop", "review-loop", "--request", "x", "--dir", str(d), "--validator", str(REVIEW_VALIDATOR)]
+    return ["init", "--loop", "review-loop", "--request", "x", "--dir", str(d), "--validator", str(conftest.REVIEW_VALIDATOR)]
 
 
 def _plant(tmp, sentinel):
