@@ -1,4 +1,4 @@
-"""回す側が呼ぶコマンド。init / next / done / skip / answer / stop / thicken / add / patch / finalize / status / record。"""
+"""回す側が呼ぶコマンド。init / next / done / skip / answer / stop / thicken / add / patch / finalize / status / record / launch / relaunch / intake。"""
 import copy
 import datetime
 import json
