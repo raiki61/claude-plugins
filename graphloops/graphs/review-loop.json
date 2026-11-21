@@ -373,7 +373,7 @@
       }
      }
     },
-    "description": "前の周の修正・手直し・最後のゲートが残すと宣言した穴（ノードの出力から）と、この周の頭に並行の線から渡した行（線の台帳 loop.lanes の delivered_rows）"
+    "description": "前の周の修正・手直し・最後のゲートが残すと宣言した穴（ノードの出力から）と、この周の頭に並行の線から渡した行（p1.worktree_before の出力の lane_rows）"
    },
    "prev_own_precedents": {
     "type": "array",
