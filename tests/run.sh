@@ -1376,7 +1376,7 @@ expect_output 0 "停止（未収束）の申告つきで発行できる" "非収
 expect_output 0 "停止（未収束）の申告つきで発行できる" "止まった記録は走らなかった必須のゲートを not_run と理由で出せる" \
     "$PY_BIN" "$RR" "$WORK/rr-stopped-not-run-ok.json"
 
-expect_exit 2 "引数なしは 1 と区別して落ちる" "$PY_BIN" "$RR"
+expect_exit 2 "引数なしは 1 と区別して落ちる（研究記録）" "$PY_BIN" "$RR"
 expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる（研究記録）" "$PY_BIN" "$RR" "$RR_EX" "$RR_EX"
 expect_output 2 "開けない" "存在しない研究記録は 1 と区別して落ちる" \
     "$PY_BIN" "$RR" "$WORK/rr-does-not-exist.json"
@@ -1798,9 +1798,9 @@ rm -f "$REPO/untracked.py"
 # 計測不成立は必ず 2。**旧版はここが exit 1 だった**（`raise SystemExit(str)` の既定）ので、
 # 「測れなかった」と「注釈 0%」が終了コードで区別できなかった。
 # 引数の誤りも計測不成立なので 2。bash の `${1:?...}` は exit 1 になるため使えない。
-expect_output 2 "usage" "引数なしは 1 と区別して落ちる" \
+expect_output 2 "usage" "引数なしは 1 と区別して落ちる（comment-ratio.sh）" \
     bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh'"
-expect_output 2 "usage" "引数が多すぎる場合も 1 と区別して落ちる" \
+expect_output 2 "usage" "引数が多すぎる場合も 1 と区別して落ちる（comment-ratio.sh）" \
     bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' HEAD HEAD extra"
 expect_output 2 "が失敗" "不正な ref は 1 と区別して落ちる" \
     bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
