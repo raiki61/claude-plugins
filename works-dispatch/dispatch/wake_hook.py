@@ -984,10 +984,7 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
     while proc is not None and proc.poll() is None:
         if parent() != got["owner"] or (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != token:
             return True
-        try:
-            os.utime(wake.mark_path(got["inbox"], got["place"]))
-        except OSError:
-            pass
+        wake.touch_mark(got["inbox"], got["place"])
         pause(wake.POLL)
     if not gitx.worktree_attrs(got["cwd"]).get(wake.RESTARTING):
         return True   # --move が前の会話を止めた
@@ -1407,8 +1404,8 @@ class Warm:
         self.failed = False   # この待ちで compact を打てなかった（ターンの終わりに打てなかったら、同じ周の送る時刻に打ち直さない）
         self.compact_with = compact_with or compact_now
         self.path = chat.transcript(payload)
-        self.since, self.pos, self.off = now(), self._size(), False
-        self.due = (plan or {}).get("due") or self.since + conf["every"]
+        since, self.pos, self.off = now(), self._size(), False
+        self.due = (plan or {}).get("due") or since + conf["every"]
 
     def _size(self):
         try:

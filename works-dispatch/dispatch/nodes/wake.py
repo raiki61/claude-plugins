@@ -347,7 +347,7 @@ def read_mark(inbox, place):
     return _read_json(mark_path(inbox, place)) or None
 
 
-def _touch_mark(inbox, place):
+def touch_mark(inbox, place):
     """待ち受けが生きている合図に、印の更新の時刻を進める。"""
     try:
         os.utime(mark_path(inbox, place))
@@ -774,7 +774,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             return 0
         if ready is not None and not ready():
             if now() - beat >= BEAT:
-                _touch_mark(inbox, place)
+                touch_mark(inbox, place)
                 beat = now()
             pause(POLL)
             continue
@@ -809,7 +809,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
                 holding = verdict == HOLD
                 if verdict and not holding:
                     return _finish(verdict, err)
-            _touch_mark(inbox, place)
+            touch_mark(inbox, place)
             beat = now()
         said = idle() if idle else None
         if said:
