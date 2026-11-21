@@ -66,6 +66,7 @@ for _s in (sys.stdout, sys.stderr):
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # 開いた頼みの見分けは works-dispatch の物をそのまま使う（scripts/spread-plugins.py と同じ形。写すと割れる）
 sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
+import gitx  # noqa: E402
 import todo  # noqa: E402
 from nodes import deliver  # noqa: E402
 
@@ -89,6 +90,11 @@ NET = ("proxyconnect", "dial tcp", "i/o timeout", "connection refused", "connect
 def run(argv):
     p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return p.returncode, p.stdout or "", p.stderr or ""
+
+
+def as_proc(runner):
+    """このファイルの runner（(終了の値, 標準出力, 標準エラー) を返す）を、works-dispatch の gitx が受ける runner（CompletedProcess を返す）の形にする。"""
+    return lambda argv: subprocess.CompletedProcess(argv, *runner(argv))
 
 
 class Limited(RuntimeError):
@@ -218,12 +224,6 @@ def common_dir(runner):
     return out.strip()
 
 
-def place_dir(runner, place):
-    """place の属するリポジトリの git の共通のディレクトリ（git でなければ None）。todo.inboxes_from がほかの会社の受付箱を引くのに渡す。"""
-    code, out, _ = runner(["git", "-C", place, "rev-parse", "--path-format=absolute", "--git-common-dir"])
-    return os.path.normpath(out.strip()) if code == 0 and out.strip() else None
-
-
 def stamp(at):
     return datetime.datetime.fromtimestamp(at, datetime.timezone.utc) if isinstance(at, (int, float)) else None
 
@@ -337,7 +337,7 @@ def main(stdin=None, runner=run, now=None):
             found = findings(runner, now)
         except Limited as e:
             return limited(state_path, state, now, dry, e)
-        still, closed_at, relay = mine(deliver.inbox_of(cdir), lambda place: place_dir(runner, place))
+        still, closed_at, relay = mine(deliver.inbox_of(cdir), lambda place: gitx.common_dir(place, as_proc(runner)))
     except RuntimeError as e:
         print(f"CI の見張りが読めなかった: {e}")
         return 1
