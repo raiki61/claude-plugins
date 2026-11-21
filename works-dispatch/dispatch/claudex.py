@@ -1,5 +1,5 @@
 """Claude Code への口。dispatch で Claude Code を呼ぶ・その設定を触るのはこの 1 か所だけ。書くのは、フォルダの信頼の印と、
-裏の会話（claude --bg）を消す rm の 2 つ。
+裏の会話（claude --bg）を止める stop と消す rm の 3 つ。
 
 開いている会話は `claude agents --json` で読む。Claude Code の文書は、これを外から会話の状態を読む公式の口としている。
 返る 1 件の形は、2026-10-14 に 2.1.299 で見た `{"pid", "cwd", "kind", "startedAt", "sessionId", "name", "status"}`。
@@ -236,11 +236,16 @@ MODEL_ENV = (("opus", "ANTHROPIC_DEFAULT_OPUS_MODEL"), ("sonnet", "ANTHROPIC_DEF
              ("subagent", "CLAUDE_CODE_SUBAGENT_MODEL"), ("default", "ANTHROPIC_MODEL"))
 
 
+def _config_folder(config_dir, env):
+    """そのアカウントの設定のフォルダ（config_dir、無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude。~ は広げない）。"""
+    return config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+
+
 def model_aliases(config_dir, env):
     """そのアカウントの設定のフォルダの settings.json に書いた、モデルの別名の読み替え先。{別名: モデルの名前}（MODEL_ENV の順）。
     書いていない別名は入れない（その別名は Anthropic のモデルのまま）。正本は settings.json で、dispatch の設定には写さない。
     中継（LiteLLM など）がその名前をさらに別のモデルへ送るか（付け替え）は、ここでは読まない。読めない・JSON でなければ {}。"""
-    folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    folder = _config_folder(config_dir, env)
     try:
         with open(os.path.join(os.path.expanduser(folder), "settings.json"), encoding="utf-8") as f:
             raw = json.load(f)
@@ -414,7 +419,7 @@ def job_tmp(config_dir, session_id, env=None):
     ここも消す（2026-10-17 に 2.1.301 で、--clean が消した部署の測りのツールがここと一緒に消えた）。設定のフォルダの決め方は
     trust_file と同じ（config_dir、無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude）。"""
     env = os.environ if env is None else env
-    folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    folder = _config_folder(config_dir, env)
     return os.path.join(os.path.expanduser(folder), "jobs", attach_id({"sessionId": session_id}), "tmp")
 
 
@@ -422,7 +427,7 @@ def talk_dir(config_dir, cwd, env=None):
     """その作業フォルダの会話の記録の置き場（<設定のフォルダ>/projects/<フォルダの字の英数字でない字を - にした物>。記録は
     その中の <会話の id>.jsonl）。設定のフォルダの決め方は job_tmp と同じ。"""
     env = os.environ if env is None else env
-    folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    folder = _config_folder(config_dir, env)
     return os.path.join(os.path.expanduser(folder), "projects", re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
 
 

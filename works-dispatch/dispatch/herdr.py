@@ -184,10 +184,13 @@ def report_pane_metadata(pane, source, display_agent, title, tokens, clear_token
     argv = ["herdr", "pane", "report-metadata", pane, "--source", source]
     argv += ["--display-agent", display_agent] if display_agent else ["--clear-display-agent"]
     argv += ["--title", title] if title else ["--clear-title"]
-    for name, value in sorted(tokens.items()):
-        argv += ["--token", f"{name}={value}"]
-    for name in clear_tokens:
-        argv += ["--clear-token", name]
+    _report(argv, tokens, clear_tokens, runner)
+
+
+def _report(argv, tokens, clear_tokens, runner):
+    """report-metadata の頭（argv）に、付ける札（--token 名=値。名前の順）と消す札（--clear-token）を足して打つ。"""
+    argv = argv + [x for name, value in sorted(tokens.items()) for x in ("--token", f"{name}={value}")]
+    argv += [x for name in clear_tokens for x in ("--clear-token", name)]
     _call(argv, runner, quiet_ok=True)
 
 
@@ -196,11 +199,7 @@ def report_workspace_metadata(workspace, source, tokens, clear_tokens=(), runner
     同じ出どころで打ち直すと置き換わり、clear_tokens の印は消す（2026-10-17 に herdr 0.9.3 で、--clear-token が同じ出どころの
     印を消すのを見た）。"""
     argv = ["herdr", "workspace", "report-metadata", workspace, "--source", source]
-    for name, value in sorted(tokens.items()):
-        argv += ["--token", f"{name}={value}"]
-    for name in clear_tokens:
-        argv += ["--clear-token", name]
-    _call(argv, runner, quiet_ok=True)
+    _report(argv, tokens, clear_tokens, runner)
 
 
 def read(pane, lines, runner=_default_runner, ansi=False):
@@ -266,17 +265,22 @@ def _argv(proc, read_argv):
     return read_argv(proc.get("pid"))
 
 
+def _process_info(pane, runner):
+    """herdr pane process-info の process_info（無ければ {}）。"""
+    return _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
+
+
 def foreground(pane, runner=_default_runner, read_argv=None):
     """ペインの前で動いているプロセスの起動したコマンドの並び（herdr pane process-info の foreground_processes の cmdline。herdr が
     返さなければ _proc_argv で読む）。読む口。"""
-    info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
+    info = _process_info(pane, runner)
     return [p.get("cmdline") or " ".join(_argv(p, read_argv or _proc_argv)) for p in info.get("foreground_processes") or []]
 
 
 def front_processes(pane, runner=_default_runner, read_argv=None):
     """ペインの前で動いているプロセスの並び（herdr pane process-info の foreground_processes を、口の形の {pid, argv} に。argv を
     herdr が返さなければ _proc_argv で読む）。読む口。"""
-    info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
+    info = _process_info(pane, runner)
     return [{"pid": p.get("pid"), "argv": _argv(p, read_argv or _proc_argv)} for p in info.get("foreground_processes") or []]
 
 
@@ -287,7 +291,7 @@ def send_keys(pane, *keys, runner=_default_runner):
 
 def shell_in_front(pane, runner=_default_runner):
     """ペインの前にシェルだけが居るか（起動したコマンドがまだ始まっていない・もう終わった）。"""
-    info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
+    info = _process_info(pane, runner)
     return info.get("foreground_process_group_id") == info.get("shell_pid")
 
 
