@@ -926,27 +926,22 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     th = g.get("thickness", {})
     tiers = th.get("tiers") or []
     uses_tiers = any(v.get("active_in") or v.get("thickness_from") for v in nodes.values()) or g.get("round", {}).get("max_rounds_by_thickness")
-    bad5 = False
+    bad5 = []  # 段の検査の NG（見つけた順に、下でまとめて出す）
     if not isinstance(tiers, list) or not all(isinstance(t, str) for t in tiers):
-        ok, bad5 = False, True
-        emit("NG thickness.tiers は段名の配列（低い順）")
+        bad5.append("thickness.tiers は段名の配列（低い順）")
         tiers = []
     if uses_tiers and not tiers:
-        ok, bad5 = False, True
-        emit("NG 段（active_in / thickness_from / max_rounds_by_thickness）を使うのに thickness.tiers（低い順）が無い")
+        bad5.append("段（active_in / thickness_from / max_rounds_by_thickness）を使うのに thickness.tiers（低い順）が無い")
     if tiers:
         for k, v in nodes.items():
             bad = [t for t in v.get("active_in", []) if t not in tiers]
             if bad:
-                ok, bad5 = False, True
-                emit(f"NG ノード {k} の active_in に無い段: {bad}（段は {tiers}）")
+                bad5.append(f"ノード {k} の active_in に無い段: {bad}（段は {tiers}）")
         for t in g.get("round", {}).get("max_rounds_by_thickness", {}):
             if t not in tiers:
-                ok, bad5 = False, True
-                emit(f"NG max_rounds_by_thickness の段 '{t}' が thickness.tiers に無い")
+                bad5.append(f"max_rounds_by_thickness の段 '{t}' が thickness.tiers に無い")
         if th.get("default") not in tiers:
-            ok, bad5 = False, True
-            emit(f"NG thickness.default '{th.get('default')}' が tiers に無い")
+            bad5.append(f"thickness.default '{th.get('default')}' が tiers に無い")
         # 表示の語の表（labels）は、段と decider のキーをちょうど覆い、語が 1 つのキーにだけ戻る（init と thicken が語をキーに直す）
         labels = th.get("labels")
         if labels is not None:
@@ -954,10 +949,12 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             words = list(labels.values()) if isinstance(labels, dict) else []
             if (not isinstance(labels, dict) or set(labels) != keys or not all(isinstance(w, str) and w for w in words)
                     or len(set(words)) != len(words) or keys & set(words)):
-                ok, bad5 = False, True
-                emit(f"NG thickness.labels は段と decider のキー {sorted(keys)} ちょうどから、重ならない表示の語へ引く表")
-        if not bad5:
-            emit(f"ok  段名は thickness.tiers {tiers} の中（active_in・max_rounds_by_thickness・default）")
+                bad5.append(f"thickness.labels は段と decider のキー {sorted(keys)} ちょうどから、重ならない表示の語へ引く表")
+    for m in bad5:
+        ok = False
+        emit("NG " + m)
+    if tiers and not bad5:
+        emit(f"ok  段名は thickness.tiers {tiers} の中（active_in・max_rounds_by_thickness・default）")
 
     def flush(head):
         """**溜めた NG の出口はここ 1 つ。** 早い return の手前で吐かずに戻っていたとき、
@@ -1071,8 +1068,9 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     # CLAUDE.md 階層を注入し、止める設定が公式に無い——遮断が名ばかりになる（実測 2026-09-12）。
     isolated = sorted(r for r in agents if agent_tools(f"{g.get('plugin')}:{r}") == [])
     used = {v.get("run_by") for v in nodes.values()} | {v.get("agent_type", "").rpartition(":")[2] for v in nodes.values()}
-    if isolated and (used & set(isolated)) and not (g.get("launch") or {}).get("isolated"):
-        errs.append(f"ツールゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated が無い"
+    isolated_used = sorted(used & set(isolated))
+    if isolated_used and not (g.get("launch") or {}).get("isolated"):
+        errs.append(f"ツールゼロの役 {isolated_used} を使うのに launch.isolated が無い"
                     "——Agent ツールで起動すると CLAUDE.md が注入され、遮断が成立しない")
     launch = g.get("launch") or {}
     runner_spec = launch.get("runner") or {}
@@ -1128,10 +1126,10 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         held = sorted(k for k in ("argv", "resume", "via") if k in spec)
         if held:
             errs.append(f"launch.{kind} の {held} は書けない——起動する語は engine が持つ（engine/launch_words.py）。graph の語は効かない")
-        if kind in launch_words.ISOLATED_KINDS and isolated and (used & set(isolated)):
+        if kind in launch_words.ISOLATED_KINDS and isolated_used:
             # model / effort は役の定義から埋めるので定義に無ければ die——実行時にしか出ない不変条件を静的に見る
             holes = {m.group(1) for a in launch_words.argv(kind) for m in re.finditer(r"\{(\w+)\}", a)}
-            for r in sorted(used & set(isolated)):
+            for r in isolated_used:
                 d = agent_def(f"{g.get('plugin')}:{r}") or {}
                 for k in ("model", "effort"):
                     if k in holes and not d.get(k):

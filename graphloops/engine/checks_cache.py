@@ -259,14 +259,14 @@ def _names(items):
     return "・".join(items[:SHOW_NAMES]) + (f" ほか {len(items) - SHOW_NAMES} 個" if len(items) > SHOW_NAMES else "")
 
 
-def _differs(now, old):
+def _differs(cur, old):
     """2 つの指紋の材料の違う所 ——（訳のキーの一覧, 違う環境変数の名前）。値は出さない"""
-    ne, oe = now.get("env") or {}, old.get("env") if isinstance(old.get("env"), dict) else {}
+    ne, oe = cur.get("env") or {}, old.get("env") if isinstance(old.get("env"), dict) else {}
     names = sorted(k for k in set(ne) | set(oe) if ne.get(k) != oe.get(k))
     causes = [ENV_CAUSE + k for k in names]
-    if any(now.get(k) != old.get(k) for k in ("os", "machine", "kernel")):
+    if any(cur.get(k) != old.get(k) for k in ("os", "machine", "kernel")):
         causes.append("platform")
-    if now.get("tools") != old.get("tools"):
+    if cur.get("tools") != old.get("tools"):
         causes.append("tools")
     return causes, names
 

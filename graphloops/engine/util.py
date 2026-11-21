@@ -675,13 +675,13 @@ def copy_worktree(dst):
     try:
         subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", top, str(dst)], check=True,
                        capture_output=True, timeout=GIT_TIMEOUT)
-        head = git("rev-parse", "--verify", "-q", "HEAD")
-        if head and head.strip():
-            subprocess.run(["git", "-C", str(dst), "checkout", "-q", "--detach", head.strip()], check=True,
+        head = (git("rev-parse", "--verify", "-q", "HEAD") or "").strip()
+        if head:
+            subprocess.run(["git", "-C", str(dst), "checkout", "-q", "--detach", head], check=True,
                            capture_output=True, timeout=GIT_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as e:
         raise Reject(f"任せ先の写しを作れない（git clone / checkout: {e}）") from e
-    changed = git("diff", "--name-only", "-z", "HEAD") if head and head.strip() else git("ls-files", "-z")
+    changed = git("diff", "--name-only", "-z", "HEAD") if head else git("ls-files", "-z")
     untracked = git("ls-files", "-z", "-o", "--exclude-standard")
     if changed is None or untracked is None:
         raise Reject("作業ツリーの変更を引けない（git diff / ls-files）——任せ先の写しを作れない")
