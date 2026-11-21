@@ -196,36 +196,9 @@ def read_run(d, where, verdicts, now=None):
         return {"where": where, "unreadable": f"盤面の形が違う（{type(e).__name__}）"}
 
 
-def _read_run(d, where, verdicts, now):
-    row = {"where": where}
-    try:
-        state = _read_json(d / "state.json")
-        if not isinstance(state, dict) or not isinstance(state.get("rounds", []), list):
-            raise ValueError("形が違う")
-    except FileNotFoundError:
-        return {**row, "unreadable": "state.json が無い"}
-    except (OSError, ValueError) as e:
-        return {**row, "unreadable": f"state.json が読めない（{type(e).__name__}）"}
-    parts = []
-    changes = [c for c in (state.get("engine_changes") or []) if isinstance(c, dict)]
-    last = _version_of(state.get("engine")) if "engine" in state else NO_ENGINE
-    first = _version_of(changes[0].get("to")) if changes else last
-
-    def version_at(n):
-        v = first
-        for c in changes:
-            if isinstance(c.get("round"), int) and c["round"] <= n:
-                v = _version_of(c.get("to"))
-        return v
-
-    halted = state.get("halted") if isinstance(state.get("halted"), dict) else {}
-    row.update({"loop": state.get("loop_name"), "run_id": state.get("run_id"), "version": last,
-                "versions": sorted({first, last, *(_version_of(c.get("to")) for c in changes)}),
-                "status": state.get("status"), "halted_by": halted.get("by"),
-                "pending_human": bool(state.get("pending_human")), "round": state.get("round")})
-
-    # 周の判定
-    vd = verdicts.for_graph(pathlib.Path(str(state.get("graph") or "")).name or None, state.get("loop_name"))
+def _round_rows(d, vd, version_at, parts):
+    """盤面の rounds/round-*.json から、周ごとの判定の行（数えた判定・機械の書いた判定の数・数えられない判定）を組む。
+    読めない周のファイルは parts に足して飛ばす"""
     rounds = []
     for f in sorted((d / "rounds").glob("round-*.json")):
         try:
@@ -248,11 +221,12 @@ def _read_run(d, where, verdicts, now):
                     real[name] = status
         rounds.append({"round": n, "version": version_at(n), "reviews": real, "held": held,
                        "uncountable": {k: dict(c) for k, c in uncountable.items()}})
-    row["rounds_closed"] = len(rounds)
-    row["round_rows"] = rounds
-    row["review_filter"] = vd.get("why")
+    return rounds
 
-    # trace
+
+def _trace_events(d, first, parts):
+    """盤面の trace.jsonl を版ごとの数（ev）・role_run の行（role_rows）・時刻の並び（times）に読む。
+    読めない物は parts に足す"""
     ev = collections.defaultdict(lambda: {"answers": collections.Counter(), "answer_kinds": collections.Counter(),
                                           "accepted": collections.Counter(), "reject_heads": collections.Counter(),
                                           "relaunched": 0, "launch_not_ok": collections.Counter(), "role_wall_s": 0.0})
@@ -296,6 +270,44 @@ def _read_run(d, where, verdicts, now):
         parts.append(f"trace.jsonl（{type(e).__name__}）")
     if bad:
         parts.append(f"trace.jsonl の読めない行 {bad}")
+    return ev, role_rows, times
+
+
+def _read_run(d, where, verdicts, now):
+    row = {"where": where}
+    try:
+        state = _read_json(d / "state.json")
+        if not isinstance(state, dict) or not isinstance(state.get("rounds", []), list):
+            raise ValueError("形が違う")
+    except FileNotFoundError:
+        return {**row, "unreadable": "state.json が無い"}
+    except (OSError, ValueError) as e:
+        return {**row, "unreadable": f"state.json が読めない（{type(e).__name__}）"}
+    parts = []
+    changes = [c for c in (state.get("engine_changes") or []) if isinstance(c, dict)]
+    last = _version_of(state.get("engine")) if "engine" in state else NO_ENGINE
+    first = _version_of(changes[0].get("to")) if changes else last
+
+    def version_at(n):
+        v = first
+        for c in changes:
+            if isinstance(c.get("round"), int) and c["round"] <= n:
+                v = _version_of(c.get("to"))
+        return v
+
+    halted = state.get("halted") if isinstance(state.get("halted"), dict) else {}
+    row.update({"loop": state.get("loop_name"), "run_id": state.get("run_id"), "version": last,
+                "versions": sorted({first, last, *(_version_of(c.get("to")) for c in changes)}),
+                "status": state.get("status"), "halted_by": halted.get("by"),
+                "pending_human": bool(state.get("pending_human")), "round": state.get("round")})
+
+    vd = verdicts.for_graph(pathlib.Path(str(state.get("graph") or "")).name or None, state.get("loop_name"))
+    rounds = _round_rows(d, vd, version_at, parts)
+    row["rounds_closed"] = len(rounds)
+    row["round_rows"] = rounds
+    row["review_filter"] = vd.get("why")
+
+    ev, role_rows, times = _trace_events(d, first, parts)
     cost = role_run_mod.session_costs(role_rows, group=lambda r: r["_version"])
     row["events"] = {v: {k: (dict(x) if isinstance(x, collections.Counter) else round(x, 1) if isinstance(x, float) else x)
                          for k, x in e.items()} for v, e in ev.items()}
