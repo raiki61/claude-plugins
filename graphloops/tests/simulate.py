@@ -87,6 +87,13 @@ def rm(p):
     parallel.rm(p)
 
 
+def _copy_plugin_dirs(tmp):
+    """graphcheck を写しの上で回す作業場を組む——prompts・rules・blocks を写し、空の graphs を置く"""
+    for name in ("prompts", "rules", "blocks"):
+        shutil.copytree(PLUGIN / name, tmp / name)
+    (tmp / "graphs").mkdir()
+
+
 
 # 台本が実際に返した判定語彙（(ノード, フィールド) → 値の集合）。**「台本が 1 値固定」を件数でなく到達で測る。**
 # review 側に同じラチェットを置いた当日、research 側には無かった——**知見が片側にしか適用されない**形。
@@ -604,7 +611,6 @@ def test_rejections():
     rec["claims"][0]["verdict"] = "たぶん"
     (run.tmp / "c.json").write_text(json.dumps(rec["claims"], ensure_ascii=False), encoding="utf-8")
     run.cmd("patch", "--path", "claims", "--file", str(run.tmp / "c.json"), "--reason", "試験（語彙外の判定語）")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     rules = load_rules(PLUGIN / "graphs" / "research-loop.json", g)
@@ -693,9 +699,8 @@ def test_hook_evidence():
     check(got == "none" and "読めない" in why, f"読めない文書は例外でなく none（{why[:60]}）")
     # **フック側の上限は engine 側の写しで、2 つの値が揃っている。** フックは engine を import しないので
     # 値を写しで持つ——ずれると、読む側が捨てる sha を書く側が取り続ける（または逆）
-    import importlib.util as _iu  # noqa: E402
-    _spec = _iu.spec_from_file_location("gl_hook_cap", hook)
-    _hk = _iu.module_from_spec(_spec); _spec.loader.exec_module(_hk)
+    _spec = importlib.util.spec_from_file_location("gl_hook_cap", hook)
+    _hk = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_hk)
     check(_hk.READ_CAP == _u.READ_CAP,
           f"フックの READ_CAP（{_hk.READ_CAP}）は engine の値（{_u.READ_CAP}）の写しで、揃っている")
     big = tmp / "big.bin"
@@ -735,7 +740,6 @@ def test_hook_evidence():
     # **大きさを申告しない物（FIFO）は開かない。** stat の大きさで上限を見てから読み切っていた頃は、
     # 書き手が流し続ける FIFO を丸ごと読んだ。書き手の居ない FIFO は開くだけで止まる
     if hasattr(os, "mkfifo"):
-        import threading  # noqa: E402
         fifo = tmp / "pipe"
         os.mkfifo(fifo)
 
@@ -964,10 +968,7 @@ def test_graphcheck():
     r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / "research-loop.json"), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 0, "research-loop.json は通る")
     _td_tmp, tmp = parallel.workspace("gl-gc-")
-    (tmp / "graphs").mkdir()
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
+    _copy_plugin_dirs(tmp)
     # 読むフィールドの宣言を壊した条件の関数を、写しの rules にだけ足す（graph の cond がその名前を指したときに graphcheck が落とすか）
     bad_conds = {"bad_field": ("out.p1.checker.findingz",), "bad_prev": ("prev.p1.checker.findingz",), "bad_loop": ("loop.stuck_hintz",),
                  "bad_record": ("record.constraintz",), "bad_head": ("rounds",), "bad_rd": ("rd.new_discrepanciez",),
@@ -1140,10 +1141,7 @@ def test_graphcheck():
 def test_bad_builtin():
     print("否定検査: 機械のノードの返りが {ok: 真偽値} でも {decision: …} でもなければ die・ノードの schema に合わなければ die")
     _td_tmp, tmp = parallel.workspace("gl-bb-")
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-    (tmp / "graphs").mkdir()
+    _copy_plugin_dirs(tmp)
     r = (tmp / "rules" / "research-loop.py")
     r.write_text(r.read_text(encoding="utf-8") +
                  '\n\ndef shapeless(b, nid):\n    return {"nope": 1}\n\n\nBUILTINS["shapeless"] = shapeless\n'
@@ -1444,7 +1442,6 @@ def test_isolated_real_launch():
 
 def _load_claude_auth():
     """scripts/claude_auth.py（認証の段。プラグインに写して配る共有の本文）をパスから読み込む。"""
-    import importlib.util
     spec = importlib.util.spec_from_file_location("claude_auth_under_test", PLUGIN / "scripts" / "claude_auth.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -2528,7 +2525,6 @@ def test_relative_dir():
     r = subprocess.run([PY, str(LOOP), "status", "--dir", rel], cwd=run.repo,
                        capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 0, f"相対の --dir で盤面を開ける（{r.returncode}: {r.stderr[-160:]}）")
-    sys.path.insert(0, str(PLUGIN))
     from engine.board import Board
     b = Board(run.dir)
     got = b.ref("raw")
@@ -2574,8 +2570,6 @@ def test_research_vocab_not_copied():
     適用されない**のが、この周の一撃（宣言している面が消費している面より狭い）の別の顔。
     """
     print("否定検査: research の判定語彙も検証器が組み立てて渡す")
-    sys.path.insert(0, str(PLUGIN))
-    import importlib.util
     from engine.render import Renderer
     spec = importlib.util.spec_from_file_location("rvrec", str(VALIDATOR))
     V = importlib.util.module_from_spec(spec)
@@ -2609,7 +2603,6 @@ def test_porcelain_memo():
     simulate_review の `test_worktree_guard_fires` が持つ。
     """
     print("否定検査: 作業ツリーの写しは 1 プロセス 1 回（前後は別プロセスなので混ざらない）")
-    sys.path.insert(0, str(PLUGIN))
     import engine.util as U
     from engine.board import Board
     run = Run("porcmemo")
@@ -2642,10 +2635,7 @@ def test_optional_writes_declared():
     """
     print("否定検査: 任意のフィールドを写す write は宣言が要る／飛んだら痕跡が残る")
     _td_tmp, tmp = parallel.workspace("gl-optw-")
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-    (tmp / "graphs").mkdir()
+    _copy_plugin_dirs(tmp)
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     nid = next(k for k, v in g["nodes"].items()
                if v.get("schema", {}).get("required") and v.get("writes"))
@@ -2688,7 +2678,6 @@ def test_answer_vocabulary():
     諮りの口は「止める／続ける」の分岐なので、**既定を「続ける」にしてはいけない。**
     """
     print("否定検査: 人の答えの語は engine の表に在るものだけ")
-    sys.path.insert(0, str(PLUGIN))
     from engine.util import ANSWER_ACTIONS
     check(set(ANSWER_ACTIONS) == {"continue", "stop", "escalate"}, f"engine が動ける語（{ANSWER_ACTIONS}）")
     run = Run("answers")
@@ -2707,10 +2696,7 @@ def test_answer_vocabulary():
     # 外しても緑のままだった（実測: この腕を足す前、2 か所のうち片方しか覆えていなかった）。
     # rules の converge に engine の知らない語を返させ、実物の next で落ちることを見る
     _td_tmp, tmp = parallel.workspace("gl-ansopt-")
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-    (tmp / "graphs").mkdir()
+    _copy_plugin_dirs(tmp)
     # 的は諮りの選択肢をまとめて組む `_ask_decision` の 1 か所（上限・未収束のどちらの諮りもここを通る）。
     # 前は呼ぶ側の字 `["continue", "stop"]` を的にしていて、重複まとめ（5744582f2）でその字が
     # 引数へ移ると置き換えが空振りし、諮りが壊れないまま下の検査だけが赤になった。**当たらなければ先に落とす**
@@ -2758,7 +2744,6 @@ def test_stopped_gates_all_thicknesses():
     この腕は段を 3 つとも踏む——1 段だけ見ていると同じ漏れがまた通る。
     """
     print("否定検査: 停止した run のゲートは、どの段でも『飛ばした』と名乗る")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "research-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
@@ -2851,10 +2836,7 @@ def test_graphcheck_sets_derived():
     """
     print("否定検査: 受理集合の鍵は engine と rules の宣言から組む")
     _td_tmp, tmp = parallel.workspace("gl-acck-")
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-    (tmp / "graphs").mkdir()
+    _copy_plugin_dirs(tmp)
     gp = tmp / "graphs" / "research-loop.json"
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     g.setdefault("record", {})["smoke_accepts_exit"] = None  # 形が壊れた受理集合（null）
@@ -2912,7 +2894,6 @@ def test_prompt_growth():
     正しく大きいノードが毎周鳴り、育っているノードがその中に紛れる。
     """
     print("否定検査: 周をまたいで育つ穴（上限が無い経路でも測る）")
-    sys.path.insert(0, str(PLUGIN))
     from engine.advance import prompt_growth
 
     def fake(rounds, rnd=2):
@@ -3115,10 +3096,7 @@ def test_frozen_schema_drift():
     print("否定検査: once のノードの凍った出力を、今の schema で測り直す")
     # graph の綴りは同梱からの相対（`../prompts/…`）で、rules も graph の隣から引く。写しは同じ形に置く
     _td_tmp, tmp = parallel.workspace("gl-frozen-graph-")
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-    (tmp / "graphs").mkdir()
+    _copy_plugin_dirs(tmp)
     gp = tmp / "graphs" / "research-loop.json"
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
@@ -3134,7 +3112,6 @@ def test_frozen_schema_drift():
             run.done(inst["id"], answers[inst["node"]](load_item(inst), nx["round"]))
         if node in run.state()["done_ever"]:
             break
-    sys.path.insert(0, str(PLUGIN))
     from engine.advance import frozen_outputs_stale
     from engine.board import Board
 
@@ -3213,7 +3190,6 @@ def test_concurrent_save():
     engine コマンドにする——手で rev を書き足すと「engine が rev を上げていない」を見逃す。
     """
     print("否定検査: 1 つの盤面に 2 人が付くと、後から書く側が落ちる")
-    sys.path.insert(0, str(PLUGIN))
     from engine.board import Board
 
     run = Run("concurrent")
@@ -3272,10 +3248,7 @@ def test_unresolved_role():
     def drive_graph(name, mutate, watch_node):
         """graph を 1 か所変えて init し、台本で回す。watch_node の instance と stderr を返す。"""
         _td_tmp, tmp = parallel.workspace(f"gl-{name}-")
-        shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-        shutil.copytree(PLUGIN / "rules", tmp / "rules")
-        shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-        (tmp / "graphs").mkdir()
+        _copy_plugin_dirs(tmp)
         src = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
         gp = tmp / "graphs" / "g.json"
         gp.write_text(json.dumps(src, ensure_ascii=False), encoding="utf-8")
@@ -3317,10 +3290,7 @@ def test_unresolved_role():
     def init_only(name, mutate):
         """壊した graph で init だけを打つ（入口の静的検査を測る腕）。"""
         _td_tmp, tmp = parallel.workspace(f"gl-{name}-")
-        shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-        shutil.copytree(PLUGIN / "rules", tmp / "rules")
-        shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-        (tmp / "graphs").mkdir()
+        _copy_plugin_dirs(tmp)
         g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
         mutate(g)
         gp = tmp / "graphs" / "g.json"
@@ -3900,7 +3870,6 @@ def test_item_file_relative_migration():
     _td, tmp = parallel.workspace("gl-item-")
     (tmp / "items" / "r1").mkdir(parents=True)
     (tmp / "items" / "r1" / "x.json").write_text(json.dumps({"key": "K", "v": 1}, ensure_ascii=False), encoding="utf-8")
-    from engine.advance import load_item  # noqa: E402 — 部品を直に呼ぶ腕
     # **engine が実際に書く綴りを食わせる**（`str(b.dir / "items" / f"r{round}" / …)`）。
     # 台本が engine の書かない綴り（盤面のルートからの相対）を食わせていたとき、救済は台本でだけ効いて
     # 実物では必ず外れていた（実測 r9）——**腕の入力は engine の出力から取る**
@@ -4078,10 +4047,7 @@ def test_input_existence():
     名乗る形——回す側がパス渡しに寄り切って貼る穴が 1 つも無い graph——を作ってから測る。"""
     print("入口の検査: 貼る穴を持たない graph でも、存在しない --document と --cwd で init が落ちる")
     _td_tmp, tmp = parallel.workspace("gl-inp-")
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-    (tmp / "graphs").mkdir()
+    _copy_plugin_dirs(tmp)
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     for n in g["nodes"].values():           # 貼る穴（file:）を 1 つ残らずパス渡しへ寄せた graph
         n["reads"] = [("inputs.document" if r == "file:inputs.document" else r) for r in (n.get("reads") or [])]
@@ -4179,11 +4145,9 @@ def test_carried_r1_only_previous_round():
     judge には直す術が無い（実測 2026-09-16: judge がこの形を名指しした）。
     """
     print("carried_r1: 直前の周に走った R1 の削除候補だけを要求する")
-    sys.path.insert(0, str(PLUGIN))
-    import json as _json
     from engine.rules import load_rules
     gp = str(PLUGIN / "graphs" / "review-loop.json")
-    graph = _json.loads(pathlib.Path(gp).read_text(encoding="utf-8"))
+    graph = json.loads(pathlib.Path(gp).read_text(encoding="utf-8"))
     m = load_rules(gp, graph)
 
     class B:
