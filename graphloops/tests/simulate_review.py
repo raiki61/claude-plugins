@@ -2921,7 +2921,7 @@ def test_frozen_review_revision():
     src.write_text(before + "\n# P3 の修正に見立てた行\n", encoding="utf-8")
     # 取り直しは rules の _take_diff が呼ぶ——部品を直に呼んで、接尾辞に依らず固定が走ることを見る
     mod = _fresh_rules("gl_rv2")
-    # **手で組んだ値を置かない。** 代役は実物の git をそのまま通す（呼ばれた綴りだけ記録する）
+    # **手で組んだ値を置かない。** 代役は実物の git をそのまま通す
     # ——決め打ちの 40 桁を置いていたとき、実装が一時 index の経路へ移っても代役は気づかず、
     # 呼ばれない綴りに答え続けた（実測 r10）。実物を通せば、綴りが変われば代役ごと壊れて見える
     def _passthrough(*a, **k):
@@ -3254,7 +3254,7 @@ def test_review_rev_paragraph_is_uniform():
 
 
 def _until_purpose_review(run):
-    """目的の監査のノード（p0.purpose_review）が出る波まで台本で進め、その instance の id を返す（20 波で出なければ None）"""
+    """目的の監査のノード（p0.purpose_review）が出る波まで台本で進め、その instance の id を返す（出る前に ready が尽きるか、20 波で出なければ None）"""
     for _ in range(20):
         nx = run.next()
         if not nx.get("ready"):

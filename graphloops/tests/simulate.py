@@ -88,7 +88,7 @@ def rm(p):
 
 
 def _copy_plugin_dirs(tmp):
-    """graphcheck を写しの上で回す作業場を組む——prompts・rules・blocks を写し、空の graphs を置く"""
+    """プラグインの prompts・rules・blocks を tmp に写し、空の graphs を置く"""
     for name in ("prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / name, tmp / name)
     (tmp / "graphs").mkdir()
