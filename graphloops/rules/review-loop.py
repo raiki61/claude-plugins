@@ -933,7 +933,7 @@ def _claimed_closed_from(v, n):
     delta = (v("cur." + DELTA_PASSES[n].cut, None) or {}).get("delta")
     if "claimed" not in (delta or {}):
         return {r["key"] for r in _closed_rows(v("cur.p3.fix" if n == 1 else f"cur.{DELTA_PASSES[n - 1].fix}", None), n)}
-    return _claimed_key_set(delta)
+    return {r["key"] for r in delta["claimed"] or []}
 
 
 @cond_reads(*fix_delta_nonempty.reads, "cur.p3.fix")
@@ -3503,7 +3503,7 @@ def _md_slugs(text):
 
 def _added_md_links(base, root):
     """BASE から今の作業ツリーまでに足された .md の行（コードブロックとコードスパンの外）にある相対リンク ——
-    [(ファイル, 行, 指し先)]。None は差分を引けなかった。git add -N していない未追跡の .md（.gitignore に当たらない物）は
+    [(ファイル, 行, 指し先, 問題)]（読めないファイルは 行 0・指し先 None で問題の文を持ち、ほかは問題が None）。None は差分を引けなかった。git add -N していない未追跡の .md（.gitignore に当たらない物）は
     git diff に出ないので、中身の全行を足された行として数える"""
     # core.quotePath を切る——既定のままだと日本語のファイル名が引用符つきの 8 進表記になり、+++ b/ の行で拾えず黙って飛ばす。
     # :(top) で、サブディレクトリから回した run でもリポジトリ全体の .md を見る
@@ -3789,11 +3789,6 @@ def _closed_rows(out, n):
     """『塞いだ』と言われた行を、その回の返答（1 回目は p3.fix、2 回目は 1 回目の手直し）から引く式の正本"""
     rows, (field, word) = (out or {}), (("plan_faces", "absorbed") if n == 1 else ("handled", "fixed"))
     return [r for r in rows.get(field) or [] if r["handled"] == word]
-
-
-def _claimed_key_set(d):
-    """修正差分（切り出しのノードの出力の delta。{file, files, rev, claimed}）から、検算する key の集合を引く（条件の側も同じ物を呼ぶ）"""
-    return {r["key"] for r in (d or {}).get("claimed") or []}
 
 
 @cond_reads(*dict.fromkeys(("cur." + p.cut for p in DELTA_PASSES.values())), *_CLAIMED_READS)

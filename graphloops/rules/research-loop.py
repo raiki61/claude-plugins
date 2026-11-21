@@ -882,7 +882,7 @@ def finalize(b):
     stopped = rec["convergence"].get("outcome") == "stopped"
     # **段ごとに必須のゲート全部を見る。** 以前は rederiver と cold_reader の 2 本だけを回しており、
     # **同じ不変条件の 3 本目（cartographer）が漏れていた**——重厚段で停止した run は cartographer が
-    # not_applicable のまま理由も付かず、検証器 :241 が「重厚段で cartographer を省略している」で落ちる。
+    # not_applicable のまま理由も付かず、検証器（convergence-loops の research-record.py）が「重厚段で cartographer を省略している」で落ちる。
     # 帰結は前と同じで、**report のノードが永久に出ない**（実測 2026-09-13: 部品を直に呼んで、重厚だけ
     # 理由の付かない not_applicable が残ることを確認）。**1 本直して赤が消えたところで止めていた形。**
     for k in GATES:
