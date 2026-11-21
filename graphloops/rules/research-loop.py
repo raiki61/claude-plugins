@@ -885,7 +885,7 @@ def finalize(b):
     # not_applicable のまま理由も付かず、検証器 :241 が「重厚段で cartographer を省略している」で落ちる。
     # 帰結は前と同じで、**report のノードが永久に出ない**（実測 2026-09-13: 部品を直に呼んで、重厚だけ
     # 理由の付かない not_applicable が残ることを確認）。**1 本直して赤が消えたところで止めていた形。**
-    for k in ("rederiver", "cold_reader", "cartographer"):
+    for k in GATES:
         if g[k].get("status") != "not_applicable":
             continue
         if k == "cartographer" and th != "heavy":
