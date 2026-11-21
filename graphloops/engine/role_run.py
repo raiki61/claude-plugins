@@ -1261,7 +1261,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
                     reason = (f"返答の本文の{broken}に孤立サロゲート（UTF-8 で書けない字）がある——その字を消すか正しい字に直して返し直せ"
                               if broken else accept(text) if accept else None)
                 except (Exception, SystemExit) as e:  # 役のせいでない失敗——続きを頼んでも直らない
-                    reason, got["why"] = None, f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
+                    got["why"] = f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
                 else:
                     if reason is None:
                         got.update(ok=True, why=None, accepted=True)
