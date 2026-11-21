@@ -686,6 +686,14 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
             inst["context_lost"] = (f"{same} の会話の番号（session_id）も agent id も無い（launch で起動していないか、"
                                     "done に --agent-id を渡していない）。新しい会話で走る")
             b.state.setdefault("context_lost", []).append({"instance": iid, "round": b.round, "reason": inst["context_lost"]})
+    _tree_before(b, inst, n, iid, nid, attempt)
+    b.rd["instances"][iid] = inst
+    b.trace("emit", instance=iid, sha=inst["prompt_sha"])
+    return inst
+
+
+def _tree_before(b, inst, n, iid, nid, attempt):
+    """作業ツリーを守る役と申告を突き合わせるノードの、起動の前の作業ツリー（状態コードとパスの並び・木の id）を instance に写す"""
     if n["run_by"] in b.graph.get("tree_guard_roles", []):
         # 1 回の next の中では取り直さない（扇のノードでは項目数ぶん同じ写しを取っていた）——memo は盤面が持つ。
         # porcelain は状態コードとパスだけなので、既に M のファイルの中身の書き換えは中身の木の id（tree_before_id）で見る
@@ -706,9 +714,6 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
                 # 申告の突合の周の基準は、この周にこのノードを最初に出した時点——差し戻し・起動し直しで取り直さない（申告は周の累計）。
                 # 起動し直し（attempt > 1）の時点の木は、前の版の engine が出した試行でも基準に置かない
                 b.rd.setdefault("tree_base", {}).setdefault(nid, tree)
-    b.rd["instances"][iid] = inst
-    b.trace("emit", instance=iid, sha=inst["prompt_sha"])
-    return inst
 
 
 def fan_items(b, nid):
