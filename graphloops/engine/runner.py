@@ -261,6 +261,13 @@ class _Runner:
         insts = read_state(self.d)["rounds"][-1]["instances"]
         return [insts[i] for i in ids if i in insts and insts[i].get("status") == "pending" and insts[i].get("launch_state") == "running"]
 
+    def recover_orphans(self, ids):
+        """ids の落ちた試行（orphans）を 1 つずつ拾い直す（recover）。拾えなかった理由は detail に残す（後の物が前の物を上書きする）"""
+        for inst in self.orphans(ids):
+            why = self.recover(inst)
+            if why:
+                self.detail = why
+
     def recover(self, inst):
         """落ちた launch の試行を拾い直す: 置き場に返答が在れば受け付け、無ければ起動し直す（次の next の後に起動する）。
         同じ試行が 2 度落ちたら拾わず人に渡す。返すのは拾えなかった理由（拾えたら None）"""
@@ -299,10 +306,7 @@ class _Runner:
         if unmarked and len(unmarked) == len(ids):
             self.detail = f"loop.py launch がノードを起動せずに終わった（exit {p.returncode}。{unmarked}。出力は run.log）"
             return False
-        for inst in self.orphans(ids):
-            why = self.recover(inst)
-            if why:
-                self.detail = why
+        self.recover_orphans(ids)
         return True
 
     def inherited(self):
@@ -328,10 +332,7 @@ class _Runner:
                 wait = True   # 生きている（か確かめられない）——止めずに待つ
                 continue
             mark.unlink(missing_ok=True)
-            for inst in self.orphans(ids):
-                why = self.recover(inst)
-                if why:
-                    self.detail = why
+            self.recover_orphans(ids)
         return wait
 
     def others_running(self, c):
