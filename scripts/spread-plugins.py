@@ -362,6 +362,36 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
     return steps
 
 
+def reconcile(steps, whole, want, fetched, keep_out):
+    """版を main（want）と照合できた後に、アカウントごとに main の全部が入ったかを見る（steps を書き換え、行を足す）。
+    marketplace の更新か clone の確かめが抜けたアカウントで main に在る物が入っていなければ失敗の行を足し、入った版が main と
+    そろったアカウント（fetch が済んだ回だけ）は marketplace の更新の失敗を数えない。"""
+    # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部 main と同じなら目的は果たしている。同じ設定のフォルダの
+    # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
+    # main に在って入れない物（no_install）を除き、main の全部が入ったアカウントだけを数える。更新の落ちた clone は main で
+    # 足したプラグインを載せないので、入れる手も失敗も出ず、入った物だけを見ると「配った」と出ていた
+    # clone が無くて入っていない物を確かめずに進んだアカウント（offered）も、main の一覧で照合する（照合しないと、main で
+    # 足したプラグインを入れないまま「配った」と出て、次に main へ入れるまで入らない）
+    even = {n for n, i, *_ in whole if i in want} - drifted(whole, want)
+    blind = {s["account"] for s in steps if s["kind"] == "offered"}
+    for n in sorted(even | blind):
+        fell = [s for s in steps if s["account"] == n and s["kind"] == "marketplace-update" and s["failed"]]
+        have = {i for m, i, *_ in whole if m == n}
+        miss = sorted(i for i in want if i not in have and i.rsplit("@", 1)[0] not in keep_out)
+        if miss and (fell or n in blind):
+            why = "marketplace の更新が落ち" if fell else "marketplace の clone が無く"
+            steps.append(step(n, "install", f"{n}: {why}、main に在る {'・'.join(miss)} が入っていない", not fell))
+            continue
+        # fetch が落ちたなら手元の origin/main は古いかもしれず、そろったとは言えないので許さない
+        if n not in even or not fetched:
+            continue
+        for s in fell:
+            s["failed"] = False
+        if fell:
+            steps.append(step(n, "marketplace-update",
+                              f"{n}: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない", False))
+
+
 def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=herdr._default_runner):
     try:
         value = json.loads(stdin.read() or "{}")
@@ -406,30 +436,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=her
             steps.append(step(None, "main", err, True))
         steps += check_versions(whole, want)
         if not err:
-            # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部 main と同じなら目的は果たしている。同じ設定のフォルダの
-            # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
-            # main に在って入れない物（no_install）を除き、main の全部が入ったアカウントだけを数える。更新の落ちた clone は main で
-            # 足したプラグインを載せないので、入れる手も失敗も出ず、入った物だけを見ると「配った」と出ていた
-            # clone が無くて入っていない物を確かめずに進んだアカウント（offered）も、main の一覧で照合する（照合しないと、main で
-            # 足したプラグインを入れないまま「配った」と出て、次に main へ入れるまで入らない）
-            even = {n for n, i, *_ in whole if i in want} - drifted(whole, want)
-            blind = {s["account"] for s in steps if s["kind"] == "offered"}
-            for n in sorted(even | blind):
-                fell = [s for s in steps if s["account"] == n and s["kind"] == "marketplace-update" and s["failed"]]
-                have = {i for m, i, *_ in whole if m == n}
-                miss = sorted(i for i in want if i not in have and i.rsplit("@", 1)[0] not in keep_out)
-                if miss and (fell or n in blind):
-                    why = "marketplace の更新が落ち" if fell else "marketplace の clone が無く"
-                    steps.append(step(n, "install", f"{n}: {why}、main に在る {'・'.join(miss)} が入っていない", not fell))
-                    continue
-                # fetch が落ちたなら手元の origin/main は古いかもしれず、そろったとは言えないので許さない
-                if n not in even or not fetched:
-                    continue
-                for s in fell:
-                    s["failed"] = False
-                if fell:
-                    steps.append(step(n, "marketplace-update",
-                                      f"{n}: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない", False))
+            reconcile(steps, whole, want, fetched, keep_out)
     steps += reload_talks(skip, dry, runner, herdr_run)
     bad = [s["text"] for s in steps if s["failed"]]
     # 失敗の行は終わりに並べ直す（works-dispatch が作業に回す頼みには出力の終わりしか載らない）
