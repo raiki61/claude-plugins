@@ -22,6 +22,7 @@ import types
 
 import fakeclaude  # 同じディレクトリ。代役の claude（既定は --output-format json の包みを返す）
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
+import vocab  # 同じディレクトリ。台本が返した判定語彙の到達を数える部品
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from engine.advance import load_item  # noqa: E402 — 項目の正本（items/ のファイル）の読み方は engine が持つ
@@ -112,59 +113,13 @@ VOCAB_REACHED = 129
 
 
 def record_vocab(node, output):
-    """台本が返した値を集める。**既存の検査に相乗りするので、この測定のために 1 回も余計に回さない。**"""
-    if not isinstance(output, dict):
-        return
-    nid = node.split("[")[0]
-
-    def walk(v, p=""):
-        if isinstance(v, dict):
-            for k, x in v.items():
-                walk(x, f"{p}.{k}" if p else k)
-        elif isinstance(v, list):
-            for x in v:
-                walk(x, p + "[]")
-        elif isinstance(v, (str, bool)):
-            with parallel.LOCK:
-                VOCAB_SEEN[(nid, p)].add(v)
-
-    walk(output)
+    """台本が返した値を VOCAB_SEEN に集める（数え方の正本は vocab.record）"""
+    vocab.record(VOCAB_SEEN, node, output)
 
 
 def vocab_coverage():
-    """graph が宣言する判定語彙のうち、台本が返したものの数と、返していないものの一覧。"""
-    sys.path.insert(0, str(PLUGIN))
-    from engine.schema import load_graph  # noqa: E402 — engine と同じく $ref（ブロックのファイルも）を展開した形で数える（生の graph では $ref の先の語彙が数えられない）
-    g = load_graph(PLUGIN / "graphs" / "review-loop.json")[0]
-    enums = {}
-
-    sys.path.insert(0, str(PLUGIN))
-    from engine.schema import walk_schema as engine_walk  # noqa: E402 — schema の走査は engine の 1 本（patternProperties の下にも降りる）
-
-    def walk_schema(nid, sch):
-        for p, s in engine_walk(sch):
-            if "enum" in s:
-                enums[(nid, p.removeprefix("$").removeprefix("."))] = set(s["enum"])
-
-    # **無作為に引く扇のノードは数えない**——引く物が run ごとに変わるので、そこから返る値は台本の性質ではない。
-    # research 側で作った正本（rules の RANDOM_FAN）を review 側の測定器も読む。review graph に今 fan_out は
-    # 無いので現状の数は変わらないが、扇を足した周に**片側だけラチェットが乱数で揺れる**のを止める
-    # （実測 2026-09-14: RANDOM_FAN は research 側 2 か所にしか無く、review 側は 0 件だった）
-    sys.path.insert(0, str(PLUGIN))
-    from engine.rules import load_rules
-    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
-    random_fan = set(getattr(rules, "RANDOM_FAN", ()) or ())
-    for nid, n in g["nodes"].items():
-        if (n.get("fan_out") or {}).get("builtin") in random_fan:
-            continue
-        if n.get("schema"):
-            walk_schema(nid, n["schema"])
-    total = sum(len(v) for v in enums.values())
-    reached = sum(len(v & VOCAB_SEEN.get(k, set())) for k, v in enums.items())
-    unreached = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs - VOCAB_SEEN.get(k, set())))
-    # 到達した値そのもの（組に分けた回は、まとめの口がこの和集合の大きさを記録と照合する）
-    keys = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs & VOCAB_SEEN.get(k, set())))
-    return reached, total, unreached, keys
+    """graph が宣言する判定語彙のうち、台本が返したものの数と、返していないものの一覧（数え方の正本は vocab.coverage）"""
+    return vocab.coverage(PLUGIN, PLUGIN / "graphs" / "review-loop.json", VOCAB_SEEN)
 
 
 CHECKS_OK = [{"name": "suite", "argv": [PY, "-c", "print('1 passed')"]}]   # 台本のリポジトリが宣言する走らせる語（緑）
