@@ -2607,6 +2607,39 @@ def worktree_board_notice(board):
     return None
 
 
+def _run_dir(a, loop):
+    """盤面の置き場と run-id。--dir が無ければ対象リポジトリの git dir の下に、日時の名前で取る（置き場はまだ作らない）"""
+    run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    if a.dir:
+        return pathlib.Path(a.dir).resolve(), run_id   # 盤面の綴りは入口で 1 度だけ解決する（resolve_dir と同じ規律）
+    gd = git("rev-parse", "--git-dir")
+    if not gd:
+        die("git リポジトリでない。--dir で置き場を渡せ")
+    base_dir = pathlib.Path(gd.strip()).resolve() / "graphloops" / loop
+    d = base_dir / run_id
+    n = 2
+    while d.exists():  # 同じ秒に 2 回 init すると run-id が衝突する（実測 2026-09-13: 台本で FileExistsError→exit 2）
+        d = base_dir / f"{run_id}-{n}"
+        n += 1
+    return d, d.name
+
+
+def _thickness_and_decider(g, a):
+    """init の --thickness と --decider を graph の thickness の表で解いて確かめ、(段, decider) を返す。合わなければ止める"""
+    tcfg = g.get("thickness", {})
+    tiers, default = tcfg.get("tiers") or [], tcfg.get("default")
+    th = thickness_key(g, a.thickness) if a.thickness else default
+    if th and th not in tiers:
+        die(f"段 '{th}' はこの loop の段（{tiers}。表示の語 {tcfg.get('labels') or {}} でも受ける）に無い")
+    deciders = tcfg.get("deciders", {})
+    decider = thickness_key(g, a.decider) if a.decider else deciders.get("default")
+    if a.decider and decider not in deciders.values():
+        die(f"--decider '{a.decider}' はこの loop の値（{sorted(deciders.values())}）に無い")
+    if th and default in tiers and tiers.index(th) < tiers.index(default) and decider != deciders.get("downgrade"):
+        die(f"{th} は依頼者が明示に指定した場合だけ——依頼者がそう言ったときに限り --decider {deciders.get('downgrade')} を添えて init する")
+    return th, decider
+
+
 def cmd_init(a):
     graph = a.graph or str(PLUGIN_ROOT / "graphs" / f"{a.loop}.json")
     g, why = load_graph(graph)
@@ -2635,34 +2668,11 @@ def cmd_init(a):
     missing = required_inputs_missing(g, graph, inputs)
     if missing:
         die("この loop に要る入力が無い（init で止める——以前は 2 手先の穴埋めで初めて落ち、盤面を捨てるしかなかった）: " + "; ".join(missing))
-    run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    if a.dir:
-        d = pathlib.Path(a.dir).resolve()   # 盤面の綴りは入口で 1 度だけ解決する（resolve_dir と同じ規律）
-    else:
-        gd = git("rev-parse", "--git-dir")
-        if not gd:
-            die("git リポジトリでない。--dir で置き場を渡せ")
-        base_dir = pathlib.Path(gd.strip()).resolve() / "graphloops" / loop
-        d = base_dir / run_id
-        n = 2
-        while d.exists():  # 同じ秒に 2 回 init すると run-id が衝突する（実測 2026-09-13: 台本で FileExistsError→exit 2）
-            d = base_dir / f"{run_id}-{n}"
-            n += 1
-        run_id = d.name
+    d, run_id = _run_dir(a, loop)
     # **段と decider の検査は置き場を作る前に。** 後ろに置いていたとき、die しても中身ゼロの run ディレクトリが
     # 残った（実測 2026-09-13: --thickness を decider 無しで渡すたびに -2 / -3 が積まれた）——同じ関数の頭の
     # 注記が「die しても空の盤面を残さない」と名乗っているので、名乗りの側でなく実装の側を合わせる
-    tcfg = g.get("thickness", {})
-    tiers, default = tcfg.get("tiers") or [], tcfg.get("default")
-    th = thickness_key(g, a.thickness) if a.thickness else default
-    if th and th not in tiers:
-        die(f"段 '{th}' はこの loop の段（{tiers}。表示の語 {tcfg.get('labels') or {}} でも受ける）に無い")
-    deciders = tcfg.get("deciders", {})
-    decider = thickness_key(g, a.decider) if a.decider else deciders.get("default")
-    if a.decider and decider not in deciders.values():
-        die(f"--decider '{a.decider}' はこの loop の値（{sorted(deciders.values())}）に無い")
-    if th and default in tiers and tiers.index(th) < tiers.index(default) and decider != deciders.get("downgrade"):
-        die(f"{th} は依頼者が明示に指定した場合だけ——依頼者がそう言ったときに限り --decider {deciders.get('downgrade')} を添えて init する")
+    th, decider = _thickness_and_decider(g, a)
     if a.stop_after_round is not None and a.stop_after_round < 1:
         die(f"--stop-after-round は 1 以上（{a.stop_after_round}）——止める周の番号で、その周の締めの後で止まる")
     fn = hook(rules, "check_inputs")
