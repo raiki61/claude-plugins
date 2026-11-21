@@ -2739,7 +2739,6 @@ def _comment_ratio(b, base, rev):
     """comment-ratio.sh --json <BASE> <版> の scalars ——（名前 → 数, 測れなかった理由）。出力を読むだけで数え直さない。
     知らない名前・数でない値・欠けた名前は、黙って捨てずに測れなかった理由にする（一部だけ書くと、周の間で欠けた値が 0 と区別できない）。
     unmeasured（数えられなかったファイル）が在れば、数は返したうえで理由にも残す"""
-    import shutil
     import subprocess
     script = pathlib.Path(b.state["inputs"].get("scripts_dir") or "") / "comment-ratio.sh"
     # bash は PATH の順で引く。裸の名前を渡すと、Windows では CreateProcess が PATH より先にシステムのディレクトリを探し、
