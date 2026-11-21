@@ -205,12 +205,8 @@ def tdd_start(b, nid):
 
 
 def _named_in(out):
-    """テストだけを書く段の返答から名指しのテストを引く式の正本（盤面の側 _named と条件の側が同じ物を呼ぶ）"""
+    """テストだけを書く段の返答から名指しのテストを引く式の正本（盤面の側の tdd_red と条件の側の tdd_named が同じ物を呼ぶ）"""
     return [t for u in (out or {}).get("units") or [] if u.get("route") == "tdd" for t in u.get("tests") or []]
-
-
-def _named(b):
-    return _named_in(b.output_of_round("p3.tdd_tests", b.round))
 
 
 @cond_reads("cur.p3.tdd_tests")
@@ -254,7 +250,7 @@ def tdd_red(b, nid):
     通らなければテストだけを書く段を差し戻す（理由はこのノードの出力の problems でプロンプトに戻る）"""
     t = _tdd(b)
     out = b.output_of_round("p3.tdd_tests", b.round) or {}
-    named = _named(b)
+    named = _named_in(out)
     now = _snap()
     changed = _diff_names(t.get("start"), now)
     probs = []
