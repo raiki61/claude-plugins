@@ -3184,7 +3184,5 @@ if __name__ == "__main__":
         sys.exit(main())
     except KeyboardInterrupt:
         sys.exit(130)
-    except SystemExit:
-        raise
     except Exception as e:  # noqa: BLE001 — 想定外は 2 で落とす（1 は「見つからない」に使う）
         sys.exit(f"catchup.py が想定外の例外で停止: {type(e).__name__}: {e}")
