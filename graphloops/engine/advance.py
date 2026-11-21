@@ -742,6 +742,10 @@ def run_driver_node(b, nid, n, notes):
     b.trace("builtin", node=nid, result=out)
     # 返りは 2 つの形のどちらか——{"ok": bool, "problems": [...]} か {"decision": ...}。
     # どちらでもない返りを合格に倒さない（`ok is False` だけを失敗にしていたとき、ok の無い返りが全部 done に載った）。
+    def mark_done():
+        b.rd["done"][nid] = {"at": now(), "builtin": n["builtin"]}
+        b.state["done_ever"][nid] = b.round
+
     if "decision" not in out:
         if not isinstance(out.get("ok"), bool):
             die(f"builtin '{n['builtin']}' の返りが {{'ok': 真偽値}} でも {{'decision': …}} でもない: {sorted(out)}")
@@ -758,11 +762,6 @@ def run_driver_node(b, nid, n, notes):
                 b.trace("rewound", node=nid, nodes=back)
                 return True
             return False
-    def mark_done():
-        b.rd["done"][nid] = {"at": now(), "builtin": n["builtin"]}
-        b.state["done_ever"][nid] = b.round
-
-    if "decision" not in out:
         mark_done()
         return True
     d = out["decision"]
