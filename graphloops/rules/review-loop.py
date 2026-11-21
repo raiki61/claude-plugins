@@ -609,7 +609,7 @@ def on_new_round(b):
             {"text": t, "measured_how": f"stop.premise_check の検算（round {b.round - 1}）", "kind": "measured"} for t in facts)
     # 入口の周の終わり（request_fixed_at）は、前の周の頭に固めた版と今の作業ツリーの差で決める（測れなければ writer の申告）。
     # 同じ差を条件が読む一覧は、周の頭のノードが固めた版どうしで測り直して出力に置く（changed_since_prev_round）
-    claimed = sorted({f for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes", []) for f in c.get("files", [])})
+    claimed = _prev_fix_claimed(b)
     measured = _files_changed_since(b, b.round - 1)
     if claimed if measured is None else measured:
         write_loop(b, "request_fixed_at", "set_once", b.round - 1)  # 最初に修正が入った周——入口の周はここで終わる（request_entry が読む）
@@ -2139,6 +2139,11 @@ def worktree_snapshot(b, nid, head=True):
     return out
 
 
+def _prev_fix_claimed(b):
+    """前の周の P3（p3.fix）の writer が、変えたと申告したファイルの一覧（並べて重複を除く）"""
+    return sorted({f for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes", []) for f in c.get("files", [])})
+
+
 def _changed_since_prev_round(b, rev):
     """前の周の P3 が実際に触ったファイル——**engine が持つ事実**（前の周の頭に固めた版と、この周の頭に固めた版の木の差）。
     測れなければ writer の申告（前の周の p3.fix の changes[].files）。1 周目は []。
@@ -2150,7 +2155,7 @@ def _changed_since_prev_round(b, rev):
     names = tree_names_between(prev, rev, git_fn=git)
     if names is not None:
         return names
-    return sorted({f for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes", []) for f in c.get("files", [])})
+    return _prev_fix_claimed(b)
 
 
 TREE_BEFORE_MISSING = ("{node} の今の周の出力に tree_before（P1 の前後の突合の基準）が無い——基準を出力に載せる前の版の rules が書いた出力。"
