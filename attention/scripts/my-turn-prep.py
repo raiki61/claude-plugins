@@ -139,10 +139,6 @@ def blobs(rev, paths):
     return {p: got.get(p) for p in paths}
 
 
-def has_commit(sha):
-    return git("cat-file", "-e", sha + "^{commit}")[0] == 0
-
-
 def record_complete(rec):
     """前の回の記録に、何も返さなかったエージェントが 1 体も無いか（段の一部だけ落ちた回も欠けに数える）。"""
     counts = rec.get("counts")
@@ -498,7 +494,7 @@ def prep(pr, prior, headless):
     if rec is not None:
         ph, pb = rec.get("head"), rec.get("base")
         prior_head = ph if isinstance(ph, str) and ph else None
-        prior_missing = bool(prior_head) and not has_commit(prior_head)
+        prior_missing = bool(prior_head) and not changemap.has_commit(prior_head)
     then_ok = bool(prior_head) and not prior_missing
 
     # 指紋: 変えたファイルと、段が従う決まりの文書と、前回の記録が読んだ・分けた・根拠にしたファイル
@@ -550,7 +546,7 @@ def prep(pr, prior, headless):
         # （変えたファイルの指紋で比べると、消したファイルで毎回掘り直し、PR から外したファイルを見落とす）
         # 比べは git を 10 回ほど呼ぶので、差分のファイルを読んだノードが在るときだけ（unchanged でも、前の回の後に
         # 来た指摘で近道を取らない回は使い回すので比べる）
-        if (then_ok and isinstance(pb, str) and pb and has_commit(pb)
+        if (then_ok and isinstance(pb, str) and pb and changemap.has_commit(pb)
                 and reads_diff(rec, top, record_dir)):
             diff_same = diff_key(pb, prior_head) == diff_key(base, head)
 
@@ -991,13 +987,18 @@ def check_report(record_path, report_path):
             "missingIds": missing_ids, "missingLocations": missing_locs}, None
 
 
+def emit_run(fn):
+    """fn の答えを終了の値 0 で出す。Stop で止まったら止まりの形を 1 で出す"""
+    try:
+        return emit(fn(), 0)
+    except Stop as e:
+        return emit(stop_obj(e.code, e.message), 1)
+
+
 def main(argv):
     if argv[:2] == ["--quotes", "--b64"]:
         # 写しの照合の形（--quotes --b64 <頭> <id>:<行> ...）。argparse は --quotes の値に --b64 を取れないので、先に受ける
-        try:
-            return emit(check_rows(b64_rows(argv[2:])), 0)
-        except Stop as e:
-            return emit(stop_obj(e.code, e.message), 1)
+        return emit_run(lambda: check_rows(b64_rows(argv[2:])))
     ap = argparse.ArgumentParser(prog="my-turn-prep.py", add_help=True)
     ap.add_argument("pr", nargs="?", type=int)
     ap.add_argument("--prior")
@@ -1015,22 +1016,14 @@ def main(argv):
             return 2
         return emit(res, 0 if res["ok"] else 1)
     if a.save_record:
-        try:
-            return emit(save_record(os.path.abspath(a.save_record[0]), os.path.abspath(a.save_record[1])), 0)
-        except Stop as e:
-            return emit(stop_obj(e.code, e.message), 1)
+        return emit_run(lambda: save_record(os.path.abspath(a.save_record[0]), os.path.abspath(a.save_record[1])))
     prior = os.path.abspath(a.prior) if a.prior else None
     quotes = os.path.abspath(a.quotes) if a.quotes else None
     rc, top = git("rev-parse", "--show-toplevel")
     if rc == 0 and top.strip():
         # 作業場の下位のディレクトリで打っても、差分の本文の pathspec（. と除外）をルートで解く
         os.chdir(top.strip())
-    try:
-        if quotes:
-            return emit(check_quotes(quotes), 0)
-        return emit(prep(a.pr, prior, a.headless), 0)
-    except Stop as e:
-        return emit(stop_obj(e.code, e.message), 1)
+    return emit_run(lambda: check_quotes(quotes) if quotes else prep(a.pr, prior, a.headless))
 
 
 if __name__ == "__main__":
