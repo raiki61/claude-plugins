@@ -601,7 +601,7 @@ DW の script は web を開けない（公開の文書の「No direct filesyste
   - head の食い違いで止める・base と差分を取る・`recordDir` を決める。
   - `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` が置かれていたら止める（反証を別のモデルにできないため）。
   - 差分を使う DW（lines・premises・prior・lens・findings・verify）の前に 1 回打つ。
-  - 世界の解の DW に渡す依存の一覧の取り出し（1.2 の 2）は、この台本に足す。
+  - 世界の解の DW に渡す依存の一覧の取り出し（1.2 の 1）は、この台本に足す。
 - **根拠の写しの照合**（`--quotes --b64` と haiku の Quotes の段）: premises・prior・lens・findings・verify の根拠に使う。世界の解の抜き書きの取り直しも同じ形で作る（3.6）。
 - **指摘の台帳と下書きの決まり**（段 11 の台帳・段 13 の行き先・`draftToReport`）: findings の DW に移す。
 - **反証の 2 体**（W10。誤検出だと示そうとする目と、失敗の筋書きを組む目）と、反証と書いた段が同じモデルなら止める照合: findings の DW で使う。
@@ -776,13 +776,13 @@ findings の DW の後、スキルが下書きを書く前に置く。照合す�
 - 会話の中の Workflow なので、`--max-budget-usd` は付けられない。
   - 歯止めは、類の数（依頼の行 10 件）と、受け付けの 3 回の上限。
   - 見込みの 2 倍（50 USD）を超えたら、測りの結果に書き、次の頼みで受け付けの回数か類ごとの抜き書きの上限を見直す。
-- この頼み（c36cfd。冒頭の依頼の番号）では走らせない。持ち主に決めてほしい点 1 が可なら、実装の頼みの中で走らせる。
+- この頼み（c36cfd。冒頭の依頼の番号）では走らせなかった。持ち主に決めてほしい点 1 が可に決まり、実装の頼み（33329f）の中で走らせた。
 
 ## 9 自分で決めた事と根拠
 
 ルートの CLAUDE.md の「判断の線」（業界の定石・前に決めた事で 1 つに決まる物は、根拠を書いて自分で進める）で決めた物。
 
-- **並べる形をスキルにした**: 公開の文書の「No direct filesystem or shell access」と、workflow-authoring の「Nesting is one level only」（セクション 1.2）。
+- **並べる形をスキルにした**: 公開の文書の「No direct filesystem or shell access」と、workflow-authoring の「Nesting is one level only」（セクション 1.1・1.2）。
 - **lens を judge の素材の観点にした**: 工場の lens block は judge に無く、直しの後の差分を見る物（`docs/design/lens.md`・`workflows/judge/works-factory-judge.yaml:123-215`）。
 - **lines と findings を足した**: PR のレビューには依頼の行が無いため。観点の答えを台帳にまとめる段が要るため（重い版の段 11 の決め）。
 - **種類の 1 文を持たない**: #2555 で 2 度続けて解き方が入った。世界の解は類の文から問う。
