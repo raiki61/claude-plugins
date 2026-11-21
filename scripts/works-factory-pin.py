@@ -382,14 +382,14 @@ def look(dry, runner, root, now, env, lander, cdir):
     cache = os.path.join(cdir, SOURCE)
     fetch(cache, url_of(), [pin, to], runner)
     face = surface(pin, to, cache, runner, root)
-    head, commits = commits[-1][0], upto(commits, to)
-    numbers = prs(commits)
+    head, taken = commits[-1][0], upto(commits, to)
+    numbers = prs(taken)
     if not dry:
         save_state(state_path, to, now)
     failed = None
     if not face and not dry:
         try:
-            landed, said = lander(pin, to, commits, cdir, runner, env)
+            landed, said = lander(pin, to, taken, cdir, runner, env)
         except (RuntimeError, OSError) as e:
             failed = str(e)
         else:
@@ -400,7 +400,7 @@ def look(dry, runner, root, now, env, lander, cdir):
                   + ("・".join(f"#{n}" for n in numbers) or "題から番号を拾えなかった") + "）")
             print(said)
             return 0
-    print(f"工場 {REPO} の main で CI〔{CHECK}〕が緑の {to[:8]} が、{PLUGIN}/PIN の {pin[:8]} より {len(commits)} 本先に在る"
+    print(f"工場 {REPO} の main で CI〔{CHECK}〕が緑の {to[:8]} が、{PLUGIN}/PIN の {pin[:8]} より {len(taken)} 本先に在る"
           + (f"（main の頭 {head[:8]} の CI はまだ緑でない）" if head != to else ""))
     print(f"差分: https://github.com/{REPO}/compare/{pin[:12]}...{to[:12]}")
     print("取り込む PR: " + ("・".join(f"#{n}" for n in numbers) if numbers else "（題から番号を拾えなかった）"))
