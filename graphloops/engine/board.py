@@ -233,10 +233,6 @@ class Board:
         return self.graph.get("plugin")
 
     @property
-    def runners(self):
-        return self.graph.get("runners", [])
-
-    @property
     def tiers(self):
         return self.graph.get("thickness", {}).get("tiers") or []
 
