@@ -44,7 +44,7 @@ TITLE_SLOT = "<title>catchup</title>"
 INDEX_HEAD_BYTES = 16384  # ページの頭のこの量だけを読んで index の行を拾う（ページ全体は数百 KB ある）
 
 OPEN_ENV = "ATTENTION_CATCHUP_OPEN"  # 0 なら描いた後に VS Code で開かない（works-dispatch が起動する会話など）
-# 外部コマンドを無制限に待たない（catchup.py の GIT_TIMEOUT_SEC と同じ秒）。code --status は生きた窓なら数秒、
+# 外部コマンドを無制限に待たない（reflect.py の GIT_TIMEOUT_SEC と同じ秒）。code --status は生きた窓なら数秒、
 # 死んだ socket ならすぐ失敗する
 CODE_TIMEOUT_SEC = 20
 EXTENSION_ID = "austin-spagnolo.simple-html-viewer"

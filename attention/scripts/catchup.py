@@ -182,23 +182,12 @@ LEGACY_QUERY = query(turn.LEGACY_ASSIGNEES)
 
 # ---- 取得 ------------------------------------------------------------------
 
-# 外部コマンドを無制限に待たない（決着済みの規約 issue #5。隣の what-am-i-doing.py と同じ形）。gh の秒は lib/ghcli.py
-GIT_TIMEOUT_SEC = 20
-
 
 def local_email():
     """手元の git config の user.email（小文字）。GitHub の login に結び付いていない commit を
-    自分のものと見分けるのに使う。git が無い・未設定なら空文字で、その場合は照合しない。"""
-    exe = shutil.which("git")
-    if not exe:
-        return ""
-    try:
-        r = subprocess.run([exe, "config", "--get", "user.email"],  # noqa: S603 — git は which で解決
-                           capture_output=True, encoding="utf-8", errors="replace",
-                           timeout=GIT_TIMEOUT_SEC)
-    except subprocess.TimeoutExpired:
-        return ""   # 照合しないだけ。本体の報告は成り立つ
-    return r.stdout.strip().lower() if r.returncode == 0 else ""
+    自分のものと見分けるのに使う。git が無い・未設定・応答が無いなら空文字で、その場合は照合しない
+    （本体の報告は成り立つ）。待つ秒は lib/changemap.py の run の既定、gh の秒は lib/ghcli.py。"""
+    return (changemap.git("config", "--get", "user.email") or "").strip().lower()
 
 
 # 焦点の語。番号の後ろに付けると、末尾の材料をその 1 つに絞る（付けなければ有るものを全部）。
