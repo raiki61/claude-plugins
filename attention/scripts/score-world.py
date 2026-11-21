@@ -6,7 +6,9 @@
                  [--headless <world-headless.json>] [--transcripts <会話の記録のフォルダ>] [--name <対象の名前> ...]
 
 数えること（attention/docs/small-workflows-design.md の 8.3）:
-  - keys: 札ごとに拾えたか（hit）と、当たった比べ（hits）・名前の種類と相手が合うのに外れた比べ（near）と外れた訳
+  - keys: 札ごとに拾えたか（hit）と、当たった比べ（hits）・名前の種類と相手が合うのに外れた比べ（near）と外れた訳。
+    比べごとに、文の正規表現に当たった字（matched）を添える。札の name は、前後に英数字・_・- が続く所には当てない
+    （mcp を fastmcp に当てない）。札の text は正規表現 1 つか一覧で、一覧なら全部が当たって当たりにする
   - lines: 依頼の行のうち、行を返した数と missing の数
   - restate: 言い直しの回数・手段と名前の機械の当たり・漏れの照合で差し戻した数
   - excerpts: 抜き書きの残った・落ちた・照合できなかった数と、比べの根拠が web の割合
@@ -82,9 +84,25 @@ def brief(r, c, why=None):
     return out
 
 
+# 名前の前後に英数字・_・- が続くときは、別の名前の一部として当てない（mcp を fastmcp に、
+# langgraph を langgraph-checkpoint-postgres に当てない）。@ や / や空白で区切った所は当てる
+NAME_EDGE = (r"(?<![A-Za-z0-9_-])(?:", r")(?![A-Za-z0-9_-])")
+
+
+def text_res(key):
+    """札の text は正規表現 1 つか、その一覧。一覧のときは全部が当たって初めて当たりにする
+    （「ツール」の 1 語のような、どの行にも出る語だけで当てないため）"""
+    t = key["text"]
+    if isinstance(t, str):
+        t = [t]
+    if not isinstance(t, list) or not t or not all(isinstance(x, str) and x for x in t):
+        raise KeyError("text は空でない正規表現か、その一覧")
+    return [re.compile(x, re.I) for x in t]
+
+
 def score_key(key, world):
-    name_re = re.compile(key["name"], re.I)
-    text_re = re.compile(key["text"], re.I)
+    name_re = re.compile(NAME_EDGE[0] + key["name"] + NAME_EDGE[1], re.I)
+    text_re = text_res(key)
     hits, near = [], []
     for r, c in comparisons(world):
         a = c.get("against") or {}
@@ -95,9 +113,12 @@ def score_key(key, world):
             why.append("layer")
         if c.get("verdict") not in key["verdicts"]:
             why.append("verdict")
-        if not text_re.search(text_of(c)):
+        found = [x.search(text_of(c)) for x in text_re]
+        if not all(found):
             why.append("text")
-        (near if why else hits).append(brief(r, c, why or None))
+        out = brief(r, c, why or None)
+        out["matched"] = [m.group(0) if m else None for m in found]   # 当たった字。誤った当たりを人が見分けるため
+        (near if why else hits).append(out)
     return {"id": key["id"], "gate": bool(key.get("gate")), "hit": bool(hits), "hits": hits, "near": near}
 
 

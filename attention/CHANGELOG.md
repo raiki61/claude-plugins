@@ -6,6 +6,14 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Fixed
+
+- 世界の解の Workflow の採点の台本（`scripts/score-world.py`）が、札の名前を別の部品の名前の一部にも当てていたのを直した（`mcp` を `fastmcp` に、`langgraph` を `langgraph-checkpoint-postgres` に当てない）。札の文の正規表現は一覧でも書けるようにし、一覧なら全部が当たって当たりにする。当たった比べには、当たった字（`matched`）を添える（頼み c348d0）。
+
+### Changed
+
+- `docs/measures/2555-world-result.md` に、#2555 の 2〜4 回目を直した台本で採点し直した結果を足した。4 回目は、直す前の台本が合と出していたのが否になり、人が読んだ否と合う。走らせた後に文の正規表現を締めた札（`docs/measures/2555-world-key-strict.json`）では、3 回とも 3 つの札が人の読みと合う。2 回目に「拾えた」と書いた札 3 は、1 語の当たりだったので読み直して直した。次の PR からの札の書き方を、設計書（`docs/small-workflows-design.md`）の 8.2 に足した（頼み c348d0）。
+
 ## [0.77.0] - 2026-11-21
 
 ### Changed

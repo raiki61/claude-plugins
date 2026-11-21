@@ -684,6 +684,17 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     check(bad.ok === true && bad.gate === false && bad.queries === null, '札 1 に当たる比べが無いのに合になる')
     const other = score('--world', put('w4.json', world([hitRow], 'h'.repeat(40))))
     check(other.ok === true && other.keys[0].hit && other.headMatches === false && other.gate === false, '札と別の head の返りが合になる')
+    // 名前は前後に英数字・_・- が続く所に当てない（langgraph を langgraph-checkpoint-postgres に、mcp を fastmcp に当てない）
+    const partName = score('--world', put('w5.json', world([{ n: 4, class_id: 'w-4', comparisons: [cmp('dependency', 'langgraph-checkpoint-postgres', 'architecture', 'differs', 'interrupt で止めた待ちはチェックポインタが持つ。')] }])))
+    check(partName.ok === true && partName.keys[0].hit === false && partName.keys[0].near.length === 0, `札 1 の名前が別の部品の名前の一部に当たる: ${JSON.stringify(partName.keys?.[0]).slice(0, 300)}`)
+    check(good.keys[0].hits[0].matched[0] === 'interrupt', `当たった字（matched）を出さない: ${JSON.stringify(good.keys[0].hits[0])}`)
+    // text が一覧の札は、一覧の全部が当たって当たりにする（走らせた後に締めた札 2555-world-key-strict.json）
+    const STRICT = path.join(ROOT, 'attention/docs/measures/2555-world-key-strict.json')
+    const strict = w => { try { return JSON.parse(execFileSync(PY, [SCORE, '--key', STRICT, '--world', w], { encoding: 'utf8' })) } catch (e) { return JSON.parse(e.stdout) } }
+    const toolOnly = strict(put('w6.json', world([{ n: 7, class_id: 'w-7', comparisons: [cmp('dependency', 'langgraph', 'architecture', 'differs', '答え済みの値を状態に持ち、尋ねるノードの手前で飛ばす。ツールの側には任せない。')] }])))
+    check(toolOnly.ok === true && toolOnly.keys[0].hit === false && JSON.stringify(toolOnly.keys[0].near[0]?.missed) === '["text"]', `締めた札 1 が「ツール」の 1 語で当たる: ${JSON.stringify(toolOnly.keys?.[0]).slice(0, 300)}`)
+    const askTool = strict(put('w7.json', world([{ n: 1, class_id: 'w-1', comparisons: [cmp('dependency', 'langgraph', 'architecture', 'differs', 'LLM が聞く専用のツールを呼び、その中の interrupt() で止める。')] }])))
+    check(askTool.ok === true && askTool.gate === true && askTool.keys[0].hits[0].matched.length === 2, `締めた札 1 が、LLM が聞くツールを呼ぶ行に当たらない: ${JSON.stringify(askTool.keys?.[0]).slice(0, 300)}`)
     check(score('--world', put('w3.json', { stopped: 'caller' })).ok === false, 'rows の無い返りで止まらない')
     check(score('--world', path.join(tmp, 'none.json')).ok === false, '無いファイルで止まらない')
     fs.rmSync(tmp, { recursive: true, force: true })
