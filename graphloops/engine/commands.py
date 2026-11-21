@@ -893,7 +893,7 @@ def _board_name(s):
     """ファイル名を盤面（UTF-8 の JSON）に書ける字にする——UTF-8 でない名前の孤立サロゲート（PEP 383 の surrogateescape）を \\xNN に
     逃がす。書けないまま入れると盤面の保存が UnicodeEncodeError で落ちる。os.fsencode は Windows で surrogatepass になり 3 バイトに
     化けるので、surrogateescape を名指しして OS によらず同じ綴りにする"""
-    return s.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace") if isinstance(s, str) else s
+    return s.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
 
 
 # 確かめの子（いちばん安いモデル。起動する子と同じ権限の形）で 2 つを測る。結果が決まるまで run に PROBE_TRIES 回まで（人の答え 2026-09-27）:
@@ -2040,7 +2040,7 @@ def cmd_stop(a):
 
 def thicken(b, to, reason, by):
     cur = b.state["thickness"]
-    if not b.tiers or to not in b.tiers:
+    if to not in b.tiers:
         raise Reject(f"段 '{to}' はこの loop の段（{b.tiers}）に無い")
     if b.tiers.index(to) <= b.tiers.index(cur):
         raise Reject(f"{cur} から {to} へは下げられない（降格は init の --thickness だけ）")

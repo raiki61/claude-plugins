@@ -9,7 +9,7 @@ engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
   check_record  判定ごとの必須フィールドと出典（検証器と同じ規則を done の時点で当てる）
   finalize      報告の前の仕上げ（段ごとの『走らせない』理由・未反証の荷重の申告・未照合の主張の退避・方針の文書の変化）
   on_init       人の方針の文書の置き場を inputs.policy_md に、init の時点の版を process.policy に（rules/policy_input.py を review-loop と共有）
-  on_answer / on_unattended / on_thickness / add   人に聞いた後・無人・昇格・外から足す
+  on_answer / on_unattended / on_stop / on_thickness / add   人に聞いた後・無人・止めた時・昇格・外から足す
 
 engine が差し込むツールは engine/rules.py の INJECT が正本（rules は engine を import しない）。
 ノード名（p1.checker 等）はここには出ない——ノードの役割は graph が名前で指す。
@@ -240,10 +240,10 @@ def cold_reader_round(b, nid, src, w):
 
 def sampling_overturn(b, nid, src, w):
     """覆りは機械が数える（元の判定と比べる）。元の判定は役に渡していない。writes の op——記録を書く経路は writes 1 本。"""
-    out, item = src, w.get("_item") or {}
+    item = w.get("_item") or {}
     by_id = {c["id"]: c for c in b.record["claims"]}
     overturned = []
-    for f in out["findings"]:
+    for f in src["findings"]:
         c = by_id.get(f["id"])
         if c is None:
             raise Reject(f"抜き取りに無い主張 id: {f['id']}")
@@ -394,7 +394,7 @@ def converge(b, nid):
     # asks は収束しない周にしか組み立てられないので、**収束する周には一度も評価されなかった**
     # （名乗りは『収束判定に入れた』なのに、入っていたのは収束しない周だけ）。検算の測り方も
     # 『converge に read_through_unchecked が現れるか』だったので、置いた場所が到達しないことを測れなかった。
-    unchecked = b.state.get("read_through_unchecked") or []
+    unchecked = st.get("read_through_unchecked") or []
     if zero and not fails and not unchecked and conv["consecutive_zero"] >= 2 and not overturned and not pending:
         conv["outcome"] = "converged"
         conv.pop("stopped_reason", None)
@@ -440,7 +440,7 @@ def converge(b, nid):
         return _ask_decision(asks, f"上限 {st['max_rounds']} 周に達した。次のどれにするか"
                                    "（continue: 上限を 1 周だけ延ばして次の周へ／stop: 未収束のまま報告へ）",
                              ["continue", "stop"])
-    can_escalate = bool(b.tiers) and st.get("thickness") != b.tiers[-1]
+    can_escalate = bool(b.tiers) and th != b.tiers[-1]
     if asks:
         return _ask_decision(asks, "収束していない。次のどれにするか（continue: 次の周へ／stop: 未収束のまま報告へ"
                                    + ("／escalate: 重厚に上げて次の周へ" if can_escalate else "") + "）",
