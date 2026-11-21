@@ -716,7 +716,7 @@
   ],
   "append_why": "起動する子の形ごとに指示書の末尾へ足す段（advance.launch_appends。ノードの名前でなく子の形で当てる）。commands はコマンドを走らせる子（回す側のノードの全部・任せ先・Bash を持つ役）で、人の方針の置き場と手元で走らせてよい範囲だけを届ける——ノードごとの prompt_append で足していたとき、方針が届くのは足した 4 ノードだけで、任せ先と Bash を持つ P1 の役には届かなかった（束 A r3 で手元の e2e が 2 回走った）。依頼の本文は貼らない（依頼を読まないノードに依頼者の見立てを混ぜない。人のゲートの答え 2026-09-27 の条件 4）——依頼の守ることは、依頼を読むノードだけが prompt_append の request-scope.md で受ける。tooled はツールを持つ子で、盤面のファイルの読み方を届ける。同じファイルをノードの prompt_append に書くと graphcheck が拒む（重ねて貼らない）"
  },
- "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起動した現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役のツールは agents/<役>.md が正本なのでここに写さない。各ノードの source は手順書の見出し（行番号は腐るので書かない）",
+ "basis": "skills/review-loop/SKILL.md（と references/）と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起動した現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役のツールは agents/<役>.md が正本なのでここに写さない。各ノードの source は手順書の見出し（行番号は腐るので書かない）",
  "record": {
   "file": "<置き場>/rounds/round-<N>.json（engine の rules が周ごとに組む。回す側は直接編集しない。convergence-loops の .claude/review-rounds/ と同じ形）",
   "validator": "python3 review-record.py <ディレクトリ>——入口はこれ 1 つ。全ラウンドを読み、最新を突合し、履歴（キーごとの推移・消えて戻った回数・問いの推移・要対応件数・scalar）を出す",
@@ -747,7 +747,7 @@
   "validator_note": "graphcheck と engine は validator_path を plugin（convergence-loops）の置き場から探す（明示 → <PLUGIN>_ROOT → 同じリポジトリ → キャッシュ）。見つからなければ NG——フィールドの突合を省略で通さない"
  },
  "round": {
-  "unit": "P1→P4 を 1 周（P0 は once。R1/R2 は再発火条件で、R3/R4 は [block]＋do-now が 0 の周だけ）",
+  "unit": "P1→P4 を 1 周（P0 は once。R1/R2 は再発火条件で、R3/R4 は [block]＋do-now が 0 の周か、前の周の P3 がファイルを触った周）",
   "max_rounds": 5,
   "converge": {
    "all_of": [
@@ -762,7 +762,7 @@
    "converged": "正常終了。残った指摘は『意図的に受容した設計判断』として理由を明示",
    "work_exhausted": "review-record.py が『残る阻害要因は保留の問いに帰属するものだけ——答え無しに進める仕事は無い』と出した → 止めて聞く（最終報告の冒頭）。帰属を認めるのは前の周から持ち越した保留（held / escalate）だけなので、問いが立った周には原理的に出ない",
    "premise_escalate": "premise（R2 の premise-invalid）が立った周の judge の検算で escalate に確定 → 件数に依らず先に止めて聞く。『立った周には聞かない』の唯一の例外",
-   "max_rounds": "総ラウンドが 5 を超えた → 『収束せず』として停止し、台帳の held / escalate をまとめて聞く（打ち切りでなく非収束の検知）"
+   "max_rounds": "総ラウンドが 5 に達した → 『収束せず』として停止し、台帳の held / escalate をまとめて聞く（打ち切りでなく非収束の検知）"
   },
   "ledger_kinds_not_stops": {
    "note": "0.27 まで停止条件として並んでいたものは、0.28 から問いの台帳（questions）の種類になった。立った周には聞かず、次の周の judge が再審する。種類の正本は QUESTION_KINDS、状態は QUESTION_STATUS（held / decided / resolved / escalate の 2 軸——決着したか × 出どころの欠陥が残っているか）",
@@ -2313,8 +2313,8 @@
    ],
    "refire_when": [
     "初回ラウンド",
-    "機構を足した／変えたラウンド（体裁だけのラウンドは carried_over）",
-    "依存の宣言ファイルが変わった"
+    "機構を足した／変えたラウンド",
+    "前のラウンドの P3 がファイルを触ったラウンド（依存の宣言ファイルを変えたラウンドも入る）"
    ],
    "prompt_file": "../prompts/review-loop/p1.external_standards.md",
    "reads": [
@@ -4796,7 +4796,7 @@
    "outputs": [
     "reviews.R3"
    ],
-   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、このノードが受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない",
+   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、このノードが受け取る差分（p4.assemble が P3 の後に撮り直した diff-r<N>-after-fix.patch＝hist.after_fix）にその修正が写っているから",
    "prompt_file": "../prompts/review-loop/r3.coherence.md",
    "reads": [
     "hist.after_fix.diff_file",
@@ -4878,7 +4878,7 @@
    ],
    "cond": "overview_due",
    "post_check": "r4_inventory",
-   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、このノードが受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない",
+   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、このノードが受け取る差分（p4.assemble が P3 の後に撮り直した diff-r<N>-after-fix.patch＝hist.after_fix）にその修正が写っているから",
    "prompt_append": [
     "../prompts/policy-paste.md",
     "../prompts/policy.md"
