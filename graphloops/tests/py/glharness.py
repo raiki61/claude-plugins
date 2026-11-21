@@ -348,8 +348,6 @@ def pytest_runtest_call(item):
     1 件も撃たずに終われば失敗にする（筋書きが途中で抜けても緑に見える形を、件数の定数を使わずにテストごとに止める）。
     small のテストが禁じた物を呼んでいれば、例外を握り潰していても失敗にする"""
     before = tallies()
-    failed = []
-    ran = 0
     try:
         res = yield
     finally:   # テストが例外で抜けても、そこまでに走った失敗は数える

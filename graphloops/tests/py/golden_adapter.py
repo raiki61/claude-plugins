@@ -230,7 +230,7 @@ class World:
         self.calls, self.used, self.missed, self.recorded, self.seen = [], set(), [], {}, {}
 
 
-def _outcome(table, name, ret=None, exc=None):
+def _outcome(table, ret=None, exc=None):
     """呼ばれた結果の種類。名前で分けず、返りの形で決める（真偽の組・decision・ok・一覧・その他）"""
     if isinstance(exc, Blocked):
         return "blocked"
@@ -259,9 +259,9 @@ def _wrap(w, table, name, fn):
         try:
             ret = fn(*a, **k)
         except BaseException as e:
-            w.calls.append([table, name, _outcome(table, name, exc=e)])
+            w.calls.append([table, name, _outcome(table, exc=e)])
             raise
-        w.calls.append([table, name, _outcome(table, name, ret)])
+        w.calls.append([table, name, _outcome(table, ret)])
         return ret
     return inner
 
@@ -478,7 +478,7 @@ def _cli(place, argv):
     return {"exit": code, "out": out.getvalue(), "err": err.getvalue()}
 
 
-def _pure(place, loop, w):
+def _pure(place):
     """読むだけの評価: 条件の全部の名前（internal）と、ノードごとの走らせる判断・記録の整合（contract）"""
     board = place.paths["<RUN>"]
     contract, internal = {}, {}
@@ -520,11 +520,10 @@ def observe(fx, tmp):
     fx = upcast(fx)
     place = Place(tmp)
     materialize(fx, place)
-    loop = fx["loop"]
     board = place.paths["<RUN>"]
     rec_repo = fx.get("_record_repo")
     with world(place, fx.get("git"), rec_repo, fx.get("session") or SESSION) as w:
-        contract, internal = _pure(place, loop, w)
+        contract, internal = _pure(place)
         cmd = fx.get("command")
         if cmd:
             pre_rec, pre_st = _read(board / "record.json"), _read(board / "state.json")

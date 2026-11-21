@@ -92,7 +92,7 @@ class ReplayBoard(board_mod.Board):
         self.nodes = self.graph["nodes"]
         self.rules = load_rules(str(graph_path), self.graph)
         self.repo = repo
-        self.seen_rev, self.halted_at_read, self.upcasts = 0, False, set()
+        self.upcasts = set()
         self._head_revs = {}
 
     def save(self):
