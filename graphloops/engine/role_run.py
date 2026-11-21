@@ -1118,7 +1118,7 @@ def unwrap(stdout, structured=False, expect_json=False):
         summary["missing"] = lost
     denied = env.get("permission_denials") or []
     if denied:
-        summary["permission_denials"] = [str((d or {}).get("tool_name")) for d in denied if isinstance(d, dict)]
+        summary["permission_denials"] = [str(d.get("tool_name")) for d in denied if isinstance(d, dict)]
     if env.get("is_error") or env.get("subtype", "success") != "success":
         errors = env.get("errors")
         said = "; ".join(map(str, errors)) if isinstance(errors, list) and errors else env.get("result", "result も errors も無し")
