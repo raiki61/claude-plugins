@@ -920,11 +920,6 @@ function openCode(title, code) {
   fillCode(box, code);
   box.querySelectorAll("a.go").forEach(a => a.addEventListener("click", () => codeDlg.close()));
 }
-function codeBlock(list) {
-  const box = el("div", {});
-  fillCode(box, list);
-  return box;
-}
 
 // コマ送り（play）: AI はコマごとに光らせるものと一言だけを書き、動き・ボタン・時間は機械が持つ。
 // 図が画面に 6 割以上入ったら自動で始めてくり返す（2026-10-16「自動でスムーズに動かせないか」）。図が画面の外にある間は
