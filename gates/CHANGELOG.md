@@ -6,6 +6,10 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Changed
+
+- 投稿の前の検査（coldread）の、どこからも呼ばれていない関数 `has_live_substitution` を消した（頼み d747f4）。展開される `$(` と `` ` `` の判定は、前から `live_substitutions` が 1 つで受け持っている。振る舞いは変わらない。
+
 ## [0.50.2] - 2026-11-17
 
 ### Fixed
