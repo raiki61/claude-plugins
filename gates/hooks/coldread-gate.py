@@ -962,21 +962,13 @@ def has_live_variable(text):
     return _live(text, lambda t, i: t[i] == "$" and i + 1 < len(t) and (t[i + 1].isalpha() or t[i + 1] in "_{"))
 
 
-def has_live_substitution(text):
-    """引用の外(または二重引用の中)に $( や ` があるか。単一引用の中は展開されない。
-
-    引用の種別は shlex が落としてしまうので、生の文字列の側で見る。これを見ないと、
-    本文に ``` や `--body` を含むだけの普通の文章まで「置換渡し」と誤判定する。
-    """
-    return _live(text, lambda t, i: t[i] == "`" or t.startswith("$(", i))
-
-
 # 展開される $( と ` の頭(引用・\\ の手前まで)。語は shlex が引用を落とすので、語の中の $( が展開されるかは語の側では分からない
 _SUB_HEAD_RE = re.compile(r"""(?:\$\(|`)[^\\"'`()]*""")
 
 
 def live_substitutions(text):
-    """引用の外と二重引用の中の $( と ` の、頭の字の並び(has_live_substitution が真になる所)。
+    """引用の外と二重引用の中の $( と ` の、頭の字の並び。単一引用の中は展開されないので拾わない。
+    引用の種別は shlex が落としてしまうので、生の文字列の側で見る(見ないと、本文に ``` を含むだけの文章まで置換渡しと読む)。
 
     本文の値がこの頭を含めば、その所は展開される置換と見る(_body_sink の add)。値の先頭だけを見ていた頃は、
     `--body "See: $(cat x)"` の $(…) を字のまま読ませ、ファイルの中身が出ていた。使うのは語の印(mark_words)が
@@ -1456,7 +1448,7 @@ def prepare(command):
 
     盾置換が先で正規化が後。順序は入れ替えられない——ヒアドキュメント本文の中の # や
     `\`+改行 は構文ではなく投稿する散文の中身なので、先に正規化すると本文が壊れる。
-    字句解析(tokenize)と生の文字列を見る検査(has_live_substitution)が同じ 1 本の文字列を
+    字句解析(tokenize)と生の文字列を見る検査(live_substitutions)が同じ 1 本の文字列を
     見ることを、この入口で構成として保証する——別々に正規化させると、片方だけ更新されて
     食い違う(destgate が現にそうなっていた)。
     """
@@ -1480,7 +1472,7 @@ def tokenize(text, words=True):
     """POSIX の引用規則でトークン化する。引用が閉じない等で解析できなければ None。
 
     渡すのは prepare() を通した文字列。ここで正規化しないのは、生の文字列を見る検査
-    (has_live_substitution)と同じ 1 本を共有させるため——ここに隠すと呼び出し側ごとに
+    (live_substitutions)と同じ 1 本を共有させるため——ここに隠すと呼び出し側ごとに
     正規化を掛け直すことになり、100KB の本文で 1 回 6ms を余分に払う。
 
     引用の外の $( )・$(( ))・<( )・>( )(bare_spans)は、中身ごと 1 語の中に留める(`a$(b)c` は 1 語。二重引用の中の $( ) と同じ)。
@@ -3279,7 +3271,7 @@ def analyze(command, cwd=None, prepared=None, depth=0):
         return Analysis(False)
     # 字句解析と同じ 1 本を見る。生の側を見ていると `--body "$\<改行>(cat x)"` が
     # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
-    live = live_substitutions(norm)   # 空でなければ has_live_substitution と同じ真
+    live = live_substitutions(norm)   # 空でなければ、展開される $( か ` が在る
     live_var = has_live_variable(norm)
     if live or live_var:
         tokens = mark_words(norm, tokens)   # 展開される $・` が無ければ印は要らない(100KB の本文で字句解析を 2 度回さない)
