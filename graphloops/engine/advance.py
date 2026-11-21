@@ -355,16 +355,16 @@ def launch_appends(graph, n, role_def, runner):
             for seg in (graph.get("launch") or {}).get("append") or [] if hit.get(seg.get("to"))]
 
 
-def node_appends(graph, n, role_def_of=None):
-    """ノードに当たる launch.append の段（launch_appends）を、graph だけから引く口——必須の入力の導出と graphcheck が使う（emit は役の定義を
-    読んだ後で launch_appends を直に呼ぶ）。役の定義は role_def_of（既定は agent_def——emit と同じ読み方）で読む。
+def node_appends(graph, n):
+    """ノードに当たる launch.append の段（launch_appends）を、graph だけから引く口——必須の入力の導出と graphcheck が使う（emit_instance は役の定義を
+    読んだ後で launch_appends を直に呼ぶ）。役の定義は agent_def（emit_instance と同じ読み方）で読む。
     **段を宣言しない graph では役を引かない**——当たる段が無いのに役の名前（run_by）と定義を読みに行くと、段と無関係な読み
     （必須の入力の導出）が run_by を持たないノードで KeyError になった（実測 2026-09-28: 部品を直に呼ぶ試験の graph）"""
     if not (graph.get("launch") or {}).get("append"):
         return []
     runner = runner_node(graph, n)
     atype = None if runner else agent_type_in(graph, n)
-    role_def = narrowed_def((role_def_of or agent_def)(atype), (graph.get("launch") or {}).get("tooled", {}).get("narrow")) if atype else None
+    role_def = narrowed_def(agent_def(atype), (graph.get("launch") or {}).get("tooled", {}).get("narrow")) if atype else None
     return launch_appends(graph, n, role_def, runner)
 
 
