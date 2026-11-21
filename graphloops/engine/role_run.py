@@ -26,7 +26,6 @@
 役でなく**コマンドを走らせるだけのノード**（対象リポジトリが宣言したテスト一式など）も同じ起動方法で走らせる（run_steps）。
 """
 import collections
-import datetime
 import json
 import math
 import os
@@ -40,7 +39,7 @@ import time
 
 from . import checks_cache, intake
 from .launch_words import JSON_SCHEMA
-from .util import LANE_FAILED, claude_auth, lone_surrogate_at, waiting
+from .util import LANE_FAILED, claude_auth, lone_surrogate_at, now, waiting
 
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
@@ -1275,7 +1274,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
             got["runs"].append(run)
             if log_path:
                 with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"t": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+                    f.write(json.dumps({"t": now(),
                                         "op": "role_run", **(meta or {}), **run}, ensure_ascii=False) + "\n")
             # 続きを頼むのは「役が返したが拒まれた」ときだけ。起動の失敗・受け付けの検査の失敗は、
             # 同じ会話に頼んでも直らない（続ける会話が無いか、役のせいでない）
