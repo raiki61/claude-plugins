@@ -520,18 +520,16 @@ def cmd_run(a, d):
     """loop.py run の入口。d は入口が解決した盤面の置き場"""
     if not (pathlib.Path(d) / "state.json").is_file():
         raise Reject(f"{d} に盤面（state.json）が無い——init の出力の dir を渡せ")
-    if a.foreground:
-        got = run_as_runner(d)
-        if got is not None:
-            kind, r = got
-            c = classify(read_state(d))
-            if kind == "signal":
-                report(d, "signal", c, "回し手は信号で止まった（起動済みの子の終わりを待った。新しい子は起動していない）", code=128 + r.signum)
-                sys.exit(128 + r.signum)
-            report(d, kind, c, r.detail)
-            _note_defect(d, kind, c)
-            sys.exit(CODES[kind])
-    kind, c, detail = watch(d)
+    got = run_as_runner(d) if a.foreground else None
+    if got is not None:
+        kind, r = got
+        c = classify(read_state(d))
+        if kind == "signal":
+            report(d, "signal", c, "回し手は信号で止まった（起動済みの子の終わりを待った。新しい子は起動していない）", code=128 + r.signum)
+            sys.exit(128 + r.signum)
+        detail = r.detail
+    else:
+        kind, c, detail = watch(d)
     report(d, kind, c, detail)
     _note_defect(d, kind, c)
     sys.exit(CODES[kind])
