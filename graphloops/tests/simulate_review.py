@@ -9,6 +9,7 @@ convergence-loops の検証器（scripts/review-record.py。ディレクトリ�
 """
 import collections
 import hashlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -53,12 +54,19 @@ def _inject():
 def _fresh_rules(name):
     """review-loop の rules を新しい module として読む（台本が属性を差し替えても他の台本に漏れない）。条件の宣言（cond_reads）は
     読み込みの時点で要るので、engine と同じツールを先に差し込む。git を repo に固定したいなら load_review_rules を使う"""
-    import importlib.util
     spec = importlib.util.spec_from_file_location(name, PLUGIN / "rules" / "review-loop.py")
     mod = importlib.util.module_from_spec(spec)
     mod.__dict__.update(_inject())
     spec.loader.exec_module(mod)
     return mod
+
+
+def _load_validator(name):
+    """review の記録の検証器（VALIDATOR）を新しい module として読む（台本が属性を見ても他の台本に漏れない）"""
+    spec = importlib.util.spec_from_file_location(name, str(VALIDATOR))
+    V = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(V)
+    return V
 
 
 def cond_call(fn, ctx=None, validator=None, state=None, overlay=None):
@@ -3402,7 +3410,6 @@ def test_purpose_cite_git_unusable():
     print("台本: 数え直しで git が動かない回は、事実と逆の拒否文を出さない")
     mod = _fresh_rules("gl_rv3")
     mod.Reject = RuntimeError
-    sys.path.insert(0, str(PLUGIN))
     from engine.util import repo_root as _rr, sum_counts as _sc  # noqa: E402 — engine が差し込むツールのうち、この腕が通るもの
     mod.sum_counts, mod.repo_root = _sc, _rr
     # 数え直しは engine の grep（（出力, ""）か（None, 理由））で走る。git（rev-parse）と grep を別々に差し替えて世界を作る
@@ -3415,41 +3422,33 @@ def test_purpose_cite_git_unusable():
             return {"rev": "deadbeef"} if name == "snapshot" else mod.HIST_ABSENT
 
     out = {"findings": [{"text": "x", "cite": "abc", "hits": 1}]}
+
+    def _got():   # 差し替えた git・grep の世界で 1 回判定させ、拒否文（止まらなければその旨）を返す
+        try:
+            raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review", out, None)
+            return "止まらなかった"
+        except RuntimeError as e:
+            return str(e)
+
     mod.git = lambda *a: None                      # rev-parse も動かない＝git が使えない（ルートも引けない）
     mod.grep = lambda *a: (None, "走らせられない（FileNotFoundError）")
-    try:
-        raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review", out, None)
-        got = "止まらなかった"
-    except RuntimeError as e:
-        got = str(e)
+    got = _got()
     check("確かめられない" in got or "git が動かない" in got,
           f"git が動かない回は『確かめられない』として拒む（{got[:60]}）")
     check("1 件も無い" not in got, f"事実と逆（現物に無い）とは言わない（{got[:60]}）")
     mod.git = lambda *a: "true\n"   # git は動くが 0 件（一致なしの exit 1 は（"", ""））
     mod.grep = lambda *a: ("", "")
-    try:
-        raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review", out, None)
-        got = "止まらなかった"
-    except RuntimeError as e:
-        got = str(e)
+    got = _got()
     check("1 件も無い" in got, f"git は動くが 0 件の回は『現物に 1 件も無い』で拒む（{got[:60]}）")
     mod.grep = lambda *a: ("src/a.py:1\n本文だけの行\n", "")
-    try:
-        raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review", out, None)
-        got = "止まらなかった"
-    except RuntimeError as e:
-        got = str(e)
+    got = _got()
     check("`…:数` の形でない" in got, f"数でない行が混じった git grep -c の出力は、合計せずに止まる（{got[:70]}）")
     # **版が解決できない回を 0 件と取り違えない。** git は動くが、数える版が消えている run では
     # 『現物に 1 件も無い』は偽になる（数えられなかっただけ）——腕が『全部失敗』1 通りだけだったとき、
     # この分岐を消しても緑のまま通った（実測 r9: 腕 i2）
     mod.git = lambda *a: None if a[:2] == ("rev-parse", "--verify") else "true\n"
     mod.grep = lambda *a: (None, "git grep が exit 128——読めなかった問いは 0 件の証拠にならない")
-    try:
-        raising(mod, mod.purpose_findings_cited)(_B(), "p0.purpose_review", out, None)
-        got = "止まらなかった"
-    except RuntimeError as e:
-        got = str(e)
+    got = _got()
     check("採点する版" in got and "解決できない" in got,
           f"版が解決できない回は『現物に無い』でなく『数え直せない』で拒む（{got[:70]}）")
     check("1 件も無い" not in got, f"事実と逆のことは言わない（{got[:70]}）")
@@ -3487,7 +3486,6 @@ def test_claim_mismatch():
 def test_proxy_to_source():
     """判定に使う値が『代理』でなく『機械が既に持つ正本』であること——4 本とも、代理を見ていた頃は緑で通った退行。"""
     print("否定検査: 代理でなく正本を見る（持ち越しの可否・走った事実・判定行・受理集合）")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
@@ -3867,7 +3865,6 @@ def test_request_entry():
                          lambda run: {})
     check("p1.local_review" in got, f"入口: 依頼の一覧だけを置いても P1 は外れない（出た {sorted(got & roles)}）")
     # 入口の項を持たないノードは、cond が真でも入口の理由を書かない（素材の穴埋めが入口の文で上書きしない）
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
@@ -4177,7 +4174,6 @@ def test_gates_merge():
           f"init の知らせは記録の process.notices に組まれ、報告の人向けの項目の指示書に届く（{got}）")
     rm(run.tmp)
     # 選べる値の正本は graph の inputs の values、意味は rules の定数——2 つが割れると、engine が受けた値を rules が既定に倒す
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
     gj = json.loads(gp.read_text(encoding="utf-8"))
@@ -4219,7 +4215,6 @@ def test_surviving_branches():
     ③素材の必須フィールドの型検査——`or` を `and` にしても緑。空文字が「在る」として通る。
     """
     print("生存した分岐: 行数の数え方・前提の問いの差し替え・必須フィールドの型検査")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
@@ -4283,14 +4278,10 @@ def test_open_unit_and_hit_arm():
     見ていない腕は手前の腕が扱う。`and` にすると手前の腕の担当まで二重に拒み、理由が事実と食い違う。
     """
     print("生存した分岐: 直す単位の判定と、覆いの腕の切り分け")
-    sys.path.insert(0, str(PLUGIN))
-    import importlib.util
     from engine.rules import Reject, load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
-    spec = importlib.util.spec_from_file_location("vrec3", str(VALIDATOR))
-    V = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(V)
+    V = _load_validator("vrec3")
 
     # ① 直す単位の判定——4 通りを全部踏む
     for u, want in (({"label": "block"}, True),
@@ -4366,12 +4357,8 @@ def test_silent_status_derived():
     blocks=True なので黙らない（人に出る）から、ここでは塞がない。
     """
     print("自己申告の突合: 塞ぐ値の集合は検証器の表から引く")
-    sys.path.insert(0, str(PLUGIN))
-    import importlib.util
     from engine.rules import Reject
-    spec = importlib.util.spec_from_file_location("vrec2", str(VALIDATOR))
-    V = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(V)
+    V = _load_validator("vrec2")
     check(set(V.SILENT_STATUS) == {k for k, r in V.STATUS.items() if not r.observed and not r.blocks},
           f"集合は表から導かれる（{sorted(V.SILENT_STATUS)}）")
     check(all(V.STATUS[k].blocks for k in V.STATUS if not V.STATUS[k].observed and k not in V.SILENT_STATUS),
@@ -5319,12 +5306,8 @@ def test_vocab_not_copied():
     役に届く。写しに戻すと、足した種類が届かないので赤くなる。
     """
     print("語彙の正本: 問いの種類の表は検証器が組み立て、プロンプトは穴で受ける")
-    sys.path.insert(0, str(PLUGIN))
-    import importlib.util
     from engine.render import Renderer
-    spec = importlib.util.spec_from_file_location("vrec", str(VALIDATOR))
-    V = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(V)
+    V = _load_validator("vrec")
     tpl = (PLUGIN / "prompts" / "review-loop" / "p2.diagnose.md").read_text(encoding="utf-8")
     check("{{validator.question_kinds}}" in tpl, "プロンプトは種類の表を穴で受ける")
     check("{{validator.question_fields}}" in tpl, "書けるフィールドの一覧も穴で受ける")
@@ -5363,7 +5346,6 @@ def test_purpose_trigger_unevaluable():
     ここを分けないと、正しい偽まで毎周 process.unevaluable に並んで、読む側が本物を見失う。
     """
     print("引き金の可評価性: フィールドが無い（測れない）と、フィールドが空（測れた偽）を分ける")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
@@ -5411,7 +5393,6 @@ def test_escalate_ratchet():
     件数の引き金は**クラスを同定しない**ので、名前の付け方に依らない。
     """
     print("一方向のラチェット: キーの再燃と、件数が落ちないことの 2 つで上がる")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
@@ -5455,7 +5436,6 @@ def test_rejudge_edge():
     """同じ周の擦り合わせの辺: 異議が立つと開き、決着しなければ回す側の再異議の口が開き、3 回とも決着しなければ第三の目へ移る。
     確かめずに採る返答は拒む。"""
     print("否定検査: 同じ周の擦り合わせ（往復の口・再異議・3 回で第三の目・新しい事実の要求）")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
@@ -5496,7 +5476,6 @@ def test_rejudge_edge():
 
 def test_stop_branch():
     print("周の分岐: 検証器の --json の stop（キー）だけを見る（人向けの文に停止文言が載っても分岐が化けない）")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     rules = load_rules(PLUGIN / "graphs" / "review-loop.json", json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8")))
     V = types.SimpleNamespace(STOP_KEYS={"premise_escalate": "前提不成立が確定（escalate）", "work_exhausted": "答え無しに進める仕事は無い"})
@@ -5682,16 +5661,12 @@ def test_cond_truth_tables():
     default 無しで解決できないときに落ちること（偽に倒さない）。**CONDS の名前が全部どこかの行に在る**ことも見る
     ——足した条件が表の外に出たら赤くなる"""
     print("条件の真偽表: CONDS の関数を 1 つずつ、真・偽・落ちるの行で当てる")
-    import importlib.util  # noqa: E402
     import io  # noqa: E402
     from contextlib import redirect_stderr  # noqa: E402
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
-    spec = importlib.util.spec_from_file_location("gl_truth_v", str(VALIDATOR))
-    V = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(V)
+    V = _load_validator("gl_truth_v")
 
     def ev(name, ctx):
         buf = io.StringIO()
@@ -5879,7 +5854,6 @@ def test_cond_truth_tables():
     check(not cond_call(f, ctx)[0] and cond_call(f, ctx, overlay=rules.ENTRY_OFF)[0] and json.dumps(ctx, sort_keys=True, default=str) == before,
           "入口の印を外した文脈では、入口の周でも残りの条件だけで真偽が決まる（文脈は書き換えない）")
     # 宣言の外を読めば落ちる・default 無しの未解決は落ちる・返りの形が違えば落ちる（engine の入れ物の規律）
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import cond_reads
     buf = io.StringIO()
     for fn, want, desc in ((cond_reads("round")(lambda v: (bool(v("loop.x", 0)), "x")), "宣言していないフィールド", "入れ物: 宣言の外のフィールドを読むと落ちる"),
@@ -6080,7 +6054,6 @@ def test_loop_keys_declared():
     この宣言と突き合わせるので、宣言が書く側から離れると、正しい条件が落ちるか綴り違いが通る。回した盤面の鍵で確かめる。
     形（graph の state_schema）も、回した盤面が外れていないことを engine の保存の時の痕跡で確かめる"""
     print("loop の鍵の宣言: 通しで回した盤面の loop の鍵が、全部 rules の LOOP_KEYS に在り、graph の state_schema の形に収まる")
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
