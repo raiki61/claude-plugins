@@ -27,7 +27,6 @@ def read(text, tmp):
 
 class Samples(unittest.TestCase):
     def setUp(self):
-        import tempfile
         self.tmp = scratch()
 
     def test_the_current_shapes_have_no_unknown_keys(self):

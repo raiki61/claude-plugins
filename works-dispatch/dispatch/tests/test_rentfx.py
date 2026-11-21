@@ -11,7 +11,7 @@ from . import DISPATCH
 import rentfx
 import rentx
 import wake_hook
-from nodes import role, wake
+from nodes import role
 from ports import chat
 from . import scratch
 

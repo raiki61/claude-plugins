@@ -45,7 +45,6 @@ class Plan(unittest.TestCase):
     def test_conversation_behind_a_symlink_counts_as_inside_the_place(self):
         import os
         import pathlib
-        import tempfile
         real = pathlib.Path(scratch()).resolve()
         (real / "feat-1").mkdir()
         link = pathlib.Path(scratch()) / "w"

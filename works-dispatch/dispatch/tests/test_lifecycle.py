@@ -60,7 +60,6 @@ class Decide(unittest.TestCase):
 
     def test_inside_follows_symlinks_like_clean(self):
         import os
-        import tempfile
         real = pathlib.Path(scratch()).resolve()
         (real / "feat-1").mkdir()
         link = pathlib.Path(scratch()) / "w"

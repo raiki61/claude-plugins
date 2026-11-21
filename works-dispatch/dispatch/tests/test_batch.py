@@ -7,21 +7,18 @@ docs/specs/2026-10-26-land-batch-design.md。landing.py・nodes/batch.py・nodes
 """
 
 import contextlib
-import io
 import os
 import time
 import unittest
-from unittest import mock
 
 from . import DISPATCH  # noqa: F401
 import gitx
 import landing
 import landorder
 import wake_hook
-from config import Repo
 from nodes import batch, bump, land, landqueue
 
-from .test_land import QUEUE_RULES, LandCase, Ports, World, commit, git, no_rows, write
+from .test_land import QUEUE_RULES, LandCase, Ports, World, commit, git, write
 from . import scratch
 
 RULES = QUEUE_RULES + "batch = 3\n"
@@ -94,7 +91,6 @@ class ReadRules(unittest.TestCase):
 
 class Marks(unittest.TestCase):
     def setUp(self):
-        import tempfile
         self.queue = scratch(prefix="dispatch-batch-")
 
     def test_suspects_and_batches_round_trip(self):

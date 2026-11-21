@@ -20,7 +20,6 @@ from .test_provision import git
 from . import test_role
 import gitx
 import claudex
-import herdr as real_herdr
 import orders
 import retire
 import wake_hook
