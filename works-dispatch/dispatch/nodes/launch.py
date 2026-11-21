@@ -54,6 +54,12 @@ def start(row, pane, h=term, posix=None, settings=SESSION_SETTINGS):
     if posix:
         command = f"{QUIET_CATCHUP} {command}"
     result = {"number": row["number"], "pane": pane, "status": "launch_failed", "detail": None}
+    return _run_ready(h, pane, command, result, "。そのペインで答えてから最初の文を送る")
+
+
+def _run_ready(h, pane, command, result, blocked_tail=""):
+    """ペインの前がシェルなら command を打ち、会話が入力を待つまで待って、result の status と detail を書いて返す。
+    status は ready・pane_busy・blocked・launch_failed（result の始めの値）。blocked_tail は確認の画面で止まったときの訳に足す字。"""
     try:
         if not h.shell_in_front(pane):
             result.update(status="pane_busy", detail=BUSY)
@@ -65,8 +71,7 @@ def start(row, pane, h=term, posix=None, settings=SESSION_SETTINGS):
         result["detail"] = str(e)
         return result
     if state == "blocked":
-        result.update(status="blocked", detail="起動した後に確認の画面で止まっている（フォルダの信頼・ログインなど）。"
-                                               "そのペインで答えてから最初の文を送る")
+        result.update(status="blocked", detail="起動した後に確認の画面で止まっている（フォルダの信頼・ログインなど）" + blocked_tail)
         return result
     if seen.get("agent") != chat.AGENT:
         result["detail"] = f"起動した後のペインに会話が見えない（agent={seen.get('agent')}, status={seen.get('agent_status')}）"
@@ -179,27 +184,10 @@ def start_named(command, pane, name, text, h=term, posix=None, settings=None, mo
     [--effort <値>] [--settings <ファイル>] <最初の文>` で起動する。settings は役の起動の設定のファイル（role.write_desk_settings）、
     model・effort は役の値（None なら旗を付けない）。{pane, status: ready|pane_busy|blocked|launch_failed, detail}。"""
     posix = os.name != "nt" if posix is None else posix
-    result = {"pane": pane, "status": "launch_failed", "detail": None}
-    try:
-        if not h.shell_in_front(pane):
-            result.update(status="pane_busy", detail=BUSY)
-            return result
-        h.run(pane, f"{command} --name {_quote(name, posix)} "
-                    + "".join(f"--{k} {_quote(v, posix)} " for k, v in (("model", model), ("effort", effort)) if v)
-                    + (f"--settings {_quote(settings, posix)} " if settings else "") + _quote(text, posix))
-        state = h.wait_ready(pane)
-        seen = h.agent(pane)
-    except h.Error as e:
-        result["detail"] = str(e)
-        return result
-    if state == "blocked":
-        result.update(status="blocked", detail="起動した後に確認の画面で止まっている（フォルダの信頼・ログインなど）")
-        return result
-    if seen.get("agent") != chat.AGENT:
-        result["detail"] = f"起動した後のペインに会話が見えない（agent={seen.get('agent')}, status={seen.get('agent_status')}）"
-        return result
-    result["status"] = "ready"
-    return result
+    command = (f"{command} --name {_quote(name, posix)} "
+               + "".join(f"--{k} {_quote(v, posix)} " for k, v in (("model", model), ("effort", effort)) if v)
+               + (f"--settings {_quote(settings, posix)} " if settings else "") + _quote(text, posix))
+    return _run_ready(h, pane, command, {"pane": pane, "status": "launch_failed", "detail": None})
 
 
 def bring_back(pane, command, h=term):
