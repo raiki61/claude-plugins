@@ -46,7 +46,6 @@ fails, ran = [], 0
 
 def _inject():
     """engine が rules に差し込むツール（engine/rules.py の INJECT が正本——写さず import する）"""
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import INJECT
     return INJECT
 
@@ -65,7 +64,6 @@ def _fresh_rules(name):
 def cond_call(fn, ctx=None, validator=None, state=None, overlay=None):
     """条件の関数を、engine と同じ口（run_cond）で dict の文脈から呼ぶ ——(真偽, 理由)。
     文脈の既定は engine の ctx と同じ前置き（COND_HEADS）で、欠けたフィールドを読むと engine と同じく die する"""
-    sys.path.insert(0, str(PLUGIN))
     from engine.board import COND_HEADS, run_cond
     base = {**{h: {} for h in COND_HEADS}, "round": 1, "thickness": None, **(ctx or {})}
     return run_cond(getattr(fn, "__name__", "cond"), fn, base, validator, state, overlay)
@@ -1632,8 +1630,6 @@ def test_rejections():
     (run.repo / "stray.txt").unlink()
     r = run.done(by["p1.external_standards"]["id"], {k: v for k, v in t["p1.external_standards"](None).items() if k != "rankings_none"})
     check(r.returncode == 1 and "rankings_none" in r.stderr, f"順位（主経路）: 外部標準照合の done は、空の順位を付けられない理由なしで拒む（{r.stderr.strip()[-70:]}）")
-    (run.repo / "stray.txt").write_text("x", encoding="utf-8")
-    (run.repo / "stray.txt").unlink()
     for n in ("p1.local_review", "p1.consistency_bypass", "p1.external_standards", "p1.provenance"):
         r = run.done(by[n]["id"], t[n](None))
         if r.returncode != 0:  # assert は -O で消える（台本の前提が黙って外れる）
@@ -1909,7 +1905,6 @@ def load_review_rules(repo):
     同ファイルの test_freeze_revision_on_real_intent_to_add と同じ作法で、呼び先だけを差し替える。
     ツールを手で選んで写すと、rules が新しいツールを使った周に台本の中でだけ NameError になる。
     """
-    sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules  # noqa: E402
     gpath = PLUGIN / "graphs" / "review-loop.json"
     mod = load_rules(gpath, json.loads(gpath.read_text(encoding="utf-8")))
@@ -2168,8 +2163,6 @@ def test_fix_counts_by_engine():
     got = run({**change, "coverage": {"how": {**how, "paths": ["u.py", "t.py"]}},
                "closure": {"sites": [{"site": "u.py", "red_seen": True}, {"site": "t.py", "red_seen": True}]}})
     check(got is None, f"修正の件数: 修正で消したファイルを名指しした問いも、修正後は 0 件として数える（{(got or '通った')[:80]}）")
-    for x in (board, idx):
-        rm(x) if x.is_dir() else x.unlink()
     rm(tmp)
 
 
@@ -2306,7 +2299,6 @@ def test_engine_rewind_and_guards():
     """engine の撃ち直し（Board.rewind）と、周を進める機械のチェックのうち主経路から届きにくい入口を 1 本ずつ撃つ。
     撃ち直しは今の周にノードが出した物だけを外し、set でない書き込み・前の周の出力には触らない"""
     print("撃ち直しの口: 機械のノードは戻さない・set のフィールドだけ外す・append は残す・条件外のノードは印だけ／偽の rewound は止める")
-    sys.path.insert(0, str(PLUGIN))
     from engine.board import Board  # noqa: E402
     from engine.advance import run_driver_node  # noqa: E402
     run = Run("rewind")
@@ -2918,16 +2910,13 @@ def test_frozen_review_revision():
     src.write_text(before, encoding="utf-8")
     # **P3 の後にも取り直す。** 周の頭だけで固定していたとき、R1〜R4 は『修正後の差分』と
     # 『修正前の版』を同時に渡された（実測 r8: 局所レビューが現物で見つけた）
-    first = rev
     src.write_text(before + "\n# P3 の修正に見立てた行\n", encoding="utf-8")
     # 取り直しは rules の _take_diff が呼ぶ——部品を直に呼んで、接尾辞に依らず固定が走ることを見る
     mod = _fresh_rules("gl_rv2")
-    calls = []
     # **手で組んだ値を置かない。** 代役は実物の git をそのまま通す（呼ばれた綴りだけ記録する）
     # ——決め打ちの 40 桁を置いていたとき、実装が一時 index の経路へ移っても代役は気づかず、
     # 呼ばれない綴りに答え続けた（実測 r10）。実物を通せば、綴りが変われば代役ごと壊れて見える
     def _passthrough(*a, **k):
-        calls.append(a)
         env = {**os.environ, **k["env"]} if k.get("env") else None
         q = subprocess.run(["git", "-C", str(run.repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
@@ -3027,7 +3016,6 @@ def test_frozen_review_revision():
             check(got and not str(got).startswith("止まった") and len(str(got)) == 40,
                   f"{name} は 40 桁の版を採る（{str(got)[:60]}）")
     src.write_text(before, encoding="utf-8")
-    rev = first
     # 採点役のプロンプトが、生きた木のパスと読む版の両方を渡す
     nx = run.next()
     seen = [pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8") for i in nx.get("ready") or []
@@ -3257,25 +3245,27 @@ def test_review_rev_paragraph_is_uniform():
         check(n == 1, f"{nid}: 生きた木のパスを名乗るのは 1 か所（{n} か所）")
 
 
+def _until_purpose_review(run):
+    """目的の監査のノード（p0.purpose_review）が出る波まで台本で進め、その instance の id を返す（20 波で出なければ None）"""
+    for _ in range(20):
+        nx = run.next()
+        if not nx.get("ready"):
+            return None
+        for inst in nx["ready"]:
+            if inst["node"] == "p0.purpose_review":
+                return inst["id"]
+            a = answers(run, "narrowed", nx["round"])[inst["node"]]
+            run.done(inst["id"], a(inst))
+    return None
+
+
 def test_purpose_findings_cited():
     """**指摘は作業ツリーで引ける根拠を連れて来る。** 素の文字列だったとき、リポジトリに 1 件も無い字列を
     根拠にした指摘が 5 周再燃し、毎周ちがう判定者が 0 件を数えて棄却していた（棄却は出す側に返らないので止まらない）。
     境界で数え直し、合わない指摘を受け取らない。"""
     print("台本: 目的の監査の指摘は、作業ツリーで引ける根拠（cite）を連れて来る")
     run = Run("cite", unattended=True)
-    target = None
-    for _ in range(20):                                          # 監査のノードが出る波まで台本で進める
-        nx = run.next()
-        if not nx.get("ready"):
-            break
-        for inst in nx["ready"]:
-            if inst["node"] == "p0.purpose_review":
-                target = inst["id"]
-                break
-            a = answers(run, "narrowed", nx["round"])[inst["node"]]
-            run.done(inst["id"], a(inst))
-        if target:
-            break
+    target = _until_purpose_review(run)
     check(target is not None, "目的の監査のノードが出る")
     base = {"verdict": "narrows", "reason": "目的が実装した範囲に合わせて狭い（検査用）"}
     # ① 実在しない字列は受け取らない（棄却を判定者の手間として毎周繰り返さない）
@@ -3317,19 +3307,7 @@ def test_purpose_cite_counts_frozen_revision():
     """
     print("台本: 根拠の数え直しは、生きた木でなく固定した版を数える")
     run = Run("cite-rev", unattended=True)
-    target = None
-    for _ in range(20):
-        nx = run.next()
-        if not nx.get("ready"):
-            break
-        for inst in nx["ready"]:
-            if inst["node"] == "p0.purpose_review":
-                target = inst["id"]
-                break
-            a = answers(run, "narrowed", nx["round"])[inst["node"]]
-            run.done(inst["id"], a(inst))
-        if target:
-            break
+    target = _until_purpose_review(run)
     check(target is not None and (run.hist().get("snapshot") or {}).get("rev"), "監査のノードが出て、版が固まっている")
     # **周の途中で現物から引用を消す**——固定した版には残っているので、数え直しは通るはず
     src = run.repo / "src" / "a.py"
@@ -3380,8 +3358,6 @@ def test_purpose_verdict_needs_vetted_evidence():
     check("素の文字列は受け取らない" in got, f"旧形の findings は拒まれる（{got[:60]}）")
     # ③ **rules に実際に判定させる**（台本側で判定を再現していたとき、rules の分岐を消しても緑だった
     #    ——実測 r9: 腕 i5。今周の判定 4 件目『腕が engine の返す値でなく手で組んだ 1 組を食わせる』そのもの）
-    # **判定は本物のループに下させる**（台本側で再現していたとき、rules の分岐を消しても緑だった
-    #  ——実測 r9: 腕 i5。今周の判定 4 件目『腕が engine の返す値でなく手で組んだ 1 組を食わせる』そのもの）。
     # 記録を古い形（裏取りを通っていない findings）に手当てしてから assemble を走らせる
     for rows, want in (([{"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 1}], "narrows"),
                        (["document_tail が残っている"], None)):
