@@ -3,7 +3,6 @@ graph の state_schema の合わせ方（x-reducer）で当てる。拒否は例
 合わせ方を飛ばした上書きとして痕跡に残す。"""
 import copy
 import json
-import shutil
 
 import pytest
 
@@ -122,16 +121,12 @@ def test_new_form_write_ops_return_the_value_and_the_engine_puts_it_where_the_op
     assert [q["key"] for q in b.record["questions"]] == ["他", "前提"]
 
 
-def test_graphcheck_wants_writes_to_on_new_form_write_ops(tmp_path):
-    shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp_path / "blocks")
-    (tmp_path / "graphs").mkdir()
-    f = tmp_path / "rules" / "review-loop.py"
+def test_graphcheck_wants_writes_to_on_new_form_write_ops(plugin):
+    f = plugin / "rules" / "review-loop.py"
     src = f.read_text(encoding="utf-8")
     assert src.count('premise_question.writes_to = "questions"\n') == 1
     f.write_text(src.replace('premise_question.writes_to = "questions"\n', ""), encoding="utf-8")
-    ok, out = run_graphcheck(tmp_path, GRAPH)
+    ok, out = run_graphcheck(plugin, GRAPH)
     assert not ok and "'premise_question' は新しい形" in out and "writes_to" in out
 
 
@@ -142,14 +137,10 @@ def test_direct_loop_writes_are_found():
     assert [ln for ln, _ in graphcheck.direct_loop_writes(src)] == [3, 4, 4, 5]
 
 
-def test_graphcheck_refuses_direct_loop_writes_in_rules_that_declare_reducers(tmp_path):
-    shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp_path / "blocks")
-    (tmp_path / "graphs").mkdir()
-    f = tmp_path / "rules" / "review-loop.py"
+def test_graphcheck_refuses_direct_loop_writes_in_rules_that_declare_reducers(plugin):
+    f = plugin / "rules" / "review-loop.py"
     f.write_text(f.read_text(encoding="utf-8") + "\n\ndef _sneak(b):\n    b.loop_state['outcome'] = 'x'\n", encoding="utf-8")
-    ok, out = run_graphcheck(tmp_path, GRAPH)
+    ok, out = run_graphcheck(plugin, GRAPH)
     assert not ok and "盤面の loop を直に書いている" in out
 
 

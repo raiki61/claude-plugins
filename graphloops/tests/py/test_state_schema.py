@@ -2,7 +2,6 @@
 両向きでそろうこと、engine が保存の時に照合して痕跡（state.loop_drift）を残し止めないこと。"""
 import copy
 import json
-import shutil
 
 import pytest
 
@@ -200,14 +199,6 @@ def test_graph_without_state_schema_keeps_the_old_checks_and_warns_on_init(sandb
 
 
 # ---------------------------------------------------------------- 差し替えの版（extends）と research
-@pytest.fixture()
-def place(tmp_path):
-    for d in ("prompts", "rules", "blocks"):
-        shutil.copytree(PLUGIN / d, tmp_path / d)
-    (tmp_path / "graphs").mkdir()
-    return tmp_path
-
-
 def check_at(place, name, g, validator):
     p = place / "graphs" / f"{name}.json"
     p.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
@@ -222,34 +213,34 @@ def check_at(place, name, g, validator):
     pytest.param(lambda t: t["hist_schema"]["properties"].pop("tdd_gave_up"),
                  "HIST の名前 'tdd_gave_up' が graph の hist_schema.properties に無い", id="tdd-key-not-overlaid"),
 ])
-def test_graphcheck_rejects_tdd_overlay(place, breaks, want):
-    check_at(place, "review-loop", GRAPH, "review")
+def test_graphcheck_rejects_tdd_overlay(plugin, breaks, want):
+    check_at(plugin, "review-loop", GRAPH, "review")
     t = copy.deepcopy(TDD)
     breaks(t)
-    ok, out = check_at(place, "review-loop-tdd", t, "review")
+    ok, out = check_at(plugin, "review-loop-tdd", t, "review")
     assert not ok and want in out, out[-400:]
 
 
-def test_research_keeps_the_readable_loop_keys(place):
+def test_research_keeps_the_readable_loop_keys(plugin):
     """research の条件が読んでよい loop の鍵は、state_schema で writeOnly でない鍵（stuck_hint）に絞ったまま——writeOnly の鍵を読む条件は落ちる"""
     assert {k for k, s in RESEARCH["state_schema"]["properties"].items() if not s.get("writeOnly")} == {"stuck_hint"}
-    rules = place / "rules" / "research-loop.py"
+    rules = plugin / "rules" / "research-loop.py"
     rules.write_text(rules.read_text(encoding="utf-8") + "\n\nCONDS['reads_stuck_ids'] = cond_reads('loop.stuck_ids')(lambda v: (True, 'x'))\n",
                      encoding="utf-8")
     g = copy.deepcopy(RESEARCH)
     g["nodes"]["p0.generation"]["cond"] = "reads_stuck_ids"
-    ok, out = check_at(place, "research-loop", g, "research")
+    ok, out = check_at(plugin, "research-loop", g, "research")
     assert not ok and "'loop.stuck_ids' の鍵は graph の state_schema で writeOnly" in out, out[-400:]
     g = copy.deepcopy(RESEARCH)   # 書き先の名乗り（outputs）は writeOnly の鍵でもよく、ノードの reads は落ちる
     g["nodes"]["p1.record_check"]["outputs"] = [*(g["nodes"]["p1.record_check"].get("outputs") or []), "loop.stuck_ids"]
-    ok, out = check_at(place, "research-loop", g, "research")
+    ok, out = check_at(plugin, "research-loop", g, "research")
     assert "loop.stuck_ids" not in out, out[-400:]
     g["nodes"]["p1.refuter"]["reads"] = [*g["nodes"]["p1.refuter"]["reads"], "loop.stuck_ids"]
-    ok, out = check_at(place, "research-loop", g, "research")
+    ok, out = check_at(plugin, "research-loop", g, "research")
     assert not ok and "ノード p1.refuter.reads: 読むフィールド 'loop.stuck_ids' の鍵は graph の state_schema で writeOnly" in out, out[-400:]
     g = copy.deepcopy(RESEARCH)   # writeOnly は最上位の鍵にだけ、真偽で
     g["state_schema"]["properties"]["stuck_hint"]["writeOnly"] = "yes"
-    ok, out = check_at(place, "research-loop", g, "research")
+    ok, out = check_at(plugin, "research-loop", g, "research")
     assert not ok and "$.stuck_hint の writeOnly は真偽で書く" in out, out[-400:]
 
 

@@ -27,10 +27,11 @@ class FakeBoard:
         self.graph = graph or {}
         self.nodes = nodes or {}
         self.held_trace = None
-        self.traced = []
+        self.traced, self.rows = [], []
 
     def trace(self, op, **kw):
         self.traced.append(op)
+        self.rows.append({"op": op, **kw})
 
     def save(self):
         pass
@@ -393,31 +394,17 @@ def test_relaunch_stops_the_previous_attempt_only_after_saving_the_new_one(tmp_p
 
 def test_launch_settle_logs_failed_only_without_rejections(tmp_path, monkeypatch):
     """拒否が上限まで続いた試行は resume・rejected の行だけ（失敗の行を重ねない）。拒否の無い失敗は failed の行"""
-    inst = {"id": "p1.x", "node": "p1.x", "status": "pending", "out_path": "o", "launch": {"kind": "cli"}}
-    rows = []
-
-    class Tracing(FakeBoard):
-        def trace(self, op, **kw):
-            rows.append({"op": op, **kw})
-    fb = Tracing(instances={"p1.x": inst})
-    fb.state["rounds"] = [fb.rd]   # 締めは全周から試行を引く
-    monkeypatch.setattr(commands, "Board", lambda d: fb)
-    monkeypatch.setattr(commands, "_board_update", lambda d, fn, **k: fn(fb))
-    monkeypatch.setattr(commands, "kill_all", lambda: None)
-    monkeypatch.setattr(signal, "signal", lambda *a: None)
-    monkeypatch.setattr(commands, "launch_one", lambda d, i, m, cwd, state=None: {"id": "p1.x", "ok": False, "out_path": "o", "why": "受け付けが拒んだ: y",
-                                                                      "rejections": ["x", "y"], "resumes": 1, "stderr": "e" * 300})
-    commands.cmd_launch(argparse.Namespace(dir=str(tmp_path), node=None))
+    inst, fb = _settle_one(tmp_path, monkeypatch, {"ok": False, "why": "受け付けが拒んだ: y", "rejections": ["x", "y"], "resumes": 1, "stderr": "e" * 300})
     assert [x["kind"] for x in inst["attempt_log"]] == ["resume", "rejected"]
-    launched = [x for x in rows if x["op"] == "launched"]
+    launched = [x for x in fb.rows if x["op"] == "launched"]
     assert len(launched) == 1 and launched[0]["stderr"] == "e" * 200   # 標準エラーの末尾を trace に残す
 
 
 def _settle_one(tmp_path, monkeypatch, row, state=None):
-    """偽の launch_one が返す 1 行で cmd_launch の締めまで回し、(試行, 盤面の state, 印字した JSON) を返す"""
+    """偽の launch_one が返す 1 行で cmd_launch の締めまで回し、(試行, 盤面) を返す（印字した JSON は capsys で読む）"""
     inst = {"id": "p1.x", "node": "p1.x", "status": "pending", "out_path": "o", "launch": {"kind": "cli"}}
     fb = FakeBoard(instances={"p1.x": inst})
-    fb.state["rounds"] = [fb.rd]
+    fb.state["rounds"] = [fb.rd]   # 締めは全周から試行を引く
     fb.state.update(state or {})
     monkeypatch.setattr(commands, "Board", lambda d: fb)
     monkeypatch.setattr(commands, "_board_update", lambda d, fn, **k: fn(fb))
@@ -425,7 +412,7 @@ def _settle_one(tmp_path, monkeypatch, row, state=None):
     monkeypatch.setattr(signal, "signal", lambda *a: None)
     monkeypatch.setattr(commands, "launch_one", lambda d, i, m, cwd, state=None: {"id": "p1.x", "out_path": "o", **row})
     commands.cmd_launch(argparse.Namespace(dir=str(tmp_path), node=None))
-    return inst, fb.state
+    return inst, fb
 
 
 def test_short_line_after_rejections_is_logged_as_failed(tmp_path, monkeypatch, capsys):
@@ -440,10 +427,11 @@ def test_short_line_after_rejections_is_logged_as_failed(tmp_path, monkeypatch, 
 def test_launch_keeps_the_keychain_expiry_even_for_a_superseded_attempt(tmp_path, monkeypatch, capsys):
     """層が段のファイルに書いた切れる日の知らせを、締めが盤面の auth_expiry に控える（next の notes・status・run の報告が読む）。
     起動し直された古い試行の行でも控える"""
-    _, st = _settle_one(tmp_path, monkeypatch, {
+    _, fb = _settle_one(tmp_path, monkeypatch, {
         "ok": False, "why": "x", "rejections": [], "resumes": 0, "stderr": "",
         "auth": {"stage": "keychain(svc)", "added": True, "expiry": "svc のトークンは 3 日後に切れる見込み"}},
         state={"rounds": []})
+    st = fb.state
     assert st["auth_expiry"]["note"] == "svc のトークンは 3 日後に切れる見込み" and st["auth_expiry"]["stage"] == "keychain(svc)"
 
 
@@ -570,19 +558,15 @@ def test_copy_worktree_needs_a_repository_root(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------- 省く口・手当ての口・答えの打ち手・引数の字（回す側が patch で逃げていた所）
 class DriverBoard(FakeBoard):
-    """skip・patch・answer が触るフィールドを足した差し替え（trace のフィールドも残す）"""
+    """skip・patch・answer が触るフィールドを足した差し替え"""
     def __init__(self, instances=None, rules=None, state=None):
         super().__init__(instances=instances, rules=rules, state={"done_ever": {}, **(state or {})},
                          nodes={"p4.ci": {"optional": True, "engine_run": {"builtin": "declared_checks"}}})
         self.rd.update(skipped={}, done={})
-        self.round, self.record, self.rows = 1, {}, []
+        self.round, self.record = 1, {}
 
     def node_state(self, nid):
         return "pending"
-
-    def trace(self, op, **kw):
-        self.traced.append(op)
-        self.rows.append(kw)
 
 
 def drive(monkeypatch, fb):

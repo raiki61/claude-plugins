@@ -4,7 +4,6 @@ schema.py（$ref の展開と語の走査）で落ちる 4 件の写し（mutati
 差し替えた engine.schema を見るため。"""
 import copy
 import json
-import shutil
 
 import pytest
 
@@ -114,17 +113,13 @@ def test_every_declaring_node_carries_the_declaration_promise(name):
     assert (PLUGIN / "prompts" / "declared-files.md").is_file() and (declaring or name == "research-loop")
 
 
-def test_graphcheck_requires_rules_node_keys(tmp_path):
+def test_graphcheck_requires_rules_node_keys(plugin):
     """rules がノードの鍵の宣言を持たないと照合できない——黙って外さず NG（LOOP_KEYS と同じ fail-closed）"""
-    (tmp_path / "graphs").mkdir()
-    shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
-    shutil.copytree(PLUGIN / "blocks", tmp_path / "blocks")
-    rp = tmp_path / "rules" / "review-loop.py"
+    rp = plugin / "rules" / "review-loop.py"
     src = rp.read_text(encoding="utf-8")
     rp.write_text(src.replace("NODE_KEYS = frozenset({", "NODE_KEYS_GONE = frozenset({", 1), encoding="utf-8")
     lines = []
-    ok = graphcheck.check(write_graph(tmp_path, copy.deepcopy(GRAPH)), str(VALIDATOR), emit=lines.append)
+    ok = graphcheck.check(write_graph(plugin, copy.deepcopy(GRAPH)), str(VALIDATOR), emit=lines.append)
     assert not ok and "NODE_KEYS / NODE_NOTE_KEYS" in "\n".join(map(str, lines))
 
 

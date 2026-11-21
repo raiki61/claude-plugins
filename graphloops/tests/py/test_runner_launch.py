@@ -690,6 +690,21 @@ def test_classify_on_an_older_board_keeps_the_old_split_of_ended_children():
     assert c["needs_human"] == [{"id": "p3.fix", "why": "拒みが続いた"}, {"id": "p0.premises", "why": "語が failed"}]
 
 
+def _fake_launch_board(tmp_path, monkeypatch, st, one):
+    """cmd_launch の盤面を st の最後の周を持つ偽に差し替え、子の起動を one に替える"""
+    class B:
+        def __init__(self, *_a):
+            self.rd, self.state, self.graph = st["rounds"][-1], st, {}
+
+        def trace(self, *a, **kw):
+            pass
+
+    monkeypatch.setattr(commands, "Board", B)
+    monkeypatch.setattr(commands, "_board_update", lambda d_, fn, allow_halted=False: fn(B()))
+    monkeypatch.setattr(commands, "launch_cwd", lambda b: str(tmp_path))
+    monkeypatch.setattr(commands, "launch_one", one)
+
+
 def _settled(tmp_path, monkeypatch, launch, result, move_round=False, seen=None):
     """本物の cmd_launch の印付けと締め（settle）を 1 ノードぶん通した後の instance。背景の線は受領を done した後に名指しで起動する。move_round は
     launch の間に盤面が次の周へ進んだ形（周をまたぐ線）。seen（dict）を渡すと、子を起動する間に launch の印が在ったかを書く"""
@@ -698,13 +713,6 @@ def _settled(tmp_path, monkeypatch, launch, result, move_round=False, seen=None)
     bg = bool(launch.get("background"))
     inst = {"id": "n", "node": "n", "status": "done" if bg else "pending", "out_path": str(tmp_path / "o.json"), "launch": launch}
     st = {"rounds": [{"round": 1, "instances": {"n": inst}}]}
-
-    class B:
-        def __init__(self, *_a):
-            self.rd, self.state, self.graph = st["rounds"][-1], st, {}
-
-        def trace(self, *a, **kw):
-            pass
 
     def one(*_a):
         if move_round:
@@ -715,10 +723,7 @@ def _settled(tmp_path, monkeypatch, launch, result, move_round=False, seen=None)
             raise result
         return {"id": "n", "node": "n", "out_path": inst["out_path"], "session_id": None, "superseded": False, "resumes": 0, "rejections": [],
                 "done": None, "stderr": "", **result}
-    monkeypatch.setattr(commands, "Board", B)
-    monkeypatch.setattr(commands, "_board_update", lambda d_, fn, allow_halted=False: fn(B()))
-    monkeypatch.setattr(commands, "launch_cwd", lambda b: str(tmp_path))
-    monkeypatch.setattr(commands, "launch_one", one)
+    _fake_launch_board(tmp_path, monkeypatch, st, one)
     monkeypatch.setattr(commands, "mark_launch_failures", lambda *a: None)
     commands.cmd_launch(argparse.Namespace(dir=str(d), node="n" if bg else None))
     return inst
@@ -763,19 +768,9 @@ def test_a_lane_launch_that_raises_after_the_round_moved_on_leaves_the_failed_ma
     # _still_mine が読む盤面は、launch の間に次の周へ進んでいる
     (d / "state.json").write_text(json.dumps({"rounds": [*st["rounds"], {"round": 2, "instances": {}}]}), encoding="utf-8")
 
-    class B:
-        def __init__(self, *_a):
-            self.rd, self.state, self.graph = st["rounds"][-1], st, {}
-
-        def trace(self, *a, **kw):
-            pass
-
     def one(*_a):
         raise exc
-    monkeypatch.setattr(commands, "Board", B)
-    monkeypatch.setattr(commands, "_board_update", lambda d_, fn, allow_halted=False: fn(B()))
-    monkeypatch.setattr(commands, "launch_cwd", lambda b: str(tmp_path))
-    monkeypatch.setattr(commands, "launch_one", one)
+    _fake_launch_board(tmp_path, monkeypatch, st, one)
     with pytest.raises(type(exc)):
         commands.cmd_launch(argparse.Namespace(dir=str(d), node="n"))
     assert util.LANE_FAILED in json.loads(result_path.read_text(encoding="utf-8"))
