@@ -220,7 +220,7 @@ def blocks_root(path):
 def _pointer(doc, frag, ref):
     """JSON Pointer（RFC 6901）で doc の中を辿る。frag が空なら doc そのもの"""
     cur = doc
-    for raw in [p for p in frag.split("/")[1:]] if frag else []:
+    for raw in frag.split("/")[1:] if frag else []:
         key = raw.replace("~1", "/").replace("~0", "~")
         if isinstance(cur, dict) and key in cur:
             cur = cur[key]
