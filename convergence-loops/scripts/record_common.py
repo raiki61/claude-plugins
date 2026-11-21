@@ -131,6 +131,11 @@ def require_dict(v, what, note=""):
         fail(f"{what} が object でない{note}")
     return v
 
+def require_list(v, what, note=""):
+    if not isinstance(v, list):
+        fail(f"{what} が配列でない{note}")
+    return v
+
 def require_str_list(v, what):
     if not is_str_list(v):
         fail(f"{what} が文字列の配列でない")
@@ -209,9 +214,7 @@ def check_sampling(smp, path, field, known, noun):
 def check_lists(rec, path, specs):
     """`(フィールド名, 各項に要る文字列のフィールド)` の組ごとに、配列で、各項が object で文字列が埋まっていること"""
     for name, fields in specs:
-        if not isinstance(rec[name], list):
-            fail(f"{path}: '{name}' が配列でない")
-        for i, item in enumerate(rec[name]):
+        for i, item in enumerate(require_list(rec[name], f"{path}: '{name}'")):
             require_dict(item, f"{path}: {name}[{i}]")
             for k in fields:
                 require_str(item, k, f"{path}: {name}[{i}]")

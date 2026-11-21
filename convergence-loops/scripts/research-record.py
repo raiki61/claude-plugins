@@ -49,7 +49,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
 from record_common import (  # noqa: E402
     DECIDERS, GATE_VERDICTS, THICKNESS, _rows, _tables, check_convergence, check_gate, check_lists, check_sampling,
     check_thickness, fail, is_str_list, not_applicable, publish_main, require_dict, require_int, require_labels,
-    require_record, require_str, require_str_list, run, utf8_output,
+    require_list, require_record, require_str, require_str_list, run, utf8_output,
 )
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
@@ -238,8 +238,7 @@ def validate(rec, path):
 
     # 訂正の記録は append-only の台帳（P2-3）で、2 ループ目以降は 1 から始まらない。
     # 先頭の番号は任意（1 以上）、以降は連番——増分は先頭と末尾の no で表現できる。
-    if not isinstance(rec["corrections"], list):
-        fail(f"{path}: 'corrections' が配列でない")
+    require_list(rec["corrections"], f"{path}: 'corrections'")
     start = None
     for i, c in enumerate(rec["corrections"]):
         require_dict(c, f"{path}: corrections[{i}]")
@@ -285,9 +284,7 @@ def validate(rec, path):
 
     proc = require_dict(rec["process"], f"{path}: 'process'")
     require_int(proc, "rerolls", f"{path}: process")
-    declared = proc.get("unrefuted_load_bearing")
-    if not isinstance(declared, list):
-        fail(f"{path}: process.unrefuted_load_bearing が配列でない")
+    declared = require_list(proc.get("unrefuted_load_bearing"), f"{path}: process.unrefuted_load_bearing")
     unknown = [s for s in declared if s not in ids]
     if unknown:
         fail(f"{path}: process.unrefuted_load_bearing に無い主張 id: {unknown}")

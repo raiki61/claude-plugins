@@ -65,7 +65,8 @@ import sys
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
 from record_common import (  # noqa: E402
-    _rows, fail, is_int, load, print_list, require_dict, require_labels, require_record, require_round, run, utf8_output,
+    _rows, fail, is_int, load, print_list, require_dict, require_labels, require_list, require_record, require_round,
+    run, utf8_output,
 )
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
@@ -174,9 +175,7 @@ def validate(rec, path):
             if not m.get(field):
                 fail(f"{path}: 素材 '{name}' は status={status} なので '{field}' が要る")
         if status == "found":
-            if not isinstance(m["items"], list):
-                fail(f"{path}: 素材 '{name}' の 'items' が配列でない")
-            for j, it in enumerate(m["items"]):
+            for j, it in enumerate(require_list(m["items"], f"{path}: 素材 '{name}' の 'items'")):
                 require_dict(it, f"{path}: 素材 '{name}' の items[{j}]")
                 # key は周をまたいだ突合に使う。無いと「同じ場所でまた詰まった」が測れない。
                 if not it.get("key"):
@@ -217,9 +216,7 @@ def validate(rec, path):
     # **直しの側にも、集める側と同じ規律を通す**（冒頭 docstring 参照）。
     # 直していない周は空配列——フィールド自体が無いのは「直したのに書いていない」と
     # 区別が付かないので許さない。
-    fixes = rec.get("fixes")
-    if not isinstance(fixes, list):
-        fail(f"{path}: 'fixes' が配列でない（直していない周は空配列 []。フィールドの省略は許さない）")
+    fixes = require_list(rec.get("fixes"), f"{path}: 'fixes'", "（直していない周は空配列 []。フィールドの省略は許さない）")
     for i, fx in enumerate(fixes):
         require_dict(fx, f"{path}: fixes[{i}]")
         for field, why in (

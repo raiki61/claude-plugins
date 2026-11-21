@@ -34,8 +34,8 @@ import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
 from record_common import (  # noqa: E402
     DECIDERS, THICKNESS, check_convergence, check_gate, check_lists, check_sampling, check_thickness, fail, is_str_list,
-    not_applicable, publish_main, require_bool, require_dict, require_int, require_labels, require_record, require_str,
-    require_str_list, run, utf8_output,
+    not_applicable, publish_main, require_bool, require_dict, require_int, require_labels, require_list, require_record,
+    require_str, require_str_list, run, utf8_output,
 )
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
@@ -123,8 +123,7 @@ def validate(rec, path):
                 "「見ていない範囲」に載っていない——欠落を「見つからなかった」と読むな"
             )
 
-    if not isinstance(rec["nodes"], list):
-        fail(f"{path}: 'nodes' が配列でない")
+    require_list(rec["nodes"], f"{path}: 'nodes'")
     keys = set()
     escalation_targets = 0
     adoptable = 0

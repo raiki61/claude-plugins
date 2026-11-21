@@ -88,7 +88,7 @@ import sys
 import pathlib  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
 from record_common import (  # noqa: E402
-    _rows, _tables, fail, is_int, load, print_list, require_dict, require_round, run, utf8_output,
+    _rows, _tables, fail, is_int, load, print_list, require_dict, require_list, require_round, run, utf8_output,
 )
 
 utf8_output()   # Windows の既定コンソール（cp932 等）対策。理由は record_common.utf8_output
@@ -392,11 +392,9 @@ def validate(rec, path, hint=None):
                  + (f"。旧世代の記録ならフィールドを足せ。{hint}" if hint else ""))
     require_round(rec, path)
     require_dict(rec["materials"], f"{path}: 'materials'")
-    if not isinstance(rec["units"], list):
-        fail(f"{path}: 'units' が配列でない")
+    require_list(rec["units"], f"{path}: 'units'")
     require_dict(rec["reviews"], f"{path}: 'reviews'")
-    if not isinstance(rec["questions"], list):
-        fail(f"{path}: 'questions' が配列でない（人に聞く候補が無いなら空の配列）")
+    require_list(rec["questions"], f"{path}: 'questions'", "（人に聞く候補が無いなら空の配列）")
     # `scalars` は任意のフィールドだが、**在るなら object**（無いと `"scalars": null` が「想定外の例外」
     # になり、書き手に何を直せばよいかが伝わらない）。
     if "scalars" in rec:
