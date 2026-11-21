@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 
 import fence
@@ -42,6 +43,12 @@ graphcheck = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(graphcheck)
 REVIEW_GRAPH_PATH = PLUGIN / "graphs" / "review-loop.json"
 REVIEW_VALIDATOR = REPO / "convergence-loops" / "scripts" / "review-record.py"
+
+
+def git(repo, *args):
+    """repo で git を打ち、標準出力を返す。commit に要る名前とメールは -c で渡す（試験の機械の git の設定に頼らない）"""
+    return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                          check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
 @pytest.fixture(scope="module")

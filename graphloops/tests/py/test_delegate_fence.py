@@ -13,12 +13,8 @@ import time
 
 import pytest
 
+from conftest import git
 from engine import commands, role_run, util
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
-                          check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
 @pytest.fixture

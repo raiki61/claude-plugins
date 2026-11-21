@@ -8,15 +8,11 @@ import sys
 
 import pytest
 
+from conftest import git
 from engine import commands, util
 
 PLUGIN = pathlib.Path(__file__).resolve().parents[2]
 HOOK = PLUGIN / "hooks" / "record-read.py"
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
-                          check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
 def fire(cwd, path):

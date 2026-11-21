@@ -15,7 +15,7 @@ import types
 
 import pytest
 
-from conftest import PLUGIN, REPO
+from conftest import PLUGIN, REPO, git
 from engine import advance, commands, declared, role_run, runner, util
 from engine.board import Board
 from engine.rules import load_rules
@@ -23,11 +23,6 @@ from engine.schema import load_graph
 
 LOOP = PLUGIN / "scripts" / "loop.py"
 GRAPH = PLUGIN / "graphs" / "review-loop.json"
-
-
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
-                          check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
 @pytest.fixture
