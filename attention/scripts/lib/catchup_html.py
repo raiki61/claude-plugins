@@ -657,12 +657,7 @@ def html_errors(text):
         chk.close()
     except Exception as e:  # noqa: BLE001 — 読めない HTML は直させる
         return [f"figure.html を HTML として読めない（{e}）"]
-    seen, out = set(), []
-    for e in chk.errs:
-        if e not in seen:
-            seen.add(e)
-            out.append("figure.html: " + e)
-    return out[:12]
+    return ["figure.html: " + e for e in dict.fromkeys(chk.errs)][:12]
 
 
 def _compare_errors(rows):

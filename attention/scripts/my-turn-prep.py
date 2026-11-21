@@ -382,9 +382,8 @@ def extra_rule_paths(changed, base, old):
         if not p:
             continue
         d, _, name = p.rpartition("/")
-        if d in dirs and (name in RULE_EXTRA_NAMES or any(w in name.lower() for w in LEDGER_WORDS)):
-            found.add(p)
-        elif p.startswith(ADR_DIRS):
+        if (d in dirs and (name in RULE_EXTRA_NAMES or any(w in name.lower() for w in LEDGER_WORDS))
+                or p.startswith(ADR_DIRS)):
             found.add(p)
     keep = sorted(found - set(old), key=lambda p: (p.split("/")[:-1], p.rsplit("/", 1)[-1]))
     return keep[:RULES_EXTRA_CAP], max(0, len(keep) - RULES_EXTRA_CAP)
