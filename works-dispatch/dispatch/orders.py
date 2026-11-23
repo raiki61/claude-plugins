@@ -1523,7 +1523,11 @@ def note_gates(ports, settings, companies, here_root, dest, payload):
     for company, side in sides:
         if company is None:
             continue
-        info = tree.read_info(company["root"], settings, ports.git)
+        try:
+            info = tree.read_info(company["root"], settings, ports.git)
+        except (gitx.GitError, OSError) as e:   # 会社の形を読めなければ、検査を緩めないように足さない
+            bad.append(f"会社 {company['name']} の会社の形を読めないので、足しのゲート（note_check）を確かめられず足さない（{e}）")
+            continue
         shape = role.load(info["path"], info["text"])
         if shape["note_check_bad"]:
             bad.append(f"会社 {company['name']} の会社の形の note_check の形が違うので、検査を緩めないように足さない（{shape['note_check_bad']}）")
@@ -1826,12 +1830,6 @@ def say(a, ports, cwd):
     sid, name, by = _sender(a, ports, cwd, sessions_)
     say_id = deliver.new_id(ports.now())
     where = f"{company['name']}/{dept['attrs'].get('name') or dept.get('branch') or dept['path']}"
-    bad, said = note_gates(ports, settings, companies, gitx.root_of(common), company,
-                           {**gate, "to": dept["attrs"].get("name"), "role": dept["attrs"].get("role")})
-    notes += said
-    if bad:
-        print("\n".join(notes + ["止めた: 足しのゲートが通さなかった"] + bad))
-        return 2
     dest_common = ports.git.common_dir(company["root"])
     dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
     place_dir = ports.git.git_dir(dept["path"])

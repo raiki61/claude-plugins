@@ -74,16 +74,17 @@ def _company_pool(companies, company_name):
     return [c for c in companies if c["name"] == company_name or os.path.basename(os.path.normpath(c["root"])) == company_name]
 
 
-def slashed(companies, target):
+def slashed(companies, target, skip=lambda company, dept, name: False):
     """「/」を含む宛先を、名前に「/」を含む部署の名前として解いた (会社の名前か None, 部署の名前)。当たる部署が無ければ None
     （parse_target の「会社/役」で読む）。引く順は、宛先の全部を部署の名前として、次に左の「/」から順に、前を会社・後ろを部署の名前として。
     部署の名前は --task で人が付けるので「/」が入る（2026-11-23 に「ルートの scripts/ のリファクタリング（受け持ちの無いファイル）」を
-    --retire が会社「ルートの scripts」と読んで断り、畳めなかった。頼み 6b548f）。"""
+    --retire が会社「ルートの scripts」と読んで断り、畳めなかった。頼み 6b548f）。skip(会社, 部署, 名前) が真の部署は当てない
+    （find_target の ask の _stray と同じ除き方）。"""
     text = target.strip()
     tries = [(None, text)] + [(text[:i], text[i + 1:]) for i, ch in enumerate(text) if ch == "/"]
     for company_name, name in tries if "/" in text else ():
         pool = companies if company_name is None else _company_pool(companies, company_name)
-        if name and any(d["attrs"].get("name") == name or name in gitx.former_names(d["attrs"])
+        if name and any((d["attrs"].get("name") == name or name in gitx.former_names(d["attrs"])) and not skip(c, d, name)
                         for c in pool for d in c["departments"]):
             return company_name, name
     return None
@@ -130,7 +131,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     ask（--ask・--take の頼み直し）なら、per-ask の受け持ちの素の名前を今の名前か前の名前に持つ always でない部署（_stray）は名前で当てず、
     受け持ちへの頼みとして解く（その部署を畳む --retire・--move は名前で当てる）。
     名前に「/」を含む部署（例「ルートの scripts/ のリファクタリング」）は、「/」を会社の区切りと読む前に、部署の名前として引く（slashed）。"""
-    company_name, name = slashed(companies, target) or parse_target(target)
+    company_name, name = slashed(companies, target, lambda c, d, n: ask and _stray(c, d, n)) or parse_target(target)
     if company_name is None:
         pool = companies
     else:
