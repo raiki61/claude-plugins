@@ -124,5 +124,5 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0073](0073-land-bumps-and-no-tags.md) | 版は --land（部署のブランチを main に入れる works-dispatch のコマンド）が上げて手元のゲートで main に入れ、tag は作らず、CI は入った後に回す | 採用 | 2026-10-16 |
 | [0074](0074-graphloops-edits-by-desk-and-land.md) | graphloops の直しは受け持ちの担当が当てて --land で入れ、review-graph の run は持ち主が頼んだときだけ回す | 採用 | 2026-10-16 |
 | [0075](0075-retire-review-graph.md) | /review-graph を退役させる（使う人は /works-factory へ移る。graphloops を受け持つ部署「見直し」が 2026-10-19 に /review-graph のスキルを消した） | 採用 | 2026-10-18 |
-| [0076](0076-land-runs-affected-tests.md) | --land の検査は、変更が入力に当たるテストだけを回し、全部のテストは main に入った後の CI が回す | 採用（決定 1〜4 は 0077 に置き換わった） | 2026-10-20 |
-| [0077](0077-tests-run-only-in-ci.md) | 試験は手元でも --land のゲートでも回さず、main に入った後の CI だけが回す | 採用 | 2026-11-23 |
+| [0076](0076-land-runs-affected-tests.md) | --land の検査は、変更が入力に当たるテストだけを回し、全部のテストは main に入った後の CI が回す | 採用（一部置き換え済み。決定 1〜4＝試験を回す場所・選び方・速さ・落ちた試験の名前の出し方は 0077 に置き換わり、決定 5＝入れる順を決める `--land-order` は今も効く） | 2026-10-20 |
+| [0077](0077-tests-run-only-in-ci.md) | 試験は、部署の作業場でも --land のゲートでも回さず、main に入った後の CI だけが回す（試験を走らせない軽い検査 `scripts/light-check.sh` と初見読みだけ手元に残す。赤は 0073 の git revert で戻す。0076 の決定 1〜4 と、0071・0073・0074 の「手元で試験を回す」記述を置き換える。`tests/land-check.py` はゲートから外すがファイルは残す） | 採用 | 2026-11-23 |
