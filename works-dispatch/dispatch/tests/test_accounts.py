@@ -324,14 +324,16 @@ class Running(unittest.TestCase):
 
 
 class FakePorts:
-    def __init__(self, lim, listed, now=NOW):
-        self.lim, self.listed, self._now, self.probed = lim, listed, now, []
+    def __init__(self, lim, listed, now=NOW, probe=None):
+        self.lim, self.listed, self._now, self.probed, self.probe = lim, listed, now, [], probe
 
     def now(self):
         return self._now
 
-    def refresh_limits(self, cfg, names, force=True):
+    def refresh_limits(self, cfg, names, force=True, budget=None):
         self.probed.append((tuple(names), force))
+        self.budget = budget
+        return self.probe
 
     def read_limits(self, limits_dir, names):
         return {n: self.lim.get(n) for n in names}
@@ -398,6 +400,37 @@ source = "s"
         self.assertEqual(names(got["accounts"]), ["p1", "p2", "main", "p3"])
         self.assertEqual(len(got["notes"]), 1)
         self.assertEqual(schemacheck.check(got, schemacheck.schema("accounts")), [])
+
+    def test_accounts_the_probe_could_not_check_are_named_in_json_and_notes(self):
+        # 取り直しの通信が返らなくても、上限の秒で切って前の控えで選び、確かめていないことを呼び手に知らせる（頼み 27f431）
+        lim = limits()
+        lim["p1"]["seven_day"]["updated_at"] = NOW - 1800
+        lim["p1"]["five_hour"]["updated_at"] = NOW - 1200
+        probe = {"main": {"result": "fresh", "reason": None},
+                 "p1": {"result": "failed", "reason": "通信に失敗（プロキシの設定か通信断）: OSError('10 秒待っても応答が無い')"},
+                 "p2": {"result": "over_budget", "reason": "取り直しの時間の上限 30 秒を使い切ったので問い合わせていない"},
+                 "p3": {"result": "ok", "reason": None}}
+        ports = FakePorts(lim, {None: [], "d1": [], "d2": [], "d3": []}, probe=probe)
+        code, out, _ = self.run_main(["--pick", "--json"], ports)
+        got = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(ports.budget, accounts.PICK_PROBE_BUDGET)
+        self.assertEqual(got["probe"], probe)
+        self.assertEqual([(x["name"], x["since"]) for x in got["unchecked"]], [("p1", NOW - 1800), ("p2", None)])
+        # 注記は確かめられなかったアカウントごとに 1 つで、訳を添える（文の言い回しは表示の物なので、ここでは比べない）
+        self.assertEqual(got["notes"], [accounts.unchecked_note(x, NOW) for x in got["unchecked"]])
+        self.assertTrue(probe["p1"]["reason"] in got["notes"][0] and probe["p2"]["reason"] in got["notes"][1], got["notes"])
+        self.assertEqual(schemacheck.check(got, schemacheck.schema("accounts")), [])
+        # 人が読む形では、注記を標準エラーに出す
+        _, _, err = self.run_main(["--pick"], ports)
+        self.assertTrue(all(n in err for n in got["notes"]), err)
+
+    def test_no_probe_reports_no_probe_result(self):
+        ports = FakePorts(limits(), {None: [], "d1": [], "d2": [], "d3": []})
+        _, out, _ = self.run_main(["--pick", "--json", "--no-probe"], ports)
+        got = json.loads(out)
+        self.assertIsNone(got["probe"])
+        self.assertEqual(got["unchecked"], [])
 
     def test_unreadable_count_is_noted_on_stderr(self):
         ports = FakePorts(limits(), {None: [], "d1": OSError("no claude"), "d2": [], "d3": []})

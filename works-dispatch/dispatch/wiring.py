@@ -387,10 +387,12 @@ class Ports:
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
 
-    def refresh_limits(self, cfg, names, force=True):
+    def refresh_limits(self, cfg, names, force=True, budget=None):
         """名指したアカウントの使用率を API に問い合わせて取り直す（出力 0 トークン。失敗は probe.log）。
-        force は控えの古さに依らず全部。偽なら、古いアカウントだけ（limits.py の probe と同じ）。"""
-        limits.probe_all([a for a in cfg.accounts if a.name in names], cfg.limits_dir, self.env, self.now(), force=force)
+        force は控えの古さに依らず全部。偽なら、古いアカウントだけ（limits.py の probe と同じ）。budget は全体の時間の上限（秒）。
+        返すのはアカウントの名 → 取り直しの結果（limits.probe_all の返り）。"""
+        return limits.probe_all([a for a in cfg.accounts if a.name in names], cfg.limits_dir, self.env, self.now(),
+                                force=force, budget=budget)
 
     def load_cost(self, limits_dir):
         return cost.load(pathlib.Path(limits_dir) / COST_FILE)

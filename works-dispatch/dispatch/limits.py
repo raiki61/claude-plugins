@@ -42,6 +42,7 @@ import os
 import pathlib
 import shlex
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -73,6 +74,11 @@ PROBE_STALE_MIN = 60
 PROBE_7D_STALE_MIN = 15
 # 失敗の後に投げ直さない間（分）。通信が落ちている間に投げ続けないため
 PROBE_RETRY_MIN = 10
+# 1 回の問い合わせを待つ上限（秒）。上限を置かないと、届かない接続を OS の接続の時間切れ（Linux の既定で約 130 秒）まで待ち、
+# accounts.py --pick の呼び手（my_notes の research.py は 120 秒）が先に時間切れになる（2026-11-23、probe.log に約 135 秒おきの
+# 「Connection timed out」が並んだ。頼み 27f431）。ふだんは 1 秒かからない。期限を足さない決まり D5 の狭い例外
+# （docs/specs/2026-10-14-catchup-dispatch-design.md の D5）。打ち切るのは自分で投げた問い合わせだけで、部署の会話の仕事は打ち切らない
+FETCH_WAIT = 10
 # herdr の tab_bar_right は 16 個まで。アカウントの表示と、取り直しの 1 個
 HERDR_MAX_ENTRIES = 16
 
@@ -403,13 +409,35 @@ def _log(d, text):
         log.write_text("\n".join(lines[-200:]) + "\n", encoding="utf-8")
 
 
-def fetch(tok):
+def fetch(tok, wait=FETCH_WAIT):
     """API に出力 0 トークンの要求を 1 回投げ、応答ヘッダを {名前: 値} で返す（前は 1 つの文に直してから from_headers が行に
     切り直していた）。枠切れの 429 でもヘッダは付くので、状態で止めない。HTTP の状態を STATUS に、誤りの応答なら本文の頭を ERROR に
     添える（ヘッダが無いときの訳。モデルの名前が使えなくなったときの 404 など）。
 
     プロキシは環境変数（HTTPS_PROXY）に従う（urllib の既定）。通信の失敗は OSError で上がる。
+    wait 秒で返らなければ OSError で上がる（通信の失敗と同じに扱う）。urlopen に渡す待ちの上限は接続と読みの 1 回ずつにしか
+    効かず、名前の引き（DNS）と、宛先の番地が複数あるときの接続の合計は止めないので、別のスレッドで投げて全体を wait 秒で
+    打ち切る（打ち切ったスレッドは daemon で、urlopen の待ちの上限で後から終わる）。
     """
+    box = {}
+
+    def run():
+        try:
+            box["ok"] = _fetch(tok, wait)
+        except BaseException as e:   # 呼んだ側で上げ直す
+            box["error"] = e
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(wait)
+    if t.is_alive():
+        raise OSError(f"{wait:g} 秒待っても応答が無い")
+    if "error" in box:
+        raise box["error"]
+    return box["ok"]
+
+
+def _fetch(tok, wait):
+    """fetch の中身。urlopen に待ちの上限 wait を渡して 1 回投げる（urlopen の 3 つ目の引数。data は req に入れてあるので None）。"""
     req = urllib.request.Request(API, data=BODY, method="POST", headers={
         "Authorization": f"Bearer {tok}",
         "anthropic-beta": "oauth-2025-04-20",
@@ -417,7 +445,7 @@ def fetch(tok):
         "content-type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req) as r:
+        with urllib.request.urlopen(req, None, wait) as r:
             return {**dict(r.headers.items()), STATUS: str(r.status)}
     except urllib.error.HTTPError as e:
         try:
@@ -452,9 +480,20 @@ def file_token(path):
     return tok, f"token_file({path})"
 
 
-def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=False):
+def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=False, budget=None, clock=time.monotonic):
     """取り直しの要るアカウントだけ、順に問い合わせて控えを書く。失敗は probe.log に残し、黙って落とさない。
     force は古さと試み直しの待ちを見ずに全部に問い合わせる（dispatch が、始める前と /catchup の後の今の値を取るのに使う）。
+    budget は全体の時間の上限（秒）。使い切ったら、残りのアカウントには問い合わせない（失敗の控えも書かない。投げていないため）。
+    1 回の問い合わせは fetch の FETCH_WAIT で切れるので、かかる時間は多くて budget + FETCH_WAIT と鍵の探しの分。None は上限なし。
+    budget も期限を足さない決まり D5 の狭い例外（FETCH_WAIT の注記）で、打ち切るのは残りの問い合わせを投げることだけ。
+    clock は経った時間を測る時計（試験用）。
+
+    返すのは、使用率の枠の有るアカウントの名 → {"result": 結果, "reason": 訳か None}。結果は次のどれか。
+    - "ok": 問い合わせて控えを書いた
+    - "fresh": 控えが新しいので問い合わせなかった（PROBE_RETRY_MIN の間に取れたばかりのときも）
+    - "failed": 問い合わせたが取れなかった（鍵が無い・通信の失敗・時間切れ・ヘッダが無い）。PROBE_RETRY_MIN の間に前の回が
+      失敗していて投げ直さなかったときも、前の失敗の訳を添えてこれにする
+    - "over_budget": budget を使い切ったので問い合わせなかった
 
     token(user_config, explicit) は (トークン, 出どころ) か (None, 探した所) を返す。既定は scripts/claude_auth.py の account_token。
     設定に token_file の有るアカウントは、先にそのファイルを読み（file_token）、読めなかったときだけ token で探す。
@@ -466,17 +505,31 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=Fal
             return claude_auth.account_token(user_config, probe_env(env), explicit)
     d = pathlib.Path(limits_dir)
     d.mkdir(parents=True, exist_ok=True)
+    start, out = clock(), {}
     for a in accounts:
-        if not a.limits or not (force or need_probe(_read(d / f"{a.name}.json"), now)):
+        if not a.limits:
+            continue
+        if not (force or need_probe(_read(d / f"{a.name}.json"), now)):
+            out[a.name] = {"result": "fresh", "reason": None}
             continue
         stamp, failed = d / f".probe-{a.name}", d / FAILED.format(a.name)
         try:
-            last = float(stamp.read_text(encoding="utf-8"))
+            got = float(stamp.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            last = None
-        tried = (failure(d, a.name) or {}).get("at")
-        last = max([x for x in (last, tried) if _num(x)], default=None)
+            got = None
+        fail = failure(d, a.name) or {}
+        tried = fail.get("at")
+        last = max([x for x in (got, tried) if _num(x)], default=None)
         if not force and last is not None and now - last < PROBE_RETRY_MIN * 60:
+            if _num(tried) and tried == last:
+                when = time.strftime("%H:%M", time.localtime(tried))
+                out[a.name] = {"result": "failed",
+                               "reason": f"{when} の取り直しが失敗し、{PROBE_RETRY_MIN} 分は投げ直さない: {fail.get('reason')}"}
+            else:
+                out[a.name] = {"result": "fresh", "reason": None}
+            continue
+        if budget is not None and clock() - start >= budget:
+            out[a.name] = {"result": "over_budget", "reason": f"取り直しの時間の上限 {budget:g} 秒を使い切ったので問い合わせていない"}
             continue
         tok, note = file_token(a.token_file) if a.token_file else (None, "")
         if not tok:
@@ -500,12 +553,15 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=Fal
         if reason:
             _log(d, f"{a.name}: {reason}")
             _write(failed, {"at": now, "reason": reason})
+            out[a.name] = {"result": "failed", "reason": reason}
             continue
         stamp.write_text(str(now), encoding="utf-8")
+        out[a.name] = {"result": "ok", "reason": None}
         try:
             failed.unlink()
         except FileNotFoundError:
             pass   # 前の回も失敗していない（失敗の印が無い）
+    return out
 
 
 def write_snapshot(path, accounts, limits_dir):

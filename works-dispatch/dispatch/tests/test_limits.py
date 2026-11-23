@@ -212,6 +212,50 @@ class ProbeAll(unittest.TestCase):
         self.assertIn("接続できない", (self.dir / "probe.log").read_text(encoding="utf-8"))
         self.assertFalse((self.dir / "a0.json").exists())
 
+    def test_results_say_what_happened_to_each_account(self):
+        # accounts.py --pick が、取り直しを通っていない答えを呼び手に知らせるのに使う（頼み 27f431）
+        (self.dir / "a0.json").write_text(json.dumps({"five_hour": win(1, NOW + 60), "seven_day": win(1, NOW + 60)}))
+
+        def down(tok):
+            raise OSError("10 秒待っても応答が無い")
+        got = limits.probe_all(accounts(2) + (config.Account("local", "c", None, None, False),), self.dir, {}, NOW,
+                               token=lambda c, e: ("tok", "x"), fetch=down)
+        self.assertEqual(got["a0"], {"result": "fresh", "reason": None})
+        self.assertEqual(got["a1"]["result"], "failed")
+        self.assertIn("10 秒待っても応答が無い", got["a1"]["reason"])
+        self.assertNotIn("local", got)   # 使用率の枠の無いアカウントは載せない
+        # 待ちの間に投げ直さなかったアカウントも、前の失敗の訳を添えて failed にする（黙って古い控えで選ばせない）
+        again = limits.probe_all(accounts(2), self.dir, {}, NOW + 60, token=lambda c, e: ("tok", "x"), fetch=lambda tok: HEADERS)
+        self.assertEqual(again["a1"]["result"], "failed")
+        self.assertIn("投げ直さない", again["a1"]["reason"])
+        self.assertIn("10 秒待っても応答が無い", again["a1"]["reason"])
+        ok = limits.probe_all(accounts(2), self.dir, {}, NOW + limits.PROBE_RETRY_MIN * 60 + 1, token=lambda c, e: ("tok", "x"),
+                              fetch=lambda tok: HEADERS)
+        self.assertEqual(ok["a1"], {"result": "ok", "reason": None})
+
+    def test_budget_stops_asking_the_rest_without_recording_a_failure(self):
+        ticks = iter([0, 0, 31, 31])
+        asked = []
+        got = limits.probe_all(accounts(3), self.dir, {}, NOW, token=lambda c, e: ("tok", "x"),
+                               fetch=lambda tok: asked.append(tok) or HEADERS, budget=30, clock=lambda: next(ticks))
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(got["a0"]["result"], "ok")
+        self.assertEqual([got[n]["result"] for n in ("a1", "a2")], ["over_budget", "over_budget"])
+        self.assertIsNone(limits.failure(self.dir, "a1"))   # 投げていないので、失敗の待ちに入れない
+
+    def test_fetch_gives_up_after_the_wait_even_if_the_request_hangs(self):
+        # urlopen の待ちの上限が効かない所（名前の引きなど）で止まっても、wait 秒で OSError にする（頼み 27f431）
+        import threading
+        from unittest import mock
+        gate = threading.Event()
+        with mock.patch.object(limits, "_fetch", lambda tok, wait: gate.wait(5)):
+            with self.assertRaises(OSError) as e:
+                limits.fetch("tok", wait=0.05)
+        gate.set()
+        self.assertIn("応答が無い", str(e.exception))
+        with mock.patch.object(limits, "_fetch", lambda tok, wait: {"a": "b"}):
+            self.assertEqual(limits.fetch("tok", wait=1), {"a": "b"})
+
     def test_shared_keychain_override_does_not_apply_to_every_account(self):
         # CLAUDE_KEYCHAIN_SERVICE はシェル全体に効く上書きで、残すと全アカウントが同じ鍵（同じ使用率）になる。
         # 既定の鍵の探し方（probe_all が account_token に渡す環境）からは外す。アカウントごとの名前は keychain_service で書く

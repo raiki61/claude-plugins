@@ -35,6 +35,14 @@
     "pick": {"type": ["object", "null"], "required": ["name", "command", "config_dir", "why"],
              "properties": {"name": {"type": "string"}, "command": {"type": "string"},
                             "config_dir": {"type": ["string", "null"]}, "why": {"type": "string"}}},
-    "notes": {"type": "array", "items": {"type": "string"}}
+    "notes": {"type": "array", "items": {"type": "string"}},
+    "probe": {"type": ["object", "null"],
+              "additionalProperties": {"type": "object", "required": ["result", "reason"],
+                                       "properties": {"result": {"type": "string", "enum": ["ok", "fresh", "failed", "over_budget"]},
+                                                      "reason": {"type": ["string", "null"]}}}},
+    "unchecked": {"type": "array",
+                  "items": {"type": "object", "required": ["name", "reason", "since"],
+                            "properties": {"name": {"type": "string"}, "reason": {"type": ["string", "null"]},
+                                           "since": {"type": ["integer", "null"]}}}}
   }
 }

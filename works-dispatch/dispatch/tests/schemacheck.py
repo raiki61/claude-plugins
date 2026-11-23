@@ -1,6 +1,6 @@
-"""JSON Schema の小さな照合し。type・required・properties・items・enum だけを解く。
+"""JSON Schema の小さな照合し。type・required・properties・additionalProperties（schema の形の物だけ）・items・enum だけを解く。
 
-外のパッケージ（jsonschema）を入れないための、試験の中だけのツール。schema の側でこの 5 つ以外の鍵を使うなら、ここも足す。
+外のパッケージ（jsonschema）を入れないための、試験の中だけのツール。schema の側でこの 6 つ以外の鍵を使うなら、ここも足す。
 """
 
 import json
@@ -31,6 +31,11 @@ def check(obj, schema, where="$"):
         for k, sub in schema.get("properties", {}).items():
             if k in obj:
                 errs += check(obj[k], sub, f"{where}.{k}")
+        extra = schema.get("additionalProperties")
+        if isinstance(extra, dict):   # 鍵が名前などで決まっていない表（名 → 値）の値の形
+            for k, v in obj.items():
+                if k not in schema.get("properties", {}):
+                    errs += check(v, extra, f"{where}.{k}")
     if isinstance(obj, list) and "items" in schema:
         for i, v in enumerate(obj):
             errs += check(v, schema["items"], f"{where}[{i}]")

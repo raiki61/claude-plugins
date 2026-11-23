@@ -27,7 +27,10 @@
   python3 nodes/accounts.py [--config <パス>] [--out <パス>] [--now <Unix 時刻>]   … 全部のアカウントの順を JSON で出す
   python3 nodes/accounts.py --pick [--json] [--no-probe] [--config <パス>]          … 1 つ選び、名前と起動コマンドを出す
 --pick は、人が読む 1 行（「<名前>: <起動コマンド> — <選んだ訳>」）を標準出力に、注記を標準エラーに出す。--json は、選んだ 1 件（pick）と
-全部の順（accounts）と注記（notes）を JSON で出す。選べるアカウントが無ければ、終了の値は 1。
+全部の順（accounts）と注記（notes）と取り直しの結果（probe・unchecked）を JSON で出す。選べるアカウントが無ければ、終了の値は 1。
+--pick の取り直しは全体で PICK_PROBE_BUDGET 秒まで（1 回の問い合わせは limits.FETCH_WAIT 秒で切れる）で、取り直せなかった
+アカウントは前の控えのまま選ぶ（控えが 3 時間より古いか無ければ、使用率が分からない物として順の最後）。そのアカウントは unchecked に
+名前と訳を載せ、注記にも出す（通信が返らない間も、呼び手の時間切れより先に答えを返すため。頼み 27f431）。
 """
 
 import argparse
@@ -36,6 +39,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from ports import chat  # noqa: E402
@@ -53,6 +57,10 @@ WEEK_HOURS = 7 * 24   # 週の枠の長さ。切り替わりの時刻が分か�
 MIN_HOURS = 1   # 週の切り替わりまでの時間の下限。切り替わりの直前で点数が際限なく大きくならないため
 RUNNING_STATES = ("working", "blocked")  # 背景の会話の state のうち、動いているもの
 NAMED_ONLY = "名指しのときだけ使うアカウント（設定の named_only = true）"   # 自動で選ばない訳
+# --pick の取り直しの全体の時間の上限（秒）。多くて PICK_PROBE_BUDGET + limits.FETCH_WAIT（40 秒ほど）で答えを返し、
+# 呼び手の時間切れ（my_notes の research.py は 120 秒）より先に返す
+PICK_PROBE_BUDGET = 30
+UNCHECKED = ("failed", "over_budget")   # 取り直しの結果（limits.probe_all）のうち、使用率を確かめられなかった物
 
 
 def _window(raw, now):
@@ -321,6 +329,32 @@ def why(row, now):
             f"選べるものの中で最も高い。{tail}")
 
 
+def unchecked(probed, limits):
+    """取り直しの結果 probed（limits.probe_all の返り。取り直していなければ None）のうち、確かめられなかったアカウントの
+    [{"name", "reason", "since"}]。since は使った控え limits[名] の枠の updated_at の古い方（Unix 時刻。控えが無いか時刻が無ければ None）。"""
+    out = []
+    for name, got in (probed or {}).items():
+        if got.get("result") not in UNCHECKED:
+            continue
+        raw = limits.get(name) or {}
+        times = [w["updated_at"] for w in (raw.get(k) for k in WINDOWS)
+                 if isinstance(w, dict) and isinstance(w.get("updated_at"), (int, float))]
+        out.append({"name": name, "reason": got.get("reason"), "since": int(min(times)) if times else None})
+    return out
+
+
+def unchecked_note(item, now):
+    """unchecked の 1 件の注記の文。"""
+    since = item["since"]
+    if since is None:
+        used = "控えの時刻が分からない（控えが無ければ、使用率の分からない物として順の最後に置いた）"
+    else:
+        at = f"{time.strftime('%m-%d %H:%M', time.localtime(since))}（{_left(now - since)}前）の控え"
+        used = (f"{at}は {limits_.TRUST_HOURS} 時間より古いので、使用率の分からない物として順の最後に置いた"
+                if now - since > limits_.TRUST_HOURS * 3600 else f"{at}の値で選んだ")
+    return f"アカウント {item['name']} の使用率を取り直せなかった（{item['reason']}）。{used}"
+
+
 def overview(accts, env):
     """アカウントの一覧の 1 件ずつの {name, named_only, max_open, limits, hours, models}。models はモデルの別名の読み替え先
     （chat.model_aliases。正本はそのアカウントの設定のフォルダの settings.json で、ここでは読むだけ）。--tree と --check が出す。"""
@@ -387,11 +421,14 @@ def main(argv=None, env=os.environ, ports=None):
     ports = ports or _default_ports(env)
     now = a.now or ports.now()
     metered = [x.name for x in cfg.accounts if x.limits]
+    probed = None
     if a.pick and not a.no_probe:
-        ports.refresh_limits(cfg, metered, force=False)
+        probed = ports.refresh_limits(cfg, metered, force=False, budget=PICK_PROBE_BUDGET)
     running, notes = gather_running(cfg.accounts, ports.list_sessions)
-    rows = rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, now, running,
-                margin_minutes=cfg.hours_margin_minutes)
+    lim = ports.read_limits(cfg.limits_dir, metered)
+    rows = rank(cfg.accounts, lim, cfg.limit_percent, now, running, margin_minutes=cfg.hours_margin_minutes)
+    missed = unchecked(probed, lim)
+    notes += [unchecked_note(x, now) for x in missed]
     if not a.pick:
         jsonio.dump({"accounts": rows, "notes": notes}, a.out)
         return 0
@@ -399,7 +436,7 @@ def main(argv=None, env=os.environ, ports=None):
     pick = None if head is None else {"name": head["name"], "command": head["command"], "config_dir": head["config_dir"],
                                       "why": why(head, now)}
     if a.json:
-        jsonio.dump({"pick": pick, "accounts": rows, "notes": notes}, a.out)
+        jsonio.dump({"pick": pick, "accounts": rows, "notes": notes, "probe": probed, "unchecked": missed}, a.out)
     elif pick:
         print(f"{pick['name']}: {pick['command']} — {pick['why']}")
     else:
