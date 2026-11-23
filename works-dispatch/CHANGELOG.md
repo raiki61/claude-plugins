@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.170.0] - 2026-11-23
+
 ### Fixed
 
 - `nodes/accounts.py --pick`（手で会話を立てるときにアカウントを 1 つ選ぶコマンド）が、使用率を確かめる問い合わせの通信が返らないとき、OS の接続の時間切れ（約 130 秒）までアカウントごとに待っていた。2026-11-23 に、`--pick --json` を 120 秒で切る my_notes の調べのツール（`research.py`）が 4 回続けて止まった。今は、1 回の問い合わせを 10 秒、`--pick` の取り直しの全体を 30 秒で打ち切り、取り直せなかったアカウントは前の控えのまま選ぶ（期限を足さない決まり D5 の狭い例外。`docs/specs/2026-10-14-catchup-dispatch-design.md` の D5）。1 回の問い合わせの打ち切りは、dispatch の始める前の取り直しと `limits.py probe` にも効く（頼み 27f431）。
