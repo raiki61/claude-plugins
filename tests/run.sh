@@ -6384,6 +6384,9 @@ expect_output 0 "ENV_STOP_OK" \
 expect_output 0 "STOPS_OK" \
     "my-turn-prep: head の不一致・gh の失敗・fetch の失敗・共通の祖先なし・空の範囲で、それぞれの理由で止まる" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" stops
+expect_output 0 "SYNC_OK" \
+    "my-turn-prep: --sync は PR のブランチに居て遅れているだけなら PR の先頭まで fast-forward し、別のブランチ・detached・未コミット・先に進んだ・分かれた手元は動かさずに止まる" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" sync
 expect_output 0 "DIFF_OK" \
     "my-turn-prep: 差分ファイルの 3 部・lock file の除外・commit 一覧・変えたファイル・記録の置き場を出す" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" diff

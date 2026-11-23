@@ -162,7 +162,7 @@ def case_stops():
         # head の不一致
         e.set_gh("0" * 40)
         rc, o = e.prep("7")
-        check(rc == 1 and o["stop"] == "head-mismatch" and "/catchup 7" in o["message"], "head-mismatch %r" % o)
+        check(rc == 1 and o["stop"] == "head-mismatch" and "--sync 7" in o["message"], "head-mismatch %r" % o)
         # gh の失敗・読めない答え
         e.set_gh(head, raw="not json")
         rc, o = e.prep("7")
@@ -1069,10 +1069,94 @@ def case_check_report():
         check(rc == 2, "排他 rc=%s" % rc)
 
 
+def case_sync():
+    """--sync: PR のブランチに居て遅れているだけなら PR の先頭まで fast-forward し、それ以外は手元を動かさずに止まる。"""
+    def body(e):
+        base = e.base_commit(a_DOT_txt="a\n")
+        git(e.repo, "switch", "-q", "-c", "feat")
+        c1 = commit(e.repo, "c1", b_DOT_txt="1\n")
+        c2 = commit(e.repo, "c2", b_DOT_txt="2\n")
+        git(e.repo, "push", "-q", "origin", "feat", "feat:refs/pull/7/head")
+
+        def gh(head, ref="feat", cross=False, owner="o"):
+            e.set_gh(head, raw=json.dumps({"headRefOid": head, "baseRefName": "main", "headRefName": ref,
+                                           "isCrossRepository": cross, "headRepository": {"name": "r"},
+                                           "headRepositoryOwner": {"login": owner},
+                                           "url": "https://github.com/o/r/pull/7"}))
+
+        def at():
+            return git(e.repo, "rev-parse", "HEAD")
+
+        def sync():
+            return e.prep("--sync", "7")
+
+        # 既に先頭に居る: 動かさない
+        gh(c2)
+        rc, o = sync()
+        check(rc == 0 and o["ok"] and o["synced"] is False and o["head"] == c2, "同じ head %r" % o)
+        # 遅れているだけで、先頭の commit が手元に在る（PR #2574 の形）: 進める
+        git(e.repo, "reset", "-q", "--hard", c1)
+        rc, o = sync()
+        check(rc == 0 and o["synced"] is True and o["from"] == c1 and o["head"] == c2 and o["commits"] == 1
+              and o["branch"] == "feat" and at() == c2, "遅れ（手元に在る） %r" % o)
+        # 先頭の commit が手元に無い: base の remote の refs/pull/7/head から取って進める
+        other = os.path.join(e.tmp, "other")
+        subprocess.run([*GIT, "clone", "-q", "-b", "feat", e.origin, other], check=True, capture_output=True)
+        c3 = commit(other, "c3", b_DOT_txt="3\n")
+        git(other, "push", "-q", "origin", "feat", "feat:refs/pull/7/head")
+        gh(c3)
+        rc, o = sync()
+        check(rc == 0 and o["synced"] is True and o["head"] == c3 and at() == c3, "遅れ（取ってくる） %r" % o)
+        # 追跡ファイルに未コミットの変更: 動かさない
+        git(e.repo, "reset", "-q", "--hard", c2)
+        write(e.repo, "a.txt", "changed\n")
+        rc, o = sync()
+        check(rc == 1 and o["stop"] == "dirty" and at() == c2, "未コミット %r" % o)
+        git(e.repo, "checkout", "-q", "--", "a.txt")
+        # 別のブランチ（main は PR の先頭の祖先だが、PR のブランチではない）: 動かさず /catchup を案内する
+        git(e.repo, "switch", "-q", "main")
+        rc, o = sync()
+        check(rc == 1 and o["stop"] == "not-pr-branch" and "/catchup 7" in o["message"] and at() == base, "別のブランチ %r" % o)
+        # detached: 動かさない
+        git(e.repo, "switch", "-q", "--detach", c2)
+        rc, o = sync()
+        check(rc == 1 and o["stop"] == "not-pr-branch" and at() == c2, "detached %r" % o)
+        # 手元が先に進んでいる・分かれている: 動かさない
+        git(e.repo, "switch", "-q", "feat")
+        git(e.repo, "reset", "-q", "--hard", c3)
+        c4 = commit(e.repo, "c4", d_DOT_txt="4\n")
+        rc, o = sync()
+        check(rc == 1 and o["stop"] == "ahead" and at() == c4, "先に進んでいる %r" % o)
+        git(e.repo, "reset", "-q", "--hard", c2)
+        c5 = commit(e.repo, "c5", d_DOT_txt="5\n")
+        rc, o = sync()
+        check(rc == 1 and o["stop"] == "diverged" and at() == c5, "分かれている %r" % o)
+        # fork の PR で head の名前が main: 手元の main は名前が同じでも PR のブランチと見ない
+        git(e.repo, "switch", "-q", "main")
+        gh(c3, ref="main", cross=True, owner="f")
+        rc, o = sync()
+        check(rc == 1 and o["stop"] == "not-pr-branch" and at() == base, "fork の main %r" % o)
+        # fork の PR を base の refs/pull/7/head で追跡するブランチ（gh pr checkout の形）: 進める
+        up = os.path.join(e.tmp, "o", "r.git")
+        subprocess.run([*GIT, "clone", "-q", "--bare", e.origin, up], check=True, capture_output=True)
+        git(e.repo, "remote", "add", "up", up)
+        git(e.repo, "switch", "-q", "-c", "pr7", c2)
+        git(e.repo, "config", "branch.pr7.remote", "up")
+        git(e.repo, "config", "branch.pr7.merge", "refs/pull/7/head")
+        rc, o = sync()
+        check(rc == 0 and o["synced"] is True and o["branch"] == "pr7" and at() == c3, "fork の追跡 %r" % o)
+        # 排他: PR の番号と同時には使えない
+        r = subprocess.run([sys.executable, PREP, "7", "--sync", "7"], cwd=e.repo, env=e.env(), capture_output=True)
+        check(r.returncode == 2, "排他が 2 でない")
+    if not POSIX:
+        return skip("sync")
+    with_env(body)
+
+
 CASES = {"env-stop": case_env_stop, "stops": case_stops, "diff": case_diff, "rules": case_rules,
          "prior": case_prior, "quotes": case_quotes, "headless": case_headless,
          "lines": case_lines, "deleted-tests": case_deleted_tests, "rules-wide": case_rules_wide,
-         "identity": case_identity, "check-report": case_check_report}
+         "identity": case_identity, "check-report": case_check_report, "sync": case_sync}
 
 if __name__ == "__main__":
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:

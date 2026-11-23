@@ -3,6 +3,7 @@
 
 使い方:
   my-turn-prep.py <PR 番号> [--prior <記録.json>] [--headless]
+  my-turn-prep.py --sync <PR 番号>          PR のブランチに居て遅れているだけなら、PR の先頭へ fast-forward する
   my-turn-prep.py --quotes <記録.json>     記録の中の根拠の写しを照合する
   my-turn-prep.py --quotes --b64 <頭> <id>:<行> ...
                                           引数の根拠を照合する（Workflow の写しの照合の段が打つ。1 行ずつ base64）
@@ -430,6 +431,87 @@ def identity_signals(base, head):
     return found[:SIGNAL_CAP], max(0, len(found) - SIGNAL_CAP)
 
 
+def repo_of_remote(remote):
+    """branch.<名>.remote の値（remote の名か URL）が指すリポジトリの "owner/name"（小文字）。読めなければ None。"""
+    url = remote
+    if not re.search(r"[/:\\]", remote):
+        rc, out = git("remote", "get-url", remote)
+        url = out.strip() if rc == 0 else ""
+    m = re.search(r"[/:\\]([^/:\\]+)[/\\]([^/\\]+?)(?:\.git)?[/\\]?$", url)
+    return ("%s/%s" % (m.group(1), m.group(2))).lower() if m else None
+
+
+def is_pr_branch(cur, pr, info, repo_name):
+    """今のブランチ cur が PR の head のブランチか。追跡先が PR の head を指すか（gh pr checkout・/catchup が作る形:
+    同じリポジトリの refs/heads/<head>、fork の URL の refs/heads/<head>、base の refs/pull/N/head）、同じリポジトリの
+    PR で名前が head と同じなら、そう見る。fork の PR は名前だけでは見ない（fork の head が main のような名前で来ると、
+    base 側の手元の main を PR の先頭へ進めてしまう）。"""
+    head_ref = info.get("headRefName") or ""
+    owner = (info.get("headRepositoryOwner") or {}).get("login") or ""
+    name = (info.get("headRepository") or {}).get("name") or ""
+    rc, merge = git("config", "--get", "branch.%s.merge" % cur)
+    rc2, remote = git("config", "--get", "branch.%s.remote" % cur)
+    merge, remote = (merge.strip() if rc == 0 else ""), (remote.strip() if rc2 == 0 else "")
+    if remote:
+        at = repo_of_remote(remote)
+        if merge == "refs/pull/%d/head" % pr and at == repo_name.lower():
+            return True
+        if head_ref and merge == "refs/heads/" + head_ref and owner and name and at == ("%s/%s" % (owner, name)).lower():
+            return True
+    return not info.get("isCrossRepository") and bool(head_ref) and cur == head_ref
+
+
+def sync(pr):
+    """PR のブランチに居て手元が遅れているだけなら、PR の先頭まで fast-forward する（/my-turn・/my-turn-deep の手順 2）。
+    進めるのは、PR のブランチに居て・追跡ファイルに未コミットの変更が無く・手元の先頭が PR の先頭の祖先のときだけ。
+    それ以外は動かさずに止まる（別のブランチ・detached は /catchup で移る。手元が先に進んでいる・分かれているときは、
+    どちらを残すかを人が決める）。git pull --ff-only でなく PR の先頭の commit へ merge --ff-only するのは、追跡先の
+    設定の無いブランチでも、追跡先が PR の head と別の所を指していても、行き先を PR の先頭に決めるため。"""
+    rc, out = run(["gh", "pr", "view", str(pr), "--json",
+                   "headRefOid,headRefName,isCrossRepository,headRepository,headRepositoryOwner,url"], timeout=60)
+    try:
+        info = json.loads(out)
+        head_oid, url = info["headRefOid"], info["url"]
+        m = re.match(r"https?://[^/]+/([^/]+/[^/]+)/pull/\d+", url)
+        if rc != 0 or not (head_oid and m):
+            raise ValueError
+        repo_name = m.group(1)
+    except (ValueError, KeyError, TypeError):
+        raise Stop("gh-failed", "gh pr view %s が失敗したか、読めない答えでした。gh auth status と PR の番号を確かめてください" % pr)
+    old = must_git("rev-parse", "HEAD").strip()
+    if old == head_oid:
+        return {"ok": True, "synced": False, "head": old}
+    rc, cur = git("symbolic-ref", "--short", "-q", "HEAD")
+    cur = cur.strip() if rc == 0 else ""
+    if not cur or not is_pr_branch(cur, pr, info, repo_name):
+        where = "ブランチ %s" % cur if cur else "detached HEAD"
+        raise Stop("not-pr-branch", "手元は %s で、PR #%s のブランチ（%s）ではありません。/catchup %s で PR のブランチへ移ってから呼び直してください"
+                   % (where, pr, info.get("headRefName") or "?", pr))
+    dirty = [ln for ln in must_git("status", "--porcelain", "--untracked-files=no").splitlines() if ln.strip()]
+    if dirty:
+        raise Stop("dirty", "追跡ファイルに未コミットの変更が %d 件あるので、PR の先頭へ更新しません。自分の編集か確かめ、"
+                   "commit か stash してから呼び直してください" % len(dirty))
+    if not changemap.has_commit(head_oid):
+        remote, _ = pr_remote(repo_name)
+        git("fetch", "--no-tags", remote, "refs/pull/%s/head" % pr)
+        if not changemap.has_commit(head_oid):
+            raise Stop("fetch-failed", "PR の先頭の commit %s を %s から取れませんでした。ネットワークと %s の設定を確かめてください"
+                       % (head_oid[:7], remote, remote))
+    if git("merge-base", "--is-ancestor", old, head_oid)[0] != 0:
+        if git("merge-base", "--is-ancestor", head_oid, old)[0] == 0:
+            raise Stop("ahead", "手元の %s は PR の先頭より先に進んでいます（push していない commit が在る）。push してから呼び直してください" % cur)
+        raise Stop("diverged", "手元の %s と PR の先頭が分かれています（手元にだけ在る commit と、PR にだけ在る commit が両方在る。"
+                   "force push の後など）。どちらを残すかを決めて揃えてから呼び直してください" % cur)
+    # 書く操作は timeout で殺さない（途中で殺すと書きかけの木と index.lock が残る）
+    git_rc = run(["git", "merge", "--ff-only", "-q", head_oid], timeout=None)[0]
+    new = must_git("rev-parse", "HEAD").strip()
+    if new != head_oid:
+        raise Stop("ff-failed", "git merge --ff-only %s が通りませんでした（終了の値 %s。未追跡のファイルが上書きされる、など）。"
+                   "手で打って訳を見てください" % (head_oid[:7], git_rc))
+    count = must_git("rev-list", "--count", "%s..%s" % (old, new)).strip()
+    return {"ok": True, "synced": True, "branch": cur, "from": old, "head": new, "commits": int(count)}
+
+
 def prep(pr, prior, headless):
     if os.environ.get(ENV_SUBAGENT_MODEL) and not headless:
         raise Stop("subagent-model-env",
@@ -451,7 +533,7 @@ def prep(pr, prior, headless):
         raise Stop("fetch-failed", "git fetch %s %s が失敗しました。ネットワークと %s の設定を確かめてください" % (remote, base_ref, remote))
     head = must_git("rev-parse", "HEAD").strip()
     if head != head_oid:
-        raise Stop("head-mismatch", "手元の HEAD が PR の先頭と違います。/catchup %s で PR のブランチへ移ってから /my-turn-deep を呼び直してください" % pr)
+        raise Stop("head-mismatch", "手元の HEAD が PR の先頭と違います。my-turn-prep.py --sync %s で PR の先頭に追いついてから（止まったら、その訳に従ってから）/my-turn-deep を呼び直してください" % pr)
     rc, out = git("merge-base", remote + "/" + base_ref, "HEAD")
     if rc != 0 or not out.strip():
         raise Stop("no-merge-base", "%s/%s と HEAD の共通の祖先が見つかりません（履歴が別、または浅い clone）。git fetch --unshallow などで履歴を取ってください" % (remote, base_ref))
@@ -996,12 +1078,13 @@ def main(argv):
     ap.add_argument("pr", nargs="?", type=int)
     ap.add_argument("--prior")
     ap.add_argument("--headless", action="store_true")
+    ap.add_argument("--sync", type=int, metavar="PR")
     ap.add_argument("--quotes")
     ap.add_argument("--save-record", nargs=2, metavar=("RECORD", "OUTPUT"))
     ap.add_argument("--check-report", nargs=2, metavar=("RECORD", "REPORT"))
     a = ap.parse_args(argv)
-    if sum(x is not None for x in (a.pr, a.quotes, a.save_record, a.check_report)) != 1:
-        ap.error("PR の番号か --quotes か --save-record か --check-report のどれか 1 つを渡してください")
+    if sum(x is not None for x in (a.pr, a.sync, a.quotes, a.save_record, a.check_report)) != 1:
+        ap.error("PR の番号か --sync か --quotes か --save-record か --check-report のどれか 1 つを渡してください")
     if a.check_report:
         res, why = check_report(os.path.abspath(a.check_report[0]), os.path.abspath(a.check_report[1]))
         if res is None:
@@ -1016,6 +1099,8 @@ def main(argv):
     if rc == 0 and top.strip():
         # 作業場の下位のディレクトリで打っても、差分の本文の pathspec（. と除外）をルートで解く
         os.chdir(top.strip())
+    if a.sync is not None:
+        return emit_run(lambda: sync(a.sync))
     return emit_run(lambda: check_quotes(quotes) if quotes else prep(a.pr, prior, a.headless))
 
 
