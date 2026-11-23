@@ -31,6 +31,7 @@ desk_role = "窓口"               # 本社（会社の代表の clone。上の�
 shared_instructions = """
 試験は触った所だけ回す。
 """                                 # 任意。どの役の部署の会話にも、役の本文の前に足す会社の共通の本文（本社の窓口の会話には足さない）
+note_check = "python3 scripts/check_note.py"   # 任意。この会社に触れる足し（--note）の検査（ask.md の「今受けている頼みへの足し」の「足しの検査」）
 desk = "<会社>/<窓口の名前>"    # 任意。この会社に窓口を置かず、ほかの会社の窓口に兼ねさせるとき、その窓口（--tree が窓口と宛て方に出す。この会社の本社に --desk で名付けた窓口が立つか、本社の窓口を --handover で継いだ部署が在れば、そちらが先）
 
 [[roles]]
@@ -74,7 +75,7 @@ rent_or_buy = false                   # この部署だけ、役の rent_or_buy 
 - `[roles.settings]` の行より後に書いたフィールドは `settings` の中に入る。`deliver` などの役のフィールドは `[roles.settings]` より前に書く（`settings` の中に `deliver` が有れば注記を出す）。
 - TOML には共通の表を引く書き方が無く、works-dispatch も役の間で `settings` を継がない。いくつかの役に同じ起動の設定を効かせるなら、役ごとの `[roles.settings]` に同じ値を書く（受け持ちごとに足す分は受け持ちの `settings`）。本文の共通の決まりは `shared_instructions` に 1 度だけ書く（下の「役の本文」）。
 - 会社の形の表（頭・`[[roles]]`・`[[roles.tools]]`・`[[skills]]`・`[skills.start]`・`[land]`・`[land.roles.<役>]`・`[[land.after]]`）に、この版が読まない鍵（書き間違い・新しい版の鍵・外した鍵）が有れば、その鍵だけを読まずに、会社の形を読むコマンド（`--tree`・`--task`・`--ask`・`--deliver`・`--land`）の出力に鍵の名前を挙げた注記を出す（`--tree` では会社の行の下の `!` の行。読む鍵の一覧は `dispatch/known_keys.py`）。`[roles.settings]`・受け持ちの `settings`・ツールの `inputSchema`・`[[land.after]]` の `input` の中は見ない（Claude Code・JSON Schema・ツールに渡す値のため）。
-- 注記だけで止めないのが基本で、止めるのは 2 つ。`[[roles]]` の項目に読まない鍵が 1 つでも有れば、その役の部署からの `--deliver` とその役へ宛てた `--ask` は、何も送らず受付箱にも置かずに鍵の名前を出して終わる（`deliver_check`・`ask_check`・`holders`・`ask_holders` を書き間違えると、ゲートが黙って外れるため）。`[land]`・その役の `[land.roles.<役>]`・`[[land.after]]` の読まない鍵は `--land` を止める。直すには、鍵を直して origin の既定のブランチ（会社の形はここから読む）に入れるか、その鍵を知る版の works-dispatch を使って打ち直す。
+- 注記だけで止めないのが基本で、止めるのは 2 つ。`[[roles]]` の項目に読まない鍵が 1 つでも有れば、その役の部署からの `--deliver` とその役へ宛てた `--ask` は、何も送らず受付箱にも置かずに鍵の名前を出して終わる（`deliver_check`・`ask_check`・`holders`・`ask_holders` を書き間違えると、ゲートが黙って外れるため）。頭の `note_check` が空でない文字列でなければ、その会社に触れる `--note` も止まる（同じ訳）。`[land]`・その役の `[land.roles.<役>]`・`[[land.after]]` の読まない鍵は `--land` を止める。直すには、鍵を直して origin の既定のブランチ（会社の形はここから読む）に入れるか、その鍵を知る版の works-dispatch を使って打ち直す。
 
 ## 役の本文
 

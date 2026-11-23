@@ -6,6 +6,14 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- 会社の形（`.claude/company.toml`）の頭に `note_check`（足し〔`--note`〕の検査のシェルのコマンド）を書けるようにした。足す先の会社（頼みを受けている部署か、頼みが積まれた順番待ちの会社）と、打った場所の会社の `note_check` を、足しを置く前に、その会社の origin の既定のブランチの中身で走らせ、0 以外で終われば足さない（`--ask` の役の `ask_check` と同じ作り。標準入力の JSON は `skills/dispatch/references/ask.md` の「足しの検査」）。会社のフックは、その会社の会話から Bash で打った足ししか止められず、ほかの会社の会話・フックの外・変数を挟んだコマンドから打った足しが通っていた（my_notes の、足しを「## 持ち主の言葉」「## 司令塔の見立て」の見出しで書く決まり。頼み 6b548f）。書かない会社は今までどおり。
+
+### Fixed
+
+- 名前に「/」を含む部署（例「ルートの scripts/ のリファクタリング（受け持ちの無いファイル）」）を、`--retire`・`--move`・`--ask`・`--say` などの宛先で引けなかった。「/」を「会社/名前」の区切りと読み、会社「ルートの scripts」が無いので止めていた。今は「/」を区切りと読む前に、宛先の全部、次に左の「/」から順に前を会社・後ろを名前として、その名前の部署を引く（`nodes/deliver.slashed`。頼み 6b548f）。
+
 ## [0.168.3] - 2026-11-23
 
 ### Fixed
@@ -16,7 +24,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- 部署の作業場（worktree）が消えた後も、その部署の待ち受け（`wake_hook.py`。SessionStart の asyncRewake のフック）が、フックの timeout の 7 日まで待ち続けていた。待ち受けが動いている間は、Claude Code が裏の会話（`claude --bg`）を作業中と見る。そのため、手が空いて誰も開いていない裏の会話を 1 時間ほどで止める決まりが効かず、納品を終えた会話がメモリを持ったまま残っていた（2026-11-23 に、作業場を消された works-factory の部署の会話 3 本が、納品から 15〜18 時間残っていた）。今は、待ち受けが場所（worktree の git の置き場）が消えたのを見たら印を消して抜ける。これで、裏の会話が Claude Code の決まり（手が空いて誰も開いていない会話は 1 時間ほどで止める。https://code.claude.com/docs/en/agent-view ）で止められるようになる（頼み b90cb0）。
+- 部署の作業場（worktree）が消えた後も、その部署の待ち受け（`wake_hook.py`。SessionStart の asyncRewake のフック）が、フックの timeout の 7 日まで待ち続けていた。今は、待ち受けが場所（worktree の git の置き場）が消えたのを見たら印を消して抜ける。2026-11-23 に、作業場を消された works-factory の部署の裏の会話（`claude --bg`）3 本が、納品から 15〜18 時間残っていて、初めは待ち受けが動いているので Claude Code が会話を作業中と見て止めない（手が空いて誰も開いていない会話を 1 時間ほどで止める決まり。https://code.claude.com/docs/en/agent-view ）と見立てた。ただ、Claude Code が会話ごとに残す記録（`~/.claude*/jobs/<id>/state.json`）の `inFlight.queued` は待ち受けの有る無しと合っておらず（待ち受けが居ないのに 1 の会話と、居るのに 0 の会話があった）、この直しで裏の会話が止まるようになるかは確かめていない（頼み b90cb0。0.168.2 を出した後に、確かめた事実に合わせて書き直した。頼み 6b548f）。
 
 ## [0.168.1] - 2026-11-21
 

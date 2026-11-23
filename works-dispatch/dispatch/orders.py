@@ -1501,6 +1501,51 @@ def _sender(a, ports, cwd, sessions_):
     return sid, name, {"name": name, "account": a.from_account or found_account, "session": sid, "place": cwd}
 
 
+def _inbox_company(inbox, companies, ports):
+    """受付箱 inbox を持つ会社（companies の 1 つ）。無ければ None。"""
+    for c in companies:
+        common = ports.git.common_dir(c["root"])
+        if common and os.path.realpath(deliver.inbox_of(common)) == os.path.realpath(inbox):
+            return c
+    return None
+
+
+def note_gates(ports, settings, companies, here_root, dest, payload):
+    """足し（--note）のゲート: 打った場所の会社（here_root がルートの会社）と、足す先の会社（dest。順番待ちの在る会社か、頼みを
+    受けている部署の会社）の会社の形の頭の note_check を、その会社の origin の既定のブランチの中身で走らせる（--ask の ask_check と同じ
+    場所の作り方）。同じ会社は 1 度だけ。payload に from_company・to_company・side（from か to）・version を足して標準入力に渡す。
+    (止めた訳の並び, 注記の並び)。止めた訳が空なら通した。会社の足しの決まり（my_notes の「## 持ち主の言葉」「## 司令塔の見立て」の
+    見出しの印）を、その会社のフックが見えない所（ほかの会社の会話・フックの外・変数を挟んだコマンド）から打った足しにも効かせる
+    （頼み 6b548f）。"""
+    here = next((c for c in companies if here_root and os.path.realpath(c["root"]) == os.path.realpath(here_root)), None)
+    sides = [(dest, "to")] + ([(here, "from")] if here is not None and (dest is None or here["root"] != dest["root"]) else [])
+    bad, said_all = [], []
+    for company, side in sides:
+        if company is None:
+            continue
+        info = tree.read_info(company["root"], settings, ports.git)
+        shape = role.load(info["path"], info["text"])
+        if shape["note_check_bad"]:
+            bad.append(f"会社 {company['name']} の会社の形の note_check の形が違うので、検査を緩めないように足さない（{shape['note_check_bad']}）")
+            continue
+        check = shape["note_check"]
+        if not check:
+            continue
+        given = {**payload, "from_company": here["name"] if here else None, "to_company": dest["name"] if dest else None,
+                 "side": side, "version": own_version()}
+        try:
+            with tools.place(company["root"], ports.git) as (place, said):
+                code, out = deliver.gate(check, place, given, subprocess.run)
+        except (gitx.GitError, OSError) as e:
+            code, out, said = 1, str(e), None
+        if said:
+            said_all.append(said)
+        if code != 0:
+            bad += [f"会社 {company['name']} の足しのゲート（会社の形の note_check: {check}）が通さなかった（終了の値 {code}）"] \
+                + [f"  {x}" for x in out.splitlines()]
+    return bad, said_all
+
+
 def note(a, ports, cwd):
     """--note <受付>（--text か --brief）。受付の頼みに、変更・足し・取り下げを届ける。順番待ちに積まれていれば、その件に足しを
     添える（渡すときに頼みの 1 行と一緒に出る）。部署が今受けている（未納品の）頼みなら、宛先の会社の台帳に足しの知らせ
@@ -1526,7 +1571,14 @@ def note(a, ports, cwd):
     note_id = deliver.new_id(ports.now())
     item, more = _find_queued(a.note, a.config, ports, cwd, companies)
     notes += more
+    gate = {"note": note_id, "ask": a.note, "body": body, "from": name, "from_session": sid}
     if item is not None:
+        bad, said = note_gates(ports, settings, companies, gitx.root_of(common), _inbox_company(_queue_inbox(item), companies, ports),
+                               {**gate, "to": None, "role": None})
+        notes += said
+        if bad:
+            print("\n".join(notes + ["止めた: 足しのゲートが通さなかった"] + bad))
+            return 2
         if a.dry_run:
             print("\n".join(notes + [f"受付 {a.note} は順番待ち（{os.path.dirname(item['path'])}）に在る。渡すときの 1 行に足しを添える"]))
             return 0
@@ -1564,6 +1616,12 @@ def note(a, ports, cwd):
     where = f"{company['name']}/{dept['attrs'].get('name') or dept['branch']}"
     if dept["attrs"].get("delivered") == a.note:
         print("\n".join(notes + [f"止めた: {where} は受付 {a.note} をもう納品した（足すなら新しい頼みとして --ask で頼む）"]))
+        return 2
+    bad, said = note_gates(ports, settings, companies, gitx.root_of(common), company,
+                           {**gate, "to": dept["attrs"].get("name"), "role": dept["attrs"].get("role")})
+    notes += said
+    if bad:
+        print("\n".join(notes + ["止めた: 足しのゲートが通さなかった"] + bad))
         return 2
     dest_common = ports.git.common_dir(company["root"])
     dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
@@ -1768,6 +1826,12 @@ def say(a, ports, cwd):
     sid, name, by = _sender(a, ports, cwd, sessions_)
     say_id = deliver.new_id(ports.now())
     where = f"{company['name']}/{dept['attrs'].get('name') or dept.get('branch') or dept['path']}"
+    bad, said = note_gates(ports, settings, companies, gitx.root_of(common), company,
+                           {**gate, "to": dept["attrs"].get("name"), "role": dept["attrs"].get("role")})
+    notes += said
+    if bad:
+        print("\n".join(notes + ["止めた: 足しのゲートが通さなかった"] + bad))
+        return 2
     dest_common = ports.git.common_dir(company["root"])
     dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
     place_dir = ports.git.git_dir(dept["path"])

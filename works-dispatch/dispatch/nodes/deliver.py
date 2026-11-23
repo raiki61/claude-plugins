@@ -69,6 +69,26 @@ def parse_target(target):
     return (company or None) if sep else None, rest
 
 
+def _company_pool(companies, company_name):
+    """会社の名前（会社の形の name か、代表の clone のフォルダの名前）で当たる会社の並び。"""
+    return [c for c in companies if c["name"] == company_name or os.path.basename(os.path.normpath(c["root"])) == company_name]
+
+
+def slashed(companies, target):
+    """「/」を含む宛先を、名前に「/」を含む部署の名前として解いた (会社の名前か None, 部署の名前)。当たる部署が無ければ None
+    （parse_target の「会社/役」で読む）。引く順は、宛先の全部を部署の名前として、次に左の「/」から順に、前を会社・後ろを部署の名前として。
+    部署の名前は --task で人が付けるので「/」が入る（2026-11-23 に「ルートの scripts/ のリファクタリング（受け持ちの無いファイル）」を
+    --retire が会社「ルートの scripts」と読んで断り、畳めなかった。頼み 6b548f）。"""
+    text = target.strip()
+    tries = [(None, text)] + [(text[:i], text[i + 1:]) for i, ch in enumerate(text) if ch == "/"]
+    for company_name, name in tries if "/" in text else ():
+        pool = companies if company_name is None else _company_pool(companies, company_name)
+        if name and any(d["attrs"].get("name") == name or name in gitx.former_names(d["attrs"])
+                        for c in pool for d in c["departments"]):
+            return company_name, name
+    return None
+
+
 def one_company(pool, name):
     """同じ名前で当たった会社の並び pool から 1 つ。同じリポジトリの別の clone（作業用に clone しただけで部署を立てていない物）も、
     origin の会社の形を読むので同じ名前になる。部署（役の属性の在る worktree）を持つ clone を会社と見て、それでも 2 つ以上なら止める
@@ -108,13 +128,13 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の always の部署が名前違いで居ても
     使わない）。task が無く、役で宛てて always の部署が無ければ department は None（新しく立てる）。
     ask（--ask・--take の頼み直し）なら、per-ask の受け持ちの素の名前を今の名前か前の名前に持つ always でない部署（_stray）は名前で当てず、
-    受け持ちへの頼みとして解く（その部署を畳む --retire・--move は名前で当てる）。"""
-    company_name, name = parse_target(target)
+    受け持ちへの頼みとして解く（その部署を畳む --retire・--move は名前で当てる）。
+    名前に「/」を含む部署（例「ルートの scripts/ のリファクタリング」）は、「/」を会社の区切りと読む前に、部署の名前として引く（slashed）。"""
+    company_name, name = slashed(companies, target) or parse_target(target)
     if company_name is None:
         pool = companies
     else:
-        pool = [c for c in companies if c["name"] == company_name
-                or os.path.basename(os.path.normpath(c["root"])) == company_name]
+        pool = _company_pool(companies, company_name)
         if not pool:
             known = "、".join(c["name"] for c in companies) or "なし"
             # 宛先は端末に開いている会社の部署と窓口から引く。会社の作業場は、その会社で最初の部署を --task で立てると開く

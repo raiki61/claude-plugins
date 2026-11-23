@@ -61,7 +61,7 @@ class Shape(unittest.TestCase):
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None,
-                                                 "former": {}, "problems": []})
+                                                 "note_check": None, "note_check_bad": None, "former": {}, "problems": []})
         got = role.load(write(f"{self.d}/c.toml", '''gh_user = 3
 [[roles]]
 instructions = "名前が無い"
@@ -171,6 +171,15 @@ deliver_check = ""
         self.assertIsNone(bad["shared"])
         self.assertIn("shared_instructions が文字列で無い", bad["problems"][0])
 
+
+    def test_note_check_is_read_from_the_head_and_a_bad_one_is_kept_as_a_stop(self):
+        # 足しのゲート（頼み 6b548f）。形の違う値は、検査を緩めないように --note を止める印に残す（orders.note_gates）
+        shape = role.load(write(f"{self.d}/c.toml", 'note_check = " python3 tools/check_note.py "\n' + SHAPE))
+        self.assertEqual((shape["note_check"], shape["note_check_bad"], shape["problems"]), ("python3 tools/check_note.py", None, []))
+        bad = role.load(write(f"{self.d}/d.toml", 'note_check = ""\n' + SHAPE))
+        self.assertIsNone(bad["note_check"])
+        self.assertIn("note_check が空でない文字列で無い", bad["note_check_bad"])
+        self.assertIn(bad["note_check_bad"], bad["problems"])
 
 class Seat(unittest.TestCase):
     def test_context_is_read_and_shown_with_the_lifetime(self):

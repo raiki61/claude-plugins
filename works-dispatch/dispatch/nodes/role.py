@@ -59,6 +59,11 @@
 本社（--desk で名付けた窓口）の会話には足さない（窓口は部署の決まりで動かない）。
 会社の形の頭の default_role は、--task で --role を省いたときの役（[[roles]] のどれかの name）。省けば入口の既定（作業）。
 会社の形の頭の desk_role は、本社（代表の clone）で持ち主と話す会話の役（--desk で --role を省いたときの役。[[roles]] のどれかの name）。
+会社の形の頭の note_check は、足し（--note）のゲートのコマンド（シェルの字）。この会社の部署が受けている（か順番待ちに積まれた）頼みへの
+足しと、この会社の場所から打った足しに、その会社の origin の既定のブランチの中身（一時の worktree）で走らせ、JSON（note・ask・body・from・
+from_session・from_company・to_company・to・role・side〔from か to。どちらの会社として走らせたか〕・version）を標準入力に渡す。0 以外で
+終われば足さない。止める中身は会社の側のスクリプトが持つ（例 my_notes の足しの見出しの印。orders.note_gates）。形が違えば
+（空でない文字列でなければ）、検査を緩めないように、その会社に触れる足しを止める（note_check_bad）。
 
 入口の dispatch.py --task が起動するときに load・pick・settings_for・write_settings・gh_user・warnings を呼び、プラグインのフック
 role_hook.py が context と env_line を呼ぶ。
@@ -213,11 +218,12 @@ def _tools(r, where, problems):
 
 
 def _empty():
-    return {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None, "former": {}, "problems": []}
+    return {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None, "note_check": None,
+            "note_check_bad": None, "former": {}, "problems": []}
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, account, settings, deliver, deliver_check, lifetime, context, rent_or_buy, odd}, gh_user, shared, default_role, desk_role, former, problems}。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, account, settings, deliver, deliver_check, lifetime, context, rent_or_buy, odd}, gh_user, shared, default_role, desk_role, note_check, note_check_bad, former, problems}。
     path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
@@ -243,6 +249,12 @@ def load(path, text=None):
         out["problems"].append(f"{path}: shared_instructions が文字列で無い")
     elif shared and shared.strip():
         out["shared"] = shared.strip()
+    check = raw.get("note_check")
+    if check is not None and not (isinstance(check, str) and check.strip()):
+        out["note_check_bad"] = f"{path}: note_check が空でない文字列で無い"
+        out["problems"].append(out["note_check_bad"])
+    elif check:
+        out["note_check"] = check.strip()
     roles = raw.get("roles", [])
     if isinstance(roles, dict):
         out["problems"].append(f"{path}: 役を [roles.\"役\"] の形で書いている（{', '.join(roles)}）。この形は読まないので、"

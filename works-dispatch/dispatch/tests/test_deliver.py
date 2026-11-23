@@ -89,6 +89,18 @@ class Target(unittest.TestCase):
         self.assertIn("c/（ブランチ無し） /t/tree", str(e.exception))
         self.assertIn("宛て方では分けられない", str(e.exception))
 
+    def test_a_department_name_with_a_slash_is_found_before_the_company_split(self):
+        # 部署の名前に「/」が入ると、会社「ルートの scripts」と読んで --retire が断った（頼み 6b548f）
+        slash = dept_row(name="ルートの scripts/ のリファクタリング", path="/r/a-w3")
+        a = {**self.a, "departments": self.a["departments"] + [slash]}
+        for target in ("ルートの scripts/ のリファクタリング", "a/ルートの scripts/ のリファクタリング"):
+            got = deliver.find_target([a, self.b], "/r/b", target)
+            self.assertEqual((got["company"]["name"], got["department"]["path"]), ("a", "/r/a-w3"), target)
+        self.assertEqual(deliver.slashed([a, self.b], "a/出荷役"), None)   # 部署で当たらなければ「会社/役」で読む
+        self.assertEqual(deliver.find_target([a, self.b], "/r/b", "a/出荷役")["department"]["path"], "/r/a-w2")
+        with self.assertRaises(deliver.DeliverError):
+            deliver.find_target([a, self.b], "/r/b", "b/ルートの scripts/ のリファクタリング")   # ほかの会社の中には無い
+
 
     def test_a_company_name_alone_goes_to_its_desk(self):
         # 部署でない会話は、宛先の会社の窓口の役の名前を知らなくても、会社の名前で頼める

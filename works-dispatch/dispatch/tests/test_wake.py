@@ -3678,6 +3678,29 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--note", "a0")
         self.assertEqual(rc, 2, out)
 
+    def test_note_runs_the_note_check_of_the_company_and_stops_when_it_fails(self):
+        # 会社の足しの決まり（my_notes の見出しの印）を、その会社のフックが見えない所から打った足しにも効かせる。ゲートは会社の
+        # origin の既定のブランチの中身で走り、足しを JSON で受ける（頼み 6b548f）
+        script = pathlib.Path(self.src, "note_gate.py")
+        script.write_text("import json,sys\nd=json.load(sys.stdin)\n"
+                          "ok = d['body'].startswith('## 持ち主の言葉') and (d['side'], d['ask'], d['to']) == ('to', 'a0', '調べ') "
+                          "and d.get('version')\nprint('見出しの印が無い。')\nsys.exit(0 if ok else 1)\n", encoding="utf-8")
+        self.shape(f'note_check = {json.dumps(pathlib.Path(sys.executable).as_posix() + " note_gate.py")}\n'
+                   '[[roles]]\nname = "調べ役"\n')
+        self.g.push(self.src, self.g.commit(self.src, {"note_gate.py": script.read_text(encoding="utf-8")}, "gate"), "main")
+        self.g.fetch(self.src, "main")
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
+        rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る", "--dry-run")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("足しのゲート（会社の形の note_check", out)
+        self.assertIn("見出しの印が無い。", out)
+        rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
+        self.assertEqual(rc, 2, out)
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "note"], [])   # 止めた足しは置かない
+        rc, out = self.main(self.src, "--note", "a0", "--text", "## 持ち主の言葉\n「B も見て」")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "note"]), 1)
+
     def test_note_to_a_fallen_department_revives_it_and_leaves_the_line_to_its_listener(self):
         # 窓に会話が居ない部署への足し: 台帳に置いてから attach で戻す。戻した窓にも打たない（--say と同じ渡し方。受付 d70b23）
         provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
