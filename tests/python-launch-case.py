@@ -51,6 +51,7 @@ EXEMPT = {
     "works-dispatch/skills/dispatch/references/roles.md": {
         'deliver_check = "python3 scripts/check_deliver.py"': "会社の形の書き方の例（同上）",
         'ask_check = "python3 scripts/check_ask.py"': "会社の形の書き方の例（同上）",
+        'note_check = "python3 scripts/check_note.py"': "会社の形の書き方の例（同上）",
     },
     "works/skills/works/references/start.md": {
         "`python3 -m unittest -q`": "直す対象のリポジトリの試験のコマンド（test_cmd）の例",

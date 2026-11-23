@@ -3699,7 +3699,10 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "note"], [])   # 止めた足しは置かない
         rc, out = self.main(self.src, "--note", "a0", "--text", "## 持ち主の言葉\n「B も見て」")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "note"]), 1)
+        # 通した足しは 1 件。台帳には、部署への知らせ（to が字）と足しの記録（to が宛先の表）の 2 行が同じ足しの番号で入る
+        notes = [r for r in deliver.records(self.inbox) if r.get("kind") == "note"]
+        self.assertEqual(len({r["id"] for r in notes}), 1, notes)
+        self.assertEqual(sorted(type(r.get("to")).__name__ for r in notes), ["dict", "str"], notes)
 
     def test_note_to_a_fallen_department_revives_it_and_leaves_the_line_to_its_listener(self):
         # 窓に会話が居ない部署への足し: 台帳に置いてから attach で戻す。戻した窓にも打たない（--say と同じ渡し方。受付 d70b23）
