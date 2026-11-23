@@ -21,7 +21,10 @@
 
 片付け（--clean）は、元の clone の linked worktree のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
 
---pr N は自分の番の一覧（whose-turn）を使わず、指した PR だけを開く。止めている実装や、見に行くだけの PR に使う。
+--pr N は自分の番の一覧（whose-turn）を使わず、指した PR だけを開く。止めている実装や、見に行くだけの PR に使う。会話がその PR の
+場所で既に開いていても、手すきで手元の作業が無ければ、相手の新しい返事が無くても一覧の回の送り直しと同じに立て直して /catchup を打つ
+（頼み 2d6839）。作業中・手元の作業が有る・会話が 2 つ以上・部署の作業場なら触らない。
+どの回も、/catchup が届かなかった PR を、報告の終わりに 1 本 1 行で訳と一緒に出す（report.skipped）。
 --issue N は、issue に結んだブランチの場所を開き（ブランチが無ければ GitHub に作って issue に結ぶ）、1 ターン目の /catchup N まで送って止める。
 --no-second は 2 ターン目の文を送らず、/catchup だけで止める。
 
@@ -718,14 +721,22 @@ def _listing(a, cfg, repo, ports):
         sent, sent_ok = {}, False
         notes.append(f"{e}。前に送った時刻が無いものとして読み、控えは書き直さない（直すか消すと、次の回から使う）")
     refresh, verdicts = {}, {}
-    quiet = set()
+    quiet, in_dept = set(), set()
     keys = sessions.open_keys(sess)
-    for p in (my_prs if listing else []):
+    named = bool(a.pr)   # --pr で名指した PR は、会話が開いていても手すきで手元の作業が無ければ立て直して /catchup を打つ（頼み 2d6839）
+    for p in (my_prs if a.issue is None else []):
         path = places.get(p["head"])
         inside = _at(sess, path) if path else []
+        if named and path and ports.attrs(path).get("role"):
+            # 部署の作業場（一覧の回は前で外す）。会話が居ても居なくても、部署の場所で PR の会話を立てず、部署の会話も終えない
+            # （部署は --clean・--retire が畳む）
+            in_dept.add(p["number"])
+            continue
         if not inside:
             # 会話が開いていない PR: 前に送った後に動きが無ければ、開き直さない（返事待ちの PR を、持ち主が会話を閉じただけで
-            # もう一度レビューしない。持ち主 2026-10-15）。--pr で名指したときはここを通らない
+            # もう一度レビューしない。持ち主 2026-10-15）。--pr で名指したときは開く
+            if named:
+                continue
             sent_rec = sent.get(_key(repo, p["number"]))
             if sent_rec is None or (repo.repo, p["head"]) in keys:
                 continue
@@ -741,22 +752,27 @@ def _listing(a, cfg, repo, ports):
             if fresh.quiet_since_sent(_sent_record(sent_rec), act):
                 quiet.add(p["number"])
             continue
+        if len(inside) > 1:
+            verdicts[p["number"]] = "many_open"   # どの会話を終えてよいか決められないので、どれにも触らない
+            continue
         try:
-            act = acts.get(p["number"]) or ports.activity(repo, p["number"])
+            # 名指しの PR は相手の動きを見ずに決める（fresh.decide の named）ので読まない
+            act = {} if named else acts.get(p["number"]) or ports.activity(repo, p["number"])
         except ghx.GhError as e:
             notes.append(f"#{p['number']}: {e}（送り直さない）")
+            verdicts[p["number"]] = "unread_news"
             continue
         rec = _sent_record(sent.get(_key(repo, p["number"])))
         local = _local_work(ports, path, p["head"], rec)
-        v = "busy" if len(inside) > 1 else fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local,
-                                                        sent_head=rec["head"])
+        v = fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local, sent_head=rec["head"], named=named)
         if v == "refresh":
             refresh[p["number"]] = inside[0]
         else:
             verdicts[p["number"]] = v
     held += [_held_row(p, "no_news", places) for p in my_prs if p["number"] in quiet]
+    held += [_held_row(p, "department", places) for p in my_prs if p["number"] in in_dept]
     notes += _ask_departments(a, cfg, repo, ports, owed_depts, dept_places + past_places if listing else [], sent, sent_ok)
-    my_prs = [p for p in my_prs if p["number"] not in quiet]
+    my_prs = [p for p in my_prs if p["number"] not in quiet | in_dept]
     staying = [x for x in sess if not any(x is r for r in refresh.values())]
     metered = [x.name for x in cfg.accounts if x.limits]
     if not a.dry_run:

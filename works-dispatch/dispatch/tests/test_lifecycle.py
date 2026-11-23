@@ -27,7 +27,7 @@ import filex
 import wiring
 import ghx
 import herdr as real_herdr
-from nodes import clean, fresh, turn
+from nodes import clean, fresh, report, turn
 from . import scratch
 
 
@@ -51,6 +51,13 @@ class Decide(unittest.TestCase):
         self.assertEqual(fresh.decide(session(), moved, 200.0, True, False, sent_head="b" * 40), "no_news")
         self.assertEqual(fresh.decide(session(), moved, 200.0, True, False), "no_news")   # 古い控え（head 無し）
         self.assertEqual(fresh.decide(session("busy"), moved, 200.0, True, False, sent_head="a" * 40), "busy")
+
+    def test_a_named_pr_is_refreshed_without_news_but_never_over_work(self):
+        # --pr で名指した PR は、相手の新しい返事が無くても立て直す（頼み 2d6839）。作業中と手元の作業は名指しでも守る
+        self.assertEqual(fresh.decide(session(), {}, 200.0, True, False, named=True), "refresh")
+        self.assertEqual(fresh.decide(session("busy"), {}, 200.0, True, False, named=True), "busy")
+        self.assertEqual(fresh.decide(session(), {}, 200.0, False, False, named=True), "dirty")
+        self.assertEqual(fresh.decide(session(), {}, 200.0, True, True, named=True), "unpushed")
 
     def test_busy_or_local_work_is_never_refreshed(self):
         news = {"last_other": 999.0}
@@ -229,6 +236,67 @@ class Flow(unittest.TestCase):
         rc, out = run_main(self.cfg, ports, "--pr", "1")
         self.assertTrue(line(out, 1).endswith("sent"), out)
         self.assertEqual([x[2] for x in ports.term.writes if x[0] == "prompt"], [f"{CATCHUP} 1"])
+
+    def test_naming_a_pr_with_an_open_idle_conversation_reopens_it_without_news(self):
+        # 持ち主 2026-11-23「開いてっていったときに絶対にcatchupうつの修正させて」（頼み 2d6839）。前は already_open で黙って飛ばした
+        path = self.place(1)
+        self.sent({"o/r#1": {"at": 1000.0, "head": self.g.head_sha(path), "via": "listing"}})
+        ports = FakePorts([], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        old = self.talking_in(ports, path, started=900.0)
+        rc, out = run_main(self.cfg, ports, "--pr", "1")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("refreshed"), out)
+        w = ports.term.writes
+        self.assertEqual(w[0], ("prompt", old["pane_id"], "/exit", False))
+        self.assertIn(f"{CATCHUP} 1", [x[2] for x in w if x[0] == "prompt"])
+        self.assertNotIn(report.SKIPPED, out)
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
+        self.assertNotIn("via", sent["o/r#1"])   # 名指しで立て直した会話は、後の一覧の回で閉じない
+
+    def test_naming_a_pr_whose_conversation_has_work_keeps_it_and_says_why_at_the_end(self):
+        for status, dirty, want in (("busy", False, "busy"), ("idle", True, "dirty")):
+            with self.subTest(want):
+                self.setUp()
+                path = self.place(1)
+                if dirty:
+                    pathlib.Path(path, "draft.py").write_text("x = 1\n")
+                    self.g.dirty.add(path)
+                ports = FakePorts([], git=self.g)
+                ports.pr_info = lambda repo, n: pr(n)
+                self.talking_in(ports, path, status=status)
+                rc, out = run_main(self.cfg, ports, "--pr", "1")
+                self.assertTrue(line(out, 1).endswith(want), out)
+                self.assertEqual(ports.term.writes, [])
+                tail = out.splitlines()
+                self.assertEqual(tail[-2:], [report.SKIPPED, f"- #1: {report.WHY[want]}（{want}）"])
+
+    def test_naming_a_pr_in_a_departments_place_leaves_the_department_alone(self):
+        # 会話が居ても居なくても、部署の場所で PR の会話を立てない（居ない部署の場所に /catchup の会話を起動しない）
+        for talking in (True, False):
+            with self.subTest(talking=talking):
+                self.setUp()
+                path = self.place(1)
+                self.department(path)
+                ports = FakePorts([], git=self.g)
+                ports.pr_info = lambda repo, n: pr(n)
+                if talking:
+                    self.talking_in(ports, path)
+                rc, out = run_main(self.cfg, ports, "--pr", "1")
+                self.assertTrue(line(out, 1).endswith("department"), out)
+                self.assertEqual(ports.term.writes, [])
+                self.assertIn(f"- #1: {report.WHY['department']}（department）", out)
+
+    def test_two_conversations_in_the_place_are_many_open_and_named_at_the_end(self):
+        path = self.place(1)
+        ports = FakePorts([pr(1)], git=self.g)
+        self.talking_in(ports, path)
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 1).endswith("many_open"), out)
+        self.assertEqual(ports.term.writes, [])
+        self.assertIn(f"- #1: {report.WHY['many_open']}（many_open）", out)
 
     def test_news_in_an_idle_clean_session_reopens_it_in_the_same_place(self):
         path = self.place(1)

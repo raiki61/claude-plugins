@@ -8,6 +8,9 @@
   無ければ、相手の返事を待っている途中なので送り直さない（no_news）
 送り直すときは、入口が会話を終えてペインを畳み、同じ場所に新しい作業場と会話を立てて /catchup から送る（場所は checkout だけを
 使い直す。会話を /clear で使い回さないのは、作る道を 1 本にするため）。
+--pr で名指した PR（named）は、相手の新しい返事が無くても送り直す（no_news を飛ばす訳にしない）。開いてと頼まれた PR には必ず
+/catchup を打つため（持ち主 2026-11-23「開いてっていったときに絶対にcatchupうつの修正させて」。頼み 2d6839）。busy・dirty・unpushed は
+名指しでも守る（作業中の会話と手元の作業を捨てない）。
 
 quiet_since_sent は、会話の開いていない PR を開き直さずに置くか（前に送った後に動きが無ければ no_news）。入口は、--pr で名指した
 ときは使わない。
@@ -41,15 +44,18 @@ def _head_moved(sent_head, activity):
     return bool(sent_head and now and sent_head != now)
 
 
-def decide(session, activity, sent_at, clean, unpushed, sent_head=None):
+def decide(session, activity, sent_at, clean, unpushed, sent_head=None, named=False):
     """refresh・busy・dirty・unpushed・no_news のどれか。session は sessions ノードの 1 行、activity は {last_other, head_sha}。
-    sent_head は前に送った時の head。今の PR の head と違えば、時刻に依らず動きとする（quiet_since_sent と同じ見方）。"""
+    sent_head は前に送った時の head。今の PR の head と違えば、時刻に依らず動きとする（quiet_since_sent と同じ見方）。
+    named は --pr で名指した PR。手すきで手元の作業も無ければ、動きを見ずに refresh（activity は読まない）。"""
     if session.get("status") != "idle":
         return "busy"
     if not clean:
         return "dirty"
     if unpushed:
         return "unpushed"
+    if named:
+        return "refresh"
     if _head_moved(sent_head, activity):
         return "refresh"
     last = activity.get("last_other")
