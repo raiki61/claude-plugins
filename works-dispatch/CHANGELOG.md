@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- `docs/land.md` の claude-plugins の `[land]` の例を今の形に直した。今までは「部署は変えたプラグインの試験だけを手元で回し、ゲートは `release/*` の CI」と書いてあったが、今は ADR 0077 で、試験は手元でも `--land` のゲートでも回さず、ゲート（`gate = "check"`）は軽い検査と初見の読み手だけを回す。束の項の「ゲートの `check` が束ごと全部の試験を 1 回回す」も、`check` が試験を回さない会社がある形に直した。
+- `docs/land.md`（`--land`〔部署のブランチを main に入れるコマンド〕と、その設定 `[land]` の説明）にある claude-plugins の設定の例を、今の設定に合わせた。前の例は「部署は変えたプラグインの試験だけを手元で回し、ゲート（main に入れる前に通す検証）は `release/*` のブランチの CI」だった。今の claude-plugins は、試験を手元でも `--land` のゲートでも回さず、main に入った後の CI だけで回す（claude-plugins の決め `docs/adr/0077-tests-run-only-in-ci.md`）。ゲートは `gate = "check"` で、軽い検査（`scripts/light-check.sh`。試験は走らせない）と、変えた文書を AI に初見で読ませる検査だけを回す。同じ文書の束（何本かの部署のブランチを重ねて 1 回のゲートで入れる組）の説明にあった「ゲートが束ごと全部の試験を回す」も、ゲートが試験を回さない設定がある形に直した。利用者が自分の設定を直す必要は無い。
 
 ## [0.168.2] - 2026-11-23
 
