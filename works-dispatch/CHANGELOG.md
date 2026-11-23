@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.168.2] - 2026-11-23
+
 ### Fixed
 
 - 部署の作業場（worktree）が消えた後も、その部署の待ち受け（`wake_hook.py`。SessionStart の asyncRewake のフック）が、フックの timeout の 7 日まで待ち続けていた。待ち受けが動いている間は、Claude Code が裏の会話（`claude --bg`）を作業中と見る。そのため、手が空いて誰も開いていない裏の会話を 1 時間ほどで止める決まりが効かず、納品を終えた会話がメモリを持ったまま残っていた（2026-11-23 に、作業場を消された works-factory の部署の会話 3 本が、納品から 15〜18 時間残っていた）。今は、待ち受けが場所（worktree の git の置き場）が消えたのを見たら印を消して抜ける。これで、裏の会話が Claude Code の決まり（手が空いて誰も開いていない会話は 1 時間ほどで止める。https://code.claude.com/docs/en/agent-view ）で止められるようになる（頼み b90cb0）。
