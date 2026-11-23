@@ -5,7 +5,7 @@
 # 回すのは 2 か所: main へ入れるコマンド（works-dispatch の --land）のゲート（.claude/company.toml の [land] の check の頭）と、
 # main への push の前のフック（.githooks/pre-push）。--land を通さない急ぎの直接の push でも、フックがこれを回し、落ちれば push を止める
 # （2026-10-20、受付 2ee37b。ゲートを通らずに直接 push された commit d3be9e43 が語の検査に落ち、main が赤になってほかの --land が全部落ちた）。
-# 重い検査（tests/land-check.py）はここに入れない（持ち主 2026-10-20「いそぎはlandしなくていいからって。」）。
+# 試験を走らせる物はここに入れない。試験は main に入った後の CI だけが回す（持ち主 2026-11-23「重いのでテストはCIで回すようにしてね」。docs/adr/0077-tests-run-only-in-ci.md）。
 # 緑で、作業ツリーに変更が無ければ、その tree の印を共通の git の場所（light-check-ok/<tree>）に残す。フックは同じ tree の印を見たら
 # 回し直さない（--land はゲートで回した後に同じ commit を push するので、二度回さない）。
 # 止めない道: --no-verify の push と GitHub の画面での変更。サーバの側（GitHub の ruleset の必須の status check）で止めると、

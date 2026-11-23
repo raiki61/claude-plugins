@@ -217,7 +217,8 @@ When done, run works-dispatch's command that puts the branch into main yourself 
 If main has moved ahead and it stops, rebase onto origin/main yourself, push, and run it again. \
 Once it is in, send it back with the deliver command. \
 If auto mode's permission check blocks --land, do not retry; ask the front desk with --ask claude-plugins to run --land <department name> for you, write that ask's id as the holder of an open question in the delivery, and send it back (writing it only in the open questions does not reach the front desk). \
-Do not bump versions, do not wait for CI, and run only the tests of the plugins you touched. \
+Do not bump versions and do not wait for CI. \
+Do not run tests locally (no tests/run.sh, works/tests/run.sh, pytest, unittest, simulate scripts, or mutation testing); CI runs them after the branch lands in main. Run only the light check that runs no tests (bash scripts/light-check.sh). \
 Do not commit after delivering (fix cold-read findings before landing). \
 If something needing the front desk's or the owner's judgment comes up after delivering (what to do with leftover local changes, candidates for the next ask, etc.), do not write it on the screen and stop; send it back again with the deliver command (--deliver plus --again) (a question written only on the screen does not reach the front desk). \
 If you need to change a file outside your duty, ask that duty's 「担当」 by its department name (--ask <duty>). \
@@ -300,7 +301,7 @@ Fix the plugin you are asked to fix. \
 When you receive a fix to the organization or tools themselves (the company shape, role texts, the rules in the root CLAUDE.md, plugins), do not split parts off to other departments; fix and land it in this conversation (the command that puts it into main bumps versions). \
 Before landing, show your changes to a fresh reviewer launched without your conversation context (convergence-loops' inspector or a cold reader) and fix what it points out. \
 Measure the effects you can measure on the spot and write them in the delivery; leave effects measurable only later as open questions, route a request to measure them to 「業務改革」 with --ask, and write that ask's id as the holder. \
-Run only the tests of the plugins you touched, and do not wait for CI. \
+Do not run tests locally (no tests/run.sh, works/tests/run.sh, pytest, unittest, simulate scripts, or mutation testing); CI runs them after the branch lands in main. Run only the light check that runs no tests (bash scripts/light-check.sh), and do not wait for CI. \
 Do not bump versions (the command that puts it into main bumps them). \
 When done, run works-dispatch's command that puts the branch into main yourself (--land <your department's name>). \
 If main has moved ahead and it stops, rebase onto origin/main yourself, push, and run it again. \
@@ -392,13 +393,13 @@ command = "python3 scripts/works-factory-pin.py"
 fallback_role = "作業"
 
 # 部署の成果を main に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
-# 部署は触ったプラグインの試験を手元で回し、ここでは下の check の順に機械で確かめる。版は取り込むときに上げる
+# 試験は手元でもここでも回さず、main に入った後の CI に任せる（持ち主 2026-11-23「重いのでテストはCIで回すようにしてね」。docs/adr/0077-tests-run-only-in-ci.md）。
+# ここでは試験を走らせない照合だけを、下の check の順に機械で確かめる。版は取り込むときに上げる
 # ブランチが消した試験の一覧も出す（tests/removed-tests.py。止めない。試験の件数の定数を突き合わせる形は 2026-11-18 にやめた。docs/reform/ledger.md）
 # 文の IT の定着語でない言い方が、ファイルごとの基準の件数より増えていないかも確かめる（scripts/terms.py。辞書は works-dispatch/dispatch/terms.py）
 # 機械が読む値の受け渡しの決まり 3・4 に当たる所の件数が、ファイルごとの基準と違わないかも確かめる（tests/value-rules.py。標準 docs/standards/machine-readable-values.md。数えるだけで数秒）
-# ルートの試験（tests/run.sh）のうち、この変更が入力に当たる検査だけを、graphloops の模擬実行を見送って回し、赤の名前を一覧 tests/land-known-red.txt と照合する
-# （tests/land-check.py。works-dispatch だけを変えた回で、混んだ機械で 8 分ほど。tests/run.sh を変えた回は全部を回すので 25 分ほど）。
-# 一覧に無い赤と、一覧に在るのに緑の検査で止める。main に入った後の CI でしか回っていなかったため、入るたびに赤が積み上がった（2026-10-19、頼み b9ab0d）
+# 2026-10-20 から 2026-11-23 までは、軽い検査の次に、変更が入力に当たる試験だけを回す tests/land-check.py を置いていた（docs/adr/0076-land-runs-affected-tests.md）。
+# 部署の手元の試験と合わせて機械が重くなったので外し、試験は全部 main に入った後の CI が回す。赤は点検が原因の commit を git revert で戻す（docs/adr/0073-land-bumps-and-no-tags.md）
 # 最後に、ブランチが書いた文書を初見の読み手に読ませ、詰まりが在れば止める（gates の branch-check。推測で埋めた箇所だけなら通す。読み 1 回に 2〜4 分。
 # 同じ中身の判定は覚えるので、リベースの打ち直しでは読み直さない）。安いゲートを先に、遅い初見読みを最後に並べる
 # 初見読みには --fixer で語の一覧の置き換え（works-dispatch/dispatch/terms.py の fix_text）を渡し、IT の定着語に語を置き換えただけの行は
@@ -407,11 +408,10 @@ fallback_role = "作業"
 [land]
 mode = "ff-after-ci"
 gate = "check"
-# 順は、軽い検査（scripts/light-check.sh。数十秒）→ この変更が入力に当たるテストだけ（tests/land-check.py）→ 初見の読み手（gates の branch-check。AI を起動するので最後）。
-# 全部のテストは main に入った後の CI が回す。どのテストをどこで回すかは docs/adr/0076-land-runs-affected-tests.md
+# 順は、軽い検査（scripts/light-check.sh。数十秒。試験は走らせない）→ 初見の読み手（gates の branch-check。AI を起動するので最後）。
+# 試験は全部 main に入った後の CI が回す。どこで何を回すかは docs/adr/0077-tests-run-only-in-ci.md
 # 軽い検査は、main への push の前のフック（.githooks/pre-push）も回す。急ぎで --land を通さない push でも飛ばせない（受付 2ee37b）
-# （2026-10-20 の 19:45 から、この組み直しが入るまでは、検査 1 回が混んだ機械で 45 分かかったため tests/land-check.py を外していた。持ち主「一旦テストは全部飛ばしてclaudepluginsはいれましょう。」）
-check = "bash scripts/light-check.sh && python3 tests/land-check.py && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
+check = "bash scripts/light-check.sh && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
 bump = "marketplace"
 # 同じ clone で同時に打った --land を、申し出た順に 1 本ずつ通す列（works-dispatch の docs/land.md の queue。2026-10-20 に --land 7 本が取り合った）
 queue = "land-queue"

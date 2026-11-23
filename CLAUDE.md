@@ -29,11 +29,11 @@
 
 ## 試験
 
-- リポジトリ全体: bash tests/run.sh（sh では動かない）。works: sh works/tests/run.sh。段は環境変数 WORKS_TESTS で選ぶ（空＝全段、fast、heavy）。
-- 手元は速い段とルートのチェックまで。重い段は出荷の CI に任せる（持ち主 2026-10-06「手元の重いのはやめます」）。手元で重い試験を回すのは、触ったモジュールを 1 つずつ（WORKS_TESTS=heavy sh works/tests/run.sh -k <モジュール>）だけ。
-- 並べすぎない: pytest の worker は PYTEST_XDIST_AUTO_NUM_WORKERS=4 で抑え、手元の試験は nice -n 19 で回す。
-- 変異テスト（tests/mutate.py の本撃ち・mutmut）は撃たない（selfcheck.py は可）。
-- サブエージェントに重い試験を回させない。
+- 試験は手元で回さず、main に入った後の CI に任せる（持ち主 2026-11-23「重いのでテストはCIで回すようにしてね」。部署が直しのたびに graphloops の pytest や模擬実行の台本を手元で回し、機械が重くなった）。部署の作業場でも、`--land` のゲート（`.claude/company.toml` の `[land]` の `check`）でも、`bash tests/run.sh`・`sh works/tests/run.sh`・pytest・unittest・模擬実行の台本（simulate.py など）は打たない。CI の赤は点検が原因の commit を git revert で戻す（docs/adr/0073-land-bumps-and-no-tags.md）。どこで何を回すかは docs/adr/0077-tests-run-only-in-ci.md。
+- 手元で回してよいのは、試験を走らせない数十秒の照合だけ: 軽い検査 `bash scripts/light-check.sh`（中で回す `python3 scripts/shared-copies.py`・`python3 tests/removed-tests.py`・`python3 scripts/terms.py`・`python3 tests/value-rules.py`・`bash scripts/shellcheck.sh`）と、語の直し `python3 works-dispatch/dispatch/terms.py --fix <ファイル>`。
+- works の試験の決まり（works/CLAUDE.md の「出荷」の 1）は持ち主が別に回していて、手元で速い段とルートのチェックを回す形のまま残っている（この決めと揃えるかは持ち主が決める。works と works-factory はどの部署も触らない）。
+- 変異テスト（tests/mutate.py・mutmut・works/dev/selfcheck.py。どれも試験を走らせる）も撃たない。
+- サブエージェントに試験を回させない。
 - 試験の件数の定数は持たない（持ち主 2026-11-18。試験を足しても消しても数は直さない）。試験を消した・説明を書き換えたブランチは、納品の前に `python3 tests/removed-tests.py` を打ち、出た一覧を要約の決め手に書いて照合役にも見せる（止めない。消したのが意図どおりかを人と照合役が見る）。docs/reform/ledger.md の頼み 475769。
 
 ## 手元の操作
