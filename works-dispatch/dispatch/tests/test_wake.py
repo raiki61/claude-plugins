@@ -145,6 +145,12 @@ class Watch(unittest.TestCase):
         self.assertEqual((rc, err), (0, ""))
         self.assertIsNone(wake.read_mark(self.inbox, self.place))
 
+    def test_ends_and_clears_the_mark_when_the_place_is_gone(self):
+        # 場所（worktree の git の置き場）を消された部署の待ち受けは、7 日の timeout まで待たずに抜ける（頼み b90cb0）
+        rc, err = self.run_watch([lambda: None, lambda: shutil.rmtree(self.place)])
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIsNone(wake.read_mark(self.inbox, self.place))
+
     def test_listening_needs_the_name_and_a_living_conversation(self):
         with posix_kill():
             self.check_listening()

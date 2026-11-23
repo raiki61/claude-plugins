@@ -747,8 +747,10 @@ def _names_at(names, since, pos):
 
 def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=time.sleep, parent=os.getppid, check=None,
           ready=None, since=None, idle=None):
-    """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・check が終わらせた）。
+    """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・場所が消えた・check が終わらせた）。
     owner は待ち受けを起動した会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
+    場所（place。部署の worktree の git の置き場）が消えたら、印を消して終わる。印は受付箱（inbox）に在るので場所が消えても残り、
+    抜けないとフックの期限（hooks.json の 7 日）まで待ち続け、その間は裏の会話が止まらない（頼み b90cb0）。
     check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに（同じ回にほかの知らせが在れば、そちらを先に会話へ
     渡して呼ばない）呼ぶ関数で、("wake", 字)（その字で会話を再開させる）・
     ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。
@@ -769,6 +771,9 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
         got = read_mark(inbox, place)
         if not got or got.get("token") != token:
             return 0   # 新しい待ち受けに替わった
+        if not os.path.isdir(place):
+            release(inbox, place, token)
+            return 0   # 部署の場所が消えた（畳まれた）。渡す先が無い
         if parent() != owner:
             release(inbox, place, token)
             return 0
