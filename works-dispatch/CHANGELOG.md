@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- `docs/land.md` の claude-plugins の `[land]` の例を今の形に直した。今までは「部署は変えたプラグインの試験だけを手元で回し、ゲートは `release/*` の CI」と書いてあったが、今は ADR 0077 で、試験は手元でも `--land` のゲートでも回さず、ゲート（`gate = "check"`）は軽い検査と初見の読み手だけを回す。束の項の「ゲートの `check` が束ごと全部の試験を回す」も、`check` が試験を回さない会社がある形に直した。
+
 ## [0.168.2] - 2026-11-23
 
 ### Fixed
