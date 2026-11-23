@@ -29,7 +29,8 @@ TOML を読む tomllib（3.11 から）が無いため。タブバーから呼�
 タブバーの行は、版ごとのフォルダのこのファイルでなく、herdr-config が limits_dir に写した入口（limits_entry.py。起動のたびに
 今入っている版のこのファイルを探して起動する）を指す。プラグインを上げても行を書き直さなくてよい。
 
-こちらからは打ち切らない。herdr のタブバーから呼ぶときは、herdr の設定の秒（雛形 templates/herdr-tab-bar.toml）が打ち切る。
+こちらから打ち切るのは、使用率を確かめる 1 回の問い合わせだけ（FETCH_WAIT 秒。期限を足さない決まり D5 の狭い例外）。
+コマンド全体は、herdr のタブバーから呼ぶときは、herdr の設定の秒（雛形 templates/herdr-tab-bar.toml）が打ち切る。
 """
 
 import argparse

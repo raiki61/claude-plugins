@@ -57,7 +57,7 @@ WEEK_HOURS = 7 * 24   # 週の枠の長さ。切り替わりの時刻が分か�
 MIN_HOURS = 1   # 週の切り替わりまでの時間の下限。切り替わりの直前で点数が際限なく大きくならないため
 RUNNING_STATES = ("working", "blocked")  # 背景の会話の state のうち、動いているもの
 NAMED_ONLY = "名指しのときだけ使うアカウント（設定の named_only = true）"   # 自動で選ばない訳
-# --pick の取り直しの全体の時間の上限（秒）。多くて PICK_PROBE_BUDGET + limits.FETCH_WAIT（40 秒ほど）で答えを返し、
+# --pick の取り直しの全体の時間の上限（秒）。多くて PICK_PROBE_BUDGET + limits.FETCH_WAIT と鍵の探しの分（50 秒ほど）で答えを返し、
 # 呼び手の時間切れ（my_notes の research.py は 120 秒）より先に返す
 PICK_PROBE_BUDGET = 30
 UNCHECKED = ("failed", "over_budget")   # 取り直しの結果（limits.probe_all）のうち、使用率を確かめられなかった物
