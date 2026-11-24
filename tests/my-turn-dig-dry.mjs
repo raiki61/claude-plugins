@@ -1099,6 +1099,28 @@ async function caseQuotes() {
     const q = out.counts.quotes
     check(q[field].length === q.items && q.items > 0 && !q.dropped.length && out.nodes.some(n => n.status === 'leaf'), `quotes(${name}): 確かめていない写しの数え方が違う ${JSON.stringify(q)}`)
   }
+  // 3b. 照合の役がコマンドを打てなかった（字を足した写しが許しの規則に拒まれた。check-world の取り直しで PR 2560 の回し直し）なら、
+  // 訳を添えて 1 回だけ頼み直す。2 回とも打てなければ、確かめていない件数と訳（uncheckedWhy）に出す
+  {
+    const DENIED = { ran: false, checked: 0, missing: [], garbled: [], error: 'Permission to use Bash was denied' }
+    let d = 0
+    const { out, calls } = await run(baseArgs(), responder({ Quotes: call => (++d === 1 ? DENIED : quotesOk(call)) }))
+    const qs = of(calls, 'Quotes')
+    check(qs.length === 2 && qs[1].label === 'Quotes 1 again' && qs[1].prompt.includes('## Why you are asked again') && qs[1].prompt.includes('Permission to use Bash was denied')
+      && !qs[0].prompt.includes('## Why you are asked again') && qs[0].prompt.includes('no redirection such as 2>&1') && quoteLine(qs[0].prompt) === quoteLine(qs[1].prompt),
+      `quotes(again): 打てなかった照合を、訳を添えて同じコマンドで 1 回だけ頼み直さない ${qs.length} 回`)
+    check(out.counts.quotes.checked === out.counts.quotes.items && !out.counts.quotes.unchecked.length && !out.counts.quotes.uncheckedWhy.length,
+      `quotes(again): 頼み直した照合の結果が使われない ${JSON.stringify(out.counts.quotes)}`)
+    const twice = await run(baseArgs(), responder({ Quotes: () => DENIED }))
+    const q2 = twice.out.counts.quotes
+    check(of(twice.calls, 'Quotes').length === 2 && q2.unchecked.length === q2.items && q2.items > 0
+      && q2.uncheckedWhy.length === 1 && /^Quotes 1: \d+ quotes not checked, not run \(Permission to use Bash was denied\)$/.test(q2.uncheckedWhy[0]),
+      `quotes(again): 2 回とも打てなかった照合が、確かめていない件数と訳に出ない ${JSON.stringify(q2)}`)
+    // 打てたが数が合わない束は頼み直さない（写しで行が落ちた。訳は数の違い）
+    const short = await run(baseArgs(), responder({ Quotes: call => ({ ...quotesOk(call), checked: 0 }) }))
+    check(of(short.calls, 'Quotes').length === 1 && /checked 0 of \d+$/.test(short.out.counts.quotes.uncheckedWhy[0] ?? ''),
+      `quotes(again): 数の合わない束を頼み直したか、訳が出ない ${JSON.stringify(short.out.counts.quotes)}`)
+  }
   // 4. prep.quoteCheck が無い: 段を飛ばし、全部を確かめていない件数に出す
   {
     const a = baseArgs(); delete a.prep.quoteCheck

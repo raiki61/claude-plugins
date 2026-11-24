@@ -733,7 +733,7 @@ const repairs = { childrenWithoutHow: [], clusterMissing: [], clusterDuplicate: 
   redigSplit: [], lines: { unknown: [], duplicate: [], missing: [], badFold: [], dropNoRule: [], detailToDesign: [], draftToReport: [], allReport: false } }
 // the quote check (section 3): items sent, items checked, dropped evidence, items not checked (the stage did not run,
 // or its count differs from what was sent), lines copied wrong, and the leaves and smell answers left without evidence
-const quotes = { items: 0, agents: 0, checked: 0, dropped: [], unchecked: [], garbled: [], toUnverified: [], noQuote: [] }
+const quotes = { items: 0, agents: 0, checked: 0, dropped: [], unchecked: [], uncheckedWhy: [], garbled: [], toUnverified: [], noQuote: [] }
 
 // ---- prompt inputs that do not change during the run ----
 const changedClaudeMd = (P.changed ?? []).filter(p => /(^|\/)CLAUDE\.md$/.test(p))
@@ -1428,27 +1428,48 @@ const quoteCommand = batch => [
   b64(asciiJson({ workdir: A.workdir, base: P.base, head: P.head, recordDir: P.recordDir ?? '' })),
   ...batch.map(q => `${q.id}:${b64(asciiJson([q.id, q.path, q.line, q.quote, q.sum]))}`),
 ].join(' ')
-// the Quotes agent only runs the command and relays its output
-const quotesText = command => `Run the command below once, exactly as written, and do nothing else. Do not change a character: each word carries a checksum, and a word copied wrong is counted, not checked.
+// the Quotes agent only runs the command and relays its output. "Add nothing": the same haiku copy in dig-world's
+// re-fetch added the 6 characters " 2>&1 at the end, the headless run's rule refused it, and its excerpts went
+// unchecked (a rerun on PR 2560)
+const quotesText = (command, again = '') => `Run the command below once, exactly as written, and do nothing else. It is one line: keep it on one line and do not change a character of it. Add nothing before or after it: no quote, no redirection such as 2>&1, no cd. Each word carries a checksum, and a word copied wrong is counted, not checked.
 
 \`\`\`bash
 ${command}
 \`\`\`
 
-The command prints one JSON object. Return its checked, missing (each {id, why}) and garbled as they are, with ran true and error "". If the command fails or prints no JSON, return ran false, checked 0, missing and garbled empty, and the error text in error.`
+The command prints one JSON object. Return its checked, missing (each {id, why}) and garbled as they are, with ran true and error "". If the command fails or prints no JSON, return ran false, checked 0, missing and garbled empty, and the error text in error.${again ? `
+
+## Why you are asked again
+
+The last try did not run the command (${again}). The command is allowed only as the exact line above, with nothing added or changed. Copy it again, character for character.` : ''}`
 if (!qItems.length) ledger.skipped('Quotes', 'Quotes', 'no quoted evidence')
-else if (!QC?.runPython || !QC?.prep) { ledger.skipped('Quotes', 'Quotes', 'prep.quoteCheck missing'); quotes.unchecked.push(...qItems.map(q => q.id)) }
+else if (!QC?.runPython || !QC?.prep) {
+  ledger.skipped('Quotes', 'Quotes', 'prep.quoteCheck missing'); quotes.unchecked.push(...qItems.map(q => q.id))
+  quotes.uncheckedWhy.push(`${qItems.length} quotes not checked, prep.quoteCheck missing`)
+}
 else {
   const size = Math.max(1, LIMITS.quoteBatch)
   const batches = []
   for (let i = 0; i < qItems.length; i += size) batches.push(qItems.slice(i, i + size))
   quotes.agents = batches.length
-  const results = await parallel(batches.map((b, i) => () => ask('Quotes', `Quotes ${i + 1}`, quotesText(quoteCommand(b)),
-    { schema: QUOTES, phase: 'Quotes', ...M('Quotes') })))
+  const results = await parallel(batches.map((b, i) => async () => {
+    const command = quoteCommand(b), opts = { schema: QUOTES, phase: 'Quotes', ...M('Quotes') }
+    const r = await ask('Quotes', `Quotes ${i + 1}`, quotesText(command), opts)
+    if (r?.ran === true) return r
+    // the agent did not run it (a copy with characters added is refused): once more, with the reason
+    const why = line1(r?.error).slice(0, 300) || 'nothing came back'
+    return (await ask('Quotes', `Quotes ${i + 1} again`, quotesText(command, why), opts)) ?? { ran: false, error: why }
+  }))
   batches.forEach((b, i) => {
     const r = results[i], ids = new Set(b.map(q => q.id))
-    // a batch the agent did not run, or whose count differs from what was sent (a line lost in the copy), is not trusted
-    if (!r || r.ran !== true || r.checked !== b.length) { quotes.unchecked.push(...ids); return }
+    // a batch the agent did not run, or whose count differs from what was sent (a line lost in the copy), is not trusted;
+    // the reason goes to the report (my-turn-deep step 15), not only the count
+    if (!r || r.ran !== true || r.checked !== b.length) {
+      quotes.unchecked.push(...ids)
+      const why = r?.ran === true ? `checked ${r.checked} of ${b.length}` : `not run (${line1(r?.error).slice(0, 300) || 'nothing came back'})`
+      quotes.uncheckedWhy.push(`Quotes ${i + 1}: ${b.length} quotes not checked, ${why}`)
+      return
+    }
     quotes.checked += b.length
     const garbled = new Set((r.garbled ?? []).filter(id => ids.has(id)))
     quotes.garbled.push(...garbled)
