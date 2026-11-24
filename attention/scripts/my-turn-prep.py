@@ -53,11 +53,11 @@ class Stop(Exception):
         self.message = message
 
 
-def run(args, cwd=None, timeout=120, stdin=None, text=True):
+def run(args, cwd=None, timeout=120, stdin=None, text=True, env=None):
     """外部コマンドを 1 回走らせる。(終了の値, 標準出力)。起動できない・時間切れは (-1, "")。text=False はバイトのまま。"""
     enc = {"encoding": "utf-8", "errors": "replace"} if text else {}
     try:
-        r = subprocess.run(args, cwd=cwd, input=stdin, capture_output=True, timeout=timeout, **enc)
+        r = subprocess.run(args, cwd=cwd, input=stdin, capture_output=True, timeout=timeout, env=env, **enc)
     except (OSError, subprocess.TimeoutExpired):
         return -1, ("" if text else b"")
     return r.returncode, r.stdout
@@ -512,6 +512,71 @@ def sync(pr):
     return {"ok": True, "synced": True, "branch": cur, "from": old, "head": new, "commits": int(count)}
 
 
+def own_base(base_ref, merge_base):
+    """(範囲の始まり, 訳)。取り込み先のブランチが書き換わった（rebase の後に force push された）PR では、merge-base が
+    取り込み先の今の先頭でなく、もっと前（多くは main）に落ち、取り込み先の前の版の commit まで PR の差分に載る
+    （guided-resolver の #2653。取り込み先 issue-1732 が書き換わり、merge でない 22 commit のうち 10 が #2531 の前の版だった）。
+    取り込み先に同じ変更（patch-id）の無い commit（PR 自身の commit）が、先頭から first-parent で続く所（間の merge の
+    commit は PR のブランチが取り込んだ物として通す）だけに在るなら、その下の commit（取り込み先の前の版の先頭）を始まりに
+    する。間に merge の commit が在れば、取り込んだ側をその前の版の先頭に同じ順で merge した commit を作り（ref は作らない）、
+    それを始まりにする。そうでない（PR 自身の commit が混ざっている・作った merge がぶつかる）なら merge-base のままにし、
+    訳に書く。訳は、範囲を変えたときと、変えられなかったときだけ。
+    取り込み先が remote の既定のブランチ（`<remote>/HEAD` の指す先。ふつうは main）なら照合しない。既定のブランチは
+    ふつう書き換えないうえ、--cherry-pick は merge-base の後に取り込み先に入った commit の全部の patch-id を数えるので、
+    main が大きく進んだ PR で毎回遅くなる。"""
+    rc, head_ref = git("symbolic-ref", "-q", "refs/remotes/%s/HEAD" % base_ref.split("/", 1)[0])
+    if rc == 0 and head_ref.strip() == "refs/remotes/" + base_ref:
+        return merge_base, ""
+    rc, out = git("rev-list", "--right-only", "--cherry-pick", "--no-merges", "%s...HEAD" % base_ref)
+    if rc != 0:
+        return merge_base, ""
+    own = set(out.split())
+    rest = [c for c in must_git("rev-list", "--no-merges", "%s..HEAD" % merge_base).split() if c]
+    if not own or len(own) == len(rest):
+        return merge_base, ""
+    keep = ("%s との merge-base の後の、merge でない %d commit のうち %d は同じ変更が %s に在る（取り込み先が書き換わった）が、"
+            "PR 自身の commit と分けられないので、範囲は merge-base から取った。PR を %s に rebase すると分かれる"
+            % (base_ref, len(rest), len(rest) - len(own), base_ref, base_ref))
+    merged, seen, old_tip = [], 0, None
+    for line in must_git("rev-list", "--first-parent", "--parents", "%s..HEAD" % merge_base).splitlines():
+        c, *parents = line.split()
+        if len(parents) > 1:
+            merged.extend(reversed(parents[1:]))  # 3 つ以上の親（octopus）も、取り込んだ側を全部足す
+        elif c in own:
+            seen += 1
+        else:
+            old_tip = c
+            break
+    if old_tip is None or seen != len(own):
+        return merge_base, keep
+    base = old_tip
+    if merged:
+        env = dict(os.environ, GIT_AUTHOR_NAME="attention", GIT_AUTHOR_EMAIL="attention@invalid",
+                   GIT_COMMITTER_NAME="attention", GIT_COMMITTER_EMAIL="attention@invalid")
+        # 同じ PR の先頭からは同じ commit になるよう、日時は PR の先頭の物にする
+        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = must_git("log", "-1", "--format=%cI", "HEAD").strip()
+        unmerged = ("%s との merge-base の後の、merge でない %d commit のうち %d は同じ変更が %s に在る（取り込み先が書き換わった）が、"
+                    "%s の前の版の先頭 %s に PR のブランチが取り込んだ物を merge できなかった（ぶつかった・git が 2.38 より古い）"
+                    "ので、範囲は merge-base から取った" % (base_ref, len(rest), len(rest) - len(own), base_ref, base_ref, old_tip[:7]))
+        for side in reversed(merged):  # 古い merge から
+            rc, tree = git("merge-tree", "--write-tree", base, side)  # --write-tree は git 2.38 から
+            if rc != 0 or not tree.strip():
+                return merge_base, unmerged
+            # 利用者の commit.gpgsign で署名させない（pinentry で止まる・回ごとに commit が変わる）
+            rc, made = run(["git", "-c", "commit.gpgsign=false", "commit-tree", tree.split()[0], "-p", base, "-p", side,
+                            "-m", "attention: %s の前の版の先頭に、PR のブランチが取り込んだ物を merge した始まり" % base_ref],
+                           env=env)
+            if rc != 0 or not made.strip():
+                return merge_base, unmerged
+            base = made.strip()
+    return base, ("%s との merge-base の後の、merge でない %d commit のうち %d は同じ変更が %s に在る（取り込み先が書き換わった）"
+                  "ので、範囲を %s から取った"
+                  % (base_ref, len(rest), len(rest) - len(own), base_ref,
+                     ("%s の前の版の先頭 %s に、PR のブランチが merge で取り込んだ %d 件を merge した commit %s"
+                      % (base_ref, old_tip[:7], len(merged), base[:7])) if merged
+                     else "%s の前の版の先頭 %s" % (base_ref, old_tip[:7])))
+
+
 def prep(pr, prior, headless):
     if os.environ.get(ENV_SUBAGENT_MODEL) and not headless:
         raise Stop("subagent-model-env",
@@ -537,7 +602,7 @@ def prep(pr, prior, headless):
     rc, out = git("merge-base", remote + "/" + base_ref, "HEAD")
     if rc != 0 or not out.strip():
         raise Stop("no-merge-base", "%s/%s と HEAD の共通の祖先が見つかりません（履歴が別、または浅い clone）。git fetch --unshallow などで履歴を取ってください" % (remote, base_ref))
-    base = out.strip()
+    base, base_note = own_base(remote + "/" + base_ref, out.strip())
     commits = [c for c in must_git("rev-list", "--reverse", "%s..HEAD" % base).split() if c]
     if not commits:
         raise Stop("empty-range", "base..HEAD に commit がありません。見る差分が無いので止めます")
@@ -649,7 +714,7 @@ def prep(pr, prior, headless):
     script_path = os.path.abspath(os.path.join(here, "..", "workflows", "my-turn-dig.js"))
     return {
         "ok": True, "pr": pr, "repo": repo_name, "baseRef": base_ref, "remote": remote, "remoteMatched": remote_matched,
-        "base": base, "head": head, "base7": base7, "head7": head7,
+        "base": base, "baseNote": base_note, "head": head, "base7": base7, "head7": head7,
         "recordDir": record_dir, "record": os.path.join(record_dir, "%d.json" % pr),
         "diff": diff_path, "priorDiff": prior_diff, "priorHead": prior_head,
         "priorHeadMissing": prior_missing, "priorUnreadable": prior_unreadable, "unchanged": unchanged,

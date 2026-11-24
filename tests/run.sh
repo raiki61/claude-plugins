@@ -6387,6 +6387,9 @@ expect_output 0 "STOPS_OK" \
 expect_output 0 "SYNC_OK" \
     "my-turn-prep: --sync は PR のブランチに居て遅れているだけなら PR の先頭まで fast-forward し、別のブランチ・detached・未コミット・先に進んだ・分かれた手元は動かさずに止まる" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" sync
+expect_output 0 "REWRITTEN_BASE_OK" \
+    "my-turn-prep: 取り込み先が書き換わった PR は、取り込み先の前の版の先頭（間に main の merge が在れば、前の版の先頭に同じ物を merge した commit）から範囲を取って訳を出し、PR 自身の commit が混ざれば merge-base のままにして訳を出す" \
+    "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" rewritten-base
 expect_output 0 "DIFF_OK" \
     "my-turn-prep: 差分ファイルの 3 部・lock file の除外・commit 一覧・変えたファイル・記録の置き場を出す" \
     "$PY_BIN" "$ROOT/tests/my-turn-prep-case.py" diff
@@ -6469,7 +6472,7 @@ while IFS='|' read -r world_case world_desc; do
 done <<'WORLD'
 stops|起動の合図の無い・違う起動、sum の合わない args、足りない args、言い直しと漏れの照合が同じモデルの起動を、エージェントを立てずに止める
 flow|類ごとに探す・取り直す・比べるを流し、返す形と件数が設計の 3.8 のとおりになり、sum が Python の側の計算と同じになる
-restate|言い直しの答えに対象の名前か手段の語が残れば訳を付けて問い直し、対象が定義していない世の中の名前は数えず、機械を通った行だけを漏れの照合に渡し、3 回で揃わない行を missing に出す
+restate|言い直しの答えに対象の名前か手段の語が残れば訳を付けて問い直し、対象が定義していない世の中の名前は数えず、機械の照合で対象の名前の残らない行だけを漏れの照合に渡し、通った行の答えを次の回に残し、3 回で手段の漏れか depsWhy だけが残った行は印を付けて比べ、対象の名前などが残った行は missing に出す
 arises|前の行で PR が選んだ手段の上でしか起きない問題の行を、落とさずに元の行の印を付けて返し、元の行の類の水準でも比べる
 search|探す役の答えの形を受け付け、抜き書きを上限で切り、依存の行の抜き書きが全部落ちたら 1 回だけ探し直させる
 compare|比べの答えの none と differs の条件を受け付け、lang が英語でないときに型の英語や X・Y の字を写した challenge を差し戻し、3 回で揃わなければ missing に出す

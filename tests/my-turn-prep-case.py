@@ -1153,10 +1153,63 @@ def case_sync():
     with_env(body)
 
 
+def case_rewritten_base():
+    """取り込み先のブランチが書き換わった PR（guided-resolver の #2653）: 取り込み先の前の版の commit を範囲に入れない。"""
+    def body(e):
+        e.base_commit(a_DOT_txt="a\n")
+        git(e.repo, "switch", "-q", "-c", "stack")
+        s1 = commit(e.repo, "s1", s_DOT_txt="s\n")
+        git(e.repo, "push", "-q", "origin", "stack")
+        git(e.repo, "switch", "-q", "-c", "feat")
+        f1 = commit(e.repo, "f1", f_DOT_txt="f\n")
+        e.set_gh(f1, base="stack")
+        # 書き換わる前: merge-base のまま、訳は空
+        rc, o = e.prep("7")
+        check(rc == 0 and o["base"] == s1 and o["baseNote"] == "" and o["changed"] == ["f.txt"], "書き換わる前 %r" % o)
+        # main が進み、取り込み先を main に rebase して force push する（s1 は同じ変更の別の commit になる）
+        git(e.repo, "switch", "-q", "main")
+        m2 = commit(e.repo, "m2", a_DOT_txt="a2\n")
+        git(e.repo, "push", "-q", "origin", "main")
+        git(e.repo, "switch", "-q", "stack")
+        git(e.repo, "rebase", "-q", "main")
+        git(e.repo, "push", "-q", "-f", "origin", "stack")
+        git(e.repo, "switch", "-q", "feat")
+        rc, o = e.prep("7")
+        check(rc == 0 and o["base"] == s1 and o["changed"] == ["f.txt"] and o["commits"] == [f1] and s1[:7] in o["baseNote"],
+              "書き換わった取り込み先の前の版の commit が範囲に載った %r" % o)
+        # PR のブランチが main を merge で取り込んだ後: 前の版の先頭に同じ物を merge した commit を始まりにする
+        git(e.repo, "merge", "-q", "--no-edit", m2)
+        mg = git(e.repo, "rev-parse", "HEAD")
+        f2 = commit(e.repo, "f2", g_DOT_txt="g\n")
+        e.set_gh(f2, base="stack")
+        rc, o = e.prep("7")
+        made = o.get("base")
+        check(rc == 0 and isinstance(made, str) and made not in (s1, m2) and sorted(o["changed"]) == ["f.txt", "g.txt"]
+              and sorted(o["commits"]) == sorted([f1, mg, f2]) and s1[:7] in o["baseNote"] and made[:7] in o["baseNote"],
+              "merge の後に、取り込み先の前の版と main の変更が範囲に載った %r" % o)
+        check(git(e.repo, "rev-parse", made + "^1") == s1 and git(e.repo, "rev-parse", made + "^2") == m2,
+              "作った始まりの親が、前の版の先頭と取り込んだ物でない")
+        rc, o2 = e.prep("7")
+        check(rc == 0 and o2["base"] == made, "同じ先頭から作った始まりが回ごとに変わる %r" % o2)
+        # PR 自身の commit が、取り込み先の前の版の commit の下に混ざる（先頭から続かない）: merge-base のままにし、訳を書く
+        git(e.repo, "switch", "-q", "-c", "mixed", "origin/main")
+        x1 = commit(e.repo, "x1", x_DOT_txt="x\n")
+        git(e.repo, "cherry-pick", "-q", s1)
+        x2 = commit(e.repo, "x2", y_DOT_txt="y\n")
+        e.set_gh(x2, base="stack")
+        rc, o = e.prep("7")
+        mb = git(e.repo, "merge-base", "origin/stack", "HEAD")
+        check(rc == 0 and o["base"] == mb and x1 in o["commits"] and o["baseNote"] != "", "混ざった形 %r" % o)
+    if not POSIX:
+        return skip("rewritten-base")
+    with_env(body)
+
+
 CASES = {"env-stop": case_env_stop, "stops": case_stops, "diff": case_diff, "rules": case_rules,
          "prior": case_prior, "quotes": case_quotes, "headless": case_headless,
          "lines": case_lines, "deleted-tests": case_deleted_tests, "rules-wide": case_rules_wide,
-         "identity": case_identity, "check-report": case_check_report, "sync": case_sync}
+         "identity": case_identity, "check-report": case_check_report, "sync": case_sync,
+         "rewritten-base": case_rewritten_base}
 
 if __name__ == "__main__":
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
