@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.172.1] - 2026-11-24
+
 ### Fixed
 
 - 試験だけの直し（動きは変わらない）。0.172.0 で報告の結末の語に `open_only` を足したのに、語の一覧を決め打ちで並べた試験（`dispatch/tests/test_dispatch.py` の `Report.test_every_word_that_is_not_a_send_has_a_reason`）を直しておらず、main の CI（run 45330111270）が全 OS で赤だった。試験の一覧に `open_only` を足す（頼み 93d73e）。
