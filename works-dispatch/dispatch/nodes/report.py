@@ -20,6 +20,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import jsonio  # noqa: E402
+from ports import chat, term  # noqa: E402
 
 # Windows の既定の標準出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -27,7 +28,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 NONE = "自分の番の PR は無い"
-SKIPPED = "/catchup が届いていない PR と訳:"
+SKIPPED = "PR のうち /catchup が届いていない物と訳:"
 DELIVERED = ("sent", "refreshed", "create", "reuse", "refresh")   # 届いた（--dry-run の 3 語は届く見込み）
 AT_TOP = "訳は上の注記"
 WHY = {
@@ -44,10 +45,10 @@ WHY = {
     "provision_failed": f"作業場を用意できなかった（{AT_TOP}）",
     "branch_busy": "代表の clone 自身がそのブランチを開いているので、作業場を作らない",
     "pane_busy": "ペインの前に、シェルでない物（エディタ・dev server・別の会話）が居る",
-    "launch_failed": f"Claude Code を起動できなかった（{AT_TOP}）",
+    "launch_failed": f"{chat.NAME} を起動できなかった（{AT_TOP}）",
     "blocked": "会話が確認の画面（フォルダの信頼・ログイン・許可など）で止まっている。画面で答えれば進む",
-    "stalled": "/catchup を打ったが、会話が動き出さなかった",
-    "send_failed": "/catchup か 2 ターン目の文を送れなかった（途中で窓が閉じた・herdr が落ちたなど）",
+    "stalled": "会話に /catchup を打ったが、動き出さなかった",
+    "send_failed": f"会話に /catchup か 2 ターン目の文を送れなかった（途中で窓が閉じた・{term.NAME} が落ちたなど）",
     "issue_closed": "issue が閉じているので、ブランチを作らない",
 }
 
