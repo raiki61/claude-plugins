@@ -3,7 +3,7 @@ export const meta = {
   description: "World's solution for one PR: restate each request line as a problem class, find how dependencies, products and standards solve it, and compare the PR's means with each",
   whenToUse: 'Only when the user typed /attention:check-world, which builds the args with steps-prep.py and passes them unchanged. Never start it on your own; a start without its caller value stops before any agent',
   phases: [
-    { title: 'Restate', detail: 'one agent restates every request line as a problem class without the means; code and a second model check for leaked means (up to 3 rounds)' },
+    { title: 'Restate', detail: 'one agent restates every request line as a problem class without the means; code and a second model check for leaked means (up to 3 rounds; a line left with only a soft leak is compared with a mark)' },
     { title: 'Search', detail: 'per class: one agent searches dependencies, products and standards on the web (up to 3 rounds); one agent runs the excerpt re-fetch script; a blind eye draws the general structure' },
     { title: 'Compare', detail: "per class: one agent compares the PR's means with every row, at the row's own layer" },
   ],
@@ -400,12 +400,21 @@ const MEANS_WORDS = meansWords(means)
 const meansHits = text => MEANS_WORDS.filter(w => String(text ?? '').toLowerCase().includes(w.toLowerCase()))
 const touchedDeps = deps.filter(d => d.imported_by_touched === true)
 
-const restate = { rounds: 0, identifierHits: 0, meansHits: 0, leakSentBack: 0, leakAgents: 0 }
-const addTo = (m, n, msg) => { if (!m.has(n)) m.set(n, []); m.get(n).push(msg) }
+const restate = { rounds: 0, identifierHits: 0, meansHits: 0, leakSentBack: 0, leakAgents: 0, unchecked: 0 }
+// a problem of one restated line: { msg, soft }. A soft problem is a leak of the means that is not a name (a means word
+// of kanji or katakana, or the second reader's verdict) or a missing depsWhy: a line that still has only soft problems
+// after the last round is compared anyway, with the problems on its row (restate_unchecked), not dropped. A means word
+// in kanji or katakana is taken from the means' sentences, so it is often a word of the problem itself (パスワード,
+// テナント, レビュー: on 2026-11-24, 13 of the 19 lines dropped over PRs #2653, #2660, #2560 and #2555 were dropped for such a
+// word, 5 for the second reader and 1 for depsWhy). A hard problem (an identifier the target
+// defines, or an identifier-shaped means word, which may be one; no entry; a bad arisesFrom) still drops the line, because
+// the queries go to outside services and the target's names must not.
+const addTo = (m, n, msg, soft = false) => { if (!m.has(n)) m.set(n, []); m.get(n).push({ msg, soft }) }
+const msgs = ps => (ps ?? []).map(p => p.msg)
 // problems of one restated line (machine), by line number
 function restateProblems(r) {
   const general = [], byN = new Map()
-  const add = (n, msg) => addTo(byN, n, msg)
+  const add = (n, msg, soft) => addTo(byN, n, msg, soft)
   const got = Array.isArray(r?.classes) ? r.classes : null
   if (!got) return { general: ['the answer has no classes'], byN, rows: new Map() }
   const rows = new Map()
@@ -422,7 +431,10 @@ function restateProblems(r) {
       const ids = textProblems(text, BANNED)
       if (ids.length) { restate.identifierHits += ids.length; add(n, `${head}: ${key} has identifiers of the request lines ${JSON.stringify(ids)}`) }
       const mw = meansHits(text)
-      if (mw.length) { restate.meansHits += mw.length; add(n, `${head}: ${key} has words of the means ${JSON.stringify(mw)}`) }
+      if (mw.length) {
+        restate.meansHits += mw.length
+        add(n, `${head}: ${key} has words of the means ${JSON.stringify(mw)}`, mw.every(w => !/[A-Za-z0-9]/.test(w)))
+      }
     }
     if (!Number.isInteger(c.arisesFrom) || c.arisesFrom < 0 || c.arisesFrom > lines.length || c.arisesFrom === n) {
       add(n, `${head}: arisesFrom must be 0 or the number of another request line, 1 to ${lines.length}`)
@@ -431,7 +443,7 @@ function restateProblems(r) {
     const stray = picked.filter(d => !depNames.has(String(d).toLowerCase()))
     if (stray.length) add(n, `${head}: deps ${JSON.stringify(stray)} are not in the dependency list`)
     if (touchedDeps.length && !picked.some(d => touchedDeps.some(t => t.name.toLowerCase() === String(d).toLowerCase())) && blank(c.depsWhy)) {
-      add(n, `${head}: no dependency imported by the changed files is picked, and depsWhy does not say why`)
+      add(n, `${head}: no dependency imported by the changed files is picked, and depsWhy does not say why`, true)
     }
   })
   for (const l of lines) if (!rows.has(l.n)) add(l.n, `line ${l.n}: no entry (give one entry for every request line)`)
@@ -446,14 +458,16 @@ function restateProblems(r) {
 
 phase('Restate')
 const restateReasons = []
-let restated = new Map()   // n -> accepted restated line
+const restated = new Map()   // n -> accepted restated line
 const restateMissing = new Map()   // n -> why
+const uncheckedOf = new Map()   // n -> the soft problems a line was accepted with after the last round
+const passedClean = new Map(), softBest = new Map()   // n -> the latest entry with no problem / with soft problems only
 for (let round = 1; round <= LIMITS.tries; round++) {
   restate.rounds = round
   const r = await run('Restate', `Restate ${round}`, RESTATE_PROMPT(restateReasons), { schema: RESTATE, phase: 'Restate', ...M('Restate') })
   const { general, byN, rows } = r ? restateProblems(r) : { general: ['the restater returned nothing'], byN: new Map(), rows: new Map() }
-  // the second reader looks only at lines the machine passed
-  const passed = lines.map(l => l.n).filter(n => rows.has(n) && !byN.has(n))
+  // the second reader looks at the lines with no problem the machine counts as hard, except those that already passed
+  const passed = lines.map(l => l.n).filter(n => !passedClean.has(n) && rows.has(n) && (byN.get(n) ?? []).every(p => p.soft))
   if (passed.length) {
     restate.leakAgents++
     const items = passed.map(n => {
@@ -467,23 +481,41 @@ for (let round = 1; round <= LIMITS.tries; round++) {
       seen.add(it.n)
       if (it.presupposes === true) {
         restate.leakSentBack++
-        addTo(byN, it.n, `line ${it.n}: the problem class presupposes the means (a second reader): ${str(it.why) || 'no reason given'}`)
+        addTo(byN, it.n, `line ${it.n}: the problem class presupposes the means (a second reader): ${str(it.why) || 'no reason given'}`, true)
       }
     }
     // a line the second reader did not answer is not counted as checked: it is sent back like a failed one
-    for (const n of passed) if (!seen.has(n)) addTo(byN, n, `line ${n}: the second reader did not answer for this line`)
+    for (const n of passed) if (!seen.has(n)) addTo(byN, n, `line ${n}: the second reader did not answer for this line`, true)
   }
-  const bad = lines.map(l => l.n).filter(n => byN.has(n) || !rows.has(n))
-  if (!general.length && !bad.length) { restated = new Map(lines.map(l => [l.n, rows.get(l.n)])); break }
-  if (round === LIMITS.tries) {
+  for (const n of passed) {
+    const ps = byN.get(n) ?? []
+    if (!ps.length) passedClean.set(n, rows.get(n))
+    else softBest.set(n, { c: rows.get(n), soft: msgs(ps) })
+  }
+  // a line that passed in an earlier round keeps that answer, so the rounds end when every line has passed once
+  if (lines.every(l => passedClean.has(l.n)) || round === LIMITS.tries) {
     for (const l of lines) {
-      if (rows.has(l.n) && !byN.has(l.n)) restated.set(l.n, rows.get(l.n))
-      else restateMissing.set(l.n, `restate gave up after ${LIMITS.tries} rounds: ${[...general, ...(byN.get(l.n) ?? [])].join(' / ') || 'no entry'}`)
+      if (passedClean.has(l.n)) restated.set(l.n, passedClean.get(l.n))
+      else if (softBest.has(l.n)) { restated.set(l.n, softBest.get(l.n).c); uncheckedOf.set(l.n, softBest.get(l.n).soft) }
+      else restateMissing.set(l.n, `restate gave up after ${round} rounds: ${[...general, ...msgs(byN.get(l.n))].join(' / ') || 'no entry'}`)
     }
     break
   }
-  restateReasons.push(...general.map(g => `round ${round}: ${g}`), ...bad.flatMap(n => (byN.get(n) ?? [`line ${n}: no entry`]).map(m => `round ${round}: ${m}`)))
+  const bad = lines.map(l => l.n).filter(n => !passedClean.has(n))
+  restateReasons.push(...general.map(g => `round ${round}: ${g}`), ...bad.flatMap(n => (byN.has(n) ? msgs(byN.get(n)) : [`line ${n}: no entry`]).map(m => `round ${round}: ${m}`)))
 }
+restate.unchecked = uncheckedOf.size
+// lines accepted from different rounds may name an origin that no longer fits (the checks above ran within one round)
+const restateNotes = []
+for (const [n, c] of restated) {
+  if (!(c.arisesFrom > 0)) continue
+  const o = restated.get(c.arisesFrom)
+  if (!o || blank(o.proposed) || o.arisesFrom === n) {
+    restateNotes.push(`line ${n}: arisesFrom ${c.arisesFrom} does not fit the accepted answer of that line, so it is compared as a line of its own`)
+    restated.set(n, { ...c, arisesFrom: 0 })
+  }
+}
+if (uncheckedOf.size) restateNotes.push(`${uncheckedOf.size} request lines are compared with a restatement that still had problems after ${restate.rounds} rounds (see rows[].restate_unchecked)`)
 
 // ---- 3.3 step 4: classes, in the order they appear, no cap ----
 const normProblem = s => String(s).toLowerCase().replace(/\s+/g, ' ').trim()
@@ -516,7 +548,7 @@ for (const l of lines) {
 }
 const classes = [...classMap.values()]
 counts.classes = classes.length
-log(`${classes.length} classes from ${restated.size} of ${lines.length} request lines${restateMissing.size ? ` (${restateMissing.size} lines given up in restate)` : ''}`)
+log(`${classes.length} classes from ${restated.size} of ${lines.length} request lines${restateMissing.size ? ` (${restateMissing.size} lines given up in restate)` : ''}${uncheckedOf.size ? ` (${uncheckedOf.size} accepted with problems left)` : ''}`)
 
 // ---- 3.3 steps 5 and 6 ----
 function searchProblems(c, r) {
@@ -730,6 +762,7 @@ done.forEach((d, i) => {
     outRows.push({
       n: m.n, where: m.where, class_id: c.id, problem: c.problem, activity: c.activity, queries: c.queries,
       deps: c.deps.map(x => x.name), depsWhy: m.depsWhy, proposed: m.proposed, arises_from: m.arisesFrom || null,
+      restate_unchecked: uncheckedOf.get(m.n) ?? [],
       comparisons: d.rows.map(w => cmpOf(d, w, m, c)),
     })
   }
@@ -741,7 +774,8 @@ for (const [n, why] of ownFailed) {
   const c = classes.find(k => k.id === classOf.get(n)), m = c.members.find(x => x.n === n && x.level === 'line')
   originNotes.push(`line ${n}: its own class gave up (${why}); only the comparisons at the level of line ${m.arisesFrom} are returned`)
   outRows.push({ n, where: m.where, class_id: c.id, problem: c.problem, activity: c.activity, queries: c.queries,
-    deps: c.deps.map(x => x.name), depsWhy: m.depsWhy, proposed: m.proposed, arises_from: m.arisesFrom, comparisons: [] })
+    deps: c.deps.map(x => x.name), depsWhy: m.depsWhy, proposed: m.proposed, arises_from: m.arisesFrom,
+    restate_unchecked: uncheckedOf.get(n) ?? [], comparisons: [] })
 }
 for (const r of outRows) if (atOrigin.has(r.n)) r.comparisons.push(...atOrigin.get(r.n))
 outRows.sort((a, b) => a.n - b.n)
@@ -751,6 +785,7 @@ const status = !outRows.length ? 'failed' : missing.length ? 'partial' : 'ok'
 const reason = [
   ...(status === 'failed' ? ['no request line got rows'] : []),
   ...(missing.length ? [`${missing.length} request lines given up (see missing)`] : []),
+  ...restateNotes,
   ...searchNotes,
   ...originNotes,
 ].join(' / ')

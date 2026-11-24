@@ -375,6 +375,8 @@ args の値（`steps-prep.py --next world` が組む）:
      - #2555 の「処理を止め、答えを受けて続きから再開する」のように、識別子でない言い方で解き方が残る物を拾う。
      - 次の 3 つは解き方の前提に数えない。1 つは、問題の外から与えられた部品（PR が選べない条件。例: ブラウザは秘密を持てない・呼び出し側が選べない既存の窓口）。もう 1 つは、問題や変更の種類を指す定石の名（何が起きる・何を変えるかを言う名で、どう解くかは決めない。例: 無停止のデプロイ・後方互換の API の変更）。答えの仕組みを指す名（どう解くかそのものを言う名）（例: blue-green deployment・two-phase commit・止めて再開する）は、前のとおり解き方に数える。例は #2555 の文から取らない。（経緯: #2555 の 3 回目で、漏れの照合が行 9 の検索語の定石の名〔expand and contract〕まで解き方と見て、行 9 を 3 周で落とした。[measures/2555-world-result.md](measures/2555-world-result.md)）3 つ目は、`arisesFrom` の付いた行の、元の行で PR が選んだ手段。その行の問題が立つ前提なので、問題の文に残してよい。その行自身の手段は、前のとおり前提にしてはいけない。
    - どちらかに当たれば、理由を付けて 2 に差し戻す（この差し戻しも、2 の受け付けの最大 3 回の 1 回に数える）。
+   - 差し戻すのは、まだ通っていない行だけ。一度通った行の答えは次の回にも残し、全部の行が一度ずつ通れば 3 回を待たずに止める。
+   - 3 回で通りきらない行は、残った問題で分ける（3.7）。
 4. **類を決める**（機械）: 言い直しに出た類を全部、出た順に並べる。上限を置かない。
    - `arisesFrom` の付いた行は、自分の類に加えて、元の行の類にも「元の行の水準で比べる行」として入れる（同じ類なら入れない）。探す役には渡らず、比べる役にだけ渡る。
 5. **探す役**（類ごとに AI 1 体・sonnet・ツールは WebSearch・WebFetch だけ。受け付けで最大 3 回。類の間は `pipeline()` で並べる）:
@@ -494,6 +496,13 @@ DW の script は web を開けない（公開の文書の「No direct filesyste
 - 検索語は類ごとに 3 つまで（工場の `MAX_QUERIES`）。
 - 依存の名が依存の一覧に在る。
 
+言い直しの問題は、固い物と柔らかい物に分ける。
+- 固い問題: 対象の識別子・識別子の形の手段の語・数と番号・`arisesFrom`・検索語の数。検索語は外へ出るので、対象の名前を残したまま探させない。
+- 柔らかい問題: 漢字・カタカナだけの手段の語（パスワード・テナントのような、問題の種類そのものを言う語と見分けにくい物）・依存の名の欠け（`depsWhy`）・漏れの照合の役の「解き方を前提にしている」と「答えなかった」。
+- 柔らかい問題だけが残った行も、漏れの照合の役に渡す。3 回で通りきらなければ、柔らかい問題だけが残った直近の答え（最後の回の答えとは限らない）で比べに進め、行の `restate_unchecked` に残った問題を書き、`reason` に数を書く。
+- 固い問題が残った行は、前のとおり `missing` に入れる。
+- 経緯: guided-resolver の PR #2653・#2660・#2560・#2555 で、言い直しが 3 回で 19 行を落とし、どれも `partial` になった（頼み 801ae9）。19 行のうち 13 行は手段の語、5 行は漏れの照合の役、1 行は `depsWhy` で落ちていて、対象の名前が残った行は無かった。
+
 探す役（3.3 の 5）:
 - 言い直しが関わるとした依存の 1 つずつに、`against.kind` が `dependency` で `name` がその依存の行が在る。その依存にこの類の問題を解く口（外との約束や中のやり方。3.3 の 5 の 1）が見つからず、「口が無い」と返した行でもよい。
   - #2637 の L9 は、依存の assistant-ui を数に入れなかった。
@@ -523,7 +532,7 @@ DW の script は web を開けない（公開の文書の「No direct filesyste
 {
   ok, status: ok|partial|failed, reason,
   rows: [{
-    n, where, class_id, problem, proposed, arises_from: N|null,
+    n, where, class_id, problem, proposed, arises_from: N|null, restate_unchecked: [str],
     comparisons: [{
       level: line|origin, class_id,
       against: {kind, name, version?}, layer,
@@ -535,6 +544,7 @@ DW の script は web を開けない（公開の文書の「No direct filesyste
   missing: [{n, why}],
   excerpts: {kept, dropped, unchecked, garbled, over},
   deps_note,
+  restate: {rounds, identifierHits, meansHits, leakSentBack, leakAgents, unchecked},
   counts: {classes, agents, stages}
 }
 ```
@@ -542,6 +552,7 @@ DW の script は web を開けない（公開の文書の「No direct filesyste
 - 行のフィールドは、工場の世界の解の行（`lib/world-row.schema.json` の finding・where・class_id・problem・activity・practice・sources・applies・not_applies・versus・basis）を、相手ごと・層ごとの `comparisons` に分けた物。
 - 工場の 1 行に 1 つの `versus` は、相手ごとの `verdict` と `challenge` になる。
 - `arises_from` は、前の行で PR が選んだ手段の上でしか起きない問題の行の、元の行の番号（ほかの行は null。言い直しの `arisesFrom` では同じ意味を 0 で書く）。その行の `comparisons` には、自分の類の比べ（`level: line`）に続けて、元の行の類で比べた物（`level: origin`。`class_id` は元の行の類）が並ぶ。自分の類が 3 回で諦めても、元の行の類の比べが在れば行を返し、訳を `reason` に書く。
+- `restate_unchecked` は、言い直しが 3 回で柔らかい問題を残したまま比べた行の、残った問題（3.7）。ほかの行は空。`restate.unchecked` はその行の数。
 - 一般の構造（3.3 の 7）も `comparisons` の 1 行にする。`against.kind` は `general`・`name` は `blind`・`basis` はいつも `knowledge`。`layer` は遮断の目が描いた形の層（多くは `architecture`）で、比べる役が `verdict` を付ける。こうすると、5.2 の機械の照合（`general` の行だけで「違う」とした件を `report` に替える）が、ほかの相手と同じ形で組める。
 
 ### 3.9 モデルと費用の見込み

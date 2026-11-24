@@ -227,7 +227,8 @@ const cases = {
   },
 
   async restate() {
-    // 1 回目: 行 1 に識別子、行 2 に手段の語。2 回目: 行 2 を漏れの照合が差し戻す。3 回目: 行 2 がまだ差し戻される → missing
+    // 1 回目: 行 1 に識別子、行 2 に識別子の形の手段の語。2 回目: 行 2 を漏れの照合が差し戻す。3 回目: 行 2 がまだ差し戻される
+    // → 行 2 は漏れの照合の差し戻しだけが残ったので、落とさずに印（restate_unchecked）を付けて比べる
     let restates = 0
     const { out, calls } = await run(baseArgs(), call => {
       if (call.stage === 'Restate') {
@@ -246,10 +247,38 @@ const cases = {
       && rs[1].prompt.includes('words of the means ["HumanInTheLoopMiddleware"]'), '2 回目に識別子と手段の語の差し戻しの訳が無い')
     check(rs[2].prompt.includes('presupposes the means (a second reader): 「止めて再開」が手段') && rs[2].prompt.includes('["mcp_tool_wrapper.py"]'),
       '3 回目に漏れの差し戻しと前の回の訳が残らない')
-    check(out.status === 'partial' && out.rows.length === 1 && out.rows[0].n === 1, `行 1 だけ返して partial にならない: ${out.status} ${out.rows.map(r => r.n)}`)
-    check(out.missing.length === 1 && out.missing[0].n === 2 && /restate gave up/.test(out.missing[0].why), `行 2 が missing にならない: ${JSON.stringify(out.missing)}`)
-    check(out.restate.identifierHits >= 1 && out.restate.meansHits >= 1 && out.restate.leakSentBack === 2 && out.restate.rounds === 3,
+    check(out.status === 'ok' && out.rows.length === 2 && out.missing.length === 0, `漏れの照合の差し戻しだけが残った行 2 を落とした: ${out.status} ${out.rows.map(r => r.n)} ${JSON.stringify(out.missing)}`)
+    const u2 = out.rows.find(r => r.n === 2)?.restate_unchecked ?? []
+    check(u2.length === 1 && u2[0].includes('presupposes the means (a second reader): 「止めて再開」が手段') && out.rows.find(r => r.n === 1)?.restate_unchecked.length === 0,
+      `行 2 の印に残った差し戻しが乗らないか、通った行 1 に印が付いた: ${JSON.stringify(out.rows.map(r => r.restate_unchecked))}`)
+    check(/1 request lines are compared with a restatement that still had problems after 3 rounds/.test(out.reason), `reason に印の付いた行の数が無い: ${out.reason}`)
+    check(out.restate.identifierHits >= 1 && out.restate.meansHits >= 1 && out.restate.leakSentBack === 2 && out.restate.rounds === 3 && out.restate.unchecked === 1,
       `restate の数えが違う: ${JSON.stringify(out.restate)}`)
+    // 対象の名前（識別子）が 3 回とも残った行は、検索語が外へ出るので比べずに missing に入れる
+    const hard = await run(baseArgs(), call => call.stage === 'Restate'
+      ? { classes: [goodClass(1), goodClass(2, { queries: ['how to check resume_token against the pending call'] })] }
+      : happy()(call))
+    check(hard.out.status === 'partial' && hard.out.rows.map(r => r.n).join() === '1' && hard.out.missing[0]?.n === 2
+      && /restate gave up after 3 rounds: .*identifiers of the request lines \["resume_token"\]/.test(hard.out.missing[0].why),
+    `識別子が残った行が missing にならない: ${hard.out.status} ${JSON.stringify(hard.out.missing)}`)
+    // 漢字・カタカナの手段の語（「状態機械」）だけが 3 回とも残った行は、印を付けて比べる（#2560 の「パスワード」など）
+    const kana = await run(baseArgs(), call => call.stage === 'Restate'
+      ? { classes: [goodClass(1), goodClass(2, { problem: '状態機械で答えを照合する問題' })] }
+      : happy()(call))
+    const k2 = kana.out.rows.find(r => r.n === 2)?.restate_unchecked ?? []
+    check(kana.out.status === 'ok' && k2.length === 1 && k2[0].includes('words of the means ["状態機械"]'),
+      `漢字・カタカナの手段の語だけが残った行に印が付かないか、落ちた: ${kana.out.status} ${JSON.stringify(k2)} ${JSON.stringify(kana.out.missing)}`)
+    check(kana.calls.filter(c => c.stage === 'Leak').every(c => c.prompt.includes('## Item 2')), '漢字・カタカナの手段の語だけの行が漏れの照合に渡らない')
+    // 前の回に通った行は、その答えを残す。全部の行が一度ずつ通ったら、3 回を待たずに止める
+    let rr = 0
+    const early = await run(baseArgs(), call => {
+      if (call.stage !== 'Restate') return happy()(call)
+      rr++
+      return rr === 1 ? { classes: [goodClass(1), goodClass(2, { queries: ['resume_token checks'] })] }
+        : { classes: [goodClass(1, { queries: ['resume_token checks'] }), goodClass(2)] }
+    })
+    check(rr === 2 && early.out.status === 'ok' && early.out.rows.every(r => r.restate_unchecked.length === 0),
+      `前の回に通った行の答えを残さないか、全部が通っても回し続けた: ${rr} 回 ${early.out.status} ${JSON.stringify(early.out.missing)}`)
     // 1 回目は 2 行とも機械の照合に落ちたので、漏れの照合を立てない
     check(calls.filter(c => c.stage === 'Leak')[0]?.label === 'Leak 2', '機械の照合に落ちた行が漏れの照合に渡った')
     // 第三者の名（依存の名・版・@ の付いた名の段）は識別子に数えない
@@ -281,6 +310,12 @@ const cases = {
     check(n === 2 && im.calls.filter(c => c.stage === 'Restate')[1]?.prompt.includes('depsWhy does not say why'),
       '変えたファイルが import する依存を選ばず訳も無い答えが差し戻されない')
     check(im.out.status === 'ok', `depsWhy を書いた 2 回目が通らない: ${im.out.reason}`)
+    // 3 回とも depsWhy が無ければ、落とさずに印を付けて比べる（#2653 の行 9。変更が Terraform と YAML だけの行）
+    const nw = await run(baseArgs({ deps }), call => call.stage === 'Restate'
+      ? { classes: LINES.map(l => goodClass(l.n, { deps: ['@assistant-ui/react'], depsWhy: '' })) }
+      : happy()(call))
+    check(nw.out.status === 'ok' && nw.out.rows.length === 2 && nw.out.rows.every(r => r.restate_unchecked.some(u => u.includes('depsWhy does not say why'))),
+      `depsWhy の無い行が落ちたか、印が付かない: ${nw.out.status} ${JSON.stringify(nw.out.missing)}`)
     // 一覧に無い依存の名は差し戻す
     let k = 0
     const st = await run(baseArgs(), call => {

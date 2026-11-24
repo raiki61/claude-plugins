@@ -393,6 +393,9 @@ def shape_problems(val):
         af = (r or {}).get("arises_from")
         if af is not None and not (isinstance(af, int) and not isinstance(af, bool) and af > 0):
             out.append("rows[%d].arises_from は null か依頼の行の番号" % i)
+        ru = (r or {}).get("restate_unchecked")  # 前の版の結果には無い
+        if ru is not None and not (isinstance(ru, list) and all(isinstance(x, str) for x in ru)):
+            out.append("rows[%d].restate_unchecked は文字列の list" % i)
         for j, c in enumerate((r or {}).get("comparisons") or []):
             for k, t in CMP_KEYS.items():
                 if not isinstance((c or {}).get(k), t):
