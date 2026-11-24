@@ -311,6 +311,73 @@ class Flow(unittest.TestCase):
         self.assertIn("#3 feat/3: 自分の番でない PR だが、dispatch が一覧の回で開いた会話と言い切れないので残した（"
                       "送った記録に一覧の回の印 via: listing が無い", out)
 
+    BOX = "─" * 20 + "\n❯ \n" + "─" * 20   # 入力フィールドが空の画面
+
+    def then_record(self):
+        return json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.THEN_FILE).read_text())
+
+    def test_then_types_commands_in_order_into_an_open_idle_conversation_without_reopening_it(self):
+        # 頼み 96bf89。開いている手すきの会話は閉じて開き直さず、その会話に 1 本ずつ順に打つ。2 ターン目の文も /catchup も打たない
+        path = self.place(1)
+        self.sent({"o/r#1": {"at": 1000.0, "head": self.g.head_sha(path)}})
+        ports = FakePorts([], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        old = self.talking_in(ports, path, started=900.0)
+        ports.term.screen = self.BOX
+        rc, out = run_main(self.cfg, ports, "--pr", "1", "--then", "/attention:check-world 1", "--then", "/code-review high")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("sent"), out)
+        # 1 本目は終わりを待ち（wait が真）、2 本目はその後に待たずに打つ
+        self.assertEqual(ports.term.writes, [("prompt", old["pane_id"], "/attention:check-world 1", True),
+                                             ("prompt", old["pane_id"], "/code-review high", False)])
+        self.assertIn("#1: 開いていた会話に --then の 2 本のうち 2 本を打った", out)
+        self.assertNotIn(report.SKIPPED, out)
+        got = self.then_record()["o/r#1"]
+        self.assertEqual((got["commands"], got["typed"], got["outcome"], got["conversation"]),
+                         (["/attention:check-world 1", "/code-review high"], 2, "sent", "open"))
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
+        self.assertEqual(sent["o/r#1"]["at"], 1000.0)   # /catchup を打っていないので、送った時刻は動かさない
+
+    def test_then_does_not_type_over_typed_text_or_into_a_busy_conversation(self):
+        for status, screen, want in (("idle", "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20, "typing"), ("idle", "", "typing"),
+                                     ("busy", self.BOX, "busy")):
+            with self.subTest(want=want, screen=screen):
+                self.setUp()
+                path = self.place(1)
+                ports = FakePorts([], git=self.g)
+                ports.pr_info = lambda repo, n: pr(n)
+                self.talking_in(ports, path, status=status)
+                ports.term.screen = screen
+                rc, out = run_main(self.cfg, ports, "--pr", "1", "--then", "/a", "--then", "/b")
+                self.assertEqual(rc, 0, out)
+                self.assertTrue(line(out, 1).endswith(want), out)
+                self.assertEqual(ports.term.writes, [])
+                self.assertIn(f"- #1: {report.WHY[want]}（{want}）", out)
+
+    def test_then_on_a_pr_without_a_conversation_opens_it_and_types_after_catchup(self):
+        ports = FakePorts([], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        ports.term.screen = self.BOX
+        rc, out = run_main(self.cfg, ports, "--pr", "1", "--then", "/a 1", "--then", "/b")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("sent"), out)
+        self.assertEqual([x[2:] for x in ports.term.writes if x[0] == "prompt"],
+                         [(f"{CATCHUP} 1", True), ("/a 1", True), ("/b", False)])   # 2 ターン目の文は送らない
+        self.assertIn("#1: 開いた会話に /catchup と --then の計 3 本のうち 3 本を打った", out)
+        self.assertEqual(self.then_record()["o/r#1"]["conversation"], "opened")
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
+        self.assertIn("o/r#1", sent)
+
+    def test_then_in_a_dry_run_says_it_would_type_into_the_open_conversation(self):
+        path = self.place(1)
+        ports = FakePorts([], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        self.talking_in(ports, path)
+        rc, out = run_main(self.cfg, ports, "--pr", "1", "--then", "/a", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith(dispatch.THEN_IN), out)
+        self.assertEqual(ports.term.writes, [])
+
     def test_naming_a_pr_whose_conversation_has_work_keeps_it_and_says_why_at_the_end(self):
         for status, dirty, want in (("busy", False, "busy"), ("idle", True, "dirty")):
             with self.subTest(want):

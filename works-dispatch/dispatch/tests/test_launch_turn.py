@@ -285,6 +285,58 @@ class Turn(unittest.TestCase):
     def test_herdr_error_is_send_failed(self):
         self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompt_error="boom"), catchup=CATCHUP), "send_failed")
 
+    BOX = "─" * 20 + "\n❯ \n" + "─" * 20
+
+    def boxed(self, screens, statuses=None, prompts=None):
+        """入力フィールドの画面（read）と herdr の見立て（agent）を、呼ばれるたびに頭から 1 つずつ返す偽物（最後の 1 つは返し続ける）。"""
+        h = FakeHerdr(prompts=prompts)
+        seq = {"read": list(screens), "agent": [{"agent": "claude", "agent_status": x} for x in (statuses or ["idle"])]}
+
+        def take(kind, pane):
+            h.calls.append((kind, pane))
+            got = seq[kind]
+            return got.pop(0) if len(got) > 1 else got[0]
+        h.read = lambda pane, lines, ansi=False: take("read", pane)
+        h.agent = lambda pane: take("agent", pane)
+        return h
+
+    def test_in_order_types_the_next_command_only_after_the_turn_ends(self):
+        # 頼み 96bf89。1 本目のターンが終わる（Claude Code が idle を返す）まで、2 本目を打たない
+        h = self.boxed([self.BOX], prompts=["working", "sent"])
+        seen = []
+
+        def state():
+            seen.append(len([c for c in h.calls if c[0] == "prompt"]))
+            return "busy" if len(seen) < 3 else "idle"
+        self.assertEqual(turn.in_order("p", ["/a", "/b"], h, state=state, pause=lambda: None), ("sent", 2))
+        prompts = [c for c in h.calls if c[0] == "prompt"]
+        self.assertEqual(prompts, [("prompt", "p", "/a", True, ("working", "blocked")), ("prompt", "p", "/b", False)])
+        self.assertEqual(seen, [1, 1, 1])   # 2 本目を打つ前に、1 本目の終わりを 3 回問うた
+
+    def test_in_order_stops_before_a_command_when_text_is_typed_or_the_box_is_not_seen(self):
+        typed = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
+        for screens, want in (([self.BOX, typed], ("typing", 1)), ([typed], ("typing", 0)), ([""], ("typing", 0))):
+            with self.subTest(screens=screens):
+                h = self.boxed(screens)
+                self.assertEqual(turn.in_order("p", ["/a", "/b"], h, state=lambda: "idle", pause=lambda: None), want)
+                self.assertEqual(len([c for c in h.calls if c[0] == "prompt"]), want[1])
+
+    def test_in_order_does_not_type_into_a_working_conversation(self):
+        h = self.boxed([self.BOX], statuses=["working"])
+        self.assertEqual(turn.in_order("p", ["/a"], h), ("busy", 0))
+        self.assertNotIn("prompt", [c[0] for c in h.calls])
+
+    def test_in_order_stops_after_a_blocked_or_stalled_command(self):
+        for word in ("blocked", "stalled"):
+            with self.subTest(word):
+                h = self.boxed([self.BOX], prompts=[word])
+                self.assertEqual(turn.in_order("p", ["/a", "/b"], h, state=lambda: "idle", pause=lambda: None), (word, 1))
+
+    def test_in_order_herdr_error_is_send_failed_with_what_was_typed(self):
+        h = self.boxed([self.BOX])
+        h._prompt_error = "boom"
+        self.assertEqual(turn.in_order("p", ["/a", "/b"], h), ("send_failed", 0))
+
     def test_send_returns_schema_shaped_result(self):
         out = {"schema": 1, "turn": turn.send("p", "x", True, FakeHerdr(prompts=["blocked"]))}
         self.assertEqual(out["turn"]["status"], "blocked")

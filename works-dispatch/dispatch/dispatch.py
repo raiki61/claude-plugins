@@ -30,6 +30,11 @@
 --open-only は --pr か --issue と一緒に使い、作業場と会話を開くだけで、/catchup も 2 ターン目の文も送らない（持ち主が会話で手で打つ。
 頼み 4f95ed）。PR なら控え（dispatch-sent.json）に印 via: open_only を書き、印が残る間は、会話が開いていれば一覧の回が送り直さない。
 --open-only で名指した PR の会話が既に開いていれば、立て直さずにそのまま残す（already_open）。
+--then <コマンド>（重ねて複数）は --pr と一緒に使い、その PR の会話にスラッシュコマンドを、前のターンが終わってから 1 本ずつ順に打つ
+（_type_then・turn.in_order。頼み 96bf89）。会話が開いて手すきなら、立て直さずにその会話へ --then のコマンドだけを打つ（前のレビューの
+報告が会話に残る）。開いていなければ開いて、/catchup の後に打つ。どちらも 2 ターン目の文は送らない。どの 1 本も、打つ直前に会話が手すきで
+入力フィールドに打ちかけの字が無いことを確かめ、そうでなければそこで止める（busy・typing）。何本目まで打ったかを報告の頭の行と
+控え dispatch-then.json に書く。
 
 --task 名前 は、部署を 1 つ立てる（_task）。ブランチの場所を PR と同じ決まりで開き（herdr の、元の clone の子の作業場）、使用率でアカウントを
 1 つ選び（会社の形の役か受け持ちが account で名指したアカウントは、使えれば先に選ぶ）、その作業場で Claude Code の裏の会話（claude --bg）を、名前と頼みのファイルを読ませる最初の文を付けて起動し、同じペインで
@@ -43,6 +48,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
 どちらも dispatch の設定が無くても動く（有れば、会話のアカウントと、設定の置き場の会社の情報を見る）。
 
 使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--pr N ... | --issue N] [--no-second | --open-only] [--dry-run | --clean [--apply]]
+        python3 dispatch.py --pr N ... --then <コマンド> [--then <コマンド> ...] [--dry-run]
         python3 dispatch.py --task <名前> --branch <ブランチ> --brief <頼みのファイル> [--repo OWNER/NAME か代表の clone] [--base <ブランチ>]
                             [--from-name <呼んだ会話の名前>] [--from-account <アカウントの名>] [--role <役>] [--dry-run]
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
@@ -123,6 +129,7 @@ def _key(repo, number):
     return f"{repo.repo}#{number}"
 
 
+THEN_IN = "type_in"   # --dry-run の結末の語: --then のコマンドを、開いている会話に立て直さずに打つ見込み
 OPEN_ONLY = "open_only"   # 控えの via: --open-only で開いただけで、/catchup を送っていない（持ち主が手で打つ）
 
 
@@ -346,6 +353,9 @@ def _parser():
     ap.add_argument("--no-second", action="store_true", help="2 ターン目の文を送らず、/catchup だけで止める")
     ap.add_argument("--open-only", action="store_true",
                     help="--pr か --issue と一緒に: 作業場と会話を開くだけで、/catchup も 2 ターン目の文も送らない（会話で手で打つ）")
+    ap.add_argument("--then", action="append", metavar="コマンド",
+                    help="--pr と一緒に: その PR の会話に、このスラッシュコマンドを前のターンが終わってから 1 本ずつ順に打つ（繰り返して複数。"
+                         "会話が開いて手すきなら立て直さずにその会話に、開いていなければ開いて /catchup の後に。2 ターン目の文は送らない）")
     ap.add_argument("--init", action="store_true", help="設定の下書きを書く（--repo と --source が要る。有れば上書きしない）")
     ap.add_argument("--source", help="--init と一緒に: そのリポジトリの代表の clone")
     ap.add_argument("--init-company", action="store_true",
@@ -620,6 +630,16 @@ def main(argv=None, ports=None):
     if a.open_only and a.no_second:
         print("止めた: --open-only と --no-second は一緒に使えない（--open-only は /catchup も送らない。/catchup だけ送るなら --no-second だけ）")
         return 2
+    if a.then:
+        if not a.pr or a.open_only or a.no_second:
+            print("止めた: --then は --pr と一緒にだけ使い、--open-only・--no-second とは一緒に使えない"
+                  "（--then は 2 ターン目の文の代わりにコマンドを打つ）")
+            return 2
+        bad = [c for c in a.then if not c.strip().startswith("/") or "\n" in c or "\r" in c]
+        if bad:
+            print(f"止めた: --then に渡せるのは 1 行のスラッシュコマンドだけ（/ で始まり、改行を含まない）: {bad[0]!r}")
+            return 2
+        a.then = [c.strip() for c in a.then]
     task_args = [n for n, v in (("--branch", a.branch), ("--brief", a.brief), ("--base", a.base), ("--from-name", a.from_name),
                                 ("--from-account", a.from_account), ("--role", a.role), ("--persistent", a.persistent)) if v]
     if a.task is None and task_args:
@@ -738,6 +758,7 @@ def _listing(a, cfg, repo, ports):
         notes.append(f"{e}。前に送った時刻が無いものとして読み、控えは書き直さない（直すか消すと、次の回から使う）")
     refresh, verdicts = {}, {}
     quiet, in_dept = set(), set()
+    direct = {}   # --then で、開いている手すきの会話に立て直さずに打つ PR → (ペイン, sessions の行)
     keys = sessions.open_keys(sess)
     named = bool(a.pr)   # --pr で名指した PR は、会話が開いていても手すきで手元の作業が無ければ立て直して /catchup を打つ（頼み 2d6839）
     for p in (my_prs if a.issue is None else []):
@@ -774,6 +795,23 @@ def _listing(a, cfg, repo, ports):
             continue
         if len(inside) > 1:
             verdicts[p["number"]] = "many_open"   # どの会話を終えてよいか決められないので、どれにも触らない
+            continue
+        if a.then:
+            # --then は、開いている会話を立て直さずにその会話へ打つ（前のレビューの報告が会話に残る。頼み 96bf89）。手元の作業が有っても
+            # 会話を終えないので止めない。手すきかと入力フィールドの打ちかけの字は、1 本ずつ打つ直前にも見る（turn.in_order）
+            if inside[0].get("status") != "idle":
+                verdicts[p["number"]] = "busy"
+                continue
+            try:
+                pane = _pane_at(ports.term, path)
+                why = f"その場所に {term.NAME} の会話のペインが無い（{term.NAME} の外の会話には打たない）"
+            except term.Error as e:
+                pane, why = None, f"{term.NAME} のペインを読めない（{e}）"
+            if not pane:
+                verdicts[p["number"]] = "send_failed"
+                notes.append(f"#{p['number']}: --then のコマンドを打たなかった（{why}）")
+                continue
+            direct[p["number"]] = (pane, inside[0])
             continue
         rec = _sent_record(sent.get(_key(repo, p["number"])))
         if rec["open_only"] and not named:
@@ -816,7 +854,7 @@ def _listing(a, cfg, repo, ports):
         notes.append(_cost_note(est, cfg.limit_percent))
 
     results = dict(verdicts)
-    assigned = [r for r in the_plan if r["outcome"] == "assigned"]
+    assigned = [r for r in the_plan if r["outcome"] == "assigned" and r["number"] not in direct]
     # fork の PR（head が別のリポジトリ）は作業場を作らない。whose-turn の一覧は fork かを持たないので、開く PR だけ問う
     for r in assigned:
         if r["kind"] == "pr":
@@ -829,6 +867,7 @@ def _listing(a, cfg, repo, ports):
     if a.open_only and assigned:
         notes.append("--open-only なので、開いた会話に /catchup も 2 ターン目の文も送らない（会話で手で打つ）")
     if a.dry_run:
+        results.update({n: THEN_IN for n in direct})
         for r in assigned:
             results[r["number"]] = "refresh" if r["number"] in refresh else provision.would(r, found)
             if r["kind"] == "issue" and not r["head"]:
@@ -900,7 +939,8 @@ def _listing(a, cfg, repo, ports):
             untrusted = _trust_note(ports, r["account"], repo.source, prov["path"], cfg.accounts)
             if untrusted:
                 notes.append(f"{name}: {untrusted}")
-            if r["kind"] == "pr" and not prov["created"] and not (a.no_second or a.open_only) and r["number"] not in catchup_only:
+            if (r["kind"] == "pr" and not prov["created"] and not (a.no_second or a.open_only or a.then)
+                    and r["number"] not in catchup_only):
                 r["earlier"] = _earlier_report(cfg, ports, r, notes)   # 新しい会話を起動する前に（起動すると、それがいちばん新しい記録になる）
             got = launch.start(r, prov["pane"], ports.term)
             if got["status"] == "ready":
@@ -925,7 +965,18 @@ def _listing(a, cfg, repo, ports):
         second = {r["number"]: None if (a.no_second or r["kind"] == "issue" or r["number"] in catchup_only)
                   else repo.second_prompt for r, _ in ready}
         notes.extend(f"#{r['number']}: 自分が作者でレビュアーの付いていない PR なので、/catchup だけ送った"
-                     for r, _ in ready if r["number"] in catchup_only and not a.no_second)
+                     for r, _ in ready if r["number"] in catchup_only and not (a.no_second or a.then))
+        if a.then:
+            # 開いた会話には /catchup の後に --then のコマンドを、開いていた会話には --then のコマンドだけを、1 本ずつ順に打つ
+            # （2 ターン目の文は送らない）。ready から外し、下の 2 ターン目までの道に乗せない
+            told, caught = _type_then(cfg, repo, ports, a.then, ready, direct, results, sent)
+            notes += told
+            if sent_ok:
+                ports.save_sent(cfg.limits_dir, sent)
+            opened = ports.open_pages(repo, caught) if caught else None
+            if opened:
+                notes.append(opened)
+            ready = []
         # 送った時刻は 1 ターン目を送る直前（その後の動きを「新しい返事」と見る）、head はその時の場所の head（force-push の見分け）
         # 自分の番でなくなった PR の会話を閉じる（_step_back）のは、一覧の回で送った物だけなので、その印を付けておく
         stamp = {r["number"]: {"at": ports.now(), "head": ports.head_sha(r["path"]), **({"via": "listing"} if listing else {})}
@@ -945,6 +996,7 @@ def _listing(a, cfg, repo, ports):
                         results[r["number"]] = "refreshed"
             if sent_ok:
                 ports.save_sent(cfg.limits_dir, sent)
+        if ready:
             # 1 件あたりの使用率は、/catchup の終わりまで待った件だけで測る（待たずに送った件は、測る時にまだ使っていない）
             counts = collections.Counter(r["account"]["name"] for r, _ in ready if second[r["number"]] is not None)
             measured = [n for n in counts if n in metered]
@@ -969,6 +1021,42 @@ def _listing(a, cfg, repo, ports):
         notes += _fold_departments(a, cfg, repo, ports, dept_places, depts)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
+
+
+def _type_then(cfg, repo, ports, then, ready, direct, results, sent):
+    """--then のコマンドを、PR ごとに 1 本ずつ前のターンの終わりを待って順に打つ（turn.in_order。PR どうしは並べて走らせる）。
+    ready は起動したばかりの会話（/catchup <番号> を頭に足して打つ）、direct は開いていた手すきの会話（PR の番号 → (ペイン, sessions の行)。
+    --then のコマンドだけを打つ）。結末の語を results に、/catchup の終わった開いたばかりの PR の送った印を sent に書き、何本目まで
+    打ったかを PR ごとに控え（wiring.THEN_FILE）に書く。(報告の頭に足す行, /catchup の終わった PR の番号) を返す。"""
+    dirs = {x.name: x.config_dir for x in cfg.accounts}
+    jobs = {}   # PR の番号 → (ペイン, 打つコマンドの並び, その会話の場所, アカウントの設定の置き場, 開いたばかりか)
+    for r, pane in ready:
+        jobs[r["number"]] = (pane, [f"{ports.catchup_command(r['account'].get('config_dir'))} {r['number']}", *then], r["path"],
+                             r["account"].get("config_dir"), True)
+    for n, (pane, s) in direct.items():
+        jobs[n] = (pane, list(then), s["cwd"], dirs.get(s["account"]), False)
+    if not jobs:
+        return [], []
+    stamp = {r["number"]: {"at": ports.now(), "head": ports.head_sha(r["path"])} for r, _ in ready}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futures = {n: pool.submit(turn.in_order, pane, cmds, ports.term,
+                                  state=(lambda d=d, at=at: ports.state(d, at)))
+                   for n, (pane, cmds, at, d, _) in jobs.items()}
+        got = {n: f.result() for n, f in futures.items()}
+    notes, caught = [], []
+    for n, (word, typed) in sorted(got.items()):
+        _, cmds, _, _, new = jobs[n]
+        results[n] = word
+        if new and (typed >= 2 or typed == 1 and word in ("busy", turn.TYPING)):
+            # /catchup のターンは終わった（2 本目を打てた・打つ前に止めた）。ふつうの --pr と同じ控えを書く
+            sent[_key(repo, n)] = stamp[n]
+            caught.append(n)
+        rest = cmds[typed:]
+        notes.append(f"#{n}: " + ("開いた会話に /catchup と --then の計 " if new else "開いていた会話に --then の ") + f"{len(cmds)} 本のうち {typed} 本を打った"
+                     + (f"（打っていない: {', '.join(rest)}。訳は {word}）" if rest else ""))
+        ports.save_then(cfg.limits_dir, _key(repo, n), {"at": ports.now(), "commands": cmds, "typed": typed, "outcome": word,
+                                                         "conversation": "opened" if new else "open"})
+    return notes, caught
 
 
 def _queue_run(a, argv, command, ports):

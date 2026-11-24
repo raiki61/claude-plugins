@@ -18,6 +18,10 @@ herdr は画面の下の行で作業中かを決めるので、会話が裏に�
 組み込みの見張りが、動き出さなければ stalled で返す）。その後、Claude Code が idle を返すまで間をおいて見る。herdr が blocked
 （許可の確認など）を返せば blocked。期限は足さない（D5）。
 
+in_order は、--then のコマンドを 1 本ずつ、前のターンの終わりを待ってから順に打つ（頼み 96bf89）。どの 1 本も、打つ直前に
+会話が手すき（herdr の見立てで working・blocked でない）で、入力フィールドに人の打ちかけの字が無いことを確かめ（free）、
+そうでなければそこで止めて、何本目まで打ったかを返す。
+
 close_session は、会話を終えてペインの前をシェルに戻す（送り直す前と、閉じた PR の片付けの前に使う）。会話に /exit を送り、
 シェルが前に戻るのを読み戻してから closed を返す。戻らなければ close_failed。窓の前が裏の会話の attach なら /exit を打たずに attached を返す。
 
@@ -140,6 +144,47 @@ def catchup_then_second(number, pane, second, h=term, *, catchup, state=None, pa
         return first["status"]  # blocked か stalled
     second_result = send(pane, with_carry(second, catchup, earlier), False, h)
     return "sent" if second_result["status"] == "sent" else "send_failed"
+
+
+BUSY = ("working", "blocked")   # herdr の見立てで、会話がターンの途中か確かめの画面で止まっている
+TYPING = "typing"   # 入力フィールドに人の打ちかけの字が在るか、入力フィールドが見えない（打つと字が混ざる・消える）
+
+
+def free(pane, h=term):
+    """会話に今 1 行を打ってよいか。打ってよければ None、だめなら busy（herdr の見立てでターンの途中か確かめの画面）か TYPING。
+    入力フィールドの薄字（Claude Code の次の文の候補）は打ちかけと数えない（claudex.typed）。窓を読めなければ h.Error。"""
+    if (h.agent(pane) or {}).get("agent_status") in BUSY:
+        return "busy"
+    box = chat.typed(h.read(pane, 40, ansi=True))
+    return TYPING if box is None or box else None
+
+
+def in_order(pane, commands, h=term, *, state=None, pause=lambda: time.sleep(POLL_S)):
+    """commands（1 行ずつのコマンド）を、前のターンが終わってから 1 本ずつ順に打つ。(結末の語, 打った本数) を返す。
+    結末の語は sent（全部打った）・busy・typing（打つ前に会話が手すきでない・入力フィールドに字が在る）・blocked・stalled・send_failed。
+    どの 1 本も、打つ直前に free で確かめる。最後の 1 本は終わりを待たずに打つ（catchup_then_second の 2 ターン目と同じ）。
+    途中の 1 本の終わりは catchup_then_second の 1 ターン目と同じに見る（state が有れば Claude Code 自身の状態で）。"""
+    for i, text in enumerate(commands):
+        try:
+            held = free(pane, h)
+        except h.Error:
+            return "send_failed", i
+        if held:
+            return held, i
+        if i + 1 == len(commands):
+            got = send(pane, text, False, h)
+            return ("sent", i + 1) if got["status"] == "sent" else ("send_failed", i)
+        got = send(pane, text, True, h, until=("working", "blocked") if state else ())
+        if got["status"] == "failed":
+            return "send_failed", i
+        if state is not None and got["status"] == "working":
+            try:
+                got["status"] = _turn_end(pane, h, state, pause)
+            except h.Error:
+                return "send_failed", i + 1
+        if got["status"] not in FINISHED:
+            return got["status"], i + 1   # blocked か stalled。打った 1 本は数える
+    return "sent", len(commands)
 
 
 ATTACHED = "attached"   # close_session の結末: 窓の前が裏の会話の attach なので /exit を打たなかった

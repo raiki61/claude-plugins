@@ -58,7 +58,7 @@ class Report(unittest.TestCase):
 
     def test_every_word_that_is_not_a_send_has_a_reason(self):
         words = ("already_open no_news busy dirty unpushed many_open department unread_news close_failed no_account provision_failed "
-                 "branch_busy pane_busy launch_failed blocked stalled send_failed issue_closed open_only").split()
+                 "branch_busy pane_busy launch_failed blocked stalled send_failed issue_closed open_only typing").split()
         self.assertEqual(sorted(report.WHY), sorted(words))
         plan = [{"number": n, "kind": "pr", "title": "t", "head": "b", "outcome": "assigned", "account": None} for n in (1, 2, 3)]
         self.assertEqual(report.skipped(plan, {1: "sent", 2: "refreshed", 3: "reuse"}), [])
@@ -554,6 +554,19 @@ class Main(unittest.TestCase):
     def test_open_only_needs_a_named_pr_or_issue_and_not_no_second(self):
         for argv, want in ((["--open-only"], "--open-only は --pr か --issue と一緒にだけ使う"),
                            (["--pr", "1", "--open-only", "--no-second"], "--open-only と --no-second は一緒に使えない")):
+            with self.subTest(argv):
+                ports = FakePorts([pr(1)], git=self.g)
+                rc, out = run_main(["--config", self.cfg, *argv], ports)
+                self.assertEqual(rc, 2, out)
+                self.assertIn(want, out)
+                self.assertEqual(ports.term.writes, [])
+
+    def test_then_needs_a_named_pr_and_one_line_slash_commands(self):
+        for argv, want in ((["--then", "/a"], "--then は --pr と一緒にだけ使い"),
+                           (["--pr", "1", "--then", "/a", "--open-only"], "--then は --pr と一緒にだけ使い"),
+                           (["--pr", "1", "--then", "/a", "--no-second"], "--then は --pr と一緒にだけ使い"),
+                           (["--pr", "1", "--then", "レビューして"], "1 行のスラッシュコマンドだけ"),
+                           (["--pr", "1", "--then", "/a\n/b"], "1 行のスラッシュコマンドだけ")):
             with self.subTest(argv):
                 ports = FakePorts([pr(1)], git=self.g)
                 rc, out = run_main(["--config", self.cfg, *argv], ports)

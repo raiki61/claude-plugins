@@ -154,6 +154,7 @@ def spaces_show_kind(path):
 MARK = "@@CLAUDE_CONFIG_DIR="
 COST_FILE = "dispatch-cost.json"  # 1 件あたりの使用率の測り（cost ノード）。使用率の控えと同じ置き場
 SENT_FILE = "dispatch-sent.json"  # PR ごとに最後に /catchup を送った時刻と、その時の場所の head（送り直しの判断。fresh ノード）
+THEN_FILE = "dispatch-then.json"  # PR ごとに最後に --then で打たせたコマンドと、何本目まで打ったか（頼み 96bf89。読むのは人だけ）
 
 
 def _login_config_dir(env=os.environ, runner=subprocess.run, posix=None):
@@ -463,6 +464,19 @@ class Ports:
 
     def save_sent(self, limits_dir, sent):
         filex.replace(pathlib.Path(limits_dir) / SENT_FILE, json.dumps(sent, ensure_ascii=False, indent=1, sort_keys=True))
+
+    def save_then(self, limits_dir, key, record):
+        """--then の控え（THEN_FILE）の key の 1 件を record に書き替える（ほかの PR の物は残す）。今の控えが読めなければ、
+        その 1 件だけの控えに書き直す（読むのは人だけで、送り直しの判断には使わない）。"""
+        path = pathlib.Path(limits_dir) / THEN_FILE
+        try:
+            got = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            got = {}
+        if not isinstance(got, dict):
+            got = {}
+        got[key] = record
+        filex.replace(path, json.dumps(got, ensure_ascii=False, indent=1, sort_keys=True))
 
     def state(self, config_dir, path):
         """そのフォルダの中の会話の状態を Claude Code 自身に問う（claude agents --json の status。idle・busy・waiting など）。

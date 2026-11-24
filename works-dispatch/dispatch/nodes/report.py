@@ -4,8 +4,10 @@
 頭に注記（使用率の控えが無いアカウントなど）、続けて 1 件 1 行: `#<番号> <タイトル>  <ブランチ>  <アカウント>  <結末>`。
 issue から始めたもの（kind が issue）は `issue #<番号> …` で始める。まだブランチが無ければブランチのフィールドは `-`。
 結末の語は sent・refreshed・blocked・stalled・already_open・no_news・busy・dirty・unpushed・many_open・department・unread_news・
-close_failed・no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed・issue_closed・open_only と、--open-only の
-opened（作業場と会話を開いただけで、/catchup は送っていない）と、--dry-run の create（作業場を作る）・reuse（使い直す）・refresh（送り直す）。
+close_failed・no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed・issue_closed・open_only・typing と、--open-only の
+opened（作業場と会話を開いただけで、/catchup は送っていない）と、--dry-run の create（作業場を作る）・reuse（使い直す）・refresh（送り直す）・
+type_in（--then のコマンドを、開いている会話に立て直さずに打つ）。--then の回の sent は、頼まれたコマンドを全部打った印（開いていた会話には
+/catchup を打たない。打たないと頼まれた物なので、届かなかった物に数えない）。
 終わりに、/catchup が届かなかった（--dry-run では届かない見込みの）PR を、1 本 1 行で訳と一緒に出す（skipped。黙って飛ばさない。
 持ち主 2026-11-23「開いてっていったときに絶対にcatchupうつの修正させて」。頼み 2d6839）。--open-only で開いただけの PR（opened）は、
 打たないと頼まれた物なので出さない（頼み 4f95ed）。
@@ -30,13 +32,13 @@ for _s in (sys.stdout, sys.stderr):
 
 NONE = "自分の番の PR は無い"
 SKIPPED = "PR のうち /catchup が届いていない物と訳:"
-DELIVERED = ("sent", "refreshed", "create", "reuse", "refresh")   # 届いた（--dry-run の 3 語は届く見込み）
+DELIVERED = ("sent", "refreshed", "create", "reuse", "refresh", "type_in")   # 届いた（--dry-run の 4 語は届く見込み）
 UNASKED = ("opened",)   # --open-only で開いただけ。/catchup を打たないと頼まれたので、届かなかった物に数えない
 AT_TOP = "訳は上の注記"
 WHY = {
     "already_open": "同じブランチの会話がもう開いている。PR の作業場の外（代表の clone や別の場所）の会話と、--issue で開いた作業場の会話は終えない",
     "no_news": "前に /catchup を送った後に、相手の新しい返事（コメント・レビュー・commit）も head の変化も無い。打ち直すなら --pr <番号> で名指す",
-    "busy": "作業場の会話が作業中か、確認の画面で答えを待っている。終えない",
+    "busy": "作業場の会話が作業中か、確認の画面で答えを待っている。終えず、--then のコマンドも打たない",
     "dirty": "作業場に未コミットの変更か、git に足していないファイルが在る。会話を終えない",
     "unpushed": "作業場に、手元にしか無い commit か、そのブランチの stash が在る。会話を終えない",
     "many_open": "作業場で会話が 2 つ以上開いている。どれを終えてよいか決められないので、どれにも触らない",
@@ -49,9 +51,10 @@ WHY = {
     "pane_busy": "ペインの前に、シェルでない物（エディタ・dev server・別の会話）が居る",
     "launch_failed": f"{chat.NAME} を起動できなかった（{AT_TOP}）",
     "blocked": "会話が確認の画面（フォルダの信頼・ログイン・許可など）で止まっている。画面で答えれば進む",
-    "stalled": "会話に /catchup を打ったが、動き出さなかった",
-    "send_failed": f"会話に /catchup か 2 ターン目の文を送れなかった（途中で窓が閉じた・{term.NAME} が落ちたなど）",
+    "stalled": "会話に /catchup（か --then のコマンド）を打ったが、動き出さなかった",
+    "send_failed": f"会話に /catchup か 2 ターン目の文か --then のコマンドを送れなかった（途中で窓が閉じた・{term.NAME} が落ちたなど）",
     "issue_closed": "issue が閉じているので、ブランチを作らない",
+    "typing": "会話の入力フィールドに打ちかけの字が在るか、入力フィールドが見えないので、--then のコマンドを打たなかった（字を消さない）",
     "open_only": "--open-only で開いた会話（持ち主が会話で手で打つ前提）なので、送り直さない。打ち直すなら --pr <番号> で名指す",
 }
 
