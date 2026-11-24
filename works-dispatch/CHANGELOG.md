@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.171.1] - 2026-11-24
+
 ### Fixed
 
 - PR を開く回の報告の終わりの、`/catchup` が届かなかった PR の見出しを「PR のうち /catchup が届いていない物と訳:」に替え、理由の文のツールの名前を口（`ports.py`）の `NAME` から差し込む。0.171.0 の見出しと理由の文がツールの名前を口の外に書いていて、外のツールの名前の決まり（D9。`dispatch/tests/fences.py`）に当たり、main の CI（run 45166465858・45176635424）が赤だった（頼み aece50）。
