@@ -1054,8 +1054,11 @@ def _type_then(cfg, repo, ports, then, ready, direct, results, sent):
         rest = cmds[typed:]
         notes.append(f"#{n}: " + ("開いた会話に /catchup と --then の計 " if new else "開いていた会話に --then の ") + f"{len(cmds)} 本のうち {typed} 本を打った"
                      + (f"（打っていない: {', '.join(rest)}。訳は {word}）" if rest else ""))
-        ports.save_then(cfg.limits_dir, _key(repo, n), {"at": ports.now(), "commands": cmds, "typed": typed, "outcome": word,
-                                                         "conversation": "opened" if new else "open"})
+        try:
+            ports.save_then(cfg.limits_dir, _key(repo, n), {"at": ports.now(), "commands": cmds, "typed": typed, "outcome": word,
+                                                             "conversation": "opened" if new else "open"})
+        except OSError as e:
+            notes.append(f"#{n}: --then の控え {wiring.THEN_FILE} を書けなかった（{e}）。打った本数は上の行だけに残る")
     return notes, caught
 
 

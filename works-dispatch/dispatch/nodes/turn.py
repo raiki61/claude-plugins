@@ -150,10 +150,12 @@ BUSY = ("working", "blocked")   # herdr の見立てで、会話がターンの�
 TYPING = "typing"   # 入力フィールドに人の打ちかけの字が在るか、入力フィールドが見えない（打つと字が混ざる・消える）
 
 
-def free(pane, h=term):
+def free(pane, h=term, busy=True):
     """会話に今 1 行を打ってよいか。打ってよければ None、だめなら busy（herdr の見立てでターンの途中か確かめの画面）か TYPING。
-    入力フィールドの薄字（Claude Code の次の文の候補）は打ちかけと数えない（claudex.typed）。窓を読めなければ h.Error。"""
-    if (h.agent(pane) or {}).get("agent_status") in BUSY:
+    入力フィールドの薄字（Claude Code の次の文の候補）は打ちかけと数えない（claudex.typed）。窓を読めなければ h.Error。
+    busy が偽なら herdr の見立ては見ない（Claude Code 自身が idle を返した直後。会話が裏に待ちのコマンドを残すと、herdr はターンが
+    終わっても working と見続ける。上の #2003 の件）。"""
+    if busy and (h.agent(pane) or {}).get("agent_status") in BUSY:
         return "busy"
     box = chat.typed(h.read(pane, 40, ansi=True))
     return TYPING if box is None or box else None
@@ -163,10 +165,14 @@ def in_order(pane, commands, h=term, *, state=None, pause=lambda: time.sleep(POL
     """commands（1 行ずつのコマンド）を、前のターンが終わってから 1 本ずつ順に打つ。(結末の語, 打った本数) を返す。
     結末の語は sent（全部打った）・busy・typing（打つ前に会話が手すきでない・入力フィールドに字が在る）・blocked・stalled・send_failed。
     どの 1 本も、打つ直前に free で確かめる。最後の 1 本は終わりを待たずに打つ（catchup_then_second の 2 ターン目と同じ）。
-    途中の 1 本の終わりは catchup_then_second の 1 ターン目と同じに見る（state が有れば Claude Code 自身の状態で）。"""
+    途中の 1 本の終わりは catchup_then_second の 1 ターン目と同じに見る（state が有れば Claude Code 自身の状態で）。Claude Code が
+    idle を返して終えた後は、画面が描き直されるまで 1 回 pause してから、入力フィールドだけを見る（free の busy を偽に）。"""
+    ended = False   # 前の 1 本の終わりを Claude Code 自身の idle で見た
     for i, text in enumerate(commands):
         try:
-            held = free(pane, h)
+            if ended:
+                pause()
+            held = free(pane, h, busy=not ended)
         except h.Error:
             return "send_failed", i
         if held:
@@ -182,6 +188,7 @@ def in_order(pane, commands, h=term, *, state=None, pause=lambda: time.sleep(POL
                 got["status"] = _turn_end(pane, h, state, pause)
             except h.Error:
                 return "send_failed", i + 1
+            ended = got["status"] == "idle"
         if got["status"] not in FINISHED:
             return got["status"], i + 1   # blocked か stalled。打った 1 本は数える
     return "sent", len(commands)

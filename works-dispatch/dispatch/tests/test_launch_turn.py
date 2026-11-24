@@ -313,6 +313,11 @@ class Turn(unittest.TestCase):
         self.assertEqual(prompts, [("prompt", "p", "/a", True, ("working", "blocked")), ("prompt", "p", "/b", False)])
         self.assertEqual(seen, [1, 1, 1])   # 2 本目を打つ前に、1 本目の終わりを 3 回問うた
 
+    def test_in_order_trusts_claude_code_idle_over_a_herdr_working_left_by_a_background_wait(self):
+        # 会話が裏に待ちのコマンドを残すと、herdr はターンが終わっても working と見続ける（#2003）。Claude Code が idle を返したら 2 本目を打つ
+        h = self.boxed([self.BOX], statuses=["idle", "working"], prompts=["working", "sent"])
+        self.assertEqual(turn.in_order("p", ["/a", "/b"], h, state=lambda: "idle", pause=lambda: None), ("sent", 2))
+
     def test_in_order_stops_before_a_command_when_text_is_typed_or_the_box_is_not_seen(self):
         typed = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
         for screens, want in (([self.BOX, typed], ("typing", 1)), ([typed], ("typing", 0)), ([""], ("typing", 0))):

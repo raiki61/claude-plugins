@@ -70,7 +70,7 @@
 [cost] 1 件あたりの見積もり ┤
 [accounts] アカウントの順 ─┴─► [assign] 割り振りの案 ──► （--dry-run はここで report へ）
    ──► [turn の close_session・clean の release] 送り直す PR の古い会話と作業場を畳む（一覧だけ）
-   ──► [provision] 枝の作業場 ─► [launch] 起こす ─► [turn] 1 ターン目 ─► [turn] 2 ターン目（--issue・--no-second は送らない。--then は 2 ターン目の代わりに、in_order で --then のコマンドを 1 本ずつ順に打ち、開いている手すきの会話には起こさずに打つ。頼み 96bf89）
+   ──► [provision] 枝の作業場 ─► [launch] 起こす ─► [turn] 1 ターン目 ─► [turn] 2 ターン目（--issue・--no-second は送らない。--then は 2 ターン目の代わりに、--then のコマンドを前のターンが終わるのを待って 1 本ずつ順に打つ（コード上の関数は turn.in_order）。開いていて手すきの会話があれば、その会話を閉じも起動し直しもせずに、そのまま打つ。コマンドの種類・停止の結末の語は references/pr.md の `--then` の項。2026-11-24 から）
    ──► [cost] 1 件あたりを測って覚える ─► [clean] 自分の番でない PR の会話を閉じ、閉じた PR の場所を片付ける（一覧だけ）─► [report]
 ```
 
