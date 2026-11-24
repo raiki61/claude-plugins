@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-25
+
 ### Fixed
 
 - 0.10.0 で書き換えた `works/CLAUDE.md` の「出荷」の 1 が試験の実行器の名を直に書いていて、言語・実行器の名を数える歯止め（`works/docs/concepts.json` の `lang-names`）に当たり、main の CI の works の試験が赤になっていた（run 45387437546）。名を「試験の実行器を直に呼ぶ回し方」に言い換えた。決まりの中身は変わらない。
