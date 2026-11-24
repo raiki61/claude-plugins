@@ -2924,5 +2924,60 @@ class AgreesWithCatchup(unittest.TestCase):
                 self.assertEqual(owes, set(want))
 
 
+class ReplyForm(unittest.TestCase):
+    """返答の見本（references/reply.md の ``` の枠）が、リンクに対応しない端末でも崩れない形か。
+    Claude Code は TERM_PROGRAM が対応の一覧に無い端末（herdr の中など）で `[#N](URL)` を
+    `#N (URL)` に展開し、行が端末の幅を越えて折り返す。字下げした段落の折り返しは左端へ戻って
+    件の境目と 2 行目の列が消え、箇条書きの項目の折り返しは項目の字下げに揃う（頼み acb05f）。
+    空行の後の 4 桁以上の字下げと、枠の入れ子はコードブロックになり、リンクが生の字のまま出る。"""
+
+    FENCE = re.compile(r"^( *)```")
+    # 続きの行の頭に置くと、次の項目・引用・見出しになって 1 件が割れる印
+    BREAKS = re.compile(r"^(?:[-*+>] |#{1,6} |\d{1,9}[.)] )")
+
+    def blocks(self):
+        lines = (ROOT / "attention" / "skills" / "whose-turn" / "references" / "reply.md").read_text(
+            encoding="utf-8").splitlines()
+        out, cur, indent = [], None, ""
+        for n, line in enumerate(lines, 1):
+            m = self.FENCE.match(line)
+            if cur is None:
+                if m:
+                    cur, indent = (n, []), m.group(1)
+                continue
+            if m and m.group(1) == indent:
+                out.append(cur)
+                cur = None
+                continue
+            body = line[len(indent):] if line.startswith(indent) else line
+            cur[1].append((n, body))
+        self.assertIsNone(cur, "閉じの無い ``` の枠がある")
+        return out
+
+    def test_examples_are_bullet_items_with_two_space_continuations(self):
+        blocks = self.blocks()
+        # 見本が消えたら素通りになるので、枠の数も縛る（セクション 1 と 40 件以上の端の場合）
+        self.assertGreaterEqual(len(blocks), 2)
+        for start, body in blocks:
+            with self.subTest(line=start):
+                self.assertTrue(any(text.strip() for _, text in body), "空の枠")
+                self.assertTrue(body[0][1].startswith("- "), "枠の 1 行目が項目でない")
+                for n, text in body:
+                    self.assertTrue(text.strip(), f"{n} 行目: 項目の中・間に空行がある")
+                    self.assertNotIn("```", text, f"{n} 行目: 枠の入れ子")
+                    lead = len(text) - len(text.lstrip(" "))
+                    self.assertIn(lead, (0, 2), f"{n} 行目: 字下げは 0 か 2 桁だけ")
+                    if lead == 0:
+                        self.assertTrue(text.startswith("- "), f"{n} 行目: 字下げ 0 の行は `- ` で始める")
+                    else:
+                        self.assertIsNone(self.BREAKS.match(text[2:]), f"{n} 行目: 続きの行の頭に項目の印")
+
+    def test_skill_states_the_line_form(self):
+        """SKILL.md の返答のセクションが、reply.md を開く前にも同じ形を言っているか"""
+        text = (ROOT / "attention" / "skills" / "whose-turn" / "SKILL.md").read_text(encoding="utf-8")
+        for phrase in ("箇条書きの 1 項目", "字下げ 2 桁", "3 桁以上にしない", "``` の枠で囲まない"):
+            self.assertIn(phrase, text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
