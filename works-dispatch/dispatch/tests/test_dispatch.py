@@ -58,7 +58,7 @@ class Report(unittest.TestCase):
 
     def test_every_word_that_is_not_a_send_has_a_reason(self):
         words = ("already_open no_news busy dirty unpushed many_open department unread_news close_failed no_account provision_failed "
-                 "branch_busy pane_busy launch_failed blocked stalled send_failed issue_closed").split()
+                 "branch_busy pane_busy launch_failed blocked stalled send_failed issue_closed open_only").split()
         self.assertEqual(sorted(report.WHY), sorted(words))
         plan = [{"number": n, "kind": "pr", "title": "t", "head": "b", "outcome": "assigned", "account": None} for n in (1, 2, 3)]
         self.assertEqual(report.skipped(plan, {1: "sent", 2: "refreshed", 3: "reuse"}), [])
