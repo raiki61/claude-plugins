@@ -318,13 +318,19 @@ ${LAYER_RULES}
 Return only JSON that matches the output schema.`
 
 // ---- 3.3 step 6: the re-fetch of the excerpts (one command, relayed) ----
-const RECHECK_PROMPT = command => `Run the command below once, exactly as written, and do nothing else. It is one line: keep it on one line and do not change a character of it. Each base64 word is one line of data with a checksum inside, and a word copied wrong is counted, not checked.
+// "Add nothing": a copy with the 6 characters " 2>&1 added at the end was refused by the headless run's rule, and its
+// 5 excerpts went unchecked (a rerun on PR 2560)
+const RECHECK_PROMPT = (command, again = '') => `Run the command below once, exactly as written, and do nothing else. It is one line: keep it on one line and do not change a character of it. Add nothing before or after it: no quote, no redirection such as 2>&1, no cd. Each base64 word is one line of data with a checksum inside, and a word copied wrong is counted, not checked.
 
 \`\`\`bash
 ${command}
 \`\`\`
 
-The command prints one JSON object. Return its ran, checked, kept, dropped (each {id, why}), garbled, over, offline and error as they are. If the command fails or prints no JSON, return ran false, checked 0, kept, dropped and garbled empty, over 0, offline false, and the error text in error.`
+The command prints one JSON object. Return its ran, checked, kept, dropped (each {id, why}), garbled, over, offline and error as they are. If the command fails or prints no JSON, return ran false, checked 0, kept, dropped and garbled empty, over 0, offline false, and the error text in error.${again ? `
+
+## Why you are asked again
+
+The last try did not run the command (${again}). The command is allowed only as the exact line above, with nothing added or changed. Copy it again, character for character.` : ''}`
 
 // ---- 3.3 step 7: the general structure, by the blind eye (the first half of W2_PROMPT, for one problem class) ----
 const GENERAL_PROMPT = (c, noTools) => `In general, how is a system that has the problem below divided into parts, what flows between the parts, where is the source of truth kept, which way do the dependencies point, and where are the boundaries drawn? Give each together with the reason it is placed that way. Describe structure, not solutions or tools.
@@ -608,7 +614,13 @@ async function recheck(c, r, round) {
   const status = Object.fromEntries(all.map(x => [x.id, { state: 'unchecked', why: 'over the excerpt cap' }]))
   const tally = { kept: 0, dropped: 0, unchecked: 0, garbled: 0, over: all.length - Math.min(all.length, LIMITS.maxExcerpts) }
   if (!sent.length) { tally.unchecked = all.length - tally.over; return { status, tally, ran: true } }
-  const got = await run('Recheck', `Recheck ${c.id} ${round}`, RECHECK_PROMPT(EXCERPT_COMMAND(c, sent)), { schema: RECHECK, phase: 'Search', ...M('Recheck') })
+  const command = EXCERPT_COMMAND(c, sent)
+  let got = await run('Recheck', `Recheck ${c.id} ${round}`, RECHECK_PROMPT(command), { schema: RECHECK, phase: 'Search', ...M('Recheck') })
+  // the agent did not run it (a copy with characters added is refused): once more, with the reason
+  if (got?.ran !== true) {
+    const why = str(got?.error).slice(0, 300) || 'nothing came back'
+    got = await run('Recheck', `Recheck ${c.id} ${round} again`, RECHECK_PROMPT(command, why), { schema: RECHECK, phase: 'Search', ...M('Recheck') })
+  }
   const ids = new Set(sent.map(x => x.id))
   for (const x of sent) status[x.id] = { state: 'unchecked', why: 'the re-fetch did not report it' }
   // a run the agent did not make, or whose count differs from what was sent (a line lost in the copy), is not trusted

@@ -401,6 +401,24 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
     check(ui?.not_applies_unchecked === true, '抜き書きが残らない not_applies に印が付かない')
     check(/excerpts not checked/.test(out.reason), `照合できなかったことが reason に出ない: ${out.reason}`)
 
+    // 取り直しの役がコマンドを打てなかった（字を足した写しが許しの規則に拒まれた。PR 2560 の回し直し）なら、訳を添えて 1 回だけ頼み直す
+    const DENIED = { ran: false, checked: 0, kept: [], dropped: [], garbled: [], over: 0, offline: false, error: 'Permission to use Bash was denied' }
+    let d = 0
+    const again = await run(baseArgs(), call => {
+      if (call.stage === 'Recheck') { d++; return d === 1 ? DENIED : recheckFrom(call.prompt) }
+      return happy()(call)
+    })
+    const rcs = again.calls.filter(c => c.stage === 'Recheck')
+    check(rcs.length === 2 && rcs[1].prompt.includes('## Why you are asked again') && rcs[1].prompt.includes('Permission to use Bash was denied')
+      && !rcs[0].prompt.includes('## Why you are asked again') && rcs[0].prompt.includes('no redirection such as 2>&1'),
+      `打てなかった取り直しを、訳を添えて 1 回だけ頼み直さない: ${rcs.length} 回`)
+    check(again.out.excerpts.kept === 3 && !/excerpts not checked/.test(again.out.reason), `頼み直した取り直しの結果が使われない: ${JSON.stringify(again.out.excerpts)}`)
+    // 2 回とも打てなければ、照合できなかった物として数え、reason に出す（3 回目は頼まない）
+    const twice = await run(baseArgs(), call => (call.stage === 'Recheck' ? DENIED : happy()(call)))
+    check(twice.calls.filter(c => c.stage === 'Recheck').length === 2 && twice.out.excerpts.unchecked === 3
+      && /excerpts not checked \(Permission to use Bash was denied\)/.test(twice.out.reason),
+      `2 回とも打てなかった取り直しが、照合できなかった物として reason に出ない: ${JSON.stringify(twice.out.excerpts)} / ${twice.out.reason}`)
+
     // 依存の行の抜き書きが全部落ちたら 1 回だけ探し直させる
     let t = 0
     const re = await run(baseArgs(), call => {
