@@ -32,7 +32,7 @@
 
 版上げの後に plugin の中身を変える commit を積むと、main の CI が赤になる（中身を変えたのに版が据え置きの plugin を、`tests/run.sh` の `VERSION_BUMP_OK` が赤にする）。`--land` は版を上げる commit を必ずブランチの最後に置くので、この形にならない。
 
-`--land` を通さずに手で上げるときは、上の 1 を手でし、2 の `check` のコマンドも手で回してから、その commit をブランチの最後に置いたまま main に push する。版上げの順の検査は main と release/* の CI でだけ厳しくなるので、手元では `VERSION_BUMP_STRICT=1 bash tests/run.sh` で確かめる。
+`--land` を通さずに手で上げるときは、上の 1 を手でし、2 の `check` のコマンドも手で回してから、その commit をブランチの最後に置いたまま main に push する。版上げの順の検査は main と release/* の CI でだけ厳しくなる。手元では確かめず、順が崩れていれば main の CI が赤にする（試験は手元で回さない。docs/adr/0077-tests-run-only-in-ci.md）。
 
 1 つの commit で複数の plugin の版を上げるときは、上げた plugin のそれぞれで版の番号と記録の見出しを直す（記録の見出しは plugin ごとに足す）。件名には上げた plugin を全部並べる。`--land` もこの形で上げる。
 

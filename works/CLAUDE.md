@@ -14,7 +14,7 @@ works は、コードの直しの頼みを AI の段（調べる・計画する�
 
 ## 出荷（works の版）
 
-1. 手元の試験はルートの CLAUDE.md の「試験」のセクションと同じく速い段とルートのチェックまで（重い段は main に入った後の CI に任せる）。ルートのチェックは VERSION_BUMP_STRICT=1 を付けて回す（`VERSION_BUMP_STRICT=1 bash tests/run.sh`。版上げの順の検査は main・release/* の CI でだけ厳しくなるため）。
+1. 試験は手元で回さず、main に入った後の CI に任せる（持ち主 2026-11-23「重いのでテストはCIで回すようにしてね」。works の決まりも同じ扱いにするかの問いに 2026-11-24「おしで」。ルートの CLAUDE.md の「試験」と docs/adr/0077-tests-run-only-in-ci.md）。手元では `sh works/tests/run.sh`・`bash tests/run.sh`・pytest・unittest・模擬実行の台本・変異テストを打たない。`WORKS_TESTS=fast` や `WORKS_TESTS=heavy` で段を選んだ回し方と、`-k` で絞った回し方も打たない。手元で回すのは、試験を走らせない軽い検査 `bash scripts/light-check.sh` だけ。版上げの順の検査（`tests/run.sh` の `VERSION_BUMP_OK`）は、main の CI では `VERSION_BUMP_STRICT=1` を付けなくても厳しく回る。
 2. CHANGELOG の Unreleased を版に。
 3. **版上げ（works の plugin.json・marketplace）を最後の commit にする。** 版上げの後に works を変える commit を積むと main の CI が赤になる（0.2.2 で実測）。
 4. push で終わり、CI は待たない（ルートの CLAUDE.md の「判断の線」の持ち主 2026-10-16 の決め）。main の CI が後で赤になったら、点検が最初の手として、赤の原因になった commit（main に入れた物）を git revert で戻す。

@@ -31,7 +31,7 @@
 
 - `[land]` の `check` は `bash scripts/light-check.sh && python3 gates/hooks/coldread-gate.py branch-check ...` にした。
 - `tests/land-check.py` と、`tests/run.sh` の `scope`（変えた所だけを回すための入力の宣言）・`tests/land-known-red.txt` は消さない。今は回す所が無いが、手元で試験を回す形へ戻す決めが出たとき、選び方（0076 の決定 2）と落ちた試験の名前の出し方（0076 の決定 4）をそのまま使える。消すかは別の頼みで決める。
-- works の試験の決まり（`works/CLAUDE.md` の「出荷」の 1。手元で速い段とルートのチェックを回す）は、持ち主が別に回している所なので、この決めでは直していない。
+- works の試験の決まり（`works/CLAUDE.md` の「出荷」の 1。手元で速い段とルートのチェックを回す）は、この決めを採った時は直さず、2026-11-24 に持ち主の「おしで」（works もそろえるかの問いへの答え）でこの決めにそろえた。
 
 ## 比べた案
 
