@@ -551,6 +551,16 @@ class Main(unittest.TestCase):
         self.assertEqual([w for w in ports.term.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 1", False)])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
 
+    def test_open_only_needs_a_named_pr_or_issue_and_not_no_second(self):
+        for argv, want in ((["--open-only"], "--open-only は --pr か --issue と一緒にだけ使う"),
+                           (["--pr", "1", "--open-only", "--no-second"], "--open-only と --no-second は一緒に使えない")):
+            with self.subTest(argv):
+                ports = FakePorts([pr(1)], git=self.g)
+                rc, out = run_main(["--config", self.cfg, *argv], ports)
+                self.assertEqual(rc, 2, out)
+                self.assertIn(want, out)
+                self.assertEqual(ports.term.writes, [])
+
     def test_pr_opens_only_the_named_prs_without_whose_turn(self):
         ports = FakePorts([pr(1), pr(2)], git=self.g)
         ports.fetch_prs = lambda repo: self.fail("--pr では whose-turn を呼ばない")
@@ -658,6 +668,16 @@ class Issue(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--issue", "12", "--pr", "1"], self.ports())
         self.assertEqual(rc, 2)
         self.assertIn("--issue と --pr は一緒に使えない", out)
+
+    def test_open_only_opens_the_issue_place_and_sends_nothing(self):
+        # 頼み 4f95ed。作業場と会話を開くだけで、/catchup も打たない（持ち主が会話で手で打つ）
+        ports = self.ports(branches=["feat/5"])
+        rc, out = run_main(["--config", self.cfg, "--issue", "12", "--open-only"], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.line(out), "issue #12 ログインを直す  feat/5  a1  opened")
+        self.assertIn(("run", "P0", typed("claude-a1")), ports.term.writes)
+        self.assertEqual([w for w in ports.term.writes if w[0] == "prompt"], [])
+        self.assertNotIn(report.SKIPPED, out)
 
     def test_issue_does_not_tidy(self):
         ports = self.ports(branches=["feat/5"])

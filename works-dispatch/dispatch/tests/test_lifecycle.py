@@ -254,6 +254,63 @@ class Flow(unittest.TestCase):
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
         self.assertNotIn("via", sent["o/r#1"])   # 名指しで立て直した会話は、後の一覧の回で閉じない
 
+    def test_open_only_opens_the_pr_place_without_catchup_and_marks_the_record(self):
+        # 頼み 4f95ed。持ち主「dispatch させるだけなのに catchup まで打ってほしくない場合がある」
+        ports = FakePorts([], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        ports.now = lambda: 4242.0
+        rc, out = run_main(self.cfg, ports, "--pr", "1", "--open-only")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("opened"), out)
+        self.assertIn(("run", ports.term.panes()[0]["pane_id"], typed("claude-a1")), ports.term.writes)
+        self.assertEqual([x for x in ports.term.writes if x[0] == "prompt"], [])
+        self.assertNotIn(report.SKIPPED, out)
+        self.assertFalse(hasattr(ports, "saved_cost"))   # /catchup を待っていないので 1 件あたりの使用率を測らない
+        path = self.linked(ports)[0]["path"]
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
+        self.assertEqual(sent["o/r#1"], {"at": 4242.0, "head": self.g.head_sha(path), "via": dispatch.OPEN_ONLY})
+
+    def test_open_only_conversation_is_not_refreshed_by_the_listing_but_naming_it_does(self):
+        # 印が控えに残る間は、相手の新しい返事が有っても一覧の回は /catchup を送り直さない。--pr で名指せば送り直し、印を消す
+        path = self.place(1)
+        self.sent({"o/r#1": {"at": 100.0, "head": self.g.head_sha(path), "via": dispatch.OPEN_ONLY}})
+        ports = FakePorts([pr(1)], git=self.g)
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("open_only"), out)
+        self.assertEqual(ports.term.writes, [])
+        self.assertIn(f"- #1: {report.WHY['open_only']}（open_only）", out)
+        ports = FakePorts([], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        self.talking_in(ports, path)
+        rc, out = run_main(self.cfg, ports, "--pr", "1")
+        self.assertTrue(line(out, 1).endswith("refreshed"), out)
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", wiring.SENT_FILE).read_text())
+        self.assertNotIn("via", sent["o/r#1"])
+
+    def test_open_only_leaves_an_open_conversation_as_it_is(self):
+        path = self.place(1)
+        ports = FakePorts([], git=self.g)
+        ports.pr_info = lambda repo, n: pr(n)
+        self.talking_in(ports, path)
+        rc, out = run_main(self.cfg, ports, "--pr", "1", "--open-only")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(line(out, 1).endswith("already_open"), out)
+        self.assertEqual(ports.term.writes, [])
+        self.assertIn("#1: 会話がもう開いているので、--open-only は会話に触らずに残した", out)
+
+    def test_open_only_conversation_is_never_closed_as_off_turn(self):
+        # 持ち主が手で打つ会話なので、自分の番でなくなっても一覧の回は閉じない（一覧の回の印 via: listing が無い）
+        path, ports, _ = self.off_turn()
+        self.sent({"o/r#3": {"at": 200.0, "head": self.g.head_sha(path), "via": dispatch.OPEN_ONLY}})
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(ports.term.writes, [])
+        self.assertIn("#3 feat/3: 自分の番でない PR だが、dispatch が一覧の回で開いた会話と言い切れないので残した（"
+                      "送った記録に一覧の回の印 via: listing が無い", out)
+
     def test_naming_a_pr_whose_conversation_has_work_keeps_it_and_says_why_at_the_end(self):
         for status, dirty, want in (("busy", False, "busy"), ("idle", True, "dirty")):
             with self.subTest(want):

@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: "自分の番の PR や issue をブランチごとの作業場に開き、使用枠に空きのあるアカウントの Claude Code に /catchup を送る。部署（作業ごとの別の会話）を立てて頼む・納品する・main に入れるのもこのスキル。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」「issue #1300 を始めて」「この作業を「作業」に回して」と言われたときに使う。初めては「/works-dispatch:dispatch setup」。"
+description: "自分の番の PR や issue をブランチごとの作業場に開き、使用枠に空きのあるアカウントの Claude Code に /catchup を送る。部署（作業ごとの別の会話）を立てて頼む・納品する・main に入れるのもこのスキル。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」「#1234 の作業場だけ開いて」「issue #1300 を始めて」「この作業を「作業」に回して」と言われたときに使う。初めては「/works-dispatch:dispatch setup」。"
 ---
 
 # dispatch
@@ -38,7 +38,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 手順は 3 つ。1. 下の並びから、頼まれた事（例「PR を開いて」なら引数なしの行、「部署を立てて」なら `--task` の行、「この作業を「作業」に回して」なら `--ask` の行。「作業」は一度きりの部署の役の名前）に当たる行を 1〜2 本選ぶ。2. その行の別ファイルを、そのコマンドを打つ直前に読む（仕事の初めにまとめて読まない。納品の別ファイルは納品する時に読む）。ただし、上の「works-dispatch のコマンド」の一覧が会話の始まりに在る部署の会話では、その 4 つ（納品・main に入れる・頼む・終わりの印）は、読まずにその字で打ち、断られて出力の訳で直せないときだけ読む。3. 別ファイルに書いてあるコマンドの形で打つ。別ファイルの中の「」で囲んだ名前（例「役の中身と起動方法」）は、ほかの別ファイルのセクションを指す。そのセクションが要るときは、下の並びからそのファイルを開く。
 
 - `setup`・`--check`・`--init`・`--init-company`、「前提」「初めて」「アカウントの書き方」「herdr の見た目を整える」: [references/setup.md](references/setup.md)
-- 自分の番の PR を開く（引数なし・`--dry-run`・`--pr N`・`--issue N`・`--no-second`）と「しないこと」: [references/pr.md](references/pr.md)
+- 自分の番の PR を開く（引数なし・`--dry-run`・`--pr N`・`--issue N`・`--no-second`・開くだけで `/catchup` を打たない `--open-only`）と「しないこと」: [references/pr.md](references/pr.md)
 - 片付ける `--clean`・部署の会話を止める・畳む部署の終わり `--done` と畳む `--retire`: [references/clean.md](references/clean.md)
 - 部署を立てる `--task`・会社のツリー図 `--tree`・受け持ちの寿命 `lifetime`（always・until-idle・per-ask。until-idle は頼まれたときに立て、手が空いたら畳む）・会社の形をどこから読むか（origin の既定のブランチ。変えた会社の形は既定のブランチに入れてから効く）: [references/department.md](references/department.md)
 - 会社の形の役 `[[roles]]`・受け持ちごとの model と effort・`gh_user`・`lifetime`・`context`・`settings`・`rent_or_buy`・`default_role`・`desk_role`・`former_names`・`machine`（「役の中身と起動方法」）: [references/roles.md](references/roles.md)

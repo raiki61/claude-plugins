@@ -27,6 +27,9 @@
 どの回も、/catchup が届かなかった PR を、報告の終わりに 1 本 1 行で訳と一緒に出す（report.skipped）。
 --issue N は、issue に結んだブランチの場所を開き（ブランチが無ければ GitHub に作って issue に結ぶ）、1 ターン目の /catchup N まで送って止める。
 --no-second は 2 ターン目の文を送らず、/catchup だけで止める。
+--open-only は --pr か --issue と一緒に使い、作業場と会話を開くだけで、/catchup も 2 ターン目の文も送らない（持ち主が会話で手で打つ。
+頼み 4f95ed）。PR なら控え（dispatch-sent.json）に印 via: open_only を書き、印が残る間は、会話が開いていれば一覧の回が送り直さない。
+--open-only で名指した PR の会話が既に開いていれば、立て直さずにそのまま残す（already_open）。
 
 --task 名前 は、部署を 1 つ立てる（_task）。ブランチの場所を PR と同じ決まりで開き（herdr の、元の clone の子の作業場）、使用率でアカウントを
 1 つ選び（会社の形の役か受け持ちが account で名指したアカウントは、使えれば先に選ぶ）、その作業場で Claude Code の裏の会話（claude --bg）を、名前と頼みのファイルを読ませる最初の文を付けて起動し、同じペインで
@@ -39,7 +42,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
 フック shape_hook.py が、その会社の分を同じ中身で付け直す）。
 どちらも dispatch の設定が無くても動く（有れば、会話のアカウントと、設定の置き場の会社の情報を見る）。
 
-使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--pr N ... | --issue N] [--no-second] [--dry-run | --clean [--apply]]
+使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--pr N ... | --issue N] [--no-second | --open-only] [--dry-run | --clean [--apply]]
         python3 dispatch.py --task <名前> --branch <ブランチ> --brief <頼みのファイル> [--repo OWNER/NAME か代表の clone] [--base <ブランチ>]
                             [--from-name <呼んだ会話の名前>] [--from-account <アカウントの名>] [--role <役>] [--dry-run]
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
@@ -120,12 +123,17 @@ def _key(repo, number):
     return f"{repo.repo}#{number}"
 
 
+OPEN_ONLY = "open_only"   # 控えの via: --open-only で開いただけで、/catchup を送っていない（持ち主が手で打つ）
+
+
 def _sent_record(v):
-    """dispatch-sent.json の 1 件を {at, head, listed} にする。前の版は時刻だけを書いた。listed は一覧の回で送った印（via が listing）。
-    印の無い控え（--pr・--issue で送った物と、印を書く前の版の物）は、出どころを言い切れないので listed を偽にする。"""
+    """dispatch-sent.json の 1 件を {at, head, listed, open_only} にする。前の版は時刻だけを書いた。listed は一覧の回で送った印（via が listing）。
+    印の無い控え（--pr・--issue で送った物と、印を書く前の版の物）は、出どころを言い切れないので listed を偽にする。
+    open_only は --open-only で開いた印（via が open_only）。at と head は開いた時の物。"""
     if isinstance(v, (int, float)):
-        return {"at": v, "head": None, "listed": False}
-    return {"at": (v or {}).get("at"), "head": (v or {}).get("head"), "listed": (v or {}).get("via") == "listing"}
+        return {"at": v, "head": None, "listed": False, "open_only": False}
+    via = (v or {}).get("via")
+    return {"at": (v or {}).get("at"), "head": (v or {}).get("head"), "listed": via == "listing", "open_only": via == OPEN_ONLY}
 
 
 def _pane_at(h, path):
@@ -336,6 +344,8 @@ def _parser():
     ap.add_argument("--issue", type=int, metavar="N",
                     help="この issue に結んだブランチの場所を開き（無ければブランチを作って結ぶ）、/catchup N まで送って止める")
     ap.add_argument("--no-second", action="store_true", help="2 ターン目の文を送らず、/catchup だけで止める")
+    ap.add_argument("--open-only", action="store_true",
+                    help="--pr か --issue と一緒に: 作業場と会話を開くだけで、/catchup も 2 ターン目の文も送らない（会話で手で打つ）")
     ap.add_argument("--init", action="store_true", help="設定の下書きを書く（--repo と --source が要る。有れば上書きしない）")
     ap.add_argument("--source", help="--init と一緒に: そのリポジトリの代表の clone")
     ap.add_argument("--init-company", action="store_true",
@@ -604,6 +614,12 @@ def main(argv=None, ports=None):
     if a.issue is not None and a.pr:
         print("止めた: --issue と --pr は一緒に使えない（1 回に 1 つの入口）")
         return 2
+    if a.open_only and not (a.pr or a.issue is not None):
+        print("止めた: --open-only は --pr か --issue と一緒にだけ使う（一覧の回は、開いてと名指していない PR に /catchup を打たずに開かない）")
+        return 2
+    if a.open_only and a.no_second:
+        print("止めた: --open-only と --no-second は一緒に使えない（--open-only は /catchup も送らない。/catchup だけ送るなら --no-second だけ）")
+        return 2
     task_args = [n for n, v in (("--branch", a.branch), ("--brief", a.brief), ("--base", a.base), ("--from-name", a.from_name),
                                 ("--from-account", a.from_account), ("--role", a.role), ("--persistent", a.persistent)) if v]
     if a.task is None and task_args:
@@ -752,6 +768,10 @@ def _listing(a, cfg, repo, ports):
             if fresh.quiet_since_sent(_sent_record(sent_rec), act):
                 quiet.add(p["number"])
             continue
+        if a.open_only:
+            # 開くだけの回は、開いている会話を終えて立て直さない（下の割り振りが already_open にする）
+            notes.append(f"#{p['number']}: 会話がもう開いているので、--open-only は会話に触らずに残した")
+            continue
         if len(inside) > 1:
             verdicts[p["number"]] = "many_open"   # どの会話を終えてよいか決められないので、どれにも触らない
             continue
@@ -763,6 +783,10 @@ def _listing(a, cfg, repo, ports):
             verdicts[p["number"]] = "unread_news"
             continue
         rec = _sent_record(sent.get(_key(repo, p["number"])))
+        if rec["open_only"] and not named:
+            # --open-only で開いた会話（持ち主が手で打つ前提）。印が残る間は、相手の新しい返事が有っても /catchup を送り直さない
+            verdicts[p["number"]] = OPEN_ONLY
+            continue
         local = _local_work(ports, path, p["head"], rec)
         v = fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local, sent_head=rec["head"], named=named)
         if v == "refresh":
@@ -801,6 +825,8 @@ def _listing(a, cfg, repo, ports):
                 r["fork"] = bool(ports.pr_info(repo, r["number"]).get("fork"))
             except ghx.GhError as e:
                 notes.append(f"#{r['number']}: fork の PR かを読めない（{e}）")
+    if a.open_only and assigned:
+        notes.append("--open-only なので、開いた会話に /catchup も 2 ターン目の文も送らない（会話で手で打つ）")
     if a.dry_run:
         for r in assigned:
             results[r["number"]] = "refresh" if r["number"] in refresh else provision.would(r, found)
@@ -873,7 +899,7 @@ def _listing(a, cfg, repo, ports):
             untrusted = _trust_note(ports, r["account"], repo.source, prov["path"], cfg.accounts)
             if untrusted:
                 notes.append(f"{name}: {untrusted}")
-            if r["kind"] == "pr" and not prov["created"] and not a.no_second and r["number"] not in catchup_only:
+            if r["kind"] == "pr" and not prov["created"] and not (a.no_second or a.open_only) and r["number"] not in catchup_only:
                 r["earlier"] = _earlier_report(cfg, ports, r, notes)   # 新しい会話を起動する前に（起動すると、それがいちばん新しい記録になる）
             got = launch.start(r, prov["pane"], ports.term)
             if got["status"] == "ready":
@@ -881,6 +907,16 @@ def _listing(a, cfg, repo, ports):
             else:
                 results[r["number"]] = got["status"]
                 notes.append(f"{name}: {got['detail']}")
+        if a.open_only:
+            # 開くだけ。PR は控えに開いた印を書き、印が残る間は一覧の回が会話を送り直さない（at と head は開いた時の物。会話を閉じた後は、
+            # 開いた後に相手の動きが有れば一覧の回が新しい会話を開いて /catchup を送り、控えをふつうの物に書き換える）
+            for r, _ in ready:
+                results[r["number"]] = "opened"
+                if r["kind"] == "pr":
+                    sent[_key(repo, r["number"])] = {"at": ports.now(), "head": ports.head_sha(r["path"]), "via": OPEN_ONLY}
+            if ready and sent_ok:
+                ports.save_sent(cfg.limits_dir, sent)
+            ready = []
         # issue から始めたものは 1 ターン目の /catchup まで（2 ターン目の文は PR のレビューの文なので送らない）
         second = {r["number"]: None if (a.no_second or r["kind"] == "issue" or r["number"] in catchup_only)
                   else repo.second_prompt for r, _ in ready}
@@ -1394,6 +1430,8 @@ def _not_listed_why(rec, mine):
         return f"同じ手元に会話が {len(mine)} つ開いている"
     if not isinstance(rec["at"], (int, float)):
         return "送った記録が無い。持ち主が自分で開いた会話か"
+    if rec["open_only"]:
+        return "送った記録に一覧の回の印 via: listing が無い。--open-only で開いた会話（持ち主が会話で手で打つ）"
     if not rec["listed"]:
         return "送った記録に一覧の回の印 via: listing が無い。--pr・--issue で開いた会話か、印を書く前の版で送った会話"
     if not isinstance(mine[0]["started"], (int, float)):

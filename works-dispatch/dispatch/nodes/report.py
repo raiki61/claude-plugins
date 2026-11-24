@@ -4,10 +4,11 @@
 頭に注記（使用率の控えが無いアカウントなど）、続けて 1 件 1 行: `#<番号> <タイトル>  <ブランチ>  <アカウント>  <結末>`。
 issue から始めたもの（kind が issue）は `issue #<番号> …` で始める。まだブランチが無ければブランチのフィールドは `-`。
 結末の語は sent・refreshed・blocked・stalled・already_open・no_news・busy・dirty・unpushed・many_open・department・unread_news・
-close_failed・no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed・issue_closed と、--dry-run の
-create（作業場を作る）・reuse（使い直す）・refresh（送り直す）。
+close_failed・no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed・issue_closed・open_only と、--open-only の
+opened（作業場と会話を開いただけで、/catchup は送っていない）と、--dry-run の create（作業場を作る）・reuse（使い直す）・refresh（送り直す）。
 終わりに、/catchup が届かなかった（--dry-run では届かない見込みの）PR を、1 本 1 行で訳と一緒に出す（skipped。黙って飛ばさない。
-持ち主 2026-11-23「開いてっていったときに絶対にcatchupうつの修正させて」。頼み 2d6839）。
+持ち主 2026-11-23「開いてっていったときに絶対にcatchupうつの修正させて」。頼み 2d6839）。--open-only で開いただけの PR（opened）は、
+打たないと頼まれた物なので出さない（頼み 4f95ed）。
 PR が 0 件なら「自分の番の PR は無い」の 1 行。
 
 使い方: python3 nodes/report.py --plan <plan の JSON> [--results <番号→結末の JSON>]
@@ -30,6 +31,7 @@ for _s in (sys.stdout, sys.stderr):
 NONE = "自分の番の PR は無い"
 SKIPPED = "PR のうち /catchup が届いていない物と訳:"
 DELIVERED = ("sent", "refreshed", "create", "reuse", "refresh")   # 届いた（--dry-run の 3 語は届く見込み）
+UNASKED = ("opened",)   # --open-only で開いただけ。/catchup を打たないと頼まれたので、届かなかった物に数えない
 AT_TOP = "訳は上の注記"
 WHY = {
     "already_open": "同じブランチの会話がもう開いている。PR の作業場の外（代表の clone や別の場所）の会話と、--issue で開いた作業場の会話は終えない",
@@ -50,6 +52,7 @@ WHY = {
     "stalled": "会話に /catchup を打ったが、動き出さなかった",
     "send_failed": f"会話に /catchup か 2 ターン目の文を送れなかった（途中で窓が閉じた・{term.NAME} が落ちたなど）",
     "issue_closed": "issue が閉じているので、ブランチを作らない",
+    "open_only": "--open-only で開いた会話（持ち主が会話で手で打つ前提）なので、送り直さない。打ち直すなら --pr <番号> で名指す",
 }
 
 
@@ -69,7 +72,7 @@ def skipped(plan, results):
     rows = []
     for r in plan:
         word = results.get(r["number"], r["outcome"])
-        if word in DELIVERED or word == "assigned":
+        if word in DELIVERED or word in UNASKED or word == "assigned":
             continue
         head = "issue " if r.get("kind") == "issue" else ""
         rows.append(f"- {head}#{r['number']}: {WHY.get(word, AT_TOP)}（{word}）")

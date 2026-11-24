@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- PR を開く回の `--open-only` の旗。`--pr N` か `--issue N` と一緒に使い、作業場と会話を開くだけで、`/catchup` も 2 ターン目の文も送らない（持ち主が開いた会話で自分のコマンドを手で打つとき。例: PR のレビューを別のコマンドでするために、PR のブランチの作業場だけ開く）。既定は今のまま（`--pr` で名指した PR には必ず `/catchup` を打つ）。旗を付けて開いた PR は、控え（`dispatch-sent.json`）に印 `via: open_only` を書き、印が残る間は、会話が開いていれば引数なしの回もその会話に `/catchup` を送り直さず（結末の語 `open_only`）、自分の番でなくなっても会話を閉じない。`--pr N`（旗無し）で名指せば送り直し、印も消える。名指した PR の会話が既に開いていれば、旗を付けた回は立て直さずに残す（`already_open`）。報告の行の結末は `opened` で、`/catchup` が届いていない物の一覧には出さない（頼み 4f95ed）。
+
 ## [0.171.1] - 2026-11-24
 
 ### Fixed
