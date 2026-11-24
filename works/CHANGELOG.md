@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-24
+
 ### Changed
 
 - works を直すときの決まり（`works/CLAUDE.md` の「出荷」の 1）を、手元で速い段の試験とリポジトリ全体の試験を回す形から、試験は手元で回さず main に入った後の CI に任せ、手元では軽い検査 `bash scripts/light-check.sh` だけを回す形に変えた（リポジトリのルートの `docs/adr/0077-tests-run-only-in-ci.md`）。
