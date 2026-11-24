@@ -775,17 +775,18 @@ def _listing(a, cfg, repo, ports):
         if len(inside) > 1:
             verdicts[p["number"]] = "many_open"   # どの会話を終えてよいか決められないので、どれにも触らない
             continue
+        rec = _sent_record(sent.get(_key(repo, p["number"])))
+        if rec["open_only"] and not named:
+            # --open-only で開いた会話（持ち主が手で打つ前提）。印が残る間は、相手の新しい返事が有っても /catchup を送り直さない
+            # （相手の動きは読まない。読めなくても送らないことは同じ）
+            verdicts[p["number"]] = OPEN_ONLY
+            continue
         try:
             # 名指しの PR は相手の動きを見ずに決める（fresh.decide の named）ので読まない
             act = {} if named else acts.get(p["number"]) or ports.activity(repo, p["number"])
         except ghx.GhError as e:
             notes.append(f"#{p['number']}: {e}（送り直さない）")
             verdicts[p["number"]] = "unread_news"
-            continue
-        rec = _sent_record(sent.get(_key(repo, p["number"])))
-        if rec["open_only"] and not named:
-            # --open-only で開いた会話（持ち主が手で打つ前提）。印が残る間は、相手の新しい返事が有っても /catchup を送り直さない
-            verdicts[p["number"]] = OPEN_ONLY
             continue
         local = _local_work(ports, path, p["head"], rec)
         v = fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local, sent_head=rec["head"], named=named)
@@ -916,6 +917,9 @@ def _listing(a, cfg, repo, ports):
                     sent[_key(repo, r["number"])] = {"at": ports.now(), "head": ports.head_sha(r["path"]), "via": OPEN_ONLY}
             if ready and sent_ok:
                 ports.save_sent(cfg.limits_dir, sent)
+            elif any(r["kind"] == "pr" for r, _ in ready):
+                notes.append("控えを読めなかったので、--open-only で開いた印を書いていない。会話を開いたままにすると、相手の新しい返事が"
+                             "付いた後の一覧の回が、その会話に /catchup を送り直す")
             ready = []
         # issue から始めたものは 1 ターン目の /catchup まで（2 ターン目の文は PR のレビューの文なので送らない）
         second = {r["number"]: None if (a.no_second or r["kind"] == "issue" or r["number"] in catchup_only)
