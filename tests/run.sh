@@ -6976,6 +6976,9 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   # 端末・接続・会話ごとに外のツールが渡す識別子（Claude Code の AI_AGENT・tmux の TMUX_PANE・ssh の SSH_CONNECTION）。
                   # graphloops の試験結果の控えの指紋がこれらを外すと書く（engine/checks_cache.py は字の並びの一覧で持つ）
                   "AI_AGENT", "TMUX_PANE", "SSH_CONNECTION",
+                  # 端末が殻に渡す、端末の種類の環境変数（attention の /whose-turn の返答の手引き reply.md が、Claude Code が
+                  # リンクに対応する端末かを決める材料として名指す。このリポジトリのコードは読まない）
+                  "TERM_PROGRAM",
                   # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
                   "WORKS_DISPATCH_CONFIG",
                   # works-dispatch の試験を並べて回す数（dispatch/tests/parallel.py が同じく os.environ から読む）
