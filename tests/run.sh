@@ -6011,7 +6011,7 @@ expect_output 0 "ISSUE_UNSEEN_OK" \
     "$PY_BIN" "$CU_CASE" issue-not-seen
 expect_output 1 "使い方" \
     "catchup: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$CU_CASE"
-expect_output 1 "番号か PR / issue の URL、手元の commit を渡す" \
+expect_output 1 "番号か PR / issue の URL、ローカルの commit を渡す" \
     "catchup: 番号でも URL でもない引数は、gh を叩く前に落とす" \
     "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 expect_output 1 "対象は 1 つだけ渡す" \
@@ -6159,7 +6159,7 @@ expect_output 0 "NO_TARGET_OK" \
 expect_output 0 "○ 待ち" \
     "catchup: stdio を cp1252 に強制しても日本語の報告が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$CU_CASE" waiting
-expect_output 1 "番号か PR / issue の URL、手元の commit を渡す" \
+expect_output 1 "番号か PR / issue の URL、ローカルの commit を渡す" \
     "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 
