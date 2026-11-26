@@ -369,7 +369,7 @@ const cases = {
       if (noMeans) {
         const kept = r.out.rows.find(x => x.n === 1), moved = r.out.rows.find(x => x.n === 2)
         check(kept?.proposed === '' && moved?.arises_from === null && r.out.reason.includes('line 2: arisesFrom 1 does not fit the accepted answer of that line'),
-          `1 回目に通った手段の無い行を残し、それを元に挙げた行を元の無い行にしない: ${kept?.proposed} ${moved?.arises_from} ${r.out.reason}`)
+          `手段の無い行が 1 回目の答えのまま残らないか、それを元に挙げた行が元の無い行にならない: ${kept?.proposed} ${moved?.arises_from} ${r.out.reason}`)
       }
     }
     // 返りは --save の形の照合を通る
