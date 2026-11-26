@@ -357,9 +357,20 @@ const cases = {
       ['手段の無い行', { classes: [goodClass(1, { proposed: '' }), goodClass(2, { problem: P2, arisesFrom: 1 })] }, 'which proposes no means'],
       ['互いを元にする行', { classes: [goodClass(1, { arisesFrom: 2 }), goodClass(2, { problem: P2, arisesFrom: 1 })] }, 'names line 2 back'],
     ]) {
+      // 1 回目に通った行は 1 回目の答えのまま残る。手段の無い行の 1 は手段の無いまま比べられるので、比べの答えは none にする
+      const noMeans = what === '手段の無い行'
       let k = 0
-      const r = await run(baseArgs(), call => (call.stage === 'Restate' ? (++k === 1 ? ans : cls()) : happy()(call)))
-      check(r.calls.filter(c => c.stage === 'Restate')[1]?.prompt.includes(want) && r.out.status === 'ok', `${what}を元に挙げた答えを差し戻さない`)
+      const r = await run(baseArgs(), call => {
+        if (call.stage === 'Restate') return ++k === 1 ? ans : cls()
+        if (noMeans && call.stage === 'Compare') return compareAll(call.prompt, (row, n) => (n === 1 ? 'none' : 'differs'))
+        return happy()(call)
+      })
+      check(r.calls.filter(c => c.stage === 'Restate')[1]?.prompt.includes(want) && r.out.status === 'ok', `${what}を元に挙げた答えを差し戻さない: ${r.out.status} ${r.out.reason}`)
+      if (noMeans) {
+        const kept = r.out.rows.find(x => x.n === 1), moved = r.out.rows.find(x => x.n === 2)
+        check(kept?.proposed === '' && moved?.arises_from === null && r.out.reason.includes('line 2: arisesFrom 1 does not fit the accepted answer of that line'),
+          `1 回目に通った手段の無い行を残し、それを元に挙げた行を元の無い行にしない: ${kept?.proposed} ${moved?.arises_from} ${r.out.reason}`)
+      }
     }
     // 返りは --save の形の照合を通る
     const shape = JSON.parse(py(`import importlib.util, json, sys

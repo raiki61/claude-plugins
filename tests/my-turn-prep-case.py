@@ -1194,7 +1194,7 @@ def case_rewritten_base():
         # PR 自身の commit が、取り込み先の前の版の commit の下に混ざる（先頭から続かない）: merge-base のままにし、訳を書く
         git(e.repo, "switch", "-q", "-c", "mixed", "origin/main")
         x1 = commit(e.repo, "x1", x_DOT_txt="x\n")
-        git(e.repo, "cherry-pick", "-q", s1)
+        git(e.repo, "cherry-pick", s1)  # cherry-pick には -q が無い（git 2.43 は使い方の誤りの 129 で止まる）
         x2 = commit(e.repo, "x2", y_DOT_txt="y\n")
         e.set_gh(x2, base="stack")
         rc, o = e.prep("7")
