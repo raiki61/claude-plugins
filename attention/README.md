@@ -477,7 +477,7 @@ It outputs **pairs of a request and what was done about it**. Either one alone i
   988763b fix(attention): /catchup の「3 行を超えるな」を外す（marketplace 0.27.4）
   …
 
-## いま手元に残っているもの
+## いまローカルに残っているもの
   未コミットの変更なし
 ```
 

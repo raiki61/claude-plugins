@@ -741,7 +741,7 @@ def body_html(data):
             f'<button type="button" class="mstep" data-m="{st["m"]}" title="{esc(title[st["m"]])}">{esc(title[st["m"]])}'
             f' <small>{len(st["issues"])} 件</small></button>' for st in milestone_level(data)["path"]) + "</p>")
     if data["critical"]["cycles"]:
-        out.append('<p class="path bad">輪になった blocked by（クリティカルパスから外した）: ' + "、".join(
+        out.append('<p class="path bad">循環している blocked by（クリティカルパスから外した）: ' + "、".join(
             " → ".join(f"#{n}" for n in c) for c in data["critical"]["cycles"]) + "</p>")
     if data["limits"]:
         out.append('<p class="path bad">取得の上限に当たった: ' + esc("・".join(data["limits"])) + "</p>")
@@ -753,14 +753,14 @@ def body_html(data):
                '<span class="keys"><span><i class="ln crit"></i>クリティカルパス</span>'
                '<span><i class="ln late"></i>Blocking の期日が Blocked より後ろ</span>'
                '<span><i class="ln"></i>Blocking → Blocked（矢印の向き）</span>'
-               '<span class="hint">カードに載せる・押すと前後の鎖だけを濃く出す（Esc で戻す）</span></span>'
+               '<span class="hint">カードにホバー・クリックすると前後の鎖だけを濃く出す（Esc で戻す）</span></span>'
                '<span class="seg level" role="group" aria-label="粒度">'
                '<button type="button" data-level="issue" class="on" aria-pressed="true" title="issue 1 件をカード 1 枚にする（M のキーで切り替え）">issue</button>'
                '<button type="button" data-level="milestone" aria-pressed="false" title="マイルストーン 1 本を 1 つにまとめ、マイルストーンをまたぐ blocked by を束ねる（M のキーで切り替え）">マイルストーン</button></span>'
                '<span class="tools"><button type="button" data-act="open">全部開く</button>'
                '<button type="button" data-act="close">全部閉じる</button>'
-               '<button type="button" data-act="out" title="縮める">−</button>'
-               '<button type="button" data-act="in" title="広げる">＋</button>'
+               '<button type="button" data-act="out" title="縮小">−</button>'
+               '<button type="button" data-act="in" title="拡大">＋</button>'
                '<button type="button" data-act="fit">全体</button>'
                '<button type="button" data-act="one">等倍</button></span></div>')
     out.append('<div id="view" tabindex="0" aria-label="マイルストーンの地図。ホイールかドラッグか矢印のキーで動かし、Ctrl とホイールで拡大・縮小する">'
@@ -788,14 +788,14 @@ def edges_note(s):
     """blocked by の件数と描いた線の本数の違いの説明（見出しの数に載せると出る）。"""
     left = s["edges"] - s["drawn"]
     return ("地図に載った issue どうしの blocked by の件数と、描いた線の本数。"
-            + (f"ほかの線で辿れる {left} 件は線にしない（カードに載せると点線で出る）" if left else "全部を線にした"))
+            + (f"ほかの線で辿れる {left} 件は線にしない（カードにホバーすると点線で出る）" if left else "全部を線にした"))
 
 
 def summary_line(data):
     s = data["scope"]
     path = data["critical"]["path"]
     crit = (f"クリティカルパス {len(path)} 件" if path else
-            "クリティカルパスなし（blocked by の線が 0 本）" if not s["edges"] else "クリティカルパスなし（線は輪だけ）")
+            "クリティカルパスなし（blocked by の線が 0 本）" if not s["edges"] else "クリティカルパスなし（線は循環だけ）")
     left = s["edges"] - s["drawn"]
     lines = f"blocked by {s['edges']} 件（線 {s['drawn']} 本" + (f"。ほかの線で辿れる {left} 件は描かない）" if left else "）")
     return (f"マイルストーン {s['milestones']} 本・issue {s['open_issues']} 件（Blocked {s['blocked']}・"

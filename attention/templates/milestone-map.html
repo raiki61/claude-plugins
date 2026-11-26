@@ -415,7 +415,7 @@ a:hover { text-decoration: underline; }
     const m = f.m, tot = Math.max(1, m.open);
     const stack = el("span", { class: "stack", title: `Blocked ${m.count.blocked}・Linked PR ${m.count.pr}・それ以外 ${m.count.idle}` },
       ["blocked", "pr", "idle"].map(s => el("i", { class: s, style: `width:${100 * m.count[s] / tot}%` })));
-    const head = el("div", { class: "fhead", role: "button", tabindex: "0", title: "押すと開け閉めする" },
+    const head = el("div", { class: "fhead", role: "button", tabindex: "0", title: "クリックすると開閉する" },
       el("div", { class: "fname" }, m.none ? null : el("span", { class: "no" }, "#" + m.n), el("span", { class: "tt", title: m.title }, m.title),
         el("a", { href: m.url, title: m.none ? "GitHub でマイルストーンの付いていない open の issue を全部開く（日付ごとの枠に分けた物も含む）" : "GitHub のマイルストーンを開く" }, "↗")),
       el("div", { class: "fmeta" }, el("span", {}, m.due), m.overdue ? el("span", { class: "over" }, `Past due ${m.overdue} 日`) : null,
@@ -450,7 +450,7 @@ a:hover { text-decoration: underline; }
         i.prs.length ? el("span", { class: "tag pr" }, "PR " + i.prs.map(p => "#" + p).join(" ")) : null];
       // カードを押すと前後の鎖を固定して濃く出す（もう一度押すか Esc で戻す）。GitHub を開くのはカードの番号
       i.el = el("div", { class: `card ${i.state}${i.crit ? " crit" : ""}`, id: "i" + i.n, role: "button", tabindex: "0", "aria-pressed": "false",
-        title: i.tip + (linkedSet.has(i.n) ? "\n押すと前後の鎖だけを濃く出す（もう一度押すか Esc で戻す）。番号を押すと GitHub で開く" : "\n番号を押すと GitHub で開く"),
+        title: i.tip + (linkedSet.has(i.n) ? "\nクリックすると前後の鎖だけを濃く出す（もう一度クリックするか Esc で戻す）。番号をクリックすると GitHub で開く" : "\n番号をクリックすると GitHub で開く"),
         style: `width:${CW}px;height:${CH}px` },
         el("div", { class: "row" }, el("a", { class: "num", href: i.url, title: "GitHub で開く" }, "#" + i.n), tags, avatars(i)), el("div", { class: "tt" }, i.title));
       i.el.addEventListener("mouseenter", () => focusOn(chain(i.n), i.n));
@@ -581,7 +581,7 @@ a:hover { text-decoration: underline; }
         if (chip) {
           chip.classList.remove("gone");
           chip.textContent = `Blocked by・Blocking・Linked PR の無い issue ${part.fold.length} 件 ${f.folded ? "▸ 開く" : "▾ 畳む"}`;
-          chip.title = "Blocked by も Blocking も無く、open の Linked PR も無い issue。" + (f.folded ? "押すと開く" : "押すと畳む");
+          chip.title = "Blocked by も Blocking も無く、open の Linked PR も無い issue。" + (f.folded ? "クリックすると開く" : "クリックすると折りたたむ");
           Object.assign(chip.style, { left: bx + "px", top: yy + "px", width: CW + "px", height: CHIP + "px" });
         }
       }
@@ -651,7 +651,7 @@ a:hover { text-decoration: underline; }
           b: { id: "m" + e.to, x: fb.box.x, y: fb.box.y + HEAD / 2, h: HEAD * 0.6 }, m: [e.from, e.to], count: e.n,
           far: far(e) ? { g1: X[fa.m.col] + W[fa.m.col] + COLGAP / 2, g2: X[fb.m.col] - COLGAP / 2 } : null,
           kind: mPath.has(e.from + ">" + e.to) ? "crit" : e.late ? "late" : "plain",
-          title: `${fa.m.title} → ${fb.m.title}\nblocked by ${e.n} 件（押すと issue の粒度で ${fb.m.title} を開く）` });
+          title: `${fa.m.title} → ${fb.m.title}\nblocked by ${e.n} 件（クリックすると issue の粒度で ${fb.m.title} を開く）` });
       }
     } else {
       const groups = new Map();
@@ -715,7 +715,7 @@ a:hover { text-decoration: underline; }
     }
     const froms = [...new Set(g.n.map(e => e[0]))], tos = [...new Set(g.n.map(e => e[1]))];
     const p = el("svg:path", { class: "grab", d }, el("svg:title", {},
-      g.n.map(e => `#${e[0]} → #${e[1]}`).join("\n") + "\n押すと遠い方の端のカードへ飛ぶ"));
+      g.n.map(e => `#${e[0]} → #${e[1]}`).join("\n") + "\nクリックすると遠い方の端のカードへ飛ぶ"));
     const set = new Set(froms.concat(tos).flatMap(n => [...chain(n)]));
     p.addEventListener("mouseenter", () => focusOn(set));
     p.addEventListener("mouseleave", () => focusOn(resting()));
@@ -844,7 +844,7 @@ a:hover { text-decoration: underline; }
   // 上のクリティカルパスの番号: 載せると鎖を光らせ、押すと地図のそのカードへ飛ぶ（Ctrl か Cmd を押しながらなら GitHub を開く）
   for (const a of document.querySelectorAll(".path a[data-n]")) {
     const set = new Set(D.path.flat());
-    a.title = "押すと地図のこのカードへ飛ぶ（Ctrl か Cmd を押しながらなら GitHub で開く）";
+    a.title = "クリックすると地図のこのカードへ飛ぶ（Ctrl か Cmd を押しながらなら GitHub で開く）";
     a.addEventListener("mouseenter", () => focusOn(set));
     a.addEventListener("mouseleave", () => focusOn(resting()));
     a.addEventListener("click", ev => {
@@ -999,7 +999,7 @@ a:hover { text-decoration: underline; }
       b.addEventListener("click", () => go(k));
       return b;
     };
-    tourNav.append(btn("‹", "前のカードへ", at - 1), btn(`#${i.n}`, "このカードへ画面を送る", at),
+    tourNav.append(btn("‹", "前のカードへ", at - 1), btn(`#${i.n}`, "このカードへスクロール", at),
       ` ${["Linked PR", "Closed", "Open"][i.kind]}${where}`, btn("›", "次のカードへ", at + 1));
   }
   function whoSet() {
@@ -1018,7 +1018,7 @@ a:hover { text-decoration: underline; }
     people.append(el("span", { class: "lab" }, "誰が進めているか", tourNav));
     for (const [w, v] of rows) {
       const b = el("button", { type: "button", class: "who" + (who === w ? " on" : ""),
-        title: w + "（押すと、その人のカードへ画面を送る。‹ › で次のカードへ）\nOpen: Assignees に居るか、Linked PR を出している open の issue\nPR: 出している open の Linked PR\nClosed: 期間の中で閉じた issue のうち、Assignees に居たか、閉じた Linked PR を出した物（PR でなく手で閉じ Assignees も居ない物は、閉じた人）" }, avatar(w), w,
+        title: w + "（クリックすると、その人のカードへスクロールする。‹ › で次のカードへ）\nOpen: Assignees に居るか、Linked PR を出している open の issue\nPR: 出している open の Linked PR\nClosed: 期間の中で閉じた issue のうち、Assignees に居たか、閉じた Linked PR を出した物（PR でなく手で閉じ Assignees も居ない物は、閉じた人）" }, avatar(w), w,
         el("small", {}, ...num("Open ", v.open), ...num("PR ", v.prs.size), ...num("Closed ", v.done)));
       b.addEventListener("click", () => pick(w));
       people.append(b);
@@ -1104,7 +1104,7 @@ a:hover { text-decoration: underline; }
   }
 
   // 見取り図: 右下に地図全体を縮めて描き、今見えている所を枠で示す。押す・ドラッグするとそこへ動く
-  const mini = el("div", { class: "mini", title: "地図全体。押すかドラッグすると、そこへ動く" });
+  const mini = el("div", { class: "mini", title: "地図全体。クリックかドラッグで、そこへ動く" });
   const msvg = el("svg:svg", {}), mview = el("div", { class: "mview" });
   mini.append(msvg, mview);
   view.append(mini);

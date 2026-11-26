@@ -278,7 +278,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
             w("")
 
     dirty, tree = changemap.working_tree(cwd)
-    w("## いま手元に残っているもの")
+    w("## いまローカルに残っているもの")
     if dirty is None:
         w("  未コミットの変更: 読めなかった（git status が失敗した）")
     elif dirty:
@@ -316,7 +316,7 @@ def frame_one(cwd, path):
     骨組み。file が無ければ []。"""
     text = changemap.frame_diff(cwd=cwd, rev="HEAD", paths=(path,))
     if text is None:
-        sys.exit("手元の git diff が失敗した（枠は出せない）")
+        sys.exit("ローカルの git diff が失敗した（枠は出せない）")
     info = changemap.framed_diff(text).get(path)
     if info:
         return [f"    === {path} " + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")

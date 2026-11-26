@@ -602,7 +602,7 @@ class VscodeTest(unittest.TestCase):
     def test_opens_on_every_live_socket_including_the_older_one(self):
         run, calls = self.fake({self.socks[0], self.socks[2]})
         msg = ch.open_in_vscode("/p/1.html", env=self.env, run=run, which=lambda n: "/bin/code")
-        self.assertEqual(msg, "VS Code の窓 2 個で開いた")
+        self.assertEqual(msg, "VS Code のウィンドウ 2 個で開いた")
         opened = [s for a, s in calls if a[0] == "--reuse-window"]
         self.assertEqual(opened, [self.socks[2], self.socks[0]])
         self.assertEqual(sum(1 for a, _ in calls if a == ["--status"]), 3)
@@ -695,7 +695,7 @@ class SettingsTest(unittest.TestCase):
                                which=lambda n: "/bin/code")
         self.assertEqual(code, 1)
         text = "\n".join(lines)
-        self.assertIn("生きている VS Code の窓が無い", text)
+        self.assertIn("生きている VS Code のウィンドウが無い", text)
         self.assertIn("拡張 Simple HTML Viewer が入っていない", text)
         self.assertIn(ch.ASSOC_GLOB, text)
         self.assertEqual(list((home / ".vscode-server").iterdir()), [])

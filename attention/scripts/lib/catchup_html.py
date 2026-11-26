@@ -11,7 +11,7 @@ index.html が、ページごとに 1 行（件・件名・誰のターン・次
 各ページの頭に埋めた小さな JSON から毎回組み直す（並行して描くセッションが互いの行を消さない）。
 
 〈開き方〉持ち主は VS Code の Remote-SSH で、拡張 Simple HTML Viewer を使って見る。描いた後、
-ATTENTION_CATCHUP_OPEN=0 でなければ、生きている VS Code の窓のすべてで開く。開けなくても catchup は
+ATTENTION_CATCHUP_OPEN=0 でなければ、生きている VS Code のウィンドウのすべてで開く。開けなくても catchup は
 失敗にしない（path は必ず出す）。
 
 〈部品の出どころ〉差分の文字列から file ごとの増減と、指摘の行を含む hunk の抜粋を作る所は、
@@ -1033,7 +1033,7 @@ def _mtime(p):
 
 
 def ipc_sockets(env):
-    """VS Code の窓が CLI に開く socket（vscode-ipc-*.sock）を新しい順に。TMPDIR（無ければ /tmp）と
+    """VS Code のウィンドウが CLI に開く socket（vscode-ipc-*.sock）を新しい順に。TMPDIR（無ければ /tmp）と
     XDG_RUNTIME_DIR を探し、環境の VSCODE_IPC_HOOK_CLI も候補に入れる（古いことがあるので生死は別に見る）。"""
     dirs = [env.get("TMPDIR") or "/tmp", env.get("XDG_RUNTIME_DIR") or ""]
     found = set()
@@ -1070,7 +1070,7 @@ def open_in_vscode(path, env=None, home=None, run=run_code, which=shutil.which):
         if not live:
             return "開いていない（VS Code が繋がっていない。path を開く）"
         ok = _open_all(cli, live, path, env, run)
-        return f"VS Code の窓 {ok} 個で開いた" if ok else "開けなかった（code --reuse-window が失敗した）"
+        return f"VS Code のウィンドウ {ok} 個で開いた" if ok else "開けなかった（code --reuse-window が失敗した）"
     except Exception as e:  # noqa: BLE001 — 開けないことで catchup を落とさない
         return f"開けなかった（{type(e).__name__}: {e}）"
 
@@ -1208,9 +1208,9 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
     if not cli:
         missing.append("VS Code の CLI（code）が見つからない。VS Code の Remote-SSH で一度このマシンに繋ぐ")
     elif not live:
-        missing.append("生きている VS Code の窓が無い（VS Code が繋がっていない）。繋いでから /catchup setup をもう一度")
+        missing.append("生きている VS Code のウィンドウが無い（VS Code が繋がっていない）。繋いでから /catchup setup をもう一度")
     else:
-        did.append(f"VS Code の窓 {len(live)} 個が繋がっている（{live[0]} ほか）")
+        did.append(f"VS Code のウィンドウ {len(live)} 個が繋がっている（{live[0]} ほか）")
 
     server = _vscode_server(home)
     if not server.is_dir():
@@ -1219,7 +1219,7 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
         if cli:
             missing.append(f"このマシンに VS Code の Remote-SSH の置き場（{server}）が無い。/catchup setup は Remote-SSH"
                            "で繋いだ先のマシンの準備だけをする（ローカルの VS Code は拡張と設定を別の置き場から読み、ここに書いても"
-                           "効かない）。Remote-SSH で繋いだ窓の端末から打ち直す")
+                           "効かない）。Remote-SSH で繋いだウィンドウの端末から打ち直す")
         return _setup_report(did, missing)
 
     ext = extension_dirs(home)
@@ -1256,7 +1256,7 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
         did.append(f"見本のページを {sample} に描いた")
         if live:
             opened = _open_all(cli, live, sample, env, run)
-            did.append(f"見本を VS Code の窓 {opened} 個で開いた（色付きのページが出れば準備は済み。"
+            did.append(f"見本を VS Code のウィンドウ {opened} 個で開いた（色付きのページが出れば準備は済み。"
                        "ソースのまま出たら、拡張が入っていないか設定が効いていない）")
     return _setup_report(did, missing)
 

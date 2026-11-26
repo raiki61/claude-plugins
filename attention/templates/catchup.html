@@ -899,7 +899,7 @@ function player(frames, apply) {
   function go(k) {
     i = k; apply(k);
     dots.forEach((d, j) => d.classList.toggle("on", j === k));
-    cap.replaceChildren(...(k < 0 ? [playing ? "全体" : "図が見えると自動で動く。図を押すと止まる"] : [el("b", {}, `${k + 1} / ${frames.length}`), "　", ...rich(frames[k].text)]));
+    cap.replaceChildren(...(k < 0 ? [playing ? "全体" : "図が見えると自動で動く。図をクリックすると止まる"] : [el("b", {}, `${k + 1} / ${frames.length}`), "　", ...rich(frames[k].text)]));
   }
   // 時間は進み具合の帯の動きで測る。止めると帯も止まり、続きから進む
   function tick() {
@@ -953,7 +953,7 @@ function graphFigure(F) {
     const cls = nodeCls(n, ph);
     const hit = nodeHit(n);
     return el("div", { class: ["g-node", cls, hit ? "hit" : ""].filter(Boolean).join(" "), "data-id": n.id, "data-nk": nkey(n),
-      role: hit ? "button" : null, tabindex: hit ? "0" : null, title: hit ? "押すと、この箱の変えたことが横に出る" : null,
+      role: hit ? "button" : null, tabindex: hit ? "0" : null, title: hit ? "クリックすると、この箱の変えたことが横に出る" : null,
       onclick: hit ? ev => openDetail(n, ev) : null, onkeydown: hit ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(n, e); } } : null },
       cls === "new" ? el("span", { class: "tag" }, "新") : cls === "gone" ? el("span", { class: "tag" }, "消") : null,
       rich(ph === "before" && n.was ? n.was : n.text),
@@ -978,7 +978,7 @@ function graphFigure(F) {
   const edgeHit = e => (e.points || []).length || (CODE.edges || {})[ekey(e)];
   const edgeLabel = (e, cls) => el("span", { class: ["g-elabel", cls, edgeHit(e) ? "hit" : ""].filter(Boolean).join(" "), "data-e": `${e.from}>${e.to}`, "data-ek": ekey(e),
       role: edgeHit(e) ? "button" : null, tabindex: edgeHit(e) ? "0" : null,
-      title: edgeHit(e) ? "押すと、この線の変えたことが横に出る" : null,
+      title: edgeHit(e) ? "クリックすると、この線の変えたことが横に出る" : null,
       onclick: edgeHit(e) ? ev => openEdge(e, ev) : null,
       onkeydown: edgeHit(e) ? ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openEdge(e, ev); } } : null },
     e.text ? rich(e.text) : null,
@@ -1081,7 +1081,7 @@ function graphFigure(F) {
   const legend = [phased && nodes.some(n => n.in === "after" || n.was) ? [el("span", {}, el("i", { class: "lg-new" }), "この PR で増える・変わった後")] : null,
     phased && nodes.some(n => n.in === "before" || n.was) ? [el("span", {}, el("i", { class: "lg-gone" }), "この PR で無くなる・変わる前")] : null,
     nodes.some(nodeHit) || edges.some(edgeHit)
-      ? el("span", {}, el("i", { class: "lg-hit" }), edges.some(edgeHit) ? "数字の付いた箱と線の字は押せる（変えたことが横に出る）" : "数字の付いた箱は押せる（変えたことが横に出る）") : null].filter(Boolean);
+      ? el("span", {}, el("i", { class: "lg-hit" }), edges.some(edgeHit) ? "数字の付いた箱と線の字はクリックできる（変えたことが横に出る）" : "数字の付いた箱はクリックできる（変えたことが横に出る）") : null].filter(Boolean);
   // 押した箱や線のすぐ横に札を出す（ページを動かさず、コードの窓も勝手に開かない。凡例の項へ飛ばしたり、
   // 窓をいきなり開いたりすると、読んでいた所を見失って「ストレスが大きい」と言われた。2026-10-16）
   function openEdge(e, ev) {
@@ -1253,7 +1253,7 @@ function pointsKey(P) {
   } }, "すべて開く");
   return el("div", { class: "pts", id: "points" },
     el("div", { class: "pts-head" }, el("h3", {}, P.caption || "変えたこと"),
-      el("span", { class: "sub" }, `${POINTS.length} 点。押すと前と後が開く${onFig ? "。乗せると図の箱が光る" : ""}`), all),
+      el("span", { class: "sub" }, `${POINTS.length} 点。クリックすると前と後が開く${onFig ? "。ホバーすると図の箱がハイライトされる" : ""}`), all),
     el("ol", { class: "pk-list" }, rows));
 }
 // 画面（figure.kind = screen）: 決まった部品を上から並べた見取り図。前後で違えば「変更前」「変更後」を横に並べる

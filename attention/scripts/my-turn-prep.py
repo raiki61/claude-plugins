@@ -485,7 +485,7 @@ def sync(pr):
     cur = cur.strip() if rc == 0 else ""
     if not cur or not is_pr_branch(cur, pr, info, repo_name):
         where = "ブランチ %s" % cur if cur else "detached HEAD"
-        raise Stop("not-pr-branch", "手元は %s で、PR #%s のブランチ（%s）ではありません。/catchup %s で PR のブランチへ移ってから呼び直してください"
+        raise Stop("not-pr-branch", "ローカルは %s で、PR #%s のブランチ（%s）ではありません。/catchup %s で PR のブランチへ移ってから呼び直してください"
                    % (where, pr, info.get("headRefName") or "?", pr))
     dirty = [ln for ln in must_git("status", "--porcelain", "--untracked-files=no").splitlines() if ln.strip()]
     if dirty:
@@ -499,8 +499,8 @@ def sync(pr):
                        % (head_oid[:7], remote, remote))
     if git("merge-base", "--is-ancestor", old, head_oid)[0] != 0:
         if git("merge-base", "--is-ancestor", head_oid, old)[0] == 0:
-            raise Stop("ahead", "手元の %s は PR の先頭より先に進んでいます（push していない commit が在る）。push してから呼び直してください" % cur)
-        raise Stop("diverged", "手元の %s と PR の先頭が分かれています（手元にだけ在る commit と、PR にだけ在る commit が両方在る。"
+            raise Stop("ahead", "ローカルの %s は PR の先頭より先に進んでいます（push していない commit が在る）。push してから呼び直してください" % cur)
+        raise Stop("diverged", "ローカルの %s と PR の先頭が分かれています（ローカルにだけ在る commit と、PR にだけ在る commit が両方在る。"
                    "force push の後など）。どちらを残すかを決めて揃えてから呼び直してください" % cur)
     # 書く操作は timeout で殺さない（途中で殺すと書きかけの木と index.lock が残る）
     git_rc = run(["git", "merge", "--ff-only", "-q", head_oid], timeout=None)[0]
@@ -598,7 +598,7 @@ def prep(pr, prior, headless):
         raise Stop("fetch-failed", "git fetch %s %s が失敗しました。ネットワークと %s の設定を確かめてください" % (remote, base_ref, remote))
     head = must_git("rev-parse", "HEAD").strip()
     if head != head_oid:
-        raise Stop("head-mismatch", "手元の HEAD が PR の先頭と違います。my-turn-prep.py --sync %s で PR の先頭に追いついてから（止まったら、その訳に従ってから）/my-turn-deep を呼び直してください" % pr)
+        raise Stop("head-mismatch", "ローカルの HEAD が PR の先頭と違います。my-turn-prep.py --sync %s で PR の先頭に追いついてから（止まったら、その訳に従ってから）/my-turn-deep を呼び直してください" % pr)
     rc, out = git("merge-base", remote + "/" + base_ref, "HEAD")
     if rc != 0 or not out.strip():
         raise Stop("no-merge-base", "%s/%s と HEAD の共通の祖先が見つかりません（履歴が別、または浅い clone）。git fetch --unshallow などで履歴を取ってください" % (remote, base_ref))
