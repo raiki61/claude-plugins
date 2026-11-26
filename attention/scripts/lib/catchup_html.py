@@ -1214,11 +1214,11 @@ def setup(check=False, home=None, env=None, root=None, run=run_code, which=shuti
 
     server = _vscode_server(home)
     if not server.is_dir():
-        # Remote-SSH で繋いだことの無いマシン。手元の VS Code は拡張と設定を別の置き場から読むので、ここに書いても効かない。
+        # Remote-SSH で繋いだことの無いマシン。ローカルの VS Code は拡張と設定を別の置き場から読むので、ここに書いても効かない。
         # 置き場を作らずに訳を返す（code が無いときの訳は上で出している）
         if cli:
             missing.append(f"このマシンに VS Code の Remote-SSH の置き場（{server}）が無い。/catchup setup は Remote-SSH"
-                           "で繋いだ先のマシンの準備だけをする（手元の VS Code は拡張と設定を別の置き場から読み、ここに書いても"
+                           "で繋いだ先のマシンの準備だけをする（ローカルの VS Code は拡張と設定を別の置き場から読み、ここに書いても"
                            "効かない）。Remote-SSH で繋いだ窓の端末から打ち直す")
         return _setup_report(did, missing)
 

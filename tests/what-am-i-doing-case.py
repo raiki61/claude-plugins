@@ -365,7 +365,7 @@ def _frames(tmp):
         "frame_option": "=== src/x.py" in one and "    | #│  x = 1" in one and "変更の中身" not in one,
         "frame_refuses_no_diff": "diff に無い" in refused,
         "jump": "    飛び先 src/x.py:1\n    | def f():" in out and "    飛び先 src/x.py:1\n    | def f():" in one,
-        "jump_in_heading": "『飛び先 path:行』は head（手元）の行番号" in out,
+        "jump_in_heading": "『飛び先 path:行』は head（ローカル）の行番号" in out,
         "jump_for_new": "    飛び先 src/n.py:1" in out and "    飛び先 src/s.py:1" in out,
         "prose_framed": "=== doc.md" in out and "    飛び先 doc.md:1" in out
                         and "    | 足した行" in out and "    | <!-- ┏━━ 追加 " in out,

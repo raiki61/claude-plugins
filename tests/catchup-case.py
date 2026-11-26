@@ -961,7 +961,7 @@ def _threads_since():
         "file_unchanged": "以降、この file は変わっていない（作者側の commit 1 本）" in util and "|   10 line 10" in util,
         "func_unchanged": "この関数は変わっていない（file の他の所に 1 枠。作者側の commit 1 本）" in other
                           and "|   10 line 10" in other,
-        "no_diff": "以降の変更: 出せない（手元にこの PR の commit が無い" in nogit and "|   10 line 10" in nogit,
+        "no_diff": "以降の変更: 出せない（ローカルにこの PR の commit が無い" in nogit and "|   10 line 10" in nogit,
         # 2 行の関数は窓（前後 5 行）より小さいので file 全体（1〜5 行）が範囲。行の無い指摘は変わった所の関数
         "file_level": "飛び先 app/whole.py:1（head の 1〜5 行）" in whole_s and "  | #│  return 0" in whole_s
                       and "  |     return 1" in whole_s and "（指摘の行の前後 5 行）" not in whole_s,
@@ -1633,7 +1633,7 @@ def _map_jumps():
         catchup.pr_function_diff, catchup.sibling_dirs, catchup.merged_size_context = saved
     want = {
         "jump": "    飛び先 src/a.py:1\n    | def f():" in out,
-        "note": "各枠の前の『飛び先 path:行』は head（手元）の行番号" in out,
+        "note": "各枠の前の『飛び先 path:行』は head（ローカル）の行番号" in out,
         "prose_framed": "    飛び先 docs/guide.md:8\n" in out and "    | 足した行" in out
                         and "枠は出さない" not in out,
         "new_jump": "    飛び先 src/n.py:1\n" in out,
@@ -1659,7 +1659,7 @@ def _no_target():
     # この検査が見るのは中身の出し方なので、先の差は固定の行にする（並びを見る）
     catchup.ahead_of_default = lambda cwd=None: ["", "## origin/main より先の commit 1 件の変更", "  AHEAD"]
     cm.current_branch = lambda cwd=None: "main"
-    catchup.render_local = lambda **kw: "## 手元のブランチ main（" + kw["why"] + "）\n  未コミット 1 件"
+    catchup.render_local = lambda **kw: "## ローカルのブランチ main（" + kw["why"] + "）\n  未コミット 1 件"
     cm.working_tree = lambda cwd=None: (["src/a.py"], [" work/", "~  src/a.py  +1"])
     seen = {}
     cm.frames_section = lambda cwd, dirty, frame_cmd="--frame": (
@@ -1674,8 +1674,8 @@ def _no_target():
     want = {
         "resolved": target == (None, None, None, "none"),
         "head": out.startswith("# 今のブランチ main（PR も、名前の番号も無い）"),
-        "says_github_untouched": "GitHub 側は見ていない——この呼び方で出るのは手元の git だけ" in out,
-        "local": "## 手元のブランチ main（this で呼んだので出す）" in out,
+        "says_github_untouched": "GitHub 側は見ていない——この呼び方で出るのはローカルの git だけ" in out,
+        "local": "## ローカルのブランチ main（this で呼んだので出す）" in out,
         "unseen": "番号か URL を渡せば出る" in out and "what-am-i-doing.py で出る" in out,
         "frames": "    飛び先 src/a.py:1\n    | def f():" in out,   # 木だけでなく中身も出す
         "frame_cmd": seen == {"dirty": ["src/a.py"], "cmd": "what-am-i-doing.py --frame"},
@@ -1777,7 +1777,7 @@ def _range():
         "resolved": target == (None, None, "aaaaaaa1..bbbbbbb2", "range"),
         "caret": caret == (None, None, "0000000a..bbbbbbb2", "range"),
         "merge_base": three == (None, None, "mmmmmmm3..bbbbbbb2", "range"),
-        "refused": "両端が手元の commit に解けない" in refused,
+        "refused": "両端がローカルの commit に解けない" in refused,
         "head": out.startswith("# aaaaaaa..bbbbbbb commit 2 件（aaaaaaa → bbbbbbb。aaaaaaa は範囲の外）\n  2 ファイル · 差は aaaaaaa の版と bbbbbbb の版の間"),
         "no_github": "GitHub 側は見ていない" in out,
         "commits_oldest_first": out.index("| aaaaaaa  2026-09-05  raiki61  古い方") < out.index("| bbbbbbb  2026-09-06  raiki61  新しい方"),
@@ -1832,14 +1832,14 @@ def _commit():
         and catchup.func_span([f"k{i}: v" for i in range(30)], 15) == (10, 20, False)  # 平らな file は窓
         and catchup.func_span(["x"] + ["    y"] * 300, 150)[2] is False,             # 長すぎる
         "head": out.startswith("# 2971ea2 題です\n  raiki61 · 2026-09-06 · 1 ファイル"),
-        "no_github": "GitHub 側は見ていない——手元の git の commit として出す" in out,
+        "no_github": "GitHub 側は見ていない——ローカルの git の commit として出す" in out,
         "body": "  | 本文 1 行目" in out,
         "tree": "~  src/a.py  +1" in out,
         "frames": "    飛び先 src/a.py:1" in out,
         "range_and_cmd": seen == {"rev": "parent..2971ea2f", "cmd": "catchup.py 2971ea2 --frame",
                                   "new_from_file": False, "jump": seen.get("jump")}
         and "commit 2971ea2 の版の行番号（git show 2971ea2:path で開く）" in seen.get("jump", ""),
-        "frame_jump": "commit 2971ea2 の版の行番号" in one and "head（手元）" not in one,
+        "frame_jump": "commit 2971ea2 の版の行番号" in one and "head（ローカル）" not in one,
         "unseen": "範囲は親との差 1 つだけ" in out,
         "frame_one": one.startswith("    === src/a.py （") and "| def f():" in one
                      and "変更の地図" not in one and "）（言語名 python）\n" in one,
@@ -1909,7 +1909,7 @@ def _branch_wiring():
                                                   else (None, None, "feat-x", "branchname"))
     catchup.switch_to_branch = lambda name, cwd=None: (
         (["ブランチ feat-x: main から移った"], True) if state["moved"]
-        else (["ブランチ feat-x: 未コミットの変更 1 件があるので移らない（手元は main のまま）"], False))
+        else (["ブランチ feat-x: 未コミットの変更 1 件があるので移らない（ローカルは main のまま）"], False))
     catchup.gh_try = lambda *args, **kw: ""
     catchup.changemap.commit_oid = lambda token, cwd=None: state["oids"].get(token)
     catchup.changemap.current_branch = lambda cwd=None: "feat-x"

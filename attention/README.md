@@ -128,7 +128,7 @@ The authoritative description of what it takes in, what it does, and what it ret
 ### Usage
 
 ```
-/catchup 1505                 # 番号か URL（該当ブランチへ git switch で移る。手元に無ければ origin から取る）
+/catchup 1505                 # 番号か URL（該当ブランチへ git switch で移る。ローカルに無ければ origin から取る）
 /catchup                      # 今のブランチの PR（無ければブランチ名の番号を issue と見る）
 /catchup 1569 指摘             # 焦点の語を後ろに付けると、末尾の材料をその 1 つに絞る（指摘・地図・CI）
 /catchup 新しく出たもの        # 番号でない語は会話の中の話題（会話が材料。番号に結び付いていれば機械で補う）
@@ -249,7 +249,7 @@ The AI writes only the fields JSON, using the machine output (the author's descr
 ```json
 {
   "headline": "#1276（現場コネクタの要件の下書き）は私の PR で、動かすのは私のもう 1 本の PR #1596 の側。#1596 にレビュー依頼を出せば進む。",
-  "where": "2 日前（9/1）に main を取り込んで push した。その後は誰も動いていない。8/27 の 250489 さんの申し送りは 9/1 の取り込みで済んでいる。手元は main から docs/1276-connector に移した。",
+  "where": "2 日前（9/1）に main を取り込んで push した。その後は誰も動いていない。8/27 の 250489 さんの申し送りは 9/1 の取り込みで済んでいる。ローカルのブランチを main から docs/1276-connector に移した。",
   "turn": "止めているのは CI の赤 3 本で、全部同じ文書検査。下書きを規則の対象から外す #1596（私の PR、レビュー依頼が未送）が通れば消える。承認はまだ無く、衝突も返事待ちの指摘も無い。",
   "next": ["#1596 のレビュー依頼を出す", "通ったら main を取り込み直す", "緑を確認する", "#1276 のレビュー依頼先を決める"],
   "lead": "…（初めて見る人に、どこの何をどう変えるかを 1 文で）",

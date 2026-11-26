@@ -546,7 +546,7 @@ def cap_note(frame_cmd="--frame"):
 
 FRAME_CAP_NOTE = cap_note()
 # 飛び先の断り。/catchup の地図と /what-am-i-doing の変更の中身が、見出しの括弧に同じ文で入れる
-JUMP_NOTE = ("各枠の前の『飛び先 path:行』は head（手元）の行番号。AI は箇所の見出しと枠の上の注釈に写す。"
+JUMP_NOTE = ("各枠の前の『飛び先 path:行』は head（ローカル）の行番号。AI は箇所の見出しと枠の上の注釈に写す。"
              "path の前後は半角スペースで離す（端末のクリックが隣の文字を巻き込む）")
 
 

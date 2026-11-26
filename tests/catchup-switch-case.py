@@ -259,7 +259,7 @@ def _branch_name(tmp):
         "exists": exists and local_exists and not none_exists,
         "head_is_not_a_branch": not_a_branch,
         "main_nothing": on_main == [],
-        "made_line": "ブランチ only-origin: 手元に無かったので origin/only-origin から作って main から移った" in "\n".join(lines1),
+        "made_line": "ブランチ only-origin: ローカルに無かったので origin/only-origin から作って main から移った" in "\n".join(lines1),
         "made_on": on1 is True,
         "made_tip": tip1 == new,
         "made_upstream": upstream1 == "refs/remotes/origin/only-origin",
@@ -271,7 +271,7 @@ def _branch_name(tmp):
         "already": lines2 == ["ブランチ only-origin: 既に居る"] and on2 is True,
         "local": f"ブランチ {HEAD_REF}: only-origin から移った" in "\n".join(lines3) and on3 is True
         and current(repo) == HEAD_REF,
-        "dirty": on4 is False and "未コミット" in lines4[0] and f"（手元は {HEAD_REF} のまま）" in lines4[0]
+        "dirty": on4 is False and "未コミット" in lines4[0] and f"（ローカルは {HEAD_REF} のまま）" in lines4[0]
         and current(repo) == HEAD_REF,
     }, "\n".join(lines1 + lines2 + lines3 + lines4) + "\n" + ahead)
 
@@ -292,7 +292,7 @@ def _remote_only(tmp):
     git(repo, "update-ref", "refs/heads/origin/pr-head", old)  # 短縮名 origin/pr-head を曖昧にする同名のブランチ
     write(repo, "stray.txt", "u\n")
     out, on = call(repo, node(repo, headRefName="pr-head", head={"nodes": [{"commit": {"oid": new}}]}))
-    return verdict({"line": "ブランチ pr-head: 手元に無かったので origin/pr-head から作って main から移った"
+    return verdict({"line": "ブランチ pr-head: ローカルに無かったので origin/pr-head から作って main から移った"
                     "（未追跡 1 件は持ち越した）" in out and "gh pr checkout" not in out,
                     "branch": current(repo) == "pr-head", "on": on == "pr-head",
                     "tip": git(repo, "rev-parse", "HEAD") == new,
@@ -317,7 +317,7 @@ def _remote_dirty(tmp):
     write(repo, "same.txt", "same\nedited\n")
     out, on = call(repo, node(repo, headRefName="pr-head", head={"nodes": [{"commit": {"oid": new}}]}))
     # 片付けた後の一手は「もう一度 /catchup」——git switch pr-head はブランチが無いので失敗するか、古い追跡 ref から作る
-    return verdict({"line": "未コミットの変更 1 件" in out and "（手元は main のまま）" in out
+    return verdict({"line": "未コミットの変更 1 件" in out and "（ローカルは main のまま）" in out
                     and f"→ もう一度 /catchup {NUM}" in out and "git switch pr-head" not in out,
                     "branch": current(repo) == "main", "not_on": not on,
                     "no_new_branch": "refs/heads/pr-head" not in heads(repo),
@@ -341,7 +341,7 @@ def _remote_ignored(tmp):
         f.write(".vscode/\n")
     write(repo, ".vscode/settings.json", "PRIVATE\n")
     out, on = call(repo, node(repo, headRefName="vs-branch", head={"nodes": [{"commit": {"oid": head}}]}))
-    return verdict({"line": "作れなかった" in out and "settings.json" in out and "（手元は main のまま）" in out,
+    return verdict({"line": "作れなかった" in out and "settings.json" in out and "（ローカルは main のまま）" in out,
                     "branch": current(repo) == "main", "not_on": not on,
                     "no_new_branch": "refs/heads/vs-branch" not in heads(repo),
                     "kept": read(repo, ".vscode/settings.json").strip() == "PRIVATE"}, out)
@@ -375,7 +375,7 @@ def _none(tmp):
     else:
         print("  ok   応答の無い origin は FETCH_TIMEOUT 秒で切る # SKIP sh: git が ssh の代役の script を起動する sh が無い")
     return verdict({"gone": "origin にももう無い（PR は merge 済みで、ブランチは削除済み）" in out
-                    and f"git fetch origin refs/pull/{NUM}/head" in out and "（手元は main のまま）" in out,
+                    and f"git fetch origin refs/pull/{NUM}/head" in out and "（ローカルは main のまま）" in out,
                     "unreachable": "origin から取れなかった（git fetch が失敗）" in out2
                     and "does not appear to be a git repository" in out2,
                     "timeout": f"origin から取れなかった（{short} 秒で応答が無い）" in out3,
@@ -421,7 +421,7 @@ def _fork_remote(tmp):
     out4, on4 = call(repo, n)
     os.remove(lock)
     return verdict({
-        "line": f"ブランチ fork-feat: 手元に無かったので PR の head（origin の refs/pull/{NUM}/head。fork other/r）"
+        "line": f"ブランチ fork-feat: ローカルに無かったので PR の head（origin の refs/pull/{NUM}/head。fork other/r）"
                 "から作って main から移った" in out1,
         "moved": moved1 and on1 == "fork-feat" and moved2 and on2 == "fork-feat",
         "track_pull_ref": cfg1 == ("origin", "origin", f"refs/pull/{NUM}/head"),
@@ -445,7 +445,7 @@ def _origin_mismatch(tmp):
     # 別のリポジトリで呼ぶのは普通に起きるので、この行にも今どこに居るかが要る
     return verdict({"mismatch": "origin が o/r でない" in out1 and "x/y" in out1 and not on1,
                     "no_origin": "origin が無い" in out2 and not on2,
-                    "where": out1.endswith("（手元は main のまま）") and out2.endswith("（手元は main のまま）"),
+                    "where": out1.endswith("（ローカルは main のまま）") and out2.endswith("（ローカルは main のまま）"),
                     "branch": current(repo) == "main"}, out1 + "\n" + out2)
 
 
@@ -529,7 +529,7 @@ def _fork_main(tmp):
                                                   head={"nodes": [{"commit": {"oid": head}}]}))
     return verdict({
         "no_default_stays": "既に居る" not in out_nodef and "含まない" in out_nodef and not on_nodef and stayed,
-        "made": "ブランチ other/main: 手元に無かったので PR の head" in out_made and on_made == "other/main"
+        "made": "ブランチ other/main: ローカルに無かったので PR の head" in out_made and on_made == "other/main"
         and made and git(repo, "rev-parse", "main") == base,
         "prefixed": "ブランチ other/main: main から移った" in out_pref and on_pref == "other/main" and moved,
         "gone_default": "作る名前を決められない" in out_null_main and f"refs/pull/{NUM}/head" in out_null_main
@@ -605,7 +605,7 @@ def _detached(tmp):
     out_stay, on_stay = call(repo)  # 止まった行の末尾は、ブランチ名が無いので detached HEAD と書く
     git(repo, "checkout", "-q", "--", "same.txt")
     out, on = call(repo)
-    return verdict({"stay": out_stay.endswith("（手元は detached HEAD のまま）") and not on_stay,
+    return verdict({"stay": out_stay.endswith("（ローカルは detached HEAD のまま）") and not on_stay,
                     "line": "（detached） から移った" in out, "warn": "leaving 1 commit behind" in out,
                     "branch": current(repo) == HEAD_REF, "on": on}, out_stay + "\n" + out)
 
@@ -661,7 +661,7 @@ def _issue(tmp):
     out0, on0 = call(repo, issue, num=99)
     return verdict({"one": "ブランチ chore/1513-a: main から移った" in out1 and on1 == "chore/1513-a" and moved,
                     "two": "2 本ある（chore/1513-a, fix/1513-b）" in out2 and not on2,
-                    "zero": "名前に #99 を持つ手元のブランチは無い" in out0 and not on0,
+                    "zero": "名前に #99 を持つローカルのブランチは無い" in out0 and not on0,
                     "still": current(repo) == "main"}, "\n".join((out1, out2, out0)))
 
 
@@ -676,9 +676,9 @@ def _behind(tmp):
     out_behind = catchup.render_local(why="x", pr_head=tip, cwd=repo)
     out_none = catchup.render_local(why="x", pr_head="0" * 40, cwd=repo)
     out_same = catchup.render_local(why="x", pr_head=git(repo, "rev-parse", "HEAD"), cwd=repo)
-    return verdict({"heading": f"## 手元のブランチ {HEAD_REF}（x）" in out_behind,
+    return verdict({"heading": f"## ローカルのブランチ {HEAD_REF}（x）" in out_behind,
                     "behind": f"PR の head {tip[:7]} より 1 commit 後ろ" in out_behind,
-                    "none": "を手元に持っていない" in out_none,
+                    "none": "をローカルに持っていない" in out_none,
                     "same": "後ろ" not in out_same and "持っていない" not in out_same},
                    "\n".join((out_behind, out_none, out_same)))
 

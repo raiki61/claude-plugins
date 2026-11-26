@@ -313,7 +313,7 @@ def resolve_target(token, repo_opt):
         rng = resolve_range(token)
         if rng:
             return None, None, rng, "range"
-        sys.exit(f"範囲 {token} の両端が手元の commit に解けない（A..B の A と B は sha・HEAD~n・タグ・ブランチ名）")
+        sys.exit(f"範囲 {token} の両端がローカルの commit に解けない（A..B の A と B は sha・HEAD~n・タグ・ブランチ名）")
     if not digits and changemap.branch_exists(token):
         return None, None, token, "branchname"
     # 数字だけの語は番号が先。ただし 7 桁以上（PR / issue の番号はそこまで行かない）で手元の commit に
@@ -323,7 +323,7 @@ def resolve_target(token, repo_opt):
         if oid:
             return None, None, oid, "commit"
     if not digits:
-        sys.exit(f"番号か PR / issue の URL、手元の commit を渡す（受け取った値: {token}。"
+        sys.exit(f"番号か PR / issue の URL、ローカルの commit を渡す（受け取った値: {token}。"
                  "引数なしか this なら今のブランチ、番号でない語は会話の話題として"
                  " what-am-i-doing.py --topic で追う）")
     slug = repo_opt or gh("repo", "view", "--json", "nameWithOwner",
@@ -1369,7 +1369,7 @@ def unseen_lines(node, me, caps, unlinked, ask, since, full, red, human,
         w(f"  - 本文の残り {cut} 行（--full か gh {kind.lower()} view で見る）")
     if unlinked:
         w(f"  - GitHub の login に結び付いていない commit（名前: {', '.join(unlinked)}）が誰のものか。"
-          "自分のものなら「私が最後にしたこと」は実際より古い（手元の git config の user.email と"
+          "自分のものなら「私が最後にしたこと」は実際より古い（ローカルの git config の user.email と"
           "一致すれば私の push と数える）")
     w("  - 名指しの無い発言が私への問いかどうか"
       + ("（私の件なので、最後の 1 件だけは上に出した）" if ask and ask.get("unaddressed") else ""))
@@ -1570,12 +1570,12 @@ def render_map(node, owner, name):
 
     sib = sibling_dirs(owner, name, paths)
     if sib is None:
-        w("  同じ階層の既存: 出せない（手元がこのリポジトリの checkout ではない）")
+        w("  同じ階層の既存: 出せない（ローカルがこのリポジトリの checkout ではない）")
     else:
-        w("  同じ階層の既存（手元の HEAD が追跡しているファイル。変更ファイル自身も含む）:")
+        w("  同じ階層の既存（ローカルの HEAD が追跡しているファイル。変更ファイル自身も含む）:")
         for d, names in sib:
             if names is None:
-                w(f"    {d}/: 手元に無い階層")
+                w(f"    {d}/: ローカルに無い階層")
                 continue
             shown = names[:MAP_SIBLINGS_CAP]
             more = f" …ほか {len(names) - len(shown)}" if len(names) > len(shown) else ""
@@ -1655,12 +1655,12 @@ def pr_function_diff(owner, name, node, get_text):
     断り。関数まるごとなら "")。"""
     top = local_checkout(owner, name)
     if not top:
-        return get_text(), "文脈は 3 行——手元がこのリポジトリの checkout ではない"
+        return get_text(), "文脈は 3 行——ローカルがこのリポジトリの checkout ではない"
     base, head = node.get("baseRefOid"), node.get("headRefOid")
     if not local_range(owner, name, base, head):
-        return get_text(), "文脈は 3 行——手元に base と head の commit が無い。fetch すれば関数まるごとになる"
+        return get_text(), "文脈は 3 行——ローカルに base と head の commit が無い。fetch すれば関数まるごとになる"
     wide = changemap.frame_diff(cwd=top, rev=f"{base}...{head}")
-    return (wide, "") if wide is not None else (get_text(), "文脈は 3 行——手元の git diff が失敗した")
+    return (wide, "") if wide is not None else (get_text(), "文脈は 3 行——ローカルの git diff が失敗した")
 
 
 # ---- 指摘・CI・手元のブランチ（材料） --------------------------------------------
@@ -1883,7 +1883,7 @@ def render_since_thread(th, node, lines, lo, hi, diff_since, full, frame=True):
     head = node.get("headRefOid")
     text = diff_since(th["path"], base, head) if diff_since and head else None
     if text is None:
-        return no("以降の変更: 出せない（手元にこの PR の commit が無い。gh pr diff で見る）")
+        return no("以降の変更: 出せない（ローカルにこの PR の commit が無い。gh pr diff で見る）")
     hunks = split_hunks(changemap.split_diff(text)[0].get(th["path"], []))
     if not hunks:
         return no(f"以降、この file は変わっていない（{tally}）")
@@ -1965,7 +1965,7 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
             w(f"  行: 削除された側の行 {th['line']}（base の版）への指摘。head にこの行は無い（gh pr diff で見る）")
             continue
         if lines is None:
-            w("  行: 取れない（手元にその commit が無く、GitHub からも読めなかった）")
+            w("  行: 取れない（ローカルにその commit が無く、GitHub からも読めなかった）")
             continue
         if lo is None:
             w(f"  行 {th['line']} は head のファイル（{len(lines)} 行）の外")
@@ -2111,8 +2111,8 @@ def issue_branch(num, branches):
     if len(hits) == 1:
         return hits[0], ""
     if not hits:
-        return None, f"名前に #{num} を持つ手元のブランチは無い"
-    return None, (f"名前に #{num} を持つ手元のブランチが {len(hits)} 本ある（{', '.join(hits)}）。"
+        return None, f"名前に #{num} を持つローカルのブランチは無い"
+    return None, (f"名前に #{num} を持つローカルのブランチが {len(hits)} 本ある（{', '.join(hits)}）。"
                   "どれかを選んで手で git switch する")
 
 
@@ -2146,7 +2146,7 @@ def tree_blocker(text, nxt):
     nxt は片付けた後の一手。手元にあるブランチなら git switch <名前> だが、origin から作るブランチはまだ無い
     （git switch は失敗するか、古い追跡 ref から DWIM で作る）ので、呼び手が「もう一度 /catchup」を渡す。"""
     if text is None:
-        return "手元の状態が読めないので移らない", 0
+        return "ローカルの状態が読めないので移らない", 0
     rows = changemap.porcelain_records(text)
     tracked = [r for r in rows if r[0] != "??"]
     untracked = len(rows) - len(tracked)
@@ -2167,7 +2167,7 @@ def switch_blocker(top, target, worktree, nxt):
                 f"（git worktree prune → git switch {target} で移れる）"), 0
     busy = in_progress(top)
     if busy is None:
-        return "手元の状態が読めないので移らない", 0
+        return "ローカルの状態が読めないので移らない", 0
     if busy:
         return ("merge / rebase / cherry-pick / revert の途中なので移らない"
                 "（終えるか --quit で止める。別に取るなら git worktree add）"), 0
@@ -2228,7 +2228,7 @@ def fetch_source(top, num, node, fork):
                 return None, [f"origin に {pull_ref(num)} が無い（origin は GitHub の base リポジトリか）"]
             gone = {"MERGED": "PR は merge 済みで、ブランチは削除済み", "CLOSED": "PR は close 済みで、ブランチは削除済み"
                     }.get(node.get("state"), "PR は open のままブランチだけが消えている")
-            return None, [f"手元に無く、origin にももう無い（{gone}）。中身は git fetch origin "
+            return None, [f"ローカルに無く、origin にももう無い（{gone}）。中身は git fetch origin "
                           f"{pull_ref(num)} → git switch -c {head_ref} FETCH_HEAD で取れる"]
         return None, ["origin から取れなかった（git fetch が失敗）", *git_notes(err, failed=True)]
     if not fork:
@@ -2263,9 +2263,9 @@ def branch_state(cwd=None):
 
 def where_now(top, cur):
     """移らなかった行の末尾に添える、今の位置。"""
-    return ("手元に git の checkout が無い" if not top
-            else "手元の位置は読めない" if cur is None
-            else f"手元は {cur or 'detached HEAD'} のまま")
+    return ("ローカルに git の checkout が無い" if not top
+            else "ローカルの位置は読めない" if cur is None
+            else f"ローカルは {cur or 'detached HEAD'} のまま")
 
 
 def git_switch(top, target, args):
@@ -2309,11 +2309,11 @@ def switch_branch(owner, name, num, node, cwd=None):
     # 手元に無ければ同じリポジトリの PR と同じく origin の refs/heads/<head> から作る
     on_fork = bool(fork) and fork != GONE and changemap.origin_is(url, *fork.split("/", 1))
     if not on_fork and not changemap.origin_is(url, owner, name):
-        return stay([f"ブランチ: 手元の origin が {owner}/{name} でない（{url or 'origin が無い'}）ので移らない"])
+        return stay([f"ブランチ: ローカルの origin が {owner}/{name} でない（{url or 'origin が無い'}）ので移らない"])
     if on_fork:
         fork = None
     if branches is None:
-        return stay(["ブランチ: 手元のブランチ一覧が読めないので移らない"])
+        return stay(["ブランチ: ローカルのブランチ一覧が読めないので移らない"])
     head_ref = node.get("headRefName")
     who = "" if not fork else (GONE if fork == GONE else f"fork {fork}")
     fresh = False  # 手元に無く、origin から取って作る
@@ -2334,9 +2334,9 @@ def switch_branch(owner, name, num, node, cwd=None):
     if fork and not fresh:
         has = contains_head(target, head_oid(node), top)
         if not has:
-            why = ("とは照合できない（PR の head の commit を手元に持っていない）" if has is None
+            why = ("とは照合できない（PR の head の commit をローカルに持っていない）" if has is None
                    else "は PR の head の commit を含まない（別物か、head より古い）")
-            return stay([label + f"{who} のブランチ。手元の {target} {why}ので移らない。"
+            return stay([label + f"{who} のブランチ。ローカルの {target} {why}ので移らない。"
                          f"gh pr checkout {num} で取り直せる"])
     if cur == target:
         return [label + "既に居る"], target
@@ -2353,7 +2353,7 @@ def switch_branch(owner, name, num, node, cwd=None):
         args = ("-c", target, "--", src) if fork else ("--track", "-c", target, "--", src)
         # fork の側は「）」で閉じるので、続く「から」の前に空白を置かない
         whence = f"PR の head（origin の {pull_ref(num)}。{who}）" if fork else f"origin/{head_ref} "
-        made = f"手元に無かったので {whence}から作って "
+        made = f"ローカルに無かったので {whence}から作って "
     else:
         args, made = ("--", target), ""
     moved, rc, err = git_switch(top, target, args)
@@ -2382,7 +2382,7 @@ def switch_to_branch(name, cwd=None):
     if not top:
         return stay("ブランチ: 移らない")
     if branches is None:
-        return stay("ブランチ: 手元のブランチ一覧が読めないので移らない")
+        return stay("ブランチ: ローカルのブランチ一覧が読めないので移らない")
     label = f"ブランチ {name}: "
     if cur == name:
         return [label + "既に居る"], True
@@ -2393,7 +2393,7 @@ def switch_to_branch(name, cwd=None):
     args = ("--track", "-c", name, "--", f"origin/{name}") if fresh else ("--", name)
     moved, rc, err = git_switch(top, name, args)
     if moved:
-        made = f"手元に無かったので origin/{name} から作って " if fresh else ""
+        made = f"ローカルに無かったので origin/{name} から作って " if fresh else ""
         return [moved_line(label + made, cur, untracked), *("    " + n for n in git_notes(err))], True
     if rc is None:
         return stay(label + f"移れなかった（{err}）")
@@ -2405,14 +2405,14 @@ def switch_to_branch(name, cwd=None):
 COMMIT_UNSEEN = (
     "GitHub の PR / issue（この commit を含む PR があっても見ていない。番号か URL を渡せば出る）",
     "この commit の前後の commit（範囲は親との差 1 つだけ。merge は第 1 親との差）",
-    "この commit を誰かが取り込んだか、手元と origin のどちらが先か",
+    "この commit を誰かが取り込んだか、ローカルと origin のどちらが先か",
 )
 
 
 def range_unseen(sa, sb):
     return ["GitHub の PR / issue（この範囲を含む PR があっても見ていない。番号か URL を渡せば出る）",
             f"範囲の外の commit（{sa} より前と {sb} より後）と、各 commit の本文（題だけ出した）",
-            "この範囲を誰かが取り込んだか、手元と origin のどちらが先か"]
+            "この範囲を誰かが取り込んだか、ローカルと origin のどちらが先か"]
 
 
 def commit_jump(sha):
@@ -2462,7 +2462,7 @@ def render_commit(oid, cwd=None, frame=None, full=False):
     paths, tree = changemap.commit_tree(rev, cwd)
     out = [f"# {short} {subject}",
            f"  {author} · {date} · {'分からない' if paths is None else len(paths)} ファイル",
-           "  GitHub 側は見ていない——手元の git の commit として出す"]
+           "  GitHub 側は見ていない——ローカルの git の commit として出す"]
     lines = [ln.rstrip() for ln in body]
     while lines and not lines[-1]:
         lines.pop()
@@ -2493,7 +2493,7 @@ def render_range(rev, cwd=None, frame=None, full=False):
         ends = f"（{first} → {last}。{sa} は範囲の外）" if len(commits) > 1 else f"（{first}。{sa} は範囲の外）"
     out = [f"# {sa}..{sb} commit {len(commits)} 件{ends}",
            f"  {'分からない' if paths is None else len(paths)} ファイル · 差は {sa} の版と {sb} の版の間",
-           "  GitHub 側は見ていない——手元の git の commit の範囲として出す"]
+           "  GitHub 側は見ていない——ローカルの git の commit の範囲として出す"]
     shown = commits if full else commits[:BODY_CAP]
     out += ["", "## 範囲の commit（材料。古い順に sha・日付・作者・題。本文は git show <sha>）"]
     for ln in reversed(shown):
@@ -2530,7 +2530,7 @@ def ahead_of_default(cwd=None):
     out += tree
     out += changemap.frames_section(cwd, paths, rev=rev, new_from_file=False,
                                     frame_cmd=f"git diff -W {mb[:7]}..HEAD --",
-                                    jump_note="各枠の前の『飛び先 path:行』は HEAD（手元の commit）の行番号。"
+                                    jump_note="各枠の前の『飛び先 path:行』は HEAD（ローカルの commit）の行番号。"
                                               "AI は箇所の見出しと枠の上の注釈に写す")
     return out
 
@@ -2549,7 +2549,7 @@ def render_no_target(cwd=None):
     ahead = ahead_of_default(cwd)
     return "\n".join([
         f"# 今のブランチ {branch or '（detached）'}（PR も、名前の番号も無い）",
-        "  GitHub 側は見ていない——この呼び方で出るのは手元の git だけ",
+        "  GitHub 側は見ていない——この呼び方で出るのはローカルの git だけ",
         "",
         render_local(why="this で呼んだので出す", cwd=cwd, wt=wt),
         *frames,
@@ -2572,7 +2572,7 @@ def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None, derived_
     out = []
     w = out.append
     branch = changemap.current_branch(cwd) or ""
-    w(f"## 手元のブランチ {branch or '（detached）'}（{why}）")
+    w(f"## ローカルのブランチ {branch or '（detached）'}（{why}）")
     if derived:
         w(f"  今のブランチに PR が無いので、ブランチ名の番号から #{derived} を引いた（{derived_kind} だった。"
           "違えば番号を渡す）")
@@ -2599,7 +2599,7 @@ def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None, derived_
         # 持っていない commit を範囲に書くと rev-list が落ちる（None）。それで「持っていない」が分かる
         behind = changemap.git("rev-list", "--count", f"HEAD..{pr_head}", cwd=cwd)
         if behind is None:
-            w(f"  PR の head {pr_head[:7]} を手元に持っていない（fetch していない）")
+            w(f"  PR の head {pr_head[:7]} をローカルに持っていない（fetch していない）")
         elif behind.strip() != "0":
             w(f"  PR の head {pr_head[:7]} より {behind.strip()} commit 後ろ（fetch / pull していない）")
     dirty, tree = wt if wt is not None else changemap.working_tree(cwd)
@@ -2888,7 +2888,7 @@ def page_local(cwd=None, pre_lines=()):
     text = plain_diff(changemap.diff_base("HEAD", cwd), cwd)  # commit がまだ無ければ空の木と比べる（端末と同じ）
     if text:
         views.append(files_view("local", "未コミット", text,
-                                note="追跡している file だけ。未追跡の新規 file は手元のセクションの木に出る。"))
+                                note="追跡している file だけ。未追跡の新規 file はローカルのセクションの木に出る。"))
     base = changemap.default_branch_ref(cwd)
     mb = (changemap.git("merge-base", base, "HEAD", cwd=cwd) or "").strip() if base else ""
     ahead = plain_diff(f"{mb}..HEAD", cwd) if mb else ""
@@ -2957,7 +2957,7 @@ def parser():
     p = argparse.ArgumentParser(
         description="1 件の PR / issue について、前回自分が触ってから何が起きたかを出す")
     p.add_argument("words", nargs="*", metavar="対象 [焦点]",
-                   help="対象は番号か PR / issue の URL、または手元の commit（sha・HEAD~2・タグ・ブランチ名。"
+                   help="対象は番号か PR / issue の URL、またはローカルの commit（sha・HEAD~2・タグ・ブランチ名。"
                         "GitHub は見ない）、または commit の範囲 A..B（2971ea2..HEAD・HEAD~4..HEAD。差は A の版と"
                         " B の版の間）。無ければ（または this なら）今のブランチの "
                         "PR、それも無ければブランチ名の番号を引く。末尾の材料は有れば全部出る"
@@ -2965,7 +2965,7 @@ def parser():
                         "有れば）。焦点の語 指摘・地図・CI を後ろに付けると、その 1 つに絞る")
     p.add_argument("-R", "--repo", help="owner/repo（URL を渡すときは不要）")
     p.add_argument("--me", help="基準にする login（既定は gh の認証ユーザ）。指定すると、"
-                   "手元の git config の user.email による commit の照合はしない")
+                   "ローカルの git config の user.email による commit の照合はしない")
     p.add_argument("--full", action="store_true",
                    help="発言と本文を全文で出す（本文の 60 行、閉じる issue の冒頭 12 行、指摘 10 件、"
                         "CI の赤 3 件の上限も外す）")
@@ -2973,12 +2973,12 @@ def parser():
                    help="その後に起きたことの表示件数（既定 12）")
     p.add_argument("--frame", metavar="path",
                    help="本体の報告を出さず、この file の変更だけを関数まるごとの枠で全部出す（上限なし。"
-                        "PR と commit で使える。手元の未コミットは what-am-i-doing.py --frame）")
+                        "PR と commit で使える。ローカルの未コミットは what-am-i-doing.py --frame）")
     p.add_argument("--switch", action="store_true",
                    help="該当ブランチへ git switch で移る（PR は head のブランチ、issue は名前に番号を持つ"
-                        "手元のブランチが 1 本のとき）。PR のブランチが手元に無ければ origin からその 1 本だけ"
+                        "ローカルのブランチが 1 本のとき）。PR のブランチがローカルに無ければ origin からその 1 本だけ"
                         " fetch して作る（名前と追跡先は gh pr checkout と同じ）。追跡ファイルに未コミットが"
-                        "あれば移らない。手元にあるブランチは動かさない（pull・stash・gh pr checkout はしない）。"
+                        "あれば移らない。ローカルにあるブランチは動かさない（pull・stash・gh pr checkout はしない）。"
                         "this では何もしない")
     p.add_argument("--render", nargs=2, metavar=("材料.json", "フィールド.json"),
                    help="--out が書いた材料（会話の話題なら -）と AI が書いたフィールドの JSON を雛形に流し込み、"
@@ -3037,7 +3037,7 @@ def report_rev(a, local, num, focus, keep):
 def report_no_target(a, focus, pre_lines, keep):
     """PR も番号も無い今のブランチの報告。GitHub には聞かず、手元のブランチだけ出す（gh も走らせない）。"""
     if a.frame:
-        sys.exit("--frame は PR か commit でだけ使える（今のブランチに PR が無い。手元の未コミットの 1 file は"
+        sys.exit("--frame は PR か commit でだけ使える（今のブランチに PR が無い。ローカルの未コミットの 1 file は"
                  " what-am-i-doing.py --frame path で）")
     if pre_lines:
         # ブランチ名で移った先に PR も番号も無い。移ったことは見出しに残す（「移らない」と言わない）
@@ -3104,7 +3104,7 @@ def report(a, sink=None):
                 # origin にだけ在るブランチは、短い名前では rev-parse が解けない（refs/remotes/origin/ を付けて引く）
                 oid = changemap.commit_oid(num) or changemap.commit_oid(f"refs/remotes/origin/{num}")
                 if not oid:
-                    sys.exit(f"ブランチ {num} の tip の commit が引けない（手元にも origin/{num} にも無い）")
+                    sys.exit(f"ブランチ {num} の tip の commit が引けない（ローカルにも origin/{num} にも無い）")
                 print(render_commit(oid, frame=a.frame, full=a.full))
                 keep(lambda: dict(page_commit(oid), local="\n".join(ln.strip() for ln in pre_lines)))
                 print()
