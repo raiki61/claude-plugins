@@ -6,6 +6,8 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-11-26
+
 ### Changed
 
 - `/attention:catchup` が見せる「手元」を「ローカル」に替えた（ページのセクションの見出し「ローカル」、対象の種類「ローカルのブランチ」、「ローカルは main のまま」などの機械の行、フィールドの例文）。`/attention:what-am-i-doing` の見出し「いまローカルに残っているもの」と、`/attention:my-turn-deep` の止まる訳も同じ語にそろえた。材料の JSON のキー（`local` など）は変えていない（頼み 597b43）。
