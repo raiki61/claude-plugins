@@ -6,6 +6,11 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Changed
+
+- `/attention:catchup` が見せる「手元」を「ローカル」に替えた（ページのセクションの見出し「ローカル」、対象の種類「ローカルのブランチ」、「ローカルは main のまま」などの機械の行、フィールドの例文）。`/attention:what-am-i-doing` の見出し「いまローカルに残っているもの」と、`/attention:my-turn-deep` の止まる訳も同じ語にそろえた。材料の JSON のキー（`local` など）は変えていない（頼み 597b43）。
+- `/attention:catchup` と `/attention:milestone-map` のページのボタンとツールチップを IT の定着語に替えた: 「押すと」→「クリックすると」、「乗せると」→「ホバーすると」、「縮める」「広げる」→「縮小」「拡大」、「画面を送る」→「スクロール」、「輪になった blocked by」→「循環している blocked by」、「VS Code の窓」→「VS Code のウィンドウ」（頼み 597b43）。
+
 ## [0.83.3] - 2026-11-25
 
 ### Fixed
