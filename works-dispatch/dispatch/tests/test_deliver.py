@@ -1784,6 +1784,19 @@ class Flow(unittest.TestCase):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "残った疑問のセクションの無い頼み", "--dry-run")
         self.assertEqual(rc, 0, out)
 
+    def test_a_refused_ask_repeats_the_reason_after_the_format(self):
+        # 断りの理由が書き方の例の前にしか無く、出力を tail で切ると理由が落ち、本文を「x」に縮めて送られた（受付 20261126-083236-dbc8b7）
+        self.shape('[[roles]]\nname = "調べ役"\nask_holders = true\n')
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "## 困りごと\n本文", "--dry-run")
+        self.assertEqual(rc, 2, out)
+        last = out.strip().splitlines()[-1]
+        self.assertIn("止めた理由（上の再掲）: 頼みの本文の頭書き", last)
+        self.assertIn("題が無い", last)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", '+++\ntitle = "問い"\n[[open]]\nquestion = "担当者の無い疑問"\n+++\n問いです',
+                            "--dry-run")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("役の ask_holders の検査", out.strip().splitlines()[-1])
+
     def test_an_ask_runs_the_check_of_the_receiving_role_at_the_receiving_company(self):
         # 受ける会社の決まりで、ほかの会社から届く頼みも止める（242baa）。ゲートは受ける会社の代表の clone で走り、本文を JSON で受ける
         script = pathlib.Path(self.src, "gate.py")

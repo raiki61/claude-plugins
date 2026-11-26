@@ -499,6 +499,14 @@ def text_of(a, flag, what):
         return None
 
 
+def refusal(head, bad):
+    """--ask の断りの字: 理由（head の行と不足の項目 bad）、書き方の例（deliver.ASK_FORMAT）、最後に理由をもう 1 度 1 行で。例は長いので、
+    出力を tail で切ると先頭の理由が落ち、理由を見ないまま本文を「x」の 1 行に縮めて打ち直す形で送られた（1 行の本文は題になって検査を
+    通る。my_notes の受付 20261126-083236-dbc8b7）。"""
+    again = f"止めた理由（上の再掲）: {head[-1].removeprefix('止めた: ')}: " + " ／ ".join(" ".join(x.split()) for x in bad)
+    return "\n".join(head + [f"  {x}" for x in bad] + [deliver.ASK_FORMAT, again])
+
+
 def _ask(a, ports, cwd, task, sent):
     """--ask の本体。頼みが宛先に届いた（送った・積んだ・同じ中身が動いている）なら、sent に回した先の頼みの id と宛先（to）を書く。"""
     body = text_of(a, "--ask", "頼み")
@@ -510,8 +518,7 @@ def _ask(a, ports, cwd, task, sent):
     if not title and not getattr(a, "ask_id", None):   # 回し直し（--take・合図）は元の頼みの行の題を使う
         bad.append("題が無い。本文が 2 行以上なら、頭書きに title を書く")
     if bad:
-        print("\n".join(["止めた: 頼みの本文の頭書き（機械が読むフィールド）が足りないか形が違う"] + [f"  {x}" for x in bad]
-                        + [deliver.ASK_FORMAT]))
+        print(refusal(["止めた: 頼みの本文の頭書き（機械が読むフィールド）が足りないか形が違う"], bad))
         return 2
     common = ports.git.common_dir(cwd)
     if not common:
@@ -581,8 +588,7 @@ def _ask(a, ports, cwd, task, sent):
         bad = deliver.holder_problems(data.get("open"), relays, name) + (
             [deliver.OPEN_IN_BODY] if not getattr(a, "ask_id", None) and deliver.OPEN in deliver.parse(rest, {deliver.OPEN}) else [])
         if bad:
-            print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、担当者が足りない（役の ask_holders の検査）"]
-                            + [f"  {x}" for x in bad] + [deliver.ASK_FORMAT]))
+            print(refusal(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、担当者が足りない（役の ask_holders の検査）"], bad))
             return 2
     elif data.get("open"):   # 受ける役が残った疑問を読まないのに書いた（台帳にも残らず、黙って捨てることになる）
         print("\n".join(notes + [f"止めた: 宛先の役「{role}」は頼みの残った疑問（頭書きの [[open]]）を受けない（役に ask_holders が無い）。"
