@@ -2983,7 +2983,7 @@ def parser():
     p.add_argument("--render", nargs=2, metavar=("材料.json", "フィールド.json"),
                    help="--out が書いた材料（会話の話題なら -）と AI が書いたフィールドの JSON を雛形に流し込み、"
                         "~/.cache/attention/catchup/<owner>-<repo>/<番号>.html を書いて index を組み直す。"
-                        "出すのはページの path と 1 行の要約。ATTENTION_CATCHUP_OPEN=0 でなければ VS Code の窓で開く")
+                        "出すのはページの path と 1 行の要約。ATTENTION_CATCHUP_OPEN=0 でなければ VS Code のウィンドウで開く")
     p.add_argument("--setup", action="store_true",
                    help="HTML を VS Code で見る準備（生きた窓・拡張 Simple HTML Viewer・Machine の設定 2 つ）を確かめ、"
                         "足りなければ入れて、見本を描いて開く")

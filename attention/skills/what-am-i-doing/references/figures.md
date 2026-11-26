@@ -29,7 +29,7 @@
 
 ```text
 変更前
- /catchup catchup.py      ローカルの git    origin
+ /catchup catchup.py      ローカルの git  origin
     │ 番号 ───→│               │             │
     │          │ ブランチは？─→│             │
     │          │ ←─── 無い ────│             │
@@ -37,7 +37,7 @@
     │ 「gh pr checkout N で取れる」の案内    │
 
 変更後
- /catchup catchup.py      ローカルの git    origin
+ /catchup catchup.py      ローカルの git  origin
     │ 番号 ───→│               │             │
     │          │ ブランチは？─→│             │
     │          │ ←─── 無い ────│             │
