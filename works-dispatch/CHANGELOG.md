@@ -8,8 +8,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- 頼まれたときだけ立てる受け持ち（`lifetime` が until-idle か per-ask）へ `--branch` なしで `--ask` を打ったとき、既定のブランチ名 `work/ask-<受付番号の終わり 6 字>` が、宛先のリポジトリに在るブランチ（手元か origin を追うブランチ）と git の ref の名前でぶつかるなら、`work-ask-<同じ 6 字>` で部署を立てる。ブランチ `work` が在ると、git は `refs/heads/work/…` を作れない。前は部署の作業場を作れず、台帳に `provision_failed` が残った。名前を替えたときは、`--ask` の出力にぶつかった相手のブランチを出す。返事待ちの輪をほどく待ち受けが打つ `--take … --branch` も、同じ選び方にした。字の大小だけ違う名前（`Work` と `work/…`）もぶつかるとみなす（my_notes の受付 20261127-223914-e77306）。
-- herdr が断ったときの訳（画面と台帳の detail）に、herdr が誤りの code に添えた文を出す。作業場を作れなかったときに、`worktree_create_failed` だけでなく git の断りの文（例: `fatal: cannot lock ref 'refs/heads/work/ask-…': 'refs/heads/work' exists`）が出る（同じ受付）。
+- 頼まれたときだけ立てる受け持ち（会社の形の `lifetime` が until-idle＝頼まれたときに立て、手が空いたら畳む、か per-ask＝頼みごとに別の部署を立てる。どちらも同じ扱い）へ `--branch` なしで `--ask` を打ったとき、既定のブランチ名 `work/ask-<受付番号の終わり 6 字>` が、宛先のリポジトリに在るブランチ（手元か origin を追うブランチ）と git の ref の名前でぶつかるなら、`work-ask-<同じ 6 字>` で部署を立てる。ブランチ `work` が在ると、git は `refs/heads/work/…` を作れない。前は部署の作業場を作れず、台帳に `provision_failed` が残った。名前を替えたときは、`--ask` の出力にぶつかった相手のブランチを出す。返事待ちの輪（部署どうしが返事を待ち合う状態）をほどくために待ち受け（部署の会話のターンの終わりに裏で走り、頼みを渡す台本）が打つ、部署の頼みを引き取る `--take … --branch` も、この `--ask` の既定名と同じ選び方にした。字の大小だけ違う名前（`Work` と `work/…`）もぶつかるとみなす（大小を区別しないファイルシステムでは、ref がファイル名として衝突するため）（my_notes の受付 20261127-223914-e77306）。
+- 作業場を作る道具 herdr が断ったときの訳（画面と台帳の detail）に、herdr が誤りの code に添えた説明文を出す。作業場を作れなかったときに、`worktree_create_failed` だけでなく git の断りの文（例: `fatal: cannot lock ref 'refs/heads/work/ask-…': 'refs/heads/work' exists`）が出る（同じ受付）。
 
 ## [0.174.0] - 2026-11-26
 

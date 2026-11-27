@@ -526,7 +526,8 @@ class Repos:
     def __getattr__(self, name):
         got = getattr(self.gits[0], name)
         if not callable(got) or isinstance(got, type) or name in ("root_of", "former_names", "inherited", "inherited_since",
-                                                                         "inherited_names", "inherited_desk"):
+                                                                         "inherited_names", "inherited_desk", "clash",
+                                                                         "ask_branch"):
             return got
         return lambda cwd, *a, **k: getattr(self.of(cwd), name)(cwd, *a, **k)
 
