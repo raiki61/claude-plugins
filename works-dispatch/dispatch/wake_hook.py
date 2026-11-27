@@ -755,6 +755,7 @@ class UntieError(Exception):
 def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os.environ):
     """返事待ちの輪（knot の返り）をほどく: 先頭の頼みを、積まれた部署の会社に、積まれた部署の受け持ちの名前を付けた作業の部署を
     立てて、dispatch.py --take <受付> --ask <会社>/<既定の役> --task <受け持ち>：<受付の末尾> --branch work/ask-<受付の末尾> で回す
+    （ブランチ名は、在るブランチとぶつかれば gitx.ask_branch の次の候補）
     （段取りが手で打っていた物。受付番号と頼み元はそのまま）。会社と既定の役は、積まれた部署の会社の会社の形から読み、--take は
     その会社の代表の clone で打つ（回す頼みの本文の写しをその会社の受付箱に置く）。会話から切り離して走らせ、終わりを待たない
     （--take は herdr を読んで部署を立てる。取り合いは --take が順番待ちのファイルを消す所で 1 つに決まる）。出力は輪を見つけた部署の
@@ -781,8 +782,9 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
             f"矢印は、左の部署が出した頼みが右の部署の順番待ちに積まれたまま）。止まらないよう、この頼みを {owner} の順番待ちから"
             f"取り出し、受付番号と頼み元はそのままに{crew}の部署で受ける。受け持ちは {owner}。）")
     tail = ask_id[-6:]
+    # ブランチ名は頼みの部署の既定と同じ選び方（在るブランチとぶつかれば次の候補。my_notes の受付 e77306）
     argv = ([sys.executable, "-u", DISPATCH_PY, "--take", ask_id, "--ask", f"{company}/{crew}", "--task", f"{owner}：{tail}",
-             "--branch", f"work/ask-{tail}", "--text", note] + (["--config", attrs["config"]] if attrs.get("config") else []))
+             "--branch", gitx.ask_branch(tail, gitx.branch_names(root)), "--text", note] + (["--config", attrs["config"]] if attrs.get("config") else []))
     try:   # 会話の処理が止まっても --take を止めない（restart_first と同じ殻）
         out, waiter = _run_logged(argv, os.path.join(got["inbox"], TAKES), ask_id, root, spawn, now, detach)
     except OSError:

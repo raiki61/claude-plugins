@@ -323,6 +323,19 @@ class HerdrWorktree(unittest.TestCase):
             herdr.remove_worktree("/s/repo", "/p", "repo/x", runner=Fake(ok(WT_OPEN), WT_DIRTY))
         self.assertEqual(e.exception.detail, "dirty_worktree_requires_force")
 
+    def test_a_failed_create_tells_the_reason_herdr_gave_beside_its_code(self):
+        # 作業場を作れなかった訳（git の断りの文）を、code に添えて画面と台帳の detail に出す。字で比べる detail は code のまま
+        # （形は 2026-11-28 に herdr 0.9.5 と git 2.43.0 で見た。my_notes の受付 e77306）
+        clash = (1, json.dumps({"error": {"code": "worktree_create_failed", "message":
+                                          "Preparing worktree (new branch 'work/ask-abcdef')\nfatal: cannot lock ref "
+                                          "'refs/heads/work/ask-abcdef': 'refs/heads/work' exists; cannot create "
+                                          "'refs/heads/work/ask-abcdef'"}, "id": "cli:worktree:create"}), "")
+        with self.assertRaises(herdr.Error) as e:
+            herdr.create_worktree("/s/repo", "work/ask-abcdef", "origin/main", "repo/x", runner=Fake(clash))
+        self.assertEqual(e.exception.detail, "worktree_create_failed")
+        self.assertIn("'refs/heads/work' exists", str(e.exception))
+        self.assertNotIn("\n", str(e.exception))   # 台帳の detail は 1 行
+
     def test_workspace_close_now_answers_ok(self):
         # 2026-10-15 の 0.9.3 では workspace close は {"result": {"type": "ok"}} を返した（10-14 は何も出さなかった）
         herdr.close_workspace("w1D", runner=Fake(ok({"id": "cli:workspace:close", "result": {"type": "ok"}})))
@@ -346,6 +359,25 @@ class Git(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertEqual(gitx.origin_repo("/r", runner=Fake((0, url + "\n", ""))), "o/r")
         self.assertIsNone(gitx.origin_repo("/r", runner=Fake((2, "", "no remote"))))
+
+
+class AskBranch(unittest.TestCase):
+    """頼みの部署の既定のブランチ名が、在るブランチと ref の名前でぶつからない物を選ぶ（my_notes の受付 e77306）。"""
+
+    def test_a_branch_named_like_a_folder_of_the_default_moves_it_to_the_next_name(self):
+        self.assertEqual(gitx.ask_branch("abcdef", {"main"}), "work/ask-abcdef")
+        self.assertEqual(gitx.ask_branch("abcdef", {"main", "work/ask-abcdef"}), "work/ask-abcdef")   # 同じ名前は開き直す
+        for names in ({"main", "work"}, {"Work"}, {"work/ask-abcdef/x"}):
+            with self.subTest(names=names):
+                self.assertEqual(gitx.ask_branch("abcdef", names), "work-ask-abcdef")
+        self.assertEqual(gitx.ask_branch("abcdef", {"work", "work-ask-abcdef/x"}), "work/ask-abcdef")   # どれもぶつかれば最初の物
+        self.assertEqual(gitx.clash({"main", "work"}, "work/ask-abcdef"), "work")
+        self.assertIsNone(gitx.clash({"worker"}, "work/ask-abcdef"))
+
+    def test_branch_names_reads_local_and_remote_tracking_branches(self):
+        out = "refs/heads/main\nrefs/heads/feat/1\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/work\n"
+        self.assertEqual(gitx.branch_names("/r", runner=Fake((0, out, ""))), {"main", "feat/1", "work"})
+        self.assertEqual(gitx.branch_names("/r", runner=Fake((128, "", "not a git repository"))), set())
 
 
 class Gh(unittest.TestCase):

@@ -39,6 +39,9 @@ class FakeGit:
     inherited_since = staticmethod(gitx.inherited_since)
     inherited_names = staticmethod(gitx.inherited_names)
     inherited_desk = staticmethod(gitx.inherited_desk)
+    ASK_BRANCHES = gitx.ASK_BRANCHES
+    clash = staticmethod(gitx.clash)
+    ask_branch = staticmethod(gitx.ask_branch)
 
     def __init__(self, source, files, url=None, branches=()):
         """source は元の clone の場所、files は最初の commit の中身、url は origin の URL（origin_repo の元。既定は <source の親>/o/r.git、空なら origin が無い）、
@@ -198,6 +201,9 @@ class FakeGit:
 
     def remote_heads(self, cwd):
         return dict(self.origin)
+
+    def branch_names(self, cwd):
+        return set(self.local) | set(self.tracking)
 
     def fetch_heads(self, cwd, branches):
         for b in branches:

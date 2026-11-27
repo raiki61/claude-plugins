@@ -36,10 +36,15 @@ PANE_ENV = "HERDR_PANE_ID"   # ペインの中の処理に渡る、そのペイ�
 
 
 class HerdrError(Exception):
-    def __init__(self, argv, detail):
-        super().__init__(f"{' '.join(argv[:3])}: {detail}")
+    """herdr の呼び出しの失敗。detail は herdr の誤りの code（無ければ出力の字）で、呼ぶ側が字で比べる（agent_not_found など）。
+    message は herdr が code に添えた文（git の断りの文など。無ければ None）で、画面と台帳の detail に出す字（str）にだけ入る。
+    前は code だけを出し、作業場を作れなかった訳が「worktree_create_failed」だけで分からなかった（my_notes の受付 e77306）。"""
+
+    def __init__(self, argv, detail, message=None):
+        super().__init__(f"{' '.join(argv[:3])}: {detail}" + (f"（{message}）" if message else ""))
         self.argv = argv
         self.detail = detail
+        self.message = message
 
 
 Error = HerdrError   # 口の外が受ける名前（ports.term.Error）
@@ -49,13 +54,27 @@ def _default_runner(argv, env=None):
     return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
 
 
-def _error_code(text):
+def _error(text):
+    """herdr の誤りの答え（{"error": {"code": …, "message": …}}）から (code, message)。message は行を「 ／ 」でつないで 300 字まで
+    （git の断りは「Preparing worktree …」の後の行に fatal: の訳が来るので、後ろを残す）。誤りの答えでなければ (None, None)。"""
     try:
         obj = json.loads(text)
     except (TypeError, ValueError):
-        return None
+        return None, None
     err = obj.get("error") if isinstance(obj, dict) else None
-    return err.get("code") if isinstance(err, dict) else None
+    if not isinstance(err, dict):
+        return None, None
+    msg = err.get("message")
+    msg = " ／ ".join(x.strip() for x in msg.splitlines() if x.strip())[-300:] if isinstance(msg, str) else ""
+    return err.get("code"), (msg or None)
+
+
+def _failed(argv, p):
+    """0 以外で終わった herdr の呼び出し p の HerdrError。誤りの答えが無ければ、出力の字を detail にする。"""
+    code, message = _error(p.stdout)
+    if not code:
+        code, message = _error(p.stderr)
+    return HerdrError(argv, code or (p.stderr or p.stdout).strip()[:300], message)
 
 
 def _call(argv, runner, quiet_ok=False):
@@ -63,8 +82,7 @@ def _call(argv, runner, quiet_ok=False):
     quiet_ok は、成功しても何も出さない書く口（pane run・workspace close）のためのもの。"""
     p = runner(argv)
     if p.returncode != 0:
-        code = _error_code(p.stdout) or _error_code(p.stderr)
-        raise HerdrError(argv, code or (p.stderr or p.stdout).strip()[:300])
+        raise _failed(argv, p)
     if quiet_ok and not p.stdout.strip():
         return {}
     try:
@@ -208,7 +226,7 @@ def read(pane, lines, runner=_default_runner, ansi=False):
     argv = ["herdr", "pane", "read", pane, "--lines", str(lines)] + (["--ansi"] if ansi else [])
     p = runner(argv)
     if p.returncode != 0:
-        raise HerdrError(argv, _error_code(p.stdout) or (p.stderr or p.stdout).strip()[:300])
+        raise _failed(argv, p)
     return p.stdout
 
 

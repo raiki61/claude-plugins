@@ -1031,6 +1031,24 @@ class Flow(unittest.TestCase):
         companies[0]["departments"] = [dept_row(name="見渡し", role="担当", path="/r/w")]   # 立っている間は、その部署に届ける
         self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
 
+    def test_ask_to_a_duty_raised_only_when_asked_moves_off_a_branch_name_that_clashes_with_one_in_the_repo(self):
+        # ブランチ work が在ると work/ask-… を作れない（git が ref の名前のぶつかりで断る）ので、既定の名前を次の候補にする（my_notes の受付 e77306）
+        self.shape('[[roles]]\nname = "担当"\nlifetime = "always"\n[[skills]]\nname = "見渡し"\nrole = "担当"\nlifetime = "until-idle"\n')
+        self.g.local["work"] = self.g.local["main"]
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(branch=ns.branch)
+            return 1
+        with contextlib.chdir(self.src):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                a = argparse.Namespace(config=self.cfg, ask="見渡し", text="見て", brief=None, task=None, branch=None,
+                                       dry_run=False, role=None, persistent=False, base=None, from_name=None, from_account=None)
+                orders.ask(a, self.ports, self.src, task)
+        self.assertRegex(seen["branch"], r"^work-ask-[0-9a-f]{6}$", buf.getvalue())
+        self.assertIn("在るブランチ work とぶつかる", buf.getvalue())
+
     def test_ask_to_a_duty_taken_per_ask_starts_a_department_of_its_own_for_each_ask(self):
         # lifetime = "per-ask"（頼みごとの部署）: 受け持ちの名前の部署が立っていても積まず、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」を立てる
         self.shape('[[roles]]\nname = "担当"\nlifetime = "always"\n'

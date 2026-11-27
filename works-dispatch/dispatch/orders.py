@@ -685,7 +685,15 @@ def _ask(a, ports, cwd, task, sent):
         # 頼まれたときだけ立てる受け持ち（lifetime が until-idle か per-ask）: 部署の名前は受け持ちの名前、ブランチは受付番号から作る
         # （--task・--branch を渡さなくてよい）。部署は畳む部署で立ち（dispatch._task が role.lifetime_at を見る）、納品してメインブランチに
         # 入れたら --done で畳まれる。per-ask の受け持ちは、頼みごとに「<受け持ち>：<受付番号の終わり 6 字>」の部署を立てる（並べて進む）
-        a = argparse.Namespace(**{**vars(a), "task": asked_name(target, ask_id), "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
+        # 既定のブランチ名は、在るブランチと ref の名前でぶつかれば次の候補にする（ブランチ work の在るリポジトリでは work/ask-… を
+        # 作れない。my_notes の受付 e77306）
+        branch = a.branch
+        if not branch:
+            first, names = gitx.ASK_BRANCHES[0].format(ask_id[-6:]), ports.git.branch_names(company["root"])
+            branch = gitx.ask_branch(ask_id[-6:], names)
+            if branch != first:
+                notes.append(f"既定のブランチ名 {first} は在るブランチ {gitx.clash(names, first)} とぶつかるので、{branch} にする")
+        a = argparse.Namespace(**{**vars(a), "task": asked_name(target, ask_id), "branch": branch})
         notes.append(f"{target["asked"]} は " + ("per-ask の受け持ち（頼みごとに別の部署で受ける）" if target.get("per_ask")
                                                      else "until-idle の受け持ち（頼まれたときに立て、手が空いたら畳む）")
                      + f"なので、部署 {a.task}（ブランチ {a.branch}）を立てる")

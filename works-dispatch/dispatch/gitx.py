@@ -488,6 +488,41 @@ def remote_heads(cwd, runner=_default_runner):
             if ref.startswith("refs/heads/")}
 
 
+def branch_names(cwd, runner=_default_runner):
+    """手元のブランチ（refs/heads/ の下）と、remote を追うブランチ（refs/remotes/<remote>/ の下。<remote>/HEAD は除く）の名前の集まり。
+    読めなければ空。remote の名前に / を含むリポジトリは考えない。"""
+    out = _git(cwd, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], runner)
+    names = set()
+    for ref in (out or "").splitlines():
+        if ref.startswith("refs/heads/"):
+            names.add(ref[len("refs/heads/"):])
+        elif ref.startswith("refs/remotes/"):
+            rest = ref[len("refs/remotes/"):].partition("/")[2]
+            if rest and rest != "HEAD":
+                names.add(rest)
+    return names
+
+
+def clash(names, branch):
+    """branch と ref の名前でぶつかる在るブランチの名前（names の中。無ければ None）。ブランチ work が在ると work/x を、work/x が在ると
+    work を作れない（git は「cannot lock ref 'refs/heads/work/x': 'refs/heads/work' exists」で断る。2026-11-28 に git 2.43.0 と herdr 0.9.5 で見た）。
+    同じ名前はぶつからない（在るブランチを開く）。大文字と小文字は同じとみなす（字の大小を分けないファイルシステムの loose な ref では
+    Work と work/x もぶつかる）。"""
+    want = branch.casefold()
+    return next((n for n in sorted(names) if want.startswith(n.casefold() + "/") or n.casefold().startswith(want + "/")), None)
+
+
+ASK_BRANCHES = ("work/ask-{}", "work-ask-{}")   # 頼みの部署の既定のブランチ名の候補。前から順に、ぶつからない物を使う
+
+
+def ask_branch(tail, names):
+    """頼みの部署の既定のブランチ名（tail は受付番号の終わり 6 字、names は在るブランチの名前の集まり。branch_names の返し）。
+    ASK_BRANCHES の前から、在るブランチとぶつからない（clash）物を選ぶ。どれもぶつかれば最初の物（作る所で git が断り、その訳が出る）。
+    前は work/ask-<6 字> に決め打ちで、ブランチ work の在るリポジトリでは部署が立たなかった（my_notes の受付 e77306）。"""
+    wants = [f.format(tail) for f in ASK_BRANCHES]
+    return next((b for b in wants if not clash(names, b)), wants[0])
+
+
 def fetch_heads(cwd, branches, runner=_default_runner):
     """origin のそのブランチたちを 1 度に取る（fetch の複数の ref を取る形）。取れなければ GitError。書く口。"""
     _must(["git", "-C", cwd, "fetch", "--quiet", "origin", *branches], runner)
