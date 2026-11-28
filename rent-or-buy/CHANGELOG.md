@@ -6,6 +6,10 @@ rent-or-buy（「借りるか買うか」を計算だけで決める Claude Code
 
 ## [Unreleased]
 
+### Changed
+
+- 試験だけを直した（判断の出力は変えていない）。訳の試験 `tests/test_translate.py` の 2 本は、単価を試験に書き写さず `prices.lookup`・`prices.defaults` から引いて式を照合する形に替えた。名前の試験 `tests/test_names.py` は、価格の控え（snapshot）の中身を決め打ちせず、形（`claude-` の頭の名前と、使える印が在るか）を見る形に替えた（頼み 263078）。
+
 ## [0.8.0] - 2026-11-21
 
 ### Changed

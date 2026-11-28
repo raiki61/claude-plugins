@@ -6,6 +6,10 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Changed
+
+- 試験だけを直した（tiers の動きは変えていない）。点検の試験 `tests/test_tiers_check.py` の 2 本を、一時のフォルダに置いたコマンドを PATH に渡し、見つかった道の値が出力に届くかを見る形に替えた。statusline の試験 `tests/test_statusline.py` で、ほかの試験と同じ入力で同じ結論を見ていた 1 本を消した（頼み 263078）。
+
 ## [0.14.2] - 2026-11-28
 
 ### Changed
