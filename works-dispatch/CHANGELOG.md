@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.178.2] - 2026-11-28
+
 ### Changed
 
 - 試験だけを直した。`dispatch/tests/test_disk.py` の、部署の会話の Bash に TMPDIR を向ける 1 行の試験が、Windows の CI で赤になっていた（run 46102599678）。Windows のパスは `\` と `:` を含み、書く側が引用で包むため。書いた行をシェルの形で読み戻して、置き場のパスと比べる形にした（頼み 401a6a）。

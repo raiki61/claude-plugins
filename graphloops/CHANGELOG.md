@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-11-28
+
 ### Changed
 
 - 試験だけを直した。main の CI（run 46102599678）で、名前表の要素を読む側が並べ直していないかの検査が 2 か所を赤にした。台本 `tests/simulate.py` の相対の `--dir` の試験は、結末（`convergence.outcome`）の値を手で並べず検証器 `research-record.py` の `OUTCOMES` から引く。`tests/py/test_review_rules.py` の述語ごとの入口の分岐は、所属の判定でなく述語の名前ごとの分岐で書く（頼み 401a6a）。
