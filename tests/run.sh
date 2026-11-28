@@ -82,8 +82,9 @@ ran=0
 # 合格と同じ「ok」だけで出していたとき、ツールや OS の機能の無い CI は走らないまま緑になり、止める口が無かった
 SKIP_MARK=' # SKIP'
 SKIPS=()
-# unittest の一式の見送り（「OK (skipped=N)」）。見送りの行を出さない一式の分で、FAIL_ON_SKIP には数えず、本数を最後に出す（expect_output の緑の腕）
-UT_SKIP_RE='OK \(skipped=([0-9]+)\)'
+# unittest の一式の見送り（「OK (skipped=N)」。予期した失敗が有れば「OK (skipped=N, expected failures=M)」と続く）。見送りの行を出さない一式の分で、
+# FAIL_ON_SKIP には数えず、本数を最後に出す（expect_output の緑の腕）
+UT_SKIP_RE='OK \(skipped=([0-9]+)[,)]'
 UT_SKIPS=()
 note_skips() {
     [[ "$1" == *"$SKIP_MARK"* ]] || return 0
@@ -280,10 +281,11 @@ fi
 ut_probe=$( UT_SKIPS=(); fail=0; ran=0; ONLY_SET=; SCOPE=()
             expect_output 0 "OK" "見送りの有る一式" printf 'Ran 5 tests\n\nOK (skipped=3)\n' >/dev/null
             expect_output 0 "OK" "見送りの無い一式" printf 'Ran 5 tests\n\nOK\n' >/dev/null
+            expect_output 0 "OK" "予期した失敗も有る一式" printf 'Ran 5 tests\n\nOK (skipped=2, expected failures=1)\n' >/dev/null
             expect_output 0 "OK" "赤の一式" sh -c 'echo "OK (skipped=2)"; exit 1' >/dev/null
             printf '%s|' ${UT_SKIPS[@]+"${UT_SKIPS[@]}"}; printf 'fail=%s' "$fail" )
 ran=$((ran + 1))
-if [ "$ut_probe" = "3 本: 見送りの有る一式|fail=1" ]; then
+if [ "$ut_probe" = "3 本: 見送りの有る一式|2 本: 予期した失敗も有る一式|fail=1" ]; then
     echo "  ok   unittest の一式の「OK (skipped=N)」は緑の回だけ本数で一覧に足し、見送りの無い回と赤の回は足さない"
 else
     echo "  FAIL unittest の見送りの数え方が違う: $ut_probe"
