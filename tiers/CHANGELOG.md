@@ -6,6 +6,10 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ## [Unreleased]
 
+### Changed
+
+- statusline の試験の `BgAgentsBorn` を、macOS だけでなく Linux でも走らせるようにした（CI は macOS で tiers を回さないので、今まで 1 度も走っていなかった）。statusline の振る舞いは変えていない（頼み 900eef）。
+
 ## [0.14.1] - 2026-11-21
 
 ### Changed

@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `--land` の空打ちの試験で、同じ `self.told` を 2 回見ていた所を、窓への打ち込みを見るように替えた。`--land` の振る舞いは変えていない（頼み 900eef）。
+
 ## [0.174.2] - 2026-11-28
 
 ### Fixed

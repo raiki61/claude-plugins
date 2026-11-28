@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- 試験の重なりと、何も拾わなくても緑になる試験を直した。`del_path` の断りの試験を、同じ入力を見る `test_refused_deletes_delete_nothing` に畳み（`tests/py/MIGRATION.md` の行き先も付け替えた）、消す口の見張りの赤の試験（`test_rmtree_fence_is_red_in_each_root`）を、置いたファイルを見張りが拾った行で見るようにした。エンジンの振る舞いは変えていない（頼み 900eef）。
+
 ## [0.51.5] - 2026-11-22
 
 ### Fixed
