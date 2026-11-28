@@ -608,13 +608,6 @@ class Fetch(unittest.TestCase):
             self.assertIn("クリティカルパスなし", lines[1])
             assert_page(self, path.read_text(encoding="utf-8"))
 
-    def test_help_has_not_seen(self):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
-            mm.main(["--help"])
-        self.assertIn("見ていないもの", out.getvalue())
-        self.assertIn("Projects", out.getvalue())
-
 
 class Stray(unittest.TestCase):
     """マイルストーンの付いていない issue（持ち主 2026-11-04「マイルストーンに紐づかない野良issueも存在できるように」

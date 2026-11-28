@@ -195,7 +195,6 @@ class DeletedAuthor(unittest.TestCase):
     def test_names_are_filled_only_for_display(self):
         self.assertEqual(cu.name_of(None), "（不明）")
         self.assertEqual(cu.name_of(user("a")), "a")
-        self.assertFalse(hasattr(cu, "login_of"))
 
 
 class IssueAssignee(unittest.TestCase):

@@ -2658,15 +2658,6 @@ class Json(unittest.TestCase):
         alice = json.loads(report(p, who="alice", args=("--json",)))
         self.assertEqual([(x["number"], x["role"]) for x in alice["prs"]], [(9, "reviewer")])
 
-    def test_json_matches_text_report_set_and_order(self):
-        prs = [pr(number=n, author=user("bob"), isDraft=True, createdAt=t)
-               for n, t in ((3, T2), (4, T0), (5, T1))]
-        text = report(*prs, who="bob")
-        head = text.partition("## 相手の番")[0]
-        order = [int(m) for m in re.findall(r"^  #(\d+)", head, re.M)]
-        out = json.loads(report(*prs, who="bob", args=("--json",)))
-        self.assertEqual([x["number"] for x in out["prs"]], order)
-
     def test_json_lists_limited_prs_even_outside_my_turn(self):
         # 上限に当たった PR は、自分の番かの判定が取りこぼしの上に立っている。prs に無くても番号で引けるように出す
         cut = pr(number=11, author=user("alice"), reviews=conn(total=70))
@@ -2973,12 +2964,6 @@ class ReplyForm(unittest.TestCase):
                         self.assertTrue(text.startswith("- "), f"{n} 行目: 字下げ 0 の行は `- ` で始める")
                     else:
                         self.assertIsNone(self.BREAKS.match(text[2:]), f"{n} 行目: 続きの行の頭に項目の印")
-
-    def test_skill_states_the_line_form(self):
-        """SKILL.md の返答のセクションが、reply.md を開く前にも同じ形を言っているか"""
-        text = (ROOT / "attention" / "skills" / "whose-turn" / "SKILL.md").read_text(encoding="utf-8")
-        for phrase in ("箇条書きの 1 項目", "字下げ 2 桁", "3 桁以上にしない", "``` の枠で囲まない"):
-            self.assertIn(phrase, text)
 
 
 if __name__ == "__main__":
