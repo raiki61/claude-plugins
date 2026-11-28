@@ -586,6 +586,12 @@ for 28 hours, 16 hours and 38 minutes. Running the loop in the foreground does n
 Claude Code moves it to the background instead of stopping it (["Foreground commands that move to the background"](https://code.claude.com/docs/en/tools-reference)).
 The right way to wait is to run the awaited command itself with Bash's `run_in_background` and end the turn; Claude Code wakes the session when
 it finishes.
+To wait for an outside state (a pull request's checks, a merge queue, another pull request's merge), run a command that ends when the state
+changes, if there is one (for checks, `gh pr checks <number> --watch`), with `run_in_background`. For a state with no such command (a pull
+request's merge, a merge queue),
+run a `for` loop with a fixed count in the background, such as
+`for i in $(seq 1 120); do s=$(gh pr view <number> --json state -q .state); [ -n "$s" ] && [ "$s" != OPEN ] && break; sleep 60; done; echo $s`.
+The gate passes it, and when the count runs out, check the state and start it again. The stop message says the same.
 
 - The rule: a Bash call is stopped before it runs, in the foreground or the background, if it has a `while` or `until` loop that runs `sleep`,
   or if it has a `while`/`until` loop (or a `for` loop that runs `sleep`) together with `pgrep`/`pidwait -f` (`--full`), `pkill -0` or

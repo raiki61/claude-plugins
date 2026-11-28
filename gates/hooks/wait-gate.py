@@ -78,7 +78,12 @@ HEREDOC_PIECE = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"|\\([^\n])|(.)")
 HOW_TO_WAIT = (
     "待つ対象のコマンドそのものを Bash の `run_in_background` で走らせ、ターンを終えて終わりの知らせを待つ"
     "(`nohup … &` で出した処理には終わりの知らせが来ない)。待つ先が出力ファイルなら、それを書くコマンドを "
-    "`run_in_background` で走らせる。このゲートに逃げ道は無い。"
+    "`run_in_background` で走らせる。外の状態(PR の検査・マージキュー・ほかの PR のマージ)を待つときは、状態が変わると"
+    "終わるコマンドが在れば、それ(PR の検査なら `gh pr checks <番号> --watch`)を `run_in_background` で走らせる。待つコマンドの無い状態"
+    "(PR のマージ・マージキューなど)は、回数の決まった `for` のループ(例: `for i in $(seq 1 120); do s=$(gh pr view <番号> --json state "
+    "-q .state); [ -n \"$s\" ] && [ \"$s\" != OPEN ] && break; sleep 60; done; echo $s`)を `run_in_background` で走らせる。"
+    "`sleep` を回す `for` は、`pgrep -f`・`pkill -0`・`ps | grep` を一緒に置かなければこのゲートを通る。回数を使い切って"
+    "終わったら、状態を確かめて置き直す。止めた形のまま通す逃げ道は無い。"
 )
 REASON_FULL = (
     "waitgate: 裏の処理の終わりを `pgrep -f`・`pkill -0`・`ps | grep` のループで待たない。コマンド行の全体から探すので、"
