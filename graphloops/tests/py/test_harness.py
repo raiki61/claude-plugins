@@ -387,9 +387,10 @@ def test_rmtree_fence_is_red_in_each_root(tmp_path, top, rel, body):
     (tmp_path / rel).write_text(body, encoding="utf-8")
     counts, _ = _rmtree_refs(tmp_path)
     violations = _rmtree_violations(counts, {("graphloops/engine/commands.py", "launch_one"): (1, "x")})
-    # 置いたファイルの参照を拾った行で見る。違反が有るかだけを見ると、表の launch_one が仮の木に無いことの行
-    # （参照 0 件）だけで、置いた消す口を拾い損ねても緑になる（頼み 900eef の点検）
-    assert [v for v in violations if v.startswith(rel + ":") and "参照 0 件" not in v], violations
+    # 置いたファイルの参照を見張りが拾い、その所が違反に挙がることで見る。違反が有るかだけを見ると、表の launch_one が
+    # 仮の木に無いことの行だけで、置いた消す口を拾い損ねても緑になる（頼み 900eef の点検）
+    found = [fn for f, fn in counts if f == rel]
+    assert found and any(v.startswith(f"{rel}:{fn}:") for fn in found for v in violations), (counts, violations)
 
 
 @pytest.mark.small
