@@ -176,7 +176,7 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
                                "task": task_name if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,
                                "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss, "tool_boss": role_name, "causes": list(causes),
-                               "self_queue": True, "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
+                               "self_queue": True, "title": tools.miss_title(role_name, tool["name"])})
     head = f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）。{to} に回した"
     # --ask の出す行（止めた訳・積んだ先）は、この行の下に並べて返す。そのまま書かせると、--land の合図では合図の行より前の、
     # 離れた所に出て、「頼みが通らなかった」の訳が読めなかった（受付 20261031-122658-baff87。頼み c02eef）

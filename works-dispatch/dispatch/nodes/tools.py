@@ -5,7 +5,8 @@
 - 入力の確かめ（check_input）: 物であること・required の鍵が在ること・additionalProperties = false なら知らない鍵が無いこと・
   properties の各鍵の type だけを見る。ほかの決まりはツールが自分で確かめる。
 - 片づいたか: ツールの終了の値が 0 なら片づいた、0 以外なら片づかなかった（外れ）。
-- 回す頼み（miss_text）と、回す先の部署を自動で立てるときの名前とブランチ（auto_name・auto_branch）。
+- 回す頼みの本文と題（miss_text・miss_title）と、ツールが回した頼みの見分け（handed_asks。外れの行で見る）と、回す先の部署を
+  自動で立てるときの名前とブランチ（auto_name・auto_branch）。
 - 走らせる場所（place）: 一時の worktree（<置き場（base）>/works-dispatch-tool-<字>/tree）。作るときに、作った処理の pid を訳にした
   鍵を掛け（OWNER）、走らせ終えたら消す。処理が殺される（Bash の持ち時間切れなど）と消す所まで行かずに残るので、次にツールを走らせる
   ときと --clean が、作った処理がもう居ない物を消す（leftovers・sweep）。2026-10-17 に my_notes で、消えずに残った一時の worktree と、
@@ -241,6 +242,20 @@ def miss_text(role_name, tool, value, code, out_tail):
     return (f"機械のツール「{label(tool)}」（{role_name}/{tool['name']}）が片づけられなかった（終了の値 {code}）。\n\n"
             f"入力: {json.dumps(value, ensure_ascii=False)}\n\nツールの出力の終わり:\n```\n{out_tail}\n```\n\n"
             "この入力の仕事を進める。")
+
+
+def miss_title(role_name, tool_name):
+    """片づかなかったツールの仕事を回す頼みの題（「ツール <役>/<name> が片づけられなかった仕事」。台帳の行の title）。人が読む字なので、
+    ツールが自分の回した頼みを見分けるのには使わない（見分けるのは handed_asks）。"""
+    return f"ツール {role_name}/{tool_name} が片づけられなかった仕事"
+
+
+def handed_asks(rows, tool_name):
+    """台帳の行から、ツール tool_name が片づかずに回した頼みの受付の集まり。calls.invoke が回す前に書く外れの行（kind miss）の tool と
+    ask で見る（題は人が読む字なので読まない。docs/standards/machine-readable-values.md の決まり 1・3）。役の名前は見ない（役の名前を
+    替えても、前の名前で回した頼みを同じツールの物と数える）。同じ入力の打ち直しで回さなかった外れ（rerun_of）は ask を持たないので
+    数えない。頼みの行を書く前に落ちた外れの受付も入る（頼みの行の無い受付。tests/ci-watch.py は渡し損ねに数える）。"""
+    return {r["ask"] for r in rows if r.get("kind") == "miss" and r.get("tool") == tool_name and isinstance(r.get("ask"), str) and r["ask"]}
 
 
 def auto_name(role_name, tool):

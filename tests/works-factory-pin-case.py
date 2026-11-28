@@ -17,7 +17,8 @@
   REPEAT を過ぎても続けば 1 で知らせて時刻を替え、利用制限でない失敗は知らせ、読めた回は時刻を消す
 - page: 比べの一覧をページで繰り、main の先の本数（ahead_by）まで読む
 - edges: CHANGELOG の Changed の空行の無い形・Unreleased が最後のセクションの形、inputs の下げた続きの行と列 0 のコメント
-- title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
+- title: このツールの頼みは、題でなく works-dispatch の外れの行（tool と ask）で見分ける。同じ題でも外れの行の無い頼みと、ほかの
+  ツールの外れの頼みは数えない
 - auto: 照合に当たりが無い上げは、代表の clone に作ったブランチで PIN と CHANGELOG を commit し、--land（偽物の dispatch.py）で main に入れて
   0 で終わる。--land が入れなければ 1 で作業に回し、手順の行を最後に出す。どちらも作ったブランチと worktree と、--land が push した
   origin のブランチを消す（消せなければ注記を出す）。照合に当たりが在れば機械の上げを打たない。機械の上げの --land の合図で呼ばれたら
@@ -47,7 +48,15 @@ spec = importlib.util.spec_from_file_location("works_factory_pin", ROOT / "scrip
 wp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wp)
 
-TITLE = f"ツール 工場の版の見張り/{wp.TOOL} が片づけられなかった仕事"
+TITLE = wp.tools.miss_title("工場の版の見張り", wp.TOOL)   # works-dispatch が回す頼みの題（定義は nodes/tools.py の miss_title）
+
+
+def handed(*asks):
+    """works-dispatch がこのツールの外れを回した頼みの台帳の行。頼みの行の前に、calls.invoke が回す前に書く外れの行（tool と ask）を
+    置く（ツールは題でなく外れの行で自分の頼みを見分ける。nodes/tools.py の handed_asks）。"""
+    return [x for a in asks for x in ({"kind": "miss", "role": "工場の版の見張り", "tool": wp.TOOL, "ask": a["id"], "code": 1}, a)]
+
+
 SKILL = """# works-factory
 
 起動は `${CLAUDE_PLUGIN_ROOT}/bin/works-factory` で、`--input design_only=true` を付ける。
@@ -225,7 +234,7 @@ def told():
     code, out = go(fake, root, now=200.0)
     check(code == 1, f"知らせた後に頼みが立っていないのに黙った: {code} {out}")
     with open(os.path.join(d, *wp.deliver.INBOX, wp.deliver.LOG), "a", encoding="utf-8") as f:
-        f.write(json.dumps(ask, ensure_ascii=False) + "\n")   # works-dispatch が出力を頼みに変えた形
+        f.writelines(json.dumps(x, ensure_ascii=False) + "\n" for x in handed(ask))   # works-dispatch が出力を頼みに変えた形
     with open(os.path.join(d, wp.STATE), encoding="utf-8") as f:
         check(json.load(f)["told"] == shas[2], "知らせた上げ先を覚えない")
     code, out = go(fake, root)
@@ -248,7 +257,7 @@ def cross():
         os.makedirs(other)
         ask = {"kind": "ask", "status": "sent", "id": "20261026-000000-bbbbbb", "title": TITLE, "at": 1.0}
         ask.update({"boss": {"inbox": other}} if via == "boss" else {"from": {"place": place}})
-        fake, root, shas, d = world(1, {2: ok()}, asks=[ask])
+        fake, root, shas, d = world(1, {2: ok()}, asks=handed(ask))
         fake.places[place] = os.path.dirname(os.path.dirname(other))
         code, out = go(fake, root, '{"dry_run": true}')
         check(code == 0 and shas[2][:8] not in out, f"{via}: 納品の無い頼みを閉じたとみた（緑の上げ先を知らせた）: {code} {out}")
@@ -309,7 +318,8 @@ def unreadable():
     code, out = go(fake, root)
     check(code == 1 and "HTTP 502" in out, f"gh の失敗を黙った: {code} {out}")
     with open(os.path.join(d, *wp.deliver.INBOX, wp.deliver.LOG), "a", encoding="utf-8") as f:
-        f.write(json.dumps({"kind": "ask", "status": "queued", "id": "20261026-000000-bbbbbb", "title": TITLE, "at": 1.0}) + "\n")
+        f.writelines(json.dumps(x, ensure_ascii=False) + "\n" for x in
+                     handed({"kind": "ask", "status": "queued", "id": "20261026-000000-bbbbbb", "title": TITLE, "at": 1.0}))
     code, out = go(fake, root)
     check(code == 0, f"頼みが開いているのに gh の失敗を知らせ直した: {code} {out}")
     fake.broken = False
@@ -376,20 +386,22 @@ def edges():
 
 
 def title():
-    # 題の形を定めるのは works-dispatch の calls.hand_over の 1 か所だけ。そこから形を引いて役と name を入れ、出来た題を
-    # このツールの mine に通す（字の一致でなく、works-dispatch の付ける題の頼みを見分けるかで見る）。TITLE もこの題と合わせる
-    src = (ROOT / "works-dispatch" / "dispatch" / "calls.py").read_text(encoding="utf-8")
-    forms = re.findall(r'"title": f"([^"]*)"', src)
-    check(len(forms) == 1, f"calls.py に頼みの題の形が 1 か所に見つからない: {forms}")
-    made = forms[0].replace("{role_name}", "工場の版の見張り").replace("{tool['name']}", wp.TOOL)
-    check("{" not in made, f"題の形に知らない差し込みが在る: {forms[0]}")
-    check(made == TITLE, f"試験の TITLE が works-dispatch の付ける題と違う: {made!r} {TITLE!r}")
+    # このツールの頼みは、題（nodes/tools.py の miss_title。人が読む字）でなく、works-dispatch が回す前に書く外れの行で見分ける。
+    # 題が同じでも外れの行の無い頼み（人が同じ題で打った頼み）と、ほかのツールの外れが回した頼みは数えない
+    ours = {"kind": "ask", "status": "queued", "id": "20261026-000000-cccccc", "title": TITLE, "at": 5.0}
+    same = dict(ours, id="20261026-000000-dddddd", at=6.0)
+    other = dict(ours, id="20261026-000000-eeeeee", title=wp.tools.miss_title("工場の版の見張り", "other-tool"), at=7.0)
     inbox = os.path.join(tmp(), *wp.deliver.INBOX)
     os.makedirs(inbox)
     with open(os.path.join(inbox, wp.deliver.LOG), "w", encoding="utf-8") as f:
-        f.write(json.dumps({"kind": "ask", "status": "queued", "id": "20261026-000000-cccccc", "title": made, "at": 5.0},
-                           ensure_ascii=False) + "\n")
-    check(wp.mine(inbox, lambda place: None) == (True, 5.0), "works-dispatch の付ける題の頼みを、scripts/works-factory-pin.py の mine がこのツールの頼みと見分けない")
+        f.writelines(json.dumps(x, ensure_ascii=False) + "\n" for x in
+                     [same, {"kind": "miss", "role": "工場の版の見張り", "tool": "other-tool", "ask": other["id"], "code": 1}, other])
+    got = wp.mine(inbox, lambda place: None)
+    check(got == (False, None), f"外れの行の無い頼みか、ほかのツールの頼みを、scripts/works-factory-pin.py の mine がこのツールの頼みと見た: {got}")
+    with open(os.path.join(inbox, wp.deliver.LOG), "a", encoding="utf-8") as f:
+        f.writelines(json.dumps(x, ensure_ascii=False) + "\n" for x in handed(ours))
+    got = wp.mine(inbox, lambda place: None)
+    check(got == (True, 5.0), f"scripts/works-factory-pin.py の mine が、外れの行でこのツールの頼みを見分けない: {got}")
     print("TITLE_OK")
 
 

@@ -194,6 +194,12 @@ class Call(unittest.TestCase):
         miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
         self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
         self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
+        # 回した頼みの題は tools.miss_title の字で、ツールはその頼みを題でなく外れの行の tool と ask で見分ける（tools.handed_asks。
+        # scripts/works-factory-pin.py・tests/ci-watch.py の mine）
+        asks = [r for r in deliver.records(self.inbox) if r["kind"] == "ask"]
+        self.assertEqual({r.get("title") for r in asks}, {tools.miss_title("配布", "spread-plugins")})
+        self.assertEqual(tools.handed_asks(deliver.records(self.inbox), "spread-plugins"), {r["id"] for r in asks})
+        self.assertEqual(tools.handed_asks(deliver.records(self.inbox), "ほかのツール"), set())
         self.assertEqual(self.prompts(), [])   # always の部署「調べ」に頼む（待ち受けが居なくても窓には打たず、順番待ちに積む）
         (item,) = wake.queued(self.inbox, self.g.git_dir(self.place))
         self.assertIn("-ask.md を読んで", item["line"])

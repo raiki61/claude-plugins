@@ -26,7 +26,8 @@
   無い clone でも直し済みとみて 0 で黙る（ほかの機械の clone から直した赤）。桁の違う番号には当てない。git log が読めなければ知らせる。
   直し済みの run より新しい赤の run が決着すれば、その run の commit から読み直して知らせる。直し済みとみた赤は知らせ済みに足さず、
   前に知らせた記録も消さない。ほかの workflow の直していない赤と並べば、そちらだけを知らせる
-- title: works-dispatch が頼みに付ける題の形が、このツールの見分ける形のまま（calls.hand_over の字を見る）
+- title: このツールの頼みは、題でなく works-dispatch の外れの行（tool と ask）で見分ける。同じ題でも外れの行の無い頼みと、ほかの
+  ツールの外れの頼みは数えない
 """
 
 import atexit
@@ -36,7 +37,6 @@ import io
 import json
 import os
 import pathlib
-import re
 import sys
 import tempfile
 
@@ -51,7 +51,14 @@ spec.loader.exec_module(cw)
 
 NOW = datetime.datetime(2026, 10, 19, 12, 0, tzinfo=datetime.timezone.utc)
 TEST = {"id": 1, "name": "test", "path": ".github/workflows/test.yml", "state": "active"}
-TITLE = f"ツール CI の見張り/{cw.TOOL} が片づけられなかった仕事"
+TITLE = cw.tools.miss_title("CI の見張り", cw.TOOL)   # works-dispatch が回す頼みの題（定義は nodes/tools.py の miss_title）
+
+
+def handed(*asks):
+    """works-dispatch がこのツールの外れを回した頼みの台帳の行。頼みの行の前に、calls.invoke が回す前に書く外れの行（tool と ask）を
+    置く（ツールは題でなく外れの行で自分の頼みを見分ける。nodes/tools.py の handed_asks）。外れの tail は頼みごとに変え、同じ出力の
+    外れの重ね（mine の merged）に混ざらないようにする。"""
+    return [x for a in asks for x in ({"kind": "miss", "role": "CI の見張り", "tool": cw.TOOL, "ask": a["id"], "code": 1, "tail": f"- {a['id']}"}, a)]
 # この回の一時の場所の親（RUN）。場合ごとの一時の場所は RUN の下に作り、回の終わりに RUN ごと消す（check が sys.exit で止めた回・
 # 例外で落ちた回も消える）。場合ごとに TMPDIR の直下へ mkdtemp で作って消さずにいたとき、/private/tmp に 5 日で 1,500 余り残った
 # （頼み 24f62a）。TemporaryDirectory の片づけは読み取り専用のファイル（Windows の git のオブジェクト）も書けるように直して消す
@@ -172,7 +179,7 @@ def red_range():
 
 def told_while_open():
     ask = {"kind": "ask", "status": "queued", "id": "20261019-000000-aaaaaa", "title": TITLE}
-    d = setup([ask])
+    d = setup(handed(ask))
     fake = Fake(d, [TEST], {1: [r(7, "failure", "a"), r(6, "success", "0")]})
     check(go(fake)[0] == 1, "最初の赤を知らせない")
     code, out = go(fake)
@@ -186,13 +193,13 @@ def told_while_open():
     old = {"kind": "ask", "status": "queued", "id": "20261017-000000-bbbbbb", "title": TITLE,
            "at": (NOW - cw.REPEAT - datetime.timedelta(hours=2)).timestamp()}
     new = dict(old, id="20261019-000000-cccccc", at=(NOW - cw.REPEAT + datetime.timedelta(hours=2)).timestamp())
-    d = setup([old, new])
+    d = setup(handed(old, new))
     fake = Fake(d, [TEST], {1: [r(7, "failure", "a"), r(6, "success", "0")]})
     go(fake)
     code, out = go(fake)
     check(code == 0 and f"{datetime.datetime.fromtimestamp(new['at'], datetime.timezone.utc) + cw.REPEAT:%Y-%m-%d %H:%M} UTC" in out,
           f"回してから REPEAT の内の頼みが開いているのに知らせ直した: {code} {out}")
-    d = setup([new | {"at": old["at"]}, old])
+    d = setup(handed(new | {"at": old["at"]}, old))
     fake = Fake(d, [TEST], {1: [r(7, "failure", "a"), r(6, "success", "0")]})
     go(fake)
     code, out = go(fake)
@@ -211,7 +218,7 @@ def cross():
         ask = {"kind": "ask", "status": "queued", "id": "20261019-000000-aaaaaa", "title": TITLE,
                "at": datetime.datetime(2026, 10, 19, 11, 0, tzinfo=datetime.timezone.utc).timestamp()}
         ask.update({"boss": {"inbox": other}} if via == "boss" else {"from": {"place": place}})
-        d = setup([ask])
+        d = setup(handed(ask))
         fake = Fake(d, [TEST], {1: [r(7, "failure", "a", "2026-10-18T10:00:00Z"), r(6, "success", "0")]})
         fake.places[place] = os.path.dirname(os.path.dirname(other))
         go(fake)
@@ -227,7 +234,7 @@ def cross():
 
 def reopen_after_close():
     ask = {"kind": "ask", "status": "queued", "id": "20261019-000000-aaaaaa", "title": TITLE}
-    d = setup([ask])
+    d = setup(handed(ask))
     fake = Fake(d, [TEST], {1: [r(7, "failure", "a", "2026-10-18T10:00:00Z"), r(6, "success", "0")]})
     go(fake)
     closed = datetime.datetime(2026, 10, 18, 11, 0, tzinfo=datetime.timezone.utc).timestamp()
@@ -256,7 +263,7 @@ def reopen_after_close():
         with open(os.path.join(d, *cw.deliver.INBOX, cw.deliver.LOG), "a", encoding="utf-8") as f:
             f.writelines(json.dumps(x, ensure_ascii=False) + "\n" for x in rows)
     at = lambda hm: datetime.datetime(2026, 10, 19, *hm, tzinfo=datetime.timezone.utc).timestamp()
-    d = setup([ask])
+    d = setup(handed(ask))
     fake = Fake(d, [TEST], {1: [r(7, "failure", "a", "2026-10-18T10:00:00Z"), r(6, "success", "0")]})
     go(fake)
     child = {"kind": "ask", "status": "sent", "id": "20261019-000000-bbbbbb", "title": "直しの頼み", "cause": ask["id"], "at": at((9, 0))}
@@ -276,11 +283,11 @@ def reopen_after_close():
     check(code == 1 and "run 9" in out, f"回した頼みが全部閉じた後に決着した赤を知らせ直さない: {code} {out}")
     # 前の頼みが閉じた後、知らせた件を頼みに渡せなかった（最後の行が failed）なら、閉じた時刻で黙らずに知らせ直す。渡せたら黙る
     old = {"kind": "ask", "status": "sent", "id": "20261001-000000-aaaaaa", "title": TITLE, "at": 1.0}
-    d = setup([old, {"kind": "deliver", "ask": old["id"], "at": 2.0}])
+    d = setup(handed(old) + [{"kind": "deliver", "ask": old["id"], "at": 2.0}])
     fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
     check(go(fake)[0] == 1, "止められた workflow を知らせない")
     lost = {"kind": "ask", "status": "failed", "id": "20261019-000000-bbbbbb", "title": TITLE, "at": at((9, 0))}
-    log(lost)
+    log(*handed(lost))
     code, out = go(fake)
     check(code == 1 and "disabled_manually" in out, f"頼みに渡せなかった件を、前の頼みが閉じた時刻で黙った: {code} {out}")
     log({**lost, "status": "sent", "at": at((9, 5))})
@@ -288,10 +295,10 @@ def reopen_after_close():
     check(code == 0, f"渡し直せた頼みが開いているのに知らせ直した: {code} {out}")
     # 別の頼みが開いている間に渡せなかった件は、その頼みが開いていても、後で閉じても知らせ直す
     held = {"kind": "ask", "status": "sent", "id": "20261019-000000-cccccc", "title": TITLE, "at": at((8, 0))}
-    d = setup([held])
+    d = setup(handed(held))
     fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
     check(go(fake)[0] == 1, "止められた workflow を知らせない")
-    log({**lost, "at": at((9, 0))})
+    log(*handed({**lost, "at": at((9, 0))}))
     code, out = go(fake)
     check(code == 1 and "disabled_manually" in out, f"渡せなかった件を、開いている別の頼みで黙った: {code} {out}")
     log({**held, "take": "X0", "at": at((9, 30))})
@@ -301,17 +308,17 @@ def reopen_after_close():
     code, out = go(fake)
     check(code == 1 and "disabled_manually" in out, f"渡せなかった件を、後で閉じた別の頼みの時刻で黙った: {code} {out}")
     # 頼みの行を書く前に落ちた（回す先の部署を引けない・部署が埋まっている）ときは、外れの行の受付に頼みの行が無い
-    d = setup([held])
+    d = setup(handed(held))
     fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
     go(fake)
     log({"kind": "miss", "role": "点検", "tool": cw.TOOL, "ask": "20261019-000000-dddddd", "code": 1, "at": at((9, 0))})
     code, out = go(fake)
     check(code == 1 and "disabled_manually" in out, f"頼みの行の無い外れを、渡せたと見て黙った: {code} {out}")
-    log({"kind": "ask", "status": "sent", "id": "20261019-000000-eeeeee", "title": TITLE, "at": at((9, 30))})
+    log(*handed({"kind": "ask", "status": "sent", "id": "20261019-000000-eeeeee", "title": TITLE, "at": at((9, 30))}))
     code, out = go(fake)
     check(code == 0, f"渡し直せた頼みが開いているのに知らせ直した: {code} {out}")
     # 回した頼みが生んだ頼み（直しの頼み）の失敗は、知らせた件の渡し損ねではない。生んだ頼みを送り出しても、渡し損ねは消えない
-    d = setup([held])
+    d = setup(handed(held))
     fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
     go(fake)
     log({"kind": "ask", "status": "failed", "id": "20261019-000000-ffffff", "title": "直しの頼み", "cause": held["id"], "at": at((9, 0))})
@@ -322,7 +329,7 @@ def reopen_after_close():
     code, out = go(fake)
     check(code == 1 and "disabled_manually" in out, f"生んだ頼みを送り出したので、渡し損ねを渡せたと見た: {code} {out}")
     # 同じ出力の外れが開いている頼みに渡っていれば、orders.ask は同じ中身の頼みに重ねて頼みの行を書かない。渡し損ねに数えない
-    d = setup([held])
+    d = setup(handed(held))
     fake = Fake(d, [dict(TEST, state="disabled_manually")], {1: [r(6, "success", "0")]})
     go(fake)
     miss = {"kind": "miss", "role": "点検", "tool": cw.TOOL, "input": {}, "code": 1, "tail": "- 止められた"}
@@ -466,17 +473,15 @@ def fixed_by_commit():
 
 
 def title():
-    # 題の形を定めるのは works-dispatch の calls.hand_over の 1 か所だけ。そこから形を引いて役と name を入れ、出来た題を
-    # このツールの mine に通す（字の一致でなく、works-dispatch の付ける題の頼みを見分けるかで見る）。TITLE もこの題と合わせる
-    src = (ROOT / "works-dispatch" / "dispatch" / "calls.py").read_text(encoding="utf-8")
-    forms = re.findall(r'"title": f"([^"]*)"', src)
-    check(len(forms) == 1, f"calls.py に頼みの題の形が 1 か所に見つからない: {forms}")
-    made = forms[0].replace("{role_name}", "CI の見張り").replace("{tool['name']}", cw.TOOL)
-    check("{" not in made, f"題の形に知らない差し込みが在る: {forms[0]}")
-    check(made == TITLE, f"試験の TITLE が works-dispatch の付ける題と違う: {made!r} {TITLE!r}")
-    d = setup([{"kind": "ask", "status": "queued", "id": "20261026-000000-cccccc", "title": made, "at": 5.0}])
+    # このツールの頼みは、題（nodes/tools.py の miss_title。人が読む字）でなく、works-dispatch が回す前に書く外れの行で見分ける。
+    # 題が同じでも外れの行の無い頼み（人が同じ題で打った頼み）と、ほかのツールの外れが回した頼みは数えない
+    ours = {"kind": "ask", "status": "queued", "id": "20261026-000000-cccccc", "title": TITLE, "at": 5.0}
+    same = dict(ours, id="20261026-000000-dddddd")
+    other = dict(ours, id="20261026-000000-eeeeee", title=cw.tools.miss_title("CI の見張り", "other-tool"))
+    d = setup(handed(ours) + [same, {"kind": "miss", "role": "CI の見張り", "tool": "other-tool", "ask": other["id"], "code": 1}, other])
     inbox = os.path.join(d, *cw.deliver.INBOX)
-    check([r["id"] for r in cw.mine(inbox, lambda place: None)[0]] == ["20261026-000000-cccccc"], "works-dispatch の付ける題の頼みを、tests/ci-watch.py の mine がこのツールの頼みと見分けない")
+    got = [r["id"] for r in cw.mine(inbox, lambda place: None)[0]]
+    check(got == [ours["id"]], f"tests/ci-watch.py の mine が、外れの行でこのツールの頼みを見分けない: {got}")
     print("TITLE_OK")
 
 

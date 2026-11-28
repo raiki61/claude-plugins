@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- 機械のツールが片づかずに AI の部署へ回した頼みを、ツールの側で見分ける関数 `nodes/tools.py` の `handed_asks`（台帳の行から、そのツールの外れの行〔kind が miss〕が指す頼みの受付を集める）と、回す頼みの題を作る `miss_title` を足した。題を付けるのは `calls.hand_over`、見分けるのはルートの `scripts/works-factory-pin.py` と `tests/ci-watch.py` で、前は 3 か所が題の形「ツール <役>/<name> が片づけられなかった仕事」を別々に持ち、見張りのツールは題の字を探して見分けていた。今は見分けに題を読まないので、題の字を直しても見張りが自分の頼みを見落とさない（頼み d12f20）。
+
 ## [0.177.1] - 2026-11-28
 
 ### Fixed

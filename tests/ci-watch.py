@@ -68,9 +68,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
 import gitx  # noqa: E402
 import todo  # noqa: E402
-from nodes import deliver  # noqa: E402
+from nodes import deliver, tools  # noqa: E402
 
-TOOL = "ci-watch"   # 会社の形の [[roles.tools]] の name。works-dispatch が回す頼みの題「ツール <役>/<name> が…」で、このツールの頼みを見分ける
+TOOL = "ci-watch"   # 会社の形の [[roles.tools]] の name。works-dispatch の外れの行の tool と比べて、このツールの頼みを見分ける（handed_asks）
 STATE = "ci-watch.json"
 RED = ("failure", "timed_out", "startup_failure")
 GREEN = ("success",)
@@ -230,14 +230,13 @@ def stamp(at):
 
 def mine(inbox, place_common):
     """このツールから回した頼みとそれが生んだ頼みの (閉じていない頼みの台帳の行〔積んだ順〕, 最後に閉じた時刻〔無ければ None〕,
-    渡せなかった頼みが渡せた頼みより新しいか)。頼みの題は works-dispatch が
-    「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/ci-watch-case.py の title が赤になる）。
+    渡せなかった頼みが渡せた頼みより新しいか)。このツールから回した頼みは、
+    works-dispatch が回す前に書く外れの行で見分ける（nodes/tools.py の handed_asks。題は人が読む字なので読まない）。
     閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
     納品の行はその会社の受付箱にだけ在る。2026-10-19 の頼みは my_notes に納品されたのに、開いているとみて 10 日黙った）。place_common は
     作業場のパスから git の共通のディレクトリを引く物（git でなければ None）。"""
-    marker = f"/{TOOL} "
     _, rows = todo.inboxes_from([inbox], place_common)
-    ids = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")}
+    ids = tools.handed_asks(rows, TOOL)
     own = set(ids)
     # 回した頼みが生んだ頼み（cause がそれを指す頼み。孫まで辿る）も数える。点検が直しをほかの部署へ回して納品すると、回した頼みは
     # 閉じても直しは開いたままで、閉じる前の push の run が後で赤で決着すると同じ赤を頼み直していた（2026-10-29、頼み 1e203a の

@@ -57,9 +57,9 @@ sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
 import filex  # noqa: E402
 import gitx  # noqa: E402
 import todo  # noqa: E402
-from nodes import deliver  # noqa: E402
+from nodes import deliver, tools  # noqa: E402
 
-TOOL = "works-factory-pin"   # 会社の形の [[roles.tools]] の name。works-dispatch が回す頼みの題「ツール <役>/<name> が…」で、このツールの頼みを見分ける
+TOOL = "works-factory-pin"   # 会社の形の [[roles.tools]] の name。works-dispatch の外れの行の tool と比べて、このツールの頼みを見分ける（handed_asks）
 STATE = "works-factory-pin.json"
 LOCK = "works-factory-pin.lock"   # 見張りを 1 本ずつにする鍵（git の共通のディレクトリの中）
 SOURCE = "works-factory-pin.git"   # 2 つの木を比べるための、工場の取り置き（git の共通のディレクトリの中の bare の clone）
@@ -275,14 +275,13 @@ def common_dir(runner, root=ROOT):
 
 
 def mine(inbox, place_common):
-    """このツールから回した頼みの (閉じていない物が在るか, 一番新しい頼みの時刻〔Unix 時刻。無ければ None〕)。頼みの題は works-dispatch が
-    「ツール <役>/<name> が片づけられなかった仕事」で付ける（calls.hand_over。形が変わったら tests/works-factory-pin-case.py の title が赤になる）。
+    """このツールから回した頼みの (閉じていない物が在るか, 一番新しい頼みの時刻〔Unix 時刻。無ければ None〕)。このツールから回した頼みは、
+    works-dispatch が回す前に書く外れの行で見分ける（nodes/tools.py の handed_asks。題は人が読む字なので読まない）。
     閉じたかは --todo と同じく、台帳の行が指すほかの会社の受付箱まで足し合わせた行で見る（todo.inboxes_from。頼み元がほかの会社の会話なら、
     納品の行はその会社の受付箱にだけ在る）。place_common は作業場のパスから git の共通のディレクトリを引く物（git でなければ None）。"""
-    marker = f"/{TOOL} "
     _, rows = todo.inboxes_from([inbox], place_common)
-    asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")]
-    ids = {r["id"] for r in asks}
+    ids = tools.handed_asks(rows, TOOL)
+    asks = [r for r in rows if r.get("kind") == "ask" and r.get("id") in ids]
     at = [r["at"] for r in asks if isinstance(r.get("at"), (int, float))]
     return any(r["id"] in ids for r in deliver.open_asks(rows)), (max(at) if at else None)
 
