@@ -3,7 +3,6 @@
 import json
 import os
 import pathlib
-import re
 import shlex
 import unittest
 from unittest import mock
@@ -11,6 +10,7 @@ from unittest import mock
 from . import DISPATCH, fakegit  # noqa: F401
 from .test_dispatch import FakePorts, fake_cfg, gitx_source, run_main
 from .test_provision import WorktreeHerdr
+from .worlds import TaskWorld
 import dispatch
 import gitx
 from config import Repo
@@ -33,9 +33,6 @@ def over(name):
     return {name: {"seven_day": {"used_percentage": 99, "resets_at": 10**10}, "five_hour": {"used_percentage": 1}}}
 
 
-BG = re.compile(r"^(claude-a\d) --bg --name ")
-
-
 def push_shape(g, text):
     """ほかの clone が origin の main に会社の形を commit して push した形にする（元の clone の origin/main は動かさない。別の所でメイン
     ブランチの会社の形を変えて、元の clone では fetch していない形）。g は git の偽物（tests/fakegit.py）。"""
@@ -45,43 +42,8 @@ def push_shape(g, text):
 SHAPE = '[[roles]]\nname = "調べ役"\nmodel = "haiku"\n'
 
 
-class Task(unittest.TestCase):
-    def setUp(self):
-        self.cfg, self.root, self.g = fake_cfg()
-        fakegit.forbid_real_git(self)
-        self.brief = str(pathlib.Path(self.root).parent / "brief.md")
-        pathlib.Path(self.brief).write_text("頼み", encoding="utf-8")
-
-    def ports(self, sessions=None, starts=True):
-        """sessions: 設定のフォルダ → そのアカウントの会話の並び。呼んだ会話の識別子は s-caller。
-        starts が真なら、ペインに打ち込んだ `<アカウントのコマンド> --bg --name <名前>` の後に、そのアカウントの一覧に裏の会話が出る。"""
-        ports = FakePorts([], git=self.g)
-        ports.fetch_prs = lambda repo: self.fail("--task では whose-turn を呼ばない")
-        ports.env = {"CLAUDE_CODE_SESSION_ID": "s-caller"}
-        d = pathlib.Path(self.cfg).parent
-        dirs = {"claude-a1": f"{d}/c1", "claude-a2": f"{d}/c2"}
-
-        def listed(cdir, include_done=False):
-            got = list((sessions or {}).get(cdir, []))
-            for i, w in enumerate(x for x in ports.term.writes if x[0] == "run" and BG.match(x[2])):
-                if starts and dirs[BG.match(w[2]).group(1)] == cdir:
-                    cwd = next(p["cwd"] for p in ports.term.panes() if p["pane_id"] == w[1])
-                    got.append({"id": f"bg{i}", "sessionId": f"bg{i}-full", "name": shlex.split(w[2])[3], "cwd": cwd,
-                                "kind": "background", "state": "working", "startedAt": i})
-            return got
-
-        ports.list_sessions = listed
-        return ports
-
-    def run_task(self, ports, *extra, name="直し", branch="task/fix"):
-        return run_main(["--config", self.cfg, "--task", name, "--branch", branch, "--brief", self.brief, *extra], ports)
-
-    def sent(self, ports):
-        """裏の会話を起動した打ち込み（最初の文はその最後の語）。"""
-        return [w[2] for w in ports.term.writes if w[0] == "run" and BG.match(w[2])]
-
-    def place(self, ports, branch="task/fix"):
-        return next(w["path"] for w in ports.term.worktrees(gitx_source(self.cfg)) if w["branch"] == branch)
+class Task(TaskWorld, unittest.TestCase):
+    """入口の --task。場の作り（setUp・ports・run_task・sent・place）は tests/worlds.py の TaskWorld に置き、test_role も同じ所から継ぐ。"""
 
     def test_creates_the_place_starts_a_background_session_there_and_attaches(self):
         ports = self.ports()
@@ -378,11 +340,13 @@ class Task(unittest.TestCase):
         [command] = self.sent(ports)
         self.assertTrue(command.startswith("claude-a2 --bg "), command)
         self.assertIn(("run", "P0", "claude-a2 attach bg0"), ports.term.writes)
+        # 連絡の道の 1 文は dispatch._contact が組む。--say の道で、宛先は呼んだ会話の名前。同じアカウントの道（SendMessage）と
+        # 画面に書く道の文は出さない
         self.assertIn("--say", command)
-        self.assertIn("で「窓口」へ送る", command)
-        self.assertIn("アカウントが違い", command)
-        self.assertNotIn("この画面に短く書いて止まる（", command)
-        self.assertNotIn("SendMessage で「", command)
+        self.assertIn("窓口", command)
+        for other in (dispatch._contact({"name": "窓口", "account": "a2"}, "a2"), dispatch._contact({"name": None, "account": None}, "a2"),
+                      dispatch._contact({"name": None, "account": "a1"}, "a2")):
+            self.assertNotIn(other, command)
 
     def test_account_with_fewer_running_conversations_gets_the_department(self):
         # 使用率が同じ（ここでは控えが無い）なら、PR と同じく動いている会話の少ないアカウントに立てる。a1 は設定の順では先
@@ -469,9 +433,13 @@ class Task(unittest.TestCase):
         ports = self.ports()
         ports.env = {}
         rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
         [command] = self.sent(ports)
-        self.assertIn("呼んだ会話が分からず", command)
-        self.assertIn("--from-name と --from-account で渡す", out)
+        # 呼んだ会話もアカウントも分からないので、画面に書く道（dispatch._contact が組む 1 文）。名前を渡すフラグを出力に添える
+        self.assertIn(dispatch._contact({"name": None, "account": None}, "a1"), command)
+        self.assertNotIn(dispatch._contact({"name": None, "account": "a1"}, "a1"), command)
+        self.assertIn("--from-name", out)
+        self.assertIn("--from-account", out)
 
     def test_from_name_and_account_override_what_was_found(self):
         ports = self.ports()
@@ -484,9 +452,11 @@ class Task(unittest.TestCase):
         ports = self.ports()
         ports.env = {}
         rc, out = self.run_task(ports, "--from-account", "a1")
+        self.assertEqual(rc, 0, out)
         [command] = self.sent(ports)
-        self.assertIn("呼んだ会話の名前が分からず", command)
-        self.assertNotIn("アカウントが違い", command)
+        # アカウントは分かるが名前が分からないので、画面に書く道（名前の分からない側の 1 文）
+        self.assertIn(dispatch._contact({"name": None, "account": "a1"}, "a1"), command)
+        self.assertNotIn(dispatch._contact({"name": None, "account": None}, "a1"), command)
 
     def test_from_account_not_in_the_config_stops(self):
         ports = self.ports()

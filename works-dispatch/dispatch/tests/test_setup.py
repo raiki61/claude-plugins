@@ -9,6 +9,7 @@ import unittest
 
 from . import DISPATCH, fakegit  # noqa: F401
 from . import test_deliver, test_land
+from .worlds import FlowWorld
 from .test_dispatch import FakePorts, fake_cfg, gitx_source, run_main
 import config
 import dispatch
@@ -122,12 +123,39 @@ class TaskWithoutRepos(unittest.TestCase):
         self.assertIn("[[repos]]", out)
 
 
-class AskWithoutRepos(test_deliver.Flow):
-    """頼む・納品する（--ask・--deliver）の流れを、[[repos]] の無い設定で同じに回す。"""
+class AskWithoutRepos(FlowWorld, unittest.TestCase):
+    """頼む・納品する（--ask・--deliver）の流れを、[[repos]] の無い設定で回す。--ask・--deliver の道で設定の [[repos]] が効くのは、
+    新しい部署を立てるときに会社の repo を決める所（orders.ask の config.repo_at。最小の repo になり、source は代表の clone）だけなので、
+    test_deliver.Flow のうちその道を通る本と、設定を読んで打った場所から会社を決めて頼んで納品するひと回りの本だけを回し直す（ほかの本は
+    [[repos]] を読まず、同じ入力・同じ結論になる）。"""
 
     def setUp(self):
         super().setUp()
         drop_repos(self.cfg)
+
+
+# AskWithoutRepos が回し直す test_deliver.Flow の本。新しい部署を立てる道（orders.ask の config.repo_at を通る。retire.spread も
+# orders.take からこの道を通る）と、設定を読み（orders.survey）打った場所から会社と受付箱を決めて頼んで納品するひと回り
+ASK_WITHOUT_REPOS = (
+    "test_ask_to_a_role_without_a_resident_department_starts_one_through_the_task_path",
+    "test_a_new_department_on_the_askers_own_branch_stops_and_says_to_go_on_here",
+    "test_a_new_department_that_does_not_start_leaves_why_in_the_ledger",
+    "test_an_ask_typed_from_the_head_office_by_a_department_records_the_departments_place",
+    "test_a_department_that_failed_to_launch_keeps_the_reason_from_before_the_summary",
+    "test_ask_to_a_duty_raised_only_when_asked_starts_its_department_with_a_branch_of_its_own",
+    "test_ask_to_a_duty_raised_only_when_asked_moves_off_a_branch_name_that_clashes_with_one_in_the_repo",
+    "test_ask_to_a_duty_taken_per_ask_starts_a_department_of_its_own_for_each_ask",
+    "test_an_ask_to_a_per_ask_duty_skips_a_stray_department_of_the_bare_name",
+    "test_retire_spreads_the_queue_of_a_stray_department_into_departments_of_their_own",
+    "test_ask_that_started_a_department_without_its_talk_id_is_still_delivered",
+    "test_ask_whose_department_did_not_start_is_not_delivered_even_with_its_ask_attr",
+    "test_ask_that_starts_a_department_reads_the_items_from_the_fetched_shape",
+    "test_deliver_sends_the_summary_to_the_asker_and_marks_it_delivered",
+    "test_ask_typed_in_another_clone_returns_to_the_askers_own_inbox",
+    "test_deliver_brings_the_main_clone_up_to_a_push_that_skipped_land",
+)
+for _name in ASK_WITHOUT_REPOS:
+    setattr(AskWithoutRepos, _name, getattr(test_deliver.Flow, _name))
 
 
 class LandGhUser(test_land.LandCase):
@@ -165,7 +193,7 @@ class InitCompany(unittest.TestCase):
         rc, out = self.init()
         self.assertEqual(rc, 0, out)
         path = pathlib.Path(self.src, ".claude", "company.toml")
-        self.assertIn(f"書いた: {path}", out)
+        self.assertIn(str(path), out)
         info, shape, rules = self.read()
         # 名前は origin（o/r）の NAME、gh_user は origin の持ち主（鍵を取り出せるとき）
         self.assertEqual((info["source"], info["name"], info["problems"]), ("repo", "r", []))
@@ -173,44 +201,43 @@ class InitCompany(unittest.TestCase):
         # 担当と作業はコードの直しなので、納品は差分と試験を返す（決め手の原典の URL を求めない）
         for name in ("担当", "作業"):
             self.assertEqual(shape["roles"][name]["deliver"], ["結論", "差分", "試験", "残った疑問", "ブランチ"])
-        self.assertIn("触るファイルをメインブランチから読み直してから", shape["roles"]["担当"]["instructions"])
-        # --land は自動の権限の判定（auto mode）に「Merge Without Review」で止められうる。担当と作業の設定で例外を文で書き、
-        # 止められたら打ち直さずに返し、窓口が入れる
+        # 役の本文は役ごとの雛形（dispatch.DRAFT_*）で、会社の名前 r が --ask の例に入る。文の言い回しは雛形の側で決め、ここでは
+        # どの役にどの雛形が届くかと、本文に出るコマンドが dispatch の引数に在るか（部署が打って断られない）を見る
+        company = "r"
+        drafts = {"担当": dispatch.DRAFT_DUTY.format(company=company), "作業": dispatch.DRAFT_WORK,
+                  "窓口": dispatch.DRAFT_DESK.format(company=company)}
+        for name, draft in drafts.items():
+            self.assertEqual(shape["roles"][name]["instructions"], draft.strip())
+        self.assertIn(f"--ask {company}/作業 ", shape["roles"]["担当"]["instructions"])
+        self.assertIn(f"--ask {company}/担当 ", shape["roles"]["窓口"]["instructions"])
+        self.assertIn(f"--ask {company}/作業 ", shape["roles"]["窓口"]["instructions"])
+        flags = {f for act in dispatch._parser()._actions for f in act.option_strings}
+        # 担当と作業は納品し直し（--deliver --again）と、止められた --land を窓口に頼む（--ask）こと、作業は --done で畳むこと、
+        # 窓口は --land で入れて --retire で畳むことを、役の本文で受ける
+        commands = {"担当": ("--ask", "--deliver", "--again", "--task", "--branch"),
+                    "作業": ("--ask", "--deliver", "--again", "--done"),
+                    "窓口": ("--ask", "--task", "--branch", "--text", "--land", "--retire")}
+        for name, wanted in commands.items():
+            for flag in wanted:
+                with self.subTest(role=name, flag=flag):
+                    self.assertIn(flag, flags)
+                    self.assertIn(flag, shape["roles"][name]["instructions"])
+        # --land は自動の権限の判定（auto mode）に「Merge Without Review」で止められうる。担当と作業の設定で例外を文で書く
         for name in ("担当", "作業"):
-            allow = shape["roles"][name]["settings"]["autoMode"]["allow"]
-            self.assertEqual(allow[0], "$defaults")
-            self.assertIn("--land", allow[1])
+            self.assertEqual(shape["roles"][name]["settings"]["autoMode"]["allow"], ["$defaults", dispatch.DRAFT_LAND_ALLOW])
             # 部署の画面は誰も見ていないので、画面で問うツールと作業場を出るツールを外す
             self.assertEqual(shape["roles"][name]["settings"]["permissions"]["deny"], ["AskUserQuestion", "EnterWorktree"])
-            self.assertIn("打ち直さず", shape["roles"][name]["instructions"])
-            self.assertIn("git add -A", shape["roles"][name]["instructions"])
-        self.assertIn("--land <部署の名前> を打って入れる", shape["roles"]["窓口"]["instructions"])
-        self.assertIn("fix/", shape["roles"]["担当"]["instructions"])
-        # 窓口は組織の決まり（担当は自分で --land する・ブランチの名前・受け持ちの中は担当に頼む）を役の本文で受ける
-        for rule in ("自分で --land", "fix/", "作業に直に頼まない"):
-            self.assertIn(rule, shape["roles"]["窓口"]["instructions"])
         # 役は担当（受け持ちごとに always）と作業（一度きり。--role を省いたときの役）。受け持ちは受ける仕事の項目で、役は担当
         self.assertEqual([(s["name"], s["role"]) for s in info["skills"]], [("<受け持ち>", "担当"), ("一度きりの作業", "作業")])
         self.assertEqual((shape["default_role"], dispatch.DEFAULT_ROLE), ("作業", "作業"))
         self.assertEqual([(shape["roles"][n]["lifetime"], shape["roles"][n]["context"]) for n in ("担当", "作業")], [("always", "new"), (None, None)])
-        company = "r"
-        self.assertIn(f"--ask {company}/作業 に --task <受け持ち>：<何をするか>", shape["roles"]["担当"]["instructions"])
-        self.assertIn("--ask <受け持ち>", shape["roles"]["担当"]["instructions"])
-        for name in ("担当", "作業"):
-            self.assertIn("もう一度納品のコマンドで返す", shape["roles"][name]["instructions"])
-        # 一時の部署の作業は、納品の後に --done で畳む（書かないと納品した部署が残り続ける）。窓口は残った部署を --retire で畳む
-        self.assertIn("--done を打ってターンを終える", shape["roles"]["作業"]["instructions"])
-        self.assertIn("--retire <部署の名前> で畳む", shape["roles"]["窓口"]["instructions"])
+        # 前の役の名前は下書きに戻さない
         text = path.read_text(encoding="utf-8")
-        for rule in ("窓口", "相談", "「<受け持ち>：<何をするか>」", "部署の名前には付けない", "英小文字とハイフン", "--task には --brief が要る",
-                     "受け持ちで分けるか、役で分けるか", "既定の例なので"):
-            self.assertIn(rule, text)
         for gone in ("管理者", "社長室", "作業者"):
             self.assertNotIn(gone, text)
         path.write_text("# 手で直した\n", encoding="utf-8")
         rc, out = self.init()
         self.assertEqual(rc, 1)
-        self.assertIn("上書きしない", out)
         self.assertEqual(path.read_text(encoding="utf-8"), "# 手で直した\n")
 
     def test_local_goes_to_the_settings_place_that_is_not_committed(self):

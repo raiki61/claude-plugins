@@ -14,8 +14,9 @@ from unittest import mock
 
 from . import DISPATCH, fakegit
 from .test_dispatch import FakeHerdr, gitx_source
-from . import test_task
+from .worlds import TaskWorld
 import claudex
+import dispatch
 import health
 import orders
 import role_hook
@@ -55,13 +56,22 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["instructions"], "結論と原典の一句を返す。")
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
-        self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "account": None, "settings": None,
-                                                 "deliver": None, "deliver_check": None, "lifetime": None, "context": None, "rent_or_buy": None, "machine": False,
-                                                 "tools": [], "holders": None, "ask_holders": None, "ask_check": None, "odd": []})
+        # 本文の無い役は、書かなかった項目を既定の値で持つ（項目が足されても、ここに挙げた既定は変わらない）
+        bare = got["roles"]["出荷役"]
+        for key, want in {"name": "出荷役", "instructions": None, "model": None, "effort": None, "account": None, "settings": None,
+                          "deliver": None, "deliver_check": None, "lifetime": None, "context": None, "rent_or_buy": None, "machine": False,
+                          "tools": [], "holders": None, "ask_holders": None, "ask_check": None, "odd": []}.items():
+            with self.subTest(key):
+                self.assertIn(key, bare)
+                self.assertEqual(bare[key], want)
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
-        self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None,
-                                                 "note_check": None, "note_check_bad": None, "former": {}, "problems": []})
+        empty = role.load(None)
+        for key, want in {"roles": {}, "gh_user": None, "shared": None, "default_role": None, "desk_role": None,
+                          "note_check": None, "note_check_bad": None, "former": {}, "problems": []}.items():
+            with self.subTest(key):
+                self.assertIn(key, empty)
+                self.assertEqual(empty[key], want)
         got = role.load(write(f"{self.d}/c.toml", '''gh_user = 3
 [[roles]]
 instructions = "名前が無い"
@@ -76,7 +86,13 @@ model = "x"
 '''))
         self.assertEqual(list(got["roles"]), ["b"])
         self.assertIsNone(got["roles"]["b"]["model"])   # 2 度目は使わない
+        # 外れた所ごとに 1 件。どの値（項目の名前・役の位置と名前）が外れたかを持つ
         self.assertEqual(len(got["problems"]), 4, got["problems"])
+        for problem, marks in zip(got["problems"], (("gh_user",), ("roles[0]", "name"), ("roles[1]", "（a）", "settings"),
+                                                    ("roles[3]", "b"))):
+            with self.subTest(marks[0]):
+                for mark in marks:
+                    self.assertIn(mark, problem)
         self.assertIn("TOML", role.load(write(f"{self.d}/bad.toml", "[[roles]"))["problems"][0])
 
     def test_roles_by_name_and_misplaced_deliver_are_problems_not_silence(self):
@@ -397,6 +413,12 @@ class Hook(unittest.TestCase):
         self.env = {"WORKS_DISPATCH_CONFIG": str(pathlib.Path(root).parent / "conf" / "dispatch.toml"),
                     "TMPDIR": scratch()}   # 会話に足した文の控えの置き場
 
+    def want(self, role_name, shape=SHAPE, head_office=False):
+        """role_hook.text_for が名前の無い部署と窓口に足すはずの文。頭の文と本文は role.context が組み（文そのものは Shape が見る）、
+        末尾は OTHER。会社の名前は SHAPE の name。"""
+        got = role.load(write(f"{scratch()}/c.toml", shape))
+        return role.context(role_name, got["roles"].get(role_name), "試しの会社", head_office=head_office, shared=got["shared"]) + OTHER
+
     def test_clear_compact_and_resume_rewrite_the_department_session_and_keep_the_job(self):
         # /clear で会話の id が変わる。古い id のままだと --ask が動き出しを見られず、Stop フックが部署の会話を見分けなかった。
         # 裏の会話の短い id（attach に渡す）は /clear の後も変わらないので、前の版の部署は古い id の頭を job に残す
@@ -442,10 +464,14 @@ class Hook(unittest.TestCase):
         self.assertIsNone(role_hook.text_for(self.place, self.env))   # 役の属性が無い
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
         # 名前の無い部署・窓口にも、ほかの会社のリポジトリに直に書かない 1 文を足す（頼み 9ba857）
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。" + OTHER)
+        text = role_hook.text_for(self.place, self.env)
+        self.assertEqual(text, self.want("調べ役"))
+        for mark in ("試しの会社", "調べ役", "結論と原典の一句を返す。"):   # 会社の名前・役の名前・役の本文が届く
+            self.assertIn(mark, text)
         self.assertIsNone(role_hook.text_for(self.src, self.env))      # 本社
         provision.mark(self.src, self.src, {"role": "窓口"}, self.g)     # --desk で名付けた本社の窓口は、部署と書かない
-        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。" + OTHER)
+        self.assertEqual(role_hook.text_for(self.src, self.env), self.want("窓口", head_office=True))
+        self.assertNotEqual(self.want("窓口", head_office=True), self.want("窓口"))
         self.assertNotIn("{", OTHER)   # 書式の字が漏れない
         self.assertIsNone(role_hook.text_for(scratch(), self.env))   # git でない
 
@@ -453,26 +479,32 @@ class Hook(unittest.TestCase):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)
         provision.mark(self.place, self.src, {"role": "調べ役", "name": "見渡し：d1", "lifecycle": "ephemeral"}, self.g)
         text = role_hook.text_for(self.place, self.env)
-        self.assertIn(f"{role_hook.RUN} --deliver <要約のファイル>", text)
-        self.assertIn(f"{role_hook.RUN} --land {shlex.quote('見渡し：d1')}", text)
-        self.assertIn(f"{role_hook.RUN} --ask <宛先> --text <頼み>", text)
+        real = {o for act in dispatch._parser()._actions for o in act.option_strings}
+
+        def commands(got):
+            """文のうち dispatch のコマンドの行（role_hook.RUN を含む行の RUN から後ろ）に出るフラグの集まり。"""
+            return {f for line in got.splitlines() if role_hook.RUN in line
+                    for f in re.findall(r"--[a-z][a-z-]*", line[line.index(role_hook.RUN):])}
+        flags = commands(text)
+        # 文に出るフラグは、どれも dispatch が受ける（引数の名前が替わって文が古くなれば、部署が打って断られる前にここで止まる）
+        self.assertEqual(flags - real, set(), flags)
+        self.assertLessEqual({"--deliver", "--land", "--ask", "--text", "--done", "--say", "--note"}, flags)
+        self.assertIn(f"{role_hook.RUN} --land {shlex.quote('見渡し：d1')}", text)   # 部署の名前を引用して差し込む
         self.assertIn(f"{role_hook.RUN} --done", text)
         # always の部署は --done を断られるので書かない。本社の窓口には足さない
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         self.assertNotIn("--done", role_hook.text_for(self.place, self.env))
-        self.assertIn(f"{role_hook.RUN} --say <部署の名前かブランチか #PR の番号> --text <知らせ>", text)
-        self.assertIn(f"{role_hook.RUN} --note <受付> --text <足し>", text)
         # 本社の窓口には、納品・main に入れる・終わりの印を足さず、頼む・足す・知らせるだけを足す（ほかの会話のペインに直に打たせない。受付 23101c）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口"}, self.g)
         desk = role_hook.text_for(self.src, self.env)
+        desk_flags = commands(desk)
+        self.assertEqual(desk_flags - real, set(), desk_flags)
+        self.assertLessEqual({"--ask", "--text", "--say", "--note"}, desk_flags)
         self.assertNotIn("--deliver", desk)
         self.assertNotIn("--land", desk)
-        self.assertIn(f"{role_hook.RUN} --say <部署の名前かブランチか #PR の番号> --text <知らせ>", desk)
-        self.assertIn(f"{role_hook.RUN} --ask <宛先> --text <頼み>", desk)
         # 窓口にも部署にも、ほかの会社のリポジトリに直に書かず --ask で頼む 1 文を足す（works-factory の窓口が my_notes の日記に直に書いた。頼み 9ba857）
         for got in (text, desk):
             self.assertIn(role_hook.OTHER_REPO.format(run=role_hook.RUN), got)
-            self.assertIn("直に書き換えず", got)
 
     def test_a_role_text_over_the_hook_limit_is_flagged_in_the_notes_and_at_its_head(self):
         # 上限（1 万字）を超えた文は、会話に頭の 2,000 字しか入らない。頭に置き場を読めという 1 行を足し、--tree・--todo の注記に出す
@@ -532,12 +564,16 @@ class Hook(unittest.TestCase):
         self.assertNotIn("受け持ちは", role_hook.text_for(self.place, self.env))
 
     def test_shared_text_reaches_departments_but_not_the_head_office_desk(self):
-        write(pathlib.Path(self.src) / ".claude" / "company.toml", 'shared_instructions = "試験は触った所だけ。"\n' + SHAPE)
+        shape = 'shared_instructions = "試験は触った所だけ。"\n' + SHAPE
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", shape)
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env),
-                         "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n試験は触った所だけ。\n結論と原典の一句を返す。" + OTHER)
+        text = role_hook.text_for(self.place, self.env)
+        self.assertEqual(text, self.want("調べ役", shape))
+        self.assertIn("試験は触った所だけ。", text)
         provision.mark(self.src, self.src, {"role": "窓口"}, self.g)
-        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。" + OTHER)
+        desk = role_hook.text_for(self.src, self.env)
+        self.assertEqual(desk, self.want("窓口", shape, head_office=True))
+        self.assertNotIn("試験は触った所だけ。", desk)
 
     def test_role_text_comes_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
         self.g.push_origin("main", {".claude/company.toml": SHAPE}, "company")   # 会社の形はメインブランチに在る
@@ -545,7 +581,7 @@ class Hook(unittest.TestCase):
         self.g.local["old"] = self.g.local["main"]
         self.g.heads[self.src] = "old"   # 元の clone はほかの会話が古いブランチで使っている（会社の形を持たない）
         provision.mark(self.place, self.src, {"role": "調べ役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。" + OTHER)
+        self.assertEqual(role_hook.text_for(self.place, self.env), self.want("調べ役"))
         # --ask・--deliver の読み方（orders.shape_role）も同じ物を読む
         got, problems = orders.shape_role(self.src, None, "調べ役", self.g)
         self.assertEqual((got["instructions"], problems), ("結論と原典の一句を返す。", []))
@@ -554,9 +590,10 @@ class Hook(unittest.TestCase):
         conf = pathlib.Path(self.env["WORKS_DISPATCH_CONFIG"]).parent
         write(conf / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
         provision.mark(self.place, self.src, {"role": "出荷役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「出荷役」。" + OTHER)
-        provision.mark(self.place, self.src, {"role": "無い役"}, self.g)
-        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「無い役」。" + OTHER)
+        self.assertEqual(role_hook.text_for(self.place, self.env), self.want("出荷役"))
+        provision.mark(self.place, self.src, {"role": "無い役"}, self.g)   # 会社の形に無い役は、頭の文だけ
+        self.assertEqual(role_hook.text_for(self.place, self.env), self.want("無い役"))
+        self.assertEqual(self.want("無い役"), role.context("無い役", None, "試しの会社") + OTHER)
 
     def test_shape_beside_the_departments_own_config_is_read(self):
         other = pathlib.Path(scratch()) / "mine.toml"
@@ -807,14 +844,12 @@ class Hook(unittest.TestCase):
 BG = re.compile(r"^(claude-a\d) --bg --name ")
 
 
-class TaskWithRole(unittest.TestCase):
-    """入口の --task が、会社の形の役の項目から --settings・--model・GH_TOKEN を渡す。場の作りは --task の試験のものを借りる
-    （継ぐと、その試験が二度走る）。"""
-
-    setUp, run_task, place = test_task.Task.setUp, test_task.Task.run_task, test_task.Task.place
+class TaskWithRole(TaskWorld, unittest.TestCase):
+    """入口の --task が、会社の形の役の項目から --settings・--model・GH_TOKEN を渡す。場の作りは --task の試験と同じ tests/worlds.py の
+    TaskWorld（自分の試験を持たない mixin なので、継いでも --task の試験は二度走らない）。"""
 
     def ports(self, sessions=None, starts=True, name="直し"):
-        ports = test_task.Task.ports(self, sessions, starts)
+        ports = super().ports(sessions, starts)
         d = pathlib.Path(self.cfg).parent
         dirs = {"claude-a1": f"{d}/c1"}
 

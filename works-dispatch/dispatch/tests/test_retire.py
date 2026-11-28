@@ -10,7 +10,7 @@ import unittest
 
 from unittest import mock
 
-from . import test_deliver
+from .worlds import FlowWorld
 import dispatch
 import ghx
 import gitx
@@ -20,15 +20,14 @@ from nodes import deliver, provision, wake
 from . import rmtree, scratch
 
 
-class Retire(unittest.TestCase):
-    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。部署「調べ」は origin/main から切った畳む部署。"""
+class RetireWorld(FlowWorld):
+    """--retire・--done の場（試験でない mixin。Retire・RetireStaleMain・FoldFromListing が継ぐ）。場の作りは --ask・--deliver の試験と同じ
+    tests/worlds.py の FlowWorld に、止められる会話を足す。部署「調べ」は origin/main から切った畳む部署。"""
 
-    Flow = test_deliver.Flow
-    main, shape = Flow.main, Flow.shape
-    del Flow
+    DEPT = "調べ"   # 場の部署の名前（一覧の行を引くのに使う）
 
     def setUp(self):
-        test_deliver.Flow.setUp(self)
+        super().setUp()
         self.state, self.pid = "working", 4242   # 動く処理の有る会話は、一覧に処理の番号（pid）が有る
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": self.state,
@@ -51,15 +50,40 @@ class Retire(unittest.TestCase):
                 h.front.pop(pane, None)
         h.send_keys = keys
         self.removed = []
-        real_rm, real_tmp = retire.chat.remove_session, retire.chat.job_tmp
-        retire.chat.remove_session = lambda cdir, sid, **kw: self.removed.append(sid) or (True, "removed")
-        retire.chat.job_tmp = lambda cdir, sid, env=None: "/nowhere"
-        self.addCleanup(setattr, retire.chat, "remove_session", real_rm)
-        self.addCleanup(setattr, retire.chat, "job_tmp", real_tmp)
+        for name, fake in (("remove_session", lambda cdir, sid, **kw: self.removed.append(sid) or (True, "removed")),
+                           ("job_tmp", lambda cdir, sid, env=None: "/nowhere")):
+            patcher = mock.patch.object(retire.chat, name, fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def retired(self):
         return [r for r in deliver.records(self.inbox) if r.get("kind") == "retired"]
 
+    def clean_row(self):
+        """--clean の一覧の部署「調べ」の 1 行（無ければ空の字）。"""
+        rc, out = self.main(self.src, "--clean")
+        head = f"部署 {self.DEPT} "
+        return next((x for x in out.splitlines() if x.startswith(head)), "")
+
+    def kind(self):
+        """orders.leftover の種類（納品し終えた部署が残る訳。None なら残る訳が無い）。"""
+        got = orders.leftover(self.place, self.g.worktree_attrs(self.place), self.g, self.ports.gh)
+        return got and got[0]
+
+    def squash_into_another_branch(self):
+        """積み重ねた PR が squash でほかのブランチ（feat/x）に入り、head のブランチも手元の控えも消えた形（2026-11-01、guided-resolver の
+        #2280。受付 bc8c0b）。部署の先頭はどのブランチの祖先にもならず、GitHub だけが PR #2280 のマージ先を知っている。先頭を返す。"""
+        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
+        head = self.g.commit(self.place, {}, "y")
+        self.g.push(self.place, head, "dept/a")
+        self.g.origin["feat/x"] = self.g._new(self.g.origin["main"], {}, "squashed")   # squash の commit は部署の先頭を持たない
+        del self.g.origin["dept/a"], self.g.tracking["dept/a"]
+        self.g.url = "https://github.com/o/r.git"
+        self.ports.gh.merged_into[head] = [(2280, "feat/x")]
+        return head
+
+
+class Retire(RetireWorld, unittest.TestCase):
     def test_done_refuses_until_the_department_has_delivered_and_landed(self):
         provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
         rc, out = self.main(self.place, "--done")
@@ -167,16 +191,23 @@ class Retire(unittest.TestCase):
         self.g.stashes.append("WIP on dept/a: 1234567 y")
         rc, out = self.main(self.src, "--retire", "調べ")   # 部署のブランチの stash は控えのブランチに残らない
         self.assertEqual(rc, 2, out)
-        self.assertIn("手元にしか無い commit", out)
+        self.assertEqual((self.stopped, self.retired()[-1]["status"]), ([], "kept"))
+        self.assertIn(dispatch.DEPT_REASONS["unpushed"], self.g.worktree_attrs(self.place)[wake.RETIRE_KEPT])
         self.g.stashes.clear()
         self.g.local["backup/dept-a"] = head
-        rc, out = self.main(self.src, "--clean")   # 一覧は今までどおり残す（控えを作ったと決めた人が --retire で畳む）
-        self.assertIn("手元にしか無い commit", out)
+        row = self.clean_row()   # 一覧は今までどおり残す（控えを作ったと決めた人が --retire で畳む）
+        self.assertIn(dispatch.DEPT_REASONS["unpushed"], row)
+        self.assertNotIn("消せる", row)
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 2, out)
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"部署の先頭 {head[:9]} は手元のブランチ backup/dept-a に残した（部署のブランチ dept/a だけを消した）", out)
+        done = self.retired()[-1]
+        self.assertEqual(done["status"], "done", out)
+        for got in (out, done["detail"]):   # 先頭の sha と、先頭を持つ控えのブランチと、消した部署のブランチを出す
+            self.assertIn(head[:9], got)
+            self.assertIn("backup/dept-a", got)
+            self.assertIn("dept/a", got)
         self.assertEqual(self.stopped, ["d"])
         self.assertFalse(os.path.exists(self.place))
         self.assertNotIn("dept/a", self.g.local)
@@ -223,7 +254,7 @@ class Retire(unittest.TestCase):
                                                              "title": "積まれていた頼み", "marks": {"ask": "20261111-000000-abc123"}})
         made = []
 
-        def fail(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+        def fail(cfg, repo, ns, ports, **kw):
             made.append(ns.task)
             return 1
         with mock.patch.object(dispatch, "_task", fail):   # 立てられなければ元の順番待ちに戻り、畳まない
@@ -236,10 +267,10 @@ class Retire(unittest.TestCase):
         place_dir = self.g.git_dir(self.place)
         self.assertEqual(len(wake.queued(self.inbox, place_dir)), 1)
 
-        def ok(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+        def ok(cfg, repo, ns, ports, **kw):
             path = os.path.join(self.root, "per-ask")
             self.g.add_worktree(path, ns.branch, "origin/main")
-            provision.mark(path, self.src, {**extra_attrs, "role": ns.role, "session": "s-new"}, self.g)
+            provision.mark(path, self.src, {**(kw.get("extra_attrs") or {}), "role": ns.role, "session": "s-new"}, self.g)
             return 0
         with mock.patch.object(dispatch, "_task", ok):   # 回せたら順番待ちが空になり、そのまま畳む
             rc, out = self.main(self.src, "--retire", "調べ")
@@ -364,15 +395,19 @@ class Retire(unittest.TestCase):
         del self.g.origin["other"]   # 先頭を持つ origin のブランチは消え、手元の origin/other の控えにだけ残る
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
-        self.assertIn(f"origin のどのブランチにも手元の先頭 {head[:9]} が無い。入れずに畳むなら、git push origin dept/a", out)
+        for got in (out, self.g.worktree_attrs(self.place)[wake.RETIRE_KEPT]):   # どの先頭が origin に無いかと、残す手（push）を出す
+            self.assertIn(head[:9], got)
+            self.assertIn("git push origin dept/a", got)
         self.assertEqual((self.stopped, self.removed), ([], []))
         rc, out = self.main(self.place, "--done")   # 部署が自分で畳むのは、入れてからだけ
         self.assertEqual(rc, 2, out)
-        self.assertIn("頼みを取り下げられて入れないなら、--done を打たずに、ブランチを origin に push して止まる", out)
+        self.assertIn("origin/main", out)
+        self.assertNotIn(wake.FINISHED, self.g.worktree_attrs(self.place))
         self.g.push(self.place, head, "dept/a")
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("ブランチ dept/a はメインブランチに入れずに origin に残した", out)
+        self.assertIn("dept/a", out)
+        self.assertIn("dept/a", self.retired()[-1]["detail"])   # origin に残したブランチ
         self.assertEqual(self.stopped, ["d"])
         self.assertFalse(os.path.exists(self.place))
         self.assertEqual(self.g.origin["dept/a"], head)
@@ -388,39 +423,36 @@ class Retire(unittest.TestCase):
         self.g.push(self.place, head, "feat/x")
         self.g.origin["feat/x"] = self.g._new(head, {}, "z")   # 入れ先のブランチは先へ進み、その先頭はまだ手元に無い
         del self.g.origin["dept/a"]   # head のブランチは消えた
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("部署の先頭は origin の feat/x に入っている（main へはまだ）。入れずに畳むなら --retire 調べ（push は要らない）", out)
+        self.assertEqual(self.kind(), "unlanded")
+        row = self.clean_row()   # 先頭を持つ origin のブランチと、畳む手を出す（入れ先は部署のブランチでないので --land は勧めない）
+        self.assertIn(dispatch.DEPT_REASONS["running"], row)
+        self.assertIn("feat/x", row)
+        self.assertIn("--retire 調べ", row)
+        self.assertNotIn("--land 調べ", row)
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("部署の先頭は origin の feat/x に入っている（メインブランチへはまだ）", out)
+        self.assertIn("feat/x", out)
+        self.assertIn("feat/x", self.retired()[-1]["detail"])
         self.assertEqual(self.stopped, ["d"])
         self.assertFalse(os.path.exists(self.place))
-
-    def squash_into_another_branch(self):
-        """積み重ねた PR が squash でほかのブランチ（feat/x）に入り、head のブランチも手元の控えも消えた形（2026-11-01、guided-resolver の
-        #2280。受付 bc8c0b）。部署の先頭はどのブランチの祖先にもならず、GitHub だけが PR #2280 のマージ先を知っている。先頭を返す。"""
-        provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
-        head = self.g.commit(self.place, {}, "y")
-        self.g.push(self.place, head, "dept/a")
-        self.g.origin["feat/x"] = self.g._new(self.g.origin["main"], {}, "squashed")   # squash の commit は部署の先頭を持たない
-        del self.g.origin["dept/a"], self.g.tracking["dept/a"]
-        self.g.url = "https://github.com/o/r.git"
-        self.ports.gh.merged_into[head] = [(2280, "feat/x")]
-        return head
 
     def test_retire_folds_a_department_squashed_into_another_branch(self):
         head = self.squash_into_another_branch()
         merged_into = self.ports.gh.merged_into.pop(head)
         rc, out = self.main(self.src, "--retire", "調べ")   # GitHub がマージを知らなければ、前と同じく手元の作業として残す
         self.assertEqual(rc, 2, out)
-        self.assertIn("手元にしか無い commit か stash が有る", out)
+        self.assertEqual((self.stopped, self.retired()[-1]["status"]), ([], "kept"))
+        self.assertIn(dispatch.DEPT_REASONS["unpushed"], self.g.worktree_attrs(self.place)[wake.RETIRE_KEPT])
         self.ports.gh.merged_into[head] = merged_into
         provision.mark(self.place, self.src, {wake.RETIRE_KEPT: None}, self.g)   # 残した訳が --clean の行に先に出る
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("部署の先頭は origin の feat/x に入っている（main へはまだ）。入れずに畳むなら --retire 調べ（push は要らない）", out)
+        row = self.clean_row()
+        self.assertIn("feat/x", row)
+        self.assertIn("--retire 調べ", row)
+        self.assertNotIn("--land 調べ", row)
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("部署の先頭は origin の feat/x に入っている（メインブランチへはまだ）", out)
+        self.assertIn("feat/x", out)
+        self.assertIn("feat/x", self.retired()[-1]["detail"])
         self.assertFalse(os.path.exists(self.place))
 
     def test_retire_of_a_department_another_run_already_folded_ends_quietly(self):
@@ -448,17 +480,22 @@ class Retire(unittest.TestCase):
         self.g.push(self.place, head, "work/b")
         stale = self.g.tracking["main"]
         self.g.origin["main"] = self.g._new(head, {}, "z")   # origin の main には入ったが、手元の控えはまだ古い
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("部署の先頭は origin の work/b に入っている（main へはまだ）", out)
+        row = self.clean_row()   # ほかのブランチに在ればそれを出し、控えを揃える手は出さない
+        self.assertIn("work/b", row)
+        self.assertNotIn("git fetch origin", row)
         del self.g.origin["work/b"]
         self.g.tracking["main"] = stale   # --clean は手元に無い先頭を取るので、控えを古いまま戻す
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("部署の先頭は origin の main に入っている（手元の origin/main の控えが古い。git fetch origin で揃う）", out)
+        row = self.clean_row()   # main にだけ在れば、控えを揃える手（git fetch origin）を出す
+        self.assertNotIn("work/b", row)
+        self.assertIn("origin/main", row)
+        self.assertIn("git fetch origin", row)
+        self.assertIn("--retire 調べ", row)
         self.g.tracking["main"] = stale
         self.g.origin["main"] = self.g._new(self.g.origin["main"], {}, "w")   # 先頭がまた手元に無い
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("を畳んだ", out)   # 確かめるときに取った先頭で控えが揃い、止めた後の見立てでは main に入っている
+        # 確かめるときに取った先頭で控えが揃い、止めた後の見立てでは main に入っている（入れずに origin に残した、とは出さない）
+        self.assertEqual(self.retired()[-1]["status"], "done", out)
         self.assertFalse(os.path.exists(self.place))
 
     def test_retire_keeps_a_department_whose_head_was_squashed_into_another_branch(self):
@@ -468,11 +505,16 @@ class Retire(unittest.TestCase):
         self.g.push(self.place, head, "dept/a")
         del self.g.origin["dept/a"]   # head のブランチは消え、手元の origin/dept/a の控えにだけ残る
         self.g.origin["feat/x"] = self.g._new(self.g.origin["main"], {}, "squashed")
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("入れずに畳むなら（頼みを取り下げたときなど）、ブランチを origin に push してから --retire 調べ", out)
+        self.assertEqual(self.kind(), "unlanded")
+        row = self.clean_row()   # 先頭を持つ origin のブランチが無いので、入れる手と畳む手を両方出し、ほかのブランチの名前は出さない
+        self.assertIn("origin/main", row)
+        self.assertIn("--land 調べ", row)
+        self.assertIn("--retire 調べ", row)
+        self.assertNotIn("feat/x", row)
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 2, out)
-        self.assertIn(f"origin のどのブランチにも手元の先頭 {head[:9]} が無い", out)
+        self.assertIn(head[:9], out)
+        self.assertIn("git push origin dept/a", out)
         self.assertEqual((self.stopped, self.removed), ([], []))
 
     def test_retire_folds_a_detached_department_whose_head_is_in_main(self):
@@ -498,24 +540,33 @@ class Retire(unittest.TestCase):
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 1, out)
         self.assertTrue(os.path.exists(self.place))
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("残す（会話がまだ動いている。終わりの印で畳もうとして残った: 会話 d を止められない（No job matching））", out)
+        self.assertEqual(self.retired()[-1]["status"], "kept")
+        self.assertIn("No job matching", self.g.worktree_attrs(self.place)[wake.RETIRE_KEPT])
+        row = self.clean_row()   # 残した訳（止められなかった会話の id と、止める手の答え）を一覧の行に出す
+        self.assertIn(dispatch.DEPT_REASONS["running"], row)
+        self.assertIn(self.g.worktree_attrs(self.place)[wake.RETIRE_KEPT], row)
+        self.assertIn("No job matching", row)
 
     def test_clean_points_to_retire_for_a_delivered_talk_without_the_mark(self):
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("残す（会話がまだ動いている。頼みは納品済みで、終わりの印（--done）が無い。止めて畳むなら --retire 調べ）", out)
+        self.assertEqual(self.kind(), "finish")
+        row = self.clean_row()
+        self.assertIn(dispatch.DEPT_REASONS["running"], row)
+        self.assertIn("--done", row)
+        self.assertIn("--retire 調べ", row)
 
     def test_clean_keeps_an_idle_talk_and_lists_only_ended_ones(self):
         # 手が空いただけの会話（state done で処理の番号が有る）は生きているので残す。前は「消せる」と出していた（受付 e7bbd1・d70b23）
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         self.state = "done"
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("残す（会話がまだ動いている。頼みは納品済みで、終わりの印（--done）が無い", out)
-        self.assertNotIn("消せる", out)
+        row = self.clean_row()
+        self.assertIn(dispatch.DEPT_REASONS["running"], row)
+        self.assertIn("--done", row)
+        self.assertNotIn("消せる", row)
         self.pid = None   # 処理が無くなった会話は終わり
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("消せる", out)
+        row = self.clean_row()
+        self.assertIn("消せる", row)
+        self.assertNotIn(dispatch.DEPT_REASONS["running"], row)
 
     def test_clean_keeps_a_stopped_department_that_has_not_delivered_or_waits_for_a_reply(self):
         self.state = "stopped"
@@ -555,20 +606,26 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1"}, self.g)
         self.g.commit(self.place, {}, "x")
         self.g.push(self.place, "HEAD", "dept/a")
+        self.assertEqual(self.kind(), "unlanded")
         got = self.after()
-        self.assertIn("the branch is not in the main branch (the local copy of origin/main)", got)
+        self.assertIn("origin/main", got)
         self.assertIn("--land '調べ'", got)
         self.assertIn("--ask src", got)   # 打てなければ窓口（会社の名前）に頼む
-        rc, out = self.main(self.src, "--clean")
-        # origin の部署のブランチに先頭が在るので、入れ損ねでなく、どこに在るかを出す
-        self.assertIn("頼みは納品済みで、部署の先頭は origin の dept/a に入っている（main へはまだ）。入れるなら --land 調べ。"
-                      "入れずに畳むなら --retire 調べ（push は要らない）", out)
+        self.assertNotIn("--done", got)
+        row = self.clean_row()
+        # origin の部署のブランチに先頭が在るので、入れ損ね（origin/main に入っていない、の行）でなく、入れる手・畳む手を出す
+        self.assertNotIn("origin/main", row)
+        self.assertIn("--land 調べ", row)
+        self.assertIn("--retire 調べ", row)
         # 入れてほしいと頼んだら、返事を待つ間は差し戻さず、--clean は返事待ちと出す
         deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "sent", "at": 1,
                                  "from": {"name": "調べ", "place": self.place}, "to": {"company": "src", "name": "desk"}})
         self.assertIsNone(self.after())
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("頼みは納品済みで、この部署が頼んだ返事を待っている（受付 c1）", out)
+        self.assertEqual(orders.leftover(self.place, self.g.worktree_attrs(self.place), self.g, self.ports.gh), ("waiting", ["c1"]))
+        row = self.clean_row()
+        self.assertIn(dispatch.DEPT_REASONS["running"], row)
+        self.assertIn("受付 c1", row)
+        self.assertNotIn("--land 調べ", row)
 
     def test_a_department_that_handed_the_landing_to_an_open_ask_is_not_sent_back(self):
         # 2026-10-19 に my_notes で、--land が CI の赤で止まった部署が段取りに入れるのを頼み（c1）、段取りが持ち主への問い（c2）を
@@ -582,9 +639,11 @@ class Retire(unittest.TestCase):
         deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent", "at": 3, "holders": [{"holder": "c2", "ask": "c2"}]})
         self.assertIsNone(self.after())
         self.assertEqual(orders.leftover(self.place, self.g.worktree_attrs(self.place), self.g, self.ports.gh), ("handed", ["c1"]))
-        rc, out = self.main(self.src, "--clean")
-        self.assertIn("頼みは納品済みだが、ブランチがメインブランチに入っていない。この部署が頼みを受けてから出した頼みの答えがまだ出ていない"
-                      "（受付 c1。--todo で追える。入れる手を預けたのでなければ --land 調べ）", out)
+        row = self.clean_row()   # 預けた頼みの受付と、追う手（--todo）と、入れる手を出す
+        self.assertIn(dispatch.DEPT_REASONS["running"], row)
+        self.assertIn("受付 c1", row)
+        self.assertIn("--todo", row)
+        self.assertIn("--land 調べ", row)
         deliver.log(self.inbox, {"kind": "deliver", "id": "d2", "ask": "c2", "status": "sent", "at": 4})
         self.assertIn("--land '調べ'", self.after())
         # 預け先として数えるのは、今の頼み（q1）を受けてから出した頼みだけ（前の頼みの子や、ほかの部署の頼みを担当者に書いても外れない）
@@ -633,7 +692,11 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1", "delivered": "q1", "lifecycle": "persistent"}, self.g)
         self.assertIsNone(self.after())
         self.g.commit(self.place, {}, "x")
-        self.assertIn("the branch is not in the main branch (the local copy of origin/main)", self.after())
+        self.assertEqual(self.kind(), "unlanded")
+        got = self.after()
+        self.assertIn("--land '調べ'", got)
+        self.assertIn("origin/main", got)
+        self.assertNotIn("--done", got)
 
     def test_an_unlanded_branch_is_not_sent_back_where_the_company_lands_by_pr(self):
         self.shape('[land]\nmode = "pr"\n')
@@ -647,7 +710,11 @@ class Retire(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "q1"}, self.g)
         self.assertIsNone(self.after())   # 納品していない頼みは deliver.stop_verdict が差し戻す
         provision.mark(self.place, self.src, {"delivered": "q1"}, self.g)
-        self.assertIn("end the turn with ", self.after())
+        self.assertEqual(self.kind(), "finish")
+        got = self.after()
+        self.assertIn("--done", got)
+        self.assertIn("q1", got)
+        self.assertNotIn("--land", got)
         self.assertIsNone(self.after(count=deliver.STOP_LIMIT))
         self.assertIsNone(orders.stop_after({"session_id": "other"}, self.place, self.g.worktree_attrs(self.place), 0,
                                             os.path.dirname(self.cfg), self.g))   # 同じ作業場の別の会話
@@ -746,20 +813,14 @@ class Landed(unittest.TestCase):
             ghx.merged_pr_of("o/r", "abc", "main", runner=lambda a, env=None: P("Not Found", 1))
 
 
-class RetireStaleMain(unittest.TestCase):
-    """場の作りは Retire の物を借りる（継ぐと、その試験が二度走る）。"""
-
-    main, shape = Retire.main, Retire.shape
-
-    def setUp(self):
-        Retire.setUp(self)
-
+class RetireStaleMain(RetireWorld, unittest.TestCase):
     def test_retire_says_the_local_copy_of_main_was_stale_after_the_room_is_removed(self):
         # メインブランチの名前を、片付けで消した作業場で問うていた。本物の git は消えた場所では答えないので、「手元の控えが古かった」が出なかった
-        real = self.g.default_branch
+        real, refused = self.g.default_branch, []
 
         def default_branch(cwd):
             if self.g._place(cwd) is None:
+                refused.append(cwd)
                 raise gitx.GitError(f"{cwd}: git でない")
             return real(cwd)
         self.g.default_branch = default_branch
@@ -770,18 +831,20 @@ class RetireStaleMain(unittest.TestCase):
         self.g.origin["main"] = head   # origin の main には入ったが、手元の origin/main の控えは古いまま
         rc, out = self.main(self.src, "--retire", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("部署の先頭は origin の main に入っている（手元の控えが古かった）", out)
+        self.assertEqual(refused, [], out)   # メインブランチの名前は、作業場を消す前に問う
+        done = self.retired()[-1]
+        self.assertEqual(done["status"], "done", out)
+        self.assertIn("main", done["detail"])   # 先頭が在った origin のブランチ（main）
+        self.assertNotIn("work/b", done["detail"])
         self.assertFalse(os.path.exists(self.place))
 
 
-class FoldFromListing(unittest.TestCase):
+class FoldFromListing(RetireWorld, unittest.TestCase):
     """引数なしの dispatch（一覧の回）が、納品し終えてブランチが main に入ったのに終わりの印の無い部署を、会話を再開させずに畳むか、
     合図を 1 行送る（dispatch._fold_departments。受付 0d6927）。場は Retire の物（部署「調べ」。commit の無いブランチは main に入っている）。"""
 
-    main = Retire.main
-
     def setUp(self):
-        Retire.setUp(self)
+        super().setUp()
         self.state = "idle"
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "status": "idle",
@@ -805,6 +868,10 @@ class FoldFromListing(unittest.TestCase):
         """部署に渡す知らせの行（宛先が字の kind say。--say は記録の行も同じ台帳に足す）。"""
         return [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), str)]
 
+    def line(self, out):
+        """一覧の回の出力のうち、部署「調べ」の受付 q1 の行（無ければ空の字）。"""
+        return next((x for x in out.splitlines() if self.DEPT in x and "q1" in x), "")
+
     @staticmethod
     def user(kind, at):
         return {"type": "user", "timestamp": at, "origin": {"kind": kind}, "message": {"role": "user", "content": "x"}}
@@ -814,8 +881,9 @@ class FoldFromListing(unittest.TestCase):
                         self.user("task-notification", "1970-01-01T00:30:00Z"))  # 納品の後は待ち受けの知らせだけ
         rc, out = self.main(self.src)
         self.assertEqual(rc, 0, out)
-        self.assertIn("部署「調べ」（受付 q1）: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳んだ", out)
+        self.assertTrue(self.line(out), out)   # 部署の名前と受付の行を出す
         self.assertFalse(os.path.exists(self.place))
+        self.assertEqual(self.retired()[-1]["status"], "done")   # --retire と同じ手で畳んだ
         self.assertEqual(self.said(), [])
         self.assertEqual([w for w in self.ports.term.writes if w[0] == "prompt"], [])   # 会話に字を送らない
 
@@ -830,7 +898,9 @@ class FoldFromListing(unittest.TestCase):
         h.screen = "$ "
         rc, out = self.main(self.src)
         self.assertEqual(rc, 0, out)
-        self.assertIn("部署「調べ」（受付 q1）: 納品済みで main に入り、納品の後に人の文が無いので、会話を再開させずに畳んだ", out)
+        self.assertTrue(self.line(out), out)
+        self.assertFalse(os.path.exists(self.place))
+        self.assertEqual(self.said(), [])
         self.assertEqual([w for w in h.writes if w[0] in ("run", "prompt")], [])   # attach を打たない
 
     def test_dry_run_names_the_fold_and_touches_nothing(self):
@@ -843,14 +913,15 @@ class FoldFromListing(unittest.TestCase):
         self.transcript(self.user("human", "1970-01-01T00:30:00Z"))
         rc, out = self.main(self.src)
         self.assertEqual(rc, 0, out)
-        self.assertIn("納品の後に人がこの会話に打ったので、畳んでよいかの合図を送った", out)
+        self.assertTrue(self.line(out), out)
         self.assertTrue(os.path.exists(self.place))
         said = self.said()
         self.assertEqual(len(said), 1)
         self.assertIn(f": {orders.fold_line('q1')} ", said[0]["text"])   # 本文を指すファイルでなく、1 行に本文ごと載る
         self.assertEqual(self.g.worktree_attrs(self.place)[orders.FOLD_TOLD], "q1")
-        rc, out = self.main(self.src)   # 次の回は 2 度送らない
-        self.assertIn("合図は送り済みで、部署の --done を待つ（畳むなら --retire '調べ'）", out)
+        rc, out = self.main(self.src)   # 次の回は 2 度送らない。畳む手を示す
+        self.assertIn("--retire '調べ'", self.line(out))
+        self.assertTrue(os.path.exists(self.place))
         self.assertEqual(len(self.said()), 1)
 
     def test_a_transcript_without_origin_or_missing_is_signaled_not_folded(self):
@@ -860,8 +931,11 @@ class FoldFromListing(unittest.TestCase):
                 if case == "no_origin":
                     self.transcript({"type": "user", "timestamp": "1970-01-01T00:30:00Z", "message": {"role": "user", "content": "x"}})
                 rc, out = self.main(self.src)
-                self.assertIn("納品の後に人が打ったかを会話の記録から見分けられないので、畳んでよいかの合図を送った", out)
-                self.assertTrue(os.path.exists(self.place))
+                self.assertEqual(rc, 0, out)
+                self.assertTrue(self.line(out), out)
+                self.assertTrue(os.path.exists(self.place))   # 畳まずに、合図を 1 行送って印す
+                self.assertEqual(len(self.said()), 1, out)
+                self.assertEqual(self.g.worktree_attrs(self.place)[orders.FOLD_TOLD], "q1")
 
     def test_departments_with_work_left_are_neither_folded_nor_signaled(self):
         for case, why in (("busy", "会話が作業中か返事待ち"), ("dirty", "未コミットの変更が有る"),
@@ -906,27 +980,32 @@ class FoldFromListing(unittest.TestCase):
     def test_a_department_squashed_into_another_branch_is_folded(self):
         # 積み重ねた PR がほかの部署のブランチへ squash で入った部署（main には入らない。受付 bc8c0b）
         self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
-        head = Retire.squash_into_another_branch(self)
+        head = self.squash_into_another_branch()
         rc, out = self.main(self.src)
-        self.assertIn("部署「調べ」（受付 q1）: 納品済みで PR #2280 が feat/x にマージされ、納品の後に人の文が無いので、会話を再開させずに畳んだ",
-                      out)
+        got = self.line(out)   # マージした PR の番号とマージ先を出す
+        self.assertIn("#2280", got)
+        self.assertIn("feat/x", got)
         self.assertFalse(os.path.exists(self.place))
+        self.assertEqual(self.said(), [])
         del head
 
     def test_a_squashed_department_the_owner_talked_to_is_named_not_signaled(self):
         # 部署の --done は main に入っていないブランチを断るので、合図は送らずに --retire を示す
         self.transcript(self.user("human", "1970-01-01T00:30:00Z"))
-        Retire.squash_into_another_branch(self)
+        self.squash_into_another_branch()
         rc, out = self.main(self.src)
-        self.assertIn("納品済みで PR #2280 が feat/x にマージされたが、納品の後に人がこの会話に打ったので畳まない（畳むなら --retire '調べ'）",
-                      out)
+        got = self.line(out)
+        self.assertIn("#2280", got)
+        self.assertIn("feat/x", got)
+        self.assertIn("--retire '調べ'", got)
         self.assertTrue(os.path.exists(self.place))
         self.assertEqual(self.said(), [])
+        self.assertNotIn(orders.FOLD_TOLD, self.g.worktree_attrs(self.place))
 
     def test_an_unlanded_department_without_a_merged_pr_says_nothing(self):
         # PR のレビューか --land を待つ部署（PR で入れる会社のふつうの形）。回ごとに行を出さない
         self.transcript(self.user("human", "1970-01-01T00:10:00Z"))
-        head = Retire.squash_into_another_branch(self)
+        head = self.squash_into_another_branch()
         del self.ports.gh.merged_into[head]
         rc, out = self.main(self.src)
         self.assertNotIn("部署「調べ」", out)
@@ -948,10 +1027,13 @@ class FoldFromListing(unittest.TestCase):
             return 2
         with mock.patch.object(retire, "retire", refuse):
             rc, out = self.main(self.src)
-            self.assertIn("部署「調べ」（受付 q1）: 会話を再開させずに畳もうとしたが残した（部署 co/調べ は残した（訳））", out)
+            self.assertIn("部署 co/調べ は残した（訳）", self.line(out))   # --retire の手の最後の行をそのまま添える
+            self.assertTrue(os.path.exists(self.place))
             self.assertEqual(self.g.worktree_attrs(self.place)[orders.FOLD_TRIED], "q1")
             rc, out = self.main(self.src)
-            self.assertIn("前の回に畳もうとして残した（訳は --clean の一覧）。畳むなら --retire '調べ'", out)
+            got = self.line(out)
+            self.assertIn("--retire '調べ'", got)
+            self.assertNotIn("部署 co/調べ は残した（訳）", got)
         self.assertEqual(len(calls), 1)
 
     def test_a_failed_signal_is_not_marked_and_errors_do_not_stop_the_listing(self):
@@ -959,15 +1041,20 @@ class FoldFromListing(unittest.TestCase):
         with mock.patch.object(orders, "say", lambda *args: print("止めた: 訳") or 1):
             rc, out = self.main(self.src)
         self.assertEqual(rc, 0, out)
-        self.assertIn("畳んでよいかの合図を送れなかった（止めた: 訳）", out)
+        self.assertIn("止めた: 訳", self.line(out))   # --say の手の最後の行をそのまま添える
+        self.assertTrue(os.path.exists(self.place))
         self.assertNotIn(orders.FOLD_TOLD, self.g.worktree_attrs(self.place))
 
+        why = "書けない"
+
         def broken(*args):
-            raise OSError("書けない")
+            raise OSError(why)
         with mock.patch.object(orders, "say", broken):
             rc, out = self.main(self.src)
         self.assertEqual(rc, 0, out)
-        self.assertIn("部署「調べ」: 畳むかを決める途中で止めた。触っていない所は残した（書けない）", out)
+        self.assertTrue(any(self.DEPT in x and why in x for x in out.splitlines()), out)   # 部署の名前と、止めた訳を 1 行に出す
+        self.assertTrue(os.path.exists(self.place))
+        self.assertNotIn(orders.FOLD_TOLD, self.g.worktree_attrs(self.place))
 
 
 class DeliveredAndTalked(unittest.TestCase):
