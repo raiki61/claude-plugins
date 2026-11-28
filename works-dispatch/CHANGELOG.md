@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.177.0] - 2026-11-28
+
 外の状態（PR の検査・マージ）を待つ部署と、終わりの印を打てずに残った部署が、黙って止まったまま残らないようにする 2 つの直し（my_notes の受付 7eb034 と、その足し deae42。受付番号は、works-dispatch の `--ask` で頼んだ仕事に振られる番号で、受付箱の台帳で引ける）。
 
 ### Changed
