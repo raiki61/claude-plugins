@@ -8,7 +8,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ### Changed
 
-- 試験の重なりと、何も拾わなくても緑になる試験を直した。`del_path` の断りの試験を、同じ入力を見る `test_refused_deletes_delete_nothing` に畳み（`tests/py/MIGRATION.md` の行き先も付け替えた）、消す口の見張りの赤の試験（`test_rmtree_fence_is_red_in_each_root`）を、置いたファイルを見張りが拾った行で見るようにした。エンジンの振る舞いは変えていない（頼み 900eef）。
+- 試験だけを直した。パスを削除するエンジンの補助関数 `del_path` が、消せない書き方を拒む試験は、同じ入力で同じ結果を見る既存の `test_refused_deletes_delete_nothing` に統合し、旧シナリオ検査と pytest の試験の対応表 `tests/py/MIGRATION.md` の該当行も付け替えた。再帰削除を防ぐ検査（rmtree fence）の `test_rmtree_fence_is_red_in_each_root` は、何も検出しなくても通っていたので、置いたファイルを検査が報告したことを assert するようにした。エンジンの振る舞いは変えていない（頼み 900eef）。
 
 ## [0.51.5] - 2026-11-22
 
