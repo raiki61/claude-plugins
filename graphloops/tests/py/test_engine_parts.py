@@ -53,6 +53,35 @@ def test_under_cap_is_unchanged():
     assert cap_bytes("abc", "x", []) == "abc"
 
 
+# 上限の境界の表（slim_item の境界と同じ形）。kept が None ならそのまま返り控えも残さない、文字列なら切った頭がちょうど kept。
+# ちょうど上限は残す側（<= と < の取り違えがここで出る）、多バイト字の途中で切れたら字を割らずに手前で止める、cap=None は切らない
+DEFAULT_CAP = object()
+CAP_CASES = [
+    ("a" * FILE_CAP, DEFAULT_CAP, None),
+    ("a" * (FILE_CAP + 1), DEFAULT_CAP, "a" * FILE_CAP),
+    ("あ" * (FILE_CAP // 3), DEFAULT_CAP, None),
+    ("あ" * (FILE_CAP // 3 + 1), DEFAULT_CAP, "あ" * (FILE_CAP // 3)),
+    ("ああ", 6, None),
+    ("ああ", 5, "あ"),
+    ("ああ", 4, "あ"),
+    ("aあ", 3, "a"),
+    ("あ" * FILE_CAP, None, None),
+]
+
+
+@pytest.mark.parametrize("text,cap,kept", CAP_CASES, ids=["ascii_exact", "ascii_one_over", "ja_one_byte_under", "ja_one_char_over",
+                                                         "ja_exact_small", "ja_cut_after_1_byte", "ja_cut_after_2_bytes",
+                                                         "cut_mid_char_after_ascii", "cap_none"])
+def test_cap_bytes_boundaries(text, cap, kept):
+    tr = []
+    out = cap_bytes(text, "x", tr) if cap is DEFAULT_CAP else cap_bytes(text, "x", tr, cap=cap)
+    if kept is None:
+        assert out == text and tr == []
+        return
+    assert out.startswith(kept) and not out.startswith(text[:len(kept) + 1]), f"切った頭が {kept[:10]!r}…（{len(kept)} 字）でない"
+    assert "\ufffd" not in out and len(tr) == 1
+
+
 # --- 扇の項目を items/ へ出す大きさ（len(dump(slim)) > ITEM_INLINE）——ちょうどは「残す」側（test_threshold_boundaries の③から）
 def slim_len(pad):
     slim, omitted = slim_item({"key": "K", "v": "x" * pad})

@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import pathlib
-import re
 
 import pytest
 
@@ -638,11 +637,16 @@ def test_declaration_with_a_lone_surrogate_is_an_error_not_a_crash():
 
 
 def test_every_string_argument_but_the_path_only_ones_is_checked():
-    from glharness import LOOP, loop_module
+    from glharness import loop_module
     loop = loop_module()
-    src = pathlib.Path(LOOP).read_text(encoding="utf-8")
-    names = {m.group(1).replace("-", "_") for m in re.finditer(r'add_argument\("--([a-z-]+)"(?![^)]*action=)(?![^)]*type=int)', src)}
-    names -= {"by"}   # choices で縛られる（壊れた字は argparse が先に拒む）
+    # 組み立てた parser の全コマンドから、字を受ける引数（値を取り・型の変換も choices の縛りも無い物）を列べる。原文の字面でなく
+    # argparse の actions から引くので、引用の形・行の割り方・組み方を問わず、足した引数は表に入る
+    # （choices で縛る --by などは、壊れた字を argparse が先に拒む）
+    top = loop.build_parser()
+    subs = [a for a in top._actions if isinstance(a, argparse._SubParsersAction)]
+    parsers = [top] + [p for s in subs for p in s.choices.values()]
+    names = {a.dest for p in parsers for a in p._actions
+             if any(o.startswith("--") for o in a.option_strings) and a.nargs != 0 and a.type is None and a.choices is None}
     assert {"lang", "accept_tree_change", "agent_id", "thickness", "decider", "loop"} <= names
     for name in sorted(names - set(loop.PATH_ONLY_ARGS)):
         with pytest.raises(Reject, match=f"--{name.replace('_', '-')} の 2 字目"):

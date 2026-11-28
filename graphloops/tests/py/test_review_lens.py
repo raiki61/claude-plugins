@@ -217,5 +217,23 @@ def test_engine_child_may_carry_simplify_only_when_engine_sees_no_change(rnd, ou
 
 def test_fix_record_keeps_the_declarations_the_cond_reads_across_rounds():
     """security_surface_touched は前のどの周の申告も record.process.fixes から読むので、p3.fix の writes がそのフィールドを残す"""
-    pick = next(w for w in GRAPH["nodes"]["p3.fix"]["writes"] if w.get("to") == "process.fixes")["pick"]
-    assert {"security_surface_changed", "seams_changed"} <= set(pick)
+    w = next(w for w in GRAPH["nodes"]["p3.fix"]["writes"] if w.get("to") == "process.fixes")
+    cond = RULES.security_surface_touched
+    # 修正の申告のフィールド名は、条件が宣言した読み（prev.p3.fix.<名>）から引く——試験の側に名前を写さない
+    fields = [r.removeprefix("prev.p3.fix.") for r in cond.reads if r.startswith("prev.p3.fix.")]
+    assert fields and set(fields) <= set(w["pick"])
+
+    def view(fixes):
+        """差分の申告（out.p0.base）は全部偽で、前の周の修正の申告は record.process.fixes の行だけに在る読み口"""
+        vals = {**{r: False for r in cond.reads if r.startswith("out.p0.base.")}, "record.process.fixes": fixes}
+
+        def v(path, default=None):
+            return vals.get(path, default)
+        v.unevaluable = lambda name, why: None
+        return v
+    # p3.fix の返答の申告 1 つだけが真の行を、writes の pick と stamp_round の形で記録に積むと、後の周の条件が真になる
+    for f in fields:
+        out = {f: True}
+        row = {**{k: out[k] for k in w["pick"] if k in out}, w["stamp_round"]: 1}
+        assert cond(view([row]))[0] is True, f
+    assert cond(view([{w["stamp_round"]: 1, **dict.fromkeys(fields, False)}]))[0] is False   # 申告が全部偽なら当てない

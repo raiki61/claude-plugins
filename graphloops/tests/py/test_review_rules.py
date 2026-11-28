@@ -94,11 +94,13 @@ def test_prev_fix_touched_reads_the_round_head_exit():
 # ---------------------------------------------------------------- 収束（converge）の CI の自己申告
 def test_converge_asks_when_ci_clean_without_any_checks_note(tmp_path):
     b = board(tmp_path, outputs={"p4.record": {"branch": "converged"}},
-              record={"materials": {"local_checks": {"status": "clean"}}})
+              record={"materials": {"local_checks": {"status": "clean", "checked": "pytest を全部"}}})
     got = RULES.converge(b, "p4.converge")
-    assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"]
-    assert "この周の p4.ci を engine が走らせていない" in got["ask"]["question"]
-    assert got["ask"]["items"] == ["local_checks: clean（任せ先の申告）— "]
+    # 問いの文の言い回しは見ない——訳（kinds）・選択肢と、任せ先が書いた確かめの中身が人に届くことを見る
+    assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"] and got["ask"]["options"] == ["continue", "stop"]
+    assert len(got["ask"]["items"]) == 1 and "pytest を全部" in got["ask"]["items"][0]
+    # 聞く周の止めた理由は問いの訳で、答えた後に止めた印（CI_UNVERIFIED_STOP）ではない
+    assert b.loop_state["stop_reason"] == "ci_unverified" != RULES.CI_UNVERIFIED_STOP
 
 
 @pytest.mark.parametrize("ci", [{"status": "clean"}, {"status": "not_applicable", "reason": "回す側が省いた: CI で回す"}])
@@ -111,11 +113,12 @@ def test_converge_does_not_re_ask_an_answered_ci_question_and_stops_instead_of_s
                       "process": {"human_answers": [{"round": 2, "kinds": ["ci_unverified"], "note": "CI で見る", "asked": []}]}})
     b.state["preset_skips"] = {"p4.ci": "CI で回す"}
     got = RULES.converge(b, "p4.converge")
-    assert got["decision"] == "stopped" and "CI 未確認のまま止めた" in got["reason"] and "r2" in got["reason"] and "CI で回す" in got["reason"]
+    # 止めた理由の文の言い回しは見ない——答えた周（r2）と省いた理由が届き、盤面の stop_reason が定数になることを見る
+    assert got["decision"] == "stopped" and "r2" in got["reason"] and "CI で回す" in got["reason"]
     assert b.loop_state["stop_reason"] == RULES.CI_UNVERIFIED_STOP and b.loop_state["outcome"] == "stopped"
     b.record["process"]["human_answers"] = []
     got = RULES.converge(b, "p4.converge")
-    assert got["decision"] == "ask" and "p4.ci: CI で回す" in got["ask"]["question"] and "聞き直さず" in got["ask"]["question"]
+    assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"] and "p4.ci: CI で回す" in got["ask"]["question"]
 
 
 def test_converge_asks_every_stop_key_with_its_own_question_even_one_it_has_no_text_for(tmp_path, monkeypatch):
@@ -452,12 +455,50 @@ def test_fail_layers_cover_every_function_that_fails():
     assert owners == set(VAL.FAIL_LAYERS), (sorted(owners - set(VAL.FAIL_LAYERS)), sorted(set(VAL.FAIL_LAYERS) - owners))
 
 
-def test_judge_time_rules_are_called_by_rules():
-    """判定の時点で当てると検証器が名乗る述語を、rules が呼んでいる（名乗りだけで届いていない形を落とす）"""
-    src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
+def _judge_time_hit(tmp_path, name):
+    """述語 name の（番兵の文, rules の入口を呼ぶ関数, 当たる形の差し替え）。差し替えは検証器のモジュールの属性に当て（番兵の文を返す）、
+    呼ぶ入口は述語ごとに違う（判定の受け付け judge_output か、全部の done が通る check_record）"""
+    sent = f"番兵の {name}"
+    if name == "settled_state_errors":
+        out = reopened_block()
+        out["questions"] = [{"key": "q1", "kind": "fork", "status": "resolved", "origin": "u1", "reason": "r", "resolution": "x",
+                             "options": ["a", "b"]}]
+        return sent, lambda: judge_reject(tmp_path, "p2.diagnose", out), lambda q, units: [sent]
+    if name in ("reopened_without_evidence", "dropped_questions"):
+        return sent, lambda: judge_reject(tmp_path, "p2.history", reopened_block(), LEDGER), lambda a, c: [sent]
+    if name == "stuck_unlisted":
+        (tmp_path / "rounds").mkdir(exist_ok=True)
+        for n in (0, 1):   # 判定の盤面は 2 周目——前の 2 周の記録が在るときだけ当てる
+            (tmp_path / "rounds" / f"round-{n}.json").write_text("{}", encoding="utf-8")
+        return sent, lambda: judge_reject(tmp_path, "p2.history", reopened_block(), LEDGER), lambda rounds: [("u1", sent)]
+    if name == "origin_not_awaiting":
+        b = types.SimpleNamespace(state={"validator": VALIDATOR}, rd={"instances": {}}, nodes={},
+                                  record={"materials": {"local_checks": {"status": "awaiting_human"}}, "reviews": {},
+                                          "questions": [{"key": "q1", "kind": "awaiting", "status": "held", "origin": "local_checks", "reason": "r"}]})
+        return "local_checks", lambda: RULES.check_record(b), lambda q, materials: True
+    return None
+
+
+def test_judge_time_rules_are_called_by_rules(tmp_path, monkeypatch):
+    """判定の時点で当てると検証器が名乗る述語を、rules が呼んでいる（名乗りだけで届いていない形を落とす）——述語を当たる形に差し替えて、
+    rules の受け付けが拒むかで見る（rules の原文の字面は見ない。注釈や通らない分岐の呼びでは緑にならず、getattr で回す形でも赤にならない）"""
     for name in VAL.JUDGE_TIME_RULES:
         assert callable(getattr(VAL, name, None)), name
-        assert f".{name}(" in src, f"rules が検証器の {name} を呼んでいない"
+        case = _judge_time_hit(tmp_path, name)
+        assert case, f"{name} を当てる入口が試験に無い（_judge_time_hit に足せ）"
+        sent, run, hit = case
+        real = getattr(VAL, name)
+        if name == "origin_not_awaiting":
+            # 拒みの文は出どころの素材の名を引く（番兵の文を持たない）——当たらない形との差の行で見る
+            monkeypatch.setattr(VAL, name, lambda q, materials: False)
+            quiet = run()
+            monkeypatch.setattr(VAL, name, hit)
+            extra = [e for e in run() if e not in quiet]
+            assert extra and all(sent in e for e in extra), f"rules が検証器の {name} を呼んでいない"
+        else:
+            monkeypatch.setattr(VAL, name, hit)
+            assert sent in run(), f"rules が検証器の {name} を呼んでいない"
+        monkeypatch.setattr(VAL, name, real)
 
 
 def test_settled_state_rejected_at_judge(tmp_path):

@@ -171,10 +171,30 @@ def test_second_runner_node_of_the_wave_does_not_paste_the_body(wave):
 
 
 @pytest.mark.medium
+def test_every_runner_node_of_the_wave_gets_the_path_not_the_body(wave):
+    """回す側のノードの一覧は盤面（next の ready の mode）から作る——同じ波に回す側のノードを足しても、本文の貼り漏れを同じ検査が縛る"""
+    run = wave("research/neg/q-done").run
+    runners = [i for i in run.next()["ready"] if i["mode"] == "runner"]
+    # 一覧が空だと何も見ずに緑になるので、今の 2 つは必ず入っていることを先に見る
+    assert {"p0.claims", "p0.terms"} <= {i["node"] for i in runners}, [i["node"] for i in runners]
+    doc = str(run.doc.resolve())
+    for i in runners:
+        body = pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8")
+        assert doc in body and "主張 A・B・C・D" not in body, i["node"]
+
+
+@pytest.mark.medium
 @moved("前のノードの出力の穴が埋まっている")
 def test_holes_from_earlier_outputs_are_filled(wave):
-    body, _ = _second_wave_prompt(wave, "p0.claims")
-    assert "open_questions" not in body or "[]" in body or "この周には無い" in body
+    # p0.question の open_questions に印の値を返し、p0.claims のプロンプトの穴（{{?out.p0.question.open_questions}}）に
+    # その値が届くかを見る（標準の返答の [] は本文のほかの所にも在りうるので、埋まった証拠にならない）
+    w = wave("research/neg/q")
+    mark = "穴に届く印の問い"
+    r = w.run.done(w.pending()["p0.question"]["id"], {**std(w.run, "p0.question"), "open_questions": [mark]})
+    assert r.returncode == 0, r.stderr[-300:]
+    by = {i["node"]: i for i in w.run.next()["ready"]}
+    body = pathlib.Path(by["p0.claims"]["prompt_file"]).read_text(encoding="utf-8")
+    assert mark in body
 
 
 # ---- クラスタと checker ----------------------------------------------------------------------------------------------
@@ -291,7 +311,9 @@ def test_missing_verdicts_are_reissued(wave):
 @pytest.mark.medium
 @moved("済んだ instance にはもう done できない")
 def test_done_instance_cannot_be_done_again(wave):
-    assert wave("research/neg/w5b").run.done("p1.checker[c1]", {"cluster": "c1", "findings": []}).returncode == 1
+    # 終了コードだけだと、空の findings が別の訳（被覆の欠けなど）で拒まれても通るので、済んだ instance を拒む文を見る
+    # （test_second_done_on_the_same_node_is_rejected と同じ語）
+    rejected(wave("research/neg/w5b").run.done("p1.checker[c1]", {"cluster": "c1", "findings": []}), "p1.checker[c1]", "既に")
 
 
 @pytest.mark.medium

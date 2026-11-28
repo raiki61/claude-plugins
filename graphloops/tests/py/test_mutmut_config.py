@@ -3,7 +3,6 @@
 blocks/ が無くて graph の $ref が解けず、load_graph が None を返した。10-26 は README.md が無くて、README の見出しを読む試験が
 落ちた。mutmut は CI でしか撃たないので、手元の試験で先に止める）"""
 import configparser
-import inspect
 import os
 import pathlib
 import re
@@ -69,7 +68,8 @@ def test_mutmut_stats_phase_is_not_inherited_by_children(monkeypatch, phase, loc
         fake._mutant_under_test = local
     monkeypatch.setitem(sys.modules, "mutmut.mutation.trampoline", fake)
     monkeypatch.setenv(conftest.MUTMUT_PHASE, phase)
-    conftest.keep_mutmut_stats_out_of_children()
+    # pytest.main ごとに呼ばれる口（pytest_configure）を通して見る——外す関数の分岐が正しくても、その口から呼ばれなければ
+    # mutmut の回で効かない。fence の差し込みはこの試験の外の話なので、何もしない物に替える
+    monkeypatch.setattr(conftest, "fence", types.SimpleNamespace(install=lambda *a: None, expect_sim=lambda *a: None))
+    conftest.pytest_configure(None)
     assert (conftest.MUTMUT_PHASE in os.environ) is kept
-    # pytest.main ごとに外す所（呼ぶのを消すと、上の分岐が正しくても mutmut の回で効かない）
-    assert "keep_mutmut_stats_out_of_children()" in inspect.getsource(conftest.pytest_configure)

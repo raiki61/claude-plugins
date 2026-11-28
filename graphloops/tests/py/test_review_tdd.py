@@ -67,29 +67,24 @@ def test_red_passes_when_named_fail_and_others_pass():
     assert RULES.red_problems(["test_a.py::test_new_red"], cases(**{"test_param[x]": "passed"}), 1) == []
 
 
-@pytest.mark.parametrize("outcome,words", [
-    pytest.param("error", "error で落ちた", id="load-or-setup-error"),
-    pytest.param("passed", "もう通る", id="already-green"),
-    pytest.param("skipped", "飛ばされた", id="skipped"),
+# 赤を拒む訳の表。どの行も、通る赤（test_red_passes_when_named_fail_and_others_pass の入力）を 1 か所だけ崩す
+# （名指し・名指しの結末・ほかのテストの結末・終了コードのどれか）。words は拒否の 1 行に全部在る語
+RED_OK = {"named": "test_a.py::test_new_red", "over": {"test_param[x]": "passed"}, "code": 1}
+
+
+@pytest.mark.parametrize("change,words", [
+    pytest.param({"over": {"test_new_red": "error", "test_param[x]": "passed"}}, ("error で落ちた",), id="load-or-setup-error"),
+    pytest.param({"over": {"test_new_red": "passed", "test_param[x]": "passed"}}, ("もう通る",), id="already-green"),
+    pytest.param({"over": {"test_new_red": "skipped", "test_param[x]": "passed"}}, ("飛ばされた",), id="skipped"),
+    pytest.param({"named": "test_a.py::test_never_collected"}, ("一式の結末に居ない",), id="named-test-missing-from-the-suite"),
+    # JUNIT のままの test_param[x] は error（名指しでないテストが壊れている）
+    pytest.param({"over": {}}, ("test_param[x]", "ほか"), id="other-tests-broken"),
+    pytest.param({"code": 0}, ("exit 0",), id="exit-zero"),
 ])
-def test_red_rejects_the_wrong_kind_of_red(outcome, words):
-    probs = RULES.red_problems(["test_a.py::test_new_red"], cases(**{"test_new_red": outcome, "test_param[x]": "passed"}), 1)
-    assert any(words in p for p in probs)
-
-
-def test_red_rejects_a_named_test_missing_from_the_suite():
-    probs = RULES.red_problems(["test_a.py::test_never_collected"], cases(**{"test_param[x]": "passed"}), 1)
-    assert any("一式の結末に居ない" in p for p in probs)
-
-
-def test_red_rejects_other_tests_broken():
-    probs = RULES.red_problems(["test_a.py::test_new_red"], cases(), 1)
-    assert any("test_param[x]" in p and "ほか" in p for p in probs)
-
-
-def test_red_rejects_exit_zero():
-    probs = RULES.red_problems(["test_a.py::test_new_red"], cases(**{"test_param[x]": "passed"}), 0)
-    assert any("exit 0" in p for p in probs)
+def test_red_rejects_the_wrong_kind_of_red(change, words):
+    a = {**RED_OK, **change}
+    probs = RULES.red_problems([a["named"]], cases(**a["over"]), a["code"])
+    assert any(all(w in p for w in words) for p in probs), probs
 
 
 def test_green_rejects_named_test_missing_or_skipped():
@@ -375,21 +370,40 @@ def test_run_and_note_accumulates_what_the_suite_made(monkeypatch):
     assert t["suite_made"] == ["new.log", "old.log"]
 
 
-def test_finalize_runs_the_base_finalize_then_measures(monkeypatch):
-    """TDD の版の仕上げは、元の仕上げを済ませてから効き目を測る"""
-    seen = []
-    monkeypatch.setattr(RULES.base, "finalize", lambda b: seen.append("base"))
-    monkeypatch.setattr(RULES, "tdd_effect", lambda b: seen.append("effect"))
-    RULES.finalize(types.SimpleNamespace())
-    assert seen == ["base", "effect"]
+def _tdd_board(tmp_path):
+    """線の無い盤面と、TDD を使った周 1 の行だけを持つ記録（効き目の測り tdd_effect が読む物だけ）"""
+    return types.SimpleNamespace(dir=tmp_path, loop_state={}, record={"process": {"tdd": {"rounds": {"1": {}}}}})
 
 
-def test_record_round_measures_after_the_base_record(monkeypatch):
-    """周の記録を組んだ後に効き目を測り直し、元の周の記録の返りをそのまま返す"""
-    seen = []
-    monkeypatch.setattr(RULES.base, "record_round", lambda b, nid: seen.append("base") or {"ok": True})
-    monkeypatch.setattr(RULES, "tdd_effect", lambda b: seen.append("effect"))
-    assert RULES.record_round(types.SimpleNamespace(), "p4.record") == {"ok": True} and seen == ["base", "effect"]
+def _write_next_round(b, faces):
+    """元の側が書く次の周の記録（rounds/round-2.json）。効き目の測りが周 1 の faces_created_by_this_fix として読む"""
+    (b.dir / "rounds").mkdir(exist_ok=True)
+    (b.dir / "rounds" / "round-2.json").write_text(json.dumps({"scalars": {"faces_created_by_prev_fix": faces}}), encoding="utf-8")
+
+
+def test_finalize_runs_the_base_finalize_then_measures(monkeypatch, tmp_path):
+    """TDD の版の仕上げは、元の仕上げを済ませてから効き目を測る——元の仕上げが盤面に残した物を、同じ仕上げの測りが読む
+    （測りを先にすると、元が書いた次の周の記録が測りに入らず None のまま）"""
+    b = _tdd_board(tmp_path)
+    monkeypatch.setattr(RULES.base, "finalize", lambda b: _write_next_round(b, 3))
+    RULES.finalize(b)
+    row = b.record["process"]["tdd"]["rounds"]["1"]
+    assert row["faces_created_by_this_fix"] == 3, row
+    # 線が無い周は測れていない（0 でなく None）
+    assert row["lane_missed"] is None and row["lane_arms"] is None and row["lane_state"] is None, row
+
+
+def test_record_round_measures_after_the_base_record(monkeypatch, tmp_path):
+    """周の記録を組んだ後に効き目を測り直し、元の周の記録の返りをそのまま返す——元が書いた次の周の記録を、同じ呼びの測りが読む"""
+    b = _tdd_board(tmp_path)
+
+    def base_record(b, nid):
+        _write_next_round(b, 2)
+        return {"ok": True}
+
+    monkeypatch.setattr(RULES.base, "record_round", base_record)
+    assert RULES.record_round(b, "p4.record") == {"ok": True}
+    assert b.record["process"]["tdd"]["rounds"]["1"]["faces_created_by_this_fix"] == 2
 
 
 def test_run_suite_reports_a_suite_that_wrote_no_junit(tmp_path, monkeypatch):

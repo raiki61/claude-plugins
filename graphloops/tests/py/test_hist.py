@@ -306,14 +306,17 @@ def test_patch_refuses_hist_values(tmp_path, path):
     b = make(tmp_path, 2, [rd(1), rd(2)])
     r = _patch(b, path, [], tmp_path)
     msg = r.stdout + r.stderr
-    assert r.returncode != 0 and "書いても次に引くとき作り直されて効かない" in msg
-    # 案内は値の元から引く——閉じた周の記録から作る値には直す口が無いと言い、ノードの出力を読む値にはそのノードの手当てを名指す
-    if "closed_keys" in path or "prev_units" in path:
-        assert "閉じた周の記録（rounds/round-<N>.json）から作る部分は直す口が無い" in msg and "out." not in msg.split("直すなら値の元を:")[1].split("（控え")[0]
-    elif "prev_one_shot" in path:
-        assert "loop.py patch --path out.p2.history.<フィールド>" in msg and "直す口が無い" not in msg
+    name = path.removeprefix("hist.").removeprefix("state.loop.").split(".")[0]
+    assert r.returncode != 0 and f"hist.{name}" in msg
+    # 案内は値の元から引く——その hist の関数が読む物の宣言から組んだ道（repair_routes）が全部出る。
+    # 文の切り出しでなく宣言で見る: 閉じた周の記録から作る値はノードの出力を読まず、ノードの出力を読む値は直す口の無い元を読まない
+    fn = b.rules.HIST[name]
+    reads = fn.hist_reads
+    assert all(route in msg for route in hist_mod.repair_routes(fn))
+    if name in ("closed_keys", "prev_units", "defer_ledger"):
+        assert "rounds" in reads and not any(x.startswith("out.") for x in reads)
     else:
-        assert "閉じた周の記録" in msg
+        assert "out.p2.history" in reads and not any(x in ("rounds", "rd") or x.startswith("inputs.") for x in reads)
     assert "patches" not in json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
 
 

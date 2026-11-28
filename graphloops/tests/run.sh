@@ -70,9 +70,10 @@ run_sim() {
     tests=$((tests + ${k:-0}))
     [ "$code" -eq 0 ] || fail=1
 }
-# 台本の一覧は 1 か所。**名前を 2 度並べない**——手で並べた一覧は、足した 1 本が片方から黙って落ちる。
+# 台本の一覧も graph と同じくファイル集合（tests/simulate*.py）から導く。**名前を手で並べない**——手で並べた一覧は、
+# 足した 1 本（simulate_x.py）が黙って落ち、走らない台本の終わりの行の不在には誰も気づかない。
 # **配列で持ち、展開は引用する**（この事故の正本は root の tests/run.sh の SHELL_QUOTE_OK の注記）
-SIMS=("$ROOT/graphloops/tests/simulate.py" "$ROOT/graphloops/tests/simulate_review.py")
+SIMS=("$ROOT"/graphloops/tests/simulate*.py)
 for sim in "${SIMS[@]}"; do run_sim "$sim"; done
 
 if [ -n "$shard" ]; then

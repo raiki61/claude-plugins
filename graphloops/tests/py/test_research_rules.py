@@ -25,16 +25,6 @@ def test_constraints_self_written_skips_rows_that_are_not_objects():
         (True, "surveyor が自書した問い・制約は 1 件")
 
 
-@pytest.mark.parametrize("stuck,want", [(True, (True, "手詰まり（stuck）の後の周")),
-                                        (False, (False, "初回でなく、手詰まり（stuck）の後でもない"))])
-def test_generation_due_says_why(stuck, want):
-    assert cond("generation_due", {"round": 2, "loop": {"stuck_hint": stuck}}) == want
-
-
-def test_sampling_due_needs_a_numeric_round():
-    assert cond("sampling_due", {"round": None, "rd": {}}) == (False, "round=None（2 周目以降だけ）")
-
-
 def test_on_stop_keeps_the_unanswered_question_as_a_human_item():
     """人に聞いている最中に止めた run は、答えないまま外した問いを要人間判断（human_items）に残す"""
     import types
@@ -70,7 +60,9 @@ TRUTH = {
                               ({"rd": {"new_discrepancies": 0}, "out": {"p3.rederiver": {"verdict": "fail"}}}, False),
                               ({"rd": {"new_discrepancies": 1}}, False), ({"rd": {"new_discrepancies": 0}}, "die")],
     "sampling_due": [({}, False), ({"round": 2, "rd": {"item_counts": {"p1.checker": 0}}}, True),
-                     ({"round": 2, "rd": {"item_counts": {"p1.checker": 3}}}, False), ({"round": 2}, "die")],
+                     ({"round": 2, "rd": {"item_counts": {"p1.checker": 3}}}, False), ({"round": 2}, "die"),
+                     # 周が数でない（None）ときは比べて落ちずに偽（2 周目以降だけ）。行は末尾に足す（前の行の id を変えない）
+                     ({"round": None}, False)],
 }
 
 

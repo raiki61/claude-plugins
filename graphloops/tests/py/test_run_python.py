@@ -4,6 +4,8 @@ Windows の Microsoft Store へ誘う代わりの物（起動すると案内を�
 convergence-loops は自前の試験の置き場を持たないので、同じ選び方の写しをここで一緒に見る"""
 import json
 import os
+import pathlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -85,4 +87,11 @@ def test_hook_registration_goes_through_entry():
     """読了のフックの登録は、素の python3 でなく入口を通す（init の自己点検は、この登録の語をそのまま走らせて確かめる）"""
     hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PostToolUse"]
     commands = [h["command"] for m in hooks for h in m["hooks"]]
-    assert commands == ['bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" --once "${CLAUDE_PLUGIN_ROOT}/hooks/record-read.py"']
+    assert len(commands) == 1, commands
+    # 字面でなく、bash が受け取る引数で見る（引用の付け方・timeout などの添え物を変えても赤にしない）:
+    # 入口 run-python.sh を bash で起動し、入口に --once と record-read.py を渡す
+    argv = shlex.split(commands[0].replace("${CLAUDE_PLUGIN_ROOT}", PLUGIN.as_posix()))
+    paths = [pathlib.Path(x) for x in argv]
+    assert ENTRIES["graphloops"] in paths, argv
+    at = paths.index(ENTRIES["graphloops"])
+    assert argv[:at] == ["bash"] and argv[at + 1] == "--once" and paths[at + 2:] == [PLUGIN / "hooks" / "record-read.py"], argv

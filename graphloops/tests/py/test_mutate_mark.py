@@ -108,22 +108,32 @@ def test_uncovered_count_only_when_script_marker_is_green():
     """覆いの無い行の件数（summary.uncovered）は status NoCoverage の自動の腕から数え、一覧の腕は入れない。台本の印の写しが赤の回は
     数えられない（null）と言い、印字と --gate-efficacy は『通ったかを決めていない』と言う。pytest の覆いを使っていない回は件数を
     出したうえで台本だけで決めた覆いと添える"""
+    # 印字の言い回しは縛らない。見るのは、数えた腕の名前・理由（marker_unhealthy と pytest_off の値）が文に届くことと、
+    # --gate-efficacy が印字と同じ文を使うこと
     res, sel = _cov(0, pytest={"rc": 0})
     s = mutate.evaluate(res, sel)
     assert s["uncovered"] == ["a_none"]
-    lines = mutate.coverage_lines(res)
-    assert lines[-1] == "覆いの無い行（台本も pytest も通らない）の自動の腕 1 本: a_none"
-    assert "覆いの無い行（台本も pytest も通らない）の自動の腕 1 本" in mutate.gate_efficacy(res)["material"]["detail"]
+    green = mutate.coverage_lines(res)
+    assert len(green) == 2 and green[0].split()[-2:] == ["a_none", "l_none"]
+    assert green[-1].split()[-1] == "a_none" and "l_none" not in green[-1]   # 一覧の腕は覆いの無い行に入れない
+    assert green[-1] in mutate.gate_efficacy(res)["material"]["detail"]
     res, sel = _cov(2, pytest={"rc": 0})
     s = mutate.evaluate(res, sel)
     assert s["uncovered"] is None
-    lines = mutate.coverage_lines(res)
-    assert lines[0].startswith("印の写しが赤で、通ったかを決めていない腕") and lines[-1].startswith("覆いの無い行は数えられない（印の写しが赤（rc=2）")
-    assert "覆いの無い行は数えられない" in mutate.gate_efficacy(res)["material"]["detail"]
+    red = mutate.coverage_lines(res)
+    # 赤の回は同じ腕でも「通らなかった」と言わない（緑の回の行と別の文）、覆いの無い行は理由（印の写しが赤・rc）を添えて数えない
+    assert red[0].split()[-2:] == ["a_none", "l_none"] and red[0] != green[0]
+    assert res["marker_unhealthy"] in red[-1] and "rc=2" in red[-1] and "a_none" not in red[-1]
+    assert red[-1] in mutate.gate_efficacy(res)["material"]["detail"]
     for res, sel in (_cov(0, pytest={"rc": 1, "why": "印の写しの pytest が緑でない（rc=1）"}), _cov(0, stage="uv が PATH に無い")):
         s = mutate.evaluate(res, sel)
         assert s["uncovered"] == ["a_none"]
-        assert all("台本だけで決めた覆い" in x for x in mutate.coverage_lines(res))
+        lines, why = mutate.coverage_lines(res), mutate.pytest_off(res)
+        assert why and all(why in x for x in lines)
+        # 添え書きは pytest を使っていない回だけ: 使った回（green）との差が理由の字数より長い＝理由の外に添えた文が在る
+        assert lines[-1].split()[-1] == "a_none" and len(lines[-1]) - len(green[-1]) > len(why)
     res, sel = _cov(0)
     res["arms"] = [r for r in res["arms"] if r["id"] == "l_none"]
-    assert mutate.evaluate(res, sel[2:])["uncovered"] == [] and mutate.coverage_lines(res) == ["印を差したが通らなかった腕: a_none l_none"]
+    assert mutate.evaluate(res, sel[2:])["uncovered"] == []
+    lines = mutate.coverage_lines(res)
+    assert len(lines) == 1 and lines[0].split()[-2:] == ["a_none", "l_none"]   # 覆いの無い行が 0 本なら件数の行を出さない

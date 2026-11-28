@@ -661,7 +661,12 @@ def test_mutate_refuses_all_but_check_in_an_engine_child(tmp_path):
     shot = subprocess.run([sys.executable, str(mut), "--only", "__engine_child_probe__", "--out", str(tmp_path / "o.json")], env=marked,
                           cwd=REPO, capture_output=True, text=True, encoding="utf-8")
     assert shot.returncode == 2 and "--check のほかを走らせない" in shot.stderr
-    check = subprocess.run([sys.executable, str(mut), "--check"], env=marked, cwd=REPO, capture_output=True, text=True, encoding="utf-8")
+    # --check は拒まずに照合まで進む。空の腕の一覧を渡し、照合の終わりの 0 を見る（拒みの 2・引数の誤りの 2・import の失敗の 1 と分ける）
+    arms = tmp_path / "arms.json"
+    arms.write_text('{"arms": []}', encoding="utf-8")
+    check = subprocess.run([sys.executable, str(mut), "--check", "--arms-file", str(arms)], env=marked, cwd=REPO, capture_output=True,
+                           text=True, encoding="utf-8")
+    assert check.returncode == 0, check.stderr
     assert "--check のほかを走らせない" not in check.stderr
 
 

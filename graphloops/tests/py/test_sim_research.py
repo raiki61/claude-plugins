@@ -28,9 +28,11 @@ def test_converges(gl_script):
     check(next(c for c in rec["claims"] if c["id"] == "A")["refuted"] is True, "荷重の確証 A は反証を経た")
     check([c["no"] for c in rec["corrections"]] == [1, 2], f"訂正の番号は機械が連番で振る: {[c['no'] for c in rec['corrections']]}")
     check((run.dir / "report.md").is_file(), "report.md が保存された")
-    # 開いた問いが 0 件の run の収束の文言は、分けた文言を足す前と 1 字も変わらない（回帰）
-    check(sim.converge_reasons(run)[-1] == "連続 2 周で新規相違ゼロ、標準 段のゲートは全部 pass",
-          f"開いた問いの無い収束の文言は元のまま: {sim.converge_reasons(run)[-1:]}")
+    # 開いた問いが 0 件の run の収束の文言は、問いを分けて言う形（台本 simulate.py の test_open_questions_unresolved が見る）に倒れない（回帰）。
+    # 言い回しは縛らず、理由が在ることと、問いの無い run で問いの話を足さないことだけを見る
+    why = (sim.converge_reasons(run) or [""])[-1]
+    check(why and not rec["process"].get("open_questions") and "開いた問い" not in why,
+          f"開いた問いの無い収束の文言は問いの話を足さない: {why[:80]}")
     v = subprocess.run([sim.PY, str(sim.VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(v.returncode == 0, f"検証器が exit 0（{v.stdout.strip()[:60]}）")
     r1 = st["rounds"][0]

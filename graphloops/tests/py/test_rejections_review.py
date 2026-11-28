@@ -191,7 +191,11 @@ def test_accept_tree_change_passes_the_comparison(wave):
     (run.repo / "stray.txt").write_text("x", encoding="utf-8")
     r = run.cmd("next", "--accept-tree-change", "writer の変更（検査用）")
     assert r.returncode == 0, r.stderr[-300:]
-    assert not any("作業ツリーが変わっている" in n for n in json.loads(r.stdout).get("notes", []))
+    nx = json.loads(r.stdout)
+    # 止まった next も exit 0 を返す（test_without_git_the_p1_comparison_stops_as_unmeasurable）ので、通ったことは
+    # 走らせてよいノードが出ること（受け付けた回は撃ち直す材料のノード）で見る。理由の無い next は ready が空（test_worktree_change_across_p1_stops）
+    assert nx["ready"], nx.get("notes")
+    assert not any("作業ツリーが変わっている" in n for n in nx.get("notes", []))
 
 
 @moved("受け付けた理由が git_mismatches に残る")

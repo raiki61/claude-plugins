@@ -40,7 +40,9 @@ def test_json_that_is_not_an_envelope_is_the_body(raw):
 
 
 def test_empty_output_is_not_a_body():
-    assert unwrap(b"  \n ") == (None, {}, "標準出力が空（包みも本文も無い）")
+    # 理由の言い回しは縛らない（読むのは人で、run_role は理由が在るかで受け付けに回さない）
+    text, summary, bad = unwrap(b"  \n ")
+    assert text is None and summary == {} and isinstance(bad, str) and bad.strip()
 
 
 # --- 包み: 要約を残し、subtype を result より先に見る
@@ -55,7 +57,7 @@ def test_error_envelope_without_result_names_subtype_and_errors():
     raw = json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True, "session_id": "s-2",
                       "errors": ["Reached maximum number of turns (9)"], "num_turns": 9}).encode("utf-8")
     text, summary, bad = unwrap(raw)
-    assert text is None and bad == "役が誤りで終わった（error_max_turns: Reached maximum number of turns (9)）"
+    assert text is None and "error_max_turns" in bad and "Reached maximum number of turns (9)" in bad   # 誤りの種類と中身が理由に届く
     assert summary["session_id"] == "s-2" and summary["num_turns"] == 9
 
 
@@ -72,7 +74,7 @@ def test_error_envelope_is_not_accepted(kw, want):
 def test_success_envelope_without_result_is_broken():
     raw = json.dumps({"type": "result", "subtype": "success", "session_id": "s-3"}).encode("utf-8")
     text, summary, bad = unwrap(raw)
-    assert text is None and bad == "包みに result が無い（subtype=success）" and summary["session_id"] == "s-3"
+    assert text is None and bad and "success" in bad and summary["session_id"] == "s-3"   # 理由に subtype が届く（言い回しは縛らない）
 
 
 # --- --json-schema で起動した子: 本文は structured_output で、result の文は読まない
@@ -81,13 +83,16 @@ def test_structured_output_is_the_body_not_the_result_text():
     assert bad is None and json.loads(text) == {"findings": [], "注": "日本語"} and summary["session_id"] == "s-1"
 
 
+# want は要約の envelope（包みとして読んだか）。包みなら理由に subtype が届く。理由の言い回しは縛らない
 @pytest.mark.parametrize("raw,want", [
-    pytest.param(envelope(), "--json-schema で起動したのに包みに structured_output が無い（subtype=success）", id="no-structured"),
-    pytest.param(b'{"findings": []}', "--json-schema で起動したのに標準出力が --output-format json の包みでない", id="not-envelope"),
+    pytest.param(envelope(), True, id="no-structured"),
+    pytest.param(b'{"findings": []}', False, id="not-envelope"),
 ])
 def test_structured_launch_without_structured_output_is_not_a_body(raw, want):
-    text, _summary, bad = unwrap(raw, structured=True)
-    assert text is None and bad == want
+    text, summary, bad = unwrap(raw, structured=True)
+    assert text is None and bad and summary["envelope"] is want
+    if want:
+        assert "success" in bad
 
 
 def test_structured_retries_exhausted_is_an_error():

@@ -395,10 +395,13 @@ def test_graphcheck_background_delegate_without_reads_is_ng_not_a_crash(sandbox)
     assert not ok and "背景の任せ先は delegate.result_to" in out, out[-300:]
 
 
-def test_delegate_launch_spec_resolves_the_command_and_the_resume_words(repo, tmp_path):
+def test_delegate_launch_spec_resolves_the_command_and_the_resume_words(repo, tmp_path, monkeypatch):
     """起動する語の頭は PATH で引いた実体に置き換え（チェックの突き合わせと子の起動が同じ実体を指す）、resume の語も同じく組む"""
+    # which を差し替えて実体の在る形にする（CI には claude が無く、引けない側に倒れると置き換えの腕を見ない）
+    head = "/opt/bin/claude"
+    real = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda name, *a, **k: head if name == "claude" else real(name, *a, **k))
     got = advance.delegate_launch_spec(_board(tmp_path, {"why": "x"}), _inst(tmp_path), {"delegate": {}}, {})
-    head = shutil.which("claude") or "claude"
     assert got["argv"][2:4] == [head, "-p"] and "--resume" not in got["argv"]
     assert got["resume_argv"][2:6] == [head, "-p", "--resume", "{session_id}"]
 

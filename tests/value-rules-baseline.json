@@ -95,7 +95,7 @@
   "rule3": 3
  },
  "graphloops/tests/py/test_hist.py": {
-  "rule3": 13
+  "rule3": 8
  },
  "graphloops/tests/py/test_hook_liveness.py": {
   "rule3": 5
@@ -110,7 +110,7 @@
   "rule3": 3
  },
  "graphloops/tests/py/test_mutate_mark.py": {
-  "rule3": 11
+  "rule3": 4
  },
  "graphloops/tests/py/test_mutate_shard.py": {
   "rule3": 2
@@ -131,31 +131,32 @@
   "rule3": 13
  },
  "graphloops/tests/py/test_research_rules.py": {
-  "rule3": 3
+  "rule3": 2
  },
  "graphloops/tests/py/test_review_lens.py": {
   "rule3": 4
  },
  "graphloops/tests/py/test_review_rules.py": {
-  "rule3": 41
+  "rule3": 38
  },
  "graphloops/tests/py/test_review_rules_entry.py": {
   "rule3": 3
  },
  "graphloops/tests/py/test_review_tdd.py": {
-  "rule3": 10
+  "rule3": 8
  },
  "graphloops/tests/py/test_role_run_stop.py": {
-  "rule3": 10
+  "rule3": 8,
+  "rule4": 1
  },
  "graphloops/tests/py/test_role_run_unwrap.py": {
-  "rule3": 4
+  "rule3": 1
  },
  "graphloops/tests/py/test_runner.py": {
   "rule3": 4
  },
  "graphloops/tests/py/test_runner_launch.py": {
-  "rule3": 37
+  "rule3": 33
  },
  "graphloops/tests/py/test_scenarios_research.py": {
   "rule3": 5
@@ -192,7 +193,7 @@
   "rule4": 1
  },
  "graphloops/tests/simulate_review.py": {
-  "rule3": 333
+  "rule3": 334
  },
  "tests/catchup-case.py": {
   "rule3": 235

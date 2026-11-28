@@ -1,14 +1,17 @@
 """人の方針の文書の置き場（rules/policy_input.py）と、人の決定権のゲートが人に聞く行（rules/review-loop.py の human_gate の部品）。
 関数を直に呼ぶ検査。盤面を回す端から端までの台本は simulate_review.py の test_policy_reaches_roles・test_human_gate"""
+import json
 import pathlib
 import types
 
 import pytest
 
 from conftest import PLUGIN, REVIEW_GRAPH_PATH
+from engine import commands
 from engine.render import ABSENT, Renderer
 from engine.rules import load_rules
 from engine.schema import load_graph
+from engine.util import AnswerReject
 
 G = load_graph(REVIEW_GRAPH_PATH)[0]
 RULES = load_rules(REVIEW_GRAPH_PATH, G)
@@ -205,8 +208,20 @@ def test_named_narrowing_passes_only_when_the_judge_bound_it_to_the_owner(tmp_pa
 
 
 def test_r4_must_answer_policy_conflicts():
-    schema = G["nodes"]["r4.hidden_scope"]["schema"]
-    assert "policy_conflicts" in schema["required"] and schema["properties"]["policy_conflicts"]["type"] == "array"
+    """r4.hidden_scope の返答は方針とのぶつかり（policy_conflicts）を配列で答えないと done の受け付け（check_reply の型の検査）が拒む——
+    graph の schema の字面を写して見ず、受け付けに返答を渡して拒むかで見る"""
+    b = types.SimpleNamespace(nodes=G["nodes"])
+
+    def refused(out):
+        try:
+            commands.check_reply(b, "r4.hidden_scope", json.dumps(out), None)
+        except AnswerReject as e:
+            return str(e)
+        return ""
+    # ほかの必須のフィールドも欠けた返答で比べる（型の検査は欠けを全部並べる）——policy_conflicts を名指すかだけが違う
+    assert "policy_conflicts" in refused({})
+    assert "policy_conflicts" in refused({"policy_conflicts": "無し"})            # 配列でない答え
+    assert "policy_conflicts" not in refused({"policy_conflicts": []})          # 空の配列は「ぶつからない」の答え
 
 
 def test_change_keeps_copies_and_diff_out_of_row(tmp_path):

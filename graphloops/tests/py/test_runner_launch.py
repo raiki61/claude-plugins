@@ -201,9 +201,12 @@ def test_skill_node_launches_with_lens_definitions_or_names_why_it_cannot(repo, 
     role = pathlib.Path(spec["argv"][spec["argv"].index("--append-system-prompt-file") + 1]).read_text(encoding="utf-8")
     lenses = [e["skill"] for e in n["skills"] if ":" in e["skill"]]
     assert lenses and all(f"- {x}: " in role for x in lenses) and "general-purpose" in role
-    # 書く子の前置きを継がない（食い違う指示を並べない）——読むだけの子の共通の決まりは skill_preamble が自分で持つ
-    assert "Agent）は起動できない" not in role and "Edit・Write で直せ" not in role
-    assert "JSON だけ" in role and "人の方針の文書" in role
+    # 前置きは graph の skill_preamble で始まり、書く子の前置き（preamble）を継がない（食い違う指示を並べない）——
+    # 文は graph の 1 か所から引くので、前置きの言い回しを直しても選び分けが正しければ緑のまま
+    words = b.graph["launch"]["runner"]
+    assert role.startswith(words["skill_preamble"])
+    writer_only = [x for x in words["preamble"].splitlines() if x.strip() and x not in words["skill_preamble"].splitlines()]
+    assert writer_only and not any(x in role for x in writer_only)
     written = sorted(p.read_text(encoding="utf-8") for p in (b.dir / "roles").glob("*.lens.txt"))
     assert written == sorted(f"{x} の本文" for x in lenses)                   # 子が Read で読む定義の写し
     monkeypatch.setattr(advance, "agent_def", lambda t: None)                 # レンズの定義が無い環境
@@ -542,7 +545,13 @@ def test_emitted_prompt_carries_the_appended_sections(real_board):
     assert r.returncode == 0, r.stderr
     base = next(i for i in json.loads(r.stdout)["ready"] if i["id"] == "p0.base")
     text = pathlib.Path(base["prompt_file"]).read_text(encoding="utf-8")
-    for head in ("## 人の方針", "## 手元で走らせてよい範囲", "## 盤面のファイルの読み方"):
+    # 見出しは段のファイルの頭の行から引く（段のファイルの見出しを直しても、重なりが無ければ緑のまま）
+    graph = load_graph(GRAPH)[0]
+    files = [f for seg in advance.node_appends(graph, graph["nodes"]["p0.base"]) for f in seg["files"]]
+    heads = [next(x for x in (GRAPH.parent / f).read_text(encoding="utf-8").splitlines() if x.strip()) for f in files]
+    heads = [h for h in heads if h.startswith("## ")]
+    assert heads
+    for head in heads:
         assert text.count(head) == 1, head
 
 

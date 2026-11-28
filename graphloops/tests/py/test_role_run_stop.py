@@ -166,7 +166,8 @@ def test_stop_group_posix_eperm_on_a_live_member_says_why_at_once(tmp_path, monk
     sent = []
     posix(monkeypatch, lambda s: {4242: proc(4242)}, sent, eperm=True)
     why = role_run.stop_group(str(m))
-    assert why == "グループ 4242 に信号を送れない（[Errno 1] Operation not permitted）"
+    # 言い回しは縛らず、送れなかった相手（グループ 4242）と OS の拒みの訳が理由に届くことだけを見る
+    assert why is not None and "4242" in why and str(PermissionError(1, "Operation not permitted")) in why, why
     assert sent == [("pg", 4242, 15)] and m.exists()
 
 
@@ -264,7 +265,7 @@ def test_stop_group_posix_watches_the_tree(tmp_path, monkeypatch, dies_after):
     posix(monkeypatch, lambda s: {} if dies_after in [sig for _, _, sig in s] else {4242: proc(4242), 4300: proc(4300, pgid=4300)}, sent)
     why = role_run.stop_group(str(m))
     if dies_after is None:
-        assert why == "グループ 4242 の木が SIGKILL の後も残っている（pid 4242（pgid 4242・S）, pid 4300（pgid 4300・S））"
+        assert why is not None and all(f"pid {pid}" in why for pid in (4242, 4300)), why   # 残った仲間を 2 つとも名指す（言い回しは縛らない）
         assert [sig for _, _, sig in sent] == [15, 15, 9, 9] and m.exists()
     else:
         assert why is None and [sig for _, _, sig in sent] == [15, 15] and not m.exists()
@@ -496,6 +497,7 @@ def test_stop_tree_reaps_the_leader_it_holds(monkeypatch):
     p = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], start_new_session=True, stdin=subprocess.PIPE)
     try:
         assert role_run._stop_tree(p.pid, leader=p) is None
+        assert p.returncode is not None   # 待つ間に長を回収した（poll を外すと、ゾンビの長は生きた仲間に数えられず None だけが返る）
     finally:
         if p.poll() is None:
             p.kill()
@@ -506,12 +508,35 @@ def test_run_role_ends_a_normal_attempt(tmp_path, monkeypatch):
     """役が正常に終わって受け付けた回も、試行の終わりに木の残りを 1 回まとめて止める（_end_attempt）"""
     prompt = tmp_path / "p.md"
     prompt.write_text("指示書", encoding="utf-8")
+    monkeypatch.setattr(role_run, "KILL_GRACE", 2)
     env = json.dumps({"type": "result", "subtype": "success", "result": "{}", "session_id": "s-1"})
-    ended = []
-    monkeypatch.setattr(role_run, "_end_attempt", lambda trees, pgid_file: ended.append((trees, pgid_file)))
-    r = role_run.run_role([sys.executable, "-c", f"print({env!r})"], prompt, tmp_path / "out.json", accept=lambda t: None)
-    assert r["ok"] and len(ended) == 1, (r, ended)
-    assert all(isinstance(t, list) for t, _ in ended)
+    # 役の子は、管を継がない背景の孫（POSIX だけ。Windows の木の残りは長が終わると辿れない）を残して正常に終わる
+    left_pid = tmp_path / "left.pid"
+    child = tmp_path / "role.py"
+    child.write_text(
+        "import os, pathlib, subprocess, sys\n"
+        "if os.name == 'posix':\n"
+        "    g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],\n"
+        "                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        f"    pathlib.Path({str(left_pid)!r}).write_text(str(g.pid))\n"
+        f"print({env!r})\n", encoding="utf-8")
+    out = tmp_path / "out.json"
+    pgid_mark = pathlib.Path(role_run.pgid_path(out))
+    mark_at_accept = []
+    r = role_run.run_role([sys.executable, str(child)], prompt, out, accept=lambda t: mark_at_accept.append(pgid_mark.exists()))
+    try:
+        # 受け付けの時には起動した子の印が在り、試行の終わりに残りを止めてから消える
+        assert r["ok"] and mark_at_accept == [True], (r, mark_at_accept)
+        assert not pgid_mark.exists()
+        if os.name == "posix":
+            ps = subprocess.run(["ps", "-o", "stat=", "-p", left_pid.read_text()], capture_output=True, text=True, encoding="utf-8")
+            assert ps.stdout.strip() == "" or ps.stdout.strip().startswith("Z"), ps.stdout   # 背景の孫は止まった（居ないかゾンビ）
+    finally:
+        if left_pid.exists():
+            try:
+                os.kill(int(left_pid.read_text()), 9)
+            except (ProcessLookupError, PermissionError):
+                pass
 
 
 def test_probe_group_keeps_only_trees_not_reused(tmp_path, monkeypatch):

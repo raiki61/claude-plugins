@@ -3076,7 +3076,8 @@ def test_purpose_review_reruns_when_unvetted():
     check(not f(b([], verdict="ok")), "findings が空の『問題なし』は走り直さない")
     # **式の正本は 1 か所**——assemble が別の式を持っていると、チェックを締めた周に片方だけ古くなる。
     # 原文の字面は数えず、同じ findings を assemble の読む口（purpose_findings_vetted）と走り直しの条件の両方に渡し、
-    # 答えが逆になる（裏取り済みなら走り直さない・済んでいなければ走り直す）ことを見る。指摘 0 件はどちらの口も特別に扱うので外す
+    # 答えが逆になる（裏取り済みなら走り直さない・済んでいなければ走り直す）ことを見る。指摘 0 件はどちらの口も特別に扱うので外す。
+    # 本物の assemble がこの口の答えで R2 の扱いを変えることは、test_purpose_verdict_needs_vetted_evidence の腕③（裏取り済み → narrows・素の文字列 → None）が見る
     for rows in (["素の文字列の指摘", "もう 1 件"], [{"text": "x", "hits": 1}],
                  [{"text": "x", "cite": "a"}, {"text": "y", "hits": 2}], [{"text": "x", "cite": "a", "hits": 1}]):
         ctx = b(rows)

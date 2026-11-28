@@ -3,6 +3,7 @@
 simulate_review.py の test_engine_run_checks・test_engine_run_parallel_pr"""
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import types
@@ -188,32 +189,20 @@ def test_parallel_pr_stops_when_gh_fails(monkeypatch, capsys):
     assert e.value.code == 1 and "が exit 3: boom" in capsys.readouterr().err
 
 
-def test_parallel_pr_fixes_its_output_to_utf8(monkeypatch):
-    """印字の口は、引数を読む前に標準出力と標準エラーを UTF-8 に固定する（Windows の既定コーデックに依らない）"""
-    spec = importlib.util.spec_from_file_location("parallel_pr", PLUGIN / "scripts" / "parallel-pr.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    got = []
-
-    class Stream:
-        def __init__(self, name):
-            self.name = name
-
-        def reconfigure(self, **kw):
-            got.append((self.name, kw))
-
-        def write(self, s):
-            return len(s)
-
-        def flush(self):
-            pass
-
-    monkeypatch.setattr(sys, "stdout", Stream("out"))
-    monkeypatch.setattr(sys, "stderr", Stream("err"))
-    monkeypatch.setattr(sys, "argv", ["parallel-pr.py"])
-    with pytest.raises(SystemExit):
-        mod.main()
-    assert got == [("out", {"encoding": "utf-8"}), ("err", {"encoding": "utf-8"})]
+def test_parallel_pr_fixes_its_output_to_utf8(tmp_path):
+    """印字の口は、引数を読む前に標準出力と標準エラーを UTF-8 に固定する（Windows の既定コーデックに依らない）。
+    子のプロセスを cp1252 の印字で起動し、非 ASCII を書かせる: 標準出力は --help（説明に日本語が在る）が落ちずに UTF-8 で出て、
+    標準エラーは読めない --changed の名前（日本語）が \\u の逃がしでなく UTF-8 のまま出る"""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+    env["PYTHONIOENCODING"] = "cp1252"
+    script = str(PLUGIN / "scripts" / "parallel-pr.py")
+    r = subprocess.run([sys.executable, script, "--help"], capture_output=True, env=env, stdin=subprocess.DEVNULL)
+    out = r.stdout.decode("utf-8")
+    assert r.returncode == 0 and any(ord(c) > 127 for c in out), r.stderr.decode("utf-8", "replace")
+    missing = tmp_path / "無い変更.txt"
+    r = subprocess.run([sys.executable, script, "--repo", "o/r", "--head", "x", "--changed", str(missing)],
+                       capture_output=True, env=env, stdin=subprocess.DEVNULL)
+    assert r.returncode != 0 and missing.name in r.stderr.decode("utf-8"), r.stderr.decode("utf-8", "replace")
 
 
 def test_run_steps_waits_and_keeps_output(tmp_path):
