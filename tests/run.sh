@@ -5306,7 +5306,7 @@ expect_output 0 "詰まり: (語) 直しで足した ZZNEW" "2 回目は、直�
     env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_NEW_ONLY" "$CR_POST"
 # 回ごとの頼みの字は、ゲートの定数から引く(言い回しを直しても、その回の頼みが届けば緑)。
 # carry は 3 回目からの頼み(FOLLOWUP_CARRY)にだけ在り、2 回目の頼み(FOLLOWUP_OPEN)・回の前置き(FOLLOWUP_NOTE)・1 回目の依頼文に無い一文。
-# sure は前置きの、sure を true にする条件の一文。引けなければ「取れない」を探して赤になる
+# sure は前置きの、sure を true にする条件の一文。引けなければ、どの依頼文にも無い NO_ROUND_WORD を探して赤になる
 CR_ROUND_WORD='import re
 sys.stdout.reconfigure(encoding="utf-8")
 seg = lambda t: [s.strip() for s in re.split("[\u3001\u3002\n]", t) if s.strip() and not re.search(r"[\"$`\\%]", s)]
@@ -5316,8 +5316,8 @@ pick = {"carry": [s for s in seg(g.FOLLOWUP_CARRY) if s not in g.FOLLOWUP_OPEN +
 print(pick[0], end="")'
 CR_CARRY_WORD=$("$PY_BIN" -c "$CR_LOAD"$'\n'"$CR_ROUND_WORD" "$ROOT/gates/hooks/coldread-gate.py" carry)
 CR_SURE_WORD=$("$PY_BIN" -c "$CR_LOAD"$'\n'"$CR_ROUND_WORD" "$ROOT/gates/hooks/coldread-gate.py" sure)
-expect_output 0 "${CR_CARRY_WORD:-取れない} が届いた" "3 回目の読み手には、前の回から残った物だけを止めよと頼む" \
-    env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees "${CR_CARRY_WORD:-取れない}")" "$CR_POST"
+expect_output 0 "${CR_CARRY_WORD:-NO_ROUND_WORD} が届いた" "3 回目の読み手には、前の回から残った物だけを止めよと頼む" \
+    env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees "${CR_CARRY_WORD:-NO_ROUND_WORD}")" "$CR_POST"
 env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "検査を通過" "3 回目からは、前の回の印の無い詰まりでは止めない" \
@@ -5350,8 +5350,8 @@ expect_output 0 "疑問: (止めない。読み手が解けないと言い切っ
     env COLDREAD_TEST_SESSION=sure1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_UNSURE" "$CR_POST"
 expect_output 0 "投稿を止めている詰まり" "1 回目は、言い切っていない詰まりでも止める" \
     env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_UNSURE" "$CR_POST"
-expect_output 0 "${CR_SURE_WORD:-取れない} が届いた" "2 回目の読み手には、言い切れる物にだけ sure を付けよと頼む" \
-    env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees "${CR_SURE_WORD:-取れない}")" "$CR_POST"
+expect_output 0 "${CR_SURE_WORD:-NO_ROUND_WORD} が届いた" "2 回目の読み手には、言い切れる物にだけ sure を付けよと頼む" \
+    env COLDREAD_TEST_SESSION=sure2 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees "${CR_SURE_WORD:-NO_ROUND_WORD}")" "$CR_POST"
 # 読み手が詰まりの根拠に引いた字(quotes)が本文に無い指摘は、1 回目から止めない(型 D)。引いた字が本文に在れば止める。
 # 空白・頭と終わりの括弧・途中を省いた「…」は外して比べる
 CR_STUB_MISQUOTE='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word=ZZMISQUOTE が分からない::本文に無い言い換えの文"'
